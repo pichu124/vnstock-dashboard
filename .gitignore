@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pyc
+*.tmp.*
+debug.log
+.claude/
+data_warehouse/
+vnstock-agent-guide-main/
+files.zip
+lwc.min.js
+industry_classification_20260405.csv

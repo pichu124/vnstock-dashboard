@@ -1,0 +1,8 @@
+wing: claude_vnstock
+rooms:
+- name: data_warehouse
+  description: Files from data_warehouse/
+- name: vnstock_agent_guide_main
+  description: Files from vnstock-agent-guide-main/
+- name: general
+  description: Files that don't fit other rooms
