@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from vnstock_screener import MarketScreener, PRESETS
 
 from rich.console import Console
-console = Console()
+console = Console(force_terminal=True)
 
 OUTPUT_FILE = "screener_results.json"
 
@@ -115,7 +115,7 @@ def run_all_presets(
 
 
 def save_results(output: dict, warehouse: str = "data_warehouse"):
-    """Lưu kết quả vào _meta/screener_results.json"""
+    """Lưu kết quả vào _meta/screener_results.json + history snapshot."""
     meta_dir = Path(warehouse) / "_meta"
     meta_dir.mkdir(parents=True, exist_ok=True)
     out_path = meta_dir / OUTPUT_FILE
@@ -123,7 +123,20 @@ def save_results(output: dict, warehouse: str = "data_warehouse"):
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
 
+    # Save daily snapshot for alerts comparison
+    history_dir = meta_dir / "screener_history"
+    history_dir.mkdir(parents=True, exist_ok=True)
+    dated_path = history_dir / f"{datetime.now().strftime('%Y-%m-%d')}.json"
+    import shutil
+    shutil.copy2(out_path, dated_path)
+
+    # Cleanup: keep only last 30 days
+    history_files = sorted(history_dir.glob("*.json"))
+    for old_file in history_files[:-30]:
+        old_file.unlink(missing_ok=True)
+
     console.print(f"[green]✅ Saved → {out_path}[/green]")
+    console.print(f"[dim]📋 History → {dated_path}[/dim]")
     return out_path
 
 

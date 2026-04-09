@@ -37,6 +37,8 @@ RESULTS_PATH  = Path("data_warehouse/_meta/screener_results.json")
 PRICES_DIR    = Path("data_warehouse/prices")
 INDUSTRY_PATH = Path("data_warehouse/_meta/industry_classification.parquet")
 FUND_PATH     = Path("data_warehouse/_meta/fundamentals.parquet")
+WATCHLIST_PATH = Path("data_warehouse/_meta/watchlist.json")
+HISTORY_DIR   = Path("data_warehouse/_meta/screener_history")
 
 PRESET_ICONS = {
     "oversold":      "🟢",
@@ -714,6 +716,65 @@ def load_results():
         return json.load(f)
 
 
+# ── Watchlist ──────────────────────────────────────────────────────────────────
+
+def load_watchlist() -> list:
+    if WATCHLIST_PATH.exists():
+        try:
+            with open(WATCHLIST_PATH, encoding="utf-8") as f:
+                return json.load(f).get("tickers", [])
+        except Exception:
+            pass
+    return []
+
+
+def save_watchlist(tickers: list):
+    WATCHLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(WATCHLIST_PATH, "w", encoding="utf-8") as f:
+        json.dump({"tickers": sorted(set(tickers)), "updated_at": datetime.now().isoformat()}, f, ensure_ascii=False, indent=2)
+
+
+# ── Alerts ────────────────────────────────────────────────────────────────────
+
+@st.cache_data(ttl=300, show_spinner=False)
+def compute_alerts(current_generated_at: str) -> list:
+    """So sánh screener results hôm nay vs hôm qua → list alerts."""
+    if not HISTORY_DIR.exists():
+        return []
+    try:
+        today_data = load_results()
+        if not today_data:
+            return []
+
+        # Tìm file hôm qua (thử 3 ngày gần nhất cho weekend)
+        prev_data = None
+        for days_back in range(1, 4):
+            prev_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+            prev_path = HISTORY_DIR / f"{prev_date}.json"
+            if prev_path.exists():
+                with open(prev_path, encoding="utf-8") as f:
+                    prev_data = json.load(f)
+                break
+
+        if not prev_data:
+            return []
+
+        alerts = []
+        for preset, info in today_data.get("presets", {}).items():
+            current_tickers = {r["ticker"] for r in info.get("results", [])}
+            prev_info = prev_data.get("presets", {}).get(preset, {})
+            prev_tickers = {r["ticker"] for r in prev_info.get("results", [])}
+
+            for t in current_tickers - prev_tickers:
+                alerts.append({"type": "new", "ticker": t, "preset": preset})
+            for t in prev_tickers - current_tickers:
+                alerts.append({"type": "removed", "ticker": t, "preset": preset})
+
+        return sorted(alerts, key=lambda a: (a["type"] != "new", a["preset"], a["ticker"]))
+    except Exception:
+        return []
+
+
 def format_pct(val):
     """Format percentage với màu."""
     if val is None:
@@ -1381,7 +1442,60 @@ if data is None:
     st.stop()
 
 gen_time = data.get("generated_at", "—")
-st.markdown(f'<p class="updated-at">Cập nhật lúc: {gen_time}</p>', unsafe_allow_html=True)
+# Kiểm tra dữ liệu screener có cũ không
+_screener_stale = False
+try:
+    _gen_dt = datetime.strptime(gen_time[:10], "%Y-%m-%d")
+    _screener_stale = (datetime.now() - _gen_dt).days >= 1
+except Exception:
+    pass
+
+_info_col, _update_col = st.columns([6, 2])
+with _info_col:
+    if _screener_stale:
+        st.markdown(f'<p class="updated-at" style="color:#f59e0b">⚠️ Screener cũ: {gen_time} — Bấm "Cập nhật Screener" để refresh</p>', unsafe_allow_html=True)
+    else:
+        st.markdown(f'<p class="updated-at">Cập nhật lúc: {gen_time}</p>', unsafe_allow_html=True)
+with _update_col:
+    _uc1, _uc2 = st.columns(2)
+    with _uc1:
+        if st.button("📥 Cập nhật giá", key="run_updater", use_container_width=True):
+            with st.spinner("Đang cập nhật giá từ API (5-10 phút)..."):
+                import subprocess
+                result = subprocess.run(
+                    ["python", "vnstock_updater.py", "--force"],
+                    capture_output=True, text=True, cwd=str(Path(__file__).parent),
+                    timeout=900,
+                    env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"}
+                )
+                if result.returncode == 0:
+                    st.success("Giá đã cập nhật! Đang refresh screener...")
+                    # Auto-run screener after price update
+                    subprocess.run(
+                        ["python", "vnstock_runner.py"],
+                        capture_output=True, text=True, cwd=str(Path(__file__).parent),
+                        timeout=300,
+                        env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"}
+                    )
+                    st.cache_data.clear()
+                    st.rerun()
+                else:
+                    st.error(f"Lỗi updater: {result.stderr[:300]}")
+    with _uc2:
+        if st.button("🔄 Refresh Screener", key="run_screener", use_container_width=True):
+            with st.spinner("Đang chạy screener (có thể mất 1-2 phút)..."):
+                import subprocess
+                result = subprocess.run(
+                    ["python", "vnstock_runner.py"],
+                    capture_output=True, text=True, cwd=str(Path(__file__).parent),
+                    timeout=300,
+                    env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"}
+                )
+                if result.returncode == 0:
+                    st.cache_data.clear()
+                    st.rerun()
+                else:
+                    st.error(f"Lỗi: {result.stderr[:500]}")
 
 total_tickers = data.get("total_tickers", 0)
 classified    = data.get("classified_tickers", 0)
@@ -1412,6 +1526,27 @@ if _active_tab == "📊 Screener":
         top_n = st.slider("Hiển thị top", 10, 100, 50, step=10)
 
         st.divider()
+        st.markdown("### ⭐ Watchlist")
+        _wl_tickers = load_watchlist()
+        _filter_wl = st.toggle(f"Chỉ hiện Watchlist ({len(_wl_tickers)})", key="filter_watchlist")
+        _wl_add = st.text_input("Thêm mã", placeholder="VCB, FPT, ...", key="wl_add_input").upper().strip()
+        _wl_c1, _wl_c2 = st.columns(2)
+        with _wl_c1:
+            if st.button("➕ Thêm", key="wl_add_btn", use_container_width=True) and _wl_add:
+                new_tickers = [t.strip() for t in _wl_add.replace(",", " ").split() if t.strip()]
+                save_watchlist(_wl_tickers + new_tickers)
+                st.rerun()
+        with _wl_c2:
+            if st.button("🗑️ Xóa", key="wl_del_btn", use_container_width=True) and _wl_add:
+                del_tickers = {t.strip() for t in _wl_add.replace(",", " ").split() if t.strip()}
+                save_watchlist([t for t in _wl_tickers if t not in del_tickers])
+                st.rerun()
+        if _wl_tickers:
+            st.caption("Đang theo dõi: " + ", ".join(_wl_tickers[:20]))
+            if len(_wl_tickers) > 20:
+                st.caption(f"... +{len(_wl_tickers)-20} mã khác")
+
+        st.divider()
         st.markdown("### ⚙️ Bộ lọc nâng cao")
         price_min    = st.number_input("Giá từ (nghìn đồng)", min_value=0.0, value=0.0, step=1.0, format="%.1f")
         price_max    = st.number_input("Giá đến", min_value=0.0, value=0.0, step=1.0, format="%.1f", help="0 = không giới hạn")
@@ -1419,13 +1554,6 @@ if _active_tab == "📊 Screener":
         chg5d_range  = st.slider("5D%", -50.0, 50.0, (-50.0, 50.0), step=1.0, format="%.1f%%")
         chg20d_range = st.slider("20D%", -80.0, 150.0, (-80.0, 150.0), step=1.0, format="%.1f%%")
         vol_min      = st.slider("Volume spike tối thiểu (×)", 0.0, 10.0, 0.0, step=0.5, format="%.1fx")
-
-        st.divider()
-        st.markdown("### 🔬 Phân tích")
-        ticker_input = st.text_input("Mã cổ phiếu", placeholder="VCB, FPT...", key="ticker_sidebar").upper().strip()
-        if ticker_input and st.button("Phân tích →", use_container_width=True):
-            st.session_state["analyze_ticker"] = ticker_input
-            st.session_state["active_tab"] = "analysis"
 
         st.divider()
         if industry_summary:
@@ -1438,6 +1566,30 @@ if _active_tab == "📊 Screener":
                     unsafe_allow_html=True
                 )
                 st.progress(pct / 100)
+
+    # ── Alerts ─────────────────────────────────────────────────────────────
+    _alerts = compute_alerts(gen_time)
+    if _alerts:
+        _new_alerts = [a for a in _alerts if a["type"] == "new"]
+        _rem_alerts = [a for a in _alerts if a["type"] == "removed"]
+        with st.expander(f"🔔 Alerts — {len(_new_alerts)} mã mới, {len(_rem_alerts)} mã ra ({gen_time[:10]})", expanded=False):
+            _ac1, _ac2 = st.columns(2)
+            with _ac1:
+                if _new_alerts:
+                    st.markdown("**🆕 Mới vào preset:**")
+                    for a in _new_alerts[:20]:
+                        icon = PRESET_ICONS.get(a["preset"], "")
+                        st.markdown(f"- <span style='color:#10b981'>{a['ticker']}</span> → {icon} {a['preset']}", unsafe_allow_html=True)
+                else:
+                    st.caption("Không có mã mới vào preset")
+            with _ac2:
+                if _rem_alerts:
+                    st.markdown("**❌ Ra khỏi preset:**")
+                    for a in _rem_alerts[:20]:
+                        icon = PRESET_ICONS.get(a["preset"], "")
+                        st.markdown(f"- <span style='color:#ef4444'>{a['ticker']}</span> ← {icon} {a['preset']}", unsafe_allow_html=True)
+                else:
+                    st.caption("Không có mã nào ra khỏi preset")
 
     # Metric cards
     c1, c2, c3, c4 = st.columns(4)
@@ -1493,12 +1645,16 @@ if _active_tab == "📊 Screener":
                 if "Ticker" in df.columns:
                     df = df[df["Ticker"].isin(filtered_tickers)]
 
+            # Watchlist filter
+            if _filter_wl and _wl_tickers and "Ticker" in df.columns:
+                df = df[df["Ticker"].isin(_wl_tickers)]
+
             if df.empty:
                 st.info("Không có mã nào khớp với bộ lọc hiện tại.")
             else:
-                # Click từ bảng để phân tích
                 st.caption(f"**{len(df)} mã** | top {min(top_n, len(df))} — Click tên cột để sắp xếp ↕ | Nhập mã vào sidebar để phân tích")
                 render_table(df, top_n=top_n)
+
                 csv = df.to_csv(index=False, encoding="utf-8-sig")
                 st.download_button(
                     label="⬇️ Export CSV", data=csv,
@@ -1520,6 +1676,12 @@ if _active_tab == "📊 Screener":
 if _active_tab == "🔬 Phân tích":
     # Controls cho tab phân tích
     with st.sidebar:
+        st.markdown("### 🔬 Phân tích")
+        ticker_input = st.text_input("Mã cổ phiếu", placeholder="VCB, FPT...", key="ticker_sidebar").upper().strip()
+        if ticker_input and st.button("Phân tích →", use_container_width=True, key="anal_go"):
+            st.session_state["analyze_ticker"] = ticker_input
+
+        st.divider()
         st.markdown("### ⏱ Khoảng thời gian")
         lookback = st.select_slider(
             "Lọc từ",
@@ -1535,12 +1697,12 @@ if _active_tab == "🔬 Phân tích":
         chart_height = st.slider("Chiều cao chart (px)", 500, 1400, 850, step=50, key="chart_height_anal")
 
     # ── Xác định ticker cần phân tích ─────────────────────────────────────────────
-    ticker = st.session_state.get("ticker_sidebar", "").upper().strip() or st.session_state.get("analyze_ticker", "")
+    ticker = ticker_input or st.session_state.get("analyze_ticker", "")
 
     if not ticker:
         # Landing page
         st.markdown("## 🔬 VnStock Analysis Dashboard")
-        st.markdown('<p style="color:#6b7280">Nhập mã cổ phiếu ở sidebar hoặc chọn từ danh sách Screener để bắt đầu phân tích.</p>', unsafe_allow_html=True)
+        st.markdown('<p style="color:#6b7280">Nhập mã cổ phiếu ở sidebar để bắt đầu phân tích.</p>', unsafe_allow_html=True)
 
         # Hiện top movers nếu có screener data
         if data and data.get("presets"):
@@ -2431,6 +2593,46 @@ if _active_tab == "🌏 Thị trường":
         )
         st.markdown(commentary)
         st.caption("⚠️ Nhận định tự động dựa trên dữ liệu kỹ thuật, không phải khuyến nghị đầu tư.")
+
+        # ── Heatmap ngành (Treemap) ────────────────────────────────────────────
+        tick_data = st.session_state.get("_mkt_ticker_data")
+        if tick_data is not None and not tick_data.empty:
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("#### 🗺️ Heatmap ngành — Vốn hoá & Biến động 1 tháng")
+            try:
+                import plotly.express as px
+
+                tm_df = tick_data[["Mã","Ngành","Vốn hoá (tỷ)","Giá 1M %"]].copy()
+                tm_df = tm_df[tm_df["Vốn hoá (tỷ)"].fillna(0) > 0].dropna(subset=["Giá 1M %"])
+                tm_df = tm_df.nlargest(500, "Vốn hoá (tỷ)")
+
+                if not tm_df.empty:
+                    fig_tm = px.treemap(
+                        tm_df, path=["Ngành", "Mã"],
+                        values="Vốn hoá (tỷ)", color="Giá 1M %",
+                        color_continuous_scale=["#ef4444","#1f2937","#10b981"],
+                        color_continuous_midpoint=0,
+                        range_color=[-15, 15],
+                        hover_data={"Vốn hoá (tỷ)": ":,.0f", "Giá 1M %": ":+.1f"},
+                    )
+                    fig_tm.update_layout(
+                        height=600,
+                        paper_bgcolor="#0a0e1a",
+                        font=dict(color="#e5e7eb", size=11),
+                        margin=dict(l=5, r=5, t=30, b=5),
+                        coloraxis_colorbar=dict(
+                            title="1M %", ticksuffix="%",
+                            bgcolor="#111827", bordercolor="#1f2937",
+                        ),
+                    )
+                    fig_tm.update_traces(
+                        textinfo="label+value",
+                        textfont=dict(size=10),
+                        hovertemplate="<b>%{label}</b><br>Vốn hoá: %{value:,.0f} tỷ<br>1M: %{color:+.1f}%<extra></extra>",
+                    )
+                    st.plotly_chart(fig_tm, use_container_width=True)
+            except ImportError:
+                st.info("Cài plotly để xem heatmap: `pip install plotly`")
 
         # ── Chart xu hướng ────────────────────────────────────────────────────
         st.markdown("<br>", unsafe_allow_html=True)
