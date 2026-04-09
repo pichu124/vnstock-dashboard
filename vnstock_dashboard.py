@@ -1423,6 +1423,37 @@ def load_foreign_flow() -> pd.DataFrame:
 
 
 # ═══════════════════════════════════════════════════════
+# Auto-refresh: detect data changes
+# ═══════════════════════════════════════════════════════
+
+def _get_data_mtime() -> float:
+    """Lấy mtime mới nhất của các file data chính."""
+    mtimes = []
+    for p in [RESULTS_PATH, Path("data_warehouse/_meta/last_sync.json")]:
+        if p.exists():
+            mtimes.append(p.stat().st_mtime)
+    return max(mtimes) if mtimes else 0
+
+_current_mtime = _get_data_mtime()
+if "data_mtime" not in st.session_state:
+    st.session_state["data_mtime"] = _current_mtime
+elif _current_mtime > st.session_state["data_mtime"]:
+    st.session_state["data_mtime"] = _current_mtime
+    st.cache_data.clear()
+    st.rerun()
+
+@st.fragment(run_every=60)  # Check mỗi 60 giây
+def _auto_refresh_checker():
+    """Tự động detect data thay đổi và refresh."""
+    mtime = _get_data_mtime()
+    if mtime > st.session_state.get("data_mtime", 0):
+        st.session_state["data_mtime"] = mtime
+        st.cache_data.clear()
+        st.rerun()
+
+_auto_refresh_checker()
+
+# ═══════════════════════════════════════════════════════
 # Main App
 # ═══════════════════════════════════════════════════════
 
