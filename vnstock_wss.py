@@ -685,88 +685,126 @@ class VnStockWSS:
 
         Enrich tick file đã có từ price_board bằng field 'volume_profile':
             [{"price", "buy_vol", "sell_vol", "total_vol"}, ...]
-        Giữ top 20 mức giá theo total_vol (hoặc top 20 gần giá hiện tại).
+        Giữ top 20 mức giá theo total_vol.
+
+        Fallback resolution: nếu log mapper chưa bắt được mapping
+        VN30F1M → internal ID, thử match file bằng price range.
         """
         try:
-            from vnstock_data import Quote  # type: ignore
-            q = Quote(symbol=ticker)
-        except Exception as e:
-            self.last_error = f"Quote({ticker}): {str(e)[:80]}"
-            return False
-
-        df = None
-        for call in (
-            lambda: q.price_depth(),
-            lambda: q.price_depth(limit=50),
-        ):
             try:
-                df = call()
-                if df is not None and hasattr(df, "empty") and not df.empty:
-                    break
-            except TypeError:
-                continue
+                from vnstock_data import Quote  # type: ignore
+                q = Quote(symbol=ticker)
             except Exception as e:
-                self.last_error = f"price_depth {ticker}: {str(e)[:60]}"
-                continue
+                self.last_error = f"Quote({ticker}): {str(e)[:80]}"
+                return False
 
-        if df is None or not hasattr(df, "empty") or df.empty:
-            return False
+            df = None
+            for call in (
+                lambda: q.price_depth(),
+                lambda: q.price_depth(limit=50),
+            ):
+                try:
+                    df = call()
+                    if df is not None and hasattr(df, "empty") and not df.empty:
+                        break
+                except TypeError:
+                    continue
+                except Exception as e:
+                    self.last_error = f"price_depth {ticker}: {str(e)[:60]}"
+                    continue
 
-        # Normalize columns lowercase
-        df = df.copy()
-        df.columns = [str(c).lower() for c in df.columns]
-        cols = set(df.columns)
-        if "price" not in cols or "totalvol" not in cols:
-            return False
+            if df is None or not hasattr(df, "empty") or df.empty:
+                self.last_error = f"price_depth {ticker}: empty result"
+                return False
 
-        # Convert DataFrame → list of dicts
-        profile = []
-        for _, row in df.iterrows():
+            # Normalize columns lowercase
+            df = df.copy()
+            df.columns = [str(c).lower() for c in df.columns]
+            cols = set(df.columns)
+            if "price" not in cols or "totalvol" not in cols:
+                self.last_error = f"profile {ticker}: unexpected cols {list(cols)}"
+                return False
+
+            # DataFrame → list of dicts
+            profile = []
+            for _, row in df.iterrows():
+                try:
+                    profile.append({
+                        "price": float(row["price"]),
+                        "buy_vol": float(row.get("buyvol", 0) or 0),
+                        "sell_vol": float(row.get("sellvol", 0) or 0),
+                        "unknown_vol": float(row.get("unknownvol", 0) or 0),
+                        "total_vol": float(row.get("totalvol", 0) or 0),
+                    })
+                except Exception:
+                    continue
+
+            if not profile:
+                return False
+
+            # ── Resolve internal ID ─────────────────────────────────────
+            # Step 1: thử log-captured mapping
+            internal_id = self._resolve_futures_id(ticker)
+
+            # Step 2: fallback — match by price range
+            if not internal_id:
+                vp_prices = [p["price"] for p in profile if p["price"] > 0]
+                if vp_prices:
+                    vp_min, vp_max = min(vp_prices), max(vp_prices)
+                    vp_range = vp_max - vp_min
+                    # Allow small buffer
+                    buffer = max(vp_range * 0.1, 5.0)
+                    for p in LIVE_DIR.glob("quote_41I*.json"):
+                        try:
+                            q_json = json.loads(p.read_text())
+                            qp = float(q_json.get("price", 0))
+                            if (vp_min - buffer) <= qp <= (vp_max + buffer):
+                                internal_id = p.stem.replace("quote_", "")
+                                # Cache for future calls
+                                if not hasattr(self, "_futures_id_cache"):
+                                    self._futures_id_cache = {}
+                                self._futures_id_cache[ticker] = internal_id
+                                break
+                        except Exception:
+                            continue
+
+            if not internal_id:
+                self.last_error = f"profile {ticker}: could not resolve internal ID"
+                return False
+
+            existing_path = LIVE_DIR / f"quote_{internal_id}.json"
+            if not existing_path.exists():
+                self.last_error = f"profile {ticker}: quote_{internal_id}.json missing"
+                return False
+
             try:
-                profile.append({
-                    "price": float(row["price"]),
-                    "buy_vol": float(row.get("buyvol", 0) or 0),
-                    "sell_vol": float(row.get("sellvol", 0) or 0),
-                    "unknown_vol": float(row.get("unknownvol", 0) or 0),
-                    "total_vol": float(row.get("totalvol", 0) or 0),
-                })
-            except Exception:
-                continue
+                existing = json.loads(existing_path.read_text())
+            except Exception as e:
+                self.last_error = f"profile read {internal_id}: {str(e)[:60]}"
+                return False
 
-        if not profile:
-            return False
+            # Giữ top 20 mức theo total_vol
+            profile_sorted = sorted(profile, key=lambda r: r["total_vol"], reverse=True)
+            top = profile_sorted[:20]
+            # Sort theo price để render ladder (cao → thấp)
+            top.sort(key=lambda r: r["price"], reverse=True)
 
-        # Lookup internal ID từ file existing (price_board đã mapping VN30F1M → 41I1G4000)
-        # Nếu chưa có, dùng ticker friendly name
-        internal_id = self._resolve_futures_id(ticker) or ticker.upper()
+            existing["volume_profile"] = top
+            existing["volume_profile_total_levels"] = len(profile)
+            existing["volume_profile_alias"] = ticker  # VN30F1M, etc.
 
-        existing_path = LIVE_DIR / f"quote_{internal_id}.json"
-        if not existing_path.exists():
-            # Chưa có quote file → bỏ qua (price_board chưa chạy xong)
-            return False
+            # Atomic write
+            try:
+                tmp = existing_path.with_suffix(".tmp")
+                tmp.write_text(json.dumps(existing, ensure_ascii=False))
+                tmp.replace(existing_path)
+                return True
+            except Exception as e:
+                self.last_error = f"profile write {internal_id}: {str(e)[:60]}"
+                return False
 
-        try:
-            existing = json.loads(existing_path.read_text())
-        except Exception:
-            return False
-
-        # Giữ top 20 mức theo total_vol (mức sôi động nhất)
-        profile_sorted = sorted(profile, key=lambda r: r["total_vol"], reverse=True)
-        top = profile_sorted[:20]
-        # Sort theo price để render ladder
-        top.sort(key=lambda r: r["price"], reverse=True)
-
-        existing["volume_profile"] = top
-        existing["volume_profile_total_levels"] = len(profile)
-
-        # Atomic write
-        try:
-            tmp = existing_path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(existing, ensure_ascii=False))
-            tmp.replace(existing_path)
-            return True
         except Exception as e:
-            self.last_error = f"write profile {internal_id}: {str(e)[:60]}"
+            self.last_error = f"profile {ticker} unexpected: {type(e).__name__}: {str(e)[:80]}"
             return False
 
     def _resolve_futures_id(self, friendly_name: str) -> Optional[str]:
@@ -816,8 +854,9 @@ class VnStockWSS:
                 except Exception:
                     pass
 
-        # Attach vào logger namespace của vnstock_data
+        # Attach vào logger namespace của vnstock_data (mọi cấp)
         for logger_name in (
+            "",  # root logger — fallback catch-all
             "vnstock_data",
             "vnstock_data.explorer",
             "vnstock_data.explorer.kbs",
@@ -825,7 +864,7 @@ class VnStockWSS:
         ):
             lg = logging.getLogger(logger_name)
             lg.addHandler(_MapperHandler())
-            if lg.level > logging.INFO or lg.level == 0:
+            if logger_name and (lg.level > logging.INFO or lg.level == 0):
                 lg.setLevel(logging.INFO)
         self._mapper_installed = True
 
@@ -1218,6 +1257,8 @@ def _cli():
     parser.add_argument("--inspect", action="store_true", help="Inspect vnstock_data for WSS API")
     parser.add_argument("--probe-depth", metavar="TICKER",
                         help="Probe Quote(ticker).price_depth() structure")
+    parser.add_argument("--probe-profile", metavar="TICKER",
+                        help="Run _fetch_volume_profile + print result + last_error")
     parser.add_argument("--duration", type=int, default=60, help="Test duration (s)")
     args = parser.parse_args()
 
@@ -1227,6 +1268,31 @@ def _cli():
 
     if args.probe_depth:
         _probe_price_depth(args.probe_depth)
+        return
+
+    if args.probe_profile:
+        # Chạy _fetch_volume_profile trực tiếp để debug
+        client = get_wss_client()
+        client._install_derivative_mapper()
+        # Cần ít nhất 1 pass price_board để có quote_41I*.json
+        print(f"[probe-profile] Running batch price_board first...")
+        from vnstock_wss import FUTURES_SYMBOLS as _FS, VN30_SYMBOLS as _VS
+        client._fetch_batch_price_board(_VS + _FS)
+        print(f"[probe-profile] Calling _fetch_volume_profile({args.probe_profile})...")
+        ok = client._fetch_volume_profile(args.probe_profile)
+        print(f"[probe-profile] Success: {ok}")
+        print(f"[probe-profile] last_error: {client.last_error}")
+        print(f"[probe-profile] futures_id_cache: {getattr(client, '_futures_id_cache', {})}")
+        # Check nếu file có volume_profile field
+        internal_id = (getattr(client, "_futures_id_cache", {}).get(args.probe_profile))
+        if internal_id:
+            fpath = LIVE_DIR / f"quote_{internal_id}.json"
+            if fpath.exists():
+                q = json.loads(fpath.read_text())
+                vp = q.get("volume_profile", [])
+                print(f"[probe-profile] {fpath.name}: {len(vp)} volume profile rows")
+                if vp:
+                    print(f"  First 3 rows: {vp[:3]}")
         return
 
     client = get_wss_client()
