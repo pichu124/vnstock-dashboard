@@ -131,7 +131,8 @@ class VnStockWSS:
       - "polling": fallback — poll HTTP API mỗi POLL_INTERVAL giây
     """
 
-    POLL_INTERVAL = 10  # seconds (fallback mode)
+    POLL_INTERVAL = 15  # seconds (fallback mode)
+    POLL_WORKERS = 16   # parallel HTTP fetchers
 
     def __init__(self):
         self.mode: str = "polling"  # default fallback
@@ -153,20 +154,23 @@ class VnStockWSS:
     # ─────────────────────────────────────────────────────────────────────
     def _detect_mode(self):
         """
-        Thử import vnstock_data và detect WSS endpoint. Nếu không có,
-        rơi về polling mode.
+        Detect vnstock_data WSS endpoint. Chỉ chuyển sang mode='wss' nếu
+        thực sự tìm thấy WSS_URL / REALTIME_URL / STREAM_URL. Mặc định
+        polling (đáng tin cậy hơn).
         """
         try:
             import vnstock_data  # noqa: F401
-            # Check các attribute có khả năng là realtime/streaming API
-            candidates = ["Realtime", "Stream", "WebSocket", "Live", "Quote"]
-            has_realtime = any(hasattr(vnstock_data, c) for c in candidates)
-            if has_realtime:
+            endpoint_attrs = ["WSS_URL", "REALTIME_URL", "STREAM_URL", "WS_URL"]
+            found_endpoint = next(
+                (a for a in endpoint_attrs if hasattr(vnstock_data, a)),
+                None
+            )
+            if found_endpoint:
                 self.mode = "wss"
-                print("[vnstock_wss] Detected vnstock_data realtime API → WSS mode")
+                print(f"[vnstock_wss] Found {found_endpoint} → WSS mode")
             else:
                 self.mode = "polling"
-                print("[vnstock_wss] vnstock_data found but no realtime API → polling mode")
+                print("[vnstock_wss] vnstock_data installed (no WSS endpoint) → polling mode")
         except ImportError:
             self.mode = "polling"
             print("[vnstock_wss] vnstock_data not installed → polling mode")
@@ -391,7 +395,8 @@ class VnStockWSS:
     def _run_polling_once(self):
         """
         Poll HTTP API cho toàn bộ symbols subscribed. Chạy song song
-        bằng ThreadPoolExecutor để nhanh.
+        bằng ThreadPoolExecutor. Bỏ qua futures chưa xong thay vì ném
+        TimeoutError — round tiếp theo sẽ pick up.
         """
         self.status = "connected"  # polling được coi như "connected"
         self._write_status()
@@ -403,22 +408,29 @@ class VnStockWSS:
             self._stop_event.wait(timeout=self.POLL_INTERVAL)
             return
 
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 
         def _poll_one(sym: str):
             try:
                 tick = self._http_fetch_quote(sym)
                 if tick:
                     self._handle_tick(tick)
-            except Exception:
-                pass
+            except Exception as e:
+                # Ghi nhận error nhưng không crash polling loop
+                self.last_error = f"poll {sym}: {str(e)[:80]}"
 
-        with ThreadPoolExecutor(max_workers=8) as pool:
+        pool = ThreadPoolExecutor(max_workers=self.POLL_WORKERS)
+        try:
             futures = [pool.submit(_poll_one, s) for s in symbols]
-            for _ in as_completed(futures, timeout=self.POLL_INTERVAL - 2):
-                pass
+            # Đợi tối đa POLL_INTERVAL-2 giây, không raise timeout
+            done, not_done = wait(futures, timeout=max(self.POLL_INTERVAL - 2, 5))
+            # Clear error nếu ít nhất 1 nửa symbols xong
+            if len(done) >= len(symbols) // 2 and self.last_error and "poll" in (self.last_error or ""):
+                self.last_error = None
+        finally:
+            pool.shutdown(wait=False, cancel_futures=False)
 
-        self._stop_event.wait(timeout=self.POLL_INTERVAL)
+        self._stop_event.wait(timeout=max(self.POLL_INTERVAL - 5, 1))
 
     def _http_fetch_quote(self, ticker: str) -> Optional[dict]:
         """
@@ -555,13 +567,85 @@ def get_wss_client() -> VnStockWSS:
 # CLI — smoke test
 # ═════════════════════════════════════════════════════════════════════════════
 
+def _inspect_vnstock_data():
+    """Scan vnstock_data package cho realtime/WSS APIs."""
+    print("=" * 60)
+    print("Inspecting vnstock_data sponsor package")
+    print("=" * 60)
+    try:
+        import vnstock_data
+    except ImportError:
+        print("❌ vnstock_data not installed")
+        return
+
+    print(f"\n📦 Package: {vnstock_data.__name__}")
+    if hasattr(vnstock_data, "__version__"):
+        print(f"   Version: {vnstock_data.__version__}")
+    if hasattr(vnstock_data, "__file__"):
+        print(f"   Path: {vnstock_data.__file__}")
+
+    # Top-level attributes
+    print(f"\n📋 Top-level attributes ({len(dir(vnstock_data))}):")
+    public = [a for a in dir(vnstock_data) if not a.startswith("_")]
+    for a in public:
+        try:
+            obj = getattr(vnstock_data, a)
+            kind = type(obj).__name__
+            print(f"   {a:30s} → {kind}")
+        except Exception:
+            print(f"   {a:30s} → <error>")
+
+    # Search for realtime/stream/ws keywords
+    print("\n🔎 Searching for WSS/realtime keywords...")
+    keywords = ["ws", "socket", "stream", "live", "real", "tick", "push", "subscribe"]
+    import pkgutil
+    if hasattr(vnstock_data, "__path__"):
+        found = []
+        for importer, modname, ispkg in pkgutil.walk_packages(
+            vnstock_data.__path__, prefix="vnstock_data."
+        ):
+            if any(k in modname.lower() for k in keywords):
+                found.append(modname)
+        if found:
+            print("   Candidate modules:")
+            for m in found:
+                print(f"     ✓ {m}")
+        else:
+            print("   (none found)")
+
+    # Check common class names for realtime methods
+    print("\n🔬 Probing common classes for realtime methods...")
+    class_candidates = ["Quote", "Market", "Trading", "Realtime", "Stream"]
+    method_keywords = ["stream", "subscribe", "ws", "realtime", "live", "on_tick"]
+    for cls_name in class_candidates:
+        if hasattr(vnstock_data, cls_name):
+            cls = getattr(vnstock_data, cls_name)
+            methods = [m for m in dir(cls) if not m.startswith("_")]
+            interesting = [m for m in methods
+                           if any(k in m.lower() for k in method_keywords)]
+            print(f"   {cls_name}: {len(methods)} methods", end="")
+            if interesting:
+                print(f" — interesting: {interesting}")
+            else:
+                print()
+
+    print("\n" + "=" * 60)
+    print("👉 Copy/paste kết quả cho Claude để xác định WSS endpoint")
+    print("=" * 60)
+
+
 def _cli():
     import argparse
     parser = argparse.ArgumentParser(description="vnstock_wss CLI")
     parser.add_argument("--test", action="store_true", help="Run 60s smoke test")
     parser.add_argument("--status", action="store_true", help="Print status and exit")
+    parser.add_argument("--inspect", action="store_true", help="Inspect vnstock_data for WSS API")
     parser.add_argument("--duration", type=int, default=60, help="Test duration (s)")
     args = parser.parse_args()
+
+    if args.inspect:
+        _inspect_vnstock_data()
+        return
 
     client = get_wss_client()
 
