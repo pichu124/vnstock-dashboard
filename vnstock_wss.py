@@ -481,9 +481,12 @@ class VnStockWSS:
         """
         Poll HTTP API cho toàn bộ symbols subscribed.
 
-        Stocks + Futures → Market.price_board(symbols_list) batch call
-          (price_board handle cả futures, trả internal ID như 41I1G*)
-        Indices → Market.index() per-symbol
+        Pipeline:
+        1. Stocks + Futures (internal IDs) → Market.price_board(symbols_list)
+           → 3 mức depth
+        2. Indices → Market.index() per-symbol
+        3. Futures (VN30F*) → Quote.price_depth() per-symbol → enrich
+           lên 10 mức (overwrite quote file từ step 1)
         """
         self.status = "connected"
         self._write_status()
@@ -495,14 +498,16 @@ class VnStockWSS:
             self._stop_event.wait(timeout=self.POLL_INTERVAL)
             return
 
-        # ── Split: stocks+futures đi chung qua price_board, indices riêng
-        non_index = [s for s in symbols if s not in INDEX_SYMBOLS]
+        # ── Split theo loại ───────────────────────────────────────────────
+        futures_friendly = [s for s in symbols if is_futures(s) and not s.startswith("41I")]
         indices = [s for s in symbols if s in INDEX_SYMBOLS]
+        # Non-index gồm stocks + futures aliases (price_board nhận cả 2)
+        non_index = [s for s in symbols if s not in INDEX_SYMBOLS]
 
-        # ── Batch fetch stocks + futures qua Market.price_board ───────────
+        # ── 1. Batch stocks + futures qua Market.price_board ──────────────
         batch_ok = self._fetch_batch_price_board(non_index)
 
-        # ── Indices fetch riêng ───────────────────────────────────────────
+        # ── 2. Indices fetch riêng ────────────────────────────────────────
         from concurrent.futures import ThreadPoolExecutor, wait
         if indices:
             pool = ThreadPoolExecutor(max_workers=min(4, len(indices)))
@@ -512,11 +517,22 @@ class VnStockWSS:
             finally:
                 pool.shutdown(wait=False, cancel_futures=False)
 
+        # ── 3. Futures enrichment: 10 mức qua Quote.price_depth ───────────
+        if futures_friendly:
+            pool = ThreadPoolExecutor(max_workers=min(4, len(futures_friendly)))
+            try:
+                futs = [pool.submit(self._fetch_futures_depth, f)
+                        for f in futures_friendly]
+                wait(futs, timeout=10)
+            finally:
+                pool.shutdown(wait=False, cancel_futures=False)
+
         # ── Fallback nếu batch fail ───────────────────────────────────────
         if not batch_ok and non_index:
             pool = ThreadPoolExecutor(max_workers=self.POLL_WORKERS)
             try:
-                futs = [pool.submit(self._fetch_single_intraday, s) for s in non_index]
+                futs = [pool.submit(self._fetch_single_intraday, s)
+                        for s in non_index if not is_futures(s)]
                 wait(futs, timeout=max(self.POLL_INTERVAL - 4, 5))
             finally:
                 pool.shutdown(wait=False, cancel_futures=False)
@@ -651,6 +667,189 @@ class VnStockWSS:
                 self._handle_tick(tick)
         except Exception as e:
             self.last_error = f"poll {ticker}: {str(e)[:80]}"
+
+    def _fetch_futures_depth(self, ticker: str) -> bool:
+        """
+        Fetch 10-level order book depth cho 1 futures symbol qua
+        Quote(symbol).price_depth(). Overwrite quote_{ID}.json với depth
+        đầy đủ (nếu price_board đã tạo file với 3 mức, sẽ overwrite).
+
+        Flexible: thử nhiều signature của price_depth() + parse DataFrame
+        hoặc dict linh hoạt.
+        """
+        try:
+            from vnstock_data import Quote  # type: ignore
+            q = Quote(symbol=ticker)
+        except Exception as e:
+            self.last_error = f"Quote({ticker}): {str(e)[:80]}"
+            return False
+
+        # Thử nhiều signature
+        result = None
+        for call in (
+            lambda: q.price_depth(),
+            lambda: q.price_depth(limit=10),
+            lambda: q.price_depth(num_levels=10),
+            lambda: q.price_depth(depth=10),
+        ):
+            try:
+                result = call()
+                if result is not None:
+                    if hasattr(result, "empty") and result.empty:
+                        continue
+                    break
+            except TypeError:
+                continue
+            except Exception as e:
+                self.last_error = f"price_depth {ticker}: {str(e)[:60]}"
+                continue
+
+        if result is None:
+            return False
+
+        bids, asks, symbol_out, extra = self._parse_depth_result(result, ticker)
+        if not bids and not asks:
+            return False
+
+        # Đọc lại tick cũ (từ price_board step) để giữ price/volume/time
+        target_ticker = (symbol_out or ticker).upper()
+        existing_path = LIVE_DIR / f"quote_{target_ticker}.json"
+        existing = {}
+        if existing_path.exists():
+            try:
+                existing = json.loads(existing_path.read_text())
+            except Exception:
+                existing = {}
+
+        tick = {
+            "ticker": target_ticker,
+            "time": existing.get("time") or datetime.now().isoformat(timespec="seconds"),
+            "price": extra.get("price") or existing.get("price") or (
+                bids[0]["price"] if bids else (asks[0]["price"] if asks else 0)
+            ),
+            "volume": extra.get("volume") or existing.get("volume") or 0,
+            "bid": bids[0]["price"] if bids else existing.get("bid", 0),
+            "ask": asks[0]["price"] if asks else existing.get("ask", 0),
+            "bids": bids,
+            "asks": asks,
+            "chg_pct": extra.get("chg_pct") or existing.get("chg_pct") or 0,
+            "high": extra.get("high") or existing.get("high") or 0,
+            "low": extra.get("low") or existing.get("low") or 0,
+            "type": "futures",
+        }
+        self._handle_tick(tick)
+        return True
+
+    def _parse_depth_result(self, result, ticker: str):
+        """
+        Parse whatever price_depth returns → (bids, asks, symbol_out, extras).
+        Handles:
+          - DataFrame with bestbid1..N columns (single row)
+          - DataFrame with bid/ask rows (level per row)
+          - dict with bids/asks arrays
+          - list of levels
+        """
+        bids: list[dict] = []
+        asks: list[dict] = []
+        symbol_out = None
+        extras: dict = {}
+
+        try:
+            # Case 1: DataFrame
+            if isinstance(result, pd.DataFrame):
+                df = result.copy()
+                # Flatten multi-index
+                if hasattr(df.columns, "nlevels") and df.columns.nlevels > 1:
+                    df.columns = ["_".join(str(x) for x in c if x).strip("_")
+                                  for c in df.columns.values]
+                df.columns = [str(c).lower() for c in df.columns]
+                cols = list(df.columns)
+
+                if len(df) == 0:
+                    return bids, asks, symbol_out, extras
+
+                # Sub-case 1a: 1 row with bestbid1..N columns
+                if len(df) == 1 or any(
+                    any(k in c for c in cols) for k in ("bestbid1", "bid1", "best_bid_1")
+                ):
+                    row = df.iloc[0]
+                    bids = _pick_depth_levels(row, cols, "bid", 10)
+                    asks = _pick_depth_levels(row, cols, "ask", 10)
+                    # Extras
+                    for ec in cols:
+                        if "symbol" in ec or "ticker" in ec:
+                            try:
+                                symbol_out = str(row[ec])
+                            except Exception:
+                                pass
+                    for pc in ("matchprice", "lastprice", "price", "close"):
+                        for c in cols:
+                            if pc in c:
+                                try:
+                                    extras["price"] = float(row[c])
+                                    break
+                                except Exception:
+                                    continue
+                        if "price" in extras:
+                            break
+                    return bids, asks, symbol_out, extras
+
+                # Sub-case 1b: multi-row level-per-row
+                # Expect columns like: side, price, volume, level
+                side_col = next((c for c in cols if "side" in c or "type" in c), None)
+                price_col = next((c for c in cols if "price" in c), None)
+                vol_col = next((c for c in cols if "vol" in c or "quantity" in c or "qty" in c), None)
+                if side_col and price_col:
+                    for _, row in df.iterrows():
+                        try:
+                            side = str(row[side_col]).lower()
+                            price = float(row[price_col])
+                            vol = float(row[vol_col]) if vol_col else 0.0
+                            if "bid" in side or "buy" in side:
+                                bids.append({"price": price, "volume": vol})
+                            elif "ask" in side or "offer" in side or "sell" in side:
+                                asks.append({"price": price, "volume": vol})
+                        except Exception:
+                            continue
+                    return bids, asks, symbol_out, extras
+
+            # Case 2: dict
+            elif isinstance(result, dict):
+                raw_bids = result.get("bids") or result.get("bid") or []
+                raw_asks = result.get("asks") or result.get("ask") or result.get("offers") or []
+                for r in raw_bids[:10]:
+                    try:
+                        if isinstance(r, dict):
+                            bids.append({
+                                "price": float(r.get("price") or r.get("p") or 0),
+                                "volume": float(r.get("volume") or r.get("v") or r.get("quantity") or 0),
+                            })
+                        elif isinstance(r, (list, tuple)) and len(r) >= 2:
+                            bids.append({"price": float(r[0]), "volume": float(r[1])})
+                    except Exception:
+                        continue
+                for r in raw_asks[:10]:
+                    try:
+                        if isinstance(r, dict):
+                            asks.append({
+                                "price": float(r.get("price") or r.get("p") or 0),
+                                "volume": float(r.get("volume") or r.get("v") or r.get("quantity") or 0),
+                            })
+                        elif isinstance(r, (list, tuple)) and len(r) >= 2:
+                            asks.append({"price": float(r[0]), "volume": float(r[1])})
+                    except Exception:
+                        continue
+                symbol_out = result.get("symbol") or result.get("ticker")
+                if "price" in result:
+                    try:
+                        extras["price"] = float(result["price"])
+                    except Exception:
+                        pass
+
+        except Exception as e:
+            self.last_error = f"parse_depth: {str(e)[:80]}"
+
+        return bids, asks, symbol_out, extras
 
     def _fetch_index_quote(self, index_name: str):
         """
@@ -980,17 +1179,76 @@ def _inspect_vnstock_data():
     print("=" * 60)
 
 
+def _probe_price_depth(ticker: str):
+    """Probe Quote(ticker).price_depth() → in structure để debug."""
+    print(f"=== Probe price_depth for {ticker} ===")
+    try:
+        from vnstock_data import Quote
+    except ImportError:
+        print("❌ vnstock_data not installed")
+        return
+    try:
+        q = Quote(symbol=ticker)
+    except Exception as e:
+        print(f"❌ Quote({ticker}) failed: {e}")
+        return
+
+    # Thử từng signature
+    for label, call in (
+        ("price_depth()", lambda: q.price_depth()),
+        ("price_depth(limit=10)", lambda: q.price_depth(limit=10)),
+        ("price_depth(num_levels=10)", lambda: q.price_depth(num_levels=10)),
+        ("price_depth(depth=10)", lambda: q.price_depth(depth=10)),
+    ):
+        try:
+            r = call()
+            print(f"\n✓ {label} succeeded")
+            print(f"  Type: {type(r).__name__}")
+            if hasattr(r, "shape"):
+                print(f"  Shape: {r.shape}")
+            if hasattr(r, "columns"):
+                print(f"  Columns ({len(r.columns)}):")
+                for c in list(r.columns)[:40]:
+                    print(f"    {c}")
+                if len(r.columns) > 40:
+                    print(f"    ... +{len(r.columns)-40} more")
+            if hasattr(r, "head"):
+                print(f"  Head(3):")
+                print(r.head(3).to_string(max_cols=8))
+            elif isinstance(r, dict):
+                import json as _j
+                print(f"  Keys: {list(r.keys())}")
+                print(f"  Repr: {_j.dumps(r, default=str, ensure_ascii=False)[:800]}")
+            else:
+                print(f"  Repr: {repr(r)[:500]}")
+            return  # Thành công lần đầu → exit
+        except TypeError as e:
+            print(f"\n✗ {label}: {e}")
+            continue
+        except Exception as e:
+            print(f"\n✗ {label}: {type(e).__name__}: {str(e)[:200]}")
+            continue
+
+    print("\n❌ All signatures failed")
+
+
 def _cli():
     import argparse
     parser = argparse.ArgumentParser(description="vnstock_wss CLI")
     parser.add_argument("--test", action="store_true", help="Run 60s smoke test")
     parser.add_argument("--status", action="store_true", help="Print status and exit")
     parser.add_argument("--inspect", action="store_true", help="Inspect vnstock_data for WSS API")
+    parser.add_argument("--probe-depth", metavar="TICKER",
+                        help="Probe Quote(ticker).price_depth() structure")
     parser.add_argument("--duration", type=int, default=60, help="Test duration (s)")
     args = parser.parse_args()
 
     if args.inspect:
         _inspect_vnstock_data()
+        return
+
+    if args.probe_depth:
+        _probe_price_depth(args.probe_depth)
         return
 
     client = get_wss_client()
