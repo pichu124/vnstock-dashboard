@@ -334,12 +334,6 @@ class VnStockWSS:
         except Exception:
             pass
 
-        # Cài log handler để capture VN30F1M → 41I1G4000 mapping
-        try:
-            self._install_derivative_mapper()
-        except Exception:
-            pass
-
         # Main data thread (WSS or polling loop)
         self._main_thread = threading.Thread(
             target=self._run_main_loop, daemon=True, name="vnstock-wss-main"
@@ -589,11 +583,13 @@ class VnStockWSS:
         # ── Split theo loại ───────────────────────────────────────────────
         futures_friendly = [s for s in symbols if is_futures(s) and not s.startswith("41I")]
         indices = [s for s in symbols if s in INDEX_SYMBOLS]
-        # Non-index gồm stocks + futures aliases (price_board nhận cả 2)
-        non_index = [s for s in symbols if s not in INDEX_SYMBOLS]
+        # Stocks: loại bỏ cả indices VÀ futures (futures được xử lý
+        # riêng qua price_depth, không đi qua price_board).
+        stocks_only = [s for s in symbols
+                       if s not in INDEX_SYMBOLS and not is_futures(s)]
 
-        # ── 1. Batch stocks + futures qua Market.price_board ──────────────
-        batch_ok = self._fetch_batch_price_board(non_index)
+        # ── 1. Batch stocks qua Market.price_board ────────────────────────
+        batch_ok = self._fetch_batch_price_board(stocks_only)
 
         # ── 2. Indices fetch riêng ────────────────────────────────────────
         from concurrent.futures import ThreadPoolExecutor, wait
@@ -616,11 +612,11 @@ class VnStockWSS:
                 pool.shutdown(wait=False, cancel_futures=False)
 
         # ── Fallback nếu batch fail ───────────────────────────────────────
-        if not batch_ok and non_index:
+        if not batch_ok and stocks_only:
             pool = ThreadPoolExecutor(max_workers=self.POLL_WORKERS)
             try:
                 futs = [pool.submit(self._fetch_single_intraday, s)
-                        for s in non_index if not is_futures(s)]
+                        for s in stocks_only]
                 wait(futs, timeout=max(self.POLL_INTERVAL - 4, 5))
             finally:
                 pool.shutdown(wait=False, cancel_futures=False)
@@ -762,20 +758,31 @@ class VnStockWSS:
 
     def _fetch_volume_profile(self, ticker: str) -> bool:
         """
-        Fetch Volume Profile (price ladder) cho 1 futures symbol qua
-        Quote(symbol).price_depth(). Đây KHÔNG phải order book L2 mà là
-        tổng khối lượng khớp tại mỗi mức giá suốt phiên giao dịch.
+        Fetch Volume Profile cho 1 futures symbol qua
+        Quote(symbol).price_depth() và ghi vào file ĐỘC LẬP theo
+        tên friendly: quote_VN30F1M.json, quote_VN30F2M.json, ...
+
+        Không cần resolve internal ID (41I1G4000) vì file tự tên
+        theo friendly ticker — không có bất kỳ mapping ambiguity nào.
 
         Response format (vnstock_data 3.0.0 / KBS KRX):
-            DataFrame với cột: price, buyVol, sellVol, unknownVol, totalVol
-            Mỗi row = 1 mức giá đã có khớp lệnh trong phiên.
+            DataFrame: price, buyVol, sellVol, unknownVol, totalVol
 
-        Enrich tick file đã có từ price_board bằng field 'volume_profile':
-            [{"price", "buy_vol", "sell_vol", "total_vol"}, ...]
-        Giữ top 20 mức giá theo total_vol.
-
-        Fallback resolution: nếu log mapper chưa bắt được mapping
-        VN30F1M → internal ID, thử match file bằng price range.
+        Schema file output:
+            {
+              "ticker": "VN30F1M",
+              "time": ...,
+              "price": <current match từ most active VP row>,
+              "volume": <tổng total_vol>,
+              "bid": 0, "ask": 0,
+              "bids": [], "asks": [],
+              "chg_pct": 0,
+              "high": <max VP price>,
+              "low": <min VP price>,
+              "type": "futures",
+              "volume_profile": [...top 20...],
+              "volume_profile_total_levels": <len(all)>
+            }
         """
         try:
             try:
@@ -827,39 +834,8 @@ class VnStockWSS:
                     continue
 
             if not profile:
+                self.last_error = f"profile {ticker}: no valid rows"
                 return False
-
-            # ── Resolve internal ID ─────────────────────────────────────
-            # Step 1: thử log-captured mapping
-            internal_id = self._resolve_futures_id(ticker)
-
-            # Step 2: fallback — match by price range
-            if not internal_id:
-                vp_prices = [p["price"] for p in profile if p["price"] > 0]
-                if vp_prices:
-                    vp_min, vp_max = min(vp_prices), max(vp_prices)
-                    vp_range = vp_max - vp_min
-                    # Allow small buffer
-                    buffer = max(vp_range * 0.1, 5.0)
-                    for p in LIVE_DIR.glob("quote_41I*.json"):
-                        try:
-                            q_json = json.loads(p.read_text())
-                            qp = float(q_json.get("price", 0))
-                            if (vp_min - buffer) <= qp <= (vp_max + buffer):
-                                internal_id = p.stem.replace("quote_", "")
-                                # Cache for future calls
-                                if not hasattr(self, "_futures_id_cache"):
-                                    self._futures_id_cache = {}
-                                self._futures_id_cache[ticker] = internal_id
-                                break
-                        except Exception:
-                            continue
-
-            if not internal_id:
-                self.last_error = f"profile {ticker}: could not resolve internal ID"
-                return False
-
-            existing_path = LIVE_DIR / f"quote_{internal_id}.json"
 
             # Giữ top 20 mức theo total_vol
             profile_sorted = sorted(profile, key=lambda r: r["total_vol"], reverse=True)
@@ -867,93 +843,42 @@ class VnStockWSS:
             # Sort theo price để render ladder (cao → thấp)
             top.sort(key=lambda r: r["price"], reverse=True)
 
-            # Per-ticker lock để serialize với _handle_tick
-            with self._get_file_lock(internal_id):
-                if not existing_path.exists():
-                    self.last_error = f"profile {ticker}: quote_{internal_id}.json missing"
-                    return False
+            # Tính metadata
+            vp_prices = [p["price"] for p in profile]
+            total_session_vol = sum(p["total_vol"] for p in profile)
+            # "Current" proxy: most active price (highest total_vol)
+            most_active_price = profile_sorted[0]["price"] if profile_sorted else 0
 
+            tick = {
+                "ticker": ticker.upper(),
+                "time": datetime.now().isoformat(timespec="seconds"),
+                "price": most_active_price,
+                "volume": total_session_vol,
+                "bid": 0.0,
+                "ask": 0.0,
+                "bids": [],
+                "asks": [],
+                "chg_pct": 0.0,
+                "high": max(vp_prices) if vp_prices else 0,
+                "low": min(vp_prices) if vp_prices else 0,
+                "type": "futures",
+                "volume_profile": top,
+                "volume_profile_total_levels": len(profile),
+            }
+
+            # Per-ticker lock để serialize
+            path = LIVE_DIR / f"quote_{ticker.upper()}.json"
+            with self._get_file_lock(ticker.upper()):
                 try:
-                    existing = json.loads(existing_path.read_text())
-                except Exception as e:
-                    self.last_error = f"profile read {internal_id}: {str(e)[:60]}"
-                    return False
-
-                existing["volume_profile"] = top
-                existing["volume_profile_total_levels"] = len(profile)
-                existing["volume_profile_alias"] = ticker
-
-                try:
-                    self._atomic_write_json(existing_path, existing)
+                    self._atomic_write_json(path, tick)
                     return True
                 except Exception as e:
-                    self.last_error = f"profile write {internal_id}: {str(e)[:80]}"
+                    self.last_error = f"profile write {ticker}: {str(e)[:80]}"
                     return False
 
         except Exception as e:
             self.last_error = f"profile {ticker} unexpected: {type(e).__name__}: {str(e)[:80]}"
             return False
-
-    def _resolve_futures_id(self, friendly_name: str) -> Optional[str]:
-        """
-        Tìm internal ID của futures symbol qua log-captured mapping.
-
-        vnstock_data log INFO message như:
-            "Converted derivative symbol VN30F1M to 41I1G4000 (KRX format)"
-        → _install_derivative_mapper() capture message này vào cache.
-        """
-        if not hasattr(self, "_futures_id_cache"):
-            self._futures_id_cache = {}
-        return self._futures_id_cache.get(friendly_name)
-
-    def _install_derivative_mapper(self):
-        """
-        Cài log handler để capture 'Converted derivative symbol X to Y'
-        từ vnstock_data → populate cache friendly_name → internal_id.
-        Chỉ cài 1 lần per instance.
-        """
-        if getattr(self, "_mapper_installed", False):
-            return
-        import logging
-        import re
-
-        if not hasattr(self, "_futures_id_cache"):
-            self._futures_id_cache = {}
-
-        cache = self._futures_id_cache
-        pattern = re.compile(
-            r"Converted derivative symbol\s+(\w+)\s+to\s+(\w+)",
-            re.IGNORECASE,
-        )
-
-        class _MapperHandler(logging.Handler):
-            def __init__(self):
-                super().__init__(logging.INFO)
-
-            def emit(self, record):
-                try:
-                    msg = record.getMessage()
-                    m = pattern.search(msg)
-                    if m:
-                        friendly = m.group(1).upper()
-                        internal = m.group(2).upper()
-                        cache[friendly] = internal
-                except Exception:
-                    pass
-
-        # Attach vào logger namespace của vnstock_data (mọi cấp)
-        for logger_name in (
-            "",  # root logger — fallback catch-all
-            "vnstock_data",
-            "vnstock_data.explorer",
-            "vnstock_data.explorer.kbs",
-            "vnstock_data.explorer.kbs.quote",
-        ):
-            lg = logging.getLogger(logger_name)
-            lg.addHandler(_MapperHandler())
-            if logger_name and (lg.level > logging.INFO or lg.level == 0):
-                lg.setLevel(logging.INFO)
-        self._mapper_installed = True
 
     def _fetch_index_quote(self, index_name: str):
         """
@@ -1109,25 +1034,8 @@ class VnStockWSS:
         ticker = tick["ticker"]
         path = LIVE_DIR / f"quote_{ticker}.json"
 
-        PRESERVE_KEYS = (
-            "volume_profile",
-            "volume_profile_total_levels",
-            "volume_profile_alias",
-        )
-
-        # Per-ticker lock để serialize read-modify-write
+        # Per-ticker lock để serialize concurrent writes
         with self._get_file_lock(ticker):
-            # Preserve enrichment fields từ file cũ
-            if path.exists():
-                try:
-                    existing = json.loads(path.read_text())
-                    for k in PRESERVE_KEYS:
-                        if k in existing and k not in tick:
-                            tick[k] = existing[k]
-                except Exception:
-                    pass
-
-            # Tầng 1: atomic write JSON (unique tmp name)
             try:
                 self._atomic_write_json(path, tick)
             except Exception as e:
@@ -1387,10 +1295,7 @@ def _cli():
     if args.probe_profile:
         # Chạy _fetch_volume_profile cho 1 hoặc ALL futures
         client = get_wss_client()
-        client._install_derivative_mapper()
-        print(f"[probe-profile] Running batch price_board first...")
-        from vnstock_wss import FUTURES_SYMBOLS as _FS, VN30_SYMBOLS as _VS
-        client._fetch_batch_price_board(_VS + _FS)
+        from vnstock_wss import FUTURES_SYMBOLS as _FS
 
         # Nếu argument là "ALL", probe tất cả futures
         targets = _FS if args.probe_profile.upper() == "ALL" else [args.probe_profile]
@@ -1398,24 +1303,23 @@ def _cli():
         for tkr in targets:
             print(f"\n{'─'*60}")
             print(f"[probe-profile] {tkr}")
-            client.last_error = None  # clear trước khi probe từng cái
+            client.last_error = None
             ok = client._fetch_volume_profile(tkr)
             print(f"  Success: {ok}")
             print(f"  last_error: {client.last_error}")
-            internal_id = (getattr(client, "_futures_id_cache", {}).get(tkr))
-            print(f"  Resolved internal_id: {internal_id}")
-            if internal_id:
-                fpath = LIVE_DIR / f"quote_{internal_id}.json"
-                if fpath.exists():
-                    q = json.loads(fpath.read_text())
-                    vp = q.get("volume_profile", [])
-                    print(f"  {fpath.name}: {len(vp)} volume profile rows "
-                          f"(total levels in phiên: {q.get('volume_profile_total_levels', 0)})")
-                    if vp:
-                        print(f"  Top 3 by total_vol: "
-                              f"{[{'p': r['price'], 'tv': r['total_vol']} for r in vp[:3]]}")
-
-        print(f"\n[probe-profile] Full cache: {getattr(client, '_futures_id_cache', {})}")
+            fpath = LIVE_DIR / f"quote_{tkr.upper()}.json"
+            if fpath.exists():
+                q = json.loads(fpath.read_text())
+                vp = q.get("volume_profile", [])
+                print(f"  {fpath.name}: {len(vp)} volume profile rows "
+                      f"(total levels in phiên: {q.get('volume_profile_total_levels', 0)})")
+                print(f"  File price: {q.get('price')}, high: {q.get('high')}, "
+                      f"low: {q.get('low')}")
+                if vp:
+                    print(f"  Top 3 by total_vol: "
+                          f"{[{'p': r['price'], 'tv': r['total_vol']} for r in vp[:3]]}")
+            else:
+                print(f"  File {fpath.name} not created")
         return
 
     client = get_wss_client()

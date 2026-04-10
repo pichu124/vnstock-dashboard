@@ -369,17 +369,24 @@ def load_live_quote(ticker: str) -> dict | None:
 
 def list_live_futures() -> list[str]:
     """
-    Quét thư mục _live để tìm các file quote có pattern futures.
-    Trả về list ticker (internal ID như 41I1G4000 hoặc VN30F*).
+    Quét thư mục _live để tìm futures đang có live data.
+    Prefer friendly names (VN30F1M, ...) vì chứa volume_profile.
+    Nếu không có friendly name nào, fallback sang internal IDs (41I*).
     """
     if not LIVE_DIR.exists():
         return []
-    result = []
+    friendly = []
+    internal = []
     for p in sorted(LIVE_DIR.glob("quote_*.json")):
         name = p.stem.replace("quote_", "")
-        if is_futures(name):
-            result.append(name)
-    return result
+        if not is_futures(name):
+            continue
+        if name.startswith("VN30F"):
+            friendly.append(name)
+        elif name.startswith("41I"):
+            internal.append(name)
+    # Priority: friendly first (có VP). Internal chỉ để user tham khảo.
+    return friendly if friendly else internal
 
 
 def render_volume_profile(profile: list, current_price: float = 0,
