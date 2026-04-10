@@ -328,6 +328,12 @@ class VnStockWSS:
             self.running = True
             self._stop_event.clear()
 
+        # Cleanup stale .tmp files từ lần chạy trước (orphaned khi process bị kill)
+        try:
+            self._cleanup_stale_tmp()
+        except Exception:
+            pass
+
         # Cài log handler để capture VN30F1M → 41I1G4000 mapping
         try:
             self._install_derivative_mapper()
@@ -339,6 +345,23 @@ class VnStockWSS:
             target=self._run_main_loop, daemon=True, name="vnstock-wss-main"
         )
         self._main_thread.start()
+
+    def _cleanup_stale_tmp(self):
+        """Xoá các file .tmp orphaned từ lần chạy trước."""
+        import os as _os
+        for p in LIVE_DIR.glob("*.tmp"):
+            try:
+                # Parse pattern: {name}.{pid}.{tid}.tmp
+                parts = p.stem.rsplit(".", 2)
+                if len(parts) == 3 and parts[1].isdigit():
+                    stale_pid = int(parts[1])
+                    if stale_pid != _os.getpid():
+                        p.unlink()
+                else:
+                    # Legacy .tmp name (no pid) — cũng xoá
+                    p.unlink()
+            except Exception:
+                pass
 
         # Bar flush thread
         self._flush_thread = threading.Thread(
@@ -1362,28 +1385,37 @@ def _cli():
         return
 
     if args.probe_profile:
-        # Chạy _fetch_volume_profile trực tiếp để debug
+        # Chạy _fetch_volume_profile cho 1 hoặc ALL futures
         client = get_wss_client()
         client._install_derivative_mapper()
-        # Cần ít nhất 1 pass price_board để có quote_41I*.json
         print(f"[probe-profile] Running batch price_board first...")
         from vnstock_wss import FUTURES_SYMBOLS as _FS, VN30_SYMBOLS as _VS
         client._fetch_batch_price_board(_VS + _FS)
-        print(f"[probe-profile] Calling _fetch_volume_profile({args.probe_profile})...")
-        ok = client._fetch_volume_profile(args.probe_profile)
-        print(f"[probe-profile] Success: {ok}")
-        print(f"[probe-profile] last_error: {client.last_error}")
-        print(f"[probe-profile] futures_id_cache: {getattr(client, '_futures_id_cache', {})}")
-        # Check nếu file có volume_profile field
-        internal_id = (getattr(client, "_futures_id_cache", {}).get(args.probe_profile))
-        if internal_id:
-            fpath = LIVE_DIR / f"quote_{internal_id}.json"
-            if fpath.exists():
-                q = json.loads(fpath.read_text())
-                vp = q.get("volume_profile", [])
-                print(f"[probe-profile] {fpath.name}: {len(vp)} volume profile rows")
-                if vp:
-                    print(f"  First 3 rows: {vp[:3]}")
+
+        # Nếu argument là "ALL", probe tất cả futures
+        targets = _FS if args.probe_profile.upper() == "ALL" else [args.probe_profile]
+
+        for tkr in targets:
+            print(f"\n{'─'*60}")
+            print(f"[probe-profile] {tkr}")
+            client.last_error = None  # clear trước khi probe từng cái
+            ok = client._fetch_volume_profile(tkr)
+            print(f"  Success: {ok}")
+            print(f"  last_error: {client.last_error}")
+            internal_id = (getattr(client, "_futures_id_cache", {}).get(tkr))
+            print(f"  Resolved internal_id: {internal_id}")
+            if internal_id:
+                fpath = LIVE_DIR / f"quote_{internal_id}.json"
+                if fpath.exists():
+                    q = json.loads(fpath.read_text())
+                    vp = q.get("volume_profile", [])
+                    print(f"  {fpath.name}: {len(vp)} volume profile rows "
+                          f"(total levels in phiên: {q.get('volume_profile_total_levels', 0)})")
+                    if vp:
+                        print(f"  Top 3 by total_vol: "
+                              f"{[{'p': r['price'], 'tv': r['total_vol']} for r in vp[:3]]}")
+
+        print(f"\n[probe-profile] Full cache: {getattr(client, '_futures_id_cache', {})}")
         return
 
     client = get_wss_client()
