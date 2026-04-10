@@ -24,6 +24,14 @@ import warnings as _warnings
 _warnings.filterwarnings("ignore", message=".*st.components.v1.html.*")
 import streamlit.components.v1 as _comp
 
+# Real-time WSS client (optional)
+try:
+    from vnstock_wss import get_wss_client, VN30_SYMBOLS, INDEX_SYMBOLS
+    WSS_AVAILABLE = True
+except ImportError:
+    WSS_AVAILABLE = False
+    VN30_SYMBOLS, INDEX_SYMBOLS = [], []
+
 warnings.filterwarnings("ignore")
 
 st.set_page_config(
@@ -333,6 +341,69 @@ def get_tech_signals(df: pd.DataFrame) -> dict:
 # ═════════════════════════════════════════════════════════════════════════════
 # Chart renderer (Plotly via st.plotly_chart)
 # ═════════════════════════════════════════════════════════════════════════════
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Real-time WSS helpers
+# ═════════════════════════════════════════════════════════════════════════════
+
+LIVE_DIR = Path("data_warehouse/_live")
+
+
+def load_live_quote(ticker: str) -> dict | None:
+    """Đọc live quote snapshot từ Tầng 1 (vnstock_wss)."""
+    path = LIVE_DIR / f"quote_{ticker.upper()}.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return None
+
+
+def _merge_live_quote(df: pd.DataFrame, quote: dict) -> pd.DataFrame:
+    """Merge live quote vào bar cuối cùng hoặc append bar mới."""
+    if df.empty or not quote or not quote.get("price"):
+        return df
+    try:
+        tick_time = pd.to_datetime(quote["time"])
+        if hasattr(tick_time, "tz") and tick_time.tz is not None:
+            tick_time = tick_time.tz_convert("Asia/Ho_Chi_Minh").tz_localize(None)
+        bar_time = tick_time.floor("1min")
+        df = df.copy()
+        last_time = pd.to_datetime(df.iloc[-1]["time"])
+        price = float(quote["price"])
+        if last_time == bar_time:
+            idx = df.index[-1]
+            df.at[idx, "high"] = max(float(df.at[idx, "high"]), price)
+            df.at[idx, "low"] = min(float(df.at[idx, "low"]), price)
+            df.at[idx, "close"] = price
+        else:
+            new_row = {
+                "time": bar_time,
+                "open": price, "high": price,
+                "low": price, "close": price,
+                "volume": float(quote.get("volume", 0)),
+            }
+            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+        return df
+    except Exception:
+        return df
+
+
+@st.cache_resource
+def _get_wss_singleton():
+    """Singleton WSS client — start once per Streamlit process."""
+    if not WSS_AVAILABLE:
+        return None
+    try:
+        client = get_wss_client()
+        client.start()
+        client.subscribe_all()
+        return client
+    except Exception as e:
+        print(f"[dashboard] WSS start failed: {e}")
+        return None
 
 
 @st.cache_data(ttl=120, show_spinner=False)
@@ -1727,6 +1798,45 @@ if _active_tab == "🔬 Phân tích":
         st.markdown("### 📐 Hiển thị chart")
         chart_height = st.slider("Chiều cao chart (px)", 500, 1400, 850, step=50, key="chart_height_anal")
 
+        st.divider()
+        st.markdown("### 🔴 Live Mode")
+        if WSS_AVAILABLE:
+            live_on = st.toggle(
+                "Real-time WSS",
+                value=st.session_state.get("live_mode", False),
+                key="live_mode",
+                help=f"Stream real-time cho {len(VN30_SYMBOLS)} mã VN30 + {len(INDEX_SYMBOLS)} chỉ số"
+            )
+            if live_on:
+                _wss_client = _get_wss_singleton()
+                if _wss_client is not None:
+                    _wss_status = _wss_client.get_status()
+                    _status_label = _wss_status.get("status", "unknown")
+                    _mode_label = _wss_status.get("mode", "?")
+                    _color = {
+                        "connected": "#10b981",
+                        "reconnecting": "#fbbf24",
+                        "market_closed": "#6b7280",
+                        "error": "#ef4444",
+                        "disconnected": "#6b7280",
+                    }.get(_status_label, "#6b7280")
+                    st.markdown(
+                        f'<div style="display:flex;align-items:center;gap:8px;padding:6px 0">'
+                        f'<span style="width:8px;height:8px;border-radius:50%;background:{_color};'
+                        f'box-shadow:0 0 8px {_color}"></span>'
+                        f'<span style="color:#d1d5db;font-size:12px">{_status_label.upper()}</span>'
+                        f'<span style="color:#6b7280;font-size:11px">({_mode_label})</span>'
+                        f'</div>',
+                        unsafe_allow_html=True
+                    )
+                    st.caption(f"📡 {_wss_status.get('subscribed_count', 0)} mã đã subscribe")
+                    if _wss_status.get("error"):
+                        st.caption(f"⚠ {_wss_status['error'][:80]}")
+                else:
+                    st.caption("⚠ Không khởi động được WSS client")
+        else:
+            st.caption("⚠ Module `vnstock_wss` chưa có — Live mode không khả dụng")
+
     # ── Xác định ticker cần phân tích ─────────────────────────────────────────────
     ticker = ticker_input or st.session_state.get("analyze_ticker", "")
 
@@ -1843,7 +1953,35 @@ if _active_tab == "🔬 Phân tích":
     else:
         chart_df = df
 
-    render_chart(chart_df, ticker, height=st.session_state.get("chart_height_anal", 850))
+    # ── Live mode: wrap chart + quote strip trong fragment auto-refresh ─────────
+    _live_on = st.session_state.get("live_mode", False) and WSS_AVAILABLE and tf in ("1m","5m","15m","30m","1H")
+
+    if _live_on:
+        @st.fragment(run_every=3)
+        def _live_intraday_fragment():
+            live_q = load_live_quote(ticker)
+            _chart_df = load_intraday(ticker, interval=tf)
+            if live_q and not _chart_df.empty:
+                _chart_df = _merge_live_quote(_chart_df, live_q)
+            render_chart(_chart_df, ticker, height=st.session_state.get("chart_height_anal", 850))
+            if live_q:
+                lc1, lc2, lc3, lc4, lc5 = st.columns(5)
+                _price = float(live_q.get("price", 0))
+                _chg = float(live_q.get("chg_pct", 0))
+                _vol = float(live_q.get("volume", 0))
+                _bid = float(live_q.get("bid", 0))
+                _ask = float(live_q.get("ask", 0))
+                lc1.metric("Giá Live", f"{_price:,.0f}", f"{_chg:+.2f}%")
+                lc2.metric("Volume", f"{_vol:,.0f}")
+                lc3.metric("Bid", f"{_bid:,.0f}" if _bid else "—")
+                lc4.metric("Ask", f"{_ask:,.0f}" if _ask else "—")
+                lc5.metric("Cập nhật", str(live_q.get("time", ""))[-8:])
+            else:
+                st.caption("⏳ Chưa có dữ liệu live. Chờ WSS kết nối hoặc ngoài giờ giao dịch.")
+
+        _live_intraday_fragment()
+    else:
+        render_chart(chart_df, ticker, height=st.session_state.get("chart_height_anal", 850))
 
     st.markdown("---")
 
