@@ -434,47 +434,76 @@ class VnStockWSS:
 
     def _http_fetch_quote(self, ticker: str) -> Optional[dict]:
         """
-        Fallback: dùng vnstock/vnstock_data HTTP API để lấy quote gần nhất.
-        Lấy bar 1m cuối cùng từ quote.history().
+        Fallback: dùng HTTP API để lấy quote gần nhất.
+        Ưu tiên vnstock_data.Quote (Golden sponsor: 600 req/min) →
+        fallback vnstock.Vnstock.
+        Lấy bar 1m gần nhất trong 2 ngày gần nhất.
         """
+        from datetime import date, timedelta
+        df = None
+        end = date.today().strftime("%Y-%m-%d")
+        start = (date.today() - timedelta(days=2)).strftime("%Y-%m-%d")
+
+        # Thử vnstock_data trước (sponsor API, ít rate limit hơn)
         try:
+            from vnstock_data import Quote  # type: ignore
+            q = Quote(symbol=ticker)
+            df = q.history(start=start, end=end, interval="1m")
+        except Exception:
+            df = None
+
+        # Fallback: vnstock free
+        if df is None or (hasattr(df, "empty") and df.empty):
             try:
-                from vnstock_data import Quote  # type: ignore
-                q = Quote(symbol=ticker, source="VCI")
-                df = q.history(interval="1m", page_size=2)
-            except Exception:
                 from vnstock import Vnstock
-                from datetime import date, timedelta
-                end = date.today().strftime("%Y-%m-%d")
-                start = (date.today() - timedelta(days=2)).strftime("%Y-%m-%d")
                 stock = Vnstock().stock(symbol=ticker, source="VCI")
                 df = stock.quote.history(start=start, end=end, interval="1m")
-
-            if df is None or df.empty:
+            except Exception as e:
+                self.last_error = f"http fetch {ticker}: {str(e)[:80]}"
                 return None
 
-            last = df.iloc[-1]
-            price = float(last.get("close", 0))
-            if price <= 0:
-                return None
-
-            prev_close = float(df.iloc[0].get("close", price)) if len(df) > 1 else price
-            chg_pct = ((price - prev_close) / prev_close * 100) if prev_close > 0 else 0
-
-            return {
-                "ticker": ticker.upper(),
-                "time": str(last.get("time", datetime.now().isoformat(timespec="seconds"))),
-                "price": price,
-                "volume": float(last.get("volume", 0)),
-                "bid": 0.0,
-                "ask": 0.0,
-                "chg_pct": round(chg_pct, 2),
-                "high": float(last.get("high", price)),
-                "low": float(last.get("low", price)),
-            }
-        except Exception as e:
-            self.last_error = f"http fetch {ticker}: {str(e)[:100]}"
+        if df is None or df.empty:
             return None
+
+        # Normalize column names
+        col_map = {}
+        for c in df.columns:
+            cl = str(c).lower()
+            if cl in ("time", "date", "tradingdate"):
+                col_map[c] = "time"
+            elif cl in ("close", "adjclose"):
+                col_map[c] = "close"
+            elif cl in ("volume", "vol"):
+                col_map[c] = "volume"
+            elif cl in ("high",):
+                col_map[c] = "high"
+            elif cl in ("low",):
+                col_map[c] = "low"
+        df = df.rename(columns=col_map)
+
+        if "close" not in df.columns:
+            return None
+
+        last = df.iloc[-1]
+        price = float(last.get("close", 0))
+        if price <= 0:
+            return None
+
+        # Tính chg_pct so với close đầu tiên trong window (proxy cho giá mở cửa)
+        prev_close = float(df.iloc[0].get("close", price)) if len(df) > 1 else price
+        chg_pct = ((price - prev_close) / prev_close * 100) if prev_close > 0 else 0
+
+        return {
+            "ticker": ticker.upper(),
+            "time": str(last.get("time", datetime.now().isoformat(timespec="seconds"))),
+            "price": price,
+            "volume": float(last.get("volume", 0)),
+            "bid": 0.0,
+            "ask": 0.0,
+            "chg_pct": round(chg_pct, 2),
+            "high": float(last.get("high", price)),
+            "low": float(last.get("low", price)),
+        }
 
     # ─────────────────────────────────────────────────────────────────────
     # Tick handler — write Tầng 1 + update Tầng 2
@@ -613,24 +642,48 @@ def _inspect_vnstock_data():
         else:
             print("   (none found)")
 
-    # Check common class names for realtime methods
-    print("\n🔬 Probing common classes for realtime methods...")
-    class_candidates = ["Quote", "Market", "Trading", "Realtime", "Stream"]
-    method_keywords = ["stream", "subscribe", "ws", "realtime", "live", "on_tick"]
+    # Dump ALL methods of candidate classes
+    print("\n🔬 Probing classes for realtime/intraday methods...")
+    class_candidates = ["Quote", "Market", "Trading", "TopStock", "IndexGroup"]
+    realtime_keywords = ["stream", "subscribe", "ws", "realtime", "live", "on_tick", "push"]
+    fast_keywords = ["intraday", "latest", "snapshot", "tick", "quote", "price", "current", "now"]
+
     for cls_name in class_candidates:
-        if hasattr(vnstock_data, cls_name):
-            cls = getattr(vnstock_data, cls_name)
-            methods = [m for m in dir(cls) if not m.startswith("_")]
-            interesting = [m for m in methods
-                           if any(k in m.lower() for k in method_keywords)]
-            print(f"   {cls_name}: {len(methods)} methods", end="")
-            if interesting:
-                print(f" — interesting: {interesting}")
-            else:
-                print()
+        if not hasattr(vnstock_data, cls_name):
+            continue
+        cls = getattr(vnstock_data, cls_name)
+        methods = [m for m in dir(cls) if not m.startswith("_")]
+        print(f"\n   ◉ {cls_name} ({len(methods)} methods):")
+        for m in methods:
+            flags = []
+            if any(k in m.lower() for k in realtime_keywords):
+                flags.append("⚡REALTIME")
+            elif any(k in m.lower() for k in fast_keywords):
+                flags.append("🏃FAST")
+            flag_str = " " + " ".join(flags) if flags else ""
+            # Try to get signature
+            try:
+                import inspect
+                attr = getattr(cls, m)
+                if callable(attr):
+                    sig = str(inspect.signature(attr))[:80]
+                    print(f"      {m}{sig}{flag_str}")
+                else:
+                    print(f"      {m} = {type(attr).__name__}{flag_str}")
+            except Exception:
+                print(f"      {m}{flag_str}")
+
+    # Try to instantiate Quote and see what methods actually work
+    print("\n🧪 Probing Quote() instance methods...")
+    try:
+        q = vnstock_data.Quote(symbol="VCB")
+        q_methods = [m for m in dir(q) if not m.startswith("_") and callable(getattr(q, m, None))]
+        print(f"   Quote(symbol='VCB') instance methods: {q_methods}")
+    except Exception as e:
+        print(f"   Quote() instantiation failed: {e}")
 
     print("\n" + "=" * 60)
-    print("👉 Copy/paste kết quả cho Claude để xác định WSS endpoint")
+    print("👉 Copy/paste kết quả cho Claude để tối ưu polling logic")
     print("=" * 60)
 
 
