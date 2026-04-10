@@ -228,7 +228,44 @@ class VnStockWSS:
         self._flush_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
+
+        # Per-ticker file locks để serialize read-modify-write JSON files
+        # (tránh race condition Windows khi nhiều thread ghi cùng 1 file)
+        self._file_locks: dict[str, threading.Lock] = {}
+        self._file_locks_guard = threading.Lock()
+
         self._detect_mode()
+
+    def _get_file_lock(self, ticker: str) -> threading.Lock:
+        """Lấy hoặc tạo lock cho 1 ticker file. Thread-safe."""
+        with self._file_locks_guard:
+            lock = self._file_locks.get(ticker)
+            if lock is None:
+                lock = threading.Lock()
+                self._file_locks[ticker] = lock
+            return lock
+
+    def _atomic_write_json(self, path: Path, data: dict) -> bool:
+        """
+        Atomic write JSON với unique tmp name để tránh conflict giữa threads.
+        Trả về True nếu thành công.
+        """
+        import os as _os
+        tid = threading.get_ident()
+        tmp = path.with_suffix(f".{_os.getpid()}.{tid}.tmp")
+        try:
+            tmp.write_text(json.dumps(data, ensure_ascii=False))
+            # os.replace là atomic và overwrite target trên cả Win/Unix
+            _os.replace(str(tmp), str(path))
+            return True
+        except Exception:
+            # Cleanup stale tmp
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except Exception:
+                pass
+            raise
 
     # ─────────────────────────────────────────────────────────────────────
     # Mode detection — check if vnstock_data sponsor has realtime API
@@ -331,9 +368,7 @@ class VnStockWSS:
 
     def _write_status(self):
         try:
-            tmp = STATUS_PATH.with_suffix(".tmp")
-            tmp.write_text(json.dumps(self.get_status(), ensure_ascii=False))
-            tmp.replace(STATUS_PATH)
+            self._atomic_write_json(STATUS_PATH, self.get_status())
         except Exception:
             pass
 
@@ -773,15 +808,6 @@ class VnStockWSS:
                 return False
 
             existing_path = LIVE_DIR / f"quote_{internal_id}.json"
-            if not existing_path.exists():
-                self.last_error = f"profile {ticker}: quote_{internal_id}.json missing"
-                return False
-
-            try:
-                existing = json.loads(existing_path.read_text())
-            except Exception as e:
-                self.last_error = f"profile read {internal_id}: {str(e)[:60]}"
-                return False
 
             # Giữ top 20 mức theo total_vol
             profile_sorted = sorted(profile, key=lambda r: r["total_vol"], reverse=True)
@@ -789,19 +815,28 @@ class VnStockWSS:
             # Sort theo price để render ladder (cao → thấp)
             top.sort(key=lambda r: r["price"], reverse=True)
 
-            existing["volume_profile"] = top
-            existing["volume_profile_total_levels"] = len(profile)
-            existing["volume_profile_alias"] = ticker  # VN30F1M, etc.
+            # Per-ticker lock để serialize với _handle_tick
+            with self._get_file_lock(internal_id):
+                if not existing_path.exists():
+                    self.last_error = f"profile {ticker}: quote_{internal_id}.json missing"
+                    return False
 
-            # Atomic write
-            try:
-                tmp = existing_path.with_suffix(".tmp")
-                tmp.write_text(json.dumps(existing, ensure_ascii=False))
-                tmp.replace(existing_path)
-                return True
-            except Exception as e:
-                self.last_error = f"profile write {internal_id}: {str(e)[:60]}"
-                return False
+                try:
+                    existing = json.loads(existing_path.read_text())
+                except Exception as e:
+                    self.last_error = f"profile read {internal_id}: {str(e)[:60]}"
+                    return False
+
+                existing["volume_profile"] = top
+                existing["volume_profile_total_levels"] = len(profile)
+                existing["volume_profile_alias"] = ticker
+
+                try:
+                    self._atomic_write_json(existing_path, existing)
+                    return True
+                except Exception as e:
+                    self.last_error = f"profile write {internal_id}: {str(e)[:80]}"
+                    return False
 
         except Exception as e:
             self.last_error = f"profile {ticker} unexpected: {type(e).__name__}: {str(e)[:80]}"
@@ -1022,33 +1057,31 @@ class VnStockWSS:
         ticker = tick["ticker"]
         path = LIVE_DIR / f"quote_{ticker}.json"
 
-        # Preserve enrichment fields từ file cũ.
-        # price_board overwrite toàn bộ file mỗi round nên các field
-        # chỉ được set bởi _fetch_volume_profile sẽ bị xoá → race condition.
-        # Merge chúng từ existing vào tick mới trước khi ghi.
         PRESERVE_KEYS = (
             "volume_profile",
             "volume_profile_total_levels",
             "volume_profile_alias",
         )
-        if path.exists():
+
+        # Per-ticker lock để serialize read-modify-write
+        with self._get_file_lock(ticker):
+            # Preserve enrichment fields từ file cũ
+            if path.exists():
+                try:
+                    existing = json.loads(path.read_text())
+                    for k in PRESERVE_KEYS:
+                        if k in existing and k not in tick:
+                            tick[k] = existing[k]
+                except Exception:
+                    pass
+
+            # Tầng 1: atomic write JSON (unique tmp name)
             try:
-                existing = json.loads(path.read_text())
-                for k in PRESERVE_KEYS:
-                    if k in existing and k not in tick:
-                        tick[k] = existing[k]
-            except Exception:
-                pass
+                self._atomic_write_json(path, tick)
+            except Exception as e:
+                self.last_error = f"write tick {ticker}: {str(e)[:100]}"
 
-        # Tầng 1: atomic write JSON
-        try:
-            tmp = path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(tick, ensure_ascii=False))
-            tmp.replace(path)
-        except Exception as e:
-            self.last_error = f"write tick {ticker}: {str(e)[:100]}"
-
-        # Tầng 2: aggregate 1m bar
+        # Tầng 2: aggregate 1m bar (ngoài lock vì aggregator có lock riêng)
         try:
             tick_time = pd.to_datetime(tick["time"])
             if tick_time.tz is not None:
@@ -1096,9 +1129,19 @@ class VnStockWSS:
                 combined = snap
 
             table = pa.Table.from_pandas(combined, preserve_index=False)
-            tmp = out_path.with_suffix(".tmp")
-            pq.write_table(table, str(tmp), compression="snappy")
-            tmp.replace(out_path)
+            import os as _os
+            tid = threading.get_ident()
+            tmp = out_path.with_suffix(f".{_os.getpid()}.{tid}.tmp")
+            try:
+                pq.write_table(table, str(tmp), compression="snappy")
+                _os.replace(str(tmp), str(out_path))
+            except Exception:
+                if tmp.exists():
+                    try:
+                        tmp.unlink()
+                    except Exception:
+                        pass
+                raise
         except Exception as e:
             self.last_error = f"parquet flush: {str(e)[:100]}"
 
