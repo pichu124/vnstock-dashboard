@@ -28,6 +28,31 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Check administrator privileges
+$currentPrincipal = New-Object Security.Principal.WindowsPrincipal(
+    [Security.Principal.WindowsIdentity]::GetCurrent()
+)
+$isAdmin = $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+if (-not $isAdmin -and -not $DryRun) {
+    Write-Host ""
+    Write-Host "[ERROR] This script must be run as Administrator." -ForegroundColor Red
+    Write-Host ""
+    Write-Host "How to fix:" -ForegroundColor Yellow
+    Write-Host "  1. Close this PowerShell window"
+    Write-Host "  2. Right-click Start menu -> 'Windows PowerShell (Admin)'"
+    Write-Host "     (or 'Terminal (Admin)' on Windows 11)"
+    Write-Host "  3. cd to project directory:"
+    Write-Host "     cd '$((Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Definition)))'"
+    Write-Host "  4. Re-run the script:"
+    Write-Host "     .\scripts\setup_scheduled_tasks.ps1"
+    Write-Host ""
+    Write-Host "Or try dry-run first (no admin needed):"
+    Write-Host "  .\scripts\setup_scheduled_tasks.ps1 -DryRun"
+    Write-Host ""
+    exit 1
+}
+
 # Paths - auto-detect from script location
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $ProjectRoot = Split-Path -Parent $ScriptDir
@@ -159,12 +184,13 @@ foreach ($task in $TaskDefinitions) {
             -Trigger $trigger `
             -Settings $settings `
             -Description $task.Description `
-            -RunLevel Limited | Out-Null
+            -RunLevel Limited `
+            -ErrorAction Stop | Out-Null
 
         Write-Host "  [OK] Created" -ForegroundColor Green
     }
     catch {
-        Write-Host "  [FAIL] $_" -ForegroundColor Red
+        Write-Host "  [FAIL] $($_.Exception.Message)" -ForegroundColor Red
     }
     Write-Host ""
 }
