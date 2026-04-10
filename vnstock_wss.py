@@ -247,17 +247,17 @@ class VnStockWSS:
 
     def _atomic_write_json(self, path: Path, data: dict) -> bool:
         """
-        Atomic write JSON với unique tmp name để tránh conflict giữa threads.
-        Trả về True nếu thành công.
+        Atomic write JSON với unique tmp name + retry os.replace.
+        Windows có thể fail tạm thời do AV scanner, indexer, hoặc reader
+        thread (Streamlit đọc file mỗi 3s). Retry với backoff nhỏ.
         """
         import os as _os
         tid = threading.get_ident()
         tmp = path.with_suffix(f".{_os.getpid()}.{tid}.tmp")
+        content = json.dumps(data, ensure_ascii=False)
+
         try:
-            tmp.write_text(json.dumps(data, ensure_ascii=False))
-            # os.replace là atomic và overwrite target trên cả Win/Unix
-            _os.replace(str(tmp), str(path))
-            return True
+            tmp.write_text(content)
         except Exception:
             # Cleanup stale tmp
             try:
@@ -266,6 +266,30 @@ class VnStockWSS:
             except Exception:
                 pass
             raise
+
+        # Retry os.replace — Windows thường bị transient lock
+        last_err = None
+        for attempt in range(6):
+            try:
+                _os.replace(str(tmp), str(path))
+                return True
+            except PermissionError as e:
+                last_err = e
+                # Exponential-ish backoff: 10ms, 20ms, 40ms, 80ms, 160ms
+                time.sleep(0.01 * (2 ** attempt))
+            except OSError as e:
+                last_err = e
+                time.sleep(0.01 * (2 ** attempt))
+
+        # All retries failed — cleanup + re-raise
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except Exception:
+            pass
+        if last_err:
+            raise last_err
+        raise RuntimeError(f"atomic_write_json failed after retries: {path}")
 
     # ─────────────────────────────────────────────────────────────────────
     # Mode detection — check if vnstock_data sponsor has realtime API
@@ -578,9 +602,14 @@ class VnStockWSS:
             finally:
                 pool.shutdown(wait=False, cancel_futures=False)
 
-        # Clear transient errors sau successful round
-        if self.last_error and "poll" in self.last_error.lower():
-            self.last_error = None
+        # Clear transient errors sau successful round.
+        # profile/poll/write errors thường transient (AV scanner, reader
+        # thread). Batch + index + at least one futures success đủ để
+        # coi là "healthy" → xoá error message cũ.
+        if batch_ok and self.last_error:
+            transient_markers = ("poll", "profile", "write tick", "parquet")
+            if any(m in self.last_error.lower() for m in transient_markers):
+                self.last_error = None
 
         self._stop_event.wait(timeout=max(self.POLL_INTERVAL - 5, 1))
 
