@@ -78,16 +78,16 @@ $TaskDefinitions = @(
     @{
         Name        = "VnStock Daily Rollup"
         Script      = "vnstock_rollup.py"
-        Args        = ""
+        Args        = "--skip-if-done"
         Time        = "15:30"
-        Description = "Merge 1m bars into warehouse daily OHLCV (post-close)"
+        Description = "Merge 1m bars to warehouse (skip if done by another machine)"
     },
     @{
         Name        = "VnStock Daily Updater"
         Script      = "vnstock_updater.py"
-        Args        = "--force"
+        Args        = "--force --skip-if-done"
         Time        = "18:00"
-        Description = "Fetch missing daily data from vnstock API"
+        Description = "Fetch daily data (skip if done by another machine)"
     }
 )
 
@@ -120,8 +120,12 @@ if ($Remove) {
 
 # ---- Create mode -----------------------------------------------------------
 Write-Host "`n=== Setting up VnStock Scheduled Tasks ===" -ForegroundColor Cyan
+Write-Host "Hostname:     $env:COMPUTERNAME"
 Write-Host "Project root: $ProjectRoot"
 Write-Host "Python:       $PythonExe"
+Write-Host ""
+Write-Host "Multi-machine mode: tasks will skip if another machine" -ForegroundColor DarkGray
+Write-Host "has already completed today's job (checks pipeline_status.json)." -ForegroundColor DarkGray
 Write-Host ""
 
 foreach ($task in $TaskDefinitions) {

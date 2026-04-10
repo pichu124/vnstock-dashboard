@@ -22,7 +22,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
+import os
+import random
 import shutil
+import socket
+import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -39,6 +44,7 @@ LIVE_DIR = Path("data_warehouse/_live")
 ARCHIVE_DIR = LIVE_DIR / "archive"
 PRICES_DIR = Path("data_warehouse/prices")
 META_DIR = Path("data_warehouse/_meta")
+PIPELINE_STATUS_PATH = META_DIR / "pipeline_status.json"
 
 # Schema giống vnstock_updater.py
 PRICE_SCHEMA = pa.schema([
@@ -49,6 +55,64 @@ PRICE_SCHEMA = pa.schema([
     pa.field("close",  pa.float32()),
     pa.field("volume", pa.int64()),
 ])
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Multi-machine coordination helpers
+# ═════════════════════════════════════════════════════════════════════════════
+
+def get_hostname() -> str:
+    """Tên máy hiện tại."""
+    return os.environ.get("COMPUTERNAME") or socket.gethostname()
+
+
+def get_today_vn() -> date:
+    """Ngày hôm nay theo Asia/Ho_Chi_Minh."""
+    try:
+        import pytz
+        vn = pytz.timezone("Asia/Ho_Chi_Minh")
+        return datetime.now(vn).date()
+    except Exception:
+        return date.today()
+
+
+def read_pipeline_status() -> dict:
+    """Đọc pipeline_status.json. Trả dict rỗng nếu missing/corrupt."""
+    if not PIPELINE_STATUS_PATH.exists():
+        return {}
+    try:
+        return json.loads(PIPELINE_STATUS_PATH.read_text())
+    except Exception:
+        return {}
+
+
+def write_pipeline_status(job: str, update: dict):
+    """Merge update vào pipeline_status.json[job], atomic write."""
+    PIPELINE_STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    status = read_pipeline_status()
+    status[job] = {**status.get(job, {}), **update}
+
+    tmp = PIPELINE_STATUS_PATH.with_suffix(f".{os.getpid()}.tmp")
+    try:
+        tmp.write_text(json.dumps(status, indent=2, ensure_ascii=False))
+        os.replace(str(tmp), str(PIPELINE_STATUS_PATH))
+    except Exception as e:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except Exception:
+                pass
+        print(f"[rollup] ⚠ write pipeline_status: {e}")
+
+
+def is_already_done_today(job: str) -> tuple[bool, dict]:
+    """Check nếu job đã chạy thành công hôm nay (VN time)."""
+    status = read_pipeline_status().get(job, {})
+    last_date_str = status.get("last_success_date", "")
+    today_str = get_today_vn().isoformat()
+    done = (last_date_str == today_str
+            and status.get("last_result") == "success")
+    return done, status
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -160,12 +224,19 @@ def rollup_bars_file(bars_path: Path, dry_run: bool = False) -> dict:
     """
     Rollup 1 file bars_{date}.parquet → warehouse daily.
 
-    Returns: dict với {tickers_updated, rows_merged, skipped, errors}
+    Returns: dict với {tickers_updated, rows_merged, skipped, errors,
+                        skipped_tickers, already_archived}
     """
     stats = {"tickers_updated": 0, "rows_merged": 0, "skipped": 0,
-             "errors": 0, "skipped_tickers": []}
+             "errors": 0, "skipped_tickers": [], "already_archived": False}
 
     if not bars_path.exists():
+        # Check xem có phải đã archive bởi máy khác không
+        archive_path = ARCHIVE_DIR / bars_path.name
+        if archive_path.exists():
+            print(f"[rollup] {bars_path.name} đã archive sẵn (máy khác đã chạy)")
+            stats["already_archived"] = True
+            return stats
         print(f"[rollup] ✗ {bars_path.name} không tồn tại")
         return stats
 
@@ -303,6 +374,8 @@ def main():
                         help="Không cleanup archive cũ")
     parser.add_argument("--dry-run", action="store_true",
                         help="Preview, không ghi file")
+    parser.add_argument("--skip-if-done", action="store_true",
+                        help="Skip nếu job đã chạy hôm nay (multi-machine coordination)")
     args = parser.parse_args()
 
     if args.date:
@@ -312,15 +385,37 @@ def main():
             print(f"✗ Invalid date format: {args.date}")
             return 1
     else:
-        target_date = date.today()
+        target_date = get_today_vn()
 
+    hostname = get_hostname()
     bars_path = LIVE_DIR / f"bars_{target_date.isoformat()}.parquet"
 
     print("=" * 60)
     print(f"Rollup Job — {target_date.isoformat()}")
-    print(f"Source: {bars_path}")
+    print(f"Machine: {hostname}")
+    print(f"Source:  {bars_path}")
     print(f"Dry run: {args.dry_run}")
+    if args.skip_if_done:
+        print(f"Mode:    skip-if-done (multi-machine)")
     print("=" * 60)
+
+    # ── Multi-machine coordination: skip if another machine already did it
+    if args.skip_if_done and not args.dry_run:
+        # Jitter 0-30s để giảm xác suất 2 máy start cùng lúc
+        jitter = random.uniform(0, 30)
+        print(f"[rollup] Jitter {jitter:.1f}s trước khi check status...")
+        time.sleep(jitter)
+
+        done, existing_status = is_already_done_today("rollup")
+        if done:
+            other_machine = existing_status.get("last_machine", "?")
+            other_time = existing_status.get("last_run_at", "?")
+            tickers = existing_status.get("tickers_updated", "?")
+            print(f"\n[rollup] ✓ Đã chạy hôm nay bởi máy {other_machine}")
+            print(f"  Thời điểm:       {other_time}")
+            print(f"  Tickers updated: {tickers}")
+            print(f"  → Skip trên máy này ({hostname})")
+            return 0
 
     # 1. Rollup
     stats = rollup_bars_file(bars_path, dry_run=args.dry_run)
@@ -342,6 +437,20 @@ def main():
         deleted = cleanup_archive(days=args.cleanup_days, dry_run=args.dry_run)
         if deleted:
             print(f"[rollup] Deleted {deleted} old archive files")
+
+    # 4. Write pipeline status (success)
+    if (not args.dry_run
+            and stats["errors"] == 0
+            and (stats["tickers_updated"] > 0 or stats["already_archived"])):
+        write_pipeline_status("rollup", {
+            "last_success_date": target_date.isoformat(),
+            "last_run_at": datetime.now().isoformat(timespec="seconds"),
+            "last_machine": hostname,
+            "last_result": "success",
+            "tickers_updated": stats["tickers_updated"],
+            "already_archived": stats["already_archived"],
+        })
+        print(f"[rollup] pipeline_status.json updated")
 
     print("\n[rollup] ✓ Done")
     return 0 if stats["errors"] == 0 else 1
