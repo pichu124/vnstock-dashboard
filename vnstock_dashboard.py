@@ -361,6 +361,25 @@ def load_live_quote(ticker: str) -> dict | None:
         return None
 
 
+def _normalize_live_price(historical_last_close: float, live_price: float) -> float:
+    """
+    Chuẩn hoá đơn vị giá live cho khớp với scale của chart historical.
+    vnstock thường trả intraday dạng thousand (25.55 = 25,550đ) trong khi
+    Market.price_board() trả giá VND thật (25550). Khi merge trực tiếp
+    sẽ phá scale của chart.
+    """
+    if historical_last_close <= 0 or live_price <= 0:
+        return live_price
+    ratio = live_price / historical_last_close
+    if ratio > 100:
+        # Live cao gấp ~1000x → historical ở dạng thousand
+        return live_price / 1000.0
+    if ratio < 0.01:
+        # Live thấp hơn ~1000x → historical ở VND
+        return live_price * 1000.0
+    return live_price
+
+
 def _merge_live_quote(df: pd.DataFrame, quote: dict) -> pd.DataFrame:
     """Merge live quote vào bar cuối cùng hoặc append bar mới."""
     if df.empty or not quote or not quote.get("price"):
@@ -372,7 +391,8 @@ def _merge_live_quote(df: pd.DataFrame, quote: dict) -> pd.DataFrame:
         bar_time = tick_time.floor("1min")
         df = df.copy()
         last_time = pd.to_datetime(df.iloc[-1]["time"])
-        price = float(quote["price"])
+        last_close = float(df.iloc[-1]["close"])
+        price = _normalize_live_price(last_close, float(quote["price"]))
         if last_time == bar_time:
             idx = df.index[-1]
             df.at[idx, "high"] = max(float(df.at[idx, "high"]), price)
@@ -1957,13 +1977,24 @@ if _active_tab == "🔬 Phân tích":
     _live_on = st.session_state.get("live_mode", False) and WSS_AVAILABLE and tf in ("1m","5m","15m","30m","1H")
 
     if _live_on:
+        # Banner nhắc nhở Live mode đang hoạt động
+        st.markdown(
+            '<div style="background:linear-gradient(90deg,#ef4444,#f59e0b);'
+            'padding:6px 14px;border-radius:6px;margin:8px 0;'
+            'display:flex;align-items:center;gap:10px;font-weight:500">'
+            '<span style="width:10px;height:10px;border-radius:50%;background:#fff;'
+            'box-shadow:0 0 10px #fff;animation:pulse 1.5s infinite"></span>'
+            f'<span style="color:#fff;font-size:13px">🔴 LIVE MODE — {ticker} @ {tf} — refresh 3s</span>'
+            '</div>',
+            unsafe_allow_html=True
+        )
+
         @st.fragment(run_every=3)
         def _live_intraday_fragment():
             live_q = load_live_quote(ticker)
             _chart_df = load_intraday(ticker, interval=tf)
-            if live_q and not _chart_df.empty:
-                _chart_df = _merge_live_quote(_chart_df, live_q)
-            render_chart(_chart_df, ticker, height=st.session_state.get("chart_height_anal", 850))
+
+            # Quote strip — HIỂN THỊ TRƯỚC chart để luôn visible
             if live_q:
                 lc1, lc2, lc3, lc4, lc5 = st.columns(5)
                 _price = float(live_q.get("price", 0))
@@ -1971,13 +2002,32 @@ if _active_tab == "🔬 Phân tích":
                 _vol = float(live_q.get("volume", 0))
                 _bid = float(live_q.get("bid", 0))
                 _ask = float(live_q.get("ask", 0))
-                lc1.metric("Giá Live", f"{_price:,.0f}", f"{_chg:+.2f}%")
-                lc2.metric("Volume", f"{_vol:,.0f}")
-                lc3.metric("Bid", f"{_bid:,.0f}" if _bid else "—")
-                lc4.metric("Ask", f"{_ask:,.0f}" if _ask else "—")
-                lc5.metric("Cập nhật", str(live_q.get("time", ""))[-8:])
+                # Normalize hiển thị theo scale của historical chart
+                _display_price = _price
+                if not _chart_df.empty:
+                    _last_close = float(_chart_df.iloc[-1]["close"])
+                    _display_price = _normalize_live_price(_last_close, _price)
+                    _bid_disp = _normalize_live_price(_last_close, _bid) if _bid else 0
+                    _ask_disp = _normalize_live_price(_last_close, _ask) if _ask else 0
+                else:
+                    _bid_disp, _ask_disp = _bid, _ask
+                lc1.metric("💰 Giá Live", f"{_display_price:,.2f}", f"{_chg:+.2f}%")
+                lc2.metric("📊 Volume", f"{_vol:,.0f}")
+                lc3.metric("🟢 Bid", f"{_bid_disp:,.2f}" if _bid else "—")
+                lc4.metric("🔴 Ask", f"{_ask_disp:,.2f}" if _ask else "—")
+                lc5.metric("⏱ Cập nhật", str(live_q.get("time", ""))[-8:])
             else:
-                st.caption("⏳ Chưa có dữ liệu live. Chờ WSS kết nối hoặc ngoài giờ giao dịch.")
+                st.warning(f"⏳ Chưa có dữ liệu live cho {ticker}. "
+                           f"{'(Ngoài VN30/Index — chỉ VN30 mới được stream)' if ticker not in VN30_SYMBOLS + INDEX_SYMBOLS else 'Chờ WSS kết nối...'}")
+
+            # Merge live vào chart nếu có cùng scale
+            if live_q and not _chart_df.empty:
+                _chart_df = _merge_live_quote(_chart_df, live_q)
+
+            try:
+                render_chart(_chart_df, ticker, height=st.session_state.get("chart_height_anal", 850))
+            except Exception as _e:
+                st.error(f"Chart render error: {_e}")
 
         _live_intraday_fragment()
     else:
