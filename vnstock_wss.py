@@ -1020,9 +1020,28 @@ class VnStockWSS:
     def _handle_tick(self, tick: dict):
         """Xử lý 1 tick: ghi JSON Tầng 1 + aggregate Tầng 2."""
         ticker = tick["ticker"]
+        path = LIVE_DIR / f"quote_{ticker}.json"
+
+        # Preserve enrichment fields từ file cũ.
+        # price_board overwrite toàn bộ file mỗi round nên các field
+        # chỉ được set bởi _fetch_volume_profile sẽ bị xoá → race condition.
+        # Merge chúng từ existing vào tick mới trước khi ghi.
+        PRESERVE_KEYS = (
+            "volume_profile",
+            "volume_profile_total_levels",
+            "volume_profile_alias",
+        )
+        if path.exists():
+            try:
+                existing = json.loads(path.read_text())
+                for k in PRESERVE_KEYS:
+                    if k in existing and k not in tick:
+                        tick[k] = existing[k]
+            except Exception:
+                pass
+
         # Tầng 1: atomic write JSON
         try:
-            path = LIVE_DIR / f"quote_{ticker}.json"
             tmp = path.with_suffix(".tmp")
             tmp.write_text(json.dumps(tick, ensure_ascii=False))
             tmp.replace(path)
