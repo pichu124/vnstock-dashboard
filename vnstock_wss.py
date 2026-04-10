@@ -394,11 +394,13 @@ class VnStockWSS:
     # ─────────────────────────────────────────────────────────────────────
     def _run_polling_once(self):
         """
-        Poll HTTP API cho toàn bộ symbols subscribed. Chạy song song
-        bằng ThreadPoolExecutor. Bỏ qua futures chưa xong thay vì ném
-        TimeoutError — round tiếp theo sẽ pick up.
+        Poll HTTP API cho toàn bộ symbols subscribed.
+
+        Ưu tiên: Market.price_board(symbols_list) — 1 batch call cho cả
+        VN30 + index. Fallback per-symbol qua Quote.intraday() hoặc
+        Vnstock.history() nếu batch call fail.
         """
-        self.status = "connected"  # polling được coi như "connected"
+        self.status = "connected"
         self._write_status()
 
         with self._lock:
@@ -408,29 +410,220 @@ class VnStockWSS:
             self._stop_event.wait(timeout=self.POLL_INTERVAL)
             return
 
-        from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+        # ── Tách stocks vs indices — price_board chỉ nhận stocks ───────────
+        stocks = [s for s in symbols if s not in INDEX_SYMBOLS]
+        indices = [s for s in symbols if s in INDEX_SYMBOLS]
 
-        def _poll_one(sym: str):
+        # ── Batch fetch stocks qua Market.price_board ─────────────────────
+        batch_ok = self._fetch_batch_price_board(stocks)
+
+        # ── Indices fetch riêng (chỉ 4 mã, per-symbol cũng nhanh) ─────────
+        from concurrent.futures import ThreadPoolExecutor, wait
+        if indices:
+            pool = ThreadPoolExecutor(max_workers=min(4, len(indices)))
             try:
-                tick = self._http_fetch_quote(sym)
-                if tick:
-                    self._handle_tick(tick)
-            except Exception as e:
-                # Ghi nhận error nhưng không crash polling loop
-                self.last_error = f"poll {sym}: {str(e)[:80]}"
+                futures = [pool.submit(self._fetch_index_quote, i) for i in indices]
+                wait(futures, timeout=8)
+            finally:
+                pool.shutdown(wait=False, cancel_futures=False)
 
-        pool = ThreadPoolExecutor(max_workers=self.POLL_WORKERS)
-        try:
-            futures = [pool.submit(_poll_one, s) for s in symbols]
-            # Đợi tối đa POLL_INTERVAL-2 giây, không raise timeout
-            done, not_done = wait(futures, timeout=max(self.POLL_INTERVAL - 2, 5))
-            # Clear error nếu ít nhất 1 nửa symbols xong
-            if len(done) >= len(symbols) // 2 and self.last_error and "poll" in (self.last_error or ""):
-                self.last_error = None
-        finally:
-            pool.shutdown(wait=False, cancel_futures=False)
+        # ── Fallback nếu batch fail: per-stock qua Quote.intraday ─────────
+        if not batch_ok and stocks:
+            pool = ThreadPoolExecutor(max_workers=self.POLL_WORKERS)
+            try:
+                futures = [pool.submit(self._fetch_single_intraday, s) for s in stocks]
+                wait(futures, timeout=max(self.POLL_INTERVAL - 4, 5))
+            finally:
+                pool.shutdown(wait=False, cancel_futures=False)
+
+        # Clear transient errors sau successful round
+        if self.last_error and "poll" in self.last_error.lower():
+            self.last_error = None
 
         self._stop_event.wait(timeout=max(self.POLL_INTERVAL - 5, 1))
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Batch fetcher — Market.price_board (PREFERRED)
+    # ─────────────────────────────────────────────────────────────────────
+    def _fetch_batch_price_board(self, symbols: list[str]) -> bool:
+        """
+        1 request cho toàn bộ stocks. Trả về True nếu thành công.
+        Dùng vnstock_data.Market().price_board(symbols_list).
+        """
+        if not symbols:
+            return True
+        try:
+            from vnstock_data import Market  # type: ignore
+            m = Market()
+            # Flexible signature: thử kwarg khác nhau
+            df = None
+            for call in (
+                lambda: m.price_board(symbols_list=symbols),
+                lambda: m.price_board(symbols=symbols),
+                lambda: m.price_board(symbols),
+            ):
+                try:
+                    df = call()
+                    if df is not None and not df.empty:
+                        break
+                except TypeError:
+                    continue
+                except Exception:
+                    continue
+            if df is None or df.empty:
+                return False
+
+            # Normalize columns (flatten multi-index if needed)
+            if hasattr(df.columns, "nlevels") and df.columns.nlevels > 1:
+                df.columns = [
+                    "_".join(str(x) for x in c if x).strip("_")
+                    for c in df.columns.values
+                ]
+            df.columns = [str(c).lower() for c in df.columns]
+
+            now_iso = datetime.now().isoformat(timespec="seconds")
+
+            # Map flexible column lookups
+            def _pick(row, *keys):
+                for k in keys:
+                    for col in df.columns:
+                        if k in col:
+                            try:
+                                v = row[col]
+                                if v is not None and not pd.isna(v):
+                                    return float(v)
+                            except Exception:
+                                continue
+                return None
+
+            ticker_col = None
+            for candidate in ("listinginfo_symbol", "symbol", "ticker", "code"):
+                for col in df.columns:
+                    if candidate in col:
+                        ticker_col = col
+                        break
+                if ticker_col:
+                    break
+
+            count = 0
+            for _, row in df.iterrows():
+                try:
+                    ticker = str(row[ticker_col]).upper() if ticker_col else None
+                    if not ticker or ticker == "NAN":
+                        continue
+                    price = _pick(row, "matchprice", "match_price", "lastprice",
+                                  "last", "close", "price")
+                    if price is None or price <= 0:
+                        continue
+                    volume = _pick(row, "accumulatedvolume", "accum_volume",
+                                   "totalvolume", "volume") or 0
+                    ref = _pick(row, "refprice", "ref_price", "reference")
+                    high = _pick(row, "highest", "high") or price
+                    low = _pick(row, "lowest", "low") or price
+                    bid = _pick(row, "bestbid1", "best_bid", "bid1", "bid") or 0
+                    ask = _pick(row, "bestoffer1", "bestask1", "ask1", "ask",
+                                "offer") or 0
+                    chg_pct = ((price - ref) / ref * 100) if ref else 0
+
+                    tick = {
+                        "ticker": ticker,
+                        "time": now_iso,
+                        "price": price,
+                        "volume": volume,
+                        "bid": bid,
+                        "ask": ask,
+                        "chg_pct": round(chg_pct, 2),
+                        "high": high,
+                        "low": low,
+                    }
+                    self._handle_tick(tick)
+                    count += 1
+                except Exception:
+                    continue
+
+            return count > 0
+        except Exception as e:
+            self.last_error = f"price_board: {str(e)[:100]}"
+            return False
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Single-symbol fetchers (fallback)
+    # ─────────────────────────────────────────────────────────────────────
+    def _fetch_single_intraday(self, ticker: str):
+        """Fallback per-stock: Quote.intraday() → _handle_tick."""
+        try:
+            tick = self._http_fetch_quote(ticker)
+            if tick:
+                self._handle_tick(tick)
+        except Exception as e:
+            self.last_error = f"poll {ticker}: {str(e)[:80]}"
+
+    def _fetch_index_quote(self, index_name: str):
+        """
+        Fetch chỉ số (VNINDEX, VN30, ...) qua vnstock_data.Market.index()
+        hoặc fallback vnstock.
+        """
+        try:
+            try:
+                from vnstock_data import Market  # type: ignore
+                m = Market()
+                df = None
+                for call in (
+                    lambda: m.index(symbol=index_name),
+                    lambda: m.index(index_name),
+                ):
+                    try:
+                        df = call()
+                        if df is not None and not df.empty:
+                            break
+                    except TypeError:
+                        continue
+                    except Exception:
+                        continue
+                if df is not None and not df.empty:
+                    last = df.iloc[-1]
+                    self._emit_index_tick(index_name, last)
+                    return
+            except Exception:
+                pass
+            # Fallback: vnstock
+            tick = self._http_fetch_quote(index_name)
+            if tick:
+                self._handle_tick(tick)
+        except Exception as e:
+            self.last_error = f"poll {index_name}: {str(e)[:80]}"
+
+    def _emit_index_tick(self, name: str, row):
+        """Convert 1 row từ Market.index() → tick dict."""
+        try:
+            def _f(r, *keys):
+                for k in keys:
+                    for col in r.index:
+                        if k in str(col).lower():
+                            try:
+                                v = r[col]
+                                if v is not None and not pd.isna(v):
+                                    return float(v)
+                            except Exception:
+                                continue
+                return None
+
+            price = _f(row, "close", "last", "price") or 0
+            if price <= 0:
+                return
+            tick = {
+                "ticker": name.upper(),
+                "time": datetime.now().isoformat(timespec="seconds"),
+                "price": price,
+                "volume": _f(row, "volume", "vol") or 0,
+                "bid": 0.0, "ask": 0.0,
+                "chg_pct": _f(row, "chg_pct", "change_pct", "pct_change") or 0,
+                "high": _f(row, "high") or price,
+                "low": _f(row, "low") or price,
+            }
+            self._handle_tick(tick)
+        except Exception:
+            pass
 
     def _http_fetch_quote(self, ticker: str) -> Optional[dict]:
         """
