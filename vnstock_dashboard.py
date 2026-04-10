@@ -382,6 +382,92 @@ def list_live_futures() -> list[str]:
     return result
 
 
+def render_volume_profile(profile: list, current_price: float = 0,
+                          scale: float = 1.0, max_rows: int = 20):
+    """
+    Render Volume Profile — bảng top N mức giá có khớp lệnh nhiều nhất
+    trong phiên, kèm breakdown buy / sell / unknown volume.
+
+    profile: list of {price, buy_vol, sell_vol, unknown_vol, total_vol}
+      đã sort theo price (giảm dần)
+    current_price: giá hiện tại để highlight dòng tương ứng
+    scale: chia giá cho scale nếu cần normalize
+    """
+    if not profile:
+        return
+
+    max_total = max((float(r.get("total_vol", 0)) for r in profile), default=1)
+    if max_total <= 0:
+        max_total = 1
+
+    rows_html = ""
+    for r in profile[:max_rows]:
+        try:
+            price = float(r.get("price", 0))
+            buy_v = float(r.get("buy_vol", 0))
+            sell_v = float(r.get("sell_vol", 0))
+            unk_v = float(r.get("unknown_vol", 0))
+            total_v = float(r.get("total_vol", 0))
+        except Exception:
+            continue
+
+        pct = total_v / max_total * 100
+        price_str = f"{price / scale:,.2f}"
+        is_current = current_price > 0 and abs(price - current_price) < 0.01
+        row_bg = "background:rgba(251,191,36,0.15)" if is_current else ""
+
+        buy_pct = (buy_v / total_v * 100) if total_v > 0 else 0
+        sell_pct = (sell_v / total_v * 100) if total_v > 0 else 0
+
+        rows_html += (
+            f"<tr style='{row_bg}'>"
+            f"<td style='color:#f9fafb;text-align:right;padding:4px 10px;"
+            f"font-weight:{'700' if is_current else '500'}'>{price_str}</td>"
+            f"<td style='color:#10b981;text-align:right;padding:4px 10px'>"
+            f"{int(buy_v):,}</td>"
+            f"<td style='color:#ef4444;text-align:right;padding:4px 10px'>"
+            f"{int(sell_v):,}</td>"
+            f"<td style='color:#9ca3af;text-align:right;padding:4px 10px'>"
+            f"{int(total_v):,}</td>"
+            f"<td style='padding:4px 10px;min-width:120px'>"
+            f"<div style='position:relative;height:14px;background:#1f2937;"
+            f"border-radius:2px;overflow:hidden'>"
+            f"<div style='position:absolute;left:0;top:0;height:100%;"
+            f"width:{buy_pct * pct / 100:.1f}%;background:#10b981'></div>"
+            f"<div style='position:absolute;left:{buy_pct * pct / 100:.1f}%;top:0;"
+            f"height:100%;width:{sell_pct * pct / 100:.1f}%;background:#ef4444'></div>"
+            f"</div></td>"
+            f"</tr>"
+        )
+
+    html = (
+        f"<div style='margin:14px 0'>"
+        f"<div style='color:#9ca3af;font-size:11px;margin-bottom:6px;"
+        f"text-transform:uppercase;letter-spacing:0.08em;font-weight:500'>"
+        f"📊 Volume Profile — Top {min(len(profile), max_rows)} mức giá sôi động "
+        f"(cả phiên)</div>"
+        f"<table style='width:100%;font-family:IBM Plex Mono,monospace;"
+        f"font-size:12px;border-collapse:collapse;"
+        f"border:1px solid #1f2937;border-radius:6px;overflow:hidden'>"
+        f"<thead><tr style='color:#6b7280;font-size:10px;"
+        f"text-transform:uppercase;letter-spacing:0.05em;background:#111827'>"
+        f"<th style='text-align:right;padding:6px 10px'>Giá</th>"
+        f"<th style='text-align:right;padding:6px 10px'>Mua</th>"
+        f"<th style='text-align:right;padding:6px 10px'>Bán</th>"
+        f"<th style='text-align:right;padding:6px 10px'>Tổng</th>"
+        f"<th style='text-align:left;padding:6px 10px'>Phân bổ</th>"
+        f"</tr></thead>"
+        f"<tbody>{rows_html}</tbody></table>"
+        f"<div style='color:#6b7280;font-size:10px;margin-top:4px'>"
+        f"Hàng highlight vàng = giá hiện tại &nbsp; | &nbsp; "
+        f"<span style='color:#10b981'>■</span> Mua chủ động &nbsp; "
+        f"<span style='color:#ef4444'>■</span> Bán chủ động"
+        f"</div>"
+        f"</div>"
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+
 def render_order_book(bids: list, asks: list, scale: float = 1.0,
                       max_levels: int = 3, title: str = "📋 Sổ lệnh"):
     """
@@ -2122,21 +2208,31 @@ if _active_tab == "🔬 Phân tích":
                 lc4.metric("🔴 Ask (tốt nhất)", f"{_ask_disp:,.2f}" if _ask else "—")
                 lc5.metric("⏱ Cập nhật", str(live_q.get("time", ""))[-8:])
 
-                # Order book — 3 mức cho stock, 10 mức cho futures
+                # Order book — 3 mức L2 cho cả stock và futures
+                # (price_board chỉ expose 3 levels cho mọi instrument)
                 _bids = live_q.get("bids", [])
                 _asks = live_q.get("asks", [])
+                _is_fut = is_futures(ticker) or live_q.get("type") == "futures"
                 if _bids or _asks:
-                    _is_fut = is_futures(ticker) or live_q.get("type") == "futures"
-                    _max_lv = 10 if _is_fut else 3
                     _title = (
-                        f"📋 Sổ lệnh ({_max_lv} mức) — "
+                        f"📋 Sổ lệnh (3 mức tốt nhất) — "
                         f"{'Hợp đồng tương lai' if _is_fut else 'Cổ phiếu'}"
                     )
                     render_order_book(
                         _bids, _asks,
                         scale=_scale,
-                        max_levels=_max_lv,
+                        max_levels=3,
                         title=_title,
+                    )
+
+                # Volume Profile — chỉ futures có (enriched từ Quote.price_depth)
+                _vp = live_q.get("volume_profile", [])
+                if _vp and _is_fut:
+                    render_volume_profile(
+                        _vp,
+                        current_price=_price,
+                        scale=_scale,
+                        max_rows=20,
                     )
             else:
                 _allowed = VN30_SYMBOLS + INDEX_SYMBOLS + FUTURES_SYMBOLS

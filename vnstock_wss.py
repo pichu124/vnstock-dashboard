@@ -267,6 +267,12 @@ class VnStockWSS:
             self.running = True
             self._stop_event.clear()
 
+        # Cài log handler để capture VN30F1M → 41I1G4000 mapping
+        try:
+            self._install_derivative_mapper()
+        except Exception:
+            pass
+
         # Main data thread (WSS or polling loop)
         self._main_thread = threading.Thread(
             target=self._run_main_loop, daemon=True, name="vnstock-wss-main"
@@ -517,11 +523,11 @@ class VnStockWSS:
             finally:
                 pool.shutdown(wait=False, cancel_futures=False)
 
-        # ── 3. Futures enrichment: 10 mức qua Quote.price_depth ───────────
+        # ── 3. Futures enrichment: Volume Profile qua Quote.price_depth ──
         if futures_friendly:
             pool = ThreadPoolExecutor(max_workers=min(4, len(futures_friendly)))
             try:
-                futs = [pool.submit(self._fetch_futures_depth, f)
+                futs = [pool.submit(self._fetch_volume_profile, f)
                         for f in futures_friendly]
                 wait(futs, timeout=10)
             finally:
@@ -623,10 +629,9 @@ class VnStockWSS:
                     high = _pick(row, "highest", "high") or price
                     low = _pick(row, "lowest", "low") or price
 
-                    # Parse multi-level order book (3 cho stock, 10 cho futures)
-                    max_lv = 10 if is_futures(ticker) else 3
-                    bids = _pick_depth_levels(row, cols_list, "bid", max_lv)
-                    asks = _pick_depth_levels(row, cols_list, "ask", max_lv)
+                    # price_board chỉ trả 3 mức L2 cho mọi instrument
+                    bids = _pick_depth_levels(row, cols_list, "bid", 3)
+                    asks = _pick_depth_levels(row, cols_list, "ask", 3)
 
                     chg_pct = ((price - ref) / ref * 100) if ref else 0
 
@@ -668,14 +673,19 @@ class VnStockWSS:
         except Exception as e:
             self.last_error = f"poll {ticker}: {str(e)[:80]}"
 
-    def _fetch_futures_depth(self, ticker: str) -> bool:
+    def _fetch_volume_profile(self, ticker: str) -> bool:
         """
-        Fetch 10-level order book depth cho 1 futures symbol qua
-        Quote(symbol).price_depth(). Overwrite quote_{ID}.json với depth
-        đầy đủ (nếu price_board đã tạo file với 3 mức, sẽ overwrite).
+        Fetch Volume Profile (price ladder) cho 1 futures symbol qua
+        Quote(symbol).price_depth(). Đây KHÔNG phải order book L2 mà là
+        tổng khối lượng khớp tại mỗi mức giá suốt phiên giao dịch.
 
-        Flexible: thử nhiều signature của price_depth() + parse DataFrame
-        hoặc dict linh hoạt.
+        Response format (vnstock_data 3.0.0 / KBS KRX):
+            DataFrame với cột: price, buyVol, sellVol, unknownVol, totalVol
+            Mỗi row = 1 mức giá đã có khớp lệnh trong phiên.
+
+        Enrich tick file đã có từ price_board bằng field 'volume_profile':
+            [{"price", "buy_vol", "sell_vol", "total_vol"}, ...]
+        Giữ top 20 mức giá theo total_vol (hoặc top 20 gần giá hiện tại).
         """
         try:
             from vnstock_data import Quote  # type: ignore
@@ -684,19 +694,14 @@ class VnStockWSS:
             self.last_error = f"Quote({ticker}): {str(e)[:80]}"
             return False
 
-        # Thử nhiều signature
-        result = None
+        df = None
         for call in (
             lambda: q.price_depth(),
-            lambda: q.price_depth(limit=10),
-            lambda: q.price_depth(num_levels=10),
-            lambda: q.price_depth(depth=10),
+            lambda: q.price_depth(limit=50),
         ):
             try:
-                result = call()
-                if result is not None:
-                    if hasattr(result, "empty") and result.empty:
-                        continue
+                df = call()
+                if df is not None and hasattr(df, "empty") and not df.empty:
                     break
             except TypeError:
                 continue
@@ -704,152 +709,125 @@ class VnStockWSS:
                 self.last_error = f"price_depth {ticker}: {str(e)[:60]}"
                 continue
 
-        if result is None:
+        if df is None or not hasattr(df, "empty") or df.empty:
             return False
 
-        bids, asks, symbol_out, extra = self._parse_depth_result(result, ticker)
-        if not bids and not asks:
+        # Normalize columns lowercase
+        df = df.copy()
+        df.columns = [str(c).lower() for c in df.columns]
+        cols = set(df.columns)
+        if "price" not in cols or "totalvol" not in cols:
             return False
 
-        # Đọc lại tick cũ (từ price_board step) để giữ price/volume/time
-        target_ticker = (symbol_out or ticker).upper()
-        existing_path = LIVE_DIR / f"quote_{target_ticker}.json"
-        existing = {}
-        if existing_path.exists():
+        # Convert DataFrame → list of dicts
+        profile = []
+        for _, row in df.iterrows():
             try:
-                existing = json.loads(existing_path.read_text())
+                profile.append({
+                    "price": float(row["price"]),
+                    "buy_vol": float(row.get("buyvol", 0) or 0),
+                    "sell_vol": float(row.get("sellvol", 0) or 0),
+                    "unknown_vol": float(row.get("unknownvol", 0) or 0),
+                    "total_vol": float(row.get("totalvol", 0) or 0),
+                })
             except Exception:
-                existing = {}
+                continue
 
-        tick = {
-            "ticker": target_ticker,
-            "time": existing.get("time") or datetime.now().isoformat(timespec="seconds"),
-            "price": extra.get("price") or existing.get("price") or (
-                bids[0]["price"] if bids else (asks[0]["price"] if asks else 0)
-            ),
-            "volume": extra.get("volume") or existing.get("volume") or 0,
-            "bid": bids[0]["price"] if bids else existing.get("bid", 0),
-            "ask": asks[0]["price"] if asks else existing.get("ask", 0),
-            "bids": bids,
-            "asks": asks,
-            "chg_pct": extra.get("chg_pct") or existing.get("chg_pct") or 0,
-            "high": extra.get("high") or existing.get("high") or 0,
-            "low": extra.get("low") or existing.get("low") or 0,
-            "type": "futures",
-        }
-        self._handle_tick(tick)
-        return True
+        if not profile:
+            return False
 
-    def _parse_depth_result(self, result, ticker: str):
-        """
-        Parse whatever price_depth returns → (bids, asks, symbol_out, extras).
-        Handles:
-          - DataFrame with bestbid1..N columns (single row)
-          - DataFrame with bid/ask rows (level per row)
-          - dict with bids/asks arrays
-          - list of levels
-        """
-        bids: list[dict] = []
-        asks: list[dict] = []
-        symbol_out = None
-        extras: dict = {}
+        # Lookup internal ID từ file existing (price_board đã mapping VN30F1M → 41I1G4000)
+        # Nếu chưa có, dùng ticker friendly name
+        internal_id = self._resolve_futures_id(ticker) or ticker.upper()
+
+        existing_path = LIVE_DIR / f"quote_{internal_id}.json"
+        if not existing_path.exists():
+            # Chưa có quote file → bỏ qua (price_board chưa chạy xong)
+            return False
 
         try:
-            # Case 1: DataFrame
-            if isinstance(result, pd.DataFrame):
-                df = result.copy()
-                # Flatten multi-index
-                if hasattr(df.columns, "nlevels") and df.columns.nlevels > 1:
-                    df.columns = ["_".join(str(x) for x in c if x).strip("_")
-                                  for c in df.columns.values]
-                df.columns = [str(c).lower() for c in df.columns]
-                cols = list(df.columns)
+            existing = json.loads(existing_path.read_text())
+        except Exception:
+            return False
 
-                if len(df) == 0:
-                    return bids, asks, symbol_out, extras
+        # Giữ top 20 mức theo total_vol (mức sôi động nhất)
+        profile_sorted = sorted(profile, key=lambda r: r["total_vol"], reverse=True)
+        top = profile_sorted[:20]
+        # Sort theo price để render ladder
+        top.sort(key=lambda r: r["price"], reverse=True)
 
-                # Sub-case 1a: 1 row with bestbid1..N columns
-                if len(df) == 1 or any(
-                    any(k in c for c in cols) for k in ("bestbid1", "bid1", "best_bid_1")
-                ):
-                    row = df.iloc[0]
-                    bids = _pick_depth_levels(row, cols, "bid", 10)
-                    asks = _pick_depth_levels(row, cols, "ask", 10)
-                    # Extras
-                    for ec in cols:
-                        if "symbol" in ec or "ticker" in ec:
-                            try:
-                                symbol_out = str(row[ec])
-                            except Exception:
-                                pass
-                    for pc in ("matchprice", "lastprice", "price", "close"):
-                        for c in cols:
-                            if pc in c:
-                                try:
-                                    extras["price"] = float(row[c])
-                                    break
-                                except Exception:
-                                    continue
-                        if "price" in extras:
-                            break
-                    return bids, asks, symbol_out, extras
+        existing["volume_profile"] = top
+        existing["volume_profile_total_levels"] = len(profile)
 
-                # Sub-case 1b: multi-row level-per-row
-                # Expect columns like: side, price, volume, level
-                side_col = next((c for c in cols if "side" in c or "type" in c), None)
-                price_col = next((c for c in cols if "price" in c), None)
-                vol_col = next((c for c in cols if "vol" in c or "quantity" in c or "qty" in c), None)
-                if side_col and price_col:
-                    for _, row in df.iterrows():
-                        try:
-                            side = str(row[side_col]).lower()
-                            price = float(row[price_col])
-                            vol = float(row[vol_col]) if vol_col else 0.0
-                            if "bid" in side or "buy" in side:
-                                bids.append({"price": price, "volume": vol})
-                            elif "ask" in side or "offer" in side or "sell" in side:
-                                asks.append({"price": price, "volume": vol})
-                        except Exception:
-                            continue
-                    return bids, asks, symbol_out, extras
-
-            # Case 2: dict
-            elif isinstance(result, dict):
-                raw_bids = result.get("bids") or result.get("bid") or []
-                raw_asks = result.get("asks") or result.get("ask") or result.get("offers") or []
-                for r in raw_bids[:10]:
-                    try:
-                        if isinstance(r, dict):
-                            bids.append({
-                                "price": float(r.get("price") or r.get("p") or 0),
-                                "volume": float(r.get("volume") or r.get("v") or r.get("quantity") or 0),
-                            })
-                        elif isinstance(r, (list, tuple)) and len(r) >= 2:
-                            bids.append({"price": float(r[0]), "volume": float(r[1])})
-                    except Exception:
-                        continue
-                for r in raw_asks[:10]:
-                    try:
-                        if isinstance(r, dict):
-                            asks.append({
-                                "price": float(r.get("price") or r.get("p") or 0),
-                                "volume": float(r.get("volume") or r.get("v") or r.get("quantity") or 0),
-                            })
-                        elif isinstance(r, (list, tuple)) and len(r) >= 2:
-                            asks.append({"price": float(r[0]), "volume": float(r[1])})
-                    except Exception:
-                        continue
-                symbol_out = result.get("symbol") or result.get("ticker")
-                if "price" in result:
-                    try:
-                        extras["price"] = float(result["price"])
-                    except Exception:
-                        pass
-
+        # Atomic write
+        try:
+            tmp = existing_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(existing, ensure_ascii=False))
+            tmp.replace(existing_path)
+            return True
         except Exception as e:
-            self.last_error = f"parse_depth: {str(e)[:80]}"
+            self.last_error = f"write profile {internal_id}: {str(e)[:60]}"
+            return False
 
-        return bids, asks, symbol_out, extras
+    def _resolve_futures_id(self, friendly_name: str) -> Optional[str]:
+        """
+        Tìm internal ID của futures symbol qua log-captured mapping.
+
+        vnstock_data log INFO message như:
+            "Converted derivative symbol VN30F1M to 41I1G4000 (KRX format)"
+        → _install_derivative_mapper() capture message này vào cache.
+        """
+        if not hasattr(self, "_futures_id_cache"):
+            self._futures_id_cache = {}
+        return self._futures_id_cache.get(friendly_name)
+
+    def _install_derivative_mapper(self):
+        """
+        Cài log handler để capture 'Converted derivative symbol X to Y'
+        từ vnstock_data → populate cache friendly_name → internal_id.
+        Chỉ cài 1 lần per instance.
+        """
+        if getattr(self, "_mapper_installed", False):
+            return
+        import logging
+        import re
+
+        if not hasattr(self, "_futures_id_cache"):
+            self._futures_id_cache = {}
+
+        cache = self._futures_id_cache
+        pattern = re.compile(
+            r"Converted derivative symbol\s+(\w+)\s+to\s+(\w+)",
+            re.IGNORECASE,
+        )
+
+        class _MapperHandler(logging.Handler):
+            def __init__(self):
+                super().__init__(logging.INFO)
+
+            def emit(self, record):
+                try:
+                    msg = record.getMessage()
+                    m = pattern.search(msg)
+                    if m:
+                        friendly = m.group(1).upper()
+                        internal = m.group(2).upper()
+                        cache[friendly] = internal
+                except Exception:
+                    pass
+
+        # Attach vào logger namespace của vnstock_data
+        for logger_name in (
+            "vnstock_data",
+            "vnstock_data.explorer",
+            "vnstock_data.explorer.kbs",
+            "vnstock_data.explorer.kbs.quote",
+        ):
+            lg = logging.getLogger(logger_name)
+            lg.addHandler(_MapperHandler())
+            if lg.level > logging.INFO or lg.level == 0:
+                lg.setLevel(logging.INFO)
+        self._mapper_installed = True
 
     def _fetch_index_quote(self, index_name: str):
         """
