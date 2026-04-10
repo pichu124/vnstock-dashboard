@@ -1218,6 +1218,118 @@ def _inspect_vnstock_data():
     print("=" * 60)
 
 
+def _health_check():
+    """
+    Kiểm tra tình trạng live data + warehouse.
+    In báo cáo tổng quan: files tươi/stale, kích thước, symbols thiếu,
+    price anomalies.
+    """
+    print("=" * 60)
+    print("vnstock_wss Health Check")
+    print("=" * 60)
+
+    now = datetime.now()
+    stats = {"ok": 0, "warn": 0, "err": 0}
+
+    def _ok(msg): print(f"  ✓ {msg}"); stats["ok"] += 1
+    def _warn(msg): print(f"  ⚠ {msg}"); stats["warn"] += 1
+    def _err(msg): print(f"  ✗ {msg}"); stats["err"] += 1
+
+    # ── 1. LIVE_DIR existence ────────────────────────────────────────────
+    print(f"\n[1/6] Live directory: {LIVE_DIR}")
+    if not LIVE_DIR.exists():
+        _err("LIVE_DIR does not exist — WSS client chưa chạy bao giờ?")
+        return stats
+    _ok(f"LIVE_DIR exists")
+
+    # ── 2. Quote file freshness ──────────────────────────────────────────
+    print(f"\n[2/6] Quote file freshness")
+    all_quotes = list(LIVE_DIR.glob("quote_*.json"))
+    if not all_quotes:
+        _warn("Không có quote file nào (WSS client chưa subscribe?)")
+    else:
+        fresh = 0
+        stale = 0
+        for p in all_quotes:
+            age = now.timestamp() - p.stat().st_mtime
+            if age < 300:  # 5 minutes
+                fresh += 1
+            else:
+                stale += 1
+        _ok(f"{fresh}/{len(all_quotes)} files fresh (<5 min old)")
+        if stale > 0:
+            _warn(f"{stale} stale files (>5 min old)")
+
+    # ── 3. Required symbols coverage ─────────────────────────────────────
+    print(f"\n[3/6] Required symbols coverage")
+    required = set(VN30_SYMBOLS + INDEX_SYMBOLS)
+    present = set()
+    for p in all_quotes:
+        name = p.stem.replace("quote_", "")
+        if name in required:
+            present.add(name)
+    missing = required - present
+    if not missing:
+        _ok(f"All {len(required)} required symbols present")
+    else:
+        _warn(f"Missing {len(missing)}: {sorted(missing)}")
+
+    # Futures (friendly names)
+    fut_files = [p.stem.replace("quote_", "")
+                 for p in LIVE_DIR.glob("quote_VN30F*.json")]
+    if fut_files:
+        _ok(f"Futures with VP: {len(fut_files)} ({', '.join(sorted(fut_files))})")
+    else:
+        _warn("Không có futures VP file nào")
+
+    # ── 4. Price anomalies ───────────────────────────────────────────────
+    print(f"\n[4/6] Price anomalies")
+    anomalies = 0
+    for p in all_quotes:
+        try:
+            q = json.loads(p.read_text())
+            price = float(q.get("price", 0))
+            chg = abs(float(q.get("chg_pct", 0)))
+            if price <= 0:
+                _warn(f"{p.stem}: price={price}")
+                anomalies += 1
+            elif chg > 10:  # Giá thay đổi > 10% trong ngày
+                _warn(f"{p.stem}: chg_pct={chg:+.2f}% (unusual)")
+                anomalies += 1
+        except Exception:
+            continue
+    if anomalies == 0:
+        _ok("No price anomalies detected")
+
+    # ── 5. Bars parquet ──────────────────────────────────────────────────
+    print(f"\n[5/6] Bars parquet (1m aggregated)")
+    today_bars = LIVE_DIR / f"bars_{now.date().isoformat()}.parquet"
+    if today_bars.exists():
+        size = today_bars.stat().st_size
+        _ok(f"{today_bars.name}: {size:,} bytes")
+        if size < 1024:
+            _warn(f"Size < 1KB — có thể chưa flush đủ data")
+    else:
+        _warn(f"{today_bars.name} chưa tồn tại "
+              f"(sẽ được tạo sau flush đầu tiên, mỗi 60s)")
+
+    # ── 6. Stale tmp files ───────────────────────────────────────────────
+    print(f"\n[6/6] Stale tmp files")
+    stale_tmps = list(LIVE_DIR.glob("*.tmp"))
+    if not stale_tmps:
+        _ok("No stale tmp files")
+    else:
+        _warn(f"{len(stale_tmps)} stale tmp file(s) — sẽ được cleanup ở start()")
+        for t in stale_tmps[:5]:
+            print(f"      {t.name}")
+
+    # ── Summary ──────────────────────────────────────────────────────────
+    print("\n" + "=" * 60)
+    print(f"Summary: {stats['ok']} OK | {stats['warn']} WARN | {stats['err']} ERROR")
+    print("=" * 60)
+    return stats
+
+
 def _probe_price_depth(ticker: str):
     """Probe Quote(ticker).price_depth() → in structure để debug."""
     print(f"=== Probe price_depth for {ticker} ===")
@@ -1280,12 +1392,18 @@ def _cli():
     parser.add_argument("--probe-depth", metavar="TICKER",
                         help="Probe Quote(ticker).price_depth() structure")
     parser.add_argument("--probe-profile", metavar="TICKER",
-                        help="Run _fetch_volume_profile + print result + last_error")
+                        help="Run _fetch_volume_profile (use ALL for all futures)")
+    parser.add_argument("--health-check", action="store_true",
+                        help="Report live data + warehouse health")
     parser.add_argument("--duration", type=int, default=60, help="Test duration (s)")
     args = parser.parse_args()
 
     if args.inspect:
         _inspect_vnstock_data()
+        return
+
+    if args.health_check:
+        _health_check()
         return
 
     if args.probe_depth:

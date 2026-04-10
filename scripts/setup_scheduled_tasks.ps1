@@ -1,0 +1,168 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# setup_scheduled_tasks.ps1
+# ═══════════════════════════════════════════════════════════════════════════
+# Tạo 2 Windows Scheduled Tasks cho vnstock_dashboard pipeline:
+#
+#   1. VnStock Daily Rollup  (15:30 Mon-Fri)
+#      Merge 1m bars từ _live → warehouse daily OHLCV
+#      Command: python vnstock_rollup.py
+#
+#   2. VnStock Daily Updater (18:00 Mon-Fri)
+#      Fetch missing daily data từ API nếu có gap
+#      Command: python vnstock_updater.py --force
+#
+# Usage (chạy PowerShell AS ADMINISTRATOR):
+#   .\scripts\setup_scheduled_tasks.ps1
+#   .\scripts\setup_scheduled_tasks.ps1 -Remove    # Xoá các task đã tạo
+#   .\scripts\setup_scheduled_tasks.ps1 -DryRun    # Preview, không tạo
+#
+# Yêu cầu:
+#   - venv đã activate HOẶC Python trong PATH
+#   - Project root là current directory khi chạy script
+# ═══════════════════════════════════════════════════════════════════════════
+
+param(
+    [switch]$Remove,
+    [switch]$DryRun
+)
+
+$ErrorActionPreference = "Stop"
+
+# Paths — auto-detect từ location của script
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$ProjectRoot = Split-Path -Parent $ScriptDir
+$VenvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
+$SystemPython = (Get-Command python.exe -ErrorAction SilentlyContinue).Source
+
+# Ưu tiên venv Python, fallback system
+if (Test-Path $VenvPython) {
+    $PythonExe = $VenvPython
+    Write-Host "Using venv Python: $PythonExe" -ForegroundColor Cyan
+} elseif ($SystemPython) {
+    $PythonExe = $SystemPython
+    Write-Host "Using system Python: $PythonExe" -ForegroundColor Yellow
+    Write-Host "(Khuyến nghị: tạo venv tại .venv để isolate dependencies)" -ForegroundColor Yellow
+} else {
+    Write-Error "Không tìm thấy Python. Cài Python hoặc tạo venv tại .venv"
+    exit 1
+}
+
+$TaskDefinitions = @(
+    @{
+        Name = "VnStock Daily Rollup"
+        Script = "vnstock_rollup.py"
+        Args = ""
+        Time = "15:30"
+        Description = "Merge 1m bars → warehouse daily OHLCV (post-close)"
+    },
+    @{
+        Name = "VnStock Daily Updater"
+        Script = "vnstock_updater.py"
+        Args = "--force"
+        Time = "18:00"
+        Description = "Fetch missing daily data từ vnstock API"
+    }
+)
+
+# ── Remove mode ────────────────────────────────────────────────────────────
+if ($Remove) {
+    Write-Host "`n=== Removing Scheduled Tasks ===" -ForegroundColor Yellow
+    foreach ($task in $TaskDefinitions) {
+        $name = $task.Name
+        try {
+            $existing = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+            if ($existing) {
+                if ($DryRun) {
+                    Write-Host "[dry-run] Would remove: $name" -ForegroundColor Cyan
+                } else {
+                    Unregister-ScheduledTask -TaskName $name -Confirm:$false
+                    Write-Host "✓ Removed: $name" -ForegroundColor Green
+                }
+            } else {
+                Write-Host "  Not found: $name (skip)" -ForegroundColor Gray
+            }
+        } catch {
+            Write-Host "✗ Failed to remove $name : $_" -ForegroundColor Red
+        }
+    }
+    exit 0
+}
+
+# ── Create mode ────────────────────────────────────────────────────────────
+Write-Host "`n=== Setting up VnStock Scheduled Tasks ===" -ForegroundColor Cyan
+Write-Host "Project root: $ProjectRoot"
+Write-Host "Python:       $PythonExe"
+Write-Host ""
+
+foreach ($task in $TaskDefinitions) {
+    $name = $task.Name
+    $scriptPath = Join-Path $ProjectRoot $task.Script
+
+    if (-not (Test-Path $scriptPath)) {
+        Write-Host "✗ Script not found: $scriptPath (skip)" -ForegroundColor Red
+        continue
+    }
+
+    # Build argument string
+    $argList = "`"$scriptPath`""
+    if ($task.Args) {
+        $argList += " " + $task.Args
+    }
+
+    Write-Host "── $name ──" -ForegroundColor Cyan
+    Write-Host "  Trigger:   Daily at $($task.Time), Mon-Fri"
+    Write-Host "  Command:   $PythonExe $argList"
+    Write-Host "  Working:   $ProjectRoot"
+
+    if ($DryRun) {
+        Write-Host "  [dry-run] Would create task" -ForegroundColor Yellow
+        Write-Host ""
+        continue
+    }
+
+    try {
+        # Remove existing task if present
+        $existing = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+        if ($existing) {
+            Unregister-ScheduledTask -TaskName $name -Confirm:$false
+            Write-Host "  (removed existing task with same name)" -ForegroundColor Gray
+        }
+
+        # Action — run Python with script
+        $action = New-ScheduledTaskAction `
+            -Execute $PythonExe `
+            -Argument $argList `
+            -WorkingDirectory $ProjectRoot
+
+        # Trigger — daily Mon-Fri
+        $trigger = New-ScheduledTaskTrigger `
+            -Weekly `
+            -DaysOfWeek Monday, Tuesday, Wednesday, Thursday, Friday `
+            -At $task.Time
+
+        # Settings — allow run even if missed (laptop sleep), stop after 30 min
+        $settings = New-ScheduledTaskSettingsSet `
+            -AllowStartIfOnBatteries `
+            -DontStopIfGoingOnBatteries `
+            -StartWhenAvailable `
+            -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
+
+        # Register task với current user
+        Register-ScheduledTask `
+            -TaskName $name `
+            -Action $action `
+            -Trigger $trigger `
+            -Settings $settings `
+            -Description $task.Description `
+            -RunLevel Limited | Out-Null
+
+        Write-Host "  ✓ Created" -ForegroundColor Green
+    } catch {
+        Write-Host "  ✗ Failed: $_" -ForegroundColor Red
+    }
+    Write-Host ""
+}
+
+Write-Host "=== Done ===" -ForegroundColor Cyan
+Write-Host "Verify with: Get-ScheduledTask -TaskName 'VnStock *'" -ForegroundColor Gray
+Write-Host "Run manually: Start-ScheduledTask -TaskName 'VnStock Daily Rollup'" -ForegroundColor Gray
