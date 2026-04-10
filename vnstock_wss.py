@@ -46,7 +46,77 @@ VN30_SYMBOLS = [
 
 INDEX_SYMBOLS = ["VNINDEX", "VN30", "HNXINDEX", "HNX30"]
 
-ALL_SYMBOLS = VN30_SYMBOLS + INDEX_SYMBOLS
+FUTURES_SYMBOLS = ["VN30F1M", "VN30F2M", "VN30F1Q", "VN30F2Q"]
+
+
+def is_futures(ticker: str) -> bool:
+    """Check nếu ticker là hợp đồng tương lai VN30."""
+    t = str(ticker).upper()
+    if t in FUTURES_SYMBOLS:
+        return True
+    # Pattern: VN30F + suffix (1M, 2M, 1Q, 2Q, 2024, etc.)
+    return len(t) >= 6 and t.startswith("VN30F")
+
+
+ALL_SYMBOLS = VN30_SYMBOLS + INDEX_SYMBOLS + FUTURES_SYMBOLS
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Depth parser — parse multi-level bid/ask từ price_board row
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _pick_depth_levels(row, columns: list, side: str,
+                       max_levels: int = 10) -> list[dict]:
+    """
+    Parse bid/ask levels từ 1 row của price_board DataFrame.
+    side = 'bid' | 'ask'. Returns list of {"price", "volume"} từ best → kém.
+    Flexible column naming: bestbid1/bestbidvol1, bid_price_1/bid_vol_1, v.v.
+    Dừng khi gặp level không có price.
+    """
+    if side == "bid":
+        price_patterns = ["bestbid{i}", "best_bid_{i}", "bidprice{i}",
+                          "bid_price_{i}", "bid{i}price", "bid{i}"]
+        vol_patterns = ["bestbidvol{i}", "bestbidvolume{i}", "best_bid_vol_{i}",
+                        "bidvol{i}", "bid_vol_{i}", "bidvolume{i}", "bid{i}vol",
+                        "bid{i}volume"]
+    else:
+        price_patterns = ["bestoffer{i}", "best_offer_{i}", "bestask{i}",
+                          "best_ask_{i}", "askprice{i}", "ask_price_{i}",
+                          "offerprice{i}", "ask{i}", "offer{i}"]
+        vol_patterns = ["bestoffervol{i}", "bestoffervolume{i}",
+                        "best_offer_vol_{i}", "bestaskvol{i}", "askvol{i}",
+                        "ask_vol_{i}", "offervol{i}", "ask{i}vol",
+                        "ask{i}volume", "offer{i}vol"]
+
+    def _find(key: str):
+        for col in columns:
+            if key in col:
+                try:
+                    v = row[col]
+                    if v is not None and not pd.isna(v):
+                        fv = float(v)
+                        return fv
+                except Exception:
+                    continue
+        return None
+
+    levels: list[dict] = []
+    for i in range(1, max_levels + 1):
+        price = None
+        for pat in price_patterns:
+            price = _find(pat.format(i=i))
+            if price is not None and price > 0:
+                break
+        if price is None or price <= 0:
+            break
+        volume = None
+        for pat in vol_patterns:
+            volume = _find(pat.format(i=i))
+            if volume is not None:
+                break
+        levels.append({"price": price, "volume": volume or 0})
+    return levels
+
 
 LIVE_DIR = Path("data_warehouse/_live")
 LIVE_DIR.mkdir(parents=True, exist_ok=True)
@@ -375,16 +445,20 @@ class VnStockWSS:
             price = msg.get("price") or msg.get("close") or msg.get("p")
             if not ticker or price is None:
                 return None
+            t = str(ticker).upper()
             return {
-                "ticker": str(ticker).upper(),
+                "ticker": t,
                 "time": msg.get("time") or datetime.now().isoformat(timespec="seconds"),
                 "price": float(price),
                 "volume": float(msg.get("volume", 0) or msg.get("v", 0) or 0),
                 "bid": float(msg.get("bid", 0) or 0),
                 "ask": float(msg.get("ask", 0) or 0),
+                "bids": msg.get("bids", []),
+                "asks": msg.get("asks", []),
                 "chg_pct": float(msg.get("chg_pct", 0) or msg.get("change_pct", 0) or 0),
                 "high": float(msg.get("high", price) or price),
                 "low": float(msg.get("low", price) or price),
+                "type": "futures" if is_futures(t) else "stock",
             }
         except Exception:
             return None
@@ -505,6 +579,7 @@ class VnStockWSS:
                 if ticker_col:
                     break
 
+            cols_list = list(df.columns)
             count = 0
             for _, row in df.iterrows():
                 try:
@@ -520,9 +595,12 @@ class VnStockWSS:
                     ref = _pick(row, "refprice", "ref_price", "reference")
                     high = _pick(row, "highest", "high") or price
                     low = _pick(row, "lowest", "low") or price
-                    bid = _pick(row, "bestbid1", "best_bid", "bid1", "bid") or 0
-                    ask = _pick(row, "bestoffer1", "bestask1", "ask1", "ask",
-                                "offer") or 0
+
+                    # Parse multi-level order book (3 cho stock, 10 cho futures)
+                    max_lv = 10 if is_futures(ticker) else 3
+                    bids = _pick_depth_levels(row, cols_list, "bid", max_lv)
+                    asks = _pick_depth_levels(row, cols_list, "ask", max_lv)
+
                     chg_pct = ((price - ref) / ref * 100) if ref else 0
 
                     tick = {
@@ -530,11 +608,16 @@ class VnStockWSS:
                         "time": now_iso,
                         "price": price,
                         "volume": volume,
-                        "bid": bid,
-                        "ask": ask,
+                        # Backward compat: best bid/ask
+                        "bid": bids[0]["price"] if bids else 0,
+                        "ask": asks[0]["price"] if asks else 0,
+                        # New: full depth
+                        "bids": bids,
+                        "asks": asks,
                         "chg_pct": round(chg_pct, 2),
                         "high": high,
                         "low": low,
+                        "type": "futures" if is_futures(ticker) else "stock",
                     }
                     self._handle_tick(tick)
                     count += 1
@@ -617,9 +700,11 @@ class VnStockWSS:
                 "price": price,
                 "volume": _f(row, "volume", "vol") or 0,
                 "bid": 0.0, "ask": 0.0,
+                "bids": [], "asks": [],
                 "chg_pct": _f(row, "chg_pct", "change_pct", "pct_change") or 0,
                 "high": _f(row, "high") or price,
                 "low": _f(row, "low") or price,
+                "type": "index",
             }
             self._handle_tick(tick)
         except Exception:
@@ -686,16 +771,20 @@ class VnStockWSS:
         prev_close = float(df.iloc[0].get("close", price)) if len(df) > 1 else price
         chg_pct = ((price - prev_close) / prev_close * 100) if prev_close > 0 else 0
 
+        t_upper = ticker.upper()
         return {
-            "ticker": ticker.upper(),
+            "ticker": t_upper,
             "time": str(last.get("time", datetime.now().isoformat(timespec="seconds"))),
             "price": price,
             "volume": float(last.get("volume", 0)),
             "bid": 0.0,
             "ask": 0.0,
+            "bids": [],
+            "asks": [],
             "chg_pct": round(chg_pct, 2),
             "high": float(last.get("high", price)),
             "low": float(last.get("low", price)),
+            "type": "futures" if is_futures(t_upper) else "stock",
         }
 
     # ─────────────────────────────────────────────────────────────────────

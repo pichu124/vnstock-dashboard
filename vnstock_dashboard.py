@@ -26,11 +26,17 @@ import streamlit.components.v1 as _comp
 
 # Real-time WSS client (optional)
 try:
-    from vnstock_wss import get_wss_client, VN30_SYMBOLS, INDEX_SYMBOLS
+    from vnstock_wss import (
+        get_wss_client,
+        VN30_SYMBOLS, INDEX_SYMBOLS, FUTURES_SYMBOLS,
+        is_futures,
+    )
     WSS_AVAILABLE = True
 except ImportError:
     WSS_AVAILABLE = False
-    VN30_SYMBOLS, INDEX_SYMBOLS = [], []
+    VN30_SYMBOLS, INDEX_SYMBOLS, FUTURES_SYMBOLS = [], [], []
+    def is_futures(ticker):  # type: ignore
+        return False
 
 warnings.filterwarnings("ignore")
 
@@ -359,6 +365,71 @@ def load_live_quote(ticker: str) -> dict | None:
         return json.loads(path.read_text())
     except Exception:
         return None
+
+
+def render_order_book(bids: list, asks: list, scale: float = 1.0,
+                      max_levels: int = 3, title: str = "📋 Sổ lệnh"):
+    """
+    Render order book table side-by-side (bid bên trái, ask bên phải).
+    bids/asks: list of dict {"price", "volume"} — đã sorted best → kém.
+    scale: chia giá cho scale nếu cần normalize đơn vị (vd 1000).
+    max_levels: 3 cho cổ phiếu, 10 cho hợp đồng tương lai.
+    """
+    if not bids and not asks:
+        return
+
+    def _fmt_price(v):
+        try:
+            return f"{float(v) / scale:,.2f}"
+        except Exception:
+            return "—"
+
+    def _fmt_vol(v):
+        try:
+            return f"{int(float(v)):,}"
+        except Exception:
+            return "—"
+
+    rows_html = ""
+    for i in range(max_levels):
+        bid = bids[i] if i < len(bids) else None
+        ask = asks[i] if i < len(asks) else None
+        bp = _fmt_price(bid["price"]) if bid else "—"
+        bv = _fmt_vol(bid.get("volume")) if bid and bid.get("volume") else "—"
+        ap = _fmt_price(ask["price"]) if ask else "—"
+        av = _fmt_vol(ask.get("volume")) if ask and ask.get("volume") else "—"
+        rank_label = f"{i+1}" if i < 3 else f"{i+1}"
+        rows_html += (
+            f"<tr>"
+            f"<td style='color:#6b7280;text-align:center;padding:4px 6px;"
+            f"font-size:10px'>{rank_label}</td>"
+            f"<td style='color:#9ca3af;text-align:right;padding:4px 10px'>{bv}</td>"
+            f"<td style='color:#10b981;text-align:right;padding:4px 10px;"
+            f"font-weight:600;background:rgba(16,185,129,0.08)'>{bp}</td>"
+            f"<td style='color:#ef4444;text-align:left;padding:4px 10px;"
+            f"font-weight:600;background:rgba(239,68,68,0.08)'>{ap}</td>"
+            f"<td style='color:#9ca3af;text-align:left;padding:4px 10px'>{av}</td>"
+            f"</tr>"
+        )
+
+    html = (
+        f"<div style='margin:10px 0 16px 0'>"
+        f"<div style='color:#9ca3af;font-size:11px;margin-bottom:6px;"
+        f"text-transform:uppercase;letter-spacing:0.08em;font-weight:500'>{title}</div>"
+        f"<table style='width:100%;font-family:IBM Plex Mono,monospace;"
+        f"font-size:13px;border-collapse:collapse;"
+        f"border:1px solid #1f2937;border-radius:6px;overflow:hidden'>"
+        f"<thead><tr style='color:#6b7280;font-size:10px;"
+        f"text-transform:uppercase;letter-spacing:0.05em;background:#111827'>"
+        f"<th style='text-align:center;padding:6px;width:24px'>#</th>"
+        f"<th style='text-align:right;padding:6px 10px'>KL Mua</th>"
+        f"<th style='text-align:right;padding:6px 10px'>Giá Mua</th>"
+        f"<th style='text-align:left;padding:6px 10px'>Giá Bán</th>"
+        f"<th style='text-align:left;padding:6px 10px'>KL Bán</th>"
+        f"</tr></thead>"
+        f"<tbody>{rows_html}</tbody></table></div>"
+    )
+    st.markdown(html, unsafe_allow_html=True)
 
 
 def _normalize_live_price(historical_last_close: float, live_price: float) -> float:
@@ -2004,21 +2075,47 @@ if _active_tab == "🔬 Phân tích":
                 _ask = float(live_q.get("ask", 0))
                 # Normalize hiển thị theo scale của historical chart
                 _display_price = _price
+                _scale = 1.0
                 if not _chart_df.empty:
                     _last_close = float(_chart_df.iloc[-1]["close"])
                     _display_price = _normalize_live_price(_last_close, _price)
                     _bid_disp = _normalize_live_price(_last_close, _bid) if _bid else 0
                     _ask_disp = _normalize_live_price(_last_close, _ask) if _ask else 0
+                    if _display_price > 0 and _price > 0:
+                        _scale = _price / _display_price
                 else:
                     _bid_disp, _ask_disp = _bid, _ask
                 lc1.metric("💰 Giá Live", f"{_display_price:,.2f}", f"{_chg:+.2f}%")
-                lc2.metric("📊 Volume", f"{_vol:,.0f}")
-                lc3.metric("🟢 Bid", f"{_bid_disp:,.2f}" if _bid else "—")
-                lc4.metric("🔴 Ask", f"{_ask_disp:,.2f}" if _ask else "—")
+                lc2.metric("📊 Volume tích luỹ", f"{_vol:,.0f}",
+                           help="Tổng khối lượng khớp từ đầu phiên 9:00 tới hiện tại")
+                lc3.metric("🟢 Bid (tốt nhất)", f"{_bid_disp:,.2f}" if _bid else "—")
+                lc4.metric("🔴 Ask (tốt nhất)", f"{_ask_disp:,.2f}" if _ask else "—")
                 lc5.metric("⏱ Cập nhật", str(live_q.get("time", ""))[-8:])
+
+                # Order book — 3 mức cho stock, 10 mức cho futures
+                _bids = live_q.get("bids", [])
+                _asks = live_q.get("asks", [])
+                if _bids or _asks:
+                    _is_fut = is_futures(ticker) or live_q.get("type") == "futures"
+                    _max_lv = 10 if _is_fut else 3
+                    _title = (
+                        f"📋 Sổ lệnh ({_max_lv} mức) — "
+                        f"{'Hợp đồng tương lai' if _is_fut else 'Cổ phiếu'}"
+                    )
+                    render_order_book(
+                        _bids, _asks,
+                        scale=_scale,
+                        max_levels=_max_lv,
+                        title=_title,
+                    )
             else:
-                st.warning(f"⏳ Chưa có dữ liệu live cho {ticker}. "
-                           f"{'(Ngoài VN30/Index — chỉ VN30 mới được stream)' if ticker not in VN30_SYMBOLS + INDEX_SYMBOLS else 'Chờ WSS kết nối...'}")
+                _allowed = VN30_SYMBOLS + INDEX_SYMBOLS + FUTURES_SYMBOLS
+                st.warning(
+                    f"⏳ Chưa có dữ liệu live cho {ticker}. "
+                    + ("(Ngoài VN30/Index/Futures — chỉ VN30+Index+VN30F mới được stream)"
+                       if ticker not in _allowed
+                       else "Chờ WSS kết nối...")
+                )
 
             # Merge live vào chart nếu có cùng scale
             if live_q and not _chart_df.empty:
