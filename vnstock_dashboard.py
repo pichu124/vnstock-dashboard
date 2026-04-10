@@ -367,6 +367,21 @@ def load_live_quote(ticker: str) -> dict | None:
         return None
 
 
+def list_live_futures() -> list[str]:
+    """
+    Quét thư mục _live để tìm các file quote có pattern futures.
+    Trả về list ticker (internal ID như 41I1G4000 hoặc VN30F*).
+    """
+    if not LIVE_DIR.exists():
+        return []
+    result = []
+    for p in sorted(LIVE_DIR.glob("quote_*.json")):
+        name = p.stem.replace("quote_", "")
+        if is_futures(name):
+            result.append(name)
+    return result
+
+
 def render_order_book(bids: list, asks: list, scale: float = 1.0,
                       max_levels: int = 3, title: str = "📋 Sổ lệnh"):
     """
@@ -1873,6 +1888,21 @@ if _active_tab == "🔬 Phân tích":
         ticker_input = st.text_input("Mã cổ phiếu", placeholder="VCB, FPT...", key="ticker_sidebar").upper().strip()
         if ticker_input and st.button("Phân tích →", use_container_width=True, key="anal_go"):
             st.session_state["analyze_ticker"] = ticker_input
+
+        # Futures quick picker — nếu WSS đang chạy và có live futures
+        if WSS_AVAILABLE:
+            _live_futs = list_live_futures()
+            if _live_futs:
+                _fut_pick = st.selectbox(
+                    "📑 Hợp đồng tương lai",
+                    ["— chọn —"] + _live_futs,
+                    key="futures_picker",
+                    help="Danh sách futures đang có live data (10 mức order book)"
+                )
+                if _fut_pick and _fut_pick != "— chọn —":
+                    if st.button(f"Phân tích {_fut_pick} →",
+                                 use_container_width=True, key="anal_fut_go"):
+                        st.session_state["analyze_ticker"] = _fut_pick
 
         st.divider()
         st.markdown("### ⏱ Khoảng thời gian")

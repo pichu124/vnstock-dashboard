@@ -50,12 +50,23 @@ FUTURES_SYMBOLS = ["VN30F1M", "VN30F2M", "VN30F1Q", "VN30F2Q"]
 
 
 def is_futures(ticker: str) -> bool:
-    """Check nếu ticker là hợp đồng tương lai VN30."""
+    """
+    Check nếu ticker là hợp đồng tương lai VN30.
+
+    Nhận diện 3 format:
+    - Friendly names: VN30F1M, VN30F2M, VN30F1Q, VN30F2Q
+    - Expiry codes:   VN30F2410, VN30F2504 (YYMM)
+    - HNX internal:   41I1G4000, 41I1G5000, ... (Market.price_board trả về)
+    """
     t = str(ticker).upper()
     if t in FUTURES_SYMBOLS:
         return True
-    # Pattern: VN30F + suffix (1M, 2M, 1Q, 2Q, 2024, etc.)
-    return len(t) >= 6 and t.startswith("VN30F")
+    if t.startswith("VN30F") and len(t) >= 6:
+        return True
+    # HNX internal futures code: 41I... (dẫn xuất chỉ số)
+    if t.startswith("41I") and len(t) >= 6:
+        return True
+    return False
 
 
 ALL_SYMBOLS = VN30_SYMBOLS + INDEX_SYMBOLS + FUTURES_SYMBOLS
@@ -470,9 +481,9 @@ class VnStockWSS:
         """
         Poll HTTP API cho toàn bộ symbols subscribed.
 
-        Ưu tiên: Market.price_board(symbols_list) — 1 batch call cho cả
-        VN30 + index. Fallback per-symbol qua Quote.intraday() hoặc
-        Vnstock.history() nếu batch call fail.
+        Stocks + Futures → Market.price_board(symbols_list) batch call
+          (price_board handle cả futures, trả internal ID như 41I1G*)
+        Indices → Market.index() per-symbol
         """
         self.status = "connected"
         self._write_status()
@@ -484,29 +495,29 @@ class VnStockWSS:
             self._stop_event.wait(timeout=self.POLL_INTERVAL)
             return
 
-        # ── Tách stocks vs indices — price_board chỉ nhận stocks ───────────
-        stocks = [s for s in symbols if s not in INDEX_SYMBOLS]
+        # ── Split: stocks+futures đi chung qua price_board, indices riêng
+        non_index = [s for s in symbols if s not in INDEX_SYMBOLS]
         indices = [s for s in symbols if s in INDEX_SYMBOLS]
 
-        # ── Batch fetch stocks qua Market.price_board ─────────────────────
-        batch_ok = self._fetch_batch_price_board(stocks)
+        # ── Batch fetch stocks + futures qua Market.price_board ───────────
+        batch_ok = self._fetch_batch_price_board(non_index)
 
-        # ── Indices fetch riêng (chỉ 4 mã, per-symbol cũng nhanh) ─────────
+        # ── Indices fetch riêng ───────────────────────────────────────────
         from concurrent.futures import ThreadPoolExecutor, wait
         if indices:
             pool = ThreadPoolExecutor(max_workers=min(4, len(indices)))
             try:
-                futures = [pool.submit(self._fetch_index_quote, i) for i in indices]
-                wait(futures, timeout=8)
+                futs = [pool.submit(self._fetch_index_quote, i) for i in indices]
+                wait(futs, timeout=8)
             finally:
                 pool.shutdown(wait=False, cancel_futures=False)
 
-        # ── Fallback nếu batch fail: per-stock qua Quote.intraday ─────────
-        if not batch_ok and stocks:
+        # ── Fallback nếu batch fail ───────────────────────────────────────
+        if not batch_ok and non_index:
             pool = ThreadPoolExecutor(max_workers=self.POLL_WORKERS)
             try:
-                futures = [pool.submit(self._fetch_single_intraday, s) for s in stocks]
-                wait(futures, timeout=max(self.POLL_INTERVAL - 4, 5))
+                futs = [pool.submit(self._fetch_single_intraday, s) for s in non_index]
+                wait(futs, timeout=max(self.POLL_INTERVAL - 4, 5))
             finally:
                 pool.shutdown(wait=False, cancel_futures=False)
 
