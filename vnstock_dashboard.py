@@ -329,21 +329,25 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # Volume MA20
     df["vol_ma20"] = df["volume"].astype(float).rolling(20).mean()
 
-    # VWAP — Volume Weighted Average Price
-    # Dùng typical price = (high + low + close) / 3
-    tp = (df["high"].astype(float) + df["low"].astype(float) + c) / 3
-    vol = df["volume"].astype(float).replace(0, np.nan)
-    cum_tp_vol = (tp * vol).cumsum()
-    cum_vol = vol.cumsum()
-    df["vwap"] = cum_tp_vol / cum_vol
+    # VWAP — Volume Weighted Average Price (chỉ có ý nghĩa cho intraday)
+    # Trên daily chart, VWAP cumulative từ đầu dataset sẽ hội tụ về
+    # giá trung bình dài hạn — không hữu ích. Chỉ tính khi có >= 20
+    # bars/ngày (intraday data).
+    _is_intraday = len(df) > 50 and (df["time"].iloc[-1] - df["time"].iloc[-2]).total_seconds() < 7200
+    if _is_intraday:
+        tp = (df["high"].astype(float) + df["low"].astype(float) + c) / 3
+        vol = df["volume"].astype(float).replace(0, np.nan)
+        cum_tp_vol = (tp * vol).cumsum()
+        cum_vol = vol.cumsum()
+        df["vwap"] = cum_tp_vol / cum_vol
 
-    # VWAP bands: ±1σ, ±2σ (rolling squared deviation from VWAP)
-    vwap_dev = ((tp - df["vwap"]) ** 2 * vol).cumsum() / cum_vol
-    vwap_std = np.sqrt(vwap_dev)
-    df["vwap_upper1"] = df["vwap"] + vwap_std
-    df["vwap_lower1"] = df["vwap"] - vwap_std
-    df["vwap_upper2"] = df["vwap"] + 2 * vwap_std
-    df["vwap_lower2"] = df["vwap"] - 2 * vwap_std
+        # VWAP bands: ±1σ, ±2σ
+        vwap_dev = ((tp - df["vwap"]) ** 2 * vol).cumsum() / cum_vol
+        vwap_std = np.sqrt(vwap_dev)
+        df["vwap_upper1"] = df["vwap"] + vwap_std
+        df["vwap_lower1"] = df["vwap"] - vwap_std
+        df["vwap_upper2"] = df["vwap"] + 2 * vwap_std
+        df["vwap_lower2"] = df["vwap"] - 2 * vwap_std
 
     return df
 
