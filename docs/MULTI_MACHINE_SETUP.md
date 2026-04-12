@@ -61,14 +61,19 @@ Chọn **Cách 1** cho đơn giản (khuyến nghị).
 
 ---
 
-## Bước 3: Tạo venv mới trên desktop
+## Bước 3: Tạo venv NGOÀI Dropbox folder
+
+**Quan trọng:** KHÔNG tạo venv trong Dropbox folder! Dropbox Smart Sync tạo placeholder files (online-only) khiến venv bị hỏng — `Test-Path` trả True nhưng file thật không tồn tại.
 
 ```powershell
-# Tạo venv
-python -m venv .venv
+# Tạo folder ngoài Dropbox
+mkdir C:\venvs -Force
+
+# Tạo venv ở path an toàn
+python -m venv C:\venvs\vnstock-desktop
 
 # Kích hoạt
-.\.venv\Scripts\Activate.ps1
+C:\venvs\vnstock-desktop\Scripts\Activate.ps1
 ```
 
 Nếu bị lỗi `execution of scripts is disabled`:
@@ -77,35 +82,51 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 ```
 Nhập `Y` để confirm, rồi chạy lại `Activate.ps1`.
 
+Verify venv active:
+```powershell
+python -c "import sys; print(sys.prefix)"
+# Expected: C:\venvs\vnstock-desktop
+```
+
+**Lưu ý path thật của Dropbox:** Nếu `C:\Users\admin\Dropbox` là symlink (trỏ tới `E:\Dropbox`), luôn dùng path thật `E:\Dropbox\Claude vnstock` để tránh lỗi junction khi tạo venv.
+
 ---
 
 ## Bước 4: Cài vnstock sponsor qua GUI installer
 
+**Quan trọng:** Cài vnstock requirements **TRƯỚC** khi chạy GUI installer, nếu không uv sẽ fail do DLL locking trên Windows:
+
 ```powershell
+python -m pip install --upgrade pip
+
+# Bước 4a: Cài dependencies trước (BẮT BUỘC)
+pip install -r https://vnstocks.com/files/requirements.txt
+
+# Bước 4b: Cài installer
 pip install --extra-index-url https://vnstocks.com/api/simple vnstock_installer
 python -m vnstock_installer
 ```
 
-GUI sẽ mở trong trình duyệt:
+GUI sẽ mở trong trình duyệt (bỏ qua lỗi "No module named pandas" trong terminal — đó là non-fatal):
 
 | Field | Giá trị |
 |---|---|
-| **Phiên bản Python** | Python 3.13.x (mặc định) |
+| **Phiên bản Python** | Mặc định (3.14 hoặc version đang dùng) |
 | **Sử dụng môi trường ảo** | ✓ (tick) |
-| **Đường dẫn môi trường ảo** | `C:\Users\Administrator\Dropbox\Claude vnstock\.venv` |
+| **Đường dẫn môi trường ảo** | `C:\venvs\vnstock-desktop` |
 | **API Key** | `vnstock_423e2d521631063b3a55ad4b356a884a` |
 | **Gói cài đặt** | Tick hết 4 gói (Data, TA, News, Pipeline) |
 
 Click **Tiếp Tục** rồi chờ cài xong (~2-5 phút).
 
+**Lưu ý device limit:** Golden tier cho phép 2 thiết bị per OS. Nếu báo lỗi "You have 2 registered", vào https://vnstocks.com → Account → xoá device cũ rồi retry.
+
 ---
 
-## Bước 5: Cài dependencies bổ sung
-
-Các package phụ trợ cho dashboard + WSS:
+## Bước 5: Cài dependencies bổ sung cho dashboard + WSS
 
 ```powershell
-python -m pip install streamlit plotly pyarrow pytz websocket-client flask lxml schedule scipy html2text
+pip install streamlit plotly pytz websocket-client flask lxml schedule scipy html2text
 ```
 
 Kiểm tra import:
@@ -152,23 +173,25 @@ Nếu không có bars file hôm nay → thấy message "đã archive sẵn (máy
 
 Trong PowerShell Admin:
 ```powershell
-cd "C:\Users\Administrator\Dropbox\Claude vnstock"
+cd "E:\Dropbox\Claude vnstock"   # Dùng path THẬT, không qua symlink
 
 # Preview trước (không cần Admin thật)
-.\scripts\setup_scheduled_tasks.ps1 -DryRun
+.\scripts\setup_scheduled_tasks.ps1 -DryRun -PythonExe "C:\venvs\vnstock-desktop\Scripts\python.exe"
 
 # Tạo thật
-.\scripts\setup_scheduled_tasks.ps1
+.\scripts\setup_scheduled_tasks.ps1 -PythonExe "C:\venvs\vnstock-desktop\Scripts\python.exe"
 ```
+
+**Lưu ý:** `-PythonExe` cần vì venv nằm ngoài project folder (không tự detect được).
 
 Expected output:
 ```
-Using venv Python: C:\Users\Administrator\Dropbox\Claude vnstock\.venv\Scripts\python.exe
+Using custom Python: C:\venvs\vnstock-desktop\Scripts\python.exe
 
 === Setting up VnStock Scheduled Tasks ===
 Hostname:     DESKTOP-PICHU
-Project root: C:\Users\Administrator\Dropbox\Claude vnstock
-Python:       C:\Users\Administrator\Dropbox\Claude vnstock\.venv\Scripts\python.exe
+Project root: E:\Dropbox\Claude vnstock
+Python:       C:\venvs\vnstock-desktop\Scripts\python.exe
 
 Multi-machine mode: tasks will skip if another machine
 has already completed today's job (checks pipeline_status.json).
