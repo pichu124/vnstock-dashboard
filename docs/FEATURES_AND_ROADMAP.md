@@ -118,7 +118,7 @@
 |---|---|---|---|
 | 1 | Test live 2s poll 1,100 mã | Verify API response time, thêm fallback nếu > 2s | Pending — test thứ 2 |
 | 2 | VP overlay trên chart | Render VP dạng horizontal bars trên candlestick (như TradingView) | Pending |
-| 3 | Market tab live | Heatmap VN30 real-time, breadth live update | Pending |
+| 3 | Market tab live | Heatmap VN30 real-time, breadth live update | Done (2026-04-12) |
 
 ### Ưu tiên trung bình (nâng cao trải nghiệm)
 
@@ -127,7 +127,7 @@
 | 4 | Intraday chart replay | Xem lại chart intraday sau phiên từ bars parquet | Done (2026-04-12) |
 | 5 | Multi-timeframe analysis | Sidebar chọn 1m/5m/15m/1H/1D cho chart | Pending |
 | 6 | Screener live | Screener trên data real-time, phát hiện breakout trong phiên | Done (2026-04-12) |
-| 7 | Ticker search autocomplete | Dropdown search mã + tên công ty thay vì text input | Pending |
+| 7 | Ticker search autocomplete | Dropdown search mã + tên công ty thay vì text input | Done (2026-04-12) |
 
 ### Ưu tiên thấp (nice to have)
 
@@ -157,6 +157,8 @@
 ## Changelog
 
 ### 2026-04-12
+- feat: Market tab live heatmap — VN30 tiles + index strip + mini breadth (5s refresh)
+- feat: Ticker search autocomplete — selectbox với mã + tên công ty + ngành
 - feat: Intraday chart replay — xem lại phiên từ bars parquet (sidebar date picker)
 - feat: Live Screener — scan 7 presets trên giá real-time mỗi 10s
 - feat: Scale to full market ~1,100 mã, poll 2s
