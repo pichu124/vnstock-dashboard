@@ -125,7 +125,7 @@
 | # | Việc | Mô tả | Status |
 |---|---|---|---|
 | 4 | Intraday chart replay | Xem lại chart intraday sau phiên từ bars parquet | Done (2026-04-12) |
-| 5 | Multi-timeframe analysis | Sidebar chọn 1m/5m/15m/1H/1D cho chart | Pending |
+| 5 | Multi-timeframe analysis | Live Mode hoạt động với mọi timeframe (1m→1M) | Done (2026-04-12) |
 | 6 | Screener live | Screener trên data real-time, phát hiện breakout trong phiên | Done (2026-04-12) |
 | 7 | Ticker search autocomplete | Dropdown search mã + tên công ty thay vì text input | Done (2026-04-12) |
 
@@ -133,7 +133,7 @@
 
 | # | Việc | Mô tả | Status |
 |---|---|---|---|
-| 8 | Alert system | Cảnh báo giá/volume qua Telegram/email | Pending |
+| 8 | Alert system | Cảnh báo giá/volume qua Telegram (5 conditions, auto-check 10s) | Done (2026-04-12) |
 | 9 | Portfolio tracker | Theo dõi danh mục cá nhân (mua/bán/P&L) | Pending |
 | 10 | Dark/Light theme | Toggle giao diện | Pending |
 | 11 | Mobile responsive | Tối ưu layout màn hình nhỏ | Pending |
@@ -157,6 +157,8 @@
 ## Changelog
 
 ### 2026-04-12
+- feat: Multi-timeframe Live Mode — daily/weekly chart + live quote strip khi Live Mode bật
+- feat: Price Alert system — 5 conditions, Telegram notification, auto-check 10s
 - feat: Market tab live heatmap — VN30 tiles + index strip + mini breadth (5s refresh)
 - feat: Ticker search autocomplete — selectbox với mã + tên công ty + ngành
 - feat: Intraday chart replay — xem lại phiên từ bars parquet (sidebar date picker)
