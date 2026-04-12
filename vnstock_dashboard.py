@@ -1979,12 +1979,12 @@ def _load_all_market_data() -> tuple:
                 chg20 = float((c90_clean.iloc[-1]/c90_clean.iloc[-21]-1)*100) if len(c90_clean)>20 else None
                 chg60 = float((c90_clean.iloc[-1]/c90_clean.iloc[-61]-1)*100) if len(c90_clean)>60 else None
 
-                # Safety clamp: nếu vẫn bất thường (> 200% cho 1T, > 500% cho 3M)
-                if chg5 is not None and abs(chg5) > 200:
+                # Safety clamp: nếu vẫn bất thường
+                if chg5 is not None and abs(chg5) > 50:
                     chg5 = None
-                if chg20 is not None and abs(chg20) > 300:
+                if chg20 is not None and abs(chg20) > 80:
                     chg20 = None
-                if chg60 is not None and abs(chg60) > 500:
+                if chg60 is not None and abs(chg60) > 150:
                     chg60 = None
 
                 issue_share = shares_map.get(ticker, 0)
@@ -4226,7 +4226,7 @@ if _active_tab == "🌏 Thị trường":
                 font=dict(color="#9ca3af", size=11),
                 xaxis=dict(gridcolor="#1f2937", zeroline=True,
                            zerolinecolor="#374151", zerolinewidth=2,
-                           ticksuffix="%"),
+                           ticksuffix="%", range=[-30, 30]),
                 yaxis=dict(gridcolor="#1f2937"),
                 margin=dict(l=0, r=80, t=20, b=20),
                 legend=dict(bgcolor="#111827", bordercolor="#1f2937", borderwidth=1),
