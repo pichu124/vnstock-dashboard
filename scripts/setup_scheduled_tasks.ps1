@@ -23,7 +23,8 @@
 
 param(
     [switch]$Remove,
-    [switch]$DryRun
+    [switch]$DryRun,
+    [string]$PythonExe = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -59,8 +60,15 @@ $ProjectRoot = Split-Path -Parent $ScriptDir
 $VenvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
 $SystemPython = (Get-Command python.exe -ErrorAction SilentlyContinue).Source
 
-# Prefer venv Python, fallback system
-if (Test-Path $VenvPython) {
+# Priority: -PythonExe param > local .venv > system python
+if ($PythonExe -ne "") {
+    if (-not (Test-Path $PythonExe)) {
+        Write-Error "Custom Python path does not exist: $PythonExe"
+        exit 1
+    }
+    Write-Host "Using custom Python: $PythonExe" -ForegroundColor Cyan
+}
+elseif (Test-Path $VenvPython) {
     $PythonExe = $VenvPython
     Write-Host "Using venv Python: $PythonExe" -ForegroundColor Cyan
 }
