@@ -125,6 +125,28 @@
 | # | Việc | Mô tả | Status |
 |---|---|---|---|
 | 4 | Intraday chart replay | Xem lại chart intraday sau phiên từ bars parquet | Done (2026-04-12) |
+
+#### Intraday Replay vs Chart 1m bình thường
+
+| | Chart 1m bình thường | Intraday Replay |
+|---|---|---|
+| **Data source** | VCI API (online) | Bars parquet (local) |
+| **Cần internet** | ✓ Có | ✗ Không |
+| **Tốn API quota** | ✓ Có | ✗ Không |
+| **Data giữ bao lâu** | ~5 ngày (API xoá sau đó) | Vĩnh viễn (file local) |
+| **Cần Live Mode** | Không | ✓ Phải bật Live Mode trong phiên để tạo bars |
+
+**Khi nào dùng Replay?**
+- Muốn xem lại chart 1m của phiên **>5 ngày trước** (VCI API đã xoá data 1m)
+- Không có internet nhưng muốn xem chart intraday
+- So sánh intraday pattern giữa nhiều ngày
+
+**Hiện tại Replay chưa hữu ích vì:**
+1. Mới bật Live Mode 1 lần (10/04) → chỉ có 1 ngày data
+2. VCI API vẫn còn data 1m 5 ngày gần nhất → dùng chart 1m bình thường tiện hơn
+3. Replay hữu ích nhất sau vài tuần sử dụng (tích luỹ nhiều ngày bars)
+
+**Nếu không thấy cần thiết** → có thể ẩn feature này. Nó là "nice to have" cho power users muốn xem lại phiên cũ.
 | 5 | Multi-timeframe analysis | Live Mode hoạt động với mọi timeframe (1m→1M) | Done (2026-04-12) |
 | 6 | Screener live | Screener trên data real-time, phát hiện breakout trong phiên | Done (2026-04-12) |
 | 7 | Ticker search autocomplete | Dropdown search mã + tên công ty thay vì text input | Done (2026-04-12) |
