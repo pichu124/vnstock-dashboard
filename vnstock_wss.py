@@ -71,6 +71,82 @@ def is_futures(ticker: str) -> bool:
 
 ALL_SYMBOLS = VN30_SYMBOLS + INDEX_SYMBOLS + FUTURES_SYMBOLS
 
+# Cache danh sách toàn bộ mã niêm yết (refresh mỗi ngày)
+_ALL_LISTED_CACHE: list[str] = []
+_ALL_LISTED_DATE: str = ""
+
+
+def get_all_listed_symbols() -> list[str]:
+    """
+    Lấy danh sách toàn bộ mã niêm yết HOSE + HNX + UPCOM.
+    Cache theo ngày — chỉ gọi API 1 lần/ngày.
+    Fallback về VN30_SYMBOLS nếu API fail.
+    """
+    global _ALL_LISTED_CACHE, _ALL_LISTED_DATE
+    from datetime import date
+    today = date.today().isoformat()
+
+    if _ALL_LISTED_DATE == today and _ALL_LISTED_CACHE:
+        return _ALL_LISTED_CACHE
+
+    symbols = []
+    try:
+        from vnstock_data import Reference
+        ref = Reference()
+        for exchange in ("HOSE", "HNX", "UPCOM"):
+            try:
+                df = ref.equity.list(exchange=exchange)
+                if df is not None and not df.empty:
+                    # Tìm cột ticker/symbol
+                    col = None
+                    for c in df.columns:
+                        if str(c).lower() in ("ticker", "symbol", "code",
+                                               "stocksymbol", "stock_symbol"):
+                            col = c
+                            break
+                    if col is None and len(df.columns) > 0:
+                        col = df.columns[0]
+                    if col:
+                        syms = df[col].dropna().astype(str).str.upper().tolist()
+                        symbols.extend(syms)
+            except Exception:
+                continue
+    except ImportError:
+        pass
+
+    if not symbols:
+        # Fallback: scan warehouse ticker folders
+        try:
+            from pathlib import Path
+            prices_dir = Path("data_warehouse/prices")
+            if prices_dir.exists():
+                symbols = sorted([
+                    p.name.replace("ticker=", "")
+                    for p in prices_dir.iterdir()
+                    if p.is_dir() and p.name.startswith("ticker=")
+                ])
+        except Exception:
+            pass
+
+    if symbols:
+        # Dedup + filter invalid
+        seen = set()
+        clean = []
+        for s in symbols:
+            s = s.strip().upper()
+            if s and len(s) <= 10 and s not in seen and not is_futures(s):
+                seen.add(s)
+                clean.append(s)
+        _ALL_LISTED_CACHE = sorted(clean)
+        _ALL_LISTED_DATE = today
+        print(f"[vnstock_wss] Listed symbols: {len(_ALL_LISTED_CACHE)} "
+              f"(HOSE+HNX+UPCOM)")
+    else:
+        _ALL_LISTED_CACHE = list(VN30_SYMBOLS)
+        print("[vnstock_wss] Fallback to VN30 only")
+
+    return _ALL_LISTED_CACHE
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 # Depth parser — parse multi-level bid/ask từ price_board row
@@ -212,7 +288,7 @@ class VnStockWSS:
       - "polling": fallback — poll HTTP API mỗi POLL_INTERVAL giây
     """
 
-    POLL_INTERVAL = 15  # seconds (fallback mode)
+    POLL_INTERVAL = 5   # seconds — giảm từ 15s xuống 5s
     POLL_WORKERS = 16   # parallel HTTP fetchers
 
     def __init__(self):
@@ -382,10 +458,20 @@ class VnStockWSS:
         with self._lock:
             self.subscribed.add(ticker.upper())
 
-    def subscribe_all(self):
-        """Subscribe toàn bộ VN30 + Index."""
+    def subscribe_all(self, full_market: bool = False):
+        """
+        Subscribe symbols.
+        full_market=False: VN30 + Index + Futures (38 mã, nhanh)
+        full_market=True:  Toàn bộ HOSE+HNX+UPCOM + Index + Futures (~1100+ mã)
+        """
         with self._lock:
-            self.subscribed.update(ALL_SYMBOLS)
+            if full_market:
+                all_stocks = get_all_listed_symbols()
+                self.subscribed.update(all_stocks)
+                self.subscribed.update(INDEX_SYMBOLS)
+                self.subscribed.update(FUTURES_SYMBOLS)
+            else:
+                self.subscribed.update(ALL_SYMBOLS)
         print(f"[vnstock_wss] Subscribed {len(self.subscribed)} symbols")
 
     def unsubscribe(self, ticker: str):
@@ -601,18 +687,13 @@ class VnStockWSS:
             finally:
                 pool.shutdown(wait=False, cancel_futures=False)
 
-        # ── 3. Volume Profile qua Quote.price_depth ─────────────────────
-        # Futures: luôn fetch VP (data chính đến từ price_depth)
-        # Stocks: cũng fetch VP nếu có — price_depth hỗ trợ cả stocks
-        vp_symbols = list(futures_friendly)
-        if stocks_only:
-            vp_symbols.extend(stocks_only)
-        if vp_symbols:
-            pool = ThreadPoolExecutor(max_workers=min(6, len(vp_symbols)))
+        # ── 3. Volume Profile: chỉ futures (stocks VP fetch on-demand từ dashboard)
+        if futures_friendly:
+            pool = ThreadPoolExecutor(max_workers=min(4, len(futures_friendly)))
             try:
-                futs = [pool.submit(self._fetch_volume_profile, s)
-                        for s in vp_symbols]
-                wait(futs, timeout=15)
+                futs = [pool.submit(self._fetch_volume_profile, f)
+                        for f in futures_friendly]
+                wait(futs, timeout=10)
             finally:
                 pool.shutdown(wait=False, cancel_futures=False)
 

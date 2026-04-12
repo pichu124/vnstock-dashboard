@@ -29,6 +29,7 @@ try:
     from vnstock_wss import (
         get_wss_client,
         VN30_SYMBOLS, INDEX_SYMBOLS, FUTURES_SYMBOLS,
+        get_all_listed_symbols,
         is_futures,
     )
     WSS_AVAILABLE = True
@@ -37,6 +38,8 @@ except ImportError:
     VN30_SYMBOLS, INDEX_SYMBOLS, FUTURES_SYMBOLS = [], [], []
     def is_futures(ticker):  # type: ignore
         return False
+    def get_all_listed_symbols():  # type: ignore
+        return []
 
 warnings.filterwarnings("ignore")
 
@@ -405,6 +408,63 @@ def list_live_futures() -> list[str]:
     return friendly if friendly else internal
 
 
+@st.cache_data(ttl=10, show_spinner=False)
+def fetch_volume_profile_direct(ticker: str) -> list:
+    """
+    Fetch Volume Profile trực tiếp từ Quote.price_depth() — on-demand.
+    Cache 10 giây để tránh spam API khi user refresh liên tục.
+    Dùng cho stocks (thay vì WSS cycle). Futures vẫn dùng WSS.
+    """
+    try:
+        from vnstock_data import Quote
+        q = Quote(symbol=ticker)
+        df = None
+        for call in (
+            lambda: q.price_depth(),
+            lambda: q.price_depth(limit=50),
+        ):
+            try:
+                df = call()
+                if df is not None and hasattr(df, "empty") and not df.empty:
+                    break
+            except TypeError:
+                continue
+            except Exception:
+                continue
+
+        if df is None or not hasattr(df, "empty") or df.empty:
+            return []
+
+        df = df.copy()
+        df.columns = [str(c).lower() for c in df.columns]
+        if "price" not in df.columns or "totalvol" not in df.columns:
+            return []
+
+        profile = []
+        for _, row in df.iterrows():
+            try:
+                profile.append({
+                    "price": float(row["price"]),
+                    "buy_vol": float(row.get("buyvol", 0) or 0),
+                    "sell_vol": float(row.get("sellvol", 0) or 0),
+                    "unknown_vol": float(row.get("unknownvol", 0) or 0),
+                    "total_vol": float(row.get("totalvol", 0) or 0),
+                })
+            except Exception:
+                continue
+
+        if not profile:
+            return []
+
+        # Top 20 theo total_vol, sort theo price giảm dần
+        profile.sort(key=lambda r: r["total_vol"], reverse=True)
+        top = profile[:20]
+        top.sort(key=lambda r: r["price"], reverse=True)
+        return top
+    except Exception:
+        return []
+
+
 def _calc_value_area(profile: list, pct: float = 0.70) -> tuple:
     """
     Tính Value Area — vùng giá chứa `pct` (mặc định 70%) tổng volume.
@@ -764,14 +824,14 @@ def _merge_live_quote(df: pd.DataFrame, quote: dict) -> pd.DataFrame:
 
 
 @st.cache_resource
-def _get_wss_singleton():
+def _get_wss_singleton(full_market: bool = True):
     """Singleton WSS client — start once per Streamlit process."""
     if not WSS_AVAILABLE:
         return None
     try:
         client = get_wss_client()
         client.start()
-        client.subscribe_all()
+        client.subscribe_all(full_market=full_market)
         return client
     except Exception as e:
         print(f"[dashboard] WSS start failed: {e}")
@@ -2421,8 +2481,12 @@ if _active_tab == "🔬 Phân tích":
                         title=_title,
                     )
 
-                # Volume Profile — futures + stocks (enriched từ Quote.price_depth)
+                # Volume Profile
+                # Futures: lấy từ WSS (đã có trong quote JSON)
+                # Stocks: fetch on-demand trực tiếp (nhanh 1-2s, cache 10s)
                 _vp = live_q.get("volume_profile", [])
+                if not _vp and not _is_fut:
+                    _vp = fetch_volume_profile_direct(ticker)
                 if _vp:
                     render_volume_profile(
                         _vp,
@@ -2431,12 +2495,9 @@ if _active_tab == "🔬 Phân tích":
                         max_rows=20,
                     )
             else:
-                _allowed = VN30_SYMBOLS + INDEX_SYMBOLS + FUTURES_SYMBOLS
                 st.warning(
                     f"⏳ Chưa có dữ liệu live cho {ticker}. "
-                    + ("(Ngoài VN30/Index/Futures — chỉ VN30+Index+VN30F mới được stream)"
-                       if ticker not in _allowed
-                       else "Chờ WSS kết nối...")
+                    f"Chờ WSS kết nối... (poll mỗi 5s)"
                 )
 
             # Merge live vào chart nếu có cùng scale
