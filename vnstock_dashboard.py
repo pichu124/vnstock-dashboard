@@ -1959,9 +1959,33 @@ def _load_all_market_data() -> tuple:
                 amp20 = float(amp.tail(20).mean())
                 amp60 = float(amp.tail(60).mean()) if len(amp) >= 60 else amp5
 
-                chg5  = float((c90.iloc[-1]/c90.iloc[-6]-1)*100)  if len(c90)>5  else None
-                chg20 = float((c90.iloc[-1]/c90.iloc[-21]-1)*100) if len(c90)>20 else None
-                chg60 = float((c90.iloc[-1]/c90.iloc[-61]-1)*100) if len(c90)>60 else None
+                # Normalize đơn vị giá: nếu có jump > 5x giữa 2 ngày liền kề,
+                # có thể do pha trộn đơn vị (VND vs nghìn VND) giữa các
+                # file parquet khác nhau. Tự detect và chia/nhân 1000.
+                c90_clean = c90.copy()
+                for _ci in range(1, len(c90_clean)):
+                    _prev = c90_clean.iloc[_ci - 1]
+                    _curr = c90_clean.iloc[_ci]
+                    if _prev > 0 and _curr > 0:
+                        _ratio = _curr / _prev
+                        if _ratio > 5:
+                            # Giá nhảy lên > 5x → phiên trước lưu đơn vị nhỏ
+                            c90_clean.iloc[:_ci] = c90_clean.iloc[:_ci] * 1000
+                        elif _ratio < 0.2:
+                            # Giá giảm > 5x → phiên trước lưu đơn vị lớn
+                            c90_clean.iloc[:_ci] = c90_clean.iloc[:_ci] / 1000
+
+                chg5  = float((c90_clean.iloc[-1]/c90_clean.iloc[-6]-1)*100)  if len(c90_clean)>5  else None
+                chg20 = float((c90_clean.iloc[-1]/c90_clean.iloc[-21]-1)*100) if len(c90_clean)>20 else None
+                chg60 = float((c90_clean.iloc[-1]/c90_clean.iloc[-61]-1)*100) if len(c90_clean)>60 else None
+
+                # Safety clamp: nếu vẫn bất thường (> 200% cho 1T, > 500% cho 3M)
+                if chg5 is not None and abs(chg5) > 200:
+                    chg5 = None
+                if chg20 is not None and abs(chg20) > 300:
+                    chg20 = None
+                if chg60 is not None and abs(chg60) > 500:
+                    chg60 = None
 
                 issue_share = shares_map.get(ticker, 0)
                 mktcap = last * 1000 * issue_share / 1e9 if issue_share > 0 else 0.0
