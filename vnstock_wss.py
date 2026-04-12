@@ -288,7 +288,7 @@ class VnStockWSS:
       - "polling": fallback — poll HTTP API mỗi POLL_INTERVAL giây
     """
 
-    POLL_INTERVAL = 5   # seconds — giảm từ 15s xuống 5s
+    POLL_INTERVAL = 2   # seconds — near real-time (25% quota Golden)
     POLL_WORKERS = 16   # parallel HTTP fetchers
 
     def __init__(self):
