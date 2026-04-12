@@ -143,9 +143,14 @@
 
 | # | Việc | Chi tiết | Status |
 |---|---|---|---|
-| A | Check multi-machine Monday | Verify pipeline_status.json sau rollup 15:30 + updater 18:00 | Pending — 16:00 + 22:00 thứ 2 |
+| A | Check multi-machine Monday | Verify pipeline_status.json sau rollup 15:30 + updater 18:00 | Pending — thứ 2 16:00 + 22:00 |
 | B | Dọn .tmp files laptop | Có thể có .tmp rác tương tự desktop | Pending |
-| C | Test price_board 1,100 mã | Verify API trả đầy đủ hay bị cắt khi batch lớn | Pending — test thứ 2 |
+| C | Test price_board 1,100 mã | Verify API trả đầy đủ hay bị cắt khi batch lớn | Pending — thứ 2 |
+| D | Test poll 2s response time | Nếu API response > 2s với 1,100 mã → cần skip cycle logic | Pending — thứ 2 |
+| E | Test intraday replay | Bật Live Mode trong phiên → tắt → chọn Replay → verify chart 1m | Pending — thứ 2 |
+| F | Test live screener | Bật Live Mode + Live Scan → verify tín hiệu update mỗi 10s | Pending — thứ 2 |
+| G | Test VP on-demand stocks | Chọn mã stock (VCB, FPT) → verify VP hiện trong 1-2s | Pending — thứ 2 |
+| H | Test VWAP trên chart | Verify VWAP line + bands hiện đúng trên intraday chart | Pending — thứ 2 |
 
 ---
 
