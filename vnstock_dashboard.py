@@ -176,6 +176,47 @@ html, body, [class*="css"] {
 # ═══════════════════════════════════════════════════════
 
 @st.cache_data(ttl=300)
+def _normalize_price_units(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Detect và normalize đơn vị giá pha trộn trong warehouse data.
+
+    Warehouse có thể lưu giá ở 2 đơn vị khác nhau qua các giai đoạn:
+    - nghìn VND (vd: 77.7 cho FPT)
+    - VND (vd: 77700 cho FPT)
+
+    Detect bằng cách tìm jump > 5x giữa 2 ngày liền kề trong cột close.
+    Khi phát hiện, normalize toàn bộ OHLC trước điểm jump để match đơn vị
+    phía sau (đơn vị mới nhất).
+    """
+    if df.empty or len(df) < 2:
+        return df
+
+    df = df.copy()
+    closes = df["close"].astype(float).values.copy()  # mutable copy
+
+    for i in range(1, len(closes)):
+        prev, curr = closes[i - 1], closes[i]
+        if prev > 0 and curr > 0:
+            ratio = curr / prev
+            if ratio > 5:
+                # Phía trước lưu đơn vị nhỏ hơn → nhân 1000
+                for col in ("open", "high", "low", "close"):
+                    if col in df.columns:
+                        df.iloc[:i, df.columns.get_loc(col)] = \
+                            df.iloc[:i, df.columns.get_loc(col)].astype(float) * 1000
+                # Update closes array for subsequent checks
+                closes[:i] = closes[:i] * 1000
+            elif ratio < 0.2:
+                # Phía trước lưu đơn vị lớn hơn → chia 1000
+                for col in ("open", "high", "low", "close"):
+                    if col in df.columns:
+                        df.iloc[:i, df.columns.get_loc(col)] = \
+                            df.iloc[:i, df.columns.get_loc(col)].astype(float) / 1000
+                closes[:i] = closes[:i] / 1000
+
+    return df
+
+
 def load_price_history(ticker: str, days: int = 0) -> pd.DataFrame:
     """Load lịch sử giá. days=0 → toàn bộ lịch sử từ ngày lên sàn."""
     ticker_dir = PRICES_DIR / f"ticker={ticker.upper()}"
@@ -196,7 +237,12 @@ def load_price_history(ticker: str, days: int = 0) -> pd.DataFrame:
     if days > 0:
         cutoff = datetime.now() - timedelta(days=days)
         df = df[df["time"] >= cutoff]
-    return df.sort_values("time").reset_index(drop=True)
+    df = df.sort_values("time").reset_index(drop=True)
+
+    # Normalize mixed price units (nghìn VND vs VND)
+    df = _normalize_price_units(df)
+
+    return df
 
 
 @st.cache_data(ttl=600)
