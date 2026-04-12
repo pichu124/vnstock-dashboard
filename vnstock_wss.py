@@ -601,13 +601,18 @@ class VnStockWSS:
             finally:
                 pool.shutdown(wait=False, cancel_futures=False)
 
-        # ── 3. Futures enrichment: Volume Profile qua Quote.price_depth ──
-        if futures_friendly:
-            pool = ThreadPoolExecutor(max_workers=min(4, len(futures_friendly)))
+        # ── 3. Volume Profile qua Quote.price_depth ─────────────────────
+        # Futures: luôn fetch VP (data chính đến từ price_depth)
+        # Stocks: cũng fetch VP nếu có — price_depth hỗ trợ cả stocks
+        vp_symbols = list(futures_friendly)
+        if stocks_only:
+            vp_symbols.extend(stocks_only)
+        if vp_symbols:
+            pool = ThreadPoolExecutor(max_workers=min(6, len(vp_symbols)))
             try:
-                futs = [pool.submit(self._fetch_volume_profile, f)
-                        for f in futures_friendly]
-                wait(futs, timeout=10)
+                futs = [pool.submit(self._fetch_volume_profile, s)
+                        for s in vp_symbols]
+                wait(futs, timeout=15)
             finally:
                 pool.shutdown(wait=False, cancel_futures=False)
 
@@ -758,31 +763,15 @@ class VnStockWSS:
 
     def _fetch_volume_profile(self, ticker: str) -> bool:
         """
-        Fetch Volume Profile cho 1 futures symbol qua
-        Quote(symbol).price_depth() và ghi vào file ĐỘC LẬP theo
-        tên friendly: quote_VN30F1M.json, quote_VN30F2M.json, ...
+        Fetch Volume Profile cho 1 symbol (futures HOẶC stock) qua
+        Quote(symbol).price_depth().
 
-        Không cần resolve internal ID (41I1G4000) vì file tự tên
-        theo friendly ticker — không có bất kỳ mapping ambiguity nào.
+        Futures: ghi file quote_VN30F1M.json ĐỘC LẬP (data chính).
+        Stocks:  MERGE volume_profile vào quote_VCB.json đã có sẵn
+                 (từ price_board) — giữ nguyên price/bid/ask/volume.
 
         Response format (vnstock_data 3.0.0 / KBS KRX):
             DataFrame: price, buyVol, sellVol, unknownVol, totalVol
-
-        Schema file output:
-            {
-              "ticker": "VN30F1M",
-              "time": ...,
-              "price": <current match từ most active VP row>,
-              "volume": <tổng total_vol>,
-              "bid": 0, "ask": 0,
-              "bids": [], "asks": [],
-              "chg_pct": 0,
-              "high": <max VP price>,
-              "low": <min VP price>,
-              "type": "futures",
-              "volume_profile": [...top 20...],
-              "volume_profile_total_levels": <len(all)>
-            }
         """
         try:
             try:
@@ -849,25 +838,41 @@ class VnStockWSS:
             # "Current" proxy: most active price (highest total_vol)
             most_active_price = profile_sorted[0]["price"] if profile_sorted else 0
 
-            tick = {
-                "ticker": ticker.upper(),
-                "time": datetime.now().isoformat(timespec="seconds"),
-                "price": most_active_price,
-                "volume": total_session_vol,
-                "bid": 0.0,
-                "ask": 0.0,
-                "bids": [],
-                "asks": [],
-                "chg_pct": 0.0,
-                "high": max(vp_prices) if vp_prices else 0,
-                "low": min(vp_prices) if vp_prices else 0,
-                "type": "futures",
+            vp_data = {
                 "volume_profile": top,
                 "volume_profile_total_levels": len(profile),
             }
 
-            # Per-ticker lock để serialize
             path = LIVE_DIR / f"quote_{ticker.upper()}.json"
+
+            if is_futures(ticker):
+                # Futures: ghi file độc lập (data chính từ price_depth)
+                tick = {
+                    "ticker": ticker.upper(),
+                    "time": datetime.now().isoformat(timespec="seconds"),
+                    "price": most_active_price,
+                    "volume": total_session_vol,
+                    "bid": 0.0,
+                    "ask": 0.0,
+                    "bids": [],
+                    "asks": [],
+                    "chg_pct": 0.0,
+                    "high": max(vp_prices) if vp_prices else 0,
+                    "low": min(vp_prices) if vp_prices else 0,
+                    "type": "futures",
+                    **vp_data,
+                }
+            else:
+                # Stocks: merge VP vào quote file đã có (từ price_board)
+                tick = {}
+                if path.exists():
+                    try:
+                        tick = json.loads(path.read_text())
+                    except Exception:
+                        pass
+                tick.update(vp_data)
+
+            # Per-ticker lock để serialize
             with self._get_file_lock(ticker.upper()):
                 try:
                     self._atomic_write_json(path, tick)

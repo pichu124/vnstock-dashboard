@@ -268,6 +268,22 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # Volume MA20
     df["vol_ma20"] = df["volume"].astype(float).rolling(20).mean()
 
+    # VWAP — Volume Weighted Average Price
+    # Dùng typical price = (high + low + close) / 3
+    tp = (df["high"].astype(float) + df["low"].astype(float) + c) / 3
+    vol = df["volume"].astype(float).replace(0, np.nan)
+    cum_tp_vol = (tp * vol).cumsum()
+    cum_vol = vol.cumsum()
+    df["vwap"] = cum_tp_vol / cum_vol
+
+    # VWAP bands: ±1σ, ±2σ (rolling squared deviation from VWAP)
+    vwap_dev = ((tp - df["vwap"]) ** 2 * vol).cumsum() / cum_vol
+    vwap_std = np.sqrt(vwap_dev)
+    df["vwap_upper1"] = df["vwap"] + vwap_std
+    df["vwap_lower1"] = df["vwap"] - vwap_std
+    df["vwap_upper2"] = df["vwap"] + 2 * vwap_std
+    df["vwap_lower2"] = df["vwap"] - 2 * vwap_std
+
     return df
 
 
@@ -888,6 +904,7 @@ def render_chart(df: pd.DataFrame, ticker: str, height: int = 850):
     candles, volumes = [], []
     ema9_d, ema21_d, ema50_d, ema200_d = [], [], [], []
     bb_up_d, bb_lo_d, bb_mid_d = [], [], []
+    vwap_d, vwap_u1, vwap_l1, vwap_u2, vwap_l2 = [], [], [], [], []
     rsi_d, macd_l, macd_s, macd_h = [], [], [], []
 
     for _, row in ind.iterrows():
@@ -906,6 +923,11 @@ def render_chart(df: pd.DataFrame, ticker: str, height: int = 850):
         if (x := safe(row.get("bb_up")))      is not None: bb_up_d.append({"time":t,"value":x})
         if (x := safe(row.get("bb_lo")))      is not None: bb_lo_d.append({"time":t,"value":x})
         if (x := safe(row.get("bb_mid")))     is not None: bb_mid_d.append({"time":t,"value":x})
+        if (x := safe(row.get("vwap")))       is not None: vwap_d.append({"time":t,"value":x})
+        if (x := safe(row.get("vwap_upper1"))) is not None: vwap_u1.append({"time":t,"value":x})
+        if (x := safe(row.get("vwap_lower1"))) is not None: vwap_l1.append({"time":t,"value":x})
+        if (x := safe(row.get("vwap_upper2"))) is not None: vwap_u2.append({"time":t,"value":x})
+        if (x := safe(row.get("vwap_lower2"))) is not None: vwap_l2.append({"time":t,"value":x})
         if (x := safe(row.get("rsi")))        is not None: rsi_d.append({"time":t,"value":x})
         if (x := safe(row.get("macd")))       is not None: macd_l.append({"time":t,"value":x})
         if (x := safe(row.get("macd_signal"))) is not None: macd_s.append({"time":t,"value":x})
@@ -961,6 +983,11 @@ var E200=""" + _json.dumps(ema200_d) + """;
 var BU=""" + _json.dumps(bb_up_d) + """;
 var BL=""" + _json.dumps(bb_lo_d) + """;
 var BM=""" + _json.dumps(bb_mid_d) + """;
+var VW=""" + _json.dumps(vwap_d) + """;
+var VU1=""" + _json.dumps(vwap_u1) + """;
+var VL1=""" + _json.dumps(vwap_l1) + """;
+var VU2=""" + _json.dumps(vwap_u2) + """;
+var VL2=""" + _json.dumps(vwap_l2) + """;
 var RSI=""" + _json.dumps(rsi_d) + """;
 var ML=""" + _json.dumps(macd_l) + """;
 var MS=""" + _json.dumps(macd_s) + """;
@@ -1009,6 +1036,11 @@ line(main,E200,"#f97316",2,"EMA200");
 line(main,BU,"rgba(139,92,246,0.5)",1,"BB+",false);
 line(main,BL,"rgba(139,92,246,0.5)",1,"BB-",false);
 line(main,BM,"rgba(139,92,246,0.25)",1,"",false);
+line(main,VW,"#e879f9",2,"VWAP");
+line(main,VU1,"rgba(232,121,249,0.3)",1,"",false);
+line(main,VL1,"rgba(232,121,249,0.3)",1,"",false);
+line(main,VU2,"rgba(232,121,249,0.15)",1,"",false);
+line(main,VL2,"rgba(232,121,249,0.15)",1,"",false);
 
 main.subscribeCrosshairMove(function(p){
   if(!p.time) return;
@@ -2389,9 +2421,9 @@ if _active_tab == "🔬 Phân tích":
                         title=_title,
                     )
 
-                # Volume Profile — chỉ futures có (enriched từ Quote.price_depth)
+                # Volume Profile — futures + stocks (enriched từ Quote.price_depth)
                 _vp = live_q.get("volume_profile", [])
-                if _vp and _is_fut:
+                if _vp:
                     render_volume_profile(
                         _vp,
                         current_price=_price,
