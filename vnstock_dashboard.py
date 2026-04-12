@@ -1988,11 +1988,17 @@ def _load_all_market_data() -> tuple:
                     chg60 = None
 
                 issue_share = shares_map.get(ticker, 0)
-                mktcap = last * 1000 * issue_share / 1e9 if issue_share > 0 else 0.0
-                mktcap_proxy = last * 1000 * vol20 / 1e9
+
+                # Detect đơn vị giá: warehouse có thể lưu VND (92000) hoặc
+                # nghìn VND (92). mktcap formula cần nghìn VND.
+                # Heuristic: giá cổ phiếu VN thường < 500 (nghìn VND).
+                # Nếu last > 500 → đang ở đơn vị VND → chia 1000.
+                _last_k = last / 1000 if last > 500 else last
+                mktcap = _last_k * 1000 * issue_share / 1e9 if issue_share > 0 else 0.0
+                mktcap_proxy = _last_k * 1000 * vol20 / 1e9
 
                 rows.append({
-                    "ticker": ticker, "last": last,
+                    "ticker": ticker, "last": _last_k,
                     "vol5": vol5, "vol10": vol10, "vol20": vol20,
                     "mktcap": mktcap, "mktcap_proxy": mktcap_proxy,
                     "amp5": amp5, "amp20": amp20, "amp60": amp60,
