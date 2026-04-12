@@ -184,35 +184,38 @@ def _normalize_price_units(df: pd.DataFrame) -> pd.DataFrame:
     - nghìn VND (vd: 77.7 cho FPT)
     - VND (vd: 77700 cho FPT)
 
-    Detect bằng cách tìm jump > 5x giữa 2 ngày liền kề trong cột close.
-    Khi phát hiện, normalize toàn bộ OHLC trước điểm jump để match đơn vị
-    phía sau (đơn vị mới nhất).
+    Dùng magnitude-based detection: so sánh mỗi price với giá mới nhất.
+    Nếu price < latest/100 → đang ở đơn vị nhỏ → nhân 1000.
+    Nếu price > latest*100 → đang ở đơn vị lớn → chia 1000.
     """
     if df.empty or len(df) < 2:
         return df
 
     df = df.copy()
-    closes = df["close"].astype(float).values.copy()  # mutable copy
+    latest = float(df["close"].iloc[-1])
+    if latest <= 0:
+        return df
 
-    for i in range(1, len(closes)):
-        prev, curr = closes[i - 1], closes[i]
-        if prev > 0 and curr > 0:
-            ratio = curr / prev
-            if ratio > 5:
-                # Phía trước lưu đơn vị nhỏ hơn → nhân 1000
-                for col in ("open", "high", "low", "close"):
-                    if col in df.columns:
-                        df.iloc[:i, df.columns.get_loc(col)] = \
-                            df.iloc[:i, df.columns.get_loc(col)].astype(float) * 1000
-                # Update closes array for subsequent checks
-                closes[:i] = closes[:i] * 1000
-            elif ratio < 0.2:
-                # Phía trước lưu đơn vị lớn hơn → chia 1000
-                for col in ("open", "high", "low", "close"):
-                    if col in df.columns:
-                        df.iloc[:i, df.columns.get_loc(col)] = \
-                            df.iloc[:i, df.columns.get_loc(col)].astype(float) / 1000
-                closes[:i] = closes[:i] / 1000
+    threshold_low = latest / 100   # prices below this are in nghìn VND
+    threshold_high = latest * 100  # prices above this are in VND (khi latest ở nghìn VND)
+
+    for i in range(len(df) - 1):
+        close_val = float(df["close"].iloc[i])
+        if close_val <= 0:
+            continue
+
+        if latest > 500 and close_val < threshold_low:
+            # Latest ở VND, historical ở nghìn VND → nhân 1000
+            for col in ("open", "high", "low", "close"):
+                if col in df.columns:
+                    df.iloc[i, df.columns.get_loc(col)] = \
+                        float(df.iloc[i, df.columns.get_loc(col)]) * 1000
+        elif latest <= 500 and close_val > threshold_high:
+            # Latest ở nghìn VND, historical ở VND → chia 1000
+            for col in ("open", "high", "low", "close"):
+                if col in df.columns:
+                    df.iloc[i, df.columns.get_loc(col)] = \
+                        float(df.iloc[i, df.columns.get_loc(col)]) / 1000
 
     return df
 
@@ -308,9 +311,12 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     loss  = (-delta.clip(upper=0)).rolling(14).mean()
     df["rsi"] = 100 - (100 / (1 + gain / loss.replace(0, np.nan)))
 
-    # EMAs
+    # EMAs — chỉ tính khi đủ data (tránh EMA chưa hội tụ trên data ngắn)
     for span in (9, 21, 50, 200):
-        df[f"ema{span}"] = c.ewm(span=span, adjust=False).mean()
+        if len(c) >= span:
+            df[f"ema{span}"] = c.ewm(span=span, adjust=False).mean()
+        else:
+            df[f"ema{span}"] = np.nan
 
     # MACD
     ema12 = c.ewm(span=12, adjust=False).mean()
@@ -1107,7 +1113,10 @@ def load_intraday_bars(ticker: str, target_date: str = None) -> pd.DataFrame:
         # Lọc giờ giao dịch
         mask = (df["time"].dt.hour >= 9) & (df["time"].dt.hour < 15)
         df = df[mask]
-        return df.sort_values("time").reset_index(drop=True)
+        df = df.sort_values("time").reset_index(drop=True)
+        # Normalize price units nếu có pha trộn
+        df = _normalize_price_units(df)
+        return df
     except Exception as e:
         print(f"[load_intraday_bars] {ticker} {target_date}: {e}")
         return pd.DataFrame()
