@@ -2476,8 +2476,47 @@ if _active_tab == "🔬 Phân tích":
     # Controls cho tab phân tích
     with st.sidebar:
         st.markdown("### 🔬 Phân tích")
-        ticker_input = st.text_input("Mã cổ phiếu", placeholder="VCB, FPT...", key="ticker_sidebar").upper().strip()
-        if ticker_input and st.button("Phân tích →", use_container_width=True, key="anal_go"):
+
+        # Ticker autocomplete — selectbox với mã + tên công ty
+        _ind_map = load_industry_map()
+        _all_tickers_list = get_all_tickers()
+        if WSS_AVAILABLE:
+            # Merge thêm mã từ full market list
+            _wss_syms = get_all_listed_symbols()
+            _all_set = set(_all_tickers_list) | set(_wss_syms)
+            _all_tickers_list = sorted(_all_set)
+
+        _ticker_options = [""]
+        _ticker_labels = {"": "— Nhập hoặc chọn mã —"}
+        for _t in _all_tickers_list:
+            _name = _ind_map.get(_t, {}).get("company_name", "")
+            _ind = _ind_map.get(_t, {}).get("industry", "")
+            _label = f"{_t} — {_name}" if _name else _t
+            if _ind:
+                _label += f" ({_ind[:20]})"
+            _ticker_options.append(_t)
+            _ticker_labels[_t] = _label
+
+        # Thêm futures
+        for _ft in FUTURES_SYMBOLS:
+            if _ft not in _ticker_labels:
+                _ticker_options.append(_ft)
+                _ticker_labels[_ft] = f"{_ft} — Hợp đồng tương lai VN30"
+        # Thêm index
+        for _ix in INDEX_SYMBOLS:
+            if _ix not in _ticker_labels:
+                _ticker_options.append(_ix)
+                _ticker_labels[_ix] = f"{_ix} — Chỉ số"
+
+        ticker_input = st.selectbox(
+            "Mã cổ phiếu",
+            options=_ticker_options,
+            format_func=lambda x: _ticker_labels.get(x, x),
+            key="ticker_sidebar",
+            placeholder="Tìm mã...",
+        )
+        if ticker_input:
+            ticker_input = ticker_input.upper().strip()
             st.session_state["analyze_ticker"] = ticker_input
 
         # Futures quick picker — nếu WSS đang chạy và có live futures
@@ -3019,6 +3058,109 @@ if _active_tab == "🌏 Thị trường":
         if st.button("🔄", key="market_refresh", help="Refresh"):
             st.cache_data.clear()
             st.rerun()
+
+    # ── Live Market Heatmap (VN30 real-time) ──────────────────────────────
+    if st.session_state.get("live_mode") and WSS_AVAILABLE:
+        @st.fragment(run_every=5)
+        def _live_market_fragment():
+            _vn30_quotes = []
+            for _sym in VN30_SYMBOLS:
+                _q = load_live_quote(_sym)
+                if _q and float(_q.get("price", 0)) > 0:
+                    _vn30_quotes.append(_q)
+
+            if not _vn30_quotes:
+                st.caption("⏳ Chờ WSS data...")
+                return
+
+            # Live Index quotes
+            _idx_row = ""
+            for _ix in INDEX_SYMBOLS[:4]:
+                _iq = load_live_quote(_ix)
+                if _iq and float(_iq.get("price", 0)) > 0:
+                    _ip = float(_iq["price"])
+                    _ichg = float(_iq.get("chg_pct", 0))
+                    _ic = "#10b981" if _ichg >= 0 else "#ef4444"
+                    _isign = "+" if _ichg >= 0 else ""
+                    _idx_row += (
+                        f"<div style='flex:1;text-align:center;padding:8px;'>"
+                        f"<div style='color:#6b7280;font-size:10px;text-transform:uppercase'>{_ix}</div>"
+                        f"<div style='color:#e5e7eb;font-size:18px;font-weight:700'>{_ip:,.2f}</div>"
+                        f"<div style='color:{_ic};font-size:13px;font-weight:600'>{_isign}{_ichg:.2f}%</div>"
+                        f"</div>"
+                    )
+            if _idx_row:
+                st.markdown(
+                    f"<div style='display:flex;gap:8px;margin-bottom:12px;background:#111827;"
+                    f"border-radius:8px;padding:4px'>{_idx_row}</div>",
+                    unsafe_allow_html=True,
+                )
+
+            # VN30 Heatmap
+            st.markdown(
+                "<div style='color:#6b7280;font-size:11px;margin-bottom:6px;"
+                "text-transform:uppercase;letter-spacing:0.08em'>"
+                "🔴 VN30 Heatmap — Real-time</div>",
+                unsafe_allow_html=True,
+            )
+            _cells = ""
+            _up = _down = _flat = 0
+            for _q in sorted(_vn30_quotes, key=lambda x: float(x.get("chg_pct", 0)), reverse=True):
+                _tk = _q.get("ticker", "?")
+                _p = float(_q.get("price", 0))
+                _chg = float(_q.get("chg_pct", 0))
+                _vol = float(_q.get("volume", 0))
+
+                if _chg > 0:
+                    _up += 1
+                elif _chg < 0:
+                    _down += 1
+                else:
+                    _flat += 1
+
+                # Color intensity by change magnitude
+                _abs_chg = min(abs(_chg), 5)
+                _intensity = int(_abs_chg / 5 * 180) + 40
+                if _chg > 0:
+                    _bg = f"rgba(16,185,129,{_intensity/255:.2f})"
+                    _tc = "#e5e7eb"
+                elif _chg < 0:
+                    _bg = f"rgba(239,68,68,{_intensity/255:.2f})"
+                    _tc = "#e5e7eb"
+                else:
+                    _bg = "rgba(75,85,99,0.3)"
+                    _tc = "#9ca3af"
+
+                _sign = "+" if _chg >= 0 else ""
+                _cells += (
+                    f"<div style='background:{_bg};border-radius:4px;padding:6px 4px;"
+                    f"text-align:center;min-width:80px;flex:1'>"
+                    f"<div style='color:{_tc};font-weight:700;font-size:12px'>{_tk}</div>"
+                    f"<div style='color:{_tc};font-size:11px'>{_p:,.0f}</div>"
+                    f"<div style='color:{_tc};font-size:10px;font-weight:600'>{_sign}{_chg:.2f}%</div>"
+                    f"</div>"
+                )
+
+            st.markdown(
+                f"<div style='display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px'>"
+                f"{_cells}</div>",
+                unsafe_allow_html=True,
+            )
+
+            # Mini breadth from live data
+            _total = len(_vn30_quotes)
+            st.markdown(
+                f"<div style='color:#6b7280;font-size:11px;margin-bottom:12px'>"
+                f"VN30: <span style='color:#10b981'>↑{_up}</span> "
+                f"<span style='color:#9ca3af'>={_flat}</span> "
+                f"<span style='color:#ef4444'>↓{_down}</span> "
+                f"({_total} mã)"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+        _live_market_fragment()
+        st.divider()
 
     # ── Chỉ số thị trường ────────────────────────────────────────────────────
     with st.spinner("Đang tải dữ liệu chỉ số..."):
