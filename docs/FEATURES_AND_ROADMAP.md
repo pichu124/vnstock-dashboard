@@ -117,7 +117,7 @@
 | # | Việc | Mô tả | Status |
 |---|---|---|---|
 | 1 | Test live 2s poll 1,100 mã | Verify API response time, thêm fallback nếu > 2s | Pending — test thứ 2 |
-| 2 | VP overlay trên chart | Render VP dạng horizontal bars trên candlestick (như TradingView) | Pending |
+| 2 | VP overlay trên chart | Render VP dạng horizontal bars trên candlestick (như TradingView) | Done (2026-04-12) |
 | 3 | Market tab live | Heatmap VN30 real-time, breadth live update | Done (2026-04-12) |
 
 ### Ưu tiên trung bình (nâng cao trải nghiệm)
@@ -134,8 +134,8 @@
 | # | Việc | Mô tả | Status |
 |---|---|---|---|
 | 8 | Alert system | Cảnh báo giá/volume qua Telegram (5 conditions, auto-check 10s) | Done (2026-04-12) |
-| 9 | Portfolio tracker | Theo dõi danh mục cá nhân (mua/bán/P&L) | Pending |
-| 10 | Dark/Light theme | Toggle giao diện | Pending |
+| 9 | Portfolio tracker | Theo dõi danh mục cá nhân (mua/bán/P&L) | Done (2026-04-12) |
+| 10 | Dark/Light theme | Toggle giao diện sáng/tối | Done (2026-04-12) |
 | 11 | Mobile responsive | Tối ưu layout màn hình nhỏ | Pending |
 | 12 | Export chart | Xuất chart PNG/PDF | Pending |
 
@@ -157,6 +157,9 @@
 ## Changelog
 
 ### 2026-04-12
+- feat: VP overlay trên chart — horizontal bars (buy/sell) sync với price scale
+- feat: Portfolio tracker — tab mới, add/delete positions, P&L real-time
+- feat: Dark/Light theme toggle — sidebar toggle, CSS override cho light mode
 - feat: Multi-timeframe Live Mode — daily/weekly chart + live quote strip khi Live Mode bật
 - feat: Price Alert system — 5 conditions, Telegram notification, auto-check 10s
 - feat: Market tab live heatmap — VN30 tiles + index strip + mini breadth (5s refresh)
