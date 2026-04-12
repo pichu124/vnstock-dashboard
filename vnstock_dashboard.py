@@ -373,6 +373,7 @@ def get_tech_signals(df: pd.DataFrame) -> dict:
 # ═════════════════════════════════════════════════════════════════════════════
 
 LIVE_DIR = Path("data_warehouse/_live")
+ALERTS_PATH = Path("data_warehouse/_meta/price_alerts.json")
 
 
 def load_live_quote(ticker: str) -> dict | None:
@@ -384,6 +385,130 @@ def load_live_quote(ticker: str) -> dict | None:
         return json.loads(path.read_text())
     except Exception:
         return None
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Alert System
+# ═════════════════════════════════════════════════════════════════════════════
+
+def load_alerts() -> list[dict]:
+    """Load price alerts từ JSON file."""
+    if not ALERTS_PATH.exists():
+        return []
+    try:
+        return json.loads(ALERTS_PATH.read_text())
+    except Exception:
+        return []
+
+
+def save_alerts(alerts: list[dict]):
+    """Save price alerts (atomic write)."""
+    ALERTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    import os
+    tmp = ALERTS_PATH.with_suffix(f".{os.getpid()}.tmp")
+    try:
+        tmp.write_text(json.dumps(alerts, indent=2, ensure_ascii=False))
+        os.replace(str(tmp), str(ALERTS_PATH))
+    except Exception:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except Exception:
+                pass
+
+
+def send_telegram_alert(bot_token: str, chat_id: str, message: str) -> bool:
+    """Gửi alert qua Telegram Bot API."""
+    try:
+        import requests
+        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        resp = requests.post(url, json={
+            "chat_id": chat_id,
+            "text": message,
+            "parse_mode": "HTML",
+        }, timeout=10)
+        return resp.status_code == 200
+    except Exception:
+        return False
+
+
+def check_and_fire_alerts(alerts: list[dict], bot_token: str = "",
+                          chat_id: str = "") -> list[dict]:
+    """
+    Check tất cả alerts, fire những cái triggered.
+    Returns: list alerts đã update (triggered ones marked).
+    """
+    from datetime import datetime
+    updated = []
+    fired_messages = []
+
+    for alert in alerts:
+        ticker = alert.get("ticker", "")
+        if not ticker or alert.get("fired"):
+            updated.append(alert)
+            continue
+
+        q = load_live_quote(ticker)
+        if not q:
+            updated.append(alert)
+            continue
+
+        price = float(q.get("price", 0))
+        if price <= 0:
+            updated.append(alert)
+            continue
+
+        triggered = False
+        condition = alert.get("condition", "")
+        target = float(alert.get("target", 0))
+
+        if condition == "above" and price >= target:
+            triggered = True
+        elif condition == "below" and price <= target:
+            triggered = True
+        elif condition == "change_up":
+            chg = float(q.get("chg_pct", 0))
+            if chg >= target:
+                triggered = True
+        elif condition == "change_down":
+            chg = float(q.get("chg_pct", 0))
+            if chg <= -target:
+                triggered = True
+        elif condition == "volume_above":
+            vol = float(q.get("volume", 0))
+            if vol >= target:
+                triggered = True
+
+        if triggered:
+            alert["fired"] = True
+            alert["fired_at"] = datetime.now().isoformat(timespec="seconds")
+            alert["fired_price"] = price
+
+            cond_desc = {
+                "above": f"giá >= {target:,.0f}",
+                "below": f"giá <= {target:,.0f}",
+                "change_up": f"tăng >= {target:.1f}%",
+                "change_down": f"giảm >= {target:.1f}%",
+                "volume_above": f"volume >= {target:,.0f}",
+            }.get(condition, condition)
+
+            msg = (
+                f"🔔 <b>ALERT: {ticker}</b>\n"
+                f"Điều kiện: {cond_desc}\n"
+                f"Giá hiện tại: {price:,.2f}\n"
+                f"Thời gian: {alert['fired_at']}"
+            )
+            fired_messages.append(msg)
+            alert["message"] = msg
+
+        updated.append(alert)
+
+    # Gửi Telegram nếu có config
+    if fired_messages and bot_token and chat_id:
+        for msg in fired_messages:
+            send_telegram_alert(bot_token, chat_id, msg)
+
+    return updated
 
 
 def list_live_futures() -> list[str]:
@@ -2603,6 +2728,81 @@ if _active_tab == "🔬 Phân tích":
             replay_date = "(tắt)"
             st.caption("Chưa có bars parquet — bật Live Mode trong phiên để tạo")
 
+        st.divider()
+        st.markdown("### 🔔 Price Alerts")
+
+        _alerts = load_alerts()
+        _active_alerts = [a for a in _alerts if not a.get("fired")]
+        _fired_alerts = [a for a in _alerts if a.get("fired")]
+
+        st.caption(f"{len(_active_alerts)} active · {len(_fired_alerts)} fired")
+
+        # Telegram config
+        _tg_token = st.text_input("Telegram Bot Token", type="password",
+                                   key="tg_token",
+                                   value=st.session_state.get("_tg_token", ""))
+        _tg_chat = st.text_input("Telegram Chat ID", key="tg_chat",
+                                  value=st.session_state.get("_tg_chat", ""))
+        if _tg_token:
+            st.session_state["_tg_token"] = _tg_token
+        if _tg_chat:
+            st.session_state["_tg_chat"] = _tg_chat
+
+        # Add alert
+        with st.expander("➕ Thêm alert", expanded=False):
+            _al_ticker = st.text_input("Mã", placeholder="VCB",
+                                        key="alert_ticker").upper().strip()
+            _al_cond = st.selectbox("Điều kiện", [
+                "above", "below", "change_up", "change_down", "volume_above"
+            ], format_func=lambda x: {
+                "above": "Giá >= (mục tiêu)",
+                "below": "Giá <= (mục tiêu)",
+                "change_up": "Tăng >= % (trong ngày)",
+                "change_down": "Giảm >= % (trong ngày)",
+                "volume_above": "Volume >= (mục tiêu)",
+            }.get(x, x), key="alert_cond")
+            _al_target = st.number_input(
+                "Giá trị mục tiêu",
+                min_value=0.0, value=0.0, step=0.1,
+                key="alert_target",
+                help="Giá (VND) cho above/below, % cho change, số cổ phiếu cho volume"
+            )
+            if st.button("✅ Tạo alert", key="alert_create", use_container_width=True):
+                if _al_ticker and _al_target > 0:
+                    _alerts.append({
+                        "ticker": _al_ticker,
+                        "condition": _al_cond,
+                        "target": _al_target,
+                        "fired": False,
+                        "created_at": __import__("datetime").datetime.now().isoformat(
+                            timespec="seconds"),
+                    })
+                    save_alerts(_alerts)
+                    st.rerun()
+
+        # List active alerts
+        if _active_alerts:
+            _cond_labels = {
+                "above": ">=", "below": "<=",
+                "change_up": "↑%>=", "change_down": "↓%>=",
+                "volume_above": "Vol>=",
+            }
+            for i, a in enumerate(_active_alerts):
+                _lbl = _cond_labels.get(a["condition"], "?")
+                st.markdown(
+                    f"<span style='color:#60a5fa;font-weight:600'>{a['ticker']}</span> "
+                    f"<span style='color:#9ca3af;font-size:11px'>"
+                    f"{_lbl} {a['target']:,.1f}</span>",
+                    unsafe_allow_html=True,
+                )
+
+        # Clear fired alerts
+        if _fired_alerts:
+            if st.button(f"🗑 Xoá {len(_fired_alerts)} alerts đã triggered",
+                         key="alert_clear", use_container_width=True):
+                save_alerts(_active_alerts)
+                st.rerun()
+
     # ── Xác định ticker cần phân tích ─────────────────────────────────────────────
     ticker = ticker_input or st.session_state.get("analyze_ticker", "")
 
@@ -2720,9 +2920,11 @@ if _active_tab == "🔬 Phân tích":
         chart_df = df
 
     # ── Live mode: wrap chart + quote strip trong fragment auto-refresh ─────────
-    _live_on = st.session_state.get("live_mode", False) and WSS_AVAILABLE and tf in ("1m","5m","15m","30m","1H")
+    _live_on = st.session_state.get("live_mode", False) and WSS_AVAILABLE
+    _live_intraday = _live_on and tf in ("1m","5m","15m","30m","1H")
+    _live_daily = _live_on and tf in ("1D","1W","1M","All")
 
-    if _live_on:
+    if _live_intraday:
         # Banner nhắc nhở Live mode đang hoạt động
         st.markdown(
             '<div style="background:linear-gradient(90deg,#ef4444,#f59e0b);'
@@ -2813,6 +3015,100 @@ if _active_tab == "🔬 Phân tích":
                 st.error(f"Chart render error: {_e}")
 
         _live_intraday_fragment()
+
+    # ── Alert checker (runs in background every 10s when live) ────────
+    if _live_on:
+        @st.fragment(run_every=10)
+        def _alert_checker():
+            _al = load_alerts()
+            _active = [a for a in _al if not a.get("fired")]
+            if not _active:
+                return
+            _tg_t = st.session_state.get("_tg_token", "")
+            _tg_c = st.session_state.get("_tg_chat", "")
+            updated = check_and_fire_alerts(_al, _tg_t, _tg_c)
+            _newly_fired = [a for a in updated
+                            if a.get("fired") and a.get("fired_at")
+                            and a not in _al]
+            # Chỉ save nếu có alert mới triggered
+            if any(a.get("fired") and not _al[i].get("fired")
+                   for i, a in enumerate(updated) if i < len(_al)):
+                save_alerts(updated)
+                for a in updated:
+                    if a.get("fired") and a.get("message"):
+                        if not any(old.get("fired") and old.get("ticker") == a["ticker"]
+                                   and old.get("condition") == a["condition"]
+                                   for old in _al):
+                            st.toast(f"🔔 {a['ticker']}: {a.get('message', 'Alert triggered!')[:100]}")
+
+        _alert_checker()
+
+    # ── Live mode + Daily/Weekly/Monthly chart ────────────────────────────
+    elif _live_daily:
+        st.markdown(
+            '<div style="background:linear-gradient(90deg,#3b82f6,#8b5cf6);'
+            'padding:6px 14px;border-radius:6px;margin:8px 0;'
+            'display:flex;align-items:center;gap:10px;font-weight:500">'
+            '<span style="width:10px;height:10px;border-radius:50%;background:#fff;'
+            'box-shadow:0 0 10px #fff;animation:pulse 1.5s infinite"></span>'
+            f'<span style="color:#fff;font-size:13px">🔴 LIVE — {ticker} @ {tf} — quote strip live</span>'
+            '</div>',
+            unsafe_allow_html=True
+        )
+
+        @st.fragment(run_every=5)
+        def _live_daily_quote_fragment():
+            live_q = load_live_quote(ticker)
+            if live_q:
+                _price = float(live_q.get("price", 0))
+                _chg = float(live_q.get("chg_pct", 0))
+                _vol = float(live_q.get("volume", 0))
+                _bid = float(live_q.get("bid", 0))
+                _ask = float(live_q.get("ask", 0))
+                _time = live_q.get("time", "")
+
+                _chg_color = "#10b981" if _chg >= 0 else "#ef4444"
+                _chg_sign = "+" if _chg >= 0 else ""
+
+                st.markdown(
+                    f"<div style='display:flex;gap:20px;align-items:center;padding:8px 0;"
+                    f"font-family:IBM Plex Mono,monospace'>"
+                    f"<div><span style='color:#6b7280;font-size:10px'>GIÁ</span><br>"
+                    f"<span style='color:#e5e7eb;font-size:22px;font-weight:700'>{_price:,.2f}</span></div>"
+                    f"<div><span style='color:#6b7280;font-size:10px'>%D</span><br>"
+                    f"<span style='color:{_chg_color};font-size:16px;font-weight:600'>"
+                    f"{_chg_sign}{_chg:.2f}%</span></div>"
+                    f"<div><span style='color:#6b7280;font-size:10px'>VOLUME</span><br>"
+                    f"<span style='color:#e5e7eb;font-size:14px'>{_vol:,.0f}</span></div>"
+                    f"<div><span style='color:#6b7280;font-size:10px'>BID/ASK</span><br>"
+                    f"<span style='color:#10b981;font-size:13px'>{_bid:,.0f}</span>"
+                    f" / <span style='color:#ef4444;font-size:13px'>{_ask:,.0f}</span></div>"
+                    f"<div><span style='color:#6b7280;font-size:10px'>CẬP NHẬT</span><br>"
+                    f"<span style='color:#9ca3af;font-size:12px'>{_time[-8:] if _time else '—'}</span></div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+                # Order book + VP cho daily view
+                _is_fut = is_futures(ticker) or live_q.get("type") == "futures"
+                _bids = live_q.get("bids", [])
+                _asks = live_q.get("asks", [])
+                if _bids or _asks:
+                    render_order_book(
+                        _bids, _asks, scale=1.0,
+                        max_levels=10 if _is_fut else 3,
+                    )
+
+                _vp = live_q.get("volume_profile", [])
+                if not _vp and not _is_fut:
+                    _vp = fetch_volume_profile_direct(ticker)
+                if _vp:
+                    render_volume_profile(_vp, current_price=_price, scale=1.0, max_rows=20)
+
+        _live_daily_quote_fragment()
+
+        # Chart daily/weekly (static, không refresh mỗi 5s)
+        render_chart(chart_df, ticker, height=st.session_state.get("chart_height_anal", 850))
 
     # ── Intraday Replay ───────────────────────────────────────────────────────
     elif (st.session_state.get("replay_date", "(tắt)") != "(tắt)"
