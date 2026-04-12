@@ -839,6 +839,81 @@ def _get_wss_singleton(full_market: bool = True):
 
 
 @st.cache_data(ttl=120, show_spinner=False)
+def load_intraday_bars(ticker: str, target_date: str = None) -> pd.DataFrame:
+    """
+    Load 1m bars từ parquet (live hoặc archive).
+    Dùng cho intraday chart replay sau phiên.
+
+    target_date: "YYYY-MM-DD" — nếu None, dùng hôm nay.
+    Returns: DataFrame [time, open, high, low, close, volume] cho 1 ticker.
+    """
+    from pathlib import Path
+    if target_date is None:
+        from datetime import date
+        target_date = date.today().isoformat()
+
+    # Tìm file: live trước, archive sau
+    bars_name = f"bars_{target_date}.parquet"
+    candidates = [
+        Path("data_warehouse/_live") / bars_name,
+        Path("data_warehouse/_live/archive") / bars_name,
+    ]
+
+    bars_path = None
+    for p in candidates:
+        if p.exists():
+            bars_path = p
+            break
+
+    if bars_path is None:
+        return pd.DataFrame()
+
+    try:
+        import pyarrow.parquet as pq
+        df = pq.read_table(str(bars_path)).to_pandas()
+        if df.empty:
+            return pd.DataFrame()
+
+        # Filter theo ticker
+        if "ticker" in df.columns:
+            df = df[df["ticker"].str.upper() == ticker.upper()].copy()
+
+        if df.empty:
+            return pd.DataFrame()
+
+        needed = ["time", "open", "high", "low", "close", "volume"]
+        for c in needed:
+            if c not in df.columns:
+                return pd.DataFrame()
+
+        df = df[needed].copy()
+        df["time"] = pd.to_datetime(df["time"])
+        # Lọc giờ giao dịch
+        mask = (df["time"].dt.hour >= 9) & (df["time"].dt.hour < 15)
+        df = df[mask]
+        return df.sort_values("time").reset_index(drop=True)
+    except Exception as e:
+        print(f"[load_intraday_bars] {ticker} {target_date}: {e}")
+        return pd.DataFrame()
+
+
+def list_available_bar_dates() -> list[str]:
+    """Liệt kê các ngày có bars parquet (live + archive)."""
+    from pathlib import Path
+    dates = set()
+    for folder in [Path("data_warehouse/_live"),
+                    Path("data_warehouse/_live/archive")]:
+        if folder.exists():
+            for f in folder.glob("bars_*.parquet"):
+                # bars_2026-04-10.parquet → 2026-04-10
+                name = f.stem  # bars_2026-04-10
+                date_part = name.replace("bars_", "")
+                if len(date_part) == 10:  # YYYY-MM-DD
+                    dates.add(date_part)
+    return sorted(dates, reverse=True)
+
+
+@st.cache_data(ttl=120, show_spinner=False)
 def load_intraday(ticker: str, interval: str = "15m") -> pd.DataFrame:
     """Fetch intraday OHLCV từ VCI. interval: '1m','5m','15m','30m','1H'"""
     try:
@@ -2117,6 +2192,180 @@ if _active_tab == "📊 Screener":
                 )
                 st.progress(pct / 100)
 
+    # ── Live Screener (real-time scan trong phiên) ──────────────────────
+    _live_scan_on = st.toggle(
+        "🔴 Live Scan (real-time)",
+        value=False,
+        key="live_scan_on",
+        help="Scan tín hiệu trên giá real-time mỗi 10s — cần Live Mode đang bật"
+    )
+
+    if _live_scan_on and WSS_AVAILABLE:
+        @st.fragment(run_every=10)
+        def _live_screener_fragment():
+            import glob as _gl
+            from pathlib import Path as _P
+
+            # Đọc tất cả quote files hiện có
+            quote_dir = _P("data_warehouse/_live")
+            if not quote_dir.exists():
+                st.caption("⏳ Chưa có quote data — bật Live Mode trước")
+                return
+
+            live_hits = {p: [] for p in PRESETS if p != "value"}
+            quote_files = list(quote_dir.glob("quote_*.json"))
+            if not quote_files:
+                st.caption("⏳ Chưa có quote data — chờ WSS poll...")
+                return
+
+            # Load warehouse data cho mỗi ticker (cached), merge live price
+            _screener_cache_key = "live_screener_warehouse"
+            if _screener_cache_key not in st.session_state:
+                st.session_state[_screener_cache_key] = {}
+            _ws_cache = st.session_state[_screener_cache_key]
+
+            scanned = 0
+            for qf in quote_files:
+                try:
+                    ticker_name = qf.stem.replace("quote_", "")
+                    if is_futures(ticker_name) or ticker_name in INDEX_SYMBOLS:
+                        continue
+
+                    live_q = json.loads(qf.read_text())
+                    live_price = float(live_q.get("price", 0))
+                    live_vol = float(live_q.get("volume", 0))
+                    if live_price <= 0:
+                        continue
+
+                    # Load historical indicators từ warehouse (cache in session)
+                    if ticker_name not in _ws_cache:
+                        _ticker_dir = _P("data_warehouse/prices") / f"ticker={ticker_name}"
+                        if not _ticker_dir.exists():
+                            continue
+                        try:
+                            import pyarrow.parquet as _pq
+                            _frames = []
+                            for _yd in sorted(_ticker_dir.iterdir()):
+                                if not _yd.is_dir():
+                                    continue
+                                for _pf in _yd.glob("*.parquet"):
+                                    _frames.append(
+                                        _pq.read_table(str(_pf),
+                                            columns=["time","open","high","low","close","volume"]
+                                        ).to_pandas()
+                                    )
+                            if not _frames:
+                                continue
+                            _hist = pd.concat(_frames, ignore_index=True)
+                            _hist["time"] = pd.to_datetime(_hist["time"])
+                            _hist = _hist.sort_values("time").tail(300).reset_index(drop=True)
+                            _ws_cache[ticker_name] = _hist
+                        except Exception:
+                            continue
+
+                    hist = _ws_cache.get(ticker_name)
+                    if hist is None or len(hist) < 60:
+                        continue
+
+                    # Append live price as latest row
+                    df_live = hist.copy()
+                    df_live.iloc[-1, df_live.columns.get_loc("close")] = live_price
+                    if live_vol > 0:
+                        df_live.iloc[-1, df_live.columns.get_loc("volume")] = live_vol
+
+                    # Compute indicators
+                    c = df_live["close"].astype(float)
+                    delta = c.diff()
+                    gain = delta.clip(lower=0).rolling(14).mean()
+                    loss = (-delta.clip(upper=0)).rolling(14).mean()
+                    rsi = (100 - (100 / (1 + gain / loss.replace(0, np.nan)))).iloc[-1]
+
+                    ema9 = c.ewm(span=9, adjust=False).mean().iloc[-1]
+                    ema21 = c.ewm(span=21, adjust=False).mean().iloc[-1]
+                    ema50 = c.ewm(span=50, adjust=False).mean().iloc[-1]
+                    ema200 = c.ewm(span=200, adjust=False).mean().iloc[-1]
+
+                    ema12 = c.ewm(span=12, adjust=False).mean()
+                    ema26 = c.ewm(span=26, adjust=False).mean()
+                    macd_hist = ((ema12 - ema26) - (ema12 - ema26).ewm(span=9, adjust=False).mean()).iloc[-1]
+                    macd_hist_prev = ((ema12 - ema26) - (ema12 - ema26).ewm(span=9, adjust=False).mean()).iloc[-2]
+
+                    vol_ma20 = df_live["volume"].astype(float).rolling(20).mean().iloc[-1]
+                    vol_spike = live_vol / vol_ma20 if vol_ma20 > 0 else 0
+
+                    hi52 = df_live["high"].astype(float).tail(252).max()
+                    lo52 = df_live["low"].astype(float).tail(252).min()
+                    pct52 = ((live_price - lo52) / (hi52 - lo52) * 100) if hi52 != lo52 else 50
+
+                    chg_20d = ((live_price / c.iloc[-21] - 1) * 100) if len(c) > 20 else 0
+
+                    macd_cross = "BULL" if macd_hist > 0 else "BEAR"
+                    if macd_hist > 0 and macd_hist_prev <= 0:
+                        macd_cross = "BUY"
+
+                    row = {
+                        "ticker": ticker_name,
+                        "price": live_price,
+                        "rsi_14": rsi,
+                        "ema_trend": "UP" if ema9 > ema21 else "DOWN",
+                        "long_trend": "BULL" if ema50 > ema200 else "BEAR",
+                        "above_ma200": live_price > ema200,
+                        "macd_cross": macd_cross,
+                        "vol_spike": vol_spike,
+                        "52w_pct": pct52,
+                        "chg_20d_pct": chg_20d,
+                    }
+
+                    # Check mỗi preset
+                    for pname, pcfg in PRESETS.items():
+                        if pname == "value":
+                            continue
+                        try:
+                            if pcfg["filter"] and pcfg["filter"](row):
+                                live_hits[pname].append(row)
+                        except Exception:
+                            continue
+
+                    scanned += 1
+                except Exception:
+                    continue
+
+            # Render results
+            total_hits_live = sum(len(v) for v in live_hits.values())
+            st.markdown(
+                f'<div style="background:#1e293b;padding:8px 14px;border-radius:6px;'
+                f'margin:8px 0;font-size:13px;color:#94a3b8">'
+                f'🔴 <b style="color:#ef4444">LIVE</b> — Scanned {scanned} mã '
+                f'— {total_hits_live} tín hiệu real-time'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+            if total_hits_live > 0:
+                cols = st.columns(min(4, len([v for v in live_hits.values() if v])))
+                col_idx = 0
+                for pname, hits in live_hits.items():
+                    if not hits:
+                        continue
+                    icon = PRESET_ICONS.get(pname, "📊")
+                    with cols[col_idx % len(cols)]:
+                        st.markdown(f"**{icon} {pname}** ({len(hits)})")
+                        for h in sorted(hits, key=lambda x: x.get("rsi_14", 50))[:10]:
+                            _rsi = h.get("rsi_14", 0)
+                            _vs = h.get("vol_spike", 0)
+                            _chg = h.get("chg_20d_pct", 0)
+                            st.markdown(
+                                f"<span style='color:#60a5fa;font-weight:600'>{h['ticker']}</span>"
+                                f" <span style='color:#9ca3af;font-size:11px'>"
+                                f"RSI {_rsi:.0f} | Vol {_vs:.1f}x | 20D {_chg:+.1f}%</span>",
+                                unsafe_allow_html=True,
+                            )
+                    col_idx += 1
+            else:
+                st.caption("Chưa có tín hiệu — chờ data accumulate...")
+
+        _live_screener_fragment()
+
     # ── Alerts ─────────────────────────────────────────────────────────────
     _alerts = compute_alerts(gen_time)
     if _alerts:
@@ -2268,10 +2517,10 @@ if _active_tab == "🔬 Phân tích":
                 "Real-time WSS",
                 value=st.session_state.get("live_mode", False),
                 key="live_mode",
-                help=f"Stream real-time cho {len(VN30_SYMBOLS)} mã VN30 + {len(INDEX_SYMBOLS)} chỉ số"
+                help="Stream real-time toàn thị trường (~1,100 mã), poll mỗi 2s"
             )
             if live_on:
-                _wss_client = _get_wss_singleton()
+                _wss_client = _get_wss_singleton(full_market=True)
                 if _wss_client is not None:
                     _wss_status = _wss_client.get_status()
                     _status_label = _wss_status.get("status", "unknown")
@@ -2299,6 +2548,21 @@ if _active_tab == "🔬 Phân tích":
                     st.caption("⚠ Không khởi động được WSS client")
         else:
             st.caption("⚠ Module `vnstock_wss` chưa có — Live mode không khả dụng")
+
+        st.divider()
+        st.markdown("### 📼 Intraday Replay")
+        _bar_dates = list_available_bar_dates()
+        if _bar_dates:
+            replay_date = st.selectbox(
+                "Xem lại phiên",
+                options=["(tắt)"] + _bar_dates,
+                index=0,
+                key="replay_date",
+                help="Chọn ngày để xem lại chart intraday 1m từ bars parquet"
+            )
+        else:
+            replay_date = "(tắt)"
+            st.caption("Chưa có bars parquet — bật Live Mode trong phiên để tạo")
 
     # ── Xác định ticker cần phân tích ─────────────────────────────────────────────
     ticker = ticker_input or st.session_state.get("analyze_ticker", "")
@@ -2510,6 +2774,33 @@ if _active_tab == "🔬 Phân tích":
                 st.error(f"Chart render error: {_e}")
 
         _live_intraday_fragment()
+
+    # ── Intraday Replay ───────────────────────────────────────────────────────
+    elif (st.session_state.get("replay_date", "(tắt)") != "(tắt)"
+          and st.session_state.get("replay_date")):
+        _replay_date = st.session_state["replay_date"]
+        _replay_df = load_intraday_bars(ticker, _replay_date)
+        if _replay_df.empty:
+            st.info(
+                f"📼 Không có bars 1m cho **{ticker}** ngày {_replay_date}. "
+                f"Có thể mã này chưa được subscribe lúc Live Mode bật."
+            )
+            # Fallback về chart daily bình thường
+            render_chart(chart_df, ticker,
+                         height=st.session_state.get("chart_height_anal", 850))
+        else:
+            st.markdown(
+                f'<div style="background:#1e293b;padding:8px 14px;border-radius:6px;'
+                f'margin-bottom:8px;font-size:13px;color:#94a3b8">'
+                f'📼 <b style="color:#fbbf24">Replay</b> — {ticker} ngày '
+                f'{_replay_date} — {len(_replay_df)} bars 1m '
+                f'({_replay_df["time"].iloc[0].strftime("%H:%M")} → '
+                f'{_replay_df["time"].iloc[-1].strftime("%H:%M")})'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+            render_chart(_replay_df, f"{ticker} · Replay {_replay_date}",
+                         height=st.session_state.get("chart_height_anal", 850))
     else:
         render_chart(chart_df, ticker, height=st.session_state.get("chart_height_anal", 850))
 
