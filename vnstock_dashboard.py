@@ -57,6 +57,18 @@ FUND_PATH     = Path("data_warehouse/_meta/fundamentals.parquet")
 WATCHLIST_PATH = Path("data_warehouse/_meta/watchlist.json")
 HISTORY_DIR   = Path("data_warehouse/_meta/screener_history")
 
+# Theme — dark mode đã là default, light mode override CSS
+THEMES = {
+    "dark": {
+        "bg": "#0a0e1a", "card_bg": "#111827", "border": "#1f2937",
+        "text": "#f9fafb", "text2": "#9ca3af", "text3": "#6b7280",
+    },
+    "light": {
+        "bg": "#f8fafc", "card_bg": "#ffffff", "border": "#e2e8f0",
+        "text": "#1e293b", "text2": "#475569", "text3": "#94a3b8",
+    },
+}
+
 PRESET_ICONS = {
     "oversold":      "🟢",
     "overbought":    "🔴",
@@ -374,6 +386,7 @@ def get_tech_signals(df: pd.DataFrame) -> dict:
 
 LIVE_DIR = Path("data_warehouse/_live")
 ALERTS_PATH = Path("data_warehouse/_meta/price_alerts.json")
+PORTFOLIO_PATH = Path("data_warehouse/_meta/portfolio.json")
 
 
 def load_live_quote(ticker: str) -> dict | None:
@@ -509,6 +522,34 @@ def check_and_fire_alerts(alerts: list[dict], bot_token: str = "",
             send_telegram_alert(bot_token, chat_id, msg)
 
     return updated
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Portfolio Tracker
+# ═════════════════════════════════════════════════════════════════════════════
+
+def load_portfolio() -> list[dict]:
+    if not PORTFOLIO_PATH.exists():
+        return []
+    try:
+        return json.loads(PORTFOLIO_PATH.read_text())
+    except Exception:
+        return []
+
+
+def save_portfolio(positions: list[dict]):
+    PORTFOLIO_PATH.parent.mkdir(parents=True, exist_ok=True)
+    import os
+    tmp = PORTFOLIO_PATH.with_suffix(f".{os.getpid()}.tmp")
+    try:
+        tmp.write_text(json.dumps(positions, indent=2, ensure_ascii=False))
+        os.replace(str(tmp), str(PORTFOLIO_PATH))
+    except Exception:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except Exception:
+                pass
 
 
 def list_live_futures() -> list[str]:
@@ -1139,10 +1180,13 @@ def load_fundamental(ticker: str) -> dict:
         result["error"] = str(e)[:120]
     return result
 
-def render_chart(df: pd.DataFrame, ticker: str, height: int = 850):
+def render_chart(df: pd.DataFrame, ticker: str, height: int = 850,
+                 volume_profile: list = None):
     """
     TradingView lightweight-charts — inline JS (no CDN needed).
     Fast, no weekend gaps, synced crosshair across all panels.
+    volume_profile: optional list of {price, buy_vol, sell_vol, total_vol}
+                    for VP overlay on chart.
     """
     import json as _json
 
@@ -1205,6 +1249,19 @@ def render_chart(df: pd.DataFrame, ticker: str, height: int = 850):
     except Exception:
         lwc_code = ""
 
+    # VP overlay data for JS
+    vp_js = "[]"
+    if volume_profile:
+        _vp_clean = []
+        _max_vp_vol = max((float(r.get("total_vol", 0)) for r in volume_profile), default=1) or 1
+        for r in volume_profile[:20]:
+            _vp_clean.append({
+                "p": round(float(r.get("price", 0)), 2),
+                "b": round(float(r.get("buy_vol", 0)) / _max_vp_vol * 100, 1),
+                "s": round(float(r.get("sell_vol", 0)) / _max_vp_vol * 100, 1),
+            })
+        vp_js = _json.dumps(_vp_clean)
+
     html = """<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8">
@@ -1214,11 +1271,13 @@ body { background:#0a0e1a; font-family:monospace; color:#9ca3af; }
 #wrapper { display:flex; flex-direction:column; height:100vh; padding:6px; gap:4px; }
 .lbl { font-size:10px; color:#6b7280; text-transform:uppercase; padding:2px 4px; }
 .ohlcv { font-size:11px; padding:1px 4px; min-height:16px; }
-#mw { flex:5; display:flex; flex-direction:column; min-height:0; }
+#mw { flex:5; display:flex; flex-direction:column; min-height:0; position:relative; }
 #vw { flex:1.5; display:flex; flex-direction:column; min-height:0; }
 #rw { flex:1.5; display:flex; flex-direction:column; min-height:0; }
 #dw { flex:1.5; display:flex; flex-direction:column; min-height:0; }
 #mc,#vc,#rc,#dc { flex:1; min-height:0; }
+#vp-overlay { position:absolute; top:0; right:55px; bottom:0; width:100px;
+  pointer-events:none; z-index:5; opacity:0.5; }
 </style>
 <script>""" + lwc_code + """</script>
 </head>
@@ -1228,6 +1287,7 @@ body { background:#0a0e1a; font-family:monospace; color:#9ca3af; }
     <div class="lbl">""" + ticker + """ · Candlestick · EMA · BB</div>
     <div class="ohlcv" id="ohlcv">O — H — L — C —</div>
     <div id="mc"></div>
+    <div id="vp-overlay"></div>
   </div>
   <div id="vw"><div class="lbl">Volume</div><div id="vc"></div></div>
   <div id="rw"><div class="lbl">RSI (14)</div><div id="rc"></div></div>
@@ -1343,12 +1403,40 @@ charts.forEach(function(s){
   });
 });
 
+// Volume Profile overlay
+var VP=""" + vp_js + """;
+function drawVP(){
+  var ov=document.getElementById("vp-overlay");
+  if(!ov||!VP.length) return;
+  ov.innerHTML="";
+  var ps=main.priceScale("right");
+  var mc=document.getElementById("mc");
+  if(!mc) return;
+  var ch=mc.clientHeight;
+  VP.forEach(function(v){
+    var y=main.priceToCoordinate(v.p);
+    if(y===null||y<0||y>ch) return;
+    var bar=document.createElement("div");
+    bar.style.cssText="position:absolute;right:0;height:3px;display:flex;top:"+Math.round(y)+"px";
+    var bw=Math.max(1,v.b);
+    var sw=Math.max(1,v.s);
+    bar.innerHTML='<div style="width:'+bw+'px;height:100%;background:#10b981"></div>'+
+      '<div style="width:'+sw+'px;height:100%;background:#ef4444"></div>';
+    ov.appendChild(bar);
+  });
+}
+if(VP.length){
+  main.timeScale().subscribeVisibleLogicalRangeChange(drawVP);
+  setTimeout(drawVP,200);
+}
+
 function resize(){
   var ids=["mc","vc","rc","dc"];
   [main,vol,rsi,mac].forEach(function(c,i){
     var el=document.getElementById(ids[i]);
     c.resize(el.clientWidth,el.clientHeight);
   });
+  if(VP.length) setTimeout(drawVP,50);
 }
 window.addEventListener("resize",resize);
 setTimeout(resize,100);
@@ -2254,8 +2342,25 @@ total_hits    = sum(v.get("count", 0) for v in presets_data.values())
 top_preset    = max(presets_data.items(), key=lambda x: x[1].get("count", 0), default=("—", {}))
 industry_summary = data.get("industry_summary", {})
 
+# ── Theme toggle ──────────────────────────────────────────────────────────────
+with st.sidebar:
+    _theme = st.toggle("☀️ Light mode", value=False, key="light_mode")
+    if _theme:
+        _t = THEMES["light"]
+        st.markdown(f"""<style>
+        .stApp {{ background: {_t['bg']} !important; }}
+        .metric-card {{ background: {_t['card_bg']} !important; border-color: {_t['border']} !important; }}
+        .metric-card .value {{ color: {_t['text']} !important; }}
+        .metric-card .label, .metric-card .sub {{ color: {_t['text3']} !important; }}
+        .card {{ background: {_t['card_bg']} !important; border-color: {_t['border']} !important; }}
+        .card-title {{ color: {_t['text2']} !important; }}
+        .section-title {{ color: {_t['text2']} !important; }}
+        [data-testid="stSidebar"] {{ background: {_t['card_bg']} !important; }}
+        [data-testid="stMarkdownContainer"] p {{ color: {_t['text2']}; }}
+        </style>""", unsafe_allow_html=True)
+
 # ── NAVIGATION (dùng pills thay tabs để tránh lazy-render) ────────────────────
-_TAB_OPTIONS = ["📊 Screener", "🔬 Phân tích", "🌏 Thị trường"]
+_TAB_OPTIONS = ["📊 Screener", "🔬 Phân tích", "🌏 Thị trường", "💼 Portfolio"]
 _active_tab = st.pills("", _TAB_OPTIONS, default="📊 Screener", key="nav_tab")
 
 # ══════════════════════════════════════════════════════
@@ -3010,7 +3115,9 @@ if _active_tab == "🔬 Phân tích":
                 _chart_df = _merge_live_quote(_chart_df, live_q)
 
             try:
-                render_chart(_chart_df, ticker, height=st.session_state.get("chart_height_anal", 850))
+                render_chart(_chart_df, ticker,
+                             height=st.session_state.get("chart_height_anal", 850),
+                             volume_profile=_vp if _vp else None)
             except Exception as _e:
                 st.error(f"Chart render error: {_e}")
 
@@ -4098,3 +4205,194 @@ if _active_tab == "🌏 Thị trường":
         except ImportError:
             st.info("Cài plotly để xem chart: `pip install plotly`")
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB: Portfolio
+# ══════════════════════════════════════════════════════════════════════════════
+
+if _active_tab == "💼 Portfolio":
+    st.markdown("### 💼 Danh mục đầu tư")
+
+    positions = load_portfolio()
+
+    with st.sidebar:
+        st.markdown("### 💼 Portfolio")
+
+        with st.expander("➕ Thêm vị thế", expanded=not bool(positions)):
+            _pf_ticker = st.text_input("Mã", placeholder="VCB", key="pf_ticker").upper().strip()
+            _pf_qty = st.number_input("Số lượng (cp)", min_value=0, value=100, step=100, key="pf_qty")
+            _pf_price = st.number_input("Giá mua (VND)", min_value=0.0, value=0.0, step=100.0,
+                                         format="%.0f", key="pf_price")
+            _pf_date = st.date_input("Ngày mua", key="pf_date")
+            if st.button("✅ Thêm", key="pf_add", use_container_width=True):
+                if _pf_ticker and _pf_qty > 0 and _pf_price > 0:
+                    positions.append({
+                        "ticker": _pf_ticker,
+                        "quantity": _pf_qty,
+                        "buy_price": _pf_price,
+                        "buy_date": str(_pf_date),
+                    })
+                    save_portfolio(positions)
+                    st.rerun()
+
+        if positions:
+            st.caption(f"{len(positions)} vị thế")
+            if st.button("🗑 Xoá tất cả", key="pf_clear", use_container_width=True):
+                save_portfolio([])
+                st.rerun()
+
+    if not positions:
+        st.info("Chưa có vị thế nào. Thêm ở sidebar → Portfolio → ➕ Thêm vị thế")
+    else:
+        # Calculate P&L
+        total_invested = 0
+        total_current = 0
+        rows = []
+
+        for i, pos in enumerate(positions):
+            ticker = pos["ticker"]
+            qty = pos["quantity"]
+            buy_price = pos["buy_price"]
+            buy_date = pos.get("buy_date", "")
+
+            invested = qty * buy_price
+            total_invested += invested
+
+            # Get current price (live or warehouse)
+            current_price = 0
+            q = load_live_quote(ticker)
+            if q and float(q.get("price", 0)) > 0:
+                current_price = float(q["price"])
+            else:
+                # Fallback: load from warehouse
+                try:
+                    _tk_dir = Path("data_warehouse/prices") / f"ticker={ticker}"
+                    if _tk_dir.exists():
+                        import pyarrow.parquet as _pq
+                        for _yd in sorted(_tk_dir.iterdir(), reverse=True):
+                            if not _yd.is_dir():
+                                continue
+                            for _pf in sorted(_yd.glob("*.parquet"), reverse=True):
+                                _tbl = _pq.read_table(str(_pf), columns=["close"]).to_pandas()
+                                if not _tbl.empty:
+                                    current_price = float(_tbl["close"].iloc[-1])
+                                    break
+                            if current_price > 0:
+                                break
+                except Exception:
+                    pass
+
+            current_val = qty * current_price if current_price > 0 else 0
+            total_current += current_val
+            pnl = current_val - invested
+            pnl_pct = (pnl / invested * 100) if invested > 0 else 0
+
+            rows.append({
+                "ticker": ticker,
+                "qty": qty,
+                "buy_price": buy_price,
+                "buy_date": buy_date,
+                "current_price": current_price,
+                "invested": invested,
+                "current_val": current_val,
+                "pnl": pnl,
+                "pnl_pct": pnl_pct,
+                "idx": i,
+            })
+
+        total_pnl = total_current - total_invested
+        total_pnl_pct = (total_pnl / total_invested * 100) if total_invested > 0 else 0
+
+        # Summary cards
+        _pnl_color = "#10b981" if total_pnl >= 0 else "#ef4444"
+        _pnl_sign = "+" if total_pnl >= 0 else ""
+
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.markdown(
+                f'<div class="metric-card"><div class="label">Vốn đầu tư</div>'
+                f'<div class="value">{total_invested:,.0f}</div>'
+                f'<div class="sub">VND</div></div>',
+                unsafe_allow_html=True)
+        with c2:
+            st.markdown(
+                f'<div class="metric-card"><div class="label">Giá trị hiện tại</div>'
+                f'<div class="value">{total_current:,.0f}</div>'
+                f'<div class="sub">VND</div></div>',
+                unsafe_allow_html=True)
+        with c3:
+            st.markdown(
+                f'<div class="metric-card"><div class="label">Lãi/Lỗ</div>'
+                f'<div class="value" style="color:{_pnl_color}">'
+                f'{_pnl_sign}{total_pnl:,.0f}</div>'
+                f'<div class="sub">VND</div></div>',
+                unsafe_allow_html=True)
+        with c4:
+            st.markdown(
+                f'<div class="metric-card"><div class="label">% Lãi/Lỗ</div>'
+                f'<div class="value" style="color:{_pnl_color}">'
+                f'{_pnl_sign}{total_pnl_pct:.2f}%</div>'
+                f'<div class="sub">tổng danh mục</div></div>',
+                unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Positions table
+        _th = ("background:#111827;color:#6b7280;font-size:10px;font-weight:500;"
+               "text-transform:uppercase;letter-spacing:0.05em;padding:6px 10px;"
+               "border-bottom:2px solid #1f2937;text-align:right;"
+               "font-family:'IBM Plex Sans',sans-serif;")
+        _td = ("padding:5px 10px;border-bottom:1px solid #1a2234;"
+               "font-size:12px;font-family:'IBM Plex Mono',monospace;text-align:right;")
+
+        _rows_html = ""
+        for r in sorted(rows, key=lambda x: x["pnl"], reverse=True):
+            _pc = "#10b981" if r["pnl"] >= 0 else "#ef4444"
+            _ps = "+" if r["pnl"] >= 0 else ""
+            _bg = "#0d1117"
+            _rows_html += (
+                f"<tr style='background:{_bg}'>"
+                f"<td style='{_td}text-align:left;color:#60a5fa;font-weight:600'>{r['ticker']}</td>"
+                f"<td style='{_td}color:#9ca3af'>{r['qty']:,}</td>"
+                f"<td style='{_td}color:#9ca3af'>{r['buy_price']:,.0f}</td>"
+                f"<td style='{_td}color:#e5e7eb'>"
+                f"{r['current_price']:,.0f}" if r['current_price'] > 0 else "—"
+                f"</td>"
+                f"<td style='{_td}color:#9ca3af'>{r['invested']:,.0f}</td>"
+                f"<td style='{_td}color:#e5e7eb'>{r['current_val']:,.0f}</td>"
+                f"<td style='{_td}color:{_pc};font-weight:600'>{_ps}{r['pnl']:,.0f}</td>"
+                f"<td style='{_td}color:{_pc};font-weight:600'>{_ps}{r['pnl_pct']:.2f}%</td>"
+                f"<td style='{_td}color:#9ca3af;font-size:10px'>{r['buy_date']}</td>"
+                f"</tr>"
+            )
+
+        _tbl = (
+            f"<div style='overflow-x:auto;border:1px solid #1f2937;border-radius:8px'>"
+            f"<table style='width:100%;border-collapse:collapse'>"
+            f"<thead><tr>"
+            f"<th style='{_th}text-align:left'>Mã</th>"
+            f"<th style='{_th}'>SL</th>"
+            f"<th style='{_th}'>Giá mua</th>"
+            f"<th style='{_th}'>Giá hiện tại</th>"
+            f"<th style='{_th}'>Vốn</th>"
+            f"<th style='{_th}'>GT hiện tại</th>"
+            f"<th style='{_th}'>Lãi/Lỗ</th>"
+            f"<th style='{_th}'>%</th>"
+            f"<th style='{_th}'>Ngày mua</th>"
+            f"</tr></thead>"
+            f"<tbody>{_rows_html}</tbody></table></div>"
+        )
+        st.markdown(_tbl, unsafe_allow_html=True)
+
+        # Delete individual position
+        st.markdown("<br>", unsafe_allow_html=True)
+        _del_idx = st.selectbox(
+            "Xoá vị thế",
+            options=["—"] + [f"{r['ticker']} ({r['qty']} cp @ {r['buy_price']:,.0f})" for r in rows],
+            key="pf_del_select",
+        )
+        if _del_idx != "—" and st.button("🗑 Xoá vị thế này", key="pf_del_btn"):
+            _del_i = [f"{r['ticker']} ({r['qty']} cp @ {r['buy_price']:,.0f})" for r in rows].index(_del_idx)
+            positions.pop(rows[_del_i]["idx"])
+            save_portfolio(positions)
+            st.rerun()
