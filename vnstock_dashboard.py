@@ -178,44 +178,28 @@ html, body, [class*="css"] {
 @st.cache_data(ttl=300)
 def _normalize_price_units(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Detect và normalize đơn vị giá pha trộn trong warehouse data.
+    Normalize đơn vị giá về nghìn VND.
 
-    Warehouse có thể lưu giá ở 2 đơn vị khác nhau qua các giai đoạn:
-    - nghìn VND (vd: 77.7 cho FPT)
-    - VND (vd: 77700 cho FPT)
+    vnstock (free VCI) trả giá ở nghìn VND: FPT = 77.7
+    vnstock_data (sponsor) trả giá ở VND:   FPT = 77700
 
-    Dùng magnitude-based detection: so sánh mỗi price với giá mới nhất.
-    Nếu price < latest/100 → đang ở đơn vị nhỏ → nhân 1000.
-    Nếu price > latest*100 → đang ở đơn vị lớn → chia 1000.
+    Warehouse + bars parquet có thể pha trộn cả 2 đơn vị, thậm chí
+    trong cùng 1 row (open=77.8 nghìn, close=77700 VND).
+
+    Rule: không có mã nào trên sàn VN giá > 500 nghìn VND (500,000 VND).
+    Vậy bất kỳ giá OHLC nào > 500 chắc chắn là VND → chia 1000.
     """
-    if df.empty or len(df) < 2:
+    if df.empty:
         return df
 
     df = df.copy()
-    latest = float(df["close"].iloc[-1])
-    if latest <= 0:
-        return df
-
-    threshold_low = latest / 100   # prices below this are in nghìn VND
-    threshold_high = latest * 100  # prices above this are in VND (khi latest ở nghìn VND)
-
-    for i in range(len(df) - 1):
-        close_val = float(df["close"].iloc[i])
-        if close_val <= 0:
+    for col in ("open", "high", "low", "close"):
+        if col not in df.columns:
             continue
-
-        if latest > 500 and close_val < threshold_low:
-            # Latest ở VND, historical ở nghìn VND → nhân 1000
-            for col in ("open", "high", "low", "close"):
-                if col in df.columns:
-                    df.iloc[i, df.columns.get_loc(col)] = \
-                        float(df.iloc[i, df.columns.get_loc(col)]) * 1000
-        elif latest <= 500 and close_val > threshold_high:
-            # Latest ở nghìn VND, historical ở VND → chia 1000
-            for col in ("open", "high", "low", "close"):
-                if col in df.columns:
-                    df.iloc[i, df.columns.get_loc(col)] = \
-                        float(df.iloc[i, df.columns.get_loc(col)]) / 1000
+        vals = df[col].astype(float)
+        mask = vals > 500
+        if mask.any():
+            df.loc[mask, col] = vals[mask] / 1000
 
     return df
 
@@ -2019,27 +2003,17 @@ def _load_all_market_data() -> tuple:
                 amp20 = float(amp.tail(20).mean())
                 amp60 = float(amp.tail(60).mean()) if len(amp) >= 60 else amp5
 
-                # Normalize đơn vị giá: nếu có jump > 5x giữa 2 ngày liền kề,
-                # có thể do pha trộn đơn vị (VND vs nghìn VND) giữa các
-                # file parquet khác nhau. Tự detect và chia/nhân 1000.
+                # Normalize đơn vị giá: > 500 = VND → chia 1000 về nghìn VND
                 c90_clean = c90.copy()
-                for _ci in range(1, len(c90_clean)):
-                    _prev = c90_clean.iloc[_ci - 1]
-                    _curr = c90_clean.iloc[_ci]
-                    if _prev > 0 and _curr > 0:
-                        _ratio = _curr / _prev
-                        if _ratio > 5:
-                            # Giá nhảy lên > 5x → phiên trước lưu đơn vị nhỏ
-                            c90_clean.iloc[:_ci] = c90_clean.iloc[:_ci] * 1000
-                        elif _ratio < 0.2:
-                            # Giá giảm > 5x → phiên trước lưu đơn vị lớn
-                            c90_clean.iloc[:_ci] = c90_clean.iloc[:_ci] / 1000
+                _mask = c90_clean > 500
+                if _mask.any():
+                    c90_clean[_mask] = c90_clean[_mask] / 1000
 
                 chg5  = float((c90_clean.iloc[-1]/c90_clean.iloc[-6]-1)*100)  if len(c90_clean)>5  else None
                 chg20 = float((c90_clean.iloc[-1]/c90_clean.iloc[-21]-1)*100) if len(c90_clean)>20 else None
                 chg60 = float((c90_clean.iloc[-1]/c90_clean.iloc[-61]-1)*100) if len(c90_clean)>60 else None
 
-                # Safety clamp: nếu vẫn bất thường
+                # Safety clamp
                 if chg5 is not None and abs(chg5) > 50:
                     chg5 = None
                 if chg20 is not None and abs(chg20) > 80:
@@ -2049,10 +2023,7 @@ def _load_all_market_data() -> tuple:
 
                 issue_share = shares_map.get(ticker, 0)
 
-                # Detect đơn vị giá: warehouse có thể lưu VND (92000) hoặc
-                # nghìn VND (92). mktcap formula cần nghìn VND.
-                # Heuristic: giá cổ phiếu VN thường < 500 (nghìn VND).
-                # Nếu last > 500 → đang ở đơn vị VND → chia 1000.
+                # last cũng cần normalize
                 _last_k = last / 1000 if last > 500 else last
                 mktcap = _last_k * 1000 * issue_share / 1e9 if issue_share > 0 else 0.0
                 mktcap_proxy = _last_k * 1000 * vol20 / 1e9
