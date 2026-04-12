@@ -389,11 +389,69 @@ def list_live_futures() -> list[str]:
     return friendly if friendly else internal
 
 
+def _calc_value_area(profile: list, pct: float = 0.70) -> tuple:
+    """
+    Tính Value Area — vùng giá chứa `pct` (mặc định 70%) tổng volume.
+
+    Thuật toán:
+    1. Tìm POC (price level có total_vol cao nhất)
+    2. Từ POC, mở rộng ra 2 bên (trên + dưới) — mỗi bước chọn bên nào
+       có volume cao hơn
+    3. Dừng khi tổng volume trong vùng đạt ≥ pct × total_all_vol
+
+    Returns: (poc_idx, vah_idx, val_idx, poc_price, vah_price, val_price)
+      trong đó idx là index trong list profile (đã sort theo price giảm dần).
+    """
+    if not profile:
+        return (0, 0, 0, 0, 0, 0)
+
+    # Profile đã sort theo price giảm dần
+    volumes = [float(r.get("total_vol", 0)) for r in profile]
+    prices = [float(r.get("price", 0)) for r in profile]
+    total_all = sum(volumes)
+    if total_all <= 0:
+        return (0, 0, len(profile) - 1, prices[0], prices[0],
+                prices[-1] if prices else 0)
+
+    # POC = index có volume cao nhất
+    poc_idx = max(range(len(volumes)), key=lambda i: volumes[i])
+
+    # Mở rộng từ POC ra 2 bên
+    va_vol = volumes[poc_idx]
+    target = total_all * pct
+    upper = poc_idx - 1   # index nhỏ hơn = price cao hơn (sort giảm dần)
+    lower = poc_idx + 1   # index lớn hơn = price thấp hơn
+
+    while va_vol < target and (upper >= 0 or lower < len(volumes)):
+        up_vol = volumes[upper] if upper >= 0 else -1
+        lo_vol = volumes[lower] if lower < len(volumes) else -1
+
+        if up_vol >= lo_vol and upper >= 0:
+            va_vol += up_vol
+            upper -= 1
+        elif lower < len(volumes):
+            va_vol += lo_vol
+            lower += 1
+        else:
+            break
+
+    vah_idx = max(upper + 1, 0)
+    val_idx = min(lower - 1, len(volumes) - 1)
+
+    return (poc_idx, vah_idx, val_idx,
+            prices[poc_idx], prices[vah_idx], prices[val_idx])
+
+
 def render_volume_profile(profile: list, current_price: float = 0,
                           scale: float = 1.0, max_rows: int = 20):
     """
     Render Volume Profile — bảng top N mức giá có khớp lệnh nhiều nhất
     trong phiên, kèm breakdown buy / sell / unknown volume.
+
+    Features:
+    - POC (Point of Control): highlight mức giá có volume cao nhất
+    - Value Area (70%): tô nền các dòng trong VA, hiện VAH/VAL
+    - Delta: cột buy-sell delta, tích luỹ delta, color coding
 
     profile: list of {price, buy_vol, sell_vol, unknown_vol, total_vol}
       đã sort theo price (giảm dần)
@@ -403,40 +461,113 @@ def render_volume_profile(profile: list, current_price: float = 0,
     if not profile:
         return
 
-    max_total = max((float(r.get("total_vol", 0)) for r in profile), default=1)
+    display = profile[:max_rows]
+
+    # ── Tính POC + Value Area ──
+    poc_idx, vah_idx, val_idx, poc_price, vah_price, val_price = \
+        _calc_value_area(display)
+
+    max_total = max((float(r.get("total_vol", 0)) for r in display), default=1)
     if max_total <= 0:
         max_total = 1
 
+    # Max delta để scale delta bar
+    deltas = []
+    for r in display:
+        bv = float(r.get("buy_vol", 0))
+        sv = float(r.get("sell_vol", 0))
+        deltas.append(bv - sv)
+    max_abs_delta = max((abs(d) for d in deltas), default=1) or 1
+
+    # Cumulative delta (tích luỹ từ giá thấp → cao = bottom → top)
+    cum_deltas = [0.0] * len(display)
+    cum = 0.0
+    for i in range(len(display) - 1, -1, -1):   # từ low lên high
+        cum += deltas[i]
+        cum_deltas[i] = cum
+
     rows_html = ""
-    for r in profile[:max_rows]:
+    for i, r in enumerate(display):
         try:
             price = float(r.get("price", 0))
             buy_v = float(r.get("buy_vol", 0))
             sell_v = float(r.get("sell_vol", 0))
-            unk_v = float(r.get("unknown_vol", 0))
             total_v = float(r.get("total_vol", 0))
         except Exception:
             continue
 
+        delta = deltas[i]
+        cum_d = cum_deltas[i]
         pct = total_v / max_total * 100
         price_str = f"{price / scale:,.2f}"
+
         is_current = current_price > 0 and abs(price - current_price) < 0.01
-        row_bg = "background:rgba(251,191,36,0.15)" if is_current else ""
+        is_poc = (i == poc_idx)
+        in_va = (vah_idx <= i <= val_idx)
+
+        # Row background: POC > current price > Value Area > default
+        if is_poc:
+            row_bg = "background:rgba(251,191,36,0.25)"
+        elif is_current:
+            row_bg = "background:rgba(251,191,36,0.10)"
+        elif in_va:
+            row_bg = "background:rgba(59,130,246,0.08)"
+        else:
+            row_bg = ""
+
+        # Price label
+        label = ""
+        if is_poc:
+            label = " <span style='color:#fbbf24;font-size:9px;font-weight:700'>POC</span>"
+        elif i == vah_idx and vah_idx != poc_idx:
+            label = " <span style='color:#3b82f6;font-size:9px;font-weight:600'>VAH</span>"
+        elif i == val_idx and val_idx != poc_idx:
+            label = " <span style='color:#3b82f6;font-size:9px;font-weight:600'>VAL</span>"
 
         buy_pct = (buy_v / total_v * 100) if total_v > 0 else 0
         sell_pct = (sell_v / total_v * 100) if total_v > 0 else 0
 
+        # Delta bar — xanh nếu >0, đỏ nếu <0
+        delta_width = abs(delta) / max_abs_delta * 50  # max 50% width
+        delta_color = "#10b981" if delta >= 0 else "#ef4444"
+        delta_sign = "+" if delta >= 0 else ""
+        delta_str = f"{delta_sign}{int(delta):,}"
+
+        # Cumulative delta color
+        cum_color = "#10b981" if cum_d >= 0 else "#ef4444"
+        cum_sign = "+" if cum_d >= 0 else ""
+        cum_str = f"{cum_sign}{int(cum_d):,}"
+
         rows_html += (
             f"<tr style='{row_bg}'>"
-            f"<td style='color:#f9fafb;text-align:right;padding:4px 10px;"
-            f"font-weight:{'700' if is_current else '500'}'>{price_str}</td>"
-            f"<td style='color:#10b981;text-align:right;padding:4px 10px'>"
+            # Price + label
+            f"<td style='color:#f9fafb;text-align:right;padding:4px 8px;"
+            f"font-weight:{'700' if is_poc or is_current else '500'};white-space:nowrap'>"
+            f"{price_str}{label}</td>"
+            # Buy
+            f"<td style='color:#10b981;text-align:right;padding:4px 8px'>"
             f"{int(buy_v):,}</td>"
-            f"<td style='color:#ef4444;text-align:right;padding:4px 10px'>"
+            # Sell
+            f"<td style='color:#ef4444;text-align:right;padding:4px 8px'>"
             f"{int(sell_v):,}</td>"
-            f"<td style='color:#9ca3af;text-align:right;padding:4px 10px'>"
+            # Total
+            f"<td style='color:#9ca3af;text-align:right;padding:4px 8px'>"
             f"{int(total_v):,}</td>"
-            f"<td style='padding:4px 10px;min-width:120px'>"
+            # Delta (buy - sell)
+            f"<td style='color:{delta_color};text-align:right;padding:4px 8px;"
+            f"font-size:11px'>"
+            f"<div style='display:flex;align-items:center;justify-content:flex-end;gap:4px'>"
+            f"<span>{delta_str}</span>"
+            f"<div style='width:50px;height:10px;background:#1f2937;border-radius:1px;"
+            f"position:relative;overflow:hidden'>"
+            f"<div style='position:absolute;{'right' if delta < 0 else 'left'}:0;top:0;"
+            f"height:100%;width:{delta_width:.1f}%;background:{delta_color};opacity:0.7'>"
+            f"</div></div></div></td>"
+            # Cumulative Delta
+            f"<td style='color:{cum_color};text-align:right;padding:4px 8px;"
+            f"font-size:11px'>{cum_str}</td>"
+            # Distribution bar
+            f"<td style='padding:4px 8px;min-width:100px'>"
             f"<div style='position:relative;height:14px;background:#1f2937;"
             f"border-radius:2px;overflow:hidden'>"
             f"<div style='position:absolute;left:0;top:0;height:100%;"
@@ -446,6 +577,25 @@ def render_volume_profile(profile: list, current_price: float = 0,
             f"</div></td>"
             f"</tr>"
         )
+
+    # ── Summary line: POC / VAH / VAL ──
+    summary_parts = [
+        f"<span style='color:#fbbf24'>■</span> POC {poc_price/scale:,.2f}",
+    ]
+    if vah_idx != val_idx:
+        summary_parts.append(
+            f"<span style='color:#3b82f6'>■</span> "
+            f"VA [{val_price/scale:,.2f} — {vah_price/scale:,.2f}]"
+        )
+
+    # Total cumulative delta
+    total_cum = cum_deltas[0] if cum_deltas else 0
+    cum_total_color = "#10b981" if total_cum >= 0 else "#ef4444"
+    cum_total_sign = "+" if total_cum >= 0 else ""
+    summary_parts.append(
+        f"Σ Delta <span style='color:{cum_total_color}'>"
+        f"{cum_total_sign}{int(total_cum):,}</span>"
+    )
 
     html = (
         f"<div style='margin:14px 0'>"
@@ -458,17 +608,24 @@ def render_volume_profile(profile: list, current_price: float = 0,
         f"border:1px solid #1f2937;border-radius:6px;overflow:hidden'>"
         f"<thead><tr style='color:#6b7280;font-size:10px;"
         f"text-transform:uppercase;letter-spacing:0.05em;background:#111827'>"
-        f"<th style='text-align:right;padding:6px 10px'>Giá</th>"
-        f"<th style='text-align:right;padding:6px 10px'>Mua</th>"
-        f"<th style='text-align:right;padding:6px 10px'>Bán</th>"
-        f"<th style='text-align:right;padding:6px 10px'>Tổng</th>"
-        f"<th style='text-align:left;padding:6px 10px'>Phân bổ</th>"
+        f"<th style='text-align:right;padding:6px 8px'>Giá</th>"
+        f"<th style='text-align:right;padding:6px 8px'>Mua</th>"
+        f"<th style='text-align:right;padding:6px 8px'>Bán</th>"
+        f"<th style='text-align:right;padding:6px 8px'>Tổng</th>"
+        f"<th style='text-align:right;padding:6px 8px'>Delta</th>"
+        f"<th style='text-align:right;padding:6px 8px'>Σ Delta</th>"
+        f"<th style='text-align:left;padding:6px 8px'>Phân bổ</th>"
         f"</tr></thead>"
         f"<tbody>{rows_html}</tbody></table>"
         f"<div style='color:#6b7280;font-size:10px;margin-top:4px'>"
-        f"Hàng highlight vàng = giá hiện tại &nbsp; | &nbsp; "
-        f"<span style='color:#10b981'>■</span> Mua chủ động &nbsp; "
-        f"<span style='color:#ef4444'>■</span> Bán chủ động"
+        f"{' &nbsp;|&nbsp; '.join(summary_parts)}"
+        f"</div>"
+        f"<div style='color:#6b7280;font-size:9px;margin-top:2px'>"
+        f"<span style='color:#fbbf24'>█</span> POC &nbsp; "
+        f"<span style='color:#3b82f6;opacity:0.5'>█</span> Value Area 70% &nbsp; "
+        f"<span style='color:#10b981'>■</span> Mua &nbsp; "
+        f"<span style='color:#ef4444'>■</span> Bán &nbsp; "
+        f"Delta = Mua − Bán &nbsp; Σ = tích luỹ từ giá thấp"
         f"</div>"
         f"</div>"
     )
