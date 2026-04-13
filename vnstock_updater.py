@@ -161,14 +161,7 @@ def _fetch_prices(ticker: str, start: str, end: str) -> pd.DataFrame:
     """
     try:
         ensure_api_key()
-        if USE_UNIFIED:
-            from vnstock_data import Equity
-            df = Equity().stock(ticker).quote.history(
-                start=start, end=end, interval="1D"
-            )
-        else:
-            df = get_vnstock(ticker) \
-                         .quote.history(start=start, end=end, interval="1D")
+        df = get_vnstock(ticker).quote.history(start=start, end=end, interval="1D")
 
         if df is None or df.empty:
             return pd.DataFrame()
