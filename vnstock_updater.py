@@ -41,14 +41,18 @@ warnings.filterwarnings("ignore")
 console = Console()
 
 # ── vnstock import ────────────────────────────────────────────────────────────
+from vnstock_auth import ensure_api_key, get_vnstock
+
 try:
     from vnstock_data import Reference
     USE_UNIFIED = True
+    ensure_api_key()
     console.log("[green]✅ Using vnstock_data[/green]")
 except ImportError:
     USE_UNIFIED = False
     try:
         from vnstock import Vnstock
+        ensure_api_key()
         console.log("[yellow]⚠ Using vnstock (free)[/yellow]")
     except ImportError:
         console.print("[red]❌ Install vnstock: pip install vnstock[/red]")
@@ -156,14 +160,8 @@ def _fetch_prices(ticker: str, start: str, end: str) -> pd.DataFrame:
     Trả về DataFrame với cột: time(date), open, high, low, close, volume
     """
     try:
-        if USE_UNIFIED:
-            from vnstock_data import Equity
-            df = Equity().stock(ticker).quote.history(
-                start=start, end=end, interval="1D"
-            )
-        else:
-            df = Vnstock().stock(symbol=ticker, source="VCI") \
-                         .quote.history(start=start, end=end, interval="1D")
+        ensure_api_key()
+        df = get_vnstock(ticker).quote.history(start=start, end=end, interval="1D")
 
         if df is None or df.empty:
             return pd.DataFrame()
@@ -399,6 +397,8 @@ def run_update(
         for e in errors[:10]:
             console.print(f"  [dim]{e['ticker']}: {e['error']}[/dim]")
 
+    return stats
+
 
 def run_check(warehouse: str = "data_warehouse", tickers: list = None):
     """Kiểm tra ngày cuối của từng ticker trong warehouse."""
@@ -466,15 +466,66 @@ if __name__ == "__main__":
                         help="Delay giữa API calls (giây, mặc định 0.3)")
     parser.add_argument("--warehouse", default="data_warehouse",
                         help="Đường dẫn warehouse")
+    parser.add_argument("--skip-if-done", action="store_true",
+                        help="Skip nếu job đã chạy hôm nay (multi-machine)")
     args = parser.parse_args()
 
     if args.check:
         run_check(warehouse=args.warehouse, tickers=args.tickers)
     else:
-        run_update(
+        # ── Multi-machine coordination (import từ rollup để share helpers)
+        if args.skip_if_done and not args.dry_run:
+            try:
+                import random as _rnd
+                import time as _t
+                from vnstock_rollup import (
+                    get_hostname, get_today_vn, is_already_done_today,
+                    write_pipeline_status,
+                )
+
+                hostname = get_hostname()
+                jitter = _rnd.uniform(0, 30)
+                console.log(f"[dim]Jitter {jitter:.1f}s trước khi check status...[/dim]")
+                _t.sleep(jitter)
+
+                done, existing = is_already_done_today("updater")
+                if done:
+                    other = existing.get("last_machine", "?")
+                    other_time = existing.get("last_run_at", "?")
+                    tickers_cnt = existing.get("tickers_updated", "?")
+                    console.print(
+                        f"[green]✓ Updater đã chạy hôm nay bởi máy {other}[/green]\n"
+                        f"  Thời điểm: {other_time}\n"
+                        f"  Tickers updated: {tickers_cnt}\n"
+                        f"  → Skip trên máy này ({hostname})"
+                    )
+                    import sys; sys.exit(0)
+            except ImportError:
+                console.print("[yellow]⚠ vnstock_rollup không có — bỏ qua --skip-if-done[/yellow]")
+
+        stats = run_update(
             warehouse=args.warehouse,
             tickers=args.tickers,
             dry_run=args.dry_run,
             delay=args.delay,
             skip_weekends=not args.force,
         )
+
+        # Write pipeline status sau khi update thành công
+        if (args.skip_if_done and not args.dry_run and stats is not None
+                and stats.get("error", 0) == 0):
+            try:
+                from vnstock_rollup import (
+                    get_hostname, get_today_vn, write_pipeline_status,
+                )
+                write_pipeline_status("updater", {
+                    "last_success_date": get_today_vn().isoformat(),
+                    "last_run_at": datetime.now().isoformat(timespec="seconds"),
+                    "last_machine": get_hostname(),
+                    "last_result": "success",
+                    "tickers_updated": stats.get("updated", 0),
+                    "tickers_up_to_date": stats.get("up_to_date", 0),
+                })
+                console.log("[dim]pipeline_status.json updated[/dim]")
+            except Exception as e:
+                console.log(f"[yellow]⚠ write pipeline_status: {e}[/yellow]")

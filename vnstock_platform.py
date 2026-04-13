@@ -24,18 +24,14 @@ import sys
 import warnings
 from datetime import datetime, timedelta
 from typing import Optional
-from dotenv import load_dotenv
-
 import numpy as np
 import pandas as pd
 
 warnings.filterwarnings("ignore")
 
-# ── Load API key from .env if present ─────────────────────────────────────────
-load_dotenv()
-_api_key = os.getenv("VNSTOCK_API_KEY")
-if _api_key:
-    os.environ["VNSTOCK_API_KEY"] = _api_key
+# ── Load API key from .env ───────────────────────────────────────────────────
+from vnstock_auth import ensure_api_key, get_vnstock
+ensure_api_key()
 
 # ── Rich for beautiful terminal output ────────────────────────────────────────
 try:
@@ -101,9 +97,7 @@ class DataClient:
 
         # Lazy-load Vnstock to surface import errors clearly
         try:
-            from vnstock import Vnstock
-            self._vnstock = Vnstock()
-            self._stock = self._vnstock.stock(symbol=self.symbol, source=self.source)
+            self._stock = get_vnstock(self.symbol, source=self.source)
         except ImportError as exc:
             raise ImportError(
                 "vnstock is not installed. Run: pip install vnstock"

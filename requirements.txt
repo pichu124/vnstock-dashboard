@@ -1,0 +1,22 @@
+# Core
+streamlit>=1.35.0
+pandas>=2.0.0
+numpy>=1.24.0
+pyarrow>=14.0.0
+plotly>=5.18.0
+
+# Data source
+vnstock>=3.5.0
+python-dotenv>=1.0.0
+
+# HTTP & utilities
+requests>=2.31.0
+rich>=13.0.0
+tqdm>=4.65.0
+pytz>=2023.3
+
+# Optional — enhanced features (install if available)
+# vnstock_data          # Sponsor-tier API (Golden/Silver)
+# vnstock_ta            # Technical analysis indicators
+# vnstock_chart         # CandleChart HTML export
+# websocket-client      # WebSocket streaming (if WSS mode needed)

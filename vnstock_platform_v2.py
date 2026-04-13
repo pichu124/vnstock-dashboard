@@ -104,15 +104,19 @@ def _load_from_warehouse(ticker: str, start: str, end: str) -> pd.DataFrame:
     except Exception as e:
         console.log(f"  [dim]⚠ Warehouse read error [{ticker}]: {e}[/dim]")
         return pd.DataFrame()
+from vnstock_auth import ensure_api_key, get_vnstock
+
 try:
     from vnstock_data import Fundamental, Market, Reference
     USE_UNIFIED = True
+    ensure_api_key()
     console.log("[green]✅ Using vnstock_data (Unified UI)[/green]")
 except ImportError:
     USE_UNIFIED = False
     console.log("[yellow]⚠ vnstock_data not found — using vnstock (free)[/yellow]")
     try:
         from vnstock import Vnstock
+        ensure_api_key()
     except ImportError:
         console.print("[red]❌ Neither vnstock_data nor vnstock is installed.[/red]")
         console.print("Run: pip install vnstock")
@@ -182,7 +186,7 @@ class DataClient:
         self.symbol = symbol.upper()
         self.source = source
         if not USE_UNIFIED:
-            self._stock = Vnstock().stock(symbol=self.symbol, source=self.source)
+            self._stock = get_vnstock(self.symbol, source=self.source)
 
     # ── Price ─────────────────────────────────────────────────────────────────
 

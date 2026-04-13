@@ -106,9 +106,8 @@ def _fetch_ratios(ticker: str) -> dict:
     Trả về dict với pe, pb, roe, roa, eps, net_margin, gross_margin, debt_ratio.
     """
     try:
-        from vnstock import Vnstock
-        ratios = Vnstock().stock(symbol=ticker, source="VCI") \
-                          .finance.ratio(period="year", lang="vi")
+        from vnstock_auth import get_vnstock
+        ratios = get_vnstock(ticker).finance.ratio(period="year", lang="vi")
     except Exception as e:
         raise RuntimeError(f"API error: {e}")
 
