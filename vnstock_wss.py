@@ -25,12 +25,25 @@ Standalone test:
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 import threading
 from datetime import datetime, time as dtime
 from pathlib import Path
 from typing import Optional
+
+from dotenv import load_dotenv
+load_dotenv()
+
+# ── Apply VNSTOCK_API_KEY if present ──────────────────────────────────────────
+_API_KEY = os.getenv("VNSTOCK_API_KEY", "").strip()
+if _API_KEY:
+    try:
+        from vnstock.core.utils.auth import change_api_key
+        change_api_key(_API_KEY)
+    except Exception:
+        os.environ["VNSTOCK_API_KEY"] = _API_KEY
 
 import pandas as pd
 
