@@ -3175,10 +3175,11 @@ if _active_tab == "🔬 Phân tích":
             if live_q and not _chart_df.empty:
                 _chart_df = _merge_live_quote(_chart_df, live_q)
 
+            _vp_for_chart = _vp if live_q else None
             try:
                 render_chart(_chart_df, ticker,
                              height=st.session_state.get("chart_height_anal", 850),
-                             volume_profile=_vp if _vp else None)
+                             volume_profile=_vp_for_chart if _vp_for_chart else None)
             except Exception as _e:
                 st.error(f"Chart render error: {_e}")
 

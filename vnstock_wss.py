@@ -729,8 +729,12 @@ class VnStockWSS:
         if not symbols:
             return True
         try:
-            from vnstock_data import Market  # type: ignore
-            m = Market()
+            try:
+                from vnstock_data import Market  # type: ignore
+                m = Market()
+            except ImportError:
+                from vnstock import Vnstock  # fallback to free vnstock
+                m = Vnstock().stock(symbol=symbols[0] if symbols else "VCB", source="VCI")
             # Flexible signature: thử kwarg khác nhau
             df = None
             for call in (
