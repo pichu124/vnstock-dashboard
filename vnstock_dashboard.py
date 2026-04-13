@@ -2367,9 +2367,10 @@ with _update_col:
     with _uc1:
         if st.button("📥 Cập nhật giá", key="run_updater", use_container_width=True):
             with st.spinner("Đang cập nhật giá từ API (5-10 phút)..."):
-                import subprocess
+                import subprocess, sys as _sys
+                _py = _sys.executable
                 result = subprocess.run(
-                    ["python", "vnstock_updater.py", "--force"],
+                    [_py, "vnstock_updater.py", "--force"],
                     capture_output=True, text=True, cwd=str(Path(__file__).parent),
                     timeout=900,
                     env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"}
@@ -2378,7 +2379,7 @@ with _update_col:
                     st.success("Giá đã cập nhật! Đang refresh screener...")
                     # Auto-run screener after price update
                     subprocess.run(
-                        ["python", "vnstock_runner.py"],
+                        [_py, "vnstock_runner.py"],
                         capture_output=True, text=True, cwd=str(Path(__file__).parent),
                         timeout=300,
                         env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"}
@@ -2390,9 +2391,10 @@ with _update_col:
     with _uc2:
         if st.button("🔄 Refresh Screener", key="run_screener", use_container_width=True):
             with st.spinner("Đang chạy screener (có thể mất 1-2 phút)..."):
-                import subprocess
+                import subprocess, sys as _sys
+                _py = _sys.executable
                 result = subprocess.run(
-                    ["python", "vnstock_runner.py"],
+                    [_py, "vnstock_runner.py"],
                     capture_output=True, text=True, cwd=str(Path(__file__).parent),
                     timeout=300,
                     env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"}
