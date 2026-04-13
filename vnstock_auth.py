@@ -83,20 +83,13 @@ def get_vnstock(ticker: str = "VCB", source: str = "VCI"):
     """
     Create a stock instance with the correct API tier.
 
-    Prefers vnstock_data (Sponsor) over vnstock (free) when available.
-    vnstock warns: "Chỉ nhập API key trên vnstock bản free sẽ KHÔNG
-    mở khóa được giới hạn."
+    When vnstock_data (Sponsor) is installed, the device is already
+    registered via the GUI installer — just use Vnstock() as normal.
+    The Sponsor tier is active at the device level, not per-call.
 
     Always call this instead of Vnstock().stock() directly.
     """
     ensure_api_key()
-    if _HAS_VNSTOCK_DATA:
-        try:
-            from vnstock_data import Equity
-            return Equity().stock(ticker, source=source)
-        except Exception:
-            pass
-    # Fallback to vnstock free
     from vnstock import Vnstock
     return Vnstock().stock(symbol=ticker, source=source)
 
