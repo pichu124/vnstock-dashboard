@@ -1196,8 +1196,17 @@ def load_fundamental(ticker: str) -> dict:
         try:
             from vnstock_data import Fundamental
             ensure_api_key()
-            ratios = Fundamental().equity(ticker).ratio(period="Y")
-        except ImportError:
+            ratios = None
+            for _period in ("year", "Y", "annual"):
+                try:
+                    ratios = Fundamental().equity(ticker).ratio(period=_period)
+                    if ratios is not None and not ratios.empty:
+                        break
+                except Exception:
+                    continue
+            if ratios is None or ratios.empty:
+                raise RuntimeError("vnstock_data ratio failed")
+        except (ImportError, RuntimeError):
             from vnstock_auth import get_vnstock
             ratios = get_vnstock(ticker).finance.ratio(period="year", lang="vi")
         if ratios is None or ratios.empty:
