@@ -1,11 +1,16 @@
 """
 vnstock_auth.py — Centralized API key management
 ==================================================
-Ensures the Golden/Sponsor API key from .env is ALWAYS active,
-even after vnstock/vnstock_data imports that auto-register free keys.
+Ensures the Golden/Sponsor API key from .env is ALWAYS active.
 
-When vnstock_data (Sponsor package) is installed, it is preferred over
-vnstock (free) to unlock Golden tier features (500 req/min, no ads, etc.).
+CRITICAL: When vnstock_data (Sponsor) is installed, we must NOT call
+vnstock.core.utils.auth.change_api_key() — that function only applies
+to vnstock FREE and will OVERWRITE the Sponsor device registration,
+downgrading to Community tier.
+
+vnstock_data manages its own authentication via the GUI installer
+(vnstock-installer). The API key is registered per-device and stored
+internally. We only set the env var as a fallback signal.
 
 Usage:
     from vnstock_auth import ensure_api_key, get_api_key, get_vnstock
@@ -45,38 +50,41 @@ def has_sponsor_package() -> bool:
 
 def ensure_api_key() -> bool:
     """
-    (Re-)apply the Golden API key from .env.
+    Ensure the correct API key is active.
 
-    Call this AFTER importing vnstock/vnstock_data modules,
-    because those imports can auto-register a new free-tier key
-    that overwrites your Golden key.
+    - When vnstock_data (Sponsor) is installed: only set env var.
+      Do NOT call change_api_key() — it overwrites Sponsor auth
+      with a Community registration.
+    - When only vnstock (free) is available: call change_api_key()
+      to apply the key for the free tier.
 
     Returns True if key was applied, False if no key in .env.
     """
     if not _API_KEY:
         return False
 
-    # 1. Always set env var (some vnstock code paths read from env)
+    # Always set env var (some code paths read from env)
     os.environ["VNSTOCK_API_KEY"] = _API_KEY
 
-    # 2. Apply via auth module (try vnstock — works for both free and sponsor)
-    try:
-        from vnstock.core.utils.auth import change_api_key
-        change_api_key(_API_KEY)
-    except ImportError:
-        pass
-    except Exception:
-        pass
+    # Only call change_api_key for vnstock FREE (no Sponsor package)
+    if not _HAS_VNSTOCK_DATA:
+        try:
+            from vnstock.core.utils.auth import change_api_key
+            change_api_key(_API_KEY)
+        except ImportError:
+            pass
+        except Exception:
+            pass
 
     return True
 
 
 def get_vnstock(ticker: str = "VCB", source: str = "VCI"):
     """
-    Create a stock instance with the Golden API key applied.
+    Create a stock instance with the correct API tier.
 
-    Prefers vnstock_data (Sponsor) over vnstock (free) when available,
-    as vnstock warns: "Chỉ nhập API key trên vnstock bản free sẽ KHÔNG
+    Prefers vnstock_data (Sponsor) over vnstock (free) when available.
+    vnstock warns: "Chỉ nhập API key trên vnstock bản free sẽ KHÔNG
     mở khóa được giới hạn."
 
     Always call this instead of Vnstock().stock() directly.
