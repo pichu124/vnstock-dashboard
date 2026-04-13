@@ -43,7 +43,6 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
-from dotenv import load_dotenv
 from rich.console import Console
 from rich.progress import (BarColumn, MofNCompleteColumn, Progress,
                            SpinnerColumn, TaskProgressColumn, TextColumn,
@@ -51,33 +50,19 @@ from rich.progress import (BarColumn, MofNCompleteColumn, Progress,
 from rich.table import Table
 from rich import box
 
+from vnstock_auth import ensure_api_key, get_api_key
+
 warnings.filterwarnings("ignore")
 
-# Console phải khai báo trước mọi thứ
 console = Console()
 
-# ── Load API key từ .env và đăng ký với vnstock ───────────────────────────────
-load_dotenv()
-_API_KEY = os.getenv("VNSTOCK_API_KEY", "").strip()
-
-def _apply_api_key(key: str):
-    if not key:
-        return
-    try:
-        from vnstock.core.utils.auth import change_api_key, check_status
-        change_api_key(key)
-        status = check_status()
-        console.log(f"[green]🔑 API key applied:[/green] {status}")
-    except Exception as e:
-        os.environ["VNSTOCK_API_KEY"] = key
-        console.log(f"[yellow]⚠ Could not apply key via auth module: {e}[/yellow]")
-
+# ── Apply API key from .env ───────────────────────────────────────────────────
+_API_KEY = get_api_key()
 if _API_KEY:
-    _apply_api_key(_API_KEY)
+    ensure_api_key()
+    console.log(f"[green]🔑 API key loaded from .env[/green]")
 else:
     console.log("[yellow]⚠ No VNSTOCK_API_KEY in .env — using Community tier[/yellow]")
-
-console = Console()
 
 # ── Tier config — request limits & safe delays ────────────────────────────────
 # Community: 60/min  → delay 1.1s
@@ -98,6 +83,7 @@ def _detect_tier() -> str:
     if not _API_KEY:
         return "community"
     try:
+        ensure_api_key()  # Re-apply key in case vnstock_data import reset it
         from vnstock.core.utils.auth import check_status
         status = str(check_status()).lower()
         for t in ("golden", "silver", "bronze"):
@@ -125,6 +111,9 @@ except ImportError:
     except ImportError:
         console.print("[red]❌ Install vnstock: pip install vnstock[/red]")
         sys.exit(1)
+
+# Re-apply Golden key AFTER vnstock imports (they can auto-register free keys)
+ensure_api_key()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PyArrow schema — enforces consistent dtypes across all parquet files

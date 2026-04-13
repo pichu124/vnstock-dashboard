@@ -41,14 +41,18 @@ warnings.filterwarnings("ignore")
 console = Console()
 
 # ── vnstock import ────────────────────────────────────────────────────────────
+from vnstock_auth import ensure_api_key, get_vnstock
+
 try:
     from vnstock_data import Reference
     USE_UNIFIED = True
+    ensure_api_key()
     console.log("[green]✅ Using vnstock_data[/green]")
 except ImportError:
     USE_UNIFIED = False
     try:
         from vnstock import Vnstock
+        ensure_api_key()
         console.log("[yellow]⚠ Using vnstock (free)[/yellow]")
     except ImportError:
         console.print("[red]❌ Install vnstock: pip install vnstock[/red]")
@@ -156,13 +160,14 @@ def _fetch_prices(ticker: str, start: str, end: str) -> pd.DataFrame:
     Trả về DataFrame với cột: time(date), open, high, low, close, volume
     """
     try:
+        ensure_api_key()
         if USE_UNIFIED:
             from vnstock_data import Equity
             df = Equity().stock(ticker).quote.history(
                 start=start, end=end, interval="1D"
             )
         else:
-            df = Vnstock().stock(symbol=ticker, source="VCI") \
+            df = get_vnstock(ticker) \
                          .quote.history(start=start, end=end, interval="1D")
 
         if df is None or df.empty:

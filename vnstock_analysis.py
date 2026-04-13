@@ -383,8 +383,8 @@ def load_fundamental(ticker: str) -> dict:
             fund = Fundamental().equity(ticker)
             ratios = fund.ratio(period="Y")
         except ImportError:
-            from vnstock import Vnstock
-            stock  = Vnstock().stock(symbol=ticker, source="VCI")
+            from vnstock_auth import get_vnstock
+            stock  = get_vnstock(ticker)
             ratios = stock.finance.ratio(period="year", lang="vi")
 
         if ratios is not None and not ratios.empty:

@@ -33,17 +33,7 @@ from datetime import datetime, time as dtime
 from pathlib import Path
 from typing import Optional
 
-from dotenv import load_dotenv
-load_dotenv()
-
-# ── Apply VNSTOCK_API_KEY if present ──────────────────────────────────────────
-_API_KEY = os.getenv("VNSTOCK_API_KEY", "").strip()
-if _API_KEY:
-    try:
-        from vnstock.core.utils.auth import change_api_key
-        change_api_key(_API_KEY)
-    except Exception:
-        os.environ["VNSTOCK_API_KEY"] = _API_KEY
+from vnstock_auth import ensure_api_key, get_api_key
 
 import pandas as pd
 
@@ -105,6 +95,7 @@ def get_all_listed_symbols() -> list[str]:
     symbols = []
     try:
         from vnstock_data import Reference
+        ensure_api_key()
         ref = Reference()
         for exchange in ("HOSE", "HNX", "UPCOM"):
             try:
@@ -744,10 +735,11 @@ class VnStockWSS:
         try:
             try:
                 from vnstock_data import Market  # type: ignore
+                ensure_api_key()
                 m = Market()
             except ImportError:
-                from vnstock import Vnstock  # fallback to free vnstock
-                m = Vnstock().stock(symbol=symbols[0] if symbols else "VCB", source="VCI")
+                from vnstock_auth import get_vnstock
+                m = get_vnstock(symbols[0] if symbols else "VCB")
             # Flexible signature: thử kwarg khác nhau
             df = None
             for call in (
@@ -874,6 +866,7 @@ class VnStockWSS:
         try:
             try:
                 from vnstock_data import Quote  # type: ignore
+                ensure_api_key()
                 q = Quote(symbol=ticker)
             except Exception as e:
                 self.last_error = f"Quote({ticker}): {str(e)[:80]}"
@@ -991,6 +984,7 @@ class VnStockWSS:
         try:
             try:
                 from vnstock_data import Market  # type: ignore
+                ensure_api_key()
                 m = Market()
                 df = None
                 for call in (
@@ -1067,6 +1061,7 @@ class VnStockWSS:
         # Thử vnstock_data trước (sponsor API, ít rate limit hơn)
         try:
             from vnstock_data import Quote  # type: ignore
+            ensure_api_key()
             q = Quote(symbol=ticker)
             df = q.history(start=start, end=end, interval="1m")
         except Exception:
@@ -1075,8 +1070,8 @@ class VnStockWSS:
         # Fallback: vnstock free
         if df is None or (hasattr(df, "empty") and df.empty):
             try:
-                from vnstock import Vnstock
-                stock = Vnstock().stock(symbol=ticker, source="VCI")
+                from vnstock_auth import get_vnstock
+                stock = get_vnstock(ticker)
                 df = stock.quote.history(start=start, end=end, interval="1m")
             except Exception as e:
                 self.last_error = f"http fetch {ticker}: {str(e)[:80]}"
@@ -1438,6 +1433,7 @@ def _probe_price_depth(ticker: str):
     print(f"=== Probe price_depth for {ticker} ===")
     try:
         from vnstock_data import Quote
+        ensure_api_key()
     except ImportError:
         print("❌ vnstock_data not installed")
         return

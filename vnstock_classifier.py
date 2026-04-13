@@ -49,14 +49,18 @@ warnings.filterwarnings("ignore")
 console = Console()
 
 # ── vnstock_data OR vnstock ───────────────────────────────────────────────────
+from vnstock_auth import ensure_api_key, get_vnstock
+
 try:
     from vnstock_data import Reference, Fundamental
     USE_UNIFIED = True
+    ensure_api_key()
     console.log("[green]✅ Using vnstock_data[/green]")
 except ImportError:
     USE_UNIFIED = False
     try:
         from vnstock import Vnstock
+        ensure_api_key()
         console.log("[yellow]⚠ Using vnstock (free)[/yellow]")
     except ImportError:
         console.print("[red]❌ Install vnstock: pip install vnstock[/red]")
@@ -250,7 +254,7 @@ class CompanyWarehouse:
             ref = Reference()
             ov  = ref.company(ticker).info()
         else:
-            ov = Vnstock().stock(symbol=ticker, source="VCI").company.overview()
+            ov = get_vnstock(ticker).company.overview()
 
         if ov is not None and not ov.empty:
             row = ov.iloc[0]
@@ -283,7 +287,7 @@ class CompanyWarehouse:
             if USE_UNIFIED:
                 inc = Fundamental().equity(ticker).income_statement(period="Y")
             else:
-                inc = Vnstock().stock(symbol=ticker, source="VCI")\
+                inc = get_vnstock(ticker)\
                                .finance.income_statement(period="year", lang="en")
             if inc is not None and not inc.empty:
                 base["revenue_str"] = inc.tail(2).to_string(max_cols=8)[:600]

@@ -15,17 +15,7 @@ import warnings
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from dotenv import load_dotenv
-load_dotenv()
-
-# ── Apply VNSTOCK_API_KEY if present ──────────────────────────────────────────
-_API_KEY = os.getenv("VNSTOCK_API_KEY", "").strip()
-if _API_KEY:
-    try:
-        from vnstock.core.utils.auth import change_api_key
-        change_api_key(_API_KEY)
-    except Exception:
-        os.environ["VNSTOCK_API_KEY"] = _API_KEY
+from vnstock_auth import ensure_api_key, get_api_key
 
 import numpy as np
 import pandas as pd
@@ -53,6 +43,9 @@ except ImportError:
         return False
     def get_all_listed_symbols():  # type: ignore
         return []
+
+# Re-apply Golden key AFTER all vnstock imports (they can auto-register free keys)
+ensure_api_key()
 
 warnings.filterwarnings("ignore")
 
@@ -1144,8 +1137,8 @@ def load_intraday(ticker: str, interval: str = "15m") -> pd.DataFrame:
         lookback = {"1m":5,"5m":30,"15m":60,"30m":60,"1H":90}.get(interval, 10)
         end   = _d.today().strftime("%Y-%m-%d")
         start = (_d.today() - _td(days=lookback)).strftime("%Y-%m-%d")
-        from vnstock import Vnstock
-        df = Vnstock().stock(symbol=ticker, source="VCI").quote.history(
+        from vnstock_auth import get_vnstock
+        df = get_vnstock(ticker).quote.history(
             start=start, end=end, interval=interval)
         if df is None or df.empty:
             return pd.DataFrame()
@@ -1202,10 +1195,11 @@ def load_fundamental(ticker: str) -> dict:
     try:
         try:
             from vnstock_data import Fundamental
+            ensure_api_key()
             ratios = Fundamental().equity(ticker).ratio(period="Y")
         except ImportError:
-            from vnstock import Vnstock
-            ratios = Vnstock().stock(symbol=ticker, source="VCI").finance.ratio(period="year", lang="vi")
+            from vnstock_auth import get_vnstock
+            ratios = get_vnstock(ticker).finance.ratio(period="year", lang="vi")
         if ratios is None or ratios.empty:
             result["error"] = "Không có dữ liệu"
             return result
@@ -2078,7 +2072,7 @@ def _load_all_market_data() -> tuple:
         # ── Foreign flow từ API ───────────────────────────────────────────────
         foreign_map = {}  # {ticker: {net_w, net_m, net_3m}}
         try:
-            from vnstock import Vnstock
+            from vnstock_auth import get_vnstock
             from datetime import date as _d, timedelta as _td
             end_d   = _d.today().strftime("%Y-%m-%d")
             start_d = (_d.today() - _td(days=95)).strftime("%Y-%m-%d")
@@ -2086,7 +2080,7 @@ def _load_all_market_data() -> tuple:
             sample_tickers = merged["ticker"].tolist()[:5]  # test với 5 mã trước
             for tk in sample_tickers:
                 try:
-                    ff = Vnstock().stock(symbol=tk, source="VCI").trading.foreign_trade(
+                    ff = get_vnstock(tk).trading.foreign_trade(
                         start=start_d, end=end_d
                     )
                     if ff is not None and not ff.empty:
@@ -2202,7 +2196,7 @@ def load_index_overview(days: int = 30) -> pd.DataFrame:
     Trả về DataFrame pivot: mỗi dòng = 1 ngày, cột = index metrics.
     """
     try:
-        from vnstock import Vnstock
+        from vnstock_auth import get_vnstock
         from datetime import date, timedelta
 
         start = (date.today() - timedelta(days=days + 15)).strftime("%Y-%m-%d")
@@ -2211,7 +2205,7 @@ def load_index_overview(days: int = 30) -> pd.DataFrame:
 
         def _fetch_idx(idx_name):
             try:
-                stock = Vnstock().stock(symbol=idx_name, source="VCI")
+                stock = get_vnstock(idx_name)
                 df = stock.quote.history(start=start, end=end, interval="1D")
                 if df is not None and not df.empty:
                     df["time"] = pd.to_datetime(df["time"])
@@ -2262,7 +2256,7 @@ def load_foreign_flow() -> pd.DataFrame:
     Trả về DataFrame với các mã và net buy/sell value.
     """
     try:
-        from vnstock import Vnstock
+        from vnstock_auth import get_vnstock
         from datetime import date, timedelta
 
         end   = date.today().strftime("%Y-%m-%d")
@@ -2285,7 +2279,7 @@ def load_foreign_flow() -> pd.DataFrame:
         rows = []
         for ticker in tickers:
             try:
-                stock = Vnstock().stock(symbol=ticker, source="VCI")
+                stock = get_vnstock(ticker)
                 df = stock.trading.foreign_trade()
                 if df is not None and not df.empty:
                     # Tìm cột net value
