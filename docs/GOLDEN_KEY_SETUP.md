@@ -1,6 +1,6 @@
 # Hướng dẫn Setup & Bảo vệ Golden Key — Desktop + Laptop
 
-> Cập nhật: 2026-04-14 (sau khi fix bug Golden key bị reset)
+> Cập nhật: 2026-04-14 (đã merge vào main)
 
 ---
 
@@ -11,10 +11,17 @@
 | **Golden API Key** | `vnstock_423e2d521631063b3a55ad4b356a884a` |
 | **Tier** | Golden — 500 requests/phút |
 | **Device limit** | 2 thiết bị per OS (tổng 6) |
-| **Desktop** | User `admin`, Python `C:\Python314`, Venv `C:\Users\admin\.venv` |
+| **Desktop** | User `admin`, Python `C:\Python314`, Venv `C:\Users\admin\.venv`, Project `E:\Dropbox\Claude vnstock` |
 | **Laptop** | User `Administrator`, Project `C:\Users\Administrator\Dropbox\Claude vnstock` |
 | **Shared folder** | Dropbox `Claude vnstock` — sync giữa 2 máy |
-| **Git branch** | `claude/pull-latest-code-ntmnb` |
+| **Git branch** | `main` (đã merge tất cả code) |
+
+### Trạng thái hiện tại
+
+| Máy | Golden key | vnstock_data | Venv | Dashboard |
+|-----|-----------|-------------|------|-----------|
+| **Desktop** | ✅ Đã cài (500 req/min) | ✅ Có trong `.venv` | ✅ `C:\Users\admin\.venv` | ✅ Chạy được |
+| **Laptop** | ❌ Chưa cài Sponsor | ❌ Chưa có | ❌ Chưa tạo venv | ❌ Cần setup |
 
 ---
 
@@ -32,11 +39,11 @@
 
 ## Setup Desktop từ đầu (nếu cần làm lại)
 
-### Bước 1: Vào project folder
+### Bước 1: Vào project folder và pull code mới nhất
 
 ```powershell
 cd "E:\Dropbox\Claude vnstock"
-git checkout claude/pull-latest-code-ntmnb
+git checkout main
 git pull
 ```
 
@@ -110,7 +117,7 @@ python -m streamlit run vnstock_dashboard.py
 
 ---
 
-## Setup Laptop (tương tự)
+## Setup Laptop (chưa làm — cần setup)
 
 ### Khác biệt so với Desktop
 
@@ -118,16 +125,16 @@ python -m streamlit run vnstock_dashboard.py
 |------|---------|--------|
 | User | `admin` | `Administrator` |
 | Project path | `E:\Dropbox\Claude vnstock` | `C:\Users\Administrator\Dropbox\Claude vnstock` |
-| Venv path | `C:\Users\admin\.venv` | Cần tạo mới (ví dụ `C:\Users\Administrator\.venv`) |
+| Venv path | `C:\Users\admin\.venv` | `C:\Users\Administrator\.venv` (cần tạo mới) |
 
 ### Các bước
 
 ```powershell
 cd "C:\Users\Administrator\Dropbox\Claude vnstock"
-git checkout claude/pull-latest-code-ntmnb
+git checkout main
 git pull
 
-# Tạo venv
+# Tạo venv (NGOÀI Dropbox folder)
 python -m venv "C:\Users\Administrator\.venv"
 & "C:\Users\Administrator\.venv\Scripts\Activate.ps1"
 
@@ -142,11 +149,11 @@ python -m vnstock_installer
 # Cài dependencies
 pip install streamlit plotly pyarrow rich tqdm python-dotenv pytz
 
-# Verify
+# Verify Golden tier
 python -c "from vnstock.core.utils.auth import check_status; print(check_status())"
 
-# Update .env
-Set-Content -Path "C:\Users\Administrator\Dropbox\Claude vnstock\.env" -Value "VNSTOCK_API_KEY=vnstock_423e2d521631063b3a55ad4b356a884a"
+# Test dashboard
+python -m streamlit run vnstock_dashboard.py
 ```
 
 ---
@@ -165,6 +172,18 @@ cd "E:\Dropbox\Claude vnstock"
 ```powershell
 & "C:\Users\Administrator\.venv\Scripts\Activate.ps1"
 cd "C:\Users\Administrator\Dropbox\Claude vnstock"
+```
+
+### Pull code mới nhất
+
+```powershell
+git pull
+```
+
+Nếu bị lỗi `Permission denied` (Dropbox lock):
+```powershell
+git fetch origin main
+git reset --hard origin/main
 ```
 
 ### Các lệnh chạy (sau khi activate venv)
@@ -203,7 +222,7 @@ Setup scheduled tasks (chạy PowerShell as Admin):
 
 ## Kiểm tra Golden key vẫn hoạt động
 
-Chạy bất kỳ lúc nào để verify:
+Chạy bất kỳ lúc nào để verify (nhớ activate venv trước):
 
 ```powershell
 python -c "from vnstock.core.utils.auth import check_status; print(check_status())"
@@ -225,11 +244,12 @@ python -c "from vnstock.core.utils.auth import check_status; print(check_status(
 ## Troubleshooting
 
 ### Git pull "Permission denied"
-Dropbox đang lock file. Đợi 30 giây rồi thử lại, hoặc:
+Dropbox đang lock file `.git/`. Đợi 30 giây rồi thử lại, hoặc:
 ```powershell
-git fetch origin claude/pull-latest-code-ntmnb
-git reset --hard origin/claude/pull-latest-code-ntmnb
+git fetch origin main
+git reset --hard origin/main
 ```
+**Lưu ý:** Chỉ git operations bị conflict với Dropbox. Dashboard, updater, screener chạy bình thường không cần pause Dropbox.
 
 ### Dropbox conflict files
 ```powershell
@@ -237,7 +257,10 @@ Get-ChildItem -Recurse -Filter "*conflicted copy*" | Remove-Item
 ```
 
 ### "No module named 'pyarrow'" khi Refresh Screener
-Dashboard chạy subprocess bằng Python chính thay vì venv. Đã fix trong code — pull code mới nhất.
+Chưa activate venv. Chạy `& "C:\Users\admin\.venv\Scripts\Activate.ps1"` trước.
+
+### "Phiên bản cộng đồng (60 requests/phút)" trong log
+Đó là thông báo từ `vnstock` free — bỏ qua được. Miễn là `check_status()` hiện `golden` thì API calls thực tế dùng Golden tier.
 
 ### Muốn đổi device (hết slot)
 1. Đăng nhập [vnstocks.com/login](https://vnstocks.com/login)
