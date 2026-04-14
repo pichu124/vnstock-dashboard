@@ -1231,34 +1231,55 @@ def load_fundamental(ticker: str) -> dict:
             result["error"] = "Không có dữ liệu"
             return result
         def get_val(df, *keys):
-            """Search for value in first row matching any of the key patterns."""
+            """Search for value in first row matching any of the key patterns.
+            Skips columns that look like year/period identifiers."""
             row = df.iloc[0]
+            skip_patterns = ("year", "năm", "period", "quarter", "quý", "index", "ticker", "symbol")
             for key in keys:
                 key_lo = key.lower().replace(" ", "").replace("_", "")
                 for col in df.columns:
                     col_str = " ".join(str(c) for c in col).lower() if isinstance(col, tuple) else str(col).lower()
                     col_clean = col_str.replace(" ", "").replace("_", "")
+                    # Skip year/period columns
+                    if any(sp in col_clean for sp in skip_patterns):
+                        continue
                     if key_lo in col_clean or key_lo in col_str:
                         try:
                             v = row[col]
                             if v is not None and not pd.isna(v):
-                                return float(v)
+                                fv = float(v)
+                                # Sanity: P/E, P/B should not be > 1000
+                                if key_lo in ("p/e", "pe", "p/b", "pb") and fv > 1000:
+                                    continue  # likely mismatched column
+                                return fv
                         except Exception:
                             continue
             return None
-        # Debug: log actual columns to help match
-        _cols_debug = [str(c) for c in ratios.columns[:20]]
-        result["_cols_debug"] = _cols_debug
 
-        result["pe"]         = get_val(ratios, "p/e", "pe", "price_to_earning", "pricetoearning")
-        result["pb"]         = get_val(ratios, "p/b", "pb", "price_to_book", "pricetobook")
-        result["roe"]        = get_val(ratios, "roe", "return_on_equity", "returnonequity")
-        result["roa"]        = get_val(ratios, "roa", "return_on_asset", "returnonasset")
-        result["eps"]        = get_val(ratios, "eps", "earning_per_share", "earningpershare")
-        result["net_margin"] = get_val(ratios, "biên lợi nhuận ròng", "net_margin", "netmargin", "net_profit_margin", "netprofitmargin")
-        result["gross_margin"] = get_val(ratios, "biên lợi nhuận gộp", "gross_margin", "grossmargin", "gross_profit_margin", "grossprofitmargin")
-        result["debt_ratio"] = get_val(ratios, "đòn bẩy tài chính", "debt_ratio", "debtratio", "leverage", "financial_leverage")
-        for key in ("roe","roa","net_margin","gross_margin"):
+        # Debug: log actual columns + first row to help match
+        _cols_debug = [str(c) for c in ratios.columns[:30]]
+        result["_cols_debug"] = _cols_debug
+        try:
+            _row0_debug = {str(c): str(ratios.iloc[0][c])[:30] for c in ratios.columns[:15]}
+            result["_row0_debug"] = _row0_debug
+        except Exception:
+            pass
+
+        result["pe"]         = get_val(ratios, "p/e", "pricetoearning")
+        result["pb"]         = get_val(ratios, "p/b", "pricetobook")
+        result["roe"]        = get_val(ratios, "roe", "returnonequity")
+        result["roa"]        = get_val(ratios, "roa", "returnonasset")
+        result["eps"]        = get_val(ratios, "eps", "earningpershare")
+        result["net_margin"] = get_val(ratios, "biên lợi nhuận ròng", "netmargin", "netprofitmargin")
+        result["gross_margin"] = get_val(ratios, "biên lợi nhuận gộp", "grossmargin", "grossprofitmargin")
+        result["debt_ratio"] = get_val(ratios, "đòn bẩy tài chính", "debtratio", "debttoequity", "leverage")
+        result["dividend_yield"] = get_val(ratios, "tỷ suất cổ tức", "dividendyield", "dividend")
+        result["current_ratio"] = get_val(ratios, "thanh toán hiện hành", "currentratio")
+        result["revenue_growth"] = get_val(ratios, "tăng trưởng doanh thu", "revenuegrowth")
+        result["profit_growth"] = get_val(ratios, "tăng trưởng lợi nhuận", "profitgrowth", "netincomegrowth")
+        result["book_value"] = get_val(ratios, "giá trị sổ sách", "bookvalue", "bvps")
+        for key in ("roe", "roa", "net_margin", "gross_margin", "dividend_yield",
+                     "revenue_growth", "profit_growth"):
             if result.get(key) is not None and abs(result[key]) <= 2:
                 result[key] = round(result[key] * 100, 2)
     except Exception as e:
@@ -1284,7 +1305,7 @@ _INDEX_SYMBOL_MAP = {
     "VNINDEX": "VNINDEX",
     "VN30": "VN30",
     "HNX": "HNXINDEX",
-    "UPCOM": "UPCOM-INDEX",
+    "UPCOM": "UPCOM",
 }
 
 
@@ -3741,15 +3762,19 @@ if _active_tab == "🔬 Phân tích":
                 st.markdown('<div class="card">', unsafe_allow_html=True)
                 st.markdown('<div class="card-title">Định giá & Sinh lời</div>', unsafe_allow_html=True)
                 ratios = [
-                    ("P/E",            fund.get("pe"),    "lần"),
-                    ("P/B",            fund.get("pb"),    "lần"),
-                    ("ROE",            fund.get("roe"),   "%"),
-                    ("ROA",            fund.get("roa"),   "%"),
-                    ("EPS",            fund.get("eps"),   "VND"),
-                    ("Biên LN gộp",   fund.get("gross_margin"), "%"),
-                    ("Biên LN ròng",  fund.get("net_margin"),   "%"),
-                    ("Tỷ lệ nợ",      fund.get("debt_ratio"),   ""),
-                    ("Tăng trưởng DT", fund.get("revenue_growth"), "%"),
+                    ("P/E",              fund.get("pe"),             "lần"),
+                    ("P/B",              fund.get("pb"),             "lần"),
+                    ("EPS",              fund.get("eps"),            "VND"),
+                    ("Book Value",       fund.get("book_value"),     "VND"),
+                    ("Cổ tức",           fund.get("dividend_yield"), "%"),
+                    ("ROE",              fund.get("roe"),            "%"),
+                    ("ROA",              fund.get("roa"),            "%"),
+                    ("Biên LN gộp",      fund.get("gross_margin"),   "%"),
+                    ("Biên LN ròng",     fund.get("net_margin"),     "%"),
+                    ("Tỷ lệ nợ",         fund.get("debt_ratio"),     ""),
+                    ("Thanh toán HH",    fund.get("current_ratio"),  ""),
+                    ("Tăng trưởng DT",   fund.get("revenue_growth"), "%"),
+                    ("Tăng trưởng LN",   fund.get("profit_growth"),  "%"),
                 ]
                 for label, val, unit in ratios:
                     if val is not None:
