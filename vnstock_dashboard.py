@@ -1208,7 +1208,24 @@ def load_fundamental(ticker: str) -> dict:
                 raise RuntimeError("vnstock_data ratio failed")
         except (ImportError, RuntimeError):
             from vnstock_auth import get_vnstock
-            ratios = get_vnstock(ticker).finance.ratio(period="year", lang="vi")
+            _stock = get_vnstock(ticker)
+            ratios = None
+            # Try different period + lang combinations
+            _attempts = [
+                {"period": "year", "lang": "vi"},
+                {"period": "year", "lang": "en"},
+                {"period": "year"},
+                {"period": "annual", "lang": "vi"},
+                {"period": "annual"},
+                {"period": "quarter", "lang": "vi"},
+            ]
+            for _kw in _attempts:
+                try:
+                    ratios = _stock.finance.ratio(**_kw)
+                    if ratios is not None and not ratios.empty:
+                        break
+                except Exception:
+                    continue
         if ratios is None or ratios.empty:
             result["error"] = "Không có dữ liệu"
             return result
