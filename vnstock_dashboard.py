@@ -1392,32 +1392,119 @@ def load_session_stats_history() -> dict:
         return {}
 
 
-def render_session_stats_table(window_name: str, stats: dict):
-    """Render a single session stats table for one time window."""
-    if not stats:
-        st.caption(f"{window_name}: chưa có dữ liệu")
-        return
-
+def render_session_stats_table(window_name: str, stats_today: dict, history: dict):
+    """
+    Render a session stats table with 30-day history and color scale.
+    history: {date_str: {window_name: {index: {vol, gtgd, gtgd_per_vol}}}}
+    """
     st.markdown(f"**📊 {window_name}**")
 
+    # Build DataFrame: rows = dates, columns = index metrics
     rows = []
-    for idx_name in SESSION_INDICES:
-        s = stats.get(idx_name, {})
-        vol = s.get("vol", 0)
-        gtgd = s.get("gtgd", 0)
-        rows.append({
-            "Sàn": idx_name,
-            "VOL (CP)": f"{vol:,.0f}" if vol else "—",
-            "GTGD (tỷ)": f"{gtgd:,.1f}" if gtgd else "—",
-            "GTGD/VOL": f"{s.get('gtgd_per_vol', 0):,.0f}" if vol else "—",
-        })
+    # Collect last 30 days from history + today
+    from datetime import date, timedelta
+    today_str = date.today().isoformat()
+
+    dates = sorted(
+        [d for d in history.keys() if d <= today_str],
+        reverse=True
+    )[:30]
+    dates = list(reversed(dates))  # oldest first
+
+    # If today not in history yet but we have live stats, add it
+    if today_str not in dates and stats_today:
+        dates.append(today_str)
+
+    if not dates:
+        st.caption("Chưa có dữ liệu lịch sử")
+        return
+
+    for d in dates:
+        row = {"Ngày": d}
+        if d == today_str and stats_today:
+            day_stats = stats_today
+        else:
+            day_data = history.get(d, {})
+            day_stats = day_data.get(window_name, {})
+
+        for idx_name in SESSION_INDICES:
+            s = day_stats.get(idx_name, {})
+            row[f"{idx_name}\nVOL"] = s.get("vol", 0)
+            row[f"{idx_name}\nGTGD"] = s.get("gtgd", 0)
+            row[f"{idx_name}\nGTGD/VOL"] = s.get("gtgd_per_vol", 0)
+        rows.append(row)
 
     df = pd.DataFrame(rows)
+    if df.empty:
+        st.caption("Chưa có dữ liệu")
+        return
+
+    # Format display
+    df["Ngày"] = pd.to_datetime(df["Ngày"]).dt.strftime("%d/%m")
+
+    # Numeric columns for color scale
+    num_cols = [c for c in df.columns if c != "Ngày"]
+
+    # Apply color scale using Styler
+    def color_scale(s):
+        """Apply green-yellow-red color scale to a Series."""
+        if s.dtype not in ["float64", "int64", "float32", "int32"]:
+            return [""] * len(s)
+        vals = s.values.astype(float)
+        non_zero = vals[vals > 0]
+        if len(non_zero) == 0:
+            return [""] * len(s)
+        vmin = non_zero.min()
+        vmax = non_zero.max()
+        if vmax == vmin:
+            return ["background-color: #fef9c3"] * len(s)
+
+        result = []
+        for v in vals:
+            if v <= 0:
+                result.append("color: #6b7280")
+            else:
+                # Normalize 0-1
+                norm = (v - vmin) / (vmax - vmin)
+                # Color scale: red(low) → yellow(mid) → green(high)
+                if norm < 0.5:
+                    # red to yellow
+                    r = 220
+                    g = int(80 + norm * 2 * 160)
+                    b = 60
+                else:
+                    # yellow to green
+                    r = int(220 - (norm - 0.5) * 2 * 180)
+                    g = 200
+                    b = 60
+                result.append(
+                    f"background-color: rgba({r},{g},{b},0.3); color: #e5e7eb"
+                )
+        return result
+
+    # Format numbers
+    format_dict = {}
+    for c in num_cols:
+        if "VOL" in c and "GTGD" not in c:
+            format_dict[c] = "{:,.0f}"
+        elif "GTGD/VOL" in c:
+            format_dict[c] = "{:,.0f}"
+        elif "GTGD" in c:
+            format_dict[c] = "{:,.1f}"
+
+    styled = (
+        df.style
+        .format(format_dict, na_rep="—")
+        .apply(color_scale, subset=num_cols)
+        .set_properties(**{"font-size": "11px", "text-align": "right"})
+        .set_properties(subset=["Ngày"], **{"text-align": "center", "font-weight": "600"})
+    )
+
     st.dataframe(
-        df,
+        styled,
         hide_index=True,
         use_container_width=True,
-        height=180,
+        height=min(35 * len(df) + 40, 500),
     )
 
 
@@ -2913,33 +3000,39 @@ if _active_tab == "📊 Screener":
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── Market Session Stats (4 time-window tables) ───────────────────────
-    with st.expander("📊 Thống kê giao dịch theo phiên", expanded=False):
+    # ── Market Session Stats (4 time-window tables with 30-day history) ──
+    with st.expander("📊 Thống kê giao dịch theo phiên (30 ngày)", expanded=False):
         @st.fragment(run_every=30)
         def _session_stats_fragment():
             try:
+                # Load history + compute today
+                history = load_session_stats_history()
                 stats = compute_session_stats()
-                if any(
+                has_data = any(
                     any(v.get("vol", 0) > 0 for v in ws.values())
                     for ws in stats.values()
-                ):
-                    # Save to file for later use
+                )
+                if has_data:
                     save_session_stats(stats)
 
                 windows = list(SESSION_WINDOWS.keys())
                 # Row 1: Bảng 1 + Bảng 2
                 r1c1, r1c2 = st.columns(2)
                 with r1c1:
-                    render_session_stats_table(windows[0], stats.get(windows[0], {}))
+                    render_session_stats_table(
+                        windows[0], stats.get(windows[0], {}), history)
                 with r1c2:
-                    render_session_stats_table(windows[1], stats.get(windows[1], {}))
+                    render_session_stats_table(
+                        windows[1], stats.get(windows[1], {}), history)
 
                 # Row 2: Bảng 3 + Bảng 4
                 r2c1, r2c2 = st.columns(2)
                 with r2c1:
-                    render_session_stats_table(windows[2], stats.get(windows[2], {}))
+                    render_session_stats_table(
+                        windows[2], stats.get(windows[2], {}), history)
                 with r2c2:
-                    render_session_stats_table(windows[3], stats.get(windows[3], {}))
+                    render_session_stats_table(
+                        windows[3], stats.get(windows[3], {}), history)
             except Exception as e:
                 st.warning(f"Không tải được thống kê phiên: {e}")
 
