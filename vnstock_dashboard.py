@@ -1191,97 +1191,115 @@ def resample_ohlcv(df: pd.DataFrame, rule: str) -> pd.DataFrame:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_fundamental(ticker: str) -> dict:
-    """Load ratios từ vnstock — hỗ trợ MultiIndex tuple columns."""
+    """Load comprehensive fundamental data from vnstock.
+    Fetches company.overview() + finance.ratio() for maximum coverage."""
     result = {}
     try:
-        try:
-            from vnstock_data import Fundamental
-            ensure_api_key()
-            ratios = None
-            for _period in ("year", "Y", "annual"):
-                try:
-                    ratios = Fundamental().equity(ticker).ratio(period=_period)
-                    if ratios is not None and not ratios.empty:
-                        break
-                except Exception:
-                    continue
-            if ratios is None or ratios.empty:
-                raise RuntimeError("vnstock_data ratio failed")
-        except (ImportError, RuntimeError):
-            from vnstock_auth import get_vnstock
-            _stock = get_vnstock(ticker)
-            ratios = None
-            # Try different period + lang combinations
-            _attempts = [
-                {"period": "year", "lang": "vi"},
-                {"period": "year", "lang": "en"},
-                {"period": "year"},
-                {"period": "annual", "lang": "vi"},
-                {"period": "annual"},
-                {"period": "quarter", "lang": "vi"},
-            ]
-            for _kw in _attempts:
-                try:
-                    ratios = _stock.finance.ratio(**_kw)
-                    if ratios is not None and not ratios.empty:
-                        break
-                except Exception:
-                    continue
-        if ratios is None or ratios.empty:
-            result["error"] = "Không có dữ liệu"
-            return result
-        def get_val(df, *keys):
-            """Search for value in first row matching any of the key patterns.
-            Skips columns that look like year/period identifiers."""
-            row = df.iloc[0]
-            skip_patterns = ("year", "năm", "period", "quarter", "quý", "index", "ticker", "symbol")
-            for key in keys:
-                key_lo = key.lower().replace(" ", "").replace("_", "")
-                for col in df.columns:
-                    col_str = " ".join(str(c) for c in col).lower() if isinstance(col, tuple) else str(col).lower()
-                    col_clean = col_str.replace(" ", "").replace("_", "")
-                    # Skip year/period columns
-                    if any(sp in col_clean for sp in skip_patterns):
-                        continue
-                    if key_lo in col_clean or key_lo in col_str:
-                        try:
-                            v = row[col]
-                            if v is not None and not pd.isna(v):
-                                fv = float(v)
-                                # Sanity: P/E, P/B should not be > 1000
-                                if key_lo in ("p/e", "pe", "p/b", "pb") and fv > 1000:
-                                    continue  # likely mismatched column
-                                return fv
-                        except Exception:
-                            continue
-            return None
+        from vnstock_auth import get_vnstock, ensure_api_key
+        ensure_api_key()
+        stock = get_vnstock(ticker)
 
-        # Debug: log actual columns + first row to help match
-        _cols_debug = [str(c) for c in ratios.columns[:30]]
-        result["_cols_debug"] = _cols_debug
+        # ── 1. Company Overview — market cap, shares, EPS, P/E, etc. ─────
         try:
-            _row0_debug = {str(c): str(ratios.iloc[0][c])[:30] for c in ratios.columns[:15]}
-            result["_row0_debug"] = _row0_debug
+            overview = stock.company.overview()
+            if overview is not None and not overview.empty:
+                row = overview.iloc[0] if len(overview) > 0 else None
+                if row is not None:
+                    def _ov(df_row, *keys):
+                        for k in keys:
+                            kl = k.lower().replace(" ", "").replace("_", "")
+                            for col in overview.columns:
+                                cl = str(col).lower().replace(" ", "").replace("_", "")
+                                if kl in cl:
+                                    try:
+                                        v = df_row[col]
+                                        if v is not None and not pd.isna(v):
+                                            return float(v)
+                                    except Exception:
+                                        continue
+                        return None
+
+                    result["market_cap"] = _ov(row, "vonhoathitruong", "marketcap", "market_cap")
+                    result["shares_outstanding"] = _ov(row, "klcpluuhanh", "sharesoutstanding", "outstanding")
+                    result["shares_listed"] = _ov(row, "klcpniemyet", "shareslisted", "listed")
+                    result["avg_vol_10"] = _ov(row, "khoplenh10phien", "avgvolume", "avg_vol", "averagevolume")
+                    result["pe"] = _ov(row, "p/e", "pe")
+                    result["pb"] = _ov(row, "p/b", "pb")
+                    result["eps"] = _ov(row, "eps")
+                    result["book_value"] = _ov(row, "giatrisosach", "bookvalue", "bvps")
+                    result["dividend_yield"] = _ov(row, "tysuatcotuc", "dividendyield")
+                    result["_overview_cols"] = [str(c) for c in overview.columns[:30]]
         except Exception:
             pass
 
-        result["pe"]         = get_val(ratios, "p/e", "pricetoearning")
-        result["pb"]         = get_val(ratios, "p/b", "pricetobook")
-        result["roe"]        = get_val(ratios, "roe", "returnonequity")
-        result["roa"]        = get_val(ratios, "roa", "returnonasset")
-        result["eps"]        = get_val(ratios, "eps", "earningpershare")
-        result["net_margin"] = get_val(ratios, "biên lợi nhuận ròng", "netmargin", "netprofitmargin")
-        result["gross_margin"] = get_val(ratios, "biên lợi nhuận gộp", "grossmargin", "grossprofitmargin")
-        result["debt_ratio"] = get_val(ratios, "đòn bẩy tài chính", "debtratio", "debttoequity", "leverage")
-        result["dividend_yield"] = get_val(ratios, "tỷ suất cổ tức", "dividendyield", "dividend")
-        result["current_ratio"] = get_val(ratios, "thanh toán hiện hành", "currentratio")
-        result["revenue_growth"] = get_val(ratios, "tăng trưởng doanh thu", "revenuegrowth")
-        result["profit_growth"] = get_val(ratios, "tăng trưởng lợi nhuận", "profitgrowth", "netincomegrowth")
-        result["book_value"] = get_val(ratios, "giá trị sổ sách", "bookvalue", "bvps")
-        for key in ("roe", "roa", "net_margin", "gross_margin", "dividend_yield",
-                     "revenue_growth", "profit_growth"):
-            if result.get(key) is not None and abs(result[key]) <= 2:
-                result[key] = round(result[key] * 100, 2)
+        # ── 2. Finance Ratios — ROE, ROA, margins, growth, etc. ──────────
+        try:
+            ratios = None
+            for _kw in [
+                {"period": "year", "lang": "vi"},
+                {"period": "year", "lang": "en"},
+                {"period": "year"},
+                {"period": "annual"},
+                {"period": "quarter", "lang": "vi"},
+            ]:
+                try:
+                    ratios = stock.finance.ratio(**_kw)
+                    if ratios is not None and not ratios.empty:
+                        break
+                except Exception:
+                    continue
+
+            if ratios is not None and not ratios.empty:
+                row = ratios.iloc[0]
+                skip = ("year", "năm", "period", "quarter", "quý",
+                        "index", "ticker", "symbol", "len")
+
+                def _rv(*keys):
+                    for k in keys:
+                        kl = k.lower().replace(" ", "").replace("_", "")
+                        for col in ratios.columns:
+                            cs = " ".join(str(c) for c in col).lower() if isinstance(col, tuple) else str(col).lower()
+                            cc = cs.replace(" ", "").replace("_", "")
+                            if any(sp in cc for sp in skip):
+                                continue
+                            if kl in cc or kl in cs:
+                                try:
+                                    v = row[col]
+                                    if v is not None and not pd.isna(v):
+                                        fv = float(v)
+                                        if kl in ("p/e", "pe", "p/b", "pb") and fv > 500:
+                                            continue
+                                        return fv
+                                except Exception:
+                                    continue
+                    return None
+
+                # Only fill if overview didn't provide
+                if result.get("pe") is None:
+                    result["pe"] = _rv("p/e", "pricetoearning")
+                if result.get("pb") is None:
+                    result["pb"] = _rv("p/b", "pricetobook")
+                if result.get("eps") is None:
+                    result["eps"] = _rv("eps", "earningpershare")
+                result["roe"] = _rv("roe", "returnonequity")
+                result["roa"] = _rv("roa", "returnonasset")
+                result["net_margin"] = _rv("biênlợinhuậnròng", "netmargin", "netprofitmargin")
+                result["gross_margin"] = _rv("biênlợinhuậngộp", "grossmargin", "grossprofitmargin")
+                result["debt_ratio"] = _rv("đònbẩytàichính", "debtratio", "debttoequity")
+                result["current_ratio"] = _rv("thanhtoánhiệnhành", "currentratio")
+                result["revenue_growth"] = _rv("tăngtrưởngdoanhthu", "revenuegrowth")
+                result["profit_growth"] = _rv("tăngtrưởnglợinhuận", "profitgrowth", "netincomegrowth")
+
+                # Convert ratio to percentage
+                for key in ("roe", "roa", "net_margin", "gross_margin",
+                             "dividend_yield", "revenue_growth", "profit_growth"):
+                    if result.get(key) is not None and abs(result[key]) <= 2:
+                        result[key] = round(result[key] * 100, 2)
+
+                result["_ratio_cols"] = [str(c) for c in ratios.columns[:30]]
+        except Exception:
+            pass
+
     except Exception as e:
         result["error"] = str(e)[:120]
     return result
@@ -1310,19 +1328,29 @@ _INDEX_SYMBOL_MAP = {
 
 
 def _fetch_index_intraday(index_symbol: str) -> pd.DataFrame:
-    """Fetch 1m intraday data for an index. Returns DataFrame with time, close, volume."""
-    try:
-        from vnstock_auth import get_vnstock
-        from datetime import date, timedelta
-        today = date.today().strftime("%Y-%m-%d")
-        start = (date.today() - timedelta(days=5)).strftime("%Y-%m-%d")
-        stock = get_vnstock(index_symbol)
-        df = stock.quote.history(start=start, end=today, interval="1m")
-        if df is not None and not df.empty:
-            df["time"] = pd.to_datetime(df["time"])
-            return df[["time", "open", "high", "low", "close", "volume"]].copy()
-    except Exception:
-        pass
+    """Fetch 1m intraday data for an index. Returns DataFrame with time, close, volume.
+    Tries multiple symbol variations for compatibility."""
+    from vnstock_auth import get_vnstock
+    from datetime import date, timedelta
+    today = date.today().strftime("%Y-%m-%d")
+    start = (date.today() - timedelta(days=5)).strftime("%Y-%m-%d")
+
+    # Try multiple symbol variations
+    symbols_to_try = [index_symbol]
+    if index_symbol == "UPCOM":
+        symbols_to_try = ["UPCOM", "UPCOM-INDEX", "UPINDEX", "HNX30"]
+    elif index_symbol == "HNXINDEX":
+        symbols_to_try = ["HNXINDEX", "HNX-INDEX", "HNX"]
+
+    for sym in symbols_to_try:
+        try:
+            stock = get_vnstock(sym)
+            df = stock.quote.history(start=start, end=today, interval="1m")
+            if df is not None and not df.empty:
+                df["time"] = pd.to_datetime(df["time"])
+                return df[["time", "open", "high", "low", "close", "volume"]].copy()
+        except Exception:
+            continue
     return pd.DataFrame()
 
 
@@ -3759,13 +3787,41 @@ if _active_tab == "🔬 Phân tích":
                 pass  # already shown above
             elif fund:
                 # Key ratios
+                # Thông tin doanh nghiệp
+                _mktcap = fund.get("market_cap")
+                _shares = fund.get("shares_outstanding")
+                _listed = fund.get("shares_listed")
+                _avgvol = fund.get("avg_vol_10")
+                if _mktcap or _shares or _avgvol:
+                    st.markdown('<div class="card">', unsafe_allow_html=True)
+                    st.markdown('<div class="card-title">Thông tin doanh nghiệp</div>', unsafe_allow_html=True)
+                    _info_items = [
+                        ("Vốn hoá TT", _mktcap, "tỷ", lambda v: f"{v/1e9:,.1f}" if v and v > 1e6 else (f"{v:,.1f}" if v else None)),
+                        ("KLCP lưu hành", _shares, "CP", lambda v: f"{v:,.0f}" if v else None),
+                        ("KLCP niêm yết", _listed, "CP", lambda v: f"{v:,.0f}" if v else None),
+                        ("KL khớp TB 10 phiên", _avgvol, "", lambda v: f"{v:,.0f}" if v else None),
+                    ]
+                    for label, val, unit, fmt_fn in _info_items:
+                        if val is not None:
+                            display = fmt_fn(val) if fmt_fn else f"{val:,.2f}"
+                            if display:
+                                st.markdown(
+                                    f'<div style="display:flex;justify-content:space-between;'
+                                    f'padding:4px 0;border-bottom:1px solid #1a2234;font-size:13px">'
+                                    f'<span style="color:#9ca3af">{label}</span>'
+                                    f'<span style="color:#e5e7eb;font-family:IBM Plex Mono,monospace">'
+                                    f'{display} {unit}</span></div>',
+                                    unsafe_allow_html=True
+                                )
+                    st.markdown('</div>', unsafe_allow_html=True)
+
                 st.markdown('<div class="card">', unsafe_allow_html=True)
                 st.markdown('<div class="card-title">Định giá & Sinh lời</div>', unsafe_allow_html=True)
                 ratios = [
+                    ("EPS",              fund.get("eps"),            "nghìn đ"),
+                    ("Book Value",       fund.get("book_value"),     "nghìn đ"),
                     ("P/E",              fund.get("pe"),             "lần"),
                     ("P/B",              fund.get("pb"),             "lần"),
-                    ("EPS",              fund.get("eps"),            "VND"),
-                    ("Book Value",       fund.get("book_value"),     "VND"),
                     ("Cổ tức",           fund.get("dividend_yield"), "%"),
                     ("ROE",              fund.get("roe"),            "%"),
                     ("ROA",              fund.get("roa"),            "%"),
