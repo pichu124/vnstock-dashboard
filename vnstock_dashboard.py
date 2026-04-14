@@ -3478,12 +3478,12 @@ if _active_tab == "🔬 Phân tích":
             unsafe_allow_html=True
         )
 
+        # Quote strip + Order book + VP — refresh every 3s (lightweight)
         @st.fragment(run_every=3)
-        def _live_intraday_fragment():
+        def _live_quote_fragment():
             live_q = load_live_quote(ticker)
-            _chart_df = load_intraday(ticker, interval=tf)
+            _chart_df_tmp = load_intraday(ticker, interval=tf)
 
-            # Quote strip — HIỂN THỊ TRƯỚC chart để luôn visible
             if live_q:
                 lc1, lc2, lc3, lc4, lc5 = st.columns(5)
                 _price = float(live_q.get("price", 0))
@@ -3491,11 +3491,10 @@ if _active_tab == "🔬 Phân tích":
                 _vol = float(live_q.get("volume", 0))
                 _bid = float(live_q.get("bid", 0))
                 _ask = float(live_q.get("ask", 0))
-                # Normalize hiển thị theo scale của historical chart
                 _display_price = _price
                 _scale = 1.0
-                if not _chart_df.empty:
-                    _last_close = float(_chart_df.iloc[-1]["close"])
+                if not _chart_df_tmp.empty:
+                    _last_close = float(_chart_df_tmp.iloc[-1]["close"])
                     _display_price = _normalize_live_price(_last_close, _price)
                     _bid_disp = _normalize_live_price(_last_close, _bid) if _bid else 0
                     _ask_disp = _normalize_live_price(_last_close, _ask) if _ask else 0
@@ -3510,8 +3509,6 @@ if _active_tab == "🔬 Phân tích":
                 lc4.metric("🔴 Ask (tốt nhất)", f"{_ask_disp:,.2f}" if _ask else "—")
                 lc5.metric("⏱ Cập nhật", str(live_q.get("time", ""))[-8:])
 
-                # Order book — 3 mức L2 cho cả stock và futures
-                # (price_board chỉ expose 3 levels cho mọi instrument)
                 _bids = live_q.get("bids", [])
                 _asks = live_q.get("asks", [])
                 _is_fut = is_futures(ticker) or live_q.get("type") == "futures"
@@ -3527,9 +3524,6 @@ if _active_tab == "🔬 Phân tích":
                         title=_title,
                     )
 
-                # Volume Profile
-                # Futures: lấy từ WSS (đã có trong quote JSON)
-                # Stocks: fetch on-demand trực tiếp (nhanh 1-2s, cache 10s)
                 _vp = live_q.get("volume_profile", [])
                 if not _vp and not _is_fut:
                     _vp = fetch_volume_profile_direct(ticker)
@@ -3546,19 +3540,31 @@ if _active_tab == "🔬 Phân tích":
                     f"Chờ WSS kết nối... (poll mỗi 5s)"
                 )
 
-            # Merge live vào chart nếu có cùng scale
-            if live_q and not _chart_df.empty:
-                _chart_df = _merge_live_quote(_chart_df, live_q)
+        _live_quote_fragment()
 
-            _vp_for_chart = _vp if live_q else None
-            try:
-                render_chart(_chart_df, ticker,
-                             height=st.session_state.get("chart_height_anal", 850),
-                             volume_profile=_vp_for_chart if _vp_for_chart else None)
-            except Exception as _e:
-                st.error(f"Chart render error: {_e}")
+        # Chart — render OUTSIDE fragment (no flicker, no scroll reset)
+        # Merge live quote into chart data
+        _live_q_chart = load_live_quote(ticker)
+        _chart_df_live = load_intraday(ticker, interval=tf)
+        if _live_q_chart and not _chart_df_live.empty:
+            _chart_df_live = _merge_live_quote(_chart_df_live, _live_q_chart)
+        _vp_chart = None
+        if _live_q_chart:
+            _vp_chart = _live_q_chart.get("volume_profile", [])
+            if not _vp_chart and not is_futures(ticker):
+                _vp_chart = fetch_volume_profile_direct(ticker)
+        try:
+            render_chart(_chart_df_live if not _chart_df_live.empty else chart_df,
+                         ticker,
+                         height=st.session_state.get("chart_height_anal", 850),
+                         volume_profile=_vp_chart if _vp_chart else None)
+        except Exception as _e:
+            st.error(f"Chart render error: {_e}")
 
-        _live_intraday_fragment()
+        # Manual refresh button for chart
+        if st.button("🔄 Refresh Chart", key="refresh_live_chart"):
+            st.cache_data.clear()
+            st.rerun()
 
     # ── Alert checker (runs in background every 10s when live) ────────
     if _live_on:
