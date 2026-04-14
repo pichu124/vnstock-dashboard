@@ -1,18 +1,19 @@
 # VnStock Dashboard — Features & Roadmap
 
-> Cập nhật lần cuối: 2026-04-12
+> Cập nhật lần cuối: 2026-04-14
 
 ---
 
 ## Tính năng hiện có
 
-### 3 Tab chính
+### 4 Tab chính
 
 | Tab | Tính năng |
 |---|---|
-| **Screener** | Lọc cổ phiếu theo 7 preset (oversold, momentum, breakout, reversal, golden_cross, volume_surge, strong_uptrend), filter ngành/giá/volume, watchlist, alert |
+| **Screener** | Lọc cổ phiếu theo 9 preset (oversold, momentum, breakout, reversal, golden_cross, volume_surge, strong_uptrend, overbought, value), filter ngành/giá/volume, watchlist, alert |
 | **Phân tích** | Chart kỹ thuật + cơ bản cho 1 mã, Live Mode real-time, VP, order book |
 | **Thị trường** | VNINDEX/VN30/HNX trends, breadth indicators, phân bổ ngành, dòng tiền ngoại |
+| **Portfolio** | Theo dõi danh mục cá nhân (mua/bán/P&L) |
 
 ### Chart & Indicators
 
@@ -43,7 +44,7 @@
 
 | Feature | Mô tả | Status |
 |---|---|---|
-| 7 presets | oversold, overbought, momentum, breakout, reversal, golden_cross, volume_surge | Done |
+| 9 presets | oversold, overbought, momentum, breakout, reversal, golden_cross, volume_surge, strong_uptrend, value | Done |
 | Advanced filters | Price range, %change 1D/5D/20D, volume spike multiplier | Done |
 | Industry filter | Dropdown filter theo ngành (từ AI classifier) | Done |
 | Watchlist | Add/remove mã yêu thích, toggle filter | Done |
@@ -70,6 +71,17 @@
 | Sector breakdown | Phân bổ ngành, top gainers/losers | Done |
 | Foreign flows | Dòng tiền ngoại | Done |
 
+### Infrastructure (mới thêm 2026-04-14)
+
+| Component | Mô tả | Status |
+|---|---|---|
+| `vnstock_auth.py` | Centralized API key management, bảo vệ Golden key | Done (2026-04-14) |
+| `requirements.txt` | Dependencies documentation | Done (2026-04-14) |
+| `README.md` | Hướng dẫn cài đặt & chạy | Done (2026-04-14) |
+| Unit tests | 48 tests (screener, dashboard, warehouse, wss) | Done (2026-04-14) |
+| CI/CD | GitHub Actions auto-test Python 3.11/3.12 | Done (2026-04-14) |
+| Golden Key guide | `docs/GOLDEN_KEY_SETUP.md` — setup desktop + laptop | Done (2026-04-14) |
+
 ### Pipeline & Automation
 
 | Component | Mô tả | Status |
@@ -78,7 +90,7 @@
 | Rollup 15:30 | Merge 1m bars → daily warehouse | Done |
 | Scheduled tasks | Windows Task Scheduler, Mon-Fri | Done |
 | Multi-machine | Primary/backup coordination via pipeline_status.json | Done (2026-04-12) |
-| Screener runner | Chạy 7 presets, xuất screener_results.json | Done |
+| Screener runner | Chạy 9 presets, xuất screener_results.json | Done |
 | AI classifier | Claude API classify ngành cho ~1,100 mã | Done |
 
 ### Data Sources
@@ -86,7 +98,7 @@
 | Source | Dùng cho | Ghi chú |
 |---|---|---|
 | Local warehouse (Parquet) | Daily OHLCV, partitioned ticker/year | Hive-style partitioning |
-| VCI API (vnstock/vnstock_data) | Intraday chart, fundamental, daily update | Golden sponsor tier |
+| VCI API (vnstock/vnstock_data) | Intraday chart, fundamental, daily update | Golden sponsor tier (500 req/min) |
 | WSS polling (Market.price_board) | Real-time giá tất cả mã | 1 batch call mỗi 2s |
 | Quote.price_depth() | Volume Profile, order book depth | On-demand cho stocks, cycle cho futures |
 | screener_results.json | Kết quả screener cached | Updated by runner |
@@ -96,17 +108,19 @@
 
 | File | Chức năng |
 |---|---|
-| `vnstock_dashboard.py` | Main Streamlit UI (3 tabs) |
+| `vnstock_dashboard.py` | Main Streamlit UI (4 tabs) |
+| `vnstock_auth.py` | Centralized API key management |
 | `vnstock_wss.py` | Real-time WSS client, batch polling, bar aggregation |
 | `vnstock_rollup.py` | Daily rollup 1m→daily + multi-machine coordination |
 | `vnstock_updater.py` | Daily price sync từ API |
-| `vnstock_screener.py` | Pattern-based stock filtering (7 presets) |
+| `vnstock_screener.py` | Pattern-based stock filtering (9 presets) |
 | `vnstock_classifier.py` | AI industry classification (Claude API) |
 | `vnstock_runner.py` | Orchestrates screener runs |
 | `vnstock_warehouse.py` | Local parquet storage helpers |
 | `vnstock_analysis.py` | Standalone analysis page |
 | `vnstock_platform.py` | Technical indicator calculations |
 | `scripts/setup_scheduled_tasks.ps1` | Windows Task Scheduler installer |
+| `tests/` | 48 unit tests |
 
 ---
 
@@ -116,7 +130,7 @@
 
 | # | Việc | Mô tả | Status |
 |---|---|---|---|
-| 1 | Test live 2s poll 1,100 mã | Verify API response time, thêm fallback nếu > 2s | Pending — test thứ 2 |
+| 1 | Test live 2s poll 1,100 mã | Verify API response time, thêm fallback nếu > 2s | Pending — cần thị trường mở |
 | 2 | VP overlay trên chart | Render VP dạng horizontal bars trên candlestick (như TradingView) | Done (2026-04-12) |
 | 3 | Market tab live | Heatmap VN30 real-time, breadth live update | Done (2026-04-12) |
 
@@ -136,17 +150,6 @@
 | **Data giữ bao lâu** | ~5 ngày (API xoá sau đó) | Vĩnh viễn (file local) |
 | **Cần Live Mode** | Không | ✓ Phải bật Live Mode trong phiên để tạo bars |
 
-**Khi nào dùng Replay?**
-- Muốn xem lại chart 1m của phiên **>5 ngày trước** (VCI API đã xoá data 1m)
-- Không có internet nhưng muốn xem chart intraday
-- So sánh intraday pattern giữa nhiều ngày
-
-**Hiện tại Replay chưa hữu ích vì:**
-1. Mới bật Live Mode 1 lần (10/04) → chỉ có 1 ngày data
-2. VCI API vẫn còn data 1m 5 ngày gần nhất → dùng chart 1m bình thường tiện hơn
-3. Replay hữu ích nhất sau vài tuần sử dụng (tích luỹ nhiều ngày bars)
-
-**Nếu không thấy cần thiết** → có thể ẩn feature này. Nó là "nice to have" cho power users muốn xem lại phiên cũ.
 | 5 | Multi-timeframe analysis | Live Mode hoạt động với mọi timeframe (1m→1M) | Done (2026-04-12) |
 | 6 | Screener live | Screener trên data real-time, phát hiện breakout trong phiên | Done (2026-04-12) |
 | 7 | Ticker search autocomplete | Dropdown search mã + tên công ty thay vì text input | Done (2026-04-12) |
@@ -165,18 +168,45 @@
 
 | # | Việc | Chi tiết | Status |
 |---|---|---|---|
-| A | Check multi-machine Monday | Verify pipeline_status.json sau rollup 15:30 + updater 18:00 | Pending — thứ 2 16:00 + 22:00 |
-| B | Dọn .tmp files laptop | Có thể có .tmp rác tương tự desktop | Pending |
-| C | Test price_board 1,100 mã | Verify API trả đầy đủ hay bị cắt khi batch lớn | Pending — thứ 2 |
-| D | Test poll 2s response time | Nếu API response > 2s với 1,100 mã → cần skip cycle logic | Pending — thứ 2 |
-| E | Test intraday replay | Bật Live Mode trong phiên → tắt → chọn Replay → verify chart 1m | Pending — thứ 2 |
-| F | Test live screener | Bật Live Mode + Live Scan → verify tín hiệu update mỗi 10s | Pending — thứ 2 |
-| G | Test VP on-demand stocks | Chọn mã stock (VCB, FPT) → verify VP hiện trong 1-2s | Pending — thứ 2 |
-| H | Test VWAP trên chart | Verify VWAP line + bands hiện đúng trên intraday chart | Pending — thứ 2 |
+| A | Check multi-machine | Verify pipeline_status.json sau rollup 15:30 + updater 18:00 | Pending — cần 2 máy chạy cùng ngày |
+| B | Dọn .tmp files laptop | Có thể có .tmp rác tương tự desktop | ✅ Done (2026-04-14) — không có .tmp |
+| C | Test price_board 1,100 mã | Verify API trả đầy đủ hay bị cắt khi batch lớn | Pending — cần thị trường mở |
+| D | Test poll 2s response time | Nếu API response > 2s với 1,100 mã → cần skip cycle logic | Pending — cần thị trường mở |
+| E | Test intraday replay | Bật Live Mode trong phiên → tắt → chọn Replay → verify chart 1m | Pending — cần thị trường mở |
+| F | Test live screener | Bật Live Mode + Live Scan → verify tín hiệu update mỗi 10s | Pending — cần thị trường mở |
+| G | Test VP on-demand stocks | Chọn mã stock (VCB, FPT) → verify VP hiện trong 1-2s | Pending — cần thị trường mở |
+| H | Test VWAP trên chart | Verify VWAP line + bands hiện đúng trên intraday chart | Pending — cần thị trường mở |
+
+### Bugs đã fix (2026-04-14)
+
+| Bug | Nguyên nhân | Fix |
+|-----|-------------|-----|
+| Golden key bị reset về Community | `change_api_key()` từ vnstock free ghi đè Sponsor auth | `vnstock_auth.py` skip `change_api_key()` khi có vnstock_data |
+| Chart render error: `_vp` unbound | `_vp` chưa gán khi `live_q` falsy | Dùng `_vp_for_chart` với default None |
+| Refresh Screener: `No module named 'pyarrow'` | Subprocess dùng `"python"` hardcoded (không phải venv) | Dùng `sys.executable` |
+| Updater lỗi 1514/1723 mã | `from vnstock_data import Equity` không tồn tại trong 2.x | Dùng `get_vnstock()` thay thế |
+| Phân tích cơ bản: "Kỳ báo cáo không hợp lệ" | `finance.ratio()` parameter khác giữa vnstock versions | Thử nhiều period/lang combinations |
+
+### Setup hoàn thành (2026-04-14)
+
+| Máy | Golden key | vnstock_data | Venv | Dashboard | Scheduled Tasks |
+|-----|-----------|-------------|------|-----------|----------------|
+| **Desktop** | ✅ 500 req/min | ✅ Có | ✅ `C:\Users\admin\.venv` | ✅ Chạy được | ❌ Cần setup |
+| **Laptop** | ✅ 500 req/min | ✅ Có | ✅ `C:\Users\Administrator\.venv` | ✅ Chạy được | ❌ Cần setup |
 
 ---
 
 ## Changelog
+
+### 2026-04-14
+- fix: Golden key bị reset — tạo `vnstock_auth.py` centralized, skip `change_api_key()` khi có vnstock_data
+- fix: `_vp` UnboundLocalError khi chart render không có live data
+- fix: Subprocess dùng `sys.executable` thay vì hardcoded `"python"`
+- fix: Xoá `Equity` import trong updater (không tồn tại trong vnstock_data 2.x)
+- fix: Phân tích cơ bản thử nhiều period/lang combinations
+- feat: `requirements.txt`, `README.md`, 48 unit tests, CI/CD GitHub Actions
+- docs: `GOLDEN_KEY_SETUP.md` — hướng dẫn setup Golden key desktop + laptop
+- chore: Merge tất cả code vào branch `main`, xoá 2 feature branches
 
 ### 2026-04-12
 - feat: VP overlay trên chart — horizontal bars (buy/sell) sync với price scale
@@ -191,12 +221,8 @@
 - feat: Scale to full market ~1,100 mã, poll 2s
 - feat: VP on-demand cho stocks (price_depth trực tiếp từ dashboard)
 - feat: VWAP + bands trên chart
-- feat: VP Advanced — POC, VAH/VAL, Delta Profile
-- feat: Multi-machine primary/backup coordination (pipeline_status.json, --skip-if-done)
 - feat: VP Advanced — POC, VAH/VAL, Delta Profile, cumulative delta
-- feat: VWAP line + ±1σ/±2σ bands trên chart
-- feat: VP on-demand cho stocks (price_depth trực tiếp từ dashboard)
-- feat: Scale to full market ~1,100 mã (HOSE+HNX+UPCOM)
+- feat: Multi-machine primary/backup coordination (pipeline_status.json, --skip-if-done)
 - perf: Poll interval giảm từ 15s → 2s (25% quota Golden)
 - feat: setup_scheduled_tasks.ps1 hỗ trợ -PythonExe param
 - docs: MULTI_MACHINE_SETUP.md guide cho desktop install
