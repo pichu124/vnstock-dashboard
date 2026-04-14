@@ -62,6 +62,7 @@ INDUSTRY_PATH = Path("data_warehouse/_meta/industry_classification.parquet")
 FUND_PATH     = Path("data_warehouse/_meta/fundamentals.parquet")
 WATCHLIST_PATH = Path("data_warehouse/_meta/watchlist.json")
 HISTORY_DIR   = Path("data_warehouse/_meta/screener_history")
+SESSION_STATS_PATH = Path("data_warehouse/_meta/market_session_stats.json")
 
 # Theme — dark mode đã là default, light mode override CSS
 THEMES = {
@@ -1256,6 +1257,169 @@ def load_fundamental(ticker: str) -> dict:
     except Exception as e:
         result["error"] = str(e)[:120]
     return result
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Market Session Stats — 4 time-window snapshots
+# ═════════════════════════════════════════════════════════════════════════════
+
+SESSION_WINDOWS = {
+    "9h-10h":   ("09:00", "10:00"),
+    "9h-11h30": ("09:00", "11:30"),
+    "9h-14h":   ("09:00", "14:00"),
+    "9h-15h":   ("09:00", "15:00"),
+}
+
+SESSION_INDICES = ["VNINDEX", "VN30", "HNX", "UPCOM"]
+
+# Map index names to vnstock symbols
+_INDEX_SYMBOL_MAP = {
+    "VNINDEX": "VNINDEX",
+    "VN30": "VN30",
+    "HNX": "HNXINDEX",
+    "UPCOM": "UPCOM-INDEX",
+}
+
+
+def _fetch_index_intraday(index_symbol: str) -> pd.DataFrame:
+    """Fetch 1m intraday data for an index. Returns DataFrame with time, close, volume."""
+    try:
+        from vnstock_auth import get_vnstock
+        from datetime import date, timedelta
+        today = date.today().strftime("%Y-%m-%d")
+        start = (date.today() - timedelta(days=5)).strftime("%Y-%m-%d")
+        stock = get_vnstock(index_symbol)
+        df = stock.quote.history(start=start, end=today, interval="1m")
+        if df is not None and not df.empty:
+            df["time"] = pd.to_datetime(df["time"])
+            return df[["time", "open", "high", "low", "close", "volume"]].copy()
+    except Exception:
+        pass
+    return pd.DataFrame()
+
+
+def compute_session_stats() -> dict:
+    """
+    Compute market session stats for 4 time windows.
+    Returns: {window_name: {index_name: {vol, gtgd, gtgd_per_vol}}}
+    """
+    from datetime import date
+    today = date.today()
+    result = {}
+
+    # Fetch intraday data for each index
+    index_data = {}
+    for display_name, symbol in _INDEX_SYMBOL_MAP.items():
+        df = _fetch_index_intraday(symbol)
+        if not df.empty:
+            # Filter today only
+            today_df = df[df["time"].dt.date == today].copy()
+            if not today_df.empty:
+                today_df = today_df.sort_values("time")
+                index_data[display_name] = today_df
+
+    # Compute stats for each time window
+    for window_name, (start_time, end_time) in SESSION_WINDOWS.items():
+        window_stats = {}
+        for display_name in SESSION_INDICES:
+            if display_name not in index_data:
+                window_stats[display_name] = {"vol": 0, "gtgd": 0, "gtgd_per_vol": 0}
+                continue
+
+            df = index_data[display_name]
+            # Filter by time window
+            mask = df["time"].dt.strftime("%H:%M") <= end_time
+            window_df = df[mask]
+
+            if window_df.empty:
+                window_stats[display_name] = {"vol": 0, "gtgd": 0, "gtgd_per_vol": 0}
+                continue
+
+            last_row = window_df.iloc[-1]
+            vol = float(last_row["volume"])
+            close = float(last_row["close"])
+            # GTGD (tỷ) = close × volume / 1e9
+            # Note: close ở nghìn VND → close * 1000 * volume / 1e9 = close * volume / 1e6
+            gtgd = close * vol / 1e6 if close < 500 else close * vol / 1e9
+            gtgd_per_vol = (gtgd * 1e9 / vol) if vol > 0 else 0
+
+            window_stats[display_name] = {
+                "vol": int(vol),
+                "gtgd": round(gtgd, 1),
+                "gtgd_per_vol": round(gtgd_per_vol, 0),
+            }
+
+        result[window_name] = window_stats
+
+    return result
+
+
+def save_session_stats(stats: dict):
+    """Save session stats to JSON with date key. Keeps 90 days history."""
+    from datetime import date, timedelta
+    today_str = date.today().isoformat()
+
+    # Load existing
+    all_data = {}
+    if SESSION_STATS_PATH.exists():
+        try:
+            all_data = json.loads(SESSION_STATS_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    # Update today
+    all_data[today_str] = stats
+
+    # Prune old data (keep 90 days)
+    cutoff = (date.today() - timedelta(days=90)).isoformat()
+    all_data = {k: v for k, v in all_data.items() if k >= cutoff}
+
+    # Write
+    SESSION_STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    SESSION_STATS_PATH.write_text(
+        json.dumps(all_data, ensure_ascii=False, indent=2),
+        encoding="utf-8"
+    )
+
+
+def load_session_stats_history() -> dict:
+    """Load all session stats history."""
+    if not SESSION_STATS_PATH.exists():
+        return {}
+    try:
+        return json.loads(SESSION_STATS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def render_session_stats_table(window_name: str, stats: dict):
+    """Render a single session stats table for one time window."""
+    if not stats:
+        st.caption(f"{window_name}: chưa có dữ liệu")
+        return
+
+    st.markdown(f"**📊 {window_name}**")
+
+    rows = []
+    for idx_name in SESSION_INDICES:
+        s = stats.get(idx_name, {})
+        vol = s.get("vol", 0)
+        gtgd = s.get("gtgd", 0)
+        rows.append({
+            "Sàn": idx_name,
+            "VOL (CP)": f"{vol:,.0f}" if vol else "—",
+            "GTGD (tỷ)": f"{gtgd:,.1f}" if gtgd else "—",
+            "GTGD/VOL": f"{s.get('gtgd_per_vol', 0):,.0f}" if vol else "—",
+        })
+
+    df = pd.DataFrame(rows)
+    st.dataframe(
+        df,
+        hide_index=True,
+        use_container_width=True,
+        height=180,
+    )
+
 
 def render_chart(df: pd.DataFrame, ticker: str, height: int = 850,
                  volume_profile: list = None):
@@ -2748,6 +2912,38 @@ if _active_tab == "📊 Screener":
             <div class="value">{icon} {top_count}</div><div class="sub">{top_preset[0]}</div></div>''', unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Market Session Stats (4 time-window tables) ───────────────────────
+    with st.expander("📊 Thống kê giao dịch theo phiên", expanded=False):
+        @st.fragment(run_every=30)
+        def _session_stats_fragment():
+            try:
+                stats = compute_session_stats()
+                if any(
+                    any(v.get("vol", 0) > 0 for v in ws.values())
+                    for ws in stats.values()
+                ):
+                    # Save to file for later use
+                    save_session_stats(stats)
+
+                windows = list(SESSION_WINDOWS.keys())
+                # Row 1: Bảng 1 + Bảng 2
+                r1c1, r1c2 = st.columns(2)
+                with r1c1:
+                    render_session_stats_table(windows[0], stats.get(windows[0], {}))
+                with r1c2:
+                    render_session_stats_table(windows[1], stats.get(windows[1], {}))
+
+                # Row 2: Bảng 3 + Bảng 4
+                r2c1, r2c2 = st.columns(2)
+                with r2c1:
+                    render_session_stats_table(windows[2], stats.get(windows[2], {}))
+                with r2c2:
+                    render_session_stats_table(windows[3], stats.get(windows[3], {}))
+            except Exception as e:
+                st.warning(f"Không tải được thống kê phiên: {e}")
+
+        _session_stats_fragment()
 
     if selected_preset and selected_preset in presets_data:
         preset_info = presets_data[selected_preset]
