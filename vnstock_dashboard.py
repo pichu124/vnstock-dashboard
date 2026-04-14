@@ -1231,26 +1231,33 @@ def load_fundamental(ticker: str) -> dict:
             result["error"] = "Không có dữ liệu"
             return result
         def get_val(df, *keys):
+            """Search for value in first row matching any of the key patterns."""
             row = df.iloc[0]
             for key in keys:
-                key_lo = key.lower()
+                key_lo = key.lower().replace(" ", "").replace("_", "")
                 for col in df.columns:
                     col_str = " ".join(str(c) for c in col).lower() if isinstance(col, tuple) else str(col).lower()
-                    if key_lo in col_str:
+                    col_clean = col_str.replace(" ", "").replace("_", "")
+                    if key_lo in col_clean or key_lo in col_str:
                         try:
                             v = row[col]
-                            return float(v) if v is not None and not pd.isna(v) else None
+                            if v is not None and not pd.isna(v):
+                                return float(v)
                         except Exception:
                             continue
             return None
-        result["pe"]         = get_val(ratios, "p/e")
-        result["pb"]         = get_val(ratios, "p/b")
-        result["roe"]        = get_val(ratios, "roe (%)")
-        result["roa"]        = get_val(ratios, "roa (%)")
-        result["eps"]        = get_val(ratios, "eps (vnd)")
-        result["net_margin"] = get_val(ratios, "biên lợi nhuận ròng")
-        result["gross_margin"] = get_val(ratios, "biên lợi nhuận gộp")
-        result["debt_ratio"] = get_val(ratios, "đòn bẩy tài chính")
+        # Debug: log actual columns to help match
+        _cols_debug = [str(c) for c in ratios.columns[:20]]
+        result["_cols_debug"] = _cols_debug
+
+        result["pe"]         = get_val(ratios, "p/e", "pe", "price_to_earning", "pricetoearning")
+        result["pb"]         = get_val(ratios, "p/b", "pb", "price_to_book", "pricetobook")
+        result["roe"]        = get_val(ratios, "roe", "return_on_equity", "returnonequity")
+        result["roa"]        = get_val(ratios, "roa", "return_on_asset", "returnonasset")
+        result["eps"]        = get_val(ratios, "eps", "earning_per_share", "earningpershare")
+        result["net_margin"] = get_val(ratios, "biên lợi nhuận ròng", "net_margin", "netmargin", "net_profit_margin", "netprofitmargin")
+        result["gross_margin"] = get_val(ratios, "biên lợi nhuận gộp", "gross_margin", "grossmargin", "gross_profit_margin", "grossprofitmargin")
+        result["debt_ratio"] = get_val(ratios, "đòn bẩy tài chính", "debt_ratio", "debtratio", "leverage", "financial_leverage")
         for key in ("roe","roa","net_margin","gross_margin"):
             if result.get(key) is not None and abs(result[key]) <= 2:
                 result[key] = round(result[key] * 100, 2)
@@ -1335,12 +1342,16 @@ def compute_session_stats() -> dict:
                 window_stats[display_name] = {"vol": 0, "gtgd": 0, "gtgd_per_vol": 0}
                 continue
 
-            last_row = window_df.iloc[-1]
-            vol = float(last_row["volume"])
-            close = float(last_row["close"])
-            # GTGD (tỷ) = close × volume / 1e9
-            # Note: close ở nghìn VND → close * 1000 * volume / 1e9 = close * volume / 1e6
-            gtgd = close * vol / 1e6 if close < 500 else close * vol / 1e9
+            # SUM volume across all bars in window (not last row!)
+            vol = float(window_df["volume"].sum())
+            # GTGD = sum(close_i * volume_i) for each bar
+            closes = window_df["close"].astype(float)
+            volumes = window_df["volume"].astype(float)
+            # close ở nghìn VND → close * 1000 * volume / 1e9 = close * volume / 1e6
+            if closes.max() < 500:
+                gtgd = float((closes * volumes).sum()) / 1e6
+            else:
+                gtgd = float((closes * volumes).sum()) / 1e9
             gtgd_per_vol = (gtgd * 1e9 / vol) if vol > 0 else 0
 
             window_stats[display_name] = {
@@ -1394,31 +1405,29 @@ def load_session_stats_history() -> dict:
 
 def render_session_stats_table(window_name: str, stats_today: dict, history: dict):
     """
-    Render a session stats table with 30-day history and color scale.
-    history: {date_str: {window_name: {index: {vol, gtgd, gtgd_per_vol}}}}
+    Render a compact session stats table with 30-day history and color scale.
+    Only show VOL (triệu CP) and GTGD (tỷ) per index — compact 2-column per index.
     """
-    st.markdown(f"**📊 {window_name}**")
+    st.markdown(f"<p style='font-size:13px;font-weight:700;margin:0 0 4px'>📊 {window_name}</p>",
+                unsafe_allow_html=True)
 
-    # Build DataFrame: rows = dates, columns = index metrics
-    rows = []
-    # Collect last 30 days from history + today
-    from datetime import date, timedelta
+    from datetime import date
     today_str = date.today().isoformat()
 
     dates = sorted(
         [d for d in history.keys() if d <= today_str],
         reverse=True
     )[:30]
-    dates = list(reversed(dates))  # oldest first
+    dates = list(reversed(dates))
 
-    # If today not in history yet but we have live stats, add it
     if today_str not in dates and stats_today:
         dates.append(today_str)
 
     if not dates:
-        st.caption("Chưa có dữ liệu lịch sử")
+        st.caption("Chưa có dữ liệu")
         return
 
+    rows = []
     for d in dates:
         row = {"Ngày": d}
         if d == today_str and stats_today:
@@ -1427,11 +1436,12 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
             day_data = history.get(d, {})
             day_stats = day_data.get(window_name, {})
 
-        for idx_name in SESSION_INDICES:
-            s = day_stats.get(idx_name, {})
-            row[f"{idx_name}\nVOL"] = s.get("vol", 0)
-            row[f"{idx_name}\nGTGD"] = s.get("gtgd", 0)
-            row[f"{idx_name}\nGTGD/VOL"] = s.get("gtgd_per_vol", 0)
+        for idx in SESSION_INDICES:
+            s = day_stats.get(idx, {})
+            vol_m = s.get("vol", 0) / 1e6  # triệu CP
+            gtgd = s.get("gtgd", 0)
+            row[f"{idx} VOL"] = round(vol_m, 1)
+            row[f"{idx} GTGD"] = round(gtgd, 1)
         rows.append(row)
 
     df = pd.DataFrame(rows)
@@ -1439,73 +1449,51 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
         st.caption("Chưa có dữ liệu")
         return
 
-    # Format display
     df["Ngày"] = pd.to_datetime(df["Ngày"]).dt.strftime("%d/%m")
-
-    # Numeric columns for color scale
     num_cols = [c for c in df.columns if c != "Ngày"]
 
-    # Apply color scale using Styler
-    def color_scale(s):
-        """Apply green-yellow-red color scale to a Series."""
+    def _color_scale(s):
         if s.dtype not in ["float64", "int64", "float32", "int32"]:
             return [""] * len(s)
         vals = s.values.astype(float)
-        non_zero = vals[vals > 0]
-        if len(non_zero) == 0:
+        pos = vals[vals > 0]
+        if len(pos) == 0:
             return [""] * len(s)
-        vmin = non_zero.min()
-        vmax = non_zero.max()
+        vmin, vmax = pos.min(), pos.max()
         if vmax == vmin:
-            return ["background-color: #fef9c3"] * len(s)
-
+            return ["background-color: rgba(250,240,140,0.25)"] * len(s)
         result = []
         for v in vals:
             if v <= 0:
-                result.append("color: #6b7280")
+                result.append("color:#6b7280")
             else:
-                # Normalize 0-1
-                norm = (v - vmin) / (vmax - vmin)
-                # Color scale: red(low) → yellow(mid) → green(high)
-                if norm < 0.5:
-                    # red to yellow
-                    r = 220
-                    g = int(80 + norm * 2 * 160)
-                    b = 60
+                n = (v - vmin) / (vmax - vmin)
+                if n < 0.5:
+                    r, g, b = 220, int(80 + n * 2 * 160), 60
                 else:
-                    # yellow to green
-                    r = int(220 - (norm - 0.5) * 2 * 180)
-                    g = 200
-                    b = 60
-                result.append(
-                    f"background-color: rgba({r},{g},{b},0.3); color: #e5e7eb"
-                )
+                    r, g, b = int(220 - (n - 0.5) * 2 * 180), 200, 60
+                result.append(f"background-color:rgba({r},{g},{b},0.3);color:#e5e7eb")
         return result
 
-    # Format numbers
-    format_dict = {}
-    for c in num_cols:
-        if "VOL" in c and "GTGD" not in c:
-            format_dict[c] = "{:,.0f}"
-        elif "GTGD/VOL" in c:
-            format_dict[c] = "{:,.0f}"
-        elif "GTGD" in c:
-            format_dict[c] = "{:,.1f}"
-
+    fmt = {c: "{:,.1f}" for c in num_cols}
     styled = (
         df.style
-        .format(format_dict, na_rep="—")
-        .apply(color_scale, subset=num_cols)
-        .set_properties(**{"font-size": "11px", "text-align": "right"})
-        .set_properties(subset=["Ngày"], **{"text-align": "center", "font-weight": "600"})
+        .format(fmt, na_rep="—")
+        .apply(_color_scale, subset=num_cols)
+        .set_properties(**{"font-size": "10px", "text-align": "right", "padding": "2px 4px"})
+        .set_properties(subset=["Ngày"], **{
+            "text-align": "center", "font-weight": "600",
+            "font-size": "10px", "min-width": "40px"
+        })
     )
 
     st.dataframe(
         styled,
         hide_index=True,
         use_container_width=True,
-        height=min(35 * len(df) + 40, 500),
+        height=min(28 * len(df) + 38, 400),
     )
+    st.caption(f"VOL = triệu CP | GTGD = tỷ VND")
 
 
 def render_chart(df: pd.DataFrame, ticker: str, height: int = 850,
@@ -1769,18 +1757,10 @@ function resize(){
 window.addEventListener("resize",resize);
 setTimeout(resize,100);
 
-// Prevent scroll events from bubbling to parent Streamlit page
-document.addEventListener("wheel",function(e){
-  // Only prevent if mouse is over a chart container
-  var ids=["mc","vc","rc","dc"];
-  for(var i=0;i<ids.length;i++){
-    var el=document.getElementById(ids[i]);
-    if(el && el.contains(e.target)){
-      e.stopPropagation();
-      return;
-    }
-  }
-},{passive:false});
+// Prevent scroll/wheel from bubbling to parent Streamlit iframe
+// This stops the page from jumping when scrolling/zooming on charts
+document.body.style.overflow="hidden";
+document.documentElement.style.overflow="hidden";
 </script>
 </body>
 </html>"""
@@ -2933,25 +2913,33 @@ if _active_tab == "📊 Screener":
             )
 
             if total_hits_live > 0:
-                cols = st.columns(min(4, len([v for v in live_hits.values() if v])))
-                col_idx = 0
-                for pname, hits in live_hits.items():
-                    if not hits:
-                        continue
-                    icon = PRESET_ICONS.get(pname, "📊")
-                    with cols[col_idx % len(cols)]:
-                        st.markdown(f"**{icon} {pname}** ({len(hits)})")
-                        for h in sorted(hits, key=lambda x: x.get("rsi_14", 50))[:10]:
-                            _rsi = h.get("rsi_14", 0)
-                            _vs = h.get("vol_spike", 0)
-                            _chg = h.get("chg_20d_pct", 0)
-                            st.markdown(
-                                f"<span style='color:#60a5fa;font-weight:600'>{h['ticker']}</span>"
-                                f" <span style='color:#9ca3af;font-size:11px'>"
-                                f"RSI {_rsi:.0f} | Vol {_vs:.1f}x | 20D {_chg:+.1f}%</span>",
-                                unsafe_allow_html=True,
-                            )
-                    col_idx += 1
+                # Show summary counts only — click expander for details
+                _active_presets = [(p, h) for p, h in live_hits.items() if h]
+                _summary = " | ".join(
+                    f"{PRESET_ICONS.get(p, '')} {p} ({len(h)})"
+                    for p, h in _active_presets
+                )
+                st.markdown(
+                    f'<div style="font-size:12px;color:#94a3b8;margin:4px 0">{_summary}</div>',
+                    unsafe_allow_html=True,
+                )
+                with st.expander("Xem chi tiết tín hiệu live", expanded=False):
+                    cols = st.columns(min(4, len(_active_presets)))
+                    col_idx = 0
+                    for pname, hits in _active_presets:
+                        icon = PRESET_ICONS.get(pname, "📊")
+                        with cols[col_idx % len(cols)]:
+                            st.markdown(f"**{icon} {pname}** ({len(hits)})")
+                            for h in sorted(hits, key=lambda x: x.get("rsi_14", 50))[:5]:
+                                _rsi = h.get("rsi_14", 0)
+                                _vs = h.get("vol_spike", 0)
+                                st.markdown(
+                                    f"<span style='color:#60a5fa;font-size:12px'>{h['ticker']}</span>"
+                                    f" <span style='color:#6b7280;font-size:10px'>"
+                                    f"RSI {_rsi:.0f} Vol {_vs:.1f}x</span>",
+                                    unsafe_allow_html=True,
+                                )
+                        col_idx += 1
             else:
                 st.caption("Chưa có tín hiệu — chờ data accumulate...")
 
@@ -3737,9 +3725,10 @@ if _active_tab == "🔬 Phân tích":
 
             # Debug: show raw result
             if fund:
-                non_none = {k:v for k,v in fund.items() if v is not None}
+                non_none = {k:v for k,v in fund.items() if v is not None and k != "_cols_debug"}
                 if not non_none or (len(non_none)==1 and "error" in non_none):
-                    st.warning(f"⚠ Không lấy được dữ liệu cơ bản. Raw: {fund}")
+                    cols_info = fund.get("_cols_debug", [])
+                    st.warning(f"⚠ Không lấy được dữ liệu cơ bản. Columns: {cols_info}")
                 elif fund.get("error"):
                     st.warning(f"Lỗi: {fund['error']}")
             else:
