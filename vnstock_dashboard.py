@@ -2531,6 +2531,7 @@ if _active_tab == "📊 Screener":
         def _live_screener_fragment():
             import glob as _gl
             from pathlib import Path as _P
+            from vnstock_screener import PRESETS
 
             # Đọc tất cả quote files hiện có
             quote_dir = _P("data_warehouse/_live")
