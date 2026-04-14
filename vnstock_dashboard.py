@@ -1400,7 +1400,7 @@ var BASE={
     horzLine:{color:"#4b5563",width:1,style:1,labelBackgroundColor:"#1f2937"},
   },
   rightPriceScale:{borderColor:"#1f2937"},
-  timeScale:{borderColor:"#1f2937",timeVisible:true,secondsVisible:false,rightOffset:5},
+  timeScale:{borderColor:"#1f2937",timeVisible:true,secondsVisible:false,rightOffset:5,shiftVisibleRangeOnNewBar:false},
   handleScroll:{mouseWheel:true,pressedMouseMove:true},
   handleScale:{mouseWheel:true,pinch:true},
 };
@@ -1517,6 +1517,19 @@ function resize(){
 }
 window.addEventListener("resize",resize);
 setTimeout(resize,100);
+
+// Prevent scroll events from bubbling to parent Streamlit page
+document.addEventListener("wheel",function(e){
+  // Only prevent if mouse is over a chart container
+  var ids=["mc","vc","rc","dc"];
+  for(var i=0;i<ids.length;i++){
+    var el=document.getElementById(ids[i]);
+    if(el && el.contains(e.target)){
+      e.stopPropagation();
+      return;
+    }
+  }
+},{passive:false});
 </script>
 </body>
 </html>"""
