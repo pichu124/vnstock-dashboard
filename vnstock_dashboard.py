@@ -10,10 +10,20 @@ Run:
 """
 
 import json
+import logging
 import os
+import subprocess
+import sys
 import warnings
 from datetime import datetime, timedelta
 from pathlib import Path
+
+log = logging.getLogger("vnstock_dashboard")
+if not log.handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
 
 from vnstock_auth import ensure_api_key, get_api_key
 
@@ -63,6 +73,61 @@ FUND_PATH     = Path("data_warehouse/_meta/fundamentals.parquet")
 WATCHLIST_PATH = Path("data_warehouse/_meta/watchlist.json")
 HISTORY_DIR   = Path("data_warehouse/_meta/screener_history")
 SESSION_STATS_PATH = Path("data_warehouse/_meta/market_session_stats.json")
+
+
+# ── Subprocess launcher ──────────────────────────────────────────────────────
+def launch_in_new_console(commands: list, log_filename: str = "subprocess.log") -> tuple:
+    """
+    Chạy một chuỗi Python script trong cửa sổ PowerShell mới (Windows)
+    hoặc process nền có ghi log (non-Windows).
+
+    Args:
+      commands: list[dict], mỗi dict gồm:
+        - "label": str — tiêu đề hiển thị `=== label ===`
+        - "args":  list[str] — script + args, vd ["vnstock_updater.py", "--force"]
+        - "stop_on_error": bool (mặc định True) — dừng chuỗi nếu step này fail
+      log_filename: tên file log cho non-Windows fallback.
+
+    Returns:
+      (is_windows_console, log_path | None)
+    """
+    py = sys.executable
+    cwd = str(Path(__file__).parent)
+    if os.name == "nt":
+        parts = [
+            "$env:PYTHONIOENCODING='utf-8'",
+            "chcp 65001 | Out-Null",
+        ]
+        for i, cmd in enumerate(commands):
+            parts.append(f"Write-Host '=== {cmd['label']} ===' -ForegroundColor Cyan")
+            quoted = " ".join(f"'{a}'" for a in cmd["args"])
+            parts.append(f"& '{py}' {quoted}")
+            if cmd.get("stop_on_error", True) and i < len(commands) - 1:
+                parts.append(
+                    "if ($LASTEXITCODE -ne 0) { "
+                    "Write-Host 'Previous step failed' -ForegroundColor Red; "
+                    "Read-Host 'Nhan Enter de dong cua so'; exit 1 }"
+                )
+        parts.append("Write-Host ''")
+        parts.append("Read-Host 'Hoan tat. Nhan Enter de dong cua so'")
+        ps_cmd = "; ".join(parts)
+        subprocess.Popen(
+            ["powershell.exe", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd],
+            cwd=cwd,
+            creationflags=subprocess.CREATE_NEW_CONSOLE,
+        )
+        return True, None
+    # Non-Windows fallback: chạy command đầu tiên ở background, log ra file
+    log_path = Path(cwd) / log_filename
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    with open(log_path, "w") as lf:
+        subprocess.Popen(
+            [py, *commands[0]["args"]],
+            stdout=lf, stderr=subprocess.STDOUT,
+            cwd=cwd, env=env,
+        )
+    return False, log_path
+
 
 # Theme — dark mode đã là default, light mode override CSS
 THEMES = {
@@ -1895,13 +1960,17 @@ def load_results():
 
 # ── Watchlist ──────────────────────────────────────────────────────────────────
 
+@st.cache_data(ttl=600, show_spinner=False)
 def load_watchlist() -> list:
-    if WATCHLIST_PATH.exists():
-        try:
-            with open(WATCHLIST_PATH, encoding="utf-8") as f:
-                return json.load(f).get("tickers", [])
-        except Exception:
-            pass
+    if not WATCHLIST_PATH.exists():
+        return []
+    try:
+        with open(WATCHLIST_PATH, encoding="utf-8") as f:
+            return json.load(f).get("tickers", [])
+    except (OSError, PermissionError) as e:
+        log.warning("Không đọc được watchlist (%s): %s", WATCHLIST_PATH, e)
+    except json.JSONDecodeError as e:
+        log.error("Watchlist JSON hỏng (%s): %s", WATCHLIST_PATH, e)
     return []
 
 
@@ -1909,6 +1978,8 @@ def save_watchlist(tickers: list):
     WATCHLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(WATCHLIST_PATH, "w", encoding="utf-8") as f:
         json.dump({"tickers": sorted(set(tickers)), "updated_at": datetime.now().isoformat()}, f, ensure_ascii=False, indent=2)
+    # Invalidate cache so next load_watchlist() reads updated file
+    load_watchlist.clear()
 
 
 # ── Alerts ────────────────────────────────────────────────────────────────────
@@ -2710,49 +2781,22 @@ with _update_col:
                 "Ẩn dụ: *tổ chức thêm trận đấu + in tờ báo mới*."
             ),
         ):
-            import subprocess, sys as _sys, os as _os
-            _py = _sys.executable
-            _cwd = str(Path(__file__).parent)
-            if _os.name == "nt":
-                # Mở cửa sổ PowerShell riêng: chạy updater -> chạy screener -> chờ Enter
-                _ps_cmd = (
-                    "$env:PYTHONIOENCODING='utf-8'; "
-                    "chcp 65001 | Out-Null; "
-                    "Write-Host '=== Cap nhat gia ===' -ForegroundColor Cyan; "
-                    f"& '{_py}' vnstock_updater.py --force; "
-                    "$rc = $LASTEXITCODE; "
-                    "if ($rc -eq 0) { "
-                    "  Write-Host ''; "
-                    "  Write-Host '=== Refresh Screener ===' -ForegroundColor Cyan; "
-                    f"  & '{_py}' vnstock_runner.py "
-                    "} else { "
-                    "  Write-Host \"Updater failed (exit $rc)\" -ForegroundColor Red "
-                    "}; "
-                    "Write-Host ''; "
-                    "Read-Host 'Hoan tat. Nhan Enter de dong cua so'"
-                )
-                subprocess.Popen(
-                    ["powershell.exe", "-ExecutionPolicy", "Bypass", "-Command", _ps_cmd],
-                    cwd=_cwd,
-                    creationflags=subprocess.CREATE_NEW_CONSOLE,
-                )
+            _is_win, _log = launch_in_new_console(
+                commands=[
+                    {"label": "Cap nhat gia",     "args": ["vnstock_updater.py", "--force"]},
+                    {"label": "Refresh Screener", "args": ["vnstock_runner.py"]},
+                ],
+                log_filename="updater.log",
+            )
+            if _is_win:
                 st.success(
                     "✅ Đã mở cửa sổ PowerShell chạy updater + screener.\n\n"
                     "Theo dõi tiến độ trong cửa sổ mới. Khi xong, bấm **🔄 Refresh Screener** "
                     "hoặc F5 để dashboard load dữ liệu mới."
                 )
             else:
-                # Non-Windows: chạy nền, ghi log ra file
-                _log_path = Path(_cwd) / "updater.log"
-                _env = {**_os.environ, "PYTHONIOENCODING": "utf-8"}
-                with open(_log_path, "w") as _lf:
-                    subprocess.Popen(
-                        [_py, "vnstock_updater.py", "--force"],
-                        stdout=_lf, stderr=subprocess.STDOUT,
-                        cwd=_cwd, env=_env,
-                    )
                 st.info(
-                    f"🔄 Updater đang chạy nền. Log: `{_log_path}`\n\n"
+                    f"🔄 Updater đang chạy nền. Log: `{_log}`\n\n"
                     "Khi xong, bấm **🔄 Refresh Screener**."
                 )
     with _uc2:
@@ -2773,45 +2817,21 @@ with _update_col:
                 "Ẩn dụ: *toà soạn in lại báo với số liệu hiện có*."
             ),
         ):
-            import subprocess, sys as _sys, os as _os
-            _py = _sys.executable
-            _cwd = str(Path(__file__).parent)
-            if _os.name == "nt":
-                # Mở cửa sổ PowerShell riêng: chạy screener -> chờ Enter
-                _ps_cmd = (
-                    "$env:PYTHONIOENCODING='utf-8'; "
-                    "chcp 65001 | Out-Null; "
-                    "Write-Host '=== Refresh Screener ===' -ForegroundColor Cyan; "
-                    f"& '{_py}' vnstock_runner.py; "
-                    "$rc = $LASTEXITCODE; "
-                    "if ($rc -ne 0) { "
-                    "  Write-Host \"Screener failed (exit $rc)\" -ForegroundColor Red "
-                    "}; "
-                    "Write-Host ''; "
-                    "Read-Host 'Hoan tat. Nhan Enter de dong cua so'"
-                )
-                subprocess.Popen(
-                    ["powershell.exe", "-ExecutionPolicy", "Bypass", "-Command", _ps_cmd],
-                    cwd=_cwd,
-                    creationflags=subprocess.CREATE_NEW_CONSOLE,
-                )
+            _is_win, _log = launch_in_new_console(
+                commands=[
+                    {"label": "Refresh Screener", "args": ["vnstock_runner.py"]},
+                ],
+                log_filename="screener.log",
+            )
+            if _is_win:
                 st.success(
                     "✅ Đã mở cửa sổ PowerShell chạy screener (~1-2 phút).\n\n"
                     "Khi xong, bấm **🔄 Refresh** hoặc F5 để dashboard "
                     "load dữ liệu mới."
                 )
             else:
-                # Non-Windows: chạy nền, ghi log ra file
-                _log_path = Path(_cwd) / "screener.log"
-                _env = {**_os.environ, "PYTHONIOENCODING": "utf-8"}
-                with open(_log_path, "w") as _lf:
-                    subprocess.Popen(
-                        [_py, "vnstock_runner.py"],
-                        stdout=_lf, stderr=subprocess.STDOUT,
-                        cwd=_cwd, env=_env,
-                    )
                 st.info(
-                    f"🔄 Screener đang chạy nền. Log: `{_log_path}`\n\n"
+                    f"🔄 Screener đang chạy nền. Log: `{_log}`\n\n"
                     "Khi xong, bấm **🔄 Refresh** để load dữ liệu mới."
                 )
 
