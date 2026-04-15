@@ -99,7 +99,7 @@
 |---|---|---|
 | Local warehouse (Parquet) | Daily OHLCV, partitioned ticker/year | Hive-style partitioning |
 | VCI API (vnstock/vnstock_data) | Intraday chart, fundamental, daily update | Golden sponsor tier (500 req/min) |
-| WSS polling (Market.price_board) | Real-time giá tất cả mã | 1 batch call mỗi 2s |
+| REST polling (Market.price_board) | Real-time giá tất cả mã | 1 batch call mỗi 2s — vnstock_data 3.x chưa có WSS, polling là con đường chính thức |
 | Quote.price_depth() | Volume Profile, order book depth | On-demand cho stocks, cycle cho futures |
 | screener_results.json | Kết quả screener cached | Updated by runner |
 | industry_classification.parquet | Phân ngành AI | Updated by classifier |

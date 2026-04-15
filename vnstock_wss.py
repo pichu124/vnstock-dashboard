@@ -376,26 +376,34 @@ class VnStockWSS:
     # ─────────────────────────────────────────────────────────────────────
     def _detect_mode(self):
         """
-        Detect vnstock_data WSS endpoint. Chỉ chuyển sang mode='wss' nếu
-        thực sự tìm thấy WSS_URL / REALTIME_URL / STREAM_URL. Mặc định
-        polling (đáng tin cậy hơn).
+        Pick wss vs polling mode.
+
+        Confirmed 2026-04 against vnstock_data 3.0.0 (Golden tier):
+        the sponsor package ships REST-only — no WebSocket endpoint,
+        no streaming/subscribe API. `python vnstock_wss.py --inspect`
+        shows only HTTP classes (Quote, Market, Trading, …). Thus
+        polling is the only supported mode today.
+
+        The WSS code path (_get_wss_endpoint, _on_ws_*, _parse_tick)
+        is kept as a scaffold for future sponsor releases. If a WSS
+        endpoint ships, subclass RealtimeClient and override
+        `_get_wss_endpoint` + `_parse_tick`; no other code needs to
+        change.
         """
         try:
             import vnstock_data  # noqa: F401
-            endpoint_attrs = ["WSS_URL", "REALTIME_URL", "STREAM_URL", "WS_URL"]
-            found_endpoint = next(
-                (a for a in endpoint_attrs if hasattr(vnstock_data, a)),
-                None
-            )
-            if found_endpoint:
-                self.mode = "wss"
-                print(f"[vnstock_wss] Found {found_endpoint} → WSS mode")
-            else:
-                self.mode = "polling"
-                print("[vnstock_wss] vnstock_data installed (no WSS endpoint) → polling mode")
         except ImportError:
             self.mode = "polling"
             print("[vnstock_wss] vnstock_data not installed → polling mode")
+            return
+
+        endpoint = self._get_wss_endpoint()
+        if endpoint:
+            self.mode = "wss"
+            print(f"[vnstock_wss] Found WSS endpoint → WSS mode")
+        else:
+            self.mode = "polling"
+            print("[vnstock_wss] vnstock_data 3.x has no WSS API → polling mode")
 
     # ─────────────────────────────────────────────────────────────────────
     # Lifecycle
@@ -574,17 +582,21 @@ class VnStockWSS:
 
     def _get_wss_endpoint(self) -> Optional[str]:
         """
-        Thử lấy WSS endpoint từ vnstock_data. Trả về None nếu không tìm được.
-        TODO: update khi xác định được endpoint thực tế từ sponsor package.
+        Return the WebSocket URL for the sponsor realtime stream, or
+        None if unavailable.
+
+        vnstock_data 3.0.0 (Golden) does NOT expose a WSS endpoint —
+        the package is REST-only. Confirmed via `--inspect`: no
+        WSS_URL/REALTIME_URL/STREAM_URL attribute, no websocket or
+        stream module, no subscribe/on_tick method on any class.
+        Polling (`Market.price_board`, `Quote.intraday`) is the
+        intended realtime path at this tier.
+
+        Override this method in a subclass when a future sponsor
+        release ships WSS. Pair the override with `_parse_tick` so
+        incoming frames are normalized to the tick dict shape used
+        by `_handle_tick`.
         """
-        try:
-            import vnstock_data
-            # Thử các attribute có thể chứa endpoint
-            for attr in ("WSS_URL", "REALTIME_URL", "STREAM_URL"):
-                if hasattr(vnstock_data, attr):
-                    return getattr(vnstock_data, attr)
-        except Exception:
-            pass
         return None
 
     def _on_ws_open(self, ws):
@@ -619,10 +631,17 @@ class VnStockWSS:
 
     def _parse_tick(self, msg: dict) -> Optional[dict]:
         """
-        Normalize tick message từ provider → format chuẩn.
-        TODO: implement khi biết schema của vnstock_data.
+        Normalize a WSS frame into the internal tick dict consumed
+        by `_handle_tick` (see keys below).
+
+        Dead code today: vnstock_data 3.0.0 has no WSS, so this is
+        never reached. Kept as a scaffold — the common field-name
+        fallbacks (symbol/ticker/s, price/close/p, …) are a best
+        guess for the day sponsor ships realtime. When that happens,
+        override this in a subclass and map the real schema;
+        `_on_ws_message` will pick it up automatically.
         """
-        # Placeholder — try common field names
+        # Best-effort field guessing for unknown provider schema
         try:
             ticker = msg.get("symbol") or msg.get("ticker") or msg.get("s")
             price = msg.get("price") or msg.get("close") or msg.get("p")
