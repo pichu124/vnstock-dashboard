@@ -2658,7 +2658,17 @@ col_title, col_refresh = st.columns([6, 1])
 with col_title:
     st.markdown("## 📈 VnStock Dashboard")
 with col_refresh:
-    if st.button("🔄 Refresh", width='stretch'):
+    if st.button(
+        "🔄 Refresh",
+        width='stretch',
+        help=(
+            "**Vẽ lại dashboard** (nhanh, ~1 giây).\n\n"
+            "Xoá cache RAM rồi đọc lại file `vnstock_data.json` hiện có — "
+            "KHÔNG tính lại screener, KHÔNG tải giá mới.\n\n"
+            "**Dùng khi:** đổi filter/theme/watchlist, hoặc UI có vẻ stale.\n\n"
+            "Ẩn dụ: *lật lại trang báo cũ*."
+        ),
+    ):
         st.cache_data.clear()
         st.rerun()
 
@@ -2684,31 +2694,85 @@ with _info_col:
 with _update_col:
     _uc1, _uc2 = st.columns(2)
     with _uc1:
-        if st.button("📥 Cập nhật giá", key="run_updater", use_container_width=True):
-            with st.spinner("Đang cập nhật giá từ API (5-10 phút)..."):
-                import subprocess, sys as _sys
-                _py = _sys.executable
-                result = subprocess.run(
-                    [_py, "vnstock_updater.py", "--force"],
-                    capture_output=True, text=True, cwd=str(Path(__file__).parent),
-                    timeout=900,
-                    env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"}
+        if st.button(
+            "📥 Cập nhật giá",
+            key="run_updater",
+            use_container_width=True,
+            help=(
+                "**Tải giá mới nhất từ API + tính lại screener** "
+                "(nặng nhất, ~20-30 phút).\n\n"
+                "Mở cửa sổ PowerShell riêng chạy `vnstock_updater.py --force` "
+                "→ ghi đè file parquet trong `data_warehouse/prices/` "
+                "→ rồi tự chạy `vnstock_runner.py` tạo lại `vnstock_data.json`.\n\n"
+                "**Dùng khi:** muốn xem data ngày mới nhất (sau giờ giao dịch).\n\n"
+                "Sau khi PowerShell xong, bấm **🔄 Refresh Screener** hoặc F5 "
+                "để dashboard đọc dữ liệu mới.\n\n"
+                "Ẩn dụ: *tổ chức thêm trận đấu + in tờ báo mới*."
+            ),
+        ):
+            import subprocess, sys as _sys, os as _os
+            _py = _sys.executable
+            _cwd = str(Path(__file__).parent)
+            if _os.name == "nt":
+                # Mở cửa sổ PowerShell riêng: chạy updater -> chạy screener -> chờ Enter
+                _ps_cmd = (
+                    "$env:PYTHONIOENCODING='utf-8'; "
+                    "chcp 65001 | Out-Null; "
+                    "Write-Host '=== Cap nhat gia ===' -ForegroundColor Cyan; "
+                    f"& '{_py}' vnstock_updater.py --force; "
+                    "$rc = $LASTEXITCODE; "
+                    "if ($rc -eq 0) { "
+                    "  Write-Host ''; "
+                    "  Write-Host '=== Refresh Screener ===' -ForegroundColor Cyan; "
+                    f"  & '{_py}' vnstock_runner.py "
+                    "} else { "
+                    "  Write-Host \"Updater failed (exit $rc)\" -ForegroundColor Red "
+                    "}; "
+                    "Write-Host ''; "
+                    "Read-Host 'Hoan tat. Nhan Enter de dong cua so'"
                 )
-                if result.returncode == 0:
-                    st.success("Giá đã cập nhật! Đang refresh screener...")
-                    # Auto-run screener after price update
-                    subprocess.run(
-                        [_py, "vnstock_runner.py"],
-                        capture_output=True, text=True, cwd=str(Path(__file__).parent),
-                        timeout=300,
-                        env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"}
+                subprocess.Popen(
+                    ["powershell.exe", "-ExecutionPolicy", "Bypass", "-Command", _ps_cmd],
+                    cwd=_cwd,
+                    creationflags=subprocess.CREATE_NEW_CONSOLE,
+                )
+                st.success(
+                    "✅ Đã mở cửa sổ PowerShell chạy updater + screener.\n\n"
+                    "Theo dõi tiến độ trong cửa sổ mới. Khi xong, bấm **🔄 Refresh Screener** "
+                    "hoặc F5 để dashboard load dữ liệu mới."
+                )
+            else:
+                # Non-Windows: chạy nền, ghi log ra file
+                _log_path = Path(_cwd) / "updater.log"
+                _env = {**_os.environ, "PYTHONIOENCODING": "utf-8"}
+                with open(_log_path, "w") as _lf:
+                    subprocess.Popen(
+                        [_py, "vnstock_updater.py", "--force"],
+                        stdout=_lf, stderr=subprocess.STDOUT,
+                        cwd=_cwd, env=_env,
                     )
-                    st.cache_data.clear()
-                    st.rerun()
-                else:
-                    st.error(f"Lỗi updater: {result.stderr[:300]}")
+                st.info(
+                    f"🔄 Updater đang chạy nền. Log: `{_log_path}`\n\n"
+                    "Khi xong, bấm **🔄 Refresh Screener**."
+                )
     with _uc2:
-        if st.button("🔄 Refresh Screener", key="run_screener", use_container_width=True):
+        if st.button(
+            "🔄 Refresh Screener",
+            key="run_screener",
+            use_container_width=True,
+            help=(
+                "**Tính lại screener từ warehouse** (~1-2 phút).\n\n"
+                "Chạy `vnstock_runner.py` để đọc lại parquet trong "
+                "`data_warehouse/prices/`, tính lại preset/RSI/MACD/BB%... "
+                "rồi ghi đè `vnstock_data.json`.\n\n"
+                "KHÔNG tải giá mới từ API.\n\n"
+                "**Dùng khi:**\n"
+                "- Vừa sửa code logic screener (vd: đổi ngưỡng RSI).\n"
+                "- Warehouse vừa có giá mới mà muốn tính lại screener "
+                "(ít dùng, vì nút Cập nhật giá đã tự làm bước này).\n\n"
+                "Ẩn dụ: *toà soạn in lại báo với số liệu hiện có*."
+            ),
+        ):
             with st.spinner("Đang chạy screener (có thể mất 1-2 phút)..."):
                 import subprocess, sys as _sys
                 _py = _sys.executable
