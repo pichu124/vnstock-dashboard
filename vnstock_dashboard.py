@@ -1489,8 +1489,10 @@ def save_session_stats(stats: dict):
     if SESSION_STATS_PATH.exists():
         try:
             all_data = json.loads(SESSION_STATS_PATH.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except (OSError, PermissionError) as e:
+            log.warning("Không đọc được session stats (%s): %s", SESSION_STATS_PATH, e)
+        except json.JSONDecodeError as e:
+            log.error("Session stats JSON hỏng (%s) — sẽ ghi đè: %s", SESSION_STATS_PATH, e)
 
     # Update today
     all_data[today_str] = stats
@@ -1505,16 +1507,22 @@ def save_session_stats(stats: dict):
         json.dumps(all_data, ensure_ascii=False, indent=2),
         encoding="utf-8"
     )
+    # Invalidate cache so next read sees the update
+    load_session_stats_history.clear()
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def load_session_stats_history() -> dict:
-    """Load all session stats history."""
+    """Load all session stats history (cached 60s)."""
     if not SESSION_STATS_PATH.exists():
         return {}
     try:
         return json.loads(SESSION_STATS_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+    except (OSError, PermissionError) as e:
+        log.warning("Không đọc được session stats (%s): %s", SESSION_STATS_PATH, e)
+    except json.JSONDecodeError as e:
+        log.error("Session stats JSON hỏng (%s): %s", SESSION_STATS_PATH, e)
+    return {}
 
 
 def render_session_stats_table(window_name: str, stats_today: dict, history: dict):

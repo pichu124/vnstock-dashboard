@@ -260,3 +260,206 @@ class TestCalcValueArea:
         ]
         _, _, _, poc_p, _, _ = _calc_value_area(profile)
         assert poc_p == 80.0
+
+
+# ── cell_color / cell_weight (replica from vnstock_dashboard.py:2110,2135) ─────
+
+def _cell_color(col, val):
+    """Replica — verifies the (ValueError, TypeError) narrow except works."""
+    if not val or val == "—":
+        return "#4b5563"
+    if col in ("1D%", "5D%", "20D%", "BB%", "52W%"):
+        try:
+            v = float(str(val).replace("%", "").replace("+", ""))
+            return "#10b981" if v > 0 else ("#ef4444" if v < 0 else "#9ca3af")
+        except (ValueError, TypeError):
+            return "#6b7280"
+    if col == "RSI":
+        try:
+            v = float(val)
+            if v < 30: return "#10b981"
+            if v > 70: return "#ef4444"
+            return "#e5e7eb"
+        except (ValueError, TypeError):
+            return "#6b7280"
+    return "#d1d5db"
+
+
+def _cell_weight(col, val):
+    if col == "Ticker":
+        return "600"
+    if col in ("1D%", "5D%", "20D%", "BB%", "52W%"):
+        try:
+            return "500" if float(str(val).replace("%", "").replace("+", "")) != 0 else "400"
+        except (ValueError, TypeError):
+            return "400"
+    if col == "RSI":
+        try:
+            return "700" if (float(val) < 30 or float(val) > 70) else "400"
+        except (ValueError, TypeError):
+            return "400"
+    return "400"
+
+
+class TestCellColor:
+
+    def test_positive_pct_is_green(self):
+        assert _cell_color("1D%", "+2.5%") == "#10b981"
+
+    def test_negative_pct_is_red(self):
+        assert _cell_color("5D%", "-3.1%") == "#ef4444"
+
+    def test_zero_pct_is_gray(self):
+        assert _cell_color("1D%", "0.0%") == "#9ca3af"
+
+    def test_rsi_oversold_green(self):
+        assert _cell_color("RSI", "25") == "#10b981"
+
+    def test_rsi_overbought_red(self):
+        assert _cell_color("RSI", "75") == "#ef4444"
+
+    def test_dash_placeholder_returns_gray(self):
+        assert _cell_color("1D%", "—") == "#4b5563"
+
+    def test_none_returns_gray(self):
+        assert _cell_color("1D%", None) == "#4b5563"
+
+    def test_garbage_string_falls_back(self):
+        # ValueError from float("abc") — caught by narrow except
+        assert _cell_color("1D%", "abc%") == "#6b7280"
+
+    def test_rsi_garbage_falls_back(self):
+        assert _cell_color("RSI", "N/A") == "#6b7280"
+
+    def test_narrow_except_lets_keyboardinterrupt_escape(self):
+        """Proves bare except would have swallowed this — narrow one doesn't."""
+        class Trap:
+            def __str__(self):
+                raise KeyboardInterrupt("user pressed Ctrl+C")
+        with pytest.raises(KeyboardInterrupt):
+            _cell_color("1D%", Trap())
+
+
+class TestCellWeight:
+
+    def test_ticker_is_bold(self):
+        assert _cell_weight("Ticker", "VCB") == "600"
+
+    def test_extreme_rsi_is_heavy(self):
+        assert _cell_weight("RSI", "15") == "700"
+        assert _cell_weight("RSI", "85") == "700"
+
+    def test_mid_rsi_is_normal(self):
+        assert _cell_weight("RSI", "50") == "400"
+
+    def test_nonzero_pct_is_medium(self):
+        assert _cell_weight("1D%", "+1.5%") == "500"
+
+    def test_zero_pct_is_normal(self):
+        assert _cell_weight("1D%", "0.0%") == "400"
+
+    def test_unparseable_falls_back(self):
+        assert _cell_weight("1D%", "abc") == "400"
+        assert _cell_weight("RSI", "xyz") == "400"
+
+
+# ── Watchlist I/O roundtrip (replica from vnstock_dashboard.py:1905) ──────────
+
+def _load_watchlist(path):
+    if not path.exists():
+        return []
+    try:
+        import json
+        with open(path, encoding="utf-8") as f:
+            return json.load(f).get("tickers", [])
+    except (OSError, PermissionError):
+        return []
+    except (__import__("json").JSONDecodeError):  # noqa: F821
+        return []
+
+
+def _save_watchlist(path, tickers):
+    import json
+    from datetime import datetime
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(
+            {"tickers": sorted(set(tickers)), "updated_at": datetime.now().isoformat()},
+            f, ensure_ascii=False, indent=2,
+        )
+
+
+class TestWatchlistIO:
+
+    def test_empty_when_missing(self, tmp_path):
+        path = tmp_path / "watchlist.json"
+        assert _load_watchlist(path) == []
+
+    def test_roundtrip_dedupes_and_sorts(self, tmp_path):
+        path = tmp_path / "watchlist.json"
+        _save_watchlist(path, ["VCB", "FPT", "VCB", "HPG"])
+        result = _load_watchlist(path)
+        assert result == ["FPT", "HPG", "VCB"]
+
+    def test_corrupt_json_returns_empty(self, tmp_path):
+        path = tmp_path / "watchlist.json"
+        path.write_text("{ this is not valid json", encoding="utf-8")
+        assert _load_watchlist(path) == []
+
+
+# ── launch_in_new_console PowerShell command generation ──────────────────────
+
+def _build_ps_command(commands, python_exe="/usr/bin/python"):
+    """Replica of the Windows branch of launch_in_new_console — command string only."""
+    parts = [
+        "$env:PYTHONIOENCODING='utf-8'",
+        "chcp 65001 | Out-Null",
+    ]
+    for i, cmd in enumerate(commands):
+        parts.append(f"Write-Host '=== {cmd['label']} ===' -ForegroundColor Cyan")
+        quoted = " ".join(f"'{a}'" for a in cmd["args"])
+        parts.append(f"& '{python_exe}' {quoted}")
+        if cmd.get("stop_on_error", True) and i < len(commands) - 1:
+            parts.append(
+                "if ($LASTEXITCODE -ne 0) { "
+                "Write-Host 'Previous step failed' -ForegroundColor Red; "
+                "Read-Host 'Nhan Enter de dong cua so'; exit 1 }"
+            )
+    parts.append("Write-Host ''")
+    parts.append("Read-Host 'Hoan tat. Nhan Enter de dong cua so'")
+    return "; ".join(parts)
+
+
+class TestLaunchInNewConsole:
+
+    def test_single_command_includes_args(self):
+        cmd = _build_ps_command([
+            {"label": "Screener", "args": ["vnstock_runner.py"]},
+        ])
+        assert "=== Screener ===" in cmd
+        assert "'vnstock_runner.py'" in cmd
+        assert "Read-Host 'Hoan tat" in cmd
+
+    def test_chained_commands_stop_on_error(self):
+        cmd = _build_ps_command([
+            {"label": "Update", "args": ["vnstock_updater.py", "--force"]},
+            {"label": "Screen", "args": ["vnstock_runner.py"]},
+        ])
+        assert "vnstock_updater.py" in cmd
+        assert "--force" in cmd
+        assert "if ($LASTEXITCODE -ne 0)" in cmd  # stop-on-error guard
+        assert "vnstock_runner.py" in cmd
+        # Guard appears exactly once (between 2 commands, not after last)
+        assert cmd.count("if ($LASTEXITCODE -ne 0)") == 1
+
+    def test_stop_on_error_opt_out(self):
+        cmd = _build_ps_command([
+            {"label": "A", "args": ["a.py"], "stop_on_error": False},
+            {"label": "B", "args": ["b.py"]},
+        ])
+        assert "if ($LASTEXITCODE -ne 0)" not in cmd
+
+    def test_utf8_encoding_set(self):
+        cmd = _build_ps_command([{"label": "X", "args": ["x.py"]}])
+        assert "PYTHONIOENCODING='utf-8'" in cmd
+        assert "chcp 65001" in cmd
