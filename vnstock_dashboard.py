@@ -2042,7 +2042,7 @@ def render_table(df: pd.DataFrame, top_n: int = 50):
             try:
                 v = float(str(val).replace("%","").replace("+",""))
                 return "#10b981" if v>0 else ("#ef4444" if v<0 else "#9ca3af")
-            except: return "#6b7280"
+            except (ValueError, TypeError): return "#6b7280"
         if col == "RSI":
             try:
                 v = float(val)
@@ -2051,7 +2051,7 @@ def render_table(df: pd.DataFrame, top_n: int = 50):
                 if v<40: return "#6ee7b7"
                 if v>60: return "#fca5a5"
                 return "#e5e7eb"
-            except: return "#6b7280"
+            except (ValueError, TypeError): return "#6b7280"
         if col == "MACD":
             m={"BUY":"#10b981","BULL":"#34d399","SELL":"#ef4444","BEAR":"#f87171"}
             return m.get(str(val).upper(),"#9ca3af")
@@ -2065,10 +2065,10 @@ def render_table(df: pd.DataFrame, top_n: int = 50):
         if col == "Ticker": return "600"
         if col in ("1D%","5D%","20D%","BB%","52W%"):
             try: return "500" if float(str(val).replace("%","").replace("+",""))!=0 else "400"
-            except: return "400"
+            except (ValueError, TypeError): return "400"
         if col == "RSI":
             try: return "700" if (float(val)<30 or float(val)>70) else "400"
-            except: return "400"
+            except (ValueError, TypeError): return "400"
         if col == "MACD" and str(val).upper() in ("BUY","SELL"): return "700"
         return "400"
 
@@ -2773,20 +2773,47 @@ with _update_col:
                 "Ẩn dụ: *toà soạn in lại báo với số liệu hiện có*."
             ),
         ):
-            with st.spinner("Đang chạy screener (có thể mất 1-2 phút)..."):
-                import subprocess, sys as _sys
-                _py = _sys.executable
-                result = subprocess.run(
-                    [_py, "vnstock_runner.py"],
-                    capture_output=True, text=True, cwd=str(Path(__file__).parent),
-                    timeout=300,
-                    env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"}
+            import subprocess, sys as _sys, os as _os
+            _py = _sys.executable
+            _cwd = str(Path(__file__).parent)
+            if _os.name == "nt":
+                # Mở cửa sổ PowerShell riêng: chạy screener -> chờ Enter
+                _ps_cmd = (
+                    "$env:PYTHONIOENCODING='utf-8'; "
+                    "chcp 65001 | Out-Null; "
+                    "Write-Host '=== Refresh Screener ===' -ForegroundColor Cyan; "
+                    f"& '{_py}' vnstock_runner.py; "
+                    "$rc = $LASTEXITCODE; "
+                    "if ($rc -ne 0) { "
+                    "  Write-Host \"Screener failed (exit $rc)\" -ForegroundColor Red "
+                    "}; "
+                    "Write-Host ''; "
+                    "Read-Host 'Hoan tat. Nhan Enter de dong cua so'"
                 )
-                if result.returncode == 0:
-                    st.cache_data.clear()
-                    st.rerun()
-                else:
-                    st.error(f"Lỗi: {result.stderr[:500]}")
+                subprocess.Popen(
+                    ["powershell.exe", "-ExecutionPolicy", "Bypass", "-Command", _ps_cmd],
+                    cwd=_cwd,
+                    creationflags=subprocess.CREATE_NEW_CONSOLE,
+                )
+                st.success(
+                    "✅ Đã mở cửa sổ PowerShell chạy screener (~1-2 phút).\n\n"
+                    "Khi xong, bấm **🔄 Refresh** hoặc F5 để dashboard "
+                    "load dữ liệu mới."
+                )
+            else:
+                # Non-Windows: chạy nền, ghi log ra file
+                _log_path = Path(_cwd) / "screener.log"
+                _env = {**_os.environ, "PYTHONIOENCODING": "utf-8"}
+                with open(_log_path, "w") as _lf:
+                    subprocess.Popen(
+                        [_py, "vnstock_runner.py"],
+                        stdout=_lf, stderr=subprocess.STDOUT,
+                        cwd=_cwd, env=_env,
+                    )
+                st.info(
+                    f"🔄 Screener đang chạy nền. Log: `{_log_path}`\n\n"
+                    "Khi xong, bấm **🔄 Refresh** để load dữ liệu mới."
+                )
 
 total_tickers = data.get("total_tickers", 0)
 classified    = data.get("classified_tickers", 0)
