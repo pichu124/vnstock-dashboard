@@ -2685,28 +2685,51 @@ with _update_col:
     _uc1, _uc2 = st.columns(2)
     with _uc1:
         if st.button("📥 Cập nhật giá", key="run_updater", use_container_width=True):
-            with st.spinner("Đang cập nhật giá từ API (5-10 phút)..."):
-                import subprocess, sys as _sys
-                _py = _sys.executable
-                result = subprocess.run(
-                    [_py, "vnstock_updater.py", "--force"],
-                    capture_output=True, text=True, cwd=str(Path(__file__).parent),
-                    timeout=900,
-                    env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"}
+            import subprocess, sys as _sys, os as _os
+            _py = _sys.executable
+            _cwd = str(Path(__file__).parent)
+            if _os.name == "nt":
+                # Mở cửa sổ PowerShell riêng: chạy updater -> chạy screener -> chờ Enter
+                _ps_cmd = (
+                    "$env:PYTHONIOENCODING='utf-8'; "
+                    "chcp 65001 | Out-Null; "
+                    "Write-Host '=== Cap nhat gia ===' -ForegroundColor Cyan; "
+                    f"& '{_py}' vnstock_updater.py --force; "
+                    "$rc = $LASTEXITCODE; "
+                    "if ($rc -eq 0) { "
+                    "  Write-Host ''; "
+                    "  Write-Host '=== Refresh Screener ===' -ForegroundColor Cyan; "
+                    f"  & '{_py}' vnstock_runner.py "
+                    "} else { "
+                    "  Write-Host \"Updater failed (exit $rc)\" -ForegroundColor Red "
+                    "}; "
+                    "Write-Host ''; "
+                    "Read-Host 'Hoan tat. Nhan Enter de dong cua so'"
                 )
-                if result.returncode == 0:
-                    st.success("Giá đã cập nhật! Đang refresh screener...")
-                    # Auto-run screener after price update
-                    subprocess.run(
-                        [_py, "vnstock_runner.py"],
-                        capture_output=True, text=True, cwd=str(Path(__file__).parent),
-                        timeout=300,
-                        env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"}
+                subprocess.Popen(
+                    ["powershell.exe", "-ExecutionPolicy", "Bypass", "-Command", _ps_cmd],
+                    cwd=_cwd,
+                    creationflags=subprocess.CREATE_NEW_CONSOLE,
+                )
+                st.success(
+                    "✅ Đã mở cửa sổ PowerShell chạy updater + screener.\n\n"
+                    "Theo dõi tiến độ trong cửa sổ mới. Khi xong, bấm **🔄 Refresh Screener** "
+                    "hoặc F5 để dashboard load dữ liệu mới."
+                )
+            else:
+                # Non-Windows: chạy nền, ghi log ra file
+                _log_path = Path(_cwd) / "updater.log"
+                _env = {**_os.environ, "PYTHONIOENCODING": "utf-8"}
+                with open(_log_path, "w") as _lf:
+                    subprocess.Popen(
+                        [_py, "vnstock_updater.py", "--force"],
+                        stdout=_lf, stderr=subprocess.STDOUT,
+                        cwd=_cwd, env=_env,
                     )
-                    st.cache_data.clear()
-                    st.rerun()
-                else:
-                    st.error(f"Lỗi updater: {result.stderr[:300]}")
+                st.info(
+                    f"🔄 Updater đang chạy nền. Log: `{_log_path}`\n\n"
+                    "Khi xong, bấm **🔄 Refresh Screener**."
+                )
     with _uc2:
         if st.button("🔄 Refresh Screener", key="run_screener", use_container_width=True):
             with st.spinner("Đang chạy screener (có thể mất 1-2 phút)..."):
