@@ -140,20 +140,288 @@ def save_results(output: dict, warehouse: str = "data_warehouse"):
     return out_path
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# Market Overview — pre-compute sector metrics + breadth
+# ══════════════════════════════════════════════════════════════════════════════
+
+MARKET_OVERVIEW_FILE = "market_overview.json"
+
+
+def _normalize_prices(df):
+    """Normalize mixed VND/nghìn VND price units."""
+    df = df.copy()
+    for col in ("open", "high", "low", "close"):
+        if col in df.columns:
+            vals = df[col].astype(float)
+            mask = vals > 500
+            if mask.any():
+                df.loc[mask, col] = vals[mask] / 1000
+    return df
+
+
+def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
+    """
+    Compute sector metrics + breadth indicators from warehouse parquet.
+    Returns dict ready to JSON-serialize → market_overview.json.
+    Dashboard reads this file for instant load.
+    """
+    import numpy as np
+    import pyarrow.parquet as pq
+
+    prices_dir = Path(warehouse) / "prices"
+    industry_path = Path(warehouse) / "_meta" / "industry_classification.parquet"
+
+    if not prices_dir.exists() or not industry_path.exists():
+        console.print("[red]❌ Prices dir hoặc industry classification không tồn tại[/red]")
+        return {}
+
+    console.log("  Loading industry map...")
+    ind_df = pq.read_table(
+        str(industry_path), columns=["ticker", "primary_industry"]
+    ).to_pandas().rename(columns={"primary_industry": "industry"})
+    ind_df["industry"] = ind_df["industry"].fillna("Khác")
+    valid_tickers = set(ind_df["ticker"].tolist())
+
+    # Shares outstanding
+    companies_dir = Path(warehouse) / "companies"
+    shares_map = {}
+    if companies_dir.exists():
+        for comp_dir in companies_dir.glob("ticker=*"):
+            tk = comp_dir.name.split("=")[1]
+            ov_file = comp_dir / "overview.parquet"
+            if ov_file.exists():
+                try:
+                    ov = pq.ParquetFile(str(ov_file)).read(columns=["issue_share"]).to_pandas()
+                    if len(ov) > 0 and pd.notna(ov["issue_share"].iloc[0]):
+                        shares_map[tk] = float(ov["issue_share"].iloc[0])
+                except Exception:
+                    pass
+
+    from datetime import date, timedelta
+    cutoff = pd.Timestamp(date.today() - timedelta(days=400))
+
+    rows = []
+    b_total = b_ma200 = b_rsi_ov = b_rsi_ob = 0
+    b_adv = b_dec = b_unch = b_hi = b_lo = 0
+
+    ticker_dirs = sorted(prices_dir.glob("ticker=*"))
+    console.log(f"  Scanning {len(ticker_dirs)} tickers...")
+
+    for td in ticker_dirs:
+        ticker = td.name.split("=")[1]
+        if len(ticker) > 5 or not ticker.isalpha():
+            continue
+        try:
+            frames = []
+            for yd in sorted(td.glob("year=*"))[-3:]:
+                for pf in yd.glob("*.parquet"):
+                    frames.append(pq.read_table(str(pf),
+                        columns=["time", "close", "volume", "high", "low"]).to_pandas())
+            if not frames:
+                continue
+            df = pd.concat(frames).sort_values("time")
+            df["time"] = pd.to_datetime(df["time"])
+            df = df[df["time"] >= cutoff]
+            if len(df) < 5:
+                continue
+
+            df = _normalize_prices(df)
+            c = df["close"].astype(float)
+            v = df["volume"].astype(float)
+            last = float(c.iloc[-1])
+
+            # Breadth
+            b_total += 1
+            if len(c) >= 200:
+                ema200 = c.ewm(span=200, adjust=False).mean().iloc[-1]
+                if last > ema200:
+                    b_ma200 += 1
+
+            delta = c.diff()
+            gain = delta.clip(lower=0).rolling(14).mean()
+            loss = (-delta.clip(upper=0)).rolling(14).mean()
+            rs = gain / loss.replace(0, np.nan)
+            rsi_val = (100 - (100 / (1 + rs))).iloc[-1]
+            if not np.isnan(rsi_val):
+                if rsi_val < 30: b_rsi_ov += 1
+                elif rsi_val > 70: b_rsi_ob += 1
+
+            if len(c) >= 2:
+                chg1d = c.iloc[-1] - c.iloc[-2]
+                if chg1d > 0: b_adv += 1
+                elif chg1d < 0: b_dec += 1
+                else: b_unch += 1
+
+            if len(df) >= 50:
+                year_df = df.tail(252)
+                h52 = year_df["high"].astype(float).max()
+                l52 = year_df["low"].astype(float).min()
+                if last >= h52 * 0.98: b_hi += 1
+                if last <= l52 * 1.02: b_lo += 1
+
+            # Sector metrics (only classified tickers)
+            if ticker not in valid_tickers:
+                continue
+            recent = df.tail(90)
+            if len(recent) < 5:
+                continue
+            c90 = recent["close"].astype(float)
+            v90 = recent["volume"].astype(float)
+
+            vol5 = float(v90.tail(5).mean())
+            vol10 = float(v90.tail(10).mean())
+            vol20 = float(v90.tail(20).mean())
+
+            h90 = recent["high"].astype(float)
+            l90 = recent["low"].astype(float)
+            amp = (h90 - l90) / c90 * 100
+            amp5 = float(amp.tail(5).mean())
+            amp20 = float(amp.tail(20).mean())
+            amp60 = float(amp.tail(60).mean()) if len(amp) >= 60 else amp5
+
+            chg5 = float((c90.iloc[-1] / c90.iloc[-6] - 1) * 100) if len(c90) > 5 else None
+            chg20 = float((c90.iloc[-1] / c90.iloc[-21] - 1) * 100) if len(c90) > 20 else None
+            chg60 = float((c90.iloc[-1] / c90.iloc[-61] - 1) * 100) if len(c90) > 60 else None
+
+            if chg5 is not None and abs(chg5) > 50: chg5 = None
+            if chg20 is not None and abs(chg20) > 80: chg20 = None
+            if chg60 is not None and abs(chg60) > 150: chg60 = None
+
+            issue_share = shares_map.get(ticker, 0)
+            mktcap = last * 1000 * issue_share / 1e9 if issue_share > 0 else 0.0
+            mktcap_proxy = last * 1000 * vol20 / 1e9
+
+            rows.append({
+                "ticker": ticker, "last": round(last, 2),
+                "vol5": vol5, "vol10": vol10, "vol20": vol20,
+                "mktcap": round(mktcap, 1), "mktcap_proxy": round(mktcap_proxy, 1),
+                "amp5": round(amp5, 1), "amp20": round(amp20, 1), "amp60": round(amp60, 1),
+                "chg5": round(chg5, 1) if chg5 is not None else None,
+                "chg20": round(chg20, 1) if chg20 is not None else None,
+                "chg60": round(chg60, 1) if chg60 is not None else None,
+            })
+        except Exception:
+            continue
+
+    # Breadth
+    breadth = {}
+    if b_total > 0:
+        breadth = {
+            "total": b_total,
+            "above_ma200": b_ma200,
+            "above_ma200_pct": round(b_ma200 / b_total * 100, 1),
+            "rsi_oversold": b_rsi_ov,
+            "rsi_oversold_pct": round(b_rsi_ov / b_total * 100, 1),
+            "rsi_overbought": b_rsi_ob,
+            "rsi_overbought_pct": round(b_rsi_ob / b_total * 100, 1),
+            "advances": b_adv, "declines": b_dec, "unchanged": b_unch,
+            "ad_ratio": round(b_adv / max(b_dec, 1), 2),
+            "new_highs": b_hi, "new_lows": b_lo,
+            "net_new_highs": b_hi - b_lo,
+        }
+
+    if not rows:
+        return {"sectors": [], "breadth": breadth, "tickers": []}
+
+    tick_df = pd.DataFrame(rows)
+    merged = tick_df.merge(ind_df, on="ticker", how="left")
+    merged["industry"] = merged["industry"].fillna("Khác")
+
+    # Aggregate by industry
+    def agg(grp):
+        n = len(grp)
+        v20 = grp["vol20"].sum()
+        v5 = grp["vol5"].sum()
+        v10 = grp["vol10"].sum()
+        total_mktcap = grp["mktcap"].sum()
+        gtgd_tb = grp["mktcap_proxy"].sum()
+        vol5_20 = round(v5 / v20 * 100, 0) if v20 > 0 else None
+        return pd.Series({
+            "Số mã": n,
+            "Vốn hoá (tỷ)": round(total_mktcap, 0),
+            "GTGD TB (tỷ)": round(gtgd_tb, 0),
+            "Vol Avg 5": round(v5 / 1e6, 1),
+            "Vol Avg 10": round(v10 / 1e6, 1),
+            "Vol Avg 20": round(v20 / 1e6, 1),
+            "Vol 5/20 %": vol5_20,
+            "Biên 1T (%)": round(grp["amp5"].mean(), 1),
+            "Biên 1M (%)": round(grp["amp20"].mean(), 1),
+            "Biên 3M (%)": round(grp["amp60"].mean(), 1),
+            "Giá 1T %": round(grp["chg5"].dropna().mean(), 1) if grp["chg5"].notna().any() else None,
+            "Giá 1M %": round(grp["chg20"].dropna().mean(), 1) if grp["chg20"].notna().any() else None,
+            "Giá 3M %": round(grp["chg60"].dropna().mean(), 1) if grp["chg60"].notna().any() else None,
+        })
+
+    # Ticker display data
+    import numpy as np
+    tick_display = merged.copy()
+    tick_display["Vốn hoá (tỷ)"] = tick_display["mktcap"].round(0)
+    tick_display["GTGD TB (tỷ)"] = tick_display["mktcap_proxy"].round(1)
+    tick_display["Vol Avg 5"] = (tick_display["vol5"] / 1e6).round(1)
+    tick_display["Vol Avg 10"] = (tick_display["vol10"] / 1e6).round(1)
+    tick_display["Vol Avg 20"] = (tick_display["vol20"] / 1e6).round(1)
+    tick_display["Vol 5/20 %"] = np.where(
+        tick_display["vol20"] > 0,
+        (tick_display["vol5"] / tick_display["vol20"] * 100).round(0), None)
+    tick_display = tick_display.rename(columns={"ticker": "Mã", "industry": "Ngành"})
+
+    result = merged.groupby("industry").apply(agg).reset_index()
+    result = result.rename(columns={"industry": "Ngành"})
+    result = result.sort_values("Vốn hoá (tỷ)", ascending=False).reset_index(drop=True)
+
+    return {
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "sectors": result.to_dict(orient="records"),
+        "breadth": breadth,
+        "tickers": tick_display.to_dict(orient="records"),
+    }
+
+
+def save_market_overview(data: dict, warehouse: str = "data_warehouse"):
+    """Save market overview to JSON."""
+    meta_dir = Path(warehouse) / "_meta"
+    meta_dir.mkdir(parents=True, exist_ok=True)
+    out_path = meta_dir / MARKET_OVERVIEW_FILE
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+    console.print(f"[green]✅ Market overview → {out_path}[/green]")
+    return out_path
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="VnStock Screener Runner")
     parser.add_argument("--warehouse", default="data_warehouse")
     parser.add_argument("--presets",   nargs="+", help="Chỉ chạy preset cụ thể")
+    parser.add_argument("--skip-market", action="store_true",
+                        help="Bỏ qua bước tính market overview")
     args = parser.parse_args()
 
     console.rule("[bold cyan]🚀 VnStock Screener Runner[/bold cyan]")
+
+    # Step 1: Screener presets
+    console.log("[bold]Step 1/2: Screener presets[/bold]")
     output = run_all_presets(warehouse=args.warehouse, presets=args.presets)
     path   = save_results(output, warehouse=args.warehouse)
 
-    # Summary
     total_hits = sum(v["count"] for v in output["presets"].values())
     console.print(
         f"\n  [dim]Presets: {len(output['presets'])} | "
         f"Total hits: {total_hits} | "
-        f"Generated: {output['generated_at']}[/dim]"
+        f"Generated: {output['generated_at']}[/dim]\n"
     )
+
+    # Step 2: Market overview (sector metrics + breadth)
+    if not args.skip_market:
+        console.log("[bold]Step 2/2: Market overview[/bold]")
+        mkt_data = compute_market_overview(warehouse=args.warehouse)
+        if mkt_data and mkt_data.get("sectors"):
+            save_market_overview(mkt_data, warehouse=args.warehouse)
+            console.print(
+                f"  [dim]Sectors: {len(mkt_data['sectors'])} | "
+                f"Breadth: {mkt_data['breadth'].get('total', 0)} mã | "
+                f"Tickers: {len(mkt_data['tickers'])}[/dim]"
+            )
+        else:
+            console.print("  [yellow]⚠ Market overview: không có dữ liệu[/yellow]")
+    else:
+        console.print("[dim]  ⏭ Bỏ qua market overview (--skip-market)[/dim]")

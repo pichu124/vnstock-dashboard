@@ -2759,8 +2759,7 @@ function doSort(col, th) {{
 
 
 
-_MARKET_CACHE_PATH = Path("data_warehouse/_meta/market_data_cache.json")
-_MARKET_CACHE_MAX_AGE = 600  # 10 phút
+_MARKET_OVERVIEW_PATH = Path("data_warehouse/_meta/market_overview.json")
 
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -2768,9 +2767,25 @@ def _load_all_market_data() -> tuple:
     """
     Unified loader: 1 loop duy nhất cho cả market_overview + breadth.
     Returns: (sector_df, breadth_dict, ticker_display_df)
-    Cache: @st.cache_data(600s) — in-memory only (disk cache disabled
-    vì gây lỗi khi Dropbox sync corrupts DataFrame serialization).
+
+    Ưu tiên đọc market_overview.json (pre-computed bởi runner).
+    Fallback: tính trực tiếp từ warehouse parquet (chậm ~10-30s).
     """
+    # Tầng 1: file pre-computed bởi runner (instant load)
+    if _MARKET_OVERVIEW_PATH.exists():
+        try:
+            age_hours = (datetime.now().timestamp() - _MARKET_OVERVIEW_PATH.stat().st_mtime) / 3600
+            if age_hours < 24:
+                data = json.loads(_MARKET_OVERVIEW_PATH.read_text(encoding="utf-8"))
+                sector_df = pd.DataFrame(data["sectors"])
+                breadth = data["breadth"]
+                tick_df = pd.DataFrame(data["tickers"])
+                log.info("Market data: loaded from pre-computed file (%.1fh old)", age_hours)
+                return sector_df, breadth, tick_df
+        except (OSError, json.JSONDecodeError, KeyError) as e:
+            log.warning("Market overview file corrupt: %s", e)
+
+    # Tầng 2: tính trực tiếp (fallback, chậm)
     if not PRICES_DIR.exists() or not INDUSTRY_PATH.exists():
         return pd.DataFrame(), {}, pd.DataFrame()
     try:
@@ -2888,15 +2903,10 @@ def _load_all_market_data() -> tuple:
                 amp20 = float(amp.tail(20).mean())
                 amp60 = float(amp.tail(60).mean()) if len(amp) >= 60 else amp5
 
-                # Normalize đơn vị giá: > 500 = VND → chia 1000 về nghìn VND
-                c90_clean = c90.copy()
-                _mask = c90_clean > 500
-                if _mask.any():
-                    c90_clean[_mask] = c90_clean[_mask] / 1000
-
-                chg5  = float((c90_clean.iloc[-1]/c90_clean.iloc[-6]-1)*100)  if len(c90_clean)>5  else None
-                chg20 = float((c90_clean.iloc[-1]/c90_clean.iloc[-21]-1)*100) if len(c90_clean)>20 else None
-                chg60 = float((c90_clean.iloc[-1]/c90_clean.iloc[-61]-1)*100) if len(c90_clean)>60 else None
+                # Giá đã normalize ở trên → c90 cũng đã normalize
+                chg5  = float((c90.iloc[-1]/c90.iloc[-6]-1)*100)  if len(c90)>5  else None
+                chg20 = float((c90.iloc[-1]/c90.iloc[-21]-1)*100) if len(c90)>20 else None
+                chg60 = float((c90.iloc[-1]/c90.iloc[-61]-1)*100) if len(c90)>60 else None
 
                 # Safety clamp
                 if chg5 is not None and abs(chg5) > 50:
@@ -2914,7 +2924,7 @@ def _load_all_market_data() -> tuple:
                 mktcap_proxy = last * 1000 * vol20 / 1e9
 
                 rows.append({
-                    "ticker": ticker, "last": _last_k,
+                    "ticker": ticker, "last": last,
                     "vol5": vol5, "vol10": vol10, "vol20": vol20,
                     "mktcap": mktcap, "mktcap_proxy": mktcap_proxy,
                     "amp5": amp5, "amp20": amp20, "amp60": amp60,
