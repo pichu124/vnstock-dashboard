@@ -1704,15 +1704,22 @@ def load_fundamental(ticker: str) -> dict:
 
         # Ưu tiên vnstock_data sponsor (ổn định, không KeyError: 'data')
         _stock = None
+        _use_sponsor = False
         try:
             from vnstock_data import Company as _Company, Finance as _Finance
             _company = _Company(symbol=ticker)
-            _finance = _Finance(symbol=ticker)
+            # Finance cần source param
+            try:
+                _finance = _Finance(symbol=ticker, source="VCI")
+            except TypeError:
+                _finance = _Finance(symbol=ticker)
             _use_sponsor = True
         except Exception:
-            from vnstock_auth import get_vnstock
-            _stock = get_vnstock(ticker)
-            _use_sponsor = False
+            try:
+                from vnstock_auth import get_vnstock
+                _stock = get_vnstock(ticker)
+            except Exception:
+                pass
 
         # ── 1. Company Overview — market cap, shares, EPS, P/E, etc. ─────
         try:
@@ -1734,14 +1741,14 @@ def load_fundamental(ticker: str) -> dict:
                                         continue
                         return None
 
-                    result["market_cap"] = _ov(row, "vonhoathitruong", "marketcap", "market_cap")
-                    result["shares_outstanding"] = _ov(row, "klcpluuhanh", "sharesoutstanding", "outstanding")
-                    result["shares_listed"] = _ov(row, "klcpniemyet", "shareslisted", "listed")
+                    result["market_cap"] = _ov(row, "vonhoathitruong", "marketcap", "market_cap", "chartercapital")
+                    result["shares_outstanding"] = _ov(row, "klcpluuhanh", "sharesoutstanding", "outstanding", "listedvolume")
+                    result["shares_listed"] = _ov(row, "klcpniemyet", "shareslisted", "listed", "listedvolume")
                     result["avg_vol_10"] = _ov(row, "khoplenh10phien", "avgvolume", "avg_vol", "averagevolume")
                     result["pe"] = _ov(row, "p/e", "pe")
                     result["pb"] = _ov(row, "p/b", "pb")
                     result["eps"] = _ov(row, "eps")
-                    result["book_value"] = _ov(row, "giatrisosach", "bookvalue", "bvps")
+                    result["book_value"] = _ov(row, "giatrisosach", "bookvalue", "bvps", "parvalue")
                     result["dividend_yield"] = _ov(row, "tysuatcotuc", "dividendyield")
                     result["_overview_cols"] = [str(c) for c in overview.columns[:30]]
         except Exception:
