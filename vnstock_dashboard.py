@@ -291,6 +291,89 @@ def _aggregate_nn_by_window(nn_df: pd.DataFrame, days: int) -> dict:
     return {sym: round(val / 1e9, 1) for sym, val in agg.items()}
 
 
+_ORDER_CACHE_PATH = Path("data_warehouse/_meta/order_stats_cache.json")
+_ORDER_CACHE_MAX_AGE = 1800  # 30 phút
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _fetch_order_stats_batch(tickers: tuple) -> dict:
+    """
+    Fetch order_stats() cho danh sách tickers (top GTGD).
+    Return {ticker: {"big_order_score": float, "buy_sell_ratio": float}}.
+    Disk cache 30 phút, Streamlit cache 30 phút.
+    """
+    # Disk cache
+    if _ORDER_CACHE_PATH.exists():
+        try:
+            age = datetime.now().timestamp() - _ORDER_CACHE_PATH.stat().st_mtime
+            if age < _ORDER_CACHE_MAX_AGE:
+                cached = json.loads(_ORDER_CACHE_PATH.read_text(encoding="utf-8"))
+                if len(cached) > 3:
+                    log.info("Order stats: loaded %d tickers from disk", len(cached))
+                    return cached
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    try:
+        from vnstock_data import Trading
+    except ImportError:
+        return {}
+
+    result = {}
+    for tk in tickers:
+        try:
+            t = Trading(symbol=tk)
+
+            # order_stats: avg order size trend
+            os_df = t.order_stats()
+            if os_df is not None and not os_df.empty and len(os_df) >= 5:
+                os_df = os_df.sort_values("trading_date").reset_index(drop=True)
+                buy_vol = pd.to_numeric(os_df["total_buy_trade_volume"], errors="coerce").fillna(0)
+                buy_cnt = pd.to_numeric(os_df["total_buy_trade"], errors="coerce").fillna(0)
+                sell_vol = pd.to_numeric(os_df["total_sell_trade_volume"], errors="coerce").fillna(0)
+                sell_cnt = pd.to_numeric(os_df["total_sell_trade"], errors="coerce").fillna(0)
+
+                # Avg buy order size (volume per trade)
+                safe_cnt = buy_cnt.replace(0, np.nan)
+                avg_sizes = buy_vol / safe_cnt
+                today_size = float(avg_sizes.iloc[-1]) if not np.isnan(avg_sizes.iloc[-1]) else 0
+                hist_size = float(avg_sizes.iloc[:-1].mean()) if len(avg_sizes) > 1 else 0
+
+                # BigOrder score: today vs historical avg
+                if hist_size > 0 and today_size > 0:
+                    big_order_score = max(-100, min(100, (today_size / hist_size - 1) * 100))
+                else:
+                    big_order_score = 0
+
+                # Buy/Sell from order_stats (more accurate than bid/ask depth)
+                total_buy = float(buy_vol.iloc[-1])
+                total_sell = float(sell_vol.iloc[-1])
+                total = total_buy + total_sell
+                bs_ratio = total_buy / total if total > 0 else 0.5
+
+                result[tk] = {
+                    "big_order_score": round(big_order_score, 1),
+                    "buy_sell_ratio": round(bs_ratio, 3),
+                    "avg_order_today": round(today_size, 0),
+                    "avg_order_hist": round(hist_size, 0),
+                }
+        except Exception:
+            continue
+
+    # Save to disk
+    if len(result) > 3:
+        try:
+            _ORDER_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _ORDER_CACHE_PATH.write_text(
+                json.dumps(result, ensure_ascii=False), encoding="utf-8",
+            )
+            log.info("Order stats: saved %d tickers to disk", len(result))
+        except (OSError, ValueError):
+            pass
+
+    return result
+
+
 def _batch_load_live_quotes(tickers: list) -> dict:
     """
     Batch load tất cả quote JSON files 1 lần. Cache trong session_state.
@@ -350,12 +433,14 @@ def _batch_load_live_quotes(tickers: list) -> dict:
 
 
 def _compute_money_flow_score(nn_net: float, nn_median: float,
-                              buy_ratio: float) -> float:
+                              buy_ratio: float,
+                              big_order_score: float = 0) -> float:
     """
     Tính money flow score (-100 đến +100).
-    nn_net:    NN ròng cho mã này (tỷ VND)
-    nn_median: median |NN ròng| của toàn thị trường (dùng để normalize)
-    buy_ratio: buy/sell ratio (0-1)
+    nn_net:          NN ròng cho mã này (tỷ VND)
+    nn_median:       median |NN ròng| của toàn thị trường (dùng để normalize)
+    buy_ratio:       buy/sell ratio (0-1)
+    big_order_score: lệnh lớn score (-100 đến +100), 0 nếu chưa có data
     """
     # NN score: clamp nn_net / median * 50
     if nn_median > 0:
@@ -366,8 +451,11 @@ def _compute_money_flow_score(nn_net: float, nn_median: float,
     # Buy/Sell score: 0.5 → 0, 0.7 → +40, 0.3 → -40
     bs_score = max(-100, min(100, (buy_ratio - 0.5) * 200))
 
-    # Weighted combination
-    return round(0.55 * nn_score + 0.45 * bs_score, 1)
+    # BigOrder score: đã clamp -100~100 từ _fetch_order_stats_batch
+    bo_score = max(-100, min(100, big_order_score))
+
+    # Weighted combination: 40% NN + 35% BuySell + 25% BigOrder
+    return round(0.40 * nn_score + 0.35 * bs_score + 0.25 * bo_score, 1)
 
 
 def _score_label(score: float) -> tuple:
@@ -5209,13 +5297,12 @@ if _active_tab == "💰 Dòng Tiền":
             ),
         )
         st.caption(
-            "**NN ròng**: khối ngoại mua - bán ròng (tỷ VND) "
-            "từ `TopStock.foreign_buy/sell`\n\n"
-            "**Buy/Sell**: tỷ lệ áp lực mua vs bán "
-            "(từ bid/ask depth hoặc volume profile)\n\n"
-            "**Score** = 55% × NN_score + 45% × BuySell_score\n\n"
-            "*Lệnh lớn (BigOrder) chưa implement — cần test "
-            "`Trading.order_stats()` API.*"
+            "**NN ròng**: khối ngoại mua - bán ròng (tỷ VND)\n\n"
+            "**Buy/Sell**: tỷ lệ mua/bán chủ động "
+            "(top 50 mã từ `order_stats`, còn lại từ bid/ask depth)\n\n"
+            "**Lệnh lớn**: avg order size hôm nay vs 20 ngày "
+            "(top 50 mã từ `order_stats`)\n\n"
+            "**Score** = 40% × NN + 35% × Buy/Sell + 25% × Lệnh lớn"
         )
 
     # ── Load industry map ────────────────────────────────────────────────
@@ -5242,13 +5329,15 @@ if _active_tab == "💰 Dòng Tiền":
 
     # Nút xoá cache (debug khi NN = 0)
     with st.sidebar:
-        if st.button("🗑 Xoá cache NN", key="mf_clear_cache", help=(
-            "Xoá cache NN ròng (disk + RAM) để force re-fetch từ API. "
-            "Dùng khi NN ròng hiện 0 cho tất cả ngành."
+        if st.button("🗑 Xoá cache", key="mf_clear_cache", help=(
+            "Xoá cache NN ròng + Lệnh lớn (disk + RAM) → force re-fetch từ API. "
+            "Dùng khi NN ròng hiện 0 hoặc data cũ."
         )):
             _fetch_foreign_net_flow.clear()
-            if _NN_CACHE_PATH.exists():
-                _NN_CACHE_PATH.unlink()
+            _fetch_order_stats_batch.clear()
+            for _cp in (_NN_CACHE_PATH, _ORDER_CACHE_PATH):
+                if _cp.exists():
+                    _cp.unlink()
             st.rerun()
 
     with st.spinner("Đang tải dữ liệu NN ròng (TopStock API)..."):
@@ -5266,16 +5355,30 @@ if _active_tab == "💰 Dòng Tiền":
     # Aggregate NN ròng theo window đã chọn (1D/5D/20D)
     _nn_by_ticker = _aggregate_nn_by_window(_nn_raw, _mf_days)  # {symbol: tỷ VND}
 
-    # ── Compute per-stock scores ─────────────────────────────────────────
-    # Batch load tất cả quote files 1 lần (cached 30s trong session_state)
+    # ── Fetch order_stats (BigOrder) cho top mã GTGD ─────────────────────
     _live_quotes = _batch_load_live_quotes(_warehouse_tickers_all)
 
+    # Rank by GTGD → top 50 cho order_stats
+    _gtgd_ranked = sorted(
+        [(tk, _live_quotes.get(tk, {}).get("gtgd", 0)) for tk in _warehouse_tickers_all],
+        key=lambda x: x[1], reverse=True,
+    )
+    _top_50_tickers = tuple(tk for tk, _ in _gtgd_ranked[:50])
+
+    with st.spinner("Đang tải dữ liệu Lệnh lớn (top 50 mã)..."):
+        _order_data = _fetch_order_stats_batch(_top_50_tickers)
+
+    # ── Compute per-stock scores ─────────────────────────────────────────
     _stock_rows = []
     for tk in _warehouse_tickers_all:
         nn_net = _nn_by_ticker.get(tk, 0)
         lq = _live_quotes.get(tk, {})
+        od = _order_data.get(tk, {})
         industry = _ind_map.get(tk, "Khác")
         sector = _get_sector(industry)
+
+        # Prefer order_stats buy/sell ratio (actual matched trades) over bid/ask depth
+        buy_ratio = od.get("buy_sell_ratio", lq.get("buy_ratio", 0.5))
 
         _stock_rows.append({
             "ticker": tk,
@@ -5285,7 +5388,8 @@ if _active_tab == "💰 Dòng Tiền":
             "volume": lq.get("volume", 0),
             "gtgd": lq.get("gtgd", 0),
             "nn_net": nn_net,
-            "buy_ratio": lq.get("buy_ratio", 0.5),
+            "buy_ratio": buy_ratio,
+            "big_order_score": od.get("big_order_score", 0),
         })
 
     # Compute median |nn_net| for normalization
@@ -5293,7 +5397,9 @@ if _active_tab == "💰 Dòng Tiền":
     _nn_median = float(np.median(_nn_abs)) if _nn_abs else 1.0
 
     for r in _stock_rows:
-        r["score"] = _compute_money_flow_score(r["nn_net"], _nn_median, r["buy_ratio"])
+        r["score"] = _compute_money_flow_score(
+            r["nn_net"], _nn_median, r["buy_ratio"], r["big_order_score"]
+        )
 
     # ── Aggregate by sector ──────────────────────────────────────────────
     _sector_summary = {}

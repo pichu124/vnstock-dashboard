@@ -508,13 +508,14 @@ def _get_sector(primary_industry):
     return _SECTOR_GROUPS.get(primary_industry, "Khác")
 
 
-def _compute_money_flow_score(nn_net, nn_median, buy_ratio):
+def _compute_money_flow_score(nn_net, nn_median, buy_ratio, big_order_score=0):
     if nn_median > 0:
         nn_score = max(-100, min(100, (nn_net / nn_median) * 50))
     else:
         nn_score = 0
     bs_score = max(-100, min(100, (buy_ratio - 0.5) * 200))
-    return round(0.55 * nn_score + 0.45 * bs_score, 1)
+    bo_score = max(-100, min(100, big_order_score))
+    return round(0.40 * nn_score + 0.35 * bs_score + 0.25 * bo_score, 1)
 
 
 def _score_label(score):
