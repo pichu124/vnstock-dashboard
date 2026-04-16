@@ -160,19 +160,61 @@ def _load_industry_map() -> dict:
 
 # ── Money Flow functions ─────────────────────────────────────────────────────
 
-@st.cache_data(ttl=300, show_spinner=False)
+_NN_CACHE_PATH = Path("data_warehouse/_meta/nn_flow_cache.json")
+_NN_CACHE_MAX_AGE = 600  # 10 phút — NN data không thay đổi liên tục
+
+
+def _load_nn_from_disk() -> pd.DataFrame:
+    """Load NN cache từ disk. Return empty DataFrame nếu cache quá cũ hoặc lỗi."""
+    if not _NN_CACHE_PATH.exists():
+        return pd.DataFrame()
+    try:
+        age = datetime.now().timestamp() - _NN_CACHE_PATH.stat().st_mtime
+        if age > _NN_CACHE_MAX_AGE:
+            return pd.DataFrame()  # stale
+        data = json.loads(_NN_CACHE_PATH.read_text(encoding="utf-8"))
+        df = pd.DataFrame(data)
+        if not df.empty:
+            df["date"] = pd.to_datetime(df["date"])
+        return df
+    except (OSError, json.JSONDecodeError, ValueError):
+        return pd.DataFrame()
+
+
+def _save_nn_to_disk(df: pd.DataFrame):
+    """Persist NN data to disk for fast reload."""
+    try:
+        _NN_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        records = df.copy()
+        records["date"] = records["date"].dt.strftime("%Y-%m-%d")
+        _NN_CACHE_PATH.write_text(
+            json.dumps(records.to_dict(orient="records"), ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except (OSError, ValueError):
+        pass
+
+
+@st.cache_data(ttl=600, show_spinner=False)
 def _fetch_foreign_net_flow(trading_days: int = 20, limit: int = 100) -> pd.DataFrame:
     """
     Fetch NN ròng per stock per day qua TopStock().foreign_buy/sell.
-    Cached 5 phút. Trả DataFrame [symbol, date, net_value (VND)].
 
-    TopStock trả top-N mã mua/bán ròng mỗi ngày:
-      foreign_buy(limit=100)  → top 100 mã NN mua ròng (net_value > 0)
-      foreign_sell(limit=100) → top 100 mã NN bán ròng (net_value < 0)
+    Cache strategy (3 tầng):
+      1. Disk: data_warehouse/_meta/nn_flow_cache.json (persist 10 phút)
+         → load tức thì khi restart Streamlit hoặc refresh browser
+      2. Streamlit: @st.cache_data(ttl=600) — 10 phút in-memory
+         → load tức thì khi chuyển tab / đổi filter
+      3. API: gọi TopStock mỗi 10 phút (~40 calls ≈ 20 giây)
 
-    Gọi cho mỗi ngày giao dịch → merge → DataFrame toàn bộ.
-    ~40 API calls cho 20 ngày (2 calls/ngày) ≈ 20 giây.
+    Return DataFrame [symbol, date, net_value (VND)].
     """
+    # Tầng 1: thử disk cache trước
+    cached = _load_nn_from_disk()
+    if not cached.empty:
+        return cached
+
+    # Tầng 3: fetch từ API
     from datetime import date as _d, timedelta as _td
 
     try:
@@ -216,6 +258,9 @@ def _fetch_foreign_net_flow(trading_days: int = 20, limit: int = 100) -> pd.Data
     result = pd.DataFrame(all_rows)
     result["date"] = pd.to_datetime(result["date"])
     result["net_value"] = pd.to_numeric(result["net_value"], errors="coerce").fillna(0)
+
+    # Persist to disk for fast reload
+    _save_nn_to_disk(result)
     return result
 
 
@@ -235,41 +280,62 @@ def _aggregate_nn_by_window(nn_df: pd.DataFrame, days: int) -> dict:
     return {sym: round(val / 1e9, 1) for sym, val in agg.items()}
 
 
-def _compute_buy_sell_ratio_from_live(ticker: str) -> float:
+def _batch_load_live_quotes(tickers: list) -> dict:
     """
-    Tính buy/sell ratio từ live quote JSON.
-    Ưu tiên volume_profile (buy_vol/sell_vol) → fallback bid/ask depth.
-    Return ratio 0.0-1.0 (0.5 = cân bằng, >0.5 = buy dominant).
+    Batch load tất cả quote JSON files 1 lần. Cache trong session_state.
+    Return {ticker: {price, volume, gtgd, buy_ratio}}.
     """
-    quote_path = Path("data_warehouse/_live") / f"quote_{ticker}.json"
-    if not quote_path.exists():
-        return 0.5
-    try:
-        q = json.loads(quote_path.read_text(encoding="utf-8"))
+    cache_key = "_mf_live_quotes"
+    if cache_key in st.session_state:
+        cached = st.session_state[cache_key]
+        # Invalidate nếu quá 30 giây (live data thay đổi liên tục)
+        if datetime.now().timestamp() - cached.get("_ts", 0) < 30:
+            return cached
 
-        # Method 1: volume_profile (best — from price_depth)
-        vp = q.get("volume_profile", [])
-        if vp:
-            total_buy = sum(float(lv.get("buy_vol", 0) or 0) for lv in vp)
-            total_sell = sum(float(lv.get("sell_vol", 0) or 0) for lv in vp)
-            total = total_buy + total_sell
-            if total > 0:
-                return total_buy / total
+    live_dir = Path("data_warehouse/_live")
+    result = {"_ts": datetime.now().timestamp()}
 
-        # Method 2: bid/ask depth volumes (from price_board — 3 levels)
-        bids = q.get("bids", [])
-        asks = q.get("asks", [])
-        if bids or asks:
-            bid_vol = sum(float(b.get("volume", 0) or 0) for b in bids if isinstance(b, dict))
-            ask_vol = sum(float(a.get("volume", 0) or 0) for a in asks if isinstance(a, dict))
-            total = bid_vol + ask_vol
-            if total > 0:
-                # Bids đông > asks → nhiều người muốn mua → buy pressure
-                return bid_vol / total
+    for tk in tickers:
+        qpath = live_dir / f"quote_{tk}.json"
+        if not qpath.exists():
+            continue
+        try:
+            q = json.loads(qpath.read_text(encoding="utf-8"))
+            price = float(q.get("price", 0) or 0)
+            if price <= 0:
+                continue
+            if price > 500:
+                price /= 1000
+            vol = float(q.get("volume", 0) or 0)
+            gtgd = price * vol / 1e6
 
-        return 0.5
-    except (OSError, json.JSONDecodeError, ValueError, TypeError):
-        return 0.5
+            # Buy/Sell ratio
+            buy_ratio = 0.5
+            # Method 1: volume_profile (from price_depth)
+            vp = q.get("volume_profile", [])
+            if vp:
+                tb = sum(float(lv.get("buy_vol", 0) or 0) for lv in vp)
+                ts_ = sum(float(lv.get("sell_vol", 0) or 0) for lv in vp)
+                if tb + ts_ > 0:
+                    buy_ratio = tb / (tb + ts_)
+            else:
+                # Method 2: bid/ask depth (from price_board)
+                bids = q.get("bids", [])
+                asks = q.get("asks", [])
+                bv = sum(float(b.get("volume", 0) or 0) for b in bids if isinstance(b, dict))
+                av = sum(float(a.get("volume", 0) or 0) for a in asks if isinstance(a, dict))
+                if bv + av > 0:
+                    buy_ratio = bv / (bv + av)
+
+            result[tk] = {
+                "price": price, "volume": vol,
+                "gtgd": gtgd, "buy_ratio": buy_ratio,
+            }
+        except (OSError, json.JSONDecodeError, ValueError, TypeError):
+            continue
+
+    st.session_state[cache_key] = result
+    return result
 
 
 def _compute_money_flow_score(nn_net: float, nn_median: float,
@@ -5100,29 +5166,13 @@ if _active_tab == "💰 Dòng Tiền":
     _nn_by_ticker = _aggregate_nn_by_window(_nn_raw, _mf_days)  # {symbol: tỷ VND}
 
     # ── Compute per-stock scores ─────────────────────────────────────────
-    # Get live quote data for price and volume
-    _live_dir = Path("data_warehouse/_live")
+    # Batch load tất cả quote files 1 lần (cached 30s trong session_state)
+    _live_quotes = _batch_load_live_quotes(_warehouse_tickers_all)
+
     _stock_rows = []
     for tk in _warehouse_tickers_all:
-        nn_net = _nn_by_ticker.get(tk, 0)  # tỷ VND, 0 nếu mã không trong top
-
-        # Live price + volume from quote file
-        _qpath = _live_dir / f"quote_{tk}.json"
-        live_price = 0
-        live_vol = 0
-        live_gtgd = 0
-        if _qpath.exists():
-            try:
-                _q = json.loads(_qpath.read_text(encoding="utf-8"))
-                live_price = float(_q.get("price", 0) or 0)
-                if live_price > 500:
-                    live_price /= 1000
-                live_vol = float(_q.get("volume", 0) or 0)
-                live_gtgd = live_price * live_vol / 1e6  # tỷ VND
-            except (OSError, json.JSONDecodeError, KeyError, ValueError, TypeError):
-                pass
-
-        buy_ratio = _compute_buy_sell_ratio_from_live(tk)
+        nn_net = _nn_by_ticker.get(tk, 0)
+        lq = _live_quotes.get(tk, {})
         industry = _ind_map.get(tk, "Khác")
         sector = _get_sector(industry)
 
@@ -5130,11 +5180,11 @@ if _active_tab == "💰 Dòng Tiền":
             "ticker": tk,
             "industry": industry,
             "sector": sector,
-            "price": live_price,
-            "volume": live_vol,
-            "gtgd": live_gtgd,
+            "price": lq.get("price", 0),
+            "volume": lq.get("volume", 0),
+            "gtgd": lq.get("gtgd", 0),
             "nn_net": nn_net,
-            "buy_ratio": buy_ratio,
+            "buy_ratio": lq.get("buy_ratio", 0.5),
         })
 
     # Compute median |nn_net| for normalization
