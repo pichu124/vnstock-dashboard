@@ -463,3 +463,216 @@ class TestLaunchInNewConsole:
         cmd = _build_ps_command([{"label": "X", "args": ["x.py"]}])
         assert "PYTHONIOENCODING='utf-8'" in cmd
         assert "chcp 65001" in cmd
+
+
+# ── Money Flow helpers (replica from vnstock_dashboard.py) ───────────────────
+
+# SECTOR_GROUPS mapping (31 → 15)
+_SECTOR_GROUPS = {
+    "Ngân hàng": "Ngân hàng",
+    "Chứng khoán & Đầu tư tài chính": "Chứng khoán",
+    "Bảo hiểm": "Bảo hiểm",
+    "Bất động sản": "Bất động sản",
+    "Xây dựng & Hạ tầng": "Xây dựng & Hạ tầng",
+    "Thép & Kim loại": "Thép & Kim loại",
+    "Vật liệu xây dựng": "Hoá chất & Vật liệu",
+    "Hóa chất & Phân bón": "Hoá chất & Vật liệu",
+    "Nhựa & Bao bì": "Hoá chất & Vật liệu",
+    "Cơ khí & Thiết bị công nghiệp": "Hoá chất & Vật liệu",
+    "Dầu khí": "Năng lượng",
+    "Điện & Năng lượng tái tạo": "Năng lượng",
+    "Khai khoáng & Tài nguyên": "Năng lượng",
+    "Công nghệ thông tin & Phần mềm": "Công nghệ",
+    "Viễn thông": "Công nghệ",
+    "Truyền thông & Quảng cáo": "Công nghệ",
+    "Bán lẻ & Thương mại": "Tiêu dùng",
+    "Thực phẩm & Đồ uống": "Tiêu dùng",
+    "Dệt may & May mặc": "Tiêu dùng",
+    "Thể thao & Hàng tiêu dùng": "Tiêu dùng",
+    "Nông nghiệp & Thủy sản": "Nông & Thuỷ sản",
+    "Y tế & Dược phẩm": "Y tế & Dược",
+    "Vận tải & Logistics": "Vận tải & Cảng",
+    "Cảng & Hạ tầng logistics": "Vận tải & Cảng",
+    "Du lịch & Khách sạn": "Dịch vụ & Du lịch",
+    "Giáo dục": "Dịch vụ & Du lịch",
+    "Dịch vụ công ích & Môi trường": "Dịch vụ & Du lịch",
+    "Dịch vụ tư vấn & Kiểm định": "Dịch vụ & Du lịch",
+    "Đa ngành": "Khác",
+    "In ấn & Xuất bản": "Khác",
+    "Gỗ & Nội thất": "Khác",
+    "Khác": "Khác",
+}
+
+
+def _get_sector(primary_industry):
+    return _SECTOR_GROUPS.get(primary_industry, "Khác")
+
+
+def _compute_money_flow_score(nn_net, nn_median, buy_ratio):
+    if nn_median > 0:
+        nn_score = max(-100, min(100, (nn_net / nn_median) * 50))
+    else:
+        nn_score = 0
+    bs_score = max(-100, min(100, (buy_ratio - 0.5) * 200))
+    return round(0.55 * nn_score + 0.45 * bs_score, 1)
+
+
+def _score_label(score):
+    if score > 30:
+        return "VÀO", "#10b981"
+    if score > 10:
+        return "Vào nhẹ", "#6ee7b7"
+    if score > -10:
+        return "Trung lập", "#9ca3af"
+    if score > -30:
+        return "Ra nhẹ", "#fca5a5"
+    return "RA", "#ef4444"
+
+
+def _score_bar_html(score):
+    label, color = _score_label(score)
+    width = min(abs(score), 80)
+    direction = "right" if score >= 0 else "left"
+    return (
+        f'<div style="display:flex;align-items:center;gap:6px">'
+        f'<div style="width:80px;height:14px;background:#1f2937;border-radius:7px;'
+        f'position:relative;overflow:hidden">'
+        f'<div style="position:absolute;{direction}:50%;width:{width/2}%;height:100%;'
+        f'background:{color};border-radius:7px"></div>'
+        f'<div style="position:absolute;left:50%;width:1px;height:100%;background:#4b5563">'
+        f'</div></div>'
+        f'<span style="color:{color};font-size:11px;font-weight:600;min-width:52px">'
+        f'{label}</span></div>'
+    )
+
+
+class TestGetSector:
+
+    def test_direct_mapping(self):
+        assert _get_sector("Ngân hàng") == "Ngân hàng"
+        assert _get_sector("Bất động sản") == "Bất động sản"
+        assert _get_sector("Thép & Kim loại") == "Thép & Kim loại"
+
+    def test_grouped_mapping(self):
+        assert _get_sector("Vật liệu xây dựng") == "Hoá chất & Vật liệu"
+        assert _get_sector("Hóa chất & Phân bón") == "Hoá chất & Vật liệu"
+        assert _get_sector("Nhựa & Bao bì") == "Hoá chất & Vật liệu"
+        assert _get_sector("Cơ khí & Thiết bị công nghiệp") == "Hoá chất & Vật liệu"
+
+    def test_energy_group(self):
+        assert _get_sector("Dầu khí") == "Năng lượng"
+        assert _get_sector("Điện & Năng lượng tái tạo") == "Năng lượng"
+        assert _get_sector("Khai khoáng & Tài nguyên") == "Năng lượng"
+
+    def test_consumer_group(self):
+        assert _get_sector("Bán lẻ & Thương mại") == "Tiêu dùng"
+        assert _get_sector("Thực phẩm & Đồ uống") == "Tiêu dùng"
+        assert _get_sector("Dệt may & May mặc") == "Tiêu dùng"
+
+    def test_unknown_falls_back_to_khac(self):
+        assert _get_sector("Ngành không tồn tại") == "Khác"
+        assert _get_sector("") == "Khác"
+
+    def test_all_31_industries_mapped(self):
+        """Every original industry must map to one of the 15 sectors."""
+        expected_sectors = {
+            "Ngân hàng", "Chứng khoán", "Bảo hiểm", "Bất động sản",
+            "Xây dựng & Hạ tầng", "Thép & Kim loại", "Hoá chất & Vật liệu",
+            "Năng lượng", "Công nghệ", "Tiêu dùng", "Nông & Thuỷ sản",
+            "Y tế & Dược", "Vận tải & Cảng", "Dịch vụ & Du lịch", "Khác",
+        }
+        for industry, sector in _SECTOR_GROUPS.items():
+            assert sector in expected_sectors, f"{industry} → {sector} not valid"
+
+
+class TestComputeMoneyFlowScore:
+
+    def test_strong_inflow(self):
+        """NN mua ròng lớn + buy dominant → score cao."""
+        score = _compute_money_flow_score(nn_net=100, nn_median=50, buy_ratio=0.7)
+        assert score > 50
+
+    def test_strong_outflow(self):
+        """NN bán ròng lớn + sell dominant → score âm."""
+        score = _compute_money_flow_score(nn_net=-100, nn_median=50, buy_ratio=0.3)
+        assert score < -50
+
+    def test_neutral(self):
+        """NN = 0, buy/sell cân bằng → score gần 0."""
+        score = _compute_money_flow_score(nn_net=0, nn_median=50, buy_ratio=0.5)
+        assert -5 <= score <= 5
+
+    def test_clamped_at_boundaries(self):
+        """Score phải nằm trong khoảng -100 ~ +100."""
+        score_high = _compute_money_flow_score(nn_net=99999, nn_median=1, buy_ratio=1.0)
+        score_low = _compute_money_flow_score(nn_net=-99999, nn_median=1, buy_ratio=0.0)
+        assert -100 <= score_high <= 100
+        assert -100 <= score_low <= 100
+
+    def test_zero_median_no_crash(self):
+        """nn_median = 0 → NN score = 0, only buy/sell matters."""
+        score = _compute_money_flow_score(nn_net=100, nn_median=0, buy_ratio=0.7)
+        assert score > 0  # buy dominant still positive
+
+    def test_mixed_signals(self):
+        """NN mua ròng nhưng sell dominant → score trung lập."""
+        score = _compute_money_flow_score(nn_net=50, nn_median=50, buy_ratio=0.35)
+        assert -20 <= score <= 20
+
+
+class TestScoreLabel:
+
+    def test_strong_inflow(self):
+        label, color = _score_label(50)
+        assert label == "VÀO"
+        assert color == "#10b981"
+
+    def test_light_inflow(self):
+        label, _ = _score_label(20)
+        assert label == "Vào nhẹ"
+
+    def test_neutral(self):
+        label, _ = _score_label(0)
+        assert label == "Trung lập"
+
+    def test_light_outflow(self):
+        label, _ = _score_label(-20)
+        assert label == "Ra nhẹ"
+
+    def test_strong_outflow(self):
+        label, color = _score_label(-50)
+        assert label == "RA"
+        assert color == "#ef4444"
+
+    def test_boundary_values(self):
+        assert _score_label(30.1)[0] == "VÀO"
+        assert _score_label(30)[0] == "Vào nhẹ"
+        assert _score_label(10)[0] == "Trung lập"
+        assert _score_label(-9.9)[0] == "Trung lập"
+        assert _score_label(-10)[0] == "Ra nhẹ"
+        assert _score_label(-29.9)[0] == "Ra nhẹ"
+        assert _score_label(-30)[0] == "RA"
+
+
+class TestScoreBarHtml:
+
+    def test_positive_score_contains_label(self):
+        html = _score_bar_html(60)
+        assert "VÀO" in html
+        assert "#10b981" in html
+        assert "right:50%" in html  # bar grows from center-right
+
+    def test_negative_score_contains_label(self):
+        html = _score_bar_html(-60)
+        assert "RA" in html
+        assert "#ef4444" in html
+        assert "left:50%" in html  # bar grows from center-left
+
+    def test_zero_score(self):
+        html = _score_bar_html(0)
+        assert "Trung lập" in html
+
+    def test_extreme_score_bar_capped(self):
+        """Bar width capped at 80 → width/2 = 40%."""
+        html = _score_bar_html(200)
+        assert "width:40.0%" in html
