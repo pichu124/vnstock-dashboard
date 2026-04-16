@@ -12,6 +12,7 @@ Run:
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import warnings
@@ -56,6 +57,17 @@ except ImportError:
 
 # Re-apply Golden key AFTER all vnstock imports (they can auto-register free keys)
 ensure_api_key()
+
+# ── Stock filter (loại warrant, CW, bond — giữ lại stock thật) ────────────
+_CW_VN  = re.compile(r"^C[A-Z]{2,4}\d{4}$")     # Covered warrants: CVIC2513
+_CW_OLD = re.compile(r"^[A-Z]{2,4}\d{5,6}$")     # Old format bonds: VBA121033
+
+def _is_stock(s: str) -> bool:
+    """Return True nếu ticker là cổ phiếu (không phải warrant/CW/bond/futures)."""
+    s = s.upper().strip()
+    if not s or s[0].isdigit():
+        return False
+    return not (_CW_VN.match(s) or _CW_OLD.match(s) or is_futures(s))
 
 warnings.filterwarnings("ignore")
 
@@ -2967,7 +2979,8 @@ if _active_tab == "📊 Screener":
             for qf in quote_files:
                 try:
                     ticker_name = qf.stem.replace("quote_", "")
-                    if is_futures(ticker_name) or ticker_name in INDEX_SYMBOLS:
+                    # Lọc: chỉ giữ cổ phiếu thật (bỏ futures, index, warrant, CW, bond)
+                    if not _is_stock(ticker_name) or ticker_name in INDEX_SYMBOLS:
                         continue
 
                     live_q = json.loads(qf.read_text())
@@ -2975,6 +2988,10 @@ if _active_tab == "📊 Screener":
                     live_vol = float(live_q.get("volume", 0))
                     if live_price <= 0:
                         continue
+
+                    # Normalize live price: API trả VND (77700), warehouse dùng nghìn VND (77.7)
+                    if live_price > 500:
+                        live_price /= 1000
 
                     # Load historical indicators từ warehouse (cache in session)
                     if ticker_name not in _ws_cache:
@@ -2998,6 +3015,8 @@ if _active_tab == "📊 Screener":
                             _hist = pd.concat(_frames, ignore_index=True)
                             _hist["time"] = pd.to_datetime(_hist["time"])
                             _hist = _hist.sort_values("time").tail(300).reset_index(drop=True)
+                            # Normalize warehouse: có thể pha trộn VND + nghìn VND
+                            _hist = _normalize_price_units(_hist)
                             _ws_cache[ticker_name] = _hist
                         except Exception:
                             continue
@@ -3006,7 +3025,7 @@ if _active_tab == "📊 Screener":
                     if hist is None or len(hist) < 60:
                         continue
 
-                    # Append live price as latest row
+                    # Append live price as latest row (đã normalize ở trên)
                     df_live = hist.copy()
                     df_live.iloc[-1, df_live.columns.get_loc("close")] = live_price
                     if live_vol > 0:
