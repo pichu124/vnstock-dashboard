@@ -327,6 +327,51 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
     merged = tick_df.merge(ind_df, on="ticker", how="left")
     merged["industry"] = merged["industry"].fillna("Khác")
 
+    # Fetch foreign net flow (TopStock API) for NN ròng columns
+    nn_w, nn_m, nn_3m = {}, {}, {}
+    try:
+        from vnstock_data import TopStock
+        from datetime import timedelta as _td
+        ts = TopStock()
+        all_nn_rows = []
+        today_d = date.today()
+        days_fetched = 0
+        calendar_day = 0
+        while days_fetched < 20 and calendar_day < 40:
+            dt = today_d - _td(days=calendar_day)
+            calendar_day += 1
+            if dt.weekday() >= 5:
+                continue
+            dt_str = dt.strftime("%Y-%m-%d")
+            for fetch_fn in (ts.foreign_buy, ts.foreign_sell):
+                try:
+                    nn_df_day = fetch_fn(date=dt_str, limit=100)
+                    if nn_df_day is not None and not nn_df_day.empty:
+                        for _, r in nn_df_day.iterrows():
+                            all_nn_rows.append({
+                                "symbol": str(r.get("symbol", "")),
+                                "date": dt,
+                                "net_value": float(r.get("net_value", 0)),
+                            })
+                except Exception:
+                    continue
+            days_fetched += 1
+
+        if all_nn_rows:
+            nn_df_all = pd.DataFrame(all_nn_rows)
+            today_ts = pd.Timestamp(today_d)
+            for days, result_map in ((7, nn_w), (30, nn_m), (90, nn_3m)):
+                cutoff = today_ts - pd.Timedelta(days=days)
+                filtered = nn_df_all[pd.to_datetime(nn_df_all["date"]) >= cutoff]
+                agg_val = filtered.groupby("symbol")["net_value"].sum()
+                for sym, val in agg_val.items():
+                    result_map[sym] = round(val / 1e9, 1)  # → tỷ VND
+            console.log(f"  NN data: {len(all_nn_rows)} records across 20 days")
+    except ImportError:
+        console.log("  [dim]vnstock_data not installed — NN data skipped[/dim]")
+    except Exception as e:
+        console.log(f"  [yellow]⚠ NN data fetch error: {e}[/yellow]")
+
     # Aggregate by industry
     def agg(grp):
         n = len(grp)
@@ -336,6 +381,13 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
         total_mktcap = grp["mktcap"].sum()
         gtgd_tb = grp["mktcap_proxy"].sum()
         vol5_20 = round(v5 / v20 * 100, 0) if v20 > 0 else None
+
+        # Foreign flow (tỷ VND)
+        tickers_in = grp["ticker"].tolist()
+        net_w = sum(nn_w.get(t, 0) for t in tickers_in)
+        net_m = sum(nn_m.get(t, 0) for t in tickers_in)
+        net_3m_v = sum(nn_3m.get(t, 0) for t in tickers_in)
+
         return pd.Series({
             "Số mã": n,
             "Vốn hoá (tỷ)": round(total_mktcap, 0),
@@ -350,6 +402,9 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
             "Giá 1T %": round(grp["chg5"].dropna().mean(), 1) if grp["chg5"].notna().any() else None,
             "Giá 1M %": round(grp["chg20"].dropna().mean(), 1) if grp["chg20"].notna().any() else None,
             "Giá 3M %": round(grp["chg60"].dropna().mean(), 1) if grp["chg60"].notna().any() else None,
+            "NN 1T (tỷ)": round(net_w, 1) if net_w != 0 else None,
+            "NN 1M (tỷ)": round(net_m, 1) if net_m != 0 else None,
+            "NN 3M (tỷ)": round(net_3m_v, 1) if net_3m_v != 0 else None,
         })
 
     # Ticker display data

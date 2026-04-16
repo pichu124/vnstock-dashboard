@@ -277,13 +277,23 @@ def _fetch_foreign_net_flow(trading_days: int = 20, limit: int = 100) -> pd.Data
 
 def _aggregate_nn_by_window(nn_df: pd.DataFrame, days: int) -> dict:
     """
-    Aggregate net_value per symbol over last N calendar days.
+    Aggregate net_value per symbol over time window.
+    days=0 → most recent trading day only (1D view).
+    days>0 → last N calendar days (5D, 20D views).
     Return {symbol: net_value_in_ty_VND}.
     """
     if nn_df.empty:
         return {}
-    cutoff = pd.Timestamp.today().normalize() - pd.Timedelta(days=days)
-    filtered = nn_df[nn_df["date"] >= cutoff]
+
+    if days == 0:
+        # 1D: lấy ngày giao dịch gần nhất trong dataset (không phải "hôm nay"
+        # vì có thể hôm nay là cuối tuần, hoặc thị trường chưa mở)
+        latest = pd.to_datetime(nn_df["date"]).max().normalize()
+        filtered = nn_df[pd.to_datetime(nn_df["date"]) >= latest]
+    else:
+        cutoff = pd.Timestamp.today().normalize() - pd.Timedelta(days=days)
+        filtered = nn_df[nn_df["date"] >= cutoff]
+
     if filtered.empty:
         return {}
     agg = filtered.groupby("symbol")["net_value"].sum()
@@ -5286,10 +5296,14 @@ if _active_tab == "💰 Dòng Tiền":
             horizontal=True,
             key="mf_window",
             help=(
-                "Tổng NN ròng (khối ngoại mua - bán) trong bao nhiêu ngày:\n\n"
-                "- **1D**: chỉ hôm nay — dòng tiền tức thì.\n"
+                "Tổng NN ròng (khối ngoại mua - bán) theo khung thời gian:\n\n"
+                "- **1D**: ngày giao dịch gần nhất (hôm nay nếu đang giao dịch, "
+                "hoặc ngày T-1 nếu ngoài giờ / cuối tuần).\n"
                 "- **5D**: 5 ngày — xu hướng tuần, lọc nhiễu ngày.\n"
-                "- **20D**: 20 ngày — xu hướng tháng, tay to tích/xả dần."
+                "- **20D**: 20 ngày — xu hướng tháng, tay to tích/xả dần.\n\n"
+                "**Lưu ý**: chỉ **NN ròng** thay đổi theo khung. Các cột "
+                "**GTGD**, **Vol**, **Buy/Sell** luôn là **snapshot hôm nay** "
+                "(từ live quotes), không đổi theo 1D/5D/20D."
             ),
         )
         _mf_days = {"1D": 0, "5D": 7, "20D": 30}[_mf_window]
