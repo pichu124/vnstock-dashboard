@@ -5062,20 +5062,43 @@ if _active_tab == "💰 Dòng Tiền":
     _all_tickers = [tk for tks in _sector_tickers.values() for tk in tks]
 
     # Limit to tickers that have warehouse data
-    _warehouse_tickers = tuple(
+    _warehouse_tickers_all = [
         tk for tk in _all_tickers
         if (PRICES_DIR / f"ticker={tk}").exists()
-    )
+    ]
 
-    with st.spinner(f"Đang tải dữ liệu NN ròng ({len(_warehouse_tickers)} mã)..."):
-        _nn_data = _fetch_foreign_trade_batch(_warehouse_tickers, days=25)
+    # Rank by live GTGD (or volume as proxy) → chỉ fetch NN cho top mã
+    # Mã nhỏ (GTGD ~0) NN ròng cũng ~0, không ảnh hưởng money flow score
+    _live_dir = Path("data_warehouse/_live")
+    _gtgd_rank = []
+    for tk in _warehouse_tickers_all:
+        _qp = _live_dir / f"quote_{tk}.json"
+        gtgd_est = 0
+        if _qp.exists():
+            try:
+                _qq = json.loads(_qp.read_text(encoding="utf-8"))
+                _p = float(_qq.get("price", 0) or 0)
+                _v = float(_qq.get("volume", 0) or 0)
+                if _p > 500:
+                    _p /= 1000
+                gtgd_est = _p * _v / 1e6
+            except (OSError, json.JSONDecodeError, ValueError, TypeError):
+                pass
+        _gtgd_rank.append((tk, gtgd_est))
+
+    _gtgd_rank.sort(key=lambda x: x[1], reverse=True)
+    _TOP_N_TICKERS = 300  # Top 300 mã GTGD lớn nhất ≈ 90%+ GTGD toàn thị trường
+    _top_tickers = tuple(tk for tk, _ in _gtgd_rank[:_TOP_N_TICKERS])
+    _remaining_tickers = [tk for tk, _ in _gtgd_rank[_TOP_N_TICKERS:]]
+
+    with st.spinner(f"Đang tải dữ liệu NN ròng (top {len(_top_tickers)} mã GTGD lớn nhất)..."):
+        _nn_data = _fetch_foreign_trade_batch(_top_tickers, days=25)
 
     # ── Compute per-stock scores ─────────────────────────────────────────
     # Get live quote data for price and volume
-    _live_dir = Path("data_warehouse/_live")
     _stock_rows = []
-    for tk in _warehouse_tickers:
-        nn_vals = _nn_data.get(tk, {})
+    for tk in _warehouse_tickers_all:
+        nn_vals = _nn_data.get(tk, {})  # Mã ngoài top 300 sẽ = {} → NN = 0
         nn_net = nn_vals.get(_mf_window_key, 0)
 
         # Live price + volume from quote file
@@ -5162,7 +5185,7 @@ if _active_tab == "💰 Dòng Tiền":
         st.markdown(
             f'<div class="metric-card"><div class="label">NN ròng ({_mf_window})</div>'
             f'<div class="value" style="color:{_nn_color}">{_nn_sign}{_total_nn:,.0f} tỷ</div>'
-            f'<div class="sub">{len(_warehouse_tickers)} mã</div></div>',
+            f'<div class="sub">top {len(_top_tickers)} / {len(_warehouse_tickers_all)} mã</div></div>',
             unsafe_allow_html=True)
     with kc2:
         st.markdown(
