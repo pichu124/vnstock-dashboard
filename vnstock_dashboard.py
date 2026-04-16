@@ -145,8 +145,9 @@ def _get_sector(primary_industry: str) -> str:
     return SECTOR_GROUPS.get(primary_industry, "Khác")
 
 
+@st.cache_data(ttl=600, show_spinner=False)
 def _load_industry_map() -> dict:
-    """Return {ticker: primary_industry} từ industry_classification.parquet."""
+    """Return {ticker: primary_industry} từ industry_classification.parquet. Cached 10 phút."""
     if not INDUSTRY_PATH.exists():
         return {}
     try:
@@ -591,8 +592,9 @@ def _normalize_price_units(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def load_price_history(ticker: str, days: int = 0) -> pd.DataFrame:
-    """Load lịch sử giá. days=0 → toàn bộ lịch sử từ ngày lên sàn."""
+    """Load lịch sử giá. days=0 → toàn bộ lịch sử. Cached 5 phút."""
     ticker_dir = PRICES_DIR / f"ticker={ticker.upper()}"
     if not ticker_dir.exists():
         return pd.DataFrame()
@@ -728,6 +730,15 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
         df["vwap_lower2"] = df["vwap"] - 2 * vwap_std
 
     return df
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_and_compute(ticker: str, days: int = 0) -> pd.DataFrame:
+    """Load price history + compute indicators. Cached 5 phút per ticker."""
+    df = load_price_history(ticker, days)
+    if df.empty or len(df) < 20:
+        return df
+    return compute_indicators(df)
 
 
 def get_tech_signals(df: pd.DataFrame) -> dict:
@@ -1569,10 +1580,25 @@ def resample_ohlcv(df: pd.DataFrame, rule: str) -> pd.DataFrame:
     return resampled
 
 
+_FUND_CACHE_DIR = Path("data_warehouse/_meta/fund_cache")
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_fundamental(ticker: str) -> dict:
     """Load comprehensive fundamental data from vnstock.
-    Fetches company.overview() + finance.ratio() for maximum coverage."""
+    Fetches company.overview() + finance.ratio() for maximum coverage.
+    Disk-cached per ticker (24h), Streamlit-cached (1h).
+    """
+    # Disk cache: 24 giờ — fundamental data thay đổi chậm
+    _fpath = _FUND_CACHE_DIR / f"{ticker.upper()}.json"
+    if _fpath.exists():
+        try:
+            age = datetime.now().timestamp() - _fpath.stat().st_mtime
+            if age < 86400:  # 24 giờ
+                return json.loads(_fpath.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            pass
+
     result = {}
     try:
         from vnstock_auth import get_vnstock, ensure_api_key
@@ -1682,6 +1708,17 @@ def load_fundamental(ticker: str) -> dict:
 
     except Exception as e:
         result["error"] = str(e)[:120]
+
+    # Persist to disk (24h cache)
+    if result and "error" not in result:
+        try:
+            _FUND_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            _fpath.write_text(
+                json.dumps(result, ensure_ascii=False, default=str),
+                encoding="utf-8",
+            )
+        except (OSError, ValueError):
+            pass
     return result
 
 
@@ -2603,12 +2640,30 @@ function doSort(col, th) {{
 
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+_MARKET_CACHE_PATH = Path("data_warehouse/_meta/market_data_cache.json")
+_MARKET_CACHE_MAX_AGE = 600  # 10 phút
+
+
+@st.cache_data(ttl=600, show_spinner=False)
 def _load_all_market_data() -> tuple:
     """
     Unified loader: 1 loop duy nhất cho cả market_overview + breadth.
     Returns: (sector_df, breadth_dict, ticker_display_df)
+
+    Cache: @st.cache_data(600s) + disk persist cho fast restart.
     """
+    # Thử disk cache trước (fast restart)
+    if _MARKET_CACHE_PATH.exists():
+        try:
+            age = datetime.now().timestamp() - _MARKET_CACHE_PATH.stat().st_mtime
+            if age < _MARKET_CACHE_MAX_AGE:
+                cached = json.loads(_MARKET_CACHE_PATH.read_text(encoding="utf-8"))
+                sector_df = pd.DataFrame(cached["sector"])
+                breadth = cached["breadth"]
+                tick_df = pd.DataFrame(cached["tickers"])
+                return sector_df, breadth, tick_df
+        except (OSError, json.JSONDecodeError, KeyError):
+            pass
     if not PRICES_DIR.exists() or not INDUSTRY_PATH.exists():
         return pd.DataFrame(), {}, pd.DataFrame()
     try:
@@ -2848,6 +2903,18 @@ def _load_all_market_data() -> tuple:
         result = merged.groupby("industry").apply(agg).reset_index()
         result = result.rename(columns={"industry": "Ngành"})
         result = result.sort_values("Vốn hoá (tỷ)", ascending=False).reset_index(drop=True)
+
+        # Persist to disk for fast restart
+        try:
+            _MARKET_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _MARKET_CACHE_PATH.write_text(json.dumps({
+                "sector": result.to_dict(orient="records"),
+                "breadth": breadth,
+                "tickers": tick_display.to_dict(orient="records"),
+            }, ensure_ascii=False, default=str), encoding="utf-8")
+        except (OSError, ValueError):
+            pass
+
         return result, breadth, tick_display
 
     except Exception as e:
