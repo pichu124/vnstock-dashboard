@@ -1709,7 +1709,7 @@ def load_fundamental(ticker: str) -> dict:
             _company = _Company(symbol=ticker)
             _finance = _Finance(symbol=ticker)
             _use_sponsor = True
-        except ImportError:
+        except Exception:
             from vnstock_auth import get_vnstock
             _stock = get_vnstock(ticker)
             _use_sponsor = False
@@ -2829,6 +2829,9 @@ def _load_all_market_data() -> tuple:
                 if len(df) < 5:
                     continue
 
+                # Normalize mixed price units (VND vs nghìn VND)
+                df = _normalize_price_units(df)
+
                 c = df["close"].astype(float)
                 v = df["volume"].astype(float)
                 h = df["high"].astype(float)
@@ -2910,10 +2913,10 @@ def _load_all_market_data() -> tuple:
 
                 issue_share = shares_map.get(ticker, 0)
 
-                # last cũng cần normalize
-                _last_k = last / 1000 if last > 500 else last
-                mktcap = _last_k * 1000 * issue_share / 1e9 if issue_share > 0 else 0.0
-                mktcap_proxy = _last_k * 1000 * vol20 / 1e9
+                # Giá đã normalize ở trên → last luôn ở nghìn VND
+                # mktcap = giá (nghìn VND) × 1000 (→ VND) × shares / 1e9 (→ tỷ)
+                mktcap = last * 1000 * issue_share / 1e9 if issue_share > 0 else 0.0
+                mktcap_proxy = last * 1000 * vol20 / 1e9
 
                 rows.append({
                     "ticker": ticker, "last": _last_k,
