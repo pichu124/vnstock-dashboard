@@ -161,16 +161,19 @@ def _load_industry_map() -> dict:
 # ── Money Flow functions ─────────────────────────────────────────────────────
 
 @st.cache_data(ttl=300, show_spinner=False)
-def _fetch_foreign_trade_batch(tickers: tuple, days: int = 30) -> dict:
+def _fetch_foreign_trade_batch(tickers: tuple, days: int = 95) -> dict:
     """
     Fetch NN ròng cho danh sách tickers. Cached 5 phút.
-    Return {ticker: {"net_1d": float, "net_5d": float, "net_20d": float}}.
+    Return {ticker: {
+        "net_1d", "net_5d", "net_20d",   (for Money Flow tab)
+        "net_w", "net_m", "net_3m",      (for Market tab: 7d, 30d, 90d)
+    }}.
     """
     from vnstock_auth import get_vnstock
     from datetime import date as _d, timedelta as _td
 
     end_d = _d.today().strftime("%Y-%m-%d")
-    start_d = (_d.today() - _td(days=max(days + 5, 30))).strftime("%Y-%m-%d")
+    start_d = (_d.today() - _td(days=max(days + 5, 95))).strftime("%Y-%m-%d")
     today = pd.Timestamp(_d.today())
     result = {}
 
@@ -207,10 +210,13 @@ def _fetch_foreign_trade_batch(tickers: tuple, days: int = 30) -> dict:
 
             vals = df[["_time", net_col]].copy()
             vals[net_col] = pd.to_numeric(vals[net_col], errors="coerce").fillna(0)
+            def _sum_window(d):
+                return float(vals[vals["_time"] >= today - _td(days=d)][net_col].sum())
             result[tk] = {
-                "net_1d":  float(vals[vals["_time"] >= today - _td(days=1)][net_col].sum()),
-                "net_5d":  float(vals[vals["_time"] >= today - _td(days=5)][net_col].sum()),
-                "net_20d": float(vals[vals["_time"] >= today - _td(days=20)][net_col].sum()),
+                "net_1d": _sum_window(1), "net_5d": _sum_window(5),
+                "net_20d": _sum_window(20),
+                "net_w": _sum_window(7), "net_m": _sum_window(30),
+                "net_3m": _sum_window(90),
             }
         except Exception:
             continue
@@ -2684,41 +2690,9 @@ def _load_all_market_data() -> tuple:
         merged  = tick_df.merge(ind_df, on="ticker", how="left")
         merged["industry"] = merged["industry"].fillna("Khác")
 
-        # ── Foreign flow từ API ───────────────────────────────────────────────
-        foreign_map = {}  # {ticker: {net_w, net_m, net_3m}}
-        try:
-            from vnstock_auth import get_vnstock
-            from datetime import date as _d, timedelta as _td
-            end_d   = _d.today().strftime("%Y-%m-%d")
-            start_d = (_d.today() - _td(days=95)).strftime("%Y-%m-%d")
-
-            sample_tickers = merged["ticker"].tolist()[:5]  # test với 5 mã trước
-            for tk in sample_tickers:
-                try:
-                    ff = get_vnstock(tk).trading.foreign_trade(
-                        start=start_d, end=end_d
-                    )
-                    if ff is not None and not ff.empty:
-                        ff["time"] = pd.to_datetime(ff.get("time", ff.index))
-                        # net = buy - sell value
-                        for col in ff.columns:
-                            cl = col.lower()
-                            if "net" in cl or "ròng" in cl or "net_val" in cl:
-                                net_col = col
-                                break
-                        else:
-                            net_col = None
-
-                        if net_col:
-                            today = pd.Timestamp(_d.today())
-                            net_w  = float(ff[ff["time"] >= today - _td(days=7)][net_col].sum())
-                            net_m  = float(ff[ff["time"] >= today - _td(days=30)][net_col].sum())
-                            net_3m = float(ff[ff["time"] >= today - _td(days=90)][net_col].sum())
-                            foreign_map[tk] = {"net_w": net_w, "net_m": net_m, "net_3m": net_3m}
-                except Exception:
-                    continue
-        except Exception:
-            pass
+        # ── Foreign flow từ API (reuse shared helper) ────────────────────────
+        sample_tickers = tuple(merged["ticker"].tolist()[:5])
+        foreign_map = _fetch_foreign_trade_batch(sample_tickers, days=95)
 
         # ── Aggregate theo ngành ──────────────────────────────────────────────
         def agg(grp):
@@ -2978,7 +2952,7 @@ _screener_stale = False
 try:
     _gen_dt = datetime.strptime(gen_time[:10], "%Y-%m-%d")
     _screener_stale = (datetime.now() - _gen_dt).days >= 1
-except Exception:
+except (ValueError, TypeError, IndexError):
     pass
 
 _info_col, _update_col = st.columns([6, 2])
@@ -5042,9 +5016,27 @@ if _active_tab == "💰 Dòng Tiền":
             index=1,
             horizontal=True,
             key="mf_window",
+            help=(
+                "Tổng NN ròng (khối ngoại mua - bán) trong bao nhiêu ngày:\n\n"
+                "- **1D**: chỉ hôm nay — dòng tiền tức thì.\n"
+                "- **5D**: 5 ngày — xu hướng tuần, lọc nhiễu ngày.\n"
+                "- **20D**: 20 ngày — xu hướng tháng, tay to tích/xả dần."
+            ),
         )
         _mf_window_key = {"1D": "net_1d", "5D": "net_5d", "20D": "net_20d"}[_mf_window]
-        _mf_live_on = st.toggle("Live Scan (real-time)", value=False, key="mf_live")
+        _mf_live_on = st.toggle(
+            "Live Scan (real-time)",
+            value=False,
+            key="mf_live",
+            help=(
+                "**Bật**: cập nhật Buy/Sell ratio mỗi 15 giây từ live quote "
+                "data (chỉ hoạt động khi Live Mode đang bật trong tab Phân tích).\n\n"
+                "**Tắt**: chỉ xem dữ liệu offline (NN ròng + Buy/Sell từ "
+                "lần poll gần nhất).\n\n"
+                "Live Scan **không có NN ròng** real-time (dữ liệu NN chỉ "
+                "có cuối ngày) — chỉ dựa trên tỷ lệ Buy/Sell volume."
+            ),
+        )
         st.caption(
             "**NN ròng**: khối ngoại mua - bán ròng (tỷ VND)\n\n"
             "**Buy/Sell**: tỷ lệ khối lượng chủ động mua vs bán\n\n"
@@ -5099,7 +5091,7 @@ if _active_tab == "💰 Dòng Tiền":
                     live_price /= 1000
                 live_vol = float(_q.get("volume", 0) or 0)
                 live_gtgd = live_price * live_vol / 1e6  # tỷ VND
-            except Exception:
+            except (OSError, json.JSONDecodeError, KeyError, ValueError, TypeError):
                 pass
 
         buy_ratio = _compute_buy_sell_ratio_from_live(tk)
@@ -5253,6 +5245,15 @@ if _active_tab == "💰 Dòng Tiền":
             f"{SECTOR_ICONS.get(s, '')} {s} ({_sector_summary[s]['n_stocks']} mã)"
         ),
         key="mf_drill",
+        help=(
+            "Chọn 1 ngành để xem **từng mã** bên trong.\n\n"
+            "Mỗi mã hiển thị:\n"
+            "- **Score** riêng (NN ròng + Buy/Sell)\n"
+            "- **Vai trò**: ★ Kéo VÀO/RA (mã đóng góp >25% NN ngành), "
+            "↔ Ngược dòng (mã đi ngược chiều ngành)\n\n"
+            "Mã được sort theo score giảm dần — mã có tiền vào mạnh nhất "
+            "nằm trên cùng."
+        ),
     )
 
     if _selected_sector and _selected_sector in _sector_summary:
