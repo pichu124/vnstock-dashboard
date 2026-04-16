@@ -2761,21 +2761,9 @@ def _load_all_market_data() -> tuple:
     """
     Unified loader: 1 loop duy nhất cho cả market_overview + breadth.
     Returns: (sector_df, breadth_dict, ticker_display_df)
-
-    Cache: @st.cache_data(600s) + disk persist cho fast restart.
+    Cache: @st.cache_data(600s) — in-memory only (disk cache disabled
+    vì gây lỗi khi Dropbox sync corrupts DataFrame serialization).
     """
-    # Thử disk cache trước (fast restart)
-    if _MARKET_CACHE_PATH.exists():
-        try:
-            age = datetime.now().timestamp() - _MARKET_CACHE_PATH.stat().st_mtime
-            if age < _MARKET_CACHE_MAX_AGE:
-                cached = json.loads(_MARKET_CACHE_PATH.read_text(encoding="utf-8"))
-                sector_df = pd.DataFrame(cached["sector"])
-                breadth = cached["breadth"]
-                tick_df = pd.DataFrame(cached["tickers"])
-                return sector_df, breadth, tick_df
-        except (OSError, json.JSONDecodeError, KeyError):
-            pass
     if not PRICES_DIR.exists() or not INDUSTRY_PATH.exists():
         return pd.DataFrame(), {}, pd.DataFrame()
     try:
@@ -3018,18 +3006,6 @@ def _load_all_market_data() -> tuple:
         result = merged.groupby("industry").apply(agg).reset_index()
         result = result.rename(columns={"industry": "Ngành"})
         result = result.sort_values("Vốn hoá (tỷ)", ascending=False).reset_index(drop=True)
-
-        # Persist to disk for fast restart
-        try:
-            _MARKET_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            _MARKET_CACHE_PATH.write_text(json.dumps({
-                "sector": result.to_dict(orient="records"),
-                "breadth": breadth,
-                "tickers": tick_display.to_dict(orient="records"),
-            }, ensure_ascii=False, default=str), encoding="utf-8")
-        except (OSError, ValueError):
-            pass
-
         return result, breadth, tick_display
 
     except Exception as e:
@@ -5299,7 +5275,7 @@ if _active_tab == "💰 Dòng Tiền":
                 "- **20D**: 20 ngày — xu hướng tháng, tay to tích/xả dần."
             ),
         )
-        _mf_days = {"1D": 1, "5D": 7, "20D": 30}[_mf_window]
+        _mf_days = {"1D": 0, "5D": 7, "20D": 30}[_mf_window]
         _mf_live_on = st.toggle(
             "Live Scan (real-time)",
             value=False,
