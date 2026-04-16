@@ -85,6 +85,211 @@ FUND_PATH     = Path("data_warehouse/_meta/fundamentals.parquet")
 WATCHLIST_PATH = Path("data_warehouse/_meta/watchlist.json")
 HISTORY_DIR   = Path("data_warehouse/_meta/screener_history")
 SESSION_STATS_PATH = Path("data_warehouse/_meta/market_session_stats.json")
+MONEY_FLOW_PATH = Path("data_warehouse/_meta/money_flow_cache.json")
+
+
+# ── Sector groups (31 → 15 nhóm) ────────────────────────────────────────────
+SECTOR_GROUPS = {
+    "Ngân hàng":            "Ngân hàng",
+    "Chứng khoán & Đầu tư tài chính": "Chứng khoán",
+    "Bảo hiểm":            "Bảo hiểm",
+    "Bất động sản":         "Bất động sản",
+    "Xây dựng & Hạ tầng":  "Xây dựng & Hạ tầng",
+    "Thép & Kim loại":     "Thép & Kim loại",
+    "Vật liệu xây dựng":  "Hoá chất & Vật liệu",
+    "Hóa chất & Phân bón": "Hoá chất & Vật liệu",
+    "Nhựa & Bao bì":      "Hoá chất & Vật liệu",
+    "Cơ khí & Thiết bị công nghiệp": "Hoá chất & Vật liệu",
+    "Dầu khí":             "Năng lượng",
+    "Điện & Năng lượng tái tạo": "Năng lượng",
+    "Khai khoáng & Tài nguyên":  "Năng lượng",
+    "Công nghệ thông tin & Phần mềm": "Công nghệ",
+    "Viễn thông":          "Công nghệ",
+    "Truyền thông & Quảng cáo": "Công nghệ",
+    "Bán lẻ & Thương mại": "Tiêu dùng",
+    "Thực phẩm & Đồ uống": "Tiêu dùng",
+    "Dệt may & May mặc":  "Tiêu dùng",
+    "Thể thao & Hàng tiêu dùng": "Tiêu dùng",
+    "Nông nghiệp & Thủy sản": "Nông & Thuỷ sản",
+    "Y tế & Dược phẩm":   "Y tế & Dược",
+    "Vận tải & Logistics": "Vận tải & Cảng",
+    "Cảng & Hạ tầng logistics": "Vận tải & Cảng",
+    "Du lịch & Khách sạn": "Dịch vụ & Du lịch",
+    "Giáo dục":            "Dịch vụ & Du lịch",
+    "Dịch vụ công ích & Môi trường": "Dịch vụ & Du lịch",
+    "Dịch vụ tư vấn & Kiểm định": "Dịch vụ & Du lịch",
+    "Đa ngành":            "Khác",
+    "In ấn & Xuất bản":   "Khác",
+    "Gỗ & Nội thất":      "Khác",
+    "Khác":                "Khác",
+}
+
+SECTOR_ORDER = [
+    "Ngân hàng", "Chứng khoán", "Bảo hiểm", "Bất động sản",
+    "Xây dựng & Hạ tầng", "Thép & Kim loại", "Hoá chất & Vật liệu",
+    "Năng lượng", "Công nghệ", "Tiêu dùng", "Nông & Thuỷ sản",
+    "Y tế & Dược", "Vận tải & Cảng", "Dịch vụ & Du lịch", "Khác",
+]
+
+SECTOR_ICONS = {
+    "Ngân hàng": "🏦", "Chứng khoán": "📈", "Bảo hiểm": "🛡",
+    "Bất động sản": "🏠", "Xây dựng & Hạ tầng": "🏗", "Thép & Kim loại": "⚙️",
+    "Hoá chất & Vật liệu": "🧪", "Năng lượng": "⚡", "Công nghệ": "💻",
+    "Tiêu dùng": "🛒", "Nông & Thuỷ sản": "🌾", "Y tế & Dược": "💊",
+    "Vận tải & Cảng": "🚢", "Dịch vụ & Du lịch": "✈️", "Khác": "📦",
+}
+
+
+def _get_sector(primary_industry: str) -> str:
+    """Map ngành gốc → nhóm 15."""
+    return SECTOR_GROUPS.get(primary_industry, "Khác")
+
+
+def _load_industry_map() -> dict:
+    """Return {ticker: primary_industry} từ industry_classification.parquet."""
+    if not INDUSTRY_PATH.exists():
+        return {}
+    try:
+        df = pq.read_table(
+            str(INDUSTRY_PATH), columns=["ticker", "primary_industry"]
+        ).to_pandas()
+        return dict(zip(df["ticker"], df["primary_industry"]))
+    except Exception:
+        return {}
+
+
+# ── Money Flow functions ─────────────────────────────────────────────────────
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _fetch_foreign_trade_batch(tickers: tuple, days: int = 30) -> dict:
+    """
+    Fetch NN ròng cho danh sách tickers. Cached 5 phút.
+    Return {ticker: {"net_1d": float, "net_5d": float, "net_20d": float}}.
+    """
+    from vnstock_auth import get_vnstock
+    from datetime import date as _d, timedelta as _td
+
+    end_d = _d.today().strftime("%Y-%m-%d")
+    start_d = (_d.today() - _td(days=max(days + 5, 30))).strftime("%Y-%m-%d")
+    today = pd.Timestamp(_d.today())
+    result = {}
+
+    for tk in tickers:
+        try:
+            df = get_vnstock(tk).trading.foreign_trade(start=start_d, end=end_d)
+            if df is None or df.empty:
+                continue
+            # Tìm cột time
+            time_col = None
+            for c in df.columns:
+                if c.lower() in ("time", "date", "tradingdate"):
+                    time_col = c
+                    break
+            if time_col:
+                df["_time"] = pd.to_datetime(df[time_col])
+            else:
+                df["_time"] = pd.to_datetime(df.index)
+
+            # Tìm cột net value
+            net_col = None
+            for c in df.columns:
+                cl = c.lower()
+                if "net" in cl and ("val" in cl or "value" in cl):
+                    net_col = c
+                    break
+            if not net_col:
+                for c in df.columns:
+                    if "net" in c.lower() or "ròng" in c.lower():
+                        net_col = c
+                        break
+            if not net_col:
+                continue
+
+            vals = df[["_time", net_col]].copy()
+            vals[net_col] = pd.to_numeric(vals[net_col], errors="coerce").fillna(0)
+            result[tk] = {
+                "net_1d":  float(vals[vals["_time"] >= today - _td(days=1)][net_col].sum()),
+                "net_5d":  float(vals[vals["_time"] >= today - _td(days=5)][net_col].sum()),
+                "net_20d": float(vals[vals["_time"] >= today - _td(days=20)][net_col].sum()),
+            }
+        except Exception:
+            continue
+    return result
+
+
+def _compute_buy_sell_ratio_from_live(ticker: str) -> float:
+    """
+    Tính buy/sell ratio từ volume_profile trong quote JSON.
+    Return ratio 0.0-1.0 (0.5 = cân bằng, >0.5 = buy dominant).
+    """
+    quote_path = Path("data_warehouse/_live") / f"quote_{ticker}.json"
+    if not quote_path.exists():
+        return 0.5
+    try:
+        q = json.loads(quote_path.read_text(encoding="utf-8"))
+        vp = q.get("volume_profile", [])
+        if not vp:
+            return 0.5
+        total_buy = sum(float(lv.get("buy_vol", 0) or 0) for lv in vp)
+        total_sell = sum(float(lv.get("sell_vol", 0) or 0) for lv in vp)
+        total = total_buy + total_sell
+        if total <= 0:
+            return 0.5
+        return total_buy / total
+    except Exception:
+        return 0.5
+
+
+def _compute_money_flow_score(nn_net: float, nn_median: float,
+                              buy_ratio: float) -> float:
+    """
+    Tính money flow score (-100 đến +100).
+    nn_net:    NN ròng cho mã này (tỷ VND)
+    nn_median: median |NN ròng| của toàn thị trường (dùng để normalize)
+    buy_ratio: buy/sell ratio (0-1)
+    """
+    # NN score: clamp nn_net / median * 50
+    if nn_median > 0:
+        nn_score = max(-100, min(100, (nn_net / nn_median) * 50))
+    else:
+        nn_score = 0
+
+    # Buy/Sell score: 0.5 → 0, 0.7 → +40, 0.3 → -40
+    bs_score = max(-100, min(100, (buy_ratio - 0.5) * 200))
+
+    # Weighted combination
+    return round(0.55 * nn_score + 0.45 * bs_score, 1)
+
+
+def _score_label(score: float) -> tuple:
+    """Return (label, color_hex) cho money flow score."""
+    if score > 30:
+        return "VÀO", "#10b981"
+    if score > 10:
+        return "Vào nhẹ", "#6ee7b7"
+    if score > -10:
+        return "Trung lập", "#9ca3af"
+    if score > -30:
+        return "Ra nhẹ", "#fca5a5"
+    return "RA", "#ef4444"
+
+
+def _score_bar_html(score: float) -> str:
+    """Render mini bar HTML cho score."""
+    label, color = _score_label(score)
+    width = min(abs(score), 80)
+    direction = "right" if score >= 0 else "left"
+    return (
+        f'<div style="display:flex;align-items:center;gap:6px">'
+        f'<div style="width:80px;height:14px;background:#1f2937;border-radius:7px;'
+        f'position:relative;overflow:hidden">'
+        f'<div style="position:absolute;{direction}:50%;width:{width/2}%;height:100%;'
+        f'background:{color};border-radius:7px"></div>'
+        f'<div style="position:absolute;left:50%;width:1px;height:100%;background:#4b5563">'
+        f'</div></div>'
+        f'<span style="color:{color};font-size:11px;font-weight:600;min-width:52px">'
+        f'{label}</span></div>'
+    )
 
 
 # ── Subprocess launcher ──────────────────────────────────────────────────────
@@ -2880,7 +3085,7 @@ with st.sidebar:
         </style>""", unsafe_allow_html=True)
 
 # ── NAVIGATION (dùng pills thay tabs để tránh lazy-render) ────────────────────
-_TAB_OPTIONS = ["📊 Screener", "🔬 Phân tích", "🌏 Thị trường", "💼 Portfolio"]
+_TAB_OPTIONS = ["📊 Screener", "🔬 Phân tích", "🌏 Thị trường", "💰 Dòng Tiền", "💼 Portfolio"]
 _active_tab = st.pills("", _TAB_OPTIONS, default="📊 Screener", key="nav_tab")
 
 # ══════════════════════════════════════════════════════
@@ -4818,6 +5023,427 @@ if _active_tab == "🌏 Thị trường":
             st.plotly_chart(fig, use_container_width=True)
         except ImportError:
             st.info("Cài plotly để xem chart: `pip install plotly`")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB: DÒNG TIỀN (Money Flow)
+# ══════════════════════════════════════════════════════════════════════════════
+if _active_tab == "💰 Dòng Tiền":
+
+    st.markdown("### 💰 Dòng Tiền Ngành")
+
+    # ── Sidebar controls ─────────────────────────────────────────────────
+    with st.sidebar:
+        st.markdown("### 💰 Dòng Tiền")
+        _mf_window = st.radio(
+            "Khung thời gian NN ròng",
+            ["1D", "5D", "20D"],
+            index=1,
+            horizontal=True,
+            key="mf_window",
+        )
+        _mf_window_key = {"1D": "net_1d", "5D": "net_5d", "20D": "net_20d"}[_mf_window]
+        _mf_live_on = st.toggle("Live Scan (real-time)", value=False, key="mf_live")
+        st.caption(
+            "**NN ròng**: khối ngoại mua - bán ròng (tỷ VND)\n\n"
+            "**Buy/Sell**: tỷ lệ khối lượng chủ động mua vs bán\n\n"
+            "**Score**: kết hợp NN ròng (55%) + Buy/Sell (45%)"
+        )
+
+    # ── Load industry map ────────────────────────────────────────────────
+    _ind_map = _load_industry_map()
+    if not _ind_map:
+        st.warning("⚠️ Chưa có `industry_classification.parquet`. "
+                   "Chạy `python vnstock_classifier.py` trước.")
+        st.stop()
+
+    # ── Collect tickers per sector ───────────────────────────────────────
+    _sector_tickers = {}
+    for tk, ind in _ind_map.items():
+        if not _is_stock(tk):
+            continue
+        sector = _get_sector(ind)
+        _sector_tickers.setdefault(sector, []).append(tk)
+
+    # ── Fetch foreign trade data ─────────────────────────────────────────
+    _all_tickers = [tk for tks in _sector_tickers.values() for tk in tks]
+
+    # Limit to tickers that have warehouse data
+    _warehouse_tickers = tuple(
+        tk for tk in _all_tickers
+        if (PRICES_DIR / f"ticker={tk}").exists()
+    )
+
+    with st.spinner(f"Đang tải dữ liệu NN ròng ({len(_warehouse_tickers)} mã)..."):
+        _nn_data = _fetch_foreign_trade_batch(_warehouse_tickers, days=25)
+
+    # ── Compute per-stock scores ─────────────────────────────────────────
+    # Get live quote data for price and volume
+    _live_dir = Path("data_warehouse/_live")
+    _stock_rows = []
+    for tk in _warehouse_tickers:
+        nn_vals = _nn_data.get(tk, {})
+        nn_net = nn_vals.get(_mf_window_key, 0)
+
+        # Live price + volume from quote file
+        _qpath = _live_dir / f"quote_{tk}.json"
+        live_price = 0
+        live_vol = 0
+        live_gtgd = 0
+        if _qpath.exists():
+            try:
+                _q = json.loads(_qpath.read_text(encoding="utf-8"))
+                live_price = float(_q.get("price", 0) or 0)
+                if live_price > 500:
+                    live_price /= 1000
+                live_vol = float(_q.get("volume", 0) or 0)
+                live_gtgd = live_price * live_vol / 1e6  # tỷ VND
+            except Exception:
+                pass
+
+        buy_ratio = _compute_buy_sell_ratio_from_live(tk)
+        industry = _ind_map.get(tk, "Khác")
+        sector = _get_sector(industry)
+
+        _stock_rows.append({
+            "ticker": tk,
+            "industry": industry,
+            "sector": sector,
+            "price": live_price,
+            "volume": live_vol,
+            "gtgd": live_gtgd,
+            "nn_net": nn_net,
+            "buy_ratio": buy_ratio,
+        })
+
+    # Compute median |nn_net| for normalization
+    _nn_abs = [abs(r["nn_net"]) for r in _stock_rows if r["nn_net"] != 0]
+    _nn_median = float(np.median(_nn_abs)) if _nn_abs else 1.0
+
+    for r in _stock_rows:
+        r["score"] = _compute_money_flow_score(r["nn_net"], _nn_median, r["buy_ratio"])
+
+    # ── Aggregate by sector ──────────────────────────────────────────────
+    _sector_summary = {}
+    for sec in SECTOR_ORDER:
+        rows = [r for r in _stock_rows if r["sector"] == sec]
+        if not rows:
+            continue
+        total_gtgd = sum(r["gtgd"] for r in rows)
+        total_vol = sum(r["volume"] for r in rows)
+        total_nn = sum(r["nn_net"] for r in rows)
+
+        # Weighted avg score by GTGD
+        if total_gtgd > 0:
+            w_score = sum(r["score"] * r["gtgd"] for r in rows) / total_gtgd
+        else:
+            w_score = np.mean([r["score"] for r in rows]) if rows else 0
+
+        # Weighted buy ratio
+        if total_gtgd > 0:
+            w_buy = sum(r["buy_ratio"] * r["gtgd"] for r in rows) / total_gtgd
+        else:
+            w_buy = 0.5
+
+        _sector_summary[sec] = {
+            "n_stocks": len(rows),
+            "gtgd": total_gtgd,
+            "volume": total_vol,
+            "nn_net": total_nn,
+            "buy_ratio": w_buy,
+            "score": round(w_score, 1),
+            "stocks": sorted(rows, key=lambda x: x["score"], reverse=True),
+        }
+
+    # ── KPI metrics ──────────────────────────────────────────────────────
+    _total_nn = sum(s["nn_net"] for s in _sector_summary.values())
+    _inflow_sectors = sum(1 for s in _sector_summary.values() if s["score"] > 10)
+    _outflow_sectors = sum(1 for s in _sector_summary.values() if s["score"] < -10)
+    _top_sector = max(_sector_summary.items(), key=lambda x: x[1]["score"], default=("—", {}))
+    _bot_sector = min(_sector_summary.items(), key=lambda x: x[1]["score"], default=("—", {}))
+
+    kc1, kc2, kc3, kc4 = st.columns(4)
+    with kc1:
+        _nn_color = "#10b981" if _total_nn >= 0 else "#ef4444"
+        _nn_sign = "+" if _total_nn > 0 else ""
+        st.markdown(
+            f'<div class="metric-card"><div class="label">NN ròng ({_mf_window})</div>'
+            f'<div class="value" style="color:{_nn_color}">{_nn_sign}{_total_nn:,.0f} tỷ</div>'
+            f'<div class="sub">{len(_warehouse_tickers)} mã</div></div>',
+            unsafe_allow_html=True)
+    with kc2:
+        st.markdown(
+            f'<div class="metric-card"><div class="label">Ngành có tiền VÀO</div>'
+            f'<div class="value" style="color:#10b981">{_inflow_sectors}</div>'
+            f'<div class="sub">/ {len(_sector_summary)} ngành</div></div>',
+            unsafe_allow_html=True)
+    with kc3:
+        st.markdown(
+            f'<div class="metric-card"><div class="label">Ngành có tiền RA</div>'
+            f'<div class="value" style="color:#ef4444">{_outflow_sectors}</div>'
+            f'<div class="sub">/ {len(_sector_summary)} ngành</div></div>',
+            unsafe_allow_html=True)
+    with kc4:
+        _top_name = _top_sector[0]
+        _top_score = _top_sector[1].get("score", 0)
+        st.markdown(
+            f'<div class="metric-card"><div class="label">Ngành mạnh nhất</div>'
+            f'<div class="value" style="color:#10b981">{SECTOR_ICONS.get(_top_name, "")} '
+            f'{_top_name}</div>'
+            f'<div class="sub">Score: {_top_score:+.0f}</div></div>',
+            unsafe_allow_html=True)
+
+    st.markdown("")
+
+    # ── Sector summary table (Tầng 1) ────────────────────────────────────
+    _table_html = (
+        '<table style="width:100%;border-collapse:collapse;font-size:13px">'
+        '<tr style="border-bottom:2px solid #374151">'
+        '<th style="text-align:left;padding:8px 6px;color:#9ca3af">Ngành</th>'
+        '<th style="text-align:right;padding:8px 6px;color:#9ca3af">Mã</th>'
+        '<th style="text-align:right;padding:8px 6px;color:#9ca3af">GTGD (tỷ)</th>'
+        '<th style="text-align:right;padding:8px 6px;color:#9ca3af">Vol (tr CP)</th>'
+        f'<th style="text-align:right;padding:8px 6px;color:#9ca3af">NN ròng {_mf_window} (tỷ)</th>'
+        '<th style="text-align:right;padding:8px 6px;color:#9ca3af">Buy/Sell</th>'
+        '<th style="text-align:center;padding:8px 6px;color:#9ca3af">Dòng tiền</th>'
+        '</tr>'
+    )
+
+    for i, sec in enumerate(SECTOR_ORDER):
+        if sec not in _sector_summary:
+            continue
+        s = _sector_summary[sec]
+        icon = SECTOR_ICONS.get(sec, "")
+        _, name_color = _score_label(s["score"])
+        nn_color = "#10b981" if s["nn_net"] >= 0 else "#ef4444"
+        nn_sign = "+" if s["nn_net"] > 0 else ""
+        buy_pct = s["buy_ratio"] * 100
+        buy_color = "#10b981" if buy_pct > 55 else ("#ef4444" if buy_pct < 45 else "#9ca3af")
+        bg = "#0d1117" if i % 2 == 0 else "#111827"
+
+        _table_html += (
+            f'<tr style="background:{bg};border-bottom:1px solid #1f2937">'
+            f'<td style="padding:7px 6px;color:{name_color};font-weight:600">'
+            f'{icon} {sec}</td>'
+            f'<td style="padding:7px 6px;text-align:right;color:#d1d5db">{s["n_stocks"]}</td>'
+            f'<td style="padding:7px 6px;text-align:right;color:#d1d5db">'
+            f'{s["gtgd"]:,.0f}</td>'
+            f'<td style="padding:7px 6px;text-align:right;color:#d1d5db">'
+            f'{s["volume"]/1e6:,.1f}</td>'
+            f'<td style="padding:7px 6px;text-align:right;color:{nn_color};font-weight:500">'
+            f'{nn_sign}{s["nn_net"]:,.0f}</td>'
+            f'<td style="padding:7px 6px;text-align:right;color:{buy_color}">'
+            f'{buy_pct:.0f}/{100-buy_pct:.0f}</td>'
+            f'<td style="padding:7px 6px;text-align:center">'
+            f'{_score_bar_html(s["score"])}</td>'
+            f'</tr>'
+        )
+    _table_html += '</table>'
+    st.markdown(_table_html, unsafe_allow_html=True)
+
+    st.markdown("")
+
+    # ── Drill-down: chi tiết mã trong ngành (Tầng 2) ─────────────────────
+    _available_sectors = [s for s in SECTOR_ORDER if s in _sector_summary]
+    _selected_sector = st.selectbox(
+        "Chi tiết ngành",
+        _available_sectors,
+        format_func=lambda s: (
+            f"{SECTOR_ICONS.get(s, '')} {s} ({_sector_summary[s]['n_stocks']} mã)"
+        ),
+        key="mf_drill",
+    )
+
+    if _selected_sector and _selected_sector in _sector_summary:
+        _sec = _sector_summary[_selected_sector]
+        stocks = _sec["stocks"]
+
+        _, _sec_color = _score_label(_sec["score"])
+        st.markdown(
+            f"**{SECTOR_ICONS.get(_selected_sector, '')} {_selected_sector}** — "
+            f"Score: <span style='color:{_sec_color};font-weight:700'>"
+            f"{_sec['score']:+.0f}</span> | "
+            f"NN ròng: {_sec['nn_net']:+,.0f} tỷ | "
+            f"GTGD: {_sec['gtgd']:,.0f} tỷ",
+            unsafe_allow_html=True,
+        )
+
+        # Detail table
+        _det_html = (
+            '<table style="width:100%;border-collapse:collapse;font-size:12px;'
+            'margin-top:8px">'
+            '<tr style="border-bottom:2px solid #374151">'
+            '<th style="text-align:left;padding:6px;color:#9ca3af">Mã</th>'
+            '<th style="text-align:left;padding:6px;color:#9ca3af">Ngành gốc</th>'
+            '<th style="text-align:right;padding:6px;color:#9ca3af">Giá</th>'
+            '<th style="text-align:right;padding:6px;color:#9ca3af">GTGD (tỷ)</th>'
+            f'<th style="text-align:right;padding:6px;color:#9ca3af">'
+            f'NN {_mf_window} (tỷ)</th>'
+            '<th style="text-align:right;padding:6px;color:#9ca3af">Buy/Sell</th>'
+            '<th style="text-align:right;padding:6px;color:#9ca3af">Score</th>'
+            '<th style="text-align:center;padding:6px;color:#9ca3af">Dòng tiền</th>'
+            '<th style="text-align:center;padding:6px;color:#9ca3af">Vai trò</th>'
+            '</tr>'
+        )
+
+        # Determine which stocks "pull" the sector
+        _sec_nn_total = abs(_sec["nn_net"]) if _sec["nn_net"] != 0 else 1
+        for j, stk in enumerate(stocks[:50]):
+            s_label, s_color = _score_label(stk["score"])
+            nn_color = "#10b981" if stk["nn_net"] >= 0 else "#ef4444"
+            nn_sign = "+" if stk["nn_net"] > 0 else ""
+            buy_pct = stk["buy_ratio"] * 100
+            buy_color = "#10b981" if buy_pct > 55 else (
+                "#ef4444" if buy_pct < 45 else "#9ca3af")
+            bg = "#0d1117" if j % 2 == 0 else "#111827"
+
+            # Role: does this stock pull the sector?
+            nn_contribution = abs(stk["nn_net"]) / _sec_nn_total * 100
+            if nn_contribution > 25 and abs(stk["score"]) > 20:
+                if stk["score"] > 0:
+                    role = '<span style="color:#10b981;font-weight:700">★ Kéo VÀO</span>'
+                else:
+                    role = '<span style="color:#ef4444;font-weight:700">★ Kéo RA</span>'
+            elif abs(stk["score"]) > 30 and (
+                (stk["score"] > 0) != (_sec["score"] > 0)
+            ):
+                role = '<span style="color:#f59e0b">↔ Ngược dòng</span>'
+            else:
+                role = '<span style="color:#4b5563">—</span>'
+
+            _det_html += (
+                f'<tr style="background:{bg};border-bottom:1px solid #1f2937">'
+                f'<td style="padding:5px 6px;color:#60a5fa;font-weight:600">'
+                f'{stk["ticker"]}</td>'
+                f'<td style="padding:5px 6px;color:#9ca3af;font-size:11px">'
+                f'{stk["industry"]}</td>'
+                f'<td style="padding:5px 6px;text-align:right;color:#d1d5db">'
+                f'{stk["price"]:,.1f}</td>'
+                f'<td style="padding:5px 6px;text-align:right;color:#d1d5db">'
+                f'{stk["gtgd"]:,.0f}</td>'
+                f'<td style="padding:5px 6px;text-align:right;color:{nn_color};'
+                f'font-weight:500">{nn_sign}{stk["nn_net"]:,.0f}</td>'
+                f'<td style="padding:5px 6px;text-align:right;color:{buy_color}">'
+                f'{buy_pct:.0f}/{100-buy_pct:.0f}</td>'
+                f'<td style="padding:5px 6px;text-align:right;color:{s_color};'
+                f'font-weight:600">{stk["score"]:+.0f}</td>'
+                f'<td style="padding:5px 6px;text-align:center">'
+                f'{_score_bar_html(stk["score"])}</td>'
+                f'<td style="padding:5px 6px;text-align:center">{role}</td>'
+                f'</tr>'
+            )
+
+        _det_html += '</table>'
+        st.markdown(_det_html, unsafe_allow_html=True)
+
+    # ── Real-time mode ───────────────────────────────────────────────────
+    if _mf_live_on and WSS_AVAILABLE:
+        st.markdown("---")
+        st.markdown("#### 🔴 Live Money Flow (real-time)")
+
+        @st.fragment(run_every=15)
+        def _live_money_flow_fragment():
+            _live_d = Path("data_warehouse/_live")
+            if not _live_d.exists():
+                st.caption("⏳ Chưa có live data — bật Live Mode trong tab Phân tích")
+                return
+
+            quote_files = list(_live_d.glob("quote_*.json"))
+            if not quote_files:
+                st.caption("⏳ Chờ WSS poll data...")
+                return
+
+            ind_map = _load_industry_map()
+            sector_live = {}
+
+            for qf in quote_files:
+                try:
+                    tk = qf.stem.replace("quote_", "")
+                    if not _is_stock(tk) or tk not in ind_map:
+                        continue
+                    q = json.loads(qf.read_text(encoding="utf-8"))
+                    price = float(q.get("price", 0) or 0)
+                    if price <= 0:
+                        continue
+                    if price > 500:
+                        price /= 1000
+                    vol = float(q.get("volume", 0) or 0)
+                    gtgd = price * vol / 1e6
+
+                    # Buy/Sell from volume profile
+                    vp = q.get("volume_profile", [])
+                    total_buy = sum(float(lv.get("buy_vol", 0) or 0) for lv in vp)
+                    total_sell = sum(float(lv.get("sell_vol", 0) or 0) for lv in vp)
+                    total_vs = total_buy + total_sell
+                    buy_r = total_buy / total_vs if total_vs > 0 else 0.5
+
+                    sector = _get_sector(ind_map[tk])
+                    if sector not in sector_live:
+                        sector_live[sector] = {
+                            "gtgd": 0, "vol": 0,
+                            "buy_total": 0, "sell_total": 0, "count": 0,
+                        }
+                    sl = sector_live[sector]
+                    sl["gtgd"] += gtgd
+                    sl["vol"] += vol
+                    sl["buy_total"] += total_buy
+                    sl["sell_total"] += total_sell
+                    sl["count"] += 1
+                except Exception:
+                    continue
+
+            if not sector_live:
+                st.caption("⏳ Đang chờ data...")
+                return
+
+            # Build compact live table
+            _lt = (
+                '<table style="width:100%;border-collapse:collapse;font-size:12px">'
+                '<tr style="border-bottom:2px solid #374151">'
+                '<th style="text-align:left;padding:5px;color:#9ca3af">Ngành</th>'
+                '<th style="text-align:right;padding:5px;color:#9ca3af">Mã</th>'
+                '<th style="text-align:right;padding:5px;color:#9ca3af">GTGD</th>'
+                '<th style="text-align:right;padding:5px;color:#9ca3af">Buy/Sell</th>'
+                '<th style="text-align:center;padding:5px;color:#9ca3af">Áp lực</th>'
+                '</tr>'
+            )
+            for idx, sec in enumerate(SECTOR_ORDER):
+                if sec not in sector_live:
+                    continue
+                sl = sector_live[sec]
+                total_vs = sl["buy_total"] + sl["sell_total"]
+                buy_pct = (sl["buy_total"] / total_vs * 100) if total_vs > 0 else 50
+                sell_pct = 100 - buy_pct
+                buy_color = "#10b981" if buy_pct > 55 else (
+                    "#ef4444" if buy_pct < 45 else "#9ca3af")
+
+                # Simple score from buy/sell only (no NN in realtime)
+                live_score = (buy_pct - 50) * 2
+                bg = "#0d1117" if idx % 2 == 0 else "#111827"
+                _lt += (
+                    f'<tr style="background:{bg};border-bottom:1px solid #1f2937">'
+                    f'<td style="padding:4px 5px;color:#d1d5db">'
+                    f'{SECTOR_ICONS.get(sec, "")} {sec}</td>'
+                    f'<td style="padding:4px 5px;text-align:right;color:#9ca3af">'
+                    f'{sl["count"]}</td>'
+                    f'<td style="padding:4px 5px;text-align:right;color:#d1d5db">'
+                    f'{sl["gtgd"]:,.0f} tỷ</td>'
+                    f'<td style="padding:4px 5px;text-align:right;color:{buy_color}">'
+                    f'{buy_pct:.0f}/{sell_pct:.0f}</td>'
+                    f'<td style="padding:4px 5px;text-align:center">'
+                    f'{_score_bar_html(live_score)}</td>'
+                    f'</tr>'
+                )
+            _lt += '</table>'
+            st.markdown(_lt, unsafe_allow_html=True)
+            st.caption(
+                f"🔄 Cập nhật mỗi 15s | "
+                f"{sum(s['count'] for s in sector_live.values())} mã | "
+                f"Chỉ dựa trên Buy/Sell volume (không có NN ròng real-time)"
+            )
+
+        _live_money_flow_fragment()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
