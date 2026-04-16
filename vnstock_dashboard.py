@@ -1699,13 +1699,24 @@ def load_fundamental(ticker: str) -> dict:
 
     result = {}
     try:
-        from vnstock_auth import get_vnstock, ensure_api_key
+        from vnstock_auth import ensure_api_key
         ensure_api_key()
-        stock = get_vnstock(ticker)
+
+        # Ưu tiên vnstock_data sponsor (ổn định, không KeyError: 'data')
+        _stock = None
+        try:
+            from vnstock_data import Company as _Company, Finance as _Finance
+            _company = _Company(symbol=ticker)
+            _finance = _Finance(symbol=ticker)
+            _use_sponsor = True
+        except ImportError:
+            from vnstock_auth import get_vnstock
+            _stock = get_vnstock(ticker)
+            _use_sponsor = False
 
         # ── 1. Company Overview — market cap, shares, EPS, P/E, etc. ─────
         try:
-            overview = stock.company.overview()
+            overview = _company.overview() if _use_sponsor else _stock.company.overview()
             if overview is not None and not overview.empty:
                 row = overview.iloc[0] if len(overview) > 0 else None
                 if row is not None:
@@ -1747,7 +1758,10 @@ def load_fundamental(ticker: str) -> dict:
                 {"period": "quarter", "lang": "vi"},
             ]:
                 try:
-                    ratios = stock.finance.ratio(**_kw)
+                    if _use_sponsor:
+                        ratios = _finance.ratio(**_kw)
+                    else:
+                        ratios = _stock.finance.ratio(**_kw)
                     if ratios is not None and not ratios.empty:
                         break
                 except Exception:
