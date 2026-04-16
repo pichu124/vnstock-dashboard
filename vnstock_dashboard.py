@@ -164,13 +164,21 @@ def _load_industry_map() -> dict:
 def _fetch_foreign_trade_batch(tickers: tuple, days: int = 95) -> dict:
     """
     Fetch NN ròng cho danh sách tickers. Cached 5 phút.
+    Ưu tiên vnstock_data (sponsor) → fallback vnstock (free).
     Return {ticker: {
         "net_1d", "net_5d", "net_20d",   (for Money Flow tab)
         "net_w", "net_m", "net_3m",      (for Market tab: 7d, 30d, 90d)
     }}.
     """
-    from vnstock_auth import get_vnstock
     from datetime import date as _d, timedelta as _td
+
+    # Ưu tiên sponsor API (ổn định hơn, quota cao hơn)
+    _use_sponsor = False
+    try:
+        from vnstock_data import Trading as _Trading
+        _use_sponsor = True
+    except ImportError:
+        from vnstock_auth import get_vnstock
 
     end_d = _d.today().strftime("%Y-%m-%d")
     start_d = (_d.today() - _td(days=max(days + 5, 95))).strftime("%Y-%m-%d")
@@ -179,7 +187,10 @@ def _fetch_foreign_trade_batch(tickers: tuple, days: int = 95) -> dict:
 
     for tk in tickers:
         try:
-            df = get_vnstock(tk).trading.foreign_trade(start=start_d, end=end_d)
+            if _use_sponsor:
+                df = _Trading(symbol=tk).foreign_trade(start=start_d, end=end_d)
+            else:
+                df = get_vnstock(tk).trading.foreign_trade(start=start_d, end=end_d)
             if df is None or df.empty:
                 continue
             # Tìm cột time
@@ -225,7 +236,8 @@ def _fetch_foreign_trade_batch(tickers: tuple, days: int = 95) -> dict:
 
 def _compute_buy_sell_ratio_from_live(ticker: str) -> float:
     """
-    Tính buy/sell ratio từ volume_profile trong quote JSON.
+    Tính buy/sell ratio từ live quote JSON.
+    Ưu tiên volume_profile (buy_vol/sell_vol) → fallback bid/ask depth.
     Return ratio 0.0-1.0 (0.5 = cân bằng, >0.5 = buy dominant).
     """
     quote_path = Path("data_warehouse/_live") / f"quote_{ticker}.json"
@@ -233,16 +245,29 @@ def _compute_buy_sell_ratio_from_live(ticker: str) -> float:
         return 0.5
     try:
         q = json.loads(quote_path.read_text(encoding="utf-8"))
+
+        # Method 1: volume_profile (best — from price_depth)
         vp = q.get("volume_profile", [])
-        if not vp:
-            return 0.5
-        total_buy = sum(float(lv.get("buy_vol", 0) or 0) for lv in vp)
-        total_sell = sum(float(lv.get("sell_vol", 0) or 0) for lv in vp)
-        total = total_buy + total_sell
-        if total <= 0:
-            return 0.5
-        return total_buy / total
-    except Exception:
+        if vp:
+            total_buy = sum(float(lv.get("buy_vol", 0) or 0) for lv in vp)
+            total_sell = sum(float(lv.get("sell_vol", 0) or 0) for lv in vp)
+            total = total_buy + total_sell
+            if total > 0:
+                return total_buy / total
+
+        # Method 2: bid/ask depth volumes (from price_board — 3 levels)
+        bids = q.get("bids", [])
+        asks = q.get("asks", [])
+        if bids or asks:
+            bid_vol = sum(float(b.get("volume", 0) or 0) for b in bids if isinstance(b, dict))
+            ask_vol = sum(float(a.get("volume", 0) or 0) for a in asks if isinstance(a, dict))
+            total = bid_vol + ask_vol
+            if total > 0:
+                # Bids đông > asks → nhiều người muốn mua → buy pressure
+                return bid_vol / total
+
+        return 0.5
+    except (OSError, json.JSONDecodeError, ValueError, TypeError):
         return 0.5
 
 
