@@ -212,7 +212,8 @@ def _fetch_foreign_net_flow(trading_days: int = 20, limit: int = 100) -> pd.Data
     """
     # Tầng 1: thử disk cache trước
     cached = _load_nn_from_disk()
-    if not cached.empty:
+    if not cached.empty and len(cached) > 5:
+        log.info("NN flow: loaded %d records from disk cache", len(cached))
         return cached
 
     # Tầng 3: fetch từ API
@@ -221,10 +222,12 @@ def _fetch_foreign_net_flow(trading_days: int = 20, limit: int = 100) -> pd.Data
     try:
         from vnstock_data import TopStock
     except ImportError:
+        log.warning("vnstock_data not installed — NN flow unavailable")
         return pd.DataFrame(columns=["symbol", "date", "net_value"])
 
     ts = TopStock()
     all_rows = []
+    errors = []
     today = _d.today()
     days_fetched = 0
     calendar_day = 0
@@ -248,20 +251,27 @@ def _fetch_foreign_net_flow(trading_days: int = 20, limit: int = 100) -> pd.Data
                             "date": dt_str,
                             "net_value": float(row.get("net_value", 0)),
                         })
-            except Exception:
+            except Exception as e:
+                errors.append(f"{fetch_fn.__name__}({dt_str}): {e}")
                 continue
 
         days_fetched += 1
 
+    if errors:
+        log.warning("NN flow fetch errors (%d): %s", len(errors), errors[:3])
+
     if not all_rows:
+        log.warning("NN flow: 0 records fetched from API (days=%d)", trading_days)
         return pd.DataFrame(columns=["symbol", "date", "net_value"])
 
     result = pd.DataFrame(all_rows)
     result["date"] = pd.to_datetime(result["date"])
     result["net_value"] = pd.to_numeric(result["net_value"], errors="coerce").fillna(0)
 
-    # Persist to disk for fast reload
-    _save_nn_to_disk(result)
+    # Persist to disk for fast reload — chỉ save nếu có data thật
+    if len(result) > 5:
+        _save_nn_to_disk(result)
+        log.info("NN flow: saved %d records to disk cache", len(result))
     return result
 
 
@@ -5199,9 +5209,13 @@ if _active_tab == "💰 Dòng Tiền":
             ),
         )
         st.caption(
-            "**NN ròng**: khối ngoại mua - bán ròng (tỷ VND)\n\n"
-            "**Buy/Sell**: tỷ lệ khối lượng chủ động mua vs bán\n\n"
-            "**Score**: kết hợp NN ròng (55%) + Buy/Sell (45%)"
+            "**NN ròng**: khối ngoại mua - bán ròng (tỷ VND) "
+            "từ `TopStock.foreign_buy/sell`\n\n"
+            "**Buy/Sell**: tỷ lệ áp lực mua vs bán "
+            "(từ bid/ask depth hoặc volume profile)\n\n"
+            "**Score** = 55% × NN_score + 45% × BuySell_score\n\n"
+            "*Lệnh lớn (BigOrder) chưa implement — cần test "
+            "`Trading.order_stats()` API.*"
         )
 
     # ── Load industry map ────────────────────────────────────────────────
@@ -5226,8 +5240,28 @@ if _active_tab == "💰 Dòng Tiền":
         if (PRICES_DIR / f"ticker={tk}").exists()
     ]
 
-    with st.spinner("Đang tải dữ liệu NN ròng (TopStock API, ~20 giây)..."):
+    # Nút xoá cache (debug khi NN = 0)
+    with st.sidebar:
+        if st.button("🗑 Xoá cache NN", key="mf_clear_cache", help=(
+            "Xoá cache NN ròng (disk + RAM) để force re-fetch từ API. "
+            "Dùng khi NN ròng hiện 0 cho tất cả ngành."
+        )):
+            _fetch_foreign_net_flow.clear()
+            if _NN_CACHE_PATH.exists():
+                _NN_CACHE_PATH.unlink()
+            st.rerun()
+
+    with st.spinner("Đang tải dữ liệu NN ròng (TopStock API)..."):
         _nn_raw = _fetch_foreign_net_flow(trading_days=20, limit=100)
+
+    # Diagnostic
+    _nn_record_count = len(_nn_raw) if not _nn_raw.empty else 0
+    if _nn_record_count == 0:
+        st.warning(
+            "⚠️ Không tải được dữ liệu NN ròng từ TopStock API. "
+            "Thử bấm **🗑 Xoá cache NN** trong sidebar, hoặc kiểm tra "
+            "kết nối internet + vnstock_data sponsor."
+        )
 
     # Aggregate NN ròng theo window đã chọn (1D/5D/20D)
     _nn_by_ticker = _aggregate_nn_by_window(_nn_raw, _mf_days)  # {symbol: tỷ VND}
@@ -5307,7 +5341,7 @@ if _active_tab == "💰 Dòng Tiền":
         st.markdown(
             f'<div class="metric-card"><div class="label">NN ròng ({_mf_window})</div>'
             f'<div class="value" style="color:{_nn_color}">{_nn_sign}{_total_nn:,.0f} tỷ</div>'
-            f'<div class="sub">{len(_nn_by_ticker)} mã có NN data</div></div>',
+            f'<div class="sub">{len(_nn_by_ticker)} mã / {_nn_record_count} records</div></div>',
             unsafe_allow_html=True)
     with kc2:
         st.markdown(
