@@ -161,77 +161,78 @@ def _load_industry_map() -> dict:
 # ── Money Flow functions ─────────────────────────────────────────────────────
 
 @st.cache_data(ttl=300, show_spinner=False)
-def _fetch_foreign_trade_batch(tickers: tuple, days: int = 95) -> dict:
+def _fetch_foreign_net_flow(trading_days: int = 20, limit: int = 100) -> pd.DataFrame:
     """
-    Fetch NN ròng cho danh sách tickers. Cached 5 phút.
-    Ưu tiên vnstock_data (sponsor) → fallback vnstock (free).
-    Return {ticker: {
-        "net_1d", "net_5d", "net_20d",   (for Money Flow tab)
-        "net_w", "net_m", "net_3m",      (for Market tab: 7d, 30d, 90d)
-    }}.
+    Fetch NN ròng per stock per day qua TopStock().foreign_buy/sell.
+    Cached 5 phút. Trả DataFrame [symbol, date, net_value (VND)].
+
+    TopStock trả top-N mã mua/bán ròng mỗi ngày:
+      foreign_buy(limit=100)  → top 100 mã NN mua ròng (net_value > 0)
+      foreign_sell(limit=100) → top 100 mã NN bán ròng (net_value < 0)
+
+    Gọi cho mỗi ngày giao dịch → merge → DataFrame toàn bộ.
+    ~40 API calls cho 20 ngày (2 calls/ngày) ≈ 20 giây.
     """
     from datetime import date as _d, timedelta as _td
 
-    # Ưu tiên sponsor API (ổn định hơn, quota cao hơn)
-    _use_sponsor = False
     try:
-        from vnstock_data import Trading as _Trading
-        _use_sponsor = True
+        from vnstock_data import TopStock
     except ImportError:
-        from vnstock_auth import get_vnstock
+        return pd.DataFrame(columns=["symbol", "date", "net_value"])
 
-    end_d = _d.today().strftime("%Y-%m-%d")
-    start_d = (_d.today() - _td(days=max(days + 5, 95))).strftime("%Y-%m-%d")
-    today = pd.Timestamp(_d.today())
-    result = {}
+    ts = TopStock()
+    all_rows = []
+    today = _d.today()
+    days_fetched = 0
+    calendar_day = 0
 
-    for tk in tickers:
-        try:
-            if _use_sponsor:
-                df = _Trading(symbol=tk).foreign_trade(start=start_d, end=end_d)
-            else:
-                df = get_vnstock(tk).trading.foreign_trade(start=start_d, end=end_d)
-            if df is None or df.empty:
-                continue
-            # Tìm cột time
-            time_col = None
-            for c in df.columns:
-                if c.lower() in ("time", "date", "tradingdate"):
-                    time_col = c
-                    break
-            if time_col:
-                df["_time"] = pd.to_datetime(df[time_col])
-            else:
-                df["_time"] = pd.to_datetime(df.index)
+    while days_fetched < trading_days and calendar_day < trading_days * 2:
+        dt = today - _td(days=calendar_day)
+        calendar_day += 1
 
-            # Tìm cột net value
-            net_col = None
-            for c in df.columns:
-                cl = c.lower()
-                if "net" in cl and ("val" in cl or "value" in cl):
-                    net_col = c
-                    break
-            if not net_col:
-                for c in df.columns:
-                    if "net" in c.lower() or "ròng" in c.lower():
-                        net_col = c
-                        break
-            if not net_col:
-                continue
-
-            vals = df[["_time", net_col]].copy()
-            vals[net_col] = pd.to_numeric(vals[net_col], errors="coerce").fillna(0)
-            def _sum_window(d):
-                return float(vals[vals["_time"] >= today - _td(days=d)][net_col].sum())
-            result[tk] = {
-                "net_1d": _sum_window(1), "net_5d": _sum_window(5),
-                "net_20d": _sum_window(20),
-                "net_w": _sum_window(7), "net_m": _sum_window(30),
-                "net_3m": _sum_window(90),
-            }
-        except Exception:
+        # Skip weekends
+        if dt.weekday() >= 5:
             continue
+
+        dt_str = dt.strftime("%Y-%m-%d")
+        for fetch_fn in (ts.foreign_buy, ts.foreign_sell):
+            try:
+                df = fetch_fn(date=dt_str, limit=limit)
+                if df is not None and not df.empty:
+                    for _, row in df.iterrows():
+                        all_rows.append({
+                            "symbol": str(row.get("symbol", "")),
+                            "date": dt_str,
+                            "net_value": float(row.get("net_value", 0)),
+                        })
+            except Exception:
+                continue
+
+        days_fetched += 1
+
+    if not all_rows:
+        return pd.DataFrame(columns=["symbol", "date", "net_value"])
+
+    result = pd.DataFrame(all_rows)
+    result["date"] = pd.to_datetime(result["date"])
+    result["net_value"] = pd.to_numeric(result["net_value"], errors="coerce").fillna(0)
     return result
+
+
+def _aggregate_nn_by_window(nn_df: pd.DataFrame, days: int) -> dict:
+    """
+    Aggregate net_value per symbol over last N calendar days.
+    Return {symbol: net_value_in_ty_VND}.
+    """
+    if nn_df.empty:
+        return {}
+    cutoff = pd.Timestamp.today().normalize() - pd.Timedelta(days=days)
+    filtered = nn_df[nn_df["date"] >= cutoff]
+    if filtered.empty:
+        return {}
+    agg = filtered.groupby("symbol")["net_value"].sum()
+    # VND → tỷ VND
+    return {sym: round(val / 1e9, 1) for sym, val in agg.items()}
 
 
 def _compute_buy_sell_ratio_from_live(ticker: str) -> float:
@@ -2715,9 +2716,11 @@ def _load_all_market_data() -> tuple:
         merged  = tick_df.merge(ind_df, on="ticker", how="left")
         merged["industry"] = merged["industry"].fillna("Khác")
 
-        # ── Foreign flow từ API (reuse shared helper) ────────────────────────
-        sample_tickers = tuple(merged["ticker"].tolist()[:5])
-        foreign_map = _fetch_foreign_trade_batch(sample_tickers, days=95)
+        # ── Foreign flow từ TopStock API (reuse shared helper) ────────────────
+        _nn_raw_mkt = _fetch_foreign_net_flow(trading_days=20, limit=100)
+        _nn_w  = _aggregate_nn_by_window(_nn_raw_mkt, 7)    # 1 tuần
+        _nn_m  = _aggregate_nn_by_window(_nn_raw_mkt, 30)   # 1 tháng
+        _nn_3m = _aggregate_nn_by_window(_nn_raw_mkt, 90)   # 3 tháng
 
         # ── Aggregate theo ngành ──────────────────────────────────────────────
         def agg(grp):
@@ -2730,11 +2733,11 @@ def _load_all_market_data() -> tuple:
 
             vol5_20  = round(v5 / v20 * 100, 0) if v20 > 0 else None
 
-            # Foreign flow
+            # Foreign flow (tỷ VND, đã aggregate bởi _aggregate_nn_by_window)
             tickers_in = grp["ticker"].tolist()
-            net_w  = sum(foreign_map.get(t, {}).get("net_w",  0) for t in tickers_in)
-            net_m  = sum(foreign_map.get(t, {}).get("net_m",  0) for t in tickers_in)
-            net_3m = sum(foreign_map.get(t, {}).get("net_3m", 0) for t in tickers_in)
+            net_w  = sum(_nn_w.get(t, 0)  for t in tickers_in)
+            net_m  = sum(_nn_m.get(t, 0)  for t in tickers_in)
+            net_3m = sum(_nn_3m.get(t, 0) for t in tickers_in)
 
             return pd.Series({
                 "Số mã":        n,
@@ -2750,9 +2753,9 @@ def _load_all_market_data() -> tuple:
                 "Giá 1T %":     round(grp["chg5"].dropna().mean(),  1) if grp["chg5"].notna().any()  else None,
                 "Giá 1M %":     round(grp["chg20"].dropna().mean(), 1) if grp["chg20"].notna().any() else None,
                 "Giá 3M %":     round(grp["chg60"].dropna().mean(), 1) if grp["chg60"].notna().any() else None,
-                "NN 1T (tỷ)":   round(net_w  / 1e9, 1) if net_w  != 0 else None,
-                "NN 1M (tỷ)":   round(net_m  / 1e9, 1) if net_m  != 0 else None,
-                "NN 3M (tỷ)":   round(net_3m / 1e9, 1) if net_3m != 0 else None,
+                "NN 1T (tỷ)":   round(net_w,  1) if net_w  != 0 else None,
+                "NN 1M (tỷ)":   round(net_m,  1) if net_m  != 0 else None,
+                "NN 3M (tỷ)":   round(net_3m, 1) if net_3m != 0 else None,
             })
 
         # Ticker-level display data
@@ -5048,7 +5051,7 @@ if _active_tab == "💰 Dòng Tiền":
                 "- **20D**: 20 ngày — xu hướng tháng, tay to tích/xả dần."
             ),
         )
-        _mf_window_key = {"1D": "net_1d", "5D": "net_5d", "20D": "net_20d"}[_mf_window]
+        _mf_days = {"1D": 1, "5D": 7, "20D": 30}[_mf_window]
         _mf_live_on = st.toggle(
             "Live Scan (real-time)",
             value=False,
@@ -5083,48 +5086,25 @@ if _active_tab == "💰 Dòng Tiền":
         sector = _get_sector(ind)
         _sector_tickers.setdefault(sector, []).append(tk)
 
-    # ── Fetch foreign trade data ─────────────────────────────────────────
+    # ── Fetch foreign net flow (TopStock API) ────────────────────────────
     _all_tickers = [tk for tks in _sector_tickers.values() for tk in tks]
-
-    # Limit to tickers that have warehouse data
     _warehouse_tickers_all = [
         tk for tk in _all_tickers
         if (PRICES_DIR / f"ticker={tk}").exists()
     ]
 
-    # Rank by live GTGD (or volume as proxy) → chỉ fetch NN cho top mã
-    # Mã nhỏ (GTGD ~0) NN ròng cũng ~0, không ảnh hưởng money flow score
-    _live_dir = Path("data_warehouse/_live")
-    _gtgd_rank = []
-    for tk in _warehouse_tickers_all:
-        _qp = _live_dir / f"quote_{tk}.json"
-        gtgd_est = 0
-        if _qp.exists():
-            try:
-                _qq = json.loads(_qp.read_text(encoding="utf-8"))
-                _p = float(_qq.get("price", 0) or 0)
-                _v = float(_qq.get("volume", 0) or 0)
-                if _p > 500:
-                    _p /= 1000
-                gtgd_est = _p * _v / 1e6
-            except (OSError, json.JSONDecodeError, ValueError, TypeError):
-                pass
-        _gtgd_rank.append((tk, gtgd_est))
+    with st.spinner("Đang tải dữ liệu NN ròng (TopStock API, ~20 giây)..."):
+        _nn_raw = _fetch_foreign_net_flow(trading_days=20, limit=100)
 
-    _gtgd_rank.sort(key=lambda x: x[1], reverse=True)
-    _TOP_N_TICKERS = 300  # Top 300 mã GTGD lớn nhất ≈ 90%+ GTGD toàn thị trường
-    _top_tickers = tuple(tk for tk, _ in _gtgd_rank[:_TOP_N_TICKERS])
-    _remaining_tickers = [tk for tk, _ in _gtgd_rank[_TOP_N_TICKERS:]]
-
-    with st.spinner(f"Đang tải dữ liệu NN ròng (top {len(_top_tickers)} mã GTGD lớn nhất)..."):
-        _nn_data = _fetch_foreign_trade_batch(_top_tickers, days=25)
+    # Aggregate NN ròng theo window đã chọn (1D/5D/20D)
+    _nn_by_ticker = _aggregate_nn_by_window(_nn_raw, _mf_days)  # {symbol: tỷ VND}
 
     # ── Compute per-stock scores ─────────────────────────────────────────
     # Get live quote data for price and volume
+    _live_dir = Path("data_warehouse/_live")
     _stock_rows = []
     for tk in _warehouse_tickers_all:
-        nn_vals = _nn_data.get(tk, {})  # Mã ngoài top 300 sẽ = {} → NN = 0
-        nn_net = nn_vals.get(_mf_window_key, 0)
+        nn_net = _nn_by_ticker.get(tk, 0)  # tỷ VND, 0 nếu mã không trong top
 
         # Live price + volume from quote file
         _qpath = _live_dir / f"quote_{tk}.json"
@@ -5210,7 +5190,7 @@ if _active_tab == "💰 Dòng Tiền":
         st.markdown(
             f'<div class="metric-card"><div class="label">NN ròng ({_mf_window})</div>'
             f'<div class="value" style="color:{_nn_color}">{_nn_sign}{_total_nn:,.0f} tỷ</div>'
-            f'<div class="sub">top {len(_top_tickers)} / {len(_warehouse_tickers_all)} mã</div></div>',
+            f'<div class="sub">{len(_nn_by_ticker)} mã có NN data</div></div>',
             unsafe_allow_html=True)
     with kc2:
         st.markdown(
