@@ -369,6 +369,15 @@ class MarketScreener:
             df = pd.concat(frames, ignore_index=True)
             df["time"] = pd.to_datetime(df["time"])
             df = df.sort_values("time").tail(self.lookback_days).reset_index(drop=True)
+
+            # Normalize mixed price units (VND vs nghìn VND)
+            for col in ("open", "high", "low", "close"):
+                if col in df.columns:
+                    vals = df[col].astype(float)
+                    mask = vals > 500
+                    if mask.any():
+                        df.loc[mask, col] = vals[mask] / 1000
+
             return df
         except Exception:
             return pd.DataFrame()
