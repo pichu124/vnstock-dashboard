@@ -44,7 +44,11 @@ REPO_ROOT = Path(__file__).resolve().parent
 def cmd_scan(args) -> int:
     from vnstock_health import collect
 
-    snap = collect(Path(args.warehouse))
+    snap = collect(
+        Path(args.warehouse),
+        fast=getattr(args, "fast", False),
+        verbose=getattr(args, "verbose", False),
+    )
     print(json.dumps(snap.to_dict(), indent=2, default=str, ensure_ascii=False))
     return 1 if snap.warnings else 0
 
@@ -204,7 +208,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--warehouse", default=str(DEFAULT_WAREHOUSE))
     sub = p.add_subparsers(dest="subcommand", required=True)
 
-    sub.add_parser("scan", help="Collect and print a HealthSnapshot")
+    scan = sub.add_parser("scan", help="Collect and print a HealthSnapshot")
+    scan.add_argument("--fast", action="store_true",
+                      help="Skip per-file row counting and missing-rate (sub-second)")
+    scan.add_argument("--verbose", action="store_true",
+                      help="Show tqdm progress bar during warehouse scan")
     sub.add_parser("sync", help="Incremental daily updater + rollup")
     sub.add_parser("validate", help="Re-run pandera contracts over full warehouse")
 

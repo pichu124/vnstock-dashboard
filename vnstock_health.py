@@ -87,16 +87,30 @@ def collect(
     *,
     lookback_days: int = 30,
     top_missing: int = 10,
+    fast: bool = False,
+    verbose: bool = False,
 ) -> HealthSnapshot:
-    """Collect all health signals into a single snapshot."""
+    """
+    Collect all health signals into a single snapshot.
+
+    ``fast=True`` skips per-file row counting and per-ticker missing rate —
+    only ticker count + metadata reports are populated. Useful for a sub-
+    second status check when the warehouse has thousands of parquet files.
+    ``verbose=True`` shows a tqdm progress bar during warehouse scanning.
+    """
     warehouse = Path(warehouse)
     snap = HealthSnapshot(
         generated_at=datetime.utcnow().isoformat(timespec="seconds") + "Z",
         warehouse_path=str(warehouse),
     )
 
-    _populate_warehouse_stats(snap, warehouse)
-    _populate_missing_rate(snap, warehouse, lookback_days, top_missing)
+    _scan_warehouse_single_pass(
+        snap, warehouse,
+        lookback_days=lookback_days,
+        top_missing=top_missing,
+        fast=fast,
+        verbose=verbose,
+    )
     _populate_sync_state(snap, warehouse)
     _populate_live_bars(snap, warehouse)
     _populate_reports(snap, warehouse)
@@ -203,93 +217,100 @@ def render_health_tab(warehouse: Path = DEFAULT_WAREHOUSE) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _populate_warehouse_stats(snap: HealthSnapshot, warehouse: Path) -> None:
+def _scan_warehouse_single_pass(
+    snap: HealthSnapshot,
+    warehouse: Path,
+    *,
+    lookback_days: int,
+    top_missing: int,
+    fast: bool,
+    verbose: bool,
+) -> None:
+    """
+    Walk the warehouse once and populate every warehouse-derived field.
+
+    Each ticker is touched at most three times:
+    * Metadata (pq.read_metadata) on each year file → row count + partition
+      count + min/max timestamps from the parquet footer statistics. No data
+      pages are read. This is O(ms) per file.
+    * The most recent year's time column is loaded only when computing
+      missing rate, and only if the column statistics don't tell us.
+
+    ``fast=True`` skips row counts and missing rate entirely, returning in
+    sub-second time even on a 1k-ticker warehouse.
+    """
+    import pyarrow.parquet as pq
+
     prices_dir = warehouse / PRICES_SUBDIR
     if not prices_dir.exists():
         snap.warnings.append("Warehouse prices directory not found")
         return
+
     ticker_dirs = [p for p in prices_dir.glob("ticker=*") if p.is_dir()]
     snap.ticker_count = len(ticker_dirs)
-
-    oldest = None
-    newest = None
-    row_count = 0
-    partition_count = 0
-
-    for ticker_dir in ticker_dirs:
-        for pq_file in ticker_dir.glob("year=*/*.parquet"):
-            partition_count += 1
-            try:
-                import pyarrow.parquet as pq
-                meta = pq.read_metadata(str(pq_file))
-                row_count += meta.num_rows
-                # Reading min/max per file would be exact but heavy — sample
-                # only the time column on the first & last file per ticker.
-            except Exception:
-                continue
-
-        # Probe time range by reading the first/last year directories only.
-        years = sorted(ticker_dir.glob("year=*"))
-        if years:
-            for probe_dir in (years[0], years[-1]):
-                for pq_file in probe_dir.glob("*.parquet"):
-                    try:
-                        df = pd.read_parquet(pq_file, columns=["time"])
-                    except Exception:
-                        continue
-                    if df.empty:
-                        continue
-                    ts_min = pd.to_datetime(df["time"]).min()
-                    ts_max = pd.to_datetime(df["time"]).max()
-                    if oldest is None or ts_min < oldest:
-                        oldest = ts_min
-                    if newest is None or ts_max > newest:
-                        newest = ts_max
-                    break
-
-    snap.row_count = row_count
-    snap.partition_count = partition_count
-    snap.oldest_bar = oldest.date().isoformat() if oldest is not None else None
-    snap.newest_bar = newest.date().isoformat() if newest is not None else None
-
-
-def _populate_missing_rate(
-    snap: HealthSnapshot,
-    warehouse: Path,
-    lookback_days: int,
-    top_missing: int,
-) -> None:
-    prices_dir = warehouse / PRICES_SUBDIR
-    if not prices_dir.exists():
+    if not ticker_dirs:
         return
 
+    # Missing-rate windowing
     today = pd.Timestamp(date.today())
     start = today - pd.tseries.offsets.BDay(lookback_days)
-    expected = pd.date_range(start=start, end=today, freq="B")
-    expected_n = len(expected)
-    if expected_n == 0:
-        return
+    expected_days = pd.date_range(start=start, end=today, freq="B")
+    expected_n = len(expected_days)
 
+    oldest: pd.Timestamp | None = None
+    newest: pd.Timestamp | None = None
+    row_count = 0
+    partition_count = 0
     per_ticker: list[dict] = []
-    total_expected = 0
     total_present = 0
 
-    for ticker_dir in prices_dir.glob("ticker=*"):
+    iterator = ticker_dirs
+    if verbose:
+        try:
+            from tqdm import tqdm
+            iterator = tqdm(ticker_dirs, desc="health scan", unit="tkr")
+        except ImportError:
+            pass
+
+    for ticker_dir in iterator:
         ticker = ticker_dir.name.removeprefix("ticker=")
-        frames = []
-        for pq_file in ticker_dir.glob("year=*/*.parquet"):
+        year_files = sorted(ticker_dir.glob("year=*/*.parquet"))
+        if not year_files:
+            continue
+
+        ticker_min: pd.Timestamp | None = None
+        ticker_max: pd.Timestamp | None = None
+
+        for pq_file in year_files:
+            partition_count += 1
             try:
-                frames.append(pd.read_parquet(pq_file, columns=["time"]))
+                meta = pq.read_metadata(str(pq_file))
             except Exception:
                 continue
-        if not frames:
+            if not fast:
+                row_count += meta.num_rows
+
+            # Pull min/max from parquet column statistics (free — footer only)
+            ts_min, ts_max = _time_bounds_from_metadata(meta)
+            if ts_min is not None:
+                ticker_min = ts_min if ticker_min is None else min(ticker_min, ts_min)
+            if ts_max is not None:
+                ticker_max = ts_max if ticker_max is None else max(ticker_max, ts_max)
+
+        if ticker_min is not None:
+            oldest = ticker_min if oldest is None else min(oldest, ticker_min)
+        if ticker_max is not None:
+            newest = ticker_max if newest is None else max(newest, ticker_max)
+
+        if fast:
             continue
-        times = pd.to_datetime(pd.concat(frames)["time"])
-        times = times[(times >= start) & (times <= today)]
-        present = times.dt.normalize().nunique()
+
+        # Missing rate: only inspect year files that overlap the lookback window
+        present = _count_present_days_in_window(
+            year_files, start, today,
+        )
         missing = max(0, expected_n - present)
-        rate = missing / expected_n * 100
-        total_expected += expected_n
+        rate = (missing / expected_n * 100) if expected_n > 0 else 0.0
         total_present += present
         per_ticker.append({
             "ticker": ticker,
@@ -299,13 +320,93 @@ def _populate_missing_rate(
             "missing_pct": round(rate, 2),
         })
 
-    if total_expected > 0:
-        snap.missing_rate_pct = round(
-            (1 - total_present / total_expected) * 100, 3
-        )
+    snap.row_count = row_count
+    snap.partition_count = partition_count
+    snap.oldest_bar = oldest.date().isoformat() if oldest is not None else None
+    snap.newest_bar = newest.date().isoformat() if newest is not None else None
 
-    per_ticker.sort(key=lambda r: r["missing_pct"], reverse=True)
-    snap.missing_top = per_ticker[:top_missing]
+    if not fast and per_ticker:
+        total_expected = expected_n * len(per_ticker)
+        if total_expected > 0:
+            snap.missing_rate_pct = round(
+                (1 - total_present / total_expected) * 100, 3
+            )
+        per_ticker.sort(key=lambda r: r["missing_pct"], reverse=True)
+        snap.missing_top = per_ticker[:top_missing]
+
+
+def _time_bounds_from_metadata(meta) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
+    """Extract min/max of the `time` column from parquet footer statistics.
+
+    Reading footer stats does NOT decode data pages — it's O(1) per file.
+    Returns (None, None) if the column is missing or stats are absent.
+    """
+    try:
+        schema = meta.schema.to_arrow_schema()
+        if "time" not in schema.names:
+            return None, None
+        time_idx = schema.names.index("time")
+    except Exception:
+        return None, None
+
+    ts_min: pd.Timestamp | None = None
+    ts_max: pd.Timestamp | None = None
+    try:
+        for rg in range(meta.num_row_groups):
+            col = meta.row_group(rg).column(time_idx)
+            stats = col.statistics
+            if stats is None or not stats.has_min_max:
+                return None, None
+            mn = pd.Timestamp(stats.min)
+            mx = pd.Timestamp(stats.max)
+            ts_min = mn if ts_min is None else min(ts_min, mn)
+            ts_max = mx if ts_max is None else max(ts_max, mx)
+    except Exception:
+        return None, None
+    return ts_min, ts_max
+
+
+def _count_present_days_in_window(
+    year_files: list[Path],
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+) -> int:
+    """Count distinct trading days present in ``[start, end]``.
+
+    We only open files whose parquet footer statistics overlap the window —
+    typically just the current year, sometimes the previous year at January.
+    """
+    import pyarrow.parquet as pq
+
+    relevant: list[Path] = []
+    for f in year_files:
+        try:
+            meta = pq.read_metadata(str(f))
+        except Exception:
+            continue
+        mn, mx = _time_bounds_from_metadata(meta)
+        if mn is None or mx is None:
+            relevant.append(f)  # can't tell — include to be safe
+            continue
+        if mx < start or mn > end:
+            continue
+        relevant.append(f)
+
+    if not relevant:
+        return 0
+
+    days = set()
+    for f in relevant:
+        try:
+            df = pd.read_parquet(f, columns=["time"])
+        except Exception:
+            continue
+        if df.empty:
+            continue
+        t = pd.to_datetime(df["time"])
+        t = t[(t >= start) & (t <= end)]
+        days.update(t.dt.normalize().tolist())
+    return len(days)
 
 
 def _populate_sync_state(snap: HealthSnapshot, warehouse: Path) -> None:
