@@ -159,12 +159,26 @@ def _fetch_prices(ticker: str, start: str, end: str) -> pd.DataFrame:
     start/end: 'YYYY-MM-DD'
     Trả về DataFrame với cột: time(date), open, high, low, close, volume
     """
+    df = None
     try:
         ensure_api_key()
         df = get_vnstock(ticker).quote.history(start=start, end=end, interval="1D")
+    except Exception:
+        pass
 
-        if df is None or df.empty:
-            return pd.DataFrame()
+    # Fallback: try Quote directly (works on some vnstock versions)
+    if df is None or (hasattr(df, 'empty') and df.empty):
+        try:
+            from vnstock import Quote
+            q = Quote(source="VCI", symbol=ticker)
+            df = q.history(start=start, end=end, interval="1D")
+        except Exception:
+            pass
+
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    try:
 
         # Normalize columns
         col_map = {}
@@ -196,7 +210,7 @@ def _fetch_prices(ticker: str, start: str, end: str) -> pd.DataFrame:
         return df
 
     except Exception as e:
-        raise RuntimeError(str(e))
+        raise RuntimeError(f"{type(e).__name__}: {e}")
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -681,7 +695,9 @@ def rebuild_recent(
             ticker_count += 1
             _t.sleep(delay)
         except Exception as e:
-            console.print(f"[red]✗ {ticker}: {e}[/red]")
+            import traceback
+            console.print(f"[red]✗ {ticker}: {type(e).__name__}: {e}[/red]")
+            console.print(f"[dim]{traceback.format_exc()[-300:]}[/dim]")
 
     if fixed_count == 0:
         console.print("[green]✓ No inflated dates found[/green]")
