@@ -502,18 +502,33 @@ __all__ = [
 def _main():
     import argparse
     import json as _json
+    import sys as _sys
+
+    # Force UTF-8 on stdout (Windows console defaults to cp1252 which can't
+    # encode Vietnamese characters in probe output)
+    try:
+        _sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
     ap = argparse.ArgumentParser(description="Corporate-action probe/refresh")
     ap.add_argument("--probe", metavar="TICKER",
                     help="Introspect what corp-action methods a ticker exposes")
     ap.add_argument("--refresh", metavar="TICKER",
                     help="Fetch and cache corp-action events for a ticker")
+    ap.add_argument("--out", metavar="PATH",
+                    help="Write probe output to this file (UTF-8) instead of stdout")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
 
     if args.probe:
         info = probe_company(args.probe)
-        print(_json.dumps(info, indent=2, default=str, ensure_ascii=False))
+        text = _json.dumps(info, indent=2, default=str, ensure_ascii=False)
+        if args.out:
+            Path(args.out).write_text(text, encoding="utf-8")
+            print(f"[probe] wrote {args.out} ({len(text):,} chars)")
+        else:
+            print(text)
     elif args.refresh:
         ev = refresh_events(args.refresh, verbose=args.verbose)
         print(f"[refresh] {args.refresh}: {len(ev)} event(s)")
