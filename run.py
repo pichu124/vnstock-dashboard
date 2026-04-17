@@ -1,0 +1,248 @@
+"""
+Unified orchestrator for the vnstock-dashboard pipeline.
+
+Replaces the PowerShell-specific Scheduled Task setup with a single, portable
+Python entry point that can be driven from cron, Windows Task Scheduler,
+GitHub Actions, or manually.
+
+Subcommands
+-----------
+    python run.py scan       — collect a HealthSnapshot and print it
+    python run.py sync       — incremental daily update (updater + rollup)
+    python run.py validate   — re-run pandera contracts on the warehouse
+    python run.py audit      — reconciler + anomaly scan, optionally + LLM
+    python run.py test       — pytest
+    python run.py dashboard  — launch streamlit dashboard
+    python run.py all        — sync → validate → test → audit (in order,
+                                stopping on first failure)
+
+Exit codes
+----------
+0 = success, 1 = non-fatal warning (e.g. some anomalies flagged),
+2 = hard failure (a step returned non-zero).
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+from datetime import date
+from pathlib import Path
+
+
+DEFAULT_WAREHOUSE = Path("data_warehouse")
+REPO_ROOT = Path(__file__).resolve().parent
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Subcommand implementations
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def cmd_scan(args) -> int:
+    from vnstock_health import collect
+
+    snap = collect(Path(args.warehouse))
+    print(json.dumps(snap.to_dict(), indent=2, default=str, ensure_ascii=False))
+    return 1 if snap.warnings else 0
+
+
+def cmd_sync(args) -> int:
+    """Run incremental daily updater, then roll up any intraday bars."""
+    updater = _run([sys.executable, "vnstock_updater.py", "--skip-if-done"])
+    if updater != 0:
+        return 2
+    rollup = _run([sys.executable, "vnstock_rollup.py", "--skip-if-done"])
+    return 0 if rollup == 0 else 2
+
+
+def cmd_validate(args) -> int:
+    """Walk the warehouse and run the OHLCV contract on every ticker.
+
+    This is heavier than the inline write-time check because it validates
+    the full history, not just newly-ingested rows. Useful after a schema
+    change to pandera or after a bulk load.
+    """
+    from vnstock_contracts import validate_ohlcv
+    import pandas as pd
+
+    prices_dir = Path(args.warehouse) / "prices"
+    if not prices_dir.exists():
+        print(f"[validate] warehouse not found at {prices_dir}")
+        return 2
+
+    total_in = total_out = total_dropped = 0
+    failing_tickers: list[tuple[str, int]] = []
+    for ticker_dir in sorted(prices_dir.glob("ticker=*")):
+        ticker = ticker_dir.name.removeprefix("ticker=")
+        frames = []
+        for pq_file in ticker_dir.glob("year=*/*.parquet"):
+            try:
+                frames.append(pd.read_parquet(pq_file))
+            except Exception:
+                continue
+        if not frames:
+            continue
+        df = pd.concat(frames, ignore_index=True)
+        # Contract requires ticker/year columns
+        year = pd.to_datetime(df["time"]).dt.year.astype("int16") if "year" not in df.columns else df["year"]
+        df = df.assign(ticker=ticker, year=year)
+        _, report = validate_ohlcv(df, drop_invalid=True)
+        total_in += report["rows_in"]
+        total_out += report["rows_out"]
+        total_dropped += report["dropped"]
+        if report["dropped"] > 0:
+            failing_tickers.append((ticker, report["dropped"]))
+
+    print(f"[validate] {total_in:,} rows → {total_out:,} valid "
+          f"({total_dropped:,} invalid)")
+    if failing_tickers:
+        print(f"[validate] {len(failing_tickers)} ticker(s) with invalid rows:")
+        for t, n in sorted(failing_tickers, key=lambda x: -x[1])[:20]:
+            print(f"  {t}: {n}")
+        return 1
+    return 0
+
+
+def cmd_audit(args) -> int:
+    """Run reconciler + anomaly scan. If ``--llm`` is passed, also ask the
+    Auditor agent for a second opinion on the combined summary."""
+    from vnstock_anomaly import scan_warehouse, write_report as write_anomaly
+    from vnstock_reconciler import reconcile, write_report as write_recon
+
+    warehouse = Path(args.warehouse)
+    recon = reconcile(warehouse=warehouse, lookback=args.lookback)
+    write_recon(recon, warehouse)
+    print(f"[audit] reconciler: ok={recon.ok} warn={recon.warn} fail={recon.fail}")
+
+    anom = scan_warehouse(warehouse=warehouse, lookback=args.lookback)
+    write_anomaly(anom, warehouse)
+    total = len(anom.anomalies)
+    print(f"[audit] anomalies: {total} flagged across {anom.tickers_scanned} tickers")
+
+    summary = {
+        "reconciler": {"ok": recon.ok, "warn": recon.warn, "fail": recon.fail,
+                       "missing_in_api": recon.missing_in_api,
+                       "missing_in_rolled": recon.missing_in_rolled},
+        "anomalies": {
+            "total": total,
+            "by_kind": {}, "by_severity": {},
+        },
+    }
+    for a in anom.anomalies:
+        summary["anomalies"]["by_kind"][a.kind] = \
+            summary["anomalies"]["by_kind"].get(a.kind, 0) + 1
+        summary["anomalies"]["by_severity"][a.severity] = \
+            summary["anomalies"]["by_severity"].get(a.severity, 0) + 1
+
+    if args.llm:
+        from vnstock_auditor import make_auditor
+        agent = make_auditor(prefer=args.auditor)
+        verdict = agent.audit(
+            summary,
+            context=f"Daily audit for {date.today().isoformat()}.",
+        )
+        print(f"[audit] auditor={verdict.backend} "
+              f"approved={verdict.approved} conf={verdict.confidence:.2f}")
+        for i in verdict.issues:
+            print(f"  issue: {i}")
+        for s in verdict.suggestions:
+            print(f"  suggestion: {s}")
+        if not verdict.approved:
+            return 1
+
+    return 1 if (recon.fail + sum(1 for a in anom.anomalies if a.severity == "fail")) > 0 else 0
+
+
+def cmd_test(args) -> int:
+    return _run([sys.executable, "-m", "pytest", "tests/", "-v"])
+
+
+def cmd_dashboard(args) -> int:
+    return _run([sys.executable, "-m", "streamlit", "run", "vnstock_dashboard.py"])
+
+
+def cmd_all(args) -> int:
+    """sync → validate → test → audit. Stops on first hard failure."""
+    for name, fn in (
+        ("sync", cmd_sync),
+        ("validate", cmd_validate),
+        ("test", cmd_test),
+        ("audit", cmd_audit),
+    ):
+        print(f"\n=== run.py all :: {name} ===")
+        rc = fn(args)
+        if rc == 2:
+            print(f"[run.py] {name} returned hard failure → stopping")
+            return 2
+        if rc == 1:
+            print(f"[run.py] {name} returned warnings → continuing")
+    return 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _run(cmd: list[str]) -> int:
+    """Run a subprocess in the repo root, streaming its output."""
+    print(f"[run.py] $ {' '.join(cmd)}")
+    proc = subprocess.run(cmd, cwd=str(REPO_ROOT))
+    return proc.returncode
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CLI
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--warehouse", default=str(DEFAULT_WAREHOUSE))
+    sub = p.add_subparsers(dest="subcommand", required=True)
+
+    sub.add_parser("scan", help="Collect and print a HealthSnapshot")
+    sub.add_parser("sync", help="Incremental daily updater + rollup")
+    sub.add_parser("validate", help="Re-run pandera contracts over full warehouse")
+
+    audit = sub.add_parser("audit", help="Reconciler + anomaly scan")
+    audit.add_argument("--lookback", type=int, default=60)
+    audit.add_argument("--llm", action="store_true",
+                       help="Also ask the Auditor agent for a second opinion")
+    audit.add_argument("--auditor", choices=["auto", "claude", "gpt", "null"],
+                       default="auto")
+
+    sub.add_parser("test", help="Run pytest")
+    sub.add_parser("dashboard", help="Launch the Streamlit dashboard")
+
+    all_ = sub.add_parser("all", help="sync → validate → test → audit")
+    all_.add_argument("--lookback", type=int, default=60)
+    all_.add_argument("--llm", action="store_true")
+    all_.add_argument("--auditor", choices=["auto", "claude", "gpt", "null"],
+                      default="auto")
+
+    return p
+
+
+_DISPATCH = {
+    "scan": cmd_scan,
+    "sync": cmd_sync,
+    "validate": cmd_validate,
+    "audit": cmd_audit,
+    "test": cmd_test,
+    "dashboard": cmd_dashboard,
+    "all": cmd_all,
+}
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    handler = _DISPATCH[args.subcommand]
+    return handler(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

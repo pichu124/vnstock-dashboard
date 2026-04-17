@@ -3657,7 +3657,7 @@ with st.sidebar:
         </style>""", unsafe_allow_html=True)
 
 # ── NAVIGATION (dùng pills thay tabs để tránh lazy-render) ────────────────────
-_TAB_OPTIONS = ["📊 Screener", "🔬 Phân tích", "🌏 Thị trường", "💰 Dòng Tiền", "💼 Portfolio"]
+_TAB_OPTIONS = ["📊 Screener", "🔬 Phân tích", "🌏 Thị trường", "💰 Dòng Tiền", "💼 Portfolio", "⚕️ Sức khỏe"]
 _active_tab = st.pills("", _TAB_OPTIONS, default="📊 Screener", key="nav_tab")
 
 # ══════════════════════════════════════════════════════
@@ -6327,3 +6327,15 @@ if _active_tab == "💼 Portfolio":
             positions.pop(rows[_del_i]["idx"])
             save_portfolio(positions)
             st.rerun()
+
+
+# ══════════════════════════════════════════════════════
+# TAB 6: SYSTEM HEALTH (Feature 3C)
+# ══════════════════════════════════════════════════════
+if _active_tab == "⚕️ Sức khỏe":
+    try:
+        from vnstock_health import render_health_tab
+        render_health_tab()
+    except Exception as _e:
+        st.error(f"Không render được Health tab: {_e}")
+        st.caption("Kiểm tra `vnstock_health.py` và các file metadata trong `data_warehouse/_meta/`.")
