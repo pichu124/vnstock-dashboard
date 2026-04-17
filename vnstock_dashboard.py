@@ -252,9 +252,11 @@ def _fetch_foreign_net_flow(trading_days: int = 20, limit: int = 100) -> pd.Data
 
         dt_str = dt.strftime("%Y-%m-%d")
         day_rows: dict[str, dict] = {}
-        for fetch_fn in (ts.foreign_buy, ts.foreign_sell):
-            is_buy_endpoint = (fetch_fn is ts.foreign_buy)
-            _side = "buy" if is_buy_endpoint else "sell"
+        # Use explicit labels — `fetch_fn is ts.foreign_buy` doesn't work
+        # because bound methods are created fresh on each attribute access,
+        # so `fn_at_tuple_time is fn_at_compare_time` is always False.
+        for _side, fetch_fn in (("buy", ts.foreign_buy), ("sell", ts.foreign_sell)):
+            is_buy_endpoint = (_side == "buy")
             try:
                 df = fetch_fn(date=dt_str, limit=limit)
                 # Capture state on first attempt
