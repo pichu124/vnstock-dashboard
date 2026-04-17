@@ -432,13 +432,28 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
     }
 
 
+def _json_safe(obj):
+    """Convert numpy/pandas types to Python native for JSON serialization."""
+    import numpy as np
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating,)):
+        if np.isnan(obj):
+            return None
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return str(obj)
+
+
 def save_market_overview(data: dict, warehouse: str = "data_warehouse"):
     """Save market overview to JSON."""
     meta_dir = Path(warehouse) / "_meta"
     meta_dir.mkdir(parents=True, exist_ok=True)
     out_path = meta_dir / MARKET_OVERVIEW_FILE
     with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+        json.dump(data, f, ensure_ascii=False, indent=2, default=_json_safe,
+                  allow_nan=False)
     console.print(f"[green]✅ Market overview → {out_path}[/green]")
     return out_path
 

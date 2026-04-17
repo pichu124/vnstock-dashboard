@@ -1689,6 +1689,7 @@ def resample_ohlcv(df: pd.DataFrame, rule: str) -> pd.DataFrame:
 
 
 _FUND_CACHE_DIR = Path("data_warehouse/_meta/fund_cache")
+_FUND_CACHE_VER = 2
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -1703,7 +1704,9 @@ def load_fundamental(ticker: str) -> dict:
         try:
             age = datetime.now().timestamp() - _fpath.stat().st_mtime
             if age < 86400:  # 24 giờ
-                return json.loads(_fpath.read_text(encoding="utf-8"))
+                cached = json.loads(_fpath.read_text(encoding="utf-8"))
+                if cached.get("_cache_ver") == _FUND_CACHE_VER:
+                    return cached
         except (OSError, json.JSONDecodeError):
             pass
 
@@ -1738,28 +1741,64 @@ def load_fundamental(ticker: str) -> dict:
                 row = overview.iloc[0] if len(overview) > 0 else None
                 if row is not None:
                     def _ov(df_row, *keys):
+                        _norm = lambda s: s.lower().replace(" ", "").replace("_", "").replace("/", "")
+                        col_cache = [(_c, _norm(str(_c))) for _c in overview.columns]
+
+                        def _try(col_name):
+                            try:
+                                v = df_row[col_name]
+                                if v is not None and not pd.isna(v):
+                                    return float(v)
+                            except Exception:
+                                pass
+                            return None
+
+                        # Pass 1: exact match
                         for k in keys:
-                            kl = k.lower().replace(" ", "").replace("_", "")
-                            for col in overview.columns:
-                                cl = str(col).lower().replace(" ", "").replace("_", "")
+                            kl = _norm(k)
+                            for col, cl in col_cache:
+                                if cl == kl:
+                                    v = _try(col)
+                                    if v is not None:
+                                        return v
+                        # Pass 2: prefix/suffix match
+                        for k in keys:
+                            kl = _norm(k)
+                            for col, cl in col_cache:
+                                if cl.startswith(kl) or cl.endswith(kl):
+                                    v = _try(col)
+                                    if v is not None:
+                                        return v
+                        # Pass 3: substring (only keys >= 5 chars to avoid false positives)
+                        for k in keys:
+                            kl = _norm(k)
+                            if len(kl) < 5:
+                                continue
+                            for col, cl in col_cache:
                                 if kl in cl:
-                                    try:
-                                        v = df_row[col]
-                                        if v is not None and not pd.isna(v):
-                                            return float(v)
-                                    except Exception:
-                                        continue
+                                    v = _try(col)
+                                    if v is not None:
+                                        return v
                         return None
 
                     result["market_cap"] = _ov(row, "vonhoathitruong", "marketcap", "market_cap", "chartercapital")
-                    result["shares_outstanding"] = _ov(row, "klcpluuhanh", "sharesoutstanding", "outstanding", "listedvolume")
-                    result["shares_listed"] = _ov(row, "klcpniemyet", "shareslisted", "listed", "listedvolume")
+                    result["shares_outstanding"] = _ov(row, "klcpluuhanh", "sharesoutstanding", "outstanding")
+                    result["shares_listed"] = _ov(row, "klcpniemyet", "shareslisted", "issueshare")
                     result["avg_vol_10"] = _ov(row, "khoplenh10phien", "avgvolume", "avg_vol", "averagevolume")
-                    result["pe"] = _ov(row, "p/e", "pe")
-                    result["pb"] = _ov(row, "p/b", "pb")
-                    result["eps"] = _ov(row, "eps")
-                    result["book_value"] = _ov(row, "giatrisosach", "bookvalue", "bvps", "parvalue")
+                    result["pe"] = _ov(row, "pe", "pricetoearning")
+                    result["pb"] = _ov(row, "pb", "pricetobook")
+                    result["eps"] = _ov(row, "eps", "earningpershare")
+                    result["book_value"] = _ov(row, "giatrisosach", "bookvalue", "bvps")
                     result["dividend_yield"] = _ov(row, "tysuatcotuc", "dividendyield")
+
+                    # Sanity checks — reject obviously wrong values
+                    if result.get("pe") is not None and abs(result["pe"]) > 500:
+                        result["pe"] = None
+                    if result.get("pb") is not None and abs(result["pb"]) > 100:
+                        result["pb"] = None
+                    if result.get("eps") is not None and abs(result["eps"]) > 1e6:
+                        result["eps"] = None
+
                     result["_overview_cols"] = [str(c) for c in overview.columns[:30]]
         except Exception:
             pass
@@ -1790,23 +1829,53 @@ def load_fundamental(ticker: str) -> dict:
                         "index", "ticker", "symbol", "len")
 
                 def _rv(*keys):
+                    _norm = lambda s: s.lower().replace(" ", "").replace("_", "").replace("/", "")
+                    col_cache = []
+                    for col in ratios.columns:
+                        cs = " ".join(str(c) for c in col).lower() if isinstance(col, tuple) else str(col).lower()
+                        cc = cs.replace(" ", "").replace("_", "").replace("/", "")
+                        if any(sp in cc for sp in skip):
+                            continue
+                        col_cache.append((col, cc))
+
+                    def _try_rv(col_name):
+                        try:
+                            v = row[col_name]
+                            if v is not None and not pd.isna(v):
+                                fv = float(v)
+                                if abs(fv) > 1e9:
+                                    return None
+                                return fv
+                        except Exception:
+                            pass
+                        return None
+
+                    # Pass 1: exact match
                     for k in keys:
-                        kl = k.lower().replace(" ", "").replace("_", "")
-                        for col in ratios.columns:
-                            cs = " ".join(str(c) for c in col).lower() if isinstance(col, tuple) else str(col).lower()
-                            cc = cs.replace(" ", "").replace("_", "")
-                            if any(sp in cc for sp in skip):
-                                continue
-                            if kl in cc or kl in cs:
-                                try:
-                                    v = row[col]
-                                    if v is not None and not pd.isna(v):
-                                        fv = float(v)
-                                        if kl in ("p/e", "pe", "p/b", "pb") and fv > 500:
-                                            continue
-                                        return fv
-                                except Exception:
-                                    continue
+                        kl = _norm(k)
+                        for col, cc in col_cache:
+                            if cc == kl:
+                                v = _try_rv(col)
+                                if v is not None:
+                                    return v
+                    # Pass 2: prefix/suffix
+                    for k in keys:
+                        kl = _norm(k)
+                        for col, cc in col_cache:
+                            if cc.startswith(kl) or cc.endswith(kl):
+                                v = _try_rv(col)
+                                if v is not None:
+                                    return v
+                    # Pass 3: substring (long keys only)
+                    for k in keys:
+                        kl = _norm(k)
+                        if len(kl) < 5:
+                            continue
+                        for col, cc in col_cache:
+                            if kl in cc:
+                                v = _try_rv(col)
+                                if v is not None:
+                                    return v
                     return None
 
                 # Only fill if overview didn't provide
@@ -1841,6 +1910,7 @@ def load_fundamental(ticker: str) -> dict:
     # Persist to disk (24h cache)
     if result and "error" not in result:
         try:
+            result["_cache_ver"] = _FUND_CACHE_VER
             _FUND_CACHE_DIR.mkdir(parents=True, exist_ok=True)
             _fpath.write_text(
                 json.dumps(result, ensure_ascii=False, default=str),
@@ -2967,11 +3037,15 @@ def _load_all_market_data() -> tuple:
         merged  = tick_df.merge(ind_df, on="ticker", how="left")
         merged["industry"] = merged["industry"].fillna("Khác")
 
-        # ── Foreign flow từ TopStock API (reuse shared helper) ────────────────
-        _nn_raw_mkt = _fetch_foreign_net_flow(trading_days=20, limit=100)
-        _nn_w  = _aggregate_nn_by_window(_nn_raw_mkt, 7)    # 1 tuần
-        _nn_m  = _aggregate_nn_by_window(_nn_raw_mkt, 30)   # 1 tháng
-        _nn_3m = _aggregate_nn_by_window(_nn_raw_mkt, 90)   # 3 tháng
+        # ── Foreign flow từ TopStock API (isolated so failure doesn't block table)
+        _nn_w, _nn_m, _nn_3m = {}, {}, {}
+        try:
+            _nn_raw_mkt = _fetch_foreign_net_flow(trading_days=20, limit=100)
+            _nn_w  = _aggregate_nn_by_window(_nn_raw_mkt, 7)    # 1 tuần
+            _nn_m  = _aggregate_nn_by_window(_nn_raw_mkt, 30)   # 1 tháng
+            _nn_3m = _aggregate_nn_by_window(_nn_raw_mkt, 90)   # 3 tháng
+        except Exception as e:
+            log.warning("NN flow fetch failed (non-blocking): %s", e)
 
         # ── Aggregate theo ngành ──────────────────────────────────────────────
         def agg(grp):
@@ -4832,7 +4906,7 @@ if _active_tab == "🌏 Thị trường":
         _sort_asc = (_sort_dir == "↑ Tăng")
 
         # ── Bảng tổng hợp (ẩn khi drill-down) ─────────────────────────────────
-        has_foreign = mkt_df["NN 1T (tỷ)"].notna().any()
+        has_foreign = "NN 1T (tỷ)" in mkt_df.columns and mkt_df["NN 1T (tỷ)"].notna().any()
         _show_sector_table = (_selected_nganh == "Tổng quan theo ngành")
 
         # ── Color scale cho Biên độ (tương quan giữa ngành + khung thời gian) ──
