@@ -251,6 +251,11 @@ def _fetch_foreign_net_flow(trading_days: int = 20, limit: int = 100) -> pd.Data
             is_buy_endpoint = (fetch_fn is ts.foreign_buy)
             try:
                 df = fetch_fn(date=dt_str, limit=limit)
+                # Capture state for diagnostic (buy endpoint only)
+                if is_buy_endpoint and days_fetched == 0:
+                    if not hasattr(_fetch_foreign_net_flow, "_diag_buy_state"):
+                        _state = "empty" if (df is None or df.empty) else f"ok ({len(df)} rows)"
+                        setattr(_fetch_foreign_net_flow, "_diag_buy_state", _state)
                 if df is not None and not df.empty:
                     # Capture diagnostic info once for debugging
                     if days_fetched == 0:
@@ -306,6 +311,9 @@ def _fetch_foreign_net_flow(trading_days: int = 20, limit: int = 100) -> pd.Data
                         else:
                             entry["sell_value"] = max(entry["sell_value"], val)
             except Exception as e:
+                if is_buy_endpoint and not hasattr(_fetch_foreign_net_flow, "_diag_buy_state"):
+                    setattr(_fetch_foreign_net_flow, "_diag_buy_state",
+                            f"exception: {type(e).__name__}: {str(e)[:100]}")
                 errors.append(f"{fetch_fn.__name__}({dt_str}): {e}")
                 continue
 
@@ -5714,14 +5722,15 @@ if _active_tab == "💰 Dòng Tiền":
     _total_sell = sum(v.get("sell", 0) for v in _nn_bs_by_ticker.values())
     if _total_buy == 0 and _total_sell > 0:
         _diag = getattr(_fetch_foreign_net_flow, "_diag_buy", None)
-        if _diag:
-            with st.expander("⚠️ NN Mua = 0 — debug info (foreign_buy columns)"):
-                st.caption(f"foreign_buy() returned {_diag['rows']} rows")
-                st.caption(f"Columns: {_diag['columns']}")
-                st.caption(f"Sample row: {_diag['sample']}")
-        else:
-            st.warning("⚠️ foreign_buy() không trả dữ liệu — NN Mua sẽ = 0. "
-                       "Thử Xoá cache và chờ 10 phút để fetch lại.")
+        _state = getattr(_fetch_foreign_net_flow, "_diag_buy_state", "unknown")
+        with st.expander("⚠️ NN Mua = 0 — debug info (foreign_buy)"):
+            st.caption(f"**State:** {_state}")
+            if _diag:
+                st.caption(f"**Rows:** {_diag['rows']}")
+                st.caption(f"**Columns:** {_diag['columns']}")
+                st.caption(f"**Sample row:** {_diag['sample']}")
+            else:
+                st.caption("foreign_buy() never returned data — check the state above.")
 
     # GTGD aggregated across the same window (1D=latest session, 5D=5 trading
     # days, 20D=20 trading days). Always use warehouse for consistency.
