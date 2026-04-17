@@ -630,6 +630,7 @@ def rebuild_recent(
 
     import time as _t
     fixed_count = 0
+    detected_count = 0
     ticker_count = 0
     for td in ticker_dirs:
         ticker = td.name.split("=")[1]
@@ -670,6 +671,7 @@ def rebuild_recent(
             if len(suspect_dates) > 3:
                 console.print(f"    ... and {len(suspect_dates)-3} more")
 
+            detected_count += len(suspect_dates)
             if dry_run:
                 continue
 
@@ -699,12 +701,17 @@ def rebuild_recent(
             console.print(f"[red]✗ {ticker}: {type(e).__name__}: {e}[/red]")
             console.print(f"[dim]{traceback.format_exc()[-300:]}[/dim]")
 
-    if fixed_count == 0:
+    if detected_count == 0:
         console.print("[green]✓ No inflated dates found[/green]")
+    elif dry_run:
+        console.print(
+            f"\n[yellow][bold]Found {detected_count} inflated date(s). "
+            f"Run without --dry-run to fix.[/bold][/yellow]"
+        )
     else:
         console.print(
-            f"\n[bold]Rebuilt {fixed_count} date(s) across "
-            f"{ticker_count} ticker(s)[/bold]"
+            f"\n[bold green]✓ Rebuilt {fixed_count} date(s) across "
+            f"{ticker_count} ticker(s)[/bold green]"
         )
 
 
