@@ -191,6 +191,74 @@ def test_empty_df_returns_empty():
     assert scan_ticker(pd.DataFrame(), "X") == []
 
 
+# ── corp-action-aware skipping ─────────────────────────────────────────────
+
+def _make_events(rows):
+    return pd.DataFrame(rows, columns=["ticker", "ex_date", "type",
+                                         "cash_amount", "ratio", "raw"])
+
+
+def test_zero_vol_move_skipped_on_cash_ex_date():
+    # prev close 100, today close 95 (=-5% after 5.0 cash div), volume=0
+    df = _make_series(
+        ["2026-04-15", "2026-04-16"],
+        closes=[100.0, 95.0],
+        volumes=[1_000_000, 0],
+    )
+    events = _make_events([
+        {"ticker": "X", "ex_date": "2026-04-16", "type": "cash",
+         "cash_amount": 5.0, "ratio": None, "raw": ""},
+    ])
+    out = scan_ticker(df, "X", exchange="HOSE", events=events)
+    assert not any(a.kind == "zero_vol_move" for a in out)
+
+
+def test_zero_vol_move_still_flagged_without_event():
+    df = _make_series(
+        ["2026-04-15", "2026-04-16"],
+        closes=[100.0, 95.0],
+        volumes=[1_000_000, 0],
+    )
+    out = scan_ticker(df, "X", exchange="HOSE")
+    assert any(a.kind == "zero_vol_move" for a in out)
+
+
+def test_band_skipped_on_split_ex_date():
+    # 2-for-1 split: close goes 200 → 100 (-50%). Without events this trips
+    # band + ohlc; with split event on that date, both should be suppressed.
+    df = _make_series(
+        ["2026-04-15", "2026-04-16"],
+        closes=[200.0, 100.0],
+    )
+    events = _make_events([
+        {"ticker": "X", "ex_date": "2026-04-16", "type": "split",
+         "cash_amount": None, "ratio": 2.0, "raw": ""},
+    ])
+    out = scan_ticker(df, "X", exchange="HOSE", events=events)
+    assert not any(a.kind == "band" for a in out)
+    assert not any(a.kind == "ohlc" for a in out)
+
+
+def test_band_still_flagged_without_split_event():
+    df = _make_series(
+        ["2026-04-15", "2026-04-16"],
+        closes=[200.0, 100.0],
+    )
+    out = scan_ticker(df, "X", exchange="HOSE")
+    assert any(a.kind == "band" for a in out)
+
+
+def test_empty_events_df_behaves_like_no_events():
+    df = _make_series(
+        ["2026-04-15", "2026-04-16"],
+        closes=[100.0, 95.0],
+        volumes=[1_000_000, 0],
+    )
+    out = scan_ticker(df, "X", exchange="HOSE",
+                      events=pd.DataFrame(columns=["ticker", "ex_date", "type"]))
+    assert any(a.kind == "zero_vol_move" for a in out)
+
+
 def test_lookback_limits_scan():
     dates = pd.bdate_range("2026-01-01", periods=50)
     closes = [100.0] * 49 + [120.0]   # breach on last bar only

@@ -16,7 +16,8 @@ def test_build_parser_lists_all_subcommands():
         a for a in parser._actions if isinstance(a, argparse._SubParsersAction)
     )
     names = set(sub_action.choices.keys())
-    assert {"scan", "sync", "validate", "audit", "test", "dashboard", "all"} <= names
+    assert {"scan", "sync", "validate", "audit", "refresh-metadata",
+            "test", "dashboard", "all"} <= names
 
 
 def test_dispatch_table_matches_parser():

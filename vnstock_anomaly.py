@@ -145,28 +145,12 @@ def _count_by(items: list[Anomaly], attr: str) -> dict[str, int]:
 
 
 def _load_exchange_map(warehouse: Path) -> dict[str, str]:
-    """Return {ticker: exchange} from the classifier cache. Empty on miss."""
-    path = warehouse / META_SUBDIR / "industry_classification.parquet"
-    if not path.exists():
-        return {}
+    """Return {ticker: exchange}. Merges exchange_map.json + classifier parquet."""
     try:
-        df = pd.read_parquet(path)
+        from vnstock_exchange_map import load_exchange_map as _load
+        return _load(warehouse)
     except Exception:
         return {}
-    if "ticker" not in df.columns or "exchange" not in df.columns:
-        return {}
-    mp: dict[str, str] = {}
-    for _, row in df[["ticker", "exchange"]].dropna().iterrows():
-        ex = str(row["exchange"]).strip().upper()
-        if ex in BAND_PCT:
-            mp[str(row["ticker"]).upper()] = ex
-        elif "HO" in ex or "HSX" in ex:
-            mp[str(row["ticker"]).upper()] = "HOSE"
-        elif "HN" in ex:
-            mp[str(row["ticker"]).upper()] = "HNX"
-        elif "UP" in ex:
-            mp[str(row["ticker"]).upper()] = "UPCOM"
-    return mp
 
 
 def band_for(ticker: str, exchange_map: dict[str, str]) -> tuple[str, float]:
@@ -185,18 +169,41 @@ def scan_ticker(
     *,
     exchange: str = "_UNKNOWN",
     lookback: int | None = None,
+    events: pd.DataFrame | None = None,
 ) -> list[Anomaly]:
     """
     Run all anomaly checks on a single ticker's daily OHLCV.
 
     ``df`` must have: time, open, high, low, close, volume. Sorted by time.
     ``lookback`` restricts to the last N rows (after sort).
+    ``events`` is an optional DataFrame of corp-action events (from
+    vnstock_adjust.load_events). When provided, bars whose trading date
+    matches an ex-date are exempted from ``zero_vol_move`` (cash-div
+    mechanical adjustment) and, for splits/bonuses, from the ``band`` and
+    ``ohlc`` checks (price legitimately jumps by the split ratio).
     """
     if df is None or df.empty:
         return []
     df = df.copy()
     df["time"] = pd.to_datetime(df["time"])
     df = df.sort_values("time").reset_index(drop=True)
+
+    # Build ex-date lookups {date: {type}} from events
+    cash_ex: set[pd.Timestamp] = set()
+    split_ex: set[pd.Timestamp] = set()
+    if events is not None and not events.empty and "ex_date" in events.columns:
+        evs = events.copy()
+        evs["ex_date"] = pd.to_datetime(evs["ex_date"]).dt.normalize()
+        for _, r in evs.iterrows():
+            d = r["ex_date"]
+            if pd.isna(d):
+                continue
+            t = str(r.get("type", "")).lower()
+            if t == "cash":
+                cash_ex.add(d)
+            elif t in ("split", "bonus"):
+                split_ex.add(d)
+                cash_ex.add(d)  # any ex-date dampens zero-vol-move too
 
     out: list[Anomaly] = []
     band = BAND_PCT.get(exchange, BAND_PCT["_UNKNOWN"]) + BAND_TOLERANCE_PCT
@@ -216,10 +223,17 @@ def scan_ticker(
     for _, row in scan.iterrows():
         prev_c = row.get("prev_close")
         chg = row.get("chg_pct")
+        ts_norm = row["time"].normalize()
         ts = str(row["time"].date())
 
+        on_cash_ex = ts_norm in cash_ex
+        on_split_ex = ts_norm in split_ex
+
         # 1) close breaches the band
-        if pd.notna(prev_c) and pd.notna(chg) and abs(chg) > band:
+        #    Skip on split/bonus ex-date: price legitimately rescales.
+        if (not on_split_ex
+                and pd.notna(prev_c) and pd.notna(chg)
+                and abs(chg) > band):
             sev = "fail" if abs(chg) > band * 1.5 else "warn"
             out.append(Anomaly(
                 ticker=ticker, trading_date=ts, kind="band", severity=sev,
@@ -230,14 +244,17 @@ def scan_ticker(
             ))
 
         # 2) high/low outside the band (print errors)
+        #    Also skipped on split ex-date.
         hi = row.get("hi_pct"); lo = row.get("lo_pct")
-        if pd.notna(hi) and hi > band * 1.05:
+        if (not on_split_ex
+                and pd.notna(hi) and hi > band * 1.05):
             out.append(Anomaly(
                 ticker=ticker, trading_date=ts, kind="ohlc", severity="warn",
                 detail=f"high {hi:+.2f}% > band +{band:.2f}%",
                 metrics={"hi_pct": round(float(hi), 3)},
             ))
-        if pd.notna(lo) and lo < -band * 1.05:
+        if (not on_split_ex
+                and pd.notna(lo) and lo < -band * 1.05):
             out.append(Anomaly(
                 ticker=ticker, trading_date=ts, kind="ohlc", severity="warn",
                 detail=f"low {lo:+.2f}% < band -{band:.2f}%",
@@ -269,7 +286,11 @@ def scan_ticker(
             ))
 
         # 5) zero volume but price changed
-        if pd.notna(v) and v == 0 and pd.notna(chg) and abs(chg) > 0.5:
+        #    Skipped on any cash/split/bonus ex-date — price moved due to the
+        #    mechanical corp-action adjustment, not a real print error.
+        if (not on_cash_ex
+                and pd.notna(v) and v == 0
+                and pd.notna(chg) and abs(chg) > 0.5):
             out.append(Anomaly(
                 ticker=ticker, trading_date=ts, kind="zero_vol_move",
                 severity="fail",
@@ -325,6 +346,12 @@ def scan_warehouse(
     scanned = 0
     skipped_non_stock = 0
 
+    # Lazy import to avoid hard dep when vnstock_adjust isn't needed
+    try:
+        from vnstock_adjust import load_events
+    except ImportError:
+        load_events = None  # type: ignore
+
     for ticker, df in _iter_warehouse_tickers(warehouse):
         if tickers and ticker not in tickers:
             continue
@@ -333,9 +360,11 @@ def scan_warehouse(
             continue
         scanned += 1
         ex, _band = band_for(ticker, exchange_map)
+        events = load_events(ticker, warehouse) if load_events else None
         try:
             anomalies.extend(
-                scan_ticker(df, ticker, exchange=ex, lookback=lookback)
+                scan_ticker(df, ticker, exchange=ex, lookback=lookback,
+                            events=events)
             )
         except Exception as e:
             print(f"[anomaly] {ticker}: {e}", file=sys.stderr)

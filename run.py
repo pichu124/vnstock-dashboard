@@ -164,6 +164,52 @@ def cmd_audit(args) -> int:
     return 1 if (recon.fail + sum(1 for a in anom.anomalies if a.severity == "fail")) > 0 else 0
 
 
+def cmd_refresh_metadata(args) -> int:
+    """Build/refresh the cheap metadata caches used by the audit pipeline.
+
+    * exchange_map.json  → listing-based HOSE/HNX/UPCOM map (one API call
+      per exchange, very fast).
+    * corp_actions/{TICKER}.parquet → per-ticker dividend + split events
+      for bulk-refresh when ``--events`` is passed. This makes the anomaly
+      scanner skip ex-dates and the adjusted-price layer work.
+    """
+    from vnstock_exchange_map import build_exchange_map
+
+    warehouse = Path(args.warehouse)
+    m = build_exchange_map(warehouse, verbose=True)
+    print(f"[refresh] exchange_map: {len(m)} tickers")
+
+    if args.events:
+        from vnstock_adjust import refresh_events
+        from vnstock_anomaly import _is_stock
+        # Only refresh for real stocks
+        prices_dir = warehouse / "prices"
+        tickers = sorted(
+            p.name.removeprefix("ticker=")
+            for p in prices_dir.glob("ticker=*")
+            if p.is_dir() and _is_stock(p.name.removeprefix("ticker="))
+        )
+        if args.limit:
+            tickers = tickers[: args.limit]
+        print(f"[refresh] fetching corp-action events for {len(tickers)} tickers...")
+        success = skip = fail = 0
+        for i, t in enumerate(tickers, 1):
+            try:
+                ev = refresh_events(t, warehouse)
+                if ev.empty:
+                    skip += 1
+                else:
+                    success += 1
+            except Exception as e:
+                fail += 1
+                print(f"  [{i}/{len(tickers)}] {t}: {e}", file=sys.stderr)
+            if i % 50 == 0:
+                print(f"  progress: {i}/{len(tickers)} "
+                      f"(ok={success} skip={skip} fail={fail})")
+        print(f"[refresh] events: ok={success} skip={skip} fail={fail}")
+    return 0
+
+
 def cmd_test(args) -> int:
     return _run([sys.executable, "-m", "pytest", "tests/", "-v"])
 
@@ -229,6 +275,13 @@ def build_parser() -> argparse.ArgumentParser:
     audit.add_argument("--include-non-stocks", action="store_true",
                        help="Include CW / bonds / futures / indices in anomaly scan")
 
+    refresh = sub.add_parser("refresh-metadata",
+                             help="Rebuild exchange_map.json (and optionally corp-action events)")
+    refresh.add_argument("--events", action="store_true",
+                         help="Also fetch corp-action events per ticker (slow, uses API)")
+    refresh.add_argument("--limit", type=int, default=0,
+                         help="With --events, process at most N tickers (for testing)")
+
     sub.add_parser("test", help="Run pytest")
     sub.add_parser("dashboard", help="Launch the Streamlit dashboard")
 
@@ -246,6 +299,7 @@ _DISPATCH = {
     "sync": cmd_sync,
     "validate": cmd_validate,
     "audit": cmd_audit,
+    "refresh-metadata": cmd_refresh_metadata,
     "test": cmd_test,
     "dashboard": cmd_dashboard,
     "all": cmd_all,
