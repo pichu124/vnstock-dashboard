@@ -252,14 +252,21 @@ def _fetch_foreign_net_flow(trading_days: int = 20, limit: int = 100) -> pd.Data
             try:
                 df = fetch_fn(date=dt_str, limit=limit)
                 if df is not None and not df.empty:
-                    # Log column names once for debugging
-                    if days_fetched == 0 and not hasattr(_fetch_foreign_net_flow, "_cols_logged"):
-                        log.info("TopStock %s columns: %s",
-                                 "foreign_buy" if is_buy_endpoint else "foreign_sell",
-                                 list(df.columns))
-                        if is_buy_endpoint:
-                            log.info("TopStock foreign_buy sample row: %s",
-                                     dict(df.iloc[0]) if len(df) > 0 else "empty")
+                    # Capture diagnostic info once for debugging
+                    if days_fetched == 0:
+                        _diag_key = "_diag_buy" if is_buy_endpoint else "_diag_sell"
+                        if not hasattr(_fetch_foreign_net_flow, _diag_key):
+                            sample_row = dict(df.iloc[0]) if len(df) > 0 else {}
+                            # Convert non-JSON-serializable types to str
+                            sample_row = {k: str(v)[:50] for k, v in sample_row.items()}
+                            setattr(_fetch_foreign_net_flow, _diag_key, {
+                                "columns": list(df.columns),
+                                "sample": sample_row,
+                                "rows": len(df),
+                            })
+                            log.info("TopStock %s cols: %s",
+                                     "foreign_buy" if is_buy_endpoint else "foreign_sell",
+                                     list(df.columns))
                     for _, row in df.iterrows():
                         sym = str(row.get("symbol", ""))
                         if not sym:
@@ -302,7 +309,6 @@ def _fetch_foreign_net_flow(trading_days: int = 20, limit: int = 100) -> pd.Data
                 errors.append(f"{fetch_fn.__name__}({dt_str}): {e}")
                 continue
 
-        _fetch_foreign_net_flow._cols_logged = True
         for sym, ent in day_rows.items():
             # Always compute net from buy - sell (more reliable than
             # trusting the API's net_value which gets overwritten by
@@ -5702,6 +5708,20 @@ if _active_tab == "💰 Dòng Tiền":
     # Aggregate NN ròng + Mua/Bán theo window đã chọn (1D/5D/20D)
     _nn_by_ticker = _aggregate_nn_by_window(_nn_raw, _mf_days)  # {symbol: tỷ VND}
     _nn_bs_by_ticker = _aggregate_nn_buy_sell_by_window(_nn_raw, _mf_days)
+
+    # Diagnostic: warn if foreign_buy() data is missing (NN Mua = 0 for all)
+    _total_buy = sum(v.get("buy", 0) for v in _nn_bs_by_ticker.values())
+    _total_sell = sum(v.get("sell", 0) for v in _nn_bs_by_ticker.values())
+    if _total_buy == 0 and _total_sell > 0:
+        _diag = getattr(_fetch_foreign_net_flow, "_diag_buy", None)
+        if _diag:
+            with st.expander("⚠️ NN Mua = 0 — debug info (foreign_buy columns)"):
+                st.caption(f"foreign_buy() returned {_diag['rows']} rows")
+                st.caption(f"Columns: {_diag['columns']}")
+                st.caption(f"Sample row: {_diag['sample']}")
+        else:
+            st.warning("⚠️ foreign_buy() không trả dữ liệu — NN Mua sẽ = 0. "
+                       "Thử Xoá cache và chờ 10 phút để fetch lại.")
 
     # GTGD aggregated across the same window (1D=latest session, 5D=5 trading
     # days, 20D=20 trading days). Always use warehouse for consistency.
