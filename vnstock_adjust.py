@@ -181,19 +181,51 @@ def _company_sources():
     yield "vnstock:KBS", via_vnstock_kbs
 
 
+_DIVIDEND_METHOD_NAMES = (
+    "dividends",
+    "dividend",
+    "dividend_history",
+    "cash_dividend",
+    "cash_dividend_history",
+    "corporate_action_dividends",
+)
+
+
+def _call_first_working(obj, method_names):
+    """Call the first attribute/method on ``obj`` that returns a non-empty DataFrame."""
+    for name in method_names:
+        try:
+            attr = getattr(obj, name)
+        except AttributeError:
+            continue
+        try:
+            val = attr() if callable(attr) else attr
+        except Exception:
+            continue
+        if val is None:
+            continue
+        try:
+            if hasattr(val, "empty") and val.empty:
+                continue
+        except Exception:
+            pass
+        return name, val
+    return None, None
+
+
 def _extract_dividends(company, ticker: str) -> list[dict]:
-    try:
-        div = company.dividends()
-    except Exception:
-        return []
-    if div is None or div.empty:
+    name, div = _call_first_working(company, _DIVIDEND_METHOD_NAMES)
+    if div is None:
         return []
     div = div.copy()
     div.columns = [c.lower() for c in div.columns]
     out: list[dict] = []
     for _, r in div.iterrows():
-        ex = r.get("exercise_date") or r.get("ex_date") or r.get("record_date")
-        cash = r.get("cash_dividend") or r.get("value") or r.get("amount")
+        ex = (r.get("exercise_date") or r.get("ex_date")
+              or r.get("ex_rights_date") or r.get("record_date"))
+        cash = (r.get("cash_dividend") or r.get("cash_value")
+                or r.get("value") or r.get("amount")
+                or r.get("dividend_value"))
         try:
             cash_val = float(cash) if cash not in (None, "") else None
         except (TypeError, ValueError):
@@ -211,54 +243,123 @@ def _extract_dividends(company, ticker: str) -> list[dict]:
     return out
 
 
+_EVENT_METHOD_NAMES = (
+    "events",
+    "event_history",
+    "corporate_events",
+    "corp_events",
+    "company_events",
+    "events_schedule",
+)
+
+
 def _extract_events(company, ticker: str) -> list[dict]:
-    for attr in ("events", "event_history"):
+    name, evt = _call_first_working(company, _EVENT_METHOD_NAMES)
+    if evt is None:
+        return []
+    evt = evt.copy()
+    evt.columns = [c.lower() for c in evt.columns]
+    out: list[dict] = []
+    for _, r in evt.iterrows():
+        ex = r.get("ex_date") or r.get("exercise_date") or r.get("ex_rights_date")
+        label = str(r.get("event_name") or r.get("title")
+                    or r.get("event") or "").lower()
+        if "split" in label or "chia tách" in label or "tách cổ phiếu" in label:
+            ratio = (r.get("ratio") or r.get("split_ratio")
+                     or r.get("exercise_ratio"))
+            try:
+                ratio_val = float(ratio) if ratio else None
+            except (TypeError, ValueError):
+                ratio_val = None
+            if ex is None or ratio_val is None:
+                continue
+            out.append({
+                "ticker": ticker, "ex_date": ex, "type": "split",
+                "cash_amount": None, "ratio": ratio_val,
+                "raw": str(r.to_dict()),
+            })
+        elif "bonus" in label or "thưởng" in label or "stock dividend" in label:
+            ratio = r.get("ratio") or r.get("exercise_ratio")
+            try:
+                ratio_val = float(ratio) if ratio else None
+            except (TypeError, ValueError):
+                ratio_val = None
+            if ex is None or ratio_val is None:
+                continue
+            out.append({
+                "ticker": ticker, "ex_date": ex, "type": "bonus",
+                "cash_amount": None, "ratio": ratio_val,
+                "raw": str(r.to_dict()),
+            })
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Diagnostic probe — for debugging API changes
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def probe_company(ticker: str) -> dict:
+    """Introspect what each data source exposes for ``ticker``.
+
+    Returns a dict with source name → method/attr lists + sample data.
+    Useful when the vnstock API changes and _extract_* stop matching.
+
+    CLI: ``python vnstock_adjust.py --probe VCB``
+    """
+    out: dict = {"ticker": ticker, "sources": {}}
+    for source_name, resolve in _company_sources():
+        info: dict = {"resolved": False, "error": None,
+                      "methods": [], "attrs": [], "samples": {}}
         try:
-            evt = getattr(company, attr)()
-        except Exception:
+            company = resolve(ticker)
+        except Exception as e:
+            info["error"] = f"{type(e).__name__}: {str(e)[:120]}"
+            out["sources"][source_name] = info
             continue
-        if evt is None or evt.empty:
+        if company is None:
+            info["error"] = "resolver returned None"
+            out["sources"][source_name] = info
             continue
-        evt = evt.copy()
-        evt.columns = [c.lower() for c in evt.columns]
-        out: list[dict] = []
-        for _, r in evt.iterrows():
-            ex = r.get("ex_date") or r.get("exercise_date")
-            name = str(r.get("event_name") or r.get("title") or "").lower()
-            if "split" in name or "chia tách" in name:
-                ratio = r.get("ratio") or r.get("split_ratio")
-                try:
-                    ratio_val = float(ratio) if ratio else None
-                except (TypeError, ValueError):
-                    ratio_val = None
-                if ex is None or ratio_val is None:
-                    continue
-                out.append({
-                    "ticker": ticker,
-                    "ex_date": ex,
-                    "type": "split",
-                    "cash_amount": None,
-                    "ratio": ratio_val,
-                    "raw": str(r.to_dict()),
-                })
-            elif "bonus" in name or "thưởng" in name:
-                ratio = r.get("ratio")
-                try:
-                    ratio_val = float(ratio) if ratio else None
-                except (TypeError, ValueError):
-                    ratio_val = None
-                if ex is None or ratio_val is None:
-                    continue
-                out.append({
-                    "ticker": ticker,
-                    "ex_date": ex,
-                    "type": "bonus",
-                    "cash_amount": None,
-                    "ratio": ratio_val,
-                    "raw": str(r.to_dict()),
-                })
-        return out
-    return []
+
+        info["resolved"] = True
+        for attr_name in sorted(dir(company)):
+            if attr_name.startswith("_"):
+                continue
+            try:
+                val = getattr(company, attr_name)
+            except Exception:
+                continue
+            if callable(val):
+                info["methods"].append(attr_name)
+            else:
+                info["attrs"].append(attr_name)
+
+        # Probe likely candidates + sample columns/shape
+        for candidate in (_DIVIDEND_METHOD_NAMES + _EVENT_METHOD_NAMES):
+            try:
+                attr = getattr(company, candidate)
+            except AttributeError:
+                continue
+            try:
+                val = attr() if callable(attr) else attr
+            except Exception as e:
+                info["samples"][candidate] = f"<error: {type(e).__name__}>"
+                continue
+            if val is None:
+                info["samples"][candidate] = "<None>"
+            elif hasattr(val, "empty") and val.empty:
+                info["samples"][candidate] = "<empty DataFrame>"
+            elif hasattr(val, "columns"):
+                info["samples"][candidate] = {
+                    "shape": list(val.shape),
+                    "columns": list(val.columns),
+                    "head": val.head(2).to_dict(orient="records"),
+                }
+            else:
+                info["samples"][candidate] = f"<{type(val).__name__}>"
+        out["sources"][source_name] = info
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -380,6 +481,35 @@ __all__ = [
     "EVENT_SCHEMA_COLS",
     "apply_adjustments",
     "load_events",
+    "probe_company",
     "refresh_events",
     "with_adjusted_prices",
 ]
+
+
+def _main():
+    import argparse
+    import json as _json
+
+    ap = argparse.ArgumentParser(description="Corporate-action probe/refresh")
+    ap.add_argument("--probe", metavar="TICKER",
+                    help="Introspect what corp-action methods a ticker exposes")
+    ap.add_argument("--refresh", metavar="TICKER",
+                    help="Fetch and cache corp-action events for a ticker")
+    ap.add_argument("--verbose", action="store_true")
+    args = ap.parse_args()
+
+    if args.probe:
+        info = probe_company(args.probe)
+        print(_json.dumps(info, indent=2, default=str, ensure_ascii=False))
+    elif args.refresh:
+        ev = refresh_events(args.refresh, verbose=args.verbose)
+        print(f"[refresh] {args.refresh}: {len(ev)} event(s)")
+        if not ev.empty:
+            print(ev.head(10).to_string(index=False))
+    else:
+        ap.print_help()
+
+
+if __name__ == "__main__":
+    _main()
