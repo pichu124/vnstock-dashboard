@@ -128,12 +128,15 @@ def _fetch_events(ticker: str, *, verbose: bool = False) -> pd.DataFrame:
             continue
         dividends = _extract_dividends(company, ticker)
         events = _extract_events(company, ticker)
+        capital = _extract_capital_history_as_events(company, ticker)
         rows.extend(dividends)
         rows.extend(events)
+        rows.extend(capital)
         if rows:
             if verbose:
                 print(f"  [{ticker}] {source_name}: "
-                      f"{len(dividends)} div, {len(events)} event")
+                      f"{len(dividends)} div, {len(events)} event, "
+                      f"{len(capital)} capital-change")
             break
         elif verbose:
             print(f"  [{ticker}] {source_name}: no data")
@@ -293,6 +296,65 @@ def _extract_events(company, ticker: str) -> list[dict]:
                 "cash_amount": None, "ratio": ratio_val,
                 "raw": str(r.to_dict()),
             })
+    return out
+
+
+def _extract_capital_history_as_events(company, ticker: str) -> list[dict]:
+    """Derive bonus-like events from ``company.capital_history()``.
+
+    Charter-capital changes don't tell us the exact event type (bonus
+    issue vs rights offer vs private placement), but EVERY such change
+    is a legitimate reason for the market price to move on / around the
+    event date. That's enough for the anomaly scanner to suppress false
+    positives on band / ohlc breaches.
+
+    We do NOT emit cash events — capital_history doesn't capture cash
+    dividends (those come out of retained earnings, not capital).
+
+    Returns event rows with ``type="bonus"`` so they go through the
+    existing skip-band-and-ohlc path in scan_ticker.
+    """
+    try:
+        df = company.capital_history()
+    except Exception:
+        return []
+    if df is None:
+        return []
+    try:
+        if df.empty:
+            return []
+    except Exception:
+        return []
+
+    df = df.copy()
+    df.columns = [c.lower() for c in df.columns]
+    if "date" not in df.columns or "charter_capital" not in df.columns:
+        return []
+
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["charter_capital"] = pd.to_numeric(df["charter_capital"], errors="coerce")
+    df = df.dropna(subset=["date", "charter_capital"]).sort_values("date")
+
+    out: list[dict] = []
+    prev_cap: float | None = None
+    for _, r in df.iterrows():
+        cap = float(r["charter_capital"])
+        if cap <= 0:
+            continue
+        if prev_cap is not None and prev_cap > 0:
+            ratio = cap / prev_cap
+            # Only emit if capital grew by >2% — filters floating-point noise
+            # and tiny ESOP issuances that don't meaningfully move the price.
+            if ratio > 1.02:
+                out.append({
+                    "ticker": ticker,
+                    "ex_date": r["date"],
+                    "type": "bonus",
+                    "cash_amount": None,
+                    "ratio": round(ratio, 4),
+                    "raw": str(r.to_dict()),
+                })
+        prev_cap = cap
     return out
 
 
