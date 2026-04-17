@@ -1689,7 +1689,7 @@ def resample_ohlcv(df: pd.DataFrame, rule: str) -> pd.DataFrame:
 
 
 _FUND_CACHE_DIR = Path("data_warehouse/_meta/fund_cache")
-_FUND_CACHE_VER = 2
+_FUND_CACHE_VER = 3
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -1741,7 +1741,16 @@ def load_fundamental(ticker: str) -> dict:
                 row = overview.iloc[0] if len(overview) > 0 else None
                 if row is not None:
                     def _ov(df_row, *keys):
-                        _norm = lambda s: s.lower().replace(" ", "").replace("_", "").replace("/", "")
+                        # Strip parens content (e.g. "EPS (VND)" → "eps") so
+                        # short keys still match exactly. Also drop common
+                        # punctuation that varies across sources.
+                        import re as _re
+                        def _norm(s: str) -> str:
+                            s = str(s).lower()
+                            s = _re.sub(r"\([^)]*\)", "", s)
+                            for ch in (" ", "_", "/", "-", ".", "%", ",", "(", ")"):
+                                s = s.replace(ch, "")
+                            return s
                         col_cache = [(_c, _norm(str(_c))) for _c in overview.columns]
 
                         def _try(col_name):
@@ -1829,11 +1838,17 @@ def load_fundamental(ticker: str) -> dict:
                         "index", "ticker", "symbol", "len")
 
                 def _rv(*keys):
-                    _norm = lambda s: s.lower().replace(" ", "").replace("_", "").replace("/", "")
+                    import re as _re
+                    def _norm(s: str) -> str:
+                        s = str(s).lower()
+                        s = _re.sub(r"\([^)]*\)", "", s)
+                        for ch in (" ", "_", "/", "-", ".", "%", ",", "(", ")"):
+                            s = s.replace(ch, "")
+                        return s
                     col_cache = []
                     for col in ratios.columns:
                         cs = " ".join(str(c) for c in col).lower() if isinstance(col, tuple) else str(col).lower()
-                        cc = cs.replace(" ", "").replace("_", "").replace("/", "")
+                        cc = _norm(cs)
                         if any(sp in cc for sp in skip):
                             continue
                         col_cache.append((col, cc))
@@ -1885,20 +1900,30 @@ def load_fundamental(ticker: str) -> dict:
                     result["pb"] = _rv("p/b", "pricetobook")
                 if result.get("eps") is None:
                     result["eps"] = _rv("eps", "earningpershare")
+                if result.get("book_value") is None:
+                    result["book_value"] = _rv("bvps", "bookvaluepershare", "giátrịsổsách")
                 result["roe"] = _rv("roe", "returnonequity")
                 result["roa"] = _rv("roa", "returnonasset")
                 result["net_margin"] = _rv("biênlợinhuậnròng", "netmargin", "netprofitmargin")
                 result["gross_margin"] = _rv("biênlợinhuậngộp", "grossmargin", "grossprofitmargin")
-                result["debt_ratio"] = _rv("đònbẩytàichính", "debtratio", "debttoequity")
+                result["operating_margin"] = _rv("biênlợinhuậnhoạtđộng", "operatingmargin", "ebitmargin")
+                result["debt_ratio"] = _rv("nợ/tổngtàisản", "debttoasset", "debtratio")
+                result["debt_to_equity"] = _rv("nợ/vcsh", "debttoequity", "đònbẩytàichính")
                 result["current_ratio"] = _rv("thanhtoánhiệnhành", "currentratio")
+                result["quick_ratio"] = _rv("thanhtoánnhanh", "quickratio", "acidtest")
+                result["asset_turnover"] = _rv("vòngquaytàisản", "assetturnover", "totalassetturnover")
                 result["revenue_growth"] = _rv("tăngtrưởngdoanhthu", "revenuegrowth")
                 result["profit_growth"] = _rv("tăngtrưởnglợinhuận", "profitgrowth", "netincomegrowth")
 
                 # Convert ratio to percentage
-                for key in ("roe", "roa", "net_margin", "gross_margin",
+                for key in ("roe", "roa", "net_margin", "gross_margin", "operating_margin",
                              "dividend_yield", "revenue_growth", "profit_growth"):
                     if result.get(key) is not None and abs(result[key]) <= 2:
                         result[key] = round(result[key] * 100, 2)
+
+                # Derived: Earnings yield (%) = 100/PE when PE>0 — sanity helper
+                if result.get("pe") and result["pe"] > 0:
+                    result["earnings_yield"] = round(100.0 / result["pe"], 2)
 
                 result["_ratio_cols"] = [str(c) for c in ratios.columns[:30]]
         except Exception:
@@ -4494,17 +4519,22 @@ if _active_tab == "🔬 Phân tích":
                 st.markdown('<div class="card">', unsafe_allow_html=True)
                 st.markdown('<div class="card-title">Định giá & Sinh lời</div>', unsafe_allow_html=True)
                 ratios = [
-                    ("EPS",              fund.get("eps"),            "nghìn đ"),
-                    ("Book Value",       fund.get("book_value"),     "nghìn đ"),
+                    ("EPS",              fund.get("eps"),            "đ"),
+                    ("Book Value",       fund.get("book_value"),     "đ"),
                     ("P/E",              fund.get("pe"),             "lần"),
                     ("P/B",              fund.get("pb"),             "lần"),
+                    ("Earnings Yield",   fund.get("earnings_yield"), "%"),
                     ("Cổ tức",           fund.get("dividend_yield"), "%"),
                     ("ROE",              fund.get("roe"),            "%"),
                     ("ROA",              fund.get("roa"),            "%"),
                     ("Biên LN gộp",      fund.get("gross_margin"),   "%"),
+                    ("Biên LN hoạt động", fund.get("operating_margin"), "%"),
                     ("Biên LN ròng",     fund.get("net_margin"),     "%"),
-                    ("Tỷ lệ nợ",         fund.get("debt_ratio") or None,     ""),
-                    ("Thanh toán HH",    fund.get("current_ratio") or None,  ""),
+                    ("Tỷ lệ nợ/TS",      fund.get("debt_ratio") or None,     ""),
+                    ("Nợ/VCSH",          fund.get("debt_to_equity") or None, "lần"),
+                    ("Thanh toán HH",    fund.get("current_ratio") or None,  "lần"),
+                    ("Thanh toán nhanh", fund.get("quick_ratio") or None,    "lần"),
+                    ("Vòng quay TS",     fund.get("asset_turnover") or None, "lần"),
                     ("Tăng trưởng DT",   fund.get("revenue_growth"), "%"),
                     ("Tăng trưởng LN",   fund.get("profit_growth"),  "%"),
                 ]
