@@ -226,6 +226,26 @@ BAR_FLUSH_INTERVAL = 60
 # BarAggregator — aggregate ticks → 1m OHLCV bars in-memory
 # ═════════════════════════════════════════════════════════════════════════════
 
+def accum_to_delta(
+    last_accum: Optional[float],
+    last_date: Optional[str],
+    accum: float,
+    today: str,
+) -> float:
+    """
+    Convert session-accumulated volume to per-tick delta for bar aggregation.
+
+    Returns 0.0 as a safety baseline when:
+      - no prior state for this ticker (first tick or restart)
+      - a new trading day has begun
+      - accum went backwards (session reset)
+    Otherwise returns (accum - last_accum).
+    """
+    if last_date != today or last_accum is None or accum < last_accum:
+        return 0.0
+    return max(0.0, float(accum) - float(last_accum))
+
+
 class BarAggregator:
     """
     In-memory 1-minute bar aggregator. Tích lũy tick → OHLCV bar.
@@ -302,6 +322,14 @@ class VnStockWSS:
         self.last_error: Optional[str] = None
         self.subscribed: set[str] = set()
         self.aggregator = BarAggregator()
+
+        # Track last accumulated volume per ticker to convert accum→delta.
+        # Price board returns volume as "accumulated from market open". Without
+        # this conversion, the BarAggregator would sum accumulated values and
+        # inflate daily volume by ~10-30x (one bogus spike per minute × ticks).
+        # Reset when accum decreases (new trading day) or first tick.
+        self._last_accum_vol: dict[str, float] = {}
+        self._last_accum_date: dict[str, str] = {}
 
         self._ws = None
         self._main_thread: Optional[threading.Thread] = None
@@ -820,11 +848,27 @@ class VnStockWSS:
                                   "last", "close", "price")
                     if price is None or price <= 0:
                         continue
-                    volume = _pick(row, "accumulatedvolume", "accum_volume",
-                                   "totalvolume", "volume") or 0
+                    accum_volume = _pick(row, "accumulatedvolume", "accum_volume",
+                                         "totalvolume", "volume") or 0
                     ref = _pick(row, "refprice", "ref_price", "reference")
                     high = _pick(row, "highest", "high") or price
                     low = _pick(row, "lowest", "low") or price
+
+                    # Convert accumulated → delta for bar aggregation.
+                    # First tick (no prior state, or new day): establish a
+                    # baseline with delta=0 rather than emitting the full
+                    # session-accumulated figure as one bogus bar. Daily
+                    # total is filled by the updater API, so missing the
+                    # pre-startup volume here is fine.
+                    today = now_iso[:10]
+                    delta_volume = accum_to_delta(
+                        self._last_accum_vol.get(ticker),
+                        self._last_accum_date.get(ticker),
+                        accum_volume,
+                        today,
+                    )
+                    self._last_accum_vol[ticker] = accum_volume
+                    self._last_accum_date[ticker] = today
 
                     # price_board chỉ trả 3 mức L2 cho mọi instrument
                     bids = _pick_depth_levels(row, cols_list, "bid", 3)
@@ -836,7 +880,8 @@ class VnStockWSS:
                         "ticker": ticker,
                         "time": now_iso,
                         "price": price,
-                        "volume": volume,
+                        "volume": accum_volume,  # JSON quote keeps accum (UI shows session total)
+                        "_delta_volume": delta_volume,  # aggregator uses delta
                         # Backward compat: best bid/ask
                         "bid": bids[0]["price"] if bids else 0,
                         "ask": asks[0]["price"] if asks else 0,
@@ -1159,12 +1204,17 @@ class VnStockWSS:
                 self.last_error = f"write tick {ticker}: {str(e)[:100]}"
 
         # Tầng 2: aggregate 1m bar (ngoài lock vì aggregator có lock riêng)
+        # Prefer _delta_volume (already converted from accum) over raw "volume"
+        # which may be accumulated session total — adding accum would inflate bars.
         try:
             tick_time = pd.to_datetime(tick["time"])
             if tick_time.tz is not None:
                 tick_time = tick_time.tz_convert("Asia/Ho_Chi_Minh").tz_localize(None)
+            bar_volume = tick.get("_delta_volume")
+            if bar_volume is None:
+                bar_volume = tick.get("volume", 0)
             self.aggregator.add_tick(
-                ticker, tick_time, tick["price"], tick.get("volume", 0)
+                ticker, tick_time, tick["price"], bar_volume
             )
         except Exception:
             pass

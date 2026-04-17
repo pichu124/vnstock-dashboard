@@ -277,16 +277,19 @@ def rollup_bars_file(bars_path: Path, dry_run: bool = False) -> dict:
 
             existing = _read_year(ticker_dir, year)
             if not existing.empty:
+                # Existing data (from updater API) is authoritative — rollup only
+                # fills gaps. Rollup-aggregated volume is less reliable than the
+                # daily API, especially for intraday-bar based sources where
+                # accumulated volume may have been summed (see vnstock_wss.py
+                # accum→delta conversion).
                 combined = pd.concat([existing, new_rows], ignore_index=True)
+                combined = (
+                    combined.drop_duplicates(subset=["time"], keep="first")
+                            .sort_values("time")
+                            .reset_index(drop=True)
+                )
             else:
-                combined = new_rows
-
-            # Dedup: keep last (rollup data wins cho cùng date)
-            combined = (
-                combined.drop_duplicates(subset=["time"], keep="last")
-                        .sort_values("time")
-                        .reset_index(drop=True)
-            )
+                combined = new_rows.sort_values("time").reset_index(drop=True)
 
             if dry_run:
                 print(f"[dry-run] {ticker} year={year}: "
