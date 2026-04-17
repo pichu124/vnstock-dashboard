@@ -446,14 +446,26 @@ def _json_safe(obj):
     return str(obj)
 
 
+def _clean_nan(obj):
+    """Recursively replace NaN floats with None for clean JSON output."""
+    import math
+    if isinstance(obj, float) and math.isnan(obj):
+        return None
+    if isinstance(obj, dict):
+        return {k: _clean_nan(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_clean_nan(v) for v in obj]
+    return obj
+
+
 def save_market_overview(data: dict, warehouse: str = "data_warehouse"):
     """Save market overview to JSON."""
     meta_dir = Path(warehouse) / "_meta"
     meta_dir.mkdir(parents=True, exist_ok=True)
     out_path = meta_dir / MARKET_OVERVIEW_FILE
+    cleaned = _clean_nan(data)
     with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2, default=_json_safe,
-                  allow_nan=False)
+        json.dump(cleaned, f, ensure_ascii=False, indent=2, default=_json_safe)
     console.print(f"[green]✅ Market overview → {out_path}[/green]")
     return out_path
 
