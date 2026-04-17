@@ -248,6 +248,7 @@ def _fetch_foreign_net_flow(trading_days: int = 20, limit: int = 100) -> pd.Data
         dt_str = dt.strftime("%Y-%m-%d")
         day_rows: dict[str, dict] = {}
         for fetch_fn in (ts.foreign_buy, ts.foreign_sell):
+            is_buy_endpoint = (fetch_fn is ts.foreign_buy)
             try:
                 df = fetch_fn(date=dt_str, limit=limit)
                 if df is not None and not df.empty:
@@ -255,8 +256,6 @@ def _fetch_foreign_net_flow(trading_days: int = 20, limit: int = 100) -> pd.Data
                         sym = str(row.get("symbol", ""))
                         if not sym:
                             continue
-                        # TopStock row exposes buy_value, sell_value, net_value
-                        # (field names vary across versions — try a few).
                         def _f(*keys):
                             for k in keys:
                                 v = row.get(k)
@@ -269,19 +268,24 @@ def _fetch_foreign_net_flow(trading_days: int = 20, limit: int = 100) -> pd.Data
                         entry = day_rows.setdefault(
                             sym, {"buy_value": 0.0, "sell_value": 0.0, "net_value": 0.0}
                         )
-                        # Merge values from both endpoints (max wins — each
-                        # endpoint only populates the field for that side).
-                        entry["buy_value"] = max(entry["buy_value"], _f("buy_value", "buyvalue", "buy_val"))
-                        entry["sell_value"] = max(entry["sell_value"], _f("sell_value", "sellvalue", "sell_val"))
-                        entry["net_value"] = _f("net_value", "netvalue", "net_val")
+                        # TopStock foreign_buy/sell each return "net_value"
+                        # (or "value") — not separate buy/sell columns.
+                        # Use the endpoint identity to assign correctly.
+                        val = _f("buy_value", "sell_value", "net_value",
+                                 "value", "total_value", "netvalue")
+                        if is_buy_endpoint:
+                            entry["buy_value"] = max(entry["buy_value"], abs(val))
+                        else:
+                            entry["sell_value"] = max(entry["sell_value"], abs(val))
             except Exception as e:
                 errors.append(f"{fetch_fn.__name__}({dt_str}): {e}")
                 continue
 
         for sym, ent in day_rows.items():
-            # Fill net from buy-sell if the API didn't return it directly.
-            if ent["net_value"] == 0 and (ent["buy_value"] or ent["sell_value"]):
-                ent["net_value"] = ent["buy_value"] - ent["sell_value"]
+            # Always compute net from buy - sell (more reliable than
+            # trusting the API's net_value which gets overwritten by
+            # whichever endpoint runs last).
+            ent["net_value"] = ent["buy_value"] - ent["sell_value"]
             all_rows.append({
                 "symbol": sym,
                 "date": dt_str,
@@ -397,17 +401,21 @@ def _compute_gtgd_by_window(window_days: int) -> dict:
                     ).to_pandas())
             if not frames:
                 continue
-            df = pd.concat(frames).sort_values("time")
-            # Keep last N trading rows. Treat 0/1 as "latest only".
+            df = pd.concat(frames)
+            df["time"] = pd.to_datetime(df["time"])
+            df["_date"] = df["time"].dt.date
+            # Deduplicate by date — keep last entry per day to avoid
+            # double-counting from overlapping parquet files.
+            df = df.drop_duplicates(subset=["_date"], keep="last")
+            df = df.sort_values("_date")
             n = max(1, window_days) if window_days > 0 else 1
             df = df.tail(n)
             close = pd.to_numeric(df["close"], errors="coerce").fillna(0).astype(float)
-            # Normalize prices to VND (parquet stores thousands or VND — >500 → already VND).
             close = close.where(close > 500, close * 1000)
             vol = pd.to_numeric(df["volume"], errors="coerce").fillna(0).astype(float)
             gtgd_vnd = float((close * vol).sum())
             if gtgd_vnd > 0:
-                result[ticker] = round(gtgd_vnd / 1e9, 1)  # tỷ VND
+                result[ticker] = round(gtgd_vnd / 1e9, 1)
         except Exception:
             continue
     return result
@@ -1801,7 +1809,27 @@ def resample_ohlcv(df: pd.DataFrame, rule: str) -> pd.DataFrame:
 
 
 _FUND_CACHE_DIR = Path("data_warehouse/_meta/fund_cache")
-_FUND_CACHE_VER = 3
+_FUND_CACHE_VER = 4
+
+
+def _get_warehouse_last_close(ticker: str) -> float | None:
+    """Read last close price (VND) from warehouse parquet for a single ticker."""
+    import pyarrow.parquet as pq
+    td = Path("data_warehouse") / "prices" / f"ticker={ticker.upper()}"
+    if not td.exists():
+        return None
+    try:
+        for yd in sorted(td.glob("year=*"))[-1:]:
+            for pf in sorted(yd.glob("*.parquet"))[-1:]:
+                df = pq.read_table(str(pf), columns=["close"]).to_pandas()
+                if not df.empty:
+                    close = float(df["close"].iloc[-1])
+                    if 0 < close <= 500:
+                        close *= 1000
+                    return close if close > 0 else None
+    except Exception:
+        pass
+    return None
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -1902,7 +1930,7 @@ def load_fundamental(ticker: str) -> dict:
                                         return v
                         return None
 
-                    result["market_cap"] = _ov(row, "vonhoathitruong", "marketcap", "market_cap", "chartercapital")
+                    result["market_cap"] = _ov(row, "vonhoathitruong", "marketcap", "market_cap")
                     result["shares_outstanding"] = _ov(row, "klcpluuhanh", "sharesoutstanding", "outstanding")
                     result["shares_listed"] = _ov(row, "klcpniemyet", "shareslisted", "issueshare")
                     result["avg_vol_10"] = _ov(row, "khoplenh10phien", "avgvolume", "avg_vol", "averagevolume")
@@ -2022,22 +2050,38 @@ def load_fundamental(ticker: str) -> dict:
                                     return v
                     return None
 
-                # Only fill if overview didn't provide
+                # Only fill if overview didn't provide.
+                # Keys include actual VCI Vietnamese column names after _norm:
+                #   'Biên LN gộp (%)' → "biênlngộp"
+                #   'Biên LN sau thuế (%)' → "biênlnsauthuế"
+                #   'Biên EBIT (%)' → "biênebit"
+                #   'Nợ/Vốn chủ' → "nợvốnchủ"
+                #   'Tỷ suất cổ tức (%)' → "tỷsuấtcổtức"
                 if result.get("pe") is None:
-                    result["pe"] = _rv("p/e", "pricetoearning")
+                    result["pe"] = _rv("pe", "pricetoearning")
                 if result.get("pb") is None:
-                    result["pb"] = _rv("p/b", "pricetobook")
+                    result["pb"] = _rv("pb", "pricetobook")
                 if result.get("eps") is None:
                     result["eps"] = _rv("eps", "earningpershare")
                 if result.get("book_value") is None:
                     result["book_value"] = _rv("bvps", "bookvaluepershare", "giátrịsổsách")
+                if result.get("market_cap") is None:
+                    _rmcap = _rv("vốnhóa")
+                    if _rmcap and _rmcap > 0:
+                        result["market_cap"] = _rmcap
+                if result.get("dividend_yield") is None:
+                    result["dividend_yield"] = _rv("tỷsuấtcổtức", "dividendyield")
                 result["roe"] = _rv("roe", "returnonequity")
                 result["roa"] = _rv("roa", "returnonasset")
-                result["net_margin"] = _rv("biênlợinhuậnròng", "netmargin", "netprofitmargin")
-                result["gross_margin"] = _rv("biênlợinhuậngộp", "grossmargin", "grossprofitmargin")
-                result["operating_margin"] = _rv("biênlợinhuậnhoạtđộng", "operatingmargin", "ebitmargin")
-                result["debt_ratio"] = _rv("nợ/tổngtàisản", "debttoasset", "debtratio")
-                result["debt_to_equity"] = _rv("nợ/vcsh", "debttoequity", "đònbẩytàichính")
+                result["net_margin"] = _rv("biênlnsauthuế", "biênlãithuần", "biênlợinhuậnròng",
+                                            "netmargin", "netprofitmargin")
+                result["gross_margin"] = _rv("biênlngộp", "biênlợinhuậngộp",
+                                              "grossmargin", "grossprofitmargin")
+                result["operating_margin"] = _rv("biênebit", "biênlợinhuậnhoạtđộng",
+                                                  "operatingmargin", "ebitmargin")
+                result["debt_ratio"] = _rv("nợtổngtàisản", "debttoasset", "debtratio")
+                result["debt_to_equity"] = _rv("nợvốnchủ", "nợtrênvốnchủ",
+                                                "debttoequity", "đònbẩytàichính")
                 result["current_ratio"] = _rv("thanhtoánhiệnhành", "currentratio")
                 result["quick_ratio"] = _rv("thanhtoánnhanh", "quickratio", "acidtest")
                 result["asset_turnover"] = _rv("vòngquaytàisản", "assetturnover", "totalassetturnover")
@@ -2050,7 +2094,17 @@ def load_fundamental(ticker: str) -> dict:
                     if result.get(key) is not None and abs(result[key]) <= 2:
                         result[key] = round(result[key] * 100, 2)
 
-                # Derived: Earnings yield (%) = 100/PE when PE>0 — sanity helper
+                # Derive EPS and BVPS from P/E, P/B + warehouse last close
+                # when VCI ratio data doesn't include an EPS column.
+                if result.get("eps") is None or result.get("book_value") is None:
+                    _last_close = _get_warehouse_last_close(ticker)
+                    if _last_close and _last_close > 0:
+                        if result.get("eps") is None and result.get("pe") and result["pe"] > 0:
+                            result["eps"] = round(_last_close / result["pe"], 2)
+                        if result.get("book_value") is None and result.get("pb") and result["pb"] > 0:
+                            result["book_value"] = round(_last_close / result["pb"], 2)
+
+                # Derived: Earnings yield (%) = 100/PE when PE>0
                 if result.get("pe") and result["pe"] > 0:
                     result["earnings_yield"] = round(100.0 / result["pe"], 2)
 
