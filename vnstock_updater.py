@@ -452,6 +452,120 @@ def run_check(warehouse: str = "data_warehouse", tickers: list = None):
 # CLI
 # ═════════════════════════════════════════════════════════════════════════════
 
+def fix_volume_spikes(
+    warehouse: str = "data_warehouse",
+    tickers: list = None,
+    threshold: float = 10.0,
+    dry_run: bool = False,
+    delay: float = 0.3,
+):
+    """
+    Detect and fix anomalous volume spikes in warehouse parquet.
+
+    Caused by the pre-fix bug where BarAggregator summed accumulated
+    (session-total) volume as if it were per-tick delta — inflating
+    daily volume by ~10-30x.
+
+    Strategy:
+      1. For each ticker, compute median(volume) over last 60 trading days.
+      2. If any day's volume > threshold × median → mark as suspect.
+      3. Delete suspect rows from parquet.
+      4. Re-fetch those dates from the API (clean daily data).
+
+    Args:
+        threshold: volume > threshold × median_60d → suspect (default 10x)
+    """
+    prices_dir = Path(warehouse) / "prices"
+    if not prices_dir.exists():
+        console.print("[red]❌ Prices dir not found[/red]")
+        return
+
+    ticker_dirs = sorted(prices_dir.glob("ticker=*"))
+    if tickers:
+        tickers_upper = {t.upper() for t in tickers}
+        ticker_dirs = [d for d in ticker_dirs if d.name.split("=")[1] in tickers_upper]
+
+    fixed_total = 0
+    for td in ticker_dirs:
+        ticker = td.name.split("=")[1]
+        try:
+            frames = []
+            for yd in sorted(td.glob("year=*"))[-2:]:
+                for pf in yd.glob("*.parquet"):
+                    frames.append(pq.read_table(str(pf)).to_pandas())
+            if not frames:
+                continue
+            df = pd.concat(frames).sort_values("time").reset_index(drop=True)
+            df["time"] = pd.to_datetime(df["time"])
+            if len(df) < 10:
+                continue
+
+            vol = df["volume"].astype(float)
+            median_vol = vol.tail(60).median()
+            if median_vol <= 0:
+                continue
+
+            suspect = vol > threshold * median_vol
+            n_suspect = suspect.sum()
+            if n_suspect == 0:
+                continue
+
+            suspect_dates = df.loc[suspect, "time"].dt.date.tolist()
+            console.print(
+                f"[yellow]⚠ {ticker}: {n_suspect} anomalous date(s) "
+                f"(>{threshold}x median vol={median_vol:,.0f})[/yellow]"
+            )
+            for sd in suspect_dates:
+                sv = int(df.loc[df["time"].dt.date == sd, "volume"].iloc[0])
+                console.print(f"    {sd} → vol={sv:,} ({sv/median_vol:.0f}x median)")
+
+            if dry_run:
+                continue
+
+            # Remove suspect rows and re-write parquet
+            clean = df[~suspect].copy()
+            years_affected = sorted(set(d.year for d in suspect_dates))
+            for year in years_affected:
+                year_df = clean[clean["time"].dt.year == year]
+                if not year_df.empty:
+                    _write_year(td, year, year_df)
+                    console.print(f"  [green]✓ {ticker} year={year}: removed spikes, {len(year_df)} rows remain[/green]")
+
+            # Re-fetch the affected dates from API
+            for sd in suspect_dates:
+                try:
+                    new_df = _fetch_prices(
+                        ticker,
+                        start=sd.strftime("%Y-%m-%d"),
+                        end=sd.strftime("%Y-%m-%d"),
+                    )
+                    if not new_df.empty:
+                        year = sd.year
+                        existing = _read_year(td, year)
+                        merged = pd.concat([existing, new_df], ignore_index=True)
+                        merged["time"] = pd.to_datetime(merged["time"]).dt.date
+                        merged = merged.drop_duplicates(subset=["time"], keep="last")
+                        merged = merged.sort_values("time").reset_index(drop=True)
+                        _write_year(td, year, merged)
+                        new_vol = int(new_df["volume"].iloc[0])
+                        console.print(
+                            f"  [green]✓ {ticker} {sd}: re-fetched → vol={new_vol:,}[/green]"
+                        )
+                    import time as _t
+                    _t.sleep(delay)
+                except Exception as e:
+                    console.print(f"  [red]✗ {ticker} {sd}: re-fetch failed: {e}[/red]")
+
+            fixed_total += n_suspect
+        except Exception as e:
+            console.print(f"[red]✗ {ticker}: {e}[/red]")
+
+    if fixed_total == 0:
+        console.print("[green]✓ No volume spikes detected[/green]")
+    else:
+        console.print(f"\n[bold]Fixed {fixed_total} anomalous date(s) total[/bold]")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="VnStock Daily Price Updater")
     parser.add_argument("--tickers",   nargs="+", metavar="TICKER",
@@ -462,6 +576,8 @@ if __name__ == "__main__":
                         help="Kiểm tra ngày cuối của từng mã")
     parser.add_argument("--force",     action="store_true",
                         help="Chạy kể cả cuối tuần")
+    parser.add_argument("--fix-volume", action="store_true",
+                        help="Detect & fix anomalous volume spikes in parquet")
     parser.add_argument("--delay",     type=float, default=0.3,
                         help="Delay giữa API calls (giây, mặc định 0.3)")
     parser.add_argument("--warehouse", default="data_warehouse",
@@ -470,7 +586,14 @@ if __name__ == "__main__":
                         help="Skip nếu job đã chạy hôm nay (multi-machine)")
     args = parser.parse_args()
 
-    if args.check:
+    if args.fix_volume:
+        fix_volume_spikes(
+            warehouse=args.warehouse,
+            tickers=args.tickers,
+            dry_run=args.dry_run,
+            delay=args.delay,
+        )
+    elif args.check:
         run_check(warehouse=args.warehouse, tickers=args.tickers)
     else:
         # ── Multi-machine coordination (import từ rollup để share helpers)

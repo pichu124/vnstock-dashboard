@@ -1945,7 +1945,24 @@ def load_fundamental(ticker: str) -> dict:
                     continue
 
             if ratios is not None and not ratios.empty:
-                row = ratios.iloc[0]
+                # Flatten MultiIndex columns to strings for reliable matching.
+                # VCI returns tuples like ("Định giá", "P/E") — flatten to
+                # "Định giá_P/E" so _norm matching works consistently.
+                if isinstance(ratios.columns, pd.MultiIndex):
+                    ratios.columns = [
+                        "_".join(str(c) for c in col if str(c) not in ("", "nan")).strip("_")
+                        for col in ratios.columns
+                    ]
+                else:
+                    ratios.columns = [
+                        "_".join(str(c) for c in col).strip("_") if isinstance(col, tuple)
+                        else str(col)
+                        for col in ratios.columns
+                    ]
+
+                # Try up to 3 most-recent rows (iloc[0] may have NaN for
+                # some fields — e.g. partial-year data).
+                _ratio_rows = [ratios.iloc[i] for i in range(min(3, len(ratios)))]
                 skip = ("year", "năm", "period", "quarter", "quý",
                         "index", "ticker", "symbol", "len")
 
@@ -1959,22 +1976,22 @@ def load_fundamental(ticker: str) -> dict:
                         return s
                     col_cache = []
                     for col in ratios.columns:
-                        cs = " ".join(str(c) for c in col).lower() if isinstance(col, tuple) else str(col).lower()
-                        cc = _norm(cs)
+                        cc = _norm(str(col))
                         if any(sp in cc for sp in skip):
                             continue
                         col_cache.append((col, cc))
 
                     def _try_rv(col_name):
-                        try:
-                            v = row[col_name]
-                            if v is not None and not pd.isna(v):
-                                fv = float(v)
-                                if abs(fv) > 1e9:
-                                    return None
-                                return fv
-                        except Exception:
-                            pass
+                        for rrow in _ratio_rows:
+                            try:
+                                v = rrow[col_name]
+                                if v is not None and not pd.isna(v):
+                                    fv = float(v)
+                                    if abs(fv) > 1e9:
+                                        continue
+                                    return fv
+                            except Exception:
+                                continue
                         return None
 
                     # Pass 1: exact match
@@ -4593,6 +4610,14 @@ if _active_tab == "🔬 Phân tích":
                     st.warning(f"⚠ Không lấy được dữ liệu cơ bản. Columns: {cols_info}")
                 elif fund.get("error"):
                     st.warning(f"Lỗi: {fund['error']}")
+                # Debug expander when key metrics are missing
+                _missing = [k for k in ("eps", "book_value") if fund.get(k) is None]
+                if _missing and not fund.get("error"):
+                    with st.expander(f"🔍 Debug: {', '.join(_missing)} = None"):
+                        _oc = fund.get("_overview_cols", [])
+                        _rc = fund.get("_ratio_cols", [])
+                        st.caption(f"Overview cols ({len(_oc)}): {_oc}")
+                        st.caption(f"Ratio cols ({len(_rc)}): {_rc}")
             else:
                 st.warning("⚠ load_fundamental() trả về rỗng")
 
