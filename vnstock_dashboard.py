@@ -177,6 +177,11 @@ def _load_nn_from_disk() -> pd.DataFrame:
         df = pd.DataFrame(data)
         if not df.empty:
             df["date"] = pd.to_datetime(df["date"])
+            # Older caches may miss buy_value / sell_value — default to 0 so
+            # downstream aggregations don't crash on KeyError.
+            for col in ("buy_value", "sell_value"):
+                if col not in df.columns:
+                    df[col] = 0.0
         return df
     except (OSError, json.JSONDecodeError, ValueError):
         return pd.DataFrame()
@@ -241,19 +246,49 @@ def _fetch_foreign_net_flow(trading_days: int = 20, limit: int = 100) -> pd.Data
             continue
 
         dt_str = dt.strftime("%Y-%m-%d")
+        day_rows: dict[str, dict] = {}
         for fetch_fn in (ts.foreign_buy, ts.foreign_sell):
             try:
                 df = fetch_fn(date=dt_str, limit=limit)
                 if df is not None and not df.empty:
                     for _, row in df.iterrows():
-                        all_rows.append({
-                            "symbol": str(row.get("symbol", "")),
-                            "date": dt_str,
-                            "net_value": float(row.get("net_value", 0)),
-                        })
+                        sym = str(row.get("symbol", ""))
+                        if not sym:
+                            continue
+                        # TopStock row exposes buy_value, sell_value, net_value
+                        # (field names vary across versions — try a few).
+                        def _f(*keys):
+                            for k in keys:
+                                v = row.get(k)
+                                if v is not None:
+                                    try:
+                                        return float(v)
+                                    except (TypeError, ValueError):
+                                        pass
+                            return 0.0
+                        entry = day_rows.setdefault(
+                            sym, {"buy_value": 0.0, "sell_value": 0.0, "net_value": 0.0}
+                        )
+                        # Merge values from both endpoints (max wins — each
+                        # endpoint only populates the field for that side).
+                        entry["buy_value"] = max(entry["buy_value"], _f("buy_value", "buyvalue", "buy_val"))
+                        entry["sell_value"] = max(entry["sell_value"], _f("sell_value", "sellvalue", "sell_val"))
+                        entry["net_value"] = _f("net_value", "netvalue", "net_val")
             except Exception as e:
                 errors.append(f"{fetch_fn.__name__}({dt_str}): {e}")
                 continue
+
+        for sym, ent in day_rows.items():
+            # Fill net from buy-sell if the API didn't return it directly.
+            if ent["net_value"] == 0 and (ent["buy_value"] or ent["sell_value"]):
+                ent["net_value"] = ent["buy_value"] - ent["sell_value"]
+            all_rows.append({
+                "symbol": sym,
+                "date": dt_str,
+                "buy_value": ent["buy_value"],
+                "sell_value": ent["sell_value"],
+                "net_value": ent["net_value"],
+            })
 
         days_fetched += 1
 
@@ -266,7 +301,11 @@ def _fetch_foreign_net_flow(trading_days: int = 20, limit: int = 100) -> pd.Data
 
     result = pd.DataFrame(all_rows)
     result["date"] = pd.to_datetime(result["date"])
-    result["net_value"] = pd.to_numeric(result["net_value"], errors="coerce").fillna(0)
+    for col in ("buy_value", "sell_value", "net_value"):
+        if col in result.columns:
+            result[col] = pd.to_numeric(result[col], errors="coerce").fillna(0)
+        else:
+            result[col] = 0.0
 
     # Persist to disk for fast reload — chỉ save nếu có data thật
     if len(result) > 5:
@@ -299,6 +338,79 @@ def _aggregate_nn_by_window(nn_df: pd.DataFrame, days: int) -> dict:
     agg = filtered.groupby("symbol")["net_value"].sum()
     # VND → tỷ VND
     return {sym: round(val / 1e9, 1) for sym, val in agg.items()}
+
+
+def _aggregate_nn_buy_sell_by_window(nn_df: pd.DataFrame, days: int) -> dict:
+    """
+    Aggregate NN buy_value and sell_value per symbol over the window.
+    Returns {symbol: {"buy": tỷ_VND, "sell": tỷ_VND}}.
+    Mirrors _aggregate_nn_by_window semantics for days=0 (latest-day-only).
+    """
+    if nn_df.empty or "buy_value" not in nn_df.columns:
+        return {}
+    if days == 0:
+        latest = pd.to_datetime(nn_df["date"]).max().normalize()
+        filtered = nn_df[pd.to_datetime(nn_df["date"]) >= latest]
+    else:
+        cutoff = pd.Timestamp.today().normalize() - pd.Timedelta(days=days)
+        filtered = nn_df[nn_df["date"] >= cutoff]
+    if filtered.empty:
+        return {}
+    grp = filtered.groupby("symbol")[["buy_value", "sell_value"]].sum()
+    out = {}
+    for sym, row in grp.iterrows():
+        out[sym] = {
+            "buy": round(float(row["buy_value"]) / 1e9, 1),
+            "sell": round(float(row["sell_value"]) / 1e9, 1),
+        }
+    return out
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _compute_gtgd_by_window(window_days: int) -> dict:
+    """
+    Compute total GTGD (trading value, tỷ VND) per ticker over the given
+    number of *trading* days using warehouse parquet (close × volume).
+
+    window_days=0 → most recent session only (1D snapshot).
+    window_days>0 → sum across last N trading days (e.g. 5 or 20).
+
+    Cache 10 min; invalidated by @st.cache_data signature + window arg.
+    """
+    import pyarrow.parquet as pq
+    prices_dir = Path("data_warehouse") / "prices"
+    if not prices_dir.exists():
+        return {}
+    # Limit how many recent years we read to keep cost bounded.
+    year_limit = 2 if window_days <= 30 else 3
+    result: dict[str, float] = {}
+    for td in prices_dir.glob("ticker=*"):
+        ticker = td.name.split("=", 1)[1]
+        if not ticker.isalpha() or len(ticker) > 5:
+            continue
+        try:
+            frames = []
+            for yd in sorted(td.glob("year=*"))[-year_limit:]:
+                for pf in yd.glob("*.parquet"):
+                    frames.append(pq.read_table(
+                        str(pf), columns=["time", "close", "volume"]
+                    ).to_pandas())
+            if not frames:
+                continue
+            df = pd.concat(frames).sort_values("time")
+            # Keep last N trading rows. Treat 0/1 as "latest only".
+            n = max(1, window_days) if window_days > 0 else 1
+            df = df.tail(n)
+            close = pd.to_numeric(df["close"], errors="coerce").fillna(0).astype(float)
+            # Normalize prices to VND (parquet stores thousands or VND — >500 → already VND).
+            close = close.where(close > 500, close * 1000)
+            vol = pd.to_numeric(df["volume"], errors="coerce").fillna(0).astype(float)
+            gtgd_vnd = float((close * vol).sum())
+            if gtgd_vnd > 0:
+                result[ticker] = round(gtgd_vnd / 1e9, 1)  # tỷ VND
+        except Exception:
+            continue
+    return result
 
 
 _ORDER_CACHE_PATH = Path("data_warehouse/_meta/order_stats_cache.json")
@@ -5486,15 +5598,31 @@ if _active_tab == "💰 Dòng Tiền":
             "kết nối internet + vnstock_data sponsor."
         )
 
-    # Aggregate NN ròng theo window đã chọn (1D/5D/20D)
+    # Aggregate NN ròng + Mua/Bán theo window đã chọn (1D/5D/20D)
     _nn_by_ticker = _aggregate_nn_by_window(_nn_raw, _mf_days)  # {symbol: tỷ VND}
+    _nn_bs_by_ticker = _aggregate_nn_buy_sell_by_window(_nn_raw, _mf_days)
+
+    # GTGD aggregated across the same window (1D=latest session, 5D=5 trading
+    # days, 20D=20 trading days). For 1D we still prefer the live snapshot
+    # (intra-session) — _mf_days>0 → historical sum from parquet.
+    if _mf_days == 0:
+        _gtgd_by_ticker = {}  # signal "use live snapshot"
+    else:
+        _gtgd_window_days = {7: 5, 30: 20}.get(_mf_days, _mf_days)
+        _gtgd_by_ticker = _compute_gtgd_by_window(_gtgd_window_days)
 
     # ── Fetch order_stats (BigOrder) cho top mã GTGD ─────────────────────
     _live_quotes = _batch_load_live_quotes(_warehouse_tickers_all)
 
+    def _pick_gtgd(tk):
+        """Historical aggregate if window>1D, else live snapshot (intra-session)."""
+        if _gtgd_by_ticker:
+            return _gtgd_by_ticker.get(tk, 0)
+        return _live_quotes.get(tk, {}).get("gtgd", 0)
+
     # Rank by GTGD → top 50 cho order_stats
     _gtgd_ranked = sorted(
-        [(tk, _live_quotes.get(tk, {}).get("gtgd", 0)) for tk in _warehouse_tickers_all],
+        [(tk, _pick_gtgd(tk)) for tk in _warehouse_tickers_all],
         key=lambda x: x[1], reverse=True,
     )
     _top_50_tickers = tuple(tk for tk, _ in _gtgd_ranked[:50])
@@ -5506,6 +5634,7 @@ if _active_tab == "💰 Dòng Tiền":
     _stock_rows = []
     for tk in _warehouse_tickers_all:
         nn_net = _nn_by_ticker.get(tk, 0)
+        nn_bs = _nn_bs_by_ticker.get(tk, {})
         lq = _live_quotes.get(tk, {})
         od = _order_data.get(tk, {})
         industry = _ind_map.get(tk, "Khác")
@@ -5520,8 +5649,10 @@ if _active_tab == "💰 Dòng Tiền":
             "sector": sector,
             "price": lq.get("price", 0),
             "volume": lq.get("volume", 0),
-            "gtgd": lq.get("gtgd", 0),
+            "gtgd": _pick_gtgd(tk),
             "nn_net": nn_net,
+            "nn_buy": nn_bs.get("buy", 0),
+            "nn_sell": nn_bs.get("sell", 0),
             "buy_ratio": buy_ratio,
             "big_order_score": od.get("big_order_score", 0),
         })
@@ -5613,7 +5744,7 @@ if _active_tab == "💰 Dòng Tiền":
         '<tr style="border-bottom:2px solid #374151">'
         '<th style="text-align:left;padding:8px 6px;color:#9ca3af">Ngành</th>'
         '<th style="text-align:right;padding:8px 6px;color:#9ca3af">Mã</th>'
-        '<th style="text-align:right;padding:8px 6px;color:#9ca3af">GTGD (tỷ)</th>'
+        f'<th style="text-align:right;padding:8px 6px;color:#9ca3af">GTGD {_mf_window} (tỷ)</th>'
         '<th style="text-align:right;padding:8px 6px;color:#9ca3af">Vol (tr CP)</th>'
         f'<th style="text-align:right;padding:8px 6px;color:#9ca3af">NN ròng {_mf_window} (tỷ)</th>'
         '<th style="text-align:right;padding:8px 6px;color:#9ca3af">Buy/Sell</th>'
@@ -5697,9 +5828,14 @@ if _active_tab == "💰 Dòng Tiền":
             '<th style="text-align:left;padding:6px;color:#9ca3af">Mã</th>'
             '<th style="text-align:left;padding:6px;color:#9ca3af">Ngành gốc</th>'
             '<th style="text-align:right;padding:6px;color:#9ca3af">Giá</th>'
-            '<th style="text-align:right;padding:6px;color:#9ca3af">GTGD (tỷ)</th>'
             f'<th style="text-align:right;padding:6px;color:#9ca3af">'
-            f'NN {_mf_window} (tỷ)</th>'
+            f'GTGD {_mf_window} (tỷ)</th>'
+            f'<th style="text-align:right;padding:6px;color:#9ca3af">'
+            f'NN Mua {_mf_window}</th>'
+            f'<th style="text-align:right;padding:6px;color:#9ca3af">'
+            f'NN Bán {_mf_window}</th>'
+            f'<th style="text-align:right;padding:6px;color:#9ca3af">'
+            f'NN Ròng {_mf_window}</th>'
             '<th style="text-align:right;padding:6px;color:#9ca3af">Buy/Sell</th>'
             '<th style="text-align:right;padding:6px;color:#9ca3af">Score</th>'
             '<th style="text-align:center;padding:6px;color:#9ca3af">Dòng tiền</th>'
@@ -5732,6 +5868,8 @@ if _active_tab == "💰 Dòng Tiền":
             else:
                 role = '<span style="color:#4b5563">—</span>'
 
+            _nn_buy = stk.get("nn_buy", 0)
+            _nn_sell = stk.get("nn_sell", 0)
             _det_html += (
                 f'<tr style="background:{bg};border-bottom:1px solid #1f2937">'
                 f'<td style="padding:5px 6px;color:#60a5fa;font-weight:600">'
@@ -5742,6 +5880,10 @@ if _active_tab == "💰 Dòng Tiền":
                 f'{stk["price"]:,.1f}</td>'
                 f'<td style="padding:5px 6px;text-align:right;color:#d1d5db">'
                 f'{stk["gtgd"]:,.0f}</td>'
+                f'<td style="padding:5px 6px;text-align:right;color:#10b981">'
+                f'{_nn_buy:,.0f}</td>'
+                f'<td style="padding:5px 6px;text-align:right;color:#ef4444">'
+                f'{_nn_sell:,.0f}</td>'
                 f'<td style="padding:5px 6px;text-align:right;color:{nn_color};'
                 f'font-weight:500">{nn_sign}{stk["nn_net"]:,.0f}</td>'
                 f'<td style="padding:5px 6px;text-align:right;color:{buy_color}">'
