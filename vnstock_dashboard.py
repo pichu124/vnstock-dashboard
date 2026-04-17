@@ -164,6 +164,11 @@ def _load_industry_map() -> dict:
 _NN_CACHE_PATH = Path("data_warehouse/_meta/nn_flow_cache.json")
 _NN_CACHE_MAX_AGE = 600  # 10 phút — NN data không thay đổi liên tục
 
+# Diagnostic info about foreign_buy/sell API calls (for NN Mua = 0 debugging).
+# Uses module-level dict because function attributes don't survive Streamlit
+# @st.cache_data wrappers.
+_NN_DIAG: dict = {}
+
 
 def _load_nn_from_disk() -> pd.DataFrame:
     """Load NN cache từ disk. Return empty DataFrame nếu cache quá cũ hoặc lỗi."""
@@ -249,29 +254,24 @@ def _fetch_foreign_net_flow(trading_days: int = 20, limit: int = 100) -> pd.Data
         day_rows: dict[str, dict] = {}
         for fetch_fn in (ts.foreign_buy, ts.foreign_sell):
             is_buy_endpoint = (fetch_fn is ts.foreign_buy)
+            _side = "buy" if is_buy_endpoint else "sell"
             try:
                 df = fetch_fn(date=dt_str, limit=limit)
-                # Capture state for diagnostic (buy endpoint only)
-                if is_buy_endpoint and days_fetched == 0:
-                    if not hasattr(_fetch_foreign_net_flow, "_diag_buy_state"):
-                        _state = "empty" if (df is None or df.empty) else f"ok ({len(df)} rows)"
-                        setattr(_fetch_foreign_net_flow, "_diag_buy_state", _state)
+                # Capture state on first attempt
+                if days_fetched == 0 and f"{_side}_state" not in _NN_DIAG:
+                    _NN_DIAG[f"{_side}_state"] = (
+                        "empty" if (df is None or df.empty)
+                        else f"ok ({len(df)} rows)"
+                    )
                 if df is not None and not df.empty:
-                    # Capture diagnostic info once for debugging
-                    if days_fetched == 0:
-                        _diag_key = "_diag_buy" if is_buy_endpoint else "_diag_sell"
-                        if not hasattr(_fetch_foreign_net_flow, _diag_key):
-                            sample_row = dict(df.iloc[0]) if len(df) > 0 else {}
-                            # Convert non-JSON-serializable types to str
-                            sample_row = {k: str(v)[:50] for k, v in sample_row.items()}
-                            setattr(_fetch_foreign_net_flow, _diag_key, {
-                                "columns": list(df.columns),
-                                "sample": sample_row,
-                                "rows": len(df),
-                            })
-                            log.info("TopStock %s cols: %s",
-                                     "foreign_buy" if is_buy_endpoint else "foreign_sell",
-                                     list(df.columns))
+                    if days_fetched == 0 and f"{_side}_cols" not in _NN_DIAG:
+                        sample_row = dict(df.iloc[0]) if len(df) > 0 else {}
+                        sample_row = {k: str(v)[:50] for k, v in sample_row.items()}
+                        _NN_DIAG[f"{_side}_cols"] = list(df.columns)
+                        _NN_DIAG[f"{_side}_sample"] = sample_row
+                        _NN_DIAG[f"{_side}_rows"] = len(df)
+                        log.info("TopStock %s cols: %s",
+                                 f"foreign_{_side}", list(df.columns))
                     for _, row in df.iterrows():
                         sym = str(row.get("symbol", ""))
                         if not sym:
@@ -311,9 +311,8 @@ def _fetch_foreign_net_flow(trading_days: int = 20, limit: int = 100) -> pd.Data
                         else:
                             entry["sell_value"] = max(entry["sell_value"], val)
             except Exception as e:
-                if is_buy_endpoint and not hasattr(_fetch_foreign_net_flow, "_diag_buy_state"):
-                    setattr(_fetch_foreign_net_flow, "_diag_buy_state",
-                            f"exception: {type(e).__name__}: {str(e)[:100]}")
+                if f"{_side}_state" not in _NN_DIAG:
+                    _NN_DIAG[f"{_side}_state"] = f"exception: {type(e).__name__}: {str(e)[:150]}"
                 errors.append(f"{fetch_fn.__name__}({dt_str}): {e}")
                 continue
 
@@ -5696,6 +5695,7 @@ if _active_tab == "💰 Dòng Tiền":
         )):
             _fetch_foreign_net_flow.clear()
             _fetch_order_stats_batch.clear()
+            _NN_DIAG.clear()
             for _cp in (_NN_CACHE_PATH, _ORDER_CACHE_PATH):
                 if _cp.exists():
                     _cp.unlink()
@@ -5721,16 +5721,18 @@ if _active_tab == "💰 Dòng Tiền":
     _total_buy = sum(v.get("buy", 0) for v in _nn_bs_by_ticker.values())
     _total_sell = sum(v.get("sell", 0) for v in _nn_bs_by_ticker.values())
     if _total_buy == 0 and _total_sell > 0:
-        _diag = getattr(_fetch_foreign_net_flow, "_diag_buy", None)
-        _state = getattr(_fetch_foreign_net_flow, "_diag_buy_state", "unknown")
         with st.expander("⚠️ NN Mua = 0 — debug info (foreign_buy)"):
-            st.caption(f"**State:** {_state}")
-            if _diag:
-                st.caption(f"**Rows:** {_diag['rows']}")
-                st.caption(f"**Columns:** {_diag['columns']}")
-                st.caption(f"**Sample row:** {_diag['sample']}")
-            else:
-                st.caption("foreign_buy() never returned data — check the state above.")
+            _buy_state = _NN_DIAG.get("buy_state", "unknown (fetch loop may not have run — cache hit)")
+            _sell_state = _NN_DIAG.get("sell_state", "unknown")
+            st.caption(f"**foreign_buy state:** {_buy_state}")
+            st.caption(f"**foreign_sell state:** {_sell_state}")
+            if "buy_cols" in _NN_DIAG:
+                st.caption(f"**Buy rows:** {_NN_DIAG['buy_rows']}")
+                st.caption(f"**Buy columns:** {_NN_DIAG['buy_cols']}")
+                st.caption(f"**Buy sample row:** {_NN_DIAG['buy_sample']}")
+            if "sell_cols" in _NN_DIAG:
+                st.caption(f"**Sell columns:** {_NN_DIAG['sell_cols']}")
+                st.caption(f"**Sell sample row:** {_NN_DIAG['sell_sample']}")
 
     # GTGD aggregated across the same window (1D=latest session, 5D=5 trading
     # days, 20D=20 trading days). Always use warehouse for consistency.
