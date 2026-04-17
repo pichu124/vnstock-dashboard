@@ -252,35 +252,57 @@ def _fetch_foreign_net_flow(trading_days: int = 20, limit: int = 100) -> pd.Data
             try:
                 df = fetch_fn(date=dt_str, limit=limit)
                 if df is not None and not df.empty:
+                    # Log column names once for debugging
+                    if days_fetched == 0 and not hasattr(_fetch_foreign_net_flow, "_cols_logged"):
+                        log.info("TopStock %s columns: %s",
+                                 "foreign_buy" if is_buy_endpoint else "foreign_sell",
+                                 list(df.columns))
+                        if is_buy_endpoint:
+                            log.info("TopStock foreign_buy sample row: %s",
+                                     dict(df.iloc[0]) if len(df) > 0 else "empty")
                     for _, row in df.iterrows():
                         sym = str(row.get("symbol", ""))
                         if not sym:
                             continue
-                        def _f(*keys):
-                            for k in keys:
-                                v = row.get(k)
-                                if v is not None:
-                                    try:
-                                        return float(v)
-                                    except (TypeError, ValueError):
-                                        pass
-                            return 0.0
+                        # Extract the largest absolute numeric value from
+                        # the row (excluding symbol/date columns). This is
+                        # more robust than guessing column names, which vary
+                        # across vnstock/vnstock_data versions.
+                        val = 0.0
+                        for k in ("buy_value", "sell_value", "net_value",
+                                  "value", "total_value", "netvalue",
+                                  "buyvalue", "sellvalue"):
+                            v = row.get(k)
+                            if v is not None:
+                                try:
+                                    fv = abs(float(v))
+                                    if fv > val:
+                                        val = fv
+                                except (TypeError, ValueError):
+                                    pass
+                        # Fallback: pick largest numeric column value
+                        if val == 0:
+                            for k, v in row.items():
+                                if k == "symbol" or "date" in str(k).lower():
+                                    continue
+                                try:
+                                    fv = abs(float(v))
+                                    if fv > val:
+                                        val = fv
+                                except (TypeError, ValueError):
+                                    pass
                         entry = day_rows.setdefault(
                             sym, {"buy_value": 0.0, "sell_value": 0.0, "net_value": 0.0}
                         )
-                        # TopStock foreign_buy/sell each return "net_value"
-                        # (or "value") — not separate buy/sell columns.
-                        # Use the endpoint identity to assign correctly.
-                        val = _f("buy_value", "sell_value", "net_value",
-                                 "value", "total_value", "netvalue")
                         if is_buy_endpoint:
-                            entry["buy_value"] = max(entry["buy_value"], abs(val))
+                            entry["buy_value"] = max(entry["buy_value"], val)
                         else:
-                            entry["sell_value"] = max(entry["sell_value"], abs(val))
+                            entry["sell_value"] = max(entry["sell_value"], val)
             except Exception as e:
                 errors.append(f"{fetch_fn.__name__}({dt_str}): {e}")
                 continue
 
+        _fetch_foreign_net_flow._cols_logged = True
         for sym, ent in day_rows.items():
             # Always compute net from buy - sell (more reliable than
             # trusting the API's net_value which gets overwritten by
@@ -5682,22 +5704,17 @@ if _active_tab == "💰 Dòng Tiền":
     _nn_bs_by_ticker = _aggregate_nn_buy_sell_by_window(_nn_raw, _mf_days)
 
     # GTGD aggregated across the same window (1D=latest session, 5D=5 trading
-    # days, 20D=20 trading days). For 1D we still prefer the live snapshot
-    # (intra-session) — _mf_days>0 → historical sum from parquet.
-    if _mf_days == 0:
-        _gtgd_by_ticker = {}  # signal "use live snapshot"
-    else:
-        _gtgd_window_days = {7: 5, 30: 20}.get(_mf_days, _mf_days)
-        _gtgd_by_ticker = _compute_gtgd_by_window(_gtgd_window_days)
+    # days, 20D=20 trading days). Always use warehouse for consistency.
+    # For 1D, _compute_gtgd_by_window(1) gives the most recent day from parquet.
+    _gtgd_window_days = {0: 1, 7: 5, 30: 20}.get(_mf_days, max(1, _mf_days))
+    _gtgd_by_ticker = _compute_gtgd_by_window(_gtgd_window_days)
 
     # ── Fetch order_stats (BigOrder) cho top mã GTGD ─────────────────────
     _live_quotes = _batch_load_live_quotes(_warehouse_tickers_all)
 
     def _pick_gtgd(tk):
-        """Historical aggregate if window>1D, else live snapshot (intra-session)."""
-        if _gtgd_by_ticker:
-            return _gtgd_by_ticker.get(tk, 0)
-        return _live_quotes.get(tk, {}).get("gtgd", 0)
+        """Warehouse-based GTGD for all windows (1D/5D/20D)."""
+        return _gtgd_by_ticker.get(tk, 0)
 
     # Rank by GTGD → top 50 cho order_stats
     _gtgd_ranked = sorted(
