@@ -418,6 +418,9 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
     tick_display["Vol 5/20 %"] = np.where(
         tick_display["vol20"] > 0,
         (tick_display["vol5"] / tick_display["vol20"] * 100).round(0), None)
+    tick_display["Giá 1T %"] = tick_display["chg5"].round(1)
+    tick_display["Giá 1M %"] = tick_display["chg20"].round(1)
+    tick_display["Giá 3M %"] = tick_display["chg60"].round(1)
     tick_display = tick_display.rename(columns={"ticker": "Mã", "industry": "Ngành"})
 
     result = merged.groupby("industry").apply(agg).reset_index()

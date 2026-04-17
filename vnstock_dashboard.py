@@ -4503,8 +4503,8 @@ if _active_tab == "🔬 Phân tích":
                     ("ROA",              fund.get("roa"),            "%"),
                     ("Biên LN gộp",      fund.get("gross_margin"),   "%"),
                     ("Biên LN ròng",     fund.get("net_margin"),     "%"),
-                    ("Tỷ lệ nợ",         fund.get("debt_ratio"),     ""),
-                    ("Thanh toán HH",    fund.get("current_ratio"),  ""),
+                    ("Tỷ lệ nợ",         fund.get("debt_ratio") or None,     ""),
+                    ("Thanh toán HH",    fund.get("current_ratio") or None,  ""),
                     ("Tăng trưởng DT",   fund.get("revenue_growth"), "%"),
                     ("Tăng trưởng LN",   fund.get("profit_growth"),  "%"),
                 ]
@@ -5213,14 +5213,16 @@ if _active_tab == "🌏 Thị trường":
                     lines.append(f"- {nnh:+d} net new highs — nhiều mã tạo đáy mới hơn đỉnh mới")
 
             # 3. Đánh giá ngành
-            if mkt_data is not None and not mkt_data.empty:
+            _has_1m = mkt_data is not None and not mkt_data.empty and "Giá 1M %" in mkt_data.columns
+            if _has_1m:
                 lines.append("")
                 lines.append("**🏭 Nhóm ngành nổi bật**")
 
                 # Ngành nên tập trung: Giá 1M > 0 AND Vol 5/20 > 100
+                _has_vol = "Vol 5/20 %" in mkt_data.columns
                 focus = mkt_data[
                     (mkt_data["Giá 1M %"].fillna(0) > 0) &
-                    (mkt_data["Vol 5/20 %"].fillna(0) > 95)
+                    (mkt_data["Vol 5/20 %"].fillna(0) > 95 if _has_vol else True)
                 ].sort_values("Giá 1M %", ascending=False)
 
                 if not focus.empty:
@@ -5232,10 +5234,11 @@ if _active_tab == "🌏 Thị trường":
                     lines.append("- 🟡 Không có ngành nào vừa tăng giá 1M vừa có thanh khoản tốt")
 
                 # Ngành nên tránh: Giá 1M < -3% OR (Giá 3M < -5% AND Vol giảm)
-                avoid = mkt_data[
-                    (mkt_data["Giá 1M %"].fillna(0) < -3) |
-                    ((mkt_data["Giá 3M %"].fillna(0) < -5) & (mkt_data["Vol 5/20 %"].fillna(100) < 85))
-                ].sort_values("Giá 1M %", ascending=True)
+                _has_3m = "Giá 3M %" in mkt_data.columns
+                _avoid_cond = (mkt_data["Giá 1M %"].fillna(0) < -3)
+                if _has_3m and _has_vol:
+                    _avoid_cond = _avoid_cond | ((mkt_data["Giá 3M %"].fillna(0) < -5) & (mkt_data["Vol 5/20 %"].fillna(100) < 85))
+                avoid = mkt_data[_avoid_cond].sort_values("Giá 1M %", ascending=True)
 
                 if not avoid.empty:
                     lines.append("- 🔴 **Nên tránh:** " + ", ".join(
@@ -5245,7 +5248,9 @@ if _active_tab == "🌏 Thị trường":
 
                 # 4. Top cổ phiếu trong ngành focus
                 tick_data = st.session_state.get("_mkt_ticker_data")
-                if tick_data is not None and not focus.empty:
+                _tick_ok = (tick_data is not None and "Giá 1M %" in tick_data.columns
+                            and "Vol Avg 20" in tick_data.columns)
+                if _tick_ok and not focus.empty:
                     lines.append("")
                     lines.append("**⭐ Cổ phiếu đáng chú ý trong ngành trọng tâm**")
                     for _, sector_row in focus.head(3).iterrows():
@@ -5253,7 +5258,6 @@ if _active_tab == "🌏 Thị trường":
                         tickers = tick_data[tick_data["Ngành"] == sector_name].copy()
                         if tickers.empty:
                             continue
-                        # Chọn mã: Giá 1M > 0, Vol đủ lớn, sort theo Giá 1M
                         top = tickers[
                             (tickers["Giá 1M %"].fillna(0) > 0) &
                             (tickers["Vol Avg 20"].fillna(0) > 0.5)
@@ -5277,7 +5281,8 @@ if _active_tab == "🌏 Thị trường":
 
         # ── Heatmap ngành (Treemap) ────────────────────────────────────────────
         tick_data = st.session_state.get("_mkt_ticker_data")
-        if tick_data is not None and not tick_data.empty:
+        _tick_has_1m = tick_data is not None and not tick_data.empty and "Giá 1M %" in tick_data.columns
+        if _tick_has_1m:
             st.markdown("<br>", unsafe_allow_html=True)
             st.markdown("#### 🗺️ Heatmap ngành — Vốn hoá & Biến động 1 tháng")
             try:
@@ -5316,40 +5321,41 @@ if _active_tab == "🌏 Thị trường":
                 st.info("Cài plotly để xem heatmap: `pip install plotly`")
 
         # ── Chart xu hướng ────────────────────────────────────────────────────
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("#### 📈 Biến động giá theo ngành (1 tháng vs 3 tháng)")
-        try:
-            import plotly.graph_objects as go
-            chart_df = mkt_df[mkt_df["Giá 1M %"].notna()].copy()
-            chart_df = chart_df.sort_values("Giá 1M %", ascending=True)
-            colors1m = ["#10b981" if v > 0 else "#ef4444" for v in chart_df["Giá 1M %"]]
+        if "Giá 1M %" in mkt_df.columns:
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("#### 📈 Biến động giá theo ngành (1 tháng vs 3 tháng)")
+            try:
+                import plotly.graph_objects as go
+                chart_df = mkt_df[mkt_df["Giá 1M %"].notna()].copy()
+                chart_df = chart_df.sort_values("Giá 1M %", ascending=True)
+                colors1m = ["#10b981" if v > 0 else "#ef4444" for v in chart_df["Giá 1M %"]]
 
-            fig = go.Figure()
-            fig.add_trace(go.Bar(
-                y=chart_df["Ngành"], x=chart_df["Giá 1M %"],
-                name="1 Tháng", orientation="h",
-                marker_color=colors1m, opacity=0.85,
-            ))
-            if "Giá 3M %" in chart_df.columns and chart_df["Giá 3M %"].notna().any():
-                fig.add_trace(go.Scatter(
-                    y=chart_df["Ngành"], x=chart_df["Giá 3M %"],
-                    name="3 Tháng", mode="markers",
-                    marker=dict(color="#fbbf24", size=8, symbol="diamond"),
+                fig = go.Figure()
+                fig.add_trace(go.Bar(
+                    y=chart_df["Ngành"], x=chart_df["Giá 1M %"],
+                    name="1 Tháng", orientation="h",
+                    marker_color=colors1m, opacity=0.85,
                 ))
-            fig.update_layout(
-                height=max(350, len(chart_df)*22),
-                paper_bgcolor="#0a0e1a", plot_bgcolor="#0d1117",
-                font=dict(color="#9ca3af", size=11),
-                xaxis=dict(gridcolor="#1f2937", zeroline=True,
-                           zerolinecolor="#374151", zerolinewidth=2,
-                           ticksuffix="%", range=[-30, 30]),
-                yaxis=dict(gridcolor="#1f2937"),
-                margin=dict(l=0, r=80, t=20, b=20),
-                legend=dict(bgcolor="#111827", bordercolor="#1f2937", borderwidth=1),
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        except ImportError:
-            st.info("Cài plotly để xem chart: `pip install plotly`")
+                if "Giá 3M %" in chart_df.columns and chart_df["Giá 3M %"].notna().any():
+                    fig.add_trace(go.Scatter(
+                        y=chart_df["Ngành"], x=chart_df["Giá 3M %"],
+                        name="3 Tháng", mode="markers",
+                        marker=dict(color="#fbbf24", size=8, symbol="diamond"),
+                    ))
+                fig.update_layout(
+                    height=max(350, len(chart_df)*22),
+                    paper_bgcolor="#0a0e1a", plot_bgcolor="#0d1117",
+                    font=dict(color="#9ca3af", size=11),
+                    xaxis=dict(gridcolor="#1f2937", zeroline=True,
+                               zerolinecolor="#374151", zerolinewidth=2,
+                               ticksuffix="%", range=[-30, 30]),
+                    yaxis=dict(gridcolor="#1f2937"),
+                    margin=dict(l=0, r=80, t=20, b=20),
+                    legend=dict(bgcolor="#111827", bordercolor="#1f2937", borderwidth=1),
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            except ImportError:
+                st.info("Cài plotly để xem chart: `pip install plotly`")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
