@@ -121,7 +121,11 @@ def cmd_audit(args) -> int:
     write_recon(recon, warehouse)
     print(f"[audit] reconciler: ok={recon.ok} warn={recon.warn} fail={recon.fail}")
 
-    anom = scan_warehouse(warehouse=warehouse, lookback=args.lookback)
+    anom = scan_warehouse(
+        warehouse=warehouse,
+        lookback=args.lookback,
+        stocks_only=not getattr(args, "include_non_stocks", False),
+    )
     write_anomaly(anom, warehouse)
     total = len(anom.anomalies)
     print(f"[audit] anomalies: {total} flagged across {anom.tickers_scanned} tickers")
@@ -222,6 +226,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Also ask the Auditor agent for a second opinion")
     audit.add_argument("--auditor", choices=["auto", "claude", "gpt", "null"],
                        default="auto")
+    audit.add_argument("--include-non-stocks", action="store_true",
+                       help="Include CW / bonds / futures / indices in anomaly scan")
 
     sub.add_parser("test", help="Run pytest")
     sub.add_parser("dashboard", help="Launch the Streamlit dashboard")

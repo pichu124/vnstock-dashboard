@@ -7,9 +7,42 @@ import pytest
 
 from vnstock_anomaly import (
     BAND_PCT,
+    _is_stock,
     band_for,
     scan_ticker,
 )
+
+
+# ── non-stock filter ───────────────────────────────────────────────────────
+
+def test_is_stock_accepts_regular_tickers():
+    for t in ["VCB", "FPT", "HPG", "VIC", "BID"]:
+        assert _is_stock(t) is True
+
+
+def test_is_stock_rejects_covered_warrants():
+    for t in ["CVRE2410", "CVNM2101", "CFPT2409"]:
+        assert _is_stock(t) is False
+
+
+def test_is_stock_rejects_old_bonds():
+    for t in ["HDB124001", "VBA121033", "VCB12001"]:
+        assert _is_stock(t) is False
+
+
+def test_is_stock_rejects_futures():
+    for t in ["VN30F2404", "VN30F2502", "BVBF2404"]:
+        assert _is_stock(t) is False
+
+
+def test_is_stock_rejects_indices():
+    for t in ["VNINDEX", "VN30", "HNXINDEX", "HNX30", "UPCOM"]:
+        assert _is_stock(t) is False
+
+
+def test_is_stock_handles_whitespace_and_case():
+    assert _is_stock("  vcb  ") is True
+    assert _is_stock("  vn30f2404  ") is False
 
 
 def _make_series(dates, closes, volumes=None, highs=None, lows=None, opens=None):

@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from dataclasses import dataclass, asdict, field
 from datetime import date, datetime
@@ -54,6 +55,32 @@ import pandas as pd
 DEFAULT_WAREHOUSE = Path("data_warehouse")
 PRICES_SUBDIR = "prices"
 META_SUBDIR = "_meta"
+
+# ── Non-stock ticker filters (mirrors vnstock_updater._is_stock) ────────────
+# Covered warrants:         CVRE2410, CVNM2101
+_CW_VN = re.compile(r"^C[A-Z]{2,4}\d{4}$")
+# Old bonds:                HDB124001, VBA121033
+_CW_OLD = re.compile(r"^[A-Z]{2,4}\d{5,6}$")
+# Futures (single-letter F):  BVBF2404
+_FUT = re.compile(r"^[A-Z]{2,6}F\d{4}$")
+# Index futures:            VN30F2404
+_FUT2 = re.compile(r"^[A-Z]{2}\d{2}F\d{4}$")
+# Index symbols to skip
+_INDEX_SYMBOLS = {"VNINDEX", "VN30", "HNXINDEX", "HNX30", "UPCOM",
+                  "UPINDEX", "UPCOM-INDEX"}
+
+
+def _is_stock(symbol: str) -> bool:
+    """True iff ``symbol`` looks like a real equity (not CW, bond, futures, index)."""
+    if not symbol:
+        return False
+    s = symbol.strip().upper()
+    if s in _INDEX_SYMBOLS:
+        return False
+    return not (
+        _CW_VN.match(s) or _CW_OLD.match(s)
+        or _FUT.match(s) or _FUT2.match(s)
+    )
 
 # Regulatory price bands by exchange (% of previous close)
 BAND_PCT = {
@@ -283,13 +310,26 @@ def scan_warehouse(
     *,
     lookback: int | None = 60,
     tickers: list[str] | None = None,
+    stocks_only: bool = True,
 ) -> AnomalyReport:
+    """
+    Scan every ticker in the warehouse for anomalies.
+
+    ``stocks_only=True`` (default) skips covered warrants, old-format bonds,
+    futures, and market indices — these have legitimately wild OHLCV
+    behaviour that would otherwise dominate the output. Disable it when
+    you explicitly want to audit the full warehouse.
+    """
     exchange_map = _load_exchange_map(warehouse)
     anomalies: list[Anomaly] = []
     scanned = 0
+    skipped_non_stock = 0
 
     for ticker, df in _iter_warehouse_tickers(warehouse):
         if tickers and ticker not in tickers:
+            continue
+        if stocks_only and not _is_stock(ticker):
+            skipped_non_stock += 1
             continue
         scanned += 1
         ex, _band = band_for(ticker, exchange_map)
@@ -299,6 +339,11 @@ def scan_warehouse(
             )
         except Exception as e:
             print(f"[anomaly] {ticker}: {e}", file=sys.stderr)
+
+    if skipped_non_stock:
+        print(f"[anomaly] skipped {skipped_non_stock} non-stock ticker(s) "
+              f"(CW/bonds/futures/indices) — pass --include-non-stocks to override",
+              file=sys.stderr)
 
     return AnomalyReport(
         run_at=datetime.utcnow().isoformat(timespec="seconds") + "Z",
@@ -332,6 +377,9 @@ def main():
                     help="Limit scan to these ticker(s). Default: all.")
     ap.add_argument("--full", action="store_true",
                     help="Shortcut for --lookback 0 (scan entire history).")
+    ap.add_argument("--include-non-stocks", action="store_true",
+                    help="Include CW / bonds / futures / indices "
+                         "(default: skip — they have legitimately wild OHLCV).")
     ap.add_argument("--no-write", action="store_true")
     args = ap.parse_args()
 
@@ -340,6 +388,7 @@ def main():
         warehouse=Path(args.warehouse),
         lookback=lookback,
         tickers=args.ticker,
+        stocks_only=not args.include_non_stocks,
     )
     summary = report.to_dict()
     print(f"[anomaly] scanned {summary['tickers_scanned']} tickers — "
