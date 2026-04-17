@@ -250,6 +250,8 @@ _EVENT_METHOD_NAMES = (
     "corp_events",
     "company_events",
     "events_schedule",
+    "capital_history",          # vnstock_data.Company exposes this — likely
+                                # contains splits/bonuses/capital increases.
 )
 
 
@@ -335,29 +337,39 @@ def probe_company(ticker: str) -> dict:
             else:
                 info["attrs"].append(attr_name)
 
-        # Probe likely candidates + sample columns/shape
-        for candidate in (_DIVIDEND_METHOD_NAMES + _EVENT_METHOD_NAMES):
-            try:
-                attr = getattr(company, candidate)
-            except AttributeError:
-                continue
-            try:
-                val = attr() if callable(attr) else attr
-            except Exception as e:
-                info["samples"][candidate] = f"<error: {type(e).__name__}>"
-                continue
-            if val is None:
-                info["samples"][candidate] = "<None>"
-            elif hasattr(val, "empty") and val.empty:
-                info["samples"][candidate] = "<empty DataFrame>"
-            elif hasattr(val, "columns"):
-                info["samples"][candidate] = {
-                    "shape": list(val.shape),
-                    "columns": list(val.columns),
-                    "head": val.head(2).to_dict(orient="records"),
-                }
-            else:
-                info["samples"][candidate] = f"<{type(val).__name__}>"
+        # Probe every public method — not just our guesses. For each, try
+        # calling with no args, then with common (start, end) date range args.
+        # This catches methods that require parameters (like KBS dividends).
+        for candidate in info["methods"]:
+            sample_key = candidate
+            attempts = [
+                ("()", lambda a=getattr(company, candidate): a()),
+                ("(start, end)",
+                 lambda a=getattr(company, candidate):
+                 a(start="2020-01-01", end="2026-12-31")),
+            ]
+            for label, call in attempts:
+                try:
+                    val = call()
+                except Exception as e:
+                    info["samples"][f"{sample_key}{label}"] = \
+                        f"<error: {type(e).__name__}: {str(e)[:60]}>"
+                    continue
+                if val is None:
+                    info["samples"][f"{sample_key}{label}"] = "<None>"
+                elif hasattr(val, "empty") and val.empty:
+                    info["samples"][f"{sample_key}{label}"] = "<empty DataFrame>"
+                elif hasattr(val, "columns"):
+                    info["samples"][f"{sample_key}{label}"] = {
+                        "shape": list(val.shape),
+                        "columns": list(val.columns),
+                        "head": val.head(2).to_dict(orient="records"),
+                    }
+                    break  # stop trying variants once we got data
+                else:
+                    info["samples"][f"{sample_key}{label}"] = \
+                        f"<{type(val).__name__}>"
+                    break
         out["sources"][source_name] = info
     return out
 
