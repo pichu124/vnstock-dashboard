@@ -566,6 +566,132 @@ def fix_volume_spikes(
         console.print(f"\n[bold]Fixed {fixed_total} anomalous date(s) total[/bold]")
 
 
+def rebuild_recent(
+    warehouse: str = "data_warehouse",
+    tickers: list = None,
+    days: int = 30,
+    dry_run: bool = False,
+    delay: float = 0.3,
+    ratio_threshold: float = 1.5,
+):
+    """
+    Re-fetch last N days from API and overwrite warehouse.
+
+    Use this when `--fix-volume` detects no spikes but GTGD values are
+    clearly too high (e.g., BĐS 5D GTGD = 1.7M tỷ is impossible). This
+    happens when the rollup merged inflated intraday bars into daily data
+    across ALL recent days — so median-based detection fails (median is
+    also inflated).
+
+    Strategy:
+      1. Fetch last N calendar days (≈N*5/7 trading days) from API.
+      2. For each date, compare warehouse volume vs API volume.
+      3. If warehouse / API > ratio_threshold → overwrite with API data.
+
+    Args:
+        days: how many calendar days back to check (default 30)
+        ratio_threshold: warehouse/api > this → overwrite (default 1.5x)
+    """
+    prices_dir = Path(warehouse) / "prices"
+    if not prices_dir.exists():
+        console.print("[red]❌ Prices dir not found[/red]")
+        return
+
+    ticker_dirs = sorted(prices_dir.glob("ticker=*"))
+    if tickers:
+        tickers_upper = {t.upper() for t in tickers}
+        ticker_dirs = [d for d in ticker_dirs if d.name.split("=")[1] in tickers_upper]
+
+    today = date.today()
+    start_str = (today - timedelta(days=days)).strftime("%Y-%m-%d")
+    end_str = today.strftime("%Y-%m-%d")
+
+    console.print(
+        f"[bold]Rebuilding last {days} days[/bold] "
+        f"({start_str} → {end_str}) for {len(ticker_dirs)} tickers "
+        f"(threshold: warehouse/api > {ratio_threshold}x)"
+    )
+    if dry_run:
+        console.print("[yellow]DRY RUN — no changes will be written[/yellow]")
+
+    import time as _t
+    fixed_count = 0
+    ticker_count = 0
+    for td in ticker_dirs:
+        ticker = td.name.split("=")[1]
+        try:
+            api_df = _fetch_prices(ticker, start=start_str, end=end_str)
+            if api_df.empty:
+                continue
+            api_df = api_df.copy()
+            api_df["time"] = pd.to_datetime(api_df["time"]).dt.date
+            api_by_date = {row["time"]: row for _, row in api_df.iterrows()}
+
+            years_affected = sorted(set(d.year for d in api_by_date.keys()))
+            suspect_dates = []
+            for year in years_affected:
+                wh_df = _read_year(td, year)
+                if wh_df.empty:
+                    continue
+                for _, wh_row in wh_df.iterrows():
+                    dt = wh_row["time"]
+                    if dt not in api_by_date:
+                        continue
+                    wh_vol = float(wh_row["volume"])
+                    api_vol = float(api_by_date[dt]["volume"])
+                    if api_vol > 0 and wh_vol / api_vol > ratio_threshold:
+                        suspect_dates.append((dt, wh_vol, api_vol))
+
+            if not suspect_dates:
+                continue
+
+            console.print(
+                f"[yellow]⚠ {ticker}: {len(suspect_dates)} inflated date(s)[/yellow]"
+            )
+            for dt, wh_vol, api_vol in suspect_dates[:3]:
+                console.print(
+                    f"    {dt}: warehouse={wh_vol:,.0f} vs api={api_vol:,.0f} "
+                    f"({wh_vol/api_vol:.1f}x)"
+                )
+            if len(suspect_dates) > 3:
+                console.print(f"    ... and {len(suspect_dates)-3} more")
+
+            if dry_run:
+                continue
+
+            for year in years_affected:
+                wh_df = _read_year(td, year)
+                year_api = api_df[pd.to_datetime(api_df["time"]).apply(
+                    lambda d: d.year) == year].copy()
+                if year_api.empty:
+                    continue
+                if wh_df.empty:
+                    merged = year_api
+                else:
+                    merged = pd.concat([wh_df, year_api], ignore_index=True)
+                    merged["time"] = pd.to_datetime(merged["time"]).dt.date
+                    merged = merged.drop_duplicates(subset=["time"], keep="last")
+                    merged = merged.sort_values("time").reset_index(drop=True)
+                _write_year(td, year, merged)
+
+            console.print(
+                f"  [green]✓ {ticker}: overwrote {len(suspect_dates)} date(s)[/green]"
+            )
+            fixed_count += len(suspect_dates)
+            ticker_count += 1
+            _t.sleep(delay)
+        except Exception as e:
+            console.print(f"[red]✗ {ticker}: {e}[/red]")
+
+    if fixed_count == 0:
+        console.print("[green]✓ No inflated dates found[/green]")
+    else:
+        console.print(
+            f"\n[bold]Rebuilt {fixed_count} date(s) across "
+            f"{ticker_count} ticker(s)[/bold]"
+        )
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="VnStock Daily Price Updater")
     parser.add_argument("--tickers",   nargs="+", metavar="TICKER",
@@ -578,6 +704,11 @@ if __name__ == "__main__":
                         help="Chạy kể cả cuối tuần")
     parser.add_argument("--fix-volume", action="store_true",
                         help="Detect & fix anomalous volume spikes in parquet")
+    parser.add_argument("--rebuild-recent", type=int, metavar="DAYS",
+                        help="Re-fetch last N calendar days from API; "
+                             "overwrite warehouse where volume > 1.5x API "
+                             "(fixes inflation when --fix-volume can't detect "
+                             "because median is also inflated)")
     parser.add_argument("--delay",     type=float, default=0.3,
                         help="Delay giữa API calls (giây, mặc định 0.3)")
     parser.add_argument("--warehouse", default="data_warehouse",
@@ -586,7 +717,15 @@ if __name__ == "__main__":
                         help="Skip nếu job đã chạy hôm nay (multi-machine)")
     args = parser.parse_args()
 
-    if args.fix_volume:
+    if args.rebuild_recent:
+        rebuild_recent(
+            warehouse=args.warehouse,
+            tickers=args.tickers,
+            days=args.rebuild_recent,
+            dry_run=args.dry_run,
+            delay=args.delay,
+        )
+    elif args.fix_volume:
         fix_volume_spikes(
             warehouse=args.warehouse,
             tickers=args.tickers,
