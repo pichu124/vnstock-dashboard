@@ -153,7 +153,11 @@ def _fetch_events(ticker: str, *, verbose: bool = False) -> pd.DataFrame:
 
 
 def _company_sources():
-    """Yield (name, resolver) pairs. Resolver: str -> company-like object."""
+    """Yield (name, resolver) pairs. Resolver: str -> company-like object.
+
+    Modern vnstock (>=3.5) dropped TCBS support; supported sources are
+    VCI, KBS, MSN, FMP. We try those plus vnstock_data's native ``Company``.
+    """
 
     def via_vnstock_data(ticker: str):
         from vnstock_data import Company
@@ -164,17 +168,17 @@ def _company_sources():
             pass
         return Company(symbol=ticker)
 
-    def via_vnstock_tcbs(ticker: str):
-        from vnstock import Vnstock
-        return Vnstock().stock(symbol=ticker, source="TCBS").company
-
     def via_vnstock_vci(ticker: str):
         from vnstock import Vnstock
         return Vnstock().stock(symbol=ticker, source="VCI").company
 
+    def via_vnstock_kbs(ticker: str):
+        from vnstock import Vnstock
+        return Vnstock().stock(symbol=ticker, source="KBS").company
+
     yield "vnstock_data.Company", via_vnstock_data
-    yield "vnstock:TCBS", via_vnstock_tcbs
     yield "vnstock:VCI", via_vnstock_vci
+    yield "vnstock:KBS", via_vnstock_kbs
 
 
 def _extract_dividends(company, ticker: str) -> list[dict]:

@@ -75,6 +75,9 @@ def _is_stock(symbol: str) -> bool:
     if not symbol:
         return False
     s = symbol.strip().upper()
+    if not s or not s[0].isalpha():
+        # HNX internal derivatives start with digits (41I1F7000, 41I1G2000)
+        return False
     if s in _INDEX_SYMBOLS:
         return False
     return not (

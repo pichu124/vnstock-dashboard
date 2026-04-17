@@ -40,6 +40,14 @@ def test_is_stock_rejects_indices():
         assert _is_stock(t) is False
 
 
+def test_is_stock_rejects_hnx_internal_derivatives():
+    # HNX internal codes for index-derived futures start with digits.
+    # The vnstock API surfaces these as "ticker" folders but they are not
+    # actual equities and have no company info.
+    for t in ["41I1F7000", "41I1G2000", "41I1FB000", "41I1G4000"]:
+        assert _is_stock(t) is False
+
+
 def test_is_stock_handles_whitespace_and_case():
     assert _is_stock("  vcb  ") is True
     assert _is_stock("  vn30f2404  ") is False
