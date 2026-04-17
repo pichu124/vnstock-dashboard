@@ -178,6 +178,12 @@ def cmd_refresh_metadata(args) -> int:
     warehouse = Path(args.warehouse)
     m = build_exchange_map(warehouse, verbose=True)
     print(f"[refresh] exchange_map: {len(m)} tickers")
+    if m:
+        # Show per-exchange breakdown
+        from collections import Counter
+        c = Counter(m.values())
+        print(f"[refresh]   HOSE={c.get('HOSE', 0)} "
+              f"HNX={c.get('HNX', 0)} UPCOM={c.get('UPCOM', 0)}")
 
     if args.events:
         from vnstock_adjust import refresh_events
@@ -195,7 +201,7 @@ def cmd_refresh_metadata(args) -> int:
         success = skip = fail = 0
         for i, t in enumerate(tickers, 1):
             try:
-                ev = refresh_events(t, warehouse)
+                ev = refresh_events(t, warehouse, verbose=args.verbose)
                 if ev.empty:
                     skip += 1
                 else:
@@ -281,6 +287,8 @@ def build_parser() -> argparse.ArgumentParser:
                          help="Also fetch corp-action events per ticker (slow, uses API)")
     refresh.add_argument("--limit", type=int, default=0,
                          help="With --events, process at most N tickers (for testing)")
+    refresh.add_argument("--verbose", action="store_true",
+                         help="Log source attempts for each ticker")
 
     sub.add_parser("test", help="Run pytest")
     sub.add_parser("dashboard", help="Launch the Streamlit dashboard")

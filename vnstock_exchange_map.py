@@ -85,38 +85,36 @@ def build_exchange_map(
 ) -> dict[str, str]:
     """Fetch ticker → exchange from vnstock listing API and persist.
 
-    Uses ``vnstock_data.Reference`` when available (Golden-tier), otherwise
-    the free ``vnstock.Listing`` endpoint. On failure, returns whatever has
-    been collected so far and leaves any existing map untouched.
+    Tries (in order):
+        1. ``vnstock.Listing().symbols_by_exchange()`` — free tier, stable
+           single-call that returns ALL tickers with an ``exchange`` column.
+        2. ``vnstock_data.Reference().equity.list()`` — Golden-tier endpoint
+           attempted with both no-args and ``exchange=...`` signatures
+           depending on the installed version.
+
+    On total failure, returns ``{}`` and leaves the existing file untouched.
     """
     mapping: dict[str, str] = {}
 
-    reference = _get_reference()
-    if reference is None:
-        if verbose:
-            print("[exchange_map] neither vnstock_data.Reference nor "
-                  "vnstock.Listing available")
-    else:
-        for ex in EXCHANGES:
-            try:
-                df = reference(ex)
-            except Exception as e:
-                if verbose:
-                    print(f"[exchange_map] {ex}: fetch failed — {e}")
-                continue
-            if df is None or len(df) == 0:
-                continue
-            col = _pick_ticker_column(df.columns)
-            if col is None:
-                continue
-            for sym in df[col].dropna().astype(str).str.upper():
-                mapping[sym] = ex
+    for fetcher_name, fetcher in _candidate_fetchers(verbose=verbose):
+        try:
+            result = fetcher()
+        except Exception as e:
             if verbose:
-                print(f"[exchange_map] {ex}: {len(df)} tickers")
+                print(f"[exchange_map] {fetcher_name} failed: {e}")
+            continue
+        if not result:
+            if verbose:
+                print(f"[exchange_map] {fetcher_name}: empty result")
+            continue
+        mapping.update(result)
+        if verbose:
+            print(f"[exchange_map] {fetcher_name}: {len(result)} tickers")
+        break   # first successful source wins
 
     if not mapping:
         if verbose:
-            print("[exchange_map] empty mapping — keeping existing file")
+            print("[exchange_map] no source produced data — file unchanged")
         return mapping
 
     _atomic_write(Path(warehouse) / META_SUBDIR / MAP_FILE, mapping)
@@ -126,36 +124,91 @@ def build_exchange_map(
     return mapping
 
 
+def _candidate_fetchers(*, verbose: bool):
+    """Yield (name, callable) pairs to try until one returns a non-empty dict."""
+    yield "vnstock.Listing.symbols_by_exchange", _fetch_via_listing
+    yield "vnstock_data.Reference.equity.list()", _fetch_via_reference_noargs
+    yield "vnstock_data.Reference.equity.list(exchange=...)", _fetch_via_reference_per_exchange
+
+
+def _fetch_via_listing() -> dict[str, str]:
+    """Single-call free-tier path: ``Listing().symbols_by_exchange()``."""
+    from vnstock import Listing
+    df = Listing().symbols_by_exchange()
+    if df is None or len(df) == 0:
+        return {}
+    return _dataframe_to_map(df)
+
+
+def _fetch_via_reference_noargs() -> dict[str, str]:
+    """vnstock_data newer API: ``ref.equity.list()`` returns all with column."""
+    from vnstock_data import Reference
+    try:
+        from vnstock_auth import ensure_api_key
+        ensure_api_key()
+    except Exception:
+        pass
+    df = Reference().equity.list()
+    if df is None or len(df) == 0:
+        return {}
+    return _dataframe_to_map(df)
+
+
+def _fetch_via_reference_per_exchange() -> dict[str, str]:
+    """vnstock_data older API: ``ref.equity.list(exchange=HOSE)``."""
+    from vnstock_data import Reference
+    try:
+        from vnstock_auth import ensure_api_key
+        ensure_api_key()
+    except Exception:
+        pass
+    ref = Reference()
+    out: dict[str, str] = {}
+    for ex in EXCHANGES:
+        df = ref.equity.list(exchange=ex)
+        if df is None or len(df) == 0:
+            continue
+        col = _pick_ticker_column(df.columns)
+        if col is None:
+            continue
+        for sym in df[col].dropna().astype(str).str.upper():
+            out[sym] = ex
+    return out
+
+
+def _dataframe_to_map(df) -> dict[str, str]:
+    """Extract {ticker: exchange} from any DataFrame with a symbol + exchange col."""
+    import pandas as pd
+
+    sym_col = _pick_ticker_column(df.columns)
+    if sym_col is None:
+        return {}
+    ex_col = _pick_exchange_column(df.columns)
+    if ex_col is None:
+        return {}
+
+    out: dict[str, str] = {}
+    sub = df[[sym_col, ex_col]].dropna()
+    for _, row in sub.iterrows():
+        sym = str(row[sym_col]).strip().upper()
+        ex = _normalise_exchange(row[ex_col])
+        if sym and ex:
+            out[sym] = ex
+    return out
+
+
+def _pick_exchange_column(columns) -> str | None:
+    for c in columns:
+        lc = str(c).lower()
+        if lc in ("exchange", "listing_exchange", "ex",
+                  "exchange_code", "board"):
+            return c
+    return None
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Internals
 # ─────────────────────────────────────────────────────────────────────────────
-
-
-def _get_reference():
-    """Return a callable (exchange: str) -> DataFrame, or None."""
-    # Prefer vnstock_data (sponsor tier, richer data).
-    try:
-        from vnstock_data import Reference
-        try:
-            from vnstock_auth import ensure_api_key
-            ensure_api_key()
-        except Exception:
-            pass
-        ref = Reference()
-        return lambda ex: ref.equity.list(exchange=ex)
-    except ImportError:
-        pass
-
-    # Fallback: free vnstock Listing
-    try:
-        from vnstock import Listing
-        listing = Listing()
-        return lambda ex: listing.symbols_by_exchange().pipe(
-            lambda df: df[df["exchange"].str.upper() == ex]
-            if "exchange" in df.columns else df
-        )
-    except Exception:
-        return None
 
 
 def _pick_ticker_column(columns) -> str | None:

@@ -91,9 +91,14 @@ def load_events(ticker: str, warehouse: Path = DEFAULT_WAREHOUSE) -> pd.DataFram
     return df
 
 
-def refresh_events(ticker: str, warehouse: Path = DEFAULT_WAREHOUSE) -> pd.DataFrame:
+def refresh_events(
+    ticker: str,
+    warehouse: Path = DEFAULT_WAREHOUSE,
+    *,
+    verbose: bool = False,
+) -> pd.DataFrame:
     """Best-effort fetch of corp-action events from vnstock and cache to parquet."""
-    events = _fetch_events(ticker)
+    events = _fetch_events(ticker, verbose=verbose)
     if events.empty:
         return events
     path = _events_path(ticker, warehouse)
@@ -102,20 +107,36 @@ def refresh_events(ticker: str, warehouse: Path = DEFAULT_WAREHOUSE) -> pd.DataF
     return events
 
 
-def _fetch_events(ticker: str) -> pd.DataFrame:
-    """Query vnstock for corp actions. Returns empty DF on any failure."""
+def _fetch_events(ticker: str, *, verbose: bool = False) -> pd.DataFrame:
+    """Query vnstock for corp actions. Returns empty DF on any failure.
+
+    Tries sources in order until one yields data:
+      1. vnstock_data.Company (Golden tier — richest history)
+      2. vnstock Vnstock(source="TCBS").stock.company
+      3. vnstock Vnstock(source="VCI").stock.company
+    """
     rows: list[dict] = []
-    try:
-        # Preferred path — unified API
-        from vnstock import Vnstock
 
-        company = Vnstock().stock(symbol=ticker, source="TCBS").company
-    except Exception:
-        company = None
-
-    if company is not None:
-        rows.extend(_extract_dividends(company, ticker))
-        rows.extend(_extract_events(company, ticker))
+    for source_name, resolve in _company_sources():
+        try:
+            company = resolve(ticker)
+        except Exception as e:
+            if verbose:
+                print(f"  [{ticker}] {source_name}: resolve failed — {e}")
+            continue
+        if company is None:
+            continue
+        dividends = _extract_dividends(company, ticker)
+        events = _extract_events(company, ticker)
+        rows.extend(dividends)
+        rows.extend(events)
+        if rows:
+            if verbose:
+                print(f"  [{ticker}] {source_name}: "
+                      f"{len(dividends)} div, {len(events)} event")
+            break
+        elif verbose:
+            print(f"  [{ticker}] {source_name}: no data")
 
     if not rows:
         return pd.DataFrame(columns=EVENT_SCHEMA_COLS)
@@ -129,6 +150,31 @@ def _fetch_events(ticker: str) -> pd.DataFrame:
     df = df.dropna(subset=["ex_date", "ticker"])
     df = df.drop_duplicates(subset=["ticker", "ex_date", "type"], keep="last")
     return df.sort_values("ex_date").reset_index(drop=True)
+
+
+def _company_sources():
+    """Yield (name, resolver) pairs. Resolver: str -> company-like object."""
+
+    def via_vnstock_data(ticker: str):
+        from vnstock_data import Company
+        try:
+            from vnstock_auth import ensure_api_key
+            ensure_api_key()
+        except Exception:
+            pass
+        return Company(symbol=ticker)
+
+    def via_vnstock_tcbs(ticker: str):
+        from vnstock import Vnstock
+        return Vnstock().stock(symbol=ticker, source="TCBS").company
+
+    def via_vnstock_vci(ticker: str):
+        from vnstock import Vnstock
+        return Vnstock().stock(symbol=ticker, source="VCI").company
+
+    yield "vnstock_data.Company", via_vnstock_data
+    yield "vnstock:TCBS", via_vnstock_tcbs
+    yield "vnstock:VCI", via_vnstock_vci
 
 
 def _extract_dividends(company, ticker: str) -> list[dict]:
