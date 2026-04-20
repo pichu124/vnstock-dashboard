@@ -302,6 +302,50 @@ def test_lookback_skips_old_bars_on_sparse_ticker():
     assert any(a.kind == "band" for a in out_full)
 
 
+# ── whitelist integration (via scan_warehouse) ─────────────────────────────
+
+def test_scan_warehouse_respects_whitelist(tmp_path):
+    """Whitelist entries are filtered from scan_warehouse output."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from vnstock_anomaly import scan_warehouse
+    from vnstock_remediate import add_to_whitelist
+
+    # Seed a ticker with a clear band breach: 100 → 120 (+20%) on HOSE
+    today = pd.Timestamp(date.today())
+    prev_day = today - pd.Timedelta(days=1)
+    year = today.year
+    year_dir = tmp_path / "prices" / "ticker=VCB" / f"year={year}"
+    year_dir.mkdir(parents=True, exist_ok=True)
+    df = pd.DataFrame({
+        "time": [prev_day, today],
+        "open": [100.0, 120.0], "high": [100.0, 120.0],
+        "low":  [100.0, 120.0], "close": [100.0, 120.0],
+        "volume": [1_000_000, 1_000_000],
+    })
+    pq.write_table(pa.Table.from_pandas(df, preserve_index=False),
+                   year_dir / "p.parquet")
+
+    # Seed exchange map so VCB → HOSE (7% band will flag the +20%)
+    meta = tmp_path / "_meta"
+    meta.mkdir(parents=True, exist_ok=True)
+    (meta / "exchange_map.json").write_text('{"VCB": "HOSE"}')
+
+    # Without whitelist: anomaly should be reported
+    r1 = scan_warehouse(tmp_path, lookback=30)
+    assert any(a.ticker == "VCB" and a.kind == "band" for a in r1.anomalies)
+
+    # Accept the anomaly via whitelist
+    add_to_whitelist("VCB", str(today.date()), kind="band",
+                      warehouse=tmp_path)
+
+    # Re-scan: whitelisted entry filtered out
+    r2 = scan_warehouse(tmp_path, lookback=30)
+    assert not any(a.ticker == "VCB" and a.kind == "band"
+                   for a in r2.anomalies), \
+        "whitelisted anomaly should be filtered out"
+
+
 def test_lookback_returns_empty_for_zombie_ticker():
     """A ticker that stopped trading years ago must produce 0 anomalies
     under the 60-day audit window — not ``last 60 bars from years ago``."""

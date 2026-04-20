@@ -70,6 +70,7 @@ class HealthSnapshot:
 
     reconciler: dict | None = None
     anomalies: dict | None = None
+    quarantine: dict | None = None
 
     warnings: list[str] = field(default_factory=list)
 
@@ -201,6 +202,26 @@ def render_health_tab(warehouse: Path = DEFAULT_WAREHOUSE) -> None:
                 st.dataframe(df, hide_index=True, use_container_width=True)
         else:
             st.caption("Chưa chạy anomaly scan. `python vnstock_anomaly.py`")
+
+    if snap.quarantine and snap.quarantine.get("total", 0) > 0:
+        st.divider()
+        q = snap.quarantine
+        st.markdown("**🛂 Quarantine** (dữ liệu bẩn chờ xử lý)")
+        cq1, cq2, cq3 = st.columns(3)
+        cq1.metric("Tổng", q.get("total", 0))
+        cq2.metric("Chờ retry", q.get("pending", 0))
+        cq3.metric(
+            "Đã hit max retry",
+            q.get("max_retries_hit", 0),
+            delta=None if q.get("max_retries_hit", 0) == 0 else "cần review",
+            delta_color="inverse",
+        )
+        if q.get("by_reason"):
+            st.write("**Theo lý do:**", q["by_reason"])
+        st.caption(
+            "Xử lý: `python vnstock_remediate.py --ticker X --date Y "
+            "--action refetch|accept|archive`"
+        )
 
     if snap.missing_top:
         st.divider()
@@ -457,6 +478,13 @@ def _populate_reports(snap: HealthSnapshot, warehouse: Path) -> None:
         except Exception:
             snap.warnings.append("anomalies.json corrupt")
 
+    # Quarantine summary (lightweight — doesn't load every file)
+    try:
+        from vnstock_quarantine import summary as q_summary
+        snap.quarantine = q_summary(warehouse)
+    except Exception:
+        snap.quarantine = None
+
 
 def _populate_warnings(snap: HealthSnapshot) -> None:
     if snap.ticker_count == 0:
@@ -473,6 +501,20 @@ def _populate_warnings(snap: HealthSnapshot) -> None:
             snap.warnings.append(
                 f"Newest bar is {gap} days old ({snap.newest_bar}). "
                 "Updater may have stopped."
+            )
+
+    if snap.quarantine:
+        pending = snap.quarantine.get("pending", 0)
+        max_hit = snap.quarantine.get("max_retries_hit", 0)
+        if max_hit > 0:
+            snap.warnings.append(
+                f"{max_hit} quarantine entry(ies) hit max retries — "
+                "run `python run.py remediate` to review."
+            )
+        elif pending > 20:
+            snap.warnings.append(
+                f"{pending} quarantine entries pending. "
+                "Try `python vnstock_remediate.py --all --action refetch`."
             )
 
 

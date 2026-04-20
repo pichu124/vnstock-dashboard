@@ -491,15 +491,29 @@ class VnStockWarehouse:
         df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0).astype("int64")
         df["year"]   = df["year"].astype("int16")
 
-        # Contract check: reject invalid rows before they ever hit parquet
+        # Contract check: reject invalid rows before they ever hit parquet.
+        # Dropped rows are routed to _meta/quarantine/ so they can be
+        # retried later instead of being silently discarded.
         try:
             from vnstock_contracts import validate_ohlcv
-            df, report = validate_ohlcv(df, strict=False, drop_invalid=True)
+            df, report = validate_ohlcv(
+                df, strict=False, drop_invalid=True, return_dropped=True,
+            )
             if report["dropped"] > 0:
                 console.log(
                     f"  [yellow]⚠ {ticker}: contract dropped "
-                    f"{report['dropped']}/{report['rows_in']} row(s)[/yellow]"
+                    f"{report['dropped']}/{report['rows_in']} row(s) → "
+                    f"quarantine[/yellow]"
                 )
+                try:
+                    from vnstock_quarantine import quarantine_dropped
+                    quarantine_dropped(
+                        report.get("dropped_rows"),
+                        report.get("dropped_reasons", "contract failure"),
+                        warehouse=self.root,
+                    )
+                except Exception as qe:
+                    console.log(f"  [red]quarantine write failed: {qe}[/red]")
             if df.empty:
                 return
         except Exception as e:

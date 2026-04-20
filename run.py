@@ -216,6 +216,51 @@ def cmd_refresh_metadata(args) -> int:
     return 0
 
 
+def cmd_remediate(args) -> int:
+    """Dispatch to vnstock_remediate with the parsed args."""
+    from vnstock_remediate import (
+        accept, apply_bulk, archive, attach_note, refetch,
+    )
+
+    warehouse = Path(args.warehouse)
+
+    if args.all:
+        result = apply_bulk(
+            args.action,
+            warehouse=warehouse,
+            kind=args.kind,
+            severity=args.severity,
+            limit=args.limit,
+            dry_run=args.dry_run,
+        )
+        print(json.dumps(result, indent=2))
+        return 0 if result.get("status") != "error" else 2
+
+    if not args.ticker or not args.date:
+        print("[remediate] single-target mode requires --ticker and --date, "
+              "or use --all", file=sys.stderr)
+        return 2
+
+    if args.action == "refetch":
+        res = refetch(args.ticker, args.date, warehouse=warehouse)
+    elif args.action == "accept":
+        res = accept(args.ticker, args.date, warehouse=warehouse,
+                     kind=args.kind or "*", note=args.note)
+    elif args.action == "archive":
+        res = archive(args.ticker, args.date, warehouse=warehouse)
+    elif args.action == "note":
+        if not args.note:
+            print("[remediate] --action note requires --note TEXT", file=sys.stderr)
+            return 2
+        res = attach_note(args.ticker, args.date, args.note, warehouse=warehouse)
+    else:
+        print(f"[remediate] unknown action {args.action}", file=sys.stderr)
+        return 2
+
+    print(json.dumps(res, indent=2))
+    return 0 if res.get("status") == "ok" else 1
+
+
 def cmd_test(args) -> int:
     return _run([sys.executable, "-m", "pytest", "tests/", "-v"])
 
@@ -290,6 +335,21 @@ def build_parser() -> argparse.ArgumentParser:
     refresh.add_argument("--verbose", action="store_true",
                          help="Log source attempts for each ticker")
 
+    rem = sub.add_parser("remediate",
+                         help="Refetch / accept / archive specific bars or bulk by kind")
+    rem.add_argument("--ticker", help="Single ticker target")
+    rem.add_argument("--date", help="Single date target (YYYY-MM-DD)")
+    rem.add_argument("--kind", help="Anomaly kind filter (for --all)")
+    rem.add_argument("--severity", choices=["fail", "warn"])
+    rem.add_argument("--action", choices=["refetch", "accept", "archive", "note"],
+                     required=True)
+    rem.add_argument("--note", default=None)
+    rem.add_argument("--all", action="store_true",
+                     help="Apply action to every anomaly in anomalies.json "
+                          "matching the kind/severity filters")
+    rem.add_argument("--limit", type=int, default=0)
+    rem.add_argument("--dry-run", action="store_true")
+
     sub.add_parser("test", help="Run pytest")
     sub.add_parser("dashboard", help="Launch the Streamlit dashboard")
 
@@ -308,6 +368,7 @@ _DISPATCH = {
     "validate": cmd_validate,
     "audit": cmd_audit,
     "refresh-metadata": cmd_refresh_metadata,
+    "remediate": cmd_remediate,
     "test": cmd_test,
     "dashboard": cmd_dashboard,
     "all": cmd_all,

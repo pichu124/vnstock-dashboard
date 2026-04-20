@@ -273,6 +273,7 @@ def validate_ohlcv(
     *,
     strict: bool = False,
     drop_invalid: bool = True,
+    return_dropped: bool = False,
 ) -> tuple[pd.DataFrame, dict]:
     """
     Run a DataFrame through the OHLCV contract.
@@ -283,12 +284,17 @@ def validate_ohlcv(
     strict : if True, any violation raises ContractViolation.
     drop_invalid : if True (and not strict), offending rows are dropped and a
         report is returned; if False, the DataFrame is returned unchanged.
+    return_dropped : if True, the report additionally carries a ``dropped_rows``
+        DataFrame (the rejected rows, verbatim) and ``dropped_reasons`` list.
+        Used by the quarantine pipeline to preserve bad rows instead of
+        silently discarding them.
 
     Returns
     -------
     (clean_df, report) where report = {
         "rows_in": int, "rows_out": int, "dropped": int,
-        "pandera_available": bool, "failures": list[str]
+        "pandera_available": bool, "failures": list[str],
+        "dropped_rows"?: DataFrame, "dropped_reasons"?: list[str]
     }
     """
     report = {
@@ -304,7 +310,8 @@ def validate_ohlcv(
     schema = ohlcv_schema()
     if schema is None:
         # Pandera not installed — fall back to structural filter.
-        return _fallback_ohlcv_filter(df, report)
+        return _fallback_ohlcv_filter(df, report,
+                                       return_dropped=return_dropped)
 
     report["pandera_available"] = True
     try:
@@ -317,9 +324,12 @@ def validate_ohlcv(
         if strict:
             raise ContractViolation(f"OHLCV contract violated: {failures[:5]}") from e
         if drop_invalid:
-            clean, dropped = _drop_failure_indices(df, e)
+            clean, dropped_df, reasons = _split_failure_rows(df, e)
             report["rows_out"] = len(clean)
-            report["dropped"] = dropped
+            report["dropped"] = len(dropped_df)
+            if return_dropped:
+                report["dropped_rows"] = dropped_df
+                report["dropped_reasons"] = reasons
             return clean, report
         return df, report
 
@@ -375,17 +385,62 @@ def validate_tick(df: pd.DataFrame, *, strict: bool = False) -> tuple[pd.DataFra
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _fallback_ohlcv_filter(df: pd.DataFrame, report: dict) -> tuple[pd.DataFrame, dict]:
+def _fallback_ohlcv_filter(
+    df: pd.DataFrame,
+    report: dict,
+    *,
+    return_dropped: bool = False,
+) -> tuple[pd.DataFrame, dict]:
     """Used when pandera is not installed — enforces the minimum invariants."""
     before = len(df)
-    out = df.copy()
-    if "close" in out.columns:
-        out = out[pd.to_numeric(out["close"], errors="coerce") > 0]
-    if "volume" in out.columns:
-        out = out[pd.to_numeric(out["volume"], errors="coerce").fillna(-1) >= 0]
+    mask_ok = pd.Series(True, index=df.index)
+    if "close" in df.columns:
+        mask_ok &= pd.to_numeric(df["close"], errors="coerce") > 0
+    if "volume" in df.columns:
+        mask_ok &= pd.to_numeric(df["volume"], errors="coerce").fillna(-1) >= 0
+    out = df[mask_ok]
     report["rows_out"] = len(out)
     report["dropped"] = before - len(out)
+    if return_dropped:
+        dropped = df[~mask_ok]
+        report["dropped_rows"] = dropped
+        report["dropped_reasons"] = ["fallback: price<=0 or volume<0"] * len(dropped)
     return out, report
+
+
+def _split_failure_rows(df: pd.DataFrame, exc) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
+    """Return (clean_df, dropped_df, per-row reason list)."""
+    try:
+        cases = getattr(exc, "failure_cases", None)
+        if cases is not None and "index" in cases.columns:
+            bad = cases["index"].dropna().astype(int).unique().tolist()
+            if bad:
+                # Build per-row reason summaries from the failure_cases table
+                reasons_by_idx: dict[int, list[str]] = {}
+                for _, r in cases.iterrows():
+                    idx = r.get("index")
+                    if idx is None or pd.isna(idx):
+                        continue
+                    col = r.get("column", "?")
+                    check = r.get("check", "?")
+                    reasons_by_idx.setdefault(int(idx), []).append(
+                        f"{col}: {check}"
+                    )
+                clean = df.drop(index=bad, errors="ignore")
+                dropped = df.loc[df.index.intersection(bad)]
+                reasons = [
+                    "; ".join(reasons_by_idx.get(int(i), ["schema failure"]))
+                    for i in dropped.index
+                ]
+                return clean, dropped, reasons
+    except Exception:
+        pass
+    # Fallback: structural filter
+    clean, rep = _fallback_ohlcv_filter(df, {"rows_out": 0, "dropped": 0},
+                                         return_dropped=True)
+    dropped = rep.get("dropped_rows", df.iloc[0:0])
+    reasons = rep.get("dropped_reasons", [])
+    return clean, dropped, reasons
 
 
 def _extract_failure_cases(exc) -> list[str]:
@@ -406,19 +461,9 @@ def _extract_failure_cases(exc) -> list[str]:
 
 
 def _drop_failure_indices(df: pd.DataFrame, exc) -> tuple[pd.DataFrame, int]:
-    """Drop rows flagged by pandera's failure_cases."""
-    try:
-        cases = getattr(exc, "failure_cases", None)
-        if cases is not None and "index" in cases.columns:
-            bad = cases["index"].dropna().astype(int).unique().tolist()
-            if bad:
-                clean = df.drop(index=bad, errors="ignore")
-                return clean, len(df) - len(clean)
-    except Exception:
-        pass
-    # If we can't pinpoint bad rows, fall back to structural filter
-    clean, _rep = _fallback_ohlcv_filter(df, {"rows_out": 0, "dropped": 0})
-    return clean, len(df) - len(clean)
+    """Drop rows flagged by pandera's failure_cases. Kept for API compat."""
+    clean, dropped, _reasons = _split_failure_rows(df, exc)
+    return clean, len(dropped)
 
 
 __all__ = [

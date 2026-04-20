@@ -364,11 +364,25 @@ def scan_warehouse(
     futures, and market indices — these have legitimately wild OHLCV
     behaviour that would otherwise dominate the output. Disable it when
     you explicitly want to audit the full warehouse.
+
+    Respects ``_meta/anomaly_whitelist.json`` — any (ticker, date, kind)
+    tuple listed there is filtered from the output. Populate the whitelist
+    via ``vnstock_remediate.add_to_whitelist`` or the ``remediate --action
+    accept`` CLI.
     """
     exchange_map = _load_exchange_map(warehouse)
+
+    # Load user-accepted anomalies
+    try:
+        from vnstock_remediate import load_whitelist
+        whitelist = load_whitelist(warehouse)
+    except Exception:
+        whitelist = set()
+
     anomalies: list[Anomaly] = []
     scanned = 0
     skipped_non_stock = 0
+    skipped_whitelisted = 0
 
     # Lazy import to avoid hard dep when vnstock_adjust isn't needed
     try:
@@ -386,16 +400,33 @@ def scan_warehouse(
         ex, _band = band_for(ticker, exchange_map)
         events = load_events(ticker, warehouse) if load_events else None
         try:
-            anomalies.extend(
-                scan_ticker(df, ticker, exchange=ex, lookback=lookback,
-                            events=events)
+            ticker_anomalies = scan_ticker(
+                df, ticker, exchange=ex, lookback=lookback, events=events,
             )
         except Exception as e:
             print(f"[anomaly] {ticker}: {e}", file=sys.stderr)
+            continue
+
+        # Filter out user-accepted (whitelisted) entries
+        if whitelist:
+            kept = []
+            for a in ticker_anomalies:
+                key_specific = (a.ticker, a.trading_date, a.kind)
+                key_any_kind = (a.ticker, a.trading_date, "*")
+                if key_specific in whitelist or key_any_kind in whitelist:
+                    skipped_whitelisted += 1
+                    continue
+                kept.append(a)
+            ticker_anomalies = kept
+        anomalies.extend(ticker_anomalies)
 
     if skipped_non_stock:
         print(f"[anomaly] skipped {skipped_non_stock} non-stock ticker(s) "
               f"(CW/bonds/futures/indices) — pass --include-non-stocks to override",
+              file=sys.stderr)
+    if skipped_whitelisted:
+        print(f"[anomaly] skipped {skipped_whitelisted} whitelisted anomaly "
+              f"entry(ies) — see _meta/anomaly_whitelist.json",
               file=sys.stderr)
 
     return AnomalyReport(
