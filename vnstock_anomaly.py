@@ -178,7 +178,12 @@ def scan_ticker(
     Run all anomaly checks on a single ticker's daily OHLCV.
 
     ``df`` must have: time, open, high, low, close, volume. Sorted by time.
-    ``lookback`` restricts to the last N rows (after sort).
+    ``lookback`` restricts the scan window to the last N **calendar days**
+    (measured from the most recent bar in ``df``). Using calendar days
+    instead of rows matters for illiquid tickers with sparse data: if we
+    took the last N rows, we would silently scan bars from years ago and
+    miss recent corp-action ex-dates that would otherwise suppress false
+    positives.
     ``events`` is an optional DataFrame of corp-action events (from
     vnstock_adjust.load_events). When provided, bars whose trading date
     matches an ex-date are exempted from ``zero_vol_move`` (cash-div
@@ -220,21 +225,34 @@ def scan_ticker(
     df["vol_std20"] = df["volume"].rolling(20, min_periods=5).std()
     df["gap_days"] = df["time"].diff().dt.days
 
-    # Optionally restrict scanning window
-    scan = df.tail(lookback) if lookback else df
+    # Optionally restrict scanning window to the last ``lookback`` calendar
+    # days. Row-based windowing bit us when illiquid tickers had sparse bars:
+    # tail(60) would grab bars from 2020-2022 and miss 2024-2025 corp events.
+    if lookback:
+        cutoff = df["time"].max() - pd.Timedelta(days=lookback)
+        scan = df[df["time"] >= cutoff]
+    else:
+        scan = df
 
     for _, row in scan.iterrows():
         prev_c = row.get("prev_close")
         chg = row.get("chg_pct")
+        gap = row.get("gap_days")
         ts_norm = row["time"].normalize()
         ts = str(row["time"].date())
 
         on_cash_ex = ts_norm in cash_ex
         on_split_ex = ts_norm in split_ex
+        # If the previous bar is more than MAX_GAP_DAYS behind, its close is
+        # not a meaningful baseline — we emit the `gap` anomaly below and skip
+        # price-change checks to avoid double-flagging (a 75% chg over a 4-year
+        # gap is not a band breach, it's a stale baseline).
+        stale_baseline = pd.notna(gap) and gap > MAX_GAP_DAYS
 
         # 1) close breaches the band
         #    Skip on split/bonus ex-date: price legitimately rescales.
-        if (not on_split_ex
+        #    Skip when the baseline is stale.
+        if (not on_split_ex and not stale_baseline
                 and pd.notna(prev_c) and pd.notna(chg)
                 and abs(chg) > band):
             sev = "fail" if abs(chg) > band * 1.5 else "warn"
@@ -247,16 +265,16 @@ def scan_ticker(
             ))
 
         # 2) high/low outside the band (print errors)
-        #    Also skipped on split ex-date.
+        #    Also skipped on split ex-date or after a long gap.
         hi = row.get("hi_pct"); lo = row.get("lo_pct")
-        if (not on_split_ex
+        if (not on_split_ex and not stale_baseline
                 and pd.notna(hi) and hi > band * 1.05):
             out.append(Anomaly(
                 ticker=ticker, trading_date=ts, kind="ohlc", severity="warn",
                 detail=f"high {hi:+.2f}% > band +{band:.2f}%",
                 metrics={"hi_pct": round(float(hi), 3)},
             ))
-        if (not on_split_ex
+        if (not on_split_ex and not stale_baseline
                 and pd.notna(lo) and lo < -band * 1.05):
             out.append(Anomaly(
                 ticker=ticker, trading_date=ts, kind="ohlc", severity="warn",
@@ -291,7 +309,9 @@ def scan_ticker(
         # 5) zero volume but price changed
         #    Skipped on any cash/split/bonus ex-date — price moved due to the
         #    mechanical corp-action adjustment, not a real print error.
-        if (not on_cash_ex
+        #    Also skipped when the baseline is stale (long gap), since `chg`
+        #    is then meaningless.
+        if (not on_cash_ex and not stale_baseline
                 and pd.notna(v) and v == 0
                 and pd.notna(chg) and abs(chg) > 0.5):
             out.append(Anomaly(

@@ -268,13 +268,31 @@ def test_empty_events_df_behaves_like_no_events():
 
 
 def test_lookback_limits_scan():
+    """lookback is in CALENDAR DAYS (not rows). Confirms the last-bar
+    breach is still caught under a tight lookback window."""
     dates = pd.bdate_range("2026-01-01", periods=50)
-    closes = [100.0] * 49 + [120.0]   # breach on last bar only
+    closes = [100.0] * 49 + [120.0]   # +20% breach on the last bar
     df = _make_series(list(dates), closes)
-    # Lookback=5 still catches the last-bar breach
-    out = [a for a in scan_ticker(df, "X", exchange="HOSE", lookback=5) if a.kind == "band"]
+    # Window covering only the last 10 days still catches the breach
+    out = [a for a in scan_ticker(df, "X", exchange="HOSE", lookback=10)
+           if a.kind == "band"]
     assert len(out) == 1
-    # Lookback=1 sees only the last bar; still catches it (but if we asked for
-    # just the oldest row by tailing, no breach). Sanity check the tail logic:
-    out2 = [a for a in scan_ticker(df, "X", exchange="HOSE", lookback=1) if a.kind == "band"]
-    assert len(out2) == 1
+
+
+def test_lookback_skips_old_bars_on_sparse_ticker():
+    """Sparse ticker (illiquid): bars from years ago must NOT be scanned
+    under a 60-day lookback — this was the root cause of 11k stale
+    anomalies dominating the real audit output."""
+    # Old bar with a breach + a recent calm bar
+    df = _make_series(
+        ["2022-04-12", "2022-04-15", "2026-04-15", "2026-04-16"],
+        closes=[100.0, 200.0, 50.0, 50.0],  # +100% breach in 2022
+    )
+    # 60-day lookback from 2026-04-16 starts around 2026-02-15 → skips 2022
+    out = scan_ticker(df, "X", exchange="HOSE", lookback=60)
+    assert not any(a.kind == "band" for a in out), \
+        f"Old 2022 bar should be outside the 60-day window, got {out}"
+
+    # Without lookback, the old breach is flagged
+    out_full = scan_ticker(df, "X", exchange="HOSE", lookback=None)
+    assert any(a.kind == "band" for a in out_full)
