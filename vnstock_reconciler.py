@@ -203,19 +203,30 @@ def _normalise_units(api_df: pd.DataFrame, rolled_df: pd.DataFrame) -> tuple[pd.
     """
     rescaled = False
     if api_df is None or rolled_df is None or api_df.empty or rolled_df.empty:
+        print(f"[reconciler] normalise_units: empty side "
+              f"(api={0 if api_df is None else len(api_df)}, "
+              f"rolled={0 if rolled_df is None else len(rolled_df)})")
         return api_df, rolled_df, rescaled
     if "close" not in api_df.columns or "close" not in rolled_df.columns:
+        print(f"[reconciler] normalise_units: missing close column "
+              f"(api_cols={list(api_df.columns)}, "
+              f"rolled_cols={list(rolled_df.columns)})")
         return api_df, rolled_df, rescaled
 
     try:
         med_api = float(pd.to_numeric(api_df["close"], errors="coerce").median())
         med_rolled = float(pd.to_numeric(rolled_df["close"], errors="coerce").median())
-    except Exception:
+    except Exception as e:
+        print(f"[reconciler] normalise_units: median error — {e}")
         return api_df, rolled_df, rescaled
     if not (med_api > 0 and med_rolled > 0):
+        print(f"[reconciler] normalise_units: non-positive median "
+              f"(api={med_api}, rolled={med_rolled})")
         return api_df, rolled_df, rescaled
 
     ratio = med_rolled / med_api
+    print(f"[reconciler] normalise_units: med_api={med_api:.3f}, "
+          f"med_rolled={med_rolled:.3f}, ratio={ratio:.3f}")
     # Rolled is ~1000× the API → rolled is in VND, divide by 1000
     if ratio >= 500 and ratio <= 2000:
         rolled_df = rolled_df.copy()
