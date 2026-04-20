@@ -94,3 +94,40 @@ def test_snapshot_roundtrips_to_dict(mini_warehouse):
     assert d["warehouse_path"] == str(mini_warehouse)
     # json-serialisable
     json.dumps(d, default=str)
+
+
+def test_health_splits_stocks_from_non_stocks(tmp_path: Path):
+    """HNX internal codes / CW / futures are excluded from stock_count
+    and from missing-rate calculation — they would otherwise dominate."""
+    import pandas as pd
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    prices = tmp_path / "prices"
+
+    def _seed(ticker: str, year: int):
+        ydir = prices / f"ticker={ticker}" / f"year={year}"
+        ydir.mkdir(parents=True, exist_ok=True)
+        dates = pd.date_range(f"{year}-01-02", periods=5, freq="B")
+        df = pd.DataFrame({
+            "time": dates.date,
+            "open": [100.0] * 5, "high": [100.0] * 5,
+            "low": [100.0] * 5, "close": [100.0] * 5,
+            "volume": [1_000_000] * 5,
+        })
+        pq.write_table(pa.Table.from_pandas(df, preserve_index=False),
+                       ydir / "p.parquet")
+
+    # 2 stocks + 2 non-stocks
+    _seed("VCB", 2025)
+    _seed("FPT", 2025)
+    _seed("CFPT2409", 2025)    # covered warrant
+    _seed("41I1F7000", 2025)   # HNX internal derivative
+
+    snap = collect(tmp_path)
+    assert snap.ticker_count == 4          # all folders
+    assert snap.stock_count == 2           # VCB + FPT only
+    assert snap.non_stock_count == 2       # CW + HNX derivative
+    # Missing rate calc should only consider stocks
+    top_tickers = {row["ticker"] for row in snap.missing_top}
+    assert top_tickers <= {"VCB", "FPT"}

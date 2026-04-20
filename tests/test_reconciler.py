@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from vnstock_reconciler import _classify, _pct_diff
+from vnstock_reconciler import _classify, _normalise_units, _pct_diff
 
 
 def test_pct_diff_symmetric():
@@ -38,3 +38,50 @@ def test_classify_fail_on_close():
 def test_classify_fail_dominates_warn():
     sev, _ = _classify(close_diff=5.0, volume_diff=10.0)
     assert sev == "fail"
+
+
+# ── unit normalisation ──────────────────────────────────────────────────────
+
+def test_normalise_rescales_rolled_by_1000():
+    """Warehouse stores thousand VND (7.12), WSS rolled stores VND (7120).
+    Ratio ~1000× → rolled side is divided by 1000 before comparison."""
+    api = pd.DataFrame({
+        "ticker": ["AAA", "FPT", "VCB"],
+        "close": [7.12, 120.0, 77.7],
+    })
+    rolled = pd.DataFrame({
+        "ticker": ["AAA", "FPT", "VCB"],
+        "close": [7120.0, 120000.0, 77700.0],
+    })
+    api_out, rolled_out, rescaled = _normalise_units(api, rolled)
+    assert rescaled is True
+    # Rolled should now match API within rounding
+    assert list(rolled_out["close"]) == [7.12, 120.0, 77.7]
+    # API untouched
+    assert list(api_out["close"]) == [7.12, 120.0, 77.7]
+
+
+def test_normalise_noop_when_units_match():
+    api = pd.DataFrame({"ticker": ["AAA"], "close": [7.12]})
+    rolled = pd.DataFrame({"ticker": ["AAA"], "close": [7.15]})
+    api_out, rolled_out, rescaled = _normalise_units(api, rolled)
+    assert rescaled is False
+    assert list(rolled_out["close"]) == [7.15]
+
+
+def test_normalise_handles_empty_frames():
+    empty = pd.DataFrame(columns=["ticker", "close"])
+    one = pd.DataFrame({"ticker": ["X"], "close": [7.12]})
+    _, _, rescaled = _normalise_units(empty, one)
+    assert rescaled is False
+    _, _, rescaled = _normalise_units(one, empty)
+    assert rescaled is False
+
+
+def test_normalise_inverse_case():
+    """Rare case: API in VND, rolled in thousand VND — normalise API."""
+    api = pd.DataFrame({"ticker": ["X"], "close": [7120.0]})
+    rolled = pd.DataFrame({"ticker": ["X"], "close": [7.12]})
+    api_out, rolled_out, rescaled = _normalise_units(api, rolled)
+    assert rescaled is True
+    assert list(api_out["close"]) == [7.12]

@@ -188,6 +188,47 @@ def _load_rolled_daily(warehouse: Path, dates: list[date]) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 
 
+def _normalise_units(api_df: pd.DataFrame, rolled_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, bool]:
+    """
+    Bring the two price sources onto a common unit (thousand VND).
+
+    The warehouse (via _fetch_price) stores prices in thousand VND
+    (e.g. 77.7 for a 77,700 VND stock), while WSS-rolled bars often
+    carry raw VND (77,700). Blindly comparing the two produces drift
+    figures like 99,900% which drown out real discrepancies.
+
+    Heuristic: if the rolled median close is >= 500× the API median close
+    (or vice versa), divide the larger side by 1000. We log whether a
+    rescaling was applied so operators know the reconciler did it.
+    """
+    rescaled = False
+    if api_df is None or rolled_df is None or api_df.empty or rolled_df.empty:
+        return api_df, rolled_df, rescaled
+    if "close" not in api_df.columns or "close" not in rolled_df.columns:
+        return api_df, rolled_df, rescaled
+
+    try:
+        med_api = float(pd.to_numeric(api_df["close"], errors="coerce").median())
+        med_rolled = float(pd.to_numeric(rolled_df["close"], errors="coerce").median())
+    except Exception:
+        return api_df, rolled_df, rescaled
+    if not (med_api > 0 and med_rolled > 0):
+        return api_df, rolled_df, rescaled
+
+    ratio = med_rolled / med_api
+    # Rolled is ~1000× the API → rolled is in VND, divide by 1000
+    if ratio >= 500 and ratio <= 2000:
+        rolled_df = rolled_df.copy()
+        rolled_df["close"] = pd.to_numeric(rolled_df["close"], errors="coerce") / 1000.0
+        rescaled = True
+    # Rare inverse case
+    elif ratio <= 1 / 500 and ratio >= 1 / 2000:
+        api_df = api_df.copy()
+        api_df["close"] = pd.to_numeric(api_df["close"], errors="coerce") / 1000.0
+        rescaled = True
+    return api_df, rolled_df, rescaled
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Reconciliation logic
 # ─────────────────────────────────────────────────────────────────────────────
@@ -250,6 +291,14 @@ def reconcile(
 
     api_df = _load_api_daily(warehouse, tickers, dates)
     rolled_df = _load_rolled_daily(warehouse, dates)
+
+    # Bring prices onto a common unit before comparing. Without this, the
+    # reconciler reports 99900% drift on every row because rolled bars are
+    # in VND and API bars are in thousand VND.
+    api_df, rolled_df, rescaled = _normalise_units(api_df, rolled_df)
+    if rescaled:
+        print("[reconciler] normalised price units (rolled /= 1000) "
+              "before comparison")
 
     if api_df.empty and rolled_df.empty:
         return ReconciliationReport(

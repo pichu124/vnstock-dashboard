@@ -54,7 +54,9 @@ class HealthSnapshot:
     generated_at: str
     warehouse_path: str
 
-    ticker_count: int = 0
+    ticker_count: int = 0           # all folders in warehouse (incl. non-stocks)
+    stock_count: int = 0            # real equities only
+    non_stock_count: int = 0        # CW / bonds / futures / HNX internal codes
     row_count: int = 0
     oldest_bar: str | None = None
     newest_bar: str | None = None
@@ -137,7 +139,13 @@ def render_health_tab(warehouse: Path = DEFAULT_WAREHOUSE) -> None:
 
     # Top-level KPI cards
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Mã theo dõi", f"{snap.ticker_count:,}")
+    col1.metric(
+        "Mã cổ phiếu",
+        f"{snap.stock_count:,}",
+        delta=(f"+{snap.non_stock_count:,} CW/derivatives (không audit)"
+               if snap.non_stock_count else None),
+        delta_color="off",
+    )
     col2.metric("Tổng dòng dữ liệu", f"{snap.row_count:,}")
     col3.metric(
         "Tỉ lệ thiếu (30d)",
@@ -267,8 +275,24 @@ def _scan_warehouse_single_pass(
         snap.warnings.append("Warehouse prices directory not found")
         return
 
-    ticker_dirs = [p for p in prices_dir.glob("ticker=*") if p.is_dir()]
-    snap.ticker_count = len(ticker_dirs)
+    # Separate real equities from CW / bonds / futures / HNX internal
+    # derivatives. Health metrics (missing rate, date range) are computed
+    # only on real stocks, otherwise zombie derivative codes push the
+    # missing-rate figure to absurd levels and mask the real picture.
+    try:
+        from vnstock_anomaly import _is_stock
+    except Exception:
+        _is_stock = lambda s: True  # fallback — don't filter
+
+    all_ticker_dirs = [p for p in prices_dir.glob("ticker=*") if p.is_dir()]
+    stock_dirs = [p for p in all_ticker_dirs
+                  if _is_stock(p.name.removeprefix("ticker="))]
+    non_stock_count = len(all_ticker_dirs) - len(stock_dirs)
+
+    snap.ticker_count = len(all_ticker_dirs)
+    snap.stock_count = len(stock_dirs)
+    snap.non_stock_count = non_stock_count
+    ticker_dirs = stock_dirs  # only scan stocks from here on
     if not ticker_dirs:
         return
 
