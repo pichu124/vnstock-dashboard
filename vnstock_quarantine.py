@@ -87,20 +87,32 @@ def _entry_path(warehouse: Path, ticker: str, bar_date: str) -> Path:
 
 
 def _atomic_write(path: Path, data: dict) -> None:
+    """Atomic write with retry — Dropbox / AV on Windows can hold a transient
+    lock on the destination and break os.replace; short backoff absorbs it."""
+    import time
+
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(f".{os.getpid()}.tmp")
-    try:
-        tmp.write_text(
-            json.dumps(data, indent=2, ensure_ascii=False, default=str),
-            encoding="utf-8",
-        )
-        os.replace(str(tmp), str(path))
-    finally:
-        if tmp.exists():
-            try:
-                tmp.unlink()
-            except Exception:
-                pass
+    last_err: Exception | None = None
+    for attempt in range(5):
+        try:
+            tmp.write_text(
+                json.dumps(data, indent=2, ensure_ascii=False, default=str),
+                encoding="utf-8",
+            )
+            os.replace(str(tmp), str(path))
+            return
+        except PermissionError as e:
+            last_err = e
+            time.sleep(0.1 * (2 ** attempt))
+        finally:
+            if tmp.exists():
+                try:
+                    tmp.unlink()
+                except Exception:
+                    pass
+    if last_err is not None:
+        raise last_err
 
 
 def _normalise_date(d) -> str:
