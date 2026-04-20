@@ -188,56 +188,53 @@ def _load_rolled_daily(warehouse: Path, dates: list[date]) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 
 
+_RAW_VND_THRESHOLD = 500.0   # any close > 500 is certainly raw VND
+
+
 def _normalise_units(api_df: pd.DataFrame, rolled_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, bool]:
     """
-    Bring the two price sources onto a common unit (thousand VND).
+    Bring both price sources onto a common unit (thousand VND), per-row.
 
-    The warehouse (via _fetch_price) stores prices in thousand VND
-    (e.g. 77.7 for a 77,700 VND stock), while WSS-rolled bars often
-    carry raw VND (77,700). Blindly comparing the two produces drift
-    figures like 99,900% which drown out real discrepancies.
+    Background
+    ----------
+    Running the first live audit showed that the warehouse has MIXED units.
+    The median of a freshly loaded api_df was 5,600 — i.e. raw VND — even
+    though individual tickers like AAA sit at 7.12 (thousand VND). In
+    other words the warehouse is partially un-normalised: some rows come
+    from paths that divided by 1000 and some don't. WSS-rolled bars are
+    always raw VND.
 
-    Heuristic: if the rolled median close is >= 500× the API median close
-    (or vice versa), divide the larger side by 1000. We log whether a
-    rescaling was applied so operators know the reconciler did it.
+    A ratio-of-medians heuristic therefore misses: on most tickers both
+    sides are raw VND → ratio ~ 1, detection fails, and the few tickers
+    that ARE in thousand VND blow up as 99 900 % drift in the report.
+
+    Fix: normalise every row independently. Any close > 500 is almost
+    certainly raw VND (no VN equity trades above 500 thousand VND), so
+    divide that row by 1000. Apply to both api_df and rolled_df. After
+    this, both frames live in thousand VND and pct_diff makes sense.
     """
     rescaled = False
-    if api_df is None or rolled_df is None or api_df.empty or rolled_df.empty:
-        print(f"[reconciler] normalise_units: empty side "
-              f"(api={0 if api_df is None else len(api_df)}, "
-              f"rolled={0 if rolled_df is None else len(rolled_df)})")
-        return api_df, rolled_df, rescaled
-    if "close" not in api_df.columns or "close" not in rolled_df.columns:
-        print(f"[reconciler] normalise_units: missing close column "
-              f"(api_cols={list(api_df.columns)}, "
-              f"rolled_cols={list(rolled_df.columns)})")
-        return api_df, rolled_df, rescaled
+    api_adj = api_df
+    rolled_adj = rolled_df
 
-    try:
-        med_api = float(pd.to_numeric(api_df["close"], errors="coerce").median())
-        med_rolled = float(pd.to_numeric(rolled_df["close"], errors="coerce").median())
-    except Exception as e:
-        print(f"[reconciler] normalise_units: median error — {e}")
-        return api_df, rolled_df, rescaled
-    if not (med_api > 0 and med_rolled > 0):
-        print(f"[reconciler] normalise_units: non-positive median "
-              f"(api={med_api}, rolled={med_rolled})")
-        return api_df, rolled_df, rescaled
+    for name, df in (("api", api_df), ("rolled", rolled_df)):
+        if df is None or df.empty or "close" not in df.columns:
+            continue
+        close = pd.to_numeric(df["close"], errors="coerce")
+        raw_mask = close > _RAW_VND_THRESHOLD
+        if not raw_mask.any():
+            continue
+        adjusted = df.copy()
+        adjusted.loc[raw_mask, "close"] = close[raw_mask] / 1000.0
+        print(f"[reconciler] normalise_units: {name} rescaled "
+              f"{int(raw_mask.sum())}/{len(df)} row(s) > {_RAW_VND_THRESHOLD}")
+        if name == "api":
+            api_adj = adjusted
+        else:
+            rolled_adj = adjusted
+        rescaled = True
 
-    ratio = med_rolled / med_api
-    print(f"[reconciler] normalise_units: med_api={med_api:.3f}, "
-          f"med_rolled={med_rolled:.3f}, ratio={ratio:.3f}")
-    # Rolled is ~1000× the API → rolled is in VND, divide by 1000
-    if ratio >= 500 and ratio <= 2000:
-        rolled_df = rolled_df.copy()
-        rolled_df["close"] = pd.to_numeric(rolled_df["close"], errors="coerce") / 1000.0
-        rescaled = True
-    # Rare inverse case
-    elif ratio <= 1 / 500 and ratio >= 1 / 2000:
-        api_df = api_df.copy()
-        api_df["close"] = pd.to_numeric(api_df["close"], errors="coerce") / 1000.0
-        rescaled = True
-    return api_df, rolled_df, rescaled
+    return api_adj, rolled_adj, rescaled
 
 
 # ─────────────────────────────────────────────────────────────────────────────

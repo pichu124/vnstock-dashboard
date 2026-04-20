@@ -40,11 +40,10 @@ def test_classify_fail_dominates_warn():
     assert sev == "fail"
 
 
-# ── unit normalisation ──────────────────────────────────────────────────────
+# ── unit normalisation (per-row, close > 500 → /1000) ─────────────────────
 
-def test_normalise_rescales_rolled_by_1000():
-    """Warehouse stores thousand VND (7.12), WSS rolled stores VND (7120).
-    Ratio ~1000× → rolled side is divided by 1000 before comparison."""
+def test_normalise_rescales_rolled_row_by_row():
+    """Rolled stores raw VND (7120). Every row > 500 is divided by 1000."""
     api = pd.DataFrame({
         "ticker": ["AAA", "FPT", "VCB"],
         "close": [7.12, 120.0, 77.7],
@@ -55,13 +54,29 @@ def test_normalise_rescales_rolled_by_1000():
     })
     api_out, rolled_out, rescaled = _normalise_units(api, rolled)
     assert rescaled is True
-    # Rolled should now match API within rounding
     assert list(rolled_out["close"]) == [7.12, 120.0, 77.7]
-    # API untouched
+    # API values were all below threshold → untouched
     assert list(api_out["close"]) == [7.12, 120.0, 77.7]
 
 
-def test_normalise_noop_when_units_match():
+def test_normalise_handles_mixed_units_in_same_frame():
+    """Warehouse has mixed units on different tickers — each row treated
+    on its own merits."""
+    api = pd.DataFrame({
+        "ticker": ["A", "B", "C"],
+        "close": [7.12, 5600.0, 14.5],   # second row is raw VND
+    })
+    rolled = pd.DataFrame({
+        "ticker": ["A", "B", "C"],
+        "close": [7120.0, 5600.0, 14500.0],   # first + third raw VND
+    })
+    api_out, rolled_out, rescaled = _normalise_units(api, rolled)
+    assert rescaled is True
+    assert list(api_out["close"]) == [7.12, 5.6, 14.5]
+    assert list(rolled_out["close"]) == [7.12, 5.6, 14.5]
+
+
+def test_normalise_noop_when_all_rows_under_threshold():
     api = pd.DataFrame({"ticker": ["AAA"], "close": [7.12]})
     rolled = pd.DataFrame({"ticker": ["AAA"], "close": [7.15]})
     api_out, rolled_out, rescaled = _normalise_units(api, rolled)
@@ -72,16 +87,17 @@ def test_normalise_noop_when_units_match():
 def test_normalise_handles_empty_frames():
     empty = pd.DataFrame(columns=["ticker", "close"])
     one = pd.DataFrame({"ticker": ["X"], "close": [7.12]})
-    _, _, rescaled = _normalise_units(empty, one)
+    api_out, rolled_out, rescaled = _normalise_units(empty, one)
     assert rescaled is False
-    _, _, rescaled = _normalise_units(one, empty)
+    api_out, rolled_out, rescaled = _normalise_units(one, empty)
     assert rescaled is False
 
 
-def test_normalise_inverse_case():
-    """Rare case: API in VND, rolled in thousand VND — normalise API."""
+def test_normalise_handles_only_api_in_raw_vnd():
+    """If only one side has raw VND, only that side gets rescaled."""
     api = pd.DataFrame({"ticker": ["X"], "close": [7120.0]})
     rolled = pd.DataFrame({"ticker": ["X"], "close": [7.12]})
     api_out, rolled_out, rescaled = _normalise_units(api, rolled)
     assert rescaled is True
     assert list(api_out["close"]) == [7.12]
+    assert list(rolled_out["close"]) == [7.12]
