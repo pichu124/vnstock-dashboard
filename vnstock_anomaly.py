@@ -225,11 +225,12 @@ def scan_ticker(
     df["vol_std20"] = df["volume"].rolling(20, min_periods=5).std()
     df["gap_days"] = df["time"].diff().dt.days
 
-    # Optionally restrict scanning window to the last ``lookback`` calendar
-    # days. Row-based windowing bit us when illiquid tickers had sparse bars:
-    # tail(60) would grab bars from 2020-2022 and miss 2024-2025 corp events.
+    # Restrict to the last ``lookback`` calendar days from TODAY (not from
+    # the ticker's last bar). For zombie tickers that stopped trading years
+    # ago, this means zero bars in the window → zero anomalies, which is the
+    # correct answer: we're not interested in dead-stock noise.
     if lookback:
-        cutoff = df["time"].max() - pd.Timedelta(days=lookback)
+        cutoff = pd.Timestamp(date.today()) - pd.Timedelta(days=lookback)
         scan = df[df["time"] >= cutoff]
     else:
         scan = df

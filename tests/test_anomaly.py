@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 import pandas as pd
 import pytest
 
@@ -268,13 +270,15 @@ def test_empty_events_df_behaves_like_no_events():
 
 
 def test_lookback_limits_scan():
-    """lookback is in CALENDAR DAYS (not rows). Confirms the last-bar
-    breach is still caught under a tight lookback window."""
-    dates = pd.bdate_range("2026-01-01", periods=50)
+    """lookback is in CALENDAR DAYS from today (not rows). Confirms the
+    last-bar breach is still caught under a tight lookback window."""
+    # Use dates ending today so the breach is always inside the lookback
+    today = pd.Timestamp(date.today())
+    dates = pd.bdate_range(end=today, periods=50)
     closes = [100.0] * 49 + [120.0]   # +20% breach on the last bar
     df = _make_series(list(dates), closes)
-    # Window covering only the last 10 days still catches the breach
-    out = [a for a in scan_ticker(df, "X", exchange="HOSE", lookback=10)
+    # Window covering the last 90 days still catches the breach
+    out = [a for a in scan_ticker(df, "X", exchange="HOSE", lookback=90)
            if a.kind == "band"]
     assert len(out) == 1
 
@@ -288,7 +292,7 @@ def test_lookback_skips_old_bars_on_sparse_ticker():
         ["2022-04-12", "2022-04-15", "2026-04-15", "2026-04-16"],
         closes=[100.0, 200.0, 50.0, 50.0],  # +100% breach in 2022
     )
-    # 60-day lookback from 2026-04-16 starts around 2026-02-15 → skips 2022
+    # 60-day lookback from today (2026-04-20) starts around 2026-02-20 → skips 2022
     out = scan_ticker(df, "X", exchange="HOSE", lookback=60)
     assert not any(a.kind == "band" for a in out), \
         f"Old 2022 bar should be outside the 60-day window, got {out}"
@@ -296,3 +300,17 @@ def test_lookback_skips_old_bars_on_sparse_ticker():
     # Without lookback, the old breach is flagged
     out_full = scan_ticker(df, "X", exchange="HOSE", lookback=None)
     assert any(a.kind == "band" for a in out_full)
+
+
+def test_lookback_returns_empty_for_zombie_ticker():
+    """A ticker that stopped trading years ago must produce 0 anomalies
+    under the 60-day audit window — not ``last 60 bars from years ago``."""
+    df = _make_series(
+        # A weekly bar pattern that ended in 2022
+        ["2022-04-01", "2022-04-08", "2022-04-15", "2022-04-22"],
+        closes=[100.0, 200.0, 50.0, 75.0],   # wild swings — all in 2022
+    )
+    # Lookback=60 days from today (2026) → cutoff is ~2026-02 → no bars match
+    out = scan_ticker(df, "DEAD", exchange="HOSE", lookback=60)
+    assert out == [], \
+        f"Zombie ticker should produce zero anomalies under lookback=60, got {out}"
