@@ -375,6 +375,19 @@ def reconcile(
             warn += 1
             continue
 
+        # ── Smart classification: detect "degenerate rolled row" ─────────────
+        # If the ticker traded (api_volume > 0) but rolled captured zero
+        # volume, the WSS simply didn't see this ticker on this date. The
+        # rolled_close is then a stale bar from before the session, and
+        # comparing prices is meaningless. Treat as `missing_in_rolled`
+        # rather than a fail — otherwise every ticker-day the WSS missed
+        # floods the failure list and drowns real drifts.
+        api_vol_num = _finite(api_vol) or 0
+        rolled_vol_num = _finite(rolled_vol) or 0
+        if rolled_vol_num == 0 and api_vol_num > 0:
+            missing_rolled += 1
+            continue
+
         close_diff = _pct_diff(api_close, rolled_close)
         vol_diff = _pct_diff(api_vol, rolled_vol)
         severity, reason = _classify(close_diff, vol_diff,
