@@ -8,9 +8,11 @@ their Company API (verified via probe — only `capital_history` is
 available, which covers bonus/split but not cash). To register cash
 dividends in the corp action registry, we scrape a public source.
 
-CafeF (`s.cafef.vn`) publishes per-ticker dividend history at:
+CafeF publishes per-ticker dividend history. The URL format has
+changed across the years; we try multiple templates in order:
 
-    https://s.cafef.vn/Lich-su-su-kien/<TICKER>--<TICKER_TYPE>.chn
+    https://cafef.vn/du-lieu/lich-su-su-kien/<TICKER>.chn    # current
+    https://s.cafef.vn/Lich-su-su-kien/<TICKER>.chn          # legacy
 
 The page contains an HTML table with columns roughly:
   Ngày GDKHQ (ex-rights date) | Loại sự kiện | Tỷ lệ / Giá trị | Ghi chú
@@ -52,7 +54,14 @@ META_SUBDIR = "_meta"
 CACHE_SUBDIR = "_meta/cash_dividends"
 RATE_LIMIT_S = 1.5  # be polite — 1 request every 1.5s
 
-CAFEF_URL_TEMPLATE = "https://s.cafef.vn/Lich-su-su-kien/{ticker}.chn"
+CAFEF_URL_TEMPLATES = [
+    # Current CafeF path (2024+)
+    "https://cafef.vn/du-lieu/lich-su-su-kien/{ticker}.chn",
+    "https://cafef.vn/du-lieu/lich-su-su-kien/{ticker_lower}.chn",
+    # Legacy subdomain (may still work / redirect)
+    "https://s.cafef.vn/Lich-su-su-kien/{ticker}.chn",
+    "https://s.cafef.vn/lich-su-su-kien/{ticker}.chn",
+]
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -322,17 +331,32 @@ def fetch_cash_dividends(
         return []
 
     _throttle()
-    url = CAFEF_URL_TEMPLATE.format(ticker=ticker.upper())
-    try:
-        resp = requests.get(
-            url,
-            headers={"User-Agent": USER_AGENT, "Accept-Language": "vi-VN,vi"},
-            timeout=timeout,
+    html: str | None = None
+    last_err: str = ""
+    for template in CAFEF_URL_TEMPLATES:
+        url = template.format(
+            ticker=ticker.upper(),
+            ticker_lower=ticker.lower(),
         )
-        resp.raise_for_status()
-        html = resp.text
-    except Exception as e:
-        print(f"[cash_div] {ticker}: fetch failed — {e}", file=sys.stderr)
+        try:
+            resp = requests.get(
+                url,
+                headers={"User-Agent": USER_AGENT,
+                          "Accept-Language": "vi-VN,vi"},
+                timeout=timeout,
+                allow_redirects=True,
+            )
+            if resp.status_code == 200 and resp.text:
+                html = resp.text
+                break
+            last_err = f"HTTP {resp.status_code} on {url}"
+        except Exception as e:
+            last_err = f"{type(e).__name__}: {str(e)[:100]} on {url}"
+            continue
+
+    if html is None:
+        print(f"[cash_div] {ticker}: fetch failed — {last_err}",
+              file=sys.stderr)
         return []
 
     events = parse_cafef_html(html, ticker)
