@@ -57,12 +57,15 @@ class HealthSnapshot:
     ticker_count: int = 0           # all folders in warehouse (incl. non-stocks)
     stock_count: int = 0            # real equities only
     non_stock_count: int = 0        # CW / bonds / futures / HNX internal codes
+    active_count: int = 0           # stocks with ≥1 bar in the lookback window
+    inactive_count: int = 0         # stocks with 0 bars in lookback → zombie
     row_count: int = 0
     oldest_bar: str | None = None
     newest_bar: str | None = None
     partition_count: int = 0
 
-    missing_rate_pct: float | None = None
+    missing_rate_pct: float | None = None      # across ALL stocks
+    missing_rate_active_pct: float | None = None  # across active only — more meaningful
     missing_top: list[dict] = field(default_factory=list)
 
     last_sync: dict | None = None
@@ -142,14 +145,24 @@ def render_health_tab(warehouse: Path = DEFAULT_WAREHOUSE) -> None:
     col1.metric(
         "Mã cổ phiếu",
         f"{snap.stock_count:,}",
-        delta=(f"+{snap.non_stock_count:,} CW/derivatives (không audit)"
-               if snap.non_stock_count else None),
+        delta=(f"{snap.active_count:,} active · {snap.inactive_count:,} zombie"
+               if snap.active_count or snap.inactive_count
+               else (f"+{snap.non_stock_count:,} CW/derivatives"
+                     if snap.non_stock_count else None)),
         delta_color="off",
     )
     col2.metric("Tổng dòng dữ liệu", f"{snap.row_count:,}")
+    # Prefer the active-universe figure; fall back to the overall one.
+    active_rate = snap.missing_rate_active_pct
     col3.metric(
-        "Tỉ lệ thiếu (30d)",
-        f"{snap.missing_rate_pct:.2f}%" if snap.missing_rate_pct is not None else "—",
+        "Tỉ lệ thiếu (30d, active)",
+        f"{active_rate:.2f}%" if active_rate is not None else "—",
+        delta=(f"{snap.missing_rate_pct:.1f}% bao gồm zombie"
+               if snap.missing_rate_pct is not None
+               and snap.missing_rate_active_pct is not None
+               and abs(snap.missing_rate_pct - snap.missing_rate_active_pct) > 1
+               else None),
+        delta_color="off",
     )
     col4.metric(
         "Bar mới nhất",
@@ -230,6 +243,46 @@ def render_health_tab(warehouse: Path = DEFAULT_WAREHOUSE) -> None:
             "Xử lý: `python vnstock_remediate.py --ticker X --date Y "
             "--action refetch|accept|archive`"
         )
+
+    # Top-offenders: show only if the anomaly report is present
+    if snap.anomalies and snap.anomalies.get("anomalies"):
+        try:
+            from vnstock_top_offenders import (
+                analyze, concentration, bulk_suggestions,
+            )
+            stats = analyze(warehouse=Path(warehouse))
+            if stats:
+                st.divider()
+                st.markdown("**🎯 Top offenders (mã bị flag nhiều nhất)**")
+                conc = concentration(stats, top_n=10)
+                st.caption(
+                    f"Pattern: **{conc['pattern'].upper()}** — "
+                    f"top 10 mã hold {conc['top_n_share']:.1%} "
+                    f"của {conc['total_anomalies']:,} anomaly."
+                )
+                df_top = pd.DataFrame([s.to_dict() for s in stats[:15]])
+                if not df_top.empty:
+                    # Collapse by_kind dict to a readable string
+                    df_top["by_kind"] = df_top["by_kind"].apply(
+                        lambda d: ", ".join(
+                            f"{k}:{v}" for k, v in sorted(
+                                d.items(), key=lambda kv: -kv[1]
+                            )
+                        ) if isinstance(d, dict) else str(d)
+                    )
+                    st.dataframe(
+                        df_top[["ticker", "total", "fail", "warn",
+                                "by_kind", "latest_date", "suggested_action"]],
+                        hide_index=True,
+                        use_container_width=True,
+                    )
+                suggestions = bulk_suggestions(stats, limit=5)
+                if suggestions:
+                    st.caption("Lệnh đề xuất:")
+                    for s in suggestions:
+                        st.code(s["cli"], language="bash")
+        except Exception:
+            pass
 
     if snap.missing_top:
         st.divider()
@@ -363,6 +416,7 @@ def _scan_warehouse_single_pass(
             "present": int(present),
             "missing": int(missing),
             "missing_pct": round(rate, 2),
+            "active": present > 0,
         })
 
     snap.row_count = row_count
@@ -371,11 +425,26 @@ def _scan_warehouse_single_pass(
     snap.newest_bar = newest.date().isoformat() if newest is not None else None
 
     if not fast and per_ticker:
+        # Active = has at least one bar in the lookback window.
+        # Zombies (delisted / long-halted) inflate the raw missing_rate so
+        # we report BOTH numbers: one across all stocks (raw) and one
+        # restricted to active tickers (the meaningful signal).
+        active_rows = [r for r in per_ticker if r["active"]]
+        snap.active_count = len(active_rows)
+        snap.inactive_count = len(per_ticker) - len(active_rows)
+
         total_expected = expected_n * len(per_ticker)
         if total_expected > 0:
             snap.missing_rate_pct = round(
                 (1 - total_present / total_expected) * 100, 3
             )
+        if active_rows:
+            active_present = sum(r["present"] for r in active_rows)
+            active_expected = expected_n * len(active_rows)
+            snap.missing_rate_active_pct = round(
+                (1 - active_present / active_expected) * 100, 3
+            )
+
         per_ticker.sort(key=lambda r: r["missing_pct"], reverse=True)
         snap.missing_top = per_ticker[:top_missing]
 
@@ -513,11 +582,16 @@ def _populate_reports(snap: HealthSnapshot, warehouse: Path) -> None:
 def _populate_warnings(snap: HealthSnapshot) -> None:
     if snap.ticker_count == 0:
         snap.warnings.append("Warehouse is empty — run `vnstock_warehouse.py --load`")
-    elif snap.missing_rate_pct is not None and snap.missing_rate_pct > 5.0:
-        snap.warnings.append(
-            f"Overall missing rate {snap.missing_rate_pct:.1f}% > 5%. "
-            "Consider running `vnstock_updater.py`."
-        )
+    else:
+        # Alert on the active figure — the raw figure is dominated by zombies
+        rate = snap.missing_rate_active_pct
+        if rate is None:
+            rate = snap.missing_rate_pct
+        if rate is not None and rate > 5.0:
+            snap.warnings.append(
+                f"Active-ticker missing rate {rate:.1f}% > 5%. "
+                "Consider running `vnstock_updater.py`."
+            )
     if snap.newest_bar:
         newest = pd.to_datetime(snap.newest_bar).date()
         gap = (date.today() - newest).days

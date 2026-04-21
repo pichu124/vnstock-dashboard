@@ -96,6 +96,47 @@ def test_snapshot_roundtrips_to_dict(mini_warehouse):
     json.dumps(d, default=str)
 
 
+def test_health_splits_active_from_zombie(tmp_path: Path):
+    """Stocks with no bars in the lookback window are zombies — excluded
+    from the 'active' missing-rate calculation."""
+    import pandas as pd
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    prices = tmp_path / "prices"
+    today = pd.Timestamp.today().normalize()
+
+    # Active ticker: recent bar
+    adir = prices / "ticker=VCB" / f"year={today.year}"
+    adir.mkdir(parents=True, exist_ok=True)
+    adf = pd.DataFrame({
+        "time": [today - pd.Timedelta(days=1)],
+        "open": [100.0], "high": [100.0], "low": [100.0],
+        "close": [100.0], "volume": [1_000_000],
+    })
+    pq.write_table(pa.Table.from_pandas(adf, preserve_index=False),
+                   adir / "p.parquet")
+
+    # Zombie ticker: only old bars from 2022
+    zdir = prices / "ticker=DEAD" / "year=2022"
+    zdir.mkdir(parents=True, exist_ok=True)
+    zdf = pd.DataFrame({
+        "time": [pd.Timestamp("2022-04-15")],
+        "open": [50.0], "high": [50.0], "low": [50.0],
+        "close": [50.0], "volume": [100],
+    })
+    pq.write_table(pa.Table.from_pandas(zdf, preserve_index=False),
+                   zdir / "p.parquet")
+
+    snap = collect(tmp_path, lookback_days=30)
+    assert snap.stock_count == 2
+    assert snap.active_count == 1     # VCB
+    assert snap.inactive_count == 1   # DEAD
+    # Active missing rate should reflect ~1 ticker with 1 present day of 21
+    assert snap.missing_rate_active_pct is not None
+    assert snap.missing_rate_active_pct < snap.missing_rate_pct
+
+
 def test_health_splits_stocks_from_non_stocks(tmp_path: Path):
     """HNX internal codes / CW / futures are excluded from stock_count
     and from missing-rate calculation — they would otherwise dominate."""

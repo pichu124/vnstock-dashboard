@@ -261,6 +261,42 @@ def cmd_remediate(args) -> int:
     return 0 if res.get("status") == "ok" else 1
 
 
+def cmd_top_offenders(args) -> int:
+    """Rank tickers by anomaly count. Answers: is the noise concentrated?"""
+    from vnstock_top_offenders import (
+        analyze, bulk_suggestions, concentration, render_table,
+    )
+
+    stats = analyze(
+        warehouse=Path(args.warehouse),
+        severity_filter=args.severity,
+        kind_filter=args.by_kind,
+    )
+    if args.json:
+        out = {
+            "concentration": concentration(stats, top_n=args.limit),
+            "top": [s.to_dict() for s in stats[: args.limit]],
+            "suggestions": bulk_suggestions(stats, limit=min(10, args.limit)),
+        }
+        print(json.dumps(out, indent=2, ensure_ascii=False, default=str))
+        return 0 if not stats else 1
+
+    print(f"\n=== Top {args.limit} offenders ===\n")
+    print(render_table(stats, limit=args.limit))
+    conc = concentration(stats, top_n=args.limit)
+    print(f"\nConcentration: {conc['total_anomalies']} anomalies / "
+          f"{conc['total_tickers']} tickers — "
+          f"top {conc['top_n']} hold {conc['top_n_share']:.1%} "
+          f"({conc['pattern'].upper()})")
+    if conc["pattern"] == "concentrated":
+        print("  → Refetch/accept the top offenders to clear most noise.")
+    elif conc["pattern"] == "diffuse":
+        print("  → Noise spread evenly — threshold tuning, not per-ticker fix.")
+    for s in bulk_suggestions(stats, limit=min(10, args.limit)):
+        print(f"  • {s['ticker']:6} ({s['total']:3} anomalies) → {s['cli']}")
+    return 0
+
+
 def cmd_test(args) -> int:
     return _run([sys.executable, "-m", "pytest", "tests/", "-v"])
 
@@ -350,6 +386,15 @@ def build_parser() -> argparse.ArgumentParser:
     rem.add_argument("--limit", type=int, default=0)
     rem.add_argument("--dry-run", action="store_true")
 
+    top = sub.add_parser("top-offenders",
+                          help="Rank tickers by anomaly count")
+    top.add_argument("--severity", choices=["fail", "warn"])
+    top.add_argument("--by-kind",
+                     choices=["band", "ohlc", "gap", "vol_spike",
+                              "zero_vol_move"])
+    top.add_argument("--limit", type=int, default=20)
+    top.add_argument("--json", action="store_true")
+
     sub.add_parser("test", help="Run pytest")
     sub.add_parser("dashboard", help="Launch the Streamlit dashboard")
 
@@ -369,6 +414,7 @@ _DISPATCH = {
     "audit": cmd_audit,
     "refresh-metadata": cmd_refresh_metadata,
     "remediate": cmd_remediate,
+    "top-offenders": cmd_top_offenders,
     "test": cmd_test,
     "dashboard": cmd_dashboard,
     "all": cmd_all,
