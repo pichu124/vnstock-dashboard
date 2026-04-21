@@ -301,6 +301,25 @@ def cmd_top_offenders(args) -> int:
     return 0
 
 
+def cmd_diagnose(args) -> int:
+    """Investigate a single (ticker, date) — what flagged it and why."""
+    from datetime import date as _date
+    from vnstock_diagnose import diagnose, render
+
+    target = _date.fromisoformat(args.date)
+    result = diagnose(
+        args.ticker, target,
+        warehouse=Path(args.warehouse),
+        pad_days=args.pad_days,
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2,
+                          ensure_ascii=False, default=str))
+    else:
+        print(render(result))
+    return 0
+
+
 def cmd_test(args) -> int:
     return _run([sys.executable, "-m", "pytest", "tests/", "-v"])
 
@@ -402,6 +421,15 @@ def build_parser() -> argparse.ArgumentParser:
     top.add_argument("--limit", type=int, default=20)
     top.add_argument("--json", action="store_true")
 
+    diag = sub.add_parser("diagnose",
+                           help="Investigate why a single (ticker, date) was flagged")
+    diag.add_argument("--ticker", required=True)
+    diag.add_argument("--date", required=True,
+                      help="YYYY-MM-DD")
+    diag.add_argument("--pad-days", type=int, default=5,
+                      help="Show this many days around the target")
+    diag.add_argument("--json", action="store_true")
+
     sub.add_parser("test", help="Run pytest")
     sub.add_parser("dashboard", help="Launch the Streamlit dashboard")
 
@@ -422,6 +450,7 @@ _DISPATCH = {
     "refresh-metadata": cmd_refresh_metadata,
     "remediate": cmd_remediate,
     "top-offenders": cmd_top_offenders,
+    "diagnose": cmd_diagnose,
     "test": cmd_test,
     "dashboard": cmd_dashboard,
     "all": cmd_all,
