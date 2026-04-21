@@ -417,9 +417,13 @@ def scan_warehouse(
                 if events is None or events.empty:
                     events = reg_events
                 else:
-                    # Concatenate, normalise schema for downstream scan_ticker
+                    # Concatenate, normalise schema for downstream scan_ticker.
+                    # Drop all-NA columns before concat to silence the pandas
+                    # 3.0 FutureWarning on deprecated empty-column dtype rules.
                     events = pd.concat(
-                        [events, reg_events], ignore_index=True, sort=False,
+                        [events.dropna(axis=1, how="all"),
+                         reg_events.dropna(axis=1, how="all")],
+                        ignore_index=True, sort=False,
                     )
 
         try:
