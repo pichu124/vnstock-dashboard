@@ -17,8 +17,8 @@ def test_build_parser_lists_all_subcommands():
     )
     names = set(sub_action.choices.keys())
     assert {"scan", "sync", "validate", "audit", "refresh-metadata",
-            "remediate", "top-offenders", "diagnose", "test", "dashboard",
-            "all"} <= names
+            "remediate", "top-offenders", "diagnose", "registry",
+            "test", "dashboard", "all"} <= names
 
 
 def test_dispatch_table_matches_parser():

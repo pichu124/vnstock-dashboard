@@ -389,6 +389,10 @@ def scan_warehouse(
         from vnstock_adjust import load_events
     except ImportError:
         load_events = None  # type: ignore
+    try:
+        from vnstock_corp_registry import get_events_for_ticker as _registry_get
+    except ImportError:
+        _registry_get = None  # type: ignore
 
     for ticker, df in _iter_warehouse_tickers(warehouse):
         if tickers and ticker not in tickers:
@@ -398,7 +402,26 @@ def scan_warehouse(
             continue
         scanned += 1
         ex, _band = band_for(ticker, exchange_map)
+
+        # Merge events from BOTH sources:
+        #   1) Per-ticker capital_history cache (vnstock_adjust)
+        #   2) Central corp_actions_registry (manual/cafef/etc.)
+        # The registry wins on dedup (higher confidence by default).
         events = load_events(ticker, warehouse) if load_events else None
+        if _registry_get is not None:
+            try:
+                reg_events = _registry_get(ticker, warehouse=warehouse)
+            except Exception:
+                reg_events = None
+            if reg_events is not None and not reg_events.empty:
+                if events is None or events.empty:
+                    events = reg_events
+                else:
+                    # Concatenate, normalise schema for downstream scan_ticker
+                    events = pd.concat(
+                        [events, reg_events], ignore_index=True, sort=False,
+                    )
+
         try:
             ticker_anomalies = scan_ticker(
                 df, ticker, exchange=ex, lookback=lookback, events=events,

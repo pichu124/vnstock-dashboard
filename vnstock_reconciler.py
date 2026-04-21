@@ -319,6 +319,22 @@ def reconcile(
     api_df = _load_api_daily(warehouse, tickers, dates)
     rolled_df = _load_rolled_daily(warehouse, dates)
 
+    # Build a (ticker, ex_date) lookup of registered corp actions so we can
+    # short-circuit reconciliation on legitimate event days. The price gap
+    # on those days is real but expected, not a data drift.
+    corp_keys: set[tuple[str, date]] = set()
+    try:
+        from vnstock_corp_registry import _load as _load_registry
+        reg = _load_registry(warehouse)
+        if not reg.empty:
+            for _, r in reg.iterrows():
+                if float(r.get("confidence", 0)) >= 0.5:
+                    corp_keys.add(
+                        (str(r["ticker"]).upper(), r["ex_date"])
+                    )
+    except Exception:
+        pass
+
     # Bring prices onto a common unit before comparing. Without this, the
     # reconciler reports 99900% drift on every row because rolled bars are
     # in VND and API bars are in thousand VND.
@@ -373,6 +389,17 @@ def reconcile(
                 reason="missing in API warehouse",
             ))
             warn += 1
+            continue
+
+        # ── Skip rows on registered corp action ex-date ─────────────────────
+        # When a split/bonus/cash dividend happened on this day, the price
+        # gap between API (post-adjust) and rolled (pre-adjust) is real
+        # and expected, not a data quality issue.
+        target_d = (
+            row["time"].date() if hasattr(row["time"], "date") else row["time"]
+        )
+        if (str(row["ticker"]).upper(), target_d) in corp_keys:
+            ok += 1   # treat as healthy reconciliation, just skipped on event
             continue
 
         # ── Smart classification: detect "degenerate rolled row" ─────────────

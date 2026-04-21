@@ -320,6 +320,41 @@ def cmd_diagnose(args) -> int:
     return 0
 
 
+def cmd_registry(args) -> int:
+    """Manage the corp_actions_registry.parquet."""
+    from vnstock_corp_registry import (
+        VALID_TYPES, clear_source, get_events_for_ticker,
+        import_from_capital_history, register_event, summary,
+    )
+    warehouse = Path(args.warehouse)
+
+    if args.subcmd == "show":
+        if args.ticker:
+            df = get_events_for_ticker(args.ticker, warehouse=warehouse)
+            print(df.to_string(index=False) if not df.empty else "(empty)")
+        else:
+            print(json.dumps(summary(warehouse), indent=2,
+                              ensure_ascii=False, default=str))
+    elif args.subcmd == "add":
+        if not args.type or args.type not in VALID_TYPES:
+            print(f"--type must be one of {sorted(VALID_TYPES)}",
+                  file=sys.stderr)
+            return 2
+        n = register_event(
+            args.ticker, args.date, args.type,
+            cash_amount=args.cash, ratio=args.ratio,
+            source=args.source, note=args.note, warehouse=warehouse,
+        )
+        print(f"[registry] registered; total rows = {n}")
+    elif args.subcmd == "import-capital-history":
+        result = import_from_capital_history(warehouse, verbose=True)
+        print(json.dumps(result, indent=2))
+    elif args.subcmd == "clear-source":
+        n = clear_source(args.source_to_clear, warehouse=warehouse)
+        print(f"[registry] removed {n} row(s) from source={args.source_to_clear}")
+    return 0
+
+
 def cmd_test(args) -> int:
     return _run([sys.executable, "-m", "pytest", "tests/", "-v"])
 
@@ -430,6 +465,20 @@ def build_parser() -> argparse.ArgumentParser:
                       help="Show this many days around the target")
     diag.add_argument("--json", action="store_true")
 
+    reg = sub.add_parser("registry",
+                          help="Manage the corp_actions_registry.parquet")
+    reg.add_argument("subcmd",
+                      choices=["show", "add", "import-capital-history",
+                               "clear-source"])
+    reg.add_argument("--ticker")
+    reg.add_argument("--date", help="YYYY-MM-DD")
+    reg.add_argument("--type", help="cash|split|bonus|rights|unknown")
+    reg.add_argument("--cash", type=float)
+    reg.add_argument("--ratio", type=float)
+    reg.add_argument("--source", default="manual")
+    reg.add_argument("--source-to-clear")
+    reg.add_argument("--note", default=None)
+
     sub.add_parser("test", help="Run pytest")
     sub.add_parser("dashboard", help="Launch the Streamlit dashboard")
 
@@ -451,6 +500,7 @@ _DISPATCH = {
     "remediate": cmd_remediate,
     "top-offenders": cmd_top_offenders,
     "diagnose": cmd_diagnose,
+    "registry": cmd_registry,
     "test": cmd_test,
     "dashboard": cmd_dashboard,
     "all": cmd_all,
