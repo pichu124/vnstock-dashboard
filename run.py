@@ -117,7 +117,11 @@ def cmd_audit(args) -> int:
     from vnstock_reconciler import reconcile, write_report as write_recon
 
     warehouse = Path(args.warehouse)
-    recon = reconcile(warehouse=warehouse, lookback=args.lookback)
+    recon = reconcile(
+        warehouse=warehouse,
+        lookback=args.lookback,
+        check_volume=getattr(args, "check_volume", False),
+    )
     write_recon(recon, warehouse)
     print(f"[audit] reconciler: ok={recon.ok} warn={recon.warn} fail={recon.fail}")
 
@@ -361,6 +365,9 @@ def build_parser() -> argparse.ArgumentParser:
                        default="auto")
     audit.add_argument("--include-non-stocks", action="store_true",
                        help="Include CW / bonds / futures / indices in anomaly scan")
+    audit.add_argument("--check-volume", action="store_true",
+                       help="Include WSS rolled-volume drift in reconciler severity "
+                            "(off by default — WSS volumes are unreliable)")
 
     refresh = sub.add_parser("refresh-metadata",
                              help="Rebuild exchange_map.json (and optionally corp-action events)")

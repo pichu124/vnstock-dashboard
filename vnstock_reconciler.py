@@ -54,6 +54,13 @@ META_SUBDIR = "_meta"
 VOLUME_TOLERANCE_PCT = 5.0
 CLOSE_TOLERANCE_PCT = 0.5
 
+# By default, skip volume reconciliation. WSS rolled volumes are known to
+# be unreliable (missed sessions, accum→delta double-counting), which
+# floods the report with 100% / 7000% "drift" entries that aren't the
+# reconciler's fault. Operators can re-enable with check_volume=True if
+# they need to audit WSS specifically.
+CHECK_VOLUME_DEFAULT = False
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Data classes
@@ -255,14 +262,22 @@ def _pct_diff(a: float, b: float) -> float | None:
 def _classify(
     close_diff: float | None,
     volume_diff: float | None,
+    *,
+    check_volume: bool = CHECK_VOLUME_DEFAULT,
 ) -> tuple[str, str]:
-    """Map numeric diffs to (severity, reason)."""
+    """Map numeric diffs to (severity, reason).
+
+    When ``check_volume=False`` (the default), volume drift is computed
+    but does not contribute to severity — it's recorded in metrics for
+    diagnostics but won't push a row from ok to warn/fail. This avoids
+    drowning the report in known-unreliable WSS volume data.
+    """
     reasons = []
     severity = "ok"
     if close_diff is not None and close_diff > CLOSE_TOLERANCE_PCT:
         reasons.append(f"close drift {close_diff:.2f}%")
         severity = "fail" if close_diff > CLOSE_TOLERANCE_PCT * 4 else "warn"
-    if volume_diff is not None and volume_diff > VOLUME_TOLERANCE_PCT:
+    if check_volume and volume_diff is not None and volume_diff > VOLUME_TOLERANCE_PCT:
         reasons.append(f"volume drift {volume_diff:.1f}%")
         if severity != "fail":
             severity = "fail" if volume_diff > VOLUME_TOLERANCE_PCT * 5 else "warn"
@@ -274,12 +289,16 @@ def reconcile(
     dates: list[date] | None = None,
     lookback: int = 1,
     tickers: list[str] | None = None,
+    check_volume: bool = CHECK_VOLUME_DEFAULT,
 ) -> ReconciliationReport:
     """
     Compare API daily vs rolled-up daily for the given dates.
 
     If ``dates`` is None, the most recent ``lookback`` trading days for which
     a rolled-bars file exists are used.
+
+    ``check_volume`` defaults to False because WSS rolled volumes are
+    known unreliable. Enable when specifically auditing the WSS stream.
     """
     warehouse = Path(warehouse)
     live_dir = warehouse / LIVE_SUBDIR
@@ -358,7 +377,8 @@ def reconcile(
 
         close_diff = _pct_diff(api_close, rolled_close)
         vol_diff = _pct_diff(api_vol, rolled_vol)
-        severity, reason = _classify(close_diff, vol_diff)
+        severity, reason = _classify(close_diff, vol_diff,
+                                      check_volume=check_volume)
 
         if severity == "ok":
             ok += 1
@@ -468,6 +488,9 @@ def main():
                     help="Restrict to specific ticker(s). Default: all.")
     ap.add_argument("--no-write", action="store_true",
                     help="Print summary but don't persist report JSON.")
+    ap.add_argument("--check-volume", action="store_true",
+                    help="Include volume drift in severity (off by default — "
+                         "WSS rolled volumes are unreliable).")
     args = ap.parse_args()
 
     report = reconcile(
@@ -475,6 +498,7 @@ def main():
         dates=args.date,
         lookback=args.lookback,
         tickers=args.ticker,
+        check_volume=args.check_volume,
     )
 
     print(f"[reconciler] {len(report.dates_checked)} date(s), "

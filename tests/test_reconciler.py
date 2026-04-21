@@ -23,10 +23,26 @@ def test_classify_ok_within_tolerance():
     assert sev == "ok"
 
 
-def test_classify_warn_on_volume():
+def test_classify_warn_on_volume_only_when_enabled():
+    # Default: volume ignored
     sev, reason = _classify(close_diff=0.1, volume_diff=10.0)
+    assert sev == "ok"
+    assert "volume drift" not in reason
+
+    # Enabled: volume pushes to warn
+    sev, reason = _classify(close_diff=0.1, volume_diff=10.0, check_volume=True)
     assert sev == "warn"
     assert "volume drift" in reason
+
+
+def test_classify_volume_fail_only_when_enabled():
+    # Default: 200% volume drift is ignored
+    sev, _ = _classify(close_diff=0.1, volume_diff=200.0)
+    assert sev == "ok"
+
+    # Enabled: 200% volume drift → fail
+    sev, _ = _classify(close_diff=0.1, volume_diff=200.0, check_volume=True)
+    assert sev == "fail"
 
 
 def test_classify_fail_on_close():
@@ -35,8 +51,9 @@ def test_classify_fail_on_close():
     assert "close drift" in reason
 
 
-def test_classify_fail_dominates_warn():
-    sev, _ = _classify(close_diff=5.0, volume_diff=10.0)
+def test_classify_close_fail_always_wins():
+    # Even with volume checking enabled, close fail takes priority
+    sev, _ = _classify(close_diff=5.0, volume_diff=10.0, check_volume=True)
     assert sev == "fail"
 
 
