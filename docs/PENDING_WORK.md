@@ -46,15 +46,21 @@
    → Expect: fail xuống < 5, active missing rate xuống ~3-5%.
 
 3. **(Tuỳ chọn) Scrape CafeF cash dividends**
-   - Thử 1 mã trước:
+   - ⚠ **CafeF đã redesign** (2026): tất cả 4 URL template scraper thử
+     đều 404. Cần debug URL format mới với live CafeF session — các tool
+     remote (WebFetch) cũng bị chặn 403 bot detection.
+   - **Workaround hiện tại**: register manual qua `run.py registry add`
+     với amount suy ra từ `diagnose` output.
+   - Ví dụ CDC 2026-04-15 (đã xác định là corp action):
      ```powershell
-     python run.py --warehouse data_warehouse cash-dividends --ticker CDC --register
+     python run.py --warehouse data_warehouse registry add \
+         --ticker CDC --date 2026-04-15 --type cash --cash 8.37 \
+         --note "inferred from diagnose"
      ```
-   - Nếu work, full scrape (1-2 giờ):
-     ```powershell
-     python run.py --warehouse data_warehouse cash-dividends --bulk --register
-     ```
-   - Re-audit: CDC/SBT fails sẽ biến mất hoàn toàn.
+   - Để fix scraper, cần: (a) mở trình duyệt CafeF, tìm URL thực của
+     lịch sử cổ tức cho 1 ticker, (b) copy vào CAFEF_URL_TEMPLATES trong
+     `vnstock_cash_dividends.py`, (c) test lại.
+   - Alternative source nên thử: Vietstock.vn, TCBS API, hoặc VND API.
 
 ### Ngắn hạn — verification còn dở
 
