@@ -335,6 +335,24 @@ def reconcile(
     except Exception:
         pass
 
+    # Also consult the anomaly whitelist so that "user accepted this
+    # (ticker, date)" propagates between consumers — if you
+    # `remediate --action accept` a bar, the reconciler should not keep
+    # flagging the same row on every audit. The whitelist stores
+    # (ticker, date, kind); we treat any match as a reconciler skip.
+    whitelist_keys: set[tuple[str, date]] = set()
+    try:
+        from vnstock_remediate import load_whitelist
+        for t, d_str, _kind in load_whitelist(warehouse):
+            try:
+                whitelist_keys.add(
+                    (t.upper(), pd.to_datetime(d_str).date())
+                )
+            except Exception:
+                continue
+    except Exception:
+        pass
+
     # Bring prices onto a common unit before comparing. Without this, the
     # reconciler reports 99900% drift on every row because rolled bars are
     # in VND and API bars are in thousand VND.
@@ -398,8 +416,17 @@ def reconcile(
         target_d = (
             row["time"].date() if hasattr(row["time"], "date") else row["time"]
         )
-        if (str(row["ticker"]).upper(), target_d) in corp_keys:
+        tk_upper = str(row["ticker"]).upper()
+        if (tk_upper, target_d) in corp_keys:
             ok += 1   # treat as healthy reconciliation, just skipped on event
+            continue
+
+        # ── Skip rows the operator has user-accepted via anomaly whitelist ──
+        # Propagates `remediate --action accept` across consumers so a single
+        # accept stops both the anomaly scan AND the reconciler from re-
+        # flagging the same row every audit.
+        if (tk_upper, target_d) in whitelist_keys:
+            ok += 1
             continue
 
         # ── Smart classification: detect "degenerate rolled row" ─────────────

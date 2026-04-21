@@ -191,6 +191,34 @@ def test_real_drift_still_flagged_when_both_sides_have_volume(tmp_path):
         "A real 9.4% close drift must still surface"
 
 
+def test_reconciler_respects_anomaly_whitelist(tmp_path):
+    """User accepting a (ticker, date) via `remediate --action accept`
+    should stop BOTH the anomaly scan AND the reconciler from re-flagging
+    it. Otherwise the operator has to accept twice for one event."""
+    from vnstock_remediate import add_to_whitelist
+
+    d = date(2026, 4, 15)
+
+    # Real genuine drift — without the whitelist, this should fail.
+    _seed_warehouse(tmp_path, "SBT", d, close=20.66, volume=500_000)
+    _seed_rolled(tmp_path, d, [{
+        "time": pd.Timestamp(d), "ticker": "SBT",
+        "close": 21.9, "volume": 500_000,     # both have vol → real drift
+        "open": 21.9, "high": 21.9, "low": 21.9,
+    }])
+
+    # 1) Without whitelist entry — expect fail (close drift 6%)
+    r = reconcile(tmp_path, dates=[d])
+    assert r.fail >= 1, "genuine drift must fire before whitelist"
+
+    # 2) Whitelist the entry and re-run — must NOT fail anymore
+    add_to_whitelist("SBT", d, kind="band", warehouse=tmp_path,
+                      note="WSS corrupted rolled")
+    r2 = reconcile(tmp_path, dates=[d])
+    assert r2.fail == 0, "whitelisted entry must be skipped by reconciler"
+    assert r2.ok >= 1
+
+
 def test_both_zero_volume_not_counted_as_wss_miss(tmp_path):
     """If api_volume is ALSO 0 (holiday / halted ticker), don't reclassify
     as WSS-miss — nothing to miss. Goes through normal classification."""
