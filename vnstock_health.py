@@ -293,6 +293,178 @@ def render_health_tab(warehouse: Path = DEFAULT_WAREHOUSE) -> None:
             use_container_width=True,
         )
 
+    # ── 🛠 Hành động nhanh — Phase 5C click-to-fix UI ────────────────────────
+    st.divider()
+    st.markdown("### 🛠 Hành động nhanh")
+    st.caption(
+        "Thao tác trực tiếp trên anomaly / quarantine không cần mở PowerShell. "
+        "Xem `_meta/remediation_log.jsonl` để audit trail."
+    )
+
+    _render_remediate_panels(snap, Path(warehouse))
+
+
+def _render_remediate_panels(snap: HealthSnapshot, warehouse: Path) -> None:
+    """Render the bulk + single-row remediation UI. Split out of render_health_tab
+    to keep the main function readable."""
+    try:
+        import streamlit as st
+    except ImportError:
+        return
+
+    has_anomalies = bool(snap.anomalies and snap.anomalies.get("anomalies"))
+    has_quarantine = bool(snap.quarantine and snap.quarantine.get("total", 0) > 0)
+
+    tab_bulk, tab_single, tab_re_audit = st.tabs(
+        ["🎯 Bulk (theo kind)", "🔧 Một bar cụ thể", "🔄 Chạy audit lại"]
+    )
+
+    # ── Tab: Bulk ───────────────────────────────────────────────────────────
+    with tab_bulk:
+        if not has_anomalies:
+            st.info("Chưa có anomaly — chạy `audit` trước.")
+        else:
+            with st.form("bulk_remediate_form"):
+                st.write("Apply 1 action cho **tất cả** anomaly match filter.")
+                c1, c2, c3 = st.columns(3)
+                kind = c1.selectbox(
+                    "Kind",
+                    ["(tất cả)", "band", "ohlc", "vol_spike", "gap", "zero_vol_move"],
+                    key="bulk_kind",
+                )
+                severity = c2.selectbox(
+                    "Severity", ["(tất cả)", "fail", "warn"], key="bulk_sev"
+                )
+                action = c3.selectbox(
+                    "Action", ["accept", "refetch", "archive", "note"],
+                    key="bulk_action",
+                )
+                dry_run = st.checkbox("Dry-run (không làm gì, chỉ đếm)",
+                                       value=True, key="bulk_dry")
+                limit = st.number_input(
+                    "Limit (0 = không giới hạn)", min_value=0, value=0,
+                    key="bulk_limit",
+                )
+                submitted = st.form_submit_button(
+                    f"▶ Execute {action} {'(dry-run)' if dry_run else ''}"
+                )
+            if submitted:
+                from vnstock_remediate import apply_bulk
+                with st.spinner(f"Applying {action}..."):
+                    try:
+                        result = apply_bulk(
+                            action,
+                            warehouse=warehouse,
+                            kind=kind if kind != "(tất cả)" else None,
+                            severity=severity if severity != "(tất cả)" else None,
+                            limit=int(limit) or 0,
+                            dry_run=dry_run,
+                        )
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+                        return
+                st.success(
+                    f"✓ total={result.get('total')} "
+                    f"ok={result.get('ok')} fail={result.get('fail')} "
+                    f"error={result.get('error')}"
+                )
+                if not dry_run:
+                    st.info("Chạy `Chạy audit lại` tab để refresh dashboard.")
+
+    # ── Tab: Single bar ─────────────────────────────────────────────────────
+    with tab_single:
+        with st.form("single_remediate_form"):
+            st.write("Action trên 1 (ticker, date) cụ thể.")
+            c1, c2 = st.columns(2)
+            ticker_default = ""
+            date_default = ""
+            if has_anomalies:
+                first = snap.anomalies["anomalies"][0]
+                ticker_default = first.get("ticker", "")
+                date_default = first.get("trading_date", "")
+            ticker = c1.text_input("Ticker", value=ticker_default,
+                                    key="single_ticker")
+            bar_date = c2.text_input(
+                "Date (YYYY-MM-DD)", value=date_default,
+                key="single_date",
+            )
+            action = st.selectbox(
+                "Action", ["refetch", "accept", "archive", "note"],
+                key="single_action",
+            )
+            kind_hint = st.selectbox(
+                "Kind (optional — cho `accept` với whitelist)",
+                ["*", "band", "ohlc", "vol_spike", "gap", "zero_vol_move"],
+                key="single_kind",
+            )
+            note = st.text_input("Note (optional)", value="", key="single_note")
+            submitted = st.form_submit_button(f"▶ Execute {action}")
+        if submitted:
+            if not ticker or not bar_date:
+                st.error("Cần cả ticker và date.")
+                return
+            from vnstock_remediate import (
+                accept, archive, attach_note, refetch,
+            )
+            try:
+                if action == "refetch":
+                    res = refetch(ticker, bar_date, warehouse=warehouse)
+                elif action == "accept":
+                    res = accept(ticker, bar_date, warehouse=warehouse,
+                                 kind=kind_hint, note=note or None)
+                elif action == "archive":
+                    res = archive(ticker, bar_date, warehouse=warehouse)
+                else:  # note
+                    if not note:
+                        st.error("Action `note` cần --note text.")
+                        return
+                    res = attach_note(ticker, bar_date, note, warehouse=warehouse)
+            except Exception as e:
+                st.error(f"Error: {e}")
+                return
+            if res.get("status") == "ok":
+                st.success(f"✓ {action} {ticker} {bar_date}: {res}")
+            else:
+                st.warning(f"⚠ {res}")
+
+    # ── Tab: Re-audit ───────────────────────────────────────────────────────
+    with tab_re_audit:
+        st.write(
+            "Sau khi remediate, chạy audit lại để refresh "
+            "`_meta/anomalies.json` và `_meta/reconciliation_report.json`."
+        )
+        lookback = st.number_input(
+            "Lookback (ngày)", min_value=1, value=60, key="reaudit_lookback",
+        )
+        include_ns = st.checkbox(
+            "Bao gồm non-stocks", value=False, key="reaudit_ns",
+        )
+        if st.button("🔄 Chạy audit ngay", key="reaudit_btn"):
+            import subprocess, sys as _sys
+            cmd = [
+                _sys.executable, "run.py",
+                "--warehouse", str(warehouse),
+                "audit", "--lookback", str(int(lookback)),
+            ]
+            if include_ns:
+                cmd.append("--include-non-stocks")
+            with st.spinner("Audit đang chạy..."):
+                try:
+                    proc = subprocess.run(cmd, capture_output=True, text=True,
+                                           timeout=600)
+                except Exception as e:
+                    st.error(f"Không chạy được: {e}")
+                    return
+            if proc.returncode == 0:
+                st.success("✓ Audit xong. Reload dashboard để xem số mới.")
+            else:
+                st.warning(f"Audit trả exit code {proc.returncode}")
+            if proc.stdout:
+                st.code(proc.stdout[-2000:], language="text")
+            if proc.stderr:
+                with st.expander("stderr"):
+                    st.code(proc.stderr[-2000:], language="text")
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Collectors
