@@ -93,7 +93,8 @@ BAND_PCT = {
     # Unknown → use the loosest band so we don't spam false positives.
     "_UNKNOWN": 15.0,
 }
-BAND_TOLERANCE_PCT = 0.3          # allow 0.3pp overshoot for rounding
+BAND_TOLERANCE_PCT = 0.5          # allow 0.5pp overshoot — giá tham chiếu UPCOM
+                                  # đôi khi lệch nhẹ so với previous close
 MAX_GAP_DAYS = 10                 # > N trading days missing → flag
 VOL_SPIKE_FACTOR = 5.0            # volume > mean20 * 5
 VOL_SIGMA_GATE = 4.0              # and volume > mean20 + 4*std20 (fat-tailed)
