@@ -232,6 +232,7 @@ def cmd_remediate(args) -> int:
         result = apply_bulk(
             args.action,
             warehouse=warehouse,
+            ticker=getattr(args, "ticker", None) or None,
             kind=args.kind,
             severity=args.severity,
             limit=args.limit,

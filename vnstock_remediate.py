@@ -294,6 +294,7 @@ def apply_bulk(
     action: str,
     *,
     warehouse: Path = DEFAULT_WAREHOUSE,
+    ticker: str | None = None,
     kind: str | None = None,
     severity: str | None = None,
     limit: int = 0,
@@ -313,6 +314,8 @@ def apply_bulk(
         return {"status": "error", "reason": f"bad anomalies.json: {e}"}
 
     items = data.get("anomalies", [])
+    if ticker:
+        items = [a for a in items if str(a.get("ticker", "")).upper() == ticker.upper()]
     if kind:
         items = [a for a in items if a.get("kind") == kind]
     if severity:
