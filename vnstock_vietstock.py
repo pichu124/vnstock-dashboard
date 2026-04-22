@@ -226,8 +226,9 @@ def fetch_corp_events(
         except requests.RequestException as exc:
             raise RuntimeError(f"[vietstock] fetch failed for {ticker}: {exc}") from exc
 
-        if not resp.text or not resp.text.strip():
-            # Vietstock returns empty body for tickers not in their system (ETFs, delisted)
+        # Non-JSON body = ticker not in Vietstock (empty body, HTML error page, etc.)
+        body = resp.text.strip() if resp.text else ""
+        if not body or body[0] != "[":
             break
 
         try:

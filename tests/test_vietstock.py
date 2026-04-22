@@ -93,10 +93,13 @@ def test_channel_type_mapping():
 # ── fetch_corp_events (mocked HTTP) ───────────────────────────────────────────
 
 def _make_fake_response(rows: list[dict], total: int = None) -> MagicMock:
+    import json as _json
     total = total if total is not None else len(rows)
     mock_resp = MagicMock()
     mock_resp.raise_for_status = MagicMock()
-    mock_resp.json.return_value = [rows, [], [total]]
+    payload = [rows, [], [total]]
+    mock_resp.json.return_value = payload
+    mock_resp.text = _json.dumps(payload)
     return mock_resp
 
 
@@ -145,11 +148,17 @@ def test_fetch_corp_events_skips_missing_date():
     assert events == []
 
 
-def test_fetch_corp_events_empty_body_returns_empty():
-    """Empty response body (ticker not in Vietstock) → empty list, not exception."""
+@pytest.mark.parametrize("body", [
+    "",                         # empty body
+    "   ",                      # whitespace only
+    "<html>error</html>",       # HTML error page
+    "null",                     # JSON null (not an array)
+])
+def test_fetch_corp_events_non_json_array_returns_empty(body):
+    """Non-array response (empty, HTML, null) → empty list, not exception."""
     mock_resp = MagicMock()
     mock_resp.raise_for_status = MagicMock()
-    mock_resp.text = ""
+    mock_resp.text = body
     with patch("vnstock_vietstock._get_csrf_token", return_value="tok"):
         mock_sess = MagicMock()
         mock_sess.post.return_value = mock_resp
