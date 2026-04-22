@@ -69,19 +69,56 @@ def _make_session() -> requests.Session:
     return s
 
 
-def _get_csrf_token(session: requests.Session, ticker: str) -> str | None:
-    """GET the event-history page and extract ASP.NET CSRF token."""
+def _get_csrf_token(
+    session: requests.Session,
+    ticker: str,
+    verbose: bool = False,
+) -> str | None:
+    """GET the event-history page and extract ASP.NET CSRF token.
+
+    Visits the site root first to establish cookies, then fetches the
+    event-history page. ASP.NET anti-forgery tokens are tied to the session
+    cookie — a cold requests.Session() won't have one until it visits the site.
+    """
+    # 1. Warm up cookies by visiting the base URL
+    try:
+        session.get(BASE_URL, timeout=10)
+    except requests.RequestException:
+        pass
+
+    # 2. Fetch the event-history page
     url = f"{_CSRF_PAGE}?page=1&tab=1&code={ticker.upper()}"
     try:
         resp = session.get(url, timeout=15)
         resp.raise_for_status()
-    except requests.RequestException:
+    except requests.RequestException as exc:
+        if verbose:
+            print(f"[vietstock] GET {url} failed: {exc}")
         return None
-    m = re.search(
+
+    if verbose:
+        print(f"[vietstock] GET {url} → {resp.status_code}, {len(resp.text)} chars")
+        snippet = resp.text[:500].replace("\n", " ")
+        print(f"[vietstock] HTML snippet: {snippet}")
+
+    # Try both attribute orderings (value before/after name)
+    for pattern in (
         r'<input[^>]+name="__RequestVerificationToken"[^>]+value="([^"]+)"',
-        resp.text,
-    )
-    return m.group(1) if m else None
+        r'<input[^>]+value="([^"]+)"[^>]+name="__RequestVerificationToken"',
+        r'__RequestVerificationToken["\s]+value="([^"]+)"',
+    ):
+        m = re.search(pattern, resp.text)
+        if m:
+            return m.group(1)
+
+    if verbose:
+        # Search for any RequestVerificationToken in the HTML
+        idx = resp.text.find("RequestVerificationToken")
+        if idx >= 0:
+            print(f"[vietstock] Token context: {resp.text[max(0,idx-50):idx+200]}")
+        else:
+            print("[vietstock] RequestVerificationToken not found in HTML")
+    return None
 
 
 # ── Date & Note parsers ────────────────────────────────────────────────────────
@@ -149,6 +186,7 @@ def fetch_corp_events(
     max_pages: int = 10,
     session: requests.Session | None = None,
     _csrf_token: str | None = None,
+    verbose: bool = False,
 ) -> list[dict]:
     """
     Fetch all corp action events for ticker from Vietstock.
@@ -158,11 +196,12 @@ def fetch_corp_events(
     ready for vnstock_corp_registry.register_bulk().
     """
     sess = session or _make_session()
-    token = _csrf_token or _get_csrf_token(sess, ticker)
+    token = _csrf_token or _get_csrf_token(sess, ticker, verbose=verbose)
     if not token:
         raise RuntimeError(
             f"[vietstock] Could not obtain CSRF token for {ticker}. "
-            "Vietstock may be blocking the request."
+            "Vietstock may be blocking the request. "
+            "Try running with --verbose to see the HTML response."
         )
 
     events: list[dict] = []
@@ -252,6 +291,7 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="Path to data warehouse root")
     p.add_argument("--fdate", default="", help="From date YYYY-MM-DD")
     p.add_argument("--tdate", default="", help="To date YYYY-MM-DD")
+    p.add_argument("--verbose", action="store_true", help="Print HTTP debug info")
     return p
 
 
@@ -265,7 +305,8 @@ def main(argv=None):
                                      fdate=args.fdate, tdate=args.tdate)
             print(json.dumps(res, indent=2))
         else:
-            events = fetch_corp_events(args.ticker, fdate=args.fdate, tdate=args.tdate)
+            events = fetch_corp_events(args.ticker, fdate=args.fdate, tdate=args.tdate,
+                                       verbose=getattr(args, "verbose", False))
             for e in events:
                 print(f"  {e['ex_date']}  {e['type_']:8s}  {e['note'][:80]}")
             print(f"\nTotal: {len(events)} events")
