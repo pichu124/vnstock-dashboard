@@ -382,8 +382,10 @@ def cmd_vietstock(args) -> int:
         return 0
 
     if args.bulk:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
         from vnstock_anomaly import _is_stock
-        import time
+        from vnstock_vietstock import _bulk_worker
+
         prices = warehouse / "prices"
         tickers = sorted(
             p.name.removeprefix("ticker=")
@@ -392,30 +394,35 @@ def cmd_vietstock(args) -> int:
         )
         if args.limit:
             tickers = tickers[: args.limit]
-        print(f"[vietstock] processing {len(tickers)} tickers...")
+
+        n_workers = max(1, min(getattr(args, "workers", 4), 8))
+        print(f"[vietstock] processing {len(tickers)} tickers with {n_workers} workers...")
+
+        chunks: list[list[str]] = [[] for _ in range(n_workers)]
+        for i, t in enumerate(tickers):
+            chunks[i % n_workers].append(t)
+
         ok = empty = fail = 0
-        sess = _make_session()
-        for i, t in enumerate(tickers, 1):
-            try:
-                if args.register:
-                    res = fetch_and_register(t, warehouse=warehouse,
-                                             fdate=args.fdate, tdate=args.tdate,
-                                             session=sess)
-                    if res["fetched"] > 0:
-                        ok += 1
-                    else:
-                        empty += 1
-                else:
-                    evts = fetch_corp_events(t, fdate=args.fdate, tdate=args.tdate,
-                                             session=sess)
-                    ok += bool(evts)
-                    empty += not bool(evts)
-            except Exception as e:
-                fail += 1
-                print(f"  [{i}/{len(tickers)}] {t}: {e}", file=sys.stderr)
-            if i % 50 == 0:
-                print(f"  progress: {i}/{len(tickers)} ok={ok} empty={empty} fail={fail}")
-            time.sleep(0.3)
+        done = 0
+        with ThreadPoolExecutor(max_workers=n_workers) as pool:
+            futures = {
+                pool.submit(
+                    _bulk_worker, chunk,
+                    warehouse=warehouse,
+                    fdate=args.fdate,
+                    tdate=args.tdate,
+                    do_register=args.register,
+                ): idx
+                for idx, chunk in enumerate(chunks)
+            }
+            for fut in as_completed(futures):
+                w_ok, w_empty, w_fail = fut.result()
+                ok += w_ok
+                empty += w_empty
+                fail += w_fail
+                done += w_ok + w_empty + w_fail
+                print(f"  progress: {done}/{len(tickers)} ok={ok} empty={empty} fail={fail}")
+
         print(f"[vietstock] done: ok={ok} empty={empty} fail={fail}")
         return 0
 
@@ -630,6 +637,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Push fetched events into corp_actions_registry")
     vs.add_argument("--fdate", default="", help="From date YYYY-MM-DD")
     vs.add_argument("--tdate", default="", help="To date YYYY-MM-DD")
+    vs.add_argument("--workers", type=int, default=4,
+                    help="Parallel workers for --bulk (default: 4, max: 8)")
     vs.add_argument("--verbose", action="store_true", help="Print HTTP debug info")
 
     sub.add_parser("test", help="Run pytest")
