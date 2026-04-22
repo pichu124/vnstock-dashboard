@@ -223,8 +223,16 @@ def fetch_corp_events(
         try:
             resp = sess.post(_EVENTS_ENDPOINT, data=payload, timeout=15)
             resp.raise_for_status()
+        except requests.RequestException as exc:
+            raise RuntimeError(f"[vietstock] fetch failed for {ticker}: {exc}") from exc
+
+        if not resp.text or not resp.text.strip():
+            # Vietstock returns empty body for tickers not in their system (ETFs, delisted)
+            break
+
+        try:
             data = resp.json()
-        except (requests.RequestException, ValueError) as exc:
+        except ValueError as exc:
             raise RuntimeError(f"[vietstock] fetch failed for {ticker}: {exc}") from exc
 
         rows = data[0] if data and isinstance(data[0], list) else []

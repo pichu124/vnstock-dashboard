@@ -145,6 +145,18 @@ def test_fetch_corp_events_skips_missing_date():
     assert events == []
 
 
+def test_fetch_corp_events_empty_body_returns_empty():
+    """Empty response body (ticker not in Vietstock) → empty list, not exception."""
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.text = ""
+    with patch("vnstock_vietstock._get_csrf_token", return_value="tok"):
+        mock_sess = MagicMock()
+        mock_sess.post.return_value = mock_resp
+        events = fetch_corp_events("AAH", session=mock_sess, _csrf_token="tok")
+    assert events == []
+
+
 def test_fetch_corp_events_raises_without_csrf():
     with patch("vnstock_vietstock._get_csrf_token", return_value=None):
         with pytest.raises(RuntimeError, match="CSRF"):
