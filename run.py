@@ -363,6 +363,65 @@ def cmd_registry(args) -> int:
     return 0
 
 
+def cmd_vietstock(args) -> int:
+    """Scrape Vietstock for corp actions; optionally register."""
+    from vnstock_vietstock import fetch_and_register, fetch_corp_events, _make_session
+    warehouse = Path(args.warehouse)
+
+    if args.ticker and not args.bulk:
+        if args.register:
+            res = fetch_and_register(args.ticker, warehouse=warehouse,
+                                     fdate=args.fdate, tdate=args.tdate)
+            print(json.dumps(res, indent=2))
+        else:
+            events = fetch_corp_events(args.ticker, fdate=args.fdate, tdate=args.tdate)
+            for e in events:
+                print(f"  {e['ex_date']}  {e['type_']:8s}  {e['note'][:80]}")
+            print(f"\nTotal: {len(events)} events")
+        return 0
+
+    if args.bulk:
+        from vnstock_anomaly import _is_stock
+        import time
+        prices = warehouse / "prices"
+        tickers = sorted(
+            p.name.removeprefix("ticker=")
+            for p in prices.glob("ticker=*")
+            if p.is_dir() and _is_stock(p.name.removeprefix("ticker="))
+        )
+        if args.limit:
+            tickers = tickers[: args.limit]
+        print(f"[vietstock] processing {len(tickers)} tickers...")
+        ok = empty = fail = 0
+        sess = _make_session()
+        for i, t in enumerate(tickers, 1):
+            try:
+                if args.register:
+                    res = fetch_and_register(t, warehouse=warehouse,
+                                             fdate=args.fdate, tdate=args.tdate,
+                                             session=sess)
+                    if res["fetched"] > 0:
+                        ok += 1
+                    else:
+                        empty += 1
+                else:
+                    evts = fetch_corp_events(t, fdate=args.fdate, tdate=args.tdate,
+                                             session=sess)
+                    ok += bool(evts)
+                    empty += not bool(evts)
+            except Exception as e:
+                fail += 1
+                print(f"  [{i}/{len(tickers)}] {t}: {e}", file=sys.stderr)
+            if i % 50 == 0:
+                print(f"  progress: {i}/{len(tickers)} ok={ok} empty={empty} fail={fail}")
+            time.sleep(0.3)
+        print(f"[vietstock] done: ok={ok} empty={empty} fail={fail}")
+        return 0
+
+    print("[vietstock] specify --ticker or --bulk", file=sys.stderr)
+    return 2
+
+
 def cmd_cash_dividends(args) -> int:
     """Scrape CafeF for cash dividends; optionally register."""
     from vnstock_cash_dividends import (
@@ -562,6 +621,15 @@ def build_parser() -> argparse.ArgumentParser:
     cash.add_argument("--register", action="store_true",
                       help="Push fetched events into corp_actions_registry")
 
+    vs = sub.add_parser("vietstock", help="Scrape Vietstock for corp actions")
+    vs.add_argument("--ticker", help="Single ticker")
+    vs.add_argument("--bulk", action="store_true", help="All warehouse tickers")
+    vs.add_argument("--limit", type=int, default=0)
+    vs.add_argument("--register", action="store_true",
+                    help="Push fetched events into corp_actions_registry")
+    vs.add_argument("--fdate", default="", help="From date YYYY-MM-DD")
+    vs.add_argument("--tdate", default="", help="To date YYYY-MM-DD")
+
     sub.add_parser("test", help="Run pytest")
     sub.add_parser("dashboard", help="Launch the Streamlit dashboard")
 
@@ -585,6 +653,7 @@ _DISPATCH = {
     "diagnose": cmd_diagnose,
     "registry": cmd_registry,
     "cash-dividends": cmd_cash_dividends,
+    "vietstock": cmd_vietstock,
     "test": cmd_test,
     "dashboard": cmd_dashboard,
     "all": cmd_all,
