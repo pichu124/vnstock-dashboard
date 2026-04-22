@@ -108,7 +108,30 @@ def _load_warehouse_window(
 
 
 def _load_capital_events(warehouse: Path, ticker: str, target: date) -> list[dict]:
-    """Read corp-action events for ticker, filtered to ±30 days of target."""
+    """Read corp-action events for ticker, filtered to ±30 days of target.
+
+    Checks the corp_actions_registry first (all sources including manual),
+    then falls back to the old capital_history cache for backwards compat.
+    """
+    window_start = target - pd.Timedelta(days=30).to_pytimedelta()
+    window_end = target + pd.Timedelta(days=30).to_pytimedelta()
+
+    # Primary: corp_actions_registry (includes manual, vietstock, cafef, etc.)
+    try:
+        from vnstock_corp_registry import get_events_for_ticker
+        df_reg = get_events_for_ticker(ticker, warehouse=warehouse)
+        if not df_reg.empty and "ex_date" in df_reg.columns:
+            df_reg["ex_date"] = pd.to_datetime(df_reg["ex_date"]).dt.date
+            df_reg = df_reg[
+                (df_reg["ex_date"] >= window_start)
+                & (df_reg["ex_date"] <= window_end)
+            ]
+            if not df_reg.empty:
+                return df_reg.to_dict(orient="records")
+    except Exception:
+        pass
+
+    # Fallback: old capital_history cache (_meta/corp_actions/{ticker}.parquet)
     path = warehouse / META_SUBDIR / "corp_actions" / f"{ticker.upper()}.parquet"
     if not path.exists():
         return []
@@ -119,8 +142,6 @@ def _load_capital_events(warehouse: Path, ticker: str, target: date) -> list[dic
     if df.empty or "ex_date" not in df.columns:
         return []
     df["ex_date"] = pd.to_datetime(df["ex_date"]).dt.date
-    window_start = target - pd.Timedelta(days=30).to_pytimedelta()
-    window_end = target + pd.Timedelta(days=30).to_pytimedelta()
     df = df[(df["ex_date"] >= window_start) & (df["ex_date"] <= window_end)]
     return df.to_dict(orient="records")
 

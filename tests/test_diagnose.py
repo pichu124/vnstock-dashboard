@@ -198,6 +198,17 @@ def test_capital_events_loaded(tmp_path):
     assert r.capital_events[0]["type"] == "bonus"
 
 
+def test_capital_events_loaded_from_registry(tmp_path):
+    """Registry (manual/vietstock entries) must appear in diagnose capital_events."""
+    from vnstock_corp_registry import register_event
+    register_event("VCB", "2026-04-15", "rights", ratio=1.0, cash_amount=10.0,
+                   source="manual", warehouse=tmp_path)
+    r = diagnose("VCB", date(2026, 4, 15), warehouse=tmp_path)
+    assert len(r.capital_events) == 1
+    assert r.capital_events[0]["type"] == "rights"
+    assert r.capital_events[0]["source"] == "manual"
+
+
 def test_render_does_not_crash(tmp_path):
     _seed_warehouse(tmp_path, "VCB", [
         ("2026-04-14", 100.0, 1_000_000),
