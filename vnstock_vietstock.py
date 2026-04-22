@@ -101,11 +101,12 @@ def _get_csrf_token(
         snippet = resp.text[:500].replace("\n", " ")
         print(f"[vietstock] HTML snippet: {snippet}")
 
-    # Try both attribute orderings (value before/after name)
+    # Match both quoted and unquoted HTML5 attribute values, either ordering
     for pattern in (
-        r'<input[^>]+name="__RequestVerificationToken"[^>]+value="([^"]+)"',
-        r'<input[^>]+value="([^"]+)"[^>]+name="__RequestVerificationToken"',
-        r'__RequestVerificationToken["\s]+value="([^"]+)"',
+        # name=... value=... (quoted or unquoted)
+        r'name=["\']?__RequestVerificationToken["\']?[^>]*?value=["\']?([^"\'>\s]+)',
+        # value=... name=... (reversed order)
+        r'value=["\']?([^"\'>\s]+)["\']?[^>]*?name=["\']?__RequestVerificationToken',
     ):
         m = re.search(pattern, resp.text)
         if m:
