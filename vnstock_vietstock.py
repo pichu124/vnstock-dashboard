@@ -288,6 +288,65 @@ def fetch_and_register(
     return result
 
 
+# ── Bulk helpers ───────────────────────────────────────────────────────────────
+
+def _bulk_worker(
+    tickers: list[str],
+    *,
+    warehouse: Path,
+    fdate: str,
+    tdate: str,
+    do_register: bool,
+) -> tuple[int, int, int]:
+    """Process a chunk of tickers in one thread.
+
+    Fetches a CSRF token once per session and reuses it across all tickers in
+    the chunk. Returns (ok, empty, fail) counts for this chunk.
+    """
+    sess = _make_session()
+    token: str | None = None
+    ok = empty = fail = 0
+
+    for ticker in tickers:
+        # Lazy token fetch: get once, refresh on auth failure
+        if token is None:
+            token = _get_csrf_token(sess, ticker)
+            if not token:
+                fail += 1
+                continue
+
+        try:
+            if do_register:
+                from vnstock_corp_registry import register_bulk
+                evts = fetch_corp_events(
+                    ticker, fdate=fdate, tdate=tdate,
+                    session=sess, _csrf_token=token,
+                )
+                if evts:
+                    register_bulk(evts, warehouse=warehouse)
+                    ok += 1
+                else:
+                    empty += 1
+            else:
+                evts = fetch_corp_events(
+                    ticker, fdate=fdate, tdate=tdate,
+                    session=sess, _csrf_token=token,
+                )
+                ok += bool(evts)
+                empty += not bool(evts)
+        except RuntimeError as exc:
+            msg = str(exc)
+            if "CSRF" in msg:
+                token = None  # force token refresh on next ticker
+            fail += 1
+        except Exception:
+            fail += 1
+
+        time.sleep(0.15)  # polite delay per ticker
+
+    return ok, empty, fail
+
+
 # ── CLI ────────────────────────────────────────────────────────────────────────
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -301,6 +360,8 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="Path to data warehouse root")
     p.add_argument("--fdate", default="", help="From date YYYY-MM-DD")
     p.add_argument("--tdate", default="", help="To date YYYY-MM-DD")
+    p.add_argument("--workers", type=int, default=4,
+                   help="Parallel workers for --bulk (default: 4)")
     p.add_argument("--verbose", action="store_true", help="Print HTTP debug info")
     return p
 
@@ -323,7 +384,10 @@ def main(argv=None):
         return
 
     if args.bulk:
+        import sys
+        from concurrent.futures import ThreadPoolExecutor, as_completed
         from vnstock_anomaly import _is_stock
+
         prices = warehouse / "prices"
         tickers = sorted(
             p.name.removeprefix("ticker=")
@@ -332,31 +396,37 @@ def main(argv=None):
         )
         if args.limit:
             tickers = tickers[: args.limit]
-        print(f"[vietstock] processing {len(tickers)} tickers...")
+
+        n_workers = max(1, min(args.workers, 8))  # cap at 8 to avoid ban
+        print(f"[vietstock] processing {len(tickers)} tickers with {n_workers} workers...")
+
+        # Split tickers evenly across workers
+        chunks: list[list[str]] = [[] for _ in range(n_workers)]
+        for i, t in enumerate(tickers):
+            chunks[i % n_workers].append(t)
+
         ok = empty = fail = 0
-        sess = _make_session()
-        for i, t in enumerate(tickers, 1):
-            try:
-                if args.register:
-                    res = fetch_and_register(t, warehouse=warehouse,
-                                             fdate=args.fdate, tdate=args.tdate,
-                                             session=sess)
-                    if res["fetched"] > 0:
-                        ok += 1
-                    else:
-                        empty += 1
-                else:
-                    evts = fetch_corp_events(t, fdate=args.fdate, tdate=args.tdate,
-                                             session=sess)
-                    (ok if evts else empty).__class__  # dummy
-                    ok += bool(evts)
-                    empty += not bool(evts)
-            except Exception as exc:
-                fail += 1
-                print(f"  [{i}/{len(tickers)}] {t}: {exc}", file=__import__("sys").stderr)
-            if i % 50 == 0:
-                print(f"  progress: {i}/{len(tickers)} ok={ok} empty={empty} fail={fail}")
-            time.sleep(0.3)
+        done = 0
+        with ThreadPoolExecutor(max_workers=n_workers) as pool:
+            futures = {
+                pool.submit(
+                    _bulk_worker, chunk,
+                    warehouse=warehouse,
+                    fdate=args.fdate,
+                    tdate=args.tdate,
+                    do_register=args.register,
+                ): idx
+                for idx, chunk in enumerate(chunks)
+            }
+            for fut in as_completed(futures):
+                w_ok, w_empty, w_fail = fut.result()
+                ok += w_ok
+                empty += w_empty
+                fail += w_fail
+                done += w_ok + w_empty + w_fail
+                print(f"  progress: {done}/{len(tickers)} "
+                      f"ok={ok} empty={empty} fail={fail}")
+
         print(f"[vietstock] done: ok={ok} empty={empty} fail={fail}")
         return
 
