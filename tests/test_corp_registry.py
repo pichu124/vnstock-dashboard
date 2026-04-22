@@ -20,6 +20,7 @@ from vnstock_corp_registry import (
     is_corp_action_date,
     register_bulk,
     register_event,
+    remove_event,
     summary,
 )
 
@@ -139,6 +140,32 @@ def test_is_corp_action_date_respects_confidence_threshold(tmp_path):
                                  warehouse=tmp_path, min_confidence=0.4)
     assert not is_corp_action_date("VCB", "2026-04-15",
                                      warehouse=tmp_path, min_confidence=0.7)
+
+
+# ── remove_event ──────────────────────────────────────────────────────────
+
+def test_remove_event_deletes_matching_row(tmp_path):
+    register_event("VCB", "2026-04-15", "cash", cash_amount=2.0,
+                    warehouse=tmp_path)
+    register_event("VCB", "2026-04-15", "bonus", ratio=0.2,
+                    warehouse=tmp_path)
+    n = remove_event("VCB", "2026-04-15", "cash", warehouse=tmp_path)
+    assert n == 1
+    df = get_events_for_ticker("VCB", warehouse=tmp_path)
+    assert len(df) == 1
+    assert df.iloc[0]["type"] == "bonus"
+
+
+def test_remove_event_no_match_returns_zero(tmp_path):
+    register_event("VCB", "2026-04-15", "cash", cash_amount=2.0,
+                    warehouse=tmp_path)
+    n = remove_event("VCB", "2026-04-15", "bonus", warehouse=tmp_path)
+    assert n == 0
+    assert len(get_events_for_ticker("VCB", warehouse=tmp_path)) == 1
+
+
+def test_remove_event_empty_registry_returns_zero(tmp_path):
+    assert remove_event("VCB", "2026-04-15", "cash", warehouse=tmp_path) == 0
 
 
 # ── clear_source ──────────────────────────────────────────────────────────

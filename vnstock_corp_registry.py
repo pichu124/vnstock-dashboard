@@ -273,6 +273,30 @@ def is_corp_action_date(
     return bool(mask.any())
 
 
+def remove_event(
+    ticker: str,
+    ex_date,
+    type_: str,
+    *,
+    warehouse: Path = DEFAULT_WAREHOUSE,
+) -> int:
+    """Remove a specific (ticker, ex_date, type) entry. Returns rows removed."""
+    df = _load(warehouse)
+    if df.empty:
+        return 0
+    target_d = pd.to_datetime(ex_date).date()
+    mask = (
+        (df["ticker"] == str(ticker).upper())
+        & (df["ex_date"] == target_d)
+        & (df["type"] == str(type_))
+    )
+    before = len(df)
+    df = df[~mask]
+    after = len(df)
+    _atomic_write_parquet(_registry_path(Path(warehouse)), df)
+    return before - after
+
+
 def clear_source(
     source: str,
     *,

@@ -349,6 +349,14 @@ def cmd_registry(args) -> int:
     elif args.subcmd == "import-capital-history":
         result = import_from_capital_history(warehouse, verbose=True)
         print(json.dumps(result, indent=2))
+    elif args.subcmd == "remove":
+        from vnstock_corp_registry import remove_event
+        if not (args.ticker and args.date and args.type):
+            print("--ticker, --date, and --type are required for remove",
+                  file=sys.stderr)
+            return 2
+        n = remove_event(args.ticker, args.date, args.type, warehouse=warehouse)
+        print(f"[registry] removed {n} row(s) for {args.ticker} {args.date} type={args.type}")
     elif args.subcmd == "clear-source":
         n = clear_source(args.source_to_clear, warehouse=warehouse)
         print(f"[registry] removed {n} row(s) from source={args.source_to_clear}")
@@ -534,8 +542,8 @@ def build_parser() -> argparse.ArgumentParser:
     reg = sub.add_parser("registry",
                           help="Manage the corp_actions_registry.parquet")
     reg.add_argument("subcmd",
-                      choices=["show", "add", "import-capital-history",
-                               "clear-source"])
+                      choices=["show", "add", "remove",
+                               "import-capital-history", "clear-source"])
     reg.add_argument("--ticker")
     reg.add_argument("--date", help="YYYY-MM-DD")
     reg.add_argument("--type", help="cash|split|bonus|rights|unknown")
