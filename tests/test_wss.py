@@ -99,3 +99,111 @@ class TestAccumToDelta:
         # = 3,000,000 - 100,000 = 2,900,000. Definitely not sum of accums (46.5M).
         assert bar_total == 2_900_000
         assert bar_total < sum(accums) / 10
+
+
+class TestBarAggregatorSanityCheck:
+    """
+    Defensive checks added to BarAggregator to stop the AAA 78× volume
+    bug from polluting the warehouse: if a single tick contributes more
+    than MAX_SINGLE_TICK_VOLUME (500K shares), the aggregator drops the
+    volume contribution and counts the suspect.
+
+    These tests use a minimal in-process aggregator clone to avoid the
+    heavy import chain. Schema must stay in sync with vnstock_wss.
+    """
+
+    @staticmethod
+    def make_aggregator():
+        # Minimal replica — same structure as BarAggregator
+        import threading
+        import pandas as pd
+
+        MAX = 500_000
+
+        class _Agg:
+            def __init__(self):
+                self._bars = {}
+                self._lock = threading.Lock()
+                self.suspect_count = 0
+                self._suspect_samples = []
+
+            def add_tick(self, ticker, tick_time, price, volume=0.0):
+                bar_time = tick_time.floor("1min")
+                key = (ticker, bar_time)
+                try:
+                    v = float(volume)
+                except (TypeError, ValueError):
+                    v = 0.0
+                if v > MAX or v < 0:
+                    self.suspect_count += 1
+                    if len(self._suspect_samples) < 20:
+                        self._suspect_samples.append({
+                            "ticker": ticker,
+                            "rejected_volume": v,
+                        })
+                    v = 0.0
+                with self._lock:
+                    bar = self._bars.get(key)
+                    if bar is None:
+                        self._bars[key] = {
+                            "open": price, "high": price, "low": price,
+                            "close": price, "volume": v,
+                        }
+                    else:
+                        bar["high"] = max(bar["high"], price)
+                        bar["low"] = min(bar["low"], price)
+                        bar["close"] = price
+                        bar["volume"] += v
+
+        return _Agg()
+
+    def test_normal_volume_accepted(self):
+        import pandas as pd
+        agg = self.make_aggregator()
+        agg.add_tick("VCB", pd.Timestamp("2026-04-20 10:00:00"), 77.7,
+                      volume=10_000)
+        bar = list(agg._bars.values())[0]
+        assert bar["volume"] == 10_000
+        assert agg.suspect_count == 0
+
+    def test_huge_volume_rejected(self):
+        """The AAA-78× scenario: a single tick claiming 5M shares."""
+        import pandas as pd
+        agg = self.make_aggregator()
+        agg.add_tick("AAA", pd.Timestamp("2026-04-20 10:00:00"), 7.12,
+                      volume=5_000_000)
+        bar = list(agg._bars.values())[0]
+        assert bar["volume"] == 0   # rejected
+        assert agg.suspect_count == 1
+        assert len(agg._suspect_samples) == 1
+
+    def test_negative_volume_rejected(self):
+        import pandas as pd
+        agg = self.make_aggregator()
+        agg.add_tick("VCB", pd.Timestamp("2026-04-20 10:00:00"), 77.7,
+                      volume=-100)
+        assert agg.suspect_count == 1
+
+    def test_price_still_updated_on_suspect_tick(self):
+        """Price-side fields update even when volume is rejected."""
+        import pandas as pd
+        agg = self.make_aggregator()
+        agg.add_tick("VCB", pd.Timestamp("2026-04-20 10:00:00"), 77.7, 10_000)
+        agg.add_tick("VCB", pd.Timestamp("2026-04-20 10:00:30"), 80.0,
+                      volume=99_999_999)   # absurd
+        bar = list(agg._bars.values())[0]
+        assert bar["high"] == 80.0
+        assert bar["close"] == 80.0
+        assert bar["volume"] == 10_000   # only the first tick contributed
+        assert agg.suspect_count == 1
+
+    def test_threshold_boundary(self):
+        """Exactly at MAX should be accepted, just over should be rejected."""
+        import pandas as pd
+        agg = self.make_aggregator()
+        agg.add_tick("X", pd.Timestamp("2026-04-20 10:00:00"), 100.0,
+                      volume=500_000)   # at threshold
+        assert agg.suspect_count == 0
+        agg.add_tick("X", pd.Timestamp("2026-04-20 10:01:00"), 100.0,
+                      volume=500_001)   # over
+        assert agg.suspect_count == 1

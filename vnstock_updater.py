@@ -145,6 +145,34 @@ def _write_year(ticker_dir: Path, year: int, df: pd.DataFrame):
     df["close"]  = df["close"].astype("float32")
     df["volume"] = df["volume"].astype("int64")
 
+    # Contract check (ticker/year are partition cols — add for validation only).
+    # Dropped rows → quarantine instead of silent discard.
+    try:
+        from vnstock_contracts import validate_ohlcv
+        ticker = ticker_dir.name.removeprefix("ticker=")
+        check_df = df.assign(ticker=ticker, year=int(year))
+        check_df, report = validate_ohlcv(
+            check_df, strict=False, drop_invalid=True, return_dropped=True,
+        )
+        if report["dropped"] > 0:
+            print(f"  [contract] {ticker} y{year}: dropped "
+                  f"{report['dropped']}/{report['rows_in']} row(s) → quarantine")
+            try:
+                from vnstock_quarantine import quarantine_dropped
+                warehouse_root = ticker_dir.parent.parent  # .../prices/ticker=X → root
+                quarantine_dropped(
+                    report.get("dropped_rows"),
+                    report.get("dropped_reasons", "contract failure"),
+                    warehouse=warehouse_root,
+                )
+            except Exception as qe:
+                print(f"  [quarantine] {ticker}: write failed — {qe}")
+        df = check_df.drop(columns=["ticker", "year"], errors="ignore")
+        if df.empty:
+            return
+    except Exception as e:
+        print(f"  [contract] warning for {ticker_dir.name} y{year}: {e}")
+
     table = pa.Table.from_pandas(df, schema=PRICE_SCHEMA, safe=False)
     pq.write_table(table, str(out_path), compression="snappy")
 
@@ -206,6 +234,12 @@ def _fetch_prices(ticker: str, start: str, end: str) -> pd.DataFrame:
         df = df[needed].copy()
         df["time"] = pd.to_datetime(df["time"]).dt.date
         df = df.dropna(subset=["time", "close"])
+        # Data quality gate: reject non-positive price and negative volume.
+        # The Pandera contract (vnstock_contracts.OHLCVSchema) is the
+        # authoritative check at write time; this filter is defense-in-depth.
+        df["close"] = pd.to_numeric(df["close"], errors="coerce")
+        df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0)
+        df = df[(df["close"] > 0) & (df["volume"] >= 0)]
         df = df.sort_values("time").reset_index(drop=True)
         return df
 

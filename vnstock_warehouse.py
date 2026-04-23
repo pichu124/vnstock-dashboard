@@ -384,6 +384,32 @@ class VnStockWarehouse:
                     df[col] = pd.to_numeric(df[col], errors="coerce").astype("float32")
                 df = df.dropna(subset=["close"])
 
+                # ── Data quality gate ────────────────────────────────────────
+                # Reject rows that cannot be valid OHLCV bars. Logs are surfaced
+                # at DEBUG level only to avoid flooding bulk-load output.
+                before = len(df)
+                # 1) price must be strictly positive
+                df = df[df["close"] > 0]
+                # 2) volume must be non-negative (NaN already coerced to 0)
+                df = df[df["volume"] >= 0]
+                # 3) OHLC sanity: high >= max(open, close) and low <= min(open, close)
+                #    Only enforce when all four values are present.
+                mask_ohlc = (
+                    df[["open", "high", "low", "close"]].notna().all(axis=1)
+                )
+                if mask_ohlc.any():
+                    valid_ohlc = (
+                        (df["high"] >= df[["open", "close", "low"]].max(axis=1))
+                        & (df["low"] <= df[["open", "close", "high"]].min(axis=1))
+                    )
+                    df = df[~mask_ohlc | valid_ohlc]
+                dropped = before - len(df)
+                if dropped:
+                    console.log(
+                        f"  [dim yellow]⚠ {ticker}: dropped {dropped} "
+                        f"invalid bar(s) (price<=0 / volume<0 / bad OHLC)[/dim yellow]"
+                    )
+
                 return df[["time","open","high","low","close","volume","ticker","year"]]
 
             # ✅ Bắt BaseException để catch cả SystemExit (vnstock gọi sys.exit())
@@ -464,6 +490,34 @@ class VnStockWarehouse:
         df["close"]  = df["close"].astype("float32")
         df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0).astype("int64")
         df["year"]   = df["year"].astype("int16")
+
+        # Contract check: reject invalid rows before they ever hit parquet.
+        # Dropped rows are routed to _meta/quarantine/ so they can be
+        # retried later instead of being silently discarded.
+        try:
+            from vnstock_contracts import validate_ohlcv
+            df, report = validate_ohlcv(
+                df, strict=False, drop_invalid=True, return_dropped=True,
+            )
+            if report["dropped"] > 0:
+                console.log(
+                    f"  [yellow]⚠ {ticker}: contract dropped "
+                    f"{report['dropped']}/{report['rows_in']} row(s) → "
+                    f"quarantine[/yellow]"
+                )
+                try:
+                    from vnstock_quarantine import quarantine_dropped
+                    quarantine_dropped(
+                        report.get("dropped_rows"),
+                        report.get("dropped_reasons", "contract failure"),
+                        warehouse=self.root,
+                    )
+                except Exception as qe:
+                    console.log(f"  [red]quarantine write failed: {qe}[/red]")
+            if df.empty:
+                return
+        except Exception as e:
+            console.log(f"  [red]contract check failed for {ticker}: {e}[/red]")
 
         # Merge with existing data for this ticker (deduplication)
         existing = self._read_ticker(ticker)

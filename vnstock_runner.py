@@ -274,14 +274,29 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
 
             h90 = recent["high"].astype(float)
             l90 = recent["low"].astype(float)
-            amp = (h90 - l90) / c90 * 100
-            amp5 = float(amp.tail(5).mean())
-            amp20 = float(amp.tail(20).mean())
-            amp60 = float(amp.tail(60).mean()) if len(amp) >= 60 else amp5
+            # Guard against close == 0 / NaN to avoid Inf/NaN leaking into screener JSON
+            c90_safe = c90.where(c90 > 0)
+            amp = ((h90 - l90) / c90_safe * 100).replace([np.inf, -np.inf], np.nan)
+            amp5 = float(amp.tail(5).mean(skipna=True))
+            amp20 = float(amp.tail(20).mean(skipna=True))
+            amp60 = float(amp.tail(60).mean(skipna=True)) if len(amp) >= 60 else amp5
+            # NaN still possible if every bar in window had close<=0; coerce to 0 for JSON
+            amp5 = 0.0 if not np.isfinite(amp5) else amp5
+            amp20 = 0.0 if not np.isfinite(amp20) else amp20
+            amp60 = 0.0 if not np.isfinite(amp60) else amp60
 
-            chg5 = float((c90.iloc[-1] / c90.iloc[-6] - 1) * 100) if len(c90) > 5 else None
-            chg20 = float((c90.iloc[-1] / c90.iloc[-21] - 1) * 100) if len(c90) > 20 else None
-            chg60 = float((c90.iloc[-1] / c90.iloc[-61] - 1) * 100) if len(c90) > 60 else None
+            def _pct_change(series, lookback):
+                if len(series) <= lookback:
+                    return None
+                base = series.iloc[-lookback - 1]
+                last_px = series.iloc[-1]
+                if not (np.isfinite(base) and np.isfinite(last_px)) or base <= 0:
+                    return None
+                return float((last_px / base - 1) * 100)
+
+            chg5 = _pct_change(c90, 5)
+            chg20 = _pct_change(c90, 20)
+            chg60 = _pct_change(c90, 60)
 
             if chg5 is not None and abs(chg5) > 50: chg5 = None
             if chg20 is not None and abs(chg20) > 80: chg20 = None

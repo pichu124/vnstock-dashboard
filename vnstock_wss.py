@@ -221,6 +221,20 @@ MARKET_CLOSE = dtime(15, 0)
 # Bar flush interval (seconds)
 BAR_FLUSH_INTERVAL = 60
 
+# Sanity threshold: any single tick contributing >MAX_SINGLE_TICK_VOLUME
+# shares to a 1-minute bar is almost certainly a bug. The most-traded VN
+# tickers do ~5M-20M shares/day spread across 250 trading minutes ≈ 20-80K
+# per minute. A 500K-share single-tick event would mean a single block
+# trade of >5x the typical bar's worth of activity. Plausible? Maybe at
+# very rare ATC prints, but worth flagging.
+#
+# Real-world bug seen on the user's warehouse: AAA rolled_volume came in at
+# 113M for a day where the API showed 1.4M (78×). Root cause: somewhere
+# in the tick path `accum_volume` (cumulative session total) was used in
+# place of `_delta_volume`, and each tick added the full running total to
+# the current bar — exponential blowup.
+MAX_SINGLE_TICK_VOLUME = 500_000
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 # BarAggregator — aggregate ticks → 1m OHLCV bars in-memory
@@ -250,30 +264,67 @@ class BarAggregator:
     """
     In-memory 1-minute bar aggregator. Tích lũy tick → OHLCV bar.
     Flush xuống parquet mỗi BAR_FLUSH_INTERVAL giây.
+
+    Sanity-checks each incoming tick volume against MAX_SINGLE_TICK_VOLUME.
+    Suspect ticks are dropped (volume contribution = 0) and counted in
+    ``self.suspect_count`` for diagnostics; price-side fields are still
+    updated. This protects the warehouse from the WSS accum-vs-delta
+    confusion bug that produced 78× inflated volumes on AAA in production.
     """
 
     def __init__(self):
         # {(ticker, bar_time): {"open", "high", "low", "close", "volume"}}
         self._bars: dict[tuple[str, pd.Timestamp], dict] = {}
         self._lock = threading.Lock()
+        # Diagnostics — exposed for tooling
+        self.suspect_count = 0
+        self._suspect_samples: list[dict] = []   # last 20 suspect entries
 
     def add_tick(self, ticker: str, tick_time: pd.Timestamp, price: float,
                  volume: float = 0.0):
         """Cập nhật 1m bar với tick mới."""
         bar_time = tick_time.floor("1min")
         key = (ticker, bar_time)
+        # Sanity check: huge single-tick volume → almost certainly accum
+        # leaked through as delta. Drop the volume contribution.
+        try:
+            v = float(volume)
+        except (TypeError, ValueError):
+            v = 0.0
+        if v > MAX_SINGLE_TICK_VOLUME or v < 0:
+            self.suspect_count += 1
+            if len(self._suspect_samples) < 20:
+                self._suspect_samples.append({
+                    "ticker": ticker,
+                    "tick_time": str(tick_time),
+                    "rejected_volume": v,
+                    "reason": ("absurd magnitude (>"
+                               f"{MAX_SINGLE_TICK_VOLUME:,})"
+                               if v > MAX_SINGLE_TICK_VOLUME
+                               else "negative volume"),
+                })
+            v = 0.0
         with self._lock:
             bar = self._bars.get(key)
             if bar is None:
                 self._bars[key] = {
                     "open": price, "high": price, "low": price,
-                    "close": price, "volume": float(volume),
+                    "close": price, "volume": v,
                 }
             else:
                 bar["high"] = max(bar["high"], price)
                 bar["low"] = min(bar["low"], price)
                 bar["close"] = price
-                bar["volume"] += float(volume)
+                bar["volume"] += v
+
+    def diagnostics(self) -> dict:
+        """Snapshot of sanity-check counters for `health` / debug."""
+        with self._lock:
+            return {
+                "active_bars": len(self._bars),
+                "suspect_count": self.suspect_count,
+                "suspect_samples": list(self._suspect_samples),
+            }
 
     def snapshot(self) -> pd.DataFrame:
         """Trả về DataFrame bản sao toàn bộ bars hiện có."""
