@@ -302,6 +302,48 @@ def render_health_tab(warehouse: Path = DEFAULT_WAREHOUSE) -> None:
         "Xem `_meta/remediation_log.jsonl` để audit trail."
     )
 
+    with st.expander("📖 Hướng dẫn xử lý lỗi tồn đọng", expanded=False):
+        st.markdown("""
+**Quy trình chuẩn khi có anomaly/lỗi:**
+
+```
+1. Chạy audit (tab "Chạy audit lại") → xem số liệu cập nhật
+2. Đọc bảng Anomalies bên trên → phân loại lỗi
+3. Xử lý hàng loạt (tab Bulk) → sau đó re-audit kiểm tra
+4. Xử lý từng bar còn sót (tab Một bar cụ thể)
+```
+
+---
+
+**Ý nghĩa từng Action:**
+
+| Action | Làm gì | Dùng khi nào |
+|--------|---------|--------------|
+| `accept` | Whitelist anomaly — bỏ qua lần sau | Biết chắc đây là sự kiện bình thường (cổ tức, tách cổ phiếu, đợt ATC khác biệt) |
+| `refetch` | Tải lại data từ API | Nghi warehouse sai (mất bar, đơn vị lệch) — thử trước khi archive |
+| `archive` | Xóa bar khỏi warehouse | Data không cứu được (giá âm, delisted, API vẫn sai sau refetch) |
+| `note` | Gắn ghi chú, không sửa data | Muốn đánh dấu để theo dõi mà chưa quyết định xử lý |
+
+---
+
+**Quyết định theo loại lỗi:**
+
+- **band / warn** → Thường là cổ tức hoặc biến động lớn hợp lệ → `accept`
+- **band / fail** → Vượt biên độ mạnh, nghiêm trọng → Chạy `diagnose` CLI trước, rồi `refetch` hoặc `accept`
+- **gap** → Nghỉ lễ / sàn tạm dừng → `accept` (bình thường)
+- **vol_spike** → Khối lượng đột biến → Thường `accept`; `archive` nếu volume rõ ràng sai
+- **ohlc** → Dữ liệu OHLC bất hợp lý → `refetch` trước; nếu vẫn sai thì `archive`
+
+---
+
+**Khi lỗi tái xuất hiện sau re-audit:**
+
+1. Chạy CLI để điều tra: `python run.py diagnose --ticker VCB --date 2026-04-15`
+2. Nếu là corporate action chưa có trong registry: `python run.py vietstock --ticker VCB --register`
+3. Nếu data thực sự sai và API không sửa được: `archive` để loại khỏi pipeline
+4. Nếu không chắc: `note` để ghi lại, chờ thêm vài phiên xem diễn biến
+        """)
+
     _render_remediate_panels(snap, Path(warehouse))
 
 
@@ -332,19 +374,39 @@ def _render_remediate_panels(snap: HealthSnapshot, warehouse: Path) -> None:
                     "Kind",
                     ["(tất cả)", "band", "ohlc", "vol_spike", "gap", "zero_vol_move"],
                     key="bulk_kind",
+                    help=(
+                        "**band** — Giá vượt biên độ sàn\n\n"
+                        "**ohlc** — OHLC bất hợp lý (high < low...)\n\n"
+                        "**vol_spike** — Khối lượng đột biến bất thường\n\n"
+                        "**gap** — Thiếu bar (ngày nghỉ lễ, sàn tạm dừng)\n\n"
+                        "**zero_vol_move** — Giá thay đổi nhưng volume = 0"
+                    ),
                 )
                 severity = c2.selectbox(
-                    "Severity", ["(tất cả)", "fail", "warn"], key="bulk_sev"
+                    "Severity", ["(tất cả)", "fail", "warn"], key="bulk_sev",
+                    help=(
+                        "**fail** — Nghiêm trọng, cần xử lý ngay\n\n"
+                        "**warn** — Cảnh báo, có thể theo dõi thêm"
+                    ),
                 )
                 action = c3.selectbox(
                     "Action", ["accept", "refetch", "archive", "note"],
                     key="bulk_action",
+                    help=(
+                        "**accept** — Whitelist, bỏ qua các lần audit sau\n\n"
+                        "**refetch** — Tải lại từ API (thử trước archive)\n\n"
+                        "**archive** — Xóa bar khỏi warehouse vĩnh viễn\n\n"
+                        "**note** — Gắn ghi chú, không thay đổi data"
+                    ),
                 )
-                dry_run = st.checkbox("Dry-run (không làm gì, chỉ đếm)",
-                                       value=True, key="bulk_dry")
+                dry_run = st.checkbox(
+                    "Dry-run (không làm gì, chỉ đếm)", value=True, key="bulk_dry",
+                    help="Luôn bật dry-run lần đầu để xem trước có bao nhiêu bar bị ảnh hưởng.",
+                )
                 limit = st.number_input(
                     "Limit (0 = không giới hạn)", min_value=0, value=0,
                     key="bulk_limit",
+                    help="Giới hạn số bar xử lý mỗi lần. Hữu ích khi test hoặc xử lý từng batch.",
                 )
                 submitted = st.form_submit_button(
                     f"▶ Execute {action} {'(dry-run)' if dry_run else ''}"
@@ -376,6 +438,10 @@ def _render_remediate_panels(snap: HealthSnapshot, warehouse: Path) -> None:
     with tab_single:
         with st.form("single_remediate_form"):
             st.write("Action trên 1 (ticker, date) cụ thể.")
+            st.caption(
+                "Dùng khi Bulk không đủ tinh tế — ví dụ: cùng kind nhưng chỉ 1 mã cụ thể cần xử lý khác. "
+                "Điều tra trước bằng CLI: `python run.py diagnose --ticker VCB --date 2026-04-15`"
+            )
             c1, c2 = st.columns(2)
             ticker_default = ""
             date_default = ""
@@ -392,13 +458,25 @@ def _render_remediate_panels(snap: HealthSnapshot, warehouse: Path) -> None:
             action = st.selectbox(
                 "Action", ["refetch", "accept", "archive", "note"],
                 key="single_action",
+                help=(
+                    "**refetch** — Tải lại 1 bar từ API. Dùng khi nghi data sai.\n\n"
+                    "**accept** — Whitelist bar này. Dùng khi biết chắc là bình thường "
+                    "(cổ tức, ATC, ngày đặc biệt).\n\n"
+                    "**archive** — Xóa bar này khỏi warehouse. KHÔNG THỂ HOÀN TÁC — "
+                    "chỉ dùng khi data thực sự sai và không sửa được.\n\n"
+                    "**note** — Gắn ghi chú để theo dõi, không thay đổi data."
+                ),
             )
             kind_hint = st.selectbox(
                 "Kind (optional — cho `accept` với whitelist)",
                 ["*", "band", "ohlc", "vol_spike", "gap", "zero_vol_move"],
                 key="single_kind",
+                help="Chỉ whitelist kind cụ thể này. Dùng `*` để whitelist tất cả kind cho (ticker, date) này.",
             )
-            note = st.text_input("Note (optional)", value="", key="single_note")
+            note = st.text_input(
+                "Note (optional)", value="", key="single_note",
+                help="Bắt buộc khi Action = note. Tùy chọn cho accept/refetch/archive.",
+            )
             submitted = st.form_submit_button(f"▶ Execute {action}")
         if submitted:
             if not ticker or not bar_date:
