@@ -274,7 +274,9 @@ def auto_heal(
 
     Returns a stats dict ``{"scanned": n, "refetched_ok": n,
     "refetched_fail": n, "archived": n, "skipped_accepted": n}``.
-    ``dry_run=True`` returns the same shape without mutating anything.
+    ``dry_run=True`` returns the same shape without mutating anything;
+    pending entries are counted under ``refetched_ok`` to show the
+    planned action (outcome is unknowable without calling the API).
     """
     import time
 
@@ -325,6 +327,13 @@ def auto_heal(
             continue
 
         if dry_run:
+            # Count as a planned refetch so the user can see the
+            # pre-action shape of the pass. The actual outcome (ok vs
+            # fail) is unknowable without calling the API.
+            stats["refetched_ok"] += 1
+            if verbose:
+                print(f"[quarantine.auto_heal] would refetch {ticker} "
+                      f"{bar_date} (retries={retry_count})")
             continue
 
         try:

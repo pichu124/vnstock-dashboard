@@ -284,6 +284,28 @@ def test_auto_heal_dry_run_never_mutates(tmp_path, monkeypatch):
     assert not log.exists()
 
 
+def test_auto_heal_dry_run_counts_pending_refetches(tmp_path, monkeypatch):
+    """dry-run on fresh entries must surface the planned refetch count so
+    the operator sees WHAT would happen, not a silent all-zero report."""
+    from vnstock_quarantine import auto_heal
+
+    quarantine_row("VCB", "2026-04-15", "x", {}, warehouse=tmp_path)
+    quarantine_row("FPT", "2026-04-15", "x", {}, warehouse=tmp_path)
+
+    def _fake_refetch(*_a, **_kw):
+        raise AssertionError("should not be called during dry_run")
+
+    monkeypatch.setattr("vnstock_remediate.refetch", _fake_refetch)
+    stats = auto_heal(tmp_path, dry_run=True)
+    assert stats["refetched_ok"] == 2, \
+        "dry-run should report the planned refetch count, not 0"
+    assert stats["archived"] == 0
+    # Nothing mutated — retry_count stays at 0 and entries survive
+    df = list_quarantine(tmp_path)
+    assert len(df) == 2
+    assert all(int(r["retry_count"]) == 0 for _, r in df.iterrows())
+
+
 def test_auto_heal_no_archive_option_leaves_exhausted_entries(tmp_path, monkeypatch):
     """archive_exhausted=False: count archives but keep on disk."""
     from vnstock_quarantine import auto_heal
