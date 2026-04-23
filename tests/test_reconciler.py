@@ -227,7 +227,7 @@ def test_wss_partial_miss_stays_ok_when_close_within_tolerance(tmp_path):
         "time": pd.Timestamp(d),
         "ticker": "VIC",
         "close": 190.9,                # within tolerance
-        "volume": 902_582,             # 16.6% of API — still < 50% floor
+        "volume": 902_582,             # 16.6% of API — under floor
         "open": 190.9, "high": 190.9, "low": 190.9,
     }])
 
@@ -235,6 +235,28 @@ def test_wss_partial_miss_stays_ok_when_close_within_tolerance(tmp_path):
     assert report.fail == 0
     # No discrepancy recorded for ok rows
     assert not any(d.ticker == "VIC" for d in report.discrepancies)
+
+
+def test_wss_atc_miss_detected_at_75pct_capture(tmp_path):
+    """Realistic ATC (auction-at-close) miss: WSS caught most of the
+    session but dropped the closing auction, leaving rolled_close as
+    the pre-ATC tick. HPT 2026-04-20 had ~75% coverage and 3.70% drift —
+    must be classified as wss_partial_miss, not a real fail."""
+    d = date(2026, 4, 20)
+
+    _seed_warehouse(tmp_path, "HPT", d, close=27.0, volume=4000)
+    _seed_rolled(tmp_path, d, [{
+        "time": pd.Timestamp(d),
+        "ticker": "HPT",
+        "close": 28.0,                 # pre-ATC tick
+        "volume": 3000,                # 75% captured — above the old 50% floor
+        "open": 28.0, "high": 28.0, "low": 28.0,
+    }])
+
+    report = reconcile(tmp_path, dates=[d])
+    assert report.fail == 0, "ATC miss must not escalate to fail"
+    disc = [d for d in report.discrepancies if d.ticker == "HPT"]
+    assert disc and "wss_partial_miss" in disc[0].reason
 
 
 def test_reconciler_respects_anomaly_whitelist(tmp_path):

@@ -60,7 +60,14 @@ CLOSE_TOLERANCE_PCT = 0.5
 # Flagging such rows as "fail" drowns the report in known-noise; instead
 # we annotate them with a dedicated reason string and keep severity at
 # warn max (never fail).
-WSS_COVERAGE_FLOOR = 0.5
+#
+# 0.9 (not 0.5) because Vietnam's ATC (auction-at-close, 14:30-14:45)
+# produces the final print but typically contributes only a small share
+# of daily volume. WSS dropping just the ATC leg gives ~75-90% coverage
+# yet leaves rolled_close pointing at the pre-ATC tick, which can drift
+# meaningfully from the real close. Anything below 90% capture is
+# unsafe to compare.
+WSS_COVERAGE_FLOOR = 0.9
 
 # By default, skip volume reconciliation. WSS rolled volumes are known to
 # be unreliable (missed sessions, accum→delta double-counting), which
