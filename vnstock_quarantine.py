@@ -253,6 +253,126 @@ def bump_retry(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def auto_heal(
+    warehouse: Path = DEFAULT_WAREHOUSE,
+    *,
+    max_retries: int = MAX_RETRIES_DEFAULT,
+    archive_exhausted: bool = True,
+    dry_run: bool = False,
+    verbose: bool = False,
+) -> dict:
+    """Walk every pending quarantine entry and try to heal it automatically.
+
+    Behaviour per entry:
+      1. ``accepted`` entries are skipped (user explicitly okayed them).
+      2. ``retry_count < max_retries`` → call ``refetch()``. If success,
+         the refetch helper clears the entry. If failure, bump the counter.
+      3. ``retry_count >= max_retries`` AND ``archive_exhausted`` → wipe
+         the quarantine file (the row in warehouse was never written, so
+         no extra archive step needed). A one-line entry is appended to
+         the remediation log so the decision is traceable.
+
+    Returns a stats dict ``{"scanned": n, "refetched_ok": n,
+    "refetched_fail": n, "archived": n, "skipped_accepted": n}``.
+    ``dry_run=True`` returns the same shape without mutating anything.
+    """
+    import time
+
+    # Lazy imports — we can't ``from vnstock_remediate import refetch`` at
+    # module level because vnstock_remediate already imports from here
+    # (circular init). The function bodies resolve fine at call time.
+    try:
+        from vnstock_remediate import refetch
+    except Exception as exc:
+        return {
+            "scanned": 0, "refetched_ok": 0, "refetched_fail": 0,
+            "archived": 0, "skipped_accepted": 0,
+            "error": f"cannot import refetch: {exc}",
+        }
+
+    stats = {
+        "scanned": 0, "refetched_ok": 0, "refetched_fail": 0,
+        "archived": 0, "skipped_accepted": 0,
+    }
+
+    df = list_quarantine(warehouse)
+    if df.empty:
+        return stats
+
+    warehouse = Path(warehouse)
+    for _, row in df.iterrows():
+        stats["scanned"] += 1
+        ticker = str(row.get("ticker", "")).strip()
+        bar_date = str(row.get("bar_date", "")).strip()
+        accepted = bool(row.get("accepted", False))
+        retry_count = int(row.get("retry_count", 0) or 0)
+        if not ticker or not bar_date:
+            continue
+
+        if accepted:
+            stats["skipped_accepted"] += 1
+            continue
+
+        if retry_count >= max_retries:
+            if archive_exhausted and not dry_run:
+                _log_exhausted(warehouse, ticker, bar_date, retry_count,
+                                row.get("reason", ""))
+                clear_quarantine(ticker, bar_date, warehouse=warehouse)
+            stats["archived"] += 1
+            if verbose:
+                print(f"[quarantine.auto_heal] archived {ticker} {bar_date} "
+                      f"(retries={retry_count} >= {max_retries})")
+            continue
+
+        if dry_run:
+            continue
+
+        try:
+            result = refetch(ticker, bar_date, warehouse=warehouse)
+        except Exception as exc:
+            bump_retry(ticker, bar_date, warehouse=warehouse)
+            stats["refetched_fail"] += 1
+            if verbose:
+                print(f"[quarantine.auto_heal] refetch {ticker} {bar_date} "
+                      f"raised: {exc}")
+            continue
+
+        status = (result or {}).get("status") if isinstance(result, dict) else None
+        if status == "ok":
+            stats["refetched_ok"] += 1
+            if verbose:
+                print(f"[quarantine.auto_heal] healed {ticker} {bar_date}")
+        else:
+            bump_retry(ticker, bar_date, warehouse=warehouse)
+            stats["refetched_fail"] += 1
+            if verbose:
+                print(f"[quarantine.auto_heal] refetch {ticker} {bar_date} "
+                      f"→ {status}")
+        # Tiny pause so batch runs don't hammer the API
+        time.sleep(0.05)
+
+    return stats
+
+
+def _log_exhausted(warehouse: Path, ticker: str, bar_date: str,
+                    retry_count: int, reason: str) -> None:
+    """Record an auto-archive in _meta/remediation_log.jsonl for traceability."""
+    log_path = warehouse / "_meta" / "remediation_log.jsonl"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    entry = {
+        "at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "action": "auto_archive",
+        "ticker": ticker,
+        "date": bar_date,
+        "result": "ok",
+        "detail": (f"retries={retry_count} exhausted; "
+                   f"original reason: {reason}"),
+    }
+    with log_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+
 def summary(warehouse: Path = DEFAULT_WAREHOUSE) -> dict:
     """Concise stats for the health dashboard."""
     df = list_quarantine(warehouse)
@@ -342,6 +462,7 @@ __all__ = [
     "MAX_RETRIES_DEFAULT",
     "QuarantineEntry",
     "accept_quarantine",
+    "auto_heal",
     "bump_retry",
     "clear_quarantine",
     "list_quarantine",

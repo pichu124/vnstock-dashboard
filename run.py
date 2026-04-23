@@ -54,12 +54,47 @@ def cmd_scan(args) -> int:
 
 
 def cmd_sync(args) -> int:
-    """Run incremental daily updater, then roll up any intraday bars."""
+    """Run incremental daily updater, then roll up any intraday bars.
+
+    After the two sub-pipelines succeed, attempt an auto-heal pass over
+    the quarantine queue — transient API glitches get refetched, and
+    entries that have failed ``MAX_RETRIES_DEFAULT`` times are archived
+    with an audit-log entry. Can be disabled with ``--no-auto-heal``.
+    """
     updater = _run([sys.executable, "vnstock_updater.py", "--skip-if-done"])
     if updater != 0:
         return 2
     rollup = _run([sys.executable, "vnstock_rollup.py", "--skip-if-done"])
-    return 0 if rollup == 0 else 2
+    if rollup != 0:
+        return 2
+
+    if not getattr(args, "no_auto_heal", False):
+        try:
+            from vnstock_quarantine import auto_heal
+            stats = auto_heal(Path(args.warehouse), verbose=False)
+            if stats.get("scanned", 0):
+                print(f"[sync] auto-heal: scanned={stats['scanned']} "
+                      f"healed={stats['refetched_ok']} "
+                      f"retry_bumped={stats['refetched_fail']} "
+                      f"archived={stats['archived']} "
+                      f"skipped_accepted={stats['skipped_accepted']}")
+        except Exception as exc:
+            print(f"[sync] auto-heal skipped: {exc}", file=sys.stderr)
+    return 0
+
+
+def cmd_heal(args) -> int:
+    """Explicit quarantine auto-heal — refetch retries + archive exhausted."""
+    from vnstock_quarantine import auto_heal
+    stats = auto_heal(
+        Path(args.warehouse),
+        max_retries=args.max_retries,
+        archive_exhausted=not args.no_archive,
+        dry_run=args.dry_run,
+        verbose=True,
+    )
+    print(json.dumps(stats, indent=2))
+    return 0 if "error" not in stats else 2
 
 
 def cmd_validate(args) -> int:
@@ -610,8 +645,20 @@ def build_parser() -> argparse.ArgumentParser:
                       help="Skip per-file row counting and missing-rate (sub-second)")
     scan.add_argument("--verbose", action="store_true",
                       help="Show tqdm progress bar during warehouse scan")
-    sub.add_parser("sync", help="Incremental daily updater + rollup")
+    sync = sub.add_parser("sync", help="Incremental daily updater + rollup")
+    sync.add_argument("--no-auto-heal", action="store_true",
+                       help="Skip the post-sync quarantine auto-heal pass")
     sub.add_parser("validate", help="Re-run pandera contracts over full warehouse")
+
+    heal = sub.add_parser("heal",
+                           help="Auto-heal quarantine: refetch retries, "
+                                "archive after MAX_RETRIES failures")
+    heal.add_argument("--max-retries", type=int, default=3,
+                      help="Archive after this many failed refetches (default: 3)")
+    heal.add_argument("--no-archive", action="store_true",
+                      help="Never archive — only bump retry counters")
+    heal.add_argument("--dry-run", action="store_true",
+                      help="Report what would happen without mutating state")
 
     audit = sub.add_parser("audit", help="Reconciler + anomaly scan")
     audit.add_argument("--lookback", type=int, default=60)
@@ -730,6 +777,7 @@ def build_parser() -> argparse.ArgumentParser:
 _DISPATCH = {
     "scan": cmd_scan,
     "sync": cmd_sync,
+    "heal": cmd_heal,
     "validate": cmd_validate,
     "audit": cmd_audit,
     "refresh-metadata": cmd_refresh_metadata,
