@@ -60,3 +60,83 @@ def test_audit_with_null_auditor_works(tmp_path, monkeypatch):
 def test_missing_subcommand_fails():
     with pytest.raises(SystemExit):
         orchestrator.main([])
+
+
+# ── Phase 5C remediate CLI validation (covers checklist B3, B4, E2) ──────
+
+def test_remediate_single_mode_requires_ticker_and_date(tmp_path, capsys):
+    """Checklist B3: empty ticker/date without --all → exit 2 + error msg."""
+    rc = orchestrator.main([
+        "--warehouse", str(tmp_path),
+        "remediate", "--action", "accept",
+    ])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "--ticker and --date" in err or "single-target mode" in err
+
+
+def test_remediate_note_action_requires_note_text(tmp_path, capsys):
+    """Checklist B4: --action note without --note → exit 2 + error msg."""
+    # Prepare a quarantine entry so note has something to attach to (optional);
+    # the validation fires before that anyway.
+    rc = orchestrator.main([
+        "--warehouse", str(tmp_path),
+        "remediate",
+        "--ticker", "VCB", "--date", "2026-04-15",
+        "--action", "note",
+    ])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "--note" in err
+
+
+def test_remediate_bulk_accept_writes_whitelist(tmp_path, capsys):
+    """Checklist A2/A5: bulk accept via CLI writes the whitelist."""
+    import json
+
+    meta = tmp_path / "_meta"
+    meta.mkdir(parents=True)
+    (meta / "anomalies.json").write_text(json.dumps({
+        "anomalies": [
+            {"ticker": "VCB", "trading_date": "2026-04-15",
+             "kind": "band", "severity": "warn",
+             "detail": "test", "metrics": {}},
+        ],
+    }))
+
+    rc = orchestrator.main([
+        "--warehouse", str(tmp_path),
+        "remediate", "--all", "--action", "accept",
+    ])
+    assert rc == 0
+    wl = json.loads((meta / "anomaly_whitelist.json").read_text())
+    tickers = [e["ticker"] for e in wl["entries"]]
+    assert "VCB" in tickers
+
+
+def test_remediate_bulk_ticker_filter_lowercases_match(tmp_path, capsys):
+    """Checklist E2: `--ticker vcb` (lowercase) must only hit VCB rows."""
+    import json
+
+    meta = tmp_path / "_meta"
+    meta.mkdir(parents=True)
+    (meta / "anomalies.json").write_text(json.dumps({
+        "anomalies": [
+            {"ticker": "VCB", "trading_date": "2026-04-15",
+             "kind": "band", "severity": "warn",
+             "detail": "", "metrics": {}},
+            {"ticker": "FPT", "trading_date": "2026-04-15",
+             "kind": "band", "severity": "warn",
+             "detail": "", "metrics": {}},
+        ],
+    }))
+
+    rc = orchestrator.main([
+        "--warehouse", str(tmp_path),
+        "remediate", "--all", "--action", "accept",
+        "--ticker", "vcb",   # lowercase on purpose
+    ])
+    assert rc == 0
+    wl = json.loads((meta / "anomaly_whitelist.json").read_text())
+    tickers = {e["ticker"] for e in wl["entries"]}
+    assert tickers == {"VCB"}, f"expected only VCB, got {tickers}"
