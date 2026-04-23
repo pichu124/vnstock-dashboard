@@ -48,6 +48,7 @@ def render_analysis_tab() -> None:
         render_chart, render_metric_row, render_order_book,
         render_signal_badge, render_volume_profile,
         resample_ohlcv, save_alerts,
+        data,
     )
 
     # Controls cho tab phân tích
