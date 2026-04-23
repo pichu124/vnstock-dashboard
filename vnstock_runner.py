@@ -268,9 +268,11 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
             c90 = recent["close"].astype(float)
             v90 = recent["volume"].astype(float)
 
-            vol5 = float(v90.tail(5).mean())
+            vol5  = float(v90.tail(5).mean())
             vol10 = float(v90.tail(10).mean())
             vol20 = float(v90.tail(20).mean())
+            vol5_sum  = float(v90.tail(5).sum())
+            vol20_sum = float(v90.tail(20).sum())
 
             h90 = recent["high"].astype(float)
             l90 = recent["low"].astype(float)
@@ -309,6 +311,7 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
             rows.append({
                 "ticker": ticker, "last": round(last, 2),
                 "vol5": vol5, "vol10": vol10, "vol20": vol20,
+                "vol5_sum": vol5_sum, "vol20_sum": vol20_sum,
                 "mktcap": round(mktcap, 1), "mktcap_proxy": round(mktcap_proxy, 1),
                 "amp5": round(amp5, 1), "amp20": round(amp20, 1), "amp60": round(amp60, 1),
                 "chg5": round(chg5, 1) if chg5 is not None else None,
@@ -395,7 +398,9 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
         v10 = grp["vol10"].sum()
         total_mktcap = grp["mktcap"].sum()
         gtgd_tb = grp["mktcap_proxy"].sum()
-        vol5_20 = round(v5 / v20 * 100, 0) if v20 > 0 else None
+        vs  = grp["vol5_sum"].sum()
+        vs20 = grp["vol20_sum"].sum()
+        vol5_20 = round(vs / vs20 * 100, 0) if vs20 > 0 else None
 
         # Foreign flow (tỷ VND)
         tickers_in = grp["ticker"].tolist()
@@ -431,8 +436,8 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
     tick_display["Vol Avg 10"] = (tick_display["vol10"] / 1e6).round(1)
     tick_display["Vol Avg 20"] = (tick_display["vol20"] / 1e6).round(1)
     tick_display["Vol 5/20 %"] = np.where(
-        tick_display["vol20"] > 0,
-        (tick_display["vol5"] / tick_display["vol20"] * 100).round(0), None)
+        tick_display["vol20_sum"] > 0,
+        (tick_display["vol5_sum"] / tick_display["vol20_sum"] * 100).round(0), None)
     tick_display["Giá 1T %"] = tick_display["chg5"].round(1)
     tick_display["Giá 1M %"] = tick_display["chg20"].round(1)
     tick_display["Giá 3M %"] = tick_display["chg60"].round(1)
