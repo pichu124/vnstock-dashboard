@@ -56,10 +56,16 @@ def cmd_scan(args) -> int:
 def cmd_sync(args) -> int:
     """Run incremental daily updater, then roll up any intraday bars.
 
-    After the two sub-pipelines succeed, attempt an auto-heal pass over
-    the quarantine queue — transient API glitches get refetched, and
-    entries that have failed ``MAX_RETRIES_DEFAULT`` times are archived
-    with an audit-log entry. Can be disabled with ``--no-auto-heal``.
+    After the two sub-pipelines succeed, run three automatic self-heal
+    passes in order so the warehouse lands clean without any manual
+    intervention:
+
+    1. **fix-units** — rescale any raw-VND bars (close > 1000 on a
+       normally thousand-VND-range ticker) by /1000 in place.
+       Disable with ``--no-fix-units``.
+    2. **quarantine auto-heal** — refetch contract-rejected bars;
+       archive after ``MAX_RETRIES_DEFAULT`` failures.
+       Disable with ``--no-auto-heal``.
     """
     updater = _run([sys.executable, "vnstock_updater.py", "--skip-if-done"])
     if updater != 0:
@@ -67,6 +73,16 @@ def cmd_sync(args) -> int:
     rollup = _run([sys.executable, "vnstock_rollup.py", "--skip-if-done"])
     if rollup != 0:
         return 2
+
+    if not getattr(args, "no_fix_units", False):
+        try:
+            from vnstock_fix_units import run as fix_units_run
+            report = fix_units_run(Path(args.warehouse), dry_run=False)
+            if report.fixes:
+                print(f"[sync] fix-units: rescaled {len(report.fixes)} bar(s) "
+                      f"across {report.ticker_count} ticker(s)")
+        except Exception as exc:
+            print(f"[sync] fix-units skipped: {exc}", file=sys.stderr)
 
     if not getattr(args, "no_auto_heal", False):
         try:
@@ -646,6 +662,9 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--verbose", action="store_true",
                       help="Show tqdm progress bar during warehouse scan")
     sync = sub.add_parser("sync", help="Incremental daily updater + rollup")
+    sync.add_argument("--no-fix-units", action="store_true",
+                       help="Skip the post-sync fix-units pass "
+                            "(raw-VND rescale)")
     sync.add_argument("--no-auto-heal", action="store_true",
                        help="Skip the post-sync quarantine auto-heal pass")
     sub.add_parser("validate", help="Re-run pandera contracts over full warehouse")

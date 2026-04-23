@@ -140,3 +140,71 @@ def test_remediate_bulk_ticker_filter_lowercases_match(tmp_path, capsys):
     wl = json.loads((meta / "anomaly_whitelist.json").read_text())
     tickers = {e["ticker"] for e in wl["entries"]}
     assert tickers == {"VCB"}, f"expected only VCB, got {tickers}"
+
+
+# ── cmd_sync self-heal integration ─────────────────────────────────────
+
+
+def test_sync_runs_fix_units_and_auto_heal_by_default(tmp_path, monkeypatch):
+    """After updater + rollup succeed, sync must invoke fix-units then
+    quarantine auto-heal. Both are toggleable via --no-* flags."""
+    # Stub out the two subprocess steps — they're heavy and off-topic
+    monkeypatch.setattr(orchestrator, "_run", lambda _cmd: 0)
+
+    called = {"fix_units": 0, "auto_heal": 0}
+
+    class _FakeReport:
+        fixes = []
+        ticker_count = 0
+
+    def _fake_fix(*_a, **_kw):
+        called["fix_units"] += 1
+        return _FakeReport()
+
+    def _fake_heal(*_a, **_kw):
+        called["auto_heal"] += 1
+        return {
+            "scanned": 0, "refetched_ok": 0, "refetched_fail": 0,
+            "archived": 0, "skipped_accepted": 0,
+        }
+
+    # Patch the import targets inside the modules cmd_sync lazy-imports from
+    import vnstock_fix_units as _fu
+    import vnstock_quarantine as _q
+    monkeypatch.setattr(_fu, "run", _fake_fix)
+    monkeypatch.setattr(_q, "auto_heal", _fake_heal)
+
+    rc = orchestrator.main(["--warehouse", str(tmp_path), "sync"])
+    assert rc == 0
+    assert called["fix_units"] == 1, "sync must call fix-units"
+    assert called["auto_heal"] == 1, "sync must call auto_heal"
+
+
+def test_sync_no_fix_units_flag_skips_fix_units(tmp_path, monkeypatch):
+    """--no-fix-units must not invoke fix-units, but auto-heal still runs."""
+    monkeypatch.setattr(orchestrator, "_run", lambda _cmd: 0)
+    called = {"fix_units": 0, "auto_heal": 0}
+
+    def _fake_fix(*_a, **_kw):
+        called["fix_units"] += 1
+        class _R:
+            fixes = []
+            ticker_count = 0
+        return _R()
+
+    def _fake_heal(*_a, **_kw):
+        called["auto_heal"] += 1
+        return {"scanned": 0, "refetched_ok": 0, "refetched_fail": 0,
+                 "archived": 0, "skipped_accepted": 0}
+
+    import vnstock_fix_units as _fu
+    import vnstock_quarantine as _q
+    monkeypatch.setattr(_fu, "run", _fake_fix)
+    monkeypatch.setattr(_q, "auto_heal", _fake_heal)
+
+    rc = orchestrator.main([
+        "--warehouse", str(tmp_path), "sync", "--no-fix-units",
+    ])
+    assert rc == 0
+    assert called["fix_units"] == 0, "--no-fix-units must suppress the pass"
+    assert called["auto_heal"] == 1, "auto-heal still runs by default"
