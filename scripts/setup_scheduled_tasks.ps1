@@ -3,33 +3,40 @@
 # ============================================================================
 # Create 2 Windows Scheduled Tasks for vnstock_dashboard pipeline:
 #
-#   1. VnStock Daily Rollup  (15:30 Mon-Fri)
-#      Merge 1m bars from _live into warehouse daily OHLCV
-#      Command: python vnstock_rollup.py
+#   1. VnStock Daily Pipeline  — 18:00 Mon-Fri
+#      sync (updater + rollup + fix-units + auto-heal) → validate → audit
+#      Command: python run.py --warehouse data_warehouse all
 #
-#   2. VnStock Daily Updater (18:00 Mon-Fri)
-#      Fetch missing daily data from API if any gap
-#      Command: python vnstock_updater.py --force
+#   2. VnStock Weekly Corp Actions  — 09:00 Sunday
+#      Scrape Vietstock for new dividends / splits → register
+#      Command: python run.py --warehouse data_warehouse vietstock --bulk --register
+#
+# Both tasks have StartWhenAvailable = ON:
+#   If the machine is off at scheduled time → task runs automatically
+#   the next time the machine boots (no manual intervention needed).
 #
 # Usage (run PowerShell AS ADMINISTRATOR):
-#   .\scripts\setup_scheduled_tasks.ps1
-#   .\scripts\setup_scheduled_tasks.ps1 -Remove    # Remove tasks
-#   .\scripts\setup_scheduled_tasks.ps1 -DryRun    # Preview only
+#   .\scripts\setup_scheduled_tasks.ps1              # create / update tasks
+#   .\scripts\setup_scheduled_tasks.ps1 -Remove      # remove tasks
+#   .\scripts\setup_scheduled_tasks.ps1 -DryRun      # preview only (no admin)
 #
-# Requirements:
-#   - venv activated OR Python in PATH
-#   - Project root must exist at parent of scripts/ dir
+# Optional:
+#   -PythonExe "C:\path\to\python.exe"  # override auto-detected Python
+#   -DailyTime "17:00"                  # change daily trigger time (default 18:00)
+#   -WeeklyTime "08:00"                 # change weekly trigger time (default 09:00)
 # ============================================================================
 
 param(
     [switch]$Remove,
     [switch]$DryRun,
-    [string]$PythonExe = ""
+    [string]$PythonExe  = "",
+    [string]$DailyTime  = "18:00",
+    [string]$WeeklyTime = "09:00"
 )
 
 $ErrorActionPreference = "Stop"
 
-# Check administrator privileges
+# ---- Admin check ------------------------------------------------------------
 $currentPrincipal = New-Object Security.Principal.WindowsPrincipal(
     [Security.Principal.WindowsIdentity]::GetCurrent()
 )
@@ -41,120 +48,114 @@ if (-not $isAdmin -and -not $DryRun) {
     Write-Host ""
     Write-Host "How to fix:" -ForegroundColor Yellow
     Write-Host "  1. Close this PowerShell window"
-    Write-Host "  2. Right-click Start menu -> 'Windows PowerShell (Admin)'"
-    Write-Host "     (or 'Terminal (Admin)' on Windows 11)"
+    Write-Host "  2. Right-click Start -> 'Windows PowerShell (Admin)' (or Terminal Admin)"
     Write-Host "  3. cd to project directory:"
     Write-Host "     cd '$((Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Definition)))'"
-    Write-Host "  4. Re-run the script:"
-    Write-Host "     .\scripts\setup_scheduled_tasks.ps1"
+    Write-Host "  4. Re-run: .\scripts\setup_scheduled_tasks.ps1"
     Write-Host ""
-    Write-Host "Or try dry-run first (no admin needed):"
-    Write-Host "  .\scripts\setup_scheduled_tasks.ps1 -DryRun"
-    Write-Host ""
+    Write-Host "Preview without admin: .\scripts\setup_scheduled_tasks.ps1 -DryRun"
     exit 1
 }
 
-# Paths - auto-detect from script location
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+# ---- Paths ------------------------------------------------------------------
+$ScriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $ProjectRoot = Split-Path -Parent $ScriptDir
-$VenvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
+$VenvPython  = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
 $SystemPython = (Get-Command python.exe -ErrorAction SilentlyContinue).Source
 
-# Priority: -PythonExe param > local .venv > system python
 if ($PythonExe -ne "") {
-    if (-not (Test-Path $PythonExe)) {
-        Write-Error "Custom Python path does not exist: $PythonExe"
-        exit 1
-    }
-    Write-Host "Using custom Python: $PythonExe" -ForegroundColor Cyan
+    if (-not (Test-Path $PythonExe)) { Write-Error "Python not found: $PythonExe"; exit 1 }
+    Write-Host "Using custom Python : $PythonExe" -ForegroundColor Cyan
 }
 elseif (Test-Path $VenvPython) {
     $PythonExe = $VenvPython
-    Write-Host "Using venv Python: $PythonExe" -ForegroundColor Cyan
+    Write-Host "Using venv Python   : $PythonExe" -ForegroundColor Cyan
 }
 elseif ($SystemPython) {
     $PythonExe = $SystemPython
-    Write-Host "Using system Python: $PythonExe" -ForegroundColor Yellow
-    Write-Host "(Recommendation: create venv at .venv to isolate dependencies)" -ForegroundColor Yellow
+    Write-Host "Using system Python : $PythonExe" -ForegroundColor Yellow
+    Write-Host "(Tip: create .venv to isolate dependencies)" -ForegroundColor DarkGray
 }
 else {
-    Write-Error "Python not found. Install Python or create venv at .venv"
+    Write-Error "Python not found. Install Python or create .venv"
     exit 1
 }
 
+$RunPy    = Join-Path $ProjectRoot "run.py"
+$WareHouse = "data_warehouse"
+
+# ---- Task definitions -------------------------------------------------------
+# Each entry: Name, Args (passed to python after run.py), Trigger block
 $TaskDefinitions = @(
     @{
-        Name        = "VnStock Daily Rollup"
-        Script      = "vnstock_rollup.py"
-        Args        = "--skip-if-done"
-        Time        = "15:30"
-        Description = "Merge 1m bars to warehouse (skip if done by another machine)"
+        Name        = "VnStock Daily Pipeline"
+        Args        = "--warehouse $WareHouse all"
+        TriggerDesc = "Daily $DailyTime Mon-Fri  (+run-on-boot if missed)"
+        Trigger     = {
+            New-ScheduledTaskTrigger `
+                -Weekly `
+                -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday `
+                -At $DailyTime
+        }
+        MaxMinutes  = 120
+        Description = "sync (updater+rollup+fix-units+auto-heal) -> validate -> audit"
     },
     @{
-        Name        = "VnStock Daily Updater"
-        Script      = "vnstock_updater.py"
-        Args        = "--force --skip-if-done"
-        Time        = "18:00"
-        Description = "Fetch daily data (skip if done by another machine)"
+        Name        = "VnStock Weekly Corp Actions"
+        Args        = "--warehouse $WareHouse vietstock --bulk --register"
+        TriggerDesc = "Weekly $WeeklyTime Sunday  (+run-on-boot if missed)"
+        Trigger     = {
+            New-ScheduledTaskTrigger `
+                -Weekly `
+                -DaysOfWeek Sunday `
+                -At $WeeklyTime
+        }
+        MaxMinutes  = 60
+        Description = "Scrape Vietstock dividends/splits -> corp_actions_registry"
     }
 )
 
-# ---- Remove mode -----------------------------------------------------------
+# ---- Remove mode ------------------------------------------------------------
 if ($Remove) {
-    Write-Host "`n=== Removing Scheduled Tasks ===" -ForegroundColor Yellow
+    Write-Host "`n=== Removing VnStock Scheduled Tasks ===" -ForegroundColor Yellow
     foreach ($task in $TaskDefinitions) {
         $name = $task.Name
-        try {
-            $existing = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
-            if ($existing) {
-                if ($DryRun) {
-                    Write-Host "[dry-run] Would remove: $name" -ForegroundColor Cyan
-                }
-                else {
-                    Unregister-ScheduledTask -TaskName $name -Confirm:$false
-                    Write-Host "[OK] Removed: $name" -ForegroundColor Green
-                }
+        $existing = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+        if ($existing) {
+            if ($DryRun) {
+                Write-Host "[dry-run] Would remove: $name" -ForegroundColor Cyan
+            } else {
+                Unregister-ScheduledTask -TaskName $name -Confirm:$false
+                Write-Host "[OK] Removed: $name" -ForegroundColor Green
             }
-            else {
-                Write-Host "     Not found: $name (skip)" -ForegroundColor Gray
-            }
-        }
-        catch {
-            Write-Host "[FAIL] Remove $name : $_" -ForegroundColor Red
+        } else {
+            Write-Host "     Not found: $name (skip)" -ForegroundColor Gray
         }
     }
     exit 0
 }
 
-# ---- Create mode -----------------------------------------------------------
-Write-Host "`n=== Setting up VnStock Scheduled Tasks ===" -ForegroundColor Cyan
-Write-Host "Hostname:     $env:COMPUTERNAME"
-Write-Host "Project root: $ProjectRoot"
-Write-Host "Python:       $PythonExe"
+# ---- Create mode ------------------------------------------------------------
 Write-Host ""
-Write-Host "Multi-machine mode: tasks will skip if another machine" -ForegroundColor DarkGray
-Write-Host "has already completed today's job (checks pipeline_status.json)." -ForegroundColor DarkGray
+Write-Host "=== Setting up VnStock Scheduled Tasks ===" -ForegroundColor Cyan
+Write-Host "Hostname    : $env:COMPUTERNAME"
+Write-Host "Project root: $ProjectRoot"
+Write-Host "Python      : $PythonExe"
+Write-Host ""
+Write-Host "  StartWhenAvailable = ON" -ForegroundColor Green
+Write-Host "  => If machine is OFF at scheduled time, task runs automatically" -ForegroundColor Green
+Write-Host "     the next time Windows boots. No manual action needed." -ForegroundColor Green
 Write-Host ""
 
 foreach ($task in $TaskDefinitions) {
-    $name = $task.Name
-    $scriptPath = Join-Path $ProjectRoot $task.Script
-
-    if (-not (Test-Path $scriptPath)) {
-        Write-Host "[FAIL] Script not found: $scriptPath (skip)" -ForegroundColor Red
-        continue
-    }
-
-    # Build argument string
-    $argList = "`"$scriptPath`""
-    if ($task.Args) {
-        $argList += " " + $task.Args
-    }
+    $name    = $task.Name
+    $argList = "`"$RunPy`" $($task.Args)"
 
     Write-Host "---- $name ----" -ForegroundColor Cyan
-    Write-Host "  Trigger:   Daily at $($task.Time), Mon-Fri"
-    Write-Host "  Command:   $PythonExe $argList"
-    Write-Host "  Working:   $ProjectRoot"
+    Write-Host "  Trigger : $($task.TriggerDesc)"
+    Write-Host "  Command : $PythonExe $argList"
+    Write-Host "  Workdir : $ProjectRoot"
+    Write-Host "  Timeout : $($task.MaxMinutes) min"
 
     if ($DryRun) {
         Write-Host "  [dry-run] Would create task" -ForegroundColor Yellow
@@ -163,40 +164,33 @@ foreach ($task in $TaskDefinitions) {
     }
 
     try {
-        # Remove existing task if present
+        # Remove old task with same name if present
         $existing = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
         if ($existing) {
             Unregister-ScheduledTask -TaskName $name -Confirm:$false
-            Write-Host "  (removed existing task with same name)" -ForegroundColor Gray
+            Write-Host "  (replaced existing task)" -ForegroundColor Gray
         }
 
-        # Action - run Python with script
         $action = New-ScheduledTaskAction `
-            -Execute $PythonExe `
-            -Argument $argList `
+            -Execute        $PythonExe `
+            -Argument       $argList `
             -WorkingDirectory $ProjectRoot
 
-        # Trigger - daily Mon-Fri
-        $trigger = New-ScheduledTaskTrigger `
-            -Weekly `
-            -DaysOfWeek Monday, Tuesday, Wednesday, Thursday, Friday `
-            -At $task.Time
+        $trigger = & $task.Trigger
 
-        # Settings - allow run even if missed (laptop sleep), stop after 30 min
         $settings = New-ScheduledTaskSettingsSet `
             -AllowStartIfOnBatteries `
             -DontStopIfGoingOnBatteries `
             -StartWhenAvailable `
-            -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
+            -ExecutionTimeLimit (New-TimeSpan -Minutes $task.MaxMinutes)
 
-        # Register task for current user
         Register-ScheduledTask `
-            -TaskName $name `
-            -Action $action `
-            -Trigger $trigger `
-            -Settings $settings `
+            -TaskName    $name `
+            -Action      $action `
+            -Trigger     $trigger `
+            -Settings    $settings `
             -Description $task.Description `
-            -RunLevel Limited `
+            -RunLevel    Limited `
             -ErrorAction Stop | Out-Null
 
         Write-Host "  [OK] Created" -ForegroundColor Green
@@ -208,5 +202,9 @@ foreach ($task in $TaskDefinitions) {
 }
 
 Write-Host "=== Done ===" -ForegroundColor Cyan
-Write-Host "Verify with:  Get-ScheduledTask -TaskName 'VnStock *'" -ForegroundColor Gray
-Write-Host "Run manually: Start-ScheduledTask -TaskName 'VnStock Daily Rollup'" -ForegroundColor Gray
+Write-Host ""
+Write-Host "Useful commands:" -ForegroundColor DarkGray
+Write-Host "  List tasks  : Get-ScheduledTask -TaskName 'VnStock *' | Select TaskName,State,LastRunTime,NextRunTime"
+Write-Host "  Run daily   : Start-ScheduledTask -TaskName 'VnStock Daily Pipeline'"
+Write-Host "  Run weekly  : Start-ScheduledTask -TaskName 'VnStock Weekly Corp Actions'"
+Write-Host "  Remove all  : .\scripts\setup_scheduled_tasks.ps1 -Remove"
