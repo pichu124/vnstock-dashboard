@@ -9,12 +9,22 @@ happened (volume=0 — reference price only). These bars cause spurious
 ``band/fail`` anomalies like "close dropped -99.89%" when in fact the
 stock barely moved.
 
-Detection rule (all four must hold — avoids false positives)
-------------------------------------------------------------
-  1. volume == 0                      — no trade
-  2. close > RAW_VND_THRESHOLD        — no VN equity trades > 500 thousand VND
-  3. close > RATIO_THRESHOLD × median — the bar stands out vs ±N-day traded neighbors
-  4. neighbor_median < NEIGHBOR_CAP   — the ticker's normal range is thousand-VND
+Detection rule (all three must hold — avoids false positives)
+-------------------------------------------------------------
+  1. close > RAW_VND_THRESHOLD        — no VN equity trades > 500 thousand VND,
+                                        so any close > 1000 is raw VND
+  2. close > RATIO_THRESHOLD × median — the bar stands out vs ±N-day neighbors
+  3. neighbor_median < NEIGHBOR_CAP   — the ticker's normal range is thousand-VND
+                                        (excludes legitimate high-priced
+                                        instruments like indices)
+
+Neighbors are restricted to ``0 < close < NEIGHBOR_CAP`` — that way already-
+fixed bars from a prior pass still count as valid references, which matters
+during extended market closures (Tet, 30/4) when every bar in a ±N window
+can be a unit-mismatch candidate on the first pass.
+
+Volume is NOT a detection signal. The API can return raw-VND prices on
+bars with volume > 0 too; restricting to volume == 0 misses those.
 
 Fix: divide ``open/high/low/close`` by 1000 and write the parquet back in
 place. Volume and time are untouched.
@@ -37,7 +47,7 @@ import pandas as pd
 
 RAW_VND_THRESHOLD = 1000.0   # close > 1000 is certainly raw VND for a VN equity
 RATIO_THRESHOLD   = 10.0     # close must exceed N× the neighbor median
-NEIGHBOR_WINDOW   = 5        # ±N trading days around the candidate
+NEIGHBOR_WINDOW   = 10       # ±N trading days — covers week-long Tet/30-4 closures
 NEIGHBOR_CAP      = 500.0    # if neighbors are also > this, ticker is legit high-priced
 
 OHLC_COLS = ("open", "high", "low", "close")
@@ -77,25 +87,27 @@ class FixReport:
 
 def _detect_in_ticker(ticker: str, df: pd.DataFrame) -> list[UnitFix]:
     """Return all unit-mismatch bars detected in a single ticker's history."""
-    if df.empty or "close" not in df.columns or "volume" not in df.columns:
+    if df.empty or "close" not in df.columns:
         return []
 
     work = df.sort_values("time").reset_index(drop=True)
     close = pd.to_numeric(work["close"], errors="coerce")
-    volume = pd.to_numeric(work["volume"], errors="coerce").fillna(0)
 
-    candidates = (close > RAW_VND_THRESHOLD) & (volume == 0)
+    candidates = close > RAW_VND_THRESHOLD
     if not candidates.any():
         return []
 
-    traded_close = close.where(volume > 0)   # NaN out zero-volume rows
+    # Neighbors: bars whose close is in the plausible thousand-VND range.
+    # This filter naturally excludes other unit-mismatch candidates AND
+    # includes already-fixed low-value bars, so the detector is robust
+    # during long closures and on re-runs.
+    sensible = close.where((close > 0) & (close < NEIGHBOR_CAP))
 
     out: list[UnitFix] = []
     for idx in work.index[candidates]:
         start = max(0, idx - NEIGHBOR_WINDOW)
         end = min(len(work), idx + NEIGHBOR_WINDOW + 1)
-        neighbors = traded_close.iloc[start:end].drop(index=idx).dropna()
-        neighbors = neighbors[neighbors > 0]
+        neighbors = sensible.iloc[start:end].drop(index=idx).dropna()
         if len(neighbors) == 0:
             continue
         med = float(neighbors.median())

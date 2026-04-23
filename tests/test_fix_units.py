@@ -53,14 +53,17 @@ def test_detect_flags_vol_zero_bar_with_raw_vnd_price():
     assert f.neighbor_median == pytest.approx(4.95, rel=0.05)
 
 
-def test_detect_skips_traded_bar_even_if_price_is_high():
-    # volume > 0 must never be flagged, even if the price would trip the other rules
+def test_detect_flags_traded_bar_with_raw_vnd_price():
+    # API can return raw VND even on bars with volume > 0 (VGT 2026-04-15)
     df = _make_bars(
-        ["2026-04-10", "2026-04-11", "2026-04-14"],
-        [4.8, 5.0, 4200.0],
-        [1000, 500, 100],   # volume > 0 on the candidate
+        ["2026-04-13", "2026-04-14", "2026-04-15", "2026-04-16", "2026-04-17"],
+        [12.4, 12.4, 12300.0, 12.2, 12.3],
+        [929700, 0, 454000, 0, 489800],   # candidate has volume > 0
     )
-    assert _detect_in_ticker("AAA", df) == []
+    fixes = _detect_in_ticker("VGT", df)
+    assert len(fixes) == 1
+    assert fixes[0].time == "2026-04-15"
+    assert fixes[0].close_after == pytest.approx(12.3)
 
 
 def test_detect_skips_when_close_below_raw_vnd_threshold():
@@ -96,9 +99,9 @@ def test_detect_skips_when_ratio_below_threshold():
     assert fixes == []
 
 
-def test_detect_uses_only_traded_neighbors_for_median():
-    # Two zero-volume spikes near each other — the second must not pollute
-    # the first's median computation.
+def test_detect_uses_only_sensible_neighbors_for_median():
+    # Two raw-VND spikes near each other — each candidate should be excluded
+    # from the other's median so we don't get a poisoned baseline.
     df = _make_bars(
         ["2026-04-10", "2026-04-13", "2026-04-14", "2026-04-15", "2026-04-16"],
         [4.8, 4200.0, 4.9, 4500.0, 5.1],
@@ -108,6 +111,21 @@ def test_detect_uses_only_traded_neighbors_for_median():
     assert len(fixes) == 2
     for f in fixes:
         assert f.neighbor_median < 10   # computed from the legit ~5 prices
+
+
+def test_detect_handles_long_closure_with_only_fixed_neighbors():
+    # BBC scenario: after the 1st pass fixed Apr 14-20, Apr 21 must still be
+    # detectable on a 2nd pass even though every vol>0 trading day is
+    # outside the ±10-day window (data cutoff in mid-holiday).
+    df = _make_bars(
+        ["2026-04-16", "2026-04-17", "2026-04-20", "2026-04-21"],
+        [90.9, 90.9, 90.9, 90900.0],   # first 3 already fixed, last still raw
+        [0, 0, 0, 0],                   # entire holiday, no trades
+    )
+    fixes = _detect_in_ticker("BBC", df)
+    assert len(fixes) == 1
+    assert fixes[0].time == "2026-04-21"
+    assert fixes[0].close_after == pytest.approx(90.9)
 
 
 def test_detect_handles_empty_and_missing_columns():
