@@ -3352,6 +3352,10 @@ def _load_all_market_data() -> tuple:
         tick_display["Giá 1T %"] = tick_display["chg5"].round(1)
         tick_display["Giá 1M %"] = tick_display["chg20"].round(1)
         tick_display["Giá 3M %"] = tick_display["chg60"].round(1)
+        # NN từ TopStock (đã fetch ở trên) — map per-ticker
+        tick_display["NN 1T (tỷ)"] = tick_display["ticker"].map(_nn_w)
+        tick_display["NN 1M (tỷ)"] = tick_display["ticker"].map(_nn_m)
+        tick_display["NN 3M (tỷ)"] = tick_display["ticker"].map(_nn_3m)
         tick_display = tick_display.rename(columns={"ticker": "Mã", "industry": "Ngành"})
 
         result = merged.groupby("industry").apply(agg).reset_index()

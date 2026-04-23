@@ -336,6 +336,8 @@ def render_market_tab() -> None:
                 placeholder="🔍 Click chọn ngành để drill-down..."
             )
         _sort_cols = ["Vốn hoá (tỷ)","GTGD TB (tỷ)","Vol Avg 20","Vol 5/20 %",
+                      "Net BS 1T","Net BS 1M","Net BS 3M","Net BS 6M",
+                      "NN 1T (tỷ)","NN 1M (tỷ)","NN 3M (tỷ)",
                       "Biên 1T (%)","Biên 1M (%)","Biên 3M (%)",
                       "Giá 1T %","Giá 1M %","Giá 3M %"]
         with _ctrl2:
@@ -374,11 +376,14 @@ def render_market_tab() -> None:
                 b = int(11 + (68 - 11) * ((t - 0.5) / 0.5))
             return f"rgb({r},{g},{b})"
 
+        _net_bs_cols = ("Net BS 1T","Net BS 1M","Net BS 3M","Net BS 6M")
+        _nn_cols     = ("NN 1T (tỷ)","NN 1M (tỷ)","NN 3M (tỷ)")
+
         def color_val(val, col):
             """Trả về màu CSS theo giá trị."""
             if val is None or (isinstance(val, float) and np.isnan(val)):
                 return "#4b5563"
-            if col in ("Giá 1T %","Giá 1M %","Giá 3M %","NN 1T (tỷ)","NN 1M (tỷ)","NN 3M (tỷ)"):
+            if col in ("Giá 1T %","Giá 1M %","Giá 3M %") + _nn_cols + _net_bs_cols:
                 return "#10b981" if float(val) > 0 else ("#ef4444" if float(val) < 0 else "#9ca3af")
             if col == "Vol 5/20 %":
                 v = float(val)
@@ -400,8 +405,10 @@ def render_market_tab() -> None:
             v = float(val)
             if col in ("Giá 1T %","Giá 1M %","Giá 3M %"):
                 return f"+{v:.1f}%" if v > 0 else f"{v:.1f}%"
-            if col in ("NN 1T (tỷ)","NN 1M (tỷ)","NN 3M (tỷ)"):
+            if col in _nn_cols:
                 return f"+{v:,.1f}" if v > 0 else f"{v:,.1f}"
+            if col in _net_bs_cols:
+                return f"+{v:,.1f}M" if v > 0 else f"{v:,.1f}M"
             if col in ("Vol Avg 5","Vol Avg 10","Vol Avg 20"):
                 return f"{v:,.1f}M"
             if col == "Vol 5/20 %":
@@ -415,10 +422,10 @@ def render_market_tab() -> None:
         # Chọn cột hiển thị
         display_cols = ["Ngành","Số mã","Vốn hoá (tỷ)","Freefloat~30% (tỷ)","GTGD TB (tỷ)",
                         "Vol Avg 5","Vol Avg 10","Vol Avg 20","Vol 5/20 %",
+                        "Net BS 1T","Net BS 1M","Net BS 3M","Net BS 6M",
+                        "NN 1T (tỷ)","NN 1M (tỷ)","NN 3M (tỷ)",
                         "Biên 1T (%)","Biên 1M (%)","Biên 3M (%)",
                         "Giá 1T %","Giá 1M %","Giá 3M %"]
-        if has_foreign:
-            display_cols += ["NN 1T (tỷ)","NN 1M (tỷ)","NN 3M (tỷ)"]
 
         avail_cols = [c for c in display_cols if c in mkt_df.columns]
 
@@ -495,6 +502,8 @@ def render_market_tab() -> None:
                     # Reuse table rendering logic
                     _dd_cols = ["Mã","Vốn hoá (tỷ)","Freefloat~30% (tỷ)","GTGD TB (tỷ)",
                                 "Vol Avg 5","Vol Avg 10","Vol Avg 20","Vol 5/20 %",
+                                "Net BS 1T","Net BS 1M","Net BS 3M","Net BS 6M",
+                                "NN 1T (tỷ)","NN 1M (tỷ)","NN 3M (tỷ)",
                                 "Biên 1T (%)","Biên 1M (%)","Biên 3M (%)",
                                 "Giá 1T %","Giá 1M %","Giá 3M %"]
                     _dd_avail = [c for c in _dd_cols if c in sector_df.columns]
@@ -536,6 +545,14 @@ def render_market_tab() -> None:
                             elif col in ("Giá 1T %","Giá 1M %","Giá 3M %"):
                                 v = float(val)
                                 display = f"+{v:.1f}%" if v > 0 else f"{v:.1f}%"
+                                color = "#10b981" if v > 0 else ("#ef4444" if v < 0 else "#9ca3af")
+                            elif col in _nn_cols:
+                                v = float(val)
+                                display = f"+{v:,.1f}" if v > 0 else f"{v:,.1f}"
+                                color = "#10b981" if v > 0 else ("#ef4444" if v < 0 else "#9ca3af")
+                            elif col in _net_bs_cols:
+                                v = float(val)
+                                display = f"+{v:,.1f}M" if v > 0 else f"{v:,.1f}M"
                                 color = "#10b981" if v > 0 else ("#ef4444" if v < 0 else "#9ca3af")
                             elif col in ("Vốn hoá (tỷ)","Freefloat~30% (tỷ)","GTGD TB (tỷ)"):
                                 display = f"{float(val):,.0f}"

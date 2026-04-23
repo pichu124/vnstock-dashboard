@@ -390,6 +390,52 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
     except Exception as e:
         console.log(f"  [yellow]⚠ NN data fetch error: {e}[/yellow]")
 
+    # Fetch aggressive order flow (Net Buy-Sell) per ticker via order_stats()
+    nb_data: dict = {}
+    try:
+        from vnstock_data import Trading
+        import concurrent.futures as _cf
+        import time as _nb_time
+
+        def _fetch_nb(tk):
+            try:
+                os_df = Trading(symbol=tk).order_stats()
+                if os_df is None or os_df.empty:
+                    return tk, None
+                os_df = os_df.sort_values("trading_date")
+                bv = pd.to_numeric(os_df["total_buy_trade_volume"], errors="coerce").fillna(0)
+                sv = pd.to_numeric(os_df["total_sell_trade_volume"], errors="coerce").fillna(0)
+                net = bv - sv
+                return tk, {
+                    "1w": round(float(net.tail(5).sum())   / 1e6, 1),
+                    "1m": round(float(net.tail(20).sum())  / 1e6, 1),
+                    "3m": round(float(net.tail(60).sum())  / 1e6, 1),
+                    "6m": round(float(net.tail(120).sum()) / 1e6, 1),
+                }
+            except Exception:
+                return tk, None
+
+        _t0_nb = _nb_time.time()
+        _top_tickers = [r["ticker"] for r in sorted(rows, key=lambda r: -r.get("mktcap", 0))]
+        _nb_futures = []
+        with _cf.ThreadPoolExecutor(max_workers=10) as _ex:
+            _nb_futures = [_ex.submit(_fetch_nb, tk) for tk in _top_tickers]
+            for _fut in _cf.as_completed(_nb_futures, timeout=180):
+                try:
+                    tk, result = _fut.result()
+                    if result is not None:
+                        nb_data[tk] = result
+                except Exception:
+                    pass
+        console.log(
+            f"  Net Buy-Sell: {len(nb_data)}/{len(_top_tickers)} tickers "
+            f"({_nb_time.time() - _t0_nb:.0f}s)"
+        )
+    except ImportError:
+        console.log("  [dim]vnstock_data not installed — Net BS data skipped[/dim]")
+    except Exception as e:
+        console.log(f"  [yellow]⚠ Net BS fetch error: {e}[/yellow]")
+
     # Aggregate by industry
     def agg(grp):
         n = len(grp)
@@ -408,6 +454,12 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
         net_m = sum(nn_m.get(t, 0) for t in tickers_in)
         net_3m_v = sum(nn_3m.get(t, 0) for t in tickers_in)
 
+        # Aggressive order flow (triệu cổ phiếu)
+        net_bs_1w = sum(nb_data.get(t, {}).get("1w", 0) for t in tickers_in)
+        net_bs_1m = sum(nb_data.get(t, {}).get("1m", 0) for t in tickers_in)
+        net_bs_3m = sum(nb_data.get(t, {}).get("3m", 0) for t in tickers_in)
+        net_bs_6m = sum(nb_data.get(t, {}).get("6m", 0) for t in tickers_in)
+
         return pd.Series({
             "Số mã": n,
             "Vốn hoá (tỷ)": round(total_mktcap, 0),
@@ -425,6 +477,10 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
             "NN 1T (tỷ)": round(net_w, 1) if net_w != 0 else None,
             "NN 1M (tỷ)": round(net_m, 1) if net_m != 0 else None,
             "NN 3M (tỷ)": round(net_3m_v, 1) if net_3m_v != 0 else None,
+            "Net BS 1T": round(net_bs_1w, 1) if net_bs_1w != 0 else None,
+            "Net BS 1M": round(net_bs_1m, 1) if net_bs_1m != 0 else None,
+            "Net BS 3M": round(net_bs_3m, 1) if net_bs_3m != 0 else None,
+            "Net BS 6M": round(net_bs_6m, 1) if net_bs_6m != 0 else None,
         })
 
     # Ticker display data
@@ -438,6 +494,13 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
     tick_display["Vol 5/20 %"] = np.where(
         tick_display["vol20_sum"] > 0,
         (tick_display["vol5_sum"] / tick_display["vol20_sum"] * 100).round(0), None)
+    tick_display["Net BS 1T"] = tick_display["ticker"].map(lambda t: nb_data.get(t, {}).get("1w"))
+    tick_display["Net BS 1M"] = tick_display["ticker"].map(lambda t: nb_data.get(t, {}).get("1m"))
+    tick_display["Net BS 3M"] = tick_display["ticker"].map(lambda t: nb_data.get(t, {}).get("3m"))
+    tick_display["Net BS 6M"] = tick_display["ticker"].map(lambda t: nb_data.get(t, {}).get("6m"))
+    tick_display["NN 1T (tỷ)"] = tick_display["ticker"].map(nn_w)
+    tick_display["NN 1M (tỷ)"] = tick_display["ticker"].map(nn_m)
+    tick_display["NN 3M (tỷ)"] = tick_display["ticker"].map(nn_3m)
     tick_display["Giá 1T %"] = tick_display["chg5"].round(1)
     tick_display["Giá 1M %"] = tick_display["chg20"].round(1)
     tick_display["Giá 3M %"] = tick_display["chg60"].round(1)
