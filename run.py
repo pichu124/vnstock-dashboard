@@ -497,6 +497,43 @@ def cmd_cash_dividends(args) -> int:
     return 2
 
 
+def cmd_fix_units(args) -> int:
+    """Rescale unit-mismatch OHLC bars (volume=0 with raw-VND prices)."""
+    from vnstock_fix_units import run as fix_run
+
+    warehouse = Path(args.warehouse)
+    tickers = [args.ticker] if args.ticker else None
+    report = fix_run(warehouse, tickers=tickers, dry_run=args.dry_run)
+
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"[fix-units] scanned {report.scanned_tickers} tickers, "
+          f"{report.scanned_bars:,} bars")
+    print(f"[fix-units] detected {len(report.fixes)} unit-mismatch bar(s) "
+          f"across {report.ticker_count} ticker(s)")
+    if args.dry_run:
+        print("[fix-units] DRY-RUN — no files modified")
+    else:
+        print(f"[fix-units] rewrote {len(report.fixes)} bar(s) in place")
+
+    if report.fixes:
+        preview = report.fixes[: args.limit] if args.limit else report.fixes[:20]
+        print(f"\n=== Preview ({len(preview)}/{len(report.fixes)}) ===")
+        print(f"{'Ticker':<8} {'Date':<12} {'Before':>12} {'After':>10} "
+              f"{'Median':>10}")
+        print("─" * 58)
+        for f in preview:
+            print(f"{f.ticker:<8} {f.time:<12} {f.close_before:>12.2f} "
+                  f"{f.close_after:>10.3f} {f.neighbor_median:>10.3f}")
+    if report.errors:
+        print(f"\n[fix-units] {len(report.errors)} error(s):")
+        for t, msg in report.errors[:10]:
+            print(f"  {t}: {msg}")
+    return 0
+
+
 def cmd_test(args) -> int:
     return _run([sys.executable, "-m", "pytest", "tests/", "-v"])
 
@@ -642,6 +679,16 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Parallel workers for --bulk (default: 4, max: 8)")
     vs.add_argument("--verbose", action="store_true", help="Print HTTP debug info")
 
+    fix = sub.add_parser("fix-units",
+                         help="Rescale unit-mismatch OHLC bars (volume=0 + raw-VND price)")
+    fix.add_argument("--ticker", help="Restrict to a single ticker")
+    fix.add_argument("--dry-run", action="store_true",
+                     help="Report what would be fixed without writing files")
+    fix.add_argument("--json", action="store_true",
+                     help="Machine-readable JSON output")
+    fix.add_argument("--limit", type=int, default=0,
+                     help="Cap preview rows (default: 20)")
+
     sub.add_parser("test", help="Run pytest")
     sub.add_parser("dashboard", help="Launch the Streamlit dashboard")
 
@@ -666,6 +713,7 @@ _DISPATCH = {
     "registry": cmd_registry,
     "cash-dividends": cmd_cash_dividends,
     "vietstock": cmd_vietstock,
+    "fix-units": cmd_fix_units,
     "test": cmd_test,
     "dashboard": cmd_dashboard,
     "all": cmd_all,
