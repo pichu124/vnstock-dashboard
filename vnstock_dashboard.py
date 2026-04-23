@@ -3656,6 +3656,12 @@ with st.sidebar:
         [data-testid="stMarkdownContainer"] p {{ color: {_t['text2']}; }}
         </style>""", unsafe_allow_html=True)
 
+# All constants and functions are defined above this point.
+# Refresh the sys.modules alias on every run so tab modules that do
+# `from vnstock_dashboard import …` always see the current __main__ object
+# (Streamlit creates a fresh __main__ on each hot-reload).
+sys.modules["vnstock_dashboard"] = sys.modules["__main__"]
+
 # ── NAVIGATION (dùng pills thay tabs để tránh lazy-render) ────────────────────
 _TAB_OPTIONS = ["📊 Screener", "🔬 Phân tích", "🌏 Thị trường", "💰 Dòng Tiền", "💼 Portfolio", "⚕️ Sức khỏe"]
 _active_tab = st.pills("", _TAB_OPTIONS, default="📊 Screener", key="nav_tab")
