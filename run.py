@@ -616,11 +616,17 @@ def cmd_dashboard(args) -> int:
     return _run([sys.executable, "-m", "streamlit", "run", "vnstock_dashboard.py"])
 
 
+def cmd_screener(args) -> int:
+    """Run vnstock_runner.py to refresh screener signals."""
+    return _run([sys.executable, str(REPO_ROOT / "vnstock_runner.py")])
+
+
 def cmd_all(args) -> int:
-    """sync → validate → test → audit. Stops on first hard failure."""
+    """sync → validate → screener → test → audit. Stops on first hard failure."""
     for name, fn in (
         ("sync", cmd_sync),
         ("validate", cmd_validate),
+        ("screener", cmd_screener),
         ("test", cmd_test),
         ("audit", cmd_audit),
     ):
@@ -782,9 +788,10 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Cap preview rows (default: 20)")
 
     sub.add_parser("test", help="Run pytest")
+    sub.add_parser("screener", help="Refresh screener signals (vnstock_runner.py)")
     sub.add_parser("dashboard", help="Launch the Streamlit dashboard")
 
-    all_ = sub.add_parser("all", help="sync → validate → test → audit")
+    all_ = sub.add_parser("all", help="sync → validate → screener → test → audit")
     all_.add_argument("--lookback", type=int, default=60)
     all_.add_argument("--llm", action="store_true")
     all_.add_argument("--auditor", choices=["auto", "claude", "gpt", "null"],
@@ -807,6 +814,7 @@ _DISPATCH = {
     "cash-dividends": cmd_cash_dividends,
     "vietstock": cmd_vietstock,
     "fix-units": cmd_fix_units,
+    "screener": cmd_screener,
     "test": cmd_test,
     "dashboard": cmd_dashboard,
     "all": cmd_all,
