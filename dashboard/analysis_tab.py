@@ -324,7 +324,7 @@ def render_analysis_tab() -> None:
         if summary and summary not in ("", "nan", "None"):
             st.caption(summary[:200] + ("..." if len(summary) > 200 else ""))
     with col_h2:
-        if st.button("🔄", help="Xóa cache và tải lại"):
+        if st.button("🔄", help="Xóa cache và tải lại", key="anal_reload"):
             st.cache_data.clear()
             st.rerun()
 

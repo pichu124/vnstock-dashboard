@@ -474,7 +474,7 @@ def render_market_tab() -> None:
             csv = mkt_df[avail_cols].to_csv(index=False, encoding="utf-8-sig")
             st.download_button("⬇️ Export CSV", data=csv,
                                file_name=f"market_overview_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
-                               mime="text/csv")
+                               mime="text/csv", key="mkt_export_csv")
 
             if not has_foreign:
                 st.caption("⚠️ Dữ liệu dòng ngoại (NN) chưa có — cần vnstock API `Trading.foreign_trade()`. "

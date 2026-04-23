@@ -70,11 +70,12 @@ def render_screener_tab(
         preset_options = list(presets_data.keys())
         selected_preset = st.selectbox(
             "Preset", preset_options,
-            format_func=lambda p: f"{PRESET_ICONS.get(p, '')} {p} ({presets_data[p].get('count', 0)})"
+            format_func=lambda p: f"{PRESET_ICONS.get(p, '')} {p} ({presets_data[p].get('count', 0)})",
+            key="scr_preset",
         )
         industries = ["Tất cả"] + list(industry_summary.keys())
-        selected_industry = st.selectbox("Ngành", industries)
-        top_n = st.slider("Hiển thị top", 10, 100, 50, step=10)
+        selected_industry = st.selectbox("Ngành", industries, key="scr_industry")
+        top_n = st.slider("Hiển thị top", 10, 100, 50, step=10, key="scr_top_n")
 
         st.divider()
         st.markdown("### ⭐ Watchlist")
@@ -99,12 +100,12 @@ def render_screener_tab(
 
         st.divider()
         st.markdown("### ⚙️ Bộ lọc nâng cao")
-        price_min    = st.number_input("Giá từ (nghìn đồng)", min_value=0.0, value=0.0, step=1.0, format="%.1f")
-        price_max    = st.number_input("Giá đến", min_value=0.0, value=0.0, step=1.0, format="%.1f", help="0 = không giới hạn")
-        chg1d_range  = st.slider("1D%", -20.0, 20.0, (-20.0, 20.0), step=0.5, format="%.1f%%")
-        chg5d_range  = st.slider("5D%", -50.0, 50.0, (-50.0, 50.0), step=1.0, format="%.1f%%")
-        chg20d_range = st.slider("20D%", -80.0, 150.0, (-80.0, 150.0), step=1.0, format="%.1f%%")
-        vol_min      = st.slider("Volume spike tối thiểu (×)", 0.0, 10.0, 0.0, step=0.5, format="%.1fx")
+        price_min    = st.number_input("Giá từ (nghìn đồng)", min_value=0.0, value=0.0, step=1.0, format="%.1f", key="scr_price_min")
+        price_max    = st.number_input("Giá đến", min_value=0.0, value=0.0, step=1.0, format="%.1f", help="0 = không giới hạn", key="scr_price_max")
+        chg1d_range  = st.slider("1D%", -20.0, 20.0, (-20.0, 20.0), step=0.5, format="%.1f%%", key="scr_chg1d")
+        chg5d_range  = st.slider("5D%", -50.0, 50.0, (-50.0, 50.0), step=1.0, format="%.1f%%", key="scr_chg5d")
+        chg20d_range = st.slider("20D%", -80.0, 150.0, (-80.0, 150.0), step=1.0, format="%.1f%%", key="scr_chg20d")
+        vol_min      = st.slider("Volume spike tối thiểu (×)", 0.0, 10.0, 0.0, step=0.5, format="%.1fx", key="scr_vol_min")
 
         st.divider()
         if industry_summary:
@@ -439,6 +440,7 @@ def render_screener_tab(
                     label="⬇️ Export CSV", data=csv,
                     file_name=f"screen_{selected_preset}_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv",
+                    key="scr_export_csv",
                 )
 
     st.divider()

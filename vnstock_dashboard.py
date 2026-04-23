@@ -3528,6 +3528,7 @@ with col_title:
 with col_refresh:
     if st.button(
         "🔄 Refresh",
+        key="top_refresh",
         width='stretch',
         help=(
             "**Vẽ lại dashboard** (nhanh, ~1 giây).\n\n"
