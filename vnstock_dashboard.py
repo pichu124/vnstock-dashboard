@@ -19,6 +19,12 @@ import warnings
 from datetime import datetime, timedelta
 from pathlib import Path
 
+# When Streamlit runs this file it loads it as '__main__', not 'vnstock_dashboard'.
+# Tab modules do `from vnstock_dashboard import …` which would re-execute this file
+# (duplicate widget IDs) unless we register an alias in sys.modules first.
+if "vnstock_dashboard" not in sys.modules:
+    sys.modules["vnstock_dashboard"] = sys.modules["__main__"]
+
 log = logging.getLogger("vnstock_dashboard")
 if not log.handlers:
     logging.basicConfig(
