@@ -125,6 +125,29 @@ def cmd_audit(args) -> int:
     write_recon(recon, warehouse)
     print(f"[audit] reconciler: ok={recon.ok} warn={recon.warn} fail={recon.fail}")
 
+    # Belt-and-suspenders: replace incomplete WSS minute bars with synthetic
+    # bars carrying API-authoritative OHLCV. Keeps _live/ consistent with
+    # prices/ so dashboards don't show stale intraday ticks on WSS-fail days.
+    if not getattr(args, "no_backfill", False):
+        from vnstock_wss_backfill import (
+            backfill_rolled_bars, extract_partial_miss,
+        )
+        partial = extract_partial_miss(recon)
+        if partial:
+            result = backfill_rolled_bars(warehouse, partial)
+            if result["fixed"] > 0:
+                print(f"[audit] wss_backfill: {result['fixed']} row(s) "
+                      f"synthesised from API (skipped={result['skipped']}, "
+                      f"no_api_row={result['no_api_row']})")
+                recon = reconcile(
+                    warehouse=warehouse,
+                    lookback=args.lookback,
+                    check_volume=getattr(args, "check_volume", False),
+                )
+                write_recon(recon, warehouse)
+                print(f"[audit] reconciler post-backfill: "
+                      f"ok={recon.ok} warn={recon.warn} fail={recon.fail}")
+
     anom = scan_warehouse(
         warehouse=warehouse,
         lookback=args.lookback,
@@ -601,6 +624,9 @@ def build_parser() -> argparse.ArgumentParser:
     audit.add_argument("--check-volume", action="store_true",
                        help="Include WSS rolled-volume drift in reconciler severity "
                             "(off by default — WSS volumes are unreliable)")
+    audit.add_argument("--no-backfill", action="store_true",
+                       help="Skip the WSS partial-miss auto-backfill step "
+                            "(default: backfill enabled)")
 
     refresh = sub.add_parser("refresh-metadata",
                              help="Rebuild exchange_map.json (and optionally corp-action events)")

@@ -79,6 +79,74 @@ def test_collect_ingests_metadata_reports(mini_warehouse):
     assert snap.anomalies["total"] == 3
 
 
+def test_wss_coverage_summarised_from_reconciler(mini_warehouse):
+    meta = mini_warehouse / "_meta"
+    meta.mkdir(parents=True, exist_ok=True)
+    (meta / "reconciliation_report.json").write_text(json.dumps({
+        "ok": 100, "warn": 17, "fail": 0,
+        "missing_in_api": 0, "missing_in_rolled": 0,
+        "discrepancies": [
+            {"ticker": "PNJ", "trading_date": "2026-04-20",
+             "reason": "wss_partial_miss (4% vol captured)",
+             "severity": "warn"},
+            {"ticker": "VIC", "trading_date": "2026-04-20",
+             "reason": "wss_partial_miss (17% vol captured)",
+             "severity": "warn"},
+            {"ticker": "BMP", "trading_date": "2026-04-20",
+             "reason": "wss_partial_miss (2% vol captured)",
+             "severity": "warn"},
+            {"ticker": "VCB", "trading_date": "2026-04-20",
+             "reason": "close drift 5.00%",   # not a partial miss
+             "severity": "warn"},
+        ],
+    }))
+
+    snap = collect(mini_warehouse)
+    cov = snap.wss_coverage
+    assert cov is not None
+    assert cov["partial_miss_count"] == 3
+    assert set(cov["partial_miss_tickers"]) == {"PNJ", "VIC", "BMP"}
+    # Average of 4, 17, 2 → 7.67 → rounded to 7.7
+    assert cov["avg_captured_pct"] == pytest.approx(7.7, abs=0.1)
+    assert cov["by_date"] == {"2026-04-20": 3}
+
+
+def test_wss_coverage_absent_when_no_partial_miss(mini_warehouse):
+    meta = mini_warehouse / "_meta"
+    meta.mkdir(parents=True, exist_ok=True)
+    (meta / "reconciliation_report.json").write_text(json.dumps({
+        "ok": 100, "warn": 0, "fail": 0,
+        "missing_in_api": 0, "missing_in_rolled": 0,
+        "discrepancies": [],
+    }))
+
+    snap = collect(mini_warehouse)
+    assert snap.wss_coverage == {
+        "partial_miss_count": 0,
+        "partial_miss_tickers": [],
+        "avg_captured_pct": None,
+        "by_date": {},
+    }
+
+
+def test_wss_coverage_warning_fires_above_10(mini_warehouse):
+    meta = mini_warehouse / "_meta"
+    meta.mkdir(parents=True, exist_ok=True)
+    discs = [
+        {"ticker": f"T{i}", "trading_date": "2026-04-20",
+         "reason": "wss_partial_miss (5% vol captured)", "severity": "warn"}
+        for i in range(12)
+    ]
+    (meta / "reconciliation_report.json").write_text(json.dumps({
+        "ok": 100, "warn": 12, "fail": 0,
+        "missing_in_api": 0, "missing_in_rolled": 0,
+        "discrepancies": discs,
+    }))
+
+    snap = collect(mini_warehouse)
+    assert any("wss partial-miss" in w.lower() for w in snap.warnings)
+
+
 def test_collect_handles_corrupt_metadata(mini_warehouse):
     meta = mini_warehouse / "_meta"
     meta.mkdir(parents=True, exist_ok=True)

@@ -191,6 +191,52 @@ def test_real_drift_still_flagged_when_both_sides_have_volume(tmp_path):
         "A real 9.4% close drift must still surface"
 
 
+def test_wss_partial_miss_downgraded_from_fail_to_warn(tmp_path):
+    """Rolled captured < 50% of API volume → rolled_close is a random
+    intraday tick, not the session close. Don't flag as fail even if
+    close drift is huge. This is the PNJ 2026-04-20 case: rolled
+    captured 4.5% of volume, showing 46% close drift — which is infra
+    noise, not a data bug."""
+    d = date(2026, 4, 20)
+
+    _seed_warehouse(tmp_path, "PNJ", d, close=76.67, volume=1_870_506)
+    _seed_rolled(tmp_path, d, [{
+        "time": pd.Timestamp(d),
+        "ticker": "PNJ",
+        "close": 112.5,                # huge apparent drift
+        "volume": 83_284,              # only 4.5% of API volume
+        "open": 112.5, "high": 112.5, "low": 112.5,
+    }])
+
+    report = reconcile(tmp_path, dates=[d])
+    assert report.fail == 0, "wss_partial_miss must not escalate to fail"
+    assert report.warn >= 1, "significant close drift should still surface as warn"
+    disc = [d for d in report.discrepancies if d.ticker == "PNJ"]
+    assert disc, "PNJ row must be reported"
+    assert "wss_partial_miss" in disc[0].reason
+    assert disc[0].severity == "warn"
+
+
+def test_wss_partial_miss_stays_ok_when_close_within_tolerance(tmp_path):
+    """If WSS captured little volume but happened to land on a tick near
+    the real close, the row is silently OK — no noise."""
+    d = date(2026, 4, 20)
+
+    _seed_warehouse(tmp_path, "VIC", d, close=191.0, volume=5_425_000)
+    _seed_rolled(tmp_path, d, [{
+        "time": pd.Timestamp(d),
+        "ticker": "VIC",
+        "close": 190.9,                # within tolerance
+        "volume": 902_582,             # 16.6% of API — still < 50% floor
+        "open": 190.9, "high": 190.9, "low": 190.9,
+    }])
+
+    report = reconcile(tmp_path, dates=[d])
+    assert report.fail == 0
+    # No discrepancy recorded for ok rows
+    assert not any(d.ticker == "VIC" for d in report.discrepancies)
+
+
 def test_reconciler_respects_anomaly_whitelist(tmp_path):
     """User accepting a (ticker, date) via `remediate --action accept`
     should stop BOTH the anomaly scan AND the reconciler from re-flagging

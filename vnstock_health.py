@@ -76,6 +76,7 @@ class HealthSnapshot:
     reconciler: dict | None = None
     anomalies: dict | None = None
     quarantine: dict | None = None
+    wss_coverage: dict | None = None   # partial-miss stats from reconciler
 
     warnings: list[str] = field(default_factory=list)
 
@@ -733,6 +734,7 @@ def _populate_reports(snap: HealthSnapshot, warehouse: Path) -> None:
     if recon_path.exists():
         try:
             snap.reconciler = json.loads(recon_path.read_text())
+            snap.wss_coverage = _summarise_wss_coverage(snap.reconciler)
         except Exception:
             snap.warnings.append("reconciliation_report.json corrupt")
 
@@ -749,6 +751,52 @@ def _populate_reports(snap: HealthSnapshot, warehouse: Path) -> None:
         snap.quarantine = q_summary(warehouse)
     except Exception:
         snap.quarantine = None
+
+
+_WSS_CAPTURED_PCT_RE = __import__("re").compile(
+    r"wss_partial_miss\s*\(([-\d.]+)%"
+)
+
+
+def _summarise_wss_coverage(recon_dict: dict) -> dict:
+    """Extract WSS partial-miss stats from a reconciliation_report dict.
+
+    The reason string has the form ``wss_partial_miss (X% vol captured)`` —
+    we parse X so the Health tab can show an average capture rate.
+    """
+    discs = recon_dict.get("discrepancies", [])
+    pct_values: list[float] = []
+    tickers: list[str] = []
+    by_date: dict[str, int] = {}
+    for d in discs:
+        reason = d.get("reason", "")
+        if "wss_partial_miss" not in reason:
+            continue
+        tickers.append(d.get("ticker", "?"))
+        date_str = str(d.get("trading_date", ""))
+        by_date[date_str] = by_date.get(date_str, 0) + 1
+        m = _WSS_CAPTURED_PCT_RE.search(reason)
+        if m:
+            try:
+                pct_values.append(float(m.group(1)))
+            except ValueError:
+                pass
+
+    if not tickers:
+        return {
+            "partial_miss_count": 0,
+            "partial_miss_tickers": [],
+            "avg_captured_pct": None,
+            "by_date": {},
+        }
+
+    avg = round(sum(pct_values) / len(pct_values), 1) if pct_values else None
+    return {
+        "partial_miss_count": len(tickers),
+        "partial_miss_tickers": sorted(set(tickers))[:10],
+        "avg_captured_pct": avg,
+        "by_date": by_date,
+    }
 
 
 def _populate_warnings(snap: HealthSnapshot) -> None:
@@ -786,6 +834,16 @@ def _populate_warnings(snap: HealthSnapshot) -> None:
                 f"{pending} quarantine entries pending. "
                 "Try `python vnstock_remediate.py --all --action refetch`."
             )
+
+    if snap.wss_coverage and snap.wss_coverage.get("partial_miss_count", 0) >= 10:
+        cov = snap.wss_coverage
+        avg = cov.get("avg_captured_pct")
+        avg_str = f", avg capture {avg:.0f}%" if avg is not None else ""
+        snap.warnings.append(
+            f"WSS partial-miss on {cov['partial_miss_count']} ticker-day(s)"
+            f"{avg_str}. The audit pipeline auto-backfills from API, but "
+            "check `vnstock_wss.py` if this persists session after session."
+        )
 
 
 def _truncate_dict(d: dict, max_keys: int = 6) -> dict:

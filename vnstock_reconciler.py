@@ -54,6 +54,14 @@ META_SUBDIR = "_meta"
 VOLUME_TOLERANCE_PCT = 5.0
 CLOSE_TOLERANCE_PCT = 0.5
 
+# WSS coverage threshold — if rolled volume is below this fraction of API
+# volume, we treat the row as "wss_partial_miss": the WSS feed missed
+# enough trades that rolled_close cannot be compared meaningfully.
+# Flagging such rows as "fail" drowns the report in known-noise; instead
+# we annotate them with a dedicated reason string and keep severity at
+# warn max (never fail).
+WSS_COVERAGE_FLOOR = 0.5
+
 # By default, skip volume reconciliation. WSS rolled volumes are known to
 # be unreliable (missed sessions, accum→delta double-counting), which
 # floods the report with 100% / 7000% "drift" entries that aren't the
@@ -444,8 +452,27 @@ def reconcile(
 
         close_diff = _pct_diff(api_close, rolled_close)
         vol_diff = _pct_diff(api_vol, rolled_vol)
-        severity, reason = _classify(close_diff, vol_diff,
-                                      check_volume=check_volume)
+
+        # Detect WSS partial-miss: rolled captured < WSS_COVERAGE_FLOOR
+        # of actual session volume. Below that, rolled_close is a random
+        # intraday tick, not the closing print — comparing to API close
+        # produces false "fail" noise. Never escalate beyond warn in this
+        # case. Real corp-action / data bugs still surface via the warn
+        # classification; they just don't block the audit.
+        is_wss_partial = (
+            api_vol_num > 0
+            and 0 < rolled_vol_num < api_vol_num * WSS_COVERAGE_FLOOR
+        )
+        if is_wss_partial:
+            captured_pct = 100.0 * rolled_vol_num / api_vol_num
+            reason = f"wss_partial_miss ({captured_pct:.0f}% vol captured)"
+            if close_diff is not None and close_diff > CLOSE_TOLERANCE_PCT:
+                severity = "warn"
+            else:
+                severity = "ok"
+        else:
+            severity, reason = _classify(close_diff, vol_diff,
+                                          check_volume=check_volume)
 
         if severity == "ok":
             ok += 1
