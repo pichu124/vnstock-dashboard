@@ -197,6 +197,15 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
                 except Exception:
                     pass
 
+    # Freefloat lookup (optional — falls back to 30% proxy if file absent)
+    freefloat_map: dict = {}
+    try:
+        from vnstock_freefloat import FreefloatUpdater
+        freefloat_map = FreefloatUpdater(warehouse).load_map()
+        console.log(f"  Freefloat map: {len(freefloat_map)} tickers loaded")
+    except Exception as _ff_err:
+        console.log(f"  [dim]freefloat_map not loaded: {_ff_err}[/dim]")
+
     from datetime import date, timedelta
     cutoff = pd.Timestamp(date.today() - timedelta(days=400))
 
@@ -307,12 +316,15 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
             issue_share = shares_map.get(ticker, 0)
             mktcap = last * 1000 * issue_share / 1e9 if issue_share > 0 else 0.0
             mktcap_proxy = last * 1000 * vol20 / 1e9
+            freefloat_pct = freefloat_map.get(ticker, 30.0)
+            freefloat_val = round(mktcap * freefloat_pct / 100, 1)
 
             rows.append({
                 "ticker": ticker, "last": round(last, 2),
                 "vol5": vol5, "vol10": vol10, "vol20": vol20,
                 "vol5_sum": vol5_sum, "vol20_sum": vol20_sum,
                 "mktcap": round(mktcap, 1), "mktcap_proxy": round(mktcap_proxy, 1),
+                "freefloat_val": freefloat_val,
                 "amp5": round(amp5, 1), "amp20": round(amp20, 1), "amp60": round(amp60, 1),
                 "chg5": round(chg5, 1) if chg5 is not None else None,
                 "chg20": round(chg20, 1) if chg20 is not None else None,
@@ -460,9 +472,11 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
         net_bs_3m = sum(nb_data.get(t, {}).get("3m", 0) for t in tickers_in)
         net_bs_6m = sum(nb_data.get(t, {}).get("6m", 0) for t in tickers_in)
 
+        total_freefloat = grp["freefloat_val"].sum()
         return pd.Series({
             "Số mã": n,
             "Vốn hoá (tỷ)": round(total_mktcap, 0),
+            "Freefloat (tỷ)": round(total_freefloat, 0),
             "GTGD TB (tỷ)": round(gtgd_tb, 0),
             "Vol Avg 5": round(v5 / 1e6, 1),
             "Vol Avg 10": round(v10 / 1e6, 1),
@@ -487,6 +501,7 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
     import numpy as np
     tick_display = merged.copy()
     tick_display["Vốn hoá (tỷ)"] = tick_display["mktcap"].round(0)
+    tick_display["Freefloat (tỷ)"] = tick_display["freefloat_val"].round(0)
     tick_display["GTGD TB (tỷ)"] = tick_display["mktcap_proxy"].round(1)
     tick_display["Vol Avg 5"] = (tick_display["vol5"] / 1e6).round(1)
     tick_display["Vol Avg 10"] = (tick_display["vol10"] / 1e6).round(1)

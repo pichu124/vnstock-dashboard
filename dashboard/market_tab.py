@@ -413,14 +413,14 @@ def render_market_tab() -> None:
                 return f"{v:,.1f}M"
             if col == "Vol 5/20 %":
                 return f"{v:.0f}%"
-            if col in ("Vốn hoá (tỷ)","GTGD TB (tỷ)","Freefloat~30% (tỷ)","Freefloat (tỷ)"):
+            if col in ("Vốn hoá (tỷ)","GTGD TB (tỷ)","Freefloat (tỷ)"):
                 return f"{v:,.0f}"
             if col in ("Biên 1T (%)","Biên 1M (%)","Biên 3M (%)"):
                 return f"{v:.1f}%"
             return str(int(v)) if v == int(v) else f"{v:.1f}"
 
         # Chọn cột hiển thị
-        display_cols = ["Ngành","Số mã","Vốn hoá (tỷ)","Freefloat~30% (tỷ)","GTGD TB (tỷ)",
+        display_cols = ["Ngành","Số mã","Vốn hoá (tỷ)","Freefloat (tỷ)","GTGD TB (tỷ)",
                         "Vol Avg 5","Vol Avg 10","Vol Avg 20","Vol 5/20 %",
                         "Net BS 1T","Net BS 1M","Net BS 3M","Net BS 6M",
                         "NN 1T (tỷ)","NN 1M (tỷ)","NN 3M (tỷ)",
@@ -485,7 +485,7 @@ def render_market_tab() -> None:
 
             if not has_foreign:
                 st.caption("⚠️ Dữ liệu dòng ngoại (NN) chưa có — cần vnstock API `Trading.foreign_trade()`. "
-                           "Vốn hoá và Freefloat là ước tính proxy từ giá × khối lượng.")
+                           "Vốn hoá là ước tính từ giá × cổ phiếu lưu hành. Freefloat từ dữ liệu cổ đông lớn (KBS).")
 
         # ── Drill-down: chi tiết công ty theo ngành ───────────────────────────
         if _selected_nganh != "Tổng quan theo ngành":
@@ -500,7 +500,7 @@ def render_market_tab() -> None:
                     st.markdown(f"#### 🏢 Chi tiết ngành: {_selected_nganh} ({len(sector_df)} mã)")
 
                     # Reuse table rendering logic
-                    _dd_cols = ["Mã","Vốn hoá (tỷ)","Freefloat~30% (tỷ)","GTGD TB (tỷ)",
+                    _dd_cols = ["Mã","Vốn hoá (tỷ)","Freefloat (tỷ)","GTGD TB (tỷ)",
                                 "Vol Avg 5","Vol Avg 10","Vol Avg 20","Vol 5/20 %",
                                 "Net BS 1T","Net BS 1M","Net BS 3M","Net BS 6M",
                                 "NN 1T (tỷ)","NN 1M (tỷ)","NN 3M (tỷ)",
@@ -554,7 +554,7 @@ def render_market_tab() -> None:
                                 v = float(val)
                                 display = f"+{v:,.1f}M" if v > 0 else f"{v:,.1f}M"
                                 color = "#10b981" if v > 0 else ("#ef4444" if v < 0 else "#9ca3af")
-                            elif col in ("Vốn hoá (tỷ)","Freefloat~30% (tỷ)","GTGD TB (tỷ)"):
+                            elif col in ("Vốn hoá (tỷ)","Freefloat (tỷ)","GTGD TB (tỷ)"):
                                 display = f"{float(val):,.0f}"
                                 color = "#e5e7eb"
                             elif col in ("Vol Avg 5","Vol Avg 10","Vol Avg 20"):

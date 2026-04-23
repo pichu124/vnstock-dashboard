@@ -3136,6 +3136,14 @@ def _load_all_market_data() -> tuple:
                     except Exception:
                         pass
 
+        # Freefloat lookup (optional — falls back to 30% proxy if file absent)
+        _freefloat_map: dict = {}
+        try:
+            from vnstock_freefloat import FreefloatUpdater
+            _freefloat_map = FreefloatUpdater("data_warehouse").load_map()
+        except Exception:
+            pass
+
         # ── Single loop: market overview + breadth ────────────────────────────
         cutoff = pd.Timestamp(date.today() - timedelta(days=400))  # đủ cho MA200 + 52W
         rows = []
@@ -3249,12 +3257,14 @@ def _load_all_market_data() -> tuple:
                 # mktcap = giá (nghìn VND) × 1000 (→ VND) × shares / 1e9 (→ tỷ)
                 mktcap = last * 1000 * issue_share / 1e9 if issue_share > 0 else 0.0
                 mktcap_proxy = last * 1000 * vol20 / 1e9
+                freefloat_val = round(mktcap * _freefloat_map.get(ticker, 30.0) / 100, 1)
 
                 rows.append({
                     "ticker": ticker, "last": last,
                     "vol5": vol5, "vol10": vol10, "vol20": vol20,
                     "vol5_sum": vol5_sum, "vol20_sum": vol20_sum,
                     "mktcap": mktcap, "mktcap_proxy": mktcap_proxy,
+                    "freefloat_val": freefloat_val,
                     "amp5": amp5, "amp20": amp20, "amp60": amp60,
                     "chg5": chg5, "chg20": chg20, "chg60": chg60,
                 })
@@ -3314,10 +3324,12 @@ def _load_all_market_data() -> tuple:
             net_m  = sum(_nn_m.get(t, 0)  for t in tickers_in)
             net_3m = sum(_nn_3m.get(t, 0) for t in tickers_in)
 
+            total_freefloat = grp["freefloat_val"].sum()
             return pd.Series({
-                "Số mã":        n,
-                "Vốn hoá (tỷ)": round(total_mktcap, 0),
-                "GTGD TB (tỷ)": round(gtgd_tb, 0),
+                "Số mã":          n,
+                "Vốn hoá (tỷ)":   round(total_mktcap, 0),
+                "Freefloat (tỷ)": round(total_freefloat, 0),
+                "GTGD TB (tỷ)":   round(gtgd_tb, 0),
                 "Vol Avg 5":    round(v5  / 1e6, 1),
                 "Vol Avg 10":   round(v10 / 1e6, 1),
                 "Vol Avg 20":   round(v20 / 1e6, 1),
@@ -3336,7 +3348,7 @@ def _load_all_market_data() -> tuple:
         # Ticker-level display data
         tick_display = merged.copy()
         tick_display["Vốn hoá (tỷ)"] = tick_display["mktcap"].round(0)
-        tick_display["Freefloat~30% (tỷ)"] = (tick_display["mktcap"] * 0.30).round(0)
+        tick_display["Freefloat (tỷ)"] = tick_display["freefloat_val"].round(0)
         tick_display["GTGD TB (tỷ)"] = tick_display["mktcap_proxy"].round(1)
         tick_display["Vol Avg 5"] = (tick_display["vol5"] / 1e6).round(1)
         tick_display["Vol Avg 10"] = (tick_display["vol10"] / 1e6).round(1)
