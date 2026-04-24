@@ -798,6 +798,7 @@ def render_market_tab() -> None:
                 try:
                     from vnstock_market_analyzer import (
                         compute_scores, market_regime, rank, format_row,
+                        session_timing_signal,
                     )
                     scores = compute_scores(mkt_data)
                     regime = market_regime(scores, breadth_data)
@@ -806,6 +807,20 @@ def render_market_tab() -> None:
                     lines.append("")
                     lines.append(f"**🧠 Quant regime: {regime['regime']}**  · "
                                  f"conviction `{regime['conviction']:+.2f}` · {regime['detail']}")
+
+                    # Session timing signal (institutional vs retail bias)
+                    try:
+                        from vnstock_session_stats import load_session_stats_history
+                        from datetime import date as _td
+                        _sess_hist = load_session_stats_history()
+                        _today_key = _td.today().isoformat()
+                        _today_sess = _sess_hist.get(_today_key)
+                        if _today_sess:
+                            _st = session_timing_signal(_today_sess, _sess_hist, index_name="VNINDEX")
+                            if _st["signal"] != "N/A":
+                                lines.append(f"  · **Session timing**: {_st['signal']} — {_st['detail']}")
+                    except Exception:
+                        pass
 
                     # Top sectors
                     if ranked["top"]:

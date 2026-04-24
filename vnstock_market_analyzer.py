@@ -240,6 +240,94 @@ def market_regime(scores: pd.DataFrame,
     }
 
 
+# ── Session timing (institutional vs retail bias) ──────────────────────────
+def session_timing_signal(session_stats_today: dict | None,
+                           history: dict | None = None,
+                           index_name: str = "VNINDEX") -> dict:
+    """Detect institutional vs retail bias from today's intraday session profile.
+
+    Logic:
+      - Morning share = GTGD(9h-11h30) / GTGD(9h-15h)
+        * > 55% → institutional morning push (positive for follow-through)
+        * 40-55% → balanced
+        * < 40% → late-day dominant → often retail chasing, weaker quality
+
+    Args:
+      session_stats_today: dict shaped like {window: {index: {vol, gtgd, ...}}}
+      history: optional full history for computing today vs 20-day norm
+      index_name: which index to use as market proxy (default VNINDEX)
+
+    Returns:
+      dict with keys: signal, morning_share, detail, flag (+1/-1/0)
+    """
+    if not session_stats_today:
+        return {"signal": "N/A", "morning_share": None, "detail": "Chưa có session stats hôm nay", "flag": 0}
+
+    morn = session_stats_today.get("9h-11h30", {}).get(index_name, {}).get("gtgd", 0) or 0
+    full = session_stats_today.get("9h-15h",  {}).get(index_name, {}).get("gtgd", 0) or 0
+    if full <= 0:
+        return {"signal": "N/A", "morning_share": None, "detail": "Thiếu dữ liệu phiên cả ngày", "flag": 0}
+
+    morning_share = morn / full
+
+    # Baseline: 9h-11h30 window là 2.5h / 5h trading = 50% nếu volume rải đều
+    # So any deviation is meaningful
+    if morning_share > 0.58:
+        signal = "🌅 Institutional morning"
+        flag = 1
+        detail = (f"Sáng chiếm `{morning_share*100:.0f}%` GTGD cả ngày (baseline 50%) → "
+                  f"tổ chức mua/bán sớm, chất lượng phiên cao")
+    elif morning_share > 0.52:
+        signal = "📈 Sáng thiên mạnh"
+        flag = 1
+        detail = f"Sáng chiếm `{morning_share*100:.0f}%` GTGD (khá cân, thiên sáng)"
+    elif morning_share >= 0.45:
+        signal = "⚖️ Cân bằng"
+        flag = 0
+        detail = f"Phân bổ đều 2 phiên (sáng `{morning_share*100:.0f}%`)"
+    elif morning_share >= 0.38:
+        signal = "🌆 Chiều chủ đạo"
+        flag = -1
+        detail = f"Chiều chiếm `{(1-morning_share)*100:.0f}%` GTGD → retail/short-term bias"
+    else:
+        signal = "🎢 Retail chasing"
+        flag = -1
+        detail = (f"Chiều nổ mạnh `{(1-morning_share)*100:.0f}%` GTGD → "
+                  f"có thể retail đuổi giá cuối phiên, cẩn trọng follow-through")
+
+    # Compare to history if available
+    extra = ""
+    if history:
+        try:
+            from datetime import date, timedelta
+            hist_shares = []
+            for k, v in history.items():
+                try:
+                    _d = date.fromisoformat(k)
+                    if (date.today() - _d).days <= 20 and _d != date.today():
+                        _m = v.get("9h-11h30", {}).get(index_name, {}).get("gtgd", 0) or 0
+                        _f = v.get("9h-15h",  {}).get(index_name, {}).get("gtgd", 0) or 0
+                        if _f > 0:
+                            hist_shares.append(_m / _f)
+                except Exception:
+                    continue
+            if hist_shares:
+                avg = sum(hist_shares) / len(hist_shares)
+                delta = morning_share - avg
+                if abs(delta) >= 0.05:
+                    arrow = "↑" if delta > 0 else "↓"
+                    extra = f" · 20d avg `{avg*100:.0f}%` ({arrow}`{abs(delta)*100:.0f}pp`)"
+        except Exception:
+            pass
+
+    return {
+        "signal": signal,
+        "morning_share": round(morning_share, 3),
+        "detail": detail + extra,
+        "flag": flag,
+    }
+
+
 # ── Ranking ───────────────────────────────────────────────────────────────
 def rank(df: pd.DataFrame, scores: pd.DataFrame,
          n_top: int = 5, n_bot: int = 5, name_col: str = "Ngành") -> dict:
