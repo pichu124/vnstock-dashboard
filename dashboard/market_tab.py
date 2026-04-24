@@ -381,6 +381,35 @@ def render_market_tab() -> None:
         _avg_vol_cols = ("AVG 5-10 %","AVG 10-20 %")
         _free_vol_cols = ("Vol 5/Free %","Vol 10/Free %","Vol 20/Free %")
 
+        # Heatmap scale cho Vol X/Free % — dùng chung cho sector + drill-down
+        _fvol_all_vals = []
+        for _fc in _free_vol_cols:
+            if _fc in mkt_df.columns:
+                _fvol_all_vals.extend(v for v in mkt_df[_fc].dropna().tolist()
+                                      if isinstance(v, (int, float)) and not np.isnan(v))
+        _fvol_min = min(_fvol_all_vals) if _fvol_all_vals else 0
+        _fvol_max = max(_fvol_all_vals) if _fvol_all_vals else 1
+        _fvol_rng = _fvol_max - _fvol_min if _fvol_max > _fvol_min else 1
+
+        def _fvol_colors(val, fmin=None, frng=None):
+            """(bg, text) — gradient vàng nhạt → cam → đỏ theo tỷ lệ vol/freefloat."""
+            mn = fmin if fmin is not None else _fvol_min
+            rn = frng if frng is not None else _fvol_rng
+            t = max(0, min(1, (float(val) - mn) / rn))
+            if t < 0.5:
+                s = t / 0.5
+                r = int(254 + (249 - 254) * s)
+                g = int(252 + (115 - 252) * s)
+                b = int(232 + (22  - 232) * s)
+            else:
+                s = (t - 0.5) / 0.5
+                r = int(249 + (153 - 249) * s)
+                g = int(115 + (27  - 115) * s)
+                b = int(22  + (27  -  22) * s)
+            bg   = f"rgb({r},{g},{b})"
+            text = "#111827" if t < 0.35 else "#ffffff"
+            return bg, text
+
         def color_val(val, col):
             """Trả về màu CSS theo giá trị."""
             if val is None or (isinstance(val, float) and np.isnan(val)):
@@ -388,7 +417,7 @@ def render_market_tab() -> None:
             if col in ("Giá 1T %","Giá 1M %","Giá 3M %") + _nn_cols + _net_bs_cols + _avg_vol_cols:
                 return "#10b981" if float(val) > 0 else ("#ef4444" if float(val) < 0 else "#9ca3af")
             if col in _free_vol_cols:
-                return "#e5e7eb"
+                return "#e5e7eb"  # overridden by cell-level heatmap rendering
             if col == "Vol 5/20 %":
                 v = float(val)
                 return "#10b981" if v > 110 else ("#ef4444" if v < 90 else "#e5e7eb")
@@ -474,6 +503,9 @@ def render_market_tab() -> None:
                             f'<div style="width:60px;height:14px;background:#1a2234;border-radius:2px;overflow:hidden">'
                             f'<div style="width:{bar_w}%;height:100%;background:{bar_color};border-radius:2px"></div>'
                             f'</div></div></td>')
+                    elif col in _free_vol_cols and val is not None and not (isinstance(val, float) and np.isnan(val)):
+                        bg_c, txt_c = _fvol_colors(val)
+                        cells.append(f'<td style="{td_base}background:{bg_c};color:{txt_c};text-align:right;border-radius:3px;font-weight:500">{display}</td>')
                     else:
                         align = "right" if col != "Ngành" else "left"
                         cells.append(f'<td style="{td_base}color:{color};text-align:{align}">{display}</td>')
@@ -543,6 +575,16 @@ def render_market_tab() -> None:
                             b = int(11 + (68 - 11) * ((t - 0.5) / 0.5))
                         return f"rgb({r},{g},{b})"
 
+                    # Heatmap scale cho Vol X/Free % trong drill-down (local range)
+                    _dd_fvol_vals = []
+                    for _fc in _free_vol_cols:
+                        if _fc in sector_df.columns:
+                            _dd_fvol_vals.extend(v for v in sector_df[_fc].dropna().tolist()
+                                                 if isinstance(v, (int, float)) and not np.isnan(v))
+                    _dd_fvol_min = min(_dd_fvol_vals) if _dd_fvol_vals else 0
+                    _dd_fvol_rng = (max(_dd_fvol_vals) - _dd_fvol_min) if _dd_fvol_vals else 1
+                    _dd_fvol_rng = _dd_fvol_rng if _dd_fvol_rng > 0 else 1
+
                     dd_rows = []
                     for i, (_, row) in enumerate(sector_df.iterrows()):
                         bg = "#0d1117" if i % 2 == 0 else "#111827"
@@ -603,6 +645,9 @@ def render_market_tab() -> None:
                                     f'<div style="width:60px;height:14px;background:#1a2234;border-radius:2px;overflow:hidden">'
                                     f'<div style="width:{bar_w}%;height:100%;background:{bar_c};border-radius:2px"></div>'
                                     f'</div></div></td>')
+                            elif col in _free_vol_cols and val is not None and not (isinstance(val, float) and np.isnan(val)):
+                                bg_c, txt_c = _fvol_colors(val, _dd_fvol_min, _dd_fvol_rng)
+                                cells.append(f'<td style="{td_base}background:{bg_c};color:{txt_c};text-align:right;border-radius:3px;font-weight:500">{display}</td>')
                             else:
                                 cells.append(f'<td style="{td_base}color:{color};text-align:right">{display}</td>')
 
