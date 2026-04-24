@@ -2275,6 +2275,89 @@ def compute_session_stats() -> dict:
     return result
 
 
+def backfill_session_stats() -> int:
+    """
+    Fill gaps in session stats by processing all dates returned by the API
+    (API lookback = 5 calendar days). Only fills missing dates, never overwrites.
+    Returns number of dates filled.
+    """
+    from datetime import date, timedelta
+
+    all_data: dict = {}
+    if SESSION_STATS_PATH.exists():
+        try:
+            all_data = json.loads(SESSION_STATS_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    # Fetch intraday for all indices — API returns last 5 calendar days
+    index_data: dict = {}
+    for display_name, symbol in _INDEX_SYMBOL_MAP.items():
+        df = _fetch_index_intraday(symbol)
+        if not df.empty:
+            index_data[display_name] = df
+
+    if not index_data:
+        return 0
+
+    # All trading dates available in the API response
+    all_dates: set = set()
+    for df in index_data.values():
+        all_dates |= set(df["time"].dt.date.unique())
+
+    filled = 0
+    for d in sorted(all_dates):
+        d_str = d.isoformat()
+        if d_str in all_data:
+            continue  # don't overwrite existing
+        if d.weekday() >= 5:
+            continue  # skip weekends
+
+        # Compute stats for this date across all windows
+        result: dict = {}
+        day_slices = {
+            name: df[df["time"].dt.date == d].copy()
+            for name, df in index_data.items()
+        }
+        for window_name, (_, end_time) in SESSION_WINDOWS.items():
+            window_stats: dict = {}
+            for display_name in SESSION_INDICES:
+                day_df = day_slices.get(display_name, pd.DataFrame())
+                if day_df.empty:
+                    window_stats[display_name] = {"vol": 0, "gtgd": 0, "gtgd_per_vol": 0}
+                    continue
+                mask = day_df["time"].dt.strftime("%H:%M") <= end_time
+                window_df = day_df[mask]
+                if window_df.empty:
+                    window_stats[display_name] = {"vol": 0, "gtgd": 0, "gtgd_per_vol": 0}
+                    continue
+                vol = float(window_df["volume"].sum())
+                closes = window_df["close"].astype(float)
+                volumes = window_df["volume"].astype(float)
+                gtgd = float((closes * volumes).sum()) / (1e6 if closes.max() < 500 else 1e9)
+                window_stats[display_name] = {
+                    "vol": int(vol),
+                    "gtgd": round(gtgd, 1),
+                    "gtgd_per_vol": round(gtgd * 1e9 / vol if vol > 0 else 0, 0),
+                }
+            result[window_name] = window_stats
+
+        all_data[d_str] = result
+        filled += 1
+
+    if filled > 0:
+        cutoff = (date.today() - timedelta(days=90)).isoformat()
+        all_data = {k: v for k, v in all_data.items() if k >= cutoff}
+        SESSION_STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        SESSION_STATS_PATH.write_text(
+            json.dumps(all_data, ensure_ascii=False, indent=2),
+            encoding="utf-8"
+        )
+        load_session_stats_history.clear()
+
+    return filled
+
+
 def save_session_stats(stats: dict):
     """Save session stats to JSON with date key. Keeps 90 days history."""
     from datetime import date, timedelta

@@ -646,7 +646,14 @@ if __name__ == "__main__":
     try:
         import sys as _sys
         _sys.path.insert(0, str(Path(__file__).resolve().parent))
-        from vnstock_dashboard import compute_session_stats, save_session_stats
+        from vnstock_dashboard import (
+            compute_session_stats, save_session_stats, backfill_session_stats,
+        )
+        # Backfill any missing dates in the 5-day API window first
+        _filled = backfill_session_stats()
+        if _filled:
+            console.print(f"  [dim]Session stats: backfilled {_filled} missing date(s)[/dim]")
+        # Then save today's data
         _ss = compute_session_stats()
         if _ss:
             save_session_stats(_ss)
