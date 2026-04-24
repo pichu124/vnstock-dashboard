@@ -857,7 +857,7 @@ def _normalize_price_units(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_price_history(ticker: str, days: int = 0) -> pd.DataFrame:
     """Load lịch sử giá. days=0 → toàn bộ lịch sử. Cached 5 phút."""
     ticker_dir = PRICES_DIR / f"ticker={ticker.upper()}"
@@ -2990,7 +2990,7 @@ function doSort(col, th) {{
 _MARKET_OVERVIEW_PATH = Path("data_warehouse/_meta/market_overview.json")
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def _load_all_market_data() -> tuple:
     """
     Unified loader: 1 loop duy nhất cho cả market_overview + breadth.
@@ -3330,8 +3330,8 @@ def load_breadth_indicators() -> dict:
     return st.session_state.get("_mkt_breadth", {})
 
 
-@st.cache_data(ttl=300, show_spinner=False)
-def load_index_overview(days: int = 30) -> pd.DataFrame:
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_index_overview(days: int = 90) -> pd.DataFrame:
     """
     Lấy dữ liệu chỉ số VNINDEX, VN30, HNXINDEX, HNX30 từ API.
     Trả về DataFrame pivot: mỗi dòng = 1 ngày, cột = index metrics.

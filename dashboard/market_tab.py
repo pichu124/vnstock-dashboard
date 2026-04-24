@@ -244,8 +244,9 @@ def render_market_tab() -> None:
         st.divider()
 
     # ── Chỉ số thị trường ────────────────────────────────────────────────────
+    # Load 90 ngày một lần, reuse cho sparklines + quant analysis + commentary
     with st.spinner("Đang tải dữ liệu chỉ số..."):
-        idx_df = load_index_overview(days=30)
+        idx_df = load_index_overview(days=90)
 
     if not idx_df.empty:
         st.markdown("#### 📈 Diễn biến chỉ số thị trường (30 phiên)")
@@ -574,7 +575,7 @@ def render_market_tab() -> None:
             try:
                 import json as _json
                 _tick_data_spark = st.session_state.get("_mkt_ticker_data")
-                _idx_long_spark = load_index_overview(days=45)
+                _idx_long_spark = idx_df  # reuse already-loaded 90d data
                 if (_tick_data_spark is not None and not _tick_data_spark.empty
                         and _idx_long_spark is not None and not _idx_long_spark.empty
                         and "Ngành" in _tick_data_spark.columns
@@ -703,7 +704,7 @@ def render_market_tab() -> None:
                         # Index returns for alpha computation
                         _dd_idx_ret = None
                         try:
-                            _idx_long_dd = load_index_overview(days=90)
+                            _idx_long_dd = idx_df  # reuse already-loaded 90d data
                             if _idx_long_dd is not None and not _idx_long_dd.empty:
                                 _dd_idx_ret = _cir(_idx_long_dd, index_col="VNINDEX")
                         except Exception:
@@ -1080,7 +1081,7 @@ def render_market_tab() -> None:
                     # Load 90-day index data for alpha computation
                     _idx_ret = None
                     try:
-                        _idx_long = load_index_overview(days=90)
+                        _idx_long = idx_df  # reuse already-loaded 90d data
                         if _idx_long is not None and not _idx_long.empty:
                             _idx_ret = compute_index_returns(_idx_long, index_col="VNINDEX")
                     except Exception:
