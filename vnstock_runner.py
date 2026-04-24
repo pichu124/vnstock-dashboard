@@ -29,6 +29,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 from vnstock_screener import MarketScreener, PRESETS
 
 from rich.console import Console
+from rich.progress import (
+    BarColumn, MofNCompleteColumn, Progress,
+    SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn,
+)
 console = Console(force_terminal=True)
 
 OUTPUT_FILE = "screener_results.json"
