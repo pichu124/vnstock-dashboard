@@ -644,16 +644,10 @@ if __name__ == "__main__":
     # Step 3: Session stats (intraday) — auto-save today's data
     console.log("[bold]Step 3/3: Session stats[/bold]")
     try:
-        import sys as _sys
-        _sys.path.insert(0, str(Path(__file__).resolve().parent))
-        from vnstock_dashboard import (
-            compute_session_stats, save_session_stats, backfill_session_stats,
-        )
-        # Backfill any missing dates in the 5-day API window first
+        from vnstock_session_stats import compute_session_stats, save_session_stats, backfill_session_stats
         _filled = backfill_session_stats()
         if _filled:
             console.print(f"  [dim]Session stats: backfilled {_filled} missing date(s)[/dim]")
-        # Then save today's data
         _ss = compute_session_stats()
         if _ss:
             save_session_stats(_ss)

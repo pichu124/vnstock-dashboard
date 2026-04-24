@@ -2169,17 +2169,14 @@ def load_fundamental(ticker: str) -> dict:
 # ═════════════════════════════════════════════════════════════════════════════
 # Market Session Stats — 4 time-window snapshots
 # ═════════════════════════════════════════════════════════════════════════════
+from vnstock_session_stats import (  # noqa: E402
+    SESSION_WINDOWS, SESSION_INDICES,
+    compute_session_stats, backfill_session_stats,
+    save_session_stats as _save_session_stats_impl,
+    load_session_stats_history as _load_session_stats_impl,
+)
 
-SESSION_WINDOWS = {
-    "9h-10h":   ("09:00", "10:00"),
-    "9h-11h30": ("09:00", "11:30"),
-    "9h-14h":   ("09:00", "14:00"),
-    "9h-15h":   ("09:00", "15:00"),
-}
-
-SESSION_INDICES = ["VNINDEX", "VN30", "HNX", "UPCOM"]
-
-# Map index names to vnstock symbols
+# Map index names to vnstock symbols (kept for render_session_stats_table)
 _INDEX_SYMBOL_MAP = {
     "VNINDEX": "VNINDEX",
     "VN30": "VN30",
@@ -2189,219 +2186,20 @@ _INDEX_SYMBOL_MAP = {
 
 
 def _fetch_index_intraday(index_symbol: str) -> pd.DataFrame:
-    """Fetch 1m intraday data for an index. Returns DataFrame with time, close, volume.
-    Tries multiple symbol variations for compatibility."""
-    from vnstock_auth import get_vnstock
-    from datetime import date, timedelta
-    today = date.today().strftime("%Y-%m-%d")
-    start = (date.today() - timedelta(days=5)).strftime("%Y-%m-%d")
-
-    # Try multiple symbol variations
-    symbols_to_try = [index_symbol]
-    if index_symbol == "UPCOM":
-        symbols_to_try = ["UPCOM", "UPCOM-INDEX", "UPINDEX", "HNX30"]
-    elif index_symbol == "HNXINDEX":
-        symbols_to_try = ["HNXINDEX", "HNX-INDEX", "HNX"]
-
-    for sym in symbols_to_try:
-        try:
-            stock = get_vnstock(sym)
-            df = stock.quote.history(start=start, end=today, interval="1m")
-            if df is not None and not df.empty:
-                df["time"] = pd.to_datetime(df["time"])
-                return df[["time", "open", "high", "low", "close", "volume"]].copy()
-        except Exception:
-            continue
-    return pd.DataFrame()
-
-
-def compute_session_stats() -> dict:
-    """
-    Compute market session stats for 4 time windows.
-    Returns: {window_name: {index_name: {vol, gtgd, gtgd_per_vol}}}
-    """
-    from datetime import date
-    today = date.today()
-    result = {}
-
-    # Fetch intraday data for each index
-    index_data = {}
-    for display_name, symbol in _INDEX_SYMBOL_MAP.items():
-        df = _fetch_index_intraday(symbol)
-        if not df.empty:
-            # Filter today only
-            today_df = df[df["time"].dt.date == today].copy()
-            if not today_df.empty:
-                today_df = today_df.sort_values("time")
-                index_data[display_name] = today_df
-
-    # Compute stats for each time window
-    for window_name, (start_time, end_time) in SESSION_WINDOWS.items():
-        window_stats = {}
-        for display_name in SESSION_INDICES:
-            if display_name not in index_data:
-                window_stats[display_name] = {"vol": 0, "gtgd": 0, "gtgd_per_vol": 0}
-                continue
-
-            df = index_data[display_name]
-            # Filter by time window
-            mask = df["time"].dt.strftime("%H:%M") <= end_time
-            window_df = df[mask]
-
-            if window_df.empty:
-                window_stats[display_name] = {"vol": 0, "gtgd": 0, "gtgd_per_vol": 0}
-                continue
-
-            # SUM volume across all bars in window (not last row!)
-            vol = float(window_df["volume"].sum())
-            # GTGD = sum(close_i * volume_i) for each bar
-            closes = window_df["close"].astype(float)
-            volumes = window_df["volume"].astype(float)
-            # close ở nghìn VND → close * 1000 * volume / 1e9 = close * volume / 1e6
-            if closes.max() < 500:
-                gtgd = float((closes * volumes).sum()) / 1e6
-            else:
-                gtgd = float((closes * volumes).sum()) / 1e9
-            gtgd_per_vol = (gtgd * 1e9 / vol) if vol > 0 else 0
-
-            window_stats[display_name] = {
-                "vol": int(vol),
-                "gtgd": round(gtgd, 1),
-                "gtgd_per_vol": round(gtgd_per_vol, 0),
-            }
-
-        result[window_name] = window_stats
-
-    return result
-
-
-def backfill_session_stats() -> int:
-    """
-    Fill gaps in session stats by processing all dates returned by the API
-    (API lookback = 5 calendar days). Only fills missing dates, never overwrites.
-    Returns number of dates filled.
-    """
-    from datetime import date, timedelta
-
-    all_data: dict = {}
-    if SESSION_STATS_PATH.exists():
-        try:
-            all_data = json.loads(SESSION_STATS_PATH.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-
-    # Fetch intraday for all indices — API returns last 5 calendar days
-    index_data: dict = {}
-    for display_name, symbol in _INDEX_SYMBOL_MAP.items():
-        df = _fetch_index_intraday(symbol)
-        if not df.empty:
-            index_data[display_name] = df
-
-    if not index_data:
-        return 0
-
-    # All trading dates available in the API response
-    all_dates: set = set()
-    for df in index_data.values():
-        all_dates |= set(df["time"].dt.date.unique())
-
-    filled = 0
-    for d in sorted(all_dates):
-        d_str = d.isoformat()
-        if d_str in all_data:
-            continue  # don't overwrite existing
-        if d.weekday() >= 5:
-            continue  # skip weekends
-
-        # Compute stats for this date across all windows
-        result: dict = {}
-        day_slices = {
-            name: df[df["time"].dt.date == d].copy()
-            for name, df in index_data.items()
-        }
-        for window_name, (_, end_time) in SESSION_WINDOWS.items():
-            window_stats: dict = {}
-            for display_name in SESSION_INDICES:
-                day_df = day_slices.get(display_name, pd.DataFrame())
-                if day_df.empty:
-                    window_stats[display_name] = {"vol": 0, "gtgd": 0, "gtgd_per_vol": 0}
-                    continue
-                mask = day_df["time"].dt.strftime("%H:%M") <= end_time
-                window_df = day_df[mask]
-                if window_df.empty:
-                    window_stats[display_name] = {"vol": 0, "gtgd": 0, "gtgd_per_vol": 0}
-                    continue
-                vol = float(window_df["volume"].sum())
-                closes = window_df["close"].astype(float)
-                volumes = window_df["volume"].astype(float)
-                gtgd = float((closes * volumes).sum()) / (1e6 if closes.max() < 500 else 1e9)
-                window_stats[display_name] = {
-                    "vol": int(vol),
-                    "gtgd": round(gtgd, 1),
-                    "gtgd_per_vol": round(gtgd * 1e9 / vol if vol > 0 else 0, 0),
-                }
-            result[window_name] = window_stats
-
-        all_data[d_str] = result
-        filled += 1
-
-    if filled > 0:
-        cutoff = (date.today() - timedelta(days=90)).isoformat()
-        all_data = {k: v for k, v in all_data.items() if k >= cutoff}
-        SESSION_STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        SESSION_STATS_PATH.write_text(
-            json.dumps(all_data, ensure_ascii=False, indent=2),
-            encoding="utf-8"
-        )
-        load_session_stats_history.clear()
-
-    return filled
+    from vnstock_session_stats import _fetch_index_intraday as _impl
+    return _impl(index_symbol)
 
 
 def save_session_stats(stats: dict):
-    """Save session stats to JSON with date key. Keeps 90 days history."""
-    from datetime import date, timedelta
-    today_str = date.today().isoformat()
-
-    # Load existing
-    all_data = {}
-    if SESSION_STATS_PATH.exists():
-        try:
-            all_data = json.loads(SESSION_STATS_PATH.read_text(encoding="utf-8"))
-        except (OSError, PermissionError) as e:
-            log.warning("Không đọc được session stats (%s): %s", SESSION_STATS_PATH, e)
-        except json.JSONDecodeError as e:
-            log.error("Session stats JSON hỏng (%s) — sẽ ghi đè: %s", SESSION_STATS_PATH, e)
-
-    # Update today
-    all_data[today_str] = stats
-
-    # Prune old data (keep 90 days)
-    cutoff = (date.today() - timedelta(days=90)).isoformat()
-    all_data = {k: v for k, v in all_data.items() if k >= cutoff}
-
-    # Write
-    SESSION_STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    SESSION_STATS_PATH.write_text(
-        json.dumps(all_data, ensure_ascii=False, indent=2),
-        encoding="utf-8"
-    )
-    # Invalidate cache so next read sees the update
+    """Save today's session stats. Invalidates Streamlit cache after write."""
+    _save_session_stats_impl(stats)
     load_session_stats_history.clear()
 
 
 @st.cache_data(ttl=60, show_spinner=False)
 def load_session_stats_history() -> dict:
-    """Load all session stats history (cached 60s)."""
-    if not SESSION_STATS_PATH.exists():
-        return {}
-    try:
-        return json.loads(SESSION_STATS_PATH.read_text(encoding="utf-8"))
-    except (OSError, PermissionError) as e:
-        log.warning("Không đọc được session stats (%s): %s", SESSION_STATS_PATH, e)
-    except json.JSONDecodeError as e:
-        log.error("Session stats JSON hỏng (%s): %s", SESSION_STATS_PATH, e)
-    return {}
+    """Load session stats history (Streamlit-cached 60s)."""
+    return _load_session_stats_impl()
 
 
 def render_session_stats_table(window_name: str, stats_today: dict, history: dict):
