@@ -5,8 +5,11 @@ Can be safely imported from vnstock_runner.py or any non-Streamlit context.
 from __future__ import annotations
 
 import json
+import logging
 from datetime import date, timedelta
 from pathlib import Path
+
+logging.getLogger("vnstock.common.data").setLevel(logging.WARNING)
 
 import pandas as pd
 
