@@ -430,7 +430,7 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
         _t0_nb = _nb_time.time()
         _top_tickers = [r["ticker"] for r in sorted(rows, key=lambda r: -r.get("mktcap", 0))]
         _nb_futures = []
-        with _cf.ThreadPoolExecutor(max_workers=10) as _ex:
+        with _cf.ThreadPoolExecutor(max_workers=3) as _ex:
             _nb_futures = [_ex.submit(_fetch_nb, tk) for tk in _top_tickers]
             for _fut in _cf.as_completed(_nb_futures, timeout=180):
                 try:
