@@ -549,14 +549,16 @@ def render_market_tab() -> None:
                             build_preset_sets as _bps,
                             _sector_technical_summary as _sts,
                             compute_index_returns as _cir,
+                            load_quarantine_tickers as _lqt,
+                            load_recent_exdiv as _lred,
                         )
-                        # Load screener presets một lần cho toàn drill-down
+                        # Load screener presets
                         try:
                             from vnstock_dashboard import load_screener_results as _lsr
                             _presets = _bps(_lsr())
                         except Exception:
                             _presets = None
-                        # Index returns cho alpha computation
+                        # Index returns for alpha computation
                         _dd_idx_ret = None
                         try:
                             _idx_long_dd = load_index_overview(days=90)
@@ -564,10 +566,15 @@ def render_market_tab() -> None:
                                 _dd_idx_ret = _cir(_idx_long_dd, index_col="VNINDEX")
                         except Exception:
                             pass
+                        # Quarantine + ex-div filters
+                        _quarantined = _lqt()
+                        _exdiv = _lred(days_back=7)
 
-                        _sec_scores = _cs(sector_df, presets=_presets, index_returns=_dd_idx_ret)
+                        _sec_scores = _cs(sector_df, presets=_presets,
+                                          index_returns=_dd_idx_ret, exdiv_map=_exdiv)
                         if not _sec_scores.empty:
-                            _sec_ranked = _rk(sector_df, _sec_scores, n_top=3, n_bot=3, name_col="Mã")
+                            _sec_ranked = _rk(sector_df, _sec_scores, n_top=3, n_bot=3,
+                                              name_col="Mã", quarantined=_quarantined)
                             _sec_comp_avg = float(_sec_scores["composite"].mean())
                             _sec_verdict = ("🔥 Dòng tiền mạnh" if _sec_comp_avg > 0.5
                                             else "📈 Tích cực" if _sec_comp_avg > 0.1
@@ -575,9 +582,15 @@ def render_market_tab() -> None:
                                             else "📉 Yếu" if _sec_comp_avg > -0.5
                                             else "❄️ Rất yếu")
                             _tech_summary = _sts(sector_df, _presets) if _presets else ""
+                            # Vol regime badge
+                            _vr_badge = ""
+                            if "_vol_regime" in _sec_scores.columns:
+                                _vr = _sec_scores["_vol_regime"].mode()
+                                if not _vr.empty and _vr.iloc[0] == "high":
+                                    _vr_badge = " · ⚡ High-vol"
 
                             _exp_title = (f"🧠 Quant view · **{_selected_nganh}** · "
-                                          f"Composite TB `{_sec_comp_avg:+.2f}` · {_sec_verdict}")
+                                          f"Composite TB `{_sec_comp_avg:+.2f}` · {_sec_verdict}{_vr_badge}")
                             if _tech_summary:
                                 _exp_title += f" · {_tech_summary}"
                             with st.expander(_exp_title, expanded=True):
@@ -603,6 +616,14 @@ def render_market_tab() -> None:
                                     st.markdown("\n".join(_a_lines) if _a_lines
                                                 else "_Không có mã nào có composite âm._")
 
+                                if _sec_ranked.get("rotation"):
+                                    st.markdown("**🔄 Rotation signal (warming up)**")
+                                    _rot_lines = []
+                                    for r in _sec_ranked["rotation"]:
+                                        for ln in _fr(r, name_col="Mã"):
+                                            _rot_lines.append(ln if ln.startswith("  ") else f"- {ln}")
+                                    st.markdown("\n".join(_rot_lines))
+
                                 if _sec_ranked["stealth"]:
                                     st.markdown("**🕵️ Stealth / tích luỹ**")
                                     _s_lines = []
@@ -618,6 +639,14 @@ def render_market_tab() -> None:
                                         for ln in _fr(r, name_col="Mã"):
                                             _d_lines.append(ln if ln.startswith("  ") else f"- {ln}")
                                     st.markdown("\n".join(_d_lines))
+
+                                if _quarantined:
+                                    _quar_in_sector = _quarantined & set(
+                                        sector_df.get("Mã", pd.Series()).dropna().str.upper().tolist()
+                                    )
+                                    if _quar_in_sector:
+                                        st.caption(f"⚠️ Đã loại khỏi top picks do dữ liệu lỗi: "
+                                                   f"`{'`, `'.join(sorted(_quar_in_sector))}`")
                     except Exception as _qe:
                         st.caption(f"Quant analysis lỗi: `{_qe}`")
 
@@ -821,6 +850,7 @@ def render_market_tab() -> None:
                         compute_scores, market_regime, rank, format_row,
                         session_timing_signal, build_preset_sets,
                         compute_index_returns,
+                        load_quarantine_tickers, load_recent_exdiv,
                     )
                     # Load screener presets for ticker-level technical overlay
                     try:
@@ -838,9 +868,15 @@ def render_market_tab() -> None:
                     except Exception:
                         pass
 
-                    scores = compute_scores(mkt_data, index_returns=_idx_ret)
+                    # Quarantine + ex-div filters
+                    _quar_set = load_quarantine_tickers()
+                    _exdiv_map = load_recent_exdiv(days_back=7)
+
+                    scores = compute_scores(mkt_data, index_returns=_idx_ret,
+                                           exdiv_map=_exdiv_map)
                     regime = market_regime(scores, breadth_data)
-                    ranked = rank(mkt_data, scores, n_top=5, n_bot=5, name_col="Ngành")
+                    ranked = rank(mkt_data, scores, n_top=5, n_bot=5,
+                                  name_col="Ngành", quarantined=_quar_set)
 
                     lines.append("")
                     lines.append(f"**🧠 Quant regime: {regime['regime']}**  · "
@@ -873,6 +909,14 @@ def render_market_tab() -> None:
                         for row in ranked["top"]:
                             if row.get("composite", 0) <= 0:
                                 break  # không show ngành có composite âm
+                            for ln in format_row(row, name_col="Ngành"):
+                                lines.append(ln if ln.startswith("  ") else f"- {ln}")
+
+                    # Rotation signal (warming-up sectors)
+                    if ranked.get("rotation"):
+                        lines.append("")
+                        lines.append("**🔄 Sector rotation: ngành đang ấm lên (alpha 1M > 3M)**")
+                        for row in ranked["rotation"]:
                             for ln in format_row(row, name_col="Ngành"):
                                 lines.append(ln if ln.startswith("  ") else f"- {ln}")
 
@@ -915,8 +959,10 @@ def render_market_tab() -> None:
                             sub = tick_data[tick_data["Ngành"] == sname].copy()
                             if sub.empty:
                                 continue
-                            t_scores = compute_scores(sub, presets=_preset_sets, index_returns=_idx_ret)
-                            t_ranked = rank(sub, t_scores, n_top=3, n_bot=0, name_col="Mã")
+                            t_scores = compute_scores(sub, presets=_preset_sets,
+                                                     index_returns=_idx_ret, exdiv_map=_exdiv_map)
+                            t_ranked = rank(sub, t_scores, n_top=3, n_bot=0,
+                                            name_col="Mã", quarantined=_quar_set)
                             picks = []
                             for tr in t_ranked["top"]:
                                 if tr.get("composite", 0) <= 0:
@@ -940,8 +986,10 @@ def render_market_tab() -> None:
                                 sub = tick_data[tick_data["Ngành"] == sname].copy()
                                 if sub.empty:
                                     continue
-                                t_scores = compute_scores(sub, presets=_preset_sets, index_returns=_idx_ret)
-                                t_ranked = rank(sub, t_scores, n_top=0, n_bot=3, name_col="Mã")
+                                t_scores = compute_scores(sub, presets=_preset_sets,
+                                                         index_returns=_idx_ret, exdiv_map=_exdiv_map)
+                                t_ranked = rank(sub, t_scores, n_top=0, n_bot=3,
+                                                name_col="Mã", quarantined=_quar_set)
                                 flops = []
                                 for tr in t_ranked["avoid"]:
                                     if tr.get("composite", 0) >= 0:

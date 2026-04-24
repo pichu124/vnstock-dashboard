@@ -187,10 +187,73 @@ def _sector_technical_summary(sector_df: pd.DataFrame, presets: dict) -> str:
     return " · ".join(parts)
 
 
+# ── Quarantine & dividend helpers ────────────────────────────────────────
+def load_quarantine_tickers() -> set[str]:
+    """Return set of tickers with unresolved data-quality issues.
+    These should be excluded from top-pick rankings to avoid acting on bad data.
+    """
+    try:
+        from vnstock_quarantine import list_quarantine
+        q_df = list_quarantine()
+        if q_df.empty:
+            return set()
+        accepted_col = q_df.get("accepted") if "accepted" in q_df.columns else None
+        if accepted_col is not None:
+            q_df = q_df[~q_df["accepted"].fillna(False).astype(bool)]
+        return set(q_df["ticker"].dropna().str.upper().unique()) if "ticker" in q_df.columns else set()
+    except Exception:
+        return set()
+
+
+def load_recent_exdiv(days_back: int = 7) -> dict:
+    """Return tickers whose ex-dividend date falls within the last ``days_back`` days.
+
+    Used to suppress false "sell" red-flags when a price drop is simply the
+    stock going ex-dividend, not a distribution signal.
+
+    Returns {ticker_upper: {"ex_date": str, "amount": float}} for each match.
+    Best-effort: returns {} when the cash-dividend cache doesn't exist yet.
+    """
+    from datetime import date, timedelta
+    import json
+    from pathlib import Path
+
+    today = date.today()
+    cutoff = today - timedelta(days=days_back)
+    result: dict = {}
+
+    cache_dir = Path("data_warehouse/_meta/cash_dividends")
+    if not cache_dir.exists():
+        return {}
+
+    for fpath in cache_dir.glob("*.json"):
+        try:
+            ticker = fpath.stem.upper()
+            records = json.loads(fpath.read_text(encoding="utf-8"))
+            if not isinstance(records, list):
+                continue
+            for rec in records:
+                ex_str = rec.get("ex_date") or rec.get("ex_rights_date") or ""
+                try:
+                    ex_date = date.fromisoformat(str(ex_str)[:10])
+                except Exception:
+                    continue
+                if cutoff <= ex_date <= today:
+                    result[ticker] = {
+                        "ex_date": ex_date.isoformat(),
+                        "amount": rec.get("amount") or rec.get("value") or 0,
+                    }
+                    break
+        except Exception:
+            continue
+    return result
+
+
 # ── Core scoring ──────────────────────────────────────────────────────────
 def compute_scores(df: pd.DataFrame,
                     presets: dict | None = None,
-                    index_returns: dict | None = None) -> pd.DataFrame:
+                    index_returns: dict | None = None,
+                    exdiv_map: dict | None = None) -> pd.DataFrame:
     """Compute per-row composite scores. Works for both sector-level (mkt_df)
     and ticker-level (tick_data) DataFrames.
 
@@ -201,18 +264,33 @@ def compute_scores(df: pd.DataFrame,
       index_returns: optional dict {"1T": x, "1M": y, "3M": z} from
                compute_index_returns(idx_df). If provided, momentum uses
                ALPHA (excess return vs index) instead of raw returns.
+      exdiv_map: optional dict {ticker: {"ex_date": str, "amount": float}}
+               from load_recent_exdiv(). Suppresses false distribution flags
+               for stocks that just went ex-dividend.
 
     Returns DataFrame indexed same as input with columns:
       momentum, volume, flow, composite, verdict, red_flags, catalysts,
-      alpha_1T, alpha_1M, alpha_3M (if index_returns provided)
+      alpha_1T, alpha_1M, alpha_3M (if index_returns provided),
+      rotation (alpha_1M - alpha_3M, warming-up signal),
+      nn_trend (NN daily pace 1M vs 3M, accumulation trend),
+      _vol_regime ("high" | "normal")
     """
     if df is None or df.empty:
         return pd.DataFrame()
 
     out = pd.DataFrame(index=df.index)
 
+    # ── Volatility regime filter ───────────────────────────────────────────
+    # When market daily amplitude is high (avg Biên 1T > 2.5%), short-term
+    # signals become noisy — flatten the recency weights to reduce false signals.
+    amp1_regime = _safe(df, "Biên 1T (%)")
+    _mkt_vol = float(amp1_regime.mean()) if amp1_regime.notna().sum() >= 2 else 0.0
+    _high_vol = _mkt_vol > 2.5
+    out["_vol_regime"] = "high" if _high_vol else "normal"
+    # Momentum weights: under high vol flatten recency bias (less 1T, more 1M/3M)
+    _w_m1, _w_m2, _w_m3 = (0.3, 0.4, 0.3) if _high_vol else (0.5, 0.3, 0.2)
+
     # ── Momentum (price action or alpha vs benchmark) ──────────────────────
-    # Weight to recency: 1T=0.5, 1M=0.3, 3M=0.2
     raw_1t = _safe(df, "Giá 1T %")
     raw_1m = _safe(df, "Giá 1M %")
     raw_3m = _safe(df, "Giá 3M %")
@@ -231,11 +309,13 @@ def compute_scores(df: pd.DataFrame,
         m1 = _zscore(alpha_1t)
         m2 = _zscore(alpha_1m)
         m3 = _zscore(alpha_3m)
+        # Sector rotation: alpha_1M - alpha_3M > 0 = money rotating in recently
+        out["rotation"] = alpha_1m - alpha_3m
     else:
         m1 = _zscore(raw_1t)
         m2 = _zscore(raw_1m)
         m3 = _zscore(raw_3m)
-    out["momentum"] = 0.5 * m1 + 0.3 * m2 + 0.2 * m3
+    out["momentum"] = _w_m1 * m1 + _w_m2 * m2 + _w_m3 * m3
 
     # ── Volume (participation / conviction) ────────────────────────────────
     v1 = _zscore(_safe(df, "AVG 5-10 %"))      # vol accel short
@@ -252,13 +332,25 @@ def compute_scores(df: pd.DataFrame,
     nbs3_ratio = _safe(df, "Net BS 3M") / (vol20 * 60)   # 3M = 60 phiên
     f1 = _zscore(nbs1_ratio)
     f2 = _zscore(nbs3_ratio)
-    # Foreign flow normalized by cap (cả hai đều tỷ)
+    # Foreign flow: point-in-time levels
     cap = _safe(df, _COL_MKTCAP).replace(0, np.nan)
-    nn1 = _safe(df, "NN 1M (tỷ)") / cap
-    nn3 = _safe(df, "NN 3M (tỷ)") / cap
+    nn1m_val = _safe(df, "NN 1M (tỷ)")
+    nn3m_val = _safe(df, "NN 3M (tỷ)")
+    nn1 = nn1m_val / cap
+    nn3 = nn3m_val / cap
     fx1 = _zscore(nn1)
     fx3 = _zscore(nn3)
-    out["flow"] = 0.35 * f1 + 0.25 * f2 + 0.25 * fx1 + 0.15 * fx3
+    # Foreign flow TREND: daily run-rate 1M vs 3M
+    # nn_rate_1m = avg daily NN buy (% cap) over last month
+    # nn_rate_3m = avg daily NN buy (% cap) over last 3 months
+    # positive nn_trend → NN accelerating accumulation recently
+    nn_rate_1m = nn1m_val / (20 * cap)
+    nn_rate_3m = nn3m_val / (60 * cap)
+    nn_trend = nn_rate_1m - nn_rate_3m
+    out["nn_trend"] = nn_trend
+    fx_trend = _zscore(nn_trend)
+    # Composite flow: 25% Net BS 1M, 15% Net BS 3M, 25% NN level 1M, 15% NN level 3M, 20% NN trend
+    out["flow"] = 0.25 * f1 + 0.15 * f2 + 0.25 * fx1 + 0.15 * fx3 + 0.20 * fx_trend
 
     # Keep the ratios for red-flag detection below
     out["_nbs1_ratio"] = nbs1_ratio
@@ -297,29 +389,65 @@ def compute_scores(df: pd.DataFrame,
     amp1_q80 = amp1.quantile(0.8) if amp1.notna().any() else np.nan
     vf5 = _safe(df, "Vol 5/Free %")
     vf5_median = vf5.median() if vf5.notna().any() else np.nan
+    # Vol regime flag: high-vol market → note it in per-row detail
+    _vol_high_note = "⚡ high-vol regime" if _high_vol else ""
+    # Volatility signal threshold: stricter blow-off under high vol
+    _g1_blowoff_thr = 2.5 if _high_vol else 3.0
+
+    _ticker_col = "Mã" if "Mã" in df.columns else None
+    _exdiv_map = exdiv_map or {}
 
     for idx in df.index:
         rf, ct = [], []
 
+        # Resolve ticker string (for ex-div and quarantine checks)
+        _tk_str: str | None = None
+        if _ticker_col and _ticker_col in df.columns:
+            _tk_str = str(df.at[idx, _ticker_col]) if df.at[idx, _ticker_col] else None
+
+        # ── Ex-dividend guard ──────────────────────────────────────────────
+        # If ticker went ex-div in the last 7 days, price drop is expected —
+        # suppress divergence/distribution flags, add information note instead.
+        _is_exdiv = _tk_str and _tk_str.upper() in _exdiv_map
+        if _is_exdiv:
+            _ed = _exdiv_map[_tk_str.upper()]
+            ct.append(f"📅 Ex-div `{_ed['ex_date']}` "
+                      + (f"(VND `{_ed['amount']:,.0f}`) " if _ed.get("amount") else "")
+                      + "— giá giảm do tách quyền, không phải bán tháo")
+
         # Distribution divergence: giá 1M tăng nhưng Net BS 1M < -5% volume baseline
-        if (_notna(g1m.at[idx]) and g1m.at[idx] > 0
+        if (not _is_exdiv and _notna(g1m.at[idx]) and g1m.at[idx] > 0
                 and _notna(nbs1_ratio.at[idx]) and nbs1_ratio.at[idx] < -0.05):
             rf.append(f"⚠️ Divergence: giá 1M `{g1m.at[idx]:+.1f}%` nhưng "
                       f"Net BS 1M = `{nbs1_ratio.at[idx]*100:+.1f}%` volume → dòng tiền thoát")
 
         # Blow-off top: giá 1T bùng, rel vol cao, biên độ top quintile
-        if (_notna(g1.at[idx]) and g1.at[idx] > 3 and
+        if (_notna(g1.at[idx]) and g1.at[idx] > _g1_blowoff_thr and
             _notna(rel_v.at[idx]) and rel_v.at[idx] > 150 and
             _notna(amp1.at[idx]) and _notna(amp1_q80) and amp1.at[idx] >= amp1_q80):
-            rf.append("🌋 Blow-off: giá bứt mạnh + vol nổ + biên độ cao → rủi ro đảo chiều")
+            rf.append("🌋 Blow-off: giá bứt mạnh + vol nổ + biên độ cao → rủi ro đảo chiều"
+                      + (f" (trong {_vol_high_note})" if _vol_high_note else ""))
 
         # Exhaustion: đã chạy dài 3M nhưng volume short-term quay đầu
         if _notna(g3m.at[idx]) and g3m.at[idx] > 15 and _notna(av51.at[idx]) and av51.at[idx] < -15:
             rf.append("💤 Exhaustion: sau đợt tăng 3M, volume 5d đã chậm lại >15%")
 
-        # Foreign dumping
-        if _notna(nn1.at[idx]) and nn1.at[idx] < -0.01:
+        # Foreign flow: point-in-time level
+        if not _is_exdiv and _notna(nn1.at[idx]) and nn1.at[idx] < -0.01:
             rf.append(f"🚪 NN bán ròng `{nn1.at[idx]*100:+.1f}%` cap trong 1M")
+
+        # ── NN trend: ACCUMULATING vs DUMPING ─────────────────────────────
+        # Compare daily run-rate of NN over 1M vs 3M to detect direction change
+        if "nn_trend" in out.columns:
+            _nnt = out["nn_trend"].at[idx]
+            if _notna(_nnt):
+                _nnt_pct = _nnt * 100 * 20  # express as % cap per month
+                if _nnt_pct > 0.5:  # NN pace accelerating by >0.5% cap/month
+                    ct.append(f"🌍 NN ACCUMULATING: pace 1M nhanh hơn avg 3M "
+                               f"(`{_nnt_pct:+.2f}%` cap/tháng vượt trội)")
+                elif _nnt_pct < -0.5:
+                    rf.append(f"🚪 NN DUMPING: pace bán 1M nhanh hơn 3M avg "
+                               f"(`{_nnt_pct:+.2f}%` cap/tháng — NN đang tăng tốc thoát hàng)")
 
         # Stealth accumulation: coiling + dòng tiền vào (Net BS 1M > 3% volume baseline)
         if (_notna(g1.at[idx]) and abs(g1.at[idx]) < 1.5 and
@@ -334,7 +462,7 @@ def compute_scores(df: pd.DataFrame,
             _notna(g1.at[idx]) and g1.at[idx] > 0):
             ct.append("🚀 Volume breakout: AVG 5-10 >+30% + rel vol >120% + giá xanh")
 
-        # Foreign leading
+        # Foreign leading (level signal)
         if _notna(nn1.at[idx]) and nn1.at[idx] > 0.005 and _notna(fx1.at[idx]) and fx1.at[idx] > 1:
             ct.append(f"🌍 NN dẫn dắt: mua ròng `{nn1.at[idx]*100:+.1f}%` cap 1M, top quintile")
 
@@ -351,11 +479,27 @@ def compute_scores(df: pd.DataFrame,
             if _notna(_a3m) and _a3m < -10:
                 rf.append(f"📉 Alpha 3M `{_a3m:+.1f}%` laggard 3 tháng")
 
+        # ── Sector rotation signal ─────────────────────────────────────────
+        # alpha_1M - alpha_3M > 0 → tiền mới đổ vào ngành gần đây (warming up)
+        # alpha_1M - alpha_3M < 0 → đà giảm dần (cooling off)
+        if "rotation" in out.columns:
+            _rot = out["rotation"].at[idx]
+            if _notna(_rot):
+                if _rot > 5:
+                    _a1m_v = out["alpha_1M"].at[idx] if "alpha_1M" in out.columns else np.nan
+                    _a3m_v = out["alpha_3M"].at[idx] if "alpha_3M" in out.columns else np.nan
+                    ct.append(f"🔄 Rotation IN: alpha 1M `{_a1m_v:+.1f}%` > alpha 3M `{_a3m_v:+.1f}%` "
+                               f"({_rot:+.1f}pp) → tiền mới vào, momentum đang tăng tốc")
+                elif _rot < -5:
+                    _a1m_v = out["alpha_1M"].at[idx] if "alpha_1M" in out.columns else np.nan
+                    _a3m_v = out["alpha_3M"].at[idx] if "alpha_3M" in out.columns else np.nan
+                    rf.append(f"🔄 Momentum fading: alpha 1M `{_a1m_v:+.1f}%` < alpha 3M `{_a3m_v:+.1f}%` "
+                               f"({_rot:+.1f}pp) → đà tăng đang hạ nhiệt, cân nhắc chốt lời")
+
         # Technical overlay — only meaningful at ticker level (df must have "Mã")
-        if presets and "Mã" in df.columns:
-            _tk = df.at[idx, "Mã"] if "Mã" in df.columns else None
-            if _tk:
-                _rf2, _ct2 = _ticker_flags(str(_tk), presets,
+        if presets and _ticker_col:
+            if _tk_str:
+                _rf2, _ct2 = _ticker_flags(_tk_str, presets,
                                            composite=float(out["composite"].at[idx]))
                 rf.extend(_rf2)
                 ct.extend(_ct2)
@@ -417,6 +561,12 @@ def market_regime(scores: pd.DataFrame,
             parts.append(f"A/D {ad:.2f}")
         if parts:
             detail += " · " + " · ".join(parts)
+
+    # Volatility regime from scores
+    if "_vol_regime" in scores.columns:
+        _vr_mode = scores["_vol_regime"].mode()
+        if not _vr_mode.empty and _vr_mode.iloc[0] == "high":
+            detail += " · ⚡ Biên độ cao — short-term signals giảm weight tự động"
 
     return {
         "regime": regime,
@@ -517,37 +667,62 @@ def session_timing_signal(session_stats_today: dict | None,
 
 # ── Ranking ───────────────────────────────────────────────────────────────
 def rank(df: pd.DataFrame, scores: pd.DataFrame,
-         n_top: int = 5, n_bot: int = 5, name_col: str = "Ngành") -> dict:
-    """Return dict with 'top' (best composite) and 'avoid' (worst composite) lists."""
+         n_top: int = 5, n_bot: int = 5, name_col: str = "Ngành",
+         quarantined: set | None = None) -> dict:
+    """Return dict with 'top' (best composite) and 'avoid' (worst composite) lists.
+
+    Args:
+      quarantined: optional set of ticker strings (uppercase) from
+                   load_quarantine_tickers(). These are excluded from 'top'
+                   and 'stealth' lists to avoid acting on bad data.
+    """
     if scores is None or scores.empty:
         return {"top": [], "avoid": [], "stealth": [], "distribution": []}
 
     merged = df.copy()
     for c in ("momentum", "volume", "flow", "composite", "verdict", "red_flags", "catalysts"):
         merged[c] = scores[c].values
-    # Carry alpha columns if present
-    for c in ("alpha_1T", "alpha_1M", "alpha_3M"):
+    # Carry extra columns if present
+    for c in ("alpha_1T", "alpha_1M", "alpha_3M", "rotation", "nn_trend"):
         if c in scores.columns:
             merged[c] = scores[c].values
 
-    top = merged.sort_values("composite", ascending=False).head(n_top)
-    avoid = merged.sort_values("composite", ascending=True).head(n_bot)
+    # Quarantine filter: exclude bad-data tickers from actionable picks
+    _quar = {str(t).upper() for t in quarantined} if quarantined else set()
+    def _not_quarantined(row_name_val) -> bool:
+        return str(row_name_val).upper() not in _quar if _quar else True
+
+    if _quar and name_col in merged.columns:
+        _clean_mask = merged[name_col].apply(_not_quarantined)
+        _clean = merged[_clean_mask]
+    else:
+        _clean = merged
+
+    top = _clean.sort_values("composite", ascending=False).head(n_top)
+    avoid = merged.sort_values("composite", ascending=True).head(n_bot)  # avoid: quarantine OK to show
 
     # Stealth watch: neutral composite but has stealth/breakout catalyst
-    stealth_mask = merged["catalysts"].apply(
+    stealth_mask = _clean["catalysts"].apply(
         lambda xs: any("Stealth" in x or "breakout" in x for x in xs)
-    ) & (merged["composite"].abs() < 0.8)
-    stealth = merged[stealth_mask].sort_values("composite", ascending=False).head(3)
+    ) & (_clean["composite"].abs() < 0.8)
+    stealth = _clean[stealth_mask].sort_values("composite", ascending=False).head(3)
 
-    # Distribution watch: composite positive but has red flag
+    # Distribution watch: composite positive but has divergence red flag
     dist_mask = merged["red_flags"].apply(lambda xs: any("Divergence" in x for x in xs))
     distribution = merged[dist_mask & (merged["composite"] > 0)].sort_values("composite", ascending=False).head(3)
+
+    # Rotation picks: warming-up sectors/tickers (alpha_1M > alpha_3M by 5pp+)
+    rotation_picks: list[dict] = []
+    if "rotation" in _clean.columns:
+        rot_mask = _clean["rotation"] > 5
+        rotation_picks = _clean[rot_mask].sort_values("rotation", ascending=False).head(3).to_dict("records")
 
     return {
         "top": top.to_dict("records"),
         "avoid": avoid.to_dict("records"),
         "stealth": stealth.to_dict("records"),
         "distribution": distribution.to_dict("records"),
+        "rotation": rotation_picks,
     }
 
 
@@ -581,6 +756,12 @@ def format_row(row: dict, name_col: str = "Ngành") -> list[str]:
         ev.append(f"Vol/Free 5d `{row['Vol 5/Free %']:.1f}%`")
     if _notna(row.get("NN 1M (tỷ)")):
         ev.append(f"NN 1M `{row['NN 1M (tỷ)']:+,.0f}` tỷ")
+    if _notna(row.get("rotation")):
+        rot = row["rotation"]
+        if rot > 3:
+            ev.append(f"🔄 Rotation `+{rot:.1f}pp`")
+        elif rot < -3:
+            ev.append(f"🔄 Fading `{rot:+.1f}pp`")
     if ev:
         lines.append("  · " + " · ".join(ev))
 
