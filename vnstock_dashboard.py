@@ -1794,9 +1794,15 @@ def load_intraday(ticker: str, interval: str = "15m") -> pd.DataFrame:
         lookback = {"1m":5,"5m":30,"15m":60,"30m":60,"1H":90}.get(interval, 10)
         end   = _d.today().strftime("%Y-%m-%d")
         start = (_d.today() - _td(days=lookback)).strftime("%Y-%m-%d")
-        from vnstock_auth import get_vnstock
-        df = get_vnstock(ticker).quote.history(
-            start=start, end=end, interval=interval)
+        # Use VCI Quote directly to bypass Company init (which can fail for non-quote endpoints)
+        try:
+            from vnstock.explorer.vci.quote import Quote as _VCIQuote
+            _q = _VCIQuote(symbol=ticker, show_log=False)
+            df = _q.history(start=start, end=end, interval=interval)
+        except Exception:
+            from vnstock_auth import get_vnstock
+            df = get_vnstock(ticker).quote.history(
+                start=start, end=end, interval=interval)
         if df is None or df.empty:
             return pd.DataFrame()
         needed = ["time","open","high","low","close","volume"]
