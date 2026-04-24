@@ -3128,6 +3128,7 @@ def _load_all_market_data() -> tuple:
                 vol10 = float(v90.tail(10).mean())
                 vol20 = float(v90.tail(20).mean())
                 vol5_sum  = float(v90.tail(5).sum())
+                vol10_sum = float(v90.tail(10).sum())
                 vol20_sum = float(v90.tail(20).sum())
 
                 amp  = (h90 - l90) / c90 * 100
@@ -3154,14 +3155,16 @@ def _load_all_market_data() -> tuple:
                 # mktcap = giá (nghìn VND) × 1000 (→ VND) × shares / 1e9 (→ tỷ)
                 mktcap = last * 1000 * issue_share / 1e9 if issue_share > 0 else 0.0
                 mktcap_proxy = last * 1000 * vol20 / 1e9
-                freefloat_val = round(mktcap * _freefloat_map.get(ticker, 30.0) / 100, 1)
+                _ff_pct = _freefloat_map.get(ticker, 30.0)
+                freefloat_val = round(mktcap * _ff_pct / 100, 1)
+                freefloat_shares = issue_share * _ff_pct / 100
 
                 rows.append({
                     "ticker": ticker, "last": last,
                     "vol5": vol5, "vol10": vol10, "vol20": vol20,
-                    "vol5_sum": vol5_sum, "vol20_sum": vol20_sum,
+                    "vol5_sum": vol5_sum, "vol10_sum": vol10_sum, "vol20_sum": vol20_sum,
                     "mktcap": mktcap, "mktcap_proxy": mktcap_proxy,
-                    "freefloat_val": freefloat_val,
+                    "freefloat_val": freefloat_val, "freefloat_shares": freefloat_shares,
                     "amp5": amp5, "amp20": amp20, "amp60": amp60,
                     "chg5": chg5, "chg20": chg20, "chg60": chg60,
                 })
@@ -3211,9 +3214,16 @@ def _load_all_market_data() -> tuple:
             total_mktcap = grp["mktcap"].sum()
             gtgd_tb = grp["mktcap_proxy"].sum()
 
-            vs  = grp["vol5_sum"].sum()
+            vs   = grp["vol5_sum"].sum()
+            vs10 = grp["vol10_sum"].sum()
             vs20 = grp["vol20_sum"].sum()
+            ff_sh = grp["freefloat_shares"].sum()
             vol5_20  = round(vs / vs20 * 100, 0) if vs20 > 0 else None
+            avg5_10  = round((v5 / v10 - 1) * 100, 1) if v10 > 0 else None
+            avg10_20 = round((v10 / v20 - 1) * 100, 1) if v20 > 0 else None
+            vol5_free  = round(vs  / ff_sh * 100, 2) if ff_sh > 0 else None
+            vol10_free = round(vs10 / ff_sh * 100, 2) if ff_sh > 0 else None
+            vol20_free = round(vs20 / ff_sh * 100, 2) if ff_sh > 0 else None
 
             # Foreign flow (tỷ VND, đã aggregate bởi _aggregate_nn_by_window)
             tickers_in = grp["ticker"].tolist()
@@ -3230,6 +3240,11 @@ def _load_all_market_data() -> tuple:
                 "Vol Avg 5":    round(v5  / 1e6, 1),
                 "Vol Avg 10":   round(v10 / 1e6, 1),
                 "Vol Avg 20":   round(v20 / 1e6, 1),
+                "AVG 5-10 %":   avg5_10,
+                "AVG 10-20 %":  avg10_20,
+                "Vol 5/Free %": vol5_free,
+                "Vol 10/Free %": vol10_free,
+                "Vol 20/Free %": vol20_free,
                 "Vol 5/20 %":   vol5_20,
                 "Biên 1T (%)":  round(grp["amp5"].mean(),  1),
                 "Biên 1M (%)":  round(grp["amp20"].mean(), 1),
@@ -3250,6 +3265,21 @@ def _load_all_market_data() -> tuple:
         tick_display["Vol Avg 5"] = (tick_display["vol5"] / 1e6).round(1)
         tick_display["Vol Avg 10"] = (tick_display["vol10"] / 1e6).round(1)
         tick_display["Vol Avg 20"] = (tick_display["vol20"] / 1e6).round(1)
+        tick_display["AVG 5-10 %"] = np.where(
+            tick_display["vol10"] > 0,
+            ((tick_display["vol5"] / tick_display["vol10"] - 1) * 100).round(1), None)
+        tick_display["AVG 10-20 %"] = np.where(
+            tick_display["vol20"] > 0,
+            ((tick_display["vol10"] / tick_display["vol20"] - 1) * 100).round(1), None)
+        tick_display["Vol 5/Free %"] = np.where(
+            tick_display["freefloat_shares"] > 0,
+            (tick_display["vol5_sum"] / tick_display["freefloat_shares"] * 100).round(2), None)
+        tick_display["Vol 10/Free %"] = np.where(
+            tick_display["freefloat_shares"] > 0,
+            (tick_display["vol10_sum"] / tick_display["freefloat_shares"] * 100).round(2), None)
+        tick_display["Vol 20/Free %"] = np.where(
+            tick_display["freefloat_shares"] > 0,
+            (tick_display["vol20_sum"] / tick_display["freefloat_shares"] * 100).round(2), None)
         tick_display["Vol 5/20 %"] = np.where(
             tick_display["vol20_sum"] > 0,
             (tick_display["vol5_sum"] / tick_display["vol20_sum"] * 100).round(0),

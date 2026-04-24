@@ -378,13 +378,17 @@ def render_market_tab() -> None:
 
         _net_bs_cols = ("Net BS 1T","Net BS 1M","Net BS 3M","Net BS 6M")
         _nn_cols     = ("NN 1T (tỷ)","NN 1M (tỷ)","NN 3M (tỷ)")
+        _avg_vol_cols = ("AVG 5-10 %","AVG 10-20 %")
+        _free_vol_cols = ("Vol 5/Free %","Vol 10/Free %","Vol 20/Free %")
 
         def color_val(val, col):
             """Trả về màu CSS theo giá trị."""
             if val is None or (isinstance(val, float) and np.isnan(val)):
                 return "#4b5563"
-            if col in ("Giá 1T %","Giá 1M %","Giá 3M %") + _nn_cols + _net_bs_cols:
+            if col in ("Giá 1T %","Giá 1M %","Giá 3M %") + _nn_cols + _net_bs_cols + _avg_vol_cols:
                 return "#10b981" if float(val) > 0 else ("#ef4444" if float(val) < 0 else "#9ca3af")
+            if col in _free_vol_cols:
+                return "#e5e7eb"
             if col == "Vol 5/20 %":
                 v = float(val)
                 return "#10b981" if v > 110 else ("#ef4444" if v < 90 else "#e5e7eb")
@@ -411,6 +415,10 @@ def render_market_tab() -> None:
                 return f"+{v:,.1f}M" if v > 0 else f"{v:,.1f}M"
             if col in ("Vol Avg 5","Vol Avg 10","Vol Avg 20"):
                 return f"{v:,.1f}M"
+            if col in ("AVG 5-10 %","AVG 10-20 %"):
+                return f"+{v:.1f}%" if v > 0 else f"{v:.1f}%"
+            if col in ("Vol 5/Free %","Vol 10/Free %","Vol 20/Free %"):
+                return f"{v:.2f}%"
             if col == "Vol 5/20 %":
                 return f"{v:.0f}%"
             if col in ("Vốn hoá (tỷ)","GTGD TB (tỷ)","Freefloat (tỷ)"):
@@ -421,7 +429,10 @@ def render_market_tab() -> None:
 
         # Chọn cột hiển thị
         display_cols = ["Ngành","Số mã","Vốn hoá (tỷ)","Freefloat (tỷ)","GTGD TB (tỷ)",
-                        "Vol Avg 5","Vol Avg 10","Vol Avg 20","Vol 5/20 %",
+                        "Vol Avg 5","Vol Avg 10","Vol Avg 20",
+                        "AVG 5-10 %","AVG 10-20 %",
+                        "Vol 5/Free %","Vol 10/Free %","Vol 20/Free %",
+                        "Vol 5/20 %",
                         "Net BS 1T","Net BS 1M","Net BS 3M","Net BS 6M",
                         "NN 1T (tỷ)","NN 1M (tỷ)","NN 3M (tỷ)",
                         "Biên 1T (%)","Biên 1M (%)","Biên 3M (%)",
@@ -501,7 +512,10 @@ def render_market_tab() -> None:
 
                     # Reuse table rendering logic
                     _dd_cols = ["Mã","Vốn hoá (tỷ)","Freefloat (tỷ)","GTGD TB (tỷ)",
-                                "Vol Avg 5","Vol Avg 10","Vol Avg 20","Vol 5/20 %",
+                                "Vol Avg 5","Vol Avg 10","Vol Avg 20",
+                                "AVG 5-10 %","AVG 10-20 %",
+                                "Vol 5/Free %","Vol 10/Free %","Vol 20/Free %",
+                                "Vol 5/20 %",
                                 "Net BS 1T","Net BS 1M","Net BS 3M","Net BS 6M",
                                 "NN 1T (tỷ)","NN 1M (tỷ)","NN 3M (tỷ)",
                                 "Biên 1T (%)","Biên 1M (%)","Biên 3M (%)",
@@ -564,6 +578,13 @@ def render_market_tab() -> None:
                                 v = float(val)
                                 display = f"{v:.0f}%"
                                 color = "#10b981" if v > 110 else ("#ef4444" if v < 90 else "#e5e7eb")
+                            elif col in _avg_vol_cols:
+                                v = float(val)
+                                display = f"+{v:.1f}%" if v > 0 else f"{v:.1f}%"
+                                color = "#10b981" if v > 0 else ("#ef4444" if v < 0 else "#9ca3af")
+                            elif col in _free_vol_cols:
+                                display = f"{float(val):.2f}%"
+                                color = "#e5e7eb"
                             else:
                                 display = f"{float(val):.1f}%"
                                 color = "#e5e7eb"
