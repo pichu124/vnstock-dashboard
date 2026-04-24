@@ -2407,7 +2407,7 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
     _row_h = 28
     _header_h = 38
     _default_rows = 15
-    _height = _row_h * min(len(df), _default_rows) + _header_h
+    _height = _row_h * _default_rows + _header_h  # fixed 15-row height, scroll for older
     st.dataframe(
         styled,
         hide_index=True,
