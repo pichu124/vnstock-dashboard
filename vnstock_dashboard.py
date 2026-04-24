@@ -2335,11 +2335,10 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
     dates = sorted(
         [d for d in history.keys() if d <= today_str],
         reverse=True
-    )[:30]
-    dates = list(reversed(dates))
+    )[:90]
 
     if today_str not in dates and stats_today:
-        dates.append(today_str)
+        dates.insert(0, today_str)
 
     if not dates:
         st.caption("Chưa có dữ liệu")
@@ -2405,13 +2404,17 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
         })
     )
 
+    _row_h = 28
+    _header_h = 38
+    _default_rows = 15
+    _height = _row_h * min(len(df), _default_rows) + _header_h
     st.dataframe(
         styled,
         hide_index=True,
         use_container_width=True,
-        height=min(28 * len(df) + 38, 400),
+        height=_height,
     )
-    st.caption(f"VOL = triệu CP | GTGD = tỷ VND")
+    st.caption("VOL = triệu CP | GTGD = tỷ VND")
 
 
 def render_chart(df: pd.DataFrame, ticker: str, height: int = 850,
