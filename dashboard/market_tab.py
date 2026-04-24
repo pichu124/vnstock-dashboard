@@ -548,6 +548,7 @@ def render_market_tab() -> None:
                             compute_scores as _cs, rank as _rk, format_row as _fr,
                             build_preset_sets as _bps,
                             _sector_technical_summary as _sts,
+                            compute_index_returns as _cir,
                         )
                         # Load screener presets một lần cho toàn drill-down
                         try:
@@ -555,8 +556,16 @@ def render_market_tab() -> None:
                             _presets = _bps(_lsr())
                         except Exception:
                             _presets = None
+                        # Index returns cho alpha computation
+                        _dd_idx_ret = None
+                        try:
+                            _idx_long_dd = load_index_overview(days=90)
+                            if _idx_long_dd is not None and not _idx_long_dd.empty:
+                                _dd_idx_ret = _cir(_idx_long_dd, index_col="VNINDEX")
+                        except Exception:
+                            pass
 
-                        _sec_scores = _cs(sector_df, presets=_presets)
+                        _sec_scores = _cs(sector_df, presets=_presets, index_returns=_dd_idx_ret)
                         if not _sec_scores.empty:
                             _sec_ranked = _rk(sector_df, _sec_scores, n_top=3, n_bot=3, name_col="Mã")
                             _sec_comp_avg = float(_sec_scores["composite"].mean())
@@ -811,6 +820,7 @@ def render_market_tab() -> None:
                     from vnstock_market_analyzer import (
                         compute_scores, market_regime, rank, format_row,
                         session_timing_signal, build_preset_sets,
+                        compute_index_returns,
                     )
                     # Load screener presets for ticker-level technical overlay
                     try:
@@ -819,13 +829,28 @@ def render_market_tab() -> None:
                     except Exception:
                         _preset_sets = None
 
-                    scores = compute_scores(mkt_data)
+                    # Load 90-day index data for alpha computation
+                    _idx_ret = None
+                    try:
+                        _idx_long = load_index_overview(days=90)
+                        if _idx_long is not None and not _idx_long.empty:
+                            _idx_ret = compute_index_returns(_idx_long, index_col="VNINDEX")
+                    except Exception:
+                        pass
+
+                    scores = compute_scores(mkt_data, index_returns=_idx_ret)
                     regime = market_regime(scores, breadth_data)
                     ranked = rank(mkt_data, scores, n_top=5, n_bot=5, name_col="Ngành")
 
                     lines.append("")
                     lines.append(f"**🧠 Quant regime: {regime['regime']}**  · "
                                  f"conviction `{regime['conviction']:+.2f}` · {regime['detail']}")
+                    if _idx_ret:
+                        lines.append(f"  · **VNINDEX benchmark**: "
+                                     f"1T `{_idx_ret['1T']:+.1f}%` · "
+                                     f"1M `{_idx_ret['1M']:+.1f}%` · "
+                                     f"3M `{_idx_ret['3M']:+.1f}%` "
+                                     f"— alpha dương = outperform")
 
                     # Session timing signal (institutional vs retail bias)
                     try:
@@ -890,7 +915,7 @@ def render_market_tab() -> None:
                             sub = tick_data[tick_data["Ngành"] == sname].copy()
                             if sub.empty:
                                 continue
-                            t_scores = compute_scores(sub, presets=_preset_sets)
+                            t_scores = compute_scores(sub, presets=_preset_sets, index_returns=_idx_ret)
                             t_ranked = rank(sub, t_scores, n_top=3, n_bot=0, name_col="Mã")
                             picks = []
                             for tr in t_ranked["top"]:
@@ -915,7 +940,7 @@ def render_market_tab() -> None:
                                 sub = tick_data[tick_data["Ngành"] == sname].copy()
                                 if sub.empty:
                                     continue
-                                t_scores = compute_scores(sub, presets=_preset_sets)
+                                t_scores = compute_scores(sub, presets=_preset_sets, index_returns=_idx_ret)
                                 t_ranked = rank(sub, t_scores, n_top=0, n_bot=3, name_col="Mã")
                                 flops = []
                                 for tr in t_ranked["avoid"]:

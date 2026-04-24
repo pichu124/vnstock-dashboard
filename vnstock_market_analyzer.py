@@ -52,6 +52,39 @@ def _safe(df: pd.DataFrame, col: str) -> pd.Series:
     return pd.Series([np.nan] * len(df), index=df.index)
 
 
+# ── Index benchmark helpers ───────────────────────────────────────────────
+def compute_index_returns(idx_df: pd.DataFrame,
+                           index_col: str = "VNINDEX") -> dict:
+    """Compute 1T/1M/3M returns for a benchmark index from load_index_overview()
+    output. Returns dict with keys '1T', '1M', '3M' (in %).
+
+    idx_df is expected to be sorted desc by time (newest first), with a close
+    column named like "VNINDEX".
+    """
+    empty = {"1T": 0.0, "1M": 0.0, "3M": 0.0}
+    if idx_df is None or idx_df.empty or index_col not in idx_df.columns:
+        return empty
+    closes = pd.to_numeric(idx_df[index_col], errors="coerce").dropna()
+    if len(closes) < 2:
+        return empty
+    # idx_df is sorted newest-first — row 0 is latest
+    latest = float(closes.iloc[0])
+    if latest <= 0:
+        return empty
+
+    def _ret(n):
+        if n >= len(closes):
+            return 0.0
+        past = float(closes.iloc[n])
+        return round((latest / past - 1) * 100, 2) if past > 0 else 0.0
+
+    return {
+        "1T": _ret(5),    # 1 week = 5 business days
+        "1M": _ret(20),
+        "3M": _ret(60),
+    }
+
+
 # ── Technical overlay helpers (from screener presets) ────────────────────
 def build_preset_sets(screener_results: dict | None) -> dict:
     """Turn screener_results.json into sets of tickers per preset.
@@ -156,7 +189,8 @@ def _sector_technical_summary(sector_df: pd.DataFrame, presets: dict) -> str:
 
 # ── Core scoring ──────────────────────────────────────────────────────────
 def compute_scores(df: pd.DataFrame,
-                    presets: dict | None = None) -> pd.DataFrame:
+                    presets: dict | None = None,
+                    index_returns: dict | None = None) -> pd.DataFrame:
     """Compute per-row composite scores. Works for both sector-level (mkt_df)
     and ticker-level (tick_data) DataFrames.
 
@@ -164,20 +198,43 @@ def compute_scores(df: pd.DataFrame,
       df: DataFrame with sector/ticker metrics (see module constants for cols).
       presets: optional dict from build_preset_sets(); adds technical overlays
                (RSI / MA200 / golden cross / breakout) to per-ticker flags.
+      index_returns: optional dict {"1T": x, "1M": y, "3M": z} from
+               compute_index_returns(idx_df). If provided, momentum uses
+               ALPHA (excess return vs index) instead of raw returns.
 
     Returns DataFrame indexed same as input with columns:
-      momentum, volume, flow, composite, verdict, red_flags, catalysts
+      momentum, volume, flow, composite, verdict, red_flags, catalysts,
+      alpha_1T, alpha_1M, alpha_3M (if index_returns provided)
     """
     if df is None or df.empty:
         return pd.DataFrame()
 
     out = pd.DataFrame(index=df.index)
 
-    # ── Momentum (price action) ────────────────────────────────────────────
+    # ── Momentum (price action or alpha vs benchmark) ──────────────────────
     # Weight to recency: 1T=0.5, 1M=0.3, 3M=0.2
-    m1 = _zscore(_safe(df, "Giá 1T %"))
-    m2 = _zscore(_safe(df, "Giá 1M %"))
-    m3 = _zscore(_safe(df, "Giá 3M %"))
+    raw_1t = _safe(df, "Giá 1T %")
+    raw_1m = _safe(df, "Giá 1M %")
+    raw_3m = _safe(df, "Giá 3M %")
+
+    if index_returns:
+        # Use ALPHA (excess return) instead of raw — this is the quant-pure way
+        i1 = float(index_returns.get("1T", 0) or 0)
+        i2 = float(index_returns.get("1M", 0) or 0)
+        i3 = float(index_returns.get("3M", 0) or 0)
+        alpha_1t = raw_1t - i1
+        alpha_1m = raw_1m - i2
+        alpha_3m = raw_3m - i3
+        out["alpha_1T"] = alpha_1t
+        out["alpha_1M"] = alpha_1m
+        out["alpha_3M"] = alpha_3m
+        m1 = _zscore(alpha_1t)
+        m2 = _zscore(alpha_1m)
+        m3 = _zscore(alpha_3m)
+    else:
+        m1 = _zscore(raw_1t)
+        m2 = _zscore(raw_1m)
+        m3 = _zscore(raw_3m)
     out["momentum"] = 0.5 * m1 + 0.3 * m2 + 0.2 * m3
 
     # ── Volume (participation / conviction) ────────────────────────────────
@@ -280,6 +337,19 @@ def compute_scores(df: pd.DataFrame,
         # Foreign leading
         if _notna(nn1.at[idx]) and nn1.at[idx] > 0.005 and _notna(fx1.at[idx]) and fx1.at[idx] > 1:
             ct.append(f"🌍 NN dẫn dắt: mua ròng `{nn1.at[idx]*100:+.1f}%` cap 1M, top quintile")
+
+        # Alpha vs benchmark (if index_returns provided)
+        if index_returns and "alpha_1M" in out.columns:
+            _a1m = out["alpha_1M"].at[idx]
+            _a3m = out["alpha_3M"].at[idx] if "alpha_3M" in out.columns else np.nan
+            if _notna(_a1m) and _a1m > 5:
+                ct.append(f"📊 Alpha 1M `+{_a1m:.1f}%` vượt VNINDEX rõ rệt")
+            if _notna(_a3m) and _a3m > 10:
+                ct.append(f"📊 Alpha 3M `+{_a3m:.1f}%` outperform benchmark")
+            if _notna(_a1m) and _a1m < -5:
+                rf.append(f"📉 Alpha 1M `{_a1m:+.1f}%` underperform VNINDEX rõ rệt")
+            if _notna(_a3m) and _a3m < -10:
+                rf.append(f"📉 Alpha 3M `{_a3m:+.1f}%` laggard 3 tháng")
 
         # Technical overlay — only meaningful at ticker level (df must have "Mã")
         if presets and "Mã" in df.columns:
@@ -455,6 +525,10 @@ def rank(df: pd.DataFrame, scores: pd.DataFrame,
     merged = df.copy()
     for c in ("momentum", "volume", "flow", "composite", "verdict", "red_flags", "catalysts"):
         merged[c] = scores[c].values
+    # Carry alpha columns if present
+    for c in ("alpha_1T", "alpha_1M", "alpha_3M"):
+        if c in scores.columns:
+            merged[c] = scores[c].values
 
     top = merged.sort_values("composite", ascending=False).head(n_top)
     avoid = merged.sort_values("composite", ascending=True).head(n_bot)
@@ -488,9 +562,17 @@ def format_row(row: dict, name_col: str = "Ngành") -> list[str]:
     # Key evidence (momentum, flow, volume)
     ev = []
     if _notna(row.get("Giá 1M %")):
-        ev.append(f"Giá 1M `{row['Giá 1M %']:+.1f}%`")
+        _a1m = row.get("alpha_1M")
+        if _notna(_a1m):
+            ev.append(f"Giá 1M `{row['Giá 1M %']:+.1f}%` (α `{_a1m:+.1f}%`)")
+        else:
+            ev.append(f"Giá 1M `{row['Giá 1M %']:+.1f}%`")
     if _notna(row.get("Giá 3M %")):
-        ev.append(f"3M `{row['Giá 3M %']:+.1f}%`")
+        _a3m = row.get("alpha_3M")
+        if _notna(_a3m):
+            ev.append(f"3M `{row['Giá 3M %']:+.1f}%` (α `{_a3m:+.1f}%`)")
+        else:
+            ev.append(f"3M `{row['Giá 3M %']:+.1f}%`")
     if _notna(row.get("Net BS 1M")):
         ev.append(f"Net BS 1M `{row['Net BS 1M']:+,.1f}M`")
     if _notna(row.get("AVG 5-10 %")):
