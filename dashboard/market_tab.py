@@ -37,7 +37,100 @@ def render_market_tab() -> None:
     from vnstock_dashboard import (
         INDEX_SYMBOLS, VN30_SYMBOLS, WSS_AVAILABLE,
         load_index_overview, load_live_quote, load_market_overview,
+        load_price_history,
     )
+
+    # ── Sparkline helpers ──────────────────────────────────────────────────
+    def _sparkline_svg(values: list, width: int = 80, height: int = 28) -> str:
+        """Render a list of floats as an inline SVG sparkline.
+        Values are alpha (excess return vs VNINDEX) over 30 days.
+        Green if ending positive, red if negative.
+        """
+        vals = [v for v in values if v is not None and not (isinstance(v, float) and np.isnan(v))]
+        if len(vals) < 2:
+            return '<span style="color:#4b5563;font-size:10px">—</span>'
+        mn, mx = min(vals), max(vals)
+        rng = mx - mn if mx != mn else 1.0
+        n = len(vals)
+        # zero line y (clipped to [2, h-2])
+        zero_y = max(2, min(height - 2, height - (-mn / rng) * height))
+        pts = [(round(i / (n - 1) * width), round(height - (v - mn) / rng * height))
+               for i, v in enumerate(vals)]
+        pt_str = " ".join(f"{x},{y}" for x, y in pts)
+        last_val = vals[-1]
+        lc = "#10b981" if last_val >= 0 else "#ef4444"
+        fc = "#10b98122" if last_val >= 0 else "#ef444422"
+        # Polygon fill from zero line
+        fill_pts = ([(pts[0][0], int(zero_y))] + pts + [(pts[-1][0], int(zero_y))])
+        fp_str = " ".join(f"{x},{y}" for x, y in fill_pts)
+        last_disp = f"{last_val:+.1f}%"
+        return (f'<svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg" '
+                f'style="display:inline-block;vertical-align:middle;overflow:visible">'
+                f'<polygon points="{fp_str}" fill="{fc}" stroke="none"/>'
+                f'<polyline points="{pt_str}" fill="none" stroke="{lc}" stroke-width="1.5" stroke-linejoin="round"/>'
+                f'<line x1="0" y1="{zero_y:.0f}" x2="{width}" y2="{zero_y:.0f}" '
+                f'stroke="#4b5563" stroke-width="0.5" stroke-dasharray="3,3"/>'
+                f'<text x="{width+2}" y="{height//2+4}" font-size="9" fill="{lc}" '
+                f'font-family="IBM Plex Mono,monospace">{last_disp}</text>'
+                f'</svg>')
+
+    @st.cache_data(ttl=1800, show_spinner=False)
+    def _sector_alpha_sparklines(sector_tickers_json: str, vnindex_json: str,
+                                  n_days: int = 30) -> dict:
+        """Compute daily alpha sparkline data for each sector.
+
+        sector_tickers_json: JSON of {sector: [[ticker, cap], ...]} (top 3 by cap)
+        vnindex_json: JSON of {date_iso: close_price}
+        Returns {sector: [alpha_day_0, ..., alpha_day_n-1]} (ascending date order)
+        """
+        import json as _json
+        sector_map = _json.loads(sector_tickers_json)
+        vni_dict = _json.loads(vnindex_json)
+        if not vni_dict or not sector_map:
+            return {}
+        dates = sorted(vni_dict.keys())[-n_days:]
+        if len(dates) < 3:
+            return {}
+        vni_prices = [float(vni_dict[d]) for d in dates]
+        vni_base = vni_prices[0]
+        vni_cumret = [(p / vni_base - 1) * 100 for p in vni_prices]
+
+        result = {}
+        for sector, tickers_caps in sector_map.items():
+            if not tickers_caps:
+                continue
+            ticker_data: dict = {}
+            for ticker, cap in tickers_caps[:3]:
+                try:
+                    df = load_price_history(str(ticker), days=n_days + 15)
+                    if df.empty or "close" not in df.columns:
+                        continue
+                    df["_d"] = df["time"].dt.date.astype(str)
+                    d_close = df.groupby("_d")["close"].last()
+                    ticker_data[ticker] = (d_close, float(cap))
+                except Exception:
+                    continue
+            if not ticker_data:
+                continue
+            sector_cumret = []
+            for date in dates:
+                wsum, cap_sum = 0.0, 0.0
+                for _tk, (d_close, cap) in ticker_data.items():
+                    avail = d_close[d_close.index <= date]
+                    if avail.empty:
+                        continue
+                    base_avail = d_close[d_close.index >= dates[0]]
+                    if base_avail.empty:
+                        continue
+                    base = float(base_avail.iloc[0])
+                    if base <= 0:
+                        continue
+                    ret = (float(avail.iloc[-1]) / base - 1) * 100
+                    wsum += ret * cap
+                    cap_sum += cap
+                sector_cumret.append(wsum / cap_sum if cap_sum > 0 else 0.0)
+            result[sector] = [round(s - v, 2) for s, v in zip(sector_cumret, vni_cumret)]
+        return result
 
     col_title_m, col_ref_m = st.columns([6,1])
     with col_title_m:
@@ -335,7 +428,7 @@ def render_market_tab() -> None:
                 label_visibility="collapsed",
                 placeholder="🔍 Click chọn ngành để drill-down..."
             )
-        _sort_cols = ["Vốn hoá (tỷ)","GTGD TB (tỷ)","Vol Avg 20","Vol 5/20 %",
+        _sort_cols = ["Composite","Vốn hoá (tỷ)","GTGD TB (tỷ)","Vol Avg 20","Vol 5/20 %",
                       "Net BS 1T","Net BS 1M","Net BS 3M","Net BS 6M",
                       "NN 1T (tỷ)","NN 1M (tỷ)","NN 3M (tỷ)",
                       "Biên 1T (%)","Biên 1M (%)","Biên 3M (%)",
@@ -476,13 +569,63 @@ def render_market_tab() -> None:
         td_base   = "padding:7px 10px;border-bottom:1px solid #1a2234;white-space:nowrap;font-size:12px;font-family:'IBM Plex Mono',monospace;"
 
         if _show_sector_table:
+            # ── Sparkline alpha history (30d) per sector ──────────────────────
+            _sparklines: dict = {}
+            try:
+                import json as _json
+                _tick_data_spark = st.session_state.get("_mkt_ticker_data")
+                _idx_long_spark = load_index_overview(days=45)
+                if (_tick_data_spark is not None and not _tick_data_spark.empty
+                        and _idx_long_spark is not None and not _idx_long_spark.empty
+                        and "Ngành" in _tick_data_spark.columns
+                        and "Vốn hoá (tỷ)" in _tick_data_spark.columns
+                        and "VNINDEX" in _idx_long_spark.columns):
+                    # Build sector → top 3 tickers by cap
+                    _sec_tickers: dict = {}
+                    for _sname, _grp in _tick_data_spark.groupby("Ngành"):
+                        _sorted_grp = _grp.sort_values("Vốn hoá (tỷ)", ascending=False)
+                        _sec_tickers[_sname] = [
+                            [str(r["Mã"]), float(r["Vốn hoá (tỷ)"])]
+                            for _, r in _sorted_grp.head(3).iterrows()
+                            if r.get("Mã") and r.get("Vốn hoá (tỷ)")
+                        ]
+                    # Build VNINDEX close dict (date → close)
+                    _vni_col = _idx_long_spark[["VNINDEX"]].copy()
+                    if hasattr(_idx_long_spark.index, "strftime"):
+                        _vni_col["_d"] = _idx_long_spark.index.strftime("%Y-%m-%d")
+                    elif "time" in _idx_long_spark.columns:
+                        _vni_col["_d"] = pd.to_datetime(_idx_long_spark["time"]).dt.date.astype(str)
+                    else:
+                        _vni_col = _vni_col.reset_index()
+                        _vni_col["_d"] = pd.to_datetime(_vni_col.iloc[:, 0]).dt.date.astype(str)
+                    _vni_close = _vni_col.dropna(subset=["VNINDEX"]).set_index("_d")["VNINDEX"]
+                    _vni_close = _vni_close[~_vni_close.index.duplicated(keep="last")]
+                    _vni_dict = {k: float(v) for k, v in _vni_close.items()}
+                    if _sec_tickers and _vni_dict:
+                        _sparklines = _sector_alpha_sparklines(
+                            _json.dumps(_sec_tickers),
+                            _json.dumps(_vni_dict),
+                            n_days=30,
+                        )
+            except Exception:
+                _sparklines = {}
+
             # ── Bảng ngành (sorted) ───────────────────────────────────────────
+            _has_sparklines = bool(_sparklines)
             if _sort_by in mkt_df.columns:
                 mkt_df = mkt_df.sort_values(_sort_by, ascending=_sort_asc, na_position="last").reset_index(drop=True)
             rows_html = []
             for i, (_, row) in enumerate(mkt_df.iterrows()):
                 bg = "#0d1117" if i%2==0 else "#111827"
                 cells = []
+                # Sparkline cell (before other columns)
+                if _has_sparklines:
+                    _sec_name = row.get("Ngành", "")
+                    _spark_vals = _sparklines.get(_sec_name, [])
+                    _spark_svg = _sparkline_svg(_spark_vals)
+                    cells.append(
+                        f'<td style="{td_base}padding:4px 8px;min-width:140px;text-align:left">'
+                        f'{_spark_svg}</td>')
                 for col in avail_cols:
                     val = row.get(col)
                     display = fmt(val, col)
@@ -511,7 +654,9 @@ def render_market_tab() -> None:
                         cells.append(f'<td style="{td_base}color:{color};text-align:{align}">{display}</td>')
                 rows_html.append(f'<tr style="background:{bg}">' + "".join(cells) + "</tr>")
 
-            headers = "".join(f'<th style="{th_style}">{c}</th>' for c in avail_cols)
+            _spark_header = (f'<th style="{th_style}min-width:140px">α 30d vs VNINDEX</th>'
+                             if _has_sparklines else "")
+            headers = _spark_header + "".join(f'<th style="{th_style}">{c}</th>' for c in avail_cols)
             tbl_height = min(700, 52 + len(mkt_df)*36)
             html_tbl = f"""<div style="overflow-x:auto;border-radius:8px;border:1px solid #1f2937;background:#0d1117;max-height:{tbl_height}px;overflow-y:auto">
     <table style="width:100%;border-collapse:collapse">
@@ -536,13 +681,10 @@ def render_market_tab() -> None:
             if tick_data is not None and not tick_data.empty:
                 sector_df = tick_data[tick_data["Ngành"] == _selected_nganh].copy()
                 if not sector_df.empty:
-                    if _sort_by in sector_df.columns:
-                        sector_df = sector_df.sort_values(_sort_by, ascending=_sort_asc, na_position="last")
-                    else:
-                        sector_df = sector_df.sort_values("Vốn hoá (tỷ)", ascending=False)
                     st.markdown(f"#### 🏢 Chi tiết ngành: {_selected_nganh} ({len(sector_df)} mã)")
 
                     # ── Quant analysis cho riêng ngành ──────────────────
+                    _sec_scores = None  # populated inside try; used below for sort+export
                     try:
                         from vnstock_market_analyzer import (
                             compute_scores as _cs, rank as _rk, format_row as _fr,
@@ -582,7 +724,6 @@ def render_market_tab() -> None:
                                             else "📉 Yếu" if _sec_comp_avg > -0.5
                                             else "❄️ Rất yếu")
                             _tech_summary = _sts(sector_df, _presets) if _presets else ""
-                            # Vol regime badge
                             _vr_badge = ""
                             if "_vol_regime" in _sec_scores.columns:
                                 _vr = _sec_scores["_vol_regime"].mode()
@@ -594,6 +735,31 @@ def render_market_tab() -> None:
                             if _tech_summary:
                                 _exp_title += f" · {_tech_summary}"
                             with st.expander(_exp_title, expanded=True):
+                                # ── Controls row ───────────────────────────────
+                                _ctrl_a, _ctrl_b = st.columns([3, 1])
+                                with _ctrl_a:
+                                    _show_detail = st.checkbox(
+                                        "🔍 Hiển thị chi tiết (catalysts & red flags)",
+                                        key=f"quant_detail_{_selected_nganh}", value=True)
+                                with _ctrl_b:
+                                    # Export buttons (inline)
+                                    try:
+                                        from vnstock_market_analyzer import (
+                                            scores_to_export_df as _s2df,
+                                            scores_to_markdown as _s2md,
+                                        )
+                                        _exp_df = _s2df(sector_df, _sec_scores, name_col="Mã")
+                                        _exp_csv = _exp_df.to_csv(index=False, encoding="utf-8-sig")
+                                        st.download_button(
+                                            "⬇️ CSV", data=_exp_csv,
+                                            file_name=f"quant_{_selected_nganh}_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
+                                            mime="text/csv",
+                                            key=f"quant_csv_{_selected_nganh}",
+                                            help="Export quant scores as CSV",
+                                        )
+                                    except Exception:
+                                        pass
+
                                 q_col1, q_col2 = st.columns(2)
                                 with q_col1:
                                     st.markdown("**🎯 Top picks trong ngành**")
@@ -601,7 +767,7 @@ def render_market_tab() -> None:
                                     for r in _sec_ranked["top"]:
                                         if r.get("composite", 0) <= 0:
                                             break
-                                        for ln in _fr(r, name_col="Mã"):
+                                        for ln in _fr(r, name_col="Mã", show_detail=_show_detail):
                                             _t_lines.append(ln if ln.startswith("  ") else f"- {ln}")
                                     st.markdown("\n".join(_t_lines) if _t_lines
                                                 else "_Không có mã nào có composite dương._")
@@ -611,7 +777,7 @@ def render_market_tab() -> None:
                                     for r in _sec_ranked["avoid"]:
                                         if r.get("composite", 0) >= 0:
                                             break
-                                        for ln in _fr(r, name_col="Mã"):
+                                        for ln in _fr(r, name_col="Mã", show_detail=_show_detail):
                                             _a_lines.append(ln if ln.startswith("  ") else f"- {ln}")
                                     st.markdown("\n".join(_a_lines) if _a_lines
                                                 else "_Không có mã nào có composite âm._")
@@ -620,7 +786,7 @@ def render_market_tab() -> None:
                                     st.markdown("**🔄 Rotation signal (warming up)**")
                                     _rot_lines = []
                                     for r in _sec_ranked["rotation"]:
-                                        for ln in _fr(r, name_col="Mã"):
+                                        for ln in _fr(r, name_col="Mã", show_detail=_show_detail):
                                             _rot_lines.append(ln if ln.startswith("  ") else f"- {ln}")
                                     st.markdown("\n".join(_rot_lines))
 
@@ -628,7 +794,7 @@ def render_market_tab() -> None:
                                     st.markdown("**🕵️ Stealth / tích luỹ**")
                                     _s_lines = []
                                     for r in _sec_ranked["stealth"]:
-                                        for ln in _fr(r, name_col="Mã"):
+                                        for ln in _fr(r, name_col="Mã", show_detail=_show_detail):
                                             _s_lines.append(ln if ln.startswith("  ") else f"- {ln}")
                                     st.markdown("\n".join(_s_lines))
 
@@ -636,7 +802,7 @@ def render_market_tab() -> None:
                                     st.markdown("**⚠️ Distribution (giá xanh, tiền thoát)**")
                                     _d_lines = []
                                     for r in _sec_ranked["distribution"]:
-                                        for ln in _fr(r, name_col="Mã"):
+                                        for ln in _fr(r, name_col="Mã", show_detail=_show_detail):
                                             _d_lines.append(ln if ln.startswith("  ") else f"- {ln}")
                                     st.markdown("\n".join(_d_lines))
 
@@ -647,11 +813,44 @@ def render_market_tab() -> None:
                                     if _quar_in_sector:
                                         st.caption(f"⚠️ Đã loại khỏi top picks do dữ liệu lỗi: "
                                                    f"`{'`, `'.join(sorted(_quar_in_sector))}`")
+
+                                # Markdown export (inside expander, below rankings)
+                                try:
+                                    from vnstock_market_analyzer import scores_to_markdown as _s2md
+                                    _md_text = _s2md(sector_df, _sec_scores,
+                                                     name_col="Mã",
+                                                     title=f"Quant Analysis — {_selected_nganh}")
+                                    st.download_button(
+                                        "⬇️ Markdown", data=_md_text.encode("utf-8"),
+                                        file_name=f"quant_{_selected_nganh}_{pd.Timestamp.now().strftime('%Y%m%d')}.md",
+                                        mime="text/markdown",
+                                        key=f"quant_md_{_selected_nganh}",
+                                        help="Export full quant report as Markdown",
+                                    )
+                                except Exception:
+                                    pass
+
                     except Exception as _qe:
                         st.caption(f"Quant analysis lỗi: `{_qe}`")
 
+                    # ── Merge Composite score into sector_df for sort + display ──
+                    if _sec_scores is not None and not _sec_scores.empty:
+                        sector_df = sector_df.copy()
+                        sector_df["Composite"] = _sec_scores["composite"].values
+
+                    # Sort
+                    if _sort_by == "Composite" and "Composite" in sector_df.columns:
+                        sector_df = sector_df.sort_values("Composite", ascending=_sort_asc,
+                                                          na_position="last")
+                    elif _sort_by in sector_df.columns:
+                        sector_df = sector_df.sort_values(_sort_by, ascending=_sort_asc,
+                                                          na_position="last")
+                    else:
+                        sector_df = sector_df.sort_values("Vốn hoá (tỷ)", ascending=False)
+
                     # Reuse table rendering logic
-                    _dd_cols = ["Mã","Vốn hoá (tỷ)","Freefloat (tỷ)","GTGD TB (tỷ)",
+                    _dd_cols = ["Mã","Composite",
+                                "Vốn hoá (tỷ)","Freefloat (tỷ)","GTGD TB (tỷ)",
                                 "Vol Avg 5","Vol Avg 10","Vol Avg 20",
                                 "AVG 5-10 %","AVG 10-20 %",
                                 "Vol 5/Free %","Vol 10/Free %","Vol 20/Free %",
@@ -706,6 +905,22 @@ def render_market_tab() -> None:
                             elif col == "Mã":
                                 display = str(val)
                                 color = "#60a5fa"
+                            elif col == "Composite":
+                                v = float(val)
+                                display = f"{v:+.2f}"
+                                # Green for positive, red for negative, intensity by magnitude
+                                if v > 1.0:
+                                    color = "#10b981"; bg_comp = "#064e3b"
+                                elif v > 0.3:
+                                    color = "#34d399"; bg_comp = "#065f46"
+                                elif v > 0:
+                                    color = "#6ee7b7"; bg_comp = "#065f46"
+                                elif v > -0.3:
+                                    color = "#fca5a5"; bg_comp = "#7f1d1d"
+                                elif v > -1.0:
+                                    color = "#f87171"; bg_comp = "#7f1d1d"
+                                else:
+                                    color = "#ef4444"; bg_comp = "#991b1b"
                             elif col in ("Giá 1T %","Giá 1M %","Giá 3M %"):
                                 v = float(val)
                                 display = f"+{v:.1f}%" if v > 0 else f"{v:.1f}%"
@@ -742,6 +957,9 @@ def render_market_tab() -> None:
                             # Render cell
                             if col == "Mã":
                                 cells.append(f'<td style="{td_base}color:{color};font-weight:600">{display}</td>')
+                            elif col == "Composite" and val is not None and not (isinstance(val, float) and np.isnan(val)):
+                                cells.append(f'<td style="{td_base}background:{bg_comp};color:{color};text-align:center;'
+                                             f'font-weight:700;border-radius:3px;min-width:60px">{display}</td>')
                             elif col in _amp_cols and val is not None and not (isinstance(val, float) and np.isnan(val)):
                                 t = max(0, min(1, (float(val) - _dd_amp_min) / _dd_amp_rng))
                                 bar_w = max(4, int(t * 100))

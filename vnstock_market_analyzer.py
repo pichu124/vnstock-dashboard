@@ -727,8 +727,13 @@ def rank(df: pd.DataFrame, scores: pd.DataFrame,
 
 
 # ── Formatted narrative ───────────────────────────────────────────────────
-def format_row(row: dict, name_col: str = "Ngành") -> list[str]:
-    """Return markdown lines describing a single row (sector or ticker)."""
+def format_row(row: dict, name_col: str = "Ngành",
+               show_detail: bool = True) -> list[str]:
+    """Return markdown lines describing a single row (sector or ticker).
+
+    Args:
+      show_detail: if False, omit red_flags and catalysts lines (brief mode).
+    """
     name = row.get(name_col) or row.get("Mã") or row.get("ticker") or "?"
     comp = row.get("composite", 0)
     verdict = row.get("verdict", "")
@@ -765,10 +770,65 @@ def format_row(row: dict, name_col: str = "Ngành") -> list[str]:
     if ev:
         lines.append("  · " + " · ".join(ev))
 
-    # Red flags & catalysts
-    for rf in row.get("red_flags", []) or []:
-        lines.append(f"  {rf}")
-    for ct in row.get("catalysts", []) or []:
-        lines.append(f"  {ct}")
+    # Red flags & catalysts (only when detail mode)
+    if show_detail:
+        for rf in row.get("red_flags", []) or []:
+            lines.append(f"  {rf}")
+        for ct in row.get("catalysts", []) or []:
+            lines.append(f"  {ct}")
 
     return lines
+
+
+# ── Quant export helpers ────────────────────────────────────────────────────
+def scores_to_export_df(df: pd.DataFrame, scores: pd.DataFrame,
+                         name_col: str = "Mã") -> pd.DataFrame:
+    """Build a clean DataFrame suitable for CSV/Markdown export.
+
+    Merges the original name column with all numeric score columns and
+    stringifies red_flags / catalysts as pipe-separated text.
+    """
+    out = pd.DataFrame()
+    if name_col in df.columns:
+        out[name_col] = df[name_col].values
+
+    numeric_cols = ["composite", "momentum", "volume", "flow",
+                    "alpha_1T", "alpha_1M", "alpha_3M", "rotation"]
+    for c in numeric_cols:
+        if c in scores.columns:
+            out[c] = scores[c].round(3).values
+
+    if "verdict" in scores.columns:
+        out["verdict"] = scores["verdict"].values
+
+    if "red_flags" in scores.columns:
+        out["red_flags"] = scores["red_flags"].apply(
+            lambda xs: " | ".join(xs) if xs else "")
+    if "catalysts" in scores.columns:
+        out["catalysts"] = scores["catalysts"].apply(
+            lambda xs: " | ".join(xs) if xs else "")
+
+    return out
+
+
+def scores_to_markdown(df: pd.DataFrame, scores: pd.DataFrame,
+                        name_col: str = "Mã",
+                        title: str = "Quant Analysis") -> str:
+    """Return full markdown report string for download."""
+    from datetime import date
+    lines = [f"# {title}", f"_Generated {date.today().isoformat()}_", ""]
+
+    merged = df.copy()
+    for c in ("composite", "momentum", "volume", "flow", "verdict",
+              "red_flags", "catalysts", "alpha_1T", "alpha_1M", "alpha_3M",
+              "rotation", "nn_trend"):
+        if c in scores.columns:
+            merged[c] = scores[c].values
+
+    for _, row in merged.sort_values("composite", ascending=False).iterrows():
+        row_d = row.to_dict()
+        for ln in format_row(row_d, name_col=name_col, show_detail=True):
+            lines.append(ln)
+        lines.append("")
+
+    return "\n".join(lines)
