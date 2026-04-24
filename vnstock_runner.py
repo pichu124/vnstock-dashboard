@@ -408,44 +408,73 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
 
     # Fetch aggressive order flow (Net Buy-Sell) per ticker via order_stats()
     nb_data: dict = {}
+    _NB_CACHE_PATH = Path(warehouse) / "_meta" / "net_bs_cache.json"
+    _NB_CACHE_TTL_H = 12  # reuse cache if younger than 12 hours
     try:
         from vnstock_data import Trading
-        import concurrent.futures as _cf
         import time as _nb_time
 
-        _t0_nb = _nb_time.time()
-        _top_tickers = [r["ticker"] for r in sorted(rows, key=lambda r: -r.get("mktcap", 0))]
+        # Check cache first
+        _nb_cache_hit = False
+        if _NB_CACHE_PATH.exists():
+            try:
+                _nb_cached = json.loads(_NB_CACHE_PATH.read_text(encoding="utf-8"))
+                _nb_age_h = (_nb_time.time() - _NB_CACHE_PATH.stat().st_mtime) / 3600
+                if _nb_age_h < _NB_CACHE_TTL_H:
+                    nb_data = _nb_cached.get("data", {})
+                    console.log(
+                        f"  Net BS: loaded from cache ({_nb_age_h:.1f}h old, "
+                        f"{len(nb_data)} tickers)"
+                    )
+                    _nb_cache_hit = True
+            except Exception:
+                pass
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(), MofNCompleteColumn(),
-            TaskProgressColumn(), TimeElapsedColumn(),
-            console=console,
-        ) as _nb_progress:
-            _nb_task = _nb_progress.add_task("Net BS...", total=len(_top_tickers))
-            for tk in _top_tickers:
-                _nb_progress.update(_nb_task, description=f"[cyan]{tk:6s}[/cyan]", advance=1)
-                try:
-                    os_df = Trading(symbol=tk).order_stats()
-                    if os_df is not None and not os_df.empty:
-                        os_df = os_df.sort_values("trading_date")
-                        bv = pd.to_numeric(os_df["total_buy_trade_volume"], errors="coerce").fillna(0)
-                        sv = pd.to_numeric(os_df["total_sell_trade_volume"], errors="coerce").fillna(0)
-                        net = bv - sv
-                        nb_data[tk] = {
-                            "1w": round(float(net.tail(5).sum())   / 1e6, 1),
-                            "1m": round(float(net.tail(20).sum())  / 1e6, 1),
-                            "3m": round(float(net.tail(60).sum())  / 1e6, 1),
-                            "6m": round(float(net.tail(120).sum()) / 1e6, 1),
-                        }
-                except Exception:
-                    pass
-                _nb_time.sleep(0.15)
-        console.log(
-            f"  Net Buy-Sell: {len(nb_data)}/{len(_top_tickers)} tickers "
-            f"({_nb_time.time() - _t0_nb:.0f}s)"
-        )
+        if not _nb_cache_hit:
+            _t0_nb = _nb_time.time()
+            _top_tickers = [r["ticker"] for r in sorted(rows, key=lambda r: -r.get("mktcap", 0))]
+
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(), MofNCompleteColumn(),
+                TaskProgressColumn(), TimeElapsedColumn(),
+                console=console,
+            ) as _nb_progress:
+                _nb_task = _nb_progress.add_task("Net BS...", total=len(_top_tickers))
+                for tk in _top_tickers:
+                    _nb_progress.update(_nb_task, description=f"[cyan]{tk:6s}[/cyan]", advance=1)
+                    try:
+                        os_df = Trading(symbol=tk).order_stats()
+                        if os_df is not None and not os_df.empty:
+                            os_df = os_df.sort_values("trading_date")
+                            bv = pd.to_numeric(os_df["total_buy_trade_volume"], errors="coerce").fillna(0)
+                            sv = pd.to_numeric(os_df["total_sell_trade_volume"], errors="coerce").fillna(0)
+                            net = bv - sv
+                            nb_data[tk] = {
+                                "1w": round(float(net.tail(5).sum())   / 1e6, 1),
+                                "1m": round(float(net.tail(20).sum())  / 1e6, 1),
+                                "3m": round(float(net.tail(60).sum())  / 1e6, 1),
+                                "6m": round(float(net.tail(120).sum()) / 1e6, 1),
+                            }
+                    except Exception:
+                        pass
+                    _nb_time.sleep(0.15)
+
+            # Save cache
+            try:
+                _NB_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+                _NB_CACHE_PATH.write_text(
+                    json.dumps({"generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"), "data": nb_data},
+                               ensure_ascii=False),
+                    encoding="utf-8"
+                )
+            except Exception:
+                pass
+            console.log(
+                f"  Net Buy-Sell: {len(nb_data)}/{len(_top_tickers)} tickers "
+                f"({_nb_time.time() - _t0_nb:.0f}s) → cached"
+            )
     except ImportError:
         console.log("  [dim]vnstock_data not installed — Net BS data skipped[/dim]")
     except Exception as e:
