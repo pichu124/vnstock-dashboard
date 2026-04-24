@@ -546,8 +546,17 @@ def render_market_tab() -> None:
                     try:
                         from vnstock_market_analyzer import (
                             compute_scores as _cs, rank as _rk, format_row as _fr,
+                            build_preset_sets as _bps,
+                            _sector_technical_summary as _sts,
                         )
-                        _sec_scores = _cs(sector_df)
+                        # Load screener presets một lần cho toàn drill-down
+                        try:
+                            from vnstock_dashboard import load_screener_results as _lsr
+                            _presets = _bps(_lsr())
+                        except Exception:
+                            _presets = None
+
+                        _sec_scores = _cs(sector_df, presets=_presets)
                         if not _sec_scores.empty:
                             _sec_ranked = _rk(sector_df, _sec_scores, n_top=3, n_bot=3, name_col="Mã")
                             _sec_comp_avg = float(_sec_scores["composite"].mean())
@@ -556,10 +565,13 @@ def render_market_tab() -> None:
                                             else "⚖️ Trung tính" if abs(_sec_comp_avg) <= 0.1
                                             else "📉 Yếu" if _sec_comp_avg > -0.5
                                             else "❄️ Rất yếu")
+                            _tech_summary = _sts(sector_df, _presets) if _presets else ""
 
-                            with st.expander(f"🧠 Quant view · **{_selected_nganh}** · "
-                                              f"Composite TB `{_sec_comp_avg:+.2f}` · {_sec_verdict}",
-                                              expanded=True):
+                            _exp_title = (f"🧠 Quant view · **{_selected_nganh}** · "
+                                          f"Composite TB `{_sec_comp_avg:+.2f}` · {_sec_verdict}")
+                            if _tech_summary:
+                                _exp_title += f" · {_tech_summary}"
+                            with st.expander(_exp_title, expanded=True):
                                 q_col1, q_col2 = st.columns(2)
                                 with q_col1:
                                     st.markdown("**🎯 Top picks trong ngành**")
@@ -798,8 +810,15 @@ def render_market_tab() -> None:
                 try:
                     from vnstock_market_analyzer import (
                         compute_scores, market_regime, rank, format_row,
-                        session_timing_signal,
+                        session_timing_signal, build_preset_sets,
                     )
+                    # Load screener presets for ticker-level technical overlay
+                    try:
+                        from vnstock_dashboard import load_screener_results
+                        _preset_sets = build_preset_sets(load_screener_results())
+                    except Exception:
+                        _preset_sets = None
+
                     scores = compute_scores(mkt_data)
                     regime = market_regime(scores, breadth_data)
                     ranked = rank(mkt_data, scores, n_top=5, n_bot=5, name_col="Ngành")
@@ -871,7 +890,7 @@ def render_market_tab() -> None:
                             sub = tick_data[tick_data["Ngành"] == sname].copy()
                             if sub.empty:
                                 continue
-                            t_scores = compute_scores(sub)
+                            t_scores = compute_scores(sub, presets=_preset_sets)
                             t_ranked = rank(sub, t_scores, n_top=3, n_bot=0, name_col="Mã")
                             picks = []
                             for tr in t_ranked["top"]:
@@ -896,7 +915,7 @@ def render_market_tab() -> None:
                                 sub = tick_data[tick_data["Ngành"] == sname].copy()
                                 if sub.empty:
                                     continue
-                                t_scores = compute_scores(sub)
+                                t_scores = compute_scores(sub, presets=_preset_sets)
                                 t_ranked = rank(sub, t_scores, n_top=0, n_bot=3, name_col="Mã")
                                 flops = []
                                 for tr in t_ranked["avoid"]:

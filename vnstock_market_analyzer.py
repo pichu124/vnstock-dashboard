@@ -52,10 +52,118 @@ def _safe(df: pd.DataFrame, col: str) -> pd.Series:
     return pd.Series([np.nan] * len(df), index=df.index)
 
 
+# ── Technical overlay helpers (from screener presets) ────────────────────
+def build_preset_sets(screener_results: dict | None) -> dict:
+    """Turn screener_results.json into sets of tickers per preset.
+
+    Returns dict with keys matching preset names (each a set of ticker strings).
+    Handles the structure:
+      {"presets": {"oversold": {"results": [{"ticker": ..., ...}, ...]}, ...}}
+    """
+    if not screener_results:
+        return {}
+    presets = (screener_results or {}).get("presets", {})
+    out: dict = {}
+    # Also keep per-ticker full records for richer flags (RSI value, 52w_pct)
+    per_ticker: dict = {}
+    for name, data in presets.items():
+        rows = data.get("results", []) if isinstance(data, dict) else []
+        tickers = set()
+        for r in rows:
+            tk = r.get("ticker") if isinstance(r, dict) else None
+            if tk:
+                tickers.add(tk)
+                # Collapse: first-seen record is fine (fields are computed once per ticker)
+                if tk not in per_ticker:
+                    per_ticker[tk] = r
+        out[name] = tickers
+    out["_per_ticker"] = per_ticker
+    return out
+
+
+def _ticker_flags(ticker: str, presets: dict,
+                   composite: float) -> tuple[list[str], list[str]]:
+    """Derive red flags & catalysts for a ticker from screener preset membership."""
+    if not presets or not ticker:
+        return [], []
+
+    oversold    = presets.get("oversold", set())
+    overbought  = presets.get("overbought", set())
+    golden      = presets.get("golden_cross", set())
+    breakout    = presets.get("breakout", set())
+    volsurge    = presets.get("volume_surge", set())
+    reversal    = presets.get("reversal", set())
+    strong_up   = presets.get("strong_uptrend", set())
+    pt          = presets.get("_per_ticker", {}).get(ticker, {})
+    rsi         = pt.get("rsi_14") if isinstance(pt, dict) else None
+    w52_pct     = pt.get("52w_pct") if isinstance(pt, dict) else None
+    above_ma200 = pt.get("above_ma200") if isinstance(pt, dict) else None
+
+    rf, ct = [], []
+
+    # ─ Red flags ─
+    if ticker in overbought and composite > 0:
+        rf.append(f"🥵 Overbought: RSI `{rsi:.1f}` >70 — cẩn trọng chasing"
+                  if rsi is not None else "🥵 Overbought (RSI>70) — cẩn trọng chasing")
+    if ticker in oversold and composite < 0:
+        rf.append(f"🔪 Falling knife: RSI `{rsi:.1f}` <30, đà giảm chưa dừng"
+                  if rsi is not None else "🔪 Falling knife: RSI<30, đà giảm chưa dừng")
+    if above_ma200 is False and composite > 0:
+        rf.append("📉 Dưới MA200 — trong downtrend dài hạn, bull trap risk")
+
+    # ─ Catalysts ─
+    if ticker in golden:
+        ct.append("🌟 Golden cross: EMA9>21 + EMA50>200 + trên MA200")
+    if ticker in strong_up:
+        ct.append("💪 Strong uptrend: +5% 20d, MACD bull, trên MA200")
+    if ticker in breakout:
+        ct.append(f"🚀 Breakout: gần 52w high (`{w52_pct:.0f}%` range) + vol spike"
+                  if w52_pct is not None else "🚀 Breakout: gần 52w high + vol spike")
+    if ticker in volsurge:
+        ct.append("⚡ Volume surge: >3× MA20 vol")
+    if ticker in reversal:
+        ct.append(f"🎯 Reversal setup: 52w low (`{w52_pct:.0f}%` range) + RSI<40"
+                  if w52_pct is not None else "🎯 Reversal setup: 52w low + RSI<40")
+    if above_ma200 is True and composite > 0.3 and ticker not in overbought:
+        ct.append("✅ Trên MA200 (confirmed uptrend)")
+
+    return rf, ct
+
+
+def _sector_technical_summary(sector_df: pd.DataFrame, presets: dict) -> str:
+    """Aggregate: what % of sector's tickers are oversold/overbought/etc."""
+    if not presets or sector_df is None or sector_df.empty or "Mã" not in sector_df.columns:
+        return ""
+    tickers = set(sector_df["Mã"].dropna().astype(str).tolist())
+    if not tickers:
+        return ""
+    n = len(tickers)
+    ov = len(tickers & presets.get("oversold", set()))
+    ob = len(tickers & presets.get("overbought", set()))
+    gc = len(tickers & presets.get("golden_cross", set()))
+    bo = len(tickers & presets.get("breakout", set()))
+    parts = []
+    if ob > 0:
+        parts.append(f"{ob}/{n} overbought ({ob*100//n}%)")
+    if ov > 0:
+        parts.append(f"{ov}/{n} oversold ({ov*100//n}%)")
+    if gc > 0:
+        parts.append(f"{gc}/{n} golden cross")
+    if bo > 0:
+        parts.append(f"{bo}/{n} breakout")
+    return " · ".join(parts)
+
+
 # ── Core scoring ──────────────────────────────────────────────────────────
-def compute_scores(df: pd.DataFrame) -> pd.DataFrame:
+def compute_scores(df: pd.DataFrame,
+                    presets: dict | None = None) -> pd.DataFrame:
     """Compute per-row composite scores. Works for both sector-level (mkt_df)
     and ticker-level (tick_data) DataFrames.
+
+    Args:
+      df: DataFrame with sector/ticker metrics (see module constants for cols).
+      presets: optional dict from build_preset_sets(); adds technical overlays
+               (RSI / MA200 / golden cross / breakout) to per-ticker flags.
 
     Returns DataFrame indexed same as input with columns:
       momentum, volume, flow, composite, verdict, red_flags, catalysts
@@ -172,6 +280,15 @@ def compute_scores(df: pd.DataFrame) -> pd.DataFrame:
         # Foreign leading
         if _notna(nn1.at[idx]) and nn1.at[idx] > 0.005 and _notna(fx1.at[idx]) and fx1.at[idx] > 1:
             ct.append(f"🌍 NN dẫn dắt: mua ròng `{nn1.at[idx]*100:+.1f}%` cap 1M, top quintile")
+
+        # Technical overlay — only meaningful at ticker level (df must have "Mã")
+        if presets and "Mã" in df.columns:
+            _tk = df.at[idx, "Mã"] if "Mã" in df.columns else None
+            if _tk:
+                _rf2, _ct2 = _ticker_flags(str(_tk), presets,
+                                           composite=float(out["composite"].at[idx]))
+                rf.extend(_rf2)
+                ct.extend(_ct2)
 
         red_flags.append(rf)
         catalysts.append(ct)
