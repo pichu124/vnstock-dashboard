@@ -2169,12 +2169,25 @@ def load_fundamental(ticker: str) -> dict:
 # ═════════════════════════════════════════════════════════════════════════════
 # Market Session Stats — 4 time-window snapshots
 # ═════════════════════════════════════════════════════════════════════════════
-from vnstock_session_stats import (  # noqa: E402
-    SESSION_WINDOWS, SESSION_INDICES,
-    compute_session_stats, backfill_session_stats,
-    save_session_stats as _save_session_stats_impl,
-    load_session_stats_history as _load_session_stats_impl,
-)
+try:
+    from vnstock_session_stats import (
+        SESSION_WINDOWS, SESSION_INDICES,
+        compute_session_stats, backfill_session_stats,
+        save_session_stats as _save_session_stats_impl,
+        load_session_stats_history as _load_session_stats_impl,
+    )
+except Exception:
+    SESSION_WINDOWS = {
+        "9h-10h":   ("09:00", "10:00"),
+        "9h-11h30": ("09:00", "11:30"),
+        "9h-14h":   ("09:00", "14:00"),
+        "9h-15h":   ("09:00", "15:00"),
+    }
+    SESSION_INDICES = ["VNINDEX", "VN30", "HNX", "UPCOM"]
+    def compute_session_stats(): return {}
+    def backfill_session_stats(): return 0
+    def _save_session_stats_impl(stats): pass
+    def _load_session_stats_impl(): return {}
 
 # Map index names to vnstock symbols (kept for render_session_stats_table)
 _INDEX_SYMBOL_MAP = {
