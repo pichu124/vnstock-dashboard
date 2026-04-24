@@ -411,6 +411,7 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
 
         def _fetch_nb(tk):
             try:
+                _nb_time.sleep(0.25)  # throttle: max ~4 req/s per worker
                 os_df = Trading(symbol=tk).order_stats()
                 if os_df is None or os_df.empty:
                     return tk, None
@@ -428,7 +429,8 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
                 return tk, None
 
         _t0_nb = _nb_time.time()
-        _top_tickers = [r["ticker"] for r in sorted(rows, key=lambda r: -r.get("mktcap", 0))]
+        # Only top 200 by market cap — covers ~95% of market cap, stays within rate limit
+        _top_tickers = [r["ticker"] for r in sorted(rows, key=lambda r: -r.get("mktcap", 0))][:200]
         _nb_futures = []
         with _cf.ThreadPoolExecutor(max_workers=3) as _ex:
             _nb_futures = [_ex.submit(_fetch_nb, tk) for tk in _top_tickers]
