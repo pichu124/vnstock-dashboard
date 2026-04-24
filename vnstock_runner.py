@@ -409,38 +409,35 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
         import concurrent.futures as _cf
         import time as _nb_time
 
-        def _fetch_nb(tk):
-            try:
-                _nb_time.sleep(0.25)  # throttle: max ~4 req/s per worker
-                os_df = Trading(symbol=tk).order_stats()
-                if os_df is None or os_df.empty:
-                    return tk, None
-                os_df = os_df.sort_values("trading_date")
-                bv = pd.to_numeric(os_df["total_buy_trade_volume"], errors="coerce").fillna(0)
-                sv = pd.to_numeric(os_df["total_sell_trade_volume"], errors="coerce").fillna(0)
-                net = bv - sv
-                return tk, {
-                    "1w": round(float(net.tail(5).sum())   / 1e6, 1),
-                    "1m": round(float(net.tail(20).sum())  / 1e6, 1),
-                    "3m": round(float(net.tail(60).sum())  / 1e6, 1),
-                    "6m": round(float(net.tail(120).sum()) / 1e6, 1),
-                }
-            except Exception:
-                return tk, None
-
         _t0_nb = _nb_time.time()
-        # Only top 200 by market cap — covers ~95% of market cap, stays within rate limit
-        _top_tickers = [r["ticker"] for r in sorted(rows, key=lambda r: -r.get("mktcap", 0))][:200]
-        _nb_futures = []
-        with _cf.ThreadPoolExecutor(max_workers=3) as _ex:
-            _nb_futures = [_ex.submit(_fetch_nb, tk) for tk in _top_tickers]
-            for _fut in _cf.as_completed(_nb_futures, timeout=180):
+        _top_tickers = [r["ticker"] for r in sorted(rows, key=lambda r: -r.get("mktcap", 0))]
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(), MofNCompleteColumn(),
+            TaskProgressColumn(), TimeElapsedColumn(),
+            console=console,
+        ) as _nb_progress:
+            _nb_task = _nb_progress.add_task("Net BS...", total=len(_top_tickers))
+            for tk in _top_tickers:
+                _nb_progress.update(_nb_task, description=f"[cyan]{tk:6s}[/cyan]", advance=1)
                 try:
-                    tk, result = _fut.result()
-                    if result is not None:
-                        nb_data[tk] = result
+                    os_df = Trading(symbol=tk).order_stats()
+                    if os_df is not None and not os_df.empty:
+                        os_df = os_df.sort_values("trading_date")
+                        bv = pd.to_numeric(os_df["total_buy_trade_volume"], errors="coerce").fillna(0)
+                        sv = pd.to_numeric(os_df["total_sell_trade_volume"], errors="coerce").fillna(0)
+                        net = bv - sv
+                        nb_data[tk] = {
+                            "1w": round(float(net.tail(5).sum())   / 1e6, 1),
+                            "1m": round(float(net.tail(20).sum())  / 1e6, 1),
+                            "3m": round(float(net.tail(60).sum())  / 1e6, 1),
+                            "6m": round(float(net.tail(120).sum()) / 1e6, 1),
+                        }
                 except Exception:
                     pass
+                _nb_time.sleep(0.15)
         console.log(
             f"  Net Buy-Sell: {len(nb_data)}/{len(_top_tickers)} tickers "
             f"({_nb_time.time() - _t0_nb:.0f}s)"
