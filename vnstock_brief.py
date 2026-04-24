@@ -1,0 +1,493 @@
+"""
+vnstock_brief.py — AI-powered morning/afternoon market brief generator.
+
+Architecture
+------------
+  BriefAgent (ABC)    — any agent that implements .generate(prompt) -> (text, err)
+  ClaudeAgent         — Anthropic Messages API  (ANTHROPIC_API_KEY)
+  OpenAIAgent         — OpenAI Chat Completions (OPENAI_API_KEY)
+
+  collect_context()   — gather quant scores, session stats, VN30 movers
+  build_prompt()      — construct Vietnamese structured prompt
+  generate_brief()    — run enabled agents, return {name: (text, error)}
+
+Adding a new agent
+------------------
+  1. Subclass BriefAgent, implement .generate() and .is_available
+  2. Register in AGENT_REGISTRY
+  3. Add default entry to _DEFAULT_AGENT_CONFIGS
+
+No Streamlit dependency — safe to call from CLI or other modules.
+"""
+from __future__ import annotations
+
+import json
+import os
+from abc import ABC, abstractmethod
+from datetime import date, datetime, time
+from pathlib import Path
+from typing import Optional
+
+# ── Constants ─────────────────────────────────────────────────────────────
+AGENTS_CONFIG_PATH = Path("data_warehouse/_meta/brief_agents.json")
+
+# VN30 tickers (as of 2025 — update if index changes)
+VN30_TICKERS = {
+    "VCB","BID","CTG","TCB","MBB","VPB","ACB","HDB","VHM","VIC",
+    "VRE","MSN","MWG","VNM","SAB","GAS","PLX","POW","REE","HPG",
+    "NVL","PDR","DXG","KDH","BCM","SSI","HCM","VND","FPT","CMG",
+}
+
+_DEFAULT_AGENT_CONFIGS: list[dict] = [
+    {
+        "type": "claude",
+        "model": "claude-haiku-4-5-20251001",
+        "name": "Claude Haiku",
+        "enabled": True,
+        "max_tokens": 1200,
+    },
+    {
+        "type": "openai",
+        "model": "gpt-4o-mini",
+        "name": "GPT-4o mini",
+        "enabled": False,
+        "max_tokens": 1200,
+    },
+]
+
+# ── Prompt templates ───────────────────────────────────────────────────────
+_SYSTEM = (
+    "Bạn là quant trader chuyên nghiệp tại thị trường chứng khoán Việt Nam với hơn 10 năm "
+    "kinh nghiệm phân tích định lượng. Phong cách: thẳng thắn, súc tích, gắn nhận định với "
+    "dữ liệu cụ thể, phân biệt rõ tín hiệu mạnh và nhiễu, không dùng ngôn ngữ hoa mỹ."
+)
+
+_MORNING_TEMPLATE = """\
+{system}
+
+Dữ liệu thị trường kết thúc phiên SÁNG (11:30):
+
+{data}
+
+---
+Viết MORNING BRIEF tiếng Việt theo đúng format sau (không thêm phần nào khác):
+
+## 📊 Tổng quan phiên sáng
+[2-3 câu: diễn biến chính, GTGD so bình thường, tính chất phiên institutional/retail]
+
+## 🎯 Trọng tâm theo dõi
+**Tích luỹ/Mua:** [ngành hoặc mã VN30 + lý do cụ thể từ data]
+**Tránh/Bán:** [ngành hoặc mã VN30 + lý do cụ thể từ data]
+**Theo dõi:** [rotation/stealth nếu có, nếu không thì bỏ dòng này]
+
+## ⚡ Biến động bất thường
+[Mã/ngành tăng giảm đột biến + giải thích; nếu không có thì viết "Không có biến động bất thường đáng chú ý"]
+
+## 🔮 Kịch bản phiên chiều
+**Tích cực (>50% xác suất nếu...):** [điều kiện kích hoạt]
+**Thận trọng:** [tín hiệu cần theo dõi để cắt lỗ / không vào hàng]
+
+Giới hạn 350 từ. Chỉ đề cập mã trong VN30 khi nói về cổ phiếu cụ thể.
+Nếu không đủ data cho một mục thì nói thẳng, không bịa.
+"""
+
+_AFTERNOON_TEMPLATE = """\
+{system}
+
+Dữ liệu thị trường kết thúc PHIÊN CHIỀU (15:00):
+
+{data}
+
+---
+Viết AFTERNOON BRIEF tiếng Việt theo đúng format sau (không thêm phần nào khác):
+
+## 📊 Tổng kết phiên
+[2-3 câu: kết quả toàn ngày, GTGD, độ rộng thị trường, so sánh với kỳ vọng sáng]
+
+## 🏆 Dẫn dắt & Tụt hậu
+**Dẫn dắt:** [top 2-3 ngành/mã VN30 + composite/return cụ thể]
+**Tụt hậu:** [ngành/mã yếu + lý do nếu rõ]
+
+## 💰 Dòng tiền đáng chú ý
+[NN mua/bán ròng đáng kể | smart money tích luỹ/phân phối | unusual volume | bỏ qua nếu không có tín hiệu rõ]
+
+## 📋 Watchlist sáng mai
+[2-3 ngành/mã + điều kiện cụ thể để vào lệnh hoặc theo dõi]
+
+## ⚠️ Rủi ro cần lưu ý
+[Red flags, distribution, macro risk; nếu thị trường ổn định thì viết "Không có rủi ro đặc biệt"]
+
+Giới hạn 400 từ. Chỉ đề cập mã trong VN30. Nếu thị trường flat và không có signal rõ thì nói thẳng.
+"""
+
+
+# ── Agent base class ───────────────────────────────────────────────────────
+class BriefAgent(ABC):
+    """Abstract market brief generator. Subclass to add a new AI provider."""
+    name: str
+    agent_type: str
+
+    @abstractmethod
+    def generate(self, prompt: str, max_tokens: int = 1200) -> tuple[str, str | None]:
+        """Generate brief text.
+        Returns (text, error_message). error is None on success.
+        """
+
+    @property
+    @abstractmethod
+    def is_available(self) -> bool:
+        """True if the required API key is set in environment."""
+
+
+# ── Concrete agents ────────────────────────────────────────────────────────
+class ClaudeAgent(BriefAgent):
+    """Anthropic Messages API."""
+    agent_type = "claude"
+    _ENDPOINT = "https://api.anthropic.com/v1/messages"
+
+    def __init__(self, model: str = "claude-haiku-4-5-20251001",
+                 name: str = "Claude Haiku"):
+        self.model = model
+        self.name = name
+
+    @property
+    def is_available(self) -> bool:
+        return bool(os.environ.get("ANTHROPIC_API_KEY"))
+
+    def generate(self, prompt: str, max_tokens: int = 1200) -> tuple[str, str | None]:
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            return "", "ANTHROPIC_API_KEY chưa được thiết lập trong .env"
+        try:
+            import requests as _req
+            resp = _req.post(
+                self._ENDPOINT,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                },
+                json={
+                    "model": self.model,
+                    "max_tokens": max_tokens,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+                timeout=90,
+            )
+            resp.raise_for_status()
+            return resp.json()["content"][0]["text"], None
+        except Exception as e:
+            return "", f"Claude API lỗi: {type(e).__name__}: {str(e)[:160]}"
+
+
+class OpenAIAgent(BriefAgent):
+    """OpenAI Chat Completions."""
+    agent_type = "openai"
+    _ENDPOINT = "https://api.openai.com/v1/chat/completions"
+
+    def __init__(self, model: str = "gpt-4o-mini", name: str = "GPT-4o mini"):
+        self.model = model
+        self.name = name
+
+    @property
+    def is_available(self) -> bool:
+        return bool(os.environ.get("OPENAI_API_KEY"))
+
+    def generate(self, prompt: str, max_tokens: int = 1200) -> tuple[str, str | None]:
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+        if not api_key:
+            return "", "OPENAI_API_KEY chưa được thiết lập trong .env"
+        # Split system from user for OpenAI
+        sys_end = prompt.find("\n\nDữ liệu thị trường")
+        if sys_end > 0:
+            system_part = prompt[:sys_end].strip()
+            user_part = prompt[sys_end:].strip()
+        else:
+            system_part = _SYSTEM
+            user_part = prompt
+        try:
+            import requests as _req
+            resp = _req.post(
+                self._ENDPOINT,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}",
+                },
+                json={
+                    "model": self.model,
+                    "max_tokens": max_tokens,
+                    "messages": [
+                        {"role": "system", "content": system_part},
+                        {"role": "user", "content": user_part},
+                    ],
+                },
+                timeout=90,
+            )
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"], None
+        except Exception as e:
+            return "", f"OpenAI API lỗi: {type(e).__name__}: {str(e)[:160]}"
+
+
+# ── Agent registry ─────────────────────────────────────────────────────────
+AGENT_REGISTRY: dict[str, type[BriefAgent]] = {
+    "claude": ClaudeAgent,
+    "openai": OpenAIAgent,
+    # Add new providers here: "gemini": GeminiAgent, etc.
+}
+
+
+# ── Config helpers ─────────────────────────────────────────────────────────
+def load_agent_configs() -> list[dict]:
+    """Load agent configs from JSON. Falls back to defaults."""
+    if AGENTS_CONFIG_PATH.exists():
+        try:
+            return json.loads(AGENTS_CONFIG_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return [c.copy() for c in _DEFAULT_AGENT_CONFIGS]
+
+
+def save_agent_configs(configs: list[dict]) -> None:
+    AGENTS_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    AGENTS_CONFIG_PATH.write_text(
+        json.dumps(configs, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def build_agents(configs: list[dict] | None = None) -> list[BriefAgent]:
+    """Instantiate all enabled agents from config."""
+    if configs is None:
+        configs = load_agent_configs()
+    agents: list[BriefAgent] = []
+    for cfg in configs:
+        if not cfg.get("enabled", False):
+            continue
+        cls = AGENT_REGISTRY.get(cfg.get("type", ""))
+        if cls:
+            agents.append(cls(
+                model=cfg.get("model", ""),
+                name=cfg.get("name", cfg.get("type", "")),
+            ))
+    return agents
+
+
+# ── Context collection ─────────────────────────────────────────────────────
+def collect_context(brief_type: str = "morning") -> dict:
+    """Collect all available market data for brief generation."""
+    ctx: dict = {
+        "brief_type": brief_type,
+        "date": date.today().isoformat(),
+        "time": datetime.now().strftime("%H:%M"),
+        "sectors": [],
+        "breadth": {},
+        "tickers": [],
+    }
+
+    # 1. Market overview (pre-computed by runner)
+    _ov = Path("data_warehouse/_meta/market_overview.json")
+    if _ov.exists():
+        try:
+            data = json.loads(_ov.read_text(encoding="utf-8"))
+            ctx["sectors"] = data.get("sectors", [])
+            ctx["breadth"] = data.get("breadth", {})
+            ctx["tickers"] = data.get("tickers", [])
+        except Exception:
+            pass
+
+    # 2. Quant scores + regime
+    if ctx["sectors"]:
+        try:
+            import pandas as pd
+            from vnstock_market_analyzer import (
+                compute_scores, rank, market_regime, compute_index_returns,
+            )
+            df = pd.DataFrame(ctx["sectors"])
+            scores = compute_scores(df)
+            ranked = rank(df, scores, name_col="Ngành")
+            regime = market_regime(scores, ctx["breadth"])
+            ctx["quant_regime"] = regime
+            ctx["quant_top"] = ranked.get("top", [])[:3]
+            ctx["quant_avoid"] = ranked.get("avoid", [])[:3]
+            ctx["quant_rotation"] = ranked.get("rotation", [])[:3]
+            ctx["quant_stealth"] = ranked.get("stealth", [])[:2]
+            ctx["quant_distribution"] = ranked.get("distribution", [])[:2]
+            ctx["vol_regime"] = scores["_vol_regime"].mode().iloc[0] if "_vol_regime" in scores.columns else "normal"
+        except Exception as e:
+            ctx["quant_error"] = str(e)
+
+    # 3. Session stats (intraday GTGD profile)
+    try:
+        from vnstock_session_stats import load_session_stats_history
+        from vnstock_market_analyzer import session_timing_signal
+        _hist = load_session_stats_history()
+        _today = _hist.get(date.today().isoformat(), {})
+        if _today:
+            ctx["session_stats"] = _today
+            ctx["session_timing"] = session_timing_signal(_today, _hist, "VNINDEX")
+    except Exception:
+        pass
+
+    # 4. VN30 movers (from ticker data)
+    if ctx["tickers"]:
+        try:
+            import pandas as pd
+            tick_df = pd.DataFrame(ctx["tickers"])
+            price_col = "Giá 1T %" if "Giá 1T %" in tick_df.columns else None
+            if price_col and "Mã" in tick_df.columns:
+                vn30_df = tick_df[tick_df["Mã"].isin(VN30_TICKERS)].dropna(subset=[price_col])
+                ctx["vn30_gainers"] = vn30_df.nlargest(5, price_col)[
+                    ["Mã", price_col, "Ngành"]].to_dict("records") if not vn30_df.empty else []
+                ctx["vn30_losers"] = vn30_df.nsmallest(5, price_col)[
+                    ["Mã", price_col, "Ngành"]].to_dict("records") if not vn30_df.empty else []
+        except Exception:
+            pass
+
+    return ctx
+
+
+# ── Prompt builder ─────────────────────────────────────────────────────────
+def build_prompt(ctx: dict, brief_type: str = "morning") -> str:
+    """Construct the full Vietnamese prompt from market context."""
+    lines: list[str] = []
+
+    lines.append(f"Ngày: {ctx['date']} | Thời điểm: {ctx['time']}")
+
+    # Regime
+    if r := ctx.get("quant_regime"):
+        vr = ctx.get("vol_regime", "normal")
+        vr_note = " | ⚡ Biên độ cao — high-vol regime" if vr == "high" else ""
+        lines.append(f"\n## Quant Market Regime\n{r['regime']} | conviction={r['conviction']:+.2f}"
+                     f"{vr_note} | {r['detail']}")
+
+    # Session timing
+    if timing := ctx.get("session_timing"):
+        line = f"\n## Session Timing\n{timing['signal']} | {timing['detail']}"
+        if ss := ctx.get("session_stats"):
+            morn_gtgd = ss.get("9h-11h30", {}).get("VNINDEX", {}).get("gtgd", 0)
+            full_gtgd = ss.get("9h-15h",  {}).get("VNINDEX", {}).get("gtgd", 0)
+            if morn_gtgd:
+                line += f"\nGTGD sáng: {morn_gtgd:.1f} tỷ"
+            if full_gtgd:
+                line += f" | GTGD cả ngày: {full_gtgd:.1f} tỷ"
+        lines.append(line)
+
+    # Breadth
+    if b := ctx.get("breadth"):
+        lines.append(f"\n## Market Breadth\n"
+                     f"Trên MA200: {b.get('above_ma200_pct',0):.0f}% | "
+                     f"A/D ratio: {b.get('ad_ratio',0):.2f} | "
+                     f"Net new highs: {b.get('net_new_highs',0):+d} | "
+                     f"RSI oversold: {b.get('rsi_oversold',0)} mã | RSI overbought: {b.get('rsi_overbought',0)} mã")
+
+    # Sector analysis
+    def _sector_line(r: dict) -> str:
+        parts = [f"**{r.get('Ngành','?')}** (composite={r.get('composite',0):+.2f})"]
+        g1m = r.get("Giá 1M %")
+        a1m = r.get("alpha_1M")
+        rot = r.get("rotation")
+        if g1m is not None:
+            if a1m is not None:
+                parts.append(f"Giá 1M {g1m:+.1f}% (alpha vs VNI {a1m:+.1f}%)")
+            else:
+                parts.append(f"Giá 1M {g1m:+.1f}%")
+        if rot is not None and abs(rot) > 3:
+            parts.append(f"rotation {rot:+.1f}pp")
+        nn = r.get("NN 1M (tỷ)")
+        if nn is not None and abs(nn) > 50:
+            parts.append(f"NN 1M {nn:+,.0f} tỷ")
+        nbs = r.get("Net BS 1M")
+        if nbs is not None:
+            parts.append(f"Net BS {nbs:+,.0f}M")
+        flags = r.get("red_flags", []) or []
+        cats = r.get("catalysts", []) or []
+        if flags:
+            parts.append(f"[{len(flags)} red flag: {flags[0][:60]}...]")
+        if cats:
+            parts.append(f"[catalyst: {cats[0][:60]}...]")
+        return "- " + " | ".join(parts)
+
+    if top := ctx.get("quant_top"):
+        lines.append("\n## Ngành tích cực nhất")
+        lines.extend(_sector_line(r) for r in top)
+
+    if avoid := ctx.get("quant_avoid"):
+        lines.append("\n## Ngành tiêu cực nhất")
+        lines.extend(_sector_line(r) for r in avoid)
+
+    if rotation := ctx.get("quant_rotation"):
+        lines.append("\n## Rotation signal (alpha 1M > alpha 3M — warming up)")
+        for r in rotation:
+            lines.append(f"- **{r.get('Ngành','?')}** rotation={r.get('rotation',0):+.1f}pp "
+                         f"| composite={r.get('composite',0):+.2f}")
+
+    if stealth := ctx.get("quant_stealth"):
+        lines.append("\n## Stealth accumulation (tích luỹ ngầm)")
+        for r in stealth:
+            lines.append(f"- **{r.get('Ngành','?')}** — giá đi ngang nhưng Net BS dương + turnover cao")
+
+    if dist := ctx.get("quant_distribution"):
+        lines.append("\n## Distribution warning (giá xanh, tiền đang thoát)")
+        for r in dist:
+            lines.append(f"- **{r.get('Ngành','?')}** — composite={r.get('composite',0):+.2f}")
+
+    # VN30 movers
+    if gainers := ctx.get("vn30_gainers"):
+        lines.append("\n## VN30 Top Gainers (1 phiên)")
+        for g in gainers:
+            lines.append(f"- {g.get('Mã','?')} {g.get('Giá 1T %',0):+.1f}% ({g.get('Ngành','')})")
+
+    if losers := ctx.get("vn30_losers"):
+        lines.append("\n## VN30 Top Losers (1 phiên)")
+        for g in losers:
+            lines.append(f"- {g.get('Mã','?')} {g.get('Giá 1T %',0):+.1f}% ({g.get('Ngành','')})")
+
+    data_block = "\n".join(lines)
+    tmpl = _MORNING_TEMPLATE if brief_type == "morning" else _AFTERNOON_TEMPLATE
+    return tmpl.format(system=_SYSTEM, data=data_block)
+
+
+# ── Main entry point ───────────────────────────────────────────────────────
+def generate_brief(
+    brief_type: str = "morning",
+    agents: list[BriefAgent] | None = None,
+    force: bool = False,
+) -> dict[str, tuple[str, str | None]]:
+    """Generate market brief using all enabled agents.
+
+    Args:
+        brief_type: "morning" | "afternoon"
+        agents:     list of BriefAgent; if None, load from config file
+        force:      skip time-of-day check
+
+    Returns:
+        {agent_name: (text, error_or_None)}
+        Special key "_timing" if called too early (force=False)
+    """
+    if not force:
+        now = datetime.now().time()
+        if brief_type == "morning" and now < time(11, 30):
+            return {"_timing": ("", f"Morning brief khả dụng sau 11:30 (hiện tại {now.strftime('%H:%M')})")}
+        if brief_type == "afternoon" and now < time(15, 0):
+            return {"_timing": ("", f"Afternoon brief khả dụng sau 15:00 (hiện tại {now.strftime('%H:%M')})")}
+
+    if agents is None:
+        agents = build_agents()
+
+    if not agents:
+        return {"_no_agent": (
+            "",
+            "Không có AI agent nào được bật. Vào ⚙️ Cài đặt Agent → chọn agent và điền API key.",
+        )}
+
+    ctx = collect_context(brief_type)
+    prompt = build_prompt(ctx, brief_type)
+
+    results: dict[str, tuple[str, str | None]] = {}
+    for agent in agents:
+        if not agent.is_available:
+            results[agent.name] = ("", f"API key chưa thiết lập cho {agent.name}")
+        else:
+            results[agent.name] = agent.generate(prompt)
+
+    return results
