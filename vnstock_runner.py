@@ -640,3 +640,18 @@ if __name__ == "__main__":
             console.print("  [yellow]⚠ Market overview: không có dữ liệu[/yellow]")
     else:
         console.print("[dim]  ⏭ Bỏ qua market overview (--skip-market)[/dim]")
+
+    # Step 3: Session stats (intraday) — auto-save today's data
+    console.log("[bold]Step 3/3: Session stats[/bold]")
+    try:
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from vnstock_dashboard import compute_session_stats, save_session_stats
+        _ss = compute_session_stats()
+        if _ss:
+            save_session_stats(_ss)
+            console.print(f"  [dim]Session stats: {len(_ss)} windows → saved[/dim]")
+        else:
+            console.print("  [yellow]⚠ Session stats: không có dữ liệu intraday[/yellow]")
+    except Exception as _ss_err:
+        console.print(f"  [yellow]⚠ Session stats skipped: {_ss_err}[/yellow]")
