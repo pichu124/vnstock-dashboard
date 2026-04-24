@@ -542,6 +542,64 @@ def render_market_tab() -> None:
                         sector_df = sector_df.sort_values("Vốn hoá (tỷ)", ascending=False)
                     st.markdown(f"#### 🏢 Chi tiết ngành: {_selected_nganh} ({len(sector_df)} mã)")
 
+                    # ── Quant analysis cho riêng ngành ──────────────────
+                    try:
+                        from vnstock_market_analyzer import (
+                            compute_scores as _cs, rank as _rk, format_row as _fr,
+                        )
+                        _sec_scores = _cs(sector_df)
+                        if not _sec_scores.empty:
+                            _sec_ranked = _rk(sector_df, _sec_scores, n_top=3, n_bot=3, name_col="Mã")
+                            _sec_comp_avg = float(_sec_scores["composite"].mean())
+                            _sec_verdict = ("🔥 Dòng tiền mạnh" if _sec_comp_avg > 0.5
+                                            else "📈 Tích cực" if _sec_comp_avg > 0.1
+                                            else "⚖️ Trung tính" if abs(_sec_comp_avg) <= 0.1
+                                            else "📉 Yếu" if _sec_comp_avg > -0.5
+                                            else "❄️ Rất yếu")
+
+                            with st.expander(f"🧠 Quant view · **{_selected_nganh}** · "
+                                              f"Composite TB `{_sec_comp_avg:+.2f}` · {_sec_verdict}",
+                                              expanded=True):
+                                q_col1, q_col2 = st.columns(2)
+                                with q_col1:
+                                    st.markdown("**🎯 Top picks trong ngành**")
+                                    _t_lines = []
+                                    for r in _sec_ranked["top"]:
+                                        if r.get("composite", 0) <= 0:
+                                            break
+                                        for ln in _fr(r, name_col="Mã"):
+                                            _t_lines.append(ln if ln.startswith("  ") else f"- {ln}")
+                                    st.markdown("\n".join(_t_lines) if _t_lines
+                                                else "_Không có mã nào có composite dương._")
+                                with q_col2:
+                                    st.markdown("**⛔ Nên tránh**")
+                                    _a_lines = []
+                                    for r in _sec_ranked["avoid"]:
+                                        if r.get("composite", 0) >= 0:
+                                            break
+                                        for ln in _fr(r, name_col="Mã"):
+                                            _a_lines.append(ln if ln.startswith("  ") else f"- {ln}")
+                                    st.markdown("\n".join(_a_lines) if _a_lines
+                                                else "_Không có mã nào có composite âm._")
+
+                                if _sec_ranked["stealth"]:
+                                    st.markdown("**🕵️ Stealth / tích luỹ**")
+                                    _s_lines = []
+                                    for r in _sec_ranked["stealth"]:
+                                        for ln in _fr(r, name_col="Mã"):
+                                            _s_lines.append(ln if ln.startswith("  ") else f"- {ln}")
+                                    st.markdown("\n".join(_s_lines))
+
+                                if _sec_ranked["distribution"]:
+                                    st.markdown("**⚠️ Distribution (giá xanh, tiền thoát)**")
+                                    _d_lines = []
+                                    for r in _sec_ranked["distribution"]:
+                                        for ln in _fr(r, name_col="Mã"):
+                                            _d_lines.append(ln if ln.startswith("  ") else f"- {ln}")
+                                    st.markdown("\n".join(_d_lines))
+                    except Exception as _qe:
+                        st.caption(f"Quant analysis lỗi: `{_qe}`")
+
                     # Reuse table rendering logic
                     _dd_cols = ["Mã","Vốn hoá (tỷ)","Freefloat (tỷ)","GTGD TB (tỷ)",
                                 "Vol Avg 5","Vol Avg 10","Vol Avg 20",
@@ -734,62 +792,108 @@ def render_market_tab() -> None:
                 elif nnh < -10:
                     lines.append(f"- {nnh:+d} net new highs — nhiều mã tạo đáy mới hơn đỉnh mới")
 
-            # 3. Đánh giá ngành
+            # 3. Đánh giá ngành — quant-style scoring
             _has_1m = mkt_data is not None and not mkt_data.empty and "Giá 1M %" in mkt_data.columns
             if _has_1m:
-                lines.append("")
-                lines.append("**🏭 Nhóm ngành nổi bật**")
+                try:
+                    from vnstock_market_analyzer import (
+                        compute_scores, market_regime, rank, format_row,
+                    )
+                    scores = compute_scores(mkt_data)
+                    regime = market_regime(scores, breadth_data)
+                    ranked = rank(mkt_data, scores, n_top=5, n_bot=5, name_col="Ngành")
 
-                # Ngành nên tập trung: Giá 1M > 0 AND Vol 5/20 > 100
-                _has_vol = "Vol 5/20 %" in mkt_data.columns
-                focus = mkt_data[
-                    (mkt_data["Giá 1M %"].fillna(0) > 0) &
-                    (mkt_data["Vol 5/20 %"].fillna(0) > 95 if _has_vol else True)
-                ].sort_values("Giá 1M %", ascending=False)
-
-                if not focus.empty:
-                    lines.append("- 🟢 **Nên tập trung:** " + ", ".join(
-                        f'{r["Ngành"]} ({r["Giá 1M %"]:+.1f}%)'
-                        for _, r in focus.head(5).iterrows()
-                    ))
-                else:
-                    lines.append("- 🟡 Không có ngành nào vừa tăng giá 1M vừa có thanh khoản tốt")
-
-                # Ngành nên tránh: Giá 1M < -3% OR (Giá 3M < -5% AND Vol giảm)
-                _has_3m = "Giá 3M %" in mkt_data.columns
-                _avoid_cond = (mkt_data["Giá 1M %"].fillna(0) < -3)
-                if _has_3m and _has_vol:
-                    _avoid_cond = _avoid_cond | ((mkt_data["Giá 3M %"].fillna(0) < -5) & (mkt_data["Vol 5/20 %"].fillna(100) < 85))
-                avoid = mkt_data[_avoid_cond].sort_values("Giá 1M %", ascending=True)
-
-                if not avoid.empty:
-                    lines.append("- 🔴 **Nên tránh:** " + ", ".join(
-                        f'{r["Ngành"]} ({r["Giá 1M %"]:+.1f}%)'
-                        for _, r in avoid.head(5).iterrows()
-                    ))
-
-                # 4. Top cổ phiếu trong ngành focus
-                tick_data = st.session_state.get("_mkt_ticker_data")
-                _tick_ok = (tick_data is not None and "Giá 1M %" in tick_data.columns
-                            and "Vol Avg 20" in tick_data.columns)
-                if _tick_ok and not focus.empty:
                     lines.append("")
-                    lines.append("**⭐ Cổ phiếu đáng chú ý trong ngành trọng tâm**")
-                    for _, sector_row in focus.head(3).iterrows():
-                        sector_name = sector_row["Ngành"]
-                        tickers = tick_data[tick_data["Ngành"] == sector_name].copy()
-                        if tickers.empty:
-                            continue
-                        top = tickers[
-                            (tickers["Giá 1M %"].fillna(0) > 0) &
-                            (tickers["Vol Avg 20"].fillna(0) > 0.5)
-                        ].sort_values("Giá 1M %", ascending=False).head(3)
-                        if not top.empty:
-                            picks = ", ".join(
-                                f'**{r["Mã"]}** (1M:{r["Giá 1M %"]:+.1f}%, VH:{r["Vốn hoá (tỷ)"]:,.0f}tỷ)'
-                                for _, r in top.iterrows()
-                            )
-                            lines.append(f"- {sector_name}: {picks}")
+                    lines.append(f"**🧠 Quant regime: {regime['regime']}**  · "
+                                 f"conviction `{regime['conviction']:+.2f}` · {regime['detail']}")
+
+                    # Top sectors
+                    if ranked["top"]:
+                        lines.append("")
+                        lines.append("**🎯 Ngành đáng quan tâm (composite cao nhất)**")
+                        for row in ranked["top"]:
+                            if row.get("composite", 0) <= 0:
+                                break  # không show ngành có composite âm
+                            for ln in format_row(row, name_col="Ngành"):
+                                lines.append(ln if ln.startswith("  ") else f"- {ln}")
+
+                    # Stealth watch
+                    if ranked["stealth"]:
+                        lines.append("")
+                        lines.append("**🕵️ Stealth watch (tín hiệu ẩn, composite chưa mạnh)**")
+                        for row in ranked["stealth"]:
+                            for ln in format_row(row, name_col="Ngành"):
+                                lines.append(ln if ln.startswith("  ") else f"- {ln}")
+
+                    # Distribution warning
+                    if ranked["distribution"]:
+                        lines.append("")
+                        lines.append("**⚠️ Distribution watch (giá tăng nhưng dòng tiền thoát)**")
+                        for row in ranked["distribution"]:
+                            for ln in format_row(row, name_col="Ngành"):
+                                lines.append(ln if ln.startswith("  ") else f"- {ln}")
+
+                    # Avoid list
+                    if ranked["avoid"]:
+                        lines.append("")
+                        lines.append("**⛔ Ngành nên tránh (composite thấp nhất)**")
+                        for row in ranked["avoid"]:
+                            if row.get("composite", 0) >= 0:
+                                break  # không show ngành composite dương
+                            for ln in format_row(row, name_col="Ngành"):
+                                lines.append(ln if ln.startswith("  ") else f"- {ln}")
+
+                    # Top tickers trong top 3 ngành
+                    tick_data = st.session_state.get("_mkt_ticker_data")
+                    if (tick_data is not None and not tick_data.empty
+                            and "Ngành" in tick_data.columns and ranked["top"]):
+                        lines.append("")
+                        lines.append("**⭐ Mã dẫn dắt trong ngành top (quant-ranked)**")
+                        for sec_row in ranked["top"][:3]:
+                            if sec_row.get("composite", 0) <= 0:
+                                continue
+                            sname = sec_row["Ngành"]
+                            sub = tick_data[tick_data["Ngành"] == sname].copy()
+                            if sub.empty:
+                                continue
+                            t_scores = compute_scores(sub)
+                            t_ranked = rank(sub, t_scores, n_top=3, n_bot=0, name_col="Mã")
+                            picks = []
+                            for tr in t_ranked["top"]:
+                                if tr.get("composite", 0) <= 0:
+                                    continue
+                                flag = " 🚨" if tr.get("red_flags") else ""
+                                picks.append(
+                                    f"**{tr.get('Mã','?')}** (`{tr['composite']:+.2f}`){flag}"
+                                )
+                            if picks:
+                                lines.append(f"- **{sname}**: " + " · ".join(picks))
+
+                    # Mã cần tránh trong ngành tệ nhất (đầu avoid list)
+                    if (tick_data is not None and not tick_data.empty
+                            and "Ngành" in tick_data.columns and ranked["avoid"]):
+                        bad_secs = [r for r in ranked["avoid"] if r.get("composite", 0) < 0][:2]
+                        if bad_secs:
+                            lines.append("")
+                            lines.append("**💀 Mã yếu nhất trong ngành tệ nhất**")
+                            for sec_row in bad_secs:
+                                sname = sec_row["Ngành"]
+                                sub = tick_data[tick_data["Ngành"] == sname].copy()
+                                if sub.empty:
+                                    continue
+                                t_scores = compute_scores(sub)
+                                t_ranked = rank(sub, t_scores, n_top=0, n_bot=3, name_col="Mã")
+                                flops = []
+                                for tr in t_ranked["avoid"]:
+                                    if tr.get("composite", 0) >= 0:
+                                        continue
+                                    flops.append(f"**{tr.get('Mã','?')}** (`{tr['composite']:+.2f}`)")
+                                if flops:
+                                    lines.append(f"- **{sname}**: " + " · ".join(flops))
+
+                except Exception as _e:
+                    lines.append(f"")
+                    lines.append(f"⚠️ Không tính được quant score: `{_e}`")
 
             return "\n".join(lines)
 
