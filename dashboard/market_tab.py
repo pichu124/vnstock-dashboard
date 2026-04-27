@@ -1586,48 +1586,66 @@ def render_market_tab() -> None:
                             hide_index=True,
                         )
 
+                    # Show persistent training result from session state
+                    if st.session_state.get("_train_result"):
+                        _tr = st.session_state["_train_result"]
+                        if _tr.get("error"):
+                            st.error(f"❌ {_tr['error']}")
+                        else:
+                            _sl_r = _tr.get("strategy_loop", {})
+                            _msg = (
+                                f"✅ **Training xong** — "
+                                f"agents={_sl_r.get('agents_run',0)} | "
+                                f"mode={_sl_r.get('mode','?')} | "
+                                f"n_trades={_tr.get('n_trades','?')} | "
+                                f"expectancy={_tr.get('expectancy','?')}"
+                            )
+                            if _sl_r.get("errors"):
+                                st.warning(f"⚠️ Có lỗi: {_sl_r['errors']}")
+                            else:
+                                st.success(_msg)
+
                     st.divider()
                     _train_col1, _train_col2 = st.columns(2)
+
+                    def _run_training(lite: bool) -> None:
+                        label = "lite" if lite else "full"
+                        try:
+                            from vnstock_train import run_once as _run_once
+                            _out = _run_once(verbose=False, lite=lite)
+                            _sl = _out.get("strategy_loop", {})
+                            # Pull actual metrics from DB after run
+                            _nt, _exp = "?", "?"
+                            _nf = _vm.get_active_family()
+                            if _nf:
+                                _nh = _vm.family_history(_nf.get("family_id", ""), limit=1)
+                                if _nh:
+                                    _nt  = _nh[0].get("n_trades", "?")
+                                    _exp = round(_nh[0].get("expectancy") or 0, 2)
+                            st.session_state["_train_result"] = {
+                                **_out,
+                                "n_trades": _nt,
+                                "expectancy": _exp,
+                            }
+                        except Exception as _e:
+                            import traceback as _tb
+                            st.session_state["_train_result"] = {
+                                "error": f"{type(_e).__name__}: {_e}\n{_tb.format_exc()[-600:]}"
+                            }
+                        st.rerun()
+
                     with _train_col1:
                         if st.button("⚡ Lite training (~30-60s)", key="_train_lite",
                                      help="5 tickers, fewer windows. Smoke-test the loop."):
-                            with st.spinner("Đang chạy lite strategy_loop... ~30-60s"):
-                                try:
-                                    from vnstock_train import run_once as _run_once
-                                    _out = _run_once(verbose=False, lite=True)
-                                    _sl = _out.get("strategy_loop", {})
-                                    if _sl.get("errors"):
-                                        st.warning(f"Lỗi: {_sl['errors']}")
-                                    else:
-                                        _nt_info = ""
-                                        _new_fam = _vm.get_active_family()
-                                        if _new_fam:
-                                            _nh = _vm.family_history(_new_fam.get("family_id",""), limit=1)
-                                            if _nh:
-                                                _nt_info = f" | {_nh[0].get('n_trades',0)} trades | exp={(_nh[0].get('expectancy') or 0):.2f}"
-                                        st.success(
-                                            f"✅ Done — agents={_sl.get('agents_run',0)} "
-                                            f"validated={_sl.get('validated',0)}"
-                                            f"{_nt_info}"
-                                        )
-                                    st.rerun()
-                                except Exception as _e:
-                                    st.error(f"Train loop error: {type(_e).__name__}: {_e}")
+                            st.session_state["_train_result"] = None
+                            with st.spinner("⏳ Đang chạy… (có thể mất 30-90s nếu revise)"):
+                                _run_training(lite=True)
                     with _train_col2:
                         if st.button("🚀 Full training (~5-15 min)", key="_train_full",
                                      help="15 tickers, full walk-forward. CHẬM trên Windows."):
-                            with st.spinner("Đang chạy full strategy_loop... 5-15 phút"):
-                                try:
-                                    from vnstock_train import run_once as _run_once
-                                    _out = _run_once(verbose=False, lite=False)
-                                    _sl = _out.get("strategy_loop", {})
-                                    st.success(
-                                        f"✅ Done — agents={_sl.get('agents_run',0)} "
-                                        f"validated={_sl.get('validated',0)}"
-                                    )
-                                    st.rerun()
-                                except Exception as _e:
-                                    st.error(f"Train loop error: {type(_e).__name__}: {_e}")
+                            st.session_state["_train_result"] = None
+                            with st.spinner("⏳ Đang chạy full training… 5-15 phút"):
+                                _run_training(lite=False)
                     st.caption(
                         "ℹ️ Lite: 5 tickers × ~20 windows — đủ test pipeline. "
                         "Full: 15 tickers × ~67 windows — nên chạy qua Task Scheduler, "
