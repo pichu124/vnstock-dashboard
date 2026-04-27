@@ -1388,8 +1388,11 @@ def render_market_tab() -> None:
                         st.success("Đã lưu cài đặt agent!")
 
                 st.caption(
-                    "API key đặt trong biến môi trường: `ANTHROPIC_API_KEY` cho Claude, "
-                    "`OPENAI_API_KEY` cho OpenAI."
+                    "API key đặt trong file `.env`: "
+                    "`ANTHROPIC_API_KEY` (Claude) · "
+                    "`OPENAI_API_KEY` (OpenAI) · "
+                    "`GROQ_API_KEY` (Groq) · "
+                    "`MISTRAL_API_KEY` (Mistral)"
                 )
 
             # ── Brief controls ─────────────────────────────────────────────

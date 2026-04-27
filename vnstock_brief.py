@@ -43,7 +43,7 @@ _DEFAULT_AGENT_CONFIGS: list[dict] = [
         "type": "claude",
         "model": "claude-haiku-4-5-20251001",
         "name": "Claude Haiku",
-        "enabled": True,
+        "enabled": False,
         "max_tokens": 1200,
     },
     {
