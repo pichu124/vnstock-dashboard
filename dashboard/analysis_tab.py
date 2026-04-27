@@ -48,6 +48,7 @@ def render_analysis_tab() -> None:
         render_chart, render_metric_row, render_order_book,
         render_signal_badge, render_volume_profile,
         resample_ohlcv, save_alerts,
+        data,
     )
 
     # Controls cho tab phân tích
@@ -324,7 +325,7 @@ def render_analysis_tab() -> None:
         if summary and summary not in ("", "nan", "None"):
             st.caption(summary[:200] + ("..." if len(summary) > 200 else ""))
     with col_h2:
-        if st.button("🔄", help="Xóa cache và tải lại"):
+        if st.button("🔄", help="Xóa cache và tải lại", key="anal_reload"):
             st.cache_data.clear()
             st.rerun()
 
