@@ -50,17 +50,35 @@ def render_screener_tab(
     import pandas as pd
 
     # Dashboard-level helpers — lazy import to avoid circular deps at load.
-    # Safe at call time because vnstock_dashboard has finished initialising
-    # before the dispatch block fires.
-    from vnstock_dashboard import (
-        PRESET_ICONS, WSS_AVAILABLE, INDEX_SYMBOLS,
-        _is_stock, _normalize_price_units,
-        load_watchlist, save_watchlist, compute_alerts,
-        df_from_preset, render_table,
-        SESSION_WINDOWS, compute_session_stats,
-        save_session_stats, load_session_stats_history,
-        render_session_stats_table,
-    )
+    # Streamlit registers vnstock_dashboard under various names (__main__, main,
+    # vnstock_dashboard) depending on version; probe sys.modules to find it.
+    import sys as _sys
+
+    def _get_vnd():
+        for _name in ('vnstock_dashboard', '__main__', 'main'):
+            _m = _sys.modules.get(_name)
+            if _m and hasattr(_m, 'PRESET_ICONS'):
+                return _m
+        # Last-resort: fresh import (works outside Streamlit / in tests)
+        import vnstock_dashboard as _vd
+        return _vd
+
+    _vnd = _get_vnd()
+    PRESET_ICONS           = _vnd.PRESET_ICONS
+    WSS_AVAILABLE          = _vnd.WSS_AVAILABLE
+    INDEX_SYMBOLS          = _vnd.INDEX_SYMBOLS
+    _is_stock              = _vnd._is_stock
+    _normalize_price_units = _vnd._normalize_price_units
+    load_watchlist         = _vnd.load_watchlist
+    save_watchlist         = _vnd.save_watchlist
+    compute_alerts         = _vnd.compute_alerts
+    df_from_preset         = _vnd.df_from_preset
+    render_table           = _vnd.render_table
+    SESSION_WINDOWS        = _vnd.SESSION_WINDOWS
+    compute_session_stats  = _vnd.compute_session_stats
+    save_session_stats     = _vnd.save_session_stats
+    load_session_stats_history  = _vnd.load_session_stats_history
+    render_session_stats_table  = _vnd.render_session_stats_table
     from datetime import datetime
 
 

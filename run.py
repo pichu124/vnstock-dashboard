@@ -616,6 +616,18 @@ def cmd_dashboard(args) -> int:
     return _run([sys.executable, "-m", "streamlit", "run", "vnstock_dashboard.py"])
 
 
+def cmd_freefloat(args) -> int:
+    """Fetch shareholders() per ticker → compute real freefloat_pct."""
+    from vnstock_freefloat import FreefloatUpdater
+    updater = FreefloatUpdater(args.warehouse)
+    df = updater.run(
+        limit=getattr(args, "limit", 0),
+        force=getattr(args, "force", False),
+        delay=getattr(args, "delay", 0.15),
+    )
+    return 0 if not df.empty else 1
+
+
 def cmd_screener(args) -> int:
     """Run vnstock_runner.py to refresh screener signals."""
     return _run([sys.executable, str(REPO_ROOT / "vnstock_runner.py")])
@@ -787,6 +799,15 @@ def build_parser() -> argparse.ArgumentParser:
     fix.add_argument("--limit", type=int, default=0,
                      help="Cap preview rows (default: 20)")
 
+    ff = sub.add_parser("freefloat",
+                        help="Fetch shareholders() per ticker → store real freefloat_pct")
+    ff.add_argument("--limit", type=int, default=0,
+                    help="Process at most N tickers (0 = all)")
+    ff.add_argument("--force", action="store_true",
+                    help="Re-fetch tickers that already have data")
+    ff.add_argument("--delay", type=float, default=0.15,
+                    help="Delay between API calls in seconds (default 0.15)")
+
     sub.add_parser("test", help="Run pytest")
     sub.add_parser("screener", help="Refresh screener signals (vnstock_runner.py)")
     sub.add_parser("dashboard", help="Launch the Streamlit dashboard")
@@ -814,6 +835,7 @@ _DISPATCH = {
     "cash-dividends": cmd_cash_dividends,
     "vietstock": cmd_vietstock,
     "fix-units": cmd_fix_units,
+    "freefloat": cmd_freefloat,
     "screener": cmd_screener,
     "test": cmd_test,
     "dashboard": cmd_dashboard,

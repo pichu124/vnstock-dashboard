@@ -29,6 +29,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 from vnstock_screener import MarketScreener, PRESETS
 
 from rich.console import Console
+from rich.progress import (
+    BarColumn, MofNCompleteColumn, Progress,
+    SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn,
+)
 console = Console(force_terminal=True)
 
 OUTPUT_FILE = "screener_results.json"
@@ -197,6 +201,15 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
                 except Exception:
                     pass
 
+    # Freefloat lookup (optional — falls back to 30% proxy if file absent)
+    freefloat_map: dict = {}
+    try:
+        from vnstock_freefloat import FreefloatUpdater
+        freefloat_map = FreefloatUpdater(warehouse).load_map()
+        console.log(f"  Freefloat map: {len(freefloat_map)} tickers loaded")
+    except Exception as _ff_err:
+        console.log(f"  [dim]freefloat_map not loaded: {_ff_err}[/dim]")
+
     from datetime import date, timedelta
     cutoff = pd.Timestamp(date.today() - timedelta(days=400))
 
@@ -268,9 +281,12 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
             c90 = recent["close"].astype(float)
             v90 = recent["volume"].astype(float)
 
-            vol5 = float(v90.tail(5).mean())
+            vol5  = float(v90.tail(5).mean())
             vol10 = float(v90.tail(10).mean())
             vol20 = float(v90.tail(20).mean())
+            vol5_sum  = float(v90.tail(5).sum())
+            vol10_sum = float(v90.tail(10).sum())
+            vol20_sum = float(v90.tail(20).sum())
 
             h90 = recent["high"].astype(float)
             l90 = recent["low"].astype(float)
@@ -305,11 +321,16 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
             issue_share = shares_map.get(ticker, 0)
             mktcap = last * 1000 * issue_share / 1e9 if issue_share > 0 else 0.0
             mktcap_proxy = last * 1000 * vol20 / 1e9
+            freefloat_pct = freefloat_map.get(ticker, 30.0)
+            freefloat_val = round(mktcap * freefloat_pct / 100, 1)
+            freefloat_shares = issue_share * freefloat_pct / 100
 
             rows.append({
                 "ticker": ticker, "last": round(last, 2),
                 "vol5": vol5, "vol10": vol10, "vol20": vol20,
+                "vol5_sum": vol5_sum, "vol10_sum": vol10_sum, "vol20_sum": vol20_sum,
                 "mktcap": round(mktcap, 1), "mktcap_proxy": round(mktcap_proxy, 1),
+                "freefloat_val": freefloat_val, "freefloat_shares": freefloat_shares,
                 "amp5": round(amp5, 1), "amp20": round(amp20, 1), "amp60": round(amp60, 1),
                 "chg5": round(chg5, 1) if chg5 is not None else None,
                 "chg20": round(chg20, 1) if chg20 is not None else None,
@@ -387,6 +408,80 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
     except Exception as e:
         console.log(f"  [yellow]⚠ NN data fetch error: {e}[/yellow]")
 
+    # Fetch aggressive order flow (Net Buy-Sell) per ticker via order_stats()
+    nb_data: dict = {}
+    _NB_CACHE_PATH = Path(warehouse) / "_meta" / "net_bs_cache.json"
+    _NB_CACHE_TTL_H = 12  # reuse cache if younger than 12 hours
+    try:
+        from vnstock_data import Trading
+        import time as _nb_time
+
+        # Check cache first
+        _nb_cache_hit = False
+        if _NB_CACHE_PATH.exists():
+            try:
+                _nb_cached = json.loads(_NB_CACHE_PATH.read_text(encoding="utf-8"))
+                _nb_age_h = (_nb_time.time() - _NB_CACHE_PATH.stat().st_mtime) / 3600
+                if _nb_age_h < _NB_CACHE_TTL_H:
+                    nb_data = _nb_cached.get("data", {})
+                    console.log(
+                        f"  Net BS: loaded from cache ({_nb_age_h:.1f}h old, "
+                        f"{len(nb_data)} tickers)"
+                    )
+                    _nb_cache_hit = True
+            except Exception:
+                pass
+
+        if not _nb_cache_hit:
+            _t0_nb = _nb_time.time()
+            _top_tickers = [r["ticker"] for r in sorted(rows, key=lambda r: -r.get("mktcap", 0))]
+
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(), MofNCompleteColumn(),
+                TaskProgressColumn(), TimeElapsedColumn(),
+                console=console,
+            ) as _nb_progress:
+                _nb_task = _nb_progress.add_task("Net BS...", total=len(_top_tickers))
+                for tk in _top_tickers:
+                    _nb_progress.update(_nb_task, description=f"[cyan]{tk:6s}[/cyan]", advance=1)
+                    try:
+                        os_df = Trading(symbol=tk).order_stats()
+                        if os_df is not None and not os_df.empty:
+                            os_df = os_df.sort_values("trading_date")
+                            bv = pd.to_numeric(os_df["total_buy_trade_volume"], errors="coerce").fillna(0)
+                            sv = pd.to_numeric(os_df["total_sell_trade_volume"], errors="coerce").fillna(0)
+                            net = bv - sv
+                            nb_data[tk] = {
+                                "1w": round(float(net.tail(5).sum())   / 1e6, 1),
+                                "1m": round(float(net.tail(20).sum())  / 1e6, 1),
+                                "3m": round(float(net.tail(60).sum())  / 1e6, 1),
+                                "6m": round(float(net.tail(120).sum()) / 1e6, 1),
+                            }
+                    except Exception:
+                        pass
+                    _nb_time.sleep(0.15)
+
+            # Save cache
+            try:
+                _NB_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+                _NB_CACHE_PATH.write_text(
+                    json.dumps({"generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"), "data": nb_data},
+                               ensure_ascii=False),
+                    encoding="utf-8"
+                )
+            except Exception:
+                pass
+            console.log(
+                f"  Net Buy-Sell: {len(nb_data)}/{len(_top_tickers)} tickers "
+                f"({_nb_time.time() - _t0_nb:.0f}s) → cached"
+            )
+    except ImportError:
+        console.log("  [dim]vnstock_data not installed — Net BS data skipped[/dim]")
+    except Exception as e:
+        console.log(f"  [yellow]⚠ Net BS fetch error: {e}[/yellow]")
+
     # Aggregate by industry
     def agg(grp):
         n = len(grp)
@@ -395,7 +490,16 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
         v10 = grp["vol10"].sum()
         total_mktcap = grp["mktcap"].sum()
         gtgd_tb = grp["mktcap_proxy"].sum()
-        vol5_20 = round(v5 / v20 * 100, 0) if v20 > 0 else None
+        vs   = grp["vol5_sum"].sum()
+        vs10 = grp["vol10_sum"].sum()
+        vs20 = grp["vol20_sum"].sum()
+        ff_sh = grp["freefloat_shares"].sum()
+        vol5_20  = round(vs / vs20 * 100, 0) if vs20 > 0 else None
+        avg5_10  = round((v5 / v10 - 1) * 100, 1) if v10 > 0 else None
+        avg10_20 = round((v10 / v20 - 1) * 100, 1) if v20 > 0 else None
+        vol5_free  = round(vs  / ff_sh * 100, 2) if ff_sh > 0 else None
+        vol10_free = round(vs10 / ff_sh * 100, 2) if ff_sh > 0 else None
+        vol20_free = round(vs20 / ff_sh * 100, 2) if ff_sh > 0 else None
 
         # Foreign flow (tỷ VND)
         tickers_in = grp["ticker"].tolist()
@@ -403,13 +507,26 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
         net_m = sum(nn_m.get(t, 0) for t in tickers_in)
         net_3m_v = sum(nn_3m.get(t, 0) for t in tickers_in)
 
+        # Aggressive order flow (triệu cổ phiếu)
+        net_bs_1w = sum(nb_data.get(t, {}).get("1w", 0) for t in tickers_in)
+        net_bs_1m = sum(nb_data.get(t, {}).get("1m", 0) for t in tickers_in)
+        net_bs_3m = sum(nb_data.get(t, {}).get("3m", 0) for t in tickers_in)
+        net_bs_6m = sum(nb_data.get(t, {}).get("6m", 0) for t in tickers_in)
+
+        total_freefloat = grp["freefloat_val"].sum()
         return pd.Series({
             "Số mã": n,
             "Vốn hoá (tỷ)": round(total_mktcap, 0),
+            "Freefloat (tỷ)": round(total_freefloat, 0),
             "GTGD TB (tỷ)": round(gtgd_tb, 0),
             "Vol Avg 5": round(v5 / 1e6, 1),
             "Vol Avg 10": round(v10 / 1e6, 1),
             "Vol Avg 20": round(v20 / 1e6, 1),
+            "AVG 5-10 %": avg5_10,
+            "AVG 10-20 %": avg10_20,
+            "Vol 5/Free %": vol5_free,
+            "Vol 10/Free %": vol10_free,
+            "Vol 20/Free %": vol20_free,
             "Vol 5/20 %": vol5_20,
             "Biên 1T (%)": round(grp["amp5"].mean(), 1),
             "Biên 1M (%)": round(grp["amp20"].mean(), 1),
@@ -420,19 +537,46 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
             "NN 1T (tỷ)": round(net_w, 1) if net_w != 0 else None,
             "NN 1M (tỷ)": round(net_m, 1) if net_m != 0 else None,
             "NN 3M (tỷ)": round(net_3m_v, 1) if net_3m_v != 0 else None,
+            "Net BS 1T": round(net_bs_1w, 1) if net_bs_1w != 0 else None,
+            "Net BS 1M": round(net_bs_1m, 1) if net_bs_1m != 0 else None,
+            "Net BS 3M": round(net_bs_3m, 1) if net_bs_3m != 0 else None,
+            "Net BS 6M": round(net_bs_6m, 1) if net_bs_6m != 0 else None,
         })
 
     # Ticker display data
     import numpy as np
     tick_display = merged.copy()
     tick_display["Vốn hoá (tỷ)"] = tick_display["mktcap"].round(0)
+    tick_display["Freefloat (tỷ)"] = tick_display["freefloat_val"].round(0)
     tick_display["GTGD TB (tỷ)"] = tick_display["mktcap_proxy"].round(1)
     tick_display["Vol Avg 5"] = (tick_display["vol5"] / 1e6).round(1)
     tick_display["Vol Avg 10"] = (tick_display["vol10"] / 1e6).round(1)
     tick_display["Vol Avg 20"] = (tick_display["vol20"] / 1e6).round(1)
-    tick_display["Vol 5/20 %"] = np.where(
+    tick_display["AVG 5-10 %"] = np.where(
+        tick_display["vol10"] > 0,
+        ((tick_display["vol5"] / tick_display["vol10"] - 1) * 100).round(1), None)
+    tick_display["AVG 10-20 %"] = np.where(
         tick_display["vol20"] > 0,
-        (tick_display["vol5"] / tick_display["vol20"] * 100).round(0), None)
+        ((tick_display["vol10"] / tick_display["vol20"] - 1) * 100).round(1), None)
+    tick_display["Vol 5/Free %"] = np.where(
+        tick_display["freefloat_shares"] > 0,
+        (tick_display["vol5_sum"] / tick_display["freefloat_shares"] * 100).round(2), None)
+    tick_display["Vol 10/Free %"] = np.where(
+        tick_display["freefloat_shares"] > 0,
+        (tick_display["vol10_sum"] / tick_display["freefloat_shares"] * 100).round(2), None)
+    tick_display["Vol 20/Free %"] = np.where(
+        tick_display["freefloat_shares"] > 0,
+        (tick_display["vol20_sum"] / tick_display["freefloat_shares"] * 100).round(2), None)
+    tick_display["Vol 5/20 %"] = np.where(
+        tick_display["vol20_sum"] > 0,
+        (tick_display["vol5_sum"] / tick_display["vol20_sum"] * 100).round(0), None)
+    tick_display["Net BS 1T"] = tick_display["ticker"].map(lambda t: nb_data.get(t, {}).get("1w"))
+    tick_display["Net BS 1M"] = tick_display["ticker"].map(lambda t: nb_data.get(t, {}).get("1m"))
+    tick_display["Net BS 3M"] = tick_display["ticker"].map(lambda t: nb_data.get(t, {}).get("3m"))
+    tick_display["Net BS 6M"] = tick_display["ticker"].map(lambda t: nb_data.get(t, {}).get("6m"))
+    tick_display["NN 1T (tỷ)"] = tick_display["ticker"].map(nn_w)
+    tick_display["NN 1M (tỷ)"] = tick_display["ticker"].map(nn_m)
+    tick_display["NN 3M (tỷ)"] = tick_display["ticker"].map(nn_3m)
     tick_display["Giá 1T %"] = tick_display["chg5"].round(1)
     tick_display["Giá 1M %"] = tick_display["chg20"].round(1)
     tick_display["Giá 3M %"] = tick_display["chg60"].round(1)
@@ -525,3 +669,19 @@ if __name__ == "__main__":
             console.print("  [yellow]⚠ Market overview: không có dữ liệu[/yellow]")
     else:
         console.print("[dim]  ⏭ Bỏ qua market overview (--skip-market)[/dim]")
+
+    # Step 3: Session stats (intraday) — auto-save today's data
+    console.log("[bold]Step 3/3: Session stats[/bold]")
+    try:
+        from vnstock_session_stats import compute_session_stats, save_session_stats, backfill_session_stats
+        _filled = backfill_session_stats()
+        if _filled:
+            console.print(f"  [dim]Session stats: backfilled {_filled} missing date(s)[/dim]")
+        _ss = compute_session_stats()
+        if _ss:
+            save_session_stats(_ss)
+            console.print(f"  [dim]Session stats: {len(_ss)} windows → saved[/dim]")
+        else:
+            console.print("  [yellow]⚠ Session stats: không có dữ liệu intraday[/yellow]")
+    except Exception as _ss_err:
+        console.print(f"  [yellow]⚠ Session stats skipped: {_ss_err}[/yellow]")

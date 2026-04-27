@@ -19,6 +19,13 @@ import warnings
 from datetime import datetime, timedelta
 from pathlib import Path
 
+# Load .env file if present (API keys for AI Brief agents, etc.)
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent / ".env", override=False)
+except ImportError:
+    pass
+
 log = logging.getLogger("vnstock_dashboard")
 if not log.handlers:
     logging.basicConfig(
@@ -857,7 +864,7 @@ def _normalize_price_units(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_price_history(ticker: str, days: int = 0) -> pd.DataFrame:
     """Load lịch sử giá. days=0 → toàn bộ lịch sử. Cached 5 phút."""
     ticker_dir = PRICES_DIR / f"ticker={ticker.upper()}"
@@ -1794,9 +1801,15 @@ def load_intraday(ticker: str, interval: str = "15m") -> pd.DataFrame:
         lookback = {"1m":5,"5m":30,"15m":60,"30m":60,"1H":90}.get(interval, 10)
         end   = _d.today().strftime("%Y-%m-%d")
         start = (_d.today() - _td(days=lookback)).strftime("%Y-%m-%d")
-        from vnstock_auth import get_vnstock
-        df = get_vnstock(ticker).quote.history(
-            start=start, end=end, interval=interval)
+        # Use VCI Quote directly to bypass Company init (which can fail for non-quote endpoints)
+        try:
+            from vnstock.explorer.vci.quote import Quote as _VCIQuote
+            _q = _VCIQuote(symbol=ticker, show_log=False)
+            df = _q.history(start=start, end=end, interval=interval)
+        except Exception:
+            from vnstock_auth import get_vnstock
+            df = get_vnstock(ticker).quote.history(
+                start=start, end=end, interval=interval)
         if df is None or df.empty:
             return pd.DataFrame()
         needed = ["time","open","high","low","close","volume"]
@@ -2169,17 +2182,27 @@ def load_fundamental(ticker: str) -> dict:
 # ═════════════════════════════════════════════════════════════════════════════
 # Market Session Stats — 4 time-window snapshots
 # ═════════════════════════════════════════════════════════════════════════════
+try:
+    from vnstock_session_stats import (
+        SESSION_WINDOWS, SESSION_INDICES,
+        compute_session_stats, backfill_session_stats,
+        save_session_stats as _save_session_stats_impl,
+        load_session_stats_history as _load_session_stats_impl,
+    )
+except Exception:
+    SESSION_WINDOWS = {
+        "9h-10h":   ("09:00", "10:00"),
+        "9h-11h30": ("09:00", "11:30"),
+        "9h-14h":   ("09:00", "14:00"),
+        "9h-15h":   ("09:00", "15:00"),
+    }
+    SESSION_INDICES = ["VNINDEX", "VN30", "HNX", "UPCOM"]
+    def compute_session_stats(): return {}
+    def backfill_session_stats(): return 0
+    def _save_session_stats_impl(stats): pass
+    def _load_session_stats_impl(): return {}
 
-SESSION_WINDOWS = {
-    "9h-10h":   ("09:00", "10:00"),
-    "9h-11h30": ("09:00", "11:30"),
-    "9h-14h":   ("09:00", "14:00"),
-    "9h-15h":   ("09:00", "15:00"),
-}
-
-SESSION_INDICES = ["VNINDEX", "VN30", "HNX", "UPCOM"]
-
-# Map index names to vnstock symbols
+# Map index names to vnstock symbols (kept for render_session_stats_table)
 _INDEX_SYMBOL_MAP = {
     "VNINDEX": "VNINDEX",
     "VN30": "VN30",
@@ -2189,136 +2212,20 @@ _INDEX_SYMBOL_MAP = {
 
 
 def _fetch_index_intraday(index_symbol: str) -> pd.DataFrame:
-    """Fetch 1m intraday data for an index. Returns DataFrame with time, close, volume.
-    Tries multiple symbol variations for compatibility."""
-    from vnstock_auth import get_vnstock
-    from datetime import date, timedelta
-    today = date.today().strftime("%Y-%m-%d")
-    start = (date.today() - timedelta(days=5)).strftime("%Y-%m-%d")
-
-    # Try multiple symbol variations
-    symbols_to_try = [index_symbol]
-    if index_symbol == "UPCOM":
-        symbols_to_try = ["UPCOM", "UPCOM-INDEX", "UPINDEX", "HNX30"]
-    elif index_symbol == "HNXINDEX":
-        symbols_to_try = ["HNXINDEX", "HNX-INDEX", "HNX"]
-
-    for sym in symbols_to_try:
-        try:
-            stock = get_vnstock(sym)
-            df = stock.quote.history(start=start, end=today, interval="1m")
-            if df is not None and not df.empty:
-                df["time"] = pd.to_datetime(df["time"])
-                return df[["time", "open", "high", "low", "close", "volume"]].copy()
-        except Exception:
-            continue
-    return pd.DataFrame()
-
-
-def compute_session_stats() -> dict:
-    """
-    Compute market session stats for 4 time windows.
-    Returns: {window_name: {index_name: {vol, gtgd, gtgd_per_vol}}}
-    """
-    from datetime import date
-    today = date.today()
-    result = {}
-
-    # Fetch intraday data for each index
-    index_data = {}
-    for display_name, symbol in _INDEX_SYMBOL_MAP.items():
-        df = _fetch_index_intraday(symbol)
-        if not df.empty:
-            # Filter today only
-            today_df = df[df["time"].dt.date == today].copy()
-            if not today_df.empty:
-                today_df = today_df.sort_values("time")
-                index_data[display_name] = today_df
-
-    # Compute stats for each time window
-    for window_name, (start_time, end_time) in SESSION_WINDOWS.items():
-        window_stats = {}
-        for display_name in SESSION_INDICES:
-            if display_name not in index_data:
-                window_stats[display_name] = {"vol": 0, "gtgd": 0, "gtgd_per_vol": 0}
-                continue
-
-            df = index_data[display_name]
-            # Filter by time window
-            mask = df["time"].dt.strftime("%H:%M") <= end_time
-            window_df = df[mask]
-
-            if window_df.empty:
-                window_stats[display_name] = {"vol": 0, "gtgd": 0, "gtgd_per_vol": 0}
-                continue
-
-            # SUM volume across all bars in window (not last row!)
-            vol = float(window_df["volume"].sum())
-            # GTGD = sum(close_i * volume_i) for each bar
-            closes = window_df["close"].astype(float)
-            volumes = window_df["volume"].astype(float)
-            # close ở nghìn VND → close * 1000 * volume / 1e9 = close * volume / 1e6
-            if closes.max() < 500:
-                gtgd = float((closes * volumes).sum()) / 1e6
-            else:
-                gtgd = float((closes * volumes).sum()) / 1e9
-            gtgd_per_vol = (gtgd * 1e9 / vol) if vol > 0 else 0
-
-            window_stats[display_name] = {
-                "vol": int(vol),
-                "gtgd": round(gtgd, 1),
-                "gtgd_per_vol": round(gtgd_per_vol, 0),
-            }
-
-        result[window_name] = window_stats
-
-    return result
+    from vnstock_session_stats import _fetch_index_intraday as _impl
+    return _impl(index_symbol)
 
 
 def save_session_stats(stats: dict):
-    """Save session stats to JSON with date key. Keeps 90 days history."""
-    from datetime import date, timedelta
-    today_str = date.today().isoformat()
-
-    # Load existing
-    all_data = {}
-    if SESSION_STATS_PATH.exists():
-        try:
-            all_data = json.loads(SESSION_STATS_PATH.read_text(encoding="utf-8"))
-        except (OSError, PermissionError) as e:
-            log.warning("Không đọc được session stats (%s): %s", SESSION_STATS_PATH, e)
-        except json.JSONDecodeError as e:
-            log.error("Session stats JSON hỏng (%s) — sẽ ghi đè: %s", SESSION_STATS_PATH, e)
-
-    # Update today
-    all_data[today_str] = stats
-
-    # Prune old data (keep 90 days)
-    cutoff = (date.today() - timedelta(days=90)).isoformat()
-    all_data = {k: v for k, v in all_data.items() if k >= cutoff}
-
-    # Write
-    SESSION_STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    SESSION_STATS_PATH.write_text(
-        json.dumps(all_data, ensure_ascii=False, indent=2),
-        encoding="utf-8"
-    )
-    # Invalidate cache so next read sees the update
+    """Save today's session stats. Invalidates Streamlit cache after write."""
+    _save_session_stats_impl(stats)
     load_session_stats_history.clear()
 
 
 @st.cache_data(ttl=60, show_spinner=False)
 def load_session_stats_history() -> dict:
-    """Load all session stats history (cached 60s)."""
-    if not SESSION_STATS_PATH.exists():
-        return {}
-    try:
-        return json.loads(SESSION_STATS_PATH.read_text(encoding="utf-8"))
-    except (OSError, PermissionError) as e:
-        log.warning("Không đọc được session stats (%s): %s", SESSION_STATS_PATH, e)
-    except json.JSONDecodeError as e:
-        log.error("Session stats JSON hỏng (%s): %s", SESSION_STATS_PATH, e)
-    return {}
+    """Load session stats history (Streamlit-cached 60s)."""
+    return _load_session_stats_impl()
 
 
 def render_session_stats_table(window_name: str, stats_today: dict, history: dict):
@@ -2335,11 +2242,10 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
     dates = sorted(
         [d for d in history.keys() if d <= today_str],
         reverse=True
-    )[:30]
-    dates = list(reversed(dates))
+    )[:90]
 
     if today_str not in dates and stats_today:
-        dates.append(today_str)
+        dates.insert(0, today_str)
 
     if not dates:
         st.caption("Chưa có dữ liệu")
@@ -2405,13 +2311,17 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
         })
     )
 
+    _row_h = 28
+    _header_h = 38
+    _default_rows = 15
+    _height = _row_h * _default_rows + _header_h  # fixed 15-row height, scroll for older
     st.dataframe(
         styled,
         hide_index=True,
         use_container_width=True,
-        height=min(28 * len(df) + 38, 400),
+        height=_height,
     )
-    st.caption(f"VOL = triệu CP | GTGD = tỷ VND")
+    st.caption("VOL = triệu CP | GTGD = tỷ VND")
 
 
 def render_chart(df: pd.DataFrame, ticker: str, height: int = 850,
@@ -3087,7 +2997,7 @@ function doSort(col, th) {{
 _MARKET_OVERVIEW_PATH = Path("data_warehouse/_meta/market_overview.json")
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def _load_all_market_data() -> tuple:
     """
     Unified loader: 1 loop duy nhất cho cả market_overview + breadth.
@@ -3135,6 +3045,14 @@ def _load_all_market_data() -> tuple:
                             shares_map[tk] = float(ov["issue_share"].iloc[0])
                     except Exception:
                         pass
+
+        # Freefloat lookup (optional — falls back to 30% proxy if file absent)
+        _freefloat_map: dict = {}
+        try:
+            from vnstock_freefloat import FreefloatUpdater
+            _freefloat_map = FreefloatUpdater("data_warehouse").load_map()
+        except Exception:
+            pass
 
         # ── Single loop: market overview + breadth ────────────────────────────
         cutoff = pd.Timestamp(date.today() - timedelta(days=400))  # đủ cho MA200 + 52W
@@ -3222,6 +3140,9 @@ def _load_all_market_data() -> tuple:
                 vol5  = float(v90.tail(5).mean())
                 vol10 = float(v90.tail(10).mean())
                 vol20 = float(v90.tail(20).mean())
+                vol5_sum  = float(v90.tail(5).sum())
+                vol10_sum = float(v90.tail(10).sum())
+                vol20_sum = float(v90.tail(20).sum())
 
                 amp  = (h90 - l90) / c90 * 100
                 amp5  = float(amp.tail(5).mean())
@@ -3247,11 +3168,16 @@ def _load_all_market_data() -> tuple:
                 # mktcap = giá (nghìn VND) × 1000 (→ VND) × shares / 1e9 (→ tỷ)
                 mktcap = last * 1000 * issue_share / 1e9 if issue_share > 0 else 0.0
                 mktcap_proxy = last * 1000 * vol20 / 1e9
+                _ff_pct = _freefloat_map.get(ticker, 30.0)
+                freefloat_val = round(mktcap * _ff_pct / 100, 1)
+                freefloat_shares = issue_share * _ff_pct / 100
 
                 rows.append({
                     "ticker": ticker, "last": last,
                     "vol5": vol5, "vol10": vol10, "vol20": vol20,
+                    "vol5_sum": vol5_sum, "vol10_sum": vol10_sum, "vol20_sum": vol20_sum,
                     "mktcap": mktcap, "mktcap_proxy": mktcap_proxy,
+                    "freefloat_val": freefloat_val, "freefloat_shares": freefloat_shares,
                     "amp5": amp5, "amp20": amp20, "amp60": amp60,
                     "chg5": chg5, "chg20": chg20, "chg60": chg60,
                 })
@@ -3301,7 +3227,16 @@ def _load_all_market_data() -> tuple:
             total_mktcap = grp["mktcap"].sum()
             gtgd_tb = grp["mktcap_proxy"].sum()
 
-            vol5_20  = round(v5 / v20 * 100, 0) if v20 > 0 else None
+            vs   = grp["vol5_sum"].sum()
+            vs10 = grp["vol10_sum"].sum()
+            vs20 = grp["vol20_sum"].sum()
+            ff_sh = grp["freefloat_shares"].sum()
+            vol5_20  = round(vs / vs20 * 100, 0) if vs20 > 0 else None
+            avg5_10  = round((v5 / v10 - 1) * 100, 1) if v10 > 0 else None
+            avg10_20 = round((v10 / v20 - 1) * 100, 1) if v20 > 0 else None
+            vol5_free  = round(vs  / ff_sh * 100, 2) if ff_sh > 0 else None
+            vol10_free = round(vs10 / ff_sh * 100, 2) if ff_sh > 0 else None
+            vol20_free = round(vs20 / ff_sh * 100, 2) if ff_sh > 0 else None
 
             # Foreign flow (tỷ VND, đã aggregate bởi _aggregate_nn_by_window)
             tickers_in = grp["ticker"].tolist()
@@ -3309,13 +3244,20 @@ def _load_all_market_data() -> tuple:
             net_m  = sum(_nn_m.get(t, 0)  for t in tickers_in)
             net_3m = sum(_nn_3m.get(t, 0) for t in tickers_in)
 
+            total_freefloat = grp["freefloat_val"].sum()
             return pd.Series({
-                "Số mã":        n,
-                "Vốn hoá (tỷ)": round(total_mktcap, 0),
-                "GTGD TB (tỷ)": round(gtgd_tb, 0),
+                "Số mã":          n,
+                "Vốn hoá (tỷ)":   round(total_mktcap, 0),
+                "Freefloat (tỷ)": round(total_freefloat, 0),
+                "GTGD TB (tỷ)":   round(gtgd_tb, 0),
                 "Vol Avg 5":    round(v5  / 1e6, 1),
                 "Vol Avg 10":   round(v10 / 1e6, 1),
                 "Vol Avg 20":   round(v20 / 1e6, 1),
+                "AVG 5-10 %":   avg5_10,
+                "AVG 10-20 %":  avg10_20,
+                "Vol 5/Free %": vol5_free,
+                "Vol 10/Free %": vol10_free,
+                "Vol 20/Free %": vol20_free,
                 "Vol 5/20 %":   vol5_20,
                 "Biên 1T (%)":  round(grp["amp5"].mean(),  1),
                 "Biên 1M (%)":  round(grp["amp20"].mean(), 1),
@@ -3331,14 +3273,29 @@ def _load_all_market_data() -> tuple:
         # Ticker-level display data
         tick_display = merged.copy()
         tick_display["Vốn hoá (tỷ)"] = tick_display["mktcap"].round(0)
-        tick_display["Freefloat~30% (tỷ)"] = (tick_display["mktcap"] * 0.30).round(0)
+        tick_display["Freefloat (tỷ)"] = tick_display["freefloat_val"].round(0)
         tick_display["GTGD TB (tỷ)"] = tick_display["mktcap_proxy"].round(1)
         tick_display["Vol Avg 5"] = (tick_display["vol5"] / 1e6).round(1)
         tick_display["Vol Avg 10"] = (tick_display["vol10"] / 1e6).round(1)
         tick_display["Vol Avg 20"] = (tick_display["vol20"] / 1e6).round(1)
-        tick_display["Vol 5/20 %"] = np.where(
+        tick_display["AVG 5-10 %"] = np.where(
+            tick_display["vol10"] > 0,
+            ((tick_display["vol5"] / tick_display["vol10"] - 1) * 100).round(1), None)
+        tick_display["AVG 10-20 %"] = np.where(
             tick_display["vol20"] > 0,
-            (tick_display["vol5"] / tick_display["vol20"] * 100).round(0),
+            ((tick_display["vol10"] / tick_display["vol20"] - 1) * 100).round(1), None)
+        tick_display["Vol 5/Free %"] = np.where(
+            tick_display["freefloat_shares"] > 0,
+            (tick_display["vol5_sum"] / tick_display["freefloat_shares"] * 100).round(2), None)
+        tick_display["Vol 10/Free %"] = np.where(
+            tick_display["freefloat_shares"] > 0,
+            (tick_display["vol10_sum"] / tick_display["freefloat_shares"] * 100).round(2), None)
+        tick_display["Vol 20/Free %"] = np.where(
+            tick_display["freefloat_shares"] > 0,
+            (tick_display["vol20_sum"] / tick_display["freefloat_shares"] * 100).round(2), None)
+        tick_display["Vol 5/20 %"] = np.where(
+            tick_display["vol20_sum"] > 0,
+            (tick_display["vol5_sum"] / tick_display["vol20_sum"] * 100).round(0),
             None
         )
         tick_display["Biên 1T (%)"] = tick_display["amp5"].round(1)
@@ -3347,6 +3304,10 @@ def _load_all_market_data() -> tuple:
         tick_display["Giá 1T %"] = tick_display["chg5"].round(1)
         tick_display["Giá 1M %"] = tick_display["chg20"].round(1)
         tick_display["Giá 3M %"] = tick_display["chg60"].round(1)
+        # NN từ TopStock (đã fetch ở trên) — map per-ticker
+        tick_display["NN 1T (tỷ)"] = tick_display["ticker"].map(_nn_w)
+        tick_display["NN 1M (tỷ)"] = tick_display["ticker"].map(_nn_m)
+        tick_display["NN 3M (tỷ)"] = tick_display["ticker"].map(_nn_3m)
         tick_display = tick_display.rename(columns={"ticker": "Mã", "industry": "Ngành"})
 
         result = merged.groupby("industry").apply(agg).reset_index()
@@ -3376,8 +3337,8 @@ def load_breadth_indicators() -> dict:
     return st.session_state.get("_mkt_breadth", {})
 
 
-@st.cache_data(ttl=300, show_spinner=False)
-def load_index_overview(days: int = 30) -> pd.DataFrame:
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_index_overview(days: int = 90) -> pd.DataFrame:
     """
     Lấy dữ liệu chỉ số VNINDEX, VN30, HNXINDEX, HNX30 từ API.
     Trả về DataFrame pivot: mỗi dòng = 1 ngày, cột = index metrics.
