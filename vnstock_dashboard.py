@@ -19,6 +19,13 @@ import warnings
 from datetime import datetime, timedelta
 from pathlib import Path
 
+# Load .env file if present (API keys for AI Brief agents, etc.)
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent / ".env", override=False)
+except ImportError:
+    pass
+
 log = logging.getLogger("vnstock_dashboard")
 if not log.handlers:
     logging.basicConfig(
