@@ -59,6 +59,9 @@ CREATE TABLE IF NOT EXISTS strategies (
     code            TEXT NOT NULL,
     params_json     TEXT,
     parent_id       INTEGER,
+    family_id       TEXT,
+    last_tuned_at   TEXT,
+    is_core_stable  INTEGER DEFAULT 0,
     status          TEXT NOT NULL DEFAULT 'draft',
     FOREIGN KEY(parent_id) REFERENCES strategies(id)
 );
@@ -153,9 +156,23 @@ def _conn() -> Iterator[sqlite3.Connection]:
             c.close()
 
 
+def _migrate(c: sqlite3.Connection) -> None:
+    """Add columns introduced after the original schema. Idempotent."""
+    cols = {row["name"] for row in c.execute("PRAGMA table_info(strategies)")}
+    if "family_id" not in cols:
+        c.execute("ALTER TABLE strategies ADD COLUMN family_id TEXT")
+    if "last_tuned_at" not in cols:
+        c.execute("ALTER TABLE strategies ADD COLUMN last_tuned_at TEXT")
+    if "is_core_stable" not in cols:
+        c.execute("ALTER TABLE strategies ADD COLUMN is_core_stable INTEGER DEFAULT 0")
+    # Indexes that depend on migrated columns
+    c.execute("CREATE INDEX IF NOT EXISTS ix_strats_family ON strategies(family_id)")
+
+
 def init_db() -> None:
     with _conn() as c:
         c.executescript(_SCHEMA)
+        _migrate(c)
 
 
 def _now() -> str:
@@ -242,14 +259,17 @@ def save_strategy(
     params: Optional[dict] = None,
     parent_id: Optional[int] = None,
     status: str = "draft",
+    family_id: Optional[str] = None,
 ) -> int:
     init_db()
     with _conn() as c:
         cur = c.execute(
             "INSERT INTO strategies (created_at, agent_name, name, description, "
-            "code, params_json, parent_id, status) VALUES (?,?,?,?,?,?,?,?)",
+            "code, params_json, parent_id, status, family_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
             (_now(), agent_name, name, description, code,
-             json.dumps(params or {}, ensure_ascii=False), parent_id, status),
+             json.dumps(params or {}, ensure_ascii=False), parent_id, status,
+             family_id),
         )
         return int(cur.lastrowid)
 
@@ -257,6 +277,62 @@ def save_strategy(
 def update_strategy_status(strategy_id: int, status: str) -> None:
     with _conn() as c:
         c.execute("UPDATE strategies SET status=? WHERE id=?", (status, strategy_id))
+
+
+def update_strategy_params(strategy_id: int, params: dict, agent_name: str) -> None:
+    """Mutate params on an active strategy without changing the code.
+    Used by daily tune flow — keeps lineage on a single row.
+    """
+    with _conn() as c:
+        c.execute(
+            "UPDATE strategies SET params_json=?, last_tuned_at=?, "
+            "agent_name=agent_name||' / tuned by '||? WHERE id=?",
+            (json.dumps(params or {}, ensure_ascii=False), _now(),
+             agent_name, strategy_id),
+        )
+
+
+def mark_core_stable(strategy_id: int, stable: bool = True) -> None:
+    with _conn() as c:
+        c.execute("UPDATE strategies SET is_core_stable=? WHERE id=?",
+                  (1 if stable else 0, strategy_id))
+
+
+def get_active_family() -> Optional[dict]:
+    """Return the single currently-active strategy (no agent filter).
+    All enabled agents share this strategy and can tune/revise it.
+    """
+    with _conn() as c:
+        row = c.execute(
+            "SELECT * FROM strategies WHERE status='active' "
+            "ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def promote_strategy(strategy_id: int, retire_others: bool = True) -> None:
+    """Mark this strategy as 'active'. Optionally retire other actives."""
+    with _conn() as c:
+        if retire_others:
+            c.execute("UPDATE strategies SET status='retired' WHERE status='active'")
+        c.execute("UPDATE strategies SET status='active' WHERE id=?", (strategy_id,))
+
+
+def family_history(family_id: str, limit: int = 20) -> list[dict]:
+    """All strategies sharing a family_id, newest first."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT s.*, b.expectancy, b.n_trades, b.win_rate "
+            "FROM strategies s LEFT JOIN ("
+            "  SELECT bt.* FROM backtests bt INNER JOIN ("
+            "    SELECT strategy_id, MAX(created_at) AS mx FROM backtests "
+            "    GROUP BY strategy_id"
+            "  ) m ON m.strategy_id=bt.strategy_id AND m.mx=bt.created_at"
+            ") b ON b.strategy_id=s.id "
+            "WHERE s.family_id=? ORDER BY s.created_at DESC LIMIT ?",
+            (family_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 def get_strategy(strategy_id: int) -> Optional[dict]:

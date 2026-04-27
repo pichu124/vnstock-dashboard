@@ -382,23 +382,88 @@ def backtest(code: str, cfg: BacktestConfig) -> dict:
 # ── Strategy generation via agents ─────────────────────────────────────────
 _STRATEGY_PROMPT = """\
 Bạn là quant developer. Hãy viết MỘT chiến lược giao dịch ngắn hạn cho thị trường \
-chứng khoán Việt Nam dưới dạng PYTHON CODE PURE (không markdown, không giải thích).
+chứng khoán Việt Nam.
+
+Output bắt buộc theo đúng format:
+
+PARAMS:
+{{"key1": value1, "key2": value2, ...}}
+
+CODE:
+def signal(df, params):
+    ...
 
 Yêu cầu nghiêm ngặt:
+- Code dùng `params` thay cho hằng số magic — TẤT CẢ ngưỡng (RSI, MA period, stop %, take profit %) \
+  đều đọc từ `params['xxx']` để có thể tune sau này
 - Định nghĩa hàm: def signal(df, params) -> dict
-- df là pandas DataFrame có cột: time, open, high, low, close, volume (index 0..N-1, mới nhất ở cuối)
+- df có cột: time, open, high, low, close, volume (mới nhất ở cuối)
 - Trả về dict: {{"action": "buy"|"sell"|"hold", "entry": float, "tp": float, "sl": float, "confidence": 0..1}}
-- KHÔNG được dùng: import, open, exec, eval, file IO, network, subprocess, os, sys, requests
-- Chỉ dùng: pd, np, math (đã có sẵn trong scope)
-- entry/tp/sl phải là giá tuyệt đối (VND), không phải %
-- Logic phải chạy được với window 60 ngày, không phụ thuộc data ngoài df
+- KHÔNG được dùng: import, open, exec, eval, file IO, network, os, sys
+- Chỉ dùng: pd, np, math (có sẵn trong scope)
+- entry/tp/sl là giá tuyệt đối (VND), không phải %
+- Logic chạy được với window 60 ngày
 
-Bối cảnh hiện tại để hint chiến lược:
+Bối cảnh hiện tại:
 {context}
 
 {prior_feedback}
 
-Output: chỉ Python code, KHÔNG có ```python``` wrapper, không text khác.
+Output đúng 2 phần: dòng `PARAMS:` + JSON dict, sau đó dòng `CODE:` + Python pure (không markdown wrapper).
+"""
+
+_TUNE_PROMPT = """\
+Đây là CORE CODE đang chạy (KHÔNG được sửa, chỉ tune params):
+
+```
+{code}
+```
+
+Params HIỆN TẠI:
+{current_params}
+
+Backtest gần đây (cùng code, params hiện tại):
+- n_trades: {n_trades}
+- win_rate: {win_rate}
+- avg_return: {avg_return}
+- expectancy: {expectancy}
+- max_drawdown: {max_drawdown}
+
+Lịch sử params đã thử (nếu có):
+{history}
+
+Hãy đề xuất bộ params MỚI để cải thiện expectancy. Chỉ thay đổi giá trị, \
+KHÔNG thêm/bớt key. KHÔNG sửa code.
+
+Output BẮT BUỘC: chỉ MỘT dòng JSON dict, không markdown, không giải thích.
+Ví dụ output: {{"rsi_period": 14, "rsi_oversold": 28, "stop_loss_pct": 2.5}}
+"""
+
+_REVISE_PROMPT = """\
+CORE CODE hiện tại ĐANG CHƯA HIỆU QUẢ (cần REVISE major):
+
+```
+{code}
+```
+
+Params đã tune nhiều lần, kết quả tốt nhất:
+- expectancy: {expectancy}
+- n_trades: {n_trades}
+- win_rate: {win_rate}
+
+Vấn đề chính (suy luận từ metrics):
+{diagnosis}
+
+Hãy VIẾT LẠI CORE CODE với cách tiếp cận khác (đổi indicator chính, đổi entry/exit logic, \
+đổi market regime filter). Có thể giữ structure dùng `params` cho tunability.
+
+Output cùng format như khi tạo mới:
+PARAMS:
+{{...}}
+
+CODE:
+def signal(df, params):
+    ...
 """
 
 _IMPROVEMENT_PROMPT = """\
@@ -440,27 +505,134 @@ def _strip_code_fences(text: str) -> str:
     return t.strip()
 
 
+def _parse_params_and_code(text: str) -> tuple[dict, str]:
+    """Split the agent output into (params_dict, code_str).
+
+    Expected format:
+        PARAMS:
+        {"key": value, ...}
+
+        CODE:
+        def signal(df, params):
+            ...
+    """
+    t = text.strip()
+    params: dict = {}
+    code = t
+    if "PARAMS:" in t and "CODE:" in t:
+        try:
+            params_part = t.split("PARAMS:", 1)[1].split("CODE:", 1)[0].strip()
+            code_part = t.split("CODE:", 1)[1].strip()
+            params_part = _strip_code_fences(params_part)
+            params = json.loads(params_part)
+            if not isinstance(params, dict):
+                params = {}
+            code = _strip_code_fences(code_part)
+        except Exception:
+            code = _strip_code_fences(t)
+    else:
+        code = _strip_code_fences(t)
+    return params, code
+
+
 def generate_strategy(
     agent,
     context_summary: str = "",
     prior_feedback: str = "",
-) -> tuple[str, str | None]:
-    """Ask an agent to generate a fresh strategy. Returns (code, error)."""
+) -> tuple[str, dict, str | None]:
+    """Ask an agent to generate a fresh strategy. Returns (code, params, error)."""
     prompt = _STRATEGY_PROMPT.format(
         context=context_summary or "Thị trường VN, large-cap, daily timeframe.",
         prior_feedback=prior_feedback or "(không có feedback ưu tiên)",
     )
-    text, err = agent.generate(prompt, max_tokens=1500)
+    text, err = agent.generate(prompt, max_tokens=2000)
     if err:
-        return "", err
-    code = _strip_code_fences(text)
+        return "", {}, err
+    params, code = _parse_params_and_code(text)
     try:
         _validate_ast(code)
     except StrategyValidationError as e:
-        return code, f"AST rejected: {e}"
+        return code, params, f"AST rejected: {e}"
     if "def signal" not in code:
-        return code, "Missing `def signal()` definition"
-    return code, None
+        return code, params, "Missing `def signal()` definition"
+    return code, params, None
+
+
+def tune_params(
+    agent,
+    code: str,
+    current_params: dict,
+    metrics: dict,
+    history: list[dict] | None = None,
+) -> tuple[dict, str | None]:
+    """Ask an agent to suggest new params (JSON only). Code is NOT changed.
+    Returns (new_params, error). Empty dict on failure.
+    """
+    hist_str = "(không có)"
+    if history:
+        hist_str = "\n".join(
+            f"- {h.get('params')} → expectancy={h.get('expectancy')}"
+            for h in history[:5]
+        )
+    prompt = _TUNE_PROMPT.format(
+        code=code,
+        current_params=json.dumps(current_params, ensure_ascii=False),
+        n_trades=metrics.get("n_trades", 0),
+        win_rate=metrics.get("win_rate"),
+        avg_return=metrics.get("avg_return"),
+        expectancy=metrics.get("expectancy"),
+        max_drawdown=metrics.get("max_drawdown"),
+        history=hist_str,
+    )
+    text, err = agent.generate(prompt, max_tokens=400)
+    if err:
+        return {}, err
+    raw = _strip_code_fences(text).strip()
+    # Find first { ... } block — agents sometimes still add prose
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start < 0 or end <= start:
+        return {}, "No JSON dict found in tune output"
+    try:
+        new_params = json.loads(raw[start:end + 1])
+        if not isinstance(new_params, dict):
+            return {}, "Tune output is not a dict"
+        # Defensive: only keep keys that exist in current_params
+        new_params = {k: v for k, v in new_params.items() if k in current_params}
+        if not new_params:
+            return {}, "Tune output had no overlapping keys"
+        # Merge with current to preserve untouched keys
+        merged = {**current_params, **new_params}
+        return merged, None
+    except json.JSONDecodeError as e:
+        return {}, f"JSON parse error: {e}"
+
+
+def revise_strategy(
+    agent,
+    code: str,
+    metrics: dict,
+    diagnosis: str = "",
+) -> tuple[str, dict, str | None]:
+    """Ask an agent to write a new core (different approach). Returns (code, params, err)."""
+    prompt = _REVISE_PROMPT.format(
+        code=code,
+        n_trades=metrics.get("n_trades", 0),
+        win_rate=metrics.get("win_rate"),
+        expectancy=metrics.get("expectancy"),
+        diagnosis=diagnosis or "Expectancy âm hoặc số trade thấp — cần đổi cách tiếp cận.",
+    )
+    text, err = agent.generate(prompt, max_tokens=2000)
+    if err:
+        return "", {}, err
+    params, new_code = _parse_params_and_code(text)
+    try:
+        _validate_ast(new_code)
+    except StrategyValidationError as e:
+        return new_code, params, f"AST rejected: {e}"
+    if "def signal" not in new_code:
+        return new_code, params, "Missing `def signal()` definition"
+    return new_code, params, None
 
 
 def improve_strategy(
@@ -492,81 +664,211 @@ def improve_strategy(
 
 
 # ── End-to-end pipeline used by train loop ─────────────────────────────────
+import uuid as _uuid
+from datetime import datetime as _dt, timedelta as _td
+
+# ── Maturity heuristics ────────────────────────────────────────────────────
+WEEKLY_REVISE_DAYS = 7
+N_STABLE_WEEKS_REQUIRED = 3
+
+
+def _should_revise(active: dict) -> bool:
+    """True if it's time to revise (rewrite core), False if just tune params.
+
+    Rules:
+      - If is_core_stable=1 → never revise (only tune)
+      - If last revise > WEEKLY_REVISE_DAYS days ago → revise
+      - Cold start (no active) handled by caller
+    """
+    if not active:
+        return True
+    if active.get("is_core_stable"):
+        return False
+    try:
+        last_revise = _dt.fromisoformat(active.get("created_at", ""))
+    except Exception:
+        return True
+    return (_dt.now() - last_revise).days >= WEEKLY_REVISE_DAYS
+
+
+def _check_stability(family_id: str) -> bool:
+    """Mark core stable if the last N revisions all had positive expectancy."""
+    history = mem.family_history(family_id, limit=N_STABLE_WEEKS_REQUIRED + 1)
+    if len(history) < N_STABLE_WEEKS_REQUIRED:
+        return False
+    revisions = [h for h in history if h.get("status") in ("active", "validated", "retired")]
+    revisions = revisions[:N_STABLE_WEEKS_REQUIRED]
+    if len(revisions) < N_STABLE_WEEKS_REQUIRED:
+        return False
+    for h in revisions:
+        if (h.get("expectancy") or -999) <= 0 \
+           or (h.get("n_trades") or 0) < MIN_TRADES_TO_VALIDATE:
+            return False
+    return True
+
+
+def _do_backtest(code: str, params: dict, cfg: BacktestConfig) -> tuple[dict, str, str]:
+    """Run backtest and return (metrics, period_start, period_end)."""
+    cfg.params = params
+    metrics = backtest(code, cfg)
+    period_start = (pd.Timestamp.now() - pd.Timedelta(days=cfg.lookback_days)).date().isoformat()
+    period_end   = pd.Timestamp.now().date().isoformat()
+    return metrics, period_start, period_end
+
+
+def _cold_start(agent, universe, context_summary, cfg) -> tuple[Optional[int], dict]:
+    """Generate fresh strategy + initial params, persist + backtest."""
+    code, params, err = generate_strategy(agent, context_summary=context_summary)
+    if err and not code:
+        return None, {"error": err}
+    family = _uuid.uuid4().hex[:8]
+    sid = mem.save_strategy(
+        agent_name=agent.name,
+        name=f"family-{family} v1 by {agent.name}",
+        code=code,
+        params=params,
+        description="Cold-start core",
+        status="draft",
+        family_id=family,
+    )
+    if err:
+        mem.save_backtest(sid, "", "", ",".join(universe[:10]),
+                          {"n_trades": 0}, error=err)
+        return sid, {"error": err}
+    metrics, ps, pe = _do_backtest(code, params, cfg)
+    mem.save_backtest(sid, ps, pe, ",".join(universe[:10]), metrics)
+    if metrics.get("n_trades", 0) >= MIN_TRADES_TO_VALIDATE \
+       and (metrics.get("expectancy") or -999) > 0:
+        mem.promote_strategy(sid, retire_others=True)
+    else:
+        mem.update_strategy_status(sid, "validated"
+                                   if metrics.get("n_trades", 0) >= MIN_TRADES_TO_VALIDATE
+                                   else "draft")
+        mem.promote_strategy(sid, retire_others=True)  # always have one active
+    return sid, metrics
+
+
+def _do_revise(agent, active, cfg) -> tuple[Optional[int], dict]:
+    """Weekly-cadence: rewrite core, compare, promote if better."""
+    code     = active["code"]
+    family   = active.get("family_id") or _uuid.uuid4().hex[:8]
+    cur_metrics = mem.latest_backtest(active["id"]) or {}
+    new_code, new_params, err = revise_strategy(agent, code, cur_metrics)
+    if err and not new_code:
+        return None, {"error": err}
+    sid = mem.save_strategy(
+        agent_name=agent.name,
+        name=f"family-{family} revise by {agent.name} @ {time.strftime('%m-%d')}",
+        code=new_code,
+        params=new_params,
+        description="Weekly revise",
+        parent_id=active["id"],
+        status="draft",
+        family_id=family,
+    )
+    if err:
+        mem.save_backtest(sid, "", "", ",".join(cfg.universe[:10]),
+                          {"n_trades": 0}, error=err)
+        return sid, {"error": err}
+    metrics, ps, pe = _do_backtest(new_code, new_params, cfg)
+    mem.save_backtest(sid, ps, pe, ",".join(cfg.universe[:10]), metrics)
+    cur_exp = (cur_metrics.get("expectancy") or -999)
+    new_exp = (metrics.get("expectancy") or -999)
+    if new_exp > cur_exp and metrics.get("n_trades", 0) >= MIN_TRADES_TO_VALIDATE:
+        mem.promote_strategy(sid, retire_others=True)
+        if _check_stability(family):
+            mem.mark_core_stable(sid, True)
+    else:
+        mem.update_strategy_status(sid, "retired")
+    return sid, metrics
+
+
+def _do_tune(agents: list, active: dict, cfg: BacktestConfig) -> tuple[Optional[int], dict]:
+    """Daily-cadence: each agent suggests new params, run backtest, adopt best."""
+    code = active["code"]
+    try:
+        cur_params = json.loads(active.get("params_json") or "{}")
+    except Exception:
+        cur_params = {}
+    cur_metrics = mem.latest_backtest(active["id"]) or {}
+    if not cur_params:
+        return active["id"], {"error": "active strategy has no params to tune"}
+
+    candidates: list[tuple[str, dict, dict]] = []
+    for ag in agents:
+        if not ag.is_available:
+            continue
+        new_params, err = tune_params(ag, code, cur_params, cur_metrics)
+        if err or not new_params:
+            continue
+        metrics, _, _ = _do_backtest(code, new_params, cfg)
+        candidates.append((ag.name, new_params, metrics))
+
+    if not candidates:
+        return active["id"], {"error": "no agent produced valid tune"}
+
+    name, new_params, new_metrics = max(
+        candidates,
+        key=lambda c: c[2].get("expectancy") or -999,
+    )
+    cur_exp = cur_metrics.get("expectancy") or -999
+    new_exp = new_metrics.get("expectancy") or -999
+
+    if new_exp > cur_exp:
+        mem.update_strategy_params(active["id"], new_params, name)
+        mem.save_backtest(
+            active["id"],
+            (pd.Timestamp.now() - pd.Timedelta(days=cfg.lookback_days)).date().isoformat(),
+            pd.Timestamp.now().date().isoformat(),
+            ",".join(cfg.universe[:10]),
+            new_metrics,
+        )
+        return active["id"], {**new_metrics, "tuned_by": name}
+    return active["id"], {"error": "no candidate improved expectancy"}
+
+
 def develop_and_backtest(
     agent,
     universe: list[str],
     context_summary: str = "",
-    n_iterations: int = 2,
+    n_iterations: int = 2,  # legacy arg, unused in new flow
     cfg: Optional[BacktestConfig] = None,
+    mode: str = "auto",
+    extra_agents: list | None = None,
 ) -> tuple[Optional[int], dict]:
-    """Generate → backtest → improve → backtest. Persist all to memory.
+    """Develop / tune / revise the active strategy. Adaptive cadence.
 
-    Args:
-        cfg: BacktestConfig override. None → full default (slow on Windows).
-             Use `lite_config(universe)` for UI-triggered runs (~20-60s).
+    Modes:
+      auto    — choose tune vs revise based on age + stability flag (default)
+      tune    — force daily tune (params only); cold-start if no active
+      revise  — force weekly revise (rewrite core)
+      fresh   — force cold start (ignore existing active, retire it)
 
-    Returns (final_strategy_id, last_metrics).
+    All enabled agents share one family. `agent` is the lead; `extra_agents`
+    additional agents that participate in the daily tune competition.
     """
-    code, err = generate_strategy(agent, context_summary=context_summary)
-    if err and not code:
-        return None, {"error": err}
-    sid = mem.save_strategy(
-        agent_name=agent.name,
-        name=f"{agent.name} draft @ {time.strftime('%Y-%m-%d %H:%M')}",
-        code=code,
-        description="Auto-generated by train loop",
-        status="draft",
-    )
     if cfg is None:
         cfg = BacktestConfig(universe=universe)
-    if err:
-        # Validation failed — record but skip backtest
-        mem.save_backtest(sid, "", "", ",".join(universe[:10]),
-                          {"n_trades": 0}, error=err)
-        return sid, {"error": err}
+    cfg.universe = universe  # ensure consistency
 
-    metrics = backtest(code, cfg)
-    period_start = (pd.Timestamp.now() - pd.Timedelta(days=cfg.lookback_days)).date().isoformat()
-    period_end   = pd.Timestamp.now().date().isoformat()
-    mem.save_backtest(sid, period_start, period_end,
-                      ",".join(universe[:10]), metrics)
+    active = mem.get_active_family()
 
-    cur_code = code
-    cur_metrics = metrics
-    cur_sid = sid
+    if mode == "fresh" or active is None:
+        return _cold_start(agent, universe, context_summary, cfg)
 
-    for _ in range(max(0, n_iterations)):
-        if cur_metrics.get("n_trades", 0) >= MIN_TRADES_TO_VALIDATE \
-           and cur_metrics.get("expectancy", -999) > 0:
-            mem.update_strategy_status(cur_sid, "validated")
-            break
-        new_code, err = improve_strategy(agent, cur_code, cur_metrics)
-        if err and not new_code:
-            break
-        new_sid = mem.save_strategy(
-            agent_name=agent.name,
-            name=f"{agent.name} v{_ + 2} @ {time.strftime('%Y-%m-%d %H:%M')}",
-            code=new_code,
-            description="Improvement iteration",
-            parent_id=cur_sid,
-            status="draft",
-        )
-        if err:
-            mem.save_backtest(new_sid, "", "", ",".join(universe[:10]),
-                              {"n_trades": 0}, error=err)
-            cur_sid = new_sid
-            continue
-        new_metrics = backtest(new_code, cfg)
-        mem.save_backtest(new_sid, period_start, period_end,
-                          ",".join(universe[:10]), new_metrics)
-        # Only switch if strictly better expectancy
-        if (new_metrics.get("expectancy") or -999) > (cur_metrics.get("expectancy") or -999):
-            cur_code, cur_metrics, cur_sid = new_code, new_metrics, new_sid
+    if mode == "revise" or (mode == "auto" and _should_revise(active)):
+        return _do_revise(agent, active, cfg)
 
-    if cur_metrics.get("n_trades", 0) >= MIN_TRADES_TO_VALIDATE \
-       and cur_metrics.get("expectancy", -999) > 0:
-        mem.update_strategy_status(cur_sid, "validated")
-    return cur_sid, cur_metrics
+    # tune mode (or auto + not yet time to revise)
+    pool = [agent] + (extra_agents or [])
+    # de-dup by name
+    seen: set[str] = set()
+    unique = []
+    for a in pool:
+        if a.name not in seen:
+            unique.append(a)
+            seen.add(a.name)
+    return _do_tune(unique, active, cfg)
 
 
 # ── Convert latest signal of best strategy → recommendation ────────────────

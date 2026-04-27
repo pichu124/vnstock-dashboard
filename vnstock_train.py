@@ -129,51 +129,65 @@ def strategy_loop(
     universe_size: int = 15,
     verbose: bool = True,
     lite: bool = False,
+    mode: str = "auto",
 ) -> dict:
-    """For each enabled agent: develop + backtest + persist a strategy.
+    """Adaptive strategy training shared across all enabled agents.
+
+    Modes:
+      auto    — choose tune (daily) vs revise (weekly) based on stability
+      tune    — daily tune of params (every agent contributes, best wins)
+      revise  — weekly rewrite of core code by lead agent
+      fresh   — cold-start a brand new strategy family
+
+    All enabled agents share one strategy family (cross-agent knowledge).
+    Lead agent for revise/cold-start = first available agent (typically
+    Claude > OpenAI > Groq > Mistral order from config).
 
     Args:
-        lite: If True, use a smaller backtest config (5 tickers, fewer
-              windows) — completes in ~30-60s instead of ~8 min on Windows.
-              Use for UI-triggered runs and smoke tests.
+        lite: smaller backtest cfg (~30-60s instead of ~8 min on Windows)
+        mode: see above. "auto" delegates to develop_and_backtest's logic.
     """
     from vnstock_brief import build_agents
     from vnstock_strategy import develop_and_backtest, lite_config
 
     agents = build_agents()
-    if not agents:
+    available = [a for a in agents if a.is_available]
+    if not available:
         if verbose:
-            print("[strategy_loop] No agents enabled — skipping")
+            print("[strategy_loop] No agents with valid API key — skipping")
         return {"agents_run": 0, "validated": 0}
 
     universe = _get_universe(universe_size)
     context_summary = _build_context_summary()
     cfg = lite_config(universe) if lite else None
 
-    summary = {"agents_run": 0, "validated": 0, "errors": []}
+    lead = available[0]   # for revise / cold start
+    pool = available[1:]  # extra agents for tune competition
 
-    for ag in agents:
-        if not ag.is_available:
+    if verbose:
+        names = ", ".join(a.name for a in available)
+        print(f"[strategy_loop] mode={mode} lite={lite} | agents: {names} "
+              f"| lead={lead.name}")
+
+    summary: dict = {"agents_run": len(available), "validated": 0,
+                     "mode": mode, "errors": []}
+    try:
+        sid, metrics = develop_and_backtest(
+            lead,
+            universe=universe,
+            context_summary=context_summary,
+            n_iterations=n_iterations,
+            cfg=cfg,
+            mode=mode,
+            extra_agents=pool,
+        )
+        if sid is None:
             if verbose:
-                print(f"[strategy_loop] {ag.name}: API key missing, skip")
-            continue
-        if verbose:
-            print(f"[strategy_loop] {ag.name}: developing strategy "
-                  f"({'lite' if lite else 'full'})...")
-        try:
-            sid, metrics = develop_and_backtest(
-                ag, universe=universe,
-                context_summary=context_summary,
-                n_iterations=n_iterations,
-                cfg=cfg,
-            )
-            summary["agents_run"] += 1
-            if sid is None:
-                if verbose:
-                    print(f"  → failed: {metrics.get('error')}")
-                continue
+                print(f"  → failed: {metrics.get('error')}")
+            summary["errors"].append(metrics.get("error", "unknown"))
+        else:
             s = mem.get_strategy(sid)
-            if s and s.get("status") == "validated":
+            if s and s.get("status") in ("validated", "active"):
                 summary["validated"] += 1
             if verbose:
                 print(
@@ -181,12 +195,12 @@ def strategy_loop(
                     f"trades={metrics.get('n_trades')} "
                     f"expectancy={metrics.get('expectancy')}"
                 )
-        except Exception as e:
-            err = f"{ag.name}: {type(e).__name__}: {e}"
-            summary["errors"].append(err)
-            if verbose:
-                print(f"  → error: {err}")
-                traceback.print_exc()
+    except Exception as e:
+        err = f"{lead.name}: {type(e).__name__}: {e}"
+        summary["errors"].append(err)
+        if verbose:
+            print(f"  → error: {err}")
+            traceback.print_exc()
     return summary
 
 
@@ -247,14 +261,14 @@ def reconcile_recommendations(verbose: bool = True) -> dict:
 # ── Run-once orchestrator ──────────────────────────────────────────────────
 def run_once(briefs: bool = True, strategy: bool = True,
              reconcile: bool = True, verbose: bool = True,
-             lite: bool = False) -> dict:
+             lite: bool = False, mode: str = "auto") -> dict:
     out: dict = {"started_at": datetime.now().isoformat(timespec="seconds")}
     if briefs:
         out["brief_loop"] = brief_loop(verbose=verbose)
     if reconcile:
         out["reconcile"] = reconcile_recommendations(verbose=verbose)
     if strategy:
-        out["strategy_loop"] = strategy_loop(verbose=verbose, lite=lite)
+        out["strategy_loop"] = strategy_loop(verbose=verbose, lite=lite, mode=mode)
     out["finished_at"] = datetime.now().isoformat(timespec="seconds")
     return out
 
@@ -302,6 +316,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--lite", action="store_true",
                         help="Use a smaller backtest window (5 tickers, ~30s) "
                              "instead of full (15 tickers, ~8 min on Windows).")
+    parser.add_argument("--mode", choices=("auto", "tune", "revise", "fresh"),
+                        default="auto",
+                        help="Strategy training mode. auto=tune daily / revise "
+                             "weekly. tune=force params-only. revise=force "
+                             "rewrite core. fresh=cold start a new family.")
     args = parser.parse_args(argv)
 
     verbose = not args.quiet
@@ -320,11 +339,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.briefs_only:
         brief_loop(verbose=verbose)
     elif args.strategy_only:
-        strategy_loop(verbose=verbose, lite=args.lite)
+        strategy_loop(verbose=verbose, lite=args.lite, mode=args.mode)
     elif args.reconcile_only:
         reconcile_recommendations(verbose=verbose)
     else:
-        run_once(verbose=verbose, lite=args.lite)
+        run_once(verbose=verbose, lite=args.lite, mode=args.mode)
     return 0
 
 
