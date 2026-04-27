@@ -1508,12 +1508,13 @@ def render_market_tab() -> None:
                 try:
                     import vnstock_memory as _vm
                     _vm.init_db()
-                    _bests = _vm.best_strategies(limit=5)
-                    _opens = _vm.open_recommendations()
-                    _perf  = _vm.recommendation_performance()
+                    _active  = _vm.get_active_family()
+                    _bests   = _vm.best_strategies(limit=5)
+                    _opens   = _vm.open_recommendations()
+                    _perf    = _vm.recommendation_performance()
 
                     _c1, _c2, _c3 = st.columns(3)
-                    _c1.metric("Strategies validated", len(_bests))
+                    _c1.metric("Active strategy", "✅" if _active else "—")
                     _c2.metric("Open recommendations", len(_opens))
                     _c3.metric(
                         "Win rate (closed)",
@@ -1521,8 +1522,50 @@ def render_market_tab() -> None:
                         delta=f"n={_perf.get('n', 0)}",
                     )
 
+                    # Always show the current active strategy
+                    if _active:
+                        import json as _json
+                        _fam = _active.get("family_id", "?")
+                        _tuned_by = _active.get("agent_name", "?")
+                        _stable = "✅ stable" if _active.get("is_core_stable") else "🔄 revising"
+                        _tuned_at = (_active.get("last_tuned_at") or _active.get("created_at", ""))[:10]
+
+                        st.markdown("**Chiến lược đang hoạt động**")
+                        _sa, _sb = st.columns([3, 2])
+                        with _sa:
+                            st.write(
+                                f"**{_active['name']}**  \n"
+                                f"Family `{_fam}` · {_stable} · tuned {_tuned_at}"
+                            )
+                        with _sb:
+                            # Show latest backtest from family history
+                            _hist = _vm.family_history(_fam, limit=1)
+                            if _hist and _hist[0].get("n_trades") is not None:
+                                _h = _hist[0]
+                                _nt = _h.get("n_trades", 0)
+                                _exp = _h.get("expectancy") or 0.0
+                                _wr = (_h.get("win_rate") or 0.0) * 100
+                                st.metric("Expectancy", f"{_exp:.2f}", delta=f"{_nt} trades")
+                                if _nt < 10:
+                                    st.warning(f"⚠️ Chỉ {_nt} trades — cần Full training để có đủ dữ liệu.", icon="⚠️")
+                            else:
+                                st.caption("Chưa có backtest metrics.")
+
+                        with st.expander("Xem params & code", expanded=False):
+                            try:
+                                _params = _json.loads(_active.get("params_json") or "{}")
+                                st.code(_json.dumps(_params, indent=2, ensure_ascii=False), language="json")
+                            except Exception:
+                                pass
+                            _code = _active.get("code") or ""
+                            if _code:
+                                st.code(_code[:1500] + ("…" if len(_code) > 1500 else ""), language="python")
+                    else:
+                        st.info("Chưa có chiến lược nào. Nhấn **Lite training** để bắt đầu.", icon="ℹ️")
+
+                    # Top strategies with enough trades
                     if _bests:
-                        st.markdown("**Top validated strategies**")
+                        st.markdown("**Top strategies (n_trades ≥ 10)**")
                         for _s in _bests:
                             st.write(
                                 f"- #{_s['id']} {_s['name']}"
@@ -1530,8 +1573,6 @@ def render_market_tab() -> None:
                                 f" | win={_s.get('win_rate', 0):.0%}"
                                 f" | trades={_s.get('n_trades', 0)}"
                             )
-                    else:
-                        st.caption("Chưa có chiến lược validated. Chạy: `python vnstock_train.py --strategy-only`")
 
                     if _opens:
                         st.markdown("**Open recommendations**")
@@ -1545,6 +1586,7 @@ def render_market_tab() -> None:
                             hide_index=True,
                         )
 
+                    st.divider()
                     _train_col1, _train_col2 = st.columns(2)
                     with _train_col1:
                         if st.button("⚡ Lite training (~30-60s)", key="_train_lite",
@@ -1553,7 +1595,22 @@ def render_market_tab() -> None:
                                 try:
                                     from vnstock_train import run_once as _run_once
                                     _out = _run_once(verbose=False, lite=True)
-                                    st.success(f"Done (lite): {_out}")
+                                    _sl = _out.get("strategy_loop", {})
+                                    if _sl.get("errors"):
+                                        st.warning(f"Lỗi: {_sl['errors']}")
+                                    else:
+                                        _nt_info = ""
+                                        _new_fam = _vm.get_active_family()
+                                        if _new_fam:
+                                            _nh = _vm.family_history(_new_fam.get("family_id",""), limit=1)
+                                            if _nh:
+                                                _nt_info = f" | {_nh[0].get('n_trades',0)} trades | exp={(_nh[0].get('expectancy') or 0):.2f}"
+                                        st.success(
+                                            f"✅ Done — agents={_sl.get('agents_run',0)} "
+                                            f"validated={_sl.get('validated',0)}"
+                                            f"{_nt_info}"
+                                        )
+                                    st.rerun()
                                 except Exception as _e:
                                     st.error(f"Train loop error: {type(_e).__name__}: {_e}")
                     with _train_col2:
@@ -1563,7 +1620,12 @@ def render_market_tab() -> None:
                                 try:
                                     from vnstock_train import run_once as _run_once
                                     _out = _run_once(verbose=False, lite=False)
-                                    st.success(f"Done (full): {_out}")
+                                    _sl = _out.get("strategy_loop", {})
+                                    st.success(
+                                        f"✅ Done — agents={_sl.get('agents_run',0)} "
+                                        f"validated={_sl.get('validated',0)}"
+                                    )
+                                    st.rerun()
                                 except Exception as _e:
                                     st.error(f"Train loop error: {type(_e).__name__}: {_e}")
                     st.caption(
