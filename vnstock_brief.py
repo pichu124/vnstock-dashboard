@@ -102,6 +102,11 @@ Viết MORNING BRIEF tiếng Việt theo đúng format sau (không thêm phần 
 **Thận trọng:** [tín hiệu cần theo dõi để cắt lỗ / không vào hàng]
 
 Giới hạn 350 từ. Chỉ đề cập mã trong VN30 khi nói về cổ phiếu cụ thể.
+YÊU CẦU VỀ ĐỘ CỤ THỂ:
+- Ngành nào được đề cập → LUÔN nêu trọng số %VNI và đóng góp pp hôm nay (có trong data).
+- Mã nào được đề cập → nêu mức đóng góp pp vào VNINDEX nếu có trong data.
+- Ưu tiên ngành/mã có đóng góp tuyệt đối lớn nhất, không chỉ tăng % cao nhất.
+- Không dùng câu chung chung như "thị trường diễn biến tích cực" nếu có số liệu cụ thể hơn.
 Nếu không đủ data cho một mục thì nói thẳng, không bịa.
 """
 
@@ -132,6 +137,11 @@ Viết AFTERNOON BRIEF tiếng Việt theo đúng format sau (không thêm phầ
 [Red flags, distribution, macro risk; nếu thị trường ổn định thì viết "Không có rủi ro đặc biệt"]
 
 Giới hạn 400 từ. Chỉ đề cập mã trong VN30. Nếu thị trường flat và không có signal rõ thì nói thẳng.
+YÊU CẦU VỀ ĐỘ CỤ THỂ:
+- Ngành nào được đề cập → LUÔN nêu trọng số %VNI và đóng góp pp hôm nay (có trong data).
+- Mã nào được đề cập → nêu mức đóng góp pp vào VNINDEX nếu có trong data.
+- Ưu tiên ngành/mã có đóng góp tuyệt đối lớn nhất, không chỉ tăng % cao nhất.
+- Không dùng câu chung chung nếu có số liệu cụ thể hơn.
 """
 
 
@@ -389,6 +399,40 @@ def collect_context(brief_type: str = "morning") -> dict:
         except Exception:
             pass
 
+    # 5. Market-cap weights + intraday contributions (sector & ticker level)
+    if ctx["tickers"] and ctx["sectors"]:
+        try:
+            import pandas as pd
+            tick_df = pd.DataFrame(ctx["tickers"])
+            sec_df  = pd.DataFrame(ctx["sectors"])
+
+            # Ticker weights relative to total market cap
+            if "Vốn hoá (tỷ)" in tick_df.columns:
+                total_mcap = tick_df["Vốn hoá (tỷ)"].fillna(0).sum()
+                if total_mcap > 0:
+                    tick_df["_weight"] = tick_df["Vốn hoá (tỷ)"].fillna(0) / total_mcap
+                    if "Giá 1T %" in tick_df.columns:
+                        tick_df["_1d_contrib"] = tick_df["_weight"] * tick_df["Giá 1T %"].fillna(0)
+                    if "Ngành" in tick_df.columns:
+                        keep = [c for c in ["Mã", "Vốn hoá (tỷ)", "_weight", "Giá 1T %", "_1d_contrib"]
+                                if c in tick_df.columns]
+                        ctx["top_stocks_per_sector"] = {
+                            str(sec): grp.nlargest(3, "Vốn hoá (tỷ)")[keep].to_dict("records")
+                            for sec, grp in tick_df.groupby("Ngành")
+                        }
+
+            # Sector weights relative to total sector market cap
+            if "Vốn hoá (tỷ)" in sec_df.columns and "Ngành" in sec_df.columns:
+                sec_total = sec_df["Vốn hoá (tỷ)"].fillna(0).sum()
+                if sec_total > 0:
+                    sec_df["_weight"] = sec_df["Vốn hoá (tỷ)"].fillna(0) / sec_total
+                    if "Giá 1T %" in sec_df.columns:
+                        sec_df["_1d_contrib"] = sec_df["_weight"] * sec_df["Giá 1T %"].fillna(0)
+                    keep = [c for c in ["_weight", "_1d_contrib"] if c in sec_df.columns]
+                    ctx["sector_weights"] = sec_df.set_index("Ngành")[keep].to_dict("index")
+        except Exception:
+            pass
+
     return ctx
 
 
@@ -426,46 +470,88 @@ def build_prompt(ctx: dict, brief_type: str = "morning") -> str:
                      f"Net new highs: {b.get('net_new_highs',0):+d} | "
                      f"RSI oversold: {b.get('rsi_oversold',0)} mã | RSI overbought: {b.get('rsi_overbought',0)} mã")
 
-    # Sector analysis
-    def _sector_line(r: dict) -> str:
-        parts = [f"**{r.get('Ngành','?')}** (composite={r.get('composite',0):+.2f})"]
+    # Sector analysis — with market-cap weights + stock breakdown
+    _sw = ctx.get("sector_weights", {})
+    _ts = ctx.get("top_stocks_per_sector", {})
+
+    def _sector_lines(r: dict) -> list[str]:
+        sector_name = r.get("Ngành", "?")
+        sw = _sw.get(sector_name, {})
+        weight = sw.get("_weight", 0) * 100
+        contrib = sw.get("_1d_contrib", 0)
+
+        # Header: name [weight, contribution] composite + performance
+        header = f"**{sector_name}**"
+        if weight > 0:
+            header += f" [{weight:.1f}%VNI"
+            if contrib != 0:
+                header += f", đóng góp {contrib:+.2f}pp hôm nay"
+            header += "]"
+        header += f" composite={r.get('composite', 0):+.2f}"
+
+        meta: list[str] = []
+        g1t = r.get("Giá 1T %")
         g1m = r.get("Giá 1M %")
         a1m = r.get("alpha_1M")
         rot = r.get("rotation")
-        if g1m is not None:
-            if a1m is not None:
-                parts.append(f"Giá 1M {g1m:+.1f}% (alpha vs VNI {a1m:+.1f}%)")
-            else:
-                parts.append(f"Giá 1M {g1m:+.1f}%")
-        if rot is not None and abs(rot) > 3:
-            parts.append(f"rotation {rot:+.1f}pp")
-        nn = r.get("NN 1M (tỷ)")
-        if nn is not None and abs(nn) > 50:
-            parts.append(f"NN 1M {nn:+,.0f} tỷ")
+        nn  = r.get("NN 1M (tỷ)")
         nbs = r.get("Net BS 1M")
+        if g1t is not None:
+            meta.append(f"1T {g1t:+.1f}%")
+        if g1m is not None:
+            meta.append(f"1M {g1m:+.1f}%" + (f" (α {a1m:+.1f}pp vs VNI)" if a1m is not None else ""))
+        if rot is not None and abs(rot) > 3:
+            meta.append(f"rotation {rot:+.1f}pp")
+        if nn is not None and abs(nn) > 50:
+            meta.append(f"NN 1M {nn:+,.0f}tỷ")
         if nbs is not None:
-            parts.append(f"Net BS {nbs:+,.0f}M")
+            meta.append(f"NetBS {nbs:+,.0f}M")
+
+        result = ["- " + header + (" | " + " | ".join(meta) if meta else "")]
+
+        # Top 3 stocks in sector: mcap, weight vs VNI, 1d return, contribution
+        for s in _ts.get(sector_name, [])[:3]:
+            ticker  = s.get("Mã", "?")
+            mcap    = s.get("Vốn hoá (tỷ)", 0) or 0
+            stk_w   = s.get("_weight", 0) * 100
+            ret_1t  = s.get("Giá 1T %")
+            stk_c   = s.get("_1d_contrib", 0) or 0
+            if ret_1t is not None:
+                result.append(
+                    f"  → {ticker}"
+                    + (f" {mcap:,.0f}tỷ" if mcap else "")
+                    + (f" ({stk_w:.2f}%VNI)" if stk_w else "")
+                    + f" 1T {ret_1t:+.1f}%"
+                    + (f" ≈ {stk_c:+.3f}pp" if stk_c else "")
+                )
+
         flags = r.get("red_flags", []) or []
-        cats = r.get("catalysts", []) or []
+        cats  = r.get("catalysts", []) or []
         if flags:
-            parts.append(f"[{len(flags)} red flag: {flags[0][:60]}...]")
+            result.append(f"  ⚠ {flags[0][:80]}")
         if cats:
-            parts.append(f"[catalyst: {cats[0][:60]}...]")
-        return "- " + " | ".join(parts)
+            result.append(f"  ✦ {cats[0][:80]}")
+        return result
 
     if top := ctx.get("quant_top"):
         lines.append("\n## Ngành tích cực nhất")
-        lines.extend(_sector_line(r) for r in top)
+        for r in top:
+            lines.extend(_sector_lines(r))
 
     if avoid := ctx.get("quant_avoid"):
         lines.append("\n## Ngành tiêu cực nhất")
-        lines.extend(_sector_line(r) for r in avoid)
+        for r in avoid:
+            lines.extend(_sector_lines(r))
 
     if rotation := ctx.get("quant_rotation"):
         lines.append("\n## Rotation signal (alpha 1M > alpha 3M — warming up)")
         for r in rotation:
-            lines.append(f"- **{r.get('Ngành','?')}** rotation={r.get('rotation',0):+.1f}pp "
-                         f"| composite={r.get('composite',0):+.2f}")
+            sw = _sw.get(r.get("Ngành", ""), {})
+            lines.append(
+                f"- **{r.get('Ngành','?')}** rotation={r.get('rotation',0):+.1f}pp"
+                f" | composite={r.get('composite',0):+.2f}"
+                + (f" | {sw.get('_weight',0)*100:.1f}%VNI" if sw.get("_weight") else "")
+            )
 
     if stealth := ctx.get("quant_stealth"):
         lines.append("\n## Stealth accumulation (tích luỹ ngầm)")
@@ -477,16 +563,30 @@ def build_prompt(ctx: dict, brief_type: str = "morning") -> str:
         for r in dist:
             lines.append(f"- **{r.get('Ngành','?')}** — composite={r.get('composite',0):+.2f}")
 
-    # VN30 movers
+    # VN30 movers + contribution to VNINDEX
+    def _vn30_line(g: dict) -> str:
+        ticker = g.get("Mã", "?")
+        ret    = g.get("Giá 1T %", 0)
+        sector = g.get("Ngành", "")
+        contrib = next(
+            (s.get("_1d_contrib", 0) or 0
+             for s in _ts.get(sector, []) if s.get("Mã") == ticker),
+            0.0,
+        )
+        line = f"- {ticker} {ret:+.1f}% [{sector}]"
+        if contrib != 0:
+            line += f" ≈ {contrib:+.3f}pp VNI"
+        return line
+
     if gainers := ctx.get("vn30_gainers"):
-        lines.append("\n## VN30 Top Gainers (1 phiên)")
+        lines.append("\n## VN30 Top Gainers (1 phiên, với đóng góp vào VNINDEX)")
         for g in gainers:
-            lines.append(f"- {g.get('Mã','?')} {g.get('Giá 1T %',0):+.1f}% ({g.get('Ngành','')})")
+            lines.append(_vn30_line(g))
 
     if losers := ctx.get("vn30_losers"):
-        lines.append("\n## VN30 Top Losers (1 phiên)")
+        lines.append("\n## VN30 Top Losers (1 phiên, với đóng góp vào VNINDEX)")
         for g in losers:
-            lines.append(f"- {g.get('Mã','?')} {g.get('Giá 1T %',0):+.1f}% ({g.get('Ngành','')})")
+            lines.append(_vn30_line(g))
 
     data_block = "\n".join(lines)
     tmpl = _MORNING_TEMPLATE if brief_type == "morning" else _AFTERNOON_TEMPLATE
