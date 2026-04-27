@@ -1,0 +1,53 @@
+# Project notes for Claude Code
+
+This file holds durable reminders/context for future sessions on this repo.
+Items here get auto-loaded into Claude's context at session start.
+
+---
+
+## 📌 Pending suggestions (raise when relevant)
+
+### 1. Auto-schedule `vnstock_train.py` (NOT YET SET UP)
+
+**Status**: User chose to run manually for now (decided 2026-04-27).
+
+**When to bring up again**:
+- User mentions running `vnstock_train.py` and forgets / runs late
+- User asks about automation, scheduling, or "letting it run on its own"
+- User reports inconsistent / outdated training data
+- User says brief quality is plateauing
+
+**What to suggest**:
+Set up Windows Task Scheduler (or cron on Linux) to run `python vnstock_train.py --once`
+on a daily cadence aligned with VN market sessions:
+- 11:35 (after morning session close) — optional
+- 15:05 (after full close) — primary slot
+
+PowerShell command ready to paste:
+```powershell
+schtasks /Create /SC DAILY /ST 15:05 /TN "VNStock Train" `
+  /TR "<repo>\.venv\Scripts\python.exe <repo>\vnstock_train.py --once"
+```
+
+**Why daily and not continuous**: VN market data refreshes 1×/day. Running
+the training loop more often wastes API tokens without new information.
+The system is API-based (Claude/Groq/Mistral) — there are no model weights
+to fine-tune locally; "training" here means refreshing prompt few-shots,
+re-running strategy generation/backtest, and reconciling recommendations.
+
+---
+
+## 🏗️ Architecture cheat sheet
+
+- `vnstock_brief.py` — agent abstraction + brief generation + memory wiring
+- `vnstock_memory.py` — SQLite store at `data_warehouse/_meta/brief_memory.db`
+- `vnstock_strategy.py` — AST-sandboxed strategy executor + backtest engine
+  - Sandbox: `InProcessExecutor` (Option A). Swap to `SubprocessExecutor`
+    in `vnstock_strategy.py` when paranoid mode needed (Option B).
+- `vnstock_train.py` — CLI orchestrator: `--once` / `--briefs-only` /
+  `--strategy-only` / `--reconcile-only` / `--schedule`
+- `dashboard/market_tab.py` — Streamlit UI: AI Brief panel + ⭐ rating +
+  strategy/recommendation panel
+
+API keys live in `.env` (auto-loaded by `python-dotenv`):
+`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`.
