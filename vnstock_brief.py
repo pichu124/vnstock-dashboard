@@ -658,6 +658,7 @@ def generate_brief(
     prompt = build_prompt(ctx, brief_type, few_shot=few_shot, rec_block=rec_block)
 
     results: dict[str, tuple[str, str | None]] = {}
+    brief_ids: dict[str, int] = {}
     for agent in agents:
         if not agent.is_available:
             results[agent.name] = ("", f"API key chưa thiết lập cho {agent.name}")
@@ -670,7 +671,7 @@ def generate_brief(
             import vnstock_memory as _mem
             from vnstock_train import auto_score_brief as _score
             score = _score(text) if text else 0.0
-            _mem.save_brief(
+            bid = _mem.save_brief(
                 brief_date=ctx.get("date", ""),
                 brief_type=brief_type,
                 agent_name=agent.name,
@@ -682,9 +683,12 @@ def generate_brief(
                 context={k: v for k, v in ctx.items() if k != "tickers"},
                 auto_score=score,
             )
+            brief_ids[agent.name] = bid
         except Exception:
             pass
 
+    if brief_ids:
+        results["_brief_ids"] = brief_ids  # type: ignore[assignment]
     return results
 
 
