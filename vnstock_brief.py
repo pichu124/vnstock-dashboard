@@ -53,6 +53,20 @@ _DEFAULT_AGENT_CONFIGS: list[dict] = [
         "enabled": False,
         "max_tokens": 1200,
     },
+    {
+        "type": "groq",
+        "model": "llama-3.3-70b-versatile",
+        "name": "Groq Llama-3.3-70B",
+        "enabled": False,
+        "max_tokens": 1200,
+    },
+    {
+        "type": "mistral",
+        "model": "mistral-small-latest",
+        "name": "Mistral Small",
+        "enabled": False,
+        "max_tokens": 1200,
+    },
 ]
 
 # ── Prompt templates ───────────────────────────────────────────────────────
@@ -180,31 +194,28 @@ class ClaudeAgent(BriefAgent):
             return "", f"Claude API lỗi: {type(e).__name__}: {str(e)[:160]}"
 
 
-class OpenAIAgent(BriefAgent):
-    """OpenAI Chat Completions."""
+class _OpenAICompatAgent(BriefAgent):
+    """Base for any provider that uses the OpenAI chat-completions wire format."""
     agent_type = "openai"
-    _ENDPOINT = "https://api.openai.com/v1/chat/completions"
+    _ENDPOINT: str = "https://api.openai.com/v1/chat/completions"
+    _ENV_KEY: str = "OPENAI_API_KEY"
+    _ERR_PREFIX: str = "API"
 
-    def __init__(self, model: str = "gpt-4o-mini", name: str = "GPT-4o mini"):
+    def __init__(self, model: str, name: str):
         self.model = model
         self.name = name
 
     @property
     def is_available(self) -> bool:
-        return bool(os.environ.get("OPENAI_API_KEY"))
+        return bool(os.environ.get(self._ENV_KEY))
 
     def generate(self, prompt: str, max_tokens: int = 1200) -> tuple[str, str | None]:
-        api_key = os.environ.get("OPENAI_API_KEY", "")
+        api_key = os.environ.get(self._ENV_KEY, "")
         if not api_key:
-            return "", "OPENAI_API_KEY chưa được thiết lập trong .env"
-        # Split system from user for OpenAI
+            return "", f"{self._ENV_KEY} chưa được thiết lập trong .env"
         sys_end = prompt.find("\n\nDữ liệu thị trường")
-        if sys_end > 0:
-            system_part = prompt[:sys_end].strip()
-            user_part = prompt[sys_end:].strip()
-        else:
-            system_part = _SYSTEM
-            user_part = prompt
+        system_part = prompt[:sys_end].strip() if sys_end > 0 else _SYSTEM
+        user_part = prompt[sys_end:].strip() if sys_end > 0 else prompt
         try:
             import requests as _req
             resp = _req.post(
@@ -226,13 +237,48 @@ class OpenAIAgent(BriefAgent):
             resp.raise_for_status()
             return resp.json()["choices"][0]["message"]["content"], None
         except Exception as e:
-            return "", f"OpenAI API lỗi: {type(e).__name__}: {str(e)[:160]}"
+            return "", f"{self._ERR_PREFIX} lỗi: {type(e).__name__}: {str(e)[:160]}"
+
+
+class OpenAIAgent(_OpenAICompatAgent):
+    """OpenAI Chat Completions."""
+    agent_type = "openai"
+    _ENDPOINT = "https://api.openai.com/v1/chat/completions"
+    _ENV_KEY = "OPENAI_API_KEY"
+    _ERR_PREFIX = "OpenAI API"
+
+    def __init__(self, model: str = "gpt-4o-mini", name: str = "GPT-4o mini"):
+        super().__init__(model, name)
+
+
+class GroqAgent(_OpenAICompatAgent):
+    """Groq Cloud — OpenAI-compatible endpoint (very fast inference)."""
+    agent_type = "groq"
+    _ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
+    _ENV_KEY = "GROQ_API_KEY"
+    _ERR_PREFIX = "Groq API"
+
+    def __init__(self, model: str = "llama-3.3-70b-versatile", name: str = "Groq Llama-3.3-70B"):
+        super().__init__(model, name)
+
+
+class MistralAgent(_OpenAICompatAgent):
+    """Mistral AI — OpenAI-compatible chat completions endpoint."""
+    agent_type = "mistral"
+    _ENDPOINT = "https://api.mistral.ai/v1/chat/completions"
+    _ENV_KEY = "MISTRAL_API_KEY"
+    _ERR_PREFIX = "Mistral API"
+
+    def __init__(self, model: str = "mistral-small-latest", name: str = "Mistral Small"):
+        super().__init__(model, name)
 
 
 # ── Agent registry ─────────────────────────────────────────────────────────
 AGENT_REGISTRY: dict[str, type[BriefAgent]] = {
     "claude": ClaudeAgent,
     "openai": OpenAIAgent,
+    "groq": GroqAgent,
+    "mistral": MistralAgent,
     # Add new providers here: "gemini": GeminiAgent, etc.
 }
 
