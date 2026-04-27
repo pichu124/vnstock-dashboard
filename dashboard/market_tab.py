@@ -1545,13 +1545,31 @@ def render_market_tab() -> None:
                             hide_index=True,
                         )
 
-                    if st.button("🚀 Chạy training loop ngay (1 lần)", key="_train_now"):
-                        with st.spinner("Đang chạy strategy_loop... có thể mất 1-3 phút"):
-                            try:
-                                from vnstock_train import run_once as _run_once
-                                _out = _run_once(verbose=False)
-                                st.success(f"Done: {_out}")
-                            except Exception as _e:
-                                st.error(f"Train loop error: {type(_e).__name__}: {_e}")
+                    _train_col1, _train_col2 = st.columns(2)
+                    with _train_col1:
+                        if st.button("⚡ Lite training (~30-60s)", key="_train_lite",
+                                     help="5 tickers, fewer windows. Smoke-test the loop."):
+                            with st.spinner("Đang chạy lite strategy_loop... ~30-60s"):
+                                try:
+                                    from vnstock_train import run_once as _run_once
+                                    _out = _run_once(verbose=False, lite=True)
+                                    st.success(f"Done (lite): {_out}")
+                                except Exception as _e:
+                                    st.error(f"Train loop error: {type(_e).__name__}: {_e}")
+                    with _train_col2:
+                        if st.button("🚀 Full training (~5-15 min)", key="_train_full",
+                                     help="15 tickers, full walk-forward. CHẬM trên Windows."):
+                            with st.spinner("Đang chạy full strategy_loop... 5-15 phút"):
+                                try:
+                                    from vnstock_train import run_once as _run_once
+                                    _out = _run_once(verbose=False, lite=False)
+                                    st.success(f"Done (full): {_out}")
+                                except Exception as _e:
+                                    st.error(f"Train loop error: {type(_e).__name__}: {_e}")
+                    st.caption(
+                        "ℹ️ Lite: 5 tickers × ~20 windows — đủ test pipeline. "
+                        "Full: 15 tickers × ~67 windows — nên chạy qua Task Scheduler, "
+                        "không bấm trong UI."
+                    )
                 except Exception as _e:
                     st.caption(f"Strategy panel disabled: {type(_e).__name__}: {_e}")

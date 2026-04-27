@@ -128,10 +128,17 @@ def strategy_loop(
     n_iterations: int = 2,
     universe_size: int = 15,
     verbose: bool = True,
+    lite: bool = False,
 ) -> dict:
-    """For each enabled agent: develop + backtest + persist a strategy."""
+    """For each enabled agent: develop + backtest + persist a strategy.
+
+    Args:
+        lite: If True, use a smaller backtest config (5 tickers, fewer
+              windows) — completes in ~30-60s instead of ~8 min on Windows.
+              Use for UI-triggered runs and smoke tests.
+    """
     from vnstock_brief import build_agents
-    from vnstock_strategy import develop_and_backtest
+    from vnstock_strategy import develop_and_backtest, lite_config
 
     agents = build_agents()
     if not agents:
@@ -141,6 +148,7 @@ def strategy_loop(
 
     universe = _get_universe(universe_size)
     context_summary = _build_context_summary()
+    cfg = lite_config(universe) if lite else None
 
     summary = {"agents_run": 0, "validated": 0, "errors": []}
 
@@ -150,12 +158,14 @@ def strategy_loop(
                 print(f"[strategy_loop] {ag.name}: API key missing, skip")
             continue
         if verbose:
-            print(f"[strategy_loop] {ag.name}: developing strategy...")
+            print(f"[strategy_loop] {ag.name}: developing strategy "
+                  f"({'lite' if lite else 'full'})...")
         try:
             sid, metrics = develop_and_backtest(
                 ag, universe=universe,
                 context_summary=context_summary,
                 n_iterations=n_iterations,
+                cfg=cfg,
             )
             summary["agents_run"] += 1
             if sid is None:
@@ -236,14 +246,15 @@ def reconcile_recommendations(verbose: bool = True) -> dict:
 
 # ── Run-once orchestrator ──────────────────────────────────────────────────
 def run_once(briefs: bool = True, strategy: bool = True,
-             reconcile: bool = True, verbose: bool = True) -> dict:
+             reconcile: bool = True, verbose: bool = True,
+             lite: bool = False) -> dict:
     out: dict = {"started_at": datetime.now().isoformat(timespec="seconds")}
     if briefs:
         out["brief_loop"] = brief_loop(verbose=verbose)
     if reconcile:
         out["reconcile"] = reconcile_recommendations(verbose=verbose)
     if strategy:
-        out["strategy_loop"] = strategy_loop(verbose=verbose)
+        out["strategy_loop"] = strategy_loop(verbose=verbose, lite=lite)
     out["finished_at"] = datetime.now().isoformat(timespec="seconds")
     return out
 
@@ -288,6 +299,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--interval-hours", type=float, default=24,
                         help="Sleep between iterations when --schedule (default 24).")
     parser.add_argument("--quiet", action="store_true", help="Suppress logs.")
+    parser.add_argument("--lite", action="store_true",
+                        help="Use a smaller backtest window (5 tickers, ~30s) "
+                             "instead of full (15 tickers, ~8 min on Windows).")
     args = parser.parse_args(argv)
 
     verbose = not args.quiet
@@ -306,11 +320,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.briefs_only:
         brief_loop(verbose=verbose)
     elif args.strategy_only:
-        strategy_loop(verbose=verbose)
+        strategy_loop(verbose=verbose, lite=args.lite)
     elif args.reconcile_only:
         reconcile_recommendations(verbose=verbose)
     else:
-        run_once(verbose=verbose)
+        run_once(verbose=verbose, lite=args.lite)
     return 0
 
 
