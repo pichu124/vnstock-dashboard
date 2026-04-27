@@ -1546,8 +1546,14 @@ def render_market_tab() -> None:
                                 _exp = _h.get("expectancy") or 0.0
                                 _wr = (_h.get("win_rate") or 0.0) * 100
                                 st.metric("Expectancy", f"{_exp:.2f}", delta=f"{_nt} trades")
-                                if _nt < 10:
-                                    st.warning(f"⚠️ Chỉ {_nt} trades — cần Full training để có đủ dữ liệu.", icon="⚠️")
+                                if _nt == 0:
+                                    st.warning(
+                                        "⚠️ **0 trades** — strategy conditions chưa trigger được. "
+                                        "Nhấn **Fresh start** bên dưới để generate chiến lược mới.",
+                                        icon="⚠️",
+                                    )
+                                elif _nt < 10:
+                                    st.warning(f"⚠️ Chỉ {_nt} trades — backtest window còn nhỏ, cần chạy Full training.", icon="⚠️")
                             else:
                                 st.caption("Chưa có backtest metrics.")
 
@@ -1608,13 +1614,11 @@ def render_market_tab() -> None:
                     st.divider()
                     _train_col1, _train_col2 = st.columns(2)
 
-                    def _run_training(lite: bool) -> None:
-                        label = "lite" if lite else "full"
+                    def _run_training(lite: bool, mode: str = "auto") -> None:
                         try:
-                            from vnstock_train import run_once as _run_once
-                            _out = _run_once(verbose=False, lite=lite)
-                            _sl = _out.get("strategy_loop", {})
-                            # Pull actual metrics from DB after run
+                            from vnstock_train import strategy_loop as _sl_fn, brief_loop as _bl_fn
+                            _bl_fn(verbose=False)
+                            _sl_out = _sl_fn(verbose=False, lite=lite, mode=mode)
                             _nt, _exp = "?", "?"
                             _nf = _vm.get_active_family()
                             if _nf:
@@ -1623,29 +1627,44 @@ def render_market_tab() -> None:
                                     _nt  = _nh[0].get("n_trades", "?")
                                     _exp = round(_nh[0].get("expectancy") or 0, 2)
                             st.session_state["_train_result"] = {
-                                **_out,
+                                "strategy_loop": _sl_out,
                                 "n_trades": _nt,
                                 "expectancy": _exp,
                             }
                         except Exception as _e:
                             import traceback as _tb
                             st.session_state["_train_result"] = {
-                                "error": f"{type(_e).__name__}: {_e}\n{_tb.format_exc()[-600:]}"
+                                "error": f"{type(_e).__name__}: {_e}\n{_tb.format_exc()[-800:]}"
                             }
                         st.rerun()
 
                     with _train_col1:
                         if st.button("⚡ Lite training (~30-60s)", key="_train_lite",
-                                     help="5 tickers, fewer windows. Smoke-test the loop."):
+                                     help="5 tickers, fewer windows. mode=auto."):
                             st.session_state["_train_result"] = None
-                            with st.spinner("⏳ Đang chạy… (có thể mất 30-90s nếu revise)"):
-                                _run_training(lite=True)
+                            with st.spinner("⏳ Đang chạy… (30-90s nếu cần revise code)"):
+                                _run_training(lite=True, mode="auto")
                     with _train_col2:
                         if st.button("🚀 Full training (~5-15 min)", key="_train_full",
                                      help="15 tickers, full walk-forward. CHẬM trên Windows."):
                             st.session_state["_train_result"] = None
                             with st.spinner("⏳ Đang chạy full training… 5-15 phút"):
-                                _run_training(lite=False)
+                                _run_training(lite=False, mode="auto")
+
+                    # Fresh start button — shown prominently when 0 trades
+                    _cur_nt = 0
+                    if _active:
+                        _fh = _vm.family_history(_active.get("family_id", ""), limit=1)
+                        _cur_nt = (_fh[0].get("n_trades") or 0) if _fh else 0
+                    if _cur_nt == 0:
+                        if st.button("🔄 Fresh start (generate chiến lược mới hoàn toàn)",
+                                     key="_train_fresh",
+                                     help="Xoá strategy hiện tại, generate code hoàn toàn mới. "
+                                          "Dùng khi strategy 0 trades hoặc logic sai."):
+                            st.session_state["_train_result"] = None
+                            with st.spinner("⏳ Đang generate chiến lược mới… (15-30s API call)"):
+                                _run_training(lite=True, mode="fresh")
+
                     st.caption(
                         "ℹ️ Lite: 5 tickers × ~20 windows — đủ test pipeline. "
                         "Full: 15 tickers × ~67 windows — nên chạy qua Task Scheduler, "
