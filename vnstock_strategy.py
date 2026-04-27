@@ -404,6 +404,14 @@ Yêu cầu nghiêm ngặt:
 - entry/tp/sl là giá tuyệt đối (VND), không phải %
 - Logic chạy được với window 60 ngày
 
+QUAN TRỌNG — Tránh điều kiện tín hiệu mâu thuẫn:
+- Ví dụ SAI: RSI < 30 (oversold → giá đang giảm) VÀ close > MA20 (giá trên MA) — hai điều kiện \
+  hiếm khi xảy ra đồng thời → 0 trades
+- Ví dụ ĐÚNG: RSI < 30 (oversold) VÀ RSI đang tăng lại (momentum reversal) → tín hiệu hợp lý
+- Ví dụ ĐÚNG: close vừa cắt lên MA20 (golden cross) → breakout signal
+- Chiến lược PHẢI sinh ra ít nhất 5-10 tín hiệu trên window 60 ngày với 5+ tickers VN30
+- Dùng điều kiện ĐƠN GIẢN, 1-2 indicators, không stack quá nhiều AND
+
 Bối cảnh hiện tại:
 {context}
 
@@ -456,6 +464,12 @@ Vấn đề chính (suy luận từ metrics):
 
 Hãy VIẾT LẠI CORE CODE với cách tiếp cận khác (đổi indicator chính, đổi entry/exit logic, \
 đổi market regime filter). Có thể giữ structure dùng `params` cho tunability.
+
+QUAN TRỌNG — Tránh lỗi phổ biến gây 0 trades:
+- KHÔNG stack quá nhiều điều kiện AND — mỗi điều kiện bổ sung làm giảm số tín hiệu theo hàm mũ
+- KHÔNG dùng điều kiện mâu thuẫn: RSI<30 (oversold/giảm) VÀ close>MA (đang trên MA) — hiếm gặp
+- PHẢI sinh ít nhất 5-10 tín hiệu buy/sell trên window 60 ngày với dữ liệu VN30
+- Dùng 1-2 indicators đơn giản: MA crossover, RSI threshold đơn, volume breakout, hoặc Bollinger
 
 Output cùng format như khi tạo mới:
 PARAMS:
@@ -677,6 +691,7 @@ def _should_revise(active: dict) -> bool:
 
     Rules:
       - If is_core_stable=1 → never revise (only tune)
+      - If active strategy has 0 trades → revise immediately (broken logic)
       - If last revise > WEEKLY_REVISE_DAYS days ago → revise
       - Cold start (no active) handled by caller
     """
@@ -684,6 +699,12 @@ def _should_revise(active: dict) -> bool:
         return True
     if active.get("is_core_stable"):
         return False
+    # If the current strategy never fired a single trade, it's broken — revise now
+    fam = active.get("family_id")
+    if fam:
+        hist = mem.family_history(fam, limit=1)
+        if hist and (hist[0].get("n_trades") or 0) == 0:
+            return True
     try:
         last_revise = _dt.fromisoformat(active.get("created_at", ""))
     except Exception:
