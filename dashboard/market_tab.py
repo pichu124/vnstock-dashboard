@@ -1443,6 +1443,45 @@ def render_market_tab() -> None:
                 else:
                     st.markdown(f"**{_btype_label} Brief** — {_dt.now().strftime('%H:%M %d/%m/%Y')}")
                     _agent_names = [k for k in _res if not k.startswith("_")]
+
+                    def _rating_block(agent_name: str, brief_type_: str):
+                        try:
+                            import vnstock_memory as _vm
+                            _vm.init_db()
+                            _today = _dt.now().date().isoformat()
+                            with _vm._conn() as _c:
+                                _row = _c.execute(
+                                    "SELECT id, user_rating FROM briefs "
+                                    "WHERE brief_date=? AND brief_type=? AND agent_name=? "
+                                    "ORDER BY created_at DESC LIMIT 1",
+                                    (_today, brief_type_, agent_name),
+                                ).fetchone()
+                            if not _row:
+                                return
+                            _bid = _row["id"]
+                            _existing = _row["user_rating"]
+                            _key_pref = f"_rate_{_bid}"
+                            _cols = st.columns([2, 5, 2])
+                            with _cols[0]:
+                                _rate = st.select_slider(
+                                    "⭐ Đánh giá",
+                                    options=[1, 2, 3, 4, 5],
+                                    value=_existing or 3,
+                                    key=f"{_key_pref}_v",
+                                )
+                            with _cols[1]:
+                                _fb = st.text_input(
+                                    "Feedback (optional)",
+                                    placeholder="Mô tả vấn đề / điểm cần cải thiện...",
+                                    key=f"{_key_pref}_fb",
+                                )
+                            with _cols[2]:
+                                if st.button("💾 Lưu", key=f"{_key_pref}_save"):
+                                    _vm.update_rating(_bid, int(_rate), _fb or "")
+                                    st.success("Đã lưu", icon="✅")
+                        except Exception as _e:
+                            st.caption(f"⚠ rating disabled: {type(_e).__name__}")
+
                     if len(_agent_names) == 1:
                         _txt, _err = _res[_agent_names[0]]
                         if _err:
@@ -1450,6 +1489,7 @@ def render_market_tab() -> None:
                         else:
                             with st.expander(f"📄 {_agent_names[0]}", expanded=True):
                                 st.markdown(_txt)
+                                _rating_block(_agent_names[0], _btype)
                     elif _agent_names:
                         _tabs = st.tabs([f"📄 {n}" for n in _agent_names])
                         for _tab, _aname in zip(_tabs, _agent_names):
@@ -1459,5 +1499,59 @@ def render_market_tab() -> None:
                                     st.error(_err)
                                 else:
                                     st.markdown(_txt)
+                                    _rating_block(_aname, _btype)
 
                 st.caption("Brief được tạo bởi AI dựa trên dữ liệu quant — không phải khuyến nghị đầu tư.")
+
+            # ── Strategy & recommendations panel ───────────────────────────
+            with st.expander("🧪 Chiến lược & khuyến nghị (auto-trained)", expanded=False):
+                try:
+                    import vnstock_memory as _vm
+                    _vm.init_db()
+                    _bests = _vm.best_strategies(limit=5)
+                    _opens = _vm.open_recommendations()
+                    _perf  = _vm.recommendation_performance()
+
+                    _c1, _c2, _c3 = st.columns(3)
+                    _c1.metric("Strategies validated", len(_bests))
+                    _c2.metric("Open recommendations", len(_opens))
+                    _c3.metric(
+                        "Win rate (closed)",
+                        f"{_perf.get('win_rate', 0)*100:.0f}%" if _perf.get("n", 0) else "—",
+                        delta=f"n={_perf.get('n', 0)}",
+                    )
+
+                    if _bests:
+                        st.markdown("**Top validated strategies**")
+                        for _s in _bests:
+                            st.write(
+                                f"- #{_s['id']} {_s['name']}"
+                                f" — exp={_s.get('expectancy', 0):.2f}"
+                                f" | win={_s.get('win_rate', 0):.0%}"
+                                f" | trades={_s.get('n_trades', 0)}"
+                            )
+                    else:
+                        st.caption("Chưa có chiến lược validated. Chạy: `python vnstock_train.py --strategy-only`")
+
+                    if _opens:
+                        st.markdown("**Open recommendations**")
+                        import pandas as _pd
+                        st.dataframe(
+                            _pd.DataFrame(_opens)[
+                                ["ticker", "action", "entry_price", "take_profit",
+                                 "cut_loss", "horizon_days", "created_at"]
+                            ],
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+
+                    if st.button("🚀 Chạy training loop ngay (1 lần)", key="_train_now"):
+                        with st.spinner("Đang chạy strategy_loop... có thể mất 1-3 phút"):
+                            try:
+                                from vnstock_train import run_once as _run_once
+                                _out = _run_once(verbose=False)
+                                st.success(f"Done: {_out}")
+                            except Exception as _e:
+                                st.error(f"Train loop error: {type(_e).__name__}: {_e}")
+                except Exception as _e:
+                    st.caption(f"Strategy panel disabled: {type(_e).__name__}: {_e}")

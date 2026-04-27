@@ -101,7 +101,13 @@ Viết MORNING BRIEF tiếng Việt theo đúng format sau (không thêm phần 
 **Tích cực (>50% xác suất nếu...):** [điều kiện kích hoạt]
 **Thận trọng:** [tín hiệu cần theo dõi để cắt lỗ / không vào hàng]
 
-Giới hạn 350 từ. Chỉ đề cập mã trong VN30 khi nói về cổ phiếu cụ thể.
+## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)
+[Liệt kê tối đa 3 mã từ block "Khuyến nghị từ chiến lược đã backtest" với entry/TP/SL; bỏ qua nếu không có]
+
+## 🔧 Đề xuất bổ sung (1 dòng, optional)
+[1 dữ liệu/chỉ số bạn nghĩ cần thêm để brief sau chính xác hơn — ví dụ "cần GTGD bid/ask theo phút" — bỏ qua nếu không cần]
+
+Giới hạn 400 từ. Chỉ đề cập mã trong VN30 khi nói về cổ phiếu cụ thể.
 YÊU CẦU VỀ ĐỘ CỤ THỂ:
 - Ngành nào được đề cập → LUÔN nêu trọng số %VNI và đóng góp pp hôm nay (có trong data).
 - Mã nào được đề cập → nêu mức đóng góp pp vào VNINDEX nếu có trong data.
@@ -136,7 +142,13 @@ Viết AFTERNOON BRIEF tiếng Việt theo đúng format sau (không thêm phầ
 ## ⚠️ Rủi ro cần lưu ý
 [Red flags, distribution, macro risk; nếu thị trường ổn định thì viết "Không có rủi ro đặc biệt"]
 
-Giới hạn 400 từ. Chỉ đề cập mã trong VN30. Nếu thị trường flat và không có signal rõ thì nói thẳng.
+## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)
+[Liệt kê tối đa 3 mã từ block "Khuyến nghị từ chiến lược đã backtest" với entry/TP/SL; bỏ qua nếu không có]
+
+## 🔧 Đề xuất bổ sung (1 dòng, optional)
+[1 dữ liệu/chỉ số cần thêm để brief sau chính xác hơn — bỏ qua nếu không cần]
+
+Giới hạn 450 từ. Chỉ đề cập mã trong VN30. Nếu thị trường flat và không có signal rõ thì nói thẳng.
 YÊU CẦU VỀ ĐỘ CỤ THỂ:
 - Ngành nào được đề cập → LUÔN nêu trọng số %VNI và đóng góp pp hôm nay (có trong data).
 - Mã nào được đề cập → nêu mức đóng góp pp vào VNINDEX nếu có trong data.
@@ -437,8 +449,13 @@ def collect_context(brief_type: str = "morning") -> dict:
 
 
 # ── Prompt builder ─────────────────────────────────────────────────────────
-def build_prompt(ctx: dict, brief_type: str = "morning") -> str:
-    """Construct the full Vietnamese prompt from market context."""
+def build_prompt(ctx: dict, brief_type: str = "morning",
+                 few_shot: str = "", rec_block: str = "") -> str:
+    """Construct the full Vietnamese prompt from market context.
+
+    Optional `few_shot` / `rec_block` are injected by the train loop / memory layer
+    to nudge the model toward higher quality and surface validated trade ideas.
+    """
     lines: list[str] = []
 
     lines.append(f"Ngày: {ctx['date']} | Thời điểm: {ctx['time']}")
@@ -588,7 +605,13 @@ def build_prompt(ctx: dict, brief_type: str = "morning") -> str:
         for g in losers:
             lines.append(_vn30_line(g))
 
+    if rec_block:
+        lines.append(rec_block)
+
     data_block = "\n".join(lines)
+    if few_shot:
+        data_block = data_block + "\n" + few_shot
+
     tmpl = _MORNING_TEMPLATE if brief_type == "morning" else _AFTERNOON_TEMPLATE
     return tmpl.format(system=_SYSTEM, data=data_block)
 
@@ -627,13 +650,87 @@ def generate_brief(
         )}
 
     ctx = collect_context(brief_type)
-    prompt = build_prompt(ctx, brief_type)
+
+    # Inject few-shot golden examples + open recommendations (best-effort)
+    few_shot = _few_shot_block(brief_type)
+    rec_block = _recommendation_block()
+
+    prompt = build_prompt(ctx, brief_type, few_shot=few_shot, rec_block=rec_block)
 
     results: dict[str, tuple[str, str | None]] = {}
     for agent in agents:
         if not agent.is_available:
             results[agent.name] = ("", f"API key chưa thiết lập cho {agent.name}")
-        else:
-            results[agent.name] = agent.generate(prompt)
+            continue
+        text, err = agent.generate(prompt)
+        results[agent.name] = (text, err)
+
+        # Persist to memory (non-fatal if it fails)
+        try:
+            import vnstock_memory as _mem
+            from vnstock_train import auto_score_brief as _score
+            score = _score(text) if text else 0.0
+            _mem.save_brief(
+                brief_date=ctx.get("date", ""),
+                brief_type=brief_type,
+                agent_name=agent.name,
+                agent_type=getattr(agent, "agent_type", ""),
+                model=getattr(agent, "model", ""),
+                prompt=prompt,
+                output=text,
+                error=err,
+                context={k: v for k, v in ctx.items() if k != "tickers"},
+                auto_score=score,
+            )
+        except Exception:
+            pass
 
     return results
+
+
+# ── Memory-backed helpers (lazy, all best-effort) ──────────────────────────
+def _few_shot_block(brief_type: str, n: int = 2) -> str:
+    """Pull top-rated past briefs to use as in-context examples."""
+    try:
+        import vnstock_memory as _mem
+        rows = _mem.top_rated_briefs(brief_type, limit=n)
+        if not rows:
+            return ""
+        rated = [r for r in rows if (r.get("user_rating") or 0) >= 4]
+        if not rated:
+            return ""
+        parts = ["\n## Ví dụ brief chất lượng cao trước đây (tham khảo phong cách)"]
+        for r in rated:
+            parts.append(f"\n--- Brief ngày {r.get('brief_date')}, "
+                         f"{r.get('user_rating')}⭐ ---")
+            parts.append((r.get("output") or "")[:1200])
+        return "\n".join(parts)
+    except Exception:
+        return ""
+
+
+def _recommendation_block() -> str:
+    """Insert open recommendations from validated strategies."""
+    try:
+        import vnstock_memory as _mem
+        recs = _mem.open_recommendations()
+        if not recs:
+            return ""
+        lines = ["\n## Khuyến nghị từ chiến lược đã backtest (tự sinh)"]
+        for r in recs[:5]:
+            entry = float(r.get("entry_price") or 0)
+            tp    = float(r.get("take_profit") or 0)
+            sl    = float(r.get("cut_loss") or 0)
+            line = f"- {r['ticker']} {r['action'].upper()}"
+            if entry > 0:
+                line += f" entry={entry:,.0f}"
+            if tp > 0:
+                line += f" TP={tp:,.0f}"
+            if sl > 0:
+                line += f" SL={sl:,.0f}"
+            if r.get("rationale"):
+                line += f" — {r['rationale'][:80]}"
+            lines.append(line)
+        return "\n".join(lines)
+    except Exception:
+        return ""
