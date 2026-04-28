@@ -764,26 +764,51 @@ def _do_backtest(code: str, params: dict, cfg: BacktestConfig) -> tuple[dict, st
     return metrics, period_start, period_end
 
 
-def _cold_start(agent, universe, context_summary, cfg) -> tuple[Optional[int], dict]:
-    """Generate fresh strategy + initial params, persist + backtest."""
-    code, params, err = generate_strategy(agent, context_summary=context_summary)
-    if err and not code:
-        return None, {"error": err}
+def _cold_start(
+    agent, universe, context_summary, cfg, extra_agents: list | None = None
+) -> tuple[Optional[int], dict]:
+    """Generate fresh strategy with competition — all agents write independently, best wins."""
+    all_agents = [agent] + (extra_agents or [])
+    seen: set[str] = set()
+    unique_agents: list = []
+    for a in all_agents:
+        if getattr(a, "is_available", True) and a.name not in seen:
+            unique_agents.append(a)
+            seen.add(a.name)
+
+    # Each agent independently generates a fresh strategy
+    candidates: list[tuple[str, str, dict, dict, str, str]] = []
+    for ag in unique_agents:
+        code, params, err = generate_strategy(ag, context_summary=context_summary)
+        if err and not code:
+            continue
+        metrics, ps, pe = _do_backtest(code, params, cfg)
+        candidates.append((ag.name, code, params, metrics, ps, pe))
+
+    if not candidates:
+        return None, {"error": "no agent produced valid strategy on cold-start"}
+
+    # Pick best by expectancy; fallback to most trades if all expectancy ≤ 0
+    best = max(candidates, key=lambda c: (
+        c[3].get("expectancy") or -999,
+        c[3].get("n_trades") or 0,
+    ))
+    best_agent, code, params, metrics, ps, pe = best
+
     family = _uuid.uuid4().hex[:8]
+    competitors = [c[0] for c in candidates]
     sid = mem.save_strategy(
-        agent_name=agent.name,
-        name=f"family-{family} v1 by {agent.name}",
+        agent_name=best_agent,
+        name=(
+            f"family-{family} v1 by {best_agent}"
+            + (f" (vs {len(candidates)} agents)" if len(candidates) > 1 else "")
+        ),
         code=code,
         params=params,
-        description="Cold-start core",
+        description=f"Cold-start competition ({', '.join(competitors)})",
         status="draft",
         family_id=family,
     )
-    if err:
-        mem.save_backtest(sid, "", "", ",".join(universe[:10]),
-                          {"n_trades": 0}, error=err)
-        return sid, {"error": err}
-    metrics, ps, pe = _do_backtest(code, params, cfg)
     mem.save_backtest(sid, ps, pe, ",".join(universe[:10]), metrics)
     if metrics.get("n_trades", 0) >= MIN_TRADES_TO_VALIDATE \
        and (metrics.get("expectancy") or -999) > 0:
@@ -793,7 +818,7 @@ def _cold_start(agent, universe, context_summary, cfg) -> tuple[Optional[int], d
                                    if metrics.get("n_trades", 0) >= MIN_TRADES_TO_VALIDATE
                                    else "draft")
         mem.promote_strategy(sid, retire_others=True)  # always have one active
-    return sid, metrics
+    return sid, {**metrics, "cold_start_winner": best_agent, "cold_start_competitors": competitors}
 
 
 def _do_revise(
@@ -956,7 +981,7 @@ def develop_and_backtest(
     active = mem.get_active_family()
 
     if mode == "fresh" or active is None:
-        return _cold_start(agent, universe, context_summary, cfg)
+        return _cold_start(agent, universe, context_summary, cfg, extra_agents=extra_agents)
 
     if mode == "revise" or (mode == "auto" and _should_revise(active)):
         return _do_revise(agent, active, cfg, extra_agents=extra_agents)
@@ -1356,12 +1381,40 @@ def analyze_ticker_consensus(
         n_agree_strategy   = sum(1 for v in votes if v.get("agrees") is True)
         strategy_agree_rate = n_agree_strategy / len(votes)
 
-    # Step 4: lead agent writes full explanation
+    # Step 4: lead agent writes full explanation — reuse already-computed signal/indicators
     explanation = ""
     lead = available[0] if available else None
     if lead:
-        full = analyze_ticker(lead, ticker, df)
-        explanation = full.get("explanation", "")
+        from datetime import date as _date_cls
+
+        def _price_str(v: Optional[float], ref: float) -> tuple[str, str]:
+            if not v or v <= 0:
+                return "—", ""
+            pct = (v / ref - 1) * 100
+            return f"{v:,.0f} VND", f"{pct:+.1f}%"
+
+        tp_str, tp_pct = _price_str(tp, entry)
+        sl_str, sl_pct = _price_str(sl, entry)
+        rr = "—"
+        if tp and sl and entry and abs(entry - sl) > 0:
+            rr = f"{abs((tp - entry) / (entry - sl)):.1f}"
+
+        analysis_prompt = _TICKER_ANALYSIS_PROMPT.format(
+            ticker=ticker,
+            date=_date_cls.today().isoformat(),
+            close=close,
+            rsi=rsi, rsi_desc=rsi_desc,
+            ma20=indic["ma20"], vs_ma20_desc=vs_ma20_desc, vs_ma20_pct=vs_ma20_pct,
+            vol_ratio=indic["vol_ratio"], trend_5d=indic["trend_5d"],
+            high_52w=indic["high_52w"], low_52w=indic["low_52w"],
+            strategy_name=active["name"],
+            action_upper=action_upper, confidence=conf,
+            entry_str=f"{entry:,.0f} VND" if entry else "—",
+            tp_str=tp_str, tp_pct=tp_pct,
+            sl_str=sl_str, sl_pct=sl_pct, rr=rr,
+        )
+        text, err = lead.generate(analysis_prompt, max_tokens=500)
+        explanation = text or (f"Lỗi AI: {err}" if err else "")
 
     return {
         "action":               action,            # strategy signal (deterministic)
