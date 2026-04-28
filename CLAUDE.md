@@ -35,6 +35,20 @@ The system is API-based (Claude/Groq/Mistral) — there are no model weights
 to fine-tune locally; "training" here means refreshing prompt few-shots,
 re-running strategy generation/backtest, and reconciling recommendations.
 
+### 2. Xác nhận OpenRouter hoạt động sau fix dynamic model fetch (2026-04-28)
+
+**Status**: Chưa xác nhận — commit `4f5ecce` deploy dynamic `/api/v1/models` fetch
+nhưng user chưa test lại.
+
+**When to bring up again**:
+- User mở tab Thị trường và thấy OpenRouter vẫn lỗi
+- User hỏi về OpenRouter agent
+
+**What to check**:
+- Nếu vẫn lỗi: xem error message cụ thể (giờ đã có response body)
+- Nếu `_fetch_free_models` trả về list rỗng → /api/v1/models call thất bại
+- Thử nút "🔌 Test" trong ⚙️ Cài đặt AI Agent để kiểm tra nhanh
+
 ---
 
 ## 🏗️ Architecture cheat sheet
@@ -50,4 +64,9 @@ re-running strategy generation/backtest, and reconciling recommendations.
   strategy/recommendation panel
 
 API keys live in `.env` (auto-loaded by `python-dotenv`):
-`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`.
+`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`,
+`DEEPSEEK_API_KEY`, `CEREBRAS_API_KEY`, `OPENROUTER_API_KEY`.
+
+Dashboard tab files:
+- `dashboard/market_tab.py` — Thị trường: AI Brief + training + recommendations
+- `dashboard/analysis_tab.py` — Phân tích cổ phiếu (có FUTURES/INDEX fallback)
