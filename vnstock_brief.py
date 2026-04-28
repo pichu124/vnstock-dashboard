@@ -280,7 +280,12 @@ class _OpenAICompatAgent(BriefAgent):
             resp.raise_for_status()
             return resp.json()["choices"][0]["message"]["content"], None
         except Exception as e:
-            return "", f"{self._ERR_PREFIX} lỗi: {type(e).__name__}: {str(e)[:160]}"
+            detail = ""
+            try:
+                detail = " | " + str(resp.json())[:300]
+            except Exception:
+                pass
+            return "", f"{self._ERR_PREFIX} lỗi: {type(e).__name__}: {str(e)[:200]}{detail}"
 
 
 class OpenAIAgent(_OpenAICompatAgent):
@@ -382,7 +387,12 @@ class OpenRouterAgent(_OpenAICompatAgent):
             resp.raise_for_status()
             return resp.json()["choices"][0]["message"]["content"], None
         except Exception as e:
-            return "", f"{self._ERR_PREFIX} lỗi: {type(e).__name__}: {str(e)[:160]}"
+            detail = ""
+            try:
+                detail = " | " + str(resp.json())[:300]
+            except Exception:
+                pass
+            return "", f"{self._ERR_PREFIX} lỗi: {type(e).__name__}: {str(e)[:200]}{detail}"
 
 
 # ── Agent registry ─────────────────────────────────────────────────────────
