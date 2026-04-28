@@ -76,7 +76,7 @@ _DEFAULT_AGENT_CONFIGS: list[dict] = [
     },
     {
         "type": "cerebras",
-        "model": "llama-3.3-70b",
+        "model": "llama3.3-70b",
         "name": "Cerebras Llama-3.3-70B",
         "enabled": False,
         "max_tokens": 1200,
@@ -334,7 +334,7 @@ class CerebrasAgent(_OpenAICompatAgent):
     _ENV_KEY = "CEREBRAS_API_KEY"
     _ERR_PREFIX = "Cerebras API"
 
-    def __init__(self, model: str = "llama-3.3-70b", name: str = "Cerebras Llama-3.3-70B"):
+    def __init__(self, model: str = "llama3.3-70b", name: str = "Cerebras Llama-3.3-70B"):
         super().__init__(model, name)
 
 
