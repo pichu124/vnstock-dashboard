@@ -1628,12 +1628,15 @@ def render_market_tab() -> None:
                             st.error(f"❌ {_tr['error']}")
                         else:
                             _sl_r = _tr.get("strategy_loop", {})
+                            _n_recs = _tr.get("new_recs", 0)
+                            _rec_str = f" | 📋 {_n_recs} recs mới" if _n_recs else ""
                             _msg = (
                                 f"✅ **Training xong** — "
                                 f"agents={_sl_r.get('agents_run',0)} | "
                                 f"mode={_sl_r.get('mode','?')} | "
                                 f"n_trades={_tr.get('n_trades','?')} | "
                                 f"expectancy={_tr.get('expectancy','?')}"
+                                f"{_rec_str}"
                             )
                             if _sl_r.get("errors"):
                                 st.warning(f"⚠️ Có lỗi: {_sl_r['errors']}")
@@ -1645,9 +1648,17 @@ def render_market_tab() -> None:
 
                     def _run_training(lite: bool, mode: str = "auto") -> None:
                         try:
-                            from vnstock_train import strategy_loop as _sl_fn, brief_loop as _bl_fn
+                            from vnstock_train import (
+                                strategy_loop as _sl_fn,
+                                brief_loop as _bl_fn,
+                                _get_universe as _uni_fn,
+                            )
+                            from vnstock_strategy import emit_recommendations as _emit_fn
                             _bl_fn(verbose=False)
                             _sl_out = _sl_fn(verbose=False, lite=lite, mode=mode)
+                            # Generate fresh recommendations right after training
+                            _universe = _uni_fn(5 if lite else 15)
+                            _new_recs = _emit_fn(_universe, max_recs=5)
                             _nt, _exp = "?", "?"
                             _nf = _vm.get_active_family()
                             if _nf:
@@ -1659,6 +1670,7 @@ def render_market_tab() -> None:
                                 "strategy_loop": _sl_out,
                                 "n_trades": _nt,
                                 "expectancy": _exp,
+                                "new_recs": len(_new_recs),
                             }
                         except Exception as _e:
                             import traceback as _tb

@@ -260,7 +260,8 @@ def reconcile_recommendations(verbose: bool = True) -> dict:
 
 # ── Run-once orchestrator ──────────────────────────────────────────────────
 def run_once(briefs: bool = True, strategy: bool = True,
-             reconcile: bool = True, verbose: bool = True,
+             reconcile: bool = True, emit: bool = True,
+             verbose: bool = True,
              lite: bool = False, mode: str = "auto") -> dict:
     out: dict = {"started_at": datetime.now().isoformat(timespec="seconds")}
     if briefs:
@@ -269,6 +270,13 @@ def run_once(briefs: bool = True, strategy: bool = True,
         out["reconcile"] = reconcile_recommendations(verbose=verbose)
     if strategy:
         out["strategy_loop"] = strategy_loop(verbose=verbose, lite=lite, mode=mode)
+    if emit:
+        from vnstock_strategy import emit_recommendations as _emit
+        universe = _get_universe(15 if not lite else 5)
+        recs = _emit(universe, max_recs=5)
+        out["recommendations"] = len(recs)
+        if verbose:
+            print(f"[run_once] emit_recommendations → {len(recs)} new recs")
     out["finished_at"] = datetime.now().isoformat(timespec="seconds")
     return out
 
