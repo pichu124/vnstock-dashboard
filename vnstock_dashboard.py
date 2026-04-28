@@ -2245,15 +2245,21 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
     st.markdown(f"<p style='font-size:13px;font-weight:700;margin:0 0 4px'>📊 {window_name}</p>",
                 unsafe_allow_html=True)
 
-    from datetime import date
+    from datetime import date, datetime
     today_str = date.today().isoformat()
 
+    def _is_trading_day(d: str) -> bool:
+        try:
+            return datetime.strptime(d, "%Y-%m-%d").weekday() < 5  # Mon–Fri only
+        except Exception:
+            return True
+
     dates = sorted(
-        [d for d in history.keys() if d <= today_str],
+        [d for d in history.keys() if d <= today_str and _is_trading_day(d)],
         reverse=True
     )[:90]
 
-    if today_str not in dates and stats_today:
+    if today_str not in dates and stats_today and _is_trading_day(today_str):
         dates.insert(0, today_str)
 
     if not dates:
