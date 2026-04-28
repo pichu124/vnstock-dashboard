@@ -31,12 +31,29 @@ from typing import Optional
 # ── Constants ─────────────────────────────────────────────────────────────
 AGENTS_CONFIG_PATH = Path("data_warehouse/_meta/brief_agents.json")
 
-# VN30 tickers (as of 2025 — update if index changes)
-VN30_TICKERS = {
-    "VCB","BID","CTG","TCB","MBB","VPB","ACB","HDB","VHM","VIC",
-    "VRE","MSN","MWG","VNM","SAB","GAS","PLX","POW","REE","HPG",
-    "NVL","PDR","DXG","KDH","BCM","SSI","HCM","VND","FPT","CMG",
+# VN30 tickers — current composition (keep in sync with _VN30_FALLBACK in vnstock_news.py)
+# Try dynamic fetch first; fall back to this set when vnstock API is unavailable.
+VN30_TICKERS: set[str] = {
+    "ACB", "BCM", "BID", "BVH", "CTG", "FPT", "GAS", "GVR", "HDB", "HPG",
+    "MBB", "MSN", "MWG", "PLX", "POW", "SAB", "SHB", "SSB", "SSI", "STB",
+    "TCB", "TPB", "VCB", "VHM", "VIB", "VIC", "VJC", "VNM", "VPB", "VRE",
 }
+
+
+def get_vn30_live() -> set[str]:
+    """Try to fetch current VN30 from vnstock API; fall back to VN30_TICKERS."""
+    try:
+        from vnstock import Vnstock  # type: ignore
+        df = Vnstock().stock(symbol="VCB", source="VCI").listing.symbols_by_group("VN30")
+        if df is not None and not df.empty:
+            col = next((c for c in ("ticker", "symbol", "code") if c in df.columns), None)
+            if col:
+                tickers = {str(v).upper() for v in df[col] if v}
+                if len(tickers) >= 20:
+                    return tickers
+    except Exception:
+        pass
+    return set(VN30_TICKERS)
 
 _DEFAULT_AGENT_CONFIGS: list[dict] = [
     {

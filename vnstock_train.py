@@ -98,14 +98,61 @@ def brief_loop(verbose: bool = True) -> dict:
 
 
 # ── Strategy loop: evolve strategies per agent ─────────────────────────────
-def _get_universe(top_n: int = 30) -> list[str]:
-    """Pick a universe to backtest on. Default: VN30."""
+
+# Hand-picked diverse subset for Lite training — 10 tickers across major sectors
+# so the lite backtest is still representative (not an alphabetical bank cluster).
+_LITE_UNIVERSE: list[str] = [
+    "VCB",  # banking (largest market cap)
+    "HPG",  # steel / materials
+    "VHM",  # real estate
+    "FPT",  # technology
+    "GAS",  # energy
+    "MBB",  # banking
+    "VNM",  # consumer staples
+    "SSI",  # securities / financials
+    "VIC",  # diversified conglomerate
+    "MSN",  # consumer / resources
+]
+
+
+def _training_universe(lite: bool = False) -> list[str]:
+    """Tickers to train/backtest strategy on.
+
+    lite=True  → 10 curated diverse stocks (fast, ~30-60s)
+    lite=False → full VN30 (~30 stocks, 5-15 min)
+    """
+    if lite:
+        return list(_LITE_UNIVERSE)
     try:
         from vnstock_brief import VN30_TICKERS
-        return sorted(VN30_TICKERS)[:top_n]
+        return sorted(VN30_TICKERS)
     except Exception:
-        return ["VCB", "FPT", "HPG", "VHM", "VIC", "MSN", "MWG", "VNM",
-                "TCB", "VPB", "MBB", "ACB", "CTG", "BID", "GAS"]
+        return ["VCB", "BID", "CTG", "TCB", "MBB", "VPB", "ACB", "HDB", "VHM", "VIC",
+                "VRE", "MSN", "MWG", "VNM", "SAB", "GAS", "PLX", "POW", "HPG", "FPT",
+                "SSI", "HCM", "VND", "BVH", "GVR", "SHB", "SSB", "STB", "TPB", "VJC"]
+
+
+def _scan_universe() -> list[str]:
+    """All tickers present in the price data warehouse.
+
+    Used by emit_recommendations() to scan the broadest possible set of stocks.
+    Tickers with insufficient history (<60 bars) are silently skipped by the caller.
+    Falls back to _training_universe() if the warehouse is empty.
+    """
+    prices_dir = Path("data_warehouse/prices")
+    if not prices_dir.exists():
+        return _training_universe(lite=False)
+    tickers = sorted(
+        d.name.split("=", 1)[-1].upper()
+        for d in prices_dir.glob("ticker=*")
+        if "=" in d.name and d.is_dir()
+    )
+    return tickers if tickers else _training_universe(lite=False)
+
+
+def _get_universe(top_n: int = 30) -> list[str]:
+    """Backward-compat shim — returns _scan_universe() (top_n ignored)."""
+    return _scan_universe()
 
 
 def _build_context_summary() -> str:
@@ -126,7 +173,6 @@ def _build_context_summary() -> str:
 
 def strategy_loop(
     n_iterations: int = 2,
-    universe_size: int = 15,
     verbose: bool = True,
     lite: bool = False,
     mode: str = "auto",
@@ -144,7 +190,8 @@ def strategy_loop(
     Claude > OpenAI > Groq > Mistral order from config).
 
     Args:
-        lite: smaller backtest cfg (~30-60s instead of ~8 min on Windows)
+        lite: use 10 diverse tickers + smaller backtest window (~30-60s)
+              False: full VN30 (~30 tickers, 5-15 min)
         mode: see above. "auto" delegates to develop_and_backtest's logic.
     """
     from vnstock_brief import build_agents
@@ -157,7 +204,7 @@ def strategy_loop(
             print("[strategy_loop] No agents with valid API key — skipping")
         return {"agents_run": 0, "validated": 0}
 
-    universe = _get_universe(universe_size)
+    universe = _training_universe(lite=lite)
     context_summary = _build_context_summary()
     cfg = lite_config(universe) if lite else None
 
@@ -272,11 +319,12 @@ def run_once(briefs: bool = True, strategy: bool = True,
         out["strategy_loop"] = strategy_loop(verbose=verbose, lite=lite, mode=mode)
     if emit:
         from vnstock_strategy import emit_recommendations as _emit
-        universe = _get_universe(15 if not lite else 5)
-        recs = _emit(universe, max_recs=5)
+        scan_u = _scan_universe()
+        recs = _emit(scan_u, max_recs=5)
         out["recommendations"] = len(recs)
         if verbose:
-            print(f"[run_once] emit_recommendations → {len(recs)} new recs")
+            print(f"[run_once] emit_recommendations → {len(recs)} new recs "
+                  f"(scanned {len(scan_u)} tickers)")
     out["finished_at"] = datetime.now().isoformat(timespec="seconds")
     return out
 
@@ -322,8 +370,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                         help="Sleep between iterations when --schedule (default 24).")
     parser.add_argument("--quiet", action="store_true", help="Suppress logs.")
     parser.add_argument("--lite", action="store_true",
-                        help="Use a smaller backtest window (5 tickers, ~30s) "
-                             "instead of full (15 tickers, ~8 min on Windows).")
+                        help="Train on 10 curated diverse tickers with a smaller "
+                             "backtest window (~30-60s). Default: full VN30 "
+                             "(~30 tickers, 5-15 min). Recommendations always "
+                             "scan all tickers in the price warehouse.")
     parser.add_argument("--mode", choices=("auto", "tune", "revise", "fresh"),
                         default="auto",
                         help="Strategy training mode. auto=tune daily / revise "

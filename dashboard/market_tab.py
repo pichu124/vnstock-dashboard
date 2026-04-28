@@ -1669,13 +1669,13 @@ def render_market_tab() -> None:
                             from vnstock_train import (
                                 strategy_loop as _sl_fn,
                                 brief_loop as _bl_fn,
-                                _get_universe as _uni_fn,
+                                _scan_universe as _scan_fn,
                             )
                             from vnstock_strategy import emit_recommendations as _emit_fn
                             _bl_fn(verbose=False)
                             _sl_out = _sl_fn(verbose=False, lite=lite, mode=mode)
-                            # Generate fresh recommendations right after training
-                            _universe = _uni_fn(5 if lite else 15)
+                            # Scan all available warehouse tickers for recommendations
+                            _universe = _scan_fn()
                             _new_recs = _emit_fn(_universe, max_recs=5)
                             _nt, _exp = "?", "?"
                             _nf = _vm.get_active_family()
@@ -1699,13 +1699,13 @@ def render_market_tab() -> None:
 
                     with _train_col1:
                         if st.button("⚡ Lite training (~30-60s)", key="_train_lite",
-                                     help="5 tickers, fewer windows. mode=auto."):
+                                     help="10 mã đa ngành, backtest nhanh. mode=auto."):
                             st.session_state["_train_result"] = None
                             with st.spinner("⏳ Đang chạy… (30-90s nếu cần revise code)"):
                                 _run_training(lite=True, mode="auto")
                     with _train_col2:
                         if st.button("🚀 Full training (~5-15 min)", key="_train_full",
-                                     help="15 tickers, full walk-forward. CHẬM trên Windows."):
+                                     help="Toàn bộ VN30 (~30 mã), full walk-forward. CHẬM trên Windows."):
                             st.session_state["_train_result"] = None
                             with st.spinner("⏳ Đang chạy full training… 5-15 phút"):
                                 _run_training(lite=False, mode="auto")
@@ -1725,9 +1725,9 @@ def render_market_tab() -> None:
                                 _run_training(lite=True, mode="fresh")
 
                     st.caption(
-                        "ℹ️ Lite: 5 tickers × ~20 windows — đủ test pipeline. "
-                        "Full: 15 tickers × ~67 windows — nên chạy qua Task Scheduler, "
-                        "không bấm trong UI."
+                        "ℹ️ Lite: 10 mã đa ngành × backtest nhanh (~30-60s) — đủ test pipeline. "
+                        "Full: toàn bộ VN30 (~30 mã, 5-15 phút). "
+                        "Khuyến nghị luôn quét toàn bộ kho dữ liệu sau khi train."
                     )
                 except Exception as _e:
                     st.caption(f"Strategy panel disabled: {type(_e).__name__}: {_e}")
