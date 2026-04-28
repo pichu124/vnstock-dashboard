@@ -209,10 +209,10 @@ class ClaudeAgent(BriefAgent):
 
     @property
     def is_available(self) -> bool:
-        return bool(os.environ.get("ANTHROPIC_API_KEY"))
+        return bool((os.environ.get("ANTHROPIC_API_KEY") or "").strip())
 
     def generate(self, prompt: str, max_tokens: int = 1200) -> tuple[str, str | None]:
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        api_key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
         if not api_key:
             return "", "ANTHROPIC_API_KEY chưa được thiết lập trong .env"
         try:
@@ -250,10 +250,10 @@ class _OpenAICompatAgent(BriefAgent):
 
     @property
     def is_available(self) -> bool:
-        return bool(os.environ.get(self._ENV_KEY))
+        return bool((os.environ.get(self._ENV_KEY) or "").strip())
 
     def generate(self, prompt: str, max_tokens: int = 1200) -> tuple[str, str | None]:
-        api_key = os.environ.get(self._ENV_KEY, "")
+        api_key = (os.environ.get(self._ENV_KEY) or "").strip()
         if not api_key:
             return "", f"{self._ENV_KEY} chưa được thiết lập trong .env"
         sys_end = prompt.find("\n\nDữ liệu thị trường")
@@ -353,7 +353,7 @@ class OpenRouterAgent(_OpenAICompatAgent):
         super().__init__(model, name)
 
     def generate(self, prompt: str, max_tokens: int = 1200) -> tuple[str, str | None]:
-        api_key = os.environ.get(self._ENV_KEY, "")
+        api_key = (os.environ.get(self._ENV_KEY) or "").strip()
         if not api_key:
             return "", f"{self._ENV_KEY} chưa được thiết lập trong .env"
         sys_end = prompt.find("\n\nDữ liệu thị trường")
