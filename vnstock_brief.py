@@ -487,9 +487,9 @@ class OpenRouterAgent(_OpenAICompatAgent):
                         pass
                 last_err = f"{type(e).__name__}: {str(e)[:200]}"
                 last_detail = detail
-                # Only fall back on rate-limit / availability errors
+                # Fall back on rate-limit, model-not-found, or server errors
                 status = getattr(resp, "status_code", None)
-                if status not in (429, 502, 503, 504):
+                if status not in (404, 429, 502, 503, 504):
                     break
         return "", f"{self._ERR_PREFIX} lỗi: {last_err}{last_detail}"
 
