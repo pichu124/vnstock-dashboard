@@ -1339,15 +1339,30 @@ def render_market_tab() -> None:
                 _agent_configs = load_agent_configs()
                 _changed_configs: list[dict] = []
 
+                import os as _os
                 for _cfg in _agent_configs:
                     _atype = _cfg.get("type", "")
                     _aname = _cfg.get("name", _atype)
-                    st.markdown(f"**{_aname}** (`{_atype}`)")
+                    # Detect key status
+                    _cls = AGENT_REGISTRY.get(_atype)
+                    _env_key = getattr(_cls, "_ENV_KEY", "") if _cls else ""
+                    _key_ok = bool(_env_key and _os.environ.get(_env_key))
+                    _key_badge = (
+                        f'<span style="color:#10b981;font-size:12px">🔑 key OK</span>'
+                        if _key_ok else
+                        f'<span style="color:#ef4444;font-size:12px">🔑 chưa có key</span>'
+                    )
+                    st.markdown(
+                        f"**{_aname}** `{_atype}` &nbsp; {_key_badge}",
+                        unsafe_allow_html=True,
+                    )
                     _col_en, _col_model = st.columns([1, 3])
                     with _col_en:
                         _enabled = st.checkbox(
                             "Bật", value=_cfg.get("enabled", False),
                             key=f"_brief_en_{_atype}",
+                            disabled=not _key_ok,
+                            help="Cần điền API key vào .env trước" if not _key_ok else "",
                         )
                     with _col_model:
                         _model = st.text_input(

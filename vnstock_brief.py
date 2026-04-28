@@ -399,13 +399,24 @@ AGENT_REGISTRY: dict[str, type[BriefAgent]] = {
 
 # ── Config helpers ─────────────────────────────────────────────────────────
 def load_agent_configs() -> list[dict]:
-    """Load agent configs from JSON. Falls back to defaults."""
+    """Load agent configs from JSON, merging in any new providers from defaults."""
+    saved: list[dict] = []
     if AGENTS_CONFIG_PATH.exists():
         try:
-            return json.loads(AGENTS_CONFIG_PATH.read_text(encoding="utf-8"))
+            saved = json.loads(AGENTS_CONFIG_PATH.read_text(encoding="utf-8"))
         except Exception:
             pass
-    return [c.copy() for c in _DEFAULT_AGENT_CONFIGS]
+
+    if not saved:
+        return [c.copy() for c in _DEFAULT_AGENT_CONFIGS]
+
+    # Merge: add any provider types from defaults that are absent in saved file
+    saved_types = {c.get("type") for c in saved}
+    merged = list(saved)
+    for default in _DEFAULT_AGENT_CONFIGS:
+        if default.get("type") not in saved_types:
+            merged.append(default.copy())
+    return merged
 
 
 def save_agent_configs(configs: list[dict]) -> None:
