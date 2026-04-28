@@ -796,19 +796,26 @@ def _cold_start(agent, universe, context_summary, cfg) -> tuple[Optional[int], d
     return sid, metrics
 
 
-def _do_revise(agent, active, cfg) -> tuple[Optional[int], dict]:
-    """Rewrite core code. Triggered weekly, on 0-trades, or on degradation detection."""
+def _do_revise(
+    agent, active, cfg, extra_agents: list | None = None
+) -> tuple[Optional[int], dict]:
+    """Rewrite core with competition — ALL agents write independently, best wins.
+
+    Each available agent generates a completely new strategy. All are backtested.
+    The one with highest expectancy is adopted (if better than current).
+    This gives genuine code diversity — not just param variations.
+    """
     code        = active["code"]
     family      = active.get("family_id") or _uuid.uuid4().hex[:8]
     cur_metrics = mem.latest_backtest(active["id"]) or {}
 
-    # Determine why we're revising — give the agent useful context
-    was_stable  = bool(active.get("is_core_stable"))
-    nt          = cur_metrics.get("n_trades") or 0
-    exp         = cur_metrics.get("expectancy") or 0
+    # Build the diagnosis context once (shared across all agents)
+    was_stable = bool(active.get("is_core_stable"))
+    nt  = cur_metrics.get("n_trades") or 0
+    exp = cur_metrics.get("expectancy") or 0
     if nt == 0:
         revise_reason = "0 trades — điều kiện signal không bao giờ trigger"
-        diagnosis     = "Strategy không sinh ra tín hiệu nào. Điều kiện entry quá khắt khe hoặc mâu thuẫn."
+        diagnosis = "Strategy không sinh ra tín hiệu nào. Điều kiện entry quá khắt khe hoặc mâu thuẫn."
     elif was_stable and _is_degraded(family):
         revise_reason = (
             f"degradation sau khi ổn định — {N_DEGRADE_PERIODS} kỳ liên tiếp expectancy ≤ 0 "
@@ -820,39 +827,62 @@ def _do_revise(agent, active, cfg) -> tuple[Optional[int], dict]:
         )
     else:
         revise_reason = f"weekly revise — expectancy={exp:.3f}, n_trades={nt}"
-        diagnosis     = "Expectancy âm hoặc số trade thấp — cần đổi cách tiếp cận."
+        diagnosis = "Expectancy âm hoặc số trade thấp — cần đổi cách tiếp cận."
 
-    new_code, new_params, err = revise_strategy(
-        agent, code, cur_metrics,
-        diagnosis=diagnosis, revise_reason=revise_reason,
-    )
-    if err and not new_code:
-        return None, {"error": err}
+    # All agents compete — de-dup by name
+    all_agents = [agent] + (extra_agents or [])
+    seen: set[str] = set()
+    unique_agents = []
+    for a in all_agents:
+        if a.is_available and a.name not in seen:
+            unique_agents.append(a)
+            seen.add(a.name)
+
+    # Each agent generates its own new code independently
+    candidates: list[tuple[str, str, dict, dict, str, str]] = []
+    for ag in unique_agents:
+        new_code, new_params, err = revise_strategy(
+            ag, code, cur_metrics,
+            diagnosis=diagnosis, revise_reason=revise_reason,
+        )
+        if err and not new_code:
+            continue
+        metrics, ps, pe = _do_backtest(new_code, new_params, cfg)
+        candidates.append((ag.name, new_code, new_params, metrics, ps, pe))
+
+    if not candidates:
+        return None, {"error": "no valid revision from any agent"}
+
+    # Competition: pick the candidate with highest expectancy
+    best = max(candidates, key=lambda c: c[3].get("expectancy") or -999)
+    best_agent, best_code, best_params, best_metrics, best_ps, best_pe = best
+    competitors = [c[0] for c in candidates]
+
     sid = mem.save_strategy(
-        agent_name=agent.name,
-        name=f"family-{family} revise by {agent.name} @ {time.strftime('%m-%d')}",
-        code=new_code,
-        params=new_params,
-        description=f"Revise: {revise_reason}",
+        agent_name=best_agent,
+        name=(
+            f"family-{family} revise by {best_agent} @ {time.strftime('%m-%d')}"
+            + (f" (vs {len(candidates)} agents)" if len(candidates) > 1 else "")
+        ),
+        code=best_code,
+        params=best_params,
+        description=f"Revise competition ({', '.join(competitors)}): {revise_reason}",
         parent_id=active["id"],
         status="draft",
         family_id=family,
     )
-    if err:
-        mem.save_backtest(sid, "", "", ",".join(cfg.universe[:10]),
-                          {"n_trades": 0}, error=err)
-        return sid, {"error": err}
-    metrics, ps, pe = _do_backtest(new_code, new_params, cfg)
-    mem.save_backtest(sid, ps, pe, ",".join(cfg.universe[:10]), metrics)
-    cur_exp = (cur_metrics.get("expectancy") or -999)
-    new_exp = (metrics.get("expectancy") or -999)
-    if new_exp > cur_exp and metrics.get("n_trades", 0) >= MIN_TRADES_TO_VALIDATE:
+    mem.save_backtest(sid, best_ps, best_pe, ",".join(cfg.universe[:10]), best_metrics)
+
+    cur_exp = cur_metrics.get("expectancy") or -999
+    new_exp = best_metrics.get("expectancy") or -999
+    if new_exp > cur_exp and best_metrics.get("n_trades", 0) >= MIN_TRADES_TO_VALIDATE:
         mem.promote_strategy(sid, retire_others=True)
         if _check_stability(family):
             mem.mark_core_stable(sid, True)
     else:
         mem.update_strategy_status(sid, "retired")
-    return sid, metrics
+
+    return sid, {**best_metrics, "revise_winner": best_agent, "revise_competitors": competitors}
 
 
 def _do_tune(agents: list, active: dict, cfg: BacktestConfig) -> tuple[Optional[int], dict]:
@@ -929,7 +959,7 @@ def develop_and_backtest(
         return _cold_start(agent, universe, context_summary, cfg)
 
     if mode == "revise" or (mode == "auto" and _should_revise(active)):
-        return _do_revise(agent, active, cfg)
+        return _do_revise(agent, active, cfg, extra_agents=extra_agents)
 
     # tune mode (or auto + not yet time to revise)
     pool = [agent] + (extra_agents or [])
@@ -999,6 +1029,26 @@ def emit_recommendations(
 
 
 # ── Per-ticker AI recommendation ───────────────────────────────────────────
+_TICKER_VOTE_PROMPT = """\
+Bạn là chuyên gia phân tích kỹ thuật độc lập cho thị trường Việt Nam.
+
+Ticker: {ticker}
+Chỉ số kỹ thuật:
+  Giá đóng cửa : {close:,.0f} VND
+  RSI(14)      : {rsi:.1f}  ({rsi_desc})
+  MA20         : {ma20:,.0f} ({vs_ma20_desc} {vs_ma20_pct:+.1f}%)
+  Volume/TB20  : {vol_ratio:.1f}x
+  Xu hướng 5N  : {trend_5d:+.1f}%
+
+Chiến lược AI đang gợi ý: {action_upper}
+  Entry: {entry_str}  |  TP: {tp_str}  |  SL: {sl_str}
+
+Dựa trên phân tích kỹ thuật CỦA BẠN, trả lời CHÍNH XÁC theo format sau (không thêm text khác):
+ĐÁNH GIÁ: MUA|BÁN|KHÔNG GIAO DỊCH
+ĐỒNG Ý VỚI STRATEGY: CÓ|KHÔNG
+LÝ DO: [1-2 câu ngắn gọn]
+"""
+
 _TICKER_ANALYSIS_PROMPT = """\
 Bạn là chuyên gia phân tích kỹ thuật cổ phiếu Việt Nam.
 
@@ -1182,4 +1232,150 @@ def analyze_ticker(
         "strategy_name": active["name"],
         "strategy_id":   active["id"],
         "indicators":    indic,
+    }
+
+
+def analyze_ticker_consensus(
+    agents: list,
+    ticker: str,
+    df: pd.DataFrame,
+) -> dict:
+    """Multi-agent consensus for a single ticker.
+
+    Flow:
+      1. Run strategy signal once (deterministic — same code, same data for all)
+      2. Each agent votes independently: agree/disagree + own action assessment
+      3. Compute consensus: majority vote + agreement-with-strategy rate
+      4. Lead agent writes the full explanation
+    Returns a dict with keys:
+      action (strategy signal), consensus_action, agreement_rate,
+      strategy_agree_rate, votes (per-agent), entry, tp, sl,
+      explanation (lead agent), n_agents
+    """
+    from collections import Counter
+
+    active = mem.get_active_family()
+    if not active:
+        return {
+            "error": "no_active_strategy",
+            "explanation": (
+                "⚠️ Chưa có chiến lược AI nào. "
+                "Vào tab Thị trường → Chiến lược & khuyến nghị → Lite training."
+            ),
+        }
+
+    code = active.get("code") or ""
+    try:
+        params = json.loads(active.get("params_json") or "{}")
+    except Exception:
+        params = {}
+
+    indic = _ticker_indicators(df)
+    close = indic["close"]
+
+    # Step 1: deterministic signal (same for every agent)
+    sig: dict = {"action": "hold", "entry": close, "tp": None, "sl": None, "confidence": 0.0}
+    if code:
+        try:
+            raw = EXECUTOR.run(code, df.tail(120).reset_index(drop=True), params)
+            sig = _validate_signal_output(raw)
+        except Exception as exc:
+            sig["_run_error"] = str(exc)
+
+    action = sig.get("action", "hold")
+    entry  = sig.get("entry") or close
+    tp     = sig.get("tp") or None
+    sl     = sig.get("sl") or None
+    conf   = sig.get("confidence") or 0.0
+
+    # Build vote prompt context
+    rsi         = indic["rsi"]
+    rsi_desc    = "quá mua" if rsi > 70 else ("quá bán" if rsi < 30 else "trung tính")
+    vs_ma20_pct = (close / indic["ma20"] - 1) * 100 if indic["ma20"] else 0
+    vs_ma20_desc = "trên" if vs_ma20_pct >= 0 else "dưới"
+    action_upper = {"buy": "MUA 🟢", "sell": "BÁN 🔴"}.get(action, "KHÔNG GIAO DỊCH 🟡")
+
+    def _fmt_price(v: Optional[float], ref: float) -> str:
+        if not v or v <= 0:
+            return "—"
+        return f"{v:,.0f} VND ({(v/ref-1)*100:+.1f}%)"
+
+    vote_prompt = _TICKER_VOTE_PROMPT.format(
+        ticker=ticker,
+        close=close,
+        rsi=rsi, rsi_desc=rsi_desc,
+        ma20=indic["ma20"], vs_ma20_desc=vs_ma20_desc, vs_ma20_pct=vs_ma20_pct,
+        vol_ratio=indic["vol_ratio"], trend_5d=indic["trend_5d"],
+        action_upper=action_upper,
+        entry_str=f"{entry:,.0f} VND" if entry else "—",
+        tp_str=_fmt_price(tp, entry),
+        sl_str=_fmt_price(sl, entry),
+    )
+
+    # Step 2: collect independent votes (short, fast — 150 tokens each)
+    available = [a for a in agents if getattr(a, "is_available", False)]
+    votes: list[dict] = []
+    for ag in available:
+        text, err = ag.generate(vote_prompt, max_tokens=150)
+        if err or not text:
+            continue
+        # Parse structured response
+        vote_action, agrees, reason = "hold", None, ""
+        for line in text.splitlines():
+            l = line.strip()
+            if l.upper().startswith("ĐÁNH GIÁ:"):
+                val = l.split(":", 1)[1].strip().lower()
+                if "mua" in val:
+                    vote_action = "buy"
+                elif "bán" in val or "ban" in val:
+                    vote_action = "sell"
+                else:
+                    vote_action = "hold"
+            elif "ĐỒNG Ý" in l.upper() or "DONG Y" in l.upper():
+                agrees = ("CÓ" in l.upper() or " CO" in l.upper()
+                          or "YES" in l.upper() or "ĐỒNG Ý: CÓ" in l.upper())
+            elif l.upper().startswith("LÝ DO:") or l.upper().startswith("LY DO:"):
+                reason = l.split(":", 1)[1].strip()
+        votes.append({
+            "agent":   ag.name,
+            "action":  vote_action,
+            "agrees":  agrees,
+            "reason":  reason,
+            "raw":     text,
+        })
+
+    # Step 3: compute consensus
+    if not votes:
+        consensus_action   = action
+        agreement_rate     = 0.0
+        strategy_agree_rate = 0.0
+    else:
+        counts             = Counter(v["action"] for v in votes)
+        consensus_action   = counts.most_common(1)[0][0]
+        agreement_rate     = counts[consensus_action] / len(votes)
+        n_agree_strategy   = sum(1 for v in votes if v.get("agrees") is True)
+        strategy_agree_rate = n_agree_strategy / len(votes)
+
+    # Step 4: lead agent writes full explanation
+    explanation = ""
+    lead = available[0] if available else None
+    if lead:
+        full = analyze_ticker(lead, ticker, df)
+        explanation = full.get("explanation", "")
+
+    return {
+        "action":               action,            # strategy signal (deterministic)
+        "consensus_action":     consensus_action,  # majority vote across agents
+        "agreement_rate":       agreement_rate,    # % agents that share consensus_action
+        "strategy_agree_rate":  strategy_agree_rate,  # % agents that agree with strategy signal
+        "entry":  entry,
+        "tp":     tp,
+        "sl":     sl,
+        "confidence": conf,
+        "votes":  votes,
+        "explanation":   explanation,
+        "strategy_name": active["name"],
+        "strategy_id":   active["id"],
+        "indicators":    indic,
+        "n_agents":      len(votes),
     }

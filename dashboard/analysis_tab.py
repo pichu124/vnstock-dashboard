@@ -896,20 +896,67 @@ def render_analysis_tab() -> None:
                 )
 
             if _is_fresh:
-                _r = _cached_rec
+                _r   = _cached_rec
                 _act = _r.get("action", "hold")
                 _col = "#10b981" if _act == "buy" else ("#ef4444" if _act == "sell" else "#fbbf24")
                 _act_label = {"buy": "MUA 🟢", "sell": "BÁN 🔴"}.get(_act, "KHÔNG GIAO DỊCH 🟡")
 
-                st.markdown(
-                    f'<div class="card" style="border:1px solid {_col}60;margin-top:8px">'
-                    f'<div class="card-title" style="font-size:11px">{_r.get("strategy_name","—")}</div>'
-                    f'<div style="font-size:26px;font-weight:700;color:{_col};margin:6px 0">{_act_label}</div>'
-                    f'<div style="font-size:12px;color:#6b7280">Confidence: {_r.get("confidence",0):.0%}</div>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
+                # ── Consensus badge (multi-agent) ──────────────────────────
+                _votes = _r.get("votes", [])
+                _n_ag  = _r.get("n_agents", 0)
+                _cons_act = _r.get("consensus_action", _act)
+                _agree_rt = _r.get("agreement_rate", 1.0)
+                _strat_agree = _r.get("strategy_agree_rate")
 
+                if _n_ag > 1:
+                    _cons_label = {"buy": "MUA 🟢", "sell": "BÁN 🔴"}.get(_cons_act, "KHÔNG GIAO DỊCH 🟡")
+                    _cons_col   = "#10b981" if _cons_act == "buy" else ("#ef4444" if _cons_act == "sell" else "#fbbf24")
+                    _agree_pct  = int(_agree_rt * 100)
+                    _strat_pct  = int((_strat_agree or 0) * 100)
+                    _badge_col  = "#10b981" if _agree_pct >= 67 else ("#fbbf24" if _agree_pct >= 34 else "#ef4444")
+                    st.markdown(
+                        f'<div class="card" style="border:1px solid {_cons_col}60;margin-top:8px">'
+                        f'<div class="card-title" style="font-size:11px">'
+                        f'Đồng thuận {_n_ag} agents · {_r.get("strategy_name","—")}'
+                        f'</div>'
+                        f'<div style="font-size:26px;font-weight:700;color:{_cons_col};margin:6px 0">'
+                        f'{_cons_label}</div>'
+                        f'<div style="display:flex;gap:16px;margin-top:4px">'
+                        f'<span style="font-size:12px;color:{_badge_col};font-weight:600">'
+                        f'🗳 Đồng thuận: {_agree_pct}%</span>'
+                        f'<span style="font-size:12px;color:#6b7280">'
+                        f'Tin strategy: {_strat_pct}%</span>'
+                        f'<span style="font-size:12px;color:#6b7280">'
+                        f'Signal conf: {_r.get("confidence",0):.0%}</span>'
+                        f'</div></div>',
+                        unsafe_allow_html=True,
+                    )
+                    # Per-agent votes table
+                    if _votes:
+                        with st.expander("Xem chi tiết từng agent", expanded=False):
+                            for _v in _votes:
+                                _va  = _v.get("action", "hold")
+                                _vc  = "#10b981" if _va == "buy" else ("#ef4444" if _va == "sell" else "#fbbf24")
+                                _val = {"buy": "MUA 🟢", "sell": "BÁN 🔴"}.get(_va, "KHÔNG GD 🟡")
+                                _agr = "✅" if _v.get("agrees") else ("❌" if _v.get("agrees") is False else "—")
+                                st.markdown(
+                                    f'**{_v["agent"]}** — {_val} {_agr} '
+                                    f'<span style="color:#6b7280;font-size:12px">'
+                                    f'{_v.get("reason","")}</span>',
+                                    unsafe_allow_html=True,
+                                )
+                else:
+                    # Single agent — original card
+                    st.markdown(
+                        f'<div class="card" style="border:1px solid {_col}60;margin-top:8px">'
+                        f'<div class="card-title" style="font-size:11px">{_r.get("strategy_name","—")}</div>'
+                        f'<div style="font-size:26px;font-weight:700;color:{_col};margin:6px 0">{_act_label}</div>'
+                        f'<div style="font-size:12px;color:#6b7280">Confidence: {_r.get("confidence",0):.0%}</div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                # ── Entry / TP / SL metrics ────────────────────────────────
                 if _act in ("buy", "sell"):
                     _e  = _r.get("entry")
                     _tp = _r.get("tp")
@@ -936,19 +983,35 @@ def render_analysis_tab() -> None:
                     st.rerun()
 
             else:
-                if st.button(
-                    f"🤖 Phân tích {ticker} với AI Strategy",
-                    key="_ai_rec_btn",
-                    type="primary",
-                    help="AI sẽ chạy strategy signal + tạo giải thích chi tiết (~10-20s)",
-                ):
-                    with st.spinner(f"AI đang phân tích {ticker}… (~10-20s)"):
+                from vnstock_brief import build_agents as _build_agents
+                _all_agents  = _build_agents()
+                _avail_agents = [a for a in _all_agents if a.is_available]
+                _n_avail = len(_avail_agents)
+                _btn_label = (
+                    f"🤖 Phân tích {ticker} ({_n_avail} agents đồng thuận)"
+                    if _n_avail > 1 else
+                    f"🤖 Phân tích {ticker} với AI Strategy"
+                )
+                _spinner_msg = (
+                    f"⏳ {_n_avail} agents đang vote độc lập… (~{_n_avail * 10}-{_n_avail * 20}s)"
+                    if _n_avail > 1 else
+                    f"⏳ AI đang phân tích {ticker}… (~10-20s)"
+                )
+                if st.button(_btn_label, key="_ai_rec_btn", type="primary",
+                             help="Strategy signal + vote đồng thuận từ tất cả agents"):
+                    with st.spinner(_spinner_msg):
                         try:
-                            from vnstock_strategy import analyze_ticker as _analyze_ticker
-                            from vnstock_brief import build_agents as _build_agents
-                            _agents_avail = [a for a in _build_agents() if a.is_available]
-                            _agent_pick   = _agents_avail[0] if _agents_avail else None
-                            _rec_result   = _analyze_ticker(_agent_pick, ticker, df)
+                            from vnstock_strategy import (
+                                analyze_ticker as _analyze_single,
+                                analyze_ticker_consensus as _analyze_consensus,
+                            )
+                            if _n_avail > 1:
+                                _rec_result = _analyze_consensus(_avail_agents, ticker, df)
+                            else:
+                                _rec_result = _analyze_single(
+                                    _avail_agents[0] if _avail_agents else None,
+                                    ticker, df,
+                                )
                             _rec_result["_ticker"] = ticker
                             st.session_state[_ai_cache_key] = _rec_result
                             st.rerun()
