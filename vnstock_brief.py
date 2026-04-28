@@ -195,6 +195,13 @@ class BriefAgent(ABC):
     def is_available(self) -> bool:
         """True if the required API key is set in environment."""
 
+    def ping(self) -> tuple[bool, str]:
+        """Quick connectivity check. Returns (ok, message)."""
+        if not self.is_available:
+            return False, "API key chưa thiết lập"
+        _, err = self.generate("Trả lời đúng 2 từ: 'OK hoạt động'", max_tokens=20)
+        return (True, "✅ Kết nối OK") if err is None else (False, f"❌ {err[:120]}")
+
 
 # ── Concrete agents ────────────────────────────────────────────────────────
 class ClaudeAgent(BriefAgent):
@@ -894,17 +901,34 @@ def generate_brief(
 
     results: dict[str, tuple[str, str | None]] = {}
     brief_ids: dict[str, int] = {}
-    for agent in agents:
-        if not agent.is_available:
-            results[agent.name] = ("", f"API key chưa thiết lập cho {agent.name}")
-            continue
-        text, err = agent.generate(prompt)
-        results[agent.name] = (text, err)
 
-        # Persist to memory (non-fatal if it fails)
-        try:
-            import vnstock_memory as _mem
-            from vnstock_train import auto_score_brief as _score
+    available = [a for a in agents if a.is_available]
+    unavailable = [a for a in agents if not a.is_available]
+    for agent in unavailable:
+        results[agent.name] = ("", f"API key chưa thiết lập cho {agent.name}")
+
+    # Run available agents in parallel to cut wall-clock time from N*T → T
+    def _call(agent: BriefAgent) -> tuple[str, tuple[str, str | None]]:
+        return agent.name, agent.generate(prompt)
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    with ThreadPoolExecutor(max_workers=min(len(available), 8)) as pool:
+        futures = {pool.submit(_call, a): a for a in available}
+        for fut in as_completed(futures):
+            try:
+                name, result = fut.result()
+            except Exception as exc:
+                agent = futures[fut]
+                name, result = agent.name, ("", str(exc))
+            results[name] = result
+
+    # Persist to memory sequentially (SQLite is not thread-safe for writes)
+    try:
+        import vnstock_memory as _mem
+        from vnstock_train import auto_score_brief as _score
+        ctx_small = {k: v for k, v in ctx.items() if k != "tickers"}
+        for agent in available:
+            text, err = results.get(agent.name, ("", None))
             score = _score(text) if text else 0.0
             bid = _mem.save_brief(
                 brief_date=ctx.get("date", ""),
@@ -915,12 +939,12 @@ def generate_brief(
                 prompt=prompt,
                 output=text,
                 error=err,
-                context={k: v for k, v in ctx.items() if k != "tickers"},
+                context=ctx_small,
                 auto_score=score,
             )
             brief_ids[agent.name] = bid
-        except Exception:
-            pass
+    except Exception:
+        pass
 
     if brief_ids:
         results["_brief_ids"] = brief_ids  # type: ignore[assignment]

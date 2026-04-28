@@ -1356,7 +1356,7 @@ def render_market_tab() -> None:
                         f"**{_aname}** `{_atype}` &nbsp; {_key_badge}",
                         unsafe_allow_html=True,
                     )
-                    _col_en, _col_model = st.columns([1, 3])
+                    _col_en, _col_model, _col_test = st.columns([1, 3, 1])
                     with _col_en:
                         _enabled = st.checkbox(
                             "Bật", value=_cfg.get("enabled", False),
@@ -1370,6 +1370,24 @@ def render_market_tab() -> None:
                             key=f"_brief_model_{_atype}",
                             placeholder="e.g. claude-haiku-4-5-20251001",
                         )
+                    with _col_test:
+                        st.markdown("<div style='margin-top:28px'></div>",
+                                    unsafe_allow_html=True)
+                        if st.button("🔌 Test", key=f"_brief_ping_{_atype}",
+                                     disabled=not _key_ok,
+                                     help="Gửi tin nhắn ngắn để kiểm tra key và model"):
+                            if _cls:
+                                _agent_inst = _cls(
+                                    model=st.session_state.get(f"_brief_model_{_atype}",
+                                                                _cfg.get("model", "")),
+                                    name=_aname,
+                                )
+                                with st.spinner(f"Đang kiểm tra {_aname}…"):
+                                    _ping_ok, _ping_msg = _agent_inst.ping()
+                                if _ping_ok:
+                                    st.success(_ping_msg)
+                                else:
+                                    st.error(_ping_msg)
                     _changed_configs.append({**_cfg, "enabled": _enabled, "model": _model})
                     st.markdown("---")
 
