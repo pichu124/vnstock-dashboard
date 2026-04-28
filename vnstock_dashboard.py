@@ -54,13 +54,22 @@ try:
         is_futures,
     )
     WSS_AVAILABLE = True
-except ImportError:
+except Exception:
     WSS_AVAILABLE = False
     VN30_SYMBOLS, INDEX_SYMBOLS, FUTURES_SYMBOLS = [], [], []
     def is_futures(ticker):  # type: ignore
         return False
     def get_all_listed_symbols():  # type: ignore
         return []
+
+# Safety net: ensure these names always exist even if the try/except above
+# was interrupted by a non-standard exception path.
+if "FUTURES_SYMBOLS" not in dir():
+    FUTURES_SYMBOLS = []  # type: ignore
+if "VN30_SYMBOLS" not in dir():
+    VN30_SYMBOLS = []  # type: ignore
+if "INDEX_SYMBOLS" not in dir():
+    INDEX_SYMBOLS = []  # type: ignore
 
 # Re-apply Golden key AFTER all vnstock imports (they can auto-register free keys)
 ensure_api_key()
