@@ -34,11 +34,21 @@ def render_market_tab() -> None:
     from datetime import datetime, timedelta
     from pathlib import Path
 
-    from vnstock_dashboard import (
-        INDEX_SYMBOLS, VN30_SYMBOLS, WSS_AVAILABLE,
-        load_index_overview, load_live_quote, load_market_overview,
-        load_price_history,
-    )
+    try:
+        from vnstock_dashboard import (
+            INDEX_SYMBOLS, VN30_SYMBOLS, WSS_AVAILABLE,
+            load_index_overview, load_live_quote, load_market_overview,
+            load_price_history,
+        )
+    except Exception:
+        # Fallback khi vnstock_wss không load được — tab vẫn render được
+        INDEX_SYMBOLS = []
+        VN30_SYMBOLS = []
+        WSS_AVAILABLE = False
+        from vnstock_dashboard import (
+            load_index_overview, load_live_quote, load_market_overview,
+            load_price_history,
+        )
 
     # ── Sparkline helpers ──────────────────────────────────────────────────
     def _sparkline_svg(values: list, width: int = 80, height: int = 28) -> str:
