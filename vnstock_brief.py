@@ -339,8 +339,71 @@ class CerebrasAgent(_OpenAICompatAgent):
     _ENV_KEY = "CEREBRAS_API_KEY"
     _ERR_PREFIX = "Cerebras API"
 
+    # Try models in order; Cerebras occasionally renames or deprecates
+    _MODEL_FALLBACKS: list[str] = [
+        "llama3.3-70b",    # Llama 3.3 70B (preferred, no dash)
+        "llama-3.3-70b",   # Legacy alias with dash
+        "llama3.1-70b",    # Llama 3.1 70B (always available)
+        "llama3.1-8b",     # Smallest, fastest fallback
+    ]
+
     def __init__(self, model: str = "llama3.3-70b", name: str = "Cerebras Llama-3.3-70B"):
         super().__init__(model, name)
+
+    def generate(self, prompt: str, max_tokens: int = 1200) -> tuple[str, str | None]:
+        api_key = (os.environ.get(self._ENV_KEY) or "").strip()
+        if not api_key:
+            return "", f"{self._ENV_KEY} chưa được thiết lập trong .env"
+        sys_end = prompt.find("\n\nDữ liệu thị trường")
+        system_part = prompt[:sys_end].strip() if sys_end > 0 else _SYSTEM
+        user_part = prompt[sys_end:].strip() if sys_end > 0 else prompt
+
+        candidates: list[str] = [self.model]
+        for fb in self._MODEL_FALLBACKS:
+            if fb != self.model and fb not in candidates:
+                candidates.append(fb)
+
+        import requests as _req
+        last_err = ""
+        last_detail = ""
+        for idx, model in enumerate(candidates):
+            resp = None
+            try:
+                resp = _req.post(
+                    self._ENDPOINT,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {api_key}",
+                    },
+                    json={
+                        "model": model,
+                        "max_tokens": max_tokens,
+                        "messages": [
+                            {"role": "system", "content": system_part},
+                            {"role": "user", "content": user_part},
+                        ],
+                    },
+                    timeout=90,
+                )
+                resp.raise_for_status()
+                content = resp.json()["choices"][0]["message"]["content"]
+                if idx > 0:
+                    content = f"_(fallback: {model})_\n\n{content}"
+                return content, None
+            except Exception as e:
+                detail = ""
+                if resp is not None:
+                    try:
+                        detail = " | " + str(resp.json())[:300]
+                    except Exception:
+                        pass
+                last_err = f"{type(e).__name__}: {str(e)[:200]}"
+                last_detail = detail
+                status = getattr(resp, "status_code", None)
+                # Only fallback on model-not-found (404) or server errors
+                if status not in (404, 429, 502, 503, 504):
+                    break
+        return "", f"{self._ERR_PREFIX} lỗi: {last_err}{last_detail}"
 
 
 class OpenRouterAgent(_OpenAICompatAgent):
@@ -350,14 +413,15 @@ class OpenRouterAgent(_OpenAICompatAgent):
     _ENV_KEY = "OPENROUTER_API_KEY"
     _ERR_PREFIX = "OpenRouter API"
 
-    # Free fallback models tried in order when the primary model is rate-limited
+    # Free fallback models tried in order when the primary model is rate-limited.
+    # Slugs verified against openrouter.ai/models (filter: free).
     _FREE_FALLBACKS: list[str] = [
         "meta-llama/llama-3.3-70b-instruct:free",
-        "deepseek/deepseek-chat-v3-0324:free",
-        "google/gemini-2.0-flash-exp:free",
-        "qwen/qwen-2.5-72b-instruct:free",
-        "mistralai/mistral-small-3.1-24b-instruct:free",
-        "meta-llama/llama-3.2-3b-instruct:free",
+        "deepseek/deepseek-r1:free",
+        "google/gemma-2-9b-it:free",
+        "qwen/qwen-2.5-7b-instruct:free",
+        "mistralai/mistral-7b-instruct:free",
+        "meta-llama/llama-3.1-8b-instruct:free",
     ]
 
     def __init__(
