@@ -1421,6 +1421,25 @@ def analyze_ticker_consensus(
         if tp and sl and entry and abs(entry - sl) > 0:
             rr = f"{abs((tp - entry) / (entry - sl)):.1f}"
 
+        # Fetch news context for the ticker (same as analyze_ticker)
+        _news_section_c = ""
+        try:
+            from vnstock_news import news_for_ticker as _nft_c
+            _ticker_news_c = _nft_c(ticker)
+            if _ticker_news_c:
+                _lines_c = ["\n=== TIN TỨC GẦN ĐÂY ==="]
+                for _n in _ticker_news_c[:5]:
+                    _title_c   = (_n.get("news_title") or "").strip()
+                    _summary_c = (_n.get("news_short_content") or _n.get("news_sub_title") or "").strip()
+                    _date_c    = _n.get("_date_sort", "")[:10]
+                    if _title_c:
+                        _lines_c.append(f"• [{_date_c}] {_title_c}")
+                        if _summary_c:
+                            _lines_c.append(f"  {_summary_c[:200]}")
+                _news_section_c = "\n".join(_lines_c) + "\n"
+        except Exception:
+            pass
+
         analysis_prompt = _TICKER_ANALYSIS_PROMPT.format(
             ticker=ticker,
             date=_date_cls.today().isoformat(),
@@ -1434,6 +1453,7 @@ def analyze_ticker_consensus(
             entry_str=f"{entry:,.0f} VND" if entry else "—",
             tp_str=tp_str, tp_pct=tp_pct,
             sl_str=sl_str, sl_pct=sl_pct, rr=rr,
+            news_block=_news_section_c,
         )
         text, err = lead.generate(analysis_prompt, max_tokens=500)
         explanation = text or (f"Lỗi AI: {err}" if err else "")
