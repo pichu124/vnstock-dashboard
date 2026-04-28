@@ -1388,11 +1388,15 @@ def render_market_tab() -> None:
                         st.success("Đã lưu cài đặt agent!")
 
                 st.caption(
-                    "API key đặt trong file `.env`: "
+                    "API key đặt trong file `.env` ở thư mục gốc dự án:  \n"
                     "`ANTHROPIC_API_KEY` (Claude) · "
                     "`OPENAI_API_KEY` (OpenAI) · "
                     "`GROQ_API_KEY` (Groq) · "
-                    "`MISTRAL_API_KEY` (Mistral)"
+                    "`MISTRAL_API_KEY` (Mistral) · "
+                    "`DEEPSEEK_API_KEY` (DeepSeek) · "
+                    "`CEREBRAS_API_KEY` (Cerebras) · "
+                    "`OPENROUTER_API_KEY` (OpenRouter)  \n"
+                    "Sau khi điền key → restart Streamlit → quay lại đây bật ✅ agent tương ứng."
                 )
 
             # ── Brief controls ─────────────────────────────────────────────
