@@ -350,12 +350,44 @@ class OpenRouterAgent(_OpenAICompatAgent):
     _ENV_KEY = "OPENROUTER_API_KEY"
     _ERR_PREFIX = "OpenRouter API"
 
+    # Free fallback models tried in order when the primary model is rate-limited
+    _FREE_FALLBACKS: list[str] = [
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "deepseek/deepseek-chat-v3-0324:free",
+        "google/gemini-2.0-flash-exp:free",
+        "qwen/qwen-2.5-72b-instruct:free",
+        "mistralai/mistral-small-3.1-24b-instruct:free",
+        "meta-llama/llama-3.2-3b-instruct:free",
+    ]
+
     def __init__(
         self,
         model: str = "meta-llama/llama-3.3-70b-instruct:free",
         name: str = "OpenRouter Llama-3.3-70B",
     ):
         super().__init__(model, name)
+
+    def _post_one(self, model: str, system_part: str, user_part: str,
+                  api_key: str, max_tokens: int):
+        import requests as _req
+        return _req.post(
+            self._ENDPOINT,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+                "HTTP-Referer": "https://github.com/pichu124/vnstock-dashboard",
+                "X-Title": "VNStock Dashboard",
+            },
+            json={
+                "model": model,
+                "max_tokens": max_tokens,
+                "messages": [
+                    {"role": "system", "content": system_part},
+                    {"role": "user", "content": user_part},
+                ],
+            },
+            timeout=90,
+        )
 
     def generate(self, prompt: str, max_tokens: int = 1200) -> tuple[str, str | None]:
         api_key = (os.environ.get(self._ENV_KEY) or "").strip()
@@ -364,35 +396,38 @@ class OpenRouterAgent(_OpenAICompatAgent):
         sys_end = prompt.find("\n\nDữ liệu thị trường")
         system_part = prompt[:sys_end].strip() if sys_end > 0 else _SYSTEM
         user_part = prompt[sys_end:].strip() if sys_end > 0 else prompt
-        try:
-            import requests as _req
-            resp = _req.post(
-                self._ENDPOINT,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {api_key}",
-                    "HTTP-Referer": "https://github.com/pichu124/vnstock-dashboard",
-                    "X-Title": "VNStock Dashboard",
-                },
-                json={
-                    "model": self.model,
-                    "max_tokens": max_tokens,
-                    "messages": [
-                        {"role": "system", "content": system_part},
-                        {"role": "user", "content": user_part},
-                    ],
-                },
-                timeout=90,
-            )
-            resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"], None
-        except Exception as e:
-            detail = ""
+
+        # Try the configured model first, then free fallbacks if rate-limited
+        candidates: list[str] = [self.model]
+        for fb in self._FREE_FALLBACKS:
+            if fb != self.model and fb not in candidates:
+                candidates.append(fb)
+
+        last_err = ""
+        last_detail = ""
+        for idx, model in enumerate(candidates):
+            resp = None
             try:
-                detail = " | " + str(resp.json())[:300]
-            except Exception:
-                pass
-            return "", f"{self._ERR_PREFIX} lỗi: {type(e).__name__}: {str(e)[:200]}{detail}"
+                resp = self._post_one(model, system_part, user_part, api_key, max_tokens)
+                resp.raise_for_status()
+                content = resp.json()["choices"][0]["message"]["content"]
+                if idx > 0:
+                    content = f"_(fallback: {model})_\n\n{content}"
+                return content, None
+            except Exception as e:
+                detail = ""
+                if resp is not None:
+                    try:
+                        detail = " | " + str(resp.json())[:300]
+                    except Exception:
+                        pass
+                last_err = f"{type(e).__name__}: {str(e)[:200]}"
+                last_detail = detail
+                # Only fall back on rate-limit / availability errors
+                status = getattr(resp, "status_code", None)
+                if status not in (429, 502, 503, 504):
+                    break
+        return "", f"{self._ERR_PREFIX} lỗi: {last_err}{last_detail}"
 
 
 # ── Agent registry ─────────────────────────────────────────────────────────
@@ -407,9 +442,17 @@ AGENT_REGISTRY: dict[str, type[BriefAgent]] = {
 }
 
 
+# Obsolete model names → current model names (auto-migrate on load)
+_MODEL_MIGRATIONS: dict[tuple[str, str], str] = {
+    # Cerebras renamed Llama from "llama-3.3-70b" (with dash) to "llama3.3-70b"
+    ("cerebras", "llama-3.3-70b"): "llama3.3-70b",
+}
+
+
 # ── Config helpers ─────────────────────────────────────────────────────────
 def load_agent_configs() -> list[dict]:
-    """Load agent configs from JSON, merging in any new providers from defaults."""
+    """Load agent configs from JSON, merging in any new providers from defaults
+    and migrating obsolete model names."""
     saved: list[dict] = []
     if AGENTS_CONFIG_PATH.exists():
         try:
@@ -420,12 +463,27 @@ def load_agent_configs() -> list[dict]:
     if not saved:
         return [c.copy() for c in _DEFAULT_AGENT_CONFIGS]
 
+    # Auto-migrate obsolete model names so users don't get stuck on 404s
+    changed = False
+    for cfg in saved:
+        key = (cfg.get("type"), cfg.get("model"))
+        if key in _MODEL_MIGRATIONS:
+            cfg["model"] = _MODEL_MIGRATIONS[key]
+            changed = True
+
     # Merge: add any provider types from defaults that are absent in saved file
     saved_types = {c.get("type") for c in saved}
     merged = list(saved)
     for default in _DEFAULT_AGENT_CONFIGS:
         if default.get("type") not in saved_types:
             merged.append(default.copy())
+            changed = True
+
+    if changed:
+        try:
+            save_agent_configs(merged)
+        except Exception:
+            pass
     return merged
 
 
