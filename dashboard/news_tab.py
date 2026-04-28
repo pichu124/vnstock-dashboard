@@ -29,15 +29,27 @@ def _fmt_age(date_str: str) -> str:
     return f"{delta.days} ngày trước"
 
 
+def _pick(item: dict, *keys: str, default: str = "") -> str:
+    """Return first non-empty value among the given keys."""
+    for k in keys:
+        v = item.get(k)
+        if v and str(v).strip() not in ("", "None", "nan"):
+            return str(v).strip()
+    return default
+
+
 def _news_card(item: dict, idx: int) -> None:
     """Render a single news card."""
     ticker   = item.get("ticker", "")
-    title    = item.get("news_title", "").strip()
-    subtitle = (item.get("news_sub_title") or "").strip()
-    short    = (item.get("news_short_content") or subtitle or "").strip()
-    full     = (item.get("news_full_content") or "").strip()
-    link     = item.get("news_source_link", "")
-    pub_date = item.get("public_date") or item.get("created_at") or ""
+    # Support both VCI column names (news_title) and alternate naming conventions
+    title    = _pick(item, "news_title", "title", "newsTitle", "headline", "name")
+    subtitle = _pick(item, "news_sub_title", "sub_title", "newsSubTitle", "subtitle")
+    short    = _pick(item, "news_short_content", "short_content", "description",
+                     "summary", "newsShortContent") or subtitle
+    full     = _pick(item, "news_full_content", "full_content", "content",
+                     "newsFullContent", "body")
+    link     = _pick(item, "news_source_link", "source_link", "url", "link", "href")
+    pub_date = item.get("public_date") or item.get("created_at") or item.get("date") or ""
     age      = _fmt_age(pub_date)
 
     if not title:
@@ -179,10 +191,25 @@ def render_news_tab() -> None:
         q = search_q.lower()
         filtered = [
             n for n in filtered
-            if q in (n.get("news_title") or "").lower()
-            or q in (n.get("news_short_content") or "").lower()
+            if q in _pick(n, "news_title", "title", "newsTitle", "headline").lower()
+            or q in _pick(n, "news_short_content", "short_content", "description", "summary").lower()
             or q in (n.get("ticker") or "").lower()
         ]
+
+    # ── Debug: show raw keys if nothing renders (helps diagnose column-name mismatches)
+    _n_renderable = sum(
+        1 for n in filtered[:page_size]
+        if _pick(n, "news_title", "title", "newsTitle", "headline", "name")
+    )
+    if filtered and _n_renderable == 0:
+        with st.expander("⚠️ Không hiển thị được tin — xem cấu trúc dữ liệu", expanded=True):
+            st.warning(
+                "Tất cả items đều thiếu trường tiêu đề. "
+                "Hãy **Cập nhật tin tức** lại để refresh cache."
+            )
+            st.caption("Keys của item đầu tiên:")
+            st.json(dict(list(filtered[0].items())[:20]))
+        return
 
     st.caption(f"Hiển thị **{min(len(filtered), page_size)}** / **{len(filtered)}** tin")
 
