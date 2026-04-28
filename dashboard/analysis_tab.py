@@ -36,7 +36,7 @@ def render_analysis_tab() -> None:
     from pathlib import Path
 
     from vnstock_dashboard import (
-        FUTURES_SYMBOLS, INDEX_SYMBOLS, WSS_AVAILABLE,
+        WSS_AVAILABLE,
         _get_wss_singleton, _merge_live_quote, _normalize_live_price,
         check_and_fire_alerts, fetch_volume_profile_direct, fmt_pct,
         get_all_listed_symbols, get_all_tickers, get_tech_signals,
@@ -50,6 +50,11 @@ def render_analysis_tab() -> None:
         resample_ohlcv, save_alerts,
         data,
     )
+    try:
+        from vnstock_dashboard import FUTURES_SYMBOLS, INDEX_SYMBOLS
+    except ImportError:
+        FUTURES_SYMBOLS = ["VN30F1M", "VN30F2M"]
+        INDEX_SYMBOLS = ["VNINDEX", "VN30", "HNX30"]
 
     # Controls cho tab phân tích
     with st.sidebar:
