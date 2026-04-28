@@ -417,19 +417,12 @@ class OpenRouterAgent(_OpenAICompatAgent):
     """OpenRouter — single key to access 100+ models, several free tiers."""
     agent_type = "openrouter"
     _ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
+    _MODELS_ENDPOINT = "https://openrouter.ai/api/v1/models"
     _ENV_KEY = "OPENROUTER_API_KEY"
     _ERR_PREFIX = "OpenRouter API"
 
-    # Free fallback models tried in order when the primary model is rate-limited.
-    # Slugs verified against openrouter.ai/models (filter: free).
-    _FREE_FALLBACKS: list[str] = [
-        "meta-llama/llama-3.3-70b-instruct:free",
-        "deepseek/deepseek-r1:free",
-        "google/gemma-2-9b-it:free",
-        "qwen/qwen-2.5-7b-instruct:free",
-        "mistralai/mistral-7b-instruct:free",
-        "meta-llama/llama-3.1-8b-instruct:free",
-    ]
+    # Process-level cache of free model slugs fetched from /api/v1/models
+    _free_model_cache: list[str] = []
 
     def __init__(
         self,
@@ -437,6 +430,28 @@ class OpenRouterAgent(_OpenAICompatAgent):
         name: str = "OpenRouter Llama-3.3-70B",
     ):
         super().__init__(model, name)
+
+    @classmethod
+    def _fetch_free_models(cls, api_key: str) -> list[str]:
+        """Fetch available free model slugs from OpenRouter /api/v1/models."""
+        if cls._free_model_cache:
+            return cls._free_model_cache
+        try:
+            import requests as _req
+            resp = _req.get(
+                cls._MODELS_ENDPOINT,
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            models = resp.json().get("data", [])
+            free = [m["id"] for m in models if str(m.get("id", "")).endswith(":free")]
+            # Prefer larger (70b) models first, then smaller ones
+            free.sort(key=lambda x: ("70b" not in x, "8b" not in x, x))
+            cls._free_model_cache = free
+            return free
+        except Exception:
+            return []
 
     def _post_one(self, model: str, system_part: str, user_part: str,
                   api_key: str, max_tokens: int):
@@ -468,11 +483,14 @@ class OpenRouterAgent(_OpenAICompatAgent):
         system_part = prompt[:sys_end].strip() if sys_end > 0 else _SYSTEM
         user_part = prompt[sys_end:].strip() if sys_end > 0 else prompt
 
-        # Try the configured model first, then free fallbacks if rate-limited
+        # Build candidate list: configured model first, then all available free
+        # models fetched dynamically from OpenRouter so slugs are always valid
+        free_models = self._fetch_free_models(api_key)
         candidates: list[str] = [self.model]
-        for fb in self._FREE_FALLBACKS:
-            if fb != self.model and fb not in candidates:
-                candidates.append(fb)
+        for m in free_models:
+            if m != self.model and m not in candidates:
+                candidates.append(m)
+        candidates = candidates[:12]  # cap to avoid burning too many API calls
 
         last_err = ""
         last_detail = ""
@@ -489,12 +507,11 @@ class OpenRouterAgent(_OpenAICompatAgent):
                 detail = ""
                 if resp is not None:
                     try:
-                        detail = " | " + str(resp.json())[:300]
+                        detail = " | " + str(resp.json())[:200]
                     except Exception:
                         pass
                 last_err = f"{type(e).__name__}: {str(e)[:200]}"
                 last_detail = detail
-                # Fall back on rate-limit, model-not-found, or server errors
                 status = getattr(resp, "status_code", None)
                 if status not in (404, 429, 502, 503, 504):
                     break
