@@ -49,31 +49,16 @@ nhưng user chưa test lại.
 - Nếu `_fetch_free_models` trả về list rỗng → /api/v1/models call thất bại
 - Thử nút "🔌 Test" trong ⚙️ Cài đặt AI Agent để kiểm tra nhanh
 
-### 3. Tách nút Quét tín hiệu + Mở rộng training universe (TODO — tối 2026-04-28)
+### 3. ✅ Tách nút Quét tín hiệu + Dynamic training universe (DONE 2026-04-28)
 
-**Status**: Đã thảo luận, CHƯA implement. Cần làm tối nay.
+**Commit**: `8485962`
 
-**Công việc 1 — Tách nút Scan ra riêng (`dashboard/market_tab.py`)**:
-- Xoá `emit_recommendations` ra khỏi `_run_training()` (cả Lite lẫn Full)
-- Thêm nút riêng **"🔍 Quét tín hiệu toàn thị trường"** gọi:
-  ```python
-  universe = _scan_universe()
-  recs = emit_recommendations(universe, max_recs=5)
-  ```
-- Hiển thị kết quả: "Đã quét X mã → Y khuyến nghị mới"
-- Lý do: train 1 lần/ngày, quét có thể chạy sáng + chiều độc lập
-
-**Công việc 2 — Stratified training universe (`vnstock_train.py`)**:
-- Thêm `_VNMID_SAMPLE` — ~15 mã VNMID đại diện (mid-cap, thanh khoản khác VN30):
-  ```python
-  _VNMID_SAMPLE = ["PNJ","DGC","GMD","NLG","VHC","HSG","DPM","VIX",
-                   "KDC","GEX","PHR","TCH","HAH","SCS","VGC"]
-  ```
-- Cập nhật `_training_universe()`:
-  - `lite=True`  → 10 VN30 diverse + 5 VNMID = 15 mã
-  - `lite=False` → VN30 đủ 30 + 15 VNMID = ~45 mã
-- Thử `symbols_by_group('VNMID')` live trước khi dùng hardcoded
-- Lý do: VN30 toàn bluechip/ngân hàng lớn — chiến lược học không khái quát được mid-cap
+- Nút "🔍 Quét tín hiệu toàn thị trường" tách biệt khỏi training buttons
+- `emit_recommendations()` lọc vol ≥ 100K cổ/ngày (30-day avg)
+- `_training_universe()` dynamic: live API → warehouse filter → volume rank
+  - Lite: sector-stratified top-10 VN30 + top-7 VNMID = ~17 mã
+  - Full: VN30 đủ + top-20 VNMID = ~50 mã
+- `_sector_stratified()`: max 3 bank slots, 1 slot/ngành khác — không bao giờ cluster ngân hàng
 
 ---
 
