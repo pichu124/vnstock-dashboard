@@ -99,77 +99,258 @@ def brief_loop(verbose: bool = True) -> dict:
 
 # ── Strategy loop: evolve strategies per agent ─────────────────────────────
 
-# ── Training universes ─────────────────────────────────────────────────────
+# ── Training universe — dynamic stratified selection ───────────────────────
 #
-# VN30 diverse subset — 10 mã đại diện đa ngành cho Lite training.
-# Ưu tiên chọn mã lớn nhất mỗi ngành thay vì sort alphabetical.
-_VN30_LITE: list[str] = [
-    "VCB",  # ngân hàng (vốn hoá lớn nhất)
-    "HPG",  # thép / vật liệu
-    "VHM",  # bất động sản
-    "FPT",  # công nghệ
-    "GAS",  # năng lượng / dầu khí
-    "MBB",  # ngân hàng thứ hai
-    "VNM",  # tiêu dùng thiết yếu
-    "SSI",  # chứng khoán / tài chính
-    "VIC",  # tập đoàn đa ngành
-    "MSN",  # tiêu dùng / tài nguyên
-]
+# Hardcoded lists below are FALLBACKS only — used when the vnstock API is
+# unreachable or the local price warehouse is empty.
+# At runtime, _training_universe() fetches the live VN30/VNMID composition
+# and re-ranks candidates by recent average volume, so the universe
+# automatically adapts to quarterly index reviews and liquidity shifts.
 
-# VNMID sample — 20 mã mid-cap đa ngành, thanh khoản đủ để train.
-# Không overlap với VN30 hiện tại. Ưu tiên đại diện từng ngành khác nhau.
-_VNMID_SAMPLE: list[str] = [
-    # Logistics / vận tải
-    "GMD", "HAH", "TCH",
-    # Bán lẻ / tiêu dùng
-    "PNJ", "KDC",
-    # Thực phẩm / thủy sản
-    "VHC", "ANV",
-    # Bất động sản mid-cap
-    "NLG", "DXG", "KDH",
-    # Vật liệu / thép mid
-    "HSG", "NKG",
-    # Hóa chất / phân bón / công nghiệp
-    "DGC", "DPM", "GEX",
+# Sector map for current VN30 — used for sector-stratified Lite selection.
+# Supplemented (or overridden) by industry_classification.parquet when available.
+_VN30_SECTOR_MAP: dict[str, str] = {
+    # Ngân hàng
+    "ACB": "bank", "BID": "bank", "CTG": "bank", "HDB": "bank",
+    "MBB": "bank", "SHB": "bank", "SSB": "bank", "STB": "bank",
+    "TCB": "bank", "TPB": "bank", "VCB": "bank", "VIB": "bank", "VPB": "bank",
+    # Bảo hiểm
+    "BVH": "insurance",
     # Chứng khoán
-    "VIX",
-    # Hạ tầng / tiện ích
-    "BWE", "REE",
-    # Cao su / nông nghiệp
-    "PHR",
-    # Vật liệu xây dựng
-    "VGC",
-]
+    "SSI": "securities",
+    # Bất động sản
+    "BCM": "realestate", "VHM": "realestate", "VRE": "realestate",
+    # Công nghệ
+    "FPT": "tech",
+    # Năng lượng / dầu khí
+    "GAS": "energy", "PLX": "energy", "POW": "energy",
+    # Vật liệu / thép / cao su
+    "HPG": "materials", "GVR": "materials",
+    # Tiêu dùng
+    "MSN": "consumer", "MWG": "consumer", "SAB": "consumer", "VNM": "consumer",
+    # Tập đoàn / đa ngành
+    "VIC": "conglomerate",
+    # Vận tải / dịch vụ hàng không
+    "VJC": "transport",
+}
 
-# 7-mã VNMID cho Lite — mỗi mã đại diện 1 ngành riêng
-_VNMID_LITE: list[str] = ["GMD", "PNJ", "NLG", "HSG", "VHC", "DGC", "VIX"]
+# Fallback VNMID list — 20 mã đa ngành, dùng khi API lỗi.
+# Tự động bỏ mã đã vào VN30 khi build universe.
+_VNMID_FALLBACK: list[str] = [
+    "GMD", "HAH", "TCH",        # Logistics / cảng
+    "PNJ", "KDC",               # Bán lẻ / tiêu dùng
+    "VHC", "ANV",               # Thực phẩm / thủy sản
+    "NLG", "DXG", "KDH",        # Bất động sản mid
+    "HSG", "NKG",               # Thép mid
+    "DGC", "DPM", "GEX",        # Hóa chất / công nghiệp
+    "VIX",                      # Chứng khoán
+    "BWE", "REE",               # Hạ tầng / tiện ích
+    "PHR",                      # Cao su
+    "VGC",                      # Vật liệu xây dựng
+]
+_VNMID_LITE_FALLBACK: list[str] = ["GMD", "PNJ", "NLG", "HSG", "VHC", "DGC", "VIX"]
+
+
+# ── Universe helper functions ──────────────────────────────────────────────
+
+def _fetch_group_live(group: str) -> list[str]:
+    """Fetch current index group composition from vnstock API.
+
+    Returns empty list on any error (caller should use fallback).
+    """
+    try:
+        from vnstock import Vnstock  # type: ignore
+        df = Vnstock().stock(symbol="VCB", source="VCI").listing.symbols_by_group(group)
+        if df is not None and not df.empty:
+            col = next((c for c in ("ticker", "symbol", "code") if c in df.columns), None)
+            if col:
+                tickers = [str(v).strip().upper() for v in df[col] if v]
+                if len(tickers) >= 10:
+                    return tickers
+    except Exception:
+        pass
+    return []
+
+
+def _avg_volume_30d(ticker: str) -> float:
+    """Return 30-day average daily volume from local parquet warehouse.
+
+    Reads only the 'volume' column from the most recent parquet file(s),
+    so it's fast (column projection). Returns 0.0 if data is unavailable.
+    """
+    try:
+        import pyarrow.parquet as pq
+        import pandas as pd
+        td = Path("data_warehouse/prices") / f"ticker={ticker.upper()}"
+        parquets = sorted(td.glob("**/*.parquet"))
+        if not parquets:
+            return 0.0
+        frames = []
+        # Last 2 year-files is enough to cover 30 trading days
+        for p in parquets[-2:]:
+            try:
+                frames.append(pq.read_table(str(p), columns=["volume"]).to_pandas())
+            except Exception:
+                pass
+        if not frames:
+            return 0.0
+        return float(pd.concat(frames)["volume"].tail(30).mean())
+    except Exception:
+        return 0.0
+
+
+def _rank_by_volume(tickers: list[str], n: int) -> list[str]:
+    """Return top-n tickers sorted by descending 30-day avg volume."""
+    if not tickers:
+        return []
+    scored = sorted(tickers, key=_avg_volume_30d, reverse=True)
+    return scored[:n]
+
+
+def _load_sector_map(tickers: list[str]) -> dict[str, str]:
+    """Merge hardcoded VN30 sector map with industry_classification.parquet (if exists)."""
+    sector_map: dict[str, str] = dict(_VN30_SECTOR_MAP)
+    try:
+        import pyarrow.parquet as pq
+        p = Path("data_warehouse/_meta/industry_classification.parquet")
+        if p.exists():
+            df = pq.read_table(str(p)).to_pandas()
+            # Accept common column name variants
+            tcol = next((c for c in ("ticker", "symbol", "code") if c in df.columns), None)
+            scol = next((c for c in ("sector", "industry", "icb_name2") if c in df.columns), None)
+            if tcol and scol:
+                for _, row in df.iterrows():
+                    t = str(row[tcol]).strip().upper()
+                    s = str(row[scol]).strip().lower()
+                    if t:
+                        sector_map[t] = s
+    except Exception:
+        pass
+    return sector_map
+
+
+def _sector_stratified(tickers: list[str], n: int) -> list[str]:
+    """Pick n tickers ensuring sector diversity.
+
+    Algorithm:
+      1. Group tickers by sector (via _load_sector_map).
+      2. Within each sector, prefer higher 30-day avg volume.
+      3. Banks are capped at max(1, n//3) slots to avoid cluster dominance.
+      4. Every other sector gets 1 slot minimum.
+      5. Remaining slots go to the highest-volume tickers not yet selected.
+
+    Works even with zero volume data — sector diversity is preserved by
+    the 1-per-sector rule, which is volume-independent.
+    """
+    if not tickers:
+        return []
+    if n >= len(tickers):
+        return list(tickers)
+
+    sector_map = _load_sector_map(tickers)
+
+    # Group and rank within sector by volume
+    by_sector: dict[str, list[str]] = {}
+    for t in tickers:
+        s = sector_map.get(t, "other")
+        by_sector.setdefault(s, []).append(t)
+    ranked_by_sector: dict[str, list[str]] = {
+        s: _rank_by_volume(ts, len(ts)) for s, ts in by_sector.items()
+    }
+
+    selected: list[str] = []
+    bank_cap = max(1, n // 3)  # e.g. n=10 → 3 bank slots, n=30 → 10
+
+    # Pass 1: allocate per-sector slots
+    for sector, ranked in ranked_by_sector.items():
+        cap = bank_cap if sector == "bank" else 1
+        for t in ranked[:cap]:
+            if t not in selected:
+                selected.append(t)
+        if len(selected) >= n:
+            return selected[:n]
+
+    # Pass 2: fill remaining with highest-volume across all tickers
+    all_ranked = _rank_by_volume(tickers, len(tickers))
+    for t in all_ranked:
+        if t not in selected:
+            selected.append(t)
+        if len(selected) >= n:
+            break
+
+    return selected[:n]
 
 
 def _training_universe(lite: bool = False) -> list[str]:
-    """Stratified training universe: VN30 + VNMID sample.
+    """Build a dynamic stratified training universe.
 
-    lite=True  → 10 VN30 đa ngành + 7 VNMID = 17 mã  (~60-90s)
-    lite=False → VN30 đủ 30    + 20 VNMID = ~50 mã  (~15-25 phút)
+    Sources (evaluated at call time, not at import time):
+      1. Live vnstock API → symbols_by_group('VN30' / 'VNMID')
+      2. Hardcoded fallbacks (_VNMID_FALLBACK, vnstock_brief.VN30_TICKERS)
 
-    Kết hợp VN30 (bluechip, thanh khoản cao) và VNMID (mid-cap, biến động
-    khác) giúp chiến lược học được behavior đa dạng hơn so với chỉ VN30.
+    Selection logic:
+      • VN30 Lite  : sector-stratified top-10 by volume (max 3 banks,
+                     1 slot per other sector) → diverse even without vol data
+      • VNMID Lite : top-7 by 30-day avg volume from live VNMID roster
+      • VN30 Full  : all available VN30 tickers (sorted)
+      • VNMID Full : top-20 by 30-day avg volume from live VNMID roster
+
+    Tickers in VNMID that got promoted to VN30 are automatically removed.
+    Tickers not yet in the local price warehouse are filtered out (unless
+    the warehouse is empty, in which case the full live/fallback list is used).
+
+    lite=False  →  VN30 all + VNMID top-20  ≈ 50 mã  (~15-25 phút)
+    lite=True   →  VN30 top-10 (sector) + VNMID top-7  = ~17 mã  (~60-90s)
     """
-    if lite:
-        return list(_VN30_LITE) + list(_VNMID_LITE)
-
-    # Full: VN30 đủ 30 + VNMID 20
+    # ── 1. Fetch current index compositions ────────────────────────────────
+    vn30_live = _fetch_group_live("VN30")
     try:
-        from vnstock_brief import VN30_TICKERS
-        vn30 = sorted(VN30_TICKERS)
+        from vnstock_brief import VN30_TICKERS as _vn30_fb
+        vn30_fallback = sorted(_vn30_fb)
     except Exception:
-        vn30 = ["ACB", "BCM", "BID", "BVH", "CTG", "FPT", "GAS", "GVR", "HDB", "HPG",
-                "MBB", "MSN", "MWG", "PLX", "POW", "SAB", "SHB", "SSB", "SSI", "STB",
-                "TCB", "TPB", "VCB", "VHM", "VIB", "VIC", "VJC", "VNM", "VPB", "VRE"]
-
+        vn30_fallback = sorted(_VN30_SECTOR_MAP.keys())
+    vn30 = vn30_live if vn30_live else vn30_fallback
     vn30_set = set(vn30)
-    # Drop VNMID tickers that may have been promoted into VN30
-    vnmid = [t for t in _VNMID_SAMPLE if t not in vn30_set]
-    return vn30 + vnmid
+
+    vnmid_live = _fetch_group_live("VNMID")
+    vnmid_candidates = [
+        t for t in (vnmid_live if vnmid_live else _VNMID_FALLBACK)
+        if t not in vn30_set
+    ]
+
+    # ── 2. Filter to tickers available in warehouse ────────────────────────
+    warehouse = set(_scan_universe())
+    # When warehouse is empty, skip filtering (use full live/fallback list)
+    if warehouse:
+        vn30_avail  = [t for t in vn30            if t in warehouse]
+        vnmid_avail = [t for t in vnmid_candidates if t in warehouse]
+    else:
+        vn30_avail  = []   # triggers fallback to full live list below
+        vnmid_avail = []
+
+    # ── 3. Select subset ───────────────────────────────────────────────────
+    if lite:
+        # VN30: sector-stratified top-10 (adapts to volume changes + index changes)
+        vn30_pool = vn30_avail if vn30_avail else vn30
+        vn30_sel  = _sector_stratified(vn30_pool, n=10)
+
+        # VNMID: top-7 by volume; fallback to hardcoded if no warehouse data
+        vnmid_sel = (_rank_by_volume(vnmid_avail, n=7)
+                     if vnmid_avail else list(_VNMID_LITE_FALLBACK))
+
+        selected = vn30_sel + [t for t in vnmid_sel if t not in set(vn30_sel)]
+
+    else:
+        # Full VN30
+        vn30_sel = vn30_avail if vn30_avail else vn30
+
+        # VNMID top-20 by volume; fallback to hardcoded
+        vnmid_sel = (_rank_by_volume(vnmid_avail, n=20)
+                     if vnmid_avail else [t for t in _VNMID_FALLBACK if t not in vn30_set])
+
+        selected = list(vn30_sel) + [t for t in vnmid_sel if t not in vn30_set]
+
+    return selected
 
 
 def _scan_universe() -> list[str]:
@@ -177,17 +358,17 @@ def _scan_universe() -> list[str]:
 
     Used by emit_recommendations() to scan the broadest possible set of stocks.
     Tickers with insufficient history (<60 bars) are silently skipped by the caller.
-    Falls back to _training_universe() if the warehouse is empty.
+    Returns [] when the warehouse is empty (no circular fallback to _training_universe).
     """
     prices_dir = Path("data_warehouse/prices")
     if not prices_dir.exists():
-        return _training_universe(lite=False)
+        return []
     tickers = sorted(
         d.name.split("=", 1)[-1].upper()
         for d in prices_dir.glob("ticker=*")
         if "=" in d.name and d.is_dir()
     )
-    return tickers if tickers else _training_universe(lite=False)
+    return tickers
 
 
 def _get_universe(top_n: int = 30) -> list[str]:
