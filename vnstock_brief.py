@@ -124,6 +124,7 @@ Viết MORNING BRIEF tiếng Việt theo đúng format sau (không thêm phần 
 
 ## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)
 [Liệt kê tối đa 3 mã từ block "Khuyến nghị từ chiến lược đã backtest" với entry/TP/SL; bỏ qua nếu không có]
+BẮT BUỘC: Nếu quyết định mua/bán bị ảnh hưởng bởi tin tức trong block "Tin tức thị trường", PHẢI nêu rõ tên tiêu đề tin và giải thích tác động (ví dụ: "HPG: MUA — kỹ thuật vượt MA20 + tin tức [Hòa Phát ký hợp đồng thép 5.000 tỷ] hỗ trợ đà tăng"). Nếu không có tin tức liên quan thì chỉ dựa vào kỹ thuật.
 
 ## 🔧 Đề xuất bổ sung (1 dòng, optional)
 [1 dữ liệu/chỉ số bạn nghĩ cần thêm để brief sau chính xác hơn — ví dụ "cần GTGD bid/ask theo phút" — bỏ qua nếu không cần]
@@ -165,6 +166,7 @@ Viết AFTERNOON BRIEF tiếng Việt theo đúng format sau (không thêm phầ
 
 ## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)
 [Liệt kê tối đa 3 mã từ block "Khuyến nghị từ chiến lược đã backtest" với entry/TP/SL; bỏ qua nếu không có]
+BẮT BUỘC: Nếu quyết định mua/bán bị ảnh hưởng bởi tin tức trong block "Tin tức thị trường", PHẢI nêu rõ tên tiêu đề tin và giải thích tác động. Nếu không có tin tức liên quan thì chỉ dựa vào kỹ thuật.
 
 ## 🔧 Đề xuất bổ sung (1 dòng, optional)
 [1 dữ liệu/chỉ số cần thêm để brief sau chính xác hơn — bỏ qua nếu không cần]

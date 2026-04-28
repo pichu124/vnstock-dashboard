@@ -1095,7 +1095,7 @@ Entry gợi ý  : {entry_str}
 Take Profit  : {tp_str} ({tp_pct})
 Cut Loss     : {sl_str} ({sl_pct})
 Risk/Reward  : 1:{rr}
-
+{news_block}
 Viết khuyến nghị đầu tư CHI TIẾT bằng tiếng Việt theo đúng cấu trúc (dùng **bold** cho tiêu đề):
 
 **Quyết định:** MUA / BÁN / KHÔNG GIAO DỊCH — nêu mức giá cụ thể.
@@ -1107,6 +1107,8 @@ Viết khuyến nghị đầu tư CHI TIẾT bằng tiếng Việt theo đúng c
 **Giá cắt lỗ (Cut Loss):** Giá cụ thể, lý do (phá hỗ trợ, invalidation level…).
 
 **Lý do kỹ thuật:** 2-3 câu phân tích dựa trên RSI, MA, volume, xu hướng ở trên.
+
+**Tin tức ảnh hưởng:** Nếu có tin tức liên quan trong phần "TIN TỨC" ở trên thì BẮT BUỘC nêu tên tiêu đề tin và giải thích tác động cụ thể (hỗ trợ/cản trở quyết định mua/bán như thế nào). Nếu không có tin tức thì ghi "Không có tin tức mới".
 
 **Rủi ro cần lưu ý:** 1-2 điều kiện cụ thể khiến phải thay đổi quyết định.
 
@@ -1224,6 +1226,25 @@ def analyze_ticker(
     vs_ma20_desc = "trên" if vs_ma20_pct >= 0 else "dưới"
     action_upper = {"buy": "MUA 🟢", "sell": "BÁN 🔴"}.get(action, "KHÔNG GIAO DỊCH 🟡")
 
+    # Fetch per-ticker news context (best-effort, silent on failure)
+    _news_section = ""
+    try:
+        from vnstock_news import news_for_ticker as _nft
+        _ticker_news = _nft(ticker)
+        if _ticker_news:
+            _lines = ["\n=== TIN TỨC GẦN ĐÂY ==="]
+            for _n in _ticker_news[:5]:
+                _title   = (_n.get("news_title") or "").strip()
+                _summary = (_n.get("news_short_content") or _n.get("news_sub_title") or "").strip()
+                _date_s  = _n.get("_date_sort", "")[:10]
+                if _title:
+                    _lines.append(f"• [{_date_s}] {_title}")
+                    if _summary:
+                        _lines.append(f"  {_summary[:200]}")
+            _news_section = "\n".join(_lines) + "\n"
+    except Exception:
+        pass
+
     prompt = _TICKER_ANALYSIS_PROMPT.format(
         ticker=ticker,
         date=_date_cls.today().isoformat(),
@@ -1238,6 +1259,7 @@ def analyze_ticker(
         entry_str=f"{entry:,.0f} VND" if entry else "—",
         tp_str=tp_str, tp_pct=tp_pct,
         sl_str=sl_str, sl_pct=sl_pct, rr=rr,
+        news_block=_news_section,
     )
 
     explanation = ""
