@@ -1702,16 +1702,16 @@ def render_market_tab() -> None:
                             with st.spinner("⏳ Đang chạy full training… 15-25 phút"):
                                 _run_training(lite=False, mode="auto")
 
-                    # Fresh start button — shown prominently when 0 trades
+                    # Fresh start button — shown when strategy hasn't reached validation threshold
                     _cur_nt = 0
                     if _active:
                         _fh = _vm.family_history(_active.get("family_id", ""), limit=1)
                         _cur_nt = (_fh[0].get("n_trades") or 0) if _fh else 0
-                    if _cur_nt == 0:
+                    if _cur_nt < 10:
                         if st.button("🔄 Fresh start (generate chiến lược mới hoàn toàn)",
                                      key="_train_fresh",
-                                     help="Xoá strategy hiện tại, generate code hoàn toàn mới. "
-                                          "Dùng khi strategy 0 trades hoặc logic sai."):
+                                     help="Generate code chiến lược hoàn toàn mới. "
+                                          "Dùng khi strategy < 10 trades hoặc logic sai."):
                             st.session_state["_train_result"] = None
                             with st.spinner("⏳ Đang generate chiến lược mới… (15-30s API call)"):
                                 _run_training(lite=True, mode="fresh")
