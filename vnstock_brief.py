@@ -67,6 +67,27 @@ _DEFAULT_AGENT_CONFIGS: list[dict] = [
         "enabled": False,
         "max_tokens": 1200,
     },
+    {
+        "type": "deepseek",
+        "model": "deepseek-chat",
+        "name": "DeepSeek Chat",
+        "enabled": False,
+        "max_tokens": 1200,
+    },
+    {
+        "type": "cerebras",
+        "model": "llama-3.3-70b",
+        "name": "Cerebras Llama-3.3-70B",
+        "enabled": False,
+        "max_tokens": 1200,
+    },
+    {
+        "type": "openrouter",
+        "model": "meta-llama/llama-3.3-70b-instruct:free",
+        "name": "OpenRouter Llama-3.3-70B",
+        "enabled": False,
+        "max_tokens": 1200,
+    },
 ]
 
 # ── Prompt templates ───────────────────────────────────────────────────────
@@ -295,13 +316,84 @@ class MistralAgent(_OpenAICompatAgent):
         super().__init__(model, name)
 
 
+class DeepSeekAgent(_OpenAICompatAgent):
+    """DeepSeek — excellent code generation, very cheap pricing."""
+    agent_type = "deepseek"
+    _ENDPOINT = "https://api.deepseek.com/v1/chat/completions"
+    _ENV_KEY = "DEEPSEEK_API_KEY"
+    _ERR_PREFIX = "DeepSeek API"
+
+    def __init__(self, model: str = "deepseek-chat", name: str = "DeepSeek Chat"):
+        super().__init__(model, name)
+
+
+class CerebrasAgent(_OpenAICompatAgent):
+    """Cerebras Cloud — ultra-fast inference (2000+ tok/s), Llama models."""
+    agent_type = "cerebras"
+    _ENDPOINT = "https://api.cerebras.ai/v1/chat/completions"
+    _ENV_KEY = "CEREBRAS_API_KEY"
+    _ERR_PREFIX = "Cerebras API"
+
+    def __init__(self, model: str = "llama-3.3-70b", name: str = "Cerebras Llama-3.3-70B"):
+        super().__init__(model, name)
+
+
+class OpenRouterAgent(_OpenAICompatAgent):
+    """OpenRouter — single key to access 100+ models, several free tiers."""
+    agent_type = "openrouter"
+    _ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
+    _ENV_KEY = "OPENROUTER_API_KEY"
+    _ERR_PREFIX = "OpenRouter API"
+
+    def __init__(
+        self,
+        model: str = "meta-llama/llama-3.3-70b-instruct:free",
+        name: str = "OpenRouter Llama-3.3-70B",
+    ):
+        super().__init__(model, name)
+
+    def generate(self, prompt: str, max_tokens: int = 1200) -> tuple[str, str | None]:
+        api_key = os.environ.get(self._ENV_KEY, "")
+        if not api_key:
+            return "", f"{self._ENV_KEY} chưa được thiết lập trong .env"
+        sys_end = prompt.find("\n\nDữ liệu thị trường")
+        system_part = prompt[:sys_end].strip() if sys_end > 0 else _SYSTEM
+        user_part = prompt[sys_end:].strip() if sys_end > 0 else prompt
+        try:
+            import requests as _req
+            resp = _req.post(
+                self._ENDPOINT,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}",
+                    "HTTP-Referer": "https://github.com/pichu124/vnstock-dashboard",
+                    "X-Title": "VNStock Dashboard",
+                },
+                json={
+                    "model": self.model,
+                    "max_tokens": max_tokens,
+                    "messages": [
+                        {"role": "system", "content": system_part},
+                        {"role": "user", "content": user_part},
+                    ],
+                },
+                timeout=90,
+            )
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"], None
+        except Exception as e:
+            return "", f"{self._ERR_PREFIX} lỗi: {type(e).__name__}: {str(e)[:160]}"
+
+
 # ── Agent registry ─────────────────────────────────────────────────────────
 AGENT_REGISTRY: dict[str, type[BriefAgent]] = {
     "claude": ClaudeAgent,
     "openai": OpenAIAgent,
     "groq": GroqAgent,
     "mistral": MistralAgent,
-    # Add new providers here: "gemini": GeminiAgent, etc.
+    "deepseek": DeepSeekAgent,
+    "cerebras": CerebrasAgent,
+    "openrouter": OpenRouterAgent,
 }
 
 
