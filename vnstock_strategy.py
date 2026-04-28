@@ -945,3 +945,190 @@ def emit_recommendations(
         if len(recs) >= max_recs:
             break
     return recs
+
+
+# ── Per-ticker AI recommendation ───────────────────────────────────────────
+_TICKER_ANALYSIS_PROMPT = """\
+Bạn là chuyên gia phân tích kỹ thuật cổ phiếu Việt Nam.
+
+Ticker: {ticker} — Ngày phân tích: {date}
+
+=== DỮ LIỆU KỸ THUẬT ===
+Giá hiện tại : {close:>12,.0f} VND
+RSI(14)      : {rsi:>10.1f}  ({rsi_desc})
+MA20         : {ma20:>12,.0f} VND  | Giá đang {vs_ma20_desc} MA20 ({vs_ma20_pct:+.1f}%)
+Volume/TB20  : {vol_ratio:>10.1f}x
+Xu hướng 5N  : {trend_5d:>10.1f}%
+52W High/Low : {high_52w:,.0f} / {low_52w:,.0f} VND
+
+=== TÍN HIỆU TỪ AI STRATEGY ===
+Chiến lược   : {strategy_name}
+Hành động    : {action_upper}
+Confidence   : {confidence:.0%}
+Entry gợi ý  : {entry_str}
+Take Profit  : {tp_str} ({tp_pct})
+Cut Loss     : {sl_str} ({sl_pct})
+Risk/Reward  : 1:{rr}
+
+Viết khuyến nghị đầu tư CHI TIẾT bằng tiếng Việt theo đúng cấu trúc (dùng **bold** cho tiêu đề):
+
+**Quyết định:** MUA / BÁN / KHÔNG GIAO DỊCH — nêu mức giá cụ thể.
+
+**Giá vào lệnh:** Giá cụ thể và lý do chọn mức giá này (vùng hỗ trợ, MA, Fibonacci…).
+
+**Giá chốt lời (Take Profit):** Giá cụ thể, lý do (kháng cự, mục tiêu kỹ thuật…).
+
+**Giá cắt lỗ (Cut Loss):** Giá cụ thể, lý do (phá hỗ trợ, invalidation level…).
+
+**Lý do kỹ thuật:** 2-3 câu phân tích dựa trên RSI, MA, volume, xu hướng ở trên.
+
+**Rủi ro cần lưu ý:** 1-2 điều kiện cụ thể khiến phải thay đổi quyết định.
+
+Yêu cầu: dùng số liệu cụ thể từ bảng trên, ngắn gọn súc tích, không vòng vo.
+"""
+
+
+def _ticker_indicators(df: pd.DataFrame) -> dict:
+    """Compute RSI, MA, volume ratio, trend from OHLCV df (no external deps)."""
+    close = df["close"].astype(float)
+    n = len(close)
+
+    # RSI(14) via EWM
+    rsi = 50.0
+    if n >= 15:
+        delta = close.diff(1)
+        roll_up = delta.clip(lower=0).ewm(com=13, adjust=False).mean()
+        roll_dn = (-delta).clip(lower=0).ewm(com=13, adjust=False).mean()
+        rs = roll_up / roll_dn.replace(0, float("nan"))
+        val = 100.0 - (100.0 / (1.0 + rs))
+        v = val.iloc[-1]
+        rsi = float(v) if not (math.isnan(v) if isinstance(v, float) else False) else 50.0
+
+    ma20 = float(close.rolling(20).mean().iloc[-1]) if n >= 20 else float(close.iloc[-1])
+
+    vol = df.get("volume", None) if hasattr(df, "get") else None
+    if vol is None and "volume" in df.columns:
+        vol = df["volume"].astype(float)
+    vol_ratio = 1.0
+    if vol is not None and len(vol) >= 20:
+        avg20 = float(vol.rolling(20).mean().iloc[-1]) or 1.0
+        vol_ratio = float(vol.iloc[-1]) / avg20
+
+    trend_5d = 0.0
+    if n >= 6:
+        trend_5d = (float(close.iloc[-1]) / float(close.iloc[-6]) - 1) * 100
+
+    n252 = min(n, 252)
+    return {
+        "close":    float(close.iloc[-1]),
+        "rsi":      rsi,
+        "ma20":     ma20,
+        "vol_ratio": vol_ratio,
+        "trend_5d": trend_5d,
+        "high_52w": float(close.tail(n252).max()),
+        "low_52w":  float(close.tail(n252).min()),
+    }
+
+
+def analyze_ticker(
+    agent,
+    ticker: str,
+    df: pd.DataFrame,
+) -> dict:
+    """Run active strategy signal on one ticker + generate AI explanation.
+
+    Returns dict:
+      action, entry, tp, sl, confidence, explanation,
+      strategy_name, strategy_id, indicators
+    """
+    from datetime import date as _date_cls
+
+    active = mem.get_active_family()
+    if not active:
+        return {
+            "action": "hold", "entry": None, "tp": None, "sl": None,
+            "confidence": 0,
+            "explanation": (
+                "⚠️ Chưa có chiến lược AI nào được huấn luyện. "
+                "Vào tab **Thị trường → Chiến lược & khuyến nghị** → nhấn "
+                "**Lite training** để bắt đầu."
+            ),
+            "strategy_name": None, "strategy_id": None, "indicators": {},
+        }
+
+    code = active.get("code") or ""
+    try:
+        params = json.loads(active.get("params_json") or "{}")
+    except Exception:
+        params = {}
+
+    indic = _ticker_indicators(df)
+    close = indic["close"]
+
+    # Run signal
+    sig: dict = {"action": "hold", "entry": close, "tp": None, "sl": None, "confidence": 0.0}
+    if code:
+        try:
+            raw = EXECUTOR.run(code, df.tail(120).reset_index(drop=True), params)
+            sig = _validate_signal_output(raw)
+        except Exception as exc:
+            sig["_run_error"] = str(exc)
+
+    action = sig.get("action", "hold")
+    entry  = sig.get("entry") or close
+    tp     = sig.get("tp") or None
+    sl     = sig.get("sl") or None
+    conf   = sig.get("confidence") or 0.0
+
+    def _price_str(v: Optional[float], ref: float) -> tuple[str, str]:
+        if not v or v <= 0:
+            return "—", ""
+        pct = (v / ref - 1) * 100
+        return f"{v:,.0f} VND", f"{pct:+.1f}%"
+
+    tp_str, tp_pct = _price_str(tp, entry)
+    sl_str, sl_pct = _price_str(sl, entry)
+    rr = "—"
+    if tp and sl and entry and abs(entry - sl) > 0:
+        rr = f"{abs((tp - entry) / (entry - sl)):.1f}"
+
+    rsi = indic["rsi"]
+    rsi_desc = "quá mua" if rsi > 70 else ("quá bán" if rsi < 30 else "trung tính")
+    vs_ma20_pct = (close / indic["ma20"] - 1) * 100 if indic["ma20"] else 0
+    vs_ma20_desc = "trên" if vs_ma20_pct >= 0 else "dưới"
+    action_upper = {"buy": "MUA 🟢", "sell": "BÁN 🔴"}.get(action, "KHÔNG GIAO DỊCH 🟡")
+
+    prompt = _TICKER_ANALYSIS_PROMPT.format(
+        ticker=ticker,
+        date=_date_cls.today().isoformat(),
+        close=close,
+        rsi=rsi, rsi_desc=rsi_desc,
+        ma20=indic["ma20"], vs_ma20_desc=vs_ma20_desc, vs_ma20_pct=vs_ma20_pct,
+        vol_ratio=indic["vol_ratio"],
+        trend_5d=indic["trend_5d"],
+        high_52w=indic["high_52w"], low_52w=indic["low_52w"],
+        strategy_name=active["name"],
+        action_upper=action_upper, confidence=conf,
+        entry_str=f"{entry:,.0f} VND" if entry else "—",
+        tp_str=tp_str, tp_pct=tp_pct,
+        sl_str=sl_str, sl_pct=sl_pct, rr=rr,
+    )
+
+    explanation = ""
+    if agent and getattr(agent, "is_available", False):
+        text, err = agent.generate(prompt, max_tokens=500)
+        explanation = text or (f"Lỗi AI: {err}" if err else "")
+    else:
+        explanation = "Không có AI agent khả dụng — kiểm tra API key trong `.env`."
+
+    return {
+        "action":        action,
+        "entry":         entry,
+        "tp":            tp,
+        "sl":            sl,
+        "confidence":    conf,
+        "explanation":   explanation,
+        "strategy_name": active["name"],
+        "strategy_id":   active["id"],
+        "indicators":    indic,
+    }

@@ -839,7 +839,7 @@ def render_analysis_tab() -> None:
 
         st.markdown(
             f'<div class="card" style="border:1px solid {rec_color}40;margin-top:12px">'
-            f'<div class="card-title">Khuyến nghị tổng hợp'
+            f'<div class="card-title">Khuyến nghị tổng hợp '
             f'{"(40% tech + 60% fund)" if load_fund else "(chỉ technical)"}'
             f'</div>'
             f'<div style="font-size:24px;font-weight:600;color:{rec_color};margin:8px 0">'
@@ -850,3 +850,107 @@ def render_analysis_tab() -> None:
             f'</div>',
             unsafe_allow_html=True
         )
+
+        # ── AI Strategy Recommendation ─────────────────────────────────────────
+        st.markdown(
+            '<div style="margin-top:20px;font-size:16px;font-weight:600">🤖 Khuyến nghị từ AI Strategy</div>',
+            unsafe_allow_html=True,
+        )
+
+        try:
+            import vnstock_memory as _vm_ai
+            _vm_ai.init_db()
+            _active_strat = _vm_ai.get_active_family()
+        except Exception:
+            _active_strat = None
+
+        _ai_cache_key = f"_ai_rec_{ticker}"
+
+        if not _active_strat:
+            st.info(
+                "Chưa có chiến lược AI nào. "
+                "Vào tab **Thị trường → 🧪 Chiến lược & khuyến nghị** → nhấn **Lite training**.",
+                icon="ℹ️",
+            )
+        else:
+            _cached_rec = st.session_state.get(_ai_cache_key)
+            _strat_id   = _active_strat.get("id")
+            _is_fresh   = (
+                _cached_rec is not None
+                and _cached_rec.get("strategy_id") == _strat_id
+                and _cached_rec.get("_ticker") == ticker
+            )
+
+            # Warn if strategy has 0 trades
+            _strat_nt = 0
+            try:
+                _fh_ai = _vm_ai.family_history(_active_strat.get("family_id", ""), limit=1)
+                _strat_nt = int((_fh_ai[0].get("n_trades") or 0) if _fh_ai else 0)
+            except Exception:
+                pass
+            if _strat_nt == 0:
+                st.warning(
+                    "Chiến lược hiện tại có **0 trades** trong backtest — tín hiệu có thể chưa chính xác. "
+                    "Nhấn **Fresh start** trong tab Thị trường để cải thiện.",
+                    icon="⚠️",
+                )
+
+            if _is_fresh:
+                _r = _cached_rec
+                _act = _r.get("action", "hold")
+                _col = "#10b981" if _act == "buy" else ("#ef4444" if _act == "sell" else "#fbbf24")
+                _act_label = {"buy": "MUA 🟢", "sell": "BÁN 🔴"}.get(_act, "KHÔNG GIAO DỊCH 🟡")
+
+                st.markdown(
+                    f'<div class="card" style="border:1px solid {_col}60;margin-top:8px">'
+                    f'<div class="card-title" style="font-size:11px">{_r.get("strategy_name","—")}</div>'
+                    f'<div style="font-size:26px;font-weight:700;color:{_col};margin:6px 0">{_act_label}</div>'
+                    f'<div style="font-size:12px;color:#6b7280">Confidence: {_r.get("confidence",0):.0%}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+                if _act in ("buy", "sell"):
+                    _e  = _r.get("entry")
+                    _tp = _r.get("tp")
+                    _sl = _r.get("sl")
+                    _mc1, _mc2, _mc3 = st.columns(3)
+                    _mc1.metric("📍 Entry", f"{_e:,.0f}" if _e else "—")
+                    _mc2.metric(
+                        "🎯 Take Profit", f"{_tp:,.0f}" if _tp else "—",
+                        delta=f"{(_tp / _e - 1)*100:+.1f}%" if _tp and _e else None,
+                    )
+                    _mc3.metric(
+                        "🛑 Cut Loss", f"{_sl:,.0f}" if _sl else "—",
+                        delta=f"{(_sl / _e - 1)*100:+.1f}%" if _sl and _e else None,
+                        delta_color="inverse",
+                    )
+
+                if _r.get("explanation"):
+                    st.markdown(_r["explanation"])
+
+                if st.button("🔄 Phân tích lại", key="_ai_rec_refresh",
+                             help="Gọi AI phân tích lại với dữ liệu mới nhất"):
+                    if _ai_cache_key in st.session_state:
+                        del st.session_state[_ai_cache_key]
+                    st.rerun()
+
+            else:
+                if st.button(
+                    f"🤖 Phân tích {ticker} với AI Strategy",
+                    key="_ai_rec_btn",
+                    type="primary",
+                    help="AI sẽ chạy strategy signal + tạo giải thích chi tiết (~10-20s)",
+                ):
+                    with st.spinner(f"AI đang phân tích {ticker}… (~10-20s)"):
+                        try:
+                            from vnstock_strategy import analyze_ticker as _analyze_ticker
+                            from vnstock_brief import build_agents as _build_agents
+                            _agents_avail = [a for a in _build_agents() if a.is_available]
+                            _agent_pick   = _agents_avail[0] if _agents_avail else None
+                            _rec_result   = _analyze_ticker(_agent_pick, ticker, df)
+                            _rec_result["_ticker"] = ticker
+                            st.session_state[_ai_cache_key] = _rec_result
+                            st.rerun()
+                        except Exception as _ai_err:
+                            st.error(f"Lỗi phân tích: {type(_ai_err).__name__}: {_ai_err}")
