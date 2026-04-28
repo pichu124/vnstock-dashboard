@@ -1639,22 +1639,19 @@ def render_market_tab() -> None:
                             hide_index=True,
                         )
 
-                    # Show persistent training result from session state
+                    # ── Training result ────────────────────────────────────
                     if st.session_state.get("_train_result"):
                         _tr = st.session_state["_train_result"]
                         if _tr.get("error"):
                             st.error(f"❌ {_tr['error']}")
                         else:
                             _sl_r = _tr.get("strategy_loop", {})
-                            _n_recs = _tr.get("new_recs", 0)
-                            _rec_str = f" | 📋 {_n_recs} recs mới" if _n_recs else ""
                             _msg = (
                                 f"✅ **Training xong** — "
                                 f"agents={_sl_r.get('agents_run',0)} | "
                                 f"mode={_sl_r.get('mode','?')} | "
                                 f"n_trades={_tr.get('n_trades','?')} | "
                                 f"expectancy={_tr.get('expectancy','?')}"
-                                f"{_rec_str}"
                             )
                             if _sl_r.get("errors"):
                                 st.warning(f"⚠️ Có lỗi: {_sl_r['errors']}")
@@ -1665,18 +1662,14 @@ def render_market_tab() -> None:
                     _train_col1, _train_col2 = st.columns(2)
 
                     def _run_training(lite: bool, mode: str = "auto") -> None:
+                        """Chỉ train chiến lược — không emit recommendations."""
                         try:
                             from vnstock_train import (
                                 strategy_loop as _sl_fn,
                                 brief_loop as _bl_fn,
-                                _scan_universe as _scan_fn,
                             )
-                            from vnstock_strategy import emit_recommendations as _emit_fn
                             _bl_fn(verbose=False)
                             _sl_out = _sl_fn(verbose=False, lite=lite, mode=mode)
-                            # Scan all available warehouse tickers for recommendations
-                            _universe = _scan_fn()
-                            _new_recs = _emit_fn(_universe, max_recs=5)
                             _nt, _exp = "?", "?"
                             _nf = _vm.get_active_family()
                             if _nf:
@@ -1688,7 +1681,6 @@ def render_market_tab() -> None:
                                 "strategy_loop": _sl_out,
                                 "n_trades": _nt,
                                 "expectancy": _exp,
-                                "new_recs": len(_new_recs),
                             }
                         except Exception as _e:
                             import traceback as _tb
@@ -1698,16 +1690,16 @@ def render_market_tab() -> None:
                         st.rerun()
 
                     with _train_col1:
-                        if st.button("⚡ Lite training (~30-60s)", key="_train_lite",
-                                     help="10 mã đa ngành, backtest nhanh. mode=auto."):
+                        if st.button("⚡ Lite training (~60-90s)", key="_train_lite",
+                                     help="17 mã (10 VN30 + 7 VNMID đa ngành), backtest nhanh."):
                             st.session_state["_train_result"] = None
-                            with st.spinner("⏳ Đang chạy… (30-90s nếu cần revise code)"):
+                            with st.spinner("⏳ Đang chạy… (60-90s nếu cần revise code)"):
                                 _run_training(lite=True, mode="auto")
                     with _train_col2:
-                        if st.button("🚀 Full training (~5-15 min)", key="_train_full",
-                                     help="Toàn bộ VN30 (~30 mã), full walk-forward. CHẬM trên Windows."):
+                        if st.button("🚀 Full training (~15-25 min)", key="_train_full",
+                                     help="~50 mã (VN30 đủ + 20 VNMID), full walk-forward. CHẬM."):
                             st.session_state["_train_result"] = None
-                            with st.spinner("⏳ Đang chạy full training… 5-15 phút"):
+                            with st.spinner("⏳ Đang chạy full training… 15-25 phút"):
                                 _run_training(lite=False, mode="auto")
 
                     # Fresh start button — shown prominently when 0 trades
@@ -1725,9 +1717,47 @@ def render_market_tab() -> None:
                                 _run_training(lite=True, mode="fresh")
 
                     st.caption(
-                        "ℹ️ Lite: 10 mã đa ngành × backtest nhanh (~30-60s) — đủ test pipeline. "
-                        "Full: toàn bộ VN30 (~30 mã, 5-15 phút). "
-                        "Khuyến nghị luôn quét toàn bộ kho dữ liệu sau khi train."
+                        "ℹ️ Lite: 10 VN30 + 7 VNMID = 17 mã, backtest nhanh (~60-90s). "
+                        "Full: VN30 đủ + 20 VNMID = ~50 mã (~15-25 phút, nên dùng Task Scheduler). "
+                        "Sau khi train, bấm **Quét tín hiệu** để tìm khuyến nghị."
                     )
+
+                    # ── Scan recommendations (độc lập với training) ────────
+                    st.divider()
+                    st.markdown("**🔍 Quét tín hiệu toàn thị trường**")
+                    st.caption(
+                        "Áp chiến lược hiện có lên toàn bộ kho dữ liệu. "
+                        "Chỉ quét mã có khối lượng trung bình ≥ 100.000 cổ/ngày."
+                    )
+
+                    if st.session_state.get("_scan_result"):
+                        _sr = st.session_state["_scan_result"]
+                        if _sr.get("error"):
+                            st.error(f"❌ {_sr['error']}")
+                        else:
+                            st.success(
+                                f"✅ Đã quét **{_sr.get('n_scanned', 0)}** mã "
+                                f"→ **{_sr.get('n_recs', 0)}** khuyến nghị mới"
+                            )
+
+                    if st.button("🔍 Quét tín hiệu toàn thị trường", key="_scan_recs",
+                                 help="Quét toàn bộ kho, lọc vol ≥ 100K cổ/ngày, tối đa 5 recs."):
+                        st.session_state["_scan_result"] = None
+                        with st.spinner("⏳ Đang quét… (vài giây đến 1 phút tuỳ kho)"):
+                            try:
+                                from vnstock_train import _scan_universe as _su_fn
+                                from vnstock_strategy import emit_recommendations as _emit_fn
+                                _su = _su_fn()
+                                _sr_recs = _emit_fn(_su, max_recs=5, min_avg_volume=100_000)
+                                st.session_state["_scan_result"] = {
+                                    "n_scanned": len(_su),
+                                    "n_recs": len(_sr_recs),
+                                }
+                            except Exception as _e:
+                                import traceback as _tb
+                                st.session_state["_scan_result"] = {
+                                    "error": f"{type(_e).__name__}: {_e}\n{_tb.format_exc()[-600:]}"
+                                }
+                        st.rerun()
                 except Exception as _e:
                     st.caption(f"Strategy panel disabled: {type(_e).__name__}: {_e}")

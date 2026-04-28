@@ -99,37 +99,77 @@ def brief_loop(verbose: bool = True) -> dict:
 
 # ── Strategy loop: evolve strategies per agent ─────────────────────────────
 
-# Hand-picked diverse subset for Lite training — 10 tickers across major sectors
-# so the lite backtest is still representative (not an alphabetical bank cluster).
-_LITE_UNIVERSE: list[str] = [
-    "VCB",  # banking (largest market cap)
-    "HPG",  # steel / materials
-    "VHM",  # real estate
-    "FPT",  # technology
-    "GAS",  # energy
-    "MBB",  # banking
-    "VNM",  # consumer staples
-    "SSI",  # securities / financials
-    "VIC",  # diversified conglomerate
-    "MSN",  # consumer / resources
+# ── Training universes ─────────────────────────────────────────────────────
+#
+# VN30 diverse subset — 10 mã đại diện đa ngành cho Lite training.
+# Ưu tiên chọn mã lớn nhất mỗi ngành thay vì sort alphabetical.
+_VN30_LITE: list[str] = [
+    "VCB",  # ngân hàng (vốn hoá lớn nhất)
+    "HPG",  # thép / vật liệu
+    "VHM",  # bất động sản
+    "FPT",  # công nghệ
+    "GAS",  # năng lượng / dầu khí
+    "MBB",  # ngân hàng thứ hai
+    "VNM",  # tiêu dùng thiết yếu
+    "SSI",  # chứng khoán / tài chính
+    "VIC",  # tập đoàn đa ngành
+    "MSN",  # tiêu dùng / tài nguyên
 ]
+
+# VNMID sample — 20 mã mid-cap đa ngành, thanh khoản đủ để train.
+# Không overlap với VN30 hiện tại. Ưu tiên đại diện từng ngành khác nhau.
+_VNMID_SAMPLE: list[str] = [
+    # Logistics / vận tải
+    "GMD", "HAH", "TCH",
+    # Bán lẻ / tiêu dùng
+    "PNJ", "KDC",
+    # Thực phẩm / thủy sản
+    "VHC", "ANV",
+    # Bất động sản mid-cap
+    "NLG", "DXG", "KDH",
+    # Vật liệu / thép mid
+    "HSG", "NKG",
+    # Hóa chất / phân bón / công nghiệp
+    "DGC", "DPM", "GEX",
+    # Chứng khoán
+    "VIX",
+    # Hạ tầng / tiện ích
+    "BWE", "REE",
+    # Cao su / nông nghiệp
+    "PHR",
+    # Vật liệu xây dựng
+    "VGC",
+]
+
+# 7-mã VNMID cho Lite — mỗi mã đại diện 1 ngành riêng
+_VNMID_LITE: list[str] = ["GMD", "PNJ", "NLG", "HSG", "VHC", "DGC", "VIX"]
 
 
 def _training_universe(lite: bool = False) -> list[str]:
-    """Tickers to train/backtest strategy on.
+    """Stratified training universe: VN30 + VNMID sample.
 
-    lite=True  → 10 curated diverse stocks (fast, ~30-60s)
-    lite=False → full VN30 (~30 stocks, 5-15 min)
+    lite=True  → 10 VN30 đa ngành + 7 VNMID = 17 mã  (~60-90s)
+    lite=False → VN30 đủ 30    + 20 VNMID = ~50 mã  (~15-25 phút)
+
+    Kết hợp VN30 (bluechip, thanh khoản cao) và VNMID (mid-cap, biến động
+    khác) giúp chiến lược học được behavior đa dạng hơn so với chỉ VN30.
     """
     if lite:
-        return list(_LITE_UNIVERSE)
+        return list(_VN30_LITE) + list(_VNMID_LITE)
+
+    # Full: VN30 đủ 30 + VNMID 20
     try:
         from vnstock_brief import VN30_TICKERS
-        return sorted(VN30_TICKERS)
+        vn30 = sorted(VN30_TICKERS)
     except Exception:
-        return ["VCB", "BID", "CTG", "TCB", "MBB", "VPB", "ACB", "HDB", "VHM", "VIC",
-                "VRE", "MSN", "MWG", "VNM", "SAB", "GAS", "PLX", "POW", "HPG", "FPT",
-                "SSI", "HCM", "VND", "BVH", "GVR", "SHB", "SSB", "STB", "TPB", "VJC"]
+        vn30 = ["ACB", "BCM", "BID", "BVH", "CTG", "FPT", "GAS", "GVR", "HDB", "HPG",
+                "MBB", "MSN", "MWG", "PLX", "POW", "SAB", "SHB", "SSB", "SSI", "STB",
+                "TCB", "TPB", "VCB", "VHM", "VIB", "VIC", "VJC", "VNM", "VPB", "VRE"]
+
+    vn30_set = set(vn30)
+    # Drop VNMID tickers that may have been promoted into VN30
+    vnmid = [t for t in _VNMID_SAMPLE if t not in vn30_set]
+    return vn30 + vnmid
 
 
 def _scan_universe() -> list[str]:
@@ -320,11 +360,11 @@ def run_once(briefs: bool = True, strategy: bool = True,
     if emit:
         from vnstock_strategy import emit_recommendations as _emit
         scan_u = _scan_universe()
-        recs = _emit(scan_u, max_recs=5)
+        recs = _emit(scan_u, max_recs=5, min_avg_volume=100_000)
         out["recommendations"] = len(recs)
         if verbose:
             print(f"[run_once] emit_recommendations → {len(recs)} new recs "
-                  f"(scanned {len(scan_u)} tickers)")
+                  f"(scanned {len(scan_u)} tickers, vol ≥ 100K filter)")
     out["finished_at"] = datetime.now().isoformat(timespec="seconds")
     return out
 

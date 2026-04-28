@@ -1004,9 +1004,14 @@ def emit_recommendations(
     max_recs: int = 5,
     horizon_days: int = DEFAULT_HORIZON_DAYS,
     brief_id: Optional[int] = None,
+    min_avg_volume: int = 100_000,
 ) -> list[dict]:
     """Run best-validated strategy on most-recent window per ticker;
     return + persist actionable recs.
+
+    min_avg_volume: skip tickers whose 30-day avg daily volume is below this
+    threshold (default 100,000 shares) — illiquid stocks can't fill orders
+    reliably at the signal price.
     """
     bests = mem.best_strategies(limit=3)
     if not bests:
@@ -1019,6 +1024,9 @@ def emit_recommendations(
                 break
             hist = _load_history(ticker, days=120)
             if hist.empty or len(hist) < 60:
+                continue
+            # Liquidity gate: 30-day average volume must meet minimum
+            if hist["volume"].tail(30).mean() < min_avg_volume:
                 continue
             window = hist.tail(60).reset_index(drop=True)
             try:
