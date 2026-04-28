@@ -3634,7 +3634,7 @@ with st.sidebar:
 sys.modules["vnstock_dashboard"] = sys.modules["__main__"]
 
 # ── NAVIGATION (dùng pills thay tabs để tránh lazy-render) ────────────────────
-_TAB_OPTIONS = ["📊 Screener", "🔬 Phân tích", "🌏 Thị trường", "💰 Dòng Tiền", "💼 Portfolio", "⚕️ Sức khỏe"]
+_TAB_OPTIONS = ["📊 Screener", "🔬 Phân tích", "🌏 Thị trường", "🗞️ Tin tức", "💰 Dòng Tiền", "💼 Portfolio", "⚕️ Sức khỏe"]
 _active_tab = st.pills("", _TAB_OPTIONS, default="📊 Screener", key="nav_tab")
 
 # ══════════════════════════════════════════════════════
@@ -3702,6 +3702,14 @@ if _active_tab == "💰 Dòng Tiền":
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB: Portfolio
 # ══════════════════════════════════════════════════════════════════════════════
+
+if _active_tab == "🗞️ Tin tức":
+    try:
+        from dashboard.news_tab import render_news_tab
+        render_news_tab()
+    except Exception as _e:
+        st.error(f"Không render được Tin tức tab: {_e}")
+        st.caption("Kiểm tra `dashboard/news_tab.py` và `vnstock_news.py`.")
 
 if _active_tab == "💼 Portfolio":
     try:

@@ -1022,3 +1022,47 @@ def render_analysis_tab() -> None:
                             st.rerun()
                         except Exception as _ai_err:
                             st.error(f"Lỗi phân tích: {type(_ai_err).__name__}: {_ai_err}")
+
+        # ── Tin tức theo mã ────────────────────────────────────────────────
+        st.markdown("---")
+        st.markdown("#### 🗞️ Tin tức liên quan")
+        try:
+            import vnstock_news as _nn
+            _ticker_news = _nn.news_for_ticker(ticker)
+            if not _ticker_news:
+                _all_cached = _nn.load_news_cache()
+                if _all_cached:
+                    st.caption(
+                        f"Không có tin tức cho **{ticker}** trong cache. "
+                        "Vào tab **Tin tức** → bấm **🔄 Cập nhật** để tải về."
+                    )
+                else:
+                    st.caption(
+                        "Chưa có cache tin tức. Vào tab **Tin tức** → bấm **🔄 Cập nhật tin tức**."
+                    )
+            else:
+                st.caption(f"**{len(_ticker_news)}** tin tức gần đây cho {ticker}")
+                for _ni, _nitem in enumerate(_ticker_news[:5]):
+                    _ntitle = _nitem.get("news_title", "").strip()
+                    _nshort = (_nitem.get("news_short_content")
+                               or _nitem.get("news_sub_title") or "").strip()
+                    _nfull  = (_nitem.get("news_full_content") or "").strip()
+                    _nlink  = _nitem.get("news_source_link", "")
+                    _ndate  = _nitem.get("_date_sort", "")[:10]
+                    if not _ntitle:
+                        continue
+                    with st.container():
+                        st.markdown(f"**{_ntitle}** <span style='color:#6b7280;font-size:12px'>{_ndate}</span>",
+                                    unsafe_allow_html=True)
+                        if _nshort:
+                            st.caption(_nshort[:250])
+                        _nc1, _nc2 = st.columns([2, 8])
+                        if _nfull and _nfull != _nshort:
+                            with _nc1:
+                                with st.expander("📖 Đọc thêm"):
+                                    st.markdown(_nfull[:2000])
+                        if _nlink:
+                            with _nc2:
+                                st.markdown(f"[🔗 Nguồn gốc]({_nlink})")
+        except Exception as _ne:
+            st.caption(f"Không tải được tin tức: {type(_ne).__name__}")

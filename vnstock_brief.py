@@ -709,11 +709,13 @@ def collect_context(brief_type: str = "morning") -> dict:
 
 # ── Prompt builder ─────────────────────────────────────────────────────────
 def build_prompt(ctx: dict, brief_type: str = "morning",
-                 few_shot: str = "", rec_block: str = "") -> str:
+                 few_shot: str = "", rec_block: str = "",
+                 news_block: str = "") -> str:
     """Construct the full Vietnamese prompt from market context.
 
     Optional `few_shot` / `rec_block` are injected by the train loop / memory layer
     to nudge the model toward higher quality and surface validated trade ideas.
+    `news_block` injects latest market news so the agent can factor them in.
     """
     lines: list[str] = []
 
@@ -867,6 +869,9 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
     if rec_block:
         lines.append(rec_block)
 
+    if news_block:
+        lines.append(news_block)
+
     data_block = "\n".join(lines)
     if few_shot:
         data_block = data_block + "\n" + few_shot
@@ -911,10 +916,12 @@ def generate_brief(
     ctx = collect_context(brief_type)
 
     # Inject few-shot golden examples + open recommendations (best-effort)
-    few_shot = _few_shot_block(brief_type)
+    few_shot  = _few_shot_block(brief_type)
     rec_block = _recommendation_block()
+    news_block = _news_block()
 
-    prompt = build_prompt(ctx, brief_type, few_shot=few_shot, rec_block=rec_block)
+    prompt = build_prompt(ctx, brief_type, few_shot=few_shot,
+                          rec_block=rec_block, news_block=news_block)
 
     results: dict[str, tuple[str, str | None]] = {}
     brief_ids: dict[str, int] = {}
@@ -985,6 +992,16 @@ def _few_shot_block(brief_type: str, n: int = 2) -> str:
                          f"{r.get('user_rating')}⭐ ---")
             parts.append((r.get("output") or "")[:1200])
         return "\n".join(parts)
+    except Exception:
+        return ""
+
+
+def _news_block(max_items: int = 15) -> str:
+    """Pull latest news from vnstock_news cache for AI context injection."""
+    try:
+        import vnstock_news as _nn
+        block = _nn.news_context_block(max_items=max_items)
+        return block
     except Exception:
         return ""
 
