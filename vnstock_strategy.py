@@ -448,7 +448,7 @@ Ví dụ output: {{"rsi_period": 14, "rsi_oversold": 28, "stop_loss_pct": 2.5}}
 """
 
 _REVISE_PROMPT = """\
-CORE CODE hiện tại ĐANG CHƯA HIỆU QUẢ (cần REVISE major):
+CORE CODE hiện tại CẦN REVISE major ({revise_reason}):
 
 ```
 {code}
@@ -627,10 +627,12 @@ def revise_strategy(
     code: str,
     metrics: dict,
     diagnosis: str = "",
+    revise_reason: str = "hiệu quả thấp",
 ) -> tuple[str, dict, str | None]:
     """Ask an agent to write a new core (different approach). Returns (code, params, err)."""
     prompt = _REVISE_PROMPT.format(
         code=code,
+        revise_reason=revise_reason,
         n_trades=metrics.get("n_trades", 0),
         win_rate=metrics.get("win_rate"),
         expectancy=metrics.get("expectancy"),
@@ -682,29 +684,54 @@ import uuid as _uuid
 from datetime import datetime as _dt, timedelta as _td
 
 # ── Maturity heuristics ────────────────────────────────────────────────────
-WEEKLY_REVISE_DAYS = 7
+WEEKLY_REVISE_DAYS     = 7
 N_STABLE_WEEKS_REQUIRED = 3
+N_DEGRADE_PERIODS      = 3   # consecutive negative-expectancy tunes → reopen revise
+
+
+def _is_degraded(family_id: str) -> bool:
+    """True if the last N_DEGRADE_PERIODS backtests all had expectancy ≤ 0.
+
+    Used to detect when a once-stable core has stopped working (regime change,
+    data drift, etc.) so the system can reopen revision even after stabilisation.
+    """
+    hist = mem.family_history(family_id, limit=N_DEGRADE_PERIODS)
+    if len(hist) < N_DEGRADE_PERIODS:
+        return False  # not enough history to judge
+    return all((h.get("expectancy") or 0) <= 0 for h in hist[:N_DEGRADE_PERIODS])
 
 
 def _should_revise(active: dict) -> bool:
     """True if it's time to revise (rewrite core), False if just tune params.
 
-    Rules:
-      - If is_core_stable=1 → never revise (only tune)
-      - If active strategy has 0 trades → revise immediately (broken logic)
-      - If last revise > WEEKLY_REVISE_DAYS days ago → revise
-      - Cold start (no active) handled by caller
+    Rules (in priority order):
+      1. No active strategy          → revise (cold start, handled by caller)
+      2. 0 trades in latest backtest → revise immediately (broken signal logic)
+      3. is_core_stable=1 BUT last N tunes all negative → degrade detected,
+         unmark stable and revise
+      4. is_core_stable=1 and still healthy → only tune, never revise
+      5. Last revise > WEEKLY_REVISE_DAYS ago → weekly revise cadence
     """
     if not active:
         return True
-    if active.get("is_core_stable"):
-        return False
-    # If the current strategy never fired a single trade, it's broken — revise now
+
     fam = active.get("family_id")
+
+    # Rule 2: 0 trades → broken code, revise immediately
     if fam:
         hist = mem.family_history(fam, limit=1)
         if hist and (hist[0].get("n_trades") or 0) == 0:
             return True
+
+    # Rules 3 & 4: stable core
+    if active.get("is_core_stable"):
+        if fam and _is_degraded(fam):
+            # Performance has deteriorated — reopen revision cycle
+            mem.mark_core_stable(active["id"], stable=False)
+            return True
+        return False  # healthy stable core → tune only
+
+    # Rule 5: weekly cadence for unstable core
     try:
         last_revise = _dt.fromisoformat(active.get("created_at", ""))
     except Exception:
@@ -770,11 +797,35 @@ def _cold_start(agent, universe, context_summary, cfg) -> tuple[Optional[int], d
 
 
 def _do_revise(agent, active, cfg) -> tuple[Optional[int], dict]:
-    """Weekly-cadence: rewrite core, compare, promote if better."""
-    code     = active["code"]
-    family   = active.get("family_id") or _uuid.uuid4().hex[:8]
+    """Rewrite core code. Triggered weekly, on 0-trades, or on degradation detection."""
+    code        = active["code"]
+    family      = active.get("family_id") or _uuid.uuid4().hex[:8]
     cur_metrics = mem.latest_backtest(active["id"]) or {}
-    new_code, new_params, err = revise_strategy(agent, code, cur_metrics)
+
+    # Determine why we're revising — give the agent useful context
+    was_stable  = bool(active.get("is_core_stable"))
+    nt          = cur_metrics.get("n_trades") or 0
+    exp         = cur_metrics.get("expectancy") or 0
+    if nt == 0:
+        revise_reason = "0 trades — điều kiện signal không bao giờ trigger"
+        diagnosis     = "Strategy không sinh ra tín hiệu nào. Điều kiện entry quá khắt khe hoặc mâu thuẫn."
+    elif was_stable and _is_degraded(family):
+        revise_reason = (
+            f"degradation sau khi ổn định — {N_DEGRADE_PERIODS} kỳ liên tiếp expectancy ≤ 0 "
+            f"(gần nhất: {exp:.3f})"
+        )
+        diagnosis = (
+            "Core đã từng ổn định nhưng hiệu quả suy giảm liên tục. "
+            "Khả năng market regime đã thay đổi. Cần đổi logic hoàn toàn."
+        )
+    else:
+        revise_reason = f"weekly revise — expectancy={exp:.3f}, n_trades={nt}"
+        diagnosis     = "Expectancy âm hoặc số trade thấp — cần đổi cách tiếp cận."
+
+    new_code, new_params, err = revise_strategy(
+        agent, code, cur_metrics,
+        diagnosis=diagnosis, revise_reason=revise_reason,
+    )
     if err and not new_code:
         return None, {"error": err}
     sid = mem.save_strategy(
@@ -782,7 +833,7 @@ def _do_revise(agent, active, cfg) -> tuple[Optional[int], dict]:
         name=f"family-{family} revise by {agent.name} @ {time.strftime('%m-%d')}",
         code=new_code,
         params=new_params,
-        description="Weekly revise",
+        description=f"Revise: {revise_reason}",
         parent_id=active["id"],
         status="draft",
         family_id=family,
