@@ -1012,10 +1012,20 @@ def emit_recommendations(
     min_avg_volume: skip tickers whose 30-day avg daily volume is below this
     threshold (default 100,000 shares) — illiquid stocks can't fill orders
     reliably at the signal price.
+
+    Returns list of rec dicts. The last element (if list non-empty) may be
+    replaced by a '_stats' sentinel — callers should ignore dicts without 'ticker'.
+    Stats are always appended as the final element regardless of recs count.
     """
     bests = mem.best_strategies(limit=3)
     if not bests:
-        return []
+        return [{"_stats": True, "reason": "no_validated_strategy",
+                 "n_scanned": 0, "n_no_data": 0, "n_low_vol": 0,
+                 "n_executed": 0, "n_hold": 0, "n_buy": 0}]
+
+    stats = {"_stats": True, "n_scanned": len(universe),
+             "n_no_data": 0, "n_low_vol": 0, "n_executed": 0,
+             "n_hold": 0, "n_buy": 0, "n_errors": 0}
     recs: list[dict] = []
     for s in bests:
         code = s["code"]
@@ -1024,18 +1034,23 @@ def emit_recommendations(
                 break
             hist = _load_history(ticker, days=120)
             if hist.empty or len(hist) < 60:
+                stats["n_no_data"] += 1
                 continue
-            # Liquidity gate: 30-day average volume must meet minimum
             if hist["volume"].tail(30).mean() < min_avg_volume:
+                stats["n_low_vol"] += 1
                 continue
             window = hist.tail(60).reset_index(drop=True)
             try:
                 raw = EXECUTOR.run(code, window, {})
                 sig = _validate_signal_output(raw)
+                stats["n_executed"] += 1
             except Exception:
+                stats["n_errors"] += 1
                 continue
             if sig["action"] != "buy" or sig["entry"] <= 0:
+                stats["n_hold"] += 1
                 continue
+            stats["n_buy"] += 1
             rec_id = mem.save_recommendation(
                 ticker=ticker,
                 action=sig["action"],
@@ -1058,7 +1073,7 @@ def emit_recommendations(
             })
         if len(recs) >= max_recs:
             break
-    return recs
+    return recs + [stats]
 
 
 # ── Per-ticker AI recommendation ───────────────────────────────────────────

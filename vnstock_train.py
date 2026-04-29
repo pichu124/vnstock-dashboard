@@ -541,7 +541,9 @@ def run_once(briefs: bool = True, strategy: bool = True,
     if emit:
         from vnstock_strategy import emit_recommendations as _emit
         scan_u = _scan_universe()
-        recs = _emit(scan_u, max_recs=5, min_avg_volume=100_000)
+        all_out = _emit(scan_u, max_recs=5, min_avg_volume=100_000)
+        recs = [r for r in all_out if not r.get("_stats")]
+        diag = next((r for r in all_out if r.get("_stats")), {})
         out["recommendations"] = len(recs)
         if verbose:
             print(f"[run_once] emit_recommendations → {len(recs)} new recs "

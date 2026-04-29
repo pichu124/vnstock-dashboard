@@ -1734,11 +1734,23 @@ def render_market_tab() -> None:
                         _sr = st.session_state["_scan_result"]
                         if _sr.get("error"):
                             st.error(f"❌ {_sr['error']}")
+                        elif _sr.get("reason") == "no_validated_strategy":
+                            st.warning("⚠️ Chưa có chiến lược validated. Chạy training thêm để đạt ≥ 10 trades.")
                         else:
-                            st.success(
-                                f"✅ Đã quét **{_sr.get('n_scanned', 0)}** mã "
-                                f"→ **{_sr.get('n_recs', 0)}** khuyến nghị mới"
-                            )
+                            _n_recs = _sr.get("n_recs", 0)
+                            _diag   = _sr.get("diag", {})
+                            if _n_recs:
+                                st.success(f"✅ Đã quét **{_sr.get('n_scanned',0)}** mã → **{_n_recs}** khuyến nghị mới")
+                            else:
+                                st.info(f"ℹ️ Quét **{_sr.get('n_scanned',0)}** mã → 0 khuyến nghị (điều kiện mua chưa kích hoạt hôm nay)")
+                            if _diag:
+                                st.caption(
+                                    f"📊 Không có data: **{_diag.get('n_no_data',0)}** · "
+                                    f"Dưới 100K vol: **{_diag.get('n_low_vol',0)}** · "
+                                    f"Chạy được: **{_diag.get('n_executed',0)}** · "
+                                    f"Hold/Sell: **{_diag.get('n_hold',0)}** · "
+                                    f"Buy signal: **{_diag.get('n_buy',0)}**"
+                                )
 
                     if st.button("🔍 Quét tín hiệu toàn thị trường", key="_scan_recs",
                                  help="Quét toàn bộ kho, lọc vol ≥ 100K cổ/ngày, tối đa 5 recs."):
@@ -1748,10 +1760,15 @@ def render_market_tab() -> None:
                                 from vnstock_train import _scan_universe as _su_fn
                                 from vnstock_strategy import emit_recommendations as _emit_fn
                                 _su = _su_fn()
-                                _sr_recs = _emit_fn(_su, max_recs=5, min_avg_volume=100_000)
+                                _all = _emit_fn(_su, max_recs=5, min_avg_volume=100_000)
+                                # Last element is always the _stats sentinel
+                                _diag_item = _all[-1] if _all and _all[-1].get("_stats") else {}
+                                _real_recs = [r for r in _all if not r.get("_stats")]
                                 st.session_state["_scan_result"] = {
                                     "n_scanned": len(_su),
-                                    "n_recs": len(_sr_recs),
+                                    "n_recs": len(_real_recs),
+                                    "diag": _diag_item,
+                                    "reason": _diag_item.get("reason", ""),
                                 }
                             except Exception as _e:
                                 import traceback as _tb
