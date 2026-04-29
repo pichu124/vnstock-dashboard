@@ -114,11 +114,17 @@ def render_news_tab() -> None:
 
     with ctrl_col2:
         refresh_clicked = st.button("🔄 Cập nhật tin tức", key="_news_refresh",
-                                     help="Tải tin từ vnstock cho toàn bộ universe (~1-2 phút)")
+                                     help="Tải tin từ vnstock cho toàn bộ universe (~1-3 phút tuỳ số mã)")
     with ctrl_col3:
-        top_n_universe = st.number_input("Screener top-N", min_value=10, max_value=100,
-                                          value=30, step=10, key="_news_top_n",
-                                          help="Số mã từ screener bổ sung vào universe")
+        top_n_universe = st.number_input(
+            "Screener top-N", min_value=10, max_value=500,
+            value=100, step=50, key="_news_top_n",
+            help=(
+                "Số mã từ screener bổ sung vào VN30. "
+                "100 ≈ 1 phút · 300 ≈ 2-3 phút · 500 ≈ 4-5 phút. "
+                "Screener đã có điểm số cho ~1,600 mã nên top-500 ≈ toàn thị trường liquid."
+            ),
+        )
 
     # ── Refresh ────────────────────────────────────────────────────────────
     if refresh_clicked:

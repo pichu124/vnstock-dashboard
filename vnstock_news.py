@@ -45,29 +45,50 @@ _MEMORY_TTL_SECONDS = 7200  # 2 hours
 
 
 # ── Universe helpers ───────────────────────────────────────────────────────
-def build_universe(extra: list[str] | None = None, top_screener: int = 30) -> list[str]:
-    """Return a deduplicated ticker list covering the whole market."""
+def build_universe(extra: list[str] | None = None, top_screener: int = 100) -> list[str]:
+    """Return a deduplicated ticker list for news fetching.
+
+    Base: VN30 (always included).
+    Expanded by screener top-N (sorted by score → most active/liquid first).
+    top_screener=500 covers near-full liquid market (~1,600 scored tickers).
+    Falls back to warehouse enumeration if screener data is unavailable.
+    """
     tickers: list[str] = list(_VN30_FALLBACK)
 
-    # Try to get VN30 from dashboard module (may have fresher list)
+    # Try to get live VN30 from brief module
     try:
-        import sys
         sys.path.insert(0, str(_REPO))
-        from vnstock_dashboard import VN30_SYMBOLS  # type: ignore
-        if VN30_SYMBOLS:
-            tickers = list(VN30_SYMBOLS)
+        from vnstock_brief import get_vn30_live  # type: ignore
+        live = get_vn30_live()
+        if live:
+            tickers = sorted(live)
     except Exception:
         pass
 
-    # Add top screener tickers by composite score
+    # Screener: top-N by composite score (covers all ~1,600 classified tickers)
+    screener_added = 0
     try:
         data = json.loads(SCREENER_PATH.read_text(encoding="utf-8"))
         scored = sorted(data.items(), key=lambda kv: kv[1].get("score", 0), reverse=True)
         tickers += [k for k, _ in scored[:top_screener]]
+        screener_added = min(len(scored), top_screener)
     except Exception:
         pass
 
-    # Add portfolio tickers
+    # Fallback: if screener unavailable, pull from price warehouse
+    if screener_added == 0:
+        try:
+            prices_dir = _REPO / "data_warehouse" / "prices"
+            wh_tickers = sorted(
+                d.name.split("=", 1)[-1].upper()
+                for d in prices_dir.glob("ticker=*")
+                if "=" in d.name and d.is_dir()
+            )
+            tickers += wh_tickers[:top_screener]
+        except Exception:
+            pass
+
+    # Portfolio tickers always included
     try:
         portfolio = json.loads(PORTFOLIO_PATH.read_text(encoding="utf-8"))
         tickers += [p["ticker"] for p in portfolio if "ticker" in p]
