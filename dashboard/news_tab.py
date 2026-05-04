@@ -9,20 +9,36 @@ from __future__ import annotations
 
 import streamlit as st
 from datetime import datetime, date, timedelta
+import re
 from urllib.parse import urljoin, urlparse
 
-# VCI's news endpoint returns `news_source_link` as a host-less path
-# (e.g. "2026/02/cua-de-danh-…htm") which Streamlit/markdown otherwise
-# resolves relative to the dashboard host. CafeF is the primary aggregator.
-_DEFAULT_NEWS_BASE = "https://cafef.vn/"
+# VCI's company.news() returns `news_source_link` as a host-less path like
+# "2026/02/<slug>-737-1404929.htm". The pattern (year/month + dash-separated
+# numeric category + article id + .htm) is vietstock.vn's canonical layout —
+# cafef.vn uses .chn URLs and a different ID scheme.
+_DEFAULT_NEWS_BASE = "https://vietstock.vn/"
+_VIETSTOCK_PATH_RE = re.compile(r"^/?\d{4}/\d{2}/.+-\d+-\d+\.htm$")
 
 
 def _normalize_news_url(url: str) -> str:
-    """Return an absolute URL — prepend the default news host if scheme is missing."""
+    """Return an absolute URL pointing at the right publisher host.
+
+    Handles three cases produced by vnstock + a stale-cache fix:
+    1. Empty / scheme-less path → prepend default host.
+    2. Already-absolute URL on the correct host → pass through.
+    3. Old cached entries that were prefixed with cafef.vn (commit 9e5de41
+       was wrong) but carry a vietstock-pattern path → rewrite host.
+    """
     if not url or not url.strip():
         return ""
     url = url.strip()
-    if urlparse(url).scheme in ("http", "https"):
+    parsed = urlparse(url)
+    if parsed.scheme in ("http", "https"):
+        if (
+            parsed.netloc.endswith("cafef.vn")
+            and _VIETSTOCK_PATH_RE.match(parsed.path)
+        ):
+            return f"https://vietstock.vn{parsed.path}"
         return url
     if url.startswith("//"):
         return "https:" + url

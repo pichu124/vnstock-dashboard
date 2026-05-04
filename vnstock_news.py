@@ -23,20 +23,34 @@ from datetime import date, datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Optional
+import re
 from urllib.parse import urljoin, urlparse
 
-# VCI's news endpoint returns `news_source_link` as a host-less path;
-# CafeF is the primary aggregator behind VCI's news feed.
-_DEFAULT_NEWS_BASE = "https://cafef.vn/"
+# VCI's company.news() returns `news_source_link` as host-less paths like
+# "2026/02/<slug>-737-1404929.htm" — the year/month + dash-separated
+# numeric category + article id + .htm pattern is vietstock.vn's layout
+# (cafef.vn uses .chn URLs and a different scheme).
+_DEFAULT_NEWS_BASE = "https://vietstock.vn/"
 _LINK_KEYS = ("news_source_link", "source_link", "url", "link", "href")
+_VIETSTOCK_PATH_RE = re.compile(r"^/?\d{4}/\d{2}/.+-\d+-\d+\.htm$")
 
 
 def _absolutize_url(url: str) -> str:
-    """Return an absolute URL — prepend default host if scheme is missing."""
+    """Return an absolute URL pointing at the right publisher host.
+
+    Also rewrites legacy cached URLs that were wrongly prefixed with
+    cafef.vn but carry a vietstock-pattern path.
+    """
     if not url or not url.strip():
         return ""
     url = url.strip()
-    if urlparse(url).scheme in ("http", "https"):
+    parsed = urlparse(url)
+    if parsed.scheme in ("http", "https"):
+        if (
+            parsed.netloc.endswith("cafef.vn")
+            and _VIETSTOCK_PATH_RE.match(parsed.path)
+        ):
+            return f"https://vietstock.vn{parsed.path}"
         return url
     if url.startswith("//"):
         return "https:" + url
