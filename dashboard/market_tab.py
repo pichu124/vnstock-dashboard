@@ -1744,13 +1744,33 @@ def render_market_tab() -> None:
                             else:
                                 st.info(f"ℹ️ Quét **{_sr.get('n_scanned',0)}** mã → 0 khuyến nghị (điều kiện mua chưa kích hoạt hôm nay)")
                             if _diag:
+                                _n_err = _diag.get('n_errors', 0)
+                                _err_color = "🔴" if _n_err else "🟢"
                                 st.caption(
                                     f"📊 Không có data: **{_diag.get('n_no_data',0)}** · "
                                     f"Dưới 100K vol: **{_diag.get('n_low_vol',0)}** · "
                                     f"Chạy được: **{_diag.get('n_executed',0)}** · "
                                     f"Hold/Sell: **{_diag.get('n_hold',0)}** · "
-                                    f"Buy signal: **{_diag.get('n_buy',0)}**"
+                                    f"Buy signal: **{_diag.get('n_buy',0)}** · "
+                                    f"{_err_color} Errors: **{_n_err}**"
                                 )
+                                _samples = _diag.get('errors_sample') or []
+                                if _samples:
+                                    with st.expander(
+                                        f"⚠️ {_n_err} mã throw exception — xem mẫu lỗi",
+                                        expanded=(_diag.get('n_executed', 0) == 0),
+                                    ):
+                                        st.caption(
+                                            "Strategy code fail silent. Sửa code trong DB "
+                                            "(`brief_memory.db` → `strategies.code`) hoặc "
+                                            "Fresh start để generate lại."
+                                        )
+                                        for s in _samples:
+                                            st.code(
+                                                f"[{s.get('example_ticker','?')}] "
+                                                f"{s.get('error','')}",
+                                                language="text",
+                                            )
 
                     if st.button("🔍 Quét tín hiệu toàn thị trường", key="_scan_recs",
                                  help="Quét toàn bộ kho, lọc vol ≥ 100K cổ/ngày, tối đa 5 recs."):

@@ -1021,11 +1021,16 @@ def emit_recommendations(
     if not bests:
         return [{"_stats": True, "reason": "no_validated_strategy",
                  "n_scanned": 0, "n_no_data": 0, "n_low_vol": 0,
-                 "n_executed": 0, "n_hold": 0, "n_buy": 0}]
+                 "n_executed": 0, "n_hold": 0, "n_buy": 0,
+                 "n_errors": 0, "errors_sample": []}]
 
     stats = {"_stats": True, "n_scanned": len(universe),
              "n_no_data": 0, "n_low_vol": 0, "n_executed": 0,
              "n_hold": 0, "n_buy": 0, "n_errors": 0}
+    # Capture up to 5 distinct error signatures so the UI can surface them.
+    # Without this, a strategy that throws on every ticker leaves 0 recs and
+    # 0 visible diagnostics — see fail-silent issue in the scan UI.
+    errors_seen: dict[str, str] = {}
     recs: list[dict] = []
     for s in bests:
         code = s["code"]
@@ -1041,11 +1046,14 @@ def emit_recommendations(
                 continue
             window = hist.tail(60).reset_index(drop=True)
             try:
-                raw = EXECUTOR.run(code, window, {})
+                raw = STRICT_EXECUTOR.run(code, window, {})
                 sig = _validate_signal_output(raw)
                 stats["n_executed"] += 1
-            except Exception:
+            except Exception as e:
                 stats["n_errors"] += 1
+                msg = f"{type(e).__name__}: {str(e)[:160]}"
+                if msg not in errors_seen and len(errors_seen) < 5:
+                    errors_seen[msg] = ticker
                 continue
             if sig["action"] != "buy" or sig["entry"] <= 0:
                 stats["n_hold"] += 1
@@ -1073,6 +1081,9 @@ def emit_recommendations(
             })
         if len(recs) >= max_recs:
             break
+    stats["errors_sample"] = [
+        {"error": msg, "example_ticker": tk} for msg, tk in errors_seen.items()
+    ]
     return recs + [stats]
 
 
