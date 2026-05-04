@@ -436,12 +436,23 @@ def save_recommendation(
 
 
 def open_recommendations() -> list[dict]:
+    """Return open recs, filtering out rows with malformed tp/sl prices.
+
+    Pre-sanitization (commit a9a6ad9 era) the strategy-validator allowed
+    cut_loss <= 0 or take_profit at 5-10× entry to leak through. Those
+    recs are now hidden so the panel shows only actionable picks.
+    """
     with _conn() as c:
         rows = c.execute(
             """
             SELECT r.* FROM recommendations r
             LEFT JOIN rec_outcomes o ON o.rec_id=r.id
             WHERE o.id IS NULL
+              AND r.entry_price > 0
+              AND r.cut_loss > 0
+              AND r.cut_loss < r.entry_price
+              AND r.take_profit > r.entry_price
+              AND r.take_profit <= r.entry_price * 2.0
             ORDER BY r.created_at DESC LIMIT 50
             """
         ).fetchall()

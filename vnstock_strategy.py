@@ -230,7 +230,14 @@ STRICT_EXECUTOR: StrategyExecutor = InProcessExecutor(fast_mode=False)
 
 # ── Output schema validation ───────────────────────────────────────────────
 def _validate_signal_output(out: dict) -> dict:
-    """Coerce + validate the dict returned by signal()."""
+    """Coerce + validate the dict returned by signal().
+
+    LLM-generated strategies sometimes emit bogus risk targets — e.g.
+    tp = 10×entry or sl < 0 because the prompt asked for "price levels"
+    and the model used a percentage multiplier instead. We preserve the
+    action (the buy/sell timing is often still valid — backtest win-rate
+    proves it) but clamp tp/sl into the sane band for a multi-day swing.
+    """
     action = str(out.get("action", "hold")).lower()
     if action not in {"buy", "sell", "hold"}:
         action = "hold"
@@ -242,11 +249,28 @@ def _validate_signal_output(out: dict) -> dict:
         except (TypeError, ValueError):
             return default
 
+    entry = _f("entry")
+    tp    = _f("tp")
+    sl    = _f("sl")
+
+    # Sanitize tp/sl against entry for buy/sell — see docstring.
+    # Bands chosen for a 5-day horizon: 30% cap each direction.
+    if action == "buy" and entry > 0:
+        if not (entry * 1.001 < tp <= entry * 1.30):
+            tp = round(entry * 1.07, 4)   # 7% default upside
+        if not (entry * 0.70 <= sl < entry * 0.999):
+            sl = round(entry * 0.95, 4)   # 5% default downside
+    elif action == "sell" and entry > 0:
+        if not (entry * 0.70 <= tp < entry * 0.999):
+            tp = round(entry * 0.93, 4)
+        if not (entry * 1.001 < sl <= entry * 1.30):
+            sl = round(entry * 1.05, 4)
+
     return {
         "action":     action,
-        "entry":      _f("entry"),
-        "tp":         _f("tp"),
-        "sl":         _f("sl"),
+        "entry":      entry,
+        "tp":         tp,
+        "sl":         sl,
         "confidence": max(0.0, min(1.0, _f("confidence", 0.5))),
     }
 
