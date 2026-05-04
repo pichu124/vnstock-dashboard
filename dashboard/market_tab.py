@@ -1630,10 +1630,21 @@ def render_market_tab() -> None:
                     if _opens:
                         st.markdown("**Open recommendations**")
                         import pandas as _pd
+                        _df_opens = _pd.DataFrame(_opens)
+                        # Add % vs entry next to each price target — easier
+                        # than mental math to gauge risk/reward at a glance.
+                        _entry = _df_opens["entry_price"].astype(float)
+                        _tp_pct = (_df_opens["take_profit"].astype(float) / _entry - 1) * 100
+                        _sl_pct = (_df_opens["cut_loss"].astype(float)    / _entry - 1) * 100
+                        _df_opens["TP (%)"] = _tp_pct.round(1).map(lambda v: f"{v:+.1f}%")
+                        _df_opens["SL (%)"] = _sl_pct.round(1).map(lambda v: f"{v:+.1f}%")
+                        _df_opens["R:R"] = (_tp_pct / _sl_pct.abs().replace(0, _pd.NA)).round(2)
                         st.dataframe(
-                            _pd.DataFrame(_opens)[
-                                ["ticker", "action", "entry_price", "take_profit",
-                                 "cut_loss", "horizon_days", "created_at"]
+                            _df_opens[
+                                ["ticker", "action", "entry_price",
+                                 "take_profit", "TP (%)",
+                                 "cut_loss",    "SL (%)", "R:R",
+                                 "horizon_days", "created_at"]
                             ],
                             use_container_width=True,
                             hide_index=True,

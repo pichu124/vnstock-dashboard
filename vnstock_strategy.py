@@ -232,11 +232,9 @@ STRICT_EXECUTOR: StrategyExecutor = InProcessExecutor(fast_mode=False)
 def _validate_signal_output(out: dict) -> dict:
     """Coerce + validate the dict returned by signal().
 
-    LLM-generated strategies sometimes emit bogus risk targets — e.g.
-    tp = 10×entry or sl < 0 because the prompt asked for "price levels"
-    and the model used a percentage multiplier instead. We preserve the
-    action (the buy/sell timing is often still valid — backtest win-rate
-    proves it) but clamp tp/sl into the sane band for a multi-day swing.
+    Pure type coercion — risk-target sanitization (clamp + tick rounding)
+    happens later in `_sanitize_targets()` because it needs ticker context
+    (warrants vs stocks have different sensible bands and tick sizes).
     """
     action = str(out.get("action", "hold")).lower()
     if action not in {"buy", "sell", "hold"}:
@@ -249,30 +247,93 @@ def _validate_signal_output(out: dict) -> dict:
         except (TypeError, ValueError):
             return default
 
-    entry = _f("entry")
-    tp    = _f("tp")
-    sl    = _f("sl")
-
-    # Sanitize tp/sl against entry for buy/sell — see docstring.
-    # Bands chosen for a 5-day horizon: 30% cap each direction.
-    if action == "buy" and entry > 0:
-        if not (entry * 1.001 < tp <= entry * 1.30):
-            tp = round(entry * 1.07, 4)   # 7% default upside
-        if not (entry * 0.70 <= sl < entry * 0.999):
-            sl = round(entry * 0.95, 4)   # 5% default downside
-    elif action == "sell" and entry > 0:
-        if not (entry * 0.70 <= tp < entry * 0.999):
-            tp = round(entry * 0.93, 4)
-        if not (entry * 1.001 < sl <= entry * 1.30):
-            sl = round(entry * 1.05, 4)
-
     return {
         "action":     action,
-        "entry":      entry,
-        "tp":         tp,
-        "sl":         sl,
+        "entry":      _f("entry"),
+        "tp":         _f("tp"),
+        "sl":         _f("sl"),
         "confidence": max(0.0, min(1.0, _f("confidence", 0.5))),
     }
+
+
+# ── Risk-target sanitization (ticker-aware) ────────────────────────────────
+def _is_warrant(ticker: str) -> bool:
+    """Vietnamese covered warrants on HOSE: ticker like CFPT2517, CVHM2308.
+    Pattern: starts with 'C', then 3-letter underlying, then 4 digits (YYNN).
+    """
+    if not ticker or len(ticker) < 7:
+        return False
+    t = ticker.upper()
+    return t.startswith("C") and t[-4:].isdigit() and t[1:4].isalpha()
+
+
+def _round_to_tick(price: float, ticker: str) -> float:
+    """Round price to the nearest legal tick on HOSE.
+
+    Prices are stored in nghìn đồng (thousand VND), so ticks are scaled:
+      Stock < 10K VND      → 10 VND  → 0.01
+      Stock 10K–49.95K VND → 50 VND  → 0.05
+      Stock ≥ 50K VND      → 100 VND → 0.10
+      Warrants (any price) → 10 VND  → 0.01
+    """
+    if price <= 0:
+        return price
+    if _is_warrant(ticker):
+        tick = 0.01
+    elif price < 10:
+        tick = 0.01
+    elif price < 50:
+        tick = 0.05
+    else:
+        tick = 0.10
+    return round(round(price / tick) * tick, 2)
+
+
+def _sanitize_targets(
+    action: str, entry: float, tp: float, sl: float, ticker: str
+) -> tuple[float, float, bool]:
+    """Clamp tp/sl into ticker-appropriate bands and snap to legal ticks.
+
+    LLM-generated strategies sometimes emit bogus risk targets (e.g.
+    tp = 10×entry, sl < 0). We preserve the action signal but force
+    sane bounds so recs are tradable.
+
+    Bands (5-day horizon):
+      Stocks   — TP +5–10%, SL -3–7%   (default 7%/5%)
+      Warrants — TP +15–30%, SL -8–15% (default 20%/12% — leveraged)
+
+    Returns (tp_rounded, sl_rounded, was_clamped).
+    """
+    if entry <= 0 or action == "hold":
+        return tp, sl, False
+
+    if _is_warrant(ticker):
+        tp_default, sl_default = 1.20, 0.88     # +20%, -12%
+        tp_band   = (1.05, 1.50)                # accept +5% to +50%
+        sl_band   = (0.60, 0.99)                # accept -1% to -40%
+    else:
+        tp_default, sl_default = 1.07, 0.95     # +7%, -5%
+        tp_band   = (1.005, 1.30)               # accept +0.5% to +30%
+        sl_band   = (0.70, 0.999)               # accept -0.1% to -30%
+
+    clamped = False
+    if action == "buy":
+        if not (tp_band[0] <= tp / entry <= tp_band[1]):
+            tp = entry * tp_default
+            clamped = True
+        if not (sl_band[0] <= sl / entry <= sl_band[1]):
+            sl = entry * sl_default
+            clamped = True
+    elif action == "sell":
+        # Mirror: for shorts tp < entry < sl
+        if not (sl_band[0] <= tp / entry <= sl_band[1]):
+            tp = entry * (2 - tp_default)       # symmetric
+            clamped = True
+        if not (tp_band[0] <= sl / entry <= tp_band[1]):
+            sl = entry * (2 - sl_default)
+            clamped = True
+
+    return _round_to_tick(tp, ticker), _round_to_tick(sl, ticker), clamped
 
 
 # ── Backtest engine ────────────────────────────────────────────────────────
@@ -1089,13 +1150,17 @@ def emit_recommendations(
             if sig["action"] != "buy" or sig["entry"] <= 0:
                 stats["n_hold"] += 1
                 continue
+            entry  = _round_to_tick(sig["entry"], ticker)
+            tp, sl, _ = _sanitize_targets(
+                sig["action"], entry, sig["tp"], sig["sl"], ticker
+            )
             stats["n_buy"] += 1
             rec_id = mem.save_recommendation(
                 ticker=ticker,
                 action=sig["action"],
-                entry=sig["entry"],
-                tp=sig["tp"],
-                sl=sig["sl"],
+                entry=entry,
+                tp=tp,
+                sl=sl,
                 rationale=f"Strategy #{s['id']} ({s['name']}), conf={sig['confidence']:.2f}",
                 horizon_days=horizon_days,
                 brief_id=brief_id,
@@ -1104,9 +1169,9 @@ def emit_recommendations(
             recs.append({
                 "id":       rec_id,
                 "ticker":   ticker,
-                "entry":    sig["entry"],
-                "tp":       sig["tp"],
-                "sl":       sig["sl"],
+                "entry":    entry,
+                "tp":       tp,
+                "sl":       sl,
                 "rationale": f"Strategy #{s['id']}",
                 "strategy": s["name"],
             })
