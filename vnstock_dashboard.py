@@ -2275,12 +2275,20 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
             day_data = history.get(d, {})
             day_stats = day_data.get(window_name, {})
 
+        all_zero = True
         for idx in SESSION_INDICES:
             s = day_stats.get(idx, {})
             vol_m = s.get("vol", 0) / 1e6  # triệu CP
             gtgd = s.get("gtgd", 0)
             row[f"{idx} VOL"] = round(vol_m, 1)
             row[f"{idx} GTGD"] = round(gtgd, 1)
+            if vol_m > 0 or gtgd > 0:
+                all_zero = False
+
+        # Drop holidays / market-closed days (all indices reporting zero).
+        # Keep today's row even if zero — market may not have opened yet.
+        if all_zero and d != today_str:
+            continue
         rows.append(row)
 
     df = pd.DataFrame(rows)
