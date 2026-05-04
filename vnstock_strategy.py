@@ -1034,6 +1034,13 @@ def emit_recommendations(
     recs: list[dict] = []
     for s in bests:
         code = s["code"]
+        # Strategy params live in params_json (e.g. rsi_period, ma_window).
+        # Without these, code that reads params['rsi_period'] throws KeyError
+        # on every ticker — same pattern used by backtest()/analyze_ticker().
+        try:
+            params = json.loads(s.get("params_json") or "{}")
+        except Exception:
+            params = {}
         for ticker in universe:
             if len(recs) >= max_recs:
                 break
@@ -1046,7 +1053,7 @@ def emit_recommendations(
                 continue
             window = hist.tail(60).reset_index(drop=True)
             try:
-                raw = EXECUTOR.run(code, window, {})
+                raw = EXECUTOR.run(code, window, params)
                 sig = _validate_signal_output(raw)
                 stats["n_executed"] += 1
             except Exception as e:
