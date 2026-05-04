@@ -1046,7 +1046,7 @@ def emit_recommendations(
                 continue
             window = hist.tail(60).reset_index(drop=True)
             try:
-                raw = STRICT_EXECUTOR.run(code, window, {})
+                raw = EXECUTOR.run(code, window, {})
                 sig = _validate_signal_output(raw)
                 stats["n_executed"] += 1
             except Exception as e:
