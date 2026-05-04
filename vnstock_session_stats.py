@@ -32,11 +32,19 @@ _INDEX_SYMBOL_MAP = {
 }
 
 
-def _fetch_index_intraday(index_symbol: str) -> pd.DataFrame:
-    """Fetch 1m intraday data for an index. Returns last 5 calendar days."""
+def _fetch_index_intraday(
+    index_symbol: str, *, days: int = 5, interval: str = "1m"
+) -> pd.DataFrame:
+    """Fetch intraday OHLCV for an index over the last `days` calendar days.
+
+    Default (1m / 5d) is suited for live "today" stats. For 30-day backfill,
+    callers pass `days=35, interval="5m"` since vnstock's 1m endpoint only
+    serves ~5 days of history; 5m bars still align with all session window
+    boundaries (10:00, 11:30, 14:00, 15:00).
+    """
     from vnstock_auth import get_vnstock
     today = date.today().strftime("%Y-%m-%d")
-    start = (date.today() - timedelta(days=5)).strftime("%Y-%m-%d")
+    start = (date.today() - timedelta(days=days)).strftime("%Y-%m-%d")
 
     symbols_to_try = [index_symbol]
     if index_symbol == "UPCOM":
@@ -47,7 +55,7 @@ def _fetch_index_intraday(index_symbol: str) -> pd.DataFrame:
     for sym in symbols_to_try:
         try:
             stock = get_vnstock(sym)
-            df = stock.quote.history(start=start, end=today, interval="1m")
+            df = stock.quote.history(start=start, end=today, interval=interval)
             if df is not None and not df.empty:
                 df["time"] = pd.to_datetime(df["time"])
                 return df[["time", "open", "high", "low", "close", "volume"]].copy()
@@ -99,14 +107,17 @@ def compute_session_stats(target_date: date | None = None) -> dict:
     return result
 
 
-def backfill_session_stats() -> int:
-    """Fill gaps using the 5-day API window. Only fills missing dates.
-    Returns number of dates filled."""
+def backfill_session_stats(*, days: int = 35, interval: str = "5m") -> int:
+    """Fill gaps in history using a wider API window (default 35d / 5m bars).
+
+    Only fills missing dates — existing entries are kept as-is. Returns the
+    number of dates filled.
+    """
     all_data = load_session_stats_history()
 
     index_data: dict = {}
     for display_name, symbol in _INDEX_SYMBOL_MAP.items():
-        df = _fetch_index_intraday(symbol)
+        df = _fetch_index_intraday(symbol, days=days, interval=interval)
         if not df.empty:
             index_data[display_name] = df
 

@@ -79,6 +79,10 @@ def render_screener_tab(
     save_session_stats     = _vnd.save_session_stats
     load_session_stats_history  = _vnd.load_session_stats_history
     render_session_stats_table  = _vnd.render_session_stats_table
+    try:
+        from vnstock_session_stats import backfill_session_stats as _backfill_session_stats
+    except Exception:
+        def _backfill_session_stats(): return 0
     from datetime import datetime
 
 
@@ -375,6 +379,17 @@ def render_screener_tab(
         @st.fragment(run_every=30)
         def _session_stats_fragment():
             try:
+                # One-shot backfill per session: populates ~30 trading days of
+                # history when the JSON file is missing or sparse. The runner
+                # also backfills daily, so this is just for first-time / dev use.
+                if not st.session_state.get("_session_stats_backfilled"):
+                    try:
+                        _backfill_session_stats()
+                    except Exception:
+                        pass
+                    st.session_state["_session_stats_backfilled"] = True
+                    load_session_stats_history.clear()
+
                 # Load history + compute today
                 history = load_session_stats_history()
                 stats = compute_session_stats()
