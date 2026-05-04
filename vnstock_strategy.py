@@ -1155,6 +1155,12 @@ def emit_recommendations(
                 sig["action"], entry, sig["tp"], sig["sl"], ticker
             )
             stats["n_buy"] += 1
+            # Close any prior open rec for this ticker — the new scan
+            # supersedes it. Avoids duplicate rows piling up across scans.
+            try:
+                mem.supersede_open_recommendations(ticker)
+            except Exception:
+                pass
             rec_id = mem.save_recommendation(
                 ticker=ticker,
                 action=sig["action"],

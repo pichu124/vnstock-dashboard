@@ -435,25 +435,67 @@ def save_recommendation(
         return int(cur.lastrowid)
 
 
-def open_recommendations() -> list[dict]:
-    """Return open recs, filtering out rows with malformed tp/sl prices.
+def supersede_open_recommendations(ticker: str) -> int:
+    """Close any currently-open recs for `ticker` as superseded.
 
-    Pre-sanitization (commit a9a6ad9 era) the strategy-validator allowed
-    cut_loss <= 0 or take_profit at 5-10× entry to leak through. Those
-    recs are now hidden so the panel shows only actionable picks.
+    Called by emit_recommendations() before saving a fresh rec, so the
+    DB doesn't accumulate stale entries when the same ticker is re-scanned
+    multiple times in a day. Returns count of recs closed.
     """
     with _conn() as c:
         rows = c.execute(
             """
-            SELECT r.* FROM recommendations r
-            LEFT JOIN rec_outcomes o ON o.rec_id=r.id
-            WHERE o.id IS NULL
-              AND r.entry_price > 0
-              AND r.cut_loss > 0
-              AND r.cut_loss < r.entry_price
-              AND r.take_profit > r.entry_price
-              AND r.take_profit <= r.entry_price * 2.0
-            ORDER BY r.created_at DESC LIMIT 50
+            SELECT r.id FROM recommendations r
+            LEFT JOIN rec_outcomes o ON o.rec_id = r.id
+            WHERE o.id IS NULL AND r.ticker = ?
+            """,
+            (ticker,),
+        ).fetchall()
+        if not rows:
+            return 0
+        now = _now()
+        for row in rows:
+            c.execute(
+                "INSERT OR REPLACE INTO rec_outcomes "
+                "(rec_id, closed_at, exit_price, pnl_pct, hit_target, notes) "
+                "VALUES (?, ?, NULL, NULL, ?, ?)",
+                (int(row["id"]), now, "superseded", "Replaced by newer scan"),
+            )
+        return len(rows)
+
+
+def open_recommendations() -> list[dict]:
+    """Return open recs, deduped to the newest one per ticker.
+
+    Two filters applied:
+      1. Skip malformed rows — entry/tp/sl pre-sanitization could leak
+         negative SL or 10× TP into the table; hide those.
+      2. One row per ticker — emit_recommendations() doesn't supersede
+         old recs when re-scanned, so a ticker can accumulate stale
+         entries with outdated sanitize defaults. Show only the latest.
+    """
+    with _conn() as c:
+        rows = c.execute(
+            """
+            WITH ranked AS (
+                SELECT r.*,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY r.ticker
+                           ORDER BY r.created_at DESC, r.id DESC
+                       ) AS rn
+                FROM recommendations r
+                LEFT JOIN rec_outcomes o ON o.rec_id = r.id
+                WHERE o.id IS NULL
+                  AND r.entry_price > 0
+                  AND r.cut_loss > 0
+                  AND r.cut_loss < r.entry_price
+                  AND r.take_profit > r.entry_price
+                  AND r.take_profit <= r.entry_price * 2.0
+            )
+            SELECT * FROM ranked
+            WHERE rn = 1
+            ORDER BY created_at DESC
+            LIMIT 50
             """
         ).fetchall()
         return [dict(r) for r in rows]
