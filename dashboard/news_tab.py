@@ -9,6 +9,24 @@ from __future__ import annotations
 
 import streamlit as st
 from datetime import datetime, date, timedelta
+from urllib.parse import urljoin, urlparse
+
+# VCI's news endpoint returns `news_source_link` as a host-less path
+# (e.g. "2026/02/cua-de-danh-…htm") which Streamlit/markdown otherwise
+# resolves relative to the dashboard host. CafeF is the primary aggregator.
+_DEFAULT_NEWS_BASE = "https://cafef.vn/"
+
+
+def _normalize_news_url(url: str) -> str:
+    """Return an absolute URL — prepend the default news host if scheme is missing."""
+    if not url or not url.strip():
+        return ""
+    url = url.strip()
+    if urlparse(url).scheme in ("http", "https"):
+        return url
+    if url.startswith("//"):
+        return "https:" + url
+    return urljoin(_DEFAULT_NEWS_BASE, url.lstrip("/"))
 
 
 def _fmt_age(date_str: str) -> str:
@@ -48,7 +66,9 @@ def _news_card(item: dict, idx: int) -> None:
                      "summary", "newsShortContent") or subtitle
     full     = _pick(item, "news_full_content", "full_content", "content",
                      "newsFullContent", "body")
-    link     = _pick(item, "news_source_link", "source_link", "url", "link", "href")
+    link     = _normalize_news_url(
+        _pick(item, "news_source_link", "source_link", "url", "link", "href")
+    )
     pub_date = item.get("public_date") or item.get("created_at") or item.get("date") or ""
     age      = _fmt_age(pub_date)
 
@@ -86,7 +106,10 @@ def _news_card(item: dict, idx: int) -> None:
                     st.markdown(full[:3000] + ("…" if len(full) > 3000 else ""))
         if link:
             with action_cols[1]:
-                st.markdown(f"[🔗 Nguồn gốc]({link})", unsafe_allow_html=False)
+                st.markdown(
+                    f'<a href="{link}" target="_blank" rel="noopener noreferrer">🔗 Nguồn gốc</a>',
+                    unsafe_allow_html=True,
+                )
 
         st.divider()
 

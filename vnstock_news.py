@@ -23,6 +23,24 @@ from datetime import date, datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urljoin, urlparse
+
+# VCI's news endpoint returns `news_source_link` as a host-less path;
+# CafeF is the primary aggregator behind VCI's news feed.
+_DEFAULT_NEWS_BASE = "https://cafef.vn/"
+_LINK_KEYS = ("news_source_link", "source_link", "url", "link", "href")
+
+
+def _absolutize_url(url: str) -> str:
+    """Return an absolute URL — prepend default host if scheme is missing."""
+    if not url or not url.strip():
+        return ""
+    url = url.strip()
+    if urlparse(url).scheme in ("http", "https"):
+        return url
+    if url.startswith("//"):
+        return "https:" + url
+    return urljoin(_DEFAULT_NEWS_BASE, url.lstrip("/"))
 
 # ── Paths ──────────────────────────────────────────────────────────────────
 _REPO = Path(__file__).parent
@@ -135,6 +153,11 @@ def fetch_ticker_news(ticker: str, source: str = "VCI") -> list[dict]:
                 # Normalise date field
                 raw_date = d.get("public_date") or d.get("created_at") or ""
                 d["_date_sort"] = raw_date[:10] if raw_date else ""
+                # Normalise source link — VCI returns relative paths
+                for k in _LINK_KEYS:
+                    if d.get(k):
+                        d[k] = _absolutize_url(d[k])
+                        break
                 records.append(d)
             if records:
                 return records
