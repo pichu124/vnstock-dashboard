@@ -2588,13 +2588,35 @@ charts.forEach(function(s){
   });
 });
 
-// One-directional time-scale sync: main drives sub-panels only.
-// Sub-panels never subscribe back — no ping-pong, pan/drag works fine.
-// RSI/MACD/Volume always show the same date window as the candles.
-main.timeScale().subscribeVisibleTimeRangeChange(function(range){
-  if(!range) return;
-  [vol,rsi,mac].forEach(function(c){
-    try{c.timeScale().setVisibleRange(range);}catch(e){}
+// Bidirectional time-scale sync via "active source" detection.
+// Mouse/wheel/touch on a panel marks it as the active source. Only the
+// active source drives setVisibleRange on the others. Programmatic
+// setVisibleRange calls fire callbacks too, but the source chart is no
+// longer the active one — so they don't echo back. Kills the ping-pong
+// that broke pan/drag in the previous bidirectional implementation.
+var _activeSrc = null;
+["mc","vc","rc","dc"].forEach(function(id, i){
+  var el = document.getElementById(id);
+  if (!el) return;
+  function activate(){ _activeSrc = charts[i]; }
+  el.addEventListener("mousedown", activate, {passive:true});
+  el.addEventListener("wheel", activate, {passive:true});
+  el.addEventListener("touchstart", activate, {passive:true});
+});
+document.addEventListener("mouseup", function(){
+  setTimeout(function(){ _activeSrc = null; }, 150);
+});
+document.addEventListener("touchend", function(){
+  setTimeout(function(){ _activeSrc = null; }, 150);
+});
+charts.forEach(function(s){
+  s.timeScale().subscribeVisibleTimeRangeChange(function(){
+    if (s !== _activeSrc) return;
+    var r = s.timeScale().getVisibleRange();
+    if (!r) return;
+    charts.forEach(function(c){
+      if (c !== s) { try{c.timeScale().setVisibleRange(r);}catch(e){} }
+    });
   });
 });
 

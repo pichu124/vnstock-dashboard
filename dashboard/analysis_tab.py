@@ -739,9 +739,51 @@ def render_analysis_tab() -> None:
             render_chart(_replay_df, f"{ticker} · Replay {_replay_date}",
                          height=st.session_state.get("chart_height_anal", 850))
     elif not _live_intraday:
+        # Even without Live Mode, write today's bar to JSON every 10s so
+        # the chart's JS polling can update the last candle in place.
+        # Produces a TradingView-style ticking 1D chart during the session
+        # without requiring the user to enable Live Mode (which adds WSS
+        # subscription overhead). Daily/weekly/monthly only — intraday
+        # timeframes without Live Mode use whatever chart_df was loaded.
+        _idle_url = None
+        if tf in ("1D", "1W", "1M", "All"):
+            @st.fragment(run_every=10)
+            def _idle_today_bar_writer():
+                import json as _json
+                import pandas as _pd
+                from pathlib import Path as _P
+                from datetime import date as _d
+                try:
+                    intra = load_intraday(ticker, interval="5m")
+                    if intra is None or intra.empty:
+                        return
+                    today_bars = intra[intra["time"].dt.date == _d.today()]
+                    if today_bars.empty:
+                        return
+                    _ref = float(chart_df["close"].iloc[-1]) if not chart_df.empty else 0.0
+                    bar = {
+                        "time":   int(_pd.Timestamp(_d.today()).timestamp()),
+                        "open":   _normalize_live_price(_ref, float(today_bars["open"].iloc[0])),
+                        "high":   _normalize_live_price(_ref, float(today_bars["high"].max())),
+                        "low":    _normalize_live_price(_ref, float(today_bars["low"].min())),
+                        "close":  _normalize_live_price(_ref, float(today_bars["close"].iloc[-1])),
+                        "volume": float(today_bars["volume"].sum()),
+                    }
+                    out = _P("static/today_bars") / f"{ticker}.json"
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                    tmp = out.with_suffix(".tmp")
+                    tmp.write_text(_json.dumps(bar))
+                    tmp.replace(out)
+                except Exception:
+                    pass
+            _idle_today_bar_writer()
+            _idle_url = f"/app/static/today_bars/{ticker}.json"
+
         try:
             render_chart(chart_df, ticker,
-                         height=st.session_state.get("chart_height_anal", 850))
+                         height=st.session_state.get("chart_height_anal", 850),
+                         live_url=_idle_url,
+                         live_poll_ms=10000)
         except Exception as _e:
             st.error(
                 f"Chart render error ({tf}, {len(chart_df)} bars): "
