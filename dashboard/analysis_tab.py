@@ -502,8 +502,44 @@ def render_analysis_tab() -> None:
 
         _live_quote_fragment()
 
-        # Chart — render OUTSIDE fragment (no flicker, no scroll reset)
-        # Merge live quote into chart data
+        # Background producer — every 5s, fetch latest intraday bar, merge
+        # live WSS quote into it, write to JSON. JS in chart iframe polls
+        # this file and updates only the last candle (no rebuild, no zoom
+        # reset). Cache TTL on load_intraday is 60s but live_quote is
+        # WSS-realtime so the close/high/low tick at WSS rate.
+        @st.fragment(run_every=5)
+        def _intraday_bar_writer():
+            import json as _json
+            from pathlib import Path as _P
+            try:
+                intra = load_intraday(ticker, interval=tf)
+                if intra is None or intra.empty:
+                    return
+                live_q = load_live_quote(ticker)
+                if live_q:
+                    intra = _merge_live_quote(intra, live_q)
+                last = intra.iloc[-1]
+                bar = {
+                    "time":   int(last["time"].timestamp()),
+                    "open":   float(last["open"]),
+                    "high":   float(last["high"]),
+                    "low":    float(last["low"]),
+                    "close":  float(last["close"]),
+                    "volume": float(last["volume"]),
+                }
+                out = _P(f"static/today_bars/{ticker}_{tf}.json")
+                out.parent.mkdir(parents=True, exist_ok=True)
+                tmp = out.with_suffix(".tmp")
+                tmp.write_text(_json.dumps(bar))
+                tmp.replace(out)
+            except Exception:
+                pass
+        _intraday_bar_writer()
+
+        # Chart — render OUTSIDE fragment (no flicker, no scroll reset).
+        # Merge live quote into chart data on initial render so the very
+        # first paint already shows live state; JS polling takes over for
+        # subsequent ticks.
         _live_q_chart = load_live_quote(ticker)
         _chart_df_live = load_intraday(ticker, interval=tf)
         if _live_q_chart and not _chart_df_live.empty:
@@ -517,7 +553,9 @@ def render_analysis_tab() -> None:
             render_chart(_chart_df_live if not _chart_df_live.empty else chart_df,
                          ticker,
                          height=st.session_state.get("chart_height_anal", 850),
-                         volume_profile=_vp_chart if _vp_chart else None)
+                         volume_profile=_vp_chart if _vp_chart else None,
+                         live_url=f"/app/static/today_bars/{ticker}_{tf}.json",
+                         live_poll_ms=5000)
         except Exception as _e:
             st.error(f"Chart render error: {_e}")
 
