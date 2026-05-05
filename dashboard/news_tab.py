@@ -46,21 +46,35 @@ def _normalize_news_url(url: str) -> str:
 
 
 def _fmt_age(date_str: str) -> str:
-    """Human-readable age: 'Hôm nay 14:30', '2 ngày trước'."""
+    """Human-readable age: 'Hôm nay 14:30', '2 ngày trước'.
+
+    Returns 'Không rõ ngày' for unparseable input so the user can spot
+    items with missing date metadata (instead of silent empty caption).
+    """
     if not date_str:
-        return ""
+        return "Không rõ ngày"
     try:
         dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
         dt = dt.replace(tzinfo=None)
     except Exception:
-        return date_str[:10]
+        # Try YYYY-MM-DD only
+        try:
+            dt = datetime.strptime(date_str[:10], "%Y-%m-%d")
+        except Exception:
+            return date_str[:10] or "Không rõ ngày"
     now = datetime.now()
     delta = now - dt
+    if delta.days < 0:
+        return dt.strftime("%Y-%m-%d")  # future date — show raw
     if delta.days == 0:
         return f"Hôm nay {dt.strftime('%H:%M')}"
     if delta.days == 1:
         return "Hôm qua"
-    return f"{delta.days} ngày trước"
+    if delta.days < 30:
+        return f"{delta.days} ngày trước"
+    if delta.days < 365:
+        return f"⚠️ {delta.days} ngày trước"
+    return f"⚠️ {dt.strftime('%Y-%m-%d')} (rất cũ)"
 
 
 def _pick(item: dict, *keys: str, default: str = "") -> str:
@@ -192,9 +206,34 @@ def render_news_tab() -> None:
         st.info("Chưa có tin tức. Bấm **🔄 Cập nhật tin tức** để tải về.")
         return
 
+    # ── Cache freshness diagnostic ─────────────────────────────────────────
+    # If even the NEWEST item in cache is days old, warn the user — the news
+    # source may be stale or the date field wasn't parsed correctly.
+    _dated_items = [n for n in news if n.get("_date_sort")]
+    _undated_count = len(news) - len(_dated_items)
+    if _dated_items:
+        from datetime import date as _date
+        _newest_iso = max(n["_date_sort"] for n in _dated_items)
+        try:
+            _newest_dt = datetime.strptime(_newest_iso[:10], "%Y-%m-%d").date()
+            _age_days = (_date.today() - _newest_dt).days
+            if _age_days >= 3:
+                st.warning(
+                    f"⚠️ Tin mới nhất trong cache là từ **{_newest_iso}** "
+                    f"({_age_days} ngày trước). Nguồn tin có thể đang cũ — "
+                    f"thử **Cập nhật tin tức** lại sau vài giờ."
+                )
+        except Exception:
+            pass
+    if _undated_count > 0 and _undated_count >= len(news) // 2:
+        st.warning(
+            f"⚠️ {_undated_count}/{len(news)} tin không có ngày phát hành "
+            f"(field date không được parse). Sort theo ngày sẽ không chính xác."
+        )
+
     # ── Filters ────────────────────────────────────────────────────────────
     st.markdown("---")
-    flt_col1, flt_col2, flt_col3 = st.columns([2, 2, 3])
+    flt_col1, flt_col2, flt_col3, flt_col4 = st.columns([2, 2, 2, 3])
 
     # Ticker filter
     all_tickers = sorted({n.get("ticker", "") for n in news if n.get("ticker")})
@@ -204,16 +243,27 @@ def render_news_tab() -> None:
             key="_news_ticker_filter",
         )
 
-    # Date filter
-    all_dates = sorted({n.get("_date_sort", "")[:10] for n in news if n.get("_date_sort")}, reverse=True)
+    # Recency filter — default to 7 days so users don't see month-old news
+    # by default. The "Tất cả" option is available for explicit override.
     with flt_col2:
+        recency_label = st.selectbox(
+            "Tin trong",
+            options=["3 ngày", "7 ngày", "30 ngày", "Tất cả"],
+            index=1,  # default: 7 ngày
+            key="_news_recency_filter",
+        )
+    _recency_days = {"3 ngày": 3, "7 ngày": 7, "30 ngày": 30, "Tất cả": None}[recency_label]
+
+    # Specific-date filter (only dates present in cache)
+    all_dates = sorted({n.get("_date_sort", "")[:10] for n in news if n.get("_date_sort")}, reverse=True)
+    with flt_col3:
         selected_date = st.selectbox(
-            "Ngày", options=["Tất cả"] + all_dates,
+            "Ngày cụ thể", options=["Tất cả"] + all_dates,
             key="_news_date_filter",
         )
 
     # Search
-    with flt_col3:
+    with flt_col4:
         search_q = st.text_input("🔍 Tìm kiếm tiêu đề", key="_news_search",
                                   placeholder="VCB, tăng trưởng, lợi nhuận…")
 
@@ -225,6 +275,12 @@ def render_news_tab() -> None:
 
     # ── Apply filters ──────────────────────────────────────────────────────
     filtered = news
+
+    # Recency filter — drop items older than N days OR with no date
+    if _recency_days is not None:
+        from datetime import date as _date, timedelta as _td
+        _cutoff = (_date.today() - _td(days=_recency_days)).isoformat()
+        filtered = [n for n in filtered if (n.get("_date_sort") or "") >= _cutoff]
 
     if selected_ticker != "Tất cả":
         filtered = [n for n in filtered if n.get("ticker", "").upper() == selected_ticker.upper()]

@@ -149,6 +149,51 @@ def _to_dict(row) -> dict:
     return {k: (str(v) if v is not None else "") for k, v in row.items()}
 
 
+# Date field names VCI / KBS / providers may use. Order matters: most-likely first.
+_DATE_FIELDS = (
+    "public_date", "publicDate", "publish_date", "publishDate",
+    "time_publish", "publishTime", "publishedAt", "published_at",
+    "created_at", "createdAt", "create_date", "createDate",
+    "date", "news_date", "newsDate",
+)
+
+
+def _normalize_date(raw) -> str:
+    """Normalise a publish date into canonical 'YYYY-MM-DD'.
+
+    Returns '' if unparseable. Handles ISO strings, Unix timestamps (10 or
+    13 digits), and pandas Timestamp string repr ('2026-04-02 14:30:00+07:00').
+    """
+    if raw is None:
+        return ""
+    s = str(raw).strip()
+    if not s or s.lower() in ("none", "nan", "nat"):
+        return ""
+    # Unix timestamp (digits only)
+    if s.isdigit():
+        try:
+            ts = int(s)
+            if ts > 10**12:  # milliseconds
+                ts //= 1000
+            return datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+        except Exception:
+            return ""
+    # ISO / pandas Timestamp string — first 10 chars are YYYY-MM-DD if well-formed
+    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+        return s[:10]
+    # DD/MM/YYYY (Vietnamese sites)
+    if len(s) >= 10 and s[2] == "/" and s[5] == "/":
+        try:
+            return datetime.strptime(s[:10], "%d/%m/%Y").strftime("%Y-%m-%d")
+        except Exception:
+            return ""
+    # Fallback: try fromisoformat
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).strftime("%Y-%m-%d")
+    except Exception:
+        return ""
+
+
 def fetch_ticker_news(ticker: str, source: str = "VCI") -> list[dict]:
     """Fetch news for one ticker. Returns list of dicts (empty on any error)."""
     sources = [source] + ([s for s in ("VCI", "KBS") if s != source])
@@ -164,9 +209,17 @@ def fetch_ticker_news(ticker: str, source: str = "VCI") -> list[dict]:
                 d = _to_dict(row)
                 d["ticker"] = ticker
                 d["source_provider"] = src
-                # Normalise date field
-                raw_date = d.get("public_date") or d.get("created_at") or ""
-                d["_date_sort"] = raw_date[:10] if raw_date else ""
+                # Robust date detection — try every known field name variant
+                # and normalise to YYYY-MM-DD for sorting.
+                raw_date = ""
+                for k in _DATE_FIELDS:
+                    if d.get(k):
+                        raw_date = d[k]
+                        break
+                d["_date_sort"] = _normalize_date(raw_date)
+                # Also store back into public_date so UI _fmt_age has a value
+                if d["_date_sort"] and not d.get("public_date"):
+                    d["public_date"] = d["_date_sort"]
                 # Normalise source link — VCI returns relative paths
                 for k in _LINK_KEYS:
                     if d.get(k):
@@ -212,8 +265,12 @@ def refresh_news(
                 except Exception:
                     pass
 
-    # Sort newest first
-    all_news.sort(key=lambda x: x.get("_date_sort", ""), reverse=True)
+    # Sort newest first. Items without a parseable date go to the END
+    # (use sentinel "0000-00-00" so they don't bubble to the top via reverse=True).
+    all_news.sort(
+        key=lambda x: x.get("_date_sort") or "0000-00-00",
+        reverse=True,
+    )
 
     save_news_cache(all_news)
     _set_memory_cache(all_news)
