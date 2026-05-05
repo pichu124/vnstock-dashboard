@@ -606,7 +606,7 @@ def render_analysis_tab() -> None:
         _alert_checker()
 
     # ── Live mode + Daily/Weekly/Monthly chart ────────────────────────────
-    elif _live_daily:
+    if _live_daily:
         st.markdown(
             '<div style="background:linear-gradient(90deg,#3b82f6,#8b5cf6);'
             'padding:6px 14px;border-radius:6px;margin:8px 0;'
@@ -686,12 +686,13 @@ def render_analysis_tab() -> None:
                 today_bars = intra[intra["time"].dt.date == _d.today()]
                 if today_bars.empty:
                     return
+                _ref = float(chart_df["close"].iloc[-1]) if not chart_df.empty else 0.0
                 bar = {
                     "time":   int(_pd.Timestamp(_d.today()).timestamp()),
-                    "open":   float(today_bars["open"].iloc[0]),
-                    "high":   float(today_bars["high"].max()),
-                    "low":    float(today_bars["low"].min()),
-                    "close":  float(today_bars["close"].iloc[-1]),
+                    "open":   _normalize_live_price(_ref, float(today_bars["open"].iloc[0])),
+                    "high":   _normalize_live_price(_ref, float(today_bars["high"].max())),
+                    "low":    _normalize_live_price(_ref, float(today_bars["low"].min())),
+                    "close":  _normalize_live_price(_ref, float(today_bars["close"].iloc[-1])),
                     "volume": float(today_bars["volume"].sum()),
                 }
                 out = _P("static/today_bars") / f"{ticker}.json"
@@ -711,7 +712,8 @@ def render_analysis_tab() -> None:
         )
 
     # ── Intraday Replay ───────────────────────────────────────────────────────
-    elif (st.session_state.get("replay_date", "(tắt)") != "(tắt)"
+    elif (not _live_intraday
+          and st.session_state.get("replay_date", "(tắt)") != "(tắt)"
           and st.session_state.get("replay_date")):
         _replay_date = st.session_state["replay_date"]
         _replay_df = load_intraday_bars(ticker, _replay_date)
@@ -736,7 +738,7 @@ def render_analysis_tab() -> None:
             )
             render_chart(_replay_df, f"{ticker} · Replay {_replay_date}",
                          height=st.session_state.get("chart_height_anal", 850))
-    else:
+    elif not _live_intraday:
         try:
             render_chart(chart_df, ticker,
                          height=st.session_state.get("chart_height_anal", 850))

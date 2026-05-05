@@ -2573,31 +2573,28 @@ line(mac,MS,"#f97316",1.5,"Signal",true);
 
 var charts=[main,vol,rsi,mac];
 
-// Initial visible range. Daily long-history → default last ~120 bars
-// (~6 months) so today's bar isn't a single pixel. Intraday or short
-// history → fitContent shows everything.
 var _isIntraday = false;
 if (C.length >= 2) {
   _isIntraday = (C[C.length-1].time - C[C.length-2].time) < 86400;
 }
-if (!_isIntraday && C.length > 250) {
-  var _initRange = {from: C[C.length - 120].time, to: C[C.length - 1].time};
-  charts.forEach(function(c){ c.timeScale().setVisibleRange(_initRange); });
-} else {
-  charts.forEach(function(c){ c.timeScale().fitContent(); });
-}
 
-// Crosshair sync only. Visible-range sync between panels was removed
-// because the subscribe callback chain — even with a `_syncing` guard —
-// interferes with mouse pan in this LWC build (drag events get blocked
-// by the cascade of setVisibleRange calls). Each panel pans/zooms
-// independently; users line them up via the timescale labels.
+// Crosshair sync — all panels mirror the same timestamp.
 charts.forEach(function(s){
   s.subscribeCrosshairMove(function(p){
     if(!p.time) return;
     charts.forEach(function(t){
       if(t!==s) t.setCrosshairPosition(NaN,p.time,null);
     });
+  });
+});
+
+// One-directional time-scale sync: main drives sub-panels only.
+// Sub-panels never subscribe back — no ping-pong, pan/drag works fine.
+// RSI/MACD/Volume always show the same date window as the candles.
+main.timeScale().subscribeVisibleTimeRangeChange(function(range){
+  if(!range) return;
+  [vol,rsi,mac].forEach(function(c){
+    try{c.timeScale().setVisibleRange(range);}catch(e){}
   });
 });
 
@@ -2638,6 +2635,18 @@ function resize(){
 }
 window.addEventListener("resize",resize);
 setTimeout(resize,100);
+// Initial visible range fires at 150ms — after the 100ms resize so the
+// chart has a valid clientWidth before setVisibleRange is called.
+// Calling it at t=0 (before layout) results in a no-op and a blank chart.
+setTimeout(function(){
+  if(!_isIntraday&&C.length>250){
+    charts.forEach(function(c){
+      c.timeScale().setVisibleRange({from:C[C.length-120].time,to:C[C.length-1].time});
+    });
+  }else{
+    charts.forEach(function(c){c.timeScale().fitContent();});
+  }
+},150);
 
 // Prevent scroll/wheel from bubbling to parent Streamlit iframe
 // This stops the page from jumping when scrolling/zooming on charts
