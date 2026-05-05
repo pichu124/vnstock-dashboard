@@ -725,7 +725,17 @@ def render_analysis_tab() -> None:
             render_chart(_replay_df, f"{ticker} · Replay {_replay_date}",
                          height=st.session_state.get("chart_height_anal", 850))
     else:
-        render_chart(chart_df, ticker, height=st.session_state.get("chart_height_anal", 850))
+        try:
+            render_chart(chart_df, ticker,
+                         height=st.session_state.get("chart_height_anal", 850))
+        except Exception as _e:
+            st.error(
+                f"Chart render error ({tf}, {len(chart_df)} bars): "
+                f"{type(_e).__name__}: {_e}"
+            )
+            import traceback as _tb
+            with st.expander("Stack trace"):
+                st.code(_tb.format_exc())
 
     st.markdown("---")
 

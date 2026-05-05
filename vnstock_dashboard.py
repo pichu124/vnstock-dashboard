@@ -2602,10 +2602,13 @@ charts.forEach(function(s){
       if(t!==s) t.setCrosshairPosition(NaN,p.time,null);
     });
   });
-  s.timeScale().subscribeVisibleLogicalRangeChange(function(){
-    var r=s.timeScale().getVisibleLogicalRange();
+  // Sync by TIME range, not logical range. Logical range is index-based:
+  // panel A index 0..2000 != panel B index 0..2000 if their data lengths
+  // differ (RSI has NaN gaps so series is shorter than candles). Time-based
+  // sync keeps panels aligned by actual timestamps regardless of data shape.
+  s.timeScale().subscribeVisibleTimeRangeChange(function(r){
     if(!r) return;
-    charts.forEach(function(t){if(t!==s) t.timeScale().setVisibleLogicalRange(r);});
+    charts.forEach(function(t){if(t!==s) t.timeScale().setVisibleRange(r);});
   });
 });
 
