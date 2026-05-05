@@ -2706,16 +2706,17 @@ if (LIVE_URL) {
   // behaviour users care about. Volume catches up on next page render.
   function _pollLastBar() {
     fetch(LIVE_URL + "?_=" + Date.now(), {cache: "no-store"})
-      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(r){
+        if (!r.ok) { console.log("[live] HTTP " + r.status + " — today_bar file not ready"); return null; }
+        return r.json();
+      })
       .then(function(b){
         if (!b || typeof b.time !== "number") { console.log("[live] bad payload", b); return; }
         var lastT = C.length ? C[C.length-1].time : 0;
         console.log("[live] bar", b, "lastT", lastT, new Date(b.time*1000).toISOString());
         if (b.time < lastT) { console.log("[live] SKIP: b.time < lastT"); return; }
         cs.update({time:b.time, open:b.open, high:b.high, low:b.low, close:b.close});
-        // Move the yellow reference line to follow the live close.
         if (_livePriceLine) _livePriceLine.applyOptions({price: b.close});
-        // Keep the OHLCV strip in sync with what's on screen
         document.getElementById("ohlcv").innerHTML =
           "O <b style='color:#e5e7eb'>"+b.open.toFixed(2)+"</b>  "+
           "H <b style='color:#10b981'>"+b.high.toFixed(2)+"</b>  "+
@@ -2723,7 +2724,7 @@ if (LIVE_URL) {
           "C <b style='color:#fbbf24'>"+b.close.toFixed(2)+"</b>  "+
           "<span style='color:#6b7280;font-size:10px'>· LIVE</span>";
       })
-      .catch(function(){ /* silent — file may not exist yet */ });
+      .catch(function(e){ console.log("[live] fetch error", e); });
   }
   _pollLastBar();              // immediate
   setInterval(_pollLastBar, LIVE_POLL_MS);

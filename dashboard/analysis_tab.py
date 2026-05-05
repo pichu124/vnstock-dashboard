@@ -389,6 +389,8 @@ def render_analysis_tab() -> None:
             return daily_df  # already includes today
         intra = load_intraday(ticker, interval="5m")
         if intra is None or intra.empty:
+            intra = load_intraday(ticker, interval="1D")
+        if intra is None or intra.empty:
             return daily_df
         today_bars = intra[intra["time"].dt.date == today]
         if today_bars.empty:
@@ -676,11 +678,14 @@ def render_analysis_tab() -> None:
         @st.fragment(run_every=30)
         def _today_bar_writer():
             import json as _json
+            import sys as _sys
             import pandas as _pd
             from pathlib import Path as _P
             from datetime import date as _d
             try:
                 intra = load_intraday(ticker, interval="5m")
+                if intra is None or intra.empty:
+                    intra = load_intraday(ticker, interval="1D")
                 if intra is None or intra.empty:
                     return
                 today_bars = intra[intra["time"].dt.date == _d.today()]
@@ -700,8 +705,8 @@ def render_analysis_tab() -> None:
                 tmp = out.with_suffix(".tmp")
                 tmp.write_text(_json.dumps(bar))
                 tmp.replace(out)  # atomic — readers never see partial JSON
-            except Exception:
-                pass
+            except Exception as _ex:
+                print(f"[today_bar_writer] {ticker}: {_ex}", file=_sys.stderr)
         _today_bar_writer()
 
         # Chart with JS-side live polling — see render_chart docstring.
@@ -750,11 +755,14 @@ def render_analysis_tab() -> None:
             @st.fragment(run_every=10)
             def _idle_today_bar_writer():
                 import json as _json
+                import sys as _sys
                 import pandas as _pd
                 from pathlib import Path as _P
                 from datetime import date as _d
                 try:
                     intra = load_intraday(ticker, interval="5m")
+                    if intra is None or intra.empty:
+                        intra = load_intraday(ticker, interval="1D")
                     if intra is None or intra.empty:
                         return
                     today_bars = intra[intra["time"].dt.date == _d.today()]
@@ -774,8 +782,8 @@ def render_analysis_tab() -> None:
                     tmp = out.with_suffix(".tmp")
                     tmp.write_text(_json.dumps(bar))
                     tmp.replace(out)
-                except Exception:
-                    pass
+                except Exception as _ex:
+                    print(f"[idle_today_bar_writer] {ticker}: {_ex}", file=_sys.stderr)
             _idle_today_bar_writer()
             _idle_url = f"/app/static/today_bars/{ticker}.json"
 
