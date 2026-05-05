@@ -1,33 +1,21 @@
-"""Test v2 — focus on what's promising after v1 results.
+"""Test v3 — focus on vnstock_data sponsor package.
 
-v1 conclusions:
-  • SSI iboard URLs all 404 → guessed paths wrong, need real ones
-  • cafef URLs all 404 → same
-  • vnstock Trading.price_board() works but no accumulated_value for INDEX
-  • User has vnstock_data sponsor package installed → may have extras
+v2 revealed vnstock_data 3.0.0 has these promising methods:
+  Trading: trading_stats, order_stats, side_stats, history, foreign_trade,
+           price_board, price_history, ...
+  IndexGroup (dedicated class for index groups!)
+  Listing: symbols_by_exchange, symbols_by_group, all_indices, ...
 
-v2 tests:
-  A. vnstock_data: list its modules + try market-summary methods
-  B. price_board for STOCK symbols (VN30 list) → verify approximate GTGD
-     via match_price × accumulated_volume + measure speed for 30+ symbols
-  C. More SSI endpoints (GraphQL, securities-stats, real iboard paths)
-  D. More cafef endpoints (msh-appdata real paths)
-
-Run from repo root: python _test_market_sources.py
-Paste output back to Claude after running.
+But init pattern is different from vnstock free. v3 introspects signatures
+so we know exactly how to call them, then tries each promising method
+with VNINDEX/VN30/HNX/UPCOM.
 """
 from __future__ import annotations
 
-import json
+import inspect
 import sys
 import time
-from typing import Any
-
-try:
-    import requests
-except ImportError:
-    print("Cần cài requests: pip install requests")
-    sys.exit(1)
+import traceback
 
 
 def _print_section(title: str) -> None:
@@ -36,285 +24,221 @@ def _print_section(title: str) -> None:
     print("=" * 70)
 
 
-def _print_kv(k: str, v: Any) -> None:
-    print(f"  {k:.<30} {v}")
+def _sig(obj) -> str:
+    try:
+        return str(inspect.signature(obj))
+    except Exception as e:
+        return f"<no sig: {e}>"
 
 
-def _safe_get(url: str, headers: dict | None = None,
-              params: dict | None = None, timeout: int = 8) -> tuple[int, str, str, float]:
-    """Returns (status, content_type, body_truncated, latency_ms)."""
+def _safe_call(label, fn, *args, **kwargs):
+    """Call fn, print latency + result preview, swallow exceptions."""
+    print(f"\n  → {label}")
+    print(f"    args={args} kwargs={kwargs}")
     t0 = time.time()
     try:
-        r = requests.get(url, headers=headers or {}, params=params, timeout=timeout)
+        result = fn(*args, **kwargs)
         dt = (time.time() - t0) * 1000
-        ct = r.headers.get("content-type", "")
-        body = r.text[:300]
-        return (r.status_code, ct, body, dt)
-    except Exception as e:
-        dt = (time.time() - t0) * 1000
-        return (-1, "", f"{type(e).__name__}: {e}", dt)
-
-
-def _safe_post(url: str, headers: dict | None = None,
-               json_body: dict | None = None, timeout: int = 10) -> tuple[int, str, str, float]:
-    t0 = time.time()
-    try:
-        r = requests.post(url, headers=headers or {},
-                          json=json_body, timeout=timeout)
-        dt = (time.time() - t0) * 1000
-        ct = r.headers.get("content-type", "")
-        body = r.text[:400]
-        return (r.status_code, ct, body, dt)
-    except Exception as e:
-        dt = (time.time() - t0) * 1000
-        return (-1, "", f"{type(e).__name__}: {e}", dt)
-
-
-# ─── A. vnstock_data sponsor package ──────────────────────────────────────
-def test_vnstock_data() -> None:
-    _print_section("A — vnstock_data sponsor package")
-    try:
-        import vnstock_data
-        _print_kv("Imported", "OK")
-        _print_kv("Version", getattr(vnstock_data, "__version__", "?"))
-        # List public attrs
-        attrs = [a for a in dir(vnstock_data) if not a.startswith("_")]
-        _print_kv("Public attrs", attrs[:40])
-    except ImportError as e:
-        _print_kv("ImportError", e)
-        return
-    except Exception as e:
-        _print_kv("Error", f"{type(e).__name__}: {e}")
-        return
-
-    # Try common entry points
-    candidates = [
-        ("Vnstock", "Vnstock"),
-        ("Trading", "Trading"),
-        ("Quote", "Quote"),
-        ("Market", "Market"),
-        ("Listing", "Listing"),
-    ]
-    for label, name in candidates:
-        try:
-            obj = getattr(vnstock_data, name, None)
-            if obj is not None:
-                methods = [m for m in dir(obj) if not m.startswith("_")]
-                _print_kv(f"{label} methods", methods[:25])
-        except Exception as e:
-            _print_kv(f"{label}", f"err: {e}")
-
-    # Specifically try a market-summary-like call
-    print("\n  → Try vnstock_data.Vnstock().stock(symbol='VNINDEX').trading.price_board")
-    try:
-        from vnstock_data import Vnstock as VD
-        t0 = time.time()
-        st = VD().stock(symbol="VNINDEX", source="VCI")
-        df = st.trading.price_board(["VNINDEX", "VN30", "HNXINDEX", "UPCOM"])
-        dt = (time.time() - t0) * 1000
-        _print_kv("Latency", f"{dt:.0f} ms")
-        if df is not None and not df.empty:
-            cols = [str(c) for c in df.columns]
-            _print_kv("Columns", cols)
-            # Look for accumulated_value or similar
-            value_cols = [c for c in cols if any(
-                kw in c.lower() for kw in ("value", "gtgd", "accumulated"))]
-            _print_kv("Value-like cols", value_cols)
-    except Exception as e:
-        _print_kv("Error", f"{type(e).__name__}: {e}")
-
-
-# ─── B. price_board for actual stocks (VN30) ──────────────────────────────
-VN30 = ["ACB", "BCM", "BID", "BVH", "CTG", "FPT", "GAS", "GVR", "HDB", "HPG",
-        "MBB", "MSN", "MWG", "PLX", "POW", "SAB", "SHB", "SSB", "SSI", "STB",
-        "TCB", "TPB", "VCB", "VHM", "VIB", "VIC", "VJC", "VNM", "VPB", "VRE"]
-
-
-def _flatten_cols(df) -> dict:
-    """Convert MultiIndex columns to flat dict per row, return first row."""
-    if df is None or df.empty:
-        return {}
-    row0 = df.iloc[0]
-    out = {}
-    for c, v in row0.items():
-        key = c if isinstance(c, str) else "_".join(str(x) for x in c)
-        out[key] = v
-    return out
-
-
-def test_price_board_stocks() -> None:
-    _print_section("B — Trading.price_board() for STOCKS (VN30)")
-    try:
-        from vnstock import Vnstock
-    except ImportError:
-        _print_kv("ImportError", "vnstock not installed")
-        return
-
-    try:
-        t0 = time.time()
-        st = Vnstock().stock(symbol="VCB", source="VCI")
-        df = st.trading.price_board(VN30)
-        dt = (time.time() - t0) * 1000
-        _print_kv("Latency (30 stocks)", f"{dt:.0f} ms")
-        _print_kv("Shape", df.shape if df is not None else "None")
-        if df is not None and not df.empty:
-            cols = [str(c) for c in df.columns]
-            _print_kv("Columns", cols)
-            print("\n    First row (VN30[0]):")
-            for k, v in _flatten_cols(df).items():
-                print(f"      {k:.<40} {v}")
-            # Compute approximate GTGD = match_price × accumulated_volume
+        print(f"    Latency: {dt:.0f} ms")
+        if result is None:
+            print(f"    Result: None")
+            return None
+        # DataFrame?
+        if hasattr(result, "shape"):
+            print(f"    Shape: {result.shape}")
+            cols = [str(c) for c in getattr(result, "columns", [])]
+            print(f"    Columns ({len(cols)}): {cols[:25]}")
+            # Look for value-like columns
+            value_cols = [c for c in cols if any(kw in c.lower() for kw in
+                          ("value", "gtgd", "accumulated", "total", "mtchval"))]
+            if value_cols:
+                print(f"    *** VALUE-LIKE: {value_cols} ***")
+            # Print first 3 rows
             try:
-                # Find the right columns by tuple
-                price_col = next(c for c in df.columns
-                                 if isinstance(c, tuple) and c[1] == "match_price")
-                vol_col = next(c for c in df.columns
-                               if isinstance(c, tuple) and c[1] == "accumulated_volume")
-                df_calc = df.copy()
-                df_calc["est_gtgd"] = df_calc[price_col] * df_calc[vol_col]
-                total = df_calc["est_gtgd"].sum() / 1e9  # tỷ VND
-                _print_kv("Sum(price × accVol) for 30", f"{total:,.1f} tỷ VND")
-                # Print top 5 biggest contributors
-                df_calc = df_calc.sort_values("est_gtgd", ascending=False).head(5)
-                sym_col = next(c for c in df.columns
-                               if isinstance(c, tuple) and c[1] == "symbol")
-                print("\n    Top 5 GTGD trong VN30:")
-                for _, r in df_calc.iterrows():
-                    print(f"      {r[sym_col]:<5} = {r['est_gtgd']/1e9:>8.1f} tỷ "
-                          f"(price={r[price_col]}, accVol={r[vol_col]:,.0f})")
-            except Exception as e:
-                _print_kv("Calc error", f"{type(e).__name__}: {e}")
-    except Exception as e:
-        _print_kv("Error", f"{type(e).__name__}: {e}")
-
-    # Test scaling: how does it scale with 100 stocks?
-    print("\n  → Scaling test: price_board with ~100 stocks")
-    try:
-        # Make ~100 symbols by repeating VN30 with some variations
-        # Actually use real diverse list — top liquid HOSE stocks
-        big_list = VN30 + [
-            "HCM", "VND", "DGC", "PNJ", "REE", "KBC", "DXG", "NLG", "VCG", "CII",
-            "BCG", "HSG", "NKG", "DPM", "DCM", "PDR", "VPI", "DIG", "HHV", "LPB",
-            "OCB", "EIB", "MSB", "VIX", "HUT", "C4G", "PAN", "DBC", "ANV", "VHC",
-            "ITA", "LDG", "QCG", "DRH", "FLC", "ROS", "AMD", "HQC", "TCH", "NVL",
-            "KDH", "DXS", "KBC", "SCR", "TDC", "IJC", "NTL", "SZC", "BCM", "VPI",
-            "GMD", "VTP", "SAS", "ACV", "AST", "VOS", "PVS", "PVD", "PVT", "BSR",
-            "MSN", "HBC", "CTD", "VCS", "TLG", "BMP", "TNG", "TTF", "VHC", "FRT",
-        ][:80]
-        seen = set()
-        big_list = [s for s in big_list if s not in seen and not seen.add(s)]
-        big_list = big_list[:100]
-        t0 = time.time()
-        df = st.trading.price_board(big_list)
-        dt = (time.time() - t0) * 1000
-        _print_kv("Latency (100 stocks)", f"{dt:.0f} ms")
-        _print_kv("Shape", df.shape if df is not None else "None")
-        if df is not None and not df.empty:
-            try:
-                price_col = next(c for c in df.columns
-                                 if isinstance(c, tuple) and c[1] == "match_price")
-                vol_col = next(c for c in df.columns
-                               if isinstance(c, tuple) and c[1] == "accumulated_volume")
-                est = (df[price_col] * df[vol_col]).sum() / 1e9
-                _print_kv("Sum GTGD est (100 stocks)", f"{est:,.1f} tỷ VND")
-            except Exception as e:
-                _print_kv("Calc err", e)
-    except Exception as e:
-        _print_kv("Error", f"{type(e).__name__}: {e}")
-
-
-# ─── C. More SSI endpoints (real ones from iboard) ────────────────────────
-def test_ssi_v2() -> None:
-    _print_section("C — SSI iboard real endpoints (v2)")
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Origin": "https://iboard.ssi.com.vn",
-        "Referer": "https://iboard.ssi.com.vn/",
-        "Accept": "application/json",
-    }
-    endpoints = [
-        # Real paths used by iboard.ssi.com.vn web
-        "https://iboard-api.ssi.com.vn/v2/stock/group?group=HOSE",
-        "https://iboard-api.ssi.com.vn/v2/stock/group?group=HNX",
-        "https://iboard-api.ssi.com.vn/v2/stock/group?group=UPCOM",
-        "https://iboard-query.ssi.com.vn/v2/stock/group?group=HOSE",
-        "https://iboard-query.ssi.com.vn/v2/stock/group?group=VN30",
-        "https://iboard-api.ssi.com.vn/v2/stock/securities/all",
-        "https://iboard-api.ssi.com.vn/v2/stock/securities-stats-batch?stockCode=VNINDEX",
-        # FC-data (real one)
-        "https://fc-data.ssi.com.vn/api/v2/Market/Securities?market=HOSE&pageIndex=1&pageSize=10",
-        # Stock info (snapshot)
-        "https://iboard-query.ssi.com.vn/v2/stock/securities/exchange/HOSE",
-    ]
-    for url in endpoints:
-        print(f"\n  → {url}")
-        status, ct, body, dt = _safe_get(url, headers=headers)
-        _print_kv("Status", status)
-        _print_kv("Latency", f"{dt:.0f} ms")
-        _print_kv("Content-Type", ct)
-        if status == 200 and "json" in ct:
-            try:
-                data = json.loads(body if len(body) >= 200 else body)
-                _print_kv("Body sample", json.dumps(data, ensure_ascii=False)[:300])
+                print("    First rows:")
+                for line in str(result.head(3)).split("\n")[:10]:
+                    print(f"      {line}")
             except Exception:
-                _print_kv("Body sample", body[:300])
+                pass
         else:
-            _print_kv("Body", body[:200])
-
-    # Also try GraphQL endpoint
-    print("\n  → GraphQL: wgateway-iboard")
-    gql_url = "https://wgateway-iboard.ssi.com.vn/graphql"
-    gql_query = {
-        "query": """{ exchangeIndex { exchange indexValue prevIndexValue
-            allValue allVolume change percent } }"""
-    }
-    status, ct, body, dt = _safe_post(gql_url, headers=headers, json_body=gql_query)
-    _print_kv("Status", status)
-    _print_kv("Latency", f"{dt:.0f} ms")
-    _print_kv("Content-Type", ct)
-    _print_kv("Body", body[:400])
+            preview = str(result)[:400]
+            print(f"    Result: {preview}")
+        return result
+    except Exception as e:
+        dt = (time.time() - t0) * 1000
+        print(f"    Latency: {dt:.0f} ms")
+        print(f"    ERROR: {type(e).__name__}: {e}")
+        # Short traceback
+        tb = traceback.format_exc().split("\n")
+        for line in tb[-5:]:
+            print(f"      {line}")
+        return None
 
 
-# ─── D. More cafef endpoints ──────────────────────────────────────────────
-def test_cafef_v2() -> None:
-    _print_section("D — cafef real endpoints (v2)")
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Origin": "https://cafef.vn",
-        "Referer": "https://s.cafef.vn/",
-    }
-    endpoints = [
-        # msh-appdata real paths
-        "https://msh-appdata.cafef.vn/rest-api/api/v1/Index/GetIndex?Index=VNINDEX",
-        "https://msh-appdata.cafef.vn/rest-api/api/v1/Market/GetIndex?Index=VNINDEX",
-        "https://msh-appdata.cafef.vn/rest-api/api/v1/MarketStatistic/GetTopIndex",
-        "https://msh-appdata.cafef.vn/rest-api/api/v1/MarketStatistic",
-        # Liveboard
-        "https://liveboard.cafef.vn/rest-api/api/v1/IndexValue?indexCode=VNINDEX",
-        "https://liveboard.cafef.vn/rest-api/api/v1/Index/GetTopIndex",
-        # Old Ajax endpoints
-        "https://s.cafef.vn/Ajax/PageNew/IndexInfo.ashx?Index=VNINDEX",
-        "https://s.cafef.vn/Ajax/PageNew/HOSEIndex/IndexValue.ashx",
-        # Some sources reference these
-        "https://cafef.vn/api/Index/GetIndexInfo?index=VNINDEX",
-    ]
-    for url in endpoints:
-        print(f"\n  → {url}")
-        status, ct, body, dt = _safe_get(url, headers=headers)
-        _print_kv("Status", status)
-        _print_kv("Latency", f"{dt:.0f} ms")
-        _print_kv("Content-Type", ct)
-        _print_kv("Body", body[:250])
+def main():
+    print(f"v3 test — vnstock_data introspection · {time.strftime('%H:%M:%S')}")
 
+    try:
+        import vnstock_data as vd
+    except ImportError:
+        print("vnstock_data không cài được")
+        return
 
-def main() -> None:
-    print("Test v2 — focus on what's promising after v1 results")
-    print(f"Running at: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    test_vnstock_data()
-    test_price_board_stocks()
-    test_ssi_v2()
-    test_cafef_v2()
-    _print_section("DONE — paste output cho Claude")
+    _print_section("1. Class signatures")
+    for name in ("Trading", "Quote", "Listing", "IndexGroup", "TopStock"):
+        cls = getattr(vd, name, None)
+        if cls is None:
+            print(f"\n  {name}: not found")
+            continue
+        print(f"\n  {name}:")
+        print(f"    __init__{_sig(cls.__init__)}")
+        # List methods (non-underscore, callable)
+        methods = [m for m in dir(cls) if not m.startswith("_")
+                   and callable(getattr(cls, m, None))]
+        for m in methods:
+            mfn = getattr(cls, m, None)
+            print(f"    .{m}{_sig(mfn)}")
+
+    # ─── Try Trading.trading_stats ────────────────────────────────────────
+    _print_section("2. Trading.trading_stats — most promising")
+    try:
+        Trading = vd.Trading
+        # Try multiple init patterns to see which works
+        init_candidates = [
+            ("symbol+source", lambda: Trading(symbol="VNINDEX", source="VCI")),
+            ("symbol only",   lambda: Trading(symbol="VNINDEX")),
+            ("source only",   lambda: Trading(source="VCI")),
+            ("no args",       lambda: Trading()),
+        ]
+        t = None
+        for label, fn in init_candidates:
+            try:
+                t = fn()
+                print(f"  ✓ Init OK with: {label}")
+                break
+            except Exception as e:
+                print(f"  ✗ Init failed ({label}): {type(e).__name__}: {e}")
+
+        if t is not None:
+            method = getattr(t, "trading_stats", None)
+            if method:
+                print(f"\n  trading_stats signature: {_sig(method)}")
+                # Try calling with no args
+                _safe_call("trading_stats() no args", method)
+                # Try with symbol parameter
+                _safe_call("trading_stats(symbol='VNINDEX')", method, symbol="VNINDEX")
+                _safe_call("trading_stats(symbols=['VNINDEX','VN30','HNXINDEX','UPCOM'])",
+                          method, symbols=["VNINDEX","VN30","HNXINDEX","UPCOM"])
+    except Exception as e:
+        print(f"  Error: {e}")
+
+    # ─── Try Trading.history for index ─────────────────────────────────────
+    _print_section("3. Trading.history for index")
+    try:
+        if t is not None:
+            method = getattr(t, "history", None)
+            if method:
+                print(f"\n  history signature: {_sig(method)}")
+                # Try with reasonable params
+                from datetime import date, timedelta
+                today = date.today().isoformat()
+                start = (date.today() - timedelta(days=2)).isoformat()
+                _safe_call("history(start, end)", method, start=start, end=today)
+                _safe_call("history(symbol='VNINDEX', start, end)", method,
+                          symbol="VNINDEX", start=start, end=today)
+    except Exception as e:
+        print(f"  Error: {e}")
+
+    # ─── Try Trading.order_stats / side_stats ─────────────────────────────
+    _print_section("4. Trading.order_stats and side_stats")
+    if t is not None:
+        for mname in ("order_stats", "side_stats", "foreign_trade", "price_board"):
+            m = getattr(t, mname, None)
+            if m:
+                print(f"\n  --- {mname}{_sig(m)} ---")
+                _safe_call(f"{mname}() no args", m)
+                _safe_call(f"{mname}(symbols=['VNINDEX'])", m, symbols=["VNINDEX"])
+                _safe_call(f"{mname}(symbol='VNINDEX')", m, symbol="VNINDEX")
+
+    # ─── Try IndexGroup ────────────────────────────────────────────────────
+    _print_section("5. IndexGroup class")
+    try:
+        IG = vd.IndexGroup
+        print(f"  __init__{_sig(IG.__init__)}")
+        methods = [m for m in dir(IG) if not m.startswith("_")
+                   and callable(getattr(IG, m, None))]
+        for m in methods:
+            print(f"  .{m}{_sig(getattr(IG, m))}")
+        # Try init
+        for label, fn in [
+            ("()", lambda: IG()),
+            ("symbol=VNINDEX", lambda: IG(symbol="VNINDEX")),
+            ("group=VN30", lambda: IG(group="VN30")),
+        ]:
+            try:
+                ig = fn()
+                print(f"  ✓ IndexGroup init OK: {label}")
+                # Try each method
+                for m in methods:
+                    if m in ("__init__",):
+                        continue
+                    fn_m = getattr(ig, m, None)
+                    if fn_m and callable(fn_m):
+                        _safe_call(f"IndexGroup.{m}()", fn_m)
+                break
+            except Exception as e:
+                print(f"  ✗ IndexGroup init failed ({label}): {e}")
+    except Exception as e:
+        print(f"  Error: {e}")
+
+    # ─── Try Quote.history with index ──────────────────────────────────────
+    _print_section("6. Quote.history for VNINDEX (vnstock_data)")
+    try:
+        Quote = vd.Quote
+        print(f"  __init__{_sig(Quote.__init__)}")
+        for label, fn in [
+            ("symbol+source", lambda: Quote(symbol="VNINDEX", source="VCI")),
+            ("symbol only",   lambda: Quote(symbol="VNINDEX")),
+        ]:
+            try:
+                q = fn()
+                print(f"  ✓ Init OK: {label}")
+                from datetime import date, timedelta
+                today = date.today().isoformat()
+                start = (date.today() - timedelta(days=2)).isoformat()
+                _safe_call("Quote.history(start, end, interval='1m')",
+                          q.history, start=start, end=today, interval="1m")
+                _safe_call("Quote.intraday(page_size=10)",
+                          q.intraday, page_size=10)
+                break
+            except Exception as e:
+                print(f"  ✗ {label}: {e}")
+    except Exception as e:
+        print(f"  Error: {e}")
+
+    # ─── Listing.all_indices and symbols_by_exchange ──────────────────────
+    _print_section("7. Listing — discover symbols")
+    try:
+        Listing = vd.Listing
+        for label, fn in [
+            ("()", lambda: Listing()),
+            ("symbol=VNM", lambda: Listing(symbol="VNM")),
+        ]:
+            try:
+                ls = fn()
+                print(f"  ✓ Init OK: {label}")
+                _safe_call("all_indices()", getattr(ls, "all_indices"))
+                _safe_call("symbols_by_exchange()",
+                          getattr(ls, "symbols_by_exchange"))
+                _safe_call("symbols_by_group(group='VN30')",
+                          getattr(ls, "symbols_by_group"), group="VN30")
+                break
+            except Exception as e:
+                print(f"  ✗ {label}: {e}")
+    except Exception as e:
+        print(f"  Error: {e}")
+
+    _print_section("DONE — copy output gửi cho Claude")
 
 
 if __name__ == "__main__":
