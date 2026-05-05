@@ -31,6 +31,30 @@ _INDEX_SYMBOL_MAP = {
     "UPCOM":   "UPCOM",
 }
 
+# vnstock's quote.history() for INDEX symbols returns only OHLCV — no
+# trading-value field. The "close" is the index level (e.g. VNINDEX≈1300,
+# HNX≈250), NOT a price-per-share. So `close × volume` does NOT compute
+# GTGD. We approximate GTGD = volume_shares × avg_price_per_share, with
+# per-index avg-price constants calibrated against typical 2025-2026
+# Vietnamese market figures:
+#   HOSE/VNINDEX:  ~700M shares/day × ~28k VND ≈ 20 nghìn tỷ
+#   VN30:          ~200M  × ~32k    ≈ 6.4 nghìn tỷ
+#   HNX:           ~75M   × ~22k    ≈ 1.6 nghìn tỷ
+#   UPCOM:         ~50M   × ~13k    ≈ 0.65 nghìn tỷ
+# Real avg price drifts ±20% day-to-day; these constants are an
+# approximation, not exact. If vnstock later exposes a `value`/`gtgd`
+# column, prefer that and fall back to this heuristic.
+_AVG_PRICE_VND = {
+    "VNINDEX": 28000,
+    "VN30":    32000,
+    "HNX":     22000,
+    "UPCOM":   13000,
+}
+
+# Bump when the on-disk schema or formula changes — load_session_stats_history
+# treats older versions as empty so backfill regenerates clean data.
+SESSION_STATS_FORMAT_VERSION = 2
+
 
 def _fetch_index_intraday(
     index_symbol: str, *, days: int = 5, interval: str = "1m"
@@ -57,14 +81,26 @@ def _fetch_index_intraday(
             stock = get_vnstock(sym)
             df = stock.quote.history(start=start, end=today, interval=interval)
             if df is not None and not df.empty:
+                df = df.copy()
                 df["time"] = pd.to_datetime(df["time"])
-                return df[["time", "open", "high", "low", "close", "volume"]].copy()
+                # Keep ALL columns — if vnstock ever adds a `value` / `gtgd`
+                # field for indexes, _compute_window_stats will pick it up.
+                return df
         except Exception:
             continue
     return pd.DataFrame()
 
 
-def _compute_window_stats(day_df: pd.DataFrame, end_time: str) -> dict:
+def _compute_window_stats(
+    day_df: pd.DataFrame, end_time: str, index_name: str = "VNINDEX"
+) -> dict:
+    """Aggregate volume + estimated GTGD for one session window.
+
+    GTGD is approximated as volume_shares × avg_price (per-index constant,
+    see _AVG_PRICE_VND) because vnstock's index OHLCV doesn't carry a
+    trading-value field. If a future vnstock version supplies one, prefer
+    that column instead.
+    """
     if day_df.empty:
         return {"vol": 0, "gtgd": 0, "gtgd_per_vol": 0}
     mask = day_df["time"].dt.strftime("%H:%M") <= end_time
@@ -72,9 +108,19 @@ def _compute_window_stats(day_df: pd.DataFrame, end_time: str) -> dict:
     if window_df.empty:
         return {"vol": 0, "gtgd": 0, "gtgd_per_vol": 0}
     vol = float(window_df["volume"].sum())
-    closes = window_df["close"].astype(float)
-    volumes = window_df["volume"].astype(float)
-    gtgd = float((closes * volumes).sum()) / (1e6 if closes.max() < 500 else 1e9)
+
+    # Prefer an actual value column from vnstock if present (forward-compat).
+    value_col = next(
+        (c for c in window_df.columns
+         if c.lower() in ("value", "trading_value", "gtgd", "totalvalue", "total_value")),
+        None,
+    )
+    if value_col is not None:
+        gtgd = float(window_df[value_col].astype(float).sum()) / 1e9  # tỷ VND
+    else:
+        avg_price = _AVG_PRICE_VND.get(index_name, 25000)
+        gtgd = vol * avg_price / 1e9  # tỷ VND
+
     return {
         "vol": int(vol),
         "gtgd": round(gtgd, 1),
@@ -100,7 +146,7 @@ def compute_session_stats(target_date: date | None = None) -> dict:
         window_stats: dict = {}
         for idx in SESSION_INDICES:
             window_stats[idx] = _compute_window_stats(
-                index_data.get(idx, pd.DataFrame()), end_time
+                index_data.get(idx, pd.DataFrame()), end_time, idx
             )
         result[window_name] = window_stats
 
@@ -141,7 +187,7 @@ def backfill_session_stats(*, days: int = 35, interval: str = "5m") -> int:
         result: dict = {}
         for window_name, (_, end_time) in SESSION_WINDOWS.items():
             result[window_name] = {
-                idx: _compute_window_stats(day_slices.get(idx, pd.DataFrame()), end_time)
+                idx: _compute_window_stats(day_slices.get(idx, pd.DataFrame()), end_time, idx)
                 for idx in SESSION_INDICES
             }
         all_data[d_str] = result
@@ -161,20 +207,36 @@ def save_session_stats(stats: dict):
 
 
 def load_session_stats_history() -> dict:
-    """Load full session stats history from disk."""
+    """Load full session stats history from disk.
+
+    Returns empty if the on-disk format version is older than the current
+    code expects — backfill_session_stats() will then regenerate from
+    the live API with the corrected GTGD formula.
+    """
     if not SESSION_STATS_PATH.exists():
         return {}
     try:
-        return json.loads(SESSION_STATS_PATH.read_text(encoding="utf-8"))
+        raw = json.loads(SESSION_STATS_PATH.read_text(encoding="utf-8"))
     except Exception:
         return {}
+    on_disk_version = raw.get("_format_version", 1)
+    if on_disk_version != SESSION_STATS_FORMAT_VERSION:
+        # Stale schema (e.g. data computed with the old buggy
+        # close × volume formula). Treat as empty so backfill rebuilds.
+        return {}
+    # Strip metadata keys (anything starting with '_') before returning.
+    return {k: v for k, v in raw.items() if not k.startswith("_")}
 
 
 def _write_history(all_data: dict):
     cutoff = (date.today() - timedelta(days=90)).isoformat()
-    all_data = {k: v for k, v in all_data.items() if k >= cutoff}
+    pruned = {
+        k: v for k, v in all_data.items()
+        if not k.startswith("_") and k >= cutoff
+    }
+    pruned["_format_version"] = SESSION_STATS_FORMAT_VERSION
     SESSION_STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
     SESSION_STATS_PATH.write_text(
-        json.dumps(all_data, ensure_ascii=False, indent=2),
+        json.dumps(pruned, ensure_ascii=False, indent=2),
         encoding="utf-8"
     )
