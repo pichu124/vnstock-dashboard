@@ -2610,7 +2610,7 @@ var _ready = false;
 var _syncing = false;
 var _pendingSrc = null;
 charts.forEach(function(s){
-  s.timeScale().subscribeVisibleTimeRangeChange(function(){
+  s.timeScale().subscribeVisibleLogicalRangeChange(function(){
     if (!_ready || _syncing) return;
     _pendingSrc = s;
   });
@@ -2619,11 +2619,11 @@ function _flushSync(){
   if (!_pendingSrc) return;
   var src = _pendingSrc;
   _pendingSrc = null;
-  var r = src.timeScale().getVisibleRange();
+  var r = src.timeScale().getVisibleLogicalRange();
   if (!r) return;
   _syncing = true;
   charts.forEach(function(c){
-    if (c !== src) { try{c.timeScale().setVisibleRange(r);}catch(e){} }
+    if (c !== src) { try{c.timeScale().setVisibleLogicalRange(r);}catch(e){} }
   });
   _syncing = false;
 }
@@ -2667,21 +2667,21 @@ window.addEventListener("resize",resize);
 setTimeout(resize,100);
 // Initial visible range + start sync machinery AFTER range is applied.
 // Delay to 200ms (after the 100ms resize pass) so all panels have rendered.
-// _ready is set to true only here — subscribeVisibleTimeRangeChange callbacks
+// _ready is set to true only here — subscribeVisibleLogicalRangeChange callbacks
 // are ignored before this point, so RSI/MACD auto-fit can't pollute the range.
 setTimeout(function(){
   var N = C.length;
   if (N < 2) { _ready = true; return; }
   var r;
   if (!_isIntraday && N > 250) {
-    r = {from: C[N-120].time, to: C[N-1].time};
+    r = {from: N-120, to: N-1};
   } else if (N > 375) {
-    r = {from: C[N-375].time, to: C[N-1].time};
+    r = {from: N-375, to: N-1};
   } else {
-    r = {from: C[0].time, to: C[N-1].time};
+    r = {from: 0, to: N-1};
   }
   _syncing = true;
-  charts.forEach(function(c){ c.timeScale().setVisibleRange(r); });
+  charts.forEach(function(c){ c.timeScale().setVisibleLogicalRange(r); });
   _syncing = false;
   _ready = true;
   // Start sync interval NOW — after the initial range is locked in.
