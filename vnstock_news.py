@@ -246,21 +246,27 @@ def _rehydrate_date_sort(items: list[dict]) -> int:
 def fetch_ticker_news(ticker: str, source: str = "VCI") -> list[dict]:
     """Fetch news for one ticker. Returns list of dicts (empty on any error).
 
-    Tries vnstock_data.Company (sponsor package) first since it may return
-    more articles per ticker than vnstock free; falls back to the free
-    library on import error or empty result.
+    Tries vnstock_data.Company (sponsor package) first with multiple
+    page_size variants — sponsor pkg may return more articles per ticker
+    if it accepts a limit param. Falls back to vnstock free.
     """
-    # Sponsor path: vnstock_data.Company
+    # Sponsor path: vnstock_data.Company. Try with various param shapes
+    # since the signature may differ across versions.
     try:
         import vnstock_data as _vd
         for src in ("VCI", "KBS"):
-            try:
-                comp = _vd.Company(symbol=ticker, source=src)
-                df = comp.news()
-                if df is not None and not df.empty:
-                    return _records_from_df(df, ticker, src)
-            except Exception:
-                continue
+            for kwargs in ({"page_size": 50}, {"limit": 50}, {"size": 50}, {}):
+                try:
+                    comp = _vd.Company(symbol=ticker, source=src)
+                    df = comp.news(**kwargs)
+                    if df is not None and not df.empty:
+                        return _records_from_df(df, ticker, src)
+                except TypeError:
+                    # Wrong param name — try next variant.
+                    continue
+                except Exception:
+                    # Hard error — try next source.
+                    break
     except ImportError:
         pass
 
@@ -276,6 +282,58 @@ def fetch_ticker_news(ticker: str, source: str = "VCI") -> list[dict]:
         except Exception:
             continue
     return []
+
+
+def diagnose_news_fetch(ticker: str = "VCB") -> dict:
+    """Run a diagnostic fetch for one ticker, return raw API output details.
+
+    Used by the news_tab debug expander so the user can see what each
+    code path returns without having to read source code. Returns a dict
+    with one entry per attempted code path: status, latency, shape,
+    columns, sample row.
+    """
+    import time as _time
+    import inspect as _inspect
+    out: dict = {}
+
+    # vnstock_data.Company
+    try:
+        import vnstock_data as _vd
+        try:
+            comp = _vd.Company(symbol=ticker, source="VCI")
+            sig = str(_inspect.signature(comp.news)) if hasattr(comp.news, "__call__") else "?"
+            t0 = _time.time()
+            df = comp.news()
+            dt = (_time.time() - t0) * 1000
+            out["vnstock_data.Company.news()"] = {
+                "signature": sig,
+                "latency_ms": round(dt, 0),
+                "shape": tuple(df.shape) if df is not None and hasattr(df, "shape") else None,
+                "columns": list(df.columns) if df is not None and hasattr(df, "columns") else [],
+                "sample": df.iloc[0].to_dict() if df is not None and not df.empty else None,
+            }
+        except Exception as e:
+            out["vnstock_data.Company.news()"] = {"error": f"{type(e).__name__}: {e}"}
+    except ImportError as e:
+        out["vnstock_data.Company.news()"] = {"error": f"ImportError: {e}"}
+
+    # vnstock free
+    try:
+        from vnstock import Vnstock
+        stock = Vnstock().stock(symbol=ticker, source="VCI")
+        t0 = _time.time()
+        df = stock.company.news()
+        dt = (_time.time() - t0) * 1000
+        out["vnstock.company.news()"] = {
+            "latency_ms": round(dt, 0),
+            "shape": tuple(df.shape) if df is not None and hasattr(df, "shape") else None,
+            "columns": list(df.columns) if df is not None and hasattr(df, "columns") else [],
+            "sample": df.iloc[0].to_dict() if df is not None and not df.empty else None,
+        }
+    except Exception as e:
+        out["vnstock.company.news()"] = {"error": f"{type(e).__name__}: {e}"}
+
+    return out
 
 
 def _records_from_df(df, ticker: str, source: str) -> list[dict]:

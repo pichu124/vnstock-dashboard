@@ -319,6 +319,24 @@ def render_news_tab() -> None:
             "Tăng **Screener top-N** để thêm nhiều mã active hơn vào universe."
         )
 
+        # Live API diagnostic: fetch one ticker and show what each code path
+        # returns. Helps determine whether vnstock_data.Company.news() is
+        # actually returning more articles than vnstock free.
+        st.markdown("---")
+        st.caption("**Test fetch live cho 1 mã** (kiểm tra API trả gì)")
+        diag_col_a, diag_col_b = st.columns([1, 5])
+        with diag_col_a:
+            diag_ticker = st.text_input("Mã", value="VCB", key="_news_diag_ticker",
+                                          max_chars=5)
+        with diag_col_b:
+            if st.button("🧪 Test fetch", key="_news_diag_run"):
+                if hasattr(_nn, "diagnose_news_fetch"):
+                    with st.spinner(f"Đang fetch {diag_ticker}…"):
+                        result = _nn.diagnose_news_fetch(diag_ticker.strip().upper())
+                    st.json(result)
+                else:
+                    st.warning("diagnose_news_fetch chưa có — pull bản mới nhất")
+
     flt_col1, flt_col2, flt_col3, flt_col4 = st.columns([2, 2, 2, 3])
 
     # Ticker filter

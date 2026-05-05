@@ -74,7 +74,10 @@ _FALLBACK_AVG_PRICE_VND = {
 
 # Bump when on-disk schema changes — load_session_stats_history()
 # treats older versions as empty so backfill regenerates from scratch.
-SESSION_STATS_FORMAT_VERSION = 3
+# v4: rebuild after switching backfill to interval='5m' (v3 used '1m' which
+#     silently returned bogus/duplicated data for dates >5 days back, leaving
+#     inflated values in the cache that the 0/0 retry logic couldn't catch).
+SESSION_STATS_FORMAT_VERSION = 4
 
 # Days of history used to compute calibration average price.
 CALIBRATION_LOOKBACK_DAYS = 10
@@ -171,6 +174,10 @@ def _fetch_intraday_volume(
             if df is not None and not df.empty:
                 df = df.copy()
                 df["time"] = pd.to_datetime(df["time"])
+                # Defense: vnstock occasionally returns duplicate bars at
+                # the same timestamp (especially for older dates near the
+                # API window edge). Without dedup, sum(volume) double-counts.
+                df = df.drop_duplicates(subset=["time"], keep="first")
                 return df
         except Exception:
             continue
@@ -183,10 +190,13 @@ def _compute_window_stats_estimate(
     """Compute estimated GTGD for a session window from intraday volume.
 
     GTGD ≈ cumulative_volume × avg_price/share. Marked status='estimate'.
+    Mask clamped to 09:00 ≤ time ≤ end_time so any spurious bars before
+    market open (e.g. ATO pre-open auction at 08:45) don't inflate totals.
     """
     if day_df.empty:
         return {"vol": 0, "gtgd": 0.0, "gtgd_per_vol": 0, "status": "estimate"}
-    mask = day_df["time"].dt.strftime("%H:%M") <= end_time
+    times = day_df["time"].dt.strftime("%H:%M")
+    mask = (times >= "09:00") & (times <= end_time)
     win = day_df[mask]
     if win.empty:
         return {"vol": 0, "gtgd": 0.0, "gtgd_per_vol": 0, "status": "estimate"}
