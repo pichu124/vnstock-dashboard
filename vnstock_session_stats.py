@@ -138,15 +138,25 @@ def _compute_calibration(history_dfs: dict) -> dict:
 
 # ─── Realtime intraday (Quote.history 1m) ─────────────────────────────────
 
-def _fetch_intraday_volume(display_name: str, target_date: date) -> pd.DataFrame:
-    """Fetch 1-minute OHLCV bars for one index on a specific date.
+def _fetch_intraday_volume(
+    display_name: str, target_date: date, interval: str = "1m"
+) -> pd.DataFrame:
+    """Fetch intraday OHLCV bars for one index on a specific date.
 
-    Uses vnstock free Quote.history with interval='1m'. Returns columns
+    Uses vnstock free Quote.history. Returns columns
     [time, open, high, low, close, volume]. Empty on error.
+
+    interval='1m' serves only ~5 days of history and is suited for live
+    "today" stats. For backfill of older dates use interval='5m' which
+    serves 30+ days; 5m bars still align with all session boundaries
+    (10:00, 11:30, 14:00, 15:00).
     """
     from vnstock_auth import get_vnstock
     end = target_date.strftime("%Y-%m-%d")
-    start = (target_date - timedelta(days=2)).strftime("%Y-%m-%d")
+    # Wider start window for 5m (more lenient lookup) so the API doesn't
+    # narrow-window-reject older dates.
+    days_back = 5 if interval == "5m" else 2
+    start = (target_date - timedelta(days=days_back)).strftime("%Y-%m-%d")
 
     symbols = [_QUOTE_INTRADAY_SYMBOL[display_name]]
     if display_name == "UPCOM":
@@ -157,7 +167,7 @@ def _fetch_intraday_volume(display_name: str, target_date: date) -> pd.DataFrame
     for sym in symbols:
         try:
             stock = get_vnstock(sym)
-            df = stock.quote.history(start=start, end=end, interval="1m")
+            df = stock.quote.history(start=start, end=end, interval=interval)
             if df is not None and not df.empty:
                 df = df.copy()
                 df["time"] = pd.to_datetime(df["time"])
@@ -272,28 +282,59 @@ def backfill_session_stats(*, days: int = 60) -> int:
         existing_full = existing.get("9h-15h", {})
 
         # Determine which indexes need 9h-15h work this run:
-        # • Need work if cell is missing OR vol == 0 (initial broken state)
-        # • Skip if cell already populated (exact OR estimate from prior run)
-        def _needs_work(idx: str) -> bool:
+        # • Need work if cell is missing OR vol == 0 (initial broken / stale)
+        def _needs_work_full(idx: str) -> bool:
             cell = existing_full.get(idx)
             if not cell:
                 return True
-            if cell.get("vol", 0) == 0 and cell.get("gtgd", 0) == 0:
-                return True
-            return False
+            return cell.get("vol", 0) == 0 and cell.get("gtgd", 0) == 0
 
-        indexes_to_update = [idx for idx in SESSION_INDICES if _needs_work(idx)]
-        partial_windows_missing = not all(
-            wn in existing for wn in ("9h-10h", "9h-11h30", "9h-14h")
-        )
-        if not indexes_to_update and not partial_windows_missing:
+        # Per partial-window, list indexes that need re-fetch (missing window
+        # OR cell is 0/0 — earlier backfill with interval=1m failed for old
+        # dates because the 1m API only serves ~5 days back).
+        def _partial_indexes_needing_work(wn: str) -> list[str]:
+            if wn not in existing:
+                return list(SESSION_INDICES)
+            w = existing[wn]
+            return [
+                idx for idx in SESSION_INDICES
+                if w.get(idx, {}).get("vol", 0) == 0
+                and w.get(idx, {}).get("gtgd", 0) == 0
+            ]
+
+        indexes_to_update_full = [idx for idx in SESSION_INDICES if _needs_work_full(idx)]
+        partial_holes: dict = {
+            wn: _partial_indexes_needing_work(wn)
+            for wn in ("9h-10h", "9h-11h30", "9h-14h")
+        }
+        any_partial_holes = any(partial_holes.values())
+
+        if not indexes_to_update_full and not any_partial_holes:
             continue
 
-        # Build updated 9h-15h: prefer price_history, fall back to intraday
-        # estimate. Only fetch intraday for indexes that actually need it.
-        full_session = dict(existing_full)
+        # Determine which indexes need ANY intraday fetch (for 9h-15h
+        # fallback or for any partial-window hole). Fetch each ONCE per day.
+        indexes_needing_intraday: set = set()
+        for idx in indexes_to_update_full:
+            df = history_dfs.get(idx, pd.DataFrame())
+            row = df[df["trading_date"] == d] if not df.empty else None
+            if row is None or row.empty:
+                indexes_needing_intraday.add(idx)  # 9h-15h fallback needs intraday
+        for wn, idxs in partial_holes.items():
+            indexes_needing_intraday.update(idxs)
+
+        # Use 5m interval — serves 30+ days reliably; 1m only ~5 days.
         intraday_per_idx: dict = {}
-        for idx in indexes_to_update:
+        for idx in indexes_needing_intraday:
+            idf = _fetch_intraday_volume(idx, d, interval="5m")
+            if not idf.empty:
+                intraday_per_idx[idx] = idf[idf["time"].dt.date == d].sort_values("time")
+            else:
+                intraday_per_idx[idx] = pd.DataFrame()
+
+        # Build 9h-15h: prefer price_history exact; fallback to intraday est.
+        full_session = dict(existing_full)
+        for idx in indexes_to_update_full:
             df = history_dfs.get(idx, pd.DataFrame())
             row = df[df["trading_date"] == d] if not df.empty else None
             if row is not None and not row.empty:
@@ -306,42 +347,28 @@ def backfill_session_stats(*, days: int = 60) -> int:
                     "status": "exact",
                 }
             else:
-                # Fallback: estimate from intraday × calibrated avg_price.
-                idf = _fetch_intraday_volume(idx, d)
-                day_slice = pd.DataFrame()
-                if not idf.empty:
-                    day_slice = idf[idf["time"].dt.date == d].sort_values("time")
-                    intraday_per_idx[idx] = day_slice
                 full_session[idx] = _compute_window_stats_estimate(
-                    day_slice, "15:00",
+                    intraday_per_idx.get(idx, pd.DataFrame()),
+                    "15:00",
                     calibration.get(idx, _FALLBACK_AVG_PRICE_VND[idx]),
                 )
 
-        # Partial windows: only build if the day has none yet. Existing
-        # estimates from prior runs are kept (they're settled, won't change).
+        # Partial windows: only refresh cells that were missing or 0/0.
+        # Preserve already-good cells from prior runs (avoid unnecessary
+        # writes that could shift values due to calibration drift).
         partial_windows: dict = {
-            wn: existing[wn] for wn in ("9h-10h", "9h-11h30", "9h-14h")
-            if wn in existing
+            wn: dict(existing.get(wn, {})) for wn in ("9h-10h", "9h-11h30", "9h-14h")
         }
-        if partial_windows_missing:
-            # Need intraday for ALL indexes this time (to populate all 3 windows).
-            for idx in SESSION_INDICES:
-                if idx in intraday_per_idx:
-                    continue
-                idf = _fetch_intraday_volume(idx, d)
-                if not idf.empty:
-                    intraday_per_idx[idx] = idf[idf["time"].dt.date == d].sort_values("time")
-            for w_name, (_, end_t) in SESSION_WINDOWS.items():
-                if w_name == "9h-15h" or w_name in partial_windows:
-                    continue
-                partial_windows[w_name] = {
-                    idx: _compute_window_stats_estimate(
-                        intraday_per_idx.get(idx, pd.DataFrame()),
-                        end_t,
-                        calibration.get(idx, _FALLBACK_AVG_PRICE_VND[idx]),
-                    )
-                    for idx in SESSION_INDICES
-                }
+        for wn, idxs_to_refresh in partial_holes.items():
+            if not idxs_to_refresh:
+                continue
+            end_t = SESSION_WINDOWS[wn][1]
+            for idx in idxs_to_refresh:
+                partial_windows[wn][idx] = _compute_window_stats_estimate(
+                    intraday_per_idx.get(idx, pd.DataFrame()),
+                    end_t,
+                    calibration.get(idx, _FALLBACK_AVG_PRICE_VND[idx]),
+                )
 
         all_data[d_str] = {**partial_windows, "9h-15h": full_session}
         filled += 1
