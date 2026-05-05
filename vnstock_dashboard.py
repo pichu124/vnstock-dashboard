@@ -2572,29 +2572,32 @@ line(mac,ML,"#60a5fa",1.5,"MACD",true);
 line(mac,MS,"#f97316",1.5,"Signal",true);
 
 var charts=[main,vol,rsi,mac];
-// Fit MAIN to its data, then propagate that exact time range to sub-panels.
-// Per-chart fitContent() makes RSI/MACD shrink to their own (often shorter)
-// valid-data range — leaving the panel visibly narrower than candles. Using
-// the time range from main keeps every panel column-aligned even when
-// indicator series have NaN gaps at the edges.
-main.timeScale().fitContent();
-var _mainRange = main.timeScale().getVisibleRange();
-if (_mainRange) {
-  [vol, rsi, mac].forEach(function(t){ t.timeScale().setVisibleRange(_mainRange); });
-}
 
-// For long daily/weekly histories, "fit all" makes today's bar a single
-// pixel and intraday updates invisible. Default to last ~120 daily bars
-// (~6 months) when this looks like a multi-year daily chart. Intraday
-// timeframes (bar gap < 1 day) keep their full fit.
+// Decide initial visible range ONCE based on data shape, apply uniformly to
+// all panels. Avoids the fitContent → getVisibleRange → setVisibleRange chain
+// that could race with the auto-zoom override below and leave the chart
+// painted on a stale range.
+var _isIntraday = false;
 if (C.length >= 2) {
-  var _gap = C[C.length-1].time - C[C.length-2].time;
-  var _isIntraday = _gap < 86400;
-  if (!_isIntraday && C.length > 250) {
-    var _defRange = {from: C[C.length - 120].time, to: C[C.length - 1].time};
-    charts.forEach(function(c){ c.timeScale().setVisibleRange(_defRange); });
-  }
+  _isIntraday = (C[C.length-1].time - C[C.length-2].time) < 86400;
 }
+var _initRange = null;
+// Long daily history: default to last ~120 bars (~6 months) so today's bar
+// is visibly distinct. Intraday or short history: fit everything.
+if (!_isIntraday && C.length > 250) {
+  _initRange = {from: C[C.length - 120].time, to: C[C.length - 1].time};
+}
+charts.forEach(function(c){
+  if (_initRange) c.timeScale().setVisibleRange(_initRange);
+  else c.timeScale().fitContent();
+});
+
+// Pan/zoom sync — propagate time range from whichever chart the user
+// manipulated to the other panels. The `_syncing` guard breaks the infinite
+// callback ping-pong that would otherwise freeze panning (each setVisibleRange
+// fires another subscribe callback). Without this, only zoom (single-event)
+// works and drag-to-pan is dead.
+var _syncing = false;
 charts.forEach(function(s){
   s.subscribeCrosshairMove(function(p){
     if(!p.time) return;
@@ -2602,13 +2605,11 @@ charts.forEach(function(s){
       if(t!==s) t.setCrosshairPosition(NaN,p.time,null);
     });
   });
-  // Sync by TIME range, not logical range. Logical range is index-based:
-  // panel A index 0..2000 != panel B index 0..2000 if their data lengths
-  // differ (RSI has NaN gaps so series is shorter than candles). Time-based
-  // sync keeps panels aligned by actual timestamps regardless of data shape.
   s.timeScale().subscribeVisibleTimeRangeChange(function(r){
-    if(!r) return;
+    if(_syncing || !r) return;
+    _syncing = true;
     charts.forEach(function(t){if(t!==s) t.timeScale().setVisibleRange(r);});
+    _syncing = false;
   });
 });
 

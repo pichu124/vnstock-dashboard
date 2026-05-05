@@ -370,6 +370,14 @@ def render_analysis_tab() -> None:
         chart's last candle is yesterday — making the dashboard "lie" about
         live price. Aggregate today's 5m intraday into one bar so 1D/1W/1M
         views reflect the current session.
+
+        IMPORTANT: load_intraday returns VCI raw (often VND) while daily
+        warehouse is in nghìn đồng (after _normalize_price_units). Merging
+        without rescaling produces a chart with one giant bar at 21,850
+        next to thousands of bars at ~22 — y-axis auto-scales to 22,000
+        so the historical candles compress to a flat line near zero
+        (the "1D chart blank" symptom). _normalize_live_price() is the
+        existing single-price scaler — apply it to each OHLC value.
         """
         import pandas as _pd
         from datetime import date as _d
@@ -385,12 +393,16 @@ def render_analysis_tab() -> None:
         today_bars = intra[intra["time"].dt.date == today]
         if today_bars.empty:
             return daily_df
+        # Use last daily close as the unit reference; the helper detects
+        # 1000x mismatches and divides/multiplies as needed.
+        from vnstock_dashboard import _normalize_live_price as _norm
+        ref_close = float(daily_df["close"].iloc[-1])
         today_row = {
             "time":   _pd.Timestamp(today),
-            "open":   float(today_bars["open"].iloc[0]),
-            "high":   float(today_bars["high"].max()),
-            "low":    float(today_bars["low"].min()),
-            "close":  float(today_bars["close"].iloc[-1]),
+            "open":   _norm(ref_close, float(today_bars["open"].iloc[0])),
+            "high":   _norm(ref_close, float(today_bars["high"].max())),
+            "low":    _norm(ref_close, float(today_bars["low"].min())),
+            "close":  _norm(ref_close, float(today_bars["close"].iloc[-1])),
             "volume": float(today_bars["volume"].sum()),
         }
         return _pd.concat([daily_df, _pd.DataFrame([today_row])], ignore_index=True)
