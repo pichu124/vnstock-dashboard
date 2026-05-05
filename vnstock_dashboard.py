@@ -2573,43 +2573,31 @@ line(mac,MS,"#f97316",1.5,"Signal",true);
 
 var charts=[main,vol,rsi,mac];
 
-// Decide initial visible range ONCE based on data shape, apply uniformly to
-// all panels. Avoids the fitContent → getVisibleRange → setVisibleRange chain
-// that could race with the auto-zoom override below and leave the chart
-// painted on a stale range.
+// Initial visible range. Daily long-history → default last ~120 bars
+// (~6 months) so today's bar isn't a single pixel. Intraday or short
+// history → fitContent shows everything.
 var _isIntraday = false;
 if (C.length >= 2) {
   _isIntraday = (C[C.length-1].time - C[C.length-2].time) < 86400;
 }
-var _initRange = null;
-// Long daily history: default to last ~120 bars (~6 months) so today's bar
-// is visibly distinct. Intraday or short history: fit everything.
 if (!_isIntraday && C.length > 250) {
-  _initRange = {from: C[C.length - 120].time, to: C[C.length - 1].time};
+  var _initRange = {from: C[C.length - 120].time, to: C[C.length - 1].time};
+  charts.forEach(function(c){ c.timeScale().setVisibleRange(_initRange); });
+} else {
+  charts.forEach(function(c){ c.timeScale().fitContent(); });
 }
-charts.forEach(function(c){
-  if (_initRange) c.timeScale().setVisibleRange(_initRange);
-  else c.timeScale().fitContent();
-});
 
-// Pan/zoom sync — propagate time range from whichever chart the user
-// manipulated to the other panels. The `_syncing` guard breaks the infinite
-// callback ping-pong that would otherwise freeze panning (each setVisibleRange
-// fires another subscribe callback). Without this, only zoom (single-event)
-// works and drag-to-pan is dead.
-var _syncing = false;
+// Crosshair sync only. Visible-range sync between panels was removed
+// because the subscribe callback chain — even with a `_syncing` guard —
+// interferes with mouse pan in this LWC build (drag events get blocked
+// by the cascade of setVisibleRange calls). Each panel pans/zooms
+// independently; users line them up via the timescale labels.
 charts.forEach(function(s){
   s.subscribeCrosshairMove(function(p){
     if(!p.time) return;
     charts.forEach(function(t){
       if(t!==s) t.setCrosshairPosition(NaN,p.time,null);
     });
-  });
-  s.timeScale().subscribeVisibleTimeRangeChange(function(r){
-    if(_syncing || !r) return;
-    _syncing = true;
-    charts.forEach(function(t){if(t!==s) t.timeScale().setVisibleRange(r);});
-    _syncing = false;
   });
 });
 
