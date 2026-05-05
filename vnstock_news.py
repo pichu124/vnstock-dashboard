@@ -209,14 +209,33 @@ def fetch_ticker_news(ticker: str, source: str = "VCI") -> list[dict]:
                 d = _to_dict(row)
                 d["ticker"] = ticker
                 d["source_provider"] = src
-                # Robust date detection — try every known field name variant
-                # and normalise to YYYY-MM-DD for sorting.
+                # Robust date detection — try known field names FIRST, then
+                # fall back to dynamic scan of any key whose name contains
+                # date/time/publish/create. This catches provider-specific
+                # column names we haven't seen before. The first key whose
+                # value parses to a non-empty YYYY-MM-DD wins.
                 raw_date = ""
+                normalised = ""
                 for k in _DATE_FIELDS:
                     if d.get(k):
-                        raw_date = d[k]
-                        break
-                d["_date_sort"] = _normalize_date(raw_date)
+                        candidate = _normalize_date(d[k])
+                        if candidate:
+                            raw_date = d[k]
+                            normalised = candidate
+                            break
+                if not normalised:
+                    # Dynamic fallback: scan any key with date-like substring
+                    for k, v in d.items():
+                        kl = k.lower()
+                        if not v or k in ("ticker", "source_provider", "_date_sort"):
+                            continue
+                        if any(s in kl for s in ("date", "time", "publish", "create")):
+                            candidate = _normalize_date(v)
+                            if candidate:
+                                raw_date = v
+                                normalised = candidate
+                                break
+                d["_date_sort"] = normalised
                 # Also store back into public_date so UI _fmt_age has a value
                 if d["_date_sort"] and not d.get("public_date"):
                     d["public_date"] = d["_date_sort"]

@@ -230,6 +230,27 @@ def render_news_tab() -> None:
             f"⚠️ {_undated_count}/{len(news)} tin không có ngày phát hành "
             f"(field date không được parse). Sort theo ngày sẽ không chính xác."
         )
+        # Self-diagnose: dump first item's keys so we can identify the actual
+        # date field name used by the provider. Without this the user has no
+        # way to know which field to add to vnstock_news._DATE_FIELDS.
+        with st.expander("🔬 Debug: cấu trúc dữ liệu thô (giúp xác định field date)", expanded=True):
+            sample = news[0] if news else {}
+            st.caption(f"Tổng số keys: {len(sample)}")
+            # Highlight keys that LOOK date-related
+            date_like = {k: v for k, v in sample.items()
+                         if any(s in k.lower() for s in ("date", "time", "publish", "create"))}
+            if date_like:
+                st.caption("**Keys có vẻ là date** (substring date/time/publish/create):")
+                st.json(date_like)
+            else:
+                st.caption("⚠️ Không có key nào chứa substring date/time/publish/create.")
+            st.caption("**Toàn bộ keys:**")
+            st.json({k: (v[:80] + "…" if isinstance(v, str) and len(v) > 80 else v)
+                     for k, v in list(sample.items())[:30]})
+            st.caption(
+                "→ Copy tên field date thực và báo lại để thêm vào "
+                "`vnstock_news._DATE_FIELDS`."
+            )
 
     # ── Filters ────────────────────────────────────────────────────────────
     st.markdown("---")
