@@ -2412,11 +2412,23 @@ def render_chart(df: pd.DataFrame, ticker: str, height: int = 850,
         if (x := safe(row.get("vwap_lower1"))) is not None: vwap_l1.append({"time":t,"value":x})
         if (x := safe(row.get("vwap_upper2"))) is not None: vwap_u2.append({"time":t,"value":x})
         if (x := safe(row.get("vwap_lower2"))) is not None: vwap_l2.append({"time":t,"value":x})
-        if (x := safe(row.get("rsi")))        is not None: rsi_d.append({"time":t,"value":x})
-        if (x := safe(row.get("macd")))       is not None: macd_l.append({"time":t,"value":x})
-        if (x := safe(row.get("macd_signal"))) is not None: macd_s.append({"time":t,"value":x})
-        if (x := safe(row.get("macd_hist")))  is not None:
+        # RSI/MACD: append whitespace ({time:t} without value) during warmup
+        # period (NaN bars). Without this, the RSI/MACD chart panels have a
+        # SHORTER time range than the price chart — when user pans left past
+        # the RSI/MACD first valid bar, LWC constrains those panels' range,
+        # and the constrained range gets propagated back via _flushSync,
+        # snapping all 4 panels to the right edge.
+        x = safe(row.get("rsi"))
+        rsi_d.append({"time":t,"value":x} if x is not None else {"time":t})
+        x = safe(row.get("macd"))
+        macd_l.append({"time":t,"value":x} if x is not None else {"time":t})
+        x = safe(row.get("macd_signal"))
+        macd_s.append({"time":t,"value":x} if x is not None else {"time":t})
+        x = safe(row.get("macd_hist"))
+        if x is not None:
             macd_h.append({"time":t,"value":x,"color":"rgba(16,185,129,0.8)" if x>=0 else "rgba(239,68,68,0.8)"})
+        else:
+            macd_h.append({"time":t})
 
     if not candles:
         st.warning("Không có dữ liệu hợp lệ để vẽ chart.")
