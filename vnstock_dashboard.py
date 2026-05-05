@@ -1802,7 +1802,7 @@ def list_available_bar_dates() -> list[str]:
     return sorted(dates, reverse=True)
 
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def load_intraday(ticker: str, interval: str = "15m") -> pd.DataFrame:
     """Fetch intraday OHLCV từ VCI. interval: '1m','5m','15m','30m','1H'"""
     try:
@@ -2556,6 +2556,10 @@ line(mac,ML,"#60a5fa",1.5,"MACD",true);
 line(mac,MS,"#f97316",1.5,"Signal",true);
 
 var charts=[main,vol,rsi,mac];
+// fitContent on every panel after data is set so the visible range covers
+// the full data span — fixes the "chart pushed left + RSI gap" symptom that
+// happens when sub-panels have shorter valid-data windows than candles.
+charts.forEach(function(s){ s.timeScale().fitContent(); });
 charts.forEach(function(s){
   s.subscribeCrosshairMove(function(p){
     if(!p.time) return;

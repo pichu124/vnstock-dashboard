@@ -363,19 +363,62 @@ def render_analysis_tab() -> None:
                 st.rerun()
     tf = st.session_state["tf"]
 
+    def _merge_today_bar(daily_df):
+        """Append today's in-progress bar to daily df during trading hours.
+
+        Daily warehouse only updates at end-of-day, so during the session the
+        chart's last candle is yesterday — making the dashboard "lie" about
+        live price. Aggregate today's 5m intraday into one bar so 1D/1W/1M
+        views reflect the current session.
+        """
+        import pandas as _pd
+        from datetime import date as _d
+        if daily_df is None or daily_df.empty:
+            return daily_df
+        last_dt = _pd.to_datetime(daily_df["time"].iloc[-1]).date()
+        today   = _d.today()
+        if last_dt >= today:
+            return daily_df  # already includes today
+        intra = load_intraday(ticker, interval="5m")
+        if intra is None or intra.empty:
+            return daily_df
+        today_bars = intra[intra["time"].dt.date == today]
+        if today_bars.empty:
+            return daily_df
+        today_row = {
+            "time":   _pd.Timestamp(today),
+            "open":   float(today_bars["open"].iloc[0]),
+            "high":   float(today_bars["high"].max()),
+            "low":    float(today_bars["low"].min()),
+            "close":  float(today_bars["close"].iloc[-1]),
+            "volume": float(today_bars["volume"].sum()),
+        }
+        return _pd.concat([daily_df, _pd.DataFrame([today_row])], ignore_index=True)
+
     if tf in ("1m","5m","15m","30m","1H"):
         with st.spinner(f"Đang tải {tf} data từ VCI..."):
             chart_df = load_intraday(ticker, interval=tf)
         if chart_df.empty:
             st.warning(f"Không lấy được dữ liệu {tf}. Hiển thị daily.")
-            chart_df = df
+            chart_df = _merge_today_bar(df)
     elif tf == "1W":
-        # Resample từ daily warehouse (stable hơn API 1W)
-        chart_df = resample_ohlcv(df, "W")
+        # Resample từ daily warehouse (stable hơn API 1W) — merge today first
+        chart_df = resample_ohlcv(_merge_today_bar(df), "W")
     elif tf == "1M":
-        chart_df = resample_ohlcv(df, "ME")
+        chart_df = resample_ohlcv(_merge_today_bar(df), "ME")
     else:
-        chart_df = df
+        chart_df = _merge_today_bar(df)
+
+    # Surface data range so user can verify live freshness — stale data is
+    # the most common cause of "chart không update" reports.
+    if not chart_df.empty:
+        _t0 = chart_df["time"].iloc[0]
+        _t1 = chart_df["time"].iloc[-1]
+        _fmt = "%d/%m %H:%M" if tf in ("1m","5m","15m","30m","1H") else "%d/%m/%Y"
+        st.caption(
+            f"📅 Data: {_t0.strftime(_fmt)} → {_t1.strftime(_fmt)} "
+            f"({len(chart_df):,} bars)"
+        )
 
     # ── Live mode: wrap chart + quote strip trong fragment auto-refresh ─────────
     _live_on = st.session_state.get("live_mode", False) and WSS_AVAILABLE
