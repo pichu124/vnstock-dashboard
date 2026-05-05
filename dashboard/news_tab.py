@@ -275,6 +275,50 @@ def render_news_tab() -> None:
 
     # ── Filters ────────────────────────────────────────────────────────────
     st.markdown("---")
+
+    # Coverage diagnostic: show distribution of articles by date + by ticker
+    # so the user can see at a glance how sparse / dense the cache is. This
+    # answers the common confusion of "why so few recent news" — usually
+    # vnstock's company.news() returns only ~1 latest article per ticker
+    # so coverage of recent news depends entirely on which tickers happened
+    # to have publications in the window.
+    with st.expander("📊 Phân bố tin trong cache (chẩn đoán)", expanded=False):
+        from collections import Counter
+        date_counter = Counter(
+            (n.get("_date_sort") or "Không rõ ngày")[:10] for n in news
+        )
+        ticker_counter = Counter(n.get("ticker", "?") for n in news)
+        n_tickers_with_news = len([t for t in ticker_counter if t and t != "?"])
+        avg_per_ticker = len(news) / max(n_tickers_with_news, 1)
+
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Tổng tin", len(news))
+        m2.metric("Số mã có tin", n_tickers_with_news)
+        m3.metric("TB tin/mã", f"{avg_per_ticker:.1f}")
+
+        diag_col1, diag_col2 = st.columns(2)
+        with diag_col1:
+            st.caption("**Phân bố theo ngày** (sắp xếp mới nhất trên đầu)")
+            import pandas as _pd
+            df_d = _pd.DataFrame([
+                {"Ngày": d, "Số tin": c}
+                for d, c in sorted(date_counter.items(), reverse=True)
+            ])
+            st.dataframe(df_d, hide_index=True, height=240, use_container_width=True)
+        with diag_col2:
+            st.caption("**Top 30 mã nhiều tin nhất**")
+            df_t = _pd.DataFrame([
+                {"Mã": t, "Số tin": c}
+                for t, c in ticker_counter.most_common(30)
+            ])
+            st.dataframe(df_t, hide_index=True, height=240, use_container_width=True)
+        st.caption(
+            "💡 Nếu TB tin/mã thấp (~1) và phân bố ngày tản mác, là do "
+            "`vnstock.company.news()` chỉ trả ~1 tin gần nhất mỗi mã. "
+            "Mã chưa có tin trong khung thời gian sẽ trả về tin cũ. "
+            "Tăng **Screener top-N** để thêm nhiều mã active hơn vào universe."
+        )
+
     flt_col1, flt_col2, flt_col3, flt_col4 = st.columns([2, 2, 2, 3])
 
     # Ticker filter

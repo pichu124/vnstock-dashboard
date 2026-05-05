@@ -244,35 +244,56 @@ def _rehydrate_date_sort(items: list[dict]) -> int:
 
 
 def fetch_ticker_news(ticker: str, source: str = "VCI") -> list[dict]:
-    """Fetch news for one ticker. Returns list of dicts (empty on any error)."""
+    """Fetch news for one ticker. Returns list of dicts (empty on any error).
+
+    Tries vnstock_data.Company (sponsor package) first since it may return
+    more articles per ticker than vnstock free; falls back to the free
+    library on import error or empty result.
+    """
+    # Sponsor path: vnstock_data.Company
+    try:
+        import vnstock_data as _vd
+        for src in ("VCI", "KBS"):
+            try:
+                comp = _vd.Company(symbol=ticker, source=src)
+                df = comp.news()
+                if df is not None and not df.empty:
+                    return _records_from_df(df, ticker, src)
+            except Exception:
+                continue
+    except ImportError:
+        pass
+
+    # Free path: vnstock.Vnstock().stock().company.news()
     sources = [source] + ([s for s in ("VCI", "KBS") if s != source])
     for src in sources:
         try:
             from vnstock import Vnstock  # type: ignore
             stock = Vnstock().stock(symbol=ticker, source=src)
             df = stock.company.news()
-            if df is None or df.empty:
-                continue
-            records = []
-            for _, row in df.iterrows():
-                d = _to_dict(row)
-                d["ticker"] = ticker
-                d["source_provider"] = src
-                d["_date_sort"] = _detect_publish_date(d)
-                # Back-fill public_date so the UI _fmt_age has a value.
-                if d["_date_sort"] and not d.get("public_date"):
-                    d["public_date"] = d["_date_sort"]
-                # Normalise source link — VCI returns relative paths.
-                for k in _LINK_KEYS:
-                    if d.get(k):
-                        d[k] = _absolutize_url(d[k])
-                        break
-                records.append(d)
-            if records:
-                return records
+            if df is not None and not df.empty:
+                return _records_from_df(df, ticker, src)
         except Exception:
             continue
     return []
+
+
+def _records_from_df(df, ticker: str, source: str) -> list[dict]:
+    """Convert a news DataFrame to records with ticker, source, _date_sort, links."""
+    records = []
+    for _, row in df.iterrows():
+        d = _to_dict(row)
+        d["ticker"] = ticker
+        d["source_provider"] = source
+        d["_date_sort"] = _detect_publish_date(d)
+        if d["_date_sort"] and not d.get("public_date"):
+            d["public_date"] = d["_date_sort"]
+        for k in _LINK_KEYS:
+            if d.get(k):
+                d[k] = _absolutize_url(d[k])
+                break
+        records.append(d)
+    return records
 
 
 # ── Parallel refresh ───────────────────────────────────────────────────────
