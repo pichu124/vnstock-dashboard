@@ -2697,10 +2697,10 @@ if (LIVE_URL) {
     fetch(LIVE_URL + "?_=" + Date.now(), {cache: "no-store"})
       .then(function(r){ return r.ok ? r.json() : null; })
       .then(function(b){
-        if (!b || typeof b.time !== "number") return;
-        // Ignore if older than current last candle (avoid clock skew issues)
+        if (!b || typeof b.time !== "number") { console.log("[live] bad payload", b); return; }
         var lastT = C.length ? C[C.length-1].time : 0;
-        if (b.time < lastT) return;
+        console.log("[live] bar", b, "lastT", lastT, new Date(b.time*1000).toISOString());
+        if (b.time < lastT) { console.log("[live] SKIP: b.time < lastT"); return; }
         cs.update({time:b.time, open:b.open, high:b.high, low:b.low, close:b.close});
         // Move the yellow reference line to follow the live close.
         if (_livePriceLine) _livePriceLine.applyOptions({price: b.close});
