@@ -7,6 +7,31 @@ Items here get auto-loaded into Claude's context at session start.
 
 ## 📌 Pending suggestions (raise when relevant)
 
+### 0. ⏰ NHẮC USER TEST — pending từ 2026-05-06 01:30
+
+**Khi user mở session mới trong ngày 2026-05-07 hoặc sau đó:** chủ động nhắc test các fix dưới đây (user đã yêu cầu "mai nhắc tôi test"):
+
+**Commit `9fec1d3` (latest) — cần verify:**
+
+1. **Screener tab "Thống kê giao dịch theo phiên"** (sau pull + restart Streamlit):
+   - Cache cũ v3 tự purge → backfill chạy lại với `interval='5m'` + dedup
+   - Check 9/3 và 10/3 trong 4 panel: số có ngang neighbors hay vẫn inflated?
+   - Nếu vẫn inflated → vnstock_data.price_history thực sự trả số đó cho 2 ngày này (data source issue, không fix được client-side)
+   - Recheck toàn bộ 30 ngày xem còn 0/0 cells nào không
+
+2. **News tab — diagnostic tool:**
+   - Mở expander "📊 Phân bố tin trong cache"
+   - Nhập mã `VCB` → click **🧪 Test fetch**
+   - Báo output JSON cho Claude → xác định API trả bao nhiêu articles per ticker
+   - Quyết định path tiếp theo:
+     - Nếu vnstock_data.Company.news() trả >5 rows → hoạt động, chỉ thiếu integration
+     - Nếu chỉ trả 1 row → API limitation thật → cân nhắc scrape vietstock.vn/cafef.vn
+
+**Branch:** `claude/fix-screener-trading-stats-2M4z2`
+**Sau khi user confirm các fix work:** xoá entry này khỏi CLAUDE.md.
+
+---
+
 ### 1. Auto-schedule `vnstock_train.py` (NOT YET SET UP)
 
 **Status**: User chose to run manually for now (decided 2026-04-27).
