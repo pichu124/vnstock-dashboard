@@ -81,8 +81,10 @@ def render_screener_tab(
     render_session_stats_table  = _vnd.render_session_stats_table
     try:
         from vnstock_session_stats import backfill_session_stats as _backfill_session_stats
+        from vnstock_session_stats import reconcile_with_price_history as _reconcile_eod
     except Exception:
         def _backfill_session_stats(): return 0
+        def _reconcile_eod(): return 0
     from datetime import datetime
 
 
@@ -389,6 +391,20 @@ def render_screener_tab(
                         pass
                     st.session_state["_session_stats_backfilled"] = True
                     load_session_stats_history.clear()
+
+                # EOD reconciliation: replace yesterday's estimate with exact
+                # value once the EOD batch posts in price_history. Cheap (~2s
+                # for 4 indices); skip if last reconcile was <30 min ago to
+                # avoid hammering the API on every fragment rerun.
+                _now_ts = datetime.now().timestamp()
+                _last_recon = st.session_state.get("_session_stats_last_recon", 0)
+                if _now_ts - _last_recon > 1800:  # 30 minutes
+                    try:
+                        if _reconcile_eod() > 0:
+                            load_session_stats_history.clear()
+                    except Exception:
+                        pass
+                    st.session_state["_session_stats_last_recon"] = _now_ts
 
                 # Load history + compute today
                 history = load_session_stats_history()

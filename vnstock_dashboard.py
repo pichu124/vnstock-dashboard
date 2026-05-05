@@ -2199,6 +2199,7 @@ try:
     from vnstock_session_stats import (
         SESSION_WINDOWS, SESSION_INDICES,
         compute_session_stats, backfill_session_stats,
+        reconcile_with_price_history,
         save_session_stats as _save_session_stats_impl,
         load_session_stats_history as _load_session_stats_impl,
     )
@@ -2212,6 +2213,7 @@ except Exception:
     SESSION_INDICES = ["VNINDEX", "VN30", "HNX", "UPCOM"]
     def compute_session_stats(): return {}
     def backfill_session_stats(): return 0
+    def reconcile_with_price_history(): return 0
     def _save_session_stats_impl(stats): pass
     def _load_session_stats_impl(): return {}
 
@@ -2280,6 +2282,10 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
             day_stats = day_data.get(window_name, {})
 
         all_zero = True
+        # Aggregate per-row status: row is "exact" only if every index value
+        # is "exact" (from price_history EOD); otherwise row is "estimate".
+        is_exact = True
+        any_data = False
         for idx in SESSION_INDICES:
             s = day_stats.get(idx, {})
             vol_m = s.get("vol", 0) / 1e6  # triệu CP
@@ -2288,11 +2294,17 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
             row[f"{idx} GTGD"] = round(gtgd, 1)
             if vol_m > 0 or gtgd > 0:
                 all_zero = False
+                any_data = True
+                if s.get("status", "estimate") != "exact":
+                    is_exact = False
 
         # Drop holidays / market-closed days (all indices reporting zero).
         # Keep today's row even if zero — market may not have opened yet.
         if all_zero and d != today_str:
             continue
+        # Status marker shown in the Ngày column: 🟢 exact, 🟡 estimate.
+        if any_data:
+            row["Ngày"] = f"{d} {'🟢' if is_exact else '🟡'}"
         rows.append(row)
 
     df = pd.DataFrame(rows)
@@ -2300,7 +2312,16 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
         st.caption("Chưa có dữ liệu")
         return
 
-    df["Ngày"] = pd.to_datetime(df["Ngày"]).dt.strftime("%d/%m")
+    # Date column may be "YYYY-MM-DD" or "YYYY-MM-DD 🟢/🟡" — split off any
+    # trailing status emoji before parsing the date, then re-attach.
+    def _fmt_date_with_marker(s: str) -> str:
+        parts = s.split(" ", 1)
+        try:
+            d = pd.to_datetime(parts[0]).strftime("%d/%m")
+        except Exception:
+            return s
+        return f"{d} {parts[1]}" if len(parts) > 1 else d
+    df["Ngày"] = df["Ngày"].astype(str).map(_fmt_date_with_marker)
     num_cols = [c for c in df.columns if c != "Ngày"]
 
     def _color_scale(s):
@@ -2348,7 +2369,10 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
         use_container_width=True,
         height=_height,
     )
-    st.caption("VOL = triệu CP | GTGD = tỷ VND")
+    st.caption(
+        "VOL = triệu CP · GTGD = tỷ VND · "
+        "🟢 = chính thức (EOD) · 🟡 = ước tính (sai số ±5%, tự sửa sau EOD)"
+    )
 
 
 def render_chart(df: pd.DataFrame, ticker: str, height: int = 850,

@@ -62,6 +62,41 @@ nhưng user chưa test lại.
 
 ---
 
+## 🔧 Future improvements — tracked TODOs
+
+### 1. Replace calibrated GTGD estimate with exact realtime source
+
+**Status**: Currently using Option A — `vnstock_data Quote.history(interval='1m')`
+intraday cumulative volume × per-index calibrated `avg_price/share` (computed
+weekly from `Trading.price_history` last 10 days). Accuracy ~95-98% during
+trading; auto-corrected to exact via `reconcile_with_price_history()` when
+the EOD batch posts ~24h after market close.
+
+**Why estimate**: vnstock_data does NOT expose realtime `total_value` for
+indices. We exhaustively tested (see commit history of `_test_market_sources.py`):
+- ❌ SSI iboard public URLs — all 404 (need DevTools URL discovery)
+- ❌ cafef.vn public URLs — all 404
+- ❌ `Trading.price_history` — EOD batch only, ~24h delay
+- ❌ `Trading.put_through` — block deals only (~16% of total GTGD)
+- ❌ `Trading.trading_stats / order_stats / side_stats` — `NotImplementedError`
+- ❌ `Quote.intraday(VNINDEX)` — `ValueError: Invalid symbol`
+- ❌ `Quote.history` columns — only OHLCV, no `total_value` for indices
+
+**To improve when ready**:
+1. Reverse-engineer real iboard.ssi.com.vn URL via browser DevTools network tab
+   (look for XHR with `totalValue` / `totalNmValue` field)
+2. Or test `price_board(all_HOSE_stocks)` batch latency — if <5s for 500
+   symbols, can aggregate `match_price × accumulated_volume` per stock
+3. Or use cafef live websocket if it exists
+4. UPCOM symbol for `price_history` is unknown — currently tries fallbacks
+   `["UPCOM", "UPINDEX", "UPCOM-INDEX", "HNXUPCOM"]`. Find the correct one.
+
+**Files affected**: `vnstock_session_stats.py`, `dashboard/screener_tab.py`
+(UI status indicator 🟡 estimate / 🟢 exact). Schema bumped to
+`SESSION_STATS_FORMAT_VERSION = 3` to invalidate old data.
+
+---
+
 ## ⚠️ Hard-won invariants — DO NOT change without reading this
 
 ### 4-panel chart sync (Price / Volume / RSI / MACD) — vnstock_dashboard.py
