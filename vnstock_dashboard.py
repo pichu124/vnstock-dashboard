@@ -2588,17 +2588,18 @@ charts.forEach(function(s){
   });
 });
 
-// Bidirectional time-scale sync.
-// Rule: NEVER call setVisibleRange on a chart from within that same chart's
-// subscribeVisibleTimeRangeChange callback — it corrupts LWC's pan state
-// machine and turns drag into zoom. We can safely call setVisibleRange on
-// the OTHER charts from a separate timer because the timer runs outside the
-// LWC event-processing call stack.
+// 4-panel time-scale sync.
+// Rule: NEVER call setVisibleRange from inside subscribeVisibleTimeRangeChange
+// on the same chart — corrupts LWC pan state (drag → zoom).
+// _ready gate: ignore all callbacks until the initial setVisibleRange has
+// run at T=200ms. This prevents RSI/MACD auto-fit (bar 14+) from being
+// propagated to the price chart before we set the uniform initial range.
+var _ready = false;
 var _syncing = false;
 var _pendingSrc = null;
 charts.forEach(function(s){
   s.timeScale().subscribeVisibleTimeRangeChange(function(){
-    if (_syncing) return;
+    if (!_ready || _syncing) return;
     _pendingSrc = s;
   });
 });
@@ -2614,18 +2615,6 @@ function _flushSync(){
   });
   _syncing = false;
 }
-// Real-time sync via timer: safe because timer callbacks run outside any
-// LWC event handler. Updates sub-panels at ~10fps during active drag.
-setInterval(_flushSync, 100);
-// Also flush immediately on mouseup/touch/wheel-end for final alignment,
-// even when the pointer is released outside the iframe.
-document.addEventListener("mouseup", function(){ setTimeout(_flushSync, 50); });
-document.addEventListener("touchend", function(){ setTimeout(_flushSync, 50); });
-var _wheelTimer = null;
-document.addEventListener("wheel", function(){
-  if (_wheelTimer) clearTimeout(_wheelTimer);
-  _wheelTimer = setTimeout(_flushSync, 150);
-}, {passive: true, capture: true});
 
 // Volume Profile overlay
 var VP=""" + vp_js + """;
@@ -2664,29 +2653,36 @@ function resize(){
 }
 window.addEventListener("resize",resize);
 setTimeout(resize,100);
-// Initial visible range: use setVisibleRange on ALL panels with the same
-// range so RSI/MACD (which have NaN at the start) don't zoom to a different
-// window than the price chart. fitContent() called per-panel would make RSI
-// show a shorter span (it has no data for the first 13 bars) causing
-// misalignment. Applied at 150ms — after the 100ms resize pass.
+// Initial visible range + start sync machinery AFTER range is applied.
+// Delay to 200ms (after the 100ms resize pass) so all panels have rendered.
+// _ready is set to true only here — subscribeVisibleTimeRangeChange callbacks
+// are ignored before this point, so RSI/MACD auto-fit can't pollute the range.
 setTimeout(function(){
-  _syncing = true;
   var N = C.length;
+  if (N < 2) { _ready = true; return; }
   var r;
-  if (N < 2) { _syncing = false; return; }
   if (!_isIntraday && N > 250) {
-    // Daily bars: show ~6 months
     r = {from: C[N-120].time, to: C[N-1].time};
   } else if (N > 375) {
-    // Multi-week 5-min bars: show ~1 week (375 bars × 5 min = ~31 h)
     r = {from: C[N-375].time, to: C[N-1].time};
   } else {
-    // Short dataset: show everything
     r = {from: C[0].time, to: C[N-1].time};
   }
+  _syncing = true;
   charts.forEach(function(c){ c.timeScale().setVisibleRange(r); });
   _syncing = false;
-},150);
+  _ready = true;
+  // Start sync interval NOW — after the initial range is locked in.
+  // Timer callbacks run outside LWC's event stack so setVisibleRange is safe.
+  setInterval(_flushSync, 100);
+  document.addEventListener("mouseup", function(){ setTimeout(_flushSync, 50); });
+  document.addEventListener("touchend", function(){ setTimeout(_flushSync, 50); });
+  var _wheelTimer = null;
+  document.addEventListener("wheel", function(){
+    if (_wheelTimer) clearTimeout(_wheelTimer);
+    _wheelTimer = setTimeout(_flushSync, 150);
+  }, {passive: true, capture: true});
+}, 200);
 
 // Prevent scroll/wheel from bubbling to parent Streamlit iframe
 // This stops the page from jumping when scrolling/zooming on charts
