@@ -2588,26 +2588,42 @@ charts.forEach(function(s){
   });
 });
 
-// Bidirectional time-scale sync. _syncing flag stops the callback cascade:
-// when we call setVisibleRange programmatically the target chart fires its
-// own callback, but _syncing is still true so it exits early. This works
-// because LWC fires subscribeVisibleTimeRangeChange synchronously inside
-// setVisibleRange — _syncing stays true for the whole forEach loop.
-// (The previous "active source via mousedown" approach failed because LWC
-// captures mouse events on its canvas before they bubble to the parent div.)
+// Bidirectional time-scale sync — DEFERRED to mouseup/wheel-end.
+// Calling setVisibleRange synchronously inside the range-change callback
+// during a drag corrupts LWC's internal pan state machine, causing the
+// drag to be interpreted as a zoom on subsequent mousemoves. Workaround:
+// just track the most recently changed chart in _pendingSrc, and only
+// flush the sync after the user releases the mouse / stops scrolling.
+// Trade-off: sub-panels don't follow main during a drag — they snap to
+// align after mouseup. Pan works correctly, which is what users care
+// about most.
 var _syncing = false;
+var _pendingSrc = null;
 charts.forEach(function(s){
   s.timeScale().subscribeVisibleTimeRangeChange(function(){
     if (_syncing) return;
-    var r = s.timeScale().getVisibleRange();
-    if (!r) return;
-    _syncing = true;
-    charts.forEach(function(c){
-      if (c !== s) { try{c.timeScale().setVisibleRange(r);}catch(e){} }
-    });
-    _syncing = false;
+    _pendingSrc = s;
   });
 });
+function _flushSync(){
+  if (!_pendingSrc) return;
+  var src = _pendingSrc;
+  _pendingSrc = null;
+  var r = src.timeScale().getVisibleRange();
+  if (!r) return;
+  _syncing = true;
+  charts.forEach(function(c){
+    if (c !== src) { try{c.timeScale().setVisibleRange(r);}catch(e){} }
+  });
+  _syncing = false;
+}
+document.addEventListener("mouseup", function(){ setTimeout(_flushSync, 50); });
+document.addEventListener("touchend", function(){ setTimeout(_flushSync, 50); });
+var _wheelTimer = null;
+document.addEventListener("wheel", function(){
+  if (_wheelTimer) clearTimeout(_wheelTimer);
+  _wheelTimer = setTimeout(_flushSync, 150);
+}, {passive: true, capture: true});
 
 // Volume Profile overlay
 var VP=""" + vp_js + """;
