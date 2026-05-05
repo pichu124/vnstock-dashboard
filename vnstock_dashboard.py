@@ -2272,6 +2272,13 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
         st.caption("Chưa có dữ liệu")
         return
 
+    # Determine if this window has closed for today. Used to decide
+    # whether today's row should show 🟡 (still updating) or 🟢 (closed).
+    _now = datetime.now()
+    _end_str = SESSION_WINDOWS[window_name][1]  # e.g. "10:00"
+    _end_h, _end_m = map(int, _end_str.split(":"))
+    _window_closed_today = (_now.hour, _now.minute) >= (_end_h, _end_m)
+
     rows = []
     for d in dates:
         row = {"Ngày": d}
@@ -2282,9 +2289,6 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
             day_stats = day_data.get(window_name, {})
 
         all_zero = True
-        # Aggregate per-row status: row is "exact" only if every index value
-        # is "exact" (from price_history EOD); otherwise row is "estimate".
-        is_exact = True
         any_data = False
         for idx in SESSION_INDICES:
             s = day_stats.get(idx, {})
@@ -2295,16 +2299,17 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
             if vol_m > 0 or gtgd > 0:
                 all_zero = False
                 any_data = True
-                if s.get("status", "estimate") != "exact":
-                    is_exact = False
 
         # Drop holidays / market-closed days (all indices reporting zero).
         # Keep today's row even if zero — market may not have opened yet.
         if all_zero and d != today_str:
             continue
-        # Status marker shown in the Ngày column: 🟢 exact, 🟡 estimate.
+        # Status marker semantics:
+        #   🟢 settled — past day OR (today AND window has closed)
+        #   🟡 live    — today AND window still in progress (updating)
         if any_data:
-            row["Ngày"] = f"{d} {'🟢' if is_exact else '🟡'}"
+            settled = (d != today_str) or _window_closed_today
+            row["Ngày"] = f"{d} {'🟢' if settled else '🟡'}"
         rows.append(row)
 
     df = pd.DataFrame(rows)
@@ -2371,7 +2376,8 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
     )
     st.caption(
         "VOL = triệu CP · GTGD = tỷ VND · "
-        "🟢 = chính thức (EOD) · 🟡 = ước tính (sai số ±5%, tự sửa sau EOD)"
+        "🟢 = đã chốt phiên · 🟡 = đang giao dịch (cập nhật mỗi 30s, "
+        "ước tính sai số ±5%, tự sửa sau EOD)"
     )
 
 
