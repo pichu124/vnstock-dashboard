@@ -1,0 +1,5 @@
+[server]
+# Serve files from <repo>/static/ at /app/static/* — used by the analysis tab
+# to push today's OHLCV bar to the chart iframe for smooth live updates
+# without rebuilding the LWC chart on each tick.
+enableStaticServing = true

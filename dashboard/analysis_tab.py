@@ -617,8 +617,46 @@ def render_analysis_tab() -> None:
 
         _live_daily_quote_fragment()
 
-        # Chart daily/weekly (static, không refresh mỗi 5s)
-        render_chart(chart_df, ticker, height=st.session_state.get("chart_height_anal", 850))
+        # Background fragment — writes today's aggregated OHLCV to a static
+        # JSON file every 30s. The chart (rendered ONCE outside the fragment)
+        # has JS that polls this file and calls candleSeries.update() on the
+        # last bar — no iframe rebuild, no zoom reset, no flicker.
+        @st.fragment(run_every=30)
+        def _today_bar_writer():
+            import json as _json
+            import pandas as _pd
+            from pathlib import Path as _P
+            from datetime import date as _d
+            try:
+                intra = load_intraday(ticker, interval="5m")
+                if intra is None or intra.empty:
+                    return
+                today_bars = intra[intra["time"].dt.date == _d.today()]
+                if today_bars.empty:
+                    return
+                bar = {
+                    "time":   int(_pd.Timestamp(_d.today()).timestamp()),
+                    "open":   float(today_bars["open"].iloc[0]),
+                    "high":   float(today_bars["high"].max()),
+                    "low":    float(today_bars["low"].min()),
+                    "close":  float(today_bars["close"].iloc[-1]),
+                    "volume": float(today_bars["volume"].sum()),
+                }
+                out = _P("static/today_bars") / f"{ticker}.json"
+                out.parent.mkdir(parents=True, exist_ok=True)
+                tmp = out.with_suffix(".tmp")
+                tmp.write_text(_json.dumps(bar))
+                tmp.replace(out)  # atomic — readers never see partial JSON
+            except Exception:
+                pass
+        _today_bar_writer()
+
+        # Chart with JS-side live polling — see render_chart docstring.
+        render_chart(
+            chart_df, ticker,
+            height=st.session_state.get("chart_height_anal", 850),
+            live_url=f"/app/static/today_bars/{ticker}.json",
+        )
 
     # ── Intraday Replay ───────────────────────────────────────────────────────
     elif (st.session_state.get("replay_date", "(tắt)") != "(tắt)"

@@ -2352,11 +2352,16 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
 
 
 def render_chart(df: pd.DataFrame, ticker: str, height: int = 850,
-                 volume_profile: list = None):
+                 volume_profile: list = None, live_url: str | None = None):
     """
     TradingView lightweight-charts — inline JS (no CDN needed).
     Fast, no weekend gaps, synced crosshair across all panels.
     volume_profile: optional list of {price, buy_vol, sell_vol, total_vol}
+    live_url: optional same-origin URL serving JSON {time,open,high,low,close,
+        volume} for today's bar. When set, JS polls every 30s and calls
+        candleSeries.update() — no iframe rebuild, no zoom reset, no flicker.
+        Caller must arrange for the file to be refreshed server-side (see
+        analysis_tab._today_bar_writer fragment).
                     for VP overlay on chart.
     """
     import json as _json
@@ -2642,6 +2647,39 @@ setTimeout(resize,100);
 // This stops the page from jumping when scrolling/zooming on charts
 document.body.style.overflow="hidden";
 document.documentElement.style.overflow="hidden";
+
+// ── Live last-bar polling ───────────────────────────────────────────────
+// Smooth real-time update for today's candle WITHOUT rebuilding the iframe.
+// Server writes today's OHLCV to a JSON file on a fragment timer; this JS
+// fetches it and calls cs.update() — LWC redraws only the last bar so user's
+// pan/zoom is preserved (unlike a Streamlit fragment-based chart rebuild).
+var LIVE_URL=""" + _json.dumps(live_url or "") + """;
+if (LIVE_URL) {
+  // Volume bar update is skipped — the original addHistogramSeries call wasn't
+  // captured into a var, and updating just price keeps the visible "ticking"
+  // behaviour users care about. Volume catches up on next page render.
+  function _pollLastBar() {
+    fetch(LIVE_URL + "?_=" + Date.now(), {cache: "no-store"})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(b){
+        if (!b || typeof b.time !== "number") return;
+        // Ignore if older than current last candle (avoid clock skew issues)
+        var lastT = C.length ? C[C.length-1].time : 0;
+        if (b.time < lastT) return;
+        cs.update({time:b.time, open:b.open, high:b.high, low:b.low, close:b.close});
+        // Keep the OHLCV strip in sync with what's on screen
+        document.getElementById("ohlcv").innerHTML =
+          "O <b style='color:#e5e7eb'>"+b.open.toFixed(2)+"</b>  "+
+          "H <b style='color:#10b981'>"+b.high.toFixed(2)+"</b>  "+
+          "L <b style='color:#ef4444'>"+b.low.toFixed(2)+"</b>  "+
+          "C <b style='color:#fbbf24'>"+b.close.toFixed(2)+"</b>  "+
+          "<span style='color:#6b7280;font-size:10px'>· LIVE</span>";
+      })
+      .catch(function(){ /* silent — file may not exist yet */ });
+  }
+  _pollLastBar();              // immediate
+  setInterval(_pollLastBar, 30000);  // every 30s thereafter
+}
 </script>
 </body>
 </html>"""
