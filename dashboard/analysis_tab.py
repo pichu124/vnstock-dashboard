@@ -502,12 +502,14 @@ def render_analysis_tab() -> None:
 
         _live_quote_fragment()
 
-        # Background producer — every 5s, fetch latest intraday bar, merge
+        # Background producer — every 2s, fetch latest intraday bar, merge
         # live WSS quote into it, write to JSON. JS in chart iframe polls
-        # this file and updates only the last candle (no rebuild, no zoom
-        # reset). Cache TTL on load_intraday is 60s but live_quote is
-        # WSS-realtime so the close/high/low tick at WSS rate.
-        @st.fragment(run_every=5)
+        # this file at the same rate and updates only the last candle (no
+        # rebuild, no zoom reset). Cache TTL on load_intraday is 60s but
+        # live_quote is WSS-realtime (~100-500ms tick) so close/high/low
+        # tick essentially live at the 2s sample rate. Dropping to 1s also
+        # works on fast machines; bumped from 5s for TradingView-grade feel.
+        @st.fragment(run_every=2)
         def _intraday_bar_writer():
             import json as _json
             from pathlib import Path as _P
@@ -555,7 +557,7 @@ def render_analysis_tab() -> None:
                          height=st.session_state.get("chart_height_anal", 850),
                          volume_profile=_vp_chart if _vp_chart else None,
                          live_url=f"/app/static/today_bars/{ticker}_{tf}.json",
-                         live_poll_ms=5000)
+                         live_poll_ms=2000)
         except Exception as _e:
             st.error(f"Chart render error: {_e}")
 
