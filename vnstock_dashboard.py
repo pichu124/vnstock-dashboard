@@ -959,11 +959,15 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     c = df["close"].astype(float)
 
-    # RSI 14
+    # RSI 14 — when loss is 0 (all-up streak), force RSI=100 instead of NaN.
+    # The naive `loss.replace(0, NaN)` leaves gaps at the END of the series,
+    # which makes the chart panel auto-fit to a shorter range than candles.
     delta = c.diff()
     gain  = delta.clip(lower=0).rolling(14).mean()
     loss  = (-delta.clip(upper=0)).rolling(14).mean()
-    df["rsi"] = 100 - (100 / (1 + gain / loss.replace(0, np.nan)))
+    rs    = gain / loss.replace(0, np.nan)
+    rsi   = 100 - (100 / (1 + rs))
+    df["rsi"] = rsi.where(loss != 0, 100.0)
 
     # EMAs — chỉ tính khi đủ data (tránh EMA chưa hội tụ trên data ngắn)
     for span in (9, 21, 50, 200):
@@ -2489,7 +2493,10 @@ var BASE={
     vertLine:{color:"#4b5563",width:1,style:1,labelBackgroundColor:"#1f2937"},
     horzLine:{color:"#4b5563",width:1,style:1,labelBackgroundColor:"#1f2937"},
   },
-  rightPriceScale:{borderColor:"#1f2937"},
+  // Fixed minimumWidth on the right price scale so all panels reserve the
+  // same gutter for axis labels — keeps candle/volume/RSI/MACD chart areas
+  // perfectly column-aligned regardless of the value range each shows.
+  rightPriceScale:{borderColor:"#1f2937",minimumWidth:60},
   timeScale:{borderColor:"#1f2937",timeVisible:true,secondsVisible:false,rightOffset:5,shiftVisibleRangeOnNewBar:false},
   handleScroll:{mouseWheel:true,pressedMouseMove:true},
   handleScale:{mouseWheel:true,pinch:true},
@@ -2556,10 +2563,29 @@ line(mac,ML,"#60a5fa",1.5,"MACD",true);
 line(mac,MS,"#f97316",1.5,"Signal",true);
 
 var charts=[main,vol,rsi,mac];
-// fitContent on every panel after data is set so the visible range covers
-// the full data span — fixes the "chart pushed left + RSI gap" symptom that
-// happens when sub-panels have shorter valid-data windows than candles.
-charts.forEach(function(s){ s.timeScale().fitContent(); });
+// Fit MAIN to its data, then propagate that exact time range to sub-panels.
+// Per-chart fitContent() makes RSI/MACD shrink to their own (often shorter)
+// valid-data range — leaving the panel visibly narrower than candles. Using
+// the time range from main keeps every panel column-aligned even when
+// indicator series have NaN gaps at the edges.
+main.timeScale().fitContent();
+var _mainRange = main.timeScale().getVisibleRange();
+if (_mainRange) {
+  [vol, rsi, mac].forEach(function(t){ t.timeScale().setVisibleRange(_mainRange); });
+}
+
+// For long daily/weekly histories, "fit all" makes today's bar a single
+// pixel and intraday updates invisible. Default to last ~120 daily bars
+// (~6 months) when this looks like a multi-year daily chart. Intraday
+// timeframes (bar gap < 1 day) keep their full fit.
+if (C.length >= 2) {
+  var _gap = C[C.length-1].time - C[C.length-2].time;
+  var _isIntraday = _gap < 86400;
+  if (!_isIntraday && C.length > 250) {
+    var _defRange = {from: C[C.length - 120].time, to: C[C.length - 1].time};
+    charts.forEach(function(c){ c.timeScale().setVisibleRange(_defRange); });
+  }
+}
 charts.forEach(function(s){
   s.subscribeCrosshairMove(function(p){
     if(!p.time) return;
