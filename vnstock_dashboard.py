@@ -2588,15 +2588,12 @@ charts.forEach(function(s){
   });
 });
 
-// Bidirectional time-scale sync — DEFERRED to mouseup/wheel-end.
-// Calling setVisibleRange synchronously inside the range-change callback
-// during a drag corrupts LWC's internal pan state machine, causing the
-// drag to be interpreted as a zoom on subsequent mousemoves. Workaround:
-// just track the most recently changed chart in _pendingSrc, and only
-// flush the sync after the user releases the mouse / stops scrolling.
-// Trade-off: sub-panels don't follow main during a drag — they snap to
-// align after mouseup. Pan works correctly, which is what users care
-// about most.
+// Bidirectional time-scale sync.
+// Rule: NEVER call setVisibleRange on a chart from within that same chart's
+// subscribeVisibleTimeRangeChange callback — it corrupts LWC's pan state
+// machine and turns drag into zoom. We can safely call setVisibleRange on
+// the OTHER charts from a separate timer because the timer runs outside the
+// LWC event-processing call stack.
 var _syncing = false;
 var _pendingSrc = null;
 charts.forEach(function(s){
@@ -2617,6 +2614,11 @@ function _flushSync(){
   });
   _syncing = false;
 }
+// Real-time sync via timer: safe because timer callbacks run outside any
+// LWC event handler. Updates sub-panels at ~10fps during active drag.
+setInterval(_flushSync, 100);
+// Also flush immediately on mouseup/touch/wheel-end for final alignment,
+// even when the pointer is released outside the iframe.
 document.addEventListener("mouseup", function(){ setTimeout(_flushSync, 50); });
 document.addEventListener("touchend", function(){ setTimeout(_flushSync, 50); });
 var _wheelTimer = null;
@@ -2662,18 +2664,27 @@ function resize(){
 }
 window.addEventListener("resize",resize);
 setTimeout(resize,100);
-// Initial visible range fires at 150ms — after the 100ms resize so the
-// chart has a valid clientWidth before setVisibleRange is called.
-// Calling it at t=0 (before layout) results in a no-op and a blank chart.
+// Initial visible range: use setVisibleRange on ALL panels with the same
+// range so RSI/MACD (which have NaN at the start) don't zoom to a different
+// window than the price chart. fitContent() called per-panel would make RSI
+// show a shorter span (it has no data for the first 13 bars) causing
+// misalignment. Applied at 150ms — after the 100ms resize pass.
 setTimeout(function(){
   _syncing = true;
-  if(!_isIntraday&&C.length>250){
-    charts.forEach(function(c){
-      c.timeScale().setVisibleRange({from:C[C.length-120].time,to:C[C.length-1].time});
-    });
-  }else{
-    charts.forEach(function(c){c.timeScale().fitContent();});
+  var N = C.length;
+  var r;
+  if (N < 2) { _syncing = false; return; }
+  if (!_isIntraday && N > 250) {
+    // Daily bars: show ~6 months
+    r = {from: C[N-120].time, to: C[N-1].time};
+  } else if (N > 375) {
+    // Multi-week 5-min bars: show ~1 week (375 bars × 5 min = ~31 h)
+    r = {from: C[N-375].time, to: C[N-1].time};
+  } else {
+    // Short dataset: show everything
+    r = {from: C[0].time, to: C[N-1].time};
   }
+  charts.forEach(function(c){ c.timeScale().setVisibleRange(r); });
   _syncing = false;
 },150);
 
