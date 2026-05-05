@@ -2524,7 +2524,7 @@ var cs=main.addCandlestickSeries({
   wickUpColor:"#059669",wickDownColor:"#dc2626",
 });
 cs.setData(C);
-cs.createPriceLine({price:LP,color:"#fbbf24",lineWidth:1,
+var _livePriceLine = cs.createPriceLine({price:LP,color:"#fbbf24",lineWidth:1,
   lineStyle:LightweightCharts.LineStyle.Dashed,axisLabelVisible:true,title:""});
 
 function line(chart,data,color,width,title,lvVisible){
@@ -2588,35 +2588,24 @@ charts.forEach(function(s){
   });
 });
 
-// Bidirectional time-scale sync via "active source" detection.
-// Mouse/wheel/touch on a panel marks it as the active source. Only the
-// active source drives setVisibleRange on the others. Programmatic
-// setVisibleRange calls fire callbacks too, but the source chart is no
-// longer the active one — so they don't echo back. Kills the ping-pong
-// that broke pan/drag in the previous bidirectional implementation.
-var _activeSrc = null;
-["mc","vc","rc","dc"].forEach(function(id, i){
-  var el = document.getElementById(id);
-  if (!el) return;
-  function activate(){ _activeSrc = charts[i]; }
-  el.addEventListener("mousedown", activate, {passive:true});
-  el.addEventListener("wheel", activate, {passive:true});
-  el.addEventListener("touchstart", activate, {passive:true});
-});
-document.addEventListener("mouseup", function(){
-  setTimeout(function(){ _activeSrc = null; }, 150);
-});
-document.addEventListener("touchend", function(){
-  setTimeout(function(){ _activeSrc = null; }, 150);
-});
+// Bidirectional time-scale sync. _syncing flag stops the callback cascade:
+// when we call setVisibleRange programmatically the target chart fires its
+// own callback, but _syncing is still true so it exits early. This works
+// because LWC fires subscribeVisibleTimeRangeChange synchronously inside
+// setVisibleRange — _syncing stays true for the whole forEach loop.
+// (The previous "active source via mousedown" approach failed because LWC
+// captures mouse events on its canvas before they bubble to the parent div.)
+var _syncing = false;
 charts.forEach(function(s){
   s.timeScale().subscribeVisibleTimeRangeChange(function(){
-    if (s !== _activeSrc) return;
+    if (_syncing) return;
     var r = s.timeScale().getVisibleRange();
     if (!r) return;
+    _syncing = true;
     charts.forEach(function(c){
       if (c !== s) { try{c.timeScale().setVisibleRange(r);}catch(e){} }
     });
+    _syncing = false;
   });
 });
 
@@ -2661,6 +2650,7 @@ setTimeout(resize,100);
 // chart has a valid clientWidth before setVisibleRange is called.
 // Calling it at t=0 (before layout) results in a no-op and a blank chart.
 setTimeout(function(){
+  _syncing = true;
   if(!_isIntraday&&C.length>250){
     charts.forEach(function(c){
       c.timeScale().setVisibleRange({from:C[C.length-120].time,to:C[C.length-1].time});
@@ -2668,6 +2658,7 @@ setTimeout(function(){
   }else{
     charts.forEach(function(c){c.timeScale().fitContent();});
   }
+  _syncing = false;
 },150);
 
 // Prevent scroll/wheel from bubbling to parent Streamlit iframe
@@ -2695,6 +2686,8 @@ if (LIVE_URL) {
         var lastT = C.length ? C[C.length-1].time : 0;
         if (b.time < lastT) return;
         cs.update({time:b.time, open:b.open, high:b.high, low:b.low, close:b.close});
+        // Move the yellow reference line to follow the live close.
+        if (_livePriceLine) _livePriceLine.applyOptions({price: b.close});
         // Keep the OHLCV strip in sync with what's on screen
         document.getElementById("ohlcv").innerHTML =
           "O <b style='color:#e5e7eb'>"+b.open.toFixed(2)+"</b>  "+
