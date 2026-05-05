@@ -156,7 +156,7 @@ def render_news_tab() -> None:
 
     # ── Cache status & controls ────────────────────────────────────────────
     info = _nn.cache_info()
-    ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([3, 2, 2])
+    ctrl_col1, ctrl_col2, ctrl_col3, ctrl_col4 = st.columns([3, 2, 2, 2])
 
     with ctrl_col1:
         if info["exists"] and info["count"]:
@@ -169,17 +169,26 @@ def render_news_tab() -> None:
         refresh_clicked = st.button("🔄 Cập nhật tin tức", key="_news_refresh",
                                      help="Tải tin từ vnstock cho toàn bộ universe (~1-3 phút tuỳ số mã)")
     with ctrl_col3:
+        # Quick refresh + auto-set filter to "Hôm nay" so the user sees only
+        # today's news immediately after fetch completes.
+        today_clicked = st.button("📅 Tải tin hôm nay", key="_news_refresh_today",
+                                   help="Tải tin và lọc về tin trong hôm nay")
+    with ctrl_col4:
         top_n_universe = st.number_input(
             "Screener top-N", min_value=10, max_value=500,
             value=100, step=50, key="_news_top_n",
             help=(
                 "Số mã từ screener bổ sung vào VN30. "
-                "100 ≈ 1 phút · 300 ≈ 2-3 phút · 500 ≈ 4-5 phút. "
-                "Screener đã có điểm số cho ~1,600 mã nên top-500 ≈ toàn thị trường liquid."
+                "100 ≈ 1 phút · 300 ≈ 2-3 phút · 500 ≈ 4-5 phút."
             ),
         )
 
     # ── Refresh ────────────────────────────────────────────────────────────
+    if today_clicked:
+        # Set filter pref before refresh so the post-fetch render uses it.
+        st.session_state["_news_recency_filter"] = "Hôm nay"
+        refresh_clicked = True
+
     if refresh_clicked:
         universe = _nn.build_universe(top_screener=int(top_n_universe))
         prog_bar = st.progress(0.0, text=f"Đang tải tin cho {len(universe)} mã…")
@@ -199,6 +208,18 @@ def render_news_tab() -> None:
     # ── Load data ──────────────────────────────────────────────────────────
     if "_news_data" not in st.session_state:
         st.session_state["_news_data"] = _nn.load_news_cache()
+    else:
+        # Rehydrate _date_sort in-place if any items are missing it (e.g.
+        # session_state was populated before the field-detection fix).
+        _missing = sum(1 for n in st.session_state["_news_data"]
+                       if not n.get("_date_sort"))
+        if _missing > 0 and hasattr(_nn, "_rehydrate_date_sort"):
+            fixed = _nn._rehydrate_date_sort(st.session_state["_news_data"])
+            if fixed > 0:
+                st.session_state["_news_data"].sort(
+                    key=lambda x: x.get("_date_sort") or "0000-00-00",
+                    reverse=True,
+                )
 
     news: list[dict] = st.session_state["_news_data"]
 
@@ -265,15 +286,17 @@ def render_news_tab() -> None:
         )
 
     # Recency filter — default to 7 days so users don't see month-old news
-    # by default. The "Tất cả" option is available for explicit override.
+    # by default. "Hôm nay" filters to today only; "Tất cả" disables filter.
     with flt_col2:
         recency_label = st.selectbox(
             "Tin trong",
-            options=["3 ngày", "7 ngày", "30 ngày", "Tất cả"],
-            index=1,  # default: 7 ngày
+            options=["Hôm nay", "3 ngày", "7 ngày", "30 ngày", "Tất cả"],
+            index=2,  # default: 7 ngày
             key="_news_recency_filter",
         )
-    _recency_days = {"3 ngày": 3, "7 ngày": 7, "30 ngày": 30, "Tất cả": None}[recency_label]
+    _recency_days = {
+        "Hôm nay": 0, "3 ngày": 3, "7 ngày": 7, "30 ngày": 30, "Tất cả": None
+    }[recency_label]
 
     # Specific-date filter (only dates present in cache)
     all_dates = sorted({n.get("_date_sort", "")[:10] for n in news if n.get("_date_sort")}, reverse=True)

@@ -150,10 +150,12 @@ def _to_dict(row) -> dict:
 
 
 # Date field names VCI / KBS / providers may use. Order matters: most-likely first.
+# Confirmed via debug expander: KBS uses `publish_time` (snake_case ISO).
 _DATE_FIELDS = (
-    "public_date", "publicDate", "publish_date", "publishDate",
+    "publish_time", "public_date", "publicDate", "publish_date", "publishDate",
     "time_publish", "publishTime", "publishedAt", "published_at",
-    "created_at", "createdAt", "create_date", "createDate",
+    "publishedTime", "published_time", "publish_at", "publishAt",
+    "created_at", "createdAt", "create_date", "createDate", "create_time", "created_time",
     "date", "news_date", "newsDate",
 )
 
@@ -194,6 +196,53 @@ def _normalize_date(raw) -> str:
         return ""
 
 
+def _detect_publish_date(d: dict) -> str:
+    """Find publish date from a record dict. Returns canonical YYYY-MM-DD or ''.
+
+    Strategy (in order):
+      1. Try known field names from _DATE_FIELDS
+      2. Dynamic fallback: scan any key whose name contains
+         date / time / publish / create (case-insensitive)
+    """
+    for k in _DATE_FIELDS:
+        if d.get(k):
+            candidate = _normalize_date(d[k])
+            if candidate:
+                return candidate
+    for k, v in d.items():
+        if not v or k in ("ticker", "source_provider", "_date_sort"):
+            continue
+        kl = k.lower()
+        if any(s in kl for s in ("date", "time", "publish", "create")):
+            candidate = _normalize_date(v)
+            if candidate:
+                return candidate
+    return ""
+
+
+def _rehydrate_date_sort(items: list[dict]) -> int:
+    """Re-run date normalization on cached items with empty _date_sort.
+
+    The on-disk cache may have been written by older code that didn't
+    populate _date_sort, or written before the field-detection logic was
+    fixed. This function applies the current detection in-place to
+    rescue those items without requiring a full re-fetch from the API.
+
+    Returns the number of items whose _date_sort was newly populated.
+    """
+    fixed = 0
+    for d in items:
+        if d.get("_date_sort"):
+            continue
+        normalised = _detect_publish_date(d)
+        if normalised:
+            d["_date_sort"] = normalised
+            if not d.get("public_date"):
+                d["public_date"] = normalised
+            fixed += 1
+    return fixed
+
+
 def fetch_ticker_news(ticker: str, source: str = "VCI") -> list[dict]:
     """Fetch news for one ticker. Returns list of dicts (empty on any error)."""
     sources = [source] + ([s for s in ("VCI", "KBS") if s != source])
@@ -209,37 +258,11 @@ def fetch_ticker_news(ticker: str, source: str = "VCI") -> list[dict]:
                 d = _to_dict(row)
                 d["ticker"] = ticker
                 d["source_provider"] = src
-                # Robust date detection — try known field names FIRST, then
-                # fall back to dynamic scan of any key whose name contains
-                # date/time/publish/create. This catches provider-specific
-                # column names we haven't seen before. The first key whose
-                # value parses to a non-empty YYYY-MM-DD wins.
-                raw_date = ""
-                normalised = ""
-                for k in _DATE_FIELDS:
-                    if d.get(k):
-                        candidate = _normalize_date(d[k])
-                        if candidate:
-                            raw_date = d[k]
-                            normalised = candidate
-                            break
-                if not normalised:
-                    # Dynamic fallback: scan any key with date-like substring
-                    for k, v in d.items():
-                        kl = k.lower()
-                        if not v or k in ("ticker", "source_provider", "_date_sort"):
-                            continue
-                        if any(s in kl for s in ("date", "time", "publish", "create")):
-                            candidate = _normalize_date(v)
-                            if candidate:
-                                raw_date = v
-                                normalised = candidate
-                                break
-                d["_date_sort"] = normalised
-                # Also store back into public_date so UI _fmt_age has a value
+                d["_date_sort"] = _detect_publish_date(d)
+                # Back-fill public_date so the UI _fmt_age has a value.
                 if d["_date_sort"] and not d.get("public_date"):
                     d["public_date"] = d["_date_sort"]
-                # Normalise source link — VCI returns relative paths
+                # Normalise source link — VCI returns relative paths.
                 for k in _LINK_KEYS:
                     if d.get(k):
                         d[k] = _absolutize_url(d[k])
@@ -309,7 +332,12 @@ def save_news_cache(news: list[dict]) -> None:
 
 
 def load_news_cache() -> list[dict]:
-    """Load from disk; returns [] on any error."""
+    """Load from disk; returns [] on any error.
+
+    Auto-rehydrates _date_sort for cached items missing it (e.g. cache
+    written before the field-detection logic was fixed). Persists the
+    updated cache back to disk so subsequent loads don't repeat the work.
+    """
     global _in_memory, _cache_loaded_at
 
     with _cache_lock:
@@ -324,6 +352,26 @@ def load_news_cache() -> list[dict]:
         try:
             data = json.loads(NEWS_CACHE_PATH.read_text(encoding="utf-8"))
             items = data.get("items", [])
+            fixed = _rehydrate_date_sort(items)
+            if fixed > 0:
+                # Re-sort newest-first now that dates are populated.
+                items.sort(
+                    key=lambda x: x.get("_date_sort") or "0000-00-00",
+                    reverse=True,
+                )
+                # Persist so subsequent loads see the rehydrated cache.
+                try:
+                    NEWS_CACHE_PATH.write_text(
+                        json.dumps(
+                            {"fetched_at": data.get("fetched_at",
+                                                    datetime.now().isoformat()),
+                             "items": items},
+                            ensure_ascii=False, indent=None,
+                        ),
+                        encoding="utf-8",
+                    )
+                except Exception:
+                    pass
             _set_memory_cache(items)
             return items
         except Exception:
