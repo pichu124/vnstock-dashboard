@@ -2600,10 +2600,23 @@ charts.forEach(function(s){
   });
 });
 
-// 4-panel time-scale sync.
-// Rule: NEVER call setVisibleRange from inside subscribeVisibleTimeRangeChange
+// 4-panel time-scale sync — MUST use LOGICAL range, NOT time range.
+//
+// WHY logical range (bar indices), not time range (timestamps):
+//   setVisibleRange({to: lastBarTime}) makes LWC think the chart is at
+//   "live position" and triggers a right-edge snap that locks all panels
+//   to the rightmost bar whenever the user pans right. Logical range
+//   uses floating-point bar indices (0 … N-1+rightOffset) — LWC never
+//   interprets these as a time boundary, so no snap occurs.
+//   This invariant holds because all 4 charts have IDENTICAL bar counts:
+//   RSI/MACD warmup bars use whitespace data {time:t} (no value), so the
+//   indices are 1:1 across price / volume / RSI / MACD panels.
+//
+// DO NOT switch back to setVisibleRange / getVisibleRange / subscribeVisibleTimeRangeChange.
+//
+// Rule: NEVER call setVisibleLogicalRange from inside subscribeVisibleLogicalRangeChange
 // on the same chart — corrupts LWC pan state (drag → zoom).
-// _ready gate: ignore all callbacks until the initial setVisibleRange has
+// _ready gate: ignore all callbacks until the initial setVisibleLogicalRange has
 // run at T=200ms. This prevents RSI/MACD auto-fit (bar 14+) from being
 // propagated to the price chart before we set the uniform initial range.
 var _ready = false;

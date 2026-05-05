@@ -62,6 +62,42 @@ nhưng user chưa test lại.
 
 ---
 
+## ⚠️ Hard-won invariants — DO NOT change without reading this
+
+### 4-panel chart sync (Price / Volume / RSI / MACD) — vnstock_dashboard.py
+
+**MUST use logical-range API, never time-range API.**
+
+```
+subscribeVisibleLogicalRangeChange  ✓
+getVisibleLogicalRange              ✓
+setVisibleLogicalRange              ✓
+
+subscribeVisibleTimeRangeChange     ✗  DO NOT USE
+getVisibleRange                     ✗  DO NOT USE
+setVisibleRange                     ✗  DO NOT USE
+```
+
+**Why**: `setVisibleRange({to: lastBarTime})` tells LWC the chart is at
+"live position" and triggers a right-edge snap — all 4 panels lock to the
+rightmost bar whenever the user pans right. Logical range uses bar indices
+(floats, 0 … N-1+rightOffset); LWC never treats these as a time boundary.
+
+**Prerequisite**: all 4 charts must have IDENTICAL bar counts. RSI/MACD
+warmup bars (first ~14 / ~33 bars with no value) MUST be emitted as LWC
+whitespace `{time: t}` (no `value` key), NOT skipped. If they are skipped,
+the bar-count mismatch breaks the 1:1 logical-index mapping and re-introduces
+the snap. See the data serialization loop (~line 2394) in `vnstock_dashboard.py`.
+
+**Other rules in the same sync block**:
+- Never call `setVisibleLogicalRange` from inside `subscribeVisibleLogicalRangeChange`
+  on the same chart — corrupts LWC pan state (drag becomes zoom).
+- `_ready` gate: keep callbacks suppressed until the initial
+  `setVisibleLogicalRange` fires at T=200ms (prevents RSI/MACD auto-fit
+  from polluting the range before the uniform initial view is applied).
+
+---
+
 ## 🏗️ Architecture cheat sheet
 
 - `vnstock_brief.py` — agent abstraction + brief generation + memory wiring
