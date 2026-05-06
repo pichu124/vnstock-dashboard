@@ -288,31 +288,18 @@ def _is_valid_news_item(d: dict) -> bool:
 def fetch_ticker_news(ticker: str, source: str = "VCI") -> list[dict]:
     """Fetch news for one ticker. Returns list of dicts (empty on any error).
 
-    Tries vnstock_data.Company (sponsor package) first; falls back to
-    vnstock free. Validates responses with _is_news_dataframe to reject
-    error responses that some providers (KBS) shape as DataFrames.
+    Priority order (verified empirically against vnstock 4.0.2 + sponsor pkg):
+      1. vnstock free `Vnstock().stock(...).company.news()` — returns ~50
+         articles per ticker with the rich 21-column schema (news_title,
+         news_short_content, news_full_content, public_date, ...). Best
+         coverage and recency.
+      2. vnstock_data.Company(source='KBS').news() as fallback — only
+         returns 1 article per ticker but works when free path fails.
+      3. vnstock_data.Company(source='VCI').news() — currently broken
+         in vnstock 4.0.2 (KeyError: 'data'); skipped.
     """
-    # Sponsor path: vnstock_data.Company. KBS limits page size to 20;
-    # try size=20 first (max), then no-args (provider default).
-    try:
-        import vnstock_data as _vd
-        for src in ("VCI", "KBS"):
-            for kwargs in ({"size": 20}, {"page_size": 20}, {"limit": 20}, {}):
-                try:
-                    comp = _vd.Company(symbol=ticker, source=src)
-                    df = comp.news(**kwargs)
-                    if _is_news_dataframe(df):
-                        return _records_from_df(df, ticker, src)
-                except TypeError:
-                    # Wrong param name — try next variant.
-                    continue
-                except Exception:
-                    # Hard error — try next source.
-                    break
-    except ImportError:
-        pass
-
-    # Free path: vnstock.Vnstock().stock().company.news()
+    # Free path FIRST — vnstock 4.0.2 returns 50 articles per ticker
+    # with the full schema we want. Try VCI then KBS as source.
     sources = [source] + ([s for s in ("VCI", "KBS") if s != source])
     for src in sources:
         try:
@@ -323,6 +310,23 @@ def fetch_ticker_news(ticker: str, source: str = "VCI") -> list[dict]:
                 return _records_from_df(df, ticker, src)
         except Exception:
             continue
+
+    # Sponsor fallback — vnstock_data.Company. KBS returns 1 article;
+    # VCI is still broken (KeyError: 'data') in 4.0.2 so we only try KBS.
+    try:
+        import vnstock_data as _vd
+        for kwargs in ({"size": 20}, {"page_size": 20}, {}):
+            try:
+                comp = _vd.Company(symbol=ticker, source="KBS")
+                df = comp.news(**kwargs)
+                if _is_news_dataframe(df):
+                    return _records_from_df(df, ticker, "KBS")
+            except TypeError:
+                continue
+            except Exception:
+                break
+    except ImportError:
+        pass
     return []
 
 
