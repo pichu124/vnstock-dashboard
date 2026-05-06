@@ -1529,12 +1529,21 @@ def render_market_tab() -> None:
                         except Exception as _e:
                             st.caption(f"⚠ rating disabled: {type(_e).__name__}")
 
+                    # Hallucination warnings collected by validate_brief_factuality
+                    _warn_map = _res.get("_warnings") or {}
+
+                    def _render_warnings(agent_name: str) -> None:
+                        ws = _warn_map.get(agent_name) or []
+                        for w in ws:
+                            st.error(w, icon="🚨")
+
                     if len(_agent_names) == 1:
                         _txt, _err = _res[_agent_names[0]]
                         if _err:
                             st.error(f"**{_agent_names[0]}:** {_err}")
                         else:
                             with st.expander(f"📄 {_agent_names[0]}", expanded=True):
+                                _render_warnings(_agent_names[0])
                                 st.markdown(_txt)
                                 _rating_block(_agent_names[0], _btype)
                     elif _agent_names:
@@ -1545,6 +1554,7 @@ def render_market_tab() -> None:
                                 if _err:
                                     st.error(_err)
                                 else:
+                                    _render_warnings(_aname)
                                     st.markdown(_txt)
                                     _rating_block(_aname, _btype)
 

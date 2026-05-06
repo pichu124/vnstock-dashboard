@@ -1308,6 +1308,11 @@ def emit_recommendations(
 _TICKER_VOTE_PROMPT = """\
 Bạn là chuyên gia phân tích kỹ thuật độc lập cho thị trường Việt Nam.
 
+QUY TẮC: chỉ phân tích từ 5 chỉ số kỹ thuật bên dưới. KHÔNG được tham khảo
+trí nhớ về giá cũ, mức Fibonacci, news, hay bất kỳ số liệu ngoài. Lý do
+phải bám vào RSI/MA/volume/xu hướng — nếu không đủ data, ghi 'không đủ
+dữ liệu để có ý kiến chắc chắn'.
+
 Ticker: {ticker}
 Chỉ số kỹ thuật:
   Giá đóng cửa : {close:,.0f} VND
@@ -1319,14 +1324,24 @@ Chỉ số kỹ thuật:
 Chiến lược AI đang gợi ý: {action_upper}
   Entry: {entry_str}  |  TP: {tp_str}  |  SL: {sl_str}
 
-Dựa trên phân tích kỹ thuật CỦA BẠN, trả lời CHÍNH XÁC theo format sau (không thêm text khác):
+Dựa trên phân tích kỹ thuật CỦA BẠN (chỉ từ 5 chỉ số trên), trả lời CHÍNH XÁC
+theo format sau (không thêm text khác, không nhắc giá khác ngoài data):
 ĐÁNH GIÁ: MUA|BÁN|KHÔNG GIAO DỊCH
 ĐỒNG Ý VỚI STRATEGY: CÓ|KHÔNG
-LÝ DO: [1-2 câu ngắn gọn]
+LÝ DO: [1-2 câu, BẮT BUỘC trích chỉ số cụ thể từ data trên]
 """
 
 _TICKER_ANALYSIS_PROMPT = """\
 Bạn là chuyên gia phân tích kỹ thuật cổ phiếu Việt Nam.
+
+QUY TẮC KHÔNG ĐƯỢC VI PHẠM:
+- Mọi mức giá (entry, TP, SL, hỗ trợ, kháng cự) PHẢI lấy từ "DỮ LIỆU KỸ THUẬT"
+  hoặc "TÍN HIỆU TỪ AI STRATEGY" bên dưới. KHÔNG được tham khảo trí nhớ /
+  training data / Fibonacci tự tính / mức giá lịch sử bạn từng thấy.
+- Nếu data không cung cấp một mức cần thiết → viết "Chưa có dữ liệu mức X",
+  KHÔNG suy đoán.
+- Tin tức: chỉ dùng tin có trong phần "TIN TỨC GẦN ĐÂY". Nếu phần đó ghi
+  "Không có tin tức" → KHÔNG được tự bịa headline.
 
 Ticker: {ticker} — Ngày phân tích: {date}
 
@@ -1337,7 +1352,7 @@ MA20         : {ma20:>12,.0f} VND  | Giá đang {vs_ma20_desc} MA20 ({vs_ma20_pc
 Volume/TB20  : {vol_ratio:>10.1f}x
 Xu hướng 5N  : {trend_5d:>10.1f}%
 52W High/Low : {high_52w:,.0f} / {low_52w:,.0f} VND
-
+{pivots_block}
 === TÍN HIỆU TỪ AI STRATEGY ===
 Chiến lược   : {strategy_name}
 Hành động    : {action_upper}
@@ -1349,21 +1364,21 @@ Risk/Reward  : 1:{rr}
 {news_block}
 Viết khuyến nghị đầu tư CHI TIẾT bằng tiếng Việt theo đúng cấu trúc (dùng **bold** cho tiêu đề):
 
-**Quyết định:** MUA / BÁN / KHÔNG GIAO DỊCH — nêu mức giá cụ thể.
+**Quyết định:** MUA / BÁN / KHÔNG GIAO DỊCH — nêu mức giá cụ thể (chỉ từ data trên).
 
-**Giá vào lệnh:** Giá cụ thể và lý do chọn mức giá này (vùng hỗ trợ, MA, Fibonacci…).
+**Giá vào lệnh:** Giá cụ thể (lấy từ Entry gợi ý hoặc MA20 trong data) + lý do.
 
-**Giá chốt lời (Take Profit):** Giá cụ thể, lý do (kháng cự, mục tiêu kỹ thuật…).
+**Giá chốt lời (Take Profit):** Giá cụ thể (lấy từ TP của strategy hoặc Pivots R1/R2 nếu data có) + lý do.
 
-**Giá cắt lỗ (Cut Loss):** Giá cụ thể, lý do (phá hỗ trợ, invalidation level…).
+**Giá cắt lỗ (Cut Loss):** Giá cụ thể (lấy từ SL của strategy hoặc Pivots S1 nếu data có) + lý do.
 
-**Lý do kỹ thuật:** 2-3 câu phân tích dựa trên RSI, MA, volume, xu hướng ở trên.
+**Lý do kỹ thuật:** 2-3 câu phân tích dựa trên RSI, MA, volume, xu hướng từ data trên.
 
-**Tin tức ảnh hưởng:** Nếu có tin tức liên quan trong phần "TIN TỨC" ở trên thì BẮT BUỘC nêu tên tiêu đề tin và giải thích tác động cụ thể (hỗ trợ/cản trở quyết định mua/bán như thế nào). Nếu không có tin tức thì ghi "Không có tin tức mới".
+**Tin tức ảnh hưởng:** CHỈ nhắc tin có trong "TIN TỨC GẦN ĐÂY". Nếu phần đó trống/không có → ghi "Không có tin tức mới trong cache". KHÔNG bịa.
 
 **Rủi ro cần lưu ý:** 1-2 điều kiện cụ thể khiến phải thay đổi quyết định.
 
-Yêu cầu: dùng số liệu cụ thể từ bảng trên, ngắn gọn súc tích, không vòng vo.
+Yêu cầu: dùng SỐ LIỆU CỤ THỂ từ data trên, ngắn gọn, không vòng vo, không thêm số mới.
 """
 
 
@@ -1407,6 +1422,43 @@ def _ticker_indicators(df: pd.DataFrame) -> dict:
         "high_52w": float(close.tail(n252).max()),
         "low_52w":  float(close.tail(n252).min()),
     }
+
+
+def _ticker_pivots(df: pd.DataFrame, close: float) -> str:
+    """Compute 60-bar swing-pivot S/R for a single ticker.
+
+    Returns a formatted block ready to paste into the analysis prompt.
+    Falls back to an explicit "no data" sentinel so the LLM cannot
+    invent S/R levels when the history is too short.
+    """
+    try:
+        if df is None or df.empty or len(df) < 30:
+            return ("Pivots S/R : ⚠️ Chưa đủ dữ liệu (cần ≥30 bars) — "
+                    "KHÔNG suy đoán hỗ trợ/kháng cự.\n")
+        high = df["high"].astype(float)
+        low  = df["low"].astype(float)
+        # Last ~60 bars excluding the latest 2 (avoid self-reference)
+        h_window = high.tail(62).iloc[:-2] if len(high) >= 62 else high.iloc[:-2]
+        l_window = low.tail(62).iloc[:-2]  if len(low)  >= 62 else low.iloc[:-2]
+        above = sorted({round(float(v), 0) for v in h_window if v > close})
+        below = sorted({round(float(v), 0) for v in l_window if v < close}, reverse=True)
+        r1 = above[0] if len(above) >= 1 else None
+        r2 = above[1] if len(above) >= 2 else None
+        s1 = below[0] if len(below) >= 1 else None
+        s2 = below[1] if len(below) >= 2 else None
+        parts = []
+        if s2 is not None: parts.append(f"S2={s2:,.0f}")
+        if s1 is not None: parts.append(f"S1={s1:,.0f}")
+        if r1 is not None: parts.append(f"R1={r1:,.0f}")
+        if r2 is not None: parts.append(f"R2={r2:,.0f}")
+        if not parts:
+            return ("Pivots S/R : ⚠️ Không có pivot rõ ràng — "
+                    "KHÔNG suy đoán mức.\n")
+        return ("Pivots S/R : " + " | ".join(parts)
+                + "  ← DÙNG ĐÚNG mức này khi viết entry/TP/SL\n")
+    except Exception:
+        return ("Pivots S/R : ⚠️ Lỗi tính pivot — "
+                "KHÔNG suy đoán hỗ trợ/kháng cự.\n")
 
 
 def analyze_ticker(
@@ -1477,8 +1529,10 @@ def analyze_ticker(
     vs_ma20_desc = "trên" if vs_ma20_pct >= 0 else "dưới"
     action_upper = {"buy": "MUA 🟢", "sell": "BÁN 🔴"}.get(action, "KHÔNG GIAO DỊCH 🟡")
 
-    # Fetch per-ticker news context (best-effort, silent on failure)
+    # Fetch per-ticker news context — explicit "no news" sentinel when
+    # cache empty so the LLM can't invent headlines from training data.
     _news_section = ""
+    _news_found = False
     try:
         from vnstock_news import news_for_ticker as _nft
         _ticker_news = _nft(ticker)
@@ -1492,9 +1546,21 @@ def analyze_ticker(
                     _lines.append(f"• [{_date_s}] {_title}")
                     if _summary:
                         _lines.append(f"  {_summary[:200]}")
-            _news_section = "\n".join(_lines) + "\n"
+                    _news_found = True
+            if _news_found:
+                _news_section = "\n".join(_lines) + "\n"
     except Exception:
         pass
+    if not _news_found:
+        _news_section = (
+            f"\n=== TIN TỨC GẦN ĐÂY ===\n"
+            f"⚠️ KHÔNG CÓ tin tức cho {ticker} trong cache 5 ngày gần đây. "
+            f"KHÔNG được nhắc bất kỳ headline nào.\n"
+        )
+
+    # Compute swing pivots from the SAME df we used for indicators, so
+    # AI can cite real S/R levels instead of guessing from memory.
+    _pivots_block = _ticker_pivots(df, close)
 
     prompt = _TICKER_ANALYSIS_PROMPT.format(
         ticker=ticker,
@@ -1505,6 +1571,7 @@ def analyze_ticker(
         vol_ratio=indic["vol_ratio"],
         trend_5d=indic["trend_5d"],
         high_52w=indic["high_52w"], low_52w=indic["low_52w"],
+        pivots_block=_pivots_block,
         strategy_name=active["name"],
         action_upper=action_upper, confidence=conf,
         entry_str=f"{entry:,.0f} VND" if entry else "—",

@@ -913,7 +913,14 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
     # VNINDEX technical levels — emit BEFORE breadth/sectors so the LLM
     # treats these as the canonical reference numbers instead of making up
     # stale levels from training data.
-    if vt := ctx.get("vnindex_tech"):
+    #
+    # CRITICAL anti-hallucination invariant: if the loader returned {}, we
+    # STILL emit the section header with an explicit "no data" sentinel —
+    # otherwise the prompt downstream tells the LLM to "extract from the
+    # VNINDEX block" and a missing block leaves a vacuum the LLM fills from
+    # training data (the original 1.240 hallucination bug).
+    vt = ctx.get("vnindex_tech") or {}
+    if vt:
         def _f(v) -> str:
             return f"{v:,.2f}" if isinstance(v, (int, float)) else "—"
 
@@ -961,8 +968,17 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
                 + "  ← DÙNG ĐÚNG CÁC MỨC NÀY khi viết hỗ trợ/kháng cự"
             )
         lines.append("\n".join(vt_lines))
+    else:
+        lines.append(
+            "\n## VNINDEX kỹ thuật\n"
+            "⚠️ KHÔNG CÓ DỮ LIỆU VNINDEX hôm nay (loader thất bại hoặc warehouse trống). "
+            "BẮT BUỘC: trong phần 'Mức kỹ thuật' của brief PHẢI viết "
+            "'Chưa có dữ liệu VNINDEX hôm nay — không phân tích mức cụ thể'. "
+            "TUYỆT ĐỐI KHÔNG suy đoán giá/MA/hỗ trợ/kháng cự VNINDEX từ trí nhớ."
+        )
 
-    # Session timing
+    # Session timing — explicit empty marker when warehouse missing,
+    # so the LLM doesn't fabricate GTGD numbers.
     if timing := ctx.get("session_timing"):
         line = f"\n## Session Timing\n{timing['signal']} | {timing['detail']}"
         if ss := ctx.get("session_stats"):
@@ -973,14 +989,24 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             if full_gtgd:
                 line += f" | GTGD cả ngày: {full_gtgd:.1f} tỷ"
         lines.append(line)
+    else:
+        lines.append(
+            "\n## Session Timing\n⚠️ KHÔNG CÓ session stats hôm nay — "
+            "KHÔNG được suy đoán GTGD/morning share, viết 'Chưa có dữ liệu phiên'."
+        )
 
-    # Breadth
+    # Breadth — same pattern
     if b := ctx.get("breadth"):
         lines.append(f"\n## Market Breadth\n"
                      f"Trên MA200: {b.get('above_ma200_pct',0):.0f}% | "
                      f"A/D ratio: {b.get('ad_ratio',0):.2f} | "
                      f"Net new highs: {b.get('net_new_highs',0):+d} | "
                      f"RSI oversold: {b.get('rsi_oversold',0)} mã | RSI overbought: {b.get('rsi_overbought',0)} mã")
+    else:
+        lines.append(
+            "\n## Market Breadth\n⚠️ KHÔNG CÓ breadth data — "
+            "KHÔNG được nêu % trên MA200 / A-D ratio / RSI counts."
+        )
 
     # Sector analysis — with market-cap weights + stock breakdown
     _sw = ctx.get("sector_weights", {})
@@ -1045,6 +1071,17 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             result.append(f"  ✦ {cats[0][:80]}")
         return result
 
+    # Sector rankings — explicit "no data" when quant pipeline failed,
+    # so the LLM doesn't list sectors from training data.
+    _has_quant = any(ctx.get(k) for k in
+                     ("quant_top", "quant_avoid", "quant_rotation",
+                      "quant_stealth", "quant_distribution"))
+    if not _has_quant:
+        lines.append(
+            "\n## Phân loại ngành\n⚠️ KHÔNG CÓ quant scores hôm nay — "
+            "KHÔNG được liệt kê 'ngành tích cực/tiêu cực', chỉ phân tích từ data có sẵn."
+        )
+
     if top := ctx.get("quant_top"):
         lines.append("\n## Ngành tích cực nhất")
         for r in top:
@@ -1100,11 +1137,26 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         for g in losers:
             lines.append(_vn30_line(g))
 
+    # Recommendation + news blocks — explicit empty markers so the LLM
+    # cannot invent trade ideas or news headlines from training data.
     if rec_block:
         lines.append(rec_block)
+    else:
+        lines.append(
+            "\n## Khuyến nghị từ chiến lược đã backtest\n"
+            "⚠️ KHÔNG có khuyến nghị nào hôm nay — phần 'Đề xuất giao dịch' "
+            "trong brief PHẢI bỏ qua hoặc viết 'Không có khuyến nghị từ strategy'. "
+            "TUYỆT ĐỐI KHÔNG bịa entry/TP/SL cho bất kỳ mã nào."
+        )
 
     if news_block:
         lines.append(news_block)
+    else:
+        lines.append(
+            "\n## Tin tức thị trường\n"
+            "⚠️ KHÔNG CÓ tin tức trong cache hôm nay — KHÔNG được nhắc tên tin/headline. "
+            "Phần 'Tin tức ảnh hưởng' trong brief viết 'Không có tin tức mới trong cache'."
+        )
 
     data_block = "\n".join(lines)
     if few_shot:
@@ -1180,6 +1232,16 @@ def generate_brief(
                 name, result = agent.name, ("", str(exc))
             results[name] = result
 
+    # Defensive layer: scan each agent's output for hallucinated VNINDEX
+    # numbers. Stored in results["_warnings"] so the UI can surface them.
+    warnings_by_agent: dict[str, list[str]] = {}
+    for agent in available:
+        text, _err = results.get(agent.name, ("", None))
+        if text:
+            wlist = validate_brief_factuality(text, ctx)
+            if wlist:
+                warnings_by_agent[agent.name] = wlist
+
     # Persist to memory sequentially (SQLite is not thread-safe for writes)
     try:
         import vnstock_memory as _mem
@@ -1206,7 +1268,110 @@ def generate_brief(
 
     if brief_ids:
         results["_brief_ids"] = brief_ids  # type: ignore[assignment]
+    if warnings_by_agent:
+        results["_warnings"] = warnings_by_agent  # type: ignore[assignment]
     return results
+
+
+# ── Runtime hallucination validator ────────────────────────────────────────
+#
+# Defensive layer: scans the LLM's brief output AFTER generation to detect
+# numbers that look like hallucinated VNINDEX levels. Won't catch every
+# hallucination but catches the most painful class — wrong index price.
+#
+# Strategy:
+#   1. Find all VNINDEX-magnitude numbers (1.000-2.500 range) in the text
+#      that appear within 25 chars of "VNINDEX" or "VNI" (context window)
+#   2. Compare each to the real injected close from ctx["vnindex_tech"]
+#   3. Flag if relative error > 5% (allows for daily move + S/R nearby)
+#
+# Returns list of warning strings; empty list = brief looks clean.
+import re as _re
+
+_VNI_MAGNITUDE_RE = _re.compile(r"\b([12][.,]?\d{3}(?:[.,]\d{1,2})?)\b")
+_VNI_CONTEXT_RE = _re.compile(r"VN[\s\-]?INDEX|VN-?I(?![A-Z])|VNI(?![A-Z])", _re.IGNORECASE)
+
+
+def _parse_vn_number(s: str) -> float | None:
+    """Convert '1.815,42' / '1,815.42' / '1815' to float. None on failure."""
+    s = s.strip()
+    if not s:
+        return None
+    # Vietnamese: dot=thousand sep, comma=decimal. EN: comma=thousand, dot=decimal.
+    # Heuristic: if both, the LAST occurrence is the decimal sep.
+    has_dot   = "." in s
+    has_comma = "," in s
+    try:
+        if has_dot and has_comma:
+            if s.rfind(",") > s.rfind("."):
+                s = s.replace(".", "").replace(",", ".")
+            else:
+                s = s.replace(",", "")
+        elif has_comma:
+            s = s.replace(",", ".") if s.count(",") == 1 and len(s.split(",")[1]) <= 2 else s.replace(",", "")
+        elif has_dot and len(s.split(".")[1]) >= 3:
+            # "1.815" with 3-digit suffix → thousand sep
+            s = s.replace(".", "")
+        return float(s)
+    except (ValueError, IndexError):
+        return None
+
+
+def validate_brief_factuality(text: str, ctx: dict) -> list[str]:
+    """Scan brief output for VNINDEX-magnitude numbers far from real close.
+
+    Returns list of warning strings (empty if no flags found).
+    Each warning is a Vietnamese-readable single line for UI display.
+
+    Tolerance: 5% relative error is allowed because S/R levels and intraday
+    extremes can legitimately deviate from the closing price.
+    """
+    if not text:
+        return []
+    vt = ctx.get("vnindex_tech") or {}
+    real_close = vt.get("close")
+    if not real_close or real_close <= 0:
+        # Without ground truth we cannot validate VNINDEX numbers — but we
+        # can still flag if the brief mentions a VNINDEX level despite the
+        # context having NO data. That is itself a hallucination.
+        if any(_VNI_CONTEXT_RE.search(line) for line in text.splitlines()):
+            for line in text.splitlines():
+                if _VNI_CONTEXT_RE.search(line):
+                    nums = [_parse_vn_number(m.group(1))
+                            for m in _VNI_MAGNITUDE_RE.finditer(line)]
+                    nums = [n for n in nums if n and 800 <= n <= 2500]
+                    if nums:
+                        return [
+                            f"⚠️ Brief nêu mức VNINDEX ({nums[0]:,.0f}) trong khi data "
+                            "không có dữ liệu VNINDEX hôm nay → có thể là hallucination."
+                        ]
+        return []
+
+    warnings: list[str] = []
+    real_low  = real_close * 0.95
+    real_high = real_close * 1.05
+    seen: set[float] = set()
+    for line in text.splitlines():
+        if not _VNI_CONTEXT_RE.search(line):
+            continue
+        for m in _VNI_MAGNITUDE_RE.finditer(line):
+            n = _parse_vn_number(m.group(1))
+            if n is None or n in seen:
+                continue
+            # Filter to VNINDEX magnitude — avoid catching ticker prices,
+            # weights, %, etc. that happen to look like 4-digit numbers.
+            if not (800 <= n <= 2500):
+                continue
+            seen.add(n)
+            if not (real_low <= n <= real_high):
+                rel_err = (n / real_close - 1) * 100
+                warnings.append(
+                    f"⚠️ Brief nêu VNINDEX ≈ **{n:,.0f}** ({rel_err:+.1f}% lệch "
+                    f"so với close thực {real_close:,.2f}) → khả năng hallucinate."
+                )
+                if len(warnings) >= 3:
+                    return warnings
+    return warnings
 
 
 # ── Memory-backed helpers (lazy, all best-effort) ──────────────────────────
