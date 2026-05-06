@@ -7,38 +7,6 @@ Items here get auto-loaded into Claude's context at session start.
 
 ## 📌 Pending suggestions (raise when relevant)
 
-### 0. ⏰ NHẮC USER TEST — pending từ 2026-05-06 01:30
-
-**Khi user mở session mới trong ngày 2026-05-07 hoặc sau đó:** chủ động nhắc test các fix dưới đây (user đã yêu cầu "mai nhắc tôi test"):
-
-**Commit `9fec1d3` + `2ca28e2` — cần verify:**
-
-1. **Screener tab "Thống kê giao dịch theo phiên"** (sau pull + restart Streamlit):
-   - Cache cũ v3 tự purge → backfill chạy lại với `interval='5m'` + dedup
-   - Check 9/3 và 10/3 trong 4 panel: số có ngang neighbors hay vẫn inflated?
-   - Mỗi cell 9h-15h giờ có thêm fields `gtgd_matched` (chỉ khớp lệnh) và `gtgd_deal` (block deals).
-   - Mở `data_warehouse/_meta/market_session_stats.json`, tìm `2026-03-09` → `9h-15h` → so sánh `gtgd` (total) vs `gtgd_matched` cho 9/3 vs 11/3.
-   - Nếu `gtgd_matched` của 9/3 ≈ 11/3 nhưng `gtgd` chênh lệch → block deals giải thích, đề xuất switch UI sang `gtgd_matched`.
-   - Recheck toàn bộ 30 ngày xem còn 0/0 cells nào không.
-
-2. **News tab — POST-UPGRADE TEST (user upgrade vnstock 3.5.1 → 4.0.2):**
-   - User đã quyết định upgrade vnstock + vnai. Sau upgrade restart Streamlit + click "🔄 Cập nhật tin tức".
-   - **Verify 3 vấn đề:**
-     a. VCI source còn `KeyError: 'data'` không? (Diagnostic test fetch → output có `vnstock_data.Company(source='VCI').news()` báo gì)
-     b. Nếu VCI work → shape nhiều hơn 1 row/ticker không? (Hy vọng 5-10 articles/ticker thay vì 1)
-     c. Date của latest article có move past 2026-04-29 không? (Nếu vẫn 4/29 → API limitation thật, không phải lib bug)
-   - **Nếu VCI vẫn broken hoặc còn cap 1 tin/mã:** Đề xuất chuyển sang scrape vietstock.vn trực tiếp.
-     - Pattern có sẵn trong `vnstock_vietstock.py` (đã dùng cho corp actions).
-     - URL pattern: `https://finance.vietstock.vn/<TICKER>/tin-doanh-nghiep.htm`
-     - Sẽ trả 10-30 articles/ticker với recency tốt.
-     - Estimate: ~150 dòng code mới (parser HTML + tích hợp vào fetch_ticker_news fallback chain).
-   - **User concern:** "tin tức không cập nhật từ 29/4 -> nhớ sửa lỗi này nhé". Pre-upgrade cache stuck ở 4/29 vì KBS chỉ trả tin tagged-to-ticker mới nhất, và những mã trong universe không có tin nào mới từ 4/29. Sau upgrade nếu VCI work → có thể có data tươi hơn.
-
-**Branch:** `claude/fix-screener-trading-stats-2M4z2`
-**Sau khi user confirm các fix work:** xoá entry này khỏi CLAUDE.md.
-
----
-
 ### 1. Auto-schedule `vnstock_train.py` (NOT YET SET UP)
 
 **Status**: User chose to run manually for now (decided 2026-04-27).
