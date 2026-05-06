@@ -2243,10 +2243,16 @@ def load_session_stats_history() -> dict:
     return _load_session_stats_impl()
 
 
-def render_session_stats_table(window_name: str, stats_today: dict, history: dict):
+def render_session_stats_table(window_name: str, stats_today: dict, history: dict,
+                                mode: str = "total"):
     """
     Render a compact session stats table with 30-day history and color scale.
     Only show VOL (triệu CP) and GTGD (tỷ) per index — compact 2-column per index.
+
+    mode: "total" (default) shows vol/gtgd including block deals;
+          "matched" shows vol_matched/gtgd_matched (excludes block deals
+          for cleaner cross-day comparison). Cells missing the matched
+          split (today's estimate, UPCOM) fall back to total silently.
     """
     st.markdown(f"<p style='font-size:13px;font-weight:700;margin:0 0 4px'>📊 {window_name}</p>",
                 unsafe_allow_html=True)
@@ -2292,8 +2298,17 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
         any_data = False
         for idx in SESSION_INDICES:
             s = day_stats.get(idx, {})
-            vol_m = s.get("vol", 0) / 1e6  # triệu CP
-            gtgd = s.get("gtgd", 0)
+            if mode == "matched":
+                # Prefer matched-only fields; fall back to total when the
+                # split isn't available (today's estimate cells and UPCOM
+                # which lacks price_history). Falsy 0 fallback via `or`.
+                vol_raw = s.get("vol_matched") or s.get("vol", 0)
+                gtgd_raw = s.get("gtgd_matched") or s.get("gtgd", 0)
+            else:
+                vol_raw = s.get("vol", 0)
+                gtgd_raw = s.get("gtgd", 0)
+            vol_m = vol_raw / 1e6  # triệu CP
+            gtgd = gtgd_raw
             row[f"{idx} VOL"] = round(vol_m, 1)
             row[f"{idx} GTGD"] = round(gtgd, 1)
             if vol_m > 0 or gtgd > 0:
@@ -2374,8 +2389,14 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
         use_container_width=True,
         height=_height,
     )
+    _mode_label = (
+        "khớp lệnh (loại block deals; cells thiếu data tự fallback về tổng)"
+        if mode == "matched"
+        else "tổng (gồm khớp lệnh + thoả thuận)"
+    )
     st.caption(
-        "VOL = triệu CP · GTGD = tỷ VND · "
+        f"VOL = triệu CP · GTGD = tỷ VND · "
+        f"Loại GTGD: **{_mode_label}** · "
         "🟢 = đã chốt phiên · 🟡 = đang giao dịch (cập nhật mỗi 30s, "
         "ước tính sai số ±5%, tự sửa sau EOD)"
     )

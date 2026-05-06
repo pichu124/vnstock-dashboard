@@ -416,24 +416,44 @@ def render_screener_tab(
                 if has_data:
                     save_session_stats(stats)
 
+                # Radio toggle: total (matched + block deals) vs matched-only.
+                # Matched-only excludes block-deal spikes so days with large
+                # off-market deals don't appear inflated relative to neighbors
+                # (the 9/3-10/3 case the user investigated).
+                _mode_choice = st.radio(
+                    "Loại GTGD hiển thị",
+                    options=["Tổng", "Khớp lệnh"],
+                    index=0,
+                    horizontal=True,
+                    key="_session_stats_gtgd_mode",
+                    help=(
+                        "Tổng = matched + block deals (thoả thuận). "
+                        "Khớp lệnh = chỉ giao dịch khớp lệnh thường, "
+                        "ổn định hơn cho so sánh giữa các ngày. "
+                        "Cells thiếu data matched (hôm nay / UPCOM) tự "
+                        "fallback về tổng."
+                    ),
+                )
+                _mode = "matched" if _mode_choice == "Khớp lệnh" else "total"
+
                 windows = list(SESSION_WINDOWS.keys())
                 # Row 1: Bảng 1 + Bảng 2
                 r1c1, r1c2 = st.columns(2)
                 with r1c1:
                     render_session_stats_table(
-                        windows[0], stats.get(windows[0], {}), history)
+                        windows[0], stats.get(windows[0], {}), history, mode=_mode)
                 with r1c2:
                     render_session_stats_table(
-                        windows[1], stats.get(windows[1], {}), history)
+                        windows[1], stats.get(windows[1], {}), history, mode=_mode)
 
                 # Row 2: Bảng 3 + Bảng 4
                 r2c1, r2c2 = st.columns(2)
                 with r2c1:
                     render_session_stats_table(
-                        windows[2], stats.get(windows[2], {}), history)
+                        windows[2], stats.get(windows[2], {}), history, mode=_mode)
                 with r2c2:
                     render_session_stats_table(
-                        windows[3], stats.get(windows[3], {}), history)
+                        windows[3], stats.get(windows[3], {}), history, mode=_mode)
             except Exception as e:
                 st.warning(f"Không tải được thống kê phiên: {e}")
 
