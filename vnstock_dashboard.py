@@ -54,13 +54,22 @@ try:
         is_futures,
     )
     WSS_AVAILABLE = True
-except ImportError:
+except Exception:
     WSS_AVAILABLE = False
     VN30_SYMBOLS, INDEX_SYMBOLS, FUTURES_SYMBOLS = [], [], []
     def is_futures(ticker):  # type: ignore
         return False
     def get_all_listed_symbols():  # type: ignore
         return []
+
+# Safety net: ensure these names always exist even if the try/except above
+# was interrupted by a non-standard exception path.
+if "FUTURES_SYMBOLS" not in dir():
+    FUTURES_SYMBOLS = []  # type: ignore
+if "VN30_SYMBOLS" not in dir():
+    VN30_SYMBOLS = []  # type: ignore
+if "INDEX_SYMBOLS" not in dir():
+    INDEX_SYMBOLS = []  # type: ignore
 
 # Re-apply Golden key AFTER all vnstock imports (they can auto-register free keys)
 ensure_api_key()
@@ -950,11 +959,15 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     c = df["close"].astype(float)
 
-    # RSI 14
+    # RSI 14 — when loss is 0 (all-up streak), force RSI=100 instead of NaN.
+    # The naive `loss.replace(0, NaN)` leaves gaps at the END of the series,
+    # which makes the chart panel auto-fit to a shorter range than candles.
     delta = c.diff()
     gain  = delta.clip(lower=0).rolling(14).mean()
     loss  = (-delta.clip(upper=0)).rolling(14).mean()
-    df["rsi"] = 100 - (100 / (1 + gain / loss.replace(0, np.nan)))
+    rs    = gain / loss.replace(0, np.nan)
+    rsi   = 100 - (100 / (1 + rs))
+    df["rsi"] = rsi.where(loss != 0, 100.0)
 
     # EMAs — chỉ tính khi đủ data (tránh EMA chưa hội tụ trên data ngắn)
     for span in (9, 21, 50, 200):
@@ -1793,7 +1806,7 @@ def list_available_bar_dates() -> list[str]:
     return sorted(dates, reverse=True)
 
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def load_intraday(ticker: str, interval: str = "15m") -> pd.DataFrame:
     """Fetch intraday OHLCV từ VCI. interval: '1m','5m','15m','30m','1H'"""
     try:
@@ -2186,6 +2199,7 @@ try:
     from vnstock_session_stats import (
         SESSION_WINDOWS, SESSION_INDICES,
         compute_session_stats, backfill_session_stats,
+        reconcile_with_price_history,
         save_session_stats as _save_session_stats_impl,
         load_session_stats_history as _load_session_stats_impl,
     )
@@ -2199,6 +2213,7 @@ except Exception:
     SESSION_INDICES = ["VNINDEX", "VN30", "HNX", "UPCOM"]
     def compute_session_stats(): return {}
     def backfill_session_stats(): return 0
+    def reconcile_with_price_history(): return 0
     def _save_session_stats_impl(stats): pass
     def _load_session_stats_impl(): return {}
 
@@ -2228,28 +2243,47 @@ def load_session_stats_history() -> dict:
     return _load_session_stats_impl()
 
 
-def render_session_stats_table(window_name: str, stats_today: dict, history: dict):
+def render_session_stats_table(window_name: str, stats_today: dict, history: dict,
+                                mode: str = "total"):
     """
     Render a compact session stats table with 30-day history and color scale.
     Only show VOL (triệu CP) and GTGD (tỷ) per index — compact 2-column per index.
+
+    mode: "total" (default) shows vol/gtgd including block deals;
+          "matched" shows vol_matched/gtgd_matched (excludes block deals
+          for cleaner cross-day comparison). Cells missing the matched
+          split (today's estimate, UPCOM) fall back to total silently.
     """
     st.markdown(f"<p style='font-size:13px;font-weight:700;margin:0 0 4px'>📊 {window_name}</p>",
                 unsafe_allow_html=True)
 
-    from datetime import date
+    from datetime import date, datetime
     today_str = date.today().isoformat()
 
+    def _is_trading_day(d: str) -> bool:
+        try:
+            return datetime.strptime(d, "%Y-%m-%d").weekday() < 5  # Mon–Fri only
+        except Exception:
+            return True
+
     dates = sorted(
-        [d for d in history.keys() if d <= today_str],
+        [d for d in history.keys() if d <= today_str and _is_trading_day(d)],
         reverse=True
     )[:90]
 
-    if today_str not in dates and stats_today:
+    if today_str not in dates and stats_today and _is_trading_day(today_str):
         dates.insert(0, today_str)
 
     if not dates:
         st.caption("Chưa có dữ liệu")
         return
+
+    # Determine if this window has closed for today. Used to decide
+    # whether today's row should show 🟡 (still updating) or 🟢 (closed).
+    _now = datetime.now()
+    _end_str = SESSION_WINDOWS[window_name][1]  # e.g. "10:00"
+    _end_h, _end_m = map(int, _end_str.split(":"))
+    _window_closed_today = (_now.hour, _now.minute) >= (_end_h, _end_m)
 
     rows = []
     for d in dates:
@@ -2260,12 +2294,37 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
             day_data = history.get(d, {})
             day_stats = day_data.get(window_name, {})
 
+        all_zero = True
+        any_data = False
         for idx in SESSION_INDICES:
             s = day_stats.get(idx, {})
-            vol_m = s.get("vol", 0) / 1e6  # triệu CP
-            gtgd = s.get("gtgd", 0)
+            if mode == "matched":
+                # Prefer matched-only fields; fall back to total when the
+                # split isn't available (today's estimate cells and UPCOM
+                # which lacks price_history). Falsy 0 fallback via `or`.
+                vol_raw = s.get("vol_matched") or s.get("vol", 0)
+                gtgd_raw = s.get("gtgd_matched") or s.get("gtgd", 0)
+            else:
+                vol_raw = s.get("vol", 0)
+                gtgd_raw = s.get("gtgd", 0)
+            vol_m = vol_raw / 1e6  # triệu CP
+            gtgd = gtgd_raw
             row[f"{idx} VOL"] = round(vol_m, 1)
             row[f"{idx} GTGD"] = round(gtgd, 1)
+            if vol_m > 0 or gtgd > 0:
+                all_zero = False
+                any_data = True
+
+        # Drop holidays / market-closed days (all indices reporting zero).
+        # Keep today's row even if zero — market may not have opened yet.
+        if all_zero and d != today_str:
+            continue
+        # Status marker semantics:
+        #   🟢 settled — past day OR (today AND window has closed)
+        #   🟡 live    — today AND window still in progress (updating)
+        if any_data:
+            settled = (d != today_str) or _window_closed_today
+            row["Ngày"] = f"{d} {'🟢' if settled else '🟡'}"
         rows.append(row)
 
     df = pd.DataFrame(rows)
@@ -2273,7 +2332,16 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
         st.caption("Chưa có dữ liệu")
         return
 
-    df["Ngày"] = pd.to_datetime(df["Ngày"]).dt.strftime("%d/%m")
+    # Date column may be "YYYY-MM-DD" or "YYYY-MM-DD 🟢/🟡" — split off any
+    # trailing status emoji before parsing the date, then re-attach.
+    def _fmt_date_with_marker(s: str) -> str:
+        parts = s.split(" ", 1)
+        try:
+            d = pd.to_datetime(parts[0]).strftime("%d/%m")
+        except Exception:
+            return s
+        return f"{d} {parts[1]}" if len(parts) > 1 else d
+    df["Ngày"] = df["Ngày"].astype(str).map(_fmt_date_with_marker)
     num_cols = [c for c in df.columns if c != "Ngày"]
 
     def _color_scale(s):
@@ -2321,15 +2389,34 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
         use_container_width=True,
         height=_height,
     )
-    st.caption("VOL = triệu CP | GTGD = tỷ VND")
+    _mode_label = (
+        "khớp lệnh (loại block deals; cells thiếu data tự fallback về tổng)"
+        if mode == "matched"
+        else "tổng (gồm khớp lệnh + thoả thuận)"
+    )
+    st.caption(
+        f"VOL = triệu CP · GTGD = tỷ VND · "
+        f"Loại GTGD: **{_mode_label}** · "
+        "🟢 = đã chốt phiên · 🟡 = đang giao dịch (cập nhật mỗi 30s, "
+        "ước tính sai số ±5%, tự sửa sau EOD)"
+    )
 
 
 def render_chart(df: pd.DataFrame, ticker: str, height: int = 850,
-                 volume_profile: list = None):
+                 volume_profile: list = None, live_url: str | None = None,
+                 live_poll_ms: int = 30000):
     """
     TradingView lightweight-charts — inline JS (no CDN needed).
     Fast, no weekend gaps, synced crosshair across all panels.
     volume_profile: optional list of {price, buy_vol, sell_vol, total_vol}
+    live_url: optional same-origin URL serving JSON {time,open,high,low,close,
+        volume} for the latest bar. When set, JS polls and calls
+        candleSeries.update() — no iframe rebuild, no zoom reset, no flicker.
+        Caller must arrange for the file to be refreshed server-side (see
+        analysis_tab._today_bar_writer / _intraday_bar_writer fragments).
+    live_poll_ms: polling interval in ms. Use ~5000 for intraday, 30000 for
+        daily — intraday bars change frequently so faster polling matches
+        the WSS-driven live quote update rate.
                     for VP overlay on chart.
     """
     import json as _json
@@ -2376,11 +2463,23 @@ def render_chart(df: pd.DataFrame, ticker: str, height: int = 850,
         if (x := safe(row.get("vwap_lower1"))) is not None: vwap_l1.append({"time":t,"value":x})
         if (x := safe(row.get("vwap_upper2"))) is not None: vwap_u2.append({"time":t,"value":x})
         if (x := safe(row.get("vwap_lower2"))) is not None: vwap_l2.append({"time":t,"value":x})
-        if (x := safe(row.get("rsi")))        is not None: rsi_d.append({"time":t,"value":x})
-        if (x := safe(row.get("macd")))       is not None: macd_l.append({"time":t,"value":x})
-        if (x := safe(row.get("macd_signal"))) is not None: macd_s.append({"time":t,"value":x})
-        if (x := safe(row.get("macd_hist")))  is not None:
+        # RSI/MACD: append whitespace ({time:t} without value) during warmup
+        # period (NaN bars). Without this, the RSI/MACD chart panels have a
+        # SHORTER time range than the price chart — when user pans left past
+        # the RSI/MACD first valid bar, LWC constrains those panels' range,
+        # and the constrained range gets propagated back via _flushSync,
+        # snapping all 4 panels to the right edge.
+        x = safe(row.get("rsi"))
+        rsi_d.append({"time":t,"value":x} if x is not None else {"time":t})
+        x = safe(row.get("macd"))
+        macd_l.append({"time":t,"value":x} if x is not None else {"time":t})
+        x = safe(row.get("macd_signal"))
+        macd_s.append({"time":t,"value":x} if x is not None else {"time":t})
+        x = safe(row.get("macd_hist"))
+        if x is not None:
             macd_h.append({"time":t,"value":x,"color":"rgba(16,185,129,0.8)" if x>=0 else "rgba(239,68,68,0.8)"})
+        else:
+            macd_h.append({"time":t})
 
     if not candles:
         st.warning("Không có dữ liệu hợp lệ để vẽ chart.")
@@ -2466,7 +2565,10 @@ var BASE={
     vertLine:{color:"#4b5563",width:1,style:1,labelBackgroundColor:"#1f2937"},
     horzLine:{color:"#4b5563",width:1,style:1,labelBackgroundColor:"#1f2937"},
   },
-  rightPriceScale:{borderColor:"#1f2937"},
+  // Fixed minimumWidth on the right price scale so all panels reserve the
+  // same gutter for axis labels — keeps candle/volume/RSI/MACD chart areas
+  // perfectly column-aligned regardless of the value range each shows.
+  rightPriceScale:{borderColor:"#1f2937",minimumWidth:60},
   timeScale:{borderColor:"#1f2937",timeVisible:true,secondsVisible:false,rightOffset:5,shiftVisibleRangeOnNewBar:false},
   handleScroll:{mouseWheel:true,pressedMouseMove:true},
   handleScale:{mouseWheel:true,pinch:true},
@@ -2485,7 +2587,7 @@ var cs=main.addCandlestickSeries({
   wickUpColor:"#059669",wickDownColor:"#dc2626",
 });
 cs.setData(C);
-cs.createPriceLine({price:LP,color:"#fbbf24",lineWidth:1,
+var _livePriceLine = cs.createPriceLine({price:LP,color:"#fbbf24",lineWidth:1,
   lineStyle:LightweightCharts.LineStyle.Dashed,axisLabelVisible:true,title:""});
 
 function line(chart,data,color,width,title,lvVisible){
@@ -2533,6 +2635,13 @@ line(mac,ML,"#60a5fa",1.5,"MACD",true);
 line(mac,MS,"#f97316",1.5,"Signal",true);
 
 var charts=[main,vol,rsi,mac];
+
+var _isIntraday = false;
+if (C.length >= 2) {
+  _isIntraday = (C[C.length-1].time - C[C.length-2].time) < 86400;
+}
+
+// Crosshair sync — all panels mirror the same timestamp.
 charts.forEach(function(s){
   s.subscribeCrosshairMove(function(p){
     if(!p.time) return;
@@ -2540,12 +2649,48 @@ charts.forEach(function(s){
       if(t!==s) t.setCrosshairPosition(NaN,p.time,null);
     });
   });
+});
+
+// 4-panel time-scale sync — MUST use LOGICAL range, NOT time range.
+//
+// WHY logical range (bar indices), not time range (timestamps):
+//   setVisibleRange({to: lastBarTime}) makes LWC think the chart is at
+//   "live position" and triggers a right-edge snap that locks all panels
+//   to the rightmost bar whenever the user pans right. Logical range
+//   uses floating-point bar indices (0 … N-1+rightOffset) — LWC never
+//   interprets these as a time boundary, so no snap occurs.
+//   This invariant holds because all 4 charts have IDENTICAL bar counts:
+//   RSI/MACD warmup bars use whitespace data {time:t} (no value), so the
+//   indices are 1:1 across price / volume / RSI / MACD panels.
+//
+// DO NOT switch back to setVisibleRange / getVisibleRange / subscribeVisibleTimeRangeChange.
+//
+// Rule: NEVER call setVisibleLogicalRange from inside subscribeVisibleLogicalRangeChange
+// on the same chart — corrupts LWC pan state (drag → zoom).
+// _ready gate: ignore all callbacks until the initial setVisibleLogicalRange has
+// run at T=200ms. This prevents RSI/MACD auto-fit (bar 14+) from being
+// propagated to the price chart before we set the uniform initial range.
+var _ready = false;
+var _syncing = false;
+var _pendingSrc = null;
+charts.forEach(function(s){
   s.timeScale().subscribeVisibleLogicalRangeChange(function(){
-    var r=s.timeScale().getVisibleLogicalRange();
-    if(!r) return;
-    charts.forEach(function(t){if(t!==s) t.timeScale().setVisibleLogicalRange(r);});
+    if (!_ready || _syncing) return;
+    _pendingSrc = s;
   });
 });
+function _flushSync(){
+  if (!_pendingSrc) return;
+  var src = _pendingSrc;
+  _pendingSrc = null;
+  var r = src.timeScale().getVisibleLogicalRange();
+  if (!r) return;
+  _syncing = true;
+  charts.forEach(function(c){
+    if (c !== src) { try{c.timeScale().setVisibleLogicalRange(r);}catch(e){} }
+  });
+  _syncing = false;
+}
 
 // Volume Profile overlay
 var VP=""" + vp_js + """;
@@ -2584,11 +2729,78 @@ function resize(){
 }
 window.addEventListener("resize",resize);
 setTimeout(resize,100);
+// Initial visible range + start sync machinery AFTER range is applied.
+// Delay to 200ms (after the 100ms resize pass) so all panels have rendered.
+// _ready is set to true only here — subscribeVisibleLogicalRangeChange callbacks
+// are ignored before this point, so RSI/MACD auto-fit can't pollute the range.
+setTimeout(function(){
+  var N = C.length;
+  if (N < 2) { _ready = true; return; }
+  var r;
+  if (!_isIntraday && N > 250) {
+    r = {from: N-120, to: N-1};
+  } else if (N > 375) {
+    r = {from: N-375, to: N-1};
+  } else {
+    r = {from: 0, to: N-1};
+  }
+  _syncing = true;
+  charts.forEach(function(c){ c.timeScale().setVisibleLogicalRange(r); });
+  _syncing = false;
+  _ready = true;
+  // Start sync interval NOW — after the initial range is locked in.
+  // Timer callbacks run outside LWC's event stack so setVisibleRange is safe.
+  setInterval(_flushSync, 100);
+  document.addEventListener("mouseup", function(){ setTimeout(_flushSync, 50); });
+  document.addEventListener("touchend", function(){ setTimeout(_flushSync, 50); });
+  var _wheelTimer = null;
+  document.addEventListener("wheel", function(){
+    if (_wheelTimer) clearTimeout(_wheelTimer);
+    _wheelTimer = setTimeout(_flushSync, 150);
+  }, {passive: true, capture: true});
+}, 200);
 
 // Prevent scroll/wheel from bubbling to parent Streamlit iframe
 // This stops the page from jumping when scrolling/zooming on charts
 document.body.style.overflow="hidden";
 document.documentElement.style.overflow="hidden";
+
+// ── Live last-bar polling ───────────────────────────────────────────────
+// Smooth real-time update for today's candle WITHOUT rebuilding the iframe.
+// Server writes today's OHLCV to a JSON file on a fragment timer; this JS
+// fetches it and calls cs.update() — LWC redraws only the last bar so user's
+// pan/zoom is preserved (unlike a Streamlit fragment-based chart rebuild).
+var LIVE_URL=""" + _json.dumps(live_url or "") + """;
+var LIVE_POLL_MS=""" + str(int(live_poll_ms)) + """;
+if (LIVE_URL) {
+  // Volume bar update is skipped — the original addHistogramSeries call wasn't
+  // captured into a var, and updating just price keeps the visible "ticking"
+  // behaviour users care about. Volume catches up on next page render.
+  function _pollLastBar() {
+    fetch(LIVE_URL + "?_=" + Date.now(), {cache: "no-store"})
+      .then(function(r){
+        if (!r.ok) { console.log("[live] HTTP " + r.status + " — today_bar file not ready"); return null; }
+        return r.json();
+      })
+      .then(function(b){
+        if (!b || typeof b.time !== "number") { console.log("[live] bad payload", b); return; }
+        var lastT = C.length ? C[C.length-1].time : 0;
+        console.log("[live] bar", b, "lastT", lastT, new Date(b.time*1000).toISOString());
+        if (b.time < lastT) { console.log("[live] SKIP: b.time < lastT"); return; }
+        cs.update({time:b.time, open:b.open, high:b.high, low:b.low, close:b.close});
+        if (_livePriceLine) _livePriceLine.applyOptions({price: b.close});
+        document.getElementById("ohlcv").innerHTML =
+          "O <b style='color:#e5e7eb'>"+b.open.toFixed(2)+"</b>  "+
+          "H <b style='color:#10b981'>"+b.high.toFixed(2)+"</b>  "+
+          "L <b style='color:#ef4444'>"+b.low.toFixed(2)+"</b>  "+
+          "C <b style='color:#fbbf24'>"+b.close.toFixed(2)+"</b>  "+
+          "<span style='color:#6b7280;font-size:10px'>· LIVE</span>";
+      })
+      .catch(function(e){ console.log("[live] fetch error", e); });
+  }
+  _pollLastBar();              // immediate
+  setInterval(_pollLastBar, LIVE_POLL_MS);
+}
 </script>
 </body>
 </html>"""
@@ -3625,7 +3837,7 @@ with st.sidebar:
 sys.modules["vnstock_dashboard"] = sys.modules["__main__"]
 
 # ── NAVIGATION (dùng pills thay tabs để tránh lazy-render) ────────────────────
-_TAB_OPTIONS = ["📊 Screener", "🔬 Phân tích", "🌏 Thị trường", "💰 Dòng Tiền", "💼 Portfolio", "⚕️ Sức khỏe"]
+_TAB_OPTIONS = ["📊 Screener", "🔬 Phân tích", "🌏 Thị trường", "🗞️ Tin tức", "💰 Dòng Tiền", "💼 Portfolio", "⚕️ Sức khỏe"]
 _active_tab = st.pills("", _TAB_OPTIONS, default="📊 Screener", key="nav_tab")
 
 # ══════════════════════════════════════════════════════
@@ -3693,6 +3905,14 @@ if _active_tab == "💰 Dòng Tiền":
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB: Portfolio
 # ══════════════════════════════════════════════════════════════════════════════
+
+if _active_tab == "🗞️ Tin tức":
+    try:
+        from dashboard.news_tab import render_news_tab
+        render_news_tab()
+    except Exception as _e:
+        st.error(f"Không render được Tin tức tab: {_e}")
+        st.caption("Kiểm tra `dashboard/news_tab.py` và `vnstock_news.py`.")
 
 if _active_tab == "💼 Portfolio":
     try:

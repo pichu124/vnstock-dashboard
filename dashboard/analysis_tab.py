@@ -36,7 +36,7 @@ def render_analysis_tab() -> None:
     from pathlib import Path
 
     from vnstock_dashboard import (
-        FUTURES_SYMBOLS, INDEX_SYMBOLS, WSS_AVAILABLE,
+        WSS_AVAILABLE,
         _get_wss_singleton, _merge_live_quote, _normalize_live_price,
         check_and_fire_alerts, fetch_volume_profile_direct, fmt_pct,
         get_all_listed_symbols, get_all_tickers, get_tech_signals,
@@ -50,6 +50,11 @@ def render_analysis_tab() -> None:
         resample_ohlcv, save_alerts,
         data,
     )
+    try:
+        from vnstock_dashboard import FUTURES_SYMBOLS, INDEX_SYMBOLS
+    except ImportError:
+        FUTURES_SYMBOLS = ["VN30F1M", "VN30F2M"]
+        INDEX_SYMBOLS = ["VNINDEX", "VN30", "HNX30"]
 
     # Controls cho tab phân tích
     with st.sidebar:
@@ -358,19 +363,76 @@ def render_analysis_tab() -> None:
                 st.rerun()
     tf = st.session_state["tf"]
 
+    def _merge_today_bar(daily_df):
+        """Append today's in-progress bar to daily df during trading hours.
+
+        Daily warehouse only updates at end-of-day, so during the session the
+        chart's last candle is yesterday — making the dashboard "lie" about
+        live price. Aggregate today's 5m intraday into one bar so 1D/1W/1M
+        views reflect the current session.
+
+        IMPORTANT: load_intraday returns VCI raw (often VND) while daily
+        warehouse is in nghìn đồng (after _normalize_price_units). Merging
+        without rescaling produces a chart with one giant bar at 21,850
+        next to thousands of bars at ~22 — y-axis auto-scales to 22,000
+        so the historical candles compress to a flat line near zero
+        (the "1D chart blank" symptom). _normalize_live_price() is the
+        existing single-price scaler — apply it to each OHLC value.
+        """
+        import pandas as _pd
+        from datetime import date as _d
+        if daily_df is None or daily_df.empty:
+            return daily_df
+        last_dt = _pd.to_datetime(daily_df["time"].iloc[-1]).date()
+        today   = _d.today()
+        if last_dt >= today:
+            return daily_df  # already includes today
+        intra = load_intraday(ticker, interval="5m")
+        if intra is None or intra.empty:
+            intra = load_intraday(ticker, interval="1D")
+        if intra is None or intra.empty:
+            return daily_df
+        today_bars = intra[intra["time"].dt.date == today]
+        if today_bars.empty:
+            return daily_df
+        # Use last daily close as the unit reference; the helper detects
+        # 1000x mismatches and divides/multiplies as needed.
+        from vnstock_dashboard import _normalize_live_price as _norm
+        ref_close = float(daily_df["close"].iloc[-1])
+        today_row = {
+            "time":   _pd.Timestamp(today),
+            "open":   _norm(ref_close, float(today_bars["open"].iloc[0])),
+            "high":   _norm(ref_close, float(today_bars["high"].max())),
+            "low":    _norm(ref_close, float(today_bars["low"].min())),
+            "close":  _norm(ref_close, float(today_bars["close"].iloc[-1])),
+            "volume": float(today_bars["volume"].sum()),
+        }
+        return _pd.concat([daily_df, _pd.DataFrame([today_row])], ignore_index=True)
+
     if tf in ("1m","5m","15m","30m","1H"):
         with st.spinner(f"Đang tải {tf} data từ VCI..."):
             chart_df = load_intraday(ticker, interval=tf)
         if chart_df.empty:
             st.warning(f"Không lấy được dữ liệu {tf}. Hiển thị daily.")
-            chart_df = df
+            chart_df = _merge_today_bar(df)
     elif tf == "1W":
-        # Resample từ daily warehouse (stable hơn API 1W)
-        chart_df = resample_ohlcv(df, "W")
+        # Resample từ daily warehouse (stable hơn API 1W) — merge today first
+        chart_df = resample_ohlcv(_merge_today_bar(df), "W")
     elif tf == "1M":
-        chart_df = resample_ohlcv(df, "ME")
+        chart_df = resample_ohlcv(_merge_today_bar(df), "ME")
     else:
-        chart_df = df
+        chart_df = _merge_today_bar(df)
+
+    # Surface data range so user can verify live freshness — stale data is
+    # the most common cause of "chart không update" reports.
+    if not chart_df.empty:
+        _t0 = chart_df["time"].iloc[0]
+        _t1 = chart_df["time"].iloc[-1]
+        _fmt = "%d/%m %H:%M" if tf in ("1m","5m","15m","30m","1H") else "%d/%m/%Y"
+        st.caption(
+            f"📅 Data: {_t0.strftime(_fmt)} → {_t1.strftime(_fmt)} "
+            f"({len(chart_df):,} bars)"
+        )
 
     # ── Live mode: wrap chart + quote strip trong fragment auto-refresh ─────────
     _live_on = st.session_state.get("live_mode", False) and WSS_AVAILABLE
@@ -454,8 +516,46 @@ def render_analysis_tab() -> None:
 
         _live_quote_fragment()
 
-        # Chart — render OUTSIDE fragment (no flicker, no scroll reset)
-        # Merge live quote into chart data
+        # Background producer — every 2s, fetch latest intraday bar, merge
+        # live WSS quote into it, write to JSON. JS in chart iframe polls
+        # this file at the same rate and updates only the last candle (no
+        # rebuild, no zoom reset). Cache TTL on load_intraday is 60s but
+        # live_quote is WSS-realtime (~100-500ms tick) so close/high/low
+        # tick essentially live at the 2s sample rate. Dropping to 1s also
+        # works on fast machines; bumped from 5s for TradingView-grade feel.
+        @st.fragment(run_every=2)
+        def _intraday_bar_writer():
+            import json as _json
+            from pathlib import Path as _P
+            try:
+                intra = load_intraday(ticker, interval=tf)
+                if intra is None or intra.empty:
+                    return
+                live_q = load_live_quote(ticker)
+                if live_q:
+                    intra = _merge_live_quote(intra, live_q)
+                last = intra.iloc[-1]
+                bar = {
+                    "time":   int(last["time"].timestamp()),
+                    "open":   float(last["open"]),
+                    "high":   float(last["high"]),
+                    "low":    float(last["low"]),
+                    "close":  float(last["close"]),
+                    "volume": float(last["volume"]),
+                }
+                out = _P(f"static/today_bars/{ticker}_{tf}.json")
+                out.parent.mkdir(parents=True, exist_ok=True)
+                tmp = out.with_suffix(".tmp")
+                tmp.write_text(_json.dumps(bar))
+                tmp.replace(out)
+            except Exception:
+                pass
+        _intraday_bar_writer()
+
+        # Chart — render OUTSIDE fragment (no flicker, no scroll reset).
+        # Merge live quote into chart data on initial render so the very
+        # first paint already shows live state; JS polling takes over for
+        # subsequent ticks.
         _live_q_chart = load_live_quote(ticker)
         _chart_df_live = load_intraday(ticker, interval=tf)
         if _live_q_chart and not _chart_df_live.empty:
@@ -469,7 +569,9 @@ def render_analysis_tab() -> None:
             render_chart(_chart_df_live if not _chart_df_live.empty else chart_df,
                          ticker,
                          height=st.session_state.get("chart_height_anal", 850),
-                         volume_profile=_vp_chart if _vp_chart else None)
+                         volume_profile=_vp_chart if _vp_chart else None,
+                         live_url=f"/app/static/today_bars/{ticker}_{tf}.json",
+                         live_poll_ms=2000)
         except Exception as _e:
             st.error(f"Chart render error: {_e}")
 
@@ -506,7 +608,7 @@ def render_analysis_tab() -> None:
         _alert_checker()
 
     # ── Live mode + Daily/Weekly/Monthly chart ────────────────────────────
-    elif _live_daily:
+    if _live_daily:
         st.markdown(
             '<div style="background:linear-gradient(90deg,#3b82f6,#8b5cf6);'
             'padding:6px 14px;border-radius:6px;margin:8px 0;'
@@ -569,11 +671,54 @@ def render_analysis_tab() -> None:
 
         _live_daily_quote_fragment()
 
-        # Chart daily/weekly (static, không refresh mỗi 5s)
-        render_chart(chart_df, ticker, height=st.session_state.get("chart_height_anal", 850))
+        # Background fragment — writes today's aggregated OHLCV to a static
+        # JSON file every 30s. The chart (rendered ONCE outside the fragment)
+        # has JS that polls this file and calls candleSeries.update() on the
+        # last bar — no iframe rebuild, no zoom reset, no flicker.
+        @st.fragment(run_every=30)
+        def _today_bar_writer():
+            import json as _json
+            import sys as _sys
+            import pandas as _pd
+            from pathlib import Path as _P
+            from datetime import date as _d
+            try:
+                intra = load_intraday(ticker, interval="5m")
+                if intra is None or intra.empty:
+                    intra = load_intraday(ticker, interval="1D")
+                if intra is None or intra.empty:
+                    return
+                today_bars = intra[intra["time"].dt.date == _d.today()]
+                if today_bars.empty:
+                    return
+                _ref = float(chart_df["close"].iloc[-1]) if not chart_df.empty else 0.0
+                bar = {
+                    "time":   int(_pd.Timestamp(_d.today()).timestamp()),
+                    "open":   _normalize_live_price(_ref, float(today_bars["open"].iloc[0])),
+                    "high":   _normalize_live_price(_ref, float(today_bars["high"].max())),
+                    "low":    _normalize_live_price(_ref, float(today_bars["low"].min())),
+                    "close":  _normalize_live_price(_ref, float(today_bars["close"].iloc[-1])),
+                    "volume": float(today_bars["volume"].sum()),
+                }
+                out = _P("static/today_bars") / f"{ticker}.json"
+                out.parent.mkdir(parents=True, exist_ok=True)
+                tmp = out.with_suffix(".tmp")
+                tmp.write_text(_json.dumps(bar))
+                tmp.replace(out)  # atomic — readers never see partial JSON
+            except Exception as _ex:
+                print(f"[today_bar_writer] {ticker}: {_ex}", file=_sys.stderr)
+        _today_bar_writer()
+
+        # Chart with JS-side live polling — see render_chart docstring.
+        render_chart(
+            chart_df, ticker,
+            height=st.session_state.get("chart_height_anal", 850),
+            live_url=f"/app/static/today_bars/{ticker}.json",
+        )
 
     # ── Intraday Replay ───────────────────────────────────────────────────────
-    elif (st.session_state.get("replay_date", "(tắt)") != "(tắt)"
+    elif (not _live_intraday
+          and st.session_state.get("replay_date", "(tắt)") != "(tắt)"
           and st.session_state.get("replay_date")):
         _replay_date = st.session_state["replay_date"]
         _replay_df = load_intraday_bars(ticker, _replay_date)
@@ -598,8 +743,63 @@ def render_analysis_tab() -> None:
             )
             render_chart(_replay_df, f"{ticker} · Replay {_replay_date}",
                          height=st.session_state.get("chart_height_anal", 850))
-    else:
-        render_chart(chart_df, ticker, height=st.session_state.get("chart_height_anal", 850))
+    elif not _live_intraday:
+        # Even without Live Mode, write today's bar to JSON every 10s so
+        # the chart's JS polling can update the last candle in place.
+        # Produces a TradingView-style ticking 1D chart during the session
+        # without requiring the user to enable Live Mode (which adds WSS
+        # subscription overhead). Daily/weekly/monthly only — intraday
+        # timeframes without Live Mode use whatever chart_df was loaded.
+        _idle_url = None
+        if tf in ("1D", "1W", "1M", "All"):
+            @st.fragment(run_every=10)
+            def _idle_today_bar_writer():
+                import json as _json
+                import sys as _sys
+                import pandas as _pd
+                from pathlib import Path as _P
+                from datetime import date as _d
+                try:
+                    intra = load_intraday(ticker, interval="5m")
+                    if intra is None or intra.empty:
+                        intra = load_intraday(ticker, interval="1D")
+                    if intra is None or intra.empty:
+                        return
+                    today_bars = intra[intra["time"].dt.date == _d.today()]
+                    if today_bars.empty:
+                        return
+                    _ref = float(chart_df["close"].iloc[-1]) if not chart_df.empty else 0.0
+                    bar = {
+                        "time":   int(_pd.Timestamp(_d.today()).timestamp()),
+                        "open":   _normalize_live_price(_ref, float(today_bars["open"].iloc[0])),
+                        "high":   _normalize_live_price(_ref, float(today_bars["high"].max())),
+                        "low":    _normalize_live_price(_ref, float(today_bars["low"].min())),
+                        "close":  _normalize_live_price(_ref, float(today_bars["close"].iloc[-1])),
+                        "volume": float(today_bars["volume"].sum()),
+                    }
+                    out = _P("static/today_bars") / f"{ticker}.json"
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                    tmp = out.with_suffix(".tmp")
+                    tmp.write_text(_json.dumps(bar))
+                    tmp.replace(out)
+                except Exception as _ex:
+                    print(f"[idle_today_bar_writer] {ticker}: {_ex}", file=_sys.stderr)
+            _idle_today_bar_writer()
+            _idle_url = f"/app/static/today_bars/{ticker}.json"
+
+        try:
+            render_chart(chart_df, ticker,
+                         height=st.session_state.get("chart_height_anal", 850),
+                         live_url=_idle_url,
+                         live_poll_ms=10000)
+        except Exception as _e:
+            st.error(
+                f"Chart render error ({tf}, {len(chart_df)} bars): "
+                f"{type(_e).__name__}: {_e}"
+            )
+            import traceback as _tb
+            with st.expander("Stack trace"):
+                st.code(_tb.format_exc())
 
     st.markdown("---")
 
@@ -839,7 +1039,7 @@ def render_analysis_tab() -> None:
 
         st.markdown(
             f'<div class="card" style="border:1px solid {rec_color}40;margin-top:12px">'
-            f'<div class="card-title">Khuyến nghị tổng hợp'
+            f'<div class="card-title">Khuyến nghị tổng hợp '
             f'{"(40% tech + 60% fund)" if load_fund else "(chỉ technical)"}'
             f'</div>'
             f'<div style="font-size:24px;font-weight:600;color:{rec_color};margin:8px 0">'
@@ -850,3 +1050,214 @@ def render_analysis_tab() -> None:
             f'</div>',
             unsafe_allow_html=True
         )
+
+        # ── AI Strategy Recommendation ─────────────────────────────────────────
+        st.markdown(
+            '<div style="margin-top:20px;font-size:16px;font-weight:600">🤖 Khuyến nghị từ AI Strategy</div>',
+            unsafe_allow_html=True,
+        )
+
+        try:
+            import vnstock_memory as _vm_ai
+            _vm_ai.init_db()
+            _active_strat = _vm_ai.get_active_family()
+        except Exception:
+            _active_strat = None
+
+        _ai_cache_key = f"_ai_rec_{ticker}"
+
+        if not _active_strat:
+            st.info(
+                "Chưa có chiến lược AI nào. "
+                "Vào tab **Thị trường → 🧪 Chiến lược & khuyến nghị** → nhấn **Lite training**.",
+                icon="ℹ️",
+            )
+        else:
+            _cached_rec = st.session_state.get(_ai_cache_key)
+            _strat_id   = _active_strat.get("id")
+            _is_fresh   = (
+                _cached_rec is not None
+                and _cached_rec.get("strategy_id") == _strat_id
+                and _cached_rec.get("_ticker") == ticker
+            )
+
+            # Warn if strategy has 0 trades
+            _strat_nt = 0
+            try:
+                _fh_ai = _vm_ai.family_history(_active_strat.get("family_id", ""), limit=1)
+                _strat_nt = int((_fh_ai[0].get("n_trades") or 0) if _fh_ai else 0)
+            except Exception:
+                pass
+            if _strat_nt == 0:
+                st.warning(
+                    "Chiến lược hiện tại có **0 trades** trong backtest — tín hiệu có thể chưa chính xác. "
+                    "Nhấn **Fresh start** trong tab Thị trường để cải thiện.",
+                    icon="⚠️",
+                )
+
+            if _is_fresh:
+                _r   = _cached_rec
+                _act = _r.get("action", "hold")
+                _col = "#10b981" if _act == "buy" else ("#ef4444" if _act == "sell" else "#fbbf24")
+                _act_label = {"buy": "MUA 🟢", "sell": "BÁN 🔴"}.get(_act, "KHÔNG GIAO DỊCH 🟡")
+
+                # ── Consensus badge (multi-agent) ──────────────────────────
+                _votes = _r.get("votes", [])
+                _n_ag  = _r.get("n_agents", 0)
+                _cons_act = _r.get("consensus_action", _act)
+                _agree_rt = _r.get("agreement_rate", 1.0)
+                _strat_agree = _r.get("strategy_agree_rate")
+
+                if _n_ag > 1:
+                    _cons_label = {"buy": "MUA 🟢", "sell": "BÁN 🔴"}.get(_cons_act, "KHÔNG GIAO DỊCH 🟡")
+                    _cons_col   = "#10b981" if _cons_act == "buy" else ("#ef4444" if _cons_act == "sell" else "#fbbf24")
+                    _agree_pct  = int(_agree_rt * 100)
+                    _strat_pct  = int((_strat_agree or 0) * 100)
+                    _badge_col  = "#10b981" if _agree_pct >= 67 else ("#fbbf24" if _agree_pct >= 34 else "#ef4444")
+                    st.markdown(
+                        f'<div class="card" style="border:1px solid {_cons_col}60;margin-top:8px">'
+                        f'<div class="card-title" style="font-size:11px">'
+                        f'Đồng thuận {_n_ag} agents · {_r.get("strategy_name","—")}'
+                        f'</div>'
+                        f'<div style="font-size:26px;font-weight:700;color:{_cons_col};margin:6px 0">'
+                        f'{_cons_label}</div>'
+                        f'<div style="display:flex;gap:16px;margin-top:4px">'
+                        f'<span style="font-size:12px;color:{_badge_col};font-weight:600">'
+                        f'🗳 Đồng thuận: {_agree_pct}%</span>'
+                        f'<span style="font-size:12px;color:#6b7280">'
+                        f'Tin strategy: {_strat_pct}%</span>'
+                        f'<span style="font-size:12px;color:#6b7280">'
+                        f'Signal conf: {_r.get("confidence",0):.0%}</span>'
+                        f'</div></div>',
+                        unsafe_allow_html=True,
+                    )
+                    # Per-agent votes table
+                    if _votes:
+                        with st.expander("Xem chi tiết từng agent", expanded=False):
+                            for _v in _votes:
+                                _va  = _v.get("action", "hold")
+                                _vc  = "#10b981" if _va == "buy" else ("#ef4444" if _va == "sell" else "#fbbf24")
+                                _val = {"buy": "MUA 🟢", "sell": "BÁN 🔴"}.get(_va, "KHÔNG GD 🟡")
+                                _agr = "✅" if _v.get("agrees") else ("❌" if _v.get("agrees") is False else "—")
+                                st.markdown(
+                                    f'**{_v["agent"]}** — {_val} {_agr} '
+                                    f'<span style="color:#6b7280;font-size:12px">'
+                                    f'{_v.get("reason","")}</span>',
+                                    unsafe_allow_html=True,
+                                )
+                else:
+                    # Single agent — original card
+                    st.markdown(
+                        f'<div class="card" style="border:1px solid {_col}60;margin-top:8px">'
+                        f'<div class="card-title" style="font-size:11px">{_r.get("strategy_name","—")}</div>'
+                        f'<div style="font-size:26px;font-weight:700;color:{_col};margin:6px 0">{_act_label}</div>'
+                        f'<div style="font-size:12px;color:#6b7280">Confidence: {_r.get("confidence",0):.0%}</div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                # ── Entry / TP / SL metrics ────────────────────────────────
+                if _act in ("buy", "sell"):
+                    _e  = _r.get("entry")
+                    _tp = _r.get("tp")
+                    _sl = _r.get("sl")
+                    _mc1, _mc2, _mc3 = st.columns(3)
+                    _mc1.metric("📍 Entry", f"{_e:,.0f}" if _e else "—")
+                    _mc2.metric(
+                        "🎯 Take Profit", f"{_tp:,.0f}" if _tp else "—",
+                        delta=f"{(_tp / _e - 1)*100:+.1f}%" if _tp and _e else None,
+                    )
+                    _mc3.metric(
+                        "🛑 Cut Loss", f"{_sl:,.0f}" if _sl else "—",
+                        delta=f"{(_sl / _e - 1)*100:+.1f}%" if _sl and _e else None,
+                        delta_color="inverse",
+                    )
+
+                if _r.get("explanation"):
+                    st.markdown(_r["explanation"])
+
+                if st.button("🔄 Phân tích lại", key="_ai_rec_refresh",
+                             help="Gọi AI phân tích lại với dữ liệu mới nhất"):
+                    if _ai_cache_key in st.session_state:
+                        del st.session_state[_ai_cache_key]
+                    st.rerun()
+
+            else:
+                from vnstock_brief import build_agents as _build_agents
+                _all_agents  = _build_agents()
+                _avail_agents = [a for a in _all_agents if a.is_available]
+                _n_avail = len(_avail_agents)
+                _btn_label = (
+                    f"🤖 Phân tích {ticker} ({_n_avail} agents đồng thuận)"
+                    if _n_avail > 1 else
+                    f"🤖 Phân tích {ticker} với AI Strategy"
+                )
+                _spinner_msg = (
+                    f"⏳ {_n_avail} agents đang vote độc lập… (~{_n_avail * 10}-{_n_avail * 20}s)"
+                    if _n_avail > 1 else
+                    f"⏳ AI đang phân tích {ticker}… (~10-20s)"
+                )
+                if st.button(_btn_label, key="_ai_rec_btn", type="primary",
+                             help="Strategy signal + vote đồng thuận từ tất cả agents"):
+                    with st.spinner(_spinner_msg):
+                        try:
+                            from vnstock_strategy import (
+                                analyze_ticker as _analyze_single,
+                                analyze_ticker_consensus as _analyze_consensus,
+                            )
+                            if _n_avail > 1:
+                                _rec_result = _analyze_consensus(_avail_agents, ticker, df)
+                            else:
+                                _rec_result = _analyze_single(
+                                    _avail_agents[0] if _avail_agents else None,
+                                    ticker, df,
+                                )
+                            _rec_result["_ticker"] = ticker
+                            st.session_state[_ai_cache_key] = _rec_result
+                            st.rerun()
+                        except Exception as _ai_err:
+                            st.error(f"Lỗi phân tích: {type(_ai_err).__name__}: {_ai_err}")
+
+        # ── Tin tức theo mã ────────────────────────────────────────────────
+        st.markdown("---")
+        st.markdown("#### 🗞️ Tin tức liên quan")
+        try:
+            import vnstock_news as _nn
+            _ticker_news = _nn.news_for_ticker(ticker)
+            if not _ticker_news:
+                _all_cached = _nn.load_news_cache()
+                if _all_cached:
+                    st.caption(
+                        f"Không có tin tức cho **{ticker}** trong cache. "
+                        "Vào tab **Tin tức** → bấm **🔄 Cập nhật** để tải về."
+                    )
+                else:
+                    st.caption(
+                        "Chưa có cache tin tức. Vào tab **Tin tức** → bấm **🔄 Cập nhật tin tức**."
+                    )
+            else:
+                st.caption(f"**{len(_ticker_news)}** tin tức gần đây cho {ticker}")
+                for _ni, _nitem in enumerate(_ticker_news[:5]):
+                    _ntitle = _nitem.get("news_title", "").strip()
+                    _nshort = (_nitem.get("news_short_content")
+                               or _nitem.get("news_sub_title") or "").strip()
+                    _nfull  = (_nitem.get("news_full_content") or "").strip()
+                    _nlink  = _nitem.get("news_source_link", "")
+                    _ndate  = _nitem.get("_date_sort", "")[:10]
+                    if not _ntitle:
+                        continue
+                    with st.container():
+                        st.markdown(f"**{_ntitle}** <span style='color:#6b7280;font-size:12px'>{_ndate}</span>",
+                                    unsafe_allow_html=True)
+                        if _nshort:
+                            st.caption(_nshort[:250])
+                        _nc1, _nc2 = st.columns([2, 8])
+                        if _nfull and _nfull != _nshort:
+                            with _nc1:
+                                with st.expander("📖 Đọc thêm"):
+                                    st.markdown(_nfull[:2000])
+                        if _nlink:
+                            with _nc2:
+                                st.markdown(f"[🔗 Nguồn gốc]({_nlink})")
+        except Exception as _ne:
+            st.caption(f"Không tải được tin tức: {type(_ne).__name__}")

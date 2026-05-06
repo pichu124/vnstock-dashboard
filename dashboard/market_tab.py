@@ -34,11 +34,21 @@ def render_market_tab() -> None:
     from datetime import datetime, timedelta
     from pathlib import Path
 
-    from vnstock_dashboard import (
-        INDEX_SYMBOLS, VN30_SYMBOLS, WSS_AVAILABLE,
-        load_index_overview, load_live_quote, load_market_overview,
-        load_price_history,
-    )
+    try:
+        from vnstock_dashboard import (
+            INDEX_SYMBOLS, VN30_SYMBOLS, WSS_AVAILABLE,
+            load_index_overview, load_live_quote, load_market_overview,
+            load_price_history,
+        )
+    except Exception:
+        # Fallback khi vnstock_wss không load được — tab vẫn render được
+        INDEX_SYMBOLS = []
+        VN30_SYMBOLS = []
+        WSS_AVAILABLE = False
+        from vnstock_dashboard import (
+            load_index_overview, load_live_quote, load_market_overview,
+            load_price_history,
+        )
 
     # ── Sparkline helpers ──────────────────────────────────────────────────
     def _sparkline_svg(values: list, width: int = 80, height: int = 28) -> str:
@@ -1329,15 +1339,30 @@ def render_market_tab() -> None:
                 _agent_configs = load_agent_configs()
                 _changed_configs: list[dict] = []
 
+                import os as _os
                 for _cfg in _agent_configs:
                     _atype = _cfg.get("type", "")
                     _aname = _cfg.get("name", _atype)
-                    st.markdown(f"**{_aname}** (`{_atype}`)")
-                    _col_en, _col_model = st.columns([1, 3])
+                    # Detect key status
+                    _cls = AGENT_REGISTRY.get(_atype)
+                    _env_key = getattr(_cls, "_ENV_KEY", "") if _cls else ""
+                    _key_ok = bool(_env_key and _os.environ.get(_env_key))
+                    _key_badge = (
+                        f'<span style="color:#10b981;font-size:12px">🔑 key OK</span>'
+                        if _key_ok else
+                        f'<span style="color:#ef4444;font-size:12px">🔑 chưa có key</span>'
+                    )
+                    st.markdown(
+                        f"**{_aname}** `{_atype}` &nbsp; {_key_badge}",
+                        unsafe_allow_html=True,
+                    )
+                    _col_en, _col_model, _col_test = st.columns([1, 3, 1])
                     with _col_en:
                         _enabled = st.checkbox(
                             "Bật", value=_cfg.get("enabled", False),
                             key=f"_brief_en_{_atype}",
+                            disabled=not _key_ok,
+                            help="Cần điền API key vào .env trước" if not _key_ok else "",
                         )
                     with _col_model:
                         _model = st.text_input(
@@ -1345,6 +1370,24 @@ def render_market_tab() -> None:
                             key=f"_brief_model_{_atype}",
                             placeholder="e.g. claude-haiku-4-5-20251001",
                         )
+                    with _col_test:
+                        st.markdown("<div style='margin-top:28px'></div>",
+                                    unsafe_allow_html=True)
+                        if st.button("🔌 Test", key=f"_brief_ping_{_atype}",
+                                     disabled=not _key_ok,
+                                     help="Gửi tin nhắn ngắn để kiểm tra key và model"):
+                            if _cls:
+                                _agent_inst = _cls(
+                                    model=st.session_state.get(f"_brief_model_{_atype}",
+                                                                _cfg.get("model", "")),
+                                    name=_aname,
+                                )
+                                with st.spinner(f"Đang kiểm tra {_aname}…"):
+                                    _ping_ok, _ping_msg = _agent_inst.ping()
+                                if _ping_ok:
+                                    st.success(_ping_msg)
+                                else:
+                                    st.error(_ping_msg)
                     _changed_configs.append({**_cfg, "enabled": _enabled, "model": _model})
                     st.markdown("---")
 
@@ -1388,11 +1431,15 @@ def render_market_tab() -> None:
                         st.success("Đã lưu cài đặt agent!")
 
                 st.caption(
-                    "API key đặt trong file `.env`: "
+                    "API key đặt trong file `.env` ở thư mục gốc dự án:  \n"
                     "`ANTHROPIC_API_KEY` (Claude) · "
                     "`OPENAI_API_KEY` (OpenAI) · "
                     "`GROQ_API_KEY` (Groq) · "
-                    "`MISTRAL_API_KEY` (Mistral)"
+                    "`MISTRAL_API_KEY` (Mistral) · "
+                    "`DEEPSEEK_API_KEY` (DeepSeek) · "
+                    "`CEREBRAS_API_KEY` (Cerebras) · "
+                    "`OPENROUTER_API_KEY` (OpenRouter)  \n"
+                    "Sau khi điền key → restart Streamlit → quay lại đây bật ✅ agent tương ứng."
                 )
 
             # ── Brief controls ─────────────────────────────────────────────
@@ -1443,6 +1490,45 @@ def render_market_tab() -> None:
                 else:
                     st.markdown(f"**{_btype_label} Brief** — {_dt.now().strftime('%H:%M %d/%m/%Y')}")
                     _agent_names = [k for k in _res if not k.startswith("_")]
+
+                    def _rating_block(agent_name: str, brief_type_: str):
+                        try:
+                            import vnstock_memory as _vm
+                            _vm.init_db()
+                            _today = _dt.now().date().isoformat()
+                            with _vm._conn() as _c:
+                                _row = _c.execute(
+                                    "SELECT id, user_rating FROM briefs "
+                                    "WHERE brief_date=? AND brief_type=? AND agent_name=? "
+                                    "ORDER BY created_at DESC LIMIT 1",
+                                    (_today, brief_type_, agent_name),
+                                ).fetchone()
+                            if not _row:
+                                return
+                            _bid = _row["id"]
+                            _existing = _row["user_rating"]
+                            _key_pref = f"_rate_{_bid}"
+                            _cols = st.columns([2, 5, 2])
+                            with _cols[0]:
+                                _rate = st.select_slider(
+                                    "⭐ Đánh giá",
+                                    options=[1, 2, 3, 4, 5],
+                                    value=_existing or 3,
+                                    key=f"{_key_pref}_v",
+                                )
+                            with _cols[1]:
+                                _fb = st.text_input(
+                                    "Feedback (optional)",
+                                    placeholder="Mô tả vấn đề / điểm cần cải thiện...",
+                                    key=f"{_key_pref}_fb",
+                                )
+                            with _cols[2]:
+                                if st.button("💾 Lưu", key=f"{_key_pref}_save"):
+                                    _vm.update_rating(_bid, int(_rate), _fb or "")
+                                    st.success("Đã lưu", icon="✅")
+                        except Exception as _e:
+                            st.caption(f"⚠ rating disabled: {type(_e).__name__}")
+
                     if len(_agent_names) == 1:
                         _txt, _err = _res[_agent_names[0]]
                         if _err:
@@ -1450,6 +1536,7 @@ def render_market_tab() -> None:
                         else:
                             with st.expander(f"📄 {_agent_names[0]}", expanded=True):
                                 st.markdown(_txt)
+                                _rating_block(_agent_names[0], _btype)
                     elif _agent_names:
                         _tabs = st.tabs([f"📄 {n}" for n in _agent_names])
                         for _tab, _aname in zip(_tabs, _agent_names):
@@ -1459,5 +1546,266 @@ def render_market_tab() -> None:
                                     st.error(_err)
                                 else:
                                     st.markdown(_txt)
+                                    _rating_block(_aname, _btype)
 
                 st.caption("Brief được tạo bởi AI dựa trên dữ liệu quant — không phải khuyến nghị đầu tư.")
+
+            # ── Strategy & recommendations panel ───────────────────────────
+            with st.expander("🧪 Chiến lược & khuyến nghị (auto-trained)", expanded=False):
+                try:
+                    import vnstock_memory as _vm
+                    _vm.init_db()
+                    _active  = _vm.get_active_family()
+                    _bests   = _vm.best_strategies(limit=5)
+                    _opens   = _vm.open_recommendations()
+                    _perf    = _vm.recommendation_performance()
+
+                    _c1, _c2, _c3 = st.columns(3)
+                    _c1.metric("Active strategy", "✅" if _active else "—")
+                    _c2.metric("Open recommendations", len(_opens))
+                    _c3.metric(
+                        "Win rate (closed)",
+                        f"{_perf.get('win_rate', 0)*100:.0f}%" if _perf.get("n", 0) else "—",
+                        delta=f"n={_perf.get('n', 0)}",
+                    )
+
+                    # Always show the current active strategy
+                    if _active:
+                        import json as _json
+                        _fam = _active.get("family_id", "?")
+                        _tuned_by = _active.get("agent_name", "?")
+                        _stable = "✅ stable" if _active.get("is_core_stable") else "🔄 revising"
+                        _tuned_at = (_active.get("last_tuned_at") or _active.get("created_at", ""))[:10]
+
+                        st.markdown("**Chiến lược đang hoạt động**")
+                        _sa, _sb = st.columns([3, 2])
+                        with _sa:
+                            st.write(
+                                f"**{_active['name']}**  \n"
+                                f"Family `{_fam}` · {_stable} · tuned {_tuned_at}"
+                            )
+                        with _sb:
+                            # Show latest backtest from family history
+                            _hist = _vm.family_history(_fam, limit=1)
+                            if _hist and _hist[0].get("n_trades") is not None:
+                                _h = _hist[0]
+                                _nt = _h.get("n_trades", 0)
+                                _exp = _h.get("expectancy") or 0.0
+                                _wr = (_h.get("win_rate") or 0.0) * 100
+                                st.metric("Expectancy", f"{_exp:.2f}", delta=f"{_nt} trades")
+                                if _nt == 0:
+                                    st.warning(
+                                        "⚠️ **0 trades** — strategy conditions chưa trigger được. "
+                                        "Nhấn **Fresh start** bên dưới để generate chiến lược mới.",
+                                        icon="⚠️",
+                                    )
+                                elif _nt < 10:
+                                    st.warning(f"⚠️ Chỉ {_nt} trades — backtest window còn nhỏ, cần chạy Full training.", icon="⚠️")
+                            else:
+                                st.caption("Chưa có backtest metrics.")
+
+                        with st.expander("Xem params & code", expanded=False):
+                            try:
+                                _params = _json.loads(_active.get("params_json") or "{}")
+                                st.code(_json.dumps(_params, indent=2, ensure_ascii=False), language="json")
+                            except Exception:
+                                pass
+                            _code = _active.get("code") or ""
+                            if _code:
+                                st.code(_code[:1500] + ("…" if len(_code) > 1500 else ""), language="python")
+                    else:
+                        st.info("Chưa có chiến lược nào. Nhấn **Lite training** để bắt đầu.", icon="ℹ️")
+
+                    # Top strategies with enough trades
+                    if _bests:
+                        st.markdown("**Top strategies (n_trades ≥ 10)**")
+                        for _s in _bests:
+                            st.write(
+                                f"- #{_s['id']} {_s['name']}"
+                                f" — exp={_s.get('expectancy', 0):.2f}"
+                                f" | win={_s.get('win_rate', 0):.0%}"
+                                f" | trades={_s.get('n_trades', 0)}"
+                            )
+
+                    if _opens:
+                        st.markdown("**Open recommendations**")
+                        import pandas as _pd
+                        _df_opens = _pd.DataFrame(_opens)
+                        # Add % vs entry next to each price target — easier
+                        # than mental math to gauge risk/reward at a glance.
+                        _entry = _df_opens["entry_price"].astype(float)
+                        _tp_pct = (_df_opens["take_profit"].astype(float) / _entry - 1) * 100
+                        _sl_pct = (_df_opens["cut_loss"].astype(float)    / _entry - 1) * 100
+                        _df_opens["TP (%)"] = _tp_pct.round(1).map(lambda v: f"{v:+.1f}%")
+                        _df_opens["SL (%)"] = _sl_pct.round(1).map(lambda v: f"{v:+.1f}%")
+                        _df_opens["R:R"] = (_tp_pct / _sl_pct.abs().replace(0, _pd.NA)).round(2)
+                        st.dataframe(
+                            _df_opens[
+                                ["ticker", "action", "entry_price",
+                                 "take_profit", "TP (%)",
+                                 "cut_loss",    "SL (%)", "R:R",
+                                 "horizon_days", "created_at"]
+                            ],
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+
+                    # ── Training result ────────────────────────────────────
+                    if st.session_state.get("_train_result"):
+                        _tr = st.session_state["_train_result"]
+                        if _tr.get("error"):
+                            st.error(f"❌ {_tr['error']}")
+                        else:
+                            _sl_r = _tr.get("strategy_loop", {})
+                            _msg = (
+                                f"✅ **Training xong** — "
+                                f"agents={_sl_r.get('agents_run',0)} | "
+                                f"mode={_sl_r.get('mode','?')} | "
+                                f"n_trades={_tr.get('n_trades','?')} | "
+                                f"expectancy={_tr.get('expectancy','?')}"
+                            )
+                            if _sl_r.get("errors"):
+                                st.warning(f"⚠️ Có lỗi: {_sl_r['errors']}")
+                            else:
+                                st.success(_msg)
+
+                    st.divider()
+                    _train_col1, _train_col2 = st.columns(2)
+
+                    def _run_training(lite: bool, mode: str = "auto") -> None:
+                        """Chỉ train chiến lược — không emit recommendations."""
+                        try:
+                            from vnstock_train import (
+                                strategy_loop as _sl_fn,
+                                brief_loop as _bl_fn,
+                            )
+                            _bl_fn(verbose=False)
+                            _sl_out = _sl_fn(verbose=False, lite=lite, mode=mode)
+                            _nt, _exp = "?", "?"
+                            _nf = _vm.get_active_family()
+                            if _nf:
+                                _nh = _vm.family_history(_nf.get("family_id", ""), limit=1)
+                                if _nh:
+                                    _nt  = _nh[0].get("n_trades", "?")
+                                    _exp = round(_nh[0].get("expectancy") or 0, 2)
+                            st.session_state["_train_result"] = {
+                                "strategy_loop": _sl_out,
+                                "n_trades": _nt,
+                                "expectancy": _exp,
+                            }
+                        except Exception as _e:
+                            import traceback as _tb
+                            st.session_state["_train_result"] = {
+                                "error": f"{type(_e).__name__}: {_e}\n{_tb.format_exc()[-800:]}"
+                            }
+                        st.rerun()
+
+                    with _train_col1:
+                        if st.button("⚡ Lite training (~60-90s)", key="_train_lite",
+                                     help="17 mã (10 VN30 + 7 VNMID đa ngành), backtest nhanh."):
+                            st.session_state["_train_result"] = None
+                            with st.spinner("⏳ Đang chạy… (60-90s nếu cần revise code)"):
+                                _run_training(lite=True, mode="auto")
+                    with _train_col2:
+                        if st.button("🚀 Full training (~15-25 min)", key="_train_full",
+                                     help="~50 mã (VN30 đủ + 20 VNMID), full walk-forward. CHẬM."):
+                            st.session_state["_train_result"] = None
+                            with st.spinner("⏳ Đang chạy full training… 15-25 phút"):
+                                _run_training(lite=False, mode="auto")
+
+                    # Fresh start button — shown when strategy hasn't reached validation threshold
+                    _cur_nt = 0
+                    if _active:
+                        _fh = _vm.family_history(_active.get("family_id", ""), limit=1)
+                        _cur_nt = (_fh[0].get("n_trades") or 0) if _fh else 0
+                    if _cur_nt < 10:
+                        if st.button("🔄 Fresh start (generate chiến lược mới hoàn toàn)",
+                                     key="_train_fresh",
+                                     help="Generate code chiến lược hoàn toàn mới. "
+                                          "Dùng khi strategy < 10 trades hoặc logic sai."):
+                            st.session_state["_train_result"] = None
+                            with st.spinner("⏳ Đang generate chiến lược mới… (15-30s API call)"):
+                                _run_training(lite=True, mode="fresh")
+
+                    st.caption(
+                        "ℹ️ Lite: 10 VN30 + 7 VNMID = 17 mã, backtest nhanh (~60-90s). "
+                        "Full: VN30 đủ + 20 VNMID = ~50 mã (~15-25 phút, nên dùng Task Scheduler). "
+                        "Sau khi train, bấm **Quét tín hiệu** để tìm khuyến nghị."
+                    )
+
+                    # ── Scan recommendations (độc lập với training) ────────
+                    st.divider()
+                    st.markdown("**🔍 Quét tín hiệu toàn thị trường**")
+                    st.caption(
+                        "Áp chiến lược hiện có lên toàn bộ kho dữ liệu. "
+                        "Chỉ quét mã có khối lượng trung bình ≥ 100.000 cổ/ngày."
+                    )
+
+                    if st.session_state.get("_scan_result"):
+                        _sr = st.session_state["_scan_result"]
+                        if _sr.get("error"):
+                            st.error(f"❌ {_sr['error']}")
+                        elif _sr.get("reason") == "no_validated_strategy":
+                            st.warning("⚠️ Chưa có chiến lược validated. Chạy training thêm để đạt ≥ 10 trades.")
+                        else:
+                            _n_recs = _sr.get("n_recs", 0)
+                            _diag   = _sr.get("diag", {})
+                            if _n_recs:
+                                st.success(f"✅ Đã quét **{_sr.get('n_scanned',0)}** mã → **{_n_recs}** khuyến nghị mới")
+                            else:
+                                st.info(f"ℹ️ Quét **{_sr.get('n_scanned',0)}** mã → 0 khuyến nghị (điều kiện mua chưa kích hoạt hôm nay)")
+                            if _diag:
+                                _n_err = _diag.get('n_errors', 0)
+                                _err_color = "🔴" if _n_err else "🟢"
+                                st.caption(
+                                    f"📊 Không có data: **{_diag.get('n_no_data',0)}** · "
+                                    f"Dưới 100K vol: **{_diag.get('n_low_vol',0)}** · "
+                                    f"Chạy được: **{_diag.get('n_executed',0)}** · "
+                                    f"Hold/Sell: **{_diag.get('n_hold',0)}** · "
+                                    f"Buy signal: **{_diag.get('n_buy',0)}** · "
+                                    f"{_err_color} Errors: **{_n_err}**"
+                                )
+                                _samples = _diag.get('errors_sample') or []
+                                if _samples:
+                                    with st.expander(
+                                        f"⚠️ {_n_err} mã throw exception — xem mẫu lỗi",
+                                        expanded=(_diag.get('n_executed', 0) == 0),
+                                    ):
+                                        st.caption(
+                                            "Strategy code fail silent. Sửa code trong DB "
+                                            "(`brief_memory.db` → `strategies.code`) hoặc "
+                                            "Fresh start để generate lại."
+                                        )
+                                        for s in _samples:
+                                            st.code(
+                                                f"[{s.get('example_ticker','?')}] "
+                                                f"{s.get('error','')}",
+                                                language="text",
+                                            )
+
+                    if st.button("🔍 Quét tín hiệu toàn thị trường", key="_scan_recs",
+                                 help="Quét toàn bộ kho, lọc vol ≥ 100K cổ/ngày, tối đa 5 recs."):
+                        st.session_state["_scan_result"] = None
+                        with st.spinner("⏳ Đang quét… (vài giây đến 1 phút tuỳ kho)"):
+                            try:
+                                from vnstock_train import _scan_universe as _su_fn
+                                from vnstock_strategy import emit_recommendations as _emit_fn
+                                _su = _su_fn()
+                                _all = _emit_fn(_su, max_recs=5, min_avg_volume=100_000)
+                                # Last element is always the _stats sentinel
+                                _diag_item = _all[-1] if _all and _all[-1].get("_stats") else {}
+                                _real_recs = [r for r in _all if not r.get("_stats")]
+                                st.session_state["_scan_result"] = {
+                                    "n_scanned": len(_su),
+                                    "n_recs": len(_real_recs),
+                                    "diag": _diag_item,
+                                    "reason": _diag_item.get("reason", ""),
+                                }
+                            except Exception as _e:
+                                import traceback as _tb
+                                st.session_state["_scan_result"] = {
+                                    "error": f"{type(_e).__name__}: {_e}\n{_tb.format_exc()[-600:]}"
+                                }
+                        st.rerun()
+                except Exception as _e:
+                    st.caption(f"Strategy panel disabled: {type(_e).__name__}: {_e}")

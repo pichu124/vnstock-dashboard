@@ -31,12 +31,29 @@ from typing import Optional
 # ── Constants ─────────────────────────────────────────────────────────────
 AGENTS_CONFIG_PATH = Path("data_warehouse/_meta/brief_agents.json")
 
-# VN30 tickers (as of 2025 — update if index changes)
-VN30_TICKERS = {
-    "VCB","BID","CTG","TCB","MBB","VPB","ACB","HDB","VHM","VIC",
-    "VRE","MSN","MWG","VNM","SAB","GAS","PLX","POW","REE","HPG",
-    "NVL","PDR","DXG","KDH","BCM","SSI","HCM","VND","FPT","CMG",
+# VN30 tickers — current composition (keep in sync with _VN30_FALLBACK in vnstock_news.py)
+# Try dynamic fetch first; fall back to this set when vnstock API is unavailable.
+VN30_TICKERS: set[str] = {
+    "ACB", "BCM", "BID", "BVH", "CTG", "FPT", "GAS", "GVR", "HDB", "HPG",
+    "MBB", "MSN", "MWG", "PLX", "POW", "SAB", "SHB", "SSB", "SSI", "STB",
+    "TCB", "TPB", "VCB", "VHM", "VIB", "VIC", "VJC", "VNM", "VPB", "VRE",
 }
+
+
+def get_vn30_live() -> set[str]:
+    """Try to fetch current VN30 from vnstock API; fall back to VN30_TICKERS."""
+    try:
+        from vnstock import Vnstock  # type: ignore
+        df = Vnstock().stock(symbol="VCB", source="VCI").listing.symbols_by_group("VN30")
+        if df is not None and not df.empty:
+            col = next((c for c in ("ticker", "symbol", "code") if c in df.columns), None)
+            if col:
+                tickers = {str(v).upper() for v in df[col] if v}
+                if len(tickers) >= 20:
+                    return tickers
+    except Exception:
+        pass
+    return set(VN30_TICKERS)
 
 _DEFAULT_AGENT_CONFIGS: list[dict] = [
     {
@@ -64,6 +81,27 @@ _DEFAULT_AGENT_CONFIGS: list[dict] = [
         "type": "mistral",
         "model": "mistral-small-latest",
         "name": "Mistral Small",
+        "enabled": False,
+        "max_tokens": 1200,
+    },
+    {
+        "type": "deepseek",
+        "model": "deepseek-chat",
+        "name": "DeepSeek Chat",
+        "enabled": False,
+        "max_tokens": 1200,
+    },
+    {
+        "type": "cerebras",
+        "model": "llama3.3-70b",
+        "name": "Cerebras Llama-3.3-70B",
+        "enabled": False,
+        "max_tokens": 1200,
+    },
+    {
+        "type": "openrouter",
+        "model": "meta-llama/llama-3.3-70b-instruct:free",
+        "name": "OpenRouter Llama-3.3-70B",
         "enabled": False,
         "max_tokens": 1200,
     },
@@ -101,7 +139,14 @@ Viết MORNING BRIEF tiếng Việt theo đúng format sau (không thêm phần 
 **Tích cực (>50% xác suất nếu...):** [điều kiện kích hoạt]
 **Thận trọng:** [tín hiệu cần theo dõi để cắt lỗ / không vào hàng]
 
-Giới hạn 350 từ. Chỉ đề cập mã trong VN30 khi nói về cổ phiếu cụ thể.
+## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)
+[Liệt kê tối đa 3 mã từ block "Khuyến nghị từ chiến lược đã backtest" với entry/TP/SL; bỏ qua nếu không có]
+BẮT BUỘC: Nếu quyết định mua/bán bị ảnh hưởng bởi tin tức trong block "Tin tức thị trường", PHẢI nêu rõ tên tiêu đề tin và giải thích tác động (ví dụ: "HPG: MUA — kỹ thuật vượt MA20 + tin tức [Hòa Phát ký hợp đồng thép 5.000 tỷ] hỗ trợ đà tăng"). Nếu không có tin tức liên quan thì chỉ dựa vào kỹ thuật.
+
+## 🔧 Đề xuất bổ sung (1 dòng, optional)
+[1 dữ liệu/chỉ số bạn nghĩ cần thêm để brief sau chính xác hơn — ví dụ "cần GTGD bid/ask theo phút" — bỏ qua nếu không cần]
+
+Giới hạn 400 từ. Chỉ đề cập mã trong VN30 khi nói về cổ phiếu cụ thể.
 YÊU CẦU VỀ ĐỘ CỤ THỂ:
 - Ngành nào được đề cập → LUÔN nêu trọng số %VNI và đóng góp pp hôm nay (có trong data).
 - Mã nào được đề cập → nêu mức đóng góp pp vào VNINDEX nếu có trong data.
@@ -136,7 +181,14 @@ Viết AFTERNOON BRIEF tiếng Việt theo đúng format sau (không thêm phầ
 ## ⚠️ Rủi ro cần lưu ý
 [Red flags, distribution, macro risk; nếu thị trường ổn định thì viết "Không có rủi ro đặc biệt"]
 
-Giới hạn 400 từ. Chỉ đề cập mã trong VN30. Nếu thị trường flat và không có signal rõ thì nói thẳng.
+## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)
+[Liệt kê tối đa 3 mã từ block "Khuyến nghị từ chiến lược đã backtest" với entry/TP/SL; bỏ qua nếu không có]
+BẮT BUỘC: Nếu quyết định mua/bán bị ảnh hưởng bởi tin tức trong block "Tin tức thị trường", PHẢI nêu rõ tên tiêu đề tin và giải thích tác động. Nếu không có tin tức liên quan thì chỉ dựa vào kỹ thuật.
+
+## 🔧 Đề xuất bổ sung (1 dòng, optional)
+[1 dữ liệu/chỉ số cần thêm để brief sau chính xác hơn — bỏ qua nếu không cần]
+
+Giới hạn 450 từ. Chỉ đề cập mã trong VN30. Nếu thị trường flat và không có signal rõ thì nói thẳng.
 YÊU CẦU VỀ ĐỘ CỤ THỂ:
 - Ngành nào được đề cập → LUÔN nêu trọng số %VNI và đóng góp pp hôm nay (có trong data).
 - Mã nào được đề cập → nêu mức đóng góp pp vào VNINDEX nếu có trong data.
@@ -162,6 +214,13 @@ class BriefAgent(ABC):
     def is_available(self) -> bool:
         """True if the required API key is set in environment."""
 
+    def ping(self) -> tuple[bool, str]:
+        """Quick connectivity check. Returns (ok, message)."""
+        if not self.is_available:
+            return False, "API key chưa thiết lập"
+        _, err = self.generate("Trả lời đúng 2 từ: 'OK hoạt động'", max_tokens=20)
+        return (True, "✅ Kết nối OK") if err is None else (False, f"❌ {err[:120]}")
+
 
 # ── Concrete agents ────────────────────────────────────────────────────────
 class ClaudeAgent(BriefAgent):
@@ -176,10 +235,10 @@ class ClaudeAgent(BriefAgent):
 
     @property
     def is_available(self) -> bool:
-        return bool(os.environ.get("ANTHROPIC_API_KEY"))
+        return bool((os.environ.get("ANTHROPIC_API_KEY") or "").strip())
 
     def generate(self, prompt: str, max_tokens: int = 1200) -> tuple[str, str | None]:
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        api_key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
         if not api_key:
             return "", "ANTHROPIC_API_KEY chưa được thiết lập trong .env"
         try:
@@ -217,10 +276,10 @@ class _OpenAICompatAgent(BriefAgent):
 
     @property
     def is_available(self) -> bool:
-        return bool(os.environ.get(self._ENV_KEY))
+        return bool((os.environ.get(self._ENV_KEY) or "").strip())
 
     def generate(self, prompt: str, max_tokens: int = 1200) -> tuple[str, str | None]:
-        api_key = os.environ.get(self._ENV_KEY, "")
+        api_key = (os.environ.get(self._ENV_KEY) or "").strip()
         if not api_key:
             return "", f"{self._ENV_KEY} chưa được thiết lập trong .env"
         sys_end = prompt.find("\n\nDữ liệu thị trường")
@@ -247,7 +306,12 @@ class _OpenAICompatAgent(BriefAgent):
             resp.raise_for_status()
             return resp.json()["choices"][0]["message"]["content"], None
         except Exception as e:
-            return "", f"{self._ERR_PREFIX} lỗi: {type(e).__name__}: {str(e)[:160]}"
+            detail = ""
+            try:
+                detail = " | " + str(resp.json())[:300]
+            except Exception:
+                pass
+            return "", f"{self._ERR_PREFIX} lỗi: {type(e).__name__}: {str(e)[:200]}{detail}"
 
 
 class OpenAIAgent(_OpenAICompatAgent):
@@ -283,25 +347,251 @@ class MistralAgent(_OpenAICompatAgent):
         super().__init__(model, name)
 
 
+class DeepSeekAgent(_OpenAICompatAgent):
+    """DeepSeek — excellent code generation, very cheap pricing."""
+    agent_type = "deepseek"
+    _ENDPOINT = "https://api.deepseek.com/v1/chat/completions"
+    _ENV_KEY = "DEEPSEEK_API_KEY"
+    _ERR_PREFIX = "DeepSeek API"
+
+    def __init__(self, model: str = "deepseek-chat", name: str = "DeepSeek Chat"):
+        super().__init__(model, name)
+
+
+class CerebrasAgent(_OpenAICompatAgent):
+    """Cerebras Cloud — ultra-fast inference (2000+ tok/s), Llama models."""
+    agent_type = "cerebras"
+    _ENDPOINT = "https://api.cerebras.ai/v1/chat/completions"
+    _ENV_KEY = "CEREBRAS_API_KEY"
+    _ERR_PREFIX = "Cerebras API"
+
+    # Try models in order; Cerebras occasionally renames or deprecates
+    _MODEL_FALLBACKS: list[str] = [
+        "llama3.3-70b",    # Llama 3.3 70B (preferred, no dash)
+        "llama-3.3-70b",   # Legacy alias with dash
+        "llama3.1-70b",    # Llama 3.1 70B (always available)
+        "llama3.1-8b",     # Smallest, fastest fallback
+    ]
+
+    def __init__(self, model: str = "llama3.3-70b", name: str = "Cerebras Llama-3.3-70B"):
+        super().__init__(model, name)
+
+    def generate(self, prompt: str, max_tokens: int = 1200) -> tuple[str, str | None]:
+        api_key = (os.environ.get(self._ENV_KEY) or "").strip()
+        if not api_key:
+            return "", f"{self._ENV_KEY} chưa được thiết lập trong .env"
+        sys_end = prompt.find("\n\nDữ liệu thị trường")
+        system_part = prompt[:sys_end].strip() if sys_end > 0 else _SYSTEM
+        user_part = prompt[sys_end:].strip() if sys_end > 0 else prompt
+
+        candidates: list[str] = [self.model]
+        for fb in self._MODEL_FALLBACKS:
+            if fb != self.model and fb not in candidates:
+                candidates.append(fb)
+
+        import requests as _req
+        last_err = ""
+        last_detail = ""
+        for idx, model in enumerate(candidates):
+            resp = None
+            try:
+                resp = _req.post(
+                    self._ENDPOINT,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {api_key}",
+                    },
+                    json={
+                        "model": model,
+                        "max_tokens": max_tokens,
+                        "messages": [
+                            {"role": "system", "content": system_part},
+                            {"role": "user", "content": user_part},
+                        ],
+                    },
+                    timeout=90,
+                )
+                resp.raise_for_status()
+                content = resp.json()["choices"][0]["message"]["content"]
+                if idx > 0:
+                    content = f"_(fallback: {model})_\n\n{content}"
+                return content, None
+            except Exception as e:
+                detail = ""
+                if resp is not None:
+                    try:
+                        detail = " | " + str(resp.json())[:300]
+                    except Exception:
+                        pass
+                last_err = f"{type(e).__name__}: {str(e)[:200]}"
+                last_detail = detail
+                status = getattr(resp, "status_code", None)
+                # Only fallback on model-not-found (404) or server errors
+                if status not in (404, 429, 502, 503, 504):
+                    break
+        return "", f"{self._ERR_PREFIX} lỗi: {last_err}{last_detail}"
+
+
+class OpenRouterAgent(_OpenAICompatAgent):
+    """OpenRouter — single key to access 100+ models, several free tiers."""
+    agent_type = "openrouter"
+    _ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
+    _MODELS_ENDPOINT = "https://openrouter.ai/api/v1/models"
+    _ENV_KEY = "OPENROUTER_API_KEY"
+    _ERR_PREFIX = "OpenRouter API"
+
+    # Process-level cache of free model slugs fetched from /api/v1/models
+    _free_model_cache: list[str] = []
+
+    def __init__(
+        self,
+        model: str = "meta-llama/llama-3.3-70b-instruct:free",
+        name: str = "OpenRouter Llama-3.3-70B",
+    ):
+        super().__init__(model, name)
+
+    @classmethod
+    def _fetch_free_models(cls, api_key: str) -> list[str]:
+        """Fetch available free model slugs from OpenRouter /api/v1/models."""
+        if cls._free_model_cache:
+            return cls._free_model_cache
+        try:
+            import requests as _req
+            resp = _req.get(
+                cls._MODELS_ENDPOINT,
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            models = resp.json().get("data", [])
+            free = [m["id"] for m in models if str(m.get("id", "")).endswith(":free")]
+            # Prefer larger (70b) models first, then smaller ones
+            free.sort(key=lambda x: ("70b" not in x, "8b" not in x, x))
+            cls._free_model_cache = free
+            return free
+        except Exception:
+            return []
+
+    def _post_one(self, model: str, system_part: str, user_part: str,
+                  api_key: str, max_tokens: int):
+        import requests as _req
+        return _req.post(
+            self._ENDPOINT,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+                "HTTP-Referer": "https://github.com/pichu124/vnstock-dashboard",
+                "X-Title": "VNStock Dashboard",
+            },
+            json={
+                "model": model,
+                "max_tokens": max_tokens,
+                "messages": [
+                    {"role": "system", "content": system_part},
+                    {"role": "user", "content": user_part},
+                ],
+            },
+            timeout=90,
+        )
+
+    def generate(self, prompt: str, max_tokens: int = 1200) -> tuple[str, str | None]:
+        api_key = (os.environ.get(self._ENV_KEY) or "").strip()
+        if not api_key:
+            return "", f"{self._ENV_KEY} chưa được thiết lập trong .env"
+        sys_end = prompt.find("\n\nDữ liệu thị trường")
+        system_part = prompt[:sys_end].strip() if sys_end > 0 else _SYSTEM
+        user_part = prompt[sys_end:].strip() if sys_end > 0 else prompt
+
+        # Build candidate list: configured model first, then all available free
+        # models fetched dynamically from OpenRouter so slugs are always valid
+        free_models = self._fetch_free_models(api_key)
+        candidates: list[str] = [self.model]
+        for m in free_models:
+            if m != self.model and m not in candidates:
+                candidates.append(m)
+        candidates = candidates[:12]  # cap to avoid burning too many API calls
+
+        last_err = ""
+        last_detail = ""
+        for idx, model in enumerate(candidates):
+            resp = None
+            try:
+                resp = self._post_one(model, system_part, user_part, api_key, max_tokens)
+                resp.raise_for_status()
+                content = resp.json()["choices"][0]["message"]["content"]
+                if idx > 0:
+                    content = f"_(fallback: {model})_\n\n{content}"
+                return content, None
+            except Exception as e:
+                detail = ""
+                if resp is not None:
+                    try:
+                        detail = " | " + str(resp.json())[:200]
+                    except Exception:
+                        pass
+                last_err = f"{type(e).__name__}: {str(e)[:200]}"
+                last_detail = detail
+                status = getattr(resp, "status_code", None)
+                if status not in (404, 429, 502, 503, 504):
+                    break
+        return "", f"{self._ERR_PREFIX} lỗi: {last_err}{last_detail}"
+
+
 # ── Agent registry ─────────────────────────────────────────────────────────
 AGENT_REGISTRY: dict[str, type[BriefAgent]] = {
     "claude": ClaudeAgent,
     "openai": OpenAIAgent,
     "groq": GroqAgent,
     "mistral": MistralAgent,
-    # Add new providers here: "gemini": GeminiAgent, etc.
+    "deepseek": DeepSeekAgent,
+    "cerebras": CerebrasAgent,
+    "openrouter": OpenRouterAgent,
+}
+
+
+# Obsolete model names → current model names (auto-migrate on load)
+_MODEL_MIGRATIONS: dict[tuple[str, str], str] = {
+    # Cerebras renamed Llama from "llama-3.3-70b" (with dash) to "llama3.3-70b"
+    ("cerebras", "llama-3.3-70b"): "llama3.3-70b",
 }
 
 
 # ── Config helpers ─────────────────────────────────────────────────────────
 def load_agent_configs() -> list[dict]:
-    """Load agent configs from JSON. Falls back to defaults."""
+    """Load agent configs from JSON, merging in any new providers from defaults
+    and migrating obsolete model names."""
+    saved: list[dict] = []
     if AGENTS_CONFIG_PATH.exists():
         try:
-            return json.loads(AGENTS_CONFIG_PATH.read_text(encoding="utf-8"))
+            saved = json.loads(AGENTS_CONFIG_PATH.read_text(encoding="utf-8"))
         except Exception:
             pass
-    return [c.copy() for c in _DEFAULT_AGENT_CONFIGS]
+
+    if not saved:
+        return [c.copy() for c in _DEFAULT_AGENT_CONFIGS]
+
+    # Auto-migrate obsolete model names so users don't get stuck on 404s
+    changed = False
+    for cfg in saved:
+        key = (cfg.get("type"), cfg.get("model"))
+        if key in _MODEL_MIGRATIONS:
+            cfg["model"] = _MODEL_MIGRATIONS[key]
+            changed = True
+
+    # Merge: add any provider types from defaults that are absent in saved file
+    saved_types = {c.get("type") for c in saved}
+    merged = list(saved)
+    for default in _DEFAULT_AGENT_CONFIGS:
+        if default.get("type") not in saved_types:
+            merged.append(default.copy())
+            changed = True
+
+    if changed:
+        try:
+            save_agent_configs(merged)
+        except Exception:
+            pass
+    return merged
 
 
 def save_agent_configs(configs: list[dict]) -> None:
@@ -437,8 +727,15 @@ def collect_context(brief_type: str = "morning") -> dict:
 
 
 # ── Prompt builder ─────────────────────────────────────────────────────────
-def build_prompt(ctx: dict, brief_type: str = "morning") -> str:
-    """Construct the full Vietnamese prompt from market context."""
+def build_prompt(ctx: dict, brief_type: str = "morning",
+                 few_shot: str = "", rec_block: str = "",
+                 news_block: str = "") -> str:
+    """Construct the full Vietnamese prompt from market context.
+
+    Optional `few_shot` / `rec_block` are injected by the train loop / memory layer
+    to nudge the model toward higher quality and surface validated trade ideas.
+    `news_block` injects latest market news so the agent can factor them in.
+    """
     lines: list[str] = []
 
     lines.append(f"Ngày: {ctx['date']} | Thời điểm: {ctx['time']}")
@@ -588,7 +885,16 @@ def build_prompt(ctx: dict, brief_type: str = "morning") -> str:
         for g in losers:
             lines.append(_vn30_line(g))
 
+    if rec_block:
+        lines.append(rec_block)
+
+    if news_block:
+        lines.append(news_block)
+
     data_block = "\n".join(lines)
+    if few_shot:
+        data_block = data_block + "\n" + few_shot
+
     tmpl = _MORNING_TEMPLATE if brief_type == "morning" else _AFTERNOON_TEMPLATE
     return tmpl.format(system=_SYSTEM, data=data_block)
 
@@ -627,13 +933,120 @@ def generate_brief(
         )}
 
     ctx = collect_context(brief_type)
-    prompt = build_prompt(ctx, brief_type)
+
+    # Inject few-shot golden examples + open recommendations (best-effort)
+    few_shot  = _few_shot_block(brief_type)
+    rec_block = _recommendation_block()
+    news_block = _news_block()
+
+    prompt = build_prompt(ctx, brief_type, few_shot=few_shot,
+                          rec_block=rec_block, news_block=news_block)
 
     results: dict[str, tuple[str, str | None]] = {}
-    for agent in agents:
-        if not agent.is_available:
-            results[agent.name] = ("", f"API key chưa thiết lập cho {agent.name}")
-        else:
-            results[agent.name] = agent.generate(prompt)
+    brief_ids: dict[str, int] = {}
 
+    available = [a for a in agents if a.is_available]
+    unavailable = [a for a in agents if not a.is_available]
+    for agent in unavailable:
+        results[agent.name] = ("", f"API key chưa thiết lập cho {agent.name}")
+
+    # Run available agents in parallel to cut wall-clock time from N*T → T
+    def _call(agent: BriefAgent) -> tuple[str, tuple[str, str | None]]:
+        return agent.name, agent.generate(prompt)
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    with ThreadPoolExecutor(max_workers=min(len(available), 8)) as pool:
+        futures = {pool.submit(_call, a): a for a in available}
+        for fut in as_completed(futures):
+            try:
+                name, result = fut.result()
+            except Exception as exc:
+                agent = futures[fut]
+                name, result = agent.name, ("", str(exc))
+            results[name] = result
+
+    # Persist to memory sequentially (SQLite is not thread-safe for writes)
+    try:
+        import vnstock_memory as _mem
+        from vnstock_train import auto_score_brief as _score
+        ctx_small = {k: v for k, v in ctx.items() if k != "tickers"}
+        for agent in available:
+            text, err = results.get(agent.name, ("", None))
+            score = _score(text) if text else 0.0
+            bid = _mem.save_brief(
+                brief_date=ctx.get("date", ""),
+                brief_type=brief_type,
+                agent_name=agent.name,
+                agent_type=getattr(agent, "agent_type", ""),
+                model=getattr(agent, "model", ""),
+                prompt=prompt,
+                output=text,
+                error=err,
+                context=ctx_small,
+                auto_score=score,
+            )
+            brief_ids[agent.name] = bid
+    except Exception:
+        pass
+
+    if brief_ids:
+        results["_brief_ids"] = brief_ids  # type: ignore[assignment]
     return results
+
+
+# ── Memory-backed helpers (lazy, all best-effort) ──────────────────────────
+def _few_shot_block(brief_type: str, n: int = 2) -> str:
+    """Pull top-rated past briefs to use as in-context examples."""
+    try:
+        import vnstock_memory as _mem
+        rows = _mem.top_rated_briefs(brief_type, limit=n)
+        if not rows:
+            return ""
+        rated = [r for r in rows if (r.get("user_rating") or 0) >= 4]
+        if not rated:
+            return ""
+        parts = ["\n## Ví dụ brief chất lượng cao trước đây (tham khảo phong cách)"]
+        for r in rated:
+            parts.append(f"\n--- Brief ngày {r.get('brief_date')}, "
+                         f"{r.get('user_rating')}⭐ ---")
+            parts.append((r.get("output") or "")[:1200])
+        return "\n".join(parts)
+    except Exception:
+        return ""
+
+
+def _news_block(max_items: int = 15) -> str:
+    """Pull latest news from vnstock_news cache for AI context injection."""
+    try:
+        import vnstock_news as _nn
+        block = _nn.news_context_block(max_items=max_items)
+        return block
+    except Exception:
+        return ""
+
+
+def _recommendation_block() -> str:
+    """Insert open recommendations from validated strategies."""
+    try:
+        import vnstock_memory as _mem
+        recs = _mem.open_recommendations()
+        if not recs:
+            return ""
+        lines = ["\n## Khuyến nghị từ chiến lược đã backtest (tự sinh)"]
+        for r in recs[:5]:
+            entry = float(r.get("entry_price") or 0)
+            tp    = float(r.get("take_profit") or 0)
+            sl    = float(r.get("cut_loss") or 0)
+            line = f"- {r['ticker']} {r['action'].upper()}"
+            if entry > 0:
+                line += f" entry={entry:,.0f}"
+            if tp > 0:
+                line += f" TP={tp:,.0f}"
+            if sl > 0:
+                line += f" SL={sl:,.0f}"
+            if r.get("rationale"):
+                line += f" — {r['rationale'][:80]}"
+            lines.append(line)
+        return "\n".join(lines)
+    except Exception:
+        return ""

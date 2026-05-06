@@ -79,6 +79,12 @@ def render_screener_tab(
     save_session_stats     = _vnd.save_session_stats
     load_session_stats_history  = _vnd.load_session_stats_history
     render_session_stats_table  = _vnd.render_session_stats_table
+    try:
+        from vnstock_session_stats import backfill_session_stats as _backfill_session_stats
+        from vnstock_session_stats import reconcile_with_price_history as _reconcile_eod
+    except Exception:
+        def _backfill_session_stats(): return 0
+        def _reconcile_eod(): return 0
     from datetime import datetime
 
 
@@ -375,6 +381,31 @@ def render_screener_tab(
         @st.fragment(run_every=30)
         def _session_stats_fragment():
             try:
+                # One-shot backfill per session: populates ~30 trading days of
+                # history when the JSON file is missing or sparse. The runner
+                # also backfills daily, so this is just for first-time / dev use.
+                if not st.session_state.get("_session_stats_backfilled"):
+                    try:
+                        _backfill_session_stats()
+                    except Exception:
+                        pass
+                    st.session_state["_session_stats_backfilled"] = True
+                    load_session_stats_history.clear()
+
+                # EOD reconciliation: replace yesterday's estimate with exact
+                # value once the EOD batch posts in price_history. Cheap (~2s
+                # for 4 indices); skip if last reconcile was <30 min ago to
+                # avoid hammering the API on every fragment rerun.
+                _now_ts = datetime.now().timestamp()
+                _last_recon = st.session_state.get("_session_stats_last_recon", 0)
+                if _now_ts - _last_recon > 1800:  # 30 minutes
+                    try:
+                        if _reconcile_eod() > 0:
+                            load_session_stats_history.clear()
+                    except Exception:
+                        pass
+                    st.session_state["_session_stats_last_recon"] = _now_ts
+
                 # Load history + compute today
                 history = load_session_stats_history()
                 stats = compute_session_stats()
@@ -385,24 +416,44 @@ def render_screener_tab(
                 if has_data:
                     save_session_stats(stats)
 
+                # Radio toggle: total (matched + block deals) vs matched-only.
+                # Matched-only excludes block-deal spikes so days with large
+                # off-market deals don't appear inflated relative to neighbors
+                # (the 9/3-10/3 case the user investigated).
+                _mode_choice = st.radio(
+                    "Loại GTGD hiển thị",
+                    options=["Tổng", "Khớp lệnh"],
+                    index=0,
+                    horizontal=True,
+                    key="_session_stats_gtgd_mode",
+                    help=(
+                        "Tổng = matched + block deals (thoả thuận). "
+                        "Khớp lệnh = chỉ giao dịch khớp lệnh thường, "
+                        "ổn định hơn cho so sánh giữa các ngày. "
+                        "Cells thiếu data matched (hôm nay / UPCOM) tự "
+                        "fallback về tổng."
+                    ),
+                )
+                _mode = "matched" if _mode_choice == "Khớp lệnh" else "total"
+
                 windows = list(SESSION_WINDOWS.keys())
                 # Row 1: Bảng 1 + Bảng 2
                 r1c1, r1c2 = st.columns(2)
                 with r1c1:
                     render_session_stats_table(
-                        windows[0], stats.get(windows[0], {}), history)
+                        windows[0], stats.get(windows[0], {}), history, mode=_mode)
                 with r1c2:
                     render_session_stats_table(
-                        windows[1], stats.get(windows[1], {}), history)
+                        windows[1], stats.get(windows[1], {}), history, mode=_mode)
 
                 # Row 2: Bảng 3 + Bảng 4
                 r2c1, r2c2 = st.columns(2)
                 with r2c1:
                     render_session_stats_table(
-                        windows[2], stats.get(windows[2], {}), history)
+                        windows[2], stats.get(windows[2], {}), history, mode=_mode)
                 with r2c2:
                     render_session_stats_table(
-                        windows[3], stats.get(windows[3], {}), history)
+                        windows[3], stats.get(windows[3], {}), history, mode=_mode)
             except Exception as e:
                 st.warning(f"Không tải được thống kê phiên: {e}")
 
