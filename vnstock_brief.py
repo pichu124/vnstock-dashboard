@@ -111,7 +111,14 @@ _DEFAULT_AGENT_CONFIGS: list[dict] = [
 _SYSTEM = (
     "Bạn là quant trader chuyên nghiệp tại thị trường chứng khoán Việt Nam với hơn 10 năm "
     "kinh nghiệm phân tích định lượng. Phong cách: thẳng thắn, súc tích, gắn nhận định với "
-    "dữ liệu cụ thể, phân biệt rõ tín hiệu mạnh và nhiễu, không dùng ngôn ngữ hoa mỹ."
+    "dữ liệu cụ thể, phân biệt rõ tín hiệu mạnh và nhiễu, không dùng ngôn ngữ hoa mỹ.\n\n"
+    "QUY TẮC KHÔNG ĐƯỢC VI PHẠM:\n"
+    "- KHÔNG dùng giá VNINDEX hay mức kỹ thuật theo trí nhớ/training data. "
+    "VNINDEX hôm nay được cung cấp trong block '## VNINDEX kỹ thuật' bên dưới — "
+    "phải dùng CHÍNH XÁC con số đó. Nếu nhắc 1.240 hoặc 1.300 trong khi data ghi "
+    "1.815 → SAI, không được làm.\n"
+    "- Mọi mức hỗ trợ/kháng cự phải lấy từ Pivots S1/S2/R1/R2 trong data, không bịa.\n"
+    "- Nếu data thiếu một mục → viết 'Chưa có dữ liệu', KHÔNG suy đoán."
 )
 
 _MORNING_TEMPLATE = """\
@@ -132,10 +139,13 @@ Viết MORNING BRIEF tiếng Việt theo đúng format sau (không thêm phần 
 [2-3 câu: diễn biến chính, GTGD vs bình thường (có % so trung bình 5 phiên nếu data có), tính chất phiên (institutional vs retail dựa vào GTGD/độ rộng)]
 
 ## 📈 Mức kỹ thuật quan trọng (VNINDEX)
-**Hỗ trợ gần:** [ước lượng từ giá hiện tại - có thể dùng MA20/MA50 trong data nếu có]
-**Kháng cự gần:** [tương tự]
-**Trigger breakout/breakdown:** [mức giá cụ thể + ý nghĩa nếu xuyên thủng]
-[Nếu data không có MA200/breadth đủ để ước lượng thì viết "Cần thêm dữ liệu kỹ thuật cho VNINDEX"]
+TRÍCH XUẤT TỪ block "## VNINDEX kỹ thuật" — KHÔNG BỊA, KHÔNG dùng số trong training data.
+**Đóng cửa hiện tại:** [chính xác con số `close` trong data, ví dụ "1.815,42"]
+**Hỗ trợ gần:** [S1 và S2 từ Pivots — ghi cả số tuyệt đối]
+**Kháng cự gần:** [R1 và R2 từ Pivots]
+**Vị trí so với MA:** [chính xác số MA20/MA50/MA200 + % cách giá hiện tại từ data]
+**Trigger breakout:** [vượt R1 → test R2; thủng S1 → về S2 — viết theo SỐ đã cho]
+Nếu block "VNINDEX kỹ thuật" KHÔNG có trong data → viết "Chưa có dữ liệu VNINDEX hôm nay" (không bịa).
 
 ## 🎯 Trọng tâm theo dõi
 **Tích luỹ/Mua:** [ngành hoặc mã VN30 + lý do cụ thể từ data — nêu trọng số %VNI và đóng góp pp]
@@ -184,8 +194,12 @@ Viết AFTERNOON BRIEF tiếng Việt theo đúng format sau (không thêm phầ
 [2-3 câu: kết quả toàn ngày, GTGD vs trung bình, độ rộng thị trường (A/D, % trên MA200), so sánh với kỳ vọng sáng nếu có]
 
 ## 📈 Mức kỹ thuật chốt phiên (VNINDEX)
-**Đóng cửa vs key levels:** [VNINDEX vs MA20/MA50 nếu data có; vị trí hiện tại trong range tuần/tháng]
-**Trigger ngày mai:** [breakout level + breakdown level cụ thể + ý nghĩa]
+TRÍCH XUẤT TỪ block "## VNINDEX kỹ thuật" — KHÔNG BỊA.
+**Đóng cửa:** [chính xác `close` từ data, ví dụ "1.815,42 (+0,38%)"]
+**Vị trí trong range:** [đóng cửa nằm ở đâu trong range tuần/tháng — viết theo SỐ]
+**Vs MA:** [trên/dưới MA20/MA50/MA200 + khoảng cách % theo data]
+**Trigger ngày mai:** [vượt R1=[số] → test R2=[số]; thủng S1=[số] → về S2=[số]]
+Nếu block "VNINDEX kỹ thuật" KHÔNG có → viết "Chưa có dữ liệu VNINDEX hôm nay".
 
 ## 🏆 Dẫn dắt & Tụt hậu
 **Dẫn dắt:** [top 2-3 ngành/mã VN30 + đóng góp pp + % return cụ thể]
@@ -746,7 +760,133 @@ def collect_context(brief_type: str = "morning") -> dict:
         except Exception:
             pass
 
+    # 6. VNINDEX technical levels — fetched live so prompts always have
+    # the CURRENT close (not stale training-data hallucination like 1.240
+    # when the index is at 1.800+).
+    ctx["vnindex_tech"] = _vnindex_technicals()
+
     return ctx
+
+
+def _vnindex_technicals() -> dict:
+    """Compute VNINDEX close, MAs, day/52w range, and pivot levels.
+
+    Best-effort — returns {} on any failure. The brief prompt then renders a
+    "data not available" fallback instead of letting the LLM hallucinate.
+
+    Levels:
+      - close, prev_close, day_change_pct
+      - day_high/low, week_high/low, month_high/low, high_52w/low_52w
+      - ma20, ma50, ma200, ma20_slope_pct (5-bar)
+      - support_1, support_2, resistance_1, resistance_2 (recent swing lows/highs)
+      - rsi14
+    """
+    try:
+        from vnstock_dashboard import load_price_history
+        import pandas as pd
+        import numpy as np
+    except Exception:
+        return {}
+
+    df = pd.DataFrame()
+    for sym in ("VNINDEX", "VN-INDEX", "^VNINDEX"):
+        try:
+            df = load_price_history(sym, days=300)
+            if df is not None and not df.empty and "close" in df.columns:
+                break
+        except Exception:
+            df = pd.DataFrame()
+    if df is None or df.empty or "close" not in df.columns:
+        return {}
+
+    try:
+        close = df["close"].astype(float).dropna()
+        if len(close) < 30:
+            return {}
+        high = df.get("high", close).astype(float)
+        low  = df.get("low", close).astype(float)
+        last = float(close.iloc[-1])
+        prev = float(close.iloc[-2]) if len(close) >= 2 else last
+        day_chg = (last / prev - 1.0) * 100 if prev else 0.0
+
+        def _ma(n: int) -> float | None:
+            if len(close) < n:
+                return None
+            v = close.rolling(n).mean().iloc[-1]
+            return None if pd.isna(v) else float(v)
+
+        ma20  = _ma(20)
+        ma50  = _ma(50)
+        ma200 = _ma(200)
+        ma20_slope_pct = None
+        if ma20 and len(close) >= 25:
+            prev_ma20 = close.rolling(20).mean().iloc[-6]
+            if not pd.isna(prev_ma20) and prev_ma20:
+                ma20_slope_pct = (ma20 / float(prev_ma20) - 1.0) * 100
+
+        # Recent swing lows/highs as dynamic S/R — pivots over last 60 bars
+        # excluding the last 2 bars (avoid using "today" as its own pivot)
+        last60_high = high.tail(62).iloc[:-2] if len(high) >= 62 else high.iloc[:-2]
+        last60_low  = low.tail(62).iloc[:-2]  if len(low)  >= 62 else low.iloc[:-2]
+
+        # Resistance: 2 highest closes ABOVE current price; Support: 2 lowest BELOW
+        above = sorted({round(float(v), 2) for v in last60_high if v > last}, reverse=False)
+        below = sorted({round(float(v), 2) for v in last60_low  if v < last}, reverse=True)
+        res1 = above[0] if len(above) >= 1 else None
+        res2 = above[1] if len(above) >= 2 else None
+        sup1 = below[0] if len(below) >= 1 else None
+        sup2 = below[1] if len(below) >= 2 else None
+
+        # 52w + intraday ranges
+        n252 = min(len(close), 252)
+        high_52w = float(high.tail(n252).max())
+        low_52w  = float(low.tail(n252).min())
+        week_high = float(high.tail(5).max())
+        week_low  = float(low.tail(5).min())
+        month_high = float(high.tail(20).max())
+        month_low  = float(low.tail(20).min())
+        try:
+            day_high = float(high.iloc[-1])
+            day_low  = float(low.iloc[-1])
+        except Exception:
+            day_high = day_low = last
+
+        # RSI(14) via EWM (same formula as ticker indicators)
+        rsi14 = None
+        try:
+            delta = close.diff(1)
+            up = delta.clip(lower=0).ewm(com=13, adjust=False).mean()
+            dn = (-delta).clip(lower=0).ewm(com=13, adjust=False).mean()
+            rs = up / dn.replace(0, np.nan)
+            v = (100.0 - 100.0 / (1.0 + rs)).iloc[-1]
+            rsi14 = None if pd.isna(v) else float(v)
+        except Exception:
+            pass
+
+        return {
+            "close":          last,
+            "prev_close":     prev,
+            "day_change_pct": round(day_chg, 2),
+            "day_high":       day_high,
+            "day_low":        day_low,
+            "week_high":      week_high,
+            "week_low":       week_low,
+            "month_high":     month_high,
+            "month_low":      month_low,
+            "high_52w":       high_52w,
+            "low_52w":        low_52w,
+            "ma20":           ma20,
+            "ma50":           ma50,
+            "ma200":          ma200,
+            "ma20_slope_pct": round(ma20_slope_pct, 2) if ma20_slope_pct is not None else None,
+            "rsi14":          round(rsi14, 1) if rsi14 is not None else None,
+            "support_1":      sup1,
+            "support_2":      sup2,
+            "resistance_1":   res1,
+            "resistance_2":   res2,
+        }
+    except Exception:
+        return {}
 
 
 # ── Prompt builder ─────────────────────────────────────────────────────────
@@ -769,6 +909,58 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         vr_note = " | ⚡ Biên độ cao — high-vol regime" if vr == "high" else ""
         lines.append(f"\n## Quant Market Regime\n{r['regime']} | conviction={r['conviction']:+.2f}"
                      f"{vr_note} | {r['detail']}")
+
+    # VNINDEX technical levels — emit BEFORE breadth/sectors so the LLM
+    # treats these as the canonical reference numbers instead of making up
+    # stale levels from training data.
+    if vt := ctx.get("vnindex_tech"):
+        def _f(v) -> str:
+            return f"{v:,.2f}" if isinstance(v, (int, float)) else "—"
+
+        vt_lines = ["\n## VNINDEX kỹ thuật (số liệu hiện tại — DÙNG CHÍNH XÁC, KHÔNG ĐƯỢC THAY)"]
+        vt_lines.append(
+            f"- Giá đóng cửa: **{_f(vt.get('close'))}** "
+            f"(prev {_f(vt.get('prev_close'))}, "
+            f"thay đổi phiên {vt.get('day_change_pct', 0):+.2f}%)"
+        )
+        vt_lines.append(
+            f"- Range hôm nay: {_f(vt.get('day_low'))} – {_f(vt.get('day_high'))} | "
+            f"Tuần: {_f(vt.get('week_low'))} – {_f(vt.get('week_high'))} | "
+            f"Tháng: {_f(vt.get('month_low'))} – {_f(vt.get('month_high'))}"
+        )
+        vt_lines.append(
+            f"- 52w: {_f(vt.get('low_52w'))} – {_f(vt.get('high_52w'))}"
+        )
+        ma_parts = []
+        for k, label in (("ma20", "MA20"), ("ma50", "MA50"), ("ma200", "MA200")):
+            v = vt.get(k)
+            if v is not None:
+                close_v = vt.get("close") or 0
+                vs = ((close_v / v) - 1) * 100 if v else 0
+                ma_parts.append(f"{label}={_f(v)} ({vs:+.1f}%)")
+        if ma_parts:
+            vt_lines.append("- " + " | ".join(ma_parts))
+        if (slope := vt.get("ma20_slope_pct")) is not None:
+            slope_tag = "↗ tăng" if slope > 0.2 else ("↘ giảm" if slope < -0.2 else "→ đi ngang")
+            vt_lines.append(f"- MA20 slope (5 phiên): {slope:+.2f}% {slope_tag}")
+        if (rsi := vt.get("rsi14")) is not None:
+            rsi_tag = "quá mua" if rsi > 70 else ("quá bán" if rsi < 30 else "trung tính")
+            vt_lines.append(f"- RSI(14): {rsi:.1f} ({rsi_tag})")
+        sr_parts = []
+        if vt.get("support_2") is not None:
+            sr_parts.append(f"S2={_f(vt['support_2'])}")
+        if vt.get("support_1") is not None:
+            sr_parts.append(f"S1={_f(vt['support_1'])}")
+        if vt.get("resistance_1") is not None:
+            sr_parts.append(f"R1={_f(vt['resistance_1'])}")
+        if vt.get("resistance_2") is not None:
+            sr_parts.append(f"R2={_f(vt['resistance_2'])}")
+        if sr_parts:
+            vt_lines.append(
+                "- Pivots (60-bar swing): " + " | ".join(sr_parts)
+                + "  ← DÙNG ĐÚNG CÁC MỨC NÀY khi viết hỗ trợ/kháng cự"
+            )
+        lines.append("\n".join(vt_lines))
 
     # Session timing
     if timing := ctx.get("session_timing"):
