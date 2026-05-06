@@ -243,23 +243,65 @@ def _rehydrate_date_sort(items: list[dict]) -> int:
     return fixed
 
 
+def _is_news_dataframe(df) -> bool:
+    """Check if a DataFrame is actually news data, not an API error response.
+
+    Some providers (KBS) return error responses in the same shape as a
+    DataFrame, e.g. {st:'err', msg:'s must not be greater than 20',
+    code:'1', error_code:'500'} when an unsupported param is passed.
+    Without this guard those error rows would be saved into the cache
+    and shown to the user as "108/108 tin không có ngày phát hành".
+    """
+    if df is None or len(df) == 0:
+        return False
+    cols = set(map(str, df.columns))
+    # Explicit error signatures
+    if {"st", "error_code"} & cols:
+        first = df.iloc[0]
+        if str(first.get("st", "")).lower() == "err":
+            return False
+        if str(first.get("error_code", "")) in ("500", "400", "401", "403", "429"):
+            return False
+    # Must have at least one news-like column
+    news_cols = {
+        "title", "head", "news_title", "article_id", "headline",
+        "publish_time", "public_date", "publishedAt", "publishedTime",
+    }
+    return bool(news_cols & cols)
+
+
+def _is_valid_news_item(d: dict) -> bool:
+    """Check if a cached record is actually news, not an old error response."""
+    if not isinstance(d, dict):
+        return False
+    if str(d.get("st", "")).lower() == "err":
+        return False
+    if str(d.get("error_code", "")) in ("500", "400", "401", "403", "429"):
+        return False
+    # Need at least one meaningful content field
+    return bool(
+        d.get("title") or d.get("head") or d.get("news_title")
+        or d.get("article_id") or d.get("headline")
+    )
+
+
 def fetch_ticker_news(ticker: str, source: str = "VCI") -> list[dict]:
     """Fetch news for one ticker. Returns list of dicts (empty on any error).
 
-    Tries vnstock_data.Company (sponsor package) first with multiple
-    page_size variants — sponsor pkg may return more articles per ticker
-    if it accepts a limit param. Falls back to vnstock free.
+    Tries vnstock_data.Company (sponsor package) first; falls back to
+    vnstock free. Validates responses with _is_news_dataframe to reject
+    error responses that some providers (KBS) shape as DataFrames.
     """
-    # Sponsor path: vnstock_data.Company. Try with various param shapes
-    # since the signature may differ across versions.
+    # Sponsor path: vnstock_data.Company. KBS limits page size to 20;
+    # try size=20 first (max), then no-args (provider default).
     try:
         import vnstock_data as _vd
         for src in ("VCI", "KBS"):
-            for kwargs in ({"page_size": 50}, {"limit": 50}, {"size": 50}, {}):
+            for kwargs in ({"size": 20}, {"page_size": 20}, {"limit": 20}, {}):
                 try:
                     comp = _vd.Company(symbol=ticker, source=src)
                     df = comp.news(**kwargs)
-                    if df is not None and not df.empty:
+                    if _is_news_dataframe(df):
                         return _records_from_df(df, ticker, src)
                 except TypeError:
                     # Wrong param name — try next variant.
@@ -277,7 +319,7 @@ def fetch_ticker_news(ticker: str, source: str = "VCI") -> list[dict]:
             from vnstock import Vnstock  # type: ignore
             stock = Vnstock().stock(symbol=ticker, source=src)
             df = stock.company.news()
-            if df is not None and not df.empty:
+            if _is_news_dataframe(df):
                 return _records_from_df(df, ticker, src)
         except Exception:
             continue
@@ -296,26 +338,27 @@ def diagnose_news_fetch(ticker: str = "VCB") -> dict:
     import inspect as _inspect
     out: dict = {}
 
-    # vnstock_data.Company
+    # vnstock_data.Company — try both VCI and KBS so we see what each returns
     try:
         import vnstock_data as _vd
-        try:
-            comp = _vd.Company(symbol=ticker, source="VCI")
-            sig = str(_inspect.signature(comp.news)) if hasattr(comp.news, "__call__") else "?"
-            t0 = _time.time()
-            df = comp.news()
-            dt = (_time.time() - t0) * 1000
-            out["vnstock_data.Company.news()"] = {
-                "signature": sig,
-                "latency_ms": round(dt, 0),
-                "shape": tuple(df.shape) if df is not None and hasattr(df, "shape") else None,
-                "columns": list(df.columns) if df is not None and hasattr(df, "columns") else [],
-                "sample": df.iloc[0].to_dict() if df is not None and not df.empty else None,
-            }
-        except Exception as e:
-            out["vnstock_data.Company.news()"] = {"error": f"{type(e).__name__}: {e}"}
+        for src in ("VCI", "KBS"):
+            label = f"vnstock_data.Company(source='{src}').news()"
+            try:
+                comp = _vd.Company(symbol=ticker, source=src)
+                t0 = _time.time()
+                df = comp.news()
+                dt = (_time.time() - t0) * 1000
+                out[label] = {
+                    "latency_ms": round(dt, 0),
+                    "shape": tuple(df.shape) if df is not None and hasattr(df, "shape") else None,
+                    "columns": list(df.columns) if df is not None and hasattr(df, "columns") else [],
+                    "is_news": _is_news_dataframe(df) if df is not None else False,
+                    "sample": df.iloc[0].to_dict() if df is not None and not df.empty else None,
+                }
+            except Exception as e:
+                out[label] = {"error": f"{type(e).__name__}: {e}"}
     except ImportError as e:
-        out["vnstock_data.Company.news()"] = {"error": f"ImportError: {e}"}
+        out["vnstock_data.Company"] = {"error": f"ImportError: {e}"}
 
     # vnstock free
     try:
@@ -430,9 +473,13 @@ def load_news_cache() -> list[dict]:
             return []
         try:
             data = json.loads(NEWS_CACHE_PATH.read_text(encoding="utf-8"))
-            items = data.get("items", [])
+            raw_items = data.get("items", [])
+            # Filter out error responses that older buggy fetches saved
+            # into the cache (e.g. KBS 'st:err' rows).
+            items = [d for d in raw_items if _is_valid_news_item(d)]
+            removed = len(raw_items) - len(items)
             fixed = _rehydrate_date_sort(items)
-            if fixed > 0:
+            if fixed > 0 or removed > 0:
                 # Re-sort newest-first now that dates are populated.
                 items.sort(
                     key=lambda x: x.get("_date_sort") or "0000-00-00",

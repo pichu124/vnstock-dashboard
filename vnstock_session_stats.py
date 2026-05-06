@@ -348,13 +348,27 @@ def backfill_session_stats(*, days: int = 60) -> int:
             df = history_dfs.get(idx, pd.DataFrame())
             row = df[df["trading_date"] == d] if not df.empty else None
             if row is not None and not row.empty:
-                tv = float(row.iloc[0]["total_value"])
-                tvol = float(row.iloc[0]["total_volume"])
+                r0 = row.iloc[0]
+                tv = float(r0["total_value"])
+                tvol = float(r0["total_volume"])
+                # Capture matched + deal breakdown for diagnostics. On days
+                # with large block deals, total_value can spike (e.g. 9/3,
+                # 10/3 in Mar 2026 looked anomalously high). matched_value
+                # filters those out — useful when the user wants pure
+                # session GTGD comparable across days.
+                mv = float(r0.get("matched_value", 0)) if "matched_value" in r0.index else 0.0
+                mvol = float(r0.get("matched_volume", 0)) if "matched_volume" in r0.index else 0.0
+                dv = float(r0.get("deal_value", 0)) if "deal_value" in r0.index else 0.0
                 full_session[idx] = {
                     "vol": int(tvol),
                     "gtgd": round(tv / 1e9, 1),
                     "gtgd_per_vol": round(tv / tvol, 0) if tvol > 0 else 0,
                     "status": "exact",
+                    # Diagnostic fields (not displayed; available for future
+                    # UI toggle "GTGD khớp lệnh" vs "GTGD tổng").
+                    "vol_matched": int(mvol),
+                    "gtgd_matched": round(mv / 1e9, 1),
+                    "gtgd_deal": round(dv / 1e9, 1),
                 }
             else:
                 full_session[idx] = _compute_window_stats_estimate(
