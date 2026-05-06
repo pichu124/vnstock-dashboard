@@ -124,35 +124,46 @@ Dữ liệu thị trường kết thúc phiên SÁNG (11:30):
 ---
 Viết MORNING BRIEF tiếng Việt theo đúng format sau (không thêm phần nào khác):
 
+## 🎯 TLDR (2 dòng)
+**Bias:** [TĂNG / GIẢM / TRUNG TÍNH] — [1 câu lý do chính, có số liệu]
+**Hành động ưu tiên:** [BUY / WAIT / DEFENSIVE] — [ngành hoặc setup cụ thể]
+
 ## 📊 Tổng quan phiên sáng
-[2-3 câu: diễn biến chính, GTGD so bình thường, tính chất phiên institutional/retail]
+[2-3 câu: diễn biến chính, GTGD vs bình thường (có % so trung bình 5 phiên nếu data có), tính chất phiên (institutional vs retail dựa vào GTGD/độ rộng)]
+
+## 📈 Mức kỹ thuật quan trọng (VNINDEX)
+**Hỗ trợ gần:** [ước lượng từ giá hiện tại - có thể dùng MA20/MA50 trong data nếu có]
+**Kháng cự gần:** [tương tự]
+**Trigger breakout/breakdown:** [mức giá cụ thể + ý nghĩa nếu xuyên thủng]
+[Nếu data không có MA200/breadth đủ để ước lượng thì viết "Cần thêm dữ liệu kỹ thuật cho VNINDEX"]
 
 ## 🎯 Trọng tâm theo dõi
-**Tích luỹ/Mua:** [ngành hoặc mã VN30 + lý do cụ thể từ data]
-**Tránh/Bán:** [ngành hoặc mã VN30 + lý do cụ thể từ data]
-**Theo dõi:** [rotation/stealth nếu có, nếu không thì bỏ dòng này]
+**Tích luỹ/Mua:** [ngành hoặc mã VN30 + lý do cụ thể từ data — nêu trọng số %VNI và đóng góp pp]
+**Tránh/Bán:** [ngành hoặc mã VN30 + lý do cụ thể]
+**Theo dõi:** [rotation/stealth nếu có, bỏ dòng này nếu không có tín hiệu]
 
 ## ⚡ Biến động bất thường
-[Mã/ngành tăng giảm đột biến + giải thích; nếu không có thì viết "Không có biến động bất thường đáng chú ý"]
+[Mã/ngành tăng giảm đột biến + giải thích; "Không có biến động bất thường đáng chú ý" nếu phẳng]
 
 ## 🔮 Kịch bản phiên chiều
-**Tích cực (>50% xác suất nếu...):** [điều kiện kích hoạt]
-**Thận trọng:** [tín hiệu cần theo dõi để cắt lỗ / không vào hàng]
+**Kịch bản chính ([X]% xác suất):** [điều kiện kích hoạt CỤ THỂ với mức giá/chỉ số — ví dụ "VNINDEX giữ trên 1.245, bank giữ đà → kỳ vọng đóng cửa +0.4-0.8%"]
+**Kịch bản phụ:** [điều kiện ngược + ngưỡng cắt lỗ/đứng ngoài — ví dụ "VHM thủng 42.5 + GTGD chiều >70% sáng → áp lực phân phối, chuyển sang phòng thủ"]
 
 ## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)
-[Liệt kê tối đa 3 mã từ block "Khuyến nghị từ chiến lược đã backtest" với entry/TP/SL; bỏ qua nếu không có]
-BẮT BUỘC: Nếu quyết định mua/bán bị ảnh hưởng bởi tin tức trong block "Tin tức thị trường", PHẢI nêu rõ tên tiêu đề tin và giải thích tác động (ví dụ: "HPG: MUA — kỹ thuật vượt MA20 + tin tức [Hòa Phát ký hợp đồng thép 5.000 tỷ] hỗ trợ đà tăng"). Nếu không có tin tức liên quan thì chỉ dựa vào kỹ thuật.
+[Liệt kê tối đa 3 mã từ block "Khuyến nghị từ chiến lược đã backtest" với entry/TP/SL]
+BẮT BUỘC: Nếu quyết định bị ảnh hưởng bởi tin tức trong block "Tin tức thị trường", PHẢI nêu rõ tên tiêu đề tin và giải thích tác động (ví dụ: "HPG: MUA — kỹ thuật vượt MA20 + tin [Hòa Phát ký hợp đồng thép 5.000 tỷ] hỗ trợ đà tăng"). Bỏ qua nếu không có khuyến nghị.
 
 ## 🔧 Đề xuất bổ sung (1 dòng, optional)
-[1 dữ liệu/chỉ số bạn nghĩ cần thêm để brief sau chính xác hơn — ví dụ "cần GTGD bid/ask theo phút" — bỏ qua nếu không cần]
+[1 dữ liệu/chỉ số cần thêm để brief sau chính xác hơn — bỏ qua nếu không cần]
 
-Giới hạn 400 từ. Chỉ đề cập mã trong VN30 khi nói về cổ phiếu cụ thể.
-YÊU CẦU VỀ ĐỘ CỤ THỂ:
-- Ngành nào được đề cập → LUÔN nêu trọng số %VNI và đóng góp pp hôm nay (có trong data).
-- Mã nào được đề cập → nêu mức đóng góp pp vào VNINDEX nếu có trong data.
-- Ưu tiên ngành/mã có đóng góp tuyệt đối lớn nhất, không chỉ tăng % cao nhất.
-- Không dùng câu chung chung như "thị trường diễn biến tích cực" nếu có số liệu cụ thể hơn.
-Nếu không đủ data cho một mục thì nói thẳng, không bịa.
+Giới hạn 450 từ. Chỉ đề cập mã trong VN30 khi nói về cổ phiếu cụ thể.
+YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
+- Mọi nhận định PHẢI gắn với SỐ trong data, không nói "tích cực/tiêu cực" suông.
+- Ngành được đề cập → LUÔN nêu trọng số %VNI và đóng góp pp hôm nay.
+- Mã được đề cập → nêu mức đóng góp pp vào VNINDEX nếu có.
+- Ưu tiên ngành/mã có đóng góp TUYỆT ĐỐI lớn nhất, không chỉ tăng % cao nhất.
+- Kịch bản phải có TRIGGER (mức giá/chỉ số/% volume) — không viết "nếu thị trường tốt".
+- Nếu không đủ data cho một mục → viết "Cần thêm [data X]", không bịa.
 """
 
 _AFTERNOON_TEMPLATE = """\
@@ -165,35 +176,47 @@ Dữ liệu thị trường kết thúc PHIÊN CHIỀU (15:00):
 ---
 Viết AFTERNOON BRIEF tiếng Việt theo đúng format sau (không thêm phần nào khác):
 
+## 🎯 TLDR (2 dòng)
+**Kết quả phiên:** [VNINDEX đóng cửa ±X% / GTGD Y tỷ — 1 câu nhận định bản chất]
+**Stance ngày mai:** [TĂNG / GIẢM / TRUNG TÍNH bias + 1 setup ưu tiên hoặc cảnh báo]
+
 ## 📊 Tổng kết phiên
-[2-3 câu: kết quả toàn ngày, GTGD, độ rộng thị trường, so sánh với kỳ vọng sáng]
+[2-3 câu: kết quả toàn ngày, GTGD vs trung bình, độ rộng thị trường (A/D, % trên MA200), so sánh với kỳ vọng sáng nếu có]
+
+## 📈 Mức kỹ thuật chốt phiên (VNINDEX)
+**Đóng cửa vs key levels:** [VNINDEX vs MA20/MA50 nếu data có; vị trí hiện tại trong range tuần/tháng]
+**Trigger ngày mai:** [breakout level + breakdown level cụ thể + ý nghĩa]
 
 ## 🏆 Dẫn dắt & Tụt hậu
-**Dẫn dắt:** [top 2-3 ngành/mã VN30 + composite/return cụ thể]
+**Dẫn dắt:** [top 2-3 ngành/mã VN30 + đóng góp pp + % return cụ thể]
 **Tụt hậu:** [ngành/mã yếu + lý do nếu rõ]
 
 ## 💰 Dòng tiền đáng chú ý
-[NN mua/bán ròng đáng kể | smart money tích luỹ/phân phối | unusual volume | bỏ qua nếu không có tín hiệu rõ]
+[NN mua/bán ròng đáng kể (số tỷ cụ thể) | smart money tích luỹ/phân phối | unusual volume; bỏ qua nếu phẳng]
 
-## 📋 Watchlist sáng mai
-[2-3 ngành/mã + điều kiện cụ thể để vào lệnh hoặc theo dõi]
+## 📋 Watchlist sáng mai (3 setup cụ thể)
+1. **[Mã/Ngành]** — [BUY ở X / WAIT khi vượt Y / SELL nếu thủng Z] — [trigger 1 dòng]
+2. ...
+3. ...
 
 ## ⚠️ Rủi ro cần lưu ý
-[Red flags, distribution, macro risk; nếu thị trường ổn định thì viết "Không có rủi ro đặc biệt"]
+[Red flags, distribution, macro risk với mức cảnh báo cụ thể; "Không có rủi ro đặc biệt" nếu thị trường ổn]
 
 ## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)
-[Liệt kê tối đa 3 mã từ block "Khuyến nghị từ chiến lược đã backtest" với entry/TP/SL; bỏ qua nếu không có]
-BẮT BUỘC: Nếu quyết định mua/bán bị ảnh hưởng bởi tin tức trong block "Tin tức thị trường", PHẢI nêu rõ tên tiêu đề tin và giải thích tác động. Nếu không có tin tức liên quan thì chỉ dựa vào kỹ thuật.
+[Liệt kê tối đa 3 mã với entry/TP/SL từ block "Khuyến nghị"]
+BẮT BUỘC: Nếu có tin tức tác động → nêu rõ tiêu đề tin + ảnh hưởng. Bỏ qua nếu không có khuyến nghị.
 
 ## 🔧 Đề xuất bổ sung (1 dòng, optional)
 [1 dữ liệu/chỉ số cần thêm để brief sau chính xác hơn — bỏ qua nếu không cần]
 
-Giới hạn 450 từ. Chỉ đề cập mã trong VN30. Nếu thị trường flat và không có signal rõ thì nói thẳng.
-YÊU CẦU VỀ ĐỘ CỤ THỂ:
-- Ngành nào được đề cập → LUÔN nêu trọng số %VNI và đóng góp pp hôm nay (có trong data).
-- Mã nào được đề cập → nêu mức đóng góp pp vào VNINDEX nếu có trong data.
-- Ưu tiên ngành/mã có đóng góp tuyệt đối lớn nhất, không chỉ tăng % cao nhất.
-- Không dùng câu chung chung nếu có số liệu cụ thể hơn.
+Giới hạn 500 từ. Chỉ đề cập mã trong VN30. Nếu thị trường flat và không có signal rõ thì nói thẳng.
+YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
+- Mọi nhận định PHẢI gắn với SỐ trong data.
+- Ngành được đề cập → LUÔN nêu trọng số %VNI và đóng góp pp hôm nay.
+- Mã được đề cập → nêu mức đóng góp pp vào VNINDEX nếu có.
+- Ưu tiên ngành/mã có đóng góp TUYỆT ĐỐI lớn nhất, không chỉ tăng % cao nhất.
+- Setup watchlist phải có TRIGGER (mức giá cụ thể) — không viết "nếu thị trường tích cực thì vào".
+- Nếu không đủ data → viết "Cần thêm [data X]", không bịa.
 """
 
 

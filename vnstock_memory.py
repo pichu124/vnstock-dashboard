@@ -522,19 +522,66 @@ def close_recommendation(
         )
 
 
-def recommendation_performance(strategy_id: Optional[int] = None) -> dict:
-    """Aggregate stats over closed recommendations."""
+def recent_closed_recommendations(limit: int = 30) -> list[dict]:
+    """Return recently-closed recs joined with their outcomes, newest first.
+
+    Used by the market tab UI to show realized P&L and hit-target distribution
+    so users can audit what the strategy is actually producing.
+    """
     with _conn() as c:
-        q = """SELECT o.pnl_pct, o.hit_target FROM rec_outcomes o
+        rows = c.execute(
+            """
+            SELECT r.id, r.created_at, r.ticker, r.action, r.entry_price,
+                   r.take_profit, r.cut_loss, r.horizon_days, r.strategy_id,
+                   o.closed_at, o.exit_price, o.pnl_pct, o.hit_target, o.notes
+            FROM recommendations r
+            INNER JOIN rec_outcomes o ON o.rec_id = r.id
+            WHERE o.hit_target IS NOT NULL
+            ORDER BY o.closed_at DESC, r.id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def outcome_distribution(strategy_id: Optional[int] = None) -> dict:
+    """Count closed recs by hit_target bucket (tp/sl/expire/superseded).
+
+    Skips superseded entries from win/loss aggregates because they were
+    closed administratively, not by market outcome.
+    """
+    with _conn() as c:
+        q = """SELECT o.hit_target, COUNT(*) as n FROM rec_outcomes o
                JOIN recommendations r ON r.id=o.rec_id"""
         params: tuple = ()
         if strategy_id is not None:
             q += " WHERE r.strategy_id=?"
             params = (strategy_id,)
+        q += " GROUP BY o.hit_target"
+        rows = c.execute(q, params).fetchall()
+    return {str(r["hit_target"] or "unknown"): int(r["n"]) for r in rows}
+
+
+def recommendation_performance(strategy_id: Optional[int] = None) -> dict:
+    """Aggregate stats over MARKET-closed recommendations.
+
+    Excludes hit_target='superseded' (closed administratively, no real PnL)
+    so win_rate reflects actual TP/SL/expire outcomes, not bookkeeping.
+    """
+    with _conn() as c:
+        q = ("SELECT o.pnl_pct, o.hit_target FROM rec_outcomes o "
+             "JOIN recommendations r ON r.id=o.rec_id "
+             "WHERE COALESCE(o.hit_target,'') != 'superseded' "
+             "  AND o.pnl_pct IS NOT NULL")
+        params: tuple = ()
+        if strategy_id is not None:
+            q += " AND r.strategy_id=?"
+            params = (strategy_id,)
         rows = c.execute(q, params).fetchall()
     if not rows:
         return {"n": 0}
-    pnls = [float(r["pnl_pct"] or 0) for r in rows]
+    pnls = [float(r["pnl_pct"]) for r in rows]
     wins = [p for p in pnls if p > 0]
     losses = [p for p in pnls if p <= 0]
     return {

@@ -1630,6 +1630,7 @@ def render_market_tab() -> None:
                     if _opens:
                         st.markdown("**Open recommendations**")
                         import pandas as _pd
+                        from datetime import datetime as _dt_cls
                         _df_opens = _pd.DataFrame(_opens)
                         # Add % vs entry next to each price target — easier
                         # than mental math to gauge risk/reward at a glance.
@@ -1639,15 +1640,121 @@ def render_market_tab() -> None:
                         _df_opens["TP (%)"] = _tp_pct.round(1).map(lambda v: f"{v:+.1f}%")
                         _df_opens["SL (%)"] = _sl_pct.round(1).map(lambda v: f"{v:+.1f}%")
                         _df_opens["R:R"] = (_tp_pct / _sl_pct.abs().replace(0, _pd.NA)).round(2)
+
+                        # Show age + horizon status so user sees what's expired
+                        def _age_status(row):
+                            try:
+                                created = _dt_cls.fromisoformat(str(row["created_at"]))
+                            except Exception:
+                                return "—"
+                            age = (_dt_cls.now() - created).days
+                            horizon = int(row.get("horizon_days") or 5)
+                            if age >= horizon:
+                                return f"🕒 {age}d (đến hạn — bấm Cập nhật)"
+                            return f"⏳ {age}/{horizon}d"
+
+                        _df_opens["Trạng thái"] = _df_opens.apply(_age_status, axis=1)
                         st.dataframe(
                             _df_opens[
                                 ["ticker", "action", "entry_price",
                                  "take_profit", "TP (%)",
                                  "cut_loss",    "SL (%)", "R:R",
-                                 "horizon_days", "created_at"]
+                                 "Trạng thái", "created_at"]
                             ],
                             use_container_width=True,
                             hide_index=True,
+                        )
+
+                        # Reconcile button — close expired recs by walking
+                        # forward from price history. Same logic as the daily
+                        # train script's reconcile_recommendations().
+                        _rc1, _rc2 = st.columns([1, 3])
+                        with _rc1:
+                            if st.button("📊 Cập nhật kết quả",
+                                         key="_reconcile_btn",
+                                         help="Đóng các khuyến nghị đã quá horizon "
+                                              "(walk-forward giá để check TP/SL/expire). "
+                                              "Tự động chạy khi `vnstock_train.py --once`."):
+                                with st.spinner("⏳ Đang reconcile..."):
+                                    try:
+                                        from vnstock_train import reconcile_recommendations as _rec_fn
+                                        _rc_summary = _rec_fn(verbose=False)
+                                        st.session_state["_reconcile_result"] = _rc_summary
+                                    except Exception as _e:
+                                        st.session_state["_reconcile_result"] = {
+                                            "error": f"{type(_e).__name__}: {_e}"
+                                        }
+                                st.rerun()
+                        with _rc2:
+                            _rc_res = st.session_state.get("_reconcile_result")
+                            if _rc_res:
+                                if _rc_res.get("error"):
+                                    st.error(f"❌ {_rc_res['error']}")
+                                else:
+                                    st.success(
+                                        f"✅ Đã đóng **{_rc_res.get('closed', 0)}** rec, "
+                                        f"còn **{_rc_res.get('still_open', 0)}** đang mở."
+                                    )
+
+                    # ── Closed recommendations + outcome breakdown ─────────
+                    try:
+                        _closed = _vm.recent_closed_recommendations(limit=20)
+                        _dist   = _vm.outcome_distribution()
+                    except Exception:
+                        _closed, _dist = [], {}
+
+                    # Filter out superseded entries from the visible table —
+                    # they're administrative closures, not real outcomes.
+                    _closed_real = [
+                        c for c in _closed
+                        if (c.get("hit_target") or "") != "superseded"
+                    ]
+
+                    if _dist or _closed_real:
+                        st.markdown("**📈 Kết quả khuyến nghị đã đóng**")
+                        _n_tp = _dist.get("tp", 0)
+                        _n_sl = _dist.get("sl", 0)
+                        _n_ex = _dist.get("expire", 0)
+                        _n_sup = _dist.get("superseded", 0)
+                        _n_real = _n_tp + _n_sl + _n_ex
+                        _o1, _o2, _o3, _o4 = st.columns(4)
+                        _o1.metric("🎯 Hit TP", _n_tp,
+                                   delta=f"{_n_tp/_n_real*100:.0f}%" if _n_real else None)
+                        _o2.metric("🛑 Hit SL", _n_sl,
+                                   delta=f"-{_n_sl/_n_real*100:.0f}%" if _n_real else None,
+                                   delta_color="inverse")
+                        _o3.metric("⏰ Hết hạn", _n_ex)
+                        _o4.metric("🔄 Bị thay thế", _n_sup,
+                                   help="Đóng khi scan mới ra khuyến nghị thay thế cho cùng mã.")
+
+                        if _closed_real:
+                            import pandas as _pd
+                            _df_cl = _pd.DataFrame(_closed_real)
+                            _icon_map = {"tp": "🎯 TP", "sl": "🛑 SL", "expire": "⏰ Hết hạn"}
+                            _df_cl["Kết quả"] = _df_cl["hit_target"].map(_icon_map).fillna(_df_cl["hit_target"])
+                            _df_cl["P&L %"] = _df_cl["pnl_pct"].astype(float).round(2).map(
+                                lambda v: f"{v:+.2f}%" if _pd.notna(v) else "—"
+                            )
+                            _df_cl["entry_price"] = _df_cl["entry_price"].astype(float).round(0)
+                            _df_cl["exit_price"] = _df_cl["exit_price"].astype(float).round(0)
+                            with st.expander(
+                                f"Xem {len(_closed_real)} khuyến nghị gần đây nhất",
+                                expanded=False,
+                            ):
+                                st.dataframe(
+                                    _df_cl[[
+                                        "ticker", "action", "entry_price",
+                                        "exit_price", "P&L %", "Kết quả",
+                                        "horizon_days", "created_at", "closed_at",
+                                    ]],
+                                    use_container_width=True,
+                                    hide_index=True,
+                                )
+                        st.caption(
+                            "💡 Hệ thống TỰ động đóng rec khi đến hạn (horizon ngày) — "
+                            "walk-forward giá để check TP/SL/expire. "
+                            "Reconcile chạy tự động mỗi khi gọi `python vnstock_train.py --once`, "
+                            "hoặc bấm **📊 Cập nhật kết quả** ở trên để chạy ngay."
                         )
 
                     # ── Training result ────────────────────────────────────

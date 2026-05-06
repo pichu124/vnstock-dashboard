@@ -466,10 +466,10 @@ def backtest(code: str, cfg: BacktestConfig) -> dict:
 
 # ── Strategy generation via agents ─────────────────────────────────────────
 _STRATEGY_PROMPT = """\
-Bạn là quant developer. Hãy viết MỘT chiến lược giao dịch ngắn hạn cho thị trường \
-chứng khoán Việt Nam.
+Bạn là quant developer cho thị trường chứng khoán Việt Nam (T+2.5, không short, \
+tick size 10/50/100 VND). Hãy viết MỘT chiến lược giao dịch ngắn hạn (horizon 5 ngày).
 
-Output bắt buộc theo đúng format:
+Output BẮT BUỘC theo đúng format (không markdown wrapper):
 
 PARAMS:
 {{"key1": value1, "key2": value2, ...}}
@@ -478,31 +478,128 @@ CODE:
 def signal(df, params):
     ...
 
-Yêu cầu nghiêm ngặt:
-- Code dùng `params` thay cho hằng số magic — TẤT CẢ ngưỡng (RSI, MA period, stop %, take profit %) \
-  đều đọc từ `params['xxx']` để có thể tune sau này
-- Định nghĩa hàm: def signal(df, params) -> dict
-- df có cột: time, open, high, low, close, volume (mới nhất ở cuối)
-- Trả về dict: {{"action": "buy"|"sell"|"hold", "entry": float, "tp": float, "sl": float, "confidence": 0..1}}
-- KHÔNG được dùng: import, open, exec, eval, file IO, network, os, sys
+═══════════════════════════════════════════════════════════════
+CONTRACT
+═══════════════════════════════════════════════════════════════
+- Hàm: def signal(df, params) -> dict
+- df có cột: time, open, high, low, close, volume (mới nhất ở cuối, ~60 bars)
+- Trả về dict:
+    {{"action": "buy"|"sell"|"hold",
+      "entry": float,        # giá tuyệt đối VND (KHÔNG phải %)
+      "tp": float,           # take-profit absolute price
+      "sl": float,           # stop-loss absolute price
+      "confidence": 0..1}}   # CALIBRATED — xem mục QUALITY bên dưới
 - Chỉ dùng: pd, np, math (có sẵn trong scope)
-- entry/tp/sl là giá tuyệt đối (VND), không phải %
-- Logic chạy được với window 60 ngày
+- KHÔNG: import, open, exec, eval, file IO, network, os, sys, getattr/setattr
+- Mọi ngưỡng (period, threshold, %) PHẢI đọc từ params để có thể tune
 
-QUAN TRỌNG — Tránh điều kiện tín hiệu mâu thuẫn:
-- Ví dụ SAI: RSI < 30 (oversold → giá đang giảm) VÀ close > MA20 (giá trên MA) — hai điều kiện \
-  hiếm khi xảy ra đồng thời → 0 trades
-- Ví dụ ĐÚNG: RSI < 30 (oversold) VÀ RSI đang tăng lại (momentum reversal) → tín hiệu hợp lý
-- Ví dụ ĐÚNG: close vừa cắt lên MA20 (golden cross) → breakout signal
-- Chiến lược PHẢI sinh ra ít nhất 5-10 tín hiệu trên window 60 ngày với 5+ tickers VN30
-- Dùng điều kiện ĐƠN GIẢN, 1-2 indicators, không stack quá nhiều AND
+═══════════════════════════════════════════════════════════════
+YÊU CẦU CHẤT LƯỢNG (non-trivial — đừng chỉ MA crossover thuần)
+═══════════════════════════════════════════════════════════════
 
+1) **CONFLUENCE (2-3 confirmation, không stack quá nhiều)**:
+   Entry buy nên có 2-3 trong số sau cùng đồng thuận:
+   - Trend: close > MA(n_trend) HOẶC MA ngắn cắt lên MA dài
+   - Momentum: RSI vừa thoát vùng oversold (RSI[t-1]<35 và RSI[t]>RSI[t-1])
+     HOẶC MACD histogram chuyển dương
+   - Volume: volume[t] > k * avg_volume[20] (xác nhận lực mua)
+   - Volatility filter: ATR/close không quá cao (tránh whipsaw)
+   - Pullback entry: close gần MA20 từ trên xuống (mean reversion trong uptrend)
+
+2) **REGIME FILTER (BẮT BUỘC — bỏ qua nếu thị trường không phù hợp)**:
+   - Tính slope MA50 (hoặc tương tự): nếu slope âm và params.get('regime_filter', True) → return hold
+   - HOẶC: nếu volatility (ATR%/close) > params['max_vol_pct'] → return hold (thị trường quá hỗn loạn)
+
+3) **ATR-BASED STOPS (không dùng % cứng)**:
+   - Tính ATR(14) hoặc rolling std của (high-low)
+   - sl = entry - params['sl_atr_mult'] * ATR   (mặc định 1.5-2.5)
+   - tp = entry + params['tp_atr_mult'] * ATR   (mặc định 2.5-4.0, đảm bảo R:R ≥ 1.5)
+   - Nếu thị trường VN tick 50/100 VND → KHÔNG cần round, sandbox sẽ làm
+
+4) **CONFIDENCE CALIBRATION (không hardcode 0.7)**:
+   confidence phải PHẢN ÁNH chất lượng signal. Ví dụ:
+     base = 0.4
+     if confluence_count >= 3: base += 0.2
+     if volume_ratio > 1.5: base += 0.1
+     if rsi_in_sweet_spot: base += 0.1
+     confidence = min(0.95, base)
+   → confidence cao = setup đẹp, thấp = setup yếu (giúp emit_recommendations
+     ưu tiên signal mạnh).
+
+5) **ENTRY PRICE THỰC TẾ**:
+   - entry = close hiện tại HOẶC pullback target gần (close * 0.99)
+   - Không entry = high của bar (không khả thi)
+
+═══════════════════════════════════════════════════════════════
+TRÁNH ĐIỀU KIỆN MÂU THUẪN (lý do strategy thường ra 0 trades)
+═══════════════════════════════════════════════════════════════
+- ❌ SAI: RSI < 30 (giá đang giảm) VÀ close > MA20 (giá trên MA) → hiếm xảy ra
+- ✅ ĐÚNG: RSI thoát oversold (RSI[t-1]<35 và RSI[t]>40) VÀ close > MA20 → momentum reversal có xác nhận trend
+- ✅ ĐÚNG: MA10 cắt lên MA20 + volume[t] > 1.3*avg_vol → breakout với volume xác nhận
+- Chiến lược PHẢI sinh ra ít nhất 8-15 tín hiệu trên window 60 ngày × 5 tickers VN30
+- Điều kiện AND không quá 4 — mỗi AND giảm số signal theo hàm mũ
+
+═══════════════════════════════════════════════════════════════
+EXAMPLE STRUCTURE (không copy nguyên si — viết mới phù hợp)
+═══════════════════════════════════════════════════════════════
+def signal(df, params):
+    if len(df) < 50:
+        return {{"action": "hold", "entry": 0, "tp": 0, "sl": 0, "confidence": 0}}
+    close = df['close'].astype(float)
+    high  = df['high'].astype(float)
+    low   = df['low'].astype(float)
+    vol   = df['volume'].astype(float)
+
+    # Indicators
+    ma_short = close.rolling(params['ma_short']).mean()
+    ma_long  = close.rolling(params['ma_long']).mean()
+    delta = close.diff()
+    up = delta.clip(lower=0).ewm(com=13).mean()
+    dn = (-delta).clip(lower=0).ewm(com=13).mean()
+    rsi = 100 - 100/(1 + up/dn.replace(0, np.nan))
+    tr  = pd.concat([(high-low), (high-close.shift()).abs(),
+                     (low-close.shift()).abs()], axis=1).max(axis=1)
+    atr = tr.rolling(params['atr_period']).mean()
+    avg_vol = vol.rolling(20).mean()
+
+    last = -1
+    c, h, l = float(close.iloc[last]), float(high.iloc[last]), float(low.iloc[last])
+    a = float(atr.iloc[last]) if not pd.isna(atr.iloc[last]) else c * 0.02
+
+    # Regime filter — slope of MA_long
+    ma_long_slope = (ma_long.iloc[last] - ma_long.iloc[last-5]) / max(ma_long.iloc[last-5], 1e-9)
+    if params.get('regime_filter', True) and ma_long_slope < params['min_slope']:
+        return {{"action": "hold", "entry": c, "tp": 0, "sl": 0, "confidence": 0.0}}
+
+    # Confluence checks
+    conf_trend    = c > ma_short.iloc[last] and ma_short.iloc[last] > ma_long.iloc[last]
+    conf_momentum = (rsi.iloc[last-1] < params['rsi_oversold_exit']
+                     and rsi.iloc[last] > rsi.iloc[last-1])
+    conf_volume   = vol.iloc[last] > params['vol_mult'] * avg_vol.iloc[last]
+    confluence = sum([conf_trend, conf_momentum, conf_volume])
+
+    if confluence >= 2:
+        entry = c
+        sl    = entry - params['sl_atr_mult'] * a
+        tp    = entry + params['tp_atr_mult'] * a
+        confidence = min(0.95, 0.4 + 0.15 * confluence + (0.1 if conf_volume else 0))
+        return {{"action": "buy", "entry": entry, "tp": tp, "sl": sl,
+                "confidence": confidence}}
+    return {{"action": "hold", "entry": c, "tp": 0, "sl": 0, "confidence": 0.0}}
+
+PARAMS gợi ý (TỰ CHỌN giá trị, không copy):
+{{"ma_short": 10, "ma_long": 20, "rsi_oversold_exit": 40, "vol_mult": 1.2,
+  "atr_period": 14, "sl_atr_mult": 2.0, "tp_atr_mult": 3.0, "min_slope": -0.005,
+  "regime_filter": true}}
+
+═══════════════════════════════════════════════════════════════
 Bối cảnh hiện tại:
 {context}
 
 {prior_feedback}
 
-Output đúng 2 phần: dòng `PARAMS:` + JSON dict, sau đó dòng `CODE:` + Python pure (không markdown wrapper).
+Output ĐÚNG 2 phần: dòng `PARAMS:` + JSON dict 1 dòng, sau đó dòng `CODE:` + Python pure.
+KHÔNG markdown ```python ``` wrapper. KHÔNG comment thừa thãi trong code.
 """
 
 _TUNE_PROMPT = """\
@@ -547,18 +644,36 @@ Params đã tune nhiều lần, kết quả tốt nhất:
 Vấn đề chính (suy luận từ metrics):
 {diagnosis}
 
-Hãy VIẾT LẠI CORE CODE với cách tiếp cận khác (đổi indicator chính, đổi entry/exit logic, \
-đổi market regime filter). Có thể giữ structure dùng `params` cho tunability.
+═══════════════════════════════════════════════════════════════
+HÃY VIẾT LẠI CORE CODE — đổi cách tiếp cận hoàn toàn
+═══════════════════════════════════════════════════════════════
+
+CONTRACT: def signal(df, params) -> dict
+  df: cột time, open, high, low, close, volume (~60 bars)
+  return: {{"action": "buy"|"sell"|"hold", "entry": float, "tp": float, "sl": float, "confidence": 0..1}}
+  Chỉ dùng pd, np, math. KHÔNG import/IO/network.
 
 QUAN TRỌNG — Tránh lỗi phổ biến gây 0 trades:
-- KHÔNG stack quá nhiều điều kiện AND — mỗi điều kiện bổ sung làm giảm số tín hiệu theo hàm mũ
-- KHÔNG dùng điều kiện mâu thuẫn: RSI<30 (oversold/giảm) VÀ close>MA (đang trên MA) — hiếm gặp
-- PHẢI sinh ít nhất 5-10 tín hiệu buy/sell trên window 60 ngày với dữ liệu VN30
-- Dùng 1-2 indicators đơn giản: MA crossover, RSI threshold đơn, volume breakout, hoặc Bollinger
+- KHÔNG stack quá nhiều điều kiện AND (>4 AND → 0 trades)
+- KHÔNG dùng điều kiện mâu thuẫn: RSI<30 VÀ close>MA20 → hiếm gặp
+- PHẢI sinh ít nhất 8-15 tín hiệu buy trên window 60 ngày × 5 tickers VN30
 
-Output cùng format như khi tạo mới:
+YÊU CẦU CHẤT LƯỢNG (nếu approach trước thiếu):
+1) **Confluence 2-3 confirmation** (trend + momentum + volume), không hardcode
+2) **Regime filter**: slope MA50 hoặc volatility filter — return hold khi không phù hợp
+3) **ATR-based stops**: sl = entry - sl_atr_mult * ATR; tp = entry + tp_atr_mult * ATR (R:R ≥ 1.5)
+4) **Confidence calibration**: phản ánh chất lượng signal (0.4 base + bonus theo confluence count)
+5) **Entry thực tế**: entry = close hoặc pullback gần, KHÔNG phải high của bar
+
+Cách tiếp cận thay thế GỢI Ý (chọn 1, khác approach trước):
+- Mean reversion: Bollinger lower band + RSI oversold exit + volume spike
+- Momentum breakout: Donchian channel high break + volume confirmation + ATR filter
+- Trend pullback: MA20 holds + RSI bounces from 40 + close > MA50
+- Volatility contraction: ATR thấp + Bollinger squeeze + volume breakout
+
+Output ĐÚNG 2 phần (KHÔNG markdown wrapper):
 PARAMS:
-{{...}}
+{{"key": value, ...}}
 
 CODE:
 def signal(df, params):
