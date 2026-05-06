@@ -293,11 +293,18 @@ def backfill_session_stats(*, days: int = 60) -> int:
 
         # Determine which indexes need 9h-15h work this run:
         # • Need work if cell is missing OR vol == 0 (initial broken / stale)
+        # • Also refetch if 'exact' cell is missing the matched/deal split
+        #   (gtgd_matched / gtgd_deal — added in commit 2ca28e2; cells
+        #   populated before that lack these diagnostic fields).
         def _needs_work_full(idx: str) -> bool:
             cell = existing_full.get(idx)
             if not cell:
                 return True
-            return cell.get("vol", 0) == 0 and cell.get("gtgd", 0) == 0
+            if cell.get("vol", 0) == 0 and cell.get("gtgd", 0) == 0:
+                return True
+            if cell.get("status") == "exact" and "gtgd_matched" not in cell:
+                return True
+            return False
 
         # Per partial-window, list indexes that need re-fetch (missing window
         # OR cell is 0/0 — earlier backfill with interval=1m failed for old
