@@ -35,19 +35,9 @@ The system is API-based (Claude/Groq/Mistral) — there are no model weights
 to fine-tune locally; "training" here means refreshing prompt few-shots,
 re-running strategy generation/backtest, and reconciling recommendations.
 
-### 2. Xác nhận OpenRouter hoạt động sau fix dynamic model fetch (2026-04-28)
+### 2. ✅ Xác nhận OpenRouter hoạt động (DONE 2026-05-18)
 
-**Status**: Chưa xác nhận — commit `4f5ecce` deploy dynamic `/api/v1/models` fetch
-nhưng user chưa test lại.
-
-**When to bring up again**:
-- User mở tab Thị trường và thấy OpenRouter vẫn lỗi
-- User hỏi về OpenRouter agent
-
-**What to check**:
-- Nếu vẫn lỗi: xem error message cụ thể (giờ đã có response body)
-- Nếu `_fetch_free_models` trả về list rỗng → /api/v1/models call thất bại
-- Thử nút "🔌 Test" trong ⚙️ Cài đặt AI Agent để kiểm tra nhanh
+**Status**: Đã xác nhận — "🔌 Test" trả về **Kết nối OK** với model `meta-llama/llama-3.3-70b-instruct:free`.
 
 ### 3. ✅ Tách nút Quét tín hiệu + Dynamic training universe (DONE 2026-04-28)
 
