@@ -145,7 +145,7 @@ def refetch(
         return {"status": "error", "reason": f"cannot import warehouse: {e}"}
 
     try:
-        wh = VnStockWarehouse(root=str(warehouse), verbose=False)
+        wh = VnStockWarehouse(root=str(warehouse))
         df = wh._fetch_price(ticker, start=start, end=end)
     except Exception as e:
         return {"status": "error", "reason": f"fetch failed: {e}"}
