@@ -46,12 +46,12 @@ SESSION_INDICES = ["VNINDEX", "VN30", "HNX", "UPCOM"]
 # Symbol used by vnstock_data Trading.price_history for each display name.
 # These DIFFER from the vnstock free Quote.history symbols — verified
 # empirically that "UPCOM" is rejected by price_history with
-# "Invalid symbol" error; correct alias still under research (TODO).
+# "Invalid symbol" error; confirmed alias is "UPCOMINDEX" (2026-05-18).
 _PRICE_HISTORY_SYMBOL = {
     "VNINDEX":  "VNINDEX",
     "VN30":     "VN30",
     "HNX":      "HNXINDEX",
-    "UPCOM":    "UPCOM",   # may need alternative — handled by fallback list
+    "UPCOM":    "UPCOMINDEX",  # confirmed working 2026-05-18
 }
 
 # Symbols for vnstock free Quote.history (used for intraday volume polling).
@@ -99,9 +99,6 @@ def _fetch_price_history(display_name: str) -> pd.DataFrame:
 
     symbol = _PRICE_HISTORY_SYMBOL[display_name]
     candidates = [symbol]
-    if display_name == "UPCOM":
-        # UPCOM symbol form for price_history not yet identified — try common variants.
-        candidates = ["UPCOM", "UPINDEX", "UPCOM-INDEX", "HNXUPCOM"]
 
     for sym in candidates:
         try:
@@ -163,7 +160,7 @@ def _fetch_intraday_volume(
 
     symbols = [_QUOTE_INTRADAY_SYMBOL[display_name]]
     if display_name == "UPCOM":
-        symbols = ["UPCOM", "UPCOM-INDEX", "UPINDEX", "HNX30"]
+        symbols = ["UPCOMINDEX", "UPCOM", "UPCOM-INDEX", "UPINDEX"]
     elif display_name == "HNX":
         symbols = ["HNXINDEX", "HNX-INDEX", "HNX"]
 
