@@ -80,13 +80,9 @@
 
 ### Trung hạn — code work còn lại
 
-7. **Refactor 5 dashboard tabs theo `docs/REFACTOR_PLAN.md`:**
-   - Portfolio tab (190 lines) — easiest, start here
-   - Screener tab (389 lines)
-   - Dòng Tiền tab (520 lines)
-   - Thị trường tab (762 lines)
-   - Phân tích tab (803 lines) — hardest, last
-   - **⚠ Chỉ làm ngoài giờ live trading.** 1 tab / commit / session.
+7. ✅ **Refactor dashboard tabs — DONE (2026-05-18)**
+   Tất cả 7 tabs đã extract: screener_tab, analysis_tab, market_tab,
+   money_flow_tab, news_tab, portfolio_tab (dashboard/), health (vnstock_health.py).
 
 8. **WSS debug sâu** — fix root cause của volume inflation bug trong `vnstock_wss.py`
    - Sanity check defensive đã add (Step 6) nhưng chỉ chặn downstream.
