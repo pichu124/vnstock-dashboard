@@ -486,14 +486,14 @@ def render_news_tab() -> None:
     if _sentiment_available:
         _scored_items = [n for n in news if n.get("_sentiment")]
         if _scored_items:
-            # How many days to aggregate based on recency filter
-            _agg_days = {
-                "Hôm nay": 1, "3 ngày": 3, "7 ngày": 7, "30 ngày": 30, "Tất cả": 90
-            }.get(recency_label, 7)
+            # Aggregate window is independent of the news recency filter —
+            # always show full 30-day picture so the table is never empty
+            # just because the user filtered news to "Hôm nay".
+            _agg_days = 30
 
             with st.expander(
-                f"📊 Tổng kết sentiment theo mã ({_agg_days} ngày, {len(_scored_items)} tin đã chấm)",
-                expanded=True,
+                f"📊 Tổng kết sentiment theo mã (30 ngày, {len(_scored_items)} tin đã chấm)",
+                expanded=len(_scored_items) > 0,
             ):
                 import pandas as _pd
 
@@ -502,7 +502,7 @@ def render_news_tab() -> None:
                     df_snt = _pd.DataFrame(summary)
                     st.dataframe(df_snt, hide_index=True, use_container_width=True)
                 else:
-                    st.caption("Chưa có dữ liệu sentiment trong khoảng thời gian này.")
+                    st.caption("Chưa có dữ liệu sentiment trong 30 ngày gần đây.")
 
                 # Timeline chart for selected ticker
                 if selected_ticker != "Tất cả":
@@ -544,12 +544,18 @@ def render_news_tab() -> None:
         else:
             st.caption("💡 Bấm **🧠 Phân tích sentiment** để chấm điểm tin tức.")
 
+    st.caption(f"Hiển thị **{min(len(filtered), page_size)}** / **{len(filtered)}** tin")
+
+    if not filtered:
+        st.info("Không có tin tức phù hợp với bộ lọc.")
+        return
+
     # ── Debug: show raw keys if nothing renders (helps diagnose column-name mismatches)
     _n_renderable = sum(
         1 for n in filtered[:page_size]
         if _pick(n, "news_title", "title", "newsTitle", "headline", "name")
     )
-    if filtered and _n_renderable == 0:
+    if _n_renderable == 0:
         with st.expander("⚠️ Không hiển thị được tin — xem cấu trúc dữ liệu", expanded=True):
             st.warning(
                 "Tất cả items đều thiếu trường tiêu đề. "
@@ -557,12 +563,6 @@ def render_news_tab() -> None:
             )
             st.caption("Keys của item đầu tiên:")
             st.json(dict(list(filtered[0].items())[:20]))
-        return
-
-    st.caption(f"Hiển thị **{min(len(filtered), page_size)}** / **{len(filtered)}** tin")
-
-    if not filtered:
-        st.info("Không có tin tức phù hợp với bộ lọc.")
         return
 
     # ── Render cards ───────────────────────────────────────────────────────
