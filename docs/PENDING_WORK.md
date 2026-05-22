@@ -1,139 +1,127 @@
 # Pending Work — Resume Checkpoint
 
-**Last session ended at commit**: `f1d9068` (Step 8 refactor plan doc)
-**Branch**: `claude/financial-data-architecture-SXZtC`
-**Tests**: 344/344 pass
+**Last session ended**: 2026-05-18 (commit `04ef7a7`)
+**Branch**: `claude/review-code-summary-DkAI7`
+**Current state**: Reconciler **fail=0**, OpenRouter OK, all 7 tabs refactored
 
 ---
 
-## ✅ Hoàn thành (không cần quay lại)
+## ✅ Đã hoàn thành (gần đây nhất)
 
+### Session 2026-05-18 — code review + dọn dẹp tồn đọng
+- ✅ Reconciler **fail: 714 → 0** (fix HSG 2026-04-29 stale rolled data)
+- ✅ Bug fix `vnstock_remediate.py` — `VnstockWarehouse` case + `verbose` kwarg
+- ✅ OpenRouter confirmed kết nối OK
+- ✅ Dashboard refactor confirmed 7/7 tabs done (docs cũ sai)
+- ✅ UPCOM symbol alias: `UPCOMINDEX` — 100 rows, GTGD UPCOM real-time hoạt động
+- ✅ Hallucination guard verified — không cite sai giá VNINDEX
+
+### Sessions trước
 - Phase 1-4: foundation, contracts, anomaly, health, auditor, run.py orchestrator
 - Phase 5A-D: quarantine + remediate CLI + dashboard action buttons + whitelist
-- Phase 6A+6C: corp action registry + integration into anomaly & reconciler
-- Phase 6B: CafeF cash-dividend scraper
+- Phase 6A-C: corp action registry + CafeF cash-dividend scraper (broken, see below)
 - Option E: Smart WSS-miss detection in reconciler
 - Top-offender analyzer, active-ticker filter, per-row diagnose tool
 - BarAggregator sanity-check for suspect volumes
-- Dashboard refactor plan documented (only Sức khỏe tab extracted so far)
+- **Dashboard refactor**: extract 7/7 tabs into `dashboard/*.py` + `vnstock_health.py`
 
-**Metrics đạt được:**
-| | Baseline | Sau session |
+**Metrics:**
+| | Baseline ban đầu | Đạt được |
 |---|---|---|
-| Anomaly | 62,953 | ~1,979 (−97%) |
-| Reconciler fail | 714 | 11 (−98.5%) |
-| Tests | 121 | 344 (+185%) |
+| Reconciler fail | 714 | **0** ✅ |
+| Anomaly | 62,953 | ~705 (−99%) |
 
 ---
 
-## ⏳ Việc còn dở (khi quay lại, làm theo thứ tự này)
+## ⏳ Việc còn cần làm
 
-### Ngay lập tức — verify hypothesis cho 11 reconciler fails còn lại
+### 🔴 Verify khi có data hôm nay
 
-1. **Diagnose CDC + SBT** (xác nhận có phải cash dividend không)
+1. **Verify VNINDEX loader** sau khi daily sync chạy:
    ```powershell
-   python run.py --warehouse data_warehouse diagnose --ticker CDC --date 2026-04-15
-   python run.py --warehouse data_warehouse diagnose --ticker SBT --date 2026-04-15
+   python -c "
+   from vnstock_session_stats import _fetch_price_history
+   df = _fetch_price_history('VNINDEX')
+   print(df[['trading_date','total_value']].tail(3))
+   "
    ```
-   → Paste output. Nếu verdict = "likely cash dividend" → đi bước 2. Nếu khác → xem xét ra sao.
+   Nếu rỗng → debug `collect_context()` trong `vnstock_brief.py` (loader nào fail).
 
-2. **Import capital_history vào registry + re-audit**
-   ```powershell
-   python run.py --warehouse data_warehouse registry import-capital-history
-   python run.py --warehouse data_warehouse registry show
-   python run.py --warehouse data_warehouse audit --lookback 60
-   ```
-   → Expect: fail xuống < 5, active missing rate xuống ~3-5%.
+### 🟡 Verification còn dở
 
-3. **(Tuỳ chọn) Scrape CafeF cash dividends**
-   - ⚠ **CafeF đã redesign** (2026): tất cả 4 URL template scraper thử
-     đều 404. Cần debug URL format mới với live CafeF session — các tool
-     remote (WebFetch) cũng bị chặn 403 bot detection.
-   - **Workaround hiện tại**: register manual qua `run.py registry add`
-     với amount suy ra từ `diagnose` output.
-   - Ví dụ CDC 2026-04-15 (đã xác định là corp action):
-     ```powershell
-     python run.py --warehouse data_warehouse registry add \
-         --ticker CDC --date 2026-04-15 --type cash --cash 8.37 \
-         --note "inferred from diagnose"
-     ```
-   - Để fix scraper, cần: (a) mở trình duyệt CafeF, tìm URL thực của
-     lịch sử cổ tức cho 1 ticker, (b) copy vào CAFEF_URL_TEMPLATES trong
-     `vnstock_cash_dividends.py`, (c) test lại.
-   - Alternative source nên thử: Vietstock.vn, TCBS API, hoặc VND API.
+2. **PHASE_5C UI test** — 23 test case trong `docs/PHASE_5C_TEST_CHECKLIST.md`.
+   Chạy từng `[manual]` case để confirm UI buttons work đúng.
 
-### Ngắn hạn — verification còn dở
-
-4. **PHASE_5C UI test** — 23 test case trong `docs/PHASE_5C_TEST_CHECKLIST.md` chạy từng cái để confirm UI buttons work đúng.
-
-5. **Test LLM Auditor** — set `ANTHROPIC_API_KEY` trong `.env`, chạy:
+3. **Test LLM Auditor** — set `ANTHROPIC_API_KEY` trong `.env`:
    ```powershell
    python run.py --warehouse data_warehouse audit --llm
    ```
-   Xem Claude audit response có ý nghĩa không.
 
-6. **Setup Windows Scheduled Task** thay task PowerShell cũ:
-   - Program: `python`
-   - Args: `run.py --warehouse data_warehouse all`
-   - Start in: repo root
-   - Schedule: 18:00 thứ 2-6
+4. **Hallucination guard — observe production**
+   Dùng AI Brief vài ngày. Nếu thấy banner 🚨 xuất hiện hoặc brief cite sai
+   giá VNINDEX → báo lại để mở rộng validator pattern.
 
-### Trung hạn — code work còn lại
+### 🟠 Khi có thời điểm thích hợp
 
-7. ✅ **Refactor dashboard tabs — DONE (2026-05-18)**
-   Tất cả 7 tabs đã extract: screener_tab, analysis_tab, market_tab,
-   money_flow_tab, news_tab, portfolio_tab (dashboard/), health (vnstock_health.py).
+5. **CafeF scraper bị 404**
+   - CafeF redesign 2026 → 4 URL template đều 404, WebFetch bị bot-detection chặn.
+   - Workaround: register manual qua `run.py registry add` từ output `diagnose`.
+   - Fix: mở browser CafeF DevTools → tìm URL thực → update `CAFEF_URL_TEMPLATES`
+     trong `vnstock_cash_dividends.py`.
+   - Alternative: thêm Vietstock.vn scraper làm fallback.
 
-8. **WSS debug sâu** — fix root cause của volume inflation bug trong `vnstock_wss.py`
-   - Sanity check defensive đã add (Step 6) nhưng chỉ chặn downstream.
-   - Cần live data để debug: tìm code path nào dùng `accum_volume` thay vì `_delta_volume`.
-   - Khi WSS chạy, monitor `BarAggregator.diagnostics()` → `suspect_count` > 0 là có bug.
+6. **WSS volume inflation bug** (`vnstock_wss.py`) — chỉ debug được trong giờ giao dịch.
+   - Sanity check defensive đã có (Step 6) nhưng chỉ chặn downstream.
+   - Khi WSS chạy live: monitor `BarAggregator.diagnostics()` → `suspect_count > 0` là có bug.
+   - Tìm code path nào dùng `accum_volume` thay vì `_delta_volume`.
 
-### Dài hạn — nice-to-have
+### 🟢 Dài hạn / nice-to-have
 
-9. **Merge branch vào `main` qua PR** khi hài lòng.
-10. **Archive old whitelist entries** — có 2,139 entries, nên organize.
-11. **Add Vietstock scraper** như fallback cho CafeF.
+7. Merge branch `claude/review-code-summary-DkAI7` vào `main` qua PR.
+8. Archive/organize 2,139 anomaly whitelist entries cũ.
+9. Auto-schedule `vnstock_train.py` — hiện chạy manual.
+10. Tìm realtime GTGD chính xác (iboard DevTools hoặc per-stock batch agg).
 
 ---
 
-## Quick commands để warm up khi quay lại
+## Quick warm-up commands
 
 ```powershell
-# Sync code
-cd "C:\Users\Administrator\Dropbox\Claude vnstock"
-git fetch origin --force --prune
-git reset --hard origin/claude/financial-data-architecture-SXZtC
-git log --oneline -5    # top phải là f1d9068
-
-# Smoke test
-python -m pytest tests/ -q     # phải thấy 344 passed
+cd "E:\Dropbox\Claude vnstock"
+git fetch origin --prune
+git pull origin claude/review-code-summary-DkAI7
+git log --oneline -5     # top phải là 04ef7a7 hoặc mới hơn
 
 # Xem trạng thái warehouse
 python run.py --warehouse data_warehouse scan --fast
+
+# Re-audit để check fail count
+python run.py --warehouse data_warehouse audit --lookback 60
 ```
 
 ---
 
-## File mới tạo trong session (để navigate nhanh)
+## Architecture cheat sheet (quick reference)
 
-| File | Mục đích |
-|---|---|
-| `vnstock_contracts.py` | Pandera OHLCV/Fundamental/Tick schemas |
-| `vnstock_quarantine.py` | Rejected row storage + retry |
-| `vnstock_remediate.py` | Refetch/accept/archive CLI |
-| `vnstock_reconciler.py` | Rollup vs API cross-reference |
-| `vnstock_adjust.py` | Adjusted price layer |
-| `vnstock_anomaly.py` | Band/OHLC/gap/vol_spike detection |
-| `vnstock_health.py` | System health snapshot + ⚕️ Sức khỏe tab |
-| `vnstock_auditor.py` | AuditorAgent abstract + Null/Claude/GPT |
-| `vnstock_exchange_map.py` | Ticker → HOSE/HNX/UPCOM |
-| `vnstock_corp_registry.py` | Authoritative corp action registry |
-| `vnstock_cash_dividends.py` | CafeF cash dividend scraper |
-| `vnstock_top_offenders.py` | Anomaly distribution analyzer |
-| `vnstock_diagnose.py` | Per-row investigation tool |
-| `run.py` | Unified orchestrator (10+ subcommands) |
-| `tests/test_*.py` | 12 new test files, 344 cases |
-| `docs/PHASE_5C_TEST_CHECKLIST.md` | 23 manual UI test cases |
-| `docs/REFACTOR_PLAN.md` | Dashboard refactor roadmap |
-| `docs/PENDING_WORK.md` | **This file** — resume checkpoint |
+**Tab files** (sau refactor):
+- `dashboard/screener_tab.py`, `analysis_tab.py`, `market_tab.py`,
+  `money_flow_tab.py`, `news_tab.py`, `portfolio_tab.py`
+- `vnstock_health.py` (⚕️ Sức khỏe — không trong dashboard/)
+- `vnstock_dashboard.py` (router + shared loaders, ~3500 lines)
+
+**Core modules:**
+- `vnstock_brief.py` — AI agents + brief generation + memory wiring
+- `vnstock_strategy.py` — AST-sandboxed strategy executor + backtest
+- `vnstock_session_stats.py` — GTGD calibration (UPCOM = `UPCOMINDEX`)
+- `vnstock_reconciler.py` — rollup vs API cross-reference
+- `run.py` — unified orchestrator (10+ subcommands)
+
+**Data flow:**
+```
+API → warehouse (prices/) → display
+WSS → rolled/ → reconciler vs API → flag drift
+```
+
+**Invariants không được phá** (xem CLAUDE.md):
+- 4-panel chart sync: dùng logical-range API, KHÔNG time-range
+- Hallucination guard: prompt sentinels + validator + UI banner (3 layer)
