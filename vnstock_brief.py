@@ -1649,3 +1649,194 @@ def derive_consensus(results: dict, ctx: dict | None = None) -> dict:
         "per_agent": per_agent,
         "consensus_line": " · ".join(parts),
     }
+
+
+# ── Brief accuracy tracking (F1.c) ─────────────────────────────────────────
+#
+# Compare past brief stances against actual VNINDEX movement T+N trading
+# days later. Lets users see which AI agent is reliably right vs wrong over
+# time, instead of trusting / distrusting based on a single brief.
+
+def _load_vnindex_closes() -> "pd.Series":
+    """Return VNINDEX close indexed by trading_date (ascending). Empty on fail."""
+    try:
+        from vnstock_dashboard import load_price_history
+        import pandas as pd
+    except Exception:
+        try:
+            import pandas as pd
+            return pd.Series(dtype=float)
+        except Exception:
+            return None  # type: ignore[return-value]
+
+    for sym in ("VNINDEX", "VN-INDEX", "^VNINDEX"):
+        try:
+            df = load_price_history(sym, days=0)
+            if df is not None and not df.empty and "close" in df.columns:
+                s = df.set_index(pd.to_datetime(df["time"]).dt.date)["close"]
+                s = s[~s.index.duplicated(keep="last")].sort_index()
+                return s.astype(float)
+        except Exception:
+            continue
+    return pd.Series(dtype=float)
+
+
+def evaluate_brief_accuracy(
+    brief: dict,
+    closes: "pd.Series | None" = None,
+    horizon_days: int = 1,
+    neutral_threshold_pct: float = 0.5,
+) -> dict:
+    """Score a single brief against actual VNINDEX move T+horizon trading days later.
+
+    Args:
+        brief:                 dict from vnstock_memory.recent_briefs() —
+                               must have 'output' and 'brief_date'
+        closes:                optional pre-loaded VNINDEX close Series
+                               (date → close). Pass to avoid reloading per call.
+        horizon_days:          look this many TRADING days ahead (default T+1)
+        neutral_threshold_pct: |return| below this counts as 'flat'
+                               (default 0.5%)
+
+    Returns:
+        {
+          'stance':         predicted stance from brief
+          'brief_date':     '2026-05-22'
+          'baseline_date':  date of close used as baseline
+          'eval_date':      date of close N trading days later (or None)
+          'baseline_close': float (or None)
+          'eval_close':     float (or None)
+          'return_pct':     float (or None)
+          'actual':         'up' / 'down' / 'flat' / None
+          'match':          True / False / None — None when not evaluable
+          'reason':         human-readable note for diagnostics
+        }
+    """
+    import pandas as pd
+    result = {
+        "stance": "unknown", "brief_date": brief.get("brief_date"),
+        "baseline_date": None, "eval_date": None,
+        "baseline_close": None, "eval_close": None,
+        "return_pct": None, "actual": None,
+        "match": None, "reason": "",
+    }
+
+    # 1. Extract stance from brief output
+    output = brief.get("output") or ""
+    if not output:
+        result["reason"] = "no brief output"
+        return result
+    tldr = _extract_section(output, "TLDR") or output[:400]
+    stance = _detect_stance(tldr)
+    result["stance"] = stance
+    if stance == "unknown":
+        result["reason"] = "stance unknown — cannot evaluate"
+        return result
+
+    # 2. Locate baseline and evaluation closes
+    if closes is None:
+        closes = _load_vnindex_closes()
+    if closes is None or closes.empty:
+        result["reason"] = "no VNINDEX warehouse data"
+        return result
+
+    try:
+        brief_d = pd.to_datetime(brief.get("brief_date")).date()
+    except Exception:
+        result["reason"] = "bad brief_date"
+        return result
+
+    # Baseline = last available close on or before brief_date
+    candidates_before = closes[closes.index <= brief_d]
+    if candidates_before.empty:
+        result["reason"] = f"no VNINDEX close on or before {brief_d}"
+        return result
+    base_date = candidates_before.index[-1]
+    base_close = float(candidates_before.iloc[-1])
+    result["baseline_date"] = base_date
+    result["baseline_close"] = base_close
+
+    # Eval = horizon_days-th trading close strictly AFTER base_date
+    candidates_after = closes[closes.index > base_date]
+    if len(candidates_after) < horizon_days:
+        result["reason"] = (
+            f"not enough trading days after {base_date} "
+            f"(need {horizon_days}, have {len(candidates_after)})"
+        )
+        return result
+    eval_date = candidates_after.index[horizon_days - 1]
+    eval_close = float(candidates_after.iloc[horizon_days - 1])
+    result["eval_date"] = eval_date
+    result["eval_close"] = eval_close
+
+    # 3. Compute return + classify actual
+    ret_pct = (eval_close / base_close - 1.0) * 100.0
+    result["return_pct"] = ret_pct
+    if abs(ret_pct) < neutral_threshold_pct:
+        actual = "flat"
+    elif ret_pct > 0:
+        actual = "up"
+    else:
+        actual = "down"
+    result["actual"] = actual
+
+    # 4. Match stance vs actual
+    if stance == "bullish":
+        result["match"] = (actual == "up")
+    elif stance == "bearish":
+        result["match"] = (actual == "down")
+    elif stance == "neutral":
+        result["match"] = (actual == "flat")
+
+    result["reason"] = (
+        f"{stance} vs {actual} ({ret_pct:+.2f}% over {horizon_days}d)"
+    )
+    return result
+
+
+def agent_accuracy_summary(
+    briefs: list[dict],
+    horizon_days: int = 1,
+    neutral_threshold_pct: float = 0.5,
+) -> dict:
+    """Aggregate per-agent accuracy across a list of past briefs.
+
+    Returns:
+        {
+          agent_name: {
+            'n_total':     count of briefs for this agent,
+            'n_evaluated': count actually scored (stance + price data both available),
+            'n_match':     count where stance matched actual move,
+            'accuracy':    n_match / n_evaluated (or None if zero evaluated),
+            'stance_dist': {'bullish': n, 'bearish': n, 'neutral': n, 'unknown': n},
+          }
+        }
+    """
+    closes = _load_vnindex_closes()
+
+    by_agent: dict[str, dict] = {}
+    for b in briefs:
+        name = b.get("agent_name") or "?"
+        if name not in by_agent:
+            by_agent[name] = {
+                "n_total": 0, "n_evaluated": 0, "n_match": 0,
+                "stance_dist": {"bullish": 0, "bearish": 0,
+                                "neutral": 0, "unknown": 0},
+            }
+        slot = by_agent[name]
+        slot["n_total"] += 1
+        ev = evaluate_brief_accuracy(b, closes=closes,
+                                     horizon_days=horizon_days,
+                                     neutral_threshold_pct=neutral_threshold_pct)
+        slot["stance_dist"][ev["stance"]] = slot["stance_dist"].get(ev["stance"], 0) + 1
+        if ev["match"] is not None:
+            slot["n_evaluated"] += 1
+            if ev["match"]:
+                slot["n_match"] += 1
+
+    for slot in by_agent.values():
+        slot["accuracy"] = (
+            slot["n_match"] / slot["n_evaluated"]
+            if slot["n_evaluated"] > 0 else None
+        )
+    return by_agent
