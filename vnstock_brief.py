@@ -1212,6 +1212,18 @@ def generate_brief(
     results: dict[str, tuple[str, str | None]] = {}
     brief_ids: dict[str, int] = {}
 
+    # Skip Cerebras when VNINDEX context is missing — the 70B model often
+    # rate-limits and falls back to llama3.1-8b, which ignores the
+    # "TUYỆT ĐỐI KHÔNG suy đoán" sentinel and hallucinates VNINDEX levels
+    # (1.815, R1=1.813, etc.). Layer 2 validator catches it but it's better
+    # to skip the agent entirely than display a 🚨-flagged brief.
+    _vnindex_missing = not (ctx.get("vnindex_tech") or {}).get("close")
+    if _vnindex_missing:
+        _skipped = [a for a in agents if getattr(a, "agent_type", "") == "cerebras"]
+        for agent in _skipped:
+            results[agent.name] = ("", "Bỏ qua Cerebras khi không có data VNINDEX — fallback model có xu hướng hallucinate.")
+        agents = [a for a in agents if getattr(a, "agent_type", "") != "cerebras"]
+
     available = [a for a in agents if a.is_available]
     unavailable = [a for a in agents if not a.is_available]
     for agent in unavailable:
