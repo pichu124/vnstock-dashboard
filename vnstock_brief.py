@@ -1458,10 +1458,17 @@ _STANCE_NEUT = (
 
 # Indicators / acronyms commonly mistaken for tickers (3-letter all-caps)
 _TICKER_BLACKLIST: frozenset[str] = frozenset({
+    # Indicators / technical terms
     "TLD", "TLDR", "USD", "VND", "EUR", "GBP", "RSI", "EMA", "SMA",
     "EPS", "ROE", "ROA", "ROI", "P/E", "PEG", "PEP", "VWA", "ATR",
     "MACD", "GTGD", "OHLC", "API", "SQL", "TPS", "POC", "VAL", "VAH",
     "ETF", "IPO", "MA", "AI", "OK", "USA", "VAT", "FED", "ECB",
+    # Trade action verbs (appear in 'BUY khi...', 'SELL/HOLD/WAIT' setups)
+    "BUY", "SELL", "HOLD", "WAIT", "CUT", "AVOID", "MUA", "BAN",
+    "SHORT", "LONG", "OUT", "PASS", "STOP", "EXIT",
+    # Common Vietnamese 3-letter words appearing in setups
+    "TP1", "TP2", "TP3", "SL1", "SL2", "ATH", "ATL", "HOM", "CHO",
+    "TLD", "MUC", "KQ1",
 })
 
 
