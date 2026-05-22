@@ -1484,19 +1484,41 @@ def _extract_section(text: str, header: str) -> str:
     return m.group(1).strip() if m else ""
 
 
+# Match canonical "Stance ngày mai: <X>" / "Stance: <X>" line in TLDR.
+# Prompt template asks every agent to emit this exact pattern, so parsing
+# it is far more reliable than counting keywords across the whole section.
+_STANCE_LINE_RE = _re.compile(
+    r"[Ss]tance(?:\s+(?:ngày\s+mai|sáng\s+mai|hôm\s+nay))?\s*[:：]\s*([^.\n]+)",
+    _re.IGNORECASE,
+)
+
+
 def _detect_stance(tldr_text: str) -> str:
-    """Classify TLDR text as bullish/bearish/neutral/unknown by keyword vote."""
-    low = tldr_text.lower()
-    bull = sum(1 for kw in _STANCE_BULL if kw in low)
-    bear = sum(1 for kw in _STANCE_BEAR if kw in low)
-    neut = sum(1 for kw in _STANCE_NEUT if kw in low)
+    """Classify TLDR as bullish/bearish/neutral/unknown.
+
+    Strategy:
+      1. Look for canonical 'Stance ngày mai: <X>' line. If found, classify
+         just that captured phrase — avoids false positives from sector
+         adjectives like '5/29 ngành tích cực' being mistaken for bullish
+         market stance.
+      2. Fallback: keyword vote over the full TLDR (legacy heuristic).
+    """
+    m = _STANCE_LINE_RE.search(tldr_text)
+    target = m.group(1).lower() if m else tldr_text.lower()
+
+    bull = sum(1 for kw in _STANCE_BULL if kw in target)
+    bear = sum(1 for kw in _STANCE_BEAR if kw in target)
+    neut = sum(1 for kw in _STANCE_NEUT if kw in target)
+
     if bull == 0 and bear == 0 and neut == 0:
         return "unknown"
-    if bull > bear and bull >= neut:
+    # Neutral beats other on tie — explicit "trung tính" is a stronger
+    # signal than incidental "tích cực" / "giảm" elsewhere in the sentence.
+    if neut >= bull and neut >= bear:
+        return "neutral"
+    if bull > bear:
         return "bullish"
-    if bear > bull and bear >= neut:
-        return "bearish"
-    return "neutral"
+    return "bearish"
 
 
 def _extract_sectors(text: str) -> list[str]:
