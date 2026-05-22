@@ -49,7 +49,14 @@
 
 ### 🟡 Verification còn dở
 
-2. **PHASE_5C UI test** — 23 test case trong `docs/PHASE_5C_TEST_CHECKLIST.md`.
+2. **Kiểm tra accuracy Brief sau 3–5 ngày** (từ 2026-05-22)
+   - Vào tab Thị trường → mở "📜 Lịch sử brief" → chọn T+1, ngưỡng ±0.5%
+   - Baseline hiện tại (2026-05-22): Groq 67% (2/3), Mistral/OpenRouter/Cerebras 50% (1–2 briefs đánh giá được)
+   - Sample mục tiêu: ≥ 10 briefs evaluated/agent mới có ý nghĩa thống kê
+   - Nếu 1 agent nổi bật hơn hẳn → xem xét dùng làm primary source cho Consensus
+   - Nếu tất cả đều ~50% ở T+1 → thử T+2 hoặc T+3 horizon thay thế
+
+3. **PHASE_5C UI test** — 23 test case trong `docs/PHASE_5C_TEST_CHECKLIST.md`.
    Chạy từng `[manual]` case để confirm UI buttons work đúng.
 
 3. **Test LLM Auditor** — set `ANTHROPIC_API_KEY` trong `.env`:
