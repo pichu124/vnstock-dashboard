@@ -1658,10 +1658,16 @@ def derive_consensus(results: dict, ctx: dict | None = None) -> dict:
 # time, instead of trusting / distrusting based on a single brief.
 
 def _load_vnindex_closes() -> "pd.Series":
-    """Return VNINDEX close indexed by trading_date (ascending). Empty on fail."""
+    """Return VNINDEX close indexed by trading_date (ascending). Empty on fail.
+
+    Reads parquet partitions directly from data_warehouse/prices/ticker=VNINDEX/
+    instead of importing vnstock_dashboard.load_price_history — the latter
+    triggers the full Streamlit script at module load (pills nav, all tabs)
+    when called outside the Streamlit runtime, which is both slow and noisy.
+    """
     try:
-        from vnstock_dashboard import load_price_history
         import pandas as pd
+        import pyarrow.parquet as pq
     except Exception:
         try:
             import pandas as pd
@@ -1669,15 +1675,40 @@ def _load_vnindex_closes() -> "pd.Series":
         except Exception:
             return None  # type: ignore[return-value]
 
+    from pathlib import Path
+    prices_dir = Path("data_warehouse/prices")
+    if not prices_dir.exists():
+        return pd.Series(dtype=float)
+
     for sym in ("VNINDEX", "VN-INDEX", "^VNINDEX"):
-        try:
-            df = load_price_history(sym, days=0)
-            if df is not None and not df.empty and "close" in df.columns:
-                s = df.set_index(pd.to_datetime(df["time"]).dt.date)["close"]
-                s = s[~s.index.duplicated(keep="last")].sort_index()
-                return s.astype(float)
-        except Exception:
+        ticker_dir = prices_dir / f"ticker={sym}"
+        if not ticker_dir.exists():
             continue
+        frames = []
+        for yd in sorted(ticker_dir.glob("year=*")):
+            for pf in yd.glob("*.parquet"):
+                try:
+                    frames.append(pq.read_table(
+                        str(pf), columns=["time", "close"]
+                    ).to_pandas())
+                except Exception:
+                    continue
+        if not frames:
+            continue
+        df = pd.concat(frames, ignore_index=True)
+        if df.empty or "close" not in df.columns:
+            continue
+        df["time"] = pd.to_datetime(df["time"])
+        df = df.sort_values("time").drop_duplicates(
+            subset=["time"], keep="last"
+        )
+        # Normalize price units (warehouse stores VNINDEX in either index
+        # points or thousand-points depending on source — values >5000
+        # indicate /1000 scaling needed).
+        if (df["close"] > 5000).mean() > 0.5:
+            df["close"] = df["close"] / 1000.0
+        s = df.set_index(df["time"].dt.date)["close"].astype(float)
+        return s
     return pd.Series(dtype=float)
 
 
