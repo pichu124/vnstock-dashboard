@@ -86,34 +86,45 @@ def _pick(item: dict, *keys: str, default: str = "") -> str:
     return default
 
 
+_SENTIMENT_BADGE = {
+    "positive": '<span style="background:#14532d;color:#86efac;padding:1px 7px;border-radius:4px;font-size:12px">🟢 Tích cực</span>',
+    "negative": '<span style="background:#450a0a;color:#fca5a5;padding:1px 7px;border-radius:4px;font-size:12px">🔴 Tiêu cực</span>',
+    "neutral":  '<span style="background:#1c1917;color:#a8a29e;padding:1px 7px;border-radius:4px;font-size:12px">⚪ Trung lập</span>',
+}
+
+
 def _news_card(item: dict, idx: int) -> None:
     """Render a single news card."""
-    ticker   = item.get("ticker", "")
+    ticker    = item.get("ticker", "")
     # Support both VCI column names (news_title) and alternate naming conventions
-    title    = _pick(item, "news_title", "title", "newsTitle", "headline", "name")
-    subtitle = _pick(item, "news_sub_title", "sub_title", "newsSubTitle", "subtitle")
-    short    = _pick(item, "news_short_content", "short_content", "description",
-                     "summary", "newsShortContent") or subtitle
-    full     = _pick(item, "news_full_content", "full_content", "content",
-                     "newsFullContent", "body")
-    link     = _normalize_news_url(
+    title     = _pick(item, "news_title", "title", "newsTitle", "headline", "name")
+    subtitle  = _pick(item, "news_sub_title", "sub_title", "newsSubTitle", "subtitle")
+    short     = _pick(item, "news_short_content", "short_content", "description",
+                      "summary", "newsShortContent") or subtitle
+    full      = _pick(item, "news_full_content", "full_content", "content",
+                      "newsFullContent", "body")
+    link      = _normalize_news_url(
         _pick(item, "news_source_link", "source_link", "url", "link", "href")
     )
-    pub_date = item.get("public_date") or item.get("created_at") or item.get("date") or ""
-    age      = _fmt_age(pub_date)
+    pub_date  = item.get("public_date") or item.get("created_at") or item.get("date") or ""
+    age       = _fmt_age(pub_date)
+    sentiment = item.get("_sentiment", "")
 
     if not title:
         return
 
     with st.container():
-        # Header row: ticker badge + age
-        col_badge, col_age = st.columns([1, 5])
+        # Header row: ticker badge + sentiment badge + age
+        col_badge, col_sent, col_age = st.columns([1, 1, 4])
         with col_badge:
             st.markdown(
                 f'<span style="background:#1e3a5f;color:#60a5fa;padding:2px 8px;'
                 f'border-radius:4px;font-size:13px;font-weight:600">{ticker}</span>',
                 unsafe_allow_html=True,
             )
+        with col_sent:
+            if sentiment in _SENTIMENT_BADGE:
+                st.markdown(_SENTIMENT_BADGE[sentiment], unsafe_allow_html=True)
         with col_age:
             st.caption(age)
 
@@ -152,6 +163,12 @@ def render_news_tab() -> None:
         st.error("Không tìm thấy `vnstock_news.py`. Đảm bảo file tồn tại trong thư mục gốc.")
         return
 
+    try:
+        import vnstock_sentiment as _snt
+        _sentiment_available = True
+    except ImportError:
+        _sentiment_available = False
+
     st.markdown("#### 🗞️ Tin tức thị trường")
 
     # ── Cache status & controls ────────────────────────────────────────────
@@ -182,6 +199,22 @@ def render_news_tab() -> None:
                 "100 ≈ 1 phút · 300 ≈ 2-3 phút · 500 ≈ 4-5 phút."
             ),
         )
+
+    # ── Sentiment controls ─────────────────────────────────────────────────
+    if _sentiment_available:
+        snt_col1, snt_col2 = st.columns([2, 8])
+        with snt_col1:
+            score_clicked = st.button(
+                "🧠 Phân tích sentiment",
+                key="_news_score_sentiment",
+                help="Dùng AI (Groq/Cerebras/OpenRouter) để phân loại tin tức tích cực/tiêu cực. Mỗi tin chỉ gọi API 1 lần.",
+            )
+        with snt_col2:
+            provider_name = _snt.available_provider()
+            if not provider_name:
+                st.caption("⚠️ Chưa có API key cho Groq/Cerebras/OpenRouter — sentiment không khả dụng.")
+    else:
+        score_clicked = False
 
     # ── Refresh ────────────────────────────────────────────────────────────
     if today_clicked:
@@ -226,6 +259,32 @@ def render_news_tab() -> None:
     if not news:
         st.info("Chưa có tin tức. Bấm **🔄 Cập nhật tin tức** để tải về.")
         return
+
+    # ── Sentiment scoring ──────────────────────────────────────────────────
+    if _sentiment_available:
+        # Always attach cached sentiments (fast, no LLM call)
+        _snt.attach_sentiments(news)
+
+        if score_clicked:
+            already = _snt.scored_count(news)
+            to_score_n = len(news) - already
+            if to_score_n == 0:
+                st.success(f"✅ Tất cả {len(news)} tin đã được chấm sentiment.")
+            else:
+                _snt_prog = st.progress(0.0, text=f"Đang phân tích sentiment cho {to_score_n} tin…")
+                _snt_status = st.empty()
+
+                def _snt_cb(done: int, total: int) -> None:
+                    if total > 0:
+                        _snt_prog.progress(done / total, text=f"Sentiment: {done}/{total}…")
+
+                with st.spinner("Đang phân tích sentiment…"):
+                    _snt.score_news_batch(news, progress_cb=_snt_cb)
+                _snt.attach_sentiments(news)
+                _snt_prog.empty()
+                _scored_now = _snt.scored_count(news)
+                _snt_status.success(f"✅ Đã chấm sentiment cho **{_scored_now}/{len(news)}** tin!")
+                st.rerun()
 
     # ── Cache freshness diagnostic ─────────────────────────────────────────
     # If even the NEWEST item in cache is days old, warn the user — the news
@@ -373,11 +432,23 @@ def render_news_tab() -> None:
         search_q = st.text_input("🔍 Tìm kiếm tiêu đề", key="_news_search",
                                   placeholder="VCB, tăng trưởng, lợi nhuận…")
 
-    # Page size
-    page_size = st.select_slider(
-        "Số tin hiển thị mỗi trang", options=[10, 20, 50, 100], value=20,
-        key="_news_page_size",
-    )
+    # Sentiment filter (only shown when some items are scored)
+    _any_scored = _sentiment_available and any(n.get("_sentiment") for n in news)
+    snt_filter_col, page_col = st.columns([2, 3])
+    with snt_filter_col:
+        if _any_scored:
+            sentiment_filter = st.selectbox(
+                "Sentiment",
+                options=["Tất cả", "🟢 Tích cực", "🔴 Tiêu cực", "⚪ Trung lập"],
+                key="_news_sentiment_filter",
+            )
+        else:
+            sentiment_filter = "Tất cả"
+    with page_col:
+        page_size = st.select_slider(
+            "Số tin hiển thị mỗi trang", options=[10, 20, 50, 100], value=20,
+            key="_news_page_size",
+        )
 
     # ── Apply filters ──────────────────────────────────────────────────────
     filtered = news
@@ -402,6 +473,76 @@ def render_news_tab() -> None:
             or q in _pick(n, "news_short_content", "short_content", "description", "summary").lower()
             or q in (n.get("ticker") or "").lower()
         ]
+
+    _snt_map = {
+        "🟢 Tích cực": "positive",
+        "🔴 Tiêu cực": "negative",
+        "⚪ Trung lập": "neutral",
+    }
+    if sentiment_filter in _snt_map:
+        filtered = [n for n in filtered if n.get("_sentiment") == _snt_map[sentiment_filter]]
+
+    # ── Sentiment summary ──────────────────────────────────────────────────
+    if _sentiment_available:
+        _scored_items = [n for n in news if n.get("_sentiment")]
+        if _scored_items:
+            # How many days to aggregate based on recency filter
+            _agg_days = {
+                "Hôm nay": 1, "3 ngày": 3, "7 ngày": 7, "30 ngày": 30, "Tất cả": 90
+            }.get(recency_label, 7)
+
+            with st.expander(
+                f"📊 Tổng kết sentiment theo mã ({_agg_days} ngày, {len(_scored_items)} tin đã chấm)",
+                expanded=True,
+            ):
+                import pandas as _pd
+
+                summary = _snt.ticker_sentiment_summary(news, days=_agg_days)
+                if summary:
+                    df_snt = _pd.DataFrame(summary)
+                    st.dataframe(df_snt, hide_index=True, use_container_width=True)
+                else:
+                    st.caption("Chưa có dữ liệu sentiment trong khoảng thời gian này.")
+
+                # Timeline chart for selected ticker
+                if selected_ticker != "Tất cả":
+                    timeline = _snt.sentiment_timeline(selected_ticker, news, days=_agg_days)
+                    if len(timeline) >= 2:
+                        st.markdown(f"**Sentiment timeline — {selected_ticker}**")
+                        try:
+                            import plotly.graph_objects as go
+                            dates = [r["date"] for r in timeline]
+                            fig = go.Figure()
+                            fig.add_bar(
+                                x=dates, y=[r["positive"] for r in timeline],
+                                name="Tích cực", marker_color="#22c55e",
+                            )
+                            fig.add_bar(
+                                x=dates, y=[-r["negative"] for r in timeline],
+                                name="Tiêu cực", marker_color="#ef4444",
+                            )
+                            fig.add_bar(
+                                x=dates, y=[r["neutral"] for r in timeline],
+                                name="Trung lập", marker_color="#6b7280",
+                            )
+                            fig.update_layout(
+                                barmode="relative",
+                                height=220,
+                                margin=dict(l=0, r=0, t=0, b=0),
+                                paper_bgcolor="rgba(0,0,0,0)",
+                                plot_bgcolor="rgba(0,0,0,0)",
+                                font_color="#e5e7eb",
+                                legend=dict(orientation="h", y=1.1),
+                                xaxis=dict(showgrid=False),
+                                yaxis=dict(title="# tin", showgrid=True, gridcolor="#374151"),
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+                        except ImportError:
+                            st.caption("Cài `plotly` để xem sentiment timeline chart.")
+                    elif timeline:
+                        st.caption(f"Chỉ có {len(timeline)} ngày data — cần ≥2 để vẽ chart.")
+        else:
+            st.caption("💡 Bấm **🧠 Phân tích sentiment** để chấm điểm tin tức.")
 
     # ── Debug: show raw keys if nothing renders (helps diagnose column-name mismatches)
     _n_renderable = sum(
