@@ -1430,3 +1430,181 @@ def _recommendation_block() -> str:
         return "\n".join(lines)
     except Exception:
         return ""
+
+
+# ── Consensus aggregation across multi-agent briefs ────────────────────────
+#
+# Extracts stance/sector/ticker signals from each agent's brief text and
+# tallies them so the UI can show "5/6 agents: neutral, 4/6: Dầu khí dẫn dắt"
+# instead of forcing the user to read every tab.
+#
+# Heuristic: briefs follow a templated structure (TLDR / Tổng kết / Dẫn dắt /
+# Watchlist / Rủi ro), so regex-based extraction within section boundaries
+# is reliable enough. Agents that diverge from the template just get
+# stance="unknown" — they don't pollute the consensus.
+
+_STANCE_BULL = (
+    "tích cực", "tăng tốt", "phục hồi mạnh", "bullish", "tăng giá",
+    "uptrend", "khả quan", "tăng điểm", "lên giá",
+)
+_STANCE_BEAR = (
+    "tiêu cực", "giảm sâu", "rủi ro cao", "bearish", "đảo chiều giảm",
+    "downtrend", "giảm điểm", "áp lực bán",
+)
+_STANCE_NEUT = (
+    "trung tính", "đi ngang", "sideways", "thận trọng", "do dự",
+    "phân hoá", "bias trung tính", "giằng co",
+)
+
+# Indicators / acronyms commonly mistaken for tickers (3-letter all-caps)
+_TICKER_BLACKLIST: frozenset[str] = frozenset({
+    "TLD", "TLDR", "USD", "VND", "EUR", "GBP", "RSI", "EMA", "SMA",
+    "EPS", "ROE", "ROA", "ROI", "P/E", "PEG", "PEP", "VWA", "ATR",
+    "MACD", "GTGD", "OHLC", "API", "SQL", "TPS", "POC", "VAL", "VAH",
+    "ETF", "IPO", "MA", "AI", "OK", "USA", "VAT", "FED", "ECB",
+})
+
+
+def _extract_section(text: str, header: str) -> str:
+    """Return body of a markdown section by header keyword (case-insensitive)."""
+    import re as _re
+    # Match "## <header>...\n<body>" until next ## or EOF
+    pattern = _re.compile(
+        rf"##[^\n]*{_re.escape(header)}[^\n]*\n(.*?)(?=\n##|\Z)",
+        _re.IGNORECASE | _re.DOTALL,
+    )
+    m = pattern.search(text)
+    return m.group(1).strip() if m else ""
+
+
+def _detect_stance(tldr_text: str) -> str:
+    """Classify TLDR text as bullish/bearish/neutral/unknown by keyword vote."""
+    low = tldr_text.lower()
+    bull = sum(1 for kw in _STANCE_BULL if kw in low)
+    bear = sum(1 for kw in _STANCE_BEAR if kw in low)
+    neut = sum(1 for kw in _STANCE_NEUT if kw in low)
+    if bull == 0 and bear == 0 and neut == 0:
+        return "unknown"
+    if bull > bear and bull >= neut:
+        return "bullish"
+    if bear > bull and bear >= neut:
+        return "bearish"
+    return "neutral"
+
+
+def _extract_sectors(text: str) -> list[str]:
+    """Extract sector names from 'Dẫn dắt' section. Returns up to 3 names."""
+    import re as _re
+    block = _extract_section(text, "Dẫn dắt")
+    if not block:
+        return []
+    sectors: list[str] = []
+    # Patterns like: "Ngành Dầu khí ...", "Dầu khí với đóng góp ..."
+    # Terminator words mark end of sector name: với / dẫn / đóng / theo /
+    # tụt / vẫn / chiếm / tăng / giảm / nắm — all common verbs that follow
+    # a sector name in Vietnamese market commentary.
+    pattern = _re.compile(
+        r"[Nn]gành\s+([A-ZÀ-Ỹa-zà-ỹ&\s]{3,40}?)"
+        r"(?=[,.\(]|\s+(?:với|dẫn|đóng|theo|tụt|vẫn|chiếm|tăng|giảm|nắm|là|hôm)\b|$)"
+    )
+    for m in pattern.finditer(block):
+        name = m.group(1).strip().rstrip(",.")
+        if 3 <= len(name) <= 30 and name not in sectors:
+            sectors.append(name)
+            if len(sectors) >= 3:
+                break
+    return sectors
+
+
+def _extract_tickers(text: str) -> list[str]:
+    """Extract VN tickers (3-letter codes) from Watchlist + Khuyến nghị sections."""
+    import re as _re
+    pool = []
+    for header in ("Watchlist", "Đề xuất giao dịch", "Khuyến nghị"):
+        block = _extract_section(text, header)
+        if block:
+            pool.append(block)
+    if not pool:
+        return []
+    haystack = "\n".join(pool)
+    tickers: list[str] = []
+    for m in _re.finditer(r"\b([A-Z]{3})\b", haystack):
+        tk = m.group(1)
+        if tk in _TICKER_BLACKLIST or tk in tickers:
+            continue
+        tickers.append(tk)
+        if len(tickers) >= 5:
+            break
+    return tickers
+
+
+def derive_consensus(results: dict, ctx: dict | None = None) -> dict:
+    """Aggregate stance/sector/ticker signals across multi-agent brief outputs.
+
+    Args:
+        results: {agent_name: (text, error_or_None)} from generate_brief()
+        ctx:     optional context dict (currently unused; reserved for future)
+
+    Returns:
+        {
+          "n_agents":       int   — count of agents with non-empty output
+          "stance":         {"bullish": int, "neutral": int, "bearish": int,
+                             "unknown": int}
+          "top_sectors":    [(sector_name, agent_count), ...]   most-mentioned
+          "top_tickers":    [(ticker, agent_count), ...]        most-mentioned
+          "per_agent":      {agent_name: {"stance", "sectors", "tickers"}}
+          "consensus_line": str — single-sentence summary for the UI banner
+        }
+    """
+    from collections import Counter
+
+    agent_briefs: dict[str, str] = {
+        k: v[0] for k, v in results.items()
+        if not k.startswith("_") and isinstance(v, tuple) and v[0]
+    }
+    if not agent_briefs:
+        return {"n_agents": 0, "consensus_line": ""}
+
+    stance_ct: Counter[str] = Counter()
+    sector_ct: Counter[str] = Counter()
+    ticker_ct: Counter[str] = Counter()
+    per_agent: dict[str, dict] = {}
+
+    for name, text in agent_briefs.items():
+        tldr = _extract_section(text, "TLDR") or text[:400]
+        stance = _detect_stance(tldr)
+        sectors = _extract_sectors(text)
+        tickers = _extract_tickers(text)
+
+        per_agent[name] = {"stance": stance, "sectors": sectors, "tickers": tickers}
+        stance_ct[stance] += 1
+        for s in sectors:
+            sector_ct[s] += 1
+        for t in tickers:
+            ticker_ct[t] += 1
+
+    n = len(agent_briefs)
+    top_stance, top_n = stance_ct.most_common(1)[0]
+    top_sectors = sector_ct.most_common(5)
+    top_tickers = ticker_ct.most_common(10)
+
+    # Build a single human line for the consensus banner
+    parts = [f"{top_n}/{n} agents: **{top_stance}**"]
+    if top_sectors:
+        # Only mention sectors agreed on by majority (≥ half)
+        majority = [s for s, c in top_sectors if c >= max(2, n // 2)]
+        if majority:
+            parts.append(f"dẫn dắt: {', '.join(majority[:2])}")
+    if top_tickers:
+        consensus_tk = [t for t, c in top_tickers if c >= max(2, n // 2)]
+        if consensus_tk:
+            parts.append(f"watchlist chung: {', '.join(consensus_tk[:3])}")
+
+    return {
+        "n_agents": n,
+        "stance": dict(stance_ct),
+        "top_sectors": top_sectors,
+        "top_tickers": top_tickers,
+        "per_agent": per_agent,
+        "consensus_line": " · ".join(parts),
+    }

@@ -84,6 +84,50 @@
 
 ---
 
+## 💡 Tính năng đề xuất (2026-05-18 brainstorm)
+
+### 🎯 ROI cao — extend code đã có
+
+**F1. AI Brief — Consensus + History** ⭐ ưu tiên
+- Consensus view: tổng hợp stance/sector/risk từ tất cả agents → 1 dòng quyết định
+- Brief history: lưu mỗi brief kèm rating ⭐ vào SQLite (reuse `vnstock_memory.py`)
+- "Why this rating?": link past brief với giá thực tế T+1, T+5 → tracking AI accuracy
+- Feedback loop: ratings thấp → tự động vào memory để tránh repeat
+- Effort: ~1 ngày
+
+**F2. Telegram bot push daily brief**
+- Sáng 7h + chiều 15h tự push brief vào Telegram chat
+- Bonus: push alert khi screener phát hiện setup mới qua ngày
+- Reuse `generate_brief()` + Telegram bot token
+- Effort: ~3-4 giờ — practical cao cho retail trader
+
+### 🟡 ROI trung — cần code mới
+
+**F3. News sentiment scoring**
+- Thêm cột sentiment (+/−/neutral) qua AI cho mỗi tin
+- Aggregate theo ticker: "tuần này VCB tin chủ yếu tích cực"
+- Sentiment timeline + giá → correlation news-price
+- Reuse Groq/Cerebras (rẻ + nhanh) chạy batch sentiment
+
+**F4. Foreign flow deep dive tab**
+- Top 10 mã khối ngoại mua/bán ròng (today/week/month)
+- Cumulative net buy/sell theo sector
+- Foreign ownership ratio gần room (cảnh báo tránh mã sắp full)
+
+**F5. Market regime detector**
+- Bull / bear / sideways / risk-off classifier
+  từ VNINDEX + breadth + foreign flow
+- Auto-suggest screener preset phù hợp regime hiện tại
+
+### 🟢 ROI thấp / nice-to-have
+
+**F6. Backtest equity curve viz** — chart drawdown/equity cho strategy tab
+**F7. Portfolio sector exposure** — % theo ngành + so VNINDEX benchmark
+**F8. Tax calculator** — 0.1% bán + capital gain VN, realized/unrealized P&L
+
+
+---
+
 ## Quick warm-up commands
 
 ```powershell

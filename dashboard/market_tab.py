@@ -1491,6 +1491,49 @@ def render_market_tab() -> None:
                     st.markdown(f"**{_btype_label} Brief** — {_dt.now().strftime('%H:%M %d/%m/%Y')}")
                     _agent_names = [k for k in _res if not k.startswith("_")]
 
+                    # ── Consensus banner (multi-agent only) ────────────────
+                    if len(_agent_names) >= 2:
+                        try:
+                            from vnstock_brief import derive_consensus
+                            _cons = derive_consensus(_res)
+                            if _cons.get("n_agents", 0) >= 2 and _cons.get("consensus_line"):
+                                _stance_top = max(_cons["stance"].items(),
+                                                  key=lambda kv: kv[1])[0]
+                                _icon = {"bullish": "🟢", "bearish": "🔴",
+                                         "neutral": "🟡", "unknown": "⚪"}.get(_stance_top, "🟡")
+                                st.markdown(
+                                    f"### {_icon} Consensus — "
+                                    f"{_cons['consensus_line']}"
+                                )
+                                # Per-agent stance row
+                                _stance_emoji = {"bullish": "🟢", "bearish": "🔴",
+                                                 "neutral": "🟡", "unknown": "⚪"}
+                                _badges = [
+                                    f"{_stance_emoji.get(info['stance'], '⚪')} "
+                                    f"`{nm}` {info['stance']}"
+                                    for nm, info in _cons["per_agent"].items()
+                                ]
+                                st.caption(" · ".join(_badges))
+                                # Sector + ticker breakdown
+                                _c_sec, _c_tk = st.columns(2)
+                                with _c_sec:
+                                    if _cons["top_sectors"]:
+                                        _sec_lines = " · ".join(
+                                            f"**{s}** ({c}/{_cons['n_agents']})"
+                                            for s, c in _cons["top_sectors"][:5]
+                                        )
+                                        st.caption(f"📊 Ngành: {_sec_lines}")
+                                with _c_tk:
+                                    if _cons["top_tickers"]:
+                                        _tk_lines = " · ".join(
+                                            f"**{t}** ({c})"
+                                            for t, c in _cons["top_tickers"][:6]
+                                        )
+                                        st.caption(f"🎯 Tickers: {_tk_lines}")
+                                st.divider()
+                        except Exception as _ce:
+                            st.caption(f"⚠ consensus disabled: {type(_ce).__name__}: {_ce}")
+
                     def _rating_block(agent_name: str, brief_type_: str):
                         try:
                             import vnstock_memory as _vm
@@ -1559,6 +1602,88 @@ def render_market_tab() -> None:
                                     _rating_block(_aname, _btype)
 
                 st.caption("Brief được tạo bởi AI dựa trên dữ liệu quant — không phải khuyến nghị đầu tư.")
+
+            # ── Brief history viewer ────────────────────────────────────────
+            with st.expander("📜 Lịch sử brief (rated & past)", expanded=False):
+                try:
+                    import vnstock_memory as _vmh
+                    import json as _jsonh
+                    _vmh.init_db()
+                    _hc1, _hc2, _hc3 = st.columns([2, 2, 4])
+                    with _hc1:
+                        _hfilter = st.selectbox(
+                            "Loại",
+                            ["tất cả", "morning", "afternoon"],
+                            key="_brief_hist_type",
+                        )
+                    with _hc2:
+                        _hlimit = st.number_input(
+                            "Số lượng",
+                            min_value=5, max_value=100, value=20, step=5,
+                            key="_brief_hist_limit",
+                        )
+                    with _hc3:
+                        _hmin_rate = st.select_slider(
+                            "Rating tối thiểu (0 = tất cả)",
+                            options=[0, 1, 2, 3, 4, 5],
+                            value=0,
+                            key="_brief_hist_min_rate",
+                        )
+                    _btype_filter = None if _hfilter == "tất cả" else _hfilter
+                    _hist = _vmh.recent_briefs(_btype_filter, limit=int(_hlimit))
+                    if _hmin_rate > 0:
+                        _hist = [r for r in _hist
+                                 if (r.get("user_rating") or 0) >= _hmin_rate]
+                    if not _hist:
+                        st.info("Chưa có brief nào trong DB phù hợp filter.")
+                    else:
+                        # Group by date
+                        from collections import defaultdict as _dd
+                        _by_date: dict = _dd(list)
+                        for _b in _hist:
+                            _by_date[_b.get("brief_date", "?")].append(_b)
+                        for _date in sorted(_by_date.keys(), reverse=True):
+                            _bs = _by_date[_date]
+                            _rates = [b.get("user_rating") for b in _bs
+                                      if b.get("user_rating")]
+                            _avg = f"{sum(_rates)/len(_rates):.1f}⭐" if _rates else "—"
+                            _types = sorted({b.get("brief_type", "?") for b in _bs})
+                            st.markdown(
+                                f"**{_date}** · {len(_bs)} briefs · "
+                                f"{','.join(_types)} · avg {_avg}"
+                            )
+                            for _b in _bs:
+                                _r = _b.get("user_rating")
+                                _stars = "⭐" * _r if _r else "—"
+                                _scr = _b.get("auto_score")
+                                _scrs = f" · auto {_scr:.1f}" if isinstance(_scr, (int, float)) else ""
+                                _err = _b.get("error") or ""
+                                _lbl = (f"{_b.get('brief_type','?')} · "
+                                        f"{_b.get('agent_name','?')} · "
+                                        f"{_stars}{_scrs}"
+                                        f"{' · ⚠ error' if _err else ''}")
+                                with st.expander(_lbl, expanded=False):
+                                    _ctx_raw = _b.get("context_json") or "{}"
+                                    try:
+                                        _cctx = _jsonh.loads(_ctx_raw)
+                                        _vt = (_cctx.get("vnindex_tech") or {})
+                                        _vclose = _vt.get("close")
+                                        if _vclose:
+                                            st.caption(
+                                                f"📌 VNINDEX lúc brief: {_vclose:,.2f}"
+                                            )
+                                    except Exception:
+                                        pass
+                                    if _err:
+                                        st.error(_err)
+                                    if _b.get("output"):
+                                        st.markdown(_b["output"])
+                                    if _b.get("user_feedback"):
+                                        st.caption(
+                                            f"💬 Feedback: {_b['user_feedback']}"
+                                        )
+                except Exception as _e:
+                    st.caption(f"⚠ history disabled: {type(_e).__name__}: {_e}")
 
             # ── Strategy & recommendations panel ───────────────────────────
             with st.expander("🧪 Chiến lược & khuyến nghị (auto-trained)", expanded=False):
