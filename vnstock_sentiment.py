@@ -291,9 +291,9 @@ def ticker_sentiment_summary(
 
         rows.append({
             "Mã": ticker,
-            "➕": c["positive"],
-            "➖": c["negative"],
-            "⚪": c["neutral"],
+            "Tích cực": c["positive"],
+            "Tiêu cực": c["negative"],
+            "Trung lập": c["neutral"],
             "Tổng": total,
             "Net": net,
             "Tín hiệu": sig,

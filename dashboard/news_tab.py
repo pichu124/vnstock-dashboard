@@ -237,6 +237,14 @@ def render_news_tab() -> None:
         prog_bar.empty()
         _status.success(f"✅ Đã tải **{len(news_all)}** tin cho **{len(universe)}** mã!")
         st.session_state["_news_data"] = news_all
+        # Reset recency filter after refresh — "Hôm nay" from today_clicked
+        # would show 0 results if the news source doesn't publish today yet.
+        if st.session_state.get("_news_recency_filter") == "Hôm nay":
+            _newest = max(
+                (n.get("_date_sort") or "") for n in news_all
+            ) if news_all else ""
+            if _newest < date.today().isoformat():
+                st.session_state["_news_recency_filter"] = "7 ngày"
 
     # ── Load data ──────────────────────────────────────────────────────────
     if "_news_data" not in st.session_state:
@@ -547,7 +555,15 @@ def render_news_tab() -> None:
     st.caption(f"Hiển thị **{min(len(filtered), page_size)}** / **{len(filtered)}** tin")
 
     if not filtered:
-        st.info("Không có tin tức phù hợp với bộ lọc.")
+        if _recency_days == 0 and any(n.get("_date_sort") for n in news):
+            _latest = max(n.get("_date_sort", "") for n in news if n.get("_date_sort"))
+            st.info(
+                f"Không có tin từ hôm nay ({date.today().isoformat()}). "
+                f"Tin mới nhất trong cache là từ **{_latest}**. "
+                f"Đổi bộ lọc sang **7 ngày** hoặc bấm 🔄 để cập nhật."
+            )
+        else:
+            st.info("Không có tin tức phù hợp với bộ lọc.")
         return
 
     # ── Debug: show raw keys if nothing renders (helps diagnose column-name mismatches)
