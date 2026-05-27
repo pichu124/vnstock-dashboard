@@ -453,6 +453,120 @@ def render_money_flow_tab() -> None:
         _det_html += '</table>'
         st.markdown(_det_html, unsafe_allow_html=True)
 
+    # ── F4: Foreign flow deep dive — top mã + sector chart ───────────────
+    st.markdown("---")
+    st.markdown("#### 🔍 Khối Ngoại Chi Tiết")
+
+    if _nn_raw.empty:
+        st.info("Chưa có dữ liệu NN ròng. Bấm **🗑 Xoá cache** trong sidebar rồi thử lại.")
+    else:
+        # Build per-stock ranked list for selected window
+        _nn_net   = _nn_by_ticker          # {symbol: net_tỷ} from selected window
+        _nn_bs    = _nn_bs_by_ticker       # {symbol: {buy, sell}}
+
+        # Merge into flat rows, enrich with sector
+        _deep_rows = []
+        for sym, net in _nn_net.items():
+            bs   = _nn_bs.get(sym, {})
+            ind  = _ind_map.get(sym, {}) if isinstance(_ind_map.get(sym), dict) else {}
+            sec  = _get_sector(_ind_map.get(sym, "")) if sym in _ind_map else "—"
+            _deep_rows.append({
+                "Mã": sym,
+                "Ngành": sec,
+                "Mua (tỷ)": bs.get("buy", 0),
+                "Bán (tỷ)": bs.get("sell", 0),
+                "Ròng (tỷ)": net,
+            })
+
+        if _deep_rows:
+            import pandas as _pd2
+            _df_deep = _pd2.DataFrame(_deep_rows)
+            _df_deep = _df_deep[_df_deep["Mua (tỷ)"] + _df_deep["Bán (tỷ)"] > 0]
+
+            # ── Top mua ròng / bán ròng ──────────────────────────────────
+            _top_col, _bot_col = st.columns(2)
+
+            _top10_buy = _df_deep.nlargest(10, "Ròng (tỷ)")
+            _top10_sell = _df_deep.nsmallest(10, "Ròng (tỷ)")
+
+            with _top_col:
+                st.markdown("**🟢 Top 10 mã mua ròng**")
+                if not _top10_buy.empty and _top10_buy["Ròng (tỷ)"].max() > 0:
+                    st.dataframe(
+                        _top10_buy[["Mã", "Ngành", "Mua (tỷ)", "Bán (tỷ)", "Ròng (tỷ)"]].reset_index(drop=True),
+                        hide_index=True,
+                        use_container_width=True,
+                        column_config={
+                            "Ròng (tỷ)": st.column_config.NumberColumn(format="%.1f"),
+                            "Mua (tỷ)":  st.column_config.NumberColumn(format="%.1f"),
+                            "Bán (tỷ)":  st.column_config.NumberColumn(format="%.1f"),
+                        },
+                    )
+                else:
+                    st.caption("Không có mã mua ròng trong khung này.")
+
+            with _bot_col:
+                st.markdown("**🔴 Top 10 mã bán ròng**")
+                if not _top10_sell.empty and _top10_sell["Ròng (tỷ)"].min() < 0:
+                    st.dataframe(
+                        _top10_sell[["Mã", "Ngành", "Mua (tỷ)", "Bán (tỷ)", "Ròng (tỷ)"]].reset_index(drop=True),
+                        hide_index=True,
+                        use_container_width=True,
+                        column_config={
+                            "Ròng (tỷ)": st.column_config.NumberColumn(format="%.1f"),
+                            "Mua (tỷ)":  st.column_config.NumberColumn(format="%.1f"),
+                            "Bán (tỷ)":  st.column_config.NumberColumn(format="%.1f"),
+                        },
+                    )
+                else:
+                    st.caption("Không có mã bán ròng trong khung này.")
+
+            # ── Cumulative NN ròng theo ngành — bar chart ─────────────────
+            _sec_net: dict[str, float] = {}
+            for sym, net in _nn_net.items():
+                sec = _get_sector(_ind_map.get(sym, "")) if sym in _ind_map else "—"
+                _sec_net[sec] = _sec_net.get(sec, 0.0) + net
+
+            # Remove unknown/empty sector and sort by value
+            _sec_net.pop("—", None)
+            _sec_items = sorted(_sec_net.items(), key=lambda x: x[1], reverse=True)
+
+            if _sec_items:
+                st.markdown(f"**📊 NN ròng theo ngành — {_mf_window}**")
+                try:
+                    import plotly.graph_objects as _go
+                    _secs   = [s for s, _ in _sec_items]
+                    _vals   = [v for _, v in _sec_items]
+                    _colors = ["#22c55e" if v >= 0 else "#ef4444" for v in _vals]
+                    _fig = _go.Figure(_go.Bar(
+                        x=_secs, y=_vals,
+                        marker_color=_colors,
+                        text=[f"{v:+.1f}" for v in _vals],
+                        textposition="outside",
+                    ))
+                    _fig.update_layout(
+                        height=300,
+                        margin=dict(l=0, r=0, t=10, b=60),
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        font_color="#e5e7eb",
+                        yaxis=dict(
+                            title="tỷ VND",
+                            showgrid=True,
+                            gridcolor="#374151",
+                            zeroline=True,
+                            zerolinecolor="#6b7280",
+                        ),
+                        xaxis=dict(showgrid=False, tickangle=-30),
+                    )
+                    st.plotly_chart(_fig, use_container_width=True)
+                except ImportError:
+                    # Fallback: simple dataframe table
+                    _df_sec = _pd2.DataFrame(_sec_items, columns=["Ngành", "NN ròng (tỷ)"])
+                    st.dataframe(_df_sec, hide_index=True, use_container_width=True)
+        else:
+            st.caption("Chưa có data NN ròng cho window này.")
+
     # ── Real-time mode ───────────────────────────────────────────────────
     if _mf_live_on and WSS_AVAILABLE:
         st.markdown("---")
