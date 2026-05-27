@@ -53,33 +53,40 @@ PRESET_DISPLAY: dict[str, str] = {
 # ── Data loaders ──────────────────────────────────────────────────────────
 
 def _load_vnindex_tech() -> dict:
-    """Read VNINDEX price history from warehouse and compute technicals."""
+    """Load VNINDEX technicals — reuses battle-tested _vnindex_technicals()
+    from vnstock_brief, which already handles warehouse path, price-unit
+    normalisation and all edge cases."""
+    try:
+        from vnstock_brief import _vnindex_technicals
+        return _vnindex_technicals()
+    except Exception:
+        pass
+    # Fallback: direct parquet read (identical logic to load_price_history)
     try:
         import pyarrow.parquet as pq
-        import numpy as np
+        import pandas as pd
 
-        vnindex_dir = _REPO / "data_warehouse" / "prices" / "ticker=VNINDEX"
-        if not vnindex_dir.exists():
+        ticker_dir = _REPO / "data_warehouse" / "prices" / "ticker=VNINDEX"
+        if not ticker_dir.exists():
             return {}
 
         tables = []
-        for part in sorted(vnindex_dir.glob("year=*/*.parquet")):
-            tables.append(pq.read_table(part).to_pandas())
+        for yd in sorted(ticker_dir.glob("year=*")):
+            for pf in yd.glob("*.parquet"):
+                tables.append(pq.read_table(pf).to_pandas())
         if not tables:
             return {}
 
-        import pandas as pd
-        df = pd.concat(tables, ignore_index=True)
-        df = df.sort_values("trading_date").reset_index(drop=True)
+        df = pd.concat(tables, ignore_index=True).sort_values("trading_date").reset_index(drop=True)
         if df.empty:
             return {}
 
         close = df["close"].astype(float)
-        # Price-unit normalisation (some sources store in integer points)
         if close.iloc[-1] > 5000:
             close = close / 1000
 
         n = len(close)
+
         def _ma(w):
             return float(close.rolling(w).mean().iloc[-1]) if n >= w else None
 
@@ -91,19 +98,10 @@ def _load_vnindex_tech() -> dict:
             return float(100 - 100 / (1 + rs.iloc[-1]))
 
         c = float(close.iloc[-1])
-        ma20  = _ma(20)
-        ma50  = _ma(50)
-        ma200 = _ma(200)
-
+        ma20, ma50, ma200 = _ma(20), _ma(50), _ma(200)
         return {
-            "close":  c,
-            "ma20":   ma20,
-            "ma50":   ma50,
-            "ma200":  ma200,
-            "rsi14":  _rsi(14),
-            "vs_ma20":  round((c / ma20 - 1) * 100, 2)  if ma20  else None,
-            "vs_ma50":  round((c / ma50 - 1) * 100, 2)  if ma50  else None,
-            "vs_ma200": round((c / ma200 - 1) * 100, 2) if ma200 else None,
+            "close": c, "ma20": ma20, "ma50": ma50, "ma200": ma200,
+            "rsi14": _rsi(14),
         }
     except Exception:
         return {}
@@ -129,7 +127,8 @@ def _load_nn_net_1d() -> float:
             return 0.0
         import pandas as pd
         data = json.loads(p.read_text(encoding="utf-8"))
-        df = pd.DataFrame(data.get("rows", []))
+        # Cache is a plain list of records [{symbol,date,net_value,...}, ...]
+        df = pd.DataFrame(data if isinstance(data, list) else data.get("rows", []))
         if df.empty or "date" not in df.columns:
             return 0.0
         df["date"] = pd.to_datetime(df["date"])
@@ -219,11 +218,11 @@ def classify_regime(
         else:
             _sig("Breadth MA200", f"{pct_ma200:.0f}%", 0, "Phân hoá")
 
-    # Signal 6 — Advance/Decline ratio
-    advances = breadth.get("advances", 0)
-    declines = breadth.get("declines", 1)
-    ad_ratio = advances / max(declines, 1)
-    if advances or declines:
+    # Signal 6 — Advance/Decline ratio (only if real data present)
+    advances = breadth.get("advances")
+    declines = breadth.get("declines")
+    if advances is not None and declines is not None:
+        ad_ratio = advances / max(int(declines), 1)
         if ad_ratio > 1.5:
             _sig("A/D ratio", f"{ad_ratio:.1f}", 1, f"{advances} tăng / {declines} giảm")
         elif ad_ratio < 0.7:
