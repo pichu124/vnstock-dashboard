@@ -408,6 +408,62 @@ def render_market_tab() -> None:
 
         st.divider()
 
+    # ── F5: Market regime detector ───────────────────────────────────────────
+    try:
+        import vnstock_regime as _reg
+        _regime_data = _reg.load_regime()
+        _r = _regime_data
+
+        with st.container():
+            _rc1, _rc2, _rc3 = st.columns([2, 3, 3])
+
+            with _rc1:
+                st.markdown(
+                    f'<div style="background:{_r["bg"]};border:1px solid {_r["color"]}33;'
+                    f'border-radius:8px;padding:12px 16px;text-align:center">'
+                    f'<div style="font-size:22px;font-weight:700;color:{_r["color"]}">'
+                    f'{_r["label"]}</div>'
+                    f'<div style="color:#9ca3af;font-size:12px;margin-top:4px">'
+                    f'Score: {_r["score"]:+d}/{_r["n_signals"]} · '
+                    f'Conviction: {_r["confidence"]*100:.0f}%</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+            with _rc2:
+                st.caption("**📡 Tín hiệu**")
+                _dir_icon = {1: "🟢", -1: "🔴", 0: "⚪"}
+                for sig in _r["signals"]:
+                    icon = _dir_icon.get(sig["direction"], "⚪")
+                    st.markdown(
+                        f'{icon} **{sig["name"]}**: {sig["value"]}'
+                        f'<span style="color:#6b7280;font-size:11px"> — {sig["detail"]}</span>',
+                        unsafe_allow_html=True,
+                    )
+
+            with _rc3:
+                st.caption("**🎯 Screener preset gợi ý**")
+                _presets = _r["suggested_presets"]
+                if _presets:
+                    for p in _presets:
+                        label = _reg.PRESET_DISPLAY.get(p, p)
+                        st.markdown(
+                            f'<span style="background:#1e3a5f;color:#60a5fa;'
+                            f'padding:3px 10px;border-radius:12px;font-size:13px;'
+                            f'display:inline-block;margin:2px">{label}</span>',
+                            unsafe_allow_html=True,
+                        )
+                    st.caption(
+                        "💡 Vào tab **Screener** → chọn preset trên để lọc "
+                        "cổ phiếu phù hợp với regime hiện tại."
+                    )
+                else:
+                    st.caption("Không có gợi ý cho regime này.")
+
+        st.divider()
+    except Exception:
+        pass   # regime block is optional; never crash the tab
+
     # ── Market Overview theo ngành (dữ liệu đã load ở trên) ─────────────────
     if mkt_df.empty:
         st.warning("Không có dữ liệu.")
