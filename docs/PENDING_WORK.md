@@ -89,6 +89,8 @@
 ### ✅ Đã làm
 - **F1. AI Brief — Consensus + History** ✅ Done 2026-05-27
 - **F3. News sentiment scoring** ✅ Done 2026-05-27
+- **F4. Foreign flow deep dive tab** ✅ Done 2026-05-27
+- **F5. Market regime detector** ✅ Done 2026-05-27
 
 ### 🎯 Tiếp theo — ROI cao
 
