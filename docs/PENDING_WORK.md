@@ -1,8 +1,159 @@
 # Pending Work — Resume Checkpoint
 
-**Last session ended**: 2026-05-18 (commit `04ef7a7`)
+**Last session ended**: 2026-05-27 (commit `e40fe8f`)
 **Branch**: `claude/review-code-summary-DkAI7`
-**Current state**: Reconciler **fail=0**, OpenRouter OK, all 7 tabs refactored
+**Current state**: Reconciler **fail=0**, OpenRouter OK, all 7 tabs refactored, F1+F3 done
+
+---
+
+## ✅ Đã hoàn thành (gần đây nhất)
+
+### Session 2026-05-27 — F1 + F3 features
+- ✅ **F1. AI Brief Consensus + History** — consensus banner, lịch sử brief, accuracy tracker T+N
+- ✅ **F3. News sentiment scoring** — Groq/Cerebras/OpenRouter batch scoring, SQLite cache, aggregate table, timeline chart, filter theo sentiment
+- ✅ Bug fix: aggregate table không còn empty khi filter "Hôm nay"
+- ✅ Bug fix: sticky "Hôm nay" filter tự reset sau refresh
+- ✅ Brief accuracy baseline (2026-05-22): Groq 67%, Mistral/OpenRouter/Cerebras 50%
+- ✅ News sentiment scoring: 5360/5360 tin đã chấm, tỷ lệ Trung lập cao phù hợp với loại tin corporate disclosure
+
+### Session 2026-05-18 — code review + dọn dẹp tồn đọng
+- ✅ Reconciler **fail: 714 → 0**
+- ✅ Bug fix `vnstock_remediate.py` — `VnstockWarehouse` case + `verbose` kwarg
+- ✅ OpenRouter confirmed kết nối OK
+- ✅ Dashboard refactor confirmed 7/7 tabs done
+- ✅ UPCOM symbol alias: `UPCOMINDEX` — 100 rows, GTGD UPCOM real-time hoạt động
+- ✅ Hallucination guard verified — không cite sai giá VNINDEX
+
+**Metrics:**
+| | Baseline ban đầu | Đạt được |
+|---|---|---|
+| Reconciler fail | 714 | **0** ✅ |
+| Anomaly | 62,953 | ~705 (−99%) |
+| News sentiment | 0 | 5360 tin scored ✅ |
+
+---
+
+## ⏳ Việc còn cần làm
+
+### 🔴 Verify khi có data
+
+1. **Verify VNINDEX loader** sau khi daily sync chạy:
+   ```powershell
+   python -c "
+   from vnstock_session_stats import _fetch_price_history
+   df = _fetch_price_history('VNINDEX')
+   print(df[['trading_date','total_value']].tail(3))
+   "
+   ```
+   Nếu rỗng → debug `collect_context()` trong `vnstock_brief.py`.
+
+### 🟡 Verification còn dở
+
+2. **Kiểm tra accuracy Brief sau 3–5 ngày** (từ 2026-05-22)
+   - Vào tab Thị trường → mở "📜 Lịch sử brief" → chọn T+1, ngưỡng ±0.5%
+   - Baseline: Groq 67% (2/3), Mistral/OpenRouter/Cerebras 50%
+   - Sample mục tiêu: ≥ 10 briefs evaluated/agent mới có ý nghĩa thống kê
+   - Nếu 1 agent nổi bật → dùng làm primary source cho Consensus
+
+3. **PHASE_5C UI test** — 23 test case trong `docs/PHASE_5C_TEST_CHECKLIST.md`.
+
+4. **Test LLM Auditor** — set `ANTHROPIC_API_KEY` trong `.env`:
+   ```powershell
+   python run.py --warehouse data_warehouse audit --llm
+   ```
+
+5. **Hallucination guard — observe production**
+   Dùng AI Brief vài ngày. Nếu thấy banner 🚨 hoặc brief cite sai → báo lại.
+
+### 🟠 Khi có thời điểm thích hợp
+
+6. **CafeF scraper bị 404**
+   - CafeF redesign 2026 → 4 URL template đều 404.
+   - Fix: mở browser CafeF DevTools → tìm URL thực → update `CAFEF_URL_TEMPLATES`.
+   - Alternative: thêm Vietstock.vn scraper làm fallback.
+
+7. **WSS volume inflation bug** (`vnstock_wss.py`) — chỉ debug được trong giờ giao dịch.
+   - Khi WSS chạy live: monitor `BarAggregator.diagnostics()` → `suspect_count > 0` là có bug.
+
+### 🟢 Dài hạn / nice-to-have
+
+8. Merge branch `claude/review-code-summary-DkAI7` vào `main` qua PR.
+9. Archive/organize anomaly whitelist entries cũ.
+10. Auto-schedule `vnstock_train.py` — hiện chạy manual.
+11. Tìm realtime GTGD chính xác (iboard DevTools hoặc per-stock batch agg).
+
+---
+
+## 💡 Tính năng đề xuất — còn lại
+
+### ✅ Đã làm
+- **F1. AI Brief — Consensus + History** ✅ Done 2026-05-27
+- **F3. News sentiment scoring** ✅ Done 2026-05-27
+
+### 🎯 Tiếp theo — ROI cao
+
+**F2. Telegram bot push daily brief**
+- Sáng 7h + chiều 15h tự push brief vào Telegram chat
+- Bonus: push alert khi screener phát hiện setup mới qua ngày
+- Reuse `generate_brief()` + Telegram bot token
+- Effort: ~3-4 giờ
+
+### 🟡 ROI trung — cần code mới
+
+**F4. Foreign flow deep dive tab**
+- Top 10 mã khối ngoại mua/bán ròng (today/week/month)
+- Cumulative net buy/sell theo sector
+- Foreign ownership ratio gần room (cảnh báo tránh mã sắp full)
+
+**F5. Market regime detector**
+- Bull / bear / sideways / risk-off classifier từ VNINDEX + breadth + foreign flow
+- Auto-suggest screener preset phù hợp regime hiện tại
+
+### 🟢 ROI thấp / nice-to-have
+
+**F6. Backtest equity curve viz** — chart drawdown/equity cho strategy tab
+**F7. Portfolio sector exposure** — % theo ngành + so VNINDEX benchmark
+**F8. Tax calculator** — 0.1% bán + capital gain VN, realized/unrealized P&L
+
+---
+
+## Quick warm-up commands
+
+```powershell
+cd "E:\Dropbox\Claude vnstock"
+git fetch origin --prune
+git pull origin claude/review-code-summary-DkAI7
+git log --oneline -5
+
+# Xem trạng thái warehouse
+python run.py --warehouse data_warehouse scan --fast
+
+# Re-audit để check fail count
+python run.py --warehouse data_warehouse audit --lookback 60
+```
+
+---
+
+## Architecture cheat sheet (quick reference)
+
+**Tab files** (sau refactor):
+- `dashboard/screener_tab.py`, `analysis_tab.py`, `market_tab.py`,
+  `money_flow_tab.py`, `news_tab.py`, `portfolio_tab.py`
+- `vnstock_health.py` (⚕️ Sức khỏe — không trong dashboard/)
+- `vnstock_dashboard.py` (router + shared loaders, ~3500 lines)
+
+**Core modules:**
+- `vnstock_brief.py` — AI agents + brief generation + memory wiring
+- `vnstock_strategy.py` — AST-sandboxed strategy executor + backtest
+- `vnstock_session_stats.py` — GTGD calibration (UPCOM = `UPCOMINDEX`)
+- `vnstock_reconciler.py` — rollup vs API cross-reference
+- `vnstock_sentiment.py` — news sentiment scoring (Groq/Cerebras/OpenRouter)
+- `run.py` — unified orchestrator (10+ subcommands)
+
+**Invariants không được phá** (xem CLAUDE.md):
+- 4-panel chart sync: dùng logical-range API, KHÔNG time-range
+- Hallucination guard: prompt sentinels + validator + UI banner (3 layer)
+
 
 ---
 
