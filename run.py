@@ -28,7 +28,7 @@ import argparse
 import json
 import subprocess
 import sys
-from datetime import date
+from datetime import date, datetime as _datetime
 from pathlib import Path
 
 
@@ -609,7 +609,81 @@ def cmd_fix_units(args) -> int:
 
 
 def cmd_test(args) -> int:
-    return _run([sys.executable, "-m", "pytest", "tests/", "-v"])
+    """Run pytest. Writes a status summary to data_warehouse/_meta/test_status.json
+    so the dashboard can display test health.
+
+    Modes:
+      (default) — full tests/ directory
+      --fast    — only the 7 test files added in F1-F7 + tune-ups (103 tests, ~0.5s)
+      --new     — alias for --fast
+    """
+    import json as _json
+    import subprocess as _sp
+    import time as _time
+
+    fast = getattr(args, "fast", False) or getattr(args, "new", False)
+    if fast:
+        test_paths = [
+            "tests/test_regime.py",
+            "tests/test_brief.py",
+            "tests/test_sentiment.py",
+            "tests/test_news_dedup.py",
+            "tests/test_freshness.py",
+            "tests/test_vn30_weights.py",
+            "tests/test_telegram.py",
+        ]
+    else:
+        test_paths = ["tests/"]
+
+    started = _time.time()
+    cmd = [sys.executable, "-m", "pytest", *test_paths, "-v", "--tb=short"]
+    proc = _sp.run(cmd, capture_output=True, text=True)
+    elapsed = _time.time() - started
+
+    # Echo output verbatim so user still sees the regular pytest run
+    sys.stdout.write(proc.stdout)
+    sys.stderr.write(proc.stderr)
+
+    # Parse the last "==== N passed, M failed in Xs ====" summary line
+    summary_line = ""
+    n_passed = n_failed = n_skipped = n_error = 0
+    for line in reversed(proc.stdout.splitlines()):
+        if " passed" in line or " failed" in line or " error" in line:
+            summary_line = line.strip()
+            break
+    import re as _re
+    if (m := _re.search(r"(\d+)\s+passed", summary_line)):
+        n_passed = int(m.group(1))
+    if (m := _re.search(r"(\d+)\s+failed", summary_line)):
+        n_failed = int(m.group(1))
+    if (m := _re.search(r"(\d+)\s+skipped", summary_line)):
+        n_skipped = int(m.group(1))
+    if (m := _re.search(r"(\d+)\s+error", summary_line)):
+        n_error = int(m.group(1))
+
+    status = {
+        "ran_at":   _datetime.now().isoformat(),
+        "mode":     "fast" if fast else "full",
+        "passed":   n_passed,
+        "failed":   n_failed,
+        "skipped":  n_skipped,
+        "errors":   n_error,
+        "elapsed_s": round(elapsed, 1),
+        "exit_code": proc.returncode,
+        "summary":  summary_line,
+    }
+    out_path = REPO_ROOT / "data_warehouse" / "_meta" / "test_status.json"
+    try:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(
+            _json.dumps(status, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        print(f"\n[test] status written → {out_path}")
+    except OSError as e:
+        print(f"[test] could not write status: {e}")
+
+    return proc.returncode
 
 
 def cmd_dashboard(args) -> int:
@@ -842,7 +916,11 @@ def build_parser() -> argparse.ArgumentParser:
     ff.add_argument("--delay", type=float, default=0.15,
                     help="Delay between API calls in seconds (default 0.15)")
 
-    sub.add_parser("test", help="Run pytest")
+    test = sub.add_parser("test", help="Run pytest + write status to test_status.json")
+    test.add_argument("--fast", action="store_true",
+                      help="Only run the 7 test files for new modules (~103 tests, 0.5s)")
+    test.add_argument("--new", action="store_true",
+                      help="Alias for --fast")
     sub.add_parser("screener", help="Refresh screener signals (vnstock_runner.py)")
     sub.add_parser("dashboard", help="Launch the Streamlit dashboard")
 

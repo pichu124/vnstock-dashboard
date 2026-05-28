@@ -3819,6 +3819,50 @@ industry_summary = data.get("industry_summary", {})
 
 # ── Theme toggle ──────────────────────────────────────────────────────────────
 with st.sidebar:
+    # ── Test status badge ──────────────────────────────────────────────
+    try:
+        _ts_path = Path("data_warehouse/_meta/test_status.json")
+        if _ts_path.exists():
+            _ts = json.loads(_ts_path.read_text(encoding="utf-8"))
+            _ts_ran = _ts.get("ran_at", "")
+            _ts_passed = _ts.get("passed", 0)
+            _ts_failed = _ts.get("failed", 0)
+            _ts_errors = _ts.get("errors", 0)
+            _ts_mode   = _ts.get("mode", "?")
+            _ts_total_bad = _ts_failed + _ts_errors
+            # Age
+            try:
+                _age_d = (datetime.now() - datetime.fromisoformat(_ts_ran)).days
+                _age_str = f"{_age_d}d trước" if _age_d > 0 else "hôm nay"
+            except Exception:
+                _age_str = "?"
+            _ts_color = "#22c55e" if _ts_total_bad == 0 else "#ef4444"
+            _ts_icon  = "✅" if _ts_total_bad == 0 else "❌"
+            st.markdown(
+                f'<div style="padding:6px 10px;border-radius:6px;'
+                f'border:1px solid {_ts_color};background:rgba(30,41,59,0.4);'
+                f'font-size:11px;color:{_ts_color};margin-bottom:8px;'
+                f'font-family:\'IBM Plex Sans\',sans-serif">'
+                f'{_ts_icon} <b>Tests {_ts_mode}</b>: {_ts_passed} passed'
+                + (f", <b>{_ts_total_bad} fail</b>" if _ts_total_bad else "")
+                + f'<br><span style="color:#9ca3af">Chạy {_age_str} · {_ts.get("elapsed_s","?")}s</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                '<div style="padding:6px 10px;border-radius:6px;'
+                'border:1px solid #6b7280;background:rgba(30,41,59,0.4);'
+                'font-size:11px;color:#9ca3af;margin-bottom:8px;'
+                'font-family:\'IBM Plex Sans\',sans-serif">'
+                '⏸ Tests chưa chạy.<br>'
+                '<code>python run.py test --fast</code>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+    except Exception:
+        pass
+
     _theme = st.toggle("☀️ Light mode", value=False, key="light_mode")
     if _theme:
         _t = THEMES["light"]

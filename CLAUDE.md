@@ -5,6 +5,33 @@ Items here get auto-loaded into Claude's context at session start.
 
 ---
 
+## 🧪 Test discipline
+
+**Khi nào cần chạy lại tests** (103 tests, ~0.5s):
+- Sau khi `git pull` về máy → đảm bảo môi trường vẫn OK
+- Sau khi sửa code trong: `vnstock_regime.py`, `vnstock_brief.py`,
+  `vnstock_sentiment.py`, `vnstock_news.py`, `vnstock_telegram.py`,
+  `vnstock_freshness.py`, `vnstock_vn30_weights.py`
+- Trước khi tạo PR merge về `main`
+- Sau khi nâng cấp pandas / numpy / Python version
+
+**Lệnh chạy**:
+```powershell
+# Nhanh — chỉ 103 tests cho module mới (~0.5s)
+python run.py test --fast
+
+# Đầy đủ — toàn bộ tests/ (~6s)
+python run.py test
+```
+
+Kết quả được ghi vào `data_warehouse/_meta/test_status.json` và hiển
+thị làm badge ở sidebar dashboard (✅ xanh nếu pass, ❌ đỏ nếu fail).
+
+**Nếu badge sidebar hiện đỏ** → mở terminal, chạy `python run.py test --fast`,
+xem output để biết test nào fail. Đừng deploy / merge khi badge đỏ.
+
+---
+
 ## 📌 Pending suggestions (raise when relevant)
 
 ### 1. Auto-schedule `vnstock_train.py` (NOT YET SET UP)
