@@ -172,12 +172,12 @@ def _company_sources():
         return Company(symbol=ticker)
 
     def via_vnstock_vci(ticker: str):
-        from vnstock import Vnstock
-        return Vnstock().stock(symbol=ticker, source="VCI").company
+        from vnstock_auth import get_vnstock
+        return get_vnstock(ticker, "VCI").company
 
     def via_vnstock_kbs(ticker: str):
-        from vnstock import Vnstock
-        return Vnstock().stock(symbol=ticker, source="KBS").company
+        from vnstock_auth import get_vnstock
+        return get_vnstock(ticker, "KBS").company
 
     yield "vnstock_data.Company", via_vnstock_data
     yield "vnstock:VCI", via_vnstock_vci

@@ -43,8 +43,8 @@ VN30_TICKERS: set[str] = {
 def get_vn30_live() -> set[str]:
     """Try to fetch current VN30 from vnstock API; fall back to VN30_TICKERS."""
     try:
-        from vnstock import Vnstock  # type: ignore
-        df = Vnstock().stock(symbol="VCB", source="VCI").listing.symbols_by_group("VN30")
+        from vnstock_auth import get_vnstock
+        df = get_vnstock("VCB", "VCI").listing.symbols_by_group("VN30")
         if df is not None and not df.empty:
             col = next((c for c in ("ticker", "symbol", "code") if c in df.columns), None)
             if col:

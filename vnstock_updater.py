@@ -51,7 +51,11 @@ try:
 except ImportError:
     USE_UNIFIED = False
     try:
-        from vnstock import Vnstock
+        # Verify vnstock is importable (new Quote API used via get_vnstock shim)
+        try:
+            from vnstock.api.quote import Quote  # type: ignore  # noqa: F401
+        except ImportError:
+            from vnstock import Quote  # type: ignore  # noqa: F401
         ensure_api_key()
         console.log("[yellow]⚠ Using vnstock (free)[/yellow]")
     except ImportError:
@@ -197,7 +201,10 @@ def _fetch_prices(ticker: str, start: str, end: str) -> pd.DataFrame:
     # Fallback: try Quote directly (works on some vnstock versions)
     if df is None or (hasattr(df, 'empty') and df.empty):
         try:
-            from vnstock import Quote
+            try:
+                from vnstock.api.quote import Quote  # type: ignore
+            except ImportError:
+                from vnstock import Quote  # type: ignore
             q = Quote(source="VCI", symbol=ticker)
             df = q.history(start=start, end=end, interval="1D")
         except Exception:

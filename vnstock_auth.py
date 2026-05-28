@@ -81,17 +81,67 @@ def ensure_api_key() -> bool:
 
 def get_vnstock(ticker: str = "VCB", source: str = "VCI"):
     """
-    Create a stock instance with the correct API tier.
+    Return a stock-like object exposing .quote / .company / .listing.
 
-    When vnstock_data (Sponsor) is installed, the device is already
-    registered via the GUI installer — just use Vnstock() as normal.
-    The Sponsor tier is active at the device level, not per-call.
-
-    Always call this instead of Vnstock().stock() directly.
+    Migration (vnstock 4.x deprecated `Vnstock().stock(...)` on 31/08/2025).
+    We now lazily build the new per-domain classes (Quote, Company, Listing)
+    and expose them via a shim, so callsites using
+    `get_vnstock(t).quote.history(...)` keep working without touching every
+    file. Old `Vnstock()` class is used only as a last-resort fallback.
     """
     ensure_api_key()
-    from vnstock import Vnstock
-    return Vnstock().stock(symbol=ticker, source=source)
+    return _StockShim(symbol=ticker, source=source)
+
+
+class _StockShim:
+    """Lazy-loading wrapper that exposes .quote / .company / .listing
+    via the new `vnstock.api.*` modules (vnstock 4.x+)."""
+
+    __slots__ = ("_symbol", "_source", "__quote", "__company", "__listing")
+
+    def __init__(self, symbol: str, source: str) -> None:
+        self._symbol = symbol
+        self._source = source
+        self.__quote = None
+        self.__company = None
+        self.__listing = None
+
+    @property
+    def quote(self):
+        if self.__quote is None:
+            try:
+                from vnstock.api.quote import Quote  # type: ignore
+            except ImportError:
+                from vnstock import Quote  # type: ignore
+            self.__quote = Quote(symbol=self._symbol, source=self._source)
+        return self.__quote
+
+    @property
+    def company(self):
+        if self.__company is None:
+            try:
+                from vnstock.api.company import Company  # type: ignore
+                self.__company = Company(symbol=self._symbol, source=self._source)
+            except ImportError:
+                # Last-resort fallback to old API (prints deprecation notice)
+                from vnstock import Vnstock  # type: ignore
+                self.__company = Vnstock().stock(
+                    symbol=self._symbol, source=self._source
+                ).company
+        return self.__company
+
+    @property
+    def listing(self):
+        if self.__listing is None:
+            try:
+                from vnstock.api.listing import Listing  # type: ignore
+                self.__listing = Listing(source=self._source)
+            except ImportError:
+                from vnstock import Vnstock  # type: ignore
+                self.__listing = Vnstock().stock(
+                    symbol=self._symbol, source=self._source
+                ).listing
+        return self.__listing
 
 
 def check_tier() -> str:

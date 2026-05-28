@@ -303,8 +303,8 @@ def fetch_ticker_news(ticker: str, source: str = "VCI") -> list[dict]:
     sources = [source] + ([s for s in ("VCI", "KBS") if s != source])
     for src in sources:
         try:
-            from vnstock import Vnstock  # type: ignore
-            stock = Vnstock().stock(symbol=ticker, source=src)
+            from vnstock_auth import get_vnstock
+            stock = get_vnstock(ticker, src)
             df = stock.company.news()
             if _is_news_dataframe(df):
                 return _records_from_df(df, ticker, src)
@@ -366,8 +366,8 @@ def diagnose_news_fetch(ticker: str = "VCB") -> dict:
 
     # vnstock free
     try:
-        from vnstock import Vnstock
-        stock = Vnstock().stock(symbol=ticker, source="VCI")
+        from vnstock_auth import get_vnstock
+        stock = get_vnstock(ticker, "VCI")
         t0 = _time.time()
         df = stock.company.news()
         dt = (_time.time() - t0) * 1000
