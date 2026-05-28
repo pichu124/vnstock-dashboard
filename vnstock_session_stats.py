@@ -25,10 +25,12 @@ from __future__ import annotations
 
 import json
 import logging
+import warnings
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 logging.getLogger("vnstock.common.data").setLevel(logging.WARNING)
+warnings.filterwarnings("ignore", category=UserWarning, module=r"vnstock")
 
 import pandas as pd
 
@@ -105,16 +107,29 @@ def _fetch_price_history(display_name: str) -> pd.DataFrame:
         return pd.DataFrame()
 
     symbol = _PRICE_HISTORY_SYMBOL[display_name]
-    candidates = [symbol]
+    # Always pass explicit date range so the API doesn't return a stale
+    # default window. 120 days covers the full calibration + backfill period.
+    end_date = date.today().strftime("%Y-%m-%d")
+    start_date = (date.today() - timedelta(days=120)).strftime("%Y-%m-%d")
 
-    for sym in candidates:
+    for sym in [symbol]:
         try:
             t = vd.Trading(symbol=sym, source="VCI")
-            df = t.price_history()
-            if df is not None and not df.empty:
-                df = df.copy()
-                df["trading_date"] = pd.to_datetime(df["trading_date"]).dt.date
-                return df
+            # Try with explicit date range first; fall back to no-args if the
+            # parameter names differ between vnii and vnstock_data versions.
+            for kwargs in (
+                {"start": start_date, "end": end_date},
+                {"start_date": start_date, "end_date": end_date},
+                {},
+            ):
+                try:
+                    df = t.price_history(**kwargs)
+                    if df is not None and not df.empty:
+                        df = df.copy()
+                        df["trading_date"] = pd.to_datetime(df["trading_date"]).dt.date
+                        return df
+                except TypeError:
+                    continue
         except Exception:
             continue
     return pd.DataFrame()
