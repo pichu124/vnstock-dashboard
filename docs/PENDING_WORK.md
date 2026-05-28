@@ -1,8 +1,8 @@
 # Pending Work — Resume Checkpoint
 
-**Last session ended**: 2026-05-27 (commit `e40fe8f`)
+**Last session ended**: 2026-05-28 (commit `77959af`)
 **Branch**: `claude/review-code-summary-DkAI7`
-**Current state**: Reconciler **fail=0**, OpenRouter OK, all 7 tabs refactored, F1+F3 done
+**Current state**: Reconciler fail=0, F1+F3+F4+F5 done, F5 all 7 signals working
 
 ---
 
@@ -37,15 +37,18 @@
 
 ### 🔴 Verify khi có data
 
-1. **Verify VNINDEX loader** sau khi daily sync chạy:
+1. **Verify VNINDEX loader** — sau phiên giao dịch 2026-05-28 (sau 15h):
    ```powershell
    python -c "
    from vnstock_session_stats import _fetch_price_history
    df = _fetch_price_history('VNINDEX')
-   print(df[['trading_date','total_value']].tail(3))
+   print(df[['trading_date','close','total_value']].tail(3))
    "
    ```
-   Nếu rỗng → debug `collect_context()` trong `vnstock_brief.py`.
+   - Kết quả mong đợi: 3 dòng cuối, ngày mới nhất = hôm nay hoặc ngày GD gần nhất
+   - Nếu rỗng / thiếu ngày → chạy `python vnstock_train.py --once` để sync
+   - Nếu vẫn rỗng → debug `collect_context()` trong `vnstock_brief.py`
+   - Mục đích: F5 cần data này để tính MA20/MA50/MA200/RSI (4 trong 7 tín hiệu)
 
 ### 🟡 Verification còn dở
 
