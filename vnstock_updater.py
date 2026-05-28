@@ -359,7 +359,7 @@ def run_update(
     warehouse: str = "data_warehouse",
     tickers: list = None,
     dry_run: bool = False,
-    delay: float = 0.3,
+    delay: float = 0.1,
     skip_weekends: bool = True,
 ):
     prices_dir = Path(warehouse) / "prices"
@@ -526,7 +526,7 @@ def fix_volume_spikes(
     tickers: list = None,
     threshold: float = 10.0,
     dry_run: bool = False,
-    delay: float = 0.3,
+    delay: float = 0.1,
 ):
     """
     Detect and fix anomalous volume spikes in warehouse parquet.
@@ -640,7 +640,7 @@ def rebuild_recent(
     tickers: list = None,
     days: int = 30,
     dry_run: bool = False,
-    delay: float = 0.3,
+    delay: float = 0.1,
     ratio_threshold: float = 1.5,
 ):
     """
@@ -787,8 +787,8 @@ if __name__ == "__main__":
                              "overwrite warehouse where volume > 1.5x API "
                              "(fixes inflation when --fix-volume can't detect "
                              "because median is also inflated)")
-    parser.add_argument("--delay",     type=float, default=0.3,
-                        help="Delay giữa API calls (giây, mặc định 0.3)")
+    parser.add_argument("--delay",     type=float, default=0.1,
+                        help="Delay giữa API calls (giây, mặc định 0.1 cho Sponsor 600/min)")
     parser.add_argument("--warehouse", default="data_warehouse",
                         help="Đường dẫn warehouse")
     parser.add_argument("--skip-if-done", action="store_true",
