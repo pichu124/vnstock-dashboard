@@ -32,30 +32,6 @@ xem output để biết test nào fail. Đừng deploy / merge khi badge đỏ.
 
 ---
 
-## ⚠️ Known issue — `_fetch_price_history` broken (2026-05-28)
-
-**Status**: OPEN — cần chạy lại VNSTOCK INSTALLER để fix.
-
-**Nguyên nhân**: Sau khi upgrade `vnstock` 3.5.1 → 4.0.4:
-- `vnstock_data.Trading` bị ImportError: `_GROUP_CODE` removed trong 4.0.4
-- `vnstock.api.trading.Trading` không hỗ trợ `price_history()` cho VCI/KBS
-- Không có path nào lấy được `total_value` EOD cho indices
-
-**Tác động**: `_fetch_price_history` trả về empty DataFrame → dùng
-`_FALLBACK_AVG_PRICE_VND` cho calibration → GTGD estimate ~90% thay vì ~95%.
-Dashboard vẫn chạy bình thường, chỉ mất độ chính xác nhỏ.
-
-**Fix**: Chạy lại **VNSTOCK INSTALLER** từ vnstocks.com để cài `vnstock_data`
-version tương thích với vnstock 4.0.4. Sau đó `_fetch_price_history` sẽ dùng
-sponsor fallback path và hoạt động lại.
-
-**Verify sau khi fix**:
-```powershell
-python -c "from vnstock_session_stats import _fetch_price_history; df = _fetch_price_history('VNINDEX'); print(df[['trading_date','total_value','total_volume']].tail(3))"
-```
-
----
-
 ## 📌 Pending suggestions (raise when relevant)
 
 ### 1. Auto-schedule `vnstock_train.py` (NOT YET SET UP)
