@@ -70,7 +70,13 @@ def ensure_api_key() -> bool:
     if not _HAS_VNSTOCK_DATA:
         try:
             from vnstock.core.utils.auth import change_api_key
-            change_api_key(_API_KEY)
+            # change_api_key() prints "✓ API key đã được cập nhật" + sponsor
+            # promo banner on every call. Suppress stdout so the user's
+            # terminal stays clean when the key is just being re-applied.
+            import contextlib, io
+            with contextlib.redirect_stdout(io.StringIO()), \
+                 contextlib.redirect_stderr(io.StringIO()):
+                change_api_key(_API_KEY)
         except ImportError:
             pass
         except Exception:
