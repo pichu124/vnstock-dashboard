@@ -94,11 +94,16 @@ def _fetch_price_history(display_name: str) -> pd.DataFrame:
     returns ~100 rows with `trading_date`, `total_value`, `total_volume`.
     Returns empty DataFrame on any error.
     """
+    # Need a module that exposes Trading class.
+    # vnii is the newer package name but may not expose Trading at top level;
+    # vnstock_data always has it. Check both in order.
     vd = None
-    for _mod in ("vnii", "vnstock_data"):
+    for _mod in ("vnstock_data", "vnii"):
         try:
-            vd = __import__(_mod)
-            break
+            _m = __import__(_mod)
+            if hasattr(_m, "Trading"):
+                vd = _m
+                break
         except ImportError:
             continue
         except Exception:
