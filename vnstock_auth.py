@@ -20,6 +20,8 @@ Usage:
     stock = get_vnstock(ticker) # Stock instance with key applied
 """
 
+import contextlib
+import io
 import os
 import warnings
 from pathlib import Path
@@ -45,9 +47,13 @@ _API_KEY = os.getenv("VNSTOCK_API_KEY", "").strip()
 # if the package is present but broken, log the error so user can fix it.
 _HAS_VNSTOCK_DATA = False
 _SPONSOR_IMPORT_ERROR: Exception | None = None
+# Redirect stdout+stderr during sponsor package import to silence the
+# "📦 Vnstock X.Y.Z is available" update-check prints from vnstock_data.
 for _mod_name in ("vnii", "vnstock_data"):
     try:
-        __import__(_mod_name)
+        with contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(io.StringIO()):
+            __import__(_mod_name)
         _HAS_VNSTOCK_DATA = True
         break
     except ImportError:

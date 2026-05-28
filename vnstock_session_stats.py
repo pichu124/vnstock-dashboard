@@ -97,10 +97,16 @@ def _fetch_price_history(display_name: str) -> pd.DataFrame:
     # Need a module that exposes Trading class.
     # vnii is the newer package name but may not expose Trading at top level;
     # vnstock_data always has it. Check both in order.
+    # Need a module that exposes Trading class.
+    # Suppress stdout/stderr during import to silence vnstock_data's
+    # update-check print statements (📦 Vnstock X.Y.Z is available…).
+    import contextlib, io as _io
     vd = None
     for _mod in ("vnstock_data", "vnii"):
         try:
-            _m = __import__(_mod)
+            with contextlib.redirect_stdout(_io.StringIO()), \
+                 contextlib.redirect_stderr(_io.StringIO()):
+                _m = __import__(_mod)
             if hasattr(_m, "Trading"):
                 vd = _m
                 break
