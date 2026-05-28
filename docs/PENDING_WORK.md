@@ -91,9 +91,11 @@
 
 ### ✅ Đã làm
 - **F1. AI Brief — Consensus + History** ✅ Done 2026-05-27
+- **F2. Telegram bot push daily brief** ✅ Done 2026-05-28
 - **F3. News sentiment scoring** ✅ Done 2026-05-27
 - **F4. Foreign flow deep dive tab** ✅ Done 2026-05-27
 - **F5. Market regime detector** ✅ Done 2026-05-27
+- **F6. Backtest equity curve viz** ✅ Done 2026-05-28
 
 ### 🎯 Tiếp theo — ROI cao
 

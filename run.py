@@ -633,6 +633,40 @@ def cmd_screener(args) -> int:
     return _run([sys.executable, str(REPO_ROOT / "vnstock_runner.py")])
 
 
+def cmd_telegram(args) -> int:
+    """Push Telegram notifications (test / morning / close / screener)."""
+    try:
+        import vnstock_telegram as _tg
+    except ImportError as e:
+        print(f"[telegram] cannot import vnstock_telegram: {e}")
+        return 1
+
+    action = args.action
+    try:
+        if action == "test":
+            resp = _tg.push_test()
+            print(f"[telegram] test sent — message_id={resp.get('result',{}).get('message_id')}")
+        elif action == "morning":
+            resp = _tg.push_morning_brief()
+            print(f"[telegram] morning brief sent — message_id={resp.get('result',{}).get('message_id')}")
+        elif action == "close":
+            resp = _tg.push_close_brief()
+            print(f"[telegram] close brief sent — message_id={resp.get('result',{}).get('message_id')}")
+        elif action == "screener":
+            resp = _tg.push_screener_alerts()
+            print(f"[telegram] screener sent — message_id={resp.get('result',{}).get('message_id')}")
+        else:
+            print(f"[telegram] unknown action: {action}")
+            return 1
+        return 0
+    except RuntimeError as e:
+        print(f"[telegram] ❌ {e}")
+        return 1
+    except Exception as e:
+        print(f"[telegram] ❌ {type(e).__name__}: {e}")
+        return 1
+
+
 def cmd_all(args) -> int:
     """sync → validate → screener → test → audit. Stops on first hard failure."""
     for name, fn in (
@@ -812,6 +846,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("screener", help="Refresh screener signals (vnstock_runner.py)")
     sub.add_parser("dashboard", help="Launch the Streamlit dashboard")
 
+    tg = sub.add_parser("telegram", help="Push Telegram notifications")
+    tg.add_argument(
+        "action",
+        choices=["test", "morning", "close", "screener"],
+        help="test=verify connection, morning=morning brief, close=close brief, screener=alerts only",
+    )
+
     all_ = sub.add_parser("all", help="sync → validate → screener → test → audit")
     all_.add_argument("--lookback", type=int, default=60)
     all_.add_argument("--llm", action="store_true")
@@ -837,6 +878,7 @@ _DISPATCH = {
     "fix-units": cmd_fix_units,
     "freefloat": cmd_freefloat,
     "screener": cmd_screener,
+    "telegram": cmd_telegram,
     "test": cmd_test,
     "dashboard": cmd_dashboard,
     "all": cmd_all,
