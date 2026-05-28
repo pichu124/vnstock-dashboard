@@ -178,26 +178,31 @@ def classify_regime(
     ma200 = vnindex_tech.get("ma200")
     rsi   = vnindex_tech.get("rsi14")
 
+    def _ma_dir(d: float) -> int:
+        # Treat ±0.1% band as neutral so a flat market doesn't score bearish.
+        if d > 0.1:
+            return 1
+        if d < -0.1:
+            return -1
+        return 0
+
     # Signal 1 — VNINDEX vs MA20
     if c and ma20:
         d = (c / ma20 - 1) * 100
-        _sig("VNINDEX / MA20", f"{d:+.1f}%",
-             1 if d > 0 else -1,
-             f"{'Trên' if d > 0 else 'Dưới'} MA20 ({ma20:,.0f})")
+        _sig("VNINDEX / MA20", f"{d:+.1f}%", _ma_dir(d),
+             f"{'Trên' if d > 0 else 'Dưới' if d < 0 else 'Ngang'} MA20 ({ma20:,.0f})")
 
     # Signal 2 — VNINDEX vs MA50
     if c and ma50:
         d = (c / ma50 - 1) * 100
-        _sig("VNINDEX / MA50", f"{d:+.1f}%",
-             1 if d > 0 else -1,
-             f"{'Trên' if d > 0 else 'Dưới'} MA50 ({ma50:,.0f})")
+        _sig("VNINDEX / MA50", f"{d:+.1f}%", _ma_dir(d),
+             f"{'Trên' if d > 0 else 'Dưới' if d < 0 else 'Ngang'} MA50 ({ma50:,.0f})")
 
     # Signal 3 — VNINDEX vs MA200
     if c and ma200:
         d = (c / ma200 - 1) * 100
-        _sig("VNINDEX / MA200", f"{d:+.1f}%",
-             1 if d > 0 else -1,
-             f"{'Trên' if d > 0 else 'Dưới'} MA200 ({ma200:,.0f})")
+        _sig("VNINDEX / MA200", f"{d:+.1f}%", _ma_dir(d),
+             f"{'Trên' if d > 0 else 'Dưới' if d < 0 else 'Ngang'} MA200 ({ma200:,.0f})")
 
     # Signal 4 — RSI14
     if rsi is not None:

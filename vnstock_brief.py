@@ -1511,15 +1511,25 @@ def _detect_stance(tldr_text: str) -> str:
     """Classify TLDR as bullish/bearish/neutral/unknown.
 
     Strategy:
-      1. Look for canonical 'Stance ngày mai: <X>' line. If found, classify
-         just that captured phrase — avoids false positives from sector
-         adjectives like '5/29 ngành tích cực' being mistaken for bullish
-         market stance.
-      2. Fallback: keyword vote over the full TLDR (legacy heuristic).
+      1. If canonical 'Stance ngày mai: <X>' line is present, check the
+         captured phrase first for canonical labels TĂNG/GIẢM/TRUNG TÍNH —
+         this is what the prompt template instructs the agent to emit.
+      2. Fall back to keyword vote across the full TLDR.
     """
+    import re as _re_local
     m = _STANCE_LINE_RE.search(tldr_text)
-    target = m.group(1).lower() if m else tldr_text.lower()
+    if m:
+        captured = m.group(1).lower()
+        # Canonical labels as whole-word tokens (avoid matching "tăng giá")
+        if _re_local.search(r"\btrung\s*tính\b", captured):
+            return "neutral"
+        if _re_local.search(r"\b(tăng|bullish|uptrend)\b", captured):
+            return "bullish"
+        if _re_local.search(r"\b(giảm|bearish|downtrend)\b", captured):
+            return "bearish"
 
+    # Fallback: keyword vote over full TLDR
+    target = tldr_text.lower()
     bull = sum(1 for kw in _STANCE_BULL if kw in target)
     bear = sum(1 for kw in _STANCE_BEAR if kw in target)
     neut = sum(1 for kw in _STANCE_NEUT if kw in target)
