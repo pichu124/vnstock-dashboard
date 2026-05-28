@@ -126,14 +126,13 @@ def _brief_snippet(brief_type: str) -> str:
             text, err = val
             if not text or err:
                 continue
-            # Strip markdown headers, get first 6 non-empty lines
+            # Strip markdown headers, return all non-empty lines
             lines = [
                 ln.lstrip("#").strip()
                 for ln in text.splitlines()
                 if ln.strip() and not ln.strip().startswith("---")
             ]
-            snippet = " ".join(lines[:6])
-            return snippet[:380] + ("…" if len(snippet) > 380 else "")
+            return "\n".join(lines)
         # Check timing sentinel
         if "_timing" in results:
             return results["_timing"][1] or "Brief chưa khả dụng."
@@ -150,7 +149,7 @@ def _open_recs_block() -> str:
             return "📋 <b>Khuyến nghị đang mở:</b> không có"
 
         lines = [f"📋 <b>Khuyến nghị đang mở ({len(opens)} mã):</b>"]
-        for r in opens[:5]:
+        for r in opens:
             ticker = r.get("ticker", "?")
             action = r.get("action", "?").upper()
             entry  = float(r.get("entry_price") or 0)
@@ -168,8 +167,6 @@ def _open_recs_block() -> str:
                 f" → TP {tp_pct:+.1f}% | SL {sl_pct:+.1f}%"
                 f" | ngày {age}/{horizon}"
             )
-        if len(opens) > 5:
-            lines.append(f"  … và {len(opens)-5} mã khác")
         return "\n".join(lines)
     except Exception as e:
         return f"📋 Khuyến nghị: lỗi ({e})"
