@@ -29,13 +29,33 @@ load_dotenv(Path(__file__).parent / ".env")
 
 _API_KEY = os.getenv("VNSTOCK_API_KEY", "").strip()
 
-# Detect if vnstock_data (Sponsor) is available
+# Detect if Sponsor tier package is available.
+# The Sponsor SDK ships under two names historically:
+#   - `vnstock_data` (older, being phased out)
+#   - `vnii`         (newer, vnstocks.com/api/simple index)
+# Either one being importable is sufficient to mark the device as Sponsor.
+# Catch BaseException because broken installs (e.g. vnstock_data ↔ vnstock
+# version mismatch raising ImportError on `_GROUP_CODE`) shouldn't crash
+# the whole dashboard, but we ALSO shouldn't silently downgrade to free —
+# if the package is present but broken, log the error so user can fix it.
 _HAS_VNSTOCK_DATA = False
-try:
-    import vnstock_data  # noqa: F401
-    _HAS_VNSTOCK_DATA = True
-except ImportError:
-    pass
+_SPONSOR_IMPORT_ERROR: Exception | None = None
+for _mod_name in ("vnii", "vnstock_data"):
+    try:
+        __import__(_mod_name)
+        _HAS_VNSTOCK_DATA = True
+        break
+    except ImportError:
+        continue
+    except Exception as _e:
+        # Package present but import fails (version mismatch, missing dep).
+        # Save the first such error; if no working sponsor package found
+        # we'll log it once during ensure_api_key().
+        if _SPONSOR_IMPORT_ERROR is None:
+            _SPONSOR_IMPORT_ERROR = _e
+        # Treat broken package as "installed" so we don't downgrade.
+        _HAS_VNSTOCK_DATA = True
+        break
 
 
 def get_api_key() -> str:
@@ -62,6 +82,19 @@ def ensure_api_key() -> bool:
     """
     if not _API_KEY:
         return False
+
+    # Warn once if a sponsor package is installed but broken
+    global _SPONSOR_IMPORT_ERROR
+    if _SPONSOR_IMPORT_ERROR is not None:
+        import sys as _sys
+        print(
+            f"[vnstock_auth] ⚠ Sponsor package installed but broken: "
+            f"{type(_SPONSOR_IMPORT_ERROR).__name__}: {_SPONSOR_IMPORT_ERROR}\n"
+            f"  → Upgrade with: pip install --upgrade --extra-index-url "
+            f"https://vnstocks.com/api/simple vnii vnstock-installer",
+            file=_sys.stderr,
+        )
+        _SPONSOR_IMPORT_ERROR = None   # warn only once per process
 
     # Always set env var (some code paths read from env)
     os.environ["VNSTOCK_API_KEY"] = _API_KEY
