@@ -263,27 +263,14 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
     try:
         import plotly.graph_objects as go
         from vnstock_dashboard import _load_industry_map, _get_sector, SECTOR_ICONS
+        from vnstock_vn30_weights import compute_vn30_sector_weights, cache_metadata
 
         _ind_map = _load_industry_map()
 
-        # Approximate VN30 sector weights (% of index, updated ~2025)
-        _VN30_BENCH = {
-            "Ngân hàng":            35.0,
-            "Bất động sản":         14.0,
-            "Tiêu dùng":             9.0,
-            "Công nghệ":             8.0,
-            "Thép & Kim loại":       5.0,
-            "Năng lượng":            5.0,
-            "Chứng khoán":           5.0,
-            "Xây dựng & Hạ tầng":   4.0,
-            "Vận tải & Cảng":        3.0,
-            "Hoá chất & Vật liệu":   3.0,
-            "Y tế & Dược":           2.0,
-            "Dịch vụ & Du lịch":     2.0,
-            "Bảo hiểm":              1.5,
-            "Nông & Thuỷ sản":       1.0,
-            "Khác":                  1.5,
-        }
+        # Dynamic VN30 benchmark — market-cap weighted if data available,
+        # else equal-weight by ticker count, else hardcoded fallback.
+        _VN30_BENCH = compute_vn30_sector_weights()
+        _bench_meta = cache_metadata() or {}
 
         # Aggregate portfolio current value by sector
         _sector_val: dict[str, float] = {}
@@ -398,9 +385,15 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
                 use_container_width=True,
                 hide_index=True,
             )
+            _mode_label = {
+                "market_cap": "🏛 market-cap weighted",
+                "equal":      "⚖️ equal-weight (theo số mã)",
+            }.get(_bench_meta.get("mode", ""), "⚠️ hardcoded fallback")
+            _upd_at = (_bench_meta.get("updated_at") or "")[:10]
             st.caption(
-                "⚠️ VN30 benchmark là trọng số xấp xỉ (~2025). "
-                "Lệch (pp) > 0 = overweight, < 0 = underweight so với index."
+                f"📊 VN30 benchmark: {_mode_label} · {_bench_meta.get('n_tickers','?')} mã"
+                + (f" · cập nhật {_upd_at}" if _upd_at else "")
+                + ". Lệch (pp) > 0 = overweight, < 0 = underweight."
             )
             if _unmapped:
                 st.caption(f"Không tra được ngành: {', '.join(set(_unmapped))} — xếp vào 'Khác'.")

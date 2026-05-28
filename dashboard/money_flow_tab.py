@@ -49,6 +49,17 @@ def render_money_flow_tab() -> None:
 
     st.markdown("### 💰 Dòng Tiền Ngành")
 
+    # Data staleness badges
+    try:
+        from pathlib import Path as _Path
+        from vnstock_freshness import render_freshness_row
+        render_freshness_row([
+            ("💸 NN flow",         _Path("data_warehouse/_meta/nn_flow_cache.json"),  2 * 3600),
+            ("💰 Money flow",      _Path("data_warehouse/_meta/money_flow_cache.json"), 2 * 3600),
+        ])
+    except Exception:
+        pass
+
     # ── Sidebar controls ─────────────────────────────────────────────────
     with st.sidebar:
         st.markdown("### 💰 Dòng Tiền")

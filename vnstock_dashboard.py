@@ -204,7 +204,8 @@ def _load_nn_from_disk() -> pd.DataFrame:
                 if col not in df.columns:
                     df[col] = 0.0
         return df
-    except (OSError, json.JSONDecodeError, ValueError):
+    except (OSError, json.JSONDecodeError, ValueError) as e:
+        log.warning("NN flow cache corrupt: %s", e)
         return pd.DataFrame()
 
 
@@ -494,8 +495,8 @@ def _fetch_order_stats_batch(tickers: tuple) -> dict:
                 if len(cached) > 3:
                     log.info("Order stats: loaded %d tickers from disk", len(cached))
                     return cached
-        except (OSError, json.JSONDecodeError):
-            pass
+        except (OSError, json.JSONDecodeError) as e:
+            log.warning("Order stats cache corrupt: %s", e)
 
     try:
         from vnstock_data import Trading
@@ -1120,7 +1121,8 @@ def load_live_quote(ticker: str) -> dict | None:
         return None
     try:
         return json.loads(path.read_text())
-    except Exception:
+    except (OSError, json.JSONDecodeError) as e:
+        log.warning("Live quote %s corrupt: %s", ticker, e)
         return None
 
 
@@ -1134,7 +1136,8 @@ def load_alerts() -> list[dict]:
         return []
     try:
         return json.loads(ALERTS_PATH.read_text())
-    except Exception:
+    except (OSError, json.JSONDecodeError) as e:
+        log.warning("Alerts file corrupt: %s", e)
         return []
 
 
@@ -1257,7 +1260,8 @@ def load_portfolio() -> list[dict]:
         return []
     try:
         return json.loads(PORTFOLIO_PATH.read_text())
-    except Exception:
+    except (OSError, json.JSONDecodeError) as e:
+        log.warning("Portfolio file corrupt: %s", e)
         return []
 
 

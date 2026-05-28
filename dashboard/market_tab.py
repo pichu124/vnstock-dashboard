@@ -150,6 +150,17 @@ def render_market_tab() -> None:
             st.cache_data.clear()
             st.rerun()
 
+    # Data staleness badges — cảnh báo khi cache cũ
+    try:
+        from vnstock_freshness import render_freshness_row
+        render_freshness_row([
+            ("📊 Market overview", Path("data_warehouse/_meta/market_overview.json"), 24 * 3600),
+            ("💸 NN flow",         Path("data_warehouse/_meta/nn_flow_cache.json"),    2 * 3600),
+            ("⏱ Session stats",    Path("data_warehouse/_meta/market_session_stats.json"), 1 * 3600),
+        ])
+    except Exception:
+        pass
+
     # ── Live Market Heatmap (VN30 real-time) ──────────────────────────────
     if st.session_state.get("live_mode") and WSS_AVAILABLE:
         @st.fragment(run_every=5)

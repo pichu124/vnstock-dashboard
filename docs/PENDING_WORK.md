@@ -1,8 +1,9 @@
 # Pending Work — Resume Checkpoint
 
-**Last session ended**: 2026-05-28 (commit `77959af`)
+**Last session ended**: 2026-05-28 (post-review tune-up)
 **Branch**: `claude/review-code-summary-DkAI7`
-**Current state**: Reconciler fail=0, F1+F3+F4+F5 done, F5 all 7 signals working
+**Current state**: F1-F7 done, code review tune-ups applied (json logging,
+data staleness badges, dynamic VN30 weights)
 
 ---
 
