@@ -200,6 +200,26 @@ def render_news_tab() -> None:
             ),
         )
 
+    # ── Dedup existing cache ───────────────────────────────────────────────
+    dedup_col1, dedup_col2 = st.columns([2, 8])
+    with dedup_col1:
+        dedup_clicked = st.button(
+            "🧹 Dedup cache",
+            key="_news_dedup",
+            help="Xoá các tin trùng/gần trùng (cùng ngày + title similarity ≥ 85%). Tin mới refresh đã tự dedup.",
+        )
+    if dedup_clicked:
+        _existing = _nn.load_news_cache()
+        _deduped, _n_removed = _nn.deduplicate_news(_existing)
+        if _n_removed > 0:
+            _nn.save_news_cache(_deduped)
+            st.session_state["_news_data"] = _deduped
+            with dedup_col2:
+                st.success(f"✅ Đã xoá **{_n_removed}** tin trùng. Còn {len(_deduped)} tin.")
+        else:
+            with dedup_col2:
+                st.info("Không có tin trùng. Cache đã sạch.")
+
     # ── Sentiment controls ─────────────────────────────────────────────────
     if _sentiment_available:
         snt_col1, snt_col2 = st.columns([2, 8])

@@ -401,6 +401,92 @@ def _records_from_df(df, ticker: str, source: str) -> list[dict]:
     return records
 
 
+# ── Deduplication ──────────────────────────────────────────────────────────
+
+import re as _re_dedup
+from difflib import SequenceMatcher as _SM
+
+
+_NEWS_TITLE_KEYS = ("news_title", "title", "head", "headline")
+_TITLE_NORM_RE = _re_dedup.compile(r"[^\w\s]+", flags=_re_dedup.UNICODE)
+
+
+def _news_title(item: dict) -> str:
+    for k in _NEWS_TITLE_KEYS:
+        v = item.get(k)
+        if v:
+            return str(v)
+    return ""
+
+
+def _norm_title(title: str) -> str:
+    """Lowercase, strip punctuation, collapse whitespace — for fuzzy match."""
+    t = (title or "").lower().strip()
+    t = _TITLE_NORM_RE.sub(" ", t)
+    return " ".join(t.split())
+
+
+def deduplicate_news(
+    news: list[dict],
+    similarity_threshold: float = 0.85,
+) -> tuple[list[dict], int]:
+    """Remove near-duplicate articles (same date + similar title).
+
+    Strategy:
+      1. Group items by _date_sort (only compare within same day for speed)
+      2. Within each day, do O(n²) fuzzy match on normalized titles
+      3. Keep the FIRST occurrence (input list is already sorted newest-first),
+         drop subsequent matches with ratio ≥ threshold
+
+    Returns (deduped_list, n_removed).
+    """
+    if not news:
+        return news, 0
+
+    by_date: dict[str, list[dict]] = {}
+    for item in news:
+        d = item.get("_date_sort") or "0000-00-00"
+        by_date.setdefault(d, []).append(item)
+
+    deduped: list[dict] = []
+    removed = 0
+
+    for date_key, items in by_date.items():
+        kept: list[tuple[str, dict]] = []  # (norm_title, item)
+        for it in items:
+            title = _norm_title(_news_title(it))
+            if not title:
+                kept.append((title, it))
+                continue
+            is_dup = False
+            for kept_title, _ in kept:
+                if not kept_title:
+                    continue
+                # Quick exact-match short-circuit before expensive SequenceMatcher
+                if title == kept_title:
+                    is_dup = True
+                    break
+                # Length filter — titles must be within 30% length of each other
+                if abs(len(title) - len(kept_title)) > 0.3 * max(len(title), len(kept_title)):
+                    continue
+                ratio = _SM(None, title, kept_title).ratio()
+                if ratio >= similarity_threshold:
+                    is_dup = True
+                    break
+            if is_dup:
+                removed += 1
+            else:
+                kept.append((title, it))
+        deduped.extend(it for _, it in kept)
+
+    # Restore original ordering (newest first)
+    deduped.sort(
+        key=lambda x: x.get("_date_sort") or "0000-00-00",
+        reverse=True,
+    )
+    return deduped, removed
+
+
 # ── Parallel refresh ───────────────────────────────────────────────────────
 def refresh_news(
     universe: list[str] | None = None,
@@ -439,6 +525,17 @@ def refresh_news(
         key=lambda x: x.get("_date_sort") or "0000-00-00",
         reverse=True,
     )
+
+    # Dedup near-duplicate titles within same day (VnExpress / CafeF cross-post)
+    all_news, _n_dup = deduplicate_news(all_news)
+    if _n_dup:
+        try:
+            import logging
+            logging.getLogger("vnstock_news").info(
+                "deduplicated %d duplicate articles", _n_dup
+            )
+        except Exception:
+            pass
 
     save_news_cache(all_news)
     _set_memory_cache(all_news)
