@@ -41,13 +41,13 @@ warnings.filterwarnings("ignore")
 console = Console()
 
 # ── vnstock import ────────────────────────────────────────────────────────────
-from vnstock_auth import ensure_api_key, get_vnstock
+from vnstock_auth import ensure_api_key, get_vnstock, has_sponsor_package
 
 try:
     from vnstock_data import Reference
     USE_UNIFIED = True
     ensure_api_key()
-    console.log("[green]✅ Using vnstock_data[/green]")
+    console.log("[green]✅ Using vnstock_data (Sponsor)[/green]")
 except ImportError:
     USE_UNIFIED = False
     try:
@@ -57,7 +57,21 @@ except ImportError:
         except ImportError:
             from vnstock import Quote  # type: ignore  # noqa: F401
         ensure_api_key()
-        console.log("[yellow]⚠ Using vnstock (free)[/yellow]")
+        # Rate limit depends on the API KEY tier, not which Python package
+        # we're calling. vnstock_auth.has_sponsor_package() reflects whether
+        # a Sponsor package is installed (vnii / vnstock_data) — even if
+        # vnstock_data is broken, vnii being present means the device is
+        # registered as Sponsor and the key won't be downgraded.
+        if has_sponsor_package():
+            console.log(
+                "[green]✅ Using vnstock + Sponsor API key "
+                "(600 req/min)[/green]"
+            )
+        else:
+            console.log(
+                "[yellow]⚠ Using vnstock free tier "
+                "(60 req/min — install vnii for Sponsor)[/yellow]"
+            )
     except ImportError:
         console.print("[red]❌ Install vnstock: pip install vnstock[/red]")
         raise
