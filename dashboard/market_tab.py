@@ -1907,6 +1907,105 @@ def render_market_tab() -> None:
                             _code = _active.get("code") or ""
                             if _code:
                                 st.code(_code[:1500] + ("…" if len(_code) > 1500 else ""), language="python")
+
+                        # ── F6: Equity Curve & Trade Analysis ─────────────
+                        with st.expander("📈 Equity Curve & Phân tích backtest", expanded=False):
+                            try:
+                                import plotly.graph_objects as _go
+                                import numpy as _np
+
+                                _bt_row = _vm.latest_backtest(_active["id"])
+                                _bt_metrics = (
+                                    _json.loads(_bt_row["metrics_json"])
+                                    if _bt_row and _bt_row.get("metrics_json")
+                                    else {}
+                                )
+                                _trades_raw = _bt_metrics.get("trades", [])
+
+                                if not _trades_raw:
+                                    st.info("Chưa có dữ liệu trades. Chạy training để tạo backtest.")
+                                else:
+                                    _pnls  = [t["pnl"] for t in _trades_raw]
+                                    _cum   = _np.cumsum(_pnls).tolist()
+                                    _peak  = _np.maximum.accumulate(_cum).tolist()
+                                    _dd    = [c - p for c, p in zip(_cum, _peak)]
+                                    _n     = len(_pnls)
+                                    _idxs  = list(range(1, _n + 1))
+
+                                    _bar_colors = [
+                                        "#22c55e" if p > 0 else "#ef4444" if p < 0 else "#94a3b8"
+                                        for p in _pnls
+                                    ]
+
+                                    # Chart 1: PnL bar + equity line
+                                    _fig1 = _go.Figure()
+                                    _fig1.add_trace(_go.Bar(
+                                        x=_idxs, y=_pnls,
+                                        marker_color=_bar_colors,
+                                        name="PnL / lệnh (%)",
+                                        opacity=0.55,
+                                    ))
+                                    _fig1.add_trace(_go.Scatter(
+                                        x=_idxs, y=_cum,
+                                        mode="lines",
+                                        line=dict(color="#60a5fa", width=2),
+                                        name="Equity tích lũy (%)",
+                                        yaxis="y2",
+                                    ))
+                                    _fig1.update_layout(
+                                        title=f"Equity Curve — {_n} lệnh",
+                                        yaxis=dict(title="PnL / lệnh (%)", zeroline=True, zerolinecolor="#475569"),
+                                        yaxis2=dict(
+                                            title="Cumulative PnL (%)",
+                                            overlaying="y", side="right",
+                                            zeroline=True, zerolinecolor="#475569",
+                                        ),
+                                        height=300,
+                                        legend=dict(orientation="h", y=1.12),
+                                        margin=dict(l=0, r=0, t=45, b=0),
+                                        plot_bgcolor="#0e1117",
+                                        paper_bgcolor="#0e1117",
+                                        font=dict(color="#f1f5f9"),
+                                    )
+                                    st.plotly_chart(_fig1, use_container_width=True)
+
+                                    # Chart 2: Drawdown
+                                    _fig2 = _go.Figure()
+                                    _fig2.add_trace(_go.Scatter(
+                                        x=_idxs, y=_dd,
+                                        fill="tozeroy",
+                                        fillcolor="rgba(239,68,68,0.20)",
+                                        line=dict(color="#ef4444", width=1.5),
+                                        name="Drawdown (%)",
+                                    ))
+                                    _fig2.update_layout(
+                                        title="Drawdown",
+                                        yaxis=dict(title="Drawdown (%)", zeroline=True, zerolinecolor="#475569"),
+                                        height=180,
+                                        margin=dict(l=0, r=0, t=40, b=0),
+                                        plot_bgcolor="#0e1117",
+                                        paper_bgcolor="#0e1117",
+                                        font=dict(color="#f1f5f9"),
+                                    )
+                                    st.plotly_chart(_fig2, use_container_width=True)
+
+                                    # Outcome breakdown metrics
+                                    _reasons = [t.get("reason", "?") for t in _trades_raw]
+                                    _r_tp = _reasons.count("tp")
+                                    _r_sl = _reasons.count("sl")
+                                    _r_ex = _reasons.count("expire")
+                                    _max_dd = min(_dd)
+                                    _final  = _cum[-1]
+                                    _mc1, _mc2, _mc3, _mc4, _mc5 = st.columns(5)
+                                    _mc1.metric("🎯 Hit TP",   _r_tp, f"{_r_tp/_n*100:.0f}%")
+                                    _mc2.metric("🛑 Hit SL",   _r_sl,
+                                                f"-{_r_sl/_n*100:.0f}%", delta_color="inverse")
+                                    _mc3.metric("⏰ Hết hạn",  _r_ex, f"{_r_ex/_n*100:.0f}%")
+                                    _mc4.metric("Max Drawdown", f"{_max_dd:.1f}%")
+                                    _mc5.metric("Net Return",   f"{_final:+.1f}%",
+                                                delta_color="normal" if _final >= 0 else "inverse")
+                            except Exception as _e6:
+                                st.caption(f"Equity curve không khả dụng: {_e6}")
                     else:
                         st.info("Chưa có chiến lược nào. Nhấn **Lite training** để bắt đầu.", icon="ℹ️")
 
