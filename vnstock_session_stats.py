@@ -92,9 +92,16 @@ def _fetch_price_history(display_name: str) -> pd.DataFrame:
     returns ~100 rows with `trading_date`, `total_value`, `total_volume`.
     Returns empty DataFrame on any error.
     """
-    try:
-        import vnstock_data as vd
-    except ImportError:
+    vd = None
+    for _mod in ("vnii", "vnstock_data"):
+        try:
+            vd = __import__(_mod)
+            break
+        except ImportError:
+            continue
+        except Exception:
+            break
+    if vd is None:
         return pd.DataFrame()
 
     symbol = _PRICE_HISTORY_SYMBOL[display_name]

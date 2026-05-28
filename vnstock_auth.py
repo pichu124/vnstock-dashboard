@@ -21,8 +21,13 @@ Usage:
 """
 
 import os
+import warnings
 from pathlib import Path
 from dotenv import load_dotenv
+
+# Suppress the noisy sponsor-detection UserWarning from vnstock/__init__.py.
+# The warning fires on every `import vnstock` and clutters terminal output.
+warnings.filterwarnings("ignore", category=UserWarning, module=r"vnstock")
 
 # Load .env once at import time
 load_dotenv(Path(__file__).parent / ".env")
