@@ -90,58 +90,61 @@ CALIBRATION_LOOKBACK_DAYS = 10
 def _fetch_price_history(display_name: str) -> pd.DataFrame:
     """Fetch EOD-accurate daily totals for one index.
 
-    Uses vnstock_data.Trading(symbol, source='VCI').price_history() which
-    returns ~100 rows with `trading_date`, `total_value`, `total_volume`.
+    Priority:
+      1. vnstock 4.x native: vnstock.api.trading.Trading (always available)
+      2. Sponsor package: vnstock_data.Trading (if installed and compatible)
+
+    Returns DataFrame with `trading_date`, `total_value`, `total_volume`.
     Returns empty DataFrame on any error.
     """
-    # Need a module that exposes Trading class.
-    # vnii is the newer package name but may not expose Trading at top level;
-    # vnstock_data always has it. Check both in order.
-    # Need a module that exposes Trading class.
-    # Suppress stdout/stderr during import to silence vnstock_data's
-    # update-check print statements (📦 Vnstock X.Y.Z is available…).
+    symbol = _PRICE_HISTORY_SYMBOL[display_name]
+    end_date = date.today().strftime("%Y-%m-%d")
+    start_date = (date.today() - timedelta(days=120)).strftime("%Y-%m-%d")
+
+    def _try_trading(Trading_cls) -> pd.DataFrame:
+        for sym in [symbol]:
+            try:
+                t = Trading_cls(symbol=sym, source="VCI")
+            except Exception:
+                continue
+            for kwargs in (
+                {"start": start_date, "end": end_date},
+                {"start_date": start_date, "end_date": end_date},
+                {},
+            ):
+                try:
+                    df = t.price_history(**kwargs)
+                    if df is not None and not df.empty:
+                        df = df.copy()
+                        df["trading_date"] = pd.to_datetime(df["trading_date"]).dt.date
+                        return df
+                except Exception:
+                    continue
+        return pd.DataFrame()
+
+    # 1. vnstock 4.x native API (preferred — no extra package needed)
+    try:
+        from vnstock.api.trading import Trading  # type: ignore
+        result = _try_trading(Trading)
+        if not result.empty:
+            return result
+    except ImportError:
+        pass
+
+    # 2. Sponsor package fallback (suppress noisy prints on import)
     import contextlib, io as _io
-    vd = None
     for _mod in ("vnstock_data", "vnii"):
         try:
             with contextlib.redirect_stdout(_io.StringIO()), \
                  contextlib.redirect_stderr(_io.StringIO()):
                 _m = __import__(_mod)
             if hasattr(_m, "Trading"):
-                vd = _m
-                break
-        except ImportError:
-            continue
-        except Exception:
-            break
-    if vd is None:
-        return pd.DataFrame()
-
-    symbol = _PRICE_HISTORY_SYMBOL[display_name]
-    # Always pass explicit date range so the API doesn't return a stale
-    # default window. 120 days covers the full calibration + backfill period.
-    end_date = date.today().strftime("%Y-%m-%d")
-    start_date = (date.today() - timedelta(days=120)).strftime("%Y-%m-%d")
-
-    for sym in [symbol]:
-        try:
-            t = vd.Trading(symbol=sym, source="VCI")
+                result = _try_trading(_m.Trading)
+                if not result.empty:
+                    return result
         except Exception:
             continue
-        # Try explicit date range first; fall back to no-args if params rejected.
-        for kwargs in (
-            {"start": start_date, "end": end_date},
-            {"start_date": start_date, "end_date": end_date},
-            {},
-        ):
-            try:
-                df = t.price_history(**kwargs)
-                if df is not None and not df.empty:
-                    df = df.copy()
-                    df["trading_date"] = pd.to_datetime(df["trading_date"]).dt.date
-                    return df
-            except Exception:
-                continue
+
     return pd.DataFrame()
 
 
