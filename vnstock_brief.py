@@ -153,7 +153,7 @@ Nếu block "VNINDEX kỹ thuật" KHÔNG có trong data → viết "Chưa có d
 **Theo dõi:** [rotation/stealth nếu có, bỏ dòng này nếu không có tín hiệu]
 
 ## ⚡ Biến động bất thường
-[Mã/ngành tăng giảm đột biến + giải thích; "Không có biến động bất thường đáng chú ý" nếu phẳng]
+[Mã/ngành tăng giảm đột biến + giải thích + BẮT BUỘC ghi rõ khung thời gian (ví dụ: "VIC -3.2% phiên sáng", "PLX -8.8% trong 5 phiên", "ACB +4.1% so với đóng cửa hôm qua"); "Không có biến động bất thường đáng chú ý" nếu phẳng]
 
 ## 🔮 Kịch bản phiên chiều
 **Kịch bản chính ([X]% xác suất):** [điều kiện kích hoạt CỤ THỂ với mức giá/chỉ số — ví dụ "VNINDEX giữ trên 1.245, bank giữ đà → kỳ vọng đóng cửa +0.4-0.8%"]
@@ -174,6 +174,7 @@ YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
 - Ưu tiên ngành/mã có đóng góp TUYỆT ĐỐI lớn nhất, không chỉ tăng % cao nhất.
 - Kịch bản phải có TRIGGER (mức giá/chỉ số/% volume) — không viết "nếu thị trường tốt".
 - Nếu không đủ data cho một mục → viết "Cần thêm [data X]", không bịa.
+- MỌI % thay đổi giá PHẢI ghi rõ khung thời gian: "hôm nay", "phiên sáng", "5 phiên", "so với đóng cửa hôm qua", v.v. TUYỆT ĐỐI KHÔNG viết "X giảm Y%" mà không có khung thời gian.
 """
 
 _AFTERNOON_TEMPLATE = """\
@@ -231,6 +232,7 @@ YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
 - Ưu tiên ngành/mã có đóng góp TUYỆT ĐỐI lớn nhất, không chỉ tăng % cao nhất.
 - Setup watchlist phải có TRIGGER (mức giá cụ thể) — không viết "nếu thị trường tích cực thì vào".
 - Nếu không đủ data → viết "Cần thêm [data X]", không bịa.
+- MỌI % thay đổi giá PHẢI ghi rõ khung thời gian: "hôm nay", "phiên sáng", "5 phiên", "so với đóng cửa hôm qua", v.v. TUYỆT ĐỐI KHÔNG viết "X giảm Y%" mà không có khung thời gian.
 """
 
 
