@@ -54,8 +54,8 @@ def render_money_flow_tab() -> None:
         from pathlib import Path as _Path
         from vnstock_freshness import render_freshness_row
         render_freshness_row([
-            ("💸 NN flow",         _Path("data_warehouse/_meta/nn_flow_cache.json"),  2 * 3600),
-            ("💰 Money flow",      _Path("data_warehouse/_meta/money_flow_cache.json"), 2 * 3600),
+            ("💸 NN flow",         _Path("data_warehouse/_meta/nn_flow_cache.json"),    2 * 3600),
+            ("📊 Order stats",     _Path("data_warehouse/_meta/order_stats_cache.json"), 2 * 3600),
         ])
     except Exception:
         pass

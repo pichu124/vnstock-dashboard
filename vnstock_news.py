@@ -311,10 +311,18 @@ def fetch_ticker_news(ticker: str, source: str = "VCI") -> list[dict]:
         except Exception:
             continue
 
-    # Sponsor fallback — vnstock_data.Company. KBS returns 1 article;
-    # VCI is still broken (KeyError: 'data') in 4.0.2 so we only try KBS.
-    try:
-        import vnstock_data as _vd
+    # Sponsor fallback — try vnii (new name) then vnstock_data (old name).
+    # KBS returns ~1 article; VCI is broken (KeyError: 'data') in 4.0.2.
+    _vd = None
+    for _mod in ("vnii", "vnstock_data"):
+        try:
+            _vd = __import__(_mod)
+            break
+        except ImportError:
+            continue
+        except Exception:
+            break
+    if _vd is not None:
         for kwargs in ({"size": 20}, {"page_size": 20}, {}):
             try:
                 comp = _vd.Company(symbol=ticker, source="KBS")
@@ -325,8 +333,6 @@ def fetch_ticker_news(ticker: str, source: str = "VCI") -> list[dict]:
                 continue
             except Exception:
                 break
-    except ImportError:
-        pass
     return []
 
 
@@ -342,13 +348,24 @@ def diagnose_news_fetch(ticker: str = "VCB") -> dict:
     import inspect as _inspect
     out: dict = {}
 
-    # vnstock_data.Company — try both VCI and KBS so we see what each returns
-    try:
-        import vnstock_data as _vd
+    # Sponsor package (vnii or vnstock_data) — try both VCI and KBS
+    _vd_diag = None
+    _vd_mod_name = None
+    for _mod in ("vnii", "vnstock_data"):
+        try:
+            _vd_diag = __import__(_mod)
+            _vd_mod_name = _mod
+            break
+        except ImportError:
+            continue
+        except Exception as e:
+            out[f"{_mod}.import"] = {"error": f"{type(e).__name__}: {e}"}
+            break
+    if _vd_diag is not None:
         for src in ("VCI", "KBS"):
-            label = f"vnstock_data.Company(source='{src}').news()"
+            label = f"{_vd_mod_name}.Company(source='{src}').news()"
             try:
-                comp = _vd.Company(symbol=ticker, source=src)
+                comp = _vd_diag.Company(symbol=ticker, source=src)
                 t0 = _time.time()
                 df = comp.news()
                 dt = (_time.time() - t0) * 1000
@@ -361,8 +378,8 @@ def diagnose_news_fetch(ticker: str = "VCB") -> dict:
                 }
             except Exception as e:
                 out[label] = {"error": f"{type(e).__name__}: {e}"}
-    except ImportError as e:
-        out["vnstock_data.Company"] = {"error": f"ImportError: {e}"}
+    else:
+        out["sponsor_package"] = {"error": "vnii and vnstock_data not importable"}
 
     # vnstock free
     try:
