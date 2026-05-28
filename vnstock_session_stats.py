@@ -115,23 +115,22 @@ def _fetch_price_history(display_name: str) -> pd.DataFrame:
     for sym in [symbol]:
         try:
             t = vd.Trading(symbol=sym, source="VCI")
-            # Try with explicit date range first; fall back to no-args if the
-            # parameter names differ between vnii and vnstock_data versions.
-            for kwargs in (
-                {"start": start_date, "end": end_date},
-                {"start_date": start_date, "end_date": end_date},
-                {},
-            ):
-                try:
-                    df = t.price_history(**kwargs)
-                    if df is not None and not df.empty:
-                        df = df.copy()
-                        df["trading_date"] = pd.to_datetime(df["trading_date"]).dt.date
-                        return df
-                except TypeError:
-                    continue
         except Exception:
             continue
+        # Try explicit date range first; fall back to no-args if params rejected.
+        for kwargs in (
+            {"start": start_date, "end": end_date},
+            {"start_date": start_date, "end_date": end_date},
+            {},
+        ):
+            try:
+                df = t.price_history(**kwargs)
+                if df is not None and not df.empty:
+                    df = df.copy()
+                    df["trading_date"] = pd.to_datetime(df["trading_date"]).dt.date
+                    return df
+            except Exception:
+                continue
     return pd.DataFrame()
 
 
