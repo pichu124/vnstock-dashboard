@@ -621,12 +621,20 @@ def render_money_flow_tab() -> None:
                     vol = float(q.get("volume", 0) or 0)
                     gtgd = price * vol / 1e6
 
-                    # Buy/Sell from volume profile
+                    # Buy/Sell — try volume_profile first, fall back to bid/ask depth
                     vp = q.get("volume_profile", [])
                     total_buy = sum(float(lv.get("buy_vol", 0) or 0) for lv in vp)
                     total_sell = sum(float(lv.get("sell_vol", 0) or 0) for lv in vp)
                     total_vs = total_buy + total_sell
-                    buy_r = total_buy / total_vs if total_vs > 0 else 0.5
+                    if total_vs > 0:
+                        buy_r = total_buy / total_vs
+                    else:
+                        # Fallback: bid/ask depth from price_board
+                        bids = q.get("bids", [])
+                        asks = q.get("asks", [])
+                        bv = sum(float(b.get("volume", 0) or 0) for b in bids if isinstance(b, dict))
+                        av = sum(float(a.get("volume", 0) or 0) for a in asks if isinstance(a, dict))
+                        buy_r = bv / (bv + av) if (bv + av) > 0 else 0.5
 
                     sector = _get_sector(ind_map[tk])
                     if sector not in sector_live:
