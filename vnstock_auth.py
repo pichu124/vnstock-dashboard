@@ -162,7 +162,10 @@ class _StockShim:
             try:
                 from vnstock.api.quote import Quote  # type: ignore
             except ImportError:
-                from vnstock import Quote  # type: ignore
+                try:
+                    from vnstock_data import Quote  # type: ignore
+                except ImportError:
+                    from vnstock import Quote  # type: ignore
             self.__quote = Quote(symbol=self._symbol, source=self._source)
         return self.__quote
 
@@ -173,11 +176,11 @@ class _StockShim:
                 from vnstock.api.company import Company  # type: ignore
                 self.__company = Company(symbol=self._symbol, source=self._source)
             except ImportError:
-                # Last-resort fallback to old API (prints deprecation notice)
-                from vnstock import Vnstock  # type: ignore
-                self.__company = Vnstock().stock(
+                # Vnstock().stock() removed in 4.x — use vnstock_data.Company
+                from vnstock_data import Company as _Company  # type: ignore
+                self.__company = _Company(
                     symbol=self._symbol, source=self._source
-                ).company
+                )
         return self.__company
 
     @property
@@ -187,10 +190,9 @@ class _StockShim:
                 from vnstock.api.listing import Listing  # type: ignore
                 self.__listing = Listing(source=self._source)
             except ImportError:
-                from vnstock import Vnstock  # type: ignore
-                self.__listing = Vnstock().stock(
-                    symbol=self._symbol, source=self._source
-                ).listing
+                # Vnstock().stock() removed in 4.x — use vnstock_data.Listing
+                from vnstock_data import Listing as _Listing  # type: ignore
+                self.__listing = _Listing(source=self._source)
         return self.__listing
 
 
