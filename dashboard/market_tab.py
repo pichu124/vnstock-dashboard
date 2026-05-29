@@ -28,11 +28,17 @@ def render_market_tab() -> None:
         print("[market_tab] streamlit not available")
         return
 
+    import sys
     import json
     import numpy as np
     import pandas as pd
     from datetime import datetime, timedelta
     from pathlib import Path
+
+    if 'vnstock_dashboard' not in sys.modules:
+        _m = sys.modules.get('__main__') or sys.modules.get('main')
+        if _m and hasattr(_m, 'WSS_AVAILABLE'):
+            sys.modules['vnstock_dashboard'] = _m
 
     try:
         from vnstock_dashboard import (

@@ -29,8 +29,17 @@ def render_money_flow_tab() -> None:
 
     import json
     import numpy as np
+    import sys
     import pandas as pd
     from pathlib import Path
+
+    # Streamlit registers the main script as 'main' (not 'vnstock_dashboard')
+    # in sys.modules. Register the alias so the lazy import below resolves
+    # to the already-loaded module instead of triggering a fresh import.
+    if 'vnstock_dashboard' not in sys.modules:
+        _m = sys.modules.get('__main__') or sys.modules.get('main')
+        if _m and hasattr(_m, 'PRICES_DIR'):
+            sys.modules['vnstock_dashboard'] = _m
 
     # All dashboard-level helpers + constants — lazy import to avoid
     # circular deps at load time. Safe at call time because

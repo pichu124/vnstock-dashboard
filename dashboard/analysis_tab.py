@@ -29,11 +29,17 @@ def render_analysis_tab() -> None:
         print("[analysis_tab] streamlit not available")
         return
 
+    import sys
     import json
     import numpy as np
     import pandas as pd
     from datetime import datetime, timedelta, time as _time
     from pathlib import Path
+
+    if 'vnstock_dashboard' not in sys.modules:
+        _m = sys.modules.get('__main__') or sys.modules.get('main')
+        if _m and hasattr(_m, 'WSS_AVAILABLE'):
+            sys.modules['vnstock_dashboard'] = _m
 
     from vnstock_dashboard import (
         WSS_AVAILABLE,
