@@ -269,6 +269,53 @@ def _fetch_cash_flow(ticker: str) -> dict:
     return {}
 
 
+def _row_find_all(row, *words) -> float | None:
+    """Return the value of the row cell whose column name contains ALL given
+    words (case-insensitive). Robust to punctuation/apostrophes, e.g.
+    ("owner", "equity") matches "OWNER'S EQUITY"."""
+    wanted = [w.lower() for w in words]
+    for col in row.index:
+        col_str = (
+            " ".join(str(c) for c in col).lower()
+            if isinstance(col, tuple) else str(col).lower()
+        )
+        if all(w in col_str for w in wanted):
+            try:
+                v = row[col]
+                if v is None or (isinstance(v, float) and np.isnan(v)):
+                    continue
+                return float(v)
+            except Exception:
+                continue
+    return None
+
+
+def _fetch_debt_to_equity(ticker: str) -> float | None:
+    """Compute D/E = Tổng nợ phải trả / Vốn chủ sở hữu from the balance sheet.
+
+    More reliable than the ratio table's Debt/Equity, which VCI leaves at 0
+    for banks. Returns None on any failure. Units cancel (both raw VND).
+    """
+    try:
+        from vnstock_auth import get_vnstock
+        bs = _try_statement(get_vnstock(ticker).finance.balance_sheet, _CF_PARAMS)
+    except Exception:
+        return None
+    row = _latest_row(bs)
+    if row is None:
+        return None
+    liab = _row_find_all(row, "total", "liabilities")
+    eq   = _row_find_all(row, "owner", "equity")
+    if eq is None:  # some sources label it just "Equity"
+        eq = _row_find_all(row, "vốn chủ sở hữu")
+    if liab is not None and eq:
+        try:
+            return round(liab / eq, 2)
+        except Exception:
+            return None
+    return None
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # Main updater
 # ═════════════════════════════════════════════════════════════════════════════
@@ -355,6 +402,15 @@ def update(
                         data.update(_fetch_cash_flow(ticker))
                     except Exception:
                         pass
+                    # Ratio table leaves Debt/Equity at 0 for banks → derive a
+                    # reliable D/E from the balance sheet when it's missing/0.
+                    if not data.get("debt_to_equity"):
+                        try:
+                            _de = _fetch_debt_to_equity(ticker)
+                            if _de is not None:
+                                data["debt_to_equity"] = _de
+                        except Exception:
+                            pass
                     data["ticker"]     = ticker
                     data["updated_at"] = datetime.now().strftime("%Y-%m-%d")
                     rows.append(data)
@@ -492,10 +548,12 @@ def diag(ticker: str):
     except Exception as e:
         ratios = {"error": str(e)}
     cf = _fetch_cash_flow(ticker)
+    de_bs = _fetch_debt_to_equity(ticker)
     console.print(f"  ratios: {ratios}")
     console.print(f"  cash_flow: {cf}")
+    console.print(f"  D/E (từ balance sheet): {de_bs}")
     console.print(
-        "  [dim](kiểm tra operating_cf có hợp lý không — đơn vị tỷ VND)[/dim]"
+        "  [dim](operating_cf đơn vị tỷ VND; D/E ngân hàng ~8-15 là bình thường)[/dim]"
     )
 
 
