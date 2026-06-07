@@ -9,7 +9,8 @@ import pytest
 
 from vnstock_brief import (
     _detect_stance, _extract_section, evaluate_brief_accuracy,
-    agent_accuracy_summary,
+    agent_accuracy_summary, _load_vn30_fundamentals, _vn30_fund_block,
+    build_prompt,
 )
 
 
@@ -189,3 +190,77 @@ def test_summary_accuracy_is_match_over_evaluated():
     assert out["A"]["n_evaluated"] == 2
     assert out["A"]["n_match"] == 1
     assert out["A"]["accuracy"] == pytest.approx(0.5)
+
+
+# ─── VN30 fundamentals (D/E, ROE, operating cash flow) ────────────────────────
+
+def _write_fund_parquet(tmp_path, rows: list[dict]):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    df = pd.DataFrame(rows)
+    p = tmp_path / "fundamentals.parquet"
+    pq.write_table(pa.Table.from_pandas(df, preserve_index=False), str(p))
+    return p
+
+
+def test_load_vn30_fundamentals_filters_to_vn30(tmp_path):
+    p = _write_fund_parquet(tmp_path, [
+        {"ticker": "VCB", "debt_to_equity": 0.8, "roe": 18.0,
+         "operating_cf": 12000.0, "updated_at": "2026-06-01"},
+        {"ticker": "FPT", "debt_to_equity": 1.1, "roe": 25.0,
+         "operating_cf": 8000.0, "updated_at": "2026-06-01"},
+        # Not in VN30 → must be excluded
+        {"ticker": "ZZZ", "debt_to_equity": 5.0, "roe": 1.0,
+         "operating_cf": -50.0, "updated_at": "2026-06-01"},
+    ])
+    out = _load_vn30_fundamentals(path=p, vn30={"VCB", "FPT"})
+    assert set(out.keys()) == {"VCB", "FPT"}
+    assert out["VCB"]["de"] == 0.8
+    assert out["FPT"]["roe"] == 25.0
+
+
+def test_load_vn30_fundamentals_skips_all_null_rows(tmp_path):
+    p = _write_fund_parquet(tmp_path, [
+        {"ticker": "VCB", "debt_to_equity": None, "roe": None,
+         "operating_cf": None, "updated_at": "2026-06-01"},
+    ])
+    out = _load_vn30_fundamentals(path=p, vn30={"VCB"})
+    assert out == {}
+
+
+def test_load_vn30_fundamentals_missing_file_returns_empty(tmp_path):
+    assert _load_vn30_fundamentals(path=tmp_path / "nope.parquet") == {}
+
+
+def test_vn30_fund_block_renders_medians_and_flags():
+    funds = {
+        "VCB": {"de": 0.8, "roe": 18.0, "ocf": 12000.0, "updated": "2026-06-01"},
+        "TCB": {"de": 4.5, "roe": 20.0, "ocf": -300.0, "updated": "2026-06-01"},
+        "FPT": {"de": 1.1, "roe": 25.0, "ocf": 8000.0, "updated": "2026-06-01"},
+    }
+    block = _vn30_fund_block(funds)
+    assert "VN30 Cơ bản" in block
+    assert "Trung vị VN30" in block
+    # TCB has the highest D/E → must lead the leverage line
+    assert "TCB 4.50" in block
+    # TCB has the lowest (negative) operating CF → flagged + negative count
+    assert "TCB" in block and "1 mã âm" in block
+    assert "cập nhật 2026-06-01" in block
+
+
+def test_vn30_fund_block_empty_when_no_data():
+    assert _vn30_fund_block({}) == ""
+
+
+def test_build_prompt_includes_fundamentals_block():
+    ctx = {
+        "date": "2026-06-05",
+        "time": "15:00",
+        "vn30_fundamentals": {
+            "VCB": {"de": 0.8, "roe": 18.0, "ocf": 12000.0, "updated": "2026-06-01"},
+            "FPT": {"de": 1.1, "roe": 25.0, "ocf": 8000.0, "updated": "2026-06-01"},
+        },
+    }
+    prompt = build_prompt(ctx, brief_type="afternoon")
+    assert "VN30 Cơ bản" in prompt
+    assert "D/E" in prompt

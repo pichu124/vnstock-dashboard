@@ -706,6 +706,121 @@ def effective_trading_date(vnindex_tech: dict | None = None) -> str:
     return data_date or date.today().isoformat()
 
 
+# ── VN30 fundamentals (debt/equity, ROE, operating cash flow) ───────────────
+def _load_vn30_fundamentals(
+    path: str | Path | None = None,
+    vn30: set[str] | None = None,
+) -> dict[str, dict]:
+    """Load VN30 fundamentals from the weekly fundamentals.parquet cache.
+
+    Returns {ticker: {"de", "roe", "ocf", "updated"}} for VN30 constituents
+    that have a row. Empty dict if the cache is missing or holds no VN30 rows.
+    Produced by vnstock_fundamental_updater.py (run weekly).
+    """
+    import pandas as pd
+    try:
+        import pyarrow.parquet as _pq
+    except ImportError:
+        return {}
+
+    p = Path(path) if path else (
+        Path(__file__).parent / "data_warehouse" / "_meta" / "fundamentals.parquet"
+    )
+    if not p.exists():
+        return {}
+    try:
+        df = _pq.read_table(str(p)).to_pandas()
+    except Exception:
+        return {}
+    if df.empty or "ticker" not in df.columns:
+        return {}
+
+    universe = vn30 or VN30_TICKERS
+    df = df[df["ticker"].isin(universe)]
+    if df.empty:
+        return {}
+
+    def _num(row, col):
+        v = row.get(col) if hasattr(row, "get") else None
+        try:
+            return None if (v is None or pd.isna(v)) else float(v)
+        except Exception:
+            return None
+
+    out: dict[str, dict] = {}
+    for _, row in df.iterrows():
+        metrics = {
+            "de":      _num(row, "debt_to_equity"),
+            "roe":     _num(row, "roe"),
+            "ocf":     _num(row, "operating_cf"),
+            "updated": str(row.get("updated_at", "") or ""),
+        }
+        # Skip tickers with no usable fundamental at all
+        if any(metrics[k] is not None for k in ("de", "roe", "ocf")):
+            out[str(row["ticker"])] = metrics
+    return out
+
+
+def _vn30_fund_block(funds: dict[str, dict]) -> str:
+    """Render a compact VN30 fundamentals block for the prompt.
+
+    Shows VN30 medians plus the few names that actually matter for risk —
+    highest leverage and weakest/negative operating cash flow — instead of
+    dumping all 30 rows (token-efficient and more actionable).
+    """
+    if not funds:
+        return ""
+    try:
+        import statistics as _st
+
+        des  = [(t, m["de"])  for t, m in funds.items() if m.get("de")  is not None]
+        roes = [m["roe"]      for m in funds.values()   if m.get("roe") is not None]
+        ocfs = [(t, m["ocf"]) for t, m in funds.items() if m.get("ocf") is not None]
+
+        if not (des or roes or ocfs):
+            return ""
+
+        updated = next((m["updated"] for m in funds.values() if m.get("updated")), "")
+        lines = [
+            f"\n## VN30 Cơ bản — D/E, ROE, Lưu chuyển tiền HĐKD"
+            f"{f' (cập nhật {updated})' if updated else ''}"
+        ]
+
+        med_parts = []
+        if des:
+            med_parts.append(f"D/E={_st.median(v for _, v in des):.2f}")
+        if roes:
+            med_parts.append(f"ROE={_st.median(roes):.1f}%")
+        if ocfs:
+            med_parts.append(f"Op.CF={_st.median(v for _, v in ocfs):,.0f} tỷ")
+        if med_parts:
+            lines.append(f"- Trung vị VN30 ({len(funds)} mã có data): " + " | ".join(med_parts))
+
+        if des:
+            top_de = sorted(des, key=lambda x: x[1], reverse=True)[:3]
+            lines.append(
+                "- Đòn bẩy cao nhất (D/E): "
+                + ", ".join(f"{t} {v:.2f}" for t, v in top_de)
+            )
+
+        if ocfs:
+            weak = sorted(ocfs, key=lambda x: x[1])[:3]
+            n_neg = sum(1 for _, v in ocfs if v < 0)
+            lines.append(
+                "- Lưu chuyển tiền HĐKD thấp nhất: "
+                + ", ".join(f"{t} {v:,.0f} tỷ" for t, v in weak)
+                + (f" ({n_neg} mã âm)" if n_neg else "")
+            )
+
+        lines.append(
+            "→ DÙNG các chỉ số này khi nhận xét rủi ro cơ bản/đòn bẩy/dòng tiền; "
+            "KHÔNG bịa số liệu tài chính khác."
+        )
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
 # ── Context collection ─────────────────────────────────────────────────────
 def collect_context(brief_type: str = "morning") -> dict:
     """Collect all available market data for brief generation."""
@@ -833,6 +948,11 @@ def collect_context(brief_type: str = "morning") -> dict:
     # 6. VNINDEX technical levels — already fetched above to determine the
     # effective date; reuse the result instead of calling again.
     ctx["vnindex_tech"] = _vt_early
+
+    # 7. VN30 fundamentals (D/E, ROE, operating cash flow) from weekly cache.
+    _vn30_fund = _load_vn30_fundamentals()
+    if _vn30_fund:
+        ctx["vn30_fundamentals"] = _vn30_fund
 
     return ctx
 
@@ -1269,6 +1389,13 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         lines.append("\n## VN30 Top Losers (1 phiên, với đóng góp vào VNINDEX)")
         for g in losers:
             lines.append(_vn30_line(g))
+
+    # VN30 fundamentals (debt-to-equity, ROE, operating cash flow) so the agent
+    # can ground "rủi ro cơ bản" comments in real leverage / cash-flow numbers.
+    if funds := ctx.get("vn30_fundamentals"):
+        block = _vn30_fund_block(funds)
+        if block:
+            lines.append(block)
 
     # Recommendation + news blocks — explicit empty markers so the LLM
     # cannot invent trade ideas or news headlines from training data.

@@ -80,16 +80,18 @@ def _load_existing() -> pd.DataFrame:
 def _save(df: pd.DataFrame):
     """Lưu bảng fundamentals ra Parquet."""
     schema = pa.schema([
-        pa.field("ticker",        pa.string()),
-        pa.field("pe",            pa.float64()),
-        pa.field("pb",            pa.float64()),
-        pa.field("roe",           pa.float64()),
-        pa.field("roa",           pa.float64()),
-        pa.field("eps",           pa.float64()),
-        pa.field("net_margin",    pa.float64()),
-        pa.field("gross_margin",  pa.float64()),
-        pa.field("debt_ratio",    pa.float64()),
-        pa.field("updated_at",    pa.string()),
+        pa.field("ticker",          pa.string()),
+        pa.field("pe",              pa.float64()),
+        pa.field("pb",              pa.float64()),
+        pa.field("roe",             pa.float64()),
+        pa.field("roa",             pa.float64()),
+        pa.field("eps",             pa.float64()),
+        pa.field("net_margin",      pa.float64()),
+        pa.field("gross_margin",    pa.float64()),
+        pa.field("debt_ratio",      pa.float64()),
+        pa.field("debt_to_equity",  pa.float64()),   # Nợ/Vốn chủ sở hữu (D/E)
+        pa.field("operating_cf",    pa.float64()),   # LCT thuần từ HĐKD (tỷ VND)
+        pa.field("updated_at",      pa.string()),
     ])
     for col in [f.name for f in schema]:
         if col not in df.columns:
@@ -150,8 +152,75 @@ def _fetch_ratios(ticker: str) -> dict:
         "net_margin":   pct(get_val(ratios, "biên lợi nhuận ròng")),
         "gross_margin": pct(get_val(ratios, "biên lợi nhuận gộp")),
         "debt_ratio":   get_val(ratios, "đòn bẩy tài chính"),
+        # D/E = Nợ phải trả / Vốn chủ sở hữu. The VCI ratio table exposes it
+        # directly under a few possible labels; fall back to None if absent
+        # (the brief then derives nothing rather than guessing).
+        "debt_to_equity": get_val(
+            ratios, "nợ/vcsh", "nợ trên vốn chủ", "nợ/vốn chủ",
+            "debt/equity", "debt to equity", "d/e",
+        ),
     }
     return result
+
+
+def _latest_row(df: "pd.DataFrame") -> "pd.Series | None":
+    """Return the most recent fiscal-year row from a financial statement df.
+
+    vnstock orders rows inconsistently across sources, so sort by any
+    year-like column descending when present; otherwise assume row 0 is latest.
+    """
+    if df is None or df.empty:
+        return None
+    for col in df.columns:
+        col_str = (" ".join(str(c) for c in col) if isinstance(col, tuple) else str(col)).lower()
+        if "year" in col_str or "năm" in col_str or "kỳ" in col_str:
+            try:
+                return df.sort_values(col, ascending=False).iloc[0]
+            except Exception:
+                break
+    return df.iloc[0]
+
+
+def _fetch_cash_flow(ticker: str) -> dict:
+    """Fetch latest-year net operating cash flow (tỷ VND) for one ticker.
+
+    Returns {"operating_cf": <tỷ VND>} or {} on any failure — best-effort so a
+    single missing statement never aborts the whole update run.
+    """
+    try:
+        from vnstock_auth import get_vnstock
+        cf = get_vnstock(ticker).finance.cash_flow(period="year", lang="vi")
+    except Exception:
+        return {}
+
+    row = _latest_row(cf)
+    if row is None:
+        return {}
+
+    # Locate the "net cash flow from operating activities" line item by label.
+    for key in (
+        "lưu chuyển tiền thuần từ hoạt động kinh doanh",
+        "lưu chuyển tiền thuần từ hđ kinh doanh",
+        "net cash flow from operating",
+        "net cash from operating",
+        "operating cash flow",
+        "lct thuần từ hđkd",
+    ):
+        key_lo = key.lower()
+        for col in row.index:
+            col_str = (
+                " ".join(str(c) for c in col).lower()
+                if isinstance(col, tuple) else str(col).lower()
+            )
+            if key_lo in col_str:
+                try:
+                    v = row[col]
+                    if v is None or (isinstance(v, float) and np.isnan(v)):
+                        continue
+                    return {"operating_cf": round(float(v) / 1e9, 1)}  # → tỷ VND
+                except Exception:
+                    continue
+    return {}
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -176,10 +245,19 @@ def update(
     all_tickers = tickers or _get_stock_tickers()
     existing    = _load_existing()
 
-    # Index các ticker đã có
+    # Index các ticker đã có. After a schema upgrade (new debt_to_equity /
+    # operating_cf columns) the old rows lack those fields, so refetch once to
+    # backfill them — otherwise skipped tickers would never get cash-flow data.
     done_set = set()
     if not existing.empty and not force:
-        done_set = set(existing["ticker"].tolist())
+        _has_new_cols = {"debt_to_equity", "operating_cf"} <= set(existing.columns)
+        if _has_new_cols:
+            done_set = set(existing["ticker"].tolist())
+        else:
+            console.print(
+                "[yellow]⚠ Schema cũ thiếu debt_to_equity/operating_cf "
+                "→ refetch để bổ sung cash flow + D/E.[/yellow]"
+            )
 
     to_fetch = [t for t in all_tickers if t not in done_set]
 
@@ -213,6 +291,12 @@ def update(
             try:
                 data = _fetch_ratios(ticker)
                 if data:
+                    # Cash flow is a second (slower) statement call — merge it in.
+                    # Failure here is non-fatal: the ratio data still gets saved.
+                    try:
+                        data.update(_fetch_cash_flow(ticker))
+                    except Exception:
+                        pass
                     data["ticker"]     = ticker
                     data["updated_at"] = datetime.now().strftime("%Y-%m-%d")
                     rows.append(data)
