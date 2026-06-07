@@ -182,15 +182,20 @@ def _fetch_ratios(ticker: str) -> dict:
             return round(v * 100, 2)
         return round(v, 2) if v is not None else None
 
+    # The VCI sponsor ratio table is labelled in ENGLISH (P/E, ROE (%),
+    # Debt/Equity, Financial Leverage, Gross Margin (%), After-tax Profit
+    # Margin (%) …) regardless of lang=. Match English first, keep Vietnamese
+    # labels as a fallback for other sources.
     result = {
         "pe":           get_val(ratios, "p/e"),
         "pb":           get_val(ratios, "p/b"),
-        "roe":          pct(get_val(ratios, "roe (%)")),
-        "roa":          pct(get_val(ratios, "roa (%)")),
-        "eps":          get_val(ratios, "eps (vnd)"),
-        "net_margin":   pct(get_val(ratios, "biên lợi nhuận ròng")),
-        "gross_margin": pct(get_val(ratios, "biên lợi nhuận gộp")),
-        "debt_ratio":   get_val(ratios, "đòn bẩy tài chính"),
+        "roe":          pct(get_val(ratios, "roe (%)", "roe")),
+        "roa":          pct(get_val(ratios, "roa (%)", "roa")),
+        "eps":          get_val(ratios, "eps (vnd)", "eps basic", "eps"),
+        "net_margin":   pct(get_val(ratios, "after-tax profit margin",
+                                    "net profit margin", "biên lợi nhuận ròng")),
+        "gross_margin": pct(get_val(ratios, "gross margin", "biên lợi nhuận gộp")),
+        "debt_ratio":   get_val(ratios, "financial leverage", "đòn bẩy tài chính"),
         # D/E = Nợ phải trả / Vốn chủ sở hữu. The VCI ratio table exposes it
         # directly under a few possible labels; fall back to None if absent
         # (the brief then derives nothing rather than guessing).
@@ -210,9 +215,11 @@ def _latest_row(df: "pd.DataFrame") -> "pd.Series | None":
     """
     if df is None or df.empty:
         return None
+    # VCI statements carry the fiscal period in "report_period"; other sources
+    # use "year"/"năm"/"kỳ". Sort that column descending to get the latest row.
     for col in df.columns:
         col_str = (" ".join(str(c) for c in col) if isinstance(col, tuple) else str(col)).lower()
-        if "year" in col_str or "năm" in col_str or "kỳ" in col_str:
+        if any(k in col_str for k in ("report_period", "period", "year", "năm", "kỳ")):
             try:
                 return df.sort_values(col, ascending=False).iloc[0]
             except Exception:
@@ -476,6 +483,20 @@ def diag(ticker: str):
             console.print(f"    • {c}")
         if len(cols) > 60:
             console.print(f"    … (+{len(cols)-60} cột nữa)")
+
+    # Show what the updater would actually extract — confirms label matching,
+    # latest-row selection, and units (e.g. operating_cf magnitude).
+    console.print("\n[bold green]── Giá trị updater parse được ──[/bold green]")
+    try:
+        ratios = _fetch_ratios(ticker)
+    except Exception as e:
+        ratios = {"error": str(e)}
+    cf = _fetch_cash_flow(ticker)
+    console.print(f"  ratios: {ratios}")
+    console.print(f"  cash_flow: {cf}")
+    console.print(
+        "  [dim](kiểm tra operating_cf có hợp lý không — đơn vị tỷ VND)[/dim]"
+    )
 
 
 def report():
