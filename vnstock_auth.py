@@ -144,10 +144,11 @@ def get_vnstock(ticker: str = "VCB", source: str = "VCI"):
 
 
 class _StockShim:
-    """Lazy-loading wrapper that exposes .quote / .company / .listing
+    """Lazy-loading wrapper that exposes .quote / .company / .listing / .finance
     via the new `vnstock.api.*` modules (vnstock 4.x+)."""
 
-    __slots__ = ("_symbol", "_source", "__quote", "__company", "__listing")
+    __slots__ = ("_symbol", "_source", "__quote", "__company", "__listing",
+                 "__finance")
 
     def __init__(self, symbol: str, source: str) -> None:
         self._symbol = symbol
@@ -155,6 +156,7 @@ class _StockShim:
         self.__quote = None
         self.__company = None
         self.__listing = None
+        self.__finance = None
 
     @property
     def quote(self):
@@ -194,6 +196,30 @@ class _StockShim:
                 from vnstock_data import Listing as _Listing  # type: ignore
                 self.__listing = _Listing(source=self._source)
         return self.__listing
+
+    @property
+    def finance(self):
+        """Financial statements: .ratio() / .balance_sheet() /
+        .income_statement() / .cash_flow().
+
+        Prefer vnstock_data (Sponsor) — it returns richer statements and is
+        the source the fundamentals updater relies on — then fall back to the
+        free vnstock.api.finance. Some Finance classes require `source`, others
+        reject it, so both signatures are tried."""
+        if self.__finance is None:
+            _Finance = None
+            try:
+                from vnstock_data import Finance as _Finance  # type: ignore
+            except ImportError:
+                try:
+                    from vnstock.api.finance import Finance as _Finance  # type: ignore
+                except ImportError:
+                    from vnstock import Finance as _Finance  # type: ignore
+            try:
+                self.__finance = _Finance(symbol=self._symbol, source=self._source)
+            except TypeError:
+                self.__finance = _Finance(symbol=self._symbol)
+        return self.__finance
 
 
 def check_tier() -> str:
