@@ -227,6 +227,49 @@ def _latest_row(df: "pd.DataFrame") -> "pd.Series | None":
     return df.iloc[0]
 
 
+def _operating_cf_from_row(row) -> float | None:
+    """Find net operating cash flow (raw VND) in a cash-flow statement row.
+
+    Banks label it "Net cash from operating activities"; non-banks use
+    variants like "Net cash flows from operating activities". Match any column
+    containing net + cash + operating while excluding section subtotals and
+    the "before CIT / changes in working capital" intermediate lines.
+    """
+    # 1. Specific labels first (covers Vietnamese sources + exact bank label)
+    for key in (
+        "lưu chuyển tiền thuần từ hoạt động kinh doanh",
+        "lưu chuyển tiền thuần từ hđ kinh doanh",
+        "net cash from operating",
+        "operating cash flow",
+        "lct thuần từ hđkd",
+    ):
+        for col in row.index:
+            cs = (" ".join(str(c) for c in col).lower()
+                  if isinstance(col, tuple) else str(col).lower())
+            if key in cs:
+                try:
+                    v = row[col]
+                    if v is not None and not (isinstance(v, float) and np.isnan(v)):
+                        return float(v)
+                except Exception:
+                    continue
+
+    # 2. Robust fallback: net + cash + operating, minus subtotal/intermediate lines
+    _exclude = ("before", "investing", "financing", "changes", "working")
+    for col in row.index:
+        cs = (" ".join(str(c) for c in col).lower()
+              if isinstance(col, tuple) else str(col).lower())
+        if all(w in cs for w in ("net", "cash", "operating")) and \
+           not any(x in cs for x in _exclude):
+            try:
+                v = row[col]
+                if v is not None and not (isinstance(v, float) and np.isnan(v)):
+                    return float(v)
+            except Exception:
+                continue
+    return None
+
+
 def _fetch_cash_flow(ticker: str) -> dict:
     """Fetch latest-year net operating cash flow (tỷ VND) for one ticker.
 
@@ -243,30 +286,10 @@ def _fetch_cash_flow(ticker: str) -> dict:
     if row is None:
         return {}
 
-    # Locate the "net cash flow from operating activities" line item by label.
-    for key in (
-        "lưu chuyển tiền thuần từ hoạt động kinh doanh",
-        "lưu chuyển tiền thuần từ hđ kinh doanh",
-        "net cash flow from operating",
-        "net cash from operating",
-        "operating cash flow",
-        "lct thuần từ hđkd",
-    ):
-        key_lo = key.lower()
-        for col in row.index:
-            col_str = (
-                " ".join(str(c) for c in col).lower()
-                if isinstance(col, tuple) else str(col).lower()
-            )
-            if key_lo in col_str:
-                try:
-                    v = row[col]
-                    if v is None or (isinstance(v, float) and np.isnan(v)):
-                        continue
-                    return {"operating_cf": round(float(v) / 1e9, 1)}  # → tỷ VND
-                except Exception:
-                    continue
-    return {}
+    val = _operating_cf_from_row(row)
+    if val is None:
+        return {}
+    return {"operating_cf": round(val / 1e9, 1)}  # raw VND → tỷ VND
 
 
 def _row_find_all(row, *words) -> float | None:
