@@ -1314,17 +1314,36 @@ def generate_brief(
     # "TUYỆT ĐỐI KHÔNG suy đoán" sentinel and hallucinates VNINDEX levels
     # (1.815, R1=1.813, etc.). Layer 2 validator catches it but it's better
     # to skip the agent entirely than display a 🚨-flagged brief.
+    #
+    # BUT never skip if Cerebras is the ONLY agent with a working key —
+    # a validated (🚨-flagged) brief beats no brief at all. Otherwise the
+    # whole list would empty out and generation would have nothing to run.
     _vnindex_missing = not (ctx.get("vnindex_tech") or {}).get("close")
     if _vnindex_missing:
-        _skipped = [a for a in agents if getattr(a, "agent_type", "") == "cerebras"]
-        for agent in _skipped:
-            results[agent.name] = ("", "Bỏ qua Cerebras khi không có data VNINDEX — fallback model có xu hướng hallucinate.")
-        agents = [a for a in agents if getattr(a, "agent_type", "") != "cerebras"]
+        _non_cerebras_available = [
+            a for a in agents
+            if getattr(a, "agent_type", "") != "cerebras" and a.is_available
+        ]
+        if _non_cerebras_available:
+            _skipped = [a for a in agents if getattr(a, "agent_type", "") == "cerebras"]
+            for agent in _skipped:
+                results[agent.name] = ("", "Bỏ qua Cerebras khi không có data VNINDEX — fallback model có xu hướng hallucinate.")
+            agents = [a for a in agents if getattr(a, "agent_type", "") != "cerebras"]
 
     available = [a for a in agents if a.is_available]
     unavailable = [a for a in agents if not a.is_available]
     for agent in unavailable:
         results[agent.name] = ("", f"API key chưa thiết lập cho {agent.name}")
+
+    # No agent has a usable API key → return a clear message instead of
+    # crashing on ThreadPoolExecutor(max_workers=0).
+    if not available:
+        results["_no_available"] = (
+            "",
+            "Không có agent nào khả dụng (chưa có API key). "
+            "Vào ⚙️ Cài đặt Agent → bật agent và điền API key.",
+        )
+        return results
 
     # Run available agents in parallel to cut wall-clock time from N*T → T
     def _call(agent: BriefAgent) -> tuple[str, tuple[str, str | None]]:

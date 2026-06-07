@@ -133,9 +133,10 @@ def _brief_snippet(brief_type: str) -> str:
                 if ln.strip() and not ln.strip().startswith("---")
             ]
             return "\n".join(lines)
-        # Check timing sentinel
-        if "_timing" in results:
-            return results["_timing"][1] or "Brief chưa khả dụng."
+        # Check sentinel keys (timing / no-agent / no-available)
+        for _sentinel in ("_timing", "_no_agent", "_no_available"):
+            if _sentinel in results:
+                return results[_sentinel][1] or "Brief chưa khả dụng."
         return "Chưa có brief (agent chưa chạy)."
     except Exception as e:
         return f"Brief không khả dụng: {e}"
