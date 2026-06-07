@@ -579,6 +579,26 @@ def diag(ticker: str):
         "  [dim](operating_cf đơn vị tỷ VND; D/E ngân hàng ~8-15 là bình thường)[/dim]"
     )
 
+    # List every "operating" cash-flow line + its latest value so we can verify
+    # the matcher picked the right column (raw VND).
+    try:
+        from vnstock_auth import get_vnstock
+        _cf_df = _try_statement(get_vnstock(ticker).finance.cash_flow, _CF_PARAMS)
+        _row = _latest_row(_cf_df)
+        if _row is not None:
+            console.print("\n  [dim]Các cột cash flow chứa 'operating':[/dim]")
+            for col in _row.index:
+                cs = (" ".join(str(c) for c in col) if isinstance(col, tuple) else str(col))
+                if "operating" in cs.lower():
+                    try:
+                        rv = _row[col]
+                        rv_ty = f"{float(rv)/1e9:,.1f} tỷ" if rv is not None and not (isinstance(rv, float) and np.isnan(rv)) else "—"
+                    except Exception:
+                        rv_ty = "—"
+                    console.print(f"    • {cs}  =  {rv_ty}")
+    except Exception:
+        pass
+
 
 def report():
     """Báo cáo median P/E, ROE theo ngành."""
