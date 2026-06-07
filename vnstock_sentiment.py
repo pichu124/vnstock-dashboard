@@ -303,6 +303,41 @@ def ticker_sentiment_summary(
     return rows
 
 
+def market_news_sentiment(news: list[dict], days: int = 7) -> dict:
+    """Aggregate news sentiment across the WHOLE market for the last N days.
+
+    Unlike ticker_sentiment_summary (per ticker), this rolls every scored
+    article up into one market-mood reading. Returns:
+      {positive, negative, neutral, total, pos_pct, neg_pct, net_pct}
+    where net_pct = (positive - negative) / total * 100  (-100..+100).
+    Empty dict if no scored news in the window.
+    """
+    cutoff = (_date.today() - _td(days=days)).isoformat()
+    pos = neg = neu = 0
+    for n in news:
+        if n.get("_date_sort", "") < cutoff:
+            continue
+        s = n.get("_sentiment") or ""
+        if s == "positive":
+            pos += 1
+        elif s == "negative":
+            neg += 1
+        elif s == "neutral":
+            neu += 1
+    total = pos + neg + neu
+    if total == 0:
+        return {}
+    return {
+        "positive": pos,
+        "negative": neg,
+        "neutral":  neu,
+        "total":    total,
+        "pos_pct":  round(pos / total * 100, 1),
+        "neg_pct":  round(neg / total * 100, 1),
+        "net_pct":  round((pos - neg) / total * 100, 1),
+    }
+
+
 def sentiment_timeline(
     ticker: str,
     news: list[dict],

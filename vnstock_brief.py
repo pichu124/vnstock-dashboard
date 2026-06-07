@@ -821,6 +821,28 @@ def _vn30_fund_block(funds: dict[str, dict]) -> str:
         return ""
 
 
+def _market_sentiment_block(ms: dict) -> str:
+    """Render the composite market-sentiment block for the prompt."""
+    if not ms:
+        return ""
+    try:
+        _arrow = {1: "🟢", -1: "🔴", 0: "⚪"}
+        lines = [
+            f"\n## Tâm lý thị trường (tổng hợp) — {ms.get('mood', '—')} "
+            f"| momentum {ms.get('momentum', 0):+d}/100"
+        ]
+        for s in ms.get("signals", []):
+            lines.append(f"- {_arrow.get(s.get('dir', 0), '⚪')} {s['name']}: {s['value']}")
+        lines.append(
+            "→ DÙNG nhãn tâm lý + các tín hiệu trên khi đánh giá xu hướng NGẮN HẠN; "
+            "momentum dương = thiên về tích cực, âm = thiên về tiêu cực. "
+            "KHÔNG bịa thêm chỉ số tâm lý khác."
+        )
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
 # ── Context collection ─────────────────────────────────────────────────────
 def collect_context(brief_type: str = "morning") -> dict:
     """Collect all available market data for brief generation."""
@@ -953,6 +975,16 @@ def collect_context(brief_type: str = "morning") -> dict:
     _vn30_fund = _load_vn30_fundamentals()
     if _vn30_fund:
         ctx["vn30_fundamentals"] = _vn30_fund
+
+    # 8. Composite market sentiment (tâm lý thị trường) — synthesises breadth +
+    # NN flow + index momentum + news sentiment into one short-term mood.
+    try:
+        from vnstock_market_sentiment import load_market_sentiment
+        _ms = load_market_sentiment(vnindex_tech=_vt_early, breadth=ctx.get("breadth"))
+        if _ms:
+            ctx["market_sentiment"] = _ms
+    except Exception:
+        pass
 
     return ctx
 
@@ -1155,6 +1187,14 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
     if note := ctx.get("date_note"):
         _date_line += f"  ⚠️ {note}"
     lines.append(_date_line)
+
+    # Market sentiment (tâm lý thị trường) — composite mood from breadth, NN
+    # flow, index momentum and news. Emitted high so the agent frames the
+    # short-term trend around it.
+    if ms := ctx.get("market_sentiment"):
+        block = _market_sentiment_block(ms)
+        if block:
+            lines.append(block)
 
     # Regime
     if r := ctx.get("quant_regime"):

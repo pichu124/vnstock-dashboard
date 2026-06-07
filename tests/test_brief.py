@@ -264,3 +264,77 @@ def test_build_prompt_includes_fundamentals_block():
     prompt = build_prompt(ctx, brief_type="afternoon")
     assert "VN30 Cơ bản" in prompt
     assert "D/E" in prompt
+
+
+# ─── Market sentiment (tâm lý thị trường) ─────────────────────────────────────
+
+def test_compute_market_sentiment_bullish():
+    from vnstock_market_sentiment import compute_market_sentiment
+    ms = compute_market_sentiment(
+        breadth={"above_ma200_pct": 65, "ad_ratio": 1.8},
+        nn_net=300.0,
+        vnindex_tech={"rsi14": 60, "close": 1840, "ma20": 1820,
+                      "ma50": 1800, "ma200": 1700, "day_change_pct": 0.6},
+        news_sentiment={"total": 100, "pos_pct": 60, "neg_pct": 15, "net_pct": 45},
+    )
+    assert ms["momentum"] > 40
+    assert "Hưng phấn" in ms["mood"] or "Tích cực" in ms["mood"]
+    assert ms["n_signals"] == 7
+
+
+def test_compute_market_sentiment_bearish():
+    from vnstock_market_sentiment import compute_market_sentiment
+    ms = compute_market_sentiment(
+        breadth={"above_ma200_pct": 25, "ad_ratio": 0.5},
+        nn_net=-350.0,
+        vnindex_tech={"rsi14": 32, "close": 1700, "ma20": 1750,
+                      "ma50": 1780, "ma200": 1820, "day_change_pct": -1.4},
+        news_sentiment={"total": 80, "pos_pct": 10, "neg_pct": 55, "net_pct": -45},
+    )
+    assert ms["momentum"] < -40
+    assert "Sợ hãi" in ms["mood"] or "Tiêu cực" in ms["mood"]
+
+
+def test_compute_market_sentiment_partial_inputs_renormalise():
+    """Only breadth available → still returns a reading weighted over it."""
+    from vnstock_market_sentiment import compute_market_sentiment
+    ms = compute_market_sentiment(breadth={"above_ma200_pct": 60})
+    assert ms["n_signals"] == 1
+    assert ms["momentum"] > 0
+
+
+def test_compute_market_sentiment_empty_when_no_signal():
+    from vnstock_market_sentiment import compute_market_sentiment
+    assert compute_market_sentiment() == {}
+
+
+def test_market_sentiment_block_renders():
+    from vnstock_market_sentiment import compute_market_sentiment
+    from vnstock_brief import _market_sentiment_block
+    ms = compute_market_sentiment(
+        breadth={"above_ma200_pct": 60, "ad_ratio": 1.5}, nn_net=120.0,
+        vnindex_tech={"rsi14": 55, "close": 1840, "ma20": 1820,
+                      "ma50": 1800, "ma200": 1700, "day_change_pct": 0.3},
+        news_sentiment={"total": 50, "pos_pct": 55, "neg_pct": 20, "net_pct": 35},
+    )
+    block = _market_sentiment_block(ms)
+    assert "Tâm lý thị trường" in block
+    assert "momentum" in block
+    assert "Tin tức 7N" in block
+
+
+def test_build_prompt_includes_market_sentiment():
+    ctx = {
+        "date": "2026-06-08", "time": "15:00",
+        "market_sentiment": {
+            "mood": "📈 Tích cực", "momentum": 35, "n_signals": 2,
+            "signals": [
+                {"name": "Breadth (% trên MA200)", "value": "60%", "dir": 1},
+                {"name": "NN ròng 1D", "value": "+120 tỷ", "dir": 1},
+            ],
+            "news": {},
+        },
+    }
+    prompt = build_prompt(ctx, brief_type="afternoon")
+    assert "Tâm lý thị trường" in prompt
+    assert "momentum" in prompt

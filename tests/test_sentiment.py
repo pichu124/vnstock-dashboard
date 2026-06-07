@@ -187,3 +187,36 @@ def test_summary_respects_day_cutoff():
     ]
     out = ticker_sentiment_summary(news, days=7)
     assert out == []
+
+
+# ─── market_news_sentiment (market-wide aggregate) ───────────────────────────
+
+def test_market_news_sentiment_aggregates_all_tickers():
+    from datetime import date
+    from vnstock_sentiment import market_news_sentiment
+    today = date.today().isoformat()
+    news = [
+        {"ticker": "VCB", "_sentiment": "positive", "_date_sort": today},
+        {"ticker": "FPT", "_sentiment": "positive", "_date_sort": today},
+        {"ticker": "HPG", "_sentiment": "negative", "_date_sort": today},
+        {"ticker": "SSI", "_sentiment": "neutral",  "_date_sort": today},
+    ]
+    out = market_news_sentiment(news, days=7)
+    assert out["total"] == 4
+    assert out["positive"] == 2 and out["negative"] == 1 and out["neutral"] == 1
+    assert out["pos_pct"] == 50.0
+    assert out["net_pct"] == 25.0  # (2-1)/4*100
+
+
+def test_market_news_sentiment_empty_when_unscored():
+    from datetime import date
+    from vnstock_sentiment import market_news_sentiment
+    today = date.today().isoformat()
+    news = [{"ticker": "VCB", "_sentiment": "", "_date_sort": today}]
+    assert market_news_sentiment(news) == {}
+
+
+def test_market_news_sentiment_respects_cutoff():
+    from vnstock_sentiment import market_news_sentiment
+    news = [{"ticker": "VCB", "_sentiment": "positive", "_date_sort": "2020-01-01"}]
+    assert market_news_sentiment(news, days=7) == {}
