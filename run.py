@@ -741,6 +741,65 @@ def cmd_telegram(args) -> int:
         return 1
 
 
+def cmd_news(args) -> int:
+    """Refresh news cache + score sentiment.
+
+    Populates the news-sentiment cache the brief's "Tâm lý thị trường" block
+    reads (the 7th signal). Safe to schedule daily before the close brief.
+    """
+    try:
+        import vnstock_news as _news
+        import vnstock_sentiment as _snt
+    except ImportError as e:
+        print(f"[news] cannot import: {e}")
+        return 1
+
+    # Load .env so provider keys (GROQ/CEREBRAS/OPENROUTER) are available.
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(Path(__file__).parent / ".env", override=False)
+    except Exception:
+        pass
+
+    # 1. Refresh (or load) news
+    if args.no_refresh:
+        news = _news.load_news_cache()
+        print(f"[news] loaded {len(news)} cached articles")
+    else:
+        print("[news] refreshing news cache…")
+        news = _news.refresh_news()
+        print(f"[news] fetched {len(news)} articles")
+
+    if not news:
+        print("[news] no articles — nothing to score")
+        return 0
+
+    # 2. Score sentiment
+    if args.no_score:
+        print("[news] skip scoring (--no-score)")
+        return 0
+
+    provider = _snt.available_provider()
+    if not provider:
+        print("[news] ⚠ chưa có provider key (GROQ/CEREBRAS/OPENROUTER) — bỏ qua chấm điểm")
+        return 0
+
+    before = _snt.scored_count(news)
+    print(f"[news] scoring sentiment via {provider}… ({before}/{len(news)} đã có)")
+    _snt.score_news_batch(news)
+    after = _snt.scored_count(news)
+    print(f"[news] scored {after - before} mới (tổng {after}/{len(news)})")
+
+    # 3. Market-wide aggregate (what the brief will show)
+    _snt.attach_sentiments(news)
+    agg = _snt.market_news_sentiment(news, days=7)
+    if agg:
+        print(f"[news] tâm lý 7N: {agg['pos_pct']:.0f}% tích cực / "
+              f"{agg['neg_pct']:.0f}% tiêu cực "
+              f"(net {agg['net_pct']:+.0f}, {agg['total']} tin)")
+    return 0
+
+
 def cmd_all(args) -> int:
     """sync → validate → screener → test → audit. Stops on first hard failure."""
     for name, fn in (
@@ -931,6 +990,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="test=verify connection, morning=morning brief, close=close brief, screener=alerts only",
     )
 
+    news_p = sub.add_parser(
+        "news", help="Refresh tin + chấm sentiment (cho tín hiệu tâm lý tin tức trong brief)")
+    news_p.add_argument("--no-refresh", action="store_true",
+                        help="Bỏ qua fetch tin, chỉ chấm điểm cache hiện có")
+    news_p.add_argument("--no-score", action="store_true",
+                        help="Chỉ refresh tin, không chấm sentiment")
+
     all_ = sub.add_parser("all", help="sync → validate → screener → test → audit")
     all_.add_argument("--lookback", type=int, default=60)
     all_.add_argument("--llm", action="store_true")
@@ -957,6 +1023,7 @@ _DISPATCH = {
     "freefloat": cmd_freefloat,
     "screener": cmd_screener,
     "telegram": cmd_telegram,
+    "news": cmd_news,
     "test": cmd_test,
     "dashboard": cmd_dashboard,
     "all": cmd_all,
