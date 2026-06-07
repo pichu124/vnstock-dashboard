@@ -660,14 +660,27 @@ def build_agents(configs: list[dict] | None = None) -> list[BriefAgent]:
 # ── Context collection ─────────────────────────────────────────────────────
 def collect_context(brief_type: str = "morning") -> dict:
     """Collect all available market data for brief generation."""
+    # Determine effective trading date: use the last bar date from VNINDEX
+    # warehouse instead of calendar today. Avoids "no data" briefs when called
+    # early morning (market not open yet) or on weekends/holidays.
+    _vt_early = _vnindex_technicals()
+    _data_date_str = _vt_early.get("data_date") or date.today().isoformat()
+    _today_str = date.today().isoformat()
+    _is_stale = _data_date_str < _today_str  # data is from a prior trading day
+
     ctx: dict = {
         "brief_type": brief_type,
-        "date": date.today().isoformat(),
+        "date": _data_date_str,
         "time": datetime.now().strftime("%H:%M"),
         "sectors": [],
         "breadth": {},
         "tickers": [],
     }
+    if _is_stale:
+        ctx["date_note"] = (
+            f"(dữ liệu ngày {_data_date_str} — ngày giao dịch gần nhất; "
+            f"hôm nay {_today_str} chưa có data)"
+        )
 
     # 1. Market overview (pre-computed by runner)
     _ov = Path("data_warehouse/_meta/market_overview.json")
@@ -702,14 +715,19 @@ def collect_context(brief_type: str = "morning") -> dict:
             ctx["quant_error"] = str(e)
 
     # 3. Session stats (intraday GTGD profile)
+    # Use effective data date — falls back to latest available day when today
+    # has no data yet (early morning / weekend).
     try:
         from vnstock_session_stats import load_session_stats_history
         from vnstock_market_analyzer import session_timing_signal
         _hist = load_session_stats_history()
-        _today = _hist.get(date.today().isoformat(), {})
-        if _today:
-            ctx["session_stats"] = _today
-            ctx["session_timing"] = session_timing_signal(_today, _hist, "VNINDEX")
+        _day_stats = _hist.get(_data_date_str, {})
+        if not _day_stats and _hist:
+            # _data_date_str not in history — pick the most recent key
+            _day_stats = _hist.get(max(_hist.keys()), {})
+        if _day_stats:
+            ctx["session_stats"] = _day_stats
+            ctx["session_timing"] = session_timing_signal(_day_stats, _hist, "VNINDEX")
     except Exception:
         pass
 
@@ -762,10 +780,9 @@ def collect_context(brief_type: str = "morning") -> dict:
         except Exception:
             pass
 
-    # 6. VNINDEX technical levels — fetched live so prompts always have
-    # the CURRENT close (not stale training-data hallucination like 1.240
-    # when the index is at 1.800+).
-    ctx["vnindex_tech"] = _vnindex_technicals()
+    # 6. VNINDEX technical levels — already fetched above to determine the
+    # effective date; reuse the result instead of calling again.
+    ctx["vnindex_tech"] = _vt_early
 
     return ctx
 
@@ -886,6 +903,10 @@ def _vnindex_technicals() -> dict:
             "support_2":      sup2,
             "resistance_1":   res1,
             "resistance_2":   res2,
+            # Date of the last bar with valid close — used by collect_context()
+            # to set the "effective" brief date when today has no data yet
+            # (e.g. early morning before market opens, or weekends).
+            "data_date": df.loc[df["close"].notna(), "time"].iloc[-1].date().isoformat(),
         }
     except Exception:
         return {}
@@ -903,7 +924,10 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
     """
     lines: list[str] = []
 
-    lines.append(f"Ngày: {ctx['date']} | Thời điểm: {ctx['time']}")
+    _date_line = f"Ngày: {ctx['date']} | Thời điểm: {ctx['time']}"
+    if note := ctx.get("date_note"):
+        _date_line += f"  ⚠️ {note}"
+    lines.append(_date_line)
 
     # Regime
     if r := ctx.get("quant_regime"):
