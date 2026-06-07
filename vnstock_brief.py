@@ -664,7 +664,21 @@ def collect_context(brief_type: str = "morning") -> dict:
     # warehouse instead of calendar today. Avoids "no data" briefs when called
     # early morning (market not open yet) or on weekends/holidays.
     _vt_early = _vnindex_technicals()
-    _data_date_str = _vt_early.get("data_date") or date.today().isoformat()
+    _data_date_str = _vt_early.get("data_date")
+
+    # Fallback: latest date from session stats history (always written by runner)
+    if not _data_date_str:
+        try:
+            from vnstock_session_stats import load_session_stats_history as _lssh
+            _hist_tmp = _lssh()
+            if _hist_tmp:
+                _data_date_str = max(_hist_tmp.keys())
+        except Exception:
+            pass
+
+    if not _data_date_str:
+        _data_date_str = date.today().isoformat()
+
     _today_str = date.today().isoformat()
     _is_stale = _data_date_str < _today_str  # data is from a prior trading day
 
@@ -787,6 +801,71 @@ def collect_context(brief_type: str = "morning") -> dict:
     return ctx
 
 
+def _load_vnindex_df() -> "pd.DataFrame":
+    """Read VNINDEX price history directly from parquet — no Streamlit cache.
+
+    Works both inside Streamlit and from the CLI (run.py push_close_brief).
+    load_price_history() in vnstock_dashboard.py is decorated with
+    @st.cache_data and fails when called outside a Streamlit session.
+
+    The VNINDEX parquet may use either "time" or "trading_date" as the date
+    column (depending on which fetcher wrote it). Both are tried.
+    Values may be stored in index-points (~1 300) or raw VND (>5 000);
+    normalization threshold is 5 000 (index never exceeds 5 000 points).
+    """
+    import pandas as pd
+    try:
+        import pyarrow.parquet as _pq
+    except ImportError:
+        return pd.DataFrame()
+
+    prices_dir = Path(__file__).parent / "data_warehouse" / "prices"
+
+    df = pd.DataFrame()
+    for sym in ("VNINDEX", "VN-INDEX", "^VNINDEX"):
+        ticker_dir = prices_dir / f"ticker={sym}"
+        if not ticker_dir.exists():
+            continue
+        frames = []
+        for yd in sorted(ticker_dir.glob("year=*")):
+            try:
+                for pf in yd.glob("*.parquet"):
+                    frames.append(_pq.read_table(str(pf)).to_pandas())
+            except Exception:
+                continue
+        if not frames:
+            continue
+
+        _df = pd.concat(frames, ignore_index=True)
+        _df.columns = [str(c).lower() for c in _df.columns]
+
+        # Normalise date column → "time"
+        for date_col in ("time", "trading_date", "date"):
+            if date_col in _df.columns:
+                _df = _df.rename(columns={date_col: "time"})
+                break
+        if "time" not in _df.columns:
+            continue
+
+        _df["time"] = pd.to_datetime(_df["time"])
+        _df = _df.sort_values("time").reset_index(drop=True)
+
+        if "close" not in _df.columns:
+            continue
+
+        # Normalise units: VNINDEX is ~1300 pts; if stored >5000 → divide by 1000
+        for col in ("open", "high", "low", "close"):
+            if col in _df.columns:
+                vals = _df[col].astype(float)
+                if vals.iloc[-1] > 5000:
+                    _df[col] = vals / 1000
+
+        df = _df
+        break
+
+    return df
+
+
 def _vnindex_technicals() -> dict:
     """Compute VNINDEX close, MAs, day/52w range, and pivot levels.
 
@@ -801,20 +880,12 @@ def _vnindex_technicals() -> dict:
       - rsi14
     """
     try:
-        from vnstock_dashboard import load_price_history
         import pandas as pd
         import numpy as np
     except Exception:
         return {}
 
-    df = pd.DataFrame()
-    for sym in ("VNINDEX", "VN-INDEX", "^VNINDEX"):
-        try:
-            df = load_price_history(sym, days=300)
-            if df is not None and not df.empty and "close" in df.columns:
-                break
-        except Exception:
-            df = pd.DataFrame()
+    df = _load_vnindex_df()
     if df is None or df.empty or "close" not in df.columns:
         return {}
 
