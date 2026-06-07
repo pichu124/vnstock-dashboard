@@ -239,16 +239,46 @@ def push_test() -> dict:
     return send_message(text)
 
 
+def _iso_to_dmy(iso_str: str) -> str:
+    """'2026-06-05' → '05/06/2026'. Returns input unchanged on parse failure."""
+    try:
+        y, m, d = iso_str[:10].split("-")
+        return f"{d}/{m}/{y}"
+    except Exception:
+        return iso_str
+
+
+def _brief_header(emoji: str, title: str) -> str:
+    """Build a header that states the trading session the brief describes plus
+    the push timestamp. When the session date differs from today (brief pushed
+    on a weekend / before market open) both are shown with a clear marker so
+    the reader knows the data is from the latest session, not today."""
+    now = datetime.now()
+    push_str = now.strftime("%d/%m/%Y %H:%M")
+    session_dmy = push_str.split()[0]  # default to today's date
+    try:
+        from vnstock_brief import effective_trading_date
+        session_iso = effective_trading_date()
+        session_dmy = _iso_to_dmy(session_iso)
+    except Exception:
+        session_iso = ""
+
+    head = f"{emoji} <b>{title}</b> — Phiên GD {session_dmy}\n🕐 Gửi lúc: {push_str}"
+    # Flag stale data: session date is before today (weekend / pre-open push)
+    if session_iso and session_iso < now.strftime("%Y-%m-%d"):
+        head += "  ⚠️ <i>data phiên gần nhất</i>"
+    return head + "\n"
+
+
 def push_morning_brief() -> dict:
     """Build and send the morning brief message."""
     # Load .env before _brief_snippet() checks agent availability (see
     # push_close_brief for the full ordering rationale).
     _load_env()
-    date_str   = datetime.now().strftime("%d/%m/%Y")
     screener   = _screener_block()
 
     blocks = [
-        f"📊 <b>VNStock Morning Brief</b> — {date_str}\n",
+        _brief_header("📊", "VNStock Morning Brief"),
         _vnindex_line(),
         _regime_block(),
         "",
@@ -271,11 +301,10 @@ def push_close_brief() -> dict:
     # _brief_snippet() checks agent availability (it runs before
     # send_message(), which is otherwise the first thing to load .env).
     _load_env()
-    date_str    = datetime.now().strftime("%d/%m/%Y %H:%M")
     closed_blk  = _closed_today_block()
 
     blocks = [
-        f"📉 <b>VNStock Close Brief</b> — {date_str}\n",
+        _brief_header("📉", "VNStock Close Brief"),
         _vnindex_line(),
         _regime_block(),
         "",

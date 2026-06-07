@@ -679,6 +679,33 @@ def build_agents(configs: list[dict] | None = None) -> list[BriefAgent]:
     return agents
 
 
+# ── Effective trading date ─────────────────────────────────────────────────
+def effective_trading_date(vnindex_tech: dict | None = None) -> str:
+    """Return the ISO date of the latest trading session the brief describes.
+
+    Prefers the last VNINDEX bar date in the warehouse, falls back to the most
+    recent session-stats key, then to calendar today. Use this (not
+    date.today()) so a brief pushed on a weekend / early morning is labelled
+    with the actual session it analyses, e.g. data from Fri 05/06 when pushed
+    on Sun 07/06.
+
+    Pass a pre-computed `vnindex_tech` dict to avoid recomputing it.
+    """
+    vt = vnindex_tech if vnindex_tech is not None else _vnindex_technicals()
+    data_date = (vt or {}).get("data_date")
+
+    if not data_date:
+        try:
+            from vnstock_session_stats import load_session_stats_history as _lssh
+            _hist = _lssh()
+            if _hist:
+                data_date = max(_hist.keys())
+        except Exception:
+            pass
+
+    return data_date or date.today().isoformat()
+
+
 # ── Context collection ─────────────────────────────────────────────────────
 def collect_context(brief_type: str = "morning") -> dict:
     """Collect all available market data for brief generation."""
@@ -686,20 +713,7 @@ def collect_context(brief_type: str = "morning") -> dict:
     # warehouse instead of calendar today. Avoids "no data" briefs when called
     # early morning (market not open yet) or on weekends/holidays.
     _vt_early = _vnindex_technicals()
-    _data_date_str = _vt_early.get("data_date")
-
-    # Fallback: latest date from session stats history (always written by runner)
-    if not _data_date_str:
-        try:
-            from vnstock_session_stats import load_session_stats_history as _lssh
-            _hist_tmp = _lssh()
-            if _hist_tmp:
-                _data_date_str = max(_hist_tmp.keys())
-        except Exception:
-            pass
-
-    if not _data_date_str:
-        _data_date_str = date.today().isoformat()
+    _data_date_str = effective_trading_date(_vt_early)
 
     _today_str = date.today().isoformat()
     _is_stale = _data_date_str < _today_str  # data is from a prior trading day
