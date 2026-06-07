@@ -233,7 +233,7 @@ Nếu block "VNINDEX kỹ thuật" KHÔNG có → viết "Chưa có dữ liệu 
 
 ## 💰 Dòng tiền đáng chú ý
 [NN mua/bán ròng đáng kể (số tỷ cụ thể) | smart money tích luỹ/phân phối | unusual volume; bỏ qua nếu phẳng]
-Nếu có block "Dòng tiền ngành": nêu RÕ ngành NN mua ròng / bán ròng mạnh nhất + GTGD (số từ block), nhận định luân chuyển dòng tiền giữa các ngành.
+Nếu có block "Dòng tiền ngành": nêu RÕ ngành NN MUA RÒNG / BÁN RÒNG mạnh nhất (lấy số "NN ròng", đơn vị tỷ, có dấu +/-). PHÂN BIỆT rõ "NN ròng" (khối ngoại mua-bán ròng) với "GTGD" (thanh khoản/giá trị giao dịch) — TUYỆT ĐỐI KHÔNG gọi GTGD là "dòng tiền vào". Nhận định luân chuyển dòng tiền giữa các ngành dựa trên NN ròng.
 
 ## 📋 Watchlist sáng mai (3 setup cụ thể)
 1. **[Mã/Ngành]** — [BUY ở X / WAIT khi vượt Y / SELL nếu thủng Z] — [trigger 1 dòng]
