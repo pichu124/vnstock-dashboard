@@ -1758,6 +1758,7 @@ def analyze_ticker_consensus(
         except Exception:
             pass
 
+        _pivots_block_c = _ticker_pivots(df, close)
         analysis_prompt = _TICKER_ANALYSIS_PROMPT.format(
             ticker=ticker,
             date=_date_cls.today().isoformat(),
@@ -1766,6 +1767,7 @@ def analyze_ticker_consensus(
             ma20=indic["ma20"], vs_ma20_desc=vs_ma20_desc, vs_ma20_pct=vs_ma20_pct,
             vol_ratio=indic["vol_ratio"], trend_5d=indic["trend_5d"],
             high_52w=indic["high_52w"], low_52w=indic["low_52w"],
+            pivots_block=_pivots_block_c,
             strategy_name=active["name"],
             action_upper=action_upper, confidence=conf,
             entry_str=f"{entry:,.0f} VND" if entry else "—",

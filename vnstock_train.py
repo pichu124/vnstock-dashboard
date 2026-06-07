@@ -159,8 +159,8 @@ def _fetch_group_live(group: str) -> list[str]:
     Returns empty list on any error (caller should use fallback).
     """
     try:
-        from vnstock import Vnstock  # type: ignore
-        df = Vnstock().stock(symbol="VCB", source="VCI").listing.symbols_by_group(group)
+        from vnstock_auth import get_vnstock
+        df = get_vnstock("VCB", "VCI").listing.symbols_by_group(group)
         if df is not None and not df.empty:
             col = next((c for c in ("ticker", "symbol", "code") if c in df.columns), None)
             if col:

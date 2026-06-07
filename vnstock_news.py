@@ -303,18 +303,26 @@ def fetch_ticker_news(ticker: str, source: str = "VCI") -> list[dict]:
     sources = [source] + ([s for s in ("VCI", "KBS") if s != source])
     for src in sources:
         try:
-            from vnstock import Vnstock  # type: ignore
-            stock = Vnstock().stock(symbol=ticker, source=src)
+            from vnstock_auth import get_vnstock
+            stock = get_vnstock(ticker, src)
             df = stock.company.news()
             if _is_news_dataframe(df):
                 return _records_from_df(df, ticker, src)
         except Exception:
             continue
 
-    # Sponsor fallback — vnstock_data.Company. KBS returns 1 article;
-    # VCI is still broken (KeyError: 'data') in 4.0.2 so we only try KBS.
-    try:
-        import vnstock_data as _vd
+    # Sponsor fallback — try vnii (new name) then vnstock_data (old name).
+    # KBS returns ~1 article; VCI is broken (KeyError: 'data') in 4.0.2.
+    _vd = None
+    for _mod in ("vnii", "vnstock_data"):
+        try:
+            _vd = __import__(_mod)
+            break
+        except ImportError:
+            continue
+        except Exception:
+            break
+    if _vd is not None:
         for kwargs in ({"size": 20}, {"page_size": 20}, {}):
             try:
                 comp = _vd.Company(symbol=ticker, source="KBS")
@@ -325,8 +333,6 @@ def fetch_ticker_news(ticker: str, source: str = "VCI") -> list[dict]:
                 continue
             except Exception:
                 break
-    except ImportError:
-        pass
     return []
 
 
@@ -342,13 +348,24 @@ def diagnose_news_fetch(ticker: str = "VCB") -> dict:
     import inspect as _inspect
     out: dict = {}
 
-    # vnstock_data.Company — try both VCI and KBS so we see what each returns
-    try:
-        import vnstock_data as _vd
+    # Sponsor package (vnii or vnstock_data) — try both VCI and KBS
+    _vd_diag = None
+    _vd_mod_name = None
+    for _mod in ("vnii", "vnstock_data"):
+        try:
+            _vd_diag = __import__(_mod)
+            _vd_mod_name = _mod
+            break
+        except ImportError:
+            continue
+        except Exception as e:
+            out[f"{_mod}.import"] = {"error": f"{type(e).__name__}: {e}"}
+            break
+    if _vd_diag is not None:
         for src in ("VCI", "KBS"):
-            label = f"vnstock_data.Company(source='{src}').news()"
+            label = f"{_vd_mod_name}.Company(source='{src}').news()"
             try:
-                comp = _vd.Company(symbol=ticker, source=src)
+                comp = _vd_diag.Company(symbol=ticker, source=src)
                 t0 = _time.time()
                 df = comp.news()
                 dt = (_time.time() - t0) * 1000
@@ -361,13 +378,13 @@ def diagnose_news_fetch(ticker: str = "VCB") -> dict:
                 }
             except Exception as e:
                 out[label] = {"error": f"{type(e).__name__}: {e}"}
-    except ImportError as e:
-        out["vnstock_data.Company"] = {"error": f"ImportError: {e}"}
+    else:
+        out["sponsor_package"] = {"error": "vnii and vnstock_data not importable"}
 
     # vnstock free
     try:
-        from vnstock import Vnstock
-        stock = Vnstock().stock(symbol=ticker, source="VCI")
+        from vnstock_auth import get_vnstock
+        stock = get_vnstock(ticker, "VCI")
         t0 = _time.time()
         df = stock.company.news()
         dt = (_time.time() - t0) * 1000
@@ -399,6 +416,92 @@ def _records_from_df(df, ticker: str, source: str) -> list[dict]:
                 break
         records.append(d)
     return records
+
+
+# ── Deduplication ──────────────────────────────────────────────────────────
+
+import re as _re_dedup
+from difflib import SequenceMatcher as _SM
+
+
+_NEWS_TITLE_KEYS = ("news_title", "title", "head", "headline")
+_TITLE_NORM_RE = _re_dedup.compile(r"[^\w\s]+", flags=_re_dedup.UNICODE)
+
+
+def _news_title(item: dict) -> str:
+    for k in _NEWS_TITLE_KEYS:
+        v = item.get(k)
+        if v:
+            return str(v)
+    return ""
+
+
+def _norm_title(title: str) -> str:
+    """Lowercase, strip punctuation, collapse whitespace — for fuzzy match."""
+    t = (title or "").lower().strip()
+    t = _TITLE_NORM_RE.sub(" ", t)
+    return " ".join(t.split())
+
+
+def deduplicate_news(
+    news: list[dict],
+    similarity_threshold: float = 0.85,
+) -> tuple[list[dict], int]:
+    """Remove near-duplicate articles (same date + similar title).
+
+    Strategy:
+      1. Group items by _date_sort (only compare within same day for speed)
+      2. Within each day, do O(n²) fuzzy match on normalized titles
+      3. Keep the FIRST occurrence (input list is already sorted newest-first),
+         drop subsequent matches with ratio ≥ threshold
+
+    Returns (deduped_list, n_removed).
+    """
+    if not news:
+        return news, 0
+
+    by_date: dict[str, list[dict]] = {}
+    for item in news:
+        d = item.get("_date_sort") or "0000-00-00"
+        by_date.setdefault(d, []).append(item)
+
+    deduped: list[dict] = []
+    removed = 0
+
+    for date_key, items in by_date.items():
+        kept: list[tuple[str, dict]] = []  # (norm_title, item)
+        for it in items:
+            title = _norm_title(_news_title(it))
+            if not title:
+                kept.append((title, it))
+                continue
+            is_dup = False
+            for kept_title, _ in kept:
+                if not kept_title:
+                    continue
+                # Quick exact-match short-circuit before expensive SequenceMatcher
+                if title == kept_title:
+                    is_dup = True
+                    break
+                # Length filter — titles must be within 30% length of each other
+                if abs(len(title) - len(kept_title)) > 0.3 * max(len(title), len(kept_title)):
+                    continue
+                ratio = _SM(None, title, kept_title).ratio()
+                if ratio >= similarity_threshold:
+                    is_dup = True
+                    break
+            if is_dup:
+                removed += 1
+            else:
+                kept.append((title, it))
+        deduped.extend(it for _, it in kept)
+
+    # Restore original ordering (newest first)
+    deduped.sort(
+        key=lambda x: x.get("_date_sort") or "0000-00-00",
+        reverse=True,
+    )
+    return deduped, removed
 
 
 # ── Parallel refresh ───────────────────────────────────────────────────────
@@ -439,6 +542,17 @@ def refresh_news(
         key=lambda x: x.get("_date_sort") or "0000-00-00",
         reverse=True,
     )
+
+    # Dedup near-duplicate titles within same day (VnExpress / CafeF cross-post)
+    all_news, _n_dup = deduplicate_news(all_news)
+    if _n_dup:
+        try:
+            import logging
+            logging.getLogger("vnstock_news").info(
+                "deduplicated %d duplicate articles", _n_dup
+            )
+        except Exception:
+            pass
 
     save_news_cache(all_news)
     _set_memory_cache(all_news)

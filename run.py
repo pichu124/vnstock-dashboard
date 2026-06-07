@@ -28,7 +28,7 @@ import argparse
 import json
 import subprocess
 import sys
-from datetime import date
+from datetime import date, datetime as _datetime
 from pathlib import Path
 
 
@@ -609,7 +609,81 @@ def cmd_fix_units(args) -> int:
 
 
 def cmd_test(args) -> int:
-    return _run([sys.executable, "-m", "pytest", "tests/", "-v"])
+    """Run pytest. Writes a status summary to data_warehouse/_meta/test_status.json
+    so the dashboard can display test health.
+
+    Modes:
+      (default) — full tests/ directory
+      --fast    — only the 7 test files added in F1-F7 + tune-ups (103 tests, ~0.5s)
+      --new     — alias for --fast
+    """
+    import json as _json
+    import subprocess as _sp
+    import time as _time
+
+    fast = getattr(args, "fast", False) or getattr(args, "new", False)
+    if fast:
+        test_paths = [
+            "tests/test_regime.py",
+            "tests/test_brief.py",
+            "tests/test_sentiment.py",
+            "tests/test_news_dedup.py",
+            "tests/test_freshness.py",
+            "tests/test_vn30_weights.py",
+            "tests/test_telegram.py",
+        ]
+    else:
+        test_paths = ["tests/"]
+
+    started = _time.time()
+    cmd = [sys.executable, "-m", "pytest", *test_paths, "-v", "--tb=short"]
+    proc = _sp.run(cmd, capture_output=True, text=True)
+    elapsed = _time.time() - started
+
+    # Echo output verbatim so user still sees the regular pytest run
+    sys.stdout.write(proc.stdout)
+    sys.stderr.write(proc.stderr)
+
+    # Parse the last "==== N passed, M failed in Xs ====" summary line
+    summary_line = ""
+    n_passed = n_failed = n_skipped = n_error = 0
+    for line in reversed(proc.stdout.splitlines()):
+        if " passed" in line or " failed" in line or " error" in line:
+            summary_line = line.strip()
+            break
+    import re as _re
+    if (m := _re.search(r"(\d+)\s+passed", summary_line)):
+        n_passed = int(m.group(1))
+    if (m := _re.search(r"(\d+)\s+failed", summary_line)):
+        n_failed = int(m.group(1))
+    if (m := _re.search(r"(\d+)\s+skipped", summary_line)):
+        n_skipped = int(m.group(1))
+    if (m := _re.search(r"(\d+)\s+error", summary_line)):
+        n_error = int(m.group(1))
+
+    status = {
+        "ran_at":   _datetime.now().isoformat(),
+        "mode":     "fast" if fast else "full",
+        "passed":   n_passed,
+        "failed":   n_failed,
+        "skipped":  n_skipped,
+        "errors":   n_error,
+        "elapsed_s": round(elapsed, 1),
+        "exit_code": proc.returncode,
+        "summary":  summary_line,
+    }
+    out_path = REPO_ROOT / "data_warehouse" / "_meta" / "test_status.json"
+    try:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(
+            _json.dumps(status, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        print(f"\n[test] status written → {out_path}")
+    except OSError as e:
+        print(f"[test] could not write status: {e}")
+
+    return proc.returncode
 
 
 def cmd_dashboard(args) -> int:
@@ -631,6 +705,99 @@ def cmd_freefloat(args) -> int:
 def cmd_screener(args) -> int:
     """Run vnstock_runner.py to refresh screener signals."""
     return _run([sys.executable, str(REPO_ROOT / "vnstock_runner.py")])
+
+
+def cmd_telegram(args) -> int:
+    """Push Telegram notifications (test / morning / close / screener)."""
+    try:
+        import vnstock_telegram as _tg
+    except ImportError as e:
+        print(f"[telegram] cannot import vnstock_telegram: {e}")
+        return 1
+
+    action = args.action
+    try:
+        if action == "test":
+            resp = _tg.push_test()
+            print(f"[telegram] test sent — message_id={resp.get('result',{}).get('message_id')}")
+        elif action == "morning":
+            resp = _tg.push_morning_brief()
+            print(f"[telegram] morning brief sent — message_id={resp.get('result',{}).get('message_id')}")
+        elif action == "close":
+            resp = _tg.push_close_brief()
+            print(f"[telegram] close brief sent — message_id={resp.get('result',{}).get('message_id')}")
+        elif action == "screener":
+            resp = _tg.push_screener_alerts()
+            print(f"[telegram] screener sent — message_id={resp.get('result',{}).get('message_id')}")
+        else:
+            print(f"[telegram] unknown action: {action}")
+            return 1
+        return 0
+    except RuntimeError as e:
+        print(f"[telegram] ❌ {e}")
+        return 1
+    except Exception as e:
+        print(f"[telegram] ❌ {type(e).__name__}: {e}")
+        return 1
+
+
+def cmd_news(args) -> int:
+    """Refresh news cache + score sentiment.
+
+    Populates the news-sentiment cache the brief's "Tâm lý thị trường" block
+    reads (the 7th signal). Safe to schedule daily before the close brief.
+    """
+    try:
+        import vnstock_news as _news
+        import vnstock_sentiment as _snt
+    except ImportError as e:
+        print(f"[news] cannot import: {e}")
+        return 1
+
+    # Load .env so provider keys (GROQ/CEREBRAS/OPENROUTER) are available.
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(Path(__file__).parent / ".env", override=False)
+    except Exception:
+        pass
+
+    # 1. Refresh (or load) news
+    if args.no_refresh:
+        news = _news.load_news_cache()
+        print(f"[news] loaded {len(news)} cached articles")
+    else:
+        print("[news] refreshing news cache…")
+        news = _news.refresh_news()
+        print(f"[news] fetched {len(news)} articles")
+
+    if not news:
+        print("[news] no articles — nothing to score")
+        return 0
+
+    # 2. Score sentiment
+    if args.no_score:
+        print("[news] skip scoring (--no-score)")
+        return 0
+
+    provider = _snt.available_provider()
+    if not provider:
+        print("[news] ⚠ chưa có provider key (GROQ/CEREBRAS/OPENROUTER) — bỏ qua chấm điểm")
+        return 0
+
+    before = _snt.scored_count(news)
+    print(f"[news] scoring sentiment via {provider}… ({before}/{len(news)} đã có)")
+    _snt.score_news_batch(news)
+    after = _snt.scored_count(news)
+    print(f"[news] scored {after - before} mới (tổng {after}/{len(news)})")
+
+    # 3. Market-wide aggregate (what the brief will show)
+    _snt.attach_sentiments(news)
+    agg = _snt.market_news_sentiment(news, days=7)
+    if agg:
+        print(f"[news] tâm lý 7N: {agg['pos_pct']:.0f}% tích cực / "
+              f"{agg['neg_pct']:.0f}% tiêu cực "
+              f"(net {agg['net_pct']:+.0f}, {agg['total']} tin)")
+    return 0
 
 
 def cmd_all(args) -> int:
@@ -808,9 +975,27 @@ def build_parser() -> argparse.ArgumentParser:
     ff.add_argument("--delay", type=float, default=0.15,
                     help="Delay between API calls in seconds (default 0.15)")
 
-    sub.add_parser("test", help="Run pytest")
+    test = sub.add_parser("test", help="Run pytest + write status to test_status.json")
+    test.add_argument("--fast", action="store_true",
+                      help="Only run the 7 test files for new modules (~103 tests, 0.5s)")
+    test.add_argument("--new", action="store_true",
+                      help="Alias for --fast")
     sub.add_parser("screener", help="Refresh screener signals (vnstock_runner.py)")
     sub.add_parser("dashboard", help="Launch the Streamlit dashboard")
+
+    tg = sub.add_parser("telegram", help="Push Telegram notifications")
+    tg.add_argument(
+        "action",
+        choices=["test", "morning", "close", "screener"],
+        help="test=verify connection, morning=morning brief, close=close brief, screener=alerts only",
+    )
+
+    news_p = sub.add_parser(
+        "news", help="Refresh tin + chấm sentiment (cho tín hiệu tâm lý tin tức trong brief)")
+    news_p.add_argument("--no-refresh", action="store_true",
+                        help="Bỏ qua fetch tin, chỉ chấm điểm cache hiện có")
+    news_p.add_argument("--no-score", action="store_true",
+                        help="Chỉ refresh tin, không chấm sentiment")
 
     all_ = sub.add_parser("all", help="sync → validate → screener → test → audit")
     all_.add_argument("--lookback", type=int, default=60)
@@ -837,6 +1022,8 @@ _DISPATCH = {
     "fix-units": cmd_fix_units,
     "freefloat": cmd_freefloat,
     "screener": cmd_screener,
+    "telegram": cmd_telegram,
+    "news": cmd_news,
     "test": cmd_test,
     "dashboard": cmd_dashboard,
     "all": cmd_all,

@@ -204,7 +204,8 @@ def _load_nn_from_disk() -> pd.DataFrame:
                 if col not in df.columns:
                     df[col] = 0.0
         return df
-    except (OSError, json.JSONDecodeError, ValueError):
+    except (OSError, json.JSONDecodeError, ValueError) as e:
+        log.warning("NN flow cache corrupt: %s", e)
         return pd.DataFrame()
 
 
@@ -494,8 +495,8 @@ def _fetch_order_stats_batch(tickers: tuple) -> dict:
                 if len(cached) > 3:
                     log.info("Order stats: loaded %d tickers from disk", len(cached))
                     return cached
-        except (OSError, json.JSONDecodeError):
-            pass
+        except (OSError, json.JSONDecodeError) as e:
+            log.warning("Order stats cache corrupt: %s", e)
 
     try:
         from vnstock_data import Trading
@@ -1120,7 +1121,8 @@ def load_live_quote(ticker: str) -> dict | None:
         return None
     try:
         return json.loads(path.read_text())
-    except Exception:
+    except (OSError, json.JSONDecodeError) as e:
+        log.warning("Live quote %s corrupt: %s", ticker, e)
         return None
 
 
@@ -1134,7 +1136,8 @@ def load_alerts() -> list[dict]:
         return []
     try:
         return json.loads(ALERTS_PATH.read_text())
-    except Exception:
+    except (OSError, json.JSONDecodeError) as e:
+        log.warning("Alerts file corrupt: %s", e)
         return []
 
 
@@ -1257,7 +1260,8 @@ def load_portfolio() -> list[dict]:
         return []
     try:
         return json.loads(PORTFOLIO_PATH.read_text())
-    except Exception:
+    except (OSError, json.JSONDecodeError) as e:
+        log.warning("Portfolio file corrupt: %s", e)
         return []
 
 
@@ -1814,15 +1818,18 @@ def load_intraday(ticker: str, interval: str = "15m") -> pd.DataFrame:
         lookback = {"1m":5,"5m":30,"15m":60,"30m":60,"1H":90}.get(interval, 10)
         end   = _d.today().strftime("%Y-%m-%d")
         start = (_d.today() - _td(days=lookback)).strftime("%Y-%m-%d")
-        # Use VCI Quote directly to bypass Company init (which can fail for non-quote endpoints)
+        # Use vnstock 4.x Quote API (vnstock.explorer path removed in 4.x)
         try:
-            from vnstock.explorer.vci.quote import Quote as _VCIQuote
-            _q = _VCIQuote(symbol=ticker, show_log=False)
-            df = _q.history(start=start, end=end, interval=interval)
-        except Exception:
             from vnstock_auth import get_vnstock
             df = get_vnstock(ticker).quote.history(
                 start=start, end=end, interval=interval)
+        except Exception:
+            try:
+                from vnstock.explorer.vci.quote import Quote as _VCIQuote
+                _q = _VCIQuote(symbol=ticker, show_log=False)
+                df = _q.history(start=start, end=end, interval=interval)
+            except Exception:
+                df = None
         if df is None or df.empty:
             return pd.DataFrame()
         needed = ["time","open","high","low","close","volume"]
@@ -3815,6 +3822,50 @@ industry_summary = data.get("industry_summary", {})
 
 # ── Theme toggle ──────────────────────────────────────────────────────────────
 with st.sidebar:
+    # ── Test status badge ──────────────────────────────────────────────
+    try:
+        _ts_path = Path("data_warehouse/_meta/test_status.json")
+        if _ts_path.exists():
+            _ts = json.loads(_ts_path.read_text(encoding="utf-8"))
+            _ts_ran = _ts.get("ran_at", "")
+            _ts_passed = _ts.get("passed", 0)
+            _ts_failed = _ts.get("failed", 0)
+            _ts_errors = _ts.get("errors", 0)
+            _ts_mode   = _ts.get("mode", "?")
+            _ts_total_bad = _ts_failed + _ts_errors
+            # Age
+            try:
+                _age_d = (datetime.now() - datetime.fromisoformat(_ts_ran)).days
+                _age_str = f"{_age_d}d trước" if _age_d > 0 else "hôm nay"
+            except Exception:
+                _age_str = "?"
+            _ts_color = "#22c55e" if _ts_total_bad == 0 else "#ef4444"
+            _ts_icon  = "✅" if _ts_total_bad == 0 else "❌"
+            st.markdown(
+                f'<div style="padding:6px 10px;border-radius:6px;'
+                f'border:1px solid {_ts_color};background:rgba(30,41,59,0.4);'
+                f'font-size:11px;color:{_ts_color};margin-bottom:8px;'
+                f'font-family:\'IBM Plex Sans\',sans-serif">'
+                f'{_ts_icon} <b>Tests {_ts_mode}</b>: {_ts_passed} passed'
+                + (f", <b>{_ts_total_bad} fail</b>" if _ts_total_bad else "")
+                + f'<br><span style="color:#9ca3af">Chạy {_age_str} · {_ts.get("elapsed_s","?")}s</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                '<div style="padding:6px 10px;border-radius:6px;'
+                'border:1px solid #6b7280;background:rgba(30,41,59,0.4);'
+                'font-size:11px;color:#9ca3af;margin-bottom:8px;'
+                'font-family:\'IBM Plex Sans\',sans-serif">'
+                '⏸ Tests chưa chạy.<br>'
+                '<code>python run.py test --fast</code>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+    except Exception:
+        pass
+
     _theme = st.toggle("☀️ Light mode", value=False, key="light_mode")
     if _theme:
         _t = THEMES["light"]

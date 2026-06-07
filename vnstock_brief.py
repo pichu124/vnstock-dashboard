@@ -31,6 +31,28 @@ from typing import Optional
 # ── Constants ─────────────────────────────────────────────────────────────
 AGENTS_CONFIG_PATH = Path("data_warehouse/_meta/brief_agents.json")
 
+_ENV_LOADED = False
+
+
+def _ensure_env_loaded() -> None:
+    """Load API keys from .env into os.environ exactly once.
+
+    Agents read keys straight from os.environ in their is_available check.
+    When the brief is generated from a fresh CLI process (run.py telegram
+    close) nothing has loaded .env yet, so without this every agent would
+    look unavailable and the brief would wrongly report "no agent available".
+    Idempotent and never overrides keys already exported in the shell.
+    """
+    global _ENV_LOADED
+    if _ENV_LOADED:
+        return
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(Path(__file__).parent / ".env", override=False)
+    except Exception:
+        pass
+    _ENV_LOADED = True
+
 # VN30 tickers — current composition (keep in sync with _VN30_FALLBACK in vnstock_news.py)
 # Try dynamic fetch first; fall back to this set when vnstock API is unavailable.
 VN30_TICKERS: set[str] = {
@@ -43,8 +65,8 @@ VN30_TICKERS: set[str] = {
 def get_vn30_live() -> set[str]:
     """Try to fetch current VN30 from vnstock API; fall back to VN30_TICKERS."""
     try:
-        from vnstock import Vnstock  # type: ignore
-        df = Vnstock().stock(symbol="VCB", source="VCI").listing.symbols_by_group("VN30")
+        from vnstock_auth import get_vnstock
+        df = get_vnstock("VCB", "VCI").listing.symbols_by_group("VN30")
         if df is not None and not df.empty:
             col = next((c for c in ("ticker", "symbol", "code") if c in df.columns), None)
             if col:
@@ -137,6 +159,7 @@ Viết MORNING BRIEF tiếng Việt theo đúng format sau (không thêm phần 
 
 ## 📊 Tổng quan phiên sáng
 [2-3 câu: diễn biến chính, GTGD vs bình thường (có % so trung bình 5 phiên nếu data có), tính chất phiên (institutional vs retail dựa vào GTGD/độ rộng)]
+BẮT BUỘC nếu có block "Tâm lý thị trường": nêu RÕ nhãn tâm lý + điểm momentum (vd "Tâm lý: 📈 Tích cực, momentum +34/100") và hàm ý cho phiên chiều.
 
 ## 📈 Mức kỹ thuật quan trọng (VNINDEX)
 TRÍCH XUẤT TỪ block "## VNINDEX kỹ thuật" — KHÔNG BỊA, KHÔNG dùng số trong training data.
@@ -151,9 +174,10 @@ Nếu block "VNINDEX kỹ thuật" KHÔNG có trong data → viết "Chưa có d
 **Tích luỹ/Mua:** [ngành hoặc mã VN30 + lý do cụ thể từ data — nêu trọng số %VNI và đóng góp pp]
 **Tránh/Bán:** [ngành hoặc mã VN30 + lý do cụ thể]
 **Theo dõi:** [rotation/stealth nếu có, bỏ dòng này nếu không có tín hiệu]
+Nếu có block "VN30 Cơ bản": có thể dẫn 1 chỉ số cơ bản (D/E cao / Op.CF âm / ROE) để củng cố lý do tránh/mua, KHÔNG bịa số.
 
 ## ⚡ Biến động bất thường
-[Mã/ngành tăng giảm đột biến + giải thích; "Không có biến động bất thường đáng chú ý" nếu phẳng]
+[Mã/ngành tăng giảm đột biến + giải thích + BẮT BUỘC ghi rõ khung thời gian (ví dụ: "VIC -3.2% phiên sáng", "PLX -8.8% trong 5 phiên", "ACB +4.1% so với đóng cửa hôm qua"); "Không có biến động bất thường đáng chú ý" nếu phẳng]
 
 ## 🔮 Kịch bản phiên chiều
 **Kịch bản chính ([X]% xác suất):** [điều kiện kích hoạt CỤ THỂ với mức giá/chỉ số — ví dụ "VNINDEX giữ trên 1.245, bank giữ đà → kỳ vọng đóng cửa +0.4-0.8%"]
@@ -174,6 +198,7 @@ YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
 - Ưu tiên ngành/mã có đóng góp TUYỆT ĐỐI lớn nhất, không chỉ tăng % cao nhất.
 - Kịch bản phải có TRIGGER (mức giá/chỉ số/% volume) — không viết "nếu thị trường tốt".
 - Nếu không đủ data cho một mục → viết "Cần thêm [data X]", không bịa.
+- MỌI % thay đổi giá PHẢI ghi rõ khung thời gian: "hôm nay", "phiên sáng", "5 phiên", "so với đóng cửa hôm qua", v.v. TUYỆT ĐỐI KHÔNG viết "X giảm Y%" mà không có khung thời gian.
 """
 
 _AFTERNOON_TEMPLATE = """\
@@ -192,6 +217,7 @@ Viết AFTERNOON BRIEF tiếng Việt theo đúng format sau (không thêm phầ
 
 ## 📊 Tổng kết phiên
 [2-3 câu: kết quả toàn ngày, GTGD vs trung bình, độ rộng thị trường (A/D, % trên MA200), so sánh với kỳ vọng sáng nếu có]
+BẮT BUỘC nếu có block "Tâm lý thị trường": nêu RÕ nhãn tâm lý + điểm momentum (vd "Tâm lý: ❄️ Sợ hãi, momentum -51/100") và 1 câu nó hàm ý gì cho xu hướng ngắn hạn.
 
 ## 📈 Mức kỹ thuật chốt phiên (VNINDEX)
 TRÍCH XUẤT TỪ block "## VNINDEX kỹ thuật" — KHÔNG BỊA.
@@ -207,6 +233,7 @@ Nếu block "VNINDEX kỹ thuật" KHÔNG có → viết "Chưa có dữ liệu 
 
 ## 💰 Dòng tiền đáng chú ý
 [NN mua/bán ròng đáng kể (số tỷ cụ thể) | smart money tích luỹ/phân phối | unusual volume; bỏ qua nếu phẳng]
+Nếu có block "Dòng tiền ngành": nêu RÕ ngành NN MUA RÒNG / BÁN RÒNG mạnh nhất (lấy số "NN ròng", đơn vị tỷ, có dấu +/-). PHÂN BIỆT rõ "NN ròng" (khối ngoại mua-bán ròng) với "GTGD" (thanh khoản/giá trị giao dịch) — TUYỆT ĐỐI KHÔNG gọi GTGD là "dòng tiền vào". Nhận định luân chuyển dòng tiền giữa các ngành dựa trên NN ròng.
 
 ## 📋 Watchlist sáng mai (3 setup cụ thể)
 1. **[Mã/Ngành]** — [BUY ở X / WAIT khi vượt Y / SELL nếu thủng Z] — [trigger 1 dòng]
@@ -215,6 +242,7 @@ Nếu block "VNINDEX kỹ thuật" KHÔNG có → viết "Chưa có dữ liệu 
 
 ## ⚠️ Rủi ro cần lưu ý
 [Red flags, distribution, macro risk với mức cảnh báo cụ thể; "Không có rủi ro đặc biệt" nếu thị trường ổn]
+Nếu có block "VN30 Cơ bản": nêu 1 điểm rủi ro cơ bản cụ thể từ data đó (mã D/E cao nhất hoặc mã Op.CF âm), KHÔNG bịa số.
 
 ## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)
 [Liệt kê tối đa 3 mã với entry/TP/SL từ block "Khuyến nghị"]
@@ -231,6 +259,7 @@ YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
 - Ưu tiên ngành/mã có đóng góp TUYỆT ĐỐI lớn nhất, không chỉ tăng % cao nhất.
 - Setup watchlist phải có TRIGGER (mức giá cụ thể) — không viết "nếu thị trường tích cực thì vào".
 - Nếu không đủ data → viết "Cần thêm [data X]", không bịa.
+- MỌI % thay đổi giá PHẢI ghi rõ khung thời gian: "hôm nay", "phiên sáng", "5 phiên", "so với đóng cửa hôm qua", v.v. TUYỆT ĐỐI KHÔNG viết "X giảm Y%" mà không có khung thời gian.
 """
 
 
@@ -655,17 +684,241 @@ def build_agents(configs: list[dict] | None = None) -> list[BriefAgent]:
     return agents
 
 
+# ── Effective trading date ─────────────────────────────────────────────────
+def effective_trading_date(vnindex_tech: dict | None = None) -> str:
+    """Return the ISO date of the latest trading session the brief describes.
+
+    Prefers the last VNINDEX bar date in the warehouse, falls back to the most
+    recent session-stats key, then to calendar today. Use this (not
+    date.today()) so a brief pushed on a weekend / early morning is labelled
+    with the actual session it analyses, e.g. data from Fri 05/06 when pushed
+    on Sun 07/06.
+
+    Pass a pre-computed `vnindex_tech` dict to avoid recomputing it.
+    """
+    vt = vnindex_tech if vnindex_tech is not None else _vnindex_technicals()
+    data_date = (vt or {}).get("data_date")
+
+    if not data_date:
+        try:
+            from vnstock_session_stats import load_session_stats_history as _lssh
+            _hist = _lssh()
+            if _hist:
+                data_date = max(_hist.keys())
+        except Exception:
+            pass
+
+    return data_date or date.today().isoformat()
+
+
+# ── VN30 fundamentals (debt/equity, ROE, operating cash flow) ───────────────
+def _load_vn30_fundamentals(
+    path: str | Path | None = None,
+    vn30: set[str] | None = None,
+) -> dict[str, dict]:
+    """Load VN30 fundamentals from the weekly fundamentals.parquet cache.
+
+    Returns {ticker: {"de", "roe", "ocf", "updated"}} for VN30 constituents
+    that have a row. Empty dict if the cache is missing or holds no VN30 rows.
+    Produced by vnstock_fundamental_updater.py (run weekly).
+    """
+    import pandas as pd
+    try:
+        import pyarrow.parquet as _pq
+    except ImportError:
+        return {}
+
+    p = Path(path) if path else (
+        Path(__file__).parent / "data_warehouse" / "_meta" / "fundamentals.parquet"
+    )
+    if not p.exists():
+        return {}
+    try:
+        df = _pq.read_table(str(p)).to_pandas()
+    except Exception:
+        return {}
+    if df.empty or "ticker" not in df.columns:
+        return {}
+
+    universe = vn30 or VN30_TICKERS
+    df = df[df["ticker"].isin(universe)]
+    if df.empty:
+        return {}
+
+    def _num(row, col):
+        v = row.get(col) if hasattr(row, "get") else None
+        try:
+            return None if (v is None or pd.isna(v)) else float(v)
+        except Exception:
+            return None
+
+    out: dict[str, dict] = {}
+    for _, row in df.iterrows():
+        metrics = {
+            "de":      _num(row, "debt_to_equity"),
+            "roe":     _num(row, "roe"),
+            "ocf":     _num(row, "operating_cf"),
+            "updated": str(row.get("updated_at", "") or ""),
+        }
+        # Skip tickers with no usable fundamental at all
+        if any(metrics[k] is not None for k in ("de", "roe", "ocf")):
+            out[str(row["ticker"])] = metrics
+    return out
+
+
+def _vn30_fund_block(funds: dict[str, dict]) -> str:
+    """Render a compact VN30 fundamentals block for the prompt.
+
+    Shows VN30 medians plus the few names that actually matter for risk —
+    highest leverage and weakest/negative operating cash flow — instead of
+    dumping all 30 rows (token-efficient and more actionable).
+    """
+    if not funds:
+        return ""
+    try:
+        import statistics as _st
+
+        des  = [(t, m["de"])  for t, m in funds.items() if m.get("de")  is not None]
+        roes = [m["roe"]      for m in funds.values()   if m.get("roe") is not None]
+        ocfs = [(t, m["ocf"]) for t, m in funds.items() if m.get("ocf") is not None]
+
+        if not (des or roes or ocfs):
+            return ""
+
+        updated = next((m["updated"] for m in funds.values() if m.get("updated")), "")
+        lines = [
+            f"\n## VN30 Cơ bản — D/E, ROE, Lưu chuyển tiền HĐKD"
+            f"{f' (cập nhật {updated})' if updated else ''}"
+        ]
+
+        med_parts = []
+        if des:
+            med_parts.append(f"D/E={_st.median(v for _, v in des):.2f}")
+        if roes:
+            med_parts.append(f"ROE={_st.median(roes):.1f}%")
+        if ocfs:
+            med_parts.append(f"Op.CF={_st.median(v for _, v in ocfs):,.0f} tỷ")
+        if med_parts:
+            lines.append(f"- Trung vị VN30 ({len(funds)} mã có data): " + " | ".join(med_parts))
+
+        if des:
+            top_de = sorted(des, key=lambda x: x[1], reverse=True)[:3]
+            lines.append(
+                "- Đòn bẩy cao nhất (D/E): "
+                + ", ".join(f"{t} {v:.2f}" for t, v in top_de)
+            )
+
+        if ocfs:
+            weak = sorted(ocfs, key=lambda x: x[1])[:3]
+            n_neg = sum(1 for _, v in ocfs if v < 0)
+            lines.append(
+                "- Lưu chuyển tiền HĐKD thấp nhất: "
+                + ", ".join(f"{t} {v:,.0f} tỷ" for t, v in weak)
+                + (f" ({n_neg} mã âm)" if n_neg else "")
+            )
+
+        lines.append(
+            "→ DÙNG các chỉ số này khi nhận xét rủi ro cơ bản/đòn bẩy/dòng tiền; "
+            "KHÔNG bịa số liệu tài chính khác."
+        )
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
+def _sector_flow_block(sectors: list[dict]) -> str:
+    """Render sector money-flow: foreign net flow (1 tuần) + liquidity by sector.
+
+    Reads the pre-aggregated per-sector fields already in market_overview.json
+    (NN 1T (tỷ), GTGD TB (tỷ)) — no extra fetching. Shows the strongest
+    inflow/outflow sectors plus the most liquid ones so the agent can talk
+    about rotation without inventing numbers.
+    """
+    if not sectors:
+        return ""
+    try:
+        rows = []
+        for s in sectors:
+            name = s.get("Ngành")
+            if not name:
+                continue
+            nn = s.get("NN 1T (tỷ)")
+            rows.append({
+                "name": name,
+                "nn":   float(nn) if nn is not None else 0.0,
+                "gtgd": float(s.get("GTGD TB (tỷ)") or 0),
+            })
+        inflow  = sorted((r for r in rows if r["nn"] > 0), key=lambda r: r["nn"], reverse=True)[:3]
+        outflow = sorted((r for r in rows if r["nn"] < 0), key=lambda r: r["nn"])[:3]
+        top_gtgd = sorted(rows, key=lambda r: r["gtgd"], reverse=True)[:3]
+        if not (inflow or outflow or any(r["gtgd"] for r in top_gtgd)):
+            return ""
+
+        lines = ["\n## Dòng tiền ngành (NN ròng 1 tuần + thanh khoản GTGD TB)"]
+        if inflow:
+            lines.append("- 🟢 NN mua ròng: " + ", ".join(
+                f"{r['name']} {r['nn']:+,.0f} tỷ (GTGD {r['gtgd']:,.0f})" for r in inflow))
+        if outflow:
+            lines.append("- 🔴 NN bán ròng: " + ", ".join(
+                f"{r['name']} {r['nn']:+,.0f} tỷ (GTGD {r['gtgd']:,.0f})" for r in outflow))
+        if top_gtgd and any(r["gtgd"] for r in top_gtgd):
+            lines.append("- 💧 Thanh khoản cao nhất: " + ", ".join(
+                f"{r['name']} {r['gtgd']:,.0f} tỷ" for r in top_gtgd if r["gtgd"]))
+        lines.append(
+            "→ DÙNG khi nhận xét luân chuyển dòng tiền/thanh khoản ngành; KHÔNG bịa số."
+        )
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
+def _market_sentiment_block(ms: dict) -> str:
+    """Render the composite market-sentiment block for the prompt."""
+    if not ms:
+        return ""
+    try:
+        _arrow = {1: "🟢", -1: "🔴", 0: "⚪"}
+        lines = [
+            f"\n## Tâm lý thị trường (tổng hợp) — {ms.get('mood', '—')} "
+            f"| momentum {ms.get('momentum', 0):+d}/100"
+        ]
+        for s in ms.get("signals", []):
+            lines.append(f"- {_arrow.get(s.get('dir', 0), '⚪')} {s['name']}: {s['value']}")
+        lines.append(
+            "→ DÙNG nhãn tâm lý + các tín hiệu trên khi đánh giá xu hướng NGẮN HẠN; "
+            "momentum dương = thiên về tích cực, âm = thiên về tiêu cực. "
+            "KHÔNG bịa thêm chỉ số tâm lý khác."
+        )
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
 # ── Context collection ─────────────────────────────────────────────────────
 def collect_context(brief_type: str = "morning") -> dict:
     """Collect all available market data for brief generation."""
+    # Determine effective trading date: use the last bar date from VNINDEX
+    # warehouse instead of calendar today. Avoids "no data" briefs when called
+    # early morning (market not open yet) or on weekends/holidays.
+    _vt_early = _vnindex_technicals()
+    _data_date_str = effective_trading_date(_vt_early)
+
+    _today_str = date.today().isoformat()
+    _is_stale = _data_date_str < _today_str  # data is from a prior trading day
+
     ctx: dict = {
         "brief_type": brief_type,
-        "date": date.today().isoformat(),
+        "date": _data_date_str,
         "time": datetime.now().strftime("%H:%M"),
         "sectors": [],
         "breadth": {},
         "tickers": [],
     }
+    if _is_stale:
+        ctx["date_note"] = (
+            f"(dữ liệu ngày {_data_date_str} — ngày giao dịch gần nhất; "
+            f"hôm nay {_today_str} chưa có data)"
+        )
 
     # 1. Market overview (pre-computed by runner)
     _ov = Path("data_warehouse/_meta/market_overview.json")
@@ -700,14 +953,19 @@ def collect_context(brief_type: str = "morning") -> dict:
             ctx["quant_error"] = str(e)
 
     # 3. Session stats (intraday GTGD profile)
+    # Use effective data date — falls back to latest available day when today
+    # has no data yet (early morning / weekend).
     try:
         from vnstock_session_stats import load_session_stats_history
         from vnstock_market_analyzer import session_timing_signal
         _hist = load_session_stats_history()
-        _today = _hist.get(date.today().isoformat(), {})
-        if _today:
-            ctx["session_stats"] = _today
-            ctx["session_timing"] = session_timing_signal(_today, _hist, "VNINDEX")
+        _day_stats = _hist.get(_data_date_str, {})
+        if not _day_stats and _hist:
+            # _data_date_str not in history — pick the most recent key
+            _day_stats = _hist.get(max(_hist.keys()), {})
+        if _day_stats:
+            ctx["session_stats"] = _day_stats
+            ctx["session_timing"] = session_timing_signal(_day_stats, _hist, "VNINDEX")
     except Exception:
         pass
 
@@ -760,12 +1018,91 @@ def collect_context(brief_type: str = "morning") -> dict:
         except Exception:
             pass
 
-    # 6. VNINDEX technical levels — fetched live so prompts always have
-    # the CURRENT close (not stale training-data hallucination like 1.240
-    # when the index is at 1.800+).
-    ctx["vnindex_tech"] = _vnindex_technicals()
+    # 6. VNINDEX technical levels — already fetched above to determine the
+    # effective date; reuse the result instead of calling again.
+    ctx["vnindex_tech"] = _vt_early
+
+    # 7. VN30 fundamentals (D/E, ROE, operating cash flow) from weekly cache.
+    _vn30_fund = _load_vn30_fundamentals()
+    if _vn30_fund:
+        ctx["vn30_fundamentals"] = _vn30_fund
+
+    # 8. Composite market sentiment (tâm lý thị trường) — synthesises breadth +
+    # NN flow + index momentum + news sentiment into one short-term mood.
+    try:
+        from vnstock_market_sentiment import load_market_sentiment
+        _ms = load_market_sentiment(vnindex_tech=_vt_early, breadth=ctx.get("breadth"))
+        if _ms:
+            ctx["market_sentiment"] = _ms
+    except Exception:
+        pass
 
     return ctx
+
+
+def _load_vnindex_df() -> "pd.DataFrame":
+    """Read VNINDEX price history directly from parquet — no Streamlit cache.
+
+    Works both inside Streamlit and from the CLI (run.py push_close_brief).
+    load_price_history() in vnstock_dashboard.py is decorated with
+    @st.cache_data and fails when called outside a Streamlit session.
+
+    The VNINDEX parquet may use either "time" or "trading_date" as the date
+    column (depending on which fetcher wrote it). Both are tried.
+    Values may be stored in index-points (~1 300) or raw VND (>5 000);
+    normalization threshold is 5 000 (index never exceeds 5 000 points).
+    """
+    import pandas as pd
+    try:
+        import pyarrow.parquet as _pq
+    except ImportError:
+        return pd.DataFrame()
+
+    prices_dir = Path(__file__).parent / "data_warehouse" / "prices"
+
+    df = pd.DataFrame()
+    for sym in ("VNINDEX", "VN-INDEX", "^VNINDEX"):
+        ticker_dir = prices_dir / f"ticker={sym}"
+        if not ticker_dir.exists():
+            continue
+        frames = []
+        for yd in sorted(ticker_dir.glob("year=*")):
+            try:
+                for pf in yd.glob("*.parquet"):
+                    frames.append(_pq.read_table(str(pf)).to_pandas())
+            except Exception:
+                continue
+        if not frames:
+            continue
+
+        _df = pd.concat(frames, ignore_index=True)
+        _df.columns = [str(c).lower() for c in _df.columns]
+
+        # Normalise date column → "time"
+        for date_col in ("time", "trading_date", "date"):
+            if date_col in _df.columns:
+                _df = _df.rename(columns={date_col: "time"})
+                break
+        if "time" not in _df.columns:
+            continue
+
+        _df["time"] = pd.to_datetime(_df["time"])
+        _df = _df.sort_values("time").reset_index(drop=True)
+
+        if "close" not in _df.columns:
+            continue
+
+        # Normalise units: VNINDEX is ~1300 pts; if stored >5000 → divide by 1000
+        for col in ("open", "high", "low", "close"):
+            if col in _df.columns:
+                vals = _df[col].astype(float)
+                if vals.iloc[-1] > 5000:
+                    _df[col] = vals / 1000
+
+        df = _df
+        break
+
+    return df
 
 
 def _vnindex_technicals() -> dict:
@@ -782,20 +1119,12 @@ def _vnindex_technicals() -> dict:
       - rsi14
     """
     try:
-        from vnstock_dashboard import load_price_history
         import pandas as pd
         import numpy as np
     except Exception:
         return {}
 
-    df = pd.DataFrame()
-    for sym in ("VNINDEX", "VN-INDEX", "^VNINDEX"):
-        try:
-            df = load_price_history(sym, days=300)
-            if df is not None and not df.empty and "close" in df.columns:
-                break
-        except Exception:
-            df = pd.DataFrame()
+    df = _load_vnindex_df()
     if df is None or df.empty or "close" not in df.columns:
         return {}
 
@@ -884,6 +1213,10 @@ def _vnindex_technicals() -> dict:
             "support_2":      sup2,
             "resistance_1":   res1,
             "resistance_2":   res2,
+            # Date of the last bar with valid close — used by collect_context()
+            # to set the "effective" brief date when today has no data yet
+            # (e.g. early morning before market opens, or weekends).
+            "data_date": df.loc[df["close"].notna(), "time"].iloc[-1].date().isoformat(),
         }
     except Exception:
         return {}
@@ -901,7 +1234,18 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
     """
     lines: list[str] = []
 
-    lines.append(f"Ngày: {ctx['date']} | Thời điểm: {ctx['time']}")
+    _date_line = f"Ngày: {ctx['date']} | Thời điểm: {ctx['time']}"
+    if note := ctx.get("date_note"):
+        _date_line += f"  ⚠️ {note}"
+    lines.append(_date_line)
+
+    # Market sentiment (tâm lý thị trường) — composite mood from breadth, NN
+    # flow, index momentum and news. Emitted high so the agent frames the
+    # short-term trend around it.
+    if ms := ctx.get("market_sentiment"):
+        block = _market_sentiment_block(ms)
+        if block:
+            lines.append(block)
 
     # Regime
     if r := ctx.get("quant_regime"):
@@ -1137,6 +1481,20 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         for g in losers:
             lines.append(_vn30_line(g))
 
+    # Sector money flow (foreign net flow + liquidity by sector) so the agent
+    # can describe rotation / where smart money is going.
+    if _sectors := ctx.get("sectors"):
+        block = _sector_flow_block(_sectors)
+        if block:
+            lines.append(block)
+
+    # VN30 fundamentals (debt-to-equity, ROE, operating cash flow) so the agent
+    # can ground "rủi ro cơ bản" comments in real leverage / cash-flow numbers.
+    if funds := ctx.get("vn30_fundamentals"):
+        block = _vn30_fund_block(funds)
+        if block:
+            lines.append(block)
+
     # Recommendation + news blocks — explicit empty markers so the LLM
     # cannot invent trade ideas or news headlines from training data.
     if rec_block:
@@ -1183,6 +1541,13 @@ def generate_brief(
         {agent_name: (text, error_or_None)}
         Special key "_timing" if called too early (force=False)
     """
+    # Ensure API keys from .env are in os.environ BEFORE agents check
+    # is_available. When called from the CLI (run.py telegram close) the
+    # process hasn't loaded .env yet — _brief_snippet runs before
+    # send_message() (the first thing that loads .env), so without this every
+    # agent would read an empty os.environ and report "no key available".
+    _ensure_env_loaded()
+
     if not force:
         now = datetime.now().time()
         if brief_type == "morning" and now < time(11, 30):
@@ -1212,10 +1577,59 @@ def generate_brief(
     results: dict[str, tuple[str, str | None]] = {}
     brief_ids: dict[str, int] = {}
 
+    # Skip Cerebras when VNINDEX context is missing — the 70B model often
+    # rate-limits and falls back to llama3.1-8b, which ignores the
+    # "TUYỆT ĐỐI KHÔNG suy đoán" sentinel and hallucinates VNINDEX levels
+    # (1.815, R1=1.813, etc.). Layer 2 validator catches it but it's better
+    # to skip the agent entirely than display a 🚨-flagged brief.
+    #
+    # BUT never skip if Cerebras is the ONLY agent with a working key —
+    # a validated (🚨-flagged) brief beats no brief at all. Otherwise the
+    # whole list would empty out and generation would have nothing to run.
+    _vnindex_missing = not (ctx.get("vnindex_tech") or {}).get("close")
+    if _vnindex_missing:
+        _non_cerebras_available = [
+            a for a in agents
+            if getattr(a, "agent_type", "") != "cerebras" and a.is_available
+        ]
+        if _non_cerebras_available:
+            _skipped = [a for a in agents if getattr(a, "agent_type", "") == "cerebras"]
+            for agent in _skipped:
+                results[agent.name] = ("", "Bỏ qua Cerebras khi không có data VNINDEX — fallback model có xu hướng hallucinate.")
+            agents = [a for a in agents if getattr(a, "agent_type", "") != "cerebras"]
+
     available = [a for a in agents if a.is_available]
     unavailable = [a for a in agents if not a.is_available]
     for agent in unavailable:
         results[agent.name] = ("", f"API key chưa thiết lập cho {agent.name}")
+
+    # No agent left to run → return a precise diagnostic instead of crashing
+    # on ThreadPoolExecutor(max_workers=0). Enumerate every enabled agent and
+    # WHY it isn't running (no key / skipped) so the cause is unambiguous —
+    # "no API key" alone is misleading when agents normally work.
+    if not available:
+        _lines = ["⚠️ Brief không chạy được — không có agent khả dụng:"]
+        for agent in agents:
+            # ClaudeAgent reads ANTHROPIC_API_KEY directly; the rest expose _ENV_KEY
+            _env_var = getattr(
+                agent, "_ENV_KEY",
+                "ANTHROPIC_API_KEY" if getattr(agent, "agent_type", "") == "claude" else "?",
+            )
+            _lines.append(
+                f"  • {agent.name}: thiếu key (env {_env_var} chưa set)"
+            )
+        # Agents that were intentionally skipped (e.g. Cerebras) also count.
+        for _name, (_t, _err) in results.items():
+            if _name.startswith("_"):
+                continue
+            if _err and "Bỏ qua" in _err:
+                _lines.append(f"  • {_name}: {_err}")
+        _lines.append(
+            "→ Kiểm tra .env (GROQ_API_KEY / CEREBRAS_API_KEY / ANTHROPIC_API_KEY…) "
+            "đã được load chưa, hoặc bật agent trong ⚙️ Cài đặt Agent."
+        )
+        results["_no_available"] = ("", "\n".join(_lines))
+        return results
 
     # Run available agents in parallel to cut wall-clock time from N*T → T
     def _call(agent: BriefAgent) -> tuple[str, tuple[str, str | None]]:
@@ -1430,3 +1844,442 @@ def _recommendation_block() -> str:
         return "\n".join(lines)
     except Exception:
         return ""
+
+
+# ── Consensus aggregation across multi-agent briefs ────────────────────────
+#
+# Extracts stance/sector/ticker signals from each agent's brief text and
+# tallies them so the UI can show "5/6 agents: neutral, 4/6: Dầu khí dẫn dắt"
+# instead of forcing the user to read every tab.
+#
+# Heuristic: briefs follow a templated structure (TLDR / Tổng kết / Dẫn dắt /
+# Watchlist / Rủi ro), so regex-based extraction within section boundaries
+# is reliable enough. Agents that diverge from the template just get
+# stance="unknown" — they don't pollute the consensus.
+
+_STANCE_BULL = (
+    "tích cực", "tăng tốt", "phục hồi mạnh", "bullish", "tăng giá",
+    "uptrend", "khả quan", "tăng điểm", "lên giá",
+)
+_STANCE_BEAR = (
+    "tiêu cực", "giảm sâu", "rủi ro cao", "bearish", "đảo chiều giảm",
+    "downtrend", "giảm điểm", "áp lực bán",
+)
+_STANCE_NEUT = (
+    "trung tính", "đi ngang", "sideways", "thận trọng", "do dự",
+    "phân hoá", "bias trung tính", "giằng co",
+)
+
+# Indicators / acronyms commonly mistaken for tickers (3-letter all-caps)
+_TICKER_BLACKLIST: frozenset[str] = frozenset({
+    # Indicators / technical terms
+    "TLD", "TLDR", "USD", "VND", "EUR", "GBP", "RSI", "EMA", "SMA",
+    "EPS", "ROE", "ROA", "ROI", "P/E", "PEG", "PEP", "VWA", "ATR",
+    "MACD", "GTGD", "OHLC", "API", "SQL", "TPS", "POC", "VAL", "VAH",
+    "ETF", "IPO", "MA", "AI", "OK", "USA", "VAT", "FED", "ECB",
+    # Trade action verbs (appear in 'BUY khi...', 'SELL/HOLD/WAIT' setups)
+    "BUY", "SELL", "HOLD", "WAIT", "CUT", "AVOID", "MUA", "BAN",
+    "SHORT", "LONG", "OUT", "PASS", "STOP", "EXIT",
+    # Common Vietnamese 3-letter words appearing in setups
+    "TP1", "TP2", "TP3", "SL1", "SL2", "ATH", "ATL", "HOM", "CHO",
+    "TLD", "MUC", "KQ1",
+})
+
+
+def _extract_section(text: str, header: str) -> str:
+    """Return body of a markdown section by header keyword (case-insensitive)."""
+    import re as _re
+    # Match "## <header>...\n<body>" until next ## or EOF
+    pattern = _re.compile(
+        rf"##[^\n]*{_re.escape(header)}[^\n]*\n(.*?)(?=\n##|\Z)",
+        _re.IGNORECASE | _re.DOTALL,
+    )
+    m = pattern.search(text)
+    return m.group(1).strip() if m else ""
+
+
+# Match canonical "Stance ngày mai: <X>" / "Stance: <X>" line in TLDR.
+# Prompt template asks every agent to emit this exact pattern, so parsing
+# it is far more reliable than counting keywords across the whole section.
+_STANCE_LINE_RE = _re.compile(
+    r"[Ss]tance(?:\s+(?:ngày\s+mai|sáng\s+mai|hôm\s+nay))?\s*[:：]\s*([^.\n]+)",
+    _re.IGNORECASE,
+)
+
+
+def _detect_stance(tldr_text: str) -> str:
+    """Classify TLDR as bullish/bearish/neutral/unknown.
+
+    Strategy:
+      1. If canonical 'Stance ngày mai: <X>' line is present, check the
+         captured phrase first for canonical labels TĂNG/GIẢM/TRUNG TÍNH —
+         this is what the prompt template instructs the agent to emit.
+      2. Fall back to keyword vote across the full TLDR.
+    """
+    import re as _re_local
+    m = _STANCE_LINE_RE.search(tldr_text)
+    if m:
+        captured = m.group(1).lower()
+        # Canonical labels as whole-word tokens (avoid matching "tăng giá")
+        if _re_local.search(r"\btrung\s*tính\b", captured):
+            return "neutral"
+        if _re_local.search(r"\b(tăng|bullish|uptrend)\b", captured):
+            return "bullish"
+        if _re_local.search(r"\b(giảm|bearish|downtrend)\b", captured):
+            return "bearish"
+
+    # Fallback: keyword vote over full TLDR
+    target = tldr_text.lower()
+    bull = sum(1 for kw in _STANCE_BULL if kw in target)
+    bear = sum(1 for kw in _STANCE_BEAR if kw in target)
+    neut = sum(1 for kw in _STANCE_NEUT if kw in target)
+
+    if bull == 0 and bear == 0 and neut == 0:
+        return "unknown"
+    # Neutral beats other on tie — explicit "trung tính" is a stronger
+    # signal than incidental "tích cực" / "giảm" elsewhere in the sentence.
+    if neut >= bull and neut >= bear:
+        return "neutral"
+    if bull > bear:
+        return "bullish"
+    return "bearish"
+
+
+def _extract_sectors(text: str) -> list[str]:
+    """Extract sector names from 'Dẫn dắt' section. Returns up to 3 names."""
+    import re as _re
+    block = _extract_section(text, "Dẫn dắt")
+    if not block:
+        return []
+    sectors: list[str] = []
+    # Patterns like: "Ngành Dầu khí ...", "Dầu khí với đóng góp ..."
+    # Terminator words mark end of sector name: với / dẫn / đóng / theo /
+    # tụt / vẫn / chiếm / tăng / giảm / nắm — all common verbs that follow
+    # a sector name in Vietnamese market commentary.
+    pattern = _re.compile(
+        r"[Nn]gành\s+([A-ZÀ-Ỹa-zà-ỹ&\s]{3,40}?)"
+        r"(?=[,.\(]|\s+(?:với|dẫn|đóng|theo|tụt|vẫn|chiếm|tăng|giảm|nắm|là|hôm)\b|$)"
+    )
+    for m in pattern.finditer(block):
+        name = m.group(1).strip().rstrip(",.")
+        if 3 <= len(name) <= 30 and name not in sectors:
+            sectors.append(name)
+            if len(sectors) >= 3:
+                break
+    return sectors
+
+
+def _extract_tickers(text: str) -> list[str]:
+    """Extract VN tickers (3-letter codes) from Watchlist + Khuyến nghị sections."""
+    import re as _re
+    pool = []
+    for header in ("Watchlist", "Đề xuất giao dịch", "Khuyến nghị"):
+        block = _extract_section(text, header)
+        if block:
+            pool.append(block)
+    if not pool:
+        return []
+    haystack = "\n".join(pool)
+    tickers: list[str] = []
+    for m in _re.finditer(r"\b([A-Z]{3})\b", haystack):
+        tk = m.group(1)
+        if tk in _TICKER_BLACKLIST or tk in tickers:
+            continue
+        tickers.append(tk)
+        if len(tickers) >= 5:
+            break
+    return tickers
+
+
+def derive_consensus(results: dict, ctx: dict | None = None) -> dict:
+    """Aggregate stance/sector/ticker signals across multi-agent brief outputs.
+
+    Args:
+        results: {agent_name: (text, error_or_None)} from generate_brief()
+        ctx:     optional context dict (currently unused; reserved for future)
+
+    Returns:
+        {
+          "n_agents":       int   — count of agents with non-empty output
+          "stance":         {"bullish": int, "neutral": int, "bearish": int,
+                             "unknown": int}
+          "top_sectors":    [(sector_name, agent_count), ...]   most-mentioned
+          "top_tickers":    [(ticker, agent_count), ...]        most-mentioned
+          "per_agent":      {agent_name: {"stance", "sectors", "tickers"}}
+          "consensus_line": str — single-sentence summary for the UI banner
+        }
+    """
+    from collections import Counter
+
+    agent_briefs: dict[str, str] = {
+        k: v[0] for k, v in results.items()
+        if not k.startswith("_") and isinstance(v, tuple) and v[0]
+    }
+    if not agent_briefs:
+        return {"n_agents": 0, "consensus_line": ""}
+
+    stance_ct: Counter[str] = Counter()
+    sector_ct: Counter[str] = Counter()
+    ticker_ct: Counter[str] = Counter()
+    per_agent: dict[str, dict] = {}
+
+    for name, text in agent_briefs.items():
+        tldr = _extract_section(text, "TLDR") or text[:400]
+        stance = _detect_stance(tldr)
+        sectors = _extract_sectors(text)
+        tickers = _extract_tickers(text)
+
+        per_agent[name] = {"stance": stance, "sectors": sectors, "tickers": tickers}
+        stance_ct[stance] += 1
+        for s in sectors:
+            sector_ct[s] += 1
+        for t in tickers:
+            ticker_ct[t] += 1
+
+    n = len(agent_briefs)
+    top_stance, top_n = stance_ct.most_common(1)[0]
+    top_sectors = sector_ct.most_common(5)
+    top_tickers = ticker_ct.most_common(10)
+
+    # Build a single human line for the consensus banner
+    parts = [f"{top_n}/{n} agents: **{top_stance}**"]
+    if top_sectors:
+        # Only mention sectors agreed on by majority (≥ half)
+        majority = [s for s, c in top_sectors if c >= max(2, n // 2)]
+        if majority:
+            parts.append(f"dẫn dắt: {', '.join(majority[:2])}")
+    if top_tickers:
+        consensus_tk = [t for t, c in top_tickers if c >= max(2, n // 2)]
+        if consensus_tk:
+            parts.append(f"watchlist chung: {', '.join(consensus_tk[:3])}")
+
+    return {
+        "n_agents": n,
+        "stance": dict(stance_ct),
+        "top_sectors": top_sectors,
+        "top_tickers": top_tickers,
+        "per_agent": per_agent,
+        "consensus_line": " · ".join(parts),
+    }
+
+
+# ── Brief accuracy tracking (F1.c) ─────────────────────────────────────────
+#
+# Compare past brief stances against actual VNINDEX movement T+N trading
+# days later. Lets users see which AI agent is reliably right vs wrong over
+# time, instead of trusting / distrusting based on a single brief.
+
+def _load_vnindex_closes() -> "pd.Series":
+    """Return VNINDEX close indexed by trading_date (ascending). Empty on fail.
+
+    Reads parquet partitions directly from data_warehouse/prices/ticker=VNINDEX/
+    instead of importing vnstock_dashboard.load_price_history — the latter
+    triggers the full Streamlit script at module load (pills nav, all tabs)
+    when called outside the Streamlit runtime, which is both slow and noisy.
+    """
+    try:
+        import pandas as pd
+        import pyarrow.parquet as pq
+    except Exception:
+        try:
+            import pandas as pd
+            return pd.Series(dtype=float)
+        except Exception:
+            return None  # type: ignore[return-value]
+
+    from pathlib import Path
+    prices_dir = Path("data_warehouse/prices")
+    if not prices_dir.exists():
+        return pd.Series(dtype=float)
+
+    for sym in ("VNINDEX", "VN-INDEX", "^VNINDEX"):
+        ticker_dir = prices_dir / f"ticker={sym}"
+        if not ticker_dir.exists():
+            continue
+        frames = []
+        for yd in sorted(ticker_dir.glob("year=*")):
+            for pf in yd.glob("*.parquet"):
+                try:
+                    frames.append(pq.read_table(
+                        str(pf), columns=["time", "close"]
+                    ).to_pandas())
+                except Exception:
+                    continue
+        if not frames:
+            continue
+        df = pd.concat(frames, ignore_index=True)
+        if df.empty or "close" not in df.columns:
+            continue
+        df["time"] = pd.to_datetime(df["time"])
+        df = df.sort_values("time").drop_duplicates(
+            subset=["time"], keep="last"
+        )
+        # Normalize price units (warehouse stores VNINDEX in either index
+        # points or thousand-points depending on source — values >5000
+        # indicate /1000 scaling needed).
+        if (df["close"] > 5000).mean() > 0.5:
+            df["close"] = df["close"] / 1000.0
+        s = df.set_index(df["time"].dt.date)["close"].astype(float)
+        return s
+    return pd.Series(dtype=float)
+
+
+def evaluate_brief_accuracy(
+    brief: dict,
+    closes: "pd.Series | None" = None,
+    horizon_days: int = 1,
+    neutral_threshold_pct: float = 0.5,
+) -> dict:
+    """Score a single brief against actual VNINDEX move T+horizon trading days later.
+
+    Args:
+        brief:                 dict from vnstock_memory.recent_briefs() —
+                               must have 'output' and 'brief_date'
+        closes:                optional pre-loaded VNINDEX close Series
+                               (date → close). Pass to avoid reloading per call.
+        horizon_days:          look this many TRADING days ahead (default T+1)
+        neutral_threshold_pct: |return| below this counts as 'flat'
+                               (default 0.5%)
+
+    Returns:
+        {
+          'stance':         predicted stance from brief
+          'brief_date':     '2026-05-22'
+          'baseline_date':  date of close used as baseline
+          'eval_date':      date of close N trading days later (or None)
+          'baseline_close': float (or None)
+          'eval_close':     float (or None)
+          'return_pct':     float (or None)
+          'actual':         'up' / 'down' / 'flat' / None
+          'match':          True / False / None — None when not evaluable
+          'reason':         human-readable note for diagnostics
+        }
+    """
+    import pandas as pd
+    result = {
+        "stance": "unknown", "brief_date": brief.get("brief_date"),
+        "baseline_date": None, "eval_date": None,
+        "baseline_close": None, "eval_close": None,
+        "return_pct": None, "actual": None,
+        "match": None, "reason": "",
+    }
+
+    # 1. Extract stance from brief output
+    output = brief.get("output") or ""
+    if not output:
+        result["reason"] = "no brief output"
+        return result
+    tldr = _extract_section(output, "TLDR") or output[:400]
+    stance = _detect_stance(tldr)
+    result["stance"] = stance
+    if stance == "unknown":
+        result["reason"] = "stance unknown — cannot evaluate"
+        return result
+
+    # 2. Locate baseline and evaluation closes
+    if closes is None:
+        closes = _load_vnindex_closes()
+    if closes is None or closes.empty:
+        result["reason"] = "no VNINDEX warehouse data"
+        return result
+
+    try:
+        brief_d = pd.to_datetime(brief.get("brief_date")).date()
+    except Exception:
+        result["reason"] = "bad brief_date"
+        return result
+
+    # Baseline = last available close on or before brief_date
+    candidates_before = closes[closes.index <= brief_d]
+    if candidates_before.empty:
+        result["reason"] = f"no VNINDEX close on or before {brief_d}"
+        return result
+    base_date = candidates_before.index[-1]
+    base_close = float(candidates_before.iloc[-1])
+    result["baseline_date"] = base_date
+    result["baseline_close"] = base_close
+
+    # Eval = horizon_days-th trading close strictly AFTER base_date
+    candidates_after = closes[closes.index > base_date]
+    if len(candidates_after) < horizon_days:
+        result["reason"] = (
+            f"not enough trading days after {base_date} "
+            f"(need {horizon_days}, have {len(candidates_after)})"
+        )
+        return result
+    eval_date = candidates_after.index[horizon_days - 1]
+    eval_close = float(candidates_after.iloc[horizon_days - 1])
+    result["eval_date"] = eval_date
+    result["eval_close"] = eval_close
+
+    # 3. Compute return + classify actual
+    ret_pct = (eval_close / base_close - 1.0) * 100.0
+    result["return_pct"] = ret_pct
+    if abs(ret_pct) < neutral_threshold_pct:
+        actual = "flat"
+    elif ret_pct > 0:
+        actual = "up"
+    else:
+        actual = "down"
+    result["actual"] = actual
+
+    # 4. Match stance vs actual
+    if stance == "bullish":
+        result["match"] = (actual == "up")
+    elif stance == "bearish":
+        result["match"] = (actual == "down")
+    elif stance == "neutral":
+        result["match"] = (actual == "flat")
+
+    result["reason"] = (
+        f"{stance} vs {actual} ({ret_pct:+.2f}% over {horizon_days}d)"
+    )
+    return result
+
+
+def agent_accuracy_summary(
+    briefs: list[dict],
+    horizon_days: int = 1,
+    neutral_threshold_pct: float = 0.5,
+) -> dict:
+    """Aggregate per-agent accuracy across a list of past briefs.
+
+    Returns:
+        {
+          agent_name: {
+            'n_total':     count of briefs for this agent,
+            'n_evaluated': count actually scored (stance + price data both available),
+            'n_match':     count where stance matched actual move,
+            'accuracy':    n_match / n_evaluated (or None if zero evaluated),
+            'stance_dist': {'bullish': n, 'bearish': n, 'neutral': n, 'unknown': n},
+          }
+        }
+    """
+    closes = _load_vnindex_closes()
+
+    by_agent: dict[str, dict] = {}
+    for b in briefs:
+        name = b.get("agent_name") or "?"
+        if name not in by_agent:
+            by_agent[name] = {
+                "n_total": 0, "n_evaluated": 0, "n_match": 0,
+                "stance_dist": {"bullish": 0, "bearish": 0,
+                                "neutral": 0, "unknown": 0},
+            }
+        slot = by_agent[name]
+        slot["n_total"] += 1
+        ev = evaluate_brief_accuracy(b, closes=closes,
+                                     horizon_days=horizon_days,
+                                     neutral_threshold_pct=neutral_threshold_pct)
+        slot["stance_dist"][ev["stance"]] = slot["stance_dist"].get(ev["stance"], 0) + 1
+        if ev["match"] is not None:
+            slot["n_evaluated"] += 1
+            if ev["match"]:
+                slot["n_match"] += 1
+
+    for slot in by_agent.values():
+        slot["accuracy"] = (
+            slot["n_match"] / slot["n_evaluated"]
+            if slot["n_evaluated"] > 0 else None
+        )
+    return by_agent

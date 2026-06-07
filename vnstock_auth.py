@@ -20,22 +20,53 @@ Usage:
     stock = get_vnstock(ticker) # Stock instance with key applied
 """
 
+import contextlib
+import io
 import os
+import warnings
 from pathlib import Path
 from dotenv import load_dotenv
+
+# Suppress the noisy sponsor-detection UserWarning from vnstock/__init__.py.
+# The warning fires on every `import vnstock` and clutters terminal output.
+warnings.filterwarnings("ignore", category=UserWarning, module=r"vnstock")
 
 # Load .env once at import time
 load_dotenv(Path(__file__).parent / ".env")
 
 _API_KEY = os.getenv("VNSTOCK_API_KEY", "").strip()
 
-# Detect if vnstock_data (Sponsor) is available
+# Detect if Sponsor tier package is available.
+# The Sponsor SDK ships under two names historically:
+#   - `vnstock_data` (older, being phased out)
+#   - `vnii`         (newer, vnstocks.com/api/simple index)
+# Either one being importable is sufficient to mark the device as Sponsor.
+# Catch BaseException because broken installs (e.g. vnstock_data ↔ vnstock
+# version mismatch raising ImportError on `_GROUP_CODE`) shouldn't crash
+# the whole dashboard, but we ALSO shouldn't silently downgrade to free —
+# if the package is present but broken, log the error so user can fix it.
 _HAS_VNSTOCK_DATA = False
-try:
-    import vnstock_data  # noqa: F401
-    _HAS_VNSTOCK_DATA = True
-except ImportError:
-    pass
+_SPONSOR_IMPORT_ERROR: Exception | None = None
+# Redirect stdout+stderr during sponsor package import to silence the
+# "📦 Vnstock X.Y.Z is available" update-check prints from vnstock_data.
+for _mod_name in ("vnii", "vnstock_data"):
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(io.StringIO()):
+            __import__(_mod_name)
+        _HAS_VNSTOCK_DATA = True
+        break
+    except ImportError:
+        continue
+    except Exception as _e:
+        # Package present but import fails (version mismatch, missing dep).
+        # Save the first such error; if no working sponsor package found
+        # we'll log it once during ensure_api_key().
+        if _SPONSOR_IMPORT_ERROR is None:
+            _SPONSOR_IMPORT_ERROR = _e
+        # Treat broken package as "installed" so we don't downgrade.
+        _HAS_VNSTOCK_DATA = True
+        break
 
 
 def get_api_key() -> str:
@@ -63,6 +94,19 @@ def ensure_api_key() -> bool:
     if not _API_KEY:
         return False
 
+    # Warn once if a sponsor package is installed but broken
+    global _SPONSOR_IMPORT_ERROR
+    if _SPONSOR_IMPORT_ERROR is not None:
+        import sys as _sys
+        print(
+            f"[vnstock_auth] ⚠ Sponsor package installed but broken: "
+            f"{type(_SPONSOR_IMPORT_ERROR).__name__}: {_SPONSOR_IMPORT_ERROR}\n"
+            f"  → Upgrade with: pip install --upgrade --extra-index-url "
+            f"https://vnstocks.com/api/simple vnii vnstock-installer",
+            file=_sys.stderr,
+        )
+        _SPONSOR_IMPORT_ERROR = None   # warn only once per process
+
     # Always set env var (some code paths read from env)
     os.environ["VNSTOCK_API_KEY"] = _API_KEY
 
@@ -70,7 +114,13 @@ def ensure_api_key() -> bool:
     if not _HAS_VNSTOCK_DATA:
         try:
             from vnstock.core.utils.auth import change_api_key
-            change_api_key(_API_KEY)
+            # change_api_key() prints "✓ API key đã được cập nhật" + sponsor
+            # promo banner on every call. Suppress stdout so the user's
+            # terminal stays clean when the key is just being re-applied.
+            import contextlib, io
+            with contextlib.redirect_stdout(io.StringIO()), \
+                 contextlib.redirect_stderr(io.StringIO()):
+                change_api_key(_API_KEY)
         except ImportError:
             pass
         except Exception:
@@ -81,17 +131,95 @@ def ensure_api_key() -> bool:
 
 def get_vnstock(ticker: str = "VCB", source: str = "VCI"):
     """
-    Create a stock instance with the correct API tier.
+    Return a stock-like object exposing .quote / .company / .listing.
 
-    When vnstock_data (Sponsor) is installed, the device is already
-    registered via the GUI installer — just use Vnstock() as normal.
-    The Sponsor tier is active at the device level, not per-call.
-
-    Always call this instead of Vnstock().stock() directly.
+    Migration (vnstock 4.x deprecated `Vnstock().stock(...)` on 31/08/2025).
+    We now lazily build the new per-domain classes (Quote, Company, Listing)
+    and expose them via a shim, so callsites using
+    `get_vnstock(t).quote.history(...)` keep working without touching every
+    file. Old `Vnstock()` class is used only as a last-resort fallback.
     """
     ensure_api_key()
-    from vnstock import Vnstock
-    return Vnstock().stock(symbol=ticker, source=source)
+    return _StockShim(symbol=ticker, source=source)
+
+
+class _StockShim:
+    """Lazy-loading wrapper that exposes .quote / .company / .listing / .finance
+    via the new `vnstock.api.*` modules (vnstock 4.x+)."""
+
+    __slots__ = ("_symbol", "_source", "__quote", "__company", "__listing",
+                 "__finance")
+
+    def __init__(self, symbol: str, source: str) -> None:
+        self._symbol = symbol
+        self._source = source
+        self.__quote = None
+        self.__company = None
+        self.__listing = None
+        self.__finance = None
+
+    @property
+    def quote(self):
+        if self.__quote is None:
+            try:
+                from vnstock.api.quote import Quote  # type: ignore
+            except ImportError:
+                try:
+                    from vnstock_data import Quote  # type: ignore
+                except ImportError:
+                    from vnstock import Quote  # type: ignore
+            self.__quote = Quote(symbol=self._symbol, source=self._source)
+        return self.__quote
+
+    @property
+    def company(self):
+        if self.__company is None:
+            try:
+                from vnstock.api.company import Company  # type: ignore
+                self.__company = Company(symbol=self._symbol, source=self._source)
+            except ImportError:
+                # Vnstock().stock() removed in 4.x — use vnstock_data.Company
+                from vnstock_data import Company as _Company  # type: ignore
+                self.__company = _Company(
+                    symbol=self._symbol, source=self._source
+                )
+        return self.__company
+
+    @property
+    def listing(self):
+        if self.__listing is None:
+            try:
+                from vnstock.api.listing import Listing  # type: ignore
+                self.__listing = Listing(source=self._source)
+            except ImportError:
+                # Vnstock().stock() removed in 4.x — use vnstock_data.Listing
+                from vnstock_data import Listing as _Listing  # type: ignore
+                self.__listing = _Listing(source=self._source)
+        return self.__listing
+
+    @property
+    def finance(self):
+        """Financial statements: .ratio() / .balance_sheet() /
+        .income_statement() / .cash_flow().
+
+        Prefer vnstock_data (Sponsor) — it returns richer statements and is
+        the source the fundamentals updater relies on — then fall back to the
+        free vnstock.api.finance. Some Finance classes require `source`, others
+        reject it, so both signatures are tried."""
+        if self.__finance is None:
+            _Finance = None
+            try:
+                from vnstock_data import Finance as _Finance  # type: ignore
+            except ImportError:
+                try:
+                    from vnstock.api.finance import Finance as _Finance  # type: ignore
+                except ImportError:
+                    from vnstock import Finance as _Finance  # type: ignore
+            try:
+                self.__finance = _Finance(symbol=self._symbol, source=self._source)
+            except TypeError:
+                self.__finance = _Finance(symbol=self._symbol)
+        return self.__finance
 
 
 def check_tier() -> str:

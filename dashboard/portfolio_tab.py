@@ -257,6 +257,150 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
     )
     st.markdown(_tbl, unsafe_allow_html=True)
 
+    # ── F7: Sector Exposure ────────────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("#### 🏗 Phân bổ theo ngành")
+    try:
+        import plotly.graph_objects as go
+        from vnstock_dashboard import _load_industry_map, _get_sector, SECTOR_ICONS
+        from vnstock_vn30_weights import compute_vn30_sector_weights, cache_metadata
+
+        _ind_map = _load_industry_map()
+
+        # Dynamic VN30 benchmark — market-cap weighted if data available,
+        # else equal-weight by ticker count, else hardcoded fallback.
+        _VN30_BENCH = compute_vn30_sector_weights()
+        _bench_meta = cache_metadata() or {}
+
+        # Aggregate portfolio current value by sector
+        _sector_val: dict[str, float] = {}
+        _sector_pnl: dict[str, float] = {}
+        _unmapped: list[str] = []
+        for r in rows:
+            _pri_ind = _ind_map.get(r["ticker"], "")
+            _sec = _get_sector(_pri_ind) if _pri_ind else "Khác"
+            if not _pri_ind:
+                _unmapped.append(r["ticker"])
+            _val = r["current_val"] if r["current_val"] > 0 else r["invested"]
+            _sector_val[_sec] = _sector_val.get(_sec, 0.0) + _val
+            _sector_pnl[_sec] = _sector_pnl.get(_sec, 0.0) + r["pnl"]
+
+        _total_val = sum(_sector_val.values()) or 1.0
+        _sector_pct = {k: v / _total_val * 100 for k, v in _sector_val.items()}
+        _sectors_sorted = sorted(_sector_pct.items(), key=lambda x: x[1], reverse=True)
+
+        if not _sectors_sorted:
+            st.info("Chưa có dữ liệu ngành.")
+        else:
+            _fc1, _fc2 = st.columns([3, 2])
+
+            with _fc1:
+                # Horizontal bar: portfolio % vs VN30 benchmark
+                _names  = [f"{SECTOR_ICONS.get(s,'•')} {s}" for s, _ in _sectors_sorted]
+                _port   = [pct for _, pct in _sectors_sorted]
+                _bench  = [_VN30_BENCH.get(s, 0.0) for s, _ in _sectors_sorted]
+                _delta  = [p - b for p, b in zip(_port, _bench)]
+                _bar_colors = ["#22c55e" if d >= 0 else "#ef4444" for d in _delta]
+
+                fig_bar = go.Figure()
+                fig_bar.add_trace(go.Bar(
+                    y=_names, x=_port,
+                    orientation="h",
+                    name="Danh mục",
+                    marker_color="#60a5fa",
+                    opacity=0.85,
+                ))
+                fig_bar.add_trace(go.Bar(
+                    y=_names, x=_bench,
+                    orientation="h",
+                    name="VN30 benchmark",
+                    marker_color="#475569",
+                    opacity=0.5,
+                ))
+                fig_bar.update_layout(
+                    title="Danh mục vs VN30 Benchmark (%)",
+                    barmode="overlay",
+                    xaxis=dict(title="%", ticksuffix="%"),
+                    height=max(280, len(_names) * 38),
+                    margin=dict(l=0, r=0, t=40, b=0),
+                    legend=dict(orientation="h", y=1.12),
+                    plot_bgcolor="#0e1117",
+                    paper_bgcolor="#0e1117",
+                    font=dict(color="#f1f5f9"),
+                )
+                st.plotly_chart(fig_bar, use_container_width=True)
+
+            with _fc2:
+                # Pie chart: portfolio allocation
+                _pie_labels = [f"{SECTOR_ICONS.get(s,'•')} {s}" for s, _ in _sectors_sorted]
+                _pie_vals   = [pct for _, pct in _sectors_sorted]
+                fig_pie = go.Figure(go.Pie(
+                    labels=_pie_labels,
+                    values=_pie_vals,
+                    hole=0.45,
+                    textinfo="percent",
+                    hovertemplate="%{label}: %{value:.1f}%<extra></extra>",
+                    marker=dict(colors=[
+                        "#3b82f6","#22c55e","#f59e0b","#ef4444","#8b5cf6",
+                        "#06b6d4","#ec4899","#84cc16","#f97316","#14b8a6",
+                        "#a78bfa","#fb7185","#fbbf24","#34d399","#94a3b8",
+                    ]),
+                ))
+                fig_pie.update_layout(
+                    title="Tỷ trọng danh mục",
+                    height=max(280, len(_names) * 38),
+                    margin=dict(l=0, r=0, t=40, b=10),
+                    legend=dict(font=dict(size=10)),
+                    plot_bgcolor="#0e1117",
+                    paper_bgcolor="#0e1117",
+                    font=dict(color="#f1f5f9"),
+                )
+                st.plotly_chart(fig_pie, use_container_width=True)
+
+            # Overweight / underweight summary table
+            _tbl_rows = []
+            for s, pct in _sectors_sorted:
+                _bench_pct = _VN30_BENCH.get(s, 0.0)
+                _diff = pct - _bench_pct
+                _pnl_s = _sector_pnl.get(s, 0.0)
+                _tbl_rows.append({
+                    "Ngành": f"{SECTOR_ICONS.get(s,'•')} {s}",
+                    "Danh mục %": round(pct, 1),
+                    "VN30 %": round(_bench_pct, 1),
+                    "Lệch (pp)": round(_diff, 1),
+                    "Lãi/Lỗ (VND)": int(_pnl_s),
+                })
+            import pandas as _pd
+            _df_exp = _pd.DataFrame(_tbl_rows)
+
+            def _color_diff(val):
+                if val > 2:
+                    return "color: #22c55e"
+                elif val < -2:
+                    return "color: #ef4444"
+                return "color: #94a3b8"
+
+            st.dataframe(
+                _df_exp.style.applymap(_color_diff, subset=["Lệch (pp)"]),
+                use_container_width=True,
+                hide_index=True,
+            )
+            _mode_label = {
+                "market_cap": "🏛 market-cap weighted",
+                "equal":      "⚖️ equal-weight (theo số mã)",
+            }.get(_bench_meta.get("mode", ""), "⚠️ hardcoded fallback")
+            _upd_at = (_bench_meta.get("updated_at") or "")[:10]
+            st.caption(
+                f"📊 VN30 benchmark: {_mode_label} · {_bench_meta.get('n_tickers','?')} mã"
+                + (f" · cập nhật {_upd_at}" if _upd_at else "")
+                + ". Lệch (pp) > 0 = overweight, < 0 = underweight."
+            )
+            if _unmapped:
+                st.caption(f"Không tra được ngành: {', '.join(set(_unmapped))} — xếp vào 'Khác'.")
+
+    except Exception as _e7:
+        st.caption(f"Sector exposure không khả dụng: {_e7}")
+
     st.markdown("<br>", unsafe_allow_html=True)
     _options = ["—"] + [
         f"{r['ticker']} ({r['qty']} cp @ {r['buy_price']:,.0f})"

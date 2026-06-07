@@ -25,10 +25,12 @@ from __future__ import annotations
 
 import json
 import logging
+import warnings
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 logging.getLogger("vnstock.common.data").setLevel(logging.WARNING)
+warnings.filterwarnings("ignore", category=UserWarning, module=r"vnstock")
 
 import pandas as pd
 
@@ -46,12 +48,12 @@ SESSION_INDICES = ["VNINDEX", "VN30", "HNX", "UPCOM"]
 # Symbol used by vnstock_data Trading.price_history for each display name.
 # These DIFFER from the vnstock free Quote.history symbols — verified
 # empirically that "UPCOM" is rejected by price_history with
-# "Invalid symbol" error; correct alias still under research (TODO).
+# "Invalid symbol" error; confirmed alias is "UPCOMINDEX" (2026-05-18).
 _PRICE_HISTORY_SYMBOL = {
     "VNINDEX":  "VNINDEX",
     "VN30":     "VN30",
     "HNX":      "HNXINDEX",
-    "UPCOM":    "UPCOM",   # may need alternative — handled by fallback list
+    "UPCOM":    "UPCOMINDEX",  # confirmed working 2026-05-18
 }
 
 # Symbols for vnstock free Quote.history (used for intraday volume polling).
@@ -88,31 +90,61 @@ CALIBRATION_LOOKBACK_DAYS = 10
 def _fetch_price_history(display_name: str) -> pd.DataFrame:
     """Fetch EOD-accurate daily totals for one index.
 
-    Uses vnstock_data.Trading(symbol, source='VCI').price_history() which
-    returns ~100 rows with `trading_date`, `total_value`, `total_volume`.
+    Priority:
+      1. vnstock 4.x native: vnstock.api.trading.Trading (always available)
+      2. Sponsor package: vnstock_data.Trading (if installed and compatible)
+
+    Returns DataFrame with `trading_date`, `total_value`, `total_volume`.
     Returns empty DataFrame on any error.
     """
-    try:
-        import vnstock_data as vd
-    except ImportError:
+    symbol = _PRICE_HISTORY_SYMBOL[display_name]
+    end_date = date.today().strftime("%Y-%m-%d")
+    start_date = (date.today() - timedelta(days=120)).strftime("%Y-%m-%d")
+
+    def _try_trading(Trading_cls) -> pd.DataFrame:
+        for sym in [symbol]:
+            try:
+                t = Trading_cls(symbol=sym, source="VCI")
+            except Exception:
+                continue
+            for kwargs in (
+                {"start": start_date, "end": end_date},
+                {"start_date": start_date, "end_date": end_date},
+                {},
+            ):
+                try:
+                    df = t.price_history(**kwargs)
+                    if df is not None and not df.empty:
+                        df = df.copy()
+                        df["trading_date"] = pd.to_datetime(df["trading_date"]).dt.date
+                        return df
+                except Exception:
+                    continue
         return pd.DataFrame()
 
-    symbol = _PRICE_HISTORY_SYMBOL[display_name]
-    candidates = [symbol]
-    if display_name == "UPCOM":
-        # UPCOM symbol form for price_history not yet identified — try common variants.
-        candidates = ["UPCOM", "UPINDEX", "UPCOM-INDEX", "HNXUPCOM"]
+    # 1. vnstock 4.x native API (preferred — no extra package needed)
+    try:
+        from vnstock.api.trading import Trading  # type: ignore
+        result = _try_trading(Trading)
+        if not result.empty:
+            return result
+    except ImportError:
+        pass
 
-    for sym in candidates:
+    # 2. Sponsor package fallback (suppress noisy prints on import)
+    import contextlib, io as _io
+    for _mod in ("vnstock_data", "vnii"):
         try:
-            t = vd.Trading(symbol=sym, source="VCI")
-            df = t.price_history()
-            if df is not None and not df.empty:
-                df = df.copy()
-                df["trading_date"] = pd.to_datetime(df["trading_date"]).dt.date
-                return df
+            with contextlib.redirect_stdout(_io.StringIO()), \
+                 contextlib.redirect_stderr(_io.StringIO()):
+                _m = __import__(_mod)
+            if hasattr(_m, "Trading"):
+                result = _try_trading(_m.Trading)
+                if not result.empty:
+                    return result
         except Exception:
             continue
+
     return pd.DataFrame()
 
 
@@ -163,7 +195,7 @@ def _fetch_intraday_volume(
 
     symbols = [_QUOTE_INTRADAY_SYMBOL[display_name]]
     if display_name == "UPCOM":
-        symbols = ["UPCOM", "UPCOM-INDEX", "UPINDEX", "HNX30"]
+        symbols = ["UPCOMINDEX", "UPCOM", "UPCOM-INDEX", "UPINDEX"]
     elif display_name == "HNX":
         symbols = ["HNXINDEX", "HNX-INDEX", "HNX"]
 

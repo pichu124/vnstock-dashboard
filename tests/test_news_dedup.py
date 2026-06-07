@@ -1,0 +1,156 @@
+"""Tests for vnstock_news.deduplicate_news()."""
+
+from __future__ import annotations
+
+import pytest
+
+from vnstock_news import deduplicate_news, _norm_title, _news_title
+
+
+# ─── Title normalisation ──────────────────────────────────────────────────────
+
+def test_norm_title_lowercases():
+    assert _norm_title("VCB Tăng Mạnh") == "vcb tăng mạnh"
+
+
+def test_norm_title_strips_punctuation():
+    assert _norm_title("VCB lãi quý 3: +15%!!!") == "vcb lãi quý 3 15"
+
+
+def test_norm_title_collapses_whitespace():
+    assert _norm_title("VCB    lãi\tquý 3\n") == "vcb lãi quý 3"
+
+
+def test_norm_title_handles_empty():
+    assert _norm_title("") == ""
+    assert _norm_title(None) == ""  # type: ignore[arg-type]
+
+
+# ─── Title extraction ─────────────────────────────────────────────────────────
+
+def test_news_title_prefers_news_title():
+    item = {"news_title": "A", "title": "B", "head": "C"}
+    assert _news_title(item) == "A"
+
+
+def test_news_title_falls_back_to_title():
+    item = {"title": "B", "head": "C"}
+    assert _news_title(item) == "B"
+
+
+def test_news_title_falls_back_to_head():
+    assert _news_title({"head": "C"}) == "C"
+
+
+def test_news_title_returns_empty_when_missing():
+    assert _news_title({}) == ""
+
+
+# ─── Deduplication ────────────────────────────────────────────────────────────
+
+def _mk(title: str, date: str = "2026-05-28", ticker: str = "VCB") -> dict:
+    return {"news_title": title, "_date_sort": date, "ticker": ticker}
+
+
+def test_empty_list_returns_empty():
+    out, n = deduplicate_news([])
+    assert out == []
+    assert n == 0
+
+
+def test_identical_titles_same_day_deduped():
+    items = [
+        _mk("VCB lãi quý 3 tăng 15%"),
+        _mk("VCB lãi quý 3 tăng 15%"),
+    ]
+    out, n = deduplicate_news(items)
+    assert len(out) == 1
+    assert n == 1
+
+
+def test_near_duplicate_titles_same_day_deduped():
+    """Tiny punctuation/whitespace differences should be detected."""
+    items = [
+        _mk("VCB lãi quý 3 tăng 15%"),
+        _mk("VCB lãi quý 3 tăng 15 %"),  # extra space
+        _mk("VCB lãi quý 3 tăng 15%!"),  # extra punctuation
+    ]
+    out, n = deduplicate_news(items)
+    assert len(out) == 1
+    assert n == 2
+
+
+def test_different_titles_kept():
+    items = [
+        _mk("VCB lãi quý 3 tăng 15%"),
+        _mk("FPT ký hợp đồng 5000 tỷ"),
+        _mk("HPG xuất khẩu thép sang Mỹ"),
+    ]
+    out, n = deduplicate_news(items)
+    assert len(out) == 3
+    assert n == 0
+
+
+def test_same_title_different_days_kept():
+    items = [
+        _mk("VCB lãi quý 3 tăng 15%", date="2026-05-28"),
+        _mk("VCB lãi quý 3 tăng 15%", date="2026-05-27"),
+    ]
+    out, n = deduplicate_news(items)
+    assert len(out) == 2
+    assert n == 0
+
+
+def test_threshold_controls_aggressiveness():
+    """Lower threshold catches more, higher catches less."""
+    items = [
+        _mk("VCB báo lãi quý 3 tăng 15%"),
+        _mk("Vietcombank công bố lợi nhuận quý 3 tăng 15%"),  # semantically similar
+    ]
+    out_loose, n_loose = deduplicate_news(items, similarity_threshold=0.5)
+    out_strict, n_strict = deduplicate_news(items, similarity_threshold=0.95)
+    assert n_loose >= n_strict
+
+
+def test_length_filter_skips_unrelated():
+    """Titles with very different lengths shouldn't be compared."""
+    items = [
+        _mk("VCB"),
+        _mk("VCB thông báo điều chỉnh giá cổ phiếu và phát hành cổ phiếu thưởng cho cổ đông hiện hữu"),
+    ]
+    out, n = deduplicate_news(items)
+    assert len(out) == 2
+    assert n == 0
+
+
+def test_items_without_title_kept():
+    """Items lacking a title field should not be deduped against each other."""
+    items = [
+        {"_date_sort": "2026-05-28", "ticker": "VCB"},
+        {"_date_sort": "2026-05-28", "ticker": "FPT"},
+    ]
+    out, n = deduplicate_news(items)
+    assert len(out) == 2
+    assert n == 0
+
+
+def test_output_sorted_newest_first():
+    items = [
+        _mk("Title A", date="2026-05-25"),
+        _mk("Title B", date="2026-05-28"),
+        _mk("Title C", date="2026-05-26"),
+    ]
+    out, _ = deduplicate_news(items)
+    dates = [o["_date_sort"] for o in out]
+    assert dates == sorted(dates, reverse=True)
+
+
+def test_first_occurrence_kept():
+    """When duplicates found, the FIRST item in input order is retained."""
+    items = [
+        {"news_title": "VCB lãi quý 3", "_date_sort": "2026-05-28", "ticker": "VCB", "tag": "first"},
+        {"news_title": "VCB lãi quý 3", "_date_sort": "2026-05-28", "ticker": "VCB", "tag": "second"},
+    ]
+    out, _ = deduplicate_news(items)
+    assert len(out) == 1
+    assert out[0]["tag"] == "first"

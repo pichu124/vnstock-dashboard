@@ -41,19 +41,37 @@ warnings.filterwarnings("ignore")
 console = Console()
 
 # ── vnstock import ────────────────────────────────────────────────────────────
-from vnstock_auth import ensure_api_key, get_vnstock
+from vnstock_auth import ensure_api_key, get_vnstock, has_sponsor_package
 
 try:
     from vnstock_data import Reference
     USE_UNIFIED = True
     ensure_api_key()
-    console.log("[green]✅ Using vnstock_data[/green]")
+    console.log("[green]✅ Using vnstock_data (Sponsor)[/green]")
 except ImportError:
     USE_UNIFIED = False
     try:
-        from vnstock import Vnstock
+        # Verify vnstock is importable (new Quote API used via get_vnstock shim)
+        try:
+            from vnstock.api.quote import Quote  # type: ignore  # noqa: F401
+        except ImportError:
+            from vnstock import Quote  # type: ignore  # noqa: F401
         ensure_api_key()
-        console.log("[yellow]⚠ Using vnstock (free)[/yellow]")
+        # Rate limit depends on the API KEY tier, not which Python package
+        # we're calling. vnstock_auth.has_sponsor_package() reflects whether
+        # a Sponsor package is installed (vnii / vnstock_data) — even if
+        # vnstock_data is broken, vnii being present means the device is
+        # registered as Sponsor and the key won't be downgraded.
+        if has_sponsor_package():
+            console.log(
+                "[green]✅ Using vnstock + Sponsor API key "
+                "(600 req/min)[/green]"
+            )
+        else:
+            console.log(
+                "[yellow]⚠ Using vnstock free tier "
+                "(60 req/min — install vnii for Sponsor)[/yellow]"
+            )
     except ImportError:
         console.print("[red]❌ Install vnstock: pip install vnstock[/red]")
         raise
@@ -197,7 +215,10 @@ def _fetch_prices(ticker: str, start: str, end: str) -> pd.DataFrame:
     # Fallback: try Quote directly (works on some vnstock versions)
     if df is None or (hasattr(df, 'empty') and df.empty):
         try:
-            from vnstock import Quote
+            try:
+                from vnstock.api.quote import Quote  # type: ignore
+            except ImportError:
+                from vnstock import Quote  # type: ignore
             q = Quote(source="VCI", symbol=ticker)
             df = q.history(start=start, end=end, interval="1D")
         except Exception:
@@ -338,7 +359,7 @@ def run_update(
     warehouse: str = "data_warehouse",
     tickers: list = None,
     dry_run: bool = False,
-    delay: float = 0.3,
+    delay: float = 0.1,
     skip_weekends: bool = True,
 ):
     prices_dir = Path(warehouse) / "prices"
@@ -505,7 +526,7 @@ def fix_volume_spikes(
     tickers: list = None,
     threshold: float = 10.0,
     dry_run: bool = False,
-    delay: float = 0.3,
+    delay: float = 0.1,
 ):
     """
     Detect and fix anomalous volume spikes in warehouse parquet.
@@ -619,7 +640,7 @@ def rebuild_recent(
     tickers: list = None,
     days: int = 30,
     dry_run: bool = False,
-    delay: float = 0.3,
+    delay: float = 0.1,
     ratio_threshold: float = 1.5,
 ):
     """
@@ -766,8 +787,8 @@ if __name__ == "__main__":
                              "overwrite warehouse where volume > 1.5x API "
                              "(fixes inflation when --fix-volume can't detect "
                              "because median is also inflated)")
-    parser.add_argument("--delay",     type=float, default=0.3,
-                        help="Delay giữa API calls (giây, mặc định 0.3)")
+    parser.add_argument("--delay",     type=float, default=0.1,
+                        help="Delay giữa API calls (giây, mặc định 0.1 cho Sponsor 600/min)")
     parser.add_argument("--warehouse", default="data_warehouse",
                         help="Đường dẫn warehouse")
     parser.add_argument("--skip-if-done", action="store_true",
