@@ -136,14 +136,21 @@ def compute_market_sentiment(
         except (TypeError, ValueError):
             pass
 
-    # 7. News sentiment 7D (net % tích cực, ±50% saturates)
+    # 7. News sentiment 7D (net % tích cực, ±50% saturates).
+    # VN corporate-disclosure feeds are dominated by procedural filings that
+    # are genuinely neutral, so show raw counts + flag when neutral dominates
+    # rather than tiny pos/neg percentages that look like noise.
     ns = news_sentiment or {}
     if ns.get("total"):
         net_pct = ns.get("net_pct", 0.0)
-        add("Tin tức 7N",
-            f"{ns.get('pos_pct', 0):.0f}% tích cực / {ns.get('neg_pct', 0):.0f}% tiêu cực "
-            f"({ns.get('total')} tin)",
-            net_pct / 50.0, 0.15)
+        tot = ns.get("total", 0)
+        neu = ns.get("neutral", 0)
+        neu_pct = round(neu / tot * 100) if tot else 0
+        val = (f"{ns.get('positive', 0)} tích cực / {ns.get('negative', 0)} tiêu cực "
+               f"/ {tot} tin")
+        if neu_pct >= 80:
+            val += f" — đa số trung lập ({neu_pct}%, tin công bố thông tin)"
+        add("Tin tức 7N", val, net_pct / 50.0, 0.15)
 
     if wsum == 0:
         return {}
