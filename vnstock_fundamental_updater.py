@@ -102,6 +102,44 @@ def _save(df: pd.DataFrame):
     pq.write_table(table, str(FUND_PATH), compression="snappy")
 
 
+# Sponsor / free Finance classes accept different keyword combos across
+# versions — try them in order and take the first non-empty frame, mirroring
+# the proven retry loop in vnstock_dashboard.py.
+_RATIO_PARAMS = [
+    {"period": "year", "lang": "vi"},
+    {"period": "year", "lang": "en"},
+    {"period": "year"},
+    {"period": "annual"},
+    {},
+]
+_CF_PARAMS = [
+    {"period": "year", "lang": "vi"},
+    {"period": "year", "lang": "en"},
+    {"period": "year"},
+    {"period": "annual"},
+    {},
+]
+
+
+def _try_statement(method, param_combos):
+    """Call a finance-statement method trying several param combos.
+
+    Returns the first non-empty DataFrame, or None if every combo fails or
+    returns empty. Swallows TypeError (wrong kwargs) and other call errors so
+    one bad signature never aborts the whole fetch.
+    """
+    for kw in param_combos:
+        try:
+            df = method(**kw)
+        except TypeError:
+            continue
+        except Exception:
+            continue
+        if df is not None and hasattr(df, "empty") and not df.empty:
+            return df
+    return None
+
+
 def _fetch_ratios(ticker: str) -> dict:
     """
     Gọi vnstock VCI để lấy ratio cho 1 ticker.
@@ -109,10 +147,11 @@ def _fetch_ratios(ticker: str) -> dict:
     """
     try:
         from vnstock_auth import get_vnstock
-        ratios = get_vnstock(ticker).finance.ratio(period="year", lang="vi")
+        fin = get_vnstock(ticker).finance
     except Exception as e:
         raise RuntimeError(f"API error: {e}")
 
+    ratios = _try_statement(fin.ratio, _RATIO_PARAMS)
     if ratios is None or ratios.empty:
         return {}
 
@@ -189,7 +228,7 @@ def _fetch_cash_flow(ticker: str) -> dict:
     """
     try:
         from vnstock_auth import get_vnstock
-        cf = get_vnstock(ticker).finance.cash_flow(period="year", lang="vi")
+        cf = _try_statement(get_vnstock(ticker).finance.cash_flow, _CF_PARAMS)
     except Exception:
         return {}
 
@@ -275,6 +314,16 @@ def update(
     rows   = existing.to_dict("records") if not existing.empty else []
     errors = 0
     ok_cnt = 0
+    kept   = 0  # empty fetch but existing good data preserved
+
+    # Tickers that already hold a usable ratio (pe or roe) — used to avoid
+    # overwriting good data with a NaN placeholder when a refetch comes back
+    # empty (e.g. transient API hiccup).
+    have_data = set()
+    if not existing.empty:
+        for _col in ("pe", "roe"):
+            if _col in existing.columns:
+                have_data |= set(existing.loc[existing[_col].notna(), "ticker"])
 
     with Progress(
         SpinnerColumn(),
@@ -290,7 +339,9 @@ def update(
 
             try:
                 data = _fetch_ratios(ticker)
-                if data:
+                # "Usable" = at least one non-None ratio value (a dict of all
+                # None means the statement was empty / unparseable).
+                if data and any(v is not None for v in data.values()):
                     # Cash flow is a second (slower) statement call — merge it in.
                     # Failure here is non-fatal: the ratio data still gets saved.
                     try:
@@ -301,8 +352,12 @@ def update(
                     data["updated_at"] = datetime.now().strftime("%Y-%m-%d")
                     rows.append(data)
                     ok_cnt += 1
+                elif ticker in have_data:
+                    # Refetch came back empty but we already have good data —
+                    # keep the existing row instead of wiping it with NaN.
+                    kept += 1
                 else:
-                    # Ticker không có data → ghi NaN để không fetch lại
+                    # Never had data → write NaN placeholder so --check counts it
                     rows.append({
                         "ticker":     ticker,
                         "updated_at": datetime.now().strftime("%Y-%m-%d"),
@@ -327,7 +382,16 @@ def update(
     _save(df)
 
     console.print(f"\n[green]✅ Done![/green]")
-    console.print(f"  OK: [green]{ok_cnt}[/green]  |  Errors: [red]{errors}[/red]")
+    console.print(
+        f"  OK: [green]{ok_cnt}[/green]  |  Errors: [red]{errors}[/red]"
+        f"  |  Giữ data cũ: [yellow]{kept}[/yellow]"
+    )
+    if ok_cnt == 0 and errors == 0:
+        console.print(
+            "[yellow]⚠ Không lấy được ratio nào (statement rỗng). "
+            "Chạy thử: [bold]python vnstock_fundamental_updater.py --diag VCB[/bold] "
+            "để xem API trả gì.[/yellow]"
+        )
     console.print(f"  Saved → [cyan]{FUND_PATH}[/cyan]")
 
     return df
@@ -343,17 +407,23 @@ def check():
         console.print("[yellow]⚠ Chưa có dữ liệu. Chạy updater để tải về.[/yellow]")
         return
 
-    has_pe  = existing["pe"].notna().sum()
-    has_roe = existing["roe"].notna().sum()
     total   = len(existing)
+
+    def _cov(col: str) -> str:
+        if col not in existing.columns:
+            return "—  (cột chưa có)"
+        n = existing[col].notna().sum()
+        return f"{n:,}  ({n/total*100:.0f}%)"
 
     t = Table(box=box.SIMPLE_HEAVY)
     t.add_column("Metric", style="bold")
     t.add_column("Value",  justify="right", style="cyan")
     t.add_row("Tickers trong warehouse",  f"{len(all_tickers):,}")
     t.add_row("Tickers đã có fundamental", f"{total:,}")
-    t.add_row("Có P/E",   f"{has_pe:,}  ({has_pe/total*100:.0f}%)")
-    t.add_row("Có ROE",   f"{has_roe:,}  ({has_roe/total*100:.0f}%)")
+    t.add_row("Có P/E",            _cov("pe"))
+    t.add_row("Có ROE",            _cov("roe"))
+    t.add_row("Có D/E (Nợ/VCSH)",  _cov("debt_to_equity"))
+    t.add_row("Có Cash Flow (HĐKD)", _cov("operating_cf"))
 
     if "updated_at" in existing.columns:
         latest = existing["updated_at"].max()
@@ -366,6 +436,46 @@ def check():
     if not preview.empty:
         console.print("\n[dim]Preview (top 5 có P/E):[/dim]")
         console.print(preview[["ticker","pe","pb","roe","roa"]].to_string(index=False))
+
+
+def diag(ticker: str):
+    """In ra những gì API tài chính thực sự trả về cho 1 mã.
+
+    Dùng khi update báo OK: 0 — xem statement có rỗng không, tên cột là gì,
+    để biết cần dò nhãn nào cho ratio / cash flow / D/E.
+    """
+    console.rule(f"[bold]🔬 Finance API diagnostic — {ticker}[/bold]")
+    try:
+        from vnstock_auth import get_vnstock
+        fin = get_vnstock(ticker).finance
+    except Exception as e:
+        console.print(f"[red]✗ Không tạo được Finance object: {e}[/red]")
+        return
+
+    for name, method, params in (
+        ("ratio",            getattr(fin, "ratio", None),            _RATIO_PARAMS),
+        ("cash_flow",        getattr(fin, "cash_flow", None),        _CF_PARAMS),
+        ("balance_sheet",    getattr(fin, "balance_sheet", None),    _CF_PARAMS),
+        ("income_statement", getattr(fin, "income_statement", None), _CF_PARAMS),
+    ):
+        console.print(f"\n[bold cyan]── {name}() ──[/bold cyan]")
+        if method is None:
+            console.print("  [red]method không tồn tại trên Finance[/red]")
+            continue
+        df = _try_statement(method, params)
+        if df is None:
+            console.print("  [yellow]→ rỗng / lỗi với mọi bộ tham số[/yellow]")
+            continue
+        console.print(f"  shape = {df.shape}")
+        cols = [
+            " | ".join(str(c) for c in col) if isinstance(col, tuple) else str(col)
+            for col in df.columns
+        ]
+        console.print(f"  columns ({len(cols)}):")
+        for c in cols[:60]:
+            console.print(f"    • {c}")
+        if len(cols) > 60:
+            console.print(f"    … (+{len(cols)-60} cột nữa)")
 
 
 def report():
@@ -429,9 +539,12 @@ if __name__ == "__main__":
     parser.add_argument("--delay",   type=float, default=0.5, help="Delay giữa API calls (giây)")
     parser.add_argument("--check",   action="store_true", help="Xem trạng thái warehouse")
     parser.add_argument("--report",  action="store_true", help="Báo cáo median theo ngành")
+    parser.add_argument("--diag",    metavar="TICKER", help="In raw output API tài chính cho 1 mã")
     args = parser.parse_args()
 
-    if args.check:
+    if args.diag:
+        diag(args.diag.upper())
+    elif args.check:
         check()
     elif args.report:
         report()
