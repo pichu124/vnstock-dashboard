@@ -88,6 +88,19 @@ def _vnindex_line() -> str:
     return "🌏 VNINDEX: —"
 
 
+def _market_sentiment_line() -> str | None:
+    """One-line composite market mood for the brief header. None if no data."""
+    try:
+        from vnstock_market_sentiment import load_market_sentiment
+        ms = load_market_sentiment()
+        if ms:
+            return (f"🧭 <b>Tâm lý:</b> {ms['mood']} "
+                    f"(momentum {ms['momentum']:+d}/100, {ms['n_signals']} tín hiệu)")
+    except Exception:
+        pass
+    return None
+
+
 def _regime_block() -> str:
     try:
         from vnstock_regime import load_regime
@@ -281,6 +294,7 @@ def push_morning_brief() -> dict:
         _brief_header("📊", "VNStock Morning Brief"),
         _vnindex_line(),
         _regime_block(),
+        _market_sentiment_line(),
         "",
         "🧠 <b>AI Brief:</b>",
         _brief_snippet("morning"),
@@ -307,6 +321,7 @@ def push_close_brief() -> dict:
         _brief_header("📉", "VNStock Close Brief"),
         _vnindex_line(),
         _regime_block(),
+        _market_sentiment_line(),
         "",
         "🧠 <b>AI Outlook:</b>",
         _brief_snippet("afternoon"),

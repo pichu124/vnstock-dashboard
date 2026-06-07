@@ -159,6 +159,7 @@ Viết MORNING BRIEF tiếng Việt theo đúng format sau (không thêm phần 
 
 ## 📊 Tổng quan phiên sáng
 [2-3 câu: diễn biến chính, GTGD vs bình thường (có % so trung bình 5 phiên nếu data có), tính chất phiên (institutional vs retail dựa vào GTGD/độ rộng)]
+BẮT BUỘC nếu có block "Tâm lý thị trường": nêu RÕ nhãn tâm lý + điểm momentum (vd "Tâm lý: 📈 Tích cực, momentum +34/100") và hàm ý cho phiên chiều.
 
 ## 📈 Mức kỹ thuật quan trọng (VNINDEX)
 TRÍCH XUẤT TỪ block "## VNINDEX kỹ thuật" — KHÔNG BỊA, KHÔNG dùng số trong training data.
@@ -173,6 +174,7 @@ Nếu block "VNINDEX kỹ thuật" KHÔNG có trong data → viết "Chưa có d
 **Tích luỹ/Mua:** [ngành hoặc mã VN30 + lý do cụ thể từ data — nêu trọng số %VNI và đóng góp pp]
 **Tránh/Bán:** [ngành hoặc mã VN30 + lý do cụ thể]
 **Theo dõi:** [rotation/stealth nếu có, bỏ dòng này nếu không có tín hiệu]
+Nếu có block "VN30 Cơ bản": có thể dẫn 1 chỉ số cơ bản (D/E cao / Op.CF âm / ROE) để củng cố lý do tránh/mua, KHÔNG bịa số.
 
 ## ⚡ Biến động bất thường
 [Mã/ngành tăng giảm đột biến + giải thích + BẮT BUỘC ghi rõ khung thời gian (ví dụ: "VIC -3.2% phiên sáng", "PLX -8.8% trong 5 phiên", "ACB +4.1% so với đóng cửa hôm qua"); "Không có biến động bất thường đáng chú ý" nếu phẳng]
@@ -215,6 +217,7 @@ Viết AFTERNOON BRIEF tiếng Việt theo đúng format sau (không thêm phầ
 
 ## 📊 Tổng kết phiên
 [2-3 câu: kết quả toàn ngày, GTGD vs trung bình, độ rộng thị trường (A/D, % trên MA200), so sánh với kỳ vọng sáng nếu có]
+BẮT BUỘC nếu có block "Tâm lý thị trường": nêu RÕ nhãn tâm lý + điểm momentum (vd "Tâm lý: ❄️ Sợ hãi, momentum -51/100") và 1 câu nó hàm ý gì cho xu hướng ngắn hạn.
 
 ## 📈 Mức kỹ thuật chốt phiên (VNINDEX)
 TRÍCH XUẤT TỪ block "## VNINDEX kỹ thuật" — KHÔNG BỊA.
@@ -238,6 +241,7 @@ Nếu block "VNINDEX kỹ thuật" KHÔNG có → viết "Chưa có dữ liệu 
 
 ## ⚠️ Rủi ro cần lưu ý
 [Red flags, distribution, macro risk với mức cảnh báo cụ thể; "Không có rủi ro đặc biệt" nếu thị trường ổn]
+Nếu có block "VN30 Cơ bản": nêu 1 điểm rủi ro cơ bản cụ thể từ data đó (mã D/E cao nhất hoặc mã Op.CF âm), KHÔNG bịa số.
 
 ## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)
 [Liệt kê tối đa 3 mã với entry/TP/SL từ block "Khuyến nghị"]

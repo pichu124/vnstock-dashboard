@@ -211,8 +211,15 @@ def load_market_sentiment(
     """Gather inputs from caches and compute the composite mood.
 
     The brief passes its already-fetched ``vnindex_tech`` / ``breadth`` to
-    avoid recomputation; both fall back to cache loads when omitted.
+    avoid recomputation; both fall back to cache loads when omitted (so the
+    Telegram header can call this standalone).
     """
+    if vnindex_tech is None:
+        try:
+            from vnstock_brief import _vnindex_technicals
+            vnindex_tech = _vnindex_technicals()
+        except Exception:
+            vnindex_tech = {}
     if breadth is None:
         breadth = _load_breadth()
     return compute_market_sentiment(
