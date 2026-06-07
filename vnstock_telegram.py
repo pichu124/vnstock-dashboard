@@ -241,6 +241,9 @@ def push_test() -> dict:
 
 def push_morning_brief() -> dict:
     """Build and send the morning brief message."""
+    # Load .env before _brief_snippet() checks agent availability (see
+    # push_close_brief for the full ordering rationale).
+    _load_env()
     date_str   = datetime.now().strftime("%d/%m/%Y")
     screener   = _screener_block()
 
@@ -264,6 +267,10 @@ def push_morning_brief() -> dict:
 
 def push_close_brief() -> dict:
     """Build and send the afternoon/close brief message."""
+    # Load .env up front so agent API keys are in os.environ before
+    # _brief_snippet() checks agent availability (it runs before
+    # send_message(), which is otherwise the first thing to load .env).
+    _load_env()
     date_str    = datetime.now().strftime("%d/%m/%Y %H:%M")
     closed_blk  = _closed_today_block()
 

@@ -31,6 +31,28 @@ from typing import Optional
 # ── Constants ─────────────────────────────────────────────────────────────
 AGENTS_CONFIG_PATH = Path("data_warehouse/_meta/brief_agents.json")
 
+_ENV_LOADED = False
+
+
+def _ensure_env_loaded() -> None:
+    """Load API keys from .env into os.environ exactly once.
+
+    Agents read keys straight from os.environ in their is_available check.
+    When the brief is generated from a fresh CLI process (run.py telegram
+    close) nothing has loaded .env yet, so without this every agent would
+    look unavailable and the brief would wrongly report "no agent available".
+    Idempotent and never overrides keys already exported in the shell.
+    """
+    global _ENV_LOADED
+    if _ENV_LOADED:
+        return
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(Path(__file__).parent / ".env", override=False)
+    except Exception:
+        pass
+    _ENV_LOADED = True
+
 # VN30 tickers — current composition (keep in sync with _VN30_FALLBACK in vnstock_news.py)
 # Try dynamic fetch first; fall back to this set when vnstock API is unavailable.
 VN30_TICKERS: set[str] = {
@@ -1280,6 +1302,13 @@ def generate_brief(
         {agent_name: (text, error_or_None)}
         Special key "_timing" if called too early (force=False)
     """
+    # Ensure API keys from .env are in os.environ BEFORE agents check
+    # is_available. When called from the CLI (run.py telegram close) the
+    # process hasn't loaded .env yet — _brief_snippet runs before
+    # send_message() (the first thing that loads .env), so without this every
+    # agent would read an empty os.environ and report "no key available".
+    _ensure_env_loaded()
+
     if not force:
         now = datetime.now().time()
         if brief_type == "morning" and now < time(11, 30):
@@ -1335,14 +1364,32 @@ def generate_brief(
     for agent in unavailable:
         results[agent.name] = ("", f"API key chưa thiết lập cho {agent.name}")
 
-    # No agent has a usable API key → return a clear message instead of
-    # crashing on ThreadPoolExecutor(max_workers=0).
+    # No agent left to run → return a precise diagnostic instead of crashing
+    # on ThreadPoolExecutor(max_workers=0). Enumerate every enabled agent and
+    # WHY it isn't running (no key / skipped) so the cause is unambiguous —
+    # "no API key" alone is misleading when agents normally work.
     if not available:
-        results["_no_available"] = (
-            "",
-            "Không có agent nào khả dụng (chưa có API key). "
-            "Vào ⚙️ Cài đặt Agent → bật agent và điền API key.",
+        _lines = ["⚠️ Brief không chạy được — không có agent khả dụng:"]
+        for agent in agents:
+            # ClaudeAgent reads ANTHROPIC_API_KEY directly; the rest expose _ENV_KEY
+            _env_var = getattr(
+                agent, "_ENV_KEY",
+                "ANTHROPIC_API_KEY" if getattr(agent, "agent_type", "") == "claude" else "?",
+            )
+            _lines.append(
+                f"  • {agent.name}: thiếu key (env {_env_var} chưa set)"
+            )
+        # Agents that were intentionally skipped (e.g. Cerebras) also count.
+        for _name, (_t, _err) in results.items():
+            if _name.startswith("_"):
+                continue
+            if _err and "Bỏ qua" in _err:
+                _lines.append(f"  • {_name}: {_err}")
+        _lines.append(
+            "→ Kiểm tra .env (GROQ_API_KEY / CEREBRAS_API_KEY / ANTHROPIC_API_KEY…) "
+            "đã được load chưa, hoặc bật agent trong ⚙️ Cài đặt Agent."
         )
+        results["_no_available"] = ("", "\n".join(_lines))
         return results
 
     # Run available agents in parallel to cut wall-clock time from N*T → T
