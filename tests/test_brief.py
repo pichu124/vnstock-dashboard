@@ -323,6 +323,40 @@ def test_market_sentiment_block_renders():
     assert "Tin tức 7N" in block
 
 
+def test_sector_flow_block_ranks_inflow_outflow():
+    from vnstock_brief import _sector_flow_block
+    sectors = [
+        {"Ngành": "Ngân hàng",    "NN 1T (tỷ)": 1200.0, "GTGD TB (tỷ)": 5400.0},
+        {"Ngành": "Bất động sản", "NN 1T (tỷ)": -800.0, "GTGD TB (tỷ)": 3200.0},
+        {"Ngành": "Thép",         "NN 1T (tỷ)": 300.0,  "GTGD TB (tỷ)": 1800.0},
+        {"Ngành": "Bảo hiểm",     "NN 1T (tỷ)": None,   "GTGD TB (tỷ)": 200.0},
+    ]
+    block = _sector_flow_block(sectors)
+    assert "Dòng tiền ngành" in block
+    assert "NN mua ròng" in block and "Ngân hàng" in block
+    assert "NN bán ròng" in block and "Bất động sản" in block
+    assert "Thanh khoản cao nhất" in block
+
+
+def test_sector_flow_block_empty():
+    from vnstock_brief import _sector_flow_block
+    assert _sector_flow_block([]) == ""
+    # All-zero NN + no GTGD → nothing to show
+    assert _sector_flow_block([{"Ngành": "X", "NN 1T (tỷ)": None, "GTGD TB (tỷ)": 0}]) == ""
+
+
+def test_build_prompt_includes_sector_flow():
+    ctx = {
+        "date": "2026-06-08", "time": "15:00",
+        "sectors": [
+            {"Ngành": "Ngân hàng", "NN 1T (tỷ)": 500.0, "GTGD TB (tỷ)": 4000.0},
+            {"Ngành": "BĐS", "NN 1T (tỷ)": -300.0, "GTGD TB (tỷ)": 2000.0},
+        ],
+    }
+    prompt = build_prompt(ctx, brief_type="afternoon")
+    assert "Dòng tiền ngành" in prompt
+
+
 def test_build_prompt_includes_market_sentiment():
     ctx = {
         "date": "2026-06-08", "time": "15:00",

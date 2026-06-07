@@ -233,6 +233,7 @@ Nếu block "VNINDEX kỹ thuật" KHÔNG có → viết "Chưa có dữ liệu 
 
 ## 💰 Dòng tiền đáng chú ý
 [NN mua/bán ròng đáng kể (số tỷ cụ thể) | smart money tích luỹ/phân phối | unusual volume; bỏ qua nếu phẳng]
+Nếu có block "Dòng tiền ngành": nêu RÕ ngành NN mua ròng / bán ròng mạnh nhất + GTGD (số từ block), nhận định luân chuyển dòng tiền giữa các ngành.
 
 ## 📋 Watchlist sáng mai (3 setup cụ thể)
 1. **[Mã/Ngành]** — [BUY ở X / WAIT khi vượt Y / SELL nếu thủng Z] — [trigger 1 dòng]
@@ -819,6 +820,52 @@ def _vn30_fund_block(funds: dict[str, dict]) -> str:
         lines.append(
             "→ DÙNG các chỉ số này khi nhận xét rủi ro cơ bản/đòn bẩy/dòng tiền; "
             "KHÔNG bịa số liệu tài chính khác."
+        )
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
+def _sector_flow_block(sectors: list[dict]) -> str:
+    """Render sector money-flow: foreign net flow (1 tuần) + liquidity by sector.
+
+    Reads the pre-aggregated per-sector fields already in market_overview.json
+    (NN 1T (tỷ), GTGD TB (tỷ)) — no extra fetching. Shows the strongest
+    inflow/outflow sectors plus the most liquid ones so the agent can talk
+    about rotation without inventing numbers.
+    """
+    if not sectors:
+        return ""
+    try:
+        rows = []
+        for s in sectors:
+            name = s.get("Ngành")
+            if not name:
+                continue
+            nn = s.get("NN 1T (tỷ)")
+            rows.append({
+                "name": name,
+                "nn":   float(nn) if nn is not None else 0.0,
+                "gtgd": float(s.get("GTGD TB (tỷ)") or 0),
+            })
+        inflow  = sorted((r for r in rows if r["nn"] > 0), key=lambda r: r["nn"], reverse=True)[:3]
+        outflow = sorted((r for r in rows if r["nn"] < 0), key=lambda r: r["nn"])[:3]
+        top_gtgd = sorted(rows, key=lambda r: r["gtgd"], reverse=True)[:3]
+        if not (inflow or outflow or any(r["gtgd"] for r in top_gtgd)):
+            return ""
+
+        lines = ["\n## Dòng tiền ngành (NN ròng 1 tuần + thanh khoản GTGD TB)"]
+        if inflow:
+            lines.append("- 🟢 NN mua ròng: " + ", ".join(
+                f"{r['name']} {r['nn']:+,.0f} tỷ (GTGD {r['gtgd']:,.0f})" for r in inflow))
+        if outflow:
+            lines.append("- 🔴 NN bán ròng: " + ", ".join(
+                f"{r['name']} {r['nn']:+,.0f} tỷ (GTGD {r['gtgd']:,.0f})" for r in outflow))
+        if top_gtgd and any(r["gtgd"] for r in top_gtgd):
+            lines.append("- 💧 Thanh khoản cao nhất: " + ", ".join(
+                f"{r['name']} {r['gtgd']:,.0f} tỷ" for r in top_gtgd if r["gtgd"]))
+        lines.append(
+            "→ DÙNG khi nhận xét luân chuyển dòng tiền/thanh khoản ngành; KHÔNG bịa số."
         )
         return "\n".join(lines)
     except Exception:
@@ -1433,6 +1480,13 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         lines.append("\n## VN30 Top Losers (1 phiên, với đóng góp vào VNINDEX)")
         for g in losers:
             lines.append(_vn30_line(g))
+
+    # Sector money flow (foreign net flow + liquidity by sector) so the agent
+    # can describe rotation / where smart money is going.
+    if _sectors := ctx.get("sectors"):
+        block = _sector_flow_block(_sectors)
+        if block:
+            lines.append(block)
 
     # VN30 fundamentals (debt-to-equity, ROE, operating cash flow) so the agent
     # can ground "rủi ro cơ bản" comments in real leverage / cash-flow numbers.
