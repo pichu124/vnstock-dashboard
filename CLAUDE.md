@@ -7,17 +7,18 @@ Items here get auto-loaded into Claude's context at session start.
 
 ## 🧪 Test discipline
 
-**Khi nào cần chạy lại tests** (103 tests, ~0.5s):
+**Khi nào cần chạy lại tests** (121 tests, ~0.7s):
 - Sau khi `git pull` về máy → đảm bảo môi trường vẫn OK
 - Sau khi sửa code trong: `vnstock_regime.py`, `vnstock_brief.py`,
   `vnstock_sentiment.py`, `vnstock_news.py`, `vnstock_telegram.py`,
-  `vnstock_freshness.py`, `vnstock_vn30_weights.py`
+  `vnstock_freshness.py`, `vnstock_vn30_weights.py`,
+  `vnstock_market_sentiment.py`, `vnstock_fundamental_updater.py`
 - Trước khi tạo PR merge về `main`
 - Sau khi nâng cấp pandas / numpy / Python version
 
 **Lệnh chạy**:
 ```powershell
-# Nhanh — chỉ 103 tests cho module mới (~0.5s)
+# Nhanh — chỉ 121 tests cho module mới (~0.7s)
 python run.py test --fast
 
 # Đầy đủ — toàn bộ tests/ (~6s)
@@ -29,6 +30,44 @@ thị làm badge ở sidebar dashboard (✅ xanh nếu pass, ❌ đỏ nếu fai
 
 **Nếu badge sidebar hiện đỏ** → mở terminal, chạy `python run.py test --fast`,
 xem output để biết test nào fail. Đừng deploy / merge khi badge đỏ.
+
+---
+
+## 🧠 Brief context blocks + lịch refresh (DONE 2026-06-08)
+
+`collect_context()` trong `vnstock_brief.py` bơm các khối dữ liệu vào prompt.
+Các khối **mới thêm** (ngoài kỹ thuật VNINDEX / regime / breadth có sẵn):
+
+| Khối | Nguồn data | Cần chạy gì để có |
+|------|-----------|-------------------|
+| **VN30 Cơ bản** (D/E, ROE, Op.CF) | `data_warehouse/_meta/fundamentals.parquet` | `python vnstock_fundamental_updater.py` (1×/tuần) |
+| **Tâm lý thị trường** (mood + momentum -100..+100) | breadth + NN ròng + RSI/MA + news, qua `vnstock_market_sentiment.py` | luôn có (6 tín hiệu nội tại); tín hiệu tin tức (thứ 7) cần `python run.py news` |
+| **Dòng tiền ngành** (NN ròng 1T + GTGD theo ngành) | `market_overview.json` (đã pre-aggregate) | có sẵn sau `python run.py screener` |
+
+**Lịch refresh đề xuất (Task Scheduler)** — chạy TRƯỚC close brief 15:05:
+```powershell
+# Fundamentals: 1×/tuần (đổi 1×/quý nên tuần/lần là đủ)
+schtasks /Create /SC WEEKLY /D MON /ST 08:00 /TN "VNStock Fundamentals" `
+  /TR "<repo>\.venv\Scripts\python.exe <repo>\vnstock_fundamental_updater.py"
+# News sentiment: hằng ngày 14:50 (trước close brief)
+schtasks /Create /SC DAILY /ST 14:50 /TN "VNStock News" `
+  /TR "<repo>\.venv\Scripts\python.exe <repo>\run.py news"
+```
+
+**Quan trọng — vnstock 4.0.4 + sponsor API gotchas** (hard-won, đừng quên):
+- `vnstock_auth._StockShim` PHẢI expose `.quote/.company/.listing/.finance`.
+  Thiếu `.finance` → `vnstock_fundamental_updater` chết. Pattern: ưu tiên
+  `vnstock_data` (sponsor) rồi fallback `vnstock.api.*`.
+- VCI ratio/statement trả **nhãn tiếng Anh** (P/E, ROE (%), Debt/Equity,
+  Financial Leverage, "Net cash from/flows from operating activities"…),
+  KHÔNG phải tiếng Việt. Cột năm là `report_period`.
+- **Ngân hàng**: ratio table để Debt/Equity = 0 → tính D/E từ balance sheet
+  (`TOTAL LIABILITIES / OWNER'S EQUITY`). D/E bank ~9-17 là bình thường.
+- Ratio `iloc[0]` có thể là row TTM/interim NaN → dùng `_best_ratio_row`
+  (lấy row gần nhất có P/E/ROE/D-E thật).
+- `.env` PHẢI được load TRƯỚC khi agent kiểm tra `is_available` — brief gọi
+  `_ensure_env_loaded()` đầu `generate_brief()`; telegram gọi `_load_env()`
+  đầu `push_*_brief()`. Nếu không, chạy từ CLI fresh sẽ báo "no agent".
 
 ---
 
@@ -153,6 +192,16 @@ the snap. See the data serialization loop (~line 2394) in `vnstock_dashboard.py`
 ## 🏗️ Architecture cheat sheet
 
 - `vnstock_brief.py` — agent abstraction + brief generation + memory wiring
+  - context blocks: VNINDEX tech, regime, breadth, **market sentiment**,
+    **sector money flow**, **VN30 fundamentals**, news, recommendations
+  - `effective_trading_date()` → brief dùng ngày phiên gần nhất (cuối tuần /
+    sáng sớm dùng data ngày T-1 thay vì báo "chưa có data")
+- `vnstock_market_sentiment.py` — composite "tâm lý thị trường": breadth +
+  NN ròng + RSI/MA + news → mood label + momentum (-100..+100)
+- `vnstock_fundamental_updater.py` — CLI tải P/E/ROE/**D-E**/**cash flow** →
+  `fundamentals.parquet`. `--diag <ticker>` để soi raw API output.
+- `vnstock_sentiment.py` — chấm sentiment tin (Groq→Cerebras→OpenRouter),
+  cache SQLite. `market_news_sentiment()` = aggregate toàn thị trường.
 - `vnstock_memory.py` — SQLite store at `data_warehouse/_meta/brief_memory.db`
 - `vnstock_strategy.py` — AST-sandboxed strategy executor + backtest engine
   - Sandbox: `InProcessExecutor` (Option A). Swap to `SubprocessExecutor`
