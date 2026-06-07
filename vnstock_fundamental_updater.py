@@ -155,9 +155,15 @@ def _fetch_ratios(ticker: str) -> dict:
     if ratios is None or ratios.empty:
         return {}
 
+    # iloc[0] can be a TTM/interim row where valuation ratios (P/E, ROE,
+    # Debt/Equity) are NaN even though they exist in the annual row (seen on
+    # VHM). Pick the most recent row that actually carries those values.
+    ratio_row = _best_ratio_row(ratios)
+    if ratio_row is None:
+        return {}
+
     def get_val(df, *keys):
         """Tìm cột theo substring — hỗ trợ MultiIndex tuple."""
-        row = df.iloc[0]
         for key in keys:
             key_lo = key.lower()
             for col in df.columns:
@@ -168,7 +174,7 @@ def _fetch_ratios(ticker: str) -> dict:
                 )
                 if key_lo in col_str:
                     try:
-                        v = row[col]
+                        v = ratio_row[col]
                         if v is None or (isinstance(v, float) and np.isnan(v)):
                             continue
                         return float(v)
@@ -225,6 +231,47 @@ def _latest_row(df: "pd.DataFrame") -> "pd.Series | None":
             except Exception:
                 break
     return df.iloc[0]
+
+
+def _best_ratio_row(df: "pd.DataFrame") -> "pd.Series | None":
+    """Pick the most recent ratio row that actually carries valuation metrics.
+
+    The VCI ratio table mixes annual and TTM/interim rows; iloc[0] can be an
+    interim row where P/E, ROE and Debt/Equity are NaN (observed on VHM). Sort
+    by report_period descending and return the first row that has a non-null
+    value in any of P/E / ROE / Debt-to-Equity; fall back to row 0.
+    """
+    if df is None or df.empty:
+        return None
+
+    # Sort newest-first by the period column when present.
+    sdf = df
+    for col in df.columns:
+        col_str = (" ".join(str(c) for c in col) if isinstance(col, tuple) else str(col)).lower()
+        if "report_period" in col_str or "year id" in col_str or col_str == "period":
+            try:
+                sdf = df.sort_values(col, ascending=False)
+                break
+            except Exception:
+                pass
+
+    # Columns that signal a "real" ratio row.
+    key_cols = []
+    for col in df.columns:
+        cs = (" ".join(str(c) for c in col).lower() if isinstance(col, tuple) else str(col).lower())
+        if cs in ("p/e", "p/b") or "roe (%)" in cs or "debt to equity" in cs or "debt/equity" in cs:
+            key_cols.append(col)
+
+    if key_cols:
+        for _, row in sdf.iterrows():
+            for kc in key_cols:
+                try:
+                    v = row[kc]
+                except Exception:
+                    continue
+                if v is not None and not (isinstance(v, float) and np.isnan(v)):
+                    return row
+    return sdf.iloc[0]
 
 
 def _operating_cf_from_row(row) -> float | None:
