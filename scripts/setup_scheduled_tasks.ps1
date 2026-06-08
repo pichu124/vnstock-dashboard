@@ -1,37 +1,46 @@
 # ============================================================================
 # setup_scheduled_tasks.ps1
 # ============================================================================
-# Create 2 Windows Scheduled Tasks for vnstock_dashboard pipeline:
+# Create 3 Windows Scheduled Tasks for vnstock_dashboard pipeline:
 #
-#   1. VnStock Daily Pipeline  — 18:00 Mon-Fri
-#      sync (updater + rollup + fix-units + auto-heal) → validate → audit
+#   1. VnStock Daily Pipeline     — 18:00 Mon-Fri
+#      sync → validate → screener → news → test → audit (news integrated)
 #      Command: python run.py --warehouse data_warehouse all
 #
-#   2. VnStock Weekly Corp Actions  — 09:00 Sunday
+#   2. VnStock Weekly Corp Actions — 09:00 Sunday
 #      Scrape Vietstock for new dividends / splits → register
 #      Command: python run.py --warehouse data_warehouse vietstock --bulk --register
 #
-# Both tasks have StartWhenAvailable = ON:
+#   3. VnStock Fundamentals        — 08:00 Monday (1×/tuần)
+#      Tải P/E / ROE / D-E / Cash Flow VN30 → fundamentals.parquet
+#      Command: python vnstock_fundamental_updater.py
+#
+# Note: News sentiment (run.py news) is now a built-in step of the daily
+# pipeline — no separate task needed. Skip with --no-news if desired.
+#
+# All tasks have StartWhenAvailable = ON:
 #   If the machine is off at scheduled time → task runs automatically
 #   the next time the machine boots (no manual intervention needed).
 #
 # Usage (run PowerShell AS ADMINISTRATOR):
-#   .\scripts\setup_scheduled_tasks.ps1              # create / update tasks
-#   .\scripts\setup_scheduled_tasks.ps1 -Remove      # remove tasks
+#   .\scripts\setup_scheduled_tasks.ps1              # create / update all tasks
+#   .\scripts\setup_scheduled_tasks.ps1 -Remove      # remove all tasks
 #   .\scripts\setup_scheduled_tasks.ps1 -DryRun      # preview only (no admin)
 #
 # Optional:
 #   -PythonExe "C:\path\to\python.exe"  # override auto-detected Python
-#   -DailyTime "17:00"                  # change daily trigger time (default 18:00)
-#   -WeeklyTime "08:00"                 # change weekly trigger time (default 09:00)
+#   -DailyTime "18:00"                  # daily pipeline time (default 18:00)
+#   -WeeklyTime "09:00"                 # weekly corp-actions time (default 09:00)
+#   -FundamentalsTime "08:00"           # fundamentals time Monday (default 08:00)
 # ============================================================================
 
 param(
     [switch]$Remove,
     [switch]$DryRun,
-    [string]$PythonExe  = "",
-    [string]$DailyTime  = "18:00",
-    [string]$WeeklyTime = "09:00"
+    [string]$PythonExe        = "",
+    [string]$DailyTime        = "18:00",
+    [string]$WeeklyTime       = "09:00",
+    [string]$FundamentalsTime = "08:00"
 )
 
 $ErrorActionPreference = "Stop"
@@ -81,16 +90,18 @@ else {
     exit 1
 }
 
-$RunPy    = Join-Path $ProjectRoot "run.py"
-$WareHouse = "data_warehouse"
+$RunPy         = Join-Path $ProjectRoot "run.py"
+$FundUpdater   = Join-Path $ProjectRoot "vnstock_fundamental_updater.py"
+$WareHouse     = "data_warehouse"
 
 # ---- Task definitions -------------------------------------------------------
-# Each entry: Name, Args (passed to python after run.py), Trigger block
+# Each entry: Name, Execute (python exe), Args, Trigger block
 $TaskDefinitions = @(
     @{
         Name        = "VnStock Daily Pipeline"
-        Args        = "--warehouse $WareHouse all"
-        TriggerDesc = "Daily $DailyTime Mon-Fri  (+run-on-boot if missed)"
+        Execute     = $PythonExe
+        Args        = "`"$RunPy`" --warehouse $WareHouse all"
+        TriggerDesc = "Weekly $DailyTime Mon-Fri  (+run-on-boot if missed)"
         Trigger     = {
             New-ScheduledTaskTrigger `
                 -Weekly `
@@ -102,7 +113,8 @@ $TaskDefinitions = @(
     },
     @{
         Name        = "VnStock Weekly Corp Actions"
-        Args        = "--warehouse $WareHouse vietstock --bulk --register"
+        Execute     = $PythonExe
+        Args        = "`"$RunPy`" --warehouse $WareHouse vietstock --bulk --register"
         TriggerDesc = "Weekly $WeeklyTime Sunday  (+run-on-boot if missed)"
         Trigger     = {
             New-ScheduledTaskTrigger `
@@ -112,6 +124,20 @@ $TaskDefinitions = @(
         }
         MaxMinutes  = 60
         Description = "Scrape Vietstock dividends/splits -> corp_actions_registry"
+    },
+    @{
+        Name        = "VnStock Fundamentals"
+        Execute     = $PythonExe
+        Args        = "`"$FundUpdater`""
+        TriggerDesc = "Weekly $FundamentalsTime Monday  (+run-on-boot if missed)"
+        Trigger     = {
+            New-ScheduledTaskTrigger `
+                -Weekly `
+                -DaysOfWeek Monday `
+                -At $FundamentalsTime
+        }
+        MaxMinutes  = 30
+        Description = "Tai P/E / ROE / D-E / Cash Flow VN30 -> fundamentals.parquet (1x/tuan)"
     }
 )
 
@@ -149,11 +175,12 @@ Write-Host ""
 
 foreach ($task in $TaskDefinitions) {
     $name    = $task.Name
-    $argList = "`"$RunPy`" $($task.Args)"
+    $exe     = $task.Execute
+    $argList = $task.Args
 
     Write-Host "---- $name ----" -ForegroundColor Cyan
     Write-Host "  Trigger : $($task.TriggerDesc)"
-    Write-Host "  Command : $PythonExe $argList"
+    Write-Host "  Command : $exe $argList"
     Write-Host "  Workdir : $ProjectRoot"
     Write-Host "  Timeout : $($task.MaxMinutes) min"
 
@@ -172,7 +199,7 @@ foreach ($task in $TaskDefinitions) {
         }
 
         $action = New-ScheduledTaskAction `
-            -Execute        $PythonExe `
+            -Execute        $exe `
             -Argument       $argList `
             -WorkingDirectory $ProjectRoot
 
@@ -204,7 +231,9 @@ foreach ($task in $TaskDefinitions) {
 Write-Host "=== Done ===" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Useful commands:" -ForegroundColor DarkGray
-Write-Host "  List tasks  : Get-ScheduledTask -TaskName 'VnStock *' | Select TaskName,State,LastRunTime,NextRunTime"
-Write-Host "  Run daily   : Start-ScheduledTask -TaskName 'VnStock Daily Pipeline'"
-Write-Host "  Run weekly  : Start-ScheduledTask -TaskName 'VnStock Weekly Corp Actions'"
-Write-Host "  Remove all  : .\scripts\setup_scheduled_tasks.ps1 -Remove"
+Write-Host "  List tasks       : Get-ScheduledTask -TaskName 'VnStock *' | Select TaskName,State,LastRunTime,NextRunTime"
+Write-Host "  Run daily        : Start-ScheduledTask -TaskName 'VnStock Daily Pipeline'"
+Write-Host "  Run weekly       : Start-ScheduledTask -TaskName 'VnStock Weekly Corp Actions'"
+Write-Host "  Run fundamentals : Start-ScheduledTask -TaskName 'VnStock Fundamentals'"
+Write-Host "  Remove all       : .\scripts\setup_scheduled_tasks.ps1 -Remove"
+Write-Host "  Update all       : .\scripts\setup_scheduled_tasks.ps1  (re-run same script)"
