@@ -3763,6 +3763,7 @@ with _update_col:
                 commands=[
                     {"label": "Cap nhat gia",     "args": ["vnstock_updater.py", "--force"]},
                     {"label": "Refresh Screener", "args": ["vnstock_runner.py"]},
+                    {"label": "News Sentiment",   "args": ["run.py", "news"], "stop_on_error": False},
                 ],
                 log_filename="updater.log",
             )
