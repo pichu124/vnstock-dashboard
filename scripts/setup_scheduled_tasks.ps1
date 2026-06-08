@@ -1,10 +1,10 @@
 # ============================================================================
 # setup_scheduled_tasks.ps1
 # ============================================================================
-# Create 4 Windows Scheduled Tasks for vnstock_dashboard pipeline:
+# Create 3 Windows Scheduled Tasks for vnstock_dashboard pipeline:
 #
 #   1. VnStock Daily Pipeline     — 18:00 Mon-Fri
-#      sync (updater + rollup + fix-units + auto-heal) → validate → audit
+#      sync → validate → screener → news → test → audit (news integrated)
 #      Command: python run.py --warehouse data_warehouse all
 #
 #   2. VnStock Weekly Corp Actions — 09:00 Sunday
@@ -15,9 +15,8 @@
 #      Tải P/E / ROE / D-E / Cash Flow VN30 → fundamentals.parquet
 #      Command: python vnstock_fundamental_updater.py
 #
-#   4. VnStock News Sentiment      — 14:50 Mon-Fri (trước close brief)
-#      Refresh + chấm điểm sentiment tin tức toàn thị trường
-#      Command: python run.py news
+# Note: News sentiment (run.py news) is now a built-in step of the daily
+# pipeline — no separate task needed. Skip with --no-news if desired.
 #
 # All tasks have StartWhenAvailable = ON:
 #   If the machine is off at scheduled time → task runs automatically
@@ -33,7 +32,6 @@
 #   -DailyTime "18:00"                  # daily pipeline time (default 18:00)
 #   -WeeklyTime "09:00"                 # weekly corp-actions time (default 09:00)
 #   -FundamentalsTime "08:00"           # fundamentals time Monday (default 08:00)
-#   -NewsTime "14:50"                   # news sentiment time Mon-Fri (default 14:50)
 # ============================================================================
 
 param(
@@ -42,8 +40,7 @@ param(
     [string]$PythonExe        = "",
     [string]$DailyTime        = "18:00",
     [string]$WeeklyTime       = "09:00",
-    [string]$FundamentalsTime = "08:00",
-    [string]$NewsTime         = "14:50"
+    [string]$FundamentalsTime = "08:00"
 )
 
 $ErrorActionPreference = "Stop"
@@ -141,20 +138,6 @@ $TaskDefinitions = @(
         }
         MaxMinutes  = 30
         Description = "Tai P/E / ROE / D-E / Cash Flow VN30 -> fundamentals.parquet (1x/tuan)"
-    },
-    @{
-        Name        = "VnStock News Sentiment"
-        Execute     = $PythonExe
-        Args        = "`"$RunPy`" news"
-        TriggerDesc = "Weekly $NewsTime Mon-Fri  (+run-on-boot if missed)"
-        Trigger     = {
-            New-ScheduledTaskTrigger `
-                -Weekly `
-                -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday `
-                -At $NewsTime
-        }
-        MaxMinutes  = 20
-        Description = "Refresh + cham diem sentiment tin tuc toan thi truong (truoc close brief)"
     }
 )
 
@@ -252,6 +235,5 @@ Write-Host "  List tasks       : Get-ScheduledTask -TaskName 'VnStock *' | Selec
 Write-Host "  Run daily        : Start-ScheduledTask -TaskName 'VnStock Daily Pipeline'"
 Write-Host "  Run weekly       : Start-ScheduledTask -TaskName 'VnStock Weekly Corp Actions'"
 Write-Host "  Run fundamentals : Start-ScheduledTask -TaskName 'VnStock Fundamentals'"
-Write-Host "  Run news         : Start-ScheduledTask -TaskName 'VnStock News Sentiment'"
 Write-Host "  Remove all       : .\scripts\setup_scheduled_tasks.ps1 -Remove"
 Write-Host "  Update all       : .\scripts\setup_scheduled_tasks.ps1  (re-run same script)"

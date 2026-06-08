@@ -13,8 +13,9 @@ Subcommands
     python run.py audit      — reconciler + anomaly scan, optionally + LLM
     python run.py test       — pytest
     python run.py dashboard  — launch streamlit dashboard
-    python run.py all        — sync → validate → test → audit (in order,
-                                stopping on first failure)
+    python run.py all        — sync → validate → screener → news → test → audit
+                               (in order, stopping on first hard failure)
+                               --no-news to skip the sentiment step
 
 Exit codes
 ----------
@@ -746,6 +747,7 @@ def cmd_news(args) -> int:
 
     Populates the news-sentiment cache the brief's "Tâm lý thị trường" block
     reads (the 7th signal). Safe to schedule daily before the close brief.
+    Also called internally by cmd_all; uses getattr so extra args are optional.
     """
     try:
         import vnstock_news as _news
@@ -762,7 +764,7 @@ def cmd_news(args) -> int:
         pass
 
     # 1. Refresh (or load) news
-    if args.no_refresh:
+    if getattr(args, "no_refresh", False):
         news = _news.load_news_cache()
         print(f"[news] loaded {len(news)} cached articles")
     else:
@@ -775,7 +777,7 @@ def cmd_news(args) -> int:
         return 0
 
     # 2. Score sentiment
-    if args.no_score:
+    if getattr(args, "no_score", False):
         print("[news] skip scoring (--no-score)")
         return 0
 
@@ -801,14 +803,19 @@ def cmd_news(args) -> int:
 
 
 def cmd_all(args) -> int:
-    """sync → validate → screener → test → audit. Stops on first hard failure."""
-    for name, fn in (
-        ("sync", cmd_sync),
+    """sync → validate → screener → news → test → audit. Stops on first hard failure."""
+    steps: list[tuple[str, object]] = [
+        ("sync",     cmd_sync),
         ("validate", cmd_validate),
         ("screener", cmd_screener),
-        ("test", cmd_test),
-        ("audit", cmd_audit),
-    ):
+        ("test",     cmd_test),
+        ("audit",    cmd_audit),
+    ]
+    # Insert news after screener unless the caller opts out
+    if not getattr(args, "no_news", False):
+        steps.insert(3, ("news", cmd_news))
+
+    for name, fn in steps:
         print(f"\n=== run.py all :: {name} ===")
         rc = fn(args)
         if rc == 2:
@@ -997,11 +1004,13 @@ def build_parser() -> argparse.ArgumentParser:
     news_p.add_argument("--no-score", action="store_true",
                         help="Chỉ refresh tin, không chấm sentiment")
 
-    all_ = sub.add_parser("all", help="sync → validate → screener → test → audit")
+    all_ = sub.add_parser("all", help="sync → validate → screener → news → test → audit")
     all_.add_argument("--lookback", type=int, default=60)
     all_.add_argument("--llm", action="store_true")
     all_.add_argument("--auditor", choices=["auto", "claude", "gpt", "null"],
                       default="auto")
+    all_.add_argument("--no-news", action="store_true",
+                      help="Skip the news sentiment refresh step")
 
     return p
 
