@@ -1521,49 +1521,6 @@ def render_market_tab() -> None:
             _past_1130 = _now_time.hour > 11 or (_now_time.hour == 11 and _now_time.minute >= 30)
             _past_1500 = _now_time.hour >= 15
 
-            # Row 1: news refresh
-            _news_col, _news_status_col = st.columns([1, 3])
-            with _news_col:
-                _refresh_news = st.button(
-                    "🗞️ Refresh News",
-                    key="_brief_refresh_news",
-                    help="Tải tin mới + chấm điểm sentiment (cập nhật tín hiệu Tâm lý tin tức cho brief).",
-                )
-            with _news_status_col:
-                if "._news_status" in st.session_state:
-                    st.caption(st.session_state["._news_status"])
-
-            if _refresh_news:
-                try:
-                    import vnstock_news as _vn_news
-                    import vnstock_sentiment as _vn_snt
-                    from dotenv import load_dotenv as _ldenv
-                    _ldenv(override=False)
-                    with st.spinner("Đang tải tin tức..."):
-                        _news_items = _vn_news.refresh_news()
-                    _provider = _vn_snt.available_provider()
-                    if _provider and _news_items:
-                        _before = _vn_snt.scored_count(_news_items)
-                        with st.spinner(f"Đang chấm sentiment ({_provider})..."):
-                            _vn_snt.score_news_batch(_news_items)
-                        _after = _vn_snt.scored_count(_news_items)
-                        _vn_snt.attach_sentiments(_news_items)
-                        _agg = _vn_snt.market_news_sentiment(_news_items, days=7)
-                        _mood = f" | Tâm lý: {_agg['pos_pct']:.0f}% tích cực / {_agg['neg_pct']:.0f}% tiêu cực" if _agg else ""
-                        st.session_state["._news_status"] = (
-                            f"✅ {len(_news_items)} tin — chấm mới {_after - _before}{_mood}"
-                        )
-                    elif _news_items:
-                        st.session_state["._news_status"] = (
-                            f"✅ {len(_news_items)} tin (chưa có provider key để chấm sentiment)"
-                        )
-                    else:
-                        st.session_state["._news_status"] = "⚠️ Không lấy được tin tức"
-                except Exception as _ne:
-                    st.session_state["._news_status"] = f"❌ Lỗi: {_ne}"
-                st.rerun()
-
-            # Row 2: brief generation
             _force_col, _btn_morn_col, _btn_aftn_col = st.columns([2, 1, 1])
             with _force_col:
                 _force = st.checkbox(
