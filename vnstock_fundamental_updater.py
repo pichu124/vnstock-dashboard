@@ -318,17 +318,23 @@ def _operating_cf_from_row(row) -> float | None:
 
 
 def _annual_operating_cf(df: "pd.DataFrame") -> float | None:
-    """Latest annual / trailing-twelve-month operating cash flow (raw VND).
+    """Operating cash flow of the most recent COMPLETE fiscal year (raw VND).
 
-    VCI returns QUARTERLY cash-flow rows even when 'year' is requested, so the
-    single latest row is just one quarter — e.g. FPT's Q1 working-capital
-    outflow shows -2,847.8 tỷ while the full year is strongly positive. Detect
-    quarterly data (a fiscal year appearing in >1 row) and sum the 4 most recent
-    periods (TTM). For genuinely annual data, use the latest row unchanged.
+    Robust to annual vs quarterly statements and excludes the in-progress
+    current year — which is what produced the misleading FPT figures: VCI's
+    cash_flow spans many years; the single latest row was the partial current
+    year (2026 Q1 working-capital outflow → -2,847.8 tỷ), and naive
+    quarterly-summing instead added several years (→ +9,795 tỷ). Both wrong.
+
+    Parse the fiscal year from report_period, take the most recent year strictly
+    before the current calendar year (the last completed year), and SUM every
+    row of that year: 1 row for annual data, ~4 for quarterly. Falls back to the
+    latest row only when no year is parseable.
     """
     if df is None or df.empty:
         return None
     import re as _re
+    from datetime import date as _date
 
     period_col = None
     for col in df.columns:
@@ -337,32 +343,21 @@ def _annual_operating_cf(df: "pd.DataFrame") -> float | None:
             period_col = col
             break
 
-    sdf = df
-    if period_col is not None:
-        try:
-            sdf = df.sort_values(period_col, ascending=False)
-        except Exception:
-            sdf = df
+    def _yr(v) -> "int | None":
+        m = _re.search(r"(?:19|20)\d{2}", str(v))
+        return int(m.group()) if m else None
 
-    # Detect quarterly: a fiscal year repeated across rows. If report_period
-    # carries no parseable year (e.g. integer period-ids), fall back to row count
-    # — a financial statement with >12 rows is far too long to be annual for a
-    # VN-listed company, so it must be sub-annual.
-    quarterly = False
-    years = []
     if period_col is not None:
-        years = [m.group() for v in sdf[period_col]
-                 if (m := _re.search(r"(?:19|20)\d{2}", str(v)))]
-    if years:
-        from collections import Counter
-        quarterly = max(Counter(years).values()) >= 2
-    elif len(sdf) > 12:
-        quarterly = True
-
-    if quarterly:
-        vals = [v for _, row in sdf.head(4).iterrows()
-                if (v := _operating_cf_from_row(row)) is not None]
-        return sum(vals) if vals else None
+        yrs = [_yr(v) for v in df[period_col]]
+        if any(y is not None for y in yrs):
+            cur = _date.today().year
+            present = [y for y in yrs if y is not None]
+            complete = [y for y in present if y < cur]   # exclude in-progress year
+            target = max(complete) if complete else max(present)
+            vals = [v for i, y in enumerate(yrs)
+                    if y == target
+                    and (v := _operating_cf_from_row(df.iloc[i])) is not None]
+            return sum(vals) if vals else None
 
     row = _latest_row(df)
     return _operating_cf_from_row(row) if row is not None else None
@@ -691,14 +686,29 @@ def diag(ticker: str):
                         rv_ty = "—"
                     console.print(f"    • {cs}  =  {rv_ty}")
 
-        # Show report_period values + the annual/TTM decision so we can see the
-        # granularity (year vs quarter) the matcher is working with.
+        # Show report_period + per-period operating CF for the most recent
+        # periods so we can see the granularity (year vs quarter) and confirm
+        # the matcher picked the right (last complete) year.
         pc = next((c for c in _cf_df.columns
                    if "report_period" in str(c).lower()), None)
+        ocf_col = next(
+            (c for c in _cf_df.columns
+             if all(w in str(c).lower() for w in ("net", "cash", "operating"))
+             and not any(x in str(c).lower()
+                         for x in ("before", "investing", "financing", "changes", "working"))),
+            None)
         if pc is not None:
             console.print(f"\n  [dim]report_period (head 8): "
                           f"{list(_cf_df[pc].head(8))}[/dim]")
-            console.print(f"  [dim]_annual_operating_cf (TTM/năm) = "
+            if ocf_col is not None:
+                try:
+                    _t = _cf_df[[pc, ocf_col]].sort_values(pc, ascending=False).head(6)
+                    console.print("  [dim]OCF theo kỳ gần nhất:[/dim]")
+                    for _, _r in _t.iterrows():
+                        console.print(f"    {_r[pc]}: {float(_r[ocf_col]) / 1e9:,.1f} tỷ")
+                except Exception:
+                    pass
+            console.print(f"  [dim]_annual_operating_cf (năm gần nhất đã đóng) = "
                           f"{_annual_operating_cf(_cf_df)} VND[/dim]")
     except Exception:
         pass
