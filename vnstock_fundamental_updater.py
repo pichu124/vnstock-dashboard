@@ -317,8 +317,50 @@ def _operating_cf_from_row(row) -> float | None:
     return None
 
 
+def _annual_operating_cf(df: "pd.DataFrame") -> float | None:
+    """Latest annual / trailing-twelve-month operating cash flow (raw VND).
+
+    VCI returns QUARTERLY cash-flow rows even when 'year' is requested, so the
+    single latest row is just one quarter — e.g. FPT's Q1 working-capital
+    outflow shows -2,847.8 tỷ while the full year is strongly positive. Detect
+    quarterly data (a fiscal year appearing in >1 row) and sum the 4 most recent
+    periods (TTM). For genuinely annual data, use the latest row unchanged.
+    """
+    if df is None or df.empty:
+        return None
+    import re as _re
+
+    period_col = None
+    for col in df.columns:
+        cs = (" ".join(str(c) for c in col) if isinstance(col, tuple) else str(col)).lower()
+        if any(k in cs for k in ("report_period", "period", "year", "năm", "kỳ")):
+            period_col = col
+            break
+
+    sdf = df
+    quarterly = False
+    if period_col is not None:
+        try:
+            sdf = df.sort_values(period_col, ascending=False)
+        except Exception:
+            sdf = df
+        years = [m.group() for v in sdf[period_col]
+                 if (m := _re.search(r"(?:19|20)\d{2}", str(v)))]
+        if years:
+            from collections import Counter
+            quarterly = max(Counter(years).values()) >= 2
+
+    if quarterly:
+        vals = [v for _, row in sdf.head(4).iterrows()
+                if (v := _operating_cf_from_row(row)) is not None]
+        return sum(vals) if vals else None
+
+    row = _latest_row(df)
+    return _operating_cf_from_row(row) if row is not None else None
+
+
 def _fetch_cash_flow(ticker: str) -> dict:
-    """Fetch latest-year net operating cash flow (tỷ VND) for one ticker.
+    """Fetch latest annual / TTM net operating cash flow (tỷ VND) for one ticker.
 
     Returns {"operating_cf": <tỷ VND>} or {} on any failure — best-effort so a
     single missing statement never aborts the whole update run.
@@ -329,11 +371,7 @@ def _fetch_cash_flow(ticker: str) -> dict:
     except Exception:
         return {}
 
-    row = _latest_row(cf)
-    if row is None:
-        return {}
-
-    val = _operating_cf_from_row(row)
+    val = _annual_operating_cf(cf)
     if val is None:
         return {}
     return {"operating_cf": round(val / 1e9, 1)}  # raw VND → tỷ VND
