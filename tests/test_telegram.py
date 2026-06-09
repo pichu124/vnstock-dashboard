@@ -134,6 +134,55 @@ def test_open_recs_block_formats_entries(monkeypatch):
     assert "SL" in out
 
 
+def test_fmt_price_keeps_precision_for_low_priced_instruments():
+    # Blue-chips read fine at 0 decimals…
+    assert tg._fmt_price(113.0) == "113"
+    assert tg._fmt_price(25.0) == "25"
+    # …but covered warrants / penny tickers must not collapse to @1 / @0.
+    assert tg._fmt_price(1.23) == "1.23"
+    assert tg._fmt_price(0.5) == "0.500"
+    assert tg._fmt_price(0) == "0"
+
+
+def test_open_recs_block_low_price_cw_not_rounded_to_zero(monkeypatch):
+    monkeypatch.setattr(
+        "vnstock_memory.open_recommendations",
+        lambda: [{
+            "ticker": "CFPT2528", "action": "buy",
+            "entry_price": 1.23, "take_profit": 1.48, "cut_loss": 1.09,
+            "horizon_days": 5,
+            "created_at": "2026-06-08T10:00:00",
+        }],
+    )
+    out = tg._open_recs_block()
+    assert "@1.23" in out
+    assert "@1 " not in out and "@0 " not in out
+
+
+def test_open_recs_block_flags_overdue(monkeypatch):
+    from datetime import datetime, timedelta
+    old = (datetime.now() - timedelta(days=34)).isoformat()
+    fresh = (datetime.now() - timedelta(days=2)).isoformat()
+    monkeypatch.setattr(
+        "vnstock_memory.open_recommendations",
+        lambda: [
+            {"ticker": "CFPT2528", "action": "buy", "entry_price": 1.0,
+             "take_profit": 1.2, "cut_loss": 0.9, "horizon_days": 5,
+             "created_at": old},
+            {"ticker": "ACB", "action": "buy", "entry_price": 25.0,
+             "take_profit": 27.0, "cut_loss": 24.0, "horizon_days": 5,
+             "created_at": fresh},
+        ],
+    )
+    out = tg._open_recs_block()
+    lines = out.splitlines()
+    cw_line = next(l for l in lines if "CFPT2528" in l)
+    acb_line = next(l for l in lines if "ACB" in l)
+    # Overdue position (age 34 > horizon 5) is flagged; fresh one is not.
+    assert "quá hạn" in cw_line
+    assert "quá hạn" not in acb_line
+
+
 def test_screener_block_empty_when_no_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(tg, "_REPO", tmp_path)
     out = tg._screener_block()

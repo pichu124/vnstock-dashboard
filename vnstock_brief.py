@@ -61,6 +61,24 @@ VN30_TICKERS: set[str] = {
     "TCB", "TPB", "VCB", "VHM", "VIB", "VIC", "VJC", "VNM", "VPB", "VRE",
 }
 
+# Financial-sector tickers (banks / securities / insurance). Their balance-sheet
+# leverage (bank D/E ~9-17 is NORMAL) and operating cash flow (driven by
+# deposit/loan/trading flows = tens of trillions VND) are structurally NOT
+# comparable to non-financial companies. We exclude them from the fundamental
+# risk rankings (highest D/E, weakest Op.CF) so a bank never gets mis-flagged as
+# a risk purely because of its scale — e.g. "MBB Op.CF -64,972 tỷ".
+_FINANCIAL_TICKERS: frozenset[str] = frozenset({
+    # Ngân hàng
+    "ACB", "BID", "CTG", "HDB", "MBB", "SHB", "SSB", "STB", "TCB", "TPB",
+    "VCB", "VIB", "VPB", "MSB", "EIB", "LPB", "OCB", "NAB", "ABB", "BAB",
+    "KLB", "PGB", "SGB", "VAB", "VBB", "NVB",
+    # Chứng khoán
+    "SSI", "VND", "HCM", "VCI", "VIX", "SHS", "MBS", "FTS", "BSI", "CTS",
+    "AGR", "ORS", "VDS", "TVS", "APG",
+    # Bảo hiểm
+    "BVH", "BIC", "BMI", "MIG", "PVI", "PGI", "ABI", "BLI",
+})
+
 
 def get_vn30_live() -> set[str]:
     """Try to fetch current VN30 from vnstock API; fall back to VN30_TICKERS."""
@@ -242,7 +260,7 @@ Nếu có block "Dòng tiền ngành": nêu RÕ ngành NN MUA RÒNG / BÁN RÒNG
 
 ## ⚠️ Rủi ro cần lưu ý
 [Red flags, distribution, macro risk với mức cảnh báo cụ thể; "Không có rủi ro đặc biệt" nếu thị trường ổn]
-Nếu có block "VN30 Cơ bản": nêu 1 điểm rủi ro cơ bản cụ thể từ data đó (mã D/E cao nhất hoặc mã Op.CF âm), KHÔNG bịa số.
+Nếu có block "VN30 Cơ bản": nêu 1 điểm rủi ro cơ bản cụ thể từ data đó (mã D/E cao nhất hoặc mã Op.CF âm), KHÔNG bịa số. Gọi ĐÚNG tên ngành của chính mã đó — KHÔNG gán nhầm sang ngành dẫn dắt/tụt hậu đã nêu phía trên. Block đã loại ngân hàng/chứng khoán/bảo hiểm khỏi xếp hạng D/E & dòng tiền (đặc thù ngành), nên đừng coi đòn bẩy/dòng tiền của nhóm tài chính là rủi ro bất thường.
 
 ## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)
 [Liệt kê tối đa 3 mã với entry/TP/SL từ block "Khuyến nghị"]
@@ -778,9 +796,14 @@ def _vn30_fund_block(funds: dict[str, dict]) -> str:
     try:
         import statistics as _st
 
-        des  = [(t, m["de"])  for t, m in funds.items() if m.get("de")  is not None]
-        roes = [m["roe"]      for m in funds.values()   if m.get("roe") is not None]
-        ocfs = [(t, m["ocf"]) for t, m in funds.items() if m.get("ocf") is not None]
+        # D/E and Op.CF risk rankings cover NON-FINANCIALS only — bank/securities/
+        # insurance leverage and cash-flow scales are not comparable (see
+        # _FINANCIAL_TICKERS). ROE is comparable across sectors, so it spans all.
+        nonfin = {t: m for t, m in funds.items() if t not in _FINANCIAL_TICKERS}
+
+        des  = [(t, m["de"])  for t, m in nonfin.items() if m.get("de")  is not None]
+        roes = [m["roe"]      for m in funds.values()    if m.get("roe") is not None]
+        ocfs = [(t, m["ocf"]) for t, m in nonfin.items() if m.get("ocf") is not None]
 
         if not (des or roes or ocfs):
             return ""
@@ -804,7 +827,7 @@ def _vn30_fund_block(funds: dict[str, dict]) -> str:
         if des:
             top_de = sorted(des, key=lambda x: x[1], reverse=True)[:3]
             lines.append(
-                "- Đòn bẩy cao nhất (D/E): "
+                "- Đòn bẩy cao nhất (D/E, phi tài chính): "
                 + ", ".join(f"{t} {v:.2f}" for t, v in top_de)
             )
 
@@ -812,14 +835,15 @@ def _vn30_fund_block(funds: dict[str, dict]) -> str:
             weak = sorted(ocfs, key=lambda x: x[1])[:3]
             n_neg = sum(1 for _, v in ocfs if v < 0)
             lines.append(
-                "- Lưu chuyển tiền HĐKD thấp nhất: "
+                "- Lưu chuyển tiền HĐKD thấp nhất (phi tài chính): "
                 + ", ".join(f"{t} {v:,.0f} tỷ" for t, v in weak)
                 + (f" ({n_neg} mã âm)" if n_neg else "")
             )
 
         lines.append(
             "→ DÙNG các chỉ số này khi nhận xét rủi ro cơ bản/đòn bẩy/dòng tiền; "
-            "KHÔNG bịa số liệu tài chính khác."
+            "ngân hàng/CK/bảo hiểm đã loại khỏi xếp hạng D/E & dòng tiền (đặc thù "
+            "ngành, không so sánh được); KHÔNG bịa số liệu tài chính khác."
         )
         return "\n".join(lines)
     except Exception:

@@ -234,18 +234,39 @@ def test_load_vn30_fundamentals_missing_file_returns_empty(tmp_path):
 
 def test_vn30_fund_block_renders_medians_and_flags():
     funds = {
-        "VCB": {"de": 0.8, "roe": 18.0, "ocf": 12000.0, "updated": "2026-06-01"},
-        "TCB": {"de": 4.5, "roe": 20.0, "ocf": -300.0, "updated": "2026-06-01"},
+        "MBB": {"de": 9.0, "roe": 20.0, "ocf": -64000.0, "updated": "2026-06-01"},  # bank
+        "HPG": {"de": 1.5, "roe": 12.0, "ocf": -300.0, "updated": "2026-06-01"},    # non-fin
         "FPT": {"de": 1.1, "roe": 25.0, "ocf": 8000.0, "updated": "2026-06-01"},
     }
     block = _vn30_fund_block(funds)
     assert "VN30 Cơ bản" in block
     assert "Trung vị VN30" in block
-    # TCB has the highest D/E → must lead the leverage line
-    assert "TCB 4.50" in block
-    # TCB has the lowest (negative) operating CF → flagged + negative count
-    assert "TCB" in block and "1 mã âm" in block
+    # HPG has the highest D/E among non-financials → must lead the leverage line
+    assert "HPG 1.50" in block
+    # HPG is the weakest (negative) non-financial CF → flagged + negative count
+    assert "HPG" in block and "1 mã âm" in block
     assert "cập nhật 2026-06-01" in block
+
+
+def test_vn30_fund_block_excludes_financials_from_risk_rankings():
+    # Banks/securities dominate D/E and Op.CF purely by scale — they must NOT
+    # surface as fundamental risk flags (regression for the "MBB Op.CF -64,972
+    # tỷ" mis-flag). ROE is comparable so it still spans all sectors.
+    funds = {
+        "MBB": {"de": 12.0, "roe": 21.0, "ocf": -64972.0, "updated": "2026-06-01"},
+        "VCB": {"de": 9.5,  "roe": 18.0, "ocf": -50000.0, "updated": "2026-06-01"},
+        "SSI": {"de": 2.0,  "roe": 14.0, "ocf": -9000.0,  "updated": "2026-06-01"},
+        "FPT": {"de": 1.1,  "roe": 25.0, "ocf": 8000.0,   "updated": "2026-06-01"},
+        "HPG": {"de": 1.5,  "roe": 12.0, "ocf": -300.0,   "updated": "2026-06-01"},
+    }
+    block = _vn30_fund_block(funds)
+    # No financial ticker, and crucially not the misleading bank mega-cash-flow
+    assert "-64,972" not in block
+    assert "MBB" not in block and "VCB" not in block and "SSI" not in block
+    # Only non-financials rank → HPG weakest Op.CF, exactly 1 negative
+    assert "HPG" in block and "1 mã âm" in block
+    # ROE median spans all sectors (comparable across financials/non-financials)
+    assert "ROE=" in block
 
 
 def test_vn30_fund_block_empty_when_no_data():

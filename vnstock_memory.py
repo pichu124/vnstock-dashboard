@@ -503,10 +503,16 @@ def open_recommendations() -> list[dict]:
 
 def close_recommendation(
     rec_id: int,
-    exit_price: float,
+    exit_price: Optional[float],
     hit_target: str,
     notes: str = "",
 ) -> None:
+    """Close an open rec with an outcome.
+
+    `exit_price=None` records a non-priced close (e.g. hit_target="stale" for
+    recs we can no longer fetch a price for — delisted tickers, covered
+    warrants); pnl is left NULL so these don't pollute win-rate stats.
+    """
     with _conn() as c:
         rec = c.execute(
             "SELECT entry_price FROM recommendations WHERE id=?", (rec_id,)
@@ -514,7 +520,10 @@ def close_recommendation(
         if not rec:
             return
         entry = float(rec["entry_price"] or 0)
-        pnl_pct = ((exit_price / entry) - 1.0) * 100 if entry > 0 else 0.0
+        if exit_price is None:
+            pnl_pct = None
+        else:
+            pnl_pct = ((exit_price / entry) - 1.0) * 100 if entry > 0 else 0.0
         c.execute(
             "INSERT OR REPLACE INTO rec_outcomes (rec_id, closed_at, exit_price, "
             "pnl_pct, hit_target, notes) VALUES (?,?,?,?,?,?)",
