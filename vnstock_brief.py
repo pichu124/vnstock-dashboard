@@ -790,6 +790,25 @@ def _warehouse_eod_date() -> "str | None":
         return None
 
 
+def _bias_floor_dir(momentum: "int | None", regime_score: "int | None") -> "str | None":
+    """Force a TLDR Bias direction when the headline signals are strongly
+    one-sided and not in conflict.
+
+    Inputs are the two signals shown in the brief header: Tâm lý `momentum`
+    (-100..100) and Regime `score` (signed, out of ~7). Returns "GIẢM", "TĂNG",
+    or None (let the agent decide). Thresholds: momentum ±50 or regime ±3.
+    """
+    bear = (momentum is not None and momentum <= -50) or \
+           (regime_score is not None and regime_score <= -3)
+    bull = (momentum is not None and momentum >= 50) or \
+           (regime_score is not None and regime_score >= 3)
+    if bear and not bull:
+        return "GIẢM"
+    if bull and not bear:
+        return "TĂNG"
+    return None
+
+
 def market_data_freshness(
     data_date: str | None = None,
     overview_path: "str | Path | None" = None,
@@ -835,6 +854,38 @@ def _auto_refresh_market_overview() -> bool:
     except Exception:
         pass
     return False
+
+
+def _maybe_reconcile_overdue() -> int:
+    """Close recommendations past their horizon so the brief doesn't surface
+    zombies (e.g. covered warrants stuck at "ngày 34/5").
+
+    Best-effort: only runs when an overdue open rec exists, so a fresh book
+    costs nothing. Disable with VNSTOCK_BRIEF_AUTO_RECONCILE=0. Returns the
+    number of recs closed.
+    """
+    if os.environ.get("VNSTOCK_BRIEF_AUTO_RECONCILE", "1") == "0":
+        return 0
+    try:
+        import vnstock_memory as _mem
+        now = datetime.now()
+        has_overdue = False
+        for r in _mem.open_recommendations():
+            horizon = int(r.get("horizon_days") or 5)
+            try:
+                age = (now - datetime.fromisoformat(r["created_at"])).days
+            except Exception:
+                age = 0
+            if age > horizon:
+                has_overdue = True
+                break
+        if not has_overdue:
+            return 0
+        from vnstock_train import reconcile_recommendations
+        summary = reconcile_recommendations(verbose=False)
+        return int(summary.get("closed", 0)) + int(summary.get("stale", 0))
+    except Exception:
+        return 0
 
 
 # ── VN30 fundamentals (debt/equity, ROE, operating cash flow) ───────────────
@@ -1224,6 +1275,19 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     except Exception:
         pass
 
+    # 9. Deterministic bias floor from the two headline signals the user sees in
+    # the header (Tâm lý momentum + Regime score) — so the TLDR Bias can't soften
+    # a strongly one-sided market (e.g. momentum -67 → not "Trung tính").
+    _mom = (ctx.get("market_sentiment") or {}).get("momentum")
+    _reg_score = None
+    try:
+        from vnstock_regime import load_regime as _load_reg
+        _reg_score = _load_reg().get("score")
+    except Exception:
+        pass
+    if _fl := _bias_floor_dir(_mom, _reg_score):
+        ctx["bias_floor"] = {"dir": _fl, "momentum": _mom, "regime_score": _reg_score}
+
     return ctx
 
 
@@ -1528,6 +1592,21 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             _b.append(f"- Tránh/Bán: GHI 'Chưa có nhóm tụt hậu rõ rệt' (đóng góp -pp yếu nhất chỉ {_gc:+.3f}pp > -0.05).")
         _b.append("TUYỆT ĐỐI không chọn ngành khác làm dẫn dắt/tụt hậu.")
         lines.append("\n".join(_b))
+
+    # Deterministic bias floor: when the headline signals are strongly one-sided,
+    # the TLDR Bias must follow them (no softening to "Trung tính"/opposite).
+    if bf := ctx.get("bias_floor"):
+        _sig = []
+        if bf.get("momentum") is not None:
+            _sig.append(f"momentum {bf['momentum']:+d}/100")
+        if bf.get("regime_score") is not None:
+            _sig.append(f"regime score {bf['regime_score']:+d}")
+        lines.append(
+            f"\n## 🧭 RÀNG BUỘC BIAS (BẮT BUỘC)\n"
+            f"Tín hiệu tổng hợp một chiều mạnh ({', '.join(_sig) or 'n/a'}). "
+            f"TLDR **Bias BẮT BUỘC = {bf['dir']}** — TUYỆT ĐỐI KHÔNG ghi 'Trung tính' "
+            f"hay chiều ngược lại; kịch bản chính cũng phải theo chiều {bf['dir']}."
+        )
 
     # Market sentiment (tâm lý thị trường) — composite mood from breadth, NN
     # flow, index momentum and news. Emitted high so the agent frames the
@@ -1880,6 +1959,10 @@ def generate_brief(
             "",
             "Không có AI agent nào được bật. Vào ⚙️ Cài đặt Agent → chọn agent và điền API key.",
         )}
+
+    # Close overdue/zombie recs first so the brief's recommendation blocks
+    # reflect the live book (best-effort).
+    _maybe_reconcile_overdue()
 
     ctx = collect_context(brief_type, auto_refresh=True)
 

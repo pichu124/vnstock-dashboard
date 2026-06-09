@@ -14,7 +14,7 @@ from vnstock_brief import (
     agent_accuracy_summary, _load_vn30_fundamentals, _vn30_fund_block,
     build_prompt, _recommendation_block, _fmt_rec_price,
     _augment_with_live_vnindex, market_data_freshness,
-    _auto_refresh_market_overview,
+    _auto_refresh_market_overview, _bias_floor_dir, _maybe_reconcile_overdue,
 )
 
 
@@ -700,3 +700,58 @@ def test_morning_template_anomaly_section_forbids_session_label():
     # …replaced by the honest weekly framing + explicit prohibition.
     section = prompt.split("Biến động bất thường")[1].split("##")[0]
     assert "1 tuần" in section and "KHÔNG ghi" in section
+
+
+# ─── Bias floor (TLDR must follow strongly one-sided signals) ─────────────────
+
+def test_bias_floor_dir_logic():
+    assert _bias_floor_dir(-67, -5) == "GIẢM"
+    assert _bias_floor_dir(-67, None) == "GIẢM"   # momentum alone
+    assert _bias_floor_dir(None, -3) == "GIẢM"    # regime alone
+    assert _bias_floor_dir(60, 4) == "TĂNG"
+    assert _bias_floor_dir(-30, -2) is None       # neither strong → free
+    assert _bias_floor_dir(-60, 4) is None        # conflict → don't force
+
+
+def test_build_prompt_renders_bias_floor():
+    ctx = {"date": "2026-06-09", "time": "11:30",
+           "bias_floor": {"dir": "GIẢM", "momentum": -67, "regime_score": -5}}
+    prompt = build_prompt(ctx, brief_type="morning")
+    assert "RÀNG BUỘC BIAS" in prompt
+    assert "Bias BẮT BUỘC = GIẢM" in prompt
+
+
+def test_build_prompt_no_bias_floor_when_absent():
+    prompt = build_prompt({"date": "2026-06-09", "time": "11:30"},
+                          brief_type="morning")
+    assert "RÀNG BUỘC BIAS" not in prompt
+
+
+# ─── Auto-reconcile overdue/zombie recs before a brief ────────────────────────
+
+def test_maybe_reconcile_noop_when_no_overdue(monkeypatch):
+    import vnstock_brief as vb
+    fresh = (_datetime.now() - _timedelta(days=1)).isoformat()
+    monkeypatch.setattr("vnstock_memory.open_recommendations", lambda: [
+        {"ticker": "FPT", "horizon_days": 5, "created_at": fresh}])
+    assert vb._maybe_reconcile_overdue() == 0
+
+
+def test_maybe_reconcile_runs_when_overdue(monkeypatch):
+    import sys
+    import types
+    import vnstock_brief as vb
+    overdue = (_datetime.now() - _timedelta(days=40)).isoformat()
+    monkeypatch.setattr("vnstock_memory.open_recommendations", lambda: [
+        {"ticker": "CFPT2528", "horizon_days": 5, "created_at": overdue}])
+    fake = types.ModuleType("vnstock_train")
+    fake.reconcile_recommendations = lambda verbose=True: {
+        "closed": 2, "stale": 1, "still_open": 0}
+    monkeypatch.setitem(sys.modules, "vnstock_train", fake)
+    assert vb._maybe_reconcile_overdue() == 3   # closed + stale
+
+
+def test_maybe_reconcile_disabled_by_env(monkeypatch):
+    import vnstock_brief as vb
+    monkeypatch.setenv("VNSTOCK_BRIEF_AUTO_RECONCILE", "0")
+    assert vb._maybe_reconcile_overdue() == 0
