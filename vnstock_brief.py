@@ -254,7 +254,10 @@ Nếu block "VNINDEX kỹ thuật" KHÔNG có → viết "Chưa có dữ liệu 
 Nếu có block "Dòng tiền ngành": nêu RÕ ngành NN MUA RÒNG / BÁN RÒNG mạnh nhất (lấy số "NN ròng", đơn vị tỷ, có dấu +/-). PHÂN BIỆT rõ "NN ròng" (khối ngoại mua-bán ròng) với "GTGD" (thanh khoản/giá trị giao dịch) — TUYỆT ĐỐI KHÔNG gọi GTGD là "dòng tiền vào". Nhận định luân chuyển dòng tiền giữa các ngành dựa trên NN ròng.
 
 ## 📋 Watchlist sáng mai (3 setup cụ thể)
-1. **[Mã/Ngành]** — [BUY ở X / WAIT khi vượt Y / SELL nếu thủng Z] — [trigger 1 dòng]
+CHỈ chọn mã có trong các block phía trên ("VN30 Top Gainers/Losers" hoặc "Khuyến nghị") — TUYỆT ĐỐI KHÔNG dùng/bịa mã ngoài các danh sách đó (vd không tự thêm mã UPCOM/không thuộc VN30).
+Mỗi setup PHẢI neo vào "Giá" THỰC của mã trong data: entry quanh giá hiện tại, TP/SL lệch hợp lý vài %. KHÔNG tự nghĩ ra mức giá; nếu data không có "Giá" cho mã nào thì KHÔNG đưa mã đó vào.
+Ghi rõ chiều lệnh nhất quán: lệnh BUY → TP cao hơn entry, SL thấp hơn; lệnh SELL → ngược lại. Nếu không có mã nào kèm "Giá" → viết "Cần thêm dữ liệu giá cổ phiếu cụ thể".
+1. **[Mã]** (Giá hiện tại [số] từ data) — [BUY/SELL ở X / chốt lời Y / cắt lỗ Z] — [trigger 1 dòng]
 2. ...
 3. ...
 
@@ -1001,10 +1004,14 @@ def collect_context(brief_type: str = "morning") -> dict:
             price_col = "Giá 1T %" if "Giá 1T %" in tick_df.columns else None
             if price_col and "Mã" in tick_df.columns:
                 vn30_df = tick_df[tick_df["Mã"].isin(VN30_TICKERS)].dropna(subset=[price_col])
+                # Keep absolute last price ("last") so the prompt can anchor
+                # watchlist entry/TP/SL to a REAL price instead of hallucinating.
+                _cols = ["Mã", price_col, "Ngành"] + (
+                    ["last"] if "last" in vn30_df.columns else [])
                 ctx["vn30_gainers"] = vn30_df.nlargest(5, price_col)[
-                    ["Mã", price_col, "Ngành"]].to_dict("records") if not vn30_df.empty else []
+                    _cols].to_dict("records") if not vn30_df.empty else []
                 ctx["vn30_losers"] = vn30_df.nsmallest(5, price_col)[
-                    ["Mã", price_col, "Ngành"]].to_dict("records") if not vn30_df.empty else []
+                    _cols].to_dict("records") if not vn30_df.empty else []
         except Exception:
             pass
 
@@ -1485,12 +1492,16 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         ticker = g.get("Mã", "?")
         ret    = g.get("Giá 1T %", 0)
         sector = g.get("Ngành", "")
+        price  = g.get("last")
         contrib = next(
             (s.get("_1d_contrib", 0) or 0
              for s in _ts.get(sector, []) if s.get("Mã") == ticker),
             0.0,
         )
         line = f"- {ticker} {ret:+.1f}% [{sector}]"
+        if price not in (None, "") and not (isinstance(price, float) and price != price):
+            # "last" is in thousand VND → render absolute VND as the watchlist anchor.
+            line += f" | Giá {float(price) * 1000:,.0f}"
         if contrib != 0:
             line += f" ≈ {contrib:+.3f}pp VNI"
         return line

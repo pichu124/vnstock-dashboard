@@ -287,6 +287,25 @@ def test_build_prompt_includes_fundamentals_block():
     assert "D/E" in prompt
 
 
+def test_build_prompt_movers_carry_absolute_price():
+    # Watchlist setups must anchor to a REAL price — the movers block has to
+    # surface the absolute price (in VND), not just the % change. "last" is
+    # stored in thousand VND, so 124.0 → "124,000".
+    ctx = {
+        "date": "2026-06-08",
+        "time": "15:00",
+        "vn30_gainers": [
+            {"Mã": "FPT", "Giá 1T %": 1.5, "Ngành": "Công nghệ", "last": 124.0},
+        ],
+        "vn30_losers": [
+            {"Mã": "TCB", "Giá 1T %": -2.0, "Ngành": "Ngân hàng", "last": 27.0},
+        ],
+    }
+    prompt = build_prompt(ctx, brief_type="afternoon")
+    assert "FPT" in prompt and "Giá 124,000" in prompt
+    assert "TCB" in prompt and "Giá 27,000" in prompt
+
+
 # ─── Market sentiment (tâm lý thị trường) ─────────────────────────────────────
 
 def test_compute_market_sentiment_bullish():
