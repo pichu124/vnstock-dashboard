@@ -7,10 +7,13 @@ from datetime import date as _date
 import pandas as pd
 import pytest
 
+from datetime import datetime as _datetime, timedelta as _timedelta
+
 from vnstock_brief import (
     _detect_stance, _extract_section, evaluate_brief_accuracy,
     agent_accuracy_summary, _load_vn30_fundamentals, _vn30_fund_block,
-    build_prompt,
+    build_prompt, _recommendation_block, _fmt_rec_price,
+    _augment_with_live_vnindex,
 )
 
 
@@ -424,3 +427,102 @@ def test_build_prompt_includes_market_sentiment():
     prompt = build_prompt(ctx, brief_type="afternoon")
     assert "Tâm lý thị trường" in prompt
     assert "momentum" in prompt
+
+
+# ─── Recommendation block: overdue filtering + price precision ─────────────────
+
+def test_fmt_rec_price_adaptive_precision():
+    assert _fmt_rec_price(113.0) == "113"
+    assert _fmt_rec_price(13.0) == "13"
+    assert _fmt_rec_price(1.23) == "1.23"
+    assert _fmt_rec_price(0.39) == "0.390"
+    assert _fmt_rec_price(0) == "0"
+
+
+def test_recommendation_block_excludes_overdue_and_keeps_precision(monkeypatch):
+    now = _datetime.now()
+    fresh   = (now - _timedelta(days=2)).isoformat()
+    overdue = (now - _timedelta(days=34)).isoformat()
+    monkeypatch.setattr("vnstock_memory.open_recommendations", lambda: [
+        {"ticker": "FPT", "action": "buy", "entry_price": 124.0,
+         "take_profit": 130.0, "cut_loss": 120.0, "horizon_days": 5,
+         "created_at": fresh},
+        {"ticker": "CWX", "action": "buy", "entry_price": 0.78,
+         "take_profit": 0.94, "cut_loss": 0.69, "horizon_days": 5,
+         "created_at": fresh},
+        {"ticker": "CFPT2528", "action": "buy", "entry_price": 0.78,
+         "take_profit": 0.94, "cut_loss": 0.69, "horizon_days": 5,
+         "created_at": overdue},
+    ])
+    block = _recommendation_block()
+    assert "FPT" in block and "entry=124" in block
+    # Low-priced instrument keeps decimals instead of collapsing to entry=1
+    assert "CWX" in block and "entry=0.780" in block
+    # Overdue rec is NOT re-surfaced as a fresh actionable buy
+    assert "CFPT2528" not in block
+
+
+def test_recommendation_block_empty_when_all_overdue(monkeypatch):
+    overdue = (_datetime.now() - _timedelta(days=40)).isoformat()
+    monkeypatch.setattr("vnstock_memory.open_recommendations", lambda: [
+        {"ticker": "KSF", "action": "buy", "entry_price": 113.0,
+         "take_profit": 129.0, "cut_loss": 105.0, "horizon_days": 5,
+         "created_at": overdue},
+    ])
+    assert _recommendation_block() == ""
+
+
+# ─── Live intraday VNINDEX augmentation (morning brief uses today's session) ──
+
+def test_augment_with_live_vnindex_folds_today_bar(tmp_path):
+    today = _date.today()
+    hist = pd.DataFrame({
+        "time":  pd.to_datetime([today - _timedelta(days=2), today - _timedelta(days=1)]),
+        "open":  [1800.0, 1795.0], "high": [1810.0, 1800.0],
+        "low":   [1790.0, 1788.0], "close": [1795.0, 1790.5], "volume": [1, 1],
+    })
+    live = pd.DataFrame({
+        "ticker": ["VNINDEX", "VNINDEX", "FPT"],
+        "time":   pd.to_datetime([f"{today} 09:15", f"{today} 11:25", f"{today} 10:00"]),
+        "open":   [1790.0, 1788.0, 100.0], "high": [1792.0, 1789.0, 101.0],
+        "low":    [1785.0, 1782.0, 99.0],  "close": [1788.0, 1783.4, 100.5],
+        "volume": [1000, 2000, 50],
+    })
+    live.to_parquet(tmp_path / f"bars_{today.isoformat()}.parquet")
+    out = _augment_with_live_vnindex(hist, live_dir=tmp_path, today=today)
+    assert out.attrs.get("intraday") is True
+    assert pd.to_datetime(out["time"]).dt.date.max() == today
+    # Provisional bar: close = last live VNINDEX close (FPT ignored)
+    assert float(out["close"].iloc[-1]) == pytest.approx(1783.4)
+    assert float(out["high"].iloc[-1]) == pytest.approx(1792.0)
+
+
+def test_augment_with_live_vnindex_noop_without_file(tmp_path):
+    today = _date.today()
+    hist = pd.DataFrame({"time": pd.to_datetime([today - _timedelta(days=1)]),
+                         "close": [1790.5]})
+    out = _augment_with_live_vnindex(hist, live_dir=tmp_path, today=today)
+    assert out.attrs.get("intraday", False) is False
+    assert len(out) == 1
+
+
+def test_augment_with_live_vnindex_skips_when_today_already_present(tmp_path):
+    today = _date.today()
+    live = pd.DataFrame({
+        "ticker": ["VNINDEX"], "time": pd.to_datetime([f"{today} 09:15"]),
+        "open": [1.0], "high": [1.0], "low": [1.0], "close": [1788.0], "volume": [1],
+    })
+    live.to_parquet(tmp_path / f"bars_{today.isoformat()}.parquet")
+    hist = pd.DataFrame({"time": pd.to_datetime([today]), "close": [1790.5]})
+    out = _augment_with_live_vnindex(hist, live_dir=tmp_path, today=today)
+    assert out.attrs.get("intraday", False) is False
+    assert len(out) == 1
+
+
+def test_build_prompt_marks_intraday_vnindex():
+    ctx = {"date": str(_date.today()), "time": "11:30",
+           "vnindex_tech": {"close": 1788.0, "prev_close": 1790.5,
+                            "day_change_pct": -0.14, "intraday": True}}
+    prompt = build_prompt(ctx, brief_type="morning")
+    assert "PHIÊN ĐANG DIỄN RA" in prompt
+    assert "Giá hiện tại" in prompt

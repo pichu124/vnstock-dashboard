@@ -177,13 +177,14 @@ Viết MORNING BRIEF tiếng Việt theo đúng format sau (không thêm phần 
 
 ## 📊 Tổng quan phiên sáng
 [2-3 câu: diễn biến chính, GTGD vs bình thường (có % so trung bình 5 phiên nếu data có), tính chất phiên (institutional vs retail dựa vào GTGD/độ rộng)]
+Dùng "GTGD sáng" trong data cho brief sáng và so sánh ĐỒNG DẠNG (sáng-với-sáng), KHÔNG so GTGD nửa phiên sáng với trung bình cả ngày. Ghi GTGD có dấu phân tách nghìn (vd "9.650,4 tỷ").
 BẮT BUỘC nếu có block "Tâm lý thị trường": nêu RÕ nhãn tâm lý + điểm momentum (vd "Tâm lý: 📈 Tích cực, momentum +34/100") và hàm ý cho phiên chiều.
 
 ## 📈 Mức kỹ thuật quan trọng (VNINDEX)
 TRÍCH XUẤT TỪ block "## VNINDEX kỹ thuật" — KHÔNG BỊA, KHÔNG dùng số trong training data.
 **Đóng cửa hiện tại:** [chính xác con số `close` trong data, ví dụ "1.815,42"]
-**Hỗ trợ gần:** [S1 và S2 từ Pivots — ghi cả số tuyệt đối]
-**Kháng cự gần:** [R1 và R2 từ Pivots]
+**Hỗ trợ gần:** [S1 (gần giá nhất) TRƯỚC, rồi S2 — ghi cả số tuyệt đối, đúng thứ tự S1 < ... < giá]
+**Kháng cự gần:** [R1 (gần giá nhất) trước, rồi R2]
 **Vị trí so với MA:** [chính xác số MA20/MA50/MA200 + % cách giá hiện tại từ data]
 **Trigger breakout:** [vượt R1 → test R2; thủng S1 → về S2 — viết theo SỐ đã cho]
 Nếu block "VNINDEX kỹ thuật" KHÔNG có trong data → viết "Chưa có dữ liệu VNINDEX hôm nay" (không bịa).
@@ -192,14 +193,17 @@ Nếu block "VNINDEX kỹ thuật" KHÔNG có trong data → viết "Chưa có d
 **Tích luỹ/Mua:** [ngành hoặc mã VN30 + lý do cụ thể từ data — nêu trọng số %VNI và đóng góp pp]
 **Tránh/Bán:** [ngành hoặc mã VN30 + lý do cụ thể]
 **Theo dõi:** [rotation/stealth nếu có, bỏ dòng này nếu không có tín hiệu]
+KHÔNG gọi "tích luỹ/mua" nếu tín hiệu quá yếu (đóng góp |pp| < 0.05 hoặc biến động không đáng kể) — khi không có ngành/mã đủ mạnh, viết thẳng "Chưa có nhóm dẫn dắt rõ ràng".
 Nếu có block "VN30 Cơ bản": có thể dẫn 1 chỉ số cơ bản (D/E cao / Op.CF âm / ROE) để củng cố lý do tránh/mua, KHÔNG bịa số.
 
 ## ⚡ Biến động bất thường
 [Mã/ngành tăng giảm đột biến + giải thích + BẮT BUỘC ghi rõ khung thời gian (ví dụ: "VIC -3.2% phiên sáng", "PLX -8.8% trong 5 phiên", "ACB +4.1% so với đóng cửa hôm qua"); "Không có biến động bất thường đáng chú ý" nếu phẳng]
 
 ## 🔮 Kịch bản phiên chiều
-**Kịch bản chính ([X]% xác suất):** [điều kiện kích hoạt CỤ THỂ với mức giá/chỉ số — ví dụ "VNINDEX giữ trên 1.245, bank giữ đà → kỳ vọng đóng cửa +0.4-0.8%"]
-**Kịch bản phụ:** [điều kiện ngược + ngưỡng cắt lỗ/đứng ngoài — ví dụ "VHM thủng 42.5 + GTGD chiều >70% sáng → áp lực phân phối, chuyển sang phòng thủ"]
+Kịch bản CHÍNH phải NHẤT QUÁN với Bias ở TLDR: Bias GIẢM → kịch bản chính nghiêng giảm/đi ngang (KHÔNG được là kịch bản tăng); Bias TĂNG → ngược lại. Mọi mức giá/chỉ số PHẢI lấy từ block kỹ thuật của data — TUYỆT ĐỐI KHÔNG chép số hay cụm "ngân hàng giữ đà"/"bank giữ đà" từ mẫu cấu trúc dưới, KHÔNG bịa mã/ngành dẫn dắt nếu data không có.
+**Kịch bản chính ([X]% xác suất):** [điều kiện kích hoạt = mức S/R thực từ data + tín hiệu xác nhận → hệ quả % đóng cửa ĐÚNG chiều Bias]
+**Kịch bản phụ:** [điều kiện ngược lại + ngưỡng hành động phòng thủ/đứng ngoài]
+(Mẫu CẤU TRÚC, không phải số để dùng: "VNINDEX [giữ trên/thủng] [mức S hoặc R từ data] + [tín hiệu] → [hệ quả đóng cửa]")
 
 ## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)
 [Liệt kê tối đa 3 mã từ block "Khuyến nghị từ chiến lược đã backtest" với entry/TP/SL]
@@ -1073,6 +1077,75 @@ def collect_context(brief_type: str = "morning") -> dict:
     return ctx
 
 
+def _augment_with_live_vnindex(
+    df: "pd.DataFrame",
+    *,
+    live_dir: "Path | None" = None,
+    today: "date | None" = None,
+) -> "pd.DataFrame":
+    """Fold today's live 1m VNINDEX bars into a provisional current-day bar.
+
+    The daily VNINDEX parquet is EOD-only (written by vnstock_updater); the live
+    rollup deliberately SKIPS indices (vnstock_rollup._should_rollup_to_warehouse
+    excludes VNINDEX). So a morning/intraday brief would otherwise always
+    describe the PRIOR session even after live capture ran. When today's WSS
+    capture is active, data_warehouse/_live/bars_{today}.parquet holds 1m
+    VNINDEX bars — aggregate them into one daily OHLC row so the brief reflects
+    the in-progress session. Marks df.attrs["intraday"]=True. Best-effort:
+    returns df unchanged on any problem.
+    """
+    import pandas as pd
+    try:
+        today = today or date.today()
+        # Already have today's bar (post-EOD update) → nothing to add.
+        if not df.empty and "time" in df.columns:
+            last_date = pd.to_datetime(df["time"]).dt.date.max()
+            if last_date is not None and last_date >= today:
+                return df
+
+        base = Path(live_dir) if live_dir else (
+            Path(__file__).parent / "data_warehouse" / "_live")
+        live_path = base / f"bars_{today.isoformat()}.parquet"
+        if not live_path.exists():
+            return df
+        try:
+            import pyarrow.parquet as _pq
+            bars = _pq.read_table(str(live_path)).to_pandas()
+        except Exception:
+            return df
+        if bars.empty or "ticker" not in bars.columns or "close" not in bars.columns:
+            return df
+
+        bars["ticker"] = bars["ticker"].astype(str).str.upper()
+        vni = bars[bars["ticker"].isin({"VNINDEX", "VN-INDEX", "^VNINDEX"})].copy()
+        if vni.empty or "time" not in vni.columns:
+            return df
+        vni["time"] = pd.to_datetime(vni["time"])
+        vni = vni[vni["time"].dt.date == today].sort_values("time")
+        if vni.empty:
+            return df
+
+        c = float(vni["close"].iloc[-1])
+        o = float(vni["open"].iloc[0]) if "open" in vni.columns else c
+        h = float(vni["high"].max()) if "high" in vni.columns else float(vni["close"].max())
+        l = float(vni["low"].min())  if "low"  in vni.columns else float(vni["close"].min())
+        v = int(vni["volume"].sum()) if "volume" in vni.columns else 0
+        # Same unit normalisation as the daily reader (index never > 5000 pts).
+        if c > 5000:
+            o, h, l, c = o / 1000, h / 1000, l / 1000, c / 1000
+        if not (c > 0):
+            return df
+
+        row = {"time": pd.Timestamp(today), "open": o, "high": h,
+               "low": l, "close": c, "volume": v}
+        out = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+        out = out.sort_values("time").reset_index(drop=True)
+        out.attrs["intraday"] = True
+        return out
+    except Exception:
+        return df
+
+
 def _load_vnindex_df() -> "pd.DataFrame":
     """Read VNINDEX price history directly from parquet — no Streamlit cache.
 
@@ -1135,7 +1208,7 @@ def _load_vnindex_df() -> "pd.DataFrame":
         df = _df
         break
 
-    return df
+    return _augment_with_live_vnindex(df)
 
 
 def _vnindex_technicals() -> dict:
@@ -1250,6 +1323,9 @@ def _vnindex_technicals() -> dict:
             # to set the "effective" brief date when today has no data yet
             # (e.g. early morning before market opens, or weekends).
             "data_date": df.loc[df["close"].notna(), "time"].iloc[-1].date().isoformat(),
+            # True when the last bar is a provisional intraday bar folded in from
+            # today's live WSS capture (session not yet closed).
+            "intraday": bool(df.attrs.get("intraday", False)),
         }
     except Exception:
         return {}
@@ -1301,9 +1377,13 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         def _f(v) -> str:
             return f"{v:,.2f}" if isinstance(v, (int, float)) else "—"
 
-        vt_lines = ["\n## VNINDEX kỹ thuật (số liệu hiện tại — DÙNG CHÍNH XÁC, KHÔNG ĐƯỢC THAY)"]
+        _intraday_tag = (
+            " — ⚠️ PHIÊN ĐANG DIỄN RA (dữ liệu intraday, CHƯA chốt phiên)"
+            if vt.get("intraday") else ""
+        )
+        vt_lines = [f"\n## VNINDEX kỹ thuật (số liệu hiện tại — DÙNG CHÍNH XÁC, KHÔNG ĐƯỢC THAY){_intraday_tag}"]
         vt_lines.append(
-            f"- Giá đóng cửa: **{_f(vt.get('close'))}** "
+            f"- {'Giá hiện tại' if vt.get('intraday') else 'Giá đóng cửa'}: **{_f(vt.get('close'))}** "
             f"(prev {_f(vt.get('prev_close'))}, "
             f"thay đổi phiên {vt.get('day_change_pct', 0):+.2f}%)"
         )
@@ -1362,9 +1442,9 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             morn_gtgd = ss.get("9h-11h30", {}).get("VNINDEX", {}).get("gtgd", 0)
             full_gtgd = ss.get("9h-15h",  {}).get("VNINDEX", {}).get("gtgd", 0)
             if morn_gtgd:
-                line += f"\nGTGD sáng: {morn_gtgd:.1f} tỷ"
+                line += f"\nGTGD sáng: {morn_gtgd:,.1f} tỷ"
             if full_gtgd:
-                line += f" | GTGD cả ngày: {full_gtgd:.1f} tỷ"
+                line += f" | GTGD cả ngày: {full_gtgd:,.1f} tỷ"
         lines.append(line)
     else:
         lines.append(
@@ -1856,25 +1936,57 @@ def _news_block(max_items: int = 15) -> str:
         return ""
 
 
+def _fmt_rec_price(p: float) -> str:
+    """Format a rec price (thousand VND) with adaptive precision.
+
+    Integer thousands collapse low-priced instruments (CW, penny) and distort
+    the implied TP/SL %, so keep decimals when the price is small.
+    """
+    a = abs(p)
+    if a == 0:
+        return "0"
+    if a < 1:
+        return f"{p:,.3f}"
+    if a < 10:
+        return f"{p:,.2f}"
+    return f"{p:,.0f}"
+
+
 def _recommendation_block() -> str:
-    """Insert open recommendations from validated strategies."""
+    """Insert open recommendations from validated strategies.
+
+    Overdue recs (held longer than their horizon) are excluded — they should be
+    reconciled/closed, not re-surfaced as fresh actionable buys.
+    """
     try:
         import vnstock_memory as _mem
         recs = _mem.open_recommendations()
         if not recs:
             return ""
+        _now = datetime.now()
+        fresh = []
+        for r in recs:
+            horizon = int(r.get("horizon_days") or 5)
+            try:
+                age = (_now - datetime.fromisoformat(r["created_at"])).days
+            except Exception:
+                age = 0
+            if age <= horizon:
+                fresh.append(r)
+        if not fresh:
+            return ""
         lines = ["\n## Khuyến nghị từ chiến lược đã backtest (tự sinh)"]
-        for r in recs[:5]:
+        for r in fresh[:5]:
             entry = float(r.get("entry_price") or 0)
             tp    = float(r.get("take_profit") or 0)
             sl    = float(r.get("cut_loss") or 0)
             line = f"- {r['ticker']} {r['action'].upper()}"
             if entry > 0:
-                line += f" entry={entry:,.0f}"
+                line += f" entry={_fmt_rec_price(entry)}"
             if tp > 0:
-                line += f" TP={tp:,.0f}"
+                line += f" TP={_fmt_rec_price(tp)}"
             if sl > 0:
-                line += f" SL={sl:,.0f}"
+                line += f" SL={_fmt_rec_price(sl)}"
             if r.get("rationale"):
                 line += f" — {r['rationale'][:80]}"
             lines.append(line)
