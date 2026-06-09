@@ -245,9 +245,9 @@ BẮT BUỘC nếu có block "Tâm lý thị trường": nêu RÕ nhãn tâm lý
 ## 📈 Mức kỹ thuật chốt phiên (VNINDEX)
 TRÍCH XUẤT TỪ block "## VNINDEX kỹ thuật" — KHÔNG BỊA.
 **Đóng cửa:** [chính xác `close` từ data, ví dụ "1.815,42 (+0,38%)"]
-**Vị trí trong range:** [đóng cửa nằm ở đâu trong range tuần/tháng — viết theo SỐ]
+**Vị trí trong range:** [LẤY ĐÚNG dòng "Vị trí range tuần" trong block kỹ thuật (đã tính sẵn %+nhãn) — KHÔNG tự suy "nửa trên/dưới"]
 **Vs MA:** [BẮT BUỘC nêu ĐỦ CẢ BA — MA20, MA50, MA200 — trên/dưới + khoảng cách % theo data. KHÔNG được bỏ MA nào.]
-**Trigger ngày mai:** [vượt R1=[số] → test R2=[số]; thủng S1=[số] → về S2=[số]]
+**Trigger ngày mai:** [BẮT BUỘC nêu CẢ HAI chiều, trung tính (KHÔNG phải setup Stance): "vượt R1=[số] → test R2=[số]; thủng S1=[số] → về S2=[số]"]
 Nếu block "VNINDEX kỹ thuật" KHÔNG có → viết "Chưa có dữ liệu VNINDEX hôm nay".
 
 ## 🏆 Dẫn dắt & Tụt hậu
@@ -271,7 +271,7 @@ CHIỀU LỆNH — chọn ĐÚNG 1 trong 2 mẫu, mốc giá phải đúng thứ
 
 ## ⚠️ Rủi ro cần lưu ý
 [Red flags, distribution, macro risk với mức cảnh báo cụ thể; "Không có rủi ro đặc biệt" nếu thị trường ổn]
-Nếu có block "VN30 Cơ bản": nêu 1 điểm rủi ro cơ bản cụ thể từ data đó (mã D/E cao nhất hoặc mã Op.CF âm), KHÔNG bịa số. Gọi ĐÚNG tên ngành của chính mã đó — KHÔNG gán nhầm sang ngành dẫn dắt/tụt hậu đã nêu phía trên. Block đã loại ngân hàng/chứng khoán/bảo hiểm khỏi xếp hạng D/E & dòng tiền (đặc thù ngành), nên đừng coi đòn bẩy/dòng tiền của nhóm tài chính là rủi ro bất thường.
+Nếu có block "VN30 Cơ bản": CHỈ nêu rủi ro cơ bản bằng mã CÓ TRONG block đó, kèm SỐ THẬT (mã D/E cao nhất hoặc mã Op.CF thấp nhất/âm). TUYỆT ĐỐI KHÔNG dẫn mã ngoài block / ngoài VN30 (vd VCK và các mã chứng khoán không thuộc VN30), KHÔNG bịa số, KHÔNG gán rủi ro sang ngành dẫn dắt/tụt hậu đã nêu phía trên. Block đã loại ngân hàng/chứng khoán/bảo hiểm khỏi xếp hạng D/E & dòng tiền (đặc thù ngành) — nên KHÔNG nêu nhóm tài chính làm rủi ro đòn bẩy/dòng tiền. Nếu block không có mã đáng lưu ý → nêu rủi ro vĩ mô/kỹ thuật, KHÔNG dẫn mã ngoài data.
 
 ## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)
 [Liệt kê tối đa 3 mã với entry/TP/SL từ block "Khuyến nghị"]
@@ -1657,6 +1657,15 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             f"Tuần: {_f(vt.get('week_low'))} – {_f(vt.get('week_high'))} | "
             f"Tháng: {_f(vt.get('month_low'))} – {_f(vt.get('month_high'))}"
         )
+        # Pre-compute where close sits in the weekly range so the agent doesn't
+        # mis-state "nửa trên/dưới" (observed: 18.7% mislabelled "nửa trên").
+        _wl, _wh, _cl = vt.get("week_low"), vt.get("week_high"), vt.get("close")
+        if all(isinstance(x, (int, float)) for x in (_wl, _wh, _cl)) and _wh > _wl:
+            _pos = (_cl - _wl) / (_wh - _wl) * 100
+            _zone = ("gần đáy" if _pos < 33 else "gần đỉnh" if _pos > 67 else "giữa")
+            vt_lines.append(
+                f"- Vị trí range tuần: {_pos:.0f}% (0%=đáy, 100%=đỉnh) → {_zone} range"
+            )
         vt_lines.append(
             f"- 52w: {_f(vt.get('low_52w'))} – {_f(vt.get('high_52w'))}"
         )

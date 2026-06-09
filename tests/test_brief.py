@@ -848,3 +848,31 @@ def test_data_gap_guard_forbids_already_present_data_both_templates():
         p = build_prompt({"date": "2026-06-09", "time": "15:00"}, brief_type=bt)
         assert "TÂM LÝ/momentum" in p
         assert "dòng tiền khối ngoại/NN ròng" in p
+
+
+def test_afternoon_risk_only_uses_block_tickers_not_outside_vn30():
+    # #1: risk section must use only VN30-fundamentals tickers, never cite a
+    # ticker outside the data (e.g. the non-VN30 securities ticker VCK).
+    prompt = build_prompt({"date": "2026-06-09", "time": "15:00"},
+                          brief_type="afternoon")
+    assert "CHỈ nêu rủi ro cơ bản bằng mã CÓ TRONG block" in prompt
+    assert "KHÔNG dẫn mã ngoài block / ngoài VN30 (vd VCK" in prompt
+
+
+def test_build_prompt_precomputes_weekly_range_position():
+    # #2: position in the weekly range is computed, not left to the LLM.
+    # close 1793.05 in [1780.71, 1846.71] → ~18.7% → "gần đáy".
+    ctx = {"date": "2026-06-09", "time": "15:00",
+           "vnindex_tech": {"close": 1793.05, "week_low": 1780.71,
+                            "week_high": 1846.71, "day_low": 1790.0,
+                            "day_high": 1800.0}}
+    prompt = build_prompt(ctx, brief_type="afternoon")
+    assert "Vị trí range tuần: 19%" in prompt   # round(18.7) = 19
+    assert "gần đáy range" in prompt
+
+
+def test_afternoon_trigger_stays_two_directional():
+    # #3: "Trigger ngày mai" must keep both directions, separate from Stance.
+    prompt = build_prompt({"date": "2026-06-09", "time": "15:00"},
+                          brief_type="afternoon")
+    assert "BẮT BUỘC nêu CẢ HAI chiều" in prompt
