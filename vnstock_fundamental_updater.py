@@ -354,9 +354,19 @@ def _annual_operating_cf(df: "pd.DataFrame") -> float | None:
             present = [y for y in yrs if y is not None]
             complete = [y for y in present if y < cur]   # exclude in-progress year
             target = max(complete) if complete else max(present)
-            vals = [v for i, y in enumerate(yrs)
-                    if y == target
-                    and (v := _operating_cf_from_row(df.iloc[i])) is not None]
+
+            # VCI mixes a pure-year annual row ("2025") with quarterly rows
+            # ("2025-Q1"…). Prefer the single annual row to avoid double-counting
+            # (annual + 4 quarters = 2×); only sum quarters when no annual row.
+            def _is_pure_year(v) -> bool:
+                return bool(_re.fullmatch(r"\s*(?:19|20)\d{2}(?:\.0)?\s*", str(v)))
+
+            target_idx = [i for i, y in enumerate(yrs) if y == target]
+            annual_idx = [i for i in target_idx
+                          if _is_pure_year(df.iloc[i][period_col])]
+            use_idx = annual_idx or target_idx
+            vals = [v for i in use_idx
+                    if (v := _operating_cf_from_row(df.iloc[i])) is not None]
             return sum(vals) if vals else None
 
     row = _latest_row(df)

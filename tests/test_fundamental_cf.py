@@ -52,6 +52,19 @@ def test_quarterly_sums_last_complete_year_only():
     assert val > 0
 
 
+def test_mixed_annual_and_quarterly_prefers_annual_row():
+    # FPT's real shape: a pure-year annual row ("2025") PLUS the 4 quarterly rows
+    # of that year PLUS a partial current-year quarter. Must return the annual
+    # row only — not annual + 4 quarters (≈ 2×), and not the partial quarter.
+    df = pd.DataFrame({
+        "report_period": [f"{_CUR}-Q1",
+                          f"{_CUR-1}-Q4", f"{_CUR-1}-Q3", f"{_CUR-1}-Q2", f"{_CUR-1}-Q1",
+                          str(_CUR - 1)],
+        _OCF: [-2847.8e9, 4108.5e9, 4344.0e9, 4190.5e9, -2506.9e9, 10136.0e9],
+    })
+    assert _annual_operating_cf(df) == pytest.approx(10136.0e9)
+
+
 def test_no_parseable_year_falls_back_to_latest_row():
     # Integer period-ids (no year) → can't determine the year → latest row.
     df = pd.DataFrame({
