@@ -322,6 +322,16 @@ def test_afternoon_watchlist_splits_direction_and_forbids_short_entry():
     assert "GIẢM TỶ TRỌNG/TRÁNH nếu thủng" in prompt
 
 
+def test_afternoon_watchlist_caps_at_real_priced_vn30_tickers():
+    # Must not pad to 3 with price-less / non-VN30 placeholders (e.g. "TCX —
+    # Giá không có"); fewer setups is fine.
+    prompt = build_prompt({"date": "2026-06-09", "time": "15:00"},
+                          brief_type="afternoon")
+    assert "TỐI ĐA 3 setup" in prompt
+    assert "KHÔNG độn cho đủ 3" in prompt
+    assert 'KHÔNG thêm dòng kiểu "Giá không có' in prompt
+
+
 # ─── Market sentiment (tâm lý thị trường) ─────────────────────────────────────
 
 def test_compute_market_sentiment_bullish():
