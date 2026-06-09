@@ -37,5 +37,18 @@ def test_annual_uses_latest_complete_year():
     assert val == pytest.approx(5000e9)   # latest year, not a sum
 
 
+def test_quarterly_detected_by_rowcount_when_period_has_no_year():
+    # report_period is an integer period-id (no parseable year) — FPT's real
+    # case. >12 rows ⇒ sub-annual ⇒ TTM = sum of the 4 most recent rows.
+    n = 41
+    df = pd.DataFrame({
+        "report_period": list(range(n, 0, -1)),  # 41, 40, … 1 (already desc)
+        _OCF: [-2847.8e9, 4000e9, 1500e9, 1000e9] + [100e9] * (n - 4),
+    })
+    val = _annual_operating_cf(df)
+    assert val == pytest.approx((-2847.8 + 4000 + 1500 + 1000) * 1e9)
+    assert val > 0
+
+
 def test_empty_returns_none():
     assert _annual_operating_cf(pd.DataFrame()) is None

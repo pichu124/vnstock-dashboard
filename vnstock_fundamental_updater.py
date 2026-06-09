@@ -338,17 +338,26 @@ def _annual_operating_cf(df: "pd.DataFrame") -> float | None:
             break
 
     sdf = df
-    quarterly = False
     if period_col is not None:
         try:
             sdf = df.sort_values(period_col, ascending=False)
         except Exception:
             sdf = df
+
+    # Detect quarterly: a fiscal year repeated across rows. If report_period
+    # carries no parseable year (e.g. integer period-ids), fall back to row count
+    # — a financial statement with >12 rows is far too long to be annual for a
+    # VN-listed company, so it must be sub-annual.
+    quarterly = False
+    years = []
+    if period_col is not None:
         years = [m.group() for v in sdf[period_col]
                  if (m := _re.search(r"(?:19|20)\d{2}", str(v)))]
-        if years:
-            from collections import Counter
-            quarterly = max(Counter(years).values()) >= 2
+    if years:
+        from collections import Counter
+        quarterly = max(Counter(years).values()) >= 2
+    elif len(sdf) > 12:
+        quarterly = True
 
     if quarterly:
         vals = [v for _, row in sdf.head(4).iterrows()
@@ -681,6 +690,16 @@ def diag(ticker: str):
                     except Exception:
                         rv_ty = "—"
                     console.print(f"    • {cs}  =  {rv_ty}")
+
+        # Show report_period values + the annual/TTM decision so we can see the
+        # granularity (year vs quarter) the matcher is working with.
+        pc = next((c for c in _cf_df.columns
+                   if "report_period" in str(c).lower()), None)
+        if pc is not None:
+            console.print(f"\n  [dim]report_period (head 8): "
+                          f"{list(_cf_df[pc].head(8))}[/dim]")
+            console.print(f"  [dim]_annual_operating_cf (TTM/năm) = "
+                          f"{_annual_operating_cf(_cf_df)} VND[/dim]")
     except Exception:
         pass
 
