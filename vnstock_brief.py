@@ -271,7 +271,7 @@ CHIỀU LỆNH — chọn ĐÚNG 1 trong 2 mẫu, mốc giá phải đúng thứ
 
 ## ⚠️ Rủi ro cần lưu ý
 [Red flags, distribution, macro risk với mức cảnh báo cụ thể; "Không có rủi ro đặc biệt" nếu thị trường ổn]
-Nếu có block "VN30 Cơ bản": CHỈ nêu rủi ro cơ bản bằng mã CÓ TRONG block đó, kèm SỐ THẬT (mã D/E cao nhất hoặc mã Op.CF thấp nhất/âm). TUYỆT ĐỐI KHÔNG dẫn mã ngoài block / ngoài VN30 (vd VCK và các mã chứng khoán không thuộc VN30), KHÔNG bịa số, KHÔNG gán rủi ro sang ngành dẫn dắt/tụt hậu đã nêu phía trên. Block đã loại ngân hàng/chứng khoán/bảo hiểm khỏi xếp hạng D/E & dòng tiền (đặc thù ngành) — nên KHÔNG nêu nhóm tài chính làm rủi ro đòn bẩy/dòng tiền. Nếu block không có mã đáng lưu ý → nêu rủi ro vĩ mô/kỹ thuật, KHÔNG dẫn mã ngoài data.
+Nếu có block "VN30 Cơ bản": CHỈ nêu rủi ro cơ bản bằng mã lấy TỪ dòng "Đòn bẩy cao nhất (D/E)" hoặc "Lưu chuyển tiền HĐKD thấp nhất" trong block, và PHẢI ghi kèm CON SỐ copy ĐÚNG từ block (vd "VJC D/E=2.63", "X Op.CF=−Y tỷ"). TUYỆT ĐỐI KHÔNG: (a) dẫn mã ngoài block/ngoài VN30 (vd VCK); (b) nói "cần thêm dữ liệu/chỉ số" — số ĐÃ có trong block; (c) gọi "Op.CF âm" cho mã có Op.CF ≥ 0 (chỉ ghi "âm" khi số THỰC < 0, còn lại ghi "Op.CF thấp"); (d) gán rủi ro sang ngành dẫn dắt/tụt hậu. Ngân hàng/CK/bảo hiểm đã bị loại khỏi xếp hạng → KHÔNG nêu nhóm tài chính làm rủi ro đòn bẩy/dòng tiền. Nếu block không có mã đáng lưu ý → nêu rủi ro vĩ mô/kỹ thuật, KHÔNG dẫn mã ngoài data.
 
 ## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)
 [Liệt kê tối đa 3 mã với entry/TP/SL từ block "Khuyến nghị"]

@@ -850,13 +850,16 @@ def test_data_gap_guard_forbids_already_present_data_both_templates():
         assert "dòng tiền khối ngoại/NN ròng" in p
 
 
-def test_afternoon_risk_only_uses_block_tickers_not_outside_vn30():
-    # #1: risk section must use only VN30-fundamentals tickers, never cite a
-    # ticker outside the data (e.g. the non-VN30 securities ticker VCK).
+def test_afternoon_risk_only_uses_block_tickers_with_numbers():
+    # #1: risk section must use only VN30-fundamentals tickers (never a ticker
+    # outside the data like VCK), cite the real number, and not hand-wave
+    # "cần thêm dữ liệu" or mislabel a positive Op.CF as negative.
     prompt = build_prompt({"date": "2026-06-09", "time": "15:00"},
                           brief_type="afternoon")
-    assert "CHỈ nêu rủi ro cơ bản bằng mã CÓ TRONG block" in prompt
-    assert "KHÔNG dẫn mã ngoài block / ngoài VN30 (vd VCK" in prompt
+    assert "dẫn mã ngoài block/ngoài VN30 (vd VCK)" in prompt
+    assert "PHẢI ghi kèm CON SỐ" in prompt
+    assert 'nói "cần thêm dữ liệu' in prompt
+    assert 'gọi "Op.CF âm" cho mã có Op.CF ≥ 0' in prompt
 
 
 def test_build_prompt_precomputes_weekly_range_position():
