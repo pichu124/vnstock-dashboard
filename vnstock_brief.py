@@ -211,7 +211,7 @@ Kịch bản CHÍNH phải NHẤT QUÁN với Bias ở TLDR: Bias GIẢM → k�
 BẮT BUỘC: Nếu quyết định bị ảnh hưởng bởi tin tức trong block "Tin tức thị trường", PHẢI nêu rõ tên tiêu đề tin và giải thích tác động (ví dụ: "HPG: MUA — kỹ thuật vượt MA20 + tin [Hòa Phát ký hợp đồng thép 5.000 tỷ] hỗ trợ đà tăng"). Bỏ qua nếu không có khuyến nghị.
 
 ## 🔧 Đề xuất bổ sung (1 dòng, optional)
-[1 dữ liệu/chỉ số cần thêm để brief sau chính xác hơn — bỏ qua nếu không cần. CHỈ đề xuất dữ liệu CHƯA có trong prompt; TUYỆT ĐỐI KHÔNG xin thứ ĐÃ được cung cấp (dòng tiền ngành/NN ròng, GTGD, breadth, regime, VN30 cơ bản đều đã có).]
+[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, VN30 cơ bản (D/E/ROE/OCF). CHỈ nêu thứ THỰC SỰ thiếu (vd: tin vĩ mô/sự kiện, lịch công bố KQKD, định giá ngành so sánh).]
 
 Giới hạn 450 từ. Chỉ đề cập mã trong VN30 khi nói về cổ phiếu cụ thể.
 YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
@@ -236,7 +236,7 @@ Viết AFTERNOON BRIEF tiếng Việt theo đúng format sau (không thêm phầ
 
 ## 🎯 TLDR (2 dòng)
 **Kết quả phiên:** [VNINDEX đóng cửa ±X% / GTGD Y tỷ — 1 câu nhận định bản chất]
-**Stance ngày mai:** [TĂNG / GIẢM / TRUNG TÍNH bias + 1 setup ưu tiên hoặc cảnh báo]
+**Stance ngày mai:** [TĂNG / GIẢM / TRUNG TÍNH bias + 1 setup ưu tiên. Setup phải có ngưỡng TRIGGER và ngưỡng HỦY là 2 MỨC KHÁC NHAU (không trùng): GIẢM → "canh giảm nếu thủng S1=[số] → mục tiêu S2=[số]; hủy nếu vượt lại R1=[số]"; TĂNG → "canh mua nếu vượt R1=[số] → mục tiêu R2=[số]; hủy nếu thủng S1=[số]". TUYỆT ĐỐI KHÔNG để mức trigger trùng mức hủy.]
 
 ## 📊 Tổng kết phiên
 [2-3 câu: kết quả toàn ngày, GTGD vs trung bình, độ rộng thị trường (A/D, % trên MA200), so sánh với kỳ vọng sáng nếu có]
@@ -251,8 +251,9 @@ TRÍCH XUẤT TỪ block "## VNINDEX kỹ thuật" — KHÔNG BỊA.
 Nếu block "VNINDEX kỹ thuật" KHÔNG có → viết "Chưa có dữ liệu VNINDEX hôm nay".
 
 ## 🏆 Dẫn dắt & Tụt hậu
-**Dẫn dắt:** [top 2-3 ngành/mã VN30 + đóng góp pp + % return cụ thể]
-**Tụt hậu:** [ngành/mã yếu + lý do nếu rõ]
+DÙNG ĐÚNG block "🎯 Dẫn dắt/Tụt hậu — CHỐT THEO DATA" ở trên (không tự chọn ngành khác):
+**Dẫn dắt:** [ngành lead đã chốt + đóng góp pp (1 tuần) + % return. Nếu block ghi "Chưa có nhóm dẫn dắt rõ ràng" → ghi Y NHƯ VẬY, KHÔNG nêu ngành đóng góp <0.05pp làm dẫn dắt]
+**Tụt hậu:** [ngành lag đã chốt + đóng góp pp (1 tuần)]
 
 ## 💰 Dòng tiền đáng chú ý
 [NN mua/bán ròng đáng kể (số tỷ cụ thể) | smart money tích luỹ/phân phối | unusual volume; bỏ qua nếu phẳng]
@@ -277,7 +278,7 @@ Nếu có block "VN30 Cơ bản": nêu 1 điểm rủi ro cơ bản cụ thể t
 BẮT BUỘC: Nếu có tin tức tác động → nêu rõ tiêu đề tin + ảnh hưởng. Bỏ qua nếu không có khuyến nghị.
 
 ## 🔧 Đề xuất bổ sung (1 dòng, optional)
-[1 dữ liệu/chỉ số cần thêm để brief sau chính xác hơn — bỏ qua nếu không cần. CHỈ đề xuất dữ liệu CHƯA có trong prompt; TUYỆT ĐỐI KHÔNG xin thứ ĐÃ được cung cấp (dòng tiền ngành/NN ròng, GTGD, breadth, regime, VN30 cơ bản đều đã có).]
+[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, VN30 cơ bản (D/E/ROE/OCF). CHỈ nêu thứ THỰC SỰ thiếu (vd: tin vĩ mô/sự kiện, lịch công bố KQKD, định giá ngành so sánh).]
 
 Giới hạn 500 từ. Chỉ đề cập mã trong VN30. Nếu thị trường flat và không có signal rõ thì nói thẳng.
 YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:

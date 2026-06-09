@@ -822,4 +822,29 @@ def test_morning_brief_uses_sector_flow_and_guards_data_gap():
     # … the morning template now tells the agent to USE it …
     assert "**Dòng tiền ngành:**" in prompt
     # … and "Đề xuất bổ sung" must not request data already provided.
-    assert "KHÔNG xin thứ ĐÃ được cung cấp" in prompt
+    assert "TUYỆT ĐỐI KHÔNG xin lại" in prompt
+
+
+def test_afternoon_stance_setup_requires_distinct_trigger_and_invalidation():
+    # #1: Stance setup must not collapse trigger and invalidation to one level
+    # (e.g. entry R1 == hủy R1).
+    prompt = build_prompt({"date": "2026-06-09", "time": "15:00"},
+                          brief_type="afternoon")
+    assert "2 MỨC KHÁC NHAU" in prompt
+    assert "KHÔNG để mức trigger trùng mức hủy" in prompt
+
+
+def test_afternoon_dan_dat_defers_to_deterministic_gate():
+    # #3: close "Dẫn dắt" must honour the ±0.05pp gate, not name a weak sector.
+    prompt = build_prompt({"date": "2026-06-09", "time": "15:00"},
+                          brief_type="afternoon")
+    assert "DÙNG ĐÚNG block" in prompt
+    assert "KHÔNG nêu ngành đóng góp <0.05pp làm dẫn dắt" in prompt
+
+
+def test_data_gap_guard_forbids_already_present_data_both_templates():
+    # #2: don't re-request sentiment / foreign-flow that's already in the prompt.
+    for bt in ("morning", "afternoon"):
+        p = build_prompt({"date": "2026-06-09", "time": "15:00"}, brief_type=bt)
+        assert "TÂM LÝ/momentum" in p
+        assert "dòng tiền khối ngoại/NN ròng" in p
