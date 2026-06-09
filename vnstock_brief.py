@@ -1701,7 +1701,17 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
     # Session timing — explicit empty marker when warehouse missing,
     # so the LLM doesn't fabricate GTGD numbers.
     if timing := ctx.get("session_timing"):
-        line = f"\n## Session Timing\n{timing['signal']} | {timing['detail']}"
+        # Intraday (live bar folded in = session in progress): the morning-share
+        # signal/detail (institutional vs retail = morning/full) is meaningless
+        # because full-day = morning + partial afternoon. Suppress it — that
+        # detail string is the real source of "sáng chiếm 78% cả ngày".
+        _intraday = bool((ctx.get("vnindex_tech") or {}).get("intraday"))
+        if _intraday:
+            line = ("\n## Session Timing\n⚠️ Phiên ĐANG diễn ra — CHƯA đánh giá được "
+                    "tỷ trọng sáng/chiều (institutional vs retail); TUYỆT ĐỐI KHÔNG nói "
+                    "'sáng chiếm X% GTGD cả ngày' hay suy ra institutional/retail từ đó.")
+        else:
+            line = f"\n## Session Timing\n{timing['signal']} | {timing['detail']}"
         if ss := ctx.get("session_stats"):
             morn_gtgd = (ss.get("9h-11h30", {}).get("VNINDEX", {}) or {}).get("gtgd", 0) or 0
             full_gtgd = (ss.get("9h-15h",  {}).get("VNINDEX", {}) or {}).get("gtgd", 0) or 0
@@ -1720,17 +1730,9 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
                     cmp_parts.append(f"TB sáng ~20 phiên {mg['avg20']:,.1f} tỷ")
                 if cmp_parts:
                     line += "\nSo sánh ĐỒNG DẠNG (sáng-với-sáng): " + " | ".join(cmp_parts)
-            # Show full-day GTGD only when the session is actually CLOSED. Use
-            # the intraday flag (live bar folded in = session in progress) rather
-            # than a volume ratio — at 13:31 the partial afternoon already makes
-            # full > morning, which falsely read as "complete" → "sáng chiếm 78%".
-            _intraday = bool((ctx.get("vnindex_tech") or {}).get("intraday"))
-            _closed = (not _intraday) and full_gtgd and morn_gtgd and full_gtgd > morn_gtgd * 1.05
-            if _closed:
+            # Full-day GTGD only when the session is actually CLOSED (not intraday).
+            if (not _intraday) and full_gtgd and morn_gtgd and full_gtgd > morn_gtgd * 1.05:
                 line += f"\nGTGD cả ngày: {full_gtgd:,.1f} tỷ"
-            elif morn_gtgd:
-                line += ("\n⚠️ Phiên CHƯA đóng cửa — GTGD cả ngày chưa hoàn chỉnh; chỉ dùng "
-                         "GTGD sáng + baseline sáng ở trên, TUYỆT ĐỐI KHÔNG nói 'sáng chiếm X% cả ngày'.")
         lines.append(line)
     else:
         lines.append(

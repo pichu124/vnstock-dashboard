@@ -601,8 +601,8 @@ def test_build_prompt_morning_gtgd_like_for_like_and_hides_incomplete_full_day()
                             "avg5": 8000.0, "avg20": 8500.0}}
     prompt = build_prompt(ctx, brief_type="morning")
     assert "sáng phiên trước" in prompt and "TB sáng 5 phiên" in prompt
-    assert "GTGD cả ngày:" not in prompt         # the value line is hidden…
-    assert "CHƯA đóng cửa" in prompt             # …replaced by the warning
+    # full==morning (incomplete) → full-day value line hidden, baselines shown
+    assert "GTGD cả ngày:" not in prompt
 
 
 def test_build_prompt_shows_full_day_gtgd_when_session_closed():
@@ -723,18 +723,35 @@ def test_build_prompt_renders_bias_floor():
     assert "kịch bản CHÍNH" in prompt and "thủng hỗ trợ/đi xuống" in prompt
 
 
-def test_build_prompt_hides_full_day_when_intraday_partial_afternoon():
-    # 13:31: partial afternoon makes full > morning, but the session is NOT
-    # closed (intraday flag) → must hide full-day and forbid "sáng chiếm X%".
-    ctx = {"date": "2026-06-09", "time": "13:31",
+def test_build_prompt_hides_full_day_and_morning_share_when_intraday():
+    # 14:03: partial afternoon makes full > morning AND session_timing.detail
+    # leaks "Sáng chiếm 78% cả ngày". Intraday → both must be suppressed.
+    ctx = {"date": "2026-06-09", "time": "14:03",
            "vnindex_tech": {"close": 1792.6, "intraday": True},
-           "session_timing": {"signal": "sig", "detail": "det"},
+           "session_timing": {"signal": "🌅 Institutional morning",
+                              "detail": "Sáng chiếm `78%` GTGD cả ngày → tổ chức"},
            "session_stats": {"9h-11h30": {"VNINDEX": {"gtgd": 7165.4}},
                              "9h-15h": {"VNINDEX": {"gtgd": 9186.0}}},
            "morning_gtgd": {"today": 7165.4, "prev": 9650.4, "avg5": 7600.0}}
     prompt = build_prompt(ctx, brief_type="morning")
     assert "GTGD cả ngày:" not in prompt
-    assert "CHƯA đóng cửa" in prompt
+    assert "78%" not in prompt                       # morning-share leak gone
+    assert "Institutional morning" not in prompt     # bogus intraday classification gone
+    assert "CHƯA đánh giá được" in prompt
+    assert "sáng phiên trước" in prompt              # baselines still shown
+
+
+def test_build_prompt_shows_session_timing_when_closed():
+    # Not intraday (session closed) → the real morning-share signal IS shown.
+    ctx = {"date": "2026-06-09", "time": "15:30",
+           "session_timing": {"signal": "🌅 Institutional morning",
+                              "detail": "Sáng chiếm `60%` GTGD cả ngày"},
+           "session_stats": {"9h-11h30": {"VNINDEX": {"gtgd": 9000.0}},
+                             "9h-15h": {"VNINDEX": {"gtgd": 15000.0}}},
+           "morning_gtgd": {"today": 9000.0, "prev": 8000.0, "avg5": 8500.0}}
+    prompt = build_prompt(ctx, brief_type="afternoon")
+    assert "Institutional morning" in prompt
+    assert "GTGD cả ngày: 15,000.0 tỷ" in prompt
 
 
 def test_build_prompt_no_bias_floor_when_absent():
