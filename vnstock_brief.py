@@ -738,6 +738,68 @@ def effective_trading_date(vnindex_tech: dict | None = None) -> str:
     return data_date or date.today().isoformat()
 
 
+# ── Data freshness: breadth/movers/regime lag behind intraday VNINDEX ───────
+#
+# market_overview.json (độ rộng A/D, % trên MA200, VN30 movers, dòng tiền
+# ngành) and the regime it feeds are refreshed only by the screener
+# (vnstock_runner). The live WSS pipeline updates VNINDEX/GTGD but NOT these.
+# So once a morning brief folds in today's intraday VNINDEX, those blocks can
+# silently lag a session. These helpers detect and (optionally) heal that.
+def _market_overview_generated(path: "str | Path | None" = None) -> "str | None":
+    """Return market_overview.json's generated_at as an ISO date, or None."""
+    p = Path(path) if path else Path("data_warehouse/_meta/market_overview.json")
+    if not p.exists():
+        return None
+    try:
+        gen = str(json.loads(p.read_text(encoding="utf-8")).get("generated_at", ""))
+        return gen.split(" ")[0] if gen else None
+    except Exception:
+        return None
+
+
+def market_data_freshness(
+    data_date: str | None = None,
+    overview_path: "str | Path | None" = None,
+) -> dict:
+    """Compare the screener-produced blocks' freshness to the session date.
+
+    Returns {"data_date", "overview_date", "stale", "stale_blocks"}. `stale` is
+    True when market_overview (breadth/movers/sector flow/regime) is from an
+    older session than the VNINDEX data the brief describes.
+    """
+    dd = data_date or effective_trading_date()
+    ov = _market_overview_generated(overview_path)
+    stale = bool(ov and dd and ov < dd)
+    blocks = (
+        ["độ rộng", "VN30 movers", "dòng tiền ngành", "regime"] if stale else []
+    )
+    return {"data_date": dd, "overview_date": ov, "stale": stale,
+            "stale_blocks": blocks}
+
+
+def _auto_refresh_market_overview(data_date: str) -> bool:
+    """Recompute + save market_overview.json when it lags `data_date`.
+
+    Best-effort and heavy (re-aggregates the whole market), so it only runs
+    when actually stale. Set env VNSTOCK_BRIEF_AUTO_REFRESH=0 to disable.
+    Returns True if a refresh ran and saved.
+    """
+    if os.environ.get("VNSTOCK_BRIEF_AUTO_REFRESH", "1") == "0":
+        return False
+    ov = _market_overview_generated()
+    if ov is not None and not (data_date and ov < data_date):
+        return False  # already fresh
+    try:
+        from vnstock_runner import compute_market_overview, save_market_overview
+        data = compute_market_overview()
+        if data and (data.get("tickers") or data.get("sectors")):
+            save_market_overview(data)
+            return True
+    except Exception:
+        pass
+    return False
+
+
 # ── VN30 fundamentals (debt/equity, ROE, operating cash flow) ───────────────
 def _load_vn30_fundamentals(
     path: str | Path | None = None,
@@ -928,8 +990,13 @@ def _market_sentiment_block(ms: dict) -> str:
 
 
 # ── Context collection ─────────────────────────────────────────────────────
-def collect_context(brief_type: str = "morning") -> dict:
-    """Collect all available market data for brief generation."""
+def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> dict:
+    """Collect all available market data for brief generation.
+
+    When `auto_refresh` is set, the screener-produced market_overview is
+    recomputed first if it lags the session date (so breadth/movers/regime
+    don't silently trail the intraday VNINDEX). Always records ctx["freshness"].
+    """
     # Determine effective trading date: use the last bar date from VNINDEX
     # warehouse instead of calendar today. Avoids "no data" briefs when called
     # early morning (market not open yet) or on weekends/holidays.
@@ -938,6 +1005,10 @@ def collect_context(brief_type: str = "morning") -> dict:
 
     _today_str = date.today().isoformat()
     _is_stale = _data_date_str < _today_str  # data is from a prior trading day
+
+    # Heal stale breadth/movers/regime before reading them (best-effort).
+    if auto_refresh:
+        _auto_refresh_market_overview(_data_date_str)
 
     ctx: dict = {
         "brief_type": brief_type,
@@ -963,6 +1034,10 @@ def collect_context(brief_type: str = "morning") -> dict:
             ctx["tickers"] = data.get("tickers", [])
         except Exception:
             pass
+
+    # Record freshness of the screener-produced blocks vs the session date so
+    # the prompt/header can warn when they trail the intraday VNINDEX.
+    ctx["freshness"] = market_data_freshness(_data_date_str)
 
     # 2. Quant scores + regime
     if ctx["sectors"]:
@@ -1348,6 +1423,18 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         _date_line += f"  ⚠️ {note}"
     lines.append(_date_line)
 
+    # Freshness warning: VNINDEX is intraday/fresh but the screener-produced
+    # blocks (breadth / movers / sector flow / regime) trail a session.
+    if (fr := ctx.get("freshness")) and fr.get("stale"):
+        lines.append(
+            f"\n## ⚠️ Độ tươi dữ liệu — KHÔNG BỎ QUA\n"
+            f"VNINDEX là phiên {fr.get('data_date')} (mới/intraday), NHƯNG độ rộng, "
+            f"VN30 movers, dòng tiền ngành và regime lấy từ market_overview ngày "
+            f"{fr.get('overview_date')} (PHIÊN TRƯỚC). BẮT BUỘC: thêm 1 câu cảnh báo "
+            f"các khối này từ phiên trước, và khi mâu thuẫn thì ƯU TIÊN tín hiệu giá "
+            f"VNINDEX hiện tại — đừng kết luận xu hướng dựa trên độ rộng/regime cũ."
+        )
+
     # Market sentiment (tâm lý thị trường) — composite mood from breadth, NN
     # flow, index momentum and news. Emitted high so the agent frames the
     # short-term trend around it.
@@ -1681,7 +1768,7 @@ def generate_brief(
             "Không có AI agent nào được bật. Vào ⚙️ Cài đặt Agent → chọn agent và điền API key.",
         )}
 
-    ctx = collect_context(brief_type)
+    ctx = collect_context(brief_type, auto_refresh=True)
 
     # Inject few-shot golden examples + open recommendations (best-effort)
     few_shot  = _few_shot_block(brief_type)

@@ -299,6 +299,16 @@ def _brief_header(emoji: str, title: str) -> str:
     # Flag stale data: session date is before today (weekend / pre-open push)
     if session_iso and session_iso < now.strftime("%Y-%m-%d"):
         head += "  ⚠️ <i>data phiên gần nhất</i>"
+    else:
+        # VNINDEX is current but breadth/movers/regime may trail a session.
+        try:
+            from vnstock_brief import market_data_freshness
+            fr = market_data_freshness(session_iso or None)
+            if fr.get("stale"):
+                head += (f"  ⚠️ <i>độ rộng/regime: phiên "
+                         f"{_iso_to_dmy(fr['overview_date'])}</i>")
+        except Exception:
+            pass
     return head + "\n"
 
 

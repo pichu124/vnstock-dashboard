@@ -13,7 +13,8 @@ from vnstock_brief import (
     _detect_stance, _extract_section, evaluate_brief_accuracy,
     agent_accuracy_summary, _load_vn30_fundamentals, _vn30_fund_block,
     build_prompt, _recommendation_block, _fmt_rec_price,
-    _augment_with_live_vnindex,
+    _augment_with_live_vnindex, market_data_freshness,
+    _auto_refresh_market_overview,
 )
 
 
@@ -526,3 +527,76 @@ def test_build_prompt_marks_intraday_vnindex():
     prompt = build_prompt(ctx, brief_type="morning")
     assert "PHIÊN ĐANG DIỄN RA" in prompt
     assert "Giá hiện tại" in prompt
+
+
+# ─── Data freshness: breadth/movers/regime lag vs intraday VNINDEX ────────────
+
+def test_market_data_freshness_flags_stale_overview(tmp_path):
+    import json as _json
+    p = tmp_path / "market_overview.json"
+    p.write_text(_json.dumps({"generated_at": "2026-06-08 09:00:00"}))
+    fr = market_data_freshness(data_date="2026-06-09", overview_path=p)
+    assert fr["stale"] is True
+    assert fr["overview_date"] == "2026-06-08"
+    assert fr["stale_blocks"]
+
+
+def test_market_data_freshness_fresh_when_same_day(tmp_path):
+    p = tmp_path / "market_overview.json"
+    p.write_text('{"generated_at": "2026-06-09 11:00:00"}')
+    fr = market_data_freshness(data_date="2026-06-09", overview_path=p)
+    assert fr["stale"] is False
+    assert fr["stale_blocks"] == []
+
+
+def test_build_prompt_renders_freshness_warning():
+    ctx = {
+        "date": "2026-06-09", "time": "11:30",
+        "freshness": {"data_date": "2026-06-09", "overview_date": "2026-06-08",
+                      "stale": True, "stale_blocks": ["độ rộng", "regime"]},
+    }
+    prompt = build_prompt(ctx, brief_type="morning")
+    assert "Độ tươi dữ liệu" in prompt
+    assert "2026-06-08" in prompt
+
+
+def test_build_prompt_no_freshness_warning_when_fresh():
+    ctx = {
+        "date": "2026-06-09", "time": "11:30",
+        "freshness": {"data_date": "2026-06-09", "overview_date": "2026-06-09",
+                      "stale": False, "stale_blocks": []},
+    }
+    prompt = build_prompt(ctx, brief_type="morning")
+    assert "Độ tươi dữ liệu" not in prompt
+
+
+def test_auto_refresh_noop_when_fresh(monkeypatch):
+    import vnstock_brief as vb
+    monkeypatch.setattr(vb, "_market_overview_generated", lambda path=None: "2026-06-09")
+    assert vb._auto_refresh_market_overview("2026-06-09") is False
+
+
+def test_auto_refresh_runs_when_stale(monkeypatch):
+    import sys
+    import types
+    import vnstock_brief as vb
+
+    monkeypatch.setattr(vb, "_market_overview_generated", lambda path=None: "2026-06-08")
+    called = {}
+    fake = types.ModuleType("vnstock_runner")
+    fake.compute_market_overview = lambda *a, **k: (
+        called.update(computed=True) or {"tickers": [{"Mã": "FPT"}],
+                                         "sectors": [], "breadth": {}})
+    fake.save_market_overview = lambda data, *a, **k: called.setdefault("saved", True)
+    monkeypatch.setitem(sys.modules, "vnstock_runner", fake)
+
+    assert vb._auto_refresh_market_overview("2026-06-09") is True
+    assert called.get("computed") and called.get("saved")
+
+
+def test_auto_refresh_disabled_by_env(monkeypatch):
+    import vnstock_brief as vb
+    monkeypatch.setenv("VNSTOCK_BRIEF_AUTO_REFRESH", "0")
+    # Even when stale, the env opt-out short-circuits before any work.
+    monkeypatch.setattr(vb, "_market_overview_generated", lambda path=None: "2026-06-08")
+    assert vb._auto_refresh_market_overview("2026-06-09") is False
