@@ -761,7 +761,14 @@ def _market_overview_data_date(path: "str | Path | None" = None) -> "str | None"
         dd = data.get("data_date")
         if dd:
             return str(dd)
-        gen = str(data.get("generated_at", ""))  # backward-compat
+        # No data_date field (file written before it existed): the breadth was
+        # computed from the daily warehouse, so its true data date is the
+        # warehouse EOD date — NOT generated_at (wall clock), which would look
+        # falsely fresh and suppress the staleness warning.
+        eod = _warehouse_eod_date()
+        if eod:
+            return eod
+        gen = str(data.get("generated_at", ""))  # last-resort backward-compat
         return gen.split(" ")[0] if gen else None
     except Exception:
         return None

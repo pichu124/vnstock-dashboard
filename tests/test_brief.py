@@ -559,6 +559,18 @@ def test_market_data_freshness_prefers_data_date_over_generated_at(tmp_path):
     assert fr["stale"] is True
 
 
+def test_market_data_freshness_old_file_falls_back_to_warehouse_eod(monkeypatch, tmp_path):
+    # File written today but WITHOUT a data_date field: must not look fresh just
+    # because generated_at is today — fall back to the warehouse EOD date.
+    import vnstock_brief as vb
+    p = tmp_path / "market_overview.json"
+    p.write_text('{"generated_at": "2026-06-09 12:58:00"}')
+    monkeypatch.setattr(vb, "_warehouse_eod_date", lambda: "2026-06-08")
+    fr = vb.market_data_freshness(data_date="2026-06-09", overview_path=p)
+    assert fr["overview_date"] == "2026-06-08"
+    assert fr["stale"] is True
+
+
 def test_build_prompt_gates_accumulation_when_no_strong_leader():
     ctx = {"date": "2026-06-09", "time": "11:30", "max_sector_contrib": 0.02}
     prompt = build_prompt(ctx, brief_type="morning")
