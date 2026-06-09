@@ -33,6 +33,76 @@ xem output để biết test nào fail. Đừng deploy / merge khi badge đỏ.
 
 ---
 
+## 🩺 Brief quality fixes (DONE 2026-06-09, branch `claude/serene-feynman-15y1y1`)
+
+Một loạt fix chất lượng cho **Morning brief** (đa số dùng chung cho Close brief
+vì nằm trong `build_prompt` / data blocks, không phụ thuộc template). Đừng
+regress các cơ chế này:
+
+**Data freshness / self-heal** (tất cả best-effort, có env tắt):
+- `_augment_with_live_vnindex()` — gộp bar VNINDEX 1m từ `_live/bars_{today}.parquet`
+  thành 1 bar daily tạm thời → brief intraday mô tả phiên HÔM NAY. Đặt
+  `vnindex_tech["intraday"]=True`. (Rollup cố tình skip index — xem
+  `vnstock_rollup._should_rollup_to_warehouse`, nên đây là cách duy nhất để brief
+  sáng thấy data hôm nay.)
+- `market_data_freshness()` so **`data_date`** (ngày DATA thật, KHÔNG phải
+  `generated_at`) của `market_overview.json` với ngày phiên → header Telegram +
+  block prompt cảnh báo "⚠️ độ rộng/regime: phiên cũ". File cũ thiếu `data_date`
+  → fallback `_warehouse_eod_date()` (KHÔNG dùng generated_at — sẽ tưởng tươi).
+  `compute_market_overview` nay ghi field `data_date`.
+- `_auto_refresh_market_overview()` (env `VNSTOCK_BRIEF_AUTO_REFRESH=0` để tắt) —
+  recompute market_overview khi nó tụt sau kho EOD. `_maybe_reconcile_overdue()`
+  (env `VNSTOCK_BRIEF_AUTO_RECONCILE=0`) — đóng rec quá hạn trước khi tạo brief.
+- **BUG NGẦM đã fix**: `_load_history` (vnstock_strategy) gọi
+  `load_price_history` (@st.cache_data) → **fail ngoài Streamlit** → reconcile &
+  backtest từ CLI nhận data rỗng. Nay có `_load_history_from_parquet` đọc parquet
+  trực tiếp (chuẩn hoá bằng `vnstock_runner._normalize_prices`).
+
+**Nhãn & đơn vị** (đừng để regress):
+- `Giá 1T %` = đổi **1 TUẦN/5 phiên** (chg5), KHÔNG phải 1 phiên. Header movers +
+  mỗi dòng + đóng góp pp đều phải ghi "(1 tuần)". KHÔNG ghi "phiên sáng"/"hôm nay"
+  cho số này (không có data đổi-1-phiên cho từng mã).
+- Giá CW/penny giữ số lẻ (`_fmt_price`/`_fmt_rec_price`): <1 → 3 lẻ, <10 → 2 lẻ.
+- GTGD so **sáng-với-sáng** (`ctx["morning_gtgd"]`: prev/avg5/avg20). Khi
+  `intraday` → ẩn "GTGD cả ngày" VÀ ẩn `session_timing` signal/detail
+  (morning_share = sáng/cả-ngày là vô nghĩa giữa phiên — nguồn của lỗi "sáng
+  chiếm 78% cả ngày / institutional").
+
+**Deterministic guards** (LLM hay phớt prompt-nudge → chốt bằng code):
+- `lead_sector`/`lag_sector` = ngành đóng góp +/- mạnh nhất (1 tuần); `build_prompt`
+  bơm "CHỈ ngành X được làm dẫn dắt", gate ±0.05pp.
+- `_bias_floor_dir(momentum, regime_score)` — momentum ≤ -50 hoặc regime ≤ -3 →
+  Bias BẮT BUỘC GIẢM (và kịch bản CHÍNH phải cùng chiều); ngược lại cho TĂNG.
+- Loại ngân hàng/CK/bảo hiểm (`_FINANCIAL_TICKERS`) khỏi xếp hạng D/E & Op.CF
+  (đặc thù ngành, không so sánh được — tránh mis-flag "MBB Op.CF -64,972 tỷ").
+- Watchlist: chỉ chọn mã từ movers/khuyến nghị đã cung cấp, neo "Giá" thật, cấm
+  "SELL ở giá" (VN không bán khống) → dùng "GIẢM TỶ TRỌNG nếu thủng…".
+- Rec quá hạn bị lọc khỏi "Đề xuất giao dịch"; "Đề xuất bổ sung" cấm xin data đã
+  có (dòng tiền ngành/NN ròng, GTGD, breadth, regime, VN30 cơ bản).
+
+### ✅ Checklist kiểm tra CLOSE brief (lần tới — sau khi down data CẢ NGÀY)
+
+Khi chạy close brief với data EOD đầy đủ, `intraday=False` → hành vi khác sáng:
+1. **Header**: KHÔNG còn "⚠️ data phiên gần nhất" VÀ KHÔNG còn "⚠️ độ rộng/regime:
+   phiên cũ" (vì data_date = hôm nay sau khi down + chạy `run.py screener`). Nếu
+   vẫn cảnh báo → `market_overview.json` chưa refresh với data hôm nay.
+2. **GTGD**: PHẢI hiện "GTGD cả ngày" (phiên đã đóng), và `session_timing` signal
+   institutional/retail hiện lại (morning_share lúc này hợp lệ). Mục "Tổng kết
+   phiên" so GTGD cả-ngày-với-cả-ngày, KHÔNG dùng baseline sáng.
+3. **Stance ngày mai** (TLDR) phải bám regime/sentiment (bias floor áp dụng).
+4. **Dẫn dắt & Tụt hậu** = đúng `lead_sector`/`lag_sector` deterministic, ghi "(1
+   tuần)". **Watchlist sáng mai**: neo giá thật, không bịa mã, BUY/SELL nhất quán,
+   không "SELL ở giá".
+5. **Rủi ro**: không mis-flag ngân hàng/CK vì D/E hay dòng tiền lớn.
+6. **Khuyến nghị đang mở**: số ngày hợp lý, rec quá hạn đã reconcile (không zombie).
+7. Mọi % giá có khung thời gian rõ; mã chỉ trong VN30.
+
+→ Khi đánh giá close brief, soi đúng các điểm trên + đối chiếu nội bộ (Stance ↔
+regime ↔ kịch bản, đóng góp pp ↔ ngành dẫn dắt). Chạy `python run.py test --fast`
+sau bất kỳ sửa nào ở `vnstock_brief.py`.
+
+---
+
 ## 🧠 Brief context blocks + lịch refresh (DONE 2026-06-08)
 
 `collect_context()` trong `vnstock_brief.py` bơm các khối dữ liệu vào prompt.
