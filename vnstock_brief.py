@@ -197,7 +197,7 @@ KHÔNG gọi "tích luỹ/mua" nếu tín hiệu quá yếu (đóng góp |pp| < 
 Nếu có block "VN30 Cơ bản": có thể dẫn 1 chỉ số cơ bản (D/E cao / Op.CF âm / ROE) để củng cố lý do tránh/mua, KHÔNG bịa số.
 
 ## ⚡ Biến động bất thường
-[Mã/ngành tăng giảm đột biến + giải thích + BẮT BUỘC ghi rõ khung thời gian (ví dụ: "VIC -3.2% phiên sáng", "PLX -8.8% trong 5 phiên", "ACB +4.1% so với đóng cửa hôm qua"); "Không có biến động bất thường đáng chú ý" nếu phẳng]
+[Mã/ngành biến động mạnh TRONG DATA + giải thích + BẮT BUỘC ghi ĐÚNG khung thời gian theo nhãn trong data. Số từ "VN30 Top Gainers/Losers" là thay đổi "1 tuần/5 phiên" → ghi "(1 tuần)", TUYỆT ĐỐI KHÔNG ghi "phiên sáng"/"hôm nay" cho các số đó (không có dữ liệu thay đổi 1 phiên cho từng mã). "Không có biến động bất thường đáng chú ý" nếu phẳng]
 
 ## 🔮 Kịch bản phiên chiều
 Kịch bản CHÍNH phải NHẤT QUÁN với Bias ở TLDR: Bias GIẢM → kịch bản chính nghiêng giảm/đi ngang (KHÔNG được là kịch bản tăng); Bias TĂNG → ngược lại. Mọi mức giá/chỉ số PHẢI lấy từ block kỹ thuật của data — TUYỆT ĐỐI KHÔNG chép số hay cụm "ngân hàng giữ đà"/"bank giữ đà" từ mẫu cấu trúc dưới, KHÔNG bịa mã/ngành dẫn dắt nếu data không có.
@@ -215,7 +215,7 @@ BẮT BUỘC: Nếu quyết định bị ảnh hưởng bởi tin tức trong bl
 Giới hạn 450 từ. Chỉ đề cập mã trong VN30 khi nói về cổ phiếu cụ thể.
 YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
 - Mọi nhận định PHẢI gắn với SỐ trong data, không nói "tích cực/tiêu cực" suông.
-- Ngành được đề cập → LUÔN nêu trọng số %VNI và đóng góp pp hôm nay.
+- Ngành được đề cập → LUÔN nêu trọng số %VNI và đóng góp pp (ghi đúng khung "1 tuần" như trong data, KHÔNG ghi "hôm nay").
 - Mã được đề cập → nêu mức đóng góp pp vào VNINDEX nếu có.
 - Ưu tiên ngành/mã có đóng góp TUYỆT ĐỐI lớn nhất, không chỉ tăng % cao nhất.
 - Kịch bản phải có TRIGGER (mức giá/chỉ số/% volume) — không viết "nếu thị trường tốt".
@@ -281,7 +281,7 @@ BẮT BUỘC: Nếu có tin tức tác động → nêu rõ tiêu đề tin + �
 Giới hạn 500 từ. Chỉ đề cập mã trong VN30. Nếu thị trường flat và không có signal rõ thì nói thẳng.
 YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
 - Mọi nhận định PHẢI gắn với SỐ trong data.
-- Ngành được đề cập → LUÔN nêu trọng số %VNI và đóng góp pp hôm nay.
+- Ngành được đề cập → LUÔN nêu trọng số %VNI và đóng góp pp (ghi đúng khung "1 tuần" như trong data, KHÔNG ghi "hôm nay").
 - Mã được đề cập → nêu mức đóng góp pp vào VNINDEX nếu có.
 - Ưu tiên ngành/mã có đóng góp TUYỆT ĐỐI lớn nhất, không chỉ tăng % cao nhất.
 - Setup watchlist phải có TRIGGER (mức giá cụ thể) — không viết "nếu thị trường tích cực thì vào".
@@ -1480,7 +1480,7 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
     if _mc is not None and _mc < 0.05:
         lines.append(
             f"\n## ⚠️ Không có nhóm dẫn dắt mạnh\n"
-            f"Đóng góp pp dương lớn nhất hôm nay chỉ {_mc:+.3f}pp (< 0.05). "
+            f"Đóng góp pp dương lớn nhất (1 tuần) chỉ {_mc:+.3f}pp (< 0.05). "
             f"Mục 'Tích luỹ/Mua' BẮT BUỘC ghi 'Chưa có nhóm dẫn dắt rõ ràng' — "
             f"TUYỆT ĐỐI KHÔNG gọi ngành/mã đóng góp quá nhỏ là tích luỹ/mua."
         )
@@ -1617,7 +1617,7 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         if weight > 0:
             header += f" [{weight:.1f}%VNI"
             if contrib != 0:
-                header += f", đóng góp {contrib:+.2f}pp hôm nay"
+                header += f", đóng góp {contrib:+.2f}pp (1 tuần)"
             header += "]"
         header += f" composite={r.get('composite', 0):+.2f}"
 
@@ -1641,7 +1641,7 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
 
         result = ["- " + header + (" | " + " | ".join(meta) if meta else "")]
 
-        # Top 3 stocks in sector: mcap, weight vs VNI, 1d return, contribution
+        # Top 3 stocks in sector: mcap, weight vs VNI, 1-week return, contribution
         for s in _ts.get(sector_name, [])[:3]:
             ticker  = s.get("Mã", "?")
             mcap    = s.get("Vốn hoá (tỷ)", 0) or 0
@@ -1717,21 +1717,21 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
              for s in _ts.get(sector, []) if s.get("Mã") == ticker),
             0.0,
         )
-        line = f"- {ticker} {ret:+.1f}% [{sector}]"
+        line = f"- {ticker} {ret:+.1f}% (1 tuần/5 phiên) [{sector}]"
         if price not in (None, "") and not (isinstance(price, float) and price != price):
             # "last" is in thousand VND → render absolute VND as the watchlist anchor.
             line += f" | Giá {float(price) * 1000:,.0f}"
         if contrib != 0:
-            line += f" ≈ {contrib:+.3f}pp VNI"
+            line += f" ≈ {contrib:+.3f}pp VNI (1 tuần)"
         return line
 
     if gainers := ctx.get("vn30_gainers"):
-        lines.append("\n## VN30 Top Gainers (1 phiên, với đóng góp vào VNINDEX)")
+        lines.append("\n## VN30 Top Gainers (thay đổi 1 TUẦN/5 phiên — KHÔNG phải 1 phiên, với đóng góp vào VNINDEX)")
         for g in gainers:
             lines.append(_vn30_line(g))
 
     if losers := ctx.get("vn30_losers"):
-        lines.append("\n## VN30 Top Losers (1 phiên, với đóng góp vào VNINDEX)")
+        lines.append("\n## VN30 Top Losers (thay đổi 1 TUẦN/5 phiên — KHÔNG phải 1 phiên, với đóng góp vào VNINDEX)")
         for g in losers:
             lines.append(_vn30_line(g))
 

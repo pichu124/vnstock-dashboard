@@ -628,3 +628,31 @@ def test_auto_refresh_disabled_by_env(monkeypatch):
     monkeypatch.setattr(vb, "_market_overview_data_date", lambda path=None: "2026-06-05")
     monkeypatch.setattr(vb, "_warehouse_eod_date", lambda: "2026-06-08")
     assert vb._auto_refresh_market_overview() is False
+
+
+# ─── Movers timeframe label (Giá 1T % is a 1-week change, not 1 session) ──────
+
+def test_build_prompt_movers_labelled_weekly_not_session():
+    ctx = {
+        "date": "2026-06-09", "time": "11:30",
+        "vn30_gainers": [{"Mã": "FPT", "Giá 1T %": 1.5, "Ngành": "Công nghệ",
+                          "last": 124.0}],
+        "vn30_losers": [{"Mã": "VIC", "Giá 1T %": -4.8, "Ngành": "Bất động sản",
+                         "last": 40.0}],
+    }
+    prompt = build_prompt(ctx, brief_type="morning")
+    # The mislabel that caused "VIC -4.8% phiên sáng" must be gone…
+    assert "Top Gainers (1 phiên" not in prompt
+    assert "Top Losers (1 phiên" not in prompt
+    # …and the real (weekly) timeframe is shown on the lines.
+    assert "(1 tuần/5 phiên)" in prompt
+
+
+def test_morning_template_anomaly_section_forbids_session_label():
+    prompt = build_prompt({"date": "2026-06-09", "time": "11:30"},
+                          brief_type="morning")
+    # The leaking example that taught the model to write "phiên sáng" is gone…
+    assert "VIC -3.2% phiên sáng" not in prompt
+    # …replaced by the honest weekly framing + explicit prohibition.
+    section = prompt.split("Biến động bất thường")[1].split("##")[0]
+    assert "1 tuần" in section and "KHÔNG ghi" in section
