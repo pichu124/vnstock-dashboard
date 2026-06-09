@@ -571,17 +571,49 @@ def test_market_data_freshness_old_file_falls_back_to_warehouse_eod(monkeypatch,
     assert fr["stale"] is True
 
 
-def test_build_prompt_gates_accumulation_when_no_strong_leader():
-    ctx = {"date": "2026-06-09", "time": "11:30", "max_sector_contrib": 0.02}
+def test_build_prompt_leader_block_weak_forces_no_leader():
+    # Strongest +contrib is only +0.02pp → must NOT be named as accumulation.
+    ctx = {"date": "2026-06-09", "time": "11:30",
+           "lead_sector": {"name": "CNTT & Phần mềm", "contrib": 0.02},
+           "lag_sector": {"name": "Hoá chất", "contrib": -0.40}}
     prompt = build_prompt(ctx, brief_type="morning")
-    assert "Không có nhóm dẫn dắt mạnh" in prompt
     assert "Chưa có nhóm dẫn dắt rõ ràng" in prompt
+    assert "CHỈ CNTT & Phần mềm" not in prompt   # weak leader not endorsed
+    assert "Hoá chất" in prompt                  # strong laggard is named
 
 
-def test_build_prompt_no_accumulation_gate_when_strong_leader():
-    ctx = {"date": "2026-06-09", "time": "11:30", "max_sector_contrib": 0.3}
+def test_build_prompt_leader_block_strong_names_only_top():
+    ctx = {"date": "2026-06-09", "time": "11:30",
+           "lead_sector": {"name": "Ngân hàng", "contrib": 0.30},
+           "lag_sector": {"name": "Bất động sản", "contrib": -0.40}}
     prompt = build_prompt(ctx, brief_type="morning")
-    assert "Không có nhóm dẫn dắt mạnh" not in prompt
+    assert "CHỈ Ngân hàng" in prompt
+    assert "Bất động sản" in prompt
+    assert "KHÔNG CHỌN NGÀNH KHÁC" in prompt
+
+
+def test_build_prompt_morning_gtgd_like_for_like_and_hides_incomplete_full_day():
+    ctx = {"date": "2026-06-09", "time": "11:30",
+           "session_timing": {"signal": "sig", "detail": "det"},
+           "session_stats": {"9h-11h30": {"VNINDEX": {"gtgd": 7165.4}},
+                             "9h-15h": {"VNINDEX": {"gtgd": 7165.4}}},  # full==morning
+           "morning_gtgd": {"today": 7165.4, "prev": 9650.4,
+                            "avg5": 8000.0, "avg20": 8500.0}}
+    prompt = build_prompt(ctx, brief_type="morning")
+    assert "sáng phiên trước" in prompt and "TB sáng 5 phiên" in prompt
+    assert "GTGD cả ngày:" not in prompt         # the value line is hidden…
+    assert "CHƯA đóng cửa" in prompt             # …replaced by the warning
+
+
+def test_build_prompt_shows_full_day_gtgd_when_session_closed():
+    ctx = {"date": "2026-06-09", "time": "15:30",
+           "session_timing": {"signal": "sig", "detail": "det"},
+           "session_stats": {"9h-11h30": {"VNINDEX": {"gtgd": 7000.0}},
+                             "9h-15h": {"VNINDEX": {"gtgd": 15000.0}}},  # afternoon added
+           "morning_gtgd": {"today": 7000.0, "prev": 6000.0,
+                            "avg5": 6500.0, "avg20": 6800.0}}
+    prompt = build_prompt(ctx, brief_type="morning")
+    assert "GTGD cả ngày: 15,000.0 tỷ" in prompt
 
 
 def test_build_prompt_renders_freshness_warning():

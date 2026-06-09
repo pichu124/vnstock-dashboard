@@ -1111,6 +1111,30 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
         if _day_stats:
             ctx["session_stats"] = _day_stats
             ctx["session_timing"] = session_timing_signal(_day_stats, _hist, "VNINDEX")
+
+            # Morning-session GTGD baselines (like-for-like: sáng vs sáng) so the
+            # brief compares against the right benchmark instead of the degenerate
+            # intraday "GTGD sáng = 100% cả ngày".
+            def _morn(dstr: str):
+                w = (_hist.get(dstr, {}) or {}).get("9h-11h30", {}) or {}
+                v = (w.get("VNINDEX", {}) or {}).get("gtgd")
+                try:
+                    return float(v) if v else None
+                except Exception:
+                    return None
+
+            _prev_days = [d for d in sorted(_hist.keys()) if d < _data_date_str]
+            _today_m = _morn(_data_date_str)
+            if _today_m:
+                def _avg(days):
+                    vals = [m for d in days if (m := _morn(d)) is not None]
+                    return round(sum(vals) / len(vals), 1) if vals else None
+                ctx["morning_gtgd"] = {
+                    "today": _today_m,
+                    "prev": _morn(_prev_days[-1]) if _prev_days else None,
+                    "avg5": _avg(_prev_days[-5:]),
+                    "avg20": _avg(_prev_days[-20:]),
+                }
     except Exception:
         pass
 
@@ -1167,14 +1191,19 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
         except Exception:
             pass
 
-    # Strongest positive sector contribution — gates the "Tích luỹ/Mua" call so a
-    # negligible (+0.02pp) sector isn't dressed up as a leader.
+    # Deterministically pick the strongest +/- sector contributor (1 tuần) so the
+    # brief can't dress up a negligible (+0.02pp) sector as a leader. build_prompt
+    # injects these as the ONLY allowed leader/laggard.
     if _sw := ctx.get("sector_weights"):
-        _contribs = [
-            (v or {}).get("_1d_contrib", 0) or 0 for v in _sw.values()
+        _items = [
+            (name, (v or {}).get("_1d_contrib", 0) or 0) for name, v in _sw.items()
         ]
-        if _contribs:
-            ctx["max_sector_contrib"] = max(_contribs)
+        if _items:
+            _lead = max(_items, key=lambda x: x[1])
+            _lag = min(_items, key=lambda x: x[1])
+            ctx["max_sector_contrib"] = _lead[1]
+            ctx["lead_sector"] = {"name": _lead[0], "contrib": _lead[1]}
+            ctx["lag_sector"] = {"name": _lag[0], "contrib": _lag[1]}
 
     # 6. VNINDEX technical levels — already fetched above to determine the
     # effective date; reuse the result instead of calling again.
@@ -1481,16 +1510,24 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             f"VNINDEX hiện tại — đừng kết luận xu hướng dựa trên độ rộng/regime cũ."
         )
 
-    # No strong leader: gate the "Tích luỹ/Mua" call deterministically so a
-    # negligible-contribution sector can't be labelled accumulation.
-    _mc = ctx.get("max_sector_contrib")
-    if _mc is not None and _mc < 0.05:
-        lines.append(
-            f"\n## ⚠️ Không có nhóm dẫn dắt mạnh\n"
-            f"Đóng góp pp dương lớn nhất (1 tuần) chỉ {_mc:+.3f}pp (< 0.05). "
-            f"Mục 'Tích luỹ/Mua' BẮT BUỘC ghi 'Chưa có nhóm dẫn dắt rõ ràng' — "
-            f"TUYỆT ĐỐI KHÔNG gọi ngành/mã đóng góp quá nhỏ là tích luỹ/mua."
-        )
+    # Deterministic leader/laggard: the strongest +/- sector contributor (1 tuần)
+    # is computed in collect_context. Inject it as the ONLY allowed choice so the
+    # model can't cite a negligible-contribution sector as a leader.
+    _lead = ctx.get("lead_sector")
+    _lag = ctx.get("lag_sector")
+    if _lead and _lag:
+        _lc, _gc = _lead.get("contrib", 0), _lag.get("contrib", 0)
+        _b = ["\n## 🎯 Dẫn dắt/Tụt hậu — CHỐT THEO DATA (DÙNG ĐÚNG, KHÔNG CHỌN NGÀNH KHÁC)"]
+        if _lc >= 0.05:
+            _b.append(f"- Tích luỹ/Mua: CHỈ {_lead['name']} (đóng góp {_lc:+.3f}pp, 1 tuần — mạnh nhất).")
+        else:
+            _b.append(f"- Tích luỹ/Mua: GHI 'Chưa có nhóm dẫn dắt rõ ràng' (đóng góp +pp lớn nhất chỉ {_lc:+.3f}pp < 0.05).")
+        if _gc <= -0.05:
+            _b.append(f"- Tránh/Bán: CHỈ {_lag['name']} (đóng góp {_gc:+.3f}pp, 1 tuần — yếu nhất).")
+        else:
+            _b.append(f"- Tránh/Bán: GHI 'Chưa có nhóm tụt hậu rõ rệt' (đóng góp -pp yếu nhất chỉ {_gc:+.3f}pp > -0.05).")
+        _b.append("TUYỆT ĐỐI không chọn ngành khác làm dẫn dắt/tụt hậu.")
+        lines.append("\n".join(_b))
 
     # Market sentiment (tâm lý thị trường) — composite mood from breadth, NN
     # flow, index momentum and news. Emitted high so the agent frames the
@@ -1583,12 +1620,31 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
     if timing := ctx.get("session_timing"):
         line = f"\n## Session Timing\n{timing['signal']} | {timing['detail']}"
         if ss := ctx.get("session_stats"):
-            morn_gtgd = ss.get("9h-11h30", {}).get("VNINDEX", {}).get("gtgd", 0)
-            full_gtgd = ss.get("9h-15h",  {}).get("VNINDEX", {}).get("gtgd", 0)
+            morn_gtgd = (ss.get("9h-11h30", {}).get("VNINDEX", {}) or {}).get("gtgd", 0) or 0
+            full_gtgd = (ss.get("9h-15h",  {}).get("VNINDEX", {}) or {}).get("gtgd", 0) or 0
+            mg = ctx.get("morning_gtgd") or {}
             if morn_gtgd:
-                line += f"\nGTGD sáng: {morn_gtgd:,.1f} tỷ"
-            if full_gtgd:
-                line += f" | GTGD cả ngày: {full_gtgd:,.1f} tỷ"
+                line += f"\nGTGD sáng (9h-11h30): {morn_gtgd:,.1f} tỷ"
+                # Like-for-like morning baselines (sáng vs sáng).
+                cmp_parts = []
+                if mg.get("prev"):
+                    cmp_parts.append(
+                        f"sáng phiên trước {mg['prev']:,.1f} tỷ ({(morn_gtgd/mg['prev']-1)*100:+.0f}%)")
+                if mg.get("avg5"):
+                    cmp_parts.append(
+                        f"TB sáng 5 phiên {mg['avg5']:,.1f} tỷ ({(morn_gtgd/mg['avg5']-1)*100:+.0f}%)")
+                if mg.get("avg20"):
+                    cmp_parts.append(f"TB sáng ~20 phiên {mg['avg20']:,.1f} tỷ")
+                if cmp_parts:
+                    line += "\nSo sánh ĐỒNG DẠNG (sáng-với-sáng): " + " | ".join(cmp_parts)
+            # Only show full-day once the session has actually closed (afternoon
+            # volume added) — otherwise it equals the morning and yields the
+            # meaningless "sáng chiếm 100% cả ngày".
+            if full_gtgd and morn_gtgd and full_gtgd > morn_gtgd * 1.05:
+                line += f"\nGTGD cả ngày: {full_gtgd:,.1f} tỷ"
+            elif morn_gtgd:
+                line += ("\n⚠️ Phiên CHƯA đóng cửa — GTGD cả ngày chưa hoàn chỉnh; chỉ dùng "
+                         "GTGD sáng + baseline sáng ở trên, TUYỆT ĐỐI KHÔNG nói 'sáng chiếm X% cả ngày'.")
         lines.append(line)
     else:
         lines.append(
