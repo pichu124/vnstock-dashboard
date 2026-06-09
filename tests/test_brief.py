@@ -779,3 +779,20 @@ def test_both_templates_require_all_three_mas():
     for p in (morning, afternoon):
         assert "ĐỦ CẢ BA" in p
         assert "MA20" in p and "MA50" in p and "MA200" in p
+
+
+def test_morning_brief_uses_sector_flow_and_guards_data_gap():
+    ctx = {
+        "date": "2026-06-09", "time": "11:30",
+        "sectors": [
+            {"Ngành": "Ngân hàng", "NN 1T (tỷ)": -1465.0, "GTGD TB (tỷ)": 5000.0},
+            {"Ngành": "Công nghệ", "NN 1T (tỷ)": 1307.0, "GTGD TB (tỷ)": 800.0},
+        ],
+    }
+    prompt = build_prompt(ctx, brief_type="morning")
+    # The money-flow DATA block is injected …
+    assert "Dòng tiền ngành (NN ròng" in prompt
+    # … the morning template now tells the agent to USE it …
+    assert "**Dòng tiền ngành:**" in prompt
+    # … and "Đề xuất bổ sung" must not request data already provided.
+    assert "KHÔNG xin thứ ĐÃ được cung cấp" in prompt
