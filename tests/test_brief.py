@@ -549,6 +549,29 @@ def test_market_data_freshness_fresh_when_same_day(tmp_path):
     assert fr["stale_blocks"] == []
 
 
+def test_market_data_freshness_prefers_data_date_over_generated_at(tmp_path):
+    # generated_at is "today" but the DATA inside is from the prior session →
+    # must be flagged stale (the regression: a fresh write time hid old data).
+    p = tmp_path / "market_overview.json"
+    p.write_text('{"generated_at": "2026-06-09 12:36:00", "data_date": "2026-06-08"}')
+    fr = market_data_freshness(data_date="2026-06-09", overview_path=p)
+    assert fr["overview_date"] == "2026-06-08"
+    assert fr["stale"] is True
+
+
+def test_build_prompt_gates_accumulation_when_no_strong_leader():
+    ctx = {"date": "2026-06-09", "time": "11:30", "max_sector_contrib": 0.02}
+    prompt = build_prompt(ctx, brief_type="morning")
+    assert "Không có nhóm dẫn dắt mạnh" in prompt
+    assert "Chưa có nhóm dẫn dắt rõ ràng" in prompt
+
+
+def test_build_prompt_no_accumulation_gate_when_strong_leader():
+    ctx = {"date": "2026-06-09", "time": "11:30", "max_sector_contrib": 0.3}
+    prompt = build_prompt(ctx, brief_type="morning")
+    assert "Không có nhóm dẫn dắt mạnh" not in prompt
+
+
 def test_build_prompt_renders_freshness_warning():
     ctx = {
         "date": "2026-06-09", "time": "11:30",
@@ -570,33 +593,38 @@ def test_build_prompt_no_freshness_warning_when_fresh():
     assert "Độ tươi dữ liệu" not in prompt
 
 
-def test_auto_refresh_noop_when_fresh(monkeypatch):
+def test_auto_refresh_noop_when_overview_matches_warehouse(monkeypatch):
     import vnstock_brief as vb
-    monkeypatch.setattr(vb, "_market_overview_generated", lambda path=None: "2026-06-09")
-    assert vb._auto_refresh_market_overview("2026-06-09") is False
+    # Overview already at the latest available (EOD) data → don't churn.
+    monkeypatch.setattr(vb, "_market_overview_data_date", lambda path=None: "2026-06-08")
+    monkeypatch.setattr(vb, "_warehouse_eod_date", lambda: "2026-06-08")
+    assert vb._auto_refresh_market_overview() is False
 
 
-def test_auto_refresh_runs_when_stale(monkeypatch):
+def test_auto_refresh_runs_when_overview_trails_warehouse(monkeypatch):
     import sys
     import types
     import vnstock_brief as vb
 
-    monkeypatch.setattr(vb, "_market_overview_generated", lambda path=None: "2026-06-08")
+    # Overview is genuinely behind the warehouse EOD data → refresh helps.
+    monkeypatch.setattr(vb, "_market_overview_data_date", lambda path=None: "2026-06-05")
+    monkeypatch.setattr(vb, "_warehouse_eod_date", lambda: "2026-06-08")
     called = {}
     fake = types.ModuleType("vnstock_runner")
     fake.compute_market_overview = lambda *a, **k: (
         called.update(computed=True) or {"tickers": [{"Mã": "FPT"}],
                                          "sectors": [], "breadth": {}})
-    fake.save_market_overview = lambda data, *a, **k: called.setdefault("saved", True)
+    fake.save_market_overview = lambda data, *a, **k: called.update(saved=True)
     monkeypatch.setitem(sys.modules, "vnstock_runner", fake)
 
-    assert vb._auto_refresh_market_overview("2026-06-09") is True
+    assert vb._auto_refresh_market_overview() is True
     assert called.get("computed") and called.get("saved")
 
 
 def test_auto_refresh_disabled_by_env(monkeypatch):
     import vnstock_brief as vb
     monkeypatch.setenv("VNSTOCK_BRIEF_AUTO_REFRESH", "0")
-    # Even when stale, the env opt-out short-circuits before any work.
-    monkeypatch.setattr(vb, "_market_overview_generated", lambda path=None: "2026-06-08")
-    assert vb._auto_refresh_market_overview("2026-06-09") is False
+    # Even when behind, the env opt-out short-circuits before any work.
+    monkeypatch.setattr(vb, "_market_overview_data_date", lambda path=None: "2026-06-05")
+    monkeypatch.setattr(vb, "_warehouse_eod_date", lambda: "2026-06-08")
+    assert vb._auto_refresh_market_overview() is False

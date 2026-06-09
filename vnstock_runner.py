@@ -216,6 +216,7 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
     rows = []
     b_total = b_ma200 = b_rsi_ov = b_rsi_ob = 0
     b_adv = b_dec = b_unch = b_hi = b_lo = 0
+    _max_data_date = None  # latest stock bar date actually used (breadth data date)
 
     ticker_dirs = sorted(prices_dir.glob("ticker=*"))
     console.log(f"  Scanning {len(ticker_dirs)} tickers...")
@@ -237,6 +238,9 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
             df = df[df["time"] >= cutoff]
             if len(df) < 5:
                 continue
+            _bar_date = df["time"].iloc[-1]
+            if _max_data_date is None or _bar_date > _max_data_date:
+                _max_data_date = _bar_date
 
             df = _normalize_prices(df)
             c = df["close"].astype(float)
@@ -588,6 +592,9 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
 
     return {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        # Actual trading date of the stock bars used (NOT wall-clock) — lets the
+        # brief detect when breadth/movers/regime trail an intraday VNINDEX.
+        "data_date": _max_data_date.date().isoformat() if _max_data_date is not None else None,
         "sectors": result.to_dict(orient="records"),
         "breadth": breadth,
         "tickers": tick_display.to_dict(orient="records"),

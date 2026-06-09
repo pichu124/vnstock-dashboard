@@ -745,14 +745,40 @@ def effective_trading_date(vnindex_tech: dict | None = None) -> str:
 # (vnstock_runner). The live WSS pipeline updates VNINDEX/GTGD but NOT these.
 # So once a morning brief folds in today's intraday VNINDEX, those blocks can
 # silently lag a session. These helpers detect and (optionally) heal that.
-def _market_overview_generated(path: "str | Path | None" = None) -> "str | None":
-    """Return market_overview.json's generated_at as an ISO date, or None."""
+def _market_overview_data_date(path: "str | Path | None" = None) -> "str | None":
+    """Return the trading date of the DATA inside market_overview.json.
+
+    Prefers the explicit `data_date` field (the latest stock bar actually used);
+    falls back to the `generated_at` date for older files written before that
+    field existed. This — not the file's write time — is what tells us whether
+    breadth/movers/regime trail the brief's session.
+    """
     p = Path(path) if path else Path("data_warehouse/_meta/market_overview.json")
     if not p.exists():
         return None
     try:
-        gen = str(json.loads(p.read_text(encoding="utf-8")).get("generated_at", ""))
+        data = json.loads(p.read_text(encoding="utf-8"))
+        dd = data.get("data_date")
+        if dd:
+            return str(dd)
+        gen = str(data.get("generated_at", ""))  # backward-compat
         return gen.split(" ")[0] if gen else None
+    except Exception:
+        return None
+
+
+def _warehouse_eod_date() -> "str | None":
+    """Latest VNINDEX daily bar date in the warehouse (NO intraday augmentation).
+
+    Used to decide whether re-running the screener would actually surface newer
+    data — recomputing can't conjure intraday stock breadth, so we only refresh
+    when the overview genuinely trails the EOD warehouse.
+    """
+    try:
+        df = _load_vnindex_df(augment=False)
+        if df is None or df.empty or "close" not in df.columns:
+            return None
+        return df.loc[df["close"].notna(), "time"].iloc[-1].date().isoformat()
     except Exception:
         return None
 
@@ -761,14 +787,14 @@ def market_data_freshness(
     data_date: str | None = None,
     overview_path: "str | Path | None" = None,
 ) -> dict:
-    """Compare the screener-produced blocks' freshness to the session date.
+    """Compare the screener-produced blocks' DATA date to the session date.
 
     Returns {"data_date", "overview_date", "stale", "stale_blocks"}. `stale` is
     True when market_overview (breadth/movers/sector flow/regime) is from an
     older session than the VNINDEX data the brief describes.
     """
     dd = data_date or effective_trading_date()
-    ov = _market_overview_generated(overview_path)
+    ov = _market_overview_data_date(overview_path)
     stale = bool(ov and dd and ov < dd)
     blocks = (
         ["độ rộng", "VN30 movers", "dòng tiền ngành", "regime"] if stale else []
@@ -777,18 +803,22 @@ def market_data_freshness(
             "stale_blocks": blocks}
 
 
-def _auto_refresh_market_overview(data_date: str) -> bool:
-    """Recompute + save market_overview.json when it lags `data_date`.
+def _auto_refresh_market_overview() -> bool:
+    """Recompute + save market_overview.json when it trails the EOD warehouse.
 
-    Best-effort and heavy (re-aggregates the whole market), so it only runs
-    when actually stale. Set env VNSTOCK_BRIEF_AUTO_REFRESH=0 to disable.
-    Returns True if a refresh ran and saved.
+    Best-effort and heavy (re-aggregates the whole market), so it only runs when
+    the warehouse actually holds newer daily data than the overview — never just
+    to re-stamp the same intraday-stale breadth. Disable with
+    VNSTOCK_BRIEF_AUTO_REFRESH=0. Returns True if a refresh ran and saved.
     """
     if os.environ.get("VNSTOCK_BRIEF_AUTO_REFRESH", "1") == "0":
         return False
-    ov = _market_overview_generated()
-    if ov is not None and not (data_date and ov < data_date):
-        return False  # already fresh
+    ov = _market_overview_data_date()
+    eod = _warehouse_eod_date()
+    if ov is None and eod is None:
+        return False  # nothing to compute from
+    if ov is not None and eod is not None and not (ov < eod):
+        return False  # overview already at the latest available data
     try:
         from vnstock_runner import compute_market_overview, save_market_overview
         data = compute_market_overview()
@@ -1008,7 +1038,7 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
 
     # Heal stale breadth/movers/regime before reading them (best-effort).
     if auto_refresh:
-        _auto_refresh_market_overview(_data_date_str)
+        _auto_refresh_market_overview()
 
     ctx: dict = {
         "brief_type": brief_type,
@@ -1130,6 +1160,15 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
         except Exception:
             pass
 
+    # Strongest positive sector contribution — gates the "Tích luỹ/Mua" call so a
+    # negligible (+0.02pp) sector isn't dressed up as a leader.
+    if _sw := ctx.get("sector_weights"):
+        _contribs = [
+            (v or {}).get("_1d_contrib", 0) or 0 for v in _sw.values()
+        ]
+        if _contribs:
+            ctx["max_sector_contrib"] = max(_contribs)
+
     # 6. VNINDEX technical levels — already fetched above to determine the
     # effective date; reuse the result instead of calling again.
     ctx["vnindex_tech"] = _vt_early
@@ -1221,7 +1260,7 @@ def _augment_with_live_vnindex(
         return df
 
 
-def _load_vnindex_df() -> "pd.DataFrame":
+def _load_vnindex_df(augment: bool = True) -> "pd.DataFrame":
     """Read VNINDEX price history directly from parquet — no Streamlit cache.
 
     Works both inside Streamlit and from the CLI (run.py push_close_brief).
@@ -1283,7 +1322,7 @@ def _load_vnindex_df() -> "pd.DataFrame":
         df = _df
         break
 
-    return _augment_with_live_vnindex(df)
+    return _augment_with_live_vnindex(df) if augment else df
 
 
 def _vnindex_technicals() -> dict:
@@ -1433,6 +1472,17 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             f"{fr.get('overview_date')} (PHIÊN TRƯỚC). BẮT BUỘC: thêm 1 câu cảnh báo "
             f"các khối này từ phiên trước, và khi mâu thuẫn thì ƯU TIÊN tín hiệu giá "
             f"VNINDEX hiện tại — đừng kết luận xu hướng dựa trên độ rộng/regime cũ."
+        )
+
+    # No strong leader: gate the "Tích luỹ/Mua" call deterministically so a
+    # negligible-contribution sector can't be labelled accumulation.
+    _mc = ctx.get("max_sector_contrib")
+    if _mc is not None and _mc < 0.05:
+        lines.append(
+            f"\n## ⚠️ Không có nhóm dẫn dắt mạnh\n"
+            f"Đóng góp pp dương lớn nhất hôm nay chỉ {_mc:+.3f}pp (< 0.05). "
+            f"Mục 'Tích luỹ/Mua' BẮT BUỘC ghi 'Chưa có nhóm dẫn dắt rõ ràng' — "
+            f"TUYỆT ĐỐI KHÔNG gọi ngành/mã đóng góp quá nhỏ là tích luỹ/mua."
         )
 
     # Market sentiment (tâm lý thị trường) — composite mood from breadth, NN
