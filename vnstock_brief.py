@@ -1605,7 +1605,10 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             f"\n## 🧭 RÀNG BUỘC BIAS (BẮT BUỘC)\n"
             f"Tín hiệu tổng hợp một chiều mạnh ({', '.join(_sig) or 'n/a'}). "
             f"TLDR **Bias BẮT BUỘC = {bf['dir']}** — TUYỆT ĐỐI KHÔNG ghi 'Trung tính' "
-            f"hay chiều ngược lại; kịch bản chính cũng phải theo chiều {bf['dir']}."
+            f"hay chiều ngược lại. Ở 'Kịch bản phiên chiều', kịch bản CHÍNH (xác suất "
+            f"cao nhất) PHẢI là kịch bản {bf['dir']} "
+            f"({'thủng hỗ trợ/đi xuống' if bf['dir'] == 'GIẢM' else 'vượt kháng cự/đi lên'}); "
+            f"kịch bản chiều ngược chỉ được là kịch bản PHỤ."
         )
 
     # Market sentiment (tâm lý thị trường) — composite mood from breadth, NN
@@ -1716,10 +1719,13 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
                     cmp_parts.append(f"TB sáng ~20 phiên {mg['avg20']:,.1f} tỷ")
                 if cmp_parts:
                     line += "\nSo sánh ĐỒNG DẠNG (sáng-với-sáng): " + " | ".join(cmp_parts)
-            # Only show full-day once the session has actually closed (afternoon
-            # volume added) — otherwise it equals the morning and yields the
-            # meaningless "sáng chiếm 100% cả ngày".
-            if full_gtgd and morn_gtgd and full_gtgd > morn_gtgd * 1.05:
+            # Show full-day GTGD only when the session is actually CLOSED. Use
+            # the intraday flag (live bar folded in = session in progress) rather
+            # than a volume ratio — at 13:31 the partial afternoon already makes
+            # full > morning, which falsely read as "complete" → "sáng chiếm 78%".
+            _intraday = bool((ctx.get("vnindex_tech") or {}).get("intraday"))
+            _closed = (not _intraday) and full_gtgd and morn_gtgd and full_gtgd > morn_gtgd * 1.05
+            if _closed:
                 line += f"\nGTGD cả ngày: {full_gtgd:,.1f} tỷ"
             elif morn_gtgd:
                 line += ("\n⚠️ Phiên CHƯA đóng cửa — GTGD cả ngày chưa hoàn chỉnh; chỉ dùng "

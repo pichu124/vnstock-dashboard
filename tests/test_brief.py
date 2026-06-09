@@ -719,6 +719,22 @@ def test_build_prompt_renders_bias_floor():
     prompt = build_prompt(ctx, brief_type="morning")
     assert "RÀNG BUỘC BIAS" in prompt
     assert "Bias BẮT BUỘC = GIẢM" in prompt
+    # The main scenario must also be forced to the bias direction.
+    assert "kịch bản CHÍNH" in prompt and "thủng hỗ trợ/đi xuống" in prompt
+
+
+def test_build_prompt_hides_full_day_when_intraday_partial_afternoon():
+    # 13:31: partial afternoon makes full > morning, but the session is NOT
+    # closed (intraday flag) → must hide full-day and forbid "sáng chiếm X%".
+    ctx = {"date": "2026-06-09", "time": "13:31",
+           "vnindex_tech": {"close": 1792.6, "intraday": True},
+           "session_timing": {"signal": "sig", "detail": "det"},
+           "session_stats": {"9h-11h30": {"VNINDEX": {"gtgd": 7165.4}},
+                             "9h-15h": {"VNINDEX": {"gtgd": 9186.0}}},
+           "morning_gtgd": {"today": 7165.4, "prev": 9650.4, "avg5": 7600.0}}
+    prompt = build_prompt(ctx, brief_type="morning")
+    assert "GTGD cả ngày:" not in prompt
+    assert "CHƯA đóng cửa" in prompt
 
 
 def test_build_prompt_no_bias_floor_when_absent():
