@@ -306,6 +306,18 @@ def test_build_prompt_movers_carry_absolute_price():
     assert "TCB" in prompt and "Giá 27,000" in prompt
 
 
+def test_afternoon_watchlist_splits_direction_and_forbids_short_entry():
+    # Watchlist must use two direction-specific templates with ordering
+    # invariants, and must not frame a bearish idea as a short entry
+    # ("SELL ở [giá]") — VN cash market has no retail short-selling.
+    prompt = build_prompt({"date": "2026-06-08", "time": "15:00"},
+                          brief_type="afternoon")
+    assert "không cho NĐT cá nhân bán khống" in prompt
+    assert "SL < entry < TP" in prompt
+    assert "mục tiêu < hỗ trợ < mức hủy" in prompt
+    assert "GIẢM TỶ TRỌNG/TRÁNH nếu thủng" in prompt
+
+
 # ─── Market sentiment (tâm lý thị trường) ─────────────────────────────────────
 
 def test_compute_market_sentiment_bullish():

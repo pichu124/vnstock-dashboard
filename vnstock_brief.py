@@ -255,9 +255,11 @@ Nếu có block "Dòng tiền ngành": nêu RÕ ngành NN MUA RÒNG / BÁN RÒNG
 
 ## 📋 Watchlist sáng mai (3 setup cụ thể)
 CHỈ chọn mã có trong các block phía trên ("VN30 Top Gainers/Losers" hoặc "Khuyến nghị") — TUYỆT ĐỐI KHÔNG dùng/bịa mã ngoài các danh sách đó (vd không tự thêm mã UPCOM/không thuộc VN30).
-Mỗi setup PHẢI neo vào "Giá" THỰC của mã trong data: entry quanh giá hiện tại, TP/SL lệch hợp lý vài %. KHÔNG tự nghĩ ra mức giá; nếu data không có "Giá" cho mã nào thì KHÔNG đưa mã đó vào.
-Ghi rõ chiều lệnh nhất quán: lệnh BUY → TP cao hơn entry, SL thấp hơn; lệnh SELL → ngược lại. Nếu không có mã nào kèm "Giá" → viết "Cần thêm dữ liệu giá cổ phiếu cụ thể".
-1. **[Mã]** (Giá hiện tại [số] từ data) — [BUY/SELL ở X / chốt lời Y / cắt lỗ Z] — [trigger 1 dòng]
+Mỗi setup PHẢI neo vào "Giá" THỰC của mã trong data; KHÔNG tự nghĩ ra mức giá. Nếu không có mã nào kèm "Giá" → viết "Cần thêm dữ liệu giá cổ phiếu cụ thể".
+CHIỀU LỆNH — chọn ĐÚNG 1 trong 2 mẫu, mốc giá phải đúng thứ tự (TỰ KIỂM TRA trước khi xuất, không được mâu thuẫn):
+- Ý tưởng TĂNG → "MUA vùng [entry] · chốt lời [TP] · cắt lỗ [SL]" — BẮT BUỘC SL < entry < TP.
+- Ý tưởng GIẢM → KHÔNG viết "SELL ở [giá]" (TTCK VN không cho NĐT cá nhân bán khống). Viết: "GIẢM TỶ TRỌNG/TRÁNH nếu thủng [hỗ trợ] · mục tiêu về [thấp hơn] · hủy kịch bản nếu vượt lại [cao hơn]" — BẮT BUỘC mục tiêu < hỗ trợ < mức hủy.
+1. **[Mã]** (Giá [số] từ data) — [đúng 1 trong 2 mẫu trên] — [trigger 1 dòng]
 2. ...
 3. ...
 
