@@ -771,3 +771,11 @@ def test_maybe_reconcile_disabled_by_env(monkeypatch):
     import vnstock_brief as vb
     monkeypatch.setenv("VNSTOCK_BRIEF_AUTO_RECONCILE", "0")
     assert vb._maybe_reconcile_overdue() == 0
+
+
+def test_both_templates_require_all_three_mas():
+    morning = build_prompt({"date": "2026-06-09", "time": "11:30"}, brief_type="morning")
+    afternoon = build_prompt({"date": "2026-06-09", "time": "15:00"}, brief_type="afternoon")
+    for p in (morning, afternoon):
+        assert "ĐỦ CẢ BA" in p
+        assert "MA20" in p and "MA50" in p and "MA200" in p

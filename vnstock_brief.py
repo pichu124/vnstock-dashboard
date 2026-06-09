@@ -185,7 +185,7 @@ TRÍCH XUẤT TỪ block "## VNINDEX kỹ thuật" — KHÔNG BỊA, KHÔNG dùn
 **Đóng cửa hiện tại:** [chính xác con số `close` trong data, ví dụ "1.815,42"]
 **Hỗ trợ gần:** [S1 (gần giá nhất) TRƯỚC, rồi S2 — ghi cả số tuyệt đối, đúng thứ tự S1 < ... < giá]
 **Kháng cự gần:** [R1 (gần giá nhất) trước, rồi R2]
-**Vị trí so với MA:** [chính xác số MA20/MA50/MA200 + % cách giá hiện tại từ data]
+**Vị trí so với MA:** [BẮT BUỘC nêu ĐỦ CẢ BA — MA20, MA50, MA200 — mỗi cái: trên/dưới + % cách giá + giá trị MA từ data. KHÔNG được bỏ MA nào.]
 **Trigger breakout:** [vượt R1 → test R2; thủng S1 → về S2 — viết theo SỐ đã cho]
 Nếu block "VNINDEX kỹ thuật" KHÔNG có trong data → viết "Chưa có dữ liệu VNINDEX hôm nay" (không bịa).
 
@@ -245,7 +245,7 @@ BẮT BUỘC nếu có block "Tâm lý thị trường": nêu RÕ nhãn tâm lý
 TRÍCH XUẤT TỪ block "## VNINDEX kỹ thuật" — KHÔNG BỊA.
 **Đóng cửa:** [chính xác `close` từ data, ví dụ "1.815,42 (+0,38%)"]
 **Vị trí trong range:** [đóng cửa nằm ở đâu trong range tuần/tháng — viết theo SỐ]
-**Vs MA:** [trên/dưới MA20/MA50/MA200 + khoảng cách % theo data]
+**Vs MA:** [BẮT BUỘC nêu ĐỦ CẢ BA — MA20, MA50, MA200 — trên/dưới + khoảng cách % theo data. KHÔNG được bỏ MA nào.]
 **Trigger ngày mai:** [vượt R1=[số] → test R2=[số]; thủng S1=[số] → về S2=[số]]
 Nếu block "VNINDEX kỹ thuật" KHÔNG có → viết "Chưa có dữ liệu VNINDEX hôm nay".
 
