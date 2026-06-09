@@ -135,6 +135,14 @@ schtasks /Create /SC DAILY /ST 14:50 /TN "VNStock News" `
   (`TOTAL LIABILITIES / OWNER'S EQUITY`). D/E bank ~9-17 là bình thường.
 - Ratio `iloc[0]` có thể là row TTM/interim NaN → dùng `_best_ratio_row`
   (lấy row gần nhất có P/E/ROE/D-E thật).
+- **Cash flow `operating_cf` (DONE 2026-06-09 — đừng regress)**: VCI `cash_flow`
+  TRỘN cả dòng NĂM ("2025") lẫn dòng QUÝ ("2025-Q1".."2026-Q1") trong cùng df.
+  `_latest_row` cũ lấy quý dở dang (FPT 2026-Q1 = -2.847,8 tỷ, âm do WC đầu năm)
+  → mis-flag. `_annual_operating_cf` nay: parse năm từ `report_period`, lấy **năm
+  hoàn tất gần nhất** (year < năm hiện tại — loại năm dở), trong năm đó **ưu tiên
+  dòng "năm thuần"** (report_period khớp đúng 1 năm) thay vì cộng 4 quý (cộng cả
+  hai = gấp đôi!). FPT FY2025 đúng = 10.136 tỷ. Soi bằng `--diag <ticker>`
+  (in "OCF theo kỳ gần nhất" + giá trị parse).
 - `.env` PHẢI được load TRƯỚC khi agent kiểm tra `is_available` — brief gọi
   `_ensure_env_loaded()` đầu `generate_brief()`; telegram gọi `_load_env()`
   đầu `push_*_brief()`. Nếu không, chạy từ CLI fresh sẽ báo "no agent".
