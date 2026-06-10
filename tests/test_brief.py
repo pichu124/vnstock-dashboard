@@ -879,3 +879,19 @@ def test_afternoon_trigger_stays_two_directional():
     prompt = build_prompt({"date": "2026-06-09", "time": "15:00"},
                           brief_type="afternoon")
     assert "BẮT BUỘC nêu CẢ HAI chiều" in prompt
+
+
+def test_afternoon_watchlist_nudges_to_use_priced_movers():
+    # When movers carry a price, the watchlist must use them instead of bailing
+    # with "Cần thêm dữ liệu giá" (observed empty watchlist despite STB/PLX).
+    ctx = {"date": "2026-06-09", "time": "15:00",
+           "vn30_gainers": [{"Mã": "STB", "Giá 1T %": 2.1, "Ngành": "Ngân hàng",
+                             "last": 70.7}],
+           "vn30_losers": [{"Mã": "PLX", "Giá 1T %": -1.5, "Ngành": "Năng lượng",
+                            "last": 40.85}]}
+    prompt = build_prompt(ctx, brief_type="afternoon")
+    # the priced movers are present for the agent to anchor on …
+    assert "Giá 70,700" in prompt and "Giá 40,850" in prompt
+    # … and the instruction forces using them rather than bailing
+    assert "BẮT BUỘC dùng ÍT NHẤT 1-2 mã đó làm setup" in prompt
+    assert "CHỈ viết đúng 1 dòng" in prompt

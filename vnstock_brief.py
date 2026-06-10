@@ -261,7 +261,8 @@ Nếu có block "Dòng tiền ngành": nêu RÕ ngành NN MUA RÒNG / BÁN RÒNG
 
 ## 📋 Watchlist sáng mai (TỐI ĐA 3 setup — chỉ mã CÓ GIÁ thật)
 CHỈ chọn mã VN30 xuất hiện trong các block phía trên ("VN30 Top Gainers/Losers" hoặc "Khuyến nghị") VÀ có kèm "Giá" thật. TUYỆT ĐỐI KHÔNG dùng/bịa mã ngoài danh sách (vd mã UPCOM/không thuộc VN30 như TCX), và KHÔNG độn cho đủ 3.
-Mỗi setup PHẢI neo vào "Giá" THỰC; KHÔNG tự nghĩ ra mức giá. Chỉ 1-2 mã đủ điều kiện → đưa ĐÚNG 1-2 setup (TUYỆT ĐỐI KHÔNG thêm dòng kiểu "Giá không có / Cần thêm dữ liệu" cho mã thiếu giá). Nếu KHÔNG mã nào kèm "Giá" → viết đúng 1 dòng "Cần thêm dữ liệu giá cổ phiếu cụ thể".
+Mỗi setup PHẢI neo vào "Giá" THỰC; KHÔNG tự nghĩ ra mức giá. Chỉ 1-2 mã đủ điều kiện → đưa ĐÚNG 1-2 setup (TUYỆT ĐỐI KHÔNG thêm dòng kiểu "Giá không có / Cần thêm dữ liệu" cho mã thiếu giá).
+Block "VN30 Top Gainers/Losers" BÌNH THƯỜNG luôn có sẵn vài mã kèm "Giá" → BẮT BUỘC dùng ÍT NHẤT 1-2 mã đó làm setup. CHỈ viết đúng 1 dòng "Cần thêm dữ liệu giá cổ phiếu cụ thể" khi block movers THỰC SỰ trống / KHÔNG dòng nào kèm "Giá" — KHÔNG dùng câu đó nếu movers vẫn có mã kèm "Giá".
 CHIỀU LỆNH — chọn ĐÚNG 1 trong 2 mẫu, mốc giá phải đúng thứ tự (TỰ KIỂM TRA trước khi xuất, không được mâu thuẫn):
 - Ý tưởng TĂNG → "MUA vùng [entry] · chốt lời [TP] · cắt lỗ [SL]" — BẮT BUỘC SL < entry < TP.
 - Ý tưởng GIẢM → KHÔNG viết "SELL ở [giá]" (TTCK VN không cho NĐT cá nhân bán khống). Viết: "GIẢM TỶ TRỌNG/TRÁNH nếu thủng [hỗ trợ] · mục tiêu về [thấp hơn] · hủy kịch bản nếu vượt lại [cao hơn]" — BẮT BUỘC mục tiêu < hỗ trợ < mức hủy.
