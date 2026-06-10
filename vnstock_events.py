@@ -132,46 +132,53 @@ def _fetch_company(ticker: str):
 
 
 def diag(ticker: str) -> None:
-    """Dump RAW output of candidate event/dividend calendar methods so we can
-    see real columns + whether any ex_date is in the future."""
+    """Dump RAW calendar methods across ALL company sources so we can see real
+    columns + whether any ex_date is in the future (which source exposes it)."""
     from datetime import date as _date
+    from vnstock_adjust import _company_sources
     ticker = ticker.upper()
     print(f"── 🔬 Events diagnostic — {ticker} ──")
-    company, src = _fetch_company(ticker)
-    print(f"company source: {src}")
-    if company is None:
-        print("✗ không tạo được company object")
-        return
     today = _date.today()
-    for method in ("events", "dividends", "dividend_history",
-                   "corporate_action_dividends", "cash_dividend",
-                   "calendar", "upcoming_events", "schedule"):
-        attr = getattr(company, method, None)
-        if attr is None:
-            continue
+    methods = ("events", "dividends", "dividend_history", "cash_dividend",
+               "corporate_action_dividends", "calendar", "upcoming_events",
+               "schedule", "corporate_actions")
+    for src_name, resolve in _company_sources():
+        print(f"\n=== source: {src_name} ===")
         try:
-            df = attr() if callable(attr) else attr
+            company = resolve(ticker)
         except Exception as e:
-            print(f"\n• {method}(): lỗi — {str(e)[:100]}")
+            print(f"  resolve lỗi: {str(e)[:100]}")
             continue
-        if df is None or (hasattr(df, "empty") and df.empty):
-            print(f"\n• {method}(): rỗng")
+        if company is None:
+            print("  company = None")
             continue
-        cols = [str(c) for c in df.columns]
-        print(f"\n• {method}(): shape={df.shape}")
-        print(f"  cols: {cols}")
-        # Flag any future-dated column values
-        for c in df.columns:
-            cl = str(c).lower()
-            if any(k in cl for k in ("date", "ngay", "ex", "gdkhq", "record")):
-                try:
-                    d = pd.to_datetime(df[c], errors="coerce").dt.date
-                    fut = d[d >= today]
-                    print(f"  [{c}] max={d.max()} | tương lai: {len(fut)} dòng"
-                          + (f" → {sorted(fut.dropna().unique())[:5]}" if len(fut) else ""))
-                except Exception:
-                    pass
-        print(df.head(6).to_string()[:1800])
+        avail = [a for a in dir(company) if not a.startswith("_")
+                 and any(k in a.lower()
+                         for k in ("event", "divid", "calendar", "action", "schedule"))]
+        print(f"  method khả dụng: {avail}")
+        for method in methods:
+            attr = getattr(company, method, None)
+            if attr is None:
+                continue
+            try:
+                df = attr() if callable(attr) else attr
+            except Exception as e:
+                print(f"  • {method}(): lỗi — {str(e)[:80]}")
+                continue
+            if df is None or (hasattr(df, "empty") and df.empty):
+                print(f"  • {method}(): rỗng")
+                continue
+            print(f"  • {method}(): shape={df.shape} | cols={[str(c) for c in df.columns]}")
+            for c in df.columns:
+                if any(k in str(c).lower()
+                       for k in ("date", "ngay", "ex", "gdkhq", "record")):
+                    try:
+                        d = pd.to_datetime(df[c], errors="coerce").dt.date
+                        fut = d[d >= today]
+                        print(f"    [{c}] max={d.max()} | TƯƠNG LAI: {len(fut)} dòng")
+                    except Exception:
+                        pass
+            print("    " + df.head(4).to_string()[:1200].replace("\n", "\n    "))
 
 
 def _check(within: int = 30) -> None:
