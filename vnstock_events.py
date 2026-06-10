@@ -95,24 +95,53 @@ def refresh_upcoming(
     verbose: bool = False,
 ) -> pd.DataFrame:
     """Fetch corp-action events for `tickers`, keep ex_date ≥ today-keep_back,
-    consolidate into one parquet. Best-effort: a single failing ticker is
-    skipped. Returns the saved DataFrame (may be empty).
+    consolidate into one parquet. Best-effort and MERGE-SAFE: a ticker whose
+    fetch FAILS (network hiccup → `_fetch_vci_events` returns None) keeps its
+    previously-cached events instead of being dropped — observed an ACB dividend
+    vanishing between two same-day runs when a re-fetch hiccupped and overwrote
+    the good cache. Only a SUCCESSFUL fetch replaces a ticker's rows (so a
+    cancelled event still clears). Returns the saved DataFrame (may be empty).
     """
     tickers = tickers or _default_universe()
     cutoff = date.today() - timedelta(days=keep_back_days)
-    rows: list[dict] = []
-    for t in tickers:
-        df = _fetch_vci_events(t)
-        evs = _extract_upcoming(df, t, cutoff)
-        if verbose:
-            print(f"  [{t}] {len(evs)} sự kiện sắp tới")
-        rows.extend(evs)
 
+    # Prior cache keyed by ticker, so a failed re-fetch keeps known events.
+    prior: dict[str, list[dict]] = {}
+    if UPCOMING_EVENTS_PATH.exists():
+        try:
+            pdf = pd.read_parquet(UPCOMING_EVENTS_PATH)
+            for _, r in pdf.iterrows():
+                prior.setdefault(str(r["ticker"]).upper(), []).append(
+                    {c: r.get(c) for c in _COLS})
+        except Exception:
+            prior = {}
+
+    by_ticker: dict[str, list[dict]] = dict(prior)
+    refreshed = failed = 0
+    for t in tickers:
+        key = str(t).upper()
+        df = _fetch_vci_events(t)
+        if df is None:                       # fetch failed → keep prior rows
+            failed += 1
+            if verbose:
+                print(f"  [{t}] fetch lỗi — giữ {len(prior.get(key, []))} sự kiện cũ")
+            continue
+        by_ticker[key] = _extract_upcoming(df, t, cutoff)   # success (may be [])
+        refreshed += 1
+        if verbose:
+            print(f"  [{t}] {len(by_ticker[key])} sự kiện sắp tới")
+
+    # Flatten, drop anything now past the cutoff, dedup.
+    rows = [e for evs in by_ticker.values() for e in evs
+            if (d := _to_date(e.get("ex_date"))) is not None and d >= cutoff]
     out = pd.DataFrame(rows, columns=_COLS)
     if not out.empty:
         out = out.drop_duplicates(subset=["ticker", "ex_date", "title"])
         _META.mkdir(parents=True, exist_ok=True)
         out.to_parquet(UPCOMING_EVENTS_PATH, index=False)
+    if verbose:
+        print(f"  → refresh: {refreshed} mã OK, {failed} mã lỗi (giữ cache cũ), "
+              f"tổng {len(out)} sự kiện tương lai")
     return out
 
 

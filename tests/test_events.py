@@ -126,6 +126,37 @@ def test_maybe_refresh_events_disabled_by_env(monkeypatch):
     assert vb._maybe_refresh_events() == 0
 
 
+def test_refresh_keeps_prior_events_when_fetch_fails(tmp_path, monkeypatch):
+    # A flaky re-fetch must NOT drop a known upcoming event (regression: ACB
+    # dividend vanished between two same-day runs). ACB's fetch fails (None) →
+    # its cached event is retained; SAB's fetch succeeds and refreshes.
+    p = tmp_path / "upcoming_events.parquet"
+    pd.DataFrame([
+        {"ticker": "ACB", "ex_date": "2099-06-15",
+         "title": "Trả cổ tức tiền mặt 700 VND", "category": "DIVIDEND"},
+    ]).to_parquet(p, index=False)
+    monkeypatch.setattr(ev, "UPCOMING_EVENTS_PATH", p)
+    monkeypatch.setattr(ev, "_fetch_vci_events",
+                        lambda t: None if t == "ACB" else pd.DataFrame())
+    out = ev.refresh_upcoming(tickers=["ACB", "SAB"])
+    assert "ACB" in set(out["ticker"])            # kept despite failed fetch
+    saved = ev.load_upcoming(within_days=99999, path=p, today=date(2026, 6, 10))
+    assert any(e["ticker"] == "ACB" for e in saved)
+
+
+def test_refresh_clears_event_on_successful_empty_fetch(tmp_path, monkeypatch):
+    # A SUCCESSFUL fetch that returns no upcoming events (cancelled/none) must
+    # clear that ticker — distinct from a failed (None) fetch which keeps it.
+    p = tmp_path / "upcoming_events.parquet"
+    pd.DataFrame([
+        {"ticker": "ACB", "ex_date": "2099-06-15", "title": "x", "category": "DIVIDEND"},
+    ]).to_parquet(p, index=False)
+    monkeypatch.setattr(ev, "UPCOMING_EVENTS_PATH", p)
+    monkeypatch.setattr(ev, "_fetch_vci_events", lambda t: pd.DataFrame())  # success, empty
+    out = ev.refresh_upcoming(tickers=["ACB"])
+    assert out.empty
+
+
 def test_templates_have_upcoming_events_output_section():
     # The events block is injected as DATA; the OUTPUT template must also have a
     # "Sự kiện sắp tới" section or the model never surfaces it (observed: block

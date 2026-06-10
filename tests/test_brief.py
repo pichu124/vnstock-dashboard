@@ -338,6 +338,9 @@ def test_afternoon_watchlist_splits_direction_and_forbids_short_entry():
     assert "SL < entry < TP" in prompt
     assert "mục tiêu < hỗ trợ < mức hủy" in prompt
     assert "GIẢM TỶ TRỌNG/TRÁNH nếu thủng" in prompt
+    # per-stock setups must anchor to the stock's own price, never VNINDEX S/R
+    # (regression: STB setup used VNINDEX R1=1,801.66 instead of ~70,700)
+    assert "KHÔNG dùng mức S1/S2/R1/R2 của VNINDEX" in prompt
 
 
 def test_afternoon_watchlist_caps_at_real_priced_vn30_tickers():
