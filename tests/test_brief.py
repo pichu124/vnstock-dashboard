@@ -295,6 +295,37 @@ def test_vn30_fund_block_empty_when_no_data():
     assert _vn30_fund_block({}) == ""
 
 
+def test_enforce_realestate_ocf_context_appends_when_missing():
+    # 14:48 brief cited "KBC và NVL có lưu chuyển tiền HĐKD thấp nhất" with no
+    # land-bank context → the guard must append it after that line.
+    from vnstock_brief import enforce_realestate_ocf_context
+    ctx = {"realestate_tickers": {"KBC", "NVL"}}
+    text = ("⚠️ Rủi ro cần lưu ý\n"
+            "HNG có D/E cao nhất với 8.83, KBC và NVL có lưu chuyển tiền HĐKD thấp nhất.\n"
+            "📅 Sự kiện sắp tới")
+    fixed = enforce_realestate_ocf_context(text, ctx)
+    assert "quỹ đất" in fixed and "không phải lỗ HĐKD" in fixed
+    assert "KBC, NVL" in fixed
+    # the note lands right after the citing line, before the next section
+    lines = fixed.splitlines()
+    assert lines[2].startswith("(Lưu ý: Op.CF âm của KBC, NVL")
+    assert lines[3] == "📅 Sự kiện sắp tới"
+
+
+def test_enforce_realestate_ocf_context_noop_cases():
+    from vnstock_brief import enforce_realestate_ocf_context
+    ctx = {"realestate_tickers": {"KBC"}}
+    # context already written by the model → untouched
+    t1 = "KBC có Op.CF=-17,344 tỷ, chủ yếu do tích lũy quỹ đất và hàng tồn kho."
+    assert enforce_realestate_ocf_context(t1, ctx) == t1
+    # RE ticker absent from the OCF line → untouched
+    t2 = "HPG có lưu chuyển tiền HĐKD thấp nhất -300 tỷ."
+    assert enforce_realestate_ocf_context(t2, ctx) == t2
+    # no realestate set in ctx → untouched
+    t3 = "KBC có Op.CF thấp nhất."
+    assert enforce_realestate_ocf_context(t3, {}) == t3
+
+
 def test_build_prompt_includes_fundamentals_block():
     ctx = {
         "date": "2026-06-05",

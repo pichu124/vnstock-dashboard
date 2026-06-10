@@ -238,6 +238,7 @@ YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
 - Kịch bản phải có TRIGGER (mức giá/chỉ số/% volume) — không viết "nếu thị trường tốt".
 - Nếu không đủ data cho một mục → viết "Cần thêm [data X]", không bịa.
 - MỌI % thay đổi giá PHẢI ghi rõ khung thời gian: "hôm nay", "phiên sáng", "5 phiên", "so với đóng cửa hôm qua", v.v. TUYỆT ĐỐI KHÔNG viết "X giảm Y%" mà không có khung thời gian.
+- Viết THUẦN tiếng Việt — KHÔNG chèn từ tiếng Anh vào câu (vd "mua ròng strongest" → "mua ròng mạnh nhất"). Thuật ngữ chuẩn (RSI, MA20, A/D, Op.CF, D/E, GTGD…) giữ nguyên.
 """
 
 _AFTERNOON_TEMPLATE = """\
@@ -289,7 +290,7 @@ MỐC GIÁ SETUP MỖI MÃ PHẢI quanh "Giá" CỦA CHÍNH MÃ ĐÓ (vd Giá 70
 
 ## ⚠️ Rủi ro cần lưu ý
 [Red flags, distribution, macro risk với mức cảnh báo cụ thể; "Không có rủi ro đặc biệt" nếu thị trường ổn]
-Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằng mã lấy TỪ dòng "Đòn bẩy cao nhất (D/E)" hoặc "Lưu chuyển tiền HĐKD thấp nhất" trong block, ghi kèm TÊN MÃ THẬT + CON SỐ THẬT copy từ block (định dạng "MÃ D/E=số" hoặc "MÃ Op.CF=số tỷ"). MÃ trong block gồm CẢ VN30 LẪN mid-cap → KHÔNG ghi "cao nhất trong VN30" (nhiều mã không thuộc VN30); chỉ ghi "cao nhất trong nhóm theo dõi". TUYỆT ĐỐI KHÔNG in nguyên ký hiệu mẫu (X, Y, "MÃ", "số") — phải thay bằng giá trị thật. Nếu block KHÔNG có mã Op.CF âm đáng lưu ý → CHỈ nêu rủi ro D/E (mã cao nhất), KHÔNG đề cập Op.CF, KHÔNG ghi placeholder. TUYỆT ĐỐI KHÔNG: (a) dẫn mã KHÔNG có trong block (vd VCK); (b) nói "cần thêm dữ liệu/chỉ số" — số ĐÃ có trong block; (c) gọi "Op.CF âm" cho mã có Op.CF ≥ 0 (chỉ ghi "âm" khi số THỰC < 0, còn lại ghi "Op.CF thấp"); (d) gán rủi ro sang ngành dẫn dắt/tụt hậu. Ngân hàng/CK/bảo hiểm đã bị loại khỏi xếp hạng → KHÔNG nêu nhóm tài chính làm rủi ro đòn bẩy/dòng tiền. Mã gắn "(BĐS)" trong dòng Op.CF: dòng tiền âm CHỦ YẾU do tích lũy quỹ đất/hàng tồn kho dự án (vốn lưu động), KHÔNG phải lỗ HĐKD → PHẢI ghi kèm ngữ cảnh này + soi D/E/nợ vay, TUYỆT ĐỐI KHÔNG gọi là "kiệt quệ tiền mặt". Nếu block không có mã đáng lưu ý → nêu rủi ro vĩ mô/kỹ thuật, KHÔNG dẫn mã ngoài data.
+Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằng mã lấy TỪ dòng "Đòn bẩy cao nhất (D/E)" hoặc "Lưu chuyển tiền HĐKD thấp nhất" trong block, ghi kèm TÊN MÃ THẬT + CON SỐ THẬT copy từ block (định dạng "MÃ D/E=số" hoặc "MÃ Op.CF=số tỷ"). MỌI mã được nhắc trong mục này PHẢI kèm CON SỐ CỦA CHÍNH NÓ — TUYỆT ĐỐI KHÔNG viết kiểu "PET và VTZ cũng có D/E cao" hay "KBC và NVL có Op.CF thấp nhất" mà KHÔNG ghi số; nếu không ghi số thì KHÔNG nêu mã đó. MÃ trong block gồm CẢ VN30 LẪN mid-cap → KHÔNG ghi "cao nhất trong VN30" (nhiều mã không thuộc VN30); chỉ ghi "cao nhất trong nhóm theo dõi". TUYỆT ĐỐI KHÔNG in nguyên ký hiệu mẫu (X, Y, "MÃ", "số") — phải thay bằng giá trị thật. Nếu block KHÔNG có mã Op.CF âm đáng lưu ý → CHỈ nêu rủi ro D/E (mã cao nhất), KHÔNG đề cập Op.CF, KHÔNG ghi placeholder. TUYỆT ĐỐI KHÔNG: (a) dẫn mã KHÔNG có trong block (vd VCK); (b) nói "cần thêm dữ liệu/chỉ số" — số ĐÃ có trong block; (c) gọi "Op.CF âm" cho mã có Op.CF ≥ 0 (chỉ ghi "âm" khi số THỰC < 0, còn lại ghi "Op.CF thấp"); (d) gán rủi ro sang ngành dẫn dắt/tụt hậu. Ngân hàng/CK/bảo hiểm đã bị loại khỏi xếp hạng → KHÔNG nêu nhóm tài chính làm rủi ro đòn bẩy/dòng tiền. Mã gắn "(BĐS)" trong dòng Op.CF: dòng tiền âm CHỦ YẾU do tích lũy quỹ đất/hàng tồn kho dự án (vốn lưu động), KHÔNG phải lỗ HĐKD → PHẢI ghi kèm ngữ cảnh này + soi D/E/nợ vay, TUYỆT ĐỐI KHÔNG gọi là "kiệt quệ tiền mặt". Nếu block không có mã đáng lưu ý → nêu rủi ro vĩ mô/kỹ thuật, KHÔNG dẫn mã ngoài data.
 
 ## 📅 Sự kiện sắp tới
 [Nếu có block "Sự kiện sắp tới" trong data: liệt kê 1-3 sự kiện gần nhất (GDKHQ cổ tức/chia tách/ĐHCĐ) kèm mã + ngày, ưu tiên mã VN30/watchlist; nhắc "giá tự điều chỉnh ngày GDKHQ". Nếu KHÔNG có block đó → ghi "Không có sự kiện đáng chú ý" hoặc bỏ mục này.]
@@ -310,6 +311,7 @@ YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
 - Setup watchlist phải có TRIGGER (mức giá cụ thể) — không viết "nếu thị trường tích cực thì vào".
 - Nếu không đủ data → viết "Cần thêm [data X]", không bịa.
 - MỌI % thay đổi giá PHẢI ghi rõ khung thời gian: "hôm nay", "phiên sáng", "5 phiên", "so với đóng cửa hôm qua", v.v. TUYỆT ĐỐI KHÔNG viết "X giảm Y%" mà không có khung thời gian.
+- Viết THUẦN tiếng Việt — KHÔNG chèn từ tiếng Anh vào câu (vd "mua ròng strongest" → "mua ròng mạnh nhất"). Thuật ngữ chuẩn (RSI, MA20, A/D, Op.CF, D/E, GTGD…) giữ nguyên.
 """
 
 
@@ -2244,11 +2246,14 @@ def generate_brief(
             results[name] = result
 
     # Deterministic fixups the LLM is known to flub: restore the upcoming-events
-    # list when the model claims "Không có sự kiện đáng chú ý" despite the data.
+    # list when the model claims "Không có sự kiện đáng chú ý" despite the data,
+    # and re-attach the land-bank context when a BĐS ticker is cited for weak
+    # Op.CF without it.
     for agent in available:
         text, _err = results.get(agent.name, ("", None))
         if text:
             fixed = enforce_upcoming_events(text, ctx)
+            fixed = enforce_realestate_ocf_context(fixed, ctx)
             if fixed != text:
                 results[agent.name] = (fixed, _err)
 
@@ -2364,7 +2369,38 @@ def enforce_upcoming_events(text: str, ctx: dict) -> str:
     return "\n".join(out)
 
 
-def validate_brief_factuality(text: str, ctx: dict) -> list[str]:
+def enforce_realestate_ocf_context(text: str, ctx: dict) -> str:
+    """Deterministic guard: when the risk section names a real-estate ticker for
+    weak operating cash flow but drops the land-bank context (observed: 13:50
+    brief carried "do tích lũy quỹ đất…", the 14:48 one cited KBC/NVL bare),
+    append the context note right after that line so a bare negative OCF is
+    never read as distress. No-op when no RE ticker is cited for OCF or the
+    context is already present.
+    """
+    re_tickers = ctx.get("realestate_tickers") or set()
+    if not text or not re_tickers:
+        return text
+    low = text.lower()
+    if "quỹ đất" in low or "tồn kho" in low:
+        return text                      # context already present somewhere
+
+    _ocf_words = ("op.cf", "lưu chuyển tiền", "dòng tiền hđkd")
+    out: list[str] = []
+    added = False
+    for line in text.splitlines():
+        out.append(line)
+        if added or not any(w in line.lower() for w in _ocf_words):
+            continue
+        cited = [t for t in sorted(re_tickers)
+                 if _re.search(rf"\b{_re.escape(t)}\b", line)]
+        if cited:
+            out.append(
+                f"(Lưu ý: Op.CF âm của {', '.join(cited)} — BĐS — chủ yếu do "
+                "tích lũy quỹ đất/hàng tồn kho dự án, không phải lỗ HĐKD; cần "
+                "soi thêm D/E và nợ vay.)"
+            )
+            added = True
+    return "\n".join(out)
     """Scan brief output for VNINDEX-magnitude numbers far from real close.
 
     Returns list of warning strings (empty if no flags found).
