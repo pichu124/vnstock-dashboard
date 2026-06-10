@@ -216,7 +216,7 @@ Kịch bản CHÍNH phải NHẤT QUÁN với Bias ở TLDR: Bias GIẢM → k�
 BẮT BUỘC: Nếu quyết định bị ảnh hưởng bởi tin tức trong block "Tin tức thị trường", PHẢI nêu rõ tên tiêu đề tin và giải thích tác động (ví dụ: "HPG: MUA — kỹ thuật vượt MA20 + tin [Hòa Phát ký hợp đồng thép 5.000 tỷ] hỗ trợ đà tăng"). Bỏ qua nếu không có khuyến nghị.
 
 ## 🔧 Đề xuất bổ sung (1 dòng, optional)
-[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, VN30 cơ bản (D/E/ROE/OCF). CHỈ nêu thứ THỰC SỰ thiếu (vd: tin vĩ mô/sự kiện, lịch công bố KQKD, định giá ngành so sánh).]
+[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, VN30 cơ bản (D/E/ROE/OCF), lịch GDKHQ cổ tức/chia tách (nếu có block "Sự kiện sắp tới"). CHỈ nêu thứ THỰC SỰ thiếu (vd: tin VĨ MÔ — CPI/lãi suất/tỷ giá, lịch công bố KQKD, định giá ngành so sánh).]
 
 Giới hạn 450 từ. Khi nói về cổ phiếu cụ thể, CHỈ đề cập mã CÓ TRONG các block đã cung cấp (VN30 + mid-cap thanh khoản cao); KHÔNG nhắc mã ngoài data.
 YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
@@ -284,7 +284,7 @@ Nếu có block "VN30 Cơ bản": CHỈ nêu rủi ro cơ bản bằng mã lấy
 BẮT BUỘC: Nếu có tin tức tác động → nêu rõ tiêu đề tin + ảnh hưởng. Bỏ qua nếu không có khuyến nghị.
 
 ## 🔧 Đề xuất bổ sung (1 dòng, optional)
-[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, VN30 cơ bản (D/E/ROE/OCF). CHỈ nêu thứ THỰC SỰ thiếu (vd: tin vĩ mô/sự kiện, lịch công bố KQKD, định giá ngành so sánh).]
+[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, VN30 cơ bản (D/E/ROE/OCF), lịch GDKHQ cổ tức/chia tách (nếu có block "Sự kiện sắp tới"). CHỈ nêu thứ THỰC SỰ thiếu (vd: tin VĨ MÔ — CPI/lãi suất/tỷ giá, lịch công bố KQKD, định giá ngành so sánh).]
 
 Giới hạn 500 từ. Khi nói về cổ phiếu cụ thể, CHỈ đề cập mã CÓ TRONG các block đã cung cấp (VN30 + mid-cap thanh khoản cao); KHÔNG nhắc mã ngoài data. Nếu thị trường flat và không có signal rõ thì nói thẳng.
 YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
@@ -1063,6 +1063,43 @@ def _sector_flow_block(sectors: list[dict]) -> str:
         return ""
 
 
+def _upcoming_events_block(events: list[dict]) -> str:
+    """Render upcoming corporate events (ex-dividend / split / bonus).
+
+    `events` comes from vnstock_events.load_upcoming(); each carries ticker,
+    ex_date (ISO), type and amount/ratio. Empty string when nothing relevant.
+    """
+    if not events:
+        return ""
+
+    def _fmt(e: dict) -> str:
+        t = (e.get("type") or "").lower()
+        if t == "cash":
+            ca = e.get("cash_amount")
+            try:
+                desc = f"GDKHQ cổ tức tiền mặt {float(ca):,.0f}đ" if ca else "GDKHQ cổ tức tiền mặt"
+            except (TypeError, ValueError):
+                desc = "GDKHQ cổ tức tiền mặt"
+        elif t == "split":
+            r = e.get("ratio")
+            desc = f"chia tách (tỷ lệ {r})" if r else "chia tách CP"
+        elif t == "bonus":
+            r = e.get("ratio")
+            desc = f"thưởng CP (tỷ lệ {r})" if r else "thưởng CP"
+        else:
+            desc = f"sự kiện ({t})" if t else "sự kiện DN"
+        return f"- {e.get('ticker','?')}: {desc} — GDKHQ {e.get('ex_date','?')}"
+
+    lines = ["\n## 📅 Sự kiện sắp tới (GDKHQ cổ tức/chia tách/thưởng — mã trong nhóm theo dõi)"]
+    lines += [_fmt(e) for e in events[:12]]
+    lines.append(
+        "→ Nếu mã đang giữ/watchlist có GDKHQ sắp tới, LƯU Ý nhắc (giá tự điều "
+        "chỉnh giảm trong ngày GDKHQ — không phải giảm do thị trường). DÙNG ĐÚNG "
+        "ngày + số, KHÔNG bịa."
+    )
+    return "\n".join(lines)
+
+
 def _market_sentiment_block(ms: dict) -> str:
     """Render the composite market-sentiment block for the prompt."""
     if not ms:
@@ -1306,6 +1343,16 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     _vn30_fund = _load_vn30_fundamentals(vn30=_fund_universe)
     if _vn30_fund:
         ctx["vn30_fundamentals"] = _vn30_fund
+
+    # 7b. Upcoming corporate events (ex-dividend / split / bonus) for the tracked
+    #     universe so the brief can flag ngày GDKHQ (giá tự điều chỉnh).
+    try:
+        from vnstock_events import load_upcoming
+        _ev = load_upcoming(within_days=14, tickers=_fund_universe)
+        if _ev:
+            ctx["upcoming_events"] = _ev
+    except Exception:
+        pass
 
     # 8. Composite market sentiment (tâm lý thị trường) — synthesises breadth +
     # NN flow + index momentum + news sentiment into one short-term mood.
@@ -1955,6 +2002,13 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
     # can ground "rủi ro cơ bản" comments in real leverage / cash-flow numbers.
     if funds := ctx.get("vn30_fundamentals"):
         block = _vn30_fund_block(funds)
+        if block:
+            lines.append(block)
+
+    # Upcoming corporate events (ex-dividend / split / bonus) so the brief can
+    # flag ngày GDKHQ for held/watchlist tickers.
+    if _ev := ctx.get("upcoming_events"):
+        block = _upcoming_events_block(_ev)
         if block:
             lines.append(block)
 

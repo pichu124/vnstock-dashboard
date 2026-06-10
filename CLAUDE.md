@@ -122,7 +122,18 @@ schtasks /Create /SC WEEKLY /D MON /ST 08:00 /TN "VNStock Fundamentals" `
 # News sentiment: hằng ngày 14:50 (trước close brief)
 schtasks /Create /SC DAILY /ST 14:50 /TN "VNStock News" `
   /TR "<repo>\.venv\Scripts\python.exe <repo>\run.py news"
+# Sự kiện DN sắp tới (GDKHQ cổ tức/chia tách): 1×/ngày trước close brief
+schtasks /Create /SC DAILY /ST 14:55 /TN "VNStock Events" `
+  /TR "<repo>\.venv\Scripts\python.exe <repo>\vnstock_events.py"
 ```
+
+**Sự kiện DN sắp tới (DONE 2026-06-10)** — `vnstock_events.py` tổng hợp GDKHQ
+cổ tức/chia tách/thưởng (tái dùng `vnstock_adjust._fetch_events` →
+`Company.events()`), cache `_meta/upcoming_events.parquet`. Brief nạp qua
+`load_upcoming(within_days=14, tickers=VN30∪movers)` → block "📅 Sự kiện sắp
+tới" (`_upcoming_events_block`). Đây là phần "sự kiện kinh tế" KHẢ THI với data
+nội bộ; **tin VĨ MÔ (CPI/Fed/SBV) chưa có** — cần nguồn ngoài (RSS/API), vướng
+network policy. Chạy `python vnstock_events.py` (VN30) / `--tickers` / `--check`.
 
 **Quan trọng — vnstock 4.0.4 + sponsor API gotchas** (hard-won, đừng quên):
 - `vnstock_auth._StockShim` PHẢI expose `.quote/.company/.listing/.finance`.
