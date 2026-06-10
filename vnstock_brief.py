@@ -86,6 +86,11 @@ _LIQUID_GTGD_MIN_TY: float = 10.0
 # Price floor (thousand VND) — drop sub-5k penny/distressed names (e.g. POM ~4.3)
 # from the watchlist universe; VN30 is exempt. Raise to be stricter on quality.
 _LIQUID_PRICE_MIN_TY: float = 5.0
+# Stricter floor (tỷ VND/phiên) for a mover to be eligible as an ACTIONABLE
+# watchlist setup. The broad ≥10 tỷ pool feeds analysis/"biến động bất thường";
+# only VN30 OR names trading ≥ this much should anchor a MUA/GIẢM setup, so a
+# thin mid-cap (e.g. VIW) is described but never turned into a trade idea.
+_WATCHLIST_GTGD_MIN_TY: float = 50.0
 
 
 def get_vn30_live() -> set[str]:
@@ -271,10 +276,10 @@ DÙNG ĐÚNG block "🎯 Dẫn dắt/Tụt hậu — CHỐT THEO DATA" ở trên
 Nếu có block "Dòng tiền ngành": nêu RÕ ngành NN MUA RÒNG / BÁN RÒNG mạnh nhất (lấy số "NN ròng", đơn vị tỷ, có dấu +/-). PHÂN BIỆT rõ "NN ròng" (khối ngoại mua-bán ròng) với "GTGD" (thanh khoản/giá trị giao dịch) — TUYỆT ĐỐI KHÔNG gọi GTGD là "dòng tiền vào". Nhận định luân chuyển dòng tiền giữa các ngành dựa trên NN ròng.
 
 ## 📋 Watchlist sáng mai
-(Hướng dẫn — KHÔNG in tiêu đề phụ này vào brief) TỐI ĐA 3 setup, chỉ mã CÓ GIÁ thật. CHỈ chọn mã xuất hiện trong các block phía trên ("Top Gainers/Losers thanh khoản cao" hoặc "Khuyến nghị") VÀ có kèm "Giá" thật (VN30 hoặc mid-cap thanh khoản cao đều được). TUYỆT ĐỐI KHÔNG dùng/bịa mã KHÔNG có trong các block đó (vd mã UPCOM/penny ngoài data), và KHÔNG độn cho đủ 3.
-Mỗi setup PHẢI neo vào "Giá" THỰC; KHÔNG tự nghĩ ra mức giá. Chỉ 1-2 mã đủ điều kiện → đưa ĐÚNG 1-2 setup (TUYỆT ĐỐI KHÔNG thêm dòng kiểu "Giá không có / Cần thêm dữ liệu" cho mã thiếu giá).
-Block "Top Gainers/Losers thanh khoản cao" BÌNH THƯỜNG luôn có sẵn vài mã kèm "Giá" → BẮT BUỘC dùng ÍT NHẤT 1-2 mã đó làm setup. CHỈ viết đúng 1 dòng "Cần thêm dữ liệu giá cổ phiếu cụ thể" khi block movers THỰC SỰ trống / KHÔNG dòng nào kèm "Giá" — KHÔNG dùng câu đó nếu movers vẫn có mã kèm "Giá".
-CHIỀU LỆNH — chọn ĐÚNG 1 trong 2 mẫu, mốc giá phải đúng thứ tự (TỰ KIỂM TRA trước khi xuất, không được mâu thuẫn):
+(Hướng dẫn — KHÔNG in tiêu đề phụ này vào brief) TỐI ĐA 3 setup, chỉ mã CÓ GIÁ thật. CHỈ chọn mã ĐỦ ĐIỀU KIỆN SETUP: mã trong block "Top Gainers/Losers thanh khoản cao" CÓ DẤU ⭐ (thanh khoản đủ cao — VN30 hoặc GTGD ≥ 50 tỷ/phiên), HOẶC mã trong block "Khuyến nghị". Mã movers KHÔNG có ⭐ (thanh khoản 10-50 tỷ) chỉ dùng để phân tích "Biến động bất thường", TUYỆT ĐỐI KHÔNG đưa vào setup giao dịch (đưa lệnh vào mã mỏng là rủi ro). TUYỆT ĐỐI KHÔNG dùng/bịa mã KHÔNG có trong các block đó (vd mã UPCOM/penny ngoài data), và KHÔNG độn cho đủ 3.
+Mỗi setup PHẢI neo vào "Giá" THỰC; KHÔNG tự nghĩ ra mức giá. Chỉ 1-2 mã ⭐ đủ điều kiện → đưa ĐÚNG 1-2 setup (TUYỆT ĐỐI KHÔNG thêm dòng kiểu "Giá không có / Cần thêm dữ liệu" cho mã thiếu giá).
+Block "Top Gainers/Losers thanh khoản cao" BÌNH THƯỜNG có sẵn vài mã ⭐ kèm "Giá" → BẮT BUỘC dùng ÍT NHẤT 1-2 mã ⭐ đó làm setup. CHỈ viết đúng 1 dòng "Cần thêm dữ liệu giá cổ phiếu cụ thể" khi KHÔNG có mã ⭐ nào kèm "Giá" — KHÔNG dùng câu đó nếu vẫn còn mã ⭐ kèm "Giá", và KHÔNG thay bằng mã không-⭐.
+CHIỀU LỆNH — hướng setup PHẢI nhất quán với "Stance ngày mai"/bias: Stance GIẢM (regime/momentum yếu) → ƯU TIÊN mẫu phòng thủ (GIẢM TỶ TRỌNG/TRÁNH), KHÔNG mở loạt setup MUA mới; nếu nêu MUA thì PHẢI là kèo CÓ ĐIỀU KIỆN ("chỉ canh MUA NẾU vượt lại [kháng cự]"). Stance TĂNG → ưu tiên MUA. Chọn ĐÚNG 1 trong 2 mẫu, mốc giá phải đúng thứ tự (TỰ KIỂM TRA trước khi xuất, không được mâu thuẫn):
 - Ý tưởng TĂNG → "MUA vùng [entry] · chốt lời [TP] · cắt lỗ [SL]" — BẮT BUỘC SL < entry < TP.
 - Ý tưởng GIẢM → KHÔNG viết "SELL ở [giá]" (TTCK VN không cho NĐT cá nhân bán khống). Viết: "GIẢM TỶ TRỌNG/TRÁNH nếu thủng [hỗ trợ] · mục tiêu về [thấp hơn] · hủy kịch bản nếu vượt lại [cao hơn]" — BẮT BUỘC mục tiêu < hỗ trợ < mức hủy.
 1. **[Mã]** (Giá [số] từ data) — [đúng 1 trong 2 mẫu trên] — [trigger 1 dòng]
@@ -1175,6 +1180,8 @@ def _select_liquid_movers(
         return [], [], set()
 
     cols = ["Mã", price_col, "Ngành"] + (["last"] if "last" in df.columns else [])
+    if "GTGD TB (tỷ)" in df.columns:   # carried through so the renderer can tag
+        cols.append("GTGD TB (tỷ)")    # watchlist-eligible (≥ _WATCHLIST_GTGD_MIN_TY) movers
     gainers = df.nlargest(n, price_col)[cols].to_dict("records")
     losers = df.nsmallest(n, price_col)[cols].to_dict("records")
     universe = {str(m) for m in df["Mã"].tolist()}
@@ -2011,6 +2018,15 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             line += f" | Giá {float(price) * 1000:,.0f}"
         if contrib != 0:
             line += f" ≈ {contrib:+.3f}pp VNI (1 tuần)"
+        # ⭐ = thanh khoản đủ cao để làm SETUP watchlist (VN30 hoặc GTGD ≥ ngưỡng);
+        # mã không ⭐ chỉ dùng để phân tích biến động, không đưa vào setup giao dịch.
+        _gtgd = g.get("GTGD TB (tỷ)")
+        _eligible = ticker in VN30_TICKERS or (
+            _gtgd is not None and not (isinstance(_gtgd, float) and _gtgd != _gtgd)
+            and float(_gtgd) >= _WATCHLIST_GTGD_MIN_TY
+        )
+        if _eligible and price not in (None, ""):
+            line += " ⭐"
         return line
 
     if gainers := ctx.get("vn30_gainers"):

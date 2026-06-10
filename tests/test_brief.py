@@ -895,10 +895,10 @@ def test_afternoon_watchlist_nudges_to_use_priced_movers():
            "vn30_losers": [{"Mã": "PLX", "Giá 1T %": -1.5, "Ngành": "Năng lượng",
                             "last": 40.85}]}
     prompt = build_prompt(ctx, brief_type="afternoon")
-    # the priced movers are present for the agent to anchor on …
+    # the priced movers are present for the agent to anchor on … (VN30 → ⭐)
     assert "Giá 70,700" in prompt and "Giá 40,850" in prompt
-    # … and the instruction forces using them rather than bailing
-    assert "BẮT BUỘC dùng ÍT NHẤT 1-2 mã đó làm setup" in prompt
+    # … and the instruction forces using the ⭐ movers rather than bailing
+    assert "BẮT BUỘC dùng ÍT NHẤT 1-2 mã ⭐ đó làm setup" in prompt
     assert "CHỈ viết đúng 1 dòng" in prompt
 
 
@@ -926,6 +926,35 @@ def test_select_liquid_movers_whole_market_filtered():
     assert "POM" not in uni
     assert "STB" in uni              # VN30 always kept despite low GTGD
     assert g[0]["Mã"] == "GEX"       # ranked by 1-week % change
+    # GTGD carried through so the renderer can tag watchlist-eligible (⭐) movers
+    assert "GTGD TB (tỷ)" in g[0]
+
+
+def test_movers_mark_watchlist_eligible_with_star():
+    # Watchlist setups are gated to ⭐ = VN30 OR GTGD ≥ _WATCHLIST_GTGD_MIN_TY.
+    # A thin mid-cap (10-50 tỷ) is shown for analysis but must NOT get ⭐, so it
+    # cannot be turned into a trade idea (regression for the "VIW MUA setup").
+    from vnstock_brief import _WATCHLIST_GTGD_MIN_TY
+    ctx = {
+        "date": "2026-06-09", "time": "15:00",
+        "vn30_gainers": [
+            {"Mã": "STB", "Giá 1T %": 2.1, "Ngành": "Ngân hàng", "last": 70.7,
+             "GTGD TB (tỷ)": 5.0},                            # VN30 → ⭐ dù GTGD thấp
+            {"Mã": "GEX", "Giá 1T %": 8.0, "Ngành": "CN", "last": 30.0,
+             "GTGD TB (tỷ)": _WATCHLIST_GTGD_MIN_TY + 1},     # mid-cap thanh khoản → ⭐
+        ],
+        "vn30_losers": [
+            {"Mã": "VIW", "Giá 1T %": -3.0, "Ngành": "Nước", "last": 25.6,
+             "GTGD TB (tỷ)": 12.0},                           # mid-cap mỏng → KHÔNG ⭐
+        ],
+    }
+    prompt = build_prompt(ctx, brief_type="afternoon")
+    lines = {l.split()[1]: l for l in prompt.splitlines()
+             if l.startswith("- ") and len(l.split()) > 1}
+    assert "⭐" in lines["STB"]        # VN30 eligible despite sub-threshold GTGD
+    assert "⭐" in lines["GEX"]        # liquid mid-cap eligible
+    assert "⭐" not in lines["VIW"]    # thin mid-cap → analysis only, no setup
+    assert "CÓ DẤU ⭐" in prompt       # instruction gates setups on the ⭐ marker
 
 
 def test_build_prompt_movers_header_is_liquidity_not_vn30():

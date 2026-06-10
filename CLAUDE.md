@@ -77,6 +77,12 @@ regress các cơ chế này:
   (đặc thù ngành, không so sánh được — tránh mis-flag "MBB Op.CF -64,972 tỷ").
 - Watchlist: chỉ chọn mã từ movers/khuyến nghị đã cung cấp, neo "Giá" thật, cấm
   "SELL ở giá" (VN không bán khống) → dùng "GIẢM TỶ TRỌNG nếu thủng…".
+- **Setup CHỈ mã ⭐ (DONE 2026-06-10)**: movers quét toàn TT ở sàn 10 tỷ (phân
+  tích "Biến động bất thường"), nhưng setup giao dịch chỉ được dùng mã có dấu
+  **⭐** = VN30 HOẶC GTGD TB ≥ `_WATCHLIST_GTGD_MIN_TY` (=50 tỷ) — tránh đưa lệnh
+  MUA vào mã mỏng (vd VIW). `_select_liquid_movers` carry "GTGD TB (tỷ)";
+  `_vn30_line` gắn ⭐. Hướng setup PHẢI bám Stance/bias floor: Stance GIẢM → ưu
+  tiên phòng thủ, MUA chỉ là kèo CÓ ĐIỀU KIỆN ("canh MUA nếu vượt lại…").
 - Rec quá hạn bị lọc khỏi "Đề xuất giao dịch"; "Đề xuất bổ sung" cấm xin data đã
   có (dòng tiền ngành/NN ròng, GTGD, breadth, regime, VN30 cơ bản).
 
