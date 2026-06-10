@@ -288,7 +288,7 @@ CHIỀU LỆNH — hướng setup PHẢI nhất quán với "Stance ngày mai"/b
 
 ## ⚠️ Rủi ro cần lưu ý
 [Red flags, distribution, macro risk với mức cảnh báo cụ thể; "Không có rủi ro đặc biệt" nếu thị trường ổn]
-Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằng mã lấy TỪ dòng "Đòn bẩy cao nhất (D/E)" hoặc "Lưu chuyển tiền HĐKD thấp nhất" trong block, ghi kèm TÊN MÃ THẬT + CON SỐ THẬT copy từ block (định dạng "MÃ D/E=số" hoặc "MÃ Op.CF=số tỷ"). MÃ trong block gồm CẢ VN30 LẪN mid-cap → KHÔNG ghi "cao nhất trong VN30" (nhiều mã không thuộc VN30); chỉ ghi "cao nhất trong nhóm theo dõi". TUYỆT ĐỐI KHÔNG in nguyên ký hiệu mẫu (X, Y, "MÃ", "số") — phải thay bằng giá trị thật. Nếu block KHÔNG có mã Op.CF âm đáng lưu ý → CHỈ nêu rủi ro D/E (mã cao nhất), KHÔNG đề cập Op.CF, KHÔNG ghi placeholder. TUYỆT ĐỐI KHÔNG: (a) dẫn mã KHÔNG có trong block (vd VCK); (b) nói "cần thêm dữ liệu/chỉ số" — số ĐÃ có trong block; (c) gọi "Op.CF âm" cho mã có Op.CF ≥ 0 (chỉ ghi "âm" khi số THỰC < 0, còn lại ghi "Op.CF thấp"); (d) gán rủi ro sang ngành dẫn dắt/tụt hậu. Ngân hàng/CK/bảo hiểm đã bị loại khỏi xếp hạng → KHÔNG nêu nhóm tài chính làm rủi ro đòn bẩy/dòng tiền. Nếu block không có mã đáng lưu ý → nêu rủi ro vĩ mô/kỹ thuật, KHÔNG dẫn mã ngoài data.
+Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằng mã lấy TỪ dòng "Đòn bẩy cao nhất (D/E)" hoặc "Lưu chuyển tiền HĐKD thấp nhất" trong block, ghi kèm TÊN MÃ THẬT + CON SỐ THẬT copy từ block (định dạng "MÃ D/E=số" hoặc "MÃ Op.CF=số tỷ"). MÃ trong block gồm CẢ VN30 LẪN mid-cap → KHÔNG ghi "cao nhất trong VN30" (nhiều mã không thuộc VN30); chỉ ghi "cao nhất trong nhóm theo dõi". TUYỆT ĐỐI KHÔNG in nguyên ký hiệu mẫu (X, Y, "MÃ", "số") — phải thay bằng giá trị thật. Nếu block KHÔNG có mã Op.CF âm đáng lưu ý → CHỈ nêu rủi ro D/E (mã cao nhất), KHÔNG đề cập Op.CF, KHÔNG ghi placeholder. TUYỆT ĐỐI KHÔNG: (a) dẫn mã KHÔNG có trong block (vd VCK); (b) nói "cần thêm dữ liệu/chỉ số" — số ĐÃ có trong block; (c) gọi "Op.CF âm" cho mã có Op.CF ≥ 0 (chỉ ghi "âm" khi số THỰC < 0, còn lại ghi "Op.CF thấp"); (d) gán rủi ro sang ngành dẫn dắt/tụt hậu. Ngân hàng/CK/bảo hiểm đã bị loại khỏi xếp hạng → KHÔNG nêu nhóm tài chính làm rủi ro đòn bẩy/dòng tiền. Mã gắn "(BĐS)" trong dòng Op.CF: dòng tiền âm CHỦ YẾU do tích lũy quỹ đất/hàng tồn kho dự án (vốn lưu động), KHÔNG phải lỗ HĐKD → PHẢI ghi kèm ngữ cảnh này + soi D/E/nợ vay, TUYỆT ĐỐI KHÔNG gọi là "kiệt quệ tiền mặt". Nếu block không có mã đáng lưu ý → nêu rủi ro vĩ mô/kỹ thuật, KHÔNG dẫn mã ngoài data.
 
 ## 📅 Sự kiện sắp tới
 [Nếu có block "Sự kiện sắp tới" trong data: liệt kê 1-3 sự kiện gần nhất (GDKHQ cổ tức/chia tách/ĐHCĐ) kèm mã + ngày, ưu tiên mã VN30/watchlist; nhắc "giá tự điều chỉnh ngày GDKHQ". Nếu KHÔNG có block đó → ghi "Không có sự kiện đáng chú ý" hoặc bỏ mục này.]
@@ -985,7 +985,8 @@ def _load_vn30_fundamentals(
     return out
 
 
-def _vn30_fund_block(funds: dict[str, dict], extra_financial: "set[str] | None" = None) -> str:
+def _vn30_fund_block(funds: dict[str, dict], extra_financial: "set[str] | None" = None,
+                     realestate: "set[str] | None" = None) -> str:
     """Render a compact VN30 fundamentals block for the prompt.
 
     Shows VN30 medians plus the few names that actually matter for risk —
@@ -1034,12 +1035,14 @@ def _vn30_fund_block(funds: dict[str, dict], extra_financial: "set[str] | None" 
                 + ", ".join(f"{t} {v:.2f}" for t, v in top_de)
             )
 
+        _re = realestate or set()
         if ocfs:
             weak = sorted(ocfs, key=lambda x: x[1])[:3]
             n_neg = sum(1 for _, v in ocfs if v < 0)
             lines.append(
                 "- Lưu chuyển tiền HĐKD thấp nhất (phi tài chính): "
-                + ", ".join(f"{t} {v:,.0f} tỷ" for t, v in weak)
+                + ", ".join(f"{t} {v:,.0f} tỷ{' (BĐS)' if t in _re else ''}"
+                            for t, v in weak)
                 + (f" ({n_neg} mã âm)" if n_neg else "")
             )
 
@@ -1048,6 +1051,13 @@ def _vn30_fund_block(funds: dict[str, dict], extra_financial: "set[str] | None" 
             "ngân hàng/CK/bảo hiểm đã loại khỏi xếp hạng D/E & dòng tiền (đặc thù "
             "ngành, không so sánh được); KHÔNG bịa số liệu tài chính khác."
         )
+        if any(t in _re for t, _ in (ocfs or [])):
+            lines.append(
+                "→ Mã gắn (BĐS): dòng tiền HĐKD âm CHỦ YẾU do tích lũy quỹ đất / "
+                "hàng tồn kho dự án (thay đổi vốn lưu động), KHÔNG phải lỗ HĐKD → "
+                "diễn giải kèm D/E & nợ vay, TUYỆT ĐỐI KHÔNG gọi là 'kiệt quệ "
+                "tiền mặt'."
+            )
         return "\n".join(lines)
     except Exception:
         return ""
@@ -1382,6 +1392,19 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     }
     if _fin:
         ctx["financial_tickers"] = _fin
+
+    # Real-estate developers by INDUSTRY. Their operating cash flow is dominated
+    # by land-bank / project-inventory build (working-capital swings), so a large
+    # negative OCF (e.g. KBC -17,344 tỷ in FY2025, all from WC — op. profit was
+    # positive) is NOT distress. Keep them in the ranking but tag them so the
+    # brief adds context (soi D/E/nợ vay) instead of calling it "kiệt quệ".
+    _re = {
+        str(_t.get("Mã", "")).upper()
+        for _t in (ctx.get("tickers") or [])
+        if "bất động sản" in str(_t.get("Ngành", "")).lower()
+    }
+    if _re:
+        ctx["realestate_tickers"] = _re
 
     # 7b. Upcoming corporate events (ex-dividend / split / bonus) for the tracked
     #     universe so the brief can flag ngày GDKHQ (giá tự điều chỉnh).
@@ -2049,7 +2072,8 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
     # VN30 fundamentals (debt-to-equity, ROE, operating cash flow) so the agent
     # can ground "rủi ro cơ bản" comments in real leverage / cash-flow numbers.
     if funds := ctx.get("vn30_fundamentals"):
-        block = _vn30_fund_block(funds, extra_financial=ctx.get("financial_tickers"))
+        block = _vn30_fund_block(funds, extra_financial=ctx.get("financial_tickers"),
+                                 realestate=ctx.get("realestate_tickers"))
         if block:
             lines.append(block)
 

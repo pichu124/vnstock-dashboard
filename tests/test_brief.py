@@ -274,6 +274,23 @@ def test_vn30_fund_block_excludes_financials_from_risk_rankings():
     assert "ROE=" in block
 
 
+def test_vn30_fund_block_tags_realestate_ocf_with_context():
+    # A real-estate developer's huge negative Op.CF (e.g. KBC -17,344 tỷ) is
+    # land-bank / project-inventory build, not distress. It stays in the ranking
+    # but is tagged "(BĐS)" and gets a context line so the brief never calls it
+    # "kiệt quệ tiền mặt".
+    funds = {
+        "KBC": {"de": 1.1, "roe": 6.3, "ocf": -17343.9, "updated": "2026-06-01"},
+        "FPT": {"de": 1.1, "roe": 25.0, "ocf": 8000.0, "updated": "2026-06-01"},
+        "HPG": {"de": 1.5, "roe": 12.0, "ocf": -300.0, "updated": "2026-06-01"},
+    }
+    block = _vn30_fund_block(funds, realestate={"KBC"})
+    assert "KBC -17,344 tỷ (BĐS)" in block
+    assert "tích lũy quỹ đất" in block and "kiệt quệ" in block
+    # a non-RE name in the same ranking is NOT tagged
+    assert "HPG -300 tỷ (BĐS)" not in block
+
+
 def test_vn30_fund_block_empty_when_no_data():
     assert _vn30_fund_block({}) == ""
 
