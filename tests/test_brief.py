@@ -413,6 +413,48 @@ def test_bias_floor_giam_adds_watchlist_conditional_buy_rule():
     assert "bắt dao rơi" not in build_prompt(ctx_up, brief_type="afternoon")
 
 
+def test_enforce_risk_numbers_appends_missing_values():
+    # 15:27 brief: "một số mã như HNG, PET, VTZ có D/E cao, cần được quan tâm" —
+    # zero numbers despite the template. The guard appends the real values.
+    from vnstock_brief import enforce_risk_numbers
+    ctx = {"vn30_fundamentals": {
+        "HNG": {"de": 8.83, "roe": 2.0, "ocf": 500.0},
+        "PET": {"de": 3.10, "roe": 9.0, "ocf": 200.0},
+        "VTZ": {"de": 2.95, "roe": 7.0, "ocf": 100.0},
+        "KBC": {"de": 1.12, "roe": 6.3, "ocf": -17343.9},
+    }}
+    text = ("⚠️ Rủi ro cần lưu ý\n"
+            "Một số mã như HNG, PET, VTZ có D/E cao, cần được quan tâm.\n"
+            "📅 Sự kiện sắp tới")
+    fixed = enforce_risk_numbers(text, ctx)
+    assert "HNG D/E=8.83" in fixed and "PET D/E=3.10" in fixed and "VTZ D/E=2.95" in fixed
+    assert "KBC" not in fixed.splitlines()[2]          # uncited ticker not added
+    assert fixed.splitlines()[3] == "📅 Sự kiện sắp tới"  # appended inside section
+
+
+def test_enforce_risk_numbers_ocf_and_noop_cases():
+    from vnstock_brief import enforce_risk_numbers
+    ctx = {"vn30_fundamentals": {
+        "HNG": {"de": 8.83, "roe": 2.0, "ocf": 500.0},
+        "KBC": {"de": 1.12, "roe": 6.3, "ocf": -17343.9},
+    }}
+    # numbers already on the line → untouched
+    t1 = ("⚠️ Rủi ro cần lưu ý\n"
+          "HNG có D/E cao nhất với 8.83, KBC có Op.CF=-17,344 tỷ.\n"
+          "📅 Sự kiện sắp tới")
+    assert enforce_risk_numbers(t1, ctx) == t1
+    # OCF-context line without the figure → Op.CF value appended (not D/E)
+    t2 = ("⚠️ Rủi ro cần lưu ý\n"
+          "KBC có lưu chuyển tiền HĐKD thấp nhất.\n"
+          "📅 Sự kiện sắp tới")
+    f2 = enforce_risk_numbers(t2, ctx)
+    assert "KBC Op.CF=-17,344 tỷ" in f2
+    # no risk section / no fundamentals → untouched
+    t3 = "🎯 TLDR\nHNG yếu."
+    assert enforce_risk_numbers(t3, ctx) == t3
+    assert enforce_risk_numbers(t1, {}) == t1
+
+
 def test_validate_brief_factuality_exists_and_flags_hallucination():
     # Regression: an edit once swallowed the `def validate_brief_factuality`
     # line, leaving its body as dead code inside the preceding function — the

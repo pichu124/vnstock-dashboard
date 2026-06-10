@@ -2265,6 +2265,7 @@ def generate_brief(
             fixed = enforce_realestate_ocf_context(fixed, ctx)
             fixed = enforce_watchlist_hygiene(fixed, ctx)
             fixed = enforce_money_flow_two_sides(fixed, ctx)
+            fixed = enforce_risk_numbers(fixed, ctx)
             if fixed != text:
                 results[agent.name] = (fixed, _err)
 
@@ -2510,6 +2511,54 @@ def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
     if not add:
         return text
     return "\n".join(lines[:end] + add + lines[end:])
+
+
+def enforce_risk_numbers(text: str, ctx: dict) -> str:
+    """Deterministic guard: every ticker named in the risk section must carry
+    its number — the template demands it, yet 15:27 still produced "HNG, PET,
+    VTZ có D/E cao, cần được quan tâm" with no figures. For cited tickers whose
+    line shows no number, append one data line with the real values from
+    ctx["vn30_fundamentals"]. No-op when numbers are present or data missing.
+    """
+    funds = ctx.get("vn30_fundamentals") or {}
+    if not text or not funds:
+        return text
+
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines)
+                  if "rủi ro cần lưu ý" in l.lower()), None)
+    if start is None:
+        return text
+    end = next((i for i in range(start + 1, len(lines))
+                if _is_section_start(lines[i])), len(lines))
+
+    def _has_value(line: str, v: float, fmt: str) -> bool:
+        s = format(v, fmt)
+        return s in line or s.replace(",", "X").replace(".", ",").replace("X", ".") in line
+
+    missing: list[str] = []
+    seen: set[str] = set()
+    for line in lines[start + 1:end]:
+        cited = [t for t in funds
+                 if t not in seen and _re.search(rf"\b{_re.escape(t)}\b", line)]
+        for t in cited:
+            seen.add(t)
+            de, ocf = funds[t].get("de"), funds[t].get("ocf")
+            # satisfied if EITHER of the ticker's figures already sits on the line
+            if (de is not None and _has_value(line, de, ".2f")) or (
+                    ocf is not None and _has_value(line, ocf, ",.0f")):
+                continue
+            low = line.lower()
+            if ("op.cf" in low or "lưu chuyển tiền" in low) and ocf is not None:
+                missing.append(f"{t} Op.CF={ocf:,.0f} tỷ")
+            elif de is not None:
+                missing.append(f"{t} D/E={de:.2f}")
+            elif ocf is not None:
+                missing.append(f"{t} Op.CF={ocf:,.0f} tỷ")
+    if not missing:
+        return text
+    note = "(Số liệu: " + " · ".join(missing) + " — từ block Cơ bản nhóm theo dõi.)"
+    return "\n".join(lines[:end] + [note] + lines[end:])
 
 
 def validate_brief_factuality(text: str, ctx: dict) -> list[str]:
