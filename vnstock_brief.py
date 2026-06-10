@@ -284,6 +284,7 @@ CHIỀU LỆNH — hướng setup PHẢI nhất quán với "Stance ngày mai"/b
 - Ý tưởng TĂNG → "MUA vùng [entry] · chốt lời [TP] · cắt lỗ [SL]" — BẮT BUỘC SL < entry < TP.
 - Ý tưởng GIẢM → KHÔNG viết "SELL ở [giá]" (TTCK VN không cho NĐT cá nhân bán khống). Viết: "GIẢM TỶ TRỌNG/TRÁNH nếu thủng [hỗ trợ] · mục tiêu về [thấp hơn] · hủy kịch bản nếu vượt lại [cao hơn]" — BẮT BUỘC mục tiêu < hỗ trợ < mức hủy.
 MỐC GIÁ SETUP MỖI MÃ PHẢI quanh "Giá" CỦA CHÍNH MÃ ĐÓ (vd Giá 70.700 → entry/TP/SL/[hỗ trợ]/[kháng cự] đều ở thang quanh 70.700, lệch vài %). TUYỆT ĐỐI KHÔNG dùng mức S1/S2/R1/R2 của VNINDEX (vd 1.801,66 / 1.775,65 — đó là ĐIỂM SỐ CHỈ SỐ, KHÔNG phải giá cổ phiếu) làm mốc cho setup một mã. "[kháng cự]/[hỗ trợ]" ở đây = mức GIÁ quanh Giá của mã, KHÔNG phải kháng cự/hỗ trợ của index. Nếu mốc setup có cùng thang số với VNINDEX (1.7xx-1.8xx) trong khi Giá mã ở thang khác → SAI, làm lại.
+Setup đưa ra là setup THẬT để theo dõi — TUYỆT ĐỐI KHÔNG viết chú thích meta kiểu "(đây là ví dụ)", "(không dùng thực tế)", "(mang tính minh họa)", "(không có đủ thông tin)". Nếu không đủ tự tin về một mã → BỎ HẲN mã đó (ít setup hơn vẫn tốt hơn setup kèm disclaimer).
 1. **[Mã]** (Giá [số] từ data) — [đúng 1 trong 2 mẫu trên] — [trigger 1 dòng]
 2. [chỉ thêm nếu có mã thứ 2 ĐỦ GIÁ — nếu không, bỏ dòng này]
 3. [chỉ thêm nếu có mã thứ 3 ĐỦ GIÁ — nếu không, bỏ dòng này]
@@ -2254,6 +2255,7 @@ def generate_brief(
         if text:
             fixed = enforce_upcoming_events(text, ctx)
             fixed = enforce_realestate_ocf_context(fixed, ctx)
+            fixed = enforce_watchlist_hygiene(fixed, ctx)
             if fixed != text:
                 results[agent.name] = (fixed, _err)
 
@@ -2401,6 +2403,49 @@ def enforce_realestate_ocf_context(text: str, ctx: dict) -> str:
             )
             added = True
     return "\n".join(out)
+
+
+# Meta-disclaimers the model sneaks into watchlist setups despite the template
+# ("(đây là ví dụ, không dùng thực tế…)"), and the bail line it pads with even
+# when a priced setup exists. Both are stripped deterministically.
+_WL_META_RE = _re.compile(
+    r"\s*\([^)]*(?:ví dụ|minh họa|minh hoạ|không dùng thực tế|giả định"
+    r"|không có đủ thông tin|không đủ thông tin)[^)]*\)",
+    _re.IGNORECASE,
+)
+
+
+def enforce_watchlist_hygiene(text: str, ctx: dict | None = None) -> str:
+    """Deterministic guard for the watchlist section: strip meta-disclaimers
+    from setup lines (observed: "MUA vùng 69,000 … (đây là ví dụ, không dùng
+    thực tế…)") and drop the "Cần thêm dữ liệu giá…" filler when at least one
+    real priced setup is present (it's only allowed when there are NO priced
+    setups at all). No-op when there is no watchlist section.
+    """
+    if not text:
+        return text
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines) if "watchlist" in l.lower()), None)
+    if start is None:
+        return text
+    end = next((i for i in range(start + 1, len(lines))
+                if lines[i].lstrip().startswith(("##", "⚠️", "📅", "💡", "🔧", "📋"))),
+               len(lines))
+
+    sec = [_WL_META_RE.sub("", l).rstrip() for l in lines[start + 1:end]]
+    # a real setup = direction keyword + a thousand-grouped price on the line
+    has_priced_setup = any(
+        _re.search(r"MUA|GIẢM TỶ TRỌNG|TRÁNH", l)
+        and _re.search(r"\d{1,3}[.,]\d{3}", l)
+        for l in sec
+    )
+    if has_priced_setup:
+        sec = [l for l in sec if "cần thêm dữ liệu giá" not in l.lower()]
+    sec = [l for l in sec if not _re.fullmatch(r"\s*\d+\.\s*", l)]  # empty "2." stubs
+
+    if sec == lines[start + 1:end]:
+        return text
+    return "\n".join(lines[:start + 1] + sec + lines[end:])
 
 
 def validate_brief_factuality(text: str, ctx: dict) -> list[str]:

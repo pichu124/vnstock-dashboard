@@ -326,6 +326,40 @@ def test_enforce_realestate_ocf_context_noop_cases():
     assert enforce_realestate_ocf_context(t3, {}) == t3
 
 
+def test_enforce_watchlist_hygiene_strips_meta_and_filler():
+    # 15:11 brief: setup line carried "(đây là ví dụ, không dùng thực tế vì
+    # không có đủ thông tin về setup)" + a padded "Cần thêm dữ liệu giá…" line
+    # below a real priced setup. Both must be stripped.
+    from vnstock_brief import enforce_watchlist_hygiene
+    text = ("📋 Watchlist sáng mai\n"
+            "1. **STB** (Giá 70,700) — MUA vùng 69,000 · chốt lời 73,000 · cắt lỗ 67,000"
+            " (đây là ví dụ, không dùng thực tế vì không có đủ thông tin về setup)\n"
+            "2. Cần thêm dữ liệu giá cổ phiếu cụ thể\n"
+            "⚠️ Rủi ro cần lưu ý\n"
+            "HNG có D/E cao nhất với 8.83.")
+    fixed = enforce_watchlist_hygiene(text, {})
+    assert "đây là ví dụ" not in fixed and "không dùng thực tế" not in fixed
+    assert "Cần thêm dữ liệu giá" not in fixed
+    assert "MUA vùng 69,000 · chốt lời 73,000 · cắt lỗ 67,000" in fixed
+    assert "⚠️ Rủi ro cần lưu ý" in fixed and "HNG có D/E cao nhất" in fixed
+
+
+def test_enforce_watchlist_hygiene_keeps_legit_bail_and_noop():
+    from vnstock_brief import enforce_watchlist_hygiene
+    # no priced setup at all → the bail line is legitimate and stays
+    t1 = ("📋 Watchlist sáng mai\n"
+          "Cần thêm dữ liệu giá cổ phiếu cụ thể\n"
+          "⚠️ Rủi ro cần lưu ý")
+    assert enforce_watchlist_hygiene(t1, {}) == t1
+    # clean watchlist → untouched; no watchlist section → untouched
+    t2 = ("📋 Watchlist sáng mai\n"
+          "1. **STB** (Giá 70,700) — MUA vùng 69,000 · chốt lời 73,000 · cắt lỗ 67,000\n"
+          "⚠️ Rủi ro cần lưu ý")
+    assert enforce_watchlist_hygiene(t2, {}) == t2
+    t3 = "🎯 TLDR\nKhông có watchlist."
+    assert enforce_watchlist_hygiene(t3, {}) == t3
+
+
 def test_validate_brief_factuality_exists_and_flags_hallucination():
     # Regression: an edit once swallowed the `def validate_brief_factuality`
     # line, leaving its body as dead code inside the preceding function — the
