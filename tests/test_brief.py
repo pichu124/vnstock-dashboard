@@ -858,9 +858,13 @@ def test_afternoon_risk_only_uses_block_tickers_with_numbers():
     prompt = build_prompt({"date": "2026-06-09", "time": "15:00"},
                           brief_type="afternoon")
     assert "dẫn mã ngoài block/ngoài VN30 (vd VCK)" in prompt
-    assert "PHẢI ghi kèm CON SỐ" in prompt
+    assert "CON SỐ THẬT copy từ block" in prompt
     assert 'nói "cần thêm dữ liệu' in prompt
     assert 'gọi "Op.CF âm" cho mã có Op.CF ≥ 0' in prompt
+    # no leakable placeholder like "X Op.CF=−Y" + must say skip OCF when none
+    assert "X Op.CF=−Y" not in prompt
+    assert "KHÔNG in nguyên ký hiệu mẫu" in prompt
+    assert "CHỈ nêu rủi ro D/E (mã cao nhất)" in prompt
 
 
 def test_build_prompt_precomputes_weekly_range_position():
