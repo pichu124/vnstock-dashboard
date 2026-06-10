@@ -1792,11 +1792,19 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
 
     # Breadth — same pattern
     if b := ctx.get("breadth"):
+        _ad = b.get("ad_ratio", 0) or 0
+        _ma200 = b.get("above_ma200_pct", 0) or 0
+        # Deterministic breadth label so the agent can't mislabel A/D (observed:
+        # A/D 0.90 wrongly called "tích cực" — 0.90 < 1.0 is NEGATIVE breadth).
+        _bl = "tích cực" if _ad > 1.05 else "tiêu cực" if _ad < 0.95 else "cân bằng"
+        _sign = ">" if _ad > 1 else "<" if _ad < 1 else "≈"
+        _weak = " · ít mã trên MA200 → thị trường yếu" if _ma200 < 30 else ""
         lines.append(f"\n## Market Breadth\n"
-                     f"Trên MA200: {b.get('above_ma200_pct',0):.0f}% | "
-                     f"A/D ratio: {b.get('ad_ratio',0):.2f} | "
+                     f"Trên MA200: {_ma200:.0f}% | "
+                     f"A/D ratio: {_ad:.2f} | "
                      f"Net new highs: {b.get('net_new_highs',0):+d} | "
-                     f"RSI oversold: {b.get('rsi_oversold',0)} mã | RSI overbought: {b.get('rsi_overbought',0)} mã")
+                     f"RSI oversold: {b.get('rsi_oversold',0)} mã | RSI overbought: {b.get('rsi_overbought',0)} mã"
+                     f"\n→ ĐỘ RỘNG: {_bl.upper()} (A/D {_sign} 1.0{_weak}) — DÙNG ĐÚNG nhãn này, KHÔNG tự suy ngược (A/D<1 = tiêu cực).")
     else:
         lines.append(
             "\n## Market Breadth\n⚠️ KHÔNG CÓ breadth data — "

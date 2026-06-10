@@ -927,3 +927,23 @@ def test_build_prompt_movers_header_is_liquidity_not_vn30():
     prompt = build_prompt(ctx, brief_type="afternoon")
     assert "Top Gainers thanh khoản cao" in prompt
     assert "VN30 Top Gainers" not in prompt
+
+
+def test_build_prompt_breadth_label_negative_when_ad_below_one():
+    # A/D 0.90 < 1.0 must be labelled TIÊU CỰC (regression: was called "tích cực").
+    ctx = {"date": "2026-06-09", "time": "15:00",
+           "breadth": {"ad_ratio": 0.90, "above_ma200_pct": 16,
+                       "net_new_highs": -5, "rsi_oversold": 40,
+                       "rsi_overbought": 2}}
+    prompt = build_prompt(ctx, brief_type="afternoon")
+    assert "ĐỘ RỘNG: TIÊU CỰC (A/D < 1.0" in prompt
+    assert "ít mã trên MA200 → thị trường yếu" in prompt
+
+
+def test_build_prompt_breadth_label_positive_when_ad_above_one():
+    ctx = {"date": "2026-06-09", "time": "15:00",
+           "breadth": {"ad_ratio": 1.40, "above_ma200_pct": 65,
+                       "net_new_highs": 20, "rsi_oversold": 3,
+                       "rsi_overbought": 30}}
+    prompt = build_prompt(ctx, brief_type="afternoon")
+    assert "ĐỘ RỘNG: TÍCH CỰC (A/D > 1.0" in prompt
