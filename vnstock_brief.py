@@ -203,7 +203,7 @@ Nếu block "VNINDEX kỹ thuật" KHÔNG có trong data → viết "Chưa có d
 **Dòng tiền ngành:** [Nếu có block "Dòng tiền ngành": nêu RÕ ngành NN MUA RÒNG / BÁN RÒNG mạnh nhất (số "NN ròng" tỷ, có +/-). PHÂN BIỆT "NN ròng" (khối ngoại) với "GTGD" (thanh khoản) — KHÔNG gọi GTGD là "dòng tiền vào". Bỏ dòng này chỉ khi KHÔNG có block đó.]
 **Theo dõi:** [rotation/stealth nếu có, bỏ dòng này nếu không có tín hiệu]
 KHÔNG gọi "tích luỹ/mua" nếu tín hiệu quá yếu (đóng góp |pp| < 0.05 hoặc biến động không đáng kể) — khi không có ngành/mã đủ mạnh, viết thẳng "Chưa có nhóm dẫn dắt rõ ràng".
-Nếu có block "VN30 Cơ bản": có thể dẫn 1 chỉ số cơ bản (D/E cao / Op.CF âm / ROE) để củng cố lý do tránh/mua, KHÔNG bịa số.
+Nếu có block "Cơ bản nhóm theo dõi": có thể dẫn 1 chỉ số cơ bản (D/E cao / Op.CF âm / ROE) để củng cố lý do tránh/mua, KHÔNG bịa số.
 
 ## ⚡ Biến động bất thường
 [Mã/ngành biến động mạnh TRONG DATA + giải thích + BẮT BUỘC ghi ĐÚNG khung thời gian theo nhãn trong data. Số từ block "Top Gainers/Losers thanh khoản cao" là thay đổi "1 tuần/5 phiên" → ghi "(1 tuần)", TUYỆT ĐỐI KHÔNG ghi "phiên sáng"/"hôm nay" cho các số đó (không có dữ liệu thay đổi 1 phiên cho từng mã). "Không có biến động bất thường đáng chú ý" nếu phẳng]
@@ -283,7 +283,7 @@ CHIỀU LỆNH — chọn ĐÚNG 1 trong 2 mẫu, mốc giá phải đúng thứ
 
 ## ⚠️ Rủi ro cần lưu ý
 [Red flags, distribution, macro risk với mức cảnh báo cụ thể; "Không có rủi ro đặc biệt" nếu thị trường ổn]
-Nếu có block "VN30 Cơ bản": CHỈ nêu rủi ro cơ bản bằng mã lấy TỪ dòng "Đòn bẩy cao nhất (D/E)" hoặc "Lưu chuyển tiền HĐKD thấp nhất" trong block, ghi kèm TÊN MÃ THẬT + CON SỐ THẬT copy từ block (định dạng "MÃ D/E=số" hoặc "MÃ Op.CF=số tỷ"). TUYỆT ĐỐI KHÔNG in nguyên ký hiệu mẫu (X, Y, "MÃ", "số") — phải thay bằng giá trị thật. Nếu block KHÔNG có mã Op.CF âm đáng lưu ý → CHỈ nêu rủi ro D/E (mã cao nhất), KHÔNG đề cập Op.CF, KHÔNG ghi placeholder. TUYỆT ĐỐI KHÔNG: (a) dẫn mã ngoài block/ngoài VN30 (vd VCK); (b) nói "cần thêm dữ liệu/chỉ số" — số ĐÃ có trong block; (c) gọi "Op.CF âm" cho mã có Op.CF ≥ 0 (chỉ ghi "âm" khi số THỰC < 0, còn lại ghi "Op.CF thấp"); (d) gán rủi ro sang ngành dẫn dắt/tụt hậu. Ngân hàng/CK/bảo hiểm đã bị loại khỏi xếp hạng → KHÔNG nêu nhóm tài chính làm rủi ro đòn bẩy/dòng tiền. Nếu block không có mã đáng lưu ý → nêu rủi ro vĩ mô/kỹ thuật, KHÔNG dẫn mã ngoài data.
+Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằng mã lấy TỪ dòng "Đòn bẩy cao nhất (D/E)" hoặc "Lưu chuyển tiền HĐKD thấp nhất" trong block, ghi kèm TÊN MÃ THẬT + CON SỐ THẬT copy từ block (định dạng "MÃ D/E=số" hoặc "MÃ Op.CF=số tỷ"). MÃ trong block gồm CẢ VN30 LẪN mid-cap → KHÔNG ghi "cao nhất trong VN30" (nhiều mã không thuộc VN30); chỉ ghi "cao nhất trong nhóm theo dõi". TUYỆT ĐỐI KHÔNG in nguyên ký hiệu mẫu (X, Y, "MÃ", "số") — phải thay bằng giá trị thật. Nếu block KHÔNG có mã Op.CF âm đáng lưu ý → CHỈ nêu rủi ro D/E (mã cao nhất), KHÔNG đề cập Op.CF, KHÔNG ghi placeholder. TUYỆT ĐỐI KHÔNG: (a) dẫn mã KHÔNG có trong block (vd VCK); (b) nói "cần thêm dữ liệu/chỉ số" — số ĐÃ có trong block; (c) gọi "Op.CF âm" cho mã có Op.CF ≥ 0 (chỉ ghi "âm" khi số THỰC < 0, còn lại ghi "Op.CF thấp"); (d) gán rủi ro sang ngành dẫn dắt/tụt hậu. Ngân hàng/CK/bảo hiểm đã bị loại khỏi xếp hạng → KHÔNG nêu nhóm tài chính làm rủi ro đòn bẩy/dòng tiền. Nếu block không có mã đáng lưu ý → nêu rủi ro vĩ mô/kỹ thuật, KHÔNG dẫn mã ngoài data.
 
 ## 📅 Sự kiện sắp tới
 [Nếu có block "Sự kiện sắp tới" trong data: liệt kê 1-3 sự kiện gần nhất (GDKHQ cổ tức/chia tách/ĐHCĐ) kèm mã + ngày, ưu tiên mã VN30/watchlist; nhắc "giá tự điều chỉnh ngày GDKHQ". Nếu KHÔNG có block đó → ghi "Không có sự kiện đáng chú ý" hoặc bỏ mục này.]
@@ -1008,7 +1008,7 @@ def _vn30_fund_block(funds: dict[str, dict], extra_financial: "set[str] | None" 
 
         updated = next((m["updated"] for m in funds.values() if m.get("updated")), "")
         lines = [
-            f"\n## VN30 Cơ bản — D/E, ROE, Lưu chuyển tiền HĐKD"
+            f"\n## Cơ bản nhóm theo dõi (VN30 + mid-cap) — D/E, ROE, Lưu chuyển tiền HĐKD"
             f"{f' (cập nhật {updated})' if updated else ''}"
         ]
 
@@ -1020,7 +1020,7 @@ def _vn30_fund_block(funds: dict[str, dict], extra_financial: "set[str] | None" 
         if ocfs:
             med_parts.append(f"Op.CF={_st.median(v for _, v in ocfs):,.0f} tỷ")
         if med_parts:
-            lines.append(f"- Trung vị VN30 ({len(funds)} mã có data): " + " | ".join(med_parts))
+            lines.append(f"- Trung vị nhóm ({len(funds)} mã có data): " + " | ".join(med_parts))
 
         if des:
             top_de = sorted(des, key=lambda x: x[1], reverse=True)[:3]

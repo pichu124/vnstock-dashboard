@@ -110,7 +110,7 @@ Các khối **mới thêm** (ngoài kỹ thuật VNINDEX / regime / breadth có 
 
 | Khối | Nguồn data | Cần chạy gì để có |
 |------|-----------|-------------------|
-| **VN30 Cơ bản** (D/E, ROE, Op.CF) | `data_warehouse/_meta/fundamentals.parquet` | `python vnstock_fundamental_updater.py` (1×/tuần) |
+| **Cơ bản nhóm theo dõi** (VN30 + mid-cap; D/E, ROE, Op.CF) | `data_warehouse/_meta/fundamentals.parquet` | `python vnstock_fundamental_updater.py` (1×/tuần) |
 | **Tâm lý thị trường** (mood + momentum -100..+100) | breadth + NN ròng + RSI/MA + news, qua `vnstock_market_sentiment.py` | luôn có (6 tín hiệu nội tại); tín hiệu tin tức (thứ 7) cần `python run.py news` |
 | **Dòng tiền ngành** (NN ròng 1T + GTGD theo ngành) | `market_overview.json` (đã pre-aggregate) | có sẵn sau `python run.py screener` |
 

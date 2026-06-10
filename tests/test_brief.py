@@ -244,8 +244,8 @@ def test_vn30_fund_block_renders_medians_and_flags():
         "FPT": {"de": 1.1, "roe": 25.0, "ocf": 8000.0, "updated": "2026-06-01"},
     }
     block = _vn30_fund_block(funds)
-    assert "VN30 Cơ bản" in block
-    assert "Trung vị VN30" in block
+    assert "Cơ bản nhóm theo dõi" in block
+    assert "Trung vị nhóm" in block
     # HPG has the highest D/E among non-financials → must lead the leverage line
     assert "HPG 1.50" in block
     # HPG is the weakest (negative) non-financial CF → flagged + negative count
@@ -288,7 +288,7 @@ def test_build_prompt_includes_fundamentals_block():
         },
     }
     prompt = build_prompt(ctx, brief_type="afternoon")
-    assert "VN30 Cơ bản" in prompt
+    assert "Cơ bản nhóm theo dõi" in prompt
     assert "D/E" in prompt
 
 
@@ -857,7 +857,7 @@ def test_afternoon_risk_only_uses_block_tickers_with_numbers():
     # "cần thêm dữ liệu" or mislabel a positive Op.CF as negative.
     prompt = build_prompt({"date": "2026-06-09", "time": "15:00"},
                           brief_type="afternoon")
-    assert "dẫn mã ngoài block/ngoài VN30 (vd VCK)" in prompt
+    assert "dẫn mã KHÔNG có trong block (vd VCK)" in prompt
     assert "CON SỐ THẬT copy từ block" in prompt
     assert 'nói "cần thêm dữ liệu' in prompt
     assert 'gọi "Op.CF âm" cho mã có Op.CF ≥ 0' in prompt
