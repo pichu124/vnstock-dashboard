@@ -92,3 +92,35 @@ def test_build_prompt_includes_upcoming_events():
                 "title": "Trả cổ tức tiền mặt", "category": "DIVIDEND"}]}
     prompt = build_prompt(ctx, brief_type="afternoon")
     assert "Sự kiện sắp tới" in prompt and "VIC" in prompt
+
+
+def test_maybe_refresh_events_noop_when_cache_is_today(monkeypatch, tmp_path):
+    import sys
+    import types
+    import vnstock_brief as vb
+    p = tmp_path / "upcoming_events.parquet"
+    p.write_text("x")                       # mtime = now → "today"
+    called = {}
+    fake = types.ModuleType("vnstock_events")
+    fake.UPCOMING_EVENTS_PATH = p
+    fake.refresh_upcoming = lambda *a, **k: called.setdefault("ran", True) or []
+    monkeypatch.setitem(sys.modules, "vnstock_events", fake)
+    assert vb._maybe_refresh_events() == 0
+    assert "ran" not in called             # fresh → not refetched
+
+
+def test_maybe_refresh_events_runs_when_missing(monkeypatch, tmp_path):
+    import sys
+    import types
+    import vnstock_brief as vb
+    fake = types.ModuleType("vnstock_events")
+    fake.UPCOMING_EVENTS_PATH = tmp_path / "nope.parquet"   # missing
+    fake.refresh_upcoming = lambda *a, **k: [{"ticker": "ACB"}, {"ticker": "SAB"}]
+    monkeypatch.setitem(sys.modules, "vnstock_events", fake)
+    assert vb._maybe_refresh_events() == 2
+
+
+def test_maybe_refresh_events_disabled_by_env(monkeypatch):
+    import vnstock_brief as vb
+    monkeypatch.setenv("VNSTOCK_BRIEF_AUTO_EVENTS", "0")
+    assert vb._maybe_refresh_events() == 0

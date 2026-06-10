@@ -896,6 +896,26 @@ def _maybe_reconcile_overdue() -> int:
         return 0
 
 
+def _maybe_refresh_events() -> int:
+    """Refresh the upcoming-events cache when it's missing or not from today, so
+    the brief's "📅 Sự kiện sắp tới" block isn't empty just because the daily
+    refresh hasn't run yet. Best-effort (~VN30 API calls), at most once/day.
+    Disable with VNSTOCK_BRIEF_AUTO_EVENTS=0. Returns number of events saved.
+    """
+    if os.environ.get("VNSTOCK_BRIEF_AUTO_EVENTS", "1") == "0":
+        return 0
+    try:
+        from vnstock_events import UPCOMING_EVENTS_PATH, refresh_upcoming
+        p = UPCOMING_EVENTS_PATH
+        if p.exists():
+            mtime = datetime.fromtimestamp(p.stat().st_mtime).date()
+            if mtime >= date.today():
+                return 0  # already refreshed today
+        return len(refresh_upcoming())
+    except Exception:
+        return 0
+
+
 # ── VN30 fundamentals (debt/equity, ROE, operating cash flow) ───────────────
 def _load_vn30_fundamentals(
     path: str | Path | None = None,
@@ -2084,6 +2104,9 @@ def generate_brief(
     # Close overdue/zombie recs first so the brief's recommendation blocks
     # reflect the live book (best-effort).
     _maybe_reconcile_overdue()
+    # Refresh the upcoming-events cache if it isn't from today (best-effort) so
+    # the "📅 Sự kiện sắp tới" block isn't empty due to run ordering.
+    _maybe_refresh_events()
 
     ctx = collect_context(brief_type, auto_refresh=True)
 
