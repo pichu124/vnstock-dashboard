@@ -947,3 +947,19 @@ def test_build_prompt_breadth_label_positive_when_ad_above_one():
                        "rsi_overbought": 30}}
     prompt = build_prompt(ctx, brief_type="afternoon")
     assert "ĐỘ RỘNG: TÍCH CỰC (A/D > 1.0" in prompt
+
+
+def test_vn30_fund_block_excludes_financials_by_industry():
+    # Mid-cap financials not in _FINANCIAL_TICKERS (e.g. BVB bank, VPX) must be
+    # excluded from the D/E & Op.CF rankings via the industry-derived set.
+    funds = {
+        "BVB": {"de": 16.88, "roe": 9.0, "ocf": -35042.0, "updated": "2026-06-10"},
+        "VPX": {"de": 3.0, "roe": 5.0, "ocf": -35042.0, "updated": "2026-06-10"},
+        "HPG": {"de": 1.5, "roe": 12.0, "ocf": -300.0, "updated": "2026-06-10"},
+        "FPT": {"de": 1.1, "roe": 25.0, "ocf": 8000.0, "updated": "2026-06-10"},
+    }
+    block = _vn30_fund_block(funds, extra_financial={"BVB", "VPX"})
+    assert "BVB" not in block and "VPX" not in block      # financials excluded
+    assert "-35,042" not in block                         # the bank-scale OCF gone
+    assert "16.88" not in block                           # bank D/E gone
+    assert "HPG" in block and "1 mã âm" in block          # non-fin still ranked

@@ -264,8 +264,8 @@ DÙNG ĐÚNG block "🎯 Dẫn dắt/Tụt hậu — CHỐT THEO DATA" ở trên
 [NN mua/bán ròng đáng kể (số tỷ cụ thể) | smart money tích luỹ/phân phối | unusual volume; bỏ qua nếu phẳng]
 Nếu có block "Dòng tiền ngành": nêu RÕ ngành NN MUA RÒNG / BÁN RÒNG mạnh nhất (lấy số "NN ròng", đơn vị tỷ, có dấu +/-). PHÂN BIỆT rõ "NN ròng" (khối ngoại mua-bán ròng) với "GTGD" (thanh khoản/giá trị giao dịch) — TUYỆT ĐỐI KHÔNG gọi GTGD là "dòng tiền vào". Nhận định luân chuyển dòng tiền giữa các ngành dựa trên NN ròng.
 
-## 📋 Watchlist sáng mai (TỐI ĐA 3 setup — chỉ mã CÓ GIÁ thật)
-CHỈ chọn mã xuất hiện trong các block phía trên ("Top Gainers/Losers thanh khoản cao" hoặc "Khuyến nghị") VÀ có kèm "Giá" thật (VN30 hoặc mid-cap thanh khoản cao đều được). TUYỆT ĐỐI KHÔNG dùng/bịa mã KHÔNG có trong các block đó (vd mã UPCOM/penny ngoài data), và KHÔNG độn cho đủ 3.
+## 📋 Watchlist sáng mai
+(Hướng dẫn — KHÔNG in tiêu đề phụ này vào brief) TỐI ĐA 3 setup, chỉ mã CÓ GIÁ thật. CHỈ chọn mã xuất hiện trong các block phía trên ("Top Gainers/Losers thanh khoản cao" hoặc "Khuyến nghị") VÀ có kèm "Giá" thật (VN30 hoặc mid-cap thanh khoản cao đều được). TUYỆT ĐỐI KHÔNG dùng/bịa mã KHÔNG có trong các block đó (vd mã UPCOM/penny ngoài data), và KHÔNG độn cho đủ 3.
 Mỗi setup PHẢI neo vào "Giá" THỰC; KHÔNG tự nghĩ ra mức giá. Chỉ 1-2 mã đủ điều kiện → đưa ĐÚNG 1-2 setup (TUYỆT ĐỐI KHÔNG thêm dòng kiểu "Giá không có / Cần thêm dữ liệu" cho mã thiếu giá).
 Block "Top Gainers/Losers thanh khoản cao" BÌNH THƯỜNG luôn có sẵn vài mã kèm "Giá" → BẮT BUỘC dùng ÍT NHẤT 1-2 mã đó làm setup. CHỈ viết đúng 1 dòng "Cần thêm dữ liệu giá cổ phiếu cụ thể" khi block movers THỰC SỰ trống / KHÔNG dòng nào kèm "Giá" — KHÔNG dùng câu đó nếu movers vẫn có mã kèm "Giá".
 CHIỀU LỆNH — chọn ĐÚNG 1 trong 2 mẫu, mốc giá phải đúng thứ tự (TỰ KIỂM TRA trước khi xuất, không được mâu thuẫn):
@@ -951,7 +951,7 @@ def _load_vn30_fundamentals(
     return out
 
 
-def _vn30_fund_block(funds: dict[str, dict]) -> str:
+def _vn30_fund_block(funds: dict[str, dict], extra_financial: "set[str] | None" = None) -> str:
     """Render a compact VN30 fundamentals block for the prompt.
 
     Shows VN30 medians plus the few names that actually matter for risk —
@@ -964,9 +964,11 @@ def _vn30_fund_block(funds: dict[str, dict]) -> str:
         import statistics as _st
 
         # D/E and Op.CF risk rankings cover NON-FINANCIALS only — bank/securities/
-        # insurance leverage and cash-flow scales are not comparable (see
-        # _FINANCIAL_TICKERS). ROE is comparable across sectors, so it spans all.
-        nonfin = {t: m for t, m in funds.items() if t not in _FINANCIAL_TICKERS}
+        # insurance leverage and cash-flow scales are not comparable. Exclude the
+        # static list AND any ticker classified as financial by industry (covers
+        # mid-cap banks/securities like BVB/VPX not in the static list).
+        _excl = _FINANCIAL_TICKERS | (extra_financial or set())
+        nonfin = {t: m for t, m in funds.items() if t not in _excl}
 
         des  = [(t, m["de"])  for t, m in nonfin.items() if m.get("de")  is not None]
         roes = [m["roe"]      for m in funds.values()    if m.get("roe") is not None]
@@ -1329,6 +1331,18 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     _vn30_fund = _load_vn30_fundamentals(vn30=_fund_universe)
     if _vn30_fund:
         ctx["vn30_fundamentals"] = _vn30_fund
+
+    # Financials by INDUSTRY (robust beyond the static _FINANCIAL_TICKERS list) so
+    # mid-cap banks/securities (e.g. BVB, VPX) don't leak into the D/E & Op.CF
+    # risk ranking after the universe was broadened to mid-caps.
+    _fin = {
+        str(_t.get("Mã", "")).upper()
+        for _t in (ctx.get("tickers") or [])
+        if any(k in str(_t.get("Ngành", "")).lower()
+               for k in ("ngân hàng", "chứng khoán", "bảo hiểm", "tài chính"))
+    }
+    if _fin:
+        ctx["financial_tickers"] = _fin
 
     # 7b. Upcoming corporate events (ex-dividend / split / bonus) for the tracked
     #     universe so the brief can flag ngày GDKHQ (giá tự điều chỉnh).
@@ -1987,7 +2001,7 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
     # VN30 fundamentals (debt-to-equity, ROE, operating cash flow) so the agent
     # can ground "rủi ro cơ bản" comments in real leverage / cash-flow numbers.
     if funds := ctx.get("vn30_fundamentals"):
-        block = _vn30_fund_block(funds)
+        block = _vn30_fund_block(funds, extra_financial=ctx.get("financial_tickers"))
         if block:
             lines.append(block)
 
