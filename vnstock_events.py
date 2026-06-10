@@ -118,6 +118,62 @@ def load_upcoming(
     ]
 
 
+def _fetch_company(ticker: str):
+    """Resolve a company object via vnstock_adjust's source ladder."""
+    from vnstock_adjust import _company_sources
+    for name, resolve in _company_sources():
+        try:
+            c = resolve(ticker)
+        except Exception:
+            continue
+        if c is not None:
+            return c, name
+    return None, None
+
+
+def diag(ticker: str) -> None:
+    """Dump RAW output of candidate event/dividend calendar methods so we can
+    see real columns + whether any ex_date is in the future."""
+    from datetime import date as _date
+    ticker = ticker.upper()
+    print(f"── 🔬 Events diagnostic — {ticker} ──")
+    company, src = _fetch_company(ticker)
+    print(f"company source: {src}")
+    if company is None:
+        print("✗ không tạo được company object")
+        return
+    today = _date.today()
+    for method in ("events", "dividends", "dividend_history",
+                   "corporate_action_dividends", "cash_dividend",
+                   "calendar", "upcoming_events", "schedule"):
+        attr = getattr(company, method, None)
+        if attr is None:
+            continue
+        try:
+            df = attr() if callable(attr) else attr
+        except Exception as e:
+            print(f"\n• {method}(): lỗi — {str(e)[:100]}")
+            continue
+        if df is None or (hasattr(df, "empty") and df.empty):
+            print(f"\n• {method}(): rỗng")
+            continue
+        cols = [str(c) for c in df.columns]
+        print(f"\n• {method}(): shape={df.shape}")
+        print(f"  cols: {cols}")
+        # Flag any future-dated column values
+        for c in df.columns:
+            cl = str(c).lower()
+            if any(k in cl for k in ("date", "ngay", "ex", "gdkhq", "record")):
+                try:
+                    d = pd.to_datetime(df[c], errors="coerce").dt.date
+                    fut = d[d >= today]
+                    print(f"  [{c}] max={d.max()} | tương lai: {len(fut)} dòng"
+                          + (f" → {sorted(fut.dropna().unique())[:5]}" if len(fut) else ""))
+                except Exception:
+                    pass
+        print(df.head(6).to_string()[:1800])
+
+
 def _check(within: int = 30) -> None:
     ev = load_upcoming(within_days=within)
     print(f"upcoming_events.parquet tồn tại: {UPCOMING_EVENTS_PATH.exists()}")
@@ -132,8 +188,11 @@ if __name__ == "__main__":
     ap.add_argument("--tickers", nargs="+", help="Chỉ refresh các mã này")
     ap.add_argument("--within", type=int, default=30, help="Cửa sổ ngày cho --check")
     ap.add_argument("--check", action="store_true", help="Xem sự kiện đã cache")
+    ap.add_argument("--diag", metavar="TICKER", help="In raw output các method lịch sự kiện cho 1 mã")
     args = ap.parse_args()
-    if args.check:
+    if args.diag:
+        diag(args.diag)
+    elif args.check:
         _check(args.within)
     else:
         saved = refresh_upcoming(tickers=args.tickers, verbose=True)
