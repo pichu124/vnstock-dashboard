@@ -2401,6 +2401,9 @@ def enforce_realestate_ocf_context(text: str, ctx: dict) -> str:
             )
             added = True
     return "\n".join(out)
+
+
+def validate_brief_factuality(text: str, ctx: dict) -> list[str]:
     """Scan brief output for VNINDEX-magnitude numbers far from real close.
 
     Returns list of warning strings (empty if no flags found).

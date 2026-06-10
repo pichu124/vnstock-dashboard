@@ -326,6 +326,21 @@ def test_enforce_realestate_ocf_context_noop_cases():
     assert enforce_realestate_ocf_context(t3, {}) == t3
 
 
+def test_validate_brief_factuality_exists_and_flags_hallucination():
+    # Regression: an edit once swallowed the `def validate_brief_factuality`
+    # line, leaving its body as dead code inside the preceding function — the
+    # file still parsed, every test passed, and generate_brief crashed at
+    # runtime with NameError. Pin the symbol + its behavior directly.
+    from vnstock_brief import validate_brief_factuality
+    ctx = {"vnindex_tech": {"close": 1793.05}}
+    # far-off VNINDEX level (>5% from close) → flagged
+    assert validate_brief_factuality("VNINDEX đóng cửa 1.215,4", ctx)
+    # consistent level → clean
+    assert validate_brief_factuality("VNINDEX đóng cửa 1.793,05", ctx) == []
+    # empty text → clean
+    assert validate_brief_factuality("", ctx) == []
+
+
 def test_build_prompt_includes_fundamentals_block():
     ctx = {
         "date": "2026-06-05",
