@@ -1064,33 +1064,19 @@ def _sector_flow_block(sectors: list[dict]) -> str:
 
 
 def _upcoming_events_block(events: list[dict]) -> str:
-    """Render upcoming corporate events (ex-dividend / split / bonus).
+    """Render upcoming corporate events (cổ tức/chia tách/ĐHCĐ/phát hành).
 
     `events` comes from vnstock_events.load_upcoming(); each carries ticker,
-    ex_date (ISO), type and amount/ratio. Empty string when nothing relevant.
+    ex_date (ISO) and a rich Vietnamese `title`. Empty string when none.
     """
     if not events:
         return ""
 
     def _fmt(e: dict) -> str:
-        t = (e.get("type") or "").lower()
-        if t == "cash":
-            ca = e.get("cash_amount")
-            try:
-                desc = f"GDKHQ cổ tức tiền mặt {float(ca):,.0f}đ" if ca else "GDKHQ cổ tức tiền mặt"
-            except (TypeError, ValueError):
-                desc = "GDKHQ cổ tức tiền mặt"
-        elif t == "split":
-            r = e.get("ratio")
-            desc = f"chia tách (tỷ lệ {r})" if r else "chia tách CP"
-        elif t == "bonus":
-            r = e.get("ratio")
-            desc = f"thưởng CP (tỷ lệ {r})" if r else "thưởng CP"
-        else:
-            desc = f"sự kiện ({t})" if t else "sự kiện DN"
-        return f"- {e.get('ticker','?')}: {desc} — GDKHQ {e.get('ex_date','?')}"
+        title = str(e.get("title") or "Sự kiện DN")
+        return f"- {e.get('ticker','?')}: {title} — ngày {e.get('ex_date','?')}"
 
-    lines = ["\n## 📅 Sự kiện sắp tới (GDKHQ cổ tức/chia tách/thưởng — mã trong nhóm theo dõi)"]
+    lines = ["\n## 📅 Sự kiện sắp tới (cổ tức/chia tách/ĐHCĐ/phát hành — mã trong nhóm theo dõi)"]
     lines += [_fmt(e) for e in events[:12]]
     lines.append(
         "→ Nếu mã đang giữ/watchlist có GDKHQ sắp tới, LƯU Ý nhắc (giá tự điều "

@@ -25,7 +25,57 @@ import pandas as pd
 
 _META = Path("data_warehouse/_meta")
 UPCOMING_EVENTS_PATH = _META / "upcoming_events.parquet"
-_COLS = ["ticker", "ex_date", "type", "cash_amount", "ratio"]
+_COLS = ["ticker", "ex_date", "title", "category"]
+
+# VCI company.events() noise we skip (insider/major-shareholder registrations) —
+# keep the block about corp actions (cổ tức/chia tách/ĐHCĐ/phát hành).
+_SKIP_CATEGORIES = {"MAJOR_SHAREHOLDER_TRADING"}
+
+
+def _to_date(v):
+    try:
+        d = pd.to_datetime(v, errors="coerce")
+        return None if pd.isna(d) else d.date()
+    except Exception:
+        return None
+
+
+def _fetch_vci_events(ticker: str) -> "pd.DataFrame | None":
+    """Raw VCI company.events() — the source that exposes upcoming corp actions
+    (vnstock_data.Company.events() is empty at this tier)."""
+    try:
+        from vnstock_auth import get_vnstock
+        return get_vnstock(ticker, "VCI").company.events()
+    except Exception:
+        return None
+
+
+def _extract_upcoming(df, ticker: str, today) -> list[dict]:
+    """Keep rows whose relevant date is in the future. For corp actions use
+    ex-rights date (GDKHQ); for meetings/others use start/display date. Uses the
+    rich `event_title_vi` as the description."""
+    if df is None or getattr(df, "empty", True):
+        return []
+    df = df.copy()
+    df.columns = [str(c).lower() for c in df.columns]
+    out: list[dict] = []
+    for _, r in df.iterrows():
+        cat = str(r.get("category") or "").upper()
+        if cat in _SKIP_CATEGORIES:
+            continue
+        ex = _to_date(r.get("exright_date"))
+        if ex is not None:
+            kd = ex if ex >= today else None          # GDKHQ: only if upcoming
+        else:
+            kd = next((d for c in ("start_date", "display_date1", "record_date")
+                       if (d := _to_date(r.get(c))) is not None and d >= today), None)
+        if kd is None:
+            continue
+        title = str(r.get("event_title_vi") or r.get("event_name_vi")
+                    or r.get("event_code") or "Sự kiện")[:90]
+        out.append({"ticker": ticker.upper(), "ex_date": kd.isoformat(),
+                    "title": title, "category": cat})
+    return out
 
 
 def _default_universe() -> list[str]:
@@ -48,36 +98,19 @@ def refresh_upcoming(
     consolidate into one parquet. Best-effort: a single failing ticker is
     skipped. Returns the saved DataFrame (may be empty).
     """
-    from vnstock_adjust import refresh_events  # fetch + per-ticker cache
-
     tickers = tickers or _default_universe()
     cutoff = date.today() - timedelta(days=keep_back_days)
     rows: list[dict] = []
     for t in tickers:
-        try:
-            df = refresh_events(t, warehouse=Path(warehouse), verbose=verbose)
-        except Exception:
-            continue
-        if df is None or df.empty:
-            continue
-        for _, r in df.iterrows():
-            try:
-                exd = pd.to_datetime(r.get("ex_date")).date()
-            except Exception:
-                continue
-            if exd < cutoff:
-                continue
-            rows.append({
-                "ticker": str(r.get("ticker") or t).upper(),
-                "ex_date": exd.isoformat(),
-                "type": str(r.get("type") or ""),
-                "cash_amount": r.get("cash_amount"),
-                "ratio": r.get("ratio"),
-            })
+        df = _fetch_vci_events(t)
+        evs = _extract_upcoming(df, t, cutoff)
+        if verbose:
+            print(f"  [{t}] {len(evs)} sự kiện sắp tới")
+        rows.extend(evs)
 
     out = pd.DataFrame(rows, columns=_COLS)
     if not out.empty:
-        out = out.drop_duplicates(subset=["ticker", "ex_date", "type"])
+        out = out.drop_duplicates(subset=["ticker", "ex_date", "title"])
         _META.mkdir(parents=True, exist_ok=True)
         out.to_parquet(UPCOMING_EVENTS_PATH, index=False)
     return out
@@ -112,8 +145,7 @@ def load_upcoming(
     df = df.sort_values("_d")
     return [
         {"ticker": str(r["ticker"]), "ex_date": str(r["ex_date"]),
-         "type": r.get("type"), "cash_amount": r.get("cash_amount"),
-         "ratio": r.get("ratio")}
+         "title": r.get("title"), "category": r.get("category")}
         for _, r in df.iterrows()
     ]
 
@@ -186,8 +218,7 @@ def _check(within: int = 30) -> None:
     print(f"upcoming_events.parquet tồn tại: {UPCOMING_EVENTS_PATH.exists()}")
     print(f"Sự kiện {within} ngày tới: {len(ev)}")
     for e in ev[:20]:
-        print(f"  {e['ex_date']}  {e['ticker']:<6} {e['type']:<7} "
-              f"cash={e.get('cash_amount')} ratio={e.get('ratio')}")
+        print(f"  {e['ex_date']}  {e['ticker']:<6} {e.get('title')}")
 
 
 if __name__ == "__main__":
