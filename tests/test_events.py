@@ -124,3 +124,12 @@ def test_maybe_refresh_events_disabled_by_env(monkeypatch):
     import vnstock_brief as vb
     monkeypatch.setenv("VNSTOCK_BRIEF_AUTO_EVENTS", "0")
     assert vb._maybe_refresh_events() == 0
+
+
+def test_templates_have_upcoming_events_output_section():
+    # The events block is injected as DATA; the OUTPUT template must also have a
+    # "Sự kiện sắp tới" section or the model never surfaces it (observed: block
+    # data present but absent from the brief).
+    for bt in ("morning", "afternoon"):
+        p = build_prompt({"date": "2026-06-10", "time": "15:00"}, brief_type=bt)
+        assert "## 📅 Sự kiện sắp tới" in p

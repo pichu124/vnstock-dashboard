@@ -910,12 +910,16 @@ def test_select_liquid_movers_whole_market_filtered():
          "GTGD TB (tỷ)": 2},                        # illiquid → excluded
         {"Mã": "STB", "Giá 1T %": -3.0, "Ngành": "Ngân hàng", "last": 27.0,
          "GTGD TB (tỷ)": 0.5},                      # VN30 but low GTGD → kept
+        {"Mã": "POM", "Giá 1T %": 15.0, "Ngành": "Thép", "last": 4.3,
+         "GTGD TB (tỷ)": 50},                       # liquid but sub-5k penny → excluded
     ]
-    g, l, uni = _select_liquid_movers(tickers, min_gtgd_ty=10, n=5)
+    g, l, uni = _select_liquid_movers(tickers, min_gtgd_ty=10, min_price_ty=5.0, n=5)
     names = {r["Mã"] for r in g} | {r["Mã"] for r in l}
     assert "GEX" in names            # liquid mid-cap surfaced (not just VN30)
     assert "PENNY" not in names      # illiquid excluded
     assert "PENNY" not in uni
+    assert "POM" not in names        # liquid but sub-5k penny → price floor
+    assert "POM" not in uni
     assert "STB" in uni              # VN30 always kept despite low GTGD
     assert g[0]["Mã"] == "GEX"       # ranked by 1-week % change
 

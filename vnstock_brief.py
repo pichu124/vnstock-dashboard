@@ -83,6 +83,9 @@ _FINANCIAL_TICKERS: frozenset[str] = frozenset({
 # the whole-market mover/watchlist scan. VN30 is always kept regardless. Tune
 # higher to narrow toward blue-chips, lower to include more mid-caps.
 _LIQUID_GTGD_MIN_TY: float = 10.0
+# Price floor (thousand VND) — drop sub-5k penny/distressed names (e.g. POM ~4.3)
+# from the watchlist universe; VN30 is exempt. Raise to be stricter on quality.
+_LIQUID_PRICE_MIN_TY: float = 5.0
 
 
 def get_vn30_live() -> set[str]:
@@ -211,6 +214,9 @@ Kịch bản CHÍNH phải NHẤT QUÁN với Bias ở TLDR: Bias GIẢM → k�
 **Kịch bản phụ:** [điều kiện ngược lại + ngưỡng hành động phòng thủ/đứng ngoài]
 (Mẫu CẤU TRÚC, không phải số để dùng: "VNINDEX [giữ trên/thủng] [mức S hoặc R từ data] + [tín hiệu] → [hệ quả đóng cửa]")
 
+## 📅 Sự kiện sắp tới
+[Nếu có block "Sự kiện sắp tới" trong data: liệt kê 1-3 sự kiện gần nhất (GDKHQ cổ tức/chia tách/ĐHCĐ) kèm mã + ngày, ưu tiên mã VN30/watchlist; nhắc "giá tự điều chỉnh ngày GDKHQ". Nếu KHÔNG có block đó → ghi "Không có sự kiện đáng chú ý" hoặc bỏ mục này.]
+
 ## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)
 [Liệt kê tối đa 3 mã từ block "Khuyến nghị từ chiến lược đã backtest" với entry/TP/SL]
 BẮT BUỘC: Nếu quyết định bị ảnh hưởng bởi tin tức trong block "Tin tức thị trường", PHẢI nêu rõ tên tiêu đề tin và giải thích tác động (ví dụ: "HPG: MUA — kỹ thuật vượt MA20 + tin [Hòa Phát ký hợp đồng thép 5.000 tỷ] hỗ trợ đà tăng"). Bỏ qua nếu không có khuyến nghị.
@@ -278,6 +284,9 @@ CHIỀU LỆNH — chọn ĐÚNG 1 trong 2 mẫu, mốc giá phải đúng thứ
 ## ⚠️ Rủi ro cần lưu ý
 [Red flags, distribution, macro risk với mức cảnh báo cụ thể; "Không có rủi ro đặc biệt" nếu thị trường ổn]
 Nếu có block "VN30 Cơ bản": CHỈ nêu rủi ro cơ bản bằng mã lấy TỪ dòng "Đòn bẩy cao nhất (D/E)" hoặc "Lưu chuyển tiền HĐKD thấp nhất" trong block, và PHẢI ghi kèm CON SỐ copy ĐÚNG từ block (vd "VJC D/E=2.63", "X Op.CF=−Y tỷ"). TUYỆT ĐỐI KHÔNG: (a) dẫn mã ngoài block/ngoài VN30 (vd VCK); (b) nói "cần thêm dữ liệu/chỉ số" — số ĐÃ có trong block; (c) gọi "Op.CF âm" cho mã có Op.CF ≥ 0 (chỉ ghi "âm" khi số THỰC < 0, còn lại ghi "Op.CF thấp"); (d) gán rủi ro sang ngành dẫn dắt/tụt hậu. Ngân hàng/CK/bảo hiểm đã bị loại khỏi xếp hạng → KHÔNG nêu nhóm tài chính làm rủi ro đòn bẩy/dòng tiền. Nếu block không có mã đáng lưu ý → nêu rủi ro vĩ mô/kỹ thuật, KHÔNG dẫn mã ngoài data.
+
+## 📅 Sự kiện sắp tới
+[Nếu có block "Sự kiện sắp tới" trong data: liệt kê 1-3 sự kiện gần nhất (GDKHQ cổ tức/chia tách/ĐHCĐ) kèm mã + ngày, ưu tiên mã VN30/watchlist; nhắc "giá tự điều chỉnh ngày GDKHQ". Nếu KHÔNG có block đó → ghi "Không có sự kiện đáng chú ý" hoặc bỏ mục này.]
 
 ## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)
 [Liệt kê tối đa 3 mã với entry/TP/SL từ block "Khuyến nghị"]
@@ -1134,6 +1143,7 @@ def _market_sentiment_block(ms: dict) -> str:
 def _select_liquid_movers(
     tickers: list[dict],
     min_gtgd_ty: float = _LIQUID_GTGD_MIN_TY,
+    min_price_ty: float = _LIQUID_PRICE_MIN_TY,
     n: int = 5,
 ) -> tuple[list[dict], list[dict], set[str]]:
     """Whole-market top movers, liquidity-filtered (not just VN30).
@@ -1157,6 +1167,8 @@ def _select_liquid_movers(
 
     if "GTGD TB (tỷ)" in df.columns:
         liquid = df[df["GTGD TB (tỷ)"].fillna(0) >= min_gtgd_ty]
+        if "last" in liquid.columns:   # drop sub-floor penny/distressed names
+            liquid = liquid[liquid["last"].fillna(0) >= min_price_ty]
         vn = df[df["Mã"].isin(VN30_TICKERS)]
         df = pd.concat([liquid, vn]).drop_duplicates(subset=["Mã"])
     if df.empty:
