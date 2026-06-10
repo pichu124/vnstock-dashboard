@@ -148,6 +148,11 @@ cổ tức/chia tách/thưởng (tái dùng `vnstock_adjust._fetch_events` →
 tới" (`_upcoming_events_block`). Đây là phần "sự kiện kinh tế" KHẢ THI với data
 nội bộ; **tin VĨ MÔ (CPI/Fed/SBV) chưa có** — cần nguồn ngoài (RSS/API), vướng
 network policy. Chạy `python vnstock_events.py` (VN30) / `--tickers` / `--check`.
+Chống regress (2026-06-10): `refresh_upcoming` **merge-safe** — mã fetch lỗi
+(None) GIỮ sự kiện cũ trong cache, chỉ fetch THÀNH CÔNG (kể cả rỗng) mới
+thay/xóa. `enforce_upcoming_events()` (gọi trong `generate_brief`) — guard
+deterministic: LLM ghi "Không có sự kiện đáng chú ý" dù ctx CÓ events → splice
+danh sách thật vào output (LLM hay phớt block dù data có trong prompt).
 
 **Quan trọng — vnstock 4.0.4 + sponsor API gotchas** (hard-won, đừng quên):
 - `vnstock_auth._StockShim` PHẢI expose `.quote/.company/.listing/.finance`.

@@ -157,6 +157,34 @@ def test_refresh_clears_event_on_successful_empty_fetch(tmp_path, monkeypatch):
     assert out.empty
 
 
+def test_enforce_upcoming_events_rewrites_llm_denial():
+    # LLM wrote "Không có sự kiện đáng chú ý" while ctx HAS events (observed at
+    # 13:50 — cache intact, prompt had ACB, output denied it) → the guard must
+    # splice the real events back in.
+    from vnstock_brief import enforce_upcoming_events
+    ctx = {"upcoming_events": [
+        {"ticker": "ACB", "ex_date": "2026-06-15",
+         "title": "Trả cổ tức bằng tiền mặt - Cả năm 2025 - 700 VND",
+         "category": "DIVIDEND"}]}
+    text = "📅 Sự kiện sắp tới\nKhông có sự kiện đáng chú ý.\n💡 Đề xuất giao dịch"
+    fixed = enforce_upcoming_events(text, ctx)
+    assert "Không có sự kiện đáng chú ý" not in fixed
+    assert "ACB: Trả cổ tức bằng tiền mặt" in fixed and "2026-06-15" in fixed
+    assert "💡 Đề xuất giao dịch" in fixed          # rest of the brief untouched
+
+
+def test_enforce_upcoming_events_noop_without_events_or_claim():
+    from vnstock_brief import enforce_upcoming_events
+    # no events in ctx → text untouched even with the claim
+    t1 = "Không có sự kiện đáng chú ý."
+    assert enforce_upcoming_events(t1, {}) == t1
+    # events present but the LLM already listed them → untouched
+    ctx = {"upcoming_events": [{"ticker": "ACB", "ex_date": "2026-06-15",
+                                "title": "Cổ tức", "category": "DIVIDEND"}]}
+    t2 = "ACB: Cổ tức — ngày 2026-06-15"
+    assert enforce_upcoming_events(t2, ctx) == t2
+
+
 def test_templates_have_upcoming_events_output_section():
     # The events block is injected as DATA; the OUTPUT template must also have a
     # "Sự kiện sắp tới" section or the model never surfaces it (observed: block

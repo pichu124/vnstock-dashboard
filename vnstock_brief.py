@@ -2243,6 +2243,15 @@ def generate_brief(
                 name, result = agent.name, ("", str(exc))
             results[name] = result
 
+    # Deterministic fixups the LLM is known to flub: restore the upcoming-events
+    # list when the model claims "Không có sự kiện đáng chú ý" despite the data.
+    for agent in available:
+        text, _err = results.get(agent.name, ("", None))
+        if text:
+            fixed = enforce_upcoming_events(text, ctx)
+            if fixed != text:
+                results[agent.name] = (fixed, _err)
+
     # Defensive layer: scan each agent's output for hallucinated VNINDEX
     # numbers. Stored in results["_warnings"] so the UI can surface them.
     warnings_by_agent: dict[str, list[str]] = {}
@@ -2326,6 +2335,33 @@ def _parse_vn_number(s: str) -> float | None:
         return float(s)
     except (ValueError, IndexError):
         return None
+
+
+def enforce_upcoming_events(text: str, ctx: dict) -> str:
+    """Deterministic guard: the LLM sometimes ignores the injected events block
+    and writes "Không có sự kiện đáng chú ý" anyway (observed: ACB dividend in
+    cache + prompt at 13:50 but absent from output while the 11:40 run showed
+    it). When ctx carries upcoming_events, rewrite that claim — and any empty
+    "📅 Sự kiện sắp tới" section — with the real event lines. No-op otherwise.
+    """
+    events = ctx.get("upcoming_events") or []
+    if not text or not events:
+        return text
+
+    def _fmt(e: dict) -> str:
+        return (f"{e.get('ticker','?')}: {e.get('title') or 'Sự kiện DN'}"
+                f" — ngày {e.get('ex_date','?')}")
+
+    ev_lines = "\n".join(_fmt(e) for e in events[:3])
+    out: list[str] = []
+    replaced = False
+    for line in text.splitlines():
+        if not replaced and "không có sự kiện đáng chú ý" in line.lower():
+            out.append(ev_lines)
+            replaced = True
+        else:
+            out.append(line)
+    return "\n".join(out)
 
 
 def validate_brief_factuality(text: str, ctx: dict) -> list[str]:
