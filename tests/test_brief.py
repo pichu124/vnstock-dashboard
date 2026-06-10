@@ -15,6 +15,7 @@ from vnstock_brief import (
     build_prompt, _recommendation_block, _fmt_rec_price,
     _augment_with_live_vnindex, market_data_freshness,
     _auto_refresh_market_overview, _bias_floor_dir, _maybe_reconcile_overdue,
+    _select_liquid_movers,
 )
 
 
@@ -895,3 +896,34 @@ def test_afternoon_watchlist_nudges_to_use_priced_movers():
     # … and the instruction forces using them rather than bailing
     assert "BẮT BUỘC dùng ÍT NHẤT 1-2 mã đó làm setup" in prompt
     assert "CHỈ viết đúng 1 dòng" in prompt
+
+
+# ─── Whole-market liquidity-filtered movers (broader than VN30) ───────────────
+
+def test_select_liquid_movers_whole_market_filtered():
+    tickers = [
+        {"Mã": "FPT", "Giá 1T %": 1.5, "Ngành": "CNTT", "last": 124.0,
+         "GTGD TB (tỷ)": 500},                      # VN30, liquid
+        {"Mã": "GEX", "Giá 1T %": 8.0, "Ngành": "Công nghiệp", "last": 25.0,
+         "GTGD TB (tỷ)": 300},                      # non-VN30 mid-cap, liquid
+        {"Mã": "PENNY", "Giá 1T %": 20.0, "Ngành": "X", "last": 3.0,
+         "GTGD TB (tỷ)": 2},                        # illiquid → excluded
+        {"Mã": "STB", "Giá 1T %": -3.0, "Ngành": "Ngân hàng", "last": 27.0,
+         "GTGD TB (tỷ)": 0.5},                      # VN30 but low GTGD → kept
+    ]
+    g, l, uni = _select_liquid_movers(tickers, min_gtgd_ty=10, n=5)
+    names = {r["Mã"] for r in g} | {r["Mã"] for r in l}
+    assert "GEX" in names            # liquid mid-cap surfaced (not just VN30)
+    assert "PENNY" not in names      # illiquid excluded
+    assert "PENNY" not in uni
+    assert "STB" in uni              # VN30 always kept despite low GTGD
+    assert g[0]["Mã"] == "GEX"       # ranked by 1-week % change
+
+
+def test_build_prompt_movers_header_is_liquidity_not_vn30():
+    ctx = {"date": "2026-06-09", "time": "15:00",
+           "vn30_gainers": [{"Mã": "GEX", "Giá 1T %": 8.0, "Ngành": "CN",
+                             "last": 25.0}]}
+    prompt = build_prompt(ctx, brief_type="afternoon")
+    assert "Top Gainers thanh khoản cao" in prompt
+    assert "VN30 Top Gainers" not in prompt

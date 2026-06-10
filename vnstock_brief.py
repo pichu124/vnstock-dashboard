@@ -79,6 +79,11 @@ _FINANCIAL_TICKERS: frozenset[str] = frozenset({
     "BVH", "BIC", "BMI", "MIG", "PVI", "PGI", "ABI", "BLI",
 })
 
+# Liquidity floor (avg trading value, tỷ VND/phiên) for surfacing a ticker in
+# the whole-market mover/watchlist scan. VN30 is always kept regardless. Tune
+# higher to narrow toward blue-chips, lower to include more mid-caps.
+_LIQUID_GTGD_MIN_TY: float = 10.0
+
 
 def get_vn30_live() -> set[str]:
     """Try to fetch current VN30 from vnstock API; fall back to VN30_TICKERS."""
@@ -190,15 +195,15 @@ TRÍCH XUẤT TỪ block "## VNINDEX kỹ thuật" — KHÔNG BỊA, KHÔNG dùn
 Nếu block "VNINDEX kỹ thuật" KHÔNG có trong data → viết "Chưa có dữ liệu VNINDEX hôm nay" (không bịa).
 
 ## 🎯 Trọng tâm theo dõi
-**Tích luỹ/Mua:** [ngành hoặc mã VN30 + lý do cụ thể từ data — nêu trọng số %VNI và đóng góp pp]
-**Tránh/Bán:** [ngành hoặc mã VN30 + lý do cụ thể]
+**Tích luỹ/Mua:** [ngành hoặc mã (VN30/mid-cap thanh khoản trong data) + lý do cụ thể — nêu trọng số %VNI và đóng góp pp]
+**Tránh/Bán:** [ngành hoặc mã (VN30/mid-cap thanh khoản trong data) + lý do cụ thể]
 **Dòng tiền ngành:** [Nếu có block "Dòng tiền ngành": nêu RÕ ngành NN MUA RÒNG / BÁN RÒNG mạnh nhất (số "NN ròng" tỷ, có +/-). PHÂN BIỆT "NN ròng" (khối ngoại) với "GTGD" (thanh khoản) — KHÔNG gọi GTGD là "dòng tiền vào". Bỏ dòng này chỉ khi KHÔNG có block đó.]
 **Theo dõi:** [rotation/stealth nếu có, bỏ dòng này nếu không có tín hiệu]
 KHÔNG gọi "tích luỹ/mua" nếu tín hiệu quá yếu (đóng góp |pp| < 0.05 hoặc biến động không đáng kể) — khi không có ngành/mã đủ mạnh, viết thẳng "Chưa có nhóm dẫn dắt rõ ràng".
 Nếu có block "VN30 Cơ bản": có thể dẫn 1 chỉ số cơ bản (D/E cao / Op.CF âm / ROE) để củng cố lý do tránh/mua, KHÔNG bịa số.
 
 ## ⚡ Biến động bất thường
-[Mã/ngành biến động mạnh TRONG DATA + giải thích + BẮT BUỘC ghi ĐÚNG khung thời gian theo nhãn trong data. Số từ "VN30 Top Gainers/Losers" là thay đổi "1 tuần/5 phiên" → ghi "(1 tuần)", TUYỆT ĐỐI KHÔNG ghi "phiên sáng"/"hôm nay" cho các số đó (không có dữ liệu thay đổi 1 phiên cho từng mã). "Không có biến động bất thường đáng chú ý" nếu phẳng]
+[Mã/ngành biến động mạnh TRONG DATA + giải thích + BẮT BUỘC ghi ĐÚNG khung thời gian theo nhãn trong data. Số từ block "Top Gainers/Losers thanh khoản cao" là thay đổi "1 tuần/5 phiên" → ghi "(1 tuần)", TUYỆT ĐỐI KHÔNG ghi "phiên sáng"/"hôm nay" cho các số đó (không có dữ liệu thay đổi 1 phiên cho từng mã). "Không có biến động bất thường đáng chú ý" nếu phẳng]
 
 ## 🔮 Kịch bản phiên chiều
 Kịch bản CHÍNH phải NHẤT QUÁN với Bias ở TLDR: Bias GIẢM → kịch bản chính nghiêng giảm/đi ngang (KHÔNG được là kịch bản tăng); Bias TĂNG → ngược lại. Mọi mức giá/chỉ số PHẢI lấy từ block kỹ thuật của data — TUYỆT ĐỐI KHÔNG chép số hay cụm "ngân hàng giữ đà"/"bank giữ đà" từ mẫu cấu trúc dưới, KHÔNG bịa mã/ngành dẫn dắt nếu data không có.
@@ -213,7 +218,7 @@ BẮT BUỘC: Nếu quyết định bị ảnh hưởng bởi tin tức trong bl
 ## 🔧 Đề xuất bổ sung (1 dòng, optional)
 [Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, VN30 cơ bản (D/E/ROE/OCF). CHỈ nêu thứ THỰC SỰ thiếu (vd: tin vĩ mô/sự kiện, lịch công bố KQKD, định giá ngành so sánh).]
 
-Giới hạn 450 từ. Chỉ đề cập mã trong VN30 khi nói về cổ phiếu cụ thể.
+Giới hạn 450 từ. Khi nói về cổ phiếu cụ thể, CHỈ đề cập mã CÓ TRONG các block đã cung cấp (VN30 + mid-cap thanh khoản cao); KHÔNG nhắc mã ngoài data.
 YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
 - Mọi nhận định PHẢI gắn với SỐ trong data, không nói "tích cực/tiêu cực" suông.
 - Ngành được đề cập → LUÔN nêu trọng số %VNI và đóng góp pp (ghi đúng khung "1 tuần" như trong data, KHÔNG ghi "hôm nay").
@@ -260,9 +265,9 @@ DÙNG ĐÚNG block "🎯 Dẫn dắt/Tụt hậu — CHỐT THEO DATA" ở trên
 Nếu có block "Dòng tiền ngành": nêu RÕ ngành NN MUA RÒNG / BÁN RÒNG mạnh nhất (lấy số "NN ròng", đơn vị tỷ, có dấu +/-). PHÂN BIỆT rõ "NN ròng" (khối ngoại mua-bán ròng) với "GTGD" (thanh khoản/giá trị giao dịch) — TUYỆT ĐỐI KHÔNG gọi GTGD là "dòng tiền vào". Nhận định luân chuyển dòng tiền giữa các ngành dựa trên NN ròng.
 
 ## 📋 Watchlist sáng mai (TỐI ĐA 3 setup — chỉ mã CÓ GIÁ thật)
-CHỈ chọn mã VN30 xuất hiện trong các block phía trên ("VN30 Top Gainers/Losers" hoặc "Khuyến nghị") VÀ có kèm "Giá" thật. TUYỆT ĐỐI KHÔNG dùng/bịa mã ngoài danh sách (vd mã UPCOM/không thuộc VN30 như TCX), và KHÔNG độn cho đủ 3.
+CHỈ chọn mã xuất hiện trong các block phía trên ("Top Gainers/Losers thanh khoản cao" hoặc "Khuyến nghị") VÀ có kèm "Giá" thật (VN30 hoặc mid-cap thanh khoản cao đều được). TUYỆT ĐỐI KHÔNG dùng/bịa mã KHÔNG có trong các block đó (vd mã UPCOM/penny ngoài data), và KHÔNG độn cho đủ 3.
 Mỗi setup PHẢI neo vào "Giá" THỰC; KHÔNG tự nghĩ ra mức giá. Chỉ 1-2 mã đủ điều kiện → đưa ĐÚNG 1-2 setup (TUYỆT ĐỐI KHÔNG thêm dòng kiểu "Giá không có / Cần thêm dữ liệu" cho mã thiếu giá).
-Block "VN30 Top Gainers/Losers" BÌNH THƯỜNG luôn có sẵn vài mã kèm "Giá" → BẮT BUỘC dùng ÍT NHẤT 1-2 mã đó làm setup. CHỈ viết đúng 1 dòng "Cần thêm dữ liệu giá cổ phiếu cụ thể" khi block movers THỰC SỰ trống / KHÔNG dòng nào kèm "Giá" — KHÔNG dùng câu đó nếu movers vẫn có mã kèm "Giá".
+Block "Top Gainers/Losers thanh khoản cao" BÌNH THƯỜNG luôn có sẵn vài mã kèm "Giá" → BẮT BUỘC dùng ÍT NHẤT 1-2 mã đó làm setup. CHỈ viết đúng 1 dòng "Cần thêm dữ liệu giá cổ phiếu cụ thể" khi block movers THỰC SỰ trống / KHÔNG dòng nào kèm "Giá" — KHÔNG dùng câu đó nếu movers vẫn có mã kèm "Giá".
 CHIỀU LỆNH — chọn ĐÚNG 1 trong 2 mẫu, mốc giá phải đúng thứ tự (TỰ KIỂM TRA trước khi xuất, không được mâu thuẫn):
 - Ý tưởng TĂNG → "MUA vùng [entry] · chốt lời [TP] · cắt lỗ [SL]" — BẮT BUỘC SL < entry < TP.
 - Ý tưởng GIẢM → KHÔNG viết "SELL ở [giá]" (TTCK VN không cho NĐT cá nhân bán khống). Viết: "GIẢM TỶ TRỌNG/TRÁNH nếu thủng [hỗ trợ] · mục tiêu về [thấp hơn] · hủy kịch bản nếu vượt lại [cao hơn]" — BẮT BUỘC mục tiêu < hỗ trợ < mức hủy.
@@ -281,7 +286,7 @@ BẮT BUỘC: Nếu có tin tức tác động → nêu rõ tiêu đề tin + �
 ## 🔧 Đề xuất bổ sung (1 dòng, optional)
 [Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, VN30 cơ bản (D/E/ROE/OCF). CHỈ nêu thứ THỰC SỰ thiếu (vd: tin vĩ mô/sự kiện, lịch công bố KQKD, định giá ngành so sánh).]
 
-Giới hạn 500 từ. Chỉ đề cập mã trong VN30. Nếu thị trường flat và không có signal rõ thì nói thẳng.
+Giới hạn 500 từ. Khi nói về cổ phiếu cụ thể, CHỈ đề cập mã CÓ TRONG các block đã cung cấp (VN30 + mid-cap thanh khoản cao); KHÔNG nhắc mã ngoài data. Nếu thị trường flat và không có signal rõ thì nói thẳng.
 YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
 - Mọi nhận định PHẢI gắn với SỐ trong data.
 - Ngành được đề cập → LUÔN nêu trọng số %VNI và đóng góp pp (ghi đúng khung "1 tuần" như trong data, KHÔNG ghi "hôm nay").
@@ -1081,6 +1086,44 @@ def _market_sentiment_block(ms: dict) -> str:
 
 
 # ── Context collection ─────────────────────────────────────────────────────
+def _select_liquid_movers(
+    tickers: list[dict],
+    min_gtgd_ty: float = _LIQUID_GTGD_MIN_TY,
+    n: int = 5,
+) -> tuple[list[dict], list[dict], set[str]]:
+    """Whole-market top movers, liquidity-filtered (not just VN30).
+
+    Scans ALL tickers in market_overview, keeps those with avg trading value
+    ≥ `min_gtgd_ty` tỷ (VN30 always kept — index drivers + always liquid), then
+    returns the top `n` gainers / losers by 1-week % change plus the liquid
+    universe (for expanding the fundamentals/risk pool). This surfaces liquid
+    mid-cap movers while excluding penny/illiquid names. Returns ([], [], set())
+    when the data is unavailable.
+    """
+    import pandas as pd
+
+    df = pd.DataFrame(tickers)
+    price_col = "Giá 1T %"
+    if df.empty or price_col not in df.columns or "Mã" not in df.columns:
+        return [], [], set()
+    df = df.dropna(subset=[price_col])
+    if df.empty:
+        return [], [], set()
+
+    if "GTGD TB (tỷ)" in df.columns:
+        liquid = df[df["GTGD TB (tỷ)"].fillna(0) >= min_gtgd_ty]
+        vn = df[df["Mã"].isin(VN30_TICKERS)]
+        df = pd.concat([liquid, vn]).drop_duplicates(subset=["Mã"])
+    if df.empty:
+        return [], [], set()
+
+    cols = ["Mã", price_col, "Ngành"] + (["last"] if "last" in df.columns else [])
+    gainers = df.nlargest(n, price_col)[cols].to_dict("records")
+    losers = df.nsmallest(n, price_col)[cols].to_dict("records")
+    universe = {str(m) for m in df["Mã"].tolist()}
+    return gainers, losers, universe
+
+
 def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> dict:
     """Collect all available market data for brief generation.
 
@@ -1192,22 +1235,15 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     except Exception:
         pass
 
-    # 4. VN30 movers (from ticker data)
+    # 4. Top movers — whole-market scan, liquidity-filtered (not just VN30) so
+    #    the brief can surface liquid mid-cap movers, not only index members.
+    #    Keys stay vn30_gainers/losers for back-compat; content is now broader.
     if ctx["tickers"]:
         try:
-            import pandas as pd
-            tick_df = pd.DataFrame(ctx["tickers"])
-            price_col = "Giá 1T %" if "Giá 1T %" in tick_df.columns else None
-            if price_col and "Mã" in tick_df.columns:
-                vn30_df = tick_df[tick_df["Mã"].isin(VN30_TICKERS)].dropna(subset=[price_col])
-                # Keep absolute last price ("last") so the prompt can anchor
-                # watchlist entry/TP/SL to a REAL price instead of hallucinating.
-                _cols = ["Mã", price_col, "Ngành"] + (
-                    ["last"] if "last" in vn30_df.columns else [])
-                ctx["vn30_gainers"] = vn30_df.nlargest(5, price_col)[
-                    _cols].to_dict("records") if not vn30_df.empty else []
-                ctx["vn30_losers"] = vn30_df.nsmallest(5, price_col)[
-                    _cols].to_dict("records") if not vn30_df.empty else []
+            _g, _l, _uni = _select_liquid_movers(ctx["tickers"])
+            ctx["vn30_gainers"] = _g
+            ctx["vn30_losers"] = _l
+            ctx["mover_universe"] = _uni
         except Exception:
             pass
 
@@ -1263,8 +1299,11 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     # effective date; reuse the result instead of calling again.
     ctx["vnindex_tech"] = _vt_early
 
-    # 7. VN30 fundamentals (D/E, ROE, operating cash flow) from weekly cache.
-    _vn30_fund = _load_vn30_fundamentals()
+    # 7. Fundamentals (D/E, ROE, operating cash flow) from weekly cache — VN30
+    #    plus the liquid mid-cap movers so the risk section can flag mid-cap
+    #    leverage/cash-flow too, not only index members.
+    _fund_universe = set(VN30_TICKERS) | (ctx.get("mover_universe") or set())
+    _vn30_fund = _load_vn30_fundamentals(vn30=_fund_universe)
     if _vn30_fund:
         ctx["vn30_fundamentals"] = _vn30_fund
 
@@ -1888,12 +1927,12 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         return line
 
     if gainers := ctx.get("vn30_gainers"):
-        lines.append("\n## VN30 Top Gainers (thay đổi 1 TUẦN/5 phiên — KHÔNG phải 1 phiên, với đóng góp vào VNINDEX)")
+        lines.append("\n## Top Gainers thanh khoản cao (VN30 + mid-cap; thay đổi 1 TUẦN/5 phiên — KHÔNG phải 1 phiên, với đóng góp vào VNINDEX)")
         for g in gainers:
             lines.append(_vn30_line(g))
 
     if losers := ctx.get("vn30_losers"):
-        lines.append("\n## VN30 Top Losers (thay đổi 1 TUẦN/5 phiên — KHÔNG phải 1 phiên, với đóng góp vào VNINDEX)")
+        lines.append("\n## Top Losers thanh khoản cao (VN30 + mid-cap; thay đổi 1 TUẦN/5 phiên — KHÔNG phải 1 phiên, với đóng góp vào VNINDEX)")
         for g in losers:
             lines.append(_vn30_line(g))
 
