@@ -178,11 +178,34 @@ def test_enforce_upcoming_events_noop_without_events_or_claim():
     # no events in ctx → text untouched even with the claim
     t1 = "Không có sự kiện đáng chú ý."
     assert enforce_upcoming_events(t1, {}) == t1
-    # events present but the LLM already listed them → untouched
+    # events present but no section header and no denial → untouched
     ctx = {"upcoming_events": [{"ticker": "ACB", "ex_date": "2026-06-15",
                                 "title": "Cổ tức", "category": "DIVIDEND"}]}
     t2 = "ACB: Cổ tức — ngày 2026-06-15"
     assert enforce_upcoming_events(t2, ctx) == t2
+
+
+def test_enforce_upcoming_events_canonicalizes_partial_section():
+    # 14:48/15:20 briefs listed only 1 of the 2 same-day ACB events (dropped the
+    # 13% stock dividend — the more price-impactful one). The section is pure
+    # data → its body is replaced with the full canonical list + GDKHQ note.
+    from vnstock_brief import enforce_upcoming_events
+    ctx = {"upcoming_events": [
+        {"ticker": "ACB", "ex_date": "2026-06-15",
+         "title": "Trả cổ tức bằng tiền mặt - Cả năm 2025 - 700 VND",
+         "category": "DIVIDEND"},
+        {"ticker": "ACB", "ex_date": "2026-06-15",
+         "title": "Phát hành cổ phiếu - Trả Cổ tức bằng Cổ phiếu tỉ lệ 13.0%",
+         "category": "ISSUE"}]}
+    text = ("📅 Sự kiện sắp tới\n"
+            "ACB trả cổ tức bằng tiền mặt vào ngày 2026-06-15.\n"
+            "💡 Đề xuất giao dịch\n"
+            "Không có khuyến nghị.")
+    fixed = enforce_upcoming_events(text, ctx)
+    assert "700 VND" in fixed and "13.0%" in fixed          # both events present
+    assert "Giá tự điều chỉnh trong ngày GDKHQ" in fixed
+    assert "💡 Đề xuất giao dịch" in fixed                   # next section intact
+    assert "ACB trả cổ tức bằng tiền mặt vào ngày" not in fixed  # paraphrase gone
 
 
 def test_templates_have_upcoming_events_output_section():

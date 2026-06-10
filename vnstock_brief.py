@@ -1765,6 +1765,14 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             f"({'thủng hỗ trợ/đi xuống' if bf['dir'] == 'GIẢM' else 'vượt kháng cự/đi lên'}); "
             f"kịch bản chiều ngược chỉ được là kịch bản PHỤ."
         )
+        if bf["dir"] == "GIẢM":
+            lines.append(
+                "Ở Watchlist HÔM NAY (bias GIẢM): TUYỆT ĐỐI KHÔNG đưa setup "
+                "\"MUA vùng [giá dưới thị trường]\" kiểu bắt dao rơi. Mẫu MUA "
+                "CHỈ được dạng CÓ ĐIỀU KIỆN \"canh MUA NẾU vượt lại [kháng cự "
+                "của CHÍNH MÃ]\" (xác nhận sức mạnh trước), và ưu tiên ít nhất "
+                "1 setup phòng thủ (GIẢM TỶ TRỌNG/TRÁNH nếu thủng hỗ trợ)."
+            )
 
     # Market sentiment (tâm lý thị trường) — composite mood from breadth, NN
     # flow, index momentum and news. Emitted high so the agent frames the
@@ -2256,6 +2264,7 @@ def generate_brief(
             fixed = enforce_upcoming_events(text, ctx)
             fixed = enforce_realestate_ocf_context(fixed, ctx)
             fixed = enforce_watchlist_hygiene(fixed, ctx)
+            fixed = enforce_money_flow_two_sides(fixed, ctx)
             if fixed != text:
                 results[agent.name] = (fixed, _err)
 
@@ -2344,12 +2353,21 @@ def _parse_vn_number(s: str) -> float | None:
         return None
 
 
+_SECTION_EMOJIS = ("🎯", "📊", "📈", "🏆", "💰", "📋", "⚠️", "📅", "💡", "🔧", "⚡", "🔮")
+
+
+def _is_section_start(line: str) -> bool:
+    s = line.lstrip()
+    return s.startswith("##") or s.startswith(_SECTION_EMOJIS)
+
+
 def enforce_upcoming_events(text: str, ctx: dict) -> str:
-    """Deterministic guard: the LLM sometimes ignores the injected events block
-    and writes "Không có sự kiện đáng chú ý" anyway (observed: ACB dividend in
-    cache + prompt at 13:50 but absent from output while the 11:40 run showed
-    it). When ctx carries upcoming_events, rewrite that claim — and any empty
-    "📅 Sự kiện sắp tới" section — with the real event lines. No-op otherwise.
+    """Deterministic guard: the events section is pure data — no analysis — yet
+    the LLM keeps mangling it (claimed "Không có sự kiện đáng chú ý" at 13:50
+    with ACB in the prompt; listed only 1 of 2 same-day ACB events at 14:48 and
+    15:20). When ctx carries upcoming_events, replace the whole section body
+    with the canonical list (top 3 + GDKHQ note); with no section header,
+    replace a stray denial line. No-op when there are no events.
     """
     events = ctx.get("upcoming_events") or []
     if not text or not events:
@@ -2359,12 +2377,24 @@ def enforce_upcoming_events(text: str, ctx: dict) -> str:
         return (f"{e.get('ticker','?')}: {e.get('title') or 'Sự kiện DN'}"
                 f" — ngày {e.get('ex_date','?')}")
 
-    ev_lines = "\n".join(_fmt(e) for e in events[:3])
+    ev_lines = [_fmt(e) for e in events[:3]]
+    ev_lines.append("(Giá tự điều chỉnh trong ngày GDKHQ — không phải giảm do thị trường.)")
+
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines)
+                  if "sự kiện sắp tới" in l.lower()), None)
+    if start is not None:
+        end = next((i for i in range(start + 1, len(lines))
+                    if _is_section_start(lines[i])), len(lines))
+        if lines[start + 1:end] == ev_lines:
+            return text
+        return "\n".join(lines[:start + 1] + ev_lines + lines[end:])
+
     out: list[str] = []
     replaced = False
-    for line in text.splitlines():
+    for line in lines:
         if not replaced and "không có sự kiện đáng chú ý" in line.lower():
-            out.append(ev_lines)
+            out.extend(ev_lines)
             replaced = True
         else:
             out.append(line)
@@ -2446,6 +2476,40 @@ def enforce_watchlist_hygiene(text: str, ctx: dict | None = None) -> str:
     if sec == lines[start + 1:end]:
         return text
     return "\n".join(lines[:start + 1] + sec + lines[end:])
+
+
+def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
+    """Deterministic guard: the money-flow section must carry BOTH the strongest
+    foreign net-buy AND net-sell sector (observed 15:20: "NN mua ròng: CNTT
+    +708 tỷ, Dầu khí +40 tỷ" while the dominant flow — BĐS bán ròng -5,431 tỷ —
+    was dropped). Appends the missing side from ctx["sectors"] when its
+    magnitude is ≥ 50 tỷ. No-op without the section or the data.
+    """
+    sectors = ctx.get("sectors") or []
+    rows = [(s.get("Ngành"), s.get("NN 1T (tỷ)")) for s in sectors
+            if s.get("Ngành") and isinstance(s.get("NN 1T (tỷ)"), (int, float))]
+    if not text or not rows:
+        return text
+
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines)
+                  if "dòng tiền đáng chú ý" in l.lower()), None)
+    if start is None:
+        return text
+    end = next((i for i in range(start + 1, len(lines))
+                if _is_section_start(lines[i])), len(lines))
+    sec_low = "\n".join(lines[start + 1:end]).lower()
+
+    top_buy = max(rows, key=lambda x: x[1])
+    top_sell = min(rows, key=lambda x: x[1])
+    add: list[str] = []
+    if top_sell[1] <= -50 and "bán ròng" not in sec_low:
+        add.append(f"NN bán ròng mạnh nhất (1 tuần): {top_sell[0]} {top_sell[1]:+,.0f} tỷ.")
+    if top_buy[1] >= 50 and "mua ròng" not in sec_low:
+        add.append(f"NN mua ròng mạnh nhất (1 tuần): {top_buy[0]} {top_buy[1]:+,.0f} tỷ.")
+    if not add:
+        return text
+    return "\n".join(lines[:end] + add + lines[end:])
 
 
 def validate_brief_factuality(text: str, ctx: dict) -> list[str]:

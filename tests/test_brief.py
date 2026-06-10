@@ -360,6 +360,59 @@ def test_enforce_watchlist_hygiene_keeps_legit_bail_and_noop():
     assert enforce_watchlist_hygiene(t3, {}) == t3
 
 
+def test_enforce_money_flow_two_sides_appends_missing_sell_side():
+    # 15:20 brief: "NN mua ròng: CNTT +708 tỷ, Dầu khí +40 tỷ" — dropped the
+    # dominant BĐS -5,431 tỷ sell side → guard appends it from ctx["sectors"].
+    from vnstock_brief import enforce_money_flow_two_sides
+    ctx = {"sectors": [
+        {"Ngành": "Công nghệ thông tin & Phần mềm", "NN 1T (tỷ)": 708.0},
+        {"Ngành": "Bất động sản", "NN 1T (tỷ)": -5431.0},
+    ]}
+    text = ("💰 Dòng tiền đáng chú ý\n"
+            "NN mua ròng: Công nghệ thông tin & Phần mềm (+708 tỷ), Dầu khí (+40 tỷ)\n"
+            "📋 Watchlist sáng mai")
+    fixed = enforce_money_flow_two_sides(text, ctx)
+    assert "NN bán ròng mạnh nhất (1 tuần): Bất động sản -5,431 tỷ." in fixed
+    # appended inside the section, before the next header
+    assert fixed.splitlines()[2].startswith("NN bán ròng mạnh nhất")
+    assert fixed.splitlines()[3] == "📋 Watchlist sáng mai"
+
+
+def test_enforce_money_flow_two_sides_noop_cases():
+    from vnstock_brief import enforce_money_flow_two_sides
+    ctx = {"sectors": [{"Ngành": "CNTT", "NN 1T (tỷ)": 708.0},
+                       {"Ngành": "BĐS", "NN 1T (tỷ)": -5431.0}]}
+    # both sides already present → untouched
+    t1 = ("💰 Dòng tiền đáng chú ý\n"
+          "NN mua ròng CNTT +708 tỷ; NN bán ròng BĐS -5,431 tỷ.\n"
+          "📋 Watchlist")
+    assert enforce_money_flow_two_sides(t1, ctx) == t1
+    # no money-flow section → untouched; no sector data → untouched
+    t2 = "🎯 TLDR\nKhông có gì."
+    assert enforce_money_flow_two_sides(t2, ctx) == t2
+    assert enforce_money_flow_two_sides(t1, {}) == t1
+    # flows below the 50-tỷ floor are noise → not appended
+    ctx_small = {"sectors": [{"Ngành": "Dầu khí", "NN 1T (tỷ)": 40.0},
+                             {"Ngành": "Thép", "NN 1T (tỷ)": -30.0}]}
+    t3 = "💰 Dòng tiền đáng chú ý\nGiao dịch NN cân bằng.\n📋 Watchlist"
+    assert enforce_money_flow_two_sides(t3, ctx_small) == t3
+
+
+def test_bias_floor_giam_adds_watchlist_conditional_buy_rule():
+    # Stance GIẢM kept producing unconditional dip-buys ("MUA vùng 69,000" with
+    # price at 70,700). The bias-floor block must carry a watchlist-specific
+    # directive: MUA only as a conditional breakout, prefer a defensive setup.
+    ctx = {"date": "2026-06-10", "time": "15:00",
+           "bias_floor": {"dir": "GIẢM", "momentum": -59, "regime_score": -4}}
+    prompt = build_prompt(ctx, brief_type="afternoon")
+    assert "canh MUA NẾU vượt lại" in prompt
+    assert "bắt dao rơi" in prompt
+    # TĂNG floor → no such restriction
+    ctx_up = {"date": "2026-06-10", "time": "15:00",
+              "bias_floor": {"dir": "TĂNG", "momentum": 60, "regime_score": 4}}
+    assert "bắt dao rơi" not in build_prompt(ctx_up, brief_type="afternoon")
+
+
 def test_validate_brief_factuality_exists_and_flags_hallucination():
     # Regression: an edit once swallowed the `def validate_brief_factuality`
     # line, leaving its body as dead code inside the preceding function — the
