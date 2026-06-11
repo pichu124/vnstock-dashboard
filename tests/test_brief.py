@@ -455,6 +455,33 @@ def test_enforce_risk_numbers_ocf_and_noop_cases():
     assert enforce_risk_numbers(t1, {}) == t1
 
 
+def test_enforce_pivot_labels_pins_index_levels_only():
+    # 08:55 brief: TLDR "thủng S1=1,799.18 → mục tiêu về S2=1,799.18" — S1 took
+    # S2's value and contradicted the Trigger section (S1=1,802.42). Pin each
+    # label to its canonical pivot; leave per-stock reuse (R1=71,500) alone.
+    from vnstock_brief import enforce_pivot_labels
+    ctx = {"vnindex_tech": {"support_1": 1802.42, "support_2": 1799.18,
+                            "resistance_1": 1822.95, "resistance_2": 1824.03}}
+    text = ("Stance: canh giảm nếu thủng S1=1,799.18 → mục tiêu về S2=1,799.18;"
+            " hủy nếu vượt lại R1=1,822.95.\n"
+            "Watchlist: STB canh mua nếu vượt R1=71,500 → mục tiêu 74,000;"
+            " hủy nếu thủng S1=69,000.")
+    fixed = enforce_pivot_labels(text, ctx)
+    assert "S1=1,802.42" in fixed                    # corrected to canonical S1
+    assert "S2=1,799.18" in fixed                    # S2 unchanged (already right)
+    assert "thủng S1=1,799.18" not in fixed          # the wrong duplicate is gone
+    # per-stock labels (out of the 800-2500 band) are left untouched
+    assert "R1=71,500" in fixed and "S1=69,000" in fixed
+
+
+def test_enforce_pivot_labels_noop_without_data():
+    from vnstock_brief import enforce_pivot_labels
+    t = "thủng S1=1,799.18 → S2=1,795.00"
+    assert enforce_pivot_labels(t, {}) == t                       # no tech data
+    assert enforce_pivot_labels("no pivots here", {"vnindex_tech": {
+        "support_1": 1800.0}}) == "no pivots here"
+
+
 def test_validate_brief_factuality_exists_and_flags_hallucination():
     # Regression: an edit once swallowed the `def validate_brief_factuality`
     # line, leaving its body as dead code inside the preceding function — the

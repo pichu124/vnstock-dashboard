@@ -2266,6 +2266,7 @@ def generate_brief(
             fixed = enforce_watchlist_hygiene(fixed, ctx)
             fixed = enforce_money_flow_two_sides(fixed, ctx)
             fixed = enforce_risk_numbers(fixed, ctx)
+            fixed = enforce_pivot_labels(fixed, ctx)
             if fixed != text:
                 results[agent.name] = (fixed, _err)
 
@@ -2559,6 +2560,35 @@ def enforce_risk_numbers(text: str, ctx: dict) -> str:
         return text
     note = "(Số liệu: " + " · ".join(missing) + " — từ block Cơ bản nhóm theo dõi.)"
     return "\n".join(lines[:end] + [note] + lines[end:])
+
+
+_PIVOT_LABEL_RE = _re.compile(r"\b(S1|S2|R1|R2)\s*=\s*([0-9][0-9.,]*[0-9]|[0-9])")
+
+
+def enforce_pivot_labels(text: str, ctx: dict) -> str:
+    """Deterministic guard: pin every 'S1/S2/R1/R2=<số>' to its canonical
+    VNINDEX pivot from ctx (observed 08:55: TLDR wrote 'thủng S1=1,799.18 →
+    mục tiêu S2=1,799.18' — S1 collapsed onto S2's value, and contradicted the
+    Trigger section's S1=1,802.42). ONLY rewrites numbers in the VNINDEX
+    magnitude band (800-2500) so the watchlist's reuse of the same labels for
+    per-stock levels (e.g. 'R1=71,500') is left untouched. No-op without pivots.
+    """
+    vt = ctx.get("vnindex_tech") or {}
+    canon = {"S1": vt.get("support_1"), "S2": vt.get("support_2"),
+             "R1": vt.get("resistance_1"), "R2": vt.get("resistance_2")}
+    canon = {k: v for k, v in canon.items() if isinstance(v, (int, float))}
+    if not text or not canon:
+        return text
+
+    def _sub(m: "_re.Match") -> str:
+        label, num = m.group(1), m.group(2)
+        v = canon.get(label)
+        parsed = _parse_vn_number(num)
+        if v is None or parsed is None or not (800 <= parsed <= 2500):
+            return m.group(0)                 # not an index-level token → leave it
+        return f"{label}={v:,.2f}"
+
+    return _PIVOT_LABEL_RE.sub(_sub, text)
 
 
 def validate_brief_factuality(text: str, ctx: dict) -> list[str]:
