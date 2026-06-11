@@ -438,6 +438,26 @@ def test_enforce_money_flow_two_sides_appends_missing_sell_side():
     assert fixed.splitlines()[-1] == "📋 Watchlist sáng mai"
 
 
+def test_enforce_watchlist_hygiene_bumps_subprice_buy_trigger():
+    # 22:22: "CII (Giá 17,200) — canh MUA NẾU vượt 16,684 …" — the breakout
+    # trigger is BELOW price (already true → meaningless). Bump it above Giá
+    # (~+2% → 17,550). Defensive "thủng/vượt lại" lines stay untouched.
+    from vnstock_brief import enforce_watchlist_hygiene
+    text = ("📋 Watchlist sáng mai\n"
+            "1. **CII** (Giá 17,200) — canh MUA NẾU vượt 16,684 · mục tiêu 17,716 · cắt lỗ 16,400\n"
+            "2. **GEE** (Giá 95,500) — GIẢM TỶ TRỌNG/TRÁNH nếu thủng 92,635 · mục tiêu về 89,000 · hủy nếu vượt lại 98,365\n"
+            "⚠️ Rủi ro")
+    fixed = enforce_watchlist_hygiene(text, {"bias_floor": {"dir": "GIẢM"}})
+    assert "canh MUA NẾU vượt 17,550" in fixed
+    assert "vượt 16,684" not in fixed
+    assert "hủy nếu vượt lại 98,365" in fixed      # defensive line untouched
+    # an already-correct trigger (above price) is left as-is
+    t2 = ("📋 Watchlist sáng mai\n"
+          "1. **CII** (Giá 17,200) — canh MUA NẾU vượt 17,716 · mục tiêu 18,200 · cắt lỗ 16,800\n"
+          "⚠️ Rủi ro")
+    assert "vượt 17,716" in enforce_watchlist_hygiene(t2, {"bias_floor": {"dir": "GIẢM"}})
+
+
 def test_enforce_money_flow_two_sides_requires_numbers_not_just_sides():
     # 21:31: "mua ròng đáng kể FnB, CNTT … bán ròng BĐS" — both sides named but
     # zero tỷ numbers. The guard must append the numbered canonical lines.
