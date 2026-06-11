@@ -578,6 +578,32 @@ def test_enforce_no_cjk_strips_han_characters():
     assert enforce_no_cjk("") == ""
 
 
+def test_morning_brief_never_sees_full_day_gtgd():
+    # Morning brief = the 11:30 viewpoint. On an EOD re-run the session stats
+    # carry the full day, and 00:36 leaked "Phiên chiều chiếm 56% GTGD" into
+    # the MORNING overview. The morning prompt must keep GTGD sáng (+ baselines)
+    # but never the full-day figure, afternoon share, or institutional detail.
+    ctx = {"date": "2026-06-11", "time": "11:30",
+           "vnindex_tech": {"close": 1798.61, "intraday": False},
+           "session_timing": {"signal": "🔵 institutional",
+                              "detail": "sáng chiếm 44% cả ngày"},
+           "session_stats": {"9h-11h30": {"VNINDEX": {"gtgd": 5233.3}},
+                             "9h-15h": {"VNINDEX": {"gtgd": 11929.2}}},
+           "morning_gtgd": {"today": 5233.3, "prev": 9129.4, "avg5": 7959.6},
+           "full_day_gtgd": 11929.2,
+           "full_day_gtgd_cmp": {"prev": 11673.4, "avg5": 13000.0}}
+    p_morning = build_prompt(ctx, brief_type="morning")
+    assert "GTGD sáng (9h-11h30): 5,233.3 tỷ" in p_morning      # morning data kept
+    assert "sáng-với-sáng" in p_morning
+    assert "GTGD cả ngày: 11,929" not in p_morning              # full-day data line hidden
+    assert "11,929.2" not in p_morning                          # the value never injected
+    assert "sáng chiếm 44%" not in p_morning                    # share/detail hidden
+    assert "KHÔNG bàn về phiên chiều" in p_morning
+    # the close brief on the same ctx still gets the full-day figure
+    p_close = build_prompt(ctx, brief_type="afternoon")
+    assert "GTGD cả ngày: 11,929.2 tỷ" in p_close
+
+
 def test_morning_gtgd_example_has_no_leakable_literal():
     # The morning GTGD instruction used a concrete example "9.650,4 tỷ" which the
     # model copied verbatim when real morning GTGD was absent. The example must
@@ -1269,7 +1295,8 @@ def test_build_prompt_shows_full_day_gtgd_when_session_closed():
                              "9h-15h": {"VNINDEX": {"gtgd": 15000.0}}},  # afternoon added
            "morning_gtgd": {"today": 7000.0, "prev": 6000.0,
                             "avg5": 6500.0, "avg20": 6800.0}}
-    prompt = build_prompt(ctx, brief_type="morning")
+    # full-day GTGD belongs to the CLOSE brief (the morning view is gated)
+    prompt = build_prompt(ctx, brief_type="afternoon")
     assert "GTGD cả ngày: 15,000.0 tỷ" in prompt
 
 
@@ -1390,7 +1417,8 @@ def test_build_prompt_hides_full_day_and_morning_share_when_intraday():
            "session_stats": {"9h-11h30": {"VNINDEX": {"gtgd": 7165.4}},
                              "9h-15h": {"VNINDEX": {"gtgd": 9186.0}}},
            "morning_gtgd": {"today": 7165.4, "prev": 9650.4, "avg5": 7600.0}}
-    prompt = build_prompt(ctx, brief_type="morning")
+    # afternoon: the intraday rule does the suppression (morning has its own gate)
+    prompt = build_prompt(ctx, brief_type="afternoon")
     assert "GTGD cả ngày:" not in prompt
     assert "78%" not in prompt                       # morning-share leak gone
     assert "Institutional morning" not in prompt     # bogus intraday classification gone

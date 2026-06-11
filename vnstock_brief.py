@@ -191,7 +191,7 @@ Viết MORNING BRIEF tiếng Việt theo đúng format sau (không thêm phần 
 
 ## 📊 Tổng quan phiên sáng
 [2-3 câu: diễn biến chính, GTGD vs bình thường (có % so trung bình 5 phiên nếu data có), tính chất phiên (institutional vs retail dựa vào GTGD/độ rộng)]
-Dùng "GTGD sáng" trong data cho brief sáng và so sánh ĐỒNG DẠNG (sáng-với-sáng), KHÔNG so GTGD nửa phiên sáng với trung bình cả ngày. Ghi GTGD có dấu phân tách nghìn (đơn vị tỷ). Nếu data KHÔNG có "GTGD sáng" → TUYỆT ĐỐI KHÔNG bịa số; ghi "Chưa có GTGD phiên sáng" (hoặc dùng "GTGD cả ngày" nếu data có, ghi rõ "cả ngày").
+Dùng "GTGD sáng" trong data cho brief sáng và so sánh ĐỒNG DẠNG (sáng-với-sáng), KHÔNG so GTGD nửa phiên sáng với trung bình cả ngày. Ghi GTGD có dấu phân tách nghìn (đơn vị tỷ). Nếu data KHÔNG có "GTGD sáng" → TUYỆT ĐỐI KHÔNG bịa số; ghi "Chưa có GTGD phiên sáng". TUYỆT ĐỐI KHÔNG bàn về phiên chiều, GTGD cả ngày, hay tỷ trọng sáng/chiều — morning brief viết từ góc nhìn 11:30, chưa biết diễn biến chiều.
 BẮT BUỘC nếu có block "Tâm lý thị trường": nêu RÕ nhãn tâm lý + điểm momentum (vd "Tâm lý: 📈 Tích cực, momentum +34/100") và hàm ý cho phiên chiều.
 
 ## 📈 Mức kỹ thuật quan trọng (VNINDEX)
@@ -2034,13 +2034,22 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
 
     # Session timing — explicit empty marker when warehouse missing,
     # so the LLM doesn't fabricate GTGD numbers.
+    _is_morning_brief = (brief_type == "morning")
     if timing := ctx.get("session_timing"):
         # Intraday (live bar folded in = session in progress): the morning-share
         # signal/detail (institutional vs retail = morning/full) is meaningless
         # because full-day = morning + partial afternoon. Suppress it — that
         # detail string is the real source of "sáng chiếm 78% cả ngày".
+        # The MORNING brief is written from the 11:30 viewpoint: it must never
+        # see the afternoon/full-day either (observed on an EOD re-run: "Phiên
+        # chiều chiếm 56% GTGD, thiên bias retail" inside the MORNING overview).
         _intraday = bool((ctx.get("vnindex_tech") or {}).get("intraday"))
-        if _intraday:
+        if _is_morning_brief:
+            line = ("\n## Session Timing\n⚠️ MORNING brief — góc nhìn 11:30: CHỈ dùng "
+                    "GTGD SÁNG bên dưới; TUYỆT ĐỐI KHÔNG bàn về phiên chiều / GTGD cả "
+                    "ngày / tỷ trọng sáng-chiều (institutional vs retail) — các thông "
+                    "tin đó thuộc CLOSE brief.")
+        elif _intraday:
             line = ("\n## Session Timing\n⚠️ Phiên ĐANG diễn ra — CHƯA đánh giá được "
                     "tỷ trọng sáng/chiều (institutional vs retail); TUYỆT ĐỐI KHÔNG nói "
                     "'sáng chiếm X% GTGD cả ngày' hay suy ra institutional/retail từ đó.")
@@ -2064,13 +2073,13 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
                     cmp_parts.append(f"TB sáng ~20 phiên {mg['avg20']:,.1f} tỷ")
                 if cmp_parts:
                     line += "\nSo sánh ĐỒNG DẠNG (sáng-với-sáng): " + " | ".join(cmp_parts)
-            # Full-day GTGD (only when session CLOSED). Prefer the live session
-            # capture; fall back to the EOD-derived total (Σ giá×KLGD) so EOD-only
-            # days still get a real number instead of a vacuum.
+            # Full-day GTGD (only when session CLOSED, and NEVER for the morning
+            # brief — its template compares sáng-với-sáng only). Prefer the live
+            # session capture; fall back to the EOD-derived total (Σ giá×KLGD).
             _eod_full = ctx.get("full_day_gtgd")
             _full_day = None
             _src = ""
-            if not _intraday:
+            if not _intraday and not _is_morning_brief:
                 if full_gtgd and morn_gtgd and full_gtgd > morn_gtgd * 1.05:
                     _full_day = full_gtgd
                 elif isinstance(_eod_full, (int, float)) and _eod_full > 0:
@@ -2095,7 +2104,8 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
                              ". DÙNG % NÀY cho GTGD cả ngày; CHỈ baseline đã cho (KHÔNG "
                              "tự suy TB khác), TUYỆT ĐỐI KHÔNG gán % 'so với sáng phiên "
                              "trước' cho số cả ngày.")
-            elif ctx.get("full_day_gtgd_partial") and not (morn_gtgd or full_gtgd):
+            elif (not _is_morning_brief) and ctx.get("full_day_gtgd_partial") \
+                    and not (morn_gtgd or full_gtgd):
                 # The session's bars are incomplete (in-progress day / EOD batch
                 # not fully landed) → the partial sum must NOT pose as the
                 # market figure.
@@ -2113,7 +2123,10 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         _intraday = bool((ctx.get("vnindex_tech") or {}).get("intraday"))
         _l = ("\n## Session Timing\n⚠️ KHÔNG CÓ session stats hôm nay — "
               "KHÔNG được suy đoán tỷ trọng sáng/chiều (institutional/retail).")
-        if (not _intraday) and isinstance(_eod_full, (int, float)) and _eod_full > 0:
+        if _is_morning_brief:
+            _l += (" MORNING brief: KHÔNG có GTGD sáng → ghi 'Chưa có GTGD phiên "
+                   "sáng', KHÔNG bàn phiên chiều/GTGD cả ngày.")
+        elif (not _intraday) and isinstance(_eod_full, (int, float)) and _eod_full > 0:
             _l += (f"\nGTGD cả ngày: {_eod_full:,.1f} tỷ (ước tính từ EOD: Σ giá×KLGD) → "
                    f"DÙNG ĐÚNG SỐ NÀY cho 'GTGD' trong TLDR/Tổng kết phiên.")
             _cmp = ctx.get("full_day_gtgd_cmp") or {}
