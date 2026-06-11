@@ -1234,8 +1234,29 @@ def _select_liquid_movers(
     cols = ["Mã", price_col, "Ngành"] + (["last"] if "last" in df.columns else [])
     if "GTGD TB (tỷ)" in df.columns:   # carried through so the renderer can tag
         cols.append("GTGD TB (tỷ)")    # watchlist-eligible (≥ _WATCHLIST_GTGD_MIN_TY) movers
-    gainers = df.nlargest(n, price_col)[cols].to_dict("records")
-    losers = df.nsmallest(n, price_col)[cols].to_dict("records")
+    gainers_df = df.nlargest(n, price_col)
+    losers_df = df.nsmallest(n, price_col)
+
+    # Guarantee ≥1 watchlist-eligible (⭐ = VN30 or GTGD ≥ threshold) name across
+    # the two lists so the watchlist always has a setup anchor. Top-% movers are
+    # often thin non-⭐ names (VN30 stays in `df` but rarely cracks the top-n by
+    # weekly move) — observed 11/06: zero ⭐ in the block → empty watchlist +
+    # the model rambling "VIW không có trong danh sách". Swap the weakest pick
+    # for the strongest eligible mover, placed in the direction of its sign.
+    if "GTGD TB (tỷ)" in df.columns:
+        _elig = df[df["Mã"].isin(VN30_TICKERS)
+                   | (df["GTGD TB (tỷ)"].fillna(0) >= _WATCHLIST_GTGD_MIN_TY)]
+        _shown = set(gainers_df["Mã"]) | set(losers_df["Mã"])
+        if not _elig.empty and not _elig["Mã"].isin(_shown).any():
+            _e = _elig.loc[_elig[price_col].abs().idxmax()]
+            _row = _elig.loc[[_e.name]]
+            if _e[price_col] >= 0:
+                gainers_df = pd.concat([gainers_df.head(n - 1), _row]).drop_duplicates("Mã")
+            else:
+                losers_df = pd.concat([losers_df.head(n - 1), _row]).drop_duplicates("Mã")
+
+    gainers = gainers_df[cols].to_dict("records")
+    losers = losers_df[cols].to_dict("records")
     universe = {str(m) for m in df["Mã"].tolist()}
     return gainers, losers, universe
 
@@ -2550,7 +2571,11 @@ def enforce_realestate_ocf_context(text: str, ctx: dict) -> str:
     if "quỹ đất" in low or "tồn kho" in low:
         return text                      # context already present somewhere
 
-    _ocf_words = ("op.cf", "lưu chuyển tiền", "dòng tiền hđkd")
+    # Any HĐKD/operating cash-flow phrasing — incl. the model's frequent slip
+    # "lưu LƯỢNG tiền HĐKD" (observed close brief: that wording escaped the
+    # guard so KBC/NVL got no land-bank context). "hđkd" alone is safe here:
+    # in the risk section it only appears in a cash-flow clause.
+    _ocf_words = ("op.cf", "lưu chuyển tiền", "lưu lượng tiền", "hđkd")
     out: list[str] = []
     added = False
     for line in text.splitlines():
@@ -2712,7 +2737,7 @@ def enforce_risk_numbers(text: str, ctx: dict) -> str:
                     ocf is not None and _has_value(line, ocf, ",.0f")):
                 continue
             low = line.lower()
-            if ("op.cf" in low or "lưu chuyển tiền" in low) and ocf is not None:
+            if any(w in low for w in ("op.cf", "lưu chuyển tiền", "lưu lượng tiền", "hđkd")) and ocf is not None:
                 missing.append(f"{t} Op.CF={ocf:,.0f} tỷ")
             elif de is not None:
                 missing.append(f"{t} D/E={de:.2f}")

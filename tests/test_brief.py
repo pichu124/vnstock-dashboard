@@ -1454,6 +1454,25 @@ def test_movers_mark_watchlist_eligible_with_star():
     assert "CÓ DẤU ⭐" in prompt       # instruction gates setups on the ⭐ marker
 
 
+def test_select_liquid_movers_guarantees_eligible_anchor():
+    # Top-% movers are all thin non-⭐ names; VN30/liquid names exist but didn't
+    # crack the top-n by weekly move. The block must still surface ≥1 ⭐ name so
+    # the watchlist has an anchor (regression: 11/06 empty watchlist).
+    from vnstock_brief import _WATCHLIST_GTGD_MIN_TY
+    tickers = [
+        {"Mã": "THIN1", "Giá 1T %": 25.0, "Ngành": "X", "last": 12.0, "GTGD TB (tỷ)": 12},
+        {"Mã": "THIN2", "Giá 1T %": 20.0, "Ngành": "X", "last": 11.0, "GTGD TB (tỷ)": 11},
+        {"Mã": "THIN3", "Giá 1T %": -22.0, "Ngành": "X", "last": 9.0, "GTGD TB (tỷ)": 13},
+        {"Mã": "THIN4", "Giá 1T %": -18.0, "Ngành": "X", "last": 8.0, "GTGD TB (tỷ)": 14},
+        {"Mã": "FPT", "Giá 1T %": 1.2, "Ngành": "CNTT", "last": 120.0,
+         "GTGD TB (tỷ)": _WATCHLIST_GTGD_MIN_TY + 500},   # ⭐ but small move
+    ]
+    g, l, _ = _select_liquid_movers(tickers, n=2)
+    shown = {r["Mã"] for r in g} | {r["Mã"] for r in l}
+    assert "FPT" in shown            # eligible anchor forced in despite tiny move
+    assert "FPT" in {r["Mã"] for r in g}   # +1.2% → gainer side
+
+
 def test_build_prompt_movers_header_is_liquidity_not_vn30():
     ctx = {"date": "2026-06-09", "time": "15:00",
            "vn30_gainers": [{"Mã": "GEX", "Giá 1T %": 8.0, "Ngành": "CN",
