@@ -803,6 +803,25 @@ def test_enforce_watchlist_eligibility_bail_when_none_survive_and_noops():
     assert enforce_watchlist_eligibility(t2, {}) == t2
 
 
+def test_select_sr_levels_filters_noise_and_clusters():
+    # Real 11/06 data: close 1,798.61 with raw nearest levels S1=1,798.05
+    # (0.03% away!) and R1=1,800.80 → R2=1,801.66 (0.05% apart) — useless as
+    # triggers. The picker must skip sub-0.5% noise and enforce ≥0.8% gaps.
+    from vnstock_brief import _select_sr_levels
+    last = 1798.61
+    above = [1800.80, 1801.66, 1824.03, 1846.71]          # ascending (nearest first)
+    below = [1798.05, 1789.31, 1786.50, 1780.71, 1760.0]  # descending (nearest first)
+    res = _select_sr_levels(above, last)
+    sup = _select_sr_levels(below, last)
+    assert res == [1824.03, 1846.71]      # 1,800.80/1,801.66 = noise → skipped
+    # 1,798.05 (0.03%) skipped; 1,789.31 ✓; 1,786.50 too close to S1 (0.16%) →
+    # skipped; 1,780.71 only 0.48% from S1 → skipped; 1,760 ✓
+    assert sup == [1789.31, 1760.0]
+    # min distance from price respected on both sides
+    assert all(abs(v / last - 1) >= 0.005 for v in res + sup)
+    assert _select_sr_levels([], last) == []
+
+
 def test_enforce_pivot_labels_pins_index_levels_only():
     # 08:55 brief: TLDR "thủng S1=1,799.18 → mục tiêu về S2=1,799.18" — S1 took
     # S2's value and contradicted the Trigger section (S1=1,802.42). Pin each

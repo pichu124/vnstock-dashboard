@@ -1695,6 +1695,32 @@ def _load_vnindex_df(augment: bool = True) -> "pd.DataFrame":
     return _augment_with_live_vnindex(df) if augment else df
 
 
+# S/R quality floors (fraction of close). A pivot must sit ≥ _SR_MIN_DIST_PCT
+# away from the current price to be actionable (VNINDEX daily swing ~1% → a
+# level 0.03% away is noise, observed S1=1,798.05 vs close 1,798.61), and two
+# levels on the same side must be ≥ _SR_MIN_GAP_PCT apart (observed R1→R2 =
+# 0.05% → "vượt R1 test R2" meaningless). Tune here.
+_SR_MIN_DIST_PCT: float = 0.005
+_SR_MIN_GAP_PCT: float = 0.008
+
+
+def _select_sr_levels(cands: "list[float]", last: float) -> "list[float]":
+    """Pick up to 2 actionable S/R levels from candidates sorted nearest-first
+    (ascending for resistance, descending for support): skip levels within
+    _SR_MIN_DIST_PCT of the price and within _SR_MIN_GAP_PCT of an already
+    picked level."""
+    out: list[float] = []
+    for v in cands:
+        if not v or abs(v / last - 1) < _SR_MIN_DIST_PCT:
+            continue
+        if out and abs(v / out[-1] - 1) < _SR_MIN_GAP_PCT:
+            continue
+        out.append(v)
+        if len(out) == 2:
+            break
+    return out
+
+
 def _vnindex_technicals() -> dict:
     """Compute VNINDEX close, MAs, day/52w range, and pivot levels.
 
@@ -1743,20 +1769,8 @@ def _vnindex_technicals() -> dict:
             if not pd.isna(prev_ma20) and prev_ma20:
                 ma20_slope_pct = (ma20 / float(prev_ma20) - 1.0) * 100
 
-        # Recent swing lows/highs as dynamic S/R — pivots over last 60 bars
-        # excluding the last 2 bars (avoid using "today" as its own pivot)
-        last60_high = high.tail(62).iloc[:-2] if len(high) >= 62 else high.iloc[:-2]
-        last60_low  = low.tail(62).iloc[:-2]  if len(low)  >= 62 else low.iloc[:-2]
-
-        # Resistance: 2 highest closes ABOVE current price; Support: 2 lowest BELOW
-        above = sorted({round(float(v), 2) for v in last60_high if v > last}, reverse=False)
-        below = sorted({round(float(v), 2) for v in last60_low  if v < last}, reverse=True)
-        res1 = above[0] if len(above) >= 1 else None
-        res2 = above[1] if len(above) >= 2 else None
-        sup1 = below[0] if len(below) >= 1 else None
-        sup2 = below[1] if len(below) >= 2 else None
-
-        # 52w + intraday ranges
+        # 52w + intraday ranges (computed BEFORE pivots — they extend the
+        # candidate pool when price sits near a 60-bar extreme)
         n252 = min(len(close), 252)
         high_52w = float(high.tail(n252).max())
         low_52w  = float(low.tail(n252).min())
@@ -1769,6 +1783,23 @@ def _vnindex_technicals() -> dict:
             day_low  = float(low.iloc[-1])
         except Exception:
             day_high = day_low = last
+
+        # Recent swing lows/highs as dynamic S/R — pivots over last 60 bars
+        # excluding the last 2 bars (avoid using "today" as its own pivot),
+        # plus month/52w extremes as far candidates. Filtered for actionability:
+        # ≥ _SR_MIN_DIST_PCT from price, ≥ _SR_MIN_GAP_PCT between levels.
+        last60_high = high.tail(62).iloc[:-2] if len(high) >= 62 else high.iloc[:-2]
+        last60_low  = low.tail(62).iloc[:-2]  if len(low)  >= 62 else low.iloc[:-2]
+
+        above = sorted({round(float(v), 2) for v in last60_high if v > last}
+                       | {round(v, 2) for v in (month_high, high_52w) if v > last})
+        below = sorted({round(float(v), 2) for v in last60_low if v < last}
+                       | {round(v, 2) for v in (month_low, low_52w) if v < last},
+                       reverse=True)
+        res = _select_sr_levels(above, last)
+        sup = _select_sr_levels(below, last)
+        res1, res2 = (res + [None, None])[:2]
+        sup1, sup2 = (sup + [None, None])[:2]
 
         # RSI(14) via EWM (same formula as ticker indicators)
         rsi14 = None
