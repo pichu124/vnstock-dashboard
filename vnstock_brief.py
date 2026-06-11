@@ -208,6 +208,7 @@ Nếu block "VNINDEX kỹ thuật" KHÔNG có trong data → viết "Chưa có d
 **Tránh/Bán:** [ngành hoặc mã (VN30/mid-cap thanh khoản trong data) + lý do cụ thể]
 **Dòng tiền ngành:** [Nếu có block "Dòng tiền ngành": nêu RÕ ngành NN MUA RÒNG / BÁN RÒNG mạnh nhất (số "NN ròng" tỷ, có +/-). PHÂN BIỆT "NN ròng" (khối ngoại) với "GTGD" (thanh khoản) — KHÔNG gọi GTGD là "dòng tiền vào". Bỏ dòng này chỉ khi KHÔNG có block đó.]
 **Theo dõi:** [rotation/stealth nếu có, bỏ dòng này nếu không có tín hiệu]
+Dòng "Tích luỹ/Mua" & "Tránh/Bán" Ở CẤP NGÀNH PHẢI khớp block "🎯 Dẫn dắt/Tụt hậu — CHỐT THEO DATA" (nếu có) — KHÔNG tự chọn ngành khác làm dẫn dắt/tụt hậu.
 KHÔNG gọi "tích luỹ/mua" nếu tín hiệu quá yếu (đóng góp |pp| < 0.05 hoặc biến động không đáng kể) — khi không có ngành/mã đủ mạnh, viết thẳng "Chưa có nhóm dẫn dắt rõ ràng".
 Nếu có block "Cơ bản nhóm theo dõi": có thể dẫn 1 chỉ số cơ bản (D/E cao / Op.CF âm / ROE) để củng cố lý do tránh/mua, KHÔNG bịa số.
 
@@ -220,6 +221,10 @@ Kịch bản CHÍNH phải NHẤT QUÁN với Bias ở TLDR: Bias GIẢM → k�
 **Kịch bản phụ:** [điều kiện ngược lại + ngưỡng hành động phòng thủ/đứng ngoài]
 (Mẫu CẤU TRÚC, không phải số để dùng: "VNINDEX [giữ trên/thủng] [mức S hoặc R từ data] + [tín hiệu] → [hệ quả đóng cửa]")
 
+## ⚠️ Rủi ro cần lưu ý (phiên chiều)
+[Red flags, phân phối, rủi ro vĩ mô/kỹ thuật với mức cảnh báo cụ thể; "Không có rủi ro đặc biệt" nếu thị trường ổn]
+Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằng mã lấy TỪ dòng "Đòn bẩy cao nhất (D/E)" hoặc "Lưu chuyển tiền HĐKD thấp nhất" trong block, ghi kèm TÊN MÃ THẬT + CON SỐ THẬT copy từ block (định dạng "MÃ D/E=số" hoặc "MÃ Op.CF=số tỷ"). MỌI mã được nhắc trong mục này PHẢI kèm CON SỐ CỦA CHÍNH NÓ — TUYỆT ĐỐI KHÔNG viết "X và Y cũng có D/E cao" mà KHÔNG ghi số; nếu không ghi số thì KHÔNG nêu mã đó. MÃ trong block gồm CẢ VN30 LẪN mid-cap → KHÔNG ghi "cao nhất trong VN30"; chỉ ghi "cao nhất trong nhóm theo dõi". Ngân hàng/CK/bảo hiểm đã bị loại khỏi xếp hạng → KHÔNG nêu nhóm tài chính làm rủi ro đòn bẩy/dòng tiền. Mã gắn "(BĐS)" trong dòng Op.CF: dòng tiền âm CHỦ YẾU do tích lũy quỹ đất/hàng tồn kho dự án (vốn lưu động), KHÔNG phải lỗ HĐKD → PHẢI ghi kèm ngữ cảnh này + soi D/E/nợ vay, TUYỆT ĐỐI KHÔNG gọi là "kiệt quệ tiền mặt". Nếu block không có mã đáng lưu ý → nêu rủi ro vĩ mô/kỹ thuật, KHÔNG dẫn mã ngoài data.
+
 ## 📅 Sự kiện sắp tới
 [Nếu có block "Sự kiện sắp tới" trong data: liệt kê 1-3 sự kiện gần nhất (GDKHQ cổ tức/chia tách/ĐHCĐ) kèm mã + ngày, ưu tiên mã VN30/watchlist; nhắc "giá tự điều chỉnh ngày GDKHQ". Nếu KHÔNG có block đó → ghi "Không có sự kiện đáng chú ý" hoặc bỏ mục này.]
 
@@ -228,9 +233,9 @@ Kịch bản CHÍNH phải NHẤT QUÁN với Bias ở TLDR: Bias GIẢM → k�
 BẮT BUỘC: Nếu quyết định bị ảnh hưởng bởi tin tức trong block "Tin tức thị trường", PHẢI nêu rõ tên tiêu đề tin và giải thích tác động (ví dụ: "HPG: MUA — kỹ thuật vượt MA20 + tin [Hòa Phát ký hợp đồng thép 5.000 tỷ] hỗ trợ đà tăng"). Bỏ qua nếu không có khuyến nghị.
 
 ## 🔧 Đề xuất bổ sung (1 dòng, optional)
-[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, VN30 cơ bản (D/E/ROE/OCF), lịch GDKHQ cổ tức/chia tách (nếu có block "Sự kiện sắp tới"). CHỈ nêu thứ THỰC SỰ thiếu (vd: tin VĨ MÔ — CPI/lãi suất/tỷ giá, lịch công bố KQKD, định giá ngành so sánh).]
+[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, Cơ bản nhóm theo dõi (D/E/ROE/OCF), lịch GDKHQ cổ tức/chia tách (nếu có block "Sự kiện sắp tới"). CHỈ nêu thứ THỰC SỰ thiếu (vd: tin VĨ MÔ — CPI/lãi suất/tỷ giá, lịch công bố KQKD, định giá ngành so sánh).]
 
-Giới hạn 450 từ. Khi nói về cổ phiếu cụ thể, CHỈ đề cập mã CÓ TRONG các block đã cung cấp (VN30 + mid-cap thanh khoản cao); KHÔNG nhắc mã ngoài data.
+Giới hạn 500 từ. Khi nói về cổ phiếu cụ thể, CHỈ đề cập mã CÓ TRONG các block đã cung cấp (VN30 + mid-cap thanh khoản cao); KHÔNG nhắc mã ngoài data.
 YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
 - Mọi nhận định PHẢI gắn với SỐ trong data, không nói "tích cực/tiêu cực" suông.
 - Ngành được đề cập → LUÔN nêu trọng số %VNI và đóng góp pp (ghi đúng khung "1 tuần" như trong data, KHÔNG ghi "hôm nay").
@@ -302,7 +307,7 @@ Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằn
 BẮT BUỘC: Nếu có tin tức tác động → nêu rõ tiêu đề tin + ảnh hưởng. Bỏ qua nếu không có khuyến nghị.
 
 ## 🔧 Đề xuất bổ sung (1 dòng, optional)
-[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, VN30 cơ bản (D/E/ROE/OCF), lịch GDKHQ cổ tức/chia tách (nếu có block "Sự kiện sắp tới"). CHỈ nêu thứ THỰC SỰ thiếu (vd: tin VĨ MÔ — CPI/lãi suất/tỷ giá, lịch công bố KQKD, định giá ngành so sánh).]
+[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, Cơ bản nhóm theo dõi (D/E/ROE/OCF), lịch GDKHQ cổ tức/chia tách (nếu có block "Sự kiện sắp tới"). CHỈ nêu thứ THỰC SỰ thiếu (vd: tin VĨ MÔ — CPI/lãi suất/tỷ giá, lịch công bố KQKD, định giá ngành so sánh).]
 
 Giới hạn 500 từ. Khi nói về cổ phiếu cụ thể, CHỈ đề cập mã CÓ TRONG các block đã cung cấp (VN30 + mid-cap thanh khoản cao); KHÔNG nhắc mã ngoài data. Nếu thị trường flat và không có signal rõ thì nói thẳng.
 YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
@@ -1751,28 +1756,40 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
 
     # Deterministic bias floor: when the headline signals are strongly one-sided,
     # the TLDR Bias must follow them (no softening to "Trung tính"/opposite).
+    # Worded per brief_type: morning's scenario section is "Kịch bản phiên chiều",
+    # the close's directional call lives in "Stance ngày mai" (TLDR).
     if bf := ctx.get("bias_floor"):
         _sig = []
         if bf.get("momentum") is not None:
             _sig.append(f"momentum {bf['momentum']:+d}/100")
         if bf.get("regime_score") is not None:
             _sig.append(f"regime score {bf['regime_score']:+d}")
+        _dir_phr = "thủng hỗ trợ/đi xuống" if bf["dir"] == "GIẢM" else "vượt kháng cự/đi lên"
+        if brief_type == "morning":
+            _scenario = (
+                f"Ở 'Kịch bản phiên chiều', kịch bản CHÍNH (xác suất cao nhất) "
+                f"PHẢI là kịch bản {bf['dir']} ({_dir_phr}); kịch bản chiều ngược "
+                f"chỉ được là kịch bản PHỤ."
+            )
+        else:
+            _scenario = (
+                f"Ở 'Stance ngày mai' (TLDR), setup ưu tiên PHẢI cùng chiều {bf['dir']} "
+                f"({_dir_phr}); KHÔNG đưa setup chiều ngược làm setup chính."
+            )
         lines.append(
             f"\n## 🧭 RÀNG BUỘC BIAS (BẮT BUỘC)\n"
             f"Tín hiệu tổng hợp một chiều mạnh ({', '.join(_sig) or 'n/a'}). "
             f"TLDR **Bias BẮT BUỘC = {bf['dir']}** — TUYỆT ĐỐI KHÔNG ghi 'Trung tính' "
-            f"hay chiều ngược lại. Ở 'Kịch bản phiên chiều', kịch bản CHÍNH (xác suất "
-            f"cao nhất) PHẢI là kịch bản {bf['dir']} "
-            f"({'thủng hỗ trợ/đi xuống' if bf['dir'] == 'GIẢM' else 'vượt kháng cự/đi lên'}); "
-            f"kịch bản chiều ngược chỉ được là kịch bản PHỤ."
+            f"hay chiều ngược lại. {_scenario}"
         )
         if bf["dir"] == "GIẢM":
+            _where = "Watchlist sáng mai" if brief_type != "morning" else "Trọng tâm theo dõi / Kịch bản"
             lines.append(
-                "Ở Watchlist HÔM NAY (bias GIẢM): TUYỆT ĐỐI KHÔNG đưa setup "
+                f"Ở '{_where}' (bias GIẢM): TUYỆT ĐỐI KHÔNG đưa setup "
                 "\"MUA vùng [giá dưới thị trường]\" kiểu bắt dao rơi. Mẫu MUA "
                 "CHỈ được dạng CÓ ĐIỀU KIỆN \"canh MUA NẾU vượt lại [kháng cự "
                 "của CHÍNH MÃ]\" (xác nhận sức mạnh trước), và ưu tiên ít nhất "
-                "1 setup phòng thủ (GIẢM TỶ TRỌNG/TRÁNH nếu thủng hỗ trợ)."
+                "1 hướng phòng thủ (GIẢM TỶ TRỌNG/TRÁNH nếu thủng hỗ trợ)."
             )
 
     # Market sentiment (tâm lý thị trường) — composite mood from breadth, NN
@@ -2459,7 +2476,7 @@ def enforce_watchlist_hygiene(text: str, ctx: dict | None = None) -> str:
     if not text:
         return text
     lines = text.splitlines()
-    start = next((i for i, l in enumerate(lines) if "watchlist" in l.lower()), None)
+    start = next((i for i, l in enumerate(lines) if "watchlist sáng mai" in l.lower()), None)
     if start is None:
         return text
     end = next((i for i in range(start + 1, len(lines))
@@ -2483,11 +2500,13 @@ def enforce_watchlist_hygiene(text: str, ctx: dict | None = None) -> str:
 
 
 def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
-    """Deterministic guard: the money-flow section must carry BOTH the strongest
-    foreign net-buy AND net-sell sector (observed 15:20: "NN mua ròng: CNTT
-    +708 tỷ, Dầu khí +40 tỷ" while the dominant flow — BĐS bán ròng -5,431 tỷ —
-    was dropped). Appends the missing side from ctx["sectors"] when its
-    magnitude is ≥ 50 tỷ. No-op without the section or the data.
+    """Deterministic guard: the money-flow commentary must carry BOTH the
+    strongest foreign net-buy AND net-sell sector (observed 15:20: only the
+    +708 tỷ buy side, dropped the dominant BĐS -5,111 tỷ sell). Works for BOTH
+    briefs: the close's dedicated "💰 Dòng tiền đáng chú ý" section and the
+    morning's inline "Dòng tiền ngành" line — it anchors on the money-flow line
+    itself (not a section header) and appends the missing side right after it
+    when its magnitude is ≥ 50 tỷ. No-op without the line or the data.
     """
     sectors = ctx.get("sectors") or []
     rows = [(s.get("Ngành"), s.get("NN 1T (tỷ)")) for s in sectors
@@ -2496,24 +2515,26 @@ def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
         return text
 
     lines = text.splitlines()
-    start = next((i for i, l in enumerate(lines)
-                  if "dòng tiền đáng chú ý" in l.lower()), None)
-    if start is None:
+    _kw = ("mua ròng", "bán ròng", "nn ròng", "dòng tiền")
+    anchor = next((i for i, l in enumerate(lines)
+                   if not _is_section_start(l) and any(k in l.lower() for k in _kw)),
+                  None)
+    if anchor is None:
         return text
-    end = next((i for i in range(start + 1, len(lines))
-                if _is_section_start(lines[i])), len(lines))
-    sec_low = "\n".join(lines[start + 1:end]).lower()
+    region_end = next((i for i in range(anchor + 1, len(lines))
+                       if _is_section_start(lines[i])), len(lines))
+    region_low = "\n".join(lines[anchor:region_end]).lower()
 
     top_buy = max(rows, key=lambda x: x[1])
     top_sell = min(rows, key=lambda x: x[1])
     add: list[str] = []
-    if top_sell[1] <= -50 and "bán ròng" not in sec_low:
+    if top_sell[1] <= -50 and "bán ròng" not in region_low:
         add.append(f"NN bán ròng mạnh nhất (1 tuần): {top_sell[0]} {top_sell[1]:+,.0f} tỷ.")
-    if top_buy[1] >= 50 and "mua ròng" not in sec_low:
+    if top_buy[1] >= 50 and "mua ròng" not in region_low:
         add.append(f"NN mua ròng mạnh nhất (1 tuần): {top_buy[0]} {top_buy[1]:+,.0f} tỷ.")
     if not add:
         return text
-    return "\n".join(lines[:end] + add + lines[end:])
+    return "\n".join(lines[:anchor + 1] + add + lines[anchor + 1:])
 
 
 def enforce_risk_numbers(text: str, ctx: dict) -> str:
@@ -2616,7 +2637,7 @@ def enforce_watchlist_eligibility(text: str, ctx: dict) -> str:
         return text
 
     lines = text.splitlines()
-    start = next((i for i, l in enumerate(lines) if "watchlist" in l.lower()), None)
+    start = next((i for i, l in enumerate(lines) if "watchlist sáng mai" in l.lower()), None)
     if start is None:
         return text
     end = next((i for i in range(start + 1, len(lines))

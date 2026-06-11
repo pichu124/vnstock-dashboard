@@ -95,6 +95,34 @@ regress các cơ chế này:
 - Rec quá hạn bị lọc khỏi "Đề xuất giao dịch"; "Đề xuất bổ sung" cấm xin data đã
   có (dòng tiền ngành/NN ròng, GTGD, breadth, regime, VN30 cơ bản).
 
+### 🛡️ 7 guard hậu kiểm deterministic (chạy trong `generate_brief` cho CẢ 2 brief)
+
+LLM hay phớt chỉ thị prompt → chốt bằng code sau khi agent trả output (chuỗi
+fixup trong `generate_brief`, áp cho mọi agent, cả morning & close):
+1. `enforce_upcoming_events` — thay TOÀN BỘ body mục "Sự kiện sắp tới" bằng list
+   chuẩn từ ctx (top 3 + note GDKHQ); fallback splice khi LLM chối "Không có sự kiện".
+2. `enforce_realestate_ocf_context` — mã BĐS trên dòng Op.CF thiếu ngữ cảnh quỹ
+   đất → chèn (whole-text, áp cả 2).
+3. `enforce_watchlist_hygiene` — xóa meta-disclaimer + dòng độn (anchor "watchlist
+   sáng mai" → close-only).
+4. `enforce_money_flow_two_sides` — thiếu vế NN mua/bán ròng mạnh nhất (≥50 tỷ) →
+   chèn; anchor theo DÒNG dòng-tiền nên áp cả "Dòng tiền đáng chú ý" (close) lẫn
+   "Dòng tiền ngành" inline (morning).
+5. `enforce_risk_numbers` — mã trong "Rủi ro" thiếu số D/E/Op.CF → chèn (cả 2 vì
+   morning nay CÓ mục Rủi ro).
+6. `enforce_pivot_labels` — pin S1/S2/R1/R2 về pivot chuẩn, chỉ dải 800-2500
+   (không đụng giá cổ phiếu trong setup); áp cả 2 (regex toàn text).
+7. `enforce_watchlist_eligibility` — loại setup mã GTGD < `_WATCHLIST_GTGD_MIN_TY`
+   & không VN30 (anchor "watchlist sáng mai" → close-only).
+
+**Parity morning↔close (DONE 2026-06-11)**: 2 template nay thống nhất tính năng,
+trừ khác biệt CỐ Ý — GTGD sáng-với-sáng (intraday), "Watchlist sáng mai"/"Stance
+ngày mai" là close-only, "Kịch bản phiên chiều" là morning-only. Đã đồng bộ:
+morning thêm mục "⚠️ Rủi ro cần lưu ý" (cùng luật cơ bản/BĐS/số); guard dòng-tiền
+2-vế áp cả dòng inline morning; khối RÀNG BUỘC BIAS brief_type-aware (morning→"Kịch
+bản phiên chiều", close→"Stance ngày mai"); morning Trọng tâm neo block lead/lag;
+luật thuần-tiếng-Việt + pin pivot áp cả 2.
+
 ### ✅ Checklist kiểm tra CLOSE brief (lần tới — sau khi down data CẢ NGÀY)
 
 Khi chạy close brief với data EOD đầy đủ, `intraday=False` → hành vi khác sáng:

@@ -413,6 +413,50 @@ def test_bias_floor_giam_adds_watchlist_conditional_buy_rule():
     assert "bắt dao rơi" not in build_prompt(ctx_up, brief_type="afternoon")
 
 
+def test_bias_floor_block_is_brief_type_aware():
+    # The bias block must name the right section per brief: morning's scenario
+    # is "Kịch bản phiên chiều", the close's directional call is "Stance ngày
+    # mai" (regression: the block hardcoded "Kịch bản phiên chiều" for both).
+    base = {"date": "2026-06-10",
+            "bias_floor": {"dir": "GIẢM", "momentum": -59, "regime_score": -4}}
+    seg_m = build_prompt({**base, "time": "11:30"}, brief_type="morning").split("RÀNG BUỘC BIAS")[1][:600]
+    seg_a = build_prompt({**base, "time": "15:00"}, brief_type="afternoon").split("RÀNG BUỘC BIAS")[1][:600]
+    assert "Kịch bản phiên chiều" in seg_m and "Stance ngày mai" not in seg_m
+    assert "Stance ngày mai" in seg_a
+    # GIẢM dip-buy ban present in both, scoped to the right section
+    assert "Trọng tâm theo dõi / Kịch bản" in seg_m
+    assert "Watchlist sáng mai" in seg_a
+
+
+def test_both_templates_have_risk_section_and_money_flow_guard_parity():
+    # Feature parity: morning gained a "Rủi ro cần lưu ý" section carrying the
+    # same fundamentals/BĐS/numbers rules as close, so those guards apply to it.
+    for bt, tm in (("morning", "11:30"), ("afternoon", "15:00")):
+        p = build_prompt({"date": "2026-06-10", "time": tm}, brief_type=bt)
+        assert "## ⚠️ Rủi ro cần lưu ý" in p
+        assert "tích lũy quỹ đất" in p          # BĐS context rule
+        assert "PHẢI kèm CON SỐ" in p           # numbers-required rule
+
+
+def test_money_flow_guard_handles_morning_inline_line():
+    # The two-sides guard must also fix the morning's inline "Dòng tiền ngành"
+    # line (no dedicated section header), not just the close section.
+    from vnstock_brief import enforce_money_flow_two_sides
+    ctx = {"sectors": [
+        {"Ngành": "Công nghệ thông tin & Phần mềm", "NN 1T (tỷ)": 708.0},
+        {"Ngành": "Bất động sản", "NN 1T (tỷ)": -5111.0},
+    ]}
+    text = ("## 🎯 Trọng tâm theo dõi\n"
+            "**Tích luỹ/Mua:** Ngân hàng\n"
+            "**Dòng tiền ngành:** NN mua ròng Công nghệ thông tin & Phần mềm +708 tỷ\n"
+            "**Theo dõi:** chưa rõ\n"
+            "## ⚡ Biến động bất thường")
+    fixed = enforce_money_flow_two_sides(text, ctx)
+    lines = fixed.splitlines()
+    i = next(k for k, l in enumerate(lines) if "Dòng tiền ngành" in l)
+    assert lines[i + 1].startswith("NN bán ròng mạnh nhất (1 tuần): Bất động sản -5,111 tỷ")
+
+
 def test_enforce_risk_numbers_appends_missing_values():
     # 15:27 brief: "một số mã như HNG, PET, VTZ có D/E cao, cần được quan tâm" —
     # zero numbers despite the template. The guard appends the real values.
