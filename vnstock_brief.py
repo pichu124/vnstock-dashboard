@@ -1924,6 +1924,13 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
                 line += (f"\nGTGD cả ngày: {full_gtgd:,.1f} tỷ → DÙNG ĐÚNG SỐ NÀY cho "
                          f"'GTGD' trong TLDR/Tổng kết phiên; TUYỆT ĐỐI KHÔNG nhặt số khác "
                          f"(GTGD sáng, GTGD theo ngành, v.v.) làm GTGD cả ngày.")
+            # No GTGD captured at all (WSS pipeline didn't run / EOD-only data):
+            # mark it explicitly so the model writes "chưa có dữ liệu" instead of
+            # filling the vacuum with a fabricated number (observed 9.650,4 leak).
+            if not morn_gtgd and not full_gtgd:
+                line += ("\n⚠️ KHÔNG có dữ liệu GTGD hôm nay (WSS chưa chạy / chỉ có "
+                         "data EOD) → trong TLDR/Tổng kết ghi 'GTGD: chưa có dữ liệu', "
+                         "TUYỆT ĐỐI KHÔNG bịa bất kỳ con số GTGD nào.")
         lines.append(line)
     else:
         lines.append(
@@ -2692,43 +2699,62 @@ def enforce_no_cjk(text: str, ctx: dict | None = None) -> str:
     return out
 
 
-_GTGD_NUM_RE = _re.compile(
-    r"((?:GTGD|giá trị giao dịch)\s*(?:đạt\s*|:\s*)?)([0-9][0-9.,]*)(\s*tỷ)",
+# Keyword-anchored GTGD figure: the thousands-magnitude number (+ optional unit)
+# right after a GTGD/turnover phrase — anchored so it never grabs the VNINDEX
+# level on the same line. Groups: (1) keyword, (2) filler, (3) number, (4) unit.
+_GTGD_CTX_RE = _re.compile(
+    r"(GTGD|giá trị giao dịch)(\D{0,15}?)(\d{1,3}(?:[.,]\d{3})+(?:[.,]\d+)?)(\s*tỷ(?:\s*đồng)?)?",
     _re.IGNORECASE,
 )
 
 
 def enforce_gtgd_total(text: str, ctx: dict) -> str:
-    """Deterministic guard: pin the full-day GTGD cited in the close TLDR
-    "Kết quả phiên" line and "Tổng kết phiên" section to the canonical value
-    from ctx["session_stats"] (observed two runs on the SAME 10/06 data citing
-    5,153 vs 14,118 — models grabbing the morning figure or hallucinating
-    instead of the system's "GTGD cả ngày"). Scoped to those close-only headers
-    so per-sector GTGD numbers elsewhere are untouched; skipped intraday.
+    """Deterministic guard for the GTGD figure in the brief's headline sections.
+    When the canonical session value exists → PIN the number to it (observed two
+    runs on the SAME 10/06 data citing 5,153 vs 14,118 tỷ). When session_stats is
+    present but GTGD is 0/missing (WSS didn't run / EOD-only data) → STRIP the
+    fabrication to "chưa có dữ liệu" (observed 9.650,4 leak). Close uses the
+    9h-15h figure in "Kết quả phiên"/"Tổng kết phiên"; morning uses 9h-11h30 in
+    "Tổng quan phiên sáng". Per-sector GTGD numbers elsewhere are never touched.
     """
-    ss = ctx.get("session_stats") or {}
-    full = (ss.get("9h-15h", {}).get("VNINDEX", {}) or {}).get("gtgd")
-    try:
-        full = float(full)
-    except (TypeError, ValueError):
-        return text
-    intraday = bool((ctx.get("vnindex_tech") or {}).get("intraday"))
-    if not text or intraday or not full or full <= 0:
+    ss = ctx.get("session_stats")
+    if not text or not ss:
         return text
 
+    def _g(window):
+        v = (ss.get(window, {}).get("VNINDEX", {}) or {}).get("gtgd")
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    full, morn = _g("9h-15h"), _g("9h-11h30")
+    intraday = bool((ctx.get("vnindex_tech") or {}).get("intraday"))
+
     lines = text.splitlines()
-    in_summary = False
+    sec = None
     changed = False
     for i, l in enumerate(lines):
         low = l.lower()
         if _is_section_start(l):
-            in_summary = "tổng kết phiên" in low
-        target = in_summary or "kết quả phiên" in low
-        if target and _GTGD_NUM_RE.search(l):
-            new = _GTGD_NUM_RE.sub(lambda m: f"{m.group(1)}{full:,.1f}{m.group(3)}", l)
-            if new != l:
-                lines[i] = new
-                changed = True
+            sec = ("close" if "tổng kết phiên" in low
+                   else "morning" if "tổng quan phiên sáng" in low else None)
+        if sec == "close" or "kết quả phiên" in low:
+            canonical, active = full, (not intraday)
+        elif sec == "morning":
+            canonical, active = morn, True
+        else:
+            continue
+        if not active or not _GTGD_CTX_RE.search(l):
+            continue
+        if canonical and canonical > 0:
+            new = _GTGD_CTX_RE.sub(
+                lambda m: f"{m.group(1)}{m.group(2)}{canonical:,.1f}{m.group(4) or ' tỷ'}", l)
+        else:                                     # known-zero/missing → strip the fabrication
+            new = _GTGD_CTX_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}chưa có dữ liệu", l)
+        if new != l:
+            lines[i] = new
+            changed = True
     return "\n".join(lines) if changed else text
 
 

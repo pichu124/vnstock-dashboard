@@ -485,8 +485,24 @@ def test_enforce_gtgd_total_noop_intraday_and_missing():
     # intraday → no full-day pin
     assert enforce_gtgd_total(t, {"session_stats": {"9h-15h": {"VNINDEX": {"gtgd": 10800.0}}},
                                   "vnindex_tech": {"intraday": True}}) == t
-    # no session data → untouched
+    # no session_stats at all → untouched (ambiguous, don't strip)
     assert enforce_gtgd_total(t, {}) == t
+
+
+def test_enforce_gtgd_total_strips_fabrication_when_session_is_zero():
+    # The real 10/06 case: session_stats present but every GTGD window is 0.0
+    # (WSS didn't run / EOD-only) → the model fabricated numbers. Strip them.
+    from vnstock_brief import enforce_gtgd_total
+    ctx = {"session_stats": {"9h-15h": {"VNINDEX": {"gtgd": 0.0}},
+                             "9h-11h30": {"VNINDEX": {"gtgd": 0.0}}},
+           "vnindex_tech": {"intraday": False}}
+    text = ("**Kết quả phiên:** VNINDEX +0.59% với GTGD 5,153 tỷ đồng.\n"
+            "## 📊 Tổng quan phiên sáng\n"
+            "GTGD sáng đạt 9.650,4 tỷ, cao hơn trung bình.")
+    fixed = enforce_gtgd_total(text, ctx)
+    assert "5,153" not in fixed and "9.650,4" not in fixed
+    assert "GTGD chưa có dữ liệu" in fixed
+    assert "GTGD sáng đạt chưa có dữ liệu" in fixed
 
 
 def test_money_flow_guard_handles_morning_inline_line():
