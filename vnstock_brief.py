@@ -2727,8 +2727,28 @@ def enforce_risk_numbers(text: str, ctx: dict) -> str:
     missing: list[str] = []
     seen: set[str] = set()
     for line in lines[start + 1:end]:
-        cited = [t for t in funds
-                 if t not in seen and _re.search(rf"\b{_re.escape(t)}\b", line)]
+        low = line.lower()
+        _ocf_kw = ("op.cf", "lưu chuyển tiền", "lưu lượng tiền", "hđkd")
+
+        def _wants_ocf(pos: int) -> bool:
+            """Per-ticker metric: pick whichever clause keyword (D/E vs OCF)
+            appears first AT/AFTER the ticker, so "HNG, PET, VTZ có D/E cao, và
+            KBC, NVL có lưu chuyển tiền HĐKD thấp" gives the D/E names D/E and
+            the cash-flow names OCF (was: whole-line OCF keyword → OCF for all)."""
+            rest = low[pos:]
+            de_at = rest.find("d/e")
+            ocf_at = min((p for p in (rest.find(w) for w in _ocf_kw) if p != -1),
+                         default=-1)
+            if de_at == -1:
+                return ocf_at != -1
+            if ocf_at == -1:
+                return False
+            return ocf_at < de_at
+
+        # ordered by position so each ticker's clause is read left-to-right
+        cited = sorted((t for t in funds
+                        if t not in seen and (m := _re.search(rf"\b{_re.escape(t)}\b", line))),
+                       key=lambda t: _re.search(rf"\b{_re.escape(t)}\b", line).start())
         for t in cited:
             seen.add(t)
             de, ocf = funds[t].get("de"), funds[t].get("ocf")
@@ -2736,8 +2756,8 @@ def enforce_risk_numbers(text: str, ctx: dict) -> str:
             if (de is not None and _has_value(line, de, ".2f")) or (
                     ocf is not None and _has_value(line, ocf, ",.0f")):
                 continue
-            low = line.lower()
-            if any(w in low for w in ("op.cf", "lưu chuyển tiền", "lưu lượng tiền", "hđkd")) and ocf is not None:
+            pos = _re.search(rf"\b{_re.escape(t)}\b", line).start()
+            if _wants_ocf(pos) and ocf is not None:
                 missing.append(f"{t} Op.CF={ocf:,.0f} tỷ")
             elif de is not None:
                 missing.append(f"{t} D/E={de:.2f}")

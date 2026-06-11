@@ -666,6 +666,28 @@ def test_enforce_risk_numbers_appends_missing_values():
     assert fixed.splitlines()[3] == "📅 Sự kiện sắp tới"  # appended inside section
 
 
+def test_enforce_risk_numbers_per_ticker_metric_on_mixed_line():
+    # One line flags some tickers for D/E and others for Op.CF (observed 20:59:
+    # "HNG, PET, VTZ có D/E cao, và KBC, NVL, VRE có lưu chuyển tiền HĐKD thấp").
+    # The appended figures must match each ticker's OWN clause — D/E for the
+    # leverage names, Op.CF for the cash-flow names — not Op.CF for all.
+    from vnstock_brief import enforce_risk_numbers
+    ctx = {"vn30_fundamentals": {
+        "HNG": {"de": 8.83, "ocf": 915.0}, "PET": {"de": 2.67, "ocf": -1389.0},
+        "VTZ": {"de": 2.63, "ocf": -318.0}, "KBC": {"de": 1.12, "ocf": -17344.0},
+        "NVL": {"de": 3.50, "ocf": -6145.0}, "VRE": {"de": 0.40, "ocf": -3262.0},
+    }}
+    text = ("⚠️ Rủi ro cần lưu ý\n"
+            "Các mã như HNG, PET, VTZ có D/E cao, và các mã như KBC, NVL, VRE "
+            "có lưu chuyển tiền HĐKD thấp.\n"
+            "📅 Sự kiện sắp tới")
+    fixed = enforce_risk_numbers(text, ctx)
+    assert "HNG D/E=8.83" in fixed and "PET D/E=2.67" in fixed and "VTZ D/E=2.63" in fixed
+    assert "KBC Op.CF=-17,344 tỷ" in fixed and "NVL Op.CF=-6,145 tỷ" in fixed
+    assert "VRE Op.CF=-3,262 tỷ" in fixed
+    assert "HNG Op.CF" not in fixed        # leverage names → D/E, not Op.CF
+
+
 def test_enforce_risk_numbers_ocf_and_noop_cases():
     from vnstock_brief import enforce_risk_numbers
     ctx = {"vn30_fundamentals": {
