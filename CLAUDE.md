@@ -179,18 +179,21 @@ Các khối **mới thêm** (ngoài kỹ thuật VNINDEX / regime / breadth có 
 | **Tâm lý thị trường** (mood + momentum -100..+100) | breadth + NN ròng + RSI/MA + news, qua `vnstock_market_sentiment.py` | luôn có (6 tín hiệu nội tại); tín hiệu tin tức (thứ 7) cần `python run.py news` |
 | **Dòng tiền ngành** (NN ròng 1T + GTGD theo ngành) | `market_overview.json` (đã pre-aggregate) | có sẵn sau `python run.py screener` |
 
-**Lịch refresh đề xuất (Task Scheduler)** — chạy TRƯỚC close brief 15:05:
+**Lịch refresh (Task Scheduler) — DÙNG SCRIPT CÓ SẴN `scripts/setup_scheduled_tasks.ps1`**
+(PowerShell **Run as Administrator**, chạy 1 lần; tự detect venv, set working dir,
+StartWhenAvailable=ON — máy tắt giờ đó thì chạy bù lúc boot; xem trước: `-DryRun`;
+gỡ: `-Remove`):
 ```powershell
-# Fundamentals: 1×/tuần (đổi 1×/quý nên tuần/lần là đủ)
-schtasks /Create /SC WEEKLY /D MON /ST 08:00 /TN "VNStock Fundamentals" `
-  /TR "<repo>\.venv\Scripts\python.exe <repo>\vnstock_fundamental_updater.py"
-# News sentiment: hằng ngày 14:50 (trước close brief)
-schtasks /Create /SC DAILY /ST 14:50 /TN "VNStock News" `
-  /TR "<repo>\.venv\Scripts\python.exe <repo>\run.py news"
-# Sự kiện DN sắp tới (GDKHQ cổ tức/chia tách): 1×/ngày trước close brief
-schtasks /Create /SC DAILY /ST 14:55 /TN "VNStock Events" `
-  /TR "<repo>\.venv\Scripts\python.exe <repo>\vnstock_events.py"
+cd "C:\Users\Administrator\Dropbox\Claude vnstock"
+.\scripts\setup_scheduled_tasks.ps1
 ```
+3 task được đăng ký: **VnStock Daily Pipeline** 18:00 T2-T6 (`run.py all` =
+sync EOD → validate → screener → news → test → audit — trọn quy trình tối,
+sau giờ đóng cửa) · **VnStock Weekly Corp Actions** CN 09:00 (Vietstock
+cổ tức/chia tách → registry) · **VnStock Fundamentals** T2 08:00 (1×/tuần;
+mùa BCTC giữa tháng 1/4/7/10 chạy thêm tay). Sự kiện GDKHQ KHÔNG cần task —
+brief tự refresh 1×/ngày (VN30 + top-40 movers). Kiểm tra:
+`Get-ScheduledTask -TaskName "VnStock *"`.
 
 **Sự kiện DN sắp tới (DONE 2026-06-10)** — `vnstock_events.py` tổng hợp GDKHQ
 cổ tức/chia tách/thưởng (tái dùng `vnstock_adjust._fetch_events` →
