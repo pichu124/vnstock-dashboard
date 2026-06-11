@@ -2821,10 +2821,11 @@ def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
 
 def enforce_risk_numbers(text: str, ctx: dict) -> str:
     """Deterministic guard: every ticker named in the risk section must carry
-    its number — the template demands it, yet 15:27 still produced "HNG, PET,
-    VTZ có D/E cao, cần được quan tâm" with no figures. For cited tickers whose
-    line shows no number, append one data line with the real values from
-    ctx["vn30_fundamentals"]. No-op when numbers are present or data missing.
+    its CORRECT number. Two failure modes seen in the wild: (a) tickers cited
+    with no figure at all (15:27: "HNG, PET, VTZ có D/E cao") → append a data
+    line; (b) tickers cited with a WRONG figure (23:08: "KBC D/E=8.83" — 8.83
+    is HNG's; "HPG D/E=1.55" vs real 0.65) → rewrite the number in place to the
+    real value from ctx["vn30_fundamentals"]. No-op when clean / data missing.
     """
     funds = ctx.get("vn30_fundamentals") or {}
     if not text or not funds:
@@ -2837,6 +2838,40 @@ def enforce_risk_numbers(text: str, ctx: dict) -> str:
         return text
     end = next((i for i in range(start + 1, len(lines))
                 if _is_section_start(lines[i])), len(lines))
+
+    # (b) Correct mismatched "TICKER … D/E=x" / "TICKER … Op.CF=y" in place.
+    # The bridge [^.;,()]* keeps the match within the ticker's own clause (no
+    # jumping across commas/parentheses to a neighbour's figure).
+    def _correct_line(line: str) -> str:
+        for t, m in funds.items():
+            if not _re.search(rf"\b{_re.escape(t)}\b", line):
+                continue
+            de, ocf = m.get("de"), m.get("ocf")
+            if de is not None:
+                def _fix_de(mt, _de=de):
+                    v = _parse_vn_number(mt.group(2))
+                    return (mt.group(1) + f"{_de:.2f}"
+                            if v is None or abs(v - _de) > max(0.01, 0.01 * abs(_de))
+                            else mt.group(0))
+                line = _re.sub(rf"(\b{_re.escape(t)}\b[^.;,()]*?D/E\s*=\s*)([\d.,]+)",
+                               _fix_de, line)
+            if ocf is not None:
+                def _fix_ocf(mt, _ocf=ocf):
+                    v = _parse_vn_number(mt.group(2))
+                    return (mt.group(1) + f"{_ocf:,.0f}"
+                            if v is None or abs(v - _ocf) > max(1.0, 0.01 * abs(_ocf))
+                            else mt.group(0))
+                line = _re.sub(
+                    rf"(\b{_re.escape(t)}\b[^;,()]*?Op\.?CF\s*=\s*)(-?[\d.,]+)",
+                    _fix_ocf, line)
+        return line
+
+    changed = False
+    for i in range(start + 1, end):
+        new = _correct_line(lines[i])
+        if new != lines[i]:
+            lines[i] = new
+            changed = True
 
     def _has_value(line: str, v: float, fmt: str) -> bool:
         s = format(v, fmt)
@@ -2882,7 +2917,7 @@ def enforce_risk_numbers(text: str, ctx: dict) -> str:
             elif ocf is not None:
                 missing.append(f"{t} Op.CF={ocf:,.0f} tỷ")
     if not missing:
-        return text
+        return "\n".join(lines) if changed else text
     note = "(Số liệu: " + " · ".join(missing) + " — từ block Cơ bản nhóm theo dõi.)"
     return "\n".join(lines[:end] + [note] + lines[end:])
 

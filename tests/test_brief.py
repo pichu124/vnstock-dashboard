@@ -742,6 +742,29 @@ def test_enforce_risk_numbers_per_ticker_metric_on_mixed_line():
     assert "HNG Op.CF" not in fixed        # leverage names → D/E, not Op.CF
 
 
+def test_enforce_risk_numbers_corrects_wrong_figures_in_place():
+    # 23:08: "HPG D/E=1.55, KBC D/E=8.83" — 1.55 fabricated (real 0.65) and
+    # 8.83 is HNG's figure pinned to KBC (real 1.12). The guard must REWRITE
+    # the numbers in place (not just append a contradicting data line).
+    from vnstock_brief import enforce_risk_numbers
+    ctx = {"vn30_fundamentals": {
+        "HPG": {"de": 0.65, "ocf": 12000.0},
+        "KBC": {"de": 1.12, "ocf": -17344.0},
+        "HNG": {"de": 8.83, "ocf": 915.0},
+    }}
+    text = ("⚠️ Rủi ro cần lưu ý\n"
+            "KBC Op.CF=-17,344 tỷ (BĐS). HPG D/E=1.55, KBC D/E=8.83 — đòn bẩy cao.\n"
+            "📅 Sự kiện sắp tới")
+    fixed = enforce_risk_numbers(text, ctx)
+    assert "HPG D/E=0.65" in fixed and "KBC D/E=1.12" in fixed
+    assert "1.55" not in fixed and "D/E=8.83" not in fixed
+    assert "KBC Op.CF=-17,344 tỷ" in fixed          # correct figure untouched
+    assert "(Số liệu:" not in fixed                 # no contradicting append
+    # wrong Op.CF figure is corrected too
+    t2 = ("⚠️ Rủi ro cần lưu ý\nKBC Op.CF=-20,000 tỷ — dòng tiền âm.\n📅 Sự kiện")
+    assert "KBC Op.CF=-17,344 tỷ" in enforce_risk_numbers(t2, ctx)
+
+
 def test_enforce_risk_numbers_ocf_and_noop_cases():
     from vnstock_brief import enforce_risk_numbers
     ctx = {"vn30_fundamentals": {
