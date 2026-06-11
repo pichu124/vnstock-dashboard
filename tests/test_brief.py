@@ -1575,6 +1575,20 @@ def test_movers_star_line_carries_per_stock_reference_levels():
     assert "LẤY TỪ" in p          # watchlist instruction points at these levels
 
 
+def test_enforce_no_placeholder_leak_fixes_ma_echo():
+    # 22:29: "MÃ D/E=8.83 (HNG), MÃ D/E=2.67 (PET)" — the "<tên mã>" placeholder
+    # echoed literally as "MÃ". Rewrite to "HNG D/E=8.83 …".
+    from vnstock_brief import enforce_no_placeholder_leak
+    text = ("⚠️ Rủi ro\nMÃ D/E=8.83 (HNG), MÃ D/E=2.67 (PET), MÃ Op.CF=-17,344 tỷ (KBC).")
+    fixed = enforce_no_placeholder_leak(text, {})
+    assert "HNG D/E=8.83" in fixed and "PET D/E=2.67" in fixed
+    assert "KBC Op.CF=-17,344 tỷ" in fixed
+    assert "MÃ D/E" not in fixed and "MÃ Op.CF" not in fixed
+    # clean text untouched (no stray "MÃ ")
+    t2 = "HNG D/E=8.83 — đòn bẩy cao."
+    assert enforce_no_placeholder_leak(t2, {}) == t2
+
+
 def test_enforce_no_instruction_leak_strips_echoed_guidance():
     from vnstock_brief import enforce_no_instruction_leak
     text = ("🔧 Đề xuất bổ sung\nCần theo dõi CPI, lãi suất.\n"

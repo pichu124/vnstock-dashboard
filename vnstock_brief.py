@@ -223,7 +223,7 @@ Kịch bản CHÍNH phải NHẤT QUÁN với Bias ở TLDR: Bias GIẢM → k�
 
 ## ⚠️ Rủi ro cần lưu ý (phiên chiều)
 [Red flags, phân phối, rủi ro vĩ mô/kỹ thuật với mức cảnh báo cụ thể; "Không có rủi ro đặc biệt" nếu thị trường ổn]
-Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằng mã lấy TỪ dòng "Đòn bẩy cao nhất (D/E)" hoặc "Lưu chuyển tiền HĐKD thấp nhất" trong block, ghi kèm TÊN MÃ THẬT + CON SỐ THẬT copy từ block (định dạng "MÃ D/E=số" hoặc "MÃ Op.CF=số tỷ"). MỌI mã được nhắc trong mục này PHẢI kèm CON SỐ CỦA CHÍNH NÓ — TUYỆT ĐỐI KHÔNG viết "X và Y cũng có D/E cao" mà KHÔNG ghi số; nếu không ghi số thì KHÔNG nêu mã đó. MÃ trong block gồm CẢ VN30 LẪN mid-cap → KHÔNG ghi "cao nhất trong VN30"; chỉ ghi "cao nhất trong nhóm theo dõi". Ngân hàng/CK/bảo hiểm đã bị loại khỏi xếp hạng → KHÔNG nêu nhóm tài chính làm rủi ro đòn bẩy/dòng tiền. Mã gắn "(BĐS)" trong dòng Op.CF: dòng tiền âm CHỦ YẾU do tích lũy quỹ đất/hàng tồn kho dự án (vốn lưu động), KHÔNG phải lỗ HĐKD → PHẢI ghi kèm ngữ cảnh này + soi D/E/nợ vay, TUYỆT ĐỐI KHÔNG gọi là "kiệt quệ tiền mặt". Nếu block không có mã đáng lưu ý → nêu rủi ro vĩ mô/kỹ thuật, KHÔNG dẫn mã ngoài data.
+Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằng mã lấy TỪ dòng "Đòn bẩy cao nhất (D/E)" hoặc "Lưu chuyển tiền HĐKD thấp nhất" trong block, ghi kèm TÊN MÃ THẬT + CON SỐ THẬT copy từ block, dạng "<tên mã> D/E=<số>" — THAY <tên mã> bằng MÃ THẬT (vd "HPG D/E=1,5"; "KBC Op.CF=-17.344 tỷ"), TUYỆT ĐỐI KHÔNG in chữ "MÃ"/"<tên mã>". MỌI mã được nhắc trong mục này PHẢI kèm CON SỐ CỦA CHÍNH NÓ — TUYỆT ĐỐI KHÔNG viết "X và Y cũng có D/E cao" mà KHÔNG ghi số; nếu không ghi số thì KHÔNG nêu mã đó. MÃ trong block gồm CẢ VN30 LẪN mid-cap → KHÔNG ghi "cao nhất trong VN30"; chỉ ghi "cao nhất trong nhóm theo dõi". Ngân hàng/CK/bảo hiểm đã bị loại khỏi xếp hạng → KHÔNG nêu nhóm tài chính làm rủi ro đòn bẩy/dòng tiền. Mã gắn "(BĐS)" trong dòng Op.CF: dòng tiền âm CHỦ YẾU do tích lũy quỹ đất/hàng tồn kho dự án (vốn lưu động), KHÔNG phải lỗ HĐKD → PHẢI ghi kèm ngữ cảnh này + soi D/E/nợ vay, TUYỆT ĐỐI KHÔNG gọi là "kiệt quệ tiền mặt". Nếu block không có mã đáng lưu ý → nêu rủi ro vĩ mô/kỹ thuật, KHÔNG dẫn mã ngoài data.
 
 ## 📅 Sự kiện sắp tới
 [Nếu có block "Sự kiện sắp tới" trong data: liệt kê 1-3 sự kiện gần nhất (GDKHQ cổ tức/chia tách/ĐHCĐ) kèm mã + ngày, ưu tiên mã VN30/watchlist; nhắc "giá tự điều chỉnh ngày GDKHQ". Nếu KHÔNG có block đó → ghi "Không có sự kiện đáng chú ý" hoặc bỏ mục này.]
@@ -297,7 +297,7 @@ Setup đưa ra là setup THẬT để theo dõi — TUYỆT ĐỐI KHÔNG viết
 
 ## ⚠️ Rủi ro cần lưu ý
 [Red flags, distribution, macro risk với mức cảnh báo cụ thể; "Không có rủi ro đặc biệt" nếu thị trường ổn]
-Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằng mã lấy TỪ dòng "Đòn bẩy cao nhất (D/E)" hoặc "Lưu chuyển tiền HĐKD thấp nhất" trong block, ghi kèm TÊN MÃ THẬT + CON SỐ THẬT copy từ block (định dạng "MÃ D/E=số" hoặc "MÃ Op.CF=số tỷ"). MỌI mã được nhắc trong mục này PHẢI kèm CON SỐ CỦA CHÍNH NÓ — TUYỆT ĐỐI KHÔNG viết kiểu "PET và VTZ cũng có D/E cao" hay "KBC và NVL có Op.CF thấp nhất" mà KHÔNG ghi số; nếu không ghi số thì KHÔNG nêu mã đó. MÃ trong block gồm CẢ VN30 LẪN mid-cap → KHÔNG ghi "cao nhất trong VN30" (nhiều mã không thuộc VN30); chỉ ghi "cao nhất trong nhóm theo dõi". TUYỆT ĐỐI KHÔNG in nguyên ký hiệu mẫu (X, Y, "MÃ", "số") — phải thay bằng giá trị thật. Nếu block KHÔNG có mã Op.CF âm đáng lưu ý → CHỈ nêu rủi ro D/E (mã cao nhất), KHÔNG đề cập Op.CF, KHÔNG ghi placeholder. TUYỆT ĐỐI KHÔNG: (a) dẫn mã KHÔNG có trong block (vd VCK); (b) nói "cần thêm dữ liệu/chỉ số" — số ĐÃ có trong block; (c) gọi "Op.CF âm" cho mã có Op.CF ≥ 0 (chỉ ghi "âm" khi số THỰC < 0, còn lại ghi "Op.CF thấp"); (d) gán rủi ro sang ngành dẫn dắt/tụt hậu. Ngân hàng/CK/bảo hiểm đã bị loại khỏi xếp hạng → KHÔNG nêu nhóm tài chính làm rủi ro đòn bẩy/dòng tiền. Mã gắn "(BĐS)" trong dòng Op.CF: dòng tiền âm CHỦ YẾU do tích lũy quỹ đất/hàng tồn kho dự án (vốn lưu động), KHÔNG phải lỗ HĐKD → PHẢI ghi kèm ngữ cảnh này + soi D/E/nợ vay, TUYỆT ĐỐI KHÔNG gọi là "kiệt quệ tiền mặt". Nếu block không có mã đáng lưu ý → nêu rủi ro vĩ mô/kỹ thuật, KHÔNG dẫn mã ngoài data.
+Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằng mã lấy TỪ dòng "Đòn bẩy cao nhất (D/E)" hoặc "Lưu chuyển tiền HĐKD thấp nhất" trong block, ghi kèm TÊN MÃ THẬT + CON SỐ THẬT copy từ block, dạng "<tên mã> D/E=<số>" — THAY <tên mã> bằng MÃ THẬT (vd "HPG D/E=1,5"; "KBC Op.CF=-17.344 tỷ"), TUYỆT ĐỐI KHÔNG in chữ "MÃ"/"<tên mã>". MỌI mã được nhắc trong mục này PHẢI kèm CON SỐ CỦA CHÍNH NÓ — TUYỆT ĐỐI KHÔNG viết kiểu "PET và VTZ cũng có D/E cao" hay "KBC và NVL có Op.CF thấp nhất" mà KHÔNG ghi số; nếu không ghi số thì KHÔNG nêu mã đó. MÃ trong block gồm CẢ VN30 LẪN mid-cap → KHÔNG ghi "cao nhất trong VN30" (nhiều mã không thuộc VN30); chỉ ghi "cao nhất trong nhóm theo dõi". TUYỆT ĐỐI KHÔNG in nguyên ký hiệu mẫu (X, Y, "MÃ", "số") — phải thay bằng giá trị thật. Nếu block KHÔNG có mã Op.CF âm đáng lưu ý → CHỈ nêu rủi ro D/E (mã cao nhất), KHÔNG đề cập Op.CF, KHÔNG ghi placeholder. TUYỆT ĐỐI KHÔNG: (a) dẫn mã KHÔNG có trong block (vd VCK); (b) nói "cần thêm dữ liệu/chỉ số" — số ĐÃ có trong block; (c) gọi "Op.CF âm" cho mã có Op.CF ≥ 0 (chỉ ghi "âm" khi số THỰC < 0, còn lại ghi "Op.CF thấp"); (d) gán rủi ro sang ngành dẫn dắt/tụt hậu. Ngân hàng/CK/bảo hiểm đã bị loại khỏi xếp hạng → KHÔNG nêu nhóm tài chính làm rủi ro đòn bẩy/dòng tiền. Mã gắn "(BĐS)" trong dòng Op.CF: dòng tiền âm CHỦ YẾU do tích lũy quỹ đất/hàng tồn kho dự án (vốn lưu động), KHÔNG phải lỗ HĐKD → PHẢI ghi kèm ngữ cảnh này + soi D/E/nợ vay, TUYỆT ĐỐI KHÔNG gọi là "kiệt quệ tiền mặt". Nếu block không có mã đáng lưu ý → nêu rủi ro vĩ mô/kỹ thuật, KHÔNG dẫn mã ngoài data.
 
 ## 📅 Sự kiện sắp tới
 [Nếu có block "Sự kiện sắp tới" trong data: liệt kê 1-3 sự kiện gần nhất (GDKHQ cổ tức/chia tách/ĐHCĐ) kèm mã + ngày, ưu tiên mã VN30/watchlist; nhắc "giá tự điều chỉnh ngày GDKHQ". Nếu KHÔNG có block đó → ghi "Không có sự kiện đáng chú ý" hoặc bỏ mục này.]
@@ -2452,6 +2452,7 @@ def generate_brief(
             fixed = enforce_gtgd_total(fixed, ctx)
             fixed = enforce_no_cjk(fixed, ctx)
             fixed = enforce_no_instruction_leak(fixed, ctx)
+            fixed = enforce_no_placeholder_leak(fixed, ctx)
             if fixed != text:
                 results[agent.name] = (fixed, _err)
 
@@ -2968,6 +2969,26 @@ def enforce_no_instruction_leak(text: str, ctx: dict | None = None) -> str:
     if len(kept) == len(src):
         return text
     return "\n".join(kept)
+
+
+# The risk-section format example uses a "<tên mã>" placeholder the model
+# sometimes echoes literally as "MÃ D/E=8.83 (HNG)" instead of substituting the
+# ticker (observed 22:29). Rewrite "MÃ <metric>=<val> (TICKER)" → "TICKER
+# <metric>=<val>" and drop any leftover bare "MÃ " before a metric.
+_PLACEHOLDER_LEAK_RE = _re.compile(
+    r"\bMÃ\s+(D/E|Op\.?CF)\s*=\s*([^()]+?)\s*\(([A-Z]{3,4})\)", _re.IGNORECASE)
+
+
+def enforce_no_placeholder_leak(text: str, ctx: dict | None = None) -> str:
+    """Deterministic guard: fix echoed "MÃ D/E=… (TICKER)" placeholder leaks in
+    the risk section → "TICKER D/E=…". No-op when clean."""
+    if not text or "MÃ " not in text:
+        return text
+    out = _PLACEHOLDER_LEAK_RE.sub(
+        lambda m: f"{m.group(3)} {m.group(1)}={m.group(2).strip()}", text)
+    # any residual bare "MÃ D/E=" with no ticker → drop the stray placeholder word
+    out = _re.sub(r"\bMÃ\s+(D/E|Op\.?CF)\s*=", r"\1=", out, flags=_re.IGNORECASE)
+    return out
 
 
 # Keyword-anchored GTGD figure: the thousands-magnitude number (+ optional unit)
