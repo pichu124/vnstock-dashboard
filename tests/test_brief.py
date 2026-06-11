@@ -458,6 +458,37 @@ def test_morning_gtgd_example_has_no_leakable_literal():
     assert "Chưa có GTGD phiên sáng" in p
 
 
+def test_enforce_gtgd_total_pins_close_summary_to_session_value():
+    # Two runs on the same 10/06 data cited 5,153 vs 14,118 for full-day GTGD;
+    # pin both the TLDR "Kết quả phiên" line and the "Tổng kết phiên" section to
+    # the canonical session_stats full-day value, leaving sector GTGD alone.
+    from vnstock_brief import enforce_gtgd_total
+    ctx = {"session_stats": {"9h-15h": {"VNINDEX": {"gtgd": 10800.0}},
+                             "9h-11h30": {"VNINDEX": {"gtgd": 5153.0}}},
+           "vnindex_tech": {"intraday": False}}
+    text = ("🎯 TLDR\n"
+            "**Kết quả phiên:** VNINDEX +0.59% với GTGD 5,153 tỷ đồng — phiên yếu.\n"
+            "## 📊 Tổng kết phiên\n"
+            "Thanh khoản giá trị giao dịch 5,153 tỷ, thấp hơn trung bình.\n"
+            "## 💰 Dòng tiền đáng chú ý\n"
+            "Dầu khí GTGD 1,114 tỷ.")          # sector GTGD must NOT be touched
+    fixed = enforce_gtgd_total(text, ctx)
+    assert "GTGD 10,800.0 tỷ" in fixed
+    assert "giá trị giao dịch 10,800.0 tỷ" in fixed
+    assert "5,153" not in fixed
+    assert "Dầu khí GTGD 1,114 tỷ" in fixed     # sector line untouched
+
+
+def test_enforce_gtgd_total_noop_intraday_and_missing():
+    from vnstock_brief import enforce_gtgd_total
+    t = "**Kết quả phiên:** GTGD 5,153 tỷ"
+    # intraday → no full-day pin
+    assert enforce_gtgd_total(t, {"session_stats": {"9h-15h": {"VNINDEX": {"gtgd": 10800.0}}},
+                                  "vnindex_tech": {"intraday": True}}) == t
+    # no session data → untouched
+    assert enforce_gtgd_total(t, {}) == t
+
+
 def test_money_flow_guard_handles_morning_inline_line():
     # The two-sides guard must also fix the morning's inline "Dòng tiền ngành"
     # line (no dedicated section header), not just the close section.

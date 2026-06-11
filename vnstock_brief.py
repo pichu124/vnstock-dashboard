@@ -1921,7 +1921,9 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
                     line += "\nSo sánh ĐỒNG DẠNG (sáng-với-sáng): " + " | ".join(cmp_parts)
             # Full-day GTGD only when the session is actually CLOSED (not intraday).
             if (not _intraday) and full_gtgd and morn_gtgd and full_gtgd > morn_gtgd * 1.05:
-                line += f"\nGTGD cả ngày: {full_gtgd:,.1f} tỷ"
+                line += (f"\nGTGD cả ngày: {full_gtgd:,.1f} tỷ → DÙNG ĐÚNG SỐ NÀY cho "
+                         f"'GTGD' trong TLDR/Tổng kết phiên; TUYỆT ĐỐI KHÔNG nhặt số khác "
+                         f"(GTGD sáng, GTGD theo ngành, v.v.) làm GTGD cả ngày.")
         lines.append(line)
     else:
         lines.append(
@@ -2286,6 +2288,7 @@ def generate_brief(
             fixed = enforce_risk_numbers(fixed, ctx)
             fixed = enforce_pivot_labels(fixed, ctx)
             fixed = enforce_watchlist_eligibility(fixed, ctx)
+            fixed = enforce_gtgd_total(fixed, ctx)
             fixed = enforce_no_cjk(fixed, ctx)
             if fixed != text:
                 results[agent.name] = (fixed, _err)
@@ -2687,6 +2690,46 @@ def enforce_no_cjk(text: str, ctx: dict | None = None) -> str:
     out = _re.sub(r"[ \t]{2,}", " ", out)        # collapse gaps left by removal
     out = _re.sub(r"[ \t]+([,.;:%)])", r"\1", out)
     return out
+
+
+_GTGD_NUM_RE = _re.compile(
+    r"((?:GTGD|giá trị giao dịch)\s*(?:đạt\s*|:\s*)?)([0-9][0-9.,]*)(\s*tỷ)",
+    _re.IGNORECASE,
+)
+
+
+def enforce_gtgd_total(text: str, ctx: dict) -> str:
+    """Deterministic guard: pin the full-day GTGD cited in the close TLDR
+    "Kết quả phiên" line and "Tổng kết phiên" section to the canonical value
+    from ctx["session_stats"] (observed two runs on the SAME 10/06 data citing
+    5,153 vs 14,118 — models grabbing the morning figure or hallucinating
+    instead of the system's "GTGD cả ngày"). Scoped to those close-only headers
+    so per-sector GTGD numbers elsewhere are untouched; skipped intraday.
+    """
+    ss = ctx.get("session_stats") or {}
+    full = (ss.get("9h-15h", {}).get("VNINDEX", {}) or {}).get("gtgd")
+    try:
+        full = float(full)
+    except (TypeError, ValueError):
+        return text
+    intraday = bool((ctx.get("vnindex_tech") or {}).get("intraday"))
+    if not text or intraday or not full or full <= 0:
+        return text
+
+    lines = text.splitlines()
+    in_summary = False
+    changed = False
+    for i, l in enumerate(lines):
+        low = l.lower()
+        if _is_section_start(l):
+            in_summary = "tổng kết phiên" in low
+        target = in_summary or "kết quả phiên" in low
+        if target and _GTGD_NUM_RE.search(l):
+            new = _GTGD_NUM_RE.sub(lambda m: f"{m.group(1)}{full:,.1f}{m.group(3)}", l)
+            if new != l:
+                lines[i] = new
+                changed = True
+    return "\n".join(lines) if changed else text
 
 
 def validate_brief_factuality(text: str, ctx: dict) -> list[str]:
