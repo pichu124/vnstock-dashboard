@@ -1495,6 +1495,21 @@ def test_select_liquid_movers_guarantees_eligible_anchor():
     assert "FPT" in {r["Mã"] for r in g}   # +1.2% → gainer side
 
 
+def test_build_prompt_full_day_gtgd_comparison_is_day_over_day():
+    # Close brief must compare full-day GTGD day-over-day, not borrow the
+    # morning's sáng-với-sáng % (observed: "GTGD 11,929 tỷ, giảm 43% so với
+    # sáng phiên trước" — wrong baseline). 11,929 vs prev 13,000 ≈ -8%.
+    ctx = {"date": "2026-06-11", "time": "15:00",
+           "vnindex_tech": {"close": 1798.61, "intraday": False},
+           "full_day_gtgd": 11929.2,
+           "full_day_gtgd_cmp": {"prev": 13000.0, "avg5": 12500.0}}
+    p = build_prompt(ctx, brief_type="afternoon")
+    assert "So sánh cả-ngày-với-cả-ngày" in p or "So sánh CẢ-NGÀY-với-CẢ-NGÀY" in p
+    assert "phiên trước 13,000.0 tỷ (-8%)" in p
+    assert "TB5" in p
+    assert "KHÔNG gán % so-với-sáng" in p.replace("'", "")
+
+
 def test_movers_star_line_carries_per_stock_reference_levels():
     # ⭐ movers must surface ±3% reference levels computed from the stock's own
     # price, so the watchlist anchors a setup to those instead of grabbing the

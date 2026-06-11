@@ -1346,6 +1346,17 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
                 ctx["full_day_gtgd_universe"] = len(ctx.get("tickers") or [])
                 if _gd and _data_date_str <= _gd:
                     ctx["full_day_gtgd"] = float(_tg)
+                    # Full-day-VS-full-day comparison so the close brief doesn't
+                    # borrow the morning's sáng-với-sáng % (observed: "GTGD
+                    # 11,929 tỷ, giảm 43% so với sáng phiên trước" — the -43%
+                    # belongs to the morning figure, not the full-day total).
+                    _prior = [_byd[k]["total"] for k in sorted(_byd, reverse=True)
+                              if k < _data_date_str and _byd[k].get("total")]
+                    if _prior:
+                        ctx["full_day_gtgd_cmp"] = {
+                            "prev": _prior[0],
+                            "avg5": round(sum(_prior[:5]) / len(_prior[:5]), 1),
+                        }
                 else:
                     ctx["full_day_gtgd_partial"] = float(_tg)
         except Exception:
@@ -2036,6 +2047,14 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
                 line += (f"\nGTGD cả ngày: {_full_day:,.1f} tỷ{_src} → DÙNG ĐÚNG SỐ NÀY cho "
                          f"'GTGD' trong TLDR/Tổng kết phiên; TUYỆT ĐỐI KHÔNG nhặt số khác "
                          f"(GTGD sáng, GTGD theo ngành, v.v.) làm GTGD cả ngày.")
+                _cmp = ctx.get("full_day_gtgd_cmp") or {}
+                if _cmp.get("prev"):
+                    _pct = (_full_day / _cmp["prev"] - 1) * 100 if _cmp["prev"] else 0
+                    line += (f"\nSo sánh CẢ-NGÀY-với-CẢ-NGÀY: phiên trước {_cmp['prev']:,.1f} tỷ "
+                             f"({_pct:+.0f}%)" + (f" | TB5 phiên {_cmp['avg5']:,.1f} tỷ"
+                             if _cmp.get('avg5') else "") +
+                             ". DÙNG % NÀY cho GTGD cả ngày; TUYỆT ĐỐI KHÔNG gán % "
+                             "'so với sáng phiên trước' cho số cả ngày.")
             elif ctx.get("full_day_gtgd_partial") and not (morn_gtgd or full_gtgd):
                 # The session's bars are incomplete (in-progress day / EOD batch
                 # not fully landed) → the partial sum must NOT pose as the
@@ -2057,6 +2076,12 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         if (not _intraday) and isinstance(_eod_full, (int, float)) and _eod_full > 0:
             _l += (f"\nGTGD cả ngày: {_eod_full:,.1f} tỷ (ước tính từ EOD: Σ giá×KLGD) → "
                    f"DÙNG ĐÚNG SỐ NÀY cho 'GTGD' trong TLDR/Tổng kết phiên.")
+            _cmp = ctx.get("full_day_gtgd_cmp") or {}
+            if _cmp.get("prev"):
+                _pct = (float(_eod_full) / _cmp["prev"] - 1) * 100 if _cmp["prev"] else 0
+                _l += (f"\nSo sánh cả-ngày-với-cả-ngày: phiên trước {_cmp['prev']:,.1f} tỷ "
+                       f"({_pct:+.0f}%)" + (f" | TB5 {_cmp['avg5']:,.1f} tỷ"
+                       if _cmp.get('avg5') else "") + ". KHÔNG gán % so-với-sáng cho số cả ngày.")
         else:
             _l += " GTGD: viết 'chưa có dữ liệu', KHÔNG bịa số."
         lines.append(_l)
