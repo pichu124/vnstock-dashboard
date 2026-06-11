@@ -1252,19 +1252,26 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
             ctx["tickers"] = data.get("tickers", [])
             # Full-day GTGD (matching value) derived from the EOD bars — present
             # right after the screener runs, even when the live WSS session
-            # capture (session_stats) is empty. Lets the close brief cite a real
-            # GTGD instead of "chưa có dữ liệu" on EOD-only days.
-            _tg = data.get("total_gtgd_day")
+            # capture (session_stats) is empty. Prefer the per-date map keyed by
+            # THIS brief's effective trading date (a mid-day updater run makes
+            # the "latest" session an in-progress one — the brief for ngày T
+            # still needs ngày T's completed total); fall back to the runner's
+            # picked session if it matches the brief date.
+            _univ = len(ctx.get("tickers") or [])
+            _byd = data.get("gtgd_by_date") or {}
+            _entry = _byd.get(_data_date_str)
+            if _entry is None and data.get("gtgd_date") == _data_date_str:
+                _entry = {"total": data.get("total_gtgd_day"),
+                          "count": data.get("gtgd_ticker_count") or 0}
+            _tg = (_entry or {}).get("total")
             if isinstance(_tg, (int, float)) and _tg > 0:
-                _tc = data.get("gtgd_ticker_count") or 0
-                _univ = len(ctx.get("tickers") or [])
+                _tc = int((_entry or {}).get("count") or 0)
                 ctx["full_day_gtgd_count"] = _tc
                 ctx["full_day_gtgd_universe"] = _univ
                 # Only treat the EOD total as the market GTGD when coverage is
-                # adequate. On the morning after, the full EOD batch often hasn't
-                # landed (observed 10/06: only 379/1388 mã had that day's bar →
-                # 6,157 tỷ, a 27% partial that must NOT pose as the whole-sàn
-                # turnover). Below 60% coverage → expose it as partial only.
+                # adequate. On the morning after, the full EOD batch may not
+                # have landed (observed 10/06: only 379/1388 mã → 6,157 tỷ, a
+                # 27% partial that must NOT pose as the whole-sàn turnover).
                 if (not _univ) or (_tc >= 0.6 * _univ):
                     ctx["full_day_gtgd"] = float(_tg)
                 else:

@@ -248,14 +248,15 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
             v = df["volume"].astype(float)
             last = float(c.iloc[-1])
 
-            # Real full-day GTGD (matching value) ≈ giá × KLGD của bar gần nhất.
-            # `last` ở thang nghìn VND, volume ở cổ phiếu → tỷ VND =
-            # last*1000*vol/1e9 = last*vol/1e6. EOD-derived → có ngay sau khi down
-            # data (không cần WSS live capture). Lưu kèm ngày bar; chỉ cộng các mã
-            # có bar đúng PHIÊN MỚI NHẤT (lọc sau vòng lặp) để bỏ mã ngừng GD.
-            _vol_today = float(v.iloc[-1]) if len(v) else 0.0
-            if last > 0 and _vol_today > 0:
-                _gtgd_day_rows.append((_bar_date, last * _vol_today / 1e6))
+            # Real full-day GTGD (matching value) ≈ giá × KLGD, gom THEO TỪNG
+            # NGÀY cho ~5 bar gần nhất của mỗi mã (không chỉ bar cuối). `close`
+            # ở thang nghìn VND, volume ở cổ phiếu → tỷ VND = close*vol/1e6.
+            # Lý do theo-ngày: chạy updater GIỮA phiên kéo bar dở của HÔM NAY
+            # về → "ngày mới nhất" thành phiên đang dở; brief cho ngày T vẫn
+            # cần tổng của ĐÚNG ngày T (đã chốt). EOD-derived → không cần WSS.
+            for _t, _c, _v in zip(df["time"].tail(5), c.tail(5), v.tail(5)):
+                if _c > 0 and _v > 0:
+                    _gtgd_day_rows.append((pd.Timestamp(_t), _c * _v / 1e6))
 
             # Breadth
             b_total += 1
@@ -600,24 +601,23 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
     result = result.rename(columns={"industry": "Ngành"})
     result = result.sort_values("Vốn hoá (tỷ)", ascending=False).reset_index(drop=True)
 
-    # Full-day GTGD (matching value, tỷ VND) = Σ giá×KLGD over stocks trading on
-    # the most-recent SESSION DATE. Match by calendar date (robust to bar-time
-    # differences) and pick the date most stocks share (mode, tiebreak latest) so
-    # a single future-dated/glitched bar can't hijack the total; stale/halted
-    # names (last bar on an older date) are naturally excluded. EOD-derived —
-    # available right after the screener, no live WSS capture needed. NOTE: the
-    # total only covers tickers that actually have a bar on that session date, so
-    # it reflects warehouse coverage (a partial download → a partial total).
-    total_gtgd_day = 0.0
-    gtgd_ticker_count = 0
-    gtgd_session_date = None
+    # Per-date GTGD map over the last ~5 sessions: {iso_date: {total, count}}.
+    # total_gtgd_day/gtgd_ticker_count expose the latest COMPLETE session via
+    # _pick_gtgd_session (an in-progress day with few names yet is skipped);
+    # the brief instead looks up gtgd_by_date for ITS effective trading date.
+    gtgd_by_date: dict = {}
     if _gtgd_day_rows:
-        from collections import Counter
-        _date_counts = Counter(d.date() for d, _ in _gtgd_day_rows)
-        gtgd_session_date = max(_date_counts, key=lambda dt: (_date_counts[dt], dt))
-        _day = [val for d, val in _gtgd_day_rows if d.date() == gtgd_session_date]
-        total_gtgd_day = round(sum(_day), 1)
-        gtgd_ticker_count = len(_day)
+        _acc: dict = {}
+        for d, val in _gtgd_day_rows:
+            k = d.date()
+            t, n = _acc.get(k, (0.0, 0))
+            _acc[k] = (t + val, n + 1)
+        _last5 = sorted(_acc.keys(), reverse=True)[:5]
+        gtgd_by_date = {
+            k.isoformat(): {"total": round(_acc[k][0], 1), "count": _acc[k][1]}
+            for k in _last5
+        }
+    _gd, total_gtgd_day, gtgd_ticker_count = _pick_gtgd_session(gtgd_by_date)
 
     return {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -626,10 +626,29 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
         "data_date": _max_data_date.date().isoformat() if _max_data_date is not None else None,
         "total_gtgd_day": total_gtgd_day,
         "gtgd_ticker_count": gtgd_ticker_count,
+        "gtgd_date": _gd,
+        "gtgd_by_date": gtgd_by_date,
         "sectors": result.to_dict(orient="records"),
         "breadth": breadth,
         "tickers": tick_display.to_dict(orient="records"),
     }
+
+
+def _pick_gtgd_session(gtgd_by_date: dict) -> tuple:
+    """Pick the latest COMPLETE session from {iso_date: {total, count}}.
+
+    An in-progress session (updater run mid-day) has bars for only the names
+    that have traded so far — its count is well below the busiest session's.
+    Take the max count as the reference and return the LATEST date with count
+    ≥ 60% of it. Returns (iso_date, total, count) or (None, 0.0, 0).
+    """
+    if not gtgd_by_date:
+        return None, 0.0, 0
+    ref = max(v["count"] for v in gtgd_by_date.values())
+    for k in sorted(gtgd_by_date.keys(), reverse=True):
+        if gtgd_by_date[k]["count"] >= 0.6 * ref:
+            return k, gtgd_by_date[k]["total"], gtgd_by_date[k]["count"]
+    return None, 0.0, 0
 
 
 def _json_safe(obj):

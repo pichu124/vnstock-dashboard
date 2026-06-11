@@ -100,9 +100,13 @@ regress các cơ chế này:
 `session_stats` (GTGD theo khung giờ 9h-11h30 / 9h-15h) CHỈ pipeline WSS **live**
 trong phiên mới ghi — chạy brief trên data EOD-only (down hôm sau) → toàn 0.0 →
 model BỊA GTGD (5.153 / 14.118 / 9.650,4). Fix: `compute_market_overview` ghi
-`total_gtgd_day` = Σ (giá đóng cửa × KLGD) của PHIÊN MỚI NHẤT (lọc theo bar date,
-bỏ mã ngừng GD) = **GTGD cả ngày THẬT từ EOD** (xấp xỉ khớp lệnh, có ngay sau
-`run.py screener`). Brief đọc vào `ctx["full_day_gtgd"]`; Session Timing block
+`gtgd_by_date` = Σ (giá đóng cửa × KLGD) THEO TỪNG NGÀY (~5 phiên gần nhất; ~5
+bar cuối mỗi mã) = **GTGD cả ngày THẬT từ EOD** (xấp xỉ khớp lệnh, có ngay sau
+`run.py screener`); `total_gtgd_day`/`gtgd_date` = phiên HOÀN CHỈNH gần nhất qua
+`_pick_gtgd_session` (bỏ phiên ĐANG DỞ — updater chạy giữa trưa kéo bar dở hôm
+nay về, count thấp → chọn ngày hôm trước). Brief tra `gtgd_by_date[ngày-của-brief]`
+→ `ctx["full_day_gtgd"]` (gate coverage ≥60% universe, dưới ngưỡng → "chưa đủ
+dữ liệu"); Session Timing block
 ưu tiên session-live, fallback EOD (gắn nhãn "ước tính từ EOD"); `enforce_gtgd_total`
 pin số trong TLDR/Tổng kết về giá trị này (strip "chưa có dữ liệu" khi cả 2
 nguồn đều trống). **GTGD sáng (split 9h-11h30) KHÔNG suy được từ EOD** — vẫn cần

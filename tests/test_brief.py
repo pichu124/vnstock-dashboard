@@ -515,6 +515,23 @@ def test_build_prompt_flags_partial_eod_gtgd_coverage():
     assert "6,157" not in p          # the partial number is not surfaced as GTGD
 
 
+def test_pick_gtgd_session_skips_in_progress_day():
+    # Mid-day updater run (12:35, 11/06): today has bars for only the names that
+    # traded so far (706) while yesterday is complete (1,300). The picker must
+    # return YESTERDAY, not the in-progress day; an evening run (today complete)
+    # picks today.
+    from vnstock_runner import _pick_gtgd_session
+    byd = {"2026-06-11": {"total": 4508.6, "count": 706},
+           "2026-06-10": {"total": 12500.0, "count": 1300},
+           "2026-06-09": {"total": 15229.2, "count": 1295}}
+    d, total, count = _pick_gtgd_session(byd)
+    assert d == "2026-06-10" and total == 12500.0 and count == 1300
+    byd_evening = {"2026-06-11": {"total": 11900.0, "count": 1310},
+                   "2026-06-10": {"total": 12500.0, "count": 1300}}
+    assert _pick_gtgd_session(byd_evening)[0] == "2026-06-11"
+    assert _pick_gtgd_session({}) == (None, 0.0, 0)
+
+
 def test_enforce_gtgd_total_falls_back_to_eod_total():
     # session_stats empty/zero but the EOD-derived full-day GTGD is available
     # (ctx["full_day_gtgd"]) → pin the close figure to it instead of stripping.
