@@ -920,11 +920,43 @@ def _maybe_reconcile_overdue() -> int:
         return 0
 
 
+# Cap on liquid mid-cap movers added to the daily events auto-refresh (beyond
+# VN30). The refresh runs inside generate_brief and blocks it (~1 API call per
+# ticker), so the universe is VN30 ∪ top-N movers by GTGD — not every liquid
+# name — to keep the once-a-day refresh fast while covering anything that can
+# realistically enter the watchlist/movers blocks.
+_EVENTS_REFRESH_MAX_MOVERS: int = 40
+
+
+def _events_universe(max_movers: int = _EVENTS_REFRESH_MAX_MOVERS,
+                     overview_path: "str | Path | None" = None) -> list[str]:
+    """VN30 ∪ top liquid movers (by avg GTGD) — the tickers whose corp-action
+    events the brief may surface. Falls back to VN30 alone when the screener
+    overview isn't available."""
+    uni = set(VN30_TICKERS)
+    try:
+        p = Path(overview_path) if overview_path else Path(
+            "data_warehouse/_meta/market_overview.json")
+        rows = json.loads(p.read_text(encoding="utf-8")).get("tickers") or []
+        _g, _l, liquid = _select_liquid_movers(rows)
+        gtgd = {str(r.get("Mã", "")).upper(): (r.get("GTGD TB (tỷ)") or 0)
+                for r in rows}
+        movers = sorted((t for t in liquid if t not in uni),
+                        key=lambda t: gtgd.get(t, 0), reverse=True)[:max_movers]
+        uni |= set(movers)
+    except Exception:
+        pass
+    return sorted(uni)
+
+
 def _maybe_refresh_events() -> int:
     """Refresh the upcoming-events cache when it's missing or not from today, so
     the brief's "📅 Sự kiện sắp tới" block isn't empty just because the daily
-    refresh hasn't run yet. Best-effort (~VN30 API calls), at most once/day.
-    Disable with VNSTOCK_BRIEF_AUTO_EVENTS=0. Returns number of events saved.
+    refresh hasn't run yet. Universe = VN30 ∪ top liquid movers (mid-caps that
+    can enter the watchlist get their GDKHQ events too — previously VN30-only,
+    so mid-cap events appeared only after a manual --tickers run). Best-effort,
+    at most once/day. Disable with VNSTOCK_BRIEF_AUTO_EVENTS=0. Returns number
+    of events saved.
     """
     if os.environ.get("VNSTOCK_BRIEF_AUTO_EVENTS", "1") == "0":
         return 0
@@ -935,7 +967,7 @@ def _maybe_refresh_events() -> int:
             mtime = datetime.fromtimestamp(p.stat().st_mtime).date()
             if mtime >= date.today():
                 return 0  # already refreshed today
-        return len(refresh_upcoming())
+        return len(refresh_upcoming(tickers=_events_universe()))
     except Exception:
         return 0
 

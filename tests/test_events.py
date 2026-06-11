@@ -126,6 +126,45 @@ def test_maybe_refresh_events_disabled_by_env(monkeypatch):
     assert vb._maybe_refresh_events() == 0
 
 
+def test_events_universe_includes_top_liquid_movers(tmp_path):
+    # Auto-refresh universe = VN30 ∪ top movers by GTGD (capped) — previously
+    # VN30-only, so watchlist-able mid-caps (e.g. CII) never got their GDKHQ
+    # events without a manual --tickers run.
+    import json as _json
+    from vnstock_brief import VN30_TICKERS, _events_universe
+    p = tmp_path / "market_overview.json"
+    p.write_text(_json.dumps({"tickers": [
+        {"Mã": "CII", "Giá 1T %": 1.0, "Ngành": "Hạ tầng", "last": 17.3,
+         "GTGD TB (tỷ)": 120.0},
+        {"Mã": "GEX", "Giá 1T %": 2.0, "Ngành": "CN", "last": 30.0,
+         "GTGD TB (tỷ)": 300.0},
+        {"Mã": "XYZ", "Giá 1T %": 3.0, "Ngành": "X", "last": 8.0,
+         "GTGD TB (tỷ)": 2.0},                      # illiquid → excluded
+    ]}), encoding="utf-8")
+    uni = _events_universe(max_movers=1, overview_path=p)
+    assert set(VN30_TICKERS) <= set(uni)
+    assert "GEX" in uni                  # top mover by GTGD within the cap
+    assert "CII" not in uni              # beyond max_movers=1
+    assert "XYZ" not in uni              # below the liquidity floor
+    # missing overview → VN30 only (no crash)
+    assert set(_events_universe(overview_path=tmp_path / "nope.json")) == set(VN30_TICKERS)
+
+
+def test_maybe_refresh_events_passes_broadened_universe(monkeypatch, tmp_path):
+    import sys
+    import types
+    import vnstock_brief as vb
+    captured = {}
+    fake = types.ModuleType("vnstock_events")
+    fake.UPCOMING_EVENTS_PATH = tmp_path / "nope.parquet"   # missing → refresh
+    fake.refresh_upcoming = lambda *a, **k: captured.setdefault(
+        "tickers", k.get("tickers")) or []
+    monkeypatch.setitem(sys.modules, "vnstock_events", fake)
+    vb._maybe_refresh_events()
+    assert captured["tickers"]                              # universe was passed
+    assert set(vb.VN30_TICKERS) <= set(captured["tickers"])
+
+
 def test_refresh_keeps_prior_events_when_fetch_fails(tmp_path, monkeypatch):
     # A flaky re-fetch must NOT drop a known upcoming event (regression: ACB
     # dividend vanished between two same-day runs). ACB's fetch fails (None) →

@@ -199,6 +199,12 @@ cổ tức/chia tách/thưởng (tái dùng `vnstock_adjust._fetch_events` →
 tới" (`_upcoming_events_block`). Đây là phần "sự kiện kinh tế" KHẢ THI với data
 nội bộ; **tin VĨ MÔ (CPI/Fed/SBV) chưa có** — cần nguồn ngoài (RSS/API), vướng
 network policy. Chạy `python vnstock_events.py` (VN30) / `--tickers` / `--check`.
+Auto-refresh 1×/ngày qua `_maybe_refresh_events()` trong `generate_brief`
+(mtime cache ≠ hôm nay → fetch; tắt: `VNSTOCK_BRIEF_AUTO_EVENTS=0`); universe =
+`_events_universe()` = **VN30 ∪ top-`_EVENTS_REFRESH_MAX_MOVERS`(=40) movers
+theo GTGD** (2026-06-11 — trước đó VN30-only nên sự kiện mid-cap watchlist
+không bao giờ tự có). Fundamentals KHÔNG auto — chạy tay/Task Scheduler
+1×/tuần (xem lịch trên), thêm trong mùa BCTC (giữa tháng 1/4/7/10).
 Chống regress (2026-06-10): `refresh_upcoming` **merge-safe** — mã fetch lỗi
 (None) GIỮ sự kiện cũ trong cache, chỉ fetch THÀNH CÔNG (kể cả rỗng) mới
 thay/xóa. `enforce_upcoming_events()` (gọi trong `generate_brief`) — guard
