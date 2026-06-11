@@ -249,12 +249,14 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
             last = float(c.iloc[-1])
 
             # Real full-day GTGD (matching value) ≈ giá × KLGD, gom THEO TỪNG
-            # NGÀY cho ~5 bar gần nhất của mỗi mã (không chỉ bar cuối). `close`
+            # NGÀY cho ~22 bar gần nhất của mỗi mã (không chỉ bar cuối). `close`
             # ở thang nghìn VND, volume ở cổ phiếu → tỷ VND = close*vol/1e6.
             # Lý do theo-ngày: chạy updater GIỮA phiên kéo bar dở của HÔM NAY
             # về → "ngày mới nhất" thành phiên đang dở; brief cho ngày T vẫn
-            # cần tổng của ĐÚNG ngày T (đã chốt). EOD-derived → không cần WSS.
-            for _t, _c, _v in zip(df["time"].tail(5), c.tail(5), v.tail(5)):
+            # cần tổng của ĐÚNG ngày T (đã chốt). 22 bar → đủ ~20 phiên cho
+            # baseline TB5/TB20 thật (model từng bịa "TB 20 phiên -15%" khi
+            # chỉ có 5 phiên). EOD-derived → không cần WSS.
+            for _t, _c, _v in zip(df["time"].tail(22), c.tail(22), v.tail(22)):
                 if _c > 0 and _v > 0:
                     _gtgd_day_rows.append((pd.Timestamp(_t), _c * _v / 1e6))
 
@@ -612,10 +614,10 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
             k = d.date()
             t, n = _acc.get(k, (0.0, 0))
             _acc[k] = (t + val, n + 1)
-        _last5 = sorted(_acc.keys(), reverse=True)[:5]
+        _lastn = sorted(_acc.keys(), reverse=True)[:20]   # ~20 phiên cho TB5/TB20
         gtgd_by_date = {
             k.isoformat(): {"total": round(_acc[k][0], 1), "count": _acc[k][1]}
-            for k in _last5
+            for k in _lastn
         }
     _gd, total_gtgd_day, gtgd_ticker_count = _pick_gtgd_session(gtgd_by_date)
 

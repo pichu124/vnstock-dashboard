@@ -1357,6 +1357,9 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
                             "prev": _prior[0],
                             "avg5": round(sum(_prior[:5]) / len(_prior[:5]), 1),
                         }
+                        if len(_prior) >= 15:   # đủ phiên cho baseline TB20 thật
+                            ctx["full_day_gtgd_cmp"]["avg20"] = round(
+                                sum(_prior[:20]) / len(_prior[:20]), 1)
                 else:
                     ctx["full_day_gtgd_partial"] = float(_tg)
         except Exception:
@@ -1920,7 +1923,9 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             f"\n## 🧭 RÀNG BUỘC BIAS (BẮT BUỘC)\n"
             f"Tín hiệu tổng hợp một chiều mạnh ({', '.join(_sig) or 'n/a'}). "
             f"TLDR **Bias BẮT BUỘC = {bf['dir']}** — TUYỆT ĐỐI KHÔNG ghi 'Trung tính' "
-            f"hay chiều ngược lại. {_scenario}"
+            f"hay chiều ngược lại. {_scenario} "
+            f"(Lưu ý: 'BẮT BUỘC' là chỉ thị nội bộ cho bạn — TUYỆT ĐỐI KHÔNG in chữ "
+            f"'bắt buộc' vào brief; chỉ ghi bias {bf['dir']} kèm lý do số liệu.)"
         )
         if bf["dir"] == "GIẢM":
             _where = "Watchlist sáng mai" if brief_type != "morning" else "Trọng tâm theo dõi / Kịch bản"
@@ -2081,11 +2086,15 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
                 _cmp = ctx.get("full_day_gtgd_cmp") or {}
                 if _cmp.get("prev"):
                     _pct = (_full_day / _cmp["prev"] - 1) * 100 if _cmp["prev"] else 0
-                    line += (f"\nSo sánh CẢ-NGÀY-với-CẢ-NGÀY: phiên trước {_cmp['prev']:,.1f} tỷ "
-                             f"({_pct:+.0f}%)" + (f" | TB5 phiên {_cmp['avg5']:,.1f} tỷ"
-                             if _cmp.get('avg5') else "") +
-                             ". DÙNG % NÀY cho GTGD cả ngày; TUYỆT ĐỐI KHÔNG gán % "
-                             "'so với sáng phiên trước' cho số cả ngày.")
+                    _parts = [f"phiên trước {_cmp['prev']:,.1f} tỷ ({_pct:+.0f}%)"]
+                    for _k, _lbl in (("avg5", "TB5 phiên"), ("avg20", "TB20 phiên")):
+                        if _cmp.get(_k):
+                            _parts.append(f"{_lbl} {_cmp[_k]:,.1f} tỷ "
+                                          f"({(_full_day / _cmp[_k] - 1) * 100:+.0f}%)")
+                    line += ("\nSo sánh CẢ-NGÀY-với-CẢ-NGÀY: " + " | ".join(_parts) +
+                             ". DÙNG % NÀY cho GTGD cả ngày; CHỈ baseline đã cho (KHÔNG "
+                             "tự suy TB khác), TUYỆT ĐỐI KHÔNG gán % 'so với sáng phiên "
+                             "trước' cho số cả ngày.")
             elif ctx.get("full_day_gtgd_partial") and not (morn_gtgd or full_gtgd):
                 # The session's bars are incomplete (in-progress day / EOD batch
                 # not fully landed) → the partial sum must NOT pose as the
@@ -2110,9 +2119,14 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             _cmp = ctx.get("full_day_gtgd_cmp") or {}
             if _cmp.get("prev"):
                 _pct = (float(_eod_full) / _cmp["prev"] - 1) * 100 if _cmp["prev"] else 0
-                _l += (f"\nSo sánh cả-ngày-với-cả-ngày: phiên trước {_cmp['prev']:,.1f} tỷ "
-                       f"({_pct:+.0f}%)" + (f" | TB5 {_cmp['avg5']:,.1f} tỷ"
-                       if _cmp.get('avg5') else "") + ". KHÔNG gán % so-với-sáng cho số cả ngày.")
+                _parts = [f"phiên trước {_cmp['prev']:,.1f} tỷ ({_pct:+.0f}%)"]
+                for _k, _lbl in (("avg5", "TB5 phiên"), ("avg20", "TB20 phiên")):
+                    if _cmp.get(_k):
+                        _parts.append(f"{_lbl} {_cmp[_k]:,.1f} tỷ "
+                                      f"({(float(_eod_full) / _cmp[_k] - 1) * 100:+.0f}%)")
+                _l += ("\nSo sánh cả-ngày-với-cả-ngày: " + " | ".join(_parts) +
+                       ". CHỈ baseline đã cho (KHÔNG tự suy TB khác), KHÔNG gán % "
+                       "so-với-sáng cho số cả ngày.")
         else:
             _l += " GTGD: viết 'chưa có dữ liệu', KHÔNG bịa số."
         lines.append(_l)

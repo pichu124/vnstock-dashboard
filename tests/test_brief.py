@@ -518,6 +518,9 @@ def test_bias_floor_giam_adds_watchlist_conditional_buy_rule():
     prompt = build_prompt(ctx, brief_type="afternoon")
     assert "canh MUA NẾU vượt lại" in prompt
     assert "bắt dao rơi" in prompt
+    # 22:59 leaked "bias GIẢM bắt buộc" into the TLDR — the block must tell the
+    # model the directive wording is internal-only
+    assert "KHÔNG in chữ" in prompt and "'bắt buộc' vào brief" in prompt
     # TĂNG floor → no such restriction
     ctx_up = {"date": "2026-06-10", "time": "15:00",
               "bias_floor": {"dir": "TĂNG", "momentum": 60, "regime_score": 4}}
@@ -1588,12 +1591,13 @@ def test_build_prompt_full_day_gtgd_comparison_is_day_over_day():
     ctx = {"date": "2026-06-11", "time": "15:00",
            "vnindex_tech": {"close": 1798.61, "intraday": False},
            "full_day_gtgd": 11929.2,
-           "full_day_gtgd_cmp": {"prev": 13000.0, "avg5": 12500.0}}
+           "full_day_gtgd_cmp": {"prev": 13000.0, "avg5": 12500.0, "avg20": 14000.0}}
     p = build_prompt(ctx, brief_type="afternoon")
     assert "So sánh cả-ngày-với-cả-ngày" in p or "So sánh CẢ-NGÀY-với-CẢ-NGÀY" in p
     assert "phiên trước 13,000.0 tỷ (-8%)" in p
-    assert "TB5" in p
-    assert "KHÔNG gán % so-với-sáng" in p.replace("'", "")
+    assert "TB5 phiên 12,500.0 tỷ (-5%)" in p
+    assert "TB20 phiên 14,000.0 tỷ (-15%)" in p   # real TB20 (model invented it before)
+    assert "KHÔNG tự suy TB khác" in p
 
 
 def test_movers_star_line_carries_per_stock_reference_levels():
