@@ -275,7 +275,7 @@ Nếu block "VNINDEX kỹ thuật" KHÔNG có → viết "Chưa có dữ liệu 
 
 ## 🏆 Dẫn dắt & Tụt hậu
 DÙNG ĐÚNG block "🎯 Dẫn dắt/Tụt hậu — CHỐT THEO DATA" ở trên (không tự chọn ngành khác):
-**Dẫn dắt:** [ngành lead đã chốt + đóng góp pp (1 tuần) + % return. Nếu block ghi "Chưa có nhóm dẫn dắt rõ ràng" → ghi Y NHƯ VẬY, KHÔNG nêu ngành đóng góp <0.05pp làm dẫn dắt]
+**Dẫn dắt:** [ngành lead đã chốt + đóng góp pp (1 tuần). KHÔNG bịa "% return"/"composite" cho ngành — data không có % giá tuần cấp ngành (đã thấy bịa "+0.0%", "+2.0% composite"). Nếu block ghi "Chưa có nhóm dẫn dắt rõ ràng" → ghi Y NHƯ VẬY, KHÔNG nêu ngành đóng góp <0.05pp làm dẫn dắt]
 **Tụt hậu:** [ngành lag đã chốt + đóng góp pp (1 tuần)]
 
 ## 💰 Dòng tiền đáng chú ý
