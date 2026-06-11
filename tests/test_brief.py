@@ -438,6 +438,26 @@ def test_both_templates_have_risk_section_and_money_flow_guard_parity():
         assert "PHẢI kèm CON SỐ" in p           # numbers-required rule
 
 
+def test_enforce_no_cjk_strips_han_characters():
+    # Close brief leaked "giá trị giao dịch 达到 5,153 tỷ" — CJK is never valid in
+    # the Vietnamese brief; strip it and tidy the spacing.
+    from vnstock_brief import enforce_no_cjk
+    assert enforce_no_cjk("giá trị giao dịch 达到 5,153 tỷ") == "giá trị giao dịch 5,153 tỷ"
+    # full Vietnamese with diacritics is untouched
+    t = "VNINDEX đóng cửa 1.803,71 — độ rộng tiêu cực; NN bán ròng BĐS."
+    assert enforce_no_cjk(t) == t
+    assert enforce_no_cjk("") == ""
+
+
+def test_morning_gtgd_example_has_no_leakable_literal():
+    # The morning GTGD instruction used a concrete example "9.650,4 tỷ" which the
+    # model copied verbatim when real morning GTGD was absent. The example must
+    # carry no leakable number + a no-invent fallback.
+    p = build_prompt({"date": "2026-06-10", "time": "11:30"}, brief_type="morning")
+    assert "9.650,4" not in p
+    assert "Chưa có GTGD phiên sáng" in p
+
+
 def test_money_flow_guard_handles_morning_inline_line():
     # The two-sides guard must also fix the morning's inline "Dòng tiền ngành"
     # line (no dedicated section header), not just the close section.

@@ -191,7 +191,7 @@ Viết MORNING BRIEF tiếng Việt theo đúng format sau (không thêm phần 
 
 ## 📊 Tổng quan phiên sáng
 [2-3 câu: diễn biến chính, GTGD vs bình thường (có % so trung bình 5 phiên nếu data có), tính chất phiên (institutional vs retail dựa vào GTGD/độ rộng)]
-Dùng "GTGD sáng" trong data cho brief sáng và so sánh ĐỒNG DẠNG (sáng-với-sáng), KHÔNG so GTGD nửa phiên sáng với trung bình cả ngày. Ghi GTGD có dấu phân tách nghìn (vd "9.650,4 tỷ").
+Dùng "GTGD sáng" trong data cho brief sáng và so sánh ĐỒNG DẠNG (sáng-với-sáng), KHÔNG so GTGD nửa phiên sáng với trung bình cả ngày. Ghi GTGD có dấu phân tách nghìn (đơn vị tỷ). Nếu data KHÔNG có "GTGD sáng" → TUYỆT ĐỐI KHÔNG bịa số; ghi "Chưa có GTGD phiên sáng" (hoặc dùng "GTGD cả ngày" nếu data có, ghi rõ "cả ngày").
 BẮT BUỘC nếu có block "Tâm lý thị trường": nêu RÕ nhãn tâm lý + điểm momentum (vd "Tâm lý: 📈 Tích cực, momentum +34/100") và hàm ý cho phiên chiều.
 
 ## 📈 Mức kỹ thuật quan trọng (VNINDEX)
@@ -244,7 +244,7 @@ YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
 - Kịch bản phải có TRIGGER (mức giá/chỉ số/% volume) — không viết "nếu thị trường tốt".
 - Nếu không đủ data cho một mục → viết "Cần thêm [data X]", không bịa.
 - MỌI % thay đổi giá PHẢI ghi rõ khung thời gian: "hôm nay", "phiên sáng", "5 phiên", "so với đóng cửa hôm qua", v.v. TUYỆT ĐỐI KHÔNG viết "X giảm Y%" mà không có khung thời gian.
-- Viết THUẦN tiếng Việt — KHÔNG chèn từ tiếng Anh vào câu (vd "mua ròng strongest" → "mua ròng mạnh nhất"). Thuật ngữ chuẩn (RSI, MA20, A/D, Op.CF, D/E, GTGD…) giữ nguyên.
+- Viết THUẦN tiếng Việt — KHÔNG chèn từ tiếng Anh (vd "mua ròng strongest" → "mua ròng mạnh nhất") HAY ký tự Trung/Nhật/Hàn (vd "达到") vào câu. Thuật ngữ chuẩn (RSI, MA20, A/D, Op.CF, D/E, GTGD…) giữ nguyên.
 """
 
 _AFTERNOON_TEMPLATE = """\
@@ -318,7 +318,7 @@ YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
 - Setup watchlist phải có TRIGGER (mức giá cụ thể) — không viết "nếu thị trường tích cực thì vào".
 - Nếu không đủ data → viết "Cần thêm [data X]", không bịa.
 - MỌI % thay đổi giá PHẢI ghi rõ khung thời gian: "hôm nay", "phiên sáng", "5 phiên", "so với đóng cửa hôm qua", v.v. TUYỆT ĐỐI KHÔNG viết "X giảm Y%" mà không có khung thời gian.
-- Viết THUẦN tiếng Việt — KHÔNG chèn từ tiếng Anh vào câu (vd "mua ròng strongest" → "mua ròng mạnh nhất"). Thuật ngữ chuẩn (RSI, MA20, A/D, Op.CF, D/E, GTGD…) giữ nguyên.
+- Viết THUẦN tiếng Việt — KHÔNG chèn từ tiếng Anh (vd "mua ròng strongest" → "mua ròng mạnh nhất") HAY ký tự Trung/Nhật/Hàn (vd "达到") vào câu. Thuật ngữ chuẩn (RSI, MA20, A/D, Op.CF, D/E, GTGD…) giữ nguyên.
 """
 
 
@@ -2286,6 +2286,7 @@ def generate_brief(
             fixed = enforce_risk_numbers(fixed, ctx)
             fixed = enforce_pivot_labels(fixed, ctx)
             fixed = enforce_watchlist_eligibility(fixed, ctx)
+            fixed = enforce_no_cjk(fixed, ctx)
             if fixed != text:
                 results[agent.name] = (fixed, _err)
 
@@ -2669,6 +2670,23 @@ def enforce_watchlist_eligibility(text: str, ctx: dict) -> str:
                 out.append(l)
         kept = out
     return "\n".join(lines[:start + 1] + kept + lines[end:])
+
+
+_CJK_RE = _re.compile(r"[㐀-䶿一-鿿豈-﫿]+")
+
+
+def enforce_no_cjk(text: str, ctx: dict | None = None) -> str:
+    """Deterministic guard: strip Chinese/Japanese/Korean Han characters that
+    leak into the Vietnamese brief (observed: "giá trị giao dịch 达到 5,153 tỷ"
+    — 达到 = 'reached'). CJK is never valid here, so remove the runs and tidy the
+    spacing they leave behind. No-op when the text is clean.
+    """
+    if not text or not _CJK_RE.search(text):
+        return text
+    out = _CJK_RE.sub("", text)
+    out = _re.sub(r"[ \t]{2,}", " ", out)        # collapse gaps left by removal
+    out = _re.sub(r"[ \t]+([,.;:%)])", r"\1", out)
+    return out
 
 
 def validate_brief_factuality(text: str, ctx: dict) -> list[str]:
