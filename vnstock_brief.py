@@ -289,7 +289,7 @@ Block "Top Gainers/Losers thanh khoản cao" BÌNH THƯỜNG có sẵn vài mã 
 CHIỀU LỆNH — hướng setup PHẢI nhất quán với "Stance ngày mai"/bias: Stance GIẢM (regime/momentum yếu) → ƯU TIÊN mẫu phòng thủ (GIẢM TỶ TRỌNG/TRÁNH), KHÔNG mở loạt setup MUA mới; nếu nêu MUA thì PHẢI là kèo CÓ ĐIỀU KIỆN ("chỉ canh MUA NẾU vượt lại [kháng cự]"). Stance TĂNG → ưu tiên MUA. Chọn ĐÚNG 1 trong 2 mẫu, mốc giá phải đúng thứ tự (TỰ KIỂM TRA trước khi xuất, không được mâu thuẫn):
 - Ý tưởng TĂNG → "MUA vùng [entry] · chốt lời [TP] · cắt lỗ [SL]" — BẮT BUỘC SL < entry < TP.
 - Ý tưởng GIẢM → KHÔNG viết "SELL ở [giá]" (TTCK VN không cho NĐT cá nhân bán khống). Viết: "GIẢM TỶ TRỌNG/TRÁNH nếu thủng [hỗ trợ] · mục tiêu về [thấp hơn] · hủy kịch bản nếu vượt lại [cao hơn]" — BẮT BUỘC mục tiêu < hỗ trợ < mức hủy.
-MỐC GIÁ SETUP MỖI MÃ PHẢI quanh "Giá" CỦA CHÍNH MÃ ĐÓ (vd Giá 70.700 → entry/TP/SL/[hỗ trợ]/[kháng cự] đều ở thang quanh 70.700, lệch vài %). TUYỆT ĐỐI KHÔNG dùng mức S1/S2/R1/R2 của VNINDEX (vd 1.801,66 / 1.775,65 — đó là ĐIỂM SỐ CHỈ SỐ, KHÔNG phải giá cổ phiếu) làm mốc cho setup một mã. "[kháng cự]/[hỗ trợ]" ở đây = mức GIÁ quanh Giá của mã, KHÔNG phải kháng cự/hỗ trợ của index. Nếu mốc setup có cùng thang số với VNINDEX (1.7xx-1.8xx) trong khi Giá mã ở thang khác → SAI, làm lại.
+MỐC GIÁ SETUP MỖI MÃ LẤY TỪ "[mốc của mã: hỗ trợ ~X / kháng cự ~Y]" ĐÃ TÍNH SẴN ngay sau mã ⭐ trong block movers (X,Y là ±3% quanh Giá của CHÍNH mã đó). Dùng đúng các số đó: entry/[hỗ trợ] ≈ X, [kháng cự]/mục tiêu tăng ≈ Y, TP/SL nới thêm vài % cùng thang. TUYỆT ĐỐI KHÔNG dùng mức S1/S2/R1/R2 của VNINDEX (vd 1.801,66 / 1.789,31 — đó là ĐIỂM SỐ CHỈ SỐ, KHÔNG phải giá cổ phiếu) làm mốc cho setup một mã. Nếu mốc setup có cùng thang số với VNINDEX (1.7xx-1.8xx) trong khi Giá mã ở thang khác → SAI, làm lại bằng "mốc của mã".
 Setup đưa ra là setup THẬT để theo dõi — TUYỆT ĐỐI KHÔNG viết chú thích meta kiểu "(đây là ví dụ)", "(không dùng thực tế)", "(mang tính minh họa)", "(không có đủ thông tin)". Nếu không đủ tự tin về một mã → BỎ HẲN mã đó (ít setup hơn vẫn tốt hơn setup kèm disclaimer).
 1. **[Mã]** (Giá [số] từ data) — [đúng 1 trong 2 mẫu trên] — [trigger 1 dòng]
 2. [chỉ thêm nếu có mã thứ 2 ĐỦ GIÁ — nếu không, bỏ dòng này]
@@ -2211,7 +2211,13 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             and float(_gtgd) >= _WATCHLIST_GTGD_MIN_TY
         )
         if _eligible and price not in (None, ""):
-            line += " ⭐"
+            # ⭐ + reference levels computed from the stock's OWN price (±3%), so
+            # the watchlist anchors a setup to these instead of grabbing the
+            # VNINDEX S/R (recurring "CII canh mua nếu vượt R1=1,800.80" bug →
+            # empty watchlist after the hygiene guard dropped it).
+            _p = float(price) * 1000
+            line += (f" ⭐ [mốc của mã: hỗ trợ ~{_p * 0.97:,.0f} / "
+                     f"kháng cự ~{_p * 1.03:,.0f}]")
         return line
 
     if gainers := ctx.get("vn30_gainers"):
@@ -2420,6 +2426,7 @@ def generate_brief(
             fixed = enforce_watchlist_eligibility(fixed, ctx)
             fixed = enforce_gtgd_total(fixed, ctx)
             fixed = enforce_no_cjk(fixed, ctx)
+            fixed = enforce_no_instruction_leak(fixed, ctx)
             if fixed != text:
                 results[agent.name] = (fixed, _err)
 
@@ -2870,6 +2877,32 @@ def enforce_no_cjk(text: str, ctx: dict | None = None) -> str:
     out = _re.sub(r"[ \t]{2,}", " ", out)        # collapse gaps left by removal
     out = _re.sub(r"[ \t]+([,.;:%)])", r"\1", out)
     return out
+
+
+# Template-instruction fragments the model sometimes echoes verbatim into the
+# brief (observed close 21:19: a trailing "Giới hạn 500 từ. Nếu thị trường flat
+# …" line copied from the prompt's own length/format guidance).
+_INSTR_LEAK_RE = _re.compile(
+    r"^\s*(?:Giới hạn\s*\d+\s*từ"
+    r"|YÊU CẦU VỀ ĐỘ CỤ THỂ"
+    r"|\(Hướng dẫn\b"
+    r"|Viết\s+(?:MORNING|AFTERNOON|CLOSE)\s+BRIEF)",
+    _re.IGNORECASE,
+)
+
+
+def enforce_no_instruction_leak(text: str, ctx: dict | None = None) -> str:
+    """Deterministic guard: drop lines that echo the prompt's own instructions
+    (length cap / format rules) instead of brief content. No-op when clean."""
+    if not text:
+        return text
+    kept = [l for l in text.splitlines()
+            if not _INSTR_LEAK_RE.match(l)
+            and "nếu thị trường flat và không có signal" not in l.lower()]
+    src = text.splitlines()
+    if len(kept) == len(src):
+        return text
+    return "\n".join(kept)
 
 
 # Keyword-anchored GTGD figure: the thousands-magnitude number (+ optional unit)

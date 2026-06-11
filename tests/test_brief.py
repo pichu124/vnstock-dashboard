@@ -1495,6 +1495,32 @@ def test_select_liquid_movers_guarantees_eligible_anchor():
     assert "FPT" in {r["Mã"] for r in g}   # +1.2% → gainer side
 
 
+def test_movers_star_line_carries_per_stock_reference_levels():
+    # ⭐ movers must surface ±3% reference levels computed from the stock's own
+    # price, so the watchlist anchors a setup to those instead of grabbing the
+    # VNINDEX S/R (recurring empty-watchlist bug). 70.6 (nghìn) → 70,600 →
+    # support ~68,482, resistance ~72,718.
+    ctx = {"date": "2026-06-11", "time": "15:00",
+           "vn30_gainers": [{"Mã": "STB", "Giá 1T %": 1.0, "Ngành": "NH",
+                             "last": 70.6, "GTGD TB (tỷ)": 800.0}]}
+    p = build_prompt(ctx, brief_type="afternoon")
+    assert "STB" in p and "⭐" in p
+    assert "mốc của mã: hỗ trợ ~68,482 / kháng cự ~72,718" in p
+    assert "LẤY TỪ" in p          # watchlist instruction points at these levels
+
+
+def test_enforce_no_instruction_leak_strips_echoed_guidance():
+    from vnstock_brief import enforce_no_instruction_leak
+    text = ("🔧 Đề xuất bổ sung\nCần theo dõi CPI, lãi suất.\n"
+            "Giới hạn 500 từ. Nếu thị trường flat và không có signal rõ thì nói thẳng.")
+    fixed = enforce_no_instruction_leak(text, {})
+    assert "Giới hạn 500 từ" not in fixed
+    assert "Cần theo dõi CPI" in fixed          # real content kept
+    # clean brief untouched
+    t2 = "🎯 TLDR\nVNINDEX -0.28%."
+    assert enforce_no_instruction_leak(t2, {}) == t2
+
+
 def test_build_prompt_movers_header_is_liquidity_not_vn30():
     ctx = {"date": "2026-06-09", "time": "15:00",
            "vn30_gainers": [{"Mã": "GEX", "Giá 1T %": 8.0, "Ngành": "CN",
