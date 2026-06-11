@@ -2753,7 +2753,21 @@ def enforce_watchlist_hygiene(text: str, ctx: dict | None = None) -> str:
                 return f"{m.group(1)}{round(P * 1.02 / 50) * 50:,.0f}"
             return m.group(0)
 
-        return _re.sub(r"(vượt(?:\s*lại)?\s*)([\d][\d.,]*)", _sub, l, count=1)
+        l = _re.sub(r"(vượt(?:\s*lại)?\s*)([\d][\d.,]*)", _sub, l, count=1)
+
+        # Keep a sane reward after the bump: if "mục tiêu" sits within 1.5% of
+        # the (possibly bumped) trigger (observed 23:56: vượt 17,550 → mục tiêu
+        # 17,716 = +0.95%), raise the target to ~trigger+3%.
+        tm = _re.search(r"vượt(?:\s*lại)?\s*([\d][\d.,]*)", l)
+        trig = _parse_vn_number(tm.group(1)) if tm else None
+        if trig:
+            def _sub_tp(m: "_re.Match") -> str:
+                y = _parse_vn_number(m.group(2))
+                if y is not None and y < trig * 1.015:
+                    return f"{m.group(1)}{round(trig * 1.03 / 50) * 50:,.0f}"
+                return m.group(0)
+            l = _re.sub(r"(mục tiêu\s*)([\d][\d.,]*)", _sub_tp, l, count=1)
+        return l
 
     sec = [_fix_buy_trigger(l) for l in sec]
 
@@ -3012,17 +3026,21 @@ _CJK_RE = _re.compile(r"[㐀-䶿一-鿿豈-﫿]+")
 
 
 def enforce_no_cjk(text: str, ctx: dict | None = None) -> str:
-    """Deterministic guard: strip Chinese/Japanese/Korean Han characters that
-    leak into the Vietnamese brief (observed: "giá trị giao dịch 达到 5,153 tỷ"
-    — 达到 = 'reached'). CJK is never valid here, so remove the runs and tidy the
-    spacing they leave behind. No-op when the text is clean.
+    """Deterministic language-hygiene guard: strip Chinese/Japanese/Korean Han
+    characters that leak into the Vietnamese brief (observed: "đạt 达到 5,153
+    tỷ") and normalize recurring sentiment-label typos ("Sổ hãi"/"Sờ hãi" →
+    "Sợ hãi" — the label is ours, from the sentiment block, so the spelling is
+    known). No-op when the text is clean.
     """
-    if not text or not _CJK_RE.search(text):
+    if not text:
         return text
-    out = _CJK_RE.sub("", text)
-    out = _re.sub(r"[ \t]{2,}", " ", out)        # collapse gaps left by removal
-    out = _re.sub(r"[ \t]+([,.;:%)])", r"\1", out)
-    return out
+    out = text
+    if _CJK_RE.search(out):
+        out = _CJK_RE.sub("", out)
+        out = _re.sub(r"[ \t]{2,}", " ", out)    # collapse gaps left by removal
+        out = _re.sub(r"[ \t]+([,.;:%)])", r"\1", out)
+    out = _re.sub(r"S[ổờòỏõóô] hãi", "Sợ hãi", out)
+    return out if out != text else text
 
 
 # Template-instruction fragments the model sometimes echoes verbatim into the

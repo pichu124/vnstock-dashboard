@@ -450,12 +450,27 @@ def test_enforce_watchlist_hygiene_bumps_subprice_buy_trigger():
     fixed = enforce_watchlist_hygiene(text, {"bias_floor": {"dir": "GIẢM"}})
     assert "canh MUA NẾU vượt 17,550" in fixed
     assert "vượt 16,684" not in fixed
+    # the target is bumped along with the trigger so the reward isn't squeezed
+    # to <1% (observed 23:56: vượt 17,550 → mục tiêu 17,716 = +0.95%)
+    assert "mục tiêu 18,100" in fixed and "17,716" not in fixed
     assert "hủy nếu vượt lại 98,365" in fixed      # defensive line untouched
     # an already-correct trigger (above price) is left as-is
     t2 = ("📋 Watchlist sáng mai\n"
           "1. **CII** (Giá 17,200) — canh MUA NẾU vượt 17,716 · mục tiêu 18,200 · cắt lỗ 16,800\n"
           "⚠️ Rủi ro")
-    assert "vượt 17,716" in enforce_watchlist_hygiene(t2, {"bias_floor": {"dir": "GIẢM"}})
+    f2 = enforce_watchlist_hygiene(t2, {"bias_floor": {"dir": "GIẢM"}})
+    assert "vượt 17,716" in f2 and "mục tiêu 18,200" in f2
+
+
+def test_enforce_no_cjk_normalizes_sentiment_typo():
+    # Recurring model typo on our own sentiment label: "Sổ hãi" (23:56) and
+    # "Sờ hãi" (earlier run) → "Sợ hãi".
+    from vnstock_brief import enforce_no_cjk
+    assert enforce_no_cjk("Tâm lý: ❄️ Sổ hãi, momentum -61/100") == \
+        "Tâm lý: ❄️ Sợ hãi, momentum -61/100"
+    assert enforce_no_cjk("Tâm lý ❄️ Sờ hãi hôm nay") == "Tâm lý ❄️ Sợ hãi hôm nay"
+    t = "Tâm lý: ❄️ Sợ hãi, momentum -61/100"
+    assert enforce_no_cjk(t) == t
 
 
 def test_enforce_money_flow_two_sides_requires_numbers_not_just_sides():
