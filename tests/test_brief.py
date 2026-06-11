@@ -489,6 +489,29 @@ def test_enforce_gtgd_total_noop_intraday_and_missing():
     assert enforce_gtgd_total(t, {}) == t
 
 
+def test_build_prompt_emits_eod_full_day_gtgd():
+    # When session capture is absent but the EOD-derived total is in ctx, the
+    # Session Timing block must surface it (so the close brief can cite a real
+    # GTGD on EOD-only days) and label it as an EOD estimate.
+    ctx = {"date": "2026-06-10", "time": "15:00", "full_day_gtgd": 10800.0,
+           "vnindex_tech": {"close": 1803.71, "intraday": False}}
+    p = build_prompt(ctx, brief_type="afternoon")
+    assert "GTGD cả ngày: 10,800.0 tỷ" in p
+    assert "ước tính từ EOD" in p
+
+
+def test_enforce_gtgd_total_falls_back_to_eod_total():
+    # session_stats empty/zero but the EOD-derived full-day GTGD is available
+    # (ctx["full_day_gtgd"]) → pin the close figure to it instead of stripping.
+    from vnstock_brief import enforce_gtgd_total
+    ctx = {"session_stats": {"9h-15h": {"VNINDEX": {"gtgd": 0.0}}},
+           "full_day_gtgd": 10800.0,
+           "vnindex_tech": {"intraday": False}}
+    text = "**Kết quả phiên:** VNINDEX +0.59% với GTGD 5,153 tỷ đồng."
+    fixed = enforce_gtgd_total(text, ctx)
+    assert "GTGD 10,800.0 tỷ" in fixed and "5,153" not in fixed
+
+
 def test_enforce_gtgd_total_strips_fabrication_when_session_is_zero():
     # The real 10/06 case: session_stats present but every GTGD window is 0.0
     # (WSS didn't run / EOD-only) → the model fabricated numbers. Strip them.

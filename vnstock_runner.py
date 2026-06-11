@@ -216,6 +216,7 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
     rows = []
     b_total = b_ma200 = b_rsi_ov = b_rsi_ob = 0
     b_adv = b_dec = b_unch = b_hi = b_lo = 0
+    _gtgd_day_rows: list[tuple] = []  # (bar_date, giá×KLGD tỷ) → tổng GTGD phiên mới nhất
     _max_data_date = None  # latest stock bar date actually used (breadth data date)
 
     ticker_dirs = sorted(prices_dir.glob("ticker=*"))
@@ -246,6 +247,15 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
             c = df["close"].astype(float)
             v = df["volume"].astype(float)
             last = float(c.iloc[-1])
+
+            # Real full-day GTGD (matching value) ≈ giá × KLGD của bar gần nhất.
+            # `last` ở thang nghìn VND, volume ở cổ phiếu → tỷ VND =
+            # last*1000*vol/1e9 = last*vol/1e6. EOD-derived → có ngay sau khi down
+            # data (không cần WSS live capture). Lưu kèm ngày bar; chỉ cộng các mã
+            # có bar đúng PHIÊN MỚI NHẤT (lọc sau vòng lặp) để bỏ mã ngừng GD.
+            _vol_today = float(v.iloc[-1]) if len(v) else 0.0
+            if last > 0 and _vol_today > 0:
+                _gtgd_day_rows.append((_bar_date, last * _vol_today / 1e6))
 
             # Breadth
             b_total += 1
@@ -590,11 +600,20 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
     result = result.rename(columns={"industry": "Ngành"})
     result = result.sort_values("Vốn hoá (tỷ)", ascending=False).reset_index(drop=True)
 
+    # Full-day GTGD (matching value, tỷ VND) = Σ giá×KLGD ONLY for stocks whose
+    # latest bar is the most-recent session (excludes halted/delisted names whose
+    # stale last bar would otherwise be added). EOD-derived total, available right
+    # after the screener runs — no live WSS capture needed.
+    total_gtgd_day = round(
+        sum(val for d, val in _gtgd_day_rows if d == _max_data_date), 1
+    ) if _max_data_date is not None else 0.0
+
     return {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         # Actual trading date of the stock bars used (NOT wall-clock) — lets the
         # brief detect when breadth/movers/regime trail an intraday VNINDEX.
         "data_date": _max_data_date.date().isoformat() if _max_data_date is not None else None,
+        "total_gtgd_day": total_gtgd_day,
         "sectors": result.to_dict(orient="records"),
         "breadth": breadth,
         "tickers": tick_display.to_dict(orient="records"),

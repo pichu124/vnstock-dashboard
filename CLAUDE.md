@@ -95,7 +95,21 @@ regress các cơ chế này:
 - Rec quá hạn bị lọc khỏi "Đề xuất giao dịch"; "Đề xuất bổ sung" cấm xin data đã
   có (dòng tiền ngành/NN ròng, GTGD, breadth, regime, VN30 cơ bản).
 
-### 🛡️ 7 guard hậu kiểm deterministic (chạy trong `generate_brief` cho CẢ 2 brief)
+### 💵 GTGD cả ngày từ EOD (DONE 2026-06-11) — KHÔNG cần WSS live
+
+`session_stats` (GTGD theo khung giờ 9h-11h30 / 9h-15h) CHỈ pipeline WSS **live**
+trong phiên mới ghi — chạy brief trên data EOD-only (down hôm sau) → toàn 0.0 →
+model BỊA GTGD (5.153 / 14.118 / 9.650,4). Fix: `compute_market_overview` ghi
+`total_gtgd_day` = Σ (giá đóng cửa × KLGD) của PHIÊN MỚI NHẤT (lọc theo bar date,
+bỏ mã ngừng GD) = **GTGD cả ngày THẬT từ EOD** (xấp xỉ khớp lệnh, có ngay sau
+`run.py screener`). Brief đọc vào `ctx["full_day_gtgd"]`; Session Timing block
+ưu tiên session-live, fallback EOD (gắn nhãn "ước tính từ EOD"); `enforce_gtgd_total`
+pin số trong TLDR/Tổng kết về giá trị này (strip "chưa có dữ liệu" khi cả 2
+nguồn đều trống). **GTGD sáng (split 9h-11h30) KHÔNG suy được từ EOD** — vẫn cần
+WSS; morning brief trên EOD-only → "Chưa có GTGD phiên sáng". (Lưu ý: tổng EOD gồm
+mọi sàn đã phân ngành, có thể > GTGD HOSE-only; xấp xỉ close×vol, không VWAP.)
+
+### 🛡️ 9 guard hậu kiểm deterministic (chạy trong `generate_brief` cho CẢ 2 brief)
 
 LLM hay phớt chỉ thị prompt → chốt bằng code sau khi agent trả output (chuỗi
 fixup trong `generate_brief`, áp cho mọi agent, cả morning & close):
@@ -114,6 +128,10 @@ fixup trong `generate_brief`, áp cho mọi agent, cả morning & close):
    (không đụng giá cổ phiếu trong setup); áp cả 2 (regex toàn text).
 7. `enforce_watchlist_eligibility` — loại setup mã GTGD < `_WATCHLIST_GTGD_MIN_TY`
    & không VN30 (anchor "watchlist sáng mai" → close-only).
+8. `enforce_gtgd_total` — pin GTGD cả ngày (session-live hoặc EOD `full_day_gtgd`)
+   trong TLDR/Tổng kết; strip "chưa có dữ liệu" khi cả 2 nguồn trống. Keyword-anchored
+   (không đụng điểm VNINDEX cùng dòng / GTGD theo ngành).
+9. `enforce_no_cjk` — xóa ký tự Trung/Nhật/Hàn (vd "达到") lọt vào brief.
 
 **Parity morning↔close (DONE 2026-06-11)**: 2 template nay thống nhất tính năng,
 trừ khác biệt CỐ Ý — GTGD sáng-với-sáng (intraday), "Watchlist sáng mai"/"Stance

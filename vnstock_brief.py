@@ -1250,6 +1250,13 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
             ctx["sectors"] = data.get("sectors", [])
             ctx["breadth"] = data.get("breadth", {})
             ctx["tickers"] = data.get("tickers", [])
+            # Full-day GTGD (matching value) derived from the EOD bars — present
+            # right after the screener runs, even when the live WSS session
+            # capture (session_stats) is empty. Lets the close brief cite a real
+            # GTGD instead of "chưa có dữ liệu" on EOD-only days.
+            _tg = data.get("total_gtgd_day")
+            if isinstance(_tg, (int, float)) and _tg > 0:
+                ctx["full_day_gtgd"] = float(_tg)
         except Exception:
             pass
 
@@ -1919,24 +1926,37 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
                     cmp_parts.append(f"TB sáng ~20 phiên {mg['avg20']:,.1f} tỷ")
                 if cmp_parts:
                     line += "\nSo sánh ĐỒNG DẠNG (sáng-với-sáng): " + " | ".join(cmp_parts)
-            # Full-day GTGD only when the session is actually CLOSED (not intraday).
-            if (not _intraday) and full_gtgd and morn_gtgd and full_gtgd > morn_gtgd * 1.05:
-                line += (f"\nGTGD cả ngày: {full_gtgd:,.1f} tỷ → DÙNG ĐÚNG SỐ NÀY cho "
+            # Full-day GTGD (only when session CLOSED). Prefer the live session
+            # capture; fall back to the EOD-derived total (Σ giá×KLGD) so EOD-only
+            # days still get a real number instead of a vacuum.
+            _eod_full = ctx.get("full_day_gtgd")
+            _full_day = None
+            _src = ""
+            if not _intraday:
+                if full_gtgd and morn_gtgd and full_gtgd > morn_gtgd * 1.05:
+                    _full_day = full_gtgd
+                elif isinstance(_eod_full, (int, float)) and _eod_full > 0:
+                    _full_day, _src = float(_eod_full), " (ước tính từ EOD: Σ giá×KLGD)"
+            if _full_day:
+                line += (f"\nGTGD cả ngày: {_full_day:,.1f} tỷ{_src} → DÙNG ĐÚNG SỐ NÀY cho "
                          f"'GTGD' trong TLDR/Tổng kết phiên; TUYỆT ĐỐI KHÔNG nhặt số khác "
                          f"(GTGD sáng, GTGD theo ngành, v.v.) làm GTGD cả ngày.")
-            # No GTGD captured at all (WSS pipeline didn't run / EOD-only data):
-            # mark it explicitly so the model writes "chưa có dữ liệu" instead of
-            # filling the vacuum with a fabricated number (observed 9.650,4 leak).
-            if not morn_gtgd and not full_gtgd:
-                line += ("\n⚠️ KHÔNG có dữ liệu GTGD hôm nay (WSS chưa chạy / chỉ có "
-                         "data EOD) → trong TLDR/Tổng kết ghi 'GTGD: chưa có dữ liệu', "
-                         "TUYỆT ĐỐI KHÔNG bịa bất kỳ con số GTGD nào.")
+            elif not morn_gtgd and not full_gtgd:
+                # No GTGD anywhere (WSS didn't run AND no EOD total) → say so.
+                line += ("\n⚠️ KHÔNG có dữ liệu GTGD hôm nay → trong TLDR/Tổng kết ghi "
+                         "'GTGD: chưa có dữ liệu', TUYỆT ĐỐI KHÔNG bịa con số GTGD nào.")
         lines.append(line)
     else:
-        lines.append(
-            "\n## Session Timing\n⚠️ KHÔNG CÓ session stats hôm nay — "
-            "KHÔNG được suy đoán GTGD/morning share, viết 'Chưa có dữ liệu phiên'."
-        )
+        _eod_full = ctx.get("full_day_gtgd")
+        _intraday = bool((ctx.get("vnindex_tech") or {}).get("intraday"))
+        _l = ("\n## Session Timing\n⚠️ KHÔNG CÓ session stats hôm nay — "
+              "KHÔNG được suy đoán tỷ trọng sáng/chiều (institutional/retail).")
+        if (not _intraday) and isinstance(_eod_full, (int, float)) and _eod_full > 0:
+            _l += (f"\nGTGD cả ngày: {_eod_full:,.1f} tỷ (ước tính từ EOD: Σ giá×KLGD) → "
+                   f"DÙNG ĐÚNG SỐ NÀY cho 'GTGD' trong TLDR/Tổng kết phiên.")
+        else:
+            _l += " GTGD: viết 'chưa có dữ liệu', KHÔNG bịa số."
+        lines.append(_l)
 
     # Breadth — same pattern
     if b := ctx.get("breadth"):
@@ -2710,15 +2730,21 @@ _GTGD_CTX_RE = _re.compile(
 
 def enforce_gtgd_total(text: str, ctx: dict) -> str:
     """Deterministic guard for the GTGD figure in the brief's headline sections.
-    When the canonical session value exists → PIN the number to it (observed two
-    runs on the SAME 10/06 data citing 5,153 vs 14,118 tỷ). When session_stats is
-    present but GTGD is 0/missing (WSS didn't run / EOD-only data) → STRIP the
-    fabrication to "chưa có dữ liệu" (observed 9.650,4 leak). Close uses the
-    9h-15h figure in "Kết quả phiên"/"Tổng kết phiên"; morning uses 9h-11h30 in
-    "Tổng quan phiên sáng". Per-sector GTGD numbers elsewhere are never touched.
+    Canonical full-day GTGD = live session capture (9h-15h) if present, else the
+    EOD-derived total ctx["full_day_gtgd"] (Σ giá×KLGD) so EOD-only days still
+    get a real number. PIN the cited figure to it (observed two runs on the SAME
+    10/06 data citing 5,153 vs 14,118 tỷ); STRIP to "chưa có dữ liệu" when no
+    canonical exists (observed 9.650,4 leak). Close uses full-day in "Kết quả
+    phiên"/"Tổng kết phiên"; morning uses the session 9h-11h30 figure in "Tổng
+    quan phiên sáng" (morning split is NOT derivable from EOD). Per-sector GTGD
+    numbers elsewhere are never touched.
     """
-    ss = ctx.get("session_stats")
-    if not text or not ss:
+    ss = ctx.get("session_stats") or {}
+    try:
+        eod_full = float(ctx["full_day_gtgd"]) if ctx.get("full_day_gtgd") else None
+    except (TypeError, ValueError):
+        eod_full = None
+    if not text or (not ss and not eod_full):
         return text
 
     def _g(window):
@@ -2729,6 +2755,7 @@ def enforce_gtgd_total(text: str, ctx: dict) -> str:
             return None
 
     full, morn = _g("9h-15h"), _g("9h-11h30")
+    close_canon = full if (full and full > 0) else eod_full   # session, else EOD
     intraday = bool((ctx.get("vnindex_tech") or {}).get("intraday"))
 
     lines = text.splitlines()
@@ -2740,7 +2767,7 @@ def enforce_gtgd_total(text: str, ctx: dict) -> str:
             sec = ("close" if "tổng kết phiên" in low
                    else "morning" if "tổng quan phiên sáng" in low else None)
         if sec == "close" or "kết quả phiên" in low:
-            canonical, active = full, (not intraday)
+            canonical, active = close_canon, (not intraday)
         elif sec == "morning":
             canonical, active = morn, True
         else:
