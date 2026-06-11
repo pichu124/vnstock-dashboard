@@ -841,6 +841,22 @@ def test_enforce_pivot_labels_pins_index_levels_only():
     assert "R1=71,500" in fixed and "S1=69,000" in fixed
 
 
+def test_stance_line_pivots_rewritten_to_filtered_levels():
+    # The Stance line shares the S1/S2/R1 source with the Trigger line — after
+    # the S/R quality filter, the canonical pivots change and the pin guard
+    # must rewrite the Stance's glued old values too (user-reported line,
+    # verbatim from the 22:29 brief).
+    from vnstock_brief import enforce_pivot_labels
+    ctx = {"vnindex_tech": {"support_1": 1789.31, "support_2": 1760.0,
+                            "resistance_1": 1824.03, "resistance_2": 1846.71}}
+    text = ("**Stance ngày mai:** **GIẢM** — canh giảm nếu thủng S1=1,798.05 → "
+            "mục tiêu S2=1,789.31; hủy nếu vượt lại R1=1,800.80.")
+    fixed = enforce_pivot_labels(text, ctx)
+    assert "S1=1,789.31" in fixed and "S2=1,760.00" in fixed and "R1=1,824.03" in fixed
+    assert "1,798.05" not in fixed and "1,800.80" not in fixed
+    # trigger level (S1) and cancel level (R1) are now genuinely distinct (~2%)
+
+
 def test_enforce_pivot_labels_noop_without_data():
     from vnstock_brief import enforce_pivot_labels
     t = "thủng S1=1,799.18 → S2=1,795.00"
