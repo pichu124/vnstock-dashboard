@@ -2267,6 +2267,7 @@ def generate_brief(
             fixed = enforce_money_flow_two_sides(fixed, ctx)
             fixed = enforce_risk_numbers(fixed, ctx)
             fixed = enforce_pivot_labels(fixed, ctx)
+            fixed = enforce_watchlist_eligibility(fixed, ctx)
             if fixed != text:
                 results[agent.name] = (fixed, _err)
 
@@ -2589,6 +2590,63 @@ def enforce_pivot_labels(text: str, ctx: dict) -> str:
         return f"{label}={v:,.2f}"
 
     return _PIVOT_LABEL_RE.sub(_sub, text)
+
+
+def enforce_watchlist_eligibility(text: str, ctx: dict) -> str:
+    """Deterministic guard: drop watchlist setups whose ticker is a low-liquidity
+    mover (NOT VN30 and avg GTGD < _WATCHLIST_GTGD_MIN_TY). The ⭐ marker is only
+    a prompt hint, so a non-⭐ mover still leaked into a setup (observed: ABB,
+    ~45-50 tỷ avg, under the 50-tỷ bar). Only removes tickers we have explicit
+    sub-threshold GTGD evidence for; renumbers the rest; falls back to the bail
+    line when nothing eligible remains. No-op without mover data.
+    """
+    movers = (ctx.get("vn30_gainers") or []) + (ctx.get("vn30_losers") or [])
+    if not text or not movers:
+        return text
+    ineligible: set[str] = set()
+    for m in movers:
+        t = str(m.get("Mã", "")).upper()
+        g = m.get("GTGD TB (tỷ)")
+        if (t and t not in VN30_TICKERS and isinstance(g, (int, float))
+                and not (isinstance(g, float) and g != g)
+                and float(g) < _WATCHLIST_GTGD_MIN_TY):
+            ineligible.add(t)
+    if not ineligible:
+        return text
+
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines) if "watchlist" in l.lower()), None)
+    if start is None:
+        return text
+    end = next((i for i in range(start + 1, len(lines))
+                if _is_section_start(lines[i])), len(lines))
+
+    kept, dropped = [], False
+    for l in lines[start + 1:end]:
+        mt = _re.search(r"\*\*([A-Z]{3})\*\*", l) or _re.search(r"\b([A-Z]{3})\b\s*\(Giá", l)
+        if mt and mt.group(1) in ineligible:
+            dropped = True
+            continue
+        kept.append(l)
+    if not dropped:
+        return text
+
+    # renumber surviving "N." setup lines; bail line if none survive
+    has_setup = any(_re.match(r"\s*\d+\.", l) for l in kept)
+    if not has_setup:
+        kept = [l for l in kept if not _re.match(r"\s*\d+\.", l)]
+        kept.append("Cần thêm dữ liệu giá cổ phiếu cụ thể")
+    else:
+        n = 0
+        out = []
+        for l in kept:
+            if _re.match(r"\s*\d+\.", l):
+                n += 1
+                out.append(_re.sub(r"^\s*\d+\.", f"{n}.", l))
+            else:
+                out.append(l)
+        kept = out
+    return "\n".join(lines[:start + 1] + kept + lines[end:])
 
 
 def validate_brief_factuality(text: str, ctx: dict) -> list[str]:

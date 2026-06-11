@@ -455,6 +455,45 @@ def test_enforce_risk_numbers_ocf_and_noop_cases():
     assert enforce_risk_numbers(t1, {}) == t1
 
 
+def test_enforce_watchlist_eligibility_drops_low_liquidity_mover():
+    # ABB (~45-50 tỷ avg, not VN30) leaked into a setup despite the ⭐ bar.
+    # The guard drops it, keeps STB (VN30), and renumbers.
+    from vnstock_brief import enforce_watchlist_eligibility
+    ctx = {
+        "vn30_gainers": [
+            {"Mã": "STB", "Giá 1T %": 6.8, "GTGD TB (tỷ)": 800.0},   # VN30 → keep
+            {"Mã": "ABB", "Giá 1T %": 6.3, "GTGD TB (tỷ)": 47.0},    # < 50, not VN30
+        ],
+        "vn30_losers": [],
+    }
+    text = ("📋 Watchlist sáng mai\n"
+            "1. **STB** (Giá 70,600) — canh giảm nếu thủng 68,000 → mục tiêu 65,000; hủy 73,000\n"
+            "2. **ABB** (Giá 16,900) — canh giảm nếu thủng 16,000 → mục tiêu 15,000; hủy 18,000\n"
+            "⚠️ Rủi ro cần lưu ý")
+    fixed = enforce_watchlist_eligibility(text, ctx)
+    assert "ABB" not in fixed
+    assert "STB" in fixed
+    assert "1. **STB**" in fixed          # renumbered to 1
+    assert "⚠️ Rủi ro cần lưu ý" in fixed
+
+
+def test_enforce_watchlist_eligibility_bail_when_none_survive_and_noops():
+    from vnstock_brief import enforce_watchlist_eligibility
+    ctx = {"vn30_gainers": [{"Mã": "VIW", "Giá 1T %": 9.0, "GTGD TB (tỷ)": 12.0}],
+           "vn30_losers": []}
+    # the only setup is an ineligible name → replaced by the bail line
+    t1 = ("📋 Watchlist sáng mai\n"
+          "1. **VIW** (Giá 25,600) — MUA vùng 24,500 · chốt lời 27,000 · cắt lỗ 23,500\n"
+          "⚠️ Rủi ro")
+    f1 = enforce_watchlist_eligibility(t1, ctx)
+    assert "VIW" not in f1 and "Cần thêm dữ liệu giá cổ phiếu cụ thể" in f1
+    # eligible-only watchlist → untouched; no mover data → untouched
+    t2 = ("📋 Watchlist sáng mai\n1. **STB** (Giá 70,600) — MUA vùng 69,000\n⚠️ Rủi ro")
+    assert enforce_watchlist_eligibility(t2, {"vn30_gainers":
+        [{"Mã": "STB", "GTGD TB (tỷ)": 800.0}], "vn30_losers": []}) == t2
+    assert enforce_watchlist_eligibility(t2, {}) == t2
+
+
 def test_enforce_pivot_labels_pins_index_levels_only():
     # 08:55 brief: TLDR "thủng S1=1,799.18 → mục tiêu về S2=1,799.18" — S1 took
     # S2's value and contradicted the Trigger section (S1=1,802.42). Pin each
