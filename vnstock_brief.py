@@ -1257,6 +1257,9 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
             _tg = data.get("total_gtgd_day")
             if isinstance(_tg, (int, float)) and _tg > 0:
                 ctx["full_day_gtgd"] = float(_tg)
+                _tc = data.get("gtgd_ticker_count")
+                if isinstance(_tc, int) and _tc > 0:
+                    ctx["full_day_gtgd_count"] = _tc
         except Exception:
             pass
 
@@ -1936,7 +1939,11 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
                 if full_gtgd and morn_gtgd and full_gtgd > morn_gtgd * 1.05:
                     _full_day = full_gtgd
                 elif isinstance(_eod_full, (int, float)) and _eod_full > 0:
-                    _full_day, _src = float(_eod_full), " (ước tính từ EOD: Σ giá×KLGD)"
+                    _n = ctx.get("full_day_gtgd_count")
+                    _full_day = float(_eod_full)
+                    _src = (f" (ước tính từ EOD: Σ giá×KLGD của {_n} mã có data phiên"
+                            if _n else " (ước tính từ EOD: Σ giá×KLGD")
+                    _src += ", xấp xỉ — có thể thấp hơn tổng sàn nếu kho chưa đủ mã)"
             if _full_day:
                 line += (f"\nGTGD cả ngày: {_full_day:,.1f} tỷ{_src} → DÙNG ĐÚNG SỐ NÀY cho "
                          f"'GTGD' trong TLDR/Tổng kết phiên; TUYỆT ĐỐI KHÔNG nhặt số khác "

@@ -600,13 +600,24 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
     result = result.rename(columns={"industry": "Ngành"})
     result = result.sort_values("Vốn hoá (tỷ)", ascending=False).reset_index(drop=True)
 
-    # Full-day GTGD (matching value, tỷ VND) = Σ giá×KLGD ONLY for stocks whose
-    # latest bar is the most-recent session (excludes halted/delisted names whose
-    # stale last bar would otherwise be added). EOD-derived total, available right
-    # after the screener runs — no live WSS capture needed.
-    total_gtgd_day = round(
-        sum(val for d, val in _gtgd_day_rows if d == _max_data_date), 1
-    ) if _max_data_date is not None else 0.0
+    # Full-day GTGD (matching value, tỷ VND) = Σ giá×KLGD over stocks trading on
+    # the most-recent SESSION DATE. Match by calendar date (robust to bar-time
+    # differences) and pick the date most stocks share (mode, tiebreak latest) so
+    # a single future-dated/glitched bar can't hijack the total; stale/halted
+    # names (last bar on an older date) are naturally excluded. EOD-derived —
+    # available right after the screener, no live WSS capture needed. NOTE: the
+    # total only covers tickers that actually have a bar on that session date, so
+    # it reflects warehouse coverage (a partial download → a partial total).
+    total_gtgd_day = 0.0
+    gtgd_ticker_count = 0
+    gtgd_session_date = None
+    if _gtgd_day_rows:
+        from collections import Counter
+        _date_counts = Counter(d.date() for d, _ in _gtgd_day_rows)
+        gtgd_session_date = max(_date_counts, key=lambda dt: (_date_counts[dt], dt))
+        _day = [val for d, val in _gtgd_day_rows if d.date() == gtgd_session_date]
+        total_gtgd_day = round(sum(_day), 1)
+        gtgd_ticker_count = len(_day)
 
     return {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -614,6 +625,7 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
         # brief detect when breadth/movers/regime trail an intraday VNINDEX.
         "data_date": _max_data_date.date().isoformat() if _max_data_date is not None else None,
         "total_gtgd_day": total_gtgd_day,
+        "gtgd_ticker_count": gtgd_ticker_count,
         "sectors": result.to_dict(orient="records"),
         "breadth": breadth,
         "tickers": tick_display.to_dict(orient="records"),
