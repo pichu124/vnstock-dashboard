@@ -1256,10 +1256,19 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
             # GTGD instead of "chưa có dữ liệu" on EOD-only days.
             _tg = data.get("total_gtgd_day")
             if isinstance(_tg, (int, float)) and _tg > 0:
-                ctx["full_day_gtgd"] = float(_tg)
-                _tc = data.get("gtgd_ticker_count")
-                if isinstance(_tc, int) and _tc > 0:
-                    ctx["full_day_gtgd_count"] = _tc
+                _tc = data.get("gtgd_ticker_count") or 0
+                _univ = len(ctx.get("tickers") or [])
+                ctx["full_day_gtgd_count"] = _tc
+                ctx["full_day_gtgd_universe"] = _univ
+                # Only treat the EOD total as the market GTGD when coverage is
+                # adequate. On the morning after, the full EOD batch often hasn't
+                # landed (observed 10/06: only 379/1388 mã had that day's bar →
+                # 6,157 tỷ, a 27% partial that must NOT pose as the whole-sàn
+                # turnover). Below 60% coverage → expose it as partial only.
+                if (not _univ) or (_tc >= 0.6 * _univ):
+                    ctx["full_day_gtgd"] = float(_tg)
+                else:
+                    ctx["full_day_gtgd_partial"] = float(_tg)
         except Exception:
             pass
 
@@ -1948,6 +1957,14 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
                 line += (f"\nGTGD cả ngày: {_full_day:,.1f} tỷ{_src} → DÙNG ĐÚNG SỐ NÀY cho "
                          f"'GTGD' trong TLDR/Tổng kết phiên; TUYỆT ĐỐI KHÔNG nhặt số khác "
                          f"(GTGD sáng, GTGD theo ngành, v.v.) làm GTGD cả ngày.")
+            elif ctx.get("full_day_gtgd_partial") and not (morn_gtgd or full_gtgd):
+                # EOD batch for the session hasn't fully landed (low coverage) →
+                # the partial sum must NOT pose as the market figure.
+                _n = ctx.get("full_day_gtgd_count")
+                _m = ctx.get("full_day_gtgd_universe")
+                line += (f"\n⚠️ GTGD cả ngày CHƯA ĐỦ DỮ LIỆU — batch EOD phiên chưa về đủ "
+                         f"(mới {_n}/{_m} mã có bar). TRONG TLDR/Tổng kết ghi 'GTGD: chưa đủ "
+                         f"dữ liệu', TUYỆT ĐỐI KHÔNG bịa, KHÔNG dùng số một phần làm GTGD toàn sàn.")
             elif not morn_gtgd and not full_gtgd:
                 # No GTGD anywhere (WSS didn't run AND no EOD total) → say so.
                 line += ("\n⚠️ KHÔNG có dữ liệu GTGD hôm nay → trong TLDR/Tổng kết ghi "

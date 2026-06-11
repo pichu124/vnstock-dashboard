@@ -500,6 +500,21 @@ def test_build_prompt_emits_eod_full_day_gtgd():
     assert "ước tính từ EOD" in p
 
 
+def test_build_prompt_flags_partial_eod_gtgd_coverage():
+    # 10/06 reality: EOD batch only partly landed (379/1388 mã) → the partial
+    # sum must be flagged "chưa đủ dữ liệu", never shown as the market figure.
+    ctx = {"date": "2026-06-10", "time": "15:00",
+           "vnindex_tech": {"close": 1803.71, "intraday": False},
+           "session_timing": {"signal": "trung tính", "detail": "x"},
+           "session_stats": {"9h-15h": {"VNINDEX": {"gtgd": 0.0}},
+                             "9h-11h30": {"VNINDEX": {"gtgd": 0.0}}},
+           "full_day_gtgd_partial": 6157.7,
+           "full_day_gtgd_count": 379, "full_day_gtgd_universe": 1388}
+    p = build_prompt(ctx, brief_type="afternoon")
+    assert "CHƯA ĐỦ DỮ LIỆU" in p and "379/1388 mã" in p
+    assert "6,157" not in p          # the partial number is not surfaced as GTGD
+
+
 def test_enforce_gtgd_total_falls_back_to_eod_total():
     # session_stats empty/zero but the EOD-derived full-day GTGD is available
     # (ctx["full_day_gtgd"]) → pin the close figure to it instead of stripping.
