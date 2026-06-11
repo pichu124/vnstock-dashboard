@@ -344,6 +344,65 @@ def test_enforce_watchlist_hygiene_strips_meta_and_filler():
     assert "⚠️ Rủi ro cần lưu ý" in fixed and "HNG có D/E cao nhất" in fixed
 
 
+def test_enforce_watchlist_hygiene_drops_index_level_setups():
+    # 13:25 brief: "CII (Giá 17,300) — canh mua nếu vượt R1=1,800.80 → mục tiêu
+    # R2=1,801.66; hủy nếu thủng S1=1,789.31" — VNINDEX points on a stock setup.
+    # Eligible stocks trade ≥ 5,000 VND, so pivot values inside the 800-2500
+    # index band are never valid stock levels → the setup is dropped (bail line
+    # appended when nothing valid remains). Stock-scale labels are kept.
+    from vnstock_brief import enforce_watchlist_hygiene
+    t1 = ("📋 Watchlist sáng mai\n"
+          "1. **CII** (Giá 17,300) — canh mua nếu vượt R1=1,800.80 → mục tiêu "
+          "R2=1,801.66; hủy nếu thủng S1=1,789.31.\n"
+          "⚠️ Rủi ro cần lưu ý")
+    f1 = enforce_watchlist_hygiene(t1, {})
+    assert "CII" not in f1
+    assert "Cần thêm dữ liệu giá cổ phiếu cụ thể" in f1
+    # per-stock scale levels survive (STB R1=71,500 is outside the index band)
+    t2 = ("📋 Watchlist sáng mai\n"
+          "1. **STB** (Giá 70,600) — canh mua nếu vượt R1=71,500 → mục tiêu "
+          "74,000; hủy nếu thủng S1=69,000\n"
+          "⚠️ Rủi ro cần lưu ý")
+    assert enforce_watchlist_hygiene(t2, {}) == t2
+
+
+def test_wallclock_intraday_detection():
+    # A mid-session updater run leaves a partial TODAY bar with no live file;
+    # wall-clock must classify the session as in-progress before 15:05 so the
+    # morning-share signal and the full-day GTGD pin stay suppressed.
+    from datetime import datetime
+    from vnstock_brief import _wallclock_intraday
+    assert _wallclock_intraday("2026-06-11", now=datetime(2026, 6, 11, 13, 25))
+    assert not _wallclock_intraday("2026-06-11", now=datetime(2026, 6, 11, 15, 10))
+    assert not _wallclock_intraday("2026-06-10", now=datetime(2026, 6, 11, 13, 25))
+
+
+def test_money_flow_guard_prefers_dedicated_anchor():
+    # 13:25 close: generic keyword match hit "dòng tiền" inside "Tổng kết phiên"
+    # prose and spliced the NN lines there, while the real "💰 Dòng tiền đáng
+    # chú ý" section already carried both sides → must be a no-op now.
+    from vnstock_brief import enforce_money_flow_two_sides
+    ctx = {"sectors": [{"Ngành": "CNTT", "NN 1T (tỷ)": 87.0},
+                       {"Ngành": "Bất động sản", "NN 1T (tỷ)": -5222.0}]}
+    t = ("📊 Tổng kết phiên\n"
+         "Kết quả phiên cho thấy dòng tiền không mạnh mẽ.\n"
+         "💰 Dòng tiền đáng chú ý\n"
+         "NN mua ròng CNTT (+87 tỷ), trong khi Bất động sản bị bán ròng (-5,222 tỷ).\n"
+         "📋 Watchlist sáng mai")
+    assert enforce_money_flow_two_sides(t, ctx) == t
+    # morning: insert after the dedicated "Dòng tiền ngành" line, not after the
+    # earlier prose that merely mentions "dòng tiền"
+    t2 = ("🎯 Trọng tâm theo dõi\n"
+          "**Tích luỹ/Mua:** Bất động sản — tích cực về dòng tiền.\n"
+          "**Dòng tiền ngành:** NN mua ròng CNTT +87 tỷ\n"
+          "⚡ Biến động bất thường")
+    f2 = enforce_money_flow_two_sides(t2, ctx)
+    lines = f2.splitlines()
+    i = next(k for k, l in enumerate(lines) if "Dòng tiền ngành" in l)
+    assert lines[i + 1].startswith("NN bán ròng mạnh nhất (1 tuần): Bất động sản -5,222 tỷ")
+    assert "bán ròng" not in lines[2]      # nothing spliced after the prose line
+
+
 def test_enforce_watchlist_hygiene_keeps_legit_bail_and_noop():
     from vnstock_brief import enforce_watchlist_hygiene
     # no priced setup at all → the bail line is legitimate and stays
@@ -373,9 +432,10 @@ def test_enforce_money_flow_two_sides_appends_missing_sell_side():
             "📋 Watchlist sáng mai")
     fixed = enforce_money_flow_two_sides(text, ctx)
     assert "NN bán ròng mạnh nhất (1 tuần): Bất động sản -5,431 tỷ." in fixed
-    # appended inside the section, before the next header
-    assert fixed.splitlines()[2].startswith("NN bán ròng mạnh nhất")
-    assert fixed.splitlines()[3] == "📋 Watchlist sáng mai"
+    # inserted inside the section (right after the dedicated header), and the
+    # following section is untouched
+    assert fixed.splitlines()[1].startswith("NN bán ròng mạnh nhất")
+    assert fixed.splitlines()[-1] == "📋 Watchlist sáng mai"
 
 
 def test_enforce_money_flow_two_sides_noop_cases():

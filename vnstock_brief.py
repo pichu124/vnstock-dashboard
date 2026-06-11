@@ -1208,6 +1208,19 @@ def _select_liquid_movers(
     return gainers, losers, universe
 
 
+def _wallclock_intraday(data_date_str: str, now: "datetime | None" = None) -> bool:
+    """True when the data date IS today and the session hasn't closed (< 15:05).
+
+    The intraday flag normally comes from folding live 1m bars in — but a
+    mid-session updater run leaves a partial DAILY bar in the warehouse with no
+    live file, so the system believed the session was closed (observed 13:25:
+    close brief pinned the in-progress 5,921.8 tỷ as "GTGD cả ngày" and the
+    morning brief leaked "sáng chiếm 88% cả ngày"). Wall-clock closes that hole.
+    """
+    now = now or datetime.now()
+    return data_date_str == now.date().isoformat() and now.time() < time(15, 5)
+
+
 def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> dict:
     """Collect all available market data for brief generation.
 
@@ -1223,6 +1236,13 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
 
     _today_str = date.today().isoformat()
     _is_stale = _data_date_str < _today_str  # data is from a prior trading day
+
+    # Wall-clock intraday override: today's bar + session not closed yet →
+    # PHIÊN ĐANG DỞ even without live 1m bars (e.g. a mid-session updater run
+    # left a partial daily bar). Downstream this suppresses the morning-share
+    # signal and the full-day GTGD pin (both meaningless mid-session).
+    if _vt_early and _wallclock_intraday(_data_date_str):
+        _vt_early["intraday"] = True
 
     # Heal stale breadth/movers/regime before reading them (best-effort).
     if auto_refresh:
@@ -2530,9 +2550,12 @@ _WL_META_RE = _re.compile(
 def enforce_watchlist_hygiene(text: str, ctx: dict | None = None) -> str:
     """Deterministic guard for the watchlist section: strip meta-disclaimers
     from setup lines (observed: "MUA vùng 69,000 … (đây là ví dụ, không dùng
-    thực tế…)") and drop the "Cần thêm dữ liệu giá…" filler when at least one
-    real priced setup is present (it's only allowed when there are NO priced
-    setups at all). No-op when there is no watchlist section.
+    thực tế…)"), DROP setups anchored to VNINDEX levels instead of the stock's
+    own price (observed 13:25: "CII (Giá 17,300) — canh mua nếu vượt
+    R1=1,800.80" — index points on a 17k-VND stock; eligible stocks trade
+    ≥ 5,000 VND so a pivot value inside the 800-2500 index band can never be a
+    valid stock level), and drop the "Cần thêm dữ liệu giá…" filler when at
+    least one real priced setup is present. No-op without a watchlist section.
     """
     if not text:
         return text
@@ -2544,16 +2567,29 @@ def enforce_watchlist_hygiene(text: str, ctx: dict | None = None) -> str:
                 if lines[i].lstrip().startswith(("##", "⚠️", "📅", "💡", "🔧", "📋"))),
                len(lines))
 
-    sec = [_WL_META_RE.sub("", l).rstrip() for l in lines[start + 1:end]]
+    def _uses_index_levels(l: str) -> bool:
+        return bool(_re.match(r"\s*\d+\.", l)) and any(
+            (n := _parse_vn_number(m.group(2))) is not None and 800 <= n <= 2500
+            for m in _PIVOT_LABEL_RE.finditer(l)
+        )
+
+    body = lines[start + 1:end]
+    dropped_invalid = any(_uses_index_levels(l) for l in body)
+    sec = [_WL_META_RE.sub("", l).rstrip() for l in body
+           if not _uses_index_levels(l)]
     # a real setup = direction keyword + a thousand-grouped price on the line
     has_priced_setup = any(
-        _re.search(r"MUA|GIẢM TỶ TRỌNG|TRÁNH", l)
+        _re.search(r"MUA|GIẢM TỶ TRỌNG|TRÁNH", l, _re.IGNORECASE)
         and _re.search(r"\d{1,3}[.,]\d{3}", l)
         for l in sec
     )
     if has_priced_setup:
         sec = [l for l in sec if "cần thêm dữ liệu giá" not in l.lower()]
     sec = [l for l in sec if not _re.fullmatch(r"\s*\d+\.\s*", l)]  # empty "2." stubs
+    if dropped_invalid and not has_priced_setup and not any(
+            "cần thêm dữ liệu giá" in l.lower() for l in sec):
+        # every setup was invalid (index-level anchors) → honest bail line
+        sec.append("Cần thêm dữ liệu giá cổ phiếu cụ thể")
 
     if sec == lines[start + 1:end]:
         return text
@@ -2576,10 +2612,20 @@ def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
         return text
 
     lines = text.splitlines()
-    _kw = ("mua ròng", "bán ròng", "nn ròng", "dòng tiền")
+    # Prefer the DEDICATED money-flow anchor — the close's "💰 Dòng tiền đáng
+    # chú ý" section header or the morning's "**Dòng tiền ngành:**" line. Only
+    # fall back to a generic money keyword when neither exists (observed 13:25:
+    # the generic match hit "dòng tiền" inside Tổng kết/Trọng tâm prose and
+    # spliced the NN lines mid-section while the real section was already fine).
     anchor = next((i for i, l in enumerate(lines)
-                   if not _is_section_start(l) and any(k in l.lower() for k in _kw)),
+                   if "dòng tiền ngành" in l.lower()
+                   or (_is_section_start(l) and "dòng tiền" in l.lower())),
                   None)
+    if anchor is None:
+        _kw = ("mua ròng", "bán ròng", "nn ròng", "dòng tiền")
+        anchor = next((i for i, l in enumerate(lines)
+                       if not _is_section_start(l) and any(k in l.lower() for k in _kw)),
+                      None)
     if anchor is None:
         return text
     region_end = next((i for i in range(anchor + 1, len(lines))
