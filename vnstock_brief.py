@@ -90,7 +90,8 @@ _LIQUID_PRICE_MIN_TY: float = 5.0
 # watchlist setup. The broad ≥10 tỷ pool feeds analysis/"biến động bất thường";
 # only VN30 OR names trading ≥ this much should anchor a MUA/GIẢM setup, so a
 # thin mid-cap (e.g. VIW) is described but never turned into a trade idea.
-_WATCHLIST_GTGD_MIN_TY: float = 50.0
+# Tunable: 30 tỷ keeps leading mid-cap banks (e.g. ABB ~45-50 tỷ) eligible.
+_WATCHLIST_GTGD_MIN_TY: float = 30.0
 
 
 def get_vn30_live() -> set[str]:
@@ -277,7 +278,7 @@ DÙNG ĐÚNG block "🎯 Dẫn dắt/Tụt hậu — CHỐT THEO DATA" ở trên
 Nếu có block "Dòng tiền ngành": nêu RÕ ngành NN MUA RÒNG / BÁN RÒNG mạnh nhất (lấy số "NN ròng", đơn vị tỷ, có dấu +/-). PHÂN BIỆT rõ "NN ròng" (khối ngoại mua-bán ròng) với "GTGD" (thanh khoản/giá trị giao dịch) — TUYỆT ĐỐI KHÔNG gọi GTGD là "dòng tiền vào". Nhận định luân chuyển dòng tiền giữa các ngành dựa trên NN ròng.
 
 ## 📋 Watchlist sáng mai
-(Hướng dẫn — KHÔNG in tiêu đề phụ này vào brief) TỐI ĐA 3 setup, chỉ mã CÓ GIÁ thật. CHỈ chọn mã ĐỦ ĐIỀU KIỆN SETUP: mã trong block "Top Gainers/Losers thanh khoản cao" CÓ DẤU ⭐ (thanh khoản đủ cao — VN30 hoặc GTGD ≥ 50 tỷ/phiên), HOẶC mã trong block "Khuyến nghị". Mã movers KHÔNG có ⭐ (thanh khoản 10-50 tỷ) chỉ dùng để phân tích "Biến động bất thường", TUYỆT ĐỐI KHÔNG đưa vào setup giao dịch (đưa lệnh vào mã mỏng là rủi ro). TUYỆT ĐỐI KHÔNG dùng/bịa mã KHÔNG có trong các block đó (vd mã UPCOM/penny ngoài data), và KHÔNG độn cho đủ 3.
+(Hướng dẫn — KHÔNG in tiêu đề phụ này vào brief) TỐI ĐA 3 setup, chỉ mã CÓ GIÁ thật. CHỈ chọn mã ĐỦ ĐIỀU KIỆN SETUP: mã trong block "Top Gainers/Losers thanh khoản cao" CÓ DẤU ⭐ (thanh khoản đủ cao — VN30 hoặc GTGD ≥ 30 tỷ/phiên), HOẶC mã trong block "Khuyến nghị". Mã movers KHÔNG có ⭐ (thanh khoản 10-30 tỷ) chỉ dùng để phân tích "Biến động bất thường", TUYỆT ĐỐI KHÔNG đưa vào setup giao dịch (đưa lệnh vào mã mỏng là rủi ro). TUYỆT ĐỐI KHÔNG dùng/bịa mã KHÔNG có trong các block đó (vd mã UPCOM/penny ngoài data), và KHÔNG độn cho đủ 3.
 Mỗi setup PHẢI neo vào "Giá" THỰC; KHÔNG tự nghĩ ra mức giá. Chỉ 1-2 mã ⭐ đủ điều kiện → đưa ĐÚNG 1-2 setup (TUYỆT ĐỐI KHÔNG thêm dòng kiểu "Giá không có / Cần thêm dữ liệu" cho mã thiếu giá).
 Block "Top Gainers/Losers thanh khoản cao" BÌNH THƯỜNG có sẵn vài mã ⭐ kèm "Giá" → BẮT BUỘC dùng ÍT NHẤT 1-2 mã ⭐ đó làm setup. CHỈ viết đúng 1 dòng "Cần thêm dữ liệu giá cổ phiếu cụ thể" khi KHÔNG có mã ⭐ nào kèm "Giá" — KHÔNG dùng câu đó nếu vẫn còn mã ⭐ kèm "Giá", và KHÔNG thay bằng mã không-⭐.
 CHIỀU LỆNH — hướng setup PHẢI nhất quán với "Stance ngày mai"/bias: Stance GIẢM (regime/momentum yếu) → ƯU TIÊN mẫu phòng thủ (GIẢM TỶ TRỌNG/TRÁNH), KHÔNG mở loạt setup MUA mới; nếu nêu MUA thì PHẢI là kèo CÓ ĐIỀU KIỆN ("chỉ canh MUA NẾU vượt lại [kháng cự]"). Stance TĂNG → ưu tiên MUA. Chọn ĐÚNG 1 trong 2 mẫu, mốc giá phải đúng thứ tự (TỰ KIỂM TRA trước khi xuất, không được mâu thuẫn):
@@ -2595,8 +2596,8 @@ def enforce_pivot_labels(text: str, ctx: dict) -> str:
 def enforce_watchlist_eligibility(text: str, ctx: dict) -> str:
     """Deterministic guard: drop watchlist setups whose ticker is a low-liquidity
     mover (NOT VN30 and avg GTGD < _WATCHLIST_GTGD_MIN_TY). The ⭐ marker is only
-    a prompt hint, so a non-⭐ mover still leaked into a setup (observed: ABB,
-    ~45-50 tỷ avg, under the 50-tỷ bar). Only removes tickers we have explicit
+    a prompt hint, so a non-⭐ mover still leaked into a setup. Only removes
+    tickers we have explicit
     sub-threshold GTGD evidence for; renumbers the rest; falls back to the bail
     line when nothing eligible remains. No-op without mover data.
     """

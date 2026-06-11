@@ -456,22 +456,24 @@ def test_enforce_risk_numbers_ocf_and_noop_cases():
 
 
 def test_enforce_watchlist_eligibility_drops_low_liquidity_mover():
-    # ABB (~45-50 tỷ avg, not VN30) leaked into a setup despite the ⭐ bar.
-    # The guard drops it, keeps STB (VN30), and renumbers.
-    from vnstock_brief import enforce_watchlist_eligibility
+    # A sub-threshold mover (not VN30) leaked into a setup despite the ⭐ bar.
+    # The guard drops it, keeps STB (VN30), and renumbers. Threshold-relative so
+    # the test holds when _WATCHLIST_GTGD_MIN_TY is retuned.
+    from vnstock_brief import enforce_watchlist_eligibility, _WATCHLIST_GTGD_MIN_TY
     ctx = {
         "vn30_gainers": [
             {"Mã": "STB", "Giá 1T %": 6.8, "GTGD TB (tỷ)": 800.0},   # VN30 → keep
-            {"Mã": "ABB", "Giá 1T %": 6.3, "GTGD TB (tỷ)": 47.0},    # < 50, not VN30
+            {"Mã": "XYZ", "Giá 1T %": 6.3,
+             "GTGD TB (tỷ)": _WATCHLIST_GTGD_MIN_TY - 5},            # below bar, not VN30
         ],
         "vn30_losers": [],
     }
     text = ("📋 Watchlist sáng mai\n"
             "1. **STB** (Giá 70,600) — canh giảm nếu thủng 68,000 → mục tiêu 65,000; hủy 73,000\n"
-            "2. **ABB** (Giá 16,900) — canh giảm nếu thủng 16,000 → mục tiêu 15,000; hủy 18,000\n"
+            "2. **XYZ** (Giá 16,900) — canh giảm nếu thủng 16,000 → mục tiêu 15,000; hủy 18,000\n"
             "⚠️ Rủi ro cần lưu ý")
     fixed = enforce_watchlist_eligibility(text, ctx)
-    assert "ABB" not in fixed
+    assert "XYZ" not in fixed
     assert "STB" in fixed
     assert "1. **STB**" in fixed          # renumbered to 1
     assert "⚠️ Rủi ro cần lưu ý" in fixed
@@ -1193,7 +1195,7 @@ def test_select_liquid_movers_whole_market_filtered():
 
 def test_movers_mark_watchlist_eligible_with_star():
     # Watchlist setups are gated to ⭐ = VN30 OR GTGD ≥ _WATCHLIST_GTGD_MIN_TY.
-    # A thin mid-cap (10-50 tỷ) is shown for analysis but must NOT get ⭐, so it
+    # A thin mid-cap (below the bar) is shown for analysis but must NOT get ⭐, so it
     # cannot be turned into a trade idea (regression for the "VIW MUA setup").
     from vnstock_brief import _WATCHLIST_GTGD_MIN_TY
     ctx = {
