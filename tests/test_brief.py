@@ -438,6 +438,37 @@ def test_enforce_money_flow_two_sides_appends_missing_sell_side():
     assert fixed.splitlines()[-1] == "📋 Watchlist sáng mai"
 
 
+def test_enforce_money_flow_two_sides_requires_numbers_not_just_sides():
+    # 21:31: "mua ròng đáng kể FnB, CNTT … bán ròng BĐS" — both sides named but
+    # zero tỷ numbers. The guard must append the numbered canonical lines.
+    from vnstock_brief import enforce_money_flow_two_sides
+    ctx = {"sectors": [{"Ngành": "Thực phẩm & Đồ uống", "NN 1T (tỷ)": 98.0},
+                       {"Ngành": "Bất động sản", "NN 1T (tỷ)": -5275.0}]}
+    text = ("💰 Dòng tiền đáng chú ý\n"
+            "Khối ngoại mua ròng đáng kể FnB, CNTT, trong khi bán ròng BĐS.\n"
+            "📋 Watchlist sáng mai")
+    fixed = enforce_money_flow_two_sides(text, ctx)
+    assert "Bất động sản -5,275 tỷ" in fixed
+    assert "Thực phẩm & Đồ uống +98 tỷ" in fixed
+
+
+def test_enforce_watchlist_hygiene_converts_dipbuy_under_giam_bias():
+    # Bias GIẢM: an unconditional "MUA vùng [giá]" dip-buy must become a
+    # confirmation-breakout ("canh MUA NẾU vượt"), numbers/order intact;
+    # defensive lines untouched. Without a GIẢM floor it's left alone.
+    from vnstock_brief import enforce_watchlist_hygiene
+    text = ("📋 Watchlist sáng mai\n"
+            "1. **CII** (Giá 17,200) — MUA vùng 17,200 · chốt lời 17,716 · cắt lỗ 16,684\n"
+            "2. **GEE** (Giá 95,500) — GIẢM TỶ TRỌNG/TRÁNH nếu thủng 92,635 · mục tiêu về 90,000\n"
+            "⚠️ Rủi ro")
+    fixed = enforce_watchlist_hygiene(text, {"bias_floor": {"dir": "GIẢM"}})
+    assert "canh MUA NẾU vượt 17,200 · mục tiêu 17,716 · cắt lỗ 16,684" in fixed
+    assert "MUA vùng" not in fixed
+    assert "GIẢM TỶ TRỌNG/TRÁNH nếu thủng 92,635" in fixed   # defensive untouched
+    # no GIẢM floor → dip-buy left as-is
+    assert "MUA vùng 17,200" in enforce_watchlist_hygiene(text, {})
+
+
 def test_enforce_money_flow_two_sides_noop_cases():
     from vnstock_brief import enforce_money_flow_two_sides
     ctx = {"sectors": [{"Ngành": "CNTT", "NN 1T (tỷ)": 708.0},

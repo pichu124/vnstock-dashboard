@@ -2680,6 +2680,15 @@ def enforce_watchlist_hygiene(text: str, ctx: dict | None = None) -> str:
         # every setup was invalid (index-level anchors) → honest bail line
         sec.append("Cần thêm dữ liệu giá cổ phiếu cụ thể")
 
+    # Bias GIẢM: an unconditional "MUA vùng [giá hiện tại]" is a dip-buy /
+    # bắt-dao-rơi the bias floor forbids (observed 21:31: CII MUA vùng 17,200
+    # while Stance = GIẢM). Convert to a confirmation-breakout form, keeping the
+    # numbers/order intact ("canh MUA NẾU vượt [entry] · mục tiêu [TP] · cắt lỗ
+    # [SL]"). Defensive (GIẢM TỶ TRỌNG/TRÁNH) lines are left untouched.
+    if (ctx or {}).get("bias_floor", {}).get("dir") == "GIẢM":
+        sec = [(l.replace("MUA vùng", "canh MUA NẾU vượt").replace("· chốt lời", "· mục tiêu")
+                if "MUA vùng" in l else l) for l in sec]
+
     if sec == lines[start + 1:end]:
         return text
     return "\n".join(lines[:start + 1] + sec + lines[end:])
@@ -2723,10 +2732,19 @@ def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
 
     top_buy = max(rows, key=lambda x: x[1])
     top_sell = min(rows, key=lambda x: x[1])
+
+    def _num_present(v: float) -> bool:
+        # the strongest side's tỷ figure already on the line (either , or .
+        # thousands sep) — so we don't duplicate when the model gave the number.
+        s = f"{abs(v):,.0f}"
+        return s in region_low or s.replace(",", ".") in region_low
+
+    # Require BOTH the side AND its figure (observed 21:31: "mua ròng đáng kể
+    # FnB, CNTT … bán ròng BĐS" — both sides named but zero tỷ numbers).
     add: list[str] = []
-    if top_sell[1] <= -50 and "bán ròng" not in region_low:
+    if top_sell[1] <= -50 and not ("bán ròng" in region_low and _num_present(top_sell[1])):
         add.append(f"NN bán ròng mạnh nhất (1 tuần): {top_sell[0]} {top_sell[1]:+,.0f} tỷ.")
-    if top_buy[1] >= 50 and "mua ròng" not in region_low:
+    if top_buy[1] >= 50 and not ("mua ròng" in region_low and _num_present(top_buy[1])):
         add.append(f"NN mua ròng mạnh nhất (1 tuần): {top_buy[0]} {top_buy[1]:+,.0f} tỷ.")
     if not add:
         return text
