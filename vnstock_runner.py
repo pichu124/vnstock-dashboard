@@ -16,7 +16,7 @@ Task Scheduler: chạy lúc 15:35 (sau updater 15:30)
 import argparse
 import json
 import warnings
-from datetime import datetime
+from datetime import datetime, time as dt_time
 from pathlib import Path
 
 import pandas as pd
@@ -634,21 +634,33 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
     }
 
 
-def _pick_gtgd_session(gtgd_by_date: dict) -> tuple:
+def _pick_gtgd_session(gtgd_by_date: dict, now=None) -> tuple:
     """Pick the latest COMPLETE session from {iso_date: {total, count}}.
 
-    An in-progress session (updater run mid-day) has bars for only the names
-    that have traded so far — its count is well below the busiest session's.
-    Take the max count as the reference and return the LATEST date with count
-    ≥ 60% of it. Returns (iso_date, total, count) or (None, 0.0, 0).
+    Count can't tell a mid-day partial apart — by noon ~80% of names have
+    already printed a trade (observed 706/869) while turnover sits at ~37%.
+    So: (a) if the latest date IS today and the session hasn't closed yet
+    (< 15:05), it's in-progress by definition → step back one day; (b) else
+    compare its TOTAL with the median of the other days — below 55% of the
+    median means a partial fetched mid-session (a genuinely quiet day doesn't
+    halve the 5-day median). Returns (iso_date, total, count) / (None, 0.0, 0).
     """
     if not gtgd_by_date:
         return None, 0.0, 0
-    ref = max(v["count"] for v in gtgd_by_date.values())
-    for k in sorted(gtgd_by_date.keys(), reverse=True):
-        if gtgd_by_date[k]["count"] >= 0.6 * ref:
-            return k, gtgd_by_date[k]["total"], gtgd_by_date[k]["count"]
-    return None, 0.0, 0
+    dates = sorted(gtgd_by_date.keys(), reverse=True)
+    latest = dates[0]
+    drop_latest = False
+    now = now or datetime.now()
+    if latest == now.date().isoformat() and now.time() < dt_time(15, 5):
+        drop_latest = True                      # session still open → partial
+    elif len(dates) > 1:
+        import statistics as _st
+        med = _st.median(gtgd_by_date[d]["total"] for d in dates[1:])
+        if med > 0 and gtgd_by_date[latest]["total"] < 0.55 * med:
+            drop_latest = True                  # stale mid-session fetch
+    pick = dates[1] if (drop_latest and len(dates) > 1) else latest
+    e = gtgd_by_date[pick]
+    return pick, e["total"], e["count"]
 
 
 def _json_safe(obj):

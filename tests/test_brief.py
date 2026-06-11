@@ -511,24 +511,32 @@ def test_build_prompt_flags_partial_eod_gtgd_coverage():
            "full_day_gtgd_partial": 6157.7,
            "full_day_gtgd_count": 379, "full_day_gtgd_universe": 1388}
     p = build_prompt(ctx, brief_type="afternoon")
-    assert "CHƯA ĐỦ DỮ LIỆU" in p and "379/1388 mã" in p
+    assert "CHƯA ĐỦ DỮ LIỆU" in p and "379 mã" in p
     assert "6,157" not in p          # the partial number is not surfaced as GTGD
 
 
 def test_pick_gtgd_session_skips_in_progress_day():
-    # Mid-day updater run (12:35, 11/06): today has bars for only the names that
-    # traded so far (706) while yesterday is complete (1,300). The picker must
-    # return YESTERDAY, not the in-progress day; an evening run (today complete)
-    # picks today.
+    # Real 11/06 case: mid-day updater run gave today 4,508 tỷ/706 mã while
+    # yesterday is complete (11,673/808). Count can't tell them apart (~80% of
+    # names print a trade by noon) — the picker must use wall-clock (session
+    # still open) and total-vs-median (stale mid-session fetch) instead.
+    from datetime import datetime
     from vnstock_runner import _pick_gtgd_session
     byd = {"2026-06-11": {"total": 4508.6, "count": 706},
-           "2026-06-10": {"total": 12500.0, "count": 1300},
-           "2026-06-09": {"total": 15229.2, "count": 1295}}
-    d, total, count = _pick_gtgd_session(byd)
-    assert d == "2026-06-10" and total == 12500.0 and count == 1300
-    byd_evening = {"2026-06-11": {"total": 11900.0, "count": 1310},
-                   "2026-06-10": {"total": 12500.0, "count": 1300}}
-    assert _pick_gtgd_session(byd_evening)[0] == "2026-06-11"
+           "2026-06-10": {"total": 11673.4, "count": 808},
+           "2026-06-09": {"total": 12097.6, "count": 797},
+           "2026-06-08": {"total": 16925.3, "count": 825},
+           "2026-06-05": {"total": 13082.8, "count": 869}}
+    # (a) run at 12:35 the same day → session open → step back to 10/06
+    d, total, count = _pick_gtgd_session(byd, now=datetime(2026, 6, 11, 12, 35))
+    assert d == "2026-06-10" and total == 11673.4 and count == 808
+    # (b) run at 16:00 NEXT day but the 11/06 bar is still the stale noon fetch
+    # → total 4,508 ≪ median of the other days → still stepped back
+    assert _pick_gtgd_session(byd, now=datetime(2026, 6, 12, 16, 0))[0] == "2026-06-10"
+    # (c) evening re-run refreshed today's bars to the full session → today wins
+    byd_evening = dict(byd, **{"2026-06-11": {"total": 11900.0, "count": 810}})
+    assert _pick_gtgd_session(
+        byd_evening, now=datetime(2026, 6, 11, 18, 0))[0] == "2026-06-11"
     assert _pick_gtgd_session({}) == (None, 0.0, 0)
 
 

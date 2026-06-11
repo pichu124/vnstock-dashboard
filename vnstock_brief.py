@@ -1252,27 +1252,26 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
             ctx["tickers"] = data.get("tickers", [])
             # Full-day GTGD (matching value) derived from the EOD bars — present
             # right after the screener runs, even when the live WSS session
-            # capture (session_stats) is empty. Prefer the per-date map keyed by
-            # THIS brief's effective trading date (a mid-day updater run makes
-            # the "latest" session an in-progress one — the brief for ngày T
-            # still needs ngày T's completed total); fall back to the runner's
-            # picked session if it matches the brief date.
-            _univ = len(ctx.get("tickers") or [])
+            # capture (session_stats) is empty. Look up the per-date map by THIS
+            # brief's effective trading date. Validity comes from the runner's
+            # _pick_gtgd_session (gtgd_date = latest COMPLETE session): a brief
+            # date ≤ gtgd_date is a closed session → authoritative; a brief
+            # date NEWER than gtgd_date is the in-progress day the picker
+            # rejected → expose as partial only ("chưa đủ dữ liệu"). NOTE: do
+            # NOT gate on count/universe — only ~60% of classified names trade
+            # on any given day (observed 808/1388 on a normal session).
             _byd = data.get("gtgd_by_date") or {}
+            _gd = data.get("gtgd_date")
             _entry = _byd.get(_data_date_str)
-            if _entry is None and data.get("gtgd_date") == _data_date_str:
+            if _entry is None and _gd == _data_date_str:
                 _entry = {"total": data.get("total_gtgd_day"),
                           "count": data.get("gtgd_ticker_count") or 0}
             _tg = (_entry or {}).get("total")
             if isinstance(_tg, (int, float)) and _tg > 0:
                 _tc = int((_entry or {}).get("count") or 0)
                 ctx["full_day_gtgd_count"] = _tc
-                ctx["full_day_gtgd_universe"] = _univ
-                # Only treat the EOD total as the market GTGD when coverage is
-                # adequate. On the morning after, the full EOD batch may not
-                # have landed (observed 10/06: only 379/1388 mã → 6,157 tỷ, a
-                # 27% partial that must NOT pose as the whole-sàn turnover).
-                if (not _univ) or (_tc >= 0.6 * _univ):
+                ctx["full_day_gtgd_universe"] = len(ctx.get("tickers") or [])
+                if _gd and _data_date_str <= _gd:
                     ctx["full_day_gtgd"] = float(_tg)
                 else:
                     ctx["full_day_gtgd_partial"] = float(_tg)
@@ -1965,12 +1964,12 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
                          f"'GTGD' trong TLDR/Tổng kết phiên; TUYỆT ĐỐI KHÔNG nhặt số khác "
                          f"(GTGD sáng, GTGD theo ngành, v.v.) làm GTGD cả ngày.")
             elif ctx.get("full_day_gtgd_partial") and not (morn_gtgd or full_gtgd):
-                # EOD batch for the session hasn't fully landed (low coverage) →
-                # the partial sum must NOT pose as the market figure.
+                # The session's bars are incomplete (in-progress day / EOD batch
+                # not fully landed) → the partial sum must NOT pose as the
+                # market figure.
                 _n = ctx.get("full_day_gtgd_count")
-                _m = ctx.get("full_day_gtgd_universe")
-                line += (f"\n⚠️ GTGD cả ngày CHƯA ĐỦ DỮ LIỆU — batch EOD phiên chưa về đủ "
-                         f"(mới {_n}/{_m} mã có bar). TRONG TLDR/Tổng kết ghi 'GTGD: chưa đủ "
+                line += (f"\n⚠️ GTGD cả ngày CHƯA ĐỦ DỮ LIỆU — phiên đang dở hoặc batch EOD "
+                         f"chưa về đủ (mới {_n} mã có bar). TRONG TLDR/Tổng kết ghi 'GTGD: chưa đủ "
                          f"dữ liệu', TUYỆT ĐỐI KHÔNG bịa, KHÔNG dùng số một phần làm GTGD toàn sàn.")
             elif not morn_gtgd and not full_gtgd:
                 # No GTGD anywhere (WSS didn't run AND no EOD total) → say so.
