@@ -3032,7 +3032,7 @@ def enforce_risk_numbers(text: str, ctx: dict) -> str:
                     return (mt.group(1) + f"{_de:.2f}"
                             if v is None or abs(v - _de) > max(0.01, 0.01 * abs(_de))
                             else mt.group(0))
-                line = _re.sub(rf"(\b{_re.escape(t)}\b[^.;,()]*?D/E\s*=\s*)([\d.,]+)",
+                line = _re.sub(rf"(\b{_re.escape(t)}\b[^.;,()]*?D/E\s*=\s*)(\d[\d.,]*\d|\d)",
                                _fix_de, line)
             if ocf is not None:
                 def _fix_ocf(mt, _ocf=ocf):
@@ -3041,7 +3041,7 @@ def enforce_risk_numbers(text: str, ctx: dict) -> str:
                             if v is None or abs(v - _ocf) > max(1.0, 0.01 * abs(_ocf))
                             else mt.group(0))
                 line = _re.sub(
-                    rf"(\b{_re.escape(t)}\b[^;,()]*?Op\.?CF\s*=\s*)(-?[\d.,]+)",
+                    rf"(\b{_re.escape(t)}\b[^;,()]*?Op\.?CF\s*=\s*)(-?\d[\d.,]*\d|-?\d)",
                     _fix_ocf, line)
         return line
 

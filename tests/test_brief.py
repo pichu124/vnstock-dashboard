@@ -829,6 +829,24 @@ def test_enforce_risk_numbers_per_ticker_metric_on_mixed_line():
     assert "HNG Op.CF" not in fixed        # leverage names → D/E, not Op.CF
 
 
+def test_enforce_risk_numbers_keeps_list_separators_on_correct_values():
+    # 11:43: the canonical "HNG D/E=8.83, PET D/E=2.67, VTZ D/E=2.63" came out as
+    # "HNG D/E=8.83 PET D/E=2.67 VTZ..." — the value regex grabbed the trailing
+    # list comma ("8.83,"), mis-parsed it as 883, and "corrected" it, dropping
+    # the comma. Correct values (with separators) must pass through untouched.
+    from vnstock_brief import enforce_risk_numbers
+    ctx = {"vn30_fundamentals": {
+        "HNG": {"de": 8.83, "ocf": 915.0}, "PET": {"de": 2.67, "ocf": -1389.0},
+        "VTZ": {"de": 2.63, "ocf": -318.0}, "KBC": {"de": 1.12, "ocf": -17344.0}}}
+    text = ("⚠️ Rủi ro cần lưu ý\n"
+            "Đòn bẩy cao nhất: HNG D/E=8.83, PET D/E=2.67, VTZ D/E=2.63 — HNG cao nhất.\n"
+            "Op.CF thấp nhất: KBC Op.CF=-17,344 tỷ.\n"
+            "📅 Sự kiện")
+    fixed = enforce_risk_numbers(text, ctx)
+    assert "HNG D/E=8.83, PET D/E=2.67, VTZ D/E=2.63" in fixed   # commas intact
+    assert "KBC Op.CF=-17,344 tỷ" in fixed                       # thousands sep intact
+
+
 def test_enforce_risk_section_canonicalizes_all_failure_modes():
     # One deterministic guard replaces the LLM's fundamental claims with the
     # canonical block — fixing every recurring class at once: wrong metric, wrong
