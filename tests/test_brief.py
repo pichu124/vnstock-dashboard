@@ -1062,6 +1062,25 @@ def test_enforce_gtgd_baseline_pct_pins_pct_to_its_baseline():
     assert enforce_gtgd_baseline_pct(morn, ctx) == morn
 
 
+def test_enforce_gtgd_baseline_pct_form_b_baseline_then_pct():
+    # Close 12/06: TLDR "thanh khoản cao hơn trung bình 5 phiên (+43%)" while the
+    # pinned Tổng kết said +21% — same brief, two TB5 figures. Form 2 ("baseline
+    # (±N%)") must also be pinned so TLDR and Tổng kết agree.
+    from vnstock_brief import enforce_gtgd_baseline_pct
+    # avg5 here gives +21% (18353.2/15168-1≈+21%); prev gives +52%.
+    ctx = {"full_day_gtgd": 18353.2,
+           "full_day_gtgd_cmp": {"prev": 12074.0, "avg5": 15168.0, "avg20": 17647.0}}
+    t = ("🎯 TLDR\nThanh khoản cao hơn trung bình 5 phiên (+43%) nhưng yếu.\n"
+         "📊 Tổng kết phiên\nGTGD cả ngày 18,353.2 tỷ (+52% vs phiên trước, "
+         "+21% vs TB5 phiên).\n📈 Mức kỹ thuật")
+    f = enforce_gtgd_baseline_pct(t, ctx)
+    assert "trung bình 5 phiên (+21%)" in f       # TLDR form-2 pinned to avg5
+    assert "(+43%)" not in f
+    assert "+21% vs TB5 phiên" in f               # Tổng kết stays consistent
+    assert "+52% vs phiên trước" in f             # prev correct → unchanged
+    assert enforce_gtgd_baseline_pct(f, ctx) == f  # idempotent
+
+
 def test_enforce_breadth_label_relabels_above_ma200_as_advancing():
     # Close 12/06: "chỉ 17% mã cổ phiếu tăng giá" — 17% is the above-MA200 stat
     # (A/D 0.85 implies ~46% advancing), so 'tăng giá' is a mislabel → 'trên MA200'.

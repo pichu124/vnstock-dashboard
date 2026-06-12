@@ -3874,13 +3874,18 @@ def enforce_gtgd_compare_frame(text: str, ctx: dict) -> str:
 
 
 def enforce_gtgd_baseline_pct(text: str, ctx: dict) -> str:
-    """In the CLOSE GTGD comparison, each % must match ITS baseline. Observed
-    12/06: "GTGD cả ngày 18,353.2 tỷ (+4% vs TB5 phiên, +43% vs phiên trước)" —
-    the % were shifted onto the wrong baselines (+4% is the TB20 figure, +43% the
-    TB5 figure; the real values are TB5 +43%, phiên trước +80%). Pin each
-    "±N% vs/so <baseline>" to the value computed from ctx full_day_gtgd_cmp
-    (avg5/avg20/prev). Close-only (gated on "Tổng kết phiên") so the morning's
-    sáng-với-sáng comparison is never touched; idempotent; no-op without cmp.
+    """In the CLOSE GTGD comparison, each % must match ITS baseline, in BOTH
+    surface forms. Observed 12/06:
+      • Form 1 "±N% vs/so <baseline>" (Tổng kết) — "(+4% vs TB5 phiên, +43% vs
+        phiên trước)" had the % shifted onto the wrong baselines.
+      • Form 2 "<baseline> (±N%)" (TLDR) — "cao hơn trung bình 5 phiên (+43%)"
+        kept a stale/fabricated % while the pinned Tổng kết said +21% → the SAME
+        brief contradicted itself on the TB5 figure.
+    Pin every "% ↔ baseline" pairing (both orders) to the value computed from ctx
+    full_day_gtgd_cmp (avg5/avg20/prev) so the TLDR and Tổng kết agree. Close-only
+    (gated on "Tổng kết phiên"); morning sáng baselines are skipped; idempotent;
+    no-op without cmp. A baseline with no cmp value (e.g. TB20 when <15 prior
+    days) is left untouched here — it has no figure to pin to.
     """
     if not text or "tổng kết phiên" not in text.lower():
         return text
@@ -3892,24 +3897,39 @@ def enforce_gtgd_baseline_pct(text: str, ctx: dict) -> str:
     if not F or not cmp:
         return text
 
-    def _fix(m: "_re.Match") -> str:
-        base_low = m.group(3).lower()
-        if "sáng" in base_low:
-            return m.group(0)
-        base_v = (cmp.get("avg20") if "20" in base_low
-                  else cmp.get("avg5") if "5" in base_low
-                  else cmp.get("prev") if "trước" in base_low else None)
-        if not base_v:
-            return m.group(0)
-        correct = (F / base_v - 1) * 100
-        cur = _parse_vn_number(m.group(1))
-        if cur is not None and abs(cur - correct) <= 1:
-            return m.group(0)
-        return f"{correct:+.0f}{m.group(2)}{m.group(3)}"
+    def _base_v(base_low: str) -> "float | None":
+        if "sáng" in base_low:                       # morning baseline → skip
+            return None
+        return (cmp.get("avg20") if "20" in base_low
+                else cmp.get("avg5") if "5" in base_low
+                else cmp.get("prev") if "trước" in base_low else None)
 
-    return _re.sub(
+    # Form 1: "±N% vs/so <baseline>"  (number precedes the baseline)
+    def _fix1(m: "_re.Match") -> str:
+        bv = _base_v(m.group(3).lower())
+        if not bv:
+            return m.group(0)
+        correct = (F / bv - 1) * 100
+        cur = _parse_vn_number(m.group(1))
+        return (m.group(0) if cur is not None and abs(cur - correct) <= 1
+                else f"{correct:+.0f}{m.group(2)}{m.group(3)}")
+    out = _re.sub(
         r"([+-]?\d[\d.,]*)(\s*%\s*(?:vs|so với|so)\s+)([^,.)]+?)(?=[,.)]|$)",
-        _fix, text)
+        _fix1, text)
+
+    # Form 2: "<baseline> (±N%)"  (baseline precedes the parenthetical %)
+    def _fix2(m: "_re.Match") -> str:
+        bv = _base_v(m.group(1).lower())
+        if not bv:
+            return m.group(0)
+        correct = (F / bv - 1) * 100
+        cur = _parse_vn_number(m.group(2))
+        return (m.group(0) if cur is not None and abs(cur - correct) <= 1
+                else f"{m.group(1)} ({correct:+.0f}%)")
+    out = _re.sub(
+        r"((?:trung bình|TB)\s*\d+\s*phiên|phiên trước(?:\s+đó)?)\s*\(\s*([+-]?\d[\d.,]*)\s*%\s*\)",
+        _fix2, out)
+    return out
 
 
 def enforce_compare_direction(text: str, ctx: dict | None = None) -> str:
