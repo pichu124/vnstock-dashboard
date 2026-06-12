@@ -829,6 +829,54 @@ def test_enforce_risk_numbers_per_ticker_metric_on_mixed_line():
     assert "HNG Op.CF" not in fixed        # leverage names → D/E, not Op.CF
 
 
+def test_enforce_risk_section_canonicalizes_all_failure_modes():
+    # One deterministic guard replaces the LLM's fundamental claims with the
+    # canonical block — fixing every recurring class at once: wrong metric, wrong
+    # number, wrong superlative, mis-pick, self-contradiction. Macro narrative is
+    # kept; financials excluded; BĐS tagged with context.
+    from vnstock_brief import enforce_risk_section
+    ctx = {"vn30_fundamentals": {
+        "HNG": {"de": 8.83, "ocf": 915.0},
+        "PET": {"de": 2.67, "ocf": -1389.0},
+        "VTZ": {"de": 2.63, "ocf": -318.0},
+        "KBC": {"de": 1.12, "ocf": -17344.0},
+        "NVL": {"de": 3.50, "ocf": -6145.0},
+        "VCB": {"de": 9.0, "ocf": -50000.0},          # bank → must be excluded
+    }, "financial_tickers": {"VCB"}, "realestate_tickers": {"KBC", "NVL"}}
+    text = ("⚠️ Rủi ro cần lưu ý\n"
+            "Rủi ro vĩ mô và kỹ thuật vẫn hiện hữu khi VNINDEX gần đáy range.\n"
+            "PET và VTZ có D/E cao nhất với 2.67 và 2.63; KBC Op.CF=-99,999 tỷ.\n"
+            "📅 Sự kiện sắp tới")
+    fixed = enforce_risk_section(text, ctx)
+    # macro line kept
+    assert "Rủi ro vĩ mô và kỹ thuật vẫn hiện hữu" in fixed
+    # canonical D/E: HNG is the real top, financials excluded
+    assert "HNG D/E=8.83" in fixed and "HNG cao nhất trong nhóm theo dõi" in fixed
+    assert "VCB" not in fixed
+    # the model's wrong superlative + wrong KBC figure are gone
+    assert "D/E cao nhất với 2.67" not in fixed and "-99,999" not in fixed
+    # canonical Op.CF: lowest two, BĐS-tagged, with context
+    assert "KBC Op.CF=-17,344 tỷ (BĐS)" in fixed and "NVL Op.CF=-6,145 tỷ (BĐS)" in fixed
+    assert "tích lũy quỹ đất" in fixed
+    # section ends cleanly at the next header
+    assert fixed.splitlines()[-1] == "📅 Sự kiện sắp tới"
+
+
+def test_enforce_risk_section_skips_low_de_and_noops():
+    from vnstock_brief import enforce_risk_section
+    # all D/E < 1.5 → no leverage line (low D/E is not a risk); only neg OCF
+    ctx = {"vn30_fundamentals": {"AAA": {"de": 0.8, "ocf": -500.0},
+                                 "BBB": {"de": 1.1, "ocf": 200.0}},
+           "realestate_tickers": set()}
+    text = "⚠️ Rủi ro cần lưu ý\nMột số rủi ro vĩ mô.\n📅 Sự kiện"
+    fixed = enforce_risk_section(text, ctx)
+    assert "Đòn bẩy cao nhất" not in fixed           # no high D/E → no leverage line
+    assert "AAA Op.CF=-500 tỷ" in fixed
+    # no fundamentals / no section → untouched
+    assert enforce_risk_section(text, {}) == text
+    assert enforce_risk_section("🎯 TLDR\nx", ctx) == "🎯 TLDR\nx"
+
+
 def test_enforce_risk_numbers_inserts_real_top_de_when_superlative_wrong():
     # 11:19: "PET và VTZ có D/E cao nhất với 2.67 và 2.63" while HNG=8.83 (the
     # real top) was omitted. Prepend HNG and demote the false "cao nhất" → "cao".

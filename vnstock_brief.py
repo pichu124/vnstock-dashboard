@@ -2540,10 +2540,11 @@ def generate_brief(
         text, _err = results.get(agent.name, ("", None))
         if text:
             fixed = enforce_upcoming_events(text, ctx)
+            fixed = enforce_risk_section(fixed, ctx)        # canonical risk facts first
             fixed = enforce_realestate_ocf_context(fixed, ctx)
             fixed = enforce_watchlist_hygiene(fixed, ctx)
             fixed = enforce_money_flow_two_sides(fixed, ctx)
-            fixed = enforce_risk_numbers(fixed, ctx)
+            fixed = enforce_risk_numbers(fixed, ctx)        # defensive no-op on canonical
             fixed = enforce_pivot_labels(fixed, ctx)
             fixed = enforce_watchlist_eligibility(fixed, ctx)
             fixed = enforce_gtgd_total(fixed, ctx)
@@ -2925,6 +2926,76 @@ def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
         add.append(f"NN mua ròng mạnh nhất (1 tuần): {top_buy[0]} {top_buy[1]:+,.0f} tỷ.")
     rebuilt = "\n".join(lines[:anchor + 1] + add + lines[anchor + 1:])
     return rebuilt if rebuilt != text else text
+
+
+def _canonical_risk_lines(ctx: dict) -> list:
+    """Build the fundamental-risk lines deterministically from ctx fundamentals:
+    highest D/E (≥1.5, non-financial, top-3) and lowest negative Op.CF (top-2,
+    BĐS-tagged + land-bank context). The single source of truth for the risk
+    section's facts. Returns [] when there's no data / nothing noteworthy."""
+    funds = ctx.get("vn30_fundamentals") or {}
+    if not funds:
+        return []
+    fin = set(ctx.get("financial_tickers") or ()) | _FINANCIAL_TICKERS
+    re_t = ctx.get("realestate_tickers") or set()
+    nonfin = {t: m for t, m in funds.items() if t not in fin}
+    des = sorted(((t, m["de"]) for t, m in nonfin.items()
+                  if isinstance(m.get("de"), (int, float))), key=lambda x: -x[1])
+    ocfs = sorted(((t, m["ocf"]) for t, m in nonfin.items()
+                   if isinstance(m.get("ocf"), (int, float))), key=lambda x: x[1])
+    out: list[str] = []
+    high_de = [(t, v) for t, v in des if v >= 1.5][:3]   # only genuinely high leverage
+    if high_de:
+        body = ", ".join(f"{t} D/E={v:.2f}" for t, v in high_de)
+        out.append(f"Đòn bẩy cao nhất (phi tài chính): {body} — "
+                   f"{high_de[0][0]} cao nhất trong nhóm theo dõi.")
+    neg_ocf = [(t, v) for t, v in ocfs if v < 0][:2]
+    if neg_ocf:
+        body = ", ".join(f"{t} Op.CF={v:,.0f} tỷ{' (BĐS)' if t in re_t else ''}"
+                         for t, v in neg_ocf)
+        out.append(f"Lưu chuyển tiền HĐKD thấp nhất: {body}.")
+        if any(t in re_t for t, _ in neg_ocf):
+            out.append("(Lưu ý: Op.CF âm của mã (BĐS) chủ yếu do tích lũy quỹ đất/hàng "
+                       "tồn kho dự án — vốn lưu động, KHÔNG phải lỗ HĐKD; soi thêm D/E "
+                       "và nợ vay.)")
+    return out
+
+
+def enforce_risk_section(text: str, ctx: dict) -> str:
+    """Deterministic guard: replace the FUNDAMENTAL claims in 'Rủi ro cần lưu ý'
+    with the canonical block from _canonical_risk_lines(ctx). The section had
+    recurring wrong-metric / wrong-number / wrong-superlative / mis-pick /
+    self-contradiction bugs from the LLM, none of which it actually needs to
+    author — the facts are fully data-driven. Keeps the model's macro/technical
+    narrative (lines naming no fundamentals ticker and no D/E/Op.CF), drops its
+    fundamental lines, appends the canonical ones. No-op without fundamentals or
+    a risk section, and never blanks the section.
+    """
+    funds = ctx.get("vn30_fundamentals") or {}
+    if not text or not funds:
+        return text
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines)
+                  if "rủi ro cần lưu ý" in l.lower()), None)
+    if start is None:
+        return text
+    end = next((i for i in range(start + 1, len(lines))
+                if _is_section_start(lines[i])), len(lines))
+    body = lines[start + 1:end]
+
+    _fund_kw = ("d/e", "op.cf", "lưu chuyển tiền", "lưu lượng tiền", "hđkd",
+                "đòn bẩy", "quỹ đất")
+
+    def _is_fundamental(l: str) -> bool:
+        low = l.lower()
+        return (any(k in low for k in _fund_kw)
+                or any(_re.search(rf"\b{_re.escape(t)}\b", l) for t in funds))
+
+    macro = [l for l in body if l.strip() and not _is_fundamental(l)]
+    new_body = macro + _canonical_risk_lines(ctx)
+    if not new_body or new_body == body:
+        return text
+    return "\n".join(lines[:start + 1] + new_body + lines[end:])
 
 
 def enforce_risk_numbers(text: str, ctx: dict) -> str:

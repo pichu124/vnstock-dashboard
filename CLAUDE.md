@@ -119,7 +119,14 @@ LLM hay phớt chỉ thị prompt → chốt bằng code sau khi agent trả out
 fixup trong `generate_brief`, áp cho mọi agent, cả morning & close):
 1. `enforce_upcoming_events` — thay TOÀN BỘ body mục "Sự kiện sắp tới" bằng list
    chuẩn từ ctx (top 3 + note GDKHQ); fallback splice khi LLM chối "Không có sự kiện".
-2. `enforce_realestate_ocf_context` — mã BĐS trên dòng Op.CF thiếu ngữ cảnh quỹ
+2. `enforce_risk_section` (chạy ĐẦU cho mục Rủi ro) — **canonical-hóa** phần
+   fundamental: thay claim của LLM bằng block từ `_canonical_risk_lines(ctx)`
+   (D/E cao nhất ≥1.5 phi-tài-chính + Op.CF âm thấp nhất, gắn (BĐS)+ngữ cảnh).
+   Giữ dòng vĩ mô/kỹ thuật của model, bỏ dòng fundamental → hết loạt lỗi
+   metric/số/superlative/mis-pick/mâu thuẫn. Các guard rủi ro cũ
+   (`enforce_risk_numbers`, `enforce_realestate_ocf_context`) chạy SAU làm
+   defensive no-op.
+2b. `enforce_realestate_ocf_context` — mã BĐS trên dòng Op.CF thiếu ngữ cảnh quỹ
    đất → chèn (whole-text, áp cả 2).
 3. `enforce_watchlist_hygiene` — xóa meta-disclaimer + dòng độn (anchor "watchlist
    sáng mai" → close-only).
