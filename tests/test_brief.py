@@ -460,6 +460,12 @@ def test_enforce_watchlist_hygiene_bumps_subprice_buy_trigger():
           "⚠️ Rủi ro")
     f2 = enforce_watchlist_hygiene(t2, {"bias_floor": {"dir": "GIẢM"}})
     assert "vượt 17,700" in f2 and "mục tiêu 18,200" in f2   # 17,716 → tick 50
+    # a trigger AT the current price (11:03 CII "vượt 17,200") is not a real
+    # breakout → bumped to ~+2%
+    t3 = ("📋 Watchlist sáng mai\n"
+          "1. **CII** (Giá 17,200) — canh MUA NẾU vượt 17,200 · mục tiêu 17,700 · cắt lỗ 16,700\n"
+          "⚠️ Rủi ro")
+    assert "vượt 17,550" in enforce_watchlist_hygiene(t3, {"bias_floor": {"dir": "GIẢM"}})
 
 
 def test_enforce_no_cjk_normalizes_sentiment_typo():
@@ -497,7 +503,9 @@ def test_enforce_watchlist_hygiene_converts_dipbuy_under_giam_bias():
             "2. **GEE** (Giá 95,500) — GIẢM TỶ TRỌNG/TRÁNH nếu thủng 92,635 · mục tiêu về 90,000\n"
             "⚠️ Rủi ro")
     fixed = enforce_watchlist_hygiene(text, {"bias_floor": {"dir": "GIẢM"}})
-    assert "canh MUA NẾU vượt 17,200 · mục tiêu 17,700 · cắt lỗ 16,700" in fixed
+    # MUA vùng → conditional; trigger at price (17,200) bumped to ~+2% (17,550),
+    # target follows (18,100), levels rounded to tick 50
+    assert "canh MUA NẾU vượt 17,550 · mục tiêu 18,100 · cắt lỗ 16,700" in fixed
     assert "MUA vùng" not in fixed
     assert "GIẢM TỶ TRỌNG/TRÁNH nếu thủng 92,600" in fixed   # defensive: level rounded to tick
     # no GIẢM floor → dip-buy left as-is

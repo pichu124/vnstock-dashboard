@@ -2788,10 +2788,11 @@ def enforce_watchlist_hygiene(text: str, ctx: dict | None = None) -> str:
         sec = [(l.replace("MUA vùng", "canh MUA NẾU vượt").replace("· chốt lời", "· mục tiêu")
                 if "MUA vùng" in l else l) for l in sec]
 
-    # A breakout-buy trigger MUST sit ABOVE the stock's current price — else
-    # "canh MUA NẾU vượt X" is already true and meaningless (observed 22:22: CII
-    # "vượt 16,684" while Giá=17,200 — the model used the support level as the
-    # trigger). Bump any sub-price "vượt" level to ~+2% of Giá.
+    # A breakout-buy trigger MUST sit MEANINGFULLY ABOVE the stock's current
+    # price — else "canh MUA NẾU vượt X" is already true / a non-confirmation
+    # (observed 22:22: CII "vượt 16,684" while Giá=17,200 = support; 11:03: CII
+    # "vượt 17,200" = the price itself). Bump any trigger within +0.5% of Giá up
+    # to ~+2% (a real confirmation breakout).
     def _fix_buy_trigger(l: str) -> str:
         if "canh mua" not in l.lower():
             return l
@@ -2802,7 +2803,7 @@ def enforce_watchlist_hygiene(text: str, ctx: dict | None = None) -> str:
 
         def _sub(m: "_re.Match") -> str:
             x = _parse_vn_number(m.group(2))
-            if x is not None and x < P:
+            if x is not None and x < P * 1.005:
                 return f"{m.group(1)}{_round_tick(P * 1.02, P):,}"
             return m.group(0)
 
