@@ -382,6 +382,7 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
 
     # Fetch foreign net flow (TopStock API) for NN ròng columns
     nn_w, nn_m, nn_3m = {}, {}, {}
+    nn_data_date = None
     try:
         from vnstock_data import TopStock
         from datetime import timedelta as _td
@@ -412,14 +413,21 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
 
         if all_nn_rows:
             nn_df_all = pd.DataFrame(all_nn_rows)
-            today_ts = pd.Timestamp(today_d)
+            nn_df_all["date"] = pd.to_datetime(nn_df_all["date"])
+            # Anchor the rolling windows to the LATEST date foreign data actually
+            # exists for — NOT wall-clock today. The TopStock feed lags like the
+            # EOD batch, so a wall-clock cutoff slides forward over empty recent
+            # days and freezes the figure near the last real date (observed BĐS
+            # NN ~-5,277 on 09/06 still showing -5,275 two sessions later).
+            _nn_anchor = nn_df_all["date"].max()
+            nn_data_date = _nn_anchor.date().isoformat()
             for days, result_map in ((7, nn_w), (30, nn_m), (90, nn_3m)):
-                cutoff = today_ts - pd.Timedelta(days=days)
-                filtered = nn_df_all[pd.to_datetime(nn_df_all["date"]) >= cutoff]
+                cutoff = _nn_anchor - pd.Timedelta(days=days)
+                filtered = nn_df_all[nn_df_all["date"] >= cutoff]
                 agg_val = filtered.groupby("symbol")["net_value"].sum()
                 for sym, val in agg_val.items():
                     result_map[sym] = round(val / 1e9, 1)  # → tỷ VND
-            console.log(f"  NN data: {len(all_nn_rows)} records across 20 days")
+            console.log(f"  NN data: {len(all_nn_rows)} records, đến ngày {nn_data_date}")
     except ImportError:
         console.log("  [dim]vnstock_data not installed — NN data skipped[/dim]")
     except Exception as e:
@@ -630,6 +638,7 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
         "gtgd_ticker_count": gtgd_ticker_count,
         "gtgd_date": _gd,
         "gtgd_by_date": gtgd_by_date,
+        "nn_data_date": nn_data_date,   # latest date the foreign-flow feed covers
         "sectors": result.to_dict(orient="records"),
         "breadth": breadth,
         "tickers": tick_display.to_dict(orient="records"),

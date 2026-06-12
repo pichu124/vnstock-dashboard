@@ -1118,13 +1118,16 @@ def _vn30_fund_block(funds: dict[str, dict], extra_financial: "set[str] | None" 
         return ""
 
 
-def _sector_flow_block(sectors: list[dict]) -> str:
+def _sector_flow_block(sectors: list[dict], nn_data_date: str | None = None,
+                       session_date: str | None = None) -> str:
     """Render sector money-flow: foreign net flow (1 tuần) + liquidity by sector.
 
     Reads the pre-aggregated per-sector fields already in market_overview.json
     (NN 1T (tỷ), GTGD TB (tỷ)) — no extra fetching. Shows the strongest
     inflow/outflow sectors plus the most liquid ones so the agent can talk
-    about rotation without inventing numbers.
+    about rotation without inventing numbers. When the foreign-flow feed lags
+    the session (nn_data_date < session_date) the window is labelled with its
+    real end date so the brief doesn't present stale NN as current.
     """
     if not sectors:
         return ""
@@ -1146,7 +1149,15 @@ def _sector_flow_block(sectors: list[dict]) -> str:
         if not (inflow or outflow or any(r["gtgd"] for r in top_gtgd)):
             return ""
 
-        lines = ["\n## Dòng tiền ngành (NN ròng 1 tuần + thanh khoản GTGD TB)"]
+        _stale = (nn_data_date and session_date and nn_data_date < session_date)
+        _hdr_win = (f"NN ròng 5 phiên đến {nn_data_date}" if _stale
+                    else "NN ròng 1 tuần")
+        lines = [f"\n## Dòng tiền ngành ({_hdr_win} + thanh khoản GTGD TB)"]
+        if _stale:
+            lines.append(
+                f"⚠️ Dữ liệu khối ngoại MỚI ĐẾN {nn_data_date} (chưa có phiên "
+                f"{session_date}); khi nêu NN ròng ghi rõ 'đến {nn_data_date}', "
+                f"KHÔNG nói 'hôm nay'/'phiên này'.")
         if inflow:
             lines.append("- 🟢 NN mua ròng: " + ", ".join(
                 f"{r['name']} {r['nn']:+,.0f} tỷ (GTGD {r['gtgd']:,.0f})" for r in inflow))
@@ -1346,6 +1357,7 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
             # rejected → expose as partial only ("chưa đủ dữ liệu"). NOTE: do
             # NOT gate on count/universe — only ~60% of classified names trade
             # on any given day (observed 808/1388 on a normal session).
+            ctx["nn_data_date"] = data.get("nn_data_date")
             _byd = data.get("gtgd_by_date") or {}
             _gd = data.get("gtgd_date")
             _entry = _byd.get(_data_date_str)
@@ -2342,7 +2354,8 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
     # Sector money flow (foreign net flow + liquidity by sector) so the agent
     # can describe rotation / where smart money is going.
     if _sectors := ctx.get("sectors"):
-        block = _sector_flow_block(_sectors)
+        block = _sector_flow_block(_sectors, nn_data_date=ctx.get("nn_data_date"),
+                                   session_date=ctx.get("date"))
         if block:
             lines.append(block)
 

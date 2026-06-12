@@ -1099,6 +1099,22 @@ def test_sector_flow_block_ranks_inflow_outflow():
     assert "Thanh khoản cao nhất" in block
 
 
+def test_sector_flow_block_flags_stale_foreign_data():
+    # Foreign feed lags the session (observed: BĐS NN ~-5,277 on 09/06 still
+    # showing -5,275 two sessions later because the window was wall-clock
+    # anchored). When nn_data_date < session_date the block labels the real
+    # window end and warns, not presenting stale NN as current.
+    from vnstock_brief import _sector_flow_block
+    sectors = [{"Ngành": "Bất động sản", "NN 1T (tỷ)": -5275.0, "GTGD TB (tỷ)": 3004.0}]
+    stale = _sector_flow_block(sectors, nn_data_date="2026-06-09",
+                               session_date="2026-06-11")
+    assert "NN ròng 5 phiên đến 2026-06-09" in stale
+    assert "MỚI ĐẾN 2026-06-09" in stale and "chưa có phiên 2026-06-11" in stale
+    fresh = _sector_flow_block(sectors, nn_data_date="2026-06-11",
+                               session_date="2026-06-11")
+    assert "NN ròng 1 tuần" in fresh and "MỚI ĐẾN" not in fresh
+
+
 def test_sector_flow_block_empty():
     from vnstock_brief import _sector_flow_block
     assert _sector_flow_block([]) == ""
