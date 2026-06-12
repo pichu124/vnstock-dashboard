@@ -184,6 +184,14 @@ trong `apply_brief_guards`, áp cho mọi agent, cả morning & close):
     "Tránh/Bán" / close "Tụt hậu") khi phủ nhận / gọi sai ngành / thiếu ngành
     đúng. Dòng đúng (close) giữ nguyên; idempotent. ⇒ đây là điểm parity quan
     trọng: "Trọng tâm theo dõi" của morning giờ luôn khớp lead/lag như close.
+18. `enforce_number_format` (chạy CUỐI) — chuẩn hoá số về 1 quy ước EN (phẩy ngăn
+    nghìn, chấm thập phân) như data block (`{:,.2f}`)/guards/close. Morning 13:54
+    trộn VN ("1.798,61", "9.129,4", "1.858,39", "-3,2%", "5.038 tỷ") với EN
+    ("5,233.3", "1,789.31") do template example xưa dùng VN ("1.815,42") trong khi
+    data block xuất EN → model lẫn lộn. Chỉ đổi token VN KHÔNG nhập nhằng
+    (nghìn+thập-phân dấu chấm-grouping + phẩy-decimal; nghìn-dot ngay trước tỷ/tỉ;
+    % phẩy-decimal). KHÔNG đụng số EN, pp 3 lẻ ("+0.275pp"), tỷ số ("0.87"), ngày
+    ISO. Đã sửa luôn example template (212/283) về EN để hết tín hiệu mâu thuẫn.
 
 **Parity morning↔close (DONE 2026-06-11)**: 2 template nay thống nhất tính năng,
 trừ khác biệt CỐ Ý — GTGD sáng-với-sáng (intraday), "Watchlist sáng mai"/"Stance

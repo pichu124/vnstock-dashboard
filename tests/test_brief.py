@@ -1002,6 +1002,29 @@ def test_money_flow_guard_handles_morning_inline_line():
     assert lines[i + 1].startswith("NN bán ròng mạnh nhất (1 tuần): Bất động sản -5,111 tỷ")
 
 
+def test_enforce_number_format_normalizes_vn_to_en():
+    # Morning 13:54 mixed VN format (1.798,61 / 9.129,4 / 1.858,39 / -3,2% /
+    # 5.038 tỷ) with EN (5,233.3 / 1,789.31). Normalise the VN tokens to EN; leave
+    # EN numbers, pp 3-decimals, ratios and dates alone.
+    from vnstock_brief import enforce_number_format
+    t = ("Đóng cửa 1.798,61. GTGD sáng 5,233.3 tỷ (-43% so 9.129,4 tỷ). "
+         "MA20=1.858,39 (dưới -3,2%). S1=1,789.31. NN Ngân hàng (GTGD 5.038 tỷ). "
+         "BĐS đóng góp +0.275pp. A/D 0.87. GDKHQ 2026-06-15. Cổ tức 13.0%.")
+    f = enforce_number_format(t, {})
+    assert "1,798.61" in f and "1.798,61" not in f      # VN thousands+decimal → EN
+    assert "9,129.4" in f and "9.129,4" not in f
+    assert "1,858.39" in f and "1.858,39" not in f
+    assert "-3.2%" in f and "-3,2%" not in f            # VN percentage → EN
+    assert "5,038 tỷ" in f and "5.038 tỷ" not in f      # VN thousands+tỷ → EN
+    assert "5,233.3 tỷ" in f                            # EN GTGD untouched
+    assert "S1=1,789.31" in f                           # EN pivot untouched
+    assert "+0.275pp" in f                              # 3-decimal pp untouched
+    assert "A/D 0.87" in f                              # ratio untouched
+    assert "2026-06-15" in f                            # ISO date untouched
+    assert "13.0%" in f                                 # EN percent untouched
+    assert enforce_number_format(f, {}) == f            # idempotent
+
+
 def test_enforce_lead_lag_fixes_morning_swap_keeps_close():
     # 13:40 morning: "Tích luỹ/Mua: Chưa có nhóm dẫn dắt" (denied the leader) and
     # "Tránh/Bán: Bất động sản (-0.03pp)" (put the LEAD sector on the avoid line)

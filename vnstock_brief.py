@@ -209,7 +209,7 @@ BẮT BUỘC nếu có block "Tâm lý thị trường": nêu RÕ nhãn tâm lý
 
 ## 📈 Mức kỹ thuật quan trọng (VNINDEX)
 TRÍCH XUẤT TỪ block "## VNINDEX kỹ thuật" — KHÔNG BỊA, KHÔNG dùng số trong training data.
-**Đóng cửa hiện tại:** [chính xác con số `close` trong data, ví dụ "1.815,42"]
+**Đóng cửa hiện tại:** [chính xác con số `close` trong data, ví dụ "1,815.42" — GIỮ NGUYÊN định dạng số như trong data: dấu phẩy ngăn nghìn, dấu chấm thập phân]
 **Hỗ trợ gần:** [S1 (gần giá nhất) TRƯỚC, rồi S2 — ghi cả số tuyệt đối, đúng thứ tự S1 < ... < giá]
 **Kháng cự gần:** [R1 (gần giá nhất) trước, rồi R2]
 **Vị trí so với MA:** [BẮT BUỘC nêu ĐỦ CẢ BA — MA20, MA50, MA200 — mỗi cái: trên/dưới + % cách giá + giá trị MA từ data. KHÔNG được bỏ MA nào.]
@@ -280,7 +280,7 @@ BẮT BUỘC nếu có block "Tâm lý thị trường": nêu RÕ nhãn tâm lý
 
 ## 📈 Mức kỹ thuật chốt phiên (VNINDEX)
 TRÍCH XUẤT TỪ block "## VNINDEX kỹ thuật" — KHÔNG BỊA.
-**Đóng cửa:** [chính xác `close` từ data, ví dụ "1.815,42 (+0,38%)"]
+**Đóng cửa:** [chính xác `close` từ data, ví dụ "1,815.42 (+0.38%)" — GIỮ NGUYÊN định dạng số như trong data: dấu phẩy ngăn nghìn, dấu chấm thập phân]
 **Vị trí trong range:** [LẤY ĐÚNG dòng "Vị trí range tuần" trong block kỹ thuật (đã tính sẵn %+nhãn) — KHÔNG tự suy "nửa trên/dưới"]
 **Vs MA:** [BẮT BUỘC nêu ĐỦ CẢ BA — MA20, MA50, MA200 — trên/dưới + khoảng cách % theo data. KHÔNG được bỏ MA nào.]
 **Trigger ngày mai:** [BẮT BUỘC nêu CẢ HAI chiều, trung tính (KHÔNG phải setup Stance): "vượt R1=[số] → test R2=[số]; thủng S1=[số] → về S2=[số]"]
@@ -2436,6 +2436,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_no_record_superlative(fixed, ctx)    # no all-time GTGD claim
     fixed = enforce_no_duplicate_momentum(fixed, ctx)    # state momentum once
     fixed = enforce_range_position(fixed, ctx)
+    fixed = enforce_number_format(fixed, ctx)            # one number convention (EN)
     return fixed
 
 
@@ -3589,6 +3590,33 @@ def enforce_no_duplicate_momentum(text: str, ctx: dict | None = None) -> str:
                 ln = ln[:m.start()] + ln[m.end():]
         out.append(ln)
     return "\n".join(out)
+
+
+def enforce_number_format(text: str, ctx: dict | None = None) -> str:
+    """Normalise Vietnamese-format numbers to the EN format the data block,
+    guards and close brief use (comma = thousands, dot = decimal). The templates'
+    examples used VN format ("1.815,42"), so the model reformatted some numbers
+    to VN (1.798,61, 9.129,4, 1.858,39, -3,2%) while leaving guard/GTGD numbers EN
+    (5,233.3, 1,789.31) — one brief, two conventions (observed morning 13:54).
+    Convert only UNAMBIGUOUS VN tokens: thousands+decimal (dot-grouped, comma
+    decimal), dot-grouped thousands immediately before tỷ/tỉ, and comma-decimal
+    percentages. EN numbers, 3-decimal pp values, ratios (0.87) and ISO dates are
+    left untouched; idempotent. No-op when already consistent.
+    """
+    if not text:
+        return text
+
+    def _vn_dec(m: "_re.Match") -> str:        # "1.798,61" → "1,798.61"
+        intp, dec = m.group(0).split(",")
+        return f"{int(intp.replace('.', '')):,}.{dec}"
+    out = _re.sub(r"\d{1,3}(?:\.\d{3})+,\d+", _vn_dec, text)
+
+    def _vn_th(m: "_re.Match") -> str:         # "5.038 tỷ" → "5,038 tỷ"
+        return f"{int(m.group(1).replace('.', '')):,}{m.group(2)}"
+    out = _re.sub(r"(\d{1,3}(?:\.\d{3})+)(\s*(?:tỷ|tỉ))", _vn_th, out)
+
+    out = _re.sub(r"([+-]?\d+),(\d{1,2})%", r"\1.\2%", out)   # "-3,2%" → "-3.2%"
+    return out
 
 
 def enforce_range_position(text: str, ctx: dict) -> str:
