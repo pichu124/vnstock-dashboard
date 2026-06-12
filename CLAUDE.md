@@ -215,6 +215,12 @@ trong `apply_brief_guards`, áp cho mọi agent, cả morning & close):
     chiều về `full_day_gtgd_cmp` (avg5/avg20/prev) → TLDR khớp Tổng kết. Gate
     "Tổng kết phiên" + bỏ baseline có "sáng"; baseline không có cmp (TB20 khi <15
     phiên) để nguyên (không có số để pin); idempotent.
+23. `enforce_composite_rotation_hygiene` — giữ khối composite rotation nhưng vá 2
+    lỗi (user chọn "giữ nhưng guard"): (a) **mâu thuẫn bucket↔nhãn** — ngành trong
+    dòng "Phân phối" mang nhãn "tích luỹ" (hoặc ngược) → bỏ nhãn mâu thuẫn (23:44:
+    "Phân phối cảnh báo: CNTT (tín hiệu tích luỹ mạnh)"); nhãn nhất quán giữ
+    nguyên. (b) **jargon "Net BS"** (Buy/Sell tiếng Anh) — "Net BS +51.7% volume"
+    / "+6M" → "mua/bán ròng ~X% KL" / "~X triệu CP" (dấu → mua/bán). Idempotent.
 21. `enforce_breadth_label` — brief CHỈ có "% mã trên MA200" (above_ma200_pct),
     KHÔNG có "% mã tăng giá". Close 12/06: "chỉ 17% mã cổ phiếu tăng giá" — 17%
     là số trên-MA200 (A/D 0.85 ⇒ ~46% tăng), gán nhãn "tăng giá" sai → relabel

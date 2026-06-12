@@ -2437,6 +2437,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_no_instruction_leak(fixed, ctx)
     fixed = enforce_no_placeholder_leak(fixed, ctx)
     fixed = enforce_no_composite_jargon(fixed, ctx)
+    fixed = enforce_composite_rotation_hygiene(fixed, ctx)  # no bucket↔label clash / 'Net BS'
     fixed = enforce_no_bias_directive_leak(fixed, ctx)   # 'bắt buộc' is internal
     fixed = enforce_no_record_superlative(fixed, ctx)    # no all-time GTGD claim
     fixed = enforce_no_duplicate_momentum(fixed, ctx)    # state momentum once
@@ -3642,6 +3643,46 @@ def enforce_no_composite_jargon(text: str, ctx: dict | None = None) -> str:
         return f" (tín hiệu {name})"
 
     return _COMPOSITE_LEAK_RE.sub(_lbl, text)
+
+
+def enforce_composite_rotation_hygiene(text: str, ctx: dict | None = None) -> str:
+    """Keep the composite-rotation lines but fix two recurring problems (user
+    chose 'giữ nhưng guard'):
+
+    (a) Bucket↔label contradiction — a sector in the 'Phân phối' (distribution)
+        line carrying a 'tích luỹ' (accumulation) composite label, or vice versa
+        (observed 23:44: "Phân phối cảnh báo: CNTT & Phần mềm (tín hiệu tích luỹ
+        mạnh)"). Drop the contradictory '(tín hiệu …)' label; the consistent one
+        is kept.
+    (b) 'Net BS' jargon (English Buy/Sell) — "Net BS +51.7% volume" / "Net BS
+        +6M" → Vietnamese "mua/bán ròng ~X% KL" / "~X triệu CP" (sign → mua/bán).
+
+    Idempotent; no-op when clean.
+    """
+    if not text:
+        return text
+    # (a) per-line bucket↔label contradiction
+    out = []
+    for ln in text.splitlines():
+        head = (ln.split(":", 1)[0] if ":" in ln else ln).lower()
+        if "phân phối" in head and "tích lu" not in head:
+            ln = _re.sub(r"\s*\(\s*tín hiệu\s+tích\s+lu[ỹy][^)]*\)", "", ln)
+        elif "tích lu" in head and "phân phối" not in head:
+            ln = _re.sub(r"\s*\(\s*tín hiệu\s+phân\s+phối[^)]*\)", "", ln)
+        out.append(ln)
+    res = "\n".join(out)
+
+    # (b) Net BS jargon → Vietnamese
+    def _verb(s: str) -> str:
+        v = _parse_vn_number(s)
+        return "bán" if (v is not None and v < 0) else "mua"
+    res = _re.sub(r"Net\s*BS\s*([+-]?\d[\d.,]*)\s*%\s*(?:volume|vol)\b",
+                  lambda m: f"{_verb(m.group(1))} ròng ~{m.group(1).lstrip('+-')}% KL",
+                  res, flags=_re.IGNORECASE)
+    res = _re.sub(r"Net\s*BS\s*([+-]?\d[\d.,]*)\s*M\b",
+                  lambda m: f"{_verb(m.group(1))} ròng ~{m.group(1).lstrip('+-')} triệu CP",
+                  res, flags=_re.IGNORECASE)
+    return res
 
 
 def enforce_no_bias_directive_leak(text: str, ctx: dict | None = None) -> str:

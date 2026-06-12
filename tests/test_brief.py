@@ -1081,6 +1081,28 @@ def test_enforce_gtgd_baseline_pct_form_b_baseline_then_pct():
     assert enforce_gtgd_baseline_pct(f, ctx) == f  # idempotent
 
 
+def test_enforce_composite_rotation_hygiene_fixes_contradiction_and_jargon():
+    # 23:44: "Phân phối cảnh báo: CNTT & Phần mềm (tín hiệu tích luỹ mạnh)" —
+    # distribution bucket with an accumulation label → drop the contradictory
+    # label. And "Net BS +51.7% volume" → Vietnamese.
+    from vnstock_brief import enforce_composite_rotation_hygiene
+    text = ("- Smart money tích luỹ ngầm: Giáo dục (giá đi ngang, Net BS +51.7% volume), "
+            "Hóa chất (Net BS -13.6% volume).\n"
+            "- Phân phối cảnh báo: Công nghệ thông tin & Phần mềm (tín hiệu tích luỹ mạnh).")
+    f = enforce_composite_rotation_hygiene(text, {})
+    # (a) contradiction label dropped from the distribution bucket
+    assert "Phân phối cảnh báo: Công nghệ thông tin & Phần mềm" in f
+    assert "tín hiệu tích luỹ mạnh" not in f
+    # (b) Net BS jargon → Vietnamese, sign → mua/bán
+    assert "mua ròng ~51.7% KL" in f
+    assert "bán ròng ~13.6% KL" in f
+    assert "Net BS" not in f
+    # a consistent accumulation label under an accumulation bucket is KEPT
+    keep = "- Smart money tích luỹ ngầm: Giáo dục (tín hiệu tích luỹ mạnh)."
+    assert enforce_composite_rotation_hygiene(keep, {}) == keep
+    assert enforce_composite_rotation_hygiene(f, {}) == f          # idempotent
+
+
 def test_enforce_breadth_label_relabels_above_ma200_as_advancing():
     # Close 12/06: "chỉ 17% mã cổ phiếu tăng giá" — 17% is the above-MA200 stat
     # (A/D 0.85 implies ~46% advancing), so 'tăng giá' is a mislabel → 'trên MA200'.
