@@ -2544,6 +2544,7 @@ def generate_brief(
             fixed = enforce_realestate_ocf_context(fixed, ctx)
             fixed = enforce_watchlist_hygiene(fixed, ctx)
             fixed = enforce_money_flow_two_sides(fixed, ctx)
+            fixed = enforce_liquidity_label(fixed, ctx)     # NN-sell figures ≠ thanh khoản
             fixed = enforce_risk_numbers(fixed, ctx)        # defensive no-op on canonical
             fixed = enforce_pivot_labels(fixed, ctx)
             fixed = enforce_watchlist_eligibility(fixed, ctx)
@@ -2955,6 +2956,59 @@ def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
         add.append(f"NN mua ròng mạnh nhất (1 tuần): {top_buy[0]} {top_buy[1]:+,.0f} tỷ.")
     rebuilt = "\n".join(lines[:anchor + 1] + add + lines[anchor + 1:])
     return rebuilt if rebuilt != text else text
+
+
+def enforce_liquidity_label(text: str, ctx: dict) -> str:
+    """A 'thanh khoản'/liquidity claim must never carry a NEGATIVE per-sector tỷ
+    figure — those are NN net-sell flows mislabeled as turnover (observed 12:33:
+    "Thanh khoản ngành tập trung vào Ngân hàng (-703 tỷ), Bất động sản (-307 tỷ),
+    Chứng khoán (2,353 tỷ)" — -703/-307 are foreign net-sell, GTGD is never < 0).
+    The prompt warns against this twice and the LLM still conflates the two, so
+    chốt bằng code: a liquidity clause (no NN-side keyword) that holds a negative
+    figure is replaced with the canonical top-GTGD sectors from ctx; falls back
+    to stripping the bogus negative parentheticals when no GTGD data. No-op
+    otherwise — idempotent (the canonical line carries no negative figure).
+    """
+    sectors = ctx.get("sectors") or []
+    if not text or not sectors:
+        return text
+    gtgd = sorted(((s.get("Ngành"), s.get("GTGD TB (tỷ)")) for s in sectors
+                   if s.get("Ngành")
+                   and isinstance(s.get("GTGD TB (tỷ)"), (int, float))
+                   and (s.get("GTGD TB (tỷ)") or 0) > 0),
+                  key=lambda x: -x[1])[:3]
+    canonical = ("Thanh khoản cao nhất (GTGD TB 1 tuần): "
+                 + ", ".join(f"{n} {g:,.0f} tỷ" for n, g in gtgd)) if gtgd else ""
+
+    _liq = ("thanh khoản", "giá trị giao dịch")
+    _nn = ("bán ròng", "mua ròng", "nn ròng")
+    _neg = _re.compile(r"-\d[\d.,]*\s*tỷ")
+    changed = False
+    out_lines: list[str] = []
+    for ln in text.splitlines():
+        low = ln.lower()
+        if not any(k in low for k in _liq) or not _neg.search(ln):
+            out_lines.append(ln)
+            continue
+        parts = _re.split(r"([.;])", ln)        # keep delimiters at odd indices
+        for j in range(0, len(parts), 2):
+            cl = parts[j]
+            cll = cl.lower()
+            if not any(k in cll for k in _liq):     # not a liquidity clause
+                continue
+            if any(k in cll for k in _nn):          # genuine NN clause — leave it
+                continue
+            if not _neg.search(cl):                 # already clean
+                continue
+            lead = cl[:len(cl) - len(cl.lstrip())]  # preserve clause's leading space
+            if canonical:
+                parts[j] = f"{lead}{canonical}"
+            else:
+                parts[j] = _re.sub(
+                    r"\s*\(\s*(?:NN\s*|khối\s+ngoại\s*)?-\d[\d.,]*\s*tỷ\s*\)", "", cl)
+            changed = True
+        out_lines.append("".join(parts))
+    return "\n".join(out_lines) if changed else text
 
 
 def _canonical_risk_lines(ctx: dict) -> list:

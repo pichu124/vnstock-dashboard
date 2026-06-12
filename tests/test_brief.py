@@ -595,6 +595,48 @@ def test_enforce_money_flow_two_sides_noop_cases():
     assert enforce_money_flow_two_sides(t3, ctx_small) == t3
 
 
+def test_enforce_liquidity_label_replaces_negative_thanh_khoan_with_gtgd():
+    # 12:33: "Thanh khoản ngành tập trung vào Ngân hàng (-703 tỷ), Bất động sản
+    # (-307 tỷ), Chứng khoán (2,353 tỷ)" — -703/-307 are NN net-sell figures
+    # mislabeled as turnover. The liquidity clause must become the canonical
+    # top-GTGD line; the sibling NN clause on the same line is untouched.
+    from vnstock_brief import enforce_liquidity_label
+    ctx = {"sectors": [
+        {"Ngành": "Ngân hàng", "NN 1T (tỷ)": -703.0, "GTGD TB (tỷ)": 4100.0},
+        {"Ngành": "Chứng khoán & Đầu tư tài chính", "NN 1T (tỷ)": -433.0, "GTGD TB (tỷ)": 2353.0},
+        {"Ngành": "Bất động sản", "NN 1T (tỷ)": -307.0, "GTGD TB (tỷ)": 1800.0}]}
+    text = ("💰 Dòng tiền đáng chú ý\n"
+            "NN bán ròng mạnh: Ngân hàng -703 tỷ, Bất động sản -307 tỷ. "
+            "Thanh khoản ngành tập trung vào Ngân hàng (-703 tỷ), Bất động sản "
+            "(-307 tỷ), Chứng khoán (2,353 tỷ).\n"
+            "📋 Watchlist")
+    fixed = enforce_liquidity_label(text, ctx)
+    # the bogus negative liquidity figures are gone
+    assert "Ngân hàng (-703 tỷ)" not in fixed
+    assert "Bất động sản (-307 tỷ)" not in fixed
+    # canonical top-GTGD line (positive figures, real ranking) inserted
+    assert "Thanh khoản cao nhất (GTGD TB 1 tuần): Ngân hàng 4,100 tỷ" in fixed
+    # the genuine NN clause is preserved (the -703/-307 NN figures stay there)
+    assert "NN bán ròng mạnh: Ngân hàng -703 tỷ, Bất động sản -307 tỷ." in fixed
+    # idempotent
+    assert enforce_liquidity_label(fixed, ctx) == fixed
+
+
+def test_enforce_liquidity_label_noop_when_clean():
+    from vnstock_brief import enforce_liquidity_label
+    ctx = {"sectors": [{"Ngành": "Ngân hàng", "NN 1T (tỷ)": -703.0, "GTGD TB (tỷ)": 4100.0}]}
+    # positive liquidity figures → untouched
+    t1 = ("💰 Dòng tiền đáng chú ý\nThanh khoản cao nhất: Ngân hàng 4,100 tỷ.\n📋 Watchlist")
+    assert enforce_liquidity_label(t1, ctx) == t1
+    # genuine NN clause mentioning a negative, even with 'thanh khoản' elsewhere
+    # in the same clause window, is not mangled
+    t2 = ("💰 Dòng tiền đáng chú ý\nNN bán ròng BĐS -5,275 tỷ; thanh khoản dồn "
+          "vào nhóm vốn hóa lớn.\n📋 Watchlist")
+    assert enforce_liquidity_label(t2, ctx) == t2
+    # no sector data → untouched
+    assert enforce_liquidity_label(t1, {}) == t1
+
+
 def test_bias_floor_giam_adds_watchlist_conditional_buy_rule():
     # Stance GIẢM kept producing unconditional dip-buys ("MUA vùng 69,000" with
     # price at 70,700). The bias-floor block must carry a watchlist-specific
