@@ -1040,6 +1040,44 @@ def test_enforce_compare_direction_flips_word_to_match_sign():
     assert enforce_compare_direction(f, {}) == f      # idempotent
 
 
+def test_enforce_compare_direction_form_b_compares_baseline_value():
+    # Morning 12/06: "Phiên sáng 8,397.0 tỷ, cao hơn 60% ... (5,233.3 tỷ) nhưng
+    # thấp hơn 11% TB sáng (7,549.1 tỷ)" — 8,397 > 7,549 so it's HIGHER, not
+    # 'thấp hơn'. Bare % (no sign) → compare subject vs parenthetical baseline.
+    from vnstock_brief import enforce_compare_direction
+    t = ("Phiên sáng giao dịch 8,397.0 tỷ, cao hơn 60% phiên sáng trước "
+         "(5,233.3 tỷ) nhưng thấp hơn 11% trung bình 5 phiên sáng (7,549.1 tỷ).")
+    f = enforce_compare_direction(t, {})
+    assert "cao hơn 11% trung bình 5 phiên sáng (7,549.1 tỷ)" in f   # flipped
+    assert "thấp hơn 11%" not in f
+    assert "cao hơn 60% phiên sáng trước (5,233.3 tỷ)" in f          # was right, kept
+    assert enforce_compare_direction(f, {}) == f                     # idempotent
+    # genuinely lower (subject < baseline) keeps 'thấp hơn'
+    ok = "GTGD 5,000.0 tỷ, thấp hơn 30% TB sáng (7,100.0 tỷ)."
+    assert enforce_compare_direction(ok, {}) == ok
+
+
+def test_enforce_lead_lag_pins_lead_sector_pp_anywhere():
+    # Morning 12/06 TLDR: "giảm tỷ trọng nhóm Bất động sản (đóng góp -0.504pp
+    # tuần)" — fabricated (borrowed the -504 tỷ NN figure); BĐS is the +0.464pp
+    # leader. Pin any lead/lag pp mention to the canonical value.
+    from vnstock_brief import enforce_lead_lag
+    ctx = {"lead_sector": {"name": "Bất động sản", "contrib": 0.464},
+           "lag_sector": {"name": "Bán lẻ & Thương mại", "contrib": -0.067}}
+    text = ("🎯 TLDR\nDEFENSIVE — giảm tỷ trọng nhóm Bất động sản (đóng góp -0.504pp tuần).\n"
+            "## 🎯 Trọng tâm theo dõi\n"
+            "**Tích luỹ/Mua:** Bất động sản (đóng góp +0.464pp, 1 tuần — mạnh nhất).\n"
+            "**Tránh/Bán:** Bán lẻ & Thương mại (đóng góp -0.067pp, 1 tuần — yếu nhất).\n"
+            "## ⚡ Biến động")
+    f = enforce_lead_lag(text, ctx)
+    assert "Bất động sản (đóng góp +0.464pp tuần)" in f      # TLDR pp pinned
+    assert "-0.504pp" not in f
+    # the already-correct Trọng tâm lines are untouched
+    assert "**Tích luỹ/Mua:** Bất động sản (đóng góp +0.464pp, 1 tuần — mạnh nhất)." in f
+    assert "**Tránh/Bán:** Bán lẻ & Thương mại (đóng góp -0.067pp, 1 tuần — yếu nhất)." in f
+    assert enforce_lead_lag(f, ctx) == f                     # idempotent
+
+
 def test_enforce_scenario_levels_pins_fabricated_and_keeps_real():
     # Morning 14:28: "đóng cửa trên 1,801.99 (đáy phiên), test R1=1,822.95" —
     # 1,801.99 matches no real level and "đáy phiên" above the close is

@@ -2936,7 +2936,22 @@ def enforce_lead_lag(text: str, ctx: dict) -> str:
             out.append(ln)
             continue
         out.append(ln)
-    return "\n".join(out) if changed else text
+    result = "\n".join(out) if changed else text
+
+    # Pin the lead/lag sector's pp contribution wherever it's stated wrong — the
+    # model invents a pp for the lead OUTSIDE the label lines too (observed
+    # morning 23:14: TLDR "giảm tỷ trọng Bất động sản (đóng góp -0.504pp)" — it
+    # borrowed the -504 tỷ NN market figure as a fake -0.504pp, contradicting the
+    # +0.464pp leader in its own Trọng tâm). Pin {lead}/{lag} pp to the canonical
+    # value anywhere it's off by > 0.005pp. Correct mentions are left; idempotent.
+    for nm, cv in ((lead_name, lc), (lag_name, gc)):
+        def _pp(m: "_re.Match", _cv=cv) -> str:
+            v = _parse_vn_number(m.group(2))
+            return (f"{m.group(1)}{_cv:+.3f}pp"
+                    if v is not None and abs(v - _cv) > 0.005 else m.group(0))
+        result = _re.sub(
+            rf"({_re.escape(nm)}.{{0,30}}?đóng góp\s*)([+-]?[\d.,]+)\s*pp", _pp, result)
+    return result
 
 
 def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
@@ -3857,12 +3872,16 @@ def enforce_gtgd_compare_frame(text: str, ctx: dict) -> str:
 
 
 def enforce_compare_direction(text: str, ctx: dict | None = None) -> str:
-    """A comparison word must match the sign of its percentage. Observed close
-    12/06: "GTGD cả ngày 18,353.2 tỷ … thấp hơn TB5 phiên (+43%)" — 'thấp hơn'
-    (lower) paired with a POSITIVE +43% (higher). Flip only the clashing word:
-    'thấp hơn …(+N%)' → 'cao hơn'; 'cao hơn …(-N%)' → 'thấp hơn'. Consistent pairs
-    ('thấp hơn …(-N%)', 'cao hơn …(+N%)') are left. The % must sit within ~30
-    chars of the word (same comparison clause). No-op when clean; idempotent.
+    """A comparison word must match the sign / magnitude of its percentage.
+
+    Form A (close 12/06: "GTGD … thấp hơn TB5 phiên (+43%)") — 'thấp hơn' with a
+    POSITIVE % is a clash; flip the word to match the sign. Consistent pairs are
+    left. The % must sit within ~30 chars of the word (same clause).
+
+    Form B (morning 12/06: "8,397 tỷ … thấp hơn 11% TB sáng (7,549.1 tỷ)") — a
+    bare % with the BASELINE VALUE in parens. The % carries no sign, so compare
+    the line's subject tỷ value to the parenthetical baseline: 8,397 > 7,549 →
+    'cao hơn', not 'thấp hơn'. Idempotent; no-op when clean.
     """
     if not text:
         return text
@@ -3877,9 +3896,33 @@ def enforce_compare_direction(text: str, ctx: dict | None = None) -> str:
             return f"thấp hơn{mid}{paren}"
         return m.group(0)
 
-    return _re.sub(
+    out = _re.sub(
         r"(thấp hơn|cao hơn)([^.()]{0,30}?)(\(\s*([+-]?)\d[\d.,]*%\s*\))",
         _fix, text)
+
+    # Form B: compare the line's subject value to a parenthetical baseline value.
+    lines = out.splitlines()
+    for i, ln in enumerate(lines):
+        sm = _re.search(r"(\d[\d.,]*)\s*tỷ", ln)
+        subj = _parse_vn_number(sm.group(1)) if sm else None
+        if subj is None:
+            continue
+
+        def _fixB(m: "_re.Match", _subj=subj) -> str:
+            word, mid, base_s, unit = m.group(1), m.group(2), m.group(3), m.group(4)
+            base = _parse_vn_number(base_s)
+            if base is None:
+                return m.group(0)
+            is_low = word.lower().startswith("thấp")
+            if _subj > base and is_low:
+                return f"cao hơn{mid}{base_s}{unit}"
+            if _subj < base and not is_low:
+                return f"thấp hơn{mid}{base_s}{unit}"
+            return m.group(0)
+
+        lines[i] = _re.sub(
+            r"(thấp hơn|cao hơn)([^()]{0,40}?\()(\d[\d.,]*)(\s*tỷ)", _fixB, ln)
+    return "\n".join(lines)
 
 
 def validate_brief_factuality(text: str, ctx: dict) -> list[str]:
