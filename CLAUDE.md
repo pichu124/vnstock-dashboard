@@ -189,6 +189,11 @@ trong `apply_brief_guards`, áp cho mọi agent, cả morning & close):
     "Tránh/Bán" / close "Tụt hậu") khi phủ nhận / gọi sai ngành / thiếu ngành
     đúng. Dòng đúng (close) giữ nguyên; idempotent. ⇒ đây là điểm parity quan
     trọng: "Trọng tâm theo dõi" của morning giờ luôn khớp lead/lag như close.
+20. `enforce_compare_direction` — từ so sánh phải khớp DẤU của %. Close 12/06:
+    "GTGD cả ngày 18.353 tỷ … thấp hơn TB5 phiên (+43%)" — "thấp hơn" + (+43%) mâu
+    thuẫn (so cả-ngày-vs-cả-ngày ĐÚNG khung nên `enforce_gtgd_compare_frame` không
+    đụng). Lật từ khi clash: "thấp hơn …(+N%)" → "cao hơn"; "cao hơn …(-N%)" →
+    "thấp hơn". Cặp nhất quán giữ nguyên; % phải trong ~30 ký tự (cùng mệnh đề).
 19. `enforce_scenario_levels` — mức VNINDEX BỊA trong kịch bản (morning 14:28:
     "đóng cửa trên 1,801.99 (đáy phiên)" — 1,801.99 không khớp pivot/close/MA nào
     + "đáy phiên" mà CAO HƠN close = vô lý). STRICT-NHƯNG-AN-TOÀN: chỉ token

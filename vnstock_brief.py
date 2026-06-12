@@ -2430,6 +2430,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_watchlist_eligibility(fixed, ctx)
     fixed = enforce_gtgd_total(fixed, ctx)            # full-day (close) / sáng (morning)
     fixed = enforce_gtgd_compare_frame(fixed, ctx)    # close-only: full-day ≠ morning baseline
+    fixed = enforce_compare_direction(fixed, ctx)     # 'thấp/cao hơn' must match % sign
     fixed = enforce_no_cjk(fixed, ctx)
     fixed = enforce_no_instruction_leak(fixed, ctx)
     fixed = enforce_no_placeholder_leak(fixed, ctx)
@@ -3847,6 +3848,32 @@ def enforce_gtgd_compare_frame(text: str, ctx: dict) -> str:
             lines[i] = new
             changed = True
     return "\n".join(lines) if changed else text
+
+
+def enforce_compare_direction(text: str, ctx: dict | None = None) -> str:
+    """A comparison word must match the sign of its percentage. Observed close
+    12/06: "GTGD cả ngày 18,353.2 tỷ … thấp hơn TB5 phiên (+43%)" — 'thấp hơn'
+    (lower) paired with a POSITIVE +43% (higher). Flip only the clashing word:
+    'thấp hơn …(+N%)' → 'cao hơn'; 'cao hơn …(-N%)' → 'thấp hơn'. Consistent pairs
+    ('thấp hơn …(-N%)', 'cao hơn …(+N%)') are left. The % must sit within ~30
+    chars of the word (same comparison clause). No-op when clean; idempotent.
+    """
+    if not text:
+        return text
+
+    def _fix(m: "_re.Match") -> str:
+        word, mid, paren, sign = m.group(1), m.group(2), m.group(3), m.group(4)
+        positive = sign != "-"
+        is_low = word.lower().startswith("thấp")
+        if positive and is_low:
+            return f"cao hơn{mid}{paren}"
+        if not positive and not is_low:
+            return f"thấp hơn{mid}{paren}"
+        return m.group(0)
+
+    return _re.sub(
+        r"(thấp hơn|cao hơn)([^.()]{0,30}?)(\(\s*([+-]?)\d[\d.,]*%\s*\))",
+        _fix, text)
 
 
 def validate_brief_factuality(text: str, ctx: dict) -> list[str]:

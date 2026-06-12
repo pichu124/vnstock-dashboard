@@ -1002,6 +1002,24 @@ def test_money_flow_guard_handles_morning_inline_line():
     assert lines[i + 1].startswith("NN bán ròng mạnh nhất (1 tuần): Bất động sản -5,111 tỷ")
 
 
+def test_enforce_compare_direction_flips_word_to_match_sign():
+    # Close 12/06: "GTGD cả ngày 18,353.2 tỷ (+4% vs TB20), thấp hơn TB5 phiên
+    # (+43%) nhưng cao hơn phiên trước (+80%)" — 'thấp hơn' with +43% is a clash.
+    from vnstock_brief import enforce_compare_direction
+    t = ("GTGD cả ngày 18,353.2 tỷ (+4% vs TB20 phiên), thấp hơn TB5 phiên (+43%) "
+         "nhưng cao hơn phiên trước (+80%).")
+    f = enforce_compare_direction(t, {})
+    assert "cao hơn TB5 phiên (+43%)" in f           # thấp + (+%) → cao
+    assert "thấp hơn TB5" not in f
+    assert "cao hơn phiên trước (+80%)" in f          # consistent → kept
+    # cao + (-%) → thấp
+    assert "thấp hơn X (-5%)" in enforce_compare_direction("cao hơn X (-5%)", {})
+    # consistent pairs untouched
+    ok = "GTGD thấp hơn TB20 (-12%) và TB5 (-35%)."
+    assert enforce_compare_direction(ok, {}) == ok
+    assert enforce_compare_direction(f, {}) == f      # idempotent
+
+
 def test_enforce_scenario_levels_pins_fabricated_and_keeps_real():
     # Morning 14:28: "đóng cửa trên 1,801.99 (đáy phiên), test R1=1,822.95" —
     # 1,801.99 matches no real level and "đáy phiên" above the close is
