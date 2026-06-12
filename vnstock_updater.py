@@ -297,10 +297,19 @@ def update_ticker(
         result["error"] = "Không đọc được ngày cuối"
         return result
 
-    # Tính ngày cần fetch
-    fetch_from = last_date + timedelta(days=1)
+    # Tính ngày cần fetch — refetch CẢ ngày cuối (inclusive), không phải
+    # last_date + 1. Lý do (bug 2026-06-11): bar cuối có thể là bar DỞ DANG nếu
+    # updater từng chạy TRONG phiên — VCI trả daily bar partial giữa phiên
+    # (volume mới tính đến lúc fetch). Với fetch_from = last_date + 1 cũ, chạy
+    # lại buổi tối bị "up_to_date" (fetch_from > today) → bar dở bị ĐÓNG BĂNG
+    # VĨNH VIỄN (các ngày sau chỉ fetch từ hôm sau, không bao giờ refetch lại).
+    # Quan sát 10/06: 379 mã mang bar 10/06 partial, Σ giá×KLGD = 6.157 tỷ
+    # ≈ 57% ngày = đúng tỷ trọng phiên sáng. Merge bên dưới dedup keep="last"
+    # → bar refetch đè bar dở → idempotent + tự lành các bar partial lịch sử.
+    fetch_from = last_date
 
-    # Không cần update nếu đã có đến hôm nay hoặc hôm qua (T+0 chưa có)
+    # Chỉ "up_to_date" khi bar cuối ở TƯƠNG LAI (lệch đồng hồ/bar lỗi) —
+    # last_date == today vẫn refetch để thay bar dở dang bằng bar chốt phiên.
     if fetch_from > today:
         result["status"] = "up_to_date"
         return result
@@ -346,7 +355,8 @@ def update_ticker(
         _write_year(ticker_dir, year, merged)
 
     result["status"] = "updated"
-    result["new_days"] = len(new_df)
+    # Đếm ngày MỚI thật sự (sau last_date) — ngày refetch overlap không tính.
+    result["new_days"] = int((new_df["time"] > last_date).sum())
     result["last_date"] = str(new_df["time"].max())
     return result
 

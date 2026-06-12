@@ -61,6 +61,51 @@ VN30_TICKERS: set[str] = {
     "TCB", "TPB", "VCB", "VHM", "VIB", "VIC", "VJC", "VNM", "VPB", "VRE",
 }
 
+# Financial-sector tickers (banks / securities / insurance). Their balance-sheet
+# leverage (bank D/E ~9-17 is NORMAL) and operating cash flow (driven by
+# deposit/loan/trading flows = tens of trillions VND) are structurally NOT
+# comparable to non-financial companies. We exclude them from the fundamental
+# risk rankings (highest D/E, weakest Op.CF) so a bank never gets mis-flagged as
+# a risk purely because of its scale — e.g. "MBB Op.CF -64,972 tỷ".
+_FINANCIAL_TICKERS: frozenset[str] = frozenset({
+    # Ngân hàng
+    "ACB", "BID", "CTG", "HDB", "MBB", "SHB", "SSB", "STB", "TCB", "TPB",
+    "VCB", "VIB", "VPB", "MSB", "EIB", "LPB", "OCB", "NAB", "ABB", "BAB",
+    "KLB", "PGB", "SGB", "VAB", "VBB", "NVB",
+    # Chứng khoán
+    "SSI", "VND", "HCM", "VCI", "VIX", "SHS", "MBS", "FTS", "BSI", "CTS",
+    "AGR", "ORS", "VDS", "TVS", "APG",
+    # Bảo hiểm
+    "BVH", "BIC", "BMI", "MIG", "PVI", "PGI", "ABI", "BLI",
+})
+
+# Liquidity floor (avg trading value, tỷ VND/phiên) for surfacing a ticker in
+# the whole-market mover/watchlist scan. VN30 is always kept regardless. Tune
+# higher to narrow toward blue-chips, lower to include more mid-caps.
+_LIQUID_GTGD_MIN_TY: float = 10.0
+# Price floor (thousand VND) — drop sub-5k penny/distressed names (e.g. POM ~4.3)
+# from the watchlist universe; VN30 is exempt. Raise to be stricter on quality.
+_LIQUID_PRICE_MIN_TY: float = 5.0
+# Stricter floor (tỷ VND/phiên) for a mover to be eligible as an ACTIONABLE
+# watchlist setup. The broad ≥10 tỷ pool feeds analysis/"biến động bất thường";
+# only VN30 OR names trading ≥ this much should anchor a MUA/GIẢM setup, so a
+# thin mid-cap (e.g. VIW) is described but never turned into a trade idea.
+# Tunable: 30 tỷ keeps leading mid-cap banks (e.g. ABB ~45-50 tỷ) eligible.
+_WATCHLIST_GTGD_MIN_TY: float = 30.0
+
+
+def _vn_tick(price_vnd: float) -> int:
+    """HOSE price tick (VND): <10k → 10, 10k-<50k → 50, ≥50k → 100. Watchlist
+    setup levels must land on a valid tick (observed odd 16,684 / 92,635)."""
+    p = abs(price_vnd)
+    return 10 if p < 10_000 else 50 if p < 50_000 else 100
+
+
+def _round_tick(value_vnd: float, ref_price_vnd: float) -> int:
+    """Round a price level to the tick of the reference (stock) price."""
+    t = _vn_tick(ref_price_vnd)
+    return int(round(value_vnd / t) * t)
+
 
 def get_vn30_live() -> set[str]:
     """Try to fetch current VN30 from vnstock API; fall back to VN30_TICKERS."""
@@ -159,46 +204,60 @@ Viết MORNING BRIEF tiếng Việt theo đúng format sau (không thêm phần 
 
 ## 📊 Tổng quan phiên sáng
 [2-3 câu: diễn biến chính, GTGD vs bình thường (có % so trung bình 5 phiên nếu data có), tính chất phiên (institutional vs retail dựa vào GTGD/độ rộng)]
+Dùng "GTGD sáng" trong data cho brief sáng và so sánh ĐỒNG DẠNG (sáng-với-sáng), KHÔNG so GTGD nửa phiên sáng với trung bình cả ngày. Ghi GTGD có dấu phân tách nghìn (đơn vị tỷ). Nếu data KHÔNG có "GTGD sáng" → TUYỆT ĐỐI KHÔNG bịa số; ghi "Chưa có GTGD phiên sáng". TUYỆT ĐỐI KHÔNG bàn về phiên chiều, GTGD cả ngày, hay tỷ trọng sáng/chiều — morning brief viết từ góc nhìn 11:30, chưa biết diễn biến chiều.
 BẮT BUỘC nếu có block "Tâm lý thị trường": nêu RÕ nhãn tâm lý + điểm momentum (vd "Tâm lý: 📈 Tích cực, momentum +34/100") và hàm ý cho phiên chiều.
 
 ## 📈 Mức kỹ thuật quan trọng (VNINDEX)
 TRÍCH XUẤT TỪ block "## VNINDEX kỹ thuật" — KHÔNG BỊA, KHÔNG dùng số trong training data.
-**Đóng cửa hiện tại:** [chính xác con số `close` trong data, ví dụ "1.815,42"]
-**Hỗ trợ gần:** [S1 và S2 từ Pivots — ghi cả số tuyệt đối]
-**Kháng cự gần:** [R1 và R2 từ Pivots]
-**Vị trí so với MA:** [chính xác số MA20/MA50/MA200 + % cách giá hiện tại từ data]
+**Đóng cửa hiện tại:** [chính xác con số `close` trong data, ví dụ "1,815.42" — GIỮ NGUYÊN định dạng số như trong data: dấu phẩy ngăn nghìn, dấu chấm thập phân]
+**Hỗ trợ gần:** [S1 (gần giá nhất) TRƯỚC, rồi S2 — ghi cả số tuyệt đối, đúng thứ tự S1 < ... < giá]
+**Kháng cự gần:** [R1 (gần giá nhất) trước, rồi R2]
+**Vị trí so với MA:** [BẮT BUỘC nêu ĐỦ CẢ BA — MA20, MA50, MA200 — mỗi cái: trên/dưới + % cách giá + giá trị MA từ data. KHÔNG được bỏ MA nào.]
 **Trigger breakout:** [vượt R1 → test R2; thủng S1 → về S2 — viết theo SỐ đã cho]
 Nếu block "VNINDEX kỹ thuật" KHÔNG có trong data → viết "Chưa có dữ liệu VNINDEX hôm nay" (không bịa).
 
 ## 🎯 Trọng tâm theo dõi
-**Tích luỹ/Mua:** [ngành hoặc mã VN30 + lý do cụ thể từ data — nêu trọng số %VNI và đóng góp pp]
-**Tránh/Bán:** [ngành hoặc mã VN30 + lý do cụ thể]
+**Tích luỹ/Mua:** [ngành hoặc mã (VN30/mid-cap thanh khoản trong data) + lý do cụ thể — nêu trọng số %VNI và đóng góp pp]
+**Tránh/Bán:** [ngành hoặc mã (VN30/mid-cap thanh khoản trong data) + lý do cụ thể]
+**Dòng tiền ngành:** [Nếu có block "Dòng tiền ngành": nêu RÕ ngành NN MUA RÒNG / BÁN RÒNG mạnh nhất (số "NN ròng" tỷ, có +/-). PHÂN BIỆT "NN ròng" (khối ngoại) với "GTGD" (thanh khoản) — KHÔNG gọi GTGD là "dòng tiền vào". Bỏ dòng này chỉ khi KHÔNG có block đó.]
 **Theo dõi:** [rotation/stealth nếu có, bỏ dòng này nếu không có tín hiệu]
-Nếu có block "VN30 Cơ bản": có thể dẫn 1 chỉ số cơ bản (D/E cao / Op.CF âm / ROE) để củng cố lý do tránh/mua, KHÔNG bịa số.
+Dòng "Tích luỹ/Mua" & "Tránh/Bán" Ở CẤP NGÀNH PHẢI khớp block "🎯 Dẫn dắt/Tụt hậu — CHỐT THEO DATA" (nếu có) — KHÔNG tự chọn ngành khác làm dẫn dắt/tụt hậu.
+KHÔNG gọi "tích luỹ/mua" nếu tín hiệu quá yếu (đóng góp |pp| < 0.05 hoặc biến động không đáng kể) — khi không có ngành/mã đủ mạnh, viết thẳng "Chưa có nhóm dẫn dắt rõ ràng".
+Nếu có block "Cơ bản nhóm theo dõi": có thể dẫn 1 chỉ số cơ bản (D/E cao / Op.CF âm / ROE) để củng cố lý do tránh/mua, KHÔNG bịa số.
 
 ## ⚡ Biến động bất thường
-[Mã/ngành tăng giảm đột biến + giải thích + BẮT BUỘC ghi rõ khung thời gian (ví dụ: "VIC -3.2% phiên sáng", "PLX -8.8% trong 5 phiên", "ACB +4.1% so với đóng cửa hôm qua"); "Không có biến động bất thường đáng chú ý" nếu phẳng]
+[Mã/ngành biến động mạnh TRONG DATA + giải thích + BẮT BUỘC ghi ĐÚNG khung thời gian theo nhãn trong data. Số từ block "Top Gainers/Losers thanh khoản cao" là thay đổi "1 tuần/5 phiên" → ghi "(1 tuần)", TUYỆT ĐỐI KHÔNG ghi "phiên sáng"/"hôm nay" cho các số đó (không có dữ liệu thay đổi 1 phiên cho từng mã). "Không có biến động bất thường đáng chú ý" nếu phẳng]
 
 ## 🔮 Kịch bản phiên chiều
-**Kịch bản chính ([X]% xác suất):** [điều kiện kích hoạt CỤ THỂ với mức giá/chỉ số — ví dụ "VNINDEX giữ trên 1.245, bank giữ đà → kỳ vọng đóng cửa +0.4-0.8%"]
-**Kịch bản phụ:** [điều kiện ngược + ngưỡng cắt lỗ/đứng ngoài — ví dụ "VHM thủng 42.5 + GTGD chiều >70% sáng → áp lực phân phối, chuyển sang phòng thủ"]
+Kịch bản CHÍNH phải NHẤT QUÁN với Bias ở TLDR: Bias GIẢM → kịch bản chính nghiêng giảm/đi ngang (KHÔNG được là kịch bản tăng); Bias TĂNG → ngược lại. Mọi mức giá/chỉ số PHẢI lấy từ block kỹ thuật của data — TUYỆT ĐỐI KHÔNG chép số hay cụm "ngân hàng giữ đà"/"bank giữ đà" từ mẫu cấu trúc dưới, KHÔNG bịa mã/ngành dẫn dắt nếu data không có.
+**Kịch bản chính ([X]% xác suất):** [điều kiện kích hoạt = mức S/R thực từ data + tín hiệu xác nhận → hệ quả % đóng cửa ĐÚNG chiều Bias]
+**Kịch bản phụ:** [điều kiện ngược lại + ngưỡng hành động phòng thủ/đứng ngoài]
+(Mẫu CẤU TRÚC, không phải số để dùng: "VNINDEX [giữ trên/thủng] [mức S hoặc R từ data] + [tín hiệu] → [hệ quả đóng cửa]")
+
+## ⚠️ Rủi ro cần lưu ý (phiên chiều)
+[Red flags, phân phối, rủi ro vĩ mô/kỹ thuật với mức cảnh báo cụ thể; "Không có rủi ro đặc biệt" nếu thị trường ổn]
+Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằng mã lấy TỪ dòng "Đòn bẩy cao nhất (D/E)" hoặc "Lưu chuyển tiền HĐKD thấp nhất" trong block, ghi kèm TÊN MÃ THẬT + CON SỐ THẬT copy từ block, dạng "<tên mã> D/E=<số>" — THAY <tên mã> bằng MÃ THẬT (vd "HPG D/E=1,5"; "KBC Op.CF=-17.344 tỷ"), TUYỆT ĐỐI KHÔNG in chữ "MÃ"/"<tên mã>". MỌI mã được nhắc trong mục này PHẢI kèm CON SỐ CỦA CHÍNH NÓ — TUYỆT ĐỐI KHÔNG viết "X và Y cũng có D/E cao" mà KHÔNG ghi số; nếu không ghi số thì KHÔNG nêu mã đó. MÃ trong block gồm CẢ VN30 LẪN mã rủi ro ĐÒN BẨY phải là mã D/E CAO NHẤT trong dòng "Đòn bẩy cao nhất" — KHÔNG nêu mã D/E < 1,5 (vd HPG 0,65) làm rủi ro đòn bẩy (D/E thấp = an toàn). mid-cap → KHÔNG ghi "cao nhất trong VN30"; chỉ ghi "cao nhất trong nhóm theo dõi". Ngân hàng/CK/bảo hiểm đã bị loại khỏi xếp hạng → KHÔNG nêu nhóm tài chính làm rủi ro đòn bẩy/dòng tiền. Mã gắn "(BĐS)" trong dòng Op.CF: dòng tiền âm CHỦ YẾU do tích lũy quỹ đất/hàng tồn kho dự án (vốn lưu động), KHÔNG phải lỗ HĐKD → PHẢI ghi kèm ngữ cảnh này + soi D/E/nợ vay, TUYỆT ĐỐI KHÔNG gọi là "kiệt quệ tiền mặt". Nếu block không có mã đáng lưu ý → nêu rủi ro vĩ mô/kỹ thuật, KHÔNG dẫn mã ngoài data.
+
+## 📅 Sự kiện sắp tới
+[Nếu có block "Sự kiện sắp tới" trong data: liệt kê 1-3 sự kiện gần nhất (GDKHQ cổ tức/chia tách/ĐHCĐ) kèm mã + ngày, ưu tiên mã VN30/watchlist; nhắc "giá tự điều chỉnh ngày GDKHQ". Nếu KHÔNG có block đó → ghi "Không có sự kiện đáng chú ý" hoặc bỏ mục này.]
 
 ## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)
 [Liệt kê tối đa 3 mã từ block "Khuyến nghị từ chiến lược đã backtest" với entry/TP/SL]
 BẮT BUỘC: Nếu quyết định bị ảnh hưởng bởi tin tức trong block "Tin tức thị trường", PHẢI nêu rõ tên tiêu đề tin và giải thích tác động (ví dụ: "HPG: MUA — kỹ thuật vượt MA20 + tin [Hòa Phát ký hợp đồng thép 5.000 tỷ] hỗ trợ đà tăng"). Bỏ qua nếu không có khuyến nghị.
 
 ## 🔧 Đề xuất bổ sung (1 dòng, optional)
-[1 dữ liệu/chỉ số cần thêm để brief sau chính xác hơn — bỏ qua nếu không cần]
+[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, Cơ bản nhóm theo dõi (D/E/ROE/OCF), lịch GDKHQ cổ tức/chia tách (nếu có block "Sự kiện sắp tới"). CHỈ nêu thứ THỰC SỰ thiếu (vd: tin VĨ MÔ — CPI/lãi suất/tỷ giá, lịch công bố KQKD, định giá ngành so sánh).]
 
-Giới hạn 450 từ. Chỉ đề cập mã trong VN30 khi nói về cổ phiếu cụ thể.
+Giới hạn 500 từ. Khi nói về cổ phiếu cụ thể, CHỈ đề cập mã CÓ TRONG các block đã cung cấp (VN30 + mid-cap thanh khoản cao); KHÔNG nhắc mã ngoài data.
 YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
 - Mọi nhận định PHẢI gắn với SỐ trong data, không nói "tích cực/tiêu cực" suông.
-- Ngành được đề cập → LUÔN nêu trọng số %VNI và đóng góp pp hôm nay.
+- Ngành được đề cập → LUÔN nêu trọng số %VNI và đóng góp pp (ghi đúng khung "1 tuần" như trong data, KHÔNG ghi "hôm nay").
 - Mã được đề cập → nêu mức đóng góp pp vào VNINDEX nếu có.
 - Ưu tiên ngành/mã có đóng góp TUYỆT ĐỐI lớn nhất, không chỉ tăng % cao nhất.
 - Kịch bản phải có TRIGGER (mức giá/chỉ số/% volume) — không viết "nếu thị trường tốt".
 - Nếu không đủ data cho một mục → viết "Cần thêm [data X]", không bịa.
 - MỌI % thay đổi giá PHẢI ghi rõ khung thời gian: "hôm nay", "phiên sáng", "5 phiên", "so với đóng cửa hôm qua", v.v. TUYỆT ĐỐI KHÔNG viết "X giảm Y%" mà không có khung thời gian.
+- Viết THUẦN tiếng Việt — KHÔNG chèn từ tiếng Anh (vd "mua ròng strongest" → "mua ròng mạnh nhất") HAY ký tự Trung/Nhật/Hàn (vd "达到") vào câu. Thuật ngữ chuẩn (RSI, MA20, A/D, Op.CF, D/E, GTGD…) giữ nguyên.
 """
 
 _AFTERNOON_TEMPLATE = """\
@@ -213,7 +272,7 @@ Viết AFTERNOON BRIEF tiếng Việt theo đúng format sau (không thêm phầ
 
 ## 🎯 TLDR (2 dòng)
 **Kết quả phiên:** [VNINDEX đóng cửa ±X% / GTGD Y tỷ — 1 câu nhận định bản chất]
-**Stance ngày mai:** [TĂNG / GIẢM / TRUNG TÍNH bias + 1 setup ưu tiên hoặc cảnh báo]
+**Stance ngày mai:** [TĂNG / GIẢM / TRUNG TÍNH bias + 1 setup ưu tiên. Setup phải có ngưỡng TRIGGER và ngưỡng HỦY là 2 MỨC KHÁC NHAU (không trùng): GIẢM → "canh giảm nếu thủng S1=[số] → mục tiêu S2=[số]; hủy nếu vượt lại R1=[số]"; TĂNG → "canh mua nếu vượt R1=[số] → mục tiêu R2=[số]; hủy nếu thủng S1=[số]". TUYỆT ĐỐI KHÔNG để mức trigger trùng mức hủy.]
 
 ## 📊 Tổng kết phiên
 [2-3 câu: kết quả toàn ngày, GTGD vs trung bình, độ rộng thị trường (A/D, % trên MA200), so sánh với kỳ vọng sáng nếu có]
@@ -221,45 +280,58 @@ BẮT BUỘC nếu có block "Tâm lý thị trường": nêu RÕ nhãn tâm lý
 
 ## 📈 Mức kỹ thuật chốt phiên (VNINDEX)
 TRÍCH XUẤT TỪ block "## VNINDEX kỹ thuật" — KHÔNG BỊA.
-**Đóng cửa:** [chính xác `close` từ data, ví dụ "1.815,42 (+0,38%)"]
-**Vị trí trong range:** [đóng cửa nằm ở đâu trong range tuần/tháng — viết theo SỐ]
-**Vs MA:** [trên/dưới MA20/MA50/MA200 + khoảng cách % theo data]
-**Trigger ngày mai:** [vượt R1=[số] → test R2=[số]; thủng S1=[số] → về S2=[số]]
+**Đóng cửa:** [chính xác `close` từ data, ví dụ "1,815.42 (+0.38%)" — GIỮ NGUYÊN định dạng số như trong data: dấu phẩy ngăn nghìn, dấu chấm thập phân]
+**Vị trí trong range:** [LẤY ĐÚNG dòng "Vị trí range tuần" trong block kỹ thuật (đã tính sẵn %+nhãn) — KHÔNG tự suy "nửa trên/dưới"]
+**Vs MA:** [BẮT BUỘC nêu ĐỦ CẢ BA — MA20, MA50, MA200 — trên/dưới + khoảng cách % theo data. KHÔNG được bỏ MA nào.]
+**Trigger ngày mai:** [BẮT BUỘC nêu CẢ HAI chiều, trung tính (KHÔNG phải setup Stance): "vượt R1=[số] → test R2=[số]; thủng S1=[số] → về S2=[số]"]
 Nếu block "VNINDEX kỹ thuật" KHÔNG có → viết "Chưa có dữ liệu VNINDEX hôm nay".
 
 ## 🏆 Dẫn dắt & Tụt hậu
-**Dẫn dắt:** [top 2-3 ngành/mã VN30 + đóng góp pp + % return cụ thể]
-**Tụt hậu:** [ngành/mã yếu + lý do nếu rõ]
+DÙNG ĐÚNG block "🎯 Dẫn dắt/Tụt hậu — CHỐT THEO DATA" ở trên (không tự chọn ngành khác):
+**Dẫn dắt:** [ngành lead đã chốt + đóng góp pp (1 tuần). KHÔNG bịa "% return"/"composite" cho ngành — data không có % giá tuần cấp ngành (đã thấy bịa "+0.0%", "+2.0% composite"). Nếu block ghi "Chưa có nhóm dẫn dắt rõ ràng" → ghi Y NHƯ VẬY, KHÔNG nêu ngành đóng góp <0.05pp làm dẫn dắt]
+**Tụt hậu:** [ngành lag đã chốt + đóng góp pp (1 tuần)]
 
 ## 💰 Dòng tiền đáng chú ý
 [NN mua/bán ròng đáng kể (số tỷ cụ thể) | smart money tích luỹ/phân phối | unusual volume; bỏ qua nếu phẳng]
 Nếu có block "Dòng tiền ngành": nêu RÕ ngành NN MUA RÒNG / BÁN RÒNG mạnh nhất (lấy số "NN ròng", đơn vị tỷ, có dấu +/-). PHÂN BIỆT rõ "NN ròng" (khối ngoại mua-bán ròng) với "GTGD" (thanh khoản/giá trị giao dịch) — TUYỆT ĐỐI KHÔNG gọi GTGD là "dòng tiền vào". Nhận định luân chuyển dòng tiền giữa các ngành dựa trên NN ròng.
 
-## 📋 Watchlist sáng mai (3 setup cụ thể)
-1. **[Mã/Ngành]** — [BUY ở X / WAIT khi vượt Y / SELL nếu thủng Z] — [trigger 1 dòng]
-2. ...
-3. ...
+## 📋 Watchlist sáng mai
+(Hướng dẫn — KHÔNG in tiêu đề phụ này vào brief) TỐI ĐA 3 setup, chỉ mã CÓ GIÁ thật. CHỈ chọn mã ĐỦ ĐIỀU KIỆN SETUP: mã trong block "Top Gainers/Losers thanh khoản cao" CÓ DẤU ⭐ (thanh khoản đủ cao — VN30 hoặc GTGD ≥ 30 tỷ/phiên), HOẶC mã trong block "Khuyến nghị". Mã movers KHÔNG có ⭐ (thanh khoản 10-30 tỷ) chỉ dùng để phân tích "Biến động bất thường", TUYỆT ĐỐI KHÔNG đưa vào setup giao dịch (đưa lệnh vào mã mỏng là rủi ro). TUYỆT ĐỐI KHÔNG dùng/bịa mã KHÔNG có trong các block đó (vd mã UPCOM/penny ngoài data), và KHÔNG độn cho đủ 3.
+Mỗi setup PHẢI neo vào "Giá" THỰC; KHÔNG tự nghĩ ra mức giá. Chỉ 1-2 mã ⭐ đủ điều kiện → đưa ĐÚNG 1-2 setup (TUYỆT ĐỐI KHÔNG thêm dòng kiểu "Giá không có / Cần thêm dữ liệu" cho mã thiếu giá).
+Block "Top Gainers/Losers thanh khoản cao" BÌNH THƯỜNG có sẵn vài mã ⭐ kèm "Giá" → BẮT BUỘC dùng ÍT NHẤT 1-2 mã ⭐ đó làm setup. CHỈ viết đúng 1 dòng "Cần thêm dữ liệu giá cổ phiếu cụ thể" khi KHÔNG có mã ⭐ nào kèm "Giá" — KHÔNG dùng câu đó nếu vẫn còn mã ⭐ kèm "Giá", và KHÔNG thay bằng mã không-⭐.
+CHIỀU LỆNH — hướng setup PHẢI nhất quán với "Stance ngày mai"/bias: Stance GIẢM (regime/momentum yếu) → ƯU TIÊN mẫu phòng thủ (GIẢM TỶ TRỌNG/TRÁNH), KHÔNG mở loạt setup MUA mới; nếu nêu MUA thì PHẢI là kèo CÓ ĐIỀU KIỆN ("chỉ canh MUA NẾU vượt lại [kháng cự]"). Stance TĂNG → ưu tiên MUA. Chọn ĐÚNG 1 trong 2 mẫu, mốc giá phải đúng thứ tự (TỰ KIỂM TRA trước khi xuất, không được mâu thuẫn):
+- Ý tưởng TĂNG → "MUA vùng [entry] · chốt lời [TP] · cắt lỗ [SL]" — BẮT BUỘC SL < entry < TP.
+- Ý tưởng GIẢM → KHÔNG viết "SELL ở [giá]" (TTCK VN không cho NĐT cá nhân bán khống). Viết: "GIẢM TỶ TRỌNG/TRÁNH nếu thủng [hỗ trợ] · mục tiêu về [thấp hơn] · hủy kịch bản nếu vượt lại [cao hơn]" — BẮT BUỘC mục tiêu < hỗ trợ < mức hủy.
+MỐC GIÁ SETUP MỖI MÃ LẤY TỪ "[mốc của mã: hỗ trợ ~X / kháng cự ~Y]" ĐÃ TÍNH SẴN ngay sau mã ⭐ trong block movers (X,Y là ±3% quanh Giá của CHÍNH mã đó). Dùng đúng các số đó: entry/[hỗ trợ] ≈ X, [kháng cự]/mục tiêu tăng ≈ Y, TP/SL nới thêm vài % cùng thang. TUYỆT ĐỐI KHÔNG dùng mức S1/S2/R1/R2 của VNINDEX (vd 1.801,66 / 1.789,31 — đó là ĐIỂM SỐ CHỈ SỐ, KHÔNG phải giá cổ phiếu) làm mốc cho setup một mã. Nếu mốc setup có cùng thang số với VNINDEX (1.7xx-1.8xx) trong khi Giá mã ở thang khác → SAI, làm lại bằng "mốc của mã".
+Setup đưa ra là setup THẬT để theo dõi — TUYỆT ĐỐI KHÔNG viết chú thích meta kiểu "(đây là ví dụ)", "(không dùng thực tế)", "(mang tính minh họa)", "(không có đủ thông tin)". Nếu không đủ tự tin về một mã → BỎ HẲN mã đó (ít setup hơn vẫn tốt hơn setup kèm disclaimer).
+1. **[Mã]** (Giá [số] từ data) — [đúng 1 trong 2 mẫu trên] — [trigger 1 dòng]
+2. [chỉ thêm nếu có mã thứ 2 ĐỦ GIÁ — nếu không, bỏ dòng này]
+3. [chỉ thêm nếu có mã thứ 3 ĐỦ GIÁ — nếu không, bỏ dòng này]
 
 ## ⚠️ Rủi ro cần lưu ý
 [Red flags, distribution, macro risk với mức cảnh báo cụ thể; "Không có rủi ro đặc biệt" nếu thị trường ổn]
-Nếu có block "VN30 Cơ bản": nêu 1 điểm rủi ro cơ bản cụ thể từ data đó (mã D/E cao nhất hoặc mã Op.CF âm), KHÔNG bịa số.
+Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằng mã lấy TỪ dòng "Đòn bẩy cao nhất (D/E)" hoặc "Lưu chuyển tiền HĐKD thấp nhất" trong block, ghi kèm TÊN MÃ THẬT + CON SỐ THẬT copy từ block, dạng "<tên mã> D/E=<số>" — THAY <tên mã> bằng MÃ THẬT (vd "HPG D/E=1,5"; "KBC Op.CF=-17.344 tỷ"), TUYỆT ĐỐI KHÔNG in chữ "MÃ"/"<tên mã>". MỌI mã được nhắc trong mục này PHẢI kèm CON SỐ CỦA CHÍNH NÓ — TUYỆT ĐỐI KHÔNG viết kiểu "PET và VTZ cũng có D/E cao" hay "KBC và NVL có Op.CF thấp nhất" mà KHÔNG ghi số; nếu không ghi số thì KHÔNG nêu mã đó. MÃ trong block gồm CẢ VN30 LẪN mã rủi ro ĐÒN BẨY phải là mã D/E CAO NHẤT trong dòng "Đòn bẩy cao nhất" — KHÔNG nêu mã D/E < 1,5 (vd HPG 0,65) làm rủi ro đòn bẩy (D/E thấp = an toàn). mid-cap → KHÔNG ghi "cao nhất trong VN30" (nhiều mã không thuộc VN30); chỉ ghi "cao nhất trong nhóm theo dõi". TUYỆT ĐỐI KHÔNG in nguyên ký hiệu mẫu (X, Y, "MÃ", "số") — phải thay bằng giá trị thật. Nếu block KHÔNG có mã Op.CF âm đáng lưu ý → CHỈ nêu rủi ro D/E (mã cao nhất), KHÔNG đề cập Op.CF, KHÔNG ghi placeholder. TUYỆT ĐỐI KHÔNG: (a) dẫn mã KHÔNG có trong block (vd VCK); (b) nói "cần thêm dữ liệu/chỉ số" — số ĐÃ có trong block; (c) gọi "Op.CF âm" cho mã có Op.CF ≥ 0 (chỉ ghi "âm" khi số THỰC < 0, còn lại ghi "Op.CF thấp"); (d) gán rủi ro sang ngành dẫn dắt/tụt hậu. Ngân hàng/CK/bảo hiểm đã bị loại khỏi xếp hạng → KHÔNG nêu nhóm tài chính làm rủi ro đòn bẩy/dòng tiền. Mã gắn "(BĐS)" trong dòng Op.CF: dòng tiền âm CHỦ YẾU do tích lũy quỹ đất/hàng tồn kho dự án (vốn lưu động), KHÔNG phải lỗ HĐKD → PHẢI ghi kèm ngữ cảnh này + soi D/E/nợ vay, TUYỆT ĐỐI KHÔNG gọi là "kiệt quệ tiền mặt". Nếu block không có mã đáng lưu ý → nêu rủi ro vĩ mô/kỹ thuật, KHÔNG dẫn mã ngoài data.
+
+## 📅 Sự kiện sắp tới
+[Nếu có block "Sự kiện sắp tới" trong data: liệt kê 1-3 sự kiện gần nhất (GDKHQ cổ tức/chia tách/ĐHCĐ) kèm mã + ngày, ưu tiên mã VN30/watchlist; nhắc "giá tự điều chỉnh ngày GDKHQ". Nếu KHÔNG có block đó → ghi "Không có sự kiện đáng chú ý" hoặc bỏ mục này.]
 
 ## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)
 [Liệt kê tối đa 3 mã với entry/TP/SL từ block "Khuyến nghị"]
 BẮT BUỘC: Nếu có tin tức tác động → nêu rõ tiêu đề tin + ảnh hưởng. Bỏ qua nếu không có khuyến nghị.
 
 ## 🔧 Đề xuất bổ sung (1 dòng, optional)
-[1 dữ liệu/chỉ số cần thêm để brief sau chính xác hơn — bỏ qua nếu không cần]
+[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, Cơ bản nhóm theo dõi (D/E/ROE/OCF), lịch GDKHQ cổ tức/chia tách (nếu có block "Sự kiện sắp tới"). CHỈ nêu thứ THỰC SỰ thiếu (vd: tin VĨ MÔ — CPI/lãi suất/tỷ giá, lịch công bố KQKD, định giá ngành so sánh).]
 
-Giới hạn 500 từ. Chỉ đề cập mã trong VN30. Nếu thị trường flat và không có signal rõ thì nói thẳng.
+Giới hạn 500 từ. Khi nói về cổ phiếu cụ thể, CHỈ đề cập mã CÓ TRONG các block đã cung cấp (VN30 + mid-cap thanh khoản cao); KHÔNG nhắc mã ngoài data. Nếu thị trường flat và không có signal rõ thì nói thẳng.
 YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
 - Mọi nhận định PHẢI gắn với SỐ trong data.
-- Ngành được đề cập → LUÔN nêu trọng số %VNI và đóng góp pp hôm nay.
+- Ngành được đề cập → LUÔN nêu trọng số %VNI và đóng góp pp (ghi đúng khung "1 tuần" như trong data, KHÔNG ghi "hôm nay").
 - Mã được đề cập → nêu mức đóng góp pp vào VNINDEX nếu có.
 - Ưu tiên ngành/mã có đóng góp TUYỆT ĐỐI lớn nhất, không chỉ tăng % cao nhất.
 - Setup watchlist phải có TRIGGER (mức giá cụ thể) — không viết "nếu thị trường tích cực thì vào".
 - Nếu không đủ data → viết "Cần thêm [data X]", không bịa.
 - MỌI % thay đổi giá PHẢI ghi rõ khung thời gian: "hôm nay", "phiên sáng", "5 phiên", "so với đóng cửa hôm qua", v.v. TUYỆT ĐỐI KHÔNG viết "X giảm Y%" mà không có khung thời gian.
+- Viết THUẦN tiếng Việt — KHÔNG chèn từ tiếng Anh (vd "mua ròng strongest" → "mua ròng mạnh nhất") HAY ký tự Trung/Nhật/Hàn (vd "达到") vào câu. Thuật ngữ chuẩn (RSI, MA20, A/D, Op.CF, D/E, GTGD…) giữ nguyên.
 """
 
 
@@ -711,6 +783,208 @@ def effective_trading_date(vnindex_tech: dict | None = None) -> str:
     return data_date or date.today().isoformat()
 
 
+# ── Data freshness: breadth/movers/regime lag behind intraday VNINDEX ───────
+#
+# market_overview.json (độ rộng A/D, % trên MA200, VN30 movers, dòng tiền
+# ngành) and the regime it feeds are refreshed only by the screener
+# (vnstock_runner). The live WSS pipeline updates VNINDEX/GTGD but NOT these.
+# So once a morning brief folds in today's intraday VNINDEX, those blocks can
+# silently lag a session. These helpers detect and (optionally) heal that.
+def _market_overview_data_date(path: "str | Path | None" = None) -> "str | None":
+    """Return the trading date of the DATA inside market_overview.json.
+
+    Prefers the explicit `data_date` field (the latest stock bar actually used);
+    falls back to the `generated_at` date for older files written before that
+    field existed. This — not the file's write time — is what tells us whether
+    breadth/movers/regime trail the brief's session.
+    """
+    p = Path(path) if path else Path("data_warehouse/_meta/market_overview.json")
+    if not p.exists():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        dd = data.get("data_date")
+        if dd:
+            return str(dd)
+        # No data_date field (file written before it existed): the breadth was
+        # computed from the daily warehouse, so its true data date is the
+        # warehouse EOD date — NOT generated_at (wall clock), which would look
+        # falsely fresh and suppress the staleness warning.
+        eod = _warehouse_eod_date()
+        if eod:
+            return eod
+        gen = str(data.get("generated_at", ""))  # last-resort backward-compat
+        return gen.split(" ")[0] if gen else None
+    except Exception:
+        return None
+
+
+def _warehouse_eod_date() -> "str | None":
+    """Latest VNINDEX daily bar date in the warehouse (NO intraday augmentation).
+
+    Used to decide whether re-running the screener would actually surface newer
+    data — recomputing can't conjure intraday stock breadth, so we only refresh
+    when the overview genuinely trails the EOD warehouse.
+    """
+    try:
+        df = _load_vnindex_df(augment=False)
+        if df is None or df.empty or "close" not in df.columns:
+            return None
+        return df.loc[df["close"].notna(), "time"].iloc[-1].date().isoformat()
+    except Exception:
+        return None
+
+
+def _bias_floor_dir(momentum: "int | None", regime_score: "int | None") -> "str | None":
+    """Force a TLDR Bias direction when the headline signals are strongly
+    one-sided and not in conflict.
+
+    Inputs are the two signals shown in the brief header: Tâm lý `momentum`
+    (-100..100) and Regime `score` (signed, out of ~7). Returns "GIẢM", "TĂNG",
+    or None (let the agent decide). Thresholds: momentum ±50 or regime ±3.
+    """
+    bear = (momentum is not None and momentum <= -50) or \
+           (regime_score is not None and regime_score <= -3)
+    bull = (momentum is not None and momentum >= 50) or \
+           (regime_score is not None and regime_score >= 3)
+    if bear and not bull:
+        return "GIẢM"
+    if bull and not bear:
+        return "TĂNG"
+    return None
+
+
+def market_data_freshness(
+    data_date: str | None = None,
+    overview_path: "str | Path | None" = None,
+) -> dict:
+    """Compare the screener-produced blocks' DATA date to the session date.
+
+    Returns {"data_date", "overview_date", "stale", "stale_blocks"}. `stale` is
+    True when market_overview (breadth/movers/sector flow/regime) is from an
+    older session than the VNINDEX data the brief describes.
+    """
+    dd = data_date or effective_trading_date()
+    ov = _market_overview_data_date(overview_path)
+    stale = bool(ov and dd and ov < dd)
+    blocks = (
+        ["độ rộng", "VN30 movers", "dòng tiền ngành", "regime"] if stale else []
+    )
+    return {"data_date": dd, "overview_date": ov, "stale": stale,
+            "stale_blocks": blocks}
+
+
+def _auto_refresh_market_overview() -> bool:
+    """Recompute + save market_overview.json when it trails the EOD warehouse.
+
+    Best-effort and heavy (re-aggregates the whole market), so it only runs when
+    the warehouse actually holds newer daily data than the overview — never just
+    to re-stamp the same intraday-stale breadth. Disable with
+    VNSTOCK_BRIEF_AUTO_REFRESH=0. Returns True if a refresh ran and saved.
+    """
+    if os.environ.get("VNSTOCK_BRIEF_AUTO_REFRESH", "1") == "0":
+        return False
+    ov = _market_overview_data_date()
+    eod = _warehouse_eod_date()
+    if ov is None and eod is None:
+        return False  # nothing to compute from
+    if ov is not None and eod is not None and not (ov < eod):
+        return False  # overview already at the latest available data
+    try:
+        from vnstock_runner import compute_market_overview, save_market_overview
+        data = compute_market_overview()
+        if data and (data.get("tickers") or data.get("sectors")):
+            save_market_overview(data)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _maybe_reconcile_overdue() -> int:
+    """Close recommendations past their horizon so the brief doesn't surface
+    zombies (e.g. covered warrants stuck at "ngày 34/5").
+
+    Best-effort: only runs when an overdue open rec exists, so a fresh book
+    costs nothing. Disable with VNSTOCK_BRIEF_AUTO_RECONCILE=0. Returns the
+    number of recs closed.
+    """
+    if os.environ.get("VNSTOCK_BRIEF_AUTO_RECONCILE", "1") == "0":
+        return 0
+    try:
+        import vnstock_memory as _mem
+        now = datetime.now()
+        has_overdue = False
+        for r in _mem.open_recommendations():
+            horizon = int(r.get("horizon_days") or 5)
+            try:
+                age = (now - datetime.fromisoformat(r["created_at"])).days
+            except Exception:
+                age = 0
+            if age > horizon:
+                has_overdue = True
+                break
+        if not has_overdue:
+            return 0
+        from vnstock_train import reconcile_recommendations
+        summary = reconcile_recommendations(verbose=False)
+        return int(summary.get("closed", 0)) + int(summary.get("stale", 0))
+    except Exception:
+        return 0
+
+
+# Cap on liquid mid-cap movers added to the daily events auto-refresh (beyond
+# VN30). The refresh runs inside generate_brief and blocks it (~1 API call per
+# ticker), so the universe is VN30 ∪ top-N movers by GTGD — not every liquid
+# name — to keep the once-a-day refresh fast while covering anything that can
+# realistically enter the watchlist/movers blocks.
+_EVENTS_REFRESH_MAX_MOVERS: int = 40
+
+
+def _events_universe(max_movers: int = _EVENTS_REFRESH_MAX_MOVERS,
+                     overview_path: "str | Path | None" = None) -> list[str]:
+    """VN30 ∪ top liquid movers (by avg GTGD) — the tickers whose corp-action
+    events the brief may surface. Falls back to VN30 alone when the screener
+    overview isn't available."""
+    uni = set(VN30_TICKERS)
+    try:
+        p = Path(overview_path) if overview_path else Path(
+            "data_warehouse/_meta/market_overview.json")
+        rows = json.loads(p.read_text(encoding="utf-8")).get("tickers") or []
+        _g, _l, liquid = _select_liquid_movers(rows)
+        gtgd = {str(r.get("Mã", "")).upper(): (r.get("GTGD TB (tỷ)") or 0)
+                for r in rows}
+        movers = sorted((t for t in liquid if t not in uni),
+                        key=lambda t: gtgd.get(t, 0), reverse=True)[:max_movers]
+        uni |= set(movers)
+    except Exception:
+        pass
+    return sorted(uni)
+
+
+def _maybe_refresh_events() -> int:
+    """Refresh the upcoming-events cache when it's missing or not from today, so
+    the brief's "📅 Sự kiện sắp tới" block isn't empty just because the daily
+    refresh hasn't run yet. Universe = VN30 ∪ top liquid movers (mid-caps that
+    can enter the watchlist get their GDKHQ events too — previously VN30-only,
+    so mid-cap events appeared only after a manual --tickers run). Best-effort,
+    at most once/day. Disable with VNSTOCK_BRIEF_AUTO_EVENTS=0. Returns number
+    of events saved.
+    """
+    if os.environ.get("VNSTOCK_BRIEF_AUTO_EVENTS", "1") == "0":
+        return 0
+    try:
+        from vnstock_events import UPCOMING_EVENTS_PATH, refresh_upcoming
+        p = UPCOMING_EVENTS_PATH
+        if p.exists():
+            mtime = datetime.fromtimestamp(p.stat().st_mtime).date()
+            if mtime >= date.today():
+                return 0  # already refreshed today
+        return len(refresh_upcoming(tickers=_events_universe()))
+    except Exception:
+        return 0
+
+
 # ── VN30 fundamentals (debt/equity, ROE, operating cash flow) ───────────────
 def _load_vn30_fundamentals(
     path: str | Path | None = None,
@@ -766,7 +1040,8 @@ def _load_vn30_fundamentals(
     return out
 
 
-def _vn30_fund_block(funds: dict[str, dict]) -> str:
+def _vn30_fund_block(funds: dict[str, dict], extra_financial: "set[str] | None" = None,
+                     realestate: "set[str] | None" = None) -> str:
     """Render a compact VN30 fundamentals block for the prompt.
 
     Shows VN30 medians plus the few names that actually matter for risk —
@@ -778,16 +1053,23 @@ def _vn30_fund_block(funds: dict[str, dict]) -> str:
     try:
         import statistics as _st
 
-        des  = [(t, m["de"])  for t, m in funds.items() if m.get("de")  is not None]
-        roes = [m["roe"]      for m in funds.values()   if m.get("roe") is not None]
-        ocfs = [(t, m["ocf"]) for t, m in funds.items() if m.get("ocf") is not None]
+        # D/E and Op.CF risk rankings cover NON-FINANCIALS only — bank/securities/
+        # insurance leverage and cash-flow scales are not comparable. Exclude the
+        # static list AND any ticker classified as financial by industry (covers
+        # mid-cap banks/securities like BVB/VPX not in the static list).
+        _excl = _FINANCIAL_TICKERS | (extra_financial or set())
+        nonfin = {t: m for t, m in funds.items() if t not in _excl}
+
+        des  = [(t, m["de"])  for t, m in nonfin.items() if m.get("de")  is not None]
+        roes = [m["roe"]      for m in funds.values()    if m.get("roe") is not None]
+        ocfs = [(t, m["ocf"]) for t, m in nonfin.items() if m.get("ocf") is not None]
 
         if not (des or roes or ocfs):
             return ""
 
         updated = next((m["updated"] for m in funds.values() if m.get("updated")), "")
         lines = [
-            f"\n## VN30 Cơ bản — D/E, ROE, Lưu chuyển tiền HĐKD"
+            f"\n## Cơ bản nhóm theo dõi (VN30 + mid-cap) — D/E, ROE, Lưu chuyển tiền HĐKD"
             f"{f' (cập nhật {updated})' if updated else ''}"
         ]
 
@@ -799,40 +1081,53 @@ def _vn30_fund_block(funds: dict[str, dict]) -> str:
         if ocfs:
             med_parts.append(f"Op.CF={_st.median(v for _, v in ocfs):,.0f} tỷ")
         if med_parts:
-            lines.append(f"- Trung vị VN30 ({len(funds)} mã có data): " + " | ".join(med_parts))
+            lines.append(f"- Trung vị nhóm ({len(funds)} mã có data): " + " | ".join(med_parts))
 
         if des:
             top_de = sorted(des, key=lambda x: x[1], reverse=True)[:3]
             lines.append(
-                "- Đòn bẩy cao nhất (D/E): "
+                "- Đòn bẩy cao nhất (D/E, phi tài chính): "
                 + ", ".join(f"{t} {v:.2f}" for t, v in top_de)
             )
 
+        _re = realestate or set()
         if ocfs:
             weak = sorted(ocfs, key=lambda x: x[1])[:3]
             n_neg = sum(1 for _, v in ocfs if v < 0)
             lines.append(
-                "- Lưu chuyển tiền HĐKD thấp nhất: "
-                + ", ".join(f"{t} {v:,.0f} tỷ" for t, v in weak)
+                "- Lưu chuyển tiền HĐKD thấp nhất (phi tài chính): "
+                + ", ".join(f"{t} {v:,.0f} tỷ{' (BĐS)' if t in _re else ''}"
+                            for t, v in weak)
                 + (f" ({n_neg} mã âm)" if n_neg else "")
             )
 
         lines.append(
             "→ DÙNG các chỉ số này khi nhận xét rủi ro cơ bản/đòn bẩy/dòng tiền; "
-            "KHÔNG bịa số liệu tài chính khác."
+            "ngân hàng/CK/bảo hiểm đã loại khỏi xếp hạng D/E & dòng tiền (đặc thù "
+            "ngành, không so sánh được); KHÔNG bịa số liệu tài chính khác."
         )
+        if any(t in _re for t, _ in (ocfs or [])):
+            lines.append(
+                "→ Mã gắn (BĐS): dòng tiền HĐKD âm CHỦ YẾU do tích lũy quỹ đất / "
+                "hàng tồn kho dự án (thay đổi vốn lưu động), KHÔNG phải lỗ HĐKD → "
+                "diễn giải kèm D/E & nợ vay, TUYỆT ĐỐI KHÔNG gọi là 'kiệt quệ "
+                "tiền mặt'."
+            )
         return "\n".join(lines)
     except Exception:
         return ""
 
 
-def _sector_flow_block(sectors: list[dict]) -> str:
+def _sector_flow_block(sectors: list[dict], nn_data_date: str | None = None,
+                       session_date: str | None = None) -> str:
     """Render sector money-flow: foreign net flow (1 tuần) + liquidity by sector.
 
     Reads the pre-aggregated per-sector fields already in market_overview.json
     (NN 1T (tỷ), GTGD TB (tỷ)) — no extra fetching. Shows the strongest
     inflow/outflow sectors plus the most liquid ones so the agent can talk
-    about rotation without inventing numbers.
+    about rotation without inventing numbers. When the foreign-flow feed lags
+    the session (nn_data_date < session_date) the window is labelled with its
+    real end date so the brief doesn't present stale NN as current.
     """
     if not sectors:
         return ""
@@ -854,7 +1149,15 @@ def _sector_flow_block(sectors: list[dict]) -> str:
         if not (inflow or outflow or any(r["gtgd"] for r in top_gtgd)):
             return ""
 
-        lines = ["\n## Dòng tiền ngành (NN ròng 1 tuần + thanh khoản GTGD TB)"]
+        _stale = (nn_data_date and session_date and nn_data_date < session_date)
+        _hdr_win = (f"NN ròng 5 phiên đến {nn_data_date}" if _stale
+                    else "NN ròng 1 tuần")
+        lines = [f"\n## Dòng tiền ngành ({_hdr_win} + thanh khoản GTGD TB)"]
+        if _stale:
+            lines.append(
+                f"⚠️ Dữ liệu khối ngoại MỚI ĐẾN {nn_data_date} (chưa có phiên "
+                f"{session_date}); khi nêu NN ròng ghi rõ 'đến {nn_data_date}', "
+                f"KHÔNG nói 'hôm nay'/'phiên này'.")
         if inflow:
             lines.append("- 🟢 NN mua ròng: " + ", ".join(
                 f"{r['name']} {r['nn']:+,.0f} tỷ (GTGD {r['gtgd']:,.0f})" for r in inflow))
@@ -870,6 +1173,29 @@ def _sector_flow_block(sectors: list[dict]) -> str:
         return "\n".join(lines)
     except Exception:
         return ""
+
+
+def _upcoming_events_block(events: list[dict]) -> str:
+    """Render upcoming corporate events (cổ tức/chia tách/ĐHCĐ/phát hành).
+
+    `events` comes from vnstock_events.load_upcoming(); each carries ticker,
+    ex_date (ISO) and a rich Vietnamese `title`. Empty string when none.
+    """
+    if not events:
+        return ""
+
+    def _fmt(e: dict) -> str:
+        title = str(e.get("title") or "Sự kiện DN")
+        return f"- {e.get('ticker','?')}: {title} — ngày {e.get('ex_date','?')}"
+
+    lines = ["\n## 📅 Sự kiện sắp tới (cổ tức/chia tách/ĐHCĐ/phát hành — mã trong nhóm theo dõi)"]
+    lines += [_fmt(e) for e in events[:12]]
+    lines.append(
+        "→ Nếu mã đang giữ/watchlist có GDKHQ sắp tới, LƯU Ý nhắc (giá tự điều "
+        "chỉnh giảm trong ngày GDKHQ — không phải giảm do thị trường). DÙNG ĐÚNG "
+        "ngày + số, KHÔNG bịa."
+    )
+    return "\n".join(lines)
 
 
 def _market_sentiment_block(ms: dict) -> str:
@@ -895,8 +1221,90 @@ def _market_sentiment_block(ms: dict) -> str:
 
 
 # ── Context collection ─────────────────────────────────────────────────────
-def collect_context(brief_type: str = "morning") -> dict:
-    """Collect all available market data for brief generation."""
+def _select_liquid_movers(
+    tickers: list[dict],
+    min_gtgd_ty: float = _LIQUID_GTGD_MIN_TY,
+    min_price_ty: float = _LIQUID_PRICE_MIN_TY,
+    n: int = 5,
+) -> tuple[list[dict], list[dict], set[str]]:
+    """Whole-market top movers, liquidity-filtered (not just VN30).
+
+    Scans ALL tickers in market_overview, keeps those with avg trading value
+    ≥ `min_gtgd_ty` tỷ (VN30 always kept — index drivers + always liquid), then
+    returns the top `n` gainers / losers by 1-week % change plus the liquid
+    universe (for expanding the fundamentals/risk pool). This surfaces liquid
+    mid-cap movers while excluding penny/illiquid names. Returns ([], [], set())
+    when the data is unavailable.
+    """
+    import pandas as pd
+
+    df = pd.DataFrame(tickers)
+    price_col = "Giá 1T %"
+    if df.empty or price_col not in df.columns or "Mã" not in df.columns:
+        return [], [], set()
+    df = df.dropna(subset=[price_col])
+    if df.empty:
+        return [], [], set()
+
+    if "GTGD TB (tỷ)" in df.columns:
+        liquid = df[df["GTGD TB (tỷ)"].fillna(0) >= min_gtgd_ty]
+        if "last" in liquid.columns:   # drop sub-floor penny/distressed names
+            liquid = liquid[liquid["last"].fillna(0) >= min_price_ty]
+        vn = df[df["Mã"].isin(VN30_TICKERS)]
+        df = pd.concat([liquid, vn]).drop_duplicates(subset=["Mã"])
+    if df.empty:
+        return [], [], set()
+
+    cols = ["Mã", price_col, "Ngành"] + (["last"] if "last" in df.columns else [])
+    if "GTGD TB (tỷ)" in df.columns:   # carried through so the renderer can tag
+        cols.append("GTGD TB (tỷ)")    # watchlist-eligible (≥ _WATCHLIST_GTGD_MIN_TY) movers
+    gainers_df = df.nlargest(n, price_col)
+    losers_df = df.nsmallest(n, price_col)
+
+    # Guarantee ≥1 watchlist-eligible (⭐ = VN30 or GTGD ≥ threshold) name across
+    # the two lists so the watchlist always has a setup anchor. Top-% movers are
+    # often thin non-⭐ names (VN30 stays in `df` but rarely cracks the top-n by
+    # weekly move) — observed 11/06: zero ⭐ in the block → empty watchlist +
+    # the model rambling "VIW không có trong danh sách". Swap the weakest pick
+    # for the strongest eligible mover, placed in the direction of its sign.
+    if "GTGD TB (tỷ)" in df.columns:
+        _elig = df[df["Mã"].isin(VN30_TICKERS)
+                   | (df["GTGD TB (tỷ)"].fillna(0) >= _WATCHLIST_GTGD_MIN_TY)]
+        _shown = set(gainers_df["Mã"]) | set(losers_df["Mã"])
+        if not _elig.empty and not _elig["Mã"].isin(_shown).any():
+            _e = _elig.loc[_elig[price_col].abs().idxmax()]
+            _row = _elig.loc[[_e.name]]
+            if _e[price_col] >= 0:
+                gainers_df = pd.concat([gainers_df.head(n - 1), _row]).drop_duplicates("Mã")
+            else:
+                losers_df = pd.concat([losers_df.head(n - 1), _row]).drop_duplicates("Mã")
+
+    gainers = gainers_df[cols].to_dict("records")
+    losers = losers_df[cols].to_dict("records")
+    universe = {str(m) for m in df["Mã"].tolist()}
+    return gainers, losers, universe
+
+
+def _wallclock_intraday(data_date_str: str, now: "datetime | None" = None) -> bool:
+    """True when the data date IS today and the session hasn't closed (< 15:05).
+
+    The intraday flag normally comes from folding live 1m bars in — but a
+    mid-session updater run leaves a partial DAILY bar in the warehouse with no
+    live file, so the system believed the session was closed (observed 13:25:
+    close brief pinned the in-progress 5,921.8 tỷ as "GTGD cả ngày" and the
+    morning brief leaked "sáng chiếm 88% cả ngày"). Wall-clock closes that hole.
+    """
+    now = now or datetime.now()
+    return data_date_str == now.date().isoformat() and now.time() < time(15, 5)
+
+
+def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> dict:
+    """Collect all available market data for brief generation.
+
+    When `auto_refresh` is set, the screener-produced market_overview is
+    recomputed first if it lags the session date (so breadth/movers/regime
+    don't silently trail the intraday VNINDEX). Always records ctx["freshness"].
+    """
     # Determine effective trading date: use the last bar date from VNINDEX
     # warehouse instead of calendar today. Avoids "no data" briefs when called
     # early morning (market not open yet) or on weekends/holidays.
@@ -905,6 +1313,17 @@ def collect_context(brief_type: str = "morning") -> dict:
 
     _today_str = date.today().isoformat()
     _is_stale = _data_date_str < _today_str  # data is from a prior trading day
+
+    # Wall-clock intraday override: today's bar + session not closed yet →
+    # PHIÊN ĐANG DỞ even without live 1m bars (e.g. a mid-session updater run
+    # left a partial daily bar). Downstream this suppresses the morning-share
+    # signal and the full-day GTGD pin (both meaningless mid-session).
+    if _vt_early and _wallclock_intraday(_data_date_str):
+        _vt_early["intraday"] = True
+
+    # Heal stale breadth/movers/regime before reading them (best-effort).
+    if auto_refresh:
+        _auto_refresh_market_overview()
 
     ctx: dict = {
         "brief_type": brief_type,
@@ -928,8 +1347,52 @@ def collect_context(brief_type: str = "morning") -> dict:
             ctx["sectors"] = data.get("sectors", [])
             ctx["breadth"] = data.get("breadth", {})
             ctx["tickers"] = data.get("tickers", [])
+            # Full-day GTGD (matching value) derived from the EOD bars — present
+            # right after the screener runs, even when the live WSS session
+            # capture (session_stats) is empty. Look up the per-date map by THIS
+            # brief's effective trading date. Validity comes from the runner's
+            # _pick_gtgd_session (gtgd_date = latest COMPLETE session): a brief
+            # date ≤ gtgd_date is a closed session → authoritative; a brief
+            # date NEWER than gtgd_date is the in-progress day the picker
+            # rejected → expose as partial only ("chưa đủ dữ liệu"). NOTE: do
+            # NOT gate on count/universe — only ~60% of classified names trade
+            # on any given day (observed 808/1388 on a normal session).
+            ctx["nn_data_date"] = data.get("nn_data_date")
+            _byd = data.get("gtgd_by_date") or {}
+            _gd = data.get("gtgd_date")
+            _entry = _byd.get(_data_date_str)
+            if _entry is None and _gd == _data_date_str:
+                _entry = {"total": data.get("total_gtgd_day"),
+                          "count": data.get("gtgd_ticker_count") or 0}
+            _tg = (_entry or {}).get("total")
+            if isinstance(_tg, (int, float)) and _tg > 0:
+                _tc = int((_entry or {}).get("count") or 0)
+                ctx["full_day_gtgd_count"] = _tc
+                ctx["full_day_gtgd_universe"] = len(ctx.get("tickers") or [])
+                if _gd and _data_date_str <= _gd:
+                    ctx["full_day_gtgd"] = float(_tg)
+                    # Full-day-VS-full-day comparison so the close brief doesn't
+                    # borrow the morning's sáng-với-sáng % (observed: "GTGD
+                    # 11,929 tỷ, giảm 43% so với sáng phiên trước" — the -43%
+                    # belongs to the morning figure, not the full-day total).
+                    _prior = [_byd[k]["total"] for k in sorted(_byd, reverse=True)
+                              if k < _data_date_str and _byd[k].get("total")]
+                    if _prior:
+                        ctx["full_day_gtgd_cmp"] = {
+                            "prev": _prior[0],
+                            "avg5": round(sum(_prior[:5]) / len(_prior[:5]), 1),
+                        }
+                        if len(_prior) >= 15:   # đủ phiên cho baseline TB20 thật
+                            ctx["full_day_gtgd_cmp"]["avg20"] = round(
+                                sum(_prior[:20]) / len(_prior[:20]), 1)
+                else:
+                    ctx["full_day_gtgd_partial"] = float(_tg)
         except Exception:
             pass
+
+    # Record freshness of the screener-produced blocks vs the session date so
+    # the prompt/header can warn when they trail the intraday VNINDEX.
+    ctx["freshness"] = market_data_freshness(_data_date_str)
 
     # 2. Quant scores + regime
     if ctx["sectors"]:
@@ -966,21 +1429,42 @@ def collect_context(brief_type: str = "morning") -> dict:
         if _day_stats:
             ctx["session_stats"] = _day_stats
             ctx["session_timing"] = session_timing_signal(_day_stats, _hist, "VNINDEX")
+
+            # Morning-session GTGD baselines (like-for-like: sáng vs sáng) so the
+            # brief compares against the right benchmark instead of the degenerate
+            # intraday "GTGD sáng = 100% cả ngày".
+            def _morn(dstr: str):
+                w = (_hist.get(dstr, {}) or {}).get("9h-11h30", {}) or {}
+                v = (w.get("VNINDEX", {}) or {}).get("gtgd")
+                try:
+                    return float(v) if v else None
+                except Exception:
+                    return None
+
+            _prev_days = [d for d in sorted(_hist.keys()) if d < _data_date_str]
+            _today_m = _morn(_data_date_str)
+            if _today_m:
+                def _avg(days):
+                    vals = [m for d in days if (m := _morn(d)) is not None]
+                    return round(sum(vals) / len(vals), 1) if vals else None
+                ctx["morning_gtgd"] = {
+                    "today": _today_m,
+                    "prev": _morn(_prev_days[-1]) if _prev_days else None,
+                    "avg5": _avg(_prev_days[-5:]),
+                    "avg20": _avg(_prev_days[-20:]),
+                }
     except Exception:
         pass
 
-    # 4. VN30 movers (from ticker data)
+    # 4. Top movers — whole-market scan, liquidity-filtered (not just VN30) so
+    #    the brief can surface liquid mid-cap movers, not only index members.
+    #    Keys stay vn30_gainers/losers for back-compat; content is now broader.
     if ctx["tickers"]:
         try:
-            import pandas as pd
-            tick_df = pd.DataFrame(ctx["tickers"])
-            price_col = "Giá 1T %" if "Giá 1T %" in tick_df.columns else None
-            if price_col and "Mã" in tick_df.columns:
-                vn30_df = tick_df[tick_df["Mã"].isin(VN30_TICKERS)].dropna(subset=[price_col])
-                ctx["vn30_gainers"] = vn30_df.nlargest(5, price_col)[
-                    ["Mã", price_col, "Ngành"]].to_dict("records") if not vn30_df.empty else []
-                ctx["vn30_losers"] = vn30_df.nsmallest(5, price_col)[
-                    ["Mã", price_col, "Ngành"]].to_dict("records") if not vn30_df.empty else []
+            _g, _l, _uni = _select_liquid_movers(ctx["tickers"])
+            ctx["vn30_gainers"] = _g
+            ctx["vn30_losers"] = _l
+            ctx["mover_universe"] = _uni
         except Exception:
             pass
 
@@ -1018,14 +1502,66 @@ def collect_context(brief_type: str = "morning") -> dict:
         except Exception:
             pass
 
+    # Deterministically pick the strongest +/- sector contributor (1 tuần) so the
+    # brief can't dress up a negligible (+0.02pp) sector as a leader. build_prompt
+    # injects these as the ONLY allowed leader/laggard.
+    if _sw := ctx.get("sector_weights"):
+        _items = [
+            (name, (v or {}).get("_1d_contrib", 0) or 0) for name, v in _sw.items()
+        ]
+        if _items:
+            _lead = max(_items, key=lambda x: x[1])
+            _lag = min(_items, key=lambda x: x[1])
+            ctx["max_sector_contrib"] = _lead[1]
+            ctx["lead_sector"] = {"name": _lead[0], "contrib": _lead[1]}
+            ctx["lag_sector"] = {"name": _lag[0], "contrib": _lag[1]}
+
     # 6. VNINDEX technical levels — already fetched above to determine the
     # effective date; reuse the result instead of calling again.
     ctx["vnindex_tech"] = _vt_early
 
-    # 7. VN30 fundamentals (D/E, ROE, operating cash flow) from weekly cache.
-    _vn30_fund = _load_vn30_fundamentals()
+    # 7. Fundamentals (D/E, ROE, operating cash flow) from weekly cache — VN30
+    #    plus the liquid mid-cap movers so the risk section can flag mid-cap
+    #    leverage/cash-flow too, not only index members.
+    _fund_universe = set(VN30_TICKERS) | (ctx.get("mover_universe") or set())
+    _vn30_fund = _load_vn30_fundamentals(vn30=_fund_universe)
     if _vn30_fund:
         ctx["vn30_fundamentals"] = _vn30_fund
+
+    # Financials by INDUSTRY (robust beyond the static _FINANCIAL_TICKERS list) so
+    # mid-cap banks/securities (e.g. BVB, VPX) don't leak into the D/E & Op.CF
+    # risk ranking after the universe was broadened to mid-caps.
+    _fin = {
+        str(_t.get("Mã", "")).upper()
+        for _t in (ctx.get("tickers") or [])
+        if any(k in str(_t.get("Ngành", "")).lower()
+               for k in ("ngân hàng", "chứng khoán", "bảo hiểm", "tài chính"))
+    }
+    if _fin:
+        ctx["financial_tickers"] = _fin
+
+    # Real-estate developers by INDUSTRY. Their operating cash flow is dominated
+    # by land-bank / project-inventory build (working-capital swings), so a large
+    # negative OCF (e.g. KBC -17,344 tỷ in FY2025, all from WC — op. profit was
+    # positive) is NOT distress. Keep them in the ranking but tag them so the
+    # brief adds context (soi D/E/nợ vay) instead of calling it "kiệt quệ".
+    _re = {
+        str(_t.get("Mã", "")).upper()
+        for _t in (ctx.get("tickers") or [])
+        if "bất động sản" in str(_t.get("Ngành", "")).lower()
+    }
+    if _re:
+        ctx["realestate_tickers"] = _re
+
+    # 7b. Upcoming corporate events (ex-dividend / split / bonus) for the tracked
+    #     universe so the brief can flag ngày GDKHQ (giá tự điều chỉnh).
+    try:
+        from vnstock_events import load_upcoming
+        _ev = load_upcoming(within_days=14, tickers=_fund_universe)
+        if _ev:
+            ctx["upcoming_events"] = _ev
+    except Exception:
+        pass
 
     # 8. Composite market sentiment (tâm lý thị trường) — synthesises breadth +
     # NN flow + index momentum + news sentiment into one short-term mood.
@@ -1037,10 +1573,92 @@ def collect_context(brief_type: str = "morning") -> dict:
     except Exception:
         pass
 
+    # 9. Deterministic bias floor from the two headline signals the user sees in
+    # the header (Tâm lý momentum + Regime score) — so the TLDR Bias can't soften
+    # a strongly one-sided market (e.g. momentum -67 → not "Trung tính").
+    _mom = (ctx.get("market_sentiment") or {}).get("momentum")
+    _reg_score = None
+    try:
+        from vnstock_regime import load_regime as _load_reg
+        _reg_score = _load_reg().get("score")
+    except Exception:
+        pass
+    if _fl := _bias_floor_dir(_mom, _reg_score):
+        ctx["bias_floor"] = {"dir": _fl, "momentum": _mom, "regime_score": _reg_score}
+
     return ctx
 
 
-def _load_vnindex_df() -> "pd.DataFrame":
+def _augment_with_live_vnindex(
+    df: "pd.DataFrame",
+    *,
+    live_dir: "Path | None" = None,
+    today: "date | None" = None,
+) -> "pd.DataFrame":
+    """Fold today's live 1m VNINDEX bars into a provisional current-day bar.
+
+    The daily VNINDEX parquet is EOD-only (written by vnstock_updater); the live
+    rollup deliberately SKIPS indices (vnstock_rollup._should_rollup_to_warehouse
+    excludes VNINDEX). So a morning/intraday brief would otherwise always
+    describe the PRIOR session even after live capture ran. When today's WSS
+    capture is active, data_warehouse/_live/bars_{today}.parquet holds 1m
+    VNINDEX bars — aggregate them into one daily OHLC row so the brief reflects
+    the in-progress session. Marks df.attrs["intraday"]=True. Best-effort:
+    returns df unchanged on any problem.
+    """
+    import pandas as pd
+    try:
+        today = today or date.today()
+        # Already have today's bar (post-EOD update) → nothing to add.
+        if not df.empty and "time" in df.columns:
+            last_date = pd.to_datetime(df["time"]).dt.date.max()
+            if last_date is not None and last_date >= today:
+                return df
+
+        base = Path(live_dir) if live_dir else (
+            Path(__file__).parent / "data_warehouse" / "_live")
+        live_path = base / f"bars_{today.isoformat()}.parquet"
+        if not live_path.exists():
+            return df
+        try:
+            import pyarrow.parquet as _pq
+            bars = _pq.read_table(str(live_path)).to_pandas()
+        except Exception:
+            return df
+        if bars.empty or "ticker" not in bars.columns or "close" not in bars.columns:
+            return df
+
+        bars["ticker"] = bars["ticker"].astype(str).str.upper()
+        vni = bars[bars["ticker"].isin({"VNINDEX", "VN-INDEX", "^VNINDEX"})].copy()
+        if vni.empty or "time" not in vni.columns:
+            return df
+        vni["time"] = pd.to_datetime(vni["time"])
+        vni = vni[vni["time"].dt.date == today].sort_values("time")
+        if vni.empty:
+            return df
+
+        c = float(vni["close"].iloc[-1])
+        o = float(vni["open"].iloc[0]) if "open" in vni.columns else c
+        h = float(vni["high"].max()) if "high" in vni.columns else float(vni["close"].max())
+        l = float(vni["low"].min())  if "low"  in vni.columns else float(vni["close"].min())
+        v = int(vni["volume"].sum()) if "volume" in vni.columns else 0
+        # Same unit normalisation as the daily reader (index never > 5000 pts).
+        if c > 5000:
+            o, h, l, c = o / 1000, h / 1000, l / 1000, c / 1000
+        if not (c > 0):
+            return df
+
+        row = {"time": pd.Timestamp(today), "open": o, "high": h,
+               "low": l, "close": c, "volume": v}
+        out = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+        out = out.sort_values("time").reset_index(drop=True)
+        out.attrs["intraday"] = True
+        return out
+    except Exception:
+        return df
+
+
+def _load_vnindex_df(augment: bool = True) -> "pd.DataFrame":
     """Read VNINDEX price history directly from parquet — no Streamlit cache.
 
     Works both inside Streamlit and from the CLI (run.py push_close_brief).
@@ -1102,7 +1720,33 @@ def _load_vnindex_df() -> "pd.DataFrame":
         df = _df
         break
 
-    return df
+    return _augment_with_live_vnindex(df) if augment else df
+
+
+# S/R quality floors (fraction of close). A pivot must sit ≥ _SR_MIN_DIST_PCT
+# away from the current price to be actionable (VNINDEX daily swing ~1% → a
+# level 0.03% away is noise, observed S1=1,798.05 vs close 1,798.61), and two
+# levels on the same side must be ≥ _SR_MIN_GAP_PCT apart (observed R1→R2 =
+# 0.05% → "vượt R1 test R2" meaningless). Tune here.
+_SR_MIN_DIST_PCT: float = 0.005
+_SR_MIN_GAP_PCT: float = 0.008
+
+
+def _select_sr_levels(cands: "list[float]", last: float) -> "list[float]":
+    """Pick up to 2 actionable S/R levels from candidates sorted nearest-first
+    (ascending for resistance, descending for support): skip levels within
+    _SR_MIN_DIST_PCT of the price and within _SR_MIN_GAP_PCT of an already
+    picked level."""
+    out: list[float] = []
+    for v in cands:
+        if not v or abs(v / last - 1) < _SR_MIN_DIST_PCT:
+            continue
+        if out and abs(v / out[-1] - 1) < _SR_MIN_GAP_PCT:
+            continue
+        out.append(v)
+        if len(out) == 2:
+            break
+    return out
 
 
 def _vnindex_technicals() -> dict:
@@ -1153,20 +1797,8 @@ def _vnindex_technicals() -> dict:
             if not pd.isna(prev_ma20) and prev_ma20:
                 ma20_slope_pct = (ma20 / float(prev_ma20) - 1.0) * 100
 
-        # Recent swing lows/highs as dynamic S/R — pivots over last 60 bars
-        # excluding the last 2 bars (avoid using "today" as its own pivot)
-        last60_high = high.tail(62).iloc[:-2] if len(high) >= 62 else high.iloc[:-2]
-        last60_low  = low.tail(62).iloc[:-2]  if len(low)  >= 62 else low.iloc[:-2]
-
-        # Resistance: 2 highest closes ABOVE current price; Support: 2 lowest BELOW
-        above = sorted({round(float(v), 2) for v in last60_high if v > last}, reverse=False)
-        below = sorted({round(float(v), 2) for v in last60_low  if v < last}, reverse=True)
-        res1 = above[0] if len(above) >= 1 else None
-        res2 = above[1] if len(above) >= 2 else None
-        sup1 = below[0] if len(below) >= 1 else None
-        sup2 = below[1] if len(below) >= 2 else None
-
-        # 52w + intraday ranges
+        # 52w + intraday ranges (computed BEFORE pivots — they extend the
+        # candidate pool when price sits near a 60-bar extreme)
         n252 = min(len(close), 252)
         high_52w = float(high.tail(n252).max())
         low_52w  = float(low.tail(n252).min())
@@ -1179,6 +1811,23 @@ def _vnindex_technicals() -> dict:
             day_low  = float(low.iloc[-1])
         except Exception:
             day_high = day_low = last
+
+        # Recent swing lows/highs as dynamic S/R — pivots over last 60 bars
+        # excluding the last 2 bars (avoid using "today" as its own pivot),
+        # plus month/52w extremes as far candidates. Filtered for actionability:
+        # ≥ _SR_MIN_DIST_PCT from price, ≥ _SR_MIN_GAP_PCT between levels.
+        last60_high = high.tail(62).iloc[:-2] if len(high) >= 62 else high.iloc[:-2]
+        last60_low  = low.tail(62).iloc[:-2]  if len(low)  >= 62 else low.iloc[:-2]
+
+        above = sorted({round(float(v), 2) for v in last60_high if v > last}
+                       | {round(v, 2) for v in (month_high, high_52w) if v > last})
+        below = sorted({round(float(v), 2) for v in last60_low if v < last}
+                       | {round(v, 2) for v in (month_low, low_52w) if v < last},
+                       reverse=True)
+        res = _select_sr_levels(above, last)
+        sup = _select_sr_levels(below, last)
+        res1, res2 = (res + [None, None])[:2]
+        sup1, sup2 = (sup + [None, None])[:2]
 
         # RSI(14) via EWM (same formula as ticker indicators)
         rsi14 = None
@@ -1217,6 +1866,9 @@ def _vnindex_technicals() -> dict:
             # to set the "effective" brief date when today has no data yet
             # (e.g. early morning before market opens, or weekends).
             "data_date": df.loc[df["close"].notna(), "time"].iloc[-1].date().isoformat(),
+            # True when the last bar is a provisional intraday bar folded in from
+            # today's live WSS capture (session not yet closed).
+            "intraday": bool(df.attrs.get("intraday", False)),
         }
     except Exception:
         return {}
@@ -1238,6 +1890,77 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
     if note := ctx.get("date_note"):
         _date_line += f"  ⚠️ {note}"
     lines.append(_date_line)
+
+    # Freshness warning: VNINDEX is intraday/fresh but the screener-produced
+    # blocks (breadth / movers / sector flow / regime) trail a session.
+    if (fr := ctx.get("freshness")) and fr.get("stale"):
+        lines.append(
+            f"\n## ⚠️ Độ tươi dữ liệu — KHÔNG BỎ QUA\n"
+            f"VNINDEX là phiên {fr.get('data_date')} (mới/intraday), NHƯNG độ rộng, "
+            f"VN30 movers, dòng tiền ngành và regime lấy từ market_overview ngày "
+            f"{fr.get('overview_date')} (PHIÊN TRƯỚC). BẮT BUỘC: thêm 1 câu cảnh báo "
+            f"các khối này từ phiên trước, và khi mâu thuẫn thì ƯU TIÊN tín hiệu giá "
+            f"VNINDEX hiện tại — đừng kết luận xu hướng dựa trên độ rộng/regime cũ."
+        )
+
+    # Deterministic leader/laggard: the strongest +/- sector contributor (1 tuần)
+    # is computed in collect_context. Inject it as the ONLY allowed choice so the
+    # model can't cite a negligible-contribution sector as a leader.
+    _lead = ctx.get("lead_sector")
+    _lag = ctx.get("lag_sector")
+    if _lead and _lag:
+        _lc, _gc = _lead.get("contrib", 0), _lag.get("contrib", 0)
+        _b = ["\n## 🎯 Dẫn dắt/Tụt hậu — CHỐT THEO DATA (DÙNG ĐÚNG, KHÔNG CHỌN NGÀNH KHÁC)"]
+        if _lc >= 0.05:
+            _b.append(f"- Tích luỹ/Mua: CHỈ {_lead['name']} (đóng góp {_lc:+.3f}pp, 1 tuần — mạnh nhất).")
+        else:
+            _b.append(f"- Tích luỹ/Mua: GHI 'Chưa có nhóm dẫn dắt rõ ràng' (đóng góp +pp lớn nhất chỉ {_lc:+.3f}pp < 0.05).")
+        if _gc <= -0.05:
+            _b.append(f"- Tránh/Bán: CHỈ {_lag['name']} (đóng góp {_gc:+.3f}pp, 1 tuần — yếu nhất).")
+        else:
+            _b.append(f"- Tránh/Bán: GHI 'Chưa có nhóm tụt hậu rõ rệt' (đóng góp -pp yếu nhất chỉ {_gc:+.3f}pp > -0.05).")
+        _b.append("TUYỆT ĐỐI không chọn ngành khác làm dẫn dắt/tụt hậu.")
+        lines.append("\n".join(_b))
+
+    # Deterministic bias floor: when the headline signals are strongly one-sided,
+    # the TLDR Bias must follow them (no softening to "Trung tính"/opposite).
+    # Worded per brief_type: morning's scenario section is "Kịch bản phiên chiều",
+    # the close's directional call lives in "Stance ngày mai" (TLDR).
+    if bf := ctx.get("bias_floor"):
+        _sig = []
+        if bf.get("momentum") is not None:
+            _sig.append(f"momentum {bf['momentum']:+d}/100")
+        if bf.get("regime_score") is not None:
+            _sig.append(f"regime score {bf['regime_score']:+d}")
+        _dir_phr = "thủng hỗ trợ/đi xuống" if bf["dir"] == "GIẢM" else "vượt kháng cự/đi lên"
+        if brief_type == "morning":
+            _scenario = (
+                f"Ở 'Kịch bản phiên chiều', kịch bản CHÍNH (xác suất cao nhất) "
+                f"PHẢI là kịch bản {bf['dir']} ({_dir_phr}); kịch bản chiều ngược "
+                f"chỉ được là kịch bản PHỤ."
+            )
+        else:
+            _scenario = (
+                f"Ở 'Stance ngày mai' (TLDR), setup ưu tiên PHẢI cùng chiều {bf['dir']} "
+                f"({_dir_phr}); KHÔNG đưa setup chiều ngược làm setup chính."
+            )
+        lines.append(
+            f"\n## 🧭 RÀNG BUỘC BIAS (BẮT BUỘC)\n"
+            f"Tín hiệu tổng hợp một chiều mạnh ({', '.join(_sig) or 'n/a'}). "
+            f"TLDR **Bias BẮT BUỘC = {bf['dir']}** — TUYỆT ĐỐI KHÔNG ghi 'Trung tính' "
+            f"hay chiều ngược lại. {_scenario} "
+            f"(Lưu ý: 'BẮT BUỘC' là chỉ thị nội bộ cho bạn — TUYỆT ĐỐI KHÔNG in chữ "
+            f"'bắt buộc' vào brief; chỉ ghi bias {bf['dir']} kèm lý do số liệu.)"
+        )
+        if bf["dir"] == "GIẢM":
+            _where = "Watchlist sáng mai" if brief_type != "morning" else "Trọng tâm theo dõi / Kịch bản"
+            lines.append(
+                f"Ở '{_where}' (bias GIẢM): TUYỆT ĐỐI KHÔNG đưa setup "
+                "\"MUA vùng [giá dưới thị trường]\" kiểu bắt dao rơi. Mẫu MUA "
+                "CHỈ được dạng CÓ ĐIỀU KIỆN \"canh MUA NẾU vượt lại [kháng cự "
+                "của CHÍNH MÃ]\" (xác nhận sức mạnh trước), và ưu tiên ít nhất "
+                "1 hướng phòng thủ (GIẢM TỶ TRỌNG/TRÁNH nếu thủng hỗ trợ)."
+            )
 
     # Market sentiment (tâm lý thị trường) — composite mood from breadth, NN
     # flow, index momentum and news. Emitted high so the agent frames the
@@ -1268,9 +1991,13 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         def _f(v) -> str:
             return f"{v:,.2f}" if isinstance(v, (int, float)) else "—"
 
-        vt_lines = ["\n## VNINDEX kỹ thuật (số liệu hiện tại — DÙNG CHÍNH XÁC, KHÔNG ĐƯỢC THAY)"]
+        _intraday_tag = (
+            " — ⚠️ PHIÊN ĐANG DIỄN RA (dữ liệu intraday, CHƯA chốt phiên)"
+            if vt.get("intraday") else ""
+        )
+        vt_lines = [f"\n## VNINDEX kỹ thuật (số liệu hiện tại — DÙNG CHÍNH XÁC, KHÔNG ĐƯỢC THAY){_intraday_tag}"]
         vt_lines.append(
-            f"- Giá đóng cửa: **{_f(vt.get('close'))}** "
+            f"- {'Giá hiện tại' if vt.get('intraday') else 'Giá đóng cửa'}: **{_f(vt.get('close'))}** "
             f"(prev {_f(vt.get('prev_close'))}, "
             f"thay đổi phiên {vt.get('day_change_pct', 0):+.2f}%)"
         )
@@ -1279,6 +2006,15 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             f"Tuần: {_f(vt.get('week_low'))} – {_f(vt.get('week_high'))} | "
             f"Tháng: {_f(vt.get('month_low'))} – {_f(vt.get('month_high'))}"
         )
+        # Pre-compute where close sits in the weekly range so the agent doesn't
+        # mis-state "nửa trên/dưới" (observed: 18.7% mislabelled "nửa trên").
+        _wl, _wh, _cl = vt.get("week_low"), vt.get("week_high"), vt.get("close")
+        if all(isinstance(x, (int, float)) for x in (_wl, _wh, _cl)) and _wh > _wl:
+            _pos = (_cl - _wl) / (_wh - _wl) * 100
+            _zone = ("gần đáy" if _pos < 33 else "gần đỉnh" if _pos > 67 else "giữa")
+            vt_lines.append(
+                f"- Vị trí range tuần: {_pos:.0f}% (0%=đáy, 100%=đỉnh) → {_zone} range"
+            )
         vt_lines.append(
             f"- 52w: {_f(vt.get('low_52w'))} – {_f(vt.get('high_52w'))}"
         )
@@ -1323,29 +2059,131 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
 
     # Session timing — explicit empty marker when warehouse missing,
     # so the LLM doesn't fabricate GTGD numbers.
+    _is_morning_brief = (brief_type == "morning")
     if timing := ctx.get("session_timing"):
-        line = f"\n## Session Timing\n{timing['signal']} | {timing['detail']}"
+        # Intraday (live bar folded in = session in progress): the morning-share
+        # signal/detail (institutional vs retail = morning/full) is meaningless
+        # because full-day = morning + partial afternoon. Suppress it — that
+        # detail string is the real source of "sáng chiếm 78% cả ngày".
+        # The MORNING brief is written from the 11:30 viewpoint: it must never
+        # see the afternoon/full-day either (observed on an EOD re-run: "Phiên
+        # chiều chiếm 56% GTGD, thiên bias retail" inside the MORNING overview).
+        _intraday = bool((ctx.get("vnindex_tech") or {}).get("intraday"))
+        if _is_morning_brief:
+            line = ("\n## Session Timing\n⚠️ MORNING brief — góc nhìn 11:30: CHỈ dùng "
+                    "GTGD SÁNG bên dưới; TUYỆT ĐỐI KHÔNG bàn về phiên chiều / GTGD cả "
+                    "ngày / tỷ trọng sáng-chiều (institutional vs retail) — các thông "
+                    "tin đó thuộc CLOSE brief.")
+        elif _intraday:
+            line = ("\n## Session Timing\n⚠️ Phiên ĐANG diễn ra — CHƯA đánh giá được "
+                    "tỷ trọng sáng/chiều (institutional vs retail); TUYỆT ĐỐI KHÔNG nói "
+                    "'sáng chiếm X% GTGD cả ngày' hay suy ra institutional/retail từ đó.")
+        else:
+            line = f"\n## Session Timing\n{timing['signal']} | {timing['detail']}"
         if ss := ctx.get("session_stats"):
-            morn_gtgd = ss.get("9h-11h30", {}).get("VNINDEX", {}).get("gtgd", 0)
-            full_gtgd = ss.get("9h-15h",  {}).get("VNINDEX", {}).get("gtgd", 0)
+            morn_gtgd = (ss.get("9h-11h30", {}).get("VNINDEX", {}) or {}).get("gtgd", 0) or 0
+            full_gtgd = (ss.get("9h-15h",  {}).get("VNINDEX", {}) or {}).get("gtgd", 0) or 0
+            mg = ctx.get("morning_gtgd") or {}
             if morn_gtgd:
-                line += f"\nGTGD sáng: {morn_gtgd:.1f} tỷ"
-            if full_gtgd:
-                line += f" | GTGD cả ngày: {full_gtgd:.1f} tỷ"
+                line += f"\nGTGD sáng (9h-11h30): {morn_gtgd:,.1f} tỷ"
+                # Like-for-like morning baselines (sáng vs sáng).
+                cmp_parts = []
+                if mg.get("prev"):
+                    cmp_parts.append(
+                        f"sáng phiên trước {mg['prev']:,.1f} tỷ ({(morn_gtgd/mg['prev']-1)*100:+.0f}%)")
+                if mg.get("avg5"):
+                    cmp_parts.append(
+                        f"TB sáng 5 phiên {mg['avg5']:,.1f} tỷ ({(morn_gtgd/mg['avg5']-1)*100:+.0f}%)")
+                if mg.get("avg20"):
+                    cmp_parts.append(f"TB sáng ~20 phiên {mg['avg20']:,.1f} tỷ")
+                if cmp_parts:
+                    line += "\nSo sánh ĐỒNG DẠNG (sáng-với-sáng): " + " | ".join(cmp_parts)
+            # Full-day GTGD (only when session CLOSED, and NEVER for the morning
+            # brief — its template compares sáng-với-sáng only). Prefer the live
+            # session capture; fall back to the EOD-derived total (Σ giá×KLGD).
+            _eod_full = ctx.get("full_day_gtgd")
+            _full_day = None
+            _src = ""
+            if not _intraday and not _is_morning_brief:
+                if full_gtgd and morn_gtgd and full_gtgd > morn_gtgd * 1.05:
+                    _full_day = full_gtgd
+                elif isinstance(_eod_full, (int, float)) and _eod_full > 0:
+                    _n = ctx.get("full_day_gtgd_count")
+                    _full_day = float(_eod_full)
+                    _src = (f" (ước tính từ EOD: Σ giá×KLGD của {_n} mã có data phiên"
+                            if _n else " (ước tính từ EOD: Σ giá×KLGD")
+                    _src += ", xấp xỉ — có thể thấp hơn tổng sàn nếu kho chưa đủ mã)"
+            if _full_day:
+                line += (f"\nGTGD cả ngày: {_full_day:,.1f} tỷ{_src} → DÙNG ĐÚNG SỐ NÀY cho "
+                         f"'GTGD' trong TLDR/Tổng kết phiên; TUYỆT ĐỐI KHÔNG nhặt số khác "
+                         f"(GTGD sáng, GTGD theo ngành, v.v.) làm GTGD cả ngày.")
+                _cmp = ctx.get("full_day_gtgd_cmp") or {}
+                if _cmp.get("prev"):
+                    _pct = (_full_day / _cmp["prev"] - 1) * 100 if _cmp["prev"] else 0
+                    _parts = [f"phiên trước {_cmp['prev']:,.1f} tỷ ({_pct:+.0f}%)"]
+                    for _k, _lbl in (("avg5", "TB5 phiên"), ("avg20", "TB20 phiên")):
+                        if _cmp.get(_k):
+                            _parts.append(f"{_lbl} {_cmp[_k]:,.1f} tỷ "
+                                          f"({(_full_day / _cmp[_k] - 1) * 100:+.0f}%)")
+                    line += ("\nSo sánh CẢ-NGÀY-với-CẢ-NGÀY: " + " | ".join(_parts) +
+                             ". DÙNG % NÀY cho GTGD cả ngày; CHỈ baseline đã cho (KHÔNG "
+                             "tự suy TB khác), TUYỆT ĐỐI KHÔNG gán % 'so với sáng phiên "
+                             "trước' cho số cả ngày.")
+            elif (not _is_morning_brief) and ctx.get("full_day_gtgd_partial") \
+                    and not (morn_gtgd or full_gtgd):
+                # The session's bars are incomplete (in-progress day / EOD batch
+                # not fully landed) → the partial sum must NOT pose as the
+                # market figure.
+                _n = ctx.get("full_day_gtgd_count")
+                line += (f"\n⚠️ GTGD cả ngày CHƯA ĐỦ DỮ LIỆU — phiên đang dở hoặc batch EOD "
+                         f"chưa về đủ (mới {_n} mã có bar). TRONG TLDR/Tổng kết ghi 'GTGD: chưa đủ "
+                         f"dữ liệu', TUYỆT ĐỐI KHÔNG bịa, KHÔNG dùng số một phần làm GTGD toàn sàn.")
+            elif not morn_gtgd and not full_gtgd:
+                # No GTGD anywhere (WSS didn't run AND no EOD total) → say so.
+                line += ("\n⚠️ KHÔNG có dữ liệu GTGD hôm nay → trong TLDR/Tổng kết ghi "
+                         "'GTGD: chưa có dữ liệu', TUYỆT ĐỐI KHÔNG bịa con số GTGD nào.")
         lines.append(line)
     else:
-        lines.append(
-            "\n## Session Timing\n⚠️ KHÔNG CÓ session stats hôm nay — "
-            "KHÔNG được suy đoán GTGD/morning share, viết 'Chưa có dữ liệu phiên'."
-        )
+        _eod_full = ctx.get("full_day_gtgd")
+        _intraday = bool((ctx.get("vnindex_tech") or {}).get("intraday"))
+        _l = ("\n## Session Timing\n⚠️ KHÔNG CÓ session stats hôm nay — "
+              "KHÔNG được suy đoán tỷ trọng sáng/chiều (institutional/retail).")
+        if _is_morning_brief:
+            _l += (" MORNING brief: KHÔNG có GTGD sáng → ghi 'Chưa có GTGD phiên "
+                   "sáng', KHÔNG bàn phiên chiều/GTGD cả ngày.")
+        elif (not _intraday) and isinstance(_eod_full, (int, float)) and _eod_full > 0:
+            _l += (f"\nGTGD cả ngày: {_eod_full:,.1f} tỷ (ước tính từ EOD: Σ giá×KLGD) → "
+                   f"DÙNG ĐÚNG SỐ NÀY cho 'GTGD' trong TLDR/Tổng kết phiên.")
+            _cmp = ctx.get("full_day_gtgd_cmp") or {}
+            if _cmp.get("prev"):
+                _pct = (float(_eod_full) / _cmp["prev"] - 1) * 100 if _cmp["prev"] else 0
+                _parts = [f"phiên trước {_cmp['prev']:,.1f} tỷ ({_pct:+.0f}%)"]
+                for _k, _lbl in (("avg5", "TB5 phiên"), ("avg20", "TB20 phiên")):
+                    if _cmp.get(_k):
+                        _parts.append(f"{_lbl} {_cmp[_k]:,.1f} tỷ "
+                                      f"({(float(_eod_full) / _cmp[_k] - 1) * 100:+.0f}%)")
+                _l += ("\nSo sánh cả-ngày-với-cả-ngày: " + " | ".join(_parts) +
+                       ". CHỈ baseline đã cho (KHÔNG tự suy TB khác), KHÔNG gán % "
+                       "so-với-sáng cho số cả ngày.")
+        else:
+            _l += " GTGD: viết 'chưa có dữ liệu', KHÔNG bịa số."
+        lines.append(_l)
 
     # Breadth — same pattern
     if b := ctx.get("breadth"):
+        _ad = b.get("ad_ratio", 0) or 0
+        _ma200 = b.get("above_ma200_pct", 0) or 0
+        # Deterministic breadth label so the agent can't mislabel A/D (observed:
+        # A/D 0.90 wrongly called "tích cực" — 0.90 < 1.0 is NEGATIVE breadth).
+        _bl = "tích cực" if _ad > 1.05 else "tiêu cực" if _ad < 0.95 else "cân bằng"
+        _sign = ">" if _ad > 1 else "<" if _ad < 1 else "≈"
+        _weak = " · ít mã trên MA200 → thị trường yếu" if _ma200 < 30 else ""
         lines.append(f"\n## Market Breadth\n"
-                     f"Trên MA200: {b.get('above_ma200_pct',0):.0f}% | "
-                     f"A/D ratio: {b.get('ad_ratio',0):.2f} | "
+                     f"Trên MA200: {_ma200:.0f}% | "
+                     f"A/D ratio: {_ad:.2f} | "
                      f"Net new highs: {b.get('net_new_highs',0):+d} | "
-                     f"RSI oversold: {b.get('rsi_oversold',0)} mã | RSI overbought: {b.get('rsi_overbought',0)} mã")
+                     f"RSI oversold: {b.get('rsi_oversold',0)} mã | RSI overbought: {b.get('rsi_overbought',0)} mã"
+                     f"\n→ ĐỘ RỘNG: {_bl.upper()} (A/D {_sign} 1.0{_weak}) — DÙNG ĐÚNG nhãn này, KHÔNG tự suy ngược (A/D<1 = tiêu cực).")
     else:
         lines.append(
             "\n## Market Breadth\n⚠️ KHÔNG CÓ breadth data — "
@@ -1355,6 +2193,17 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
     # Sector analysis — with market-cap weights + stock breakdown
     _sw = ctx.get("sector_weights", {})
     _ts = ctx.get("top_stocks_per_sector", {})
+
+    def _composite_tag(r: dict) -> str:
+        """Plain-Vietnamese label for the internal quant 'composite' score so the
+        brief reads "tín hiệu phân phối" not "composite=-0.76"."""
+        v = r.get("composite")
+        if not isinstance(v, (int, float)):
+            return ""
+        lbl = ("phân phối mạnh" if v <= -0.6 else "phân phối" if v <= -0.2
+               else "tích luỹ mạnh" if v >= 0.6 else "tích luỹ" if v >= 0.2
+               else "trung tính")
+        return f" tín hiệu {lbl}"
 
     def _sector_lines(r: dict) -> list[str]:
         sector_name = r.get("Ngành", "?")
@@ -1367,9 +2216,9 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         if weight > 0:
             header += f" [{weight:.1f}%VNI"
             if contrib != 0:
-                header += f", đóng góp {contrib:+.2f}pp hôm nay"
+                header += f", đóng góp {contrib:+.2f}pp (1 tuần)"
             header += "]"
-        header += f" composite={r.get('composite', 0):+.2f}"
+        header += _composite_tag(r)
 
         meta: list[str] = []
         g1t = r.get("Giá 1T %")
@@ -1391,7 +2240,7 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
 
         result = ["- " + header + (" | " + " | ".join(meta) if meta else "")]
 
-        # Top 3 stocks in sector: mcap, weight vs VNI, 1d return, contribution
+        # Top 3 stocks in sector: mcap, weight vs VNI, 1-week return, contribution
         for s in _ts.get(sector_name, [])[:3]:
             ticker  = s.get("Mã", "?")
             mcap    = s.get("Vốn hoá (tỷ)", 0) or 0
@@ -1442,7 +2291,7 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             sw = _sw.get(r.get("Ngành", ""), {})
             lines.append(
                 f"- **{r.get('Ngành','?')}** rotation={r.get('rotation',0):+.1f}pp"
-                f" | composite={r.get('composite',0):+.2f}"
+                f" |{_composite_tag(r)}"
                 + (f" | {sw.get('_weight',0)*100:.1f}%VNI" if sw.get("_weight") else "")
             )
 
@@ -1454,44 +2303,74 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
     if dist := ctx.get("quant_distribution"):
         lines.append("\n## Distribution warning (giá xanh, tiền đang thoát)")
         for r in dist:
-            lines.append(f"- **{r.get('Ngành','?')}** — composite={r.get('composite',0):+.2f}")
+            lines.append(f"- **{r.get('Ngành','?')}** —{_composite_tag(r)}")
+        lines.append("→ Khi nhắc các tín hiệu trên, DÙNG nhãn chữ (phân phối/tích luỹ…), "
+                     "TUYỆT ĐỐI KHÔNG in 'composite=<số>' vào brief.")
 
     # VN30 movers + contribution to VNINDEX
     def _vn30_line(g: dict) -> str:
         ticker = g.get("Mã", "?")
         ret    = g.get("Giá 1T %", 0)
         sector = g.get("Ngành", "")
+        price  = g.get("last")
         contrib = next(
             (s.get("_1d_contrib", 0) or 0
              for s in _ts.get(sector, []) if s.get("Mã") == ticker),
             0.0,
         )
-        line = f"- {ticker} {ret:+.1f}% [{sector}]"
+        line = f"- {ticker} {ret:+.1f}% (1 tuần/5 phiên) [{sector}]"
+        if price not in (None, "") and not (isinstance(price, float) and price != price):
+            # "last" is in thousand VND → render absolute VND as the watchlist anchor.
+            line += f" | Giá {float(price) * 1000:,.0f}"
         if contrib != 0:
-            line += f" ≈ {contrib:+.3f}pp VNI"
+            line += f" ≈ {contrib:+.3f}pp VNI (1 tuần)"
+        # ⭐ = thanh khoản đủ cao để làm SETUP watchlist (VN30 hoặc GTGD ≥ ngưỡng);
+        # mã không ⭐ chỉ dùng để phân tích biến động, không đưa vào setup giao dịch.
+        _gtgd = g.get("GTGD TB (tỷ)")
+        _eligible = ticker in VN30_TICKERS or (
+            _gtgd is not None and not (isinstance(_gtgd, float) and _gtgd != _gtgd)
+            and float(_gtgd) >= _WATCHLIST_GTGD_MIN_TY
+        )
+        if _eligible and price not in (None, ""):
+            # ⭐ + reference levels computed from the stock's OWN price (±3%), so
+            # the watchlist anchors a setup to these instead of grabbing the
+            # VNINDEX S/R (recurring "CII canh mua nếu vượt R1=1,800.80" bug →
+            # empty watchlist after the hygiene guard dropped it).
+            _p = float(price) * 1000
+            line += (f" ⭐ [mốc của mã: hỗ trợ ~{_round_tick(_p * 0.97, _p):,} / "
+                     f"kháng cự ~{_round_tick(_p * 1.03, _p):,}]")
         return line
 
     if gainers := ctx.get("vn30_gainers"):
-        lines.append("\n## VN30 Top Gainers (1 phiên, với đóng góp vào VNINDEX)")
+        lines.append("\n## Top Gainers thanh khoản cao (VN30 + mid-cap; thay đổi 1 TUẦN/5 phiên — KHÔNG phải 1 phiên, với đóng góp vào VNINDEX)")
         for g in gainers:
             lines.append(_vn30_line(g))
 
     if losers := ctx.get("vn30_losers"):
-        lines.append("\n## VN30 Top Losers (1 phiên, với đóng góp vào VNINDEX)")
+        lines.append("\n## Top Losers thanh khoản cao (VN30 + mid-cap; thay đổi 1 TUẦN/5 phiên — KHÔNG phải 1 phiên, với đóng góp vào VNINDEX)")
         for g in losers:
             lines.append(_vn30_line(g))
 
     # Sector money flow (foreign net flow + liquidity by sector) so the agent
     # can describe rotation / where smart money is going.
     if _sectors := ctx.get("sectors"):
-        block = _sector_flow_block(_sectors)
+        block = _sector_flow_block(_sectors, nn_data_date=ctx.get("nn_data_date"),
+                                   session_date=ctx.get("date"))
         if block:
             lines.append(block)
 
     # VN30 fundamentals (debt-to-equity, ROE, operating cash flow) so the agent
     # can ground "rủi ro cơ bản" comments in real leverage / cash-flow numbers.
     if funds := ctx.get("vn30_fundamentals"):
-        block = _vn30_fund_block(funds)
+        block = _vn30_fund_block(funds, extra_financial=ctx.get("financial_tickers"),
+                                 realestate=ctx.get("realestate_tickers"))
+        if block:
+            lines.append(block)
+
+    # Upcoming corporate events (ex-dividend / split / bonus) so the brief can
+    # flag ngày GDKHQ for held/watchlist tickers.
+    if _ev := ctx.get("upcoming_events"):
+        block = _upcoming_events_block(_ev)
         if block:
             lines.append(block)
 
@@ -1522,6 +2401,49 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
 
     tmpl = _MORNING_TEMPLATE if brief_type == "morning" else _AFTERNOON_TEMPLATE
     return tmpl.format(system=_SYSTEM, data=data_block)
+
+
+def apply_brief_guards(text: str, ctx: dict) -> str:
+    """Run the full deterministic post-generation guard chain on a brief.
+
+    The SINGLE source of truth for the fixup sequence — both the morning and
+    close briefs go through this identical chain (generate_brief calls it for
+    every agent's output regardless of brief_type). Each guard is itself
+    brief_type-aware where it must be (section/anchor detection inside the
+    guard), so morning↔close parity is guaranteed by construction: a fix added
+    here applies to both briefs at once. Order matters (e.g. the canonical risk
+    section runs before the defensive numeric guards). No-op-safe and
+    idempotent end to end. Returns the (possibly) fixed text.
+    """
+    fixed = enforce_upcoming_events(text, ctx)
+    fixed = enforce_risk_section(fixed, ctx)         # canonical risk facts first
+    fixed = enforce_realestate_ocf_context(fixed, ctx)
+    fixed = enforce_lead_lag(fixed, ctx)              # buy/avoid lines = lead/lag sector
+    fixed = enforce_watchlist_hygiene(fixed, ctx)
+    fixed = enforce_money_flow_two_sides(fixed, ctx)  # close section & morning inline
+    fixed = enforce_sector_nn_figures(fixed, ctx)     # fabricated sector NN anywhere
+    fixed = enforce_liquidity_label(fixed, ctx)       # NN-sell figures ≠ thanh khoản
+    fixed = enforce_nn_window_label(fixed, ctx)       # 1D NN total ≠ weekly
+    fixed = enforce_risk_numbers(fixed, ctx)          # defensive no-op on canonical
+    fixed = enforce_pivot_labels(fixed, ctx)
+    fixed = enforce_scenario_levels(fixed, ctx)       # scenario levels = real data only
+    fixed = enforce_watchlist_eligibility(fixed, ctx)
+    fixed = enforce_gtgd_total(fixed, ctx)            # full-day (close) / sáng (morning)
+    fixed = enforce_gtgd_compare_frame(fixed, ctx)    # close-only: full-day ≠ morning baseline
+    fixed = enforce_gtgd_baseline_pct(fixed, ctx)     # close-only: % must match its baseline
+    fixed = enforce_compare_direction(fixed, ctx)     # 'thấp/cao hơn' must match % sign
+    fixed = enforce_breadth_label(fixed, ctx)         # above-MA200 % ≠ '% mã tăng giá'
+    fixed = enforce_no_cjk(fixed, ctx)
+    fixed = enforce_no_instruction_leak(fixed, ctx)
+    fixed = enforce_no_placeholder_leak(fixed, ctx)
+    fixed = enforce_no_composite_jargon(fixed, ctx)
+    fixed = enforce_composite_rotation_hygiene(fixed, ctx)  # no bucket↔label clash / 'Net BS'
+    fixed = enforce_no_bias_directive_leak(fixed, ctx)   # 'bắt buộc' is internal
+    fixed = enforce_no_record_superlative(fixed, ctx)    # no all-time GTGD claim
+    fixed = enforce_no_duplicate_momentum(fixed, ctx)    # state momentum once
+    fixed = enforce_range_position(fixed, ctx)
+    fixed = enforce_number_format(fixed, ctx)            # one number convention (EN)
+    return fixed
 
 
 # ── Main entry point ───────────────────────────────────────────────────────
@@ -1564,7 +2486,14 @@ def generate_brief(
             "Không có AI agent nào được bật. Vào ⚙️ Cài đặt Agent → chọn agent và điền API key.",
         )}
 
-    ctx = collect_context(brief_type)
+    # Close overdue/zombie recs first so the brief's recommendation blocks
+    # reflect the live book (best-effort).
+    _maybe_reconcile_overdue()
+    # Refresh the upcoming-events cache if it isn't from today (best-effort) so
+    # the "📅 Sự kiện sắp tới" block isn't empty due to run ordering.
+    _maybe_refresh_events()
+
+    ctx = collect_context(brief_type, auto_refresh=True)
 
     # Inject few-shot golden examples + open recommendations (best-effort)
     few_shot  = _few_shot_block(brief_type)
@@ -1645,6 +2574,17 @@ def generate_brief(
                 agent = futures[fut]
                 name, result = agent.name, ("", str(exc))
             results[name] = result
+
+    # Deterministic fixups the LLM is known to flub: restore the upcoming-events
+    # list when the model claims "Không có sự kiện đáng chú ý" despite the data,
+    # and re-attach the land-bank context when a BĐS ticker is cited for weak
+    # Op.CF without it.
+    for agent in available:
+        text, _err = results.get(agent.name, ("", None))
+        if text:
+            fixed = apply_brief_guards(text, ctx)
+            if fixed != text:
+                results[agent.name] = (fixed, _err)
 
     # Defensive layer: scan each agent's output for hallucinated VNINDEX
     # numbers. Stored in results["_warnings"] so the UI can surface them.
@@ -1729,6 +2669,1406 @@ def _parse_vn_number(s: str) -> float | None:
         return float(s)
     except (ValueError, IndexError):
         return None
+
+
+_SECTION_EMOJIS = ("🎯", "📊", "📈", "🏆", "💰", "📋", "⚠️", "📅", "💡", "🔧", "⚡", "🔮")
+
+
+def _is_section_start(line: str) -> bool:
+    s = line.lstrip()
+    return s.startswith("##") or s.startswith(_SECTION_EMOJIS)
+
+
+def enforce_upcoming_events(text: str, ctx: dict) -> str:
+    """Deterministic guard: the events section is pure data — no analysis — yet
+    the LLM keeps mangling it (claimed "Không có sự kiện đáng chú ý" at 13:50
+    with ACB in the prompt; listed only 1 of 2 same-day ACB events at 14:48 and
+    15:20). When ctx carries upcoming_events, replace the whole section body
+    with the canonical list (top 3 + GDKHQ note); with no section header,
+    replace a stray denial line. No-op when there are no events.
+    """
+    events = ctx.get("upcoming_events") or []
+    if not text or not events:
+        return text
+
+    def _fmt(e: dict) -> str:
+        return (f"{e.get('ticker','?')}: {e.get('title') or 'Sự kiện DN'}"
+                f" — ngày {e.get('ex_date','?')}")
+
+    ev_lines = [_fmt(e) for e in events[:3]]
+    ev_lines.append("(Giá tự điều chỉnh trong ngày GDKHQ — không phải giảm do thị trường.)")
+
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines)
+                  if "sự kiện sắp tới" in l.lower()), None)
+    if start is not None:
+        end = next((i for i in range(start + 1, len(lines))
+                    if _is_section_start(lines[i])), len(lines))
+        if lines[start + 1:end] == ev_lines:
+            return text
+        return "\n".join(lines[:start + 1] + ev_lines + lines[end:])
+
+    out: list[str] = []
+    replaced = False
+    for line in lines:
+        if not replaced and "không có sự kiện đáng chú ý" in line.lower():
+            out.extend(ev_lines)
+            replaced = True
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
+def enforce_realestate_ocf_context(text: str, ctx: dict) -> str:
+    """Deterministic guard: when the risk section names a real-estate ticker for
+    weak operating cash flow but drops the land-bank context (observed: 13:50
+    brief carried "do tích lũy quỹ đất…", the 14:48 one cited KBC/NVL bare),
+    append the context note right after that line so a bare negative OCF is
+    never read as distress. No-op when no RE ticker is cited for OCF or the
+    context is already present.
+    """
+    re_tickers = ctx.get("realestate_tickers") or set()
+    if not text or not re_tickers:
+        return text
+    low = text.lower()
+    if "quỹ đất" in low or "tồn kho" in low:
+        return text                      # context already present somewhere
+
+    # Any HĐKD/operating cash-flow phrasing — incl. the model's frequent slip
+    # "lưu LƯỢNG tiền HĐKD" (observed close brief: that wording escaped the
+    # guard so KBC/NVL got no land-bank context). "hđkd" alone is safe here:
+    # in the risk section it only appears in a cash-flow clause.
+    _ocf_words = ("op.cf", "lưu chuyển tiền", "lưu lượng tiền", "hđkd")
+    out: list[str] = []
+    added = False
+    for line in text.splitlines():
+        out.append(line)
+        if added or not any(w in line.lower() for w in _ocf_words):
+            continue
+        cited = [t for t in sorted(re_tickers)
+                 if _re.search(rf"\b{_re.escape(t)}\b", line)]
+        if cited:
+            out.append(
+                f"(Lưu ý: Op.CF âm của {', '.join(cited)} — BĐS — chủ yếu do "
+                "tích lũy quỹ đất/hàng tồn kho dự án, không phải lỗ HĐKD; cần "
+                "soi thêm D/E và nợ vay.)"
+            )
+            added = True
+    return "\n".join(out)
+
+
+# Meta-disclaimers the model sneaks into watchlist setups despite the template
+# ("(đây là ví dụ, không dùng thực tế…)"), and the bail line it pads with even
+# when a priced setup exists. Both are stripped deterministically.
+_WL_META_RE = _re.compile(
+    r"\s*\([^)]*(?:ví dụ|minh họa|minh hoạ|không dùng thực tế|giả định"
+    r"|không có đủ thông tin|không đủ thông tin)[^)]*\)",
+    _re.IGNORECASE,
+)
+
+
+def enforce_watchlist_hygiene(text: str, ctx: dict | None = None) -> str:
+    """Deterministic guard for the watchlist section: strip meta-disclaimers
+    from setup lines (observed: "MUA vùng 69,000 … (đây là ví dụ, không dùng
+    thực tế…)"), DROP setups anchored to VNINDEX levels instead of the stock's
+    own price (observed 13:25: "CII (Giá 17,300) — canh mua nếu vượt
+    R1=1,800.80" — index points on a 17k-VND stock; eligible stocks trade
+    ≥ 5,000 VND so a pivot value inside the 800-2500 index band can never be a
+    valid stock level), and drop the "Cần thêm dữ liệu giá…" filler when at
+    least one real priced setup is present. No-op without a watchlist section.
+    """
+    if not text:
+        return text
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines) if "watchlist sáng mai" in l.lower()), None)
+    if start is None:
+        return text
+    end = next((i for i in range(start + 1, len(lines))
+                if lines[i].lstrip().startswith(("##", "⚠️", "📅", "💡", "🔧", "📋"))),
+               len(lines))
+
+    def _uses_index_levels(l: str) -> bool:
+        return bool(_re.match(r"\s*\d+\.", l)) and any(
+            (n := _parse_vn_number(m.group(2))) is not None and 800 <= n <= 2500
+            for m in _PIVOT_LABEL_RE.finditer(l)
+        )
+
+    body = lines[start + 1:end]
+    dropped_invalid = any(_uses_index_levels(l) for l in body)
+    sec = [_WL_META_RE.sub("", l).rstrip() for l in body
+           if not _uses_index_levels(l)]
+    # a real setup = direction keyword + a thousand-grouped price on the line
+    has_priced_setup = any(
+        _re.search(r"MUA|GIẢM TỶ TRỌNG|TRÁNH", l, _re.IGNORECASE)
+        and _re.search(r"\d{1,3}[.,]\d{3}", l)
+        for l in sec
+    )
+    if has_priced_setup:
+        sec = [l for l in sec if "cần thêm dữ liệu giá" not in l.lower()]
+    sec = [l for l in sec if not _re.fullmatch(r"\s*\d+\.\s*", l)]  # empty "2." stubs
+    if dropped_invalid and not has_priced_setup and not any(
+            "cần thêm dữ liệu giá" in l.lower() for l in sec):
+        # every setup was invalid (index-level anchors) → honest bail line
+        sec.append("Cần thêm dữ liệu giá cổ phiếu cụ thể")
+
+    # Bias GIẢM: an unconditional "MUA vùng [giá hiện tại]" is a dip-buy /
+    # bắt-dao-rơi the bias floor forbids (observed 21:31: CII MUA vùng 17,200
+    # while Stance = GIẢM). Convert to a confirmation-breakout form, keeping the
+    # numbers/order intact ("canh MUA NẾU vượt [entry] · mục tiêu [TP] · cắt lỗ
+    # [SL]"). Defensive (GIẢM TỶ TRỌNG/TRÁNH) lines are left untouched.
+    if (ctx or {}).get("bias_floor", {}).get("dir") == "GIẢM":
+        sec = [(l.replace("MUA vùng", "canh MUA NẾU vượt").replace("· chốt lời", "· mục tiêu")
+                if "MUA vùng" in l else l) for l in sec]
+
+    # A breakout-buy trigger MUST sit MEANINGFULLY ABOVE the stock's current
+    # price — else "canh MUA NẾU vượt X" is already true / a non-confirmation
+    # (observed 22:22: CII "vượt 16,684" while Giá=17,200 = support; 11:03: CII
+    # "vượt 17,200" = the price itself). Bump any trigger within +0.5% of Giá up
+    # to ~+2% (a real confirmation breakout).
+    def _setup_price(l: str) -> "float | None":
+        # the stock price sits right after the bolded ticker, in EITHER form:
+        # "**CII** (17,350)" or "**CII** (Giá 17,350)" (observed 21:19 dropped the
+        # 'Giá' word, which the old Giá-only regex missed → trigger never bumped).
+        m = _re.search(r"\(\s*(?:Giá\s*)?([\d][\d.,]*)\s*\)", l) \
+            or _re.search(r"Giá\s*([\d][\d.,]*)", l)
+        return _parse_vn_number(m.group(1)) if m else None
+
+    def _fix_buy_trigger(l: str) -> str:
+        if "canh mua" not in l.lower():
+            return l
+        P = _setup_price(l)
+        if not P:
+            return l
+
+        def _sub(m: "_re.Match") -> str:
+            x = _parse_vn_number(m.group(2))
+            if x is not None and x < P * 1.005:
+                return f"{m.group(1)}{_round_tick(P * 1.02, P):,}"
+            return m.group(0)
+
+        l = _re.sub(r"(vượt(?:\s*lại)?\s*)([\d][\d.,]*)", _sub, l, count=1)
+
+        # Keep a sane reward after the bump: if "mục tiêu" sits within 1.5% of
+        # the (possibly bumped) trigger (observed 23:56: vượt 17,550 → mục tiêu
+        # 17,716 = +0.95%), raise the target to ~trigger+3%.
+        tm = _re.search(r"vượt(?:\s*lại)?\s*([\d][\d.,]*)", l)
+        trig = _parse_vn_number(tm.group(1)) if tm else None
+        if trig:
+            def _sub_tp(m: "_re.Match") -> str:
+                y = _parse_vn_number(m.group(2))
+                if y is not None and y < trig * 1.015:
+                    return f"{m.group(1)}{_round_tick(trig * 1.03, trig):,}"
+                return m.group(0)
+            l = _re.sub(r"(mục tiêu\s*)([\d][\d.,]*)", _sub_tp, l, count=1)
+        return l
+
+    def _round_all_ticks(l: str) -> str:
+        # Round EVERY setup price level to the stock's HOSE tick (observed odd
+        # 17,716 / 92,635). Scope to numbers near the stock price (0.5×–1.5× Giá)
+        # so list indices / % / GTGD are untouched.
+        P = _setup_price(l)
+        if not P:
+            return l
+
+        def _sub(m: "_re.Match") -> str:
+            v = _parse_vn_number(m.group(0))
+            return f"{_round_tick(v, P):,}" if v is not None and 0.5 * P <= v <= 1.5 * P \
+                else m.group(0)
+
+        return _re.sub(r"\d{1,3}(?:[.,]\d{3})+", _sub, l)
+
+    sec = [_round_all_ticks(_fix_buy_trigger(l)) for l in sec]
+
+    if sec == lines[start + 1:end]:
+        return text
+    return "\n".join(lines[:start + 1] + sec + lines[end:])
+
+
+def enforce_lead_lag(text: str, ctx: dict) -> str:
+    """Pin the lead/lag sector lines to the deterministic lead_sector/lag_sector.
+
+    Both templates carry a "🎯 Dẫn dắt/Tụt hậu — CHỐT THEO DATA" directive, but
+    it's only a prompt nudge. The close follows it; the MORNING brief ignored it
+    (observed 13:40: denied the leader — "Chưa có nhóm dẫn dắt" while BĐS is
+    +0.275pp — AND put the LEAD sector on the "Tránh/Bán" line with a wrong
+    -0.03pp, contradicting its own TLDR). Canonicalise the buy/lead line
+    (morning "Tích luỹ/Mua" / close "Dẫn dắt") and the avoid/lag line (morning
+    "Tránh/Bán" / close "Tụt hậu") when they deny the call, name the WRONG side's
+    sector, or omit the right one. Correct lines (the close) are left untouched;
+    idempotent; no-op without lead/lag data.
+    """
+    lead = ctx.get("lead_sector") or {}
+    lag = ctx.get("lag_sector") or {}
+    lead_name = (lead.get("name") or "").strip()
+    lag_name = (lag.get("name") or "").strip()
+    if not text or not lead_name or not lag_name:
+        return text
+    lc = lead.get("contrib", 0) or 0
+    gc = lag.get("contrib", 0) or 0
+    lead_canon = (f"{lead_name} (đóng góp {lc:+.3f}pp, 1 tuần — mạnh nhất)."
+                  if lc >= 0.05 else
+                  f"Chưa có nhóm dẫn dắt rõ ràng (đóng góp lớn nhất chỉ {lc:+.3f}pp).")
+    lag_canon = (f"{lag_name} (đóng góp {gc:+.3f}pp, 1 tuần — yếu nhất)."
+                 if gc <= -0.05 else
+                 f"Chưa có nhóm tụt hậu rõ rệt (đóng góp yếu nhất chỉ {gc:+.3f}pp).")
+    lead_lab = _re.compile(r"(\**\s*(?:Tích lu[ỹy]/Mua|Dẫn dắt)\s*:\s*\**\s*)", _re.IGNORECASE)
+    lag_lab = _re.compile(r"(\**\s*(?:Tránh/Bán|Tụt hậu)\s*:\s*\**\s*)", _re.IGNORECASE)
+    _deny = ("chưa có", "không có", "không rõ", "chưa rõ")
+    out, changed = [], False
+    for ln in text.splitlines():
+        m = lead_lab.match(ln)
+        if m:
+            bl = ln[m.end():].lower()
+            wrong = ((lc >= 0.05 and (lead_name.lower() not in bl
+                                      or any(d in bl for d in _deny)
+                                      or lag_name.lower() in bl))
+                     or (lc < 0.05 and not any(d in bl for d in _deny)))
+            if wrong:
+                ln, changed = m.group(1) + lead_canon, True
+            out.append(ln)
+            continue
+        m = lag_lab.match(ln)
+        if m:
+            bl = ln[m.end():].lower()
+            wrong = ((gc <= -0.05 and (lag_name.lower() not in bl
+                                       or any(d in bl for d in _deny)
+                                       or lead_name.lower() in bl))
+                     or (gc > -0.05 and not any(d in bl for d in _deny)))
+            if wrong:
+                ln, changed = m.group(1) + lag_canon, True
+            out.append(ln)
+            continue
+        out.append(ln)
+    result = "\n".join(out) if changed else text
+
+    # Pin the lead/lag sector's pp contribution wherever it's stated wrong — the
+    # model invents a pp for the lead OUTSIDE the label lines too (observed
+    # morning 23:14: TLDR "giảm tỷ trọng Bất động sản (đóng góp -0.504pp)" — it
+    # borrowed the -504 tỷ NN market figure as a fake -0.504pp, contradicting the
+    # +0.464pp leader in its own Trọng tâm). Pin {lead}/{lag} pp to the canonical
+    # value anywhere it's off by > 0.005pp. Correct mentions are left; idempotent.
+    for nm, cv in ((lead_name, lc), (lag_name, gc)):
+        def _pp(m: "_re.Match", _cv=cv) -> str:
+            v = _parse_vn_number(m.group(2))
+            return (f"{m.group(1)}{_cv:+.3f}pp"
+                    if v is not None and abs(v - _cv) > 0.005 else m.group(0))
+        result = _re.sub(
+            rf"({_re.escape(nm)}.{{0,30}}?đóng góp\s*)([+-]?[\d.,]+)\s*pp", _pp, result)
+    return result
+
+
+def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
+    """Deterministic guard: the money-flow commentary must carry BOTH the
+    strongest foreign net-buy AND net-sell sector (observed 15:20: only the
+    +708 tỷ buy side, dropped the dominant BĐS -5,111 tỷ sell). Works for BOTH
+    briefs: the close's dedicated "💰 Dòng tiền đáng chú ý" section and the
+    morning's inline "Dòng tiền ngành" line — it anchors on the money-flow line
+    itself (not a section header) and appends the missing side right after it
+    when its magnitude is ≥ 50 tỷ. No-op without the line or the data.
+    """
+    sectors = ctx.get("sectors") or []
+    rows = [(s.get("Ngành"), s.get("NN 1T (tỷ)")) for s in sectors
+            if s.get("Ngành") and isinstance(s.get("NN 1T (tỷ)"), (int, float))]
+    if not text or not rows:
+        return text
+
+    lines = text.splitlines()
+    # Prefer the DEDICATED money-flow anchor — the close's "💰 Dòng tiền đáng
+    # chú ý" section header or the morning's "**Dòng tiền ngành:**" line. Only
+    # fall back to a generic money keyword when neither exists (observed 13:25:
+    # the generic match hit "dòng tiền" inside Tổng kết/Trọng tâm prose and
+    # spliced the NN lines mid-section while the real section was already fine).
+    anchor = next((i for i, l in enumerate(lines)
+                   if "dòng tiền ngành" in l.lower()
+                   or (_is_section_start(l) and "dòng tiền" in l.lower())),
+                  None)
+    if anchor is None:
+        _kw = ("mua ròng", "bán ròng", "nn ròng", "dòng tiền")
+        anchor = next((i for i, l in enumerate(lines)
+                       if not _is_section_start(l) and any(k in l.lower() for k in _kw)),
+                      None)
+    if anchor is None:
+        return text
+    region_end = next((i for i in range(anchor + 1, len(lines))
+                       if _is_section_start(lines[i])), len(lines))
+
+    # In-place correct wrong per-sector NN figures the model wrote (observed
+    # 11:19: "mua ròng 5 tỷ … Thực phẩm & Đồ uống" while the real NN 1T is +136
+    # — and the canonical line below then said +136, contradicting it). Handles
+    # the common VN phrasing "[verb] N tỷ [đồng] [trong ngành] <NAME>" where the
+    # number PRECEDES the sector name. Uses the abs value (the mua/bán word
+    # carries the sign).
+    for i in range(anchor, region_end):
+        for nm, vv in rows:
+            av = abs(vv)
+            if av < 30:                       # skip noise / tiny flows
+                continue
+
+            def _fix(m: "_re.Match", _av=av) -> str:
+                cur = _parse_vn_number(m.group(1))
+                return (f"{_av:,.0f}{m.group(2)}"
+                        if cur is not None and abs(cur - _av) > max(1.0, 0.02 * _av)
+                        else m.group(0))
+
+            new = _re.sub(
+                rf"(\d[\d.,]*)(\s*tỷ(?:\s*đồng)?\s*(?:trong\s+ngành\s+)?{_re.escape(nm)}\b)",
+                _fix, lines[i])
+            if new != lines[i]:
+                lines[i] = new
+
+            # number-AFTER-name in a parenthetical — "<NAME> (NN -1,372 tỷ)"
+            # (observed 12:03: the model FABRICATED "Thép & Kim loại (NN -1,372
+            # tỷ)" while the real NN 1T was nowhere near that; the before-name
+            # regex above can't see it). The sign is explicit here, so correct
+            # to the real SIGNED value — a wrong magnitude can't survive.
+            def _fix_after(m: "_re.Match", _vv=vv) -> str:
+                cur = _parse_vn_number(m.group(2))
+                return (f"{m.group(1)}{_vv:+,.0f}{m.group(3)}"
+                        if cur is not None and abs(cur - _vv) > max(1.0, 0.02 * abs(_vv))
+                        else m.group(0))
+
+            new = _re.sub(
+                rf"({_re.escape(nm)}\s*\(\s*(?:NN\s*|khối\s+ngoại\s*)?)(-?\d[\d.,]*)(\s*tỷ)",
+                _fix_after, lines[i])
+            if new != lines[i]:
+                lines[i] = new
+    region_low = "\n".join(lines[anchor:region_end]).lower()
+
+    top_buy = max(rows, key=lambda x: x[1])
+    top_sell = min(rows, key=lambda x: x[1])
+
+    def _num_present(v: float) -> bool:
+        # the strongest side's tỷ figure already on the line (either , or .
+        # thousands sep) — so we don't duplicate when the model gave the number.
+        s = f"{abs(v):,.0f}"
+        return s in region_low or s.replace(",", ".") in region_low
+
+    _clauses = _re.split(r"[.;\n]", "\n".join(lines[anchor:region_end]).lower())
+
+    def _named_in_side(name: str, side_kw: str) -> bool:
+        # the TRUE strongest sector is named in the SAME CLAUSE as its side
+        # keyword — so the ranking is right, not just the number present
+        # (observed 12:03: Thép -1,372 was the biggest sell but sat in a "phân
+        # phối" clause while Ngân hàng -703 was called "bán ròng mạnh nhất").
+        nl = name.lower()
+        return any(side_kw in c and nl in c for c in _clauses)
+
+    # Append the canonical line unless the TRUE top sector is already named in
+    # its side's clause WITH its figure.
+    add: list[str] = []
+    if top_sell[1] <= -50 and not (_named_in_side(top_sell[0], "bán ròng")
+                                   and _num_present(top_sell[1])):
+        add.append(f"NN bán ròng mạnh nhất (1 tuần): {top_sell[0]} {top_sell[1]:+,.0f} tỷ.")
+    if top_buy[1] >= 50 and not (_named_in_side(top_buy[0], "mua ròng")
+                                 and _num_present(top_buy[1])):
+        add.append(f"NN mua ròng mạnh nhất (1 tuần): {top_buy[0]} {top_buy[1]:+,.0f} tỷ.")
+    rebuilt = "\n".join(lines[:anchor + 1] + add + lines[anchor + 1:])
+    return rebuilt if rebuilt != text else text
+
+
+def enforce_sector_nn_figures(text: str, ctx: dict) -> str:
+    """Correct a per-sector foreign-flow figure stated ANYWHERE in the brief, not
+    just the money-flow section. Observed morning 14:11: the "Tránh/Bán" line
+    carried "Thép & Kim loại (đóng góp -0.03pp, 1 tuần, NN bán ròng -1,372 tỷ)" —
+    a fabricated value that also contradicts "Ngân hàng -703 tỷ mạnh nhất" in the
+    same brief (if Thép were -1,372 it would be the top sell). enforce_money_flow
+    misses it: the number follows 'NN bán ròng' deep in the parenthetical (not
+    right after '(') and the line sits OUTSIDE the money-flow region.
+
+    Wherever a sector name is followed — within ~40 chars on the same line — by a
+    'NN/khối ngoại [bán/mua] ròng <num> tỷ' figure off from ctx by >2%, pin it to
+    the real signed value. The 'ròng' keyword right before the number means the
+    pp value ('-0.03pp') is never grabbed. Idempotent; no-op without data.
+    """
+    sectors = ctx.get("sectors") or []
+    rows = [(s.get("Ngành"), s.get("NN 1T (tỷ)")) for s in sectors
+            if s.get("Ngành") and isinstance(s.get("NN 1T (tỷ)"), (int, float))]
+    if not text or not rows:
+        return text
+    out = text
+    for nm, vv in rows:
+        def _fix(m: "_re.Match", _vv=vv) -> str:
+            cur = _parse_vn_number(m.group(2))
+            if cur is None or abs(cur - _vv) <= max(1.0, 0.02 * abs(_vv)):
+                return m.group(0)
+            return f"{m.group(1)}{_vv:+,.0f}{m.group(3)}"
+        out = _re.sub(
+            rf"({_re.escape(nm)}.{{0,40}}?(?:NN|khối\s+ngoại)?\s*(?:bán|mua)\s+ròng\s*)"
+            rf"(-?\d[\d.,]*)(\s*tỷ)",
+            _fix, out)
+    return out
+
+
+def enforce_liquidity_label(text: str, ctx: dict) -> str:
+    """A 'thanh khoản'/liquidity claim must never carry a NEGATIVE per-sector tỷ
+    figure — those are NN net-sell flows mislabeled as turnover (observed 12:33:
+    "Thanh khoản ngành tập trung vào Ngân hàng (-703 tỷ), Bất động sản (-307 tỷ),
+    Chứng khoán (2,353 tỷ)" — -703/-307 are foreign net-sell, GTGD is never < 0).
+    The prompt warns against this twice and the LLM still conflates the two, so
+    chốt bằng code: a liquidity clause (no NN-side keyword) that holds a negative
+    figure is replaced with the canonical top-GTGD sectors from ctx; falls back
+    to stripping the bogus negative parentheticals when no GTGD data. No-op
+    otherwise — idempotent (the canonical line carries no negative figure).
+    """
+    sectors = ctx.get("sectors") or []
+    if not text or not sectors:
+        return text
+    gtgd = sorted(((s.get("Ngành"), s.get("GTGD TB (tỷ)")) for s in sectors
+                   if s.get("Ngành")
+                   and isinstance(s.get("GTGD TB (tỷ)"), (int, float))
+                   and (s.get("GTGD TB (tỷ)") or 0) > 0),
+                  key=lambda x: -x[1])[:3]
+    canonical = ("Thanh khoản cao nhất (GTGD TB 1 tuần): "
+                 + ", ".join(f"{n} {g:,.0f} tỷ" for n, g in gtgd)) if gtgd else ""
+
+    _liq = ("thanh khoản", "giá trị giao dịch")
+    _nn = ("bán ròng", "mua ròng", "nn ròng")
+    _neg = _re.compile(r"-\d[\d.,]*\s*tỷ")
+    changed = False
+    out_lines: list[str] = []
+    for ln in text.splitlines():
+        low = ln.lower()
+        if not any(k in low for k in _liq) or not _neg.search(ln):
+            out_lines.append(ln)
+            continue
+        parts = _re.split(r"([.;])", ln)        # keep delimiters at odd indices
+        for j in range(0, len(parts), 2):
+            cl = parts[j]
+            cll = cl.lower()
+            if not any(k in cll for k in _liq):     # not a liquidity clause
+                continue
+            if any(k in cll for k in _nn):          # genuine NN clause — leave it
+                continue
+            if not _neg.search(cl):                 # already clean
+                continue
+            lead = cl[:len(cl) - len(cl.lstrip())]  # preserve clause's leading space
+            if canonical:
+                parts[j] = f"{lead}{canonical}"
+            else:
+                parts[j] = _re.sub(
+                    r"\s*\(\s*(?:NN\s*|khối\s+ngoại\s*)?-\d[\d.,]*\s*tỷ\s*\)", "", cl)
+            changed = True
+        out_lines.append("".join(parts))
+    return "\n".join(out_lines) if changed else text
+
+
+def enforce_nn_window_label(text: str, ctx: dict | None = None) -> str:
+    """A foreign-flow figure can't be both weekly AND one-day. The composite
+    'NN ròng 1D' total (from the market-sentiment block) is a ONE-DAY net flow,
+    but the LLM weaves it into the (weekly) money-flow narrative tagged 'tuần'
+    (observed 12:42: "Khối ngoại bán ròng mạnh 665 tỷ tuần này (1D: -665 tỷ)" —
+    which also understates the week: Ngân hàng alone is -703 tỷ/tuần).
+
+    1) Self-contradiction (ctx-free, always safe): "<N tỷ> <tuần…> (1D…)" → drop
+       the weekly tag — the model already labeled it 1D.
+    2) The exact 1D magnitude from ctx tagged weekly with NO 1D marker → relabel
+       to 1D. Skipped if a weekly sector value shares that magnitude (coincidence).
+    """
+    if not text:
+        return text
+    _wk = r"(?:trong\s+)?(?:tuần\s+này|tuần\s+qua|cả\s+tuần|1\s*tuần|tuần)"
+    new = _re.sub(rf"(\d[\d.,]*\s*tỷ)\s*{_wk}(\s*\(\s*1D)", r"\1\2", text)
+
+    ms = (ctx or {}).get("market_sentiment") or {}
+    sig = next((s for s in ms.get("signals", [])
+                if "1d" in str(s.get("name", "")).lower()
+                and "nn" in str(s.get("name", "")).lower()), None)
+    if sig:
+        val = _parse_vn_number(
+            str(sig.get("value", "")).replace("tỷ", "").replace("+", "").strip())
+        if val is not None:
+            mag = f"{abs(val):,.0f}"
+            coincident = any(
+                isinstance(s.get("NN 1T (tỷ)"), (int, float))
+                and f"{abs(s['NN 1T (tỷ)']):,.0f}" == mag
+                for s in ((ctx or {}).get("sectors") or []))
+            if not coincident:
+                new = _re.sub(
+                    rf"({_re.escape(mag)}\s*tỷ)\s*{_wk}\b(?!\s*\(\s*1D)",
+                    r"\1 (1D, phiên gần nhất)", new)
+    return new
+
+
+def _canonical_risk_lines(ctx: dict) -> list:
+    """Build the fundamental-risk lines deterministically from ctx fundamentals:
+    highest D/E (≥1.5, non-financial, top-3) and lowest negative Op.CF (top-2,
+    BĐS-tagged + land-bank context). The single source of truth for the risk
+    section's facts. Returns [] when there's no data / nothing noteworthy."""
+    funds = ctx.get("vn30_fundamentals") or {}
+    if not funds:
+        return []
+    fin = set(ctx.get("financial_tickers") or ()) | _FINANCIAL_TICKERS
+    re_t = ctx.get("realestate_tickers") or set()
+    nonfin = {t: m for t, m in funds.items() if t not in fin}
+    des = sorted(((t, m["de"]) for t, m in nonfin.items()
+                  if isinstance(m.get("de"), (int, float))), key=lambda x: -x[1])
+    ocfs = sorted(((t, m["ocf"]) for t, m in nonfin.items()
+                   if isinstance(m.get("ocf"), (int, float))), key=lambda x: x[1])
+    out: list[str] = []
+    high_de = [(t, v) for t, v in des if v >= 1.5][:3]   # only genuinely high leverage
+    if high_de:
+        body = ", ".join(f"{t} D/E={v:.2f}" for t, v in high_de)
+        out.append(f"Đòn bẩy cao nhất (phi tài chính): {body} — "
+                   f"{high_de[0][0]} cao nhất trong nhóm theo dõi.")
+    neg_ocf = [(t, v) for t, v in ocfs if v < 0][:2]
+    if neg_ocf:
+        body = ", ".join(f"{t} Op.CF={v:,.0f} tỷ{' (BĐS)' if t in re_t else ''}"
+                         for t, v in neg_ocf)
+        out.append(f"Lưu chuyển tiền HĐKD thấp nhất: {body}.")
+        if any(t in re_t for t, _ in neg_ocf):
+            out.append("(Lưu ý: Op.CF âm của mã (BĐS) chủ yếu do tích lũy quỹ đất/hàng "
+                       "tồn kho dự án — vốn lưu động, KHÔNG phải lỗ HĐKD; soi thêm D/E "
+                       "và nợ vay.)")
+    return out
+
+
+def enforce_risk_section(text: str, ctx: dict) -> str:
+    """Deterministic guard: replace the FUNDAMENTAL claims in 'Rủi ro cần lưu ý'
+    with the canonical block from _canonical_risk_lines(ctx). The section had
+    recurring wrong-metric / wrong-number / wrong-superlative / mis-pick /
+    self-contradiction bugs from the LLM, none of which it actually needs to
+    author — the facts are fully data-driven. Keeps the model's macro/technical
+    narrative (lines naming no fundamentals ticker and no D/E/Op.CF), drops its
+    fundamental lines, appends the canonical ones. No-op without fundamentals or
+    a risk section, and never blanks the section.
+    """
+    funds = ctx.get("vn30_fundamentals") or {}
+    if not text or not funds:
+        return text
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines)
+                  if "rủi ro cần lưu ý" in l.lower()), None)
+    if start is None:
+        return text
+    end = next((i for i in range(start + 1, len(lines))
+                if _is_section_start(lines[i])), len(lines))
+    body = lines[start + 1:end]
+
+    _fund_kw = ("d/e", "op.cf", "lưu chuyển tiền", "lưu lượng tiền", "hđkd",
+                "đòn bẩy", "quỹ đất")
+
+    def _is_fundamental(l: str) -> bool:
+        low = l.lower()
+        return (any(k in low for k in _fund_kw)
+                or any(_re.search(rf"\b{_re.escape(t)}\b", l) for t in funds))
+
+    macro = [l for l in body if l.strip() and not _is_fundamental(l)]
+    new_body = macro + _canonical_risk_lines(ctx)
+    if not new_body or new_body == body:
+        return text
+    return "\n".join(lines[:start + 1] + new_body + lines[end:])
+
+
+def enforce_risk_numbers(text: str, ctx: dict) -> str:
+    """Deterministic guard: every ticker named in the risk section must carry
+    its CORRECT number. Two failure modes seen in the wild: (a) tickers cited
+    with no figure at all (15:27: "HNG, PET, VTZ có D/E cao") → append a data
+    line; (b) tickers cited with a WRONG figure (23:08: "KBC D/E=8.83" — 8.83
+    is HNG's; "HPG D/E=1.55" vs real 0.65) → rewrite the number in place to the
+    real value from ctx["vn30_fundamentals"]. No-op when clean / data missing.
+    """
+    funds = ctx.get("vn30_fundamentals") or {}
+    if not text or not funds:
+        return text
+
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines)
+                  if "rủi ro cần lưu ý" in l.lower()), None)
+    if start is None:
+        return text
+    end = next((i for i in range(start + 1, len(lines))
+                if _is_section_start(lines[i])), len(lines))
+
+    # (b) Correct mismatched "TICKER … D/E=x" / "TICKER … Op.CF=y" in place.
+    # The bridge [^.;,()]* keeps the match within the ticker's own clause (no
+    # jumping across commas/parentheses to a neighbour's figure).
+    def _correct_line(line: str) -> str:
+        for t, m in funds.items():
+            if not _re.search(rf"\b{_re.escape(t)}\b", line):
+                continue
+            de, ocf = m.get("de"), m.get("ocf")
+            if de is not None:
+                def _fix_de(mt, _de=de):
+                    v = _parse_vn_number(mt.group(2))
+                    return (mt.group(1) + f"{_de:.2f}"
+                            if v is None or abs(v - _de) > max(0.01, 0.01 * abs(_de))
+                            else mt.group(0))
+                line = _re.sub(rf"(\b{_re.escape(t)}\b[^.;,()]*?D/E\s*=\s*)(\d[\d.,]*\d|\d)",
+                               _fix_de, line)
+            if ocf is not None:
+                def _fix_ocf(mt, _ocf=ocf):
+                    v = _parse_vn_number(mt.group(2))
+                    return (mt.group(1) + f"{_ocf:,.0f}"
+                            if v is None or abs(v - _ocf) > max(1.0, 0.01 * abs(_ocf))
+                            else mt.group(0))
+                line = _re.sub(
+                    rf"(\b{_re.escape(t)}\b[^;,()]*?Op\.?CF\s*=\s*)(-?\d[\d.,]*\d|-?\d)",
+                    _fix_ocf, line)
+        return line
+
+    changed = False
+    for i in range(start + 1, end):
+        new = _correct_line(lines[i])
+        if new != lines[i]:
+            lines[i] = new
+            changed = True
+
+    # (c) Mis-PICK: a ticker flagged for leverage whose real D/E is LOW (< 1.5 →
+    # actually safe) while a genuinely high-leverage non-financial exists in the
+    # block (observed 09:02: "HPG D/E=0.65 … rủi ro cơ bản" — 0.65 is not a
+    # risk; HNG 8.83 was the real top). Swap "LOW D/E=x" → "TOP D/E=y" when the
+    # top isn't already cited in the section.
+    _fin = set(ctx.get("financial_tickers") or set()) | _FINANCIAL_TICKERS
+    _nonfin_de = {t: m["de"] for t, m in funds.items()
+                  if t not in _fin and isinstance(m.get("de"), (int, float))}
+    if _nonfin_de:
+        _top = max(_nonfin_de, key=_nonfin_de.get)
+        _topv = _nonfin_de[_top]
+        if _topv >= 2.5:
+            for i in range(start + 1, end):
+                if _re.search(rf"\b{_re.escape(_top)}\b", "\n".join(lines[start + 1:end])):
+                    break
+                for t, de in sorted(_nonfin_de.items(), key=lambda kv: kv[1]):
+                    if de >= 1.5 or t == _top:
+                        continue
+                    m2 = _re.search(rf"(\b{_re.escape(t)}\b[^.;,()]*?D/E\s*=\s*)([\d.,]+)",
+                                    lines[i])
+                    if m2:
+                        lines[i] = lines[i].replace(
+                            m2.group(0), f"{_top}{m2.group(1)[len(t):]}{_topv:.2f}")
+                        changed = True
+                        break
+
+        # (d) Wrong SUPERLATIVE: the section claims "D/E cao nhất" for a ticker
+        # that isn't the real max, and the real max isn't cited (observed 11:19:
+        # "PET và VTZ có D/E cao nhất 2.67/2.63" while HNG=8.83 was omitted).
+        # Prepend the real top and demote the false "cao nhất" → "cao".
+        _section = "\n".join(lines[start + 1:end])
+        if (_topv >= 2.5 and "d/e" in _section.lower()
+                and not _re.search(rf"\b{_re.escape(_top)}\b", _section)):
+            for i in range(start + 1, end):
+                low = lines[i].lower()
+                if _re.search(r"d/e.{0,25}cao nhất|cao nhất.{0,25}d/e", low):
+                    lines[i] = _re.sub(r"cao nhất", "cao", lines[i], count=1,
+                                       flags=_re.IGNORECASE)
+                    lines[i] = (f"{_top} D/E={_topv:.2f} (đòn bẩy cao nhất); "
+                                + lines[i].lstrip())
+                    changed = True
+                    break
+
+    def _has_value(line: str, v: float, fmt: str) -> bool:
+        s = format(v, fmt)
+        return s in line or s.replace(",", "X").replace(".", ",").replace("X", ".") in line
+
+    missing: list[str] = []
+    seen: set[str] = set()
+    for line in lines[start + 1:end]:
+        low = line.lower()
+        _ocf_kw = ("op.cf", "lưu chuyển tiền", "lưu lượng tiền", "hđkd")
+
+        def _wants_ocf(pos: int) -> bool:
+            """Per-ticker metric: pick D/E vs OCF by the keyword in the ticker's
+            OWN SENTENCE (bounded by '.'), so "HNG có D/E cao nhất, tiếp theo PET
+            và VTZ. KBC có lưu chuyển tiền HĐKD thấp" gives PET/VTZ D/E (their
+            sentence has D/E) and KBC OCF — not OCF for PET/VTZ just because the
+            next sentence mentions it. Falls back to nearest-after within the
+            line when the sentence has both/neither keyword."""
+            # Sentence bounds via '.' followed by whitespace/end — so a decimal
+            # point ("8.83") doesn't split the sentence and strip its D/E.
+            ends = [m.start() for m in _re.finditer(r"\.(?=\s|$)", low)]
+            s0 = next((e + 1 for e in reversed(ends) if e < pos), 0)
+            s1 = next((e for e in ends if e >= pos), len(low))
+            sent = low[s0:s1]
+            has_de = "d/e" in sent
+            has_ocf = any(w in sent for w in _ocf_kw)
+            if has_ocf != has_de:                 # exactly one present in the sentence
+                return has_ocf
+            rest = low[pos:]                       # ambiguous → nearest keyword after pos
+            de_at = rest.find("d/e")
+            ocf_at = min((p for p in (rest.find(w) for w in _ocf_kw) if p != -1),
+                         default=-1)
+            if de_at == -1:
+                return ocf_at != -1
+            if ocf_at == -1:
+                return False
+            return ocf_at < de_at
+
+        # ordered by position so each ticker's clause is read left-to-right
+        cited = sorted((t for t in funds
+                        if t not in seen and (m := _re.search(rf"\b{_re.escape(t)}\b", line))),
+                       key=lambda t: _re.search(rf"\b{_re.escape(t)}\b", line).start())
+        for t in cited:
+            seen.add(t)
+            de, ocf = funds[t].get("de"), funds[t].get("ocf")
+            # satisfied if EITHER of the ticker's figures already sits on the line
+            if (de is not None and _has_value(line, de, ".2f")) or (
+                    ocf is not None and _has_value(line, ocf, ",.0f")):
+                continue
+            pos = _re.search(rf"\b{_re.escape(t)}\b", line).start()
+            if _wants_ocf(pos) and ocf is not None:
+                missing.append(f"{t} Op.CF={ocf:,.0f} tỷ")
+            elif de is not None:
+                missing.append(f"{t} D/E={de:.2f}")
+            elif ocf is not None:
+                missing.append(f"{t} Op.CF={ocf:,.0f} tỷ")
+    if not missing:
+        return "\n".join(lines) if changed else text
+    note = "(Số liệu: " + " · ".join(missing) + " — từ block Cơ bản nhóm theo dõi.)"
+    return "\n".join(lines[:end] + [note] + lines[end:])
+
+
+_PIVOT_LABEL_RE = _re.compile(r"\b(S1|S2|R1|R2)\s*=\s*([0-9][0-9.,]*[0-9]|[0-9])")
+
+
+def enforce_pivot_labels(text: str, ctx: dict) -> str:
+    """Deterministic guard: pin every 'S1/S2/R1/R2=<số>' to its canonical
+    VNINDEX pivot from ctx (observed 08:55: TLDR wrote 'thủng S1=1,799.18 →
+    mục tiêu S2=1,799.18' — S1 collapsed onto S2's value, and contradicted the
+    Trigger section's S1=1,802.42). ONLY rewrites numbers in the VNINDEX
+    magnitude band (800-2500) so the watchlist's reuse of the same labels for
+    per-stock levels (e.g. 'R1=71,500') is left untouched. No-op without pivots.
+    """
+    vt = ctx.get("vnindex_tech") or {}
+    canon = {"S1": vt.get("support_1"), "S2": vt.get("support_2"),
+             "R1": vt.get("resistance_1"), "R2": vt.get("resistance_2")}
+    canon = {k: v for k, v in canon.items() if isinstance(v, (int, float))}
+    if not text or not canon:
+        return text
+
+    def _sub(m: "_re.Match") -> str:
+        label, num = m.group(1), m.group(2)
+        v = canon.get(label)
+        parsed = _parse_vn_number(num)
+        if v is None or parsed is None or not (800 <= parsed <= 2500):
+            return m.group(0)                 # not an index-level token → leave it
+        return f"{label}={v:,.2f}"
+
+    return _PIVOT_LABEL_RE.sub(_sub, text)
+
+
+def enforce_scenario_levels(text: str, ctx: dict) -> str:
+    """Pin a fabricated precise VNINDEX level to the nearest real data level.
+
+    Observed morning 14:28: the recovery scenario cited "đóng cửa trên 1,801.99
+    (đáy phiên)" — 1,801.99 matches no pivot/close/MA, and labelling it the
+    session LOW is impossible (it's ABOVE the close 1,798.61). The template says
+    scenario levels must come from the data block.
+
+    Strict-but-safe: only PRECISE 2-decimal index-band tokens (1,xxx.xx in
+    800-2500) are considered, and only when they match NONE of the real ctx
+    levels (close, MA20/50/200, S1/S2/R1/R2, week/month/52w hi-lo) within ~2.7pt.
+    Pivots/close/MAs are recognised → left as-is; round/approximate targets
+    ("dưới 1,790", "quanh 1,795-1,805") have no 2-decimals → never touched. A
+    matched fabrication is pinned to the nearest real level; a session-extreme
+    label that then contradicts the close (đáy ≥ close / đỉnh ≤ close) is dropped.
+    Idempotent; no-op without ctx levels.
+    """
+    vt = ctx.get("vnindex_tech") or {}
+    close = vt.get("close")
+    known = [vt.get(k) for k in (
+        "close", "ma20", "ma50", "ma200", "support_1", "support_2",
+        "resistance_1", "resistance_2", "week_high", "week_low",
+        "month_high", "month_low", "high_52w", "low_52w")]
+    known = [k for k in known if isinstance(k, (int, float)) and 800 <= k <= 2500]
+    if not text or not known:
+        return text
+
+    def _pin(m: "_re.Match") -> str:
+        v = _parse_vn_number(m.group(0))
+        if v is None or not (800 <= v <= 2500):
+            return m.group(0)
+        nk = min(known, key=lambda k: abs(k - v))
+        return m.group(0) if abs(v - nk) <= max(2.0, 0.0015 * v) else f"{nk:,.2f}"
+    out = _re.sub(r"\b[12],\d{3}\.\d{2}\b", _pin, text)
+
+    if isinstance(close, (int, float)):
+        def _lbl(m: "_re.Match") -> str:
+            v = _parse_vn_number(m.group(1))
+            kind = m.group(2).lower()
+            if v is None:
+                return m.group(0)
+            low = "đáy" in kind or "thấp" in kind
+            high = "đỉnh" in kind or "cao" in kind
+            if (low and v >= close) or (high and v <= close):
+                return m.group(1)            # drop the contradictory extreme label
+            return m.group(0)
+        out = _re.sub(
+            r"([12],\d{3}\.\d{2})\s*\((đáy phiên|đỉnh phiên|thấp nhất phiên|cao nhất phiên)\)",
+            _lbl, out)
+    return out
+
+
+def enforce_watchlist_eligibility(text: str, ctx: dict) -> str:
+    """Deterministic guard: drop watchlist setups whose ticker is a low-liquidity
+    mover (NOT VN30 and avg GTGD < _WATCHLIST_GTGD_MIN_TY). The ⭐ marker is only
+    a prompt hint, so a non-⭐ mover still leaked into a setup. Only removes
+    tickers we have explicit
+    sub-threshold GTGD evidence for; renumbers the rest; falls back to the bail
+    line when nothing eligible remains. No-op without mover data.
+    """
+    movers = (ctx.get("vn30_gainers") or []) + (ctx.get("vn30_losers") or [])
+    if not text or not movers:
+        return text
+    ineligible: set[str] = set()
+    for m in movers:
+        t = str(m.get("Mã", "")).upper()
+        g = m.get("GTGD TB (tỷ)")
+        if (t and t not in VN30_TICKERS and isinstance(g, (int, float))
+                and not (isinstance(g, float) and g != g)
+                and float(g) < _WATCHLIST_GTGD_MIN_TY):
+            ineligible.add(t)
+    if not ineligible:
+        return text
+
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines) if "watchlist sáng mai" in l.lower()), None)
+    if start is None:
+        return text
+    end = next((i for i in range(start + 1, len(lines))
+                if _is_section_start(lines[i])), len(lines))
+
+    kept, dropped = [], False
+    for l in lines[start + 1:end]:
+        mt = _re.search(r"\*\*([A-Z]{3})\*\*", l) or _re.search(r"\b([A-Z]{3})\b\s*\(Giá", l)
+        if mt and mt.group(1) in ineligible:
+            dropped = True
+            continue
+        kept.append(l)
+    if not dropped:
+        return text
+
+    # renumber surviving "N." setup lines; bail line if none survive
+    has_setup = any(_re.match(r"\s*\d+\.", l) for l in kept)
+    if not has_setup:
+        kept = [l for l in kept if not _re.match(r"\s*\d+\.", l)]
+        kept.append("Cần thêm dữ liệu giá cổ phiếu cụ thể")
+    else:
+        n = 0
+        out = []
+        for l in kept:
+            if _re.match(r"\s*\d+\.", l):
+                n += 1
+                out.append(_re.sub(r"^\s*\d+\.", f"{n}.", l))
+            else:
+                out.append(l)
+        kept = out
+    return "\n".join(lines[:start + 1] + kept + lines[end:])
+
+
+_CJK_RE = _re.compile(r"[㐀-䶿一-鿿豈-﫿]+")
+
+
+def enforce_no_cjk(text: str, ctx: dict | None = None) -> str:
+    """Deterministic language-hygiene guard: strip Chinese/Japanese/Korean Han
+    characters that leak into the Vietnamese brief (observed: "đạt 达到 5,153
+    tỷ") and normalize recurring sentiment-label typos ("Sổ hãi"/"Sờ hãi" →
+    "Sợ hãi" — the label is ours, from the sentiment block, so the spelling is
+    known). No-op when the text is clean.
+    """
+    if not text:
+        return text
+    out = text
+    if _CJK_RE.search(out):
+        out = _CJK_RE.sub("", out)
+        out = _re.sub(r"[ \t]{2,}", " ", out)    # collapse gaps left by removal
+        out = _re.sub(r"[ \t]+([,.;:%)])", r"\1", out)
+    out = _re.sub(r"S[ổờòỏõóô] hãi", "Sợ hãi", out)
+    return out if out != text else text
+
+
+# Template-instruction fragments the model sometimes echoes verbatim into the
+# brief (observed close 21:19: a trailing "Giới hạn 500 từ. Nếu thị trường flat
+# …" line copied from the prompt's own length/format guidance).
+_INSTR_LEAK_RE = _re.compile(
+    r"^\s*(?:Giới hạn\s*\d+\s*từ"
+    r"|YÊU CẦU VỀ ĐỘ CỤ THỂ"
+    r"|\(Hướng dẫn\b"
+    r"|Viết\s+(?:MORNING|AFTERNOON|CLOSE)\s+BRIEF)",
+    _re.IGNORECASE,
+)
+
+
+def enforce_no_instruction_leak(text: str, ctx: dict | None = None) -> str:
+    """Deterministic guard: drop lines that echo the prompt's own instructions
+    (length cap / format rules) instead of brief content. No-op when clean."""
+    if not text:
+        return text
+    kept = [l for l in text.splitlines()
+            if not _INSTR_LEAK_RE.match(l)
+            and "nếu thị trường flat và không có signal" not in l.lower()]
+    src = text.splitlines()
+    if len(kept) == len(src):
+        return text
+    return "\n".join(kept)
+
+
+# The risk-section format example uses a "<tên mã>" placeholder the model
+# sometimes echoes literally as "MÃ D/E=8.83 (HNG)" instead of substituting the
+# ticker (observed 22:29). Rewrite "MÃ <metric>=<val> (TICKER)" → "TICKER
+# <metric>=<val>" and drop any leftover bare "MÃ " before a metric.
+_PLACEHOLDER_LEAK_RE = _re.compile(
+    r"\bMÃ\s+(D/E|Op\.?CF)\s*=\s*([^()]+?)\s*\(([A-Z]{3,4})\)", _re.IGNORECASE)
+
+
+def enforce_no_placeholder_leak(text: str, ctx: dict | None = None) -> str:
+    """Deterministic guard: fix echoed "MÃ D/E=… (TICKER)" placeholder leaks in
+    the risk section → "TICKER D/E=…". No-op when clean."""
+    if not text or "MÃ " not in text:
+        return text
+    out = _PLACEHOLDER_LEAK_RE.sub(
+        lambda m: f"{m.group(3)} {m.group(1)}={m.group(2).strip()}", text)
+    # any residual bare "MÃ D/E=" with no ticker → drop the stray placeholder word
+    out = _re.sub(r"\bMÃ\s+(D/E|Op\.?CF)\s*=", r"\1=", out, flags=_re.IGNORECASE)
+    return out
+
+
+_COMPOSITE_LEAK_RE = _re.compile(r"\s*[\(|]?\s*composite\s*=\s*(-?[\d.,]+)\s*\)?",
+                                 _re.IGNORECASE)
+
+
+def enforce_no_composite_jargon(text: str, ctx: dict | None = None) -> str:
+    """Deterministic guard: turn the internal "composite=-0.76" score the model
+    sometimes echoes into a plain-Vietnamese label ("tín hiệu phân phối mạnh").
+    No-op when clean."""
+    if not text or "composite" not in text.lower():
+        return text
+
+    def _lbl(m: "_re.Match") -> str:
+        v = _parse_vn_number(m.group(1))
+        if v is None:
+            return ""
+        name = ("phân phối mạnh" if v <= -0.6 else "phân phối" if v <= -0.2
+                else "tích luỹ mạnh" if v >= 0.6 else "tích luỹ" if v >= 0.2
+                else "trung tính")
+        return f" (tín hiệu {name})"
+
+    return _COMPOSITE_LEAK_RE.sub(_lbl, text)
+
+
+def enforce_composite_rotation_hygiene(text: str, ctx: dict | None = None) -> str:
+    """Keep the composite-rotation lines but fix two recurring problems (user
+    chose 'giữ nhưng guard'):
+
+    (a) Bucket↔label contradiction — a sector in the 'Phân phối' (distribution)
+        line carrying a 'tích luỹ' (accumulation) composite label, or vice versa
+        (observed 23:44: "Phân phối cảnh báo: CNTT & Phần mềm (tín hiệu tích luỹ
+        mạnh)"). Drop the contradictory '(tín hiệu …)' label; the consistent one
+        is kept.
+    (b) 'Net BS' jargon (English Buy/Sell) — "Net BS +51.7% volume" / "Net BS
+        +6M" → Vietnamese "mua/bán ròng ~X% KL" / "~X triệu CP" (sign → mua/bán).
+
+    Idempotent; no-op when clean.
+    """
+    if not text:
+        return text
+    # (a) per-line bucket↔label contradiction
+    out = []
+    for ln in text.splitlines():
+        head = (ln.split(":", 1)[0] if ":" in ln else ln).lower()
+        if "phân phối" in head and "tích lu" not in head:
+            ln = _re.sub(r"\s*\(\s*tín hiệu\s+tích\s+lu[ỹy][^)]*\)", "", ln)
+        elif "tích lu" in head and "phân phối" not in head:
+            ln = _re.sub(r"\s*\(\s*tín hiệu\s+phân\s+phối[^)]*\)", "", ln)
+        out.append(ln)
+    res = "\n".join(out)
+
+    # (b) Net BS jargon → Vietnamese
+    # Source semantics (vnstock_market_analyzer): "1M/3M" = lookback WINDOW (1
+    # tháng / 3 tháng); the "M" SUFFIX on a SIGNED value ("Net BS +6.0M") = MILLION
+    # cổ phiếu. Distinguish by sign: signed → million CP, unsigned → month.
+    def _verb(s: str) -> str:
+        v = _parse_vn_number(s)
+        return "bán" if (v is not None and v < 0) else "mua"
+    res = _re.sub(r"Net\s*BS\s*([+-]?\d[\d.,]*)\s*%\s*(?:volume|vol)\b",
+                  lambda m: f"{_verb(m.group(1))} ròng ~{m.group(1).lstrip('+-')}% KL",
+                  res, flags=_re.IGNORECASE)
+    res = _re.sub(r"Net\s*BS\s*([+-]\d[\d.,]*)\s*M\b",     # SIGNED → million CP
+                  lambda m: f"{_verb(m.group(1))} ròng ~{m.group(1).lstrip('+-')} triệu CP",
+                  res, flags=_re.IGNORECASE)
+    # unsigned "1M/3M/6M" = lookback window → "X tháng"; only on composite lines,
+    # never after a sign/digit/dot (that's a value, handled above).
+    out2 = []
+    for ln in res.splitlines():
+        if any(k in ln.lower() for k in ("tích lu", "phân phối", "smart money",
+                                         "dòng tiền", "net bs", "luân chuyển")):
+            ln = _re.sub(r"(?<![+\-\d.])(\d{1,2})\s*M\b", r"\1 tháng", ln)
+        out2.append(ln)
+    res = "\n".join(out2)
+    # remaining bare "Net BS" / "volume" → Vietnamese (never appear legitimately).
+    res = _re.sub(r"Net\s*BS", "NN ròng", res, flags=_re.IGNORECASE)
+    res = _re.sub(r"\bvolume\b", "KL", res, flags=_re.IGNORECASE)
+    return res
+
+
+def enforce_no_bias_directive_leak(text: str, ctx: dict | None = None) -> str:
+    """The bias-floor block injects 'Bias BẮT BUỘC = <dir>' as an INTERNAL
+    directive and explicitly tells the model never to print 'bắt buộc'. The LLM
+    still leaks it into the TLDR (observed 12:24 & 12:51: 'bias GIẢM bắt buộc').
+    Strip the 'bắt buộc' qualifier wherever it sits next to a bias/stance
+    directive (either order); drop a trailing '(bắt buộc)'. No-op when clean."""
+    if not text or "buộc" not in text.lower():
+        return text
+    # "<bias|stance|GIẢM|TĂNG> [là] bắt buộc" → drop the qualifier
+    out = _re.sub(r"(\b(?:bias|stance|GIẢM|TĂNG|TANG))\s+(?:là\s+)?bắt\s*buộc\b",
+                  r"\1", text, flags=_re.IGNORECASE)
+    # "bắt buộc [=] <GIẢM|TĂNG>" → drop the qualifier (keep the direction)
+    out = _re.sub(r"\bbắt\s*buộc\s*(?:=\s*)?(?=\b(?:GIẢM|TĂNG|TANG)\b)",
+                  "", out, flags=_re.IGNORECASE)
+    # leftover "(bắt buộc)" parenthetical
+    out = _re.sub(r"\s*\(\s*bắt\s*buộc\s*\)", "", out, flags=_re.IGNORECASE)
+    return out
+
+
+def enforce_no_record_superlative(text: str, ctx: dict | None = None) -> str:
+    """The brief carries only TB5/TB20 baselines — never a historical extreme —
+    so 'GTGD thấp kỷ lục' / 'thanh khoản thấp nhất lịch sử' (observed 12:51) are
+    unfounded all-time claims. On a GTGD/thanh-khoản/volume line, drop the
+    record/all-time qualifier, keeping the plain 'thấp'/'cao'. No-op when clean."""
+    if not text:
+        return text
+    out = []
+    for ln in text.splitlines():
+        low = ln.lower()
+        if ("gtgd" in low or "thanh khoản" in low or "khối lượng" in low
+                or "thanh khoản" in low):
+            ln = _re.sub(r"\s*(?:kỷ|kỉ)\s*lục\b", "", ln, flags=_re.IGNORECASE)
+            ln = _re.sub(r"\s+nhất\s+(?:trong\s+)?lịch\s+sử\b", "", ln,
+                         flags=_re.IGNORECASE)
+        out.append(ln)
+    return "\n".join(out)
+
+
+def enforce_no_duplicate_momentum(text: str, ctx: dict | None = None) -> str:
+    """Within a line, the composite 'momentum {N}/100' should appear once.
+    Observed 13:14: the close 'Tổng kết phiên' stated 'momentum -61/100' twice in
+    adjacent sentences (once tacked onto the breadth clause, once with tâm lý).
+    Drop the earlier duplicate(s) of an IDENTICAL value, keeping the last (the
+    tâm-lý placement); leave differing values alone. No-op when nothing repeats.
+    """
+    if not text or text.lower().count("momentum") < 2:
+        return text
+    pat = _re.compile(r"\s*[,;]?\s*momentum\s*([-+]?\d+)\s*/\s*100", _re.IGNORECASE)
+    out = []
+    for ln in text.splitlines():
+        ms = list(pat.finditer(ln))
+        if len(ms) >= 2:
+            last_val = ms[-1].group(1)
+            for m in reversed([m for m in ms[:-1] if m.group(1) == last_val]):
+                ln = ln[:m.start()] + ln[m.end():]
+        out.append(ln)
+    return "\n".join(out)
+
+
+def enforce_number_format(text: str, ctx: dict | None = None) -> str:
+    """Normalise Vietnamese-format numbers to the EN format the data block,
+    guards and close brief use (comma = thousands, dot = decimal). The templates'
+    examples used VN format ("1.815,42"), so the model reformatted some numbers
+    to VN (1.798,61, 9.129,4, 1.858,39, -3,2%) while leaving guard/GTGD numbers EN
+    (5,233.3, 1,789.31) — one brief, two conventions (observed morning 13:54).
+    Convert only UNAMBIGUOUS VN tokens: thousands+decimal (dot-grouped, comma
+    decimal), dot-grouped thousands immediately before tỷ/tỉ, and comma-decimal
+    percentages. EN numbers, 3-decimal pp values, ratios (0.87) and ISO dates are
+    left untouched; idempotent. No-op when already consistent.
+    """
+    if not text:
+        return text
+
+    def _vn_dec(m: "_re.Match") -> str:        # "1.798,61" → "1,798.61"
+        intp, dec = m.group(0).split(",")
+        return f"{int(intp.replace('.', '')):,}.{dec}"
+    out = _re.sub(r"\d{1,3}(?:\.\d{3})+,\d+", _vn_dec, text)
+
+    def _vn_th(m: "_re.Match") -> str:         # "5.038 tỷ" → "5,038 tỷ"
+        return f"{int(m.group(1).replace('.', '')):,}{m.group(2)}"
+    out = _re.sub(r"(\d{1,3}(?:\.\d{3})+)(\s*(?:tỷ|tỉ))", _vn_th, out)
+
+    out = _re.sub(r"([+-]?\d+),(\d{1,2})%", r"\1.\2%", out)   # "-3,2%" → "-3.2%"
+    return out
+
+
+def enforce_range_position(text: str, ctx: dict) -> str:
+    """Deterministic guard: the close brief's "Vị trí trong range" line must
+    carry the computed % (observed 11:03: "Gần đáy range tuần" with no number,
+    while 10:53 had "27%"). Insert the % — (close−week_low)/(week_high−week_low)
+    — when the line lacks one. No-op without weekly range data or already %-ed.
+    """
+    vt = ctx.get("vnindex_tech") or {}
+    wl, wh, cl = vt.get("week_low"), vt.get("week_high"), vt.get("close")
+    if (not text or not all(isinstance(x, (int, float)) for x in (wl, wh, cl))
+            or wh <= wl):
+        return text
+    pos = (cl - wl) / (wh - wl) * 100
+    out, done = [], False
+    for l in text.splitlines():
+        if not done and "vị trí trong range" in l.lower() and "%" not in l:
+            l = _re.sub(r"(vị trí trong range\s*:?\s*\**\s*)",
+                        lambda m: f"{m.group(1)}{pos:.0f}% — ", l,
+                        count=1, flags=_re.IGNORECASE)
+            done = True
+        out.append(l)
+    return "\n".join(out) if done else text
+
+
+# Keyword-anchored GTGD figure: the thousands-magnitude number (+ optional unit)
+# right after a GTGD/turnover phrase — anchored so it never grabs the VNINDEX
+# level on the same line. Groups: (1) keyword, (2) filler, (3) number, (4) unit.
+_GTGD_CTX_RE = _re.compile(
+    r"(GTGD|giá trị giao dịch)(\D{0,15}?)(\d{1,3}(?:[.,]\d{3})+(?:[.,]\d+)?)(\s*tỷ(?:\s*đồng)?)?",
+    _re.IGNORECASE,
+)
+
+
+def enforce_gtgd_total(text: str, ctx: dict) -> str:
+    """Deterministic guard for the GTGD figure in the brief's headline sections.
+    Canonical full-day GTGD = live session capture (9h-15h) if present, else the
+    EOD-derived total ctx["full_day_gtgd"] (Σ giá×KLGD) so EOD-only days still
+    get a real number. PIN the cited figure to it (observed two runs on the SAME
+    10/06 data citing 5,153 vs 14,118 tỷ); STRIP to "chưa có dữ liệu" when no
+    canonical exists (observed 9.650,4 leak). Close uses full-day in "Kết quả
+    phiên"/"Tổng kết phiên"; morning uses the session 9h-11h30 figure in "Tổng
+    quan phiên sáng" (morning split is NOT derivable from EOD). Per-sector GTGD
+    numbers elsewhere are never touched.
+    """
+    ss = ctx.get("session_stats") or {}
+    try:
+        eod_full = float(ctx["full_day_gtgd"]) if ctx.get("full_day_gtgd") else None
+    except (TypeError, ValueError):
+        eod_full = None
+    if not text or (not ss and not eod_full):
+        return text
+
+    def _g(window):
+        v = (ss.get(window, {}).get("VNINDEX", {}) or {}).get("gtgd")
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    full, morn = _g("9h-15h"), _g("9h-11h30")
+    close_canon = full if (full and full > 0) else eod_full   # session, else EOD
+    intraday = bool((ctx.get("vnindex_tech") or {}).get("intraday"))
+
+    lines = text.splitlines()
+    sec = None
+    changed = False
+    for i, l in enumerate(lines):
+        low = l.lower()
+        if _is_section_start(l):
+            sec = ("close" if "tổng kết phiên" in low
+                   else "morning" if "tổng quan phiên sáng" in low else None)
+        if sec == "close" or "kết quả phiên" in low:
+            canonical, active = close_canon, (not intraday)
+        elif sec == "morning":
+            canonical, active = morn, True
+        else:
+            continue
+        if not active or not _GTGD_CTX_RE.search(l):
+            continue
+        if canonical and canonical > 0:
+            new = _GTGD_CTX_RE.sub(
+                lambda m: f"{m.group(1)}{m.group(2)}{canonical:,.1f}{m.group(4) or ' tỷ'}", l)
+        else:                                     # known-zero/missing → strip the fabrication
+            new = _GTGD_CTX_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}chưa có dữ liệu", l)
+        if new != l:
+            lines[i] = new
+            changed = True
+    return "\n".join(lines) if changed else text
+
+
+# A GTGD comparison against MORNING baselines (sáng-với-sáng) — a percentage
+# tied to "sáng phiên trước"/"TB sáng"/"sáng N phiên". Matches up to the end of
+# the sentence, allowing decimals inside numbers (period+space ends it, not the
+# decimal point). Group 1 = the leading comma/space to preserve.
+_MORNING_CMP_RE = _re.compile(
+    r"(,?\s*)(?:thấp hơn|cao hơn|giảm|tăng)?\s*\d[\d.,]*\s*%\s*so\b.*?"
+    r"(?:sáng phiên trước|TB\s*sáng|sáng\s+\d+\s+phiên).*?(?=\.\s|\.$|$)",
+    _re.IGNORECASE)
+
+
+def enforce_gtgd_compare_frame(text: str, ctx: dict) -> str:
+    """In the CLOSE 'Tổng kết phiên', the full-day GTGD figure must be compared
+    full-day-vs-full-day, never against morning baselines (the Session Timing
+    block hands the close BOTH frames and warns against mixing). Observed 13:00:
+    "GTGD (11,929.2 tỷ), thấp hơn 43% so sáng phiên trước (9,129.4 tỷ) và 34% so
+    TB sáng 5 phiên (7,959.6 tỷ)" — a full-day number against morning baselines,
+    with an impossible direction (11,929 > 9,129). Replace the morning-baseline
+    comparison in the close summary with the canonical full-day comparison
+    (TB5/TB20 phiên) from ctx. No-op without the full-day cmp or the bad pattern.
+    """
+    cmp = ctx.get("full_day_gtgd_cmp") or {}
+    try:
+        F = float(ctx["full_day_gtgd"]) if ctx.get("full_day_gtgd") else None
+    except (TypeError, ValueError):
+        F = None
+    if not text or not F or not (cmp.get("avg5") or cmp.get("avg20")):
+        return text
+    p5 = (F / cmp["avg5"] - 1) * 100 if cmp.get("avg5") else None
+    p20 = (F / cmp["avg20"] - 1) * 100 if cmp.get("avg20") else None
+    parts = [f"{lbl} ({p:+.0f}%)" for lbl, p in
+             (("TB5 phiên", p5), ("TB20 phiên", p20)) if p is not None]
+    if not parts:
+        return text
+    pcts = [p for p in (p5, p20) if p is not None]
+    verb = ("thấp hơn" if all(p < 0 for p in pcts)
+            else "cao hơn" if all(p > 0 for p in pcts) else "so với")
+    canonical = f"{verb} {' và '.join(parts)}"
+
+    lines = text.splitlines()
+    sec = None
+    changed = False
+    for i, l in enumerate(lines):
+        if _is_section_start(l):
+            sec = "close" if "tổng kết phiên" in l.lower() else None
+            continue
+        if sec != "close":
+            continue
+        new = _MORNING_CMP_RE.sub(lambda m: f"{m.group(1)}{canonical}", l, count=1)
+        if new != l:
+            lines[i] = new
+            changed = True
+    return "\n".join(lines) if changed else text
+
+
+def enforce_gtgd_baseline_pct(text: str, ctx: dict) -> str:
+    """In the CLOSE GTGD comparison, each % must match ITS baseline, in BOTH
+    surface forms. Observed 12/06:
+      • Form 1 "±N% vs/so <baseline>" (Tổng kết) — "(+4% vs TB5 phiên, +43% vs
+        phiên trước)" had the % shifted onto the wrong baselines.
+      • Form 2 "<baseline> (±N%)" (TLDR) — "cao hơn trung bình 5 phiên (+43%)"
+        kept a stale/fabricated % while the pinned Tổng kết said +21% → the SAME
+        brief contradicted itself on the TB5 figure.
+    Pin every "% ↔ baseline" pairing (both orders) to the value computed from ctx
+    full_day_gtgd_cmp (avg5/avg20/prev) so the TLDR and Tổng kết agree. Close-only
+    (gated on "Tổng kết phiên"); morning sáng baselines are skipped; idempotent;
+    no-op without cmp. A baseline with no cmp value (e.g. TB20 when <15 prior
+    days) is left untouched here — it has no figure to pin to.
+    """
+    if not text or "tổng kết phiên" not in text.lower():
+        return text
+    cmp = ctx.get("full_day_gtgd_cmp") or {}
+    try:
+        F = float(ctx["full_day_gtgd"]) if ctx.get("full_day_gtgd") else None
+    except (TypeError, ValueError):
+        F = None
+    if not F or not cmp:
+        return text
+
+    def _base_v(base_low: str) -> "float | None":
+        if "sáng" in base_low:                       # morning baseline → skip
+            return None
+        return (cmp.get("avg20") if "20" in base_low
+                else cmp.get("avg5") if "5" in base_low
+                else cmp.get("prev") if "trước" in base_low else None)
+
+    # Form 1: "±N% vs/so <baseline>"  (number precedes the baseline)
+    def _fix1(m: "_re.Match") -> str:
+        bv = _base_v(m.group(3).lower())
+        if not bv:
+            return m.group(0)
+        correct = (F / bv - 1) * 100
+        cur = _parse_vn_number(m.group(1))
+        return (m.group(0) if cur is not None and abs(cur - correct) <= 1
+                else f"{correct:+.0f}{m.group(2)}{m.group(3)}")
+    out = _re.sub(
+        r"([+-]?\d[\d.,]*)(\s*%\s*(?:vs|so với|so)\s+)([^,.)]+?)(?=[,.)]|$)",
+        _fix1, text)
+
+    # Form 2: "<baseline> (±N%)"  (baseline precedes the parenthetical %)
+    def _fix2(m: "_re.Match") -> str:
+        bv = _base_v(m.group(1).lower())
+        if not bv:
+            return m.group(0)
+        correct = (F / bv - 1) * 100
+        cur = _parse_vn_number(m.group(2))
+        return (m.group(0) if cur is not None and abs(cur - correct) <= 1
+                else f"{m.group(1)} ({correct:+.0f}%)")
+    out = _re.sub(
+        r"((?:trung bình|TB)\s*\d+\s*phiên|phiên trước(?:\s+đó)?)\s*\(\s*([+-]?\d[\d.,]*)\s*%\s*\)",
+        _fix2, out)
+    return out
+
+
+def enforce_compare_direction(text: str, ctx: dict | None = None) -> str:
+    """A comparison word must match the sign / magnitude of its percentage.
+
+    Form A (close 12/06: "GTGD … thấp hơn TB5 phiên (+43%)") — 'thấp hơn' with a
+    POSITIVE % is a clash; flip the word to match the sign. Consistent pairs are
+    left. The % must sit within ~30 chars of the word (same clause).
+
+    Form B (morning 12/06: "8,397 tỷ … thấp hơn 11% TB sáng (7,549.1 tỷ)") — a
+    bare % with the BASELINE VALUE in parens. The % carries no sign, so compare
+    the line's subject tỷ value to the parenthetical baseline: 8,397 > 7,549 →
+    'cao hơn', not 'thấp hơn'. Idempotent; no-op when clean.
+    """
+    if not text:
+        return text
+
+    def _fix(m: "_re.Match") -> str:
+        word, mid, paren, sign = m.group(1), m.group(2), m.group(3), m.group(4)
+        positive = sign != "-"
+        is_low = word.lower().startswith("thấp")
+        if positive and is_low:
+            return f"cao hơn{mid}{paren}"
+        if not positive and not is_low:
+            return f"thấp hơn{mid}{paren}"
+        return m.group(0)
+
+    out = _re.sub(
+        r"(thấp hơn|cao hơn)([^.()]{0,30}?)(\(\s*([+-]?)\d[\d.,]*%\s*\))",
+        _fix, text)
+
+    # Form B: compare the line's subject value to a parenthetical baseline value.
+    lines = out.splitlines()
+    for i, ln in enumerate(lines):
+        sm = _re.search(r"(\d[\d.,]*)\s*tỷ", ln)
+        subj = _parse_vn_number(sm.group(1)) if sm else None
+        if subj is None:
+            continue
+
+        def _fixB(m: "_re.Match", _subj=subj) -> str:
+            word, mid, base_s, unit = m.group(1), m.group(2), m.group(3), m.group(4)
+            base = _parse_vn_number(base_s)
+            if base is None:
+                return m.group(0)
+            is_low = word.lower().startswith("thấp")
+            if _subj > base and is_low:
+                return f"cao hơn{mid}{base_s}{unit}"
+            if _subj < base and not is_low:
+                return f"thấp hơn{mid}{base_s}{unit}"
+            return m.group(0)
+
+        # word may drop "hơn" ("thấp 11%" — observed 23:56); require a % right
+        # after the word so a standalone adjective ("thanh khoản cao, X (Y tỷ)")
+        # is never matched. Always re-emit the full "thấp hơn"/"cao hơn".
+        lines[i] = _re.sub(
+            r"(thấp|cao)(?:\s+hơn)?(\s*\d[\d.,]*\s*%[^()]{0,40}?\()(\d[\d.,]*)(\s*tỷ)",
+            _fixB, ln)
+    return "\n".join(lines)
+
+
+def enforce_breadth_label(text: str, ctx: dict) -> str:
+    """The only breadth % the brief has is "% mã trên MA200" (above_ma200_pct) —
+    there is NO "% mã tăng giá" (advancing) figure. The model sometimes relabels
+    the above-MA200 figure as advancing (observed close 12/06: "chỉ 17% mã cổ
+    phiếu tăng giá" — 17% is the above-MA200 stat, while A/D 0.85 implies ~46%
+    advancing). When a "<N>% mã [cổ phiếu] tăng giá/điểm" matches above_ma200_pct,
+    relabel it "trên MA200". Gated on the value match so a genuine figure isn't
+    touched; idempotent; no-op without breadth data.
+    """
+    b = ctx.get("breadth") or {}
+    pct = b.get("above_ma200_pct")
+    if not text or not isinstance(pct, (int, float)):
+        return text
+
+    def _fix(m: "_re.Match") -> str:
+        n = _parse_vn_number(m.group(1))
+        if n is None or abs(n - pct) > 1:        # only the above-MA200 mislabel
+            return m.group(0)
+        return f"{m.group(1)}% {m.group(2)} trên MA200"
+
+    return _re.sub(
+        r"(\d[\d.,]*)\s*%\s*((?:số\s+mã|mã\s+cổ phiếu|cổ phiếu|mã))\s+(?:đang\s+)?tăng\s+(?:giá|điểm)",
+        _fix, text)
 
 
 def validate_brief_factuality(text: str, ctx: dict) -> list[str]:
@@ -1819,25 +4159,57 @@ def _news_block(max_items: int = 15) -> str:
         return ""
 
 
+def _fmt_rec_price(p: float) -> str:
+    """Format a rec price (thousand VND) with adaptive precision.
+
+    Integer thousands collapse low-priced instruments (CW, penny) and distort
+    the implied TP/SL %, so keep decimals when the price is small.
+    """
+    a = abs(p)
+    if a == 0:
+        return "0"
+    if a < 1:
+        return f"{p:,.3f}"
+    if a < 10:
+        return f"{p:,.2f}"
+    return f"{p:,.0f}"
+
+
 def _recommendation_block() -> str:
-    """Insert open recommendations from validated strategies."""
+    """Insert open recommendations from validated strategies.
+
+    Overdue recs (held longer than their horizon) are excluded — they should be
+    reconciled/closed, not re-surfaced as fresh actionable buys.
+    """
     try:
         import vnstock_memory as _mem
         recs = _mem.open_recommendations()
         if not recs:
             return ""
+        _now = datetime.now()
+        fresh = []
+        for r in recs:
+            horizon = int(r.get("horizon_days") or 5)
+            try:
+                age = (_now - datetime.fromisoformat(r["created_at"])).days
+            except Exception:
+                age = 0
+            if age <= horizon:
+                fresh.append(r)
+        if not fresh:
+            return ""
         lines = ["\n## Khuyến nghị từ chiến lược đã backtest (tự sinh)"]
-        for r in recs[:5]:
+        for r in fresh[:5]:
             entry = float(r.get("entry_price") or 0)
             tp    = float(r.get("take_profit") or 0)
             sl    = float(r.get("cut_loss") or 0)
             line = f"- {r['ticker']} {r['action'].upper()}"
             if entry > 0:
-                line += f" entry={entry:,.0f}"
+                line += f" entry={_fmt_rec_price(entry)}"
             if tp > 0:
-                line += f" TP={tp:,.0f}"
+                line += f" TP={_fmt_rec_price(tp)}"
             if sl > 0:
-                line += f" SL={sl:,.0f}"
+                line += f" SL={_fmt_rec_price(sl)}"
             if r.get("rationale"):
                 line += f" — {r['rationale'][:80]}"
             lines.append(line)

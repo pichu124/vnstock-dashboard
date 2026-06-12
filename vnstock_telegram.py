@@ -155,6 +155,24 @@ def _brief_snippet(brief_type: str) -> str:
         return f"Brief không khả dụng: {e}"
 
 
+def _fmt_price(p: float) -> str:
+    """Format an entry/exit price (vnstock unit = thousand VND).
+
+    Blue-chips trade in the tens/hundreds so 0 decimals reads fine, but covered
+    warrants / penny tickers trade in hundreds of VND (≈ 0.1–2.0 in this unit),
+    where `.0f` collapses them to a meaningless "@1" / "@0". Use adaptive
+    precision so low-priced instruments keep their significant digits.
+    """
+    a = abs(p)
+    if a == 0:
+        return "0"
+    if a < 1:
+        return f"{p:,.3f}"
+    if a < 10:
+        return f"{p:,.2f}"
+    return f"{p:,.0f}"
+
+
 def _open_recs_block() -> str:
     try:
         import vnstock_memory as _vm
@@ -176,10 +194,11 @@ def _open_recs_block() -> str:
                 age = (datetime.now() - datetime.fromisoformat(r["created_at"])).days
             except Exception:
                 age = 0
+            overdue = " ⚠️ quá hạn" if age > horizon else ""
             lines.append(
-                f"  • <b>{ticker}</b> {action} @{entry:,.0f}"
+                f"  • <b>{ticker}</b> {action} @{_fmt_price(entry)}"
                 f" → TP {tp_pct:+.1f}% | SL {sl_pct:+.1f}%"
-                f" | ngày {age}/{horizon}"
+                f" | ngày {age}/{horizon}{overdue}"
             )
         return "\n".join(lines)
     except Exception as e:
@@ -280,6 +299,16 @@ def _brief_header(emoji: str, title: str) -> str:
     # Flag stale data: session date is before today (weekend / pre-open push)
     if session_iso and session_iso < now.strftime("%Y-%m-%d"):
         head += "  ⚠️ <i>data phiên gần nhất</i>"
+    else:
+        # VNINDEX is current but breadth/movers/regime may trail a session.
+        try:
+            from vnstock_brief import market_data_freshness
+            fr = market_data_freshness(session_iso or None)
+            if fr.get("stale"):
+                head += (f"  ⚠️ <i>độ rộng/regime: phiên "
+                         f"{_iso_to_dmy(fr['overview_date'])}</i>")
+        except Exception:
+            pass
     return head + "\n"
 
 

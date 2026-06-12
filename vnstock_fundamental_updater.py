@@ -317,8 +317,64 @@ def _operating_cf_from_row(row) -> float | None:
     return None
 
 
+def _annual_operating_cf(df: "pd.DataFrame") -> float | None:
+    """Operating cash flow of the most recent COMPLETE fiscal year (raw VND).
+
+    Robust to annual vs quarterly statements and excludes the in-progress
+    current year — which is what produced the misleading FPT figures: VCI's
+    cash_flow spans many years; the single latest row was the partial current
+    year (2026 Q1 working-capital outflow → -2,847.8 tỷ), and naive
+    quarterly-summing instead added several years (→ +9,795 tỷ). Both wrong.
+
+    Parse the fiscal year from report_period, take the most recent year strictly
+    before the current calendar year (the last completed year), and SUM every
+    row of that year: 1 row for annual data, ~4 for quarterly. Falls back to the
+    latest row only when no year is parseable.
+    """
+    if df is None or df.empty:
+        return None
+    import re as _re
+    from datetime import date as _date
+
+    period_col = None
+    for col in df.columns:
+        cs = (" ".join(str(c) for c in col) if isinstance(col, tuple) else str(col)).lower()
+        if any(k in cs for k in ("report_period", "period", "year", "năm", "kỳ")):
+            period_col = col
+            break
+
+    def _yr(v) -> "int | None":
+        m = _re.search(r"(?:19|20)\d{2}", str(v))
+        return int(m.group()) if m else None
+
+    if period_col is not None:
+        yrs = [_yr(v) for v in df[period_col]]
+        if any(y is not None for y in yrs):
+            cur = _date.today().year
+            present = [y for y in yrs if y is not None]
+            complete = [y for y in present if y < cur]   # exclude in-progress year
+            target = max(complete) if complete else max(present)
+
+            # VCI mixes a pure-year annual row ("2025") with quarterly rows
+            # ("2025-Q1"…). Prefer the single annual row to avoid double-counting
+            # (annual + 4 quarters = 2×); only sum quarters when no annual row.
+            def _is_pure_year(v) -> bool:
+                return bool(_re.fullmatch(r"\s*(?:19|20)\d{2}(?:\.0)?\s*", str(v)))
+
+            target_idx = [i for i, y in enumerate(yrs) if y == target]
+            annual_idx = [i for i in target_idx
+                          if _is_pure_year(df.iloc[i][period_col])]
+            use_idx = annual_idx or target_idx
+            vals = [v for i in use_idx
+                    if (v := _operating_cf_from_row(df.iloc[i])) is not None]
+            return sum(vals) if vals else None
+
+    row = _latest_row(df)
+    return _operating_cf_from_row(row) if row is not None else None
+
+
 def _fetch_cash_flow(ticker: str) -> dict:
-    """Fetch latest-year net operating cash flow (tỷ VND) for one ticker.
+    """Fetch latest annual / TTM net operating cash flow (tỷ VND) for one ticker.
 
     Returns {"operating_cf": <tỷ VND>} or {} on any failure — best-effort so a
     single missing statement never aborts the whole update run.
@@ -329,11 +385,7 @@ def _fetch_cash_flow(ticker: str) -> dict:
     except Exception:
         return {}
 
-    row = _latest_row(cf)
-    if row is None:
-        return {}
-
-    val = _operating_cf_from_row(row)
+    val = _annual_operating_cf(cf)
     if val is None:
         return {}
     return {"operating_cf": round(val / 1e9, 1)}  # raw VND → tỷ VND
@@ -643,6 +695,31 @@ def diag(ticker: str):
                     except Exception:
                         rv_ty = "—"
                     console.print(f"    • {cs}  =  {rv_ty}")
+
+        # Show report_period + per-period operating CF for the most recent
+        # periods so we can see the granularity (year vs quarter) and confirm
+        # the matcher picked the right (last complete) year.
+        pc = next((c for c in _cf_df.columns
+                   if "report_period" in str(c).lower()), None)
+        ocf_col = next(
+            (c for c in _cf_df.columns
+             if all(w in str(c).lower() for w in ("net", "cash", "operating"))
+             and not any(x in str(c).lower()
+                         for x in ("before", "investing", "financing", "changes", "working"))),
+            None)
+        if pc is not None:
+            console.print(f"\n  [dim]report_period (head 8): "
+                          f"{list(_cf_df[pc].head(8))}[/dim]")
+            if ocf_col is not None:
+                try:
+                    _t = _cf_df[[pc, ocf_col]].sort_values(pc, ascending=False).head(6)
+                    console.print("  [dim]OCF theo kỳ gần nhất:[/dim]")
+                    for _, _r in _t.iterrows():
+                        console.print(f"    {_r[pc]}: {float(_r[ocf_col]) / 1e9:,.1f} tỷ")
+                except Exception:
+                    pass
+            console.print(f"  [dim]_annual_operating_cf (năm gần nhất đã đóng) = "
+                          f"{_annual_operating_cf(_cf_df)} VND[/dim]")
     except Exception:
         pass
 

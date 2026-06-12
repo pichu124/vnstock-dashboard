@@ -33,6 +33,243 @@ xem output để biết test nào fail. Đừng deploy / merge khi badge đỏ.
 
 ---
 
+## 🩺 Brief quality fixes (DONE 2026-06-09, branch `claude/serene-feynman-15y1y1`)
+
+Một loạt fix chất lượng cho **Morning brief** (đa số dùng chung cho Close brief
+vì nằm trong `build_prompt` / data blocks, không phụ thuộc template). Đừng
+regress các cơ chế này:
+
+**Data freshness / self-heal** (tất cả best-effort, có env tắt):
+- `_augment_with_live_vnindex()` — gộp bar VNINDEX 1m từ `_live/bars_{today}.parquet`
+  thành 1 bar daily tạm thời → brief intraday mô tả phiên HÔM NAY. Đặt
+  `vnindex_tech["intraday"]=True`. (Rollup cố tình skip index — xem
+  `vnstock_rollup._should_rollup_to_warehouse`, nên đây là cách duy nhất để brief
+  sáng thấy data hôm nay.)
+- `market_data_freshness()` so **`data_date`** (ngày DATA thật, KHÔNG phải
+  `generated_at`) của `market_overview.json` với ngày phiên → header Telegram +
+  block prompt cảnh báo "⚠️ độ rộng/regime: phiên cũ". File cũ thiếu `data_date`
+  → fallback `_warehouse_eod_date()` (KHÔNG dùng generated_at — sẽ tưởng tươi).
+  `compute_market_overview` nay ghi field `data_date`.
+- `_auto_refresh_market_overview()` (env `VNSTOCK_BRIEF_AUTO_REFRESH=0` để tắt) —
+  recompute market_overview khi nó tụt sau kho EOD. `_maybe_reconcile_overdue()`
+  (env `VNSTOCK_BRIEF_AUTO_RECONCILE=0`) — đóng rec quá hạn trước khi tạo brief.
+- **BUG NGẦM đã fix**: `_load_history` (vnstock_strategy) gọi
+  `load_price_history` (@st.cache_data) → **fail ngoài Streamlit** → reconcile &
+  backtest từ CLI nhận data rỗng. Nay có `_load_history_from_parquet` đọc parquet
+  trực tiếp (chuẩn hoá bằng `vnstock_runner._normalize_prices`).
+
+**Nhãn & đơn vị** (đừng để regress):
+- `Giá 1T %` = đổi **1 TUẦN/5 phiên** (chg5), KHÔNG phải 1 phiên. Header movers +
+  mỗi dòng + đóng góp pp đều phải ghi "(1 tuần)". KHÔNG ghi "phiên sáng"/"hôm nay"
+  cho số này (không có data đổi-1-phiên cho từng mã).
+- Giá CW/penny giữ số lẻ (`_fmt_price`/`_fmt_rec_price`): <1 → 3 lẻ, <10 → 2 lẻ.
+- GTGD so **sáng-với-sáng** (`ctx["morning_gtgd"]`: prev/avg5/avg20). Khi
+  `intraday` → ẩn "GTGD cả ngày" VÀ ẩn `session_timing` signal/detail
+  (morning_share = sáng/cả-ngày là vô nghĩa giữa phiên — nguồn của lỗi "sáng
+  chiếm 78% cả ngày / institutional").
+
+**Deterministic guards** (LLM hay phớt prompt-nudge → chốt bằng code):
+- `lead_sector`/`lag_sector` = ngành đóng góp +/- mạnh nhất (1 tuần); `build_prompt`
+  bơm "CHỈ ngành X được làm dẫn dắt", gate ±0.05pp.
+- `_bias_floor_dir(momentum, regime_score)` — momentum ≤ -50 hoặc regime ≤ -3 →
+  Bias BẮT BUỘC GIẢM (và kịch bản CHÍNH phải cùng chiều); ngược lại cho TĂNG.
+- Loại ngân hàng/CK/bảo hiểm (`_FINANCIAL_TICKERS`) khỏi xếp hạng D/E & Op.CF
+  (đặc thù ngành, không so sánh được — tránh mis-flag "MBB Op.CF -64,972 tỷ").
+- **BĐS Op.CF — ngữ cảnh, KHÔNG loại (DONE 2026-06-10)**: chủ đầu tư BĐS (Ngành
+  chứa "bất động sản") GIỮ trong xếp hạng Op.CF nhưng `collect_context` tính
+  `ctx["realestate_tickers"]` theo ngành → `_vn30_fund_block(realestate=…)` gắn
+  "(BĐS)" vào mã trong dòng "Op.CF thấp nhất" + thêm dòng ngữ cảnh. KBC FY2025
+  −17.344 tỷ là **SỐ THẬT** (dòng năm 2025 = tổng 4 quý; `_annual_operating_cf`
+  đúng — KHÁC bug FPT), âm CHỦ YẾU do tích lũy quỹ đất/hàng tồn kho dự án (vốn lưu
+  động; op. profit before WC = +539 tỷ → KHÔNG lỗ HĐKD). Prompt rủi ro buộc ghi
+  ngữ cảnh + soi D/E/nợ vay, cấm gọi "kiệt quệ tiền mặt".
+- Watchlist: chỉ chọn mã từ movers/khuyến nghị đã cung cấp, neo "Giá" thật, cấm
+  "SELL ở giá" (VN không bán khống) → dùng "GIẢM TỶ TRỌNG nếu thủng…".
+- **Setup CHỈ mã ⭐ (DONE 2026-06-10)**: movers quét toàn TT ở sàn 10 tỷ (phân
+  tích "Biến động bất thường"), nhưng setup giao dịch chỉ được dùng mã có dấu
+  **⭐** = VN30 HOẶC GTGD TB ≥ `_WATCHLIST_GTGD_MIN_TY` (=30 tỷ, tunable) — tránh
+  đưa lệnh MUA vào mã mỏng (vd VIW); `enforce_watchlist_eligibility` chốt lại
+  bằng code (LLM hay phớt ⭐). `_select_liquid_movers` carry "GTGD TB (tỷ)";
+  `_vn30_line` gắn ⭐. Hướng setup PHẢI bám Stance/bias floor: Stance GIẢM → ưu
+  tiên phòng thủ, MUA chỉ là kèo CÓ ĐIỀU KIỆN ("canh MUA nếu vượt lại…").
+- Rec quá hạn bị lọc khỏi "Đề xuất giao dịch"; "Đề xuất bổ sung" cấm xin data đã
+  có (dòng tiền ngành/NN ròng, GTGD, breadth, regime, VN30 cơ bản).
+
+### 💵 GTGD cả ngày từ EOD (DONE 2026-06-11) — KHÔNG cần WSS live
+
+`session_stats` (GTGD theo khung giờ 9h-11h30 / 9h-15h) CHỈ pipeline WSS **live**
+trong phiên mới ghi — chạy brief trên data EOD-only (down hôm sau) → toàn 0.0 →
+model BỊA GTGD (5.153 / 14.118 / 9.650,4). Fix: `compute_market_overview` ghi
+`gtgd_by_date` = Σ (giá đóng cửa × KLGD) THEO TỪNG NGÀY (~5 phiên gần nhất; ~5
+bar cuối mỗi mã) = **GTGD cả ngày THẬT từ EOD** (xấp xỉ khớp lệnh, có ngay sau
+`run.py screener`); `total_gtgd_day`/`gtgd_date` = phiên HOÀN CHỈNH gần nhất qua
+`_pick_gtgd_session` (bỏ phiên ĐANG DỞ — updater chạy giữa trưa kéo bar dở hôm
+nay về, count thấp → chọn ngày hôm trước). Brief tra `gtgd_by_date[ngày-của-brief]`
+→ `ctx["full_day_gtgd"]` (gate coverage ≥60% universe, dưới ngưỡng → "chưa đủ
+dữ liệu"); Session Timing block
+ưu tiên session-live, fallback EOD (gắn nhãn "ước tính từ EOD"); `enforce_gtgd_total`
+pin số trong TLDR/Tổng kết về giá trị này (strip "chưa có dữ liệu" khi cả 2
+nguồn đều trống). **GTGD sáng (split 9h-11h30) KHÔNG suy được từ EOD** — vẫn cần
+WSS; morning brief trên EOD-only → "Chưa có GTGD phiên sáng". (Lưu ý: tổng EOD gồm
+mọi sàn đã phân ngành, có thể > GTGD HOSE-only; xấp xỉ close×vol, không VWAP.)
+
+### 🛡️ Guard hậu kiểm deterministic — chuỗi DÙNG CHUNG `apply_brief_guards(text, ctx)`
+
+**QUAN TRỌNG (DONE 2026-06-12)**: toàn bộ chuỗi fixup nay nằm trong **một hàm
+chung `apply_brief_guards(text, ctx)`** (định nghĩa ngay trước `generate_brief`);
+`generate_brief` gọi nó cho MỌI agent, KHÔNG phân biệt brief_type. ⇒ **parity
+morning↔close được bảo đảm BY CONSTRUCTION**: thêm 1 guard vào hàm này là áp cho
+CẢ 2 brief cùng lúc. Mỗi guard tự brief_type-aware bên trong (anchor/section
+detection), nên fix dùng chung trừ khi CỐ Ý gate (vd `enforce_gtgd_compare_frame`
+chỉ "Tổng kết phiên" = close). Test khoá parity: `test_morning_brief_gets_all_session_guards_end_to_end`
+(chạy 1 morning brief mang ĐỦ mọi bug pattern qua chuỗi → ra sạch) +
+`test_apply_brief_guards_is_the_single_shared_chain`. **Đừng inline lại chuỗi vào
+`generate_brief`** — sẽ phá điểm parity duy nhất.
+
+LLM hay phớt chỉ thị prompt → chốt bằng code sau khi agent trả output (thứ tự
+trong `apply_brief_guards`, áp cho mọi agent, cả morning & close):
+1. `enforce_upcoming_events` — thay TOÀN BỘ body mục "Sự kiện sắp tới" bằng list
+   chuẩn từ ctx (top 3 + note GDKHQ); fallback splice khi LLM chối "Không có sự kiện".
+2. `enforce_risk_section` (chạy ĐẦU cho mục Rủi ro) — **canonical-hóa** phần
+   fundamental: thay claim của LLM bằng block từ `_canonical_risk_lines(ctx)`
+   (D/E cao nhất ≥1.5 phi-tài-chính + Op.CF âm thấp nhất, gắn (BĐS)+ngữ cảnh).
+   Giữ dòng vĩ mô/kỹ thuật của model, bỏ dòng fundamental → hết loạt lỗi
+   metric/số/superlative/mis-pick/mâu thuẫn. Các guard rủi ro cũ
+   (`enforce_risk_numbers`, `enforce_realestate_ocf_context`) chạy SAU làm
+   defensive no-op.
+2b. `enforce_realestate_ocf_context` — mã BĐS trên dòng Op.CF thiếu ngữ cảnh quỹ
+   đất → chèn (whole-text, áp cả 2).
+3. `enforce_watchlist_hygiene` — xóa meta-disclaimer + dòng độn (anchor "watchlist
+   sáng mai" → close-only).
+4. `enforce_money_flow_two_sides` — thiếu vế NN mua/bán ròng mạnh nhất (≥50 tỷ) →
+   chèn; anchor theo DÒNG dòng-tiền nên áp cả "Dòng tiền đáng chú ý" (close) lẫn
+   "Dòng tiền ngành" inline (morning).
+5. `enforce_risk_numbers` — mã trong "Rủi ro" thiếu số D/E/Op.CF → chèn (cả 2 vì
+   morning nay CÓ mục Rủi ro).
+6. `enforce_pivot_labels` — pin S1/S2/R1/R2 về pivot chuẩn, chỉ dải 800-2500
+   (không đụng giá cổ phiếu trong setup); áp cả 2 (regex toàn text).
+7. `enforce_watchlist_eligibility` — loại setup mã GTGD < `_WATCHLIST_GTGD_MIN_TY`
+   & không VN30 (anchor "watchlist sáng mai" → close-only).
+8. `enforce_gtgd_total` — pin GTGD cả ngày (session-live hoặc EOD `full_day_gtgd`)
+   trong TLDR/Tổng kết; strip "chưa có dữ liệu" khi cả 2 nguồn trống. Keyword-anchored
+   (không đụng điểm VNINDEX cùng dòng / GTGD theo ngành).
+9. `enforce_no_cjk` — xóa ký tự Trung/Nhật/Hàn (vd "达到") lọt vào brief.
+
+**Guard thêm 2026-06-12 (đều trong `apply_brief_guards`, áp cả 2 brief):**
+10. `enforce_money_flow_two_sides` (mở rộng) — sửa số NN bịa gắn vào ngành cả 2
+    dạng: *số-trước-tên* ("44 tỷ … Dầu khí") VÀ *số-sau-tên trong ngoặc* ("Thép &
+    Kim loại (NN -1.372 tỷ)"); `_named_in_side` kiểm ngành top thật được gọi CÙNG
+    MỆNH ĐỀ với từ khoá "bán/mua ròng" (không chỉ có mặt) → tránh xếp sai hạng.
+    **`enforce_sector_nn_figures`** (companion, chạy NGAY SAU, WHOLE-TEXT) — sửa số
+    NN ngành bịa ở BẤT KỲ ĐÂU ngoài mục dòng tiền (morning 14:11: dòng "Tránh/Bán"
+    ghi "Thép & Kim loại (… NN bán ròng -1.372 tỷ)" — bịa + mâu thuẫn "Ngân hàng
+    -703 mạnh nhất"). Bắt "{ngành} …(≤40 ký tự)… [NN] bán/mua ròng <số> tỷ" → pin
+    về NN thật từ ctx (từ khoá "ròng" ngay trước số nên KHÔNG đụng "-0.03pp").
+11. `enforce_liquidity_label` — mệnh đề "thanh khoản" mang số ÂM = NN bán ròng đội
+    lốt turnover → thay bằng dòng canonical top-GTGD thật từ ctx (GTGD ≥ 0 luôn).
+12. `enforce_nn_window_label` — số "NN ròng 1D" (1 phiên, từ block Tâm lý) bị gắn
+    nhãn "tuần" → bỏ nhãn tuần (self-contradiction "X tỷ tuần này (1D…)") /
+    relabel "(1D)"; chống nhầm khi 1 ngành có cùng magnitude.
+13. `enforce_gtgd_compare_frame` — **close-only**: trong "Tổng kết phiên", số GTGD
+    cả ngày bị so với baseline SÁNG (sai khung + sai chiều: 11.929 > 9.129 mà bảo
+    "thấp hơn 43%") → thay bằng so-cả-ngày-vs-cả-ngày (TB5/TB20) từ
+    `full_day_gtgd_cmp`. Morning so sáng-với-sáng là ĐÚNG → không đụng.
+14. `enforce_no_bias_directive_leak` — "bias GIẢM **bắt buộc**": chữ "bắt buộc" là
+    chỉ thị NỘI BỘ của bias-floor block (prompt cấm in) → strip, giữ hướng.
+15. `enforce_no_record_superlative` — "GTGD thấp **kỷ lục**": brief chỉ có baseline
+    TB5/TB20, không có cực trị lịch sử → bỏ "kỷ lục"/"nhất lịch sử", giữ "thấp".
+16. `enforce_no_duplicate_momentum` — gộp "momentum N/100" lặp CÙNG GIÁ TRỊ trên 1
+    dòng, giữ lần cuối (gắn tâm lý). (Lưu ý: composite "tích luỹ/phân phối mạnh"
+    KHÔNG hạ theo pp — "mạnh" là composite score, trục khác với đóng góp pp index.)
+17. `enforce_lead_lag` — pin dòng dẫn dắt/tụt hậu về `lead_sector`/`lag_sector`
+    deterministic. Close theo prompt đúng; **MORNING brief phớt** (13:40: ghi
+    "Chưa có nhóm dẫn dắt" dù BĐS +0.275pp, VÀ đặt BĐS-ngành-dẫn-dắt lên dòng
+    "Tránh/Bán" với -0.03pp sai, mâu thuẫn cả TLDR). Canonical-hóa dòng mua/dẫn
+    dắt (morning "Tích luỹ/Mua" / close "Dẫn dắt") + dòng tránh/tụt hậu (morning
+    "Tránh/Bán" / close "Tụt hậu") khi phủ nhận / gọi sai ngành / thiếu ngành
+    đúng. Dòng đúng (close) giữ nguyên; idempotent. ⇒ đây là điểm parity quan
+    trọng: "Trọng tâm theo dõi" của morning giờ luôn khớp lead/lag như close.
+17b. `enforce_lead_lag` (mở rộng 12/06) — pin pp của lead/lag Ở BẤT KỲ ĐÂU, không
+    chỉ dòng nhãn. Morning 23:14 TLDR "giảm tỷ trọng Bất động sản (đóng góp
+    -0.504pp)" — bịa (mượn số NN −504 tỷ thành −0.504pp); BĐS là lead +0.464pp →
+    pin về +0.464pp. Lệch > 0.005pp mới sửa; idempotent.
+20. `enforce_compare_direction` — từ so sánh phải khớp DẤU của %. Close 12/06:
+    "GTGD cả ngày 18.353 tỷ … thấp hơn TB5 phiên (+43%)" — "thấp hơn" + (+43%) mâu
+    thuẫn (so cả-ngày-vs-cả-ngày ĐÚNG khung nên `enforce_gtgd_compare_frame` không
+    đụng). Lật từ khi clash: "thấp hơn …(+N%)" → "cao hơn"; "cao hơn …(-N%)" →
+    "thấp hơn". Cặp nhất quán giữ nguyên; % phải trong ~30 ký tự (cùng mệnh đề).
+    **Form B (12/06 morning)**: "8,397 tỷ … thấp hơn 11% TB sáng (7,549.1 tỷ)" —
+    % KHÔNG dấu, baseline là GIÁ TRỊ trong ngoặc → so subject (giá trị tỷ đầu
+    dòng) với baseline: 8,397 > 7,549 → "cao hơn". So bằng SỐ THẬT nên chắc.
+19. `enforce_scenario_levels` — mức VNINDEX BỊA trong kịch bản (morning 14:28:
+    "đóng cửa trên 1,801.99 (đáy phiên)" — 1,801.99 không khớp pivot/close/MA nào
+    + "đáy phiên" mà CAO HƠN close = vô lý). STRICT-NHƯNG-AN-TOÀN: chỉ token
+    *2-lẻ-band-index* (1,xxx.xx ∈ 800-2500) KHÔNG khớp 14 mức thật (close, MA20/50/
+    200, S1/S2/R1/R2, đỉnh/đáy tuần/tháng/52w) trong ~2.7đ → pin về mức gần nhất;
+    pivot/close/MA + mục tiêu tròn/xấp xỉ ("dưới 1,790") KHÔNG đụng. Nhãn đáy/đỉnh
+    phiên mâu thuẫn close → bỏ. (User chọn guard chặt, chấp nhận rủi ro biên nhỏ.)
+22. `enforce_gtgd_baseline_pct` — **close-only**: mỗi % phải khớp ĐÚNG baseline,
+    CẢ 2 dạng. Form 1 "±N% vs/so <baseline>" (Tổng kết) — close 12/06 gán nhầm
+    (+4% của TB20 thành TB5...). Form 2 "<baseline> (±N%)" (TLDR) — "cao hơn TB5
+    (+43%)" trong khi Tổng kết đã pin +21% → cùng brief mâu thuẫn TB5. Pin cả 2
+    chiều về `full_day_gtgd_cmp` (avg5/avg20/prev) → TLDR khớp Tổng kết. Gate
+    "Tổng kết phiên" + bỏ baseline có "sáng"; baseline không có cmp (TB20 khi <15
+    phiên) để nguyên (không có số để pin); idempotent.
+23. `enforce_composite_rotation_hygiene` — giữ khối composite rotation nhưng vá 2
+    lỗi (user chọn "giữ nhưng guard"): (a) **mâu thuẫn bucket↔nhãn** — ngành trong
+    dòng "Phân phối" mang nhãn "tích luỹ" (hoặc ngược) → bỏ nhãn mâu thuẫn (23:44:
+    "Phân phối cảnh báo: CNTT (tín hiệu tích luỹ mạnh)"); nhãn nhất quán giữ
+    nguyên. (b) **jargon "Net BS"** (Buy/Sell tiếng Anh) — "Net BS +51.7% volume"
+    / "+6M" → "mua/bán ròng ~X% KL" / "~X triệu CP" (dấu → mua/bán). **"1M/3M"
+    nhập nhằng (đã truy nguồn `vnstock_market_analyzer`)**: là CỬA SỔ 1 tháng/3
+    tháng (Net BS 1M, Giá 1M) → "X tháng"; còn HẬU TỐ "M" trên GIÁ TRỊ CÓ DẤU
+    ("+6M") = triệu CP. Phân biệt bằng dấu (có +/- = triệu CP; không dấu = tháng);
+    "volume"→"KL"; "Net BS" lẻ → "NN ròng". Idempotent.
+21. `enforce_breadth_label` — brief CHỈ có "% mã trên MA200" (above_ma200_pct),
+    KHÔNG có "% mã tăng giá". Close 12/06: "chỉ 17% mã cổ phiếu tăng giá" — 17%
+    là số trên-MA200 (A/D 0.85 ⇒ ~46% tăng), gán nhãn "tăng giá" sai → relabel
+    "trên MA200". Gate theo khớp giá trị (N ≈ above_ma200_pct ±1) nên số thật
+    khác không bị đụng; idempotent.
+18. `enforce_number_format` (chạy CUỐI) — chuẩn hoá số về 1 quy ước EN (phẩy ngăn
+    nghìn, chấm thập phân) như data block (`{:,.2f}`)/guards/close. Morning 13:54
+    trộn VN ("1.798,61", "9.129,4", "1.858,39", "-3,2%", "5.038 tỷ") với EN
+    ("5,233.3", "1,789.31") do template example xưa dùng VN ("1.815,42") trong khi
+    data block xuất EN → model lẫn lộn. Chỉ đổi token VN KHÔNG nhập nhằng
+    (nghìn+thập-phân dấu chấm-grouping + phẩy-decimal; nghìn-dot ngay trước tỷ/tỉ;
+    % phẩy-decimal). KHÔNG đụng số EN, pp 3 lẻ ("+0.275pp"), tỷ số ("0.87"), ngày
+    ISO. Đã sửa luôn example template (212/283) về EN để hết tín hiệu mâu thuẫn.
+
+**Parity morning↔close (DONE 2026-06-11)**: 2 template nay thống nhất tính năng,
+trừ khác biệt CỐ Ý — GTGD sáng-với-sáng (intraday), "Watchlist sáng mai"/"Stance
+ngày mai" là close-only, "Kịch bản phiên chiều" là morning-only. Đã đồng bộ:
+morning thêm mục "⚠️ Rủi ro cần lưu ý" (cùng luật cơ bản/BĐS/số); guard dòng-tiền
+2-vế áp cả dòng inline morning; khối RÀNG BUỘC BIAS brief_type-aware (morning→"Kịch
+bản phiên chiều", close→"Stance ngày mai"); morning Trọng tâm neo block lead/lag;
+luật thuần-tiếng-Việt + pin pivot áp cả 2.
+
+### ✅ Checklist kiểm tra CLOSE brief (lần tới — sau khi down data CẢ NGÀY)
+
+Khi chạy close brief với data EOD đầy đủ, `intraday=False` → hành vi khác sáng:
+1. **Header**: KHÔNG còn "⚠️ data phiên gần nhất" VÀ KHÔNG còn "⚠️ độ rộng/regime:
+   phiên cũ" (vì data_date = hôm nay sau khi down + chạy `run.py screener`). Nếu
+   vẫn cảnh báo → `market_overview.json` chưa refresh với data hôm nay.
+2. **GTGD**: PHẢI hiện "GTGD cả ngày" (phiên đã đóng), và `session_timing` signal
+   institutional/retail hiện lại (morning_share lúc này hợp lệ). Mục "Tổng kết
+   phiên" so GTGD cả-ngày-với-cả-ngày, KHÔNG dùng baseline sáng.
+3. **Stance ngày mai** (TLDR) phải bám regime/sentiment (bias floor áp dụng).
+4. **Dẫn dắt & Tụt hậu** = đúng `lead_sector`/`lag_sector` deterministic, ghi "(1
+   tuần)". **Watchlist sáng mai**: neo giá thật, không bịa mã, BUY/SELL nhất quán,
+   không "SELL ở giá".
+5. **Rủi ro**: không mis-flag ngân hàng/CK vì D/E hay dòng tiền lớn.
+6. **Khuyến nghị đang mở**: số ngày hợp lý, rec quá hạn đã reconcile (không zombie).
+7. Mọi % giá có khung thời gian rõ; mã chỉ trong VN30.
+
+→ Khi đánh giá close brief, soi đúng các điểm trên + đối chiếu nội bộ (Stance ↔
+regime ↔ kịch bản, đóng góp pp ↔ ngành dẫn dắt). Chạy `python run.py test --fast`
+sau bất kỳ sửa nào ở `vnstock_brief.py`.
+
+---
+
 ## 🧠 Brief context blocks + lịch refresh (DONE 2026-06-08)
 
 `collect_context()` trong `vnstock_brief.py` bơm các khối dữ liệu vào prompt.
@@ -40,19 +277,44 @@ Các khối **mới thêm** (ngoài kỹ thuật VNINDEX / regime / breadth có 
 
 | Khối | Nguồn data | Cần chạy gì để có |
 |------|-----------|-------------------|
-| **VN30 Cơ bản** (D/E, ROE, Op.CF) | `data_warehouse/_meta/fundamentals.parquet` | `python vnstock_fundamental_updater.py` (1×/tuần) |
+| **Cơ bản nhóm theo dõi** (VN30 + mid-cap; D/E, ROE, Op.CF) | `data_warehouse/_meta/fundamentals.parquet` | `python vnstock_fundamental_updater.py` (1×/tuần) |
 | **Tâm lý thị trường** (mood + momentum -100..+100) | breadth + NN ròng + RSI/MA + news, qua `vnstock_market_sentiment.py` | luôn có (6 tín hiệu nội tại); tín hiệu tin tức (thứ 7) cần `python run.py news` |
 | **Dòng tiền ngành** (NN ròng 1T + GTGD theo ngành) | `market_overview.json` (đã pre-aggregate) | có sẵn sau `python run.py screener` |
 
-**Lịch refresh đề xuất (Task Scheduler)** — chạy TRƯỚC close brief 15:05:
+**Lịch refresh (Task Scheduler) — DÙNG SCRIPT CÓ SẴN `scripts/setup_scheduled_tasks.ps1`**
+(PowerShell **Run as Administrator**, chạy 1 lần; tự detect venv, set working dir,
+StartWhenAvailable=ON — máy tắt giờ đó thì chạy bù lúc boot; xem trước: `-DryRun`;
+gỡ: `-Remove`):
 ```powershell
-# Fundamentals: 1×/tuần (đổi 1×/quý nên tuần/lần là đủ)
-schtasks /Create /SC WEEKLY /D MON /ST 08:00 /TN "VNStock Fundamentals" `
-  /TR "<repo>\.venv\Scripts\python.exe <repo>\vnstock_fundamental_updater.py"
-# News sentiment: hằng ngày 14:50 (trước close brief)
-schtasks /Create /SC DAILY /ST 14:50 /TN "VNStock News" `
-  /TR "<repo>\.venv\Scripts\python.exe <repo>\run.py news"
+cd "C:\Users\Administrator\Dropbox\Claude vnstock"
+.\scripts\setup_scheduled_tasks.ps1
 ```
+3 task được đăng ký: **VnStock Daily Pipeline** 18:00 T2-T6 (`run.py all` =
+sync EOD → validate → screener → news → test → audit — trọn quy trình tối,
+sau giờ đóng cửa) · **VnStock Weekly Corp Actions** CN 09:00 (Vietstock
+cổ tức/chia tách → registry) · **VnStock Fundamentals** T2 08:00 (1×/tuần;
+mùa BCTC giữa tháng 1/4/7/10 chạy thêm tay). Sự kiện GDKHQ KHÔNG cần task —
+brief tự refresh 1×/ngày (VN30 + top-40 movers). Kiểm tra:
+`Get-ScheduledTask -TaskName "VnStock *"`.
+
+**Sự kiện DN sắp tới (DONE 2026-06-10)** — `vnstock_events.py` tổng hợp GDKHQ
+cổ tức/chia tách/thưởng (tái dùng `vnstock_adjust._fetch_events` →
+`Company.events()`), cache `_meta/upcoming_events.parquet`. Brief nạp qua
+`load_upcoming(within_days=14, tickers=VN30∪movers)` → block "📅 Sự kiện sắp
+tới" (`_upcoming_events_block`). Đây là phần "sự kiện kinh tế" KHẢ THI với data
+nội bộ; **tin VĨ MÔ (CPI/Fed/SBV) chưa có** — cần nguồn ngoài (RSS/API), vướng
+network policy. Chạy `python vnstock_events.py` (VN30) / `--tickers` / `--check`.
+Auto-refresh 1×/ngày qua `_maybe_refresh_events()` trong `generate_brief`
+(mtime cache ≠ hôm nay → fetch; tắt: `VNSTOCK_BRIEF_AUTO_EVENTS=0`); universe =
+`_events_universe()` = **VN30 ∪ top-`_EVENTS_REFRESH_MAX_MOVERS`(=40) movers
+theo GTGD** (2026-06-11 — trước đó VN30-only nên sự kiện mid-cap watchlist
+không bao giờ tự có). Fundamentals KHÔNG auto — chạy tay/Task Scheduler
+1×/tuần (xem lịch trên), thêm trong mùa BCTC (giữa tháng 1/4/7/10).
+Chống regress (2026-06-10): `refresh_upcoming` **merge-safe** — mã fetch lỗi
+(None) GIỮ sự kiện cũ trong cache, chỉ fetch THÀNH CÔNG (kể cả rỗng) mới
+thay/xóa. `enforce_upcoming_events()` (gọi trong `generate_brief`) — guard
+deterministic: LLM ghi "Không có sự kiện đáng chú ý" dù ctx CÓ events → splice
+danh sách thật vào output (LLM hay phớt block dù data có trong prompt).
 
 **Quan trọng — vnstock 4.0.4 + sponsor API gotchas** (hard-won, đừng quên):
 - `vnstock_auth._StockShim` PHẢI expose `.quote/.company/.listing/.finance`.
@@ -65,6 +327,14 @@ schtasks /Create /SC DAILY /ST 14:50 /TN "VNStock News" `
   (`TOTAL LIABILITIES / OWNER'S EQUITY`). D/E bank ~9-17 là bình thường.
 - Ratio `iloc[0]` có thể là row TTM/interim NaN → dùng `_best_ratio_row`
   (lấy row gần nhất có P/E/ROE/D-E thật).
+- **Cash flow `operating_cf` (DONE 2026-06-09 — đừng regress)**: VCI `cash_flow`
+  TRỘN cả dòng NĂM ("2025") lẫn dòng QUÝ ("2025-Q1".."2026-Q1") trong cùng df.
+  `_latest_row` cũ lấy quý dở dang (FPT 2026-Q1 = -2.847,8 tỷ, âm do WC đầu năm)
+  → mis-flag. `_annual_operating_cf` nay: parse năm từ `report_period`, lấy **năm
+  hoàn tất gần nhất** (year < năm hiện tại — loại năm dở), trong năm đó **ưu tiên
+  dòng "năm thuần"** (report_period khớp đúng 1 năm) thay vì cộng 4 quý (cộng cả
+  hai = gấp đôi!). FPT FY2025 đúng = 10.136 tỷ. Soi bằng `--diag <ticker>`
+  (in "OCF theo kỳ gần nhất" + giá trị parse).
 - `.env` PHẢI được load TRƯỚC khi agent kiểm tra `is_available` — brief gọi
   `_ensure_env_loaded()` đầu `generate_brief()`; telegram gọi `_load_env()`
   đầu `push_*_brief()`. Nếu không, chạy từ CLI fresh sẽ báo "no agent".
@@ -119,6 +389,31 @@ re-running strategy generation/backtest, and reconciling recommendations.
 ---
 
 ## 🔧 Future improvements — tracked TODOs
+
+### 0. NN ròng 1D — full-market source `vnstock_foreign_flow.py` (DONE 2026-06-12, CẦN USER VERIFY)
+
+**Bug cũ (12/06)**: brief in "NN ròng 1D −665 tỷ … phiên hôm nay" SAI cho cả 2
+phiên (thực 11/06 = −504, 12/06 = −491). Hai nguyên nhân:
+1. **Top-100**: `vnstock_dashboard._fetch_foreign_net_flow(limit=100)` chỉ lấy
+   top-100 mã foreign buy/sell → tổng net **thổi phồng bán ròng** (thiếu đuôi
+   small-cap mua ròng + mã chỉ có ở top-sell mất vế mua).
+2. **Stale**: cache `nn_flow_cache.json` CHỈ được ghi khi mở tab Money Flow trên
+   Streamlit; `_load_nn_net_1d` đọc thẳng JSON **bỏ qua tuổi** → brief hiện giá
+   trị ĐÓNG BĂNG (−665 y hệt cho 2 phiên khác nhau).
+
+**Fix**: module mới `vnstock_foreign_flow.py` — fetch FULL universe
+(`limit=3000`) qua `TopStock.foreign_buy/sell`, tính market-total net THEO TỪNG
+NGÀY, cache `_meta/foreign_net_daily.json`. `load_market_net_1d(effective_date)`
+trả net của ĐÚNG phiên (hoặc None → brief BỎ signal, không bao giờ hiện số stale).
+`vnstock_regime._load_nn_net_1d(effective_date)` nay ưu tiên nguồn này (bỏ hẳn
+top-100 stale); `vnstock_market_sentiment.load_market_sentiment` truyền
+`vnindex_tech["data_date"]` xuống. Pipeline: thêm bước `foreign-flow` vào
+`run.py all` (best-effort) — `python run.py foreign-flow --days 5`.
+
+**⚠️ CẦN USER VERIFY (tôi không có network/data ở sandbox)**: chạy
+`python vnstock_foreign_flow.py --diag 2026-06-12` → in net + **số mã** trả về.
+Nếu khớp ~−491 và vài trăm mã ⇒ OK. Nếu chỉ ~100 mã ⇒ API đang cap `limit`, cần
+tăng `--limit` hoặc đổi nguồn (xem mục 1 bên dưới về các nguồn đã thử).
 
 ### 1. Replace calibrated GTGD estimate with exact realtime source
 

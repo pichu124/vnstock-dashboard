@@ -473,12 +473,34 @@ def strategy_loop(
 
 
 # ── Outcome reconciliation: close recs whose horizon expired ───────────────
+# A rec this far past its horizon with no fetchable price history is treated as
+# a zombie (delisted ticker, covered warrant, symbol the warehouse can't serve)
+# and force-closed as "stale" so it stops lingering as an open recommendation.
+STALE_GRACE_DAYS = 10
+
+
 def reconcile_recommendations(verbose: bool = True) -> dict:
-    """For each open rec older than horizon_days, fetch latest close and grade."""
+    """For each open rec older than horizon_days, fetch latest close and grade.
+
+    Recs whose price history can't be fetched and that are well past horizon
+    (horizon + STALE_GRACE_DAYS) are force-closed as "stale" — otherwise they
+    accumulate as zombies (e.g. covered warrants showing "ngày 34/5" forever).
+    """
     from vnstock_strategy import _load_history
 
     open_recs = mem.open_recommendations()
-    summary = {"closed": 0, "still_open": 0}
+    summary = {"closed": 0, "still_open": 0, "stale": 0}
+
+    def _maybe_stale(rec: dict, age: int, horizon: int) -> bool:
+        """Force-close an un-fetchable, well-overdue rec. Returns True if closed."""
+        if age >= horizon + STALE_GRACE_DAYS:
+            mem.close_recommendation(
+                rec["id"], exit_price=None, hit_target="stale",
+                notes=f"no price history after {age}d (horizon {horizon}d)",
+            )
+            summary["stale"] += 1
+            return True
+        return False
 
     for r in open_recs:
         try:
@@ -492,7 +514,8 @@ def reconcile_recommendations(verbose: bool = True) -> dict:
             continue
         hist = _load_history(r["ticker"], days=horizon + 10)
         if hist.empty:
-            summary["still_open"] += 1
+            if not _maybe_stale(r, age_days, horizon):
+                summary["still_open"] += 1
             continue
         # Find bar after creation, walk forward up to horizon bars
         try:
@@ -501,7 +524,8 @@ def reconcile_recommendations(verbose: bool = True) -> dict:
             continue
         post = hist[tcol > created.date().isoformat()].head(horizon)
         if post.empty:
-            summary["still_open"] += 1
+            if not _maybe_stale(r, age_days, horizon):
+                summary["still_open"] += 1
             continue
 
         entry = float(r["entry_price"] or 0)
@@ -522,7 +546,10 @@ def reconcile_recommendations(verbose: bool = True) -> dict:
         summary["closed"] += 1
 
     if verbose:
-        print(f"[reconcile] closed={summary['closed']} still_open={summary['still_open']}")
+        print(
+            f"[reconcile] closed={summary['closed']} "
+            f"stale={summary['stale']} still_open={summary['still_open']}"
+        )
     return summary
 
 

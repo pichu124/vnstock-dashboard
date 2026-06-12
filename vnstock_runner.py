@@ -16,7 +16,7 @@ Task Scheduler: chạy lúc 15:35 (sau updater 15:30)
 import argparse
 import json
 import warnings
-from datetime import datetime
+from datetime import datetime, time as dt_time
 from pathlib import Path
 
 import pandas as pd
@@ -216,6 +216,8 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
     rows = []
     b_total = b_ma200 = b_rsi_ov = b_rsi_ob = 0
     b_adv = b_dec = b_unch = b_hi = b_lo = 0
+    _gtgd_day_rows: list[tuple] = []  # (bar_date, giá×KLGD tỷ) → tổng GTGD phiên mới nhất
+    _max_data_date = None  # latest stock bar date actually used (breadth data date)
 
     ticker_dirs = sorted(prices_dir.glob("ticker=*"))
     console.log(f"  Scanning {len(ticker_dirs)} tickers...")
@@ -237,11 +239,26 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
             df = df[df["time"] >= cutoff]
             if len(df) < 5:
                 continue
+            _bar_date = df["time"].iloc[-1]
+            if _max_data_date is None or _bar_date > _max_data_date:
+                _max_data_date = _bar_date
 
             df = _normalize_prices(df)
             c = df["close"].astype(float)
             v = df["volume"].astype(float)
             last = float(c.iloc[-1])
+
+            # Real full-day GTGD (matching value) ≈ giá × KLGD, gom THEO TỪNG
+            # NGÀY cho ~22 bar gần nhất của mỗi mã (không chỉ bar cuối). `close`
+            # ở thang nghìn VND, volume ở cổ phiếu → tỷ VND = close*vol/1e6.
+            # Lý do theo-ngày: chạy updater GIỮA phiên kéo bar dở của HÔM NAY
+            # về → "ngày mới nhất" thành phiên đang dở; brief cho ngày T vẫn
+            # cần tổng của ĐÚNG ngày T (đã chốt). 22 bar → đủ ~20 phiên cho
+            # baseline TB5/TB20 thật (model từng bịa "TB 20 phiên -15%" khi
+            # chỉ có 5 phiên). EOD-derived → không cần WSS.
+            for _t, _c, _v in zip(df["time"].tail(22), c.tail(22), v.tail(22)):
+                if _c > 0 and _v > 0:
+                    _gtgd_day_rows.append((pd.Timestamp(_t), _c * _v / 1e6))
 
             # Breadth
             b_total += 1
@@ -365,6 +382,7 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
 
     # Fetch foreign net flow (TopStock API) for NN ròng columns
     nn_w, nn_m, nn_3m = {}, {}, {}
+    nn_data_date = None
     try:
         from vnstock_data import TopStock
         from datetime import timedelta as _td
@@ -395,14 +413,21 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
 
         if all_nn_rows:
             nn_df_all = pd.DataFrame(all_nn_rows)
-            today_ts = pd.Timestamp(today_d)
+            nn_df_all["date"] = pd.to_datetime(nn_df_all["date"])
+            # Anchor the rolling windows to the LATEST date foreign data actually
+            # exists for — NOT wall-clock today. The TopStock feed lags like the
+            # EOD batch, so a wall-clock cutoff slides forward over empty recent
+            # days and freezes the figure near the last real date (observed BĐS
+            # NN ~-5,277 on 09/06 still showing -5,275 two sessions later).
+            _nn_anchor = nn_df_all["date"].max()
+            nn_data_date = _nn_anchor.date().isoformat()
             for days, result_map in ((7, nn_w), (30, nn_m), (90, nn_3m)):
-                cutoff = today_ts - pd.Timedelta(days=days)
-                filtered = nn_df_all[pd.to_datetime(nn_df_all["date"]) >= cutoff]
+                cutoff = _nn_anchor - pd.Timedelta(days=days)
+                filtered = nn_df_all[nn_df_all["date"] >= cutoff]
                 agg_val = filtered.groupby("symbol")["net_value"].sum()
                 for sym, val in agg_val.items():
                     result_map[sym] = round(val / 1e9, 1)  # → tỷ VND
-            console.log(f"  NN data: {len(all_nn_rows)} records across 20 days")
+            console.log(f"  NN data: {len(all_nn_rows)} records, đến ngày {nn_data_date}")
     except ImportError:
         console.log("  [dim]vnstock_data not installed — NN data skipped[/dim]")
     except Exception as e:
@@ -586,12 +611,67 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
     result = result.rename(columns={"industry": "Ngành"})
     result = result.sort_values("Vốn hoá (tỷ)", ascending=False).reset_index(drop=True)
 
+    # Per-date GTGD map over the last ~5 sessions: {iso_date: {total, count}}.
+    # total_gtgd_day/gtgd_ticker_count expose the latest COMPLETE session via
+    # _pick_gtgd_session (an in-progress day with few names yet is skipped);
+    # the brief instead looks up gtgd_by_date for ITS effective trading date.
+    gtgd_by_date: dict = {}
+    if _gtgd_day_rows:
+        _acc: dict = {}
+        for d, val in _gtgd_day_rows:
+            k = d.date()
+            t, n = _acc.get(k, (0.0, 0))
+            _acc[k] = (t + val, n + 1)
+        _lastn = sorted(_acc.keys(), reverse=True)[:20]   # ~20 phiên cho TB5/TB20
+        gtgd_by_date = {
+            k.isoformat(): {"total": round(_acc[k][0], 1), "count": _acc[k][1]}
+            for k in _lastn
+        }
+    _gd, total_gtgd_day, gtgd_ticker_count = _pick_gtgd_session(gtgd_by_date)
+
     return {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        # Actual trading date of the stock bars used (NOT wall-clock) — lets the
+        # brief detect when breadth/movers/regime trail an intraday VNINDEX.
+        "data_date": _max_data_date.date().isoformat() if _max_data_date is not None else None,
+        "total_gtgd_day": total_gtgd_day,
+        "gtgd_ticker_count": gtgd_ticker_count,
+        "gtgd_date": _gd,
+        "gtgd_by_date": gtgd_by_date,
+        "nn_data_date": nn_data_date,   # latest date the foreign-flow feed covers
         "sectors": result.to_dict(orient="records"),
         "breadth": breadth,
         "tickers": tick_display.to_dict(orient="records"),
     }
+
+
+def _pick_gtgd_session(gtgd_by_date: dict, now=None) -> tuple:
+    """Pick the latest COMPLETE session from {iso_date: {total, count}}.
+
+    Count can't tell a mid-day partial apart — by noon ~80% of names have
+    already printed a trade (observed 706/869) while turnover sits at ~37%.
+    So: (a) if the latest date IS today and the session hasn't closed yet
+    (< 15:05), it's in-progress by definition → step back one day; (b) else
+    compare its TOTAL with the median of the other days — below 55% of the
+    median means a partial fetched mid-session (a genuinely quiet day doesn't
+    halve the 5-day median). Returns (iso_date, total, count) / (None, 0.0, 0).
+    """
+    if not gtgd_by_date:
+        return None, 0.0, 0
+    dates = sorted(gtgd_by_date.keys(), reverse=True)
+    latest = dates[0]
+    drop_latest = False
+    now = now or datetime.now()
+    if latest == now.date().isoformat() and now.time() < dt_time(15, 5):
+        drop_latest = True                      # session still open → partial
+    elif len(dates) > 1:
+        import statistics as _st
+        med = _st.median(gtgd_by_date[d]["total"] for d in dates[1:])
+        if med > 0 and gtgd_by_date[latest]["total"] < 0.55 * med:
+            drop_latest = True                  # stale mid-session fetch
+    pick = dates[1] if (drop_latest and len(dates) > 1) else latest
+    e = gtgd_by_date[pick]
+    return pick, e["total"], e["count"]
 
 
 def _json_safe(obj):

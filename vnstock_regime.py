@@ -119,25 +119,24 @@ def _load_breadth() -> dict:
         return {}
 
 
-def _load_nn_net_1d() -> float:
-    """Return total NN ròng (tỷ VND) for most recent trading day from disk cache."""
+def _load_nn_net_1d(effective_date: "str | None" = None) -> float:
+    """Total NN ròng (tỷ VND) for the effective trading day.
+
+    Prefers the FULL-market per-date source (vnstock_foreign_flow). The legacy
+    top-100 cache (nn_flow_cache.json) overstated net selling AND was refreshed
+    only by the Streamlit dashboard, so the brief showed a frozen value as
+    "phiên hôm nay" (observed 12/06: -665 for two different sessions). Returns
+    0.0 (→ the sentiment signal is omitted) when no fresh full-market figure
+    exists for the date, rather than presenting a stale/biased number.
+    """
     try:
-        p = _REPO / "data_warehouse" / "_meta" / "nn_flow_cache.json"
-        if not p.exists():
-            return 0.0
-        import pandas as pd
-        data = json.loads(p.read_text(encoding="utf-8"))
-        # Cache is a plain list of records [{symbol,date,net_value,...}, ...]
-        df = pd.DataFrame(data if isinstance(data, list) else data.get("rows", []))
-        if df.empty or "date" not in df.columns:
-            return 0.0
-        df["date"] = pd.to_datetime(df["date"])
-        latest = df["date"].max()
-        day_df = df[df["date"] >= latest]
-        net = day_df["net_value"].sum() if "net_value" in day_df.columns else 0.0
-        return round(float(net) / 1e9, 1)
+        from vnstock_foreign_flow import load_market_net_1d
+        v = load_market_net_1d(effective_date)
+        if v is not None:
+            return round(float(v), 1)
     except Exception:
-        return 0.0
+        pass
+    return 0.0
 
 
 # ── Core classifier ───────────────────────────────────────────────────────

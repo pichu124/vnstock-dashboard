@@ -315,7 +315,11 @@ def test_accept_then_scan_warehouse_filters_whitelisted(tmp_path):
                    year_dir / "p.parquet")
 
     from vnstock_anomaly import scan_warehouse
-    pre = scan_warehouse(warehouse=tmp_path, lookback=10)
+    # lookback=None → scan ALL history. (Was lookback=10, but the fixture's fixed
+    # April-2026 dates age out of a "last-10-calendar-days-from-today" window as
+    # real time passes, so the scan saw 0 bars and the assert tripped — a
+    # time-dependent test bug unrelated to the detector.)
+    pre = scan_warehouse(warehouse=tmp_path, lookback=None)
     vcb_hits_pre = [a for a in pre.anomalies if a.ticker == "VCB"]
     assert vcb_hits_pre, "fixture should trip at least one anomaly"
 
@@ -326,7 +330,7 @@ def test_accept_then_scan_warehouse_filters_whitelisted(tmp_path):
     assert res["ok"] >= 1
 
     # Re-scan: whitelisted entries are filtered out
-    post = scan_warehouse(warehouse=tmp_path, lookback=10)
+    post = scan_warehouse(warehouse=tmp_path, lookback=None)
     assert not [a for a in post.anomalies if a.ticker == "VCB"], \
         "whitelisted anomalies must be filtered out on rescan"
 

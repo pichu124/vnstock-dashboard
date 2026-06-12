@@ -360,13 +360,65 @@ def lite_config(universe: list[str]) -> "BacktestConfig":
     )
 
 
-def _load_history(ticker: str, days: int) -> pd.DataFrame:
-    """Lazy import of dashboard history loader to avoid Streamlit dep at module load."""
+def _load_history_from_parquet(
+    ticker: str, days: int, prices_dir: Path | None = None
+) -> pd.DataFrame:
+    """CLI-safe daily OHLCV read straight from the parquet warehouse.
+
+    Mirrors vnstock_dashboard.load_price_history but without the @st.cache_data
+    wrapper (which raises outside a Streamlit session). Units are normalised the
+    same way the warehouse pipeline does so prices match recommendation targets.
+    """
+    root = Path(prices_dir) if prices_dir else Path("data_warehouse/prices")
+    base = root / f"ticker={ticker.upper()}"
+    if not base.exists():
+        return pd.DataFrame()
     try:
-        from vnstock_dashboard import load_price_history
-        return load_price_history(ticker, days=days)
+        import pyarrow.parquet as _pq
     except Exception:
         return pd.DataFrame()
+    frames = []
+    for yd in sorted(base.glob("year=*")):
+        for pf in yd.glob("*.parquet"):
+            try:
+                frames.append(_pq.read_table(
+                    str(pf),
+                    columns=["time", "open", "high", "low", "close", "volume"],
+                ).to_pandas())
+            except Exception:
+                continue
+    if not frames:
+        return pd.DataFrame()
+    df = pd.concat(frames, ignore_index=True)
+    df["time"] = pd.to_datetime(df["time"])
+    if days > 0:
+        df = df[df["time"] >= _dt.now() - _td(days=days)]
+    df = df.sort_values("time").reset_index(drop=True)
+    try:
+        from vnstock_runner import _normalize_prices
+        df = _normalize_prices(df)
+    except Exception:
+        pass
+    return df
+
+
+def _load_history(ticker: str, days: int) -> pd.DataFrame:
+    """Load recent daily OHLCV for a ticker.
+
+    Tries the dashboard's cached loader first (fast inside Streamlit), then falls
+    back to a direct parquet read. The fallback is essential: the dashboard
+    loader is @st.cache_data-decorated and FAILS outside a Streamlit session, so
+    reconcile/backtest run from the CLI/brief pipeline were silently getting an
+    empty frame — leaving graded recs stuck open as zombies.
+    """
+    try:
+        from vnstock_dashboard import load_price_history
+        df = load_price_history(ticker, days=days)
+        if df is not None and not df.empty:
+            return df
+    except Exception:
+        pass
+    return _load_history_from_parquet(ticker, days)
 
 
 def _simulate_trade(future: pd.DataFrame, sig: dict) -> tuple[float, str]:
