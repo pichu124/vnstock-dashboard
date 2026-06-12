@@ -2906,6 +2906,23 @@ def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
                 _fix, lines[i])
             if new != lines[i]:
                 lines[i] = new
+
+            # number-AFTER-name in a parenthetical — "<NAME> (NN -1,372 tỷ)"
+            # (observed 12:03: the model FABRICATED "Thép & Kim loại (NN -1,372
+            # tỷ)" while the real NN 1T was nowhere near that; the before-name
+            # regex above can't see it). The sign is explicit here, so correct
+            # to the real SIGNED value — a wrong magnitude can't survive.
+            def _fix_after(m: "_re.Match", _vv=vv) -> str:
+                cur = _parse_vn_number(m.group(2))
+                return (f"{m.group(1)}{_vv:+,.0f}{m.group(3)}"
+                        if cur is not None and abs(cur - _vv) > max(1.0, 0.02 * abs(_vv))
+                        else m.group(0))
+
+            new = _re.sub(
+                rf"({_re.escape(nm)}\s*\(\s*(?:NN\s*|khối\s+ngoại\s*)?)(-?\d[\d.,]*)(\s*tỷ)",
+                _fix_after, lines[i])
+            if new != lines[i]:
+                lines[i] = new
     region_low = "\n".join(lines[anchor:region_end]).lower()
 
     top_buy = max(rows, key=lambda x: x[1])

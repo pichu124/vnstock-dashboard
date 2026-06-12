@@ -501,6 +501,28 @@ def test_enforce_money_flow_ranks_true_top_sell_not_mislabeled_bucket():
     assert enforce_money_flow_two_sides(t2, ctx) == t2
 
 
+def test_enforce_money_flow_corrects_fabricated_number_after_name():
+    # 12:03 root cause: the model attached a FABRICATED foreign-flow figure to a
+    # sector in a parenthetical — "Thép & Kim loại (NN -1,372 tỷ)" — while the
+    # real NN 1T was far smaller. The number-AFTER-name corrector must rewrite it
+    # to the true signed value (the before-name regex can't see parentheticals).
+    from vnstock_brief import enforce_money_flow_two_sides
+    ctx = {"sectors": [{"Ngành": "Thép & Kim loại", "NN 1T (tỷ)": -180.0},
+                       {"Ngành": "Ngân hàng", "NN 1T (tỷ)": -703.0},
+                       {"Ngành": "Thực phẩm & Đồ uống", "NN 1T (tỷ)": 136.0}]}
+    text = ("💰 Dòng tiền đáng chú ý\n"
+            "Khối ngoại bán ròng mạnh Ngân hàng -703 tỷ. Smart money phân phối tại "
+            "Thép & Kim loại (NN -1,372 tỷ).\n"
+            "📋 Watchlist")
+    fixed = enforce_money_flow_two_sides(text, ctx)
+    assert "Thép & Kim loại (NN -180 tỷ)" in fixed
+    assert "-1,372" not in fixed
+    # Ngân hàng -703 is now the true top sell, named in a bán-ròng clause → no
+    # canonical sell line; only the missing buy side is appended.
+    assert "NN bán ròng mạnh nhất" not in fixed
+    assert "NN mua ròng mạnh nhất (1 tuần): Thực phẩm & Đồ uống +136 tỷ" in fixed
+
+
 def test_enforce_money_flow_corrects_wrong_sector_number_in_prose():
     # 11:19: "mua ròng 5 tỷ … Thực phẩm & Đồ uống" while the real NN 1T = +136
     # (and the canonical line said +136 → contradiction). Correct the prose
