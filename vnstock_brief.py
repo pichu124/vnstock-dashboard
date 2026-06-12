@@ -2550,6 +2550,7 @@ def generate_brief(
             fixed = enforce_pivot_labels(fixed, ctx)
             fixed = enforce_watchlist_eligibility(fixed, ctx)
             fixed = enforce_gtgd_total(fixed, ctx)
+            fixed = enforce_gtgd_compare_frame(fixed, ctx)   # full-day ≠ morning baseline
             fixed = enforce_no_cjk(fixed, ctx)
             fixed = enforce_no_instruction_leak(fixed, ctx)
             fixed = enforce_no_placeholder_leak(fixed, ctx)
@@ -3576,6 +3577,60 @@ def enforce_gtgd_total(text: str, ctx: dict) -> str:
                 lambda m: f"{m.group(1)}{m.group(2)}{canonical:,.1f}{m.group(4) or ' tỷ'}", l)
         else:                                     # known-zero/missing → strip the fabrication
             new = _GTGD_CTX_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}chưa có dữ liệu", l)
+        if new != l:
+            lines[i] = new
+            changed = True
+    return "\n".join(lines) if changed else text
+
+
+# A GTGD comparison against MORNING baselines (sáng-với-sáng) — a percentage
+# tied to "sáng phiên trước"/"TB sáng"/"sáng N phiên". Matches up to the end of
+# the sentence, allowing decimals inside numbers (period+space ends it, not the
+# decimal point). Group 1 = the leading comma/space to preserve.
+_MORNING_CMP_RE = _re.compile(
+    r"(,?\s*)(?:thấp hơn|cao hơn|giảm|tăng)?\s*\d[\d.,]*\s*%\s*so\b.*?"
+    r"(?:sáng phiên trước|TB\s*sáng|sáng\s+\d+\s+phiên).*?(?=\.\s|\.$|$)",
+    _re.IGNORECASE)
+
+
+def enforce_gtgd_compare_frame(text: str, ctx: dict) -> str:
+    """In the CLOSE 'Tổng kết phiên', the full-day GTGD figure must be compared
+    full-day-vs-full-day, never against morning baselines (the Session Timing
+    block hands the close BOTH frames and warns against mixing). Observed 13:00:
+    "GTGD (11,929.2 tỷ), thấp hơn 43% so sáng phiên trước (9,129.4 tỷ) và 34% so
+    TB sáng 5 phiên (7,959.6 tỷ)" — a full-day number against morning baselines,
+    with an impossible direction (11,929 > 9,129). Replace the morning-baseline
+    comparison in the close summary with the canonical full-day comparison
+    (TB5/TB20 phiên) from ctx. No-op without the full-day cmp or the bad pattern.
+    """
+    cmp = ctx.get("full_day_gtgd_cmp") or {}
+    try:
+        F = float(ctx["full_day_gtgd"]) if ctx.get("full_day_gtgd") else None
+    except (TypeError, ValueError):
+        F = None
+    if not text or not F or not (cmp.get("avg5") or cmp.get("avg20")):
+        return text
+    p5 = (F / cmp["avg5"] - 1) * 100 if cmp.get("avg5") else None
+    p20 = (F / cmp["avg20"] - 1) * 100 if cmp.get("avg20") else None
+    parts = [f"{lbl} ({p:+.0f}%)" for lbl, p in
+             (("TB5 phiên", p5), ("TB20 phiên", p20)) if p is not None]
+    if not parts:
+        return text
+    pcts = [p for p in (p5, p20) if p is not None]
+    verb = ("thấp hơn" if all(p < 0 for p in pcts)
+            else "cao hơn" if all(p > 0 for p in pcts) else "so với")
+    canonical = f"{verb} {' và '.join(parts)}"
+
+    lines = text.splitlines()
+    sec = None
+    changed = False
+    for i, l in enumerate(lines):
+        if _is_section_start(l):
+            sec = "close" if "tổng kết phiên" in l.lower() else None
+            continue
+        if sec != "close":
+            continue
+        new = _MORNING_CMP_RE.sub(lambda m: f"{m.group(1)}{canonical}", l, count=1)
         if new != l:
             lines[i] = new
             changed = True

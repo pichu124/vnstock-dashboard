@@ -717,6 +717,49 @@ def test_enforce_no_record_superlative_strips_all_time_gtgd_claim():
     assert enforce_no_record_superlative(keep, {}) == keep
 
 
+def test_enforce_gtgd_compare_frame_swaps_morning_baseline_for_fullday():
+    # 13:00: the close summary compared the full-day GTGD against MORNING
+    # baselines with an impossible direction — "(11,929.2 tỷ), thấp hơn 43% so
+    # sáng phiên trước (9,129.4 tỷ) và 34% so TB sáng 5 phiên (7,959.6 tỷ)".
+    # Must become the canonical full-day comparison (TB5/TB20 phiên).
+    from vnstock_brief import enforce_gtgd_compare_frame
+    ctx = {"full_day_gtgd": 11929.2,
+           "full_day_gtgd_cmp": {"prev": 13000.0, "avg5": 13556.0, "avg20": 18353.0}}
+    text = ("📊 Tổng kết phiên\n"
+            "Phiên chiều chủ đạo chiếm 56% GTGD (11,929.2 tỷ), thấp hơn 43% so "
+            "sáng phiên trước (9,129.4 tỷ) và 34% so TB sáng 5 phiên (7,959.6 tỷ). "
+            "Độ rộng tiêu cực (A/D=0.87).\n"
+            "📈 Mức kỹ thuật")
+    fixed = enforce_gtgd_compare_frame(text, ctx)
+    assert "sáng phiên trước" not in fixed
+    assert "TB sáng" not in fixed
+    assert "thấp hơn TB5 phiên (-12%) và TB20 phiên (-35%)" in fixed
+    # the full-day number and the rest of the sentence survive
+    assert "GTGD (11,929.2 tỷ), thấp hơn TB5 phiên" in fixed
+    assert "Độ rộng tiêu cực (A/D=0.87)." in fixed
+    # idempotent
+    assert enforce_gtgd_compare_frame(fixed, ctx) == fixed
+
+
+def test_enforce_gtgd_compare_frame_noop_cases():
+    from vnstock_brief import enforce_gtgd_compare_frame
+    ctx = {"full_day_gtgd": 11929.2,
+           "full_day_gtgd_cmp": {"avg5": 13556.0, "avg20": 18353.0}}
+    # a correct full-day comparison is left alone
+    ok = ("📊 Tổng kết phiên\nGTGD cả ngày 11,929.2 tỷ thấp hơn TB5 phiên (-12%) "
+          "và TB20 phiên (-35%).\n📈 Mức kỹ thuật")
+    assert enforce_gtgd_compare_frame(ok, ctx) == ok
+    # the morning brief's own sáng-với-sáng comparison (not in a "Tổng kết phiên"
+    # close section) is untouched
+    morn = ("📊 Tổng quan phiên sáng\nGTGD sáng 5,200 tỷ, thấp hơn 43% so sáng "
+            "phiên trước (9,129.4 tỷ).\n📈 Mức kỹ thuật")
+    assert enforce_gtgd_compare_frame(morn, ctx) == morn
+    # no cmp data → untouched
+    assert enforce_gtgd_compare_frame(
+        "📊 Tổng kết phiên\nGTGD (1 tỷ) thấp hơn 9% so sáng phiên trước (2 tỷ).", {}) \
+        == "📊 Tổng kết phiên\nGTGD (1 tỷ) thấp hơn 9% so sáng phiên trước (2 tỷ)."
+
+
 def test_bias_floor_giam_adds_watchlist_conditional_buy_rule():
     # Stance GIẢM kept producing unconditional dip-buys ("MUA vùng 69,000" with
     # price at 70,700). The bias-floor block must carry a watchlist-specific
