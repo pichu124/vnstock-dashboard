@@ -2430,6 +2430,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_watchlist_eligibility(fixed, ctx)
     fixed = enforce_gtgd_total(fixed, ctx)            # full-day (close) / sáng (morning)
     fixed = enforce_gtgd_compare_frame(fixed, ctx)    # close-only: full-day ≠ morning baseline
+    fixed = enforce_gtgd_baseline_pct(fixed, ctx)     # close-only: % must match its baseline
     fixed = enforce_compare_direction(fixed, ctx)     # 'thấp/cao hơn' must match % sign
     fixed = enforce_breadth_label(fixed, ctx)         # above-MA200 % ≠ '% mã tăng giá'
     fixed = enforce_no_cjk(fixed, ctx)
@@ -3870,6 +3871,45 @@ def enforce_gtgd_compare_frame(text: str, ctx: dict) -> str:
             lines[i] = new
             changed = True
     return "\n".join(lines) if changed else text
+
+
+def enforce_gtgd_baseline_pct(text: str, ctx: dict) -> str:
+    """In the CLOSE GTGD comparison, each % must match ITS baseline. Observed
+    12/06: "GTGD cả ngày 18,353.2 tỷ (+4% vs TB5 phiên, +43% vs phiên trước)" —
+    the % were shifted onto the wrong baselines (+4% is the TB20 figure, +43% the
+    TB5 figure; the real values are TB5 +43%, phiên trước +80%). Pin each
+    "±N% vs/so <baseline>" to the value computed from ctx full_day_gtgd_cmp
+    (avg5/avg20/prev). Close-only (gated on "Tổng kết phiên") so the morning's
+    sáng-với-sáng comparison is never touched; idempotent; no-op without cmp.
+    """
+    if not text or "tổng kết phiên" not in text.lower():
+        return text
+    cmp = ctx.get("full_day_gtgd_cmp") or {}
+    try:
+        F = float(ctx["full_day_gtgd"]) if ctx.get("full_day_gtgd") else None
+    except (TypeError, ValueError):
+        F = None
+    if not F or not cmp:
+        return text
+
+    def _fix(m: "_re.Match") -> str:
+        base_low = m.group(3).lower()
+        if "sáng" in base_low:
+            return m.group(0)
+        base_v = (cmp.get("avg20") if "20" in base_low
+                  else cmp.get("avg5") if "5" in base_low
+                  else cmp.get("prev") if "trước" in base_low else None)
+        if not base_v:
+            return m.group(0)
+        correct = (F / base_v - 1) * 100
+        cur = _parse_vn_number(m.group(1))
+        if cur is not None and abs(cur - correct) <= 1:
+            return m.group(0)
+        return f"{correct:+.0f}{m.group(2)}{m.group(3)}"
+
+    return _re.sub(
+        r"([+-]?\d[\d.,]*)(\s*%\s*(?:vs|so với|so)\s+)([^,.)]+?)(?=[,.)]|$)",
+        _fix, text)
 
 
 def enforce_compare_direction(text: str, ctx: dict | None = None) -> str:

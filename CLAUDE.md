@@ -208,6 +208,12 @@ trong `apply_brief_guards`, áp cho mọi agent, cả morning & close):
     200, S1/S2/R1/R2, đỉnh/đáy tuần/tháng/52w) trong ~2.7đ → pin về mức gần nhất;
     pivot/close/MA + mục tiêu tròn/xấp xỉ ("dưới 1,790") KHÔNG đụng. Nhãn đáy/đỉnh
     phiên mâu thuẫn close → bỏ. (User chọn guard chặt, chấp nhận rủi ro biên nhỏ.)
+22. `enforce_gtgd_baseline_pct` — **close-only**: mỗi % phải khớp ĐÚNG baseline.
+    Close 12/06: "GTGD cả ngày 18.353 tỷ (+4% vs TB5 phiên, +43% vs phiên trước)"
+    — % gán nhầm baseline (+4% là của TB20, +43% là của TB5; thật: TB5 +43%,
+    phiên trước +80%). Pin "±N% vs/so <baseline>" về giá trị tính từ
+    `full_day_gtgd_cmp` (avg5/avg20/prev). Gate "Tổng kết phiên" + bỏ qua baseline
+    có "sáng" → morning không bị đụng; idempotent.
 21. `enforce_breadth_label` — brief CHỈ có "% mã trên MA200" (above_ma200_pct),
     KHÔNG có "% mã tăng giá". Close 12/06: "chỉ 17% mã cổ phiếu tăng giá" — 17%
     là số trên-MA200 (A/D 0.85 ⇒ ~46% tăng), gán nhãn "tăng giá" sai → relabel

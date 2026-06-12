@@ -1040,6 +1040,28 @@ def test_enforce_compare_direction_flips_word_to_match_sign():
     assert enforce_compare_direction(f, {}) == f      # idempotent
 
 
+def test_enforce_gtgd_baseline_pct_pins_pct_to_its_baseline():
+    # Close 12/06: "GTGD cả ngày 18,353.2 tỷ (+4% vs TB5 phiên, +43% vs phiên
+    # trước)" — % shifted onto wrong baselines (real: TB5 +43%, phiên trước +80%).
+    from vnstock_brief import enforce_gtgd_baseline_pct
+    ctx = {"full_day_gtgd": 18353.2,
+           "full_day_gtgd_cmp": {"prev": 10196.0, "avg5": 12834.0, "avg20": 17647.0}}
+    t = ("📊 Tổng kết phiên\nGTGD cả ngày 18,353.2 tỷ (+4% vs TB5 phiên, "
+         "+43% vs phiên trước).\n📈 Mức kỹ thuật")
+    f = enforce_gtgd_baseline_pct(t, ctx)
+    assert "+43% vs TB5 phiên" in f
+    assert "+80% vs phiên trước" in f
+    assert "+4% vs TB5" not in f
+    assert enforce_gtgd_baseline_pct(f, ctx) == f                  # idempotent
+    # a correct mapping is left alone
+    ok = ("📊 Tổng kết phiên\nGTGD cả ngày 18,353.2 tỷ (+43% vs TB5 phiên, "
+          "+4% vs TB20 phiên).\n📈")
+    assert enforce_gtgd_baseline_pct(ok, ctx) == ok
+    # morning (no "Tổng kết phiên") is never touched
+    morn = "📊 Tổng quan phiên sáng\nGTGD sáng cao hơn 60% so với sáng phiên trước."
+    assert enforce_gtgd_baseline_pct(morn, ctx) == morn
+
+
 def test_enforce_breadth_label_relabels_above_ma200_as_advancing():
     # Close 12/06: "chỉ 17% mã cổ phiếu tăng giá" — 17% is the above-MA200 stat
     # (A/D 0.85 implies ~46% advancing), so 'tăng giá' is a mislabel → 'trên MA200'.
