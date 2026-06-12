@@ -1002,6 +1002,32 @@ def test_money_flow_guard_handles_morning_inline_line():
     assert lines[i + 1].startswith("NN bán ròng mạnh nhất (1 tuần): Bất động sản -5,111 tỷ")
 
 
+def test_enforce_scenario_levels_pins_fabricated_and_keeps_real():
+    # Morning 14:28: "đóng cửa trên 1,801.99 (đáy phiên), test R1=1,822.95" —
+    # 1,801.99 matches no real level and "đáy phiên" above the close is
+    # impossible. Pin it to the nearest real level and drop the bad label;
+    # leave pivots, close, MAs and round/approx targets alone.
+    from vnstock_brief import enforce_scenario_levels
+    ctx = {"vnindex_tech": {"close": 1798.61, "ma20": 1858.39, "ma50": 1830.77,
+                            "ma200": 1749.10, "support_1": 1789.31, "support_2": 1758.96,
+                            "resistance_1": 1822.95, "resistance_2": 1846.19,
+                            "week_high": 1860.0, "week_low": 1790.0}}
+    text = ("🔮 Kịch bản phiên chiều\n"
+            "Chính: thủng S1=1,789.31 → về S2=1,758.96, đóng cửa dưới 1,790.\n"
+            "Phụ: giữ trên S1=1,789.31 → đóng cửa trên 1,801.99 (đáy phiên), test R1=1,822.95.\n"
+            "MA20=1,858.39.")
+    f = enforce_scenario_levels(text, ctx)
+    assert "1,801.99" not in f                      # fabricated level pinned away
+    assert "(đáy phiên)" not in f                    # contradictory label dropped
+    assert "S1=1,789.31" in f and "S2=1,758.96" in f # pivots untouched
+    assert "R1=1,822.95" in f                        # pivot untouched
+    assert "đóng cửa dưới 1,790." in f               # round target untouched
+    assert "MA20=1,858.39" in f                      # MA untouched
+    assert enforce_scenario_levels(f, ctx) == f      # idempotent
+    # no ctx levels → untouched
+    assert enforce_scenario_levels(text, {}) == text
+
+
 def test_enforce_sector_nn_figures_fixes_fabricated_flow_outside_money_section():
     # Morning 14:11: the "Tránh/Bán" line carried "Thép & Kim loại (đóng góp
     # -0.03pp, 1 tuần, NN bán ròng -1,372 tỷ)" — fabricated, and contradicting

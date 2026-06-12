@@ -189,6 +189,13 @@ trong `apply_brief_guards`, áp cho mọi agent, cả morning & close):
     "Tránh/Bán" / close "Tụt hậu") khi phủ nhận / gọi sai ngành / thiếu ngành
     đúng. Dòng đúng (close) giữ nguyên; idempotent. ⇒ đây là điểm parity quan
     trọng: "Trọng tâm theo dõi" của morning giờ luôn khớp lead/lag như close.
+19. `enforce_scenario_levels` — mức VNINDEX BỊA trong kịch bản (morning 14:28:
+    "đóng cửa trên 1,801.99 (đáy phiên)" — 1,801.99 không khớp pivot/close/MA nào
+    + "đáy phiên" mà CAO HƠN close = vô lý). STRICT-NHƯNG-AN-TOÀN: chỉ token
+    *2-lẻ-band-index* (1,xxx.xx ∈ 800-2500) KHÔNG khớp 14 mức thật (close, MA20/50/
+    200, S1/S2/R1/R2, đỉnh/đáy tuần/tháng/52w) trong ~2.7đ → pin về mức gần nhất;
+    pivot/close/MA + mục tiêu tròn/xấp xỉ ("dưới 1,790") KHÔNG đụng. Nhãn đáy/đỉnh
+    phiên mâu thuẫn close → bỏ. (User chọn guard chặt, chấp nhận rủi ro biên nhỏ.)
 18. `enforce_number_format` (chạy CUỐI) — chuẩn hoá số về 1 quy ước EN (phẩy ngăn
     nghìn, chấm thập phân) như data block (`{:,.2f}`)/guards/close. Morning 13:54
     trộn VN ("1.798,61", "9.129,4", "1.858,39", "-3,2%", "5.038 tỷ") với EN

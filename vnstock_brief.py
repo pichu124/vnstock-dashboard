@@ -2426,6 +2426,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_nn_window_label(fixed, ctx)       # 1D NN total ≠ weekly
     fixed = enforce_risk_numbers(fixed, ctx)          # defensive no-op on canonical
     fixed = enforce_pivot_labels(fixed, ctx)
+    fixed = enforce_scenario_levels(fixed, ctx)       # scenario levels = real data only
     fixed = enforce_watchlist_eligibility(fixed, ctx)
     fixed = enforce_gtgd_total(fixed, ctx)            # full-day (close) / sáng (morning)
     fixed = enforce_gtgd_compare_frame(fixed, ctx)    # close-only: full-day ≠ morning baseline
@@ -3418,6 +3419,58 @@ def enforce_pivot_labels(text: str, ctx: dict) -> str:
         return f"{label}={v:,.2f}"
 
     return _PIVOT_LABEL_RE.sub(_sub, text)
+
+
+def enforce_scenario_levels(text: str, ctx: dict) -> str:
+    """Pin a fabricated precise VNINDEX level to the nearest real data level.
+
+    Observed morning 14:28: the recovery scenario cited "đóng cửa trên 1,801.99
+    (đáy phiên)" — 1,801.99 matches no pivot/close/MA, and labelling it the
+    session LOW is impossible (it's ABOVE the close 1,798.61). The template says
+    scenario levels must come from the data block.
+
+    Strict-but-safe: only PRECISE 2-decimal index-band tokens (1,xxx.xx in
+    800-2500) are considered, and only when they match NONE of the real ctx
+    levels (close, MA20/50/200, S1/S2/R1/R2, week/month/52w hi-lo) within ~2.7pt.
+    Pivots/close/MAs are recognised → left as-is; round/approximate targets
+    ("dưới 1,790", "quanh 1,795-1,805") have no 2-decimals → never touched. A
+    matched fabrication is pinned to the nearest real level; a session-extreme
+    label that then contradicts the close (đáy ≥ close / đỉnh ≤ close) is dropped.
+    Idempotent; no-op without ctx levels.
+    """
+    vt = ctx.get("vnindex_tech") or {}
+    close = vt.get("close")
+    known = [vt.get(k) for k in (
+        "close", "ma20", "ma50", "ma200", "support_1", "support_2",
+        "resistance_1", "resistance_2", "week_high", "week_low",
+        "month_high", "month_low", "high_52w", "low_52w")]
+    known = [k for k in known if isinstance(k, (int, float)) and 800 <= k <= 2500]
+    if not text or not known:
+        return text
+
+    def _pin(m: "_re.Match") -> str:
+        v = _parse_vn_number(m.group(0))
+        if v is None or not (800 <= v <= 2500):
+            return m.group(0)
+        nk = min(known, key=lambda k: abs(k - v))
+        return m.group(0) if abs(v - nk) <= max(2.0, 0.0015 * v) else f"{nk:,.2f}"
+    out = _re.sub(r"\b[12],\d{3}\.\d{2}\b", _pin, text)
+
+    if isinstance(close, (int, float)):
+        def _lbl(m: "_re.Match") -> str:
+            v = _parse_vn_number(m.group(1))
+            kind = m.group(2).lower()
+            if v is None:
+                return m.group(0)
+            low = "đáy" in kind or "thấp" in kind
+            high = "đỉnh" in kind or "cao" in kind
+            if (low and v >= close) or (high and v <= close):
+                return m.group(1)            # drop the contradictory extreme label
+            return m.group(0)
+        out = _re.sub(
+            r"([12],\d{3}\.\d{2})\s*\((đáy phiên|đỉnh phiên|thấp nhất phiên|cao nhất phiên)\)",
+            _lbl, out)
+    return out
 
 
 def enforce_watchlist_eligibility(text: str, ctx: dict) -> str:
