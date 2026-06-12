@@ -2545,6 +2545,7 @@ def generate_brief(
             fixed = enforce_watchlist_hygiene(fixed, ctx)
             fixed = enforce_money_flow_two_sides(fixed, ctx)
             fixed = enforce_liquidity_label(fixed, ctx)     # NN-sell figures ≠ thanh khoản
+            fixed = enforce_nn_window_label(fixed, ctx)     # 1D NN total ≠ weekly
             fixed = enforce_risk_numbers(fixed, ctx)        # defensive no-op on canonical
             fixed = enforce_pivot_labels(fixed, ctx)
             fixed = enforce_watchlist_eligibility(fixed, ctx)
@@ -3009,6 +3010,43 @@ def enforce_liquidity_label(text: str, ctx: dict) -> str:
             changed = True
         out_lines.append("".join(parts))
     return "\n".join(out_lines) if changed else text
+
+
+def enforce_nn_window_label(text: str, ctx: dict | None = None) -> str:
+    """A foreign-flow figure can't be both weekly AND one-day. The composite
+    'NN ròng 1D' total (from the market-sentiment block) is a ONE-DAY net flow,
+    but the LLM weaves it into the (weekly) money-flow narrative tagged 'tuần'
+    (observed 12:42: "Khối ngoại bán ròng mạnh 665 tỷ tuần này (1D: -665 tỷ)" —
+    which also understates the week: Ngân hàng alone is -703 tỷ/tuần).
+
+    1) Self-contradiction (ctx-free, always safe): "<N tỷ> <tuần…> (1D…)" → drop
+       the weekly tag — the model already labeled it 1D.
+    2) The exact 1D magnitude from ctx tagged weekly with NO 1D marker → relabel
+       to 1D. Skipped if a weekly sector value shares that magnitude (coincidence).
+    """
+    if not text:
+        return text
+    _wk = r"(?:trong\s+)?(?:tuần\s+này|tuần\s+qua|cả\s+tuần|1\s*tuần|tuần)"
+    new = _re.sub(rf"(\d[\d.,]*\s*tỷ)\s*{_wk}(\s*\(\s*1D)", r"\1\2", text)
+
+    ms = (ctx or {}).get("market_sentiment") or {}
+    sig = next((s for s in ms.get("signals", [])
+                if "1d" in str(s.get("name", "")).lower()
+                and "nn" in str(s.get("name", "")).lower()), None)
+    if sig:
+        val = _parse_vn_number(
+            str(sig.get("value", "")).replace("tỷ", "").replace("+", "").strip())
+        if val is not None:
+            mag = f"{abs(val):,.0f}"
+            coincident = any(
+                isinstance(s.get("NN 1T (tỷ)"), (int, float))
+                and f"{abs(s['NN 1T (tỷ)']):,.0f}" == mag
+                for s in ((ctx or {}).get("sectors") or []))
+            if not coincident:
+                new = _re.sub(
+                    rf"({_re.escape(mag)}\s*tỷ)\s*{_wk}\b(?!\s*\(\s*1D)",
+                    r"\1 (1D, phiên gần nhất)", new)
+    return new
 
 
 def _canonical_risk_lines(ctx: dict) -> list:

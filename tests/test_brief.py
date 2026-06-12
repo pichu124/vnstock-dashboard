@@ -637,6 +637,52 @@ def test_enforce_liquidity_label_noop_when_clean():
     assert enforce_liquidity_label(t1, {}) == t1
 
 
+def test_enforce_nn_window_label_fixes_1d_tagged_weekly():
+    # 12:42: "Khối ngoại bán ròng mạnh 665 tỷ tuần này (1D: -665 tỷ)" — the 1D
+    # foreign total is tagged 'tuần này' (and understates the week: Ngân hàng
+    # alone is -703 tỷ/tuần). The self-contradiction (weekly + (1D)) must lose
+    # the weekly tag.
+    from vnstock_brief import enforce_nn_window_label
+    ctx = {"market_sentiment": {"signals": [{"name": "NN ròng 1D", "value": "-665 tỷ"}]},
+           "sectors": [{"Ngành": "Ngân hàng", "NN 1T (tỷ)": -703.0}]}
+    text = ("💰 Dòng tiền đáng chú ý\n"
+            "Khối ngoại bán ròng mạnh 665 tỷ tuần này (1D: -665 tỷ). Ngân hàng "
+            "(-703 tỷ) bị bán mạnh nhất.\n📋 Watchlist")
+    fixed = enforce_nn_window_label(text, ctx)
+    assert "665 tỷ (1D: -665 tỷ)" in fixed
+    assert "tuần này (1D" not in fixed
+    assert "665 tỷ tuần này" not in fixed
+    # idempotent
+    assert enforce_nn_window_label(fixed, ctx) == fixed
+
+
+def test_enforce_nn_window_label_relabels_1d_without_marker():
+    # 1D magnitude tagged weekly with no "(1D" marker → relabel to 1D (ctx-driven).
+    from vnstock_brief import enforce_nn_window_label
+    ctx = {"market_sentiment": {"signals": [{"name": "NN ròng 1D", "value": "-665 tỷ"}]},
+           "sectors": [{"Ngành": "Ngân hàng", "NN 1T (tỷ)": -703.0}]}
+    text = "Khối ngoại bán ròng 665 tỷ tuần này.\n"
+    fixed = enforce_nn_window_label(text, ctx)
+    assert "665 tỷ (1D, phiên gần nhất)" in fixed
+    assert "665 tỷ tuần này" not in fixed
+
+
+def test_enforce_nn_window_label_noop_cases():
+    from vnstock_brief import enforce_nn_window_label
+    ctx = {"market_sentiment": {"signals": [{"name": "NN ròng 1D", "value": "-665 tỷ"}]},
+           "sectors": [{"Ngành": "Ngân hàng", "NN 1T (tỷ)": -703.0}]}
+    # a genuine weekly sector figure (703) tagged weekly is NOT relabeled
+    t1 = "NN bán ròng Ngân hàng 703 tỷ tuần này.\n"
+    assert enforce_nn_window_label(t1, ctx) == t1
+    # coincidence guard: if a sector's weekly value equals the 1D magnitude, skip
+    ctx_coin = {"market_sentiment": {"signals": [{"name": "NN ròng 1D", "value": "-703 tỷ"}]},
+                "sectors": [{"Ngành": "Ngân hàng", "NN 1T (tỷ)": -703.0}]}
+    t2 = "Ngân hàng bán ròng 703 tỷ tuần này.\n"
+    assert enforce_nn_window_label(t2, ctx_coin) == t2
+    # no 1D signal → untouched
+    assert enforce_nn_window_label("665 tỷ tuần này.\n", {}) == "665 tỷ tuần này.\n"
+
+
 def test_bias_floor_giam_adds_watchlist_conditional_buy_rule():
     # Stance GIẢM kept producing unconditional dip-buys ("MUA vùng 69,000" with
     # price at 70,700). The bias-floor block must carry a watchlist-specific
