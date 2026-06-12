@@ -2421,6 +2421,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_lead_lag(fixed, ctx)              # buy/avoid lines = lead/lag sector
     fixed = enforce_watchlist_hygiene(fixed, ctx)
     fixed = enforce_money_flow_two_sides(fixed, ctx)  # close section & morning inline
+    fixed = enforce_sector_nn_figures(fixed, ctx)     # fabricated sector NN anywhere
     fixed = enforce_liquidity_label(fixed, ctx)       # NN-sell figures ≠ thanh khoản
     fixed = enforce_nn_window_label(fixed, ctx)       # 1D NN total ≠ weekly
     fixed = enforce_risk_numbers(fixed, ctx)          # defensive no-op on canonical
@@ -3037,6 +3038,39 @@ def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
         add.append(f"NN mua ròng mạnh nhất (1 tuần): {top_buy[0]} {top_buy[1]:+,.0f} tỷ.")
     rebuilt = "\n".join(lines[:anchor + 1] + add + lines[anchor + 1:])
     return rebuilt if rebuilt != text else text
+
+
+def enforce_sector_nn_figures(text: str, ctx: dict) -> str:
+    """Correct a per-sector foreign-flow figure stated ANYWHERE in the brief, not
+    just the money-flow section. Observed morning 14:11: the "Tránh/Bán" line
+    carried "Thép & Kim loại (đóng góp -0.03pp, 1 tuần, NN bán ròng -1,372 tỷ)" —
+    a fabricated value that also contradicts "Ngân hàng -703 tỷ mạnh nhất" in the
+    same brief (if Thép were -1,372 it would be the top sell). enforce_money_flow
+    misses it: the number follows 'NN bán ròng' deep in the parenthetical (not
+    right after '(') and the line sits OUTSIDE the money-flow region.
+
+    Wherever a sector name is followed — within ~40 chars on the same line — by a
+    'NN/khối ngoại [bán/mua] ròng <num> tỷ' figure off from ctx by >2%, pin it to
+    the real signed value. The 'ròng' keyword right before the number means the
+    pp value ('-0.03pp') is never grabbed. Idempotent; no-op without data.
+    """
+    sectors = ctx.get("sectors") or []
+    rows = [(s.get("Ngành"), s.get("NN 1T (tỷ)")) for s in sectors
+            if s.get("Ngành") and isinstance(s.get("NN 1T (tỷ)"), (int, float))]
+    if not text or not rows:
+        return text
+    out = text
+    for nm, vv in rows:
+        def _fix(m: "_re.Match", _vv=vv) -> str:
+            cur = _parse_vn_number(m.group(2))
+            if cur is None or abs(cur - _vv) <= max(1.0, 0.02 * abs(_vv)):
+                return m.group(0)
+            return f"{m.group(1)}{_vv:+,.0f}{m.group(3)}"
+        out = _re.sub(
+            rf"({_re.escape(nm)}.{{0,40}}?(?:NN|khối\s+ngoại)?\s*(?:bán|mua)\s+ròng\s*)"
+            rf"(-?\d[\d.,]*)(\s*tỷ)",
+            _fix, out)
+    return out
 
 
 def enforce_liquidity_label(text: str, ctx: dict) -> str:

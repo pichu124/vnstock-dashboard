@@ -1002,6 +1002,26 @@ def test_money_flow_guard_handles_morning_inline_line():
     assert lines[i + 1].startswith("NN bán ròng mạnh nhất (1 tuần): Bất động sản -5,111 tỷ")
 
 
+def test_enforce_sector_nn_figures_fixes_fabricated_flow_outside_money_section():
+    # Morning 14:11: the "Tránh/Bán" line carried "Thép & Kim loại (đóng góp
+    # -0.03pp, 1 tuần, NN bán ròng -1,372 tỷ)" — fabricated, and contradicting
+    # "Ngân hàng -703 tỷ mạnh nhất". Pin it to Thép's real ctx NN; don't touch
+    # the pp value or correct figures.
+    from vnstock_brief import enforce_sector_nn_figures
+    ctx = {"sectors": [
+        {"Ngành": "Thép & Kim loại", "NN 1T (tỷ)": -180.0},
+        {"Ngành": "Ngân hàng", "NN 1T (tỷ)": -703.0}]}
+    text = ("**Tránh/Bán:** Bán lẻ & Thương mại (-0.064pp) + Thép & Kim loại "
+            "(đóng góp -0.03pp, 1 tuần, NN bán ròng -1,372 tỷ).\n"
+            "**Dòng tiền ngành:** NN bán ròng mạnh nhất: Ngân hàng -703 tỷ.")
+    f = enforce_sector_nn_figures(text, ctx)
+    assert "NN bán ròng -180 tỷ" in f
+    assert "-1,372" not in f
+    assert "-0.03pp" in f                              # pp value untouched
+    assert "Ngân hàng -703 tỷ" in f                    # correct figure untouched
+    assert enforce_sector_nn_figures(f, ctx) == f      # idempotent
+
+
 def test_enforce_number_format_normalizes_vn_to_en():
     # Morning 13:54 mixed VN format (1.798,61 / 9.129,4 / 1.858,39 / -3,2% /
     # 5.038 tỷ) with EN (5,233.3 / 1,789.31). Normalise the VN tokens to EN; leave
