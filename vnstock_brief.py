@@ -2993,11 +2993,23 @@ def enforce_risk_numbers(text: str, ctx: dict) -> str:
         _ocf_kw = ("op.cf", "lưu chuyển tiền", "lưu lượng tiền", "hđkd")
 
         def _wants_ocf(pos: int) -> bool:
-            """Per-ticker metric: pick whichever clause keyword (D/E vs OCF)
-            appears first AT/AFTER the ticker, so "HNG, PET, VTZ có D/E cao, và
-            KBC, NVL có lưu chuyển tiền HĐKD thấp" gives the D/E names D/E and
-            the cash-flow names OCF (was: whole-line OCF keyword → OCF for all)."""
-            rest = low[pos:]
+            """Per-ticker metric: pick D/E vs OCF by the keyword in the ticker's
+            OWN SENTENCE (bounded by '.'), so "HNG có D/E cao nhất, tiếp theo PET
+            và VTZ. KBC có lưu chuyển tiền HĐKD thấp" gives PET/VTZ D/E (their
+            sentence has D/E) and KBC OCF — not OCF for PET/VTZ just because the
+            next sentence mentions it. Falls back to nearest-after within the
+            line when the sentence has both/neither keyword."""
+            # Sentence bounds via '.' followed by whitespace/end — so a decimal
+            # point ("8.83") doesn't split the sentence and strip its D/E.
+            ends = [m.start() for m in _re.finditer(r"\.(?=\s|$)", low)]
+            s0 = next((e + 1 for e in reversed(ends) if e < pos), 0)
+            s1 = next((e for e in ends if e >= pos), len(low))
+            sent = low[s0:s1]
+            has_de = "d/e" in sent
+            has_ocf = any(w in sent for w in _ocf_kw)
+            if has_ocf != has_de:                 # exactly one present in the sentence
+                return has_ocf
+            rest = low[pos:]                       # ambiguous → nearest keyword after pos
             de_at = rest.find("d/e")
             ocf_at = min((p for p in (rest.find(w) for w in _ocf_kw) if p != -1),
                          default=-1)

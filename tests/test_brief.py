@@ -761,6 +761,25 @@ def test_enforce_risk_numbers_appends_missing_values():
     assert fixed.splitlines()[3] == "📅 Sự kiện sắp tới"  # appended inside section
 
 
+def test_enforce_risk_numbers_metric_by_sentence_not_next_clause():
+    # 10:53: "HNG có D/E cao nhất 8.83, tiếp theo là PET và VTZ. KBC có lưu
+    # chuyển tiền HĐKD thấp nhất …" — PET/VTZ belong to the D/E sentence but the
+    # old "nearest keyword after" logic grabbed KBC's OCF clause. The append must
+    # give PET/VTZ their D/E, KBC its Op.CF.
+    from vnstock_brief import enforce_risk_numbers
+    ctx = {"vn30_fundamentals": {
+        "HNG": {"de": 8.83, "ocf": 915.0}, "PET": {"de": 2.67, "ocf": -1389.0},
+        "VTZ": {"de": 2.63, "ocf": -318.0}, "KBC": {"de": 1.12, "ocf": -17344.0},
+    }}
+    text = ("⚠️ Rủi ro cần lưu ý\n"
+            "HNG có D/E cao nhất với 8.83, tiếp theo là PET và VTZ. KBC có lưu "
+            "chuyển tiền HĐKD thấp nhất với -17,344 tỷ.\n"
+            "📅 Sự kiện sắp tới")
+    fixed = enforce_risk_numbers(text, ctx)
+    assert "PET D/E=2.67" in fixed and "VTZ D/E=2.63" in fixed
+    assert "PET Op.CF" not in fixed and "VTZ Op.CF" not in fixed
+
+
 def test_enforce_risk_numbers_per_ticker_metric_on_mixed_line():
     # One line flags some tickers for D/E and others for Op.CF (observed 20:59:
     # "HNG, PET, VTZ có D/E cao, và KBC, NVL, VRE có lưu chuyển tiền HĐKD thấp").
