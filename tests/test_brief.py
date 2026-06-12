@@ -1002,6 +1002,33 @@ def test_money_flow_guard_handles_morning_inline_line():
     assert lines[i + 1].startswith("NN bán ròng mạnh nhất (1 tuần): Bất động sản -5,111 tỷ")
 
 
+def test_enforce_lead_lag_fixes_morning_swap_keeps_close():
+    # 13:40 morning: "Tích luỹ/Mua: Chưa có nhóm dẫn dắt" (denied the leader) and
+    # "Tránh/Bán: Bất động sản (-0.03pp)" (put the LEAD sector on the avoid line)
+    # while BĐS is the deterministic lead (+0.275pp). Both lines must be pinned.
+    from vnstock_brief import enforce_lead_lag
+    ctx = {"lead_sector": {"name": "Bất động sản", "contrib": 0.275},
+           "lag_sector": {"name": "Bán lẻ & Thương mại", "contrib": -0.064}}
+    morning = ("## 🎯 Trọng tâm theo dõi\n"
+               "**Tích luỹ/Mua:** Chưa có nhóm dẫn dắt rõ ràng (+0.00pp).\n"
+               "**Tránh/Bán:** **Bất động sản** (đóng góp -0.03pp, NN bán ròng -307 tỷ) — phân phối mạnh.\n"
+               "## ⚡ Biến động bất thường")
+    f = enforce_lead_lag(morning, ctx)
+    assert "**Tích luỹ/Mua:** Bất động sản (đóng góp +0.275pp, 1 tuần — mạnh nhất)." in f
+    assert "**Tránh/Bán:** Bán lẻ & Thương mại (đóng góp -0.064pp, 1 tuần — yếu nhất)." in f
+    assert "Chưa có nhóm dẫn dắt" not in f
+    assert "-0.03pp" not in f
+    assert enforce_lead_lag(f, ctx) == f                       # idempotent
+    # close: already matches the deterministic lead/lag → untouched
+    close = ("## 🏆 Dẫn dắt & Tụt hậu\n"
+             "**Dẫn dắt:** Bất động sản (đóng góp +0.275pp, 1 tuần).\n"
+             "**Tụt hậu:** Bán lẻ & Thương mại (đóng góp -0.064pp, 1 tuần).\n"
+             "## 💰 Dòng tiền")
+    assert enforce_lead_lag(close, ctx) == close
+    # no lead/lag data → untouched
+    assert enforce_lead_lag(morning, {}) == morning
+
+
 def test_apply_brief_guards_is_the_single_shared_chain():
     # generate_brief must route every agent's output through apply_brief_guards
     # so morning & close share the IDENTICAL guard sequence.
@@ -1028,6 +1055,8 @@ def test_morning_brief_gets_all_session_guards_end_to_end():
         ],
         "market_sentiment": {"signals": [{"name": "NN ròng 1D", "value": "-665 tỷ"}]},
         "bias_floor": {"dir": "GIẢM", "momentum": -61, "regime_score": -4},
+        "lead_sector": {"name": "Bất động sản", "contrib": 0.275},
+        "lag_sector": {"name": "Bán lẻ & Thương mại", "contrib": -0.064},
     }
     morning = (
         "## 🎯 TLDR\n"
@@ -1036,6 +1065,8 @@ def test_morning_brief_gets_all_session_guards_end_to_end():
         "GTGD sáng thấp kỷ lục (5,200 tỷ), độ rộng tiêu cực, momentum -61/100. "  # kỷ lục + dup momentum
         "Tâm lý ❄️ Sợ hãi, momentum -61/100 → yếu.\n"
         "## 🎯 Trọng tâm theo dõi\n"
+        "**Tích luỹ/Mua:** Chưa có nhóm dẫn dắt rõ ràng (+0.00pp).\n"             # denied real leader
+        "**Tránh/Bán:** Bất động sản (đóng góp -0.03pp) — phân phối mạnh.\n"      # lead sector on avoid line
         "**Dòng tiền ngành:** Khối ngoại bán ròng mạnh 665 tỷ tuần này (1D: -665 tỷ). "  # 1D tagged weekly
         "Smart money phân phối tại Thép & Kim loại (NN -1,372 tỷ). "                      # fabricated paren NN
         "Thanh khoản tập trung Ngân hàng (-703 tỷ).\n"                                    # NN as thanh khoản
@@ -1060,6 +1091,9 @@ def test_morning_brief_gets_all_session_guards_end_to_end():
     # 6) NN-sell figure no longer mislabeled as thanh khoản (negative gone / GTGD used)
     assert "Ngân hàng (-703 tỷ)" not in fixed
     assert "Thanh khoản cao nhất (GTGD TB 1 tuần): Ngân hàng 4,100 tỷ" in fixed
+    # 7) lead/lag pinned: BĐS is the leader (not "chưa có", not on the avoid line)
+    assert "**Tích luỹ/Mua:** Bất động sản (đóng góp +0.275pp, 1 tuần — mạnh nhất)." in fixed
+    assert "**Tránh/Bán:** Bán lẻ & Thương mại (đóng góp -0.064pp, 1 tuần — yếu nhất)." in fixed
     # idempotent
     assert apply_brief_guards(fixed, ctx) == fixed
 

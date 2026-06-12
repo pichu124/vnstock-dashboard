@@ -2418,6 +2418,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_upcoming_events(text, ctx)
     fixed = enforce_risk_section(fixed, ctx)         # canonical risk facts first
     fixed = enforce_realestate_ocf_context(fixed, ctx)
+    fixed = enforce_lead_lag(fixed, ctx)              # buy/avoid lines = lead/lag sector
     fixed = enforce_watchlist_hygiene(fixed, ctx)
     fixed = enforce_money_flow_two_sides(fixed, ctx)  # close section & morning inline
     fixed = enforce_liquidity_label(fixed, ctx)       # NN-sell figures ≠ thanh khoản
@@ -2868,6 +2869,64 @@ def enforce_watchlist_hygiene(text: str, ctx: dict | None = None) -> str:
     if sec == lines[start + 1:end]:
         return text
     return "\n".join(lines[:start + 1] + sec + lines[end:])
+
+
+def enforce_lead_lag(text: str, ctx: dict) -> str:
+    """Pin the lead/lag sector lines to the deterministic lead_sector/lag_sector.
+
+    Both templates carry a "🎯 Dẫn dắt/Tụt hậu — CHỐT THEO DATA" directive, but
+    it's only a prompt nudge. The close follows it; the MORNING brief ignored it
+    (observed 13:40: denied the leader — "Chưa có nhóm dẫn dắt" while BĐS is
+    +0.275pp — AND put the LEAD sector on the "Tránh/Bán" line with a wrong
+    -0.03pp, contradicting its own TLDR). Canonicalise the buy/lead line
+    (morning "Tích luỹ/Mua" / close "Dẫn dắt") and the avoid/lag line (morning
+    "Tránh/Bán" / close "Tụt hậu") when they deny the call, name the WRONG side's
+    sector, or omit the right one. Correct lines (the close) are left untouched;
+    idempotent; no-op without lead/lag data.
+    """
+    lead = ctx.get("lead_sector") or {}
+    lag = ctx.get("lag_sector") or {}
+    lead_name = (lead.get("name") or "").strip()
+    lag_name = (lag.get("name") or "").strip()
+    if not text or not lead_name or not lag_name:
+        return text
+    lc = lead.get("contrib", 0) or 0
+    gc = lag.get("contrib", 0) or 0
+    lead_canon = (f"{lead_name} (đóng góp {lc:+.3f}pp, 1 tuần — mạnh nhất)."
+                  if lc >= 0.05 else
+                  f"Chưa có nhóm dẫn dắt rõ ràng (đóng góp lớn nhất chỉ {lc:+.3f}pp).")
+    lag_canon = (f"{lag_name} (đóng góp {gc:+.3f}pp, 1 tuần — yếu nhất)."
+                 if gc <= -0.05 else
+                 f"Chưa có nhóm tụt hậu rõ rệt (đóng góp yếu nhất chỉ {gc:+.3f}pp).")
+    lead_lab = _re.compile(r"(\**\s*(?:Tích lu[ỹy]/Mua|Dẫn dắt)\s*:\s*\**\s*)", _re.IGNORECASE)
+    lag_lab = _re.compile(r"(\**\s*(?:Tránh/Bán|Tụt hậu)\s*:\s*\**\s*)", _re.IGNORECASE)
+    _deny = ("chưa có", "không có", "không rõ", "chưa rõ")
+    out, changed = [], False
+    for ln in text.splitlines():
+        m = lead_lab.match(ln)
+        if m:
+            bl = ln[m.end():].lower()
+            wrong = ((lc >= 0.05 and (lead_name.lower() not in bl
+                                      or any(d in bl for d in _deny)
+                                      or lag_name.lower() in bl))
+                     or (lc < 0.05 and not any(d in bl for d in _deny)))
+            if wrong:
+                ln, changed = m.group(1) + lead_canon, True
+            out.append(ln)
+            continue
+        m = lag_lab.match(ln)
+        if m:
+            bl = ln[m.end():].lower()
+            wrong = ((gc <= -0.05 and (lag_name.lower() not in bl
+                                       or any(d in bl for d in _deny)
+                                       or lead_name.lower() in bl))
+                     or (gc > -0.05 and not any(d in bl for d in _deny)))
+            if wrong:
+                ln, changed = m.group(1) + lag_canon, True
+            out.append(ln)
+            continue
+        out.append(ln)
+    return "\n".join(out) if changed else text
 
 
 def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:

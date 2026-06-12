@@ -176,6 +176,14 @@ trong `apply_brief_guards`, áp cho mọi agent, cả morning & close):
 16. `enforce_no_duplicate_momentum` — gộp "momentum N/100" lặp CÙNG GIÁ TRỊ trên 1
     dòng, giữ lần cuối (gắn tâm lý). (Lưu ý: composite "tích luỹ/phân phối mạnh"
     KHÔNG hạ theo pp — "mạnh" là composite score, trục khác với đóng góp pp index.)
+17. `enforce_lead_lag` — pin dòng dẫn dắt/tụt hậu về `lead_sector`/`lag_sector`
+    deterministic. Close theo prompt đúng; **MORNING brief phớt** (13:40: ghi
+    "Chưa có nhóm dẫn dắt" dù BĐS +0.275pp, VÀ đặt BĐS-ngành-dẫn-dắt lên dòng
+    "Tránh/Bán" với -0.03pp sai, mâu thuẫn cả TLDR). Canonical-hóa dòng mua/dẫn
+    dắt (morning "Tích luỹ/Mua" / close "Dẫn dắt") + dòng tránh/tụt hậu (morning
+    "Tránh/Bán" / close "Tụt hậu") khi phủ nhận / gọi sai ngành / thiếu ngành
+    đúng. Dòng đúng (close) giữ nguyên; idempotent. ⇒ đây là điểm parity quan
+    trọng: "Trọng tâm theo dõi" của morning giờ luôn khớp lead/lag như close.
 
 **Parity morning↔close (DONE 2026-06-11)**: 2 template nay thống nhất tính năng,
 trừ khác biệt CỐ Ý — GTGD sáng-với-sáng (intraday), "Watchlist sáng mai"/"Stance
