@@ -1002,6 +1002,68 @@ def test_money_flow_guard_handles_morning_inline_line():
     assert lines[i + 1].startswith("NN bán ròng mạnh nhất (1 tuần): Bất động sản -5,111 tỷ")
 
 
+def test_apply_brief_guards_is_the_single_shared_chain():
+    # generate_brief must route every agent's output through apply_brief_guards
+    # so morning & close share the IDENTICAL guard sequence.
+    import inspect, vnstock_brief
+    src = inspect.getsource(vnstock_brief.generate_brief)
+    assert "apply_brief_guards(" in src
+    # idempotent end to end
+    t = ("## 🎯 TLDR\n**Bias:** GIẢM — thị trường yếu.\n"
+         "## 📊 Tổng quan phiên sáng\nGTGD sáng 5,200 tỷ.")
+    once = vnstock_brief.apply_brief_guards(t, {})
+    assert vnstock_brief.apply_brief_guards(once, {}) == once
+
+
+def test_morning_brief_gets_all_session_guards_end_to_end():
+    # PARITY: a MORNING brief carrying every bug pattern guarded this session must
+    # come out clean after the shared apply_brief_guards chain — proving the
+    # fixes are integrated for morning, not just close.
+    from vnstock_brief import apply_brief_guards
+    ctx = {
+        "sectors": [
+            {"Ngành": "Ngân hàng", "NN 1T (tỷ)": -703.0, "GTGD TB (tỷ)": 4100.0},
+            {"Ngành": "Thép & Kim loại", "NN 1T (tỷ)": -180.0, "GTGD TB (tỷ)": 1500.0},
+            {"Ngành": "Thực phẩm & Đồ uống", "NN 1T (tỷ)": 136.0, "GTGD TB (tỷ)": 900.0},
+        ],
+        "market_sentiment": {"signals": [{"name": "NN ròng 1D", "value": "-665 tỷ"}]},
+        "bias_floor": {"dir": "GIẢM", "momentum": -61, "regime_score": -4},
+    }
+    morning = (
+        "## 🎯 TLDR\n"
+        "**Bias:** GIẢM bắt buộc — thị trường yếu.\n"            # bắt buộc leak
+        "## 📊 Tổng quan phiên sáng\n"
+        "GTGD sáng thấp kỷ lục (5,200 tỷ), độ rộng tiêu cực, momentum -61/100. "  # kỷ lục + dup momentum
+        "Tâm lý ❄️ Sợ hãi, momentum -61/100 → yếu.\n"
+        "## 🎯 Trọng tâm theo dõi\n"
+        "**Dòng tiền ngành:** Khối ngoại bán ròng mạnh 665 tỷ tuần này (1D: -665 tỷ). "  # 1D tagged weekly
+        "Smart money phân phối tại Thép & Kim loại (NN -1,372 tỷ). "                      # fabricated paren NN
+        "Thanh khoản tập trung Ngân hàng (-703 tỷ).\n"                                    # NN as thanh khoản
+        "## ⚡ Biến động bất thường\nPhẳng."
+    )
+    fixed = apply_brief_guards(morning, ctx)
+    # 1) bắt buộc directive leak stripped, direction kept
+    assert "bắt buộc" not in fixed.lower()
+    assert "**Bias:** GIẢM —" in fixed
+    # 2) all-time superlative on the morning GTGD line dropped
+    assert "kỷ lục" not in fixed
+    assert "GTGD sáng thấp (5,200 tỷ)" in fixed
+    # 3) the same-line duplicate momentum collapsed (kept the tâm-lý one)
+    assert fixed.count("momentum -61/100") == 1
+    assert "Sợ hãi, momentum -61/100 → yếu" in fixed
+    # 4) the 1D foreign total no longer tagged weekly
+    assert "665 tỷ tuần này" not in fixed
+    assert "(1D: -665 tỷ)" in fixed
+    # 5) fabricated paren NN corrected to the true value (Thép is -180, not -1,372)
+    assert "-1,372" not in fixed
+    assert "Thép & Kim loại (NN -180 tỷ)" in fixed
+    # 6) NN-sell figure no longer mislabeled as thanh khoản (negative gone / GTGD used)
+    assert "Ngân hàng (-703 tỷ)" not in fixed
+    assert "Thanh khoản cao nhất (GTGD TB 1 tuần): Ngân hàng 4,100 tỷ" in fixed
+    # idempotent
+    assert apply_brief_guards(fixed, ctx) == fixed
+
+
 def test_enforce_risk_numbers_appends_missing_values():
     # 15:27 brief: "một số mã như HNG, PET, VTZ có D/E cao, cần được quan tâm" —
     # zero numbers despite the template. The guard appends the real values.

@@ -113,10 +113,21 @@ nguồn đều trống). **GTGD sáng (split 9h-11h30) KHÔNG suy được từ 
 WSS; morning brief trên EOD-only → "Chưa có GTGD phiên sáng". (Lưu ý: tổng EOD gồm
 mọi sàn đã phân ngành, có thể > GTGD HOSE-only; xấp xỉ close×vol, không VWAP.)
 
-### 🛡️ 9 guard hậu kiểm deterministic (chạy trong `generate_brief` cho CẢ 2 brief)
+### 🛡️ Guard hậu kiểm deterministic — chuỗi DÙNG CHUNG `apply_brief_guards(text, ctx)`
 
-LLM hay phớt chỉ thị prompt → chốt bằng code sau khi agent trả output (chuỗi
-fixup trong `generate_brief`, áp cho mọi agent, cả morning & close):
+**QUAN TRỌNG (DONE 2026-06-12)**: toàn bộ chuỗi fixup nay nằm trong **một hàm
+chung `apply_brief_guards(text, ctx)`** (định nghĩa ngay trước `generate_brief`);
+`generate_brief` gọi nó cho MỌI agent, KHÔNG phân biệt brief_type. ⇒ **parity
+morning↔close được bảo đảm BY CONSTRUCTION**: thêm 1 guard vào hàm này là áp cho
+CẢ 2 brief cùng lúc. Mỗi guard tự brief_type-aware bên trong (anchor/section
+detection), nên fix dùng chung trừ khi CỐ Ý gate (vd `enforce_gtgd_compare_frame`
+chỉ "Tổng kết phiên" = close). Test khoá parity: `test_morning_brief_gets_all_session_guards_end_to_end`
+(chạy 1 morning brief mang ĐỦ mọi bug pattern qua chuỗi → ra sạch) +
+`test_apply_brief_guards_is_the_single_shared_chain`. **Đừng inline lại chuỗi vào
+`generate_brief`** — sẽ phá điểm parity duy nhất.
+
+LLM hay phớt chỉ thị prompt → chốt bằng code sau khi agent trả output (thứ tự
+trong `apply_brief_guards`, áp cho mọi agent, cả morning & close):
 1. `enforce_upcoming_events` — thay TOÀN BỘ body mục "Sự kiện sắp tới" bằng list
    chuẩn từ ctx (top 3 + note GDKHQ); fallback splice khi LLM chối "Không có sự kiện".
 2. `enforce_risk_section` (chạy ĐẦU cho mục Rủi ro) — **canonical-hóa** phần
@@ -143,6 +154,28 @@ fixup trong `generate_brief`, áp cho mọi agent, cả morning & close):
    trong TLDR/Tổng kết; strip "chưa có dữ liệu" khi cả 2 nguồn trống. Keyword-anchored
    (không đụng điểm VNINDEX cùng dòng / GTGD theo ngành).
 9. `enforce_no_cjk` — xóa ký tự Trung/Nhật/Hàn (vd "达到") lọt vào brief.
+
+**Guard thêm 2026-06-12 (đều trong `apply_brief_guards`, áp cả 2 brief):**
+10. `enforce_money_flow_two_sides` (mở rộng) — sửa số NN bịa gắn vào ngành cả 2
+    dạng: *số-trước-tên* ("44 tỷ … Dầu khí") VÀ *số-sau-tên trong ngoặc* ("Thép &
+    Kim loại (NN -1.372 tỷ)"); `_named_in_side` kiểm ngành top thật được gọi CÙNG
+    MỆNH ĐỀ với từ khoá "bán/mua ròng" (không chỉ có mặt) → tránh xếp sai hạng.
+11. `enforce_liquidity_label` — mệnh đề "thanh khoản" mang số ÂM = NN bán ròng đội
+    lốt turnover → thay bằng dòng canonical top-GTGD thật từ ctx (GTGD ≥ 0 luôn).
+12. `enforce_nn_window_label` — số "NN ròng 1D" (1 phiên, từ block Tâm lý) bị gắn
+    nhãn "tuần" → bỏ nhãn tuần (self-contradiction "X tỷ tuần này (1D…)") /
+    relabel "(1D)"; chống nhầm khi 1 ngành có cùng magnitude.
+13. `enforce_gtgd_compare_frame` — **close-only**: trong "Tổng kết phiên", số GTGD
+    cả ngày bị so với baseline SÁNG (sai khung + sai chiều: 11.929 > 9.129 mà bảo
+    "thấp hơn 43%") → thay bằng so-cả-ngày-vs-cả-ngày (TB5/TB20) từ
+    `full_day_gtgd_cmp`. Morning so sáng-với-sáng là ĐÚNG → không đụng.
+14. `enforce_no_bias_directive_leak` — "bias GIẢM **bắt buộc**": chữ "bắt buộc" là
+    chỉ thị NỘI BỘ của bias-floor block (prompt cấm in) → strip, giữ hướng.
+15. `enforce_no_record_superlative` — "GTGD thấp **kỷ lục**": brief chỉ có baseline
+    TB5/TB20, không có cực trị lịch sử → bỏ "kỷ lục"/"nhất lịch sử", giữ "thấp".
+16. `enforce_no_duplicate_momentum` — gộp "momentum N/100" lặp CÙNG GIÁ TRỊ trên 1
+    dòng, giữ lần cuối (gắn tâm lý). (Lưu ý: composite "tích luỹ/phân phối mạnh"
+    KHÔNG hạ theo pp — "mạnh" là composite score, trục khác với đóng góp pp index.)
 
 **Parity morning↔close (DONE 2026-06-11)**: 2 template nay thống nhất tính năng,
 trừ khác biệt CỐ Ý — GTGD sáng-với-sáng (intraday), "Watchlist sáng mai"/"Stance

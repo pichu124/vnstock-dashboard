@@ -2403,6 +2403,41 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
     return tmpl.format(system=_SYSTEM, data=data_block)
 
 
+def apply_brief_guards(text: str, ctx: dict) -> str:
+    """Run the full deterministic post-generation guard chain on a brief.
+
+    The SINGLE source of truth for the fixup sequence — both the morning and
+    close briefs go through this identical chain (generate_brief calls it for
+    every agent's output regardless of brief_type). Each guard is itself
+    brief_type-aware where it must be (section/anchor detection inside the
+    guard), so morning↔close parity is guaranteed by construction: a fix added
+    here applies to both briefs at once. Order matters (e.g. the canonical risk
+    section runs before the defensive numeric guards). No-op-safe and
+    idempotent end to end. Returns the (possibly) fixed text.
+    """
+    fixed = enforce_upcoming_events(text, ctx)
+    fixed = enforce_risk_section(fixed, ctx)         # canonical risk facts first
+    fixed = enforce_realestate_ocf_context(fixed, ctx)
+    fixed = enforce_watchlist_hygiene(fixed, ctx)
+    fixed = enforce_money_flow_two_sides(fixed, ctx)  # close section & morning inline
+    fixed = enforce_liquidity_label(fixed, ctx)       # NN-sell figures ≠ thanh khoản
+    fixed = enforce_nn_window_label(fixed, ctx)       # 1D NN total ≠ weekly
+    fixed = enforce_risk_numbers(fixed, ctx)          # defensive no-op on canonical
+    fixed = enforce_pivot_labels(fixed, ctx)
+    fixed = enforce_watchlist_eligibility(fixed, ctx)
+    fixed = enforce_gtgd_total(fixed, ctx)            # full-day (close) / sáng (morning)
+    fixed = enforce_gtgd_compare_frame(fixed, ctx)    # close-only: full-day ≠ morning baseline
+    fixed = enforce_no_cjk(fixed, ctx)
+    fixed = enforce_no_instruction_leak(fixed, ctx)
+    fixed = enforce_no_placeholder_leak(fixed, ctx)
+    fixed = enforce_no_composite_jargon(fixed, ctx)
+    fixed = enforce_no_bias_directive_leak(fixed, ctx)   # 'bắt buộc' is internal
+    fixed = enforce_no_record_superlative(fixed, ctx)    # no all-time GTGD claim
+    fixed = enforce_no_duplicate_momentum(fixed, ctx)    # state momentum once
+    fixed = enforce_range_position(fixed, ctx)
+    return fixed
+
+
 # ── Main entry point ───────────────────────────────────────────────────────
 def generate_brief(
     brief_type: str = "morning",
@@ -2539,26 +2574,7 @@ def generate_brief(
     for agent in available:
         text, _err = results.get(agent.name, ("", None))
         if text:
-            fixed = enforce_upcoming_events(text, ctx)
-            fixed = enforce_risk_section(fixed, ctx)        # canonical risk facts first
-            fixed = enforce_realestate_ocf_context(fixed, ctx)
-            fixed = enforce_watchlist_hygiene(fixed, ctx)
-            fixed = enforce_money_flow_two_sides(fixed, ctx)
-            fixed = enforce_liquidity_label(fixed, ctx)     # NN-sell figures ≠ thanh khoản
-            fixed = enforce_nn_window_label(fixed, ctx)     # 1D NN total ≠ weekly
-            fixed = enforce_risk_numbers(fixed, ctx)        # defensive no-op on canonical
-            fixed = enforce_pivot_labels(fixed, ctx)
-            fixed = enforce_watchlist_eligibility(fixed, ctx)
-            fixed = enforce_gtgd_total(fixed, ctx)
-            fixed = enforce_gtgd_compare_frame(fixed, ctx)   # full-day ≠ morning baseline
-            fixed = enforce_no_cjk(fixed, ctx)
-            fixed = enforce_no_instruction_leak(fixed, ctx)
-            fixed = enforce_no_placeholder_leak(fixed, ctx)
-            fixed = enforce_no_composite_jargon(fixed, ctx)
-            fixed = enforce_no_bias_directive_leak(fixed, ctx)   # 'bắt buộc' is internal
-            fixed = enforce_no_record_superlative(fixed, ctx)    # no all-time GTGD claim
-            fixed = enforce_no_duplicate_momentum(fixed, ctx)    # state momentum once
-            fixed = enforce_range_position(fixed, ctx)
+            fixed = apply_brief_guards(text, ctx)
             if fixed != text:
                 results[agent.name] = (fixed, _err)
 
