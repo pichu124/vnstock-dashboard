@@ -683,6 +683,40 @@ def test_enforce_nn_window_label_noop_cases():
     assert enforce_nn_window_label("665 tỷ tuần này.\n", {}) == "665 tỷ tuần này.\n"
 
 
+def test_enforce_no_bias_directive_leak_strips_bat_buoc():
+    # 12:24 & 12:51 leaked the internal directive word into the TLDR:
+    # "bias GIẢM bắt buộc". The qualifier must be stripped, the direction kept.
+    from vnstock_brief import enforce_no_bias_directive_leak
+    t1 = ("🎯 TLDR\n**Thị trường yếu, momentum tiêu cực (-61/100), bias GIẢM bắt buộc.**\n"
+          "Stance ngày mai: GIẢM")
+    f1 = enforce_no_bias_directive_leak(t1, {})
+    assert "bias GIẢM." in f1
+    assert "bắt buộc" not in f1.lower()
+    # other orderings / casings
+    assert "Bias = TĂNG" in enforce_no_bias_directive_leak("Bias bắt buộc = TĂNG", {}).replace("  ", " ")
+    assert "buộc" not in enforce_no_bias_directive_leak("Stance GIẢM (bắt buộc)", {}).lower()
+    # idempotent + no-op when clean
+    assert enforce_no_bias_directive_leak(f1, {}) == f1
+    clean = "🎯 TLDR\nStance ngày mai: GIẢM"
+    assert enforce_no_bias_directive_leak(clean, {}) == clean
+
+
+def test_enforce_no_record_superlative_strips_all_time_gtgd_claim():
+    # 12:51: "GTGD thấp kỷ lục (11,929.2 tỷ, -35% vs TB20)" — the brief has no
+    # historical extreme, only TB5/TB20 → drop the all-time qualifier.
+    from vnstock_brief import enforce_no_record_superlative
+    t = ("📊 Tổng kết phiên\nGTGD thấp kỷ lục (11,929.2 tỷ, -35% vs TB20 phiên).\n"
+         "Thanh khoản thấp nhất lịch sử cho thấy thị trường yếu.")
+    f = enforce_no_record_superlative(t, {})
+    assert "GTGD thấp (11,929.2 tỷ" in f
+    assert "kỷ lục" not in f
+    assert "lịch sử" not in f
+    assert "Thanh khoản thấp cho thấy" in f
+    # a non-liquidity line keeps 'kỷ lục' (e.g. record profit, data-backed elsewhere)
+    keep = "Lợi nhuận quý đạt kỷ lục."
+    assert enforce_no_record_superlative(keep, {}) == keep
+
+
 def test_bias_floor_giam_adds_watchlist_conditional_buy_rule():
     # Stance GIẢM kept producing unconditional dip-buys ("MUA vùng 69,000" with
     # price at 70,700). The bias-floor block must carry a watchlist-specific

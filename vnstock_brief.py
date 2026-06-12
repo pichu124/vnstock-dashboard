@@ -2554,6 +2554,8 @@ def generate_brief(
             fixed = enforce_no_instruction_leak(fixed, ctx)
             fixed = enforce_no_placeholder_leak(fixed, ctx)
             fixed = enforce_no_composite_jargon(fixed, ctx)
+            fixed = enforce_no_bias_directive_leak(fixed, ctx)   # 'bắt buộc' is internal
+            fixed = enforce_no_record_superlative(fixed, ctx)    # no all-time GTGD claim
             fixed = enforce_range_position(fixed, ctx)
             if fixed != text:
                 results[agent.name] = (fixed, _err)
@@ -3451,6 +3453,44 @@ def enforce_no_composite_jargon(text: str, ctx: dict | None = None) -> str:
         return f" (tín hiệu {name})"
 
     return _COMPOSITE_LEAK_RE.sub(_lbl, text)
+
+
+def enforce_no_bias_directive_leak(text: str, ctx: dict | None = None) -> str:
+    """The bias-floor block injects 'Bias BẮT BUỘC = <dir>' as an INTERNAL
+    directive and explicitly tells the model never to print 'bắt buộc'. The LLM
+    still leaks it into the TLDR (observed 12:24 & 12:51: 'bias GIẢM bắt buộc').
+    Strip the 'bắt buộc' qualifier wherever it sits next to a bias/stance
+    directive (either order); drop a trailing '(bắt buộc)'. No-op when clean."""
+    if not text or "buộc" not in text.lower():
+        return text
+    # "<bias|stance|GIẢM|TĂNG> [là] bắt buộc" → drop the qualifier
+    out = _re.sub(r"(\b(?:bias|stance|GIẢM|TĂNG|TANG))\s+(?:là\s+)?bắt\s*buộc\b",
+                  r"\1", text, flags=_re.IGNORECASE)
+    # "bắt buộc [=] <GIẢM|TĂNG>" → drop the qualifier (keep the direction)
+    out = _re.sub(r"\bbắt\s*buộc\s*(?:=\s*)?(?=\b(?:GIẢM|TĂNG|TANG)\b)",
+                  "", out, flags=_re.IGNORECASE)
+    # leftover "(bắt buộc)" parenthetical
+    out = _re.sub(r"\s*\(\s*bắt\s*buộc\s*\)", "", out, flags=_re.IGNORECASE)
+    return out
+
+
+def enforce_no_record_superlative(text: str, ctx: dict | None = None) -> str:
+    """The brief carries only TB5/TB20 baselines — never a historical extreme —
+    so 'GTGD thấp kỷ lục' / 'thanh khoản thấp nhất lịch sử' (observed 12:51) are
+    unfounded all-time claims. On a GTGD/thanh-khoản/volume line, drop the
+    record/all-time qualifier, keeping the plain 'thấp'/'cao'. No-op when clean."""
+    if not text:
+        return text
+    out = []
+    for ln in text.splitlines():
+        low = ln.lower()
+        if ("gtgd" in low or "thanh khoản" in low or "khối lượng" in low
+                or "thanh khoản" in low):
+            ln = _re.sub(r"\s*(?:kỷ|kỉ)\s*lục\b", "", ln, flags=_re.IGNORECASE)
+            ln = _re.sub(r"\s+nhất\s+(?:trong\s+)?lịch\s+sử\b", "", ln,
+                         flags=_re.IGNORECASE)
+        out.append(ln)
+    return "\n".join(out)
 
 
 def enforce_range_position(text: str, ctx: dict) -> str:
