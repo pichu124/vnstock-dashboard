@@ -1101,6 +1101,10 @@ def test_enforce_composite_rotation_hygiene_fixes_contradiction_and_jargon():
     keep = "- Smart money tích luỹ ngầm: Giáo dục (tín hiệu tích luỹ mạnh)."
     assert enforce_composite_rotation_hygiene(keep, {}) == keep
     assert enforce_composite_rotation_hygiene(f, {}) == f          # idempotent
+    # bare "volume" without the "Net BS" prefix → "KL" (observed 23:56)
+    t2 = "- Phân phối: CNTT & Phần mềm (dòng tiền thoát 1M -8.5% volume)."
+    f2 = enforce_composite_rotation_hygiene(t2, {})
+    assert "volume" not in f2 and "-8.5% KL" in f2
 
 
 def test_enforce_breadth_label_relabels_above_ma200_as_advancing():
@@ -1135,6 +1139,14 @@ def test_enforce_compare_direction_form_b_compares_baseline_value():
     # genuinely lower (subject < baseline) keeps 'thấp hơn'
     ok = "GTGD 5,000.0 tỷ, thấp hơn 30% TB sáng (7,100.0 tỷ)."
     assert enforce_compare_direction(ok, {}) == ok
+    # bare 'thấp' (no 'hơn') is also handled (observed 23:56: "thấp 11%")
+    t2 = "GTGD sáng 8,397.0 tỷ, thấp 11% so TB 5 phiên (7,549.1 tỷ)."
+    f2 = enforce_compare_direction(t2, {})
+    assert "cao hơn 11% so TB 5 phiên (7,549.1 tỷ)" in f2
+    assert "thấp 11%" not in f2
+    # a standalone adjective (no % after the word) is NOT touched
+    safe = "Thanh khoản cao, ngành Ngân hàng (5,067 tỷ) dẫn đầu."
+    assert enforce_compare_direction(safe, {}) == safe
 
 
 def test_enforce_lead_lag_pins_lead_sector_pp_anywhere():

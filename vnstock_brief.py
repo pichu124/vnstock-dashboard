@@ -3682,6 +3682,9 @@ def enforce_composite_rotation_hygiene(text: str, ctx: dict | None = None) -> st
     res = _re.sub(r"Net\s*BS\s*([+-]?\d[\d.,]*)\s*M\b",
                   lambda m: f"{_verb(m.group(1))} ròng ~{m.group(1).lstrip('+-')} triệu CP",
                   res, flags=_re.IGNORECASE)
+    # remaining bare English "volume" (e.g. "dòng tiền thoát 1M -8.5% volume",
+    # observed 23:56) → Vietnamese "KL"; "volume" never appears legitimately.
+    res = _re.sub(r"\bvolume\b", "KL", res, flags=_re.IGNORECASE)
     return res
 
 
@@ -4022,8 +4025,12 @@ def enforce_compare_direction(text: str, ctx: dict | None = None) -> str:
                 return f"thấp hơn{mid}{base_s}{unit}"
             return m.group(0)
 
+        # word may drop "hơn" ("thấp 11%" — observed 23:56); require a % right
+        # after the word so a standalone adjective ("thanh khoản cao, X (Y tỷ)")
+        # is never matched. Always re-emit the full "thấp hơn"/"cao hơn".
         lines[i] = _re.sub(
-            r"(thấp hơn|cao hơn)([^()]{0,40}?\()(\d[\d.,]*)(\s*tỷ)", _fixB, ln)
+            r"(thấp|cao)(?:\s+hơn)?(\s*\d[\d.,]*\s*%[^()]{0,40}?\()(\d[\d.,]*)(\s*tỷ)",
+            _fixB, ln)
     return "\n".join(lines)
 
 
