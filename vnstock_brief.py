@@ -223,7 +223,7 @@ Kịch bản CHÍNH phải NHẤT QUÁN với Bias ở TLDR: Bias GIẢM → k�
 
 ## ⚠️ Rủi ro cần lưu ý (phiên chiều)
 [Red flags, phân phối, rủi ro vĩ mô/kỹ thuật với mức cảnh báo cụ thể; "Không có rủi ro đặc biệt" nếu thị trường ổn]
-Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằng mã lấy TỪ dòng "Đòn bẩy cao nhất (D/E)" hoặc "Lưu chuyển tiền HĐKD thấp nhất" trong block, ghi kèm TÊN MÃ THẬT + CON SỐ THẬT copy từ block, dạng "<tên mã> D/E=<số>" — THAY <tên mã> bằng MÃ THẬT (vd "HPG D/E=1,5"; "KBC Op.CF=-17.344 tỷ"), TUYỆT ĐỐI KHÔNG in chữ "MÃ"/"<tên mã>". MỌI mã được nhắc trong mục này PHẢI kèm CON SỐ CỦA CHÍNH NÓ — TUYỆT ĐỐI KHÔNG viết "X và Y cũng có D/E cao" mà KHÔNG ghi số; nếu không ghi số thì KHÔNG nêu mã đó. MÃ trong block gồm CẢ VN30 LẪN mid-cap → KHÔNG ghi "cao nhất trong VN30"; chỉ ghi "cao nhất trong nhóm theo dõi". Ngân hàng/CK/bảo hiểm đã bị loại khỏi xếp hạng → KHÔNG nêu nhóm tài chính làm rủi ro đòn bẩy/dòng tiền. Mã gắn "(BĐS)" trong dòng Op.CF: dòng tiền âm CHỦ YẾU do tích lũy quỹ đất/hàng tồn kho dự án (vốn lưu động), KHÔNG phải lỗ HĐKD → PHẢI ghi kèm ngữ cảnh này + soi D/E/nợ vay, TUYỆT ĐỐI KHÔNG gọi là "kiệt quệ tiền mặt". Nếu block không có mã đáng lưu ý → nêu rủi ro vĩ mô/kỹ thuật, KHÔNG dẫn mã ngoài data.
+Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằng mã lấy TỪ dòng "Đòn bẩy cao nhất (D/E)" hoặc "Lưu chuyển tiền HĐKD thấp nhất" trong block, ghi kèm TÊN MÃ THẬT + CON SỐ THẬT copy từ block, dạng "<tên mã> D/E=<số>" — THAY <tên mã> bằng MÃ THẬT (vd "HPG D/E=1,5"; "KBC Op.CF=-17.344 tỷ"), TUYỆT ĐỐI KHÔNG in chữ "MÃ"/"<tên mã>". MỌI mã được nhắc trong mục này PHẢI kèm CON SỐ CỦA CHÍNH NÓ — TUYỆT ĐỐI KHÔNG viết "X và Y cũng có D/E cao" mà KHÔNG ghi số; nếu không ghi số thì KHÔNG nêu mã đó. MÃ trong block gồm CẢ VN30 LẪN mã rủi ro ĐÒN BẨY phải là mã D/E CAO NHẤT trong dòng "Đòn bẩy cao nhất" — KHÔNG nêu mã D/E < 1,5 (vd HPG 0,65) làm rủi ro đòn bẩy (D/E thấp = an toàn). mid-cap → KHÔNG ghi "cao nhất trong VN30"; chỉ ghi "cao nhất trong nhóm theo dõi". Ngân hàng/CK/bảo hiểm đã bị loại khỏi xếp hạng → KHÔNG nêu nhóm tài chính làm rủi ro đòn bẩy/dòng tiền. Mã gắn "(BĐS)" trong dòng Op.CF: dòng tiền âm CHỦ YẾU do tích lũy quỹ đất/hàng tồn kho dự án (vốn lưu động), KHÔNG phải lỗ HĐKD → PHẢI ghi kèm ngữ cảnh này + soi D/E/nợ vay, TUYỆT ĐỐI KHÔNG gọi là "kiệt quệ tiền mặt". Nếu block không có mã đáng lưu ý → nêu rủi ro vĩ mô/kỹ thuật, KHÔNG dẫn mã ngoài data.
 
 ## 📅 Sự kiện sắp tới
 [Nếu có block "Sự kiện sắp tới" trong data: liệt kê 1-3 sự kiện gần nhất (GDKHQ cổ tức/chia tách/ĐHCĐ) kèm mã + ngày, ưu tiên mã VN30/watchlist; nhắc "giá tự điều chỉnh ngày GDKHQ". Nếu KHÔNG có block đó → ghi "Không có sự kiện đáng chú ý" hoặc bỏ mục này.]
@@ -297,7 +297,7 @@ Setup đưa ra là setup THẬT để theo dõi — TUYỆT ĐỐI KHÔNG viết
 
 ## ⚠️ Rủi ro cần lưu ý
 [Red flags, distribution, macro risk với mức cảnh báo cụ thể; "Không có rủi ro đặc biệt" nếu thị trường ổn]
-Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằng mã lấy TỪ dòng "Đòn bẩy cao nhất (D/E)" hoặc "Lưu chuyển tiền HĐKD thấp nhất" trong block, ghi kèm TÊN MÃ THẬT + CON SỐ THẬT copy từ block, dạng "<tên mã> D/E=<số>" — THAY <tên mã> bằng MÃ THẬT (vd "HPG D/E=1,5"; "KBC Op.CF=-17.344 tỷ"), TUYỆT ĐỐI KHÔNG in chữ "MÃ"/"<tên mã>". MỌI mã được nhắc trong mục này PHẢI kèm CON SỐ CỦA CHÍNH NÓ — TUYỆT ĐỐI KHÔNG viết kiểu "PET và VTZ cũng có D/E cao" hay "KBC và NVL có Op.CF thấp nhất" mà KHÔNG ghi số; nếu không ghi số thì KHÔNG nêu mã đó. MÃ trong block gồm CẢ VN30 LẪN mid-cap → KHÔNG ghi "cao nhất trong VN30" (nhiều mã không thuộc VN30); chỉ ghi "cao nhất trong nhóm theo dõi". TUYỆT ĐỐI KHÔNG in nguyên ký hiệu mẫu (X, Y, "MÃ", "số") — phải thay bằng giá trị thật. Nếu block KHÔNG có mã Op.CF âm đáng lưu ý → CHỈ nêu rủi ro D/E (mã cao nhất), KHÔNG đề cập Op.CF, KHÔNG ghi placeholder. TUYỆT ĐỐI KHÔNG: (a) dẫn mã KHÔNG có trong block (vd VCK); (b) nói "cần thêm dữ liệu/chỉ số" — số ĐÃ có trong block; (c) gọi "Op.CF âm" cho mã có Op.CF ≥ 0 (chỉ ghi "âm" khi số THỰC < 0, còn lại ghi "Op.CF thấp"); (d) gán rủi ro sang ngành dẫn dắt/tụt hậu. Ngân hàng/CK/bảo hiểm đã bị loại khỏi xếp hạng → KHÔNG nêu nhóm tài chính làm rủi ro đòn bẩy/dòng tiền. Mã gắn "(BĐS)" trong dòng Op.CF: dòng tiền âm CHỦ YẾU do tích lũy quỹ đất/hàng tồn kho dự án (vốn lưu động), KHÔNG phải lỗ HĐKD → PHẢI ghi kèm ngữ cảnh này + soi D/E/nợ vay, TUYỆT ĐỐI KHÔNG gọi là "kiệt quệ tiền mặt". Nếu block không có mã đáng lưu ý → nêu rủi ro vĩ mô/kỹ thuật, KHÔNG dẫn mã ngoài data.
+Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằng mã lấy TỪ dòng "Đòn bẩy cao nhất (D/E)" hoặc "Lưu chuyển tiền HĐKD thấp nhất" trong block, ghi kèm TÊN MÃ THẬT + CON SỐ THẬT copy từ block, dạng "<tên mã> D/E=<số>" — THAY <tên mã> bằng MÃ THẬT (vd "HPG D/E=1,5"; "KBC Op.CF=-17.344 tỷ"), TUYỆT ĐỐI KHÔNG in chữ "MÃ"/"<tên mã>". MỌI mã được nhắc trong mục này PHẢI kèm CON SỐ CỦA CHÍNH NÓ — TUYỆT ĐỐI KHÔNG viết kiểu "PET và VTZ cũng có D/E cao" hay "KBC và NVL có Op.CF thấp nhất" mà KHÔNG ghi số; nếu không ghi số thì KHÔNG nêu mã đó. MÃ trong block gồm CẢ VN30 LẪN mã rủi ro ĐÒN BẨY phải là mã D/E CAO NHẤT trong dòng "Đòn bẩy cao nhất" — KHÔNG nêu mã D/E < 1,5 (vd HPG 0,65) làm rủi ro đòn bẩy (D/E thấp = an toàn). mid-cap → KHÔNG ghi "cao nhất trong VN30" (nhiều mã không thuộc VN30); chỉ ghi "cao nhất trong nhóm theo dõi". TUYỆT ĐỐI KHÔNG in nguyên ký hiệu mẫu (X, Y, "MÃ", "số") — phải thay bằng giá trị thật. Nếu block KHÔNG có mã Op.CF âm đáng lưu ý → CHỈ nêu rủi ro D/E (mã cao nhất), KHÔNG đề cập Op.CF, KHÔNG ghi placeholder. TUYỆT ĐỐI KHÔNG: (a) dẫn mã KHÔNG có trong block (vd VCK); (b) nói "cần thêm dữ liệu/chỉ số" — số ĐÃ có trong block; (c) gọi "Op.CF âm" cho mã có Op.CF ≥ 0 (chỉ ghi "âm" khi số THỰC < 0, còn lại ghi "Op.CF thấp"); (d) gán rủi ro sang ngành dẫn dắt/tụt hậu. Ngân hàng/CK/bảo hiểm đã bị loại khỏi xếp hạng → KHÔNG nêu nhóm tài chính làm rủi ro đòn bẩy/dòng tiền. Mã gắn "(BĐS)" trong dòng Op.CF: dòng tiền âm CHỦ YẾU do tích lũy quỹ đất/hàng tồn kho dự án (vốn lưu động), KHÔNG phải lỗ HĐKD → PHẢI ghi kèm ngữ cảnh này + soi D/E/nợ vay, TUYỆT ĐỐI KHÔNG gọi là "kiệt quệ tiền mặt". Nếu block không có mã đáng lưu ý → nêu rủi ro vĩ mô/kỹ thuật, KHÔNG dẫn mã ngoài data.
 
 ## 📅 Sự kiện sắp tới
 [Nếu có block "Sự kiện sắp tới" trong data: liệt kê 1-3 sự kiện gần nhất (GDKHQ cổ tức/chia tách/ĐHCĐ) kèm mã + ngày, ưu tiên mã VN30/watchlist; nhắc "giá tự điều chỉnh ngày GDKHQ". Nếu KHÔNG có block đó → ghi "Không có sự kiện đáng chú ý" hoặc bỏ mục này.]
@@ -2913,6 +2913,32 @@ def enforce_risk_numbers(text: str, ctx: dict) -> str:
         if new != lines[i]:
             lines[i] = new
             changed = True
+
+    # (c) Mis-PICK: a ticker flagged for leverage whose real D/E is LOW (< 1.5 →
+    # actually safe) while a genuinely high-leverage non-financial exists in the
+    # block (observed 09:02: "HPG D/E=0.65 … rủi ro cơ bản" — 0.65 is not a
+    # risk; HNG 8.83 was the real top). Swap "LOW D/E=x" → "TOP D/E=y" when the
+    # top isn't already cited in the section.
+    _fin = set(ctx.get("financial_tickers") or set()) | _FINANCIAL_TICKERS
+    _nonfin_de = {t: m["de"] for t, m in funds.items()
+                  if t not in _fin and isinstance(m.get("de"), (int, float))}
+    if _nonfin_de:
+        _top = max(_nonfin_de, key=_nonfin_de.get)
+        _topv = _nonfin_de[_top]
+        if _topv >= 2.5:
+            for i in range(start + 1, end):
+                if _re.search(rf"\b{_re.escape(_top)}\b", "\n".join(lines[start + 1:end])):
+                    break
+                for t, de in sorted(_nonfin_de.items(), key=lambda kv: kv[1]):
+                    if de >= 1.5 or t == _top:
+                        continue
+                    m2 = _re.search(rf"(\b{_re.escape(t)}\b[^.;,()]*?D/E\s*=\s*)([\d.,]+)",
+                                    lines[i])
+                    if m2:
+                        lines[i] = lines[i].replace(
+                            m2.group(0), f"{_top}{m2.group(1)[len(t):]}{_topv:.2f}")
+                        changed = True
+                        break
 
     def _has_value(line: str, v: float, fmt: str) -> bool:
         s = format(v, fmt)

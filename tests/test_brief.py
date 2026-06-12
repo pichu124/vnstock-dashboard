@@ -783,15 +783,37 @@ def test_enforce_risk_numbers_per_ticker_metric_on_mixed_line():
     assert "HNG Op.CF" not in fixed        # leverage names → D/E, not Op.CF
 
 
+def test_enforce_risk_numbers_swaps_low_de_mispick_for_real_top():
+    # 09:02: "HPG D/E=0.65 … rủi ro cơ bản" — 0.65 is low (safe), HNG 8.83 is
+    # the real top leverage. The guard swaps the low-D/E mis-pick for the top.
+    from vnstock_brief import enforce_risk_numbers
+    ctx = {"vn30_fundamentals": {
+        "HPG": {"de": 0.65, "ocf": 12000.0},
+        "HNG": {"de": 8.83, "ocf": 915.0},
+        "KBC": {"de": 1.12, "ocf": -17344.0},
+    }}
+    text = ("⚠️ Rủi ro cần lưu ý\n"
+            "HPG D/E=0.65 và KBC Op.CF=-17,344 tỷ — lưu ý rủi ro cơ bản.\n"
+            "📅 Sự kiện sắp tới")
+    fixed = enforce_risk_numbers(text, ctx)
+    assert "HNG D/E=8.83" in fixed and "HPG D/E" not in fixed
+    assert "KBC Op.CF=-17,344 tỷ" in fixed       # OCF pick untouched
+    # if the top is already cited, no swap (avoid duplicate)
+    t2 = ("⚠️ Rủi ro cần lưu ý\nHNG D/E=8.83, HPG D/E=0.65.\n📅 Sự kiện")
+    f2 = enforce_risk_numbers(t2, ctx)
+    assert f2.count("HNG D/E=8.83") == 1
+
+
 def test_enforce_risk_numbers_corrects_wrong_figures_in_place():
     # 23:08: "HPG D/E=1.55, KBC D/E=8.83" — 1.55 fabricated (real 0.65) and
     # 8.83 is HNG's figure pinned to KBC (real 1.12). The guard must REWRITE
     # the numbers in place (not just append a contradicting data line).
     from vnstock_brief import enforce_risk_numbers
+    # no high-D/E alternative here → isolates the in-place CORRECTION (the
+    # low-D/E-mispick SWAP is covered by its own test above)
     ctx = {"vn30_fundamentals": {
         "HPG": {"de": 0.65, "ocf": 12000.0},
         "KBC": {"de": 1.12, "ocf": -17344.0},
-        "HNG": {"de": 8.83, "ocf": 915.0},
     }}
     text = ("⚠️ Rủi ro cần lưu ý\n"
             "KBC Op.CF=-17,344 tỷ (BĐS). HPG D/E=1.55, KBC D/E=8.83 — đòn bẩy cao.\n"
