@@ -479,6 +479,25 @@ def test_enforce_no_cjk_normalizes_sentiment_typo():
     assert enforce_no_cjk(t) == t
 
 
+def test_enforce_money_flow_corrects_wrong_sector_number_in_prose():
+    # 11:19: "mua ròng 5 tỷ … Thực phẩm & Đồ uống" while the real NN 1T = +136
+    # (and the canonical line said +136 → contradiction). Correct the prose
+    # number (number-precedes-name phrasing); abs value, sign from mua/bán.
+    from vnstock_brief import enforce_money_flow_two_sides
+    ctx = {"sectors": [{"Ngành": "Thực phẩm & Đồ uống", "NN 1T (tỷ)": 136.0},
+                       {"Ngành": "Dầu khí", "NN 1T (tỷ)": 44.0},
+                       {"Ngành": "Ngân hàng", "NN 1T (tỷ)": -703.0}]}
+    text = ("💰 Dòng tiền đáng chú ý\n"
+            "NN mua ròng 5 tỷ đồng trong ngành Thực phẩm & Đồ uống và 44 tỷ đồng "
+            "trong ngành Dầu khí, trong khi bán ròng 703 tỷ đồng trong ngành Ngân hàng.\n"
+            "📋 Watchlist")
+    fixed = enforce_money_flow_two_sides(text, ctx)
+    assert "136 tỷ đồng trong ngành Thực phẩm & Đồ uống" in fixed
+    assert "5 tỷ đồng trong ngành Thực phẩm" not in fixed
+    assert "44 tỷ đồng trong ngành Dầu khí" in fixed       # already right, untouched
+    assert "703 tỷ đồng trong ngành Ngân hàng" in fixed    # already right, untouched
+
+
 def test_enforce_money_flow_two_sides_requires_numbers_not_just_sides():
     # 21:31: "mua ròng đáng kể FnB, CNTT … bán ròng BĐS" — both sides named but
     # zero tỷ numbers. The guard must append the numbered canonical lines.
@@ -808,6 +827,23 @@ def test_enforce_risk_numbers_per_ticker_metric_on_mixed_line():
     assert "KBC Op.CF=-17,344 tỷ" in fixed and "NVL Op.CF=-6,145 tỷ" in fixed
     assert "VRE Op.CF=-3,262 tỷ" in fixed
     assert "HNG Op.CF" not in fixed        # leverage names → D/E, not Op.CF
+
+
+def test_enforce_risk_numbers_inserts_real_top_de_when_superlative_wrong():
+    # 11:19: "PET và VTZ có D/E cao nhất với 2.67 và 2.63" while HNG=8.83 (the
+    # real top) was omitted. Prepend HNG and demote the false "cao nhất" → "cao".
+    from vnstock_brief import enforce_risk_numbers
+    ctx = {"vn30_fundamentals": {
+        "HNG": {"de": 8.83, "ocf": 915.0}, "PET": {"de": 2.67, "ocf": -1389.0},
+        "VTZ": {"de": 2.63, "ocf": -318.0}, "KBC": {"de": 1.12, "ocf": -17344.0},
+    }}
+    text = ("⚠️ Rủi ro cần lưu ý\n"
+            "PET và VTZ có D/E cao nhất với 2.67 và 2.63; KBC có Op.CF=-17,344 tỷ.\n"
+            "📅 Sự kiện sắp tới")
+    fixed = enforce_risk_numbers(text, ctx)
+    assert "HNG D/E=8.83 (đòn bẩy cao nhất)" in fixed
+    assert "PET và VTZ có D/E cao với 2.67" in fixed   # demoted, not "cao nhất"
+    assert fixed.count("cao nhất") == 1                # only HNG keeps it
 
 
 def test_enforce_risk_numbers_swaps_low_de_mispick_for_real_top():

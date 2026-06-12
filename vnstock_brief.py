@@ -2881,6 +2881,30 @@ def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
         return text
     region_end = next((i for i in range(anchor + 1, len(lines))
                        if _is_section_start(lines[i])), len(lines))
+
+    # In-place correct wrong per-sector NN figures the model wrote (observed
+    # 11:19: "mua ròng 5 tỷ … Thực phẩm & Đồ uống" while the real NN 1T is +136
+    # — and the canonical line below then said +136, contradicting it). Handles
+    # the common VN phrasing "[verb] N tỷ [đồng] [trong ngành] <NAME>" where the
+    # number PRECEDES the sector name. Uses the abs value (the mua/bán word
+    # carries the sign).
+    for i in range(anchor, region_end):
+        for nm, vv in rows:
+            av = abs(vv)
+            if av < 30:                       # skip noise / tiny flows
+                continue
+
+            def _fix(m: "_re.Match", _av=av) -> str:
+                cur = _parse_vn_number(m.group(1))
+                return (f"{_av:,.0f}{m.group(2)}"
+                        if cur is not None and abs(cur - _av) > max(1.0, 0.02 * _av)
+                        else m.group(0))
+
+            new = _re.sub(
+                rf"(\d[\d.,]*)(\s*tỷ(?:\s*đồng)?\s*(?:trong\s+ngành\s+)?{_re.escape(nm)}\b)",
+                _fix, lines[i])
+            if new != lines[i]:
+                lines[i] = new
     region_low = "\n".join(lines[anchor:region_end]).lower()
 
     top_buy = max(rows, key=lambda x: x[1])
@@ -2899,9 +2923,8 @@ def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
         add.append(f"NN bán ròng mạnh nhất (1 tuần): {top_sell[0]} {top_sell[1]:+,.0f} tỷ.")
     if top_buy[1] >= 50 and not ("mua ròng" in region_low and _num_present(top_buy[1])):
         add.append(f"NN mua ròng mạnh nhất (1 tuần): {top_buy[0]} {top_buy[1]:+,.0f} tỷ.")
-    if not add:
-        return text
-    return "\n".join(lines[:anchor + 1] + add + lines[anchor + 1:])
+    rebuilt = "\n".join(lines[:anchor + 1] + add + lines[anchor + 1:])
+    return rebuilt if rebuilt != text else text
 
 
 def enforce_risk_numbers(text: str, ctx: dict) -> str:
@@ -2983,6 +3006,23 @@ def enforce_risk_numbers(text: str, ctx: dict) -> str:
                             m2.group(0), f"{_top}{m2.group(1)[len(t):]}{_topv:.2f}")
                         changed = True
                         break
+
+        # (d) Wrong SUPERLATIVE: the section claims "D/E cao nhất" for a ticker
+        # that isn't the real max, and the real max isn't cited (observed 11:19:
+        # "PET và VTZ có D/E cao nhất 2.67/2.63" while HNG=8.83 was omitted).
+        # Prepend the real top and demote the false "cao nhất" → "cao".
+        _section = "\n".join(lines[start + 1:end])
+        if (_topv >= 2.5 and "d/e" in _section.lower()
+                and not _re.search(rf"\b{_re.escape(_top)}\b", _section)):
+            for i in range(start + 1, end):
+                low = lines[i].lower()
+                if _re.search(r"d/e.{0,25}cao nhất|cao nhất.{0,25}d/e", low):
+                    lines[i] = _re.sub(r"cao nhất", "cao", lines[i], count=1,
+                                       flags=_re.IGNORECASE)
+                    lines[i] = (f"{_top} D/E={_topv:.2f} (đòn bẩy cao nhất); "
+                                + lines[i].lstrip())
+                    changed = True
+                    break
 
     def _has_value(line: str, v: float, fmt: str) -> bool:
         s = format(v, fmt)
