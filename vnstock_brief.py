@@ -2822,11 +2822,18 @@ def enforce_watchlist_hygiene(text: str, ctx: dict | None = None) -> str:
     # (observed 22:22: CII "vượt 16,684" while Giá=17,200 = support; 11:03: CII
     # "vượt 17,200" = the price itself). Bump any trigger within +0.5% of Giá up
     # to ~+2% (a real confirmation breakout).
+    def _setup_price(l: str) -> "float | None":
+        # the stock price sits right after the bolded ticker, in EITHER form:
+        # "**CII** (17,350)" or "**CII** (Giá 17,350)" (observed 21:19 dropped the
+        # 'Giá' word, which the old Giá-only regex missed → trigger never bumped).
+        m = _re.search(r"\(\s*(?:Giá\s*)?([\d][\d.,]*)\s*\)", l) \
+            or _re.search(r"Giá\s*([\d][\d.,]*)", l)
+        return _parse_vn_number(m.group(1)) if m else None
+
     def _fix_buy_trigger(l: str) -> str:
         if "canh mua" not in l.lower():
             return l
-        pm = _re.search(r"Giá\s*([\d.,]+)", l)
-        P = _parse_vn_number(pm.group(1)) if pm else None
+        P = _setup_price(l)
         if not P:
             return l
 
@@ -2856,8 +2863,7 @@ def enforce_watchlist_hygiene(text: str, ctx: dict | None = None) -> str:
         # Round EVERY setup price level to the stock's HOSE tick (observed odd
         # 17,716 / 92,635). Scope to numbers near the stock price (0.5×–1.5× Giá)
         # so list indices / % / GTGD are untouched.
-        pm = _re.search(r"Giá\s*([\d.,]+)", l)
-        P = _parse_vn_number(pm.group(1)) if pm else None
+        P = _setup_price(l)
         if not P:
             return l
 

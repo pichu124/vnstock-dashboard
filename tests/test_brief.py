@@ -1002,6 +1002,26 @@ def test_money_flow_guard_handles_morning_inline_line():
     assert lines[i + 1].startswith("NN bán ròng mạnh nhất (1 tuần): Bất động sản -5,111 tỷ")
 
 
+def test_enforce_watchlist_hygiene_bumps_trigger_with_paren_price_format():
+    # 21:19: "CII (17,350) — canh MUA NẾU vượt 16,850" — the trigger 16,850 is
+    # BELOW the price (it's CII's support). The price was in "(17,350)" form (no
+    # "Giá" word), so the old bump regex missed it. Extract price from either
+    # format and bump the trigger to a real breakout (~+2% above price).
+    import re
+    from vnstock_brief import enforce_watchlist_hygiene
+    text = ("📋 Watchlist sáng mai\n"
+            "1. **CII** (17,350) — canh MUA NẾU vượt 16,850 · mục tiêu 18,000 · cắt lỗ 16,500\n"
+            "⚠️ Rủi ro")
+    fixed = enforce_watchlist_hygiene(text, {"bias_floor": {"dir": "GIẢM"}})
+    assert "vượt 16,850" not in fixed                  # support-as-trigger removed
+    m = re.search(r"vượt (\d[\d,]*)", fixed)
+    assert m and int(m.group(1).replace(",", "")) > 17350   # trigger now above price
+    # the "(Giá ...)" form still works
+    text2 = text.replace("(17,350)", "(Giá 17,350)")
+    f2 = enforce_watchlist_hygiene(text2, {"bias_floor": {"dir": "GIẢM"}})
+    assert "vượt 16,850" not in f2
+
+
 def test_enforce_compare_direction_flips_word_to_match_sign():
     # Close 12/06: "GTGD cả ngày 18,353.2 tỷ (+4% vs TB20), thấp hơn TB5 phiên
     # (+43%) nhưng cao hơn phiên trước (+80%)" — 'thấp hơn' with +43% is a clash.
