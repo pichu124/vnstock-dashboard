@@ -2557,6 +2557,7 @@ def generate_brief(
             fixed = enforce_no_composite_jargon(fixed, ctx)
             fixed = enforce_no_bias_directive_leak(fixed, ctx)   # 'bắt buộc' is internal
             fixed = enforce_no_record_superlative(fixed, ctx)    # no all-time GTGD claim
+            fixed = enforce_no_duplicate_momentum(fixed, ctx)    # state momentum once
             fixed = enforce_range_position(fixed, ctx)
             if fixed != text:
                 results[agent.name] = (fixed, _err)
@@ -3490,6 +3491,27 @@ def enforce_no_record_superlative(text: str, ctx: dict | None = None) -> str:
             ln = _re.sub(r"\s*(?:kỷ|kỉ)\s*lục\b", "", ln, flags=_re.IGNORECASE)
             ln = _re.sub(r"\s+nhất\s+(?:trong\s+)?lịch\s+sử\b", "", ln,
                          flags=_re.IGNORECASE)
+        out.append(ln)
+    return "\n".join(out)
+
+
+def enforce_no_duplicate_momentum(text: str, ctx: dict | None = None) -> str:
+    """Within a line, the composite 'momentum {N}/100' should appear once.
+    Observed 13:14: the close 'Tổng kết phiên' stated 'momentum -61/100' twice in
+    adjacent sentences (once tacked onto the breadth clause, once with tâm lý).
+    Drop the earlier duplicate(s) of an IDENTICAL value, keeping the last (the
+    tâm-lý placement); leave differing values alone. No-op when nothing repeats.
+    """
+    if not text or text.lower().count("momentum") < 2:
+        return text
+    pat = _re.compile(r"\s*[,;]?\s*momentum\s*([-+]?\d+)\s*/\s*100", _re.IGNORECASE)
+    out = []
+    for ln in text.splitlines():
+        ms = list(pat.finditer(ln))
+        if len(ms) >= 2:
+            last_val = ms[-1].group(1)
+            for m in reversed([m for m in ms[:-1] if m.group(1) == last_val]):
+                ln = ln[:m.start()] + ln[m.end():]
         out.append(ln)
     return "\n".join(out)
 

@@ -760,6 +760,30 @@ def test_enforce_gtgd_compare_frame_noop_cases():
         == "📊 Tổng kết phiên\nGTGD (1 tỷ) thấp hơn 9% so sáng phiên trước (2 tỷ)."
 
 
+def test_enforce_no_duplicate_momentum_collapses_repeat():
+    # 13:14: "Tổng kết phiên" stated momentum twice in one line — once on the
+    # breadth clause, once with tâm lý. Keep the last (tâm-lý) mention only.
+    from vnstock_brief import enforce_no_duplicate_momentum
+    t = ("📊 Tổng kết phiên\n"
+         "Độ rộng tiêu cực (A/D=0.87, 17% trên MA200), momentum -61/100. Tâm lý: "
+         "❄️ Sợ hãi, momentum -61/100 → xu hướng ngắn hạn yếu.\n📈 Mức kỹ thuật")
+    f = enforce_no_duplicate_momentum(t, {})
+    assert f.count("momentum -61/100") == 1
+    assert "17% trên MA200). Tâm lý:" in f          # earlier dup removed cleanly
+    assert "Sợ hãi, momentum -61/100 → xu hướng" in f  # tâm-lý mention kept
+    assert enforce_no_duplicate_momentum(f, {}) == f   # idempotent
+
+
+def test_enforce_no_duplicate_momentum_keeps_distinct_and_single():
+    from vnstock_brief import enforce_no_duplicate_momentum
+    # a single mention is untouched
+    one = "Tâm lý: Sợ hãi, momentum -61/100 → yếu."
+    assert enforce_no_duplicate_momentum(one, {}) == one
+    # two DIFFERENT values are both kept (not a redundancy)
+    two = "momentum -61/100 hôm nay vs momentum -40/100 phiên trước."
+    assert enforce_no_duplicate_momentum(two, {}) == two
+
+
 def test_bias_floor_giam_adds_watchlist_conditional_buy_rule():
     # Stance GIẢM kept producing unconditional dip-buys ("MUA vùng 69,000" with
     # price at 70,700). The bias-floor block must carry a watchlist-specific
