@@ -3673,17 +3673,29 @@ def enforce_composite_rotation_hygiene(text: str, ctx: dict | None = None) -> st
     res = "\n".join(out)
 
     # (b) Net BS jargon → Vietnamese
+    # Source semantics (vnstock_market_analyzer): "1M/3M" = lookback WINDOW (1
+    # tháng / 3 tháng); the "M" SUFFIX on a SIGNED value ("Net BS +6.0M") = MILLION
+    # cổ phiếu. Distinguish by sign: signed → million CP, unsigned → month.
     def _verb(s: str) -> str:
         v = _parse_vn_number(s)
         return "bán" if (v is not None and v < 0) else "mua"
     res = _re.sub(r"Net\s*BS\s*([+-]?\d[\d.,]*)\s*%\s*(?:volume|vol)\b",
                   lambda m: f"{_verb(m.group(1))} ròng ~{m.group(1).lstrip('+-')}% KL",
                   res, flags=_re.IGNORECASE)
-    res = _re.sub(r"Net\s*BS\s*([+-]?\d[\d.,]*)\s*M\b",
+    res = _re.sub(r"Net\s*BS\s*([+-]\d[\d.,]*)\s*M\b",     # SIGNED → million CP
                   lambda m: f"{_verb(m.group(1))} ròng ~{m.group(1).lstrip('+-')} triệu CP",
                   res, flags=_re.IGNORECASE)
-    # remaining bare English "volume" (e.g. "dòng tiền thoát 1M -8.5% volume",
-    # observed 23:56) → Vietnamese "KL"; "volume" never appears legitimately.
+    # unsigned "1M/3M/6M" = lookback window → "X tháng"; only on composite lines,
+    # never after a sign/digit/dot (that's a value, handled above).
+    out2 = []
+    for ln in res.splitlines():
+        if any(k in ln.lower() for k in ("tích lu", "phân phối", "smart money",
+                                         "dòng tiền", "net bs", "luân chuyển")):
+            ln = _re.sub(r"(?<![+\-\d.])(\d{1,2})\s*M\b", r"\1 tháng", ln)
+        out2.append(ln)
+    res = "\n".join(out2)
+    # remaining bare "Net BS" / "volume" → Vietnamese (never appear legitimately).
+    res = _re.sub(r"Net\s*BS", "NN ròng", res, flags=_re.IGNORECASE)
     res = _re.sub(r"\bvolume\b", "KL", res, flags=_re.IGNORECASE)
     return res
 

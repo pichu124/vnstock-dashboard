@@ -1101,10 +1101,18 @@ def test_enforce_composite_rotation_hygiene_fixes_contradiction_and_jargon():
     keep = "- Smart money tích luỹ ngầm: Giáo dục (tín hiệu tích luỹ mạnh)."
     assert enforce_composite_rotation_hygiene(keep, {}) == keep
     assert enforce_composite_rotation_hygiene(f, {}) == f          # idempotent
-    # bare "volume" without the "Net BS" prefix → "KL" (observed 23:56)
+    # bare "volume" + "1M" window (observed 23:56): "1M" = 1 tháng (lookback),
+    # "volume" → KL. (Net BS value with M suffix stays million CP.)
     t2 = "- Phân phối: CNTT & Phần mềm (dòng tiền thoát 1M -8.5% volume)."
     f2 = enforce_composite_rotation_hygiene(t2, {})
     assert "volume" not in f2 and "-8.5% KL" in f2
+    assert "1 tháng" in f2 and "1M" not in f2          # window → tháng
+    # signed M suffix = million CP (not month); unsigned 3M = window
+    t3 = "- Smart money tích luỹ ngầm: Giáo dục (Net BS +6M), CNTT (Net BS -2.5% volume)."
+    f3 = enforce_composite_rotation_hygiene(t3, {})
+    assert "mua ròng ~6 triệu CP" in f3                 # +6M signed → million CP
+    assert "bán ròng ~2.5% KL" in f3                    # -2.5% volume → KL
+    assert "Net BS" not in f3
 
 
 def test_enforce_breadth_label_relabels_above_ma200_as_advancing():
