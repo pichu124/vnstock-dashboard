@@ -1252,8 +1252,13 @@ def test_build_prompt_marks_intraday_vnindex():
 
 # ─── Data freshness: breadth/movers/regime lag vs intraday VNINDEX ────────────
 
-def test_market_data_freshness_flags_stale_overview(tmp_path):
+def test_market_data_freshness_flags_stale_overview(tmp_path, monkeypatch):
     import json as _json
+    import vnstock_brief as _vb
+    # Legacy overview without data_date → the fallback reads the real warehouse
+    # EOD date. Pin it to None so this test (which exercises the generated_at
+    # last-resort) is deterministic regardless of the machine's warehouse.
+    monkeypatch.setattr(_vb, "_warehouse_eod_date", lambda: None)
     p = tmp_path / "market_overview.json"
     p.write_text(_json.dumps({"generated_at": "2026-06-08 09:00:00"}))
     fr = market_data_freshness(data_date="2026-06-09", overview_path=p)
