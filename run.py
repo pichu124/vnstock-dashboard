@@ -710,6 +710,19 @@ def cmd_screener(args) -> int:
     return _run([sys.executable, str(REPO_ROOT / "vnstock_runner.py")])
 
 
+def cmd_foreign_flow(args) -> int:
+    """Refresh the FULL-market foreign net-flow per-date cache (NN ròng 1D).
+
+    The brief reads this (vnstock_foreign_flow.load_market_net_1d) instead of the
+    Streamlit-only top-100 cache. Best-effort: a network/API miss is a warning,
+    not a hard failure.
+    """
+    days = str(getattr(args, "days", 5) or 5)
+    rc = _run([sys.executable, str(REPO_ROOT / "vnstock_foreign_flow.py"),
+               "--refresh", "--days", days])
+    return 1 if rc != 0 else 0
+
+
 def cmd_telegram(args) -> int:
     """Push Telegram notifications (test / morning / close / screener)."""
     try:
@@ -807,11 +820,12 @@ def cmd_news(args) -> int:
 def cmd_all(args) -> int:
     """sync → validate → screener → news → test → audit. Stops on first hard failure."""
     steps: list[tuple[str, object]] = [
-        ("sync",     cmd_sync),
-        ("validate", cmd_validate),
-        ("screener", cmd_screener),
-        ("test",     cmd_test),
-        ("audit",    cmd_audit),
+        ("sync",         cmd_sync),
+        ("validate",     cmd_validate),
+        ("screener",     cmd_screener),
+        ("foreign-flow", cmd_foreign_flow),
+        ("test",         cmd_test),
+        ("audit",        cmd_audit),
     ]
     # Insert news after screener unless the caller opts out
     if not getattr(args, "no_news", False):
@@ -990,6 +1004,9 @@ def build_parser() -> argparse.ArgumentParser:
     test.add_argument("--new", action="store_true",
                       help="Alias for --fast")
     sub.add_parser("screener", help="Refresh screener signals (vnstock_runner.py)")
+    ff_nn = sub.add_parser("foreign-flow",
+                           help="Refresh full-market foreign net-flow cache (NN ròng 1D)")
+    ff_nn.add_argument("--days", type=int, default=5)
     sub.add_parser("dashboard", help="Launch the Streamlit dashboard")
 
     tg = sub.add_parser("telegram", help="Push Telegram notifications")
@@ -1033,6 +1050,7 @@ _DISPATCH = {
     "fix-units": cmd_fix_units,
     "freefloat": cmd_freefloat,
     "screener": cmd_screener,
+    "foreign-flow": cmd_foreign_flow,
     "telegram": cmd_telegram,
     "news": cmd_news,
     "test": cmd_test,

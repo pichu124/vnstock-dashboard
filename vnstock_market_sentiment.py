@@ -195,10 +195,13 @@ def _load_breadth() -> dict:
         return {}
 
 
-def _load_nn_net_1d() -> float | None:
+def _load_nn_net_1d(effective_date: "str | None" = None) -> float | None:
     try:
         from vnstock_regime import _load_nn_net_1d as _nn
-        return _nn()
+        v = _nn(effective_date)
+        # 0.0 from the regime loader means "no fresh full-market figure" → omit
+        # the signal rather than report a flat/false zero.
+        return v if v else None
     except Exception:
         return None
 
@@ -222,9 +225,12 @@ def load_market_sentiment(
             vnindex_tech = {}
     if breadth is None:
         breadth = _load_breadth()
+    # Use the brief's effective session date so the NN ròng 1D figure is the
+    # RIGHT day's full-market value (or omitted) — never a stale frozen number.
+    _eff_date = (vnindex_tech or {}).get("data_date")
     return compute_market_sentiment(
         breadth=breadth,
-        nn_net=_load_nn_net_1d(),
+        nn_net=_load_nn_net_1d(_eff_date),
         vnindex_tech=vnindex_tech or {},
         news_sentiment=_load_news_sentiment(days=news_days),
     )

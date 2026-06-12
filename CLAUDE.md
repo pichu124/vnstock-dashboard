@@ -361,6 +361,31 @@ re-running strategy generation/backtest, and reconciling recommendations.
 
 ## 🔧 Future improvements — tracked TODOs
 
+### 0. NN ròng 1D — full-market source `vnstock_foreign_flow.py` (DONE 2026-06-12, CẦN USER VERIFY)
+
+**Bug cũ (12/06)**: brief in "NN ròng 1D −665 tỷ … phiên hôm nay" SAI cho cả 2
+phiên (thực 11/06 = −504, 12/06 = −491). Hai nguyên nhân:
+1. **Top-100**: `vnstock_dashboard._fetch_foreign_net_flow(limit=100)` chỉ lấy
+   top-100 mã foreign buy/sell → tổng net **thổi phồng bán ròng** (thiếu đuôi
+   small-cap mua ròng + mã chỉ có ở top-sell mất vế mua).
+2. **Stale**: cache `nn_flow_cache.json` CHỈ được ghi khi mở tab Money Flow trên
+   Streamlit; `_load_nn_net_1d` đọc thẳng JSON **bỏ qua tuổi** → brief hiện giá
+   trị ĐÓNG BĂNG (−665 y hệt cho 2 phiên khác nhau).
+
+**Fix**: module mới `vnstock_foreign_flow.py` — fetch FULL universe
+(`limit=3000`) qua `TopStock.foreign_buy/sell`, tính market-total net THEO TỪNG
+NGÀY, cache `_meta/foreign_net_daily.json`. `load_market_net_1d(effective_date)`
+trả net của ĐÚNG phiên (hoặc None → brief BỎ signal, không bao giờ hiện số stale).
+`vnstock_regime._load_nn_net_1d(effective_date)` nay ưu tiên nguồn này (bỏ hẳn
+top-100 stale); `vnstock_market_sentiment.load_market_sentiment` truyền
+`vnindex_tech["data_date"]` xuống. Pipeline: thêm bước `foreign-flow` vào
+`run.py all` (best-effort) — `python run.py foreign-flow --days 5`.
+
+**⚠️ CẦN USER VERIFY (tôi không có network/data ở sandbox)**: chạy
+`python vnstock_foreign_flow.py --diag 2026-06-12` → in net + **số mã** trả về.
+Nếu khớp ~−491 và vài trăm mã ⇒ OK. Nếu chỉ ~100 mã ⇒ API đang cap `limit`, cần
+tăng `--limit` hoặc đổi nguồn (xem mục 1 bên dưới về các nguồn đã thử).
+
 ### 1. Replace calibrated GTGD estimate with exact realtime source
 
 **Status**: Currently using Option A — `vnstock_data Quote.history(interval='1m')`
