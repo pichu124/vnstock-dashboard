@@ -2917,12 +2917,24 @@ def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
         s = f"{abs(v):,.0f}"
         return s in region_low or s.replace(",", ".") in region_low
 
-    # Require BOTH the side AND its figure (observed 21:31: "mua ròng đáng kể
-    # FnB, CNTT … bán ròng BĐS" — both sides named but zero tỷ numbers).
+    _clauses = _re.split(r"[.;\n]", "\n".join(lines[anchor:region_end]).lower())
+
+    def _named_in_side(name: str, side_kw: str) -> bool:
+        # the TRUE strongest sector is named in the SAME CLAUSE as its side
+        # keyword — so the ranking is right, not just the number present
+        # (observed 12:03: Thép -1,372 was the biggest sell but sat in a "phân
+        # phối" clause while Ngân hàng -703 was called "bán ròng mạnh nhất").
+        nl = name.lower()
+        return any(side_kw in c and nl in c for c in _clauses)
+
+    # Append the canonical line unless the TRUE top sector is already named in
+    # its side's clause WITH its figure.
     add: list[str] = []
-    if top_sell[1] <= -50 and not ("bán ròng" in region_low and _num_present(top_sell[1])):
+    if top_sell[1] <= -50 and not (_named_in_side(top_sell[0], "bán ròng")
+                                   and _num_present(top_sell[1])):
         add.append(f"NN bán ròng mạnh nhất (1 tuần): {top_sell[0]} {top_sell[1]:+,.0f} tỷ.")
-    if top_buy[1] >= 50 and not ("mua ròng" in region_low and _num_present(top_buy[1])):
+    if top_buy[1] >= 50 and not (_named_in_side(top_buy[0], "mua ròng")
+                                 and _num_present(top_buy[1])):
         add.append(f"NN mua ròng mạnh nhất (1 tuần): {top_buy[0]} {top_buy[1]:+,.0f} tỷ.")
     rebuilt = "\n".join(lines[:anchor + 1] + add + lines[anchor + 1:])
     return rebuilt if rebuilt != text else text

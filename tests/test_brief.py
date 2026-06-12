@@ -479,6 +479,28 @@ def test_enforce_no_cjk_normalizes_sentiment_typo():
     assert enforce_no_cjk(t) == t
 
 
+def test_enforce_money_flow_ranks_true_top_sell_not_mislabeled_bucket():
+    # 12:03: Thép -1,372 was the biggest foreign sell but sat in a "phân phối"
+    # clause while Ngân hàng -703 was called "bán ròng mạnh nhất". The guard must
+    # surface the TRUE top sell (named in a bán-ròng line), not just trust the
+    # number's presence.
+    from vnstock_brief import enforce_money_flow_two_sides
+    ctx = {"sectors": [{"Ngành": "Thép & Kim loại", "NN 1T (tỷ)": -1372.0},
+                       {"Ngành": "Ngân hàng", "NN 1T (tỷ)": -703.0},
+                       {"Ngành": "Thực phẩm & Đồ uống", "NN 1T (tỷ)": 136.0}]}
+    text = ("💰 Dòng tiền đáng chú ý\n"
+            "Khối ngoại bán ròng mạnh Ngân hàng -703 tỷ. Smart money phân phối tại "
+            "Thép & Kim loại (NN -1,372 tỷ).\n"
+            "📋 Watchlist")
+    fixed = enforce_money_flow_two_sides(text, ctx)
+    assert "NN bán ròng mạnh nhất (1 tuần): Thép & Kim loại -1,372 tỷ" in fixed
+    # already-correct ranking → no duplicate
+    t2 = ("💰 Dòng tiền đáng chú ý\n"
+          "Bán ròng mạnh Thép & Kim loại -1,372 tỷ, Ngân hàng -703 tỷ; mua ròng "
+          "Thực phẩm & Đồ uống +136 tỷ.\n📋 Watchlist")
+    assert enforce_money_flow_two_sides(t2, ctx) == t2
+
+
 def test_enforce_money_flow_corrects_wrong_sector_number_in_prose():
     # 11:19: "mua ròng 5 tỷ … Thực phẩm & Đồ uống" while the real NN 1T = +136
     # (and the canonical line said +136 → contradiction). Correct the prose
