@@ -94,6 +94,19 @@ _LIQUID_PRICE_MIN_TY: float = 5.0
 _WATCHLIST_GTGD_MIN_TY: float = 30.0
 
 
+def _vn_tick(price_vnd: float) -> int:
+    """HOSE price tick (VND): <10k → 10, 10k-<50k → 50, ≥50k → 100. Watchlist
+    setup levels must land on a valid tick (observed odd 16,684 / 92,635)."""
+    p = abs(price_vnd)
+    return 10 if p < 10_000 else 50 if p < 50_000 else 100
+
+
+def _round_tick(value_vnd: float, ref_price_vnd: float) -> int:
+    """Round a price level to the tick of the reference (stock) price."""
+    t = _vn_tick(ref_price_vnd)
+    return int(round(value_vnd / t) * t)
+
+
 def get_vn30_live() -> set[str]:
     """Try to fetch current VN30 from vnstock API; fall back to VN30_TICKERS."""
     try:
@@ -2312,8 +2325,8 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             # VNINDEX S/R (recurring "CII canh mua nếu vượt R1=1,800.80" bug →
             # empty watchlist after the hygiene guard dropped it).
             _p = float(price) * 1000
-            line += (f" ⭐ [mốc của mã: hỗ trợ ~{_p * 0.97:,.0f} / "
-                     f"kháng cự ~{_p * 1.03:,.0f}]")
+            line += (f" ⭐ [mốc của mã: hỗ trợ ~{_round_tick(_p * 0.97, _p):,} / "
+                     f"kháng cự ~{_round_tick(_p * 1.03, _p):,}]")
         return line
 
     if gainers := ctx.get("vn30_gainers"):
@@ -2777,7 +2790,7 @@ def enforce_watchlist_hygiene(text: str, ctx: dict | None = None) -> str:
         def _sub(m: "_re.Match") -> str:
             x = _parse_vn_number(m.group(2))
             if x is not None and x < P:
-                return f"{m.group(1)}{round(P * 1.02 / 50) * 50:,.0f}"
+                return f"{m.group(1)}{_round_tick(P * 1.02, P):,}"
             return m.group(0)
 
         l = _re.sub(r"(vượt(?:\s*lại)?\s*)([\d][\d.,]*)", _sub, l, count=1)
@@ -2791,12 +2804,28 @@ def enforce_watchlist_hygiene(text: str, ctx: dict | None = None) -> str:
             def _sub_tp(m: "_re.Match") -> str:
                 y = _parse_vn_number(m.group(2))
                 if y is not None and y < trig * 1.015:
-                    return f"{m.group(1)}{round(trig * 1.03 / 50) * 50:,.0f}"
+                    return f"{m.group(1)}{_round_tick(trig * 1.03, trig):,}"
                 return m.group(0)
             l = _re.sub(r"(mục tiêu\s*)([\d][\d.,]*)", _sub_tp, l, count=1)
         return l
 
-    sec = [_fix_buy_trigger(l) for l in sec]
+    def _round_all_ticks(l: str) -> str:
+        # Round EVERY setup price level to the stock's HOSE tick (observed odd
+        # 17,716 / 92,635). Scope to numbers near the stock price (0.5×–1.5× Giá)
+        # so list indices / % / GTGD are untouched.
+        pm = _re.search(r"Giá\s*([\d.,]+)", l)
+        P = _parse_vn_number(pm.group(1)) if pm else None
+        if not P:
+            return l
+
+        def _sub(m: "_re.Match") -> str:
+            v = _parse_vn_number(m.group(0))
+            return f"{_round_tick(v, P):,}" if v is not None and 0.5 * P <= v <= 1.5 * P \
+                else m.group(0)
+
+        return _re.sub(r"\d{1,3}(?:[.,]\d{3})+", _sub, l)
+
+    sec = [_round_all_ticks(_fix_buy_trigger(l)) for l in sec]
 
     if sec == lines[start + 1:end]:
         return text

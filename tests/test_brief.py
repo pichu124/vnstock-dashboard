@@ -453,13 +453,13 @@ def test_enforce_watchlist_hygiene_bumps_subprice_buy_trigger():
     # the target is bumped along with the trigger so the reward isn't squeezed
     # to <1% (observed 23:56: vượt 17,550 → mục tiêu 17,716 = +0.95%)
     assert "mục tiêu 18,100" in fixed and "17,716" not in fixed
-    assert "hủy nếu vượt lại 98,365" in fixed      # defensive line untouched
+    assert "hủy nếu vượt lại 98,400" in fixed      # defensive line (rounded to tick 100)
     # an already-correct trigger (above price) is left as-is
     t2 = ("📋 Watchlist sáng mai\n"
           "1. **CII** (Giá 17,200) — canh MUA NẾU vượt 17,716 · mục tiêu 18,200 · cắt lỗ 16,800\n"
           "⚠️ Rủi ro")
     f2 = enforce_watchlist_hygiene(t2, {"bias_floor": {"dir": "GIẢM"}})
-    assert "vượt 17,716" in f2 and "mục tiêu 18,200" in f2
+    assert "vượt 17,700" in f2 and "mục tiêu 18,200" in f2   # 17,716 → tick 50
 
 
 def test_enforce_no_cjk_normalizes_sentiment_typo():
@@ -497,9 +497,9 @@ def test_enforce_watchlist_hygiene_converts_dipbuy_under_giam_bias():
             "2. **GEE** (Giá 95,500) — GIẢM TỶ TRỌNG/TRÁNH nếu thủng 92,635 · mục tiêu về 90,000\n"
             "⚠️ Rủi ro")
     fixed = enforce_watchlist_hygiene(text, {"bias_floor": {"dir": "GIẢM"}})
-    assert "canh MUA NẾU vượt 17,200 · mục tiêu 17,716 · cắt lỗ 16,684" in fixed
+    assert "canh MUA NẾU vượt 17,200 · mục tiêu 17,700 · cắt lỗ 16,700" in fixed
     assert "MUA vùng" not in fixed
-    assert "GIẢM TỶ TRỌNG/TRÁNH nếu thủng 92,635" in fixed   # defensive untouched
+    assert "GIẢM TỶ TRỌNG/TRÁNH nếu thủng 92,600" in fixed   # defensive: level rounded to tick
     # no GIẢM floor → dip-buy left as-is
     assert "MUA vùng 17,200" in enforce_watchlist_hygiene(text, {})
 
@@ -1688,17 +1688,38 @@ def test_build_prompt_full_day_gtgd_comparison_is_day_over_day():
     assert "KHÔNG tự suy TB khác" in p
 
 
+def test_enforce_watchlist_hygiene_rounds_levels_to_hose_tick():
+    # Setup levels must land on the HOSE tick (CII 17,200 → tick 50; GEE 95,500
+    # → tick 100). Odd model levels (17,716 / 16,684 / 92,635 / 98,365) get
+    # rounded; the stock price and list index are untouched.
+    from vnstock_brief import enforce_watchlist_hygiene
+    text = ("📋 Watchlist sáng mai\n"
+            "1. **CII** (Giá 17,200) — canh mua nếu vượt 17,716 · mục tiêu 18,530 · cắt lỗ 16,684\n"
+            "2. **GEE** (Giá 95,500) — GIẢM TỶ TRỌNG/TRÁNH nếu thủng 92,635 · mục tiêu về 89,940 · hủy nếu vượt lại 98,365\n"
+            "⚠️ Rủi ro")
+    fixed = enforce_watchlist_hygiene(text, {})
+    assert "vượt 17,700" in fixed and "cắt lỗ 16,700" in fixed and "18,550" in fixed
+    assert "thủng 92,600" in fixed and "98,400" in fixed and "89,900" in fixed
+    assert "17,716" not in fixed and "92,635" not in fixed
+    # all setup numbers are now valid ticks
+    import re as _re
+    for n in _re.findall(r"\d{1,3}(?:,\d{3})+", fixed):
+        v = int(n.replace(",", ""))
+        tick = 50 if v < 50_000 else 100
+        assert v % tick == 0, f"{v} not on tick"
+
+
 def test_movers_star_line_carries_per_stock_reference_levels():
     # ⭐ movers must surface ±3% reference levels computed from the stock's own
     # price, so the watchlist anchors a setup to those instead of grabbing the
     # VNINDEX S/R (recurring empty-watchlist bug). 70.6 (nghìn) → 70,600 →
-    # support ~68,482, resistance ~72,718.
+    # support ~68,482→68,500, resistance ~72,718→72,700 (tick 100).
     ctx = {"date": "2026-06-11", "time": "15:00",
            "vn30_gainers": [{"Mã": "STB", "Giá 1T %": 1.0, "Ngành": "NH",
                              "last": 70.6, "GTGD TB (tỷ)": 800.0}]}
     p = build_prompt(ctx, brief_type="afternoon")
     assert "STB" in p and "⭐" in p
-    assert "mốc của mã: hỗ trợ ~68,482 / kháng cự ~72,718" in p
+    assert "mốc của mã: hỗ trợ ~68,500 / kháng cự ~72,700" in p
     assert "LẤY TỪ" in p          # watchlist instruction points at these levels
 
 
