@@ -1771,6 +1771,22 @@ def test_movers_star_line_carries_per_stock_reference_levels():
     assert "LẤY TỪ" in p          # watchlist instruction points at these levels
 
 
+def test_enforce_range_position_inserts_computed_pct():
+    # 11:03: "**Vị trí trong range:** Gần đáy range tuần" lacked the %. Insert
+    # (close−week_low)/(week_high−week_low) — here 27%.
+    from vnstock_brief import enforce_range_position
+    ctx = {"vnindex_tech": {"close": 1798.61, "week_low": 1780.71, "week_high": 1846.71}}
+    text = ("📈 Mức kỹ thuật chốt phiên\n"
+            "**Vị trí trong range:** Gần đáy range tuần\n"
+            "**Vs MA:** dưới MA20")
+    fixed = enforce_range_position(text, ctx)
+    assert "**Vị trí trong range:** 27% — Gần đáy range tuần" in fixed
+    # already has a % → untouched; no range data → untouched
+    t2 = "**Vị trí trong range:** 27% (gần đáy)"
+    assert enforce_range_position(t2, ctx) == t2
+    assert enforce_range_position(text, {}) == text
+
+
 def test_enforce_no_composite_jargon_labels_score():
     # "Thép & Kim loại (composite=-0.76)" → plain label so the reader doesn't
     # face an internal quant number. Threshold buckets verified at the edges.

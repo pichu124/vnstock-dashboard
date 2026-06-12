@@ -2551,6 +2551,7 @@ def generate_brief(
             fixed = enforce_no_instruction_leak(fixed, ctx)
             fixed = enforce_no_placeholder_leak(fixed, ctx)
             fixed = enforce_no_composite_jargon(fixed, ctx)
+            fixed = enforce_range_position(fixed, ctx)
             if fixed != text:
                 results[agent.name] = (fixed, _err)
 
@@ -3218,6 +3219,29 @@ def enforce_no_composite_jargon(text: str, ctx: dict | None = None) -> str:
         return f" (tín hiệu {name})"
 
     return _COMPOSITE_LEAK_RE.sub(_lbl, text)
+
+
+def enforce_range_position(text: str, ctx: dict) -> str:
+    """Deterministic guard: the close brief's "Vị trí trong range" line must
+    carry the computed % (observed 11:03: "Gần đáy range tuần" with no number,
+    while 10:53 had "27%"). Insert the % — (close−week_low)/(week_high−week_low)
+    — when the line lacks one. No-op without weekly range data or already %-ed.
+    """
+    vt = ctx.get("vnindex_tech") or {}
+    wl, wh, cl = vt.get("week_low"), vt.get("week_high"), vt.get("close")
+    if (not text or not all(isinstance(x, (int, float)) for x in (wl, wh, cl))
+            or wh <= wl):
+        return text
+    pos = (cl - wl) / (wh - wl) * 100
+    out, done = [], False
+    for l in text.splitlines():
+        if not done and "vị trí trong range" in l.lower() and "%" not in l:
+            l = _re.sub(r"(vị trí trong range\s*:?\s*\**\s*)",
+                        lambda m: f"{m.group(1)}{pos:.0f}% — ", l,
+                        count=1, flags=_re.IGNORECASE)
+            done = True
+        out.append(l)
+    return "\n".join(out) if done else text
 
 
 # Keyword-anchored GTGD figure: the thousands-magnitude number (+ optional unit)
