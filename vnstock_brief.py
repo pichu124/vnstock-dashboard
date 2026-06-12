@@ -2169,6 +2169,17 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
     _sw = ctx.get("sector_weights", {})
     _ts = ctx.get("top_stocks_per_sector", {})
 
+    def _composite_tag(r: dict) -> str:
+        """Plain-Vietnamese label for the internal quant 'composite' score so the
+        brief reads "tín hiệu phân phối" not "composite=-0.76"."""
+        v = r.get("composite")
+        if not isinstance(v, (int, float)):
+            return ""
+        lbl = ("phân phối mạnh" if v <= -0.6 else "phân phối" if v <= -0.2
+               else "tích luỹ mạnh" if v >= 0.6 else "tích luỹ" if v >= 0.2
+               else "trung tính")
+        return f" tín hiệu {lbl}"
+
     def _sector_lines(r: dict) -> list[str]:
         sector_name = r.get("Ngành", "?")
         sw = _sw.get(sector_name, {})
@@ -2182,7 +2193,7 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             if contrib != 0:
                 header += f", đóng góp {contrib:+.2f}pp (1 tuần)"
             header += "]"
-        header += f" composite={r.get('composite', 0):+.2f}"
+        header += _composite_tag(r)
 
         meta: list[str] = []
         g1t = r.get("Giá 1T %")
@@ -2255,7 +2266,7 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             sw = _sw.get(r.get("Ngành", ""), {})
             lines.append(
                 f"- **{r.get('Ngành','?')}** rotation={r.get('rotation',0):+.1f}pp"
-                f" | composite={r.get('composite',0):+.2f}"
+                f" |{_composite_tag(r)}"
                 + (f" | {sw.get('_weight',0)*100:.1f}%VNI" if sw.get("_weight") else "")
             )
 
@@ -2267,7 +2278,9 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
     if dist := ctx.get("quant_distribution"):
         lines.append("\n## Distribution warning (giá xanh, tiền đang thoát)")
         for r in dist:
-            lines.append(f"- **{r.get('Ngành','?')}** — composite={r.get('composite',0):+.2f}")
+            lines.append(f"- **{r.get('Ngành','?')}** —{_composite_tag(r)}")
+        lines.append("→ Khi nhắc các tín hiệu trên, DÙNG nhãn chữ (phân phối/tích luỹ…), "
+                     "TUYỆT ĐỐI KHÔNG in 'composite=<số>' vào brief.")
 
     # VN30 movers + contribution to VNINDEX
     def _vn30_line(g: dict) -> str:
@@ -2511,6 +2524,7 @@ def generate_brief(
             fixed = enforce_no_cjk(fixed, ctx)
             fixed = enforce_no_instruction_leak(fixed, ctx)
             fixed = enforce_no_placeholder_leak(fixed, ctx)
+            fixed = enforce_no_composite_jargon(fixed, ctx)
             if fixed != text:
                 results[agent.name] = (fixed, _err)
 
@@ -3100,6 +3114,29 @@ def enforce_no_placeholder_leak(text: str, ctx: dict | None = None) -> str:
     # any residual bare "MÃ D/E=" with no ticker → drop the stray placeholder word
     out = _re.sub(r"\bMÃ\s+(D/E|Op\.?CF)\s*=", r"\1=", out, flags=_re.IGNORECASE)
     return out
+
+
+_COMPOSITE_LEAK_RE = _re.compile(r"\s*[\(|]?\s*composite\s*=\s*(-?[\d.,]+)\s*\)?",
+                                 _re.IGNORECASE)
+
+
+def enforce_no_composite_jargon(text: str, ctx: dict | None = None) -> str:
+    """Deterministic guard: turn the internal "composite=-0.76" score the model
+    sometimes echoes into a plain-Vietnamese label ("tín hiệu phân phối mạnh").
+    No-op when clean."""
+    if not text or "composite" not in text.lower():
+        return text
+
+    def _lbl(m: "_re.Match") -> str:
+        v = _parse_vn_number(m.group(1))
+        if v is None:
+            return ""
+        name = ("phân phối mạnh" if v <= -0.6 else "phân phối" if v <= -0.2
+                else "tích luỹ mạnh" if v >= 0.6 else "tích luỹ" if v >= 0.2
+                else "trung tính")
+        return f" (tín hiệu {name})"
+
+    return _COMPOSITE_LEAK_RE.sub(_lbl, text)
 
 
 # Keyword-anchored GTGD figure: the thousands-magnitude number (+ optional unit)

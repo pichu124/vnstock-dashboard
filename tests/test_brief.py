@@ -1680,6 +1680,29 @@ def test_movers_star_line_carries_per_stock_reference_levels():
     assert "LẤY TỪ" in p          # watchlist instruction points at these levels
 
 
+def test_enforce_no_composite_jargon_labels_score():
+    # "Thép & Kim loại (composite=-0.76)" → plain label so the reader doesn't
+    # face an internal quant number. Threshold buckets verified at the edges.
+    from vnstock_brief import enforce_no_composite_jargon
+    assert enforce_no_composite_jargon(
+        "Tránh: Thép & Kim loại (composite=-0.76).", {}
+    ) == "Tránh: Thép & Kim loại (tín hiệu phân phối mạnh)."
+    assert "tín hiệu phân phối)" in enforce_no_composite_jargon("X composite=-0.30", {})
+    assert "tín hiệu tích luỹ mạnh" in enforce_no_composite_jargon("Y composite=0.70", {})
+    # VN-format number + no "composite" → untouched
+    assert enforce_no_composite_jargon("không có gì", {}) == "không có gì"
+
+
+def test_build_prompt_sector_blocks_use_composite_label_not_raw():
+    # The quant blocks must feed a label, never "composite=<số>".
+    ctx = {"date": "2026-06-11", "time": "15:00",
+           "quant_distribution": [{"Ngành": "Thép & Kim loại", "composite": -0.76}]}
+    p = build_prompt(ctx, brief_type="afternoon")
+    assert "tín hiệu phân phối mạnh" in p
+    assert "composite=-0.76" not in p          # the raw VALUE is never fed as data
+    assert "Thép & Kim loại** —" in p          # rendered with the label, not the score
+
+
 def test_enforce_no_placeholder_leak_fixes_ma_echo():
     # 22:29: "MÃ D/E=8.83 (HNG), MÃ D/E=2.67 (PET)" — the "<tên mã>" placeholder
     # echoed literally as "MÃ". Rewrite to "HNG D/E=8.83 …".
