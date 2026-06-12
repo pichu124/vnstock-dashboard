@@ -1040,6 +1040,23 @@ def test_enforce_compare_direction_flips_word_to_match_sign():
     assert enforce_compare_direction(f, {}) == f      # idempotent
 
 
+def test_enforce_breadth_label_relabels_above_ma200_as_advancing():
+    # Close 12/06: "chỉ 17% mã cổ phiếu tăng giá" — 17% is the above-MA200 stat
+    # (A/D 0.85 implies ~46% advancing), so 'tăng giá' is a mislabel → 'trên MA200'.
+    from vnstock_brief import enforce_breadth_label
+    ctx = {"breadth": {"above_ma200_pct": 17.0, "ad_ratio": 0.85}}
+    t = "Độ rộng tiêu cực với chỉ 17% mã cổ phiếu tăng giá và A/D ratio tại 0.85."
+    f = enforce_breadth_label(t, ctx)
+    assert "17% mã cổ phiếu trên MA200" in f
+    assert "tăng giá" not in f
+    assert enforce_breadth_label(f, ctx) == f                  # idempotent
+    # a different value (not the above-MA200 figure) is left alone
+    t2 = "46% mã tăng giá hôm nay."
+    assert enforce_breadth_label(t2, ctx) == t2
+    # no breadth data → untouched
+    assert enforce_breadth_label(t, {}) == t
+
+
 def test_enforce_compare_direction_form_b_compares_baseline_value():
     # Morning 12/06: "Phiên sáng 8,397.0 tỷ, cao hơn 60% ... (5,233.3 tỷ) nhưng
     # thấp hơn 11% TB sáng (7,549.1 tỷ)" — 8,397 > 7,549 so it's HIGHER, not

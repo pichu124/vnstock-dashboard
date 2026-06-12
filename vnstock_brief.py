@@ -2431,6 +2431,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_gtgd_total(fixed, ctx)            # full-day (close) / sáng (morning)
     fixed = enforce_gtgd_compare_frame(fixed, ctx)    # close-only: full-day ≠ morning baseline
     fixed = enforce_compare_direction(fixed, ctx)     # 'thấp/cao hơn' must match % sign
+    fixed = enforce_breadth_label(fixed, ctx)         # above-MA200 % ≠ '% mã tăng giá'
     fixed = enforce_no_cjk(fixed, ctx)
     fixed = enforce_no_instruction_leak(fixed, ctx)
     fixed = enforce_no_placeholder_leak(fixed, ctx)
@@ -3923,6 +3924,31 @@ def enforce_compare_direction(text: str, ctx: dict | None = None) -> str:
         lines[i] = _re.sub(
             r"(thấp hơn|cao hơn)([^()]{0,40}?\()(\d[\d.,]*)(\s*tỷ)", _fixB, ln)
     return "\n".join(lines)
+
+
+def enforce_breadth_label(text: str, ctx: dict) -> str:
+    """The only breadth % the brief has is "% mã trên MA200" (above_ma200_pct) —
+    there is NO "% mã tăng giá" (advancing) figure. The model sometimes relabels
+    the above-MA200 figure as advancing (observed close 12/06: "chỉ 17% mã cổ
+    phiếu tăng giá" — 17% is the above-MA200 stat, while A/D 0.85 implies ~46%
+    advancing). When a "<N>% mã [cổ phiếu] tăng giá/điểm" matches above_ma200_pct,
+    relabel it "trên MA200". Gated on the value match so a genuine figure isn't
+    touched; idempotent; no-op without breadth data.
+    """
+    b = ctx.get("breadth") or {}
+    pct = b.get("above_ma200_pct")
+    if not text or not isinstance(pct, (int, float)):
+        return text
+
+    def _fix(m: "_re.Match") -> str:
+        n = _parse_vn_number(m.group(1))
+        if n is None or abs(n - pct) > 1:        # only the above-MA200 mislabel
+            return m.group(0)
+        return f"{m.group(1)}% {m.group(2)} trên MA200"
+
+    return _re.sub(
+        r"(\d[\d.,]*)\s*%\s*((?:số\s+mã|mã\s+cổ phiếu|cổ phiếu|mã))\s+(?:đang\s+)?tăng\s+(?:giá|điểm)",
+        _fix, text)
 
 
 def validate_brief_factuality(text: str, ctx: dict) -> list[str]:

@@ -208,6 +208,11 @@ trong `apply_brief_guards`, áp cho mọi agent, cả morning & close):
     200, S1/S2/R1/R2, đỉnh/đáy tuần/tháng/52w) trong ~2.7đ → pin về mức gần nhất;
     pivot/close/MA + mục tiêu tròn/xấp xỉ ("dưới 1,790") KHÔNG đụng. Nhãn đáy/đỉnh
     phiên mâu thuẫn close → bỏ. (User chọn guard chặt, chấp nhận rủi ro biên nhỏ.)
+21. `enforce_breadth_label` — brief CHỈ có "% mã trên MA200" (above_ma200_pct),
+    KHÔNG có "% mã tăng giá". Close 12/06: "chỉ 17% mã cổ phiếu tăng giá" — 17%
+    là số trên-MA200 (A/D 0.85 ⇒ ~46% tăng), gán nhãn "tăng giá" sai → relabel
+    "trên MA200". Gate theo khớp giá trị (N ≈ above_ma200_pct ±1) nên số thật
+    khác không bị đụng; idempotent.
 18. `enforce_number_format` (chạy CUỐI) — chuẩn hoá số về 1 quy ước EN (phẩy ngăn
     nghìn, chấm thập phân) như data block (`{:,.2f}`)/guards/close. Morning 13:54
     trộn VN ("1.798,61", "9.129,4", "1.858,39", "-3,2%", "5.038 tỷ") với EN
