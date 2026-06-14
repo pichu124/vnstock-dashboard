@@ -241,12 +241,15 @@ Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằn
 ## 📅 Sự kiện sắp tới
 [Nếu có block "Sự kiện sắp tới" trong data: liệt kê 1-3 sự kiện gần nhất (GDKHQ cổ tức/chia tách/ĐHCĐ) kèm mã + ngày, ưu tiên mã VN30/watchlist; nhắc "giá tự điều chỉnh ngày GDKHQ". Nếu KHÔNG có block đó → ghi "Không có sự kiện đáng chú ý" hoặc bỏ mục này.]
 
+## 🌐 Vĩ mô: lãi suất & tỷ giá
+[Nếu có block "🌐 Vĩ mô" trong data: tóm tắt 1-2 dòng — tỷ giá USD/VND + lãi suất điều hành/liên ngân hàng, GHI RÕ thay đổi (▲/▼ + as_of) nếu có. Nêu hàm ý: lãi suất TĂNG / VND mất giá = thắt chặt → bất lợi cổ phiếu (nhất là nhóm vay nợ cao, khối ngoại dễ bán ròng); lãi suất giảm / VND ổn định = thuận lợi. DÙNG ĐÚNG số + as_of trong block, KHÔNG bịa. Nếu KHÔNG có block đó → ghi "Chưa có dữ liệu vĩ mô" hoặc bỏ mục này.]
+
 ## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)
 [Liệt kê tối đa 3 mã từ block "Khuyến nghị từ chiến lược đã backtest" với entry/TP/SL]
 BẮT BUỘC: Nếu quyết định bị ảnh hưởng bởi tin tức trong block "Tin tức thị trường", PHẢI nêu rõ tên tiêu đề tin và giải thích tác động (ví dụ: "HPG: MUA — kỹ thuật vượt MA20 + tin [Hòa Phát ký hợp đồng thép 5.000 tỷ] hỗ trợ đà tăng"). Bỏ qua nếu không có khuyến nghị.
 
 ## 🔧 Đề xuất bổ sung (1 dòng, optional)
-[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, Cơ bản nhóm theo dõi (D/E/ROE/OCF), lịch GDKHQ cổ tức/chia tách (nếu có block "Sự kiện sắp tới"). CHỈ nêu thứ THỰC SỰ thiếu (vd: tin VĨ MÔ — CPI/lãi suất/tỷ giá, lịch công bố KQKD, định giá ngành so sánh).]
+[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, Cơ bản nhóm theo dõi (D/E/ROE/OCF), lịch GDKHQ cổ tức/chia tách (nếu có block "Sự kiện sắp tới"), VĨ MÔ — lãi suất điều hành/liên ngân hàng + tỷ giá USD/VND (nếu có block "🌐 Vĩ mô"). CHỈ nêu thứ THỰC SỰ thiếu (vd: CPI/lạm phát, lãi suất Fed, lịch công bố KQKD, định giá ngành so sánh).]
 
 Giới hạn 500 từ. Khi nói về cổ phiếu cụ thể, CHỈ đề cập mã CÓ TRONG các block đã cung cấp (VN30 + mid-cap thanh khoản cao); KHÔNG nhắc mã ngoài data.
 YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
@@ -315,12 +318,15 @@ Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằn
 ## 📅 Sự kiện sắp tới
 [Nếu có block "Sự kiện sắp tới" trong data: liệt kê 1-3 sự kiện gần nhất (GDKHQ cổ tức/chia tách/ĐHCĐ) kèm mã + ngày, ưu tiên mã VN30/watchlist; nhắc "giá tự điều chỉnh ngày GDKHQ". Nếu KHÔNG có block đó → ghi "Không có sự kiện đáng chú ý" hoặc bỏ mục này.]
 
+## 🌐 Vĩ mô: lãi suất & tỷ giá
+[Nếu có block "🌐 Vĩ mô" trong data: tóm tắt 1-2 dòng — tỷ giá USD/VND + lãi suất điều hành/liên ngân hàng, GHI RÕ thay đổi (▲/▼ + as_of) nếu có. Nêu hàm ý: lãi suất TĂNG / VND mất giá = thắt chặt → bất lợi cổ phiếu (nhất là nhóm vay nợ cao, khối ngoại dễ bán ròng); lãi suất giảm / VND ổn định = thuận lợi. DÙNG ĐÚNG số + as_of trong block, KHÔNG bịa. Nếu KHÔNG có block đó → ghi "Chưa có dữ liệu vĩ mô" hoặc bỏ mục này.]
+
 ## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)
 [Liệt kê tối đa 3 mã với entry/TP/SL từ block "Khuyến nghị"]
 BẮT BUỘC: Nếu có tin tức tác động → nêu rõ tiêu đề tin + ảnh hưởng. Bỏ qua nếu không có khuyến nghị.
 
 ## 🔧 Đề xuất bổ sung (1 dòng, optional)
-[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, Cơ bản nhóm theo dõi (D/E/ROE/OCF), lịch GDKHQ cổ tức/chia tách (nếu có block "Sự kiện sắp tới"). CHỈ nêu thứ THỰC SỰ thiếu (vd: tin VĨ MÔ — CPI/lãi suất/tỷ giá, lịch công bố KQKD, định giá ngành so sánh).]
+[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, Cơ bản nhóm theo dõi (D/E/ROE/OCF), lịch GDKHQ cổ tức/chia tách (nếu có block "Sự kiện sắp tới"), VĨ MÔ — lãi suất điều hành/liên ngân hàng + tỷ giá USD/VND (nếu có block "🌐 Vĩ mô"). CHỈ nêu thứ THỰC SỰ thiếu (vd: CPI/lạm phát, lãi suất Fed, lịch công bố KQKD, định giá ngành so sánh).]
 
 Giới hạn 500 từ. Khi nói về cổ phiếu cụ thể, CHỈ đề cập mã CÓ TRONG các block đã cung cấp (VN30 + mid-cap thanh khoản cao); KHÔNG nhắc mã ngoài data. Nếu thị trường flat và không có signal rõ thì nói thẳng.
 YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
@@ -985,6 +991,27 @@ def _maybe_refresh_events() -> int:
         return 0
 
 
+def _maybe_refresh_macro() -> int:
+    """Refresh the macro cache (lãi suất & tỷ giá) when it's missing or not from
+    today, so the brief's "🌐 Vĩ mô" block reflects the latest reading even if the
+    daily pipeline step hasn't run. Best-effort, at most once/day; a blocked FX
+    fetch leaves the prior cache intact (never a fabricated number). Disable with
+    VNSTOCK_BRIEF_AUTO_MACRO=0. Returns the number of indicators with a reading.
+    """
+    if os.environ.get("VNSTOCK_BRIEF_AUTO_MACRO", "1") == "0":
+        return 0
+    try:
+        from vnstock_macro import _CACHE, load_macro, refresh
+        if _CACHE.exists():
+            mtime = datetime.fromtimestamp(_CACHE.stat().st_mtime).date()
+            if mtime >= date.today():
+                return len(load_macro())   # already refreshed today
+        refresh()
+        return len(load_macro())
+    except Exception:
+        return 0
+
+
 # ── VN30 fundamentals (debt/equity, ROE, operating cash flow) ───────────────
 def _load_vn30_fundamentals(
     path: str | Path | None = None,
@@ -1196,6 +1223,65 @@ def _upcoming_events_block(events: list[dict]) -> str:
         "ngày + số, KHÔNG bịa."
     )
     return "\n".join(lines)
+
+
+def _macro_line(ind: dict) -> str:
+    """One canonical macro bullet: 'Label: value unit (tính đến as_of) <change>'.
+
+    Numbers in EN convention (comma thousands / dot decimal) to match every
+    other data block and enforce_number_format. Change is rendered as % for FX
+    and percentage-points ('điểm %') for rates.
+    """
+    v, unit, kind = ind["value"], ind["unit"], ind["kind"]
+    val = f"{v:,.0f} {unit}" if kind == "fx" else f"{v:.2f}{unit}"
+    line = f"- {ind['label']}: {val} (tính đến {ind['as_of']})"
+    ch = ind.get("change")
+    if ch and ch.get("dir"):
+        arrow = "▲" if ch["dir"] > 0 else "▼"
+        if kind == "fx" and ch.get("pct") is not None:
+            mag = f"{ch['pct']:+.2f}% so với {ind['prev_as_of']}"
+            hint = "VND yếu đi" if ch["dir"] > 0 else "VND mạnh lên"
+        else:
+            mag = f"{ch['delta']:+.2f} điểm % so với {ind['prev_as_of']}"
+            hint = "lãi suất tăng" if ch["dir"] > 0 else "lãi suất giảm"
+        line += f" {arrow} {mag} ({hint})"
+    elif ind.get("kind") == "rate":
+        line += " — đi ngang"
+    return line
+
+
+def _macro_body_lines(macro: list[dict],
+                      macro_news: "list[dict] | None" = None) -> list[str]:
+    """Canonical macro bullets + directive (NO section header).
+
+    Shared by the prompt renderer and the post-gen guard so the guard can splice
+    exactly the body without slicing the header off a joined string.
+    """
+    lines = [_macro_line(m) for m in macro]
+    for n in (macro_news or [])[:3]:
+        lines.append(f"- Tin liên quan [{n.get('ticker','')}] {n.get('date','')}: "
+                     f"{n.get('title','')}")
+    lines.append(
+        "→ Lãi suất TĂNG / VND mất giá (USD/VND tăng) = môi trường THẮT CHẶT, bất "
+        "lợi cho cổ phiếu (đặc biệt nhóm vay nợ cao; khối ngoại dễ bán ròng). Lãi "
+        "suất giảm / VND ổn định = thuận lợi hơn. DÙNG bối cảnh này khi chốt Bias + "
+        "Rủi ro để ĐÓN ĐẦU thay đổi. DÙNG ĐÚNG số + as_of ở trên, KHÔNG bịa thêm "
+        "chỉ số vĩ mô khác (CPI/Fed/GDP… chưa có trong data)."
+    )
+    return lines
+
+
+def _macro_block(macro: list[dict], macro_news: "list[dict] | None" = None) -> str:
+    """Render the macro context block (lãi suất & tỷ giá) for the prompt.
+
+    `macro` comes from vnstock_macro.load_macro(); each carries label/value/unit
+    /as_of and an optional change. Empty string when there are no readings.
+    """
+    if not macro:
+        return ""
+    latest = max((m.get("as_of", "") for m in macro), default="")
+    header = f"\n## 🌐 Vĩ mô: lãi suất & tỷ giá (tính đến {latest})"
+    return "\n".join([header] + _macro_body_lines(macro, macro_news))
 
 
 def _market_sentiment_block(ms: dict) -> str:
@@ -1570,6 +1656,19 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
         _ms = load_market_sentiment(vnindex_tech=_vt_early, breadth=ctx.get("breadth"))
         if _ms:
             ctx["market_sentiment"] = _ms
+    except Exception:
+        pass
+
+    # 8b. Macro context (lãi suất & tỷ giá) — current levels + change detection
+    # so the brief can frame the session against monetary conditions and ĐÓN ĐẦU
+    # shifts. Levels read for THIS brief's effective date (last reading on/before
+    # it); the related-news scan reuses the existing news cache (no new fetch).
+    try:
+        from vnstock_macro import load_macro, macro_news
+        _macro = load_macro(_data_date_str)
+        if _macro:
+            ctx["macro"] = _macro
+            ctx["macro_news"] = macro_news()
     except Exception:
         pass
 
@@ -2374,6 +2473,13 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         if block:
             lines.append(block)
 
+    # Macro context (lãi suất & tỷ giá) so the brief frames Bias/Rủi ro against
+    # monetary conditions and flags shifts (đón đầu).
+    if _macro := ctx.get("macro"):
+        block = _macro_block(_macro, ctx.get("macro_news"))
+        if block:
+            lines.append(block)
+
     # Recommendation + news blocks — explicit empty markers so the LLM
     # cannot invent trade ideas or news headlines from training data.
     if rec_block:
@@ -2416,6 +2522,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     idempotent end to end. Returns the (possibly) fixed text.
     """
     fixed = enforce_upcoming_events(text, ctx)
+    fixed = enforce_macro(fixed, ctx)                # canonical macro levels/changes
     fixed = enforce_risk_section(fixed, ctx)         # canonical risk facts first
     fixed = enforce_realestate_ocf_context(fixed, ctx)
     fixed = enforce_lead_lag(fixed, ctx)              # buy/avoid lines = lead/lag sector
@@ -2492,6 +2599,9 @@ def generate_brief(
     # Refresh the upcoming-events cache if it isn't from today (best-effort) so
     # the "📅 Sự kiện sắp tới" block isn't empty due to run ordering.
     _maybe_refresh_events()
+    # Refresh macro (lãi suất & tỷ giá) the same way so the "🌐 Vĩ mô" block is
+    # current; best-effort, FX-fetch failure keeps the prior cache.
+    _maybe_refresh_macro()
 
     ctx = collect_context(brief_type, auto_refresh=True)
 
@@ -2671,7 +2781,7 @@ def _parse_vn_number(s: str) -> float | None:
         return None
 
 
-_SECTION_EMOJIS = ("🎯", "📊", "📈", "🏆", "💰", "📋", "⚠️", "📅", "💡", "🔧", "⚡", "🔮")
+_SECTION_EMOJIS = ("🎯", "📊", "📈", "🏆", "💰", "📋", "⚠️", "📅", "💡", "🔧", "⚡", "🔮", "🌐")
 
 
 def _is_section_start(line: str) -> bool:
@@ -2713,6 +2823,44 @@ def enforce_upcoming_events(text: str, ctx: dict) -> str:
     for line in lines:
         if not replaced and "không có sự kiện đáng chú ý" in line.lower():
             out.extend(ev_lines)
+            replaced = True
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
+def enforce_macro(text: str, ctx: dict) -> str:
+    """Deterministic guard: the macro section (🌐 lãi suất & tỷ giá) is pure data
+    — exact levels, as_of dates and signed changes the LLM must not paraphrase or
+    round into a wrong number. When ctx carries macro readings, replace the whole
+    section body with the canonical bullets from `_macro_block` (minus the header,
+    which the model already prints). No section header → splice over a stray "chưa
+    có dữ liệu vĩ mô" denial. No-op (idempotent) when readings are absent.
+    """
+    macro = ctx.get("macro") or []
+    if not text or not macro:
+        return text
+
+    # Canonical body (bullets + directive) WITHOUT the header — the model already
+    # prints its own "## 🌐 Vĩ mô" header which we keep as the section anchor.
+    body = _macro_body_lines(macro, ctx.get("macro_news"))
+
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines)
+                  if "vĩ mô" in l.lower() and _is_section_start(l)), None)
+    if start is not None:
+        end = next((i for i in range(start + 1, len(lines))
+                    if _is_section_start(lines[i])), len(lines))
+        if lines[start + 1:end] == body:
+            return text
+        return "\n".join(lines[:start + 1] + body + lines[end:])
+
+    out: list[str] = []
+    replaced = False
+    for line in lines:
+        low = line.lower()
+        if not replaced and "vĩ mô" in low and ("chưa có" in low or "không có" in low):
+            out.extend(body)
             replaced = True
         else:
             out.append(line)

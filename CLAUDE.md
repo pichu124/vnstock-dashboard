@@ -12,7 +12,8 @@ Items here get auto-loaded into Claude's context at session start.
 - Sau khi sửa code trong: `vnstock_regime.py`, `vnstock_brief.py`,
   `vnstock_sentiment.py`, `vnstock_news.py`, `vnstock_telegram.py`,
   `vnstock_freshness.py`, `vnstock_vn30_weights.py`,
-  `vnstock_market_sentiment.py`, `vnstock_fundamental_updater.py`
+  `vnstock_market_sentiment.py`, `vnstock_fundamental_updater.py`,
+  `vnstock_macro.py`
 - Trước khi tạo PR merge về `main`
 - Sau khi nâng cấp pandas / numpy / Python version
 
@@ -278,8 +279,9 @@ Các khối **mới thêm** (ngoài kỹ thuật VNINDEX / regime / breadth có 
 | Khối | Nguồn data | Cần chạy gì để có |
 |------|-----------|-------------------|
 | **Cơ bản nhóm theo dõi** (VN30 + mid-cap; D/E, ROE, Op.CF) | `data_warehouse/_meta/fundamentals.parquet` | `python vnstock_fundamental_updater.py` (1×/tuần) |
-| **Tâm lý thị trường** (mood + momentum -100..+100) | breadth + NN ròng + RSI/MA + news, qua `vnstock_market_sentiment.py` | luôn có (6 tín hiệu nội tại); tín hiệu tin tức (thứ 7) cần `python run.py news` |
+| **Tâm lý thị trường** (mood + momentum -100..+100) | breadth + NN ròng + RSI/MA + news + **vĩ mô**, qua `vnstock_market_sentiment.py` | luôn có (6 tín hiệu nội tại); tin tức (thứ 7) cần `python run.py news`; vĩ mô (thứ 8) cần `python run.py macro` |
 | **Dòng tiền ngành** (NN ròng 1T + GTGD theo ngành) | `market_overview.json` (đã pre-aggregate) | có sẵn sau `python run.py screener` |
+| **🌐 Vĩ mô** (lãi suất & tỷ giá + đổi) | `data_warehouse/_meta/macro_indicators.json` qua `vnstock_macro.py` | `python run.py macro` (auto-fetch tỷ giá; lãi suất nhập tay) |
 
 **Lịch refresh (Task Scheduler) — DÙNG SCRIPT CÓ SẴN `scripts/setup_scheduled_tasks.ps1`**
 (PowerShell **Run as Administrator**, chạy 1 lần; tự detect venv, set working dir,
@@ -302,8 +304,9 @@ cổ tức/chia tách/thưởng (tái dùng `vnstock_adjust._fetch_events` →
 `Company.events()`), cache `_meta/upcoming_events.parquet`. Brief nạp qua
 `load_upcoming(within_days=14, tickers=VN30∪movers)` → block "📅 Sự kiện sắp
 tới" (`_upcoming_events_block`). Đây là phần "sự kiện kinh tế" KHẢ THI với data
-nội bộ; **tin VĨ MÔ (CPI/Fed/SBV) chưa có** — cần nguồn ngoài (RSS/API), vướng
-network policy. Chạy `python vnstock_events.py` (VN30) / `--tickers` / `--check`.
+nội bộ; **vĩ mô lãi suất & tỷ giá nay ĐÃ tích hợp** qua `vnstock_macro.py` (xem
+mục riêng bên dưới); CPI/Fed/GDP vẫn chưa có (cần nguồn ngoài, vướng allowlist).
+Chạy `python vnstock_events.py` (VN30) / `--tickers` / `--check`.
 Auto-refresh 1×/ngày qua `_maybe_refresh_events()` trong `generate_brief`
 (mtime cache ≠ hôm nay → fetch; tắt: `VNSTOCK_BRIEF_AUTO_EVENTS=0`); universe =
 `_events_universe()` = **VN30 ∪ top-`_EVENTS_REFRESH_MAX_MOVERS`(=40) movers
@@ -315,6 +318,50 @@ Chống regress (2026-06-10): `refresh_upcoming` **merge-safe** — mã fetch l�
 thay/xóa. `enforce_upcoming_events()` (gọi trong `generate_brief`) — guard
 deterministic: LLM ghi "Không có sự kiện đáng chú ý" dù ctx CÓ events → splice
 danh sách thật vào output (LLM hay phớt block dù data có trong prompt).
+
+### 🌐 Vĩ mô: lãi suất & tỷ giá (DONE 2026-06-14) — `vnstock_macro.py`
+
+Lấp khoảng trống "tin VĨ MÔ — lãi suất/tỷ giá" mà block "🔧 Đề xuất bổ sung" lâu
+nay vẫn xin. Theo dõi 3 chỉ số cốt lõi, cache `_meta/macro_indicators.json`
+(history theo ngày/chỉ số), brief nạp qua `load_macro(effective_date)`:
+- **`usdvnd`** (tỷ giá USD/VND tham chiếu) — AUTO-fetch best-effort từ API FX
+  miễn phí (`open.er-api.com` → fallback `exchangerate.host`). Mạng bị chặn /
+  API lỗi → GIỮ cache cũ, KHÔNG bịa.
+- **`sbv_policy_rate`** (lãi suất tái cấp vốn) — SEED 4.5%/năm as_of 2023-06-19
+  (nguồn "seed"); đổi vài lần/năm → cập nhật tay khi SBV ra quyết định.
+- **`interbank_on`** (lãi suất liên ngân hàng ON) — nhập tay (không có nguồn
+  free ổn định). Để trống tới khi `--set`.
+
+Chiến lược HYBRID (user chọn 2026-06-14): auto tỷ giá + nhập tay lãi suất, và
+**mọi chỉ số đều ghi đè được**: `python vnstock_macro.py --set <key> <value>
+[--as-of YYYY-MM-DD]`. CLI khác: `--refresh` (seed + fetch FX), `--show`,
+`--diag` (thử fetch FX 1 lần — **xác minh trên máy có mạng**; sandbox bị
+allowlist chặn nên FX luôn None ở đây). Pipeline: bước `macro` trong `run.py all`
+(best-effort, sau `foreign-flow`).
+
+**Brief wiring (parity morning↔close by construction)**:
+- `collect_context` → `ctx["macro"]` (levels + change vs lần đọc trước) +
+  `ctx["macro_news"]` (lọc news cache theo từ khoá lãi suất/tỷ giá/CPI/Fed/SBV —
+  KHÔNG fetch mới). Auto-refresh 1×/ngày qua `_maybe_refresh_macro()` (tắt:
+  `VNSTOCK_BRIEF_AUTO_MACRO=0`).
+- `_macro_block` → mục "## 🌐 Vĩ mô" trong cả 2 template (sau "Sự kiện sắp tới").
+  Số định dạng EN (như mọi data block); đổi tỷ giá ghi %, đổi lãi suất ghi
+  "điểm %"; luôn kèm `as_of` để thấy độ cũ. Hàm ý: lãi suất tăng / VND mất giá =
+  thắt chặt (bất lợi CP, nhóm vay nợ cao, NN dễ bán ròng).
+- `enforce_macro(text, ctx)` trong `apply_brief_guards` (mirror
+  `enforce_upcoming_events`) — canonical-hoá body mục vĩ mô từ ctx (LLM hay làm
+  tròn/đổi số); idempotent; no-op khi không có data; splice đè dòng phủ nhận
+  "chưa có dữ liệu vĩ mô". `🌐` đã thêm vào `_SECTION_EMOJIS`.
+- **Tín hiệu tâm lý thứ 8**: `vnstock_macro.macro_pressure_score()` (lãi suất
+  tăng / VND yếu = điểm ÂM) → `vnstock_market_sentiment` (weight 0.10, tự
+  renormalize). CHỈ phát tín hiệu khi có THAY ĐỔI đáng kể (FX ≥0.3%, lãi suất
+  ≥10bps) — backdrop ổn định không làm loãng composite.
+
+**⚠️ CẦN USER VERIFY (sandbox không có mạng/data)**: trên máy local chạy
+`python vnstock_macro.py --diag` → phải in tỷ giá USD/VND (~25.xxx). Nếu None ⇒
+API đổi schema hoặc cần thêm host vào egress allowlist (web session). Đặt lãi
+suất hiện hành: `python vnstock_macro.py --set sbv_policy_rate <số>` +
+`--set interbank_on <số>`.
 
 **Quan trọng — vnstock 4.0.4 + sponsor API gotchas** (hard-won, đừng quên):
 - `vnstock_auth._StockShim` PHẢI expose `.quote/.company/.listing/.finance`.

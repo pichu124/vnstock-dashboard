@@ -633,6 +633,7 @@ def cmd_test(args) -> int:
             "tests/test_vn30_weights.py",
             "tests/test_telegram.py",
             "tests/test_events.py",
+            "tests/test_macro.py",
             "tests/test_updater_partial_bar.py",
         ]
     else:
@@ -720,6 +721,18 @@ def cmd_foreign_flow(args) -> int:
     days = str(getattr(args, "days", 5) or 5)
     rc = _run([sys.executable, str(REPO_ROOT / "vnstock_foreign_flow.py"),
                "--refresh", "--days", days])
+    return 1 if rc != 0 else 0
+
+
+def cmd_macro(args) -> int:
+    """Refresh the macro cache (lãi suất & tỷ giá) — seed/scaffold + auto-fetch FX.
+
+    The brief reads this (vnstock_macro.load_macro) for its "🌐 Vĩ mô" block and
+    the macro-pressure sentiment signal. Best-effort: a blocked/failed FX fetch is
+    a warning, not a hard failure (the prior cache stays intact). Rates are
+    maintained manually via `python vnstock_macro.py --set <key> <value>`.
+    """
+    rc = _run([sys.executable, str(REPO_ROOT / "vnstock_macro.py"), "--refresh"])
     return 1 if rc != 0 else 0
 
 
@@ -824,6 +837,7 @@ def cmd_all(args) -> int:
         ("validate",     cmd_validate),
         ("screener",     cmd_screener),
         ("foreign-flow", cmd_foreign_flow),
+        ("macro",        cmd_macro),
         ("test",         cmd_test),
         ("audit",        cmd_audit),
     ]
@@ -1007,6 +1021,8 @@ def build_parser() -> argparse.ArgumentParser:
     ff_nn = sub.add_parser("foreign-flow",
                            help="Refresh full-market foreign net-flow cache (NN ròng 1D)")
     ff_nn.add_argument("--days", type=int, default=5)
+    sub.add_parser("macro",
+                   help="Refresh macro cache (lãi suất & tỷ giá) — seed + auto-fetch FX")
     sub.add_parser("dashboard", help="Launch the Streamlit dashboard")
 
     tg = sub.add_parser("telegram", help="Push Telegram notifications")
@@ -1051,6 +1067,7 @@ _DISPATCH = {
     "freefloat": cmd_freefloat,
     "screener": cmd_screener,
     "foreign-flow": cmd_foreign_flow,
+    "macro": cmd_macro,
     "telegram": cmd_telegram,
     "news": cmd_news,
     "test": cmd_test,

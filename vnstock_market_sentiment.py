@@ -53,11 +53,14 @@ def compute_market_sentiment(
     nn_net: float | None = None,
     vnindex_tech: dict | None = None,
     news_sentiment: dict | None = None,
+    macro: dict | None = None,
 ) -> dict:
-    """Combine breadth + foreign flow + index momentum + news into one mood.
+    """Combine breadth + foreign flow + index momentum + news + macro into one mood.
 
     Each input is optional; only the signals with data are weighted (weights
-    renormalise over what's available). Returns:
+    renormalise over what's available). ``macro`` is the macro-pressure reading
+    from vnstock_macro ({score in [-1,1], label}); it's only present when rates /
+    FX have moved meaningfully (a stable backdrop carries no signal). Returns:
       {mood, momentum (-100..+100), signals[], news, n_signals}
     or {} when no signal at all is available.
     """
@@ -152,6 +155,17 @@ def compute_market_sentiment(
             val += f" — đa số trung lập ({neu_pct}%, tin công bố thông tin)"
         add("Tin tức 7N", val, net_pct / 50.0, 0.15)
 
+    # 8. Macro pressure — lãi suất & tỷ giá. Rates rising / VND weakening =
+    # tightening (bearish); the reverse = easing (bullish). Already a signed
+    # [-1,1] score from vnstock_macro, present ONLY when there's a real recent
+    # move, so a stable backdrop never dilutes the composite.
+    if macro and macro.get("score") is not None:
+        try:
+            add("Vĩ mô (lãi suất/tỷ giá)", macro.get("label", "—"),
+                float(macro["score"]), 0.10)
+        except (TypeError, ValueError):
+            pass
+
     if wsum == 0:
         return {}
 
@@ -206,6 +220,19 @@ def _load_nn_net_1d(effective_date: "str | None" = None) -> float | None:
         return None
 
 
+def _load_macro_pressure(effective_date: "str | None" = None) -> dict | None:
+    """Best-effort macro-pressure reading (rates & FX) for the sentiment signal.
+
+    None when there's no macro cache or no meaningful recent move — the signal
+    is then simply omitted (weights renormalise over what's available).
+    """
+    try:
+        from vnstock_macro import load_macro, macro_pressure_score
+        return macro_pressure_score(load_macro(effective_date))
+    except Exception:
+        return None
+
+
 def load_market_sentiment(
     vnindex_tech: dict | None = None,
     breadth: dict | None = None,
@@ -233,4 +260,5 @@ def load_market_sentiment(
         nn_net=_load_nn_net_1d(_eff_date),
         vnindex_tech=vnindex_tech or {},
         news_sentiment=_load_news_sentiment(days=news_days),
+        macro=_load_macro_pressure(_eff_date),
     )
