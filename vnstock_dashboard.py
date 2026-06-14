@@ -3748,11 +3748,12 @@ with _update_col:
             key="run_updater",
             use_container_width=True,
             help=(
-                "**Tải giá mới nhất từ API + tính lại screener** "
+                "**Tải giá mới nhất từ API + tính lại screener + tin tức + vĩ mô** "
                 "(nặng nhất, ~20-30 phút).\n\n"
                 "Mở cửa sổ PowerShell riêng chạy `vnstock_updater.py --force` "
                 "→ ghi đè file parquet trong `data_warehouse/prices/` "
-                "→ rồi tự chạy `vnstock_runner.py` tạo lại `vnstock_data.json`.\n\n"
+                "→ `vnstock_runner.py` tạo lại `vnstock_data.json` "
+                "→ `run.py news` (sentiment) → `run.py macro` (tỷ giá USD/VND).\n\n"
                 "**Dùng khi:** muốn xem data ngày mới nhất (sau giờ giao dịch).\n\n"
                 "Sau khi PowerShell xong, bấm **🔄 Refresh Screener** hoặc F5 "
                 "để dashboard đọc dữ liệu mới.\n\n"
@@ -3764,6 +3765,7 @@ with _update_col:
                     {"label": "Cap nhat gia",     "args": ["vnstock_updater.py", "--force"]},
                     {"label": "Refresh Screener", "args": ["vnstock_runner.py"]},
                     {"label": "News Sentiment",   "args": ["run.py", "news"], "stop_on_error": False},
+                    {"label": "Macro (ty gia)",   "args": ["run.py", "macro"], "stop_on_error": False},
                 ],
                 log_filename="updater.log",
             )
