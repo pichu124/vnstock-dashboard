@@ -369,6 +369,18 @@ def trace_vietstock(normid: int = _VS_INTERBANK_NORMID):
     print(f"    → HTTP {page.status_code}, {len(page.text or '')} bytes, "
           f"content-type={page.headers.get('content-type','?')}")
     print(f"    → cookies: {list(s.cookies.keys())}")
+    # Ground truth for the right POST params: dump how the page's own JS calls
+    # getdatabynormid (it renders the chart, so it uses the correct payload).
+    html = page.text or ""
+    hits = list(re.finditer("getdatabynormid", html, re.IGNORECASE))
+    if hits:
+        print(f"  • call-site 'getdatabynormid' trong page ({len(hits)} lần) — "
+              f"gửi tôi mấy dòng này để biết param đúng:")
+        for i, mm in enumerate(hits[:2]):
+            a, b = max(0, mm.start() - 40), min(len(html), mm.end() + 320)
+            print(f"    [{i}] …{html[a:b]!r}…")
+    else:
+        print("  • KHÔNG thấy 'getdatabynormid' inline (call có thể ở file JS ngoài).")
     token = _extract_token(page.text)
     if not token:
         html = page.text or ""
