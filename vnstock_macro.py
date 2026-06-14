@@ -197,16 +197,35 @@ _VS_INPUT_RE = re.compile(r"<input\b[^>]*>", re.IGNORECASE)
 _VS_VALUE_RE = re.compile(r'value=["\']([^"\']+)["\']', re.IGNORECASE)
 
 
+_VS_TOK_FWD_RE = re.compile(
+    r'__RequestVerificationToken["\'][^>]{0,300}?value\s*=\s*["\']([^"\']+)["\']',
+    re.IGNORECASE)
+_VS_TOK_REV_RE = re.compile(
+    r'value\s*=\s*["\']([^"\']+)["\'][^>]{0,160}?__RequestVerificationToken',
+    re.IGNORECASE)
+
+
 def _extract_token(html: "str | None") -> "str | None":
     """Pull the __RequestVerificationToken value from a Vietstock page.
-    Order/quote-agnostic (some pages render value= before name=, or single
-    quotes) — scans each <input> tag for the token name then its value."""
-    for m in _VS_INPUT_RE.finditer(html or ""):
+
+    Tolerant of attribute order, quote style and element type (ASP.NET MVC
+    renders a hidden <input>, but markup varies):
+      1. scan each <input> tag for the token name then its value;
+      2. name…value anywhere (any element/order);
+      3. value…name (reversed order).
+    """
+    if not html:
+        return None
+    for m in _VS_INPUT_RE.finditer(html):
         tag = m.group(0)
         if "__RequestVerificationToken" in tag:
             vm = _VS_VALUE_RE.search(tag)
             if vm:
                 return vm.group(1)
+    for rx in (_VS_TOK_FWD_RE, _VS_TOK_REV_RE):
+        m = rx.search(html)
+        if m:
+            return m.group(1)
     return None
 _MS_DATE_RE = re.compile(r"/Date\((\d+)")
 # Term/component labels that mean the overnight tenor.
@@ -344,9 +363,21 @@ def trace_vietstock(normid: int = _VS_INTERBANK_NORMID):
     print(f"    → cookies: {list(s.cookies.keys())}")
     token = _extract_token(page.text)
     if not token:
-        present = "__RequestVerificationToken" in (page.text or "")
-        print(f"  • token: KHÔNG tách được (chuỗi token có trong HTML: {present}). "
-              f"Nếu False → bị chặn/redirect hoặc token nạp bằng JS.")
+        html = page.text or ""
+        present = "__RequestVerificationToken" in html
+        print(f"  • token: KHÔNG tách được (chuỗi token có trong HTML: {present}).")
+        if present:
+            print("  • ngữ cảnh quanh token (gửi tôi 2-3 dòng này để chỉnh parser):")
+            for i, mm in enumerate(re.finditer("__RequestVerificationToken", html)):
+                if i >= 3:
+                    break
+                a, b = max(0, mm.start() - 90), min(len(html), mm.end() + 160)
+                print(f"    [{i}] …{html[a:b]!r}…")
+        else:
+            print("    → token nạp bằng JS hoặc bị chặn; cân nhắc đổi nguồn.")
+        # Last resort: the anti-forgery cookie token (some setups accept it).
+        ck = s.cookies.get("__RequestVerificationToken")
+        print(f"  • cookie token khả dụng: {bool(ck)}")
         return None
     print(f"  • token: OK ({len(token)} ký tự)")
     try:

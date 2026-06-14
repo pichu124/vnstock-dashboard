@@ -141,6 +141,12 @@ def test_extract_token_is_order_and_quote_agnostic():
     # token absent → None (handshake aborts, fetch returns None, cache untouched)
     assert mac._extract_token('<input name="other" value="z">') is None
     assert mac._extract_token("") is None
+    # fallback: token name in a non-<input> element, name…value order
+    assert mac._extract_token(
+        '<meta name="__RequestVerificationToken" value="TOK7">') == "TOK7"
+    # fallback: value…name reversed order, outside an <input>
+    assert mac._extract_token(
+        '<x value="REV5" data-id="1" __RequestVerificationToken>') == "REV5"
 
 
 def test_parse_vs_date_handles_formats():
