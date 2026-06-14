@@ -17,8 +17,9 @@ Chiến lược lấy dữ liệu (HYBRID — auto + ghi đè tay)
   cũ, KHÔNG bao giờ hiện số bịa.
 * **Lãi suất điều hành SBV**: đổi vài lần/năm → seed giá trị đã công bố gần nhất
   (có `as_of` + nguồn "seed"), cập nhật tay khi SBV ra quyết định mới.
-* **Lãi suất liên ngân hàng ON**: đổi hằng ngày, không có nguồn free ổn định →
-  để trống tới khi nhập tay.
+* **Lãi suất liên ngân hàng ON**: auto-fetch từ Vietstock VNIBOR (getdatabynormid,
+  normid 66) — free, không cần key, nhưng cần handshake CSRF token/cookie nên
+  hơi mong manh (Vietstock đổi markup là phải sửa). Fetch lỗi → giữ cache cũ.
 * Mọi chỉ số đều có thể GHI ĐÈ TAY: ``python vnstock_macro.py --set <key> <value>``.
 
 Giống `vnstock_foreign_flow`: live fetch cần mạng nên KHÔNG chạy được trong
@@ -41,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -80,7 +82,7 @@ _DEFS: dict[str, dict] = {
     "interbank_on": {
         "label": "Lãi suất liên ngân hàng ON",
         "unit": "%/năm", "kind": "rate", "order": 2,
-        # changes daily, no reliable free source → manual --set only
+        # auto-fetched daily from Vietstock VNIBOR (normid 66); --set overrides
     },
 }
 
@@ -174,20 +176,173 @@ def fetch_usdvnd() -> "float | None":
     return None
 
 
+# Vietstock macro datafeed — free, no commercial key, but needs a per-session
+# anti-forgery (CSRF) handshake: GET a page to obtain cookies + the hidden
+# __RequestVerificationToken, then POST it to /data/getdatabynormid. VNIBOR
+# (lãi suất liên ngân hàng) lives at normid 66 (the page slug ends "-66").
+# Best-effort + fragile by nature (breaks if Vietstock changes markup) → every
+# failure returns None and the cache keeps its prior/manual value.
+_VS_BASE = "https://finance.vietstock.vn"
+_VS_NORM_URL = _VS_BASE + "/data/getdatabynormid"
+_VS_INTERBANK_NORMID = 66
+_VS_INTERBANK_PAGE = _VS_BASE + f"/vi-mo/du-lieu/lai-suat-lien-ngan-hang-vnibor-{_VS_INTERBANK_NORMID}"
+_VS_TOKEN_RE = re.compile(
+    r'name="__RequestVerificationToken"[^>]*value="([^"]+)"')
+_VS_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+          "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+_MS_DATE_RE = re.compile(r"/Date\((\d+)")
+# Term/component labels that mean the overnight tenor.
+_ON_HINTS = ("qua đêm", "overnight")
+
+
+def _parse_vs_date(v) -> "str | None":
+    """Parse a Vietstock date into ISO. Handles ASP.NET '/Date(ms)/', ISO and
+    dd/mm/yyyy; None when unparseable."""
+    s = str(v or "")
+    m = _MS_DATE_RE.search(s)
+    if m:
+        try:
+            return datetime.fromtimestamp(int(m.group(1)) / 1000).date().isoformat()
+        except (ValueError, OSError, OverflowError):
+            return None
+    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+        return s[:10]
+    if len(s) >= 10 and s[2] == "/" and s[5] == "/":
+        try:
+            return datetime.strptime(s[:10], "%d/%m/%Y").date().isoformat()
+        except ValueError:
+            return None
+    return None
+
+
+def _first_rate_value(row: dict) -> "float | None":
+    """A plausible interest-rate number (0 < v < 30 %/năm) from a row's
+    value-ish key, else any in-range float in the row."""
+    for k, val in row.items():
+        if any(t in str(k).lower() for t in ("value", "giá tr", "lãi", "rate")):
+            try:
+                f = float(val)
+                if 0 < f < 30:
+                    return round(f, 2)
+            except (TypeError, ValueError):
+                pass
+    for val in row.values():                 # fallback: first in-range float
+        try:
+            f = float(val)
+            if 0 < f < 30:
+                return round(f, 2)
+        except (TypeError, ValueError):
+            pass
+    return None
+
+
+def _first_date(row: dict) -> "str | None":
+    for k, val in row.items():
+        if any(t in str(k).lower() for t in ("date", "ngày", "time", "term")):
+            d = _parse_vs_date(val)
+            if d:
+                return d
+    return None
+
+
+def extract_interbank_on(js) -> "tuple[float, str] | None":
+    """Pull the latest OVERNIGHT (qua đêm) interbank rate from a getdatabynormid
+    payload. Heuristic + shape-tolerant (Vietstock's exact schema isn't pinned):
+    prefer rows whose term/component label says overnight, else any rate row;
+    pick the most recent by date. Returns (value %/năm, as_of ISO) or None.
+    """
+    rows = js if isinstance(js, list) else (
+        js.get("data") if isinstance(js, dict) else None)
+    if not isinstance(rows, list):
+        return None
+
+    def _is_on(r: dict) -> bool:
+        label = " ".join(
+            str(r.get(k, "")) for k in r
+            if any(t in str(k).lower() for t in ("name", "component", "term", "tenor"))
+        ).lower()
+        return any(h in label for h in _ON_HINTS) or bool(re.search(r"\bon\b", label))
+
+    dicts = [r for r in rows if isinstance(r, dict)]
+    pool = [r for r in dicts if _is_on(r)] or dicts
+    best: "tuple[str, float] | None" = None
+    for r in pool:
+        val = _first_rate_value(r)
+        if val is None:
+            continue
+        d = _first_date(r) or ""
+        if best is None or d >= best[0]:
+            best = (d, val)
+    if best is None:
+        return None
+    return best[1], (best[0] or datetime.now().date().isoformat())
+
+
+def fetch_vietstock_norm(normid: int = _VS_INTERBANK_NORMID):
+    """POST getdatabynormid after the CSRF handshake. Returns the parsed JSON
+    (list/dict) or None on any failure (no requests / blocked / no token)."""
+    try:
+        import requests as _req
+    except ImportError:
+        return None
+    try:
+        s = _req.Session()
+        s.headers.update({"User-Agent": _VS_UA,
+                          "Accept-Language": "vi,en;q=0.9"})
+        page = s.get(_VS_INTERBANK_PAGE, timeout=15)
+        m = _VS_TOKEN_RE.search(page.text or "")
+        if not m:
+            return None
+        token = m.group(1)
+        resp = s.post(
+            _VS_NORM_URL,
+            data={"normid": normid, "type": "1",
+                  "__RequestVerificationToken": token},
+            headers={"X-Requested-With": "XMLHttpRequest",
+                     "Referer": _VS_INTERBANK_PAGE},
+            timeout=20,
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except Exception:
+        return None
+
+
+def fetch_interbank_on() -> "tuple[float, str] | None":
+    """Latest overnight VNIBOR (value %/năm, as_of ISO) from Vietstock, or None.
+    Best-effort end to end — never raises."""
+    js = fetch_vietstock_norm(_VS_INTERBANK_NORMID)
+    if js is None:
+        return None
+    try:
+        return extract_interbank_on(js)
+    except Exception:
+        return None
+
+
 # ── Public mutation API ──────────────────────────────────────────────────────
 
 
 def refresh(*, as_of: "str | None" = None) -> dict:
-    """Ensure indicator scaffolding/seed, then auto-fetch what we can (FX).
+    """Ensure indicator scaffolding/seed, then auto-fetch what we can: USD/VND
+    (FX API) and the overnight interbank rate (Vietstock VNIBOR).
 
-    Best-effort: a blocked/failed FX fetch leaves the prior cache untouched.
-    Returns the updated cache.
+    Best-effort: a blocked/failed fetch leaves that indicator's prior cache
+    untouched (manual --set values are never clobbered by a failed fetch).
+    SBV policy rate stays seed/manual (changes ~2-4×/year). Returns the cache.
     """
     cache = _ensure_defs(_load_cache())
     day = as_of or datetime.now().date().isoformat()
+
     fx = fetch_usdvnd()
     if fx is not None:
         _record(cache, "usdvnd", fx, day, "open.er-api.com")
+
+    ib = fetch_interbank_on()                # (value, as_of) from Vietstock
+    if ib is not None:
+        ib_val, ib_as_of = ib
+        _record(cache, "interbank_on", ib_val, as_of or ib_as_of, "vietstock")
+
     _save_cache(cache)
     return cache
 
@@ -402,7 +557,9 @@ def main(argv: "list[str] | None" = None) -> int:
     ap.add_argument("--refresh", action="store_true",
                     help="Seed/scaffold + auto-fetch tỷ giá → cache")
     ap.add_argument("--diag", action="store_true",
-                    help="Thử fetch FX 1 lần và in kết quả (xác minh trên máy có mạng)")
+                    help="Thử fetch FX + lãi suất LNH 1 lần, in kết quả (xác minh trên máy có mạng)")
+    ap.add_argument("--dump", action="store_true",
+                    help="Cùng --diag: in RAW JSON từ Vietstock để soi/chỉnh parser")
     ap.add_argument("--show", action="store_true", help="In cache hiện tại")
     ap.add_argument("--set", nargs=2, metavar=("KEY", "VALUE"),
                     help=f"Ghi đè tay 1 chỉ số. KEY ∈ {{{', '.join(_DEFS)}}}")
@@ -411,13 +568,36 @@ def main(argv: "list[str] | None" = None) -> int:
     a = ap.parse_args(argv)
 
     if a.diag:
+        ok = True
+        # 1) FX
         fx = fetch_usdvnd()
         if fx is None:
-            print("[macro] fetch FX thất bại (không có mạng / host bị chặn / API lỗi).")
-            print("  → Trên máy có mạng, kết quả sẽ là tỷ giá USD/VND tham chiếu.")
-            return 1
-        print(f"[macro] USD/VND tham chiếu = {fx:,.1f} (fetch OK).")
-        return 0
+            print("[macro] ❌ fetch FX thất bại (không mạng / host bị chặn / API lỗi).")
+            ok = False
+        else:
+            print(f"[macro] ✅ USD/VND tham chiếu = {fx:,.1f}")
+        # 2) Interbank ON (Vietstock VNIBOR)
+        raw = fetch_vietstock_norm(_VS_INTERBANK_NORMID)
+        if raw is None:
+            print("[macro] ❌ fetch Vietstock VNIBOR thất bại (token/cookie handshake "
+                  "hoặc host bị chặn).")
+            ok = False
+        else:
+            ib = None
+            try:
+                ib = extract_interbank_on(raw)
+            except Exception as e:                       # noqa
+                print(f"[macro] ⚠ parse VNIBOR lỗi: {e}")
+            if ib:
+                print(f"[macro] ✅ Lãi suất LNH ON = {ib[0]:.2f}%/năm (as_of {ib[1]})")
+            else:
+                print("[macro] ⚠ Vietstock trả dữ liệu nhưng KHÔNG tách được ON — "
+                      "chạy lại với --dump rồi gửi tôi JSON để chỉnh parser.")
+                ok = False
+            if a.dump:
+                print("── RAW Vietstock getdatabynormid (cắt 2000 ký tự) ──")
+                print(json.dumps(raw, ensure_ascii=False)[:2000])
+        return 0 if ok else 1
 
     if a.set:
         key, val = a.set

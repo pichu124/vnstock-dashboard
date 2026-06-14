@@ -128,6 +128,59 @@ def test_pressure_easing_is_bullish_and_noise_is_ignored(tmp_path, monkeypatch):
                                       "value": 1, "change": None}]) is None
 
 
+# ── Vietstock interbank (VNIBOR) auto-fetch parsing ──────────────────────────
+
+
+def test_parse_vs_date_handles_formats():
+    assert mac._parse_vs_date("2026-06-13T00:00:00") == "2026-06-13"
+    assert mac._parse_vs_date("13/06/2026") == "2026-06-13"
+    d = mac._parse_vs_date("/Date(1718323200000)/")          # ASP.NET ms epoch
+    assert d and len(d) == 10 and d[4] == "-" and d[7] == "-"
+    assert mac._parse_vs_date("rác") is None
+
+
+def test_extract_interbank_on_prefers_overnight_and_latest():
+    # mixed tenors + two overnight rows on different days → newest ON wins
+    js = [
+        {"ReportComponentName": "Qua đêm", "Value": 9.35, "ReportDate": "/Date(1718323200000)/"},
+        {"ReportComponentName": "1 Tuần", "Value": 9.80, "ReportDate": "/Date(1718323200000)/"},
+        {"ReportComponentName": "Qua đêm", "Value": 8.90, "ReportDate": "/Date(1718150400000)/"},
+    ]
+    val, as_of = mac.extract_interbank_on(js)
+    assert val == 9.35                                       # ON, not the 1-week 9.80
+    assert as_of == mac._parse_vs_date("/Date(1718323200000)/")   # tz-independent
+
+
+def test_extract_interbank_on_wrapper_fallback_and_none():
+    # {"data": [...]} wrapper + overnight label
+    js = {"data": [{"ReportComponentName": "Overnight", "Value": 7.5,
+                    "ReportDate": "2026-06-13"}]}
+    assert mac.extract_interbank_on(js) == (7.5, "2026-06-13")
+    # no overnight label → fall back to any in-range rate row
+    assert mac.extract_interbank_on(
+        [{"Tenor": "1 Tháng", "Value": 6.2, "Date": "2026-06-13"}]) == (6.2, "2026-06-13")
+    # non-list / empty → None (caller keeps prior value, never fabricates)
+    assert mac.extract_interbank_on("nope") is None
+    assert mac.extract_interbank_on([]) is None
+
+
+def test_refresh_records_fetched_fx_and_interbank_without_clobbering(tmp_path, monkeypatch):
+    _use_tmp_cache(tmp_path, monkeypatch)
+    monkeypatch.setattr(mac, "fetch_usdvnd", lambda: 25500.0)
+    monkeypatch.setattr(mac, "fetch_interbank_on", lambda: (9.35, "2026-06-13"))
+    mac.refresh()
+    m = {x["key"]: x for x in mac.load_macro()}
+    assert m["usdvnd"]["value"] == 25500.0
+    assert m["interbank_on"]["value"] == 9.35
+    assert m["interbank_on"]["as_of"] == "2026-06-13"
+    assert m["interbank_on"]["source"] == "vietstock"
+    # a FAILED interbank fetch must NOT clobber a manual --set value
+    mac.set_value("interbank_on", 11.0, as_of="2026-06-14")
+    monkeypatch.setattr(mac, "fetch_interbank_on", lambda: None)
+    mac.refresh()
+    assert {x["key"]: x for x in mac.load_macro()}["interbank_on"]["value"] == 11.0
+
+
 # ── macro-news keyword filter ────────────────────────────────────────────────
 
 

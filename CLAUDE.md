@@ -281,7 +281,7 @@ Các khối **mới thêm** (ngoài kỹ thuật VNINDEX / regime / breadth có 
 | **Cơ bản nhóm theo dõi** (VN30 + mid-cap; D/E, ROE, Op.CF) | `data_warehouse/_meta/fundamentals.parquet` | `python vnstock_fundamental_updater.py` (1×/tuần) |
 | **Tâm lý thị trường** (mood + momentum -100..+100) | breadth + NN ròng + RSI/MA + news + **vĩ mô**, qua `vnstock_market_sentiment.py` | luôn có (6 tín hiệu nội tại); tin tức (thứ 7) cần `python run.py news`; vĩ mô (thứ 8) cần `python run.py macro` |
 | **Dòng tiền ngành** (NN ròng 1T + GTGD theo ngành) | `market_overview.json` (đã pre-aggregate) | có sẵn sau `python run.py screener` |
-| **🌐 Vĩ mô** (lãi suất & tỷ giá + đổi) | `data_warehouse/_meta/macro_indicators.json` qua `vnstock_macro.py` | `python run.py macro` (auto-fetch tỷ giá; lãi suất nhập tay) |
+| **🌐 Vĩ mô** (lãi suất & tỷ giá + đổi) | `data_warehouse/_meta/macro_indicators.json` qua `vnstock_macro.py` | `python run.py macro` (auto: tỷ giá + LNH-Vietstock; SBV policy nhập tay) |
 
 **Lịch refresh (Task Scheduler) — DÙNG SCRIPT CÓ SẴN `scripts/setup_scheduled_tasks.ps1`**
 (PowerShell **Run as Administrator**, chạy 1 lần; tự detect venv, set working dir,
@@ -329,8 +329,11 @@ nay vẫn xin. Theo dõi 3 chỉ số cốt lõi, cache `_meta/macro_indicators.
   API lỗi → GIỮ cache cũ, KHÔNG bịa.
 - **`sbv_policy_rate`** (lãi suất tái cấp vốn) — SEED 4.5%/năm as_of 2023-06-19
   (nguồn "seed"); đổi vài lần/năm → cập nhật tay khi SBV ra quyết định.
-- **`interbank_on`** (lãi suất liên ngân hàng ON) — nhập tay (không có nguồn
-  free ổn định). Để trống tới khi `--set`.
+- **`interbank_on`** (lãi suất liên ngân hàng ON) — AUTO-fetch từ **Vietstock**
+  VNIBOR (`finance.vietstock.vn/data/getdatabynormid`, normid 66). Free, không
+  key, nhưng cần handshake CSRF token (`__RequestVerificationToken`) + cookie
+  mỗi phiên → MONG MANH (vietstock đổi markup là `extract_interbank_on` phải
+  sửa). Fetch lỗi → giữ cache cũ; `--set` luôn ghi đè được.
 
 Chiến lược HYBRID (user chọn 2026-06-14): auto tỷ giá + nhập tay lãi suất, và
 **mọi chỉ số đều ghi đè được**: `python vnstock_macro.py --set <key> <value>
@@ -358,10 +361,12 @@ allowlist chặn nên FX luôn None ở đây). Pipeline: bước `macro` trong 
   ≥10bps) — backdrop ổn định không làm loãng composite.
 
 **⚠️ CẦN USER VERIFY (sandbox không có mạng/data)**: trên máy local chạy
-`python vnstock_macro.py --diag` → phải in tỷ giá USD/VND (~25.xxx). Nếu None ⇒
-API đổi schema hoặc cần thêm host vào egress allowlist (web session). Đặt lãi
-suất hiện hành: `python vnstock_macro.py --set sbv_policy_rate <số>` +
-`--set interbank_on <số>`.
+`python vnstock_macro.py --diag` → kiểm CẢ tỷ giá USD/VND (đã verify 14/06:
+26,191.9) LẪN lãi suất LNH ON từ Vietstock. Nếu VNIBOR "trả dữ liệu nhưng KHÔNG
+tách được ON" → chạy `--diag --dump` lấy RAW JSON và chỉnh `extract_interbank_on`
+(schema getdatabynormid chưa pin được từ sandbox). FX None ⇒ cần thêm host vào
+egress allowlist (web session). SBV policy đổi hiếm → `python vnstock_macro.py
+--set sbv_policy_rate <số>`.
 
 **Quan trọng — vnstock 4.0.4 + sponsor API gotchas** (hard-won, đừng quên):
 - `vnstock_auth._StockShim` PHẢI expose `.quote/.company/.listing/.finance`.
