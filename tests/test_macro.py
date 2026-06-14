@@ -131,6 +131,18 @@ def test_pressure_easing_is_bullish_and_noise_is_ignored(tmp_path, monkeypatch):
 # ── Vietstock interbank (VNIBOR) auto-fetch parsing ──────────────────────────
 
 
+def test_extract_token_is_order_and_quote_agnostic():
+    # name-before-value, double quotes
+    assert mac._extract_token(
+        '<input name="__RequestVerificationToken" type="hidden" value="ABC123"/>') == "ABC123"
+    # value-before-name, single quotes (Vietstock markup varies)
+    assert mac._extract_token(
+        "<input value='XY9' name='__RequestVerificationToken'>") == "XY9"
+    # token absent → None (handshake aborts, fetch returns None, cache untouched)
+    assert mac._extract_token('<input name="other" value="z">') is None
+    assert mac._extract_token("") is None
+
+
 def test_parse_vs_date_handles_formats():
     assert mac._parse_vs_date("2026-06-13T00:00:00") == "2026-06-13"
     assert mac._parse_vs_date("13/06/2026") == "2026-06-13"

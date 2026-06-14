@@ -186,10 +186,28 @@ _VS_BASE = "https://finance.vietstock.vn"
 _VS_NORM_URL = _VS_BASE + "/data/getdatabynormid"
 _VS_INTERBANK_NORMID = 66
 _VS_INTERBANK_PAGE = _VS_BASE + f"/vi-mo/du-lieu/lai-suat-lien-ngan-hang-vnibor-{_VS_INTERBANK_NORMID}"
-_VS_TOKEN_RE = re.compile(
-    r'name="__RequestVerificationToken"[^>]*value="([^"]+)"')
 _VS_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
           "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+_VS_HEADERS = {
+    "User-Agent": _VS_UA,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "vi,en-US;q=0.9,en;q=0.8",
+}
+_VS_INPUT_RE = re.compile(r"<input\b[^>]*>", re.IGNORECASE)
+_VS_VALUE_RE = re.compile(r'value=["\']([^"\']+)["\']', re.IGNORECASE)
+
+
+def _extract_token(html: "str | None") -> "str | None":
+    """Pull the __RequestVerificationToken value from a Vietstock page.
+    Order/quote-agnostic (some pages render value= before name=, or single
+    quotes) — scans each <input> tag for the token name then its value."""
+    for m in _VS_INPUT_RE.finditer(html or ""):
+        tag = m.group(0)
+        if "__RequestVerificationToken" in tag:
+            vm = _VS_VALUE_RE.search(tag)
+            if vm:
+                return vm.group(1)
+    return None
 _MS_DATE_RE = re.compile(r"/Date\((\d+)")
 # Term/component labels that mean the overnight tenor.
 _ON_HINTS = ("qua đêm", "overnight")
@@ -287,24 +305,67 @@ def fetch_vietstock_norm(normid: int = _VS_INTERBANK_NORMID):
         return None
     try:
         s = _req.Session()
-        s.headers.update({"User-Agent": _VS_UA,
-                          "Accept-Language": "vi,en;q=0.9"})
+        s.headers.update(_VS_HEADERS)
         page = s.get(_VS_INTERBANK_PAGE, timeout=15)
-        m = _VS_TOKEN_RE.search(page.text or "")
-        if not m:
+        token = _extract_token(page.text)
+        if not token:
             return None
-        token = m.group(1)
         resp = s.post(
             _VS_NORM_URL,
             data={"normid": normid, "type": "1",
                   "__RequestVerificationToken": token},
             headers={"X-Requested-With": "XMLHttpRequest",
-                     "Referer": _VS_INTERBANK_PAGE},
+                     "Origin": _VS_BASE, "Referer": _VS_INTERBANK_PAGE},
             timeout=20,
         )
         resp.raise_for_status()
         return resp.json()
     except Exception:
+        return None
+
+
+def trace_vietstock(normid: int = _VS_INTERBANK_NORMID):
+    """Verbose step-by-step handshake (for --diag --dump debugging). Prints each
+    step's outcome so a failure is pinpointed (GET status / token found? / POST
+    status + body). Returns the parsed JSON or None. Never raises."""
+    try:
+        import requests as _req
+    except ImportError:
+        print("  • requests chưa cài"); return None
+    s = _req.Session()
+    s.headers.update(_VS_HEADERS)
+    try:
+        page = s.get(_VS_INTERBANK_PAGE, timeout=15)
+    except Exception as e:                                  # noqa
+        print(f"  • GET page LỖI: {type(e).__name__}: {str(e)[:160]}"); return None
+    print(f"  • GET {_VS_INTERBANK_PAGE}")
+    print(f"    → HTTP {page.status_code}, {len(page.text or '')} bytes, "
+          f"content-type={page.headers.get('content-type','?')}")
+    print(f"    → cookies: {list(s.cookies.keys())}")
+    token = _extract_token(page.text)
+    if not token:
+        present = "__RequestVerificationToken" in (page.text or "")
+        print(f"  • token: KHÔNG tách được (chuỗi token có trong HTML: {present}). "
+              f"Nếu False → bị chặn/redirect hoặc token nạp bằng JS.")
+        return None
+    print(f"  • token: OK ({len(token)} ký tự)")
+    try:
+        resp = s.post(_VS_NORM_URL,
+                      data={"normid": normid, "type": "1",
+                            "__RequestVerificationToken": token},
+                      headers={"X-Requested-With": "XMLHttpRequest",
+                               "Origin": _VS_BASE, "Referer": _VS_INTERBANK_PAGE},
+                      timeout=20)
+    except Exception as e:                                  # noqa
+        print(f"  • POST LỖI: {type(e).__name__}: {str(e)[:160]}"); return None
+    print(f"  • POST {_VS_NORM_URL} (normid={normid})")
+    print(f"    → HTTP {resp.status_code}, content-type="
+          f"{resp.headers.get('content-type','?')}, {len(resp.text or '')} bytes")
+    print(f"    → body 400 ký tự đầu: {(resp.text or '')[:400]!r}")
+    try:
+        return resp.json()
+    except Exception as e:                                  # noqa
+        print(f"  • parse JSON LỖI: {type(e).__name__}: {str(e)[:120]}")
         return None
 
 
@@ -576,11 +637,16 @@ def main(argv: "list[str] | None" = None) -> int:
             ok = False
         else:
             print(f"[macro] ✅ USD/VND tham chiếu = {fx:,.1f}")
-        # 2) Interbank ON (Vietstock VNIBOR)
-        raw = fetch_vietstock_norm(_VS_INTERBANK_NORMID)
+        # 2) Interbank ON (Vietstock VNIBOR). With --dump use the verbose tracer
+        #    so a failed handshake is pinpointed (GET/token/POST), not silent.
+        if a.dump:
+            print("── TRACE Vietstock handshake ──")
+            raw = trace_vietstock(_VS_INTERBANK_NORMID)
+        else:
+            raw = fetch_vietstock_norm(_VS_INTERBANK_NORMID)
         if raw is None:
-            print("[macro] ❌ fetch Vietstock VNIBOR thất bại (token/cookie handshake "
-                  "hoặc host bị chặn).")
+            print("[macro] ❌ fetch Vietstock VNIBOR thất bại — chạy lại với "
+                  "`--diag --dump` để xem bước nào hỏng rồi gửi tôi output.")
             ok = False
         else:
             ib = None
@@ -591,11 +657,10 @@ def main(argv: "list[str] | None" = None) -> int:
             if ib:
                 print(f"[macro] ✅ Lãi suất LNH ON = {ib[0]:.2f}%/năm (as_of {ib[1]})")
             else:
-                print("[macro] ⚠ Vietstock trả dữ liệu nhưng KHÔNG tách được ON — "
-                      "chạy lại với --dump rồi gửi tôi JSON để chỉnh parser.")
+                print("[macro] ⚠ Vietstock trả dữ liệu nhưng KHÔNG tách được ON.")
                 ok = False
             if a.dump:
-                print("── RAW Vietstock getdatabynormid (cắt 2000 ký tự) ──")
+                print("── RAW getdatabynormid (cắt 2000 ký tự) ──")
                 print(json.dumps(raw, ensure_ascii=False)[:2000])
         return 0 if ok else 1
 
