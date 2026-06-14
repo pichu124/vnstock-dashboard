@@ -329,11 +329,14 @@ nay vẫn xin. Theo dõi 3 chỉ số cốt lõi, cache `_meta/macro_indicators.
   API lỗi → GIỮ cache cũ, KHÔNG bịa.
 - **`sbv_policy_rate`** (lãi suất tái cấp vốn) — SEED 4.5%/năm as_of 2023-06-19
   (nguồn "seed"); đổi vài lần/năm → cập nhật tay khi SBV ra quyết định.
-- **`interbank_on`** (lãi suất liên ngân hàng ON) — AUTO-fetch từ **Vietstock**
-  VNIBOR (`finance.vietstock.vn/data/getdatabynormid`, normid 66). Free, không
-  key, nhưng cần handshake CSRF token (`__RequestVerificationToken`) + cookie
-  mỗi phiên → MONG MANH (vietstock đổi markup là `extract_interbank_on` phải
-  sửa). Fetch lỗi → giữ cache cũ; `--set` luôn ghi đè được.
+- **`interbank_on`** (lãi suất liên ngân hàng ON) — **nhập tay `--set`** (mặc
+  định). Đã thử auto từ **Vietstock** VNIBOR (`getdatabynormid` normid 66):
+  handshake CSRF token+cookie chạy được (token render UNQUOTED), POST 200 nhưng
+  trả **`[]`** vì **TƯỜNG PHÍ bản Basic** (xác minh 2026-06-14: popup "nâng
+  cấp", Network 0 request data). FiinGroup/WiFeed/CEIC đều trả phí ⇒ KHÔNG có
+  API free đáng tin cho lãi suất VN. Code fetch (`fetch_interbank_on` /
+  `trace_vietstock` / `extract_interbank_on`) GIỮ lại, bật bằng env
+  `VNSTOCK_MACRO_VIETSTOCK=1` nếu có tài khoản Vietstock trả phí.
 
 Chiến lược HYBRID (user chọn 2026-06-14): auto tỷ giá + nhập tay lãi suất, và
 **mọi chỉ số đều ghi đè được**: `python vnstock_macro.py --set <key> <value>
@@ -360,13 +363,12 @@ allowlist chặn nên FX luôn None ở đây). Pipeline: bước `macro` trong 
   renormalize). CHỈ phát tín hiệu khi có THAY ĐỔI đáng kể (FX ≥0.3%, lãi suất
   ≥10bps) — backdrop ổn định không làm loãng composite.
 
-**⚠️ CẦN USER VERIFY (sandbox không có mạng/data)**: trên máy local chạy
-`python vnstock_macro.py --diag` → kiểm CẢ tỷ giá USD/VND (đã verify 14/06:
-26,191.9) LẪN lãi suất LNH ON từ Vietstock. Nếu VNIBOR "trả dữ liệu nhưng KHÔNG
-tách được ON" → chạy `--diag --dump` lấy RAW JSON và chỉnh `extract_interbank_on`
-(schema getdatabynormid chưa pin được từ sandbox). FX None ⇒ cần thêm host vào
-egress allowlist (web session). SBV policy đổi hiếm → `python vnstock_macro.py
---set sbv_policy_rate <số>`.
+**Tỷ giá USD/VND**: auto OK (verify 14/06: 26,191.9 qua `--diag`). FX None ⇒ cần
+thêm host vào egress allowlist (web session). **Lãi suất**: nhập tay vì nguồn
+free đều bị tường phí (xem trên) — `python vnstock_macro.py --set sbv_policy_rate
+<số>` và `--set interbank_on <số>` (cập nhật khi để ý nó nhảy; brief tự cảnh báo
+thay đổi + tự lọc tin lãi suất từ news cache). Nếu sau này có tài khoản Vietstock
+trả phí: đặt `VNSTOCK_MACRO_VIETSTOCK=1` rồi `--refresh` để auto LNH.
 
 **Quan trọng — vnstock 4.0.4 + sponsor API gotchas** (hard-won, đừng quên):
 - `vnstock_auth._StockShim` PHẢI expose `.quote/.company/.listing/.finance`.

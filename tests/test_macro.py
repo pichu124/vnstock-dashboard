@@ -186,10 +186,13 @@ def test_extract_interbank_on_wrapper_fallback_and_none():
     assert mac.extract_interbank_on([]) is None
 
 
-def test_refresh_records_fetched_fx_and_interbank_without_clobbering(tmp_path, monkeypatch):
+def test_refresh_records_interbank_only_when_opted_in(tmp_path, monkeypatch):
+    # Vietstock VNIBOR is paywalled on the free tier → auto-fetch is opt-in via
+    # VNSTOCK_MACRO_VIETSTOCK=1 (for paid accounts).
     _use_tmp_cache(tmp_path, monkeypatch)
     monkeypatch.setattr(mac, "fetch_usdvnd", lambda: 25500.0)
     monkeypatch.setattr(mac, "fetch_interbank_on", lambda: (9.35, "2026-06-13"))
+    monkeypatch.setenv("VNSTOCK_MACRO_VIETSTOCK", "1")
     mac.refresh()
     m = {x["key"]: x for x in mac.load_macro()}
     assert m["usdvnd"]["value"] == 25500.0
@@ -201,6 +204,20 @@ def test_refresh_records_fetched_fx_and_interbank_without_clobbering(tmp_path, m
     monkeypatch.setattr(mac, "fetch_interbank_on", lambda: None)
     mac.refresh()
     assert {x["key"]: x for x in mac.load_macro()}["interbank_on"]["value"] == 11.0
+
+
+def test_refresh_skips_interbank_fetch_by_default(tmp_path, monkeypatch):
+    # Default (no opt-in): never even call the paywalled Vietstock fetch.
+    _use_tmp_cache(tmp_path, monkeypatch)
+    monkeypatch.delenv("VNSTOCK_MACRO_VIETSTOCK", raising=False)
+    monkeypatch.setattr(mac, "fetch_usdvnd", lambda: 25500.0)
+    calls = {"n": 0}
+    monkeypatch.setattr(mac, "fetch_interbank_on",
+                        lambda: calls.__setitem__("n", calls["n"] + 1) or (9.9, "2026-06-13"))
+    mac.refresh()
+    assert calls["n"] == 0                                # not called by default
+    keys = {x["key"] for x in mac.load_macro()}
+    assert "usdvnd" in keys and "interbank_on" not in keys
 
 
 # ── macro-news keyword filter ────────────────────────────────────────────────

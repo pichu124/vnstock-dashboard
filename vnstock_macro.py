@@ -17,9 +17,11 @@ Chiến lược lấy dữ liệu (HYBRID — auto + ghi đè tay)
   cũ, KHÔNG bao giờ hiện số bịa.
 * **Lãi suất điều hành SBV**: đổi vài lần/năm → seed giá trị đã công bố gần nhất
   (có `as_of` + nguồn "seed"), cập nhật tay khi SBV ra quyết định mới.
-* **Lãi suất liên ngân hàng ON**: auto-fetch từ Vietstock VNIBOR (getdatabynormid,
-  normid 66) — free, không cần key, nhưng cần handshake CSRF token/cookie nên
-  hơi mong manh (Vietstock đổi markup là phải sửa). Fetch lỗi → giữ cache cũ.
+* **Lãi suất liên ngân hàng ON**: nhập tay ``--set`` (mặc định). Vietstock VNIBOR
+  (getdatabynormid normid 66) ĐÃ BỊ TƯỜNG PHÍ ở bản Basic — trả ``[]`` (xác minh
+  2026-06-14: popup "nâng cấp"); FiinGroup/WiFeed/CEIC đều trả phí ⇒ không có API
+  free đáng tin. Code fetch vẫn còn, bật bằng env ``VNSTOCK_MACRO_VIETSTOCK=1``
+  nếu có tài khoản Vietstock trả phí.
 * Mọi chỉ số đều có thể GHI ĐÈ TAY: ``python vnstock_macro.py --set <key> <value>``.
 
 Giống `vnstock_foreign_flow`: live fetch cần mạng nên KHÔNG chạy được trong
@@ -42,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from datetime import datetime
@@ -82,7 +85,8 @@ _DEFS: dict[str, dict] = {
     "interbank_on": {
         "label": "Lãi suất liên ngân hàng ON",
         "unit": "%/năm", "kind": "rate", "order": 2,
-        # auto-fetched daily from Vietstock VNIBOR (normid 66); --set overrides
+        # manual --set by default (Vietstock VNIBOR is paywalled on Basic);
+        # opt-in auto via VNSTOCK_MACRO_VIETSTOCK=1 for a paid Vietstock account
     },
 }
 
@@ -436,12 +440,16 @@ def fetch_interbank_on() -> "tuple[float, str] | None":
 
 
 def refresh(*, as_of: "str | None" = None) -> dict:
-    """Ensure indicator scaffolding/seed, then auto-fetch what we can: USD/VND
-    (FX API) and the overnight interbank rate (Vietstock VNIBOR).
+    """Ensure indicator scaffolding/seed, then auto-fetch what we can.
+
+    USD/VND is fetched from a free FX API. The overnight interbank rate
+    (Vietstock VNIBOR) is PAYWALLED on the free/Basic tier (getdatabynormid
+    returns [] — confirmed 2026-06-14), so it is SKIPPED by default; opt in with
+    env VNSTOCK_MACRO_VIETSTOCK=1 only if you have a paid Vietstock account.
+    Otherwise set lãi suất manually via --set (changes slowly).
 
     Best-effort: a blocked/failed fetch leaves that indicator's prior cache
-    untouched (manual --set values are never clobbered by a failed fetch).
-    SBV policy rate stays seed/manual (changes ~2-4×/year). Returns the cache.
+    untouched (manual --set values are never clobbered). Returns the cache.
     """
     cache = _ensure_defs(_load_cache())
     day = as_of or datetime.now().date().isoformat()
@@ -450,10 +458,11 @@ def refresh(*, as_of: "str | None" = None) -> dict:
     if fx is not None:
         _record(cache, "usdvnd", fx, day, "open.er-api.com")
 
-    ib = fetch_interbank_on()                # (value, as_of) from Vietstock
-    if ib is not None:
-        ib_val, ib_as_of = ib
-        _record(cache, "interbank_on", ib_val, as_of or ib_as_of, "vietstock")
+    if os.environ.get("VNSTOCK_MACRO_VIETSTOCK") == "1":   # paid account opt-in
+        ib = fetch_interbank_on()                          # (value, as_of)
+        if ib is not None:
+            ib_val, ib_as_of = ib
+            _record(cache, "interbank_on", ib_val, as_of or ib_as_of, "vietstock")
 
     _save_cache(cache)
     return cache
@@ -707,6 +716,10 @@ def main(argv: "list[str] | None" = None) -> int:
                 print(f"[macro] ⚠ parse VNIBOR lỗi: {e}")
             if ib:
                 print(f"[macro] ✅ Lãi suất LNH ON = {ib[0]:.2f}%/năm (as_of {ib[1]})")
+            elif isinstance(raw, list) and not raw:
+                print("[macro] ⚠ Vietstock trả [] (rỗng) — gần như chắc do TƯỜNG PHÍ "
+                      "bản Basic. Dùng `--set interbank_on <số>` cho lãi suất.")
+                ok = False
             else:
                 print("[macro] ⚠ Vietstock trả dữ liệu nhưng KHÔNG tách được ON.")
                 ok = False
