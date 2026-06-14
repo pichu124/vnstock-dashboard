@@ -141,6 +141,10 @@ def test_extract_token_is_order_and_quote_agnostic():
     # token absent → None (handshake aborts, fetch returns None, cache untouched)
     assert mac._extract_token('<input name="other" value="z">') is None
     assert mac._extract_token("") is None
+    # UNQUOTED attributes — Vietstock's real markup: value=jzkB… with no quotes
+    assert mac._extract_token(
+        "<input name=__RequestVerificationToken type=hidden "
+        "value=jzkBOHmJ-ffdOg_4d5MJqek1>") == "jzkBOHmJ-ffdOg_4d5MJqek1"
     # fallback: token name in a non-<input> element, name…value order
     assert mac._extract_token(
         '<meta name="__RequestVerificationToken" value="TOK7">') == "TOK7"

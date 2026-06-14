@@ -194,22 +194,30 @@ _VS_HEADERS = {
     "Accept-Language": "vi,en-US;q=0.9,en;q=0.8",
 }
 _VS_INPUT_RE = re.compile(r"<input\b[^>]*>", re.IGNORECASE)
-_VS_VALUE_RE = re.compile(r'value=["\']([^"\']+)["\']', re.IGNORECASE)
+# Vietstock renders the token UNQUOTED (value=jzkB…), so accept double/single
+# quoted AND bare values (bare value runs until whitespace or '>').
+_VAL = r'(?:"([^"]+)"|\'([^\']+)\'|([^\s">]+))'
+_VS_VALUE_RE = re.compile(r"value\s*=\s*" + _VAL, re.IGNORECASE)
 
 
 _VS_TOK_FWD_RE = re.compile(
-    r'__RequestVerificationToken["\'][^>]{0,300}?value\s*=\s*["\']([^"\']+)["\']',
-    re.IGNORECASE)
+    r"__RequestVerificationToken\b[^>]{0,300}?value\s*=\s*" + _VAL, re.IGNORECASE)
 _VS_TOK_REV_RE = re.compile(
-    r'value\s*=\s*["\']([^"\']+)["\'][^>]{0,160}?__RequestVerificationToken',
+    r"value\s*=\s*" + _VAL + r"[^>]{0,160}?__RequestVerificationToken\b",
     re.IGNORECASE)
+
+
+def _first_group(m) -> "str | None":
+    """First non-empty capture group (the value alternation has 3 branches:
+    double-quoted / single-quoted / bare)."""
+    return next((g for g in m.groups() if g), None) if m else None
 
 
 def _extract_token(html: "str | None") -> "str | None":
     """Pull the __RequestVerificationToken value from a Vietstock page.
 
-    Tolerant of attribute order, quote style and element type (ASP.NET MVC
-    renders a hidden <input>, but markup varies):
+    Tolerant of attribute order, quote style (incl. UNQUOTED — Vietstock renders
+    value=jzkB… without quotes) and element type:
       1. scan each <input> tag for the token name then its value;
       2. name…value anywhere (any element/order);
       3. value…name (reversed order).
@@ -219,13 +227,13 @@ def _extract_token(html: "str | None") -> "str | None":
     for m in _VS_INPUT_RE.finditer(html):
         tag = m.group(0)
         if "__RequestVerificationToken" in tag:
-            vm = _VS_VALUE_RE.search(tag)
-            if vm:
-                return vm.group(1)
+            v = _first_group(_VS_VALUE_RE.search(tag))
+            if v:
+                return v
     for rx in (_VS_TOK_FWD_RE, _VS_TOK_REV_RE):
-        m = rx.search(html)
-        if m:
-            return m.group(1)
+        v = _first_group(rx.search(html))
+        if v:
+            return v
     return None
 _MS_DATE_RE = re.compile(r"/Date\((\d+)")
 # Term/component labels that mean the overnight tenor.
