@@ -244,6 +244,9 @@ Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằn
 ## 🌐 Vĩ mô: lãi suất & tỷ giá
 [Nếu có block "🌐 Vĩ mô" trong data: tóm tắt 1-2 dòng — tỷ giá USD/VND + lãi suất điều hành/liên ngân hàng, GHI RÕ thay đổi (▲/▼ + as_of) nếu có. Nêu hàm ý: lãi suất TĂNG / VND mất giá = thắt chặt → bất lợi cổ phiếu (nhất là nhóm vay nợ cao, khối ngoại dễ bán ròng); lãi suất giảm / VND ổn định = thuận lợi. DÙNG ĐÚNG số + as_of trong block, KHÔNG bịa. Nếu KHÔNG có block đó → ghi "Chưa có dữ liệu vĩ mô" hoặc bỏ mục này.]
 
+## 📰 Tin kinh tế/chính trị nổi bật
+[Nếu có block "📰 Tin kinh tế/chính trị" trong data: nêu 1-3 tin TÁC ĐỘNG MẠNH nhất tới thị trường (vĩ mô/lãi suất/tỷ giá/chính sách/địa chính trị), kèm hướng tác động (tích cực/tiêu cực cho TTCK) và ngành liên quan nếu rõ. DÙNG ĐÚNG tiêu đề trong block, TUYỆT ĐỐI KHÔNG bịa tin. Nếu KHÔNG có block đó → ghi "Không có tin vĩ mô nổi bật" hoặc bỏ mục này.]
+
 ## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)
 [Liệt kê tối đa 3 mã từ block "Khuyến nghị từ chiến lược đã backtest" với entry/TP/SL]
 BẮT BUỘC: Nếu quyết định bị ảnh hưởng bởi tin tức trong block "Tin tức thị trường", PHẢI nêu rõ tên tiêu đề tin và giải thích tác động (ví dụ: "HPG: MUA — kỹ thuật vượt MA20 + tin [Hòa Phát ký hợp đồng thép 5.000 tỷ] hỗ trợ đà tăng"). Bỏ qua nếu không có khuyến nghị.
@@ -320,6 +323,9 @@ Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằn
 
 ## 🌐 Vĩ mô: lãi suất & tỷ giá
 [Nếu có block "🌐 Vĩ mô" trong data: tóm tắt 1-2 dòng — tỷ giá USD/VND + lãi suất điều hành/liên ngân hàng, GHI RÕ thay đổi (▲/▼ + as_of) nếu có. Nêu hàm ý: lãi suất TĂNG / VND mất giá = thắt chặt → bất lợi cổ phiếu (nhất là nhóm vay nợ cao, khối ngoại dễ bán ròng); lãi suất giảm / VND ổn định = thuận lợi. DÙNG ĐÚNG số + as_of trong block, KHÔNG bịa. Nếu KHÔNG có block đó → ghi "Chưa có dữ liệu vĩ mô" hoặc bỏ mục này.]
+
+## 📰 Tin kinh tế/chính trị nổi bật
+[Nếu có block "📰 Tin kinh tế/chính trị" trong data: nêu 1-3 tin TÁC ĐỘNG MẠNH nhất tới thị trường (vĩ mô/lãi suất/tỷ giá/chính sách/địa chính trị), kèm hướng tác động (tích cực/tiêu cực cho TTCK) và ngành liên quan nếu rõ. DÙNG ĐÚNG tiêu đề trong block, TUYỆT ĐỐI KHÔNG bịa tin. Nếu KHÔNG có block đó → ghi "Không có tin vĩ mô nổi bật" hoặc bỏ mục này.]
 
 ## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)
 [Liệt kê tối đa 3 mã với entry/TP/SL từ block "Khuyến nghị"]
@@ -1012,6 +1018,26 @@ def _maybe_refresh_macro() -> int:
         return 0
 
 
+def _maybe_refresh_market_news() -> int:
+    """Refresh the broad economic/political news cache (RSS) when it isn't from
+    today, so the brief's "📰 Tin kinh tế/chính trị" block is current. Best-effort,
+    at most once/day; blocked feeds are skipped (never fabricated). Disable with
+    VNSTOCK_BRIEF_AUTO_MARKET_NEWS=0. Returns number of cached items.
+    """
+    if os.environ.get("VNSTOCK_BRIEF_AUTO_MARKET_NEWS", "1") == "0":
+        return 0
+    try:
+        from vnstock_news_feeds import _CACHE, load_market_news, refresh
+        if _CACHE.exists():
+            mtime = datetime.fromtimestamp(_CACHE.stat().st_mtime).date()
+            if mtime >= date.today():
+                return len(load_market_news())   # already refreshed today
+        refresh()
+        return len(load_market_news())
+    except Exception:
+        return 0
+
+
 # ── VN30 fundamentals (debt/equity, ROE, operating cash flow) ───────────────
 def _load_vn30_fundamentals(
     path: str | Path | None = None,
@@ -1282,6 +1308,40 @@ def _macro_block(macro: list[dict], macro_news: "list[dict] | None" = None) -> s
     latest = max((m.get("as_of", "") for m in macro), default="")
     header = f"\n## 🌐 Vĩ mô: lãi suất & tỷ giá (tính đến {latest})"
     return "\n".join([header] + _macro_body_lines(macro, macro_news))
+
+
+_MKT_NEWS_SENT_ICON = {"positive": "🟢", "negative": "🔴", "neutral": "⚪"}
+
+
+def _market_news_body_lines(items: list[dict]) -> list[str]:
+    """Canonical market-news bullets + directive (NO section header). Shared by the
+    prompt renderer and the guard so the section is fabrication-proof."""
+    lines: list[str] = []
+    for it in items:
+        icon = _MKT_NEWS_SENT_ICON.get(it.get("_sentiment", ""), "•")
+        d = it.get("_date_sort", "") or "?"
+        title = (it.get("title") or "").strip()
+        src = it.get("source_feed", "")
+        line = f"- {icon} [{d}] {title}" + (f" ({src})" if src else "")
+        if it.get("_impact"):
+            line += f" — tác động: {it['_impact']}"
+        lines.append(line)
+    lines.append(
+        "→ DÙNG các tin trên khi đánh giá bối cảnh vĩ mô + rủi ro; gắn tin với "
+        "ngành/cổ phiếu liên quan nếu có. 🟢=tích cực /🔴=tiêu cực cho TTCK. "
+        "TUYỆT ĐỐI KHÔNG bịa tin/tiêu đề ngoài danh sách này."
+    )
+    return lines
+
+
+def _market_news_block(items: list[dict]) -> str:
+    """Render the broad economic/political news block (RSS, market-moving) for the
+    prompt. `items` from vnstock_news_feeds.load_market_news(). Empty when none.
+    """
+    if not items:
+        return ""
+    header = "\n## 📰 Tin kinh tế/chính trị nổi bật (ảnh hưởng thị trường)"
+    return "\n".join([header] + _market_news_body_lines(items))
 
 
 def _market_sentiment_block(ms: dict) -> str:
@@ -1669,6 +1729,16 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
         if _macro:
             ctx["macro"] = _macro
             ctx["macro_news"] = macro_news()
+    except Exception:
+        pass
+
+    # 8c. Broad economic/political news (RSS, market-moving) with LLM sentiment +
+    # impact — surfaces macro/geopolitical context beyond per-ticker corporate news.
+    try:
+        from vnstock_news_feeds import load_market_news
+        _mkt_news = load_market_news(within_days=3, limit=6)
+        if _mkt_news:
+            ctx["market_news"] = _mkt_news
     except Exception:
         pass
 
@@ -2480,6 +2550,13 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         if block:
             lines.append(block)
 
+    # Broad economic/political news (RSS) so the brief reflects market-moving
+    # macro/geopolitical headlines, not just per-ticker corporate news.
+    if _mkt_news := ctx.get("market_news"):
+        block = _market_news_block(_mkt_news)
+        if block:
+            lines.append(block)
+
     # Recommendation + news blocks — explicit empty markers so the LLM
     # cannot invent trade ideas or news headlines from training data.
     if rec_block:
@@ -2523,6 +2600,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     """
     fixed = enforce_upcoming_events(text, ctx)
     fixed = enforce_macro(fixed, ctx)                # canonical macro levels/changes
+    fixed = enforce_market_news(fixed, ctx)          # canonical econ/political headlines
     fixed = enforce_risk_section(fixed, ctx)         # canonical risk facts first
     fixed = enforce_realestate_ocf_context(fixed, ctx)
     fixed = enforce_lead_lag(fixed, ctx)              # buy/avoid lines = lead/lag sector
@@ -2602,6 +2680,9 @@ def generate_brief(
     # Refresh macro (lãi suất & tỷ giá) the same way so the "🌐 Vĩ mô" block is
     # current; best-effort, FX-fetch failure keeps the prior cache.
     _maybe_refresh_macro()
+    # Refresh broad economic/political news (RSS) for the "📰 Tin kinh tế/chính trị"
+    # block; best-effort, blocked feeds skipped.
+    _maybe_refresh_market_news()
 
     ctx = collect_context(brief_type, auto_refresh=True)
 
@@ -2781,7 +2862,7 @@ def _parse_vn_number(s: str) -> float | None:
         return None
 
 
-_SECTION_EMOJIS = ("🎯", "📊", "📈", "🏆", "💰", "📋", "⚠️", "📅", "💡", "🔧", "⚡", "🔮", "🌐")
+_SECTION_EMOJIS = ("🎯", "📊", "📈", "🏆", "💰", "📋", "⚠️", "📅", "💡", "🔧", "⚡", "🔮", "🌐", "📰")
 
 
 def _is_section_start(line: str) -> bool:
@@ -2860,6 +2941,41 @@ def enforce_macro(text: str, ctx: dict) -> str:
     for line in lines:
         low = line.lower()
         if not replaced and "vĩ mô" in low and ("chưa có" in low or "không có" in low):
+            out.extend(body)
+            replaced = True
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
+def enforce_market_news(text: str, ctx: dict) -> str:
+    """Deterministic guard: the "📰 Tin kinh tế/chính trị" section is a curated list
+    of REAL headlines (+ LLM impact) — the LLM must not paraphrase into fabricated
+    news. When ctx carries market_news, replace the section body with the canonical
+    bullets; with no header, splice over a "không có tin" denial. No-op when none.
+    """
+    items = ctx.get("market_news") or []
+    if not text or not items:
+        return text
+
+    body = _market_news_body_lines(items)
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines)
+                  if ("tin kinh tế" in l.lower() or "kinh tế/chính trị" in l.lower())
+                  and _is_section_start(l)), None)
+    if start is not None:
+        end = next((i for i in range(start + 1, len(lines))
+                    if _is_section_start(lines[i])), len(lines))
+        if lines[start + 1:end] == body:
+            return text
+        return "\n".join(lines[:start + 1] + body + lines[end:])
+
+    out: list[str] = []
+    replaced = False
+    for line in lines:
+        low = line.lower()
+        if (not replaced and "kinh tế" in low
+                and ("chưa có" in low or "không có" in low)):
             out.extend(body)
             replaced = True
         else:

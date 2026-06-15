@@ -634,6 +634,7 @@ def cmd_test(args) -> int:
             "tests/test_telegram.py",
             "tests/test_events.py",
             "tests/test_macro.py",
+            "tests/test_news_feeds.py",
             "tests/test_updater_partial_bar.py",
         ]
     else:
@@ -827,6 +828,19 @@ def cmd_news(args) -> int:
         print(f"[news] tâm lý 7N: {agg['pos_pct']:.0f}% tích cực / "
               f"{agg['neg_pct']:.0f}% tiêu cực "
               f"(net {agg['net_pct']:+.0f}, {agg['total']} tin)")
+
+    # 4. Broad economic/political news via RSS (market-moving macro/geopolitics) —
+    #    separate from the per-ticker news above. Best-effort; the brief's
+    #    "📰 Tin kinh tế/chính trị" block + LLM impact read this cache.
+    if not getattr(args, "no_refresh", False):
+        try:
+            import vnstock_news_feeds as _nf
+            items = _nf.refresh(analyze=not getattr(args, "no_score", False))
+            n_an = sum(1 for it in items if it.get("_impact"))
+            print(f"[news] market feeds (RSS): {len(items)} tin liên quan, "
+                  f"{n_an} đã phân tích tác động")
+        except Exception as e:
+            print(f"[news] market feeds skipped: {type(e).__name__}: {e}")
     return 0
 
 
