@@ -183,18 +183,22 @@ def fetch_feed(feed: dict) -> list[dict]:
 # ── LLM analysis (sentiment + 1-line impact, one call) ───────────────────────
 
 _ANALYZE_SYSTEM = (
-    "Bạn là chuyên gia phân tích tác động tin tức vĩ mô/chính trị lên THỊ TRƯỜNG "
-    "CHỨNG KHOÁN VIỆT NAM. Với mỗi tin, trả về DUY NHẤT một dòng:\n"
+    "Bạn là chuyên gia phân tích tác động tin tức lên THỊ TRƯỜNG CHỨNG KHOÁN "
+    "VIỆT NAM. Với mỗi tin, trả về DUY NHẤT một dòng:\n"
     "<TÍCH_CỰC|TIÊU_CỰC|TRUNG_LẬP> | <tác động>\n"
-    "Quy tắc BẮT BUỘC:\n"
-    "- Nhãn theo góc nhìn CỔ PHIẾU VN: TÍCH_CỰC = tốt cho TTCK/cổ phiếu VN, "
-    "TIÊU_CỰC = xấu, TRUNG_LẬP = không rõ/không liên quan.\n"
-    "- <tác động> = MỘT câu ngắn (≤20 từ) nói RÕ ảnh hưởng tới NGÀNH/NHÓM CỔ PHIẾU "
-    "VN cụ thể (vd: 'hỗ trợ nhóm vàng PNJ', 'áp lực tỷ giá nhóm vay USD nhiều', "
-    "'lợi cho ngân hàng', 'tăng chi phí nhóm vận tải'). TUYỆT ĐỐI KHÔNG mô tả lại "
-    "sự kiện, KHÔNG nói chung chung về 'thị trường vàng/thế giới'.\n"
-    "- Nếu tin KHÔNG có liên hệ rõ ràng với cổ phiếu/ngành VN → trả ĐÚNG: "
-    "TRUNG_LẬP | không tác động trực tiếp\n"
+    "Quy tắc:\n"
+    "- Nhãn theo góc nhìn CỔ PHIẾU VN (tốt/xấu/không rõ cho TTCK VN).\n"
+    "- <tác động> = MỘT câu ngắn (≤22 từ) nêu RÕ KÊNH ảnh hưởng tới NGÀNH/NHÓM CỔ "
+    "PHIẾU VN cụ thể. TUYỆT ĐỐI KHÔNG mô tả lại sự kiện, KHÔNG nói chung chung.\n"
+    "- HẦU HẾT tin vĩ mô/hàng hoá/chính sách ĐỀU có kênh tác động — hãy TÌM RA nó. "
+    "Gợi ý kênh: Fed/lãi suất toàn cầu → tỷ giá, ngân hàng, dòng vốn ngoại; giá dầu "
+    "→ dầu khí (GAS/PLX/BSR), vận tải, nhựa/phân bón; giá vàng → PNJ; tỷ giá/USD → "
+    "nhóm vay nợ USD, xuất khẩu (dệt may/thuỷ sản); nhập siêu/CPI → sản xuất, tỷ "
+    "giá; đầu tư công/chính sách → xây dựng, vật liệu (HPG), BĐS; tín dụng → ngân "
+    "hàng, BĐS.\n"
+    "- CHỈ trả 'TRUNG_LẬP | không tác động trực tiếp' khi tin THỰC SỰ KHÔNG có kênh "
+    "kinh tế nào tới TTCK VN: chính trị/an ninh/quân sự nước ngoài thuần tuý, hình "
+    "sự, giải trí, thể thao, tin hành chính địa phương nhỏ lẻ.\n"
     "Chỉ in 1 dòng, không thêm gì khác."
 )
 # Impact sentinel for items with no clear VN-equity link → filtered from the brief.
