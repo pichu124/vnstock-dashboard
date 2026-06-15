@@ -62,3 +62,32 @@ python run.py macro                  # = --refresh, dùng trong pipeline
 
 - `VNSTOCK_BRIEF_AUTO_MACRO=0` → brief không tự refresh macro.
 - `VNSTOCK_MACRO_VIETSTOCK=1` → bật auto lãi suất LNH (chỉ khi có Vietstock trả phí).
+
+---
+
+# 📰 Tin kinh tế/chính trị diện rộng (`vnstock_news_feeds.py`)
+
+Tin VĨ MÔ/CHÍNH TRỊ ảnh hưởng thị trường từ RSS (báo tài chính VN + quốc tế) →
+brief mục "📰 Tin kinh tế/chính trị". Tự chạy trong `run.py news` (nằm trong
+`run.py all`) + tự refresh khi tạo brief.
+
+```powershell
+# Kiểm tra feed nào sống/chết (QUAN TRỌNG: chạy 1 lần để tỉa URL hỏng)
+python vnstock_news_feeds.py --diag
+
+# Fetch + lọc + dedup + LLM chấm sentiment/tác động → cache
+python vnstock_news_feeds.py --refresh
+
+# Bỏ bước LLM (chỉ lọc + cache, không tốn token)
+python vnstock_news_feeds.py --refresh --no-analyze
+
+# Xem tin trong cache
+python vnstock_news_feeds.py --show
+```
+
+- **Sửa nguồn**: mở `vnstock_news_feeds.py`, sửa list `_FEEDS` (feed `--diag` báo
+  ❌ = URL sai/chặn → xoá hoặc thay).
+- **Sửa từ khoá lọc**: list `_MARKET_KEYWORDS` trong cùng file.
+- **Cần API key LLM** (Groq/Cerebras/OpenRouter trong `.env`) để có sentiment +
+  tóm tắt tác động; không có key vẫn chạy (chỉ hiện headline).
+- Tắt auto trong brief: `VNSTOCK_BRIEF_AUTO_MARKET_NEWS=0`.

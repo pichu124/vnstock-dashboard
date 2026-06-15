@@ -13,7 +13,7 @@ Items here get auto-loaded into Claude's context at session start.
   `vnstock_sentiment.py`, `vnstock_news.py`, `vnstock_telegram.py`,
   `vnstock_freshness.py`, `vnstock_vn30_weights.py`,
   `vnstock_market_sentiment.py`, `vnstock_fundamental_updater.py`,
-  `vnstock_macro.py`
+  `vnstock_macro.py`, `vnstock_news_feeds.py`
 - Trước khi tạo PR merge về `main`
 - Sau khi nâng cấp pandas / numpy / Python version
 
@@ -282,6 +282,7 @@ Các khối **mới thêm** (ngoài kỹ thuật VNINDEX / regime / breadth có 
 | **Tâm lý thị trường** (mood + momentum -100..+100) | breadth + NN ròng + RSI/MA + news + **vĩ mô**, qua `vnstock_market_sentiment.py` | luôn có (6 tín hiệu nội tại); tin tức (thứ 7) cần `python run.py news`; vĩ mô (thứ 8) cần `python run.py macro` |
 | **Dòng tiền ngành** (NN ròng 1T + GTGD theo ngành) | `market_overview.json` (đã pre-aggregate) | có sẵn sau `python run.py screener` |
 | **🌐 Vĩ mô** (lãi suất & tỷ giá + đổi) | `data_warehouse/_meta/macro_indicators.json` qua `vnstock_macro.py` | `python run.py macro` (auto: tỷ giá + LNH-Vietstock; SBV policy nhập tay) |
+| **📰 Tin kinh tế/chính trị** (RSS diện rộng + sentiment + tác động) | `data_warehouse/_meta/market_news_cache.json` qua `vnstock_news_feeds.py` | `python run.py news` (gồm RSS) — fetch RSS cần mạng (web session bị chặn) |
 
 **Lịch refresh (Task Scheduler) — DÙNG SCRIPT CÓ SẴN `scripts/setup_scheduled_tasks.ps1`**
 (PowerShell **Run as Administrator**, chạy 1 lần; tự detect venv, set working dir,
@@ -369,6 +370,37 @@ free đều bị tường phí (xem trên) — `python vnstock_macro.py --set sb
 <số>` và `--set interbank_on <số>` (cập nhật khi để ý nó nhảy; brief tự cảnh báo
 thay đổi + tự lọc tin lãi suất từ news cache). Nếu sau này có tài khoản Vietstock
 trả phí: đặt `VNSTOCK_MACRO_VIETSTOCK=1` rồi `--refresh` để auto LNH.
+
+### 📰 Tin kinh tế/chính trị diện rộng (DONE 2026-06-15) — `vnstock_news_feeds.py`
+
+Bổ trợ tin THEO MÃ (`vnstock_news.py`): kéo tin VĨ MÔ/CHÍNH TRỊ ảnh hưởng thị
+trường từ **bộ RSS free** (báo tài chính VN + quốc tế), lọc liên quan, dedup,
+LLM chấm sentiment + tóm tắt tác động 1 dòng, cache
+`_meta/market_news_cache.json`.
+- **Parse RSS bằng STDLIB** (`xml.etree`) — KHÔNG thêm dependency (RSS 2.0/Atom,
+  RFC822/ISO date, strip CDATA/HTML). Fetch best-effort qua `requests`.
+- `_FEEDS` = danh sách feed curated (user chọn "bộ rộng" 2026-06-15) — **URL cần
+  verify trên máy có mạng**: `python vnstock_news_feeds.py --diag` in số tin/feed,
+  feed ❌ (URL sai/chặn) thì sửa/xoá trong `_FEEDS`. Sandbox bị allowlist chặn nên
+  --diag ở đây ra 0/9.
+- `_MARKET_KEYWORDS` lọc tin thị-trường (lãi suất/tỷ giá/Fed/CPI/chính sách/dầu/
+  địa chính trị…); dedup tái dùng `vnstock_news.deduplicate_news`.
+- **LLM**: `analyze_item` gọi `vnstock_sentiment.chat_complete` (helper MỚI,
+  additive — provider ladder Groq→Cerebras→OpenRouter) 1 call ra `sentiment |
+  tác động`. CHỈ chấm top-N (`_MAX_ANALYZE_DEFAULT`=8) tin mới chưa phân tích;
+  cache trong JSON nên không chấm lại.
+
+**Brief wiring (parity morning↔close by construction)**:
+- `collect_context` → `ctx["market_news"]` (top 6, ≤3 ngày). `_maybe_refresh_market_news()`
+  auto 1×/ngày (tắt: `VNSTOCK_BRIEF_AUTO_MARKET_NEWS=0`).
+- `_market_news_block` → mục "## 📰 Tin kinh tế/chính trị" cả 2 template (sau
+  "🌐 Vĩ mô"); 🟢/🔴 sentiment + dòng tác động. `📰` thêm vào `_SECTION_EMOJIS`.
+- `enforce_market_news` trong `apply_brief_guards` — canonical-hoá mục từ ctx
+  (chống LLM bịa tiêu đề), idempotent, splice đè dòng "không có tin"; mirror
+  `enforce_macro`/`enforce_upcoming_events`.
+- Pipeline: `run.py news` nay refresh LUÔN RSS feeds (nên `run.py all` đã gồm) +
+  `_maybe_refresh_market_news` khi tạo brief. Cadence = "theo pipeline + brief"
+  (user chọn 2026-06-15; KHÔNG poll realtime — brief chạy 2×/ngày).
 
 **Quan trọng — vnstock 4.0.4 + sponsor API gotchas** (hard-won, đừng quên):
 - `vnstock_auth._StockShim` PHẢI expose `.quote/.company/.listing/.finance`.
