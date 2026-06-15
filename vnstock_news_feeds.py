@@ -331,6 +331,14 @@ def _show(limit: int = 12) -> None:
 
 
 def main(argv: "list[str] | None" = None) -> int:
+    # Load API keys from .env so the LLM analysis (sentiment + impact) works when
+    # this module is run standalone (run.py news / the brief load .env themselves).
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(_REPO / ".env", override=False)
+    except Exception:
+        pass
+
     ap = argparse.ArgumentParser(description="Tin kinh tế/chính trị diện rộng (RSS).")
     ap.add_argument("--refresh", action="store_true", help="Fetch + lọc + dedup + LLM → cache")
     ap.add_argument("--no-analyze", action="store_true", help="Bỏ bước LLM (chỉ lọc + cache)")
