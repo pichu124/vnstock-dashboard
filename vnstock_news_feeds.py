@@ -183,11 +183,22 @@ def fetch_feed(feed: dict) -> list[dict]:
 # ── LLM analysis (sentiment + 1-line impact, one call) ───────────────────────
 
 _ANALYZE_SYSTEM = (
-    "Bạn là chuyên gia phân tích tác động tin tức vĩ mô/chính trị lên thị trường "
-    "chứng khoán Việt Nam. Với mỗi tin, trả về DUY NHẤT một dòng theo định dạng:\n"
-    "<TÍCH_CỰC|TIÊU_CỰC|TRUNG_LẬP> | <một câu ngắn (≤20 từ) về tác động tới "
-    "TTCK/ngành Việt Nam>\nKhông thêm gì khác."
+    "Bạn là chuyên gia phân tích tác động tin tức vĩ mô/chính trị lên THỊ TRƯỜNG "
+    "CHỨNG KHOÁN VIỆT NAM. Với mỗi tin, trả về DUY NHẤT một dòng:\n"
+    "<TÍCH_CỰC|TIÊU_CỰC|TRUNG_LẬP> | <tác động>\n"
+    "Quy tắc BẮT BUỘC:\n"
+    "- Nhãn theo góc nhìn CỔ PHIẾU VN: TÍCH_CỰC = tốt cho TTCK/cổ phiếu VN, "
+    "TIÊU_CỰC = xấu, TRUNG_LẬP = không rõ/không liên quan.\n"
+    "- <tác động> = MỘT câu ngắn (≤20 từ) nói RÕ ảnh hưởng tới NGÀNH/NHÓM CỔ PHIẾU "
+    "VN cụ thể (vd: 'hỗ trợ nhóm vàng PNJ', 'áp lực tỷ giá nhóm vay USD nhiều', "
+    "'lợi cho ngân hàng', 'tăng chi phí nhóm vận tải'). TUYỆT ĐỐI KHÔNG mô tả lại "
+    "sự kiện, KHÔNG nói chung chung về 'thị trường vàng/thế giới'.\n"
+    "- Nếu tin KHÔNG có liên hệ rõ ràng với cổ phiếu/ngành VN → trả ĐÚNG: "
+    "TRUNG_LẬP | không tác động trực tiếp\n"
+    "Chỉ in 1 dòng, không thêm gì khác."
 )
+# Impact sentinel for items with no clear VN-equity link → filtered from the brief.
+_NO_IMPACT = "không tác động trực tiếp"
 
 
 def analyze_item(item: dict) -> tuple[str, str]:
@@ -239,10 +250,14 @@ def _save_cache(items: list[dict]) -> None:
 
 
 def refresh(within_days: int = 4, analyze: bool = True,
-            max_analyze: int = _MAX_ANALYZE_DEFAULT, max_workers: int = 8) -> list[dict]:
+            max_analyze: int = _MAX_ANALYZE_DEFAULT, max_workers: int = 8,
+            reanalyze: bool = False) -> list[dict]:
     """Fetch all feeds → filter (relevance) → dedup → merge with cache (keep prior
     analysis) → LLM-analyze the newest still-unanalyzed items (≤ max_analyze) →
     save. Returns the saved items (newest first). Best-effort throughout.
+
+    reanalyze=True re-scores the newest `max_analyze` items even if already
+    analyzed (use after changing the analysis prompt); older items keep theirs.
     """
     raw: list[dict] = []
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -275,7 +290,12 @@ def refresh(within_days: int = 4, analyze: bool = True,
     items.sort(key=lambda x: x.get("_date_sort") or "", reverse=True)
 
     if analyze:
-        todo = [it for it in items if not it.get("_impact")][:max_analyze]
+        if reanalyze:
+            todo = items[:max_analyze]            # re-score newest with new prompt
+            for it in todo:
+                it["_sentiment"], it["_impact"] = "", ""
+        else:
+            todo = [it for it in items if not it.get("_impact")][:max_analyze]
         for it in todo:
             s, imp = analyze_item(it)
             if s:
@@ -288,13 +308,19 @@ def refresh(within_days: int = 4, analyze: bool = True,
 
 
 def load_market_news(within_days: int = 3, limit: int = 8,
-                     only_analyzed: bool = False) -> list[dict]:
+                     only_analyzed: bool = False,
+                     drop_no_impact: bool = False) -> list[dict]:
     """Recent market news from cache (newest first). only_analyzed → keep items
-    that have an LLM impact line. [] when cache missing/empty."""
+    that have an LLM impact line. drop_no_impact → drop items the LLM marked as
+    having no direct VN-equity impact (filtered before slicing to `limit`).
+    [] when cache missing/empty."""
     cutoff = (_date.today() - _td(days=within_days)).isoformat()
     items = [it for it in _load_cache() if (it.get("_date_sort") or "") >= cutoff]
     if only_analyzed:
         items = [it for it in items if it.get("_impact")]
+    if drop_no_impact:
+        items = [it for it in items
+                 if _NO_IMPACT not in (it.get("_impact") or "").lower()]
     items.sort(key=lambda x: x.get("_date_sort") or "", reverse=True)
     return items[:limit]
 
@@ -342,6 +368,8 @@ def main(argv: "list[str] | None" = None) -> int:
     ap = argparse.ArgumentParser(description="Tin kinh tế/chính trị diện rộng (RSS).")
     ap.add_argument("--refresh", action="store_true", help="Fetch + lọc + dedup + LLM → cache")
     ap.add_argument("--no-analyze", action="store_true", help="Bỏ bước LLM (chỉ lọc + cache)")
+    ap.add_argument("--reanalyze", action="store_true",
+                    help="Chấm lại top tin mới bằng prompt hiện tại (sau khi đổi prompt)")
     ap.add_argument("--diag", action="store_true", help="Thử từng feed, in số tin trả về")
     ap.add_argument("--show", action="store_true", help="In tin trong cache")
     ap.add_argument("--within", type=int, default=4, help="Cửa sổ ngày khi refresh")
@@ -352,7 +380,7 @@ def main(argv: "list[str] | None" = None) -> int:
         return _diag()
     if a.refresh:
         items = refresh(within_days=a.within, analyze=not a.no_analyze,
-                        max_analyze=a.max_analyze)
+                        max_analyze=a.max_analyze, reanalyze=a.reanalyze)
         n_an = sum(1 for it in items if it.get("_impact"))
         print(f"[news-feeds] cache: {len(items)} tin liên quan, {n_an} đã phân tích.")
         _show()

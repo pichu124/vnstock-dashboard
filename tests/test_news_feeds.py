@@ -112,6 +112,48 @@ def test_refresh_dedups_filters_and_keeps_prior_analysis(tmp_path, monkeypatch):
     assert all(it["_impact"] == "tác động X" for it in items2)
 
 
+def _fixed_today(monkeypatch, y=2026, m=6, d=16):
+    import datetime as _dt
+
+    class _FixedDate(_dt.date):
+        @classmethod
+        def today(cls):
+            return cls(y, m, d)
+    monkeypatch.setattr(nf, "_date", _FixedDate)
+
+
+def test_load_market_news_drops_no_impact_items(tmp_path, monkeypatch):
+    p = tmp_path / "market_news_cache.json"
+    monkeypatch.setattr(nf, "_CACHE", p)
+    _fixed_today(monkeypatch)
+    p.write_text(json.dumps({"items": [
+        {"title": "Fed cắt lãi suất", "_date_sort": "2026-06-16",
+         "_impact": "lợi cho ngân hàng"},
+        {"title": "Tin địa chính trị xa", "_date_sort": "2026-06-16",
+         "_impact": "không tác động trực tiếp"},
+    ]}), encoding="utf-8")
+    out = nf.load_market_news(within_days=3, limit=10, drop_no_impact=True)
+    assert [o["title"] for o in out] == ["Fed cắt lãi suất"]   # noise dropped
+
+
+def test_refresh_reanalyze_rescores_newest(tmp_path, monkeypatch):
+    monkeypatch.setattr(nf, "_CACHE", tmp_path / "c.json")
+    monkeypatch.setattr(nf, "_FEEDS", [{"name": "A", "url": "u"}])
+    monkeypatch.setattr(nf, "fetch_feed", lambda f: nf.parse_feed(RSS, "A"))
+    _fixed_today(monkeypatch)
+
+    monkeypatch.setattr(nf, "analyze_item", lambda it: ("neutral", "v1"))
+    nf.refresh(within_days=5)
+    assert nf.load_market_news(within_days=5)[0]["_impact"] == "v1"
+    # a normal refresh keeps the cached v1
+    monkeypatch.setattr(nf, "analyze_item", lambda it: ("positive", "v2"))
+    nf.refresh(within_days=5)
+    assert nf.load_market_news(within_days=5)[0]["_impact"] == "v1"
+    # reanalyze re-scores the newest with the new prompt → v2
+    nf.refresh(within_days=5, reanalyze=True)
+    assert nf.load_market_news(within_days=5)[0]["_impact"] == "v2"
+
+
 def test_load_market_news_respects_window_and_limit(tmp_path, monkeypatch):
     p = tmp_path / "market_news_cache.json"
     monkeypatch.setattr(nf, "_CACHE", p)

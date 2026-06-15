@@ -1736,7 +1736,9 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     # impact — surfaces macro/geopolitical context beyond per-ticker corporate news.
     try:
         from vnstock_news_feeds import load_market_news
-        _mkt_news = load_market_news(within_days=3, limit=6)
+        # drop_no_impact: hide items the LLM judged irrelevant to VN equities
+        # (e.g. pure geopolitics) so the brief block stays market-focused.
+        _mkt_news = load_market_news(within_days=3, limit=6, drop_no_impact=True)
         if _mkt_news:
             ctx["market_news"] = _mkt_news
     except Exception:
