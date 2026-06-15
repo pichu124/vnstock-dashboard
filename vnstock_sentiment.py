@@ -128,33 +128,45 @@ def available_provider() -> Optional[str]:
     return None
 
 
-def chat_complete(system: str, user: str, max_tokens: int = 80) -> Optional[str]:
+def chat_complete(system: str, user: str, max_tokens: int = 80,
+                  model_map: "dict | None" = None) -> Optional[str]:
     """Generic one-shot chat over the provider ladder (Groq→Cerebras→OpenRouter).
 
     Returns the raw assistant text, or None when no provider key works / all
     fail. Additive helper (does not change score_one's behaviour) reused by the
     market-news analyzer to get sentiment + a one-line impact in a single call.
+
+    ``model_map`` ({provider_name: model}) overrides the default per-provider
+    model — e.g. a stronger 70B for nuanced analysis — and falls back to the
+    provider's default model if the override is rejected.
     """
+    model_map = model_map or {}
+    import requests as _req
     for p in _PROVIDERS:
         key = (os.environ.get(p["env"]) or "").strip()
         if not key:
             continue
-        try:
-            import requests as _req
-            resp = _req.post(
-                p["endpoint"],
-                headers={"Content-Type": "application/json",
-                         "Authorization": f"Bearer {key}"},
-                json={"model": p["model"], "max_tokens": max_tokens,
-                      "temperature": 0,
-                      "messages": [{"role": "system", "content": system},
-                                   {"role": "user", "content": user}]},
-                timeout=20,
-            )
-            resp.raise_for_status()
-            return (resp.json()["choices"][0]["message"]["content"] or "").strip()
-        except Exception:
-            continue
+        models: list[str] = []
+        ov = model_map.get(p["name"])
+        if ov and ov != p["model"]:
+            models.append(ov)            # preferred (stronger) model first
+        models.append(p["model"])        # default fallback
+        for model in models:
+            try:
+                resp = _req.post(
+                    p["endpoint"],
+                    headers={"Content-Type": "application/json",
+                             "Authorization": f"Bearer {key}"},
+                    json={"model": model, "max_tokens": max_tokens,
+                          "temperature": 0,
+                          "messages": [{"role": "system", "content": system},
+                                       {"role": "user", "content": user}]},
+                    timeout=25,
+                )
+                resp.raise_for_status()
+                return (resp.json()["choices"][0]["message"]["content"] or "").strip()
+            except Exception:
+                continue
     return None
 
 

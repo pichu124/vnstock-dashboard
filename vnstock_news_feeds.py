@@ -185,20 +185,29 @@ def fetch_feed(feed: dict) -> list[dict]:
 _ANALYZE_SYSTEM = (
     "Bạn phân tích tác động tin tức lên CỔ PHIẾU VIỆT NAM. Trả về DUY NHẤT 1 dòng:\n"
     "<TÍCH_CỰC|TIÊU_CỰC|TRUNG_LẬP> | <tác động>\n"
-    "BƯỚC 1 — Viết <tác động>: một câu ngắn (≤22 từ) nêu KÊNH ảnh hưởng tới "
-    "NGÀNH/NHÓM CỔ PHIẾU VN cụ thể (nêu tên ngành/mã), KHÔNG kể lại sự kiện. "
-    "Gợi ý kênh: Fed/lãi suất→tỷ giá, ngân hàng, vốn ngoại; dầu→dầu khí GAS/PLX/BSR, "
-    "vận tải; vàng→PNJ; USD/tỷ giá→nhóm vay USD, xuất khẩu (dệt may/thuỷ sản); "
-    "đầu tư công→xây dựng, thép HPG; tín dụng→ngân hàng, BĐS; nhập siêu/CPI→sản xuất.\n"
-    "BƯỚC 2 — Chọn NHÃN khớp ĐÚNG chiều <tác động> vừa viết: hỗ trợ/tăng/hưởng lợi "
-    "= TÍCH_CỰC; gây áp lực/giảm/bất lợi/tăng chi phí = TIÊU_CỰC; hai chiều hoặc "
-    "phụ thuộc điều kiện = TRUNG_LẬP. NHÃN và <tác động> BẮT BUỘC cùng chiều "
-    "(vd 'PNJ hưởng lợi' thì PHẢI là TÍCH_CỰC, không được TIÊU_CỰC).\n"
-    "NGOẠI LỆ — nếu tin KHÔNG có kênh kinh tế tới TTCK VN (chính trị/an ninh/quân "
-    "sự nước ngoài thuần tuý, hình sự, giải trí, thể thao, hành chính địa phương "
-    "nhỏ) → trả ĐÚNG: TRUNG_LẬP | không tác động trực tiếp\n"
+    "<tác động> = một câu (≤22 từ) nêu KÊNH ảnh hưởng tới NGÀNH/NHÓM CỔ PHIẾU VN "
+    "cụ thể (nêu tên ngành/mã), KHÔNG kể lại sự kiện. Kênh: Fed/lãi suất→tỷ giá, "
+    "ngân hàng, vốn ngoại; dầu→dầu khí GAS/PLX/BSR, vận tải; vàng→PNJ; tỷ giá/USD→"
+    "nhóm vay USD, xuất khẩu (dệt may/thuỷ sản); đầu tư công→xây dựng, thép HPG; "
+    "tín dụng→ngân hàng, BĐS; nhập siêu/CPI→sản xuất.\n"
+    "NHÃN phải CÙNG CHIỀU <tác động>: hỗ trợ/tăng/hưởng lợi = TÍCH_CỰC; áp lực/"
+    "giảm/bất lợi/tăng chi phí = TIÊU_CỰC; hai chiều/phụ thuộc = TRUNG_LẬP "
+    "(vd 'PNJ hưởng lợi' ⇒ TÍCH_CỰC, KHÔNG được TIÊU_CỰC).\n"
+    "BẮT BUỘC: tin về vàng / dầu / lãi suất / tỷ giá / Fed / CPI / lạm phát / đầu "
+    "tư công / tín dụng / xuất nhập khẩu LUÔN có kênh → PHẢI nêu ngành, TUYỆT ĐỐI "
+    "KHÔNG trả 'không tác động'.\n"
+    "CHỈ trả 'TRUNG_LẬP | không tác động trực tiếp' khi tin HOÀN TOÀN phi kinh tế "
+    "(an ninh/quân sự/chính trị nước ngoài thuần tuý, hình sự, giải trí, thể thao).\n"
     "Chỉ in 1 dòng, không giải thích thêm."
 )
+
+# Nuanced analysis needs a stronger model than the 8B sentiment scorer — prefer a
+# free 70B per provider, falling back to the provider default 8B if unavailable.
+_ANALYZE_MODELS = {
+    "Groq": "llama-3.3-70b-versatile",
+    "Cerebras": "llama3.3-70b",
+    "OpenRouter": "meta-llama/llama-3.3-70b-instruct:free",
+}
 # Impact sentinel for items with no clear VN-equity link → filtered from the brief.
 _NO_IMPACT = "không tác động trực tiếp"
 
@@ -214,7 +223,7 @@ def analyze_item(item: dict) -> tuple[str, str]:
     summ = (item.get("news_short_content") or "").strip()
     if summ:
         user += f"\nTóm tắt: {summ[:300]}"
-    raw = chat_complete(_ANALYZE_SYSTEM, user, max_tokens=120)
+    raw = chat_complete(_ANALYZE_SYSTEM, user, max_tokens=120, model_map=_ANALYZE_MODELS)
     if not raw:
         return "", ""
     head, _, impact = raw.partition("|")
