@@ -55,8 +55,9 @@ _FEEDS: list[dict] = [
     {"name": "VnEconomy",            "url": "https://vneconomy.vn/chung-khoan.rss",      "lang": "vi"},
     {"name": "Tin nhanh CK (ĐTCK)",  "url": "https://www.tinnhanhchungkhoan.vn/rss/home.rss", "lang": "vi"},
     # ── Quốc tế (tiếng Anh) ──
-    {"name": "Investing.com",        "url": "https://www.investing.com/rss/news.rss",    "lang": "en"},
     {"name": "MarketWatch Top",      "url": "https://feeds.content.dowjones.io/public/rss/mw_topstories", "lang": "en"},
+    {"name": "CNBC Markets",         "url": "https://www.cnbc.com/id/20910258/device/rss/rss.html", "lang": "en"},
+    {"name": "Yahoo Finance",        "url": "https://finance.yahoo.com/news/rssindex", "lang": "en"},
 ]
 
 # Market-moving economic + political keywords (lowercased). Feeds are already
