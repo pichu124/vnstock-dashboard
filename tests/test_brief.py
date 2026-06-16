@@ -1161,6 +1161,25 @@ def test_enforce_breadth_quality_softens_positive_claim_when_weak():
     assert enforce_breadth_quality(t, {}) == t                 # no breadth data
 
 
+def test_enforce_vnindex_change_pins_day_change_pct():
+    # Close 16/06: "tăng -24% so với phiên trước" — -24 is the momentum leaking in;
+    # the real day change is +0.31% (and "tăng -24%" is self-contradictory).
+    from vnstock_brief import enforce_vnindex_change
+    ctx = {"vnindex_tech": {"day_change_pct": 0.31}}
+    t = "VNINDEX đóng cửa 1,804.97, tăng -24% so với phiên trước. Độ rộng yếu."
+    f = enforce_vnindex_change(t, ctx)
+    assert "tăng 0.31% so với phiên trước" in f and "-24%" not in f
+    assert enforce_vnindex_change(f, ctx) == f                 # idempotent
+    # negative day → 'giảm', positive-signed % corrected
+    ctx2 = {"vnindex_tech": {"day_change_pct": -1.5}}
+    assert "giảm 1.50% so với hôm qua" in enforce_vnindex_change(
+        "VNINDEX giảm +0.31% so với hôm qua.", ctx2)
+    # does NOT touch sector pp / weekly moves, and no-op without data
+    assert enforce_vnindex_change("Ngân hàng +0.537pp (1 tuần).", ctx) == \
+        "Ngân hàng +0.537pp (1 tuần)."
+    assert enforce_vnindex_change(t, {}) == t
+
+
 def test_enforce_compare_direction_form_b_compares_baseline_value():
     # Morning 12/06: "Phiên sáng 8,397.0 tỷ, cao hơn 60% ... (5,233.3 tỷ) nhưng
     # thấp hơn 11% TB sáng (7,549.1 tỷ)" — 8,397 > 7,549 so it's HIGHER, not

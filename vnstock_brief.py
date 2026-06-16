@@ -174,6 +174,12 @@ _DEFAULT_AGENT_CONFIGS: list[dict] = [
     },
 ]
 
+# Output budget for a full brief. Bumped 1200→2400 (2026-06-16): the brief grew
+# to ~11 sections (added 🌐 Vĩ mô + 📰 Tin, which the model also re-echoes), so
+# 1200 tokens cut the output short — observed a close brief ending right after
+# "Mức kỹ thuật", losing Dẫn dắt/Dòng tiền/Watchlist/Rủi ro/Sự kiện/Vĩ mô/Tin.
+_BRIEF_MAX_TOKENS = 2400
+
 # ── Prompt templates ───────────────────────────────────────────────────────
 _SYSTEM = (
     "Bạn là quant trader chuyên nghiệp tại thị trường chứng khoán Việt Nam với hơn 10 năm "
@@ -2622,6 +2628,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_breadth_label(fixed, ctx)         # above-MA200 % ≠ '% mã tăng giá'
     fixed = enforce_breadth_quality(fixed, ctx)       # 'độ rộng tích cực' vs weak MA200%
     fixed = enforce_sentiment_consistency(fixed, ctx)  # body mood/momentum = canonical
+    fixed = enforce_vnindex_change(fixed, ctx)        # day % change = real day_change_pct
     fixed = enforce_no_cjk(fixed, ctx)
     fixed = enforce_no_instruction_leak(fixed, ctx)
     fixed = enforce_no_placeholder_leak(fixed, ctx)
@@ -2757,7 +2764,7 @@ def generate_brief(
 
     # Run available agents in parallel to cut wall-clock time from N*T → T
     def _call(agent: BriefAgent) -> tuple[str, tuple[str, str | None]]:
-        return agent.name, agent.generate(prompt)
+        return agent.name, agent.generate(prompt, max_tokens=_BRIEF_MAX_TOKENS)
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
     with ThreadPoolExecutor(max_workers=min(len(available), 8)) as pool:
@@ -4398,6 +4405,25 @@ def enforce_breadth_quality(text: str, ctx: dict) -> str:
         return clause
 
     return _re.sub(r"[ĐđDd]ộ rộng[^\n.]{0,70}", _fix, text)
+
+
+def enforce_vnindex_change(text: str, ctx: dict) -> str:
+    """Pin the VNINDEX day-over-day % change to the real value (day_change_pct).
+
+    The model sometimes drops another figure here (observed close 16/06: "tăng
+    -24% so với phiên trước" — -24 is the sentiment momentum; the real change was
+    +0.31%, also self-contradictory: "tăng" + a negative %). Only touches the
+    "tăng/giảm X% so với phiên trước/hôm qua" day-change phrasing (not sector pp
+    or weekly moves); idempotent; no-op without day_change_pct.
+    """
+    dc = (ctx.get("vnindex_tech") or {}).get("day_change_pct")
+    if not text or not isinstance(dc, (int, float)):
+        return text
+    repl = f"{'tăng' if dc >= 0 else 'giảm'} {abs(dc):.2f}%"
+    return _re.sub(
+        r"(?:tăng|giảm)\s*[+-]?\d[\d.,]*\s*%(\s*so với\s*"
+        r"(?:phiên trước(?:\s*đó)?|hôm qua|phiên hôm qua))",
+        repl + r"\1", text, flags=_re.IGNORECASE)
 
 
 def validate_brief_factuality(text: str, ctx: dict) -> list[str]:
