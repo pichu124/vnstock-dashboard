@@ -1081,6 +1081,23 @@ def test_enforce_gtgd_baseline_pct_form_b_baseline_then_pct():
     assert enforce_gtgd_baseline_pct(f, ctx) == f  # idempotent
 
 
+def test_enforce_gtgd_baseline_pct_ignores_fx_date_line():
+    # Close 16/06 root cause: the tỷ giá line "▼ -0.07% so với 2026-06-15" was
+    # matched as a GTGD baseline because the DATE "2026-06-15" contains "20"
+    # (→ mis-read as TB20) and "5", overwriting the FX change with GTGD-vs-TB20
+    # (-3%). Baseline detection now requires a real GTGD phrase (TB/trung bình/
+    # phiên trước), so a date is left alone.
+    from vnstock_brief import enforce_gtgd_baseline_pct
+    ctx = {"full_day_gtgd": 19252.3,
+           "full_day_gtgd_cmp": {"avg5": 19450.0, "avg20": 19848.0, "prev": 25300.0}}
+    t = ("📊 Tổng kết phiên\nGTGD 19,252.3 tỷ.\n"
+         "- Tỷ giá USD/VND (tham chiếu): 26,174 VND (tính đến 2026-06-16) "
+         "▼ -0.07% so với 2026-06-15 (VND mạnh lên)\n")
+    f = enforce_gtgd_baseline_pct(t, ctx)
+    assert "▼ -0.07% so với 2026-06-15" in f       # FX % untouched (was → -3%)
+    assert "-3%" not in f
+
+
 def test_enforce_composite_rotation_hygiene_fixes_contradiction_and_jargon():
     # 23:44: "Phân phối cảnh báo: CNTT & Phần mềm (tín hiệu tích luỹ mạnh)" —
     # distribution bucket with an accumulation label → drop the contradictory

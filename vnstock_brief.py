@@ -4276,11 +4276,19 @@ def enforce_gtgd_baseline_pct(text: str, ctx: dict) -> str:
         return text
 
     def _base_v(base_low: str) -> "float | None":
-        if "sáng" in base_low:                       # morning baseline → skip
+        # Require an explicit GTGD-baseline phrase ("TB"/"trung bình"/"phiên
+        # trước"). Matching bare substrings "20"/"5"/"trước" mis-read a DATE on
+        # the tỷ giá line ("…% so với 2026-06-15" — "2026-06-15" contains "20")
+        # as TB20 and overwrote the FX change with the GTGD-vs-TB20 % (close
+        # 16/06: -0.07% → -3%). Skip morning baselines.
+        if "sáng" in base_low:
             return None
-        return (cmp.get("avg20") if "20" in base_low
-                else cmp.get("avg5") if "5" in base_low
-                else cmp.get("prev") if "trước" in base_low else None)
+        if "tb" in base_low or "trung bình" in base_low:
+            return (cmp.get("avg20") if "20" in base_low
+                    else cmp.get("avg5") if "5" in base_low else None)
+        if "phiên trước" in base_low:
+            return cmp.get("prev")
+        return None
 
     # Form 1: "±N% vs/so <baseline>"  (number precedes the baseline)
     def _fix1(m: "_re.Match") -> str:
