@@ -242,6 +242,16 @@ trong `apply_brief_guards`, áp cho mọi agent, cả morning & close):
     (close 16/06: "tích cực … 18% trên MA200" — A/D 1 phiên dương nhưng cấu trúc
     yếu = trái chiều). Gate `above_ma200_pct < 40` VÀ momentum < 0 nên TT rộng
     thật không bị đụng; idempotent.
+26. `enforce_vnindex_change` (DONE 2026-06-16) — pin "% thay đổi VNINDEX so với
+    phiên trước" về `vnindex_tech.day_change_pct` thật. Close 16/06: "tăng -24%
+    so với phiên trước" (−24 là momentum lọt vào, thật +0.31%; "tăng" + số âm tự
+    mâu thuẫn). CHỈ đụng cụm "tăng/giảm X% so với phiên trước/hôm qua" (không đụng
+    pp ngành / đổi tuần); idempotent.
+
+**`max_tokens` brief = `_BRIEF_MAX_TOKENS` (2400, bump từ 1200 — 2026-06-16)**:
+`generate_brief._call` truyền giá trị này. Brief nay ~11 mục (thêm 🌐 Vĩ mô + 📰
+Tin, model còn echo lại 2 block đó) → 1200 token cắt cụt body (close 21:00 dừng
+ngay sau "Mức kỹ thuật", mất 8 mục cuối). Nếu sau thêm mục → cân nhắc nâng tiếp.
 18. `enforce_number_format` (chạy CUỐI) — chuẩn hoá số về 1 quy ước EN (phẩy ngăn
     nghìn, chấm thập phân) như data block (`{:,.2f}`)/guards/close. Morning 13:54
     trộn VN ("1.798,61", "9.129,4", "1.858,39", "-3,2%", "5.038 tỷ") với EN
