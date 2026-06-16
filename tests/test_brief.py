@@ -1180,6 +1180,20 @@ def test_enforce_vnindex_change_pins_day_change_pct():
     assert enforce_vnindex_change(t, {}) == t
 
 
+def test_enforce_change_verb_sign_flips_contradiction():
+    # Close 16/06: "GTGD ... tăng -1% so với TB5" — verb 'tăng' contradicts the
+    # negative %; the number's sign wins → 'giảm 1%'.
+    from vnstock_brief import enforce_change_verb_sign
+    f = enforce_change_verb_sign("GTGD 19,252.3 tỷ, tăng -1% so với TB5 phiên.", {})
+    assert "giảm 1% so với TB5" in f and "tăng -1%" not in f
+    assert "tăng 5%" in enforce_change_verb_sign("giảm +5% so với TB20", {})  # other way
+    assert enforce_change_verb_sign(f, {}) == f                  # idempotent
+    # consistent pairs left alone
+    assert enforce_change_verb_sign("tăng 0.31% so với phiên trước", {}) == \
+        "tăng 0.31% so với phiên trước"
+    assert enforce_change_verb_sign("tăng +2% hôm nay", {}) == "tăng +2% hôm nay"
+
+
 def test_enforce_compare_direction_form_b_compares_baseline_value():
     # Morning 12/06: "Phiên sáng 8,397.0 tỷ, cao hơn 60% ... (5,233.3 tỷ) nhưng
     # thấp hơn 11% TB sáng (7,549.1 tỷ)" — 8,397 > 7,549 so it's HIGHER, not

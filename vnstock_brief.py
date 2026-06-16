@@ -2629,6 +2629,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_breadth_quality(fixed, ctx)       # 'độ rộng tích cực' vs weak MA200%
     fixed = enforce_sentiment_consistency(fixed, ctx)  # body mood/momentum = canonical
     fixed = enforce_vnindex_change(fixed, ctx)        # day % change = real day_change_pct
+    fixed = enforce_change_verb_sign(fixed, ctx)      # 'tăng -1%' → 'giảm 1%'
     fixed = enforce_no_cjk(fixed, ctx)
     fixed = enforce_no_instruction_leak(fixed, ctx)
     fixed = enforce_no_placeholder_leak(fixed, ctx)
@@ -4424,6 +4425,29 @@ def enforce_vnindex_change(text: str, ctx: dict) -> str:
         r"(?:tăng|giảm)\s*[+-]?\d[\d.,]*\s*%(\s*so với\s*"
         r"(?:phiên trước(?:\s*đó)?|hôm qua|phiên hôm qua))",
         repl + r"\1", text, flags=_re.IGNORECASE)
+
+
+def enforce_change_verb_sign(text: str, ctx: dict) -> str:
+    """Fix a direction verb that contradicts the sign of its own % — "tăng -1%"
+    → "giảm 1%", "giảm +5%" → "tăng 5%". The model writes these for the
+    GTGD-vs-average and day-move clauses (observed close 16/06: "GTGD … tăng -1%
+    so với TB5", "tăng -24% so với phiên trước"). The number's sign is taken as
+    authoritative; flip the verb and drop the now-redundant sign. Consistent
+    pairs ("tăng +X%", "giảm -…" ambiguous) are left alone; idempotent.
+    """
+    if not text:
+        return text
+
+    def _fix(m: "_re.Match") -> str:
+        verb, sign, rest = m.group(1).lower(), m.group(2), m.group(3)
+        if verb == "tăng" and sign == "-":
+            return "giảm " + rest
+        if verb == "giảm" and sign == "+":
+            return "tăng " + rest
+        return m.group(0)
+
+    return _re.sub(r"(tăng|giảm)\s*([+-])\s*(\d[\d.,]*\s*%)", _fix, text,
+                   flags=_re.IGNORECASE)
 
 
 def validate_brief_factuality(text: str, ctx: dict) -> list[str]:
