@@ -295,6 +295,40 @@ def test_enforce_macro_splices_over_denial_when_no_section():
     assert "25,500 VND" in fixed
 
 
+def _fx_ctx():
+    return {"macro": [
+        {"key": "usdvnd", "label": "Tỷ giá USD/VND (tham chiếu)", "unit": "VND",
+         "kind": "fx", "value": 26173.8, "as_of": "2026-06-16",
+         "prev_value": 26191.9, "prev_as_of": "2026-06-15",
+         "change": {"delta": -18.1, "pct": -0.07, "dir": -1},
+         "source": "open.er-api.com"}], "macro_news": []}
+
+
+def test_enforce_macro_header_detection_is_loose_to_reformatting():
+    # Close 16/06: macro section header without "##" wasn't pinned → a bad "-3%"
+    # survived (load_macro had -0.07%). Looser header match pins it anyway.
+    import vnstock_brief as vb
+    brief = ("🌐 Vĩ mô: lãi suất & tỷ giá\n"
+             "- Tỷ giá USD/VND (tham chiếu): 26,174 VND (tính đến 2026-06-16) "
+             "▼ -3% so với 2026-06-15 (VND mạnh lên)\n"
+             "## 💡 Đề xuất giao dịch\n- none\n")
+    f = vb.enforce_macro(brief, _fx_ctx())
+    assert "-0.07% so với" in f and "-3%" not in f
+
+
+def test_enforce_macro_fx_pct_safety_net():
+    import vnstock_brief as vb
+    line = ("- Tỷ giá USD/VND (tham chiếu): 26,174 VND (tính đến 2026-06-16) "
+            "▼ -3% so với 2026-06-15 (VND mạnh lên)")
+    f = vb.enforce_macro_fx_pct(line, _fx_ctx())
+    assert "▼ -0.07% so với" in f and "-3%" not in f
+    assert vb.enforce_macro_fx_pct(f, _fx_ctx()) == f                 # idempotent
+    # non-FX line + no-fx-change ctx → untouched
+    assert vb.enforce_macro_fx_pct("- Lãi suất ON: 12.00%/năm — đi ngang",
+                                   _fx_ctx()) == "- Lãi suất ON: 12.00%/năm — đi ngang"
+    assert vb.enforce_macro_fx_pct(line, {}) == line
+
+
 def test_sentiment_adds_macro_signal_and_shifts_momentum():
     from vnstock_market_sentiment import compute_market_sentiment
     base = compute_market_sentiment(breadth={"above_ma200_pct": 50, "ad_ratio": 1.1})

@@ -2608,6 +2608,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     """
     fixed = enforce_upcoming_events(text, ctx)
     fixed = enforce_macro(fixed, ctx)                # canonical macro levels/changes
+    fixed = enforce_macro_fx_pct(fixed, ctx)         # USD/VND % safety net (header-miss)
     fixed = enforce_market_news(fixed, ctx)          # canonical econ/political headlines
     fixed = enforce_risk_section(fixed, ctx)         # canonical risk facts first
     fixed = enforce_realestate_ocf_context(fixed, ctx)
@@ -2939,8 +2940,16 @@ def enforce_macro(text: str, ctx: dict) -> str:
     body = _macro_body_lines(macro, ctx.get("macro_news"))
 
     lines = text.splitlines()
-    start = next((i for i, l in enumerate(lines)
-                  if "vĩ mô" in l.lower() and _is_section_start(l)), None)
+    # Header detection: a section-start line with "vĩ mô", OR a header-like line
+    # carrying both "vĩ mô" + lãi suất/tỷ giá (the canonical "🌐 Vĩ mô: lãi suất &
+    # tỷ giá") — the looser arm catches headers the LLM reformats so _is_section_start
+    # misses (observed close 16/06: macro section not pinned → a bad "-3%" survived).
+    def _is_macro_header(l: str) -> bool:
+        low = l.lower()
+        return "vĩ mô" in low and (
+            _is_section_start(l) or "lãi suất" in low or "tỷ giá" in low)
+
+    start = next((i for i, l in enumerate(lines) if _is_macro_header(l)), None)
     if start is not None:
         end = next((i for i in range(start + 1, len(lines))
                     if _is_section_start(lines[i])), len(lines))
@@ -2958,6 +2967,32 @@ def enforce_macro(text: str, ctx: dict) -> str:
         else:
             out.append(line)
     return "\n".join(out)
+
+
+def enforce_macro_fx_pct(text: str, ctx: dict) -> str:
+    """Belt-and-suspenders: pin the USD/VND change % on its own line to the real
+    macro reading, independent of enforce_macro's whole-section replacement.
+
+    If enforce_macro's header detection misses (LLM reformats the header), a
+    hallucinated FX % can survive (close 16/06: brief showed "▼ -3%" while
+    load_macro had -0.07%). This finds the USD/VND line and pins its
+    "[▲▼] ±N% so với" to the canonical change. No-op without an fx change.
+    """
+    macro = ctx.get("macro") or []
+    fx = next((m for m in macro
+               if m.get("kind") == "fx" and (m.get("change") or {}).get("pct") is not None),
+              None)
+    if not text or not fx:
+        return text
+    ch = fx["change"]
+    canon = f"{'▲' if ch['dir'] > 0 else '▼'} {ch['pct']:+.2f}% so với"
+
+    def _fix(line: str) -> str:
+        if "usd/vnd" not in line.lower():
+            return line
+        return _re.sub(r"[▲▼]?\s*[+-]?\d[\d.,]*\s*%\s*so với", canon, line, count=1)
+
+    return "\n".join(_fix(l) for l in text.splitlines())
 
 
 def enforce_market_news(text: str, ctx: dict) -> str:
