@@ -50,21 +50,36 @@ def test_send_message_posts_to_api(monkeypatch):
     assert payload["parse_mode"] == "HTML"
 
 
-def test_send_message_truncates_long_text(monkeypatch):
+def test_send_message_splits_long_text_into_multiple_messages(monkeypatch):
     monkeypatch.setattr(tg, "_token",   lambda: "abc")
     monkeypatch.setattr(tg, "_chat_id", lambda: "12345")
     mock_resp = MagicMock()
     mock_resp.json.return_value = {"ok": True}
     mock_resp.raise_for_status.return_value = None
 
-    long_text = "x" * 5000
+    # A long multi-line brief (> one Telegram message) must be SPLIT, not cut.
+    long_text = "\n".join(f"Dòng tin số {i} về thị trường" for i in range(400))
     with patch("requests.post", return_value=mock_resp) as mp:
         tg.send_message(long_text)
 
-    sent = mp.call_args[1]["json"]["text"]
-    # Should be truncated below 4096
-    assert len(sent) < 4096
-    assert "[tin bị rút gọn]" in sent
+    assert mp.call_count >= 2                       # sent as several messages
+    for call in mp.call_args_list:
+        assert len(call[1]["json"]["text"]) <= 4096  # each within Telegram's hard limit
+    # nothing dropped: first and last source lines both appear across the chunks
+    joined = "\n".join(c[1]["json"]["text"] for c in mp.call_args_list)
+    assert "Dòng tin số 0 " in joined and "Dòng tin số 399 " in joined
+
+
+def test_send_message_single_message_when_short(monkeypatch):
+    monkeypatch.setattr(tg, "_token",   lambda: "abc")
+    monkeypatch.setattr(tg, "_chat_id", lambda: "12345")
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"ok": True}
+    mock_resp.raise_for_status.return_value = None
+    with patch("requests.post", return_value=mock_resp) as mp:
+        tg.send_message("ngắn gọn")
+    assert mp.call_count == 1
+    assert mp.call_args[1]["json"]["text"] == "ngắn gọn"   # no (k/n) suffix
 
 
 # ─── Message builders ────────────────────────────────────────────────────────

@@ -46,8 +46,35 @@ def _chat_id() -> str:
 
 # ── Transport ─────────────────────────────────────────────────────────────────
 
+def _split_for_telegram(text: str, limit: int = _MAX_MSG_LEN) -> list[str]:
+    """Split text into chunks ≤ limit, breaking at LINE boundaries so HTML tags
+    (always within a single line in our briefs) stay balanced across messages.
+    A pathologically long single line is hard-split as a last resort."""
+    if len(text) <= limit:
+        return [text]
+    chunks: list[str] = []
+    cur = ""
+    for line in text.split("\n"):
+        while len(line) > limit:                     # single line longer than a message
+            if cur:
+                chunks.append(cur); cur = ""
+            chunks.append(line[:limit]); line = line[limit:]
+        if not cur:
+            cur = line
+        elif len(cur) + 1 + len(line) <= limit:
+            cur += "\n" + line
+        else:
+            chunks.append(cur); cur = line
+    if cur:
+        chunks.append(cur)
+    return chunks
+
+
 def send_message(text: str, parse_mode: str = "HTML") -> dict:
-    """Send text to the configured Telegram chat. Returns API response."""
+    """Send text to the configured Telegram chat. Long briefs are split into
+    multiple messages (Telegram caps at 4096 chars) so nothing is dropped —
+    previously the tail (📰 tin tức) was truncated. Returns the LAST API response.
+    """
     import requests
 
     token = _token()
@@ -57,19 +84,21 @@ def send_message(text: str, parse_mode: str = "HTML") -> dict:
     if not chat:
         raise RuntimeError("TELEGRAM_CHAT_ID chưa set trong .env")
 
-    # Truncate if needed (keep last chars so footer always shows)
-    if len(text) > _MAX_MSG_LEN:
-        text = text[:_MAX_MSG_LEN - 30] + "\n…\n<i>[tin bị rút gọn]</i>"
-
-    url  = _TELEGRAM_API.format(token=token, method="sendMessage")
-    resp = requests.post(url, json={
-        "chat_id":                  chat,
-        "text":                     text,
-        "parse_mode":               parse_mode,
-        "disable_web_page_preview": True,
-    }, timeout=15)
-    resp.raise_for_status()
-    return resp.json()
+    url   = _TELEGRAM_API.format(token=token, method="sendMessage")
+    parts = _split_for_telegram(text, _MAX_MSG_LEN)
+    n     = len(parts)
+    resp_json: dict = {}
+    for i, part in enumerate(parts):
+        body = part if n == 1 else f"{part}\n<i>({i + 1}/{n})</i>"
+        resp = requests.post(url, json={
+            "chat_id":                  chat,
+            "text":                     body,
+            "parse_mode":               parse_mode,
+            "disable_web_page_preview": True,
+        }, timeout=15)
+        resp.raise_for_status()
+        resp_json = resp.json()
+    return resp_json
 
 
 # ── Message blocks ────────────────────────────────────────────────────────────

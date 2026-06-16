@@ -2620,6 +2620,8 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_gtgd_baseline_pct(fixed, ctx)     # close-only: % must match its baseline
     fixed = enforce_compare_direction(fixed, ctx)     # 'thấp/cao hơn' must match % sign
     fixed = enforce_breadth_label(fixed, ctx)         # above-MA200 % ≠ '% mã tăng giá'
+    fixed = enforce_breadth_quality(fixed, ctx)       # 'độ rộng tích cực' vs weak MA200%
+    fixed = enforce_sentiment_consistency(fixed, ctx)  # body mood/momentum = canonical
     fixed = enforce_no_cjk(fixed, ctx)
     fixed = enforce_no_instruction_leak(fixed, ctx)
     fixed = enforce_no_placeholder_leak(fixed, ctx)
@@ -4335,6 +4337,67 @@ def enforce_breadth_label(text: str, ctx: dict) -> str:
     return _re.sub(
         r"(\d[\d.,]*)\s*%\s*((?:số\s+mã|mã\s+cổ phiếu|cổ phiếu|mã))\s+(?:đang\s+)?tăng\s+(?:giá|điểm)",
         _fix, text)
+
+
+# The composite-mood labels (vnstock_market_sentiment._MOODS), used to pin the
+# body's cited mood to the canonical one.
+_MOOD_LABELS = ("🔥 Hưng phấn", "📈 Tích cực", "⚖️ Thận trọng", "📉 Tiêu cực", "❄️ Sợ hãi")
+
+
+def enforce_sentiment_consistency(text: str, ctx: dict) -> str:
+    """Pin the body's cited market-mood label + momentum to the canonical
+    ctx["market_sentiment"] (the same value the Telegram header shows and that
+    was injected into the prompt).
+
+    The LLM sometimes invents a different reading (observed close 16/06: header
+    "📉 Tiêu cực, momentum -33" but body "❄️ Sợ hãi, momentum -24" — and -24
+    doesn't even match ❄️ Sợ hãi, which needs < -50). Pins every "momentum
+    N/100" to the real value and the mood after a "Tâm lý …:" cue to the real
+    label. Idempotent; no-op without sentiment data.
+    """
+    ms = ctx.get("market_sentiment") or {}
+    mood = ms.get("mood")
+    mom = ms.get("momentum")
+    if not text or not mood or mom is None:
+        return text
+    try:
+        mom = int(mom)
+    except (TypeError, ValueError):
+        return text
+    out = _re.sub(r"momentum\s*[+-]?\d+\s*/\s*100",
+                  f"momentum {mom:+d}/100", text, flags=_re.IGNORECASE)
+    _alt = "|".join(_re.escape(x) for x in _MOOD_LABELS)
+    out = _re.sub(rf"(Tâm lý[^\n]{{0,40}}?[:\-]\s*)(?:{_alt})",
+                  lambda m: m.group(1) + mood, out)
+    return out
+
+
+def enforce_breadth_quality(text: str, ctx: dict) -> str:
+    """Soften a positive breadth claim that contradicts a structurally weak tape.
+
+    The only structural breadth metric is "% trên MA200"; when it's low and the
+    backdrop is bearish, calling breadth "tích cực" overstates it (observed close
+    16/06: "Độ rộng tích cực với A/D 1.33, và 18% trên MA200" — A/D is a 1-day
+    advance/decline read, 18% above MA200 is weak → breadth is mixed). Swaps the
+    positive adjective in the "độ rộng …" clause for "trái chiều". Gated on weak
+    MA200% + bearish momentum so a genuinely broad market is untouched.
+    """
+    b = ctx.get("breadth") or {}
+    pct = b.get("above_ma200_pct")
+    mom = (ctx.get("market_sentiment") or {}).get("momentum")
+    if not text or not isinstance(pct, (int, float)):
+        return text
+    if pct >= 40 or (mom is not None and mom >= 0):   # not structurally weak/bearish
+        return text
+
+    def _fix(m: "_re.Match") -> str:
+        clause = m.group(0)
+        for w in ("tích cực", "khả quan", "lành mạnh", "tốt", "mạnh"):
+            if w in clause.lower():
+                return _re.sub(w, "trái chiều", clause, count=1, flags=_re.IGNORECASE)
+        return clause
+
+    return _re.sub(r"[ĐđDd]ộ rộng[^\n.]{0,70}", _fix, text)
 
 
 def validate_brief_factuality(text: str, ctx: dict) -> list[str]:

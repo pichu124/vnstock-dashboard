@@ -1132,6 +1132,35 @@ def test_enforce_breadth_label_relabels_above_ma200_as_advancing():
     assert enforce_breadth_label(t, {}) == t
 
 
+def test_enforce_sentiment_consistency_pins_mood_and_momentum():
+    # Close 16/06: header "📉 Tiêu cực, momentum -33" but body invented
+    # "❄️ Sợ hãi, momentum -24" (and -24 ≠ ❄️ Sợ hãi which needs < -50).
+    from vnstock_brief import enforce_sentiment_consistency
+    ctx = {"market_sentiment": {"mood": "📉 Tiêu cực", "momentum": -33}}
+    t = "Tâm lý thị trường: ❄️ Sợ hãi, momentum -24/100, tiêu cực chiếm ưu thế."
+    f = enforce_sentiment_consistency(t, ctx)
+    assert "📉 Tiêu cực" in f and "❄️ Sợ hãi" not in f
+    assert "momentum -33/100" in f and "-24/100" not in f
+    assert enforce_sentiment_consistency(f, ctx) == f          # idempotent
+    # no sentiment data → untouched
+    assert enforce_sentiment_consistency(t, {}) == t
+
+
+def test_enforce_breadth_quality_softens_positive_claim_when_weak():
+    # Close 16/06: "Độ rộng ... tích cực ... 18% trên MA200" — 18% above MA200 is
+    # structurally weak; under a bearish tape that's mixed, not 'tích cực'.
+    from vnstock_brief import enforce_breadth_quality
+    ctx = {"breadth": {"above_ma200_pct": 18}, "market_sentiment": {"momentum": -33}}
+    t = "Độ rộng thị trường hiện tại tích cực với A/D ratio là 1.33, và 18% trên MA200."
+    f = enforce_breadth_quality(t, ctx)
+    assert "trái chiều" in f and "hiện tại tích cực" not in f
+    assert enforce_breadth_quality(f, ctx) == f                # idempotent
+    # broad + non-bearish market → left alone
+    healthy = {"breadth": {"above_ma200_pct": 62}, "market_sentiment": {"momentum": 15}}
+    assert enforce_breadth_quality(t, healthy) == t
+    assert enforce_breadth_quality(t, {}) == t                 # no breadth data
+
+
 def test_enforce_compare_direction_form_b_compares_baseline_value():
     # Morning 12/06: "Phiên sáng 8,397.0 tỷ, cao hơn 60% ... (5,233.3 tỷ) nhưng
     # thấp hơn 11% TB sáng (7,549.1 tỷ)" — 8,397 > 7,549 so it's HIGHER, not
