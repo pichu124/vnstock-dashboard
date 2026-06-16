@@ -4382,9 +4382,11 @@ def enforce_breadth_label(text: str, ctx: dict) -> str:
         _fix, text)
 
 
-# The composite-mood labels (vnstock_market_sentiment._MOODS), used to pin the
-# body's cited mood to the canonical one.
-_MOOD_LABELS = ("🔥 Hưng phấn", "📈 Tích cực", "⚖️ Thận trọng", "📉 Tiêu cực", "❄️ Sợ hãi")
+# Composite-mood pieces (vnstock_market_sentiment._MOODS). Matched separately as
+# emoji / word so the guard also fixes HYBRIDS the model emits (e.g. "❄️ Tiêu
+# cực" — Sợ-hãi emoji + Tiêu-cực word), not just the exact canonical labels.
+_MOOD_EMOJIS = ("🔥", "📈", "⚖️", "📉", "❄️")
+_MOOD_WORDS = ("hưng phấn", "tích cực", "thận trọng", "tiêu cực", "sợ hãi")
 
 
 def enforce_sentiment_consistency(text: str, ctx: dict) -> str:
@@ -4392,11 +4394,11 @@ def enforce_sentiment_consistency(text: str, ctx: dict) -> str:
     ctx["market_sentiment"] (the same value the Telegram header shows and that
     was injected into the prompt).
 
-    The LLM sometimes invents a different reading (observed close 16/06: header
-    "📉 Tiêu cực, momentum -33" but body "❄️ Sợ hãi, momentum -24" — and -24
-    doesn't even match ❄️ Sợ hãi, which needs < -50). Pins every "momentum
-    N/100" to the real value and the mood after a "Tâm lý …:" cue to the real
-    label. Idempotent; no-op without sentiment data.
+    The LLM invents a different reading (close 16/06: header "📉 Tiêu cực,
+    momentum -33" but body "❄️ Sợ hãi, momentum -24" — -24 doesn't match ❄️ Sợ
+    hãi which needs < -50) or a HYBRID ("❄️ Tiêu cực" — wrong emoji + right word).
+    Pins every "momentum N/100" to the real value and the mood after a "Tâm lý
+    …:" cue (emoji and/or word) to the real label. Idempotent; no-op without data.
     """
     ms = ctx.get("market_sentiment") or {}
     mood = ms.get("mood")
@@ -4409,9 +4411,12 @@ def enforce_sentiment_consistency(text: str, ctx: dict) -> str:
         return text
     out = _re.sub(r"momentum\s*[+-]?\d+\s*/\s*100",
                   f"momentum {mom:+d}/100", text, flags=_re.IGNORECASE)
-    _alt = "|".join(_re.escape(x) for x in _MOOD_LABELS)
-    out = _re.sub(rf"(Tâm lý[^\n]{{0,40}}?[:\-]\s*)(?:{_alt})",
-                  lambda m: m.group(1) + mood, out)
+    e_alt = "|".join(_re.escape(e) for e in _MOOD_EMOJIS)
+    w_alt = "|".join(_MOOD_WORDS)
+    # after "Tâm lý …:" — an emoji+word, a word alone, or an emoji alone
+    mood_pat = rf"(?:{e_alt})?\s*(?:{w_alt})|(?:{e_alt})"
+    out = _re.sub(rf"(Tâm lý[^\n]{{0,40}}?[:\-]\s*)(?:{mood_pat})",
+                  lambda m: m.group(1) + mood, out, flags=_re.IGNORECASE)
     return out
 
 
