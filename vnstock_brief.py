@@ -180,6 +180,13 @@ _DEFAULT_AGENT_CONFIGS: list[dict] = [
 # "Mức kỹ thuật", losing Dẫn dắt/Dòng tiền/Watchlist/Rủi ro/Sự kiện/Vĩ mô/Tin.
 _BRIEF_MAX_TOKENS = 2400
 
+# Low temperature for briefs: they're data-extraction + structured analysis, so
+# determinism beats creativity. Unset (provider default ~1.0) caused big run-to-
+# run swings — a strong brief one run, instruction/template echoes + meta-
+# disclaimers the next (observed 16/06 22:37 vs 22:43, same data). Pinned low so
+# output is consistent and the deterministic guards have less to clean up.
+_BRIEF_TEMPERATURE = 0.3
+
 # ── Prompt templates ───────────────────────────────────────────────────────
 _SYSTEM = (
     "Bạn là quant trader chuyên nghiệp tại thị trường chứng khoán Việt Nam với hơn 10 năm "
@@ -409,6 +416,7 @@ class ClaudeAgent(BriefAgent):
                 json={
                     "model": self.model,
                     "max_tokens": max_tokens,
+                    "temperature": _BRIEF_TEMPERATURE,
                     "messages": [{"role": "user", "content": prompt}],
                 },
                 timeout=90,
@@ -452,6 +460,7 @@ class _OpenAICompatAgent(BriefAgent):
                 json={
                     "model": self.model,
                     "max_tokens": max_tokens,
+                    "temperature": _BRIEF_TEMPERATURE,
                     "messages": [
                         {"role": "system", "content": system_part},
                         {"role": "user", "content": user_part},
@@ -560,6 +569,7 @@ class CerebrasAgent(_OpenAICompatAgent):
                     json={
                         "model": model,
                         "max_tokens": max_tokens,
+                        "temperature": _BRIEF_TEMPERATURE,
                         "messages": [
                             {"role": "system", "content": system_part},
                             {"role": "user", "content": user_part},
@@ -642,6 +652,7 @@ class OpenRouterAgent(_OpenAICompatAgent):
             json={
                 "model": model,
                 "max_tokens": max_tokens,
+                "temperature": _BRIEF_TEMPERATURE,
                 "messages": [
                     {"role": "system", "content": system_part},
                     {"role": "user", "content": user_part},
