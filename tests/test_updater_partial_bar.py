@@ -105,3 +105,24 @@ def test_future_dated_bar_still_short_circuits(tmp_path, monkeypatch):
 
     monkeypatch.setattr(vu, "_fetch_prices", boom)
     assert vu.update_ticker("CCC", prices, today)["status"] == "up_to_date"
+
+
+def test_skip_stale_days_skips_dead_ticker_without_fetching(tmp_path, monkeypatch):
+    # A long-dead/delisted ticker (last bar years ago) was re-fetching years of
+    # data every run for 0 new days — the main time sink. skip_stale_days short-
+    # circuits it BEFORE any API call.
+    today = date(2026, 6, 16)
+    prices = tmp_path / "prices"
+    _seed(prices, "DEADX", [_bar("2019-05-01", 10.0, 1_000)])
+
+    def boom(*a, **k):
+        raise AssertionError("must not fetch a stale ticker")
+
+    monkeypatch.setattr(vu, "_fetch_prices", boom)
+    assert vu.update_ticker("DEADX", prices, today,
+                            skip_stale_days=90)["status"] == "stale_skip"
+
+    # default (0) → feature off → NOT stale-skipped (fetch attempted, stubbed empty).
+    monkeypatch.setattr(vu, "_fetch_prices", lambda *a, **k: pd.DataFrame())
+    assert vu.update_ticker("DEADX", prices, today,
+                            skip_stale_days=0)["status"] != "stale_skip"

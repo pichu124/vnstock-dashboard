@@ -277,6 +277,7 @@ def update_ticker(
     prices_dir: Path,
     today: date,
     dry_run: bool = False,
+    skip_stale_days: int = 0,
 ) -> dict:
     """
     Update giá cho một ticker.
@@ -295,6 +296,14 @@ def update_ticker(
     if last_date is None:
         result["status"] = "error"
         result["error"] = "Không đọc được ngày cuối"
+        return result
+
+    # Bỏ qua mã "chết" (hủy niêm yết/ngừng giao dịch lâu): nếu bar cuối quá cũ thì
+    # mỗi lần chạy lại fetch+validate NHIỀU NĂM cho 0 ngày mới (BKH/SPA/SSU… last
+    # 2018-2021) — đây là phần phí công lớn nhất sau khi đã song song hoá. 0 = tắt.
+    if skip_stale_days and (today - last_date).days > skip_stale_days:
+        result["status"] = "stale_skip"
+        result["last_date"] = str(last_date)
         return result
 
     # Tính ngày cần fetch — refetch CẢ ngày cuối (inclusive), không phải
@@ -371,6 +380,8 @@ def run_update(
     dry_run: bool = False,
     delay: float = 0.1,
     skip_weekends: bool = True,
+    workers: int = 8,
+    skip_stale_days: int = 0,
 ):
     prices_dir = Path(warehouse) / "prices"
     if not prices_dir.exists():
@@ -404,11 +415,29 @@ def run_update(
         f"[bold cyan]📈 Daily Price Update — {today}[/bold cyan]"
         + (" [DRY RUN]" if dry_run else "")
     )
-    console.log(f"  Tickers: {len(scan_list)} | Delay: {delay}s")
+    workers = max(1, int(workers or 1))
+    console.log(f"  Tickers: {len(scan_list)} | Workers: {workers}"
+                + (f" | Delay: {delay}s" if workers == 1 else "")
+                + (f" | Skip stale > {skip_stale_days}d" if skip_stale_days else ""))
 
     stats = {"updated": 0, "up_to_date": 0, "error": 0, "skip": 0}
     errors = []
     updated_list = []
+
+    def _tally(result: dict) -> None:
+        status = result["status"]
+        if status == "updated":
+            stats["updated"] += 1
+            updated_list.append(result)
+        elif status in ("up_to_date", "no_new_data", "would_update"):
+            stats["up_to_date"] += 1
+            if status == "would_update":
+                updated_list.append(result)
+        elif status == "error":
+            stats["error"] += 1
+            errors.append(result)
+        else:
+            stats["skip"] += 1
 
     with Progress(
         SpinnerColumn(),
@@ -419,27 +448,34 @@ def run_update(
     ) as progress:
         task = progress.add_task("Updating...", total=len(scan_list))
 
-        for ticker in scan_list:
-            progress.update(task, description=f"[cyan]{ticker:6s}[/cyan]", advance=1)
-
-            result = update_ticker(ticker, prices_dir, today, dry_run=dry_run)
-            status = result["status"]
-
-            if status == "updated":
-                stats["updated"] += 1
-                updated_list.append(result)
-            elif status in ("up_to_date", "no_new_data", "would_update"):
-                stats["up_to_date"] += 1
-                if status == "would_update":
-                    updated_list.append(result)
-            elif status == "error":
-                stats["error"] += 1
-                errors.append(result)
-            else:
-                stats["skip"] += 1
-
-            if status not in ("up_to_date", "no_new_data"):
-                time.sleep(delay)
+        if workers > 1:
+            # I/O-bound (each ticker = one API round-trip) → thread-parallel for a
+            # near-linear speedup. Each ticker writes its own ticker=/year= dir, so
+            # there's no write contention; update_ticker swallows its own errors.
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = {
+                    pool.submit(update_ticker, t, prices_dir, today,
+                                dry_run=dry_run, skip_stale_days=skip_stale_days): t
+                    for t in scan_list
+                }
+                for fut in as_completed(futures):
+                    try:
+                        result = fut.result()
+                    except Exception as exc:
+                        result = {"ticker": futures[fut], "status": "error",
+                                  "new_days": 0, "error": str(exc)[:80]}
+                    _tally(result)
+                    progress.update(task, advance=1,
+                                    description=f"[cyan]{result['ticker']:6s}[/cyan]")
+        else:
+            for ticker in scan_list:
+                progress.update(task, description=f"[cyan]{ticker:6s}[/cyan]", advance=1)
+                result = update_ticker(ticker, prices_dir, today, dry_run=dry_run,
+                                       skip_stale_days=skip_stale_days)
+                _tally(result)
+                if result["status"] not in ("up_to_date", "no_new_data", "stale_skip"):
+                    time.sleep(delay)
 
     # ── Summary ────────────────────────────────────────────────────────────────
     console.print()
@@ -798,7 +834,13 @@ if __name__ == "__main__":
                              "(fixes inflation when --fix-volume can't detect "
                              "because median is also inflated)")
     parser.add_argument("--delay",     type=float, default=0.1,
-                        help="Delay giữa API calls (giây, mặc định 0.1 cho Sponsor 600/min)")
+                        help="Delay giữa API calls khi chạy 1 luồng (--workers 1)")
+    parser.add_argument("--workers",   type=int, default=8,
+                        help="Số luồng fetch song song (mặc định 8; 1 = tuần tự. "
+                             "Giảm nếu API rate-limit)")
+    parser.add_argument("--skip-stale-days", type=int, default=0, metavar="N",
+                        help="Bỏ qua mã có bar cuối cũ hơn N ngày (mã hủy niêm yết). "
+                             "0 = không bỏ. Vd 90 để bỏ mã chết, chạy nhanh hơn nhiều")
     parser.add_argument("--warehouse", default="data_warehouse",
                         help="Đường dẫn warehouse")
     parser.add_argument("--skip-if-done", action="store_true",
@@ -859,6 +901,8 @@ if __name__ == "__main__":
             dry_run=args.dry_run,
             delay=args.delay,
             skip_weekends=not args.force,
+            workers=args.workers,
+            skip_stale_days=args.skip_stale_days,
         )
 
         # Write pipeline status sau khi update thành công

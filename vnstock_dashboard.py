@@ -3749,11 +3749,13 @@ with _update_col:
             use_container_width=True,
             help=(
                 "**Tải giá mới nhất từ API + tính lại screener + tin tức + vĩ mô** "
-                "(nặng nhất, ~20-30 phút).\n\n"
-                "Mở cửa sổ PowerShell riêng chạy `vnstock_updater.py --force` "
-                "→ ghi đè file parquet trong `data_warehouse/prices/` "
-                "→ `vnstock_runner.py` tạo lại `vnstock_data.json` "
-                "→ `run.py news` (sentiment) → `run.py macro` (tỷ giá USD/VND).\n\n"
+                "(8 luồng song song + bỏ mã đã hủy niêm yết → nhanh hơn nhiều so với "
+                "trước).\n\n"
+                "Mở cửa sổ PowerShell riêng chạy `vnstock_updater.py --force "
+                "--workers 8 --skip-stale-days 90` → ghi đè parquet trong "
+                "`data_warehouse/prices/` → `vnstock_runner.py` tạo lại "
+                "`vnstock_data.json` → `run.py news` → `run.py macro`.\n\n"
+                "Nếu API báo rate-limit, giảm `--workers` (vd 4).\n\n"
                 "**Dùng khi:** muốn xem data ngày mới nhất (sau giờ giao dịch).\n\n"
                 "Sau khi PowerShell xong, bấm **🔄 Refresh Screener** hoặc F5 "
                 "để dashboard đọc dữ liệu mới.\n\n"
@@ -3762,7 +3764,8 @@ with _update_col:
         ):
             _is_win, _log = launch_in_new_console(
                 commands=[
-                    {"label": "Cap nhat gia",     "args": ["vnstock_updater.py", "--force"]},
+                    {"label": "Cap nhat gia",     "args": ["vnstock_updater.py", "--force",
+                                                           "--workers", "8", "--skip-stale-days", "90"]},
                     {"label": "Refresh Screener", "args": ["vnstock_runner.py"]},
                     {"label": "News Sentiment",   "args": ["run.py", "news"], "stop_on_error": False},
                     {"label": "Macro (ty gia)",   "args": ["run.py", "macro"], "stop_on_error": False},
