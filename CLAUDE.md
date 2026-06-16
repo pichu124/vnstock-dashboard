@@ -231,6 +231,17 @@ trong `apply_brief_guards`, áp cho mọi agent, cả morning & close):
     là số trên-MA200 (A/D 0.85 ⇒ ~46% tăng), gán nhãn "tăng giá" sai → relabel
     "trên MA200". Gate theo khớp giá trị (N ≈ above_ma200_pct ±1) nên số thật
     khác không bị đụng; idempotent.
+24. `enforce_sentiment_consistency` (DONE 2026-06-16) — pin nhãn tâm lý + "momentum
+    N/100" trong body về canonical `ctx["market_sentiment"]` (đúng cái header
+    Telegram hiện + đã bơm vào prompt). Close 16/06: header "📉 Tiêu cực,
+    momentum -33" nhưng body bịa "❄️ Sợ hãi, momentum -24" (mà -24 còn KHÔNG khớp
+    ❄️ Sợ hãi vốn cần < -50). Pin mọi "momentum …/100" + mood sau cụm "Tâm lý …:";
+    idempotent; no-op khi thiếu sentiment.
+25. `enforce_breadth_quality` (DONE 2026-06-16) — hạ "độ rộng … tích cực" xuống
+    "trái chiều" khi metric cấu trúc DUY NHẤT (% trên MA200) yếu + nền tiêu cực
+    (close 16/06: "tích cực … 18% trên MA200" — A/D 1 phiên dương nhưng cấu trúc
+    yếu = trái chiều). Gate `above_ma200_pct < 40` VÀ momentum < 0 nên TT rộng
+    thật không bị đụng; idempotent.
 18. `enforce_number_format` (chạy CUỐI) — chuẩn hoá số về 1 quy ước EN (phẩy ngăn
     nghìn, chấm thập phân) như data block (`{:,.2f}`)/guards/close. Morning 13:54
     trộn VN ("1.798,61", "9.129,4", "1.858,39", "-3,2%", "5.038 tỷ") với EN
@@ -401,6 +412,23 @@ LLM chấm sentiment + tóm tắt tác động 1 dòng, cache
 - Pipeline: `run.py news` nay refresh LUÔN RSS feeds (nên `run.py all` đã gồm) +
   `_maybe_refresh_market_news` khi tạo brief. Cadence = "theo pipeline + brief"
   (user chọn 2026-06-15; KHÔNG poll realtime — brief chạy 2×/ngày).
+- **Telegram split (DONE 2026-06-16)**: brief dài hơn (vĩ mô + tin) vượt giới hạn
+  4096 ký tự/tin của Telegram → đuôi (mục 📰) bị cắt. `vnstock_telegram.send_message`
+  nay tách thành NHIỀU tin ≤4096 (cắt theo dòng để tag HTML không vỡ, hậu tố
+  "(k/n)") thay vì truncate. `_split_for_telegram` test trong `test_telegram.py`.
+
+### ⚡ Updater nhanh 10× (DONE 2026-06-16) — `vnstock_updater.py`
+
+"Cập nhật giá" cũ chạy 3+ giờ vì xử lý ~1724 mã TUẦN TỰ (1 API call/lần ~7s) +
+mã hủy niêm yết (last 2018-2021) re-fetch nhiều NĂM mỗi lần cho 0 ngày mới. Fix:
+- `run_update(workers=8)` — ThreadPoolExecutor song song (fetch I/O-bound, mỗi mã
+  ghi thư mục riêng → an toàn). `--workers` (mặc định 8; 1 = tuần tự cũ). → ~18
+  phút thay vì 3h, 0 lỗi với 8 luồng (user verify 16/06).
+- `update_ticker(skip_stale_days=N)` — bỏ qua mã có bar cuối cũ hơn N ngày TRƯỚC
+  khi fetch. `--skip-stale-days` (mặc định 0 = tắt).
+- Nút dashboard "📥 Cập nhật giá" → `--force --workers 8 --skip-stale-days 90`;
+  `run.py sync` (pipeline tối) tự hưởng 8 luồng (không skip-stale → vẫn thorough).
+- API rate-limit (nhiều "error") → giảm `--workers 4`.
 
 **Quan trọng — vnstock 4.0.4 + sponsor API gotchas** (hard-won, đừng quên):
 - `vnstock_auth._StockShim` PHẢI expose `.quote/.company/.listing/.finance`.
