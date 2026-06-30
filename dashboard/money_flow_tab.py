@@ -229,6 +229,7 @@ def render_money_flow_tab() -> None:
             "nn_sell": nn_bs.get("sell", 0),
             "buy_ratio": buy_ratio,
             "big_order_score": od.get("big_order_score", 0),
+            "has_order": bool(od),   # False = ngoài top-50 / fetch lỗi → hiện "—"
         })
 
     # Compute median |nn_net| for normalization
@@ -411,6 +412,7 @@ def render_money_flow_tab() -> None:
             f'<th style="text-align:right;padding:6px;color:#9ca3af">'
             f'NN Ròng {_mf_window}</th>'
             '<th style="text-align:right;padding:6px;color:#9ca3af">Buy/Sell</th>'
+            '<th style="text-align:right;padding:6px;color:#9ca3af">Lệnh lớn</th>'
             '<th style="text-align:right;padding:6px;color:#9ca3af">Score</th>'
             '<th style="text-align:center;padding:6px;color:#9ca3af">Dòng tiền</th>'
             '<th style="text-align:center;padding:6px;color:#9ca3af">Vai trò</th>'
@@ -444,6 +446,14 @@ def render_money_flow_tab() -> None:
 
             _nn_buy = stk.get("nn_buy", 0)
             _nn_sell = stk.get("nn_sell", 0)
+            # Lệnh lớn: only top-50 GTGD tickers have order_stats → others show "—"
+            # (a literal 0 there is "no data", not "order size == average").
+            _bo = stk.get("big_order_score", 0)
+            if stk.get("has_order"):
+                _bo_color = "#10b981" if _bo > 10 else ("#ef4444" if _bo < -10 else "#9ca3af")
+                _bo_txt = f"{_bo:+.0f}"
+            else:
+                _bo_color, _bo_txt = "#4b5563", "—"
             _det_html += (
                 f'<tr style="background:{bg};border-bottom:1px solid #1f2937">'
                 f'<td style="padding:5px 6px;color:#60a5fa;font-weight:600">'
@@ -462,6 +472,8 @@ def render_money_flow_tab() -> None:
                 f'font-weight:500">{nn_sign}{stk["nn_net"]:,.0f}</td>'
                 f'<td style="padding:5px 6px;text-align:right;color:{buy_color}">'
                 f'{buy_pct:.0f}/{100-buy_pct:.0f}</td>'
+                f'<td style="padding:5px 6px;text-align:right;color:{_bo_color}">'
+                f'{_bo_txt}</td>'
                 f'<td style="padding:5px 6px;text-align:right;color:{s_color};'
                 f'font-weight:600">{stk["score"]:+.0f}</td>'
                 f'<td style="padding:5px 6px;text-align:center">'
