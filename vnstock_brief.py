@@ -2633,6 +2633,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_pivot_labels(fixed, ctx)
     fixed = enforce_scenario_levels(fixed, ctx)       # scenario levels = real data only
     fixed = enforce_watchlist_eligibility(fixed, ctx)
+    fixed = enforce_buy_vs_bias_caveat(fixed, ctx)    # GIẢM + BUY recs → caveat (keep, contextualize)
     fixed = enforce_gtgd_total(fixed, ctx)            # full-day (close) / sáng (morning)
     fixed = enforce_gtgd_compare_frame(fixed, ctx)    # close-only: full-day ≠ morning baseline
     fixed = enforce_gtgd_baseline_pct(fixed, ctx)     # close-only: % must match its baseline
@@ -3875,6 +3876,67 @@ def enforce_watchlist_eligibility(text: str, ctx: dict) -> str:
                 out.append(l)
         kept = out
     return "\n".join(lines[:start + 1] + kept + lines[end:])
+
+
+# Canonical caveat appended to the "Đề xuất giao dịch" section when BUY recs
+# collide with a GIẢM bias floor. Kept as a module constant so the guard can do
+# an exact-substring idempotency check (avoids unicode-normalization mismatches
+# that .lower()-comparing two hand-typed diacritic strings would hit).
+_BUY_BIAS_CAVEAT = (
+    "⚠️ Các lệnh MUA trên là tín hiệu backtest TỪNG MÃ; bối cảnh chung đang "
+    "GIẢM → vào lệnh thận trọng, tôn trọng cắt lỗ (SL), cân nhắc giảm tỷ trọng."
+)
+
+
+def enforce_buy_vs_bias_caveat(text: str, ctx: dict) -> str:
+    """Deterministic guard: when the bias floor is GIẢM (bearish market) yet the
+    "💡 Đề xuất giao dịch" section still lists BUY/MUA setups (from the backtested-
+    strategy recs), append a one-line caveat reminding the reader these are
+    PER-TICKER backtest signals to weigh against the bearish backdrop — enter
+    cautiously, respect SL, consider trimming size.
+
+    The recs are KEPT, not filtered: each carries its own stop-loss (defined risk),
+    so we add context instead of hiding the signal — mirroring the BĐS Op.CF
+    "context, don't drop" choice. Fires only when bias=GIẢM and a buy-side line is
+    present in that section (SELL-only recs under GIẢM are already consistent).
+    Idempotent; no-op without the floor / section / a buy line.
+    """
+    if not text or (ctx or {}).get("bias_floor", {}).get("dir") != "GIẢM":
+        return text
+    # Idempotent: the caveat starts with ⚠️ (a section emoji), so once inserted
+    # it reads as a section boundary on re-parse — check the whole text, not the
+    # bounded section body, or the second pass would append a duplicate.
+    if _BUY_BIAS_CAVEAT in text:
+        return text
+
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines)
+                  if "đề xuất giao dịch" in l.lower() and _is_section_start(l)), None)
+    if start is None:
+        return text
+    end = next((i for i in range(start + 1, len(lines))
+                if _is_section_start(lines[i])), len(lines))
+    body = lines[start + 1:end]
+
+    # A buy-side rec line carries a BUY/MUA action (the backtest action is "BUY";
+    # the LLM may translate to "MUA"). A purely conditional "canh MUA NẾU vượt"
+    # is already bias-aware (the watchlist guard rewrites unconditional dip-buys),
+    # so it doesn't count as the contradiction we're flagging.
+    def _is_buy_line(l: str) -> bool:
+        low = l.lower()
+        if "canh mua nếu" in low:
+            return False
+        return bool(_re.search(r"\b(buy|mua)\b", low))
+
+    if not any(_is_buy_line(l) for l in body):
+        return text
+
+    # Insert right after the section's last non-blank content line so the caveat
+    # sits under the recs (not after a trailing gap before the next section).
+    insert_at = end
+    while insert_at > start + 1 and not lines[insert_at - 1].strip():
+        insert_at -= 1
+    return "\n".join(lines[:insert_at] + [_BUY_BIAS_CAVEAT] + lines[insert_at:])
 
 
 _CJK_RE = _re.compile(r"[㐀-䶿一-鿿豈-﫿]+")

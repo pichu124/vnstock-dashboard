@@ -1674,6 +1674,53 @@ def test_enforce_watchlist_eligibility_bail_when_none_survive_and_noops():
     assert enforce_watchlist_eligibility(t2, {}) == t2
 
 
+def test_enforce_buy_vs_bias_caveat_appends_under_giam():
+    # Bias floor = GIẢM but the "Đề xuất giao dịch" section still lists BUY recs
+    # from backtested strategies → a one-line caveat is appended (recs KEPT).
+    from vnstock_brief import enforce_buy_vs_bias_caveat
+    ctx = {"bias_floor": {"dir": "GIẢM", "momentum": -67, "regime_score": -4}}
+    text = ("## 💡 Đề xuất giao dịch (nếu có Khuyến nghị trong data)\n"
+            "- FPT BUY entry=120,000 TP=132,000 SL=114,000\n"
+            "- HPG BUY entry=28,000 TP=31,000 SL=26,500\n"
+            "\n"
+            "## ⚠️ Rủi ro cần lưu ý\n"
+            "- ...")
+    fixed = enforce_buy_vs_bias_caveat(text, ctx)
+    assert "tín hiệu backtest TỪNG MÃ" in fixed
+    assert "tôn trọng cắt lỗ" in fixed
+    # recs are kept, not filtered
+    assert "FPT BUY" in fixed and "HPG BUY" in fixed
+    # caveat sits INSIDE the rec section (before the next ## header)
+    assert fixed.index("backtest TỪNG MÃ") < fixed.index("## ⚠️ Rủi ro")
+    # idempotent
+    assert enforce_buy_vs_bias_caveat(fixed, ctx) == fixed
+    # and it survives the full shared chain (wired into apply_brief_guards)
+    from vnstock_brief import apply_brief_guards
+    assert "tín hiệu backtest TỪNG MÃ" in apply_brief_guards(text, ctx)
+
+
+def test_enforce_buy_vs_bias_caveat_noops():
+    from vnstock_brief import enforce_buy_vs_bias_caveat
+    buy_sec = ("## 💡 Đề xuất giao dịch\n"
+               "- FPT BUY entry=120,000 TP=132,000 SL=114,000\n")
+    # no bias floor → untouched
+    assert enforce_buy_vs_bias_caveat(buy_sec, {}) == buy_sec
+    # bias TĂNG → BUY recs are consistent → untouched
+    assert enforce_buy_vs_bias_caveat(buy_sec, {"bias_floor": {"dir": "TĂNG"}}) == buy_sec
+    ctx_giam = {"bias_floor": {"dir": "GIẢM"}}
+    # SELL-only recs under GIẢM are already consistent → no caveat
+    sell_sec = ("## 💡 Đề xuất giao dịch\n"
+                "- FPT SELL entry=120,000 TP=110,000 SL=126,000\n")
+    assert enforce_buy_vs_bias_caveat(sell_sec, ctx_giam) == sell_sec
+    # purely conditional 'canh MUA NẾU vượt' is already bias-aware → no caveat
+    cond_sec = ("## 💡 Đề xuất giao dịch\n"
+                "- FPT: canh MUA NẾU vượt 122,000 → mục tiêu 130,000; cắt lỗ 116,000\n")
+    assert enforce_buy_vs_bias_caveat(cond_sec, ctx_giam) == cond_sec
+    # no rec section at all → untouched
+    no_sec = "## 🎯 TLDR\nStance: GIẢM\n## ⚠️ Rủi ro\n- ..."
+    assert enforce_buy_vs_bias_caveat(no_sec, ctx_giam) == no_sec
+
+
 def test_select_sr_levels_filters_noise_and_clusters():
     # Real 11/06 data: close 1,798.61 with raw nearest levels S1=1,798.05
     # (0.03% away!) and R1=1,800.80 → R2=1,801.66 (0.05% apart) — useless as
