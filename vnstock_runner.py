@@ -607,13 +607,14 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
     tick_display["Giá 3M %"] = tick_display["chg60"].round(1)
     tick_display = tick_display.rename(columns={"ticker": "Mã", "industry": "Ngành"})
 
-    # "Họ VIN": group the Vingroup ecosystem as its own SECTOR for the per-sector
-    # aggregation (feeds the brief's "Dòng tiền ngành" block + lead/lag sector).
-    # The per-ticker "Ngành" (tick_display above) is left as the raw industry, so
-    # the brief's realestate/financial detection and movers stay unaffected.
-    from vnstock_sectors import VIN_FAMILY, VIN_SECTOR
-    merged["_sector_group"] = merged["industry"]
-    merged.loc[merged["ticker"].isin(VIN_FAMILY), "_sector_group"] = VIN_SECTOR
+    # Custom sector groups ("Họ VIN", "Họ M", …): group these ticker families as
+    # their own SECTOR for the per-sector aggregation (feeds the brief's "Dòng
+    # tiền ngành" block + lead/lag sector). The per-ticker "Ngành" (tick_display
+    # above) is left as the raw industry, so the brief's realestate/financial
+    # detection and movers stay unaffected.
+    from vnstock_sectors import custom_sector_for
+    merged["_sector_group"] = (
+        merged["ticker"].map(custom_sector_for).fillna(merged["industry"]))
 
     result = merged.groupby("_sector_group").apply(agg).reset_index()
     result = result.rename(columns={"_sector_group": "Ngành"})

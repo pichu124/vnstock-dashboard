@@ -19,14 +19,13 @@ live inline inside this module.
 from __future__ import annotations
 
 
-# ── "Họ VIN" — Vingroup ecosystem grouped as its own sector ───────────────
-# Membership/label live in the dependency-free vnstock_sectors module (shared
-# with the brief/screener pipeline so the group means the same set everywhere).
+# ── Custom sector groups ("Họ VIN", "Họ M", …) ────────────────────────────
+# Membership/labels live in the dependency-free vnstock_sectors module (shared
+# with the brief/screener pipeline so each group means the same set everywhere).
 # The order/icon overrides stay local to render_money_flow_tab.
 from vnstock_sectors import (  # noqa: E402
-    VIN_FAMILY as _VIN_FAMILY,
-    VIN_SECTOR as _VIN_SECTOR,
-    vin_sector_for as _vin_sector_for,
+    CUSTOM_SECTOR_ORDER as _CUSTOM_SECTOR_ORDER,
+    custom_sector_for as _custom_sector_for,
 )
 
 
@@ -66,16 +65,17 @@ def render_money_flow_tab() -> None:
         _score_bar_html, _score_label,
     )
 
-    # ── "Họ VIN" group — order + icon overrides (membership rule lives in the
-    # module-level _vin_sector_for at the top of this file). Scoped to this tab
-    # only: the shared SECTOR_ORDER / _get_sector stay untouched so the training
-    # universe and portfolio sector logic keep their original mapping.
-    _MF_SECTOR_ORDER = [_VIN_SECTOR, *SECTOR_ORDER]
-    _MF_SECTOR_ICONS = {**SECTOR_ICONS, _VIN_SECTOR: "🅥"}
+    # ── Custom-group order + icon overrides (membership rules live in
+    # vnstock_sectors). Custom groups are pinned to the FRONT, in registry order
+    # (Họ VIN, Họ M, …). Scoped to this tab only: the shared SECTOR_ORDER /
+    # _get_sector stay untouched so the training universe and portfolio sector
+    # logic keep their original mapping.
+    _MF_SECTOR_ORDER = [*_CUSTOM_SECTOR_ORDER, *SECTOR_ORDER]
+    _MF_SECTOR_ICONS = {**SECTOR_ICONS, "Họ VIN": "🅥", "Họ M": "Ⓜ️"}
 
     def _mf_sector(symbol: str, industry: str) -> str:
-        """Money-flow sector: VIN-family ticker → 'Họ VIN', else shared mapping."""
-        return _vin_sector_for(symbol) or _get_sector(industry)
+        """Money-flow sector: custom-group ticker → its label, else shared mapping."""
+        return _custom_sector_for(symbol) or _get_sector(industry)
 
     st.markdown("### 💰 Dòng Tiền Ngành")
 
