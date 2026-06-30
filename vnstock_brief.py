@@ -2635,6 +2635,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_scenario_levels(fixed, ctx)       # scenario levels = real data only
     fixed = enforce_watchlist_eligibility(fixed, ctx)
     fixed = enforce_buy_vs_bias_caveat(fixed, ctx)    # GIẢM + BUY recs → caveat (keep, contextualize)
+    fixed = enforce_stance_sentiment_caution(fixed, ctx)  # TĂNG stance + tâm lý tiêu cực → caveat
     fixed = enforce_gtgd_total(fixed, ctx)            # full-day (close) / sáng (morning)
     fixed = enforce_gtgd_compare_frame(fixed, ctx)    # close-only: full-day ≠ morning baseline
     fixed = enforce_gtgd_baseline_pct(fixed, ctx)     # close-only: % must match its baseline
@@ -3975,6 +3976,54 @@ def enforce_buy_vs_bias_caveat(text: str, ctx: dict) -> str:
     while insert_at > start + 1 and not lines[insert_at - 1].strip():
         insert_at -= 1
     return "\n".join(lines[:insert_at] + [_BUY_BIAS_CAVEAT] + lines[insert_at:])
+
+
+# "Tiêu cực" zone for the soft stance caution. The hard GIẢM floor (_bias_floor_dir)
+# fires at momentum ≤ -50; this softer band (≤ -20) only adds a caveat, never
+# overrides the stance. _STANCE_CAUTION_MARK doubles as the idempotency marker.
+_STANCE_CAUTION_MOMENTUM = -20
+_STANCE_CAUTION_MARK = "tâm lý thị trường đang TIÊU CỰC"
+
+
+def enforce_stance_sentiment_caution(text: str, ctx: dict) -> str:
+    """Soft guard: when the TLDR Stance/Bias leans TĂNG but market sentiment is
+    moderately-or-more negative (momentum ≤ _STANCE_CAUTION_MOMENTUM, i.e. below
+    the hard GIẢM floor at ≤ -50), append a one-line caution under the stance.
+
+    Observed close 30/06: "Stance ngày mai: TĂNG" while sentiment was "📉 Tiêu cực
+    (momentum -24)". -24 doesn't trip the hard floor, so the bullish lean is
+    allowed — but we flag the tension (manage risk, add only on confirmation,
+    respect SL) instead of overriding it (mirrors the BUY-vs-bias caveat:
+    contextualize, don't force). Applies to both briefs (close "Stance ngày mai",
+    morning "Bias"). Idempotent; no-op on a GIẢM/TRUNG TÍNH stance or when
+    sentiment isn't negative enough.
+    """
+    sent = ctx.get("market_sentiment") or {}
+    mom = sent.get("momentum")
+    if (not text or not isinstance(mom, (int, float))
+            or mom > _STANCE_CAUTION_MOMENTUM or _STANCE_CAUTION_MARK in text):
+        return text
+
+    lines = text.splitlines()
+    stance_i = None
+    for i, l in enumerate(lines):
+        m = _re.search(r"(?:stance(?:\s+ngày\s+mai)?|bias)\s*[:：]\**\s*([^\s.]+)",
+                       l, _re.IGNORECASE)
+        if not m:
+            continue
+        tok = m.group(1).lower()
+        if tok.startswith("tăng"):
+            stance_i = i
+            break
+        if tok.startswith("giảm") or tok.startswith("trung"):
+            return text                       # stance already bearish/neutral
+    if stance_i is None:
+        return text
+
+    caveat = (f"⚠️ Stance nghiêng TĂNG nhưng {_STANCE_CAUTION_MARK} "
+              f"(momentum {int(mom)}/100) — ưu tiên quản trị rủi ro, chỉ gia tăng "
+              f"tỷ trọng khi giá XÁC NHẬN (vượt kháng cự), tôn trọng cắt lỗ.")
+    return "\n".join(lines[:stance_i + 1] + [caveat] + lines[stance_i + 1:])
 
 
 _CJK_RE = _re.compile(r"[㐀-䶿一-鿿豈-﫿]+")

@@ -73,6 +73,13 @@ def test_analyze_item_parses_sentiment_and_impact(monkeypatch):
     assert nf.analyze_item({"title": "x"}) == ("", "")
 
 
+def test_analyze_system_prompt_enforces_direction_consistency():
+    # The impact must follow the headline's direction — guards against the
+    # observed "giá vàng GIẢM → PNJ hưởng lợi từ giá vàng CAO" contradiction.
+    assert "CHIỀU" in nf._ANALYZE_SYSTEM and "khớp tiêu đề" in nf._ANALYZE_SYSTEM
+    assert "NGƯỢC" in nf._ANALYZE_SYSTEM
+
+
 # ── refresh: dedup + merge prior analysis + cache ────────────────────────────
 
 

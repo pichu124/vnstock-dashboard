@@ -271,6 +271,16 @@ trong `apply_brief_guards`, áp cho mọi agent, cả morning & close):
     (= section emoji) nên khi re-parse nó thành ranh giới mục → check `_BUY_BIAS_CAVEAT
     in text` TRÊN TOÀN VĂN (không theo body bị cắt) để khỏi chèn trùng. Áp cả 2
     brief (mục "Đề xuất giao dịch" có ở cả morning & close).
+28. `enforce_stance_sentiment_caution` (DONE 2026-06-30) — **soft floor**: hard
+    floor `_bias_floor_dir` chỉ ép GIẢM khi momentum ≤ -50 / regime ≤ -3; band
+    nhẹ hơn (momentum ≤ `_STANCE_CAUTION_MOMENTUM` = -20, vùng "Tiêu cực") KHÔNG
+    ép đổi stance mà CHÈN 1 dòng cảnh báo dưới dòng Stance/Bias khi stance nghiêng
+    **TĂNG** (close 30/06: "Stance ngày mai: TĂNG" trong khi tâm lý 📉 Tiêu cực
+    momentum -24 → bullish vẫn được phép nhưng gắn "ưu tiên quản trị rủi ro, chỉ
+    gia tăng khi giá XÁC NHẬN, tôn trọng cắt lỗ"). Detect token ĐẦU sau "Stance
+    ngày mai:"/"Bias:" (cả 2 brief); no-op khi stance GIẢM/TRUNG TÍNH hoặc momentum
+    > -20; idempotent qua marker `_STANCE_CAUTION_MARK`. (Triết lý: gắn ngữ cảnh,
+    không override — mirror BUY-vs-bias caveat.)
 
 **`max_tokens` brief = `_BRIEF_MAX_TOKENS` (2400, bump từ 1200 — 2026-06-16)**:
 `generate_brief._call` truyền giá trị này. Brief nay ~11 mục (thêm 🌐 Vĩ mô + 📰
@@ -433,7 +443,11 @@ LLM chấm sentiment + tóm tắt tác động 1 dòng, cache
 - **LLM**: `analyze_item` gọi `vnstock_sentiment.chat_complete` (helper MỚI,
   additive — provider ladder Groq→Cerebras→OpenRouter) 1 call ra `sentiment |
   tác động`. CHỈ chấm top-N (`_MAX_ANALYZE_DEFAULT`=8) tin mới chưa phân tích;
-  cache trong JSON nên không chấm lại.
+  cache trong JSON nên không chấm lại. **`_ANALYZE_SYSTEM` (cập nhật 2026-06-30)**
+  buộc CHIỀU `<tác động>` khớp tiêu đề — tin GIẢM/rời mốc/xuống → mô tả chiều
+  GIẢM, KHÔNG ghi chiều ngược (vá lỗi "giá vàng GIẢM → PNJ hưởng lợi từ giá vàng
+  CAO"). Là cải thiện PROMPT (không deterministic) → chỉ áp tin chấm MỚI; tin đã
+  cache cần `python vnstock_news_feeds.py --reanalyze` để chấm lại.
 
 **Brief wiring (parity morning↔close by construction)**:
 - `collect_context` → `ctx["market_news"]` (top 6, ≤3 ngày). `_maybe_refresh_market_news()`

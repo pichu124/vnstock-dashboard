@@ -1759,6 +1759,39 @@ def test_enforce_buy_vs_bias_caveat_noops():
     assert enforce_buy_vs_bias_caveat(no_sec, ctx_giam) == no_sec
 
 
+def test_enforce_stance_sentiment_caution_flags_bullish_vs_negative_mood():
+    # Close 30/06: "Stance ngày mai: TĂNG" while sentiment was "📉 Tiêu cực
+    # (momentum -24)". -24 doesn't trip the hard GIẢM floor (≤ -50), so the
+    # bullish lean stands — but a caution is appended under the stance.
+    from vnstock_brief import enforce_stance_sentiment_caution
+    ctx = {"market_sentiment": {"momentum": -24}}
+    t = ("## 🎯 TLDR\n**Stance ngày mai:** TĂNG bias với canh mua nếu vượt R1.\n"
+         "## 📊 Tổng kết phiên\n…")
+    f = enforce_stance_sentiment_caution(t, ctx)
+    assert "tâm lý thị trường đang TIÊU CỰC" in f
+    assert "momentum -24/100" in f and "tôn trọng cắt lỗ" in f
+    # the caveat sits under the stance line, before the next section
+    assert f.index("đang TIÊU CỰC") < f.index("## 📊 Tổng kết")
+    assert enforce_stance_sentiment_caution(f, ctx) == f          # idempotent
+    # morning "Bias:" form is handled too
+    tm = "## 🎯 TLDR\n**Bias:** TĂNG — đà phục hồi.\n## 📊"
+    assert "tâm lý thị trường đang TIÊU CỰC" in enforce_stance_sentiment_caution(tm, ctx)
+
+
+def test_enforce_stance_sentiment_caution_noop_cases():
+    from vnstock_brief import enforce_stance_sentiment_caution
+    neg = {"market_sentiment": {"momentum": -24}}
+    # bearish / neutral stance → consistent → no caveat
+    assert "TIÊU CỰC" not in enforce_stance_sentiment_caution("**Stance ngày mai:** GIẢM bias.", neg)
+    assert "TIÊU CỰC" not in enforce_stance_sentiment_caution("**Stance ngày mai:** TRUNG TÍNH.", neg)
+    # sentiment not negative enough (> -20) → no caveat
+    t = "**Stance ngày mai:** TĂNG bias."
+    assert enforce_stance_sentiment_caution(t, {"market_sentiment": {"momentum": -5}}) == t
+    assert enforce_stance_sentiment_caution(t, {"market_sentiment": {"momentum": 30}}) == t
+    # missing sentiment → no-op
+    assert enforce_stance_sentiment_caution(t, {}) == t
+
+
 def test_select_sr_levels_filters_noise_and_clusters():
     # Real 11/06 data: close 1,798.61 with raw nearest levels S1=1,798.05
     # (0.03% away!) and R1=1,800.80 → R2=1,801.66 (0.05% apart) — useless as
