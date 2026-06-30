@@ -20,17 +20,14 @@ from __future__ import annotations
 
 
 # ── "Họ VIN" — Vingroup ecosystem grouped as its own sector ───────────────
-# VIC/VHM/VRE/VPL are pulled OUT of their listed industries (BĐS / bán lẻ /
-# du lịch) into one family group, pinned first in the Dòng Tiền Ngành tables.
-# Module-level (pure, no Streamlit / dashboard deps) so the membership rule is
-# unit-testable; the order/icon overrides stay local to render_money_flow_tab.
-_VIN_FAMILY = frozenset({"VIC", "VHM", "VRE", "VPL"})
-_VIN_SECTOR = "Họ VIN"
-
-
-def _vin_sector_for(symbol: str) -> "str | None":
-    """Return '_VIN_SECTOR' for a Vingroup-ecosystem ticker, else None."""
-    return _VIN_SECTOR if symbol in _VIN_FAMILY else None
+# Membership/label live in the dependency-free vnstock_sectors module (shared
+# with the brief/screener pipeline so the group means the same set everywhere).
+# The order/icon overrides stay local to render_money_flow_tab.
+from vnstock_sectors import (  # noqa: E402
+    VIN_FAMILY as _VIN_FAMILY,
+    VIN_SECTOR as _VIN_SECTOR,
+    vin_sector_for as _vin_sector_for,
+)
 
 
 def render_money_flow_tab() -> None:

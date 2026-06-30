@@ -641,6 +641,18 @@ the snap. See the data serialization loop (~line 2394) in `vnstock_dashboard.py`
   `--strategy-only` / `--reconcile-only` / `--schedule`
 - `dashboard/market_tab.py` — Streamlit UI: AI Brief panel + ⭐ rating +
   strategy/recommendation panel
+- `vnstock_sectors.py` — **canonical custom sector groupings** (pure, dep-free)
+  dùng chung bởi dashboard tab + brief pipeline. Hiện có **"Họ VIN"** =
+  `VIN_FAMILY {VIC, VHM, VRE, VPL}` (DONE 2026-06-30). Money flow tab
+  (`money_flow_tab.py`) import `_vin_sector_for` → gom 4 mã thành "Họ VIN",
+  **pin đầu** (`_MF_SECTOR_ORDER = [_VIN_SECTOR, *SECTOR_ORDER]`), áp mọi
+  sub-table; `SECTOR_ORDER`/`_get_sector` chung KHÔNG đổi (training/portfolio
+  giữ nguyên). Brief: `compute_market_overview` (vnstock_runner) relabel CHỈ
+  **sector aggregation** (`_sector_group` trước groupby) → `sectors` có row
+  "Họ VIN" cho `_sector_flow_block` ("Dòng tiền ngành") + lead/lag + guard NN
+  ngành; **per-ticker "Ngành" GIỮ thô** → `realestate_tickers`/`financial_tickers`/
+  Op.CF context KHÔNG bị phá. Cần recompute market_overview (run.py screener
+  hoặc brief auto-refresh) để có hiệu lực.
 
 API keys live in `.env` (auto-loaded by `python-dotenv`):
 `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`,
