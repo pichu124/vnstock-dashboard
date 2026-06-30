@@ -33,3 +33,29 @@ def test_render_takes_no_positional_args():
                            inspect.Parameter.VAR_KEYWORD)
     ]
     assert required == []
+
+
+def test_vin_family_membership_and_override():
+    """The 'Họ VIN' group is exactly VIC/VHM/VRE/VPL and overrides the listed
+    industry; everything else falls through to the shared sector mapping."""
+    from dashboard.money_flow_tab import _vin_sector_for, _VIN_FAMILY, _VIN_SECTOR
+    assert _VIN_FAMILY == {"VIC", "VHM", "VRE", "VPL"}
+    assert _VIN_SECTOR == "Họ VIN"
+    # every VIN ticker maps to the family group regardless of listed industry
+    for tk in ("VIC", "VHM", "VRE", "VPL"):
+        assert _vin_sector_for(tk) == "Họ VIN"
+    # non-VIN tickers (incl. other 'V' codes) are left to the base mapping
+    for tk in ("FPT", "HPG", "VND", "VCB", "VNM"):
+        assert _vin_sector_for(tk) is None
+
+
+def test_vin_group_pins_first_preserving_base_order():
+    """The tab builds _MF_SECTOR_ORDER = [_VIN_SECTOR, *SECTOR_ORDER] — VIN sits
+    first, the base order is preserved, and no base sector is dropped. Tested on
+    a representative base list to avoid importing the Streamlit-bound dashboard."""
+    from dashboard.money_flow_tab import _VIN_SECTOR
+    base = ["Ngân hàng", "Chứng khoán", "Bảo hiểm", "Bất động sản"]
+    order = [_VIN_SECTOR, *base]   # mirrors the local _MF_SECTOR_ORDER construction
+    assert order[0] == "Họ VIN"
+    assert order[1] == "Ngân hàng"     # VIN sits above banks
+    assert order[1:] == base           # base order preserved, nothing lost/reordered

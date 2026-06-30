@@ -19,6 +19,20 @@ live inline inside this module.
 from __future__ import annotations
 
 
+# ── "Họ VIN" — Vingroup ecosystem grouped as its own sector ───────────────
+# VIC/VHM/VRE/VPL are pulled OUT of their listed industries (BĐS / bán lẻ /
+# du lịch) into one family group, pinned first in the Dòng Tiền Ngành tables.
+# Module-level (pure, no Streamlit / dashboard deps) so the membership rule is
+# unit-testable; the order/icon overrides stay local to render_money_flow_tab.
+_VIN_FAMILY = frozenset({"VIC", "VHM", "VRE", "VPL"})
+_VIN_SECTOR = "Họ VIN"
+
+
+def _vin_sector_for(symbol: str) -> "str | None":
+    """Return '_VIN_SECTOR' for a Vingroup-ecosystem ticker, else None."""
+    return _VIN_SECTOR if symbol in _VIN_FAMILY else None
+
+
 def render_money_flow_tab() -> None:
     """Render the Dòng Tiền tab. Lazy imports Streamlit + dashboard helpers."""
     try:
@@ -55,6 +69,16 @@ def render_money_flow_tab() -> None:
         _score_bar_html, _score_label,
     )
 
+    # ── "Họ VIN" group — order + icon overrides (membership rule lives in the
+    # module-level _vin_sector_for at the top of this file). Scoped to this tab
+    # only: the shared SECTOR_ORDER / _get_sector stay untouched so the training
+    # universe and portfolio sector logic keep their original mapping.
+    _MF_SECTOR_ORDER = [_VIN_SECTOR, *SECTOR_ORDER]
+    _MF_SECTOR_ICONS = {**SECTOR_ICONS, _VIN_SECTOR: "🅥"}
+
+    def _mf_sector(symbol: str, industry: str) -> str:
+        """Money-flow sector: VIN-family ticker → 'Họ VIN', else shared mapping."""
+        return _vin_sector_for(symbol) or _get_sector(industry)
 
     st.markdown("### 💰 Dòng Tiền Ngành")
 
@@ -124,7 +148,7 @@ def render_money_flow_tab() -> None:
     for tk, ind in _ind_map.items():
         if not _is_stock(tk):
             continue
-        sector = _get_sector(ind)
+        sector = _mf_sector(tk, ind)
         _sector_tickers.setdefault(sector, []).append(tk)
 
     # ── Fetch foreign net flow (TopStock API) ────────────────────────────
@@ -212,7 +236,7 @@ def render_money_flow_tab() -> None:
         lq = _live_quotes.get(tk, {})
         od = _order_data.get(tk, {})
         industry = _ind_map.get(tk, "Khác")
-        sector = _get_sector(industry)
+        sector = _mf_sector(tk, industry)
 
         # Prefer order_stats buy/sell ratio (actual matched trades) over bid/ask depth
         buy_ratio = od.get("buy_sell_ratio", lq.get("buy_ratio", 0.5))
@@ -243,7 +267,7 @@ def render_money_flow_tab() -> None:
 
     # ── Aggregate by sector ──────────────────────────────────────────────
     _sector_summary = {}
-    for sec in SECTOR_ORDER:
+    for sec in _MF_SECTOR_ORDER:
         rows = [r for r in _stock_rows if r["sector"] == sec]
         if not rows:
             continue
@@ -306,7 +330,7 @@ def render_money_flow_tab() -> None:
         _top_score = _top_sector[1].get("score", 0)
         st.markdown(
             f'<div class="metric-card"><div class="label">Ngành mạnh nhất</div>'
-            f'<div class="value" style="color:#10b981">{SECTOR_ICONS.get(_top_name, "")} '
+            f'<div class="value" style="color:#10b981">{_MF_SECTOR_ICONS.get(_top_name, "")} '
             f'{_top_name}</div>'
             f'<div class="sub">Score: {_top_score:+.0f}</div></div>',
             unsafe_allow_html=True)
@@ -327,11 +351,11 @@ def render_money_flow_tab() -> None:
         '</tr>'
     )
 
-    for i, sec in enumerate(SECTOR_ORDER):
+    for i, sec in enumerate(_MF_SECTOR_ORDER):
         if sec not in _sector_summary:
             continue
         s = _sector_summary[sec]
-        icon = SECTOR_ICONS.get(sec, "")
+        icon = _MF_SECTOR_ICONS.get(sec, "")
         _, name_color = _score_label(s["score"])
         nn_color = "#10b981" if s["nn_net"] >= 0 else "#ef4444"
         nn_sign = "+" if s["nn_net"] > 0 else ""
@@ -362,12 +386,12 @@ def render_money_flow_tab() -> None:
     st.markdown("")
 
     # ── Drill-down: chi tiết mã trong ngành (Tầng 2) ─────────────────────
-    _available_sectors = [s for s in SECTOR_ORDER if s in _sector_summary]
+    _available_sectors = [s for s in _MF_SECTOR_ORDER if s in _sector_summary]
     _selected_sector = st.selectbox(
         "Chi tiết ngành",
         _available_sectors,
         format_func=lambda s: (
-            f"{SECTOR_ICONS.get(s, '')} {s} ({_sector_summary[s]['n_stocks']} mã)"
+            f"{_MF_SECTOR_ICONS.get(s, '')} {s} ({_sector_summary[s]['n_stocks']} mã)"
         ),
         key="mf_drill",
         help=(
@@ -387,7 +411,7 @@ def render_money_flow_tab() -> None:
 
         _, _sec_color = _score_label(_sec["score"])
         st.markdown(
-            f"**{SECTOR_ICONS.get(_selected_sector, '')} {_selected_sector}** — "
+            f"**{_MF_SECTOR_ICONS.get(_selected_sector, '')} {_selected_sector}** — "
             f"Score: <span style='color:{_sec_color};font-weight:700'>"
             f"{_sec['score']:+.0f}</span> | "
             f"NN ròng: {_sec['nn_net']:+,.0f} tỷ | "
@@ -501,7 +525,7 @@ def render_money_flow_tab() -> None:
         for sym, net in _nn_net.items():
             bs   = _nn_bs.get(sym, {})
             ind  = _ind_map.get(sym, {}) if isinstance(_ind_map.get(sym), dict) else {}
-            sec  = _get_sector(_ind_map.get(sym, "")) if sym in _ind_map else "—"
+            sec  = _mf_sector(sym, _ind_map.get(sym, "")) if sym in _ind_map else "—"
             _deep_rows.append({
                 "Mã": sym,
                 "Ngành": sec,
@@ -556,7 +580,7 @@ def render_money_flow_tab() -> None:
             # ── Cumulative NN ròng theo ngành — bar chart ─────────────────
             _sec_net: dict[str, float] = {}
             for sym, net in _nn_net.items():
-                sec = _get_sector(_ind_map.get(sym, "")) if sym in _ind_map else "—"
+                sec = _mf_sector(sym, _ind_map.get(sym, "")) if sym in _ind_map else "—"
                 _sec_net[sec] = _sec_net.get(sec, 0.0) + net
 
             # Remove unknown/empty sector and sort by value
@@ -648,7 +672,7 @@ def render_money_flow_tab() -> None:
                         av = sum(float(a.get("volume", 0) or 0) for a in asks if isinstance(a, dict))
                         buy_r = bv / (bv + av) if (bv + av) > 0 else 0.5
 
-                    sector = _get_sector(ind_map[tk])
+                    sector = _mf_sector(tk, ind_map[tk])
                     if sector not in sector_live:
                         sector_live[sector] = {
                             "gtgd": 0, "vol": 0,
@@ -678,7 +702,7 @@ def render_money_flow_tab() -> None:
                 '<th style="text-align:center;padding:5px;color:#9ca3af">Áp lực</th>'
                 '</tr>'
             )
-            for idx, sec in enumerate(SECTOR_ORDER):
+            for idx, sec in enumerate(_MF_SECTOR_ORDER):
                 if sec not in sector_live:
                     continue
                 sl = sector_live[sec]
@@ -694,7 +718,7 @@ def render_money_flow_tab() -> None:
                 _lt += (
                     f'<tr style="background:{bg};border-bottom:1px solid #1f2937">'
                     f'<td style="padding:4px 5px;color:#d1d5db">'
-                    f'{SECTOR_ICONS.get(sec, "")} {sec}</td>'
+                    f'{_MF_SECTOR_ICONS.get(sec, "")} {sec}</td>'
                     f'<td style="padding:4px 5px;text-align:right;color:#9ca3af">'
                     f'{sl["count"]}</td>'
                     f'<td style="padding:4px 5px;text-align:right;color:#d1d5db">'
