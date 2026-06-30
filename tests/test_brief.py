@@ -1040,6 +1040,44 @@ def test_enforce_compare_direction_flips_word_to_match_sign():
     assert enforce_compare_direction(f, {}) == f      # idempotent
 
 
+def test_enforce_compare_direction_form_c_inline_signed_pct():
+    # Close 30/06: "GTGD … cao hơn -41% so với phiên trước và 37% so với TB20" —
+    # inline signed % (no parens). 'cao hơn' + (-41%) is a clash → flip the word
+    # and drop the now-redundant sign; the 2nd (unsigned) comparison is left.
+    from vnstock_brief import enforce_compare_direction
+    t = ("VNINDEX … GTGD 20,392.2 tỷ, cao hơn -41% so với phiên trước và 37% "
+         "so với trung bình 20 phiên.")
+    f = enforce_compare_direction(t, {})
+    assert "thấp hơn 41% so với phiên trước" in f
+    assert "cao hơn -41%" not in f
+    assert "37% so với trung bình 20 phiên" in f      # 2nd comparison untouched
+    assert enforce_compare_direction(f, {}) == f       # idempotent (no sign left)
+    # reverse clash: 'thấp hơn +43% so với' → 'cao hơn 43% so với'
+    assert "cao hơn 43% so với" in enforce_compare_direction(
+        "thấp hơn +43% so với phiên trước", {})
+    # consistent inline pair is left alone (keeps its explicit sign)
+    assert enforce_compare_direction("cao hơn +37% so với TB20", {}) == "cao hơn +37% so với TB20"
+
+
+def test_enforce_net_flow_label_aligns_verb_and_sign_to_ctx():
+    # Close 30/06: "… trong khi bán ròng +129 tỷ trong ngành Ngân hàng" — a net
+    # SELL with a '+' figure. Align the verb+sign to the sector's real NN.
+    from vnstock_brief import enforce_net_flow_label
+    # real NN is negative → keep 'bán ròng', strip the '+', emit magnitude
+    ctx_sell = {"sectors": [{"Ngành": "Ngân hàng", "NN 1T (tỷ)": -129.0}]}
+    t = "NN mua ròng 2,570 tỷ trong ngành Họ VIN, trong khi bán ròng +129 tỷ trong ngành Ngân hàng."
+    f = enforce_net_flow_label(t, ctx_sell)
+    assert "bán ròng 129 tỷ trong ngành Ngân hàng" in f
+    assert "+129" not in f
+    assert enforce_net_flow_label(f, ctx_sell) == f          # idempotent
+    # real NN is POSITIVE → the 'bán ròng' label is wrong → flip to 'mua ròng'
+    ctx_buy = {"sectors": [{"Ngành": "Ngân hàng", "NN 1T (tỷ)": 129.0}]}
+    assert "mua ròng 129 tỷ trong ngành Ngân hàng" in enforce_net_flow_label(t, ctx_buy)
+    # noise (<30 tỷ) and missing data → no-op
+    assert enforce_net_flow_label(t, {"sectors": [{"Ngành": "Ngân hàng", "NN 1T (tỷ)": 5.0}]}) == t
+    assert enforce_net_flow_label(t, {}) == t
+
+
 def test_enforce_gtgd_baseline_pct_pins_pct_to_its_baseline():
     # Close 12/06: "GTGD cả ngày 18,353.2 tỷ (+4% vs TB5 phiên, +43% vs phiên
     # trước)" — % shifted onto wrong baselines (real: TB5 +43%, phiên trước +80%).

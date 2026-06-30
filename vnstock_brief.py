@@ -2627,6 +2627,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_watchlist_hygiene(fixed, ctx)
     fixed = enforce_money_flow_two_sides(fixed, ctx)  # close section & morning inline
     fixed = enforce_sector_nn_figures(fixed, ctx)     # fabricated sector NN anywhere
+    fixed = enforce_net_flow_label(fixed, ctx)        # mua/bán ròng verb+sign ↔ real NN
     fixed = enforce_liquidity_label(fixed, ctx)       # NN-sell figures ≠ thanh khoản
     fixed = enforce_nn_window_label(fixed, ctx)       # 1D NN total ≠ weekly
     fixed = enforce_risk_numbers(fixed, ctx)          # defensive no-op on canonical
@@ -3418,6 +3419,43 @@ def enforce_sector_nn_figures(text: str, ctx: dict) -> str:
         out = _re.sub(
             rf"({_re.escape(nm)}.{{0,40}}?(?:NN|khối\s+ngoại)?\s*(?:bán|mua)\s+ròng\s*)"
             rf"(-?\d[\d.,]*)(\s*tỷ)",
+            _fix, out)
+    return out
+
+
+def enforce_net_flow_label(text: str, ctx: dict) -> str:
+    """A 'mua ròng'/'bán ròng' verb must match the SIGN of the named sector's
+    real NN, and the figure must not carry a contradicting sign. Observed close
+    30/06: "… trong khi bán ròng +129 tỷ trong ngành Ngân hàng" — 'bán ròng'
+    (net SELL) with a '+' figure. Neither prior guard catches this 'verb → number
+    → name' order: enforce_money_flow_two_sides pins only the magnitude (leaves
+    the verb/sign), and enforce_sector_nn_figures needs the name BEFORE the verb.
+
+    For each ctx sector named right after a "(mua|bán) ròng <num> tỷ" figure whose
+    magnitude matches that sector's |NN 1T| (≥30 tỷ; two_sides has already pinned
+    the magnitude), set the verb from sign(NN) and re-emit an unsigned magnitude
+    (the verb carries the direction). Idempotent; no-op without sector data.
+    """
+    sectors = ctx.get("sectors") or []
+    rows = [(s.get("Ngành"), s.get("NN 1T (tỷ)")) for s in sectors
+            if s.get("Ngành") and isinstance(s.get("NN 1T (tỷ)"), (int, float))]
+    if not text or not rows:
+        return text
+    out = text
+    for nm, vv in rows:
+        if abs(vv) < 30:                       # skip noise / tiny flows
+            continue
+        want = "mua ròng" if vv > 0 else "bán ròng"
+
+        def _fix(m: "_re.Match", _want=want, _v=vv) -> str:
+            mag = _parse_vn_number(m.group(3))
+            if mag is None or abs(mag - abs(_v)) > max(1.0, 0.02 * abs(_v)):
+                return m.group(0)              # number isn't this sector's → skip
+            return f"{_want}{m.group(2)}{abs(_v):,.0f}{m.group(4)}"
+
+        out = _re.sub(
+            rf"(mua\s+ròng|bán\s+ròng)(\s*)([+-]?\d[\d.,]*)"
+            rf"(\s*tỷ(?:\s*đồng)?\s*(?:trong\s+ngành\s+)?{_re.escape(nm)}\b)",
             _fix, out)
     return out
 
@@ -4391,6 +4429,13 @@ def enforce_compare_direction(text: str, ctx: dict | None = None) -> str:
     bare % with the BASELINE VALUE in parens. The % carries no sign, so compare
     the line's subject tỷ value to the parenthetical baseline: 8,397 > 7,549 →
     'cao hơn', not 'thấp hơn'. Idempotent; no-op when clean.
+
+    Form C (close 30/06: "GTGD … cao hơn -41% so với phiên trước và 37% so với
+    TB20") — an INLINE signed % (no parens) after the word. Only acts when the %
+    carries an EXPLICIT sign that clashes with the word; flips the word to match
+    the sign AND drops the now-redundant sign ("thấp hơn 41% so với phiên trước").
+    Gating on an explicit sign keeps it idempotent — a bare magnitude is never
+    re-flipped — and leaves the 2nd comparison ("và 37% …") for the reader.
     """
     if not text:
         return text
@@ -4408,6 +4453,20 @@ def enforce_compare_direction(text: str, ctx: dict | None = None) -> str:
     out = _re.sub(
         r"(thấp hơn|cao hơn)([^.()]{0,30}?)(\(\s*([+-]?)\d[\d.,]*%\s*\))",
         _fix, text)
+
+    # Form C: inline "<word> <sign><n>% so với …" with an EXPLICIT sign. Flip the
+    # word on a clash and drop the sign (the word now conveys the direction).
+    def _fixC(m: "_re.Match") -> str:
+        word, sp, sign, rest = m.group(1), m.group(2), m.group(3), m.group(4)
+        positive = sign == "+"
+        is_low = word.lower().startswith("thấp")
+        if positive == is_low:          # clash: (+ & thấp) or (- & cao)
+            return f"{'cao hơn' if positive else 'thấp hơn'}{sp}{rest}"
+        return m.group(0)               # consistent → leave (keep sign)
+
+    out = _re.sub(
+        r"(thấp hơn|cao hơn)(\s+)([+-])(\d[\d.,]*\s*%\s*(?:so với|so)\b)",
+        _fixC, out)
 
     # Form B: compare the line's subject value to a parenthetical baseline value.
     lines = out.splitlines()

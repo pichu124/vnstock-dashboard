@@ -166,6 +166,13 @@ trong `apply_brief_guards`, áp cho mọi agent, cả morning & close):
     ghi "Thép & Kim loại (… NN bán ròng -1.372 tỷ)" — bịa + mâu thuẫn "Ngân hàng
     -703 mạnh nhất"). Bắt "{ngành} …(≤40 ký tự)… [NN] bán/mua ròng <số> tỷ" → pin
     về NN thật từ ctx (từ khoá "ròng" ngay trước số nên KHÔNG đụng "-0.03pp").
+    **`enforce_net_flow_label`** (DONE 2026-06-30, chạy SAU 2 cái trên) — dạng
+    *verb→số→tên* "bán ròng +129 tỷ … Ngân hàng" mà 2 guard trên KHÔNG bắt
+    (two_sides chỉ pin magnitude, sector_nn cần tên TRƯỚC verb). Close 30/06:
+    "bán ròng **+**129 tỷ … Ngân hàng" (net SELL mà dấu +). Với mỗi ngành ctx có
+    tên ngay sau "(mua|bán) ròng <số> tỷ" mà magnitude khớp |NN 1T| (≥30 tỷ,
+    two_sides đã pin sẵn) → set verb theo DẤU(NN) + in magnitude không dấu (verb
+    mang chiều). Idempotent.
 11. `enforce_liquidity_label` — mệnh đề "thanh khoản" mang số ÂM = NN bán ròng đội
     lốt turnover → thay bằng dòng canonical top-GTGD thật từ ctx (GTGD ≥ 0 luôn).
 12. `enforce_nn_window_label` — số "NN ròng 1D" (1 phiên, từ block Tâm lý) bị gắn
@@ -202,6 +209,11 @@ trong `apply_brief_guards`, áp cho mọi agent, cả morning & close):
     **Form B (12/06 morning)**: "8,397 tỷ … thấp hơn 11% TB sáng (7,549.1 tỷ)" —
     % KHÔNG dấu, baseline là GIÁ TRỊ trong ngoặc → so subject (giá trị tỷ đầu
     dòng) với baseline: 8,397 > 7,549 → "cao hơn". So bằng SỐ THẬT nên chắc.
+    **Form C (DONE 2026-06-30)**: % INLINE có DẤU rõ, KHÔNG ngoặc (close 30/06:
+    "GTGD … cao hơn **-41%** so với phiên trước và 37% so với TB20"). CHỈ tác động
+    khi dấu clash với từ → lật từ + BỎ dấu ("thấp hơn 41% so với phiên trước");
+    gate "có dấu rõ" giữ idempotent (lần 2 số trần → bỏ qua); vế 2 không dấu để
+    nguyên cho người đọc. Cần "so với"/"so" sau % để chắc là mệnh đề so sánh.
 19. `enforce_scenario_levels` — mức VNINDEX BỊA trong kịch bản (morning 14:28:
     "đóng cửa trên 1,801.99 (đáy phiên)" — 1,801.99 không khớp pivot/close/MA nào
     + "đáy phiên" mà CAO HƠN close = vô lý). STRICT-NHƯNG-AN-TOÀN: chỉ token
