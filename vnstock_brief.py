@@ -4448,8 +4448,15 @@ def enforce_gtgd_baseline_pct(text: str, ctx: dict) -> str:
         cur = _parse_vn_number(m.group(1))
         return (m.group(0) if cur is not None and abs(cur - correct) <= 1
                 else f"{correct:+.0f}{m.group(2)}{m.group(3)}")
+    # Stop the baseline capture at a clause boundary ("và"/"nhưng"), not just at
+    # ,.) — else a 2nd comparison joined by "và" WITHOUT a comma is swallowed into
+    # group 3 and mis-classified (close 01/07: "tăng 0.39% so với phiên trước và
+    # tăng 42% so với TB5" → group 3 = "phiên trước và … trung bình 5 phiên" → the
+    # 'trung bình'/'5' hit made _base_v read it as TB5, so the 'phiên trước' % was
+    # never checked against prev).
     out = _re.sub(
-        r"([+-]?\d[\d.,]*)(\s*%\s*(?:vs|so với|so)\s+)([^,.)]+?)(?=[,.)]|$)",
+        r"([+-]?\d[\d.,]*)(\s*%\s*(?:vs|so với|so)\s+)([^,.)]+?)"
+        r"(?=\s+(?:và|nhưng)\b|[,.)]|$)",
         _fix1, text)
 
     # Form 2: "<baseline> (±N%)"  (baseline precedes the parenthetical %)
@@ -4503,18 +4510,26 @@ def enforce_compare_direction(text: str, ctx: dict | None = None) -> str:
         r"(thấp hơn|cao hơn)([^.()]{0,30}?)(\(\s*([+-]?)\d[\d.,]*%\s*\))",
         _fix, text)
 
-    # Form C: inline "<word> <sign><n>% so với …" with an EXPLICIT sign. Flip the
-    # word on a clash and drop the sign (the word now conveys the direction).
+    # Form C: inline "<word> <sign><n>% so với …" with an EXPLICIT sign — for both
+    # comparison words (cao/thấp hơn) and change verbs (tăng/giảm). Drops the now-
+    # redundant sign (the word carries the direction). A change verb ALWAYS takes
+    # the verb matching the sign (so both "tăng -10%" AND "giảm -10%" normalise to
+    # "giảm 10%"); a comparison word only flips on a real clash (leaving a
+    # consistent "cao hơn +37%" as-is). Close 01/07: after the baseline guard pins
+    # "-10" onto "tăng … so với phiên trước", this yields "giảm 10% so với …".
     def _fixC(m: "_re.Match") -> str:
         word, sp, sign, rest = m.group(1), m.group(2), m.group(3), m.group(4)
+        wl = word.lower()
         positive = sign == "+"
-        is_low = word.lower().startswith("thấp")
-        if positive == is_low:          # clash: (+ & thấp) or (- & cao)
+        if wl in ("tăng", "giảm"):                 # verb carries direction
+            return f"{'tăng' if positive else 'giảm'}{sp}{rest}"
+        is_low = wl.startswith("thấp")
+        if positive == is_low:                     # clash: (+ & thấp) or (- & cao)
             return f"{'cao hơn' if positive else 'thấp hơn'}{sp}{rest}"
-        return m.group(0)               # consistent → leave (keep sign)
+        return m.group(0)                          # consistent → leave (keep sign)
 
     out = _re.sub(
-        r"(thấp hơn|cao hơn)(\s+)([+-])(\d[\d.,]*\s*%\s*(?:so với|so)\b)",
+        r"\b(thấp hơn|cao hơn|tăng|giảm)(\s+)([+-])(\d[\d.,]*\s*%\s*(?:so với|so)\b)",
         _fixC, out)
 
     # Form B: compare the line's subject value to a parenthetical baseline value.
@@ -4819,7 +4834,10 @@ def _recommendation_block() -> str:
             if sl > 0:
                 line += f" SL={_fmt_rec_price(sl)}"
             if r.get("rationale"):
-                line += f" — {r['rationale'][:80]}"
+                _rat = str(r["rationale"]).strip()
+                if len(_rat) > 80:                       # truncate on a WORD
+                    _rat = _rat[:80].rsplit(" ", 1)[0].rstrip(" ,;:-(") + "…"
+                line += f" — {_rat}"
             lines.append(line)
         return "\n".join(lines)
     except Exception:

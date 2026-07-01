@@ -1057,6 +1057,29 @@ def test_enforce_compare_direction_form_c_inline_signed_pct():
         "thấp hơn +43% so với phiên trước", {})
     # consistent inline pair is left alone (keeps its explicit sign)
     assert enforce_compare_direction("cao hơn +37% so với TB20", {}) == "cao hơn +37% so với TB20"
+    # change verbs (tăng/giảm) carry direction → verb from sign, sign always dropped
+    assert enforce_compare_direction("GTGD tăng -10% so với phiên trước", {}) == "GTGD giảm 10% so với phiên trước"
+    assert enforce_compare_direction("GTGD giảm -10% so với phiên trước", {}) == "GTGD giảm 10% so với phiên trước"
+    assert enforce_compare_direction("GTGD giảm +42% so với TB5", {}) == "GTGD tăng 42% so với TB5"
+    assert enforce_compare_direction("GTGD tăng +42% so với TB5", {}) == "GTGD tăng 42% so với TB5"
+
+
+def test_enforce_gtgd_baseline_pct_handles_va_joined_dual_comparison():
+    # Close 01/07: "GTGD toàn ngày 18,298.7 tỷ, tăng 0.39% so với phiên trước và
+    # tăng 42% so với TB5" — the 'phiên trước' % (borrowed index change 0.39%) was
+    # swallowed into one over-captured baseline. With the clause boundary it is
+    # classified against prev and pinned; enforce_compare_direction then fixes the
+    # verb ("tăng -10%" → "giảm 10%").
+    from vnstock_brief import enforce_gtgd_baseline_pct, enforce_compare_direction
+    ctx = {"full_day_gtgd": 18298.7,
+           "full_day_gtgd_cmp": {"prev": 20392.2, "avg5": 12886.0}}
+    t = ("📊 Tổng kết phiên\nGTGD toàn ngày đạt 18,298.7 tỷ, tăng 0.39% so với "
+         "phiên trước và tăng 42% so với trung bình 5 phiên.\n📈 Mức kỹ thuật")
+    f = enforce_compare_direction(enforce_gtgd_baseline_pct(t, ctx), ctx)
+    assert "giảm 10% so với phiên trước" in f            # prev: down ~10%
+    assert "tăng 42% so với trung bình 5 phiên" in f     # TB5: up ~42% (kept)
+    assert "tăng 0.39% so với phiên trước" not in f      # index % no longer borrowed
+    assert "tăng -" not in f and "giảm -" not in f       # no verb/sign clash left
 
 
 def test_enforce_net_flow_label_aligns_verb_and_sign_to_ctx():

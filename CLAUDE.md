@@ -214,6 +214,11 @@ trong `apply_brief_guards`, áp cho mọi agent, cả morning & close):
     khi dấu clash với từ → lật từ + BỎ dấu ("thấp hơn 41% so với phiên trước");
     gate "có dấu rõ" giữ idempotent (lần 2 số trần → bỏ qua); vế 2 không dấu để
     nguyên cho người đọc. Cần "so với"/"so" sau % để chắc là mệnh đề so sánh.
+    **Mở rộng 01/07**: Form C nay bắt CẢ động từ đổi "tăng/giảm" (không chỉ cao/thấp
+    hơn). Động từ MANG chiều → verb theo DẤU + LUÔN bỏ dấu: "tăng -10%"→"giảm 10%",
+    "giảm -10%"→"giảm 10%", "giảm +42%"→"tăng 42%" (khác cao/thấp hơn: chỉ lật khi
+    clash). Sau khi `enforce_gtgd_baseline_pct` pin "-10" vào "tăng … so với phiên
+    trước" → Form C ra "giảm 10% so với phiên trước".
 19. `enforce_scenario_levels` — mức VNINDEX BỊA trong kịch bản (morning 14:28:
     "đóng cửa trên 1,801.99 (đáy phiên)" — 1,801.99 không khớp pivot/close/MA nào
     + "đáy phiên" mà CAO HƠN close = vô lý). STRICT-NHƯNG-AN-TOÀN: chỉ token
@@ -227,7 +232,12 @@ trong `apply_brief_guards`, áp cho mọi agent, cả morning & close):
     (+43%)" trong khi Tổng kết đã pin +21% → cùng brief mâu thuẫn TB5. Pin cả 2
     chiều về `full_day_gtgd_cmp` (avg5/avg20/prev) → TLDR khớp Tổng kết. Gate
     "Tổng kết phiên" + bỏ baseline có "sáng"; baseline không có cmp (TB20 khi <15
-    phiên) để nguyên (không có số để pin); idempotent.
+    phiên) để nguyên (không có số để pin); idempotent. **Fix over-capture 01/07**:
+    khi 2 vế nối bằng "và" KHÔNG có phẩy ("tăng 0.39% so với phiên trước **và** tăng
+    42% so với TB5"), group3 (baseline) của Form 1 nuốt luôn cả vế sau → "trung
+    bình"+"5" khiến `_base_v` đọc NHẦM "phiên trước" thành TB5 → vế phiên trước
+    không bao giờ pin (0.39% = đổi index bị mượn). Lookahead nay dừng ở "và"/"nhưng"
+    → mỗi vế classify đúng (phiên trước→prev, TB5→avg5).
 23. `enforce_composite_rotation_hygiene` — giữ khối composite rotation nhưng vá 2
     lỗi (user chọn "giữ nhưng guard"): (a) **mâu thuẫn bucket↔nhãn** — ngành trong
     dòng "Phân phối" mang nhãn "tích luỹ" (hoặc ngược) → bỏ nhãn mâu thuẫn (23:44:
