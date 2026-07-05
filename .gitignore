@@ -3,7 +3,8 @@ __pycache__/
 *.pyc
 *.tmp.*
 debug.log
-.claude/
+.claude/*
+!.claude/settings.json
 data_warehouse/
 vnstock-agent-guide-main/
 files.zip
