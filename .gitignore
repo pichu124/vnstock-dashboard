@@ -5,6 +5,8 @@ __pycache__/
 debug.log
 .claude/*
 !.claude/settings.json
+!.claude/skills/
+!.claude/skills/**
 data_warehouse/
 vnstock-agent-guide-main/
 files.zip
