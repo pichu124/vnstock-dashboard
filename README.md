@@ -50,8 +50,6 @@ vnstock_screener.py           # Pattern-based stock filtering (9 presets)
 vnstock_classifier.py         # AI industry classification (Claude API)
 vnstock_runner.py             # Orchestrates screener runs
 vnstock_warehouse.py          # Local Parquet storage helpers
-vnstock_analysis.py           # Standalone analysis page
-vnstock_platform.py           # CLI technical analysis tool
 scripts/                      # Windows Task Scheduler installer
 docs/                         # Features & roadmap, setup guides
 ```

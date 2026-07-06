@@ -117,8 +117,6 @@
 | `vnstock_classifier.py` | AI industry classification (Claude API) |
 | `vnstock_runner.py` | Orchestrates screener runs |
 | `vnstock_warehouse.py` | Local parquet storage helpers |
-| `vnstock_analysis.py` | Standalone analysis page |
-| `vnstock_platform.py` | Technical indicator calculations |
 | `scripts/setup_scheduled_tasks.ps1` | Windows Task Scheduler installer |
 | `tests/` | 48 unit tests |
 

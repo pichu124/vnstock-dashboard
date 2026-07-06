@@ -2,7 +2,6 @@
 vnstock_warehouse.py — Local Parquet Data Warehouse
 ====================================================
 High-performance local data warehouse for Vietnamese stock market data.
-Works alongside vnstock_platform_v2.py (shares the same dual-source logic).
 
 Directory structure:
   data_warehouse/
