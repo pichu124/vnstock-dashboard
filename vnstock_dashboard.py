@@ -2428,6 +2428,13 @@ def render_chart(df: pd.DataFrame, ticker: str, height: int = 850,
     """
     import json as _json
 
+    # LWC requires strictly ascending times: one duplicate/out-of-order bar
+    # kills the whole chart silently (blank panes, "Value is null" in console).
+    # Weekly/monthly views survive because resample_ohlcv regroups; raw daily
+    # must be sanitised here.
+    if not df.empty and "time" in df.columns:
+        df = df.sort_values("time").drop_duplicates(subset="time", keep="last")
+
     ind = compute_indicators(df)
     if ind.empty or len(ind) < 2:
         st.warning("Không đủ dữ liệu để vẽ chart.")
