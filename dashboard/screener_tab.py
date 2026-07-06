@@ -75,14 +75,15 @@ def render_screener_tab(
     df_from_preset         = _vnd.df_from_preset
     render_table           = _vnd.render_table
     SESSION_WINDOWS        = _vnd.SESSION_WINDOWS
-    compute_session_stats  = _vnd.compute_session_stats
     save_session_stats     = _vnd.save_session_stats
     load_session_stats_history  = _vnd.load_session_stats_history
     render_session_stats_table  = _vnd.render_session_stats_table
     try:
+        from vnstock_session_stats import compute_session_stats
         from vnstock_session_stats import backfill_session_stats as _backfill_session_stats
         from vnstock_session_stats import reconcile_with_price_history as _reconcile_eod
     except Exception:
+        def compute_session_stats(): return {}
         def _backfill_session_stats(): return 0
         def _reconcile_eod(): return 0
     from datetime import datetime
