@@ -1,0 +1,25 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      # Suite chạy được không cần streamlit/vnstock/plotly (tests mock chúng);
+      # cài tối thiểu cho nhanh — các test cần vnstock thật sẽ tự skip.
+      - name: Install deps
+        run: pip install pandas numpy pyarrow python-dotenv requests rich pytest
+
+      - name: Run tests
+        run: python -m pytest tests/ -q

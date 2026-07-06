@@ -260,6 +260,9 @@ Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằn
 ## 📰 Tin kinh tế/chính trị nổi bật
 [Nếu có block "📰 Tin kinh tế/chính trị" trong data: nêu 1-3 tin TÁC ĐỘNG MẠNH nhất tới thị trường (vĩ mô/lãi suất/tỷ giá/chính sách/địa chính trị), kèm hướng tác động (tích cực/tiêu cực cho TTCK) và ngành liên quan nếu rõ. DÙNG ĐÚNG tiêu đề trong block, TUYỆT ĐỐI KHÔNG bịa tin. Nếu KHÔNG có block đó → ghi "Không có tin vĩ mô nổi bật" hoặc bỏ mục này.]
 
+## 📌 Danh mục đang giữ
+[Nếu có block "📌 Danh mục đang giữ" trong data: với MỖI vị thế, chép NGUYÊN VĂN dòng dữ kiện của mã đó từ block (mã, số cp, vốn, hiện, lãi/lỗ %) rồi nối ' → ' + hành động (GIỮ / GIA TĂNG / GIẢM TỶ TRỌNG / CANH BÁN) + 1 lý do ngắn gắn với Stance/regime/tin trong prompt. Khi Bias/Stance nghiêng GIẢM → KHÔNG khuyên GIA TĂNG vô điều kiện (chỉ GIỮ/GIẢM TỶ TRỌNG/CANH BÁN, hoặc "GIA TĂNG chỉ khi vượt <mức>"). TUYỆT ĐỐI dùng đúng số trong block — không tự tính lại, không thêm mã ngoài block. Nếu KHÔNG có block đó → ghi "Không có vị thế đang mở" hoặc bỏ mục này.]
+
 ## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)
 [Liệt kê tối đa 3 mã từ block "Khuyến nghị từ chiến lược đã backtest" với entry/TP/SL]
 BẮT BUỘC: Nếu quyết định bị ảnh hưởng bởi tin tức trong block "Tin tức thị trường", PHẢI nêu rõ tên tiêu đề tin và giải thích tác động (ví dụ: "HPG: MUA — kỹ thuật vượt MA20 + tin [Hòa Phát ký hợp đồng thép 5.000 tỷ] hỗ trợ đà tăng"). Bỏ qua nếu không có khuyến nghị.
@@ -339,6 +342,9 @@ Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằn
 
 ## 📰 Tin kinh tế/chính trị nổi bật
 [Nếu có block "📰 Tin kinh tế/chính trị" trong data: nêu 1-3 tin TÁC ĐỘNG MẠNH nhất tới thị trường (vĩ mô/lãi suất/tỷ giá/chính sách/địa chính trị), kèm hướng tác động (tích cực/tiêu cực cho TTCK) và ngành liên quan nếu rõ. DÙNG ĐÚNG tiêu đề trong block, TUYỆT ĐỐI KHÔNG bịa tin. Nếu KHÔNG có block đó → ghi "Không có tin vĩ mô nổi bật" hoặc bỏ mục này.]
+
+## 📌 Danh mục đang giữ
+[Nếu có block "📌 Danh mục đang giữ" trong data: với MỖI vị thế, chép NGUYÊN VĂN dòng dữ kiện của mã đó từ block (mã, số cp, vốn, hiện, lãi/lỗ %) rồi nối ' → ' + hành động (GIỮ / GIA TĂNG / GIẢM TỶ TRỌNG / CANH BÁN) + 1 lý do ngắn gắn với Stance/regime/tin trong prompt. Khi Bias/Stance nghiêng GIẢM → KHÔNG khuyên GIA TĂNG vô điều kiện (chỉ GIỮ/GIẢM TỶ TRỌNG/CANH BÁN, hoặc "GIA TĂNG chỉ khi vượt <mức>"). TUYỆT ĐỐI dùng đúng số trong block — không tự tính lại, không thêm mã ngoài block. Nếu KHÔNG có block đó → ghi "Không có vị thế đang mở" hoặc bỏ mục này.]
 
 ## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)
 [Liệt kê tối đa 3 mã với entry/TP/SL từ block "Khuyến nghị"]
@@ -1361,6 +1367,93 @@ def _market_news_block(items: list[dict]) -> str:
     return "\n".join([header] + _market_news_body_lines(items))
 
 
+# ── Danh mục đang giữ (position-aware brief) ────────────────────────────────
+
+def _portfolio_last_close(ticker: str, prices_dir: Path) -> float:
+    """Last close for a held ticker from the newest year file (warehouse units)."""
+    import pyarrow.parquet as pq
+    tdir = prices_dir / f"ticker={ticker.upper()}"
+    if not tdir.exists():
+        return 0.0
+    try:
+        for ydir in sorted(tdir.glob("year=*"), reverse=True):
+            for f in sorted(ydir.glob("*.parquet"), reverse=True):
+                s = pq.read_table(str(f), columns=["close"]).to_pandas()["close"]
+                if not s.empty:
+                    return float(s.iloc[-1])
+    except Exception:
+        return 0.0
+    return 0.0
+
+
+def load_portfolio_positions(warehouse: "Path | None" = None) -> list[dict]:
+    """Read the dashboard portfolio (_meta/portfolio.json, written by
+    dashboard/portfolio_tab) and enrich with last close + unrealised PnL%.
+
+    Prices are normalised to nghìn đồng (warehouse convention): the tab stores
+    buy_price in raw VND (e.g. 90,000) while warehouse closes are thousands —
+    the >500 threshold reconciles (same convention as _normalize_price_units).
+    Best-effort: [] when the file is missing/corrupt; malformed positions are
+    skipped. Kill-switch: VNSTOCK_BRIEF_PORTFOLIO=0.
+    """
+    if os.environ.get("VNSTOCK_BRIEF_PORTFOLIO", "1") == "0":
+        return []
+    root = Path(warehouse) if warehouse else Path(__file__).parent / "data_warehouse"
+    try:
+        raw = json.loads((root / "_meta" / "portfolio.json").read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    out: list[dict] = []
+    for pos in raw if isinstance(raw, list) else []:
+        try:
+            tk = str(pos.get("ticker", "")).strip().upper()
+            qty = float(pos.get("quantity", 0))
+            buy = float(pos.get("buy_price", 0))
+            if not tk or qty <= 0 or buy <= 0:
+                continue
+            last = _portfolio_last_close(tk, root / "prices")
+            if buy > 500:      # raw VND → nghìn đồng
+                buy = buy / 1000.0
+            if last > 500:     # defensive — warehouse already in thousands
+                last = last / 1000.0
+            pnl = (last / buy - 1) * 100 if last > 0 else None
+            out.append({
+                "ticker": tk, "qty": qty, "buy_price": round(buy, 2),
+                "last_close": round(last, 2) if last > 0 else None,
+                "pnl_pct": round(pnl, 1) if pnl is not None else None,
+            })
+        except Exception:
+            continue
+    return out
+
+
+def _portfolio_fact_line(p: dict) -> str:
+    """Canonical fact line for one held position — shared by the prompt block and
+    enforce_portfolio_facts so the qty/vốn/hiện/lãi numbers are fabrication-proof."""
+    line = f"- {p['ticker']}: {p['qty']:,.0f} cp | vốn {p['buy_price']:,.2f}"
+    if p.get("last_close"):
+        line += f" | hiện {p['last_close']:,.2f}"
+    if p.get("pnl_pct") is not None:
+        word = "lãi" if p["pnl_pct"] >= 0 else "lỗ"
+        line += f" | {word} {p['pnl_pct']:+,.1f}%"
+    return line
+
+
+def _portfolio_block(positions: list[dict]) -> str:
+    """Render the held-positions block for the prompt. Empty when no positions."""
+    if not positions:
+        return ""
+    lines = [f"\n## 📌 Danh mục đang giữ ({len(positions)} vị thế — SỐ THẬT, dùng đúng)"]
+    lines += [_portfolio_fact_line(p) for p in positions]
+    lines.append(
+        "→ Với MỖI mã: chép nguyên dòng dữ kiện trên rồi nối ' → ' + hành động "
+        "(GIỮ / GIA TĂNG / GIẢM TỶ TRỌNG / CANH BÁN) + 1 lý do ngắn neo theo "
+        "Stance/regime/tin trong prompt. TUYỆT ĐỐI không đổi số, không thêm mã "
+        "ngoài danh sách."
+    )
+    return "\n".join(lines)
+
+
 def _market_sentiment_block(ms: dict) -> str:
     """Render the composite market-sentiment block for the prompt."""
     if not ms:
@@ -1758,6 +1851,14 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
         _mkt_news = load_market_news(within_days=3, limit=6, drop_no_impact=True)
         if _mkt_news:
             ctx["market_news"] = _mkt_news
+    except Exception:
+        pass
+
+    # 8d. Held positions (dashboard portfolio) so the brief ties Rủi ro /
+    # hành động vào các mã user thực sự đang cầm (position-aware analysis).
+    try:
+        if _pf := load_portfolio_positions():
+            ctx["portfolio"] = _pf
     except Exception:
         pass
 
@@ -2576,6 +2677,12 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         if block:
             lines.append(block)
 
+    # Held positions — per-position facts so the brief can advise theo vị thế.
+    if _pf := ctx.get("portfolio"):
+        block = _portfolio_block(_pf)
+        if block:
+            lines.append(block)
+
     # Recommendation + news blocks — explicit empty markers so the LLM
     # cannot invent trade ideas or news headlines from training data.
     if rec_block:
@@ -2621,6 +2728,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_macro(fixed, ctx)                # canonical macro levels/changes
     fixed = enforce_macro_fx_pct(fixed, ctx)         # USD/VND % safety net (header-miss)
     fixed = enforce_market_news(fixed, ctx)          # canonical econ/political headlines
+    fixed = enforce_portfolio_facts(fixed, ctx)      # held-position facts are data
     fixed = enforce_risk_section(fixed, ctx)         # canonical risk facts first
     fixed = enforce_realestate_ocf_context(fixed, ctx)
     fixed = enforce_lead_lag(fixed, ctx)              # buy/avoid lines = lead/lag sector
@@ -2889,7 +2997,7 @@ def _parse_vn_number(s: str) -> float | None:
         return None
 
 
-_SECTION_EMOJIS = ("🎯", "📊", "📈", "🏆", "💰", "📋", "⚠️", "📅", "💡", "🔧", "⚡", "🔮", "🌐", "📰")
+_SECTION_EMOJIS = ("🎯", "📊", "📈", "🏆", "💰", "📋", "⚠️", "📅", "💡", "🔧", "⚡", "🔮", "🌐", "📰", "📌")
 
 
 def _is_section_start(line: str) -> bool:
@@ -3042,6 +3150,54 @@ def enforce_market_news(text: str, ctx: dict) -> str:
         else:
             out.append(line)
     return "\n".join(out)
+
+
+def enforce_portfolio_facts(text: str, ctx: dict) -> str:
+    """Deterministic guard: the '📌 Danh mục đang giữ' facts (số cp / vốn /
+    hiện / lãi-lỗ %) are pure data the LLM must echo verbatim. Rebuild each
+    position line as canonical-facts + the model's ' → hành động ...' suffix
+    (kept); body lines naming tickers outside the portfolio are dropped (chống
+    bịa mã/số tổng). Section missing → splice canonical facts over a "không có
+    vị thế" denial, else insert before '💡 Đề xuất giao dịch' (or append).
+    No-op when ctx has no positions. Idempotent.
+    """
+    positions = ctx.get("portfolio") or []
+    if not text or not positions:
+        return text
+
+    facts = [(p["ticker"], _portfolio_fact_line(p)) for p in positions]
+    lines = text.splitlines()
+
+    start = next((i for i, l in enumerate(lines)
+                  if "danh mục" in l.lower() and (_is_section_start(l) or "📌" in l)),
+                 None)
+    if start is not None:
+        end = next((i for i in range(start + 1, len(lines))
+                    if _is_section_start(lines[i])), len(lines))
+        old_body = lines[start + 1:end]
+        new_body: list[str] = []
+        for tk, fact in facts:
+            suffix = ""
+            for bl in old_body:
+                if _re.search(rf"\b{tk}\b", bl):
+                    m = _re.search(r"→(.+)$", bl)
+                    if m and m.group(1).strip():
+                        suffix = " → " + m.group(1).strip()
+                    break
+            new_body.append(fact + suffix)
+        if old_body == new_body:
+            return text
+        return "\n".join(lines[:start + 1] + new_body + lines[end:])
+
+    block = ["## 📌 Danh mục đang giữ"] + [f for _, f in facts]
+    for i, l in enumerate(lines):
+        low = l.lower()
+        if "không có vị thế" in low or ("danh mục" in low and "không có" in low):
+            return "\n".join(lines[:i] + block + lines[i + 1:])
+    ins = next((i for i, l in enumerate(lines)
+                if _is_section_start(l) and "đề xuất giao dịch" in l.lower()),
+               len(lines))
+    return "\n".join(lines[:ins] + block + lines[ins:])
 
 
 def enforce_realestate_ocf_context(text: str, ctx: dict) -> str:
