@@ -391,20 +391,36 @@ def _fallback_ohlcv_filter(
     *,
     return_dropped: bool = False,
 ) -> tuple[pd.DataFrame, dict]:
-    """Used when pandera is not installed — enforces the minimum invariants."""
+    """Used when pandera is not installed — mirrors the schema's invariants."""
     before = len(df)
     mask_ok = pd.Series(True, index=df.index)
     if "close" in df.columns:
-        mask_ok &= pd.to_numeric(df["close"], errors="coerce") > 0
+        close = pd.to_numeric(df["close"], errors="coerce")
+        mask_ok &= (close > 0) & (close < PRICE_MAX)
     if "volume" in df.columns:
-        mask_ok &= pd.to_numeric(df["volume"], errors="coerce").fillna(-1) >= 0
+        vol = pd.to_numeric(df["volume"], errors="coerce").fillna(-1)
+        mask_ok &= (vol >= 0) & (vol <= VOLUME_MAX)
+    for col in ("open", "high", "low"):
+        if col in df.columns:
+            v = pd.to_numeric(df[col], errors="coerce")
+            mask_ok &= v.isna() | ((v >= PRICE_MIN) & (v <= PRICE_MAX))
+    if "ticker" in df.columns:
+        mask_ok &= df["ticker"].astype(str).str.match(TICKER_PATTERN, na=False)
+    ohlc = [c for c in ("open", "high", "low", "close") if c in df.columns]
+    if len(ohlc) == 4:
+        vals = df[ohlc].apply(pd.to_numeric, errors="coerce")
+        any_na = vals.isna().any(axis=1)
+        mask_ok &= any_na | (vals["high"] >= vals[["open", "close", "low"]].max(axis=1))
+        mask_ok &= any_na | (vals["low"] <= vals[["open", "close", "high"]].min(axis=1))
     out = df[mask_ok]
     report["rows_out"] = len(out)
     report["dropped"] = before - len(out)
     if return_dropped:
         dropped = df[~mask_ok]
         report["dropped_rows"] = dropped
-        report["dropped_reasons"] = ["fallback: price<=0 or volume<0"] * len(dropped)
+        report["dropped_reasons"] = [
+            "fallback: price/volume out of bounds, bad ticker, or high/low inverted"
+        ] * len(dropped)
     return out, report
 
 
