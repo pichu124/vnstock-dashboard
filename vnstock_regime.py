@@ -60,50 +60,6 @@ def _load_vnindex_tech() -> dict:
         from vnstock_brief import _vnindex_technicals
         return _vnindex_technicals()
     except Exception:
-        pass
-    # Fallback: direct parquet read (identical logic to load_price_history)
-    try:
-        import pyarrow.parquet as pq
-        import pandas as pd
-
-        ticker_dir = _REPO / "data_warehouse" / "prices" / "ticker=VNINDEX"
-        if not ticker_dir.exists():
-            return {}
-
-        tables = []
-        for yd in sorted(ticker_dir.glob("year=*")):
-            for pf in yd.glob("*.parquet"):
-                tables.append(pq.read_table(pf).to_pandas())
-        if not tables:
-            return {}
-
-        df = pd.concat(tables, ignore_index=True).sort_values("trading_date").reset_index(drop=True)
-        if df.empty:
-            return {}
-
-        close = df["close"].astype(float)
-        if close.iloc[-1] > 5000:
-            close = close / 1000
-
-        n = len(close)
-
-        def _ma(w):
-            return float(close.rolling(w).mean().iloc[-1]) if n >= w else None
-
-        def _rsi(period=14):
-            delta = close.diff()
-            gain = delta.clip(lower=0).ewm(com=period - 1, adjust=False).mean()
-            loss = (-delta.clip(upper=0)).ewm(com=period - 1, adjust=False).mean()
-            rs = gain / loss.replace(0, float("nan"))
-            return float(100 - 100 / (1 + rs.iloc[-1]))
-
-        c = float(close.iloc[-1])
-        ma20, ma50, ma200 = _ma(20), _ma(50), _ma(200)
-        return {
-            "close": c, "ma20": ma20, "ma50": ma50, "ma200": ma200,
-            "rsi14": _rsi(14),
-        }
-    except Exception:
         return {}
 
 

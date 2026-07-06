@@ -179,17 +179,6 @@ def load_upcoming(
     ]
 
 
-def _fetch_company(ticker: str):
-    """Resolve a company object via vnstock_adjust's source ladder."""
-    from vnstock_adjust import _company_sources
-    for name, resolve in _company_sources():
-        try:
-            c = resolve(ticker)
-        except Exception:
-            continue
-        if c is not None:
-            return c, name
-    return None, None
 
 
 def diag(ticker: str) -> None:

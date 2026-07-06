@@ -240,3 +240,21 @@ def test_health_splits_stocks_from_non_stocks(tmp_path: Path):
     # Missing rate calc should only consider stocks
     top_tickers = {row["ticker"] for row in snap.missing_top}
     assert top_tickers <= {"VCB", "FPT"}
+
+
+def test_conflicted_year_dirs_detected(mini_warehouse):
+    """A year dir with 2 parquet files (Dropbox conflicted copy) must be
+    flagged — loaders concat every file so bars get silently doubled."""
+    import shutil
+    ydir = mini_warehouse / "prices" / "ticker=VCB" / "year=2025"
+    shutil.copy(ydir / "p.parquet",
+                ydir / "p (conflicted copy 2026-06-16).parquet")
+    snap = collect(mini_warehouse)
+    assert snap.conflicted_year_dirs == ["ticker=VCB/year=2025"]
+    assert any("conflicted copy" in w.lower() for w in snap.warnings)
+
+
+def test_conflicted_year_dirs_clean_warehouse_is_silent(mini_warehouse):
+    snap = collect(mini_warehouse)
+    assert snap.conflicted_year_dirs == []
+    assert not any("conflicted" in w.lower() for w in snap.warnings)

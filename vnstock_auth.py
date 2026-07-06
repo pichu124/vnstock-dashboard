@@ -222,15 +222,3 @@ class _StockShim:
         return self.__finance
 
 
-def check_tier() -> str:
-    """Check current API tier. Returns 'golden', 'silver', 'bronze', or 'community'."""
-    ensure_api_key()
-    try:
-        from vnstock.core.utils.auth import check_status
-        status = str(check_status()).lower()
-        for tier in ("golden", "silver", "bronze"):
-            if tier in status:
-                return tier
-    except Exception:
-        pass
-    return "community"

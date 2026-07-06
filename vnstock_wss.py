@@ -451,38 +451,14 @@ class VnStockWSS:
         raise RuntimeError(f"atomic_write_json failed after retries: {path}")
 
     # ─────────────────────────────────────────────────────────────────────
-    # Mode detection — check if vnstock_data sponsor has realtime API
+    # Mode: polling-only.
+    # Confirmed 2026-04 against vnstock_data 3.0.0 (Golden tier): the
+    # sponsor package ships REST-only — no WebSocket/streaming API.
+    # (A true-WSS scaffold used to live here; see git history if a
+    # sponsor release ever ships a WebSocket endpoint.)
     # ─────────────────────────────────────────────────────────────────────
     def _detect_mode(self):
-        """
-        Pick wss vs polling mode.
-
-        Confirmed 2026-04 against vnstock_data 3.0.0 (Golden tier):
-        the sponsor package ships REST-only — no WebSocket endpoint,
-        no streaming/subscribe API. `python vnstock_wss.py --inspect`
-        shows only HTTP classes (Quote, Market, Trading, …). Thus
-        polling is the only supported mode today.
-
-        The WSS code path (_get_wss_endpoint, _on_ws_*, _parse_tick)
-        is kept as a scaffold for future sponsor releases. If a WSS
-        endpoint ships, subclass RealtimeClient and override
-        `_get_wss_endpoint` + `_parse_tick`; no other code needs to
-        change.
-        """
-        try:
-            import vnstock_data  # noqa: F401
-        except ImportError:
-            self.mode = "polling"
-            print("[vnstock_wss] vnstock_data not installed → polling mode")
-            return
-
-        endpoint = self._get_wss_endpoint()
-        if endpoint:
-            self.mode = "wss"
-            print(f"[vnstock_wss] Found WSS endpoint → WSS mode")
-        else:
-            self.mode = "polling"
-            print("[vnstock_wss] vnstock_data 3.x has no WSS API → polling mode")
+        self.mode = "polling"
 
     # ─────────────────────────────────────────────────────────────────────
     # Lifecycle
@@ -565,9 +541,6 @@ class VnStockWSS:
                 self.subscribed.update(ALL_SYMBOLS)
         print(f"[vnstock_wss] Subscribed {len(self.subscribed)} symbols")
 
-    def unsubscribe(self, ticker: str):
-        with self._lock:
-            self.subscribed.discard(ticker.upper())
 
     # ─────────────────────────────────────────────────────────────────────
     # Status
@@ -615,10 +588,7 @@ class VnStockWSS:
                 continue
 
             try:
-                if self.mode == "wss":
-                    self._run_wss_once()
-                else:
-                    self._run_polling_once()
+                self._run_polling_once()
             except Exception as e:
                 self.last_error = f"{type(e).__name__}: {str(e)[:200]}"
                 self.status = "error"
@@ -628,121 +598,12 @@ class VnStockWSS:
     # ─────────────────────────────────────────────────────────────────────
     # WSS mode (true WebSocket)
     # ─────────────────────────────────────────────────────────────────────
-    def _run_wss_once(self):
-        """
-        Kết nối WebSocket và chạy run_forever. Khi disconnect, main loop
-        sẽ retry.
-        """
-        try:
-            import websocket
-        except ImportError:
-            self.last_error = "websocket-client not installed (pip install websocket-client)"
-            self.status = "error"
-            self.mode = "polling"  # fallback
-            return
 
-        url = self._get_wss_endpoint()
-        if not url:
-            # Không có endpoint → fallback polling
-            self.mode = "polling"
-            return
 
-        self.status = "reconnecting"
-        self._write_status()
 
-        self._ws = websocket.WebSocketApp(
-            url,
-            on_open=self._on_ws_open,
-            on_message=self._on_ws_message,
-            on_error=self._on_ws_error,
-            on_close=self._on_ws_close,
-        )
-        self._ws.run_forever(ping_interval=20, ping_timeout=10)
 
-    def _get_wss_endpoint(self) -> Optional[str]:
-        """
-        Return the WebSocket URL for the sponsor realtime stream, or
-        None if unavailable.
 
-        vnstock_data 3.0.0 (Golden) does NOT expose a WSS endpoint —
-        the package is REST-only. Confirmed via `--inspect`: no
-        WSS_URL/REALTIME_URL/STREAM_URL attribute, no websocket or
-        stream module, no subscribe/on_tick method on any class.
-        Polling (`Market.price_board`, `Quote.intraday`) is the
-        intended realtime path at this tier.
 
-        Override this method in a subclass when a future sponsor
-        release ships WSS. Pair the override with `_parse_tick` so
-        incoming frames are normalized to the tick dict shape used
-        by `_handle_tick`.
-        """
-        return None
-
-    def _on_ws_open(self, ws):
-        self.status = "connected"
-        self._write_status()
-        # Send subscribe message(s) — format phụ thuộc provider
-        try:
-            with self._lock:
-                symbols = list(self.subscribed)
-            sub_msg = json.dumps({"action": "subscribe", "symbols": symbols})
-            ws.send(sub_msg)
-        except Exception as e:
-            self.last_error = f"subscribe failed: {e}"
-
-    def _on_ws_message(self, ws, raw):
-        try:
-            msg = json.loads(raw) if isinstance(raw, str) else json.loads(raw.decode())
-            tick = self._parse_tick(msg)
-            if tick:
-                self._handle_tick(tick)
-        except Exception as e:
-            self.last_error = f"parse error: {str(e)[:100]}"
-
-    def _on_ws_error(self, ws, err):
-        self.last_error = f"ws error: {str(err)[:200]}"
-        self.status = "error"
-        self._write_status()
-
-    def _on_ws_close(self, ws, code, msg):
-        self.status = "disconnected"
-        self._write_status()
-
-    def _parse_tick(self, msg: dict) -> Optional[dict]:
-        """
-        Normalize a WSS frame into the internal tick dict consumed
-        by `_handle_tick` (see keys below).
-
-        Dead code today: vnstock_data 3.0.0 has no WSS, so this is
-        never reached. Kept as a scaffold — the common field-name
-        fallbacks (symbol/ticker/s, price/close/p, …) are a best
-        guess for the day sponsor ships realtime. When that happens,
-        override this in a subclass and map the real schema;
-        `_on_ws_message` will pick it up automatically.
-        """
-        # Best-effort field guessing for unknown provider schema
-        try:
-            ticker = msg.get("symbol") or msg.get("ticker") or msg.get("s")
-            price = msg.get("price") or msg.get("close") or msg.get("p")
-            if not ticker or price is None:
-                return None
-            t = str(ticker).upper()
-            return {
-                "ticker": t,
-                "time": msg.get("time") or datetime.now().isoformat(timespec="seconds"),
-                "price": float(price),
-                "volume": float(msg.get("volume", 0) or msg.get("v", 0) or 0),
-                "bid": float(msg.get("bid", 0) or 0),
-                "ask": float(msg.get("ask", 0) or 0),
-                "bids": msg.get("bids", []),
-                "asks": msg.get("asks", []),
-                "chg_pct": float(msg.get("chg_pct", 0) or msg.get("change_pct", 0) or 0),
-                "high": float(msg.get("high", price) or price),
-                "low": float(msg.get("low", price) or price),
-                "type": "futures" if is_futures(t) else "stock",
-            }
-        except Exception:
-            return None
 
     # ─────────────────────────────────────────────────────────────────────
     # Polling mode (HTTP fallback)
@@ -1345,95 +1206,6 @@ def get_wss_client() -> VnStockWSS:
 # CLI — smoke test
 # ═════════════════════════════════════════════════════════════════════════════
 
-def _inspect_vnstock_data():
-    """Scan vnstock_data package cho realtime/WSS APIs."""
-    print("=" * 60)
-    print("Inspecting vnstock_data sponsor package")
-    print("=" * 60)
-    try:
-        import vnstock_data
-    except ImportError:
-        print("❌ vnstock_data not installed")
-        return
-
-    print(f"\n📦 Package: {vnstock_data.__name__}")
-    if hasattr(vnstock_data, "__version__"):
-        print(f"   Version: {vnstock_data.__version__}")
-    if hasattr(vnstock_data, "__file__"):
-        print(f"   Path: {vnstock_data.__file__}")
-
-    # Top-level attributes
-    print(f"\n📋 Top-level attributes ({len(dir(vnstock_data))}):")
-    public = [a for a in dir(vnstock_data) if not a.startswith("_")]
-    for a in public:
-        try:
-            obj = getattr(vnstock_data, a)
-            kind = type(obj).__name__
-            print(f"   {a:30s} → {kind}")
-        except Exception:
-            print(f"   {a:30s} → <error>")
-
-    # Search for realtime/stream/ws keywords
-    print("\n🔎 Searching for WSS/realtime keywords...")
-    keywords = ["ws", "socket", "stream", "live", "real", "tick", "push", "subscribe"]
-    import pkgutil
-    if hasattr(vnstock_data, "__path__"):
-        found = []
-        for importer, modname, ispkg in pkgutil.walk_packages(
-            vnstock_data.__path__, prefix="vnstock_data."
-        ):
-            if any(k in modname.lower() for k in keywords):
-                found.append(modname)
-        if found:
-            print("   Candidate modules:")
-            for m in found:
-                print(f"     ✓ {m}")
-        else:
-            print("   (none found)")
-
-    # Dump ALL methods of candidate classes
-    print("\n🔬 Probing classes for realtime/intraday methods...")
-    class_candidates = ["Quote", "Market", "Trading", "TopStock", "IndexGroup"]
-    realtime_keywords = ["stream", "subscribe", "ws", "realtime", "live", "on_tick", "push"]
-    fast_keywords = ["intraday", "latest", "snapshot", "tick", "quote", "price", "current", "now"]
-
-    for cls_name in class_candidates:
-        if not hasattr(vnstock_data, cls_name):
-            continue
-        cls = getattr(vnstock_data, cls_name)
-        methods = [m for m in dir(cls) if not m.startswith("_")]
-        print(f"\n   ◉ {cls_name} ({len(methods)} methods):")
-        for m in methods:
-            flags = []
-            if any(k in m.lower() for k in realtime_keywords):
-                flags.append("⚡REALTIME")
-            elif any(k in m.lower() for k in fast_keywords):
-                flags.append("🏃FAST")
-            flag_str = " " + " ".join(flags) if flags else ""
-            # Try to get signature
-            try:
-                import inspect
-                attr = getattr(cls, m)
-                if callable(attr):
-                    sig = str(inspect.signature(attr))[:80]
-                    print(f"      {m}{sig}{flag_str}")
-                else:
-                    print(f"      {m} = {type(attr).__name__}{flag_str}")
-            except Exception:
-                print(f"      {m}{flag_str}")
-
-    # Try to instantiate Quote and see what methods actually work
-    print("\n🧪 Probing Quote() instance methods...")
-    try:
-        q = vnstock_data.Quote(symbol="VCB")
-        q_methods = [m for m in dir(q) if not m.startswith("_") and callable(getattr(q, m, None))]
-        print(f"   Quote(symbol='VCB') instance methods: {q_methods}")
-    except Exception as e:
-        print(f"   Quote() instantiation failed: {e}")
-
-    print("\n" + "=" * 60)
-    print("👉 Copy/paste kết quả cho Claude để tối ưu polling logic")
-    print("=" * 60)
 
 
 def _health_check():
@@ -1548,58 +1320,6 @@ def _health_check():
     return stats
 
 
-def _probe_price_depth(ticker: str):
-    """Probe Quote(ticker).price_depth() → in structure để debug."""
-    print(f"=== Probe price_depth for {ticker} ===")
-    try:
-        from vnstock_data import Quote
-        ensure_api_key()
-    except ImportError:
-        print("❌ vnstock_data not installed")
-        return
-    try:
-        q = Quote(symbol=ticker)
-    except Exception as e:
-        print(f"❌ Quote({ticker}) failed: {e}")
-        return
-
-    # Thử từng signature
-    for label, call in (
-        ("price_depth()", lambda: q.price_depth()),
-        ("price_depth(limit=10)", lambda: q.price_depth(limit=10)),
-        ("price_depth(num_levels=10)", lambda: q.price_depth(num_levels=10)),
-        ("price_depth(depth=10)", lambda: q.price_depth(depth=10)),
-    ):
-        try:
-            r = call()
-            print(f"\n✓ {label} succeeded")
-            print(f"  Type: {type(r).__name__}")
-            if hasattr(r, "shape"):
-                print(f"  Shape: {r.shape}")
-            if hasattr(r, "columns"):
-                print(f"  Columns ({len(r.columns)}):")
-                for c in list(r.columns)[:40]:
-                    print(f"    {c}")
-                if len(r.columns) > 40:
-                    print(f"    ... +{len(r.columns)-40} more")
-            if hasattr(r, "head"):
-                print(f"  Head(3):")
-                print(r.head(3).to_string(max_cols=8))
-            elif isinstance(r, dict):
-                import json as _j
-                print(f"  Keys: {list(r.keys())}")
-                print(f"  Repr: {_j.dumps(r, default=str, ensure_ascii=False)[:800]}")
-            else:
-                print(f"  Repr: {repr(r)[:500]}")
-            return  # Thành công lần đầu → exit
-        except TypeError as e:
-            print(f"\n✗ {label}: {e}")
-            continue
-        except Exception as e:
-            print(f"\n✗ {label}: {type(e).__name__}: {str(e)[:200]}")
-            continue
-
-    print("\n❌ All signatures failed")
 
 
 def _cli():
@@ -1607,9 +1327,6 @@ def _cli():
     parser = argparse.ArgumentParser(description="vnstock_wss CLI")
     parser.add_argument("--test", action="store_true", help="Run 60s smoke test")
     parser.add_argument("--status", action="store_true", help="Print status and exit")
-    parser.add_argument("--inspect", action="store_true", help="Inspect vnstock_data for WSS API")
-    parser.add_argument("--probe-depth", metavar="TICKER",
-                        help="Probe Quote(ticker).price_depth() structure")
     parser.add_argument("--probe-profile", metavar="TICKER",
                         help="Run _fetch_volume_profile (use ALL for all futures)")
     parser.add_argument("--health-check", action="store_true",
@@ -1617,16 +1334,8 @@ def _cli():
     parser.add_argument("--duration", type=int, default=60, help="Test duration (s)")
     args = parser.parse_args()
 
-    if args.inspect:
-        _inspect_vnstock_data()
-        return
-
     if args.health_check:
         _health_check()
-        return
-
-    if args.probe_depth:
-        _probe_price_depth(args.probe_depth)
         return
 
     if args.probe_profile:

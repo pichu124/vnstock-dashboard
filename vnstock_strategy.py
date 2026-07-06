@@ -9,7 +9,6 @@ Architecture
 
   Backtest                 — apply signal() over historical OHLCV per ticker
   generate_strategy()      — ask an agent to draft a strategy
-  improve_strategy()       — ask an agent to refine based on backtest metrics
 
 Strategy contract
 -----------------
@@ -732,30 +731,6 @@ def signal(df, params):
     ...
 """
 
-_IMPROVEMENT_PROMPT = """\
-Đây là chiến lược trước:
-
-```
-{code}
-```
-
-Backtest results:
-- n_trades: {n_trades}
-- win_rate: {win_rate}
-- avg_return: {avg_return}
-- sharpe: {sharpe}
-- max_drawdown: {max_drawdown}
-- expectancy: {expectancy}
-
-Sample errors (nếu có):
-{errors}
-
-Hãy CẢI THIỆN chiến lược này. Giữ nguyên contract `def signal(df, params) -> dict`.
-Có thể thay đổi indicator, ngưỡng, position sizing, exit logic.
-{constraints}
-
-Output: chỉ Python code mới, KHÔNG markdown wrapper.
-"""
 
 
 def _strip_code_fences(text: str) -> str:
@@ -903,32 +878,6 @@ def revise_strategy(
     return new_code, params, None
 
 
-def improve_strategy(
-    agent,
-    code: str,
-    metrics: dict,
-    constraints: str = "",
-) -> tuple[str, str | None]:
-    prompt = _IMPROVEMENT_PROMPT.format(
-        code=code,
-        n_trades=metrics.get("n_trades", 0),
-        win_rate=metrics.get("win_rate"),
-        avg_return=metrics.get("avg_return"),
-        sharpe=metrics.get("sharpe"),
-        max_drawdown=metrics.get("max_drawdown"),
-        expectancy=metrics.get("expectancy"),
-        errors="\n".join(metrics.get("errors", [])[:5]) or "(none)",
-        constraints=constraints,
-    )
-    text, err = agent.generate(prompt, max_tokens=1500)
-    if err:
-        return "", err
-    new_code = _strip_code_fences(text)
-    try:
-        _validate_ast(new_code)
-    except StrategyValidationError as e:
-        return new_code, f"AST rejected: {e}"
-    return new_code, None
 
 
 # ── End-to-end pipeline used by train loop ─────────────────────────────────

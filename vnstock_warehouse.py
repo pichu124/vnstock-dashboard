@@ -23,8 +23,8 @@ Setup API key (one-time):
 
 Run:
   python vnstock_warehouse.py --load        # Initial bulk load (all exchanges)
-  python vnstock_warehouse.py --sync        # Daily incremental sync
   python vnstock_warehouse.py --query FPT   # Query example
+  (daily sync chạy qua `python run.py sync` — vnstock_updater.py)
   python vnstock_warehouse.py --load --exchange HOSE   # One exchange only
 """
 
@@ -167,7 +167,6 @@ class VnStockWarehouse:
     Usage:
         wh = VnStockWarehouse("data_warehouse")
         wh.initial_bulk_load(exchanges=["HOSE"])
-        wh.daily_sync()
         df = wh.query("FPT", start="2020-01-01")
     """
 
@@ -621,80 +620,6 @@ class VnStockWarehouse:
         self._save_meta()
         self._print_stats()
 
-    def daily_sync(self, exchanges: list[str] = None):
-        """
-        Incremental update: only fetch new bars since the last stored date.
-        Safe to run multiple times — deduplication handles overlaps.
-        """
-        console.rule("[bold green]🔄 Daily Sync[/bold green]")
-
-        # Sync known tickers first; optionally add new listings
-        symbols_df = self.get_all_symbols(exchanges)
-        all_tickers = symbols_df["symbol"].tolist() if not symbols_df.empty else []
-
-        # Tickers in warehouse
-        known = list(self._meta.keys())
-        # New listings not yet in warehouse
-        new_listings = [t for t in all_tickers if t not in known]
-
-        to_sync = known + new_listings
-        if not to_sync:
-            console.print("[yellow]⚠ No tickers to sync.[/yellow]")
-            return
-
-        today    = datetime.now().strftime("%Y-%m-%d")
-        updated  = 0
-        no_new   = 0
-        errors   = 0
-
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            MofNCompleteColumn(),
-            TimeElapsedColumn(),
-            console=console,
-        ) as progress:
-            task = progress.add_task("Syncing...", total=len(to_sync))
-
-            for i, ticker in enumerate(to_sync):
-                progress.update(task, description=f"[cyan]{ticker:6s}[/cyan]", advance=1)
-
-                last_date = self._get_last_date(ticker)
-
-                # Start 1 day after last stored date to avoid redundant fetch
-                if last_date:
-                    fetch_start = (
-                        datetime.strptime(last_date, "%Y-%m-%d") + timedelta(days=1)
-                    ).strftime("%Y-%m-%d")
-                else:
-                    fetch_start = DEFAULT_START
-
-                # Skip if already up-to-date
-                if fetch_start > today:
-                    no_new += 1
-                    time.sleep(0.05)
-                    continue
-
-                df = self._fetch_price(ticker, fetch_start, today)
-                if not df.empty:
-                    self._write_parquet(df, ticker)
-                    last = str(df["time"].max())
-                    self._set_last_date(ticker, last, rows=len(df))
-                    updated += 1
-                else:
-                    errors += 1
-
-                if (i + 1) % self.batch_size == 0:
-                    self._save_meta()
-
-        self._save_meta()
-        console.print(
-            f"\n[green]✅ Sync complete:[/green]  "
-            f"Updated: [cyan]{updated}[/cyan]  |  "
-            f"Already current: [dim]{no_new}[/dim]  |  "
-            f"Errors: [red]{errors}[/red]"
-        )
 
     # ── Query ─────────────────────────────────────────────────────────────────
 
@@ -763,214 +688,9 @@ class VnStockWarehouse:
 
         return df.sort_values("time").reset_index(drop=True)
 
-    def query_multi(
-        self,
-        tickers: list[str],
-        start: str = None,
-        end: str   = None,
-    ) -> pd.DataFrame:
-        """Load and concatenate data for multiple tickers."""
-        frames = [self.query(t, start, end) for t in tickers]
-        frames = [f for f in frames if not f.empty]
-        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
     # ── Audit ─────────────────────────────────────────────────────────────────
 
-    def audit(
-        self,
-        fix: bool = False,
-        sample: int = 0,
-    ) -> pd.DataFrame:
-        """
-        Kiểm tra chất lượng toàn bộ dữ liệu trong warehouse.
-
-        Checks:
-          1. File tồn tại nhưng rỗng (0 rows)
-          2. Thiếu cột OHLCV
-          3. Giá trị NaN trong close/volume
-          4. Logic OHLCV sai (high < low, close < 0)
-          5. Dữ liệu trùng lặp (duplicate dates)
-          6. Khoảng trống lớn bất thường (gap > 10 ngày làm việc)
-          7. So sánh last_date trong meta vs thực tế trong file
-
-        Args:
-            fix    : Tự động xóa meta của tickers lỗi để re-download
-            sample : Nếu > 0, chỉ kiểm tra N tickers ngẫu nhiên (test nhanh)
-
-        Returns:
-            DataFrame báo cáo, 1 dòng/ticker
-        """
-        console.rule("[bold yellow]🔍 Warehouse Audit[/bold yellow]")
-
-        tickers = list(self._meta.keys())
-        if sample > 0:
-            import random
-            tickers = random.sample(tickers, min(sample, len(tickers)))
-            console.log(f"  [dim]Sample mode: checking {len(tickers)} tickers[/dim]")
-
-        report   = []
-        to_refix = []
-
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(), MofNCompleteColumn(),
-            TimeElapsedColumn(),
-            console=console,
-        ) as progress:
-            task = progress.add_task("Auditing...", total=len(tickers))
-
-            for ticker in tickers:
-                progress.update(task, description=f"[cyan]{ticker:6s}[/cyan]", advance=1)
-
-                row = {
-                    "ticker":      ticker,
-                    "status":      "✅ OK",
-                    "issues":      [],
-                    "rows":        0,
-                    "date_min":    None,
-                    "date_max":    None,
-                    "meta_last":   self._meta.get(ticker, {}).get("last_date"),
-                    "nulls":       0,
-                    "duplicates":  0,
-                    "ohlc_errors": 0,
-                    "max_gap_days":0,
-                }
-
-                try:
-                    df = self._read_ticker(ticker)
-
-                    # 1. File rỗng
-                    if df.empty:
-                        row["issues"].append("EMPTY_FILE")
-                        row["status"] = "❌ Error"
-                        to_refix.append(ticker)
-                        report.append(row)
-                        continue
-
-                    df["time"] = pd.to_datetime(df["time"])
-                    df = df.sort_values("time").reset_index(drop=True)
-
-                    row["rows"]     = len(df)
-                    row["date_min"] = str(df["time"].min().date())
-                    row["date_max"] = str(df["time"].max().date())
-
-                    # 2. Thiếu cột
-                    missing_cols = [c for c in ("open","high","low","close","volume")
-                                    if c not in df.columns]
-                    if missing_cols:
-                        row["issues"].append(f"MISSING_COLS:{missing_cols}")
-
-                    # 3. NaN trong close
-                    null_count = df["close"].isna().sum()
-                    if null_count > 0:
-                        row["nulls"] = int(null_count)
-                        row["issues"].append(f"NULL_CLOSE:{null_count}")
-
-                    # 4. Logic OHLCV sai
-                    if {"high","low","close"}.issubset(df.columns):
-                        bad = (
-                            (df["high"] < df["low"]) |
-                            (df["close"] < 0)
-                        ).sum()
-                        if bad > 0:
-                            row["ohlc_errors"] = int(bad)
-                            row["issues"].append(f"OHLC_LOGIC:{bad}")
-
-                    # 5. Duplicate dates
-                    dups = df["time"].duplicated().sum()
-                    if dups > 0:
-                        row["duplicates"] = int(dups)
-                        row["issues"].append(f"DUPLICATES:{dups}")
-
-                    # 6. Gap lớn (> 10 ngày calendar, bỏ qua cuối tuần)
-                    if len(df) > 1:
-                        gaps = df["time"].diff().dt.days.dropna()
-                        max_gap = int(gaps.max())
-                        row["max_gap_days"] = max_gap
-                        if max_gap > 10:
-                            row["issues"].append(f"GAP:{max_gap}d")
-
-                    # 7. Meta vs thực tế
-                    actual_last = str(df["time"].max().date())
-                    if row["meta_last"] and row["meta_last"] != actual_last:
-                        row["issues"].append(
-                            f"META_MISMATCH(meta={row['meta_last']},file={actual_last})"
-                        )
-                        # Fix meta
-                        self._meta[ticker]["last_date"] = actual_last
-
-                    if row["issues"]:
-                        row["status"] = "⚠️ Warning" if len(row["issues"]) <= 2 else "❌ Error"
-                        if any(k in str(row["issues"]) for k in
-                               ("EMPTY","MISSING_COLS","NULL_CLOSE","OHLC_LOGIC")):
-                            to_refix.append(ticker)
-
-                except Exception as e:
-                    row["issues"].append(f"READ_ERROR:{str(e)[:60]}")
-                    row["status"] = "❌ Error"
-                    to_refix.append(ticker)
-
-                row["issues"] = "; ".join(row["issues"]) if row["issues"] else ""
-                report.append(row)
-
-        self._save_meta()  # lưu meta fixes
-
-        df_report = pd.DataFrame(report)
-
-        # ── Summary ──────────────────────────────────────────────────────────
-        ok      = (df_report["status"] == "✅ OK").sum()
-        warn    = (df_report["status"] == "⚠️ Warning").sum()
-        err     = (df_report["status"] == "❌ Error").sum()
-        total_r = df_report["rows"].sum()
-
-        t = Table(title="📊 Audit Summary", box=box.SIMPLE_HEAVY)
-        t.add_column("Metric", style="bold")
-        t.add_column("Value",  justify="right")
-        t.add_row("Tickers checked",  f"{len(df_report):,}")
-        t.add_row("✅ OK",             f"[green]{ok:,}[/green]")
-        t.add_row("⚠️  Warning",       f"[yellow]{warn:,}[/yellow]")
-        t.add_row("❌ Error",          f"[red]{err:,}[/red]")
-        t.add_row("Total rows stored", f"{total_r:,}")
-        t.add_row("Tickers to re-download", f"[red]{len(set(to_refix)):,}[/red]")
-        console.print(t)
-
-        # ── Top issues ────────────────────────────────────────────────────────
-        issues_df = df_report[df_report["issues"] != ""].head(20)
-        if not issues_df.empty:
-            it = Table(title="⚠️  Issues Detail (top 20)", box=box.SIMPLE_HEAVY)
-            it.add_column("Ticker", style="cyan", width=10)
-            it.add_column("Status", width=12)
-            it.add_column("Rows",   justify="right", width=8)
-            it.add_column("Date Range", width=24)
-            it.add_column("Issues")
-            for _, r in issues_df.iterrows():
-                it.add_row(
-                    r["ticker"], r["status"],
-                    str(r["rows"]),
-                    f"{r['date_min']} → {r['date_max']}",
-                    r["issues"],
-                )
-            console.print(it)
-
-        # ── Fix: xóa meta để re-download ────────────────────────────────────
-        if fix and to_refix:
-            unique_refix = list(set(to_refix))
-            console.log(
-                f"[yellow]🔧 Removing meta for {len(unique_refix)} "
-                f"tickers → will re-download on next --load[/yellow]"
-            )
-            for t in unique_refix:
-                self._meta.pop(t, None)
-            self._save_meta()
-            console.log("[green]✅ Meta cleared. Run --load to re-download.[/green]")
-
-        # Save report CSV
-        report_path = self.meta_dir / f"audit_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
-        df_report.to_csv(report_path, index=False, encoding="utf-8-sig")
-        console.log(f"[dim]📄 Full report saved → {report_path}[/dim]")
-
-        return df_report
 
     def _print_stats(self):
         """Print warehouse summary table."""
@@ -997,38 +717,6 @@ class VnStockWarehouse:
 # Query Example — load 5 years of FPT in < 1 second
 # ═════════════════════════════════════════════════════════════════════════════
 
-def demo_query(wh: VnStockWarehouse):
-    """
-    Demonstrate fast querying from local Parquet.
-    Expected: < 1 second even for 5 years of daily data.
-    """
-    import time as _time
-    console.rule("[bold]⚡ Query Demo[/bold]")
-
-    ticker = "FPT"
-    t0 = _time.perf_counter()
-    df = wh.query(ticker, start="2020-01-01")
-    elapsed = _time.perf_counter() - t0
-
-    if df.empty:
-        console.print(f"[yellow]No data for {ticker} — run initial_bulk_load first.[/yellow]")
-        return
-
-    console.print(f"[green]✅ {len(df):,} rows loaded in {elapsed*1000:.0f} ms[/green]")
-    console.print(df[["time","open","high","low","close","volume"]].tail(10).to_string(index=False))
-
-    # Simple MA crossover on loaded data
-    df = df.sort_values("time").copy()
-    df["ma20"]  = df["close"].rolling(20).mean()
-    df["ma200"] = df["close"].rolling(200).mean()
-    latest = df.iloc[-1]
-    trend = "📈 Uptrend" if latest["ma20"] > latest["ma200"] else "📉 Downtrend"
-    console.print(
-        f"\n  Last close: [cyan]{latest['close']:.1f}[/cyan]"
-        f"  MA20: {latest['ma20']:.1f}"
-        f"  MA200: {latest['ma200']:.1f}"
-        f"  → {trend}"
-    )
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1038,15 +726,11 @@ def demo_query(wh: VnStockWarehouse):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="VnStock Parquet Warehouse")
     parser.add_argument("--load",       action="store_true", help="Initial bulk load")
-    parser.add_argument("--sync",       action="store_true", help="Daily incremental sync")
     parser.add_argument("--query",      metavar="TICKER",    help="Query demo for a ticker")
     parser.add_argument("--stats",      action="store_true", help="Print warehouse stats")
     parser.add_argument("--exchange",   nargs="+", default=["HOSE","HNX","UPCOM"],
                         help="Exchanges to load (default: all)")
     parser.add_argument("--start",      default=None,        help="Start date YYYY-MM-DD")
-    parser.add_argument("--audit", action="store_true")
-    parser.add_argument("--fix", action="store_true")
-    parser.add_argument("--sample", type=int, default=0)
     parser.add_argument("--tier", default="auto",
                         choices=["auto","community","bronze","silver","golden"])
     parser.add_argument("--root", default="data_warehouse")
@@ -1054,17 +738,11 @@ if __name__ == "__main__":
 
     wh = VnStockWarehouse(root=args.root, tier=args.tier)
 
-    if args.audit:
-        wh.audit(fix=args.fix, sample=args.sample)
-
     if args.load:
         wh.initial_bulk_load(
             exchanges=args.exchange,
             start_override=args.start,
         )
-
-    if args.sync:
-        wh.daily_sync(exchanges=args.exchange)
 
     if args.query:
         # Load a single ticker and print stats
@@ -1081,6 +759,5 @@ if __name__ == "__main__":
     if args.stats:
         wh.stats()
 
-    # Default: show help if no args
-    if not any([args.load, args.sync, args.query, args.stats]):
-        demo_query(wh)
+    if not any([args.load, args.query, args.stats]):
+        parser.print_help()

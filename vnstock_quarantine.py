@@ -67,9 +67,6 @@ class QuarantineEntry:
     def to_dict(self) -> dict:
         return asdict(self)
 
-    @classmethod
-    def from_dict(cls, d: dict) -> "QuarantineEntry":
-        return cls(**{k: d.get(k) for k in cls.__dataclass_fields__})
 
 
 # ─────────────────────────────────────────────────────────────────────────────

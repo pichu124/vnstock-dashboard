@@ -91,7 +91,6 @@ def brief_loop(verbose: bool = True) -> dict:
             c.execute("UPDATE briefs SET auto_score=? WHERE id=?", (s, b["id"]))
         summary["scored"] += 1
 
-    mem.refresh_prompt_stats()
     if verbose:
         print(f"[brief_loop] scored={summary['scored']} skipped={summary['skipped']}")
     return summary
@@ -371,9 +370,6 @@ def _scan_universe() -> list[str]:
     return tickers
 
 
-def _get_universe(top_n: int = 30) -> list[str]:
-    """Backward-compat shim — returns _scan_universe() (top_n ignored)."""
-    return _scan_universe()
 
 
 def _build_context_summary() -> str:

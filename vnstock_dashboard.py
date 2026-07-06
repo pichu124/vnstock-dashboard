@@ -38,7 +38,6 @@ from vnstock_auth import ensure_api_key, get_api_key
 import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
-import base64 as _b64
 import streamlit as st
 import streamlit.components.v1 as _stc
 import warnings as _warnings
@@ -101,7 +100,6 @@ FUND_PATH     = Path("data_warehouse/_meta/fundamentals.parquet")
 WATCHLIST_PATH = Path("data_warehouse/_meta/watchlist.json")
 HISTORY_DIR   = Path("data_warehouse/_meta/screener_history")
 SESSION_STATS_PATH = Path("data_warehouse/_meta/market_session_stats.json")
-MONEY_FLOW_PATH = Path("data_warehouse/_meta/money_flow_cache.json")
 
 
 # ── Sector groups (31 → 15 nhóm) ────────────────────────────────────────────
@@ -729,10 +727,6 @@ def launch_in_new_console(commands: list, log_filename: str = "subprocess.log") 
 
 # Theme — dark mode đã là default, light mode override CSS
 THEMES = {
-    "dark": {
-        "bg": "#0a0e1a", "card_bg": "#111827", "border": "#1f2937",
-        "text": "#f9fafb", "text2": "#9ca3af", "text3": "#6b7280",
-    },
     "light": {
         "bg": "#f8fafc", "card_bg": "#ffffff", "border": "#e2e8f0",
         "text": "#1e293b", "text2": "#475569", "text3": "#94a3b8",
@@ -1018,13 +1012,6 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=300, show_spinner=False)
-def load_and_compute(ticker: str, days: int = 0) -> pd.DataFrame:
-    """Load price history + compute indicators. Cached 5 phút per ticker."""
-    df = load_price_history(ticker, days)
-    if df.empty or len(df) < 20:
-        return df
-    return compute_indicators(df)
 
 
 def get_tech_signals(df: pd.DataFrame) -> dict:
@@ -1111,7 +1098,6 @@ def get_tech_signals(df: pd.DataFrame) -> dict:
 
 LIVE_DIR = Path("data_warehouse/_live")
 ALERTS_PATH = Path("data_warehouse/_meta/price_alerts.json")
-PORTFOLIO_PATH = Path("data_warehouse/_meta/portfolio.json")
 
 
 def load_live_quote(ticker: str) -> dict | None:
@@ -1255,29 +1241,8 @@ def check_and_fire_alerts(alerts: list[dict], bot_token: str = "",
 # Portfolio Tracker
 # ═════════════════════════════════════════════════════════════════════════════
 
-def load_portfolio() -> list[dict]:
-    if not PORTFOLIO_PATH.exists():
-        return []
-    try:
-        return json.loads(PORTFOLIO_PATH.read_text())
-    except (OSError, json.JSONDecodeError) as e:
-        log.warning("Portfolio file corrupt: %s", e)
-        return []
 
 
-def save_portfolio(positions: list[dict]):
-    PORTFOLIO_PATH.parent.mkdir(parents=True, exist_ok=True)
-    import os
-    tmp = PORTFOLIO_PATH.with_suffix(f".{os.getpid()}.tmp")
-    try:
-        tmp.write_text(json.dumps(positions, indent=2, ensure_ascii=False))
-        os.replace(str(tmp), str(PORTFOLIO_PATH))
-    except Exception:
-        if tmp.exists():
-            try:
-                tmp.unlink()
-            except Exception:
-                pass
 
 
 def list_live_futures() -> list[str]:
@@ -2205,8 +2170,6 @@ def load_fundamental(ticker: str) -> dict:
 try:
     from vnstock_session_stats import (
         SESSION_WINDOWS, SESSION_INDICES,
-        compute_session_stats, backfill_session_stats,
-        reconcile_with_price_history,
         save_session_stats as _save_session_stats_impl,
         load_session_stats_history as _load_session_stats_impl,
     )
@@ -2218,24 +2181,11 @@ except Exception:
         "9h-15h":   ("09:00", "15:00"),
     }
     SESSION_INDICES = ["VNINDEX", "VN30", "HNX", "UPCOM"]
-    def compute_session_stats(): return {}
-    def backfill_session_stats(): return 0
-    def reconcile_with_price_history(): return 0
     def _save_session_stats_impl(stats): pass
     def _load_session_stats_impl(): return {}
 
-# Map index names to vnstock symbols (kept for render_session_stats_table)
-_INDEX_SYMBOL_MAP = {
-    "VNINDEX": "VNINDEX",
-    "VN30": "VN30",
-    "HNX": "HNXINDEX",
-    "UPCOM": "UPCOM",
-}
 
 
-def _fetch_index_intraday(index_symbol: str) -> pd.DataFrame:
-    from vnstock_session_stats import _fetch_index_intraday as _impl
-    return _impl(index_symbol)
 
 
 def save_session_stats(stats: dict):
@@ -2833,17 +2783,11 @@ def sig_color(sig: str) -> str:
     if sig == "SELL":    return "#ef4444"
     return "#9ca3af"
 
-def pct_color(v) -> str:
-    if v is None: return "#6b7280"
-    return "#10b981" if v > 0 else ("#ef4444" if v < 0 else "#9ca3af")
 
 def fmt_pct(v) -> str:
     if v is None: return "—"
     return f"+{v:.1f}%" if v > 0 else f"{v:.1f}%"
 
-def fmt_num(v, decimals=2) -> str:
-    if v is None: return "—"
-    return f"{v:.{decimals}f}"
 
 
 def render_signal_badge(label: str, sig: str):
@@ -2963,26 +2907,8 @@ def compute_alerts(current_generated_at: str) -> list:
         return []
 
 
-def format_pct(val):
-    """Format percentage với màu."""
-    if val is None:
-        return "—"
-    try:
-        v = float(val)
-        sign = "+" if v > 0 else ""
-        return f"{sign}{v:.1f}%"
-    except Exception:
-        return "—"
 
 
-def color_pct(val):
-    """Return color class cho pct."""
-    if val is None:
-        return "neutral"
-    try:
-        return "up" if float(val) > 0 else ("down" if float(val) < 0 else "neutral")
-    except Exception:
-        return "neutral"
 
 
 def df_from_preset(preset_data: dict) -> pd.DataFrame:
@@ -3555,12 +3481,6 @@ def load_market_overview() -> pd.DataFrame:
     return mkt_df
 
 
-def load_breadth_indicators() -> dict:
-    """Wrapper — lấy từ unified cache."""
-    # Trigger load nếu chưa có
-    if "_mkt_breadth" not in st.session_state:
-        load_market_overview()
-    return st.session_state.get("_mkt_breadth", {})
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -3623,52 +3543,6 @@ def load_index_overview(days: int = 90) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-@st.cache_data(ttl=300, show_spinner=False)
-def load_foreign_flow() -> pd.DataFrame:
-    """
-    Lấy dòng ngoại (foreign net flow) từ vnstock Trading API.
-    Trả về DataFrame với các mã và net buy/sell value.
-    """
-    try:
-        from vnstock_auth import get_vnstock
-        from datetime import date, timedelta
-
-        end   = date.today().strftime("%Y-%m-%d")
-        start_1w  = (date.today() - timedelta(days=7)).strftime("%Y-%m-%d")
-        start_1m  = (date.today() - timedelta(days=30)).strftime("%Y-%m-%d")
-        start_3m  = (date.today() - timedelta(days=90)).strftime("%Y-%m-%d")
-
-        # Lấy danh sách tất cả tickers
-        if not PRICES_DIR.exists():
-            return pd.DataFrame()
-
-        import re as _re
-        _CW = _re.compile(r"^C[A-Z]{2,4}\d{4}$")
-        tickers = [
-            p.name.replace("ticker=", "")
-            for p in PRICES_DIR.iterdir()
-            if p.is_dir() and p.name.startswith("ticker=")
-        ][:50]  # Giới hạn 50 mã để test
-
-        rows = []
-        for ticker in tickers:
-            try:
-                stock = get_vnstock(ticker)
-                df = stock.trading.foreign_trade()
-                if df is not None and not df.empty:
-                    # Tìm cột net value
-                    net_cols = [c for c in df.columns if "net" in c.lower() or "ròng" in c.lower()]
-                    if net_cols:
-                        rows.append({
-                            "ticker": ticker,
-                            "net_value": float(df[net_cols[0]].iloc[0]) if len(df) > 0 else 0
-                        })
-            except Exception:
-                continue
-
-        return pd.DataFrame(rows) if rows else pd.DataFrame()
-    except Exception:
-        return pd.DataFrame()
 
 
 # ═══════════════════════════════════════════════════════

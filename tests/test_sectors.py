@@ -7,10 +7,9 @@ import pytest
 
 def test_custom_groups_membership():
     import vnstock_sectors as vs
-    assert vs.VIN_FAMILY == {"VIC", "VHM", "VRE", "VPL"}
-    assert vs.VIN_SECTOR == "Họ VIN"
-    assert vs.M_FAMILY == {"GEX", "EIB", "VIX", "VGC", "VSC", "GEE", "GEL"}
-    assert vs.M_SECTOR == "Họ M"
+    groups = dict(vs._CUSTOM_GROUPS)
+    assert groups["Họ VIN"] == {"VIC", "VHM", "VRE", "VPL"}
+    assert groups["Họ M"] == {"GEX", "EIB", "VIX", "VGC", "VSC", "GEE", "GEL"}
 
 
 def test_custom_sector_for_maps_each_family_else_none():
@@ -28,24 +27,20 @@ def test_custom_sector_order_is_registry_order():
     import vnstock_sectors as vs
     assert vs.CUSTOM_SECTOR_ORDER == ["Họ VIN", "Họ M"]
     # CUSTOM_FAMILY is the union of all grouped tickers
-    assert vs.CUSTOM_FAMILY == vs.VIN_FAMILY | vs.M_FAMILY
+    union = set().union(*(members for _, members in vs._CUSTOM_GROUPS))
+    assert vs.CUSTOM_FAMILY == union
 
 
 def test_groups_are_disjoint():
     """No ticker may live in two custom groups (the builder enforces this)."""
     import vnstock_sectors as vs
-    assert not (vs.VIN_FAMILY & vs.M_FAMILY)
+    groups = [members for _, members in vs._CUSTOM_GROUPS]
+    for i, a in enumerate(groups):
+        for b in groups[i + 1:]:
+            assert not (a & b)
     # a duplicated ticker across groups raises at build time
     with pytest.raises(ValueError):
         vs._build_lookup([("A", frozenset({"X"})), ("B", frozenset({"X"}))])
-
-
-def test_vin_sector_for_backcompat_is_vin_only():
-    import vnstock_sectors as vs
-    assert vs.vin_sector_for("VIC") == "Họ VIN"
-    # a Họ-M ticker is NOT matched by the VIN-only back-compat helper
-    assert vs.vin_sector_for("GEX") is None
-    assert vs.vin_sector_for("FPT") is None
 
 
 def test_runner_grouping_pattern_collapses_families_into_sectors():

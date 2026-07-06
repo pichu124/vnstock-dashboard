@@ -44,15 +44,3 @@ CUSTOM_FAMILY = frozenset(_TICKER_TO_GROUP)
 def custom_sector_for(symbol: str) -> "str | None":
     """Return the custom sector label for a ticker, else None."""
     return _TICKER_TO_GROUP.get(symbol)
-
-
-# ── Back-compat single-group accessors (Họ VIN) ───────────────────────────
-VIN_SECTOR = _CUSTOM_GROUPS[0][0]
-VIN_FAMILY = _CUSTOM_GROUPS[0][1]
-M_SECTOR = _CUSTOM_GROUPS[1][0]
-M_FAMILY = _CUSTOM_GROUPS[1][1]
-
-
-def vin_sector_for(symbol: str) -> "str | None":
-    """Back-compat: Họ VIN membership only (use custom_sector_for for all)."""
-    return VIN_SECTOR if symbol in VIN_FAMILY else None

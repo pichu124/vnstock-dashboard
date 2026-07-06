@@ -78,6 +78,11 @@ class HealthSnapshot:
     quarantine: dict | None = None
     wss_coverage: dict | None = None   # partial-miss stats from reconciler
 
+    # year=YYYY dirs holding >1 parquet file — the classic Dropbox
+    # "conflicted copy" signature. Loaders concat every file in the dir,
+    # so a duplicate file silently doubles that year's bars.
+    conflicted_year_dirs: list[str] = field(default_factory=list)
+
     warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -596,6 +601,16 @@ def _scan_warehouse_single_pass(
     snap.ticker_count = len(all_ticker_dirs)
     snap.stock_count = len(stock_dirs)
     snap.non_stock_count = non_stock_count
+
+    # Dropbox-conflicted-copy detection — over ALL ticker dirs (indices too:
+    # a duplicated VNINDEX year corrupts the brief). Any year dir with >1
+    # parquet file means loaders will concat duplicates.
+    for tdir in all_ticker_dirs:
+        for ydir in tdir.glob("year=*"):
+            if len(list(ydir.glob("*.parquet"))) > 1:
+                snap.conflicted_year_dirs.append(
+                    f"{tdir.name}/{ydir.name}")
+
     ticker_dirs = stock_dirs  # only scan stocks from here on
     if not ticker_dirs:
         return
@@ -898,6 +913,14 @@ def _populate_warnings(snap: HealthSnapshot) -> None:
                 f"Newest bar is {gap} days old ({snap.newest_bar}). "
                 "Updater may have stopped."
             )
+
+    if snap.conflicted_year_dirs:
+        sample = ", ".join(snap.conflicted_year_dirs[:3])
+        snap.warnings.append(
+            f"{len(snap.conflicted_year_dirs)} year-dir(s) chứa >1 file parquet "
+            f"(Dropbox conflicted copy?) — data năm đó bị NHÂN ĐÔI khi đọc. "
+            f"Vd: {sample}. Gộp + dedup rồi xoá file thừa."
+        )
 
     if snap.quarantine:
         pending = snap.quarantine.get("pending", 0)

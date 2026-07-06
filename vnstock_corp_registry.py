@@ -38,7 +38,6 @@ Public API
 * register_bulk(events) → many at once
 * get_events_for_ticker(ticker) → DataFrame
 * get_events_for_date(date) → DataFrame
-* is_corp_action_date(ticker, date) → bool quick check
 * import_from_capital_history(warehouse) → bootstrap from cached events
 * clear_source(source) → remove all rows from one source (e.g. for re-import)
 """
@@ -253,24 +252,6 @@ def get_events_for_date(
     return df[df["ex_date"] == target].reset_index(drop=True)
 
 
-def is_corp_action_date(
-    ticker: str,
-    target,
-    *,
-    warehouse: Path = DEFAULT_WAREHOUSE,
-    min_confidence: float = 0.5,
-) -> bool:
-    """Quick boolean check used by anomaly + reconciler skip paths."""
-    df = _load(warehouse)
-    if df.empty:
-        return False
-    target_d = pd.to_datetime(target).date()
-    mask = (
-        (df["ticker"] == str(ticker).upper())
-        & (df["ex_date"] == target_d)
-        & (df["confidence"] >= min_confidence)
-    )
-    return bool(mask.any())
 
 
 def remove_event(
@@ -463,7 +444,6 @@ __all__ = [
     "get_events_for_date",
     "get_events_for_ticker",
     "import_from_capital_history",
-    "is_corp_action_date",
     "register_bulk",
     "register_event",
     "summary",

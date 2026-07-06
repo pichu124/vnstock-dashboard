@@ -17,7 +17,6 @@ Cache: data_warehouse/_meta/news_cache.json
 from __future__ import annotations
 
 import json
-import os
 import threading
 from datetime import date, datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -86,16 +85,6 @@ def build_universe(extra: list[str] | None = None, top_screener: int = 100) -> l
     Falls back to warehouse enumeration if screener data is unavailable.
     """
     tickers: list[str] = list(_VN30_FALLBACK)
-
-    # Try to get live VN30 from brief module
-    try:
-        sys.path.insert(0, str(_REPO))
-        from vnstock_brief import get_vn30_live  # type: ignore
-        live = get_vn30_live()
-        if live:
-            tickers = sorted(live)
-    except Exception:
-        pass
 
     # Screener: top-N by composite score (covers all ~1,600 classified tickers)
     screener_added = 0
@@ -656,17 +645,8 @@ def news_for_ticker(ticker: str, news: list[dict] | None = None) -> list[dict]:
     return [n for n in news if n.get("ticker", "").upper() == ticker]
 
 
-def news_for_date(target_date: str, news: list[dict] | None = None) -> list[dict]:
-    """Filter news by date string YYYY-MM-DD."""
-    if news is None:
-        news = load_news_cache()
-    return [n for n in news if n.get("_date_sort", "").startswith(target_date)]
 
 
-def latest_news(n: int = 50, news: list[dict] | None = None) -> list[dict]:
-    if news is None:
-        news = load_news_cache()
-    return news[:n]
 
 
 # ── AI context formatter ───────────────────────────────────────────────────

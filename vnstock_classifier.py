@@ -871,17 +871,8 @@ Nếu không chắc thì bỏ qua, đừng flag nhầm."""
             try:
                 data = json.loads(json_str)
             except Exception:
-                # Fallback: extract thủ công bằng regex
-                tickers_f   = re.findall(r'"ticker"\s*:\s*"([A-Z0-9]+)"', json_str)
-                suggested_f = re.findall(r'"suggested"\s*:\s*"([^"]+)"', json_str)
-                reasons_f   = re.findall(r'"reason"\s*:\s*"([^"]+)"', json_str)
-                data = {
-                    "suspicious": [
-                        {"ticker": t, "suggested": s, "reason": r}
-                        for t, s, r in zip(tickers_f, suggested_f, reasons_f)
-                    ],
-                    "correct_count": len(batch) - len(tickers_f),
-                }
+                console.print(f"  [yellow]⚠ Batch {batch_num}: JSON không hợp lệ, bỏ qua[/yellow]")
+                continue
             suspicious = data.get("suspicious", [])
             correct    = data.get("correct_count", len(batch) - len(suspicious))
 

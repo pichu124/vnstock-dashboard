@@ -4,8 +4,8 @@ Renders a small inline badge showing how old a cached file is, with
 color hint when data is stale.
 
 Usage in a tab:
-    from vnstock_freshness import render_freshness_badge
-    render_freshness_badge("Market overview", MARKET_OVERVIEW_PATH, stale_hours=24)
+    from vnstock_freshness import render_freshness_row
+    render_freshness_row([("Market overview", MARKET_OVERVIEW_PATH, 24)])
 """
 
 from __future__ import annotations
@@ -65,17 +65,6 @@ def freshness_html(
     )
 
 
-def render_freshness_badge(
-    label: str,
-    path: Path | str,
-    stale_seconds: float = 24 * 3600,
-) -> None:
-    """Render the badge directly via Streamlit. No-op if Streamlit unavailable."""
-    try:
-        import streamlit as st
-    except ImportError:
-        return
-    st.markdown(freshness_html(label, path, stale_seconds), unsafe_allow_html=True)
 
 
 def render_freshness_row(items: list[tuple[str, Path | str, float]]) -> None:

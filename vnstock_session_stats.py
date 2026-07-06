@@ -511,15 +511,6 @@ def load_session_stats_history() -> dict:
     return {k: v for k, v in raw.items() if not k.startswith("_")}
 
 
-def load_calibration() -> dict | None:
-    """Read the most recent calibration block written by _write_history."""
-    if not SESSION_STATS_PATH.exists():
-        return None
-    try:
-        raw = json.loads(SESSION_STATS_PATH.read_text(encoding="utf-8"))
-        return raw.get("_calibration")
-    except Exception:
-        return None
 
 
 def _write_history(all_data: dict, calibration: dict | None = None):

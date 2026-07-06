@@ -9,7 +9,6 @@ Stores:
   backtests           — backtest results per strategy
   recommendations     — buy lists with entry/TP/SL surfaced in briefs
   rec_outcomes        — actual outcomes (filled later) for performance tracking
-  data_gap_suggestions — agent suggestions for new data/indicators
 
 All operations isolated to a single SQLite file under data_warehouse/_meta/.
 No Streamlit dependency — usable from CLI / cron.
@@ -115,30 +114,6 @@ CREATE TABLE IF NOT EXISTS rec_outcomes (
     FOREIGN KEY(rec_id) REFERENCES recommendations(id)
 );
 
-CREATE TABLE IF NOT EXISTS data_gap_suggestions (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at      TEXT NOT NULL,
-    agent_name      TEXT NOT NULL,
-    brief_id        INTEGER,
-    suggestion      TEXT NOT NULL,
-    category        TEXT,
-    priority        INTEGER DEFAULT 0,
-    status          TEXT DEFAULT 'open',
-    FOREIGN KEY(brief_id) REFERENCES briefs(id)
-);
-CREATE INDEX IF NOT EXISTS ix_gap_status ON data_gap_suggestions(status);
-
-CREATE TABLE IF NOT EXISTS prompt_versions (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at      TEXT NOT NULL,
-    brief_type      TEXT NOT NULL,
-    version_tag     TEXT NOT NULL,
-    template        TEXT NOT NULL,
-    avg_rating      REAL,
-    n_briefs        INTEGER DEFAULT 0,
-    is_active       INTEGER DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS ix_prompt_active ON prompt_versions(is_active);
 """
 
 
@@ -215,10 +190,6 @@ def update_rating(brief_id: int, rating: int, feedback: str = "") -> None:
         )
 
 
-def get_brief(brief_id: int) -> Optional[dict]:
-    with _conn() as c:
-        row = c.execute("SELECT * FROM briefs WHERE id=?", (brief_id,)).fetchone()
-        return dict(row) if row else None
 
 
 def top_rated_briefs(brief_type: str, limit: int = 5) -> list[dict]:
@@ -341,18 +312,6 @@ def get_strategy(strategy_id: int) -> Optional[dict]:
         return dict(row) if row else None
 
 
-def list_strategies(status: Optional[str] = None) -> list[dict]:
-    with _conn() as c:
-        if status:
-            rows = c.execute(
-                "SELECT * FROM strategies WHERE status=? ORDER BY created_at DESC",
-                (status,),
-            ).fetchall()
-        else:
-            rows = c.execute(
-                "SELECT * FROM strategies ORDER BY created_at DESC LIMIT 100"
-            ).fetchall()
-        return [dict(r) for r in rows]
 
 
 def best_strategies(limit: int = 5) -> list[dict]:
@@ -605,81 +564,14 @@ def recommendation_performance(strategy_id: Optional[int] = None) -> dict:
 
 
 # ── Data gap suggestions ───────────────────────────────────────────────────
-def save_data_gap(
-    agent_name: str,
-    suggestion: str,
-    category: str = "general",
-    priority: int = 1,
-    brief_id: Optional[int] = None,
-) -> int:
-    init_db()
-    with _conn() as c:
-        cur = c.execute(
-            "INSERT INTO data_gap_suggestions (created_at, agent_name, brief_id, "
-            "suggestion, category, priority) VALUES (?,?,?,?,?,?)",
-            (_now(), agent_name, brief_id, suggestion, category, priority),
-        )
-        return int(cur.lastrowid)
 
 
-def open_data_gaps(limit: int = 50) -> list[dict]:
-    with _conn() as c:
-        rows = c.execute(
-            "SELECT * FROM data_gap_suggestions WHERE status='open' "
-            "ORDER BY priority DESC, created_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
-        return [dict(r) for r in rows]
 
 
-def resolve_data_gap(gap_id: int, status: str = "resolved") -> None:
-    with _conn() as c:
-        c.execute(
-            "UPDATE data_gap_suggestions SET status=? WHERE id=?",
-            (status, gap_id),
-        )
 
 
 # ── Prompt version tracking ────────────────────────────────────────────────
-def save_prompt_version(brief_type: str, version_tag: str, template: str,
-                        is_active: bool = False) -> int:
-    init_db()
-    with _conn() as c:
-        if is_active:
-            c.execute(
-                "UPDATE prompt_versions SET is_active=0 WHERE brief_type=?",
-                (brief_type,),
-            )
-        cur = c.execute(
-            "INSERT INTO prompt_versions (created_at, brief_type, version_tag, "
-            "template, is_active) VALUES (?,?,?,?,?)",
-            (_now(), brief_type, version_tag, template, 1 if is_active else 0),
-        )
-        return int(cur.lastrowid)
 
 
-def active_prompt(brief_type: str) -> Optional[dict]:
-    with _conn() as c:
-        row = c.execute(
-            "SELECT * FROM prompt_versions WHERE brief_type=? AND is_active=1 "
-            "ORDER BY created_at DESC LIMIT 1",
-            (brief_type,),
-        ).fetchone()
-        return dict(row) if row else None
 
 
-def refresh_prompt_stats() -> None:
-    """Recompute avg_rating + n_briefs per prompt version (cheap aggregate)."""
-    with _conn() as c:
-        c.executescript("""
-            UPDATE prompt_versions SET
-                avg_rating = (
-                    SELECT AVG(b.user_rating) FROM briefs b
-                    WHERE b.brief_type = prompt_versions.brief_type
-                      AND b.user_rating IS NOT NULL
-                ),
-                n_briefs = (
-                    SELECT COUNT(*) FROM briefs b
-                    WHERE b.brief_type = prompt_versions.brief_type
-                );
-        """)

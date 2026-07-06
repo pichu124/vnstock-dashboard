@@ -17,7 +17,6 @@ from vnstock_corp_registry import (
     get_events_for_date,
     get_events_for_ticker,
     import_from_capital_history,
-    is_corp_action_date,
     register_bulk,
     register_event,
     remove_event,
@@ -119,27 +118,11 @@ def test_get_events_for_date_empty(tmp_path):
     assert get_events_for_date(date(2026, 4, 15), warehouse=tmp_path).empty
 
 
-# ── is_corp_action_date ───────────────────────────────────────────────────
-
-def test_is_corp_action_date_true(tmp_path):
-    register_event("VCB", "2026-04-15", "cash", cash_amount=2.0,
-                    source="manual", warehouse=tmp_path)
-    assert is_corp_action_date("VCB", "2026-04-15", warehouse=tmp_path)
 
 
-def test_is_corp_action_date_false(tmp_path):
-    assert not is_corp_action_date("XYZ", "2026-04-15", warehouse=tmp_path)
 
 
-def test_is_corp_action_date_respects_confidence_threshold(tmp_path):
-    # Low confidence inferred event
-    register_event("VCB", "2026-04-15", "cash",
-                    cash_amount=2.0, source="inferred",
-                    warehouse=tmp_path)
-    assert is_corp_action_date("VCB", "2026-04-15",
-                                 warehouse=tmp_path, min_confidence=0.4)
-    assert not is_corp_action_date("VCB", "2026-04-15",
-                                     warehouse=tmp_path, min_confidence=0.7)
+
 
 
 # ── remove_event ──────────────────────────────────────────────────────────
