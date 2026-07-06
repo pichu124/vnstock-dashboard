@@ -48,7 +48,6 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable
 
-import numpy as np
 import pandas as pd
 
 

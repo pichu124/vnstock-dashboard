@@ -3,9 +3,8 @@ vnstock_train.py — Training/improvement orchestration for AI brief agents.
 
 Two improvement loops:
 
-  brief_loop()    — pull recent rated briefs, identify high-rated outputs,
-                    save them as "golden examples", update prompt versions.
-                    Also extracts data-gap suggestions from agent reasoning.
+  brief_loop()    — compute auto-scores (specificity heuristic) for recent
+                    unscored briefs, feeding the few-shot/rating pool.
 
   strategy_loop() — for each enabled agent, run develop_and_backtest()
                     to evolve a trading strategy. Best validated ones become
@@ -29,7 +28,7 @@ import re
 import sys
 import time
 import traceback
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 

@@ -69,9 +69,8 @@ def get_hostname() -> str:
 def get_today_vn() -> date:
     """Ngày hôm nay theo Asia/Ho_Chi_Minh."""
     try:
-        import pytz
-        vn = pytz.timezone("Asia/Ho_Chi_Minh")
-        return datetime.now(vn).date()
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).date()
     except Exception:
         return date.today()
 

@@ -37,7 +37,6 @@ Public API
 * register_event(ticker, ex_date, type, ...) → dedupe + persist
 * register_bulk(events) → many at once
 * get_events_for_ticker(ticker) → DataFrame
-* get_events_for_date(date) → DataFrame
 * import_from_capital_history(warehouse) → bootstrap from cached events
 * clear_source(source) → remove all rows from one source (e.g. for re-import)
 """
@@ -240,16 +239,6 @@ def get_events_for_ticker(
     return df.sort_values("ex_date").reset_index(drop=True)
 
 
-def get_events_for_date(
-    target: date,
-    *,
-    warehouse: Path = DEFAULT_WAREHOUSE,
-) -> pd.DataFrame:
-    df = _load(warehouse)
-    if df.empty:
-        return df
-    target = pd.to_datetime(target).date()
-    return df[df["ex_date"] == target].reset_index(drop=True)
 
 
 
@@ -360,91 +349,3 @@ def import_from_capital_history(
 # ─────────────────────────────────────────────────────────────────────────────
 # CLI
 # ─────────────────────────────────────────────────────────────────────────────
-
-
-def _main() -> int:
-    import argparse
-    import sys as _sys
-
-    try:
-        _sys.stdout.reconfigure(encoding="utf-8")
-    except Exception:
-        pass
-
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--warehouse", default=str(DEFAULT_WAREHOUSE))
-    sub = ap.add_subparsers(dest="cmd", required=True)
-
-    show = sub.add_parser("show", help="Print registry summary")
-    show.add_argument("--ticker")
-    show.add_argument("--date")
-
-    add = sub.add_parser("add", help="Register one event")
-    add.add_argument("--ticker", required=True)
-    add.add_argument("--date", required=True, help="YYYY-MM-DD")
-    add.add_argument("--type", required=True,
-                     choices=sorted(VALID_TYPES))
-    add.add_argument("--cash", type=float, help="Cash amount per share (VND)")
-    add.add_argument("--ratio", type=float, help="Split/bonus ratio")
-    add.add_argument("--source", default="manual")
-    add.add_argument("--note", default=None)
-
-    sub.add_parser("import-capital-history",
-                    help="Bootstrap registry from _meta/corp_actions/*.parquet")
-
-    clear = sub.add_parser("clear-source",
-                            help="Remove all rows from one source")
-    clear.add_argument("source")
-
-    args = ap.parse_args()
-    warehouse = Path(args.warehouse)
-
-    if args.cmd == "show":
-        if args.ticker:
-            df = get_events_for_ticker(args.ticker, warehouse=warehouse)
-            print(df.to_string(index=False) if not df.empty else "(empty)")
-        elif args.date:
-            df = get_events_for_date(
-                pd.to_datetime(args.date).date(), warehouse=warehouse,
-            )
-            print(df.to_string(index=False) if not df.empty else "(empty)")
-        else:
-            s = summary(warehouse)
-            print(json.dumps(s, indent=2, ensure_ascii=False, default=str))
-
-    elif args.cmd == "add":
-        n = register_event(
-            args.ticker, args.date, args.type,
-            cash_amount=args.cash, ratio=args.ratio,
-            source=args.source, note=args.note, warehouse=warehouse,
-        )
-        print(f"[registry] registered {args.ticker} {args.date} {args.type}; "
-              f"total rows = {n}")
-
-    elif args.cmd == "import-capital-history":
-        result = import_from_capital_history(warehouse, verbose=True)
-        print(json.dumps(result, indent=2))
-
-    elif args.cmd == "clear-source":
-        n = clear_source(args.source, warehouse=warehouse)
-        print(f"[registry] removed {n} row(s) from source={args.source}")
-
-    return 0
-
-
-if __name__ == "__main__":
-    import sys
-    sys.exit(_main())
-
-
-__all__ = [
-    "DEFAULT_CONFIDENCE",
-    "VALID_TYPES",
-    "clear_source",
-    "get_events_for_date",
-    "get_events_for_ticker",
-    "import_from_capital_history",
-    "register_bulk",
-    "register_event",
-    "summary",
-]

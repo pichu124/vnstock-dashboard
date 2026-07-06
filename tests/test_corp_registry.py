@@ -14,7 +14,6 @@ from vnstock_corp_registry import (
     DEFAULT_CONFIDENCE,
     VALID_TYPES,
     clear_source,
-    get_events_for_date,
     get_events_for_ticker,
     import_from_capital_history,
     register_bulk,
@@ -100,22 +99,9 @@ def test_register_bulk_empty(tmp_path):
     assert result["added"] == 0
 
 
-# ── get_events_for_date ───────────────────────────────────────────────────
-
-def test_get_events_for_date(tmp_path):
-    register_event("VCB", "2026-04-15", "cash", cash_amount=2.0,
-                    warehouse=tmp_path)
-    register_event("FPT", "2026-04-15", "bonus", ratio=1.2,
-                    warehouse=tmp_path)
-    register_event("VCB", "2026-04-16", "cash", cash_amount=1.0,
-                    warehouse=tmp_path)
-    df = get_events_for_date(date(2026, 4, 15), warehouse=tmp_path)
-    assert len(df) == 2
-    assert set(df["ticker"]) == {"VCB", "FPT"}
 
 
-def test_get_events_for_date_empty(tmp_path):
-    assert get_events_for_date(date(2026, 4, 15), warehouse=tmp_path).empty
+
 
 
 

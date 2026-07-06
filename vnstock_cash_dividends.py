@@ -37,7 +37,6 @@ CLI
 
 from __future__ import annotations
 
-import argparse
 import json
 import re
 import sys
@@ -398,97 +397,3 @@ def fetch_and_register(
 # ─────────────────────────────────────────────────────────────────────────────
 # CLI
 # ─────────────────────────────────────────────────────────────────────────────
-
-
-def _main() -> int:
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-    except Exception:
-        pass
-
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--warehouse", default=str(DEFAULT_WAREHOUSE))
-    ap.add_argument("--ticker", help="Single ticker")
-    ap.add_argument("--bulk", action="store_true",
-                    help="Fetch all stocks in warehouse")
-    ap.add_argument("--limit", type=int, default=0,
-                    help="With --bulk, process at most N tickers")
-    ap.add_argument("--no-cache", action="store_true",
-                    help="Force network fetch")
-    ap.add_argument("--register", action="store_true",
-                    help="Push fetched events into the corp action registry")
-    args = ap.parse_args()
-
-    warehouse = Path(args.warehouse)
-
-    if args.ticker and not args.bulk:
-        if args.register:
-            result = fetch_and_register(
-                args.ticker, warehouse=warehouse,
-                use_cache=not args.no_cache,
-            )
-            print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
-        else:
-            events = fetch_cash_dividends(
-                args.ticker, warehouse=warehouse,
-                use_cache=not args.no_cache,
-            )
-            for e in events:
-                print(f"  {e.ex_date}  {e.cash_amount_vnd:>10,.0f} VND  "
-                      f"({e.note[:80]})")
-            print(f"\nTotal: {len(events)} cash dividends")
-        return 0
-
-    if args.bulk:
-        from vnstock_anomaly import _is_stock
-        prices = warehouse / "prices"
-        tickers = sorted(
-            p.name.removeprefix("ticker=")
-            for p in prices.glob("ticker=*")
-            if p.is_dir() and _is_stock(p.name.removeprefix("ticker="))
-        )
-        if args.limit:
-            tickers = tickers[: args.limit]
-        print(f"[cash_div] processing {len(tickers)} tickers...")
-        success = empty = fail = 0
-        for i, t in enumerate(tickers, 1):
-            try:
-                if args.register:
-                    res = fetch_and_register(
-                        t, warehouse=warehouse, use_cache=not args.no_cache,
-                    )
-                    if res["fetched"] > 0:
-                        success += 1
-                    else:
-                        empty += 1
-                else:
-                    events = fetch_cash_dividends(
-                        t, warehouse=warehouse, use_cache=not args.no_cache,
-                    )
-                    if events:
-                        success += 1
-                    else:
-                        empty += 1
-            except Exception as e:
-                fail += 1
-                print(f"  [{i}/{len(tickers)}] {t}: {e}", file=sys.stderr)
-            if i % 50 == 0:
-                print(f"  progress: {i}/{len(tickers)} "
-                      f"(ok={success} empty={empty} fail={fail})")
-        print(f"[cash_div] done: ok={success} empty={empty} fail={fail}")
-        return 0
-
-    ap.print_help()
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(_main())
-
-
-__all__ = [
-    "CashDividend",
-    "fetch_and_register",
-    "fetch_cash_dividends",
-    "parse_cafef_html",
-]

@@ -28,7 +28,6 @@ CLI
 
 from __future__ import annotations
 
-import argparse
 import json
 import re
 import time
@@ -348,90 +347,3 @@ def _bulk_worker(
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
-
-def _build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Vietstock corp action scraper")
-    p.add_argument("--ticker", help="Single ticker (e.g. CDC)")
-    p.add_argument("--bulk", action="store_true", help="Process all warehouse tickers")
-    p.add_argument("--limit", type=int, default=0, help="Limit for --bulk")
-    p.add_argument("--register", action="store_true",
-                   help="Register fetched events into corp_actions_registry")
-    p.add_argument("--warehouse", default="data_warehouse",
-                   help="Path to data warehouse root")
-    p.add_argument("--fdate", default="", help="From date YYYY-MM-DD")
-    p.add_argument("--tdate", default="", help="To date YYYY-MM-DD")
-    p.add_argument("--workers", type=int, default=4,
-                   help="Parallel workers for --bulk (default: 4)")
-    p.add_argument("--verbose", action="store_true", help="Print HTTP debug info")
-    return p
-
-
-def main(argv=None):
-    args = _build_parser().parse_args(argv)
-    warehouse = Path(args.warehouse)
-
-    if args.ticker and not args.bulk:
-        if args.register:
-            res = fetch_and_register(args.ticker, warehouse=warehouse,
-                                     fdate=args.fdate, tdate=args.tdate)
-            print(json.dumps(res, indent=2))
-        else:
-            events = fetch_corp_events(args.ticker, fdate=args.fdate, tdate=args.tdate,
-                                       verbose=getattr(args, "verbose", False))
-            for e in events:
-                print(f"  {e['ex_date']}  {e['type_']:8s}  {e['note'][:80]}")
-            print(f"\nTotal: {len(events)} events")
-        return
-
-    if args.bulk:
-        import sys
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        from vnstock_anomaly import _is_stock
-
-        prices = warehouse / "prices"
-        tickers = sorted(
-            p.name.removeprefix("ticker=")
-            for p in prices.glob("ticker=*")
-            if p.is_dir() and _is_stock(p.name.removeprefix("ticker="))
-        )
-        if args.limit:
-            tickers = tickers[: args.limit]
-
-        n_workers = max(1, min(args.workers, 8))  # cap at 8 to avoid ban
-        print(f"[vietstock] processing {len(tickers)} tickers with {n_workers} workers...")
-
-        # Split tickers evenly across workers
-        chunks: list[list[str]] = [[] for _ in range(n_workers)]
-        for i, t in enumerate(tickers):
-            chunks[i % n_workers].append(t)
-
-        ok = empty = fail = 0
-        done = 0
-        with ThreadPoolExecutor(max_workers=n_workers) as pool:
-            futures = {
-                pool.submit(
-                    _bulk_worker, chunk,
-                    warehouse=warehouse,
-                    fdate=args.fdate,
-                    tdate=args.tdate,
-                    do_register=args.register,
-                ): idx
-                for idx, chunk in enumerate(chunks)
-            }
-            for fut in as_completed(futures):
-                w_ok, w_empty, w_fail = fut.result()
-                ok += w_ok
-                empty += w_empty
-                fail += w_fail
-                done += w_ok + w_empty + w_fail
-                print(f"  progress: {done}/{len(tickers)} "
-                      f"ok={ok} empty={empty} fail={fail}")
-
-        print(f"[vietstock] done: ok={ok} empty={empty} fail={fail}")
-        return
-
-    print("Specify --ticker or --bulk", file=__import__("sys").stderr)
-
-
-if __name__ == "__main__":
-    main()

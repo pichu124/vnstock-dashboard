@@ -1,4 +1,4 @@
-"""Tests for vnstock_contracts — the Pandera data-contract layer."""
+"""Tests for vnstock_contracts — the OHLCV data-contract layer."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ import pytest
 from vnstock_contracts import (
     ContractViolation,
     validate_ohlcv,
-    validate_fundamental,
 )
 
 
@@ -30,13 +29,12 @@ def test_accept_clean_ohlcv():
     assert report["dropped"] == 0
 
 
-def test_accept_clean_fundamental():
-    df = pd.DataFrame([{
-        "ticker": "VCB", "as_of": "2026-04-17",
-        "pe": 12.3, "pb": 1.5, "roe": 18.4, "roa": 2.1, "eps": 4500.0,
-    }])
-    clean, report = validate_fundamental(df)
-    assert report["rows_out"] == 1
+def test_accept_partial_bar_with_nan_ohlc():
+    bar = _mkbar()
+    bar["open"] = None
+    df = pd.DataFrame([bar])
+    clean, report = validate_ohlcv(df, drop_invalid=True)
+    assert report["rows_out"] == 1   # NaN open allowed; cross-field rules exempt
 
 
 # ── negative cases — must drop or raise ─────────────────────────────────────
@@ -74,11 +72,23 @@ def test_reject_bad_ticker_format():
 
 def test_strict_mode_raises():
     df = pd.DataFrame([_mkbar(close=-1.0)])
-    schema_present = validate_ohlcv(pd.DataFrame([_mkbar()]))[1]["pandera_available"]
-    if not schema_present:
-        pytest.skip("pandera not installed")
     with pytest.raises(ContractViolation):
         validate_ohlcv(df, strict=True)
+
+
+def test_return_dropped_carries_rows_and_reasons():
+    df = pd.DataFrame([_mkbar(), _mkbar(time="2026-04-18", close=-1.0)])
+    clean, report = validate_ohlcv(df, drop_invalid=True, return_dropped=True)
+    assert len(report["dropped_rows"]) == 1
+    assert report["dropped_reasons"] == ["close out of bounds"]
+    assert report["failures"]
+
+
+def test_drop_invalid_false_returns_unchanged():
+    df = pd.DataFrame([_mkbar(close=-1.0)])
+    clean, report = validate_ohlcv(df, drop_invalid=False)
+    assert len(clean) == 1
+    assert report["failures"]
 
 
 # ── empty / edge cases ──────────────────────────────────────────────────────
@@ -88,12 +98,3 @@ def test_empty_df_passes_through():
     clean, report = validate_ohlcv(df)
     assert clean.empty
     assert report["rows_in"] == 0
-
-
-def test_fundamental_allows_null_metrics():
-    df = pd.DataFrame([{
-        "ticker": "VCB", "as_of": "2026-04-17",
-        "pe": None, "pb": None, "roe": None, "roa": None, "eps": None,
-    }])
-    clean, report = validate_fundamental(df)
-    assert report["rows_out"] == 1

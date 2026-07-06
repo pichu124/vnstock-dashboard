@@ -369,34 +369,9 @@ def _normalise_date(d) -> str:
     return pd.to_datetime(d).strftime("%Y-%m-%d")
 
 
-def _atomic_write_json(path: Path, data: dict) -> None:
-    """Atomic write with retry — Dropbox / antivirus on Windows occasionally
-    holds a transient lock on the destination path and os.replace fails with
-    PermissionError. A short retry loop absorbs those spikes."""
-    import time
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(f".{os.getpid()}.tmp")
-    last_err: Exception | None = None
-    for attempt in range(5):
-        try:
-            tmp.write_text(
-                json.dumps(data, indent=2, ensure_ascii=False, default=str),
-                encoding="utf-8",
-            )
-            os.replace(str(tmp), str(path))
-            return
-        except PermissionError as e:
-            last_err = e
-            time.sleep(0.1 * (2 ** attempt))  # 0.1, 0.2, 0.4, 0.8, 1.6s
-        finally:
-            if tmp.exists():
-                try:
-                    tmp.unlink()
-                except Exception:
-                    pass
-    if last_err is not None:
-        raise last_err
+# Shared atomic-write helper — same tmp+os.replace+retry loop as quarantine's;
+# alias keeps the module-level name that tests and callers patch.
+from vnstock_quarantine import _atomic_write as _atomic_write_json
 
 
 def _log_action(

@@ -38,11 +38,10 @@ import argparse
 import json
 import sys
 from dataclasses import dataclass, asdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
-import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 
 

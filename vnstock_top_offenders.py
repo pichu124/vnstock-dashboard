@@ -25,9 +25,7 @@ for cron pipelines that want to fail loudly when concentration spikes.
 
 from __future__ import annotations
 
-import argparse
 import json
-import sys
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -220,69 +218,3 @@ def render_table(stats: list[TickerStats], *, limit: int = 20) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 # CLI
 # ─────────────────────────────────────────────────────────────────────────────
-
-
-def _main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--warehouse", default=str(DEFAULT_WAREHOUSE))
-    ap.add_argument("--severity", choices=["fail", "warn"])
-    ap.add_argument("--by-kind", choices=["band", "ohlc", "gap", "vol_spike",
-                                           "zero_vol_move"])
-    ap.add_argument("--limit", type=int, default=20)
-    ap.add_argument("--json", action="store_true",
-                    help="Emit JSON (suitable for piping) instead of a table")
-    args = ap.parse_args()
-
-    stats = analyze(
-        warehouse=Path(args.warehouse),
-        severity_filter=args.severity,
-        kind_filter=args.by_kind,
-    )
-    conc = concentration(stats, top_n=args.limit)
-    suggestions = bulk_suggestions(stats, limit=min(10, args.limit))
-
-    if args.json:
-        out = {
-            "concentration": conc,
-            "top": [s.to_dict() for s in stats[:args.limit]],
-            "suggestions": suggestions,
-        }
-        print(json.dumps(out, indent=2, ensure_ascii=False, default=str))
-        return 0 if not stats else 1
-
-    print(f"\n=== Top {args.limit} offenders "
-          f"(severity={args.severity or 'all'}, "
-          f"kind={args.by_kind or 'all'}) ===\n")
-    print(render_table(stats, limit=args.limit))
-    print()
-    print(f"Concentration: {conc['total_anomalies']} anomalies across "
-          f"{conc['total_tickers']} tickers.")
-    print(f"Top {conc['top_n']} tickers hold {conc['top_n_total']} "
-          f"({conc['top_n_share']:.1%}) — {conc['pattern'].upper()}.")
-    if conc["pattern"] == "concentrated":
-        print("\n  → Refetching/accepting the top offenders will eliminate "
-              "most of the noise.")
-    elif conc["pattern"] == "diffuse":
-        print("\n  → Noise is spread evenly — threshold tuning, not per-"
-              "ticker remediation, is the right lever.")
-
-    if suggestions:
-        print("\n=== Suggested bulk commands ===")
-        for s in suggestions:
-            print(f"  # {s['ticker']} ({s['total']} anomalies) → {s['action']}")
-            print(f"  {s['cli']}")
-
-    return 0 if not stats else 1
-
-
-if __name__ == "__main__":
-    sys.exit(_main())
-
-
-__all__ = [
-    "TickerStats",
-    "analyze",
-    "bulk_suggestions",
-    "concentration",
-    "render_table",
-]

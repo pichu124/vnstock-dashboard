@@ -566,9 +566,8 @@ class VnStockWSS:
     def _is_market_open(self) -> bool:
         """Kiểm tra có đang trong giờ giao dịch HOSE (Asia/Ho_Chi_Minh)."""
         try:
-            import pytz
-            vn_tz = pytz.timezone("Asia/Ho_Chi_Minh")
-            now = datetime.now(vn_tz)
+            from zoneinfo import ZoneInfo
+            now = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh"))
         except Exception:
             now = datetime.now()
         if now.weekday() >= 5:  # Saturday/Sunday

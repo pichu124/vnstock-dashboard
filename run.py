@@ -9,7 +9,7 @@ Subcommands
 -----------
     python run.py scan       — collect a HealthSnapshot and print it
     python run.py sync       — incremental daily update (updater + rollup)
-    python run.py validate   — re-run pandera contracts on the warehouse
+    python run.py validate   — re-run data contracts on the warehouse
     python run.py audit      — reconciler + anomaly scan, optionally + LLM
     python run.py test       — pytest
     python run.py dashboard  — launch streamlit dashboard
@@ -119,7 +119,7 @@ def cmd_validate(args) -> int:
 
     This is heavier than the inline write-time check because it validates
     the full history, not just newly-ingested rows. Useful after a schema
-    change to pandera or after a bulk load.
+    change to the contracts or after a bulk load.
     """
     from vnstock_contracts import validate_ohlcv
     import pandas as pd
@@ -903,7 +903,7 @@ def build_parser() -> argparse.ArgumentParser:
                             "(raw-VND rescale)")
     sync.add_argument("--no-auto-heal", action="store_true",
                        help="Skip the post-sync quarantine auto-heal pass")
-    sub.add_parser("validate", help="Re-run pandera contracts over full warehouse")
+    sub.add_parser("validate", help="Re-run data contracts over full warehouse")
 
     heal = sub.add_parser("heal",
                            help="Auto-heal quarantine: refetch retries, "

@@ -30,9 +30,7 @@ or investigate further.
 
 from __future__ import annotations
 
-import argparse
 import json
-import sys
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -431,56 +429,3 @@ def render(result: DiagnoseResult) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 # CLI
 # ─────────────────────────────────────────────────────────────────────────────
-
-
-def _parse_date(s: str) -> date:
-    return pd.to_datetime(s).date()
-
-
-def _main() -> int:
-    import sys as _sys
-    try:
-        _sys.stdout.reconfigure(encoding="utf-8")
-    except Exception:
-        pass
-
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--ticker", required=True, help="Ticker symbol")
-    ap.add_argument("--date", required=True, type=_parse_date,
-                    help="Target date YYYY-MM-DD")
-    ap.add_argument("--warehouse", default=str(DEFAULT_WAREHOUSE))
-    ap.add_argument("--pad-days", type=int, default=5)
-    ap.add_argument("--json", action="store_true",
-                    help="Emit JSON instead of formatted text")
-    ap.add_argument("--out", help="Write to file (UTF-8)")
-    args = ap.parse_args()
-
-    result = diagnose(
-        args.ticker, args.date,
-        warehouse=Path(args.warehouse),
-        pad_days=args.pad_days,
-    )
-
-    if args.json:
-        text = json.dumps(result.to_dict(), indent=2,
-                           ensure_ascii=False, default=str)
-    else:
-        text = render(result)
-
-    if args.out:
-        Path(args.out).write_text(text, encoding="utf-8")
-        print(f"[diagnose] wrote {args.out}")
-    else:
-        print(text)
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(_main())
-
-
-__all__ = [
-    "DiagnoseResult",
-    "diagnose",
-    "render",
-]

@@ -12,15 +12,12 @@ python-dotenv>=1.0.0
 # HTTP & utilities
 requests>=2.31.0
 rich>=13.0.0
-tqdm>=4.65.0
-pytz>=2023.3
 
-# Data contracts & QA
-pandera>=0.20.0
+# QA
 pytest>=7.0.0
 
 # Optional — enhanced features (install if available)
 # vnstock_data          # Sponsor-tier API (Golden/Silver)
 # vnstock_ta            # Technical analysis indicators
 # vnstock_chart         # CandleChart HTML export
-# websocket-client      # WebSocket streaming (if WSS mode needed)
+# tqdm                  # nicer progress bar in `run.py scan --verbose` (optional)

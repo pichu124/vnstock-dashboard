@@ -17,7 +17,7 @@ Signals collected
   top-N list of worst offenders.
 * **Last sync** — read from ``_meta/last_sync.json`` (warehouse bulk load)
   and ``_meta/pipeline_status.json`` (rollup + updater cron jobs).
-* **Contract gates** — counts of pandera pass/fail from the most recent
+* **Contract gates** — counts of contract pass/fail from the most recent
   contract report, if one was persisted. Falls back gracefully when no
   report exists (contracts are run inline at write time but not always
   aggregated).
