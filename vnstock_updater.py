@@ -104,43 +104,50 @@ def _is_stock(s: str) -> bool:
 # ═════════════════════════════════════════════════════════════════════════════
 
 def _get_last_date(ticker_dir: Path) -> date | None:
-    """Ngày giao dịch cuối cùng có trong warehouse cho một ticker."""
-    last = None
+    """Ngày giao dịch cuối cùng có trong warehouse cho một ticker.
+
+    Quét MỌI file parquet của năm mới nhất (không chỉ file đầu tiên) — year-dir
+    có thể chứa Dropbox conflicted copy mang data mới hơn file chính."""
     for year_dir in sorted(ticker_dir.glob("year=*"), reverse=True):
+        best: date | None = None
         for pf in year_dir.glob("*.parquet"):
             try:
-                tbl = pq.read_table(str(pf), columns=["time"])
-                df  = tbl.to_pandas()
+                df = pq.read_table(str(pf), columns=["time"]).to_pandas()
                 if not df.empty:
                     t = pd.to_datetime(df["time"]).max().date()
-                    if last is None or t > last:
-                        last = t
-                    return last  # Năm mới nhất đã đủ
+                    if best is None or t > best:
+                        best = t
             except Exception:
                 continue
-    return last
+        if best is not None:
+            return best
+    return None
 
 
-def _get_year_file(ticker_dir: Path, year: int) -> Path | None:
-    """Trả về path file parquet của năm đó (nếu có)."""
-    year_dir = ticker_dir / f"year={year}"
-    if not year_dir.exists():
-        return None
-    files = list(year_dir.glob("*.parquet"))
-    return files[0] if files else None
 
 
 def _read_year(ticker_dir: Path, year: int) -> pd.DataFrame:
-    """Đọc toàn bộ dữ liệu của năm đó."""
-    pf = _get_year_file(ticker_dir, year)
-    if pf is None:
+    """Đọc data một năm — gộp MỌI file parquet trong year-dir (Dropbox có thể
+    đẻ "conflicted copy" cạnh file chính; đọc một file là mất data mới nếu nó
+    nằm ở file kia). File mới nhất (mtime) thắng khi trùng ngày."""
+    year_dir = ticker_dir / f"year={year}"
+    if not year_dir.exists():
         return pd.DataFrame()
-    try:
-        df = pq.read_table(str(pf)).to_pandas()
-        df["time"] = pd.to_datetime(df["time"]).dt.date
-        return df
-    except Exception:
+    frames = []
+    for pf in sorted(year_dir.glob("*.parquet"), key=lambda p: p.stat().st_mtime):
+        try:
+            df = pq.read_table(str(pf)).to_pandas()
+            df["time"] = pd.to_datetime(df["time"]).dt.date
+            frames.append(df)
+        except Exception:
+            continue
+    if not frames:
         return pd.DataFrame()
+    if len(frames) == 1:
+        return frames[0]
+    merged = pd.concat(frames, ignore_index=True)
+    merged = merged.drop_duplicates(subset=["time"], keep="last")
+    return merged.sort_values("time").reset_index(drop=True)
 
 
 def _write_year(ticker_dir: Path, year: int, df: pd.DataFrame):
@@ -149,9 +156,10 @@ def _write_year(ticker_dir: Path, year: int, df: pd.DataFrame):
     year_dir.mkdir(parents=True, exist_ok=True)
 
     # Giữ tên file cũ nếu có, tạo tên mới nếu chưa có
-    existing = list(year_dir.glob("*.parquet"))
-    fname = existing[0].name if existing else "prices.parquet"
-    out_path = year_dir / fname
+    # Luôn ghi về file canonical — trước đây "existing[0]" khiến updater ghi
+    # vào bản conflicted copy của Dropbox (xếp trước theo alphabet) trong khi
+    # loader đọc file khác → kho "tươi mà vẫn cũ" (07/07/2026).
+    out_path = year_dir / "prices.parquet"
 
     df = df.copy()
     df["time"] = pd.to_datetime(df["time"])
@@ -193,6 +201,15 @@ def _write_year(ticker_dir: Path, year: int, df: pd.DataFrame):
 
     table = pa.Table.from_pandas(df, schema=PRICE_SCHEMA, safe=False)
     pq.write_table(table, str(out_path), compression="snappy")
+
+    # Consolidate: mọi file khác prices.parquet (Dropbox conflicted copy…) đã
+    # được _read_year gộp vào df — xoá đi để year-dir luôn về đúng 1 file.
+    for pf in year_dir.glob("*.parquet"):
+        if pf.name != "prices.parquet":
+            try:
+                pf.unlink()
+            except Exception:
+                pass
 
 
 # ═════════════════════════════════════════════════════════════════════════════

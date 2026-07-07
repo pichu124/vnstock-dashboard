@@ -118,33 +118,40 @@ def is_already_done_today(job: str) -> tuple[bool, dict]:
 # Warehouse helpers (tái sử dụng pattern từ vnstock_updater)
 # ═════════════════════════════════════════════════════════════════════════════
 
-def _get_year_file(ticker_dir: Path, year: int) -> Optional[Path]:
-    year_dir = ticker_dir / f"year={year}"
-    if not year_dir.exists():
-        return None
-    files = list(year_dir.glob("*.parquet"))
-    return files[0] if files else None
 
 
 def _read_year(ticker_dir: Path, year: int) -> pd.DataFrame:
-    pf = _get_year_file(ticker_dir, year)
-    if pf is None:
+    """Đọc data một năm — gộp MỌI file parquet trong year-dir (Dropbox có thể
+    đẻ "conflicted copy" cạnh file chính; đọc một file là mất data mới nếu nó
+    nằm ở file kia). File mới nhất (mtime) thắng khi trùng ngày."""
+    year_dir = ticker_dir / f"year={year}"
+    if not year_dir.exists():
         return pd.DataFrame()
-    try:
-        df = pq.read_table(str(pf)).to_pandas()
-        df["time"] = pd.to_datetime(df["time"]).dt.date
-        return df
-    except Exception:
+    frames = []
+    for pf in sorted(year_dir.glob("*.parquet"), key=lambda p: p.stat().st_mtime):
+        try:
+            df = pq.read_table(str(pf)).to_pandas()
+            df["time"] = pd.to_datetime(df["time"]).dt.date
+            frames.append(df)
+        except Exception:
+            continue
+    if not frames:
         return pd.DataFrame()
+    if len(frames) == 1:
+        return frames[0]
+    merged = pd.concat(frames, ignore_index=True)
+    merged = merged.drop_duplicates(subset=["time"], keep="last")
+    return merged.sort_values("time").reset_index(drop=True)
 
 
 def _write_year(ticker_dir: Path, year: int, df: pd.DataFrame):
     year_dir = ticker_dir / f"year={year}"
     year_dir.mkdir(parents=True, exist_ok=True)
 
-    existing = list(year_dir.glob("*.parquet"))
-    fname = existing[0].name if existing else "prices.parquet"
-    out_path = year_dir / fname
+    # Luôn ghi về file canonical — trước đây "existing[0]" khiến updater ghi
+    # vào bản conflicted copy của Dropbox (xếp trước theo alphabet) trong khi
+    # loader đọc file khác → kho "tươi mà vẫn cũ" (07/07/2026).
+    out_path = year_dir / "prices.parquet"
 
     df = df.copy()
     df["time"] = pd.to_datetime(df["time"])
@@ -156,6 +163,15 @@ def _write_year(ticker_dir: Path, year: int, df: pd.DataFrame):
 
     table = pa.Table.from_pandas(df, schema=PRICE_SCHEMA, safe=False)
     pq.write_table(table, str(out_path), compression="snappy")
+
+    # Consolidate: mọi file khác prices.parquet (Dropbox conflicted copy…) đã
+    # được _read_year gộp vào df — xoá đi để year-dir luôn về đúng 1 file.
+    for pf in year_dir.glob("*.parquet"):
+        if pf.name != "prices.parquet":
+            try:
+                pf.unlink()
+            except Exception:
+                pass
 
 
 # ═════════════════════════════════════════════════════════════════════════════
