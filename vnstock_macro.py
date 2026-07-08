@@ -85,8 +85,19 @@ _DEFS: dict[str, dict] = {
     "interbank_on": {
         "label": "Lãi suất liên ngân hàng ON",
         "unit": "%/năm", "kind": "rate", "order": 2,
-        # manual --set by default (Vietstock VNIBOR is paywalled on Basic);
-        # opt-in auto via VNSTOCK_MACRO_VIETSTOCK=1 for a paid Vietstock account
+        # auto từ báo cáo tuần VBMA (vnstock_vbma) — free PDF, cadence tuần;
+        # --set tay vẫn là đường sống. (Vietstock VNIBOR tường phí — opt-in
+        # VNSTOCK_MACRO_VIETSTOCK=1 nếu có tài khoản trả phí.)
+    },
+    "interbank_1w": {
+        "label": "Lãi suất liên ngân hàng 1 tuần",
+        "unit": "%/năm", "kind": "rate", "order": 3,
+        # auto từ VBMA weekly (cùng bảng với ON)
+    },
+    "govt_bond_yield_10y": {
+        "label": "Lợi suất TPCP 10 năm",
+        "unit": "%/năm", "kind": "rate", "order": 4,
+        # auto từ VBMA weekly — proxy chi phí vốn dài hạn / khẩu vị rủi ro
     },
 }
 
@@ -464,8 +475,28 @@ def refresh(*, as_of: "str | None" = None) -> dict:
             ib_val, ib_as_of = ib
             _record(cache, "interbank_on", ib_val, as_of or ib_as_of, "vietstock")
 
+    # VBMA weekly PDF (free): LNH ON/1W + lợi suất TPCP 10Y. Best-effort —
+    # fetch/parse lỗi → None → giữ nguyên cache (kể cả giá trị --set tay).
+    # Tắt: VNSTOCK_MACRO_VBMA=0.
+    if os.environ.get("VNSTOCK_MACRO_VBMA", "1") != "0":
+        vb = _fetch_vbma()
+        if vb:
+            vb_as_of = vb.get("as_of") or day
+            for key in ("interbank_on", "interbank_1w", "govt_bond_yield_10y"):
+                if vb.get(key) is not None:
+                    _record(cache, key, float(vb[key]), vb_as_of, "vbma")
+
     _save_cache(cache)
     return cache
+
+
+def _fetch_vbma() -> "dict | None":
+    """Báo cáo tuần VBMA qua vnstock_vbma.fetch_weekly() — mọi lỗi → None."""
+    try:
+        from vnstock_vbma import fetch_weekly
+        return fetch_weekly()
+    except Exception:
+        return None
 
 
 def set_value(key: str, value: float, as_of: "str | None" = None) -> dict:

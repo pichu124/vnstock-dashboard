@@ -191,6 +191,7 @@ def test_refresh_records_interbank_only_when_opted_in(tmp_path, monkeypatch):
     # VNSTOCK_MACRO_VIETSTOCK=1 (for paid accounts).
     _use_tmp_cache(tmp_path, monkeypatch)
     monkeypatch.setattr(mac, "fetch_usdvnd", lambda: 25500.0)
+    monkeypatch.setattr(mac, "_fetch_vbma", lambda: None)
     monkeypatch.setattr(mac, "fetch_interbank_on", lambda: (9.35, "2026-06-13"))
     monkeypatch.setenv("VNSTOCK_MACRO_VIETSTOCK", "1")
     mac.refresh()
@@ -211,6 +212,7 @@ def test_refresh_skips_interbank_fetch_by_default(tmp_path, monkeypatch):
     _use_tmp_cache(tmp_path, monkeypatch)
     monkeypatch.delenv("VNSTOCK_MACRO_VIETSTOCK", raising=False)
     monkeypatch.setattr(mac, "fetch_usdvnd", lambda: 25500.0)
+    monkeypatch.setattr(mac, "_fetch_vbma", lambda: None)
     calls = {"n": 0}
     monkeypatch.setattr(mac, "fetch_interbank_on",
                         lambda: calls.__setitem__("n", calls["n"] + 1) or (9.9, "2026-06-13"))

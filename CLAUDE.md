@@ -395,8 +395,15 @@ nay vẫn xin. Theo dõi 3 chỉ số cốt lõi, cache `_meta/macro_indicators.
   API lỗi → GIỮ cache cũ, KHÔNG bịa.
 - **`sbv_policy_rate`** (lãi suất tái cấp vốn) — SEED 4.5%/năm as_of 2023-06-19
   (nguồn "seed"); đổi vài lần/năm → cập nhật tay khi SBV ra quyết định.
-- **`interbank_on`** (lãi suất liên ngân hàng ON) — **nhập tay `--set`** (mặc
-  định). Đã thử auto từ **Vietstock** VNIBOR (`getdatabynormid` normid 66):
+- **`interbank_on` / `interbank_1w` / `govt_bond_yield_10y`** — **AUTO từ báo
+  cáo tuần VBMA (DONE 2026-07-07, CẦN USER VERIFY `python vnstock_vbma.py
+  --diag` — sandbox chặn `vbma.org.vn`)**: `vnstock_vbma.py` scrape listing →
+  tải PDF tuần free → `pdftotext -layout`/`pypdf` → regex bảng theo SECTION
+  (chống false-positive chữ "on" tiếng Anh) + sanity range; as_of = ngày cuối
+  tuần báo cáo; tắt bằng `VNSTOCK_MACRO_VBMA=0`; parse lỗi → giữ cache cũ,
+  `--set` tay vẫn là đường sống. (Nguồn phát hiện khi khảo sát skill
+  vimovietnam.) Trước đó nhập tay vì đã thử auto từ **Vietstock** VNIBOR
+  (`getdatabynormid` normid 66):
   handshake CSRF token+cookie chạy được (token render UNQUOTED), POST 200 nhưng
   trả **`[]`** vì **TƯỜNG PHÍ bản Basic** (xác minh 2026-06-14: popup "nâng
   cấp", Network 0 request data). FiinGroup/WiFeed/CEIC đều trả phí ⇒ KHÔNG có
@@ -430,11 +437,13 @@ allowlist chặn nên FX luôn None ở đây). Pipeline: bước `macro` trong 
   ≥10bps) — backdrop ổn định không làm loãng composite.
 
 **Tỷ giá USD/VND**: auto OK (verify 14/06: 26,191.9 qua `--diag`). FX None ⇒ cần
-thêm host vào egress allowlist (web session). **Lãi suất**: nhập tay vì nguồn
-free đều bị tường phí (xem trên) — `python vnstock_macro.py --set sbv_policy_rate
-<số>` và `--set interbank_on <số>` (cập nhật khi để ý nó nhảy; brief tự cảnh báo
-thay đổi + tự lọc tin lãi suất từ news cache). Nếu sau này có tài khoản Vietstock
-trả phí: đặt `VNSTOCK_MACRO_VIETSTOCK=1` rồi `--refresh` để auto LNH.
+thêm host vào egress allowlist (web session). **Lãi suất**: LNH + lợi suất TPCP
+nay auto qua VBMA weekly (xem trên); `sbv_policy_rate` vẫn nhập tay
+(`python vnstock_macro.py --set sbv_policy_rate <số>` khi SBV ra quyết định).
+Nếu có tài khoản Vietstock trả phí: `VNSTOCK_MACRO_VIETSTOCK=1` là nguồn LNH
+thứ hai. RSS feeds mới 2026-07 (VnEconomy Tài chính / Báo Chính phủ KT / Báo
+Đầu tư — nhóm policy/vĩ mô, từ khảo sát vimovietnam) là URL ứng viên **chưa
+verify** — chạy `python vnstock_news_feeds.py --diag`, feed ❌ thì sửa/xoá.
 
 ### 📰 Tin kinh tế/chính trị diện rộng (DONE 2026-06-15) — `vnstock_news_feeds.py`
 
