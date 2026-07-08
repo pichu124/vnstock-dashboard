@@ -59,6 +59,14 @@ def _render_indicators(mac) -> None:
     else:
         st.caption("⚪ Áp lực vĩ mô: ổn định — không có thay đổi đáng kể gần đây.")
 
+    liq = mac.liquidity_spread(macro)
+    if liq:
+        icon = "🔴" if liq["dir"] < 0 else ("🟢" if liq["dir"] > 0 else "⚪")
+        slope = (f" · dốc 10Y − ON = {liq['slope_10y_on']:+.2f} điểm %"
+                 if liq.get("slope_10y_on") is not None else "")
+        st.caption(f"{icon} Thanh khoản: LNH ON − lãi suất điều hành = "
+                   f"**{liq['spread']:+.2f} điểm %** — {liq['label']}{slope}")
+
     rem = mac.pmi_reminder(macro)
     if rem:
         st.warning(rem)

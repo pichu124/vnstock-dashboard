@@ -436,6 +436,14 @@ danh sách thật vào output (LLM hay phớt block dù data có trong prompt).
   cờ `fx_crosscheck` trong cache (hiện ở `--show`); trong ngưỡng thì XÓA cờ.
   So er-api với VCB chứ KHÔNG với tỷ giá TRUNG TÂM (trung tâm ~25.2k vs market
   ~26.3k — lệch ~4% bẩm sinh, so nhầm là báo động giả).
+- **Gauge thanh khoản dẫn xuất (DONE 2026-07-08, từ sơ đồ Hedge Academy)**:
+  `liquidity_spread(macro)` = ON − lãi suất điều hành (điểm %) + dốc 10Y − ON;
+  band: > +0.5 → CĂNG (dir −1), < −1.5 → DƯ THỪA (dir +1), giữa → bình thường
+  (`_LIQ_TIGHT_SPREAD`/`_LIQ_FLUSH_SPREAD`). Zero fetch — dẫn xuất từ 2 chỉ số
+  sẵn có; hiện ở brief (`_macro_body_lines` dùng chung → guard/parity tự giữ),
+  CLI `--show`, sub-tab Vĩ mô. LEVEL-gauge thuần hiển thị, KHÔNG vào pressure
+  score (score là change-based). OMO/tiền gửi KBNN trong sơ đồ = KHÔNG làm
+  (không có nguồn free ổn định; tin "bơm/hút ròng" đã có trong _MACRO_KEYWORDS).
 - **Brief nén block vĩ mô**: `_macro_body_lines` gộp mọi chỉ số KHÔNG đổi vào
   1 dòng "Đi ngang/chưa có kỳ mới: …" (8 chỉ số không nở 8 bullet); chỉ số có
   thay đổi giữ bullet riêng. Directive cập nhật (CPI/IIP/PMI nay CÓ data — chỉ

@@ -538,3 +538,57 @@ def test_brief_section_extracts_by_marker():
     assert vb.brief_section(out, "🎯").endswith("TRUNG TÍNH")
     assert vb.brief_section(out, "📚") == ""               # không có mục → rỗng
     assert vb.brief_section("", "🌐") == ""
+
+
+# ── gauge thanh khoản dẫn xuất: ON − lãi suất điều hành ──────────────────────
+
+
+def _liq_rows(on=None, policy=None, y10=None):
+    rows = []
+    if on is not None:
+        rows.append({"key": "interbank_on", "label": "Lãi suất liên ngân hàng ON",
+                     "kind": "rate", "unit": "%/năm",
+                     "value": on, "as_of": "2026-07-03", "change": None})
+    if policy is not None:
+        rows.append({"key": "sbv_policy_rate", "label": "Lãi suất tái cấp vốn (SBV)",
+                     "kind": "rate", "unit": "%/năm",
+                     "value": policy, "as_of": "2026-06-15", "change": None})
+    if y10 is not None:
+        rows.append({"key": "govt_bond_yield_10y", "label": "Lợi suất TPCP 10 năm",
+                     "kind": "rate",
+                     "unit": "%/năm", "value": y10, "as_of": "2026-07-03",
+                     "change": None})
+    return rows
+
+
+def test_liquidity_spread_bands_and_slope():
+    # Data thật 08/07: ON 5.67 vs điều hành 4.5 → +1.17 = CĂNG (dir -1)
+    liq = mac.liquidity_spread(_liq_rows(on=5.67, policy=4.5, y10=4.4))
+    assert liq["spread"] == pytest.approx(1.17)
+    assert liq["dir"] == -1 and "CĂNG" in liq["label"]
+    assert liq["slope_10y_on"] == pytest.approx(-1.27)
+    # ON thấp sâu dưới điều hành → DƯ THỪA (dir +1)
+    flush = mac.liquidity_spread(_liq_rows(on=2.0, policy=4.5))
+    assert flush["dir"] == 1 and "DƯ THỪA" in flush["label"]
+    assert "slope_10y_on" not in flush                 # thiếu 10Y → không có dốc
+    # trong band → bình thường
+    assert mac.liquidity_spread(_liq_rows(on=4.6, policy=4.5))["dir"] == 0
+
+
+def test_liquidity_spread_none_when_inputs_missing():
+    assert mac.liquidity_spread(_liq_rows(on=5.67)) is None       # thiếu điều hành
+    assert mac.liquidity_spread(_liq_rows(policy=4.5)) is None    # thiếu ON
+    assert mac.liquidity_spread([]) is None
+    assert mac.liquidity_spread(None) is None
+
+
+def test_macro_body_lines_include_liquidity_gauge():
+    import vnstock_brief as vb
+    body = vb._macro_body_lines(_liq_rows(on=5.67, policy=4.5, y10=4.4))
+    liq_lines = [l for l in body if "Chênh lệch thanh khoản" in l]
+    assert len(liq_lines) == 1
+    assert "+1.17 điểm %" in liq_lines[0] and "CĂNG" in liq_lines[0]
+    assert "dốc 10Y − ON = -1.27 điểm %" in liq_lines[0]
+    # thiếu input → không có dòng (no-op, không phát nhãn sai)
+    body2 = vb._macro_body_lines(_liq_rows(on=5.67))
+    assert not any("Chênh lệch thanh khoản" in l for l in body2)

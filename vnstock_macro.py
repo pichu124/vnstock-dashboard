@@ -777,6 +777,39 @@ def fmt_change(ind: dict) -> "tuple[str, str, str] | None":
     return arrow, mag, (up if ch["dir"] > 0 else down)
 
 
+# Chênh lệch thanh khoản (framework Hedge Academy 2026-07-08): lãi suất LNH
+# phải đọc TƯƠNG ĐỐI so với lãi suất điều hành — ON cao hơn = ngân hàng vay
+# lẫn nhau đắt hơn cả vay SBV = hệ thống CĂNG; ON thấp sâu dưới = dư thừa.
+_LIQ_TIGHT_SPREAD = 0.5        # ON − điều hành > +0.5 điểm % → căng
+_LIQ_FLUSH_SPREAD = -1.5       # ON − điều hành < −1.5 điểm % → dư thừa
+
+
+def liquidity_spread(macro: "list[dict] | None") -> "dict | None":
+    """Gauge thanh khoản hệ thống DẪN XUẤT từ 2 chỉ số đã có (zero fetch):
+    ``{spread, label, dir, slope_10y_on?}`` — spread = ON − lãi suất điều
+    hành (điểm %), dir −1 căng / +1 dư thừa / 0 bình thường; slope = 10Y − ON
+    (độ dốc curve, có khi đủ data). None khi thiếu ON hoặc lãi suất điều hành.
+    Level-gauge thuần hiển thị — KHÔNG vào pressure score (score là change-based).
+    """
+    rows = {m.get("key"): m for m in (macro or [])}
+    on, policy = rows.get("interbank_on"), rows.get("sbv_policy_rate")
+    if not on or not policy:
+        return None
+    spread = round(float(on["value"]) - float(policy["value"]), 2)
+    if spread > _LIQ_TIGHT_SPREAD:
+        label, d = ("thanh khoản hệ thống CĂNG — LNH cao hơn lãi suất "
+                    "điều hành, ngân hàng vay lẫn nhau đắt hơn vay SBV"), -1
+    elif spread < _LIQ_FLUSH_SPREAD:
+        label, d = "thanh khoản DƯ THỪA — LNH thấp sâu dưới lãi suất điều hành", 1
+    else:
+        label, d = "thanh khoản bình thường", 0
+    out = {"spread": spread, "label": label, "dir": d}
+    y10 = rows.get("govt_bond_yield_10y")
+    if y10:
+        out["slope_10y_on"] = round(float(y10["value"]) - float(on["value"]), 2)
+    return out
+
+
 # Nhắc set PMI từ mùng mấy hàng tháng (mùng 1-2 là ân hạn: S&P công bố ~mùng 1,
 # đường RSS tự động thường bắt được trong 1-2 ngày — chỉ nhắc khi CẢ auto trượt).
 _PMI_REMIND_FROM_DAY = 3
@@ -921,6 +954,12 @@ def _show() -> None:
     p = macro_pressure_score(macro)
     if p:
         print(f"  → Áp lực vĩ mô: {p['label']} (score {p['score']:+.2f})")
+    liq = liquidity_spread(macro)
+    if liq:
+        slope = (f"; dốc 10Y − ON = {liq['slope_10y_on']:+.2f} điểm %"
+                 if liq.get("slope_10y_on") is not None else "")
+        print(f"  → Thanh khoản: ON − điều hành = {liq['spread']:+.2f} điểm % "
+              f"({liq['label']}){slope}")
     rem = pmi_reminder(macro)
     if rem:
         print(f"  {rem}")

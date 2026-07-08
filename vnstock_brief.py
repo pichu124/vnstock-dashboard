@@ -1300,7 +1300,8 @@ def _macro_body_lines(macro: list[dict],
     with NO recent change are compressed into one 'Đi ngang' line so the block
     doesn't grow a bullet per indicator as the registry expands (8+ nay).
     """
-    from vnstock_macro import fmt_change, fmt_value, pmi_reminder
+    from vnstock_macro import (fmt_change, fmt_value, liquidity_spread,
+                               pmi_reminder)
     moved = [m for m in macro if fmt_change(m)]
     flat = [m for m in macro if not fmt_change(m)]
     lines = [_macro_line(m) for m in moved]
@@ -1308,6 +1309,13 @@ def _macro_body_lines(macro: list[dict],
         parts = "; ".join(
             f"{m['label']} {fmt_value(m)} ({m['as_of']})" for m in flat)
         lines.append(f"- Đi ngang/chưa có kỳ mới: {parts}")
+    liq = liquidity_spread(macro)      # gauge dẫn xuất ON − lãi suất điều hành
+    if liq:
+        line = (f"- Chênh lệch thanh khoản: LNH ON − lãi suất điều hành = "
+                f"{liq['spread']:+.2f} điểm % → {liq['label']}")
+        if liq.get("slope_10y_on") is not None:
+            line += f"; dốc 10Y − ON = {liq['slope_10y_on']:+.2f} điểm %"
+        lines.append(line)
     rem = pmi_reminder(macro)          # PMI tháng trước chưa set sau ngày công bố
     if rem:
         lines.append(f"- {rem}")
