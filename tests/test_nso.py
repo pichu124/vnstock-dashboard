@@ -300,15 +300,19 @@ def test_iip_fallback_rejects_stale_listing_hit_and_uses_guess(monkeypatch):
 
 
 def test_gdp_quarterly_real_sentence():
+    # NGUYÊN VĂN bài Q2/2026 (dump 08/07): filler "đạt mức tăng trưởng khá,
+    # với tốc độ tăng ước đạt" giữa "quý II" và con số, footnote "[1]" sau câu,
+    # câu GDP 6 THÁNG (8,18%) đứng ngay sau — không được lấy nhầm.
     text = (
-        "Tổng sản phẩm trong nước (GDP) quý II/2026 ước tính tăng 8,39% so với "
-        "cùng kỳ năm trước. Trong đó, khu vực công nghiệp và xây dựng tăng "
-        "10,51% so với cùng kỳ. Kịch bản cập nhật cho rằng GDP quý III phải "
-        "tăng gần 11,0% so với cùng kỳ mới đạt mục tiêu."
+        "1. Tốc độ tăng tổng sản phẩm trong nước Tổng sản phẩm trong nước "
+        "(GDP) quý II/2026 đạt mức tăng trưởng khá, với tốc độ tăng ước đạt "
+        "8,39% so với cùng kỳ năm trước [1] . Trong đó, khu vực nông, lâm "
+        "nghiệp và thủy sản tăng 4,06%, đóng góp 5,65% vào mức tăng tổng giá "
+        "trị tăng thêm của toàn nền kinh tế. GDP sáu tháng đầu năm 2026 tăng "
+        "8,18% so với cùng kỳ năm trước ( cùng kỳ năm 2025 tăng 7,63%)."
     )
     out = nso.extract_indicators(text)
-    # câu SỐ LIỆU đứng trước thắng; câu "kịch bản" phía sau không đè
-    assert out["gdp_yoy"] == pytest.approx(8.39)
+    assert out["gdp_yoy"] == pytest.approx(8.39)   # KHÔNG phải 8,18 của 6 tháng
 
 
 def test_trade_balance_month_deficit_negative_and_cumulative_ignored():

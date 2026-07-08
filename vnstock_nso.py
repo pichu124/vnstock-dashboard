@@ -237,14 +237,18 @@ def _moves(window: str, prefix: str) -> dict:
     return out
 
 
-# GDP quý — câu chuẩn "Tổng sản phẩm trong nước (GDP) quý II/2026 ước tính
-# tăng 8,39% so với cùng kỳ năm trước" (CHỈ có trong bài quý → cập nhật 4
-# lần/năm; bài tháng thường không có → giữ reading quý trước, as_of hiện rõ).
-# Không dùng _windows vì cửa sổ chung cố tình CẮT tại "quý".
+# GDP quý — câu thật bài Q2/2026 (dump 08/07): "Tổng sản phẩm trong nước
+# (GDP) quý II/2026 đạt mức tăng trưởng khá, với tốc độ tăng ước đạt 8,39% so
+# với cùng kỳ năm trước [1]" — giữa "tăng" và con số có filler "ước đạt" →
+# gap [^\d%]{0,25}. Câu 6 tháng ("GDP sáu tháng đầu năm 2026 tăng 8,18%…")
+# KHÔNG lọt vì anchor bắt buộc tên đầy đủ "Tổng sản phẩm trong nước". CHỈ có
+# trong bài quý → cập nhật 4 lần/năm; bài tháng thường không có → giữ reading
+# quý trước, as_of hiện rõ. Không dùng _windows vì cửa sổ chung CẮT tại "quý".
 _GDP_RE = re.compile(
     r"tổng\s*sản\s*phẩm\s*trong\s*nước\s*\(?\s*GDP\s*\)?[^%]{0,80}?"
     r"quý\s*[IV1-4]{1,3}[^%]{0,60}?"
-    r"(tăng|giảm)\s*(\d{1,2}[.,]\d{1,2})\s*%\s*so\s*với\s*cùng\s*kỳ", re.I)
+    r"(tăng|giảm)[^\d%]{0,25}?(\d{1,2}[.,]\d{1,2})\s*%\s*so\s*với\s*cùng\s*kỳ",
+    re.I)
 
 # Cán cân thương mại THÁNG — "Cán cân thương mại hàng hóa tháng 6 ước tính
 # nhập siêu 2,64 tỷ USD". Bắt buộc chữ "tháng" giữa anchor và "xuất/nhập siêu"
