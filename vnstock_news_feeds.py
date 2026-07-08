@@ -59,10 +59,8 @@ _FEEDS: list[dict] = [
     # tin liên quan, Báo Chính phủ ✅ 29) ──
     {"name": "VnEconomy Tài chính",  "url": "https://vneconomy.vn/tai-chinh.rss",       "lang": "vi"},
     {"name": "Báo Chính phủ KT",     "url": "https://baochinhphu.vn/kinh-te.rss",        "lang": "vi"},
-    # Chuyên mục thật là "Tài chính - Bảo hiểm" (tai-chinh-bao-hiem-d6); slug cũ
-    # tai-chinh-chung-khoan không tồn tại (diag 08/07 ❌). Nếu vẫn ❌ → mở
-    # https://baodautu.vn/rssMain.html lấy URL đúng hoặc xoá dòng này.
-    {"name": "Báo Đầu tư TC-BH",     "url": "https://baodautu.vn/rss/tai-chinh-bao-hiem-d6.rss", "lang": "vi"},
+    # Báo Đầu tư: đã bỏ (08/07) — 2 slug đoán đều 404, không đoán tiếp. Muốn
+    # thêm lại: lấy URL thật từ https://baodautu.vn/rssMain.html rồi thêm 1 dòng.
     # ── Quốc tế (tiếng Anh) ──
     {"name": "MarketWatch Top",      "url": "https://feeds.content.dowjones.io/public/rss/mw_topstories", "lang": "en"},
     {"name": "CNBC Markets",         "url": "https://www.cnbc.com/id/20910258/device/rss/rss.html", "lang": "en"},
