@@ -523,3 +523,18 @@ def test_macro_body_lines_include_pmi_reminder(monkeypatch):
          "value": 26219.0, "as_of": "2026-07-08", "prev_value": None,
          "prev_as_of": None, "change": None, "source": "x"}])
     assert any(l.startswith("- ⏰ PMI tháng 6/2026") for l in body)
+
+
+def test_brief_section_extracts_by_marker():
+    import vnstock_brief as vb
+    out = ("## 🎯 TLDR\n- Stance: TRUNG TÍNH\n\n"
+           "## 🌐 Vĩ mô: lãi suất & tỷ giá (tính đến 2026-07-08)\n"
+           "- CPI so với cùng kỳ (YoY): 4.69% (tính đến 2026-06-30)\n"
+           "## 💡 Đề xuất giao dịch\n- (none)\n")
+    sec = vb.brief_section(out, "🌐")
+    assert sec.startswith("## 🌐 Vĩ mô")
+    assert "CPI so với cùng kỳ" in sec
+    assert "Đề xuất giao dịch" not in sec                  # dừng đúng ranh giới mục
+    assert vb.brief_section(out, "🎯").endswith("TRUNG TÍNH")
+    assert vb.brief_section(out, "📚") == ""               # không có mục → rỗng
+    assert vb.brief_section("", "🌐") == ""

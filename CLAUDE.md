@@ -771,3 +771,14 @@ API keys live in `.env` (auto-loaded by `python-dotenv`):
 Dashboard tab files:
 - `dashboard/market_tab.py` — Thị trường: AI Brief + training + recommendations
 - `dashboard/analysis_tab.py` — Phân tích cổ phiếu (có FUTURES/INDEX fallback)
+- `dashboard/news_tab.py` — Tin tức, 2 sub-tab: "📰 Tin theo mã" (nội dung gốc,
+  `_render_ticker_news`) + "🌐 Vĩ mô" (`dashboard/macro_tab.py`, DONE
+  2026-07-08). Sub-tab Vĩ mô THUẦN HIỂN THỊ trên cache sẵn có (scope "UI mỏng"
+  user chốt — KHÔNG fetcher mới, KHÔNG gọi LLM): bảng 10 chỉ số + áp lực vĩ mô
+  + nhắc PMI/cờ fx_crosscheck (vnstock_macro), chart lịch sử 1 chỉ số (plotly,
+  fallback st.line_chart), tin vĩ mô theo ngày (market_news_cache — retention
+  nay 30 ngày: `_RETAIN_DAYS` trong vnstock_news_feeds, refresh GIỮ tin cũ
+  trong cache thay vì ghi đè cụt ~4 ngày; brief không đổi hành vi vì
+  load_market_news vẫn lọc within_days riêng), đọc lại mục 🎯/🌐 của brief cũ
+  qua `vnstock_brief.brief_section(text, marker)` (public, cùng ranh giới mục
+  với chuỗi guard) + `vnstock_memory.recent_briefs`.

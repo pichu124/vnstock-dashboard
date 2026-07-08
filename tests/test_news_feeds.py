@@ -225,3 +225,32 @@ def test_both_templates_have_market_news_section():
     header = "## 📰 Tin kinh tế/chính trị nổi bật"
     assert vb._MORNING_TEMPLATE.count(header) == 1
     assert vb._AFTERNOON_TEMPLATE.count(header) == 1
+
+
+def test_refresh_retains_old_cached_items_within_retention(tmp_path, monkeypatch):
+    # Fetch window chỉ vài ngày — tin CŨ trong cache (≤ _RETAIN_DAYS) phải được
+    # GIỮ LẠI qua refresh (sub-tab Vĩ mô đọc lại theo ngày), tin quá hạn bị bỏ.
+    import json
+    p = tmp_path / "market_news_cache.json"
+    monkeypatch.setattr(nf, "_CACHE", p)
+    monkeypatch.setattr(nf, "_FEEDS", [{"name": "A", "url": "u"}])
+    monkeypatch.setattr(nf, "fetch_feed", lambda f: nf.parse_feed(RSS, "A"))
+    monkeypatch.setattr(nf, "analyze_item", lambda it: ("positive", "x"))
+    _fixed_today(monkeypatch)                    # today = 2026-06-16
+
+    old = {"title": "Tin lãi suất 10 ngày trước", "news_title": "Tin lãi suất 10 ngày trước",
+           "link": "", "news_short_content": "", "source_feed": "A", "ticker": "",
+           "_date_sort": "2026-06-06", "_sentiment": "neutral", "_impact": "cũ"}
+    ancient = dict(old, title="Tin 40 ngày trước", news_title="Tin 40 ngày trước",
+                   _date_sort="2026-05-07")
+    p.write_text(json.dumps({"items": [old, ancient]}, ensure_ascii=False),
+                 encoding="utf-8")
+
+    items = nf.refresh(within_days=5, analyze=True)
+    titles = [it["title"] for it in items]
+    assert "Tin lãi suất 10 ngày trước" in titles          # giữ (≤30 ngày)
+    assert "Tin 40 ngày trước" not in titles               # quá retention → bỏ
+    assert any("Fed" in t for t in titles)                 # tin mới vẫn vào
+    # thứ tự vẫn mới-nhất-trước
+    dates = [it.get("_date_sort") or "" for it in items]
+    assert dates == sorted(dates, reverse=True)

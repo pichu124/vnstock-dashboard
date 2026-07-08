@@ -3011,6 +3011,23 @@ def _is_section_start(line: str) -> bool:
     return s.startswith("##") or s.startswith(_SECTION_EMOJIS)
 
 
+def brief_section(text: str, marker: str) -> str:
+    """Một mục của brief (header + body) theo `marker` trong dòng header —
+    vd brief_section(output, "🌐") lấy mục Vĩ mô, "🎯" lấy TLDR. Dùng cho
+    sub-tab Vĩ mô (dashboard) đọc lại brief đã lưu trong memory; "" khi
+    không thấy. Cùng ranh giới mục với chuỗi guard (_is_section_start)."""
+    if not text:
+        return ""
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines)
+                  if marker in l and _is_section_start(l)), None)
+    if start is None:
+        return ""
+    end = next((i for i in range(start + 1, len(lines))
+                if _is_section_start(lines[i])), len(lines))
+    return "\n".join(lines[start:end]).strip()
+
+
 def enforce_upcoming_events(text: str, ctx: dict) -> str:
     """Deterministic guard: the events section is pure data — no analysis — yet
     the LLM keeps mangling it (claimed "Không có sự kiện đáng chú ý" at 13:50

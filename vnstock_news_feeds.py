@@ -91,6 +91,7 @@ _MARKET_KEYWORDS: tuple[str, ...] = (
 )
 
 _MAX_ANALYZE_DEFAULT = 8       # cap LLM calls per refresh (token control)
+_RETAIN_DAYS = 30              # tin cũ giữ trong cache cho sub-tab Vĩ mô đọc lại
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 
 
@@ -325,6 +326,16 @@ def refresh(within_days: int = 4, analyze: bool = True,
                 it["_sentiment"] = s
             if imp:
                 it["_impact"] = imp
+
+    # Giữ lại tin CŨ đã có trong cache (≤ _RETAIN_DAYS) — fetch window chỉ vài
+    # ngày nên nếu không, mỗi refresh GHI ĐÈ cache cụt còn ~4 ngày; sub-tab
+    # Vĩ mô (dashboard) cần đọc lại tin theo ngày dài hơn. Brief không đổi
+    # hành vi: load_market_news vẫn lọc within_days riêng của nó.
+    fresh = {_hash(it) for it in items}
+    keep_cutoff = (_date.today() - _td(days=_RETAIN_DAYS)).isoformat()
+    items += [p for h, p in prior.items()
+              if h not in fresh and (p.get("_date_sort") or "") >= keep_cutoff]
+    items.sort(key=lambda x: x.get("_date_sort") or "", reverse=True)
 
     _save_cache(items)
     return items
