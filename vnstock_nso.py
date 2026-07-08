@@ -258,10 +258,64 @@ def extract_indicators(text: str) -> dict:
     return _extract(text)[0]
 
 
+# ── Fallback IIP: bài "Chỉ số sản xuất công nghiệp tháng X" riêng ────────────
+# Bài QUÝ (tháng cuối quý 3/6/9/12) chỉ nói IIP theo quý/6 tháng — KHÔNG có câu
+# IIP THÁNG (diag thật 08/07: bài Q2 ra mỗi CPI). NSO luôn có bài IIP riêng
+# hàng tháng (vd /du-lieu-va-so-lieu-thong-ke/2026/07/chi-so-san-xuat-cong-
+# nghiep-thang-sau-nam-2026/) → lấy IIP từ đó khi bài chính thiếu.
+
+_IIP_LISTING_URLS = ("https://www.nso.gov.vn/iip/",)
+_IIP_HREF = re.compile(
+    r'href="([^"]*/(\d{4})/(\d{2})/chi-so-san-xuat-cong-nghiep-thang[^"]*)"', re.I)
+# Slug tháng tiếng Việt của NSO ("tháng Sáu" → thang-sau) — dùng khi trang
+# listing /iip/ không có/không lấy được, ĐOÁN đúng 1 URL rồi thôi (best-effort).
+_VN_MONTH_SLUGS = {1: "mot", 2: "hai", 3: "ba", 4: "tu", 5: "nam", 6: "sau",
+                   7: "bay", 8: "tam", 9: "chin", 10: "muoi",
+                   11: "muoi-mot", 12: "muoi-hai"}
+
+
+def _iip_guess_url(pub_y: int, pub_m: int) -> str:
+    dy, dm = (pub_y, pub_m - 1) if pub_m > 1 else (pub_y - 1, 12)
+    return (f"https://www.nso.gov.vn/du-lieu-va-so-lieu-thong-ke/{pub_y}/"
+            f"{pub_m:02d}/chi-so-san-xuat-cong-nghiep-thang-"
+            f"{_VN_MONTH_SLUGS[dm]}-nam-{dy}/")
+
+
+def _fetch_iip_fallback(pub_y: int, pub_m: int, verbose: bool = False) -> dict:
+    """{iip_mom, iip_yoy} từ bài IIP tháng riêng, CÙNG tháng publish với báo
+    cáo chính (không trộn kỳ); {} khi không tìm/parse được."""
+    urls: list[str] = []
+    for lst in _IIP_LISTING_URLS:                      # 1) scrape listing
+        r = _http_get(lst)
+        if r is None or r.status_code != 200 or not r.text:
+            continue
+        best: "tuple[str, tuple] | None" = None
+        for u, yy, mm in _IIP_HREF.findall(r.text):
+            k = (int(yy), int(mm))
+            if best is None or k > best[1]:
+                best = (u, k)
+        if best and best[1] == (pub_y, pub_m):
+            u = best[0]
+            urls.append("https://www.nso.gov.vn" + u if u.startswith("/") else u)
+    urls.append(_iip_guess_url(pub_y, pub_m))          # 2) đoán URL theo slug
+    for u in urls:
+        text = download_report_text(u)
+        if not text:
+            continue
+        out = {k: v for k, v in extract_indicators(text).items()
+               if k.startswith("iip")}
+        if out:
+            if verbose:
+                print(f"  IIP từ bài riêng: {u}")
+            return out
+    return {}
+
+
 # ── End-to-end ───────────────────────────────────────────────────────────────
 
-def fetch_monthly() -> "dict | None":
-    """Fetch + parse báo cáo tháng mới nhất.
+def fetch_monthly(verbose: bool = False) -> "dict | None":
+    """Fetch + parse báo cáo tháng mới nhất (+ bài IIP riêng khi bài chính là
+    báo cáo quý không có câu IIP tháng).
 
     Trả ``{"as_of": ISO cuối tháng data, "source_url": …, <key>: value…}``
     hoặc None khi bất kỳ bước nào hỏng (caller giữ cache cũ)."""
@@ -276,6 +330,10 @@ def fetch_monthly() -> "dict | None":
     if not text:
         return None
     inds = extract_indicators(text)
+    if inds and "iip_yoy" not in inds:
+        dy, dm = int(as_of[:4]), int(as_of[5:7])       # tháng data → tháng publish
+        pub_y, pub_m = (dy + 1, 1) if dm == 12 else (dy, dm + 1)
+        inds.update(_fetch_iip_fallback(pub_y, pub_m, verbose=verbose))
     if not inds:
         return None
     inds["as_of"] = as_of
@@ -315,6 +373,11 @@ def main(argv: "list[str] | None" = None) -> int:
         print(text[:8000])
         print("─" * 60)
     inds, wins = _extract(text)
+    if inds and "iip_yoy" not in inds:
+        dy, dm = int(hit[1][:4]), int(hit[1][5:7])
+        pub_y, pub_m = (dy + 1, 1) if dm == 12 else (dy, dm + 1)
+        print("  IIP không có trong bài chính (bài quý) → thử bài IIP tháng riêng…")
+        inds.update(_fetch_iip_fallback(pub_y, pub_m, verbose=True))
     print(f"parse: {inds if inds else 'KHÔNG bắt được số — chạy lại --dump gửi text để chỉnh regex'}")
     for prefix, win in wins.items():
         print(f"  câu nguồn [{prefix}]: {win[:220]}")

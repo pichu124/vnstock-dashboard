@@ -232,3 +232,65 @@ def test_iip_window_never_bleeds_into_consumption_index():
     out = nso.extract_indicators(full)
     assert out["iip_mom"] == pytest.approx(3.5)
     assert out["iip_yoy"] == pytest.approx(12.7)
+
+
+# ── fallback bài IIP tháng riêng (bài quý không có câu IIP tháng) ────────────
+
+
+def test_iip_guess_url_matches_real_june_article():
+    # URL thật đã verify: .../2026/07/chi-so-san-xuat-cong-nghiep-thang-sau-nam-2026/
+    assert nso._iip_guess_url(2026, 7) == (
+        "https://www.nso.gov.vn/du-lieu-va-so-lieu-thong-ke/2026/07/"
+        "chi-so-san-xuat-cong-nghiep-thang-sau-nam-2026/")
+    # tháng 1 publish → data tháng 12 năm trước
+    assert "thang-muoi-hai-nam-2025" in nso._iip_guess_url(2026, 1)
+
+
+def test_fetch_monthly_merges_iip_fallback_for_quarter_months(monkeypatch):
+    quarterly_text = (
+        "Chỉ số giá tiêu dùng (CPI) tháng Sáu giảm 0,39% so với tháng trước "
+        "và tăng 4,69% so với cùng kỳ năm trước."
+    )
+    monkeypatch.setattr(nso, "fetch_listing_html", lambda verbose=False: "<html/>")
+    monkeypatch.setattr(nso, "find_latest_report",
+                        lambda html: ("https://x/bai-quy/", "2026-06-30"))
+    monkeypatch.setattr(nso, "download_report_text", lambda url: quarterly_text)
+    called = {}
+
+    def fake_fallback(pub_y, pub_m, verbose=False):
+        called["pub"] = (pub_y, pub_m)
+        return {"iip_mom": 3.5, "iip_yoy": 12.7}
+
+    monkeypatch.setattr(nso, "_fetch_iip_fallback", fake_fallback)
+    out = nso.fetch_monthly()
+    assert called["pub"] == (2026, 7)            # data T6 → publish T7
+    assert out["cpi_yoy"] == pytest.approx(4.69)
+    assert out["iip_yoy"] == pytest.approx(12.7)
+    assert out["as_of"] == "2026-06-30"
+
+
+def test_iip_fallback_rejects_stale_listing_hit_and_uses_guess(monkeypatch):
+    # listing /iip/ chỉ có bài THÁNG CŨ (05/2026) → bỏ (không trộn kỳ),
+    # rơi xuống URL đoán theo slug; bài đoán parse ra số tháng đúng.
+    listing = ('<a href="/du-lieu-va-so-lieu-thong-ke/2026/06/'
+               'chi-so-san-xuat-cong-nghiep-thang-nam-nam-2026/">T5</a>')
+
+    class _R:
+        status_code = 200
+        text = listing
+
+    monkeypatch.setattr(nso, "_http_get", lambda url, verbose=False: _R())
+    seen = []
+
+    def fake_download(url):
+        seen.append(url)
+        if "thang-sau-nam-2026" in url:          # chỉ URL đoán mới có bài
+            return ("Chỉ số sản xuất toàn ngành công nghiệp (IIP) tháng Sáu "
+                    "ước tính tăng 3,5% so với tháng trước và tăng 12,7% so "
+                    "với cùng kỳ năm trước.")
+        return None
+
+    monkeypatch.setattr(nso, "download_report_text", fake_download)
+    out = nso._fetch_iip_fallback(2026, 7)
+    assert out == {"iip_mom": pytest.approx(3.5), "iip_yoy": pytest.approx(12.7)}
+    assert all("thang-nam-nam-2026" not in u for u in seen)   # bài cũ không được tải
