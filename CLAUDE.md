@@ -405,6 +405,11 @@ danh sách thật vào output (LLM hay phớt block dù data có trong prompt).
   first-match thắng; NSO dùng PHẨY thập phân). as_of = cuối THÁNG DATA (=
   tháng publish − 1; công bố ~mùng 3). Fixtures = số thật T6/2026 (CPI −0,39
   MoM/+4,69 YoY; IIP +3,5/+12,7). Tắt: `VNSTOCK_MACRO_NSO=0`.
+  **TLS ladder (diag thật 08/07)**: nso/gso.gov.vn KHÔNG gửi chứng chỉ trung
+  gian → certifi fail `SSLCertVerificationError` (browser tự vá qua AIA nên
+  vẫn mở được). `_http_get` leo 3 nấc: certifi → OS trust store (Windows) →
+  verify=False CHỈ CHO NGUỒN NÀY (data công khai chỉ đọc + sanity range;
+  `VNSTOCK_NSO_TLS_STRICT=1` để cấm nấc cuối).
 - **`pmi` (P3)**: nguồn chính `--set pmi <số>` mùng 1-2 hàng tháng (URL S&P đổi
   hash mỗi tháng → không crawler); nguồn phụ `_pmi_from_news()` regex "XX,X
   điểm" trên tiêu đề RSS cache SẴN CÓ (không fetch; bỏ tiêu đề PMI nước ngoài

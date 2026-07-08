@@ -136,3 +136,61 @@ def test_refresh_nso_kill_switch(tmp_path, monkeypatch):
                         lambda: calls.__setitem__("n", calls["n"] + 1))
     mac.refresh()
     assert calls["n"] == 0
+
+
+# ── TLS ladder (.gov.vn thiếu intermediate — diag thật 08/07/2026) ───────────
+
+
+class _FakeResp:
+    status_code = 200
+    text = "<html>ok</html>"
+
+
+def test_http_get_falls_back_to_insecure_when_both_stores_fail(monkeypatch):
+    import requests as rq
+
+    calls = []
+
+    def fake_get(url, **kw):
+        calls.append(kw.get("verify", True))
+        if kw.get("verify", True) is not False:
+            raise rq.exceptions.SSLError("missing intermediate")
+        return _FakeResp()
+
+    monkeypatch.setattr(nso.requests, "get", fake_get)
+
+    class _S:
+        def get(self, url, **kw):
+            raise rq.exceptions.SSLError("os store also fails")
+
+    monkeypatch.setattr(nso, "_os_trust_session", lambda: _S())
+    r = nso._http_get("https://www.nso.gov.vn/x")
+    assert r is not None and r.status_code == 200
+    assert calls[-1] is False                     # nấc cuối mới hạ verify
+
+
+def test_http_get_strict_env_forbids_insecure_fallback(monkeypatch):
+    import requests as rq
+    monkeypatch.setenv("VNSTOCK_NSO_TLS_STRICT", "1")
+
+    def fake_get(url, **kw):
+        raise rq.exceptions.SSLError("missing intermediate")
+
+    monkeypatch.setattr(nso.requests, "get", fake_get)
+
+    class _S:
+        def get(self, url, **kw):
+            raise rq.exceptions.SSLError("os store also fails")
+
+    monkeypatch.setattr(nso, "_os_trust_session", lambda: _S())
+    assert nso._http_get("https://www.nso.gov.vn/x") is None
+
+
+def test_http_get_prefers_verified_when_it_works(monkeypatch):
+    def fake_get(url, **kw):
+        assert kw.get("verify", True) is not False
+        return _FakeResp()
+
+    monkeypatch.setattr(nso.requests, "get", fake_get)
+    r = nso._http_get("https://www.nso.gov.vn/x")
+    assert r is not None and r.status_code == 200

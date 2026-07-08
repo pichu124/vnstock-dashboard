@@ -30,10 +30,14 @@ from __future__ import annotations
 
 import calendar
 import html as _html
+import os
 import re
+import ssl
+import warnings
 from datetime import date
 
 import requests
+from requests.adapters import HTTPAdapter
 
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
@@ -72,21 +76,73 @@ _REPORT_HREF = re.compile(
     r'bao-cao-tinh-hinh-kinh-te-xa-hoi-thang[^"]*)"', re.I)
 
 
+# ── TLS ladder cho server .gov.vn ────────────────────────────────────────────
+# Diag thật 08/07/2026: cả 3 host nso/gso FAIL `SSLCertVerificationError` —
+# server KHÔNG gửi chứng chỉ trung gian (browser tự tải bù qua AIA nên vẫn mở
+# được; certifi của Python thì không). Thang 3 nấc:
+#   1. certifi (mặc định)  →  2. kho chứng chỉ HỆ ĐIỀU HÀNH (Windows thường đã
+#   cache intermediate)  →  3. verify=False CHỈ CHO NGUỒN NÀY (data thống kê
+#   công khai, chỉ đọc; số đi qua sanity range + as_of hiển thị; đặt
+#   VNSTOCK_NSO_TLS_STRICT=1 để CẤM nấc này).
+
+
+class _OSTrustAdapter(HTTPAdapter):
+    """HTTPS adapter dùng SSLContext mặc định của OS (Windows cert store) thay
+    vì certifi — intermediate mà Windows đã cache sẽ được dùng để vá chuỗi."""
+
+    def init_poolmanager(self, *args, **kwargs):
+        kwargs["ssl_context"] = ssl.create_default_context()
+        return super().init_poolmanager(*args, **kwargs)
+
+
+def _os_trust_session() -> requests.Session:
+    s = requests.Session()
+    s.mount("https://", _OSTrustAdapter())
+    return s
+
+
+def _http_get(url: str, verbose: bool = False) -> "requests.Response | None":
+    try:
+        return requests.get(url, headers=_HEADERS, timeout=_TIMEOUT)
+    except requests.exceptions.SSLError:
+        if verbose:
+            print("    → certifi FAIL (thiếu intermediate) — thử OS trust store")
+    except requests.RequestException as e:
+        if verbose:
+            print(f"    → LỖI {type(e).__name__}: {str(e)[:200]}")
+        return None
+    try:
+        return _os_trust_session().get(url, headers=_HEADERS, timeout=_TIMEOUT)
+    except requests.exceptions.SSLError:
+        if verbose:
+            print("    → OS trust store FAIL — fallback verify=False (chỉ nguồn này)")
+    except requests.RequestException:
+        return None
+    if os.environ.get("VNSTOCK_NSO_TLS_STRICT") == "1":
+        return None
+    import urllib3
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", urllib3.exceptions.InsecureRequestWarning)
+        try:
+            return requests.get(url, headers=_HEADERS, timeout=_TIMEOUT,
+                                verify=False)
+        except requests.RequestException:
+            return None
+
+
 def fetch_listing_html(verbose: bool = False) -> "str | None":
     """HTML trang index báo cáo tháng. ``verbose`` (--diag) in chi tiết từng
-    URL (HTTP status / exception) để pinpoint lỗi thay vì FAIL câm."""
+    URL (HTTP status / exception / nấc TLS) để pinpoint lỗi thay vì FAIL câm."""
     for url in _LISTING_URLS:
-        try:
-            r = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT)
-            if verbose:
-                print(f"  • GET {url}\n    → HTTP {r.status_code}, "
-                      f"{len(r.text or '')} ký tự")
-            if r.status_code == 200 and r.text:
-                return r.text
-        except requests.RequestException as e:
-            if verbose:
-                print(f"  • GET {url}\n    → LỖI {type(e).__name__}: {str(e)[:200]}")
+        if verbose:
+            print(f"  • GET {url}")
+        r = _http_get(url, verbose=verbose)
+        if r is None:
             continue
+        if verbose:
+            print(f"    → HTTP {r.status_code}, {len(r.text or '')} ký tự")
+        if r.status_code == 200 and r.text:
+            return r.text
     return None
 
 
@@ -113,12 +169,9 @@ def find_latest_report(html: str) -> "tuple[str, str] | None":
 
 
 def download_report_text(url: str) -> "str | None":
-    try:
-        r = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT)
-        if r.status_code == 200 and r.text:
-            return _strip_html(r.text)
-    except requests.RequestException:
-        pass
+    r = _http_get(url)
+    if r is not None and r.status_code == 200 and r.text:
+        return _strip_html(r.text)
     return None
 
 
