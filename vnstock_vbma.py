@@ -9,15 +9,20 @@ hơn mọi nguồn monthly. (Nguồn phát hiện qua khảo sát skill vimoviet
 
 Pipeline (best-effort từng bước — lỗi bước nào trả None bước đó, KHÔNG bịa):
   1. Scrape trang listing báo cáo tuần → link .pdf mới nhất (tên file mang
-     khoảng ngày DDMMYYYY-DDMMYYYY → as_of = ngày CUỐI tuần báo cáo).
+     2 ngày DDMMYYYY nối liền hoặc có gạch, vd "2906202603072026_BAO_CAO..."
+     → as_of = ngày CUỐI tuần báo cáo).
   2. Tải PDF (URL có thể chứa dấu cách → quote).
   3. PDF → text: ưu tiên ``pdftotext -layout`` (poppler) nếu có trên PATH,
      fallback thư viện ``pypdf`` nếu import được. Cả hai thiếu → None.
-  4. Regex số theo NHÃN DÒNG trong đúng SECTION ("liên ngân hàng" cho ON/1W,
-     "lợi suất/trái phiếu" cho 10Y) + sanity range. KHÔNG dùng LLM — mọi con
-     số vào registry vĩ mô phải deterministic.
+  4. Parse theo CẤU TRÚC BẢNG (chỉnh trên PDF thật tuần 29/06-03/07/2026):
+     bảng LNH lấy cột NGÀY BÁO CÁO (không phải "TB 5 ngày"), lợi suất TPCP
+     lấy từ ma trận tenor "10N"; văn xuôi chỉ làm fallback cấu trúc chặt
+     ("qua đêm ON ... mức X%") + sanity range. KHÔNG dùng LLM — mọi con số
+     vào registry vĩ mô phải deterministic.
 
-⚠️ Sandbox dev bị chặn egress — verify trên máy có mạng:
+Parse verify OK trên PDF thật (03/07/2026): ON 5.67 / 1W 6.17 / 10Y 4.40 —
+khớp phần bình luận của chính báo cáo. Fetch (listing/download) CHƯA verify
+được — sandbox dev chặn egress; chạy trên máy có mạng:
     python vnstock_vbma.py --diag          # in URL PDF chọn + số parse được
     python vnstock_vbma.py --diag --dump   # in thêm raw text để chỉnh regex
 Nếu ``vbma.org.vn`` chưa có trong allowlist mạng thì cần thêm.
@@ -59,24 +64,6 @@ _RANGES = {
     "govt_bond_yield_10y": (1.0, 10.0),
 }
 
-# Anchor mở section trong text PDF (± _SECTION_SPAN dòng quanh anchor).
-_SECTIONS = {
-    "interbank": re.compile(r"liên\s*ngân\s*hàng|interbank", re.I),
-    "bond": re.compile(r"lợi\s*suất|trái\s*phiếu\s*chính\s*phủ|government\s*bond|yield", re.I),
-}
-_SECTION_SPAN = 25
-
-# Nhãn dòng theo section. "ON"/"1W" chỉ tin trong section liên-ngân-hàng
-# (chữ "on" tiếng Anh quá phổ biến để tìm toàn văn).
-_LABELS = {
-    "interbank_on": ("interbank", re.compile(r"qua\s*đêm|overnight|\bON\b", re.I)),
-    "interbank_1w": ("interbank", re.compile(r"1\s*tuần|1\s*week|\b1W\b", re.I)),
-    "govt_bond_yield_10y": ("bond", re.compile(r"10\s*năm|\b10Y\b|10\s*year", re.I)),
-}
-
-_NUM = re.compile(r"(\d{1,2}[.,]\d{1,3})\s*%?")
-
-
 def _to_float(s: str) -> float:
     return float(s.replace(",", "."))
 
@@ -95,14 +82,15 @@ def fetch_listing_html() -> "str | None":
 
 
 _PDF_HREF = re.compile(r'href="([^"]+\.pdf[^"]*)"', re.I)
-_DATE_RANGE = re.compile(r"(\d{8})\s*-\s*(\d{8})")
+# Tên file thật nối liền 2 ngày KHÔNG dấu gạch: "2906202603072026_BAO_CAO_TUAN..."
+_DATE_RANGE = re.compile(r"(\d{8})\s*-?\s*(\d{8})")
 
 
 def find_latest_pdf(html: str) -> "tuple[str, str] | None":
     """(url, as_of_iso) của báo cáo tuần mới nhất.
 
-    Chọn theo NGÀY CUỐI trong tên file (pattern DDMMYYYY-DDMMYYYY) thay vì
-    thứ tự trên trang — bền hơn khi listing sắp xếp lại. Không dựng URL từ
+    Chọn theo NGÀY CUỐI trong tên file (DDMMYYYY liền hoặc có gạch nối) thay
+    vì thứ tự trên trang — bền hơn khi listing sắp xếp lại. Không dựng URL từ
     pattern (suffix tên file của VBMA không nhất quán) — chỉ scrape href.
     """
     best: "tuple[str, object] | None" = None
@@ -155,40 +143,105 @@ def pdf_to_text(data: bytes) -> "str | None":
         from pypdf import PdfReader
         reader = PdfReader(io.BytesIO(data))
         return "\n".join((page.extract_text() or "") for page in reader.pages)
-    except Exception:
+    except BaseException as e:                     # pyo3 PanicException (cryptography
+        if isinstance(e, (KeyboardInterrupt, SystemExit)):  # vỡ) kế thừa BaseException
+            raise
         return None
 
 
-# ── Bước 4: text → số ────────────────────────────────────────────────────────
 
-def _section_lines(lines: "list[str]", anchor: re.Pattern) -> "list[str]":
-    """Các dòng trong ± _SECTION_SPAN quanh MỌI anchor khớp (gộp, giữ thứ tự)."""
-    idx: set[int] = set()
+# ── Parse theo CẤU TRÚC BẢNG THẬT (chỉnh theo PDF tuần 29/06-03/07/2026) ─────
+#
+# Bảng LNH (sau tiêu đề "LÃI SUẤT LIÊN NGÂN HÀNG"):
+#   Đvị : %   TB 5 ngày   3/7/2026   26/6/2026   +/- so tuần trước (đcb)  ...
+#      ON        6.89        5.67       2.91        276                   19
+#      1W        6.94        6.17       7.35       -118                    3
+# → giá trị ĐÚNG = cột ngày báo cáo (index 1 trong các số thập phân; cột đcb
+#   là số nguyên nên regex thập phân tự loại). Header có "TB 5" thì tin idx 1.
+#
+# Lợi suất TPCP là MA TRẬN tenor (sau "BIẾN ĐỘNG LỢI SUẤT PHÒNG GIAO DỊCH"):
+#      1N     2N     3N     5N     7N     10N    15N    20N    30N
+#   3/7/2026  3.40%  3.50%  3.57%  4.20%  4.26%  4.40%  4.57%  ...
+# → dòng header đếm vị trí "10N", dòng ngày đầu tiên bên dưới lấy % thứ đó.
+#
+# Văn xuôi ("...lên mức 9.26%... qua đêm và 1W...") KHÔNG được đụng tới —
+# chỉ dùng làm FALLBACK có cấu trúc chặt ("qua đêm ON ... mức X%") khi bảng
+# không parse được (layout đổi).
+
+_DEC = re.compile(r"-?\d{1,2}[.,]\d{1,3}\b")       # số thập phân (loại cột đcb nguyên)
+_PCT = re.compile(r"(\d{1,2}[.,]\d{1,3})\s*%")
+_TENOR = re.compile(r"\b(\d{1,2})N\b")
+_DATE_ROW = re.compile(r"^\s*\d{1,2}/\d{1,2}/\d{4}\b")
+_IB_TITLE = re.compile(r"LÃI\s*SUẤT\s*LIÊN\s*NGÂN\s*HÀNG|INTERBANK\s*RATES?", re.I)
+
+
+def _in_range(key: str, v: float) -> bool:
+    lo, hi = _RANGES[key]
+    return lo <= v <= hi
+
+
+def _parse_interbank(lines: "list[str]") -> dict:
+    out: dict = {}
     for i, line in enumerate(lines):
-        if anchor.search(line):
-            idx.update(range(max(0, i - 2), min(len(lines), i + _SECTION_SPAN)))
-    return [lines[i] for i in sorted(idx)]
+        if not _IB_TITLE.search(line):
+            continue
+        block = lines[i:i + 20]
+        # Anchor có thể khớp cả đoạn VĂN XUÔI "Lãi suất liên ngân hàng: ..."
+        # đứng trước bảng → tìm header "TB 5 ngày" trong TOÀN block, không chỉ
+        # vài dòng đầu (PDF thật 03/07/2026: văn xuôi ở dòng i, bảng ở i+11).
+        header_has_tb5 = any("TB 5" in b for b in block)
+        for row_label, key in (("ON", "interbank_on"), ("1W", "interbank_1w")):
+            for b in block:
+                toks = b.split()
+                if not toks or toks[0] != row_label:
+                    continue
+                decs = [_to_float(m) for m in _DEC.findall(b)]
+                decs = [d for d in decs if _in_range(key, d)]
+                if decs:
+                    v = decs[1] if (header_has_tb5 and len(decs) >= 2) else decs[0]
+                    out[key] = v
+                break
+        if out:
+            return out
+
+    # Fallback: câu văn có cấu trúc chặt trong phần bình luận LNH
+    text = "\n".join(lines)
+    m = re.search(r"qua\s*đêm\s*\(?ON\)?[^%]{0,80}?mức\s*(\d{1,2}[.,]\d{1,3})\s*%",
+                  text, re.I | re.S)
+    if m and _in_range("interbank_on", _to_float(m.group(1))):
+        out["interbank_on"] = _to_float(m.group(1))
+    m = re.search(r"kỳ\s*hạn\s*\(?1W\)?[^%]{0,80}?mức\s*(\d{1,2}[.,]\d{1,3})\s*%",
+                  text, re.I | re.S)
+    if m and _in_range("interbank_1w", _to_float(m.group(1))):
+        out["interbank_1w"] = _to_float(m.group(1))
+    return out
+
+
+def _parse_bond_10y(lines: "list[str]") -> "float | None":
+    for i, line in enumerate(lines):
+        tenors = _TENOR.findall(line)
+        if "10" not in tenors or len(tenors) < 4:      # header ma trận tenor
+            continue
+        idx = tenors.index("10")
+        for row in lines[i + 1:i + 6]:                  # dòng ngày ĐẦU = mới nhất
+            if not _DATE_ROW.match(row):
+                continue
+            pcts = [_to_float(x) for x in _PCT.findall(row)]
+            if len(pcts) > idx and _in_range("govt_bond_yield_10y", pcts[idx]):
+                return pcts[idx]
+            break                                       # header khác (legend chart) → thử tiếp
+    return None
 
 
 def extract_rates(text: str) -> dict:
-    """{key: value} cho các chỉ số parse được (chỉ nhận giá trị trong range)."""
-    out: dict = {}
+    """{key: value} cho các chỉ số parse được từ text PDF (deterministic)."""
     if not text:
-        return out
+        return {}
     lines = text.splitlines()
-    scoped = {name: _section_lines(lines, pat) for name, pat in _SECTIONS.items()}
-    for key, (section, label) in _LABELS.items():
-        for line in scoped.get(section, []):
-            if not label.search(line):
-                continue
-            m = _NUM.search(line)
-            if not m:
-                continue
-            v = _to_float(m.group(1))
-            lo, hi = _RANGES[key]
-            if lo <= v <= hi:
-                out[key] = v
-                break
+    out = _parse_interbank(lines)
+    y10 = _parse_bond_10y(lines)
+    if y10 is not None:
+        out["govt_bond_yield_10y"] = y10
     return out
 
 

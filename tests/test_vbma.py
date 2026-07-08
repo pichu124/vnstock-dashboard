@@ -1,9 +1,12 @@
 """Tests for vnstock_vbma — VBMA weekly PDF parser + vnstock_macro wiring.
 
-Fixture text mô phỏng layout `pdftotext -layout` của bản tin tuần VBMA
-(song ngữ, số thập phân dấu phẩy). Khi có PDF thật, chạy
-`python vnstock_vbma.py --diag --dump` trên máy có mạng và cập nhật fixture
-nếu layout lệch.
+Fixture = TRÍCH ĐOẠN THẬT từ bản tin tuần 29/06–03/07/2026 (user cung cấp,
+extract bằng `pdftotext -layout`), giữ nguyên các bẫy đã gặp khi chỉnh parser:
+  * đoạn văn xuôi "lên mức 9.26% ... qua đêm và 1W" (từng làm ON=1W=9.26)
+  * nhãn trục chart " 5.0%" (từng làm 10Y=5.0)
+  * dòng legend chart "3/7/2026  26/6/2026  3/7/2025" (dates không có %)
+  * cột "TB 5 ngày" đứng TRƯỚC cột ngày báo cáo (từng làm ON=6.89)
+Giá trị đúng đối chiếu văn xuôi của chính báo cáo: ON 5.67 / 1W 6.17 / 10Y 4.40.
 """
 from __future__ import annotations
 
@@ -13,70 +16,99 @@ import vnstock_macro as mac
 import vnstock_vbma as vbma
 
 
-_FIXTURE = """\
-BẢN TIN THỊ TRƯỜNG TRÁI PHIẾU HÀNG TUẦN / WEEKLY BOND MARKET REPORT
+_REAL = """\
+ Lãi suất liên ngân hàng: Kết tuần, trong khi lãi suất qua đêm ON tăng 276 đcb lên mức 5.67%, lãi suất kỳ hạn 1W giảm 118 đcb xuống
+ mức 6.17%. Ngoài ra, lãi suất kỳ hạn 6 tháng tăng 40 đcb lên mức 9.00% và lãi suất kỳ hạn 9 tháng tăng 120 đcb lên mức 9.26%. Chênh
+ lệch lãi suất USD và VND kỳ hạn qua đêm và 1W trung bình nới rộng khoảng 264 đcb.
 
-I. LÃI SUẤT BÌNH QUÂN LIÊN NGÂN HÀNG (INTERBANK AVERAGE RATES)
-   Kỳ hạn / Term            Lãi suất / Rate (%/năm)
-   Qua đêm / ON                    4,52
-   1 tuần / 1W                     4,75
-   2 tuần / 2W                     4,90
-   1 tháng / 1M                    5,10
+ Khối lượng giao dịch: Tổng giá trị giao dịch trên thị trường liên ngân hàng trong kỳ báo cáo tăng 4.2% so với kỳ trước, lên mức 4.59
+ triệu tỷ đồng. Trong đó, kỳ hạn qua đêm (ON) và 1 tuần (1W) có khối lượng giao dịch lớn nhất.
 
-II. LỢI SUẤT TRÁI PHIẾU CHÍNH PHỦ (GOVERNMENT BOND YIELDS)
-   Kỳ hạn / Tenor            Lợi suất / Yield (%)
-   5 năm / 5Y                      2,45
-   10 năm / 10Y                    3,12
-   15 năm / 15Y                    3,35
+LÃI SUẤT LIÊN NGÂN HÀNG
+ Đvị : %       TB 5 ngày      3/7/2026      26/6/2026     +/- so tuần trước (đcb)    +/- so tháng trước (đcb)
+        ON        6.89           5.67          2.91           276                        19
+        1W        6.94           6.17          7.35          -118                          3
+        2W        7.14           6.12          7.72          -160                        -10
+        1M        7.84           7.38          7.57           -19                         24
 
-Giao dịch trên thị trường thứ cấp đạt 5.200 tỷ đồng, tăng 12% so với tuần trước.
-Trading on the secondary market reached VND 5,200 billion this week.
+Lợi suất trái phiếu Chính phủ (theo VBMA): Lợi suất trung bình TPCP đi ngang ở hầu hết các kỳ hạn.
+              DIỄN BIẾN LỢI SUẤT TRÁI PHIẾU CHÍNH PHỦ - VBMA
+ 5.0%
+ 4.5%
+ 1.0%
+        1N       2N       3N       5N       7N       10N       15N       20N       30N
+              3/7/2026            26/6/2026           3/7/2025
+
+BIẾN ĐỘNG LỢI SUẤT PHÒNG GIAO DỊCH VBMA
+        1N       2N       3N       5N       7N       10N       15N       20N       30N
+3/7/2026      3.40%    3.50%    3.57%    4.20%    4.26%    4.40%    4.57%    4.64%    4.71%
+26/6/2026     3.38%    3.48%    3.56%    4.19%    4.25%    4.40%    4.57%    4.62%    4.69%
+WoW (đcb)       1.68     2.32     1.36     1.22     0.98     0.14     0.28     1.60     1.64
+Nguồn: VBMA
 """
 
 
-# ── extract_rates ────────────────────────────────────────────────────────────
+# ── extract_rates trên trích đoạn thật ───────────────────────────────────────
 
-def test_extract_rates_parses_all_three_indicators():
-    out = vbma.extract_rates(_FIXTURE)
-    assert out["interbank_on"] == pytest.approx(4.52)
-    assert out["interbank_1w"] == pytest.approx(4.75)
-    assert out["govt_bond_yield_10y"] == pytest.approx(3.12)
+def test_extract_rates_real_excerpt_exact_values():
+    out = vbma.extract_rates(_REAL)
+    assert out == {
+        "interbank_on": pytest.approx(5.67),      # cột 3/7/2026, KHÔNG phải TB 5 ngày 6.89
+        "interbank_1w": pytest.approx(6.17),      # và KHÔNG phải 9.26 từ văn xuôi
+        "govt_bond_yield_10y": pytest.approx(4.40),  # ma trận 10N, KHÔNG phải trục chart 5.0%
+    }
 
 
-def test_extract_rates_english_on_outside_section_not_matched():
-    # "Trading on the secondary market ... 5,200" — chữ "on" tiếng Anh + số
-    # nằm NGOÀI section liên-ngân-hàng không được nhận nhầm làm lãi suất ON.
-    text = """
-Some intro text here.
-Trading on the secondary market reached 5,20 percent growth.
-More prose lines without any rates table.
-"""
+def test_extract_rates_narrative_fallback_when_table_missing():
+    # Layout đổi mất bảng → fallback câu văn cấu trúc chặt "... mức X%"
+    narrative_only = (
+        "Lãi suất liên ngân hàng: Kết tuần, trong khi lãi suất qua đêm ON tăng "
+        "276 đcb lên mức 5.67%, lãi suất kỳ hạn 1W giảm 118 đcb xuống mức 6.17%."
+    )
+    out = vbma.extract_rates(narrative_only)
+    assert out["interbank_on"] == pytest.approx(5.67)
+    assert out["interbank_1w"] == pytest.approx(6.17)
+
+
+def test_extract_rates_english_on_prose_not_matched():
+    # Chữ "on" tiếng Anh + số ngoài mọi bảng/anchor không được nhận nhầm
+    text = "Trading on the secondary market reached 5.20 percent growth this week."
     assert vbma.extract_rates(text) == {}
 
 
 def test_extract_rates_rejects_out_of_range_and_empty():
-    bad = """
+    bad = """\
 LÃI SUẤT LIÊN NGÂN HÀNG
-   Qua đêm / ON                    45,2
+ Đvị : %    TB 5 ngày   3/7/2026
+        ON     46.89       45.67
 """
-    assert vbma.extract_rates(bad) == {}      # 45.2%/năm ngoài sanity range
+    assert vbma.extract_rates(bad) == {}          # ngoài sanity range 0-20%/năm
     assert vbma.extract_rates("") == {}
 
 
 # ── find_latest_pdf ──────────────────────────────────────────────────────────
 
-def test_find_latest_pdf_picks_max_end_date_and_quotes_url():
+def test_find_latest_pdf_real_concatenated_filename():
+    # Tên file thật: 2 ngày DDMMYYYY nối LIỀN không có dấu gạch
+    html = '<a href="/data/2906202603072026_BAO_CAO_TUAN_TTTP1.pdf">tuần</a>'
+    hit = vbma.find_latest_pdf(html)
+    assert hit == (
+        "https://vbma.org.vn/data/2906202603072026_BAO_CAO_TUAN_TTTP1.pdf",
+        "2026-07-03",
+    )
+
+
+def test_find_latest_pdf_picks_max_end_date_and_quotes_spaces():
     html = """
-    <a href="/data/Ban tin TT TP 23062026-27062026.pdf">tuần 23-27/06</a>
-    <a href="/data/Ban tin TT TP 30062026-04072026.pdf">tuần 30/06-04/07</a>
-    <a href="/data/huong-dan.pdf">không phải báo cáo tuần</a>
+    <a href="/data/Ban tin 2306202627062026.pdf">tuần cũ</a>
+    <a href="/data/Ban tin 3006202604072026.pdf">tuần mới</a>
+    <a href="/data/huong-dan.pdf">không phải báo cáo</a>
     """
     hit = vbma.find_latest_pdf(html)
     assert hit is not None
     url, as_of = hit
-    assert as_of == "2026-07-04"                       # ngày CUỐI của tuần mới nhất
-    assert url.startswith("https://vbma.org.vn/")
-    assert " " not in url and "%20" in url             # dấu cách đã được quote
+    assert as_of == "2026-07-04"
+    assert " " not in url and "%20" in url
 
 
 def test_find_latest_pdf_none_when_no_dated_pdf():
@@ -94,15 +126,15 @@ def test_refresh_records_vbma_readings_with_report_as_of(tmp_path, monkeypatch):
     _use_tmp_cache(tmp_path, monkeypatch)
     monkeypatch.setattr(mac, "fetch_usdvnd", lambda: None)
     monkeypatch.setattr(mac, "_fetch_vbma", lambda: {
-        "interbank_on": 4.52, "interbank_1w": 4.75,
-        "govt_bond_yield_10y": 3.12, "as_of": "2026-07-04",
+        "interbank_on": 5.67, "interbank_1w": 6.17,
+        "govt_bond_yield_10y": 4.40, "as_of": "2026-07-03",
     })
     mac.refresh()
     rows = {x["key"]: x for x in mac.load_macro()}
-    assert rows["interbank_on"]["value"] == pytest.approx(4.52)
-    assert rows["interbank_1w"]["value"] == pytest.approx(4.75)
-    assert rows["govt_bond_yield_10y"]["value"] == pytest.approx(3.12)
-    assert rows["interbank_on"]["as_of"] == "2026-07-04"   # ngày báo cáo, không phải hôm nay
+    assert rows["interbank_on"]["value"] == pytest.approx(5.67)
+    assert rows["interbank_1w"]["value"] == pytest.approx(6.17)
+    assert rows["govt_bond_yield_10y"]["value"] == pytest.approx(4.40)
+    assert rows["interbank_on"]["as_of"] == "2026-07-03"   # ngày báo cáo, không phải hôm nay
 
 
 def test_refresh_vbma_failure_keeps_manual_value(tmp_path, monkeypatch):
