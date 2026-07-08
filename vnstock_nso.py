@@ -36,11 +36,22 @@ from datetime import date
 import requests
 
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+       "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+# Header browser đầy đủ — server .gov.vn hay từ chối request "trần" (chỉ UA).
+_HEADERS = {
+    "User-Agent": _UA,
+    "Accept": ("text/html,application/xhtml+xml,application/xml;q=0.9,"
+               "image/avif,image/webp,*/*;q=0.8"),
+    "Accept-Language": "vi,vi-VN;q=0.9,en;q=0.8",
+    "Referer": "https://www.google.com/",
+}
 _LISTING_URLS = (
     "https://www.nso.gov.vn/bao-cao-tinh-hinh-kinh-te-xa-hoi-hang-thang/",
+    "https://nso.gov.vn/bao-cao-tinh-hinh-kinh-te-xa-hoi-hang-thang/",
+    # tên miền cũ (Tổng cục Thống kê trước khi đổi NSO) — thường redirect
+    "https://www.gso.gov.vn/bao-cao-tinh-hinh-kinh-te-xa-hoi-hang-thang/",
 )
-_TIMEOUT = 15
+_TIMEOUT = 20
 
 # Sanity range (% — YoY/MoM đều là %); ngoài khoảng coi như trúng số khác, bỏ.
 _RANGES = {
@@ -61,13 +72,20 @@ _REPORT_HREF = re.compile(
     r'bao-cao-tinh-hinh-kinh-te-xa-hoi-thang[^"]*)"', re.I)
 
 
-def fetch_listing_html() -> "str | None":
+def fetch_listing_html(verbose: bool = False) -> "str | None":
+    """HTML trang index báo cáo tháng. ``verbose`` (--diag) in chi tiết từng
+    URL (HTTP status / exception) để pinpoint lỗi thay vì FAIL câm."""
     for url in _LISTING_URLS:
         try:
-            r = requests.get(url, headers={"User-Agent": _UA}, timeout=_TIMEOUT)
+            r = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT)
+            if verbose:
+                print(f"  • GET {url}\n    → HTTP {r.status_code}, "
+                      f"{len(r.text or '')} ký tự")
             if r.status_code == 200 and r.text:
                 return r.text
-        except requests.RequestException:
+        except requests.RequestException as e:
+            if verbose:
+                print(f"  • GET {url}\n    → LỖI {type(e).__name__}: {str(e)[:200]}")
             continue
     return None
 
@@ -96,7 +114,7 @@ def find_latest_report(html: str) -> "tuple[str, str] | None":
 
 def download_report_text(url: str) -> "str | None":
     try:
-        r = requests.get(url, headers={"User-Agent": _UA}, timeout=_TIMEOUT)
+        r = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT)
         if r.status_code == 200 and r.text:
             return _strip_html(r.text)
     except requests.RequestException:
@@ -207,8 +225,8 @@ def main(argv: "list[str] | None" = None) -> int:
         ap.print_help()
         return 0
 
-    html = fetch_listing_html()
-    print(f"listing: {'OK' if html else 'FAIL (mạng/allowlist? cần nso.gov.vn)'}")
+    html = fetch_listing_html(verbose=True)
+    print(f"listing: {'OK' if html else 'FAIL — gửi tôi các dòng GET ở trên để chỉnh (server chặn? đổi URL?)'}")
     if not html:
         return 1
     hit = find_latest_report(html)
