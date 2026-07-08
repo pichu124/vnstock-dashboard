@@ -294,3 +294,55 @@ def test_iip_fallback_rejects_stale_listing_hit_and_uses_guess(monkeypatch):
     out = nso._fetch_iip_fallback(2026, 7)
     assert out == {"iip_mom": pytest.approx(3.5), "iip_yoy": pytest.approx(12.7)}
     assert all("thang-nam-nam-2026" not in u for u in seen)   # bài cũ không được tải
+
+
+# ── GDP quý + cán cân thương mại tháng (A+B, số thật Q2/2026) ────────────────
+
+
+def test_gdp_quarterly_real_sentence():
+    text = (
+        "Tổng sản phẩm trong nước (GDP) quý II/2026 ước tính tăng 8,39% so với "
+        "cùng kỳ năm trước. Trong đó, khu vực công nghiệp và xây dựng tăng "
+        "10,51% so với cùng kỳ. Kịch bản cập nhật cho rằng GDP quý III phải "
+        "tăng gần 11,0% so với cùng kỳ mới đạt mục tiêu."
+    )
+    out = nso.extract_indicators(text)
+    # câu SỐ LIỆU đứng trước thắng; câu "kịch bản" phía sau không đè
+    assert out["gdp_yoy"] == pytest.approx(8.39)
+
+
+def test_trade_balance_month_deficit_negative_and_cumulative_ignored():
+    text = (
+        "Cán cân thương mại hàng hóa tháng 6 ước tính nhập siêu 2,64 tỷ USD. "
+        "Tính chung 6 tháng đầu năm 2026, cán cân thương mại hàng hóa nhập siêu "
+        "16,65 tỷ USD."
+    )
+    out = nso.extract_indicators(text)
+    assert out["trade_balance"] == pytest.approx(-2.64)   # KHÔNG phải -16.65
+
+
+def test_trade_balance_surplus_and_trieu_usd_scaled():
+    out = nso.extract_indicators(
+        "Cán cân thương mại hàng hóa tháng 7 ước tính xuất siêu 276 triệu USD.")
+    assert out["trade_balance"] == pytest.approx(0.276)
+
+
+def test_gdp_and_trade_out_of_range_rejected():
+    assert "gdp_yoy" not in nso.extract_indicators(
+        "Tổng sản phẩm trong nước (GDP) quý II ước tính tăng 25,00% so với cùng kỳ")
+    assert "trade_balance" not in nso.extract_indicators(
+        "Cán cân thương mại hàng hóa tháng 6 ước tính nhập siêu 55,0 tỷ USD")
+
+
+def test_refresh_records_gdp_and_trade_balance(tmp_path, monkeypatch):
+    _use_tmp_cache(tmp_path, monkeypatch)
+    monkeypatch.setattr(mac, "_fetch_nso", lambda: {
+        "cpi_yoy": 4.69, "gdp_yoy": 8.39, "trade_balance": -2.64,
+        "as_of": "2026-06-30",
+    })
+    mac.refresh()
+    rows = {x["key"]: x for x in mac.load_macro()}
+    assert rows["gdp_yoy"]["value"] == pytest.approx(8.39)
+    assert rows["trade_balance"]["value"] == pytest.approx(-2.64)
+    assert mac.fmt_value(rows["trade_balance"]) == "-2.64 tỷ USD"
+    assert mac.fmt_value(rows["gdp_yoy"]) == "8.39%"

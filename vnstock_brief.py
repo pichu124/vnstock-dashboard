@@ -1317,10 +1317,11 @@ def _macro_body_lines(macro: list[dict],
     lines.append(
         "→ Lãi suất TĂNG / VND mất giá (USD/VND tăng) / CPI tăng tốc = môi trường "
         "THẮT CHẶT, bất lợi cho cổ phiếu (đặc biệt nhóm vay nợ cao; khối ngoại dễ "
-        "bán ròng). Lãi suất giảm / VND ổn định / IIP-PMI cải thiện = thuận lợi "
-        "hơn (PMI < 50 điểm = sản xuất thu hẹp). DÙNG bối cảnh này khi chốt Bias "
-        "+ Rủi ro để ĐÓN ĐẦU thay đổi. DÙNG ĐÚNG số + as_of ở trên, KHÔNG bịa "
-        "chỉ số vĩ mô ngoài danh sách trên (Fed/GDP… chưa có trong data)."
+        "bán ròng). Lãi suất giảm / VND ổn định / GDP-IIP-PMI cải thiện = thuận "
+        "lợi hơn (PMI < 50 điểm = sản xuất thu hẹp; cán cân thương mại ÂM = nhập "
+        "siêu, kéo dài là áp lực tỷ giá). DÙNG bối cảnh này khi chốt Bias + Rủi "
+        "ro để ĐÓN ĐẦU thay đổi. DÙNG ĐÚNG số + as_of ở trên, KHÔNG bịa chỉ số "
+        "vĩ mô ngoài danh sách trên (Fed… chưa có trong data)."
     )
     return lines
 

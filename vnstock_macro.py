@@ -149,6 +149,23 @@ _DEFS: dict[str, dict] = {
         # là --set pmi <số> mùng 1-2 hàng tháng, nguồn phụ regex tiêu đề RSS
         # cache sẵn có (_pmi_from_news — không fetch mới).
     },
+    "gdp_yoy": {
+        "label": "GDP quý (YoY)",
+        "unit": "%", "kind": "pct", "order": 8, "decimals": 2,
+        "moves": ("tăng trưởng GDP tăng tốc", "tăng trưởng GDP chậm lại"),
+        "pressure": {"mode": "delta", "scale": 3.0, "min": 0.3, "sign": 1},
+        # auto từ NSO — CHỈ bài quý (4 lần/năm); giữa các quý reading giữ
+        # nguyên với as_of cũ (staleness hiện rõ trong brief)
+    },
+    "trade_balance": {
+        "label": "Cán cân thương mại tháng",
+        "unit": "tỷ USD", "kind": "balance", "order": 9, "decimals": 2,
+        "delta_unit": "tỷ USD",
+        "moves": ("cán cân thương mại cải thiện", "cán cân thương mại xấu đi"),
+        "pressure": {"mode": "delta", "scale": 3.0, "min": 0.5, "sign": 1},
+        # auto từ NSO — xuất siêu dương / nhập siêu âm; nhập siêu kéo dài =
+        # áp lực tỷ giá (liên thông chuỗi VND yếu → NN bán ròng của block)
+    },
 }
 
 # ── Cache I/O ────────────────────────────────────────────────────────────────
@@ -549,7 +566,7 @@ def refresh(*, as_of: "str | None" = None) -> dict:
         ns = _fetch_nso()
         if ns:
             ns_as_of = ns.get("as_of") or day
-            for key in ("cpi_yoy", "iip_yoy"):
+            for key in ("cpi_yoy", "iip_yoy", "gdp_yoy", "trade_balance"):
                 if ns.get(key) is not None:
                     _record(cache, key, float(ns[key]), ns_as_of, "nso")
 

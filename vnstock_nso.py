@@ -57,12 +57,14 @@ _LISTING_URLS = (
 )
 _TIMEOUT = 20
 
-# Sanity range (% — YoY/MoM đều là %); ngoài khoảng coi như trúng số khác, bỏ.
+# Sanity range; ngoài khoảng coi như trúng số khác, bỏ.
 _RANGES = {
     "cpi_mom": (-5.0, 5.0),
     "cpi_yoy": (-10.0, 30.0),
     "iip_mom": (-30.0, 30.0),
     "iip_yoy": (-30.0, 50.0),
+    "gdp_yoy": (-10.0, 15.0),          # % YoY theo quý
+    "trade_balance": (-15.0, 15.0),    # tỷ USD/tháng; + xuất siêu, − nhập siêu
 }
 
 
@@ -235,8 +237,26 @@ def _moves(window: str, prefix: str) -> dict:
     return out
 
 
+# GDP quý — câu chuẩn "Tổng sản phẩm trong nước (GDP) quý II/2026 ước tính
+# tăng 8,39% so với cùng kỳ năm trước" (CHỈ có trong bài quý → cập nhật 4
+# lần/năm; bài tháng thường không có → giữ reading quý trước, as_of hiện rõ).
+# Không dùng _windows vì cửa sổ chung cố tình CẮT tại "quý".
+_GDP_RE = re.compile(
+    r"tổng\s*sản\s*phẩm\s*trong\s*nước\s*\(?\s*GDP\s*\)?[^%]{0,80}?"
+    r"quý\s*[IV1-4]{1,3}[^%]{0,60}?"
+    r"(tăng|giảm)\s*(\d{1,2}[.,]\d{1,2})\s*%\s*so\s*với\s*cùng\s*kỳ", re.I)
+
+# Cán cân thương mại THÁNG — "Cán cân thương mại hàng hóa tháng 6 ước tính
+# nhập siêu 2,64 tỷ USD". Bắt buộc chữ "tháng" giữa anchor và "xuất/nhập siêu"
+# để số LŨY KẾ ("Tính chung 6 tháng…, cán cân thương mại hàng hóa nhập siêu
+# 16,65 tỷ USD" — không có "tháng" sau anchor) không lọt vào.
+_TB_RE = re.compile(
+    r"cán\s*cân\s*thương\s*mại[^.;]{0,60}?tháng[^.;]{0,40}?"
+    r"(xuất|nhập)\s*siêu\s*(\d+[.,]?\d*)\s*(tỷ|triệu)\s*USD", re.I)
+
+
 def _extract(text: str) -> "tuple[dict, dict]":
-    """(chỉ số, {prefix: cửa sổ nguồn}) — cửa sổ giữ lại cho --diag soi câu."""
+    """(chỉ số, {prefix: cửa sổ/câu nguồn}) — nguồn giữ lại cho --diag soi."""
     if not text:
         return {}, {}
     flat = re.sub(r"\s+", " ", text)
@@ -249,6 +269,26 @@ def _extract(text: str) -> "tuple[dict, dict]":
                 out.update(d)
                 wins[prefix] = win.strip()
                 break
+    m = _GDP_RE.search(flat)
+    if m:
+        v = float(m.group(2).replace(",", "."))
+        if m.group(1).lower() == "giảm":
+            v = -v
+        lo, hi = _RANGES["gdp_yoy"]
+        if lo <= v <= hi:
+            out["gdp_yoy"] = v
+            wins["gdp"] = m.group(0).strip()
+    m = _TB_RE.search(flat)
+    if m:
+        v = float(m.group(2).replace(",", "."))
+        if m.group(3).lower() == "triệu":
+            v = v / 1000.0
+        if m.group(1).lower() == "nhập":
+            v = -v                       # nhập siêu = thâm hụt → âm
+        lo, hi = _RANGES["trade_balance"]
+        if lo <= v <= hi:
+            out["trade_balance"] = round(v, 3)
+            wins["trade"] = m.group(0).strip()
     return out, wins
 
 

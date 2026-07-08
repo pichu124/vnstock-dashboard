@@ -395,6 +395,15 @@ danh sách thật vào output (LLM hay phớt block dù data có trong prompt).
   `_macro_line` delegate về đây (CLI ↔ brief không thể lệch nhau);
   `macro_pressure_score` generic theo metadata (sign=-1: tăng bất lợi — lãi
   suất/tỷ giá/CPI; sign=+1: tăng thuận lợi — IIP/PMI).
+- **`gdp_yoy` + `trade_balance` AUTO từ NSO (A+B, DONE 2026-07-08)** — cùng bài
+  đã fetch, zero request mới. GDP: regex riêng (cửa sổ chung cố tình cắt tại
+  "quý"), CHỈ có trong bài quý → 4 lần/năm, giữa các quý giữ reading cũ (as_of
+  hiện rõ). Cán cân thương mại: bắt buộc chữ "tháng" giữa anchor và "xuất/nhập
+  siêu" → số LŨY KẾ 6 tháng không lọt; "triệu USD"/1000; nhập siêu = ÂM.
+  Registry nay 10 chỉ số = CHẠM CAP — thêm nữa phải bỏ bớt (quyết định
+  2026-07-08: dừng ở đây; credit growth để dành, chỉ làm nếu brief thiếu ngữ
+  cảnh khi có tin tín dụng lớn). Directive brief: GDP đã BỎ khỏi danh sách cấm
+  bịa (nay có data), chỉ còn Fed.
 - **`cpi_yoy` + `iip_yoy` AUTO từ NSO** (`vnstock_nso.py`, mirror vnstock_vbma):
   listing `nso.gov.vn/bao-cao-tinh-hinh-kinh-te-xa-hoi-hang-thang/` → bài
   `/bai-top/{YYYY}/{MM}/bao-cao-…-thang-…` publish-tháng lớn nhất (KHÔNG dựng
