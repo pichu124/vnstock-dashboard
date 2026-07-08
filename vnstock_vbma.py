@@ -57,11 +57,12 @@ _LISTING_URLS = (
 _TIMEOUT_HTML = 15
 _TIMEOUT_PDF = 30
 
-# Sanity range (%/năm) — số ngoài khoảng coi như parse trúng ô khác, bỏ.
+# Sanity range (%/năm; VND cho fx) — số ngoài khoảng coi như parse trúng ô khác, bỏ.
 _RANGES = {
     "interbank_on": (0.0, 20.0),
     "interbank_1w": (0.0, 20.0),
     "govt_bond_yield_10y": (1.0, 10.0),
+    "usdvnd_vcb_mid": (15000.0, 40000.0),
 }
 
 def _to_float(s: str) -> float:
@@ -260,6 +261,33 @@ def _parse_bond_10y(lines: "list[str]") -> "float | None":
     return best[1] if best else None
 
 
+# Tỷ giá VCB từ văn xuôi "THỊ TRƯỜNG NGOẠI HỐI": "...xuống 26,103 VND/USD ở
+# chiều mua và tăng 9 VND/USD lên 26,463 VND/USD ở chiều bán". Neo số NGAY TRƯỚC
+# "VND/USD ở chiều mua/bán" nên số delta ("tăng 9 VND/USD lên") không lọt.
+# \s* giữa mọi token vì pdftotext ngắt dòng giữa câu còn pypdf DÍNH chữ
+# ("ởchiều bán" — đã thấy trên PDF thật 03/07/2026).
+_FX_NUM = r"(\d{2}[.,]\d{3})"
+_FX_BUY = re.compile(_FX_NUM + r"\s*VND/USD\s*ở\s*chiều\s*mua", re.I)
+_FX_SELL = re.compile(_FX_NUM + r"\s*VND/USD\s*ở\s*chiều\s*bán", re.I)
+
+
+def _fx_to_vnd(s: str) -> float:
+    return float(re.sub(r"[.,]", "", s))       # "26,103" → 26103 (sep = nghìn)
+
+
+def _parse_fx(text: str) -> "float | None":
+    """Trung bình mua/bán niêm yết Vietcombank (VND/USD) — dùng để cross-check
+    nguồn FX chính (er-api) trong vnstock_macro, không ghi thành chỉ số."""
+    mb, ms = _FX_BUY.search(text), _FX_SELL.search(text)
+    if not (mb and ms):
+        return None
+    buy, sell = _fx_to_vnd(mb.group(1)), _fx_to_vnd(ms.group(1))
+    mid = round((buy + sell) / 2.0, 1)
+    if buy <= sell and _in_range("usdvnd_vcb_mid", mid):
+        return mid
+    return None
+
+
 def extract_rates(text: str) -> dict:
     """{key: value} cho các chỉ số parse được từ text PDF (deterministic)."""
     if not text:
@@ -269,6 +297,9 @@ def extract_rates(text: str) -> dict:
     y10 = _parse_bond_10y(lines)
     if y10 is not None:
         out["govt_bond_yield_10y"] = y10
+    fx = _parse_fx(text)
+    if fx is not None:
+        out["usdvnd_vcb_mid"] = fx
     return out
 
 

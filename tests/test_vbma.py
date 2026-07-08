@@ -16,6 +16,14 @@ import vnstock_macro as mac
 import vnstock_vbma as vbma
 
 
+@pytest.fixture(autouse=True)
+def _no_external_macro_fetch(monkeypatch):
+    """refresh() nay còn gọi NSO (mạng) + PMI-from-news (đọc cache repo) —
+    chặn mặc định để test wiring hermetic."""
+    monkeypatch.setattr(mac, "_fetch_nso", lambda: None)
+    monkeypatch.setattr(mac, "_pmi_from_news", lambda: None)
+
+
 _REAL = """\
  Lãi suất liên ngân hàng: Kết tuần, trong khi lãi suất qua đêm ON tăng 276 đcb lên mức 5.67%, lãi suất kỳ hạn 1W giảm 118 đcb xuống
  mức 6.17%. Ngoài ra, lãi suất kỳ hạn 6 tháng tăng 40 đcb lên mức 9.00% và lãi suất kỳ hạn 9 tháng tăng 120 đcb lên mức 9.26%. Chênh
@@ -84,6 +92,61 @@ LÃI SUẤT LIÊN NGÂN HÀNG
 """
     assert vbma.extract_rates(bad) == {}          # ngoài sanity range 0-20%/năm
     assert vbma.extract_rates("") == {}
+
+
+# ── _parse_fx: tỷ giá VCB từ văn xuôi "THỊ TRƯỜNG NGOẠI HỐI" ────────────────
+
+# Trích đoạn thật (pdftotext) — câu bị NGẮT DÒNG giữa chừng; số delta
+# "giảm 11 VND/USD xuống" / "tăng 9 VND/USD lên" đứng cạnh số cần lấy.
+_REAL_FX = """\
+ Kết tuần, tỷ giá trung tâm tăng 8 VND/USD so với tuần trước, lên mức
+ 25,203 VND/USD. Ngoài ra, tỷ giá niêm yết tại Vietcombank giảm 11
+ VND/USD xuống 26,103 VND/USD ở chiều mua và tăng 9 VND/USD lên
+ 26,463 VND/USD ở chiều bán.
+"""
+
+# Cùng đoạn khi extract bằng PYPDF — chữ DÍNH nhau qua chỗ xuống dòng
+# ("tỷ giániêm yết", "ởchiều bán") — thấy trên PDF thật 03/07/2026.
+_REAL_FX_PYPDF = (
+    "Tỷ giá USD/VND: Kết tuần, tỷ giá trung tâm tăng 8 VND/USD so với tuần "
+    "trước, lên mức 25,203 VND/USD. Ngoài ra, tỷ giániêm yết tại Vietcombank "
+    "giảm 11 VND/USD xuống 26,103 VND/USD ở chiều mua và tăng 9 VND/USD lên "
+    "26,463 VND/USD ởchiều bán."
+)
+
+
+def test_parse_fx_vcb_mid_both_extraction_modes():
+    # mid = (26,103 + 26,463) / 2 — KHÔNG dính 25,203 (trung tâm) hay delta 9/11
+    assert vbma._parse_fx(_REAL_FX) == pytest.approx(26283.0)
+    assert vbma._parse_fx(_REAL_FX_PYPDF) == pytest.approx(26283.0)
+    out = vbma.extract_rates(_REAL_FX)
+    assert out["usdvnd_vcb_mid"] == pytest.approx(26283.0)
+
+
+def test_parse_fx_rejects_inverted_or_missing_sides():
+    swapped = ("xuống 26,463 VND/USD ở chiều mua và lên "
+               "26,103 VND/USD ở chiều bán")           # mua > bán → vô lý, bỏ
+    assert vbma._parse_fx(swapped) is None
+    assert vbma._parse_fx("chỉ có 26,103 VND/USD ở chiều mua") is None
+    assert vbma._parse_fx("") is None
+
+
+def test_refresh_fx_crosscheck_flags_divergence_and_clears(tmp_path, monkeypatch):
+    _use_tmp_cache(tmp_path, monkeypatch)
+    monkeypatch.setattr(mac, "_fetch_vbma", lambda: {
+        "as_of": "2026-07-03", "usdvnd_vcb_mid": 26283.0,
+    })
+    # er-api lệch +2.7% so với VCB → cắm cờ cảnh báo trong cache
+    monkeypatch.setattr(mac, "fetch_usdvnd", lambda: 27000.0)
+    mac.refresh()
+    xc = mac._load_cache().get("fx_crosscheck")
+    assert xc and xc["diff_pct"] == pytest.approx(2.73, abs=0.01)
+    # về lại trong ngưỡng → cờ được XÓA (không cảnh báo dai dẳng)
+    monkeypatch.setattr(mac, "fetch_usdvnd", lambda: 26300.0)
+    mac.refresh()
+    assert "fx_crosscheck" not in mac._load_cache()
+    # usdvnd_vcb_mid KHÔNG bị ghi thành chỉ số riêng
+    assert "usdvnd_vcb_mid" not in {x["key"] for x in mac.load_macro()}
 
 
 # ── find_latest_pdf ──────────────────────────────────────────────────────────

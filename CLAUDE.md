@@ -385,10 +385,48 @@ thay/xóa. `enforce_upcoming_events()` (gọi trong `generate_brief`) — guard
 deterministic: LLM ghi "Không có sự kiện đáng chú ý" dù ctx CÓ events → splice
 danh sách thật vào output (LLM hay phớt block dù data có trong prompt).
 
-### 🌐 Vĩ mô: lãi suất & tỷ giá (DONE 2026-06-14) — `vnstock_macro.py`
+### 🌐 Vĩ mô: lãi suất & tỷ giá + CPI/IIP/PMI (DONE 2026-06-14, mở rộng 2026-07-08) — `vnstock_macro.py`
 
-Lấp khoảng trống "tin VĨ MÔ — lãi suất/tỷ giá" mà block "🔧 Đề xuất bổ sung" lâu
-nay vẫn xin. Theo dõi 3 chỉ số cốt lõi, cache `_meta/macro_indicators.json`
+**Mở rộng 2026-07-08 (P2/P3/P5 từ khảo sát vimovietnam — CẦN USER VERIFY
+`python vnstock_nso.py --diag` trên máy có mạng; sandbox chặn nso.gov.vn):**
+- **`_DEFS` nay mang TOÀN BỘ metadata** (decimals / delta_unit / moves /
+  pressure {mode,scale,min,sign}) → thêm chỉ số mới = thêm 1 entry, KHÔNG
+  if/elif theo kind ở chỗ khác. `fmt_value`/`fmt_change` public — brief
+  `_macro_line` delegate về đây (CLI ↔ brief không thể lệch nhau);
+  `macro_pressure_score` generic theo metadata (sign=-1: tăng bất lợi — lãi
+  suất/tỷ giá/CPI; sign=+1: tăng thuận lợi — IIP/PMI).
+- **`cpi_yoy` + `iip_yoy` AUTO từ NSO** (`vnstock_nso.py`, mirror vnstock_vbma):
+  listing `nso.gov.vn/bao-cao-tinh-hinh-kinh-te-xa-hoi-hang-thang/` → bài
+  `/bai-top/{YYYY}/{MM}/bao-cao-…-thang-…` publish-tháng lớn nhất (KHÔNG dựng
+  URL từ slug — NSO có bài ghi NHẦM năm trong slug) → strip HTML → regex câu
+  công thức "CPI tháng X tăng/giảm N% so với tháng trước/cùng kỳ" (bẫy đã chặn:
+  "so với tháng 12/2025" ≠ MoM vì thiếu "trước"; cửa sổ cắt tại "bình
+  quân"/"quý" để không lấy YoY bình quân; ngành con IIP đứng sau headline —
+  first-match thắng; NSO dùng PHẨY thập phân). as_of = cuối THÁNG DATA (=
+  tháng publish − 1; công bố ~mùng 3). Fixtures = số thật T6/2026 (CPI −0,39
+  MoM/+4,69 YoY; IIP +3,5/+12,7). Tắt: `VNSTOCK_MACRO_NSO=0`.
+- **`pmi` (P3)**: nguồn chính `--set pmi <số>` mùng 1-2 hàng tháng (URL S&P đổi
+  hash mỗi tháng → không crawler); nguồn phụ `_pmi_from_news()` regex "XX,X
+  điểm" trên tiêu đề RSS cache SẴN CÓ (không fetch; bỏ tiêu đề PMI nước ngoài
+  `_PMI_FOREIGN`; sanity 25-75; CHỈ ghi khi tin mới hơn reading hiện có — không
+  đè --set). Tắt: `VNSTOCK_MACRO_PMI_NEWS=0`. Regex neo "điểm" chứ KHÔNG đo
+  khoảng cách tới chữ PMI (giữa chúng có chữ số "tháng 6/2026" → gap [^\d] trượt).
+- **Cross-check tỷ giá (P5)**: `_parse_fx` trong vnstock_vbma lấy trung bình
+  mua/bán Vietcombank từ văn xuôi PDF (cả 2 chế độ extract; pypdf DÍNH chữ
+  "ởchiều bán" đã xử) → `_fx_crosscheck` so với er-api, lệch >2% in cảnh báo +
+  cờ `fx_crosscheck` trong cache (hiện ở `--show`); trong ngưỡng thì XÓA cờ.
+  So er-api với VCB chứ KHÔNG với tỷ giá TRUNG TÂM (trung tâm ~25.2k vs market
+  ~26.3k — lệch ~4% bẩm sinh, so nhầm là báo động giả).
+- **Brief nén block vĩ mô**: `_macro_body_lines` gộp mọi chỉ số KHÔNG đổi vào
+  1 dòng "Đi ngang/chưa có kỳ mới: …" (8 chỉ số không nở 8 bullet); chỉ số có
+  thay đổi giữ bullet riêng. Directive cập nhật (CPI/IIP/PMI nay CÓ data — chỉ
+  còn cấm bịa Fed/GDP). Guard `enforce_macro` dùng chung builder → parity tự giữ.
+- **Test hermetic**: mọi test gọi `mac.refresh()` PHẢI patch `_fetch_nso` +
+  `_pmi_from_news` (autouse fixture trong test_macro/test_vbma; test_nso patch
+  trong helper) — không thì refresh chạm mạng NSO / đọc cache repo thật.
+
+**(Gốc 2026-06-14)** — lấp khoảng trống "tin VĨ MÔ — lãi suất/tỷ giá" mà block
+"🔧 Đề xuất bổ sung" lâu nay vẫn xin. Cache `_meta/macro_indicators.json`
 (history theo ngày/chỉ số), brief nạp qua `load_macro(effective_date)`:
 - **`usdvnd`** (tỷ giá USD/VND tham chiếu) — AUTO-fetch best-effort từ API FX
   miễn phí (`open.er-api.com` → fallback `exchangerate.host`). Mạng bị chặn /

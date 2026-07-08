@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""vnstock_macro.py — Theo dõi vĩ mô (lãi suất & tỷ giá) cho AI brief.
+"""vnstock_macro.py — Theo dõi vĩ mô (lãi suất, tỷ giá, CPI/IIP, PMI) cho AI brief.
 
 Tại sao có module này
 ---------------------
@@ -17,11 +17,17 @@ Chiến lược lấy dữ liệu (HYBRID — auto + ghi đè tay)
   cũ, KHÔNG bao giờ hiện số bịa.
 * **Lãi suất điều hành SBV**: đổi vài lần/năm → seed giá trị đã công bố gần nhất
   (có `as_of` + nguồn "seed"), cập nhật tay khi SBV ra quyết định mới.
-* **Lãi suất liên ngân hàng ON**: nhập tay ``--set`` (mặc định). Vietstock VNIBOR
-  (getdatabynormid normid 66) ĐÃ BỊ TƯỜNG PHÍ ở bản Basic — trả ``[]`` (xác minh
-  2026-06-14: popup "nâng cấp"); FiinGroup/WiFeed/CEIC đều trả phí ⇒ không có API
-  free đáng tin. Code fetch vẫn còn, bật bằng env ``VNSTOCK_MACRO_VIETSTOCK=1``
-  nếu có tài khoản Vietstock trả phí.
+* **Lãi suất liên ngân hàng ON/1W + lợi suất TPCP 10Y**: auto từ báo cáo tuần
+  VBMA (``vnstock_vbma`` — PDF free). Vietstock VNIBOR ĐÃ BỊ TƯỜNG PHÍ ở bản
+  Basic — trả ``[]`` (xác minh 2026-06-14); code fetch vẫn còn, bật bằng env
+  ``VNSTOCK_MACRO_VIETSTOCK=1`` nếu có tài khoản trả phí.
+* **CPI YoY + IIP YoY**: auto từ báo cáo tháng NSO (``vnstock_nso`` — HTML free,
+  công bố ~mùng 3 tháng sau). Tắt: ``VNSTOCK_MACRO_NSO=0``.
+* **PMI sản xuất VN**: nguồn chính ``--set pmi <số>`` mùng 1-2 hàng tháng (URL
+  press-release S&P đổi hash mỗi tháng — không crawler); nguồn phụ regex tiêu
+  đề trong RSS cache sẵn có (không fetch mới). Tắt: ``VNSTOCK_MACRO_PMI_NEWS=0``.
+* **Cross-check tỷ giá**: er-api vs trung bình mua/bán VCB trong PDF VBMA —
+  lệch >2% in cảnh báo + cờ ``fx_crosscheck`` trong cache (hiện ở ``--show``).
 * Mọi chỉ số đều có thể GHI ĐÈ TAY: ``python vnstock_macro.py --set <key> <value>``.
 
 Giống `vnstock_foreign_flow`: live fetch cần mạng nên KHÔNG chạy được trong
@@ -64,40 +70,84 @@ _FX_ENDPOINTS = (
     "https://api.exchangerate.host/latest?base=USD&symbols=VND",
 )
 
-# Indicator definitions. ``order`` controls display; ``seed`` (optional) is a
-# published baseline written on first refresh so the feature is useful out of
-# the box — clearly marked source="seed" + an as_of date the brief always shows,
-# and trivially correctable via --set. Only deltas (user updates / fresh fetch)
-# move the sentiment signal, so a static seed is neutral.
+# Indicator definitions — TOÀN BỘ metadata hiển thị + pressure nằm ở đây
+# (thêm chỉ số mới = thêm 1 entry, KHÔNG nhân if/elif theo kind ở nơi khác):
+#   * ``order``    — thứ tự hiển thị
+#   * ``decimals`` — số lẻ khi in giá trị (fmt_value)
+#   * ``delta_unit`` — đơn vị của THAY ĐỔI tuyệt đối ("điểm %" cho chỉ số %,
+#     "điểm" cho index như PMI); fx dùng % tương đối thay vì delta
+#   * ``moves``    — (nhãn khi tăng, nhãn khi giảm) dùng cho cả dòng brief lẫn
+#     driver của pressure score
+#   * ``pressure`` — {mode: "pct"|"delta", scale, min, sign}: đóng góp vào
+#     macro_pressure_score = sign × (thay đổi / scale), bỏ qua khi |thay đổi| <
+#     min (noise). sign=-1: tăng là BẤT LỢI cho cổ phiếu (lãi suất, tỷ giá,
+#     CPI); sign=+1: tăng là THUẬN LỢI (IIP, PMI). Không có ``pressure`` =
+#     không phát tín hiệu.
+#   * ``seed`` (optional) — baseline đã công bố, ghi 1 lần ở refresh đầu
+#     (source="seed", as_of hiển thị rõ); chỉ DELTA mới đẩy sentiment nên seed
+#     tĩnh là trung tính.
+_RATE_PRESSURE = {"mode": "delta", "scale": 1.0, "min": 0.1, "sign": -1}
+_RATE_MOVES = ("lãi suất tăng", "lãi suất giảm")
 _DEFS: dict[str, dict] = {
     "usdvnd": {
         "label": "Tỷ giá USD/VND (tham chiếu)",
-        "unit": "VND", "kind": "fx", "order": 0,
+        "unit": "VND", "kind": "fx", "order": 0, "decimals": 0,
+        "moves": ("VND yếu đi", "VND mạnh lên"),
+        "pressure": {"mode": "pct", "scale": 2.0, "min": 0.3, "sign": -1},
         # no seed — auto-fetched (or --set); omitted from the brief until present
     },
     "sbv_policy_rate": {
         "label": "Lãi suất tái cấp vốn (SBV)",
-        "unit": "%/năm", "kind": "rate", "order": 1,
+        "unit": "%/năm", "kind": "rate", "order": 1, "decimals": 2,
+        "moves": _RATE_MOVES, "pressure": _RATE_PRESSURE,
         # SBV cut the refinancing rate to 4.5% on 2023-06-19 and has held it
         # since; seed that as the baseline. CẬP NHẬT TAY khi SBV ra quyết định.
         "seed": {"value": 4.5, "as_of": "2023-06-19"},
     },
     "interbank_on": {
         "label": "Lãi suất liên ngân hàng ON",
-        "unit": "%/năm", "kind": "rate", "order": 2,
+        "unit": "%/năm", "kind": "rate", "order": 2, "decimals": 2,
+        "moves": _RATE_MOVES, "pressure": _RATE_PRESSURE,
         # auto từ báo cáo tuần VBMA (vnstock_vbma) — free PDF, cadence tuần;
         # --set tay vẫn là đường sống. (Vietstock VNIBOR tường phí — opt-in
         # VNSTOCK_MACRO_VIETSTOCK=1 nếu có tài khoản trả phí.)
     },
     "interbank_1w": {
         "label": "Lãi suất liên ngân hàng 1 tuần",
-        "unit": "%/năm", "kind": "rate", "order": 3,
+        "unit": "%/năm", "kind": "rate", "order": 3, "decimals": 2,
+        "moves": _RATE_MOVES, "pressure": _RATE_PRESSURE,
         # auto từ VBMA weekly (cùng bảng với ON)
     },
     "govt_bond_yield_10y": {
         "label": "Lợi suất TPCP 10 năm",
-        "unit": "%/năm", "kind": "rate", "order": 4,
+        "unit": "%/năm", "kind": "rate", "order": 4, "decimals": 2,
+        "moves": _RATE_MOVES, "pressure": _RATE_PRESSURE,
         # auto từ VBMA weekly — proxy chi phí vốn dài hạn / khẩu vị rủi ro
+    },
+    "cpi_yoy": {
+        "label": "CPI so với cùng kỳ (YoY)",
+        "unit": "%", "kind": "pct", "order": 5, "decimals": 2,
+        "moves": ("lạm phát tăng", "lạm phát hạ nhiệt"),
+        # CPI YoY nhích 0.5 điểm % giữa 2 tháng đã là chuyển biến đáng kể
+        "pressure": {"mode": "delta", "scale": 2.0, "min": 0.2, "sign": -1},
+        # auto từ báo cáo tháng NSO (vnstock_nso) — công bố ~mùng 3 tháng sau
+    },
+    "iip_yoy": {
+        "label": "Sản xuất công nghiệp IIP (YoY)",
+        "unit": "%", "kind": "pct", "order": 6, "decimals": 1,
+        "moves": ("sản xuất CN tăng tốc", "sản xuất CN chậm lại"),
+        "pressure": {"mode": "delta", "scale": 5.0, "min": 1.0, "sign": 1},
+        # auto từ NSO cùng bài với CPI
+    },
+    "pmi": {
+        "label": "PMI sản xuất VN (S&P Global)",
+        "unit": "điểm", "kind": "index", "order": 7, "decimals": 1,
+        "delta_unit": "điểm",
+        "moves": ("PMI cải thiện", "PMI suy yếu"),
+        "pressure": {"mode": "delta", "scale": 5.0, "min": 1.0, "sign": 1},
+        # URL press-release S&P đổi hash mỗi tháng → KHÔNG crawler; nguồn chính
+        # là --set pmi <số> mùng 1-2 hàng tháng, nguồn phụ regex tiêu đề RSS
+        # cache sẵn có (_pmi_from_news — không fetch mới).
     },
 }
 
@@ -478,6 +528,7 @@ def refresh(*, as_of: "str | None" = None) -> dict:
     # VBMA weekly PDF (free): LNH ON/1W + lợi suất TPCP 10Y. Best-effort —
     # fetch/parse lỗi → None → giữ nguyên cache (kể cả giá trị --set tay).
     # Tắt: VNSTOCK_MACRO_VBMA=0.
+    vb = None
     if os.environ.get("VNSTOCK_MACRO_VBMA", "1") != "0":
         vb = _fetch_vbma()
         if vb:
@@ -486,8 +537,102 @@ def refresh(*, as_of: "str | None" = None) -> dict:
                 if vb.get(key) is not None:
                     _record(cache, key, float(vb[key]), vb_as_of, "vbma")
 
+    # Cross-check chất lượng tỷ giá (mượn rule vimovietnam "2 nguồn chênh >2%"):
+    # er-api (market ref, daily) vs trung bình mua/bán Vietcombank trong chính
+    # PDF VBMA (weekly). Lệch quá _FX_XCHECK_MAX_PCT → CẢNH BÁO (không tự sửa —
+    # kiểm tra nguồn / --set usdvnd); ghi vào cache để --show còn thấy.
+    _fx_crosscheck(cache, fx, (vb or {}).get("usdvnd_vcb_mid"), day)
+
+    # NSO monthly (free HTML): CPI YoY + IIP YoY từ báo cáo KTXH tháng
+    # (công bố ~mùng 3 tháng sau). Tắt: VNSTOCK_MACRO_NSO=0.
+    if os.environ.get("VNSTOCK_MACRO_NSO", "1") != "0":
+        ns = _fetch_nso()
+        if ns:
+            ns_as_of = ns.get("as_of") or day
+            for key in ("cpi_yoy", "iip_yoy"):
+                if ns.get(key) is not None:
+                    _record(cache, key, float(ns[key]), ns_as_of, "nso")
+
+    # PMI: regex tiêu đề trong RSS cache SẴN CÓ (không fetch mới) — nguồn phụ
+    # cho --set tay. Chỉ ghi khi tin MỚI HƠN reading hiện có (không đè --set).
+    # Tắt: VNSTOCK_MACRO_PMI_NEWS=0.
+    if os.environ.get("VNSTOCK_MACRO_PMI_NEWS", "1") != "0":
+        pm = _pmi_from_news()
+        if pm:
+            pmi_val, pmi_as_of = pm
+            hist = ((cache.get("indicators") or {}).get("pmi") or {}).get("history") or {}
+            if not hist or pmi_as_of > max(hist):
+                _record(cache, "pmi", pmi_val, pmi_as_of, "news-rss")
+
     _save_cache(cache)
     return cache
+
+
+# Ngưỡng cảnh báo lệch tỷ giá giữa 2 nguồn độc lập (%).
+_FX_XCHECK_MAX_PCT = 2.0
+
+
+def _fx_crosscheck(cache: dict, er_api: "float | None",
+                   vcb_mid: "float | None", day: str) -> None:
+    """So er-api với VCB mid (từ VBMA); lệch > ngưỡng → in cảnh báo + lưu
+    ``cache["fx_crosscheck"]``; trong ngưỡng/thiếu 1 nguồn → xoá cờ cũ."""
+    if er_api is None or not vcb_mid:
+        return
+    dev = (er_api - vcb_mid) / vcb_mid * 100.0
+    if abs(dev) > _FX_XCHECK_MAX_PCT:
+        cache["fx_crosscheck"] = {
+            "date": day, "er_api": er_api, "vbma_vcb_mid": vcb_mid,
+            "diff_pct": round(dev, 2),
+        }
+        print(f"[macro] ⚠ tỷ giá er-api {er_api:,.0f} lệch {dev:+.1f}% so với "
+              f"VCB mua/bán trung bình {vcb_mid:,.0f} (VBMA) — kiểm tra nguồn "
+              f"FX hoặc --set usdvnd.")
+    else:
+        cache.pop("fx_crosscheck", None)
+
+
+def _fetch_nso() -> "dict | None":
+    """CPI/IIP tháng qua vnstock_nso.fetch_monthly() — mọi lỗi → None."""
+    try:
+        from vnstock_nso import fetch_monthly
+        return fetch_monthly()
+    except Exception:
+        return None
+
+
+# Tiêu đề PMI của THỊ TRƯỜNG KHÁC (Mỹ/TQ/EU…) không được nhận nhầm là PMI VN.
+_PMI_FOREIGN = ("mỹ", "hoa kỳ", "trung quốc", "eurozone", "châu âu", "nhật",
+                "hàn quốc", "asean", "toàn cầu", "global", "caixin", "ism")
+# Neo "XX,X điểm" (tiêu đề PMI hầu như luôn ghi "… đạt 48,9 điểm") thay vì đo
+# khoảng cách tới chữ PMI — giữa chúng thường có chữ số khác ("tháng 6/2026").
+_PMI_RE = re.compile(r"(\d{2}[.,]\d{1,2})\s*điểm")
+
+
+def _pmi_from_news() -> "tuple[float, str] | None":
+    """(giá trị, ngày ISO) PMI VN mới nhất regex được từ tiêu đề trong
+    ``market_news_cache.json`` (vd "PMI Việt Nam tháng 6 đạt 52,8 điểm").
+    Deterministic, không fetch mạng; None khi cache thiếu/không có tin."""
+    try:
+        from vnstock_news_feeds import _load_cache as _load_news
+        items = _load_news()
+    except Exception:
+        return None
+    best: "tuple[float, str] | None" = None
+    for it in items or []:
+        title = (it.get("title") or "").strip()
+        low = title.lower()
+        if "pmi" not in low or any(k in low for k in _PMI_FOREIGN):
+            continue
+        m = _PMI_RE.search(title)
+        if not m:
+            continue
+        v = float(m.group(1).replace(",", "."))
+        if not 25.0 <= v <= 75.0:                   # sanity: PMI quanh mốc 50
+            continue
+        d = (it.get("_date_sort") or "")[:10]
+        if d and (best is None or d > best[1]):
+            best = (v, d)
+    return best
 
 
 def _fetch_vbma() -> "dict | None":
@@ -574,11 +719,54 @@ def load_macro(effective_date: "str | None" = None) -> list[dict]:
     return out
 
 
+def _def_for(ind: dict) -> dict:
+    """Definition metadata for a load_macro row; kind-based fallback for rows
+    built by hand (tests) or left in the cache by a removed definition."""
+    d = _DEFS.get(ind.get("key") or "")
+    if d:
+        return d
+    kind = ind.get("kind") or ""
+    return {"kind": kind, "decimals": 0 if kind == "fx" else 2,
+            "moves": (("VND yếu đi", "VND mạnh lên") if kind == "fx"
+                      else _RATE_MOVES),
+            "pressure": ({"mode": "pct", "scale": 2.0, "min": 0.3, "sign": -1}
+                         if kind == "fx" else _RATE_PRESSURE)}
+
+
+def fmt_value(ind: dict) -> str:
+    """Canonical EN-format value string ('26,219 VND', '5.67%/năm',
+    '50.5 điểm') — single source for the CLI and the brief block."""
+    d = _def_for(ind)
+    unit = ind.get("unit") or ""
+    sep = "" if unit.startswith("%") else " "
+    return f"{ind['value']:,.{d.get('decimals', 2)}f}{sep}{unit}".rstrip()
+
+
+def fmt_change(ind: dict) -> "tuple[str, str, str] | None":
+    """(arrow, magnitude, hint-label) for a row's change, or None when flat.
+
+    FX renders the RELATIVE move ('+0.30%'); everything else the absolute
+    delta with the def's delta_unit ('+0.25 điểm %' / '+1.2 điểm')."""
+    ch = ind.get("change")
+    if not ch or not ch.get("dir"):
+        return None
+    d = _def_for(ind)
+    arrow = "▲" if ch["dir"] > 0 else "▼"
+    if d.get("kind") == "fx" and ch.get("pct") is not None:
+        mag = f"{ch['pct']:+.2f}%"
+    else:
+        mag = f"{ch['delta']:+.2f} {d.get('delta_unit', 'điểm %')}"
+    up, down = d.get("moves", ("tăng", "giảm"))
+    return arrow, mag, (up if ch["dir"] > 0 else down)
+
+
 def macro_pressure_score(macro: "list[dict] | None") -> "dict | None":
     """Composite macro pressure on equities from RECENT CHANGES, in [-1, 1].
 
-    Tightening = bearish: rates rising and/or VND weakening (USD/VND up) push the
-    score negative; the reverse pushes it positive. Returns
+    Tightening = bearish: rates/CPI rising and/or VND weakening push the score
+    negative; easing (or IIP/PMI improving) pushes it positive. Per-indicator
+    behaviour comes from ``_DEFS[key]["pressure"]`` (mode/scale/min/sign) —
+    adding an indicator never touches this function. Returns
     ``{score, label, dir}`` only when there's a meaningful recent move to react
     to (so a stable macro backdrop doesn't dilute the sentiment composite);
     None otherwise. Levels still show in the brief block regardless.
@@ -591,20 +779,16 @@ def macro_pressure_score(macro: "list[dict] | None") -> "dict | None":
         ch = ind.get("change")
         if not ch:
             continue
-        if ind["kind"] == "fx":
-            pct = ch.get("pct")
-            if pct is None or abs(pct) < 0.3:        # ignore daily FX noise
-                continue
-            s = -_clamp(pct / 2.0)                   # +2% VND weaker → -1.0
-            subs.append(s)
-            drivers.append("VND yếu đi" if pct > 0 else "VND mạnh lên")
-        elif ind["kind"] == "rate":
-            delta = ch.get("delta") or 0.0
-            if abs(delta) < 0.1:                     # < 10 bps → not notable
-                continue
-            s = -_clamp(delta / 1.0)                 # +100 bps → -1.0
-            subs.append(s)
-            drivers.append("lãi suất tăng" if delta > 0 else "lãi suất giảm")
+        d = _def_for(ind)
+        cfg = d.get("pressure")
+        if not cfg:
+            continue
+        x = ch.get("pct") if cfg["mode"] == "pct" else ch.get("delta")
+        if x is None or abs(x) < cfg["min"]:
+            continue
+        subs.append(_clamp(cfg["sign"] * x / cfg["scale"]))
+        up, down = d.get("moves", ("tăng", "giảm"))
+        drivers.append(up if x > 0 else down)
     if not subs:
         return None
     score = _clamp(sum(subs) / len(subs))
@@ -678,11 +862,6 @@ def macro_news(news: "list[dict] | None" = None, days: int = 7,
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
 
-def _fmt_value(ind: dict) -> str:
-    v, unit = ind["value"], ind["unit"]
-    return f"{v:,.0f} {unit}" if ind["kind"] == "fx" else f"{v:.2f}{unit}"
-
-
 def _show() -> None:
     macro = load_macro()
     if not macro:
@@ -690,18 +869,18 @@ def _show() -> None:
         return
     print(f"[macro] {_CACHE}")
     for ind in macro:
-        ch = ind.get("change")
-        chs = ""
-        if ch:
-            if ind["kind"] == "fx" and ch.get("pct") is not None:
-                chs = f"  ({ch['pct']:+.2f}% vs {ind['prev_as_of']})"
-            else:
-                chs = f"  ({ch['delta']:+.2f} điểm vs {ind['prev_as_of']})"
-        print(f"  • {ind['label']}: {_fmt_value(ind)}  (tính đến {ind['as_of']}"
+        fc = fmt_change(ind)
+        chs = f"  ({fc[1]} vs {ind['prev_as_of']})" if fc else ""
+        print(f"  • {ind['label']}: {fmt_value(ind)}  (tính đến {ind['as_of']}"
               f", nguồn {ind['source'] or '—'}){chs}")
     p = macro_pressure_score(macro)
     if p:
         print(f"  → Áp lực vĩ mô: {p['label']} (score {p['score']:+.2f})")
+    xc = _load_cache().get("fx_crosscheck")
+    if xc:
+        print(f"  ⚠ Tỷ giá er-api {xc['er_api']:,.0f} lệch {xc['diff_pct']:+.1f}% "
+              f"so với VCB (VBMA {xc['vbma_vcb_mid']:,.0f}, ngày {xc['date']}) — "
+              f"kiểm tra nguồn FX hoặc --set usdvnd.")
 
 
 def main(argv: "list[str] | None" = None) -> int:

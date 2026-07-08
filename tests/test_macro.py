@@ -6,7 +6,17 @@ keyword filter, and the brief block/guard/sentiment integration with fixtures.
 """
 import json
 
+import pytest
+
 import vnstock_macro as mac
+
+
+@pytest.fixture(autouse=True)
+def _no_external_macro_fetch(monkeypatch):
+    """refresh() nay còn gọi NSO (mạng) + PMI-from-news (đọc cache repo) —
+    chặn mặc định để test hermetic; test nào cần thì tự re-patch."""
+    monkeypatch.setattr(mac, "_fetch_nso", lambda: None)
+    monkeypatch.setattr(mac, "_pmi_from_news", lambda: None)
 
 
 def _use_tmp_cache(tmp_path, monkeypatch):
@@ -260,7 +270,9 @@ def test_macro_block_renders_en_numbers_arrows_and_asof():
     assert "25,500 VND" in block            # EN thousands separator
     assert "+2.00% so với 2026-06-12" in block and "▲" in block
     assert "VND yếu đi" in block
-    assert "4.50%/năm" in block and "đi ngang" in block
+    # chỉ số không đổi bị NÉN vào 1 dòng gộp thay vì mỗi chỉ số 1 bullet
+    assert "Đi ngang/chưa có kỳ mới: Lãi suất tái cấp vốn (SBV) 4.50%/năm "\
+           "(2023-06-19)" in block
     assert "tính đến 2026-06-13" in block   # header carries the latest as_of
 
 
@@ -345,3 +357,130 @@ def test_sentiment_adds_macro_signal_and_shifts_momentum():
     none_macro = compute_market_sentiment(
         breadth={"above_ma200_pct": 50, "ad_ratio": 1.1}, macro=None)
     assert all(s["name"] != "Vĩ mô (lãi suất/tỷ giá)" for s in none_macro["signals"])
+
+
+# ── _DEFS metadata: fmt helpers + pressure generic (CPI/IIP/PMI) ─────────────
+
+
+def test_fmt_value_uses_per_def_decimals_and_units():
+    assert mac.fmt_value({"key": "usdvnd", "value": 26219.4, "unit": "VND",
+                          "kind": "fx"}) == "26,219 VND"
+    assert mac.fmt_value({"key": "interbank_on", "value": 5.67,
+                          "unit": "%/năm", "kind": "rate"}) == "5.67%/năm"
+    assert mac.fmt_value({"key": "cpi_yoy", "value": 4.69,
+                          "unit": "%", "kind": "pct"}) == "4.69%"
+    assert mac.fmt_value({"key": "pmi", "value": 48.9,
+                          "unit": "điểm", "kind": "index"}) == "48.9 điểm"
+
+
+def test_fmt_change_pmi_uses_diem_and_moves_labels():
+    arrow, mag, hint = mac.fmt_change({
+        "key": "pmi", "kind": "index", "unit": "điểm", "value": 48.9,
+        "change": {"delta": -1.5, "pct": None, "dir": -1}})
+    assert (arrow, mag, hint) == ("▼", "-1.50 điểm", "PMI suy yếu")
+    assert mac.fmt_change({"key": "pmi", "change": None}) is None
+
+
+def test_pressure_generic_cpi_bearish_iip_bullish_pmi_noise_ignored():
+    rows = [
+        {"key": "cpi_yoy", "kind": "pct",
+         "change": {"delta": 0.5, "pct": None, "dir": 1}},    # lạm phát tăng → âm
+        {"key": "iip_yoy", "kind": "pct",
+         "change": {"delta": 2.0, "pct": None, "dir": 1}},    # IIP tăng tốc → dương
+        {"key": "pmi", "kind": "index",
+         "change": {"delta": 0.5, "pct": None, "dir": 1}},    # < min 1.0 → bỏ qua
+    ]
+    p = mac.macro_pressure_score(rows)
+    assert p is not None
+    assert "lạm phát tăng" in p["label"] and "sản xuất CN tăng tốc" in p["label"]
+    assert "PMI" not in p["label"]
+    # cpi: -0.5/2 = -0.25; iip: +2/5 = +0.4 → trung bình +0.075
+    assert p["score"] == 0.08 or abs(p["score"] - 0.075) < 0.01
+
+
+# ── PMI từ RSS cache (P3) ────────────────────────────────────────────────────
+
+
+# tham chiếu HÀM THẬT, chụp trước khi autouse fixture patch mac._pmi_from_news
+_REAL_PMI_FROM_NEWS = mac._pmi_from_news
+
+
+def _patch_news(monkeypatch, items):
+    import vnstock_news_feeds as nf
+    monkeypatch.setattr(nf, "_load_cache", lambda: items)
+
+
+def test_pmi_from_news_picks_latest_vn_title_skips_foreign(monkeypatch):
+    _patch_news(monkeypatch, [
+        {"title": "PMI ngành sản xuất Việt Nam tháng 6/2026 đạt 48,9 điểm",
+         "_date_sort": "2026-07-01T08:00:00"},
+        {"title": "PMI sản xuất Trung Quốc bật lên 50,4 điểm",
+         "_date_sort": "2026-07-02T08:00:00"},          # nước ngoài → bỏ
+        {"title": "PMI Việt Nam tháng 5 đạt 51,2 điểm",
+         "_date_sort": "2026-06-02T08:00:00"},          # cũ hơn
+        {"title": "PMI cải thiện tháng thứ 3 liên tiếp",
+         "_date_sort": "2026-07-03T08:00:00"},          # không có số
+        {"title": "Chỉ số PMI đạt 99,9 điểm",
+         "_date_sort": "2026-07-04T08:00:00"},          # ngoài sanity 25-75
+    ])
+    assert _REAL_PMI_FROM_NEWS() == (48.9, "2026-07-01")
+
+
+def test_pmi_from_news_none_when_cache_empty(monkeypatch):
+    _patch_news(monkeypatch, [])
+    assert _REAL_PMI_FROM_NEWS() is None
+
+
+def test_refresh_pmi_records_only_when_newer_than_existing(tmp_path, monkeypatch):
+    _use_tmp_cache(tmp_path, monkeypatch)
+    monkeypatch.setattr(mac, "fetch_usdvnd", lambda: None)
+    monkeypatch.setattr(mac, "_fetch_vbma", lambda: None)
+    # --set tay 05/07 = 50.0; tin cũ hơn (01/07) KHÔNG được đè
+    mac.set_value("pmi", 50.0, as_of="2026-07-05")
+    monkeypatch.setattr(mac, "_pmi_from_news", lambda: (48.9, "2026-07-01"))
+    mac.refresh()
+    row = {x["key"]: x for x in mac.load_macro()}["pmi"]
+    assert row["value"] == 50.0 and row["source"] == "manual"
+    # tin MỚI HƠN (06/07) → ghi, nguồn news-rss
+    monkeypatch.setattr(mac, "_pmi_from_news", lambda: (49.5, "2026-07-06"))
+    mac.refresh()
+    row = {x["key"]: x for x in mac.load_macro()}["pmi"]
+    assert row["value"] == 49.5 and row["source"] == "news-rss"
+    assert row["as_of"] == "2026-07-06"
+
+
+def test_refresh_pmi_news_kill_switch(tmp_path, monkeypatch):
+    _use_tmp_cache(tmp_path, monkeypatch)
+    monkeypatch.setenv("VNSTOCK_MACRO_PMI_NEWS", "0")
+    monkeypatch.setattr(mac, "fetch_usdvnd", lambda: None)
+    monkeypatch.setattr(mac, "_fetch_vbma", lambda: None)
+    calls = {"n": 0}
+    monkeypatch.setattr(mac, "_pmi_from_news",
+                        lambda: calls.__setitem__("n", calls["n"] + 1))
+    mac.refresh()
+    assert calls["n"] == 0
+
+
+def test_macro_block_compresses_flat_indicators_into_one_line():
+    import vnstock_brief as vb
+    macro = [
+        {"key": "cpi_yoy", "label": "CPI so với cùng kỳ (YoY)", "unit": "%",
+         "kind": "pct", "value": 4.69, "as_of": "2026-06-30",
+         "prev_value": 4.19, "prev_as_of": "2026-05-31",
+         "change": {"delta": 0.5, "pct": 11.9, "dir": 1}, "source": "nso"},
+        {"key": "sbv_policy_rate", "label": "Lãi suất tái cấp vốn (SBV)",
+         "unit": "%/năm", "kind": "rate", "value": 4.5, "as_of": "2023-06-19",
+         "prev_value": None, "prev_as_of": None, "change": None, "source": "seed"},
+        {"key": "pmi", "label": "PMI sản xuất VN (S&P Global)", "unit": "điểm",
+         "kind": "index", "value": 48.9, "as_of": "2026-06-30",
+         "prev_value": None, "prev_as_of": None, "change": None, "source": "manual"},
+    ]
+    body = vb._macro_body_lines(macro)
+    # chỉ số CÓ thay đổi giữ bullet riêng, kèm delta "điểm %" + nhãn moves
+    assert any("CPI so với cùng kỳ (YoY): 4.69%" in l
+               and "+0.50 điểm %" in l and "lạm phát tăng" in l for l in body)
+    # 2 chỉ số không đổi gộp đúng 1 dòng
+    flat = [l for l in body if l.startswith("- Đi ngang")]
+    assert len(flat) == 1
+    assert "Lãi suất tái cấp vốn (SBV) 4.50%/năm (2023-06-19)" in flat[0]
+    assert "PMI sản xuất VN (S&P Global) 48.9 điểm (2026-06-30)" in flat[0]

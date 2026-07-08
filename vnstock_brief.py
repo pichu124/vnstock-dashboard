@@ -1277,25 +1277,17 @@ def _upcoming_events_block(events: list[dict]) -> str:
 def _macro_line(ind: dict) -> str:
     """One canonical macro bullet: 'Label: value unit (tính đến as_of) <change>'.
 
-    Numbers in EN convention (comma thousands / dot decimal) to match every
-    other data block and enforce_number_format. Change is rendered as % for FX
-    and percentage-points ('điểm %') for rates.
+    Formatting (decimals/units/labels) is delegated to vnstock_macro's
+    fmt_value/fmt_change so a new indicator only touches its `_DEFS` entry —
+    the brief and the CLI can never drift apart. EN number convention matches
+    every other data block and enforce_number_format.
     """
-    v, unit, kind = ind["value"], ind["unit"], ind["kind"]
-    val = f"{v:,.0f} {unit}" if kind == "fx" else f"{v:.2f}{unit}"
-    line = f"- {ind['label']}: {val} (tính đến {ind['as_of']})"
-    ch = ind.get("change")
-    if ch and ch.get("dir"):
-        arrow = "▲" if ch["dir"] > 0 else "▼"
-        if kind == "fx" and ch.get("pct") is not None:
-            mag = f"{ch['pct']:+.2f}% so với {ind['prev_as_of']}"
-            hint = "VND yếu đi" if ch["dir"] > 0 else "VND mạnh lên"
-        else:
-            mag = f"{ch['delta']:+.2f} điểm % so với {ind['prev_as_of']}"
-            hint = "lãi suất tăng" if ch["dir"] > 0 else "lãi suất giảm"
-        line += f" {arrow} {mag} ({hint})"
-    elif ind.get("kind") == "rate":
-        line += " — đi ngang"
+    from vnstock_macro import fmt_change, fmt_value
+    line = f"- {ind['label']}: {fmt_value(ind)} (tính đến {ind['as_of']})"
+    fc = fmt_change(ind)
+    if fc:
+        arrow, mag, hint = fc
+        line += f" {arrow} {mag} so với {ind['prev_as_of']} ({hint})"
     return line
 
 
@@ -1304,18 +1296,28 @@ def _macro_body_lines(macro: list[dict],
     """Canonical macro bullets + directive (NO section header).
 
     Shared by the prompt renderer and the post-gen guard so the guard can splice
-    exactly the body without slicing the header off a joined string.
+    exactly the body without slicing the header off a joined string. Indicators
+    with NO recent change are compressed into one 'Đi ngang' line so the block
+    doesn't grow a bullet per indicator as the registry expands (8+ nay).
     """
-    lines = [_macro_line(m) for m in macro]
+    from vnstock_macro import fmt_change, fmt_value
+    moved = [m for m in macro if fmt_change(m)]
+    flat = [m for m in macro if not fmt_change(m)]
+    lines = [_macro_line(m) for m in moved]
+    if flat:
+        parts = "; ".join(
+            f"{m['label']} {fmt_value(m)} ({m['as_of']})" for m in flat)
+        lines.append(f"- Đi ngang/chưa có kỳ mới: {parts}")
     for n in (macro_news or [])[:3]:
         lines.append(f"- Tin liên quan [{n.get('ticker','')}] {n.get('date','')}: "
                      f"{n.get('title','')}")
     lines.append(
-        "→ Lãi suất TĂNG / VND mất giá (USD/VND tăng) = môi trường THẮT CHẶT, bất "
-        "lợi cho cổ phiếu (đặc biệt nhóm vay nợ cao; khối ngoại dễ bán ròng). Lãi "
-        "suất giảm / VND ổn định = thuận lợi hơn. DÙNG bối cảnh này khi chốt Bias + "
-        "Rủi ro để ĐÓN ĐẦU thay đổi. DÙNG ĐÚNG số + as_of ở trên, KHÔNG bịa thêm "
-        "chỉ số vĩ mô khác (CPI/Fed/GDP… chưa có trong data)."
+        "→ Lãi suất TĂNG / VND mất giá (USD/VND tăng) / CPI tăng tốc = môi trường "
+        "THẮT CHẶT, bất lợi cho cổ phiếu (đặc biệt nhóm vay nợ cao; khối ngoại dễ "
+        "bán ròng). Lãi suất giảm / VND ổn định / IIP-PMI cải thiện = thuận lợi "
+        "hơn (PMI < 50 điểm = sản xuất thu hẹp). DÙNG bối cảnh này khi chốt Bias "
+        "+ Rủi ro để ĐÓN ĐẦU thay đổi. DÙNG ĐÚNG số + as_of ở trên, KHÔNG bịa "
+        "chỉ số vĩ mô ngoài danh sách trên (Fed/GDP… chưa có trong data)."
     )
     return lines
 
