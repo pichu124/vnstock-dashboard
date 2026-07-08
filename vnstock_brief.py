@@ -1300,7 +1300,7 @@ def _macro_body_lines(macro: list[dict],
     with NO recent change are compressed into one 'Đi ngang' line so the block
     doesn't grow a bullet per indicator as the registry expands (8+ nay).
     """
-    from vnstock_macro import fmt_change, fmt_value
+    from vnstock_macro import fmt_change, fmt_value, pmi_reminder
     moved = [m for m in macro if fmt_change(m)]
     flat = [m for m in macro if not fmt_change(m)]
     lines = [_macro_line(m) for m in moved]
@@ -1308,6 +1308,9 @@ def _macro_body_lines(macro: list[dict],
         parts = "; ".join(
             f"{m['label']} {fmt_value(m)} ({m['as_of']})" for m in flat)
         lines.append(f"- Đi ngang/chưa có kỳ mới: {parts}")
+    rem = pmi_reminder(macro)          # PMI tháng trước chưa set sau ngày công bố
+    if rem:
+        lines.append(f"- {rem}")
     for n in (macro_news or [])[:3]:
         lines.append(f"- Tin liên quan [{n.get('ticker','')}] {n.get('date','')}: "
                      f"{n.get('title','')}")

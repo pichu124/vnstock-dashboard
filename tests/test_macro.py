@@ -484,3 +484,42 @@ def test_macro_block_compresses_flat_indicators_into_one_line():
     assert len(flat) == 1
     assert "Lãi suất tái cấp vốn (SBV) 4.50%/năm (2023-06-19)" in flat[0]
     assert "PMI sản xuất VN (S&P Global) 48.9 điểm (2026-06-30)" in flat[0]
+
+
+# ── nhắc set PMI khi quên (deterministic, chèn vào brief) ────────────────────
+
+
+def test_pmi_reminder_fires_when_missing_or_stale_after_grace():
+    # chưa từng có PMI, đã qua mùng 3 → nhắc đúng THÁNG TRƯỚC
+    rem = mac.pmi_reminder([], today="2026-07-08")
+    assert rem and "PMI tháng 6/2026" in rem and "--set pmi" in rem
+    # có số nhưng là của kỳ cũ (as_of tháng trước) → nhắc kèm số đang có
+    stale = [{"key": "pmi", "kind": "index", "unit": "điểm", "value": 51.2,
+              "as_of": "2026-06-02", "change": None}]
+    rem2 = mac.pmi_reminder(stale, today="2026-07-08")
+    assert rem2 and "51.2 điểm" in rem2 and "2026-06-02" in rem2
+
+
+def test_pmi_reminder_silent_when_fresh_or_in_grace_window():
+    # PMI tháng 6 ghi ngày 01/07 (news) → as_of thuộc tháng hiện tại → im lặng
+    fresh = [{"key": "pmi", "kind": "index", "unit": "điểm", "value": 48.9,
+              "as_of": "2026-07-01", "change": None}]
+    assert mac.pmi_reminder(fresh, today="2026-07-08") is None
+    # mùng 1-2 = ân hạn cho đường RSS tự động → chưa nhắc dù thiếu
+    assert mac.pmi_reminder([], today="2026-07-02") is None
+
+
+def test_pmi_reminder_january_wraps_to_december():
+    rem = mac.pmi_reminder([], today="2026-01-05")
+    assert rem and "PMI tháng 12/2025" in rem
+
+
+def test_macro_body_lines_include_pmi_reminder(monkeypatch):
+    import vnstock_brief as vb
+    monkeypatch.setattr(mac, "pmi_reminder",
+                        lambda macro, today=None: "⏰ PMI tháng 6/2026 chưa được cập nhật")
+    body = vb._macro_body_lines([
+        {"key": "usdvnd", "label": "Tỷ giá USD/VND", "unit": "VND", "kind": "fx",
+         "value": 26219.0, "as_of": "2026-07-08", "prev_value": None,
+         "prev_as_of": None, "change": None, "source": "x"}])
+    assert any(l.startswith("- ⏰ PMI tháng 6/2026") for l in body)

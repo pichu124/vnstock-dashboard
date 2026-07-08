@@ -411,6 +411,11 @@ danh sách thật vào output (LLM hay phớt block dù data có trong prompt).
   `_PMI_FOREIGN`; sanity 25-75; CHỈ ghi khi tin mới hơn reading hiện có — không
   đè --set). Tắt: `VNSTOCK_MACRO_PMI_NEWS=0`. Regex neo "điểm" chứ KHÔNG đo
   khoảng cách tới chữ PMI (giữa chúng có chữ số "tháng 6/2026" → gap [^\d] trượt).
+  **Nhắc quên set (2026-07-08)**: `pmi_reminder(macro, today)` — từ MÙNG 3 (mùng
+  1-2 là ân hạn cho đường RSS) mà PMI tháng trước chưa vào registry (as_of <
+  mùng 1 tháng nay) → dòng "⏰ PMI tháng X chưa được cập nhật … --set pmi <số>"
+  chèn vào block Vĩ mô của brief (qua `_macro_body_lines` dùng chung → guard
+  giữ nguyên) + CLI `--show`. Đã có số → im lặng.
 - **Cross-check tỷ giá (P5)**: `_parse_fx` trong vnstock_vbma lấy trung bình
   mua/bán Vietcombank từ văn xuôi PDF (cả 2 chế độ extract; pypdf DÍNH chữ
   "ởchiều bán" đã xử) → `_fx_crosscheck` so với er-api, lệch >2% in cảnh báo +

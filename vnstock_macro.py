@@ -760,6 +760,34 @@ def fmt_change(ind: dict) -> "tuple[str, str, str] | None":
     return arrow, mag, (up if ch["dir"] > 0 else down)
 
 
+# Nhắc set PMI từ mùng mấy hàng tháng (mùng 1-2 là ân hạn: S&P công bố ~mùng 1,
+# đường RSS tự động thường bắt được trong 1-2 ngày — chỉ nhắc khi CẢ auto trượt).
+_PMI_REMIND_FROM_DAY = 3
+
+
+def pmi_reminder(macro: "list[dict] | None",
+                 today: "str | None" = None) -> "str | None":
+    """Dòng nhắc khi PMI THÁNG TRƯỚC vẫn chưa vào registry sau ngày công bố.
+
+    Trả None khi: chưa tới mùng ``_PMI_REMIND_FROM_DAY`` (ân hạn cho đường RSS
+    tự động), hoặc đã có reading với as_of trong tháng hiện tại (= PMI tháng
+    trước đã ghi — news ghi as_of ngày đăng tin đầu tháng, --set mặc định
+    as_of hôm nay). Deterministic — dùng cho brief block + CLI --show."""
+    from datetime import date as _date
+    t = _date.fromisoformat(today) if today else _date.today()
+    if t.day < _PMI_REMIND_FROM_DAY:
+        return None
+    row = next((m for m in (macro or []) if m.get("key") == "pmi"), None)
+    if row and (row.get("as_of") or "") >= t.replace(day=1).isoformat():
+        return None
+    prev_m, prev_y = (t.month - 1, t.year) if t.month > 1 else (12, t.year - 1)
+    have = (f" (số đang có: {fmt_value(row)}, tính đến {row['as_of']})"
+            if row else "")
+    return (f"⏰ PMI tháng {prev_m}/{prev_y} chưa được cập nhật — S&P công bố "
+            f"~mùng 1, RSS chưa bắt được{have}. Chạy: "
+            f"python vnstock_macro.py --set pmi <số>")
+
+
 def macro_pressure_score(macro: "list[dict] | None") -> "dict | None":
     """Composite macro pressure on equities from RECENT CHANGES, in [-1, 1].
 
@@ -876,6 +904,9 @@ def _show() -> None:
     p = macro_pressure_score(macro)
     if p:
         print(f"  → Áp lực vĩ mô: {p['label']} (score {p['score']:+.2f})")
+    rem = pmi_reminder(macro)
+    if rem:
+        print(f"  {rem}")
     xc = _load_cache().get("fx_crosscheck")
     if xc:
         print(f"  ⚠ Tỷ giá er-api {xc['er_api']:,.0f} lệch {xc['diff_pct']:+.1f}% "
