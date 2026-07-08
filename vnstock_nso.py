@@ -205,11 +205,19 @@ _WINDOW_CHARS = 350
 
 def _windows(text: str, anchor: re.Pattern, limit: int = 6):
     """Cửa sổ câu quanh từng lần khớp anchor (bài dài có thể nhắc chỉ số
-    nhiều lần — TOC/bình quân trước, câu tháng sau → thử lần lượt)."""
+    nhiều lần — TOC/bình quân trước, câu tháng sau → thử lần lượt).
+
+    Cửa sổ CẮT tại "chỉ số" kế tiếp — mỗi cửa sổ chỉ chứa đúng 1 chỉ số.
+    Diag thật 08/07 (bài quý II): anchor IIP không mang số đứng ngay trước câu
+    "Chỉ số TIÊU THỤ … tăng 1,8% … 9,0%" → cửa sổ tràn sang, IIP bị gán nhầm
+    số tiêu thụ."""
     for n, m in enumerate(anchor.finditer(text)):
         if n >= limit:
             break
         win = text[m.start(): m.start() + _WINDOW_CHARS]
+        nxt = win.lower().find("chỉ số", 6)          # bỏ qua chính anchor
+        if nxt != -1:
+            win = win[:nxt]
         stop = _WINDOW_STOP.search(win)
         yield win[: stop.start()] if stop else win
 
@@ -227,20 +235,27 @@ def _moves(window: str, prefix: str) -> dict:
     return out
 
 
-def extract_indicators(text: str) -> dict:
-    """{cpi_mom, cpi_yoy, iip_mom, iip_yoy} (dấu theo tăng/giảm) — chỉ key
-    parse được. Deterministic, không LLM."""
+def _extract(text: str) -> "tuple[dict, dict]":
+    """(chỉ số, {prefix: cửa sổ nguồn}) — cửa sổ giữ lại cho --diag soi câu."""
     if not text:
-        return {}
+        return {}, {}
     flat = re.sub(r"\s+", " ", text)
     out: dict = {}
+    wins: dict = {}
     for anchor, prefix in ((_CPI_ANCHOR, "cpi"), (_IIP_ANCHOR, "iip")):
         for win in _windows(flat, anchor):
             d = _moves(win, prefix)
             if d:                        # cửa sổ đầu tiên có số "so với" thắng
                 out.update(d)
+                wins[prefix] = win.strip()
                 break
-    return out
+    return out, wins
+
+
+def extract_indicators(text: str) -> dict:
+    """{cpi_mom, cpi_yoy, iip_mom, iip_yoy} (dấu theo tăng/giảm) — chỉ key
+    parse được. Deterministic, không LLM."""
+    return _extract(text)[0]
 
 
 # ── End-to-end ───────────────────────────────────────────────────────────────
@@ -299,8 +314,10 @@ def main(argv: "list[str] | None" = None) -> int:
         print("─" * 60)
         print(text[:8000])
         print("─" * 60)
-    inds = extract_indicators(text)
+    inds, wins = _extract(text)
     print(f"parse: {inds if inds else 'KHÔNG bắt được số — chạy lại --dump gửi text để chỉnh regex'}")
+    for prefix, win in wins.items():
+        print(f"  câu nguồn [{prefix}]: {win[:220]}")
     return 0 if inds else 1
 
 

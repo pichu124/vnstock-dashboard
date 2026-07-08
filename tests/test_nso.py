@@ -206,3 +206,29 @@ def test_http_get_prefers_verified_when_it_works(monkeypatch):
     monkeypatch.setattr(nso.requests, "get", fake_get)
     r = nso._http_get("https://www.nso.gov.vn/x")
     assert r is not None and r.status_code == 200
+
+
+def test_iip_window_never_bleeds_into_consumption_index():
+    # Bug diag 08/07 (bài quý II): anchor IIP KHÔNG mang số ("tăng ở 34 địa
+    # phương") đứng ngay trước câu "Chỉ số TIÊU THỤ … 1,8% … 9,0%" → cửa sổ
+    # tràn sang, IIP bị gán số tiêu thụ. Cửa sổ phải cắt tại "Chỉ số" kế tiếp.
+    bleed = (
+        "Chỉ số sản xuất toàn ngành công nghiệp tăng ở 34 địa phương trên cả "
+        "nước. Chỉ số tiêu thụ toàn ngành công nghiệp chế biến, chế tạo tháng "
+        "6/2026 tăng 1,8% so với tháng trước và tăng 9,0% so với cùng kỳ năm "
+        "trước."
+    )
+    assert nso.extract_indicators(bleed) == {}       # KHÔNG nhận 1,8/9,0
+
+    # đủ cả câu quý (bỏ), câu tháng (lấy), câu tiêu thụ (bỏ) — như bài quý thật
+    full = (
+        "Chỉ số sản xuất toàn ngành công nghiệp (IIP) quý II/2026 ước tính "
+        "tăng 11,2% so với cùng kỳ năm trước. "
+        "Chỉ số sản xuất toàn ngành công nghiệp (IIP) tháng 6/2026 ước tính "
+        "tăng 3,5% so với tháng trước và tăng 12,7% so với cùng kỳ năm trước. "
+        "Chỉ số tiêu thụ toàn ngành công nghiệp chế biến, chế tạo tháng 6/2026 "
+        "tăng 1,8% so với tháng trước và tăng 9,0% so với cùng kỳ năm trước."
+    )
+    out = nso.extract_indicators(full)
+    assert out["iip_mom"] == pytest.approx(3.5)
+    assert out["iip_yoy"] == pytest.approx(12.7)
