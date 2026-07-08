@@ -76,6 +76,18 @@ def test_find_latest_report_picks_max_publish_month_and_data_month_end():
     assert as_of == "2026-06-30"            # publish 07 → data tháng 6, cuối tháng
 
 
+def test_find_latest_report_quarter_month_uses_quarterly_report():
+    # Tháng cuối quý KHÔNG có "báo cáo tháng" — chỉ có "báo cáo quý x và N
+    # tháng" (URL thật Q2/2026, publish 07). Diag 08/07 từng vớ nhầm bài T5.
+    html = """
+    <a href="/bai-top/2026/06/bao-cao-tinh-hinh-kinh-te-xa-hoi-thang-nam-va-5-thang-dau-nam-2025-2/">T5</a>
+    <a href="/bai-top/2026/07/bao-cao-tinh-hinh-kinh-te-xa-hoi-quy-ii-va-sau-thang-dau-nam-2026/">Q2</a>
+    """
+    hit = nso.find_latest_report(html)
+    assert hit is not None
+    assert "quy-ii" in hit[0] and hit[1] == "2026-06-30"
+
+
 def test_find_latest_report_january_rolls_back_to_december():
     html = '<a href="/bai-top/2026/01/bao-cao-tinh-hinh-kinh-te-xa-hoi-thang-muoi-hai-2025/">x</a>'
     hit = nso.find_latest_report(html)

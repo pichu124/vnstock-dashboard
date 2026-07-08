@@ -70,10 +70,15 @@ _RANGES = {
 
 # Slug NSO không nhất quán (có bài còn ghi nhầm năm trong slug — thấy 06/2026
 # slug "…-2025-2") → KHÔNG dựng URL từ pattern; chỉ scrape href và chọn theo
-# /bai-top/{YYYY}/{MM}/ (tháng PUBLISH) lớn nhất.
+# /bai-top/{YYYY}/{MM}/ (tháng PUBLISH) lớn nhất. THÁNG CUỐI QUÝ (3/6/9/12)
+# không có "báo cáo tháng" riêng — NSO gộp vào "báo cáo QUÝ x và N tháng"
+# (diag thật 08/07: chỉ bắt "-thang" nên vớ nhầm bài tháng 5) → nhận cả 2 slug:
+#   bao-cao-tinh-hinh-kinh-te-xa-hoi-thang-…  (tháng thường)
+#   bao-cao-tinh-hinh-kinh-te-xa-hoi-quy-…    (tháng cuối quý, vẫn chứa câu
+#                                              CPI/IIP THÁNG bên trong)
 _REPORT_HREF = re.compile(
     r'href="([^"]*/bai-top/(\d{4})/(\d{2})/[^"]*'
-    r'bao-cao-tinh-hinh-kinh-te-xa-hoi-thang[^"]*)"', re.I)
+    r'bao-cao-tinh-hinh-kinh-te-xa-hoi-(?:thang|quy)[^"]*)"', re.I)
 
 
 # ── TLS ladder cho server .gov.vn ────────────────────────────────────────────
