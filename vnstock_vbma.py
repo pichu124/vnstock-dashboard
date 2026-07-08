@@ -217,20 +217,47 @@ def _parse_interbank(lines: "list[str]") -> dict:
     return out
 
 
+# Thứ tự tenor CỐ ĐỊNH của ma trận lợi suất VBMA (dùng cho đường 2 bên dưới)
+_CANON_TENORS = ("1", "2", "3", "5", "7", "10", "15", "20", "30")
+
+
 def _parse_bond_10y(lines: "list[str]") -> "float | None":
+    # Đường 1 — layout giữ cột (pdftotext -layout): header tenor nguyên vẹn
+    # rồi dòng ngày ĐẦU TIÊN ngay bên dưới là tuần mới nhất.
     for i, line in enumerate(lines):
         tenors = _TENOR.findall(line)
         if "10" not in tenors or len(tenors) < 4:      # header ma trận tenor
             continue
         idx = tenors.index("10")
-        for row in lines[i + 1:i + 6]:                  # dòng ngày ĐẦU = mới nhất
+        for row in lines[i + 1:i + 6]:
             if not _DATE_ROW.match(row):
                 continue
             pcts = [_to_float(x) for x in _PCT.findall(row)]
             if len(pcts) > idx and _in_range("govt_bond_yield_10y", pcts[idx]):
                 return pcts[idx]
             break                                       # header khác (legend chart) → thử tiếp
-    return None
+
+    # Đường 2 — pypdf XÁO layout (header vỡ mảnh, hàng 2025 in trước 2026,
+    # giá trị cuối rớt dòng): mọi dòng "d/m/yyyy" mang ≥6 giá trị % vẫn giữ
+    # THỨ TỰ TENOR CHUẨN 1N..30N → lấy vị trí 10N, chọn dòng NGÀY MỚI NHẤT.
+    # (Đã kiểm trên PDF thật 03/07/2026: cả 2 chế độ extract, dòng-ngày-nhiều-%
+    # duy nhất chính là ma trận lợi suất.)
+    idx10 = _CANON_TENORS.index("10")
+    best: "tuple | None" = None
+    for line in lines:
+        if not _DATE_ROW.match(line):
+            continue
+        pcts = [_to_float(x) for x in _PCT.findall(line)]
+        if len(pcts) <= idx10:
+            continue
+        try:
+            d = datetime.strptime(line.split()[0], "%d/%m/%Y").date()
+        except ValueError:
+            continue
+        v = pcts[idx10]
+        if _in_range("govt_bond_yield_10y", v) and (best is None or d > best[0]):
+            best = (d, v)
+    return best[1] if best else None
 
 
 def extract_rates(text: str) -> dict:

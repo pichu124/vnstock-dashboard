@@ -156,3 +156,30 @@ def test_refresh_vbma_kill_switch(tmp_path, monkeypatch):
                         lambda: calls.__setitem__("n", calls["n"] + 1))
     mac.refresh()
     assert calls["n"] == 0
+
+
+# Trích đoạn thật khi extract bằng PYPDF (máy Windows không có pdftotext):
+# layout ma trận bị XÁO — header tenor vỡ mảnh, hàng 2025 in TRƯỚC hàng 2026,
+# giá trị cuối rớt dòng. Đường 2 của _parse_bond_10y phải vẫn ra 4.40 (10N,
+# dòng có ngày MỚI NHẤT).
+_REAL_PYPDF_BOND = """\
+BIẾN ĐỘNG LỢI SUẤT PHÒNG GIAO DỊCH VBMA
+* Chú thích: Dữ liệu VBMA tổng hợp tính đến ngày 3/7/2026
+1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20
+3/7/2025 2.18% 2.23% 2.30% 2.67% 3.00% 3.22% 3.34% 3.40%
+4.62%
+3/7/2026 3.40% 3.50% 3.57% 4.20% 4.26% 4.40% 4.57% 4.64%
+20N
+7N 10N 15N
+26/6/2026 3.38%
+1N 2N 3N 5N
+WoW (đcb)
+3.48% 3.56% 4.19% 4.25% 4.40% 4.57%
+"""
+
+
+def test_extract_rates_pypdf_scrambled_matrix_latest_date_wins():
+    out = vbma.extract_rates(_REAL_PYPDF_BOND)
+    # 4.40 từ hàng 3/7/2026 (mới nhất) — KHÔNG phải 3.22 của hàng 3/7/2025
+    # đứng trước, và hàng 26/6/2026 cụt (1 giá trị) bị bỏ qua.
+    assert out.get("govt_bond_yield_10y") == pytest.approx(4.40)
