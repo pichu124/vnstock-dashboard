@@ -55,12 +55,14 @@ _FEEDS: list[dict] = [
     {"name": "VnEconomy",            "url": "https://vneconomy.vn/chung-khoan.rss",      "lang": "vi"},
     {"name": "Tin nhanh CK (ĐTCK)",  "url": "https://www.tinnhanhchungkhoan.vn/rss/home.rss", "lang": "vi"},
     # ── Vĩ mô / chính sách (thêm 2026-07 từ khảo sát skill vimovietnam — nhóm
-    # policy/vĩ mô trước đây thiếu hẳn. URL đoán theo pattern <slug>.rss của
-    # từng báo, CHƯA verify được từ sandbox (egress chặn): chạy
-    # `python vnstock_news_feeds.py --diag`, feed nào ❌ thì sửa/xoá dòng đó) ──
+    # policy/vĩ mô trước đây thiếu hẳn. Diag 08/07: VnEconomy Tài chính ✅ 41
+    # tin liên quan, Báo Chính phủ ✅ 29) ──
     {"name": "VnEconomy Tài chính",  "url": "https://vneconomy.vn/tai-chinh.rss",       "lang": "vi"},
     {"name": "Báo Chính phủ KT",     "url": "https://baochinhphu.vn/kinh-te.rss",        "lang": "vi"},
-    {"name": "Báo Đầu tư TC-CK",     "url": "https://baodautu.vn/rss/tai-chinh-chung-khoan.rss", "lang": "vi"},
+    # Chuyên mục thật là "Tài chính - Bảo hiểm" (tai-chinh-bao-hiem-d6); slug cũ
+    # tai-chinh-chung-khoan không tồn tại (diag 08/07 ❌). Nếu vẫn ❌ → mở
+    # https://baodautu.vn/rssMain.html lấy URL đúng hoặc xoá dòng này.
+    {"name": "Báo Đầu tư TC-BH",     "url": "https://baodautu.vn/rss/tai-chinh-bao-hiem-d6.rss", "lang": "vi"},
     # ── Quốc tế (tiếng Anh) ──
     {"name": "MarketWatch Top",      "url": "https://feeds.content.dowjones.io/public/rss/mw_topstories", "lang": "en"},
     {"name": "CNBC Markets",         "url": "https://www.cnbc.com/id/20910258/device/rss/rss.html", "lang": "en"},
