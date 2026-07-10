@@ -47,6 +47,7 @@ _MACRO_MAX_AGE_DAYS = {
     "usdvnd": 5,
     "interbank_on": 12,
     "interbank_1w": 12,
+    "govt_bond_yield_2y": 12,
     "govt_bond_yield_10y": 12,
     "cpi_yoy": 45,
     "iip_yoy": 45,

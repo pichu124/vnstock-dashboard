@@ -67,6 +67,16 @@ def _render_indicators(mac) -> None:
         st.caption(f"{icon} Thanh khoản: LNH ON − lãi suất điều hành = "
                    f"**{liq['spread']:+.2f} điểm %** — {liq['label']}{slope}")
 
+    ts = mac.term_spread(macro)
+    if ts:
+        worst = min(ts["dir"], ts.get("slope_dir", 0))
+        icon = "🔴" if worst < 0 else "⚪"
+        slope = (f" · dốc 10Y − 2Y = {ts['slope_2_10']:+.2f} điểm % — "
+                 f"{ts['slope_label']}"
+                 if ts.get("slope_2_10") is not None else "")
+        st.caption(f"{icon} Kỳ hạn: 10Y − lãi suất điều hành = "
+                   f"**{ts['spread']:+.2f} điểm %** — {ts['label']}{slope}")
+
     rem = mac.pmi_reminder(macro)
     if rem:
         st.warning(rem)

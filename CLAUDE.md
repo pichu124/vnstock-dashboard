@@ -400,9 +400,11 @@ danh sách thật vào output (LLM hay phớt block dù data có trong prompt).
   "quý"), CHỈ có trong bài quý → 4 lần/năm, giữa các quý giữ reading cũ (as_of
   hiện rõ). Cán cân thương mại: bắt buộc chữ "tháng" giữa anchor và "xuất/nhập
   siêu" → số LŨY KẾ 6 tháng không lọt; "triệu USD"/1000; nhập siêu = ÂM.
-  Registry nay 10 chỉ số = CHẠM CAP — thêm nữa phải bỏ bớt (quyết định
-  2026-07-08: dừng ở đây; credit growth để dành, chỉ làm nếu brief thiếu ngữ
-  cảnh khi có tin tín dụng lớn). Directive brief: GDP đã BỎ khỏi danh sách cấm
+  Registry cap: quyết định 2026-07-08 dừng ở 10 chỉ số; **2026-07-10 user chốt
+  NỚI 10→11** cho `govt_bond_yield_2y` (từ khảo sát VnBondLab — cùng ma trận
+  PDF VBMA với 10Y, zero request mới → gauge dốc đường cong). 11 là cap mới —
+  thêm nữa phải bỏ bớt; credit growth vẫn để dành, chỉ làm nếu brief thiếu ngữ
+  cảnh khi có tin tín dụng lớn. Directive brief: GDP đã BỎ khỏi danh sách cấm
   bịa (nay có data), chỉ còn Fed.
 - **`cpi_yoy` + `iip_yoy` AUTO từ NSO** (`vnstock_nso.py`, mirror vnstock_vbma):
   listing `nso.gov.vn/bao-cao-tinh-hinh-kinh-te-xa-hoi-hang-thang/` → bài
@@ -444,6 +446,23 @@ danh sách thật vào output (LLM hay phớt block dù data có trong prompt).
   CLI `--show`, sub-tab Vĩ mô. LEVEL-gauge thuần hiển thị, KHÔNG vào pressure
   score (score là change-based). OMO/tiền gửi KBNN trong sơ đồ = KHÔNG làm
   (không có nguồn free ổn định; tin "bơm/hút ròng" đã có trong _MACRO_KEYWORDS).
+- **Gauge kỳ hạn & đường cong (DONE 2026-07-10, từ khảo sát VnBondLab/Macro
+  Alert System — 2 trong 4 "trụ cột" cảnh báo của nó tính được thuần từ
+  registry)**: `term_spread(macro)` = 10Y − lãi suất điều hành ("Taylor-rule
+  xấp xỉ"; < 0 → ÂM dir −1 = chính sách THẮT so kỳ vọng dài hạn, < +0.5 →
+  "mỏng") + dốc **10Y − 2Y** khi có 2Y (< 0 → ĐẢO NGƯỢC dir −1 = bond market
+  định giá rủi ro chu kỳ, < +0.3 → "phẳng"; `_TERM_THIN_SPREAD`/`_YC_FLAT_SLOPE`).
+  Nguồn 2Y: `vnstock_vbma._parse_bond_yields` (generalize từ `_parse_bond_10y`)
+  nhặt cột 2N từ CÙNG dòng ngày của ma trận tenor — 10N là NEO (dòng thiếu 10N
+  hợp lệ bị bỏ); thêm kỳ hạn mới = thêm 1 entry `_YIELD_TENORS` + `_RANGES` +
+  `_DEFS`. Cùng triết lý liquidity_spread: zero fetch, LEVEL-gauge thuần hiển
+  thị (brief qua `_macro_body_lines` dùng chung → parity/guard tự giữ, CLI
+  `--show`, sub-tab Vĩ mô), KHÔNG vào pressure score. Số thật 03/07/2026: 10Y
+  4.40 < điều hành 4.5 → spread −0.10 ÂM (nhất quán gauge thanh khoản CĂNG);
+  dốc 2-10 +0.90 bình thường. 2 trụ VnBondLab KHÔNG làm: VN10Y−US10Y (không
+  có nguồn US10Y free trong allowlist; Fed vẫn cấm bịa) + ngưỡng percentile
+  lịch sử (cần ~1 năm mẫu VBMA weekly — cache giữ 60 readings, để dành nâng
+  cấp band tĩnh → percentile khi đủ).
 - **Brief nén block vĩ mô**: `_macro_body_lines` gộp mọi chỉ số KHÔNG đổi vào
   1 dòng "Đi ngang/chưa có kỳ mới: …" (8 chỉ số không nở 8 bullet); chỉ số có
   thay đổi giữ bullet riêng. Directive cập nhật (CPI/IIP/PMI nay CÓ data — chỉ
@@ -649,6 +668,10 @@ python run.py test --fast        # kỳ vọng: xanh hết (fix Windows đã pus
 python run.py doctor             # kỳ vọng: Kho giá EOD ✅ + Tests ✅
 python vnstock_fundamental_updater.py   # fundamentals 30 ngày → hết ⚠️ (mùa BCTC T7)
 python vnstock_news_feeds.py --reanalyze # chấm lại top tin bằng full text Jina
+python run.py macro && python vnstock_macro.py --show
+#   → kỳ vọng (thêm 2026-07-10, từ khảo sát VnBondLab): có dòng "Lợi suất TPCP
+#     2 năm" (nguồn vbma) + 2 gauge "→ Thanh khoản" và "→ Kỳ hạn" (10Y − điều
+#     hành hiện ÂM ~−0.10 + dốc 10Y − 2Y ~+0.90)
 ```
 
 Đã verify OK trên máy user 10/07: `doctor --net` = RSS 12/12, FX, VBMA, NSO,

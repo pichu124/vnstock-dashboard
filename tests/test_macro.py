@@ -561,6 +561,16 @@ def _liq_rows(on=None, policy=None, y10=None):
     return rows
 
 
+def _term_rows(policy=None, y2=None, y10=None):
+    rows = _liq_rows(policy=policy, y10=y10)
+    if y2 is not None:
+        rows.append({"key": "govt_bond_yield_2y", "label": "Lợi suất TPCP 2 năm",
+                     "kind": "rate",
+                     "unit": "%/năm", "value": y2, "as_of": "2026-07-03",
+                     "change": None})
+    return rows
+
+
 def test_liquidity_spread_bands_and_slope():
     # Data thật 08/07: ON 5.67 vs điều hành 4.5 → +1.17 = CĂNG (dir -1)
     liq = mac.liquidity_spread(_liq_rows(on=5.67, policy=4.5, y10=4.4))
@@ -580,6 +590,46 @@ def test_liquidity_spread_none_when_inputs_missing():
     assert mac.liquidity_spread(_liq_rows(policy=4.5)) is None    # thiếu ON
     assert mac.liquidity_spread([]) is None
     assert mac.liquidity_spread(None) is None
+
+
+def test_term_spread_bands_and_slope():
+    # Data thật 03/07: 10Y 4.40 vs điều hành 4.5 → −0.10 = ÂM (dir −1);
+    # 10Y − 2Y = +0.90 → dốc bình thường
+    ts = mac.term_spread(_term_rows(policy=4.5, y2=3.5, y10=4.4))
+    assert ts["spread"] == pytest.approx(-0.10)
+    assert ts["dir"] == -1 and "ÂM" in ts["label"]
+    assert ts["slope_2_10"] == pytest.approx(0.90)
+    assert ts["slope_dir"] == 0 and "bình thường" in ts["slope_label"]
+    # inversion: 2Y > 10Y → ĐẢO NGƯỢC (slope_dir −1)
+    inv = mac.term_spread(_term_rows(policy=4.5, y2=5.2, y10=5.0))
+    assert inv["slope_2_10"] == pytest.approx(-0.20)
+    assert inv["slope_dir"] == -1 and "ĐẢO NGƯỢC" in inv["slope_label"]
+    # spread mỏng (0 ≤ spread < 0.5) → nhãn cảnh giác nhưng dir 0
+    thin = mac.term_spread(_term_rows(policy=4.5, y10=4.8))
+    assert thin["dir"] == 0 and "mỏng" in thin["label"]
+    assert "slope_2_10" not in thin                    # thiếu 2Y → không có dốc
+    # spread dày → bình thường
+    assert mac.term_spread(_term_rows(policy=4.5, y10=5.5))["dir"] == 0
+
+
+def test_term_spread_none_when_inputs_missing():
+    assert mac.term_spread(_term_rows(y10=4.4)) is None        # thiếu điều hành
+    assert mac.term_spread(_term_rows(policy=4.5)) is None     # thiếu 10Y
+    assert mac.term_spread(_term_rows(policy=4.5, y2=3.5)) is None  # 2Y không đủ
+    assert mac.term_spread([]) is None
+    assert mac.term_spread(None) is None
+
+
+def test_macro_body_lines_include_term_gauge():
+    import vnstock_brief as vb
+    body = vb._macro_body_lines(_term_rows(policy=4.5, y2=3.5, y10=4.4))
+    ts_lines = [l for l in body if "Kỳ hạn & đường cong" in l]
+    assert len(ts_lines) == 1
+    assert "-0.10 điểm %" in ts_lines[0] and "ÂM" in ts_lines[0]
+    assert "dốc 10Y − 2Y = +0.90 điểm %" in ts_lines[0]
+    # thiếu input → không có dòng (no-op, không phát nhãn sai)
+    body2 = vb._macro_body_lines(_term_rows(y2=3.5, y10=4.4))
+    assert not any("Kỳ hạn & đường cong" in l for l in body2)
 
 
 def test_macro_body_lines_include_liquidity_gauge():
