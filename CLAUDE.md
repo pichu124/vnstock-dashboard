@@ -626,6 +626,16 @@ mã hủy niêm yết (last 2018-2021) re-fetch nhiều NĂM mỗi lần cho 0 n
 - Nút dashboard "📥 Cập nhật giá" → `--force --workers 8 --skip-stale-days 90`;
   `run.py sync` (pipeline tối) tự hưởng 8 luồng (không skip-stale → vẫn thorough).
 - API rate-limit (nhiều "error") → giảm `--workers 4`.
+- **`vnstock_fundamental_updater` cũng có `--workers` (DONE 2026-07-10)** — cùng
+  pattern (fetch trong ThreadPoolExecutor, ghi file CHỈ ở luồng chính qua batch
+  save; `_fetch_one` tách riêng, không đụng file/console). Lý do: fundamentals
+  ~3 call API/mã ≈ 7s → `--force` cả kho tuần tự mất ~3.5 giờ (user vướng thật
+  10/07), 8 luồng còn ~25-30 phút. Mặc định 1 (tuần tự cũ). LƯU Ý kép: (a) chạy
+  KHÔNG --force là incremental — chỉ fetch mã CHƯA CÓ trong parquet, mã cũ giữ
+  số cũ → mùa BCTC phải `--force --workers 8`; (b) check fundamentals của
+  doctor so MTIME file — lần chạy incremental cũng làm mới mtime nên badge ✅
+  không có nghĩa số đã mới (TODO nhỏ: đổi check sang max updated_at/quý trong
+  parquet). Test parity tuần-tự↔song-song: `tests/test_fundamental_cf.py`.
 
 **Quan trọng — vnstock 4.0.4 + sponsor API gotchas** (hard-won, đừng quên):
 - `vnstock_auth._StockShim` PHẢI expose `.quote/.company/.listing/.finance`.
@@ -680,8 +690,12 @@ python run.py doctor                      # kỳ vọng: Kho giá EOD ✅ (dung 
                                           #   2 phiên) + Tests ✅; fundamentals
                                           #   ⚠️ 30 ngày là CẢNH BÁO ĐÚNG ↓
 
-# [3] Fundamentals đang cũ 30 ngày (mùa BCTC T7 nên càng cần)
-python vnstock_fundamental_updater.py     # xong → chạy lại doctor hết ⚠️
+# [3] Fundamentals đang cũ 30 ngày (mùa BCTC T7 nên càng cần). LƯU Ý: mặc định
+#     updater INCREMENTAL (skip 1.701 mã đã có = giữ số cũ!) → mùa BCTC phải
+#     --force; tuần tự --force mất ~3.5 GIỜ (7s/mã × 1.754) → dùng --workers 8
+#     (~25-30 phút, thêm 2026-07-10 sau khi user vướng). Chạy nền terminal 2:
+python vnstock_fundamental_updater.py --force --workers 8
+#     xong → chạy lại doctor hết ⚠️ (rate-limit nhiều ✗ → hạ --workers 4)
 
 # [4] Macro: 2Y + 2 gauge mới
 python run.py macro && python vnstock_macro.py --show
