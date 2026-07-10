@@ -606,7 +606,13 @@ python run.py doctor --net    # + probe mạng: RSS/FX/VBMA/NSO/foreign-flow API
   (`_MACRO_MAX_AGE_DAYS`: FX 5d, VBMA 12d, NSO 45d, GDP 120d; sbv_policy_rate
   nhập tay → không bao giờ cũ) + nhắc PMI; foreign-flow cảnh báo `n_symbols`
   ≤120 (= API cap limit, bug top-100 cũ); LLM keys tách "sentiment provider"
-  vs "brief agent key"; NET có probe Jina Reader (feature full text ở trên).
+  vs "brief agent key"; NET có probe Jina Reader (feature full text ở trên);
+  **PDF→text cho VBMA (thêm tối 10/07 sau bẫy thật)**: desktop user venv khác
+  → thiếu pypdf → VBMA chết IM LẶNG (best-effort giữ cache cũ) — check offline
+  `check_pdf_tooling` bắt ngay, pypdf đã vào requirements.txt. Chuỗi
+  `run_checks` bắt cả **BaseException** (pyo3 PanicException từ native package
+  hỏng — thấy thật khi import pypdf trên cryptography lỗi) nhưng vẫn re-raise
+  KeyboardInterrupt.
 - Kết quả ghi `_meta/doctor_status.json` → **badge 🩺 sidebar** dashboard
   (dưới badge test, cùng style; xám=off, vàng=warn, đỏ=error). `run.py all`
   chạy doctor (offline) làm bước CUỐI → badge tự tươi mỗi tối theo pipeline.

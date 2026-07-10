@@ -257,6 +257,38 @@ def check_events() -> dict:
                    "python vnstock_events.py" if status != "ok" else "")
 
 
+def _has_pypdf() -> bool:
+    # BaseException chứ không chỉ Exception: pypdf kéo cryptography (native) —
+    # bản cài hỏng có thể nổ pyo3 PanicException (kế thừa BaseException, thấy
+    # thật trong sandbox 10/07). Import hỏng kiểu gì cũng = "không dùng được".
+    try:
+        import pypdf  # noqa: F401
+        return True
+    except BaseException:  # noqa: BLE001
+        return False
+
+
+def check_pdf_tooling() -> dict:
+    """Khả năng PDF→text cho nguồn VBMA (pdftotext trên PATH hoặc pypdf).
+
+    Máy MỚI hay dính bẫy này (desktop user 10/07: venv thiếu pypdf → VBMA chết
+    IM LẶNG vì best-effort giữ cache cũ, LNH/2Y/10Y không bao giờ cập nhật) —
+    check offline rẻ, khỏi đợi --net mới lộ."""
+    name = "PDF→text (nguồn VBMA)"
+    if os.environ.get("VNSTOCK_MACRO_VBMA", "1") == "0":
+        return _result("pdf_tooling", name, "off", "đã tắt (VNSTOCK_MACRO_VBMA=0)")
+    import shutil
+    if shutil.which("pdftotext"):
+        return _result("pdf_tooling", name, "ok", "pdftotext (poppler) trên PATH")
+    if _has_pypdf():
+        return _result("pdf_tooling", name, "ok", "pypdf khả dụng")
+    return _result("pdf_tooling", name, "error",
+                   "thiếu cả pdftotext lẫn pypdf — lãi suất LNH / lợi suất TPCP "
+                   "sẽ KHÔNG BAO GIỜ cập nhật (fetch fail im lặng, giữ cache cũ)",
+                   "pip install pypdf (đã cài mà vẫn lỗi → "
+                   "pip install --force-reinstall pypdf cryptography)")
+
+
 def check_llm_keys() -> dict:
     """Key LLM trong .env: provider chấm sentiment + key agent viết brief."""
     name = "LLM keys (.env)"
@@ -413,8 +445,9 @@ def net_jina() -> dict:
 
 OFFLINE_CHECKS = [
     check_warehouse, check_market_overview, check_fundamentals, check_macro,
-    check_market_news, check_ticker_news, check_foreign_flow, check_events,
-    check_llm_keys, check_telegram, check_tests,
+    check_pdf_tooling, check_market_news, check_ticker_news,
+    check_foreign_flow, check_events, check_llm_keys, check_telegram,
+    check_tests,
 ]
 NET_CHECKS = [
     net_rss_feeds, net_fx, net_vbma, net_nso, net_foreign_flow_api, net_jina,
@@ -428,7 +461,11 @@ def run_checks(net: bool = False) -> list[dict]:
     for fn in OFFLINE_CHECKS + (NET_CHECKS if net else []):
         try:
             results.append(fn())
-        except Exception as e:  # noqa: BLE001 — doctor phải sống sót mọi nguồn
+        except KeyboardInterrupt:      # Ctrl+C của user thì phải thoát thật
+            raise
+        except BaseException as e:  # noqa: BLE001 — doctor phải sống sót mọi nguồn,
+            # KỂ CẢ BaseException ngoài Exception (pyo3 PanicException từ native
+            # package hỏng — thấy thật khi import pypdf trên bản cryptography lỗi)
             key = fn.__name__.removeprefix("check_").removeprefix("net_")
             results.append(_result(key, fn.__name__, "error",
                                    f"check lỗi: {type(e).__name__}: {e}"))

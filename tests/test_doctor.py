@@ -196,6 +196,24 @@ def test_macro_check_surfaces_pmi_reminder(meta, tmp_path, monkeypatch):
     assert r["status"] == "warn" and "PMI" in r["message"]
 
 
+def test_pdf_tooling_states(monkeypatch):
+    monkeypatch.delenv("VNSTOCK_MACRO_VBMA", raising=False)
+    # pdftotext trên PATH → ok, không cần pypdf
+    monkeypatch.setattr("shutil.which", lambda cmd: "/usr/bin/pdftotext")
+    assert doc.check_pdf_tooling()["status"] == "ok"
+    # thiếu cả 2 → error + đơn thuốc pip install pypdf (bẫy máy mới 10/07)
+    monkeypatch.setattr("shutil.which", lambda cmd: None)
+    monkeypatch.setattr(doc, "_has_pypdf", lambda: False)
+    r = doc.check_pdf_tooling()
+    assert r["status"] == "error" and "pypdf" in r["fix"]
+    # có pypdf → ok
+    monkeypatch.setattr(doc, "_has_pypdf", lambda: True)
+    assert doc.check_pdf_tooling()["status"] == "ok"
+    # kill-switch VBMA → off (không phải lỗi)
+    monkeypatch.setenv("VNSTOCK_MACRO_VBMA", "0")
+    assert doc.check_pdf_tooling()["status"] == "off"
+
+
 def test_llm_keys_provider_and_brief(monkeypatch):
     for k in ("GROQ_API_KEY", "CEREBRAS_API_KEY", "OPENROUTER_API_KEY",
               "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "MISTRAL_API_KEY",
@@ -248,6 +266,29 @@ def test_run_checks_survives_a_crashing_check(meta, monkeypatch):
     assert len(results) == 2
     crashed = results[1]
     assert crashed["status"] == "error" and "nổ" in crashed["message"]
+
+
+def test_run_checks_survives_base_exception_but_not_ctrl_c(meta, monkeypatch):
+    # pyo3 PanicException (native package hỏng) kế thừa BaseException — doctor
+    # phải degrade thành error thay vì sập (thấy thật với pypdf/cryptography 10/07)
+    class _Panic(BaseException):
+        pass
+
+    def _panic():
+        raise _Panic("rust panicked")
+
+    monkeypatch.setattr(doc, "OFFLINE_CHECKS", [_panic, doc.check_telegram])
+    results = doc.run_checks()
+    assert len(results) == 2
+    assert results[0]["status"] == "error" and "_Panic" in results[0]["message"]
+
+    # ...nhưng Ctrl+C của user thì phải thoát thật, không được nuốt
+    def _interrupt():
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(doc, "OFFLINE_CHECKS", [_interrupt])
+    with pytest.raises(KeyboardInterrupt):
+        doc.run_checks()
 
 
 def test_run_checks_offline_skips_net(meta, monkeypatch):
