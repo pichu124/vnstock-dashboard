@@ -795,6 +795,31 @@ top-100 stale); `vnstock_market_sentiment.load_market_sentiment` truyền
 Nếu khớp ~−491 và vài trăm mã ⇒ OK. Nếu chỉ ~100 mã ⇒ API đang cap `limit`, cần
 tăng `--limit` hoặc đổi nguồn (xem mục 1 bên dưới về các nguồn đã thử).
 
+### 1b. Chất lượng dòng "→ tác động" tin vĩ mô — giới hạn MODEL, nâng khi cần
+
+**Status (ghi nhận 2026-07-10, verify --reanalyze với full text Jina trên máy
+user)**: lỗi NGƯỢC CHIỀU (loại bug "vàng GIẢM → PNJ hưởng lợi giá CAO" 30/06)
+đã HẾT nhờ full text + prompt directive. Còn lại là giới hạn chất lượng của
+**model 70B free** (llama-3.3-70b qua Groq/Cerebras/OpenRouter,
+`_ANALYZE_MODELS` trong `vnstock_news_feeds.py`), KHÔNG phải bug pipeline:
+- Mapping kênh đôi khi MÁY MÓC vì prompt ép nêu ngành cụ thể: vd thật
+  "Suntory Pepsico đưa vào hoạt động nhà máy lớn nhất châu Á → Ngành dệt may
+  và thuỷ sản hưởng lợi từ đầu tư nước ngoài" (FDI đồ uống ≠ dệt may/thuỷ sản).
+- Tin đa chiều (vd "Dòng dầu khí qua Hormuz khôi phục đến đâu?") chiều tác
+  động khó kiểm chứng — model chọn 1 chiều thay vì TRUNG_LẬP.
+
+**Khi nào nâng**: user thấy ≥ 2-3 dòng gượng/8 tin mỗi ngày, hoặc brief bắt
+đầu trích dẫn mapping sai vào mục Rủi ro/Tin.
+
+**Các hướng (rẻ → đắt)**:
+1. Chỉnh prompt `_ANALYZE_SYSTEM`: cho phép TRUNG_LẬP khi kênh không rõ thay
+   vì ép nêu ngành (đánh đổi: nhiều tin bị lọc `drop_no_impact` hơn).
+2. Đổi model trong `_ANALYZE_MODELS` sang bản mạnh hơn cùng provider (Groq có
+   các bản lớn hơn / OpenRouter nhiều lựa chọn free mới — kiểm tra catalog).
+3. Route qua key trả phí sẵn có trong .env (ANTHROPIC/OPENAI — brief agent
+   đang dùng): thêm provider vào ladder `vnstock_sentiment._PROVIDERS` hoặc
+   map riêng cho analyze. Chi phí nhỏ: chỉ ≤8 tin/ngày × ~2K token.
+
 ### 1. Replace calibrated GTGD estimate with exact realtime source
 
 **Status**: Currently using Option A — `vnstock_data Quote.history(interval='1m')`
