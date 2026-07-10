@@ -358,12 +358,16 @@ cd "C:\Users\Administrator\Dropbox\Claude vnstock"
 .\scripts\setup_scheduled_tasks.ps1
 ```
 3 task được đăng ký: **VnStock Daily Pipeline** 18:00 T2-T6 (`run.py all` =
-sync EOD → validate → screener → news → test → audit — trọn quy trình tối,
-sau giờ đóng cửa) · **VnStock Weekly Corp Actions** CN 09:00 (Vietstock
-cổ tức/chia tách → registry) · **VnStock Fundamentals** T2 08:00 (1×/tuần;
-mùa BCTC giữa tháng 1/4/7/10 chạy thêm tay). Sự kiện GDKHQ KHÔNG cần task —
-brief tự refresh 1×/ngày (VN30 + top-40 movers). Kiểm tra:
-`Get-ScheduledTask -TaskName "VnStock *"`.
+sync EOD → validate → screener → news → test → audit → doctor — trọn quy
+trình tối, sau giờ đóng cửa) · **VnStock Weekly Corp Actions** CN 09:00
+(Vietstock cổ tức/chia tách → registry) · **VnStock Fundamentals** T2 08:00
+(1×/tuần, `--force --workers 4 --delay 1` — **fix 2026-07-10: trước đó task
+chạy KHÔNG --force = incremental skip mã đã có → NO-OP từ sau lần đầu, số
+đóng băng**; mùa BCTC giữa tháng 1/4/7/10 chạy thêm tay). Sự kiện GDKHQ KHÔNG
+cần task — brief tự refresh 1×/ngày (VN30 + top-40 movers). Kiểm tra:
+`Get-ScheduledTask -TaskName "VnStock *"`. **Task đăng ký THEO MÁY** — đổi
+máy (vd desktop mới 10/07) phải chạy lại setup script trên máy đó; script tự
+detect venv nên chạy sau khi venv + `pip install -r requirements.txt` đã có.
 
 **Sự kiện DN sắp tới (DONE 2026-06-10)** — `vnstock_events.py` tổng hợp GDKHQ
 cổ tức/chia tách/thưởng (tái dùng `vnstock_adjust._fetch_events` →

@@ -12,8 +12,10 @@
 #      Command: python run.py --warehouse data_warehouse vietstock --bulk --register
 #
 #   3. VnStock Fundamentals        — 08:00 Monday (1×/tuần)
-#      Tải P/E / ROE / D-E / Cash Flow VN30 → fundamentals.parquet
-#      Command: python vnstock_fundamental_updater.py
+#      Tải P/E / ROE / D-E / Cash Flow → fundamentals.parquet
+#      Command: python vnstock_fundamental_updater.py --force --workers 4 --delay 1
+#      (--force bắt buộc — không có nó updater incremental skip mã đã có,
+#       task tuần thành no-op; fix 2026-07-10)
 #
 # Note: News sentiment (run.py news) is now a built-in step of the daily
 # pipeline — no separate task needed. Skip with --no-news if desired.
@@ -128,7 +130,11 @@ $TaskDefinitions = @(
     @{
         Name        = "VnStock Fundamentals"
         Execute     = $PythonExe
-        Args        = "`"$FundUpdater`""
+        # --force BAT BUOC: khong co no updater chi fetch ma CHUA CO trong
+        # parquet (incremental) -> task tuan la NO-OP, so lieu dong bang o lan
+        # chay dau (bug phat hien 2026-07-10). --workers 4 --delay 1 ~ 200
+        # req/phut, an toan duoi tran 500/phut goi Golden; ca kho ~25-30 phut.
+        Args        = "`"$FundUpdater`" --force --workers 4 --delay 1"
         TriggerDesc = "Weekly $FundamentalsTime Monday  (+run-on-boot if missed)"
         Trigger     = {
             New-ScheduledTaskTrigger `
@@ -136,8 +142,8 @@ $TaskDefinitions = @(
                 -DaysOfWeek Monday `
                 -At $FundamentalsTime
         }
-        MaxMinutes  = 30
-        Description = "Tai P/E / ROE / D-E / Cash Flow VN30 -> fundamentals.parquet (1x/tuan)"
+        MaxMinutes  = 90
+        Description = "Tai P/E / ROE / D-E / Cash Flow -> fundamentals.parquet (1x/tuan, --force full refresh)"
     }
 )
 
