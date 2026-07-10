@@ -99,7 +99,13 @@ def _fmt_age(n: "int | None") -> str:
 
 
 def check_warehouse() -> dict:
-    """Kho giá EOD: bar VNINDEX cuối cùng so với ngày giao dịch trước."""
+    """Kho giá EOD: bar VNINDEX cuối cùng, dung sai 2 PHIÊN.
+
+    VNINDEX daily qua API EOD về trễ ~1 phiên so với cổ phiếu (lý do tồn tại
+    của `_augment_with_live_vnindex` trong brief), và pipeline sync chạy 18:00
+    — chạy doctor ban ngày thì bar index mới nhất hợp lệ là 2 phiên trước.
+    Chỉ warn khi TRỄ HƠN thế (sync thật sự bị bỏ); ngày chính xác luôn in ra.
+    """
     name = "Kho giá EOD (VNINDEX)"
     vn_dir = _META.parent / "prices" / "ticker=VNINDEX"
     files = sorted(vn_dir.glob("year=*/*.parquet")) if vn_dir.exists() else []
@@ -110,7 +116,8 @@ def check_warehouse() -> dict:
     import pandas as pd
     df = pd.read_parquet(files[-1], columns=["time"])
     last = pd.to_datetime(df["time"]).max().date()
-    status = "ok" if last >= _prev_trading_day() else "warn"
+    threshold = _prev_trading_day(_prev_trading_day())     # 2 phiên trước
+    status = "ok" if last >= threshold else "warn"
     return _result("warehouse", name, status,
                    f"bar cuối {last.isoformat()} ({_fmt_age((date.today() - last).days)})",
                    "" if status == "ok" else "python run.py sync")

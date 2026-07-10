@@ -57,18 +57,21 @@ def test_market_overview_missing_fresh_stale(meta):
     assert r["status"] == "off" and "screener" in r["fix"]
 
     p = meta / "market_overview.json"
-    p.write_text(json.dumps({"data_date": date.today().isoformat()}))
+    p.write_text(json.dumps({"data_date": date.today().isoformat()}),
+                 encoding="utf-8")
     assert doc.check_market_overview()["status"] == "ok"
 
     p.write_text(json.dumps(
-        {"data_date": (date.today() - timedelta(days=10)).isoformat()}))
+        {"data_date": (date.today() - timedelta(days=10)).isoformat()}),
+        encoding="utf-8")
     r = doc.check_market_overview()
     assert r["status"] == "warn" and "screener" in r["fix"]
 
 
 def test_market_overview_falls_back_to_generated_at(meta):
     (meta / "market_overview.json").write_text(json.dumps(
-        {"generated_at": f"{date.today().isoformat()} 08:00:00"}))
+        {"generated_at": f"{date.today().isoformat()} 08:00:00"}),
+        encoding="utf-8")
     assert doc.check_market_overview()["status"] == "ok"
 
 
@@ -80,6 +83,12 @@ def test_warehouse_check_reads_latest_vnindex_bar(meta):
     pd.DataFrame({"time": [pd.Timestamp(date.today())]}).to_parquet(vn / "a.parquet")
     r = doc.check_warehouse()
     assert r["status"] == "ok" and date.today().isoformat() in r["message"]
+
+    # VNINDEX EOD về trễ ~1 phiên qua API (dung sai 2 phiên) → bar đúng tại
+    # ngưỡng 2-phiên-trước vẫn là ok, KHÔNG báo động giả ban ngày
+    boundary = doc._prev_trading_day(doc._prev_trading_day())
+    pd.DataFrame({"time": [pd.Timestamp(boundary)]}).to_parquet(vn / "a.parquet")
+    assert doc.check_warehouse()["status"] == "ok"
 
     pd.DataFrame({"time": [pd.Timestamp(date.today() - timedelta(days=30))]}
                  ).to_parquet(vn / "a.parquet")
@@ -106,7 +115,7 @@ def test_market_news_counts_recent_and_analyzed(meta):
             {"_date_sort": today, "_impact": ""},
             {"_date_sort": "2020-01-01", "_impact": "cũ"},   # ngoài cửa sổ 3 ngày
         ],
-    }, ensure_ascii=False))
+    }, ensure_ascii=False), encoding="utf-8")
     r = doc.check_market_news()
     assert r["status"] == "ok"
     assert "2 tin" in r["message"] and "(1 có tác động LLM)" in r["message"]
@@ -115,7 +124,7 @@ def test_market_news_counts_recent_and_analyzed(meta):
 def test_market_news_stale_fetch_warns(meta):
     old = (date.today() - timedelta(days=6)).isoformat()
     (meta / "market_news_cache.json").write_text(json.dumps(
-        {"fetched_at": f"{old}T08:00:00", "items": []}))
+        {"fetched_at": f"{old}T08:00:00", "items": []}), encoding="utf-8")
     r = doc.check_market_news()
     assert r["status"] == "warn" and "news" in r["fix"]
 
@@ -125,16 +134,19 @@ def test_foreign_flow_fresh_capped_and_stale(meta):
     p = meta / "foreign_net_daily.json"
 
     fresh = date.today().isoformat()
-    p.write_text(json.dumps({fresh: {"net": -491.0, "n_symbols": 512}}))
+    p.write_text(json.dumps({fresh: {"net": -491.0, "n_symbols": 512}}),
+                 encoding="utf-8")
     assert doc.check_foreign_flow()["status"] == "ok"
 
     # ~100 mã = API cap (bug top-100 cũ) → warn dù ngày tươi
-    p.write_text(json.dumps({fresh: {"net": -665.0, "n_symbols": 100}}))
+    p.write_text(json.dumps({fresh: {"net": -665.0, "n_symbols": 100}}),
+                 encoding="utf-8")
     r = doc.check_foreign_flow()
     assert r["status"] == "warn" and "cap" in r["message"]
 
     stale = (date.today() - timedelta(days=10)).isoformat()
-    p.write_text(json.dumps({stale: {"net": -10.0, "n_symbols": 512}}))
+    p.write_text(json.dumps({stale: {"net": -10.0, "n_symbols": 512}}),
+                 encoding="utf-8")
     assert doc.check_foreign_flow()["status"] == "warn"
 
 
@@ -158,14 +170,14 @@ def test_macro_check_flags_stale_indicator(meta, tmp_path, monkeypatch):
     (tmp_path / "macro.json").write_text(json.dumps({"indicators": {
         "usdvnd": {"label": "Tỷ giá USD/VND (tham chiếu)", "unit": "VND",
                    "kind": "fx", "history": {fresh: 26191.9}},
-    }}))
+    }}), encoding="utf-8")
     assert doc.check_macro()["status"] == "ok"
 
     old = (date.today() - timedelta(days=30)).isoformat()
     (tmp_path / "macro.json").write_text(json.dumps({"indicators": {
         "usdvnd": {"label": "Tỷ giá USD/VND (tham chiếu)", "unit": "VND",
                    "kind": "fx", "history": {old: 26191.9}},
-    }}))
+    }}), encoding="utf-8")
     r = doc.check_macro()
     assert r["status"] == "warn" and "Tỷ giá" in r["message"]
 
@@ -179,7 +191,7 @@ def test_macro_check_surfaces_pmi_reminder(meta, tmp_path, monkeypatch):
     (tmp_path / "macro.json").write_text(json.dumps({"indicators": {
         "usdvnd": {"label": "Tỷ giá", "unit": "VND", "kind": "fx",
                    "history": {fresh: 26000.0}},
-    }}))
+    }}), encoding="utf-8")
     r = doc.check_macro()
     assert r["status"] == "warn" and "PMI" in r["message"]
 
@@ -216,10 +228,10 @@ def test_tests_badge_states(meta):
     p = meta / "test_status.json"
     now = f"{date.today().isoformat()}T10:00:00"
     p.write_text(json.dumps({"ran_at": now, "passed": 121, "failed": 0, "errors": 0,
-                             "mode": "fast"}))
+                             "mode": "fast"}), encoding="utf-8")
     assert doc.check_tests()["status"] == "ok"
     p.write_text(json.dumps({"ran_at": now, "passed": 100, "failed": 2, "errors": 0,
-                             "mode": "fast"}))
+                             "mode": "fast"}), encoding="utf-8")
     r = doc.check_tests()
     assert r["status"] == "error" and "2 FAIL" in r["message"]
 
@@ -269,14 +281,16 @@ def test_worst_status_and_report_and_persist(meta):
 
 
 def test_main_offline_writes_status_and_exit_code(meta, monkeypatch, capsys):
-    # Chỉ giữ 1 check ok để exit=0; main không chạy net check nào
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
-    monkeypatch.setenv("TELEGRAM_CHAT_ID", "c")
-    monkeypatch.setattr(doc, "OFFLINE_CHECKS", [doc.check_telegram])
+    # KHÔNG dựa vào env thật: main() load .env của repo (override=False) nên
+    # trên máy user một key vừa delenv có thể được NẠP LẠI từ .env → check
+    # telegram/llm không hermetic. Stub thẳng check list bằng kết quả cố định.
+    monkeypatch.setattr(doc, "OFFLINE_CHECKS",
+                        [lambda: doc._result("a", "Nguồn A", "ok", "tươi")])
     rc = doc.main([])
     assert rc == 0
     assert (meta / "doctor_status.json").exists()
-    assert "Telegram" in capsys.readouterr().out
+    assert "Nguồn A" in capsys.readouterr().out
 
-    monkeypatch.delenv("TELEGRAM_CHAT_ID")
+    monkeypatch.setattr(doc, "OFFLINE_CHECKS",
+                        [lambda: doc._result("b", "Nguồn B", "warn", "cũ")])
     assert doc.main(["--no-save", "--json"]) == 1   # warn → exit 1

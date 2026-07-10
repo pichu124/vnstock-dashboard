@@ -578,6 +578,9 @@ python run.py doctor --net    # + probe mạng: RSS/FX/VBMA/NSO/foreign-flow API
 - **2 tầng**: OFFLINE so tuổi data với `_prev_trading_day` (T2-T6 — sáng thứ 2 /
   trước pipeline 18:00 KHÔNG báo động giả); NET fetch thử từng nguồn ngoài —
   chạy trên MÁY CÓ MẠNG (sandbox bị allowlist chặn → toàn ❌ là bình thường).
+  Riêng kho VNINDEX dung sai **2 phiên** (bar index qua API EOD về trễ ~1 phiên
+  so với cổ phiếu — verify trên máy user 10/07: overview 07-09 tươi nhưng bar
+  VNINDEX mới tới 07-08; đây là lý do tồn tại `_augment_with_live_vnindex`).
 - **Trạng thái**: ok ✅ · warn ⚠️ (cũ/thiếu một phần) · off ⬜ (chưa cấu hình/chưa
   chạy — KHÔNG tính vào exit code) · error ❌. Exit 1 khi có warn/error.
 - **Check đáng chú ý**: vĩ mô so as_of TỪNG chỉ số với cadence nguồn của nó
