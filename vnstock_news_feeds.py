@@ -487,7 +487,9 @@ def main(argv: "list[str] | None" = None) -> int:
 
     if a.diag:
         return _diag()
-    if a.refresh:
+    # --reanalyze một mình = --refresh --reanalyze (CLAUDE.md xưa nay hướng dẫn
+    # chạy trần `--reanalyze`; trước đây nó rơi xuống print_help — bẫy 10/07)
+    if a.refresh or a.reanalyze:
         items = refresh(within_days=a.within, analyze=not a.no_analyze,
                         max_analyze=a.max_analyze, reanalyze=a.reanalyze)
         n_an = sum(1 for it in items if it.get("_impact"))

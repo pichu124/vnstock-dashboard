@@ -360,3 +360,18 @@ def test_refresh_retains_old_cached_items_within_retention(tmp_path, monkeypatch
     # thứ tự vẫn mới-nhất-trước
     dates = [it.get("_date_sort") or "" for it in items]
     assert dates == sorted(dates, reverse=True)
+
+
+def test_cli_reanalyze_alone_implies_refresh(monkeypatch):
+    # `--reanalyze` trần từng rơi xuống print_help (không chạy gì) — phải
+    # tương đương `--refresh --reanalyze` như CLAUDE.md hướng dẫn.
+    calls = {}
+
+    def _fake_refresh(within_days, analyze, max_analyze, reanalyze):
+        calls.update(reanalyze=reanalyze, analyze=analyze)
+        return []
+
+    monkeypatch.setattr(nf, "refresh", _fake_refresh)
+    monkeypatch.setattr(nf, "_show", lambda *a, **k: None)
+    assert nf.main(["--reanalyze"]) == 0
+    assert calls == {"reanalyze": True, "analyze": True}
