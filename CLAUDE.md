@@ -635,6 +635,27 @@ mã hủy niêm yết (last 2018-2021) re-fetch nhiều NĂM mỗi lần cho 0 n
 
 ## 📌 Pending suggestions (raise when relevant)
 
+### 0. ⏳ VERIFY doctor + Jina full-text trên máy user (PENDING 2026-07-10)
+
+**Status**: 2 tính năng mới (branch `claude/agent-reach-dashboard-review-3podi4`,
+commit `84c4802`) đã pass 866 tests trong sandbox + fix 3 lỗi lộ trên máy thật
+(UnicodeEncodeError cp1252, test exit-code dính .env thật, báo động giả kho
+VNINDEX). User CHƯA verify vòng cuối — **nhắc ngay khi user quay lại làm việc
+trên repo này** (hoặc khi user nói "test", "doctor", "PR", "merge"):
+
+```powershell
+git pull
+python run.py test --fast        # kỳ vọng: xanh hết (fix Windows đã push)
+python run.py doctor             # kỳ vọng: Kho giá EOD ✅ + Tests ✅
+python vnstock_fundamental_updater.py   # fundamentals 30 ngày → hết ⚠️ (mùa BCTC T7)
+python vnstock_news_feeds.py --reanalyze # chấm lại top tin bằng full text Jina
+```
+
+Đã verify OK trên máy user 10/07: `doctor --net` = RSS 12/12, FX, VBMA, NSO,
+foreign-flow 303 mã, Jina Reader đều ✅. Sau khi test xanh → hỏi user có muốn
+mở PR merge về `main` không (pipeline 18:00 sẽ hưởng bước doctor cuối
+`run.py all` + tin chấm bằng full text). Xong việc thì XÓA mục này.
+
 ### 1. Auto-schedule `vnstock_train.py` (NOT YET SET UP)
 
 **Status**: User chose to run manually for now (decided 2026-04-27).
