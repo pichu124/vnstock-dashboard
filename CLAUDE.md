@@ -654,30 +654,54 @@ mã hủy niêm yết (last 2018-2021) re-fetch nhiều NĂM mỗi lần cho 0 n
 
 ## 📌 Pending suggestions (raise when relevant)
 
-### 0. ⏳ VERIFY doctor + Jina full-text trên máy user (PENDING 2026-07-10)
+### 0. ⏳ CHECKLIST TEST TỐI (PENDING 2026-07-10) — user hẹn "tối về test"
 
-**Status**: 2 tính năng mới (branch `claude/agent-reach-dashboard-review-3podi4`,
-commit `84c4802`) đã pass 866 tests trong sandbox + fix 3 lỗi lộ trên máy thật
-(UnicodeEncodeError cp1252, test exit-code dính .env thật, báo động giả kho
-VNINDEX). User CHƯA verify vòng cuối — **nhắc ngay khi user quay lại làm việc
-trên repo này** (hoặc khi user nói "test", "doctor", "PR", "merge"):
+**Status**: branch `claude/agent-reach-dashboard-review-3podi4` (HEAD `a7ae772`)
+mang **4 tính năng chưa verify vòng cuối** trên máy user — 870 tests xanh trong
+sandbox; đợt chạy đầu trên máy thật đã lộ + đã fix 3 lỗi (UnicodeEncodeError
+cp1252, test exit-code dính .env thật, báo động giả kho VNINDEX). **Nhắc ngay
+khi user quay lại** (hoặc nói "test", "doctor", "PR", "merge", "tối"):
+1. `run.py doctor` [--net] + badge 🩺 sidebar (khảo sát Agent-Reach)
+2. Jina full-text cho tin chấm LLM trong `vnstock_news_feeds` (Agent-Reach)
+3. Gauge kỳ hạn `term_spread` 10Y − điều hành (khảo sát VnBondLab)
+4. `govt_bond_yield_2y` từ VBMA + dốc đường cong 10Y − 2Y (VnBondLab)
+
+**Chạy theo thứ tự, kỳ vọng ghi cạnh từng lệnh:**
 
 ```powershell
-git pull
-python run.py test --fast        # kỳ vọng: xanh hết (fix Windows đã push)
-python run.py doctor             # kỳ vọng: Kho giá EOD ✅ + Tests ✅
-python vnstock_fundamental_updater.py   # fundamentals 30 ngày → hết ⚠️ (mùa BCTC T7)
-python vnstock_news_feeds.py --reanalyze # chấm lại top tin bằng full text Jina
+cd C:\vnstock
+git pull                                  # phải ra a7ae772 (hoặc mới hơn)
+
+# [1] Tests — 2 fail Windows lần trước đã fix
+python run.py test --fast                 # kỳ vọng: XANH HẾT (~380 tests)
+
+# [2] Doctor offline — 2 báo động giả lần trước đã xử
+python run.py doctor                      # kỳ vọng: Kho giá EOD ✅ (dung sai
+                                          #   2 phiên) + Tests ✅; fundamentals
+                                          #   ⚠️ 30 ngày là CẢNH BÁO ĐÚNG ↓
+
+# [3] Fundamentals đang cũ 30 ngày (mùa BCTC T7 nên càng cần)
+python vnstock_fundamental_updater.py     # xong → chạy lại doctor hết ⚠️
+
+# [4] Macro: 2Y + 2 gauge mới
 python run.py macro && python vnstock_macro.py --show
-#   → kỳ vọng (thêm 2026-07-10, từ khảo sát VnBondLab): có dòng "Lợi suất TPCP
-#     2 năm" (nguồn vbma) + 2 gauge "→ Thanh khoản" và "→ Kỳ hạn" (10Y − điều
-#     hành hiện ÂM ~−0.10 + dốc 10Y − 2Y ~+0.90)
+#   kỳ vọng: dòng "Lợi suất TPCP 2 năm: ~3.50%/năm (nguồn vbma)"
+#   + "→ Thanh khoản: ON − điều hành = +1.17 (CĂNG)"
+#   + "→ Kỳ hạn: 10Y − điều hành = ~−0.10 (ÂM) ; dốc 10Y − 2Y = ~+0.90"
+
+# [5] Tin chấm bằng full text Jina (prompt thấy thân bài, hết lỗi ngược chiều)
+python vnstock_news_feeds.py --reanalyze  # xem dòng "→ tác động" có sát bài hơn
+
+# [6] Mở dashboard xem 2 badge sidebar (✅ Tests + 🩺 Nguồn dữ liệu)
+#     và sub-tab Tin tức → 🌐 Vĩ mô có caption "Kỳ hạn: …"
+python run.py dashboard
 ```
 
-Đã verify OK trên máy user 10/07: `doctor --net` = RSS 12/12, FX, VBMA, NSO,
-foreign-flow 303 mã, Jina Reader đều ✅. Sau khi test xanh → hỏi user có muốn
-mở PR merge về `main` không (pipeline 18:00 sẽ hưởng bước doctor cuối
-`run.py all` + tin chấm bằng full text). Xong việc thì XÓA mục này.
+Đã verify OK trên máy user trưa 10/07: `doctor --net` = RSS 12/12, FX, VBMA,
+NSO, foreign-flow 303 mã, Jina Reader đều ✅ — KHÔNG cần chạy lại --net trừ khi
+tò mò. **Sau khi checklist xanh → hỏi user có mở PR merge về `main` không**
+(pipeline 18:00 hằng ngày sẽ hưởng: bước doctor cuối `run.py all`, tin chấm
+full-text, block vĩ mô thêm 2Y + gauge kỳ hạn). Xong việc thì XÓA mục này.
 
 ### 1. Auto-schedule `vnstock_train.py` (NOT YET SET UP)
 
