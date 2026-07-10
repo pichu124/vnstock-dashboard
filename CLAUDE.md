@@ -13,7 +13,7 @@ Items here get auto-loaded into Claude's context at session start.
   `vnstock_sentiment.py`, `vnstock_news.py`, `vnstock_telegram.py`,
   `vnstock_freshness.py`, `vnstock_vn30_weights.py`,
   `vnstock_market_sentiment.py`, `vnstock_fundamental_updater.py`,
-  `vnstock_macro.py`, `vnstock_news_feeds.py`
+  `vnstock_macro.py`, `vnstock_news_feeds.py`, `vnstock_doctor.py`
 - Trước khi tạo PR merge về `main`
 - Sau khi nâng cấp pandas / numpy / Python version
 
@@ -548,6 +548,49 @@ LLM chấm sentiment + tóm tắt tác động 1 dòng, cache
   4096 ký tự/tin của Telegram → đuôi (mục 📰) bị cắt. `vnstock_telegram.send_message`
   nay tách thành NHIỀU tin ≤4096 (cắt theo dòng để tag HTML không vỡ, hậu tố
   "(k/n)") thay vì truncate. `_split_for_telegram` test trong `test_telegram.py`.
+- **Full text qua Jina Reader (DONE 2026-07-10, từ khảo sát Agent-Reach — CẦN
+  USER VERIFY trên máy có mạng: `python vnstock_news_feeds.py --diag` có dòng
+  Jina)**: `analyze_item` nay tự fetch THÂN BÀI qua `https://r.jina.ai/<URL>`
+  (free, không cần key, URL→markdown sạch) và đưa vào prompt — trước đó LLM chỉ
+  thấy title+description RSS, là gốc của loại lỗi đoán sai chiều tác động (vụ
+  "giá vàng GIẢM → PNJ hưởng lợi giá CAO" 30/06). CHỈ fetch cho tin ĐƯỢC chấm
+  (≤ `_MAX_ANALYZE_DEFAULT`=8/refresh) nên số request nhỏ; best-effort đúng
+  nghĩa: fail/timeout/chặn mạng → chấm bằng title+summary như cũ, KHÔNG lưu
+  full text vào cache (chỉ dùng tại chỗ, `_FULLTEXT_MAX_CHARS`=1800 vào prompt).
+  Tắt: `VNSTOCK_NEWS_FULLTEXT=0` hoặc `--no-fulltext`; có `JINA_API_KEY` trong
+  .env thì gửi kèm (nới rate-limit ~20 req/phút của bản không key), không có
+  vẫn chạy. Sandbox/web session: r.jina.ai bị allowlist chặn (403 CONNECT,
+  verify 10/07) → luôn '' ở đây, KHÔNG phải bug. Đây là cải thiện INPUT cho
+  prompt (không deterministic) — tin đã cache giữ điểm cũ, muốn chấm lại chạy
+  `python vnstock_news_feeds.py --reanalyze`.
+
+### 🩺 Doctor — khám sức khỏe MỌI nguồn dữ liệu (DONE 2026-07-10) — `vnstock_doctor.py`
+
+Gom các `--diag` rải rác (news_feeds/macro/vbma/nso/foreign_flow/events/
+fundamentals) về MỘT lệnh, theo mô hình doctor của Agent-Reach (check THẬT +
+đơn thuốc sửa cụ thể cho từng nguồn, một nguồn nổ không kéo sập báo cáo):
+
+```powershell
+python run.py doctor          # OFFLINE <1s: tuổi cache + key .env
+python run.py doctor --net    # + probe mạng: RSS/FX/VBMA/NSO/foreign-flow API/Jina
+```
+
+- **2 tầng**: OFFLINE so tuổi data với `_prev_trading_day` (T2-T6 — sáng thứ 2 /
+  trước pipeline 18:00 KHÔNG báo động giả); NET fetch thử từng nguồn ngoài —
+  chạy trên MÁY CÓ MẠNG (sandbox bị allowlist chặn → toàn ❌ là bình thường).
+- **Trạng thái**: ok ✅ · warn ⚠️ (cũ/thiếu một phần) · off ⬜ (chưa cấu hình/chưa
+  chạy — KHÔNG tính vào exit code) · error ❌. Exit 1 khi có warn/error.
+- **Check đáng chú ý**: vĩ mô so as_of TỪNG chỉ số với cadence nguồn của nó
+  (`_MACRO_MAX_AGE_DAYS`: FX 5d, VBMA 12d, NSO 45d, GDP 120d; sbv_policy_rate
+  nhập tay → không bao giờ cũ) + nhắc PMI; foreign-flow cảnh báo `n_symbols`
+  ≤120 (= API cap limit, bug top-100 cũ); LLM keys tách "sentiment provider"
+  vs "brief agent key"; NET có probe Jina Reader (feature full text ở trên).
+- Kết quả ghi `_meta/doctor_status.json` → **badge 🩺 sidebar** dashboard
+  (dưới badge test, cùng style; xám=off, vàng=warn, đỏ=error). `run.py all`
+  chạy doctor (offline) làm bước CUỐI → badge tự tươi mỗi tối theo pipeline.
+- Thêm nguồn mới = viết 1 hàm `check_*`/`net_*` trả `_result(...)` rồi thêm vào
+  `OFFLINE_CHECKS`/`NET_CHECKS`. Tests: `tests/test_doctor.py` (đã vào danh
+  sách `--fast`); mọi check đọc dưới `_META` (tests monkeypatch được).
 
 ### ⚡ Updater nhanh 10× (DONE 2026-06-16) — `vnstock_updater.py`
 

@@ -12,6 +12,13 @@ Thiết kế:
   • Fetch best-effort qua ``requests`` (đã là dep). Feed lỗi → bỏ qua, không bịa.
   • Phân tích LLM CHỈ chạy cho tập đã lọc + top-N mới nhất (kiểm soát token), cache
     kết quả trong JSON nên không chấm lại.
+  • FULL TEXT qua Jina Reader (https://r.jina.ai/<URL> — free, không cần key):
+    ``analyze_item`` tự fetch nội dung bài (best-effort) cho ĐÚNG các tin sắp
+    chấm LLM → model thấy toàn bài thay vì chỉ title+description RSS (giảm lỗi
+    đoán sai chiều tác động). Fail/timeout → chấm bằng title+summary như cũ.
+    KHÔNG lưu full text vào cache (chỉ dùng tại chỗ). Tắt:
+    ``VNSTOCK_NEWS_FULLTEXT=0`` hoặc ``--no-fulltext``. Có ``JINA_API_KEY``
+    trong .env thì gửi kèm (nới rate-limit), không có vẫn chạy.
 
 Mạng: fetch RSS cần internet — chạy tốt trên MÁY LOCAL; web session bị egress
 allowlist chặn (RSS không bị tường phí, chỉ là host chưa allowlist). Xác minh:
@@ -28,6 +35,7 @@ import argparse
 import hashlib
 import html
 import json
+import os
 import re
 import sys
 import xml.etree.ElementTree as ET
@@ -188,6 +196,53 @@ def fetch_feed(feed: dict) -> list[dict]:
     return parse_feed(resp.content, source=feed.get("name", ""))
 
 
+# ── Full text qua Jina Reader (best-effort, cho tin sắp chấm LLM) ────────────
+
+_JINA_BASE = "https://r.jina.ai/"
+_FULLTEXT_TIMEOUT = 12         # giây / bài — refresh chỉ fetch ≤ max_analyze bài
+_FULLTEXT_MAX_CHARS = 1800     # phần đưa vào prompt (đủ thân bài, kiểm soát token)
+_MD_NOISE_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)")          # ảnh markdown
+_MD_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]*\)")          # [text](url) → text
+
+
+def _fulltext_enabled() -> bool:
+    return os.environ.get("VNSTOCK_NEWS_FULLTEXT", "1") != "0"
+
+
+def fetch_fulltext(url: str, timeout: int = _FULLTEXT_TIMEOUT) -> str:
+    """Nội dung bài viết (plain text, đã cắt) qua Jina Reader — '' khi fail.
+
+    Jina Reader (r.jina.ai) render URL bất kỳ thành text/markdown sạch, free
+    không cần key (mượn từ khảo sát Agent-Reach). Best-effort đúng nghĩa: mọi
+    lỗi mạng/HTTP/parse → trả '' để caller giữ hành vi title+summary cũ.
+    """
+    url = (url or "").strip()
+    if not url.startswith(("http://", "https://")):
+        return ""
+    try:
+        import requests as _req
+        headers = {"User-Agent": _UA, "Accept": "text/plain",
+                   "X-Return-Format": "markdown"}
+        jina_key = (os.environ.get("JINA_API_KEY") or "").strip()
+        if jina_key:
+            headers["Authorization"] = f"Bearer {jina_key}"
+        resp = _req.get(f"{_JINA_BASE}{url}", headers=headers, timeout=timeout)
+        resp.raise_for_status()
+        text = resp.text or ""
+    except Exception:
+        return ""
+    # Bỏ preamble metadata của Jina ("Title:/URL Source:/Markdown Content:")
+    _, sep, body = text.partition("Markdown Content:")
+    if sep:
+        text = body
+    text = _MD_NOISE_RE.sub(" ", text)
+    text = _MD_LINK_RE.sub(r"\1", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > _FULLTEXT_MAX_CHARS:
+        text = text[:_FULLTEXT_MAX_CHARS].rsplit(" ", 1)[0]
+    return text
+
+
 # ── LLM analysis (sentiment + 1-line impact, one call) ───────────────────────
 
 _ANALYZE_SYSTEM = (
@@ -227,7 +282,11 @@ _NO_IMPACT = "không tác động trực tiếp"
 
 def analyze_item(item: dict) -> tuple[str, str]:
     """Return (sentiment, impact_line) for one item via the LLM, or ('','') when
-    no provider is available. sentiment ∈ {positive,negative,neutral}."""
+    no provider is available. sentiment ∈ {positive,negative,neutral}.
+
+    Khi bật full text (mặc định), tự fetch thân bài qua Jina Reader và đưa vào
+    prompt — chỉ chạy cho tin ĐƯỢC chấm (caller đã giới hạn ≤ max_analyze) nên
+    số request nhỏ; fail thì prompt giữ nguyên title+summary."""
     try:
         from vnstock_sentiment import chat_complete, _SENTIMENT_MAP
     except Exception:
@@ -236,6 +295,10 @@ def analyze_item(item: dict) -> tuple[str, str]:
     summ = (item.get("news_short_content") or "").strip()
     if summ:
         user += f"\nTóm tắt: {summ[:300]}"
+    if _fulltext_enabled():
+        body = fetch_fulltext(item.get("link", ""))
+        if body:
+            user += f"\nNội dung bài (rút gọn): {body}"
     raw = chat_complete(_ANALYZE_SYSTEM, user, max_tokens=120, model_map=_ANALYZE_MODELS)
     if not raw:
         return "", ""
@@ -375,6 +438,13 @@ def _diag() -> int:
               f"({f['url']})")
     print(f"[news-feeds] {ok}/{len(_FEEDS)} feed trả dữ liệu. "
           f"Feed ❌ → URL sai/chặn, sửa trong _FEEDS.")
+    if _fulltext_enabled():
+        body = fetch_fulltext("https://example.com/")
+        flag = "✅" if body else "❌"
+        print(f"  {flag} Jina Reader (full text cho tin chấm LLM): "
+              f"{'OK' if body else 'không truy cập được r.jina.ai — chấm bằng title+summary'}")
+    else:
+        print("  ⬜ Jina Reader: đã tắt (VNSTOCK_NEWS_FULLTEXT=0)")
     return 0 if ok else 1
 
 
@@ -404,11 +474,16 @@ def main(argv: "list[str] | None" = None) -> int:
     ap.add_argument("--no-analyze", action="store_true", help="Bỏ bước LLM (chỉ lọc + cache)")
     ap.add_argument("--reanalyze", action="store_true",
                     help="Chấm lại top tin mới bằng prompt hiện tại (sau khi đổi prompt)")
+    ap.add_argument("--no-fulltext", action="store_true",
+                    help="Không fetch full text qua Jina Reader (chấm bằng title+summary)")
     ap.add_argument("--diag", action="store_true", help="Thử từng feed, in số tin trả về")
     ap.add_argument("--show", action="store_true", help="In tin trong cache")
     ap.add_argument("--within", type=int, default=4, help="Cửa sổ ngày khi refresh")
     ap.add_argument("--max-analyze", type=int, default=_MAX_ANALYZE_DEFAULT)
     a = ap.parse_args(argv)
+
+    if a.no_fulltext:
+        os.environ["VNSTOCK_NEWS_FULLTEXT"] = "0"
 
     if a.diag:
         return _diag()

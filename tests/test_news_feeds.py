@@ -161,6 +161,112 @@ def test_refresh_reanalyze_rescores_newest(tmp_path, monkeypatch):
     assert nf.load_market_news(within_days=5)[0]["_impact"] == "v2"
 
 
+# ── full text qua Jina Reader (best-effort) ──────────────────────────────────
+
+
+class _FakeResp:
+    def __init__(self, text):
+        self.text = text
+
+    def raise_for_status(self):
+        pass
+
+
+def test_fetch_fulltext_strips_jina_preamble_and_markdown(monkeypatch):
+    jina = ("Title: Bài báo\nURL Source: https://x/1\nMarkdown Content:\n"
+            "Đoạn 1 có ![ảnh](https://img/1.png) và [liên kết](https://x) trong bài.\n\n"
+            "Đoạn   2.")
+    captured = {}
+
+    def _fake_get(url, headers=None, timeout=None):
+        captured["url"] = url
+        captured["headers"] = headers or {}
+        return _FakeResp(jina)
+
+    monkeypatch.setattr("requests.get", _fake_get)
+    out = nf.fetch_fulltext("https://x/1")
+    assert captured["url"] == "https://r.jina.ai/https://x/1"
+    assert out == "Đoạn 1 có và liên kết trong bài. Đoạn 2."
+    assert "Title:" not in out and "![" not in out
+
+
+def test_fetch_fulltext_truncates_at_word_boundary(monkeypatch):
+    monkeypatch.setattr("requests.get",
+                        lambda *a, **k: _FakeResp("từ " * 2000))
+    out = nf.fetch_fulltext("https://x/1")
+    assert len(out) <= nf._FULLTEXT_MAX_CHARS
+    assert out.endswith("từ")                # cắt tại ranh giới từ, không lửng
+
+
+def test_fetch_fulltext_rejects_non_http_and_survives_errors(monkeypatch):
+    def _boom(*a, **k):
+        raise OSError("mạng chặn")
+    monkeypatch.setattr("requests.get", _boom)
+    assert nf.fetch_fulltext("") == ""                       # không có link
+    assert nf.fetch_fulltext("ftp://x") == ""                # không phải http
+    assert nf.fetch_fulltext("https://x/1") == ""            # lỗi mạng → ''
+
+
+def test_fetch_fulltext_sends_jina_key_when_present(monkeypatch):
+    captured = {}
+
+    def _fake_get(url, headers=None, timeout=None):
+        captured["headers"] = headers or {}
+        return _FakeResp("Markdown Content:\nbody")
+
+    monkeypatch.setattr("requests.get", _fake_get)
+    monkeypatch.delenv("JINA_API_KEY", raising=False)
+    nf.fetch_fulltext("https://x/1")
+    assert "Authorization" not in captured["headers"]
+    monkeypatch.setenv("JINA_API_KEY", "jk")
+    nf.fetch_fulltext("https://x/1")
+    assert captured["headers"]["Authorization"] == "Bearer jk"
+
+
+def test_analyze_item_feeds_fulltext_into_prompt(monkeypatch):
+    prompts = {}
+
+    def _fake_chat(system, user, **k):
+        prompts["user"] = user
+        return "TÍCH_CỰC | Ngân hàng hưởng lợi"
+
+    monkeypatch.setattr("vnstock_sentiment.chat_complete", _fake_chat)
+    monkeypatch.setattr(nf, "fetch_fulltext", lambda url, **k: "THÂN BÀI ĐẦY ĐỦ")
+    monkeypatch.delenv("VNSTOCK_NEWS_FULLTEXT", raising=False)
+    s, imp = nf.analyze_item({"title": "SBV hạ lãi suất",
+                              "link": "https://x/1"})
+    assert s == "positive"
+    assert "Nội dung bài (rút gọn): THÂN BÀI ĐẦY ĐỦ" in prompts["user"]
+    assert prompts["user"].startswith("Tiêu đề: SBV hạ lãi suất")
+
+
+def test_analyze_item_fulltext_disabled_by_env(monkeypatch):
+    def _boom(url, **k):
+        raise AssertionError("không được fetch fulltext khi đã tắt")
+    monkeypatch.setattr(nf, "fetch_fulltext", _boom)
+    monkeypatch.setattr("vnstock_sentiment.chat_complete",
+                        lambda *a, **k: "TRUNG_LẬP | x")
+    monkeypatch.setenv("VNSTOCK_NEWS_FULLTEXT", "0")
+    s, _ = nf.analyze_item({"title": "t", "link": "https://x/1"})
+    assert s == "neutral"
+
+
+def test_analyze_item_fulltext_failure_keeps_title_summary(monkeypatch):
+    prompts = {}
+
+    def _fake_chat(system, user, **k):
+        prompts["user"] = user
+        return "TIÊU_CỰC | y"
+
+    monkeypatch.setattr("vnstock_sentiment.chat_complete", _fake_chat)
+    monkeypatch.setattr(nf, "fetch_fulltext", lambda url, **k: "")   # fail → ''
+    monkeypatch.delenv("VNSTOCK_NEWS_FULLTEXT", raising=False)
+    nf.analyze_item({"title": "t", "news_short_content": "tóm tắt",
+                     "link": "https://x/1"})
+    assert "Nội dung bài" not in prompts["user"]
+    assert "Tóm tắt: tóm tắt" in prompts["user"]
+
+
 def test_load_market_news_respects_window_and_limit(tmp_path, monkeypatch):
     p = tmp_path / "market_news_cache.json"
     monkeypatch.setattr(nf, "_CACHE", p)
