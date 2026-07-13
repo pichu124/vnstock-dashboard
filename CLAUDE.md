@@ -803,14 +803,17 @@ fundamentals no-op vì thiếu --force.
 −0.14 ÂM" ra tín hiệu thật ngay lần đầu. Buổi verify lộ + fix thêm 1 bug:
 macro CLI không load .env → FRED bị skip lặng lẽ (fix `8d3e98a`).
 
-**NHẮC USER 2 VIỆC CÒN LẠI** (user hẹn "check sau" — nhắc khi quay lại):
-1. **Bước 6 checklist — soi dashboard bằng mắt**: `python run.py dashboard`
-   → badge 🩺 "Nguồn dữ liệu" ở sidebar (dưới badge ✅ Tests) + tab Tin tức
-   → 🌐 Vĩ mô có bảng 13 chỉ số + 3 caption gauge (Thanh khoản / Kỳ hạn /
-   Quốc tế). Chỉ là HIỂN THỊ của thứ đã verify CLI — 5 phút.
-2. **Quyết định mở PR merge về `main`** — user gật là mở ngay (mô tả đầy đủ
-   sẵn trong commit messages). Sau merge pipeline 18:00 hưởng: doctor cuối
-   `run.py all`, tin chấm full-text, block vĩ mô 13 chỉ số + 3 gauge.
+**Bước 6 dashboard VERIFY XONG tối 13/07** (user gửi screenshot): 2 badge
+sidebar ✓, bảng 13 chỉ số đủ 3 dòng mới (2Y/US10Y/Fed) ✓, 3 caption gauge ✓,
+chart lịch sử ✓. Badge 🩺 lúc đó 10✅·2⚠️ = ĐÚNG sự thật: VCI API timeout đêm
+13/07 làm data phiên 13/07 chưa vào kho (bar 07-08 + overview 07-10 cũ) —
+sáng hôm sau bấm Cập nhật giá / pipeline 18:00 tự bù là badge xanh lại.
+
+**CÒN 1 VIỆC DUY NHẤT: user gật đầu MỞ PR merge về `main`** — toàn bộ
+checklist verify đã xong 100%. Branch ~20 commit, mô tả sẵn trong commit
+messages. Sau merge pipeline 18:00 hưởng: doctor cuối `run.py all`, tin chấm
+full-text Jina, block vĩ mô 13 chỉ số + 3 gauge, updater chống rate-limit.
+Nhắc khi user nói "PR", "merge", hoặc quay lại làm việc. Xong thì XÓA mục này.
 
 Lưu ý nhỏ đang treo: ⚠️ kho VNINDEX bar 07-08 (thiếu 2 phiên 09-10/07) =
 độ trễ API bar index, KHÔNG phải lỗi — pipeline T2 18:00 tự bù; nếu sang
