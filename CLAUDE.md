@@ -706,19 +706,17 @@ thêm 4 bug: thiếu pypdf máy mới (doctor có check riêng), rate-limit 500/
 Golden (dùng --workers 4 --delay 1), --reanalyze trần là no-op, task tuần
 fundamentals no-op vì thiếu --force.
 
-**NHẮC USER 3 VIỆC CÒN LẠI** (user hẹn "check sau" — nhắc khi quay lại):
+**FRED VERIFY XONG sáng 13/07** (user đăng ký key OK): 13 chỉ số — US10Y
+4.54 + Fed 3.62 (as_of riêng 07-09) + gauge "→ Quốc tế: VN10Y − US10Y =
+−0.14 ÂM" ra tín hiệu thật ngay lần đầu. Buổi verify lộ + fix thêm 1 bug:
+macro CLI không load .env → FRED bị skip lặng lẽ (fix `8d3e98a`).
+
+**NHẮC USER 2 VIỆC CÒN LẠI** (user hẹn "check sau" — nhắc khi quay lại):
 1. **Bước 6 checklist — soi dashboard bằng mắt**: `python run.py dashboard`
    → badge 🩺 "Nguồn dữ liệu" ở sidebar (dưới badge ✅ Tests) + tab Tin tức
-   → 🌐 Vĩ mô có bảng chỉ số + caption "⚪ Kỳ hạn: …". Chỉ là HIỂN THỊ
-   của thứ đã verify CLI — 5 phút.
-2. **FRED (thêm 2026-07-11, "làm tất cả" khảo sát public-apis)**: đăng ký
-   key free ~2 phút https://fred.stlouisfed.org/docs/api/api_key.html →
-   thêm `FRED_API_KEY=<key>` vào .env → verify:
-   `python vnstock_fred.py --diag` (ra us10y + fed_funds) →
-   `python run.py macro && python vnstock_macro.py --show` (13 chỉ số +
-   dòng "→ Quốc tế: VN10Y − US10Y = …"). Chưa có key thì mọi thứ vẫn chạy
-   như cũ (best-effort), doctor --net hiện ⬜ kèm link đăng ký.
-3. **Quyết định mở PR merge về `main`** — user gật là mở ngay (mô tả đầy đủ
+   → 🌐 Vĩ mô có bảng 13 chỉ số + 3 caption gauge (Thanh khoản / Kỳ hạn /
+   Quốc tế). Chỉ là HIỂN THỊ của thứ đã verify CLI — 5 phút.
+2. **Quyết định mở PR merge về `main`** — user gật là mở ngay (mô tả đầy đủ
    sẵn trong commit messages). Sau merge pipeline 18:00 hưởng: doctor cuối
    `run.py all`, tin chấm full-text, block vĩ mô 13 chỉ số + 3 gauge.
 
