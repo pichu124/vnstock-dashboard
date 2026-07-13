@@ -14,7 +14,7 @@ Items here get auto-loaded into Claude's context at session start.
   `vnstock_freshness.py`, `vnstock_vn30_weights.py`,
   `vnstock_market_sentiment.py`, `vnstock_fundamental_updater.py`,
   `vnstock_macro.py`, `vnstock_news_feeds.py`, `vnstock_doctor.py`,
-  `vnstock_allocation.py`
+  `vnstock_allocation.py`, `vnstock_reports.py`
 - Trước khi tạo PR merge về `main`
 - Sau khi nâng cấp pandas / numpy / Python version
 
@@ -709,7 +709,7 @@ mã hủy niêm yết (last 2018-2021) re-fetch nhiều NĂM mỗi lần cho 0 n
 
 ---
 
-## 🧭 THIẾT KẾ ĐÃ DUYỆT — Báo cáo vĩ mô upload + Phân bổ tài sản (P1 DONE 2026-07-13, P2+ CHƯA BUILD)
+## 🧭 THIẾT KẾ ĐÃ DUYỆT — Báo cáo vĩ mô upload + Phân bổ tài sản (P1+P2 DONE 2026-07-13, P3+ CHƯA BUILD)
 
 Ý tưởng user: upload báo cáo vĩ mô hay (CTCK/chuyên gia, cả Việt lẫn Anh) để
 AI phân tích tình trạng vĩ mô VN → khuyến nghị rải ngân vào lớp tài sản nào.
@@ -779,9 +779,21 @@ chỉ viết lời, guard pin; (2) số từ báo cáo KHÔNG vào registry 13 c
 `apply_brief_guards` dùng chung + `run.py test --fast` sau mọi sửa brief.
 
 **Phase + effort (điểm dừng nào cũng có giá trị độc lập):**
-P1 allocation core ✅ DONE → P2 ingest 1-1.5d → P3 digest+cross-check 1.5-2d
+P1 allocation core ✅ DONE → P2 ingest ✅ DONE → P3 digest+cross-check 1.5-2d
 → P4 nối brief 2-2.5d → P5 UI+doctor+tests 1.5-2d → P6 scorecard+vàng 2.5d.
-Tổng ~8-10 ngày công. Tiếp theo = nói "làm phase 2".
+Tổng ~8-10 ngày công. Tiếp theo = nói "làm phase 3".
+
+### ⏳ VERIFY HOÃN LẠI (user chốt 2026-07-13 "lưu việc phải test vào làm sau")
+
+Chạy trên MÁY CÓ DATA + MẠNG (sandbox không có data_warehouse, chặn r.jina.ai):
+1. `python vnstock_allocation.py --refresh` → in band + bảng % + lý do 7 tín
+   hiệu thật (dự đoán với nền hiện tại: B2/B3). Sau đó `--show`/`--history`.
+2. `python run.py all` chạy trọn — bước `allocation` mới (sau macro) không
+   được làm gãy pipeline; history tự tích lũy mỗi tối.
+3. `python vnstock_reports.py --add <PDF CTCK thật> --source X --report-date
+   YYYY-MM-DD` → text trích được, `--list` hiện ✅; PDF scan → 🖼
+   no_text_layer. `--add-url <URL báo cáo>` + `--diag` (Jina) trên máy có mạng.
+4. `python run.py test --fast` sau khi pull (~431 tests hiện hành).
 
 ### ✅ P1 DONE (2026-07-13, branch `claude/phase-1-kickoff-lzorv6`) — `vnstock_allocation.py`
 
@@ -812,9 +824,35 @@ implement (P2+ nối vào đây, đừng regress):
   history tự tích lũy mỗi tối. Loader public cho P4/P5: `load_state()`.
 - **Tests**: `tests/test_allocation.py` (26 tests, hermetic — fake module
   qua sys.modules cho collect_inputs) đã vào danh sách `--fast`.
-- CHƯA làm (đúng kế hoạch): doctor check + sub-tab UI (P5), ingest báo cáo
-  (P2), digest + tilt ±1 band (P3), block brief + guard (P4), vàng/scorecard
-  (P6).
+- CHƯA làm (đúng kế hoạch): doctor check + sub-tab UI (P5), digest + tilt ±1
+  band (P3), block brief + guard (P4), vàng/scorecard (P6).
+
+### ✅ P2 DONE (2026-07-13, cùng branch) — `vnstock_reports.py`
+
+Tầng INGEST thuần (không LLM, không số nào vào registry 13 chỉ số):
+- **3 đường vào**: `add_pdf` (tái dùng `vnstock_vbma.pdf_to_text`, GIỮ PDF
+  gốc `<id>.pdf` cho `--redigest` P3) · `add_url` (Jina Reader — bản riêng
+  `fetch_url_text` GIỮ xuống dòng + cap `_REPORT_MAX_CHARS`=200k, KHÔNG dùng
+  bản 1.800 ký tự của news_feeds; fetch fail → KHÔNG lưu gì) · `add_text`
+  (dán trực tiếp, '-' = stdin).
+- **Dedup sha256** (id = 16 hex đầu): PDF theo BYTES, URL theo chuỗi URL,
+  text theo text đã chuẩn hoá whitespace → Streamlit rerun/upload lại = cùng
+  id, CHỈ merge metadata mới (arg không rỗng thắng), không nhân bản.
+- **Gate metadata** (`in_analysis`): cần `report_date` (YYYY-MM-DD, không
+  tương lai — sai định dạng → bỏ qua + cảnh báo, KHÔNG chặn ingest) +
+  `source` + text ≥ `_NO_TEXT_LAYER_CHARS` (200). PDF trích ra < 200 ký tự →
+  flag `no_text_layer` (🖼, PDF scan) — nằm thư viện, không vào phân tích.
+  Bổ sung sau: `--set-meta <id> --report-date … --source …`.
+- **Lưu trữ**: index `_meta/reports_index.json` (ghi ATOMIC tmp+os.replace) +
+  text `_meta/reports/<id>.txt` + PDF gốc. Loader cho P3:
+  `load_for_analysis(as_of, max_age_days=90)` — lọc đủ-metadata + tuổi ≤ 90
+  ngày (age âm loại), kèm `age_days` để digest tính decay (giảm từ 30 ngày).
+- **CLI**: `--add` / `--add-url` / `--add-text` / `--list` (mặc định; ✅ vào
+  phân tích, 📥 thiếu metadata, 🖼 scan) / `--show` / `--set-meta` /
+  `--remove` / `--diag` (thử Jina — cần mạng).
+- **Tests**: `tests/test_reports.py` (19, hermetic — fake vnstock_vbma +
+  requests qua sys.modules) đã vào `--fast`. KHÔNG có bước run.py (ingest là
+  thao tác tay của user, không thuộc pipeline tối).
 
 ---
 
