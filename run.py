@@ -8,14 +8,16 @@ GitHub Actions, or manually.
 Subcommands
 -----------
     python run.py scan       — collect a HealthSnapshot and print it
+    python run.py doctor     — health-check EVERY data source feeding the brief
+                               (cache ages + config; --net adds live probes)
     python run.py sync       — incremental daily update (updater + rollup)
     python run.py validate   — re-run data contracts on the warehouse
     python run.py audit      — reconciler + anomaly scan, optionally + LLM
     python run.py test       — pytest
     python run.py dashboard  — launch streamlit dashboard
     python run.py all        — sync → validate → screener → news → test → audit
-                               (in order, stopping on first hard failure)
-                               --no-news to skip the sentiment step
+                               → doctor (in order, stopping on first hard
+                               failure) --no-news to skip the sentiment step
 
 Exit codes
 ----------
@@ -52,6 +54,24 @@ def cmd_scan(args) -> int:
     )
     print(json.dumps(snap.to_dict(), indent=2, default=str, ensure_ascii=False))
     return 1 if snap.warnings else 0
+
+
+def cmd_doctor(args) -> int:
+    """Unified data-source health check (vnstock_doctor).
+
+    Offline by default (cache ages + .env keys, <1s); ``--net`` also probes the
+    external sources (RSS feeds, FX API, VBMA PDF, NSO page, foreign-flow API,
+    Jina Reader) — run that on a networked machine. Writes
+    data_warehouse/_meta/doctor_status.json for the sidebar badge.
+    """
+    from vnstock_doctor import main as doctor_main
+
+    argv = []
+    if getattr(args, "net", False):
+        argv.append("--net")
+    if getattr(args, "json", False):
+        argv.append("--json")
+    return doctor_main(argv)
 
 
 def cmd_sync(args) -> int:
@@ -636,6 +656,9 @@ def cmd_test(args) -> int:
             "tests/test_macro.py",
             "tests/test_news_feeds.py",
             "tests/test_updater_partial_bar.py",
+            "tests/test_doctor.py",
+            "tests/test_fred.py",
+            "tests/test_ratelimit.py",
         ]
     else:
         test_paths = ["tests/"]
@@ -845,7 +868,9 @@ def cmd_news(args) -> int:
 
 
 def cmd_all(args) -> int:
-    """sync → validate → screener → news → test → audit. Stops on first hard failure."""
+    """sync → validate → screener → news → test → audit → doctor.
+    Stops on first hard failure. The trailing doctor pass is offline-only and
+    just refreshes doctor_status.json so the sidebar badge stays current."""
     steps: list[tuple[str, object]] = [
         ("sync",         cmd_sync),
         ("validate",     cmd_validate),
@@ -854,6 +879,7 @@ def cmd_all(args) -> int:
         ("macro",        cmd_macro),
         ("test",         cmd_test),
         ("audit",        cmd_audit),
+        ("doctor",       cmd_doctor),
     ]
     # Insert news after screener unless the caller opts out
     if not getattr(args, "no_news", False):
@@ -897,6 +923,16 @@ def build_parser() -> argparse.ArgumentParser:
                       help="Skip per-file row counting and missing-rate (sub-second)")
     scan.add_argument("--verbose", action="store_true",
                       help="Show tqdm progress bar during warehouse scan")
+
+    doctor = sub.add_parser(
+        "doctor",
+        help="Khám sức khỏe MỌI nguồn dữ liệu của brief (tuổi cache + key; "
+             "--net probe mạng)")
+    doctor.add_argument("--net", action="store_true",
+                        help="Thêm probe mạng: RSS/FX/VBMA/NSO/foreign-flow/Jina")
+    doctor.add_argument("--json", action="store_true",
+                        help="In JSON thay vì báo cáo text")
+
     sync = sub.add_parser("sync", help="Incremental daily updater + rollup")
     sync.add_argument("--no-fix-units", action="store_true",
                        help="Skip the post-sync fix-units pass "
@@ -1053,7 +1089,8 @@ def build_parser() -> argparse.ArgumentParser:
     news_p.add_argument("--no-score", action="store_true",
                         help="Chỉ refresh tin, không chấm sentiment")
 
-    all_ = sub.add_parser("all", help="sync → validate → screener → news → test → audit")
+    all_ = sub.add_parser(
+        "all", help="sync → validate → screener → news → test → audit → doctor")
     all_.add_argument("--lookback", type=int, default=60)
     all_.add_argument("--llm", action="store_true")
     all_.add_argument("--auditor", choices=["auto", "claude", "gpt", "null"],
@@ -1066,6 +1103,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 _DISPATCH = {
     "scan": cmd_scan,
+    "doctor": cmd_doctor,
     "sync": cmd_sync,
     "heal": cmd_heal,
     "validate": cmd_validate,

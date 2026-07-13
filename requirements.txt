@@ -12,6 +12,7 @@ python-dotenv>=1.0.0
 # HTTP & utilities
 requests>=2.31.0
 rich>=13.0.0
+pypdf>=4.0.0          # VBMA weekly PDF -> text (LNH + loi suat TPCP 2Y/10Y)
 
 # QA
 pytest>=7.0.0

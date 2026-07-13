@@ -3753,6 +3753,39 @@ with st.sidebar:
     except Exception:
         pass
 
+    # ── Doctor badge (sức khỏe nguồn dữ liệu — run.py doctor) ──────────
+    try:
+        _dr_path = Path("data_warehouse/_meta/doctor_status.json")
+        if _dr_path.exists():
+            _dr = json.loads(_dr_path.read_text(encoding="utf-8"))
+            _dr_counts = _dr.get("counts", {})
+            _dr_worst = _dr.get("worst", "ok")
+            try:
+                _dr_age_d = (datetime.now()
+                             - datetime.fromisoformat(_dr.get("ran_at", ""))).days
+                _dr_age = f"{_dr_age_d}d trước" if _dr_age_d > 0 else "hôm nay"
+            except Exception:
+                _dr_age = "?"
+            _dr_color = {"ok": "#22c55e", "off": "#9ca3af",
+                         "warn": "#eab308", "error": "#ef4444"}.get(_dr_worst, "#9ca3af")
+            _dr_parts = " · ".join(
+                f"{_dr_counts.get(_s, 0)}{_i}"
+                for _s, _i in (("ok", "✅"), ("warn", "⚠️"), ("off", "⬜"), ("error", "❌"))
+                if _dr_counts.get(_s, 0))
+            st.markdown(
+                f'<div style="padding:6px 10px;border-radius:6px;'
+                f'border:1px solid {_dr_color};background:rgba(30,41,59,0.4);'
+                f'font-size:11px;color:{_dr_color};margin-bottom:8px;'
+                f'font-family:\'IBM Plex Sans\',sans-serif">'
+                f'🩺 <b>Nguồn dữ liệu</b>: {_dr_parts or "?"}'
+                f'<br><span style="color:#9ca3af">Khám {_dr_age} · {_dr.get("mode", "?")}'
+                f' · <code>run.py doctor</code></span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+    except Exception:
+        pass
+
     _theme = st.toggle("☀️ Light mode", value=False, key="light_mode")
     if _theme:
         _t = THEMES["light"]

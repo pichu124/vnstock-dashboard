@@ -76,3 +76,54 @@ def test_no_parseable_year_falls_back_to_latest_row():
 
 def test_empty_returns_none():
     assert _annual_operating_cf(pd.DataFrame()) is None
+
+
+# ── update() --workers: song song phải cho KẾT QUẢ Y HỆT tuần tự ─────────────
+# (fetch monkeypatched — không mạng; file ghi vào tmp_path qua FUND_PATH)
+
+
+def _run_update(tmp_path, monkeypatch, workers):
+    import vnstock_fundamental_updater as fu
+
+    monkeypatch.setattr(fu, "FUND_PATH", tmp_path / f"fund_w{workers}.parquet")
+    monkeypatch.setattr(fu, "_fetch_ratios",
+                        lambda t: ({"pe": 10.0, "roe": 15.0} if t != "EMPTY" else {}))
+    monkeypatch.setattr(fu, "_fetch_cash_flow",
+                        lambda t: {"operating_cf": 1234.0})
+    monkeypatch.setattr(fu, "_fetch_debt_to_equity", lambda t: 1.5)
+    tickers = ["AAA", "BBB", "CCC", "DDD", "EMPTY", "FPT", "VCB", "HPG"]
+    df = fu.update(tickers=tickers, force=True, delay=0.0,
+                   batch_save=3, workers=workers)
+    return df.sort_values("ticker").reset_index(drop=True)
+
+
+def test_update_parallel_matches_sequential(tmp_path, monkeypatch):
+    seq = _run_update(tmp_path, monkeypatch, workers=1)
+    par = _run_update(tmp_path, monkeypatch, workers=4)
+    # Cùng bộ mã, cùng giá trị — thứ tự hoàn thành khác nhau không được đổi data
+    assert list(seq["ticker"]) == list(par["ticker"])
+    for col in ("pe", "roe", "operating_cf", "debt_to_equity"):
+        pd.testing.assert_series_equal(seq[col], par[col], check_names=False)
+    # 7 mã có data + 1 placeholder EMPTY (chưa từng có data → NaN row vẫn ghi)
+    assert len(seq) == 8
+    assert seq.loc[seq["ticker"] == "EMPTY", "pe"].isna().all()
+    assert seq.loc[seq["ticker"] == "FPT", "operating_cf"].iloc[0] == 1234.0
+
+
+def test_update_parallel_reports_worker_errors(tmp_path, monkeypatch, capsys):
+    import vnstock_fundamental_updater as fu
+
+    monkeypatch.setattr(fu, "FUND_PATH", tmp_path / "fund_err.parquet")
+
+    def _boom(t):
+        if t == "BAD":
+            raise RuntimeError("api nổ")
+        return {"pe": 9.0, "roe": 12.0}
+
+    monkeypatch.setattr(fu, "_fetch_ratios", _boom)
+    monkeypatch.setattr(fu, "_fetch_cash_flow", lambda t: {})
+    monkeypatch.setattr(fu, "_fetch_debt_to_equity", lambda t: None)
+    df = fu.update(tickers=["OKA", "BAD", "OKB"], force=True, delay=0.0,
+                   workers=3)
+    # Mã lỗi KHÔNG chặn mã khác; lỗi được đếm, 2 mã OK vẫn vào parquet
+    assert sorted(df["ticker"]) == ["OKA", "OKB"]

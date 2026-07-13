@@ -345,12 +345,21 @@ def update_ticker(
         result["new_days"] = (today - last_date).days
         return result
 
-    # Fetch dữ liệu mới
+    # Fetch dữ liệu mới. Bọc qua call_with_rate_limit_retry: vnai chạm trần
+    # 500 req/phút thì sys.exit (SystemExit — KHÔNG phải Exception) → từng
+    # giết cả run ở 558/1724 mã (13/07). Helper ngủ theo "Chờ X giây" của
+    # vnai rồi thử lại; hết lượt → RuntimeError để except dưới degrade thành
+    # 1 mã lỗi thay vì sập tiến trình.
     try:
-        new_df = _fetch_prices(
+        from vnstock_ratelimit import call_with_rate_limit_retry
+        new_df = call_with_rate_limit_retry(
+            _fetch_prices,
             ticker,
             start=fetch_from.strftime("%Y-%m-%d"),
             end=today.strftime("%Y-%m-%d"),
+            on_wait=lambda w, i: console.print(
+                f"  [dim yellow]⏳ {ticker}: rate-limit, chờ {w}s "
+                f"(lần {i})[/dim yellow]"),
         )
     except Exception as e:
         result["status"] = "error"

@@ -16,21 +16,22 @@ Pipeline (best-effort từng bước — lỗi bước nào trả None bước �
      fallback thư viện ``pypdf`` nếu import được. Cả hai thiếu → None.
   4. Parse theo CẤU TRÚC BẢNG (chỉnh trên PDF thật tuần 29/06-03/07/2026):
      bảng LNH lấy cột NGÀY BÁO CÁO (không phải "TB 5 ngày"), lợi suất TPCP
-     lấy từ ma trận tenor "10N"; văn xuôi chỉ làm fallback cấu trúc chặt
+     lấy từ ma trận tenor ("2N" + "10N" — cùng một dòng ngày, thêm tenor mới
+     = thêm entry ``_YIELD_TENORS``); văn xuôi chỉ làm fallback cấu trúc chặt
      ("qua đêm ON ... mức X%") + sanity range. KHÔNG dùng LLM — mọi con số
      vào registry vĩ mô phải deterministic.
 
-Parse verify OK trên PDF thật (03/07/2026): ON 5.67 / 1W 6.17 / 10Y 4.40 —
-khớp phần bình luận của chính báo cáo. Fetch (listing/download) CHƯA verify
-được — sandbox dev chặn egress; chạy trên máy có mạng:
+Parse verify OK trên PDF thật (03/07/2026): ON 5.67 / 1W 6.17 / 2Y 3.50 /
+10Y 4.40 — khớp phần bình luận của chính báo cáo. Fetch (listing/download)
+verify OK trên máy user 10/07 (doctor --net). Chẩn đoán:
     python vnstock_vbma.py --diag          # in URL PDF chọn + số parse được
     python vnstock_vbma.py --diag --dump   # in thêm raw text để chỉnh regex
 Nếu ``vbma.org.vn`` chưa có trong allowlist mạng thì cần thêm.
 
 Tiêu thụ: ``vnstock_macro.refresh()`` gọi ``fetch_weekly()`` và ghi vào
-registry (interbank_on / interbank_1w / govt_bond_yield_10y, source="vbma").
-``--set`` tay vẫn luôn là đường sống — fetch lỗi không bao giờ đè cache cũ.
-Tắt hẳn: env ``VNSTOCK_MACRO_VBMA=0``.
+registry (interbank_on / interbank_1w / govt_bond_yield_2y /
+govt_bond_yield_10y, source="vbma"). ``--set`` tay vẫn luôn là đường sống —
+fetch lỗi không bao giờ đè cache cũ. Tắt hẳn: env ``VNSTOCK_MACRO_VBMA=0``.
 """
 
 from __future__ import annotations
@@ -61,6 +62,7 @@ _TIMEOUT_PDF = 30
 _RANGES = {
     "interbank_on": (0.0, 20.0),
     "interbank_1w": (0.0, 20.0),
+    "govt_bond_yield_2y": (0.5, 10.0),
     "govt_bond_yield_10y": (1.0, 10.0),
     "usdvnd_vcb_mid": (15000.0, 40000.0),
 }
@@ -221,26 +223,47 @@ def _parse_interbank(lines: "list[str]") -> dict:
 # Thứ tự tenor CỐ ĐỊNH của ma trận lợi suất VBMA (dùng cho đường 2 bên dưới)
 _CANON_TENORS = ("1", "2", "3", "5", "7", "10", "15", "20", "30")
 
+# Tenor cần lấy từ ma trận → key registry. 10N là NEO (dòng nào không có 10N
+# hợp lệ coi như không phải ma trận); tenor khác lấy kèm từ CÙNG dòng ngày —
+# cần thêm kỳ hạn (vd 5N) chỉ việc thêm 1 entry ở đây + _RANGES + _DEFS macro.
+# 2N thêm 2026-07-10 (từ khảo sát VnBondLab) → dốc đường cong 10Y − 2Y.
+_YIELD_TENORS = {"govt_bond_yield_2y": "2", "govt_bond_yield_10y": "10"}
+_ANCHOR_KEY = "govt_bond_yield_10y"
 
-def _parse_bond_10y(lines: "list[str]") -> "float | None":
+
+def _yields_at(tenors: "list[str]", pcts: "list[float]") -> dict:
+    """Nhặt các tenor trong ``_YIELD_TENORS`` từ 1 dòng ma trận theo vị trí
+    cột; chỉ giữ giá trị qua sanity range. {} khi NEO 10N thiếu/ngoài range
+    (dòng không đáng tin — vd nhãn trục chart)."""
+    out: dict = {}
+    for key, tn in _YIELD_TENORS.items():
+        if tn in tenors:
+            idx = tenors.index(tn)
+            if len(pcts) > idx and _in_range(key, pcts[idx]):
+                out[key] = pcts[idx]
+    return out if _ANCHOR_KEY in out else {}
+
+
+def _parse_bond_yields(lines: "list[str]") -> dict:
+    """{key: value} các lợi suất TPCP parse được từ ma trận tenor (2N/10N…)."""
     # Đường 1 — layout giữ cột (pdftotext -layout): header tenor nguyên vẹn
     # rồi dòng ngày ĐẦU TIÊN ngay bên dưới là tuần mới nhất.
     for i, line in enumerate(lines):
         tenors = _TENOR.findall(line)
         if "10" not in tenors or len(tenors) < 4:      # header ma trận tenor
             continue
-        idx = tenors.index("10")
         for row in lines[i + 1:i + 6]:
             if not _DATE_ROW.match(row):
                 continue
             pcts = [_to_float(x) for x in _PCT.findall(row)]
-            if len(pcts) > idx and _in_range("govt_bond_yield_10y", pcts[idx]):
-                return pcts[idx]
+            got = _yields_at(tenors, pcts)
+            if got:
+                return got
             break                                       # header khác (legend chart) → thử tiếp
 
     # Đường 2 — pypdf XÁO layout (header vỡ mảnh, hàng 2025 in trước 2026,
     # giá trị cuối rớt dòng): mọi dòng "d/m/yyyy" mang ≥6 giá trị % vẫn giữ
-    # THỨ TỰ TENOR CHUẨN 1N..30N → lấy vị trí 10N, chọn dòng NGÀY MỚI NHẤT.
+    # THỨ TỰ TENOR CHUẨN 1N..30N → lấy theo vị trí, chọn dòng NGÀY MỚI NHẤT.
     # (Đã kiểm trên PDF thật 03/07/2026: cả 2 chế độ extract, dòng-ngày-nhiều-%
     # duy nhất chính là ma trận lợi suất.)
     idx10 = _CANON_TENORS.index("10")
@@ -255,10 +278,10 @@ def _parse_bond_10y(lines: "list[str]") -> "float | None":
             d = datetime.strptime(line.split()[0], "%d/%m/%Y").date()
         except ValueError:
             continue
-        v = pcts[idx10]
-        if _in_range("govt_bond_yield_10y", v) and (best is None or d > best[0]):
-            best = (d, v)
-    return best[1] if best else None
+        got = _yields_at(list(_CANON_TENORS), pcts)
+        if got and (best is None or d > best[0]):
+            best = (d, got)
+    return best[1] if best else {}
 
 
 # Tỷ giá VCB từ văn xuôi "THỊ TRƯỜNG NGOẠI HỐI": "...xuống 26,103 VND/USD ở
@@ -294,9 +317,7 @@ def extract_rates(text: str) -> dict:
         return {}
     lines = text.splitlines()
     out = _parse_interbank(lines)
-    y10 = _parse_bond_10y(lines)
-    if y10 is not None:
-        out["govt_bond_yield_10y"] = y10
+    out.update(_parse_bond_yields(lines))
     fx = _parse_fx(text)
     if fx is not None:
         out["usdvnd_vcb_mid"] = fx

@@ -6,12 +6,19 @@ lưu vào data_warehouse/_meta/fundamentals.parquet
 
 Run:
   python vnstock_fundamental_updater.py              # Cập nhật tất cả
-  python vnstock_fundamental_updater.py --force      # Bỏ qua skip existing
+  python vnstock_fundamental_updater.py --force --workers 8   # Refetch NHANH cả kho
   python vnstock_fundamental_updater.py --tickers VCB FPT HPG  # Cụ thể
   python vnstock_fundamental_updater.py --check      # Xem trạng thái
   python vnstock_fundamental_updater.py --report     # Báo cáo thống kê
 
-Schedule: Chạy 1 lần/tuần (Task Scheduler hoặc cron)
+--workers N (mặc định 1 = tuần tự cũ): fetch song song N luồng — mirror đúng
+pattern ⚡ của vnstock_updater (fetch I/O-bound, ~3 call API/mã ≈ 7s → full
+--force 1.754 mã tuần tự mất ~3.5 GIỜ, 8 luồng còn ~25-30 phút). Ghi file vẫn
+CHỈ ở luồng chính (batch save) nên an toàn. API rate-limit (nhiều ✗ lỗi) →
+giảm --workers 4.
+
+Schedule: Chạy 1 lần/tuần (Task Scheduler hoặc cron); mùa BCTC (giữa tháng
+1/4/7/10) chạy thêm `--force --workers 8`.
 """
 
 import argparse
@@ -442,11 +449,54 @@ def _fetch_debt_to_equity(ticker: str) -> float | None:
 # Main updater
 # ═════════════════════════════════════════════════════════════════════════════
 
+def _fetch_one(ticker: str, delay: float) -> "tuple[str, dict | None, str | None]":
+    """Fetch trọn bộ statement cho MỘT mã — trả ``(ticker, data|None, error|None)``.
+
+    ``data=None, error=None`` = statement rỗng (caller quyết giữ data cũ hay ghi
+    placeholder). Tách khỏi vòng lặp chính để chạy được cả tuần tự lẫn
+    ThreadPoolExecutor (fetch I/O-bound); KHÔNG đụng file/console ở đây —
+    mọi ghi/in đều ở luồng chính.
+    """
+    # Mỗi call API bọc call_with_rate_limit_retry: vnai chạm trần req/phút thì
+    # sys.exit (SystemExit — xuyên except Exception) → từng giết cả run cập
+    # nhật giá 13/07; fundamentals 3 call/mã còn dễ dính hơn. Helper ngủ theo
+    # "Chờ X giây" rồi thử lại; hết lượt → RuntimeError (Exception thường) để
+    # except dưới đếm thành 1 mã lỗi. Không in gì ở đây (worker thread).
+    from vnstock_ratelimit import call_with_rate_limit_retry as _rl
+    try:
+        data = _rl(_fetch_ratios, ticker)
+        # "Usable" = at least one non-None ratio value (a dict of all
+        # None means the statement was empty / unparseable).
+        if not (data and any(v is not None for v in data.values())):
+            return ticker, None, None
+        # Cash flow is a second (slower) statement call — merge it in.
+        # Failure here is non-fatal: the ratio data still gets saved.
+        try:
+            data.update(_rl(_fetch_cash_flow, ticker))
+        except Exception:
+            pass
+        # Ratio table leaves Debt/Equity at 0 for banks → derive a
+        # reliable D/E from the balance sheet when it's missing/0.
+        if not data.get("debt_to_equity"):
+            try:
+                _de = _rl(_fetch_debt_to_equity, ticker)
+                if _de is not None:
+                    data["debt_to_equity"] = _de
+            except Exception:
+                pass
+        return ticker, data, None
+    except Exception as e:
+        return ticker, None, str(e)
+    finally:
+        time.sleep(delay)                 # throttle từng luồng (rate limit)
+
+
 def update(
     tickers: list[str] | None = None,
     force: bool = False,
     delay: float = 0.5,
     batch_save: int = 50,
+    workers: int = 1,
 ):
     """
     Tải P/E, ROE cho từng ticker, lưu vào warehouse.
@@ -454,8 +504,9 @@ def update(
     Args:
         tickers   : Danh sách cụ thể (None = tất cả từ warehouse)
         force     : True = update kể cả đã có dữ liệu
-        delay     : Thời gian chờ giữa các API call (giây)
+        delay     : Thời gian chờ giữa các API call (giây, áp cho từng luồng)
         batch_save: Lưu file sau mỗi N ticker
+        workers   : Số luồng fetch song song (1 = tuần tự như cũ)
     """
     all_tickers = tickers or _get_stock_tickers()
     existing    = _load_existing()
@@ -501,6 +552,19 @@ def update(
             if _col in existing.columns:
                 have_data |= set(existing.loc[existing[_col].notna(), "ticker"])
 
+    def _results():
+        """Yield (ticker, data, error) — tuần tự hoặc song song theo `workers`.
+        Thứ tự hoàn thành không quan trọng: rows dedup theo ticker khi save."""
+        if workers <= 1:
+            for t in to_fetch:
+                yield _fetch_one(t, delay)
+        else:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = [pool.submit(_fetch_one, t, delay) for t in to_fetch]
+                for fut in as_completed(futures):
+                    yield fut.result()
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -510,57 +574,36 @@ def update(
     ) as prog:
         task = prog.add_task("Fetching...", total=len(to_fetch))
 
-        for i, ticker in enumerate(to_fetch):
+        for done, (ticker, data, err) in enumerate(_results(), 1):
             prog.update(task, description=f"[cyan]{ticker:6s}[/cyan]", advance=1)
 
-            try:
-                data = _fetch_ratios(ticker)
-                # "Usable" = at least one non-None ratio value (a dict of all
-                # None means the statement was empty / unparseable).
-                if data and any(v is not None for v in data.values()):
-                    # Cash flow is a second (slower) statement call — merge it in.
-                    # Failure here is non-fatal: the ratio data still gets saved.
-                    try:
-                        data.update(_fetch_cash_flow(ticker))
-                    except Exception:
-                        pass
-                    # Ratio table leaves Debt/Equity at 0 for banks → derive a
-                    # reliable D/E from the balance sheet when it's missing/0.
-                    if not data.get("debt_to_equity"):
-                        try:
-                            _de = _fetch_debt_to_equity(ticker)
-                            if _de is not None:
-                                data["debt_to_equity"] = _de
-                        except Exception:
-                            pass
-                    data["ticker"]     = ticker
-                    data["updated_at"] = datetime.now().strftime("%Y-%m-%d")
-                    rows.append(data)
-                    ok_cnt += 1
-                elif ticker in have_data:
-                    # Refetch came back empty but we already have good data —
-                    # keep the existing row instead of wiping it with NaN.
-                    kept += 1
-                else:
-                    # Never had data → write NaN placeholder so --check counts it
-                    rows.append({
-                        "ticker":     ticker,
-                        "updated_at": datetime.now().strftime("%Y-%m-%d"),
-                    })
-            except Exception as e:
+            if err is not None:
                 errors += 1
-                prog.console.print(f"  [dim red]✗ {ticker}: {e}[/dim red]")
+                prog.console.print(f"  [dim red]✗ {ticker}: {err}[/dim red]")
+            elif data is not None:
+                data["ticker"]     = ticker
+                data["updated_at"] = datetime.now().strftime("%Y-%m-%d")
+                rows.append(data)
+                ok_cnt += 1
+            elif ticker in have_data:
+                # Refetch came back empty but we already have good data —
+                # keep the existing row instead of wiping it with NaN.
+                kept += 1
+            else:
+                # Never had data → write NaN placeholder so --check counts it
+                rows.append({
+                    "ticker":     ticker,
+                    "updated_at": datetime.now().strftime("%Y-%m-%d"),
+                })
 
-            # Batch save
-            if (i + 1) % batch_save == 0:
+            # Batch save (luồng chính — worker không bao giờ đụng file)
+            if done % batch_save == 0:
                 df = pd.DataFrame(rows).drop_duplicates("ticker", keep="last")
                 _save(df)
                 prog.console.print(
-                    f"  [dim]💾 Saved batch {i+1}/{len(to_fetch)} "
+                    f"  [dim]💾 Saved batch {done}/{len(to_fetch)} "
                     f"({ok_cnt} OK, {errors} errors)[/dim]"
                 )
-
-            time.sleep(delay)
 
     # Final save
     df = pd.DataFrame(rows).drop_duplicates("ticker", keep="last")
@@ -783,6 +826,9 @@ if __name__ == "__main__":
     parser.add_argument("--tickers", nargs="+", help="Chỉ cập nhật các mã này")
     parser.add_argument("--force",   action="store_true", help="Cập nhật lại kể cả đã có")
     parser.add_argument("--delay",   type=float, default=0.5, help="Delay giữa API calls (giây)")
+    parser.add_argument("--workers", type=int, default=1,
+                        help="Số luồng fetch song song (mặc định 1 = tuần tự; "
+                             "--force cả kho nên dùng 8, rate-limit thì hạ 4)")
     parser.add_argument("--check",   action="store_true", help="Xem trạng thái warehouse")
     parser.add_argument("--report",  action="store_true", help="Báo cáo median theo ngành")
     parser.add_argument("--diag",    metavar="TICKER", help="In raw output API tài chính cho 1 mã")
@@ -799,4 +845,5 @@ if __name__ == "__main__":
             tickers=args.tickers,
             force=args.force,
             delay=args.delay,
+            workers=args.workers,
         )

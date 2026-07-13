@@ -13,9 +13,10 @@ import vnstock_macro as mac
 
 @pytest.fixture(autouse=True)
 def _no_external_macro_fetch(monkeypatch):
-    """refresh() nay còn gọi NSO (mạng) + PMI-from-news (đọc cache repo) —
-    chặn mặc định để test hermetic; test nào cần thì tự re-patch."""
+    """refresh() nay còn gọi NSO + FRED (mạng) + PMI-from-news (đọc cache repo)
+    — chặn mặc định để test hermetic; test nào cần thì tự re-patch."""
     monkeypatch.setattr(mac, "_fetch_nso", lambda: None)
+    monkeypatch.setattr(mac, "_fetch_fred", lambda: None)
     monkeypatch.setattr(mac, "_pmi_from_news", lambda: None)
 
 
@@ -561,6 +562,16 @@ def _liq_rows(on=None, policy=None, y10=None):
     return rows
 
 
+def _term_rows(policy=None, y2=None, y10=None):
+    rows = _liq_rows(policy=policy, y10=y10)
+    if y2 is not None:
+        rows.append({"key": "govt_bond_yield_2y", "label": "Lợi suất TPCP 2 năm",
+                     "kind": "rate",
+                     "unit": "%/năm", "value": y2, "as_of": "2026-07-03",
+                     "change": None})
+    return rows
+
+
 def test_liquidity_spread_bands_and_slope():
     # Data thật 08/07: ON 5.67 vs điều hành 4.5 → +1.17 = CĂNG (dir -1)
     liq = mac.liquidity_spread(_liq_rows(on=5.67, policy=4.5, y10=4.4))
@@ -580,6 +591,116 @@ def test_liquidity_spread_none_when_inputs_missing():
     assert mac.liquidity_spread(_liq_rows(policy=4.5)) is None    # thiếu ON
     assert mac.liquidity_spread([]) is None
     assert mac.liquidity_spread(None) is None
+
+
+def test_term_spread_bands_and_slope():
+    # Data thật 03/07: 10Y 4.40 vs điều hành 4.5 → −0.10 = ÂM (dir −1);
+    # 10Y − 2Y = +0.90 → dốc bình thường
+    ts = mac.term_spread(_term_rows(policy=4.5, y2=3.5, y10=4.4))
+    assert ts["spread"] == pytest.approx(-0.10)
+    assert ts["dir"] == -1 and "ÂM" in ts["label"]
+    assert ts["slope_2_10"] == pytest.approx(0.90)
+    assert ts["slope_dir"] == 0 and "bình thường" in ts["slope_label"]
+    # inversion: 2Y > 10Y → ĐẢO NGƯỢC (slope_dir −1)
+    inv = mac.term_spread(_term_rows(policy=4.5, y2=5.2, y10=5.0))
+    assert inv["slope_2_10"] == pytest.approx(-0.20)
+    assert inv["slope_dir"] == -1 and "ĐẢO NGƯỢC" in inv["slope_label"]
+    # spread mỏng (0 ≤ spread < 0.5) → nhãn cảnh giác nhưng dir 0
+    thin = mac.term_spread(_term_rows(policy=4.5, y10=4.8))
+    assert thin["dir"] == 0 and "mỏng" in thin["label"]
+    assert "slope_2_10" not in thin                    # thiếu 2Y → không có dốc
+    # spread dày → bình thường
+    assert mac.term_spread(_term_rows(policy=4.5, y10=5.5))["dir"] == 0
+
+
+def test_term_spread_none_when_inputs_missing():
+    assert mac.term_spread(_term_rows(y10=4.4)) is None        # thiếu điều hành
+    assert mac.term_spread(_term_rows(policy=4.5)) is None     # thiếu 10Y
+    assert mac.term_spread(_term_rows(policy=4.5, y2=3.5)) is None  # 2Y không đủ
+    assert mac.term_spread([]) is None
+    assert mac.term_spread(None) is None
+
+
+def test_macro_body_lines_include_term_gauge():
+    import vnstock_brief as vb
+    body = vb._macro_body_lines(_term_rows(policy=4.5, y2=3.5, y10=4.4))
+    ts_lines = [l for l in body if "Kỳ hạn & đường cong" in l]
+    assert len(ts_lines) == 1
+    assert "-0.10 điểm %" in ts_lines[0] and "ÂM" in ts_lines[0]
+    assert "dốc 10Y − 2Y = +0.90 điểm %" in ts_lines[0]
+    # thiếu input → không có dòng (no-op, không phát nhãn sai)
+    body2 = vb._macro_body_lines(_term_rows(y2=3.5, y10=4.4))
+    assert not any("Kỳ hạn & đường cong" in l for l in body2)
+
+
+def _intl_rows(vn10=None, us10=None):
+    rows = _liq_rows(y10=vn10)
+    if us10 is not None:
+        rows.append({"key": "us10y", "label": "Lợi suất TPCP Mỹ 10 năm (US10Y)",
+                     "kind": "rate",
+                     "unit": "%/năm", "value": us10, "as_of": "2026-07-09",
+                     "change": None})
+    return rows
+
+
+def test_intl_spread_bands():
+    # VN 4.40 vs US 4.35 → +0.05 = mỏng (dir 0)
+    thin = mac.intl_spread(_intl_rows(vn10=4.4, us10=4.35))
+    assert thin["spread"] == pytest.approx(0.05)
+    assert thin["dir"] == 0 and "mỏng" in thin["label"]
+    # VN thấp hơn Mỹ → ÂM (dir −1) — kém hấp dẫn vốn ngoại
+    neg = mac.intl_spread(_intl_rows(vn10=3.0, us10=4.35))
+    assert neg["spread"] == pytest.approx(-1.35)
+    assert neg["dir"] == -1 and "ÂM" in neg["label"]
+    # lợi thế rõ → dương
+    assert mac.intl_spread(_intl_rows(vn10=5.5, us10=4.0))["dir"] == 0
+    # thiếu 1 trong 2 → None
+    assert mac.intl_spread(_intl_rows(vn10=4.4)) is None
+    assert mac.intl_spread(_intl_rows(us10=4.35)) is None
+    assert mac.intl_spread(None) is None
+
+
+def test_macro_body_lines_include_intl_gauge_and_fed_directive():
+    import vnstock_brief as vb
+    rows = _intl_rows(vn10=4.4, us10=4.35)
+    body = vb._macro_body_lines(rows)
+    intl_lines = [l for l in body if "Chênh lệch quốc tế" in l]
+    assert len(intl_lines) == 1 and "+0.05 điểm %" in intl_lines[0]
+    # CHƯA có fed_funds → directive vẫn cấm bịa Fed
+    assert any("Fed… chưa có trong data" in l for l in body)
+    # CÓ fed_funds → mệnh đề cấm Fed được nới (luật không-bịa chung giữ nguyên)
+    rows.append({"key": "fed_funds", "label": "Lãi suất Fed (effective)",
+                 "kind": "rate", "unit": "%/năm", "value": 4.33,
+                 "as_of": "2026-07-10", "change": None})
+    body2 = vb._macro_body_lines(rows)
+    assert not any("Fed… chưa có trong data" in l for l in body2)
+    assert any("KHÔNG bịa chỉ số" in l for l in body2)
+
+
+def test_fetch_usdvnd_parses_currency_api_lowercase(monkeypatch):
+    # Nấc 3 (currency-api fawazahmed0) trả {"usd": {"vnd": ...}} chữ thường —
+    # 2 nấc đầu fail thì vẫn phải ra số
+    payloads = iter([OSError("nấc 1 chết"), OSError("nấc 2 chết"),
+                     {"date": "2026-07-11", "usd": {"vnd": 26234.6}}])
+
+    class _Resp:
+        def __init__(self, data):
+            self._data = data
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._data
+
+    def _fake_get(url, timeout=None):
+        p = next(payloads)
+        if isinstance(p, Exception):
+            raise p
+        return _Resp(p)
+
+    monkeypatch.setattr("requests.get", _fake_get)
+    assert mac.fetch_usdvnd() == pytest.approx(26234.6)
 
 
 def test_macro_body_lines_include_liquidity_gauge():

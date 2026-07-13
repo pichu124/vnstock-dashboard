@@ -13,7 +13,7 @@ Items here get auto-loaded into Claude's context at session start.
   `vnstock_sentiment.py`, `vnstock_news.py`, `vnstock_telegram.py`,
   `vnstock_freshness.py`, `vnstock_vn30_weights.py`,
   `vnstock_market_sentiment.py`, `vnstock_fundamental_updater.py`,
-  `vnstock_macro.py`, `vnstock_news_feeds.py`
+  `vnstock_macro.py`, `vnstock_news_feeds.py`, `vnstock_doctor.py`
 - Trước khi tạo PR merge về `main`
 - Sau khi nâng cấp pandas / numpy / Python version
 
@@ -358,12 +358,16 @@ cd "C:\Users\Administrator\Dropbox\Claude vnstock"
 .\scripts\setup_scheduled_tasks.ps1
 ```
 3 task được đăng ký: **VnStock Daily Pipeline** 18:00 T2-T6 (`run.py all` =
-sync EOD → validate → screener → news → test → audit — trọn quy trình tối,
-sau giờ đóng cửa) · **VnStock Weekly Corp Actions** CN 09:00 (Vietstock
-cổ tức/chia tách → registry) · **VnStock Fundamentals** T2 08:00 (1×/tuần;
-mùa BCTC giữa tháng 1/4/7/10 chạy thêm tay). Sự kiện GDKHQ KHÔNG cần task —
-brief tự refresh 1×/ngày (VN30 + top-40 movers). Kiểm tra:
-`Get-ScheduledTask -TaskName "VnStock *"`.
+sync EOD → validate → screener → news → test → audit → doctor — trọn quy
+trình tối, sau giờ đóng cửa) · **VnStock Weekly Corp Actions** CN 09:00
+(Vietstock cổ tức/chia tách → registry) · **VnStock Fundamentals** T2 08:00
+(1×/tuần, `--force --workers 4 --delay 1` — **fix 2026-07-10: trước đó task
+chạy KHÔNG --force = incremental skip mã đã có → NO-OP từ sau lần đầu, số
+đóng băng**; mùa BCTC giữa tháng 1/4/7/10 chạy thêm tay). Sự kiện GDKHQ KHÔNG
+cần task — brief tự refresh 1×/ngày (VN30 + top-40 movers). Kiểm tra:
+`Get-ScheduledTask -TaskName "VnStock *"`. **Task đăng ký THEO MÁY** — đổi
+máy (vd desktop mới 10/07) phải chạy lại setup script trên máy đó; script tự
+detect venv nên chạy sau khi venv + `pip install -r requirements.txt` đã có.
 
 **Sự kiện DN sắp tới (DONE 2026-06-10)** — `vnstock_events.py` tổng hợp GDKHQ
 cổ tức/chia tách/thưởng (tái dùng `vnstock_adjust._fetch_events` →
@@ -400,10 +404,14 @@ danh sách thật vào output (LLM hay phớt block dù data có trong prompt).
   "quý"), CHỈ có trong bài quý → 4 lần/năm, giữa các quý giữ reading cũ (as_of
   hiện rõ). Cán cân thương mại: bắt buộc chữ "tháng" giữa anchor và "xuất/nhập
   siêu" → số LŨY KẾ 6 tháng không lọt; "triệu USD"/1000; nhập siêu = ÂM.
-  Registry nay 10 chỉ số = CHẠM CAP — thêm nữa phải bỏ bớt (quyết định
-  2026-07-08: dừng ở đây; credit growth để dành, chỉ làm nếu brief thiếu ngữ
-  cảnh khi có tin tín dụng lớn). Directive brief: GDP đã BỎ khỏi danh sách cấm
-  bịa (nay có data), chỉ còn Fed.
+  Registry cap: 2026-07-08 dừng ở 10 → **2026-07-10 nới 10→11** cho
+  `govt_bond_yield_2y` (khảo sát VnBondLab, cùng PDF VBMA) → **2026-07-11 user
+  "làm tất cả" khảo sát public-apis: nới 11→13** cho `us10y` + `fed_funds`
+  (FRED — mở khóa trụ 3 VnBondLab + bỏ lệnh cấm-bịa-Fed). 13 là cap hiện hành —
+  thêm nữa phải bỏ bớt; credit growth vẫn để dành, chỉ làm nếu brief thiếu ngữ
+  cảnh khi có tin tín dụng lớn. Directive brief: GDP đã BỎ khỏi danh sách cấm
+  bịa; mệnh đề cấm Fed nay ĐỘNG — tự nới khi `fed_funds` có reading
+  (`_macro_body_lines` check key, guard dùng chung nên parity giữ).
 - **`cpi_yoy` + `iip_yoy` AUTO từ NSO** (`vnstock_nso.py`, mirror vnstock_vbma):
   listing `nso.gov.vn/bao-cao-tinh-hinh-kinh-te-xa-hoi-hang-thang/` → bài
   `/bai-top/{YYYY}/{MM}/bao-cao-…-thang-…` publish-tháng lớn nhất (KHÔNG dựng
@@ -444,6 +452,41 @@ danh sách thật vào output (LLM hay phớt block dù data có trong prompt).
   CLI `--show`, sub-tab Vĩ mô. LEVEL-gauge thuần hiển thị, KHÔNG vào pressure
   score (score là change-based). OMO/tiền gửi KBNN trong sơ đồ = KHÔNG làm
   (không có nguồn free ổn định; tin "bơm/hút ròng" đã có trong _MACRO_KEYWORDS).
+- **Gauge kỳ hạn & đường cong (DONE 2026-07-10, từ khảo sát VnBondLab/Macro
+  Alert System — 2 trong 4 "trụ cột" cảnh báo của nó tính được thuần từ
+  registry)**: `term_spread(macro)` = 10Y − lãi suất điều hành ("Taylor-rule
+  xấp xỉ"; < 0 → ÂM dir −1 = chính sách THẮT so kỳ vọng dài hạn, < +0.5 →
+  "mỏng") + dốc **10Y − 2Y** khi có 2Y (< 0 → ĐẢO NGƯỢC dir −1 = bond market
+  định giá rủi ro chu kỳ, < +0.3 → "phẳng"; `_TERM_THIN_SPREAD`/`_YC_FLAT_SLOPE`).
+  Nguồn 2Y: `vnstock_vbma._parse_bond_yields` (generalize từ `_parse_bond_10y`)
+  nhặt cột 2N từ CÙNG dòng ngày của ma trận tenor — 10N là NEO (dòng thiếu 10N
+  hợp lệ bị bỏ); thêm kỳ hạn mới = thêm 1 entry `_YIELD_TENORS` + `_RANGES` +
+  `_DEFS`. Cùng triết lý liquidity_spread: zero fetch, LEVEL-gauge thuần hiển
+  thị (brief qua `_macro_body_lines` dùng chung → parity/guard tự giữ, CLI
+  `--show`, sub-tab Vĩ mô), KHÔNG vào pressure score. Số thật 03/07/2026: 10Y
+  4.40 < điều hành 4.5 → spread −0.10 ÂM (nhất quán gauge thanh khoản CĂNG);
+  dốc 2-10 +0.90 bình thường. Trụ percentile lịch sử vẫn để dành (cần ~1 năm
+  mẫu VBMA weekly — cache giữ 60 readings, đủ thì nâng band tĩnh → percentile).
+- **FRED: us10y + fed_funds + gauge quốc tế (DONE 2026-07-11, từ khảo sát
+  public-apis — CẦN USER: đăng ký key free ~2 phút
+  https://fred.stlouisfed.org/docs/api/api_key.html → `FRED_API_KEY=<key>`
+  vào .env, rồi verify `python vnstock_fred.py --diag` trên máy có mạng)**:
+  `vnstock_fred.py` (mirror vbma/nso) fetch DGS10 + DFF qua API JSON chính
+  thức, skip value "." (ngày nghỉ), sanity range, as_of RIÊNG từng series;
+  không key → None, refresh bỏ qua (best-effort, KHÔNG bịa). Tắt:
+  `VNSTOCK_MACRO_FRED=0`. → `intl_spread(macro)` = VN10Y − US10Y ("trụ 3"
+  VnBondLab từng bỏ vì thiếu nguồn): ÂM (dir −1) = VN kém hấp dẫn vốn ngoại
+  → áp lực tỷ giá/NN bán ròng; < +0.5 → "mỏng" (`_INTL_THIN_SPREAD`).
+  LEVEL-gauge thuần hiển thị như 2 gauge kia (brief `_macro_body_lines` dùng
+  chung → parity/guard tự giữ, CLI `--show` dòng "→ Quốc tế", sub-tab Vĩ mô);
+  KHÔNG vào pressure score. Doctor: cadence 7d cho 2 chỉ số + net check
+  `net_fred` (chưa có key → ⬜ kèm link đăng ký). Trụ 4 VnBondLab duy nhất
+  còn lại = percentile lịch sử (chờ đủ mẫu).
+- **FX ladder nay 3 NẤC (2026-07-11)**: er-api → exchangerate.host →
+  **currency-api (fawazahmed0)** — nguồn từ khảo sát public-apis (2 nấc đầu
+  cũng nằm trong chính danh mục đó): free, KHÔNG rate limit, host CDN
+  jsdelivr + fallback pages.dev, payload `{"usd":{"vnd":…}}` CHỮ THƯỜNG
+  (parser fetch_usdvnd đã hiểu cả 2 dạng).
 - **Brief nén block vĩ mô**: `_macro_body_lines` gộp mọi chỉ số KHÔNG đổi vào
   1 dòng "Đi ngang/chưa có kỳ mới: …" (8 chỉ số không nở 8 bullet); chỉ số có
   thay đổi giữ bullet riêng. Directive cập nhật (CPI/IIP/PMI nay CÓ data — chỉ
@@ -548,6 +591,58 @@ LLM chấm sentiment + tóm tắt tác động 1 dòng, cache
   4096 ký tự/tin của Telegram → đuôi (mục 📰) bị cắt. `vnstock_telegram.send_message`
   nay tách thành NHIỀU tin ≤4096 (cắt theo dòng để tag HTML không vỡ, hậu tố
   "(k/n)") thay vì truncate. `_split_for_telegram` test trong `test_telegram.py`.
+- **Full text qua Jina Reader (DONE 2026-07-10, từ khảo sát Agent-Reach — CẦN
+  USER VERIFY trên máy có mạng: `python vnstock_news_feeds.py --diag` có dòng
+  Jina)**: `analyze_item` nay tự fetch THÂN BÀI qua `https://r.jina.ai/<URL>`
+  (free, không cần key, URL→markdown sạch) và đưa vào prompt — trước đó LLM chỉ
+  thấy title+description RSS, là gốc của loại lỗi đoán sai chiều tác động (vụ
+  "giá vàng GIẢM → PNJ hưởng lợi giá CAO" 30/06). CHỈ fetch cho tin ĐƯỢC chấm
+  (≤ `_MAX_ANALYZE_DEFAULT`=8/refresh) nên số request nhỏ; best-effort đúng
+  nghĩa: fail/timeout/chặn mạng → chấm bằng title+summary như cũ, KHÔNG lưu
+  full text vào cache (chỉ dùng tại chỗ, `_FULLTEXT_MAX_CHARS`=1800 vào prompt).
+  Tắt: `VNSTOCK_NEWS_FULLTEXT=0` hoặc `--no-fulltext`; có `JINA_API_KEY` trong
+  .env thì gửi kèm (nới rate-limit ~20 req/phút của bản không key), không có
+  vẫn chạy. Sandbox/web session: r.jina.ai bị allowlist chặn (403 CONNECT,
+  verify 10/07) → luôn '' ở đây, KHÔNG phải bug. Đây là cải thiện INPUT cho
+  prompt (không deterministic) — tin đã cache giữ điểm cũ, muốn chấm lại chạy
+  `python vnstock_news_feeds.py --reanalyze`.
+
+### 🩺 Doctor — khám sức khỏe MỌI nguồn dữ liệu (DONE 2026-07-10) — `vnstock_doctor.py`
+
+Gom các `--diag` rải rác (news_feeds/macro/vbma/nso/foreign_flow/events/
+fundamentals) về MỘT lệnh, theo mô hình doctor của Agent-Reach (check THẬT +
+đơn thuốc sửa cụ thể cho từng nguồn, một nguồn nổ không kéo sập báo cáo):
+
+```powershell
+python run.py doctor          # OFFLINE <1s: tuổi cache + key .env
+python run.py doctor --net    # + probe mạng: RSS/FX/VBMA/NSO/foreign-flow API/Jina
+```
+
+- **2 tầng**: OFFLINE so tuổi data với `_prev_trading_day` (T2-T6 — sáng thứ 2 /
+  trước pipeline 18:00 KHÔNG báo động giả); NET fetch thử từng nguồn ngoài —
+  chạy trên MÁY CÓ MẠNG (sandbox bị allowlist chặn → toàn ❌ là bình thường).
+  Riêng kho VNINDEX dung sai **2 phiên** (bar index qua API EOD về trễ ~1 phiên
+  so với cổ phiếu — verify trên máy user 10/07: overview 07-09 tươi nhưng bar
+  VNINDEX mới tới 07-08; đây là lý do tồn tại `_augment_with_live_vnindex`).
+- **Trạng thái**: ok ✅ · warn ⚠️ (cũ/thiếu một phần) · off ⬜ (chưa cấu hình/chưa
+  chạy — KHÔNG tính vào exit code) · error ❌. Exit 1 khi có warn/error.
+- **Check đáng chú ý**: vĩ mô so as_of TỪNG chỉ số với cadence nguồn của nó
+  (`_MACRO_MAX_AGE_DAYS`: FX 5d, VBMA 12d, NSO 45d, GDP 120d; sbv_policy_rate
+  nhập tay → không bao giờ cũ) + nhắc PMI; foreign-flow cảnh báo `n_symbols`
+  ≤120 (= API cap limit, bug top-100 cũ); LLM keys tách "sentiment provider"
+  vs "brief agent key"; NET có probe Jina Reader (feature full text ở trên);
+  **PDF→text cho VBMA (thêm tối 10/07 sau bẫy thật)**: desktop user venv khác
+  → thiếu pypdf → VBMA chết IM LẶNG (best-effort giữ cache cũ) — check offline
+  `check_pdf_tooling` bắt ngay, pypdf đã vào requirements.txt. Chuỗi
+  `run_checks` bắt cả **BaseException** (pyo3 PanicException từ native package
+  hỏng — thấy thật khi import pypdf trên cryptography lỗi) nhưng vẫn re-raise
+  KeyboardInterrupt.
+- Kết quả ghi `_meta/doctor_status.json` → **badge 🩺 sidebar** dashboard
+  (dưới badge test, cùng style; xám=off, vàng=warn, đỏ=error). `run.py all`
+  chạy doctor (offline) làm bước CUỐI → badge tự tươi mỗi tối theo pipeline.
+- Thêm nguồn mới = viết 1 hàm `check_*`/`net_*` trả `_result(...)` rồi thêm vào
+  `OFFLINE_CHECKS`/`NET_CHECKS`. Tests: `tests/test_doctor.py` (đã vào danh
+  sách `--fast`); mọi check đọc dưới `_META` (tests monkeypatch được).
 
 ### ⚡ Updater nhanh 10× (DONE 2026-06-16) — `vnstock_updater.py`
 
@@ -561,6 +656,32 @@ mã hủy niêm yết (last 2018-2021) re-fetch nhiều NĂM mỗi lần cho 0 n
 - Nút dashboard "📥 Cập nhật giá" → `--force --workers 8 --skip-stale-days 90`;
   `run.py sync` (pipeline tối) tự hưởng 8 luồng (không skip-stale → vẫn thorough).
 - API rate-limit (nhiều "error") → giảm `--workers 4`.
+- **`vnstock_fundamental_updater` cũng có `--workers` (DONE 2026-07-10)** — cùng
+  pattern (fetch trong ThreadPoolExecutor, ghi file CHỈ ở luồng chính qua batch
+  save; `_fetch_one` tách riêng, không đụng file/console). Lý do: fundamentals
+  ~3 call API/mã ≈ 7s → `--force` cả kho tuần tự mất ~3.5 giờ (user vướng thật
+  10/07), 8 luồng còn ~25-30 phút. Mặc định 1 (tuần tự cũ). LƯU Ý kép: (a) chạy
+  KHÔNG --force là incremental — chỉ fetch mã CHƯA CÓ trong parquet, mã cũ giữ
+  số cũ → mùa BCTC phải `--force --workers 8`; (b) check fundamentals của
+  doctor so MTIME file — lần chạy incremental cũng làm mới mtime nên badge ✅
+  không có nghĩa số đã mới (TODO nhỏ: đổi check sang max updated_at/quý trong
+  parquet). Test parity tuần-tự↔song-song: `tests/test_fundamental_cf.py`.
+- **Rate-limit vnai = SystemExit, KHÔNG phải Exception (fix 2026-07-13,
+  `vnstock_ratelimit.py`)**: "Cập nhật giá" 8 luồng CHẾT CỨNG ở 558/1724 mã khi
+  chạm trần 500 req/phút Golden — mổ tận nơi `vnai/beam/quota.py:313`: hết
+  lượt retry nội bộ vnai gọi `sys.exit("Rate limit exceeded ... Process
+  terminated.")` → SystemExit xuyên mọi `except Exception` per-ticker, trong
+  ThreadPool được `fut.result()` re-raise ở luồng chính → sập cả run (cùng họ
+  bug PanicException của doctor). Fix: `call_with_rate_limit_retry(fn, ...)`
+  bọc từng call fetch ở CẢ 2 updater (giá `_fetch_prices` + fundamentals cả 3
+  call trong `_fetch_one`) — nhận diện message vnai, parse "Chờ X giây" (+2s,
+  fallback 61s, cap 300s), ngủ rồi thử lại 3 lượt; hết lượt → RuntimeError
+  (Exception thường) = 1 mã lỗi, run sống tiếp. SystemExit thật/KeyboardInterrupt
+  re-raise nguyên vẹn. Tests: `tests/test_ratelimit.py` (message vnai thật làm
+  fixture; test tích hợp updater giá skip khi thiếu vnstock — chạy đủ trên máy
+  dev). Lưu ý vận hành: 2 tiến trình cùng chạy CHIA NHAU quota (task
+  fundamentals T2 08:00 + bấm nút Cập nhật giá cùng lúc = dễ chạm trần — giờ
+  chỉ chậm lại chứ không chết).
 
 **Quan trọng — vnstock 4.0.4 + sponsor API gotchas** (hard-won, đừng quên):
 - `vnstock_auth._StockShim` PHẢI expose `.quote/.company/.listing/.finance`.
@@ -587,7 +708,89 @@ mã hủy niêm yết (last 2018-2021) re-fetch nhiều NĂM mỗi lần cho 0 n
 
 ---
 
+## 🧭 THIẾT KẾ ĐÃ DUYỆT — Báo cáo vĩ mô upload + Phân bổ tài sản (CHƯA BUILD, 2026-07-13)
+
+Ý tưởng user: upload báo cáo vĩ mô hay (CTCK/chuyên gia, cả Việt lẫn Anh) để
+AI phân tích tình trạng vĩ mô VN → khuyến nghị rải ngân vào lớp tài sản nào.
+Thiết kế đã qua vòng 3-góc-nhìn + critic (đối chiếu từng trích dẫn với repo);
+user duyệt 2026-07-13 và chốt 5 tham số. **Lưu để RECHECK trước khi build —
+nhắc khi user nói "phân bổ", "báo cáo", "allocation", "upload".**
+
+**5 tham số user đã chốt:**
+1. Báo cáo: vĩ mô đa nguồn (CTCK + chuyên gia), CẢ tiếng Việt và tiếng Anh
+   → digest từ nguồn tiếng Anh phải DỊCH sang tiếng Việt (brief có luật
+   thuần-tiếng-Việt + enforce_no_cjk).
+2. Tần suất: 1-2 báo cáo/tháng → consensus view đa-báo-cáo giữ ĐƠN GIẢN ở v1.
+3. Bảng B→% mặc định: Claude tự quyết (bảng dưới), là CONFIG user chỉnh được.
+4. Brief phân bổ: CHỈ dashboard, KHÔNG đẩy Telegram (v1).
+5. Lớp tài sản v1: **5 lớp — CÓ VÀNG ngay từ đầu** (user chọn, không để dành).
+
+**Bảng B0-B4 → % mặc định (khẩu vị trung dung; convention VnBondLab: B0 =
+rủi ro vĩ mô THẤP nhất = tấn công, B4 = căng thẳng = phòng thủ):**
+
+| Band | Cổ phiếu | Trái phiếu | Tiền gửi | Vàng | USD |
+|------|---------|-----------|----------|------|-----|
+| B0 thuận lợi   | 70% | 10% | 10% |  5% | 5% |
+| B1 tích cực    | 60% | 15% | 15% |  5% | 5% |
+| B2 trung tính  | 45% | 20% | 20% | 10% | 5% |
+| B3 thắt chặt   | 30% | 25% | 30% | 10% | 5% |
+| B4 căng thẳng  | 15% | 25% | 40% | 12% | 8% |
+
+**Kiến trúc (tóm tắt — chi tiết từng quyết định đã phán xử trong critic):**
+- `vnstock_allocation.py` — **LÀM TRƯỚC, zero fetch/zero LLM**: score từ 3
+  gauge (thanh khoản/kỳ hạn/quốc tế) + macro_pressure + regime + sentiment
+  momentum + breadth → band B0-B4 + hysteresis (đổi band cần lệch ≥ ngưỡng
+  2 phiên) → bảng % + lý do từng input (nguồn+as_of) → `allocation_state.json`
+  + history log ĐỦ-ĐỂ-CHẤM-SAU ngay từ ngày 1. Báo cáo upload chỉ tilt ±1
+  band, KHÔNG override data sống (mirror caveat 27/28).
+- `vnstock_reports.py` — ingest: upload PDF (reuse `pdf_to_text` VBMA) +
+  **paste URL/text qua Jina Reader** (đường sẵn có); dedup sha256 (idempotent
+  Streamlit rerun); metadata BẮT BUỘC report_date+nguồn (thiếu → chỉ nằm thư
+  viện, không vào phân tích); flag `no_text_layer` cho PDF scan; CLI đủ bộ.
+- Digest: key Claude/GPT (1-2 call/báo cáo — TODO 1b đã ghi 70B free yếu;
+  ladder free chỉ làm fallback), JSON schema {claims số+kỳ, stance/lớp
+  (-2..+2), risks}, cho phép TRUNG_LẬP; **sanitize cấu trúc** (strip `##`/
+  emoji-mục/CJK, số EN-format) để không phá section-parser guard chain;
+  cross-check số với registry mirror `_fx_crosscheck` — **REGISTRY THẮNG**,
+  lệch → cờ mismatch không vào brief; decay tuổi: giảm từ 30 ngày, weight=0
+  ở 90 ngày; `--redigest`.
+- Brief: block 📚 cap ~5 dòng chỉ-khi-tươi vào brief NGÀY + **brief_type=
+  'allocation' RIÊNG cadence THÁNG** (không trộn — 2 thang thời gian; brief
+  ngày chỉ 1 dòng ngữ cảnh band); nâng `_BRIEF_MAX_TOKENS` 2400→2800; guard
+  mới `enforce_macro_reports` + `enforce_allocation_table` vào
+  `apply_brief_guards` DÙNG CHUNG; band tháng lệch bias floor ngày → caveat
+  horizon, KHÔNG override.
+- Vàng: nguồn Goldprice.dev (Auth: No, mục để-dành 1c) — **display-only +
+  proxy return, KHÔNG vào registry 13**; ghi rõ "spot quốc tế, CHƯA gồm
+  premium SJC (15-20%)". Proxy return các lớp: VNINDEX / đổi-yield-10Y (proxy
+  thô, dán nhãn) / policy rate / vàng spot / usdvnd.
+- UI: 2 sub-tab Tin tức → "📚 Báo cáo" + "🧭 Phân bổ" (UI mỏng trên cache,
+  scope như macro_tab); doctor `check_reports`+`check_allocation` (tuổi/
+  mismatch/nhắc kỳ tháng mirror pmi_reminder); atomic write (tmp+rename) vì
+  Streamlit upload đụng pipeline recompute.
+- Scorecard hồi tố (sau ≥2 kỳ): đối soát band kỳ trước vs return thực từng
+  lớp (mirror vnstock_reconciler); xếp hạng nguồn báo cáo LOG ngay, UI để
+  dành khi đủ mẫu.
+
+**3 nguyên tắc KHÔNG nhượng bộ:** (1) LLM không bao giờ sinh số %/band —
+chỉ viết lời, guard pin; (2) số từ báo cáo KHÔNG vào registry 13 chỉ số
+(tầng SỐ ĐO ≠ tầng QUAN ĐIỂM); (3) guard mới chỉ thêm vào
+`apply_brief_guards` dùng chung + `run.py test --fast` sau mọi sửa brief.
+
+**Phase + effort (điểm dừng nào cũng có giá trị độc lập):**
+P1 allocation core 1.5-2d → P2 ingest 1-1.5d → P3 digest+cross-check 1.5-2d
+→ P4 nối brief 2-2.5d → P5 UI+doctor+tests 1.5-2d → P6 scorecard+vàng 2.5d.
+Tổng ~8-10 ngày công. Bắt đầu = nói "làm phase 1".
+
+---
+
 ## 📌 Pending suggestions (raise when relevant)
+
+### 0. ✅ ĐỢT VERIFY 10-13/07 HOÀN TẤT — PR đã mở về main
+
+Toàn bộ checklist verify xong 100% (tests/doctor/macro 13 chỉ số + 3 gauge/
+Jina full-text/dashboard). PR mở 2026-07-13 theo lệnh user — nếu PR đã merge
+thì XÓA mục này; nếu chưa merge, kiểm tra trạng thái PR khi user quay lại.
 
 ### 1. Auto-schedule `vnstock_train.py` (NOT YET SET UP)
 
@@ -660,6 +863,100 @@ top-100 stale); `vnstock_market_sentiment.load_market_sentiment` truyền
 `python vnstock_foreign_flow.py --diag 2026-06-12` → in net + **số mã** trả về.
 Nếu khớp ~−491 và vài trăm mã ⇒ OK. Nếu chỉ ~100 mã ⇒ API đang cap `limit`, cần
 tăng `--limit` hoặc đổi nguồn (xem mục 1 bên dưới về các nguồn đã thử).
+
+### 1c. Khảo sát public-apis (2026-07-11) — nguồn ứng viên ĐỂ DÀNH
+
+Đã khai thác ngay: FRED (us10y/fed_funds + gauge quốc tế) + currency-api (FX
+nấc 3) — xem mục Vĩ mô. Còn lại LƯU Ở ĐÂY chờ nhu cầu (user dặn giữ 2026-07-11):
+
+**Để dành — có use-case rõ, chưa làm:**
+- **Econdb** (econdb.com/api — Auth: No, macro toàn cầu, CÓ series VN):
+  ứng viên nguồn **CROSS-CHECK số NSO** (CPI/GDP/IIP) — mirror đúng pattern
+  `_fx_crosscheck` er-api↔VCB đang có. Việc đầu tiên khi làm: verify series
+  VN của nó có tươi/khớp NSO không (`--diag` trên máy có mạng).
+- **Goldprice.dev** (Auth: No, vàng/bạc/đồng spot + 30 năm lịch sử, 13 tiền
+  tệ): tin vàng/PNJ xuất hiện thường xuyên mà brief chỉ có TIN không có SỐ —
+  1 dòng giá vàng làm ngữ cảnh cho analyze_item/brief là use-case tự nhiên.
+  Lưu ý cap registry 13 → nếu thêm thì cân nhắc display-only ngoài registry.
+- Dầu (Brent/WTI): KHÔNG có API free-no-key nào trong danh mục (toàn
+  paywalled: EconPulse/Sugra/Finage đều apiKey trả phí) — tin dầu vẫn đi
+  đường RSS keywords như hiện tại.
+
+**Bỏ qua nhưng ĐÁNG NHỚ (user dặn lưu — có thể đổi ý sau):**
+- **News APIs** (NewsAPI/GNews/Currents/MarketAux/NewsData…): toàn `apiKey`
+  + thiên nguồn Anh ngữ — RSS báo VN hiện tại PHỦ TỐT HƠN cho thị trường VN
+  (12 feed, có sẵn tiếng Việt, free). Khi nào đáng xem lại: cần tin tiếng
+  Anh có sentiment/ticker-tag sẵn (MarketAux) hoặc RSS VN bắt đầu chặn.
+- **Stock APIs** (Alpha Vantage/Finnhub/Polygon/Twelve Data…): vnstock +
+  sponsor API đã cover VN đầy đủ — các API này KHÔNG có data HOSE/HNX. Khi
+  nào đáng xem lại: cần data thị trường MỸ/quốc tế làm ngữ cảnh (index
+  futures, S&P500) — lúc đó Finnhub/Twelve Data free tier là ứng viên đầu.
+- Repo public-apis = DANH MỤC để tra khi cần nguồn mới (2 nguồn FX cũ của
+  mình cũng nằm trong đó) — không phải dependency, không cần theo dõi.
+
+### 1d. Khảo sát Ollama (2026-07-13) — LLM LOCAL, ĐỂ DÀNH chờ có vấn đề
+
+User chốt "note lại để đấy, sau này có vấn đề thì triển khai sau". Đã đọc
+code (repo ollama/ollama): serve **`POST /v1/chat/completions` chuẩn
+OpenAI-compatible** tại `localhost:11434` (xác nhận `server/routes.go`) —
+CÙNG shape API mà `vnstock_sentiment._PROVIDERS` gọi Groq/Cerebras/OpenRouter
+→ tích hợp = thêm 1 entry ladder, KHÔNG viết client mới. Có structured
+outputs (ép JSON schema qua `format`), embeddings, Anthropic-compat, cloud
+models (offload lên ollama.com — ít liên quan). Installer Windows có sẵn.
+
+**Khi nào triển khai** (trigger): free provider (Groq/Cerebras/OpenRouter)
+throttle/chết làm sentiment/tin không chấm được; HOẶC cần `--reanalyze` hàng
+loạt không rate-limit; HOẶC desktop có GPU rảnh muốn tự chủ LLM local.
+
+**Sketch tích hợp (~1-2h, zero rủi ro đường hiện tại)**:
+1. Entry "Ollama (local)" CUỐI ladder `vnstock_sentiment._PROVIDERS` —
+   endpoint `http://localhost:11434/v1/chat/completions`, không key; bật qua
+   env `OLLAMA_MODEL` (không set = ladder bỏ qua, hành vi y cũ).
+2. `_ANALYZE_MODELS["Ollama"]` = model user pull (tiếng Việt tốt: qwen3
+   14B/32B tùy VRAM).
+3. Doctor: check `localhost:11434/api/tags` — chạy được ở tầng OFFLINE
+   (localhost không dính allowlist).
+
+**Giới hạn ghi thẳng**: model local 8-14B thường THUA llama-3.3-70b free
+trên Groq về nuance (liên quan TODO 1b — chỉ thắng nếu GPU đủ chạy 32B+);
+KHÔNG dùng cho brief agent chính (2.400 token, 11 mục + guard chain — giữ
+Claude/GPT). CPU-only ~5-15 tok/s: đủ cho ≤8 tin/ngày, chậm cho batch lớn.
+Khác 3 khảo sát trước (lấp gap DỮ LIỆU thật), cái này lấp gap ĐỘ BỀN LLM —
+hiện chưa đau nên để dành.
+
+**Khảo sát excalidraw (2026-07-13): BỎ QUA, user chốt "không áp dụng được"**
+— whiteboard vẽ tay React SPA: lệch stack (dashboard là Streamlit/Python,
+nhúng cần tự viết custom component) + lệch use-case (canvas TỰ DO không neo
+trục giá/thời gian — vẽ trendline trên đó lệch ngay khi pan/zoom; nhu cầu
+vẽ-trên-chart nếu có thuộc về primitives của lightweight-charts đang dùng,
+và khối sync 4-panel là vùng hard-won invariants phải dè chừng). Không có
+gì để mượn về phương pháp. Nhu cầu phác thảo cá nhân → dùng excalidraw.com
+như app rời, khỏi tích hợp.
+
+### 1b. Chất lượng dòng "→ tác động" tin vĩ mô — giới hạn MODEL, nâng khi cần
+
+**Status (ghi nhận 2026-07-10, verify --reanalyze với full text Jina trên máy
+user)**: lỗi NGƯỢC CHIỀU (loại bug "vàng GIẢM → PNJ hưởng lợi giá CAO" 30/06)
+đã HẾT nhờ full text + prompt directive. Còn lại là giới hạn chất lượng của
+**model 70B free** (llama-3.3-70b qua Groq/Cerebras/OpenRouter,
+`_ANALYZE_MODELS` trong `vnstock_news_feeds.py`), KHÔNG phải bug pipeline:
+- Mapping kênh đôi khi MÁY MÓC vì prompt ép nêu ngành cụ thể: vd thật
+  "Suntory Pepsico đưa vào hoạt động nhà máy lớn nhất châu Á → Ngành dệt may
+  và thuỷ sản hưởng lợi từ đầu tư nước ngoài" (FDI đồ uống ≠ dệt may/thuỷ sản).
+- Tin đa chiều (vd "Dòng dầu khí qua Hormuz khôi phục đến đâu?") chiều tác
+  động khó kiểm chứng — model chọn 1 chiều thay vì TRUNG_LẬP.
+
+**Khi nào nâng**: user thấy ≥ 2-3 dòng gượng/8 tin mỗi ngày, hoặc brief bắt
+đầu trích dẫn mapping sai vào mục Rủi ro/Tin.
+
+**Các hướng (rẻ → đắt)**:
+1. Chỉnh prompt `_ANALYZE_SYSTEM`: cho phép TRUNG_LẬP khi kênh không rõ thay
+   vì ép nêu ngành (đánh đổi: nhiều tin bị lọc `drop_no_impact` hơn).
+2. Đổi model trong `_ANALYZE_MODELS` sang bản mạnh hơn cùng provider (Groq có
+   các bản lớn hơn / OpenRouter nhiều lựa chọn free mới — kiểm tra catalog).
+3. Route qua key trả phí sẵn có trong .env (ANTHROPIC/OPENAI — brief agent
+   đang dùng): thêm provider vào ladder `vnstock_sentiment._PROVIDERS` hoặc
+   map riêng cho analyze. Chi phí nhỏ: chỉ ≤8 tin/ngày × ~2K token.
 
 ### 1. Replace calibrated GTGD estimate with exact realtime source
 

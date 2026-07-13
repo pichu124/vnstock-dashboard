@@ -18,9 +18,10 @@ import vnstock_vbma as vbma
 
 @pytest.fixture(autouse=True)
 def _no_external_macro_fetch(monkeypatch):
-    """refresh() nay còn gọi NSO (mạng) + PMI-from-news (đọc cache repo) —
-    chặn mặc định để test wiring hermetic."""
+    """refresh() nay còn gọi NSO + FRED (mạng) + PMI-from-news (đọc cache repo)
+    — chặn mặc định để test wiring hermetic."""
     monkeypatch.setattr(mac, "_fetch_nso", lambda: None)
+    monkeypatch.setattr(mac, "_fetch_fred", lambda: None)
     monkeypatch.setattr(mac, "_pmi_from_news", lambda: None)
 
 
@@ -63,6 +64,7 @@ def test_extract_rates_real_excerpt_exact_values():
     assert out == {
         "interbank_on": pytest.approx(5.67),      # cột 3/7/2026, KHÔNG phải TB 5 ngày 6.89
         "interbank_1w": pytest.approx(6.17),      # và KHÔNG phải 9.26 từ văn xuôi
+        "govt_bond_yield_2y": pytest.approx(3.50),   # ma trận 2N, cùng dòng ngày với 10N
         "govt_bond_yield_10y": pytest.approx(4.40),  # ma trận 10N, KHÔNG phải trục chart 5.0%
     }
 
@@ -223,8 +225,8 @@ def test_refresh_vbma_kill_switch(tmp_path, monkeypatch):
 
 # Trích đoạn thật khi extract bằng PYPDF (máy Windows không có pdftotext):
 # layout ma trận bị XÁO — header tenor vỡ mảnh, hàng 2025 in TRƯỚC hàng 2026,
-# giá trị cuối rớt dòng. Đường 2 của _parse_bond_10y phải vẫn ra 4.40 (10N,
-# dòng có ngày MỚI NHẤT).
+# giá trị cuối rớt dòng. Đường 2 của _parse_bond_yields phải vẫn ra 4.40 (10N,
+# dòng có ngày MỚI NHẤT) + 3.50 (2N cùng dòng).
 _REAL_PYPDF_BOND = """\
 BIẾN ĐỘNG LỢI SUẤT PHÒNG GIAO DỊCH VBMA
 * Chú thích: Dữ liệu VBMA tổng hợp tính đến ngày 3/7/2026
@@ -246,3 +248,21 @@ def test_extract_rates_pypdf_scrambled_matrix_latest_date_wins():
     # 4.40 từ hàng 3/7/2026 (mới nhất) — KHÔNG phải 3.22 của hàng 3/7/2025
     # đứng trước, và hàng 26/6/2026 cụt (1 giá trị) bị bỏ qua.
     assert out.get("govt_bond_yield_10y") == pytest.approx(4.40)
+    # 2N lấy từ CÙNG hàng ngày mới nhất — 3.50, không phải 2.23 của hàng 2025
+    assert out.get("govt_bond_yield_2y") == pytest.approx(3.50)
+
+
+def test_refresh_records_vbma_2y_reading(tmp_path, monkeypatch):
+    _use_tmp_cache(tmp_path, monkeypatch)
+    monkeypatch.setattr(mac, "fetch_usdvnd", lambda: None)
+    monkeypatch.setattr(mac, "_fetch_vbma", lambda: {
+        "govt_bond_yield_2y": 3.50, "govt_bond_yield_10y": 4.40,
+        "as_of": "2026-07-03",
+    })
+    mac.refresh()
+    rows = {x["key"]: x for x in mac.load_macro()}
+    assert rows["govt_bond_yield_2y"]["value"] == pytest.approx(3.50)
+    assert rows["govt_bond_yield_2y"]["source"] == "vbma"
+    # order 3.5: 2Y đứng NGAY TRƯỚC 10Y trong danh sách load_macro
+    keys = [x["key"] for x in mac.load_macro()]
+    assert keys.index("govt_bond_yield_2y") == keys.index("govt_bond_yield_10y") - 1

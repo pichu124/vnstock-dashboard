@@ -68,6 +68,11 @@ _MAX_HISTORY = 60
 _FX_ENDPOINTS = (
     "https://open.er-api.com/v6/latest/USD",
     "https://api.exchangerate.host/latest?base=USD&symbols=VND",
+    # Nấc 3 (2026-07-11, từ khảo sát public-apis — 2 nấc trên cũng nằm trong
+    # chính danh mục đó): currency-api của fawazahmed0 — free, KHÔNG rate
+    # limit, host CDN, payload {"usd": {"vnd": ...}} chữ thường.
+    "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json",
+    "https://latest.currency-api.pages.dev/v1/currencies/usd.json",
 )
 
 # Indicator definitions — TOÀN BỘ metadata hiển thị + pressure nằm ở đây
@@ -118,11 +123,37 @@ _DEFS: dict[str, dict] = {
         "moves": _RATE_MOVES, "pressure": _RATE_PRESSURE,
         # auto từ VBMA weekly (cùng bảng với ON)
     },
+    "govt_bond_yield_2y": {
+        "label": "Lợi suất TPCP 2 năm",
+        # order 3.5: chen giữa 1W (3) và 10Y (4) — curve ngắn→dài, không renumber
+        "unit": "%/năm", "kind": "rate", "order": 3.5, "decimals": 2,
+        "moves": _RATE_MOVES, "pressure": _RATE_PRESSURE,
+        # auto từ VBMA weekly (cùng ma trận tenor với 10Y, zero request mới) —
+        # đầu ngắn của curve; thêm 2026-07-10 (khảo sát VnBondLab, user chốt
+        # nới cap registry 10→11 vì cùng nguồn) → gauge dốc 10Y − 2Y.
+    },
     "govt_bond_yield_10y": {
         "label": "Lợi suất TPCP 10 năm",
         "unit": "%/năm", "kind": "rate", "order": 4, "decimals": 2,
         "moves": _RATE_MOVES, "pressure": _RATE_PRESSURE,
         # auto từ VBMA weekly — proxy chi phí vốn dài hạn / khẩu vị rủi ro
+    },
+    "us10y": {
+        "label": "Lợi suất TPCP Mỹ 10 năm (US10Y)",
+        "unit": "%/năm", "kind": "rate", "order": 4.6, "decimals": 2,
+        "moves": ("lợi suất Mỹ tăng", "lợi suất Mỹ giảm"),
+        "pressure": _RATE_PRESSURE,      # US yield tăng = hút vốn khỏi EM → bất lợi
+        # auto từ FRED DGS10 daily (vnstock_fred, cần FRED_API_KEY free) —
+        # thêm 2026-07-11 (khảo sát public-apis, user chốt nới cap 11→13) →
+        # gauge chênh lệch VN10Y − US10Y (trụ 3 VnBondLab từng bỏ vì thiếu nguồn)
+    },
+    "fed_funds": {
+        "label": "Lãi suất Fed (effective)",
+        "unit": "%/năm", "kind": "rate", "order": 4.8, "decimals": 2,
+        "moves": ("Fed thắt chặt", "Fed nới lỏng"),
+        "pressure": _RATE_PRESSURE,
+        # auto từ FRED DFF daily — có reading là directive brief TỰ NỚI lệnh
+        # "cấm bịa Fed" (xem _macro_body_lines)
     },
     "cpi_yoy": {
         "label": "CPI so với cùng kỳ (YoY)",
@@ -247,8 +278,12 @@ def fetch_usdvnd() -> "float | None":
             continue
         # open.er-api.com → {"rates": {"VND": 25400, ...}}
         # exchangerate.host → {"rates": {"VND": 25400}}
+        # currency-api (fawazahmed0) → {"usd": {"vnd": 25400.5}} (chữ thường)
         rates = data.get("rates") if isinstance(data, dict) else None
         vnd = (rates or {}).get("VND") if isinstance(rates, dict) else None
+        if vnd is None and isinstance(data, dict):
+            usd = data.get("usd")
+            vnd = usd.get("vnd") if isinstance(usd, dict) else None
         try:
             v = float(vnd)
             if v > 1000:                      # sanity: USD/VND is tens of thousands
@@ -542,7 +577,7 @@ def refresh(*, as_of: "str | None" = None) -> dict:
             ib_val, ib_as_of = ib
             _record(cache, "interbank_on", ib_val, as_of or ib_as_of, "vietstock")
 
-    # VBMA weekly PDF (free): LNH ON/1W + lợi suất TPCP 10Y. Best-effort —
+    # VBMA weekly PDF (free): LNH ON/1W + lợi suất TPCP 2Y/10Y. Best-effort —
     # fetch/parse lỗi → None → giữ nguyên cache (kể cả giá trị --set tay).
     # Tắt: VNSTOCK_MACRO_VBMA=0.
     vb = None
@@ -550,7 +585,8 @@ def refresh(*, as_of: "str | None" = None) -> dict:
         vb = _fetch_vbma()
         if vb:
             vb_as_of = vb.get("as_of") or day
-            for key in ("interbank_on", "interbank_1w", "govt_bond_yield_10y"):
+            for key in ("interbank_on", "interbank_1w",
+                        "govt_bond_yield_2y", "govt_bond_yield_10y"):
                 if vb.get(key) is not None:
                     _record(cache, key, float(vb[key]), vb_as_of, "vbma")
 
@@ -559,6 +595,16 @@ def refresh(*, as_of: "str | None" = None) -> dict:
     # PDF VBMA (weekly). Lệch quá _FX_XCHECK_MAX_PCT → CẢNH BÁO (không tự sửa —
     # kiểm tra nguồn / --set usdvnd); ghi vào cache để --show còn thấy.
     _fx_crosscheck(cache, fx, (vb or {}).get("usdvnd_vcb_mid"), day)
+
+    # FRED (Mỹ): US10Y (DGS10) + Fed funds (DFF) daily — cần FRED_API_KEY
+    # free trong .env (không có → fetch_daily trả None, bỏ qua). Mỗi series
+    # mang as_of RIÊNG (DGS10 nghỉ cuối tuần/lễ). Tắt: VNSTOCK_MACRO_FRED=0.
+    if os.environ.get("VNSTOCK_MACRO_FRED", "1") != "0":
+        fr = _fetch_fred()
+        if fr:
+            for key, (val, f_as_of) in fr.items():
+                if key in _DEFS:
+                    _record(cache, key, float(val), f_as_of or day, "fred")
 
     # NSO monthly (free HTML): CPI YoY + IIP YoY từ báo cáo KTXH tháng
     # (công bố ~mùng 3 tháng sau). Tắt: VNSTOCK_MACRO_NSO=0.
@@ -657,6 +703,15 @@ def _fetch_vbma() -> "dict | None":
     try:
         from vnstock_vbma import fetch_weekly
         return fetch_weekly()
+    except Exception:
+        return None
+
+
+def _fetch_fred() -> "dict | None":
+    """US10Y + Fed funds qua vnstock_fred.fetch_daily() — mọi lỗi → None."""
+    try:
+        from vnstock_fred import fetch_daily
+        return fetch_daily()
     except Exception:
         return None
 
@@ -810,6 +865,78 @@ def liquidity_spread(macro: "list[dict] | None") -> "dict | None":
     return out
 
 
+# Gauge kỳ hạn dẫn xuất (2026-07-10, từ khảo sát VnBondLab/Macro Alert System —
+# 2 trong 4 "trụ cột" cảnh báo của nó tính được thuần từ registry, zero fetch):
+#   • term spread = 10Y − lãi suất điều hành ("Taylor-rule xấp xỉ"): ÂM/mỏng =
+#     chính sách chặt so với kỳ vọng dài hạn → rủi ro chu kỳ.
+#   • slope 10Y − 2Y (khi có 2Y từ VBMA): ĐẢO NGƯỢC = thị trường TPCP định giá
+#     rủi ro suy giảm; phẳng = cảnh giác cuối chu kỳ.
+# LEVEL-gauge thuần hiển thị — KHÔNG vào pressure score (mirror liquidity_spread;
+# 2 trụ còn lại của VnBondLab cần US10Y/percentile lịch sử — chưa có nguồn/mẫu).
+_TERM_THIN_SPREAD = 0.5        # 10Y − điều hành < +0.5 điểm % → mỏng
+_YC_FLAT_SLOPE = 0.3           # 10Y − 2Y < +0.3 điểm % → phẳng
+
+
+def term_spread(macro: "list[dict] | None") -> "dict | None":
+    """Gauge kỳ hạn & đường cong: ``{spread, label, dir, slope_2_10?,
+    slope_label?, slope_dir?}`` — spread = 10Y − lãi suất điều hành (điểm %),
+    slope = 10Y − 2Y (chỉ khi có 2Y). dir/slope_dir: −1 xấu, 0 bình thường.
+    None khi thiếu 10Y hoặc lãi suất điều hành."""
+    rows = {m.get("key"): m for m in (macro or [])}
+    y10, policy = rows.get("govt_bond_yield_10y"), rows.get("sbv_policy_rate")
+    if not y10 or not policy:
+        return None
+    spread = round(float(y10["value"]) - float(policy["value"]), 2)
+    if spread < 0:
+        label, d = ("ÂM — lợi suất 10Y dưới lãi suất điều hành, chính sách "
+                    "THẮT so với kỳ vọng dài hạn (rủi ro chu kỳ)"), -1
+    elif spread < _TERM_THIN_SPREAD:
+        label, d = "mỏng — chính sách tương đối chặt so với đầu dài", 0
+    else:
+        label, d = "bình thường", 0
+    out = {"spread": spread, "label": label, "dir": d}
+    y2 = rows.get("govt_bond_yield_2y")
+    if y2:
+        slope = round(float(y10["value"]) - float(y2["value"]), 2)
+        if slope < 0:
+            s_label, s_d = ("ĐẢO NGƯỢC — thị trường TPCP định giá rủi ro "
+                            "suy giảm chu kỳ"), -1
+        elif slope < _YC_FLAT_SLOPE:
+            s_label, s_d = "phẳng — cảnh giác cuối chu kỳ", 0
+        else:
+            s_label, s_d = "dốc bình thường", 0
+        out.update({"slope_2_10": slope,
+                    "slope_label": s_label, "slope_dir": s_d})
+    return out
+
+
+# Gauge chênh lệch quốc tế (2026-07-11 — "trụ cột 3" của VnBondLab/Macro Alert
+# System, làm được sau khi có us10y từ FRED qua khảo sát public-apis): VN10Y −
+# US10Y. ÂM = lợi suất VN kém hấp dẫn hơn Mỹ → vốn ngoại dễ rút (liên thông
+# chuỗi VND yếu → NN bán ròng đã có trong block vĩ mô). LEVEL-gauge thuần hiển
+# thị — KHÔNG vào pressure score (mirror liquidity_spread/term_spread). Trụ 4
+# còn lại của VnBondLab (ngưỡng percentile lịch sử) vẫn để dành chờ đủ mẫu.
+_INTL_THIN_SPREAD = 0.5        # 0 ≤ spread < +0.5 điểm % → lợi thế không đáng kể
+
+
+def intl_spread(macro: "list[dict] | None") -> "dict | None":
+    """Gauge chênh lệch quốc tế: ``{spread, label, dir}`` — spread = VN10Y −
+    US10Y (điểm %), dir −1 khi ÂM / 0 bình thường. None khi thiếu 1 trong 2."""
+    rows = {m.get("key"): m for m in (macro or [])}
+    vn, us = rows.get("govt_bond_yield_10y"), rows.get("us10y")
+    if not vn or not us:
+        return None
+    spread = round(float(vn["value"]) - float(us["value"]), 2)
+    if spread < 0:
+        label, d = ("ÂM — lợi suất VN thấp hơn Mỹ, kém hấp dẫn vốn ngoại "
+                    "(áp lực tỷ giá, khối ngoại dễ bán ròng)"), -1
+    elif spread < _INTL_THIN_SPREAD:
+        label, d = "mỏng — lợi thế lợi suất so với Mỹ không đáng kể", 0
+    else:
+        label, d = "dương — còn lợi thế lợi suất so với Mỹ", 0
+    return {"spread": spread, "label": label, "dir": d}
+
+
 # Nhắc set PMI từ mùng mấy hàng tháng (mùng 1-2 là ân hạn: S&P công bố ~mùng 1,
 # đường RSS tự động thường bắt được trong 1-2 ngày — chỉ nhắc khi CẢ auto trượt).
 _PMI_REMIND_FROM_DAY = 3
@@ -960,6 +1087,17 @@ def _show() -> None:
                  if liq.get("slope_10y_on") is not None else "")
         print(f"  → Thanh khoản: ON − điều hành = {liq['spread']:+.2f} điểm % "
               f"({liq['label']}){slope}")
+    ts = term_spread(macro)
+    if ts:
+        slope = (f"; dốc 10Y − 2Y = {ts['slope_2_10']:+.2f} điểm % "
+                 f"({ts['slope_label']})"
+                 if ts.get("slope_2_10") is not None else "")
+        print(f"  → Kỳ hạn: 10Y − điều hành = {ts['spread']:+.2f} điểm % "
+              f"({ts['label']}){slope}")
+    intl = intl_spread(macro)
+    if intl:
+        print(f"  → Quốc tế: VN10Y − US10Y = {intl['spread']:+.2f} điểm % "
+              f"({intl['label']})")
     rem = pmi_reminder(macro)
     if rem:
         print(f"  {rem}")
@@ -971,6 +1109,15 @@ def _show() -> None:
 
 
 def main(argv: "list[str] | None" = None) -> int:
+    # .env TRƯỚC khi refresh: FRED là nguồn vĩ mô ĐẦU TIÊN cần key
+    # (FRED_API_KEY) — thiếu bước này thì `run.py macro`/CLI skip FRED lặng lẽ
+    # dù `vnstock_fred.py --diag` (tự load .env) chạy được (bẫy thật 13/07).
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(_REPO / ".env", override=False)
+    except Exception:
+        pass
+
     ap = argparse.ArgumentParser(description="Theo dõi vĩ mô: lãi suất & tỷ giá.")
     ap.add_argument("--refresh", action="store_true",
                     help="Seed/scaffold + auto-fetch tỷ giá → cache")
