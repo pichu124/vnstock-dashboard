@@ -13,7 +13,8 @@ Items here get auto-loaded into Claude's context at session start.
   `vnstock_sentiment.py`, `vnstock_news.py`, `vnstock_telegram.py`,
   `vnstock_freshness.py`, `vnstock_vn30_weights.py`,
   `vnstock_market_sentiment.py`, `vnstock_fundamental_updater.py`,
-  `vnstock_macro.py`, `vnstock_news_feeds.py`, `vnstock_doctor.py`
+  `vnstock_macro.py`, `vnstock_news_feeds.py`, `vnstock_doctor.py`,
+  `vnstock_allocation.py`
 - Trước khi tạo PR merge về `main`
 - Sau khi nâng cấp pandas / numpy / Python version
 
@@ -708,7 +709,7 @@ mã hủy niêm yết (last 2018-2021) re-fetch nhiều NĂM mỗi lần cho 0 n
 
 ---
 
-## 🧭 THIẾT KẾ ĐÃ DUYỆT — Báo cáo vĩ mô upload + Phân bổ tài sản (CHƯA BUILD, 2026-07-13)
+## 🧭 THIẾT KẾ ĐÃ DUYỆT — Báo cáo vĩ mô upload + Phân bổ tài sản (P1 DONE 2026-07-13, P2+ CHƯA BUILD)
 
 Ý tưởng user: upload báo cáo vĩ mô hay (CTCK/chuyên gia, cả Việt lẫn Anh) để
 AI phân tích tình trạng vĩ mô VN → khuyến nghị rải ngân vào lớp tài sản nào.
@@ -778,9 +779,42 @@ chỉ viết lời, guard pin; (2) số từ báo cáo KHÔNG vào registry 13 c
 `apply_brief_guards` dùng chung + `run.py test --fast` sau mọi sửa brief.
 
 **Phase + effort (điểm dừng nào cũng có giá trị độc lập):**
-P1 allocation core 1.5-2d → P2 ingest 1-1.5d → P3 digest+cross-check 1.5-2d
+P1 allocation core ✅ DONE → P2 ingest 1-1.5d → P3 digest+cross-check 1.5-2d
 → P4 nối brief 2-2.5d → P5 UI+doctor+tests 1.5-2d → P6 scorecard+vàng 2.5d.
-Tổng ~8-10 ngày công. Bắt đầu = nói "làm phase 1".
+Tổng ~8-10 ngày công. Tiếp theo = nói "làm phase 2".
+
+### ✅ P1 DONE (2026-07-13, branch `claude/phase-1-kickoff-lzorv6`) — `vnstock_allocation.py`
+
+Đúng scope duyệt: **zero fetch / zero LLM**, chỉ đọc cache sẵn có. Chi tiết
+implement (P2+ nối vào đây, đừng regress):
+- **7 input → điểm [-1,1]** (`compute_score`, +1 = thuận lợi tài sản rủi ro):
+  regime `score/5` (w .25) · sentiment `momentum/100` (w .20) · breadth
+  `(pct−45)/25` (w .15) · macro_pressure nguyên trạng (w .15) · 3 gauge dùng
+  `dir` −1/0/+1 (liquidity .10; term .10 — trung bình dir + slope_dir khi có;
+  intl .05). Weight renormalize trên input CÓ MẶT (mirror sentiment
+  composite); input hỏng/thiếu bị bỏ, không chặn input khác.
+- **Band**: điểm ≥ +0.50 → B0 · ≥ +0.15 → B1 · > −0.15 → B2 · > −0.50 → B3 ·
+  còn lại B4 (`_BAND_EDGES`). **Hysteresis** (`apply_hysteresis`): đổi band
+  cần vượt ranh giới ≥ `_HYSTERESIS_MARGIN` (0.05) trong `_CONFIRM_SESSIONS`
+  (2) NGÀY KHÁC NHAU — recompute cùng ngày không đếm 2 lần (idempotent); đề
+  xuất đổi hướng giữa chừng → pending đếm lại; lần chạy ĐẦU áp band thô ngay.
+- **State** `_meta/allocation_state.json` (ghi ATOMIC tmp+os.replace): band +
+  điểm + `inputs[]` mỗi dòng đủ lý-do (value/score/weight/source/**as_of** —
+  as_of gauge = as_of CŨ NHẤT trong các chỉ số nền) + pending + **history
+  theo ngày** (cap 500, same-date replace) đủ cho scorecard P6 từ ngày 1.
+  Không input nào dùng được → GIỮ state cũ nguyên vẹn, trả None, KHÔNG ghi
+  đè (mirror giữ-cache-cũ của macro).
+- **Config user chỉnh**: `_meta/allocation_config.json` — override
+  `allocations` theo band (phải đủ 5 lớp + tổng ~100, sai → bỏ qua + cảnh
+  báo) và `weights`. Mặc định = bảng B0-B4 user duyệt ở trên.
+- **CLI**: `--refresh` / `--show` / `--history [N]` / `--json` / `--as-of`.
+  `run.py allocation` + bước best-effort trong `run.py all` (sau `macro`) →
+  history tự tích lũy mỗi tối. Loader public cho P4/P5: `load_state()`.
+- **Tests**: `tests/test_allocation.py` (26 tests, hermetic — fake module
+  qua sys.modules cho collect_inputs) đã vào danh sách `--fast`.
+- CHƯA làm (đúng kế hoạch): doctor check + sub-tab UI (P5), ingest báo cáo
+  (P2), digest + tilt ±1 band (P3), block brief + guard (P4), vàng/scorecard
+  (P6).
 
 ---
 

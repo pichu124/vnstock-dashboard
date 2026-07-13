@@ -659,6 +659,7 @@ def cmd_test(args) -> int:
             "tests/test_doctor.py",
             "tests/test_fred.py",
             "tests/test_ratelimit.py",
+            "tests/test_allocation.py",
         ]
     else:
         test_paths = ["tests/"]
@@ -757,6 +758,18 @@ def cmd_macro(args) -> int:
     maintained manually via `python vnstock_macro.py --set <key> <value>`.
     """
     rc = _run([sys.executable, str(REPO_ROOT / "vnstock_macro.py"), "--refresh"])
+    return 1 if rc != 0 else 0
+
+
+def cmd_allocation(args) -> int:
+    """Refresh the asset-allocation band (B0-B4) from existing caches.
+
+    Zero fetch / zero LLM — vnstock_allocation just reads regime/sentiment/
+    breadth/macro caches, applies hysteresis, and persists state + the per-day
+    history log. Best-effort: missing inputs keep the previous state intact.
+    """
+    rc = _run([sys.executable, str(REPO_ROOT / "vnstock_allocation.py"),
+               "--refresh"])
     return 1 if rc != 0 else 0
 
 
@@ -868,15 +881,17 @@ def cmd_news(args) -> int:
 
 
 def cmd_all(args) -> int:
-    """sync → validate → screener → news → test → audit → doctor.
-    Stops on first hard failure. The trailing doctor pass is offline-only and
-    just refreshes doctor_status.json so the sidebar badge stays current."""
+    """sync → validate → screener → news → foreign-flow → macro → allocation
+    → test → audit → doctor. Stops on first hard failure. The trailing doctor
+    pass is offline-only and just refreshes doctor_status.json so the sidebar
+    badge stays current."""
     steps: list[tuple[str, object]] = [
         ("sync",         cmd_sync),
         ("validate",     cmd_validate),
         ("screener",     cmd_screener),
         ("foreign-flow", cmd_foreign_flow),
         ("macro",        cmd_macro),
+        ("allocation",   cmd_allocation),
         ("test",         cmd_test),
         ("audit",        cmd_audit),
         ("doctor",       cmd_doctor),
@@ -1073,6 +1088,8 @@ def build_parser() -> argparse.ArgumentParser:
     ff_nn.add_argument("--days", type=int, default=5)
     sub.add_parser("macro",
                    help="Refresh macro cache (lãi suất & tỷ giá) — seed + auto-fetch FX")
+    sub.add_parser("allocation",
+                   help="Refresh asset-allocation band B0-B4 (vnstock_allocation.py)")
     sub.add_parser("dashboard", help="Launch the Streamlit dashboard")
 
     tg = sub.add_parser("telegram", help="Push Telegram notifications")
@@ -1120,6 +1137,7 @@ _DISPATCH = {
     "screener": cmd_screener,
     "foreign-flow": cmd_foreign_flow,
     "macro": cmd_macro,
+    "allocation": cmd_allocation,
     "telegram": cmd_telegram,
     "news": cmd_news,
     "test": cmd_test,
