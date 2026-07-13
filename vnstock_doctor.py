@@ -49,6 +49,8 @@ _MACRO_MAX_AGE_DAYS = {
     "interbank_1w": 12,
     "govt_bond_yield_2y": 12,
     "govt_bond_yield_10y": 12,
+    "us10y": 7,                # FRED daily (DGS10 nghỉ cuối tuần/lễ)
+    "fed_funds": 7,
     "cpi_yoy": 45,
     "iip_yoy": 45,
     "pmi": 40,
@@ -427,6 +429,29 @@ def net_foreign_flow_api() -> dict:
     return _result("net_foreign_flow", name, "ok", msg)
 
 
+def net_fred() -> dict:
+    """FRED (US10Y + Fed funds) — cần FRED_API_KEY free trong .env."""
+    name = "FRED US10Y/Fed (mạng)"
+    if os.environ.get("VNSTOCK_MACRO_FRED", "1") == "0":
+        return _result("net_fred", name, "off", "đã tắt (VNSTOCK_MACRO_FRED=0)")
+    from vnstock_fred import _api_key, fetch_daily
+    if not _api_key():
+        return _result("net_fred", name, "off",
+                       "chưa có FRED_API_KEY trong .env — us10y/fed_funds sẽ "
+                       "không tự cập nhật",
+                       "đăng ký key free (~2 phút): "
+                       "https://fred.stlouisfed.org/docs/api/api_key.html "
+                       "→ thêm FRED_API_KEY=<key> vào .env")
+    got = fetch_daily()
+    if got:
+        parts = ", ".join(f"{k}={v} ({d})" for k, (v, d) in sorted(got.items()))
+        return _result("net_fred", name, "ok", f"fetch OK: {parts}")
+    return _result("net_fred", name, "error",
+                   "có key nhưng không fetch được",
+                   "kiểm tra mạng/allowlist api.stlouisfed.org + key còn hiệu lực; "
+                   "python vnstock_fred.py --diag")
+
+
 def net_jina() -> dict:
     """Jina Reader (r.jina.ai) — full text cho tin chấm LLM."""
     name = "Jina Reader (mạng)"
@@ -450,7 +475,8 @@ OFFLINE_CHECKS = [
     check_tests,
 ]
 NET_CHECKS = [
-    net_rss_feeds, net_fx, net_vbma, net_nso, net_foreign_flow_api, net_jina,
+    net_rss_feeds, net_fx, net_vbma, net_nso, net_fred, net_foreign_flow_api,
+    net_jina,
 ]
 
 

@@ -18,9 +18,10 @@ import vnstock_vbma as vbma
 
 @pytest.fixture(autouse=True)
 def _no_external_macro_fetch(monkeypatch):
-    """refresh() nay còn gọi NSO (mạng) + PMI-from-news (đọc cache repo) —
-    chặn mặc định để test wiring hermetic."""
+    """refresh() nay còn gọi NSO + FRED (mạng) + PMI-from-news (đọc cache repo)
+    — chặn mặc định để test wiring hermetic."""
     monkeypatch.setattr(mac, "_fetch_nso", lambda: None)
+    monkeypatch.setattr(mac, "_fetch_fred", lambda: None)
     monkeypatch.setattr(mac, "_pmi_from_news", lambda: None)
 
 

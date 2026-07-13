@@ -77,6 +77,12 @@ def _render_indicators(mac) -> None:
         st.caption(f"{icon} Kỳ hạn: 10Y − lãi suất điều hành = "
                    f"**{ts['spread']:+.2f} điểm %** — {ts['label']}{slope}")
 
+    intl = mac.intl_spread(macro)
+    if intl:
+        icon = "🔴" if intl["dir"] < 0 else "⚪"
+        st.caption(f"{icon} Quốc tế: VN10Y − US10Y = "
+                   f"**{intl['spread']:+.2f} điểm %** — {intl['label']}")
+
     rem = mac.pmi_reminder(macro)
     if rem:
         st.warning(rem)

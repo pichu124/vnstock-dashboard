@@ -13,9 +13,10 @@ import vnstock_macro as mac
 
 @pytest.fixture(autouse=True)
 def _no_external_macro_fetch(monkeypatch):
-    """refresh() nay còn gọi NSO (mạng) + PMI-from-news (đọc cache repo) —
-    chặn mặc định để test hermetic; test nào cần thì tự re-patch."""
+    """refresh() nay còn gọi NSO + FRED (mạng) + PMI-from-news (đọc cache repo)
+    — chặn mặc định để test hermetic; test nào cần thì tự re-patch."""
     monkeypatch.setattr(mac, "_fetch_nso", lambda: None)
+    monkeypatch.setattr(mac, "_fetch_fred", lambda: None)
     monkeypatch.setattr(mac, "_pmi_from_news", lambda: None)
 
 
@@ -630,6 +631,76 @@ def test_macro_body_lines_include_term_gauge():
     # thiếu input → không có dòng (no-op, không phát nhãn sai)
     body2 = vb._macro_body_lines(_term_rows(y2=3.5, y10=4.4))
     assert not any("Kỳ hạn & đường cong" in l for l in body2)
+
+
+def _intl_rows(vn10=None, us10=None):
+    rows = _liq_rows(y10=vn10)
+    if us10 is not None:
+        rows.append({"key": "us10y", "label": "Lợi suất TPCP Mỹ 10 năm (US10Y)",
+                     "kind": "rate",
+                     "unit": "%/năm", "value": us10, "as_of": "2026-07-09",
+                     "change": None})
+    return rows
+
+
+def test_intl_spread_bands():
+    # VN 4.40 vs US 4.35 → +0.05 = mỏng (dir 0)
+    thin = mac.intl_spread(_intl_rows(vn10=4.4, us10=4.35))
+    assert thin["spread"] == pytest.approx(0.05)
+    assert thin["dir"] == 0 and "mỏng" in thin["label"]
+    # VN thấp hơn Mỹ → ÂM (dir −1) — kém hấp dẫn vốn ngoại
+    neg = mac.intl_spread(_intl_rows(vn10=3.0, us10=4.35))
+    assert neg["spread"] == pytest.approx(-1.35)
+    assert neg["dir"] == -1 and "ÂM" in neg["label"]
+    # lợi thế rõ → dương
+    assert mac.intl_spread(_intl_rows(vn10=5.5, us10=4.0))["dir"] == 0
+    # thiếu 1 trong 2 → None
+    assert mac.intl_spread(_intl_rows(vn10=4.4)) is None
+    assert mac.intl_spread(_intl_rows(us10=4.35)) is None
+    assert mac.intl_spread(None) is None
+
+
+def test_macro_body_lines_include_intl_gauge_and_fed_directive():
+    import vnstock_brief as vb
+    rows = _intl_rows(vn10=4.4, us10=4.35)
+    body = vb._macro_body_lines(rows)
+    intl_lines = [l for l in body if "Chênh lệch quốc tế" in l]
+    assert len(intl_lines) == 1 and "+0.05 điểm %" in intl_lines[0]
+    # CHƯA có fed_funds → directive vẫn cấm bịa Fed
+    assert any("Fed… chưa có trong data" in l for l in body)
+    # CÓ fed_funds → mệnh đề cấm Fed được nới (luật không-bịa chung giữ nguyên)
+    rows.append({"key": "fed_funds", "label": "Lãi suất Fed (effective)",
+                 "kind": "rate", "unit": "%/năm", "value": 4.33,
+                 "as_of": "2026-07-10", "change": None})
+    body2 = vb._macro_body_lines(rows)
+    assert not any("Fed… chưa có trong data" in l for l in body2)
+    assert any("KHÔNG bịa chỉ số" in l for l in body2)
+
+
+def test_fetch_usdvnd_parses_currency_api_lowercase(monkeypatch):
+    # Nấc 3 (currency-api fawazahmed0) trả {"usd": {"vnd": ...}} chữ thường —
+    # 2 nấc đầu fail thì vẫn phải ra số
+    payloads = iter([OSError("nấc 1 chết"), OSError("nấc 2 chết"),
+                     {"date": "2026-07-11", "usd": {"vnd": 26234.6}}])
+
+    class _Resp:
+        def __init__(self, data):
+            self._data = data
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._data
+
+    def _fake_get(url, timeout=None):
+        p = next(payloads)
+        if isinstance(p, Exception):
+            raise p
+        return _Resp(p)
+
+    monkeypatch.setattr("requests.get", _fake_get)
+    assert mac.fetch_usdvnd() == pytest.approx(26234.6)
 
 
 def test_macro_body_lines_include_liquidity_gauge():

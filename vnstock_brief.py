@@ -1300,8 +1300,8 @@ def _macro_body_lines(macro: list[dict],
     with NO recent change are compressed into one 'Đi ngang' line so the block
     doesn't grow a bullet per indicator as the registry expands (8+ nay).
     """
-    from vnstock_macro import (fmt_change, fmt_value, liquidity_spread,
-                               pmi_reminder, term_spread)
+    from vnstock_macro import (fmt_change, fmt_value, intl_spread,
+                               liquidity_spread, pmi_reminder, term_spread)
     moved = [m for m in macro if fmt_change(m)]
     flat = [m for m in macro if not fmt_change(m)]
     lines = [_macro_line(m) for m in moved]
@@ -1324,12 +1324,20 @@ def _macro_body_lines(macro: list[dict],
             line += (f"; dốc 10Y − 2Y = {ts['slope_2_10']:+.2f} điểm % → "
                      f"{ts['slope_label']}")
         lines.append(line)
+    intl = intl_spread(macro)          # gauge chênh lệch quốc tế VN10Y − US10Y
+    if intl:
+        lines.append(f"- Chênh lệch quốc tế: VN10Y − US10Y = "
+                     f"{intl['spread']:+.2f} điểm % → {intl['label']}")
     rem = pmi_reminder(macro)          # PMI tháng trước chưa set sau ngày công bố
     if rem:
         lines.append(f"- {rem}")
     for n in (macro_news or [])[:3]:
         lines.append(f"- Tin liên quan [{n.get('ticker','')}] {n.get('date','')}: "
                      f"{n.get('title','')}")
+    # Fed có reading thật (fed_funds từ FRED) thì bỏ mệnh đề "Fed chưa có
+    # data" — trước đó phải CẤM BỊA vì không có nguồn; luật "không bịa chỉ số
+    # ngoài danh sách" vẫn giữ nguyên cho mọi thứ khác.
+    have_fed = any(m.get("key") == "fed_funds" for m in macro)
     lines.append(
         "→ Lãi suất TĂNG / VND mất giá (USD/VND tăng) / CPI tăng tốc = môi trường "
         "THẮT CHẶT, bất lợi cho cổ phiếu (đặc biệt nhóm vay nợ cao; khối ngoại dễ "
@@ -1337,7 +1345,8 @@ def _macro_body_lines(macro: list[dict],
         "lợi hơn (PMI < 50 điểm = sản xuất thu hẹp; cán cân thương mại ÂM = nhập "
         "siêu, kéo dài là áp lực tỷ giá). DÙNG bối cảnh này khi chốt Bias + Rủi "
         "ro để ĐÓN ĐẦU thay đổi. DÙNG ĐÚNG số + as_of ở trên, KHÔNG bịa chỉ số "
-        "vĩ mô ngoài danh sách trên (Fed… chưa có trong data)."
+        "vĩ mô ngoài danh sách trên"
+        + ("." if have_fed else " (Fed… chưa có trong data).")
     )
     return lines
 

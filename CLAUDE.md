@@ -404,12 +404,14 @@ danh sách thật vào output (LLM hay phớt block dù data có trong prompt).
   "quý"), CHỈ có trong bài quý → 4 lần/năm, giữa các quý giữ reading cũ (as_of
   hiện rõ). Cán cân thương mại: bắt buộc chữ "tháng" giữa anchor và "xuất/nhập
   siêu" → số LŨY KẾ 6 tháng không lọt; "triệu USD"/1000; nhập siêu = ÂM.
-  Registry cap: quyết định 2026-07-08 dừng ở 10 chỉ số; **2026-07-10 user chốt
-  NỚI 10→11** cho `govt_bond_yield_2y` (từ khảo sát VnBondLab — cùng ma trận
-  PDF VBMA với 10Y, zero request mới → gauge dốc đường cong). 11 là cap mới —
+  Registry cap: 2026-07-08 dừng ở 10 → **2026-07-10 nới 10→11** cho
+  `govt_bond_yield_2y` (khảo sát VnBondLab, cùng PDF VBMA) → **2026-07-11 user
+  "làm tất cả" khảo sát public-apis: nới 11→13** cho `us10y` + `fed_funds`
+  (FRED — mở khóa trụ 3 VnBondLab + bỏ lệnh cấm-bịa-Fed). 13 là cap hiện hành —
   thêm nữa phải bỏ bớt; credit growth vẫn để dành, chỉ làm nếu brief thiếu ngữ
   cảnh khi có tin tín dụng lớn. Directive brief: GDP đã BỎ khỏi danh sách cấm
-  bịa (nay có data), chỉ còn Fed.
+  bịa; mệnh đề cấm Fed nay ĐỘNG — tự nới khi `fed_funds` có reading
+  (`_macro_body_lines` check key, guard dùng chung nên parity giữ).
 - **`cpi_yoy` + `iip_yoy` AUTO từ NSO** (`vnstock_nso.py`, mirror vnstock_vbma):
   listing `nso.gov.vn/bao-cao-tinh-hinh-kinh-te-xa-hoi-hang-thang/` → bài
   `/bai-top/{YYYY}/{MM}/bao-cao-…-thang-…` publish-tháng lớn nhất (KHÔNG dựng
@@ -463,10 +465,28 @@ danh sách thật vào output (LLM hay phớt block dù data có trong prompt).
   thị (brief qua `_macro_body_lines` dùng chung → parity/guard tự giữ, CLI
   `--show`, sub-tab Vĩ mô), KHÔNG vào pressure score. Số thật 03/07/2026: 10Y
   4.40 < điều hành 4.5 → spread −0.10 ÂM (nhất quán gauge thanh khoản CĂNG);
-  dốc 2-10 +0.90 bình thường. 2 trụ VnBondLab KHÔNG làm: VN10Y−US10Y (không
-  có nguồn US10Y free trong allowlist; Fed vẫn cấm bịa) + ngưỡng percentile
-  lịch sử (cần ~1 năm mẫu VBMA weekly — cache giữ 60 readings, để dành nâng
-  cấp band tĩnh → percentile khi đủ).
+  dốc 2-10 +0.90 bình thường. Trụ percentile lịch sử vẫn để dành (cần ~1 năm
+  mẫu VBMA weekly — cache giữ 60 readings, đủ thì nâng band tĩnh → percentile).
+- **FRED: us10y + fed_funds + gauge quốc tế (DONE 2026-07-11, từ khảo sát
+  public-apis — CẦN USER: đăng ký key free ~2 phút
+  https://fred.stlouisfed.org/docs/api/api_key.html → `FRED_API_KEY=<key>`
+  vào .env, rồi verify `python vnstock_fred.py --diag` trên máy có mạng)**:
+  `vnstock_fred.py` (mirror vbma/nso) fetch DGS10 + DFF qua API JSON chính
+  thức, skip value "." (ngày nghỉ), sanity range, as_of RIÊNG từng series;
+  không key → None, refresh bỏ qua (best-effort, KHÔNG bịa). Tắt:
+  `VNSTOCK_MACRO_FRED=0`. → `intl_spread(macro)` = VN10Y − US10Y ("trụ 3"
+  VnBondLab từng bỏ vì thiếu nguồn): ÂM (dir −1) = VN kém hấp dẫn vốn ngoại
+  → áp lực tỷ giá/NN bán ròng; < +0.5 → "mỏng" (`_INTL_THIN_SPREAD`).
+  LEVEL-gauge thuần hiển thị như 2 gauge kia (brief `_macro_body_lines` dùng
+  chung → parity/guard tự giữ, CLI `--show` dòng "→ Quốc tế", sub-tab Vĩ mô);
+  KHÔNG vào pressure score. Doctor: cadence 7d cho 2 chỉ số + net check
+  `net_fred` (chưa có key → ⬜ kèm link đăng ký). Trụ 4 VnBondLab duy nhất
+  còn lại = percentile lịch sử (chờ đủ mẫu).
+- **FX ladder nay 3 NẤC (2026-07-11)**: er-api → exchangerate.host →
+  **currency-api (fawazahmed0)** — nguồn từ khảo sát public-apis (2 nấc đầu
+  cũng nằm trong chính danh mục đó): free, KHÔNG rate limit, host CDN
+  jsdelivr + fallback pages.dev, payload `{"usd":{"vnd":…}}` CHỮ THƯỜNG
+  (parser fetch_usdvnd đã hiểu cả 2 dạng).
 - **Brief nén block vĩ mô**: `_macro_body_lines` gộp mọi chỉ số KHÔNG đổi vào
   1 dòng "Đi ngang/chưa có kỳ mới: …" (8 chỉ số không nở 8 bullet); chỉ số có
   thay đổi giữ bullet riêng. Directive cập nhật (CPI/IIP/PMI nay CÓ data — chỉ
@@ -686,14 +706,21 @@ thêm 4 bug: thiếu pypdf máy mới (doctor có check riêng), rate-limit 500/
 Golden (dùng --workers 4 --delay 1), --reanalyze trần là no-op, task tuần
 fundamentals no-op vì thiếu --force.
 
-**NHẮC USER 2 VIỆC CÒN LẠI** (user hẹn "check sau" — nhắc khi quay lại):
+**NHẮC USER 3 VIỆC CÒN LẠI** (user hẹn "check sau" — nhắc khi quay lại):
 1. **Bước 6 checklist — soi dashboard bằng mắt**: `python run.py dashboard`
    → badge 🩺 "Nguồn dữ liệu" ở sidebar (dưới badge ✅ Tests) + tab Tin tức
-   → 🌐 Vĩ mô có bảng 11 chỉ số + caption "⚪ Kỳ hạn: …". Chỉ là HIỂN THỊ
+   → 🌐 Vĩ mô có bảng chỉ số + caption "⚪ Kỳ hạn: …". Chỉ là HIỂN THỊ
    của thứ đã verify CLI — 5 phút.
-2. **Quyết định mở PR merge về `main`** — user gật là mở ngay (mô tả đầy đủ
-   sẵn trong 10 commit message). Sau merge pipeline 18:00 hưởng: doctor cuối
-   `run.py all`, tin chấm full-text, block vĩ mô 11 chỉ số + 2 gauge.
+2. **FRED (thêm 2026-07-11, "làm tất cả" khảo sát public-apis)**: đăng ký
+   key free ~2 phút https://fred.stlouisfed.org/docs/api/api_key.html →
+   thêm `FRED_API_KEY=<key>` vào .env → verify:
+   `python vnstock_fred.py --diag` (ra us10y + fed_funds) →
+   `python run.py macro && python vnstock_macro.py --show` (13 chỉ số +
+   dòng "→ Quốc tế: VN10Y − US10Y = …"). Chưa có key thì mọi thứ vẫn chạy
+   như cũ (best-effort), doctor --net hiện ⬜ kèm link đăng ký.
+3. **Quyết định mở PR merge về `main`** — user gật là mở ngay (mô tả đầy đủ
+   sẵn trong commit messages). Sau merge pipeline 18:00 hưởng: doctor cuối
+   `run.py all`, tin chấm full-text, block vĩ mô 13 chỉ số + 3 gauge.
 
 Lưu ý nhỏ đang treo: ⚠️ kho VNINDEX bar 07-08 (thiếu 2 phiên 09-10/07) =
 độ trễ API bar index, KHÔNG phải lỗi — pipeline T2 18:00 tự bù; nếu sang
@@ -770,6 +797,36 @@ top-100 stale); `vnstock_market_sentiment.load_market_sentiment` truyền
 `python vnstock_foreign_flow.py --diag 2026-06-12` → in net + **số mã** trả về.
 Nếu khớp ~−491 và vài trăm mã ⇒ OK. Nếu chỉ ~100 mã ⇒ API đang cap `limit`, cần
 tăng `--limit` hoặc đổi nguồn (xem mục 1 bên dưới về các nguồn đã thử).
+
+### 1c. Khảo sát public-apis (2026-07-11) — nguồn ứng viên ĐỂ DÀNH
+
+Đã khai thác ngay: FRED (us10y/fed_funds + gauge quốc tế) + currency-api (FX
+nấc 3) — xem mục Vĩ mô. Còn lại LƯU Ở ĐÂY chờ nhu cầu (user dặn giữ 2026-07-11):
+
+**Để dành — có use-case rõ, chưa làm:**
+- **Econdb** (econdb.com/api — Auth: No, macro toàn cầu, CÓ series VN):
+  ứng viên nguồn **CROSS-CHECK số NSO** (CPI/GDP/IIP) — mirror đúng pattern
+  `_fx_crosscheck` er-api↔VCB đang có. Việc đầu tiên khi làm: verify series
+  VN của nó có tươi/khớp NSO không (`--diag` trên máy có mạng).
+- **Goldprice.dev** (Auth: No, vàng/bạc/đồng spot + 30 năm lịch sử, 13 tiền
+  tệ): tin vàng/PNJ xuất hiện thường xuyên mà brief chỉ có TIN không có SỐ —
+  1 dòng giá vàng làm ngữ cảnh cho analyze_item/brief là use-case tự nhiên.
+  Lưu ý cap registry 13 → nếu thêm thì cân nhắc display-only ngoài registry.
+- Dầu (Brent/WTI): KHÔNG có API free-no-key nào trong danh mục (toàn
+  paywalled: EconPulse/Sugra/Finage đều apiKey trả phí) — tin dầu vẫn đi
+  đường RSS keywords như hiện tại.
+
+**Bỏ qua nhưng ĐÁNG NHỚ (user dặn lưu — có thể đổi ý sau):**
+- **News APIs** (NewsAPI/GNews/Currents/MarketAux/NewsData…): toàn `apiKey`
+  + thiên nguồn Anh ngữ — RSS báo VN hiện tại PHỦ TỐT HƠN cho thị trường VN
+  (12 feed, có sẵn tiếng Việt, free). Khi nào đáng xem lại: cần tin tiếng
+  Anh có sentiment/ticker-tag sẵn (MarketAux) hoặc RSS VN bắt đầu chặn.
+- **Stock APIs** (Alpha Vantage/Finnhub/Polygon/Twelve Data…): vnstock +
+  sponsor API đã cover VN đầy đủ — các API này KHÔNG có data HOSE/HNX. Khi
+  nào đáng xem lại: cần data thị trường MỸ/quốc tế làm ngữ cảnh (index
+  futures, S&P500) — lúc đó Finnhub/Twelve Data free tier là ứng viên đầu.
+- Repo public-apis = DANH MỤC để tra khi cần nguồn mới (2 nguồn FX cũ của
+  mình cũng nằm trong đó) — không phải dependency, không cần theo dõi.
 
 ### 1b. Chất lượng dòng "→ tác động" tin vĩ mô — giới hạn MODEL, nâng khi cần
 

@@ -114,6 +114,7 @@ def _use_tmp_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(mac, "_CACHE", tmp_path / "macro_indicators.json")
     monkeypatch.setattr(mac, "fetch_usdvnd", lambda: None)
     monkeypatch.setattr(mac, "_fetch_vbma", lambda: None)
+    monkeypatch.setattr(mac, "_fetch_fred", lambda: None)
     monkeypatch.setattr(mac, "_pmi_from_news", lambda: None)
 
 
