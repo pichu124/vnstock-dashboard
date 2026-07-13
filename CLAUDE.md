@@ -872,6 +872,15 @@ Claude/GPT). CPU-only ~5-15 tok/s: đủ cho ≤8 tin/ngày, chậm cho batch l�
 Khác 3 khảo sát trước (lấp gap DỮ LIỆU thật), cái này lấp gap ĐỘ BỀN LLM —
 hiện chưa đau nên để dành.
 
+**Khảo sát excalidraw (2026-07-13): BỎ QUA, user chốt "không áp dụng được"**
+— whiteboard vẽ tay React SPA: lệch stack (dashboard là Streamlit/Python,
+nhúng cần tự viết custom component) + lệch use-case (canvas TỰ DO không neo
+trục giá/thời gian — vẽ trendline trên đó lệch ngay khi pan/zoom; nhu cầu
+vẽ-trên-chart nếu có thuộc về primitives của lightweight-charts đang dùng,
+và khối sync 4-panel là vùng hard-won invariants phải dè chừng). Không có
+gì để mượn về phương pháp. Nhu cầu phác thảo cá nhân → dùng excalidraw.com
+như app rời, khỏi tích hợp.
+
 ### 1b. Chất lượng dòng "→ tác động" tin vĩ mô — giới hạn MODEL, nâng khi cần
 
 **Status (ghi nhận 2026-07-10, verify --reanalyze với full text Jina trên máy
