@@ -325,6 +325,19 @@ def set_meta(rid: str, *, report_date: "str | None" = None,
     return rec
 
 
+def set_digest(rid: str, digest: dict) -> "dict | None":
+    """Ghi digest (P3 — vnstock_report_digest) vào record. Digest sống trong
+    index cùng metadata: một nguồn sự thật, xóa báo cáo là digest đi theo."""
+    idx = _load_index()
+    rec = (idx.get("reports") or {}).get(rid)
+    if rec is None:
+        print(f"[reports] ❌ không có id {rid} để gắn digest")
+        return None
+    rec["digest"] = digest
+    _write_index(idx)
+    return rec
+
+
 def remove(rid: str) -> bool:
     idx = _load_index()
     reports = idx.get("reports") or {}

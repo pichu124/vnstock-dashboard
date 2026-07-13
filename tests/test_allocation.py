@@ -14,6 +14,14 @@ import pytest
 import vnstock_allocation as alloc
 
 
+@pytest.fixture(autouse=True)
+def _no_report_tilt(monkeypatch):
+    """P3 thêm tilt ±1 band từ digest báo cáo — tắt trong file này để test
+    core P1 hermetic (máy user có digest thật sẽ không làm lệch band kỳ
+    vọng). Tilt được test riêng ở test_report_digest.py."""
+    monkeypatch.setattr(alloc, "_load_report_tilt", lambda as_of: None)
+
+
 def _mk_module(name, **attrs):
     mod = types.ModuleType(name)
     for k, v in attrs.items():

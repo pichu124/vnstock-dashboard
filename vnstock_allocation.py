@@ -407,6 +407,55 @@ def collect_inputs(effective_date: "str | None" = None) -> tuple[str, dict]:
     return as_of, inputs
 
 
+# ── Tilt từ báo cáo (P3 — đọc consensus đã cache, vẫn zero LLM tại đây) ─────
+
+
+def _tilt_enabled() -> bool:
+    return os.environ.get("VNSTOCK_ALLOCATION_TILT", "1") != "0"
+
+
+def _load_report_tilt(as_of: "str | None") -> "dict | None":
+    """Consensus digest báo cáo (vnstock_report_digest) — best-effort, chỉ ĐỌC
+    digest đã cache trong reports_index (không gọi LLM). None khi chưa có
+    digest / module lỗi / tilt = 0."""
+    if not _tilt_enabled():
+        return None
+    try:
+        from vnstock_report_digest import consensus
+        c = consensus(as_of=as_of)
+        if c and c.get("tilt"):
+            return c
+    except Exception:
+        pass
+    return None
+
+
+def apply_tilt(state: dict, tilt_info: "dict | None",
+               config: "dict | None" = None) -> dict:
+    """Áp tilt ±1 band từ consensus báo cáo LÊN TRÊN band data (nguyên tắc
+    thiết kế: báo cáo chỉ tilt ±1, KHÔNG override data sống).
+
+    ``state["band_data"]`` luôn = band từ data (hysteresis P1 neo vào đây);
+    ``state["band"]`` = band hiệu lực sau tilt. Không tilt → 2 field bằng nhau.
+    """
+    state["band_data"] = state["band"]
+    tilt = (tilt_info or {}).get("tilt") or 0
+    if not tilt:
+        state["report_tilt"] = None
+        return state
+    idx = max(0, min(len(_BANDS) - 1, _BANDS.index(state["band"]) + tilt))
+    state["band"] = _BANDS[idx]
+    state["band_label"] = _BAND_LABELS[state["band"]]
+    state["allocation"] = dict(_allocations_table(config)[state["band"]])
+    state["report_tilt"] = {
+        "tilt": tilt,
+        "stance_cp": (tilt_info.get("stance") or {}).get("Cổ phiếu"),
+        "n_reports": tilt_info.get("n_reports"),
+        "sources": [d.get("source") for d in tilt_info.get("drivers", [])],
+    }
+    return state
+
+
 # ── State I/O (atomic) + history log ────────────────────────────────────────
 
 
@@ -441,13 +490,15 @@ def _write_state(state: dict) -> None:
 def _history_entry(state: dict) -> dict:
     """1 dòng history/phiên — đủ cho scorecard hồi tố (P6) chấm lại band."""
     return {
-        "date":     state["as_of"],
-        "band":     state["band"],
-        "raw_band": state["raw_band"],
-        "score":    state["score"],
-        "inputs":   {r["key"]: {"value": r["value"], "score": r["score"],
-                                "as_of": r["as_of"]}
-                     for r in state["inputs"]},
+        "date":      state["as_of"],
+        "band":      state["band"],
+        "band_data": state.get("band_data", state["band"]),
+        "tilt":      (state.get("report_tilt") or {}).get("tilt", 0) or 0,
+        "raw_band":  state["raw_band"],
+        "score":     state["score"],
+        "inputs":    {r["key"]: {"value": r["value"], "score": r["score"],
+                                 "as_of": r["as_of"]}
+                      for r in state["inputs"]},
     }
 
 
@@ -457,11 +508,18 @@ def run_allocation(effective_date: "str | None" = None) -> "dict | None":
     trạng thái rỗng)."""
     as_of, inputs = collect_inputs(effective_date)
     prev = load_state()
-    state = compute_allocation(inputs, prev_state=prev, config=_load_config(),
+    cfg = _load_config()
+    # Hysteresis neo vào band DATA (band_data) — band hiệu lực có thể đã bị
+    # tilt bởi báo cáo, không được để tilt làm trôi mốc so sánh của data.
+    prev_for_hyst = None
+    if prev:
+        prev_for_hyst = {**prev, "band": prev.get("band_data") or prev.get("band")}
+    state = compute_allocation(inputs, prev_state=prev_for_hyst, config=cfg,
                                as_of=as_of)
     if state is None:
         print("[allocation] ⚠ chưa đủ dữ liệu đầu vào — giữ state cũ nguyên vẹn")
         return None
+    apply_tilt(state, _load_report_tilt(as_of), config=cfg)
     history = [h for h in (prev or {}).get("history", [])
                if h.get("date") != state["as_of"]]
     history.append(_history_entry(state))
@@ -479,8 +537,16 @@ def _print_state(state: dict) -> None:
     band = state["band"]
     print(f"🧭 Phân bổ tài sản — band {band} ({state['band_label']}) · "
           f"điểm {state['score']:+.3f} · phiên {state['as_of']}")
-    if state.get("raw_band") != band:
-        print(f"   (điểm thô đề xuất {state['raw_band']} — hysteresis đang giữ {band})")
+    rt = state.get("report_tilt")
+    if rt:
+        arrow = "tấn công hơn" if rt["tilt"] < 0 else "phòng thủ hơn"
+        print(f"   📚 tilt {rt['tilt']:+d} band ({arrow}) từ {rt['n_reports']} "
+              f"báo cáo (stance CP {rt['stance_cp']:+.2f}) — band data: "
+              f"{state['band_data']}")
+    band_data = state.get("band_data", band)
+    if state.get("raw_band") != band_data:
+        print(f"   (điểm thô đề xuất {state['raw_band']} — hysteresis đang giữ "
+              f"{band_data})")
     if state.get("pending"):
         p = state["pending"]
         print(f"   ⏳ chờ xác nhận đổi sang {p['band']} "

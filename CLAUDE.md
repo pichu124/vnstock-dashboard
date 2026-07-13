@@ -14,7 +14,7 @@ Items here get auto-loaded into Claude's context at session start.
   `vnstock_freshness.py`, `vnstock_vn30_weights.py`,
   `vnstock_market_sentiment.py`, `vnstock_fundamental_updater.py`,
   `vnstock_macro.py`, `vnstock_news_feeds.py`, `vnstock_doctor.py`,
-  `vnstock_allocation.py`, `vnstock_reports.py`
+  `vnstock_allocation.py`, `vnstock_reports.py`, `vnstock_report_digest.py`
 - Trước khi tạo PR merge về `main`
 - Sau khi nâng cấp pandas / numpy / Python version
 
@@ -709,7 +709,7 @@ mã hủy niêm yết (last 2018-2021) re-fetch nhiều NĂM mỗi lần cho 0 n
 
 ---
 
-## 🧭 THIẾT KẾ ĐÃ DUYỆT — Báo cáo vĩ mô upload + Phân bổ tài sản (P1+P2 DONE 2026-07-13, P3+ CHƯA BUILD)
+## 🧭 THIẾT KẾ ĐÃ DUYỆT — Báo cáo vĩ mô upload + Phân bổ tài sản (P1-P3 DONE 2026-07-13, P4+ CHƯA BUILD)
 
 Ý tưởng user: upload báo cáo vĩ mô hay (CTCK/chuyên gia, cả Việt lẫn Anh) để
 AI phân tích tình trạng vĩ mô VN → khuyến nghị rải ngân vào lớp tài sản nào.
@@ -779,9 +779,9 @@ chỉ viết lời, guard pin; (2) số từ báo cáo KHÔNG vào registry 13 c
 `apply_brief_guards` dùng chung + `run.py test --fast` sau mọi sửa brief.
 
 **Phase + effort (điểm dừng nào cũng có giá trị độc lập):**
-P1 allocation core ✅ DONE → P2 ingest ✅ DONE → P3 digest+cross-check 1.5-2d
+P1 allocation core ✅ → P2 ingest ✅ → P3 digest+cross-check+tilt ✅
 → P4 nối brief 2-2.5d → P5 UI+doctor+tests 1.5-2d → P6 scorecard+vàng 2.5d.
-Tổng ~8-10 ngày công. Tiếp theo = nói "làm phase 3".
+Tổng ~8-10 ngày công. Tiếp theo = nói "làm phase 4".
 
 ### ⏳ VERIFY HOÃN LẠI (user chốt 2026-07-13 "lưu việc phải test vào làm sau")
 
@@ -793,7 +793,13 @@ Chạy trên MÁY CÓ DATA + MẠNG (sandbox không có data_warehouse, chặn r
 3. `python vnstock_reports.py --add <PDF CTCK thật> --source X --report-date
    YYYY-MM-DD` → text trích được, `--list` hiện ✅; PDF scan → 🖼
    no_text_layer. `--add-url <URL báo cáo>` + `--diag` (Jina) trên máy có mạng.
-4. `python run.py test --fast` sau khi pull (~431 tests hiện hành).
+4. **P3**: `python vnstock_report_digest.py --diag` (LLM ladder OK?) →
+   `--refresh` trên báo cáo thật → `--show <id>` soi digest (stance hợp lý?
+   claims đúng số? tiếng Việt sạch?) → `--consensus` → chạy lại
+   `python vnstock_allocation.py --refresh` xem tilt xuất hiện đúng
+   (`band_data` vs `band`, dòng 📚). Thử 1 báo cáo có số SAI HẲN (vd sửa tay
+   text ghi "tỷ giá 30,000") → claim phải bị cờ mismatch.
+5. `python run.py test --fast` sau khi pull (~448 tests hiện hành).
 
 ### ✅ P1 DONE (2026-07-13, branch `claude/phase-1-kickoff-lzorv6`) — `vnstock_allocation.py`
 
@@ -824,8 +830,8 @@ implement (P2+ nối vào đây, đừng regress):
   history tự tích lũy mỗi tối. Loader public cho P4/P5: `load_state()`.
 - **Tests**: `tests/test_allocation.py` (26 tests, hermetic — fake module
   qua sys.modules cho collect_inputs) đã vào danh sách `--fast`.
-- CHƯA làm (đúng kế hoạch): doctor check + sub-tab UI (P5), digest + tilt ±1
-  band (P3), block brief + guard (P4), vàng/scorecard (P6).
+- CHƯA làm (đúng kế hoạch): doctor check + sub-tab UI (P5), block brief +
+  guard (P4), vàng/scorecard (P6).
 
 ### ✅ P2 DONE (2026-07-13, cùng branch) — `vnstock_reports.py`
 
@@ -853,6 +859,49 @@ Tầng INGEST thuần (không LLM, không số nào vào registry 13 chỉ số)
 - **Tests**: `tests/test_reports.py` (19, hermetic — fake vnstock_vbma +
   requests qua sys.modules) đã vào `--fast`. KHÔNG có bước run.py (ingest là
   thao tác tay của user, không thuộc pipeline tối).
+
+### ✅ P3 DONE (2026-07-13, cùng branch) — `vnstock_report_digest.py` + tilt trong allocation
+
+Digest LLM + cross-check + consensus → tilt ±1 band. Chi tiết:
+- **Digest** (1 call/báo cáo, `digest_report`): JSON {tom_tat, stance 5 lớp
+  -2..+2 (0=TRUNG_LẬP được phép — float→int clamp, lớp thiếu/rác→0), claims
+  [{key∈13-registry|"khac", value, unit, period, text}], risks}. Nguồn tiếng
+  Anh → digest tiếng Việt (buộc trong prompt). Digest LƯU TRONG record của
+  `reports_index.json` (`vnstock_reports.set_digest`) — xóa báo cáo là digest
+  đi theo. `refresh(redigest=False)` chỉ chấm báo cáo CHƯA có digest;
+  `--redigest` chấm lại tất cả (đổi prompt/extractor).
+- **Provider ladder `digest_call`**: Claude (ANTHROPIC_API_KEY, model mirror
+  brief `claude-haiku-4-5-20251001`) → GPT (`gpt-4o-mini`) → free 70B
+  (`vnstock_sentiment.chat_complete`, model_map 70B — CHỈ fallback, TODO 1b).
+- **Sanitize cấu trúc** (`sanitize_text`, áp MỌI text field): strip `#`/
+  emoji/CJK + ép 1 dòng — digest sẽ splice vào brief (P4) nên không được chứa
+  token mà section-parser guard chain hiểu nhầm ranh giới mục. Số EN giữ
+  nguyên (ép trong prompt, không convert deterministic).
+- **Cross-check REGISTRY THẮNG** (`cross_check_claims`, mirror _fx_crosscheck):
+  claim có key registry so với `load_macro()` hiện hành theo `_CLAIM_TOLERANCE`
+  (fx rel 2%, rate/yield abs 0.5-1.0đ%, CPI 1.0, IIP 3.0, PMI 2.0…— dung sai
+  RỘNG có chủ đích vì kỳ báo cáo ≠ kỳ registry, chỉ chặn số SAI HẲN). Lệch →
+  cờ `mismatch` + `registry_value` trên claim + `has_mismatch` trên digest;
+  claim mismatch KHÔNG vào brief (P4 lọc); **stance vẫn vào consensus** (số đo
+  ≠ quan điểm — số sai bị chặn, quan điểm giữ nhưng có cờ). Số báo cáo KHÔNG
+  BAO GIỜ ghi vào registry (nguyên tắc #2).
+- **Consensus + tilt** (`consensus`): stance trung bình decay tuổi (w=1.0 ≤30
+  ngày, tuyến tính → 0 ở 90 — đúng tham số duyệt; >90 đã bị load_for_analysis
+  loại). Tilt từ stance "Cổ phiếu": ≥ +1.0 → −1 band (tấn công), ≤ −1.0 → +1
+  (phòng thủ), `_TILT_THRESHOLD=1.0`. v1 không phân biệt uy tín nguồn (P6).
+- **Allocation áp tilt** (`vnstock_allocation.apply_tilt` trong
+  `run_allocation`): `band_data` = band từ data (P1), `band` = sau tilt (clamp
+  B0-B4), `report_tilt` = {tilt, stance_cp, n_reports, sources}; history log
+  thêm `band_data` + `tilt`. **Hysteresis NEO VÀO band_data** (prev_for_hyst)
+  — tilt đến/đi không tạo pending giả, band data đổi vẫn cần 2 phiên như cũ.
+  Đọc consensus là ĐỌC CACHE digest (zero LLM tại allocation). Kill switch:
+  `VNSTOCK_ALLOCATION_TILT=0`. LƯU Ý test: autouse fixture trong
+  test_allocation.py tắt tilt (hermetic trên máy có digest thật).
+- **CLI**: `--refresh [--redigest] [--max N]` / `--show <id>` / `--consensus`
+  / `--diag`. KHÔNG có bước run.py (digest chạy khi user ingest báo cáo mới —
+  1-2 lần/tháng, không thuộc pipeline tối; cân nhắc lại ở P5 nếu cần).
+- **Tests**: `tests/test_report_digest.py` (19, hermetic — digest_call/macro/
+  consensus đều fake) đã vào `--fast`.
 
 ---
 
