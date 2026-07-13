@@ -14,7 +14,8 @@ Items here get auto-loaded into Claude's context at session start.
   `vnstock_freshness.py`, `vnstock_vn30_weights.py`,
   `vnstock_market_sentiment.py`, `vnstock_fundamental_updater.py`,
   `vnstock_macro.py`, `vnstock_news_feeds.py`, `vnstock_doctor.py`,
-  `vnstock_allocation.py`, `vnstock_reports.py`, `vnstock_report_digest.py`
+  `vnstock_allocation.py`, `vnstock_reports.py`, `vnstock_report_digest.py`,
+  `vnstock_gold.py`, `vnstock_scorecard.py`
 - Trước khi tạo PR merge về `main`
 - Sau khi nâng cấp pandas / numpy / Python version
 
@@ -709,7 +710,7 @@ mã hủy niêm yết (last 2018-2021) re-fetch nhiều NĂM mỗi lần cho 0 n
 
 ---
 
-## 🧭 THIẾT KẾ ĐÃ DUYỆT — Báo cáo vĩ mô upload + Phân bổ tài sản (P1-P4 DONE 2026-07-13, P5+ CHƯA BUILD)
+## 🧭 THIẾT KẾ ĐÃ DUYỆT — Báo cáo vĩ mô upload + Phân bổ tài sản (P1-P6 DONE 2026-07-13 — TOÀN BỘ ĐÃ BUILD, chờ user verify)
 
 Ý tưởng user: upload báo cáo vĩ mô hay (CTCK/chuyên gia, cả Việt lẫn Anh) để
 AI phân tích tình trạng vĩ mô VN → khuyến nghị rải ngân vào lớp tài sản nào.
@@ -780,8 +781,9 @@ chỉ viết lời, guard pin; (2) số từ báo cáo KHÔNG vào registry 13 c
 
 **Phase + effort (điểm dừng nào cũng có giá trị độc lập):**
 P1 allocation core ✅ → P2 ingest ✅ → P3 digest+cross-check+tilt ✅
-→ P4 nối brief ✅ → P5 UI+doctor+tests 1.5-2d → P6 scorecard+vàng 2.5d.
-Tổng ~8-10 ngày công. Tiếp theo = nói "làm phase 5".
+→ P4 nối brief ✅ → P5 UI+doctor ✅ → P6 scorecard+vàng ✅ — XONG cả 6 phase
+(build 1 phiên 2026-07-13, branch `claude/phase-1-kickoff-lzorv6`). Việc còn
+lại: checklist VERIFY HOÃN LẠI ở trên, trên máy có data + mạng.
 
 ### ⏳ VERIFY HOÃN LẠI (user chốt 2026-07-13 "lưu việc phải test vào làm sau")
 
@@ -805,7 +807,18 @@ Chạy trên MÁY CÓ DATA + MẠNG (sandbox không có data_warehouse, chặn r
    `python -c "from vnstock_brief import generate_brief; r = generate_brief('allocation', force=True); print(next(iter(r.values()))[0])"`
    → bảng % phải Y HỆT `vnstock_allocation.py --show` (guard pin); nếu bias
    ngày ngược band tháng → có dòng caveat khung thời gian.
-6. `python run.py test --fast` sau khi pull (~458 tests hiện hành).
+6. **P5**: mở dashboard → tab Tin tức phải có 4 sub-tab (📰/🌐/📚/🧭);
+   sub-tab 📚 upload thử 1 PDF (rerun không nhân bản), nút Digest chạy;
+   sub-tab 🧭 hiện band + bảng % + lý do + nút "Tạo brief phân bổ".
+   `python run.py doctor` có 2 dòng mới (reports/allocation) — ⬜ khi chưa
+   dùng là đúng; từ mùng 3 tháng sau chưa tạo brief phân bổ → doctor nhắc.
+7. **P6**: `python vnstock_gold.py --diag` trên máy có mạng (endpoint trong
+   `_ENDPOINTS` là ứng viên CHƯA VERIFY — chết thì sửa tại đó); `run.py all`
+   nay có bước `gold` + scorecard tự refresh sau `allocation`;
+   `python vnstock_scorecard.py --show` — trước khi có ≥2 tháng history sẽ
+   ghi "chưa đủ kỳ" (đúng thiết kế), log nguồn báo cáo chạy ngay khi digest
+   đủ 30 ngày tuổi.
+8. `python run.py test --fast` sau khi pull (~480 tests hiện hành).
 
 ### ✅ P1 DONE (2026-07-13, branch `claude/phase-1-kickoff-lzorv6`) — `vnstock_allocation.py`
 
@@ -946,6 +959,59 @@ Mọi thay đổi giữ nguyên tắc parity morning↔close by construction:
 - **Tests**: 8 test P4 cuối `tests/test_brief.py` (builder cap/mismatch note,
   2 guard đủ nhánh + idempotent, template selection, block cho từng
   brief_type, guard chain chứa 2 guard mới).
+
+### ✅ P5 DONE (2026-07-13, cùng branch) — UI 2 sub-tab + doctor checks
+
+- **Tab Tin tức nay 4 sub-tab**: 📰 Tin theo mã · 🌐 Vĩ mô · **📚 Báo cáo**
+  (`dashboard/reports_tab.py`) · **🧭 Phân bổ** (`dashboard/allocation_tab.py`).
+  Cả 2 tab mới **lazy-import streamlit trong render** (mirror money_flow_tab)
+  → smoke test import được không cần streamlit.
+- **📚 Báo cáo**: ingest (upload PDF qua tempfile → `add_pdf`; URL qua Jina;
+  paste text) + form metadata (thiếu → hiện 📥, sửa bằng "Lưu meta") + bảng
+  thư viện (✅/📥/🖼 + cột Digest 🧠) + nút **Digest** (chỗ DUY NHẤT tab gọi
+  LLM — chỉ báo cáo đủ điều kiện chưa có digest) + xem digest từng báo cáo
+  (claims kèm cờ ⚠ LỆCH registry) + dòng consensus/tilt. Streamlit rerun
+  không nhân bản nhờ dedup sha256 (P2).
+- **🧭 Phân bổ**: band + điểm + bảng % + tilt/pending + bảng lý do (nguồn +
+  as_of) + line chart lịch sử band (B0→0…B4→4) + dòng vàng (luôn kèm nhãn
+  premium SJC) + bảng scorecard + expander log nguồn (xếp hạng để dành) +
+  nút "Tính lại band" (zero LLM) + nút "**Tạo brief phân bổ**"
+  (`generate_brief('allocation', force=True)` — chỗ duy nhất tab gọi LLM,
+  hiện brief gần nhất từ memory).
+- **Doctor** (`OFFLINE_CHECKS`, sau check_events): `check_reports` (đếm đủ
+  điều kiện/thiếu meta/chưa digest/claim lệch registry — warn khi có việc
+  phải làm, off khi chưa dùng) + `check_allocation` (tuổi as_of so
+  `_prev_trading_day` + tilt + **nhắc brief kỳ tháng** `_allocation_brief_reminder`
+  mirror pmi_reminder: từ mùng 3, tháng này chưa có brief_type='allocation'
+  trong memory → nhắc; hàm tách riêng để test monkeypatch).
+
+### ✅ P6 DONE (2026-07-13, cùng branch) — scorecard hồi tố + vàng
+
+- **`vnstock_gold.py`** — display-only + proxy return, **KHÔNG vào registry
+  13** (đúng thiết kế): ladder 2 endpoint free-không-key
+  (goldprice.org dbXRates → gold-api.com — ghi chú 1c nêu "Goldprice.dev"
+  nhưng API cụ thể chưa xác minh, ladder này CẦN VERIFY `--diag` trên máy có
+  mạng, chết thì sửa `_ENDPOINTS`); sanity range; fail → giữ cache cũ; cache
+  `_meta/gold_price.json` (history cap 400); MỌI chỗ hiển thị kèm nhãn "spot
+  quốc tế, CHƯA gồm premium SJC (~15-20%)". `price_on(date)` cho scorecard.
+  Tắt: `VNSTOCK_GOLD=0`. Bước `gold` trong `run.py all` (sau macro).
+- **`vnstock_scorecard.py`** — mirror vnstock_reconciler cho tầng phân bổ:
+  * **Kỳ = tháng lịch** (`monthly_periods`): entry ĐẦU mỗi tháng trong
+    history = band chốt tháng đó; kỳ khép tại entry đầu tháng sau; cần ≥2
+    tháng history mới có dòng (đúng "sau ≥2 kỳ").
+  * **Proxy return THÔ, dán nhãn** (`class_returns`, zero fetch): Cổ phiếu
+    %Δ VNINDEX (parquet) · Trái phiếu −Δyield10Y × duration 7 · Tiền gửi
+    policy rate × d/365 · Vàng %Δ spot · USD %Δ usdvnd. Thiếu data → None
+    (KHÔNG độn 0), `coverage_pct` ghi tổng trọng số có data.
+  * `compute_scorecard`: return danh mục theo bảng % band kỳ đó vs baseline
+    B2 → `delta_vs_b2`. `returns_fn=None` resolve lúc GỌI (test patch được).
+  * **`source_log`** — xếp hạng nguồn LOG NGAY (UI để dành): mỗi digest đủ
+    30 ngày tuổi → {source, stance_cp, %Δ VNINDEX 30d sau report_date}.
+  * Cache `_meta/allocation_scorecard.json` (atomic); `run.py allocation`
+    tự refresh scorecard best-effort sau khi tính band; CLI `--refresh/--show`.
+- **Tests**: `tests/test_gold.py` (7) + `tests/test_scorecard.py` (8) +
+  `tests/test_allocation_reports_tabs.py` (3 smoke UI) + 4 test doctor mới —
+  tất cả vào `--fast`.
 
 ---
 

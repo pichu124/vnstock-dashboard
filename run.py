@@ -662,6 +662,9 @@ def cmd_test(args) -> int:
             "tests/test_allocation.py",
             "tests/test_reports.py",
             "tests/test_report_digest.py",
+            "tests/test_gold.py",
+            "tests/test_scorecard.py",
+            "tests/test_allocation_reports_tabs.py",
         ]
     else:
         test_paths = ["tests/"]
@@ -763,15 +766,26 @@ def cmd_macro(args) -> int:
     return 1 if rc != 0 else 0
 
 
-def cmd_allocation(args) -> int:
-    """Refresh the asset-allocation band (B0-B4) from existing caches.
+def cmd_gold(args) -> int:
+    """Refresh the international gold-spot cache (display-only, not in the
+    macro registry). Best-effort: a blocked fetch keeps the prior cache —
+    the scorecard's Vàng proxy just skips missing dates."""
+    rc = _run([sys.executable, str(REPO_ROOT / "vnstock_gold.py"), "--refresh"])
+    return 1 if rc != 0 else 0
 
-    Zero fetch / zero LLM — vnstock_allocation just reads regime/sentiment/
-    breadth/macro caches, applies hysteresis, and persists state + the per-day
-    history log. Best-effort: missing inputs keep the previous state intact.
+
+def cmd_allocation(args) -> int:
+    """Refresh the asset-allocation band (B0-B4) from existing caches, then
+    the retrospective scorecard (both zero LLM).
+
+    vnstock_allocation reads regime/sentiment/breadth/macro caches, applies
+    hysteresis + report tilt, persists state + per-day history; the scorecard
+    re-marks completed monthly periods + the report-source log. Best-effort:
+    missing inputs keep the previous state intact.
     """
     rc = _run([sys.executable, str(REPO_ROOT / "vnstock_allocation.py"),
                "--refresh"])
+    _run([sys.executable, str(REPO_ROOT / "vnstock_scorecard.py"), "--refresh"])
     return 1 if rc != 0 else 0
 
 
@@ -893,6 +907,7 @@ def cmd_all(args) -> int:
         ("screener",     cmd_screener),
         ("foreign-flow", cmd_foreign_flow),
         ("macro",        cmd_macro),
+        ("gold",         cmd_gold),
         ("allocation",   cmd_allocation),
         ("test",         cmd_test),
         ("audit",        cmd_audit),
@@ -1091,7 +1106,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("macro",
                    help="Refresh macro cache (lãi suất & tỷ giá) — seed + auto-fetch FX")
     sub.add_parser("allocation",
-                   help="Refresh asset-allocation band B0-B4 (vnstock_allocation.py)")
+                   help="Refresh asset-allocation band B0-B4 + scorecard")
+    sub.add_parser("gold",
+                   help="Refresh gold-spot cache (display-only, vnstock_gold.py)")
     sub.add_parser("dashboard", help="Launch the Streamlit dashboard")
 
     tg = sub.add_parser("telegram", help="Push Telegram notifications")
@@ -1139,6 +1156,7 @@ _DISPATCH = {
     "screener": cmd_screener,
     "foreign-flow": cmd_foreign_flow,
     "macro": cmd_macro,
+    "gold": cmd_gold,
     "allocation": cmd_allocation,
     "telegram": cmd_telegram,
     "news": cmd_news,

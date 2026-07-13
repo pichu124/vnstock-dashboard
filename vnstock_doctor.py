@@ -325,6 +325,80 @@ def check_telegram() -> dict:
                    "thêm TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID vào .env")
 
 
+def check_reports() -> dict:
+    """Thư viện báo cáo vĩ mô (P2/P3) — metadata thiếu / digest chưa chạy /
+    claim lệch registry. off khi chưa dùng tính năng (không tính exit code)."""
+    name = "Báo cáo vĩ mô (reports)"
+    p = _META / "reports_index.json"
+    if not p.exists():
+        return _result("reports", name, "off", "chưa có báo cáo nào trong thư viện",
+                       "thêm qua sub-tab 📚 Báo cáo hoặc vnstock_reports.py --add")
+    reports = list((json.loads(p.read_text(encoding="utf-8"))
+                    .get("reports") or {}).values())
+    from vnstock_reports import in_analysis
+    ready = [r for r in reports if in_analysis(r)]
+    no_meta = sum(1 for r in reports if not in_analysis(r))
+    no_digest = sum(1 for r in ready if not r.get("digest"))
+    mismatch = sum(1 for r in ready
+                   if (r.get("digest") or {}).get("has_mismatch"))
+    parts = [f"{len(reports)} báo cáo, {len(ready)} đủ điều kiện phân tích"]
+    if no_meta:
+        parts.append(f"{no_meta} thiếu metadata/scan")
+    if no_digest:
+        parts.append(f"{no_digest} chưa digest")
+    if mismatch:
+        parts.append(f"{mismatch} digest có claim lệch registry")
+    status = "warn" if (no_digest or mismatch) else "ok"
+    fix = ("python vnstock_report_digest.py --refresh" if no_digest else
+           "python vnstock_report_digest.py --show <id> — soi claim lệch"
+           if mismatch else "")
+    return _result("reports", name, status, " · ".join(parts), fix)
+
+
+def _allocation_brief_reminder(today: "date | None" = None) -> "str | None":
+    """Nhắc tạo brief phân bổ KỲ THÁNG (mirror pmi_reminder): từ mùng 3 mà
+    tháng này chưa có brief_type='allocation' trong memory → 1 dòng nhắc.
+    Best-effort — memory lỗi/thiếu coi như không nhắc (không báo động giả)."""
+    t = today or date.today()
+    if t.day < 3:
+        return None
+    try:
+        from vnstock_memory import recent_briefs
+        rows = recent_briefs("allocation", limit=5)
+        month = t.strftime("%Y-%m")
+        if any((r.get("created_at") or "").startswith(month) for r in rows):
+            return None
+        return (f"⏰ chưa có brief phân bổ tháng {t.month}/{t.year} — tạo ở "
+                "sub-tab 🧭 Phân bổ (cadence tháng)")
+    except Exception:
+        return None
+
+
+def check_allocation() -> dict:
+    """Band phân bổ (P1) — tuổi state so phiên trước (run.py all refresh hằng
+    ngày) + nhắc brief kỳ tháng. off khi chưa chạy lần nào."""
+    name = "Phân bổ tài sản (allocation)"
+    p = _META / "allocation_state.json"
+    if not p.exists():
+        return _result("allocation", name, "off", "chưa có allocation_state.json",
+                       "python run.py allocation")
+    st = json.loads(p.read_text(encoding="utf-8"))
+    as_of = str(st.get("as_of") or "")
+    stale = bool(as_of) and date.fromisoformat(as_of) < _prev_trading_day()
+    parts = [f"band {st.get('band', '?')} ({st.get('band_label', '?')}) · "
+             f"phiên {as_of or '?'} · {st.get('n_inputs', 0)} tín hiệu · "
+             f"history {len(st.get('history') or [])} phiên"]
+    if (st.get("report_tilt") or {}).get("tilt"):
+        parts.append(f"tilt {st['report_tilt']['tilt']:+d} từ báo cáo")
+    remind = _allocation_brief_reminder()
+    if remind:
+        parts.append(remind)
+    status = "warn" if (stale or remind) else "ok"
+    fix = "python run.py allocation" if stale else \
+        ("tạo brief phân bổ ở sub-tab 🧭" if remind else "")
+    return _result("allocation", name, status, " · ".join(parts), fix)
+
+
 def check_tests() -> dict:
     """Badge test gần nhất — fail thì đừng deploy/merge (kỷ luật trong CLAUDE.md)."""
     name = "Tests (pytest)"
@@ -471,8 +545,8 @@ def net_jina() -> dict:
 OFFLINE_CHECKS = [
     check_warehouse, check_market_overview, check_fundamentals, check_macro,
     check_pdf_tooling, check_market_news, check_ticker_news,
-    check_foreign_flow, check_events, check_llm_keys, check_telegram,
-    check_tests,
+    check_foreign_flow, check_events, check_reports, check_allocation,
+    check_llm_keys, check_telegram, check_tests,
 ]
 NET_CHECKS = [
     net_rss_feeds, net_fx, net_vbma, net_nso, net_fred, net_foreign_flow_api,
