@@ -826,6 +826,36 @@ nấc 3) — xem mục Vĩ mô. Còn lại LƯU Ở ĐÂY chờ nhu cầu (user 
 - Repo public-apis = DANH MỤC để tra khi cần nguồn mới (2 nguồn FX cũ của
   mình cũng nằm trong đó) — không phải dependency, không cần theo dõi.
 
+### 1d. Khảo sát Ollama (2026-07-13) — LLM LOCAL, ĐỂ DÀNH chờ có vấn đề
+
+User chốt "note lại để đấy, sau này có vấn đề thì triển khai sau". Đã đọc
+code (repo ollama/ollama): serve **`POST /v1/chat/completions` chuẩn
+OpenAI-compatible** tại `localhost:11434` (xác nhận `server/routes.go`) —
+CÙNG shape API mà `vnstock_sentiment._PROVIDERS` gọi Groq/Cerebras/OpenRouter
+→ tích hợp = thêm 1 entry ladder, KHÔNG viết client mới. Có structured
+outputs (ép JSON schema qua `format`), embeddings, Anthropic-compat, cloud
+models (offload lên ollama.com — ít liên quan). Installer Windows có sẵn.
+
+**Khi nào triển khai** (trigger): free provider (Groq/Cerebras/OpenRouter)
+throttle/chết làm sentiment/tin không chấm được; HOẶC cần `--reanalyze` hàng
+loạt không rate-limit; HOẶC desktop có GPU rảnh muốn tự chủ LLM local.
+
+**Sketch tích hợp (~1-2h, zero rủi ro đường hiện tại)**:
+1. Entry "Ollama (local)" CUỐI ladder `vnstock_sentiment._PROVIDERS` —
+   endpoint `http://localhost:11434/v1/chat/completions`, không key; bật qua
+   env `OLLAMA_MODEL` (không set = ladder bỏ qua, hành vi y cũ).
+2. `_ANALYZE_MODELS["Ollama"]` = model user pull (tiếng Việt tốt: qwen3
+   14B/32B tùy VRAM).
+3. Doctor: check `localhost:11434/api/tags` — chạy được ở tầng OFFLINE
+   (localhost không dính allowlist).
+
+**Giới hạn ghi thẳng**: model local 8-14B thường THUA llama-3.3-70b free
+trên Groq về nuance (liên quan TODO 1b — chỉ thắng nếu GPU đủ chạy 32B+);
+KHÔNG dùng cho brief agent chính (2.400 token, 11 mục + guard chain — giữ
+Claude/GPT). CPU-only ~5-15 tok/s: đủ cho ≤8 tin/ngày, chậm cho batch lớn.
+Khác 3 khảo sát trước (lấp gap DỮ LIỆU thật), cái này lấp gap ĐỘ BỀN LLM —
+hiện chưa đau nên để dành.
+
 ### 1b. Chất lượng dòng "→ tác động" tin vĩ mô — giới hạn MODEL, nâng khi cần
 
 **Status (ghi nhận 2026-07-10, verify --reanalyze với full text Jina trên máy
