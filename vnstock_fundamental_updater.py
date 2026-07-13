@@ -457,8 +457,14 @@ def _fetch_one(ticker: str, delay: float) -> "tuple[str, dict | None, str | None
     ThreadPoolExecutor (fetch I/O-bound); KHÔNG đụng file/console ở đây —
     mọi ghi/in đều ở luồng chính.
     """
+    # Mỗi call API bọc call_with_rate_limit_retry: vnai chạm trần req/phút thì
+    # sys.exit (SystemExit — xuyên except Exception) → từng giết cả run cập
+    # nhật giá 13/07; fundamentals 3 call/mã còn dễ dính hơn. Helper ngủ theo
+    # "Chờ X giây" rồi thử lại; hết lượt → RuntimeError (Exception thường) để
+    # except dưới đếm thành 1 mã lỗi. Không in gì ở đây (worker thread).
+    from vnstock_ratelimit import call_with_rate_limit_retry as _rl
     try:
-        data = _fetch_ratios(ticker)
+        data = _rl(_fetch_ratios, ticker)
         # "Usable" = at least one non-None ratio value (a dict of all
         # None means the statement was empty / unparseable).
         if not (data and any(v is not None for v in data.values())):
@@ -466,14 +472,14 @@ def _fetch_one(ticker: str, delay: float) -> "tuple[str, dict | None, str | None
         # Cash flow is a second (slower) statement call — merge it in.
         # Failure here is non-fatal: the ratio data still gets saved.
         try:
-            data.update(_fetch_cash_flow(ticker))
+            data.update(_rl(_fetch_cash_flow, ticker))
         except Exception:
             pass
         # Ratio table leaves Debt/Equity at 0 for banks → derive a
         # reliable D/E from the balance sheet when it's missing/0.
         if not data.get("debt_to_equity"):
             try:
-                _de = _fetch_debt_to_equity(ticker)
+                _de = _rl(_fetch_debt_to_equity, ticker)
                 if _de is not None:
                     data["debt_to_equity"] = _de
             except Exception:

@@ -666,6 +666,22 @@ mã hủy niêm yết (last 2018-2021) re-fetch nhiều NĂM mỗi lần cho 0 n
   doctor so MTIME file — lần chạy incremental cũng làm mới mtime nên badge ✅
   không có nghĩa số đã mới (TODO nhỏ: đổi check sang max updated_at/quý trong
   parquet). Test parity tuần-tự↔song-song: `tests/test_fundamental_cf.py`.
+- **Rate-limit vnai = SystemExit, KHÔNG phải Exception (fix 2026-07-13,
+  `vnstock_ratelimit.py`)**: "Cập nhật giá" 8 luồng CHẾT CỨNG ở 558/1724 mã khi
+  chạm trần 500 req/phút Golden — mổ tận nơi `vnai/beam/quota.py:313`: hết
+  lượt retry nội bộ vnai gọi `sys.exit("Rate limit exceeded ... Process
+  terminated.")` → SystemExit xuyên mọi `except Exception` per-ticker, trong
+  ThreadPool được `fut.result()` re-raise ở luồng chính → sập cả run (cùng họ
+  bug PanicException của doctor). Fix: `call_with_rate_limit_retry(fn, ...)`
+  bọc từng call fetch ở CẢ 2 updater (giá `_fetch_prices` + fundamentals cả 3
+  call trong `_fetch_one`) — nhận diện message vnai, parse "Chờ X giây" (+2s,
+  fallback 61s, cap 300s), ngủ rồi thử lại 3 lượt; hết lượt → RuntimeError
+  (Exception thường) = 1 mã lỗi, run sống tiếp. SystemExit thật/KeyboardInterrupt
+  re-raise nguyên vẹn. Tests: `tests/test_ratelimit.py` (message vnai thật làm
+  fixture; test tích hợp updater giá skip khi thiếu vnstock — chạy đủ trên máy
+  dev). Lưu ý vận hành: 2 tiến trình cùng chạy CHIA NHAU quota (task
+  fundamentals T2 08:00 + bấm nút Cập nhật giá cùng lúc = dễ chạm trần — giờ
+  chỉ chậm lại chứ không chết).
 
 **Quan trọng — vnstock 4.0.4 + sponsor API gotchas** (hard-won, đừng quên):
 - `vnstock_auth._StockShim` PHẢI expose `.quote/.company/.listing/.finance`.
