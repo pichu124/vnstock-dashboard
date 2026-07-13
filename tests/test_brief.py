@@ -2775,3 +2775,164 @@ def test_vn30_fund_block_excludes_financials_by_industry():
     assert "-35,042" not in block                         # the bank-scale OCF gone
     assert "16.88" not in block                           # bank D/E gone
     assert "HPG" in block and "1 mã âm" in block          # non-fin still ranked
+
+
+# ── P4: 📚 Báo cáo vĩ mô & phân bổ + brief allocation ────────────────────────
+
+def _p4_ctx():
+    return {
+        "allocation": {
+            "band": "B3", "band_label": "thắt chặt", "band_data": "B2",
+            "score": -0.21, "as_of": "2026-07-11",
+            "report_tilt": {"tilt": 1, "stance_cp": -1.5, "n_reports": 2,
+                            "sources": ["SSI", "HSC"]},
+            "allocation": {"Cổ phiếu": 30, "Trái phiếu": 25, "Tiền gửi": 30,
+                           "Vàng": 10, "USD": 5},
+            "inputs": [{"key": "regime", "label": "Regime thị trường",
+                        "value": "score -2 (7 tín hiệu)", "score": -0.4,
+                        "weight": 0.25, "source": "vnstock_regime",
+                        "as_of": "2026-07-11"}],
+        },
+        "macro_reports": [
+            {"id": "abc", "report_date": "2026-07-08", "source": "SSI",
+             "digest": {"tom_tat": "Vĩ mô thắt chặt, hạ tỷ trọng cổ phiếu.",
+                        "stance": {"Cổ phiếu": -2}, "has_mismatch": False}},
+            {"id": "def", "report_date": "2026-07-05", "source": "HSC",
+             "digest": {"tom_tat": "Trung lập, chờ số liệu quý.",
+                        "stance": {"Cổ phiếu": -1}, "has_mismatch": True}},
+        ],
+        "reports_consensus": {"n_reports": 2, "tilt": 1,
+                              "stance": {"Cổ phiếu": -1.5}},
+    }
+
+
+def test_macro_reports_body_lines_cap_and_content():
+    from vnstock_brief import _macro_reports_body_lines
+    body = _macro_reports_body_lines(_p4_ctx(), directive=False)
+    # 1 band + 2 báo cáo + 1 consensus = 4 dòng (cap ~5), không dòng chỉ thị
+    assert len(body) == 4
+    assert "Band phân bổ tháng: B3" in body[0]
+    assert "tilt +1" in body[0] and "band data: B2" in body[0]
+    assert "[2026-07-08] SSI" in body[1] and "stance cổ phiếu -2" in body[1]
+    assert "số lệch registry" in body[2]              # mismatch được ghi chú
+    assert "Consensus 2 báo cáo" in body[3] and "-1.50" in body[3]
+    assert not any(l.startswith("→") for l in body)   # directive=False
+    # prompt renderer có dòng chỉ thị
+    with_directive = _macro_reports_body_lines(_p4_ctx(), directive=True)
+    assert with_directive[-1].startswith("→")
+    # ctx trống → []
+    assert _macro_reports_body_lines({}, directive=False) == []
+
+
+def test_enforce_macro_reports_replaces_section_and_denial():
+    from vnstock_brief import _macro_reports_body_lines, enforce_macro_reports
+    ctx = _p4_ctx()
+    body = _macro_reports_body_lines(ctx, directive=False)
+    # (1) thay body mục có header — LLM bịa band B0 + nguồn lạ
+    text = ("## 📰 Tin kinh tế/chính trị nổi bật\n- tin A\n"
+            "## 📚 Báo cáo vĩ mô & phân bổ\n- Band B0, VNDirect khuyên mua.\n"
+            "## 📌 Danh mục đang giữ\nKhông có vị thế đang mở")
+    out = enforce_macro_reports(text, ctx)
+    assert "VNDirect khuyên mua" not in out
+    assert "Band phân bổ tháng: B3" in out
+    assert "Không có vị thế đang mở" in out           # mục sau còn nguyên
+    assert enforce_macro_reports(out, ctx) == out     # idempotent
+    # (2) không header → splice đè dòng phủ nhận
+    text2 = "## 🎯 TLDR\nx\nChưa có báo cáo vĩ mô nào.\n## 📊 Tổng kết phiên\ny"
+    out2 = enforce_macro_reports(text2, ctx)
+    assert "Chưa có báo cáo vĩ mô nào." not in out2
+    assert "Band phân bổ tháng: B3" in out2
+    # (3) no-op khi ctx trống
+    assert enforce_macro_reports(text, {}) == text
+
+
+def test_enforce_allocation_table_pins_band_tokens():
+    from vnstock_brief import enforce_allocation_table
+    ctx = _p4_ctx()
+    text = ("## 🎯 TLDR\n**Bias:** GIẢM — phù hợp band B0 hiện tại.\n"
+            "## 📚 Báo cáo vĩ mô & phân bổ\n"
+            "- 🧭 Band phân bổ tháng: B3 (thắt chặt) — điểm -0.21, phiên "
+            "2026-07-11; đã gồm tilt +1 từ báo cáo (band data: B2)\n")
+    out = enforce_allocation_table(text, ctx)
+    assert "band B3 hiện tại" in out                  # token lạc được pin
+    assert "band data: B2" in out                     # dòng canonical giữ B2
+    assert enforce_allocation_table(out, ctx) == out  # idempotent
+    assert enforce_allocation_table(text, {}) == text # no-op không allocation
+
+
+def test_enforce_allocation_table_canonical_table_for_allocation_brief():
+    from vnstock_brief import _allocation_table_lines, enforce_allocation_table
+    ctx = _p4_ctx()
+    text = ("## 🎯 TLDR\n**Band phân bổ:** B1 — tích cực.\n"
+            "## 🧭 Phân bổ đề xuất\n- Cổ phiếu: 70%\n- Vàng: 2%\n"
+            "## 📊 Vì sao ở band này\nregime yếu.")
+    out = enforce_allocation_table(text, ctx)
+    assert "**Band phân bổ:** B3" in out              # TLDR band được pin
+    assert "- Cổ phiếu: 30%" in out                   # bảng canonical thay bảng bịa
+    assert "- Vàng: 10%" in out and "- Vàng: 2%" not in out
+    assert "- Band: B3 (thắt chặt)" in out
+    assert "regime yếu." in out                       # mục sau còn nguyên
+    assert out == enforce_allocation_table(out, ctx)  # idempotent
+    assert _allocation_table_lines({}) == []
+
+
+def test_enforce_allocation_table_horizon_caveat():
+    from vnstock_brief import _ALLOC_HORIZON_CAVEAT, enforce_allocation_table
+    # band TẤN CÔNG (B1) + bias floor ngày GIẢM → caveat sau dòng band
+    ctx = _p4_ctx()
+    ctx["allocation"] = {**ctx["allocation"], "band": "B1",
+                         "band_label": "tích cực", "report_tilt": None}
+    ctx["bias_floor"] = {"dir": "GIẢM", "momentum": -60}
+    text = ("## 📚 Báo cáo vĩ mô & phân bổ\n"
+            "- 🧭 Band phân bổ tháng: B1 (tích cực) — điểm 0.30, phiên 2026-07-11\n"
+            "## 📌 Danh mục đang giữ\nx")
+    out = enforce_allocation_table(text, ctx)
+    assert _ALLOC_HORIZON_CAVEAT in out
+    lines = out.splitlines()
+    assert lines[lines.index(_ALLOC_HORIZON_CAVEAT) - 1].startswith("- 🧭 Band")
+    assert out == enforce_allocation_table(out, ctx)  # không chèn trùng
+    # caveat KHÔNG phải ranh giới mục (bắt đầu bằng "- ")
+    from vnstock_brief import _is_section_start
+    assert not _is_section_start(_ALLOC_HORIZON_CAVEAT)
+    # cùng chiều (band B3 + bias GIẢM) → không caveat
+    ctx2 = _p4_ctx()
+    ctx2["bias_floor"] = {"dir": "GIẢM"}
+    text2 = "- 🧭 Band phân bổ tháng: B3 (thắt chặt) — điểm -0.21, phiên 2026-07-11"
+    assert _ALLOC_HORIZON_CAVEAT not in enforce_allocation_table(text2, ctx2)
+
+
+def test_build_prompt_macro_reports_block_and_allocation_template():
+    ctx = {"date": "2026-07-13", "time": "15:00", **_p4_ctx()}
+    # brief ngày: có block 📚, KHÔNG có block bảng % đầy đủ
+    day = build_prompt(ctx, brief_type="afternoon")
+    assert "## 📚 Báo cáo vĩ mô & phân bổ (khung THÁNG — trung hạn)" in day
+    assert "Band phân bổ tháng: B3" in day
+    assert "## 🧭 Phân bổ hiện hành" not in day
+    # brief allocation: template riêng + block state đầy đủ (bảng % + lý do)
+    al = build_prompt(ctx, brief_type="allocation")
+    assert "BRIEF PHÂN BỔ TÀI SẢN" in al
+    assert "## 🧭 Phân bổ hiện hành" in al
+    assert "- Cổ phiếu: 30%" in al
+    assert "Lý do: Regime thị trường" in al and "vnstock_regime" in al
+    assert "Watchlist sáng mai" not in al             # không lẫn template ngày
+
+
+def test_apply_brief_guards_includes_p4_guards():
+    import inspect
+
+    import vnstock_brief
+    src = inspect.getsource(vnstock_brief.apply_brief_guards)
+    assert "enforce_macro_reports(" in src
+    assert "enforce_allocation_table(" in src
+    # chuỗi chung chạy sạch trên brief mang mục 📚 bịa + ctx P4
+    ctx = _p4_ctx()
+    text = ("## 📚 Báo cáo vĩ mô & phân bổ\n- Band B0, mua mạnh cổ phiếu.\n"
+            "## 📌 Danh mục đang giữ\nKhông có vị thế đang mở")
+    out = vnstock_brief.apply_brief_guards(text, ctx)
+    assert "Band phân bổ tháng: B3" in out and "mua mạnh" not in out
+    assert vnstock_brief.apply_brief_guards(out, ctx) == out
+
+
+def test_brief_max_tokens_bumped_for_p4():
+    from vnstock_brief import _BRIEF_MAX_TOKENS
+    assert _BRIEF_MAX_TOKENS == 2800

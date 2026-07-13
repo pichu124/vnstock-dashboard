@@ -178,7 +178,8 @@ _DEFAULT_AGENT_CONFIGS: list[dict] = [
 # to ~11 sections (added 🌐 Vĩ mô + 📰 Tin, which the model also re-echoes), so
 # 1200 tokens cut the output short — observed a close brief ending right after
 # "Mức kỹ thuật", losing Dẫn dắt/Dòng tiền/Watchlist/Rủi ro/Sự kiện/Vĩ mô/Tin.
-_BRIEF_MAX_TOKENS = 2400
+# Bumped 2400→2800 (P4 2026-07-13): thêm mục 📚 Báo cáo vĩ mô & phân bổ.
+_BRIEF_MAX_TOKENS = 2800
 
 # Low temperature for briefs: they're data-extraction + structured analysis, so
 # determinism beats creativity. Unset (provider default ~1.0) caused big run-to-
@@ -259,6 +260,9 @@ Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằn
 
 ## 📰 Tin kinh tế/chính trị nổi bật
 [Nếu có block "📰 Tin kinh tế/chính trị" trong data: nêu 1-3 tin TÁC ĐỘNG MẠNH nhất tới thị trường (vĩ mô/lãi suất/tỷ giá/chính sách/địa chính trị), kèm hướng tác động (tích cực/tiêu cực cho TTCK) và ngành liên quan nếu rõ. DÙNG ĐÚNG tiêu đề trong block, TUYỆT ĐỐI KHÔNG bịa tin. Nếu KHÔNG có block đó → ghi "Không có tin vĩ mô nổi bật" hoặc bỏ mục này.]
+
+## 📚 Báo cáo vĩ mô & phân bổ
+[Nếu có block "📚 Báo cáo vĩ mô & phân bổ" trong data: chép các dòng của block (band phân bổ tháng + quan điểm báo cáo CTCK/chuyên gia + consensus). Đây là bối cảnh KHUNG THÁNG — TUYỆT ĐỐI KHÔNG đổi Bias/Stance NGÀY theo nó; nếu lệch chiều với Bias ngày thì ghi rõ "khung thời gian khác nhau". DÙNG ĐÚNG band/số trong block, TUYỆT ĐỐI KHÔNG bịa band (B0-B4) hay % phân bổ. Nếu KHÔNG có block đó → bỏ mục này.]
 
 ## 📌 Danh mục đang giữ
 [Nếu có block "📌 Danh mục đang giữ" trong data: với MỖI vị thế, chép NGUYÊN VĂN dòng dữ kiện của mã đó từ block (mã, số cp, vốn, hiện, lãi/lỗ %) rồi nối ' → ' + hành động (GIỮ / GIA TĂNG / GIẢM TỶ TRỌNG / CANH BÁN) + 1 lý do ngắn gắn với Stance/regime/tin trong prompt. Khi Bias/Stance nghiêng GIẢM → KHÔNG khuyên GIA TĂNG vô điều kiện (chỉ GIỮ/GIẢM TỶ TRỌNG/CANH BÁN, hoặc "GIA TĂNG chỉ khi vượt <mức>"). TUYỆT ĐỐI dùng đúng số trong block — không tự tính lại, không thêm mã ngoài block. Nếu KHÔNG có block đó → ghi "Không có vị thế đang mở" hoặc bỏ mục này.]
@@ -343,6 +347,9 @@ Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằn
 ## 📰 Tin kinh tế/chính trị nổi bật
 [Nếu có block "📰 Tin kinh tế/chính trị" trong data: nêu 1-3 tin TÁC ĐỘNG MẠNH nhất tới thị trường (vĩ mô/lãi suất/tỷ giá/chính sách/địa chính trị), kèm hướng tác động (tích cực/tiêu cực cho TTCK) và ngành liên quan nếu rõ. DÙNG ĐÚNG tiêu đề trong block, TUYỆT ĐỐI KHÔNG bịa tin. Nếu KHÔNG có block đó → ghi "Không có tin vĩ mô nổi bật" hoặc bỏ mục này.]
 
+## 📚 Báo cáo vĩ mô & phân bổ
+[Nếu có block "📚 Báo cáo vĩ mô & phân bổ" trong data: chép các dòng của block (band phân bổ tháng + quan điểm báo cáo CTCK/chuyên gia + consensus). Đây là bối cảnh KHUNG THÁNG — TUYỆT ĐỐI KHÔNG đổi Bias/Stance NGÀY theo nó; nếu lệch chiều với Stance ngày mai thì ghi rõ "khung thời gian khác nhau". DÙNG ĐÚNG band/số trong block, TUYỆT ĐỐI KHÔNG bịa band (B0-B4) hay % phân bổ. Nếu KHÔNG có block đó → bỏ mục này.]
+
 ## 📌 Danh mục đang giữ
 [Nếu có block "📌 Danh mục đang giữ" trong data: với MỖI vị thế, chép NGUYÊN VĂN dòng dữ kiện của mã đó từ block (mã, số cp, vốn, hiện, lãi/lỗ %) rồi nối ' → ' + hành động (GIỮ / GIA TĂNG / GIẢM TỶ TRỌNG / CANH BÁN) + 1 lý do ngắn gắn với Stance/regime/tin trong prompt. Khi Bias/Stance nghiêng GIẢM → KHÔNG khuyên GIA TĂNG vô điều kiện (chỉ GIỮ/GIẢM TỶ TRỌNG/CANH BÁN, hoặc "GIA TĂNG chỉ khi vượt <mức>"). TUYỆT ĐỐI dùng đúng số trong block — không tự tính lại, không thêm mã ngoài block. Nếu KHÔNG có block đó → ghi "Không có vị thế đang mở" hoặc bỏ mục này.]
 
@@ -363,6 +370,40 @@ YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
 - Nếu không đủ data → viết "Cần thêm [data X]", không bịa.
 - MỌI % thay đổi giá PHẢI ghi rõ khung thời gian: "hôm nay", "phiên sáng", "5 phiên", "so với đóng cửa hôm qua", v.v. TUYỆT ĐỐI KHÔNG viết "X giảm Y%" mà không có khung thời gian.
 - Viết THUẦN tiếng Việt — KHÔNG chèn từ tiếng Anh (vd "mua ròng strongest" → "mua ròng mạnh nhất") HAY ký tự Trung/Nhật/Hàn (vd "达到") vào câu. Thuật ngữ chuẩn (RSI, MA20, A/D, Op.CF, D/E, GTGD…) giữ nguyên.
+"""
+
+# Brief PHÂN BỔ TÀI SẢN — brief_type="allocation", cadence THÁNG, CHỈ dashboard
+# (không đẩy Telegram — tham số duyệt #4). Khác 2 brief ngày: khung thời gian
+# trung hạn, xoay quanh band B0-B4 + bảng % của vnstock_allocation. LLM chỉ
+# viết LỜI DIỄN GIẢI — band + bảng % được guard enforce_allocation_table pin
+# lại theo data (nguyên tắc #1: LLM không bao giờ sinh số %/band).
+_ALLOCATION_TEMPLATE = """\
+{system}
+
+Dữ liệu cho BRIEF PHÂN BỔ TÀI SẢN (khung THÁNG — trung hạn, KHÔNG phải brief phiên):
+
+{data}
+
+---
+Viết BRIEF PHÂN BỔ TÀI SẢN tiếng Việt theo đúng format sau (không thêm phần nào khác):
+
+## 🎯 TLDR (2 dòng)
+**Band phân bổ:** [chép ĐÚNG band + nhãn từ block "🧭 Phân bổ hiện hành" (vd "B2 — trung tính") + 1 câu vì sao, có số]
+**Hành động:** [1 câu — điều chỉnh tỷ trọng VỀ bảng đề xuất theo lộ trình vài phiên, không xoay danh mục trong 1 phiên]
+
+## 🧭 Phân bổ đề xuất
+[Chép NGUYÊN VĂN các dòng "- <Lớp tài sản>: <số>%" và dòng "- Band: ..." từ block "🧭 Phân bổ hiện hành". TUYỆT ĐỐI KHÔNG tự sinh/đổi số % hay band — hệ thống sẽ pin lại mục này theo data.]
+
+## 📊 Vì sao ở band này
+[Từ các dòng "Lý do" trong block "🧭 Phân bổ hiện hành": diễn giải 3-5 tín hiệu (regime/tâm lý/độ rộng/áp lực vĩ mô/gauge thanh khoản-kỳ hạn-quốc tế) — mỗi tín hiệu kèm SỐ + nguồn + as_of đúng như data. KHÔNG bịa số, KHÔNG thêm tín hiệu ngoài block.]
+
+## 📚 Quan điểm từ báo cáo
+[Nếu có block "📚 Báo cáo vĩ mô & phân bổ": tóm quan điểm từng báo cáo (nguồn + ngày + stance) và consensus/tilt. Nếu KHÔNG có → ghi "Chưa có báo cáo vĩ mô trong thư viện".]
+
+## ⚠️ Rủi ro & lưu ý khung thời gian
+[Band là khung THÁNG: nếu bias/tín hiệu NGÀY trong data đang lệch chiều với band → ghi rõ 2 khung thời gian khác nhau, KHÔNG phủ định nhau, hành động phân bổ vẫn theo lộ trình. Nêu 2-3 rủi ro chính CÓ TRONG data (vĩ mô/kỹ thuật/tin) khiến band có thể đổi kỳ tới. KHÔNG bịa.]
+
+Giới hạn 350 từ. Viết THUẦN tiếng Việt — KHÔNG chèn từ tiếng Anh hay ký tự Trung/Nhật/Hàn; thuật ngữ chuẩn (RSI, MA20, D/E, GTGD…) giữ nguyên. Số giữ định dạng EN như data (phẩy ngăn nghìn, chấm thập phân). Nếu data thiếu mục nào → ghi "Chưa có dữ liệu", KHÔNG suy đoán.
 """
 
 
@@ -1398,6 +1439,95 @@ def _market_news_block(items: list[dict]) -> str:
     return "\n".join([header] + _market_news_body_lines(items))
 
 
+# ── 📚 Báo cáo vĩ mô & band phân bổ (P4) ─────────────────────────────────────
+
+def _macro_reports_body_lines(ctx: dict, directive: bool = True) -> list[str]:
+    """Canonical bullets mục 📚 — dùng chung bởi prompt renderer VÀ guard
+    (enforce_macro_reports) nên mục này fabrication-proof by construction.
+
+    Cap ~5 dòng (tham số duyệt): 1 dòng band + ≤3 báo cáo + 1 dòng consensus.
+    Claim mismatch KHÔNG BAO GIỜ xuất hiện ở đây (chỉ tom_tat + stance — số
+    lệch registry bị chặn từ tầng digest). ``directive=False`` cho guard —
+    dòng chỉ thị chỉ thuộc prompt, không được splice vào brief xuất bản.
+    """
+    reps = ctx.get("macro_reports") or []
+    alloc = ctx.get("allocation") or {}
+    cons = ctx.get("reports_consensus") or {}
+    lines: list[str] = []
+    if alloc.get("band"):
+        band_line = (f"- 🧭 Band phân bổ tháng: {alloc['band']} "
+                     f"({alloc.get('band_label', '')}) — điểm "
+                     f"{alloc.get('score', 0):+.2f}, phiên {alloc.get('as_of', '?')}")
+        rt = alloc.get("report_tilt") or {}
+        if rt.get("tilt"):
+            band_line += (f"; đã gồm tilt {rt['tilt']:+d} từ báo cáo "
+                          f"(band data: {alloc.get('band_data')})")
+        lines.append(band_line)
+    for r in reps[:3]:
+        d = r.get("digest") or {}
+        cp = (d.get("stance") or {}).get("Cổ phiếu", 0)
+        line = (f"- [{r.get('report_date', '?')}] {r.get('source', '?')}: "
+                f"{d.get('tom_tat', '')} (stance cổ phiếu {cp:+d})")
+        if d.get("has_mismatch"):
+            line += " — ⚠ báo cáo có số lệch registry, số liệu của nó không được trích dẫn"
+        lines.append(line)
+    if cons and cons.get("n_reports"):
+        cp = (cons.get("stance") or {}).get("Cổ phiếu", 0)
+        tail = (f" → tilt {cons['tilt']:+d} band" if cons.get("tilt")
+                else " → không đủ nghiêng để tilt band")
+        lines.append(f"- Consensus {cons['n_reports']} báo cáo: stance cổ phiếu "
+                     f"{cp:+.2f}{tail}")
+    if lines and directive:
+        lines.append(
+            "→ Bối cảnh KHUNG THÁNG (phân bổ tài sản trung hạn) — KHÔNG dùng để "
+            "đổi Bias/Stance NGÀY; lệch chiều với bias ngày = khung thời gian "
+            "khác nhau, không phải mâu thuẫn. KHÔNG bịa band/% ngoài block này.")
+    return lines
+
+
+def _macro_reports_block(ctx: dict) -> str:
+    """Render mục 📚 cho prompt (band tháng + digest báo cáo + consensus).
+    Empty khi chưa có gì tươi (chỉ-khi-tươi: load_for_analysis đã lọc ≤90 ngày)."""
+    body = _macro_reports_body_lines(ctx, directive=True)
+    if not body:
+        return ""
+    header = "\n## 📚 Báo cáo vĩ mô & phân bổ (khung THÁNG — trung hạn)"
+    return "\n".join([header] + body)
+
+
+def _allocation_table_lines(alloc: dict) -> list[str]:
+    """Canonical các dòng bảng % + band cho brief allocation — dùng chung bởi
+    prompt block VÀ guard enforce_allocation_table (nguyên tắc #1: LLM không
+    sinh số %/band, chỉ hệ thống in bảng)."""
+    rows = alloc.get("allocation") or {}
+    if not rows or not alloc.get("band"):
+        return []
+    lines = [f"- {cls}: {pct}%" for cls, pct in rows.items()]
+    lines.append(f"- Band: {alloc['band']} ({alloc.get('band_label', '')}) — "
+                 f"điểm {alloc.get('score', 0):+.2f}, phiên {alloc.get('as_of', '?')}")
+    return lines
+
+
+def _allocation_state_block(alloc: dict) -> str:
+    """Data block cho brief_type='allocation': bảng % + lý do từng input
+    (nguồn + as_of) từ allocation_state — nguồn duy nhất của band/%."""
+    table = _allocation_table_lines(alloc)
+    if not table:
+        return ""
+    lines = ["\n## 🧭 Phân bổ hiện hành (từ vnstock_allocation — data, KHÔNG đổi số)"]
+    lines += table
+    rt = alloc.get("report_tilt") or {}
+    if rt.get("tilt"):
+        lines.append(f"- Tilt từ báo cáo: {rt['tilt']:+d} band "
+                     f"(band data {alloc.get('band_data')}, stance CP "
+                     f"{rt.get('stance_cp')}, {rt.get('n_reports')} báo cáo)")
+    for r in alloc.get("inputs") or []:
+        lines.append(f"- Lý do: {r.get('label')}: {r.get('value')} "
+                     f"(điểm {r.get('score', 0):+.2f} × trọng số {r.get('weight')})"
+                     f" — nguồn {r.get('source')}, as_of {r.get('as_of')}")
+    return "\n".join(lines)
+
+
 # ── Danh mục đang giữ (position-aware brief) ────────────────────────────────
 
 def _portfolio_last_close(ticker: str, prices_dir: Path) -> float:
@@ -1892,6 +2022,30 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
             ctx["portfolio"] = _pf
     except Exception:
         pass
+
+    # 8e. Báo cáo vĩ mô + band phân bổ (P4) — digest đã cache (P3) + state
+    # allocation (P1) cho mục "📚" (brief ngày: 1 dòng band + tóm tắt báo cáo;
+    # brief allocation: cả bảng %). Đọc cache THUẦN — zero LLM/zero fetch tại
+    # đây. Tắt: VNSTOCK_BRIEF_REPORTS=0.
+    if os.environ.get("VNSTOCK_BRIEF_REPORTS", "1") != "0":
+        try:
+            from vnstock_reports import load_for_analysis as _rp_lfa
+            _reps = [r for r in _rp_lfa(as_of=_data_date_str) if r.get("digest")]
+            if _reps:
+                ctx["macro_reports"] = _reps[:3]
+                from vnstock_report_digest import consensus as _rd_consensus
+                if _cons := _rd_consensus(as_of=_data_date_str):
+                    ctx["reports_consensus"] = _cons
+        except Exception:
+            pass
+        try:
+            from vnstock_allocation import load_state as _alloc_state
+            if _st := _alloc_state():
+                # bỏ history (nặng, không cần cho prompt); giữ bảng % + inputs
+                ctx["allocation"] = {k: v for k, v in _st.items()
+                                     if k != "history"}
+        except Exception:
+            pass
 
     # 9. Deterministic bias floor from the two headline signals the user sees in
     # the header (Tâm lý momentum + Regime score) — so the TLDR Bias can't soften
@@ -2708,6 +2862,18 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         if block:
             lines.append(block)
 
+    # Macro reports + band phân bổ (P4) — bối cảnh KHUNG THÁNG (cap ~5 dòng,
+    # chỉ-khi-tươi). Brief allocation nhận thêm block state đầy đủ (bảng % +
+    # lý do input) vì đó là chủ đề chính của nó.
+    if ctx.get("macro_reports") or ctx.get("allocation"):
+        block = _macro_reports_block(ctx)
+        if block:
+            lines.append(block)
+    if brief_type == "allocation" and (_alloc := ctx.get("allocation")):
+        block = _allocation_state_block(_alloc)
+        if block:
+            lines.append(block)
+
     # Held positions — per-position facts so the brief can advise theo vị thế.
     if _pf := ctx.get("portfolio"):
         block = _portfolio_block(_pf)
@@ -2739,7 +2905,9 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
     if few_shot:
         data_block = data_block + "\n" + few_shot
 
-    tmpl = _MORNING_TEMPLATE if brief_type == "morning" else _AFTERNOON_TEMPLATE
+    tmpl = {"morning": _MORNING_TEMPLATE,
+            "allocation": _ALLOCATION_TEMPLATE}.get(brief_type,
+                                                    _AFTERNOON_TEMPLATE)
     return tmpl.format(system=_SYSTEM, data=data_block)
 
 
@@ -2759,6 +2927,8 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_macro(fixed, ctx)                # canonical macro levels/changes
     fixed = enforce_macro_fx_pct(fixed, ctx)         # USD/VND % safety net (header-miss)
     fixed = enforce_market_news(fixed, ctx)          # canonical econ/political headlines
+    fixed = enforce_macro_reports(fixed, ctx)        # canonical 📚 band + digest báo cáo
+    fixed = enforce_allocation_table(fixed, ctx)     # pin band/% + caveat horizon
     fixed = enforce_portfolio_facts(fixed, ctx)      # held-position facts are data
     fixed = enforce_risk_section(fixed, ctx)         # canonical risk facts first
     fixed = enforce_realestate_ocf_context(fixed, ctx)
@@ -3028,7 +3198,7 @@ def _parse_vn_number(s: str) -> float | None:
         return None
 
 
-_SECTION_EMOJIS = ("🎯", "📊", "📈", "🏆", "💰", "📋", "⚠️", "📅", "💡", "🔧", "⚡", "🔮", "🌐", "📰", "📌")
+_SECTION_EMOJIS = ("🎯", "📊", "📈", "🏆", "💰", "📋", "⚠️", "📅", "💡", "🔧", "⚡", "🔮", "🌐", "📰", "📌", "📚", "🧭")
 
 
 def _is_section_start(line: str) -> bool:
@@ -3198,6 +3368,112 @@ def enforce_market_news(text: str, ctx: dict) -> str:
         else:
             out.append(line)
     return "\n".join(out)
+
+
+def enforce_macro_reports(text: str, ctx: dict) -> str:
+    """Deterministic guard (P4): mục "📚 Báo cáo vĩ mô & phân bổ" là DATA thuần
+    (band tháng + tom_tat digest + consensus) — LLM không được paraphrase band,
+    bịa nguồn báo cáo hay đổi stance. Khi ctx có macro_reports/allocation, thay
+    toàn bộ body mục bằng canonical bullets từ `_macro_reports_body_lines`
+    (directive=False — dòng chỉ thị chỉ thuộc prompt); không có header → splice
+    đè dòng phủ nhận "chưa có báo cáo". No-op khi ctx trống. Idempotent.
+    """
+    body = _macro_reports_body_lines(ctx, directive=False)
+    if not text or not body:
+        return text
+
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines)
+                  if "báo cáo vĩ mô" in l.lower() and _is_section_start(l)), None)
+    if start is not None:
+        end = next((i for i in range(start + 1, len(lines))
+                    if _is_section_start(lines[i])), len(lines))
+        if lines[start + 1:end] == body:
+            return text
+        return "\n".join(lines[:start + 1] + body + lines[end:])
+
+    out: list[str] = []
+    replaced = False
+    for line in lines:
+        low = line.lower()
+        if (not replaced and "báo cáo vĩ mô" in low
+                and ("chưa có" in low or "không có" in low)):
+            out.extend(body)
+            replaced = True
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
+# Caveat horizon (P4): band THÁNG nghiêng ngược bias floor NGÀY → gắn ngữ cảnh,
+# KHÔNG override (mirror triết lý guard 27/28). Bắt đầu bằng "- ⚠️" (dash trước)
+# để KHÔNG bị _is_section_start hiểu nhầm là ranh giới mục (bài học guard 27).
+_ALLOC_HORIZON_CAVEAT = (
+    "- ⚠️ Band phân bổ là khung THÁNG, tín hiệu phiên đang lệch chiều — hai "
+    "khung thời gian khác nhau, không phủ định nhau: điều chỉnh tỷ trọng theo "
+    "lộ trình vài phiên, tôn trọng tín hiệu ngày khi vào/ra lệnh."
+)
+
+
+def enforce_allocation_table(text: str, ctx: dict) -> str:
+    """Deterministic guard (P4) — nguyên tắc #1: LLM không bao giờ sinh số
+    %/band, guard pin. Ba việc, đều no-op khi ctx thiếu allocation:
+
+    (a) Pin token "band B<x>" lạc ở BẤT KỲ ĐÂU về band thật (LLM hay chép nhầm
+        B0/B2 từ bảng ví dụ); bỏ qua dòng canonical đã mang band data/tilt
+        ("band data:", "Band phân bổ tháng", "- Band:") — các dòng đó do guard
+        khác/chính guard này in, chứa band KHÁC band hiệu lực một cách hợp lệ.
+    (b) Brief allocation: thay toàn bộ body mục "🧭 Phân bổ đề xuất" bằng bảng
+        canonical từ `_allocation_table_lines` (LLM chỉ được viết lời ở mục khác).
+    (c) Caveat horizon: band tháng nghiêng TẤN CÔNG (B0/B1) trong khi bias floor
+        ngày GIẢM (hoặc ngược lại B3/B4 vs TĂNG) → chèn 1 dòng ngữ cảnh sau dòng
+        band, KHÔNG đổi band/bias nào. Idempotent qua marker trên toàn văn.
+    """
+    alloc = ctx.get("allocation") or {}
+    band = alloc.get("band")
+    if not text or band not in ("B0", "B1", "B2", "B3", "B4"):
+        return text
+
+    _CANON_MARKS = ("band data", "band phân bổ tháng", "- band:")
+
+    def _pin_band(line: str) -> str:
+        low = line.lower()
+        if any(m in low for m in _CANON_MARKS):
+            return line
+        # "band B0" (chữ band ngay trước) + "Band phân bổ:** B0" (TLDR brief
+        # allocation — có "phân bổ"/markdown giữa "band" và token B).
+        line = _re.sub(r"\b([Bb]and\s+)B[0-4]\b", rf"\g<1>{band}", line)
+        return _re.sub(r"([Bb]and phân bổ[:\*\s]+)B[0-4]\b", rf"\g<1>{band}", line)
+
+    lines = [_pin_band(l) for l in text.splitlines()]
+
+    # (b) bảng % canonical cho brief allocation
+    table = _allocation_table_lines(alloc)
+    if table:
+        start = next((i for i, l in enumerate(lines)
+                      if "phân bổ đề xuất" in l.lower() and _is_section_start(l)),
+                     None)
+        if start is not None:
+            end = next((i for i in range(start + 1, len(lines))
+                        if _is_section_start(lines[i])), len(lines))
+            if lines[start + 1:end] != table:
+                lines = lines[:start + 1] + table + lines[end:]
+
+    out = "\n".join(lines)
+
+    # (c) caveat horizon — chỉ khi lệch chiều thật và chưa chèn (check toàn văn)
+    bias = (ctx.get("bias_floor") or {}).get("dir")
+    clash = (band in ("B0", "B1") and bias == "GIẢM") or \
+            (band in ("B3", "B4") and bias == "TĂNG")
+    if clash and _ALLOC_HORIZON_CAVEAT not in out:
+        lines = out.splitlines()
+        anchor = next((i for i, l in enumerate(lines)
+                       if "band phân bổ tháng" in l.lower()
+                       or l.lstrip().lower().startswith("- band:")), None)
+        if anchor is not None:
+            lines.insert(anchor + 1, _ALLOC_HORIZON_CAVEAT)
+            out = "\n".join(lines)
+    return out
 
 
 def enforce_portfolio_facts(text: str, ctx: dict) -> str:

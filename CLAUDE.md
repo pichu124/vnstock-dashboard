@@ -709,7 +709,7 @@ mã hủy niêm yết (last 2018-2021) re-fetch nhiều NĂM mỗi lần cho 0 n
 
 ---
 
-## 🧭 THIẾT KẾ ĐÃ DUYỆT — Báo cáo vĩ mô upload + Phân bổ tài sản (P1-P3 DONE 2026-07-13, P4+ CHƯA BUILD)
+## 🧭 THIẾT KẾ ĐÃ DUYỆT — Báo cáo vĩ mô upload + Phân bổ tài sản (P1-P4 DONE 2026-07-13, P5+ CHƯA BUILD)
 
 Ý tưởng user: upload báo cáo vĩ mô hay (CTCK/chuyên gia, cả Việt lẫn Anh) để
 AI phân tích tình trạng vĩ mô VN → khuyến nghị rải ngân vào lớp tài sản nào.
@@ -780,8 +780,8 @@ chỉ viết lời, guard pin; (2) số từ báo cáo KHÔNG vào registry 13 c
 
 **Phase + effort (điểm dừng nào cũng có giá trị độc lập):**
 P1 allocation core ✅ → P2 ingest ✅ → P3 digest+cross-check+tilt ✅
-→ P4 nối brief 2-2.5d → P5 UI+doctor+tests 1.5-2d → P6 scorecard+vàng 2.5d.
-Tổng ~8-10 ngày công. Tiếp theo = nói "làm phase 4".
+→ P4 nối brief ✅ → P5 UI+doctor+tests 1.5-2d → P6 scorecard+vàng 2.5d.
+Tổng ~8-10 ngày công. Tiếp theo = nói "làm phase 5".
 
 ### ⏳ VERIFY HOÃN LẠI (user chốt 2026-07-13 "lưu việc phải test vào làm sau")
 
@@ -799,7 +799,13 @@ Chạy trên MÁY CÓ DATA + MẠNG (sandbox không có data_warehouse, chặn r
    `python vnstock_allocation.py --refresh` xem tilt xuất hiện đúng
    (`band_data` vs `band`, dòng 📚). Thử 1 báo cáo có số SAI HẲN (vd sửa tay
    text ghi "tỷ giá 30,000") → claim phải bị cờ mismatch.
-5. `python run.py test --fast` sau khi pull (~448 tests hiện hành).
+5. **P4**: sau khi có allocation state + digest, chạy brief close thật →
+   soi mục "📚 Báo cáo vĩ mô & phân bổ" (band đúng state? nguồn báo cáo
+   thật? không bịa B0-B4/%?); brief allocation:
+   `python -c "from vnstock_brief import generate_brief; r = generate_brief('allocation', force=True); print(next(iter(r.values()))[0])"`
+   → bảng % phải Y HỆT `vnstock_allocation.py --show` (guard pin); nếu bias
+   ngày ngược band tháng → có dòng caveat khung thời gian.
+6. `python run.py test --fast` sau khi pull (~458 tests hiện hành).
 
 ### ✅ P1 DONE (2026-07-13, branch `claude/phase-1-kickoff-lzorv6`) — `vnstock_allocation.py`
 
@@ -902,6 +908,44 @@ Digest LLM + cross-check + consensus → tilt ±1 band. Chi tiết:
   1-2 lần/tháng, không thuộc pipeline tối; cân nhắc lại ở P5 nếu cần).
 - **Tests**: `tests/test_report_digest.py` (19, hermetic — digest_call/macro/
   consensus đều fake) đã vào `--fast`.
+
+### ✅ P4 DONE (2026-07-13, cùng branch) — nối brief (vnstock_brief.py)
+
+Mọi thay đổi giữ nguyên tắc parity morning↔close by construction:
+- **ctx wiring (collect_context 8e)**: `ctx["macro_reports"]` (≤3 digest tươi
+  từ `load_for_analysis(as_of)`) + `ctx["reports_consensus"]` +
+  `ctx["allocation"]` (state P1 đầy đủ TRỪ history). Đọc cache thuần — zero
+  LLM/fetch. Tắt: `VNSTOCK_BRIEF_REPORTS=0`.
+- **Mục "📚 Báo cáo vĩ mô & phân bổ"** trong CẢ 2 template ngày (sau 📰,
+  trước 📌): builder dùng chung `_macro_reports_body_lines(ctx, directive)` —
+  cap ~5 dòng: 1 dòng band tháng (kèm tilt + band_data nếu có) + ≤3 báo cáo
+  (ngày/nguồn/tom_tat/stance CP; digest has_mismatch → ghi chú "số không được
+  trích dẫn") + 1 dòng consensus. Claims KHÔNG render → claim mismatch không
+  bao giờ vào brief by construction. `directive=True` chỉ cho prompt.
+- **brief_type="allocation"** (cadence THÁNG, CHỈ dashboard — KHÔNG Telegram,
+  tham số duyệt #4): `_ALLOCATION_TEMPLATE` (TLDR band / 🧭 Phân bổ đề xuất /
+  📊 Vì sao / 📚 Quan điểm / ⚠️ Rủi ro & khung thời gian, cap 350 từ); data
+  thêm block `_allocation_state_block` (bảng % + lý do từng input kèm nguồn +
+  as_of). Không time-gate (chỉ morning/afternoon bị gate). Chạy tay:
+  `generate_brief('allocation', force=True)` — nút UI là việc P5. Memory lưu
+  brief_type='allocation' bình thường (few-shot theo type tự tách).
+- **2 guard mới trong `apply_brief_guards`** (sau enforce_market_news, áp mọi
+  brief — parity by construction):
+  * `enforce_macro_reports` — mirror enforce_market_news: thay body mục "📚"
+    (anchor "báo cáo vĩ mô" + _is_section_start) bằng canonical bullets
+    (directive=False); splice đè dòng phủ nhận; idempotent; no-op ctx trống.
+  * `enforce_allocation_table` — nguyên tắc #1 (LLM không sinh số %/band):
+    (a) pin token "band B<x>" + "Band phân bổ:** B<x>" lạc về band thật,
+    BỎ QUA dòng canonical mang band khác hợp lệ ("band data:", "Band phân bổ
+    tháng", "- Band:"); (b) brief allocation: thay body mục "🧭 Phân bổ đề
+    xuất" bằng `_allocation_table_lines` canonical; (c) **caveat horizon**:
+    band tháng B0/B1 + bias floor ngày GIẢM (hoặc B3/B4 + TĂNG) → chèn
+    `_ALLOC_HORIZON_CAVEAT` sau dòng band — bắt đầu "- ⚠️" (dash TRƯỚC emoji
+    để không thành ranh giới mục — bài học guard 27); idempotent check toàn văn.
+- `_SECTION_EMOJIS` += 📚, 🧭. `_BRIEF_MAX_TOKENS` 2400→**2800** (thêm mục 📚).
+- **Tests**: 8 test P4 cuối `tests/test_brief.py` (builder cap/mismatch note,
+  2 guard đủ nhánh + idempotent, template selection, block cho từng
+  brief_type, guard chain chứa 2 guard mới).
 
 ---
 
