@@ -708,6 +708,82 @@ mã hủy niêm yết (last 2018-2021) re-fetch nhiều NĂM mỗi lần cho 0 n
 
 ---
 
+## 🧭 THIẾT KẾ ĐÃ DUYỆT — Báo cáo vĩ mô upload + Phân bổ tài sản (CHƯA BUILD, 2026-07-13)
+
+Ý tưởng user: upload báo cáo vĩ mô hay (CTCK/chuyên gia, cả Việt lẫn Anh) để
+AI phân tích tình trạng vĩ mô VN → khuyến nghị rải ngân vào lớp tài sản nào.
+Thiết kế đã qua vòng 3-góc-nhìn + critic (đối chiếu từng trích dẫn với repo);
+user duyệt 2026-07-13 và chốt 5 tham số. **Lưu để RECHECK trước khi build —
+nhắc khi user nói "phân bổ", "báo cáo", "allocation", "upload".**
+
+**5 tham số user đã chốt:**
+1. Báo cáo: vĩ mô đa nguồn (CTCK + chuyên gia), CẢ tiếng Việt và tiếng Anh
+   → digest từ nguồn tiếng Anh phải DỊCH sang tiếng Việt (brief có luật
+   thuần-tiếng-Việt + enforce_no_cjk).
+2. Tần suất: 1-2 báo cáo/tháng → consensus view đa-báo-cáo giữ ĐƠN GIẢN ở v1.
+3. Bảng B→% mặc định: Claude tự quyết (bảng dưới), là CONFIG user chỉnh được.
+4. Brief phân bổ: CHỈ dashboard, KHÔNG đẩy Telegram (v1).
+5. Lớp tài sản v1: **5 lớp — CÓ VÀNG ngay từ đầu** (user chọn, không để dành).
+
+**Bảng B0-B4 → % mặc định (khẩu vị trung dung; convention VnBondLab: B0 =
+rủi ro vĩ mô THẤP nhất = tấn công, B4 = căng thẳng = phòng thủ):**
+
+| Band | Cổ phiếu | Trái phiếu | Tiền gửi | Vàng | USD |
+|------|---------|-----------|----------|------|-----|
+| B0 thuận lợi   | 70% | 10% | 10% |  5% | 5% |
+| B1 tích cực    | 60% | 15% | 15% |  5% | 5% |
+| B2 trung tính  | 45% | 20% | 20% | 10% | 5% |
+| B3 thắt chặt   | 30% | 25% | 30% | 10% | 5% |
+| B4 căng thẳng  | 15% | 25% | 40% | 12% | 8% |
+
+**Kiến trúc (tóm tắt — chi tiết từng quyết định đã phán xử trong critic):**
+- `vnstock_allocation.py` — **LÀM TRƯỚC, zero fetch/zero LLM**: score từ 3
+  gauge (thanh khoản/kỳ hạn/quốc tế) + macro_pressure + regime + sentiment
+  momentum + breadth → band B0-B4 + hysteresis (đổi band cần lệch ≥ ngưỡng
+  2 phiên) → bảng % + lý do từng input (nguồn+as_of) → `allocation_state.json`
+  + history log ĐỦ-ĐỂ-CHẤM-SAU ngay từ ngày 1. Báo cáo upload chỉ tilt ±1
+  band, KHÔNG override data sống (mirror caveat 27/28).
+- `vnstock_reports.py` — ingest: upload PDF (reuse `pdf_to_text` VBMA) +
+  **paste URL/text qua Jina Reader** (đường sẵn có); dedup sha256 (idempotent
+  Streamlit rerun); metadata BẮT BUỘC report_date+nguồn (thiếu → chỉ nằm thư
+  viện, không vào phân tích); flag `no_text_layer` cho PDF scan; CLI đủ bộ.
+- Digest: key Claude/GPT (1-2 call/báo cáo — TODO 1b đã ghi 70B free yếu;
+  ladder free chỉ làm fallback), JSON schema {claims số+kỳ, stance/lớp
+  (-2..+2), risks}, cho phép TRUNG_LẬP; **sanitize cấu trúc** (strip `##`/
+  emoji-mục/CJK, số EN-format) để không phá section-parser guard chain;
+  cross-check số với registry mirror `_fx_crosscheck` — **REGISTRY THẮNG**,
+  lệch → cờ mismatch không vào brief; decay tuổi: giảm từ 30 ngày, weight=0
+  ở 90 ngày; `--redigest`.
+- Brief: block 📚 cap ~5 dòng chỉ-khi-tươi vào brief NGÀY + **brief_type=
+  'allocation' RIÊNG cadence THÁNG** (không trộn — 2 thang thời gian; brief
+  ngày chỉ 1 dòng ngữ cảnh band); nâng `_BRIEF_MAX_TOKENS` 2400→2800; guard
+  mới `enforce_macro_reports` + `enforce_allocation_table` vào
+  `apply_brief_guards` DÙNG CHUNG; band tháng lệch bias floor ngày → caveat
+  horizon, KHÔNG override.
+- Vàng: nguồn Goldprice.dev (Auth: No, mục để-dành 1c) — **display-only +
+  proxy return, KHÔNG vào registry 13**; ghi rõ "spot quốc tế, CHƯA gồm
+  premium SJC (15-20%)". Proxy return các lớp: VNINDEX / đổi-yield-10Y (proxy
+  thô, dán nhãn) / policy rate / vàng spot / usdvnd.
+- UI: 2 sub-tab Tin tức → "📚 Báo cáo" + "🧭 Phân bổ" (UI mỏng trên cache,
+  scope như macro_tab); doctor `check_reports`+`check_allocation` (tuổi/
+  mismatch/nhắc kỳ tháng mirror pmi_reminder); atomic write (tmp+rename) vì
+  Streamlit upload đụng pipeline recompute.
+- Scorecard hồi tố (sau ≥2 kỳ): đối soát band kỳ trước vs return thực từng
+  lớp (mirror vnstock_reconciler); xếp hạng nguồn báo cáo LOG ngay, UI để
+  dành khi đủ mẫu.
+
+**3 nguyên tắc KHÔNG nhượng bộ:** (1) LLM không bao giờ sinh số %/band —
+chỉ viết lời, guard pin; (2) số từ báo cáo KHÔNG vào registry 13 chỉ số
+(tầng SỐ ĐO ≠ tầng QUAN ĐIỂM); (3) guard mới chỉ thêm vào
+`apply_brief_guards` dùng chung + `run.py test --fast` sau mọi sửa brief.
+
+**Phase + effort (điểm dừng nào cũng có giá trị độc lập):**
+P1 allocation core 1.5-2d → P2 ingest 1-1.5d → P3 digest+cross-check 1.5-2d
+→ P4 nối brief 2-2.5d → P5 UI+doctor+tests 1.5-2d → P6 scorecard+vàng 2.5d.
+Tổng ~8-10 ngày công. Bắt đầu = nói "làm phase 1".
+
+---
+
 ## 📌 Pending suggestions (raise when relevant)
 
 ### 0. ⏳ CÒN 2 VIỆC CHỐT (PENDING, cập nhật đêm 2026-07-10→11)
