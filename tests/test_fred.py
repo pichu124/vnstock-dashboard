@@ -116,3 +116,16 @@ def test_fred_key_gate_reads_env(monkeypatch):
     assert fred._api_key() == ""
     monkeypatch.setenv("FRED_API_KEY", "  abc  ")
     assert fred._api_key() == "abc"
+
+
+def test_macro_cli_loads_dotenv_for_fred_key(tmp_path, monkeypatch):
+    # `run.py macro` / CLI từng KHÔNG load .env → FRED bị skip lặng lẽ dù
+    # `vnstock_fred.py --diag` (tự load .env) chạy được — bẫy thật 13/07.
+    monkeypatch.setattr(mac, "_REPO", tmp_path)
+    monkeypatch.setattr(mac, "_CACHE", tmp_path / "macro.json")
+    monkeypatch.delenv("FRED_API_KEY", raising=False)
+    (tmp_path / ".env").write_text("FRED_API_KEY=key_tu_dotenv\n",
+                                   encoding="utf-8")
+    mac.main(["--show"])                       # main phải load .env dù chỉ --show
+    import os
+    assert os.environ.get("FRED_API_KEY") == "key_tu_dotenv"

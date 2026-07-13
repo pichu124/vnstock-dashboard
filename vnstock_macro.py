@@ -1109,6 +1109,15 @@ def _show() -> None:
 
 
 def main(argv: "list[str] | None" = None) -> int:
+    # .env TRƯỚC khi refresh: FRED là nguồn vĩ mô ĐẦU TIÊN cần key
+    # (FRED_API_KEY) — thiếu bước này thì `run.py macro`/CLI skip FRED lặng lẽ
+    # dù `vnstock_fred.py --diag` (tự load .env) chạy được (bẫy thật 13/07).
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(_REPO / ".env", override=False)
+    except Exception:
+        pass
+
     ap = argparse.ArgumentParser(description="Theo dõi vĩ mô: lãi suất & tỷ giá.")
     ap.add_argument("--refresh", action="store_true",
                     help="Seed/scaffold + auto-fetch tỷ giá → cache")
