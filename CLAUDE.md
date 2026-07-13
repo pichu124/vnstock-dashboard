@@ -786,38 +786,11 @@ Tổng ~8-10 ngày công. Bắt đầu = nói "làm phase 1".
 
 ## 📌 Pending suggestions (raise when relevant)
 
-### 0. ⏳ CÒN 2 VIỆC CHỐT (PENDING, cập nhật đêm 2026-07-10→11)
+### 0. ✅ ĐỢT VERIFY 10-13/07 HOÀN TẤT — PR đã mở về main
 
-**Đã verify XONG trên desktop user (đêm 10-11/07)** — branch
-`claude/agent-reach-dashboard-review-3podi4` (HEAD `1ea6f0f`, 10 commit):
-tests 370 xanh · doctor 11✅ · vĩ mô 11 chỉ số (2Y vbma) + 2 gauge (Kỳ hạn
-−0.10 ÂM, dốc 2-10 +0.90) · Jina full-text 12/12 feed, hết lỗi ngược chiều ·
-fundamentals --force --workers 4 chạy xong (số Q2 tươi) · 3 task Scheduler
-đăng ký lại đúng venv admin + task tuần có --force. Buổi test còn lộ + fix
-thêm 4 bug: thiếu pypdf máy mới (doctor có check riêng), rate-limit 500/phút
-Golden (dùng --workers 4 --delay 1), --reanalyze trần là no-op, task tuần
-fundamentals no-op vì thiếu --force.
-
-**FRED VERIFY XONG sáng 13/07** (user đăng ký key OK): 13 chỉ số — US10Y
-4.54 + Fed 3.62 (as_of riêng 07-09) + gauge "→ Quốc tế: VN10Y − US10Y =
-−0.14 ÂM" ra tín hiệu thật ngay lần đầu. Buổi verify lộ + fix thêm 1 bug:
-macro CLI không load .env → FRED bị skip lặng lẽ (fix `8d3e98a`).
-
-**Bước 6 dashboard VERIFY XONG tối 13/07** (user gửi screenshot): 2 badge
-sidebar ✓, bảng 13 chỉ số đủ 3 dòng mới (2Y/US10Y/Fed) ✓, 3 caption gauge ✓,
-chart lịch sử ✓. Badge 🩺 lúc đó 10✅·2⚠️ = ĐÚNG sự thật: VCI API timeout đêm
-13/07 làm data phiên 13/07 chưa vào kho (bar 07-08 + overview 07-10 cũ) —
-sáng hôm sau bấm Cập nhật giá / pipeline 18:00 tự bù là badge xanh lại.
-
-**CÒN 1 VIỆC DUY NHẤT: user gật đầu MỞ PR merge về `main`** — toàn bộ
-checklist verify đã xong 100%. Branch ~20 commit, mô tả sẵn trong commit
-messages. Sau merge pipeline 18:00 hưởng: doctor cuối `run.py all`, tin chấm
-full-text Jina, block vĩ mô 13 chỉ số + 3 gauge, updater chống rate-limit.
-Nhắc khi user nói "PR", "merge", hoặc quay lại làm việc. Xong thì XÓA mục này.
-
-Lưu ý nhỏ đang treo: ⚠️ kho VNINDEX bar 07-08 (thiếu 2 phiên 09-10/07) =
-độ trễ API bar index, KHÔNG phải lỗi — pipeline T2 18:00 tự bù; nếu sang
-T3 vẫn ⚠️ mới cần soi. Xong 2 việc trên thì XÓA mục này.
+Toàn bộ checklist verify xong 100% (tests/doctor/macro 13 chỉ số + 3 gauge/
+Jina full-text/dashboard). PR mở 2026-07-13 theo lệnh user — nếu PR đã merge
+thì XÓA mục này; nếu chưa merge, kiểm tra trạng thái PR khi user quay lại.
 
 ### 1. Auto-schedule `vnstock_train.py` (NOT YET SET UP)
 
