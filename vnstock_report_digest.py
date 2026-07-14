@@ -297,21 +297,34 @@ def _call_free(provider: str, model: str, system: str, user: str,
         return None
 
 
-def digest_call(system: str, user: str) -> tuple["str | None", str]:
+def digest_call(system: str, user: str,
+                accept=None) -> tuple["str | None", str]:
     """(raw_text, provider) qua cascade GIẢM DẦN SỨC MẠNH: Claude → GPT →
     mọi model free bậc 1 → mọi model free bậc 2 (70B). Provider trả về ghi
     rõ model free nào đã digest ("Groq:kimi-k2…") để soi chất lượng về sau.
-    (None, '') khi không nấc nào chạy được."""
+
+    ``accept(raw) -> bool``: model TRẢ LỜI nhưng output không đạt (vd JSON
+    hỏng vì bị cắt — lỗi thật Cerebras 14/07) cũng là MỘT LOẠI LỖI MODEL →
+    cascade thử nấc sau thay vì bỏ cuộc. None = nhận mọi output (--diag).
+    (None, '') khi không nấc nào vừa chạy được vừa đạt."""
     _ensure_env_loaded()
+
+    def _ok(raw: str, provider: str) -> bool:
+        if accept is None or accept(raw):
+            return True
+        print(f"[digest] ⚠ {provider}: trả lời nhưng output không đạt "
+              f"(JSON hỏng/bị cắt?) — thử nấc sau")
+        return False
+
     raw = _call_claude(system, user)
-    if raw:
+    if raw and _ok(raw, "claude"):
         return raw, "claude"
     raw = _call_openai(system, user)
-    if raw:
+    if raw and _ok(raw, "openai"):
         return raw, "openai"
     for provider, model in _free_ladder():
         raw = _call_free(provider, model, system, user)
-        if raw:
+        if raw and _ok(raw, f"{provider}:{model}"):
             return raw, f"{provider}:{model}"
     return None, ""
 
@@ -418,13 +431,17 @@ def digest_report(rec: dict, text: "str | None" = None) -> "dict | None":
     user = (f"Nguồn: {rec.get('source', '?')} — ngày báo cáo "
             f"{rec.get('report_date', '?')} — {rec.get('title') or ''}\n\n"
             f"{text[:_PROMPT_MAX_CHARS]}")
-    raw, provider = digest_call(system, user)
+    # accept = parse được JSON: model trả rác/JSON cụt → cascade tự thử nấc
+    # sau (14/07: Cerebras trả content nhưng JSON hỏng làm digest bỏ cuộc dù
+    # OpenRouter còn chưa được thử).
+    raw, provider = digest_call(system, user,
+                                accept=lambda r: parse_digest(r) is not None)
     if not raw:
-        print(f"[digest] ❌ {rec['id']}: không provider nào trả lời "
-              f"(cần ANTHROPIC/OPENAI key, hoặc GROQ/CEREBRAS/OPENROUTER)")
+        print(f"[digest] ❌ {rec['id']}: không nấc nào vừa trả lời vừa ra JSON "
+              f"hợp lệ (cần ANTHROPIC/OPENAI key, hoặc GROQ/CEREBRAS/OPENROUTER)")
         return None
     digest = parse_digest(raw)
-    if digest is None:
+    if digest is None:                     # không thể xảy ra sau accept — phòng hờ
         print(f"[digest] ❌ {rec['id']}: output không parse được JSON")
         return None
     try:
