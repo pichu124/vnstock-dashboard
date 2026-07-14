@@ -223,3 +223,15 @@ def test_index_written_atomically(tmp_path):
     raw = json.loads(rp._INDEX.read_text(encoding="utf-8"))
     assert raw["updated_at"] and len(raw["reports"]) == 1
     assert not rp._INDEX.with_suffix(".json.tmp").exists()   # tmp đã replace
+
+
+def test_add_pdf_directory_gives_clear_error(tmp_path, capsys):
+    # Đường dẫn THƯ MỤC (dán nhầm folder Dropbox — verify 14/07): Windows trả
+    # 'Permission denied' gây hiểu nhầm → phải nói thẳng là thư mục + gợi ý PDF.
+    d = tmp_path / "bao_cao_vi_mo"
+    d.mkdir()
+    (d / "t7.pdf").write_bytes(b"%PDF")
+    assert rp.add_pdf(d) is None
+    out = capsys.readouterr().out
+    assert "THƯ MỤC" in out and "t7.pdf" in out
+    assert rp.list_reports() == []

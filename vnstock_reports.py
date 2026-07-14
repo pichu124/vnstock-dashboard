@@ -248,6 +248,14 @@ def add_pdf(path: "str | Path", *, report_date: "str | None" = None,
     """Ingest 1 file PDF: sha256(bytes) làm id, trích text qua
     vnstock_vbma.pdf_to_text, giữ cả PDF gốc cho --redigest (P3)."""
     p = Path(path)
+    if p.is_dir():
+        # Windows trả 'Permission denied' khi read_bytes() một THƯ MỤC — thông
+        # báo gây hiểu nhầm (user dán đường dẫn folder Dropbox, verify 14/07).
+        pdfs = sorted(p.glob("*.pdf"))
+        hint = (f" (trong đó có {len(pdfs)} PDF, vd: {pdfs[0].name})"
+                if pdfs else "")
+        print(f"[reports] ❌ {p} là THƯ MỤC — --add nhận 1 FILE PDF{hint}")
+        return None
     try:
         data = p.read_bytes()
     except OSError as e:
