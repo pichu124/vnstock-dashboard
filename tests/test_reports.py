@@ -281,7 +281,7 @@ def test_docx_failure_hint_distinguishes_cases(tmp_path):
     # .DOC OLE cũ đổi đuôi
     assert ".DOC" in rp.docx_failure_hint(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1xx")
     # không phải zip (placeholder Dropbox online-only…)
-    assert "không phải docx" in rp.docx_failure_hint(b"rac rưởi")
+    assert "không phải docx" in rp.docx_failure_hint(b"khong phai zip")
     # zip hợp lệ nhưng chỉ có ảnh (case thật Q3.docx 14/07: chụp màn hình dán vào)
     import zipfile
     p = tmp_path / "anh.docx"
