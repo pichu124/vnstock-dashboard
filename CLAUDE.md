@@ -820,7 +820,9 @@ canonical, 13 chỉ số + 3 gauge lần đầu lên brief; lộ + đã vá 2 gu
 (enforce_breadth_label thiếu tổ hợp "số mã cổ phiếu"; enforce_vnindex_change
 đè % GTGD-vs-phiên-trước vì không kiểm tra chủ ngữ).
 
-**CÒN LẠI (user hẹn test khi update data — nhắc khi user nói "test"/"verify"):**
+**CÒN LẠI — ⏰ NHẮC CHỦ ĐỘNG: phiên làm việc KẾ TIẾP trên repo này, mở đầu
+bằng việc nhắc user danh sách dưới (user dặn 14/07 "lưu việc phải làm/test
+rồi sau nhắc nhở tôi"); nhắc lại khi user nói "test"/"verify"/update data:**
 1. Đọc phần (2/2) của close brief Telegram — mục "📚 Báo cáo vĩ mô & phân
    bổ" với digest thật (band B4 + tilt +1 + dòng HedgeAcademy stance -2 +
    consensus; không bịa band/%).
