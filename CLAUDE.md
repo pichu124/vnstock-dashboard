@@ -1467,6 +1467,13 @@ viên nào thắng nổi → tune/revise đóng băng + active không bao giờ 
 backtest mới (nên không có 🧪 validation). Nay cả 2 hàm RE-BACKTEST chính
 active (code+params hiện tại, cùng cost-basis) làm benchmark VÀ lưu row đó
 → so net-vs-net công bằng, panel/CLI luôn thấy validation của active.
+Verify thật trên máy user 15/07: family-05f9d495 lộ nguyên hình +0.365
+gross → **−0.777 net, p=0.986, 0% fold dương** — đúng loại chiến lược
+"lãi trên giấy, lỗ sau phí" mà Món 1 sinh ra để tóm. Kéo theo **rule 2b**
+trong `_should_revise`: expectancy net ≤ 0 → REVISE NGAY (không tune chờ
+hết tuần) — các agent viết lại core cạnh tranh dưới luật net; benchmark
+−0.777 là bar thấp nên thay máu nhanh, ứng viên vẫn phải qua gate
+validation 🧪 mới được promote.
 
 **Món 1 — phí round-trip vào backtest** (`vnstock_strategy._cost_roundtrip_pct`):
 `_simulate_trade` trừ `_COST_ROUNDTRIP_PCT_DEFAULT` = **0.4%** (phí CTCK

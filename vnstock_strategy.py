@@ -1230,9 +1230,16 @@ def _should_revise(active: dict) -> bool:
     fam = active.get("family_id")
 
     # Rule 2: 0 trades → broken code, revise immediately
+    # Rule 2b: expectancy NET ≤ 0 → core vô giá trị sau phí, revise ngay
+    # thay vì tune chờ hết tuần (15/07: family-05f9d495 lộ +0.365 gross →
+    # −0.777 net + trượt kiểm định 🎲 — để nó "được tune" cả tuần là vô nghĩa,
+    # phải cho các agent viết lại core cạnh tranh dưới luật net ngay).
     if fam:
         hist = mem.family_history(fam, limit=1)
         if hist and (hist[0].get("n_trades") or 0) == 0:
+            return True
+        if hist and hist[0].get("expectancy") is not None \
+           and hist[0]["expectancy"] <= 0:
             return True
 
     # Rules 3 & 4: stable core

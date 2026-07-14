@@ -257,6 +257,28 @@ def test_do_tune_adopts_with_same_cost_basis(monkeypatch):
     assert "adopted" in rec and out.get("tuned_by")
 
 
+def test_should_revise_on_negative_net_expectancy(monkeypatch):
+    # Rule 2b (15/07): expectancy net ≤ 0 → revise NGAY, không tune chờ tuần
+    # (family-05f9d495 lộ +0.365 gross → −0.777 net sau fix benchmark).
+    from datetime import datetime
+    active = {"id": 1, "family_id": "fam", "is_core_stable": 0,
+              "created_at": datetime.now().isoformat()}
+    monkeypatch.setattr(vs.mem, "family_history",
+                        lambda fam, limit=1: [{"n_trades": 132,
+                                               "expectancy": -0.777}])
+    assert vs._should_revise(active) is True
+    # expectancy dương + mới tạo (chưa đến hạn tuần) → chỉ tune
+    monkeypatch.setattr(vs.mem, "family_history",
+                        lambda fam, limit=1: [{"n_trades": 132,
+                                               "expectancy": 0.5}])
+    assert vs._should_revise(active) is False
+    # thiếu backtest (expectancy None) → không kích rule 2b
+    monkeypatch.setattr(vs.mem, "family_history",
+                        lambda fam, limit=1: [{"n_trades": 132,
+                                               "expectancy": None}])
+    assert vs._should_revise(active) is False
+
+
 # ── Món 2: strategy_health ───────────────────────────────────────────────────
 
 
