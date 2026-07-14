@@ -1251,6 +1251,25 @@ Claude/GPT). CPU-only ~5-15 tok/s: đủ cho ≤8 tin/ngày, chậm cho batch l�
 Khác 3 khảo sát trước (lấp gap DỮ LIỆU thật), cái này lấp gap ĐỘ BỀN LLM —
 hiện chưa đau nên để dành.
 
+**Khảo sát HKUDS/Vibe-Trading (2026-07-14): KHÔNG dùng framework — ĐỂ
+DÀNH 2 món, món 1 đáng làm sớm.** Nền tảng trading agent lớn (~203K dòng
+Python + React; Alpha Zoo 460 factor, backtest A-share/Mỹ/HK/Ấn/crypto,
+18+ loader, MCP 68 tool, broker thật). Không dùng vì: không có HOSE/HNX
+(vnstock đã tự chủ VN), kéo cả platform ngược triết lý; sandbox AST của họ
+mình ĐÃ tương đương (vnstock_strategy cấm import + dunder-escape + walk
+AST lồng). **MÓN 1 — ĐÁNG LÀM (nói "làm validation backtest")**: ý tưởng
+`agent/backtest/validation.py` — Monte Carlo permutation test (xáo thứ tự
+PnL 1000 lần → p-value Sharpe: chiến lược hơn ăn-may không?) + bootstrap
+Sharpe CI + walk-forward; numpy thuần, zero dependency. Chỗ mỏng thật của
+hệ mình: gate "validated" trong vnstock_train chỉ cần n_trades ≥ MIN +
+metrics dương → chiến lược LLM overfit/ăn may vẫn thành active và phát
+rec vào brief. Gắn permutation test vào gate (p ≥ ~0.1 → không active) =
+nâng cấp deterministic đúng chất repo. **MÓN 2 — để dành**: vòng đời decay
+chiến lược (active → monitoring → decayed → disabled, mirror
+strategy-dev-manager của họ) — reconciler đã đếm outcome theo strategy_id
+(outcome_distribution), chỉ thiếu luật tự-retire khi win-rate thật tụt xa
+backtest; trigger: khi có ≥15-20 rec đóng/chiến lược để so có ý nghĩa.
+
 **Khảo sát TauricResearch/TradingAgents (2026-07-14): KHÔNG dùng trực
 tiếp — ý tưởng reflection + debate ĐÃ TRIỂN KHAI cùng ngày (xem mục
 🧠 Reflection + 🗣 Debate dưới P6).** Framework nghiên cứu
