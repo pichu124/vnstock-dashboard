@@ -545,6 +545,20 @@ def reconcile_recommendations(verbose: bool = True) -> dict:
             f"[reconcile] closed={summary['closed']} "
             f"stale={summary['stale']} still_open={summary['still_open']}"
         )
+
+    # Vòng đời decay: outcome thật vừa cập nhật là lúc đánh giá lại sức khỏe
+    # chiến lược active (zero LLM). Best-effort — lỗi không chặn reconcile.
+    try:
+        from vnstock_strategy import check_strategy_decay
+        decay = check_strategy_decay()
+        if decay:
+            summary["strategy_health"] = decay["state"]
+            if decay.get("applied") and verbose:
+                print(f"[reconcile] strategy #{decay['strategy_id']} DECAYED → "
+                      f"demoted: {'; '.join(decay['reasons'])}")
+    except Exception as e:
+        if verbose:
+            print(f"[reconcile] decay check skipped: {type(e).__name__}: {e}")
     return summary
 
 

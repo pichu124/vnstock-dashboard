@@ -16,7 +16,8 @@ Items here get auto-loaded into Claude's context at session start.
   `vnstock_macro.py`, `vnstock_news_feeds.py`, `vnstock_doctor.py`,
   `vnstock_allocation.py`, `vnstock_reports.py`, `vnstock_report_digest.py`,
   `vnstock_gold.py`, `vnstock_scorecard.py`, `vnstock_reflection.py`,
-  `vnstock_debate.py`
+  `vnstock_debate.py`, `vnstock_strategy.py` (validation/decay),
+  `vnstock_train.py` (reconcile)
 - Trước khi tạo PR merge về `main`
 - Sau khi nâng cấp pandas / numpy / Python version
 
@@ -838,6 +839,12 @@ rồi sau nhắc nhở tôi"); nhắc lại khi user nói "test"/"verify"/update
    (bài học tiếng Việt sạch? đúng outcome?); brief allocation kế tiếp phải
    thấy mục ⚠️ đối diện phản biện (`python vnstock_debate.py --show` xem 4
    luận điểm; chạy cùng brief phân bổ từ sub-tab 🧭).
+7. **Validation + decay chiến lược (mới 14/07)**: sau lần training kế tiếp
+   (`python vnstock_train.py --once` / nút Full training) → panel "🧪 Chiến
+   lược" phải hiện dòng kiểm định chống-ăn-may (ĐẠT p=… hoặc cảnh báo 🎲);
+   khi chiến lược active tích lũy ≥ 8 rec đóng thật → hiện dòng sức khỏe
+   live (💚/🟡/🔻); nếu decayed thật, log `[reconcile] … DECAYED → demoted`
+   và lần train sau tự cold-start bản mới.
 
 **Checklist gốc (đã chạy gần hết — giữ làm tài liệu lệnh):**
 1. `python vnstock_allocation.py --refresh` → in band + bảng % + lý do 7 tín
@@ -1251,24 +1258,58 @@ Claude/GPT). CPU-only ~5-15 tok/s: đủ cho ≤8 tin/ngày, chậm cho batch l�
 Khác 3 khảo sát trước (lấp gap DỮ LIỆU thật), cái này lấp gap ĐỘ BỀN LLM —
 hiện chưa đau nên để dành.
 
-**Khảo sát HKUDS/Vibe-Trading (2026-07-14): KHÔNG dùng framework — ĐỂ
-DÀNH 2 món, món 1 đáng làm sớm.** Nền tảng trading agent lớn (~203K dòng
-Python + React; Alpha Zoo 460 factor, backtest A-share/Mỹ/HK/Ấn/crypto,
-18+ loader, MCP 68 tool, broker thật). Không dùng vì: không có HOSE/HNX
-(vnstock đã tự chủ VN), kéo cả platform ngược triết lý; sandbox AST của họ
-mình ĐÃ tương đương (vnstock_strategy cấm import + dunder-escape + walk
-AST lồng). **MÓN 1 — ĐÁNG LÀM (nói "làm validation backtest")**: ý tưởng
-`agent/backtest/validation.py` — Monte Carlo permutation test (xáo thứ tự
-PnL 1000 lần → p-value Sharpe: chiến lược hơn ăn-may không?) + bootstrap
-Sharpe CI + walk-forward; numpy thuần, zero dependency. Chỗ mỏng thật của
-hệ mình: gate "validated" trong vnstock_train chỉ cần n_trades ≥ MIN +
-metrics dương → chiến lược LLM overfit/ăn may vẫn thành active và phát
-rec vào brief. Gắn permutation test vào gate (p ≥ ~0.1 → không active) =
-nâng cấp deterministic đúng chất repo. **MÓN 2 — để dành**: vòng đời decay
-chiến lược (active → monitoring → decayed → disabled, mirror
-strategy-dev-manager của họ) — reconciler đã đếm outcome theo strategy_id
-(outcome_distribution), chỉ thiếu luật tự-retire khi win-rate thật tụt xa
-backtest; trigger: khi có ≥15-20 rec đóng/chiến lược để so có ý nghĩa.
+**Khảo sát HKUDS/Vibe-Trading (2026-07-14): KHÔNG dùng framework — CẢ 2
+MÓN ĐÃ TRIỂN KHAI cùng ngày (xem mục 🎲 Validation + 🔻 Decay bên dưới).**
+Nền tảng trading agent lớn (~203K dòng Python + React; Alpha Zoo 460
+factor, backtest A-share/Mỹ/HK/Ấn/crypto, 18+ loader, MCP 68 tool, broker
+thật). Không dùng vì: không có HOSE/HNX (vnstock đã tự chủ VN), kéo cả
+platform ngược triết lý; sandbox AST của họ mình ĐÃ tương đương
+(vnstock_strategy cấm import + dunder-escape + walk AST lồng).
+
+### 🎲 Validation backtest + 🔻 Decay lifecycle (DONE 2026-07-14 — 2 món Vibe-Trading, user "làm cả 2 món")
+
+Cả 2 đều deterministic thuần (numpy + SQL, zero LLM/fetch/dependency),
+nằm trong `vnstock_strategy.py`; tests `tests/test_strategy_validation.py`
+(26, hermetic — mem/EXECUTOR monkeypatch) đã vào `--fast`.
+
+**Món 1 — kiểm định chống-ăn-may** (chặn chiến lược LLM overfit/ăn may
+thành active): `backtest()` nay gắn `metrics["validation"]` =
+`validate_backtest_quality(trades)` → {p_value_sharpe, sharpe_ci,
+walk_forward, passed, reasons}:
+- `monte_carlo_pvalue` — **SIGN-FLIP permutation** (KHÁC bản gốc Vibe: họ
+  xáo THỨ TỰ pnl rồi đo path-metrics, nhưng Sharpe per-trade mean/std là
+  BẤT BIẾN thứ tự → xáo thứ tự vô nghĩa ở đây; sign-flip test đúng H0
+  "pnl đối xứng quanh 0 = không có edge"). 1000 sim, seed cố định
+  (deterministic), +1 hiệu chỉnh nên p không bao giờ 0. None khi < 3
+  lệnh / σ=0.
+- `bootstrap_sharpe_ci` — CI 90% percentile (tham khảo, KHÔNG gate — mẫu
+  nhỏ CI rộng).
+- `walk_forward_consistency` — chia lệnh theo start_idx thành 4 fold;
+  hiệu năng dồn 1 giai đoạn → fail.
+- **Gate `passed`** = p < 0.10 VÀ ≥ 50% fold dương. `_validation_ok`
+  (True khi VẮNG validation — backtest cũ/quá ít lệnh, gate n_trades
+  hiện hành xử) được thêm vào: `_cold_start` (chỉ ảnh hưởng nhãn status —
+  cold-start vẫn luôn promote "always have one active"), `_do_revise`
+  (trượt → retired, giữ bản cũ), `_do_tune` (trượt → không nhận params).
+- Dashboard: panel Chiến lược hiện "🧪 Kiểm định: ĐẠT (p=…)" / cảnh báo 🎲.
+
+**Món 2 — vòng đời decay** (backtest nói hay nhưng lệnh THẬT tụt →
+tự demote): `strategy_health(sid)` so win-rate rec đóng thật
+(`recommendation_performance`, bỏ superseded) với win-rate backtest gần
+nhất → state: `insufficient` (live n < `_DECAY_MIN_LIVE_N`=8 / chưa có
+backtest) · `healthy` · `monitoring` (gap ≥ 12đ%) · `decayed` (gap ≥
+`_DECAY_WR_GAP`=25đ% HOẶC live wr ≤ 30% + avg pnl âm).
+`check_strategy_decay(apply=True)` — state=decayed → `update_strategy_status
+(sid,'decayed')`: get_active_family lọc status='active' nên bản decayed
+tự rơi khỏi vòng tune/revise → strategy_loop kế tiếp **cold-start bản
+mới** (không cần status 'disabled' riêng — 'decayed' là terminal record).
+Gọi best-effort CUỐI `reconcile_recommendations` (vnstock_train) — chạy
+mỗi lần reconciler đóng rec (train/brief/_maybe_reconcile_overdue/nút
+dashboard). Chỉ transition decayed ghi DB; monitoring chỉ cảnh báo
+(dashboard 🟡/🔻). Kill switch: `VNSTOCK_STRATEGY_DECAY=0`. Lưu ý đọc
+số: win-rate live tính trên MỌI rec đóng của strategy_id đó (không cửa
+sổ thời gian) — đủ dùng ở n nhỏ; nếu sau này rec tích lũy hàng trăm thì
+cân nhắc cửa sổ 30-60 rec gần nhất.
 
 **Khảo sát TauricResearch/TradingAgents (2026-07-14): KHÔNG dùng trực
 tiếp — ý tưởng reflection + debate ĐÃ TRIỂN KHAI cùng ngày (xem mục

@@ -1961,6 +1961,50 @@ def render_market_tab() -> None:
                             else:
                                 st.caption("Chưa có backtest metrics.")
 
+                        # Món 1: kiểm định thống kê chống-ăn-may (backtest gần nhất)
+                        try:
+                            _bt0 = _vm.latest_backtest(_active["id"])
+                            _val = (
+                                _json.loads(_bt0["metrics_json"]).get("validation")
+                                if _bt0 and _bt0.get("metrics_json") else None
+                            )
+                            if _val:
+                                _p = _val.get("p_value_sharpe")
+                                _ptxt = f"p={_p:.3f}" if _p is not None else "p=—"
+                                if _val.get("passed"):
+                                    st.caption(f"🧪 Kiểm định chống-ăn-may: ĐẠT ({_ptxt})")
+                                else:
+                                    st.warning(
+                                        f"🎲 Kiểm định chống-ăn-may KHÔNG đạt ({_ptxt}): "
+                                        + "; ".join(_val.get("reasons") or []),
+                                        icon="🎲",
+                                    )
+                        except Exception:
+                            pass
+
+                        # Món 2: sức khỏe live (win-rate rec thật vs backtest)
+                        try:
+                            from vnstock_strategy import strategy_health as _sh
+                            _hl = _sh(_active["id"])
+                            _hs = _hl.get("state")
+                            if _hs == "healthy":
+                                st.caption(
+                                    f"💚 Live khớp backtest (win-rate thật "
+                                    f"{(_hl.get('live_win_rate') or 0):.0%}, "
+                                    f"n={_hl.get('live_n')})"
+                                )
+                            elif _hs == "monitoring":
+                                st.warning("🟡 " + "; ".join(_hl.get("reasons") or []),
+                                           icon="🟡")
+                            elif _hs == "decayed":
+                                st.error(
+                                    "🔻 Chiến lược DECAY — sẽ tự demote ở lần "
+                                    "reconcile tới: " + "; ".join(_hl.get("reasons") or []),
+                                    icon="🔻",
+                                )
+                        except Exception:
+                            pass
+
                         with st.expander("Xem params & code", expanded=False):
                             try:
                                 _params = _json.loads(_active.get("params_json") or "{}")

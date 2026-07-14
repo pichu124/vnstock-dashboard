@@ -510,9 +510,185 @@ def backtest(code: str, cfg: BacktestConfig) -> dict:
             (len(wins) / len(pnls) * (wins.mean() if len(wins) else 0))
             + (len(losses) / len(pnls) * (losses.mean() if len(losses) else 0))
         ),
+        "validation":   validate_backtest_quality(trades),
         "trades":       trades[:200],
         "errors":       errors[:20],
     }
+
+
+# ── Kiểm định thống kê chống-ăn-may (DONE 2026-07-14, ý tưởng từ khảo sát ──
+# HKUDS/Vibe-Trading agent/backtest/validation.py). Numpy thuần, zero
+# dependency, deterministic (seed cố định). LƯU Ý so với bản gốc: họ xáo THỨ
+# TỰ pnl rồi đo path-metrics; Sharpe per-trade của mình (mean/std các pnl) là
+# BẤT BIẾN với thứ tự → permutation-thứ-tự vô nghĩa ở đây. Thay bằng
+# SIGN-FLIP permutation chuẩn: H0 = pnl đối xứng quanh 0 (không có edge) →
+# lật dấu ngẫu nhiên từng lệnh, đếm tỷ lệ mô phỏng có Sharpe ≥ thực.
+
+_MC_SIMS = 1000
+_MC_PVALUE_MAX = 0.10          # p ≥ ngưỡng → không đủ bằng chứng hơn ăn-may
+_BOOT_SIMS = 1000
+_BOOT_CI = 0.90                # CI 90% cho Sharpe (percentile bootstrap)
+_WF_FOLDS = 4
+_WF_MIN_POSITIVE_FRAC = 0.5    # ≥ nửa số cửa sổ thời gian phải dương
+
+
+def monte_carlo_pvalue(pnls: "np.ndarray", n_sim: int = _MC_SIMS,
+                       seed: int = 42) -> "float | None":
+    """p-value sign-flip permutation cho Sharpe per-trade > 0.
+
+    H0: chiến lược không có edge — pnl mỗi lệnh đối xứng quanh 0. Lật dấu
+    ngẫu nhiên từng pnl ``n_sim`` lần; p = tỷ lệ mô phỏng đạt Sharpe ≥ thực
+    (cộng 1 hiệu chỉnh để p không bao giờ = 0). None khi < 3 lệnh/không σ."""
+    pnls = np.asarray(pnls, dtype=float)
+    if len(pnls) < 3 or pnls.std() == 0:
+        return None
+    actual = pnls.mean() / pnls.std()
+    rng = np.random.default_rng(seed)
+    signs = rng.choice((-1.0, 1.0), size=(n_sim, len(pnls)))
+    sims = signs * np.abs(pnls)
+    stds = sims.std(axis=1)
+    stds[stds == 0] = np.inf
+    sim_sharpes = sims.mean(axis=1) / stds
+    return float((np.sum(sim_sharpes >= actual) + 1) / (n_sim + 1))
+
+
+def bootstrap_sharpe_ci(pnls: "np.ndarray", n_boot: int = _BOOT_SIMS,
+                        seed: int = 42,
+                        ci: float = _BOOT_CI) -> "tuple[float, float] | None":
+    """CI percentile cho Sharpe per-trade (resample có hoàn lại) — trả
+    (lo, hi); lo > 0 nghĩa là edge không phụ thuộc vài lệnh vàng."""
+    pnls = np.asarray(pnls, dtype=float)
+    if len(pnls) < 3:
+        return None
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, len(pnls), size=(n_boot, len(pnls)))
+    samples = pnls[idx]
+    stds = samples.std(axis=1)
+    stds[stds == 0] = np.inf
+    sharpes = samples.mean(axis=1) / stds
+    alpha = (1 - ci) / 2
+    return (float(np.quantile(sharpes, alpha)),
+            float(np.quantile(sharpes, 1 - alpha)))
+
+
+def walk_forward_consistency(trades: list[dict],
+                             n_folds: int = _WF_FOLDS) -> "dict | None":
+    """Chia lệnh THEO THỜI GIAN (start_idx của cửa sổ backtest) thành
+    ``n_folds`` đoạn — hiệu năng có đều không hay dồn vào 1 giai đoạn?
+    Trả {n_folds, positive_frac, fold_pnls}; None khi ít lệnh hơn số fold."""
+    if len(trades) < n_folds:
+        return None
+    ordered = sorted(trades, key=lambda t: t.get("start_idx", 0))
+    pnls = np.asarray([t["pnl"] for t in ordered], dtype=float)
+    folds = np.array_split(pnls, n_folds)
+    fold_pnls = [float(f.sum()) for f in folds]
+    positive = sum(1 for f in fold_pnls if f > 0)
+    return {"n_folds": n_folds,
+            "positive_frac": round(positive / n_folds, 2),
+            "fold_pnls": [round(f, 2) for f in fold_pnls]}
+
+
+def validate_backtest_quality(trades: list[dict]) -> "dict | None":
+    """Chạy cả 3 kiểm định trên list trades của backtest → {p_value_sharpe,
+    sharpe_ci, walk_forward, passed, reasons}. ``passed`` = p-value dưới
+    ngưỡng VÀ ≥ nửa cửa sổ walk-forward dương (CI chỉ để tham khảo — không
+    gate vì mẫu nhỏ hay cho CI rộng). None khi < 3 lệnh (gate n_trades của
+    vòng validate đã chặn trước)."""
+    if not trades or len(trades) < 3:
+        return None
+    pnls = np.asarray([t["pnl"] for t in trades], dtype=float)
+    p = monte_carlo_pvalue(pnls)
+    ci = bootstrap_sharpe_ci(pnls)
+    wf = walk_forward_consistency(trades)
+    reasons: list[str] = []
+    if p is not None and p >= _MC_PVALUE_MAX:
+        reasons.append(f"p-value {p:.3f} ≥ {_MC_PVALUE_MAX} — Sharpe không hơn ăn-may")
+    if wf is not None and wf["positive_frac"] < _WF_MIN_POSITIVE_FRAC:
+        reasons.append(f"chỉ {wf['positive_frac']:.0%} cửa sổ thời gian dương "
+                       f"— hiệu năng dồn cục, không bền")
+    return {
+        "p_value_sharpe": p,
+        "sharpe_ci": list(ci) if ci else None,
+        "walk_forward": wf,
+        "passed": not reasons,
+        "reasons": reasons,
+    }
+
+
+def _validation_ok(metrics: dict) -> bool:
+    """Gate helper: passed của bộ kiểm định. TRUE khi vắng validation —
+    backtest cũ (trước 2026-07-14) hoặc quá ít lệnh, các trường hợp đó gate
+    n_trades/expectancy hiện hành đã xử."""
+    v = metrics.get("validation")
+    return True if not v else bool(v.get("passed"))
+
+
+# ── Vòng đời decay chiến lược (DONE 2026-07-14, cùng khảo sát Vibe-Trading) ─
+# Backtest nói chiến lược tốt nhưng LỆNH THẬT (rec đã đóng qua reconciler) tụt
+# xa → tự demote khỏi active để strategy_loop kế tiếp cold-start bản mới.
+# Trạng thái TÍNH TOÁN mỗi lần gọi (healthy/monitoring/decayed/insufficient);
+# chỉ transition "decayed" được ghi DB (status='decayed' — get_active_family
+# lọc status='active' nên bản decayed tự rơi khỏi vòng tune/revise).
+
+_DECAY_MIN_LIVE_N = 8          # cần ≥ N rec đóng THẬT mới dám kết luận
+_DECAY_WR_GAP = 0.25           # backtest_wr − live_wr ≥ 25 điểm % → decayed
+_MONITOR_WR_GAP = 0.12         # ≥ 12 điểm % → monitoring (cảnh báo, chưa demote)
+_DECAY_LIVE_WR_FLOOR = 0.30    # live wr ≤ 30% VÀ avg pnl âm → decayed dù gap nhỏ
+
+
+def strategy_health(strategy_id: int) -> dict:
+    """So win-rate LỆNH THẬT (rec_outcomes, bỏ superseded) với win-rate
+    backtest gần nhất → {state, live_n, live_win_rate, backtest_win_rate,
+    gap, reasons}. state ∈ insufficient/healthy/monitoring/decayed."""
+    live = mem.recommendation_performance(strategy_id)
+    bt = mem.latest_backtest(strategy_id) or {}
+    bt_wr = bt.get("win_rate")
+    n = int(live.get("n") or 0)
+    out = {"state": "insufficient", "live_n": n,
+           "live_win_rate": live.get("win_rate"),
+           "backtest_win_rate": bt_wr, "gap": None, "reasons": []}
+    if n < _DECAY_MIN_LIVE_N or bt_wr is None:
+        return out
+    live_wr = float(live["win_rate"])
+    gap = float(bt_wr) - live_wr
+    out["gap"] = round(gap, 3)
+    if gap >= _DECAY_WR_GAP:
+        out["state"] = "decayed"
+        out["reasons"].append(
+            f"win-rate thật {live_wr:.0%} tụt {gap * 100:.0f} điểm % so với "
+            f"backtest {float(bt_wr):.0%} (n={n})")
+    elif live_wr <= _DECAY_LIVE_WR_FLOOR and float(live.get("avg_pnl") or 0) < 0:
+        out["state"] = "decayed"
+        out["reasons"].append(
+            f"win-rate thật {live_wr:.0%} ≤ {_DECAY_LIVE_WR_FLOOR:.0%} và "
+            f"PnL trung bình âm ({float(live.get('avg_pnl') or 0):+.2f}%, n={n})")
+    elif gap >= _MONITOR_WR_GAP:
+        out["state"] = "monitoring"
+        out["reasons"].append(
+            f"win-rate thật {live_wr:.0%} kém backtest {gap * 100:.0f} điểm % "
+            f"— theo dõi, chưa demote")
+    else:
+        out["state"] = "healthy"
+    return out
+
+
+def check_strategy_decay(apply: bool = True) -> "dict | None":
+    """Đánh giá sức khỏe chiến lược active; state=decayed và ``apply`` →
+    demote (status='decayed') để lần train sau cold-start bản mới. Zero LLM,
+    chỉ SQL — an toàn gọi sau mỗi lần reconciler đóng rec. Trả report hoặc
+    None (không có active / kill switch VNSTOCK_STRATEGY_DECAY=0)."""
+    if os.environ.get("VNSTOCK_STRATEGY_DECAY", "1") == "0":
+        return None
+    active = mem.get_active_family()
+    if not active:
+        return None
+    health = strategy_health(active["id"])
+    report = {"strategy_id": active["id"], "name": active.get("name"),
+              "applied": False, **health}
+    if health["state"] == "decayed" and apply:
+        mem.update_strategy_status(active["id"], "decayed")
+        report["applied"] = True
+    return report
 
 
 # ── Strategy generation via agents ─────────────────────────────────────────
@@ -1012,7 +1188,8 @@ def _cold_start(
     )
     mem.save_backtest(sid, ps, pe, ",".join(universe[:10]), metrics)
     if metrics.get("n_trades", 0) >= MIN_TRADES_TO_VALIDATE \
-       and (metrics.get("expectancy") or -999) > 0:
+       and (metrics.get("expectancy") or -999) > 0 \
+       and _validation_ok(metrics):
         mem.promote_strategy(sid, retire_others=True)
     else:
         mem.update_strategy_status(sid, "validated"
@@ -1101,7 +1278,8 @@ def _do_revise(
 
     cur_exp = cur_metrics.get("expectancy") or -999
     new_exp = best_metrics.get("expectancy") or -999
-    if new_exp > cur_exp and best_metrics.get("n_trades", 0) >= MIN_TRADES_TO_VALIDATE:
+    if new_exp > cur_exp and best_metrics.get("n_trades", 0) >= MIN_TRADES_TO_VALIDATE \
+       and _validation_ok(best_metrics):
         mem.promote_strategy(sid, retire_others=True)
         if _check_stability(family):
             mem.mark_core_stable(sid, True)
@@ -1142,7 +1320,7 @@ def _do_tune(agents: list, active: dict, cfg: BacktestConfig) -> tuple[Optional[
     cur_exp = cur_metrics.get("expectancy") or -999
     new_exp = new_metrics.get("expectancy") or -999
 
-    if new_exp > cur_exp:
+    if new_exp > cur_exp and _validation_ok(new_metrics):
         mem.update_strategy_params(active["id"], new_params, name)
         mem.save_backtest(
             active["id"],
