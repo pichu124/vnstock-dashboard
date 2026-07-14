@@ -235,3 +235,43 @@ def test_add_pdf_directory_gives_clear_error(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "THƯ MỤC" in out and "t7.pdf" in out
     assert rp.list_reports() == []
+
+
+def _mk_docx(path, paragraphs):
+    """Dựng DOCX tối thiểu thật (zip + word/document.xml) — không cần Word."""
+    import zipfile
+    ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    body = "".join(f"<w:p><w:r><w:t>{t}</w:t></w:r></w:p>" for t in paragraphs)
+    xml = (f'<?xml version="1.0"?><w:document xmlns:w="{ns}">'
+           f"<w:body>{body}</w:body></w:document>")
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("word/document.xml", xml)
+
+
+def test_add_docx_extracts_text_and_goes_into_analysis(tmp_path):
+    # Thư viện báo cáo thật của user là .docx (verify 14/07) — đọc bằng stdlib.
+    docx = tmp_path / "Q3.docx"
+    _mk_docx(docx, ["Báo cáo vĩ mô quý 3.", _TEXT])
+    rec = rp.add_pdf(docx, report_date=_today(), source="HedgeAcademy")
+    assert rec and rec["kind"] == "docx"
+    assert rp.in_analysis(rec)
+    body = rp.load_report_text(rec["id"])
+    assert body.startswith("Báo cáo vĩ mô quý 3.")
+    assert "lãi suất điều hành" in body
+    assert rp._docx_path(rec["id"]).exists()          # giữ file gốc cho --redigest
+    # xóa dọn cả file gốc .docx
+    rp.remove(rec["id"])
+    assert not rp._docx_path(rec["id"]).exists()
+
+
+def test_add_docx_corrupt_flagged_no_text_layer(tmp_path):
+    bad = tmp_path / "hong.docx"
+    bad.write_bytes(b"khong phai zip")
+    rec = rp.add_pdf(bad, report_date=_today(), source="X")
+    assert rec["kind"] == "docx" and rec["no_text_layer"] is True
+    assert not rp.in_analysis(rec)
+
+
+def test_docx_to_text_handles_garbage():
+    assert rp.docx_to_text(b"") == ""
+    assert rp.docx_to_text(b"rac") == ""

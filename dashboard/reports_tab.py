@@ -50,8 +50,9 @@ def _render_ingest(st, rp) -> None:
     meta = {"source": source or None, "report_date": report_date or None,
             "title": title or None}
 
-    up = st.file_uploader("Upload PDF báo cáo", type=["pdf"], key="_rp_pdf")
-    if up is not None and st.button("➕ Thêm PDF vào thư viện", key="_rp_add_pdf"):
+    up = st.file_uploader("Upload báo cáo (PDF/DOCX)", type=["pdf", "docx"],
+                          key="_rp_pdf")
+    if up is not None and st.button("➕ Thêm file vào thư viện", key="_rp_add_pdf"):
         import tempfile
         from pathlib import Path
         with tempfile.TemporaryDirectory() as td:

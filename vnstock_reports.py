@@ -141,6 +141,10 @@ def _pdf_path(rid: str) -> Path:
     return _STORE / f"{rid}.pdf"
 
 
+def _docx_path(rid: str) -> Path:
+    return _STORE / f"{rid}.docx"
+
+
 # ── Trích text ───────────────────────────────────────────────────────────────
 
 
@@ -175,6 +179,30 @@ def fetch_url_text(url: str, timeout: int = _URL_TIMEOUT) -> str:
     return text[:_REPORT_MAX_CHARS]
 
 
+def docx_to_text(data: bytes) -> str:
+    """DOCX → text bằng STDLIB (zipfile + xml.etree) — KHÔNG thêm dependency
+    (mirror parser RSS stdlib của news_feeds). DOCX là zip chứa
+    ``word/document.xml``; text nằm trong node ``<w:t>``, xuống đoạn theo
+    ``<w:p>``. '' khi file hỏng/không phải docx. (Thêm 2026-07-14: thư viện
+    báo cáo thật của user là .docx, không phải PDF.)"""
+    import io
+    import xml.etree.ElementTree as ET
+    import zipfile
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            xml_data = z.read("word/document.xml")
+        root = ET.fromstring(xml_data)
+    except Exception:
+        return ""
+    ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    paras = []
+    for para in root.iter(f"{ns}p"):
+        text = "".join(t.text or "" for t in para.iter(f"{ns}t"))
+        if text.strip():
+            paras.append(text.strip())
+    return "\n".join(paras)
+
+
 # ── Ingest core ──────────────────────────────────────────────────────────────
 
 
@@ -199,10 +227,12 @@ def _upsert(rid: str, kind: str, text: "str | None", *,
         _text_path(rid).write_text(text, encoding="utf-8")
     if pdf_bytes:
         _STORE.mkdir(parents=True, exist_ok=True)
-        _pdf_path(rid).write_bytes(pdf_bytes)
+        orig = _docx_path(rid) if kind == "docx" else _pdf_path(rid)
+        orig.write_bytes(pdf_bytes)
 
     rec["chars"] = len(text)
-    rec["no_text_layer"] = (kind == "pdf" and len(text) < _NO_TEXT_LAYER_CHARS)
+    rec["no_text_layer"] = (kind in ("pdf", "docx")
+                            and len(text) < _NO_TEXT_LAYER_CHARS)
     for key, val in (("report_date", _valid_date(report_date)),
                      ("source", (source or "").strip() or None),
                      ("title", (title or "").strip() or None),
@@ -245,16 +275,17 @@ def _why_library_only(rec: dict) -> str:
 def add_pdf(path: "str | Path", *, report_date: "str | None" = None,
             source: "str | None" = None,
             title: "str | None" = None) -> "dict | None":
-    """Ingest 1 file PDF: sha256(bytes) làm id, trích text qua
-    vnstock_vbma.pdf_to_text, giữ cả PDF gốc cho --redigest (P3)."""
+    """Ingest 1 file báo cáo — PDF (vnstock_vbma.pdf_to_text) hoặc DOCX
+    (docx_to_text stdlib). sha256(bytes) làm id; giữ file gốc cho
+    --redigest (P3). Tên hàm giữ 'add_pdf' vì UI/tests đã gọi."""
     p = Path(path)
     if p.is_dir():
         # Windows trả 'Permission denied' khi read_bytes() một THƯ MỤC — thông
         # báo gây hiểu nhầm (user dán đường dẫn folder Dropbox, verify 14/07).
-        pdfs = sorted(p.glob("*.pdf"))
-        hint = (f" (trong đó có {len(pdfs)} PDF, vd: {pdfs[0].name})"
-                if pdfs else "")
-        print(f"[reports] ❌ {p} là THƯ MỤC — --add nhận 1 FILE PDF{hint}")
+        files = sorted(list(p.glob("*.pdf")) + list(p.glob("*.docx")))
+        hint = (f" (trong đó có {len(files)} PDF/DOCX, vd: {files[0].name})"
+                if files else "")
+        print(f"[reports] ❌ {p} là THƯ MỤC — --add nhận 1 FILE PDF/DOCX{hint}")
         return None
     try:
         data = p.read_bytes()
@@ -264,17 +295,21 @@ def add_pdf(path: "str | Path", *, report_date: "str | None" = None,
     if not data:
         print(f"[reports] ❌ {p} rỗng")
         return None
+    kind = "docx" if p.suffix.lower() == ".docx" else "pdf"
     try:
-        from vnstock_vbma import pdf_to_text
-        text = pdf_to_text(data) or ""
+        if kind == "docx":
+            text = docx_to_text(data)
+        else:
+            from vnstock_vbma import pdf_to_text
+            text = pdf_to_text(data) or ""
     except Exception as e:
         print(f"[reports] ⚠ trích text lỗi ({type(e).__name__}: {e}) — lưu "
-              f"PDF gốc, đánh dấu no_text_layer")
+              f"file gốc, đánh dấu no_text_layer")
         text = ""
     if not text.strip():
         print(f"[reports] ⚠ {p.name}: không trích được text "
-              f"(PDF scan? thiếu pdftotext/pypdf?)")
-    return _upsert(_sha_id(data), "pdf", text, report_date=report_date,
+              f"({'file docx hỏng?' if kind == 'docx' else 'PDF scan? thiếu pdftotext/pypdf?'})")
+    return _upsert(_sha_id(data), kind, text, report_date=report_date,
                    source=source, title=title or p.stem, orig_name=p.name,
                    pdf_bytes=data)
 
@@ -354,7 +389,7 @@ def remove(rid: str) -> bool:
         return False
     reports.pop(rid)
     _write_index(idx)
-    for p in (_text_path(rid), _pdf_path(rid)):
+    for p in (_text_path(rid), _pdf_path(rid), _docx_path(rid)):
         try:
             p.unlink(missing_ok=True)
         except OSError:
@@ -415,7 +450,7 @@ def _fmt_row(rec: dict) -> str:
 def main(argv: "list[str] | None" = None) -> int:
     ap = argparse.ArgumentParser(
         description="Thư viện báo cáo vĩ mô (ingest PDF/URL/text — Phase 2)")
-    ap.add_argument("--add", metavar="PDF", help="ingest 1 file PDF")
+    ap.add_argument("--add", metavar="FILE", help="ingest 1 file PDF/DOCX")
     ap.add_argument("--add-url", metavar="URL",
                     help="ingest 1 URL qua Jina Reader (cần mạng)")
     ap.add_argument("--add-text", metavar="TEXT",
