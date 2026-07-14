@@ -140,11 +140,25 @@ _DIGEST_SYSTEM = (
 )
 
 
+def _warn_rung(name: str, e: Exception, resp=None) -> None:
+    """Có key mà call FAIL là degradation đáng nói (digest rơi xuống 70B free
+    — TODO 1b đã ghi 70B yếu) — không được nuốt im lặng. In 1 dòng chẩn đoán
+    (kèm body lỗi API nếu có) rồi ladder vẫn thử nấc sau như cũ."""
+    detail = ""
+    try:
+        detail = " | " + str(resp.json())[:200]
+    except Exception:
+        pass
+    print(f"[digest] ⚠ {name} có key nhưng call lỗi "
+          f"({type(e).__name__}: {str(e)[:120]}{detail}) — thử nấc sau")
+
+
 def _call_claude(system: str, user: str,
                  max_tokens: int = _DIGEST_MAX_TOKENS) -> "str | None":
     key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
     if not key:
         return None
+    resp = None
     try:
         import requests as _req
         resp = _req.post(
@@ -157,7 +171,8 @@ def _call_claude(system: str, user: str,
             timeout=90)
         resp.raise_for_status()
         return resp.json()["content"][0]["text"]
-    except Exception:
+    except Exception as e:
+        _warn_rung(f"Claude ({_CLAUDE_MODEL})", e, resp)
         return None
 
 
@@ -166,6 +181,7 @@ def _call_openai(system: str, user: str,
     key = (os.environ.get("OPENAI_API_KEY") or "").strip()
     if not key:
         return None
+    resp = None
     try:
         import requests as _req
         resp = _req.post(
@@ -179,7 +195,8 @@ def _call_openai(system: str, user: str,
             timeout=90)
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"]
-    except Exception:
+    except Exception as e:
+        _warn_rung(f"GPT ({_OPENAI_MODEL})", e, resp)
         return None
 
 
@@ -469,9 +486,18 @@ def main(argv: "list[str] | None" = None) -> int:
                   f"(w={dr['weight']}, CP {dr['stance_cp']:+d}){flag}")
         return 0
     if args.diag:
+        _ensure_env_loaded()
+        for env in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY",
+                    "CEREBRAS_API_KEY", "OPENROUTER_API_KEY"):
+            has = bool((os.environ.get(env) or "").strip())
+            print(f"  {'✅' if has else '⬜'} {env}")
         raw, provider = digest_call(
             "Trả về đúng JSON: {\"ok\": true}", "ping")
         print(f"LLM ladder: {'OK via ' + provider if raw else 'FAIL — không key nào chạy (cần .env + mạng)'}")
+        if raw and provider == "free-ladder":
+            print("  ⚠ đang chạy bằng 70B free (chất lượng digest thấp hơn) — "
+                  "thêm ANTHROPIC_API_KEY/OPENAI_API_KEY vào .env để dùng "
+                  "Claude/GPT làm nấc chính (thiết kế duyệt).")
         return 0 if raw else 1
     ap.print_help()
     return 0
