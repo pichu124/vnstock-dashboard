@@ -909,42 +909,37 @@ canonical, 13 chỉ số + 3 gauge lần đầu lên brief; lộ + đã vá 2 gu
 (enforce_breadth_label thiếu tổ hợp "số mã cổ phiếu"; enforce_vnindex_change
 đè % GTGD-vs-phiên-trước vì không kiểm tra chủ ngữ).
 
-**CÒN LẠI — ⏰ NHẮC CHỦ ĐỘNG: phiên làm việc KẾ TIẾP trên repo này, mở đầu
-bằng việc nhắc user danh sách dưới (user dặn 14/07 "lưu việc phải làm/test
-rồi sau nhắc nhở tôi"); nhắc lại khi user nói "test"/"verify"/update data:**
-1. Đọc phần (2/2) của close brief Telegram — mục "📚 Báo cáo vĩ mô & phân
-   bổ" với digest thật (band B4 + tilt +1 + dòng HedgeAcademy stance -2 +
-   consensus; không bịa band/%).
-2. `python run.py doctor` (2 dòng reports/allocation) + `python run.py all`
-   trọn (2 bước mới gold + allocation; hoặc để task 18:00 tự chạy).
-3. Dashboard: 4 sub-tab tab Tin tức; 📚 upload/digest; 🧭 band + nút "Tạo
-   brief phân bổ" → bảng % phải Y HỆT `vnstock_allocation.py --show`.
-4. OpenRouter `qwen/qwen3-235b-a22b:free` là ứng viên CHƯA qua thử lửa
-   (Cerebras đang gánh chính — chỉ lộ khi Cerebras chết).
-5. Scorecard tự có kỳ đầu khi history đủ 2 tháng (~đầu tháng 9).
-6. **Reflection + debate (mới 14/07)**: sau khi có rec đóng thật →
-   `python run.py reflection` rồi `python vnstock_reflection.py --show`
-   (bài học tiếng Việt sạch? đúng outcome?); brief allocation kế tiếp phải
-   thấy mục ⚠️ đối diện phản biện (`python vnstock_debate.py --show` xem 4
-   luận điểm; chạy cùng brief phân bổ từ sub-tab 🧭).
-7. **Validation + decay chiến lược (mới 14/07)**: sau lần training kế tiếp
-   (`python vnstock_train.py --once` / nút Full training) → panel "🧪 Chiến
-   lược" phải hiện dòng kiểm định chống-ăn-may (ĐẠT p=… hoặc cảnh báo 🎲);
-   khi chiến lược active tích lũy ≥ 8 rec đóng thật → hiện dòng sức khỏe
-   live (💚/🟡/🔻); nếu decayed thật, log `[reconcile] … DECAYED → demoted`
-   và lần train sau tự cold-start bản mới.
-8. **Phí + sizing (mới 14/07, 3 món nautilus)**: lần train kế tiếp
-   expectancy sẽ THẤP hơn ~0.4/lệnh (nay là NET sau phí — chiến lược cũ có
-   thể rớt gate, là ĐÚNG); panel khuyến nghị mở expander "⚖️ Cấu hình khối
-   lượng gợi ý" → nhập NAV (triệu) + %rủi ro → bảng Open recommendations
-   hiện cột "KL gợi ý" và brief gắn "KL gợi ý ~N cp" vào dòng rec.
-9. ~~Chẩn đoán data Họ VIN~~ **ĐÃ GIẢI QUYẾT (đêm 14/07)**: user chạy lệnh
-   chẩn đoán → kho ĐỦ 4 mã, vốn hóa + chg5 hợp lý (VHM −6.2 / VIC −0.6 /
-   VPL −0.7 / VRE −6.4 ⇒ mean −3.5%/tuần, trọng số thật ~25%). Data KHÔNG
-   hỏng — "1.6%VNI" là MODEL bịa (mượn GTGD 1,653 tỷ mangle thành "1.6").
-   Fix: `enforce_lead_lag` nay pin luôn "%VNI" của lead/lag về
-   `ctx["sector_weights"]` (mirror pass pin pp sẵn có); `_leadlag_candidates`
-   giữ làm defense cho trường hợp data hỏng THẬT trong tương lai.
+**✅ ĐỢT VERIFY 14-15/07 HOÀN TẤT** (user chạy trọn đêm 14 → rạng sáng 15/07):
+phần (2/2) + 📚 canonical (4 bản close brief liên tiếp) · doctor **14/14 ✅** ·
+brief phân bổ tháng 7 tạo xong (bảng % khớp `--show`, debate 4 luận điểm,
+lộ + vá luôn pass (d) pin % lớp tài sản) · reflection 3 bài học đầu (đúng
+outcome, tiếng Việt sạch; 9 rec còn lại xử dần mỗi tối, trần 3 call/lượt) ·
+validation 🧪 sống (family-05f9d495: p=0.986, 0% fold dương — lột mặt
+"lãi trên giấy" +0.365 gross → −0.777 net; 3 ứng viên revise đều bị gate
+loại ĐÚNG vì net âm) · sức khỏe live 💚 (12 rec, wr 58.3%) · sizing NAV
+500tr/1%/25% đã lưu · chẩn đoán Họ VIN: data OK, "1.6%VNI" là model bịa
+(đã pin). Trong đợt này vá tổng cộng ~20 lỗi guard/transport qua 6 bản
+brief thật + 3 bug hệ (Telegram sanitize, benchmark gross-vs-net đóng
+băng, macro-anchor hijack).
+
+**CÒN LẠI — ⏰ NHẮC CHỦ ĐỘNG khi user quay lại / nói "test"/"verify":**
+1. **Log task 18:00 tối 15/07** — lần đầu `run.py all` chạy TRỌN nguyên
+   khối với đủ bước mới (foreign-flow → macro → allocation → gold → test
+   → audit → reflection → doctor); nhắc user `git pull` TRƯỚC 18:00 để
+   task chạy code mới nhất. Đọc close brief phiên 15/07 trên Telegram —
+   bản đầu tiên với trọn chuỗi guard sau đợt vá (kỳ vọng: sạch; nếu lộ
+   pattern mới thì vá tiếp như quy trình đêm 14/07).
+2. **Lần tới mở dashboard (30 giây)**: liếc 4 sub-tab tab Tin tức
+   (📰/🌐/📚/🧭) render OK; khi có rec mở mới → bảng Open recommendations
+   phải có cột "KL gợi ý" + brief gắn "KL gợi ý ~N cp" (NAV đã cấu hình).
+3. **Passive — tự đến, chỉ để ý**: scorecard kỳ đầu ~đầu tháng 9 (đủ 2
+   tháng history) · decay 🔻 + log "[reconcile] … DECAYED" nếu chiến lược
+   nào tụt thật · OpenRouter `qwen/qwen3-235b-a22b:free` chưa thử lửa
+   (chỉ lộ khi Cerebras chết) · chiến lược mới thay family-05f9d495 khi
+   có ứng viên net-dương qua được 🧪 (rule 2b thách thức mỗi lần train).
+4. **Theo dõi chất lượng (brief phân bổ tháng 8)**: mục "Phản biện band"
+   của Mistral Small logic lộn xộn ("regime -4 trái ngược B4"?!) — nếu
+   lặp → route brief allocation sang agent mạnh (1 call/tháng, đáng).
 
 **Checklist gốc (đã chạy gần hết — giữ làm tài liệu lệnh):**
 1. `python vnstock_allocation.py --refresh` → in band + bảng % + lý do 7 tín
