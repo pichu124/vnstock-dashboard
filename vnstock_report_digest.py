@@ -71,24 +71,35 @@ _DIGEST_MAX_TOKENS = 700
 _CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 _OPENAI_MODEL = "gpt-4o-mini"
 
-# Ladder free (khi không có key Claude/GPT): model MẠNH NHẤT free mỗi provider
-# thay vì llama-3.3-70b mặc định — verify 14/07 cho thấy 70B đọc sai stance
-# báo cáo thật (CP +0 thay vì -2, USD ngược chiều, bịa claim value 0). Các id
-# dưới là ỨNG VIÊN theo catalog 2025-2026 — id sai/bị gỡ KHÔNG gãy:
-# chat_complete tự fallback về model mặc định của provider (llama-3.3-70b).
-# Ghi đè không cần sửa code: env VNSTOCK_DIGEST_MODELS =
-#   "Groq=<model>;OpenRouter=<model>;Cerebras=<model>" (thiếu provider nào
-# thì provider đó dùng mặc định dưới).
+# Cascade free THEO BẬC SỨC MẠNH (khi không có key Claude/GPT): mọi model
+# BẬC 1 (mạnh nhất free, mọi provider) thử trước; lỗi hết mới rơi xuống BẬC 2
+# (70B ổn định — đường cũ). Khác chat_complete (provider-major: thử cả yếu
+# của Groq trước mạnh của Cerebras) — verify 14/07 cho thấy 70B đọc sai
+# stance báo cáo thật (CP +0 thay vì -2, USD ngược chiều, bịa claim value 0)
+# nên thứ tự phải ưu tiên CHẤT LƯỢNG, không phải provider. Id bậc 1 là ỨNG
+# VIÊN theo catalog 2025-2026 — id sai/bị gỡ chỉ tốn 1 lần thử lỗi rồi
+# cascade đi tiếp, không gãy. Ghi đè model bậc 1 không cần sửa code:
+# env VNSTOCK_DIGEST_MODELS = "Groq=<model>;OpenRouter=<model>;Cerebras=<model>".
 _FREE_MODELS = {
     "Groq": "moonshotai/kimi-k2-instruct",
     "Cerebras": "gpt-oss-120b",
     "OpenRouter": "deepseek/deepseek-chat-v3-0324:free",
 }
+_FREE_TIER2 = (                      # 70B — fallback ổn định đã chạy ổn từ P3
+    ("Groq", "llama-3.3-70b-versatile"),
+    ("Cerebras", "llama3.3-70b"),
+    ("OpenRouter", "meta-llama/llama-3.3-70b-instruct:free"),
+)
+_PROVIDER_META = {                   # env + endpoint — mirror vnstock_sentiment._PROVIDERS
+    "Groq": ("GROQ_API_KEY", "https://api.groq.com/openai/v1/chat/completions"),
+    "Cerebras": ("CEREBRAS_API_KEY", "https://api.cerebras.ai/v1/chat/completions"),
+    "OpenRouter": ("OPENROUTER_API_KEY", "https://openrouter.ai/api/v1/chat/completions"),
+}
 
 
 def _free_models() -> dict:
-    """_FREE_MODELS + ghi đè từ env VNSTOCK_DIGEST_MODELS (thử model mới chỉ
-    cần đổi env, không sửa code — TODO 1b hướng 2)."""
+    """Model BẬC 1 mỗi provider (+ ghi đè từ env VNSTOCK_DIGEST_MODELS — thử
+    model mới chỉ cần đổi env, không sửa code — TODO 1b hướng 2)."""
     out = dict(_FREE_MODELS)
     raw = (os.environ.get("VNSTOCK_DIGEST_MODELS") or "").strip()
     for part in raw.split(";"):
@@ -96,6 +107,13 @@ def _free_models() -> dict:
         if sep and name.strip() in out and model.strip():
             out[name.strip()] = model.strip()
     return out
+
+
+def _free_ladder() -> list[tuple[str, str]]:
+    """Cascade (provider, model) theo bậc: TOÀN BỘ bậc 1 trước, rồi bậc 2;
+    bỏ model bậc 2 trùng bậc 1 (env override trỏ về 70B thì khỏi thử 2 lần)."""
+    tier1 = [(p, m) for p, m in _free_models().items()]
+    return tier1 + [(p, m) for p, m in _FREE_TIER2 if (p, m) not in tier1]
 
 # Dung sai cross-check theo key registry (kỳ báo cáo có thể lệch kỳ registry
 # nên dung sai RỘNG có chủ đích — chỉ chặn số SAI HẲN, không bắt nạt lệch kỳ).
@@ -235,9 +253,37 @@ def _ensure_env_loaded() -> None:
         pass
 
 
+def _call_free(provider: str, model: str, system: str, user: str,
+               max_tokens: int = _DIGEST_MAX_TOKENS) -> "str | None":
+    """1 call OpenAI-compat tới đúng (provider, model) — None khi thiếu key
+    hoặc call lỗi (có key mà lỗi thì cảnh báo, cascade đi tiếp)."""
+    env, endpoint = _PROVIDER_META[provider]
+    key = (os.environ.get(env) or "").strip()
+    if not key:
+        return None
+    resp = None
+    try:
+        import requests as _req
+        resp = _req.post(
+            endpoint,
+            headers={"Content-Type": "application/json",
+                     "Authorization": f"Bearer {key}"},
+            json={"model": model, "max_tokens": max_tokens, "temperature": 0,
+                  "messages": [{"role": "system", "content": system},
+                               {"role": "user", "content": user}]},
+            timeout=90)
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        _warn_rung(f"{provider} ({model})", e, resp)
+        return None
+
+
 def digest_call(system: str, user: str) -> tuple["str | None", str]:
-    """(raw_text, provider) qua ladder: Claude → GPT → free 70B. (None, '')
-    khi không key nào chạy được."""
+    """(raw_text, provider) qua cascade GIẢM DẦN SỨC MẠNH: Claude → GPT →
+    mọi model free bậc 1 → mọi model free bậc 2 (70B). Provider trả về ghi
+    rõ model free nào đã digest ("Groq:kimi-k2…") để soi chất lượng về sau.
+    (None, '') khi không nấc nào chạy được."""
     _ensure_env_loaded()
     raw = _call_claude(system, user)
     if raw:
@@ -245,14 +291,10 @@ def digest_call(system: str, user: str) -> tuple["str | None", str]:
     raw = _call_openai(system, user)
     if raw:
         return raw, "openai"
-    try:
-        from vnstock_sentiment import chat_complete
-        raw = chat_complete(system, user, max_tokens=_DIGEST_MAX_TOKENS,
-                            model_map=_free_models())
+    for provider, model in _free_ladder():
+        raw = _call_free(provider, model, system, user)
         if raw:
-            return raw, "free-ladder"
-    except Exception:
-        pass
+            return raw, f"{provider}:{model}"
     return None, ""
 
 
@@ -515,10 +557,10 @@ def main(argv: "list[str] | None" = None) -> int:
         raw, provider = digest_call(
             "Trả về đúng JSON: {\"ok\": true}", "ping")
         print(f"LLM ladder: {'OK via ' + provider if raw else 'FAIL — không key nào chạy (cần .env + mạng)'}")
-        if raw and provider == "free-ladder":
-            print("  ⚠ đang chạy bằng 70B free (chất lượng digest thấp hơn) — "
-                  "thêm ANTHROPIC_API_KEY/OPENAI_API_KEY vào .env để dùng "
-                  "Claude/GPT làm nấc chính (thiết kế duyệt).")
+        if raw and any(provider.endswith(m) for _, m in _FREE_TIER2):
+            print("  ⚠ đã rơi xuống bậc 70B (mọi model bậc 1 lỗi) — chất lượng "
+                  "digest thấp hơn; xem cảnh báo bên trên để biết model bậc 1 "
+                  "nào chết, hoặc đổi qua env VNSTOCK_DIGEST_MODELS.")
         return 0 if raw else 1
     ap.print_help()
     return 0

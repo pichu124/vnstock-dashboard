@@ -917,9 +917,14 @@ Digest LLM + cross-check + consensus → tilt ±1 band. Chi tiết:
   (verify trên báo cáo HedgeAcademy thật: llama-3.3-70b đọc SAI stance —
   CP +0 thay vì -2, USD ngược chiều, bịa claim usdvnd=0 → cross-check chặn
   đúng): `_FREE_MODELS` nay Groq=kimi-k2-instruct / Cerebras=gpt-oss-120b /
-  OpenRouter=deepseek-chat-v3:free — id là ỨNG VIÊN, sai/gỡ thì
-  chat_complete TỰ FALLBACK về llama-3.3-70b của provider (không gãy). Đổi
-  model không sửa code: env `VNSTOCK_DIGEST_MODELS="Groq=...;OpenRouter=..."`.
+  OpenRouter=deepseek-chat-v3:free — id là ỨNG VIÊN, sai/gỡ chỉ tốn 1 lần
+  thử lỗi. **Cascade THEO BẬC SỨC MẠNH (user chốt 14/07)**: `_free_ladder`
+  chạy TOÀN BỘ bậc 1 (mạnh, mọi provider) trước rồi mới rơi bậc 2 (70B) —
+  KHÔNG provider-major như chat_complete (không để 70B của Groq chen trước
+  gpt-oss của Cerebras); `_call_free` gọi thẳng từng (provider, model),
+  provider lưu trong digest ghi rõ model ("Groq:kimi-k2…") để soi chất
+  lượng về sau. Đổi model bậc 1 không sửa code: env
+  `VNSTOCK_DIGEST_MODELS="Groq=...;OpenRouter=..."`.
   digest_call load .env trước khi check key (bẫy CLI fresh — fix 14/07);
   có key mà call lỗi → in cảnh báo degradation thay vì nuốt im lặng.
 - **Sanitize cấu trúc** (`sanitize_text`, áp MỌI text field): strip `#`/

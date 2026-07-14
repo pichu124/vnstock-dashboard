@@ -321,3 +321,82 @@ def test_free_models_env_override(monkeypatch):
     assert out["Groq"] == "llama-3.3-70b-versatile"
     assert out["OpenRouter"] == "foo:free"
     assert out["Cerebras"] == base["Cerebras"]
+
+
+def test_free_ladder_is_strength_major():
+    # BẬC 1 (mạnh, mọi provider) đứng TRƯỚC toàn bộ bậc 2 (70B) — không phải
+    # provider-major như chat_complete (yếu của Groq không được chen trước
+    # mạnh của Cerebras).
+    ladder = dg._free_ladder()
+    models = [m for _, m in ladder]
+    tier2_models = [m for _, m in dg._FREE_TIER2]
+    first_tier2 = min(models.index(m) for m in tier2_models)
+    assert first_tier2 == 3                          # đủ 3 model bậc 1 trước
+    assert set(models[:3]) == set(dg._FREE_MODELS.values())
+    # env override trỏ bậc 1 về đúng model bậc 2 → không thử trùng 2 lần
+    import os
+    os.environ["VNSTOCK_DIGEST_MODELS"] = "Groq=llama-3.3-70b-versatile"
+    try:
+        ladder2 = dg._free_ladder()
+        assert ladder2.count(("Groq", "llama-3.3-70b-versatile")) == 1
+    finally:
+        os.environ.pop("VNSTOCK_DIGEST_MODELS")
+
+
+def test_digest_call_cascades_to_next_strong_model(monkeypatch, capsys):
+    # Không key Claude/GPT; Groq bậc 1 chết → phải sang Cerebras BẬC 1
+    # (gpt-oss-120b), KHÔNG rơi xuống Groq 70B trước.
+    for env in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY"):
+        monkeypatch.delenv(env, raising=False)
+    monkeypatch.setenv("GROQ_API_KEY", "gk")
+    monkeypatch.setenv("CEREBRAS_API_KEY", "ck")
+    monkeypatch.setattr(dg, "_ensure_env_loaded", lambda: None)
+
+    class _Resp:
+        def __init__(self, model):
+            self._m = model
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return {"choices": [{"message": {"content": f"ok:{self._m}"}}]}
+
+    def _post(url, headers=None, json=None, timeout=None):
+        if "groq" in url:
+            raise RuntimeError("model decommissioned")
+        return _Resp(json["model"])
+
+    fake_req = types.ModuleType("requests")
+    fake_req.post = _post
+    monkeypatch.setitem(sys.modules, "requests", fake_req)
+
+    raw, provider = dg.digest_call("s", "u")
+    assert raw == "ok:gpt-oss-120b"
+    assert provider == "Cerebras:gpt-oss-120b"       # ghi rõ model đã digest
+    assert "Groq (moonshotai/kimi-k2-instruct)" in capsys.readouterr().out
+
+
+def test_digest_call_falls_through_to_tier2(monkeypatch):
+    # Mọi model bậc 1 chết → bậc 2 (70B) cứu; không key nào → (None, "")
+    for env in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CEREBRAS_API_KEY",
+                "OPENROUTER_API_KEY"):
+        monkeypatch.delenv(env, raising=False)
+    monkeypatch.setenv("GROQ_API_KEY", "gk")
+    monkeypatch.setattr(dg, "_ensure_env_loaded", lambda: None)
+
+    class _Resp:
+        def __init__(self, model):
+            self._m = model
+        def raise_for_status(self):
+            if "kimi" in self._m:
+                raise RuntimeError("404 model not found")
+        def json(self):
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+    fake_req = types.ModuleType("requests")
+    fake_req.post = lambda url, headers=None, json=None, timeout=None: _Resp(json["model"])
+    monkeypatch.setitem(sys.modules, "requests", fake_req)
+    raw, provider = dg.digest_call("s", "u")
+    assert raw == "ok" and provider == "Groq:llama-3.3-70b-versatile"
+
+    monkeypatch.delenv("GROQ_API_KEY")
+    assert dg.digest_call("s", "u") == (None, "")
