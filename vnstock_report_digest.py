@@ -80,10 +80,13 @@ _OPENAI_MODEL = "gpt-4o-mini"
 # VIÊN theo catalog 2025-2026 — id sai/bị gỡ chỉ tốn 1 lần thử lỗi rồi
 # cascade đi tiếp, không gãy. Ghi đè model bậc 1 không cần sửa code:
 # env VNSTOCK_DIGEST_MODELS = "Groq=<model>;OpenRouter=<model>;Cerebras=<model>".
+# (Cập nhật theo lỗi THẬT trên máy user 14/07: Groq đã gỡ slug kimi-k2;
+# OpenRouter deepseek-v3-0324 hết free. gpt-oss-120b sống trên Cerebras và
+# thường có cả trên Groq với slug 'openai/gpt-oss-120b'.)
 _FREE_MODELS = {
-    "Groq": "moonshotai/kimi-k2-instruct",
+    "Groq": "openai/gpt-oss-120b",
     "Cerebras": "gpt-oss-120b",
-    "OpenRouter": "deepseek/deepseek-chat-v3-0324:free",
+    "OpenRouter": "moonshotai/kimi-k2:free",
 }
 _FREE_TIER2 = (                      # 70B — fallback ổn định đã chạy ổn từ P3
     ("Groq", "llama-3.3-70b-versatile"),
@@ -253,8 +256,15 @@ def _ensure_env_loaded() -> None:
         pass
 
 
+# Budget token cho nấc FREE: các model bậc 1 là REASONING model (gpt-oss…)
+# tiêu token vào phần suy nghĩ TRƯỚC khi trả content — 700 token bị
+# finish_reason=length khi content còn rỗng (lỗi thật Cerebras 14/07). Free
+# nên nới rộng không tốn gì; Claude/GPT trả phí giữ _DIGEST_MAX_TOKENS.
+_FREE_MAX_TOKENS = 3000
+
+
 def _call_free(provider: str, model: str, system: str, user: str,
-               max_tokens: int = _DIGEST_MAX_TOKENS) -> "str | None":
+               max_tokens: int = _FREE_MAX_TOKENS) -> "str | None":
     """1 call OpenAI-compat tới đúng (provider, model) — None khi thiếu key
     hoặc call lỗi (có key mà lỗi thì cảnh báo, cascade đi tiếp)."""
     env, endpoint = _PROVIDER_META[provider]
@@ -273,7 +283,15 @@ def _call_free(provider: str, model: str, system: str, user: str,
                                {"role": "user", "content": user}]},
             timeout=90)
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        body = resp.json()["choices"][0]
+        content = (body.get("message") or {}).get("content")
+        if not content:
+            # reasoning model cạn budget giữa chừng suy nghĩ → coi là fail
+            # có chẩn đoán, cascade thử nấc sau
+            raise RuntimeError(
+                f"content rỗng (finish_reason={body.get('finish_reason')}) — "
+                f"model reasoning cạn max_tokens?")
+        return content
     except Exception as e:
         _warn_rung(f"{provider} ({model})", e, resp)
         return None

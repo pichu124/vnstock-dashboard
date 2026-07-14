@@ -312,7 +312,7 @@ def test_free_models_env_override(monkeypatch):
     # verify 14/07 — 70B đọc sai stance báo cáo thật)
     base = dg._free_models()
     assert set(base) == {"Groq", "Cerebras", "OpenRouter"}
-    assert base["Groq"] == "moonshotai/kimi-k2-instruct"
+    assert base["Groq"] == "openai/gpt-oss-120b"
     # env override từng provider, provider không nêu giữ mặc định, rác bỏ qua
     monkeypatch.setenv("VNSTOCK_DIGEST_MODELS",
                        "Groq=llama-3.3-70b-versatile; OpenRouter = foo:free ;"
@@ -372,7 +372,7 @@ def test_digest_call_cascades_to_next_strong_model(monkeypatch, capsys):
     raw, provider = dg.digest_call("s", "u")
     assert raw == "ok:gpt-oss-120b"
     assert provider == "Cerebras:gpt-oss-120b"       # ghi rõ model đã digest
-    assert "Groq (moonshotai/kimi-k2-instruct)" in capsys.readouterr().out
+    assert "Groq (openai/gpt-oss-120b)" in capsys.readouterr().out
 
 
 def test_digest_call_falls_through_to_tier2(monkeypatch):
@@ -387,7 +387,7 @@ def test_digest_call_falls_through_to_tier2(monkeypatch):
         def __init__(self, model):
             self._m = model
         def raise_for_status(self):
-            if "kimi" in self._m:
+            if "gpt-oss" in self._m:
                 raise RuntimeError("404 model not found")
         def json(self):
             return {"choices": [{"message": {"content": "ok"}}]}
@@ -400,3 +400,46 @@ def test_digest_call_falls_through_to_tier2(monkeypatch):
 
     monkeypatch.delenv("GROQ_API_KEY")
     assert dg.digest_call("s", "u") == (None, "")
+
+
+def test_call_free_reasoning_model_empty_content_cascades(monkeypatch, capsys):
+    # Lỗi thật Cerebras 14/07: gpt-oss-120b (reasoning model) cạn max_tokens
+    # giữa phần suy nghĩ → message chỉ có 'reasoning', không có 'content'.
+    # Phải coi là fail CÓ CHẨN ĐOÁN (không KeyError thô) rồi cascade tiếp.
+    monkeypatch.setenv("CEREBRAS_API_KEY", "ck")
+
+    class _Resp:
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return {"choices": [{"finish_reason": "length",
+                                 "message": {"reasoning": "We need to..."}}]}
+
+    fake_req = types.ModuleType("requests")
+    fake_req.post = lambda *a, **k: _Resp()
+    monkeypatch.setitem(sys.modules, "requests", fake_req)
+    assert dg._call_free("Cerebras", "gpt-oss-120b", "s", "u") is None
+    out = capsys.readouterr().out
+    assert "content rỗng" in out and "finish_reason=length" in out
+
+
+def test_call_free_uses_wide_token_budget(monkeypatch):
+    # Nấc free mặc định phải dùng _FREE_MAX_TOKENS (reasoning cần budget),
+    # không phải 700 của nấc trả phí.
+    monkeypatch.setenv("GROQ_API_KEY", "gk")
+    seen = {}
+
+    class _Resp:
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+    fake_req = types.ModuleType("requests")
+    def _post(url, headers=None, json=None, timeout=None):
+        seen.update(json)
+        return _Resp()
+    fake_req.post = _post
+    monkeypatch.setitem(sys.modules, "requests", fake_req)
+    assert dg._call_free("Groq", "openai/gpt-oss-120b", "s", "u") == "ok"
+    assert seen["max_tokens"] == dg._FREE_MAX_TOKENS >= 3000
