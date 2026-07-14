@@ -298,6 +298,19 @@ trong `apply_brief_guards`, áp cho mọi agent, cả morning & close):
     ngày mai:"/"Bias:" (cả 2 brief); no-op khi stance GIẢM/TRUNG TÍNH hoặc momentum
     > -20; idempotent qua marker `_STANCE_CAUTION_MARK`. (Triết lý: gắn ngữ cảnh,
     không override — mirror BUY-vs-bias caveat.)
+29. **Vá 4 biến thể trượt guard (đêm 14/07, close 23:46 — test gộp
+    `test_close_1407_guard_regressions`)**: (a) guard 14 nhận markdown quanh
+    hướng ("bias **GIẢM** bắt buộc" → strip "bắt buộc"); (b) guard 24 thêm
+    dạng KHÔNG dấu hai chấm "tâm lý sợ hãi (momentum …)" → pin mood word
+    (gate ngoặc-momentum nên văn quá khứ "tâm lý hưng phấn đã biến mất"
+    không đụng) + guard 16 dọn ngoặc RỖNG "()" sót lại sau dedup momentum;
+    (c) `enforce_sector_nn_figures` nhận số dấu "+" VÀ gap tên→verb cấm vượt
+    ranh giới mệnh đề (".<space>" / token "tỷ") — không thì pass ngành A với
+    sang câu ngành B phá số vừa pin ("Họ VIN +1,471 tỷ. Ngân hàng bị bán ròng
+    +1,471 tỷ" — thật -1,032); (d) guard 22 thêm **Form 3 tự-chứa**: "N% so
+    <base> (A tỷ vs B tỷ)" — model tự ghi cả 2 vế thì % pin về (A/B−1)×100,
+    chạy CHỈ khi ctx thiếu full_day_gtgd/cmp (ctx là nguồn chân lý khi có);
+    close 23:46 "giảm 29%" thật ra −21%.
 
 **`max_tokens` brief = `_BRIEF_MAX_TOKENS` (2400, bump từ 1200 — 2026-06-16)**:
 `generate_brief._call` truyền giá trị này. Brief nay ~11 mục (thêm 🌐 Vĩ mô + 📰

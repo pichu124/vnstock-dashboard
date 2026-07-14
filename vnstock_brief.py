@@ -3978,9 +3978,17 @@ def enforce_sector_nn_figures(text: str, ctx: dict) -> str:
             if cur is None or abs(cur - _vv) <= max(1.0, 0.02 * abs(_vv)):
                 return m.group(0)
             return f"{m.group(1)}{_vv:+,.0f}{m.group(3)}"
+        # Số cho phép dấu "+" — close 14/07: "Ngân hàng bị bán ròng +1,471 tỷ"
+        # (magnitude của ngành KHÁC gắn nhầm + sign dương) trượt vì pattern cũ
+        # chỉ nhận "-?". Gap tên→verb KHÔNG được vượt ranh giới mệnh đề: cấm
+        # ".<space>" (hết câu — dấu chấm THẬP PHÂN "-0.03pp" vẫn qua) và token
+        # "tỷ" (số+đơn vị đã chốt = mệnh đề ngành TRƯỚC đó) — không thì pass
+        # của ngành A với sang số của ngành B đứng sau ("Họ VIN +1,471 tỷ.
+        # Ngân hàng bị bán ròng…" — pass Họ VIN phá ngược số Ngân hàng vừa pin).
         out = _re.sub(
-            rf"({_re.escape(nm)}.{{0,40}}?(?:NN|khối\s+ngoại)?\s*(?:bán|mua)\s+ròng\s*)"
-            rf"(-?\d[\d.,]*)(\s*tỷ)",
+            rf"({_re.escape(nm)}(?:(?!\.\s|tỷ\b)[^;\n]){{0,40}}?"
+            rf"(?:NN|khối\s+ngoại)?\s*(?:bán|mua)\s+ròng\s*)"
+            rf"([-+]?\d[\d.,]*)(\s*tỷ)",
             _fix, out)
     return out
 
@@ -4746,11 +4754,13 @@ def enforce_no_bias_directive_leak(text: str, ctx: dict | None = None) -> str:
     directive (either order); drop a trailing '(bắt buộc)'. No-op when clean."""
     if not text or "buộc" not in text.lower():
         return text
-    # "<bias|stance|GIẢM|TĂNG> [là] bắt buộc" → drop the qualifier
-    out = _re.sub(r"(\b(?:bias|stance|GIẢM|TĂNG|TANG))\s+(?:là\s+)?bắt\s*buộc\b",
+    # "<bias|stance|GIẢM|TĂNG> [là] bắt buộc" → drop the qualifier. Cho phép
+    # [*_] bọc markdown quanh hướng — close 14/07: "bias **GIẢM** bắt buộc"
+    # trượt pattern cũ vì "**" chen giữa từ hướng và khoảng trắng.
+    out = _re.sub(r"(\b(?:bias|stance|GIẢM|TĂNG|TANG)\b[*_]{0,2})\s+(?:là\s+)?bắt\s*buộc\b",
                   r"\1", text, flags=_re.IGNORECASE)
     # "bắt buộc [=] <GIẢM|TĂNG>" → drop the qualifier (keep the direction)
-    out = _re.sub(r"\bbắt\s*buộc\s*(?:=\s*)?(?=\b(?:GIẢM|TĂNG|TANG)\b)",
+    out = _re.sub(r"\bbắt\s*buộc\s*(?:=\s*)?(?=[*_]{0,2}(?:GIẢM|TĂNG|TANG)\b)",
                   "", out, flags=_re.IGNORECASE)
     # leftover "(bắt buộc)" parenthetical
     out = _re.sub(r"\s*\(\s*bắt\s*buộc\s*\)", "", out, flags=_re.IGNORECASE)
@@ -4793,6 +4803,9 @@ def enforce_no_duplicate_momentum(text: str, ctx: dict | None = None) -> str:
             last_val = ms[-1].group(1)
             for m in reversed([m for m in ms[:-1] if m.group(1) == last_val]):
                 ln = ln[:m.start()] + ln[m.end():]
+            # gỡ ngoặc RỖNG còn sót khi "(momentum -29/100)" là toàn bộ ruột
+            # ngoặc (close 14/07: "tâm lý sợ hãi ()" lọt ra brief)
+            ln = _re.sub(r"\s*\(\s*\)", "", ln)
         out.append(ln)
     return "\n".join(out)
 
@@ -4989,7 +5002,25 @@ def enforce_gtgd_baseline_pct(text: str, ctx: dict) -> str:
     except (TypeError, ValueError):
         F = None
     if not F or not cmp:
-        return text
+        # Form 3 (tự-chứa, không cần ctx): "N% so <base> (A tỷ vs B tỷ)" —
+        # model tự ghi CẢ 2 vế thì % phải khớp (A/B − 1)×100. Close 14/07:
+        # "giảm 29% so phiên trước (15,513.6 tỷ vs 19,751.0 tỷ)" trong khi
+        # 15,513.6/19,751 − 1 = −21% — ctx thiếu F/cmp nên Form 1 bó tay.
+        # CHỈ chạy khi ctx thiếu (ctx là nguồn chân lý khi có — tránh operand
+        # bịa trong ngoặc override số đã pin từ ctx).
+        def _fix3(m: "_re.Match") -> str:
+            a = _parse_vn_number(m.group(3))
+            b = _parse_vn_number(m.group(4))
+            cur = _parse_vn_number(m.group(1))
+            if not a or not b or b <= 0 or cur is None:
+                return m.group(0)
+            correct = (a / b - 1) * 100
+            return (m.group(0) if abs(cur - correct) <= 1
+                    else f"{correct:+.0f}{m.group(2)}")
+        return _re.sub(
+            r"([+-]?\d[\d.,]*)(\s*%\s*(?:vs|so với|so)\s+[^(,.\n]{0,30}"
+            r"\(\s*([\d.,]+)\s*tỷ\s+vs\.?\s+([\d.,]+)\s*tỷ\s*\))",
+            _fix3, text)
 
     def _base_v(base_low: str) -> "float | None":
         # Require an explicit GTGD-baseline phrase ("TB"/"trung bình"/"phiên
@@ -5196,6 +5227,15 @@ def enforce_sentiment_consistency(text: str, ctx: dict) -> str:
     mood_pat = rf"(?:(?:{e_alt})\s*)?(?:{tok})(?:\s+{tok})?|(?:{e_alt})"
     out = _re.sub(rf"(Tâm lý[^\n]{{0,40}}?[:\-]\s*)(?:{mood_pat})",
                   lambda m: m.group(1) + mood, out, flags=_re.IGNORECASE)
+    # Dạng KHÔNG dấu hai chấm "tâm lý sợ hãi (momentum -29/100)" (close 14/07 —
+    # mood sai làm tính từ ngay sau "tâm lý"). CHỈ pin khi có "(…momentum" theo
+    # sau (= claim trạng thái hiện tại, không đụng văn tường thuật quá khứ kiểu
+    # "tâm lý hưng phấn đã biến mất"). Thay bằng CHỮ mood canonical (bỏ emoji,
+    # thường-hóa) để hợp văn xuôi; idempotent (canonical → thay bằng chính nó).
+    mood_word = mood.split(maxsplit=1)[-1]
+    out = _re.sub(
+        rf"(tâm lý\s+)[*_]{{0,2}}(?:{w_alt})[*_]{{0,2}}(?=\s*\([^)\n]*momentum)",
+        lambda m: m.group(1) + mood_word.lower(), out, flags=_re.IGNORECASE)
     return out
 
 

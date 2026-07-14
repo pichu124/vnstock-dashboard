@@ -1241,6 +1241,51 @@ def test_enforce_sentiment_consistency_markdown_and_duplicate_mood():
     assert "📉 Tiêu cực" in f2 and "Sợ hãi" not in f2
 
 
+def test_close_1407_guard_regressions():
+    # 4 biến thể trượt guard lộ ra ở close brief 23:46 14/07 — mỗi cái 1 fix.
+    import vnstock_brief as vb
+
+    # (1) "bias **GIẢM** bắt buộc" — markdown quanh hướng làm guard 14 trượt
+    f = vb.enforce_no_bias_directive_leak(
+        "momentum tiêu cực (-29/100), bias **GIẢM** bắt buộc.", {})
+    assert "bắt buộc" not in f and "**GIẢM**" in f
+
+    # (2) "tâm lý sợ hãi (momentum -29/100)" không dấu ':' → pin mood word;
+    #     dedup momentum không được để lại ngoặc rỗng "()"
+    ctx = {"market_sentiment": {"mood": "📉 Tiêu cực", "momentum": -29}}
+    t = ("Độ rộng tiêu cực (A/D=1.26), tâm lý sợ hãi (momentum -29/100). "
+         "Tâm lý: 📉 Tiêu cực, momentum -29/100 → xu hướng yếu.")
+    s = vb.enforce_no_duplicate_momentum(
+        vb.enforce_sentiment_consistency(t, ctx), ctx)
+    assert "tâm lý tiêu cực" in s and "sợ hãi" not in s
+    assert "()" not in s and "momentum -29/100" in s
+    # văn tường thuật quá khứ (không có ngoặc momentum) KHÔNG bị đụng
+    past = "tâm lý hưng phấn đã biến mất từ tháng trước."
+    assert vb.enforce_sentiment_consistency(past, ctx) == past
+
+    # (3) số ngành khác gắn nhầm + dấu '+': "Ngân hàng bị bán ròng +1,471 tỷ"
+    #     (thật -1,032); pass của ngành đứng trước không được với qua câu sau
+    ctx3 = {"sectors": [{"Ngành": "Ngân hàng", "NN 1T (tỷ)": -1032.0},
+                        {"Ngành": "Họ VIN", "NN 1T (tỷ)": 1471.0}]}
+    t3 = ("Khối ngoại mua ròng mạnh nhất: Họ VIN +1,471 tỷ. "
+          "Ngân hàng bị bán ròng +1,471 tỷ (GTGD 4,072 tỷ).")
+    f3 = vb.enforce_sector_nn_figures(t3, ctx3)
+    assert "Ngân hàng bị bán ròng -1,032 tỷ" in f3
+    assert "Họ VIN +1,471 tỷ" in f3                       # số đúng giữ nguyên
+    assert vb.enforce_sector_nn_figures(f3, ctx3) == f3   # idempotent
+
+    # (4) % so phiên trước sai số học dù model TỰ ghi cả 2 vế — ctx thiếu
+    #     full_day_gtgd/cmp → Form 3 tự-chứa tính từ chính 2 operand
+    t4 = ("## 📊 Tổng kết phiên\nthanh khoản cả ngày giảm 29% so phiên trước "
+          "(15,513.6 tỷ vs 19,751.0 tỷ).\n")
+    f4 = vb.enforce_compare_direction(vb.enforce_gtgd_baseline_pct(t4, {}), {})
+    assert "giảm 21% so phiên trước" in f4 and "29%" not in f4
+    # ctx đầy đủ → Form 1 (nguồn chân lý) vẫn thắng như cũ
+    ctx4 = {"full_day_gtgd": 15513.6,
+            "full_day_gtgd_cmp": {"prev": 19751.0, "avg5": 16800.0}}
+    assert "-21% so phiên trước" in vb.enforce_gtgd_baseline_pct(t4, ctx4)
+
+
 def test_enforce_breadth_quality_softens_positive_claim_when_weak():
     # Close 16/06: "Độ rộng ... tích cực ... 18% trên MA200" — 18% above MA200 is
     # structurally weak; under a bearish tape that's mixed, not 'tích cực'.
