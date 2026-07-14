@@ -262,7 +262,10 @@ trong `apply_brief_guards`, áp cho mọi agent, cả morning & close):
     Telegram hiện + đã bơm vào prompt). Close 16/06: header "📉 Tiêu cực,
     momentum -33" nhưng body bịa "❄️ Sợ hãi, momentum -24" (mà -24 còn KHÔNG khớp
     ❄️ Sợ hãi vốn cần < -50). Pin mọi "momentum …/100" + mood sau cụm "Tâm lý …:";
-    idempotent; no-op khi thiếu sentiment.
+    idempotent; no-op khi thiếu sentiment. **Mở rộng 14/07**: mood word bọc
+    markdown ("**Sợ hãi**") không khớp pattern cũ → close 14/07 ra "📉 Tiêu
+    cực **Sợ hãi**" (label đúng + đuôi mood bịa dính kèm); nay cho phép `[*_]`
+    quanh word VÀ nuốt 1 mood word LẶP ngay sau → chỉ còn canonical.
 25. `enforce_breadth_quality` (DONE 2026-06-16) — hạ "độ rộng … tích cực" xuống
     "trái chiều" khi metric cấu trúc DUY NHẤT (% trên MA200) yếu + nền tiêu cực
     (close 16/06: "tích cực … 18% trên MA200" — A/D 1 phiên dương nhưng cấu trúc
@@ -595,6 +598,16 @@ LLM chấm sentiment + tóm tắt tác động 1 dòng, cache
   4096 ký tự/tin của Telegram → đuôi (mục 📰) bị cắt. `vnstock_telegram.send_message`
   nay tách thành NHIỀU tin ≤4096 (cắt theo dòng để tag HTML không vỡ, hậu tố
   "(k/n)") thay vì truncate. `_split_for_telegram` test trong `test_telegram.py`.
+- **Telegram HTML sanitize (FIX 2026-07-14)**: body brief gửi với
+  `parse_mode=HTML` mà KHÔNG escape → ký tự `<`/`>`/`&` lạc (model viết
+  "<3", "P/E <10", tin "M&A"…) làm Telegram trả **400 can't parse entities
+  và NUỐT NGUYÊN PHẦN TIN** (bug thật close 14/07: phần (2/2) không bao giờ
+  tới nơi, `raise_for_status` còn vứt mất description nên không soi được).
+  Fix 3 lớp trong `send_message`: (1) `_sanitize_html` — escape toàn bộ
+  `& < >` rồi un-escape whitelist tag chủ đích (`_ALLOWED_TAGS`: b/i/u/s/
+  code/pre); (2) vẫn 400 → tự GỬI LẠI phần đó dạng plain (strip tag) —
+  nội dung luôn tới nơi; (3) lỗi API nào cũng raise kèm `description` thật
+  của Telegram. Tests trong test_telegram.py.
 - **Full text qua Jina Reader (DONE 2026-07-10, từ khảo sát Agent-Reach — CẦN
   USER VERIFY trên máy có mạng: `python vnstock_news_feeds.py --diag` có dòng
   Jina)**: `analyze_item` nay tự fetch THÂN BÀI qua `https://r.jina.ai/<URL>`

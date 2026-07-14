@@ -16,12 +16,21 @@ Usage:
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 
 _REPO = Path(__file__).parent
 _TELEGRAM_API = "https://api.telegram.org/bot{token}/{method}"
 _MAX_MSG_LEN  = 4000  # Telegram hard limit is 4096; stay safe
+
+# Tag CHỦ ĐÍCH mà các builder trong file này tự chèn — được giữ nguyên khi
+# sanitize. Mọi < > & khác trong thân brief (model viết "<3", tin RSS "M&A",
+# digest "P/E <10"…) phải escape, không thì Telegram trả 400
+# "can't parse entities" và NUỐT nguyên phần tin đó (bug thật 14/07: close
+# brief phần 2/2 không bao giờ tới nơi).
+_ALLOWED_TAGS = ("b", "i", "u", "s", "code", "pre")
+_TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
 
 
 # ── Credentials ──────────────────────────────────────────────────────────────
@@ -70,10 +79,39 @@ def _split_for_telegram(text: str, limit: int = _MAX_MSG_LEN) -> list[str]:
     return chunks
 
 
+def _sanitize_html(text: str) -> str:
+    """Escape < > & để parse_mode=HTML không chết 400, GIỮ tag chủ đích
+    (<b>/<i>/…) mà builder tự chèn. Escape TRƯỚC rồi un-escape whitelist —
+    idempotent với tag hợp lệ, mọi ký tự lạc còn lại đều an toàn."""
+    out = (text.replace("&", "&amp;")
+               .replace("<", "&lt;")
+               .replace(">", "&gt;"))
+    for t in _ALLOWED_TAGS:
+        out = out.replace(f"&lt;{t}&gt;", f"<{t}>")
+        out = out.replace(f"&lt;/{t}&gt;", f"</{t}>")
+    return out
+
+
+def _tg_error_detail(resp) -> str:
+    """Mô tả lỗi thật từ body API (400 của Telegram luôn kèm 'description'
+    chỉ rõ ký tự/byte lỗi — raise_for_status cũ vứt mất nên không soi được)."""
+    try:
+        return str(resp.json().get("description") or resp.text[:200])
+    except Exception:
+        try:
+            return str(resp.text[:200])
+        except Exception:
+            return ""
+
+
 def send_message(text: str, parse_mode: str = "HTML") -> dict:
     """Send text to the configured Telegram chat. Long briefs are split into
     multiple messages (Telegram caps at 4096 chars) so nothing is dropped —
     previously the tail (📰 tin tức) was truncated. Returns the LAST API response.
+
+    HTML mode: body được `_sanitize_html` trước khi gửi; nếu Telegram VẪN trả
+    400 (entity lỗi ngoài dự kiến) → gửi lại phần đó dạng PLAIN (bỏ tag) để
+    nội dung luôn tới nơi, đồng thời in description thật của API để soi.
     """
     import requests
 
@@ -84,7 +122,9 @@ def send_message(text: str, parse_mode: str = "HTML") -> dict:
     if not chat:
         raise RuntimeError("TELEGRAM_CHAT_ID chưa set trong .env")
 
-    url   = _TELEGRAM_API.format(token=token, method="sendMessage")
+    url = _TELEGRAM_API.format(token=token, method="sendMessage")
+    if parse_mode == "HTML":
+        text = _sanitize_html(text)
     parts = _split_for_telegram(text, _MAX_MSG_LEN)
     n     = len(parts)
     resp_json: dict = {}
@@ -96,6 +136,19 @@ def send_message(text: str, parse_mode: str = "HTML") -> dict:
             "parse_mode":               parse_mode,
             "disable_web_page_preview": True,
         }, timeout=15)
+        if getattr(resp, "status_code", None) == 400 and parse_mode:
+            detail = _tg_error_detail(resp)
+            print(f"[telegram] ⚠️ HTML bị từ chối ở phần {i + 1}/{n} "
+                  f"({detail}) — gửi lại dạng plain")
+            resp = requests.post(url, json={
+                "chat_id":                  chat,
+                "text":                     _TAG_RE.sub("", body),
+                "disable_web_page_preview": True,
+            }, timeout=15)
+        if getattr(resp, "status_code", None) is not None and not resp.ok:
+            detail = _tg_error_detail(resp)
+            raise requests.HTTPError(
+                f"{resp.status_code} Telegram: {detail}", response=resp)
         resp.raise_for_status()
         resp_json = resp.json()
     return resp_json

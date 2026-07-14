@@ -5167,8 +5167,14 @@ def enforce_sentiment_consistency(text: str, ctx: dict) -> str:
                   f"momentum {mom:+d}/100", text, flags=_re.IGNORECASE)
     e_alt = "|".join(_re.escape(e) for e in _MOOD_EMOJIS)
     w_alt = "|".join(_MOOD_WORDS)
-    # after "Tâm lý …:" — an emoji+word, a word alone, or an emoji alone
-    mood_pat = rf"(?:{e_alt})?\s*(?:{w_alt})|(?:{e_alt})"
+    # Mood word có thể bị model bọc markdown ("**Sợ hãi**") — close 14/07 lộ
+    # ra: "Tâm lý: 📉 Tiêu cực **Sợ hãi**" (label đúng + ĐUÔI mood bịa dính
+    # kèm) vì token có `**` không khớp pattern cũ. Cho phép [*_] quanh word
+    # và nuốt luôn 1 mood word LẶP ngay sau → chỉ còn canonical.
+    tok = rf"[*_]{{0,2}}(?:{w_alt})[*_]{{0,2}}"
+    # after "Tâm lý …:" — an emoji+word (± duplicate word), a word alone, or
+    # an emoji alone
+    mood_pat = rf"(?:(?:{e_alt})\s*)?(?:{tok})(?:\s+{tok})?|(?:{e_alt})"
     out = _re.sub(rf"(Tâm lý[^\n]{{0,40}}?[:\-]\s*)(?:{mood_pat})",
                   lambda m: m.group(1) + mood, out, flags=_re.IGNORECASE)
     return out

@@ -27,6 +27,65 @@ def test_send_message_raises_without_chat_id(monkeypatch):
 
 # ─── Transport ───────────────────────────────────────────────────────────────
 
+def test_sanitize_html_escapes_stray_chars_keeps_intended_tags():
+    # Bug thật 14/07: brief phần 2/2 chứa < > & lạc → Telegram 400
+    # "can't parse entities" và cả phần tin biến mất.
+    out = tg._sanitize_html("<b>Tiêu đề</b> P/E <10 & RSI >70 <i>chú thích</i>")
+    assert "<b>Tiêu đề</b>" in out and "<i>chú thích</i>" in out
+    assert "&lt;10" in out and "&amp;" in out and "&gt;70" in out
+    # tag lạ (không whitelist) bị escape thành text
+    assert tg._sanitize_html("<script>x</script>") == "&lt;script&gt;x&lt;/script&gt;"
+
+
+def test_send_message_sanitizes_html_body(monkeypatch):
+    monkeypatch.setattr(tg, "_token",   lambda: "abc")
+    monkeypatch.setattr(tg, "_chat_id", lambda: "12345")
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.ok = True
+    mock_resp.json.return_value = {"ok": True}
+
+    with patch("requests.post", return_value=mock_resp) as mp:
+        tg.send_message("lãi suất <4% & M&A")
+    sent = mp.call_args[1]["json"]["text"]
+    assert sent == "lãi suất &lt;4% &amp; M&amp;A"
+
+
+def test_send_message_400_falls_back_to_plain(monkeypatch):
+    # Telegram từ chối HTML (entity lỗi ngoài dự kiến) → phần đó phải được
+    # GỬI LẠI dạng plain (bỏ tag) thay vì raise và nuốt mất nội dung.
+    monkeypatch.setattr(tg, "_token",   lambda: "abc")
+    monkeypatch.setattr(tg, "_chat_id", lambda: "12345")
+    bad = MagicMock()
+    bad.status_code = 400
+    bad.ok = False
+    bad.json.return_value = {"ok": False,
+                             "description": "Bad Request: can't parse entities"}
+    good = MagicMock()
+    good.status_code = 200
+    good.ok = True
+    good.json.return_value = {"ok": True}
+
+    with patch("requests.post", side_effect=[bad, good]) as mp:
+        out = tg.send_message("<b>đậm</b> nội dung")
+    assert out["ok"] is True and mp.call_count == 2
+    retry_payload = mp.call_args_list[1][1]["json"]
+    assert "parse_mode" not in retry_payload          # gửi plain
+    assert retry_payload["text"] == "đậm nội dung"    # tag bị bỏ
+
+
+def test_send_message_error_carries_api_description(monkeypatch):
+    monkeypatch.setattr(tg, "_token",   lambda: "abc")
+    monkeypatch.setattr(tg, "_chat_id", lambda: "12345")
+    bad = MagicMock()
+    bad.status_code = 403
+    bad.ok = False
+    bad.json.return_value = {"ok": False, "description": "Forbidden: bot was blocked"}
+    with patch("requests.post", return_value=bad):
+        with pytest.raises(Exception, match="Forbidden: bot was blocked"):
+            tg.send_message("hello")
+
+
 def test_send_message_posts_to_api(monkeypatch):
     monkeypatch.setattr(tg, "_token",   lambda: "abc")
     monkeypatch.setattr(tg, "_chat_id", lambda: "12345")

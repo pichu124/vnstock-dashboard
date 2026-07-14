@@ -1224,6 +1224,23 @@ def test_enforce_sentiment_consistency_pins_mood_and_momentum():
     assert enforce_sentiment_consistency(t, {}) == t
 
 
+def test_enforce_sentiment_consistency_markdown_and_duplicate_mood():
+    # Close 14/07: "Tâm lý: 📉 Tiêu cực **Sợ hãi**, momentum -29/100" — mood
+    # word bọc ** không khớp pattern cũ → đuôi "Sợ hãi" bịa sống sót cạnh
+    # label đúng. Nay [*_] quanh word được nhận + mood LẶP ngay sau bị nuốt.
+    from vnstock_brief import enforce_sentiment_consistency
+    ctx = {"market_sentiment": {"mood": "📉 Tiêu cực", "momentum": -29}}
+    t = "Tâm lý: 📉 Tiêu cực **Sợ hãi**, momentum -29/100 → xu hướng yếu."
+    f = enforce_sentiment_consistency(t, ctx)
+    assert "Tâm lý: 📉 Tiêu cực, momentum -29/100" in f
+    assert "Sợ hãi" not in f
+    assert enforce_sentiment_consistency(f, ctx) == f          # idempotent
+    # mood word đơn lẻ bọc markdown cũng bị pin
+    t2 = "Tâm lý: **Sợ hãi**, momentum -29/100."
+    f2 = enforce_sentiment_consistency(t2, ctx)
+    assert "📉 Tiêu cực" in f2 and "Sợ hãi" not in f2
+
+
 def test_enforce_breadth_quality_softens_positive_claim_when_weak():
     # Close 16/06: "Độ rộng ... tích cực ... 18% trên MA200" — 18% above MA200 is
     # structurally weak; under a bearish tape that's mixed, not 'tích cực'.
