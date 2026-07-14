@@ -1330,6 +1330,21 @@ def test_close_1407_2358_review_fixes():
     ok = vb._leadlag_candidates({"Thép": {"_weight": 0.05, "_1d_contrib": -1.2}})
     assert ok == [("Thép", -1.2)]                     # hàm ý -24%/tuần, hợp lệ
 
+    # (4) "%VNI" của lead/lag bịa (chẩn đoán data 14/07: kho ĐỦ 4 mã, trọng
+    #     số thật ~25% — model mượn GTGD 1,653 tỷ mangle thành "1.6%VNI")
+    #     → pin về ctx sector_weights; số đúng giữ nguyên
+    ctx4 = {"lead_sector": {"name": "Dầu khí", "contrib": 0.06},
+            "lag_sector": {"name": "Họ VIN", "contrib": -0.873},
+            "sector_weights": {
+                "Họ VIN": {"_weight": 0.251, "_1d_contrib": -0.873},
+                "Dầu khí": {"_weight": 0.042, "_1d_contrib": 0.06}}}
+    t4 = ("**Dẫn dắt:** Dầu khí [4.2%VNI, đóng góp +0.060pp (1 tuần)]\n"
+          "**Tụt hậu:** Họ VIN [1.6%VNI, đóng góp -0.873pp (1 tuần)]")
+    f4 = vb.enforce_lead_lag(t4, ctx4)
+    assert "Họ VIN [25.1%VNI" in f4
+    assert "Dầu khí [4.2%VNI" in f4                   # trọng số đúng giữ nguyên
+    assert vb.enforce_lead_lag(f4, ctx4) == f4        # idempotent
+
 
 def test_enforce_session_direction_pins_qualitative_label():
     # Close 23:58 14/07: "VNINDEX đóng cửa +0.34% … — phiên GIẢM điểm nhẹ sau

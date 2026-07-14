@@ -3857,6 +3857,22 @@ def enforce_lead_lag(text: str, ctx: dict) -> str:
                     if v is not None and abs(v - _cv) > 0.005 else m.group(0))
         result = _re.sub(
             rf"({_re.escape(nm)}.{{0,30}}?đóng góp\s*)([+-]?[\d.,]+)\s*pp", _pp, result)
+
+    # Pin luôn TRỌNG SỐ "%VNI" của lead/lag về ctx sector_weights — close
+    # 23:58 14/07: "Họ VIN [1.6%VNI, đóng góp -0.873pp]" trong khi trọng số
+    # thật ~25% (model mượn GTGD 1,653 tỷ mangle thành "1.6"); cặp số tự đá
+    # nhau (hàm ý -55%/tuần). pp đã pin ở trên; trọng số cũng phải khớp data.
+    sw = ctx.get("sector_weights") or {}
+    for nm in (lead_name, lag_name):
+        w = ((sw.get(nm) or {}).get("_weight", 0) or 0) * 100
+        if w <= 0:
+            continue
+        def _wfix(m: "_re.Match", _w=w) -> str:
+            v = _parse_vn_number(m.group(2))
+            return (f"{m.group(1)}{_w:.1f}{m.group(3)}"
+                    if v is not None and abs(v - _w) > 0.5 else m.group(0))
+        result = _re.sub(
+            rf"({_re.escape(nm)}\s*\[\s*)([\d.,]+)(\s*%\s*VNI)", _wfix, result)
     return result
 
 

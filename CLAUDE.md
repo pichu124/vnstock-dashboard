@@ -331,10 +331,12 @@ trong `apply_brief_guards`, áp cho mọi agent, cả morning & close):
     trước/sau → bỏ qua; GTGD không đụng.
     (d) `_leadlag_candidates` (helper MỚI trong collect_context) — sanity
     gate ứng viên Dẫn dắt/Tụt hậu: contrib/weight ≡ "Giá 1T %" của row;
-    |%đổi tuần| > 35 vượt trần vật lý sàn = member data hỏng → loại (close
-    14/07: "Họ VIN [1.6%VNI, -0.873pp]" ⇒ hàm ý −55%/tuần — nghi kho chỉ có
-    row VRE+VPL và chg5 VPL ≈ −100; **CẦN USER chẩn đoán data** — xem lệnh
-    trong mục VERIFY). Phát hiện bị BÁC sau phản biện (không sửa): "57%
+    |%đổi tuần| > 35 vượt trần vật lý sàn = member data hỏng → loại.
+    **Hậu kiểm bằng data user (đêm 14/07)**: "Họ VIN [1.6%VNI, -0.873pp]"
+    hóa ra KHÔNG phải data hỏng — kho đủ 4 mã, trọng số thật ~25%, model
+    bịa "1.6" (mượn GTGD 1,653 tỷ) → thêm pass pin "%VNI" của lead/lag về
+    ctx sector_weights trong `enforce_lead_lag` (gate (d) giữ làm defense
+    cho data hỏng thật). Phát hiện bị BÁC sau phản biện (không sửa): "57%
     GTGD phiên chiều" (echo đúng session_timing_signal bucket), "Dầu khí
     tích luỹ mạnh (+0.06pp)" (nhãn composite hợp lệ, trục khác pp).
 
@@ -911,14 +913,13 @@ rồi sau nhắc nhở tôi"); nhắc lại khi user nói "test"/"verify"/update
    thể rớt gate, là ĐÚNG); panel khuyến nghị mở expander "⚖️ Cấu hình khối
    lượng gợi ý" → nhập NAV (triệu) + %rủi ro → bảng Open recommendations
    hiện cột "KL gợi ý" và brief gắn "KL gợi ý ~N cp" vào dòng rec.
-9. **Chẩn đoán data Họ VIN (mới đêm 14/07 — nghi kho thiếu/hỏng)**: brief
-   in "Họ VIN [1.6%VNI, -0.873pp]" ⇒ hàm ý −55%/tuần (bất khả thi). Chạy:
-   `python -c "import json; d=json.load(open('data_warehouse/_meta/market_overview.json',encoding='utf-8')); [print(t['Mã'],t.get('Vốn hoá (tỷ)'),t.get('Giá 1T %')) for t in d.get('tickers',[]) if t['Mã'] in ('VIC','VHM','VRE','VPL')]"`
-   — kỳ vọng thấy đủ 4 mã với vốn hóa lớn; nếu THIẾU VIC/VHM hoặc mã nào
-   "Giá 1T %" ≈ −100 → kho giá mã đó hỏng/thiếu, chạy
-   `python vnstock_updater.py --tickers <mã> --force` rồi `run.py screener`.
-   Guard `_leadlag_candidates` đã chặn không cho row hỏng lên headline
-   trong lúc chờ sửa data.
+9. ~~Chẩn đoán data Họ VIN~~ **ĐÃ GIẢI QUYẾT (đêm 14/07)**: user chạy lệnh
+   chẩn đoán → kho ĐỦ 4 mã, vốn hóa + chg5 hợp lý (VHM −6.2 / VIC −0.6 /
+   VPL −0.7 / VRE −6.4 ⇒ mean −3.5%/tuần, trọng số thật ~25%). Data KHÔNG
+   hỏng — "1.6%VNI" là MODEL bịa (mượn GTGD 1,653 tỷ mangle thành "1.6").
+   Fix: `enforce_lead_lag` nay pin luôn "%VNI" của lead/lag về
+   `ctx["sector_weights"]` (mirror pass pin pp sẵn có); `_leadlag_candidates`
+   giữ làm defense cho trường hợp data hỏng THẬT trong tương lai.
 
 **Checklist gốc (đã chạy gần hết — giữ làm tài liệu lệnh):**
 1. `python vnstock_allocation.py --refresh` → in band + bảng % + lý do 7 tín
