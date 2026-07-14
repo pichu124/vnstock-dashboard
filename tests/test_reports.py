@@ -275,3 +275,35 @@ def test_add_docx_corrupt_flagged_no_text_layer(tmp_path):
 def test_docx_to_text_handles_garbage():
     assert rp.docx_to_text(b"") == ""
     assert rp.docx_to_text(b"rac") == ""
+
+
+def test_docx_failure_hint_distinguishes_cases(tmp_path):
+    # .DOC OLE cũ đổi đuôi
+    assert ".DOC" in rp.docx_failure_hint(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1xx")
+    # không phải zip (placeholder Dropbox online-only…)
+    assert "không phải docx" in rp.docx_failure_hint(b"rac rưởi")
+    # zip hợp lệ nhưng chỉ có ảnh (case thật Q3.docx 14/07: chụp màn hình dán vào)
+    import zipfile
+    p = tmp_path / "anh.docx"
+    with zipfile.ZipFile(p, "w") as z:
+        z.writestr("word/document.xml",
+                   '<?xml version="1.0"?><w:document xmlns:w='
+                   '"http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+                   "<w:body><w:p/></w:body></w:document>")
+        z.writestr("word/media/image1.png", b"\x89PNG fake")
+    data = p.read_bytes()
+    assert rp.docx_to_text(data) == ""
+    assert "ảnh" in rp.docx_failure_hint(data)
+
+
+def test_docx_to_text_scans_alternate_main_part(tmp_path):
+    # Một số tool ghi word/document2.xml thay vì document.xml
+    import zipfile
+    ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    p = tmp_path / "alt.docx"
+    with zipfile.ZipFile(p, "w") as z:
+        z.writestr("word/document2.xml",
+                   f'<?xml version="1.0"?><w:document xmlns:w="{ns}"><w:body>'
+                   "<w:p><w:r><w:t>Nội dung part thay thế.</w:t></w:r></w:p>"
+                   "</w:body></w:document>")
+    assert rp.docx_to_text(p.read_bytes()) == "Nội dung part thay thế."

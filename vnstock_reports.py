@@ -181,26 +181,50 @@ def fetch_url_text(url: str, timeout: int = _URL_TIMEOUT) -> str:
 
 def docx_to_text(data: bytes) -> str:
     """DOCX → text bằng STDLIB (zipfile + xml.etree) — KHÔNG thêm dependency
-    (mirror parser RSS stdlib của news_feeds). DOCX là zip chứa
-    ``word/document.xml``; text nằm trong node ``<w:t>``, xuống đoạn theo
-    ``<w:p>``. '' khi file hỏng/không phải docx. (Thêm 2026-07-14: thư viện
-    báo cáo thật của user là .docx, không phải PDF.)"""
+    (mirror parser RSS stdlib của news_feeds). DOCX là zip; part chính chuẩn
+    là ``word/document.xml`` nhưng một số tool ghi ``document2.xml``/tên khác
+    → quét mọi ``word/*.xml`` có node ``<w:t>``. ``root.iter`` bắt cả text
+    trong bảng/textbox (đều là ``<w:p>`` lồng sâu). '' khi file hỏng/không
+    phải docx — dùng ``docx_failure_hint`` để biết VÌ SAO."""
     import io
     import xml.etree.ElementTree as ET
     import zipfile
     try:
-        with zipfile.ZipFile(io.BytesIO(data)) as z:
-            xml_data = z.read("word/document.xml")
-        root = ET.fromstring(xml_data)
+        z = zipfile.ZipFile(io.BytesIO(data))
     except Exception:
         return ""
+    names = sorted(z.namelist())
+    main = [n for n in names if re.fullmatch(r"word/document\d*\.xml", n)]
+    rest = [n for n in names
+            if n.startswith("word/") and n.endswith(".xml") and n not in main]
     ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
-    paras = []
-    for para in root.iter(f"{ns}p"):
-        text = "".join(t.text or "" for t in para.iter(f"{ns}t"))
-        if text.strip():
-            paras.append(text.strip())
-    return "\n".join(paras)
+    for name in main + rest:
+        try:
+            root = ET.fromstring(z.read(name))
+        except Exception:
+            continue
+        paras = []
+        for para in root.iter(f"{ns}p"):
+            text = "".join(t.text or "" for t in para.iter(f"{ns}t"))
+            if text.strip():
+                paras.append(text.strip())
+        if paras:
+            return "\n".join(paras)
+    return ""
+
+
+def docx_failure_hint(data: bytes) -> str:
+    """Chẩn đoán 1 dòng khi docx_to_text ra rỗng — phân biệt theo chữ ký bytes
+    (bắt được khi verify 14/07: Q3.docx ra 0 ký tự không rõ vì sao)."""
+    if data[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
+        return ("đây là .DOC định dạng CŨ (OLE) đổi đuôi — mở bằng Word rồi "
+                "Save As → .docx thật")
+    if data[:2] != b"PK":
+        return ("nội dung không phải docx (file placeholder Dropbox "
+                "online-only? — chuột phải file → 'Make available offline' "
+                "rồi thử lại)")
+    return ("docx là zip hợp lệ nhưng không tìm thấy text — file chỉ có "
+            "ảnh/scan? Thử mở Word xem có bôi đen copy được chữ không")
 
 
 # ── Ingest core ──────────────────────────────────────────────────────────────
@@ -307,8 +331,9 @@ def add_pdf(path: "str | Path", *, report_date: "str | None" = None,
               f"file gốc, đánh dấu no_text_layer")
         text = ""
     if not text.strip():
-        print(f"[reports] ⚠ {p.name}: không trích được text "
-              f"({'file docx hỏng?' if kind == 'docx' else 'PDF scan? thiếu pdftotext/pypdf?'})")
+        reason = (docx_failure_hint(data) if kind == "docx"
+                  else "PDF scan? thiếu pdftotext/pypdf?")
+        print(f"[reports] ⚠ {p.name}: không trích được text — {reason}")
     return _upsert(_sha_id(data), kind, text, report_date=report_date,
                    source=source, title=title or p.stem, orig_name=p.name,
                    pdf_bytes=data)
