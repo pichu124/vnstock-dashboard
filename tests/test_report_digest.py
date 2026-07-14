@@ -305,3 +305,19 @@ def test_digest_call_loads_env_before_key_check():
     src = inspect.getsource(dg.digest_call)
     assert "_ensure_env_loaded()" in src
     assert src.index("_ensure_env_loaded()") < src.index("_call_claude")
+
+
+def test_free_models_env_override(monkeypatch):
+    # Mặc định: model mạnh nhất free mỗi provider (nâng từ llama-3.3-70b sau
+    # verify 14/07 — 70B đọc sai stance báo cáo thật)
+    base = dg._free_models()
+    assert set(base) == {"Groq", "Cerebras", "OpenRouter"}
+    assert base["Groq"] == "moonshotai/kimi-k2-instruct"
+    # env override từng provider, provider không nêu giữ mặc định, rác bỏ qua
+    monkeypatch.setenv("VNSTOCK_DIGEST_MODELS",
+                       "Groq=llama-3.3-70b-versatile; OpenRouter = foo:free ;"
+                       "KhongCoProvider=x;rac-khong-dau-bang")
+    out = dg._free_models()
+    assert out["Groq"] == "llama-3.3-70b-versatile"
+    assert out["OpenRouter"] == "foo:free"
+    assert out["Cerebras"] == base["Cerebras"]

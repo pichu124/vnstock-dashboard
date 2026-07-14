@@ -70,11 +70,32 @@ _DIGEST_MAX_TOKENS = 700
 # Model mặc định — mirror brief agents (ClaudeAgent/OpenAIAgent).
 _CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 _OPENAI_MODEL = "gpt-4o-mini"
-_FREE_MODELS = {                # fallback ladder — 70B mạnh nhất mỗi provider
-    "Groq": "llama-3.3-70b-versatile",
-    "Cerebras": "llama3.3-70b",
-    "OpenRouter": "meta-llama/llama-3.3-70b-instruct:free",
+
+# Ladder free (khi không có key Claude/GPT): model MẠNH NHẤT free mỗi provider
+# thay vì llama-3.3-70b mặc định — verify 14/07 cho thấy 70B đọc sai stance
+# báo cáo thật (CP +0 thay vì -2, USD ngược chiều, bịa claim value 0). Các id
+# dưới là ỨNG VIÊN theo catalog 2025-2026 — id sai/bị gỡ KHÔNG gãy:
+# chat_complete tự fallback về model mặc định của provider (llama-3.3-70b).
+# Ghi đè không cần sửa code: env VNSTOCK_DIGEST_MODELS =
+#   "Groq=<model>;OpenRouter=<model>;Cerebras=<model>" (thiếu provider nào
+# thì provider đó dùng mặc định dưới).
+_FREE_MODELS = {
+    "Groq": "moonshotai/kimi-k2-instruct",
+    "Cerebras": "gpt-oss-120b",
+    "OpenRouter": "deepseek/deepseek-chat-v3-0324:free",
 }
+
+
+def _free_models() -> dict:
+    """_FREE_MODELS + ghi đè từ env VNSTOCK_DIGEST_MODELS (thử model mới chỉ
+    cần đổi env, không sửa code — TODO 1b hướng 2)."""
+    out = dict(_FREE_MODELS)
+    raw = (os.environ.get("VNSTOCK_DIGEST_MODELS") or "").strip()
+    for part in raw.split(";"):
+        name, sep, model = part.partition("=")
+        if sep and name.strip() in out and model.strip():
+            out[name.strip()] = model.strip()
+    return out
 
 # Dung sai cross-check theo key registry (kỳ báo cáo có thể lệch kỳ registry
 # nên dung sai RỘNG có chủ đích — chỉ chặn số SAI HẲN, không bắt nạt lệch kỳ).
@@ -227,7 +248,7 @@ def digest_call(system: str, user: str) -> tuple["str | None", str]:
     try:
         from vnstock_sentiment import chat_complete
         raw = chat_complete(system, user, max_tokens=_DIGEST_MAX_TOKENS,
-                            model_map=_FREE_MODELS)
+                            model_map=_free_models())
         if raw:
             return raw, "free-ladder"
     except Exception:

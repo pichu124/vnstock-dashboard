@@ -912,8 +912,16 @@ Digest LLM + cross-check + consensus → tilt ±1 band. Chi tiết:
   đi theo. `refresh(redigest=False)` chỉ chấm báo cáo CHƯA có digest;
   `--redigest` chấm lại tất cả (đổi prompt/extractor).
 - **Provider ladder `digest_call`**: Claude (ANTHROPIC_API_KEY, model mirror
-  brief `claude-haiku-4-5-20251001`) → GPT (`gpt-4o-mini`) → free 70B
-  (`vnstock_sentiment.chat_complete`, model_map 70B — CHỈ fallback, TODO 1b).
+  brief `claude-haiku-4-5-20251001`) → GPT (`gpt-4o-mini`) → ladder free
+  (`vnstock_sentiment.chat_complete`). **Model free nâng cấp 2026-07-14**
+  (verify trên báo cáo HedgeAcademy thật: llama-3.3-70b đọc SAI stance —
+  CP +0 thay vì -2, USD ngược chiều, bịa claim usdvnd=0 → cross-check chặn
+  đúng): `_FREE_MODELS` nay Groq=kimi-k2-instruct / Cerebras=gpt-oss-120b /
+  OpenRouter=deepseek-chat-v3:free — id là ỨNG VIÊN, sai/gỡ thì
+  chat_complete TỰ FALLBACK về llama-3.3-70b của provider (không gãy). Đổi
+  model không sửa code: env `VNSTOCK_DIGEST_MODELS="Groq=...;OpenRouter=..."`.
+  digest_call load .env trước khi check key (bẫy CLI fresh — fix 14/07);
+  có key mà call lỗi → in cảnh báo degradation thay vì nuốt im lặng.
 - **Sanitize cấu trúc** (`sanitize_text`, áp MỌI text field): strip `#`/
   emoji/CJK + ép 1 dòng — digest sẽ splice vào brief (P4) nên không được chứa
   token mà section-parser guard chain hiểu nhầm ranh giới mục. Số EN giữ
