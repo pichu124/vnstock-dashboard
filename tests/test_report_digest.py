@@ -311,12 +311,12 @@ def test_digest_call_loads_env_before_key_check():
 
 
 def test_free_models_env_override(monkeypatch):
-    # Mặc định: model mạnh nhất free mỗi provider (nâng từ llama-3.3-70b sau
-    # verify 14/07 — 70B đọc sai stance báo cáo thật)
+    # Mặc định bậc 1: Cerebras gpt-oss (đã cho digest ĐẠT 14/07) + OpenRouter;
+    # Groq bị bỏ (TPM 8000 không gánh nổi prompt báo cáo, 2 slug mạnh đều chết)
     base = dg._free_models()
-    assert set(base) == {"Groq", "Cerebras", "OpenRouter"}
-    assert base["Groq"] == "meta-llama/llama-4-maverick-17b-128e-instruct"
-    # env override từng provider, provider không nêu giữ mặc định, rác bỏ qua
+    assert set(base) == {"Cerebras", "OpenRouter"}
+    assert base["Cerebras"] == "gpt-oss-120b"
+    # env override + THÊM provider chưa có ở bậc 1 (Groq quay lại), rác bỏ qua
     monkeypatch.setenv("VNSTOCK_DIGEST_MODELS",
                        "Groq=llama-3.3-70b-versatile; OpenRouter = foo:free ;"
                        "KhongCoProvider=x;rac-khong-dau-bang")
@@ -334,12 +334,11 @@ def test_free_ladder_is_strength_major():
     models = [m for _, m, _t in ladder]
     tier2_models = [m for _, m in dg._FREE_TIER2]
     first_tier2 = min(models.index(m) for m in tier2_models)
-    assert first_tier2 == 3                          # đủ 3 model bậc 1 trước
-    assert set(models[:3]) == set(dg._FREE_MODELS.values())
-    # budget token theo nấc: reasoning (Cerebras) rộng, Groq giữ dưới TPM 8000
+    assert first_tier2 == len(dg._FREE_MODELS)       # đủ bậc 1 trước bậc 2
+    assert set(models[:first_tier2]) == set(dg._FREE_MODELS.values())
+    # budget token theo nấc: reasoning (Cerebras) rộng, bậc 2 nhỏ
     tokens = {(pr, m): t for pr, m, t in ladder}
     assert tokens[("Cerebras", "gpt-oss-120b")] == 6000
-    assert tokens[("Groq", dg._FREE_MODELS["Groq"])] == 900
     assert all(t == dg._TIER2_TOKENS for (pr, m), t in tokens.items()
                if (pr, m) in dg._FREE_TIER2)
     # env override trỏ bậc 1 về đúng model bậc 2 → không thử trùng 2 lần
@@ -353,12 +352,12 @@ def test_free_ladder_is_strength_major():
 
 
 def test_digest_call_cascades_to_next_strong_model(monkeypatch, capsys):
-    # Không key Claude/GPT; Groq bậc 1 chết → phải sang Cerebras BẬC 1
-    # (gpt-oss-120b), KHÔNG rơi xuống Groq 70B trước.
-    for env in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY"):
+    # Không key Claude/GPT; Cerebras bậc 1 chết → phải sang OpenRouter BẬC 1,
+    # KHÔNG rơi xuống 70B bậc 2 trước.
+    for env in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY"):
         monkeypatch.delenv(env, raising=False)
-    monkeypatch.setenv("GROQ_API_KEY", "gk")
     monkeypatch.setenv("CEREBRAS_API_KEY", "ck")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "ok")
     monkeypatch.setattr(dg, "_ensure_env_loaded", lambda: None)
 
     class _Resp:
@@ -370,7 +369,7 @@ def test_digest_call_cascades_to_next_strong_model(monkeypatch, capsys):
             return {"choices": [{"message": {"content": f"ok:{self._m}"}}]}
 
     def _post(url, headers=None, json=None, timeout=None):
-        if "groq" in url:
+        if "cerebras" in url:
             raise RuntimeError("model decommissioned")
         return _Resp(json["model"])
 
@@ -379,9 +378,9 @@ def test_digest_call_cascades_to_next_strong_model(monkeypatch, capsys):
     monkeypatch.setitem(sys.modules, "requests", fake_req)
 
     raw, provider = dg.digest_call("s", "u")
-    assert raw == "ok:gpt-oss-120b"
-    assert provider == "Cerebras:gpt-oss-120b"       # ghi rõ model đã digest
-    assert "Groq (meta-llama/llama-4-maverick" in capsys.readouterr().out
+    assert raw == "ok:qwen/qwen3-235b-a22b:free"
+    assert provider == "OpenRouter:qwen/qwen3-235b-a22b:free"
+    assert "Cerebras (gpt-oss-120b)" in capsys.readouterr().out
 
 
 def test_digest_call_falls_through_to_tier2(monkeypatch):

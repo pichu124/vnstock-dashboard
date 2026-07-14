@@ -81,19 +81,19 @@ _OPENAI_MODEL = "gpt-4o-mini"
 # cascade đi tiếp, không gãy. Ghi đè model bậc 1 không cần sửa code:
 # env VNSTOCK_DIGEST_MODELS = "Groq=<model>;OpenRouter=<model>;Cerebras=<model>".
 # (Đã dò bằng lỗi THẬT trên máy user 14/07 — địa hình free tier 2026:
-#  * Groq TPM 8000/phút: prompt báo cáo ~6K token + budget 3K = 413 Payload
-#    Too Large VỀ CẤU TRÚC → Groq chỉ gánh nổi model KHÔNG-reasoning với
-#    budget ra nhỏ. gpt-oss/kimi trên Groq: slug gỡ hoặc không vừa TPM.
-#  * Cerebras gpt-oss-120b SỐNG nhưng là reasoning model — 3000 token vẫn
-#    cụt JSON → cấp 6000 (TPM Cerebras rộng, free không tốn gì).
-#  * OpenRouter: deepseek-v3 lẫn kimi-k2 đều hết ':free' — thử qwen3-235b.)
+#  * Groq BỎ khỏi bậc 1: TPM 8000/phút không gánh nổi prompt cỡ báo cáo +
+#    budget reasoning (413 VỀ CẤU TRÚC), và cả 2 slug mạnh thử đều
+#    model_not_found (kimi-k2, llama-4-maverick) — Groq chỉ còn ở bậc 2
+#    (70B, budget nhỏ). Groq nới TPM/thêm model thì thêm lại qua env.
+#  * Cerebras gpt-oss-120b: SỐNG và cho digest ĐẠT (verify 14/07: stance
+#    CP -2 đúng đáp án) — reasoning model, PHẢI cấp 6000 token (3000 cụt).
+#  * OpenRouter: deepseek-v3 lẫn kimi-k2 đều hết ':free' — qwen3-235b là
+#    ứng viên chưa qua thử lửa.)
 _FREE_MODELS = {
-    "Groq": "meta-llama/llama-4-maverick-17b-128e-instruct",
     "Cerebras": "gpt-oss-120b",
     "OpenRouter": "qwen/qwen3-235b-a22b:free",
 }
-# Budget token RA theo provider ở bậc 1 — reasoning cần chỗ suy nghĩ, còn
-# Groq phải giữ tổng (vào+ra) dưới TPM 8000.
+# Budget token RA theo provider ở bậc 1 — reasoning cần chỗ suy nghĩ.
 _TIER1_TOKENS = {"Groq": 900, "Cerebras": 6000, "OpenRouter": 3000}
 _FREE_TIER2 = (                      # 70B — fallback ổn định đã chạy ổn từ P3
     ("Groq", "llama-3.3-70b-versatile"),
@@ -109,13 +109,15 @@ _PROVIDER_META = {                   # env + endpoint — mirror vnstock_sentime
 
 
 def _free_models() -> dict:
-    """Model BẬC 1 mỗi provider (+ ghi đè từ env VNSTOCK_DIGEST_MODELS — thử
-    model mới chỉ cần đổi env, không sửa code — TODO 1b hướng 2)."""
+    """Model BẬC 1 mỗi provider (+ ghi đè/THÊM từ env VNSTOCK_DIGEST_MODELS —
+    thử model mới chỉ cần đổi env, không sửa code — TODO 1b hướng 2). Env
+    thêm được cả provider không có sẵn ở bậc 1 (vd Groq quay lại khi nới TPM),
+    miễn là provider có trong _PROVIDER_META."""
     out = dict(_FREE_MODELS)
     raw = (os.environ.get("VNSTOCK_DIGEST_MODELS") or "").strip()
     for part in raw.split(";"):
         name, sep, model = part.partition("=")
-        if sep and name.strip() in out and model.strip():
+        if sep and name.strip() in _PROVIDER_META and model.strip():
             out[name.strip()] = model.strip()
     return out
 

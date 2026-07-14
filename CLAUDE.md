@@ -806,7 +806,10 @@ ghi ở mục gotchas — dính thật trên máy user 14/07) → `digest_call` 
 **Đã verify TRÊN MÁY USER 14/07:** fast suite 483 passed · allocation phiên
 2026-07-13 band B4 (điểm −0.739, 6 tín hiệu, gauge as_of 2026-07-03 nhất
 quán sau fix) · **gold endpoint SỐNG: 4,015.70 USD/oz** (mục cần-verify
-quan trọng nhất của P6).
+quan trọng nhất của P6) · **digest ĐẠT trên đường FREE** (báo cáo
+HedgeAcademy thật: Cerebras gpt-oss-120b @6000 token → stance CP -2 đúng
+đáp án, claim fed_funds đúng số, hết bịa usdvnd=0 nhờ luật chữ-số) ·
+consensus tilt +1 hiện đúng trong allocation (band data B4 → clamp B4).
 
 **Còn lại — PHẢI chạy trên MÁY CÓ DATA + MẠNG (sandbox chặn mạng, không có
 data_warehouse, không key LLM):**
