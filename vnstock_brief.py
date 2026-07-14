@@ -5061,8 +5061,10 @@ def enforce_breadth_label(text: str, ctx: dict) -> str:
             return m.group(0)
         return f"{m.group(1)}% {m.group(2)} trên MA200"
 
+    # "số mã cổ phiếu" (cả hai tiền tố ghép lại) — thấy thật close 14/07:
+    # "chỉ 13% số mã cổ phiếu tăng giá" lọt qua vì regex cũ chỉ có từng nhánh lẻ.
     return _re.sub(
-        r"(\d[\d.,]*)\s*%\s*((?:số\s+mã|mã\s+cổ phiếu|cổ phiếu|mã))\s+(?:đang\s+)?tăng\s+(?:giá|điểm)",
+        r"(\d[\d.,]*)\s*%\s*((?:số\s+mã(?:\s+cổ phiếu)?|mã\s+cổ phiếu|cổ phiếu|mã))\s+(?:đang\s+)?tăng\s+(?:giá|điểm)",
         _fix, text)
 
 
@@ -5145,10 +5147,24 @@ def enforce_vnindex_change(text: str, ctx: dict) -> str:
     if not text or not isinstance(dc, (int, float)):
         return text
     repl = f"{'tăng' if dc >= 0 else 'giảm'} {abs(dc):.2f}%"
+
+    # CHỦ NGỮ phải là chỉ số: mệnh đề GTGD/thanh khoản cũng viết "X% so với
+    # phiên trước" nhưng đó là ĐỔI GTGD — pin về day_change_pct là guard TỰ TẠO
+    # lỗi (thấy thật close 14/07: "GTGD ... giảm 1.52% so với phiên trước" —
+    # 1.52 là % đổi VNINDEX bị guard này đè vào). Nhìn ~45 ký tự trước match:
+    # có từ khóa turnover → không đụng.
+    _SUBJ_SKIP = ("gtgd", "thanh khoản", "khối lượng", "giá trị giao dịch")
+
+    def _fix(m: "_re.Match") -> str:
+        before = text[max(0, m.start() - 45):m.start()].lower()
+        if any(k in before for k in _SUBJ_SKIP):
+            return m.group(0)
+        return repl + m.group(1)
+
     return _re.sub(
         r"(?:tăng|giảm)\s*[+-]?\d[\d.,]*\s*%(\s*so với\s*"
         r"(?:phiên trước(?:\s*đó)?|hôm qua|phiên hôm qua))",
-        repl + r"\1", text, flags=_re.IGNORECASE)
+        _fix, text, flags=_re.IGNORECASE)
 
 
 def enforce_change_verb_sign(text: str, ctx: dict) -> str:

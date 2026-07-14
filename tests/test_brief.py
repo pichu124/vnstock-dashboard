@@ -2936,3 +2936,39 @@ def test_apply_brief_guards_includes_p4_guards():
 def test_brief_max_tokens_bumped_for_p4():
     from vnstock_brief import _BRIEF_MAX_TOKENS
     assert _BRIEF_MAX_TOKENS == 2800
+
+
+# ── Vá guard từ close brief thật 14/07 (verify P4 với data thật) ─────────────
+
+def test_breadth_label_catches_so_ma_co_phieu():
+    # Close 14/07: "chỉ 13% số mã cổ phiếu tăng giá" — 13% là above_ma200_pct;
+    # regex cũ có nhánh "số mã" và "mã cổ phiếu" nhưng thiếu tổ hợp GHÉP
+    # "số mã cổ phiếu" → lọt lưới.
+    from vnstock_brief import enforce_breadth_label
+    ctx = {"breadth": {"above_ma200_pct": 13}}
+    out = enforce_breadth_label(
+        "Độ rộng tiêu cực, với chỉ 13% số mã cổ phiếu tăng giá và A/D 0.47.",
+        ctx)
+    assert "tăng giá" not in out
+    assert "13% số mã cổ phiếu trên MA200" in out
+    assert enforce_breadth_label(out, ctx) == out     # idempotent
+    # số KHÔNG khớp above_ma200_pct → không đụng (46% tăng thật từ A/D)
+    keep = "46% số mã cổ phiếu tăng giá"
+    assert enforce_breadth_label(keep, ctx) == keep
+
+
+def test_vnindex_change_skips_gtgd_subject():
+    # Close 14/07: "GTGD ... giảm 1.52% so với phiên trước" — 1.52 là % đổi
+    # VNINDEX bị enforce_vnindex_change ĐÈ vào mệnh đề GTGD (guard tự tạo lỗi
+    # vì regex whole-text không kiểm tra chủ ngữ).
+    from vnstock_brief import enforce_vnindex_change
+    ctx = {"vnindex_tech": {"day_change_pct": -1.52}}
+    text = ("VNINDEX đóng cửa 1,800.54, tăng -24% so với phiên trước. "
+            "GTGD toàn thị trường đạt 23,620.6 tỷ đồng, giảm 8.30% so với "
+            "phiên trước và tăng 25% so với trung bình 5 phiên.")
+    out = enforce_vnindex_change(text, ctx)
+    # mệnh đề chỉ số: pin về day_change_pct thật
+    assert "giảm 1.52% so với phiên trước" in out
+    # mệnh đề GTGD: GIỮ NGUYÊN số của nó, không bị đè
+    assert "giảm 8.30% so với phiên trước" in out
+    assert enforce_vnindex_change(out, ctx) == out    # idempotent
