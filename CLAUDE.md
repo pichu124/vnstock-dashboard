@@ -811,8 +811,27 @@ HedgeAcademy thật: Cerebras gpt-oss-120b @6000 token → stance CP -2 đúng
 đáp án, claim fed_funds đúng số, hết bịa usdvnd=0 nhờ luật chữ-số) ·
 consensus tilt +1 hiện đúng trong allocation (band data B4 → clamp B4).
 
-**Còn lại — PHẢI chạy trên MÁY CÓ DATA + MẠNG (sandbox chặn mạng, không có
-data_warehouse, không key LLM):**
+**Verify 14/07 (phiên chiều) — thêm các mục ĐÃ XONG:** digest end-to-end
+với báo cáo HedgeAcademy thật (ảnh trong docx → Claude gõ lại → add-text →
+Cerebras gpt-oss-120b stance CP -2 → consensus tilt +1 → dòng 📚 trong
+allocation) · close brief thật chạy trọn phần (1/2): Rủi ro/Sự kiện/Vĩ mô
+canonical, 13 chỉ số + 3 gauge lần đầu lên brief; lộ + đã vá 2 guard
+(enforce_breadth_label thiếu tổ hợp "số mã cổ phiếu"; enforce_vnindex_change
+đè % GTGD-vs-phiên-trước vì không kiểm tra chủ ngữ).
+
+**CÒN LẠI (user hẹn test khi update data — nhắc khi user nói "test"/"verify"):**
+1. Đọc phần (2/2) của close brief Telegram — mục "📚 Báo cáo vĩ mô & phân
+   bổ" với digest thật (band B4 + tilt +1 + dòng HedgeAcademy stance -2 +
+   consensus; không bịa band/%).
+2. `python run.py doctor` (2 dòng reports/allocation) + `python run.py all`
+   trọn (2 bước mới gold + allocation; hoặc để task 18:00 tự chạy).
+3. Dashboard: 4 sub-tab tab Tin tức; 📚 upload/digest; 🧭 band + nút "Tạo
+   brief phân bổ" → bảng % phải Y HỆT `vnstock_allocation.py --show`.
+4. OpenRouter `qwen/qwen3-235b-a22b:free` là ứng viên CHƯA qua thử lửa
+   (Cerebras đang gánh chính — chỉ lộ khi Cerebras chết).
+5. Scorecard tự có kỳ đầu khi history đủ 2 tháng (~đầu tháng 9).
+
+**Checklist gốc (đã chạy gần hết — giữ làm tài liệu lệnh):**
 1. `python vnstock_allocation.py --refresh` → in band + bảng % + lý do 7 tín
    hiệu thật (dự đoán với nền hiện tại: B2/B3). Sau đó `--show`/`--history`.
 2. `python run.py all` chạy trọn — bước `allocation` mới (sau macro) không
