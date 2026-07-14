@@ -787,7 +787,20 @@ lại: checklist VERIFY HOÃN LẠI ở trên, trên máy có data + mạng.
 
 ### ⏳ VERIFY HOÃN LẠI (user chốt 2026-07-13 "lưu việc phải test vào làm sau")
 
-Chạy trên MÁY CÓ DATA + MẠNG (sandbox không có data_warehouse, chặn r.jina.ai):
+**Đã verify TRONG SANDBOX 2026-07-14 (integration end-to-end với data tổng
+hợp — mọi CLI chạy thật, chuỗi nối thật):** fast suite 478 passed · allocation
+tính band B3 từ 6 tín hiệu thật + hysteresis · ingest text → digest giả lập →
+consensus tilt +1 → allocation ra `band_data B3 / band B4` + bảng % đổi theo ·
+cross-check số sai (30,000) bị cờ mismatch với registry sống · build_prompt
+allocation có bảng % + brief ngày có dòng band · guard pin band bịa B0→B4 +
+thay bảng % canonical, idempotent · doctor 2 dòng mới ✅ đúng trạng thái ·
+scorecard "chưa đủ kỳ" đúng thiết kế · gold hiển thị kèm nhãn premium.
+**Bug bắt được khi verify + đã fix:** gauge as_of hiện `2023-06-19` vì phép
+min dính `sbv_policy_rate` (as_of = ngày SBV quyết định, không phải độ cũ
+data) → loại policy rate khỏi min (nhất quán với doctor "không bao giờ cũ").
+
+**Còn lại — PHẢI chạy trên MÁY CÓ DATA + MẠNG (sandbox chặn mạng, không có
+data_warehouse, không key LLM):**
 1. `python vnstock_allocation.py --refresh` → in band + bảng % + lý do 7 tín
    hiệu thật (dự đoán với nền hiện tại: B2/B3). Sau đó `--show`/`--history`.
 2. `python run.py all` chạy trọn — bước `allocation` mới (sau macro) không

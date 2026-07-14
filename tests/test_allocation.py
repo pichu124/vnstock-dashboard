@@ -355,8 +355,11 @@ def test_collect_inputs_gathers_all_sources(monkeypatch):
     assert as_of == "2026-07-11"                     # data_date của overview
     assert set(inputs) == {"breadth", "regime", "sentiment", "macro_pressure",
                            "liquidity", "term", "intl"}
-    # as_of gauge = as_of CŨ nhất trong các chỉ số nền (trung thực độ tươi)
-    assert inputs["liquidity"]["as_of"] == "2023-06-19"
+    # as_of gauge = as_of CŨ nhất trong các chỉ số nền THỊ TRƯỜNG —
+    # sbv_policy_rate (seed 2023, "ngày quyết định" chứ không phải độ cũ data)
+    # bị loại khỏi phép min (bắt được khi verify 2026-07-14)
+    assert inputs["liquidity"]["as_of"] == "2026-07-03"
+    assert inputs["term"]["as_of"] == "2026-07-03"
     assert inputs["intl"]["as_of"] == "2026-07-03"
     state = alloc.compute_allocation(inputs, as_of=as_of)
     assert state["band"] in ("B3", "B4")             # nền tiêu cực → phòng thủ

@@ -363,8 +363,13 @@ def collect_inputs(effective_date: "str | None" = None) -> tuple[str, dict]:
         rows = {m.get("key"): m for m in macro}
 
         def _row_as_of(*keys: str) -> str:
-            # as_of CŨ nhất trong các chỉ số nền — trung thực về độ tươi
-            avail = [rows[k]["as_of"] for k in keys if rows.get(k)]
+            # as_of CŨ nhất trong các chỉ số nền THỊ TRƯỜNG — trung thực về độ
+            # tươi. sbv_policy_rate bị loại khỏi phép min: as_of của nó là ngày
+            # SBV ra quyết định (có thể nhiều năm trước), không phải độ cũ data
+            # — cùng lý do doctor coi chỉ số này "không bao giờ cũ". (Bắt được
+            # khi verify 2026-07-14: gauge hiện as_of 2023-06-19 gây hiểu nhầm.)
+            avail = [rows[k]["as_of"] for k in keys
+                     if rows.get(k) and k != "sbv_policy_rate"]
             return min(avail) if avail else as_of
 
         mp = macro_pressure_score(macro)
