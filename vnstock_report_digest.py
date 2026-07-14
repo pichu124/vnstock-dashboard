@@ -183,9 +183,24 @@ def _call_openai(system: str, user: str,
         return None
 
 
+def _ensure_env_loaded() -> None:
+    """Load .env TRƯỚC khi check key — bẫy đã ghi trong CLAUDE.md (brief có
+    _ensure_env_loaded, doctor có load_dotenv; module này quên → chạy từ CLI
+    fresh báo 'không key nào chạy' dù .env có đủ key — dính thật khi user
+    verify 14/07). Best-effort, idempotent (override=False)."""
+    try:
+        from pathlib import Path
+
+        from dotenv import load_dotenv
+        load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
+    except Exception:
+        pass
+
+
 def digest_call(system: str, user: str) -> tuple["str | None", str]:
     """(raw_text, provider) qua ladder: Claude → GPT → free 70B. (None, '')
     khi không key nào chạy được."""
+    _ensure_env_loaded()
     raw = _call_claude(system, user)
     if raw:
         return raw, "claude"

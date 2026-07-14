@@ -295,3 +295,13 @@ def test_cli_refresh(monkeypatch, capsys):
     sys.modules["vnstock_macro"].load_macro = lambda *a, **k: _MACRO
     assert dg.main(["--refresh"]) == 0
     assert "1 báo cáo đã digest" in capsys.readouterr().out
+
+
+def test_digest_call_loads_env_before_key_check():
+    # Bẫy CLAUDE.md dính thật khi verify 14/07: CLI fresh chưa load .env →
+    # "không key nào chạy" dù .env đủ key. Khoá: digest_call phải gọi
+    # _ensure_env_loaded TRƯỚC khi thử provider nào.
+    import inspect
+    src = inspect.getsource(dg.digest_call)
+    assert "_ensure_env_loaded()" in src
+    assert src.index("_ensure_env_loaded()") < src.index("_call_claude")

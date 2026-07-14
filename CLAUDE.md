@@ -795,9 +795,18 @@ cross-check số sai (30,000) bị cờ mismatch với registry sống · build_
 allocation có bảng % + brief ngày có dòng band · guard pin band bịa B0→B4 +
 thay bảng % canonical, idempotent · doctor 2 dòng mới ✅ đúng trạng thái ·
 scorecard "chưa đủ kỳ" đúng thiết kế · gold hiển thị kèm nhãn premium.
-**Bug bắt được khi verify + đã fix:** gauge as_of hiện `2023-06-19` vì phép
-min dính `sbv_policy_rate` (as_of = ngày SBV quyết định, không phải độ cũ
-data) → loại policy rate khỏi min (nhất quán với doctor "không bao giờ cũ").
+**Bug bắt được khi verify + đã fix:** (1) gauge as_of hiện `2023-06-19` vì
+phép min dính `sbv_policy_rate` (as_of = ngày SBV quyết định, không phải độ
+cũ data) → loại policy rate khỏi min (nhất quán với doctor "không bao giờ
+cũ"). (2) `vnstock_report_digest` CLI fresh không load `.env` trước khi
+check key → `--diag` báo "không key nào chạy" dù .env đủ key (ĐÚNG bẫy đã
+ghi ở mục gotchas — dính thật trên máy user 14/07) → `digest_call` nay gọi
+`_ensure_env_loaded()` đầu tiên (mirror brief/doctor).
+
+**Đã verify TRÊN MÁY USER 14/07:** fast suite 483 passed · allocation phiên
+2026-07-13 band B4 (điểm −0.739, 6 tín hiệu, gauge as_of 2026-07-03 nhất
+quán sau fix) · **gold endpoint SỐNG: 4,015.70 USD/oz** (mục cần-verify
+quan trọng nhất của P6).
 
 **Còn lại — PHẢI chạy trên MÁY CÓ DATA + MẠNG (sandbox chặn mạng, không có
 data_warehouse, không key LLM):**
