@@ -3565,6 +3565,25 @@ def enforce_allocation_table(text: str, ctx: dict) -> str:
 
     out = "\n".join(lines)
 
+    # (d) Pin "%" gắn với TÊN LỚP TÀI SẢN trong VĂN XUÔI về đúng bảng band —
+    # brief phân bổ đầu tiên trên máy user (15/07, Mistral Small) bịa ngay
+    # trong TLDR: "Giảm tỷ trọng cổ phiếu xuống 10% (từ 15%), duy trì tiền
+    # gửi 45%" — 10%/45% không thuộc band nào (B4: cổ phiếu 15, tiền gửi 40).
+    # CHỈ chạy trong brief allocation (gate: có mục "Phân bổ đề xuất") để
+    # "cổ phiếu…%" trong brief ngày không bị đụng; gap tên→số không vượt
+    # dấu câu (ở lại cùng mệnh đề); giá trị đúng canonical giữ nguyên.
+    alloc_pct = alloc.get("allocation") or {}
+    if alloc_pct and "phân bổ đề xuất" in out.lower():
+        for cls, pct in alloc_pct.items():
+            def _pin_pct(m: "_re.Match", _p=pct) -> str:
+                v = _parse_vn_number(m.group(2))
+                if v is None or abs(v - _p) < 0.01:
+                    return m.group(0)
+                return f"{m.group(1)}{_p:g}{m.group(3)}"
+            out = _re.sub(
+                rf"({_re.escape(cls)}[^%\n.,;:()]{{0,30}}?)(\d+(?:\.\d+)?)(\s*%)",
+                _pin_pct, out, flags=_re.IGNORECASE)
+
     # (c) caveat horizon — chỉ khi lệch chiều thật và chưa chèn (check toàn văn)
     bias = (ctx.get("bias_floor") or {}).get("dir")
     clash = (band in ("B0", "B1") and bias == "GIẢM") or \

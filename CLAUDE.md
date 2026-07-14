@@ -1127,6 +1127,14 @@ Mọi thay đổi giữ nguyên tắc parity morning↔close by construction:
     band tháng B0/B1 + bias floor ngày GIẢM (hoặc B3/B4 + TĂNG) → chèn
     `_ALLOC_HORIZON_CAVEAT` sau dòng band — bắt đầu "- ⚠️" (dash TRƯỚC emoji
     để không thành ranh giới mục — bài học guard 27); idempotent check toàn văn.
+    (d) **Pin % gắn TÊN LỚP trong văn xuôi (15/07 — brief phân bổ đầu tiên
+    trên máy user)**: TLDR bịa "Giảm cổ phiếu xuống 10% (từ 15%), tiền gửi
+    45%" — pass (d) pin mọi "<lớp>…N%" về bảng band; gate mục "Phân bổ đề
+    xuất" (allocation-only) nên "cổ phiếu…%" trong brief ngày không đụng.
+    Ghi nhận prose-quality (KHÔNG phải lỗi số): mục "Phản biện band B4" của
+    Mistral Small nén 4 luận điểm debate thành đồng-ý/bác-bỏ logic lộn xộn
+    ("regime -4 trái ngược band B4"?!) — theo dõi, nếu lặp thì nâng model
+    cho brief allocation (cadence tháng, 1 call — đáng dùng agent mạnh).
 - `_SECTION_EMOJIS` += 📚, 🧭. `_BRIEF_MAX_TOKENS` 2400→**2800** (thêm mục 📚).
 - **Tests**: 8 test P4 cuối `tests/test_brief.py` (builder cap/mismatch note,
   2 guard đủ nhánh + idempotent, template selection, block cho từng

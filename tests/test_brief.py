@@ -1346,6 +1346,32 @@ def test_close_1407_2358_review_fixes():
     assert vb.enforce_lead_lag(f4, ctx4) == f4        # idempotent
 
 
+def test_allocation_prose_pct_pinned_to_band_table():
+    # Brief phân bổ ĐẦU TIÊN trên máy user (15/07): TLDR bịa "Giảm tỷ trọng
+    # cổ phiếu xuống 10% (từ 15%), duy trì tiền gửi 45%" — 10%/45% không
+    # thuộc band nào (nguyên tắc #1: LLM không sinh số %). Pass (d) của
+    # enforce_allocation_table pin % gắn tên lớp về bảng band.
+    import vnstock_brief as vb
+    ctx = {"allocation": {"band": "B4", "band_label": "căng thẳng",
+                          "score": -0.36, "as_of": "2026-07-14",
+                          "allocation": {"Cổ phiếu": 15, "Trái phiếu": 25,
+                                         "Tiền gửi": 40, "Vàng": 12, "USD": 8}}}
+    t = ("## 🎯 TLDR\n"
+         "**Hành động:** Giảm tỷ trọng cổ phiếu xuống 10% (từ 15%), "
+         "duy trì vàng 12% và tiền gửi 45%.\n"
+         "## 🧭 Phân bổ đề xuất\n"
+         "- Cổ phiếu: 15%\n- Tiền gửi: 40%\n"
+         "- Band: B4 (căng thẳng) — điểm -0.36, phiên 2026-07-14\n")
+    f = vb.enforce_allocation_table(t, ctx)
+    assert "cổ phiếu xuống 15%" in f and "10%" not in f
+    assert "tiền gửi 40%" in f and "45%" not in f
+    assert "vàng 12%" in f                              # số đúng giữ nguyên
+    assert vb.enforce_allocation_table(f, ctx) == f     # idempotent
+    # brief NGÀY (không có mục "Phân bổ đề xuất") → không đụng chữ "cổ phiếu…%"
+    daily = "Chỉ 13% mã cổ phiếu trên MA200. Cổ phiếu ngân hàng chiếm 30% thanh khoản."
+    assert vb.enforce_allocation_table(daily, ctx) == daily
+
+
 def test_close_1507_0110_fixes():
     # Close 01:10 15/07: 2 lỗi lộ sau khi loạt fix đêm trước đã ăn.
     import vnstock_brief as vb
