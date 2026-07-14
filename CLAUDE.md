@@ -1212,6 +1212,18 @@ Claude/GPT). CPU-only ~5-15 tok/s: đủ cho ≤8 tin/ngày, chậm cho batch l�
 Khác 3 khảo sát trước (lấp gap DỮ LIỆU thật), cái này lấp gap ĐỘ BỀN LLM —
 hiện chưa đau nên để dành.
 
+**Khảo sát emilkowalski/skills (2026-07-14): BỎ QUA cho dashboard — lệch
+stack, ĐỂ DÀNH nếu làm frontend web riêng.** 5 skill Claude Code dạy taste
+UI/animation web (easing/duration/spring, review + audit animation — tác
+giả Vercel/Linear, chất lượng cao) nhưng toàn bộ nhắm codebase React/CSS
+tự viết animation. Dashboard là Streamlit: không có bề mặt animation
+(grep: đúng 2 chỗ `animation:` — chấm pulse analysis_tab), khối JS duy
+nhất là 4-panel chart sync (vùng hard-won invariants, không đụng). Chính
+luật #1 của repo ("công cụ dùng hằng ngày tần suất cao → No animation.
+Ever.") phán dashboard cá nhân không nên thêm animation. KHI NÀO DÙNG:
+làm frontend React/Next riêng → `npx skills@latest add emilkowalski/skills`
+(đáng nhất: review-animations + apple-design).
+
 **Khảo sát excalidraw (2026-07-13): BỎ QUA, user chốt "không áp dụng được"**
 — whiteboard vẽ tay React SPA: lệch stack (dashboard là Streamlit/Python,
 nhúng cần tự viết custom component) + lệch use-case (canvas TỰ DO không neo
