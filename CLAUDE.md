@@ -339,6 +339,18 @@ trong `apply_brief_guards`, áp cho mọi agent, cả morning & close):
     cho data hỏng thật). Phát hiện bị BÁC sau phản biện (không sửa): "57%
     GTGD phiên chiều" (echo đúng session_timing_signal bucket), "Dầu khí
     tích luỹ mạnh (+0.06pp)" (nhãn composite hợp lệ, trục khác pp).
+31. **Vá close 01:10 15/07 (test `test_close_1507_0110_fixes`)** — brief đầu
+    tiên sau loạt fix đêm 14/07, xác nhận các guard mới đều ăn; lộ thêm:
+    (a) `enforce_macro` anchor nay 2 NẤC: ưu tiên dòng _is_section_start có
+    "vĩ mô"; nhánh lỏng ("vĩ mô"+"lãi suất/tỷ giá", cho header bị reformat
+    — fix 16/06) CHỈ là fallback. Trước đó nhánh lỏng match dòng VĂN XUÔI
+    "Rủi ro vĩ mô: lãi suất…" trong mục Rủi ro → body canonical splice vào
+    mục Rủi ro (nuốt dòng D/E) còn section 🌐 thật không được pin.
+    (b) `enforce_nn_frame_labels` thêm dạng SỐ-TRƯỚC-TÊN ("NN mua ròng
+    1,471 tỷ trong ngành Họ VIN" → "…ngành Họ VIN (1 tuần)").
+    (c) Template "🔧 Đề xuất bổ sung": CPI/lạm phát + lãi suất Fed chuyển từ
+    ví-dụ-thứ-thiếu sang danh sách ĐÃ CÓ (model chép nguyên ví dụ cũ để
+    "xin CPI" dù registry có từ 08/07); ví dụ thiếu mới: giá dầu Brent/WTI.
 
 **`max_tokens` brief = `_BRIEF_MAX_TOKENS` (2400, bump từ 1200 — 2026-06-16)**:
 `generate_brief._call` truyền giá trị này. Brief nay ~11 mục (thêm 🌐 Vĩ mô + 📰

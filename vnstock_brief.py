@@ -272,7 +272,7 @@ Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằn
 BẮT BUỘC: Nếu quyết định bị ảnh hưởng bởi tin tức trong block "Tin tức thị trường", PHẢI nêu rõ tên tiêu đề tin và giải thích tác động (ví dụ: "HPG: MUA — kỹ thuật vượt MA20 + tin [Hòa Phát ký hợp đồng thép 5.000 tỷ] hỗ trợ đà tăng"). Bỏ qua nếu không có khuyến nghị.
 
 ## 🔧 Đề xuất bổ sung (1 dòng, optional)
-[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, Cơ bản nhóm theo dõi (D/E/ROE/OCF), lịch GDKHQ cổ tức/chia tách (nếu có block "Sự kiện sắp tới"), VĨ MÔ — lãi suất điều hành/liên ngân hàng + tỷ giá USD/VND (nếu có block "🌐 Vĩ mô"). CHỈ nêu thứ THỰC SỰ thiếu (vd: CPI/lạm phát, lãi suất Fed, lịch công bố KQKD, định giá ngành so sánh).]
+[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, Cơ bản nhóm theo dõi (D/E/ROE/OCF), lịch GDKHQ cổ tức/chia tách (nếu có block "Sự kiện sắp tới"), VĨ MÔ — lãi suất điều hành/liên ngân hàng, tỷ giá USD/VND, lợi suất TPCP 2Y/10Y, CPI/lạm phát, IIP, PMI, GDP, cán cân thương mại, lãi suất Fed + US10Y (tất cả trong block "🌐 Vĩ mô"). CHỈ nêu thứ THỰC SỰ thiếu (vd: giá dầu Brent/WTI, lịch công bố KQKD, định giá P/E ngành so sánh).]
 
 Giới hạn 500 từ. Khi nói về cổ phiếu cụ thể, CHỈ đề cập mã CÓ TRONG các block đã cung cấp (VN30 + mid-cap thanh khoản cao); KHÔNG nhắc mã ngoài data.
 YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
@@ -358,7 +358,7 @@ Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằn
 BẮT BUỘC: Nếu có tin tức tác động → nêu rõ tiêu đề tin + ảnh hưởng. Bỏ qua nếu không có khuyến nghị.
 
 ## 🔧 Đề xuất bổ sung (1 dòng, optional)
-[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, Cơ bản nhóm theo dõi (D/E/ROE/OCF), lịch GDKHQ cổ tức/chia tách (nếu có block "Sự kiện sắp tới"), VĨ MÔ — lãi suất điều hành/liên ngân hàng + tỷ giá USD/VND (nếu có block "🌐 Vĩ mô"). CHỈ nêu thứ THỰC SỰ thiếu (vd: CPI/lạm phát, lãi suất Fed, lịch công bố KQKD, định giá ngành so sánh).]
+[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, Cơ bản nhóm theo dõi (D/E/ROE/OCF), lịch GDKHQ cổ tức/chia tách (nếu có block "Sự kiện sắp tới"), VĨ MÔ — lãi suất điều hành/liên ngân hàng, tỷ giá USD/VND, lợi suất TPCP 2Y/10Y, CPI/lạm phát, IIP, PMI, GDP, cán cân thương mại, lãi suất Fed + US10Y (tất cả trong block "🌐 Vĩ mô"). CHỈ nêu thứ THỰC SỰ thiếu (vd: giá dầu Brent/WTI, lịch công bố KQKD, định giá P/E ngành so sánh).]
 
 Giới hạn 500 từ. Khi nói về cổ phiếu cụ thể, CHỈ đề cập mã CÓ TRONG các block đã cung cấp (VN30 + mid-cap thanh khoản cao); KHÔNG nhắc mã ngoài data. Nếu thị trường flat và không có signal rõ thì nói thẳng.
 YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
@@ -3376,16 +3376,22 @@ def enforce_macro(text: str, ctx: dict) -> str:
     body = _macro_body_lines(macro, ctx.get("macro_news"), directive=False)
 
     lines = text.splitlines()
-    # Header detection: a section-start line with "vĩ mô", OR a header-like line
-    # carrying both "vĩ mô" + lãi suất/tỷ giá (the canonical "🌐 Vĩ mô: lãi suất &
-    # tỷ giá") — the looser arm catches headers the LLM reformats so _is_section_start
-    # misses (observed close 16/06: macro section not pinned → a bad "-3%" survived).
-    def _is_macro_header(l: str) -> bool:
+    # Header detection 2 NẤC. Nấc 1 (ưu tiên): dòng section-start thật có "vĩ
+    # mô". Nấc 2 (fallback — CHỈ khi không có nấc 1): dòng mang "vĩ mô" + lãi
+    # suất/tỷ giá, bắt header bị LLM reformat nên _is_section_start trượt
+    # (close 16/06). KHÔNG được thử nấc 2 trước: dòng VĂN XUÔI "Rủi ro vĩ mô:
+    # lãi suất…" trong mục Rủi ro cũng khớp → body canonical splice nhầm vào
+    # mục Rủi ro và NUỐT các dòng D/E, còn section 🌐 thật bị bỏ qua (bug thật
+    # close 01:10 15/07).
+    def _is_macro_header_loose(l: str) -> bool:
         low = l.lower()
-        return "vĩ mô" in low and (
-            _is_section_start(l) or "lãi suất" in low or "tỷ giá" in low)
+        return "vĩ mô" in low and ("lãi suất" in low or "tỷ giá" in low)
 
-    start = next((i for i, l in enumerate(lines) if _is_macro_header(l)), None)
+    start = next((i for i, l in enumerate(lines)
+                  if _is_section_start(l) and "vĩ mô" in l.lower()), None)
+    if start is None:
+        start = next((i for i, l in enumerate(lines)
+                      if _is_macro_header_loose(l)), None)
     if start is not None:
         end = next((i for i in range(start + 1, len(lines))
                     if _is_section_start(lines[i])), len(lines))
@@ -4101,6 +4107,23 @@ def enforce_nn_frame_labels(text: str, ctx: dict) -> str:
         out = _re.sub(
             rf"({_re.escape(nm)}[^\n\d]{{0,18}}?)([-+]?\d[\d.,]*)\s*tỷ",
             lambda m, _f=_fix: _f(m), out)
+
+        # Dạng SỐ-TRƯỚC-TÊN (close 01:10 15/07): "NN mua ròng 1,471 tỷ trong
+        # ngành Họ VIN" — số đứng sau verb, tên đứng cuối → pattern trên trượt.
+        def _fix_rev(m: "_re.Match", _vv=vv) -> str:
+            val = _parse_vn_number(m.group(2))
+            if val is None or abs(abs(val) - abs(_vv)) > max(1.0, 0.02 * abs(_vv)):
+                return m.group(0)
+            ls = out.rfind("\n", 0, m.start()) + 1
+            window = out[ls:m.end()].lower()
+            after = out[m.end():m.end() + 12].lower()
+            if "tuần" in window or "1t" in window or "tuần" in after:
+                return m.group(0)
+            return m.group(0) + " (1 tuần)"
+        out = _re.sub(
+            rf"((?:mua|bán)\s+ròng\s*)([-+]?\d[\d.,]*)(\s*tỷ"
+            rf"(?:(?!\.\s)[^;,\n]){{0,25}}?ngành\s*{_re.escape(nm)})",
+            lambda m, _f=_fix_rev: _f(m), out)
     return out
 
 

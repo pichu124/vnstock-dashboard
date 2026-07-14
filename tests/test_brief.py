@@ -1346,6 +1346,51 @@ def test_close_1407_2358_review_fixes():
     assert vb.enforce_lead_lag(f4, ctx4) == f4        # idempotent
 
 
+def test_close_1507_0110_fixes():
+    # Close 01:10 15/07: 2 lỗi lộ sau khi loạt fix đêm trước đã ăn.
+    import vnstock_brief as vb
+    ctx = {"macro": [
+        {"key": "usdvnd", "label": "Tỷ giá USD/VND (tham chiếu)", "unit": "VND",
+         "kind": "fx", "value": 26190.0, "as_of": "2026-07-14",
+         "prev_value": 26191.0, "prev_as_of": "2026-07-13",
+         "change": {"delta": -1.0, "pct": -0.0, "dir": -1}, "source": "x"}]}
+
+    # (1) enforce_macro anchor 2 nấc: dòng văn xuôi "Rủi ro vĩ mô: lãi suất…"
+    #     KHÔNG được hijack body canonical khi section 🌐 thật tồn tại
+    #     (bug 01:10: khối vĩ mô splice vào mục Rủi ro, nuốt dòng D/E,
+    #     section 🌐 thật thì không được canonical-hóa)
+    t = ("## ⚠️ Rủi ro cần lưu ý\n"
+         "Rủi ro vĩ mô: lãi suất liên ngân hàng giảm mạnh có thể đảo chiều.\n"
+         "Đòn bẩy cao nhất: HNG D/E=8.83.\n"
+         "## 🌐 Vĩ mô: lãi suất & tỷ giá\n"
+         "Tỷ giá USD/VND hiện tại là 26,190 VND.\n"
+         "## 📰 Tin\n- x\n")
+    f = vb.enforce_macro(t, ctx)
+    assert "Đòn bẩy cao nhất: HNG D/E=8.83." in f      # mục Rủi ro nguyên vẹn
+    assert f.index("Tỷ giá USD/VND (tham chiếu): 26,190") > f.index("## 🌐")
+    assert vb.enforce_macro(f, ctx) == f               # idempotent
+    # không có section thật (header bị reformat) → nấc lỏng vẫn bắt (fix 16/06)
+    t_loose = "🌐 Vĩ mô: lãi suất & tỷ giá\n- Tỷ giá khoảng 24,000\n## 📰 Tin\n- x\n"
+    assert "26,190" in vb.enforce_macro(t_loose, ctx)
+
+    # (2) nhãn khung NN dạng SỐ-TRƯỚC-TÊN: "NN mua ròng 1,471 tỷ trong ngành
+    #     Họ VIN" → gắn "(1 tuần)" (pattern tên-trước của guard cũ trượt)
+    ctx2 = {"sectors": [{"Ngành": "Họ VIN", "NN 1T (tỷ)": 1471.0},
+                        {"Ngành": "Dầu khí", "NN 1T (tỷ)": 271.0}]}
+    t2 = "NN mua ròng 1,471 tỷ trong ngành Họ VIN và 271 tỷ trong ngành Dầu khí."
+    f2 = vb.enforce_nn_frame_labels(t2, ctx2)
+    assert "ngành Họ VIN (1 tuần)" in f2
+    assert vb.enforce_nn_frame_labels(f2, ctx2) == f2  # idempotent
+
+    # (3) template "Đề xuất bổ sung": CPI/Fed nay ĐÃ CÓ — không còn nằm trong
+    #     ví dụ "thứ thực sự thiếu" (model từng chép nguyên ví dụ để xin CPI)
+    from vnstock_brief import _MORNING_TEMPLATE, _AFTERNOON_TEMPLATE
+    for tpl in (_MORNING_TEMPLATE, _AFTERNOON_TEMPLATE):
+        assert "vd: giá dầu Brent/WTI" in tpl
+        assert "vd: CPI/lạm phát" not in tpl
+        assert "CPI/lạm phát, IIP, PMI, GDP" in tpl    # đã vào danh sách ĐÃ CÓ
+
+
 def test_enforce_session_direction_pins_qualitative_label():
     # Close 23:58 14/07: "VNINDEX đóng cửa +0.34% … — phiên GIẢM điểm nhẹ sau
     # phiên tăng mạnh trước đó" — close dương mà gọi phiên giảm; guard % không
