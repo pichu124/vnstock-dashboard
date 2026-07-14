@@ -80,19 +80,27 @@ _OPENAI_MODEL = "gpt-4o-mini"
 # VIÊN theo catalog 2025-2026 — id sai/bị gỡ chỉ tốn 1 lần thử lỗi rồi
 # cascade đi tiếp, không gãy. Ghi đè model bậc 1 không cần sửa code:
 # env VNSTOCK_DIGEST_MODELS = "Groq=<model>;OpenRouter=<model>;Cerebras=<model>".
-# (Cập nhật theo lỗi THẬT trên máy user 14/07: Groq đã gỡ slug kimi-k2;
-# OpenRouter deepseek-v3-0324 hết free. gpt-oss-120b sống trên Cerebras và
-# thường có cả trên Groq với slug 'openai/gpt-oss-120b'.)
+# (Đã dò bằng lỗi THẬT trên máy user 14/07 — địa hình free tier 2026:
+#  * Groq TPM 8000/phút: prompt báo cáo ~6K token + budget 3K = 413 Payload
+#    Too Large VỀ CẤU TRÚC → Groq chỉ gánh nổi model KHÔNG-reasoning với
+#    budget ra nhỏ. gpt-oss/kimi trên Groq: slug gỡ hoặc không vừa TPM.
+#  * Cerebras gpt-oss-120b SỐNG nhưng là reasoning model — 3000 token vẫn
+#    cụt JSON → cấp 6000 (TPM Cerebras rộng, free không tốn gì).
+#  * OpenRouter: deepseek-v3 lẫn kimi-k2 đều hết ':free' — thử qwen3-235b.)
 _FREE_MODELS = {
-    "Groq": "openai/gpt-oss-120b",
+    "Groq": "meta-llama/llama-4-maverick-17b-128e-instruct",
     "Cerebras": "gpt-oss-120b",
-    "OpenRouter": "moonshotai/kimi-k2:free",
+    "OpenRouter": "qwen/qwen3-235b-a22b:free",
 }
+# Budget token RA theo provider ở bậc 1 — reasoning cần chỗ suy nghĩ, còn
+# Groq phải giữ tổng (vào+ra) dưới TPM 8000.
+_TIER1_TOKENS = {"Groq": 900, "Cerebras": 6000, "OpenRouter": 3000}
 _FREE_TIER2 = (                      # 70B — fallback ổn định đã chạy ổn từ P3
     ("Groq", "llama-3.3-70b-versatile"),
     ("Cerebras", "llama3.3-70b"),
     ("OpenRouter", "meta-llama/llama-3.3-70b-instruct:free"),
 )
+_TIER2_TOKENS = 1200                 # 70B không reasoning — 700-900 là đủ, dư chút
 _PROVIDER_META = {                   # env + endpoint — mirror vnstock_sentiment._PROVIDERS
     "Groq": ("GROQ_API_KEY", "https://api.groq.com/openai/v1/chat/completions"),
     "Cerebras": ("CEREBRAS_API_KEY", "https://api.cerebras.ai/v1/chat/completions"),
@@ -112,11 +120,15 @@ def _free_models() -> dict:
     return out
 
 
-def _free_ladder() -> list[tuple[str, str]]:
-    """Cascade (provider, model) theo bậc: TOÀN BỘ bậc 1 trước, rồi bậc 2;
-    bỏ model bậc 2 trùng bậc 1 (env override trỏ về 70B thì khỏi thử 2 lần)."""
-    tier1 = [(p, m) for p, m in _free_models().items()]
-    return tier1 + [(p, m) for p, m in _FREE_TIER2 if (p, m) not in tier1]
+def _free_ladder() -> list[tuple[str, str, int]]:
+    """Cascade (provider, model, max_tokens) theo bậc: TOÀN BỘ bậc 1 trước,
+    rồi bậc 2; bỏ model bậc 2 trùng bậc 1 (env override trỏ về 70B thì khỏi
+    thử 2 lần). Budget ra đi kèm TỪNG NẤC (reasoning ≠ non-reasoning ≠ TPM)."""
+    tier1 = [(p, m, _TIER1_TOKENS.get(p, _FREE_MAX_TOKENS))
+             for p, m in _free_models().items()]
+    seen = {(p, m) for p, m, _ in tier1}
+    return tier1 + [(p, m, _TIER2_TOKENS)
+                    for p, m in _FREE_TIER2 if (p, m) not in seen]
 
 # Dung sai cross-check theo key registry (kỳ báo cáo có thể lệch kỳ registry
 # nên dung sai RỘNG có chủ đích — chỉ chặn số SAI HẲN, không bắt nạt lệch kỳ).
@@ -175,9 +187,15 @@ _DIGEST_SYSTEM = (
     ' "risks": ["<rủi ro 1>", "<rủi ro 2>"]}\n'
     "Quy tắc: stance = quan điểm CỦA BÁO CÁO về từng lớp tài sản 3-6 tháng tới "
     "(-2 rất tiêu cực, 0 = trung lập/không nêu — ĐƯỢC PHÉP, +2 rất tích cực). "
+    "ĐỌC KỸ mục kết luận/khuyến nghị: báo cáo viết 'không khuyến nghị mua'/"
+    "'không recommend'/'tránh' một lớp tài sản → stance lớp đó PHẢI ÂM (-1 "
+    "hoặc -2), KHÔNG được ghi 0; 'nắm giữ, không mua thêm' → 0/+1; 'giảm "
+    "dần/chốt dần vị thế' → ÂM. 0 CHỈ dành cho lớp báo cáo KHÔNG nêu gì. "
     "claims CHỈ gồm số liệu vĩ mô báo cáo nêu RÕ RÀNG, key lấy từ danh sách: "
-    "{keys} — không khớp key nào thì dùng \"khac\". Báo cáo tiếng Anh vẫn trả "
-    "lời HOÀN TOÀN tiếng Việt. Số dùng định dạng EN (chấm thập phân). "
+    "{keys} — không khớp key nào thì dùng \"khac\". MỖI claim bắt buộc có CON "
+    "SỐ THẬT trích từ báo cáo trong \"text\"; câu định tính không có số "
+    "(vd 'tỷ giá có thể giảm thêm') → KHÔNG tạo claim. Báo cáo tiếng Anh vẫn "
+    "trả lời HOÀN TOÀN tiếng Việt. Số dùng định dạng EN (chấm thập phân). "
     "KHÔNG bịa số không có trong báo cáo."
 )
 
@@ -322,8 +340,8 @@ def digest_call(system: str, user: str,
     raw = _call_openai(system, user)
     if raw and _ok(raw, "openai"):
         return raw, "openai"
-    for provider, model in _free_ladder():
-        raw = _call_free(provider, model, system, user)
+    for provider, model, tokens in _free_ladder():
+        raw = _call_free(provider, model, system, user, max_tokens=tokens)
         if raw and _ok(raw, f"{provider}:{model}"):
             return raw, f"{provider}:{model}"
     return None, ""
@@ -367,12 +385,19 @@ def parse_digest(raw: str) -> "dict | None":
             value = float(c.get("value"))
         except (TypeError, ValueError):
             continue
+        text = sanitize_text(c.get("text") or "")[:160]
+        # Luật deterministic chống bịa số (thấy 3 lần liên tiếp 14/07: câu
+        # "USDVND có thể giảm thêm" không có số → model chế value=0): claim
+        # là TRÍCH DẪN SỐ LIỆU — trích dẫn không chứa chữ số nào thì không
+        # có số để claim → loại thẳng, khỏi chờ cross-check.
+        if not any(ch.isdigit() for ch in text):
+            continue
         claims.append({
             "key":    sanitize_text(c.get("key") or "khac").lower() or "khac",
             "value":  value,
             "unit":   sanitize_text(c.get("unit") or ""),
             "period": sanitize_text(c.get("period") or ""),
-            "text":   sanitize_text(c.get("text") or "")[:160],
+            "text":   text,
         })
 
     risks = [sanitize_text(r)[:160] for r in (data.get("risks") or [])

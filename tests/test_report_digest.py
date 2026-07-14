@@ -26,7 +26,8 @@ _RAW_OK = """Đây là digest:
  "claims": [
    {"key": "sbv_policy_rate", "value": 4.5, "unit": "%/năm", "period": "2026-07", "text": "SBV giữ 4.5%"},
    {"key": "usdvnd", "value": 27500, "unit": "VND", "period": "2026-07", "text": "tỷ giá 27,500"},
-   {"key": "khac", "value": 12.3, "unit": "%", "period": "2026", "text": "tăng trưởng tín dụng"},
+   {"key": "khac", "value": 12.3, "unit": "%", "period": "2026", "text": "tăng trưởng tín dụng 12.3%"},
+   {"key": "usdvnd", "value": 0, "unit": "", "period": "", "text": "tỷ giá có thể giảm thêm"},
    {"key": "pmi", "value": "n/a", "period": "?", "text": "không phải số"}],
  "risks": ["Tỷ giá vượt đỉnh ##", "  "]}
 ```"""
@@ -72,8 +73,10 @@ def test_parse_digest_validates_and_sanitizes():
     # stance: float → int, clamp -2..2, thiếu lớp → 0, rác → 0
     assert d["stance"] == {"Cổ phiếu": 2, "Trái phiếu": 0, "Tiền gửi": 0,
                            "Vàng": -2, "USD": 0}
-    # claims: dòng value không phải số bị loại
+    # claims: dòng value không phải số bị loại; câu ĐỊNH TÍNH không có chữ số
+    # trong text ("tỷ giá có thể giảm thêm" → value 0 bịa) cũng bị loại thẳng
     assert [c["key"] for c in d["claims"]] == ["sbv_policy_rate", "usdvnd", "khac"]
+    assert all(any(ch.isdigit() for ch in c["text"]) for c in d["claims"])
     # text đã sanitize (không ## / CJK / emoji)
     assert "#" not in d["tom_tat"] and "达" not in d["tom_tat"]
     assert d["risks"] == ["Tỷ giá vượt đỉnh"]        # risk rỗng bị loại
@@ -312,7 +315,7 @@ def test_free_models_env_override(monkeypatch):
     # verify 14/07 — 70B đọc sai stance báo cáo thật)
     base = dg._free_models()
     assert set(base) == {"Groq", "Cerebras", "OpenRouter"}
-    assert base["Groq"] == "openai/gpt-oss-120b"
+    assert base["Groq"] == "meta-llama/llama-4-maverick-17b-128e-instruct"
     # env override từng provider, provider không nêu giữ mặc định, rác bỏ qua
     monkeypatch.setenv("VNSTOCK_DIGEST_MODELS",
                        "Groq=llama-3.3-70b-versatile; OpenRouter = foo:free ;"
@@ -328,17 +331,23 @@ def test_free_ladder_is_strength_major():
     # provider-major như chat_complete (yếu của Groq không được chen trước
     # mạnh của Cerebras).
     ladder = dg._free_ladder()
-    models = [m for _, m in ladder]
+    models = [m for _, m, _t in ladder]
     tier2_models = [m for _, m in dg._FREE_TIER2]
     first_tier2 = min(models.index(m) for m in tier2_models)
     assert first_tier2 == 3                          # đủ 3 model bậc 1 trước
     assert set(models[:3]) == set(dg._FREE_MODELS.values())
+    # budget token theo nấc: reasoning (Cerebras) rộng, Groq giữ dưới TPM 8000
+    tokens = {(pr, m): t for pr, m, t in ladder}
+    assert tokens[("Cerebras", "gpt-oss-120b")] == 6000
+    assert tokens[("Groq", dg._FREE_MODELS["Groq"])] == 900
+    assert all(t == dg._TIER2_TOKENS for (pr, m), t in tokens.items()
+               if (pr, m) in dg._FREE_TIER2)
     # env override trỏ bậc 1 về đúng model bậc 2 → không thử trùng 2 lần
     import os
     os.environ["VNSTOCK_DIGEST_MODELS"] = "Groq=llama-3.3-70b-versatile"
     try:
-        ladder2 = dg._free_ladder()
-        assert ladder2.count(("Groq", "llama-3.3-70b-versatile")) == 1
+        pairs = [(pr, m) for pr, m, _t in dg._free_ladder()]
+        assert pairs.count(("Groq", "llama-3.3-70b-versatile")) == 1
     finally:
         os.environ.pop("VNSTOCK_DIGEST_MODELS")
 
@@ -372,7 +381,7 @@ def test_digest_call_cascades_to_next_strong_model(monkeypatch, capsys):
     raw, provider = dg.digest_call("s", "u")
     assert raw == "ok:gpt-oss-120b"
     assert provider == "Cerebras:gpt-oss-120b"       # ghi rõ model đã digest
-    assert "Groq (openai/gpt-oss-120b)" in capsys.readouterr().out
+    assert "Groq (meta-llama/llama-4-maverick" in capsys.readouterr().out
 
 
 def test_digest_call_falls_through_to_tier2(monkeypatch):
@@ -387,7 +396,7 @@ def test_digest_call_falls_through_to_tier2(monkeypatch):
         def __init__(self, model):
             self._m = model
         def raise_for_status(self):
-            if "gpt-oss" in self._m:
+            if "llama-3.3" not in self._m:
                 raise RuntimeError("404 model not found")
         def json(self):
             return {"choices": [{"message": {"content": "ok"}}]}
