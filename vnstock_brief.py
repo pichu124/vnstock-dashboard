@@ -5028,8 +5028,16 @@ def enforce_gtgd_total(text: str, ctx: dict) -> str:
 # the sentence, allowing decimals inside numbers (period+space ends it, not the
 # decimal point). Group 1 = the leading comma/space to preserve.
 _MORNING_CMP_RE = _re.compile(
-    r"(,?\s*)(?:thấp hơn|cao hơn|giảm|tăng)?\s*\d[\d.,]*\s*%\s*so\b.*?"
-    r"(?:sáng phiên trước|TB\s*sáng|sáng\s+\d+\s+phiên).*?(?=\.\s|\.$|$)",
+    # Mệnh đề so sánh phải MỞ ĐẦU bằng động-từ-so-sánh + % HOẶC % + "so/vs"
+    # (một trong hai bắt buộc — "so" đơn thuần optional sẽ nuốt nhầm từ
+    # "57% GTGD (15,513.6 tỷ)," đứng trước). Close 01:20 15/07: "cao hơn 35%
+    # phiên trước (10,294.2 tỷ) và 23% trung bình 5 phiên sáng" — không có
+    # "so" nào + baseline sáng dạng mới "trung bình N phiên sáng" (chữ
+    # "sáng" đứng CUỐI).
+    r"(,?\s*)(?:(?:thấp hơn|cao hơn|giảm|tăng)\s*\d[\d.,]*\s*%"
+    r"|\d[\d.,]*\s*%\s*(?:so\b|vs\.?))\s*(?:so\b|vs\.?)?.*?"
+    r"(?:sáng phiên trước|TB\s*sáng|sáng\s+\d+\s+phiên"
+    r"|trung bình\s+\d+\s+phiên\s+sáng|\d+\s+phiên\s+sáng).*?(?=\.\s|\.$|$)",
     _re.IGNORECASE)
 
 

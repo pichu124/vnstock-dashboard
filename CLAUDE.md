@@ -351,6 +351,12 @@ trong `apply_brief_guards`, áp cho mọi agent, cả morning & close):
     (c) Template "🔧 Đề xuất bổ sung": CPI/lạm phát + lãi suất Fed chuyển từ
     ví-dụ-thứ-thiếu sang danh sách ĐÃ CÓ (model chép nguyên ví dụ cũ để
     "xin CPI" dù registry có từ 08/07); ví dụ thiếu mới: giá dầu Brent/WTI.
+    (d) Close 01:20 (lần chạy lại): `_MORNING_CMP_RE` (guard 13) nới 2 chỗ —
+    mệnh đề so sánh nhận dạng KHÔNG có "so" ("cao hơn 35% phiên trước
+    (10,294.2 tỷ) và 23% trung bình 5 phiên sáng" — 10,294.2 là GTGD SÁNG
+    phiên trước đội lốt "phiên trước") + baseline "trung bình N phiên sáng"
+    (chữ "sáng" đứng CUỐI). Match phải MỞ ĐẦU bằng verb-so-sánh+% hoặc
+    %+"so/vs" — không thì nuốt nhầm "57% GTGD (…)" đứng trước mệnh đề.
 
 **`max_tokens` brief = `_BRIEF_MAX_TOKENS` (2400, bump từ 1200 — 2026-06-16)**:
 `generate_brief._call` truyền giá trị này. Brief nay ~11 mục (thêm 🌐 Vĩ mô + 📰

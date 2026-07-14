@@ -1390,6 +1390,25 @@ def test_close_1507_0110_fixes():
         assert "vd: CPI/lạm phát" not in tpl
         assert "CPI/lạm phát, IIP, PMI, GDP" in tpl    # đã vào danh sách ĐÃ CÓ
 
+    # (4) close 01:20: so cả-ngày với baseline SÁNG nhưng KHÔNG có chữ "so"
+    #     + baseline dạng "trung bình 5 phiên sáng" (chữ "sáng" đứng cuối) →
+    #     _MORNING_CMP_RE nới; "57% GTGD (…)" đứng trước phải được GIỮ NGUYÊN
+    ctx4 = {"full_day_gtgd": 15513.6,
+            "full_day_gtgd_cmp": {"prev": 19751.0, "avg5": 16800.0,
+                                  "avg20": 16900.0}}
+    t4 = ("## 📊 Tổng kết phiên\n"
+          "Phiên chiều chiếm 57% GTGD (15,513.6 tỷ), cao hơn 35% phiên trước "
+          "(10,294.2 tỷ) và 23% trung bình 5 phiên sáng. Độ rộng trái chiều.\n")
+    f4 = vb.enforce_gtgd_compare_frame(t4, ctx4)
+    assert "57% GTGD (15,513.6 tỷ)" in f4              # số đứng trước giữ nguyên
+    assert "TB5 phiên (-8%)" in f4 and "phiên sáng" not in f4
+    assert "10,294.2" not in f4                        # baseline sáng bị thay
+    assert vb.enforce_gtgd_compare_frame(f4, ctx4) == f4   # idempotent
+    # so cả-ngày-vs-cả-ngày đúng khung → không đụng
+    ok4 = ("## 📊 Tổng kết phiên\n"
+           "GTGD 15,513.6 tỷ, thấp hơn TB5 phiên (-8%) và TB20 phiên (-8%).\n")
+    assert vb.enforce_gtgd_compare_frame(ok4, ctx4) == ok4
+
 
 def test_enforce_session_direction_pins_qualitative_label():
     # Close 23:58 14/07: "VNINDEX đóng cửa +0.34% … — phiên GIẢM điểm nhẹ sau
