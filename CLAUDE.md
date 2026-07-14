@@ -1311,6 +1311,49 @@ số: win-rate live tính trên MỌI rec đóng của strategy_id đó (không 
 sổ thời gian) — đủ dùng ở n nhỏ; nếu sau này rec tích lũy hàng trăm thì
 cân nhắc cửa sổ 30-60 rec gần nhất.
 
+**Khảo sát nautechsystems/nautilus_trader (2026-07-14): KHÔNG dùng
+framework — ĐỂ DÀNH 3 món ý tưởng, món 1 đáng làm sớm nhất.** Engine
+trading production-grade lớn nhất từng khảo sát (~2.530 file Rust +
+Cython/Python control plane; backtest nanosecond, matching engine L1-L3,
+live execution đa sàn). Không dùng vì: (1) không có adapter HOSE/HNX
+(toàn crypto CEX/DEX, IB, Betfair, databento); (2) mình KHÔNG đặt lệnh
+tự động — dashboard là hệ hỗ trợ quyết định, kéo cả engine live-execution
+ngược mục đích; (3) build Rust+Cython nặng, LGPL (mượn Ý TƯỞNG, không
+copy code). Điều đáng nể để đối chiếu: fill/fee model của họ tách rời
+matching engine, deterministic seed được (cùng triết lý seed cố định của
+mình ở Monte Carlo validation).
+
+**3 món ĐÁNG MƯỢN (đều deterministic thuần, vài chục dòng mỗi món):**
+1. **CHI PHÍ GIAO DỊCH vào backtest (FeeModel)** — giá trị nhất, chỗ
+   mỏng THẬT: `_simulate_trade` (vnstock_strategy) tính pnl GROSS 0 phí.
+   VN thực tế: phí CTCK ~0.15%/chiều + thuế bán 0.1% → round-trip ~0.4%.
+   Chiến lược edge mỏng (avg pnl +0.3%/lệnh) qua được validation 🎲 nhưng
+   LỖ THẬT sau phí. Làm: hằng số `_COST_ROUNDTRIP_PCT` (~0.4, tunable)
+   trừ vào pnl mỗi lệnh backtest; cân nhắc trừ luôn ở grading
+   `reconcile_recommendations` (rec thật cũng chịu phí thật) để decay
+   gap so táo-với-táo. LƯU Ý khi làm: expectancy/validation sẽ khó đạt
+   hơn — đó là ĐÚNG, nhưng chiến lược active hiện tại có thể rớt gate
+   ngay lần train sau (chấp nhận, cold-start bản mới).
+2. **Adaptive high/low ordering khi bar chứa CẢ TP lẫn SL**
+   (`bar_adaptive_high_low_ordering`, matching_engine/engine.rs:1712):
+   họ tách bar thành 4 tick O→H→L→C, và extreme nào GẦN OPEN hơn thì xử
+   TRƯỚC (|high−open| < |low−open| → high trước). Mình hiện luôn cho SL
+   thắng trong cùng bar (pessimistic cứng, cả `_simulate_trade` lẫn
+   `reconcile_recommendations`). Áp heuristic này → backtest + chấm rec
+   thật chính xác hơn, vẫn deterministic. (Giữ SL-first làm fallback khi
+   thiếu open.)
+3. **Position sizing fixed-risk (risk/sizing.pyx FixedRiskSizer)**:
+   qty = (NAV × risk%) / (entry − SL), trừ phí. Rec hiện chỉ có
+   entry/TP/SL, KHÔNG có size → user tự đoán khối lượng. Làm: 1 dòng
+   "size gợi ý (risk 1% NAV)" display-only trong rec/brief, NAV + risk%
+   đặt trong config. Zero LLM, guard không cần đổi.
+Bỏ qua nhưng ghi nhận: bộ 35 thống kê danh mục (crates/analysis) —
+mình đã có expectancy/sharpe/win-rate/max-dd; đáng thêm nhất nếu cần là
+`profit_factor` (Σlãi/|Σlỗ|) và `ulcer_index` (RMS drawdown — đo cả độ
+sâu lẫn độ dài); indicators (RSI/MACD/ATR…) — đã tự có; probabilistic
+FillModel (prob_slippage) — ngược triết lý deterministic, phí cố định
+món 1 là đủ.
+
 **Khảo sát TauricResearch/TradingAgents (2026-07-14): KHÔNG dùng trực
 tiếp — ý tưởng reflection + debate ĐÃ TRIỂN KHAI cùng ngày (xem mục
 🧠 Reflection + 🗣 Debate dưới P6).** Framework nghiên cứu
