@@ -1345,7 +1345,15 @@ def _do_revise(
     """
     code        = active["code"]
     family      = active.get("family_id") or _uuid.uuid4().hex[:8]
-    cur_metrics = mem.latest_backtest(active["id"]) or {}
+    try:
+        _cur_params = json.loads(active.get("params_json") or "{}")
+    except Exception:
+        _cur_params = {}
+    # Benchmark cùng cost-basis (net phí) — xem comment ở _do_tune: đọc row
+    # DB cũ (gross) làm chuẩn thì candidate net không bao giờ thắng.
+    cur_metrics, _ps0, _pe0 = _do_backtest(code, _cur_params, cfg)
+    mem.save_backtest(active["id"], _ps0, _pe0,
+                      ",".join(cfg.universe[:10]), cur_metrics)
 
     # Build the diagnosis context once (shared across all agents)
     was_stable = bool(active.get("is_core_stable"))
@@ -1431,9 +1439,17 @@ def _do_tune(agents: list, active: dict, cfg: BacktestConfig) -> tuple[Optional[
         cur_params = json.loads(active.get("params_json") or "{}")
     except Exception:
         cur_params = {}
-    cur_metrics = mem.latest_backtest(active["id"]) or {}
     if not cur_params:
         return active["id"], {"error": "active strategy has no params to tune"}
+    # RE-BACKTEST active làm benchmark CÙNG cost-basis thay vì đọc row DB cũ:
+    # sau khi phí vào backtest (14/07), expectancy lịch sử là GROSS còn mọi
+    # ứng viên là NET (−0.4/lệnh) → so net-vs-gross thì không ứng viên nào
+    # qua nổi, tune đóng băng vĩnh viễn và active không bao giờ có row mới
+    # (thấy thật 15/07: train xong mà latest_backtest vẫn là row cũ, không
+    # có validation). Lưu row mới luôn → panel/CLI thấy 🧪 của active.
+    cur_metrics, _ps0, _pe0 = _do_backtest(code, cur_params, cfg)
+    mem.save_backtest(active["id"], _ps0, _pe0,
+                      ",".join(cfg.universe[:10]), cur_metrics)
 
     candidates: list[tuple[str, dict, dict]] = []
     for ag in agents:

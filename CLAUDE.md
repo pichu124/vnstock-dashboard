@@ -1460,6 +1460,14 @@ món 1 là đủ.
 Cả 3 deterministic thuần, zero LLM/fetch; tests `tests/test_costs_sizing.py`
 (13, hermetic) đã vào `--fast`.
 
+**FIX benchmark đóng băng (15/07, user bắt được khi verify)**: `_do_tune`/
+`_do_revise` trước đây lấy benchmark từ `mem.latest_backtest` (row DB cũ =
+GROSS) trong khi mọi ứng viên mới là NET sau phí → chấp sẵn 0.4, không ứng
+viên nào thắng nổi → tune/revise đóng băng + active không bao giờ có row
+backtest mới (nên không có 🧪 validation). Nay cả 2 hàm RE-BACKTEST chính
+active (code+params hiện tại, cùng cost-basis) làm benchmark VÀ lưu row đó
+→ so net-vs-net công bằng, panel/CLI luôn thấy validation của active.
+
 **Món 1 — phí round-trip vào backtest** (`vnstock_strategy._cost_roundtrip_pct`):
 `_simulate_trade` trừ `_COST_ROUNDTRIP_PCT_DEFAULT` = **0.4%** (phí CTCK
 ~0.15%/chiều + thuế bán 0.1%) vào pnl MỌI lệnh backtest (tp/sl/expire;

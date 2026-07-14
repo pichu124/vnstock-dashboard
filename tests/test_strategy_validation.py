@@ -157,10 +157,20 @@ class _FakeAgent:
 
 
 def _patch_revise(monkeypatch, metrics, recorder):
-    monkeypatch.setattr(vs.mem, "latest_backtest",
-                        lambda sid: {"expectancy": 0.1, "n_trades": 20})
+    # _do_backtest call ĐẦU = re-benchmark active (net, fix 15/07 — đọc row
+    # DB cũ gross làm chuẩn thì candidate net không bao giờ thắng); các call
+    # sau = ứng viên.
+    calls = {"n": 0}
+
+    def _fake_bt(c, p, cfg):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return ({"expectancy": 0.1, "n_trades": 20}, "2026-01-01", "2026-07-01")
+        return (metrics, "2026-01-01", "2026-07-01")
+
     monkeypatch.setattr(vs.mem, "save_strategy", lambda **kw: 5)
-    monkeypatch.setattr(vs.mem, "save_backtest", lambda *a, **kw: 1)
+    monkeypatch.setattr(vs.mem, "save_backtest",
+                        lambda sid, *a, **kw: recorder.append(("save_bt", sid)))
     monkeypatch.setattr(vs.mem, "promote_strategy",
                         lambda sid, retire_others=True: recorder.append(("promote", sid)))
     monkeypatch.setattr(vs.mem, "update_strategy_status",
@@ -168,8 +178,7 @@ def _patch_revise(monkeypatch, metrics, recorder):
     monkeypatch.setattr(vs.mem, "mark_core_stable", lambda *a, **kw: None)
     monkeypatch.setattr(vs, "revise_strategy",
                         lambda *a, **kw: ("def signal(df,p): pass", {"x": 1}, None))
-    monkeypatch.setattr(vs, "_do_backtest",
-                        lambda c, p, cfg: (metrics, "2026-01-01", "2026-07-01"))
+    monkeypatch.setattr(vs, "_do_backtest", _fake_bt)
     monkeypatch.setattr(vs, "_check_stability", lambda fam: False)
 
 
@@ -184,6 +193,8 @@ def test_do_revise_blocks_failed_validation(monkeypatch):
     # expectancy tốt hơn NHƯNG kiểm định trượt → retired, KHÔNG promote
     assert ("status", 5, "retired") in rec
     assert not any(r[0] == "promote" for r in rec)
+    # benchmark active được RE-BACKTEST + lưu row mới (cùng cost-basis net)
+    assert ("save_bt", 1) in rec
 
 
 def test_do_revise_promotes_when_validation_passes(monkeypatch):
@@ -199,21 +210,51 @@ def test_do_revise_promotes_when_validation_passes(monkeypatch):
 
 def test_do_tune_blocks_failed_validation(monkeypatch):
     rec: list = []
-    monkeypatch.setattr(vs.mem, "latest_backtest",
-                        lambda sid: {"expectancy": 0.1})
+    calls = {"n": 0}
+
+    def _fake_bt(c, p, cfg):
+        calls["n"] += 1
+        if calls["n"] == 1:            # re-benchmark active (net)
+            return ({"expectancy": 0.1, "n_trades": 20}, "a", "b")
+        return ({"expectancy": 0.9, "n_trades": 25,
+                 "validation": {"passed": False, "reasons": ["x"]}}, "a", "b")
+
     monkeypatch.setattr(vs.mem, "update_strategy_params",
                         lambda *a, **kw: rec.append("adopted"))
-    monkeypatch.setattr(vs.mem, "save_backtest", lambda *a, **kw: 1)
+    monkeypatch.setattr(vs.mem, "save_backtest",
+                        lambda sid, *a, **kw: rec.append(("save_bt", sid)))
     monkeypatch.setattr(vs, "tune_params", lambda *a, **kw: ({"x": 2}, None))
-    monkeypatch.setattr(
-        vs, "_do_backtest",
-        lambda c, p, cfg: ({"expectancy": 0.9, "n_trades": 25,
-                            "validation": {"passed": False, "reasons": ["x"]}},
-                           "a", "b"))
+    monkeypatch.setattr(vs, "_do_backtest", _fake_bt)
     active = {"id": 1, "code": "c", "params_json": '{"x": 1}'}
     sid, out = vs._do_tune([_FakeAgent()], active,
                            vs.BacktestConfig(universe=["AAA"]))
-    assert rec == [] and "error" in out
+    assert "adopted" not in rec and "error" in out
+    assert ("save_bt", 1) in rec       # active có row backtest mới (net + 🧪)
+
+
+def test_do_tune_adopts_with_same_cost_basis(monkeypatch):
+    # Bug 15/07: benchmark đọc từ row DB cũ (GROSS 0.365) → candidate NET
+    # không bao giờ thắng dù tốt hơn thật. Nay cả 2 vế cùng net → adopt được.
+    rec: list = []
+    calls = {"n": 0}
+
+    def _fake_bt(c, p, cfg):
+        calls["n"] += 1
+        if calls["n"] == 1:            # active net sau phí: âm
+            return ({"expectancy": -0.05, "n_trades": 20}, "a", "b")
+        return ({"expectancy": 0.3, "n_trades": 25,
+                 "validation": {"passed": True, "reasons": []}}, "a", "b")
+
+    monkeypatch.setattr(vs.mem, "update_strategy_params",
+                        lambda *a, **kw: rec.append("adopted"))
+    monkeypatch.setattr(vs.mem, "save_backtest",
+                        lambda sid, *a, **kw: rec.append(("save_bt", sid)))
+    monkeypatch.setattr(vs, "tune_params", lambda *a, **kw: ({"x": 2}, None))
+    monkeypatch.setattr(vs, "_do_backtest", _fake_bt)
+    active = {"id": 1, "code": "c", "params_json": '{"x": 1}'}
+    sid, out = vs._do_tune([_FakeAgent()], active,
+                           vs.BacktestConfig(universe=["AAA"]))
+    assert "adopted" in rec and out.get("tuned_by")
 
 
 # ── Món 2: strategy_health ───────────────────────────────────────────────────
