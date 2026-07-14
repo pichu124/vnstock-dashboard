@@ -311,6 +311,32 @@ trong `apply_brief_guards`, áp cho mọi agent, cả morning & close):
     <base> (A tỷ vs B tỷ)" — model tự ghi cả 2 vế thì % pin về (A/B−1)×100,
     chạy CHỈ khi ctx thiếu full_day_gtgd/cmp (ctx là nguồn chân lý khi có);
     close 23:46 "giảm 29%" thật ra −21%.
+30. **Vòng review phản biện chéo close 23:58 14/07 (workflow 4 lăng kính ×
+    2 skeptic/phát hiện) → 4 vá (test `test_enforce_session_direction_*` +
+    `test_close_1407_2358_review_fixes`)**:
+    (a) `enforce_session_direction` (guard MỚI, sau enforce_vnindex_change) —
+    nhãn ĐỊNH TÍNH "phiên tăng/giảm (điểm)" phải khớp dấu day_change_pct
+    (close +0.34% mà TLDR gọi "phiên giảm điểm nhẹ"); gate neo "đóng cửa"/
+    "kết quả phiên" cùng dòng, bỏ qua phiên KHÁC ("sau phiên tăng…", "trước
+    đó/hôm qua") + kịch bản tương lai ("nếu/kỳ vọng…", "tiếp theo").
+    (b) `enforce_breadth_quality` nay 2 CHIỀU: thêm A/D ≥ 1.05 (ngày DƯƠNG —
+    nhãn canonical prompt là "tích cực") mà brief gọi "độ rộng tiêu cực" →
+    "trái chiều" (vẫn gate cấu trúc yếu pct<40 + momentum<0; A/D thấp thật
+    giữ nguyên "tiêu cực").
+    (c) `enforce_nn_frame_labels` (guard MỚI, sau enforce_net_flow_label) —
+    số NN THEO NGÀNH (khung 1 tuần) nêu không nhãn → gắn "(1 tuần)" (Tổng
+    kết phiên đặt "159 tỷ" 1-ngày cạnh "Ngân hàng -1,032 tỷ" 1-tuần → đọc
+    thành bán riêng hôm nay gấp 6.5 lần cả thị trường); match phải khớp
+    |NN 1T| đúng ngành + có "ròng" cùng mệnh đề; dòng đã có "tuần"/"1T"
+    trước/sau → bỏ qua; GTGD không đụng.
+    (d) `_leadlag_candidates` (helper MỚI trong collect_context) — sanity
+    gate ứng viên Dẫn dắt/Tụt hậu: contrib/weight ≡ "Giá 1T %" của row;
+    |%đổi tuần| > 35 vượt trần vật lý sàn = member data hỏng → loại (close
+    14/07: "Họ VIN [1.6%VNI, -0.873pp]" ⇒ hàm ý −55%/tuần — nghi kho chỉ có
+    row VRE+VPL và chg5 VPL ≈ −100; **CẦN USER chẩn đoán data** — xem lệnh
+    trong mục VERIFY). Phát hiện bị BÁC sau phản biện (không sửa): "57%
+    GTGD phiên chiều" (echo đúng session_timing_signal bucket), "Dầu khí
+    tích luỹ mạnh (+0.06pp)" (nhãn composite hợp lệ, trục khác pp).
 
 **`max_tokens` brief = `_BRIEF_MAX_TOKENS` (2400, bump từ 1200 — 2026-06-16)**:
 `generate_brief._call` truyền giá trị này. Brief nay ~11 mục (thêm 🌐 Vĩ mô + 📰
@@ -885,6 +911,14 @@ rồi sau nhắc nhở tôi"); nhắc lại khi user nói "test"/"verify"/update
    thể rớt gate, là ĐÚNG); panel khuyến nghị mở expander "⚖️ Cấu hình khối
    lượng gợi ý" → nhập NAV (triệu) + %rủi ro → bảng Open recommendations
    hiện cột "KL gợi ý" và brief gắn "KL gợi ý ~N cp" vào dòng rec.
+9. **Chẩn đoán data Họ VIN (mới đêm 14/07 — nghi kho thiếu/hỏng)**: brief
+   in "Họ VIN [1.6%VNI, -0.873pp]" ⇒ hàm ý −55%/tuần (bất khả thi). Chạy:
+   `python -c "import json; d=json.load(open('data_warehouse/_meta/market_overview.json',encoding='utf-8')); [print(t['Mã'],t.get('Vốn hoá (tỷ)'),t.get('Giá 1T %')) for t in d.get('tickers',[]) if t['Mã'] in ('VIC','VHM','VRE','VPL')]"`
+   — kỳ vọng thấy đủ 4 mã với vốn hóa lớn; nếu THIẾU VIC/VHM hoặc mã nào
+   "Giá 1T %" ≈ −100 → kho giá mã đó hỏng/thiếu, chạy
+   `python vnstock_updater.py --tickers <mã> --force` rồi `run.py screener`.
+   Guard `_leadlag_candidates` đã chặn không cho row hỏng lên headline
+   trong lúc chờ sửa data.
 
 **Checklist gốc (đã chạy gần hết — giữ làm tài liệu lệnh):**
 1. `python vnstock_allocation.py --refresh` → in band + bảng % + lý do 7 tín

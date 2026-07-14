@@ -1682,6 +1682,23 @@ def _market_sentiment_block(ms: dict) -> str:
 
 
 # ── Context collection ─────────────────────────────────────────────────────
+def _leadlag_candidates(sector_weights: dict) -> list[tuple[str, float]]:
+    """Ứng viên (ngành, đóng góp pp 1 tuần) cho lead/lag, có SANITY GATE:
+    contrib/weight ≡ "Giá 1T %" của row (by construction) — |%đổi tuần| > 35
+    vượt trần vật lý sàn (HOSE ±7%/phiên → ±30%/tuần) = member data hỏng
+    (close 14/07: Họ VIN 1.6%VNI với -0.873pp ⇒ -55%/tuần — chg5 rác của 1
+    thành viên kéo mean cộng đều sập) → loại khỏi ứng viên, không cho lên
+    headline Dẫn dắt/Tụt hậu."""
+    items: list[tuple[str, float]] = []
+    for name, v in (sector_weights or {}).items():
+        c = (v or {}).get("_1d_contrib", 0) or 0
+        w = (v or {}).get("_weight", 0) or 0
+        if w > 0 and abs(c / w) > 35:
+            continue
+        items.append((name, c))
+    return items
+
+
 def _select_liquid_movers(
     tickers: list[dict],
     min_gtgd_ty: float = _LIQUID_GTGD_MIN_TY,
@@ -1967,9 +1984,7 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     # brief can't dress up a negligible (+0.02pp) sector as a leader. build_prompt
     # injects these as the ONLY allowed leader/laggard.
     if _sw := ctx.get("sector_weights"):
-        _items = [
-            (name, (v or {}).get("_1d_contrib", 0) or 0) for name, v in _sw.items()
-        ]
+        _items = _leadlag_candidates(_sw)
         if _items:
             _lead = max(_items, key=lambda x: x[1])
             _lag = min(_items, key=lambda x: x[1])
@@ -3003,6 +3018,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_money_flow_two_sides(fixed, ctx)  # close section & morning inline
     fixed = enforce_sector_nn_figures(fixed, ctx)     # fabricated sector NN anywhere
     fixed = enforce_net_flow_label(fixed, ctx)        # mua/bán ròng verb+sign ↔ real NN
+    fixed = enforce_nn_frame_labels(fixed, ctx)       # sector NN without frame → (1 tuần)
     fixed = enforce_liquidity_label(fixed, ctx)       # NN-sell figures ≠ thanh khoản
     fixed = enforce_nn_window_label(fixed, ctx)       # 1D NN total ≠ weekly
     fixed = enforce_risk_numbers(fixed, ctx)          # defensive no-op on canonical
@@ -3019,6 +3035,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_breadth_quality(fixed, ctx)       # 'độ rộng tích cực' vs weak MA200%
     fixed = enforce_sentiment_consistency(fixed, ctx)  # body mood/momentum = canonical
     fixed = enforce_vnindex_change(fixed, ctx)        # day % change = real day_change_pct
+    fixed = enforce_session_direction(fixed, ctx)     # 'phiên giảm' label = day sign
     fixed = enforce_change_verb_sign(fixed, ctx)      # 'tăng -1%' → 'giảm 1%'
     fixed = enforce_no_cjk(fixed, ctx)
     fixed = enforce_no_instruction_leak(fixed, ctx)
@@ -4027,6 +4044,47 @@ def enforce_net_flow_label(text: str, ctx: dict) -> str:
             rf"(mua\s+ròng|bán\s+ròng)(\s*)([+-]?\d[\d.,]*)"
             rf"(\s*tỷ(?:\s*đồng)?\s*(?:trong\s+ngành\s+)?{_re.escape(nm)}\b)",
             _fix, out)
+    return out
+
+
+def enforce_nn_frame_labels(text: str, ctx: dict) -> str:
+    """Số NN ròng THEO NGÀNH là khung 1 TUẦN — khi model nêu nó KHÔNG nhãn
+    khung, gắn "(1 tuần)" vào ngay sau để khỏi bị đọc thành số hôm nay.
+
+    Close 23:58 14/07 ("Tổng kết phiên"): "Khối ngoại bán ròng 159 tỷ, NN ròng
+    ngành Ngân hàng -1,032 tỷ" — 159 là NN 1 NGÀY toàn thị trường (khung mặc
+    định của mục = hôm nay, đúng), còn -1,032 là NN 1 TUẦN của Ngân hàng; đặt
+    cạnh nhau không nhãn khiến người đọc hiểu Ngân hàng bị bán 1,032 tỷ RIÊNG
+    HÔM NAY (gấp ~6.5 lần tổng cả thị trường trong ngày — tự vô lý). Chạy SAU
+    các guard pin số (giá trị đã đúng, đây chỉ gắn nhãn khung); match giá trị
+    phải khớp |NN 1T| của đúng ngành; bỏ qua khi cùng dòng phía trước đã có
+    "tuần"/"1T" (vd dòng canonical của two_sides). Idempotent.
+    """
+    sectors = ctx.get("sectors") or []
+    rows = [(s.get("Ngành"), s.get("NN 1T (tỷ)")) for s in sectors
+            if s.get("Ngành") and isinstance(s.get("NN 1T (tỷ)"), (int, float))
+            and abs(s.get("NN 1T (tỷ)")) >= 30]
+    if not text or not rows:
+        return text
+    out = text
+    for nm, vv in rows:
+        def _fix(m: "_re.Match", _vv=vv) -> str:
+            val = _parse_vn_number(m.group(2))
+            if val is None or abs(abs(val) - abs(_vv)) > max(1.0, 0.02 * abs(_vv)):
+                return m.group(0)                      # số khác → không phải NN 1T
+            # ngữ cảnh cùng dòng phía trước + NGAY SAU match đã có nhãn khung?
+            ls = out.rfind("\n", 0, m.start()) + 1
+            window = out[ls:m.end()].lower()
+            after = out[m.end():m.end() + 12].lower()
+            if "tuần" in window or "1t" in window or "tuần" in after:
+                return m.group(0)
+            # cần từ khóa "ròng" trong cùng mệnh đề (đây là số NN, không phải GTGD)
+            if "ròng" not in window[-80:]:
+                return m.group(0)
+            return m.group(0) + " (1 tuần)"
+        out = _re.sub(
+            rf"({_re.escape(nm)}[^\n\d]{{0,18}}?)([-+]?\d[\d.,]*)\s*tỷ",
+            lambda m, _f=_fix: _f(m), out)
     return out
 
 
@@ -5251,15 +5309,25 @@ def enforce_breadth_quality(text: str, ctx: dict) -> str:
     """
     b = ctx.get("breadth") or {}
     pct = b.get("above_ma200_pct")
+    ad = b.get("ad_ratio")
     mom = (ctx.get("market_sentiment") or {}).get("momentum")
     if not text or not isinstance(pct, (int, float)):
         return text
     if pct >= 40 or (mom is not None and mom >= 0):   # not structurally weak/bearish
         return text
 
+    # Chiều NGƯỢC (close 23:58 14/07): A/D 1 phiên DƯƠNG (1.26 ≥ 1.05 — nhãn
+    # canonical trong data block là "tích cực") mà brief gọi trơn "độ rộng
+    # tiêu cực" ngay cạnh con số → người đọc hiểu phiên nhiều mã giảm hơn.
+    # Cấu trúc yếu + ngày dương = "trái chiều" theo đúng quy ước của hệ.
+    _neg_wrong = isinstance(ad, (int, float)) and ad >= 1.05
+
     def _fix(m: "_re.Match") -> str:
         clause = m.group(0)
-        for w in ("tích cực", "khả quan", "lành mạnh", "tốt", "mạnh"):
+        words = ("tích cực", "khả quan", "lành mạnh", "tốt", "mạnh")
+        if _neg_wrong:
+            words = words + ("tiêu cực", "xấu", "yếu")
+        for w in words:
             if w in clause.lower():
                 return _re.sub(w, "trái chiều", clause, count=1, flags=_re.IGNORECASE)
         return clause
@@ -5298,6 +5366,45 @@ def enforce_vnindex_change(text: str, ctx: dict) -> str:
         r"(?:tăng|giảm)\s*[+-]?\d[\d.,]*\s*%(\s*so với\s*"
         r"(?:phiên trước(?:\s*đó)?|hôm qua|phiên hôm qua))",
         _fix, text, flags=_re.IGNORECASE)
+
+
+def enforce_session_direction(text: str, ctx: dict) -> str:
+    """Nhãn ĐỊNH TÍNH "phiên tăng/giảm (điểm)" phải khớp DẤU day_change_pct.
+
+    Close 23:58 14/07: TLDR "VNINDEX đóng cửa +0.34% … — phiên GIẢM điểm nhẹ
+    sau phiên tăng mạnh trước đó" — close DƯƠNG mà gọi phiên giảm (guard
+    enforce_vnindex_change chỉ pin dạng có %, không đụng nhãn chữ). CHỈ sửa
+    khi mệnh đề nói về PHIÊN NAY: dòng phải có neo "đóng cửa"/"kết quả
+    phiên"; bỏ qua match nói về phiên KHÁC ("sau phiên tăng…", "phiên giảm
+    trước đó", "hôm qua") và kịch bản tương lai ("nếu/kỳ vọng phiên tăng",
+    "ngày mai"). Idempotent; no-op khi thiếu day_change_pct.
+    """
+    dc = (ctx.get("vnindex_tech") or {}).get("day_change_pct")
+    if not text or not isinstance(dc, (int, float)) or dc == 0:
+        return text
+    want = "tăng" if dc > 0 else "giảm"
+
+    def _fix_line(ln: str) -> str:
+        low = ln.lower()
+        if "đóng cửa" not in low and "kết quả phiên" not in low:
+            return ln
+
+        def _fix(m: "_re.Match") -> str:
+            before = ln[max(0, m.start() - 12):m.start()].lower()
+            after = ln[m.end():m.end() + 22].lower()
+            # "sau phiên tăng…", "… trước đó/hôm qua", "nếu/kỳ vọng …",
+            # "… ngày mai/tiếp theo" → phiên KHÁC, không đụng
+            if _re.search(r"(?:sau|nếu|kỳ vọng|chờ)\s*$", before):
+                return m.group(0)
+            if _re.search(r"^\s*\S*\s*(?:trước|hôm qua|ngày mai|tiếp theo|kế tiếp)",
+                          after):
+                return m.group(0)
+            return m.group(1) + want + (m.group(3) or "")
+
+        return _re.sub(r"(phiên\s+)(tăng|giảm)(\s*điểm)?", _fix, ln,
+                       flags=_re.IGNORECASE)
+
+    return "\n".join(_fix_line(ln) for ln in text.splitlines())
 
 
 def enforce_change_verb_sign(text: str, ctx: dict) -> str:

@@ -1286,6 +1286,78 @@ def test_close_1407_guard_regressions():
     assert "-21% so phiên trước" in vb.enforce_gtgd_baseline_pct(t4, ctx4)
 
 
+def test_close_1407_2358_review_fixes():
+    # 3 cụm lỗi qua vòng review phản biện chéo của close 23:58 14/07.
+    import vnstock_brief as vb
+
+    # (1) NN theo ngành (khung 1 TUẦN) nêu không nhãn cạnh NN 1 NGÀY toàn thị
+    #     trường trong "Tổng kết phiên" → gắn "(1 tuần)"
+    ctx = {"sectors": [{"Ngành": "Ngân hàng", "NN 1T (tỷ)": -1032.0},
+                       {"Ngành": "Họ VIN", "NN 1T (tỷ)": 1471.0}]}
+    t = ("Khối ngoại bán ròng 159 tỷ, NN ròng ngành Ngân hàng -1,032 tỷ.\n"
+         "NN mua ròng mạnh nhất (1 tuần): Họ VIN +1,471 tỷ.\n")
+    f = vb.enforce_nn_frame_labels(t, ctx)
+    assert "Ngân hàng -1,032 tỷ (1 tuần)" in f
+    assert "159 tỷ (1 tuần)" not in f                 # số 1D không bị gắn nhầm
+    assert f.count("Họ VIN +1,471 tỷ (1 tuần)") == 0  # dòng đã có nhãn → giữ
+    assert vb.enforce_nn_frame_labels(f, ctx) == f    # idempotent
+    # GTGD không phải NN → không đụng
+    t_g = "Ngân hàng GTGD 4,072 tỷ."
+    assert vb.enforce_nn_frame_labels(t_g, ctx) == t_g
+
+    # (2) A/D 1 phiên DƯƠNG (1.26) mà gọi "độ rộng tiêu cực" → "trái chiều";
+    #     A/D thấp thật thì "tiêu cực" giữ nguyên
+    ctx2 = {"breadth": {"above_ma200_pct": 13, "ad_ratio": 1.26},
+            "market_sentiment": {"momentum": -29}}
+    t2 = "Độ rộng tiêu cực (A/D=1.26, 13% trên MA200), tâm lý tiêu cực."
+    f2 = vb.enforce_breadth_quality(t2, ctx2)
+    assert "Độ rộng trái chiều" in f2
+    assert "tâm lý tiêu cực" in f2                    # chỉ mệnh đề độ rộng bị sửa
+    assert vb.enforce_breadth_quality(f2, ctx2) == f2
+    low_ad = {"breadth": {"above_ma200_pct": 13, "ad_ratio": 0.7},
+              "market_sentiment": {"momentum": -29}}
+    assert vb.enforce_breadth_quality(t2, low_ad) == t2
+
+    # (3) sector có contrib/weight hàm ý %đổi tuần vượt trần sàn (Họ VIN
+    #     -0.873pp / 1.6% ⇒ -55%/tuần = data hỏng) → loại khỏi lead/lag
+    items = vb._leadlag_candidates({
+        "Họ VIN": {"_weight": 0.016, "_1d_contrib": -0.873},
+        "Ngân hàng": {"_weight": 0.25, "_1d_contrib": -0.35},
+        "Dầu khí": {"_weight": 0.042, "_1d_contrib": 0.06}})
+    assert min(items, key=lambda x: x[1])[0] == "Ngân hàng"
+    assert all(n != "Họ VIN" for n, _ in items)
+    # sector bình thường (kể cả biến động lớn hợp lệ) không bị loại
+    ok = vb._leadlag_candidates({"Thép": {"_weight": 0.05, "_1d_contrib": -1.2}})
+    assert ok == [("Thép", -1.2)]                     # hàm ý -24%/tuần, hợp lệ
+
+
+def test_enforce_session_direction_pins_qualitative_label():
+    # Close 23:58 14/07: "VNINDEX đóng cửa +0.34% … — phiên GIẢM điểm nhẹ sau
+    # phiên tăng mạnh trước đó" — close dương mà gọi phiên giảm; guard % không
+    # đụng nhãn CHỮ. Pin theo dấu day_change_pct, chừa phiên KHÁC/tương lai.
+    from vnstock_brief import enforce_session_direction
+    ctx = {"vnindex_tech": {"day_change_pct": 0.34}}
+    t = ("**Kết quả phiên:** VNINDEX đóng cửa +0.34% (1,806.63) — phiên giảm "
+         "điểm nhẹ sau phiên tăng mạnh trước đó.")
+    f = enforce_session_direction(t, ctx)
+    assert "phiên tăng điểm nhẹ" in f
+    assert "sau phiên tăng mạnh trước đó" in f          # phiên TRƯỚC giữ nguyên
+    assert enforce_session_direction(f, ctx) == f        # idempotent
+    # close âm mà gọi phiên tăng → lật
+    f2 = enforce_session_direction(
+        "VNINDEX đóng cửa -0.80%, một phiên tăng điểm ấn tượng.",
+        {"vnindex_tech": {"day_change_pct": -0.8}})
+    assert "phiên giảm điểm" in f2
+    # không đụng: kịch bản tương lai, dòng không neo "đóng cửa", nhãn đã đúng
+    fut = "Kịch bản: nếu phiên tăng tiếp theo xuất hiện thì đảo chiều."
+    assert enforce_session_direction(fut, ctx) == fut
+    noanchor = "Thị trường hồi phục sau phiên giảm hôm qua."
+    assert enforce_session_direction(noanchor, ctx) == noanchor
+    ok = "VNINDEX đóng cửa -0.5%, phiên giảm thứ ba liên tiếp."
+    assert enforce_session_direction(ok, {"vnindex_tech": {"day_change_pct": -0.5}}) == ok
+    assert enforce_session_direction(t, {}) == t         # thiếu data → no-op
+
+
 def test_enforce_breadth_quality_softens_positive_claim_when_weak():
     # Close 16/06: "Độ rộng ... tích cực ... 18% trên MA200" — 18% above MA200 is
     # structurally weak; under a bearish tape that's mixed, not 'tích cực'.
