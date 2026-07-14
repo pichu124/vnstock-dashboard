@@ -357,6 +357,13 @@ trong `apply_brief_guards`, áp cho mọi agent, cả morning & close):
     phiên trước đội lốt "phiên trước") + baseline "trung bình N phiên sáng"
     (chữ "sáng" đứng CUỐI). Match phải MỞ ĐẦU bằng verb-so-sánh+% hoặc
     %+"so/vs" — không thì nuốt nhầm "57% GTGD (…)" đứng trước mệnh đề.
+    (e) Close 01:26 (lần chạy lại nữa): guard 22 thêm **Form 4** "±N%
+    <baseline>" — % CÓ DẤU đứng NGAY TRƯỚC baseline, không connector
+    ("(-21% phiên trước, +2% TB5 phiên)" — +2% lệch, TB5 thật -8%; Form 1
+    cần "so/vs", Form 2 cần baseline đứng trước ngoặc → cả 2 trượt). Dấu
+    BẮT BUỘC nên "thấp hơn 21% phiên trước" (verb mang chiều, magnitude
+    không dấu) không bị đụng; "-35% GTGD so sáng phiên trước" là so
+    sáng-với-sáng HỢP LỆ (subject = phiên sáng) — không sửa, đúng thiết kế.
 
 **`max_tokens` brief = `_BRIEF_MAX_TOKENS` (2400, bump từ 1200 — 2026-06-16)**:
 `generate_brief._call` truyền giá trị này. Brief nay ~11 mục (thêm 🌐 Vĩ mô + 📰

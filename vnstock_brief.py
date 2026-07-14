@@ -5174,6 +5174,25 @@ def enforce_gtgd_baseline_pct(text: str, ctx: dict) -> str:
     out = _re.sub(
         r"((?:trung bình|TB)\s*\d+\s*phiên|phiên trước(?:\s+đó)?)\s*\(\s*([+-]?\d[\d.,]*)\s*%\s*\)",
         _fix2, out)
+
+    # Form 4: "±N% <baseline>" — % CÓ DẤU đứng NGAY TRƯỚC baseline, không
+    # connector (close 01:26 15/07: "(-21% phiên trước, +2% TB5 phiên)" —
+    # vế prev đúng nhưng +2% lệch, TB5 thật -8%; Form 1 cần "so/vs", Form 2
+    # cần baseline đứng trước → cả 2 trượt). DẤU BẮT BUỘC: quy ước signed →
+    # pin signed an toàn; "thấp hơn 21% phiên trước" (verb mang chiều,
+    # magnitude KHÔNG dấu) không bị đụng. Baseline phải mở đầu group ngay
+    # sau % nên "±N% vs TB5" (đã qua Form 1) không bị xử lần 2.
+    def _fix4(m: "_re.Match") -> str:
+        bv = _base_v(m.group(3).lower())
+        if not bv:
+            return m.group(0)
+        correct = (F / bv - 1) * 100
+        cur = _parse_vn_number(m.group(1))
+        return (m.group(0) if cur is not None and abs(cur - correct) <= 1
+                else f"{correct:+.0f}{m.group(2)}{m.group(3)}")
+    out = _re.sub(
+        r"([+-]\d[\d.,]*)(\s*%\s+)((?:TB|trung bình|phiên trước)[^,).\n]{0,12})",
+        _fix4, out)
     return out
 
 

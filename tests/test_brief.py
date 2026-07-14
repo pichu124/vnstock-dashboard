@@ -1409,6 +1409,23 @@ def test_close_1507_0110_fixes():
            "GTGD 15,513.6 tỷ, thấp hơn TB5 phiên (-8%) và TB20 phiên (-8%).\n")
     assert vb.enforce_gtgd_compare_frame(ok4, ctx4) == ok4
 
+    # (5) close 01:26: Form 4 — "±N% <baseline>" (% CÓ DẤU đứng trước
+    #     baseline, không "so"): "(-21% phiên trước, +2% TB5 phiên)" — vế
+    #     prev đúng giữ nguyên, +2% pin về TB5 thật; verb + magnitude
+    #     KHÔNG dấu ("thấp hơn 21% phiên trước") không bị đụng
+    ctx5 = {"full_day_gtgd": 15513.6,
+            "full_day_gtgd_cmp": {"prev": 19751.0, "avg5": 16862.0}}
+    t5 = ("## 📊 Tổng kết phiên\n"
+          "GTGD cả ngày 15,513.6 tỷ (-21% phiên trước, +2% TB5 phiên).\n")
+    f5 = vb.enforce_gtgd_baseline_pct(t5, ctx5)
+    assert "-21% phiên trước" in f5 and "-8% TB5 phiên" in f5
+    assert "+2%" not in f5
+    assert vb.enforce_gtgd_baseline_pct(f5, ctx5) == f5    # idempotent
+    verb = "## 📊 Tổng kết phiên\nthanh khoản thấp hơn 21% phiên trước.\n"
+    assert vb.enforce_gtgd_baseline_pct(verb, ctx5) == verb
+    ma = "## 📊 Tổng kết phiên\ntrên MA200=1,769.66 (+2.1%).\n"
+    assert vb.enforce_gtgd_baseline_pct(ma, ctx5) == ma
+
 
 def test_enforce_session_direction_pins_qualitative_label():
     # Close 23:58 14/07: "VNINDEX đóng cửa +0.34% … — phiên GIẢM điểm nhẹ sau
