@@ -15,7 +15,8 @@ Items here get auto-loaded into Claude's context at session start.
   `vnstock_market_sentiment.py`, `vnstock_fundamental_updater.py`,
   `vnstock_macro.py`, `vnstock_news_feeds.py`, `vnstock_doctor.py`,
   `vnstock_allocation.py`, `vnstock_reports.py`, `vnstock_report_digest.py`,
-  `vnstock_gold.py`, `vnstock_scorecard.py`
+  `vnstock_gold.py`, `vnstock_scorecard.py`, `vnstock_reflection.py`,
+  `vnstock_debate.py`
 - Trước khi tạo PR merge về `main`
 - Sau khi nâng cấp pandas / numpy / Python version
 
@@ -830,6 +831,11 @@ canonical, 13 chỉ số + 3 gauge lần đầu lên brief; lộ + đã vá 2 gu
 4. OpenRouter `qwen/qwen3-235b-a22b:free` là ứng viên CHƯA qua thử lửa
    (Cerebras đang gánh chính — chỉ lộ khi Cerebras chết).
 5. Scorecard tự có kỳ đầu khi history đủ 2 tháng (~đầu tháng 9).
+6. **Reflection + debate (mới 14/07)**: sau khi có rec đóng thật →
+   `python run.py reflection` rồi `python vnstock_reflection.py --show`
+   (bài học tiếng Việt sạch? đúng outcome?); brief allocation kế tiếp phải
+   thấy mục ⚠️ đối diện phản biện (`python vnstock_debate.py --show` xem 4
+   luận điểm; chạy cùng brief phân bổ từ sub-tab 🧭).
 
 **Checklist gốc (đã chạy gần hết — giữ làm tài liệu lệnh):**
 1. `python vnstock_allocation.py --refresh` → in band + bảng % + lý do 7 tín
@@ -1070,6 +1076,37 @@ Mọi thay đổi giữ nguyên tắc parity morning↔close by construction:
   `tests/test_allocation_reports_tabs.py` (3 smoke UI) + 4 test doctor mới —
   tất cả vào `--fast`.
 
+### 🧠 Reflection + 🗣 Debate (DONE 2026-07-14 — từ khảo sát TradingAgents, user duyệt "làm đi")
+
+Hai mảnh LLM MỀM bổ sung quanh hệ deterministic — cả hai best-effort, đi qua
+cascade sức-mạnh của `vnstock_report_digest.digest_call` (đã verify), không
+mảnh nào sinh số được pin vào output:
+
+- **`vnstock_reflection.py`** — rec đóng (tp/sl/expire, có pnl — superseded/
+  stale là đóng hành chính, bỏ) + kỳ scorecard khép → 1 call/outcome ra
+  "2-4 câu bài học" (đúng hướng chưa + luận điểm nào đổ + 1 bài học), sanitize
+  1 dòng, lưu `_meta/reflection_log.json` (cap 200, id `rec-<id>`/`alloc-<start>`
+  → idempotent; LLM chết → KHÔNG đánh dấu, lượt sau thử lại). Trần
+  `--max` 3 call/lượt. Bước `reflection` trong `run.py all` (SAU audit — 
+  reconciler vừa đóng rec). Brief nạp qua `collect_context` 8f →
+  `ctx["reflections"]` (3 bài mới nhất) → block "🧠 Bài học" trong prompt MỌI
+  brief_type — block NỘI BỘ, chỉ thị cấm chép nguyên văn/tạo mục (không cần
+  guard vì không splice output). Tắt: `VNSTOCK_REFLECTION=0` (module) /
+  `VNSTOCK_BRIEF_REFLECTIONS=0` (brief). `recent_closed_recommendations` nay
+  SELECT thêm `rationale` (để bài học soi luận điểm lúc mở).
+- **`vnstock_debate.py`** — devil's advocate cho band phân bổ, THU GỌN từ
+  bull/bear debate của TradingAgents (họ 10-20 call/quyết định — ngược
+  free-tier): đúng **1 call/kỳ**, chỉ brief ALLOCATION (cadence tháng).
+  Prompt = dữ kiện THẬT từ allocation state + consensus → 3 luận điểm chống
+  band + 1 "Điều kiện đảo ngược:"; mỗi dòng sanitize; cache
+  `_meta/allocation_debate.json` theo (as_of, band) — recompute cùng kỳ
+  không tốn call; LLM chết → dùng cache cũ/bỏ qua. `generate_brief`
+  (allocation) tự gọi trước build_prompt → ctx["allocation_debate"] → block
+  "🗣 Phản biện" trong prompt + template ⚠️ buộc đối diện TỪNG luận điểm.
+  Tắt: `VNSTOCK_ALLOC_DEBATE=0`. CLI: `--run [--force]` / `--show`.
+- **Tests**: `tests/test_reflection.py` (11) + `tests/test_debate.py` (5) +
+  3 test wiring trong test_brief — tất cả vào `--fast`.
+
 ---
 
 ## 📌 Pending suggestions (raise when relevant)
@@ -1213,7 +1250,8 @@ Khác 3 khảo sát trước (lấp gap DỮ LIỆU thật), cái này lấp gap
 hiện chưa đau nên để dành.
 
 **Khảo sát TauricResearch/TradingAgents (2026-07-14): KHÔNG dùng trực
-tiếp — ĐỂ DÀNH ý tưởng "reflection sau outcome".** Framework nghiên cứu
+tiếp — ý tưởng reflection + debate ĐÃ TRIỂN KHAI cùng ngày (xem mục
+🧠 Reflection + 🗣 Debate dưới P6).** Framework nghiên cứu
 multi-agent (~16K dòng, LangGraph): 4 analyst → debate Bull/Bear → trader →
 debate rủi ro 3 phe → BUY/HOLD/SELL per-ticker. Không dùng vì: (1) data
 100% Mỹ (Alpha Vantage/yfinance/Reddit/Polymarket — không HOSE/HNX);

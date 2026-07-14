@@ -401,7 +401,7 @@ Viết BRIEF PHÂN BỔ TÀI SẢN tiếng Việt theo đúng format sau (không
 [Nếu có block "📚 Báo cáo vĩ mô & phân bổ": tóm quan điểm từng báo cáo (nguồn + ngày + stance) và consensus/tilt. Nếu KHÔNG có → ghi "Chưa có báo cáo vĩ mô trong thư viện".]
 
 ## ⚠️ Rủi ro & lưu ý khung thời gian
-[Band là khung THÁNG: nếu bias/tín hiệu NGÀY trong data đang lệch chiều với band → ghi rõ 2 khung thời gian khác nhau, KHÔNG phủ định nhau, hành động phân bổ vẫn theo lộ trình. Nêu 2-3 rủi ro chính CÓ TRONG data (vĩ mô/kỹ thuật/tin) khiến band có thể đổi kỳ tới. KHÔNG bịa.]
+[Band là khung THÁNG: nếu bias/tín hiệu NGÀY trong data đang lệch chiều với band → ghi rõ 2 khung thời gian khác nhau, KHÔNG phủ định nhau, hành động phân bổ vẫn theo lộ trình. Nêu 2-3 rủi ro chính CÓ TRONG data (vĩ mô/kỹ thuật/tin) khiến band có thể đổi kỳ tới. Nếu data có block "🗣 Phản biện": PHẢI đối diện TỪNG luận điểm — mỗi luận điểm 1 câu đồng ý/bác bỏ kèm lý do bám số liệu (không in nguyên văn block, không bịa số mới). KHÔNG bịa.]
 
 Giới hạn 350 từ. Viết THUẦN tiếng Việt — KHÔNG chèn từ tiếng Anh hay ký tự Trung/Nhật/Hàn; thuật ngữ chuẩn (RSI, MA20, D/E, GTGD…) giữ nguyên. Số giữ định dạng EN như data (phẩy ngăn nghìn, chấm thập phân). Nếu data thiếu mục nào → ghi "Chưa có dữ liệu", KHÔNG suy đoán.
 """
@@ -1508,6 +1508,40 @@ def _allocation_table_lines(alloc: dict) -> list[str]:
     return lines
 
 
+def _reflections_block(lessons: list[dict]) -> str:
+    """Block 🧠 bài học từ quyết định đã đóng (vnstock_reflection) — CHỈ ở
+    PROMPT làm ngữ cảnh mềm, model bị cấm tạo mục/chép nguyên văn vào brief.
+    (Ý tưởng reflection-sau-outcome từ khảo sát TradingAgents 14/07.)"""
+    if not lessons:
+        return ""
+    lines = ["\n## 🧠 Bài học từ quyết định đã đóng (NỘI BỘ — không phải mục brief)"]
+    for e in lessons:
+        lines.append(f"- [{e.get('date', '?')}] {e.get('label', '')}: "
+                     f"{e.get('lesson', '')}")
+    lines.append(
+        "→ DÙNG các bài học trên để tránh lặp lỗi nhận định cũ (điều chỉnh mức "
+        "thận trọng/lạc quan cho tình huống tương tự). TUYỆT ĐỐI KHÔNG chép "
+        "nguyên văn, KHÔNG tạo mục 'Bài học' trong brief, KHÔNG nhắc tới block "
+        "nội bộ này.")
+    return "\n".join(lines)
+
+
+def _debate_block(debate: "dict | None") -> str:
+    """Block 🗣 phản biện band (vnstock_debate) — CHỈ vào prompt brief
+    ALLOCATION; mục ⚠️ của brief phải đối diện từng luận điểm. Không splice
+    vào output nên không cần guard riêng (band/% đã có enforce_allocation_table)."""
+    if not debate or not debate.get("points"):
+        return ""
+    lines = [f"\n## 🗣 Phản biện band {debate.get('band', '?')} "
+             f"(devil's advocate — NỘI BỘ, phiên {debate.get('as_of', '?')})"]
+    lines += [f"- {p}" for p in debate["points"]]
+    lines.append(
+        "→ Trong mục '⚠️ Rủi ro & lưu ý khung thời gian' PHẢI đối diện các "
+        "phản biện trên: mỗi luận điểm 1 câu đồng ý/bác bỏ kèm lý do bám số "
+        "liệu đã cho. KHÔNG bịa số mới, KHÔNG in nguyên văn block này.")
+    return "\n".join(lines)
+
+
 def _allocation_state_block(alloc: dict) -> str:
     """Data block cho brief_type='allocation': bảng % + lý do từng input
     (nguồn + as_of) từ allocation_state — nguồn duy nhất của band/%."""
@@ -2044,6 +2078,17 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
                 # bỏ history (nặng, không cần cho prompt); giữ bảng % + inputs
                 ctx["allocation"] = {k: v for k, v in _st.items()
                                      if k != "history"}
+        except Exception:
+            pass
+
+    # 8f. Bài học reflection (rec đã đóng / kỳ band đã khép) — ngữ cảnh mềm
+    # giúp brief tránh lặp lỗi nhận định cũ (vnstock_reflection — ý tưởng
+    # TradingAgents). Đọc cache thuần. Tắt: VNSTOCK_BRIEF_REFLECTIONS=0.
+    if os.environ.get("VNSTOCK_BRIEF_REFLECTIONS", "1") != "0":
+        try:
+            from vnstock_reflection import load_lessons
+            if _lessons := load_lessons(limit=3):
+                ctx["reflections"] = _lessons
         except Exception:
             pass
 
@@ -2873,6 +2918,17 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         block = _allocation_state_block(_alloc)
         if block:
             lines.append(block)
+    # Phản biện band (devil's advocate) — chỉ brief allocation mang block này.
+    if brief_type == "allocation" and (_deb := ctx.get("allocation_debate")):
+        block = _debate_block(_deb)
+        if block:
+            lines.append(block)
+
+    # Bài học reflection — mọi brief_type (ngữ cảnh mềm, không phải mục brief).
+    if _lessons := ctx.get("reflections"):
+        block = _reflections_block(_lessons)
+        if block:
+            lines.append(block)
 
     # Held positions — per-position facts so the brief can advise theo vị thế.
     if _pf := ctx.get("portfolio"):
@@ -3021,6 +3077,18 @@ def generate_brief(
     _maybe_refresh_market_news()
 
     ctx = collect_context(brief_type, auto_refresh=True)
+
+    # Phản biện band (devil's advocate — 1 call/kỳ, cache theo as_of+band) —
+    # CHỈ brief phân bổ (cadence tháng nên +1 call chấp nhận được). Best-effort:
+    # LLM chết/tắt (VNSTOCK_ALLOC_DEBATE=0) → brief chạy như không có phản biện.
+    if brief_type == "allocation":
+        try:
+            from vnstock_debate import run_debate
+            if _deb := run_debate(ctx.get("allocation") or {},
+                                  ctx.get("reports_consensus")):
+                ctx["allocation_debate"] = _deb
+        except Exception:
+            pass
 
     # Inject few-shot golden examples + open recommendations (best-effort)
     few_shot  = _few_shot_block(brief_type)

@@ -665,6 +665,8 @@ def cmd_test(args) -> int:
             "tests/test_gold.py",
             "tests/test_scorecard.py",
             "tests/test_allocation_reports_tabs.py",
+            "tests/test_reflection.py",
+            "tests/test_debate.py",
         ]
     else:
         test_paths = ["tests/"]
@@ -786,6 +788,18 @@ def cmd_allocation(args) -> int:
     rc = _run([sys.executable, str(REPO_ROOT / "vnstock_allocation.py"),
                "--refresh"])
     _run([sys.executable, str(REPO_ROOT / "vnstock_scorecard.py"), "--refresh"])
+    return 1 if rc != 0 else 0
+
+
+def cmd_reflection(args) -> int:
+    """Rút bài học từ rec vừa đóng / kỳ band vừa khép (vnstock_reflection).
+
+    1 call LLM ngắn mỗi outcome mới (trần 3/lượt) → bài học 2-4 câu được bơm
+    vào prompt brief sau. Best-effort: không key/không outcome mới = no-op.
+    Chạy SAU audit vì reconciler vừa đóng rec xong là lúc có outcome mới.
+    """
+    rc = _run([sys.executable, str(REPO_ROOT / "vnstock_reflection.py"),
+               "--refresh"])
     return 1 if rc != 0 else 0
 
 
@@ -911,6 +925,7 @@ def cmd_all(args) -> int:
         ("allocation",   cmd_allocation),
         ("test",         cmd_test),
         ("audit",        cmd_audit),
+        ("reflection",   cmd_reflection),
         ("doctor",       cmd_doctor),
     ]
     # Insert news after screener unless the caller opts out
@@ -1109,6 +1124,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Refresh asset-allocation band B0-B4 + scorecard")
     sub.add_parser("gold",
                    help="Refresh gold-spot cache (display-only, vnstock_gold.py)")
+    sub.add_parser("reflection",
+                   help="Rút bài học từ rec/kỳ band đã đóng (vnstock_reflection.py)")
     sub.add_parser("dashboard", help="Launch the Streamlit dashboard")
 
     tg = sub.add_parser("telegram", help="Push Telegram notifications")
@@ -1158,6 +1175,7 @@ _DISPATCH = {
     "macro": cmd_macro,
     "gold": cmd_gold,
     "allocation": cmd_allocation,
+    "reflection": cmd_reflection,
     "telegram": cmd_telegram,
     "news": cmd_news,
     "test": cmd_test,

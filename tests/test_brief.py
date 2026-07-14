@@ -2972,3 +2972,52 @@ def test_vnindex_change_skips_gtgd_subject():
     # mệnh đề GTGD: GIỮ NGUYÊN số của nó, không bị đè
     assert "giảm 8.30% so với phiên trước" in out
     assert enforce_vnindex_change(out, ctx) == out    # idempotent
+
+
+# ── Reflection + debate wiring (khảo sát TradingAgents 14/07) ────────────────
+
+def test_reflections_block_in_prompt_all_types_not_a_brief_section():
+    from vnstock_brief import _reflections_block
+    ctx = {"date": "2026-07-14", "time": "15:00",
+           "reflections": [{"id": "rec-1", "date": "2026-07-10",
+                            "label": "BUY HPG +8.2% (tp)",
+                            "lesson": "Chỉ vào breakout khi GTGD xác nhận."}]}
+    for btype in ("morning", "afternoon", "allocation"):
+        prompt = build_prompt(ctx, brief_type=btype)
+        assert "## 🧠 Bài học từ quyết định đã đóng" in prompt, btype
+        assert "BUY HPG +8.2%" in prompt
+        assert "KHÔNG tạo mục 'Bài học'" in prompt   # chỉ thị chống echo
+    assert _reflections_block([]) == ""
+    # không có reflections trong ctx → prompt sạch
+    assert "🧠 Bài học" not in build_prompt(
+        {"date": "2026-07-14", "time": "15:00"}, brief_type="afternoon")
+
+
+def test_debate_block_only_in_allocation_prompt():
+    from vnstock_brief import _debate_block
+    ctx = {"date": "2026-07-14", "time": "15:00",
+           "allocation": {"band": "B4", "band_label": "căng thẳng",
+                          "score": -0.7, "as_of": "2026-07-13",
+                          "allocation": {"Cổ phiếu": 15, "Trái phiếu": 25,
+                                         "Tiền gửi": 40, "Vàng": 12, "USD": 8},
+                          "inputs": []},
+           "allocation_debate": {"band": "B4", "as_of": "2026-07-13",
+                                 "points": ["Độ rộng 13% là vùng quá bán.",
+                                            "Điều kiện đảo ngược: vượt MA20."]}}
+    al = build_prompt(ctx, brief_type="allocation")
+    assert "## 🗣 Phản biện band B4" in al
+    assert "Độ rộng 13% là vùng quá bán." in al
+    assert "PHẢI đối diện các phản biện" in al
+    # brief NGÀY không mang block phản biện (khung thời gian khác)
+    day = build_prompt(ctx, brief_type="afternoon")
+    assert "🗣 Phản biện" not in day
+    assert _debate_block(None) == "" and _debate_block({"points": []}) == ""
+
+
+def test_generate_brief_source_wires_debate_for_allocation_only():
+    import inspect
+
+    import vnstock_brief
+    src = inspect.getsource(vnstock_brief.generate_brief)
+    assert "run_debate" in src
+    assert 'brief_type == "allocation"' in src
