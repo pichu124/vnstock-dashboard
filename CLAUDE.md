@@ -1212,6 +1212,24 @@ Claude/GPT). CPU-only ~5-15 tok/s: đủ cho ≤8 tin/ngày, chậm cho batch l�
 Khác 3 khảo sát trước (lấp gap DỮ LIỆU thật), cái này lấp gap ĐỘ BỀN LLM —
 hiện chưa đau nên để dành.
 
+**Khảo sát TauricResearch/TradingAgents (2026-07-14): KHÔNG dùng trực
+tiếp — ĐỂ DÀNH ý tưởng "reflection sau outcome".** Framework nghiên cứu
+multi-agent (~16K dòng, LangGraph): 4 analyst → debate Bull/Bear → trader →
+debate rủi ro 3 phe → BUY/HOLD/SELL per-ticker. Không dùng vì: (1) data
+100% Mỹ (Alpha Vantage/yfinance/Reddit/Polymarket — không HOSE/HNX);
+(2) ~10-20 call LLM/quyết định/mã — ngược triết lý deterministic-trước
++ free-tier của hệ này (guard pin số đã chứng minh đúng hướng ở vụ digest
+14/07); (3) dependency LangGraph nặng. **ĐÁNG MƯỢN (khi muốn nâng chất
+lượng học từ lịch sử)**: `reflection.py` — quyết định đã BIẾT outcome →
+1 call ngắn ra "2-4 câu bài học" (đúng hướng? luận điểm nào đổ? 1 bài học)
+lưu log, tái bơm vào prompt sau. Nguyên liệu mình có đủ (reconciler biết
+win/loss, scorecard biết band đúng/sai, brief_memory có few-shot) — chỉ
+thiếu bước rút-bài-học-thành-chữ; chi phí 1 call/rec đóng. Trigger: user
+thấy brief lặp lỗi nhận định cũ / muốn brief "khôn lên" theo thời gian.
+Mẹo nhỏ đáng nhớ: delimiter log bằng HTML comment `<!-- ENTRY_END -->`
+(LLM prose không bao giờ sinh ra). Bull/bear debate cho brief allocation
+(tháng, 2-3 call) = để dành mức thấp; rating 5-tier = đã có stance -2..+2.
+
 **Khảo sát emilkowalski/skills (2026-07-14): BỎ QUA cho dashboard — lệch
 stack, ĐỂ DÀNH nếu làm frontend web riêng.** 5 skill Claude Code dạy taste
 UI/animation web (easing/duration/spring, review + audit animation — tác
