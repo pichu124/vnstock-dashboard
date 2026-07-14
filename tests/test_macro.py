@@ -299,6 +299,56 @@ def test_enforce_macro_replaces_section_body_and_is_idempotent():
     assert vb.enforce_macro(text, {}) == text
 
 
+def test_enforce_macro_strips_prompt_directive_from_published_brief():
+    # Leak thật close 14/07: phần (2/2) Telegram mở đầu bằng nguyên dòng chỉ
+    # thị "→ Lãi suất TĂNG … DÙNG bối cảnh này … KHÔNG bịa chỉ số" — directive
+    # thuộc PROMPT, guard splice body không được mang nó vào brief xuất bản.
+    import vnstock_brief as vb
+    ctx = {"macro": [
+        {"key": "usdvnd", "label": "Tỷ giá USD/VND (tham chiếu)", "unit": "VND",
+         "kind": "fx", "value": 25500.0, "as_of": "2026-06-13",
+         "prev_value": 25000.0, "prev_as_of": "2026-06-12",
+         "change": {"delta": 500.0, "pct": 2.0, "dir": 1}, "source": "x"}]}
+    text = (
+        "## 🌐 Vĩ mô: lãi suất & tỷ giá\n"
+        "- Tỷ giá USD/VND khoảng 24,000\n"
+        "→ Lãi suất TĂNG / VND mất giá = THẮT CHẶT. DÙNG bối cảnh này khi chốt "
+        "Bias. KHÔNG bịa chỉ số vĩ mô ngoài danh sách trên.\n"
+        "## 💡 Đề xuất giao dịch\n- (none)\n"
+    )
+    fixed = vb.enforce_macro(text, ctx)
+    assert "DÙNG bối cảnh này" not in fixed and "KHÔNG bịa" not in fixed
+    assert "25,500 VND" in fixed
+    # prompt renderer VẪN có directive (chỉ guard mới bỏ)
+    body_prompt = vb._macro_body_lines(ctx["macro"])
+    assert any("KHÔNG bịa chỉ số" in l for l in body_prompt)
+    # catch-all: model echo directive ở chỗ khác → enforce_no_instruction_leak dọn
+    echoed = ("## 🎯 TLDR\nThị trường giảm.\n"
+              "→ DÙNG các tin trên khi đánh giá bối cảnh vĩ mô + rủi ro. "
+              "TUYỆT ĐỐI KHÔNG bịa tin/tiêu đề ngoài danh sách này.\n"
+              "→ Dòng tiền khối ngoại chuyển sang mua ròng dầu khí.\n")
+    cleaned = vb.enforce_no_instruction_leak(echoed, {})
+    assert "TUYỆT ĐỐI" not in cleaned
+    assert "→ Dòng tiền khối ngoại" in cleaned    # "→" nội dung thật giữ nguyên
+
+
+def test_enforce_market_news_strips_directive_from_published_brief():
+    import vnstock_brief as vb
+    ctx = {"market_news": [
+        {"title": "Tin A", "_sentiment": "negative", "_date_sort": "2026-07-14",
+         "source_feed": "CafeF", "_impact": "xấu cho ngân hàng"}]}
+    text = ("## 📰 Tin kinh tế/chính trị nổi bật\n"
+            "- Tin bịa nào đó\n"
+            "→ DÙNG các tin trên khi đánh giá bối cảnh vĩ mô + rủi ro.\n"
+            "## 📌 Kế tiếp\n- x\n")
+    fixed = vb.enforce_market_news(text, ctx)
+    assert "DÙNG các tin trên" not in fixed and "Tin A" in fixed
+    assert vb.enforce_market_news(fixed, ctx) == fixed        # idempotent
+    # prompt renderer vẫn giữ directive
+    assert any("TUYỆT ĐỐI KHÔNG bịa" in l
+               for l in vb._market_news_body_lines(ctx["market_news"]))
+
+
 def test_enforce_macro_splices_over_denial_when_no_section():
     import vnstock_brief as vb
     ctx = {"macro": [

@@ -1333,13 +1333,18 @@ def _macro_line(ind: dict) -> str:
 
 
 def _macro_body_lines(macro: list[dict],
-                      macro_news: "list[dict] | None" = None) -> list[str]:
-    """Canonical macro bullets + directive (NO section header).
+                      macro_news: "list[dict] | None" = None,
+                      directive: bool = True) -> list[str]:
+    """Canonical macro bullets (NO section header) ± directive.
 
     Shared by the prompt renderer and the post-gen guard so the guard can splice
     exactly the body without slicing the header off a joined string. Indicators
     with NO recent change are compressed into one 'Đi ngang' line so the block
     doesn't grow a bullet per indicator as the registry expands (8+ nay).
+
+    ``directive=False`` cho guard — dòng chỉ thị "→ Lãi suất TĂNG… DÙNG bối
+    cảnh này…" chỉ thuộc PROMPT, không được splice vào brief xuất bản (leak
+    thật close 14/07 — phần 2/2 mở đầu bằng nguyên dòng chỉ thị nội bộ).
     """
     from vnstock_macro import (fmt_change, fmt_value, intl_spread,
                                liquidity_spread, pmi_reminder, term_spread)
@@ -1375,20 +1380,21 @@ def _macro_body_lines(macro: list[dict],
     for n in (macro_news or [])[:3]:
         lines.append(f"- Tin liên quan [{n.get('ticker','')}] {n.get('date','')}: "
                      f"{n.get('title','')}")
-    # Fed có reading thật (fed_funds từ FRED) thì bỏ mệnh đề "Fed chưa có
-    # data" — trước đó phải CẤM BỊA vì không có nguồn; luật "không bịa chỉ số
-    # ngoài danh sách" vẫn giữ nguyên cho mọi thứ khác.
-    have_fed = any(m.get("key") == "fed_funds" for m in macro)
-    lines.append(
-        "→ Lãi suất TĂNG / VND mất giá (USD/VND tăng) / CPI tăng tốc = môi trường "
-        "THẮT CHẶT, bất lợi cho cổ phiếu (đặc biệt nhóm vay nợ cao; khối ngoại dễ "
-        "bán ròng). Lãi suất giảm / VND ổn định / GDP-IIP-PMI cải thiện = thuận "
-        "lợi hơn (PMI < 50 điểm = sản xuất thu hẹp; cán cân thương mại ÂM = nhập "
-        "siêu, kéo dài là áp lực tỷ giá). DÙNG bối cảnh này khi chốt Bias + Rủi "
-        "ro để ĐÓN ĐẦU thay đổi. DÙNG ĐÚNG số + as_of ở trên, KHÔNG bịa chỉ số "
-        "vĩ mô ngoài danh sách trên"
-        + ("." if have_fed else " (Fed… chưa có trong data).")
-    )
+    if directive:
+        # Fed có reading thật (fed_funds từ FRED) thì bỏ mệnh đề "Fed chưa có
+        # data" — trước đó phải CẤM BỊA vì không có nguồn; luật "không bịa chỉ
+        # số ngoài danh sách" vẫn giữ nguyên cho mọi thứ khác.
+        have_fed = any(m.get("key") == "fed_funds" for m in macro)
+        lines.append(
+            "→ Lãi suất TĂNG / VND mất giá (USD/VND tăng) / CPI tăng tốc = môi trường "
+            "THẮT CHẶT, bất lợi cho cổ phiếu (đặc biệt nhóm vay nợ cao; khối ngoại dễ "
+            "bán ròng). Lãi suất giảm / VND ổn định / GDP-IIP-PMI cải thiện = thuận "
+            "lợi hơn (PMI < 50 điểm = sản xuất thu hẹp; cán cân thương mại ÂM = nhập "
+            "siêu, kéo dài là áp lực tỷ giá). DÙNG bối cảnh này khi chốt Bias + Rủi "
+            "ro để ĐÓN ĐẦU thay đổi. DÙNG ĐÚNG số + as_of ở trên, KHÔNG bịa chỉ số "
+            "vĩ mô ngoài danh sách trên"
+            + ("." if have_fed else " (Fed… chưa có trong data).")
+        )
     return lines
 
 
@@ -1408,9 +1414,12 @@ def _macro_block(macro: list[dict], macro_news: "list[dict] | None" = None) -> s
 _MKT_NEWS_SENT_ICON = {"positive": "🟢", "negative": "🔴", "neutral": "⚪"}
 
 
-def _market_news_body_lines(items: list[dict]) -> list[str]:
-    """Canonical market-news bullets + directive (NO section header). Shared by the
-    prompt renderer and the guard so the section is fabrication-proof."""
+def _market_news_body_lines(items: list[dict],
+                            directive: bool = True) -> list[str]:
+    """Canonical market-news bullets (NO section header) ± directive. Shared by
+    the prompt renderer and the guard so the section is fabrication-proof.
+    ``directive=False`` cho guard — dòng chỉ thị "→ DÙNG các tin trên…" chỉ
+    thuộc prompt, không splice vào brief xuất bản (leak thật close 14/07)."""
     lines: list[str] = []
     for it in items:
         icon = _MKT_NEWS_SENT_ICON.get(it.get("_sentiment", ""), "•")
@@ -1421,11 +1430,12 @@ def _market_news_body_lines(items: list[dict]) -> list[str]:
         if it.get("_impact"):
             line += f" — tác động: {it['_impact']}"
         lines.append(line)
-    lines.append(
-        "→ DÙNG các tin trên khi đánh giá bối cảnh vĩ mô + rủi ro; gắn tin với "
-        "ngành/cổ phiếu liên quan nếu có. 🟢=tích cực /🔴=tiêu cực cho TTCK. "
-        "TUYỆT ĐỐI KHÔNG bịa tin/tiêu đề ngoài danh sách này."
-    )
+    if directive:
+        lines.append(
+            "→ DÙNG các tin trên khi đánh giá bối cảnh vĩ mô + rủi ro; gắn tin với "
+            "ngành/cổ phiếu liên quan nếu có. 🟢=tích cực /🔴=tiêu cực cho TTCK. "
+            "TUYỆT ĐỐI KHÔNG bịa tin/tiêu đề ngoài danh sách này."
+        )
     return lines
 
 
@@ -3343,9 +3353,10 @@ def enforce_macro(text: str, ctx: dict) -> str:
     if not text or not macro:
         return text
 
-    # Canonical body (bullets + directive) WITHOUT the header — the model already
-    # prints its own "## 🌐 Vĩ mô" header which we keep as the section anchor.
-    body = _macro_body_lines(macro, ctx.get("macro_news"))
+    # Canonical body WITHOUT header (model prints its own "## 🌐 Vĩ mô" which
+    # we keep as anchor) và WITHOUT directive — chỉ thị "→ … DÙNG bối cảnh
+    # này…" thuộc prompt, splice vào brief xuất bản là leak (close 14/07).
+    body = _macro_body_lines(macro, ctx.get("macro_news"), directive=False)
 
     lines = text.splitlines()
     # Header detection: a section-start line with "vĩ mô", OR a header-like line
@@ -3413,7 +3424,9 @@ def enforce_market_news(text: str, ctx: dict) -> str:
     if not text or not items:
         return text
 
-    body = _market_news_body_lines(items)
+    # directive=False — dòng chỉ thị "→ DÙNG các tin trên… TUYỆT ĐỐI KHÔNG
+    # bịa…" chỉ thuộc prompt, không được vào brief xuất bản (leak 14/07).
+    body = _market_news_body_lines(items, directive=False)
     lines = text.splitlines()
     start = next((i for i, l in enumerate(lines)
                   if ("tin kinh tế" in l.lower() or "kinh tế/chính trị" in l.lower())
@@ -4602,7 +4615,13 @@ _INSTR_LEAK_RE = _re.compile(
     r"^\s*(?:Giới hạn\s*\d+\s*từ"
     r"|YÊU CẦU VỀ ĐỘ CỤ THỂ"
     r"|\(Hướng dẫn\b"
-    r"|Viết\s+(?:MORNING|AFTERNOON|CLOSE)\s+BRIEF)",
+    r"|Viết\s+(?:MORNING|AFTERNOON|CLOSE)\s+BRIEF"
+    # Dòng chỉ thị "→ …" của data block vĩ mô/tin (leak thật close 14/07 —
+    # model echo / guard cũ splice). Bắt theo TỪ KHÓA chỉ-thị đặc trưng
+    # ("KHÔNG bịa", "DÙNG bối cảnh/các tin") — KHÔNG bắt "→" trơn vì dòng
+    # nội dung hợp lệ cũng hay mở đầu bằng "→" (vd "→ Dòng tiền khối ngoại…").
+    r"|→.*?(?:KHÔNG bịa|TUYỆT ĐỐI KHÔNG|DÙNG bối cảnh này|DÙNG các tin trên"
+    r"|DÙNG ĐÚNG số))",
     _re.IGNORECASE,
 )
 

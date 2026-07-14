@@ -546,6 +546,15 @@ allowlist chặn nên FX luôn None ở đây). Pipeline: bước `macro` trong 
   `enforce_upcoming_events`) — canonical-hoá body mục vĩ mô từ ctx (LLM hay làm
   tròn/đổi số); idempotent; no-op khi không có data; splice đè dòng phủ nhận
   "chưa có dữ liệu vĩ mô". `🌐` đã thêm vào `_SECTION_EMOJIS`.
+  **FIX leak directive (2026-07-14)**: `_macro_body_lines`/`_market_news_body_lines`
+  trước đây LUÔN gắn dòng chỉ thị "→ … DÙNG bối cảnh này / TUYỆT ĐỐI KHÔNG
+  bịa…" → guard splice mang nguyên chỉ thị NỘI BỘ vào brief xuất bản (lộ khi
+  phần 2/2 Telegram về được sau fix sanitize). Nay 2 builder có tham số
+  `directive` (mirror `_macro_reports_body_lines` P4): prompt renderer
+  directive=True, guard truyền False; catch-all `_INSTR_LEAK_RE`
+  (enforce_no_instruction_leak) bắt thêm dòng "→ …KHÔNG bịa/DÙNG bối cảnh/
+  DÙNG các tin/DÙNG ĐÚNG số" model tự echo Ở BẤT KỲ ĐÂU — "→" nội dung thật
+  ("→ Dòng tiền khối ngoại…") không đụng.
 - **Tín hiệu tâm lý thứ 8**: `vnstock_macro.macro_pressure_score()` (lãi suất
   tăng / VND yếu = điểm ÂM) → `vnstock_market_sentiment` (weight 0.10, tự
   renormalize). CHỈ phát tín hiệu khi có THAY ĐỔI đáng kể (FX ≥0.3%, lãi suất
