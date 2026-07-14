@@ -2154,16 +2154,72 @@ def render_market_tab() -> None:
                             return f"⏳ {age}/{horizon}d"
 
                         _df_opens["Trạng thái"] = _df_opens.apply(_age_status, axis=1)
+
+                        # KL gợi ý fixed-risk (nautilus FixedRiskSizer) —
+                        # display-only, chỉ hiện khi user đã cấu hình NAV.
+                        _open_cols = ["ticker", "action", "entry_price",
+                                      "take_profit", "TP (%)",
+                                      "cut_loss",    "SL (%)", "R:R",
+                                      "Trạng thái", "created_at"]
+                        try:
+                            from vnstock_strategy import (
+                                load_sizing_config as _lsc,
+                                suggest_position_size as _sps,
+                            )
+                            _scfg = _lsc()
+                            if _scfg.get("nav_million"):
+                                def _kl_hint(row):
+                                    s = _sps(row["entry_price"], row["cut_loss"])
+                                    if not s:
+                                        return "—"
+                                    return (f"{s['qty']:,} cp"
+                                            + (" (cap)" if s["capped"] else ""))
+                                _df_opens["KL gợi ý"] = _df_opens.apply(_kl_hint, axis=1)
+                                _open_cols.insert(8, "KL gợi ý")
+                        except Exception:
+                            pass
+
                         st.dataframe(
-                            _df_opens[
-                                ["ticker", "action", "entry_price",
-                                 "take_profit", "TP (%)",
-                                 "cut_loss",    "SL (%)", "R:R",
-                                 "Trạng thái", "created_at"]
-                            ],
+                            _df_opens[_open_cols],
                             use_container_width=True,
                             hide_index=True,
                         )
+
+                        with st.expander("⚖️ Cấu hình khối lượng gợi ý (risk cố định)",
+                                         expanded=False):
+                            try:
+                                from vnstock_strategy import (
+                                    load_sizing_config as _lsc2,
+                                    save_sizing_config as _ssc,
+                                )
+                                _sc = _lsc2()
+                                st.caption(
+                                    "KL gợi ý = (NAV × %rủi ro) / (entry − SL + phí), "
+                                    "tròn xuống lô 100, cap % NAV mỗi lệnh. "
+                                    "Chỉ hiển thị — không tự đặt lệnh. Để NAV = 0 để tắt."
+                                )
+                                _sz1, _sz2, _sz3 = st.columns(3)
+                                _nav_in = _sz1.number_input(
+                                    "NAV (triệu đồng)", min_value=0.0, step=50.0,
+                                    value=float(_sc.get("nav_million") or 0.0),
+                                    key="_sizing_nav")
+                                _risk_in = _sz2.number_input(
+                                    "Rủi ro mỗi lệnh (% NAV)", min_value=0.1,
+                                    max_value=10.0, step=0.5,
+                                    value=float(_sc.get("risk_pct") or 1.0),
+                                    key="_sizing_risk")
+                                _cap_in = _sz3.number_input(
+                                    "Tối đa 1 lệnh (% NAV)", min_value=1.0,
+                                    max_value=100.0, step=5.0,
+                                    value=float(_sc.get("max_position_pct") or 25.0),
+                                    key="_sizing_cap")
+                                if st.button("💾 Lưu cấu hình sizing",
+                                             key="_sizing_save"):
+                                    _ssc(nav_million=_nav_in, risk_pct=_risk_in,
+                                         max_position_pct=_cap_in)
+                                    st.success("Đã lưu — bảng KL gợi ý cập nhật ở lần rerun tới.")
+                            except Exception as _e:
+                                st.caption(f"⚠ sizing config lỗi: {type(_e).__name__}: {_e}")
 
                         # Reconcile button — close expired recs by walking
                         # forward from price history. Same logic as the daily

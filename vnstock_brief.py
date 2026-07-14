@@ -5385,6 +5385,15 @@ def _recommendation_block() -> str:
                 fresh.append(r)
         if not fresh:
             return ""
+        # KL gợi ý fixed-risk (display-only, chỉ khi user đã cấu hình NAV).
+        _sps = None
+        try:
+            from vnstock_strategy import load_sizing_config, suggest_position_size
+            if load_sizing_config().get("nav_million"):
+                _sps = suggest_position_size
+        except Exception:
+            _sps = None
+
         lines = ["\n## Khuyến nghị từ chiến lược đã backtest (tự sinh)"]
         for r in fresh[:5]:
             entry = float(r.get("entry_price") or 0)
@@ -5397,6 +5406,11 @@ def _recommendation_block() -> str:
                 line += f" TP={_fmt_rec_price(tp)}"
             if sl > 0:
                 line += f" SL={_fmt_rec_price(sl)}"
+            if _sps and entry > 0 and sl > 0:
+                _sz = _sps(entry, sl)
+                if _sz:
+                    line += (f" · KL gợi ý ~{_sz['qty']:,} cp"
+                             f" (rủi ro {_sz['risk_pct']:g}% NAV)")
             if r.get("rationale"):
                 _rat = str(r["rationale"]).strip()
                 if len(_rat) > 80:                       # truncate on a WORD

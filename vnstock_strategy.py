@@ -420,32 +420,81 @@ def _load_history(ticker: str, days: int) -> pd.DataFrame:
     return _load_history_from_parquet(ticker, days)
 
 
+# ── Chi phí giao dịch + thứ tự chạm TP/SL trong bar (DONE 2026-07-14, ý ──
+# tưởng nautilus_trader FeeModel + bar_adaptive_high_low_ordering). Backtest
+# pnl nay là NET sau phí round-trip; grading rec thật (vnstock_train) vẫn
+# GROSS (không đổi convention DB) — gap decay vì thế hơi bảo thủ, chấp nhận.
+
+_COST_ROUNDTRIP_PCT_DEFAULT = 0.4   # phí CTCK ~0.15%/chiều + thuế bán 0.1%
+
+
+def _cost_roundtrip_pct() -> float:
+    """Phí giao dịch round-trip (%) trừ vào pnl mỗi lệnh backtest.
+    Tunable qua env VNSTOCK_COST_ROUNDTRIP_PCT (đặt 0 để về gross)."""
+    try:
+        return float(os.environ.get("VNSTOCK_COST_ROUNDTRIP_PCT",
+                                    str(_COST_ROUNDTRIP_PCT_DEFAULT)))
+    except (TypeError, ValueError):
+        return _COST_ROUNDTRIP_PCT_DEFAULT
+
+
+def _bar_high_first(bar) -> "bool | None":
+    """Heuristic nautilus `bar_adaptive_high_low_ordering`: trong 1 bar,
+    cực trị GẦN GIÁ MỞ CỬA hơn được coi là chạm TRƯỚC. True = high trước,
+    False = low trước, None = không quyết được (thiếu/hỏng open) — caller
+    fallback về phía SL (pessimistic, giữ nếp cũ)."""
+    try:
+        o = float(bar["open"])
+        hi, lo = float(bar["high"]), float(bar["low"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if math.isnan(o) or o <= 0:
+        return None
+    return abs(hi - o) < abs(lo - o)
+
+
 def _simulate_trade(future: pd.DataFrame, sig: dict) -> tuple[float, str]:
-    """Walk forward the next N bars. Return (pnl_pct, reason)."""
+    """Walk forward the next N bars. Return (pnl_pct NET sau phí, reason).
+
+    Bar chứa CẢ TP lẫn SL → thứ tự theo `_bar_high_first` (cực trị gần open
+    chạm trước); không quyết được → SL thắng (pessimistic như trước)."""
     entry = sig["entry"]
     tp    = sig["tp"]
     sl    = sig["sl"]
     if entry <= 0 or future.empty:
         return 0.0, "no_data"
     last = float(future["close"].iloc[-1])
+    cost = _cost_roundtrip_pct()
 
     # Long-only for now (action=buy). action=sell handled symmetrically.
     if sig["action"] == "buy":
         for _, bar in future.iterrows():
             hi, lo = float(bar["high"]), float(bar["low"])
-            if sl > 0 and lo <= sl:
-                return ((sl / entry) - 1) * 100, "sl"
-            if tp > 0 and hi >= tp:
-                return ((tp / entry) - 1) * 100, "tp"
-        return ((last / entry) - 1) * 100, "expire"
+            sl_hit = sl > 0 and lo <= sl
+            tp_hit = tp > 0 and hi >= tp
+            if sl_hit and tp_hit:
+                if _bar_high_first(bar):        # high (TP) chạm trước
+                    return ((tp / entry) - 1) * 100 - cost, "tp"
+                return ((sl / entry) - 1) * 100 - cost, "sl"
+            if sl_hit:
+                return ((sl / entry) - 1) * 100 - cost, "sl"
+            if tp_hit:
+                return ((tp / entry) - 1) * 100 - cost, "tp"
+        return ((last / entry) - 1) * 100 - cost, "expire"
     if sig["action"] == "sell":
         for _, bar in future.iterrows():
             hi, lo = float(bar["high"]), float(bar["low"])
-            if sl > 0 and hi >= sl:
-                return ((entry / sl) - 1) * 100, "sl"
-            if tp > 0 and lo <= tp:
-                return ((entry / tp) - 1) * 100, "tp"
-        return ((entry / last) - 1) * 100, "expire"
+            sl_hit = sl > 0 and hi >= sl        # sell: SL phía TRÊN
+            tp_hit = tp > 0 and lo <= tp        # sell: TP phía DƯỚI
+            if sl_hit and tp_hit:
+                if _bar_high_first(bar) is False:   # low (TP) chạm trước
+                    return ((entry / tp) - 1) * 100 - cost, "tp"
+                return ((entry / sl) - 1) * 100 - cost, "sl"
+            if sl_hit:
+                return ((entry / sl) - 1) * 100 - cost, "sl"
+            if tp_hit:
+                return ((entry / tp) - 1) * 100 - cost, "tp"
+        return ((entry / last) - 1) * 100 - cost, "expire"
     return 0.0, "hold"
 
 
@@ -689,6 +738,92 @@ def check_strategy_decay(apply: bool = True) -> "dict | None":
         mem.update_strategy_status(active["id"], "decayed")
         report["applied"] = True
     return report
+
+
+# ── Khối lượng gợi ý fixed-risk (DONE 2026-07-14, ý tưởng nautilus ─────────
+# FixedRiskSizer): qty = (NAV × risk%) / (rủi ro/cp + phí/cp), tròn XUỐNG lô
+# 100, cap giá trị lệnh ≤ max_position_pct × NAV. DISPLAY-ONLY — không ghi
+# DB, không đổi hành vi rec; chưa cấu hình NAV thì mọi chỗ hiển thị im lặng.
+
+_SIZING_CONFIG = Path("data_warehouse/_meta/sizing_config.json")
+_LOT_SIZE = 100
+_SIZING_DEFAULTS = {"nav_million": None, "risk_pct": 1.0,
+                    "max_position_pct": 25.0}
+
+
+def load_sizing_config() -> dict:
+    """Config sizing của user (NAV triệu đồng / % rủi ro mỗi lệnh / % NAV
+    tối đa 1 lệnh). Thiếu file/hỏng → defaults với nav_million=None (tắt)."""
+    cfg = dict(_SIZING_DEFAULTS)
+    try:
+        raw = json.loads(_SIZING_CONFIG.read_text(encoding="utf-8"))
+        for k in cfg:
+            if raw.get(k) is not None:
+                cfg[k] = float(raw[k])
+    except (OSError, ValueError, TypeError):
+        pass
+    if cfg.get("nav_million") is not None and cfg["nav_million"] <= 0:
+        cfg["nav_million"] = None
+    return cfg
+
+
+def save_sizing_config(nav_million=None, risk_pct=None,
+                       max_position_pct=None) -> dict:
+    """Ghi config sizing (atomic tmp+replace, mirror allocation_state).
+    Chỉ field truyền vào được đổi; trả config sau khi ghi."""
+    cfg = load_sizing_config()
+    if nav_million is not None:
+        cfg["nav_million"] = float(nav_million) if float(nav_million) > 0 else None
+    if risk_pct is not None and float(risk_pct) > 0:
+        cfg["risk_pct"] = float(risk_pct)
+    if max_position_pct is not None and float(max_position_pct) > 0:
+        cfg["max_position_pct"] = float(max_position_pct)
+    _SIZING_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _SIZING_CONFIG.with_suffix(".tmp")
+    tmp.write_text(json.dumps(cfg, ensure_ascii=False, indent=2),
+                   encoding="utf-8")
+    os.replace(tmp, _SIZING_CONFIG)
+    return cfg
+
+
+def suggest_position_size(entry: float, sl: float, nav_million=None,
+                          risk_pct=None) -> "dict | None":
+    """Khối lượng gợi ý theo rủi ro cố định. Giá vào theo NGHÌN đồng (như
+    mọi giá trong hệ). None khi: chưa cấu hình NAV, entry/SL không hợp lệ
+    (SL phải DƯỚI entry — rec là lệnh mua), hoặc qty < 1 lô."""
+    cfg = load_sizing_config()
+    nav = float(nav_million) if nav_million else cfg.get("nav_million")
+    risk = float(risk_pct) if risk_pct else cfg.get("risk_pct") or 1.0
+    if not nav or nav <= 0:
+        return None
+    try:
+        entry = float(entry)
+        sl = float(sl)
+    except (TypeError, ValueError):
+        return None
+    if entry <= 0 or sl <= 0 or sl >= entry:
+        return None
+
+    nav_vnd = nav * 1e6
+    risk_money = nav_vnd * risk / 100.0
+    risk_per_share = (entry - sl) * 1000.0            # nghìn đồng → đồng
+    fee_per_share = entry * 1000.0 * _cost_roundtrip_pct() / 100.0
+    qty = int(risk_money / (risk_per_share + fee_per_share))
+
+    # Cap giá trị lệnh — SL sát entry cho qty khổng lồ nhưng không thể dồn
+    # cả NAV vào 1 mã (rủi ro gap qua đêm không có SL nào đỡ).
+    max_pos_vnd = nav_vnd * (cfg.get("max_position_pct") or 25.0) / 100.0
+    capped = False
+    if qty * entry * 1000.0 > max_pos_vnd:
+        qty = int(max_pos_vnd / (entry * 1000.0))
+        capped = True
+
+    qty = (qty // _LOT_SIZE) * _LOT_SIZE              # tròn XUỐNG lô 100
+    if qty < _LOT_SIZE:
+        return None
+    return {"qty": qty,
+            "value_million": round(qty * entry * 1000.0 / 1e6, 1),
+            "risk_pct": risk, "nav_million": nav, "capped": capped}
 
 
 # ── Strategy generation via agents ─────────────────────────────────────────

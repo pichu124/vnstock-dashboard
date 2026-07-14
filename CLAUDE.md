@@ -845,6 +845,11 @@ rồi sau nhắc nhở tôi"); nhắc lại khi user nói "test"/"verify"/update
    khi chiến lược active tích lũy ≥ 8 rec đóng thật → hiện dòng sức khỏe
    live (💚/🟡/🔻); nếu decayed thật, log `[reconcile] … DECAYED → demoted`
    và lần train sau tự cold-start bản mới.
+8. **Phí + sizing (mới 14/07, 3 món nautilus)**: lần train kế tiếp
+   expectancy sẽ THẤP hơn ~0.4/lệnh (nay là NET sau phí — chiến lược cũ có
+   thể rớt gate, là ĐÚNG); panel khuyến nghị mở expander "⚖️ Cấu hình khối
+   lượng gợi ý" → nhập NAV (triệu) + %rủi ro → bảng Open recommendations
+   hiện cột "KL gợi ý" và brief gắn "KL gợi ý ~N cp" vào dòng rec.
 
 **Checklist gốc (đã chạy gần hết — giữ làm tài liệu lệnh):**
 1. `python vnstock_allocation.py --refresh` → in band + bảng % + lý do 7 tín
@@ -1312,7 +1317,8 @@ sổ thời gian) — đủ dùng ở n nhỏ; nếu sau này rec tích lũy hà
 cân nhắc cửa sổ 30-60 rec gần nhất.
 
 **Khảo sát nautechsystems/nautilus_trader (2026-07-14): KHÔNG dùng
-framework — ĐỂ DÀNH 3 món ý tưởng, món 1 đáng làm sớm nhất.** Engine
+framework — CẢ 3 MÓN ĐÃ TRIỂN KHAI cùng ngày (xem mục 💸 Phí + ⚖️ Sizing
+bên dưới).** Engine
 trading production-grade lớn nhất từng khảo sát (~2.530 file Rust +
 Cython/Python control plane; backtest nanosecond, matching engine L1-L3,
 live execution đa sàn). Không dùng vì: (1) không có adapter HOSE/HNX
@@ -1353,6 +1359,47 @@ mình đã có expectancy/sharpe/win-rate/max-dd; đáng thêm nhất nếu cầ
 sâu lẫn độ dài); indicators (RSI/MACD/ATR…) — đã tự có; probabilistic
 FillModel (prob_slippage) — ngược triết lý deterministic, phí cố định
 món 1 là đủ.
+
+### 💸 Phí giao dịch + thứ tự TP/SL trong bar + ⚖️ Sizing fixed-risk (DONE 2026-07-14 — 3 món nautilus_trader, user "làm cả 3 món")
+
+Cả 3 deterministic thuần, zero LLM/fetch; tests `tests/test_costs_sizing.py`
+(13, hermetic) đã vào `--fast`.
+
+**Món 1 — phí round-trip vào backtest** (`vnstock_strategy._cost_roundtrip_pct`):
+`_simulate_trade` trừ `_COST_ROUNDTRIP_PCT_DEFAULT` = **0.4%** (phí CTCK
+~0.15%/chiều + thuế bán 0.1%) vào pnl MỌI lệnh backtest (tp/sl/expire;
+hold/no_data không trừ). Env `VNSTOCK_COST_ROUNDTRIP_PCT` tune (0 = về
+gross), đọc TẠI CALL-TIME. ⇒ expectancy/sharpe/validation 🎲 nay đều NET —
+chiến lược edge mỏng (<0.4%/lệnh) sẽ trượt gate ĐÚNG NHƯ PHẢI THẾ; chiến
+lược active hiện tại có thể rớt ở lần train sau (chấp nhận → cold-start).
+**PnL rec THẬT (close_recommendation) giữ GROSS** — không đổi convention DB
+giữa chừng (trộn gross/net làm hỏng recommendation_performance); hệ quả:
+decay gap (backtest net vs live gross) hơi bảo thủ (live nhìn đẹp hơn ~0.4đ%)
+— đã cân nhắc, chấp nhận.
+
+**Món 2 — bar chứa CẢ TP lẫn SL** (`_bar_high_first`, mirror
+`bar_adaptive_high_low_ordering` của nautilus matching engine): cực trị
+GẦN OPEN hơn coi là chạm TRƯỚC (|high−open| < |low−open| → high trước).
+Trước đây SL LUÔN thắng trong cùng bar (pessimistic cứng). Áp CẢ HAI chỗ
+chấm lệnh: `_simulate_trade` (backtest, cả buy lẫn sell symmetric) và
+`vnstock_train._grade_rec` (grading rec thật — tách từ inline loop của
+`reconcile_recommendations` thành helper thuần để test). Thiếu/hỏng open
+→ None → fallback SL thắng (giữ nếp pessimistic cũ).
+
+**Món 3 — KL gợi ý fixed-risk** (`suggest_position_size`, mirror
+`FixedRiskSizer` của nautilus/risk/sizing): qty = (NAV × risk%) /
+((entry−SL)×1000 + phí/cp), tròn XUỐNG lô 100, **cap giá trị lệnh ≤
+`max_position_pct` (25%) × NAV** (SL sát entry không thể dồn cả NAV vào 1
+mã), qty < 1 lô → None. Config user: `_meta/sizing_config.json`
+{nav_million, risk_pct=1.0, max_position_pct=25} — ghi atomic qua
+`save_sizing_config` (NAV=0 → None = TẮT). **DISPLAY-ONLY, không ghi DB,
+chưa cấu hình NAV thì mọi chỗ im lặng** (mirror best-effort): (a) bảng
+Open recommendations dashboard thêm cột "KL gợi ý" + expander "⚖️ Cấu
+hình khối lượng gợi ý" (3 number_input + nút lưu); (b)
+`_recommendation_block` (brief) gắn "· KL gợi ý ~N cp (rủi ro X% NAV)"
+vào từng dòng rec — data block nên vào prompt như entry/TP/SL hiện có,
+không cần guard mới. Giá theo NGHÌN đồng (như mọi giá trong hệ), NAV theo
+TRIỆU đồng.
 
 **Khảo sát TauricResearch/TradingAgents (2026-07-14): KHÔNG dùng trực
 tiếp — ý tưởng reflection + debate ĐÃ TRIỂN KHAI cùng ngày (xem mục
