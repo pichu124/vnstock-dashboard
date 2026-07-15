@@ -1852,6 +1852,41 @@ backtest + mem đều monkeypatch) đã vào `--fast`.
   → nâng --medium/--full thay vì hạ --min-trades. So kết quả với vòng
   tune LLM — nếu GA thắng ổn định thì cân nhắc gọi từ `_do_tune` như một
   "agent" thêm (TODO để dành, đừng tự ý nối vào pipeline tối).
+**Khảo sát Alpha-Dojo/DojoAgents (2026-07-15): KHÔNG dùng framework —
+1 MÓN NHỎ ĐÁNG MƯỢN (net-worth curve, CHƯA LÀM) + 1 món để dành (PE
+band).** AI copilot đầu tư cá nhân full-market (A-share/US/HK): agent-loop
+engine trên strands-agents (~430 file Python — token ledger, context
+compression, planning/triggers, memory, multi-agent, skills) + React SPA
+4 trụ (Portfolio/Markets/Sectors/Equities) + gateway chat. Không dùng vì:
+(1) **tầng DATA là `dojosdk` — SDK ĐÓNG của chính họ** (K-line/PE band/
+sector taxonomy A-share/US/HK, KHÔNG có HOSE/HNX) — trái tim repo là thứ
+mình không xài được; module `quant/` trong repo chỉ là dataclass scaffold
+RỖNG (62 dòng), logic thật nằm sau SDK + LLM loop; (2) agent-loop
+"cognitive" LLM tự gọi tool nhiều vòng — ngược triết lý deterministic-first
++ free-tier (cùng lý do đã bỏ TradingAgents 10-20 call/quyết định);
+(3) React SPA + FastAPI + docker — lệch hẳn stack Streamlit; (4) trùng
+những gì ĐÃ CÓ: 4 trụ ≈ các tab hiện hành; sector exposure vs benchmark →
+portfolio_tab đã so VN30 (bar+pie+diff) + PnL theo ngành; scheduled
+research (planning/cron) ≈ Task Scheduler + Routines; memory/reflection
+đã có bản VN. Apache 2.0.
+
+**1 món ĐÁNG MƯỢN (nhỏ, deterministic, zero fetch): Net-worth curve cho
+portfolio_tab** — trụ Portfolio của họ có "net worth curves" mà tab danh
+mục mình chỉ có bảng vị thế + sector exposure, CHƯA có đường cong GIÁ TRỊ
+DANH MỤC THEO THỜI GIAN. Data đủ sẵn: positions = {ticker, quantity,
+buy_price, buy_date} + kho giá parquet → curve(t) = Σ qty×close(t) từ
+buy_date (mã chưa mua chưa tính) + đường VNINDEX chuẩn hóa cùng kỳ →
+thấy ngay danh mục thắng/thua index. Display-only, plotly/line_chart.
+
+**Để dành — PE band lịch sử** (trụ Equities): band phân vị P/E 3-5 năm
+per ticker → "rẻ/đắt so với chính nó". VN làm được nhưng cần EPS QUÝ lịch
+sử (vnstock finance có; fundamentals.parquet hiện chỉ giữ ratio MỚI NHẤT)
+→ fetch nặng ~3 call/mã: scope VN30 + watchlist thì khả thi. Trigger: user
+hỏi định giá lịch sử / mùa BCTC. Bỏ qua nhưng ghi nhận:
+ticker_label_aliases.jsonl (map tên↔mã cho câu hỏi NLP); portfolio_eval
+harness (validate output agent theo tiêu chí tự khai — hay cho harness
+LLM thuần, mình dùng guard chain); heatmap (UI candy, Streamlit không hợp).
+
 **Khảo sát je-suis-tm/quant-trading (2026-07-15): KHÔNG dùng repo —
 CẢ 3 MÓN ĐÃ TRIỂN KHAI cùng ngày (xem mục 🪃 bên dưới).** Bộ sưu tập ~15
 chiến lược quant GIÁO DỤC nổi tiếng (Python single-file, mỗi script =
