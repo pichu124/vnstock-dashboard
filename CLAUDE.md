@@ -931,7 +931,10 @@ băng, macro-anchor hijack).
    pattern mới thì vá tiếp như quy trình đêm 14/07).
 2. **Lần tới mở dashboard (30 giây)**: liếc 4 sub-tab tab Tin tức
    (📰/🌐/📚/🧭) render OK; khi có rec mở mới → bảng Open recommendations
-   phải có cột "KL gợi ý" + brief gắn "KL gợi ý ~N cp" (NAV đã cấu hình).
+   phải có cột "KL gợi ý" + "Giá HT"/"L/L tạm" (MTM mới 15/07) + brief
+   gắn "KL gợi ý ~N cp" (NAV đã cấu hình); panel AI Brief có caption
+   "🎯 Stance ngày mai: đúng X/Y…" (chấm brief mới 15/07 — cần ≥1 close
+   brief đã lưu CÓ phiên kế tiếp trong kho giá).
 3. **Passive — tự đến, chỉ để ý**: scorecard kỳ đầu ~đầu tháng 9 (đủ 2
    tháng history) · decay 🔻 + log "[reconcile] … DECAYED" nếu chiến lược
    nào tụt thật · OpenRouter `qwen/qwen3-235b-a22b:free` chưa thử lửa
@@ -1414,8 +1417,9 @@ số: win-rate live tính trên MỌI rec đóng của strategy_id đó (không 
 sổ thời gian) — đủ dùng ở n nhỏ; nếu sau này rec tích lũy hàng trăm thì
 cân nhắc cửa sổ 30-60 rec gần nhất.
 
-**Khảo sát HKUDS/AI-Trader (2026-07-15): KHÔNG dùng platform — ĐỂ DÀNH
-2 món ý tưởng nhỏ.** Cùng nhà với Vibe-Trading nhưng là thứ khác hẳn:
+**Khảo sát HKUDS/AI-Trader (2026-07-15): KHÔNG dùng platform — CẢ 2 MÓN
+ĐÃ TRIỂN KHAI cùng ngày (xem mục 🎯 Stance track bên dưới).** Cùng nhà
+với Vibe-Trading nhưng là thứ khác hẳn:
 NỀN TẢNG XÃ HỘI hosted cho agent (ai4trade.ai) — agent tự đăng ký bằng
 cách đọc SKILL.md, publish signal, copy-trade, leaderboard/challenge/
 team/points, paper trading $100K, Polymarket; service FastAPI ~21.7K
@@ -1446,6 +1450,29 @@ evidence/specificity/novelty/review — brief mình đã bị guard chain ép
 cấu trúc chặt hơn nhiều); experiment/A-B framework + teams/points
 (platform đa người dùng); yfinance fallback ladder (đã có pattern ladder
 khắp nơi).
+
+### 🎯 Stance track + 💹 MTM rec đang mở (DONE 2026-07-15 — 2 món AI-Trader, user "làm cả 2 món")
+
+Cả 2 deterministic thuần, zero LLM/fetch; tests `tests/test_stance_track.py`
+(7, hermetic — memory/giá fake) đã vào `--fast`.
+
+**Món 1 — `vnstock_stance_track.py`**: chấm "Stance ngày mai" của MỌI close
+brief đã lưu (brief_memory) vs chiều VNINDEX phiên KẾ TIẾP — hệ chấm REC
+mà trước giờ chưa chấm BRIEF. Parser tái dùng `_extract_section` +
+`_detect_stance` của consensus (không thể lệch nhau). Luật chấm:
+bullish đúng nếu đổi > +`_FLAT_BAND` (0.1%); bearish nếu < −0.1%; neutral
+đúng nếu |đổi| ≤ `_NEUTRAL_BAND` (0.3%); stance CÓ HƯỚNG mà phiên kế
+|đổi| ≤ 0.1% → KHÔNG chấm (nhiễu); unknown/brief lỗi/brief mới nhất
+(chưa có phiên kế) → bỏ. `stance_records/stance_summary/summary_line`;
+CLI `--show [--limit N]` (mặc định 60 brief, mỗi agent 1 dòng). Dashboard:
+caption "🎯 Stance ngày mai: đúng X/Y…" ngay dưới consensus banner ở panel
+AI Brief (best-effort). KHÔNG bơm vào prompt (tránh mở bề mặt guard mới) —
+cân nhắc sau khi đủ mẫu.
+
+**Món 2 — `vnstock_strategy.unrealized_pnl_pct(entry, last, action)`**:
+lãi/lỗ TẠM TÍNH gross, display-only. Bảng Open recommendations thêm 2 cột
+"Giá HT" + "L/L tạm" (close mới nhất từ `_load_history`, best-effort —
+thiếu giá → "—"); lệnh đang xanh/đỏ thấy ngay, không phải chờ reconcile.
 
 **Khảo sát nautechsystems/nautilus_trader (2026-07-14): KHÔNG dùng
 framework — CẢ 3 MÓN ĐÃ TRIỂN KHAI cùng ngày (xem mục 💸 Phí + ⚖️ Sizing

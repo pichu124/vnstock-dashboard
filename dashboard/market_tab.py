@@ -1607,6 +1607,16 @@ def render_market_tab() -> None:
                         except Exception as _ce:
                             st.caption(f"⚠ consensus disabled: {type(_ce).__name__}: {_ce}")
 
+                    # 🎯 Track record của chính brief: Stance ngày mai vs chiều
+                    # VNINDEX phiên kế tiếp (AI-Trader prediction scoring)
+                    try:
+                        from vnstock_stance_track import summary_line as _stl
+                        _sline = _stl()
+                        if _sline:
+                            st.caption(_sline)
+                    except Exception:
+                        pass
+
                     def _rating_block(agent_name: str, brief_type_: str):
                         try:
                             import vnstock_memory as _vm
@@ -2155,12 +2165,38 @@ def render_market_tab() -> None:
 
                         _df_opens["Trạng thái"] = _df_opens.apply(_age_status, axis=1)
 
-                        # KL gợi ý fixed-risk (nautilus FixedRiskSizer) —
-                        # display-only, chỉ hiện khi user đã cấu hình NAV.
+                        # MTM lãi/lỗ tạm tính (AI-Trader live scoring) —
+                        # lệnh đang xanh hay đỏ, không phải chờ reconcile.
                         _open_cols = ["ticker", "action", "entry_price",
                                       "take_profit", "TP (%)",
                                       "cut_loss",    "SL (%)", "R:R",
                                       "Trạng thái", "created_at"]
+                        try:
+                            from vnstock_strategy import (
+                                _load_history as _lh,
+                                unrealized_pnl_pct as _upnl,
+                            )
+
+                            def _mtm(row):
+                                try:
+                                    h = _lh(str(row["ticker"]), days=15)
+                                    if h is None or h.empty:
+                                        return None, None
+                                    last = float(h["close"].iloc[-1])
+                                    return last, _upnl(row["entry_price"], last,
+                                                       row.get("action", "buy"))
+                                except Exception:
+                                    return None, None
+
+                            _mtms = [_mtm(r) for _, r in _df_opens.iterrows()]
+                            _df_opens["Giá HT"] = [m[0] for m in _mtms]
+                            _df_opens["L/L tạm"] = [
+                                f"{m[1]:+.1f}%" if m[1] is not None else "—"
+                                for m in _mtms]
+                            _open_cols.insert(8, "Giá HT")
+                            _open_cols.insert(9, "L/L tạm")
+                        except Exception:
+                            pass
                         try:
                             from vnstock_strategy import (
                                 load_sizing_config as _lsc,

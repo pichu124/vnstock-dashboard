@@ -826,6 +826,21 @@ def suggest_position_size(entry: float, sl: float, nav_million=None,
             "risk_pct": risk, "nav_million": nav, "capped": capped}
 
 
+def unrealized_pnl_pct(entry, last, action: str = "buy") -> "float | None":
+    """Lãi/lỗ TẠM TÍNH (%) của rec đang mở theo giá close mới nhất — GROSS,
+    display-only (mirror live mark-to-market của AI-Trader leaderboard,
+    khảo sát 2026-07-15). None khi giá không hợp lệ."""
+    try:
+        entry = float(entry)
+        last = float(last)
+    except (TypeError, ValueError):
+        return None
+    if entry <= 0 or last <= 0:
+        return None
+    pct = (last / entry - 1) * 100
+    return -pct if str(action).lower() == "sell" else pct
+
+
 # ── Strategy generation via agents ─────────────────────────────────────────
 _STRATEGY_PROMPT = """\
 Bạn là quant developer cho thị trường chứng khoán Việt Nam (T+2.5, không short, \
