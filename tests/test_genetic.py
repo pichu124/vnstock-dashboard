@@ -207,6 +207,8 @@ def test_load_history_skips_dashboard_import_outside_streamlit(monkeypatch):
     sentinel = pd.DataFrame({"close": [1.0]})
     monkeypatch.setattr(vs, "_load_history_from_parquet",
                         lambda ticker, days, **k: sentinel)
-    assert vs._in_streamlit_session() is False
+    # Pin ngoài-phiên qua monkeypatch — trong FULL suite một test AppTest
+    # khác có thể đã tạo Streamlit runtime thật làm trạng thái global True
+    monkeypatch.setattr(vs, "_in_streamlit_session", lambda: False)
     out = vs._load_history("AAA", days=30)
     assert out is sentinel
