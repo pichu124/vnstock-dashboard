@@ -1008,6 +1008,25 @@ băng, macro-anchor hijack).
       (khảo sát DojoAgents — curve = Σ qty×close(t) từ buy_date + đường
       VNINDEX cùng kỳ, zero fetch, ~50-70 dòng) — user nói "làm đi" là
       triển; PE band lịch sử vẫn để dành (cần EPS quý, scope VN30).
+8. **Đợt review guard close brief 15/07 (5 fix, mục 🔬 ở dưới) — VERIFY
+   CÒN NỢ trên close brief PHIÊN SAU (mọi fix tự kích hoạt qua guard chain
+   / telegram):**
+   a. **% thay đổi VNINDEX**: TLDR/Tổng kết phải KHỚP mục kỹ thuật — không
+      còn cảnh "TLDR giảm 1.36% mà kỹ thuật +0.00%". Nếu bar VNINDEX vẫn
+      phẳng (day_change 0.00 do bar EOD trễ) → brief phải ghi "gần như đi
+      ngang (0.00%)" nhất quán, KHÔNG bịa %. (Muốn số ngày THẬT thì cần bar
+      VNINDEX về trước giờ chạy close — vấn đề DATA, không phải guard.)
+   b. **Dòng tiền NN 2 vế**: 2 ngành nối bằng "trong khi" phải giữ SỐ RIÊNG
+      (không còn cùng magnitude do nhiễm chéo); dấu +/− khớp mua/bán ròng.
+   c. **GTGD so TB**: câu "cao/thấp hơn TB N phiên" phải khớp chiều thật.
+   d. **Mức S/R**: mọi S1/S2 < giá đóng cửa, R1/R2 > giá; KHÔNG còn "S=giá
+      đóng cửa". Residual chấp nhận: S1 có thể xa (=low_52w) khi giá ở đáy
+      range — role-ordering thủng-S1→S2 hơi ngược vai là ĐÃ BIẾT, không vá.
+   e. **Caveat BUY-vs-bias**: khi regime GIẢM (score ≤ -3 / momentum ≤ -50)
+      mà "Khuyến nghị đang mở" có lệnh BUY → phải có dòng ⚠️ "_BUY_BIAS_
+      CAVEAT" ngay dưới khối lệnh trên Telegram (áp cả morning & close).
+   f. Nếu lộ PATTERN LỖI MỚI → chạy lại workflow review 7-cụm×verify như
+      đợt này (script cached: close-brief-guard-regression-1507), vá tiếp.
 
 **Checklist gốc (đã chạy gần hết — giữ làm tài liệu lệnh):**
 1. `python vnstock_allocation.py --refresh` → in band + bảng % + lý do 7 tín
