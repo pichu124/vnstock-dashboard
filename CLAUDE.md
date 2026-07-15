@@ -1822,6 +1822,54 @@ backtest + mem đều monkeypatch) đã vào `--fast`.
   → nâng --medium/--full thay vì hạ --min-trades. So kết quả với vòng
   tune LLM — nếu GA thắng ổn định thì cân nhắc gọi từ `_do_tune` như một
   "agent" thêm (TODO để dành, đừng tự ý nối vào pipeline tối).
+**Khảo sát je-suis-tm/quant-trading (2026-07-15): KHÔNG dùng repo —
+3 MÓN ĐÁNG MƯỢN, CHƯA LÀM (chờ user chốt "làm đi").** Bộ sưu tập ~15
+chiến lược quant GIÁO DỤC nổi tiếng (Python single-file, mỗi script =
+indicator + signal + backtest thô + plot). Không dùng trực tiếp vì:
+(1) là script notebook-export đời 2018-2021 (`os.chdir('d:/')`,
+`fix_yahoo_finance`, loop iterrows O(n²)) — không phải library;
+(2) data US/FX/commodity — nhiều chiến lược cần thứ VN KHÔNG có:
+intraday (Dual Thrust, London Breakout), bán khống (Pair trading —
+Engle-Granger cointegration chỉ còn nửa chân long ở VN, bỏ), options
+chain (Straddle, VIX Calculator); (3) hạ tầng backtest của repo (không
+phí, không validation) — hệ mình đã VƯỢT xa (phí 0.4%, sign-flip MC,
+walk-forward, Bonferroni, preset scorecard); (4) trùng lặp lớn:
+MACD/RSI OB-OS/Bollinger/Awesome Oscillator/Shooting Star — screener +
+mẫu nến 15/07 đã có đủ. Apache 2.0 — mượn ý tưởng, không copy code.
+
+**3 món ĐÁNG MƯỢN (đều deterministic, preset scorecard chấm miễn phí):**
+1. **Parabolic SAR làm SL trailing THÍCH ỨNG** (`Parabolic SAR
+   backtest.py` — fit tự nhiên nhất): `trailing_stop_hint` hiện tại là
+   5% CỐ ĐỊNH từ đỉnh; PSAR tăng tốc theo trend (AF 0.02 step 0.02 cap
+   0.2, họ ghi chú equity nên dùng 0.01) — mức thoát bám đà thay vì
+   khoảng cách cứng. Áp: cột "SL trailing" lấy max(SL gốc, đỉnh×0.95,
+   PSAR) hoặc hiện PSAR cạnh — display-only, KHÔNG đổi convention
+   reconciler (mirror nguyên tắc 15/07). ~40 dòng numpy (bản họ loop
+   pandas chậm; lưu ý SAR bị clamp bởi High/Low của 2 bar trước).
+2. **Double bottom W neo Bollinger** (`Bollinger Bands Pattern
+   Recognition backtest.py`) → preset screener "double_bottom": pattern
+   recognition SỐ HỌC trên CẤU TRÚC GIÁ nhiều tuần (đáy k ≈ đáy m,
+   đỉnh giữa j chạm mid-band, kích hoạt vượt upper band, cửa sổ 75
+   phiên) — trục mới bổ sung mẫu nến 1-5 phiên; mean-reversion hợp
+   baseline Bear 15/07. BẪY KHI PORT: alpha/beta của họ là ngưỡng TUYỆT
+   ĐỐI 0.0001 (giá FX ~1.0) — scale-dependent, phải đổi sang % giá
+   (bài học tolerance mẫu nến); loop O(n·75) → viết lại bằng cực trị
+   cục bộ.
+3. **Heikin-Ashi transform** (~20 dòng): HAc=(O+H+L+C)/4,
+   HAo=(HAo₋₁+HAc₋₁)/2 — bộ lọc nhiễu trend; preset "ha_trend" (chuỗi
+   nến HA cùng màu không râu ngược = trend sạch) và/hoặc 1 dòng ngữ
+   cảnh VNINDEX cạnh CHOP. Nice-to-have, xếp thứ 3.
+
+Bỏ qua nhưng ghi nhận: **Oil Money project** (hồi quy petrocurrency ~
+giá dầu → trade lệch) — concept "độ nhạy hàng hóa" cho GAS/PLX/PVD/HPG
+hay nhưng THIẾU nguồn giá dầu/quặng free (đúng gap đã ghi ở TODO 1c
+public-apis: dầu toàn API trả phí) → để dành cùng chỗ, làm khi có
+nguồn; Dual Thrust mức breakout từ EOD (open + K×range) có thể thành
+display cạnh pivots — marginal; Monte Carlo GBM forecast (đã có MC
+validation nghiêm hơn); Smart Farmers/Ore Money (econometrics
+USDA/quặng — không data VN).
+
+**Khảo sát nautechsystems/nautilus_trader (2026-07-14): KHÔNG dùng
 framework — CẢ 3 MÓN ĐÃ TRIỂN KHAI cùng ngày (xem mục 💸 Phí + ⚖️ Sizing
 bên dưới).** Engine
 trading production-grade lớn nhất từng khảo sát (~2.530 file Rust +
