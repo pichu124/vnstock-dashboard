@@ -96,6 +96,24 @@ def test_scorecard_empty_and_cache_roundtrip(_fake_env, capsys):
     assert card and "momentum" in card["presets"]
 
 
+def test_stitch_units_fixes_per_bar_normalization_artifact():
+    # Mã penny quanh 500 VND: _normalize_prices chia 1000 cho TỪNG bar > 500
+    # → [480, 0.51, 495, 0.52] = return giả ±96,959% (thấy thật 15/07:
+    # oversold "excess +42.73%/5 phiên"). Stitch phải đưa cả chuỗi về CÙNG
+    # thang → return lại là vài % thật.
+    raw = [("2026-07-01", 480.0), ("2026-07-02", 0.51),
+           ("2026-07-03", 495.0), ("2026-07-04", 0.52)]
+    fixed = stk_vals = [v for _, v in ps._stitch_units(raw)]
+    ratios = [stk_vals[i + 1] / stk_vals[i] for i in range(3)]
+    assert all(0.9 < r < 1.1 for r in ratios), ratios
+    # chuỗi blue-chip đơn vị nhất quán → giữ nguyên
+    ok = [("2026-07-01", 25.0), ("2026-07-02", 25.8)]
+    assert ps._stitch_units(ok) == ok
+    # fwd return trên chuỗi đã stitch phải nhỏ (không còn outlier nghìn %)
+    r = ps._fwd_return(ps._stitch_units(raw), "2026-07-01", 3)
+    assert r is not None and abs(r) < 15
+
+
 def test_ticker_without_data_skipped(_fake_env):
     _write_snap(_fake_env, "2026-07-05", {"momentum": ["AAA", "XXX"]})
     card = ps.preset_scorecard(horizons=(5,), days=30)

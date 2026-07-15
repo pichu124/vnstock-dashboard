@@ -37,8 +37,33 @@ _DEFAULT_HORIZONS = (5, 20)
 _MAX_TICKER_DAYS = 160        # đủ cho horizon 20 + history 30 ngày + đệm
 
 
+def _stitch_units(closes: list[tuple[str, float]]) -> list[tuple[str, float]]:
+    """Vá artifact chuẩn hóa đơn vị PER-BAR cho mã penny quanh mốc 500 VND:
+    `_normalize_prices` chia 1000 cho TỪNG bar > 500 → chuỗi [480, 0.51,
+    495, 0.52] sinh return giả ±×1000 (thấy thật 15/07: oversold "excess
+    +42.73%/5 phiên" toàn do outlier +96,959% giả). Return bất biến thang
+    đo — chỉ cần cả chuỗi CÙNG thang: dò bước nhảy ×≥200 (trần sàn 15%/phiên
+    không bao giờ chạm) và rescale phần sau về thang của phần trước."""
+    out: list[tuple[str, float]] = []
+    factor = 1.0
+    prev = None
+    for d, c in closes:
+        v = c * factor
+        if prev is not None and prev > 0 and v > 0:
+            if v / prev > 200:
+                factor /= 1000.0
+                v = c * factor
+            elif v / prev < 0.005:
+                factor *= 1000.0
+                v = c * factor
+        out.append((d, v))
+        prev = v
+    return out
+
+
 def _close_series(ticker: str, cache: dict) -> list[tuple[str, float]]:
-    """[(iso_date, close), …] tăng dần — đọc parquet trực tiếp, cache per-run."""
+    """[(iso_date, close), …] tăng dần, đơn vị ĐÃ nhất quán — đọc parquet
+    trực tiếp, cache per-run."""
     if ticker in cache:
         return cache[ticker]
     from vnstock_strategy import _load_history_from_parquet
@@ -56,7 +81,7 @@ def _close_series(ticker: str, cache: dict) -> list[tuple[str, float]]:
                     out.append((d, c))
     except Exception:
         out = []
-    out = sorted(out)
+    out = _stitch_units(sorted(out))
     cache[ticker] = out
     return out
 

@@ -1474,6 +1474,16 @@ KHÔNG chấm non; mã thiếu giá bỏ qua. CLI `--show [--horizons 5,20]
 atomic). KHÔNG vào run.py/pipeline — công cụ phân tích user gọi tay;
 lưu ý mẫu 30 ngày = XẾP HẠNG tương đối giữa preset, chưa kết luận được
 tuyệt đối. UI/screener_tab để dành khi cần.
+**`_stitch_units` (vá ngay lần chạy đầu 15/07)**: run đầu ra "oversold
+excess +42.73%/5 phiên" — artifact của `_normalize_prices` chuẩn hóa
+PER-BAR (bar > 500 chia 1000): mã penny quanh mốc 500 VND cho chuỗi
+[480, 0.51, 495, 0.52] → return giả ±96,959% đầu độc mean. Return bất
+biến thang đo → stitch dò bước nhảy ×≥200 (trần sàn 15%/phiên không bao
+giờ chạm) và ép cả chuỗi về CÙNG thang. **TODO ngầm đáng nhớ**: artifact
+này tồn tại ở MỌI chỗ tính return qua `_normalize_prices`/`_load_history`
+với mã < ~500-1,000 VND (backtest/emit trên penny, chg5 screener?) —
+scorecard đã tự vệ; nếu thấy số penny quái ở chỗ khác thì nghĩ ngay đến
+per-bar normalization.
 
 **Món 2 — `vnstock_strategy.apply_selection_penalty(metrics, n_trials)`**:
 Bonferroni cho winner-of-N — cả 3 vòng thi (`_cold_start`/`_do_revise`/
