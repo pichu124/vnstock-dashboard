@@ -3072,6 +3072,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_nn_window_label(fixed, ctx)       # 1D NN total ≠ weekly
     fixed = enforce_risk_numbers(fixed, ctx)          # defensive no-op on canonical
     fixed = enforce_pivot_labels(fixed, ctx)
+    fixed = enforce_sr_direction(fixed, ctx)          # S phải < close, R phải > close
     fixed = enforce_scenario_levels(fixed, ctx)       # scenario levels = real data only
     fixed = enforce_watchlist_eligibility(fixed, ctx)
     fixed = enforce_buy_vs_bias_caveat(fixed, ctx)    # GIẢM + BUY recs → caveat (keep, contextualize)
@@ -4078,22 +4079,36 @@ def enforce_sector_nn_figures(text: str, ctx: dict) -> str:
             if s.get("Ngành") and isinstance(s.get("NN 1T (tỷ)"), (int, float))]
     if not text or not rows:
         return text
+    all_names = {nm for nm, _ in rows}
     out = text
     for nm, vv in rows:
-        def _fix(m: "_re.Match", _vv=vv) -> str:
+        def _fix(m: "_re.Match", _vv=vv, _nm=nm) -> str:
             cur = _parse_vn_number(m.group(2))
             if cur is None or abs(cur - _vv) <= max(1.0, 0.02 * abs(_vv)):
                 return m.group(0)
+            # Số này thuộc NGÀNH KHÁC nếu ngay sau nó gắn "trong ngành <other>"
+            # (close 15/07: "…Họ VIN (1 tuần), trong khi bán ròng 703 tỷ đồng
+            # trong ngành Ngân hàng" — pass Họ VIN nuốt số 703 của Ngân hàng
+            # rồi pin thành +1,496). Đừng đụng nếu attribution ngay sau là ngành
+            # khác nm.
+            tail = m.string[m.end():m.end() + 44]
+            tm = _re.match(r"\s*(?:đồng\s*)?trong\s+ngành\s+(.+)",
+                           tail, _re.IGNORECASE)
+            if tm:
+                trailing = tm.group(1).strip().lower()
+                if any(trailing.startswith(o.lower()) and o.lower() != _nm.lower()
+                       for o in all_names):
+                    return m.group(0)
             return f"{m.group(1)}{_vv:+,.0f}{m.group(3)}"
         # Số cho phép dấu "+" — close 14/07: "Ngân hàng bị bán ròng +1,471 tỷ"
         # (magnitude của ngành KHÁC gắn nhầm + sign dương) trượt vì pattern cũ
         # chỉ nhận "-?". Gap tên→verb KHÔNG được vượt ranh giới mệnh đề: cấm
-        # ".<space>" (hết câu — dấu chấm THẬP PHÂN "-0.03pp" vẫn qua) và token
-        # "tỷ" (số+đơn vị đã chốt = mệnh đề ngành TRƯỚC đó) — không thì pass
-        # của ngành A với sang số của ngành B đứng sau ("Họ VIN +1,471 tỷ.
-        # Ngân hàng bị bán ròng…" — pass Họ VIN phá ngược số Ngân hàng vừa pin).
+        # ".<space>" (hết câu — dấu chấm THẬP PHÂN "-0.03pp" vẫn qua), token
+        # "tỷ" (số+đơn vị đã chốt = mệnh đề ngành TRƯỚC đó) VÀ connector "trong
+        # khi" (nối 2 vế dòng-tiền — close 15/07: pass Họ VIN vượt "…, trong
+        # khi bán ròng…" sang số của Ngân hàng, pin nhầm thành +1,496).
         out = _re.sub(
-            rf"({_re.escape(nm)}(?:(?!\.\s|tỷ\b)[^;\n]){{0,40}}?"
+            rf"({_re.escape(nm)}(?:(?!\.\s|tỷ\b|trong\s+khi)[^;\n]){{0,40}}?"
             rf"(?:NN|khối\s+ngoại)?\s*(?:bán|mua)\s+ròng\s*)"
             rf"([-+]?\d[\d.,]*)(\s*tỷ)",
             _fix, out)
@@ -4538,6 +4553,50 @@ def enforce_pivot_labels(text: str, ctx: dict) -> str:
         if v is None or parsed is None or not (800 <= parsed <= 2500):
             return m.group(0)                 # not an index-level token → leave it
         return f"{label}={v:,.2f}"
+
+    return _PIVOT_LABEL_RE.sub(_sub, text)
+
+
+def enforce_sr_direction(text: str, ctx: dict) -> str:
+    """Sanity CHIỀU cho mức S/R: hỗ trợ (S1/S2) phải NẰM DƯỚI giá đóng cửa,
+    kháng cự (R1/R2) phải NẰM TRÊN. Token sai chiều → pin về mức KNOWN hợp lệ
+    gần nhất của ctx (không bịa mức mới).
+
+    Close 15/07: setup "thủng S1=1,445.64 → mục tiêu S2=1,782.12" — S2=1,782.12
+    ĐÚNG BẰNG giá đóng cửa (hỗ trợ = giá hiện tại, vô nghĩa). Gốc: support_1/
+    support_2 trong ctx = None (giá ở đáy range, không có swing-low actionable)
+    nên enforce_pivot_labels bỏ qua (canon rỗng) và LLM để lại số bịa. Guard
+    này chạy SAU pivot_labels: chỉ đụng token SAI CHIỀU (S ≥ close hoặc R ≤
+    close) trong dải chỉ số 800-2500, pin về mức known đúng phía gần nhất
+    (close/MA/support/resistance/tuần/tháng/52w). Idempotent (pin xong đúng
+    chiều → không tái kích). No-op khi thiếu close / không có mức known đúng phía.
+    """
+    vt = ctx.get("vnindex_tech") or {}
+    close = vt.get("close")
+    if not text or not isinstance(close, (int, float)):
+        return text
+    known = [vt.get(k) for k in (
+        "ma20", "ma50", "ma200", "support_1", "support_2",
+        "resistance_1", "resistance_2", "week_high", "week_low",
+        "month_high", "month_low", "high_52w", "low_52w")]
+    known = [k for k in known if isinstance(k, (int, float)) and 800 <= k <= 2500]
+    below = [k for k in known if k < close]      # ứng viên hỗ trợ (dưới giá)
+    above = [k for k in known if k > close]      # ứng viên kháng cự (trên giá)
+
+    def _sub(m: "_re.Match") -> str:
+        label, num = m.group(1), m.group(2)
+        v = _parse_vn_number(num)
+        if v is None or not (800 <= v <= 2500):
+            return m.group(0)
+        is_support = label.startswith("S")
+        wrong = (is_support and v >= close) or ((not is_support) and v <= close)
+        if not wrong:
+            return m.group(0)
+        cands = below if is_support else above
+        if not cands:
+            return m.group(0)                    # không có mức đúng phía để pin
+        nk = min(cands, key=lambda k: abs(k - v))
+        return f"{label}={nk:,.2f}"
 
     return _PIVOT_LABEL_RE.sub(_sub, text)
 
@@ -5261,6 +5320,27 @@ def enforce_gtgd_baseline_pct(text: str, ctx: dict) -> str:
     out = _re.sub(
         r"([+-]\d[\d.,]*)(\s*%\s+)((?:TB|trung bình|phiên trước)[^,).\n]{0,12})",
         _fix4, out)
+
+    # Form 5 (bare-direction): "(cao hơn|thấp hơn) (trung bình N phiên|phiên
+    # trước)" KHÔNG kèm %. Close 15/07: "GTGD 16,523.1 tỷ, cao hơn trung bình 5
+    # phiên gần nhất" — mệnh đề định tính không số, không guard nào đối chiếu
+    # chiều với F vs baseline. Lật từ cho khớp dấu(F/base−1); gate |p|>1% tránh
+    # nhiễu quanh mốc bằng; idempotent (khớp → no-op); bỏ mệnh đề "sáng".
+    def _fix5(m: "_re.Match") -> str:
+        bv = _base_v(m.group(3).lower())
+        if not bv:
+            return m.group(0)
+        p = (F / bv - 1) * 100
+        if abs(p) <= 1:
+            return m.group(0)
+        want = "cao hơn" if p > 0 else "thấp hơn"
+        if want == m.group(1).lower():
+            return m.group(0)
+        return want + m.group(2) + m.group(3)
+    out = _re.sub(
+        r"(cao hơn|thấp hơn)(\s+)((?:trung bình|TB)\s*\d+\s*phiên(?:\s*gần nhất)?"
+        r"|phiên trước(?:\s*đó)?)",
+        _fix5, out, flags=_re.IGNORECASE)
     return out
 
 
@@ -5496,10 +5576,31 @@ def enforce_vnindex_change(text: str, ctx: dict) -> str:
             return m.group(0)
         return repl + m.group(1)
 
-    return _re.sub(
+    out = _re.sub(
         r"(?:tăng|giảm)\s*[+-]?\d[\d.,]*\s*%(\s*so với\s*"
         r"(?:phiên trước(?:\s*đó)?|hôm qua|phiên hôm qua))",
         _fix, text, flags=_re.IGNORECASE)
+
+    # Nhánh 2 — "(tăng|giảm) X%" KHÔNG kèm hậu tố "so với…" (close 15/07:
+    # "VNINDEX đóng cửa giảm 1.36% / GTGD…" và "VNINDEX giảm 1.36% với GTGD…"
+    # — bar VNINDEX phẳng → day_change_pct=0.00 mà model bịa "giảm 1.36%",
+    # mâu thuẫn mục kỹ thuật "+0.00%"). CHỈ đụng khi CHỦ NGỮ neo là chỉ số
+    # (vnindex / chỉ số / kết quả phiên trong ~35 ký tự trước) và KHÔNG phải
+    # GTGD/thanh khoản. dc≈0 → "gần như đi ngang (0.00%)" cho tự nhiên.
+    _SUBJ_IDX = ("vnindex", "chỉ số", "kết quả phiên")
+    flat = abs(dc) < 0.005
+    repl2 = "gần như đi ngang (0.00%)" if flat else repl
+
+    def _fix2(m: "_re.Match") -> str:
+        before = text[max(0, m.start() - 35):m.start()].lower()
+        if any(k in before for k in _SUBJ_SKIP):
+            return m.group(0)
+        if not any(k in before for k in _SUBJ_IDX):
+            return m.group(0)
+        return repl2
+
+    return _re.sub(r"(?:tăng|giảm)\s*[+-]?\d[\d.,]*\s*%", _fix2, out,
+                   flags=_re.IGNORECASE)
 
 
 def enforce_session_direction(text: str, ctx: dict) -> str:

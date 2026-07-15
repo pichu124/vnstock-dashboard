@@ -1752,6 +1752,58 @@ CÙNG NGÀY "làm luôn" → ĐÃ LÀM (xem mục 🧬); Risk rules
 order book emulation L2/L3 + Diagram visual programming + Algo.Gpu +
 Storages binary + Export Excel — không có data/use-case tương ứng.
 
+### 🔬 Review phản biện chéo close brief 15/07 (DONE 2026-07-15 tối — workflow 7-cụm × verify, user "làm cho tôi đi") — 5 guard gap vá
+
+Close brief thật phiên 15/07 (bản đầu sau đợt vá guard 14/07) → chạy
+workflow đa-agent (7 agent triage 1 cụm/agent đối chiếu code guard THẬT +
+vòng phản biện xác nhận từng gap bằng cách import vnstock_brief và CHẠY
+guard trên đúng chuỗi text). 15 finding: 8 CONFIRMED_GAP (đều sống sót
+verify, tái hiện trên code hiện tại — KHÔNG phải stale deploy), 2
+DATA_ISSUE, 5 NOT_A_BUG. Gom thành **5 fix** (test
+`tests/test_close_1507_review.py` 15 test, vào `--fast`):
+1. **`enforce_sector_nn_figures` vượt ranh giới mệnh đề** (REGRESSION thật):
+   pass ngành A nuốt số của ngành B qua connector ", trong khi" → pin nhầm
+   ("bán ròng 703 tỷ … Ngân hàng" → "+1,496" = số Họ VIN). Fix: (a) thêm
+   `trong\s+khi` vào negative-lookahead của gap tên→verb; (b) backstop:
+   nếu ngay sau số có "trong ngành <ngành-khác>" thì bỏ qua (số của ngành
+   đứng sau). Sau fix, số giữ 703 → net_flow_label bỏ được dấu "+" (trước
+   đó +1,496 ≠ |703| nên net_flow trượt → dấu + sống).
+2. **`enforce_vnindex_change` bỏ lọt "% không hậu tố so-với"**: bar VNINDEX
+   phẳng (day_change=0.00, bar 15/07 chưa về) → model bịa "VNINDEX đóng cửa
+   giảm 1.36%" mâu thuẫn mục kỹ thuật "+0.00%". Nhánh 1 cũ BẮT BUỘC "so với
+   phiên trước/hôm qua" nên trượt. Fix: nhánh 2 pin "(tăng|giảm) X%" KHÔNG
+   cần hậu tố, gate CHỦ NGỮ index (vnindex/chỉ số/kết quả phiên trong ~35
+   ký tự trước) + loại GTGD/thanh khoản (_SUBJ_SKIP); dc≈0 → "gần như đi
+   ngang (0.00%)". (day_change=0.00 gốc là DATA_ISSUE — bar EOD trễ 1-2
+   phiên, doctor đã dung sai; guard chỉ ép brief NHẤT QUÁN với data.)
+3. **`enforce_gtgd_baseline_pct` Form 5 (bare-direction)**: "GTGD 16,523.1
+   tỷ, cao hơn trung bình 5 phiên" — mệnh đề so sánh ĐỊNH TÍNH không %, không
+   guard nào đối chiếu chiều. Fix: pass bắt "(cao hơn|thấp hơn) (TB N phiên|
+   phiên trước)" không %, lật từ theo dấu(F/base−1) từ full_day_gtgd_cmp;
+   gate |p|>1%; close-only; idempotent; no-op khi đúng.
+4. **`enforce_sr_direction` (guard MỚI, sau enforce_pivot_labels)**: hỗ trợ
+   S1/S2 phải < close, kháng cự R1/R2 phải > close. Close 15/07: "S2=1,782.12"
+   = ĐÚNG giá đóng cửa (support = giá hiện tại, vô nghĩa) vì support_1/2 của
+   ctx = None (giá ở đáy range, không swing-low actionable) nên pivot_labels
+   bỏ qua. Fix: token SAI CHIỀU trong dải chỉ số 800-2500 → pin về mức KNOWN
+   đúng phía gần nhất (close/MA/tuần/tháng/52w). Không đụng giá cổ phiếu
+   (ngoài dải) / token đúng chiều; idempotent. **Residual đã biết** (không
+   vá — role-ordering fragile): S1=1,445.64 (=low_52w) hợp CHIỀU nhưng xa
+   ~19%, giữ nguyên → "thủng S1=1445 → S2=1775" vẫn hơi ngược vai; chấp nhận
+   vì S1 là mức THẬT, đã hết cái "= close" gây xấu hổ.
+5. **Caveat BUY-vs-bias ở TELEGRAM** (không phải guard body): lệnh mở
+   ("Khuyến nghị đang mở (5 mã)" toàn BUY) được `_open_recs_block` append
+   NGOÀI apply_brief_guards → guard #27 enforce_buy_vs_bias_caveat không với
+   tới. Fix: `vnstock_telegram._open_recs_block` gắn `_BUY_BIAS_CAVEAT`
+   (import từ vnstock_brief) khi ≥1 lệnh BUY VÀ `_market_is_bearish()`
+   (=_bias_floor_dir GIẢM: regime ≤ -3 hoặc momentum ≤ -50). Gắn cảnh báo
+   KHÔNG lọc (mirror guard #27). Áp cả morning & close (đều dùng
+   _open_recs_block).
+**NOT_A_BUG đã bác (không sửa)**: lead/lag "Chưa có nhóm dẫn dắt" + "Họ VIN
+-1.369pp" — guard SẼ sửa nếu ctx có data; brief giữ vì thật sự không ngành
+nào ≥0.05pp (ngày giảm diện rộng) và -1.369pp là contrib THẬT (guard đã pin
+nếu lệch). Watchlist "canh MUA NẾU vượt" conditional bias-aware = đúng.
+
 ### 🕯 Mẫu nến + CHOP + ConnorsRSI + profit/recovery factor (DONE 2026-07-15 — 3 món StockSharp + Statistics, user "làm cả 3 món + ý Statistics")
 
 Cả 4 mảnh deterministic thuần, zero LLM/fetch; tests

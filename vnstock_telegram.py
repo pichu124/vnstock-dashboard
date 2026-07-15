@@ -282,9 +282,47 @@ def _open_recs_block() -> str:
                 f" → TP {tp_pct:+.1f}% | SL {sl_pct:+.1f}%"
                 f" | ngày {age}/{horizon}{overdue}"
             )
+        # Cảnh báo BUY dưới bối cảnh GIẢM (mirror guard #27 enforce_buy_vs_bias
+        # _caveat, NHƯNG lệnh mở được append Ở ĐÂY — telegram-side, NGOÀI
+        # apply_brief_guards — nên guard body không với tới; đặt caveat đúng
+        # chỗ lệnh hiện. Gắn cảnh báo, KHÔNG lọc (lệnh có SL = rủi ro xác định).
+        if _has_buy_under_bear(opens):
+            from vnstock_brief import _BUY_BIAS_CAVEAT
+            lines.append(_BUY_BIAS_CAVEAT)
         return "\n".join(lines)
     except Exception as e:
         return f"📋 Khuyến nghị: lỗi ({e})"
+
+
+def _market_is_bearish() -> bool:
+    """Bối cảnh GIẢM theo đúng luật bias floor (_bias_floor_dir): regime score
+    ≤ -3 HOẶC momentum tâm lý ≤ -50. Best-effort — thiếu tín hiệu → False."""
+    momentum = regime_score = None
+    try:
+        from vnstock_market_sentiment import load_market_sentiment
+        ms = load_market_sentiment()
+        if ms and ms.get("momentum") is not None:
+            momentum = int(ms["momentum"])
+    except Exception:
+        pass
+    try:
+        from vnstock_regime import load_regime
+        r = load_regime()
+        if r and r.get("score") is not None:
+            regime_score = int(r["score"])
+    except Exception:
+        pass
+    try:
+        from vnstock_brief import _bias_floor_dir
+        return _bias_floor_dir(momentum, regime_score) == "GIẢM"
+    except Exception:
+        return False
+
+
+def _has_buy_under_bear(opens: list) -> bool:
+    """≥1 lệnh mở action=BUY VÀ thị trường đang GIẢM."""
+    has_buy = any(str(r.get("action", "")).upper() == "BUY" for r in opens)
+    return bool(has_buy and _market_is_bearish())
 
 
 def _closed_today_block() -> str:
