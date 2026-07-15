@@ -171,3 +171,56 @@ def test_sizing_explicit_args_override_config(_tmp_sizing):
     # không có file config nhưng truyền thẳng NAV/risk vẫn tính được
     s = vs.suggest_position_size(25.0, 24.0, nav_million=500, risk_pct=1.0)
     assert s and s["qty"] == 4500
+
+
+# ── Cap thanh khoản (zipline VolumeShareSlippage, khảo sát 15/07) ────────────
+
+
+def test_sizing_liquidity_cap(_tmp_sizing):
+    vs.save_sizing_config(nav_million=500, risk_pct=1.0)
+    # không cap: 4500 cp; ADV 20.000 cp → cap 10% = 2.000 cp
+    s = vs.suggest_position_size(25.0, 24.0, adv_shares=20_000)
+    assert s["qty"] == 2000 and s["capped_adv"] is True
+    # ADV dồi dào → không đụng
+    s = vs.suggest_position_size(25.0, 24.0, adv_shares=1_000_000)
+    assert s["qty"] == 4500 and s["capped_adv"] is False
+    # ADV rác/None/0 → bỏ qua cap, không nổ
+    for adv in (None, 0, "rác", float("nan")):
+        s = vs.suggest_position_size(25.0, 24.0, adv_shares=adv)
+        assert s and s["qty"] == 4500 and s["capped_adv"] is False
+    # mã quá mỏng → cap dưới 1 lô → None (không gợi ý 0 cp)
+    assert vs.suggest_position_size(25.0, 24.0, adv_shares=500) is None
+
+
+def test_sizing_max_adv_pct_configurable(_tmp_sizing):
+    vs.save_sizing_config(nav_million=500, risk_pct=1.0, max_adv_pct=25)
+    s = vs.suggest_position_size(25.0, 24.0, adv_shares=10_000)
+    assert s["qty"] == 2500 and s["capped_adv"] is True
+    assert vs.load_sizing_config()["max_adv_pct"] == 25.0
+
+
+# ── SL trailing gợi ý (Lean TrailingStopRiskManagementModel, 15/07) ──────────
+
+
+def test_trailing_stop_hint_rises_with_peak():
+    # entry 25, SL 24; giá chạy lên đỉnh 27 → trail = 27×0.95 = 25.65 > SL gốc
+    assert vs.trailing_stop_hint(24.0, [25.0, 26.0, 27.0, 26.5]) == \
+        pytest.approx(25.65)
+    # đỉnh quyết định, không phải close cuối
+    assert vs.trailing_stop_hint(24.0, [27.0, 25.0]) == pytest.approx(25.65)
+
+
+def test_trailing_stop_hint_silent_when_not_meaningful():
+    # trail dưới/ngang SL gốc (+0.5% biên) → None, khỏi gợi ý hạ SL
+    assert vs.trailing_stop_hint(24.0, [25.0, 25.2]) is None   # 25.2×0.95=23.94
+    assert vs.trailing_stop_hint(24.0, [25.3]) is None         # 24.035 ≤ 24×1.005
+    # rỗng / giá rác / SL rác → None, không nổ
+    assert vs.trailing_stop_hint(24.0, []) is None
+    assert vs.trailing_stop_hint(24.0, [0, None]) is None
+    assert vs.trailing_stop_hint("x", [25.0]) is None
+
+
+def test_trailing_stop_hint_custom_pct():
+    # trail_pct 3% bám sát hơn: 27×0.97 = 26.19
+    assert vs.trailing_stop_hint(24.0, [27.0], trail_pct=3.0) == \
+        pytest.approx(26.19)

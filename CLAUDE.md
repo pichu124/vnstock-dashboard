@@ -936,8 +936,10 @@ băng, macro-anchor hijack).
    (📰/🌐/📚/🧭) render OK; panel AI Brief có caption "🎯 Stance ngày
    mai: đúng X/Y…" (logic đã verify qua CLI 15/07 — 2/7 điểm chấm, chỉ
    còn xem UI hiện đúng); khi có rec mở mới → bảng Open recommendations
-   phải có cột "KL gợi ý" + "Giá HT"/"L/L tạm" (MTM 15/07, CHƯA nhìn
-   thấy thật vì chưa có rec mở) + brief gắn "KL gợi ý ~N cp".
+   phải có cột "KL gợi ý" + "Giá HT"/"L/L tạm" + "SL trailing" (MTM +
+   trailing 15/07, CHƯA nhìn thấy thật vì chưa có rec mở; mã mỏng phải
+   hiện "(cap TK)" ở KL gợi ý) + brief gắn "KL gợi ý ~N cp"; expander ⚖️
+   nay 4 ô (thêm "Cap thanh khoản (% ADV20)").
 4. **Passive — tự đến, chỉ để ý**: scorecard allocation kỳ đầu ~đầu
    tháng 9 (đủ 2 tháng history) · decay 🔻 + log "[reconcile] … DECAYED"
    nếu chiến lược nào tụt thật · OpenRouter `qwen/qwen3-235b-a22b:free`
@@ -1430,8 +1432,9 @@ số: win-rate live tính trên MỌI rec đóng của strategy_id đó (không 
 sổ thời gian) — đủ dùng ở n nhỏ; nếu sau này rec tích lũy hàng trăm thì
 cân nhắc cửa sổ 30-60 rec gần nhất.
 
-**Khảo sát QuantConnect/Lean (2026-07-15): KHÔNG dùng — ĐỂ DÀNH 1 món
-trailing-stop hint.** Engine C# khổng lồ (~6,200 file, 500MB — lớn nhất
+**Khảo sát QuantConnect/Lean (2026-07-15): KHÔNG dùng — món trailing-stop
+hint ĐÃ TRIỂN KHAI cùng ngày (xem mục 💧📈 bên dưới).** Engine C# khổng lồ
+(~6,200 file, 500MB — lớn nhất
 từng khảo sát) cho backtest/live execution đa sàn, đang được bảo trì
 tích cực. Không dùng vì: (1) C# + live-execution platform — mình là
 Python dashboard hỗ trợ quyết định, không đặt lệnh; (2) không có
@@ -1453,8 +1456,9 @@ KHÔNG đổi convention reconciler (vẫn chấm theo SL gốc); chỉ gợi ý
 thị. Bộ Risk models còn lại (MaxDrawdownPortfolio/MaxSectorExposure/
 MaxUnrealizedProfit=chốt lời trần) ghi nhận để dành cùng chỗ.
 
-**Khảo sát quantopian/zipline (2026-07-15): KHÔNG dùng — ĐỂ DÀNH 1 món
-liquidity-cap cho sizing.** Backtester event-driven kinh điển của
+**Khảo sát quantopian/zipline (2026-07-15): KHÔNG dùng — món liquidity-cap
+ĐÃ TRIỂN KHAI cùng ngày (xem mục 💧📈 bên dưới).** Backtester event-driven
+kinh điển của
 Quantopian nhưng repo GỐC ĐÃ CHẾT (commit cuối 10/2020, Python 3.5-3.6
 era, C-ext bcolz; bản sống là zipline-reloaded của CHÍNH Stefan Jansen —
 trùng tác giả ML4T vừa khảo sát). Không dùng vì: abandoned + không
@@ -1469,6 +1473,31 @@ theo THANH KHOẢN** — NAV lớn + mã mỏng → gợi ý khối lượng vư
 qty ≤ ~10% ADV20 (vol20 sẵn trong kho), ghi rõ lý do cap trong output.
 Để dành: price impact bậc hai cho backtest — chỉ có nghĩa khi backtest
 mô phỏng SIZE lệnh (hiện per-trade %, không qty).
+
+### 💧 Cap thanh khoản sizing + 📈 SL trailing gợi ý (DONE 2026-07-15 — 2 món zipline + Lean, user "làm cả 2")
+
+Cả 2 deterministic thuần, display-only, zero LLM/fetch; tests bổ sung vào
+`tests/test_costs_sizing.py` (18 tests) — đã trong `--fast`.
+
+**Món 1 — cap thanh khoản** (`vnstock_strategy.suggest_position_size`,
+mirror `VolumeShareSlippage` của zipline): tham số mới `adv_shares` (KLGD
+TB 20 phiên) → qty ≤ `max_adv_pct` (mặc định 10%, config
+`_meta/sizing_config.json` — user chỉnh trong expander ⚖️, cột 4) × ADV;
+cap kích hoạt → flag `capped_adv` → bảng hiện "(cap TK)" (phân biệt với
+"(cap)" = cap %NAV). ADV rác/thiếu → bỏ qua cap (không nổ); mã quá mỏng
+cap dưới 1 lô → None (không gợi ý 0 cp). Dashboard: `_mtm(row)` trong
+market_tab nay load `days=35` và trả thêm ADV20 (`h["volume"].tail(20)
+.mean()`) → `_adv_by_ticker` → truyền vào `_sps`.
+
+**Món 2 — SL trailing gợi ý** (`vnstock_strategy.trailing_stop_hint(sl,
+closes_since_entry, trail_pct=5.0)`, mirror `TrailingStopRiskManagementModel`
+của Lean): đỉnh close KỂ TỪ NGÀY MỞ REC × (1 − 5%) — nâng SL theo đà lãi
+để khóa lợi nhuận. CHỈ trả giá trị khi vượt SL gốc > +0.5% (chưa có lãi
+đáng kể → None, khỏi gợi ý "hạ SL"); rec SELL không áp dụng. Cột mới
+"SL trailing" trong bảng Open recommendations (— khi chưa kích hoạt).
+**KHÔNG đổi convention reconciler — hệ VẪN chấm theo SL gốc trong DB**
+(mirror nguyên tắc display-only của KL gợi ý/MTM); closes lọc theo
+`h["time"] >= created_at[:10]` nên rec mở hôm nay chỉ thấy bar hôm nay.
 
 **Khảo sát stefan-jansen/machine-learning-for-trading (2026-07-15): KHÔNG
 tích hợp trực tiếp — CẢ 2 MÓN ĐÃ TRIỂN KHAI cùng ngày (xem mục 📋 Preset

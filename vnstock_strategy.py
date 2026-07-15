@@ -776,7 +776,7 @@ def check_strategy_decay(apply: bool = True) -> "dict | None":
 _SIZING_CONFIG = Path("data_warehouse/_meta/sizing_config.json")
 _LOT_SIZE = 100
 _SIZING_DEFAULTS = {"nav_million": None, "risk_pct": 1.0,
-                    "max_position_pct": 25.0}
+                    "max_position_pct": 25.0, "max_adv_pct": 10.0}
 
 
 def load_sizing_config() -> dict:
@@ -796,7 +796,7 @@ def load_sizing_config() -> dict:
 
 
 def save_sizing_config(nav_million=None, risk_pct=None,
-                       max_position_pct=None) -> dict:
+                       max_position_pct=None, max_adv_pct=None) -> dict:
     """Ghi config sizing (atomic tmp+replace, mirror allocation_state).
     Chỉ field truyền vào được đổi; trả config sau khi ghi."""
     cfg = load_sizing_config()
@@ -806,6 +806,8 @@ def save_sizing_config(nav_million=None, risk_pct=None,
         cfg["risk_pct"] = float(risk_pct)
     if max_position_pct is not None and float(max_position_pct) > 0:
         cfg["max_position_pct"] = float(max_position_pct)
+    if max_adv_pct is not None and float(max_adv_pct) > 0:
+        cfg["max_adv_pct"] = float(max_adv_pct)
     _SIZING_CONFIG.parent.mkdir(parents=True, exist_ok=True)
     tmp = _SIZING_CONFIG.with_suffix(".tmp")
     tmp.write_text(json.dumps(cfg, ensure_ascii=False, indent=2),
@@ -815,10 +817,16 @@ def save_sizing_config(nav_million=None, risk_pct=None,
 
 
 def suggest_position_size(entry: float, sl: float, nav_million=None,
-                          risk_pct=None) -> "dict | None":
+                          risk_pct=None,
+                          adv_shares: "float | None" = None) -> "dict | None":
     """Khối lượng gợi ý theo rủi ro cố định. Giá vào theo NGHÌN đồng (như
     mọi giá trong hệ). None khi: chưa cấu hình NAV, entry/SL không hợp lệ
-    (SL phải DƯỚI entry — rec là lệnh mua), hoặc qty < 1 lô."""
+    (SL phải DƯỚI entry — rec là lệnh mua), hoặc qty < 1 lô.
+
+    ``adv_shares`` (KLGD trung bình/ngày, cổ phiếu) → CAP THANH KHOẢN
+    (ý tưởng zipline VolumeShareSlippage, khảo sát 15/07): qty ≤
+    ``max_adv_pct`` (10%) × ADV — NAV lớn + mã mỏng mà gợi ý vượt xa khối
+    lượng ngày là con số bất khả thi (tự đẩy giá khi mua thật)."""
     cfg = load_sizing_config()
     nav = float(nav_million) if nav_million else cfg.get("nav_million")
     risk = float(risk_pct) if risk_pct else cfg.get("risk_pct") or 1.0
@@ -846,12 +854,25 @@ def suggest_position_size(entry: float, sl: float, nav_million=None,
         qty = int(max_pos_vnd / (entry * 1000.0))
         capped = True
 
+    # Cap thanh khoản: qty ≤ max_adv_pct × ADV
+    capped_adv = False
+    try:
+        adv = float(adv_shares) if adv_shares else None
+    except (TypeError, ValueError):
+        adv = None
+    if adv and adv > 0:
+        liq_cap = int(adv * (cfg.get("max_adv_pct") or 10.0) / 100.0)
+        if qty > liq_cap:
+            qty = liq_cap
+            capped_adv = True
+
     qty = (qty // _LOT_SIZE) * _LOT_SIZE              # tròn XUỐNG lô 100
     if qty < _LOT_SIZE:
         return None
     return {"qty": qty,
             "value_million": round(qty * entry * 1000.0 / 1e6, 1),
-            "risk_pct": risk, "nav_million": nav, "capped": capped}
+            "risk_pct": risk, "nav_million": nav,
+            "capped": capped, "capped_adv": capped_adv}
 
 
 def unrealized_pnl_pct(entry, last, action: str = "buy") -> "float | None":
@@ -867,6 +888,29 @@ def unrealized_pnl_pct(entry, last, action: str = "buy") -> "float | None":
         return None
     pct = (last / entry - 1) * 100
     return -pct if str(action).lower() == "sell" else pct
+
+
+_TRAIL_PCT_DEFAULT = 5.0
+
+
+def trailing_stop_hint(sl, closes_since_entry,
+                       trail_pct: float = _TRAIL_PCT_DEFAULT) -> "float | None":
+    """SL TRAILING đề xuất cho rec MUA đang mở (mirror
+    TrailingStopRiskManagementModel của QuantConnect/Lean, khảo sát 15/07):
+    đỉnh close kể từ ngày mở × (1 − trail_pct%) — nâng SL theo đà lãi để
+    khóa lợi nhuận. CHỈ trả giá trị khi cao hơn SL gốc một cách có nghĩa
+    (> +0.5%); display-only — reconciler VẪN chấm theo SL gốc trong DB."""
+    try:
+        sl = float(sl)
+        peaks = [float(c) for c in closes_since_entry if c and float(c) > 0]
+    except (TypeError, ValueError):
+        return None
+    if not peaks:
+        return None
+    trail = max(peaks) * (1 - trail_pct / 100.0)
+    if sl > 0 and trail <= sl * 1.005:
+        return None                       # chưa vượt SL gốc đáng kể → khỏi gợi ý
+    return round(trail, 2)
 
 
 # ── Strategy generation via agents ─────────────────────────────────────────
