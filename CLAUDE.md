@@ -1887,6 +1887,44 @@ ticker_label_aliases.jsonl (map tên↔mã cho câu hỏi NLP); portfolio_eval
 harness (validate output agent theo tiêu chí tự khai — hay cho harness
 LLM thuần, mình dùng guard chain); heatmap (UI candy, Streamlit không hợp).
 
+**Nghiên cứu SÂU agent-loop DojoAgents (15/07, user yêu cầu mổ tiếp thay
+vì gạt ngang) — phát hiện chính: BÊN TRONG loop "cognitive" là cả bộ
+xương DETERMINISTIC.** Giải phẫu (loop.py 1.522 dòng quanh strands-agents,
+max_iterations default 100): (1) **ToolCallGuardrailController** tiền/hậu
+kiểm MỌI tool call bằng CODE — block "cùng tool+args fail N lần" (bắt đổi
+strategy), block tool read-only trả cùng kết quả N lần, ép dùng batch API
+thay vì N call đơn; (2) **TaskHarness**: validate_progress(state) →
+{complete, issues, next_steps} → chưa xong thì bơm recovery prompt "còn
+thiếu X" cho chạy tiếp, CAP số lượt recovery; agent tự khai success
+criteria qua tool submit (không keyword-parse); (3) **chống placeholder
+deliverable**: LLM hay trả "file saved at …" thay vì nội dung thật →
+`is_placeholder_task_output` bắt dict chỉ-có-meta/note "saved at"/thiếu
+trường bắt buộc; (4) **ContextCompressor** 2 tầng thuần code trước khi
+LLM-summarize (giữ 3 đầu + 8 cuối, tool result cũ >150 chars → tóm 1 dòng,
+md5-dedup "[Duplicate omitted]"); (5) **SessionTokenState ledger** đếm
+token per loop/session, persist atomic JSON, quyết định khi nào nén;
+(6) **StreamingThinkScrubber** strip `<think>/<reasoning>` streaming.
+⇒ Bài học meta XÁC NHẬN triết lý: framework LLM-loop nặng nhất cũng phải
+chốt mọi chỗ LLM không đáng tin bằng code — guard chain của mình là hậu
+kiểm TEXT, guardrails của họ là tiền/hậu kiểm TOOL CALLS, cùng một tư duy.
+
+**3 món rút ra sau deep-dive (bounded, KHÔNG đem loop về):**
+1. **Retry-1-lượt-kèm-lỗi cho digest** (mirror harness recovery): digest
+   hiện parse fail → rơi bậc thang đổi model, KHÔNG feedback lỗi cho model
+   tự sửa; thêm tối đa +1 call "JSON sai chỗ X / thiếu trường Y" TRƯỚC khi
+   rơi bậc → tăng tỷ lệ đậu trên model free yếu. CHƯA LÀM — chờ user chốt.
+2. **Strip think-tags vào sanitize digest/sentiment** (~5 dòng, phòng xa):
+   ladder free sau này thêm model reasoning (deepseek-r1 style) là
+   `<think>` leak chắc chắn xảy ra; bản mình cần dạng non-streaming đơn
+   giản (regex cặp tag + nuốt tag mồ côi). CHƯA LÀM — chờ user chốt.
+3. **Call/token ledger per provider** — ĐỂ DÀNH (trigger: ladder rơi bậc
+   thường xuyên không rõ lý do / nghi chạm rate-limit Groq-Cerebras): đếm
+   call+token per provider per ngày vào _meta JSON, hiện ở doctor.
+Đã có tương đương, không làm: repeated-failure-block ≈ ladder đổi provider
+mỗi lần fail; placeholder-detection ≈ schema clamp digest + anti-hallucination
+sentinel brief; compression (prompt brief là data block, không phải hội
+thoại tích lũy); turn-intent/multi-agent/planning (không có bề mặt).
+
 **Khảo sát je-suis-tm/quant-trading (2026-07-15): KHÔNG dùng repo —
 CẢ 3 MÓN ĐÃ TRIỂN KHAI cùng ngày (xem mục 🪃 bên dưới).** Bộ sưu tập ~15
 chiến lược quant GIÁO DỤC nổi tiếng (Python single-file, mỗi script =
