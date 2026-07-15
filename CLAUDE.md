@@ -1908,18 +1908,32 @@ token per loop/session, persist atomic JSON, quyết định khi nào nén;
 chốt mọi chỗ LLM không đáng tin bằng code — guard chain của mình là hậu
 kiểm TEXT, guardrails của họ là tiền/hậu kiểm TOOL CALLS, cùng một tư duy.
 
-**3 món rút ra sau deep-dive (bounded, KHÔNG đem loop về):**
-1. **Retry-1-lượt-kèm-lỗi cho digest** (mirror harness recovery): digest
-   hiện parse fail → rơi bậc thang đổi model, KHÔNG feedback lỗi cho model
-   tự sửa; thêm tối đa +1 call "JSON sai chỗ X / thiếu trường Y" TRƯỚC khi
-   rơi bậc → tăng tỷ lệ đậu trên model free yếu. CHƯA LÀM — chờ user chốt.
-2. **Strip think-tags vào sanitize digest/sentiment** (~5 dòng, phòng xa):
-   ladder free sau này thêm model reasoning (deepseek-r1 style) là
-   `<think>` leak chắc chắn xảy ra; bản mình cần dạng non-streaming đơn
-   giản (regex cặp tag + nuốt tag mồ côi). CHƯA LÀM — chờ user chốt.
-3. **Call/token ledger per provider** — ĐỂ DÀNH (trigger: ladder rơi bậc
-   thường xuyên không rõ lý do / nghi chạm rate-limit Groq-Cerebras): đếm
-   call+token per provider per ngày vào _meta JSON, hiện ở doctor.
+**3 món rút ra sau deep-dive — CẢ 3 ĐÃ LÀM cùng ngày (user "làm cả 3
+món luôn"; tests `tests/test_llm_hardening.py` 14 test, vào `--fast`):**
+1. **Retry-1-lượt-kèm-lỗi cho digest** (mirror harness recovery):
+   `digest_call` nay nhận `feedback(raw)->str` — output KHÔNG ĐẠT → cho
+   ĐÚNG NẤC ĐÓ 1 lượt tự sửa kèm lời phê cụ thể (`describe_digest_error`:
+   thiếu khối JSON / JSON đứt tại vị trí X / không phải object) + echo
+   output hỏng (800 ký tự đầu), TRƯỚC khi rơi nấc sau. Chỉ retry 1 LẦN
+   cho CẢ cascade (trần +1 call); provider gắn đuôi "(retry)" trong
+   digest để soi. `feedback=None` (--diag) → hành vi cũ nguyên vẹn.
+2. **`strip_think_tags` (vnstock_sentiment, dùng chung)**: xóa khối
+   `<think>/<thinking>/<reasoning>/<thought>` — CẢ 3 dạng: cặp thẻ đủ,
+   "</think>" MỒ CÔI (provider nuốt thẻ mở — deepseek-r1 style, phần
+   TRƯỚC thẻ đóng là reasoning), thẻ mở không đóng (cạn token — bỏ đuôi).
+   Áp ở `chat_complete` + `_call_provider` (sentiment) + `digest_call`
+   (mọi nấc, TRƯỚC khi accept/parse — think block chứa JSON NHÁP mà không
+   strip là parse_digest vớ nhầm nháp). Chỉ khớp đúng 4 tên thẻ → "P/E
+   <10"/"M&A" không bị đụng.
+3. **`vnstock_llm_ledger.py` — sổ call/token per provider per ngày**:
+   `record()` BEST-EFFORT TUYỆT ĐỐI (không bao giờ raise — sổ chết không
+   được kéo chết call LLM), ghi atomic `_meta/llm_ledger.json`, giữ 30
+   ngày, hiểu cả usage OpenAI-style lẫn Anthropic-style, tự nhận diện
+   rate-limit (429/quota/too many requests). Wire ở sentiment
+   (`_call_provider`, `chat_complete`) + digest (Claude/GPT/free — cả 3
+   đường). CLI `--show [--day]`; doctor `check_llm_ledger` (off khi chưa
+   có sổ; warn khi hôm nay có call bị rate-limit — kèm tên provider chạm
+   trần — hoặc quá nửa call lỗi) → trả lời "vì sao ladder rơi bậc" bằng số.
 Đã có tương đương, không làm: repeated-failure-block ≈ ladder đổi provider
 mỗi lần fail; placeholder-detection ≈ schema clamp digest + anti-hallucination
 sentinel brief; compression (prompt brief là data block, không phải hội

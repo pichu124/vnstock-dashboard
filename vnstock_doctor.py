@@ -291,6 +291,39 @@ def check_pdf_tooling() -> dict:
                    "pip install --force-reinstall pypdf cryptography)")
 
 
+def check_llm_ledger() -> dict:
+    """Sổ call LLM per provider (món 3 deep-dive DojoAgents 15/07) — cảnh
+    báo khi hôm nay có call bị RATE-LIMIT (= lý do ladder rơi bậc âm thầm)
+    hoặc quá nửa call lỗi. off khi sổ chưa tồn tại (tự tích lũy)."""
+    name = "LLM call ledger"
+    p = _META / "llm_ledger.json"
+    if not p.exists():
+        return _result("llm_ledger", name, "off",
+                       "chưa có llm_ledger.json (sổ tự tích lũy khi có call LLM)")
+    data = json.loads(p.read_text(encoding="utf-8"))
+    days = data.get("days") or {}
+    today = date.today().isoformat()
+    day = days.get(today) or {}
+    if not day:
+        last = sorted(days)[-1] if days else "?"
+        return _result("llm_ledger", name, "ok",
+                       f"hôm nay chưa có call nào (ngày gần nhất có sổ: {last})")
+    calls = sum(int(r.get("calls", 0)) for r in day.values())
+    fails = sum(int(r.get("fail", 0)) for r in day.values())
+    limited = sum(int(r.get("rate_limited", 0)) for r in day.values())
+    hot = [k for k, r in day.items() if int(r.get("rate_limited", 0)) > 0]
+    msg = f"hôm nay {calls} call · {fails} lỗi · {limited} rate-limit"
+    if limited > 0:
+        return _result("llm_ledger", name, "warn",
+                       msg + f" — chạm trần: {', '.join(sorted(hot))}",
+                       "đợi trần reset / giảm số call (--max) / để ladder rơi bậc")
+    if calls >= 4 and fails * 2 > calls:
+        return _result("llm_ledger", name, "warn",
+                       msg + " — quá nửa call lỗi (không phải rate-limit)",
+                       "python vnstock_llm_ledger.py --show rồi soi provider lỗi")
+    return _result("llm_ledger", name, "ok", msg)
+
+
 def check_llm_keys() -> dict:
     """Key LLM trong .env: provider chấm sentiment + key agent viết brief."""
     name = "LLM keys (.env)"
@@ -546,7 +579,7 @@ OFFLINE_CHECKS = [
     check_warehouse, check_market_overview, check_fundamentals, check_macro,
     check_pdf_tooling, check_market_news, check_ticker_news,
     check_foreign_flow, check_events, check_reports, check_allocation,
-    check_llm_keys, check_telegram, check_tests,
+    check_llm_keys, check_llm_ledger, check_telegram, check_tests,
 ]
 NET_CHECKS = [
     net_rss_feeds, net_fx, net_vbma, net_nso, net_fred, net_foreign_flow_api,

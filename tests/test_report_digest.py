@@ -118,7 +118,7 @@ def test_cross_check_empty_registry_flags_nothing():
 
 def test_digest_report_end_to_end(monkeypatch):
     rec = _add_report()
-    monkeypatch.setattr(dg, "digest_call", lambda s, u, accept=None: (_RAW_OK, "claude"))
+    monkeypatch.setattr(dg, "digest_call", lambda s, u, accept=None, feedback=None: (_RAW_OK, "claude"))
     monkeypatch.setitem(sys.modules, "vnstock_macro", types.ModuleType("vnstock_macro"))
     sys.modules["vnstock_macro"].load_macro = lambda *a, **k: _MACRO
     d = dg.digest_report(rec)
@@ -127,7 +127,7 @@ def test_digest_report_end_to_end(monkeypatch):
     # prompt chứa metadata nguồn + thân báo cáo
     seen = {}
     monkeypatch.setattr(dg, "digest_call",
-                        lambda s, u, accept=None: seen.update(s=s, u=u) or (_RAW_OK, "x"))
+                        lambda s, u, accept=None, feedback=None: seen.update(s=s, u=u) or (_RAW_OK, "x"))
     dg.digest_report(rec)
     assert rec["source"] in seen["u"] and "Báo cáo chiến lược" in seen["u"]
     assert "sbv_policy_rate" in seen["s"]            # danh sách key registry
@@ -135,7 +135,7 @@ def test_digest_report_end_to_end(monkeypatch):
 
 def test_digest_report_no_provider_returns_none(monkeypatch):
     rec = _add_report()
-    monkeypatch.setattr(dg, "digest_call", lambda s, u, accept=None: (None, ""))
+    monkeypatch.setattr(dg, "digest_call", lambda s, u, accept=None, feedback=None: (None, ""))
     assert dg.digest_report(rec) is None
 
 
@@ -144,7 +144,7 @@ def test_refresh_digests_only_missing_and_redigest_all(monkeypatch):
     _add_report(days_old=4, source="HSC", text=_TEXT + "b")
     calls = []
     monkeypatch.setattr(dg, "digest_call",
-                        lambda s, u, accept=None: calls.append(1) or (_RAW_OK, "claude"))
+                        lambda s, u, accept=None, feedback=None: calls.append(1) or (_RAW_OK, "claude"))
     monkeypatch.setitem(sys.modules, "vnstock_macro", types.ModuleType("vnstock_macro"))
     sys.modules["vnstock_macro"].load_macro = lambda *a, **k: _MACRO
     done = dg.refresh()
@@ -158,7 +158,7 @@ def test_refresh_digests_only_missing_and_redigest_all(monkeypatch):
 
 def test_refresh_skips_reports_not_in_analysis(monkeypatch):
     rp.add_text(_TEXT)                               # thiếu metadata
-    monkeypatch.setattr(dg, "digest_call", lambda s, u, accept=None: (_RAW_OK, "claude"))
+    monkeypatch.setattr(dg, "digest_call", lambda s, u, accept=None, feedback=None: (_RAW_OK, "claude"))
     assert dg.refresh() == []
 
 
@@ -293,7 +293,7 @@ def test_cli_consensus_and_show(monkeypatch, capsys):
 
 def test_cli_refresh(monkeypatch, capsys):
     _add_report(days_old=1, source="SSI")
-    monkeypatch.setattr(dg, "digest_call", lambda s, u, accept=None: (_RAW_OK, "claude"))
+    monkeypatch.setattr(dg, "digest_call", lambda s, u, accept=None, feedback=None: (_RAW_OK, "claude"))
     monkeypatch.setitem(sys.modules, "vnstock_macro", types.ModuleType("vnstock_macro"))
     sys.modules["vnstock_macro"].load_macro = lambda *a, **k: _MACRO
     assert dg.main(["--refresh"]) == 0

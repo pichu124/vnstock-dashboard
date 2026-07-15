@@ -202,6 +202,16 @@ _DIGEST_SYSTEM = (
 )
 
 
+def _ledger(provider: str, model: str, ok: bool,
+            usage: "dict | None" = None, error: "str | None" = None) -> None:
+    """Ghi sổ call LLM (món 3 deep-dive DojoAgents) — best-effort tuyệt đối."""
+    try:
+        from vnstock_llm_ledger import record
+        record(provider, model, ok=ok, usage=usage, error=error)
+    except Exception:
+        pass
+
+
 def _warn_rung(name: str, e: Exception, resp=None) -> None:
     """Có key mà call FAIL là degradation đáng nói (digest rơi xuống 70B free
     — TODO 1b đã ghi 70B yếu) — không được nuốt im lặng. In 1 dòng chẩn đoán
@@ -232,8 +242,10 @@ def _call_claude(system: str, user: str,
                   "messages": [{"role": "user", "content": user}]},
             timeout=90)
         resp.raise_for_status()
+        _ledger("Anthropic", _CLAUDE_MODEL, True, resp.json().get("usage"))
         return resp.json()["content"][0]["text"]
     except Exception as e:
+        _ledger("Anthropic", _CLAUDE_MODEL, False, error=str(e))
         _warn_rung(f"Claude ({_CLAUDE_MODEL})", e, resp)
         return None
 
@@ -256,8 +268,10 @@ def _call_openai(system: str, user: str,
                                {"role": "user", "content": user}]},
             timeout=90)
         resp.raise_for_status()
+        _ledger("OpenAI", _OPENAI_MODEL, True, resp.json().get("usage"))
         return resp.json()["choices"][0]["message"]["content"]
     except Exception as e:
+        _ledger("OpenAI", _OPENAI_MODEL, False, error=str(e))
         _warn_rung(f"GPT ({_OPENAI_MODEL})", e, resp)
         return None
 
@@ -303,7 +317,8 @@ def _call_free(provider: str, model: str, system: str, user: str,
                                {"role": "user", "content": user}]},
             timeout=90)
         resp.raise_for_status()
-        body = resp.json()["choices"][0]
+        payload = resp.json()
+        body = payload["choices"][0]
         content = (body.get("message") or {}).get("content")
         if not content:
             # reasoning model cạn budget giữa chừng suy nghĩ → coi là fail
@@ -311,14 +326,16 @@ def _call_free(provider: str, model: str, system: str, user: str,
             raise RuntimeError(
                 f"content rỗng (finish_reason={body.get('finish_reason')}) — "
                 f"model reasoning cạn max_tokens?")
+        _ledger(provider, model, True, payload.get("usage"))
         return content
     except Exception as e:
+        _ledger(provider, model, False, error=str(e))
         _warn_rung(f"{provider} ({model})", e, resp)
         return None
 
 
-def digest_call(system: str, user: str,
-                accept=None) -> tuple["str | None", str]:
+def digest_call(system: str, user: str, accept=None,
+                feedback=None) -> tuple["str | None", str]:
     """(raw_text, provider) qua cascade GIẢM DẦN SỨC MẠNH: Claude → GPT →
     mọi model free bậc 1 → mọi model free bậc 2 (70B). Provider trả về ghi
     rõ model free nào đã digest ("Groq:kimi-k2…") để soi chất lượng về sau.
@@ -326,8 +343,18 @@ def digest_call(system: str, user: str,
     ``accept(raw) -> bool``: model TRẢ LỜI nhưng output không đạt (vd JSON
     hỏng vì bị cắt — lỗi thật Cerebras 14/07) cũng là MỘT LOẠI LỖI MODEL →
     cascade thử nấc sau thay vì bỏ cuộc. None = nhận mọi output (--diag).
+
+    ``feedback(raw) -> str`` (món 1 deep-dive DojoAgents 15/07 — mirror
+    harness recovery): output KHÔNG ĐẠT → cho ĐÚNG NẤC ĐÓ 1 lượt tự sửa
+    kèm mô tả lỗi cụ thể + output hỏng, TRƯỚC khi rơi xuống nấc sau. Chỉ
+    retry 1 LẦN cho cả cascade (trần +1 call); provider trả về gắn đuôi
+    "(retry)". Mọi output đều qua strip_think_tags trước khi chấm (model
+    reasoning free suy nghĩ trong <think>…</think> chứa cả JSON nháp —
+    không strip thì parse vớ nhầm khối nháp).
+
     (None, '') khi không nấc nào vừa chạy được vừa đạt."""
     _ensure_env_loaded()
+    from vnstock_sentiment import strip_think_tags
 
     def _ok(raw: str, provider: str) -> bool:
         if accept is None or accept(raw):
@@ -336,17 +363,59 @@ def digest_call(system: str, user: str,
               f"(JSON hỏng/bị cắt?) — thử nấc sau")
         return False
 
-    raw = _call_claude(system, user)
-    if raw and _ok(raw, "claude"):
-        return raw, "claude"
-    raw = _call_openai(system, user)
-    if raw and _ok(raw, "openai"):
-        return raw, "openai"
+    rungs: list[tuple[str, "object"]] = [
+        ("claude", lambda u: _call_claude(system, u)),
+        ("openai", lambda u: _call_openai(system, u)),
+    ]
     for provider, model, tokens in _free_ladder():
-        raw = _call_free(provider, model, system, user, max_tokens=tokens)
-        if raw and _ok(raw, f"{provider}:{model}"):
-            return raw, f"{provider}:{model}"
+        rungs.append((f"{provider}:{model}",
+                      lambda u, p=provider, m=model, t=tokens:
+                      _call_free(p, m, system, u, max_tokens=t)))
+
+    retried = False
+    for name, call in rungs:
+        raw = call(user)
+        if not raw:
+            continue
+        raw = strip_think_tags(raw)
+        if _ok(raw, name):
+            return raw, name
+        if feedback is not None and not retried:
+            retried = True            # 1 lượt tự sửa cho CẢ cascade
+            try:
+                err = str(feedback(raw) or "output không đạt")
+            except Exception:
+                err = "output không đạt"
+            retry_user = (
+                f"{user}\n\n⚠️ OUTPUT TRƯỚC CỦA BẠN KHÔNG ĐẠT — lỗi: {err}\n"
+                f"Output hỏng (phần đầu):\n{raw[:800]}\n"
+                f"Hãy SỬA ĐÚNG lỗi trên và trả về DUY NHẤT một khối JSON "
+                f"hợp lệ, không thêm bất kỳ chữ nào ngoài JSON.")
+            print(f"[digest] 🔁 {name}: cho 1 lượt tự sửa (lỗi: {err[:100]})")
+            raw2 = call(retry_user)
+            if raw2:
+                raw2 = strip_think_tags(raw2)
+                if _ok(raw2, f"{name}(retry)"):
+                    return raw2, f"{name}(retry)"
     return None, ""
+
+
+def describe_digest_error(raw: str) -> str:
+    """Mô tả CỤ THỂ vì sao output digest không đạt — bơm ngược cho model tự
+    sửa trong lượt retry (lời phê càng trúng, model free càng dễ sửa)."""
+    if not raw:
+        return "output rỗng"
+    start, end = raw.find("{"), raw.rfind("}")
+    if start < 0 or end <= start:
+        return "không tìm thấy khối JSON {...} nào trong output"
+    try:
+        data = json.loads(raw[start:end + 1])
+    except json.JSONDecodeError as e:
+        return (f"JSON không parse được ({e.msg} tại vị trí {e.pos}) — "
+                f"thường do bị cắt giữa chừng, thiếu ngoặc hoặc phẩy thừa")
+    if not isinstance(data, dict):
+        return "JSON parse được nhưng không phải object {...} ở tầng ngoài"
+    return "JSON parse được nhưng thiếu nội dung theo schema (tom_tat/stance/claims)"
 
 
 # ── Parse + validate digest JSON ─────────────────────────────────────────────
@@ -458,11 +527,13 @@ def digest_report(rec: dict, text: "str | None" = None) -> "dict | None":
     user = (f"Nguồn: {rec.get('source', '?')} — ngày báo cáo "
             f"{rec.get('report_date', '?')} — {rec.get('title') or ''}\n\n"
             f"{text[:_PROMPT_MAX_CHARS]}")
-    # accept = parse được JSON: model trả rác/JSON cụt → cascade tự thử nấc
-    # sau (14/07: Cerebras trả content nhưng JSON hỏng làm digest bỏ cuộc dù
-    # OpenRouter còn chưa được thử).
+    # accept = parse được JSON: model trả rác/JSON cụt → trước tiên cho nấc
+    # đó 1 lượt TỰ SỬA kèm lời phê cụ thể (feedback — deep-dive DojoAgents
+    # 15/07), vẫn hỏng → cascade nấc sau (14/07: Cerebras trả content nhưng
+    # JSON hỏng làm digest bỏ cuộc dù OpenRouter còn chưa được thử).
     raw, provider = digest_call(system, user,
-                                accept=lambda r: parse_digest(r) is not None)
+                                accept=lambda r: parse_digest(r) is not None,
+                                feedback=describe_digest_error)
     if not raw:
         print(f"[digest] ❌ {rec['id']}: không nấc nào vừa trả lời vừa ra JSON "
               f"hợp lệ (cần ANTHROPIC/OPENAI key, hoặc GROQ/CEREBRAS/OPENROUTER)")
