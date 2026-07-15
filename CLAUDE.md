@@ -1696,9 +1696,8 @@ Python/numpy rẻ):**
 
 Bỏ qua nhưng ghi nhận: bộ Statistics 50 tham số — profit_factor +
 recovery factor ĐÃ LÀM cùng ngày (xem mục 🕯); GeneticOptimizer
-với fitness formula user-defined + GenerationsStagnation early-stop —
-xác nhận hướng "tune deterministic để dành" từ Lean, thêm ý stagnation
-stop nếu làm (user chốt 15/07: GIỮ để dành); Risk rules
+với fitness formula + GenerationsStagnation early-stop — user đổi ý
+CÙNG NGÀY "làm luôn" → ĐÃ LÀM (xem mục 🧬); Risk rules
 (position-time-limit ≈ rec expiry đã có);
 order book emulation L2/L3 + Diagram visual programming + Algo.Gpu +
 Storages binary + Export Excel — không có data/use-case tương ứng.
@@ -1755,8 +1754,49 @@ profit_factor (Σlãi/|Σlỗ|) + recovery_factor (net/|maxDD|) vào metrics
 None thay vì chia 0 (không lệnh lỗ → PF None; equity không DD → RF None);
 recovery dùng maxDD BASELINE-0 (mốc vốn ban đầu cũng là đỉnh — chuỗi toàn
 lỗ có maxDD=|net|), KHÁC metric `max_drawdown` hiện hành (đỉnh đầu =
-cum[0]) — metric cũ GIỮ NGUYÊN, đã ghi chú tại chỗ. GeneticOptimizer /
-tune deterministic: vẫn ĐỂ DÀNH đúng chốt user 15/07.
+cum[0]) — metric cũ GIỮ NGUYÊN, đã ghi chú tại chỗ. GeneticOptimizer:
+user "làm luôn" cùng ngày → mục 🧬 ngay dưới.
+
+### 🧬 GeneticOptimizer — GA tune params deterministic (DONE 2026-07-15, món StockSharp thứ 4, user "làm luôn cả geneticOptimizer")
+
+`vnstock_genetic.py` — bản "tune deterministic" từng để dành (Lean →
+StockSharp): GA thuần numpy tối ưu params chiến lược ACTIVE, thay/bổ sung
+vòng tune LLM. Zero LLM/fetch, **seed cố định** (`_SEED_DEFAULT`) — cùng
+data ra cùng kết quả. Tests `tests/test_genetic.py` (14, hermetic —
+backtest + mem đều monkeypatch) đã vào `--fast`.
+
+- **3 ý mirror StockSharp** (mượn ý tưởng, không copy code — LGPL):
+  Population/GenerationsMax → `--pop 8`/`--gens 5`; **GenerationsStagnation**
+  → `--stagnation 2` (best không cải thiện N thế hệ → dừng sớm; họ default
+  5, mình 2 vì mỗi thế hệ = N backtest thật); fitness formula → `--fitness
+  expectancy|sharpe|profit_factor|recovery_factor` (bản rút gọn metric-key,
+  không compile biểu thức).
+- **Không gian params suy TỰ ĐỘNG** (`_param_space`): mọi param SỐ →
+  khoảng [0.4×, 2.5×] giá trị hiện tại (int giữ int sàn 1; bool/str/0 giữ
+  cố định — 0 không có thang). GA: elitism 2 + tournament 3 → crossover
+  pick/blend per-gene → mutation gaussian 15% bề rộng; **cache dedup theo
+  bộ gene** (không backtest lại params trùng).
+- **Kỷ luật chống-ăn-may GIỮ NGUYÊN như tune LLM** — điểm sống còn:
+  backtest NET sau phí; winner bị `apply_selection_penalty` với
+  **n_trials = số bộ params UNIQUE đã chấm** (GA chấm ~20-40 ứng viên ≫
+  3-4 agent LLM → penalty nặng tương ứng, cố ý); adopt cần thắng benchmark
+  active RE-BACKTEST cùng config (né bẫy benchmark đóng băng 15/07) VÀ
+  `_validation_ok` sau penalty; fitness -inf khi n_trades <
+  `_MIN_TRADES_DEFAULT` (8).
+- **Vận hành**: công cụ GỌI TAY (mirror preset_score — KHÔNG vào run.py
+  all; backtest full ~8 phút × 40 đánh giá là bất khả thi). Mặc định
+  `lite_config` (~10-30s/backtest → trọn gói ~10-30 phút) + **DRY-RUN**;
+  `--apply` mới ghi DB (update_strategy_params agent="GeneticOptimizer" +
+  2 row backtest: benchmark + best — panel Chiến lược thấy 🧪 như thường).
+  `--full` dùng config đầy đủ (cảnh báo thời gian in sẵn trong help).
+  `--space` in không gian gene suy ra. DB chưa init → thông báo sạch,
+  không stacktrace (`_active_or_none`).
+- **CHƯA verify trên máy user** (sandbox không có DB/warehouse): lần tới
+  có active strategy, chạy `python vnstock_genetic.py --space` rồi
+  `--run` (dry-run) xem báo cáo; ưng thì `--run --apply`. So kết quả với
+  vòng tune LLM tối hôm đó — nếu GA thắng ổn định thì cân nhắc gọi từ
+  `_do_tune` như một "agent" thêm (TODO để dành, đừng tự ý nối vào
+  pipeline tối).
 framework — CẢ 3 MÓN ĐÃ TRIỂN KHAI cùng ngày (xem mục 💸 Phí + ⚖️ Sizing
 bên dưới).** Engine
 trading production-grade lớn nhất từng khảo sát (~2.530 file Rust +
