@@ -988,6 +988,26 @@ băng, macro-anchor hijack).
    f. **Screener chạy tối 15/07**: `run.py screener` không gãy với 5
       preset mới (metrics candle/crsi/db/ha đều best-effort try/except
       — kỳ vọng OK; nếu chậm bất thường thì nghi CRSI trên ~1700 mã).
+7. **Đợt build 15/07 TỐI (LLM hardening — 3 món deep-dive DojoAgents) —
+   VERIFY CÒN NỢ (mọi thứ tự kích hoạt, chỉ cần để ý):**
+   a. **Lần digest kế tiếp** (báo cáo mới hoặc `--redigest`): nếu model
+      free trả JSON hỏng → console phải có dòng "🔁 <nấc>: cho 1 lượt tự
+      sửa (lỗi: …)"; digest lưu provider đuôi "(retry)" khi lượt sửa ăn.
+      Nếu thấy retry mà VẪN hỏng thường xuyên → lời phê chưa đủ trúng,
+      xem describe_digest_error có nhánh nào thiếu.
+   b. **Sổ LLM ledger tự tích lũy** sau lần chạy đầu có call LLM
+      (run.py news / digest / brief): `python vnstock_llm_ledger.py
+      --show` phải ra bảng per provider; `run.py doctor` có dòng "LLM
+      call ledger" (⬜ khi chưa có call là ĐÚNG thiết kế). Khi nào nghi
+      ladder rơi bậc âm thầm → mở sổ xem cột rate-limit.
+   c. **Strip think-tags**: chỉ lộ tác dụng khi ladder free đổi sang
+      model reasoning (deepseek-r1 style) — không cần verify chủ động;
+      nếu một ngày digest/sentiment dính chữ "think"/suy nghĩ tiếng Anh
+      lạ → nghi strip miss dạng thẻ mới, thêm tên thẻ vào _THINK_NAMES.
+   d. **Món CHƯA LÀM chờ chốt**: net-worth curve cho portfolio_tab
+      (khảo sát DojoAgents — curve = Σ qty×close(t) từ buy_date + đường
+      VNINDEX cùng kỳ, zero fetch, ~50-70 dòng) — user nói "làm đi" là
+      triển; PE band lịch sử vẫn để dành (cần EPS quý, scope VN30).
 
 **Checklist gốc (đã chạy gần hết — giữ làm tài liệu lệnh):**
 1. `python vnstock_allocation.py --refresh` → in band + bảng % + lý do 7 tín
