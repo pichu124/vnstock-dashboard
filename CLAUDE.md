@@ -1430,6 +1430,29 @@ số: win-rate live tính trên MỌI rec đóng của strategy_id đó (không 
 sổ thời gian) — đủ dùng ở n nhỏ; nếu sau này rec tích lũy hàng trăm thì
 cân nhắc cửa sổ 30-60 rec gần nhất.
 
+**Khảo sát QuantConnect/Lean (2026-07-15): KHÔNG dùng — ĐỂ DÀNH 1 món
+trailing-stop hint.** Engine C# khổng lồ (~6,200 file, 500MB — lớn nhất
+từng khảo sát) cho backtest/live execution đa sàn, đang được bảo trì
+tích cực. Không dùng vì: (1) C# + live-execution platform — mình là
+Python dashboard hỗ trợ quyết định, không đặt lệnh; (2) không có
+data/fee model HOSE (toàn Binance/Alpaca/IB/Bybit…); (3) **Algorithm
+Framework 5 tầng (Universe → Alpha → Portfolio Construction → Risk →
+Execution) — hệ mình ĐÃ mirror đủ về khái niệm**: screener=universe,
+strategy+brief=alpha, sizing=portfolio construction, bias-caveat/decay/
+validation=risk, execution=con người; (4) Insight scoring (direction/
+period/confidence chấm sau) ≡ stance track + reconciler đã có;
+(5) VolumeShareSlippage ≡ món zipline vừa ghi; 169 indicators đã tự có;
+Optimizer framework (grid search params) — tune hiện LLM-driven, để
+dành nếu muốn tune deterministic. **ĐÁNG MƯỢN (nói "làm trailing
+stop")**: `TrailingStopRiskManagementModel` (Algorithm.Framework/Risk) —
+track ĐỈNH giá trị vị thế, tụt >X% (mặc định 5%) từ đỉnh → thoát. Áp
+cho mình: rec đang mở có SL TĨNH; nay đã có MTM → thêm cột display-only
+"SL trailing đề xuất" = max(SL gốc, đỉnh close kể từ ngày mở × (1−5%))
+trong bảng Open recommendations — nâng SL theo đà lãi, khóa lợi nhuận.
+KHÔNG đổi convention reconciler (vẫn chấm theo SL gốc); chỉ gợi ý hiển
+thị. Bộ Risk models còn lại (MaxDrawdownPortfolio/MaxSectorExposure/
+MaxUnrealizedProfit=chốt lời trần) ghi nhận để dành cùng chỗ.
+
 **Khảo sát quantopian/zipline (2026-07-15): KHÔNG dùng — ĐỂ DÀNH 1 món
 liquidity-cap cho sizing.** Backtester event-driven kinh điển của
 Quantopian nhưng repo GỐC ĐÃ CHẾT (commit cuối 10/2020, Python 3.5-3.6
