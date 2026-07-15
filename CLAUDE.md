@@ -958,6 +958,36 @@ băng, macro-anchor hijack).
 5. **Theo dõi chất lượng (brief phân bổ tháng 8)**: mục "Phản biện band"
    của Mistral Small logic lộn xộn ("regime -4 trái ngược B4"?!) — nếu
    lặp → route brief allocation sang agent mạnh (1 call/tháng, đáng).
+6. **Đợt build 15/07 CHIỀU (StockSharp + quant-trading — mẫu nến/CHOP/
+   CRSI/PSAR/W-bottom/HA/GA/profit-recovery) — VERIFY CÒN NỢ:**
+   a. **Close brief kế tiếp**: block "VNINDEX kỹ thuật" phải có dòng
+      "CHOP(14): … (nhãn)" + (khi có mẫu) "Mẫu nến phiên gần nhất: …" +
+      (khi |streak|≥2) "Heikin-Ashi: N nến …". Data block prompt-side
+      nên KỲ VỌNG không cần guard mới; nếu model echo/bịa quanh 3 dòng
+      này → vá guard theo quy trình đêm 14/07.
+   b. **Preset scorecard sau ~1 tuần tích lũy** (5 preset mới cần
+      screener_history + đủ 5/20 phiên forward):
+      `python vnstock_preset_score.py --show` phải hiện thêm
+      candle_bull / candle_bear / crsi_oversold / double_bottom /
+      ha_trend cạnh 9 preset cũ → đọc xem MẪU NẾN nào có alpha thật
+      trên HOSE (mục đích (c) của khảo sát StockSharp). double_bottom
+      hiếm by design — n nhỏ/0 vài tuần đầu là bình thường.
+   c. **GA sau khi có core mới** (rule 2b sẽ revise family-05f9d495 vì
+      expectancy net ≤ 0): `python vnstock_genetic.py --run --medium` —
+      console phải SẠCH (fix _load_history), median n_trades đủ (≥
+      min_trades), so benchmark; ưng → `--run --medium --apply`. GA
+      trên core cũ thưa lệnh là vô ích — đợi core mới CÓ lệnh đều.
+   d. **Cột "SL trailing" khi có rec mở + trend chạy đủ xa**: giá trị
+      nay = max(trailing 5%, PSAR) — trend kéo dài phải thấy mức nâng
+      NHANH hơn 5% cố định (PSAR tăng tốc). Chưa có rec mở → chưa thấy.
+   e. **Lần train/backtest kế**: metrics row mới phải mang
+      `profit_factor` + `recovery_factor` (cả dict 0-lệnh); log task
+      18:00 (train/reconcile CLI) phải HẾT spam ScriptRunContext /
+      "missing runtime" (fix `_in_streamlit_session` áp mọi CLI đụng
+      backtest).
+   f. **Screener chạy tối 15/07**: `run.py screener` không gãy với 5
+      preset mới (metrics candle/crsi/db/ha đều best-effort try/except
+      — kỳ vọng OK; nếu chậm bất thường thì nghi CRSI trên ~1700 mã).
 
 **Checklist gốc (đã chạy gần hết — giữ làm tài liệu lệnh):**
 1. `python vnstock_allocation.py --refresh` → in band + bảng % + lý do 7 tín
