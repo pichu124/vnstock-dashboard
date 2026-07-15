@@ -401,22 +401,35 @@ def _load_history_from_parquet(
     return df
 
 
+def _in_streamlit_session() -> bool:
+    """True CHỈ khi đang chạy trong một Streamlit runtime thật."""
+    try:
+        from streamlit import runtime
+        return bool(runtime.exists())
+    except Exception:
+        return False
+
+
 def _load_history(ticker: str, days: int) -> pd.DataFrame:
     """Load recent daily OHLCV for a ticker.
 
-    Tries the dashboard's cached loader first (fast inside Streamlit), then falls
-    back to a direct parquet read. The fallback is essential: the dashboard
-    loader is @st.cache_data-decorated and FAILS outside a Streamlit session, so
-    reconcile/backtest run from the CLI/brief pipeline were silently getting an
-    empty frame — leaving graded recs stuck open as zombies.
+    Inside a real Streamlit session → the dashboard's @st.cache_data loader
+    (fast, shared cache). Everywhere else → direct parquet read. The runtime
+    check matters twice over: (a) the cached loader FAILS outside a session on
+    some setups — reconcile/backtest from CLI silently got empty frames,
+    leaving graded recs stuck open as zombies; (b) on setups where bare mode
+    "works", merely importing vnstock_dashboard EXECUTES the whole app at
+    module level (st.pills nav, ~4k lines) — spams ScriptRunContext warnings
+    and wastes seconds in every CLI run (seen live on vnstock_genetic 15/07).
     """
-    try:
-        from vnstock_dashboard import load_price_history
-        df = load_price_history(ticker, days=days)
-        if df is not None and not df.empty:
-            return df
-    except Exception:
-        pass
+    if _in_streamlit_session():
+        try:
+            from vnstock_dashboard import load_price_history
+            df = load_price_history(ticker, days=days)
+            if df is not None and not df.empty:
+                return df
+        except Exception:
+            pass
     return _load_history_from_parquet(ticker, days)
 
 

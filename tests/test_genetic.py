@@ -165,3 +165,48 @@ def test_apply_skipped_when_validation_fails_after_penalty(monkeypatch):
     assert r["best_fitness"] > r["baseline_fitness"]   # thắng benchmark...
     assert r["adopted"] is False and r["applied"] is False
     assert writes == []                                # ...nhưng gate chặn
+
+
+def test_diagnostics_when_min_trades_gates_everything(monkeypatch):
+    # Tình huống thật 15/07: benchmark có số nhưng GA toàn "—" — báo cáo
+    # phải nói rõ bao nhiêu ứng viên bị gate + best THÔ là bao nhiêu
+    monkeypatch.setattr(vs, "_do_backtest", _fake_backtest(n_trades=5))
+    r = vg.genetic_tune("code", dict(_BASE), _CFG, min_trades=8)
+    assert r["best_fitness"] is None
+    assert r["n_below_min_trades"] == r["n_trials"] > 0
+    assert r["best_raw_fitness"] is not None and r["best_raw_n_trades"] == 5
+    assert r["min_trades"] == 8
+
+
+def test_active_lite_defaults_min_trades_lower(monkeypatch):
+    # lite config tự hạ min_trades xuống _MIN_TRADES_LITE → ứng viên 5 lệnh
+    # vẫn được chấm (trước fix: 8 chặn sạch trên lite)
+    monkeypatch.setattr(vg.mem, "get_active_family", lambda: _fake_active())
+    monkeypatch.setattr(vs, "_do_backtest",
+                        _fake_backtest(p_value=0.00001, n_trades=5))
+    r = vg.genetic_tune_active(universe=["AAA"], lite=True)
+    assert r["min_trades"] == vg._MIN_TRADES_LITE
+    assert r["best_fitness"] is not None and r["adopted"] is True
+    r_full = vg.genetic_tune_active(universe=["AAA"], lite=False)
+    assert r_full["min_trades"] == vg._MIN_TRADES_DEFAULT
+    assert r_full["best_fitness"] is None          # 5 lệnh < 8 → gate chặn
+
+
+def test_load_history_skips_dashboard_import_outside_streamlit(monkeypatch):
+    # Ngoài phiên Streamlit, _load_history phải đi THẲNG parquet — import
+    # vnstock_dashboard trong bare mode sẽ thực thi nguyên app (spam
+    # ScriptRunContext + chậm, thấy thật khi chạy vnstock_genetic 15/07)
+    import sys
+    import pandas as pd
+
+    class _Poison:
+        def __getattr__(self, name):
+            raise AssertionError("vnstock_dashboard bị import ngoài Streamlit!")
+
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard", _Poison())
+    sentinel = pd.DataFrame({"close": [1.0]})
+    monkeypatch.setattr(vs, "_load_history_from_parquet",
+                        lambda ticker, days, **k: sentinel)
+    assert vs._in_streamlit_session() is False
+    out = vs._load_history("AAA", days=30)
+    assert out is sentinel

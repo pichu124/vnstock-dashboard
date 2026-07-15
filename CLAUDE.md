@@ -1791,12 +1791,28 @@ backtest + mem đều monkeypatch) đã vào `--fast`.
   `--full` dùng config đầy đủ (cảnh báo thời gian in sẵn trong help).
   `--space` in không gian gene suy ra. DB chưa init → thông báo sạch,
   không stacktrace (`_active_or_none`).
-- **CHƯA verify trên máy user** (sandbox không có DB/warehouse): lần tới
-  có active strategy, chạy `python vnstock_genetic.py --space` rồi
-  `--run` (dry-run) xem báo cáo; ưng thì `--run --apply`. So kết quả với
-  vòng tune LLM tối hôm đó — nếu GA thắng ổn định thì cân nhắc gọi từ
-  `_do_tune` như một "agent" thêm (TODO để dành, đừng tự ý nối vào
-  pipeline tối).
+- **Verify lần đầu trên máy user (trưa 15/07) — lộ + vá ngay 2 bug:**
+  (a) **`_load_history` boot nguyên dashboard ngoài Streamlit** — import
+  `vnstock_dashboard` trong bare mode "chạy được" (st.cache_data dùng
+  MemoryCacheStorageManager) nên KHÔNG rơi xuống nhánh parquet như thiết
+  kế cũ → thực thi ~4k dòng app (st.pills nav…), spam hàng trăm warning
+  ScriptRunContext vào MỌI CLI đụng backtest (train/reconcile/genetic).
+  Fix hệ thống trong vnstock_strategy: `_in_streamlit_session()`
+  (`streamlit.runtime.exists()`) — có runtime thật mới dùng loader
+  dashboard, ngoài ra đi THẲNG `_load_history_from_parquet`. Test poison
+  module chốt không-import.
+  (b) **`min_trades=8` chặn sạch ứng viên trên lite config** (~25 cửa
+  sổ, chiến lược chọn lọc tự nhiên < 8 lệnh): benchmark chấm min_trades=0
+  có số (−1.3174) mà GA toàn "—", báo cáo không nói lý do. Fix:
+  `_MIN_TRADES_LITE=4` tự áp khi lite (full giữ 8), CLI `--min-trades`
+  override; report thêm chẩn đoán `n_below_min_trades` + best THÔ
+  (bỏ gate, kèm n lệnh) + hint "hạ --min-trades hoặc --full" khi mọi
+  ứng viên bị gate.
+- **Còn phải verify tiếp trên máy user**: chạy lại `--run` sau fix —
+  kỳ vọng console sạch (không spam Streamlit) + GA có số thật để so
+  benchmark. So kết quả với vòng tune LLM tối cùng ngày — nếu GA thắng
+  ổn định thì cân nhắc gọi từ `_do_tune` như một "agent" thêm (TODO để
+  dành, đừng tự ý nối vào pipeline tối).
 framework — CẢ 3 MÓN ĐÃ TRIỂN KHAI cùng ngày (xem mục 💸 Phí + ⚖️ Sizing
 bên dưới).** Engine
 trading production-grade lớn nhất từng khảo sát (~2.530 file Rust +
