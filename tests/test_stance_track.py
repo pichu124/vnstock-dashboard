@@ -72,6 +72,22 @@ def test_flat_session_directional_not_graded(_fake_sources):
     assert s["n_graded"] == 1 and s["skipped"] == 1
 
 
+def test_dedupes_regenerated_briefs_same_date_agent(_fake_sources):
+    # 14/07 user regenerate 4 bản cùng agent → chỉ bản MỚI NHẤT (đầu list,
+    # recent_briefs sort DESC) được chấm; agent khác cùng ngày vẫn được chấm.
+    _set_briefs(_fake_sources, [
+        _brief("2026-07-10", "TĂNG"),               # bản mới nhất → dùng
+        _brief("2026-07-10", "GIẢM"),               # bản cũ hơn cùng agent → bỏ
+        _brief("2026-07-10", "GIẢM"),
+        _brief("2026-07-10", "GIẢM", agent="B"),    # agent khác → vẫn chấm
+    ])
+    recs = stk.stance_records()
+    assert len(recs) == 2
+    marks = {r["agent"]: (r["stance"], r["correct"]) for r in recs}
+    assert marks["Agent A"] == ("bullish", True)     # +1.0% → TĂNG đúng
+    assert marks["B"] == ("bearish", False)
+
+
 def test_skips_latest_error_and_unknown(_fake_sources):
     _set_briefs(_fake_sources, [
         _brief("2026-07-15", "GIẢM"),                       # chưa có phiên kế → bỏ

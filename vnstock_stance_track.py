@@ -31,9 +31,13 @@ _STANCE_LABEL = {"bullish": "TĂNG", "bearish": "GIẢM", "neutral": "TRUNG TÍN
 
 
 def _vnindex_closes(days: int = 200) -> list[tuple[str, float]]:
-    """[(iso_date, close), …] tăng dần theo ngày — từ kho giá sẵn có."""
-    from vnstock_strategy import _load_history
-    hist = _load_history("VNINDEX", days=days)
+    """[(iso_date, close), …] tăng dần theo ngày — đọc PARQUET trực tiếp.
+
+    KHÔNG dùng `_load_history` ở đây: nhánh đầu của nó import cả
+    vnstock_dashboard (chạy nguyên app Streamlit ở bare mode → cả trăm dòng
+    warning "missing ScriptRunContext" khi gọi từ CLI — thấy thật 15/07)."""
+    from vnstock_strategy import _load_history_from_parquet
+    hist = _load_history_from_parquet("VNINDEX", days=days)
     if hist is None or hist.empty or "close" not in hist.columns:
         return []
     out: list[tuple[str, float]] = []
@@ -87,8 +91,20 @@ def stance_records(limit: int = _DEFAULT_LIMIT) -> list[dict]:
     closes = _vnindex_closes()
     if not briefs or not closes:
         return []
-    out: list[dict] = []
+    # Dedupe: regenerate nhiều lần trong ngày (close 14/07 chạy 4 bản) tạo
+    # nhiều row cùng (ngày, agent) → chỉ chấm bản MỚI NHẤT, không thì 1 cú
+    # gọi sai bị đếm 3-4 lần. recent_briefs đã sort created_at DESC nên bản
+    # đầu tiên gặp là bản mới nhất.
+    seen: set[tuple[str, str]] = set()
+    dedup: list[dict] = []
     for b in briefs:
+        key = (str(b.get("brief_date", ""))[:10], str(b.get("agent_name", "")))
+        if key in seen:
+            continue
+        seen.add(key)
+        dedup.append(b)
+    out: list[dict] = []
+    for b in dedup:
         text = b.get("output") or ""
         if not text or b.get("error"):
             continue
