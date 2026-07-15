@@ -1484,6 +1484,13 @@ này tồn tại ở MỌI chỗ tính return qua `_normalize_prices`/`_load_his
 với mã < ~500-1,000 VND (backtest/emit trên penny, chg5 screener?) —
 scorecard đã tự vệ; nếu thấy số penny quái ở chỗ khác thì nghĩ ngay đến
 per-bar normalization.
+**Baseline đọc lần đầu (15/07, 30 ngày regime BEAR — đọc lại khi đổi
+pha)**: mean-reversion thắng trend-following rõ (reversal +0.81 / oversold
++0.36 vs momentum −1.47 / strong_uptrend −2.01 / breakout −2.02 %/5p);
+edge bắt-đáy chỉ sống ~5 phiên (20p toàn âm, hit 21-31% — bounce tắt rồi
+rơi tiếp); top preset +0.36-0.81%/5p TRƯỚC phí 0.4% round-trip ⇒ sau phí
+gần hòa vốn — nhất quán với verdict 🧪 "regime này chưa có edge đủ dày".
+Caveat: 1 regime, tín hiệu lặp mã liên ngày (mẫu hiệu dụng nhỏ hơn n).
 
 **Món 2 — `vnstock_strategy.apply_selection_penalty(metrics, n_trials)`**:
 Bonferroni cho winner-of-N — cả 3 vòng thi (`_cold_start`/`_do_revise`/
