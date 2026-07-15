@@ -539,6 +539,8 @@ def backtest(code: str, cfg: BacktestConfig) -> dict:
             "sharpe":        None,
             "max_drawdown":  None,
             "expectancy":    None,
+            "profit_factor": None,
+            "recovery_factor": None,
             "errors":        errors[:20],
         }
 
@@ -548,6 +550,7 @@ def backtest(code: str, cfg: BacktestConfig) -> dict:
     cum = np.cumsum(pnls)
     peak = np.maximum.accumulate(cum)
     dd = (cum - peak)
+    pf, rf = profit_and_recovery(pnls)
 
     return {
         "n_trades":     int(len(trades)),
@@ -559,10 +562,37 @@ def backtest(code: str, cfg: BacktestConfig) -> dict:
             (len(wins) / len(pnls) * (wins.mean() if len(wins) else 0))
             + (len(losses) / len(pnls) * (losses.mean() if len(losses) else 0))
         ),
+        "profit_factor":   pf,
+        "recovery_factor": rf,
         "validation":   validate_backtest_quality(trades),
         "trades":       trades[:200],
         "errors":       errors[:20],
     }
+
+
+def profit_and_recovery(pnls: "np.ndarray") -> tuple:
+    """profit_factor = Σlãi / |Σlỗ| · recovery_factor = net / |max drawdown|.
+
+    2 thống kê xác nhận lại từ khảo sát StockSharp Algo/Statistics
+    (ProfitFactor/RecoveryFactor — đã ghi nhận từ nautilus trước đó).
+    Mẫu suy biến trả None thay vì chia 0: không có lệnh lỗ → profit_factor
+    None (không phải ∞ — JSON-safe); equity không có drawdown →
+    recovery_factor None."""
+    pnls = np.asarray(pnls, dtype=float)
+    if pnls.size == 0:
+        return None, None
+    gross_profit = float(pnls[pnls > 0].sum())
+    gross_loss = float(pnls[pnls < 0].sum())
+    pf = float(gross_profit / abs(gross_loss)) if gross_loss < 0 else None
+
+    cum = np.cumsum(pnls)
+    # Drawdown tính từ MỐC VỐN BAN ĐẦU (baseline 0 cũng là một đỉnh) — chuỗi
+    # toàn lỗ có maxDD = |net|, khác metric max_drawdown hiện hành (đỉnh đầu
+    # là cum[0]); giữ metric cũ nguyên trạng, chỉ recovery dùng bản chuẩn.
+    peak = np.maximum.accumulate(np.concatenate(([0.0], cum)))[1:]
+    max_dd = float((cum - peak).min())
+    rf = float(cum[-1] / abs(max_dd)) if max_dd < 0 else None
+    return pf, rf
 
 
 # ── Kiểm định thống kê chống-ăn-may (DONE 2026-07-14, ý tưởng từ khảo sát ──

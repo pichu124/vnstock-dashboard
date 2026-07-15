@@ -2385,6 +2385,24 @@ def _vnindex_technicals() -> dict:
         except Exception:
             pass
 
+        # CHOP(14) + mẫu nến (khảo sát StockSharp 15/07) — ngữ cảnh
+        # display-only, KHÔNG vào regime score. Mẫu nến bỏ qua khi bar cuối
+        # là bar intraday chưa chốt (thân/râu còn đổi tới khi đóng phiên).
+        chop14 = None
+        try:
+            from vnstock_indicators import choppiness_index
+            v = choppiness_index(high.values, low.values, close.values)
+            chop14 = round(float(v), 1) if v is not None else None
+        except Exception:
+            pass
+        candle_patterns = []
+        if not bool(df.attrs.get("intraday", False)):
+            try:
+                from vnstock_candle_patterns import detect_df, pattern_labels
+                candle_patterns = pattern_labels(detect_df(df))
+            except Exception:
+                pass
+
         return {
             "close":          last,
             "prev_close":     prev,
@@ -2402,6 +2420,8 @@ def _vnindex_technicals() -> dict:
             "ma200":          ma200,
             "ma20_slope_pct": round(ma20_slope_pct, 2) if ma20_slope_pct is not None else None,
             "rsi14":          round(rsi14, 1) if rsi14 is not None else None,
+            "chop14":         chop14,
+            "candle_patterns": candle_patterns,
             "support_1":      sup1,
             "support_2":      sup2,
             "resistance_1":   res1,
@@ -2577,6 +2597,17 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         if (rsi := vt.get("rsi14")) is not None:
             rsi_tag = "quá mua" if rsi > 70 else ("quá bán" if rsi < 30 else "trung tính")
             vt_lines.append(f"- RSI(14): {rsi:.1f} ({rsi_tag})")
+        if (chop := vt.get("chop14")) is not None:
+            chop_tag = ("đi ngang/choppy" if chop > 61.8
+                        else "có xu hướng rõ" if chop < 38.2 else "trung gian")
+            vt_lines.append(
+                f"- CHOP(14): {chop:.1f} ({chop_tag} — đo độ choppy, KHÔNG chỉ hướng)"
+            )
+        if pats := vt.get("candle_patterns"):
+            vt_lines.append(
+                "- Mẫu nến phiên gần nhất: " + "; ".join(pats)
+                + " (tín hiệu nến tham khảo, cần nến xác nhận)"
+            )
         sr_parts = []
         if vt.get("support_2") is not None:
             sr_parts.append(f"S2={_f(vt['support_2'])}")

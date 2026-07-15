@@ -1649,7 +1649,8 @@ lãi/lỗ TẠM TÍNH gross, display-only. Bảng Open recommendations thêm 2 c
 thiếu giá → "—"); lệnh đang xanh/đỏ thấy ngay, không phải chờ reconcile.
 
 **Khảo sát StockSharp/StockSharp (2026-07-15): KHÔNG dùng framework —
-3 MÓN ĐÁNG MƯỢN, CHƯA LÀM (chờ user chốt "làm đi").** Nền tảng trading
+CẢ 3 MÓN + profit/recovery factor ĐÃ TRIỂN KHAI cùng ngày (xem mục 🕯
+bên dưới).** Nền tảng trading
 C#/.NET production (~1.624 file .cs, 166MB clone): connector đa sàn
 (crypto/MOEX/IB — KHÔNG có HOSE/HNX), matching engine, backtest emulator,
 Designer (visual strategy WPF), 188 indicators, candle patterns, risk
@@ -1693,16 +1694,69 @@ Python/numpy rẻ):**
    baseline 15/07 cho thấy mean-reversion là edge duy nhất đang sống
    trên HOSE; chấm lại bằng chính preset scorecard. ~30 dòng numpy.
 
-Bỏ qua nhưng ghi nhận: bộ Statistics 50 tham số — xác nhận lại
-profit_factor (Σlãi/|Σlỗ|) + recovery factor (net/maxDD) đáng thêm nhất
-vào metrics backtest (đã ghi từ nautilus, vài dòng); GeneticOptimizer
+Bỏ qua nhưng ghi nhận: bộ Statistics 50 tham số — profit_factor +
+recovery factor ĐÃ LÀM cùng ngày (xem mục 🕯); GeneticOptimizer
 với fitness formula user-defined + GenerationsStagnation early-stop —
 xác nhận hướng "tune deterministic để dành" từ Lean, thêm ý stagnation
-stop nếu làm; Risk rules (position-time-limit ≈ rec expiry đã có);
+stop nếu làm (user chốt 15/07: GIỮ để dành); Risk rules
+(position-time-limit ≈ rec expiry đã có);
 order book emulation L2/L3 + Diagram visual programming + Algo.Gpu +
 Storages binary + Export Excel — không có data/use-case tương ứng.
 
-**Khảo sát nautechsystems/nautilus_trader (2026-07-14): KHÔNG dùng
+### 🕯 Mẫu nến + CHOP + ConnorsRSI + profit/recovery factor (DONE 2026-07-15 — 3 món StockSharp + Statistics, user "làm cả 3 món + ý Statistics")
+
+Cả 4 mảnh deterministic thuần, zero LLM/fetch; tests
+`tests/test_candle_patterns.py` (21) + `tests/test_chop_crsi.py` (11) +
+2 test build_prompt trong test_brief — tất cả vào `--fast`.
+
+**Món 1 — `vnstock_candle_patterns.py`** (port CandlePatternRegistry, ~27
+mẫu, mượn Ý TƯỞNG không copy code — LGPL): mỗi mẫu = hàm thuần trên 1-5
+nến cuối (O/H/L/C + B/LEN/TS/BS, list [cũ→mới]). 2 bẫy khảo sát đã xử:
+(a) equality giá → tolerance `_REL_TOL` 0.2% (Tweezer/On-Neck; Marubozu so
+LEN−B ≤ tolerance theo THANG GIÁ `_tol(H,L)`, KHÔNG theo độ dài đem so —
+thân nhỏ sẽ ép tolerance về ~0); (b) nến 1 giá trần/sàn (LEN=0) → mẫu
+hình-dạng đơn bị bỏ (tránh Dragonfly+Gravestone cùng-đúng 0≤0). NGOÀI bản
+gốc (StockSharp không gate): cặp SONG SINH cùng hình ngược nghĩa
+(Hammer↔Hanging Man, Inverted Hammer↔Shooting Star, Dragonfly↔Gravestone)
+gate bằng xu hướng 5 phiên trước mẫu (±`_TREND_MIN_PCT` 1%) — thiếu trend
+rõ → bỏ CẢ HAI (không bao giờ phát bull lẫn bear cho 1 bar); guard
+unit-break ×200 (bẫy per-bar normalization penny — mirror
+`_stitch_units`); `spinning_top` loại khỏi output mặc định (nhiễu trung
+tính). API: `detect`/`detect_df`/`pattern_labels`; hit sort mẫu NHIỀU nến
+(đặc hiệu) trước; tên hiển thị tiếng Việt kèm tên Anh chuẩn trong ngoặc
+(hợp luật thuần-tiếng-Việt).
+
+**Wiring screener + scorecard**: `_calc_indicators` thêm
+`candle_patterns`/`candle_bull`/`candle_bear` + `crsi` (best-effort);
+**3 preset MỚI**: `candle_bull` / `candle_bear` / `crsi_oversold` (CRSI <
+10) → tự vào screener_history mỗi tối → `vnstock_preset_score` chấm alpha
+trên HOSE như mọi preset (đúng mục đích (c) của khảo sát);
+`_MEANREV_PRESETS` += candle_bull, crsi_oversold (candle_bear là tín hiệu
+bear-side — không xếp nhóm long, vẫn được chấm riêng).
+
+**Món 2+3 — `vnstock_indicators.py`**: `choppiness_index` (CHOP 14,
+100·log10(ΣTR/range)/log10(14); >61.8 choppy / <38.2 có xu hướng —
+`chop_label`) + `connors_rsi` bản CỔ ĐIỂN mean(RSI(3), RSI-streak(2),
+percent-rank ROC(1) trên 100 phiên) — LƯU Ý: StockSharp dùng biến thể
+RSI-của-ROC, mình cố ý theo bản percent-rank kinh điển; cần 102 bar,
+thiếu/giá rác → None.
+
+**Wiring brief (parity by construction)**: `_vnindex_technicals` thêm
+`chop14` + `candle_patterns` (labels, cap 3; SKIP mẫu nến khi bar cuối là
+bar intraday chưa chốt — thân/râu còn đổi tới đóng phiên); block "VNINDEX
+kỹ thuật" render 2 dòng mới sau RSI ("CHOP(14): … — đo độ choppy, KHÔNG
+chỉ hướng" + "Mẫu nến phiên gần nhất: … (tín hiệu nến tham khảo, cần nến
+xác nhận)"). Display-only/ngữ cảnh — KHÔNG vào regime score (mirror triết
+lý LEVEL-gauge), data block prompt-side nên KHÔNG cần guard output mới.
+
+**Statistics — `vnstock_strategy.profit_and_recovery(pnls)`**:
+profit_factor (Σlãi/|Σlỗ|) + recovery_factor (net/|maxDD|) vào metrics
+`backtest()` (cả dict 0-lệnh — downstream không KeyError). Suy biến trả
+None thay vì chia 0 (không lệnh lỗ → PF None; equity không DD → RF None);
+recovery dùng maxDD BASELINE-0 (mốc vốn ban đầu cũng là đỉnh — chuỗi toàn
+lỗ có maxDD=|net|), KHÁC metric `max_drawdown` hiện hành (đỉnh đầu =
+cum[0]) — metric cũ GIỮ NGUYÊN, đã ghi chú tại chỗ. GeneticOptimizer /
+tune deterministic: vẫn ĐỂ DÀNH đúng chốt user 15/07.
 framework — CẢ 3 MÓN ĐÃ TRIỂN KHAI cùng ngày (xem mục 💸 Phí + ⚖️ Sizing
 bên dưới).** Engine
 trading production-grade lớn nhất từng khảo sát (~2.530 file Rust +

@@ -180,9 +180,11 @@ def preset_scorecard(horizons: tuple[int, ...] = _DEFAULT_HORIZONS,
 # ── "Đọc kết quả" DETERMINISTIC (user thích phần diễn giải 15/07 → đưa vào
 # dashboard; mọi nhận định suy từ CHÍNH số liệu bằng code, không LLM) ────────
 
-_MEANREV_PRESETS = ("oversold", "reversal")
+_MEANREV_PRESETS = ("oversold", "reversal", "candle_bull", "crsi_oversold")
 _TREND_PRESETS = ("momentum", "strong_uptrend", "breakout",
                   "golden_cross", "overbought")
+# "candle_bear" là tín hiệu bear-side (đo excess ÂM là đúng) — không xếp vào
+# 2 nhóm long-side, vẫn được chấm riêng như mọi preset trong scorecard.
 
 
 def _breadth_pct() -> Optional[float]:

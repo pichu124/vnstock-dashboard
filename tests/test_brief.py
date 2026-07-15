@@ -3277,3 +3277,28 @@ def test_generate_brief_source_wires_debate_for_allocation_only():
     src = inspect.getsource(vnstock_brief.generate_brief)
     assert "run_debate" in src
     assert 'brief_type == "allocation"' in src
+
+
+# ─── CHOP(14) + mẫu nến trong block VNINDEX kỹ thuật (khảo sát StockSharp) ───
+
+def test_build_prompt_includes_chop_and_candle_pattern_lines():
+    ctx = {"date": "2026-07-15", "time": "15:00",
+           "vnindex_tech": {"close": 1803.71, "intraday": False,
+                            "chop14": 63.4,
+                            "candle_patterns": ["Nến búa (Hammer)",
+                                                "Đáy nhíp (Tweezer Bottom)"]}}
+    p = build_prompt(ctx, brief_type="afternoon")
+    assert "CHOP(14): 63.4" in p and "đi ngang/choppy" in p
+    assert "Mẫu nến phiên gần nhất: Nến búa (Hammer); Đáy nhíp (Tweezer Bottom)" in p
+    assert "cần nến xác nhận" in p
+    # nhãn CHOP theo band: có xu hướng rõ khi < 38.2
+    ctx["vnindex_tech"]["chop14"] = 31.0
+    assert "có xu hướng rõ" in build_prompt(ctx, brief_type="afternoon")
+
+
+def test_build_prompt_omits_chop_and_candle_lines_when_absent():
+    ctx = {"date": "2026-07-15", "time": "15:00",
+           "vnindex_tech": {"close": 1803.71, "intraday": False}}
+    p = build_prompt(ctx, brief_type="afternoon")
+    assert "CHOP(14)" not in p
+    assert "Mẫu nến phiên gần nhất" not in p
