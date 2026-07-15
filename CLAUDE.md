@@ -930,16 +930,21 @@ băng, macro-anchor hijack).
    bản đầu tiên với trọn chuỗi guard sau đợt vá (kỳ vọng: sạch; nếu lộ
    pattern mới thì vá tiếp như quy trình đêm 14/07).
 2. **Lần tới mở dashboard (30 giây)**: liếc 4 sub-tab tab Tin tức
-   (📰/🌐/📚/🧭) render OK; khi có rec mở mới → bảng Open recommendations
-   phải có cột "KL gợi ý" + "Giá HT"/"L/L tạm" (MTM mới 15/07) + brief
-   gắn "KL gợi ý ~N cp" (NAV đã cấu hình); panel AI Brief có caption
-   "🎯 Stance ngày mai: đúng X/Y…" (chấm brief mới 15/07 — cần ≥1 close
-   brief đã lưu CÓ phiên kế tiếp trong kho giá).
+   (📰/🌐/📚/🧭) render OK; panel AI Brief có caption "🎯 Stance ngày
+   mai: đúng X/Y…" (logic đã verify qua CLI 15/07 — 2/7 điểm chấm, chỉ
+   còn xem UI hiện đúng); khi có rec mở mới → bảng Open recommendations
+   phải có cột "KL gợi ý" + "Giá HT"/"L/L tạm" (MTM 15/07, CHƯA nhìn
+   thấy thật vì chưa có rec mở) + brief gắn "KL gợi ý ~N cp".
 3. **Passive — tự đến, chỉ để ý**: scorecard kỳ đầu ~đầu tháng 9 (đủ 2
    tháng history) · decay 🔻 + log "[reconcile] … DECAYED" nếu chiến lược
    nào tụt thật · OpenRouter `qwen/qwen3-235b-a22b:free` chưa thử lửa
    (chỉ lộ khi Cerebras chết) · chiến lược mới thay family-05f9d495 khi
-   có ứng viên net-dương qua được 🧪 (rule 2b thách thức mỗi lần train).
+   có ứng viên net-dương qua được 🧪 (rule 2b thách thức mỗi lần train)
+   · **stance track đủ ~30 điểm chấm (~3-4 tuần)** → phân tích breakdown:
+   stance do bias-floor ÉP có tệ hơn stance model tự gọi không (→ chỉnh
+   ngưỡng floor bằng số liệu) + agent nào đáng làm primary consensus;
+   mẫu sớm (7 điểm, 29%) gợi ý brief TRỄ PHA — trung tính khi đang rơi,
+   GIẢM ngay đáy hồi — chưa kết luận được, chờ đủ mẫu.
 4. **Theo dõi chất lượng (brief phân bổ tháng 8)**: mục "Phản biện band"
    của Mistral Small logic lộn xộn ("regime -4 trái ngược B4"?!) — nếu
    lặp → route brief allocation sang agent mạnh (1 call/tháng, đáng).
