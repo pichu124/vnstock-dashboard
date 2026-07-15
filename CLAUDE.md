@@ -1648,6 +1648,60 @@ lãi/lỗ TẠM TÍNH gross, display-only. Bảng Open recommendations thêm 2 c
 "Giá HT" + "L/L tạm" (close mới nhất từ `_load_history`, best-effort —
 thiếu giá → "—"); lệnh đang xanh/đỏ thấy ngay, không phải chờ reconcile.
 
+**Khảo sát StockSharp/StockSharp (2026-07-15): KHÔNG dùng framework —
+3 MÓN ĐÁNG MƯỢN, CHƯA LÀM (chờ user chốt "làm đi").** Nền tảng trading
+C#/.NET production (~1.624 file .cs, 166MB clone): connector đa sàn
+(crypto/MOEX/IB — KHÔNG có HOSE/HNX), matching engine, backtest emulator,
+Designer (visual strategy WPF), 188 indicators, candle patterns, risk
+rules, optimizer brute-force + genetic. Không dùng vì: (1) C#/.NET +
+GUI Windows — lệch hẳn stack Python/Streamlit; (2) không data VN;
+(3) là platform live-execution, mình là dashboard hỗ trợ quyết định;
+(4) mọi mảnh "đáng mượn" họ hàng framework này (fee/slippage/sizing/
+trailing/bar-ordering/validation) ĐÃ mượn đủ từ nautilus/zipline/Lean/
+ML4T — và bản của StockSharp KHÔNG tốt hơn: emulator decompose nến theo
+thứ tự O→H→L→C CỐ ĐỊNH (`ProcessStoredCandles`, chỉ chính xác khi data
+có HighTime/LowTime — vnstock EOD không có) → thua bản adaptive
+|high−open| vs |low−open| đã có (còn thấy copy-paste bug: lowState set
+HighPrice, MarketEmulator.cs:1131); (5) LGPL — mượn Ý TƯỞNG, không copy
+code (như nautilus).
+
+**3 món ĐÁNG MƯỢN (đều deterministic thuần, zero LLM/fetch, port
+Python/numpy rẻ):**
+1. **CandlePatternRegistry — nhận diện ~30 mẫu nến bằng BIỂU THỨC thuần**
+   (`Algo/Candles/Patterns/CandlePatternRegistry.cs`): mỗi pattern = 1-5
+   biểu thức trên biến O/H/L/C + dẫn xuất B (thân), LEN (H−L), TS/BS
+   (râu trên/dưới), prefix p/pp/ppp = nến trước (vd Bullish Engulfing =
+   `"O > C"`, `"(O < C) && (O < pC) && (C > pO)"`; đủ bộ Hammer/Morning
+   Star/Three White Soldiers/Harami/Tweezer/Piercing…). Giá trị nhất vì
+   dashboard hiện KHÔNG có nhận diện mẫu nến ở đâu (preset screener toàn
+   ngưỡng RSI/MACD/EMA/52w/volume) — port thành module nhỏ → (a) preset
+   screener mới / cột "Mẫu nến" analysis tab; (b) 1 dòng ngữ cảnh VNINDEX
+   trong brief (qua data block — guard chain không đổi); (c) QUAN TRỌNG:
+   `vnstock_preset_score` vừa build chấm được ngay pattern nào CÓ ALPHA
+   THẬT trên HOSE (mẫu đảo chiều Hammer/Engulfing/Morning Star hợp
+   baseline Bear mean-reversion 15/07). Bẫy khi port: `==` trên giá
+   (Flat "O == C", Tweezer "H == pH") phải thành tolerance theo bước giá
+   HOSE; nến 1 giá LEN=0 (trần/sàn VN hay gặp) phải guard chia 0.
+2. **Choppiness Index** (`Algo.Indicators/ChoppinessIndex.cs`): CHOP 14
+   phiên = 100·log10(ΣTR/(maxH−minL))/log10(14) — đo trend-vs-range
+   thuần giá, bổ sung trục "thị trường đang choppy/sideway" cho regime +
+   brief (regime hiện composite MA/RSI/breadth/NN, chưa có trục này);
+   ~20 dòng numpy. Nice-to-have, làm cùng món 1 thì tiện.
+3. **ConnorsRSI** (`Algo.Indicators/ConnorsRSI.cs`): CRSI = trung bình
+   RSI(3) + RSI-streak(2) + percent-rank ROC(100) — chỉ báo mean-reversion
+   kinh điển, ứng viên tự nhiên cho preset "oversold nâng cao" khi
+   baseline 15/07 cho thấy mean-reversion là edge duy nhất đang sống
+   trên HOSE; chấm lại bằng chính preset scorecard. ~30 dòng numpy.
+
+Bỏ qua nhưng ghi nhận: bộ Statistics 50 tham số — xác nhận lại
+profit_factor (Σlãi/|Σlỗ|) + recovery factor (net/maxDD) đáng thêm nhất
+vào metrics backtest (đã ghi từ nautilus, vài dòng); GeneticOptimizer
+với fitness formula user-defined + GenerationsStagnation early-stop —
+xác nhận hướng "tune deterministic để dành" từ Lean, thêm ý stagnation
+stop nếu làm; Risk rules (position-time-limit ≈ rec expiry đã có);
+order book emulation L2/L3 + Diagram visual programming + Algo.Gpu +
+Storages binary + Export Excel — không có data/use-case tương ứng.
+
 **Khảo sát nautechsystems/nautilus_trader (2026-07-14): KHÔNG dùng
 framework — CẢ 3 MÓN ĐÃ TRIỂN KHAI cùng ngày (xem mục 💸 Phí + ⚖️ Sizing
 bên dưới).** Engine
