@@ -225,6 +225,25 @@ def _calc_indicators(df: pd.DataFrame) -> dict:
     except Exception:
         pass
 
+    # ── Double bottom W + Heikin-Ashi streak (khảo sát quant-trading) ────────
+    try:
+        from vnstock_indicators import double_bottom_w as _dbw
+        db = _dbw(c.values, low=df["low"].astype(float).values)
+        if db:
+            result["double_bottom"] = True
+            result["db_neckline"] = db["neckline"]
+    except Exception:
+        pass
+    try:
+        from vnstock_indicators import ha_trend_streak as _ha_streak
+        streak = _ha_streak(df["open"].astype(float).values,
+                            df["high"].astype(float).values,
+                            df["low"].astype(float).values, c.values)
+        if streak:
+            result["ha_streak"] = int(streak)
+    except Exception:
+        pass
+
     return result
 
 
@@ -323,6 +342,19 @@ PRESETS = {
         "filter": lambda r: (r.get("crsi") is not None and r["crsi"] < 10),
         "sort_by": "crsi",
         "sort_asc": True,
+    },
+    # ── 2 preset từ khảo sát je-suis-tm/quant-trading (2026-07-15) ────────
+    "double_bottom": {
+        "desc": "Hai đáy hình W neo Bollinger + vừa vượt neckline — đảo chiều cấu trúc",
+        "filter": lambda r: bool(r.get("double_bottom")),
+        "sort_by": "vol_spike",
+        "sort_asc": False,
+    },
+    "ha_trend": {
+        "desc": "≥3 nến Heikin-Ashi xanh sạch liên tiếp (không râu dưới) — trend tăng sạch",
+        "filter": lambda r: (r.get("ha_streak") or 0) >= 3,
+        "sort_by": "ha_streak",
+        "sort_asc": False,
     },
 }
 

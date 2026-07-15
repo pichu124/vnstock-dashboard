@@ -1823,7 +1823,7 @@ backtest + mem đều monkeypatch) đã vào `--fast`.
   tune LLM — nếu GA thắng ổn định thì cân nhắc gọi từ `_do_tune` như một
   "agent" thêm (TODO để dành, đừng tự ý nối vào pipeline tối).
 **Khảo sát je-suis-tm/quant-trading (2026-07-15): KHÔNG dùng repo —
-3 MÓN ĐÁNG MƯỢN, CHƯA LÀM (chờ user chốt "làm đi").** Bộ sưu tập ~15
+CẢ 3 MÓN ĐÃ TRIỂN KHAI cùng ngày (xem mục 🪃 bên dưới).** Bộ sưu tập ~15
 chiến lược quant GIÁO DỤC nổi tiếng (Python single-file, mỗi script =
 indicator + signal + backtest thô + plot). Không dùng trực tiếp vì:
 (1) là script notebook-export đời 2018-2021 (`os.chdir('d:/')`,
@@ -1868,6 +1868,44 @@ nguồn; Dual Thrust mức breakout từ EOD (open + K×range) có thể thành
 display cạnh pivots — marginal; Monte Carlo GBM forecast (đã có MC
 validation nghiêm hơn); Smart Farmers/Ore Money (econometrics
 USDA/quặng — không data VN).
+
+### 🪃 PSAR trailing + Double bottom W + Heikin-Ashi (DONE 2026-07-15 — 3 món quant-trading, user "làm cả 3 đi")
+
+Cả 3 deterministic thuần trong `vnstock_indicators.py` (mượn Ý TƯỞNG,
+không copy code — Apache 2.0); tests `tests/test_psar_db_ha.py` (16,
+hermetic) + 1 test build_prompt trong test_brief — vào `--fast`.
+
+**Món 1 — `parabolic_sar(high, low, close)` + `vnstock_strategy.
+psar_stop_hint`**: PSAR Wilder chuẩn (AF 0.01 equity theo ghi chú repo
+gốc, step 0.01 cap 0.2; SAR clamp bởi High/Low 2 bar trước; ≥5 bar; data
+rác/high<low/unit-break → None). `psar_stop_hint(sl, h, l, c)` — CHỈ trả
+mức khi PSAR đang uptrend VÀ > SL gốc +0.5% (cùng luật trailing 5%).
+Cột "SL trailing" (market_tab `_mtm`) nay = **max(trailing 5% cố định,
+PSAR)** — mức khóa lời chặt hơn thắng; vẫn display-only, reconciler chấm
+SL gốc (nguyên tắc 15/07 giữ nguyên).
+
+**Món 2 — `double_bottom_w(close, low)`** → preset screener
+`double_bottom`: 2 đáy hình W neo Bollinger(20,2) viết lại bằng CỰC TRỊ
+CỤC BỘ (thay loop O(n·75) gốc): 2 đáy cuối cách ≥5 bar + giá lệch ≤3%
+(ngưỡng TƯƠNG ĐỐI — bẫy alpha=0.0001 tuyệt đối của repo gốc đã né) +
+đáy 1 chạm/thủng lower band NHƯNG đáy 2 giữ TRÊN band (đà giảm yếu đi —
+luật W-bottom kinh điển) + neckline cao hơn đáy ≥3% + close vượt
+neckline trong ≤3 bar cuối (breakout cũ → không phát lại). Trả
+{neckline, bottom, bars_since_bottom}; screener ghi `double_bottom` +
+`db_neckline`. Mẫu HIẾM by design — n nhỏ trên scorecard là bình thường.
+
+**Món 3 — `heikin_ashi` + `ha_trend_streak`** → preset `ha_trend` +
+dòng brief: HAc=(O+H+L+C)/4, HAo đệ quy; streak = số nến HA CÙNG MÀU
+liên tiếp từ bar cuối, mỗi nến KHÔNG râu ngược (tol 0.15% giá) = trend
+sạch; trả ±N. Preset `ha_trend`: streak ≥ 3 (sort desc). Brief: dòng
+"Heikin-Ashi: N nến xanh/đỏ sạch liên tiếp" trong block VNINDEX kỹ
+thuật khi |streak| ≥ 2, cùng luật SKIP bar intraday như mẫu nến;
+display-only, không guard mới (data block prompt-side).
+
+Wiring chung: 2 preset mới tự vào screener_history → preset scorecard
+chấm; `_MEANREV_PRESETS` += double_bottom, `_TREND_PRESETS` += ha_trend.
+Guard unit-break ×200 nay là helper chung `_has_unit_break` trong
+vnstock_indicators (PSAR/W/HA đều dùng — bẫy per-bar normalization).
 
 **Khảo sát nautechsystems/nautilus_trader (2026-07-14): KHÔNG dùng
 framework — CẢ 3 MÓN ĐÃ TRIỂN KHAI cùng ngày (xem mục 💸 Phí + ⚖️ Sizing

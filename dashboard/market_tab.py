@@ -2180,6 +2180,7 @@ def render_market_tab() -> None:
                         try:
                             from vnstock_strategy import (
                                 _load_history as _lh,
+                                psar_stop_hint as _psh,
                                 trailing_stop_hint as _tsh,
                                 unrealized_pnl_pct as _upnl,
                             )
@@ -2202,12 +2203,20 @@ def render_market_tab() -> None:
                                     try:
                                         # closes kể từ ngày mở rec → trailing
                                         # stop (Lean); rec SELL không áp dụng.
+                                        # Kết hợp PSAR (quant-trading): lấy
+                                        # mức CAO hơn = khóa lời chặt hơn.
                                         if str(row.get("action", "buy")).lower() != "sell":
                                             _created = str(row["created_at"])[:10]
                                             _closes = h.loc[
                                                 h["time"].astype(str).str[:10]
                                                 >= _created, "close"].tolist()
                                             trail = _tsh(row["cut_loss"], _closes)
+                                            psar = _psh(row["cut_loss"],
+                                                        h["high"], h["low"],
+                                                        h["close"])
+                                            cands = [x for x in (trail, psar)
+                                                     if x is not None]
+                                            trail = max(cands) if cands else None
                                     except Exception:
                                         pass
                                     return last, pnl, adv, trail

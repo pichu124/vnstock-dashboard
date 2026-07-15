@@ -2396,10 +2396,21 @@ def _vnindex_technicals() -> dict:
         except Exception:
             pass
         candle_patterns = []
+        ha_streak = 0
         if not bool(df.attrs.get("intraday", False)):
             try:
                 from vnstock_candle_patterns import detect_df, pattern_labels
                 candle_patterns = pattern_labels(detect_df(df))
+            except Exception:
+                pass
+            # Heikin-Ashi streak (quant-trading 15/07) — cùng luật skip
+            # intraday như mẫu nến (HA của bar chưa chốt còn đổi).
+            try:
+                from vnstock_indicators import ha_trend_streak
+                if "open" in df.columns:
+                    ha_streak = ha_trend_streak(
+                        df["open"].astype(float).values, high.values,
+                        low.values, close.values)
             except Exception:
                 pass
 
@@ -2422,6 +2433,7 @@ def _vnindex_technicals() -> dict:
             "rsi14":          round(rsi14, 1) if rsi14 is not None else None,
             "chop14":         chop14,
             "candle_patterns": candle_patterns,
+            "ha_streak":      int(ha_streak),
             "support_1":      sup1,
             "support_2":      sup2,
             "resistance_1":   res1,
@@ -2607,6 +2619,12 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             vt_lines.append(
                 "- Mẫu nến phiên gần nhất: " + "; ".join(pats)
                 + " (tín hiệu nến tham khảo, cần nến xác nhận)"
+            )
+        if abs(streak := int(vt.get("ha_streak") or 0)) >= 2:
+            _ha_dir = "xanh (tăng)" if streak > 0 else "đỏ (giảm)"
+            vt_lines.append(
+                f"- Heikin-Ashi: {abs(streak)} nến {_ha_dir} sạch liên tiếp"
+                " — lọc nhiễu trend, chỉ ngữ cảnh"
             )
         sr_parts = []
         if vt.get("support_2") is not None:

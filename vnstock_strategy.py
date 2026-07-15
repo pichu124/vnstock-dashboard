@@ -956,6 +956,29 @@ def trailing_stop_hint(sl, closes_since_entry,
     return round(trail, 2)
 
 
+def psar_stop_hint(sl, highs, lows, closes=None) -> "float | None":
+    """SL trailing THÍCH ỨNG theo Parabolic SAR (khảo sát je-suis-tm/
+    quant-trading 15/07): khác bản 5% cố định, PSAR tăng tốc theo trend
+    (AF equity 0.01) nên bám đà chặt dần khi trend kéo dài. CHỈ trả mức
+    khi PSAR đang uptrend (SAR dưới giá) VÀ cao hơn SL gốc > +0.5% —
+    cùng luật với `trailing_stop_hint`; display-only, reconciler VẪN
+    chấm theo SL gốc trong DB. Rec SELL không áp dụng (caller đã lọc)."""
+    try:
+        sl = float(sl)
+        from vnstock_indicators import parabolic_sar
+        res = parabolic_sar(highs, lows, closes)
+    except Exception:
+        return None
+    if not res:
+        return None
+    sar, trend = res
+    if trend <= 0 or not sar or sar <= 0:
+        return None
+    if sl > 0 and sar <= sl * 1.005:
+        return None
+    return round(float(sar), 2)
+
+
 # ── Strategy generation via agents ─────────────────────────────────────────
 _STRATEGY_PROMPT = """\
 Bạn là quant developer cho thị trường chứng khoán Việt Nam (T+2.5, không short, \

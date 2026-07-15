@@ -3302,3 +3302,19 @@ def test_build_prompt_omits_chop_and_candle_lines_when_absent():
     p = build_prompt(ctx, brief_type="afternoon")
     assert "CHOP(14)" not in p
     assert "Mẫu nến phiên gần nhất" not in p
+
+
+def test_build_prompt_includes_ha_streak_line():
+    ctx = {"date": "2026-07-15", "time": "15:00",
+           "vnindex_tech": {"close": 1803.71, "intraday": False,
+                            "ha_streak": 4}}
+    p = build_prompt(ctx, brief_type="afternoon")
+    assert "Heikin-Ashi: 4 nến xanh (tăng) sạch liên tiếp" in p
+    ctx["vnindex_tech"]["ha_streak"] = -3
+    assert "Heikin-Ashi: 3 nến đỏ (giảm) sạch liên tiếp" in build_prompt(
+        ctx, brief_type="afternoon")
+    # streak 0/1 hoặc thiếu → không render (nhiễu)
+    ctx["vnindex_tech"]["ha_streak"] = 1
+    assert "Heikin-Ashi" not in build_prompt(ctx, brief_type="afternoon")
+    del ctx["vnindex_tech"]["ha_streak"]
+    assert "Heikin-Ashi" not in build_prompt(ctx, brief_type="afternoon")
