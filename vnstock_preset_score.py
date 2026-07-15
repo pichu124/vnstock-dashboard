@@ -177,6 +177,131 @@ def preset_scorecard(horizons: tuple[int, ...] = _DEFAULT_HORIZONS,
     }
 
 
+# ── "Đọc kết quả" DETERMINISTIC (user thích phần diễn giải 15/07 → đưa vào
+# dashboard; mọi nhận định suy từ CHÍNH số liệu bằng code, không LLM) ────────
+
+_MEANREV_PRESETS = ("oversold", "reversal")
+_TREND_PRESETS = ("momentum", "strong_uptrend", "breakout",
+                  "golden_cross", "overbought")
+
+
+def _breadth_pct() -> Optional[float]:
+    """% mã trên MA200 từ market_overview.json — ngữ cảnh độ rộng, best-effort."""
+    try:
+        mo = json.loads((_WAREHOUSE / "_meta" / "market_overview.json")
+                        .read_text(encoding="utf-8"))
+        v = (mo.get("breadth") or {}).get("above_ma200_pct")
+        return float(v) if v is not None else None
+    except Exception:
+        return None
+
+
+def _grp_avg(presets: dict, names: tuple, hkey: str) -> Optional[float]:
+    vals = [presets[n][hkey]["avg_excess"] for n in names
+            if n in presets and presets[n].get(hkey)]
+    return sum(vals) / len(vals) if vals else None
+
+
+def interpret_scorecard(card: dict, breadth_pct: Optional[float] = None,
+                        cost_pct: Optional[float] = None) -> list[str]:
+    """Sinh các nhận định "đọc kết quả" từ chính số liệu (deterministic):
+    trường phái nào đang thắng · edge sống bao lâu · so với phí · ngữ cảnh
+    độ rộng · caveat mẫu. Trả list bullet tiếng Việt."""
+    if not card or not card.get("presets"):
+        return []
+    presets = card["presets"]
+    hs = card.get("horizons") or list(_DEFAULT_HORIZONS)
+    h0 = hs[0]
+    h0k = f"h{h0}"
+    if cost_pct is None:
+        try:
+            from vnstock_strategy import _cost_roundtrip_pct
+            cost_pct = _cost_roundtrip_pct()
+        except Exception:
+            cost_pct = 0.4
+    out: list[str] = []
+
+    # 1) Trường phái: mean-reversion vs trend-following
+    mr = _grp_avg(presets, _MEANREV_PRESETS, h0k)
+    tf = _grp_avg(presets, _TREND_PRESETS, h0k)
+    if mr is not None and tf is not None:
+        diff = mr - tf
+        if diff >= 1:
+            out.append(
+                f"**Mean-reversion đang thắng trend-following** (bắt đáy TB "
+                f"{mr:+.2f}% vs đuổi đà {tf:+.2f}%/{h0} phiên, chênh {diff:.1f} "
+                f"điểm %): mua hoảng loạn có bounce ngắn, đuổi sức mạnh bất lợi "
+                f"— đặc trưng thị trường điều chỉnh.")
+        elif diff <= -1:
+            out.append(
+                f"**Trend-following đang thắng mean-reversion** (đuổi đà TB "
+                f"{tf:+.2f}% vs bắt đáy {mr:+.2f}%/{h0} phiên, chênh {-diff:.1f} "
+                f"điểm %): đà đang được thưởng — đặc trưng thị trường có xu hướng.")
+        else:
+            out.append(
+                f"Hai trường phái chưa phân định rõ (bắt đáy {mr:+.2f}% vs "
+                f"đuổi đà {tf:+.2f}%/{h0} phiên — chênh dưới 1 điểm %).")
+
+    # 2) Edge sống bao lâu (preset tốt nhất theo h0)
+    ranked = sorted(((n, r) for n, r in presets.items() if r.get(h0k)),
+                    key=lambda kv: kv[1][h0k]["avg_excess"], reverse=True)
+    if ranked:
+        top_name, top_row = ranked[0]
+        top_e = top_row[h0k]["avg_excess"]
+        h1 = next((h for h in hs[1:] if top_row.get(f"h{h}")), None)
+        if top_e <= 0:
+            out.append(
+                f"**Không preset nào có excess dương ở {h0} phiên** — giai đoạn "
+                f"này đứng ngoài cũng là một vị thế.")
+        elif h1 is not None:
+            e1 = top_row[f"h{h1}"]["avg_excess"]
+            if e1 < 0:
+                out.append(
+                    f"**Edge của {top_name} chỉ sống ~{h0} phiên** ({h0}p "
+                    f"{top_e:+.2f}% nhưng {h1}p {e1:+.2f}%) → kèo ngắn, "
+                    f"không phải vị thế nắm giữ dài.")
+            else:
+                out.append(
+                    f"Edge của {top_name} giữ được qua cả {h1} phiên "
+                    f"({h0}p {top_e:+.2f}%, {h1}p {e1:+.2f}%).")
+
+        # 3) So với phí round-trip (3 nấc: hòa vốn / mỏng / còn ăn được)
+        if top_e > 0:
+            net = top_e - cost_pct
+            if net <= 0.1:
+                out.append(
+                    f"⚠️ **Sau phí ≈ hòa vốn**: preset tốt nhất {top_e:+.2f}%/"
+                    f"{h0} phiên TRƯỚC phí, round-trip ~{cost_pct:g}% → còn "
+                    f"{net:+.2f}%. Chưa đủ dày để trade cơ học.")
+            elif net <= 0.6:
+                out.append(
+                    f"⚠️ **Phí ăn gần hết edge**: {top_name} {top_e:+.2f}%/"
+                    f"{h0} phiên trước phí, sau round-trip ~{cost_pct:g}% chỉ "
+                    f"còn {net:+.2f}% — mỏng, cần chọn lọc thêm thay vì trade "
+                    f"cả rổ.")
+            else:
+                out.append(
+                    f"Sau phí round-trip ~{cost_pct:g}%, {top_name} còn "
+                    f"{net:+.2f}%/{h0} phiên.")
+
+    # 4) Ngữ cảnh độ rộng (baseline so-với-index là bar cao khi breadth tệ)
+    if breadth_pct is not None and breadth_pct < 40:
+        neg = sum(1 for _, r in presets.items()
+                  if r.get(h0k) and r[h0k]["avg_excess"] < 0)
+        if neg >= len(presets) / 2:
+            out.append(
+                f"Chỉ {breadth_pct:.0f}% mã trên MA200 — mã trung vị đang thua "
+                f"index (index được large-cap đỡ), nên excess âm hàng loạt một "
+                f"phần là do độ rộng, không hẳn preset tệ.")
+
+    # 5) Caveat cố định
+    out.append(
+        f"Mẫu {card.get('n_days', '?')} snapshot ≈ 1 regime duy nhất; tín hiệu "
+        f"lặp cùng mã nhiều ngày nên mẫu hiệu dụng nhỏ hơn n — đây là XẾP HẠNG "
+        f"tương đối giữa preset, đọc lại khi thị trường đổi pha.")
+    return out
+
+
 def save_scorecard(card: dict) -> None:
     _CACHE.parent.mkdir(parents=True, exist_ok=True)
     tmp = _CACHE.with_suffix(".tmp")
@@ -209,8 +334,12 @@ def _print_card(card: dict) -> None:
                              f"(hit {s['hit_rate']:.0f}%, n={s['n']})")
         if parts:
             print(f"  · {name:<15} {' | '.join(parts)}")
-    print("  (hit = % tín hiệu thắng VNINDEX; mẫu ~30 ngày — xếp hạng "
-          "tương đối, chưa phải kết luận tuyệt đối)")
+    print("  (hit = % tín hiệu thắng VNINDEX)")
+    bullets = interpret_scorecard(card, breadth_pct=_breadth_pct())
+    if bullets:
+        print("\n— Đọc kết quả —")
+        for b in bullets:
+            print(f"  • {b.replace('**', '')}")
 
 
 def main(argv: "list[str] | None" = None) -> int:

@@ -144,6 +144,51 @@ def render_screener_tab(
                 )
                 st.progress(pct / 100)
 
+    # ── 📋 Preset scorecard — alpha 30 ngày + "đọc kết quả" deterministic ──
+    with st.expander("📋 Chấm điểm preset — alpha ~30 ngày so VNINDEX", expanded=False):
+        try:
+            import pandas as _pd
+            import vnstock_preset_score as _psc
+            _card = _psc.load_scorecard()
+            if st.button("🔄 Tính lại từ screener_history", key="_psc_refresh",
+                         help="Quét ~30 snapshot + kho giá (mất ~30-60s). "
+                              "Zero LLM — chỉ số học."):
+                with st.spinner("Đang chấm 9 preset (forward return vs VNINDEX)…"):
+                    _card = _psc.preset_scorecard()
+                    if _card:
+                        _psc.save_scorecard(_card)
+            if not _card:
+                st.info("Chưa có scorecard — bấm 🔄 Tính lại "
+                        "(cần screener_history đủ ~6 phiên trở lên).")
+            else:
+                _hs = _card.get("horizons") or [5, 20]
+                _rows = []
+                for _name, _row in sorted(
+                        _card["presets"].items(),
+                        key=lambda kv: (kv[1].get(f"h{_hs[0]}") or {}).get("avg_excess", -99),
+                        reverse=True):
+                    _r = {"Preset": _name}
+                    for _h in _hs:
+                        _s = _row.get(f"h{_h}")
+                        if _s:
+                            _r[f"Excess {_h}p %"] = _s["avg_excess"]
+                            _r[f"Hit {_h}p %"] = _s["hit_rate"]
+                            _r[f"n {_h}p"] = _s["n"]
+                    _rows.append(_r)
+                st.dataframe(_pd.DataFrame(_rows), use_container_width=True,
+                             hide_index=True)
+                st.caption(f"Cập nhật {_card.get('as_of')} · {_card.get('n_days')} "
+                           f"snapshot · excess = return rổ hit − VNINDEX cùng cửa sổ "
+                           f"· hit = % tín hiệu thắng index")
+                _bullets = _psc.interpret_scorecard(
+                    _card, breadth_pct=_psc._breadth_pct())
+                if _bullets:
+                    st.markdown("**🧭 Đọc kết quả** *(suy từ số liệu, không LLM)*:")
+                    for _b in _bullets:
+                        st.markdown(f"- {_b}")
+        except Exception as _e:
+            st.caption(f"⚠ preset scorecard lỗi: {type(_e).__name__}: {_e}")
+
     # ── Live Screener (real-time scan trong phiên) ──────────────────────
     _live_scan_on = st.toggle(
         "🔴 Live Scan (real-time)",

@@ -120,6 +120,67 @@ def test_ticker_without_data_skipped(_fake_env):
     assert card["presets"]["momentum"]["h5"]["n"] == 1   # XXX không có giá → bỏ
 
 
+# ── "Đọc kết quả" deterministic ──────────────────────────────────────────────
+
+
+def _mk_card(presets, n_days=30, horizons=(5, 20)):
+    return {"as_of": "2026-07-15", "n_days": n_days,
+            "horizons": list(horizons), "presets": presets}
+
+
+def _p(e5, e20=None, hit=50.0, n=100):
+    row = {"desc": "", "n_days_signal": 10,
+           "h5": {"n": n, "avg_fwd": e5, "avg_excess": e5, "hit_rate": hit}}
+    if e20 is not None:
+        row["h20"] = {"n": n, "avg_fwd": e20, "avg_excess": e20, "hit_rate": hit}
+    return row
+
+
+def test_interpret_bear_regime_reading():
+    # đúng hình bảng thật 15/07: bắt đáy thắng, edge tắt ở 20p, phí ăn hết
+    card = _mk_card({
+        "reversal": _p(0.81, -3.31), "oversold": _p(0.36, -3.02),
+        "momentum": _p(-1.47, -4.64), "breakout": _p(-2.02, -6.96),
+        "strong_uptrend": _p(-2.01, -4.91), "golden_cross": _p(-1.07, -4.03),
+        "overbought": _p(-1.63, -2.71),
+    })
+    bullets = interpret = ps.interpret_scorecard(card, breadth_pct=13.0,
+                                                 cost_pct=0.4)
+    text = " ".join(bullets)
+    assert "Mean-reversion đang thắng" in text
+    assert "chỉ sống ~5 phiên" in text and "reversal" in text
+    assert "Phí ăn gần hết edge" in text
+    assert "13% mã trên MA200" in text            # ngữ cảnh độ rộng
+    assert "XẾP HẠNG" in text                     # caveat luôn có
+
+
+def test_interpret_trend_regime_and_durable_edge():
+    card = _mk_card({
+        "momentum": _p(2.5, 1.8), "strong_uptrend": _p(1.9, 1.2),
+        "oversold": _p(-0.5, -1.0), "reversal": _p(-0.8, -1.5),
+    })
+    text = " ".join(ps.interpret_scorecard(card, breadth_pct=65.0,
+                                           cost_pct=0.4))
+    assert "Trend-following đang thắng" in text
+    assert "giữ được qua cả 20 phiên" in text
+    assert "còn +2.10%" in text                   # 2.5 − 0.4 sau phí
+    assert "MA200" not in text                    # breadth khỏe → không đổ lỗi
+
+
+def test_interpret_all_negative_and_empty():
+    card = _mk_card({"momentum": _p(-1.0, -2.0), "oversold": _p(-0.3, -1.0)})
+    text = " ".join(ps.interpret_scorecard(card, cost_pct=0.4))
+    assert "đứng ngoài" in text
+    assert ps.interpret_scorecard({}, cost_pct=0.4) == []
+
+
+def test_cli_prints_interpretation(_fake_env, capsys):
+    _write_snap(_fake_env, "2026-07-05", {"momentum": ["AAA"]})
+    assert ps.main(["--show", "--horizons", "5"]) == 0
+    out = capsys.readouterr().out
+    assert "Đọc kết quả" in out and "XẾP HẠNG" in out
+
+
 # ── Món 2: apply_selection_penalty ───────────────────────────────────────────
 
 

@@ -1499,6 +1499,19 @@ edge bắt-đáy chỉ sống ~5 phiên (20p toàn âm, hit 21-31% — bounce t�
 rơi tiếp); top preset +0.36-0.81%/5p TRƯỚC phí 0.4% round-trip ⇒ sau phí
 gần hòa vốn — nhất quán với verdict 🧪 "regime này chưa có edge đủ dày".
 Caveat: 1 regime, tín hiệu lặp mã liên ngày (mẫu hiệu dụng nhỏ hơn n).
+**"Đọc kết quả" vào dashboard (user thích, DONE 15/07)**:
+`interpret_scorecard(card, breadth_pct, cost_pct)` — bản DETERMINISTIC
+của phần diễn giải (user khen phần này): 5 nhận định suy từ chính số
+liệu bằng code, KHÔNG LLM — (1) trường phái nào thắng (nhóm
+`_MEANREV_PRESETS` vs `_TREND_PRESETS`, chênh ≥1đ% mới kết luận, kèm
+"đặc trưng thị trường điều chỉnh/xu hướng"); (2) edge sống bao lâu (top
+preset dương ở h0 nhưng âm ở h1 → "kèo ngắn"; toàn âm → "đứng ngoài
+cũng là một vị thế"); (3) so phí 3 nấc (≤0.1 hòa vốn / ≤0.6 "phí ăn gần
+hết edge" / còn ăn được); (4) ngữ cảnh độ rộng (breadth <40% + đa số
+preset âm → "excess âm hàng loạt một phần do độ rộng"); (5) caveat mẫu.
+Render ở CLI `--show` (mục "— Đọc kết quả —") + expander "📋 Chấm điểm
+preset" MỚI trong tab Screener (bảng xếp hạng + nút 🔄 Tính lại +
+bullets, ghi rõ "suy từ số liệu, không LLM").
 
 **Món 2 — `vnstock_strategy.apply_selection_penalty(metrics, n_trials)`**:
 Bonferroni cho winner-of-N — cả 3 vòng thi (`_cold_start`/`_do_revise`/
