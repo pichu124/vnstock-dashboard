@@ -92,11 +92,23 @@ def test_skips_latest_error_and_unknown(_fake_sources):
     _set_briefs(_fake_sources, [
         _brief("2026-07-15", "GIẢM"),                       # chưa có phiên kế → bỏ
         _brief("2026-07-11", "GIẢM", error="boom"),         # brief lỗi → bỏ
-        _brief("2026-07-11", "", output="## 🎯 TLDR\nkhông nói gì.\n"),  # unknown
+        _brief("2026-07-11", "", output="## 🎯 TLDR\nkhông nói gì.\n", agent="B"),
         _brief("2026-07-10", "TĂNG"),
     ])
     recs = stk.stance_records()
     assert len(recs) == 1 and recs[0]["date"] == "2026-07-10"
+
+
+def test_errored_rerun_does_not_shadow_valid_brief(_fake_sources):
+    # Bản MỚI NHẤT của (ngày, agent) bị lỗi → không được chiếm chỗ dedupe và
+    # kéo mất bản hợp lệ cũ hơn (bug thật 15/07: Groq 13/07 biến mất).
+    _set_briefs(_fake_sources, [
+        _brief("2026-07-11", "GIẢM", error="rate limit"),   # rerun lỗi, mới nhất
+        _brief("2026-07-11", "GIẢM"),                       # bản hợp lệ cũ hơn
+    ])
+    recs = stk.stance_records()
+    assert len(recs) == 1
+    assert recs[0]["stance"] == "bearish" and recs[0]["correct"] is True
 
 
 def test_summary_line_and_empty(_fake_sources):

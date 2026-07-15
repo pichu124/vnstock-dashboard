@@ -91,13 +91,17 @@ def stance_records(limit: int = _DEFAULT_LIMIT) -> list[dict]:
     closes = _vnindex_closes()
     if not briefs or not closes:
         return []
+    # Lọc row HỢP LỆ trước (có output, không error) RỒI mới dedupe — không
+    # thì bản mới nhất bị lỗi sẽ chiếm chỗ và kéo mất luôn bản hợp lệ cũ hơn
+    # cùng (ngày, agent) (thấy thật 15/07: Groq 13/07 biến mất khỏi bảng).
+    valid = [b for b in briefs if (b.get("output") or "") and not b.get("error")]
     # Dedupe: regenerate nhiều lần trong ngày (close 14/07 chạy 4 bản) tạo
     # nhiều row cùng (ngày, agent) → chỉ chấm bản MỚI NHẤT, không thì 1 cú
     # gọi sai bị đếm 3-4 lần. recent_briefs đã sort created_at DESC nên bản
     # đầu tiên gặp là bản mới nhất.
     seen: set[tuple[str, str]] = set()
     dedup: list[dict] = []
-    for b in briefs:
+    for b in valid:
         key = (str(b.get("brief_date", ""))[:10], str(b.get("agent_name", "")))
         if key in seen:
             continue
@@ -106,8 +110,6 @@ def stance_records(limit: int = _DEFAULT_LIMIT) -> list[dict]:
     out: list[dict] = []
     for b in dedup:
         text = b.get("output") or ""
-        if not text or b.get("error"):
-            continue
         tldr = _extract_section(text, "TLDR") or text[:600]
         stance = _detect_stance(tldr)
         if stance == "unknown":
