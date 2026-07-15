@@ -29,9 +29,15 @@ GA trọn gói ~10-30 phút) và DRY-RUN (không ghi DB); `--apply` mới cập 
 params + lưu row backtest.
 
   python vnstock_genetic.py --run                 # dry-run, lite config
+  python vnstock_genetic.py --run --medium        # ~90 cửa sổ (chiến lược thưa lệnh)
   python vnstock_genetic.py --run --apply         # ghi DB nếu ứng viên đạt
   python vnstock_genetic.py --run --full          # config đầy đủ (RẤT lâu)
   python vnstock_genetic.py --space               # xem không gian params suy ra
+
+LƯU Ý cỡ mẫu (verify thật 15/07): chiến lược THƯA LỆNH (family hiện tại ra
+0-1 lệnh trên ~20 cửa sổ lite) làm GA mù trên lite — nhìn "median n_trades"
+trong báo cáo: quá thấp → chạy --medium/--full. GA hữu ích nhất trên core
+CÓ lệnh đều; core vừa bị rule 2b revise thì tune sau khi có core mới.
 """
 
 from __future__ import annotations
@@ -60,9 +66,11 @@ _SPAN_LO, _SPAN_HI = 0.4, 2.5   # khoảng tìm kiếm quanh giá trị hiện t
 
 _FITNESS_KEYS = ("expectancy", "sharpe", "profit_factor", "recovery_factor")
 _MIN_TRADES_DEFAULT = 8      # dưới ngưỡng → fitness -inf (mẫu quá mỏng)
-_MIN_TRADES_LITE = 4         # lite config (~25 cửa sổ) tự nhiên ít lệnh hơn
-                             # nhiều — 8 chặn sạch mọi ứng viên (thấy thật
-                             # 15/07: benchmark có số mà GA toàn "—")
+_MIN_TRADES_LITE = 4         # lite/medium tự nhiên ít lệnh hơn nhiều — 8
+                             # chặn sạch mọi ứng viên (thấy thật 15/07:
+                             # benchmark có số mà GA toàn "—")
+
+_CONFIGS = ("lite", "medium", "full")
 
 _AGENT_NAME = "GeneticOptimizer"
 
@@ -211,10 +219,14 @@ def genetic_tune(code: str, base_params: dict, cfg,
         best_metrics = vs.apply_selection_penalty(best_metrics, n_trials)
 
     # Chẩn đoán: bao nhiêu ứng viên bị gate min_trades chặn + best THÔ
-    # (bỏ gate) — để báo cáo giải thích được vì sao toàn "—" thay vì im lặng
+    # (bỏ gate) + median n_trades — để báo cáo giải thích được vì sao toàn
+    # "—" và cho thấy cỡ mẫu thật của config đang dùng
     evals = list(cache.values())
     n_below = sum(1 for f, m in evals
                   if not np.isfinite(f) and (m.get("n_trades") or 0) < min_trades)
+    trades_counts = sorted((m.get("n_trades") or 0) for _, m in evals)
+    median_n_trades = (trades_counts[len(trades_counts) // 2]
+                       if trades_counts else None)
     best_raw_fitness = best_raw_n = None
     if evals:
         _, raw_m = max(evals, key=lambda t: _fitness_of(t[1], fitness, 0))
@@ -230,6 +242,7 @@ def genetic_tune(code: str, base_params: dict, cfg,
         "min_trades": min_trades,
         "n_trials": n_trials,
         "n_below_min_trades": n_below,
+        "median_n_trades": median_n_trades,
         "best_raw_fitness": best_raw_fitness,
         "best_raw_n_trades": best_raw_n,
         "generations_run": generations_run,
@@ -249,7 +262,17 @@ def _active_or_none() -> Optional[dict]:
         return None
 
 
-def genetic_tune_active(apply: bool = False, lite: bool = True,
+def medium_config(universe: list) -> "vs.BacktestConfig":
+    """Nấc giữa lite và full (thêm sau verify 15/07: active thưa lệnh ra
+    0-1 lệnh trên ~20 cửa sổ lite → GA mù; full ~1,800 cửa sổ × 30-40 đánh
+    giá = nhiều giờ). ~90 cửa sổ (10 mã × ~9 cửa sổ, lookback 300, step 15)
+    → mỗi backtest ~1-2 phút, GA trọn gói ~30-60 phút."""
+    return vs.BacktestConfig(universe=universe[:10], lookback_days=300,
+                             horizon_days=vs.DEFAULT_HORIZON_DAYS,
+                             window_size=60, step_days=15)
+
+
+def genetic_tune_active(apply: bool = False, config: str = "lite",
                         universe: Optional[list] = None,
                         pop: int = _POP_DEFAULT, gens: int = _GENS_DEFAULT,
                         stagnation: int = _STAGNATION_DEFAULT,
@@ -259,7 +282,9 @@ def genetic_tune_active(apply: bool = False, lite: bool = True,
     """GA-tune chiến lược active. DRY-RUN mặc định (zero side-effect);
     ``apply=True`` mới ghi DB — và CHỈ khi ứng viên thắng benchmark active
     (re-backtest cùng config, net-vs-net) VÀ qua gate validation sau penalty
-    chọn-lọc (mirror `_do_tune`)."""
+    chọn-lọc (mirror `_do_tune`). ``config``: lite | medium | full."""
+    if config not in _CONFIGS:
+        return {"error": f"config phải thuộc {_CONFIGS}"}
     active = _active_or_none()
     if not active:
         return {"error": "không có chiến lược active — chạy train/cold-start trước"}
@@ -272,12 +297,14 @@ def genetic_tune_active(apply: bool = False, lite: bool = True,
 
     if universe is None:
         from vnstock_train import _training_universe
-        universe = _training_universe(lite=lite)
+        universe = _training_universe(lite=(config != "full"))
     if not universe:
         return {"error": "không dựng được universe (warehouse trống?)"}
-    cfg = vs.lite_config(universe) if lite else vs.BacktestConfig(universe=universe)
+    cfg = (vs.lite_config(universe) if config == "lite"
+           else medium_config(universe) if config == "medium"
+           else vs.BacktestConfig(universe=universe))
     if min_trades is None:
-        min_trades = _MIN_TRADES_LITE if lite else _MIN_TRADES_DEFAULT
+        min_trades = _MIN_TRADES_DEFAULT if config == "full" else _MIN_TRADES_LITE
 
     code = active["code"]
     # Benchmark CÙNG cost-basis + CÙNG config với ứng viên (bẫy benchmark
@@ -314,7 +341,7 @@ def genetic_tune_active(apply: bool = False, lite: bool = True,
                               "profit_factor", "recovery_factor")},
         "adopted": adopted,
         "applied": applied,
-        "lite": lite,
+        "config": config,
     }
 
 
@@ -330,8 +357,11 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="GA tune params chiến lược active (deterministic, zero LLM)")
     ap.add_argument("--run", action="store_true", help="chạy GA (mặc định dry-run)")
     ap.add_argument("--apply", action="store_true", help="ghi DB nếu ứng viên đạt gate")
+    ap.add_argument("--medium", action="store_true",
+                    help="config trung gian ~90 cửa sổ (~1-2 phút/đánh giá, trọn gói "
+                         "~30-60 phút) — dùng khi chiến lược thưa lệnh làm lite mù")
     ap.add_argument("--full", action="store_true",
-                    help="config backtest đầy đủ thay vì lite (RẤT lâu: ~8 phút/đánh giá)")
+                    help="config backtest đầy đủ (RẤT lâu: ~8 phút/đánh giá)")
     ap.add_argument("--space", action="store_true", help="chỉ in không gian params suy ra")
     ap.add_argument("--pop", type=int, default=_POP_DEFAULT)
     ap.add_argument("--gens", type=int, default=_GENS_DEFAULT)
@@ -364,7 +394,11 @@ def main(argv=None) -> int:
         ap.print_help()
         return 0
 
-    r = genetic_tune_active(apply=args.apply, lite=not args.full,
+    if args.medium and args.full:
+        print("❌ --medium và --full loại trừ nhau.")
+        return 1
+    config = "full" if args.full else "medium" if args.medium else "lite"
+    r = genetic_tune_active(apply=args.apply, config=config,
                             pop=args.pop, gens=args.gens,
                             stagnation=args.stagnation,
                             fitness=args.fitness, min_trades=args.min_trades,
@@ -376,12 +410,13 @@ def main(argv=None) -> int:
     v = (r.get("best_metrics") or {}).get("validation") or {}
     base_n = (r.get("baseline_metrics") or {}).get("n_trades")
     print(f"🧬 GA tune chiến lược #{r['strategy_id']} — fitness={r['fitness_key']}"
-          f" ({'lite' if r['lite'] else 'full'} config, seed {args.seed},"
+          f" ({r['config']} config, seed {args.seed},"
           f" min_trades={r.get('min_trades')})")
     print(f"  Thế hệ chạy: {r['generations_run']} (best theo thế hệ: "
           f"{', '.join(_fmt(h) for h in r['history'])})")
-    print(f"  Ứng viên UNIQUE đã backtest: {r['n_trials']} → penalty chọn-lọc"
-          f" p_adj={_fmt(v.get('p_value_adj'))}")
+    print(f"  Ứng viên UNIQUE đã backtest: {r['n_trials']}"
+          f" (median n_trades={r.get('median_n_trades') if r.get('median_n_trades') is not None else '—'})"
+          f" → penalty chọn-lọc p_adj={_fmt(v.get('p_value_adj'))}")
     print(f"  Benchmark active : {_fmt(r.get('baseline_fitness'))}"
           f"  (n_trades={base_n if base_n is not None else '—'})")
     print(f"  Best GA          : {_fmt(r.get('best_fitness'))}"
@@ -391,7 +426,7 @@ def main(argv=None) -> int:
               f" {r.get('min_trades')} — best THÔ (bỏ gate):"
               f" {_fmt(r.get('best_raw_fitness'))}"
               f" ({r.get('best_raw_n_trades')} lệnh)."
-              f" Thử --min-trades thấp hơn hoặc --full (nhiều cửa sổ hơn).")
+              f" Thử --min-trades thấp hơn hoặc --medium/--full (nhiều cửa sổ hơn).")
     if r.get("best_params"):
         print(f"  Params best      : {json.dumps(r['best_params'], ensure_ascii=False)}")
     if r["adopted"]:

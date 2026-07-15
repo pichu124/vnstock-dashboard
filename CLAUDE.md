@@ -1808,11 +1808,20 @@ backtest + mem đều monkeypatch) đã vào `--fast`.
   override; report thêm chẩn đoán `n_below_min_trades` + best THÔ
   (bỏ gate, kèm n lệnh) + hint "hạ --min-trades hoặc --full" khi mọi
   ứng viên bị gate.
-- **Còn phải verify tiếp trên máy user**: chạy lại `--run` sau fix —
-  kỳ vọng console sạch (không spam Streamlit) + GA có số thật để so
-  benchmark. So kết quả với vòng tune LLM tối cùng ngày — nếu GA thắng
-  ổn định thì cân nhắc gọi từ `_do_tune` như một "agent" thêm (TODO để
-  dành, đừng tự ý nối vào pipeline tối).
+- **Verify vòng 2 (trưa 15/07, sau fix)**: console SẠCH ✅, chẩn đoán ăn ✅
+  — và lộ tầng sâu hơn: active (family-05f9d495) ra đúng **1 lệnh trên
+  ~20 cửa sổ lite** (benchmark n_trades=1, best thô = chính params gốc)
+  → lite config MÙ với chiến lược thưa lệnh, không phải lỗi gate. Thêm
+  **`--medium`** (`medium_config`: 10 mã, lookback 300, step 15 → ~90 cửa
+  sổ, ~1-2 phút/backtest, trọn gói ~30-60 phút) + báo cáo in **median
+  n_trades** của ứng viên (nhìn 1 dòng biết cỡ mẫu đủ hay chưa);
+  `genetic_tune_active` nhận `config="lite|medium|full"` thay cờ lite.
+- **Cách dùng đúng (đúc kết sau 2 vòng verify)**: GA hữu ích nhất trên
+  core CÓ lệnh đều — active hiện tại đằng nào cũng bị rule 2b revise
+  (expectancy net ≤ 0) → tune SAU KHI có core mới; median n_trades thấp
+  → nâng --medium/--full thay vì hạ --min-trades. So kết quả với vòng
+  tune LLM — nếu GA thắng ổn định thì cân nhắc gọi từ `_do_tune` như một
+  "agent" thêm (TODO để dành, đừng tự ý nối vào pipeline tối).
 framework — CẢ 3 MÓN ĐÃ TRIỂN KHAI cùng ngày (xem mục 💸 Phí + ⚖️ Sizing
 bên dưới).** Engine
 trading production-grade lớn nhất từng khảo sát (~2.530 file Rust +

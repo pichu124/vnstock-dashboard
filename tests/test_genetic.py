@@ -178,18 +178,37 @@ def test_diagnostics_when_min_trades_gates_everything(monkeypatch):
     assert r["min_trades"] == 8
 
 
-def test_active_lite_defaults_min_trades_lower(monkeypatch):
-    # lite config tự hạ min_trades xuống _MIN_TRADES_LITE → ứng viên 5 lệnh
-    # vẫn được chấm (trước fix: 8 chặn sạch trên lite)
+def test_active_config_defaults_min_trades(monkeypatch):
+    # lite/medium tự hạ min_trades xuống _MIN_TRADES_LITE → ứng viên 5 lệnh
+    # vẫn được chấm (trước fix: 8 chặn sạch trên lite); full giữ 8
     monkeypatch.setattr(vg.mem, "get_active_family", lambda: _fake_active())
     monkeypatch.setattr(vs, "_do_backtest",
                         _fake_backtest(p_value=0.00001, n_trades=5))
-    r = vg.genetic_tune_active(universe=["AAA"], lite=True)
+    r = vg.genetic_tune_active(universe=["AAA"], config="lite")
     assert r["min_trades"] == vg._MIN_TRADES_LITE
     assert r["best_fitness"] is not None and r["adopted"] is True
-    r_full = vg.genetic_tune_active(universe=["AAA"], lite=False)
+    r_med = vg.genetic_tune_active(universe=["AAA"], config="medium")
+    assert r_med["min_trades"] == vg._MIN_TRADES_LITE
+    assert r_med["config"] == "medium"
+    r_full = vg.genetic_tune_active(universe=["AAA"], config="full")
     assert r_full["min_trades"] == vg._MIN_TRADES_DEFAULT
     assert r_full["best_fitness"] is None          # 5 lệnh < 8 → gate chặn
+    assert "error" in vg.genetic_tune_active(universe=["AAA"], config="turbo")
+
+
+def test_medium_config_between_lite_and_full():
+    universe = [f"T{i:02d}" for i in range(30)]
+    cfg = vg.medium_config(universe)
+    lite = vs.lite_config(universe)
+    assert len(lite.universe) < len(cfg.universe) < len(universe)
+    assert lite.lookback_days < cfg.lookback_days <= vs.DEFAULT_BACKTEST_LOOKBACK_DAYS
+    assert cfg.step_days < lite.step_days          # nhiều cửa sổ hơn lite
+
+
+def test_median_n_trades_reported(monkeypatch):
+    monkeypatch.setattr(vs, "_do_backtest", _fake_backtest(n_trades=5))
+    r = vg.genetic_tune("code", dict(_BASE), _CFG, min_trades=4)
+    assert r["median_n_trades"] == 5
 
 
 def test_load_history_skips_dashboard_import_outside_streamlit(monkeypatch):
