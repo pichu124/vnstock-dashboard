@@ -1414,6 +1414,39 @@ số: win-rate live tính trên MỌI rec đóng của strategy_id đó (không 
 sổ thời gian) — đủ dùng ở n nhỏ; nếu sau này rec tích lũy hàng trăm thì
 cân nhắc cửa sổ 30-60 rec gần nhất.
 
+**Khảo sát HKUDS/AI-Trader (2026-07-15): KHÔNG dùng platform — ĐỂ DÀNH
+2 món ý tưởng nhỏ.** Cùng nhà với Vibe-Trading nhưng là thứ khác hẳn:
+NỀN TẢNG XÃ HỘI hosted cho agent (ai4trade.ai) — agent tự đăng ký bằng
+cách đọc SKILL.md, publish signal, copy-trade, leaderboard/challenge/
+team/points, paper trading $100K, Polymarket; service FastAPI ~21.7K
+dòng + frontend để VẬN HÀNH platform đa người dùng. Không dùng vì:
+(1) bản chất là DỊCH VỤ BÊN THỨ 3 — nối agent + đẩy tín hiệu/danh mục
+của mình lên đó ngược triết lý tự chủ local (tín hiệu là data riêng —
+KHÔNG "register" agent của hệ này lên ai4trade dù pattern SKILL.md
+self-registration thú vị); (2) thị trường US/crypto/Polymarket, không
+HOSE/HNX; (3) trích xuất dự đoán của họ là REGEX KEYWORD trên text tự
+do (signal_quality.py) — hệ mình đã có rec CÓ CẤU TRÚC entry/TP/SL +
+reconciler chấm chính xác hơn hẳn; (4) fee flat 0.1% — mình đã có 0.4%
+round-trip VN-specific.
+
+**2 món ĐÁNG MƯỢN (đều deterministic, zero LLM, data có sẵn):**
+1. **Chấm điểm STANCE của brief** (mirror vòng signal_predictions →
+   outcome scoring của họ): "Stance ngày mai" (TĂNG/GIẢM/TRUNG TÍNH) là
+   dự đoán hướng được lưu trong MỌI close brief nhưng chưa bao giờ được
+   chấm — hệ chấm REC mà chưa chấm BRIEF. Làm: tracker so stance với
+   chiều VNINDEX phiên kế tiếp (brief_memory đã có stance qua consensus
+   parser + kho giá có sẵn) → % đúng rolling hiện dashboard + bơm vào
+   reflection ("gọi GIẢM 5 phiên gần nhất, đúng 3/5").
+2. **MTM lãi/lỗ tạm tính cho rec ĐANG MỞ** (mirror live mark-to-market
+   của leaderboard): bảng Open recommendations hiện chỉ có entry/TP/SL —
+   không biết lệnh đang xanh hay đỏ. Thêm cột "Giá hiện tại" + "Lãi/lỗ
+   tạm tính %" từ close mới nhất trong kho (display-only).
+Bỏ qua nhưng ghi nhận: điểm chất lượng signal 5 trục (verifiability/
+evidence/specificity/novelty/review — brief mình đã bị guard chain ép
+cấu trúc chặt hơn nhiều); experiment/A-B framework + teams/points
+(platform đa người dùng); yfinance fallback ladder (đã có pattern ladder
+khắp nơi).
+
 **Khảo sát nautechsystems/nautilus_trader (2026-07-14): KHÔNG dùng
 framework — CẢ 3 MÓN ĐÃ TRIỂN KHAI cùng ngày (xem mục 💸 Phí + ⚖️ Sizing
 bên dưới).** Engine
