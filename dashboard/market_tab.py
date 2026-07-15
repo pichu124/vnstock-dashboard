@@ -1979,8 +1979,13 @@ def render_market_tab() -> None:
                                 if _bt0 and _bt0.get("metrics_json") else None
                             )
                             if _val:
-                                _p = _val.get("p_value_sharpe")
-                                _ptxt = f"p={_p:.3f}" if _p is not None else "p=—"
+                                # p hiệu chỉnh chọn-lọc (Bonferroni × n ứng
+                                # viên) nghiêm hơn p thô — ưu tiên hiện nó
+                                _p = _val.get("p_value_adj",
+                                              _val.get("p_value_sharpe"))
+                                _ptxt = (f"p={_p:.3f}" if _p is not None else "p=—")
+                                if _val.get("n_trials"):
+                                    _ptxt += f" · {_val['n_trials']} ứng viên"
                                 if _val.get("passed"):
                                     st.caption(f"🧪 Kiểm định chống-ăn-may: ĐẠT ({_ptxt})")
                                 else:

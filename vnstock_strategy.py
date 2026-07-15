@@ -672,6 +672,34 @@ def _validation_ok(metrics: dict) -> bool:
     return True if not v else bool(v.get("passed"))
 
 
+def apply_selection_penalty(metrics: dict, n_trials: int) -> dict:
+    """Hiệu chỉnh ĐA-THỬ-NGHIỆM kiểu Bonferroni cho winner-of-N (ý tưởng từ
+    khảo sát ML4T 3rd ed chương Factor Zoo, 2026-07-15: "selecting the best
+    inflates estimates"). Mỗi vòng revise/tune/cold-start backtest N ứng
+    viên rồi CHỌN BEST → p-value của winner bị lạm phát do selection bias,
+    tích lũy qua các vòng train hàng ngày (rule 2b).
+
+    p_adj = min(1, p × n_trials); p_adj vượt ngưỡng → passed=False kèm lý
+    do. CHỈ SIẾT, không nới: p_adj dưới ngưỡng không lật passed thành True
+    (walk-forward có thể đã đánh trượt). Mutate + trả metrics; no-op khi
+    n_trials ≤ 1 / thiếu validation / thiếu p."""
+    v = (metrics or {}).get("validation")
+    if not v or n_trials <= 1:
+        return metrics
+    p = v.get("p_value_sharpe")
+    if p is None:
+        return metrics
+    p_adj = min(1.0, p * n_trials)
+    v["n_trials"] = n_trials
+    v["p_value_adj"] = round(p_adj, 6)
+    if p_adj >= _MC_PVALUE_MAX and v.get("passed"):
+        v["passed"] = False
+        v.setdefault("reasons", []).append(
+            f"p hiệu chỉnh chọn-lọc {p_adj:.3f} (p {p:.3f} × {n_trials} ứng viên) "
+            f"≥ {_MC_PVALUE_MAX} — thắng cuộc thi nội bộ chưa đủ bằng chứng edge")
+    return metrics
+
+
 # ── Vòng đời decay chiến lược (DONE 2026-07-14, cùng khảo sát Vibe-Trading) ─
 # Backtest nói chiến lược tốt nhưng LỆNH THẬT (rec đã đóng qua reconciler) tụt
 # xa → tự demote khỏi active để strategy_loop kế tiếp cold-start bản mới.
@@ -1328,6 +1356,7 @@ def _cold_start(
         c[3].get("n_trades") or 0,
     ))
     best_agent, code, params, metrics, ps, pe = best
+    metrics = apply_selection_penalty(metrics, len(candidates))
 
     family = _uuid.uuid4().hex[:8]
     competitors = [c[0] for c in candidates]
@@ -1424,6 +1453,7 @@ def _do_revise(
     # Competition: pick the candidate with highest expectancy
     best = max(candidates, key=lambda c: c[3].get("expectancy") or -999)
     best_agent, best_code, best_params, best_metrics, best_ps, best_pe = best
+    best_metrics = apply_selection_penalty(best_metrics, len(candidates))
     competitors = [c[0] for c in candidates]
 
     sid = mem.save_strategy(
@@ -1490,6 +1520,7 @@ def _do_tune(agents: list, active: dict, cfg: BacktestConfig) -> tuple[Optional[
         candidates,
         key=lambda c: c[2].get("expectancy") or -999,
     )
+    new_metrics = apply_selection_penalty(new_metrics, len(candidates))
     cur_exp = cur_metrics.get("expectancy") or -999
     new_exp = new_metrics.get("expectancy") or -999
 

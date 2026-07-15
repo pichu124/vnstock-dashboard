@@ -1423,7 +1423,8 @@ sổ thời gian) — đủ dùng ở n nhỏ; nếu sau này rec tích lũy hà
 cân nhắc cửa sổ 30-60 rec gần nhất.
 
 **Khảo sát stefan-jansen/machine-learning-for-trading (2026-07-15): KHÔNG
-tích hợp trực tiếp — ĐỂ DÀNH 2 món ý tưởng, món 1 đáng làm sớm.** Repo
+tích hợp trực tiếp — CẢ 2 MÓN ĐÃ TRIỂN KHAI cùng ngày (xem mục 📋 Preset
+scorecard bên dưới).** Repo
 GIÁO TRÌNH đi kèm sách ML4T **3rd edition** (2026): 27 chương/122 notebook
 + 9 case study end-to-end (ETF/crypto/intraday/options/FX/futures), code
 lõi nằm trong 6 thư viện ml4t-* riêng. Không tích hợp vì: (1) là giáo
@@ -1457,6 +1458,31 @@ Bỏ qua nhưng ghi nhận: Deflated Sharpe/PBO đầy đủ (cần chuỗi dài
 strategy — để dành khi tích lũy nhiều family); purged/embargo CV (fold
 per-trade hiện tại đủ scale); event study quanh GDKHQ (hay, chưa đau);
 TabPFN/PatchTST/RL/TimeGAN (ngược triết lý free-tier deterministic).
+
+### 📋 Preset scorecard + 🎲 hiệu chỉnh chọn-lọc (DONE 2026-07-15 — 2 món ML4T, user "làm cả 2 món")
+
+Cả 2 deterministic thuần, zero LLM/fetch; tests `tests/test_preset_score.py`
+(7, hermetic — history/giá fake) đã vào `--fast`.
+
+**Món 1 — `vnstock_preset_score.py`**: chấm alpha 9 preset screener —
+forward return 5/20 PHIÊN của rổ hit từng preset (từ snapshot
+`_meta/screener_history/*.json`, giữ ~30 ngày) so VNINDEX cùng cửa sổ →
+`avg_excess` + `hit_rate` (% tín hiệu thắng index) + n per preset/horizon.
+Đọc parquet trực tiếp (CLI-safe); tín hiệu chưa đủ H phiên tương lai
+KHÔNG chấm non; mã thiếu giá bỏ qua. CLI `--show [--horizons 5,20]
+[--days 30]` / `--refresh` (ghi cache `_meta/preset_scorecard.json`,
+atomic). KHÔNG vào run.py/pipeline — công cụ phân tích user gọi tay;
+lưu ý mẫu 30 ngày = XẾP HẠNG tương đối giữa preset, chưa kết luận được
+tuyệt đối. UI/screener_tab để dành khi cần.
+
+**Món 2 — `vnstock_strategy.apply_selection_penalty(metrics, n_trials)`**:
+Bonferroni cho winner-of-N — cả 3 vòng thi (`_cold_start`/`_do_revise`/
+`_do_tune`) sau khi CHỌN BEST đều gọi với n = số ứng viên: p_adj =
+min(1, p×n), ghi `n_trials` + `p_value_adj` vào validation; p_adj ≥ 0.10
+→ passed=False kèm lý do "thắng cuộc thi nội bộ chưa đủ bằng chứng edge".
+CHỈ SIẾT không nới (p_adj nhỏ không lật passed=False→True — walk-forward
+có thể đã đánh trượt). Panel Chiến lược ưu tiên hiện p_adj + "· N ứng
+viên". Áp TRƯỚC save_backtest nên row DB mang verdict đã hiệu chỉnh.
 
 **Khảo sát HKUDS/AI-Trader (2026-07-15): KHÔNG dùng platform — CẢ 2 MÓN
 ĐÃ TRIỂN KHAI cùng ngày (xem mục 🎯 Stance track bên dưới).** Cùng nhà
