@@ -1430,6 +1430,23 @@ số: win-rate live tính trên MỌI rec đóng của strategy_id đó (không 
 sổ thời gian) — đủ dùng ở n nhỏ; nếu sau này rec tích lũy hàng trăm thì
 cân nhắc cửa sổ 30-60 rec gần nhất.
 
+**Khảo sát quantopian/zipline (2026-07-15): KHÔNG dùng — ĐỂ DÀNH 1 món
+liquidity-cap cho sizing.** Backtester event-driven kinh điển của
+Quantopian nhưng repo GỐC ĐÃ CHẾT (commit cuối 10/2020, Python 3.5-3.6
+era, C-ext bcolz; bản sống là zipline-reloaded của CHÍNH Stefan Jansen —
+trùng tác giả ML4T vừa khảo sát). Không dùng vì: abandoned + không
+calendar/bundle HOSE + Pipeline API (factor engine declarative) mình đã
+có tương đương là screener + kho parquet riêng; commission per-share/
+per-dollar đã có flat 0.4% VN-specific. **ĐÁNG MƯỢN (nói "làm liquidity
+cap")**: `VolumeShareSlippage` (finance/slippage.py) — fill bị CAP theo
+% volume của bar (mặc định 2.5%) + price impact ∝ volume_share². Áp
+dụng thực dụng cho mình: **"KL gợi ý" hiện cap theo %NAV nhưng KHÔNG
+theo THANH KHOẢN** — NAV lớn + mã mỏng → gợi ý khối lượng vượt xa ADV
+= bất khả thi (tự đẩy giá). Fix nhỏ: `suggest_position_size` cap thêm
+qty ≤ ~10% ADV20 (vol20 sẵn trong kho), ghi rõ lý do cap trong output.
+Để dành: price impact bậc hai cho backtest — chỉ có nghĩa khi backtest
+mô phỏng SIZE lệnh (hiện per-trade %, không qty).
+
 **Khảo sát stefan-jansen/machine-learning-for-trading (2026-07-15): KHÔNG
 tích hợp trực tiếp — CẢ 2 MÓN ĐÃ TRIỂN KHAI cùng ngày (xem mục 📋 Preset
 scorecard bên dưới).** Repo
