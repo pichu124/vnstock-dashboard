@@ -1422,6 +1422,42 @@ số: win-rate live tính trên MỌI rec đóng của strategy_id đó (không 
 sổ thời gian) — đủ dùng ở n nhỏ; nếu sau này rec tích lũy hàng trăm thì
 cân nhắc cửa sổ 30-60 rec gần nhất.
 
+**Khảo sát stefan-jansen/machine-learning-for-trading (2026-07-15): KHÔNG
+tích hợp trực tiếp — ĐỂ DÀNH 2 món ý tưởng, món 1 đáng làm sớm.** Repo
+GIÁO TRÌNH đi kèm sách ML4T **3rd edition** (2026): 27 chương/122 notebook
++ 9 case study end-to-end (ETF/crypto/intraday/options/FX/futures), code
+lõi nằm trong 6 thư viện ml4t-* riêng. Không tích hợp vì: (1) là giáo
+trình, không phải lib để import; (2) stack nặng lệch hẳn (Polars/PyTorch/
+LightGBM/Optuna/Docker per chương) — ngược triết lý zero-dependency;
+(3) data Mỹ (NYSE/CME calendar, SEC filings), không HOSE; (4) mảng
+GenAI/multi-agent của sách — hệ này đã tự có bản VN-specific. **Điều đáng
+nể: sách XÁC NHẬN hướng đi hiện tại** — vòng "retrain/pause/retire khi
+edge decay" ≡ decay lifecycle vừa build; "evidence boundary" tách tuning
+khỏi evaluation ≡ gate validation 🧪; chương riêng về transaction costs ≡
+món phí 0.4%; walk-forward CV ≡ fold check. **2 MÓN ĐÁNG MƯỢN (đều
+deterministic, zero dep):**
+1. **Preset scorecard — chấm alpha của screener** (workflow đánh giá
+   factor chương 6-8): 9 preset screener chạy mỗi tối và lưu
+   `_meta/screener_history/*.json` từ lâu nhưng CHƯA BAO GIỜ được chấm —
+   không biết oversold/momentum/breakout… preset nào THẬT SỰ có alpha
+   trên HOSE. Làm: module đọc history + kho giá → forward return 5/20
+   phiên của rổ hit từng preset vs baseline universe → hit-rate + excess
+   return + IC per preset. Mirror triết lý reconciler/stance-track: "mọi
+   tín hiệu phát ra đều phải được chấm". Trigger: user hỏi "preset nào
+   đáng tin" / muốn tinh gọn danh sách preset.
+2. **Hiệu chỉnh đa-thử-nghiệm cho gate 🧪** (chương 7 Factor Zoo /
+   multiple testing — "selecting the best inflates estimates"): mỗi vòng
+   revise/cold-start backtest N ứng viên rồi CHỌN BEST → p-value của
+   winner bị lạm phát do selection bias, tích lũy qua các vòng train
+   hàng ngày. Fix rẻ kiểu Bonferroni: nhân p của winner với số ứng viên
+   trong vòng trước khi so ngưỡng 0.10 + log n_trials vào metrics (vài
+   dòng trong _do_revise/_cold_start). Trigger: khi có ứng viên ĐẠT gate
+   lần đầu — trước lúc promote đáng siết thêm nấc này.
+Bỏ qua nhưng ghi nhận: Deflated Sharpe/PBO đầy đủ (cần chuỗi dài + nhiều
+strategy — để dành khi tích lũy nhiều family); purged/embargo CV (fold
+per-trade hiện tại đủ scale); event study quanh GDKHQ (hay, chưa đau);
+TabPFN/PatchTST/RL/TimeGAN (ngược triết lý free-tier deterministic).
+
 **Khảo sát HKUDS/AI-Trader (2026-07-15): KHÔNG dùng platform — CẢ 2 MÓN
 ĐÃ TRIỂN KHAI cùng ngày (xem mục 🎯 Stance track bên dưới).** Cùng nhà
 với Vibe-Trading nhưng là thứ khác hẳn:
