@@ -135,43 +135,52 @@ _SBV_HEADERS = {
 _SBV_LISTING = ("https://www.sbv.gov.vn/vi/web/sbv_portal/"
                 "thong-tin-ve-hoat-dong-ngan-hang-trong-tuan")
 
-# Ứng viên link bài tuần — thử nhiều dạng (SBV đổi cấu trúc theo thời gian).
-# Từ khoá "trong-tuan"/"hoat-dong-ngan-hang" nhận diện bài; loại chính trang
-# listing. Thứ tự = ưu tiên (bài /w/ slug trước, rồi .htm/aspx).
-_ARTICLE_PATTERNS = (
-    r'href="(/vi/web/sbv_portal/w/[^"?#]*(?:tuan|hoat-dong-ngan-hang)[^"?#]*)"',
-    r'href="(https?://[^"]*sbv\.gov\.vn/[^"?#]*hoat-dong-ngan-hang[^"?#]*(?:tuan)[^"?#]*)"',
-    r'href="(/[^"?#]*hoat-dong-ngan-hang[^"?#]*tuan[^"?#]*\.(?:htm|html|aspx)[^"]*)"',
-    r'href="(/[^"?#]*(?:ban-tin|thong-tin)[^"?#]*tuan[^"?#]*)"',
-)
+# Từ khoá nhận diện bài tuần (khớp trên href ĐÃ tách; query string giữ
+# nguyên vì slug có thể nằm trong query của URL Liferay). Ưu tiên bài /w/.
+_ARTICLE_KEYWORDS = ("hoat-dong-ngan-hang", "ban-tin", "sbv_portal/w/")
+_ASSET_SKIP = (".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",
+               ".woff", ".woff2", "javascript:", "mailto:")
+
+
+def _extract_hrefs(html: str) -> list:
+    """Mọi href nội bộ (path hoặc URL sbv.gov.vn), GIỮ CẢ query string —
+    dùng chung cho find/candidate/dump. Loại asset + trùng, giữ thứ tự."""
+    out, seen = [], set()
+    for m in re.finditer(r'href="([^"#]+)"', html, re.I):
+        h = m.group(1).strip()
+        low = h.lower()
+        if not (h.startswith("/") or "sbv.gov.vn" in low):
+            continue                          # bỏ link ngoài
+        if any(s in low for s in _ASSET_SKIP) or h in seen:
+            continue
+        seen.add(h)
+        out.append(h)
+    return out
 
 
 def _find_article_link(html: str) -> Optional[str]:
-    """Link bài tuần mới nhất trong listing — thử nhiều pattern. Bỏ chính
-    URL trang listing (nó cũng chứa 'trong-tuan')."""
-    listing_tail = _SBV_LISTING.split("/")[-1]
-    for pat in _ARTICLE_PATTERNS:
-        for m in re.finditer(pat, html, re.I):
-            href = m.group(1)
-            if listing_tail and href.rstrip("/").endswith(listing_tail):
-                continue                     # đây là link về chính trang listing
-            return href
+    """Link bài tuần mới nhất — href chứa từ khoá bài + 'tuan', KHÔNG phải
+    chính trang listing. Query string được giữ (slug Liferay có thể ở query)."""
+    listing_tail = _SBV_LISTING.rstrip("/").split("/")[-1]
+    for h in _extract_hrefs(html):
+        low = h.lower()
+        base = low.split("?")[0].rstrip("/")
+        if base.endswith(listing_tail):
+            continue                          # link về chính trang listing
+        if "tuan" in low and any(k in low for k in _ARTICLE_KEYWORDS):
+            return h
     return None
 
 
 def _candidate_links(html: str) -> list:
-    """Mọi href nội bộ 'có vẻ là bài' — để --diag in ra cho user gửi lại khi
-    regex trượt (không đoán được cấu trúc từ sandbox)."""
-    out, seen = [], set()
-    for m in re.finditer(r'href="(/[^"?#]+|https?://[^"?#]*sbv\.gov\.vn/[^"?#]+)"',
-                         html, re.I):
-        h = m.group(1)
-        low = h.lower()
-        if any(k in low for k in ("tuan", "ngan-hang", "ban-tin", "sbv_portal/w/")) \
-                and h not in seen:
-            seen.add(h)
-            out.append(h)
-    return out
+    """href 'có vẻ là bài' (chứa tuan/ngan-hang/ban-tin) — cho --diag gửi lại."""
+    kws = ("tuan", "ngan-hang", "ban-tin", "sbv_portal/w/")
+    return [h for h in _extract_hrefs(html) if any(k in h.lower() for k in kws)]
+
+
+def _all_internal_links(html: str) -> list:
+    """MẪU tất cả link nội bộ — phơi cấu trúc URL thật khi lọc-từ-khoá trượt."""
+    return _extract_hrefs(html)
 
 
 def fetch_weekly(verbose: bool = False) -> "SBVWeekly | None":
@@ -200,12 +209,23 @@ def fetch_weekly(verbose: bool = False) -> "SBVWeekly | None":
             print("    → không tìm thấy link bài tuần trong listing")
             cands = _candidate_links(html)
             if cands:
-                print(f"    → {len(cands)} link ứng viên trên trang (gửi lại để chỉnh regex):")
+                print(f"    → {len(cands)} link ứng viên (khớp từ khoá) — gửi lại để chỉnh regex:")
                 for h in cands[:20]:
                     print(f"        {h}")
             else:
-                print("    → trang KHÔNG có href nội bộ nào (có thể load qua JS "
-                      "→ cần API/endpoint khác, xem Network tab DevTools)")
+                # Không có link khớp từ khoá → dump MẪU tất cả link nội bộ để
+                # thấy CẤU TRÚC URL thật (SBV có thể dùng ID số / slug khác).
+                alllinks = _all_internal_links(html)
+                if alllinks:
+                    print(f"    → không link nào khớp từ khoá. {len(alllinks)} link "
+                          f"nội bộ trên trang — MẪU 30 đầu (gửi lại để tôi nhận dạng):")
+                    for h in alllinks[:30]:
+                        print(f"        {h}")
+                else:
+                    print("    → trang KHÔNG có href nội bộ nào → gần như chắc chắn "
+                          "load bài qua JS/AJAX. Mở DevTools → Network → lọc XHR/Fetch "
+                          "khi trang load, tìm request trả danh sách bài (JSON/HTML) "
+                          "rồi gửi URL request đó cho tôi.")
         return None
     art_url = art_path if art_path.startswith("http") \
         else "https://www.sbv.gov.vn" + art_path

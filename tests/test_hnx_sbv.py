@@ -280,3 +280,14 @@ def test_sbv_candidate_links_for_diag():
     assert "/vi/web/sbv_portal/ban-tin-tuan-2.htm" in cands
     assert "/vi/web/khac/gioi-thieu" not in cands        # không có từ khoá bài
     assert sbv._candidate_links("<p>JS app, no links</p>") == []
+
+
+def test_sbv_link_finder_keeps_query_string():
+    # Bug thật 16/07: URL Liferay có ?query khiến regex [^"?#] cũ vỡ → trượt.
+    html = ('<a href="/vi/web/sbv_portal/-/vru/123/thong-tin-hoat-dong-'
+            'ngan-hang-tuan-07-11072026?_x=abc">Bài</a>'
+            '<a href="/vi/web/style.css">css</a>')
+    got = sbv._find_article_link(html)
+    assert got is not None and got.endswith("?_x=abc")
+    assert got in sbv._all_internal_links(html)
+    assert "/vi/web/style.css" not in sbv._all_internal_links(html)  # asset loại
