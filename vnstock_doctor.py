@@ -559,6 +559,39 @@ def net_fred() -> dict:
                    "python vnstock_fred.py --diag")
 
 
+def net_hnx() -> dict:
+    """HNX yield curve (POST API) → lợi suất TPCP 8 kỳ hạn theo ngày."""
+    name = "HNX yield curve (mạng)"
+    if os.environ.get("VNSTOCK_HNX", "1") == "0":
+        return _result("net_hnx", name, "off", "đã tắt (VNSTOCK_HNX=0)")
+    from vnstock_hnx import fetch_latest
+    got = fetch_latest(verbose=False)
+    if got:
+        d, ys = got
+        return _result("net_hnx", name, "ok",
+                       f"fetch OK ({d}): " + ", ".join(f"{k}={v}" for k, v in ys.items()))
+    return _result("net_hnx", name, "error",
+                   "không tải/parse được đường cong HNX",
+                   "python vnstock_hnx.py --diag — kiểm endpoint/selector còn đúng; "
+                   "tạm thời VBMA PDF vẫn nuôi 2Y/10Y")
+
+
+def net_sbv() -> dict:
+    """Bản tin tuần SBV (PDF) → LNH + OMO ròng + tỷ giá trung tâm."""
+    name = "SBV weekly (mạng)"
+    if os.environ.get("VNSTOCK_SBV", "1") == "0":
+        return _result("net_sbv", name, "off", "đã tắt (VNSTOCK_SBV=0)")
+    from vnstock_sbv import fetch_weekly
+    got = fetch_weekly()
+    if got:
+        fields = ", ".join(k for k, v in got.__dict__.items() if v is not None)
+        return _result("net_sbv", name, "ok", f"parse OK: {fields or '(rỗng)'}")
+    return _result("net_sbv", name, "warn",
+                   "không tải/parse được bản tin SBV (LNH vẫn có từ VBMA/HNX)",
+                   "python vnstock_sbv.py --diag — kiểm slug bài/URL PDF; "
+                   "OMO tạm nhập tay: python vnstock_sbv.py --set-omo <số>")
+
+
 def net_jina() -> dict:
     """Jina Reader (r.jina.ai) — full text cho tin chấm LLM."""
     name = "Jina Reader (mạng)"
@@ -582,8 +615,8 @@ OFFLINE_CHECKS = [
     check_llm_keys, check_llm_ledger, check_telegram, check_tests,
 ]
 NET_CHECKS = [
-    net_rss_feeds, net_fx, net_vbma, net_nso, net_fred, net_foreign_flow_api,
-    net_jina,
+    net_rss_feeds, net_fx, net_vbma, net_hnx, net_sbv, net_nso, net_fred,
+    net_foreign_flow_api, net_jina,
 ]
 
 

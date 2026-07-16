@@ -1,0 +1,173 @@
+"""Tests cho vnstock_hnx (yield curve HNX) + vnstock_sbv (bản tin tuần SBV)
++ wiring vào vnstock_macro. Khảo sát baocaolaisuatvatiente 2026-07-16.
+Hermetic — fetch mạng đều fake, cache ghi tmp_path."""
+
+from __future__ import annotations
+
+import json
+from datetime import date
+
+import pytest
+
+import vnstock_hnx as hnx
+import vnstock_sbv as sbv
+
+
+_HNX_HTML = """<html><body><table id="_tableDatas"><tbody>
+<tr><td>1 năm</td><td>3,20</td><td>3,25</td></tr>
+<tr><td>2 năm</td><td>3,45</td><td>3,50</td></tr>
+<tr><td>5 năm</td><td>4,10</td><td>4,15</td></tr>
+<tr><td>10 năm</td><td>4,38</td><td>4,40</td></tr>
+<tr><td>15 năm</td><td>4,60</td><td>4,65</td></tr>
+<tr><td>20 năm</td><td>4,80</td><td>4,85</td></tr>
+</tbody></table></body></html>"""
+
+
+# ─── HNX parse ───────────────────────────────────────────────────────────────
+
+def test_hnx_parse_yield_curve():
+    r = hnx.parse_yield_curve_html(_HNX_HTML)
+    assert r["2Y"] == 3.5 and r["10Y"] == 4.4
+    assert r["15Y"] == 4.65 and "5Y" in r and r["5Y"] == 4.15   # 15 không nhầm 5
+    assert set(r) == {"1Y", "2Y", "5Y", "10Y", "15Y", "20Y"}
+
+
+def test_hnx_parse_guards():
+    assert hnx.parse_yield_curve_html("") == {}
+    assert hnx.parse_yield_curve_html("<p>không có bảng</p>") == {}
+    # giá trị ngoài [0.1,15] bị loại
+    bad = _HNX_HTML.replace("4,38</td><td>4,40", "99,0</td><td>99,9")
+    assert "10Y" not in hnx.parse_yield_curve_html(bad)
+    assert hnx._vn_float("4,40") == 4.4 and hnx._vn_float("-") is None
+
+
+# ─── HNX refresh + cache + loaders (fetch fake) ─────────────────────────────
+
+@pytest.fixture()
+def _hnx_meta(tmp_path, monkeypatch):
+    monkeypatch.setattr(hnx, "_META", tmp_path)
+    return tmp_path
+
+
+def test_hnx_refresh_and_load(_hnx_meta, monkeypatch):
+    monkeypatch.setattr(hnx, "fetch_latest",
+                        lambda *a, **k: (date(2026, 7, 15),
+                                         hnx.parse_yield_curve_html(_HNX_HTML)))
+    got = hnx.refresh()
+    assert got["2Y"] == 3.5
+    loaded = hnx.load_yields()
+    assert loaded[0] == "2026-07-15" and loaded[1]["10Y"] == 4.4
+    assert hnx.yield_on("2Y") == 3.5
+    assert hnx.yield_on("10Y", as_of="2026-07-15") == 4.4
+    # as_of trước phiên → None
+    assert hnx.load_yields(as_of="2026-07-01") is None
+
+
+def test_hnx_refresh_none_keeps_cache(_hnx_meta, monkeypatch):
+    monkeypatch.setattr(hnx, "fetch_latest",
+                        lambda *a, **k: (date(2026, 7, 15), {"2Y": 3.5}))
+    hnx.refresh()
+    monkeypatch.setattr(hnx, "fetch_latest", lambda *a, **k: None)   # fetch fail
+    assert hnx.refresh() is None
+    assert hnx.load_yields()[1]["2Y"] == 3.5        # cache cũ còn nguyên
+
+
+def test_hnx_kill_switch(_hnx_meta, monkeypatch):
+    monkeypatch.setenv("VNSTOCK_HNX", "0")
+    monkeypatch.setattr(hnx, "fetch_latest", lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("không được fetch khi tắt")))
+    assert hnx.refresh() is None
+
+
+def test_hnx_prune_keeps_recent(_hnx_meta, monkeypatch):
+    monkeypatch.setattr(hnx, "_RETAIN_DATES", 2)
+    for i, d in enumerate(("2026-07-10", "2026-07-11", "2026-07-14")):
+        monkeypatch.setattr(hnx, "fetch_latest",
+                            lambda *a, _d=d, _i=i, **k: (date.fromisoformat(_d),
+                                                         {"2Y": 3.0 + _i}))
+        hnx.refresh()
+    hist = json.loads((_hnx_meta / "hnx_yields.json").read_text())["history"]
+    assert set(hist) == {"2026-07-11", "2026-07-14"}     # giữ 2 gần nhất
+
+
+# ─── SBV parse + cross-source ───────────────────────────────────────────────
+
+_SBV_TEXT = ("Bản tin hoạt động ngân hàng trong tuần. Lãi suất bình quân liên "
+             "ngân hàng: Qua đêm 4,28%; 1 tuần 4,92%; 2 tuần 5,10%; 1 tháng "
+             "5,45%. Tỷ giá trung tâm tham chiếu: 25.140 VND/USD. NHNN hút ròng "
+             "12.500 tỷ đồng qua kênh OMO trong tuần.")
+
+
+def test_sbv_parse():
+    r = sbv.parse_sbv_text(_SBV_TEXT)
+    assert r.overnight == 4.28 and r.one_week == 4.92 and r.one_month == 5.45
+    assert r.fx_central == 25140.0 and r.omo_net == 12500.0        # hút = +
+
+
+def test_sbv_parse_bom_is_negative():
+    r = sbv.parse_sbv_text("NHNN bơm ròng 8.000 tỷ đồng qua OMO.")
+    assert r.omo_net == -8000.0
+
+
+def test_sbv_parse_empty():
+    r = sbv.parse_sbv_text("")
+    assert r.overnight is None and r.omo_net is None
+
+
+def test_sbv_resolve_interbank():
+    assert sbv.resolve_interbank_on(4.28, 4.30) == (4.28, "sbv", False)
+    v, s, d = sbv.resolve_interbank_on(4.28, 6.00)
+    assert v == 4.28 and s == "sbv" and d is True                  # lệch → cờ
+    assert sbv.resolve_interbank_on(None, 4.30) == (4.30, "vbma", False)
+    assert sbv.resolve_interbank_on(4.28, None) == (4.28, "sbv", False)
+    assert sbv.resolve_interbank_on(None, None)[1] == "none"
+
+
+@pytest.fixture()
+def _sbv_meta(tmp_path, monkeypatch):
+    monkeypatch.setattr(sbv, "_META", tmp_path)
+    return tmp_path
+
+
+def test_sbv_refresh_merge_safe(_sbv_meta, monkeypatch):
+    monkeypatch.setattr(sbv, "fetch_weekly", lambda **k: sbv.parse_sbv_text(_SBV_TEXT))
+    c = sbv.refresh()
+    assert c["overnight"] == 4.28 and c["omo_net"] == 12500.0
+    # fetch sau chỉ có ON (thiếu OMO) → OMO cũ GIỮ (merge-safe)
+    monkeypatch.setattr(sbv, "fetch_weekly",
+                        lambda **k: sbv.SBVWeekly(overnight=4.10))
+    c2 = sbv.refresh()
+    assert c2["overnight"] == 4.10 and c2["omo_net"] == 12500.0
+    assert sbv.load_interbank_on() == 4.10 and sbv.load_omo_net() == 12500.0
+
+
+def test_sbv_set_omo_manual(_sbv_meta):
+    sbv.set_omo(-5000.0)
+    assert sbv.load_omo_net() == -5000.0
+
+
+# ─── Wiring vào vnstock_macro ────────────────────────────────────────────────
+
+def test_macro_prefers_hnx_over_vbma_for_yields(monkeypatch):
+    import vnstock_macro as mac
+    monkeypatch.setattr(mac, "_fetch_hnx",
+                        lambda: {"govt_bond_yield_2y": 3.5,
+                                 "govt_bond_yield_10y": 4.4, "as_of": "2026-07-15"})
+    cache = {}
+    # giả lập VBMA đã ghi 2Y=3.9 rồi HNX ghi đè 3.5
+    mac._record(cache, "govt_bond_yield_2y", 3.9, "2026-07-10", "vbma")
+    hx = mac._fetch_hnx()
+    for key in ("govt_bond_yield_2y", "govt_bond_yield_10y"):
+        if hx.get(key) is not None:
+            mac._record(cache, key, float(hx[key]), hx["as_of"], "hnx")
+    ind = cache["indicators"]["govt_bond_yield_2y"]
+    assert ind["history"]["2026-07-15"] == 3.5      # HNX ghi đè giá trị mới
+    assert ind["source"] == "hnx"
+
+
+def test_macro_fetch_hnx_best_effort(monkeypatch):
+    import vnstock_macro as mac
+    import sys
+    monkeypatch.setitem(sys.modules, "vnstock_hnx", None)     # import lỗi
+    assert mac._fetch_hnx() is None
+    assert mac._fetch_sbv() is None

@@ -1717,10 +1717,66 @@ lãi/lỗ TẠM TÍNH gross, display-only. Bảng Open recommendations thêm 2 c
 "Giá HT" + "L/L tạm" (close mới nhất từ `_load_history`, best-effort —
 thiếu giá → "—"); lệnh đang xanh/đỏ thấy ngay, không phải chờ reconcile.
 
-**Khảo sát Thanhtran-165/baocaolaisuatvatiente (2026-07-16): KHÔNG dùng
-repo (là SKILL sinh BÁO CÁO HTML tuần + deploy Vercel — sai hình dạng với
-Streamlit dashboard), NHƯNG 3 NGUỒN DỮ LIỆU đáng mượn, lấp đúng chỗ đau
-vĩ mô. CHƯA LÀM — chờ user chốt.** Repo = "VN Rates Weekly": pipeline 7
+### 🏦 HNX yield curve + SBV weekly + cross-source (DONE 2026-07-16 — 3 nguồn baocaolaisuatvatiente, user "làm cả 3")
+
+Cả 3 deterministic thuần, best-effort, VERIFY-GATED (sandbox chặn nguồn —
+`--diag` trên máy có mạng); tests `tests/test_hnx_sbv.py` (14, hermetic —
+fetch fake) đã vào `--fast`. Chảy qua bước `macro` sẵn có (như VBMA/FRED,
+KHÔNG cần bước run.py riêng).
+
+**`vnstock_hnx.py`** — lợi suất TPCP HNX 8 kỳ hạn/NGÀY (thay/bổ sung VBMA
+PDF tuần cho 2Y/10Y): POST `hnx.vn/ModuleReportBonds/Bond_YieldCurve/
+SearchAndNextPageYieldCurveData` `pDate=dd/mm/YYYY` → `parse_yield_curve_html`
+(tbody>tr>td, cột 0 kỳ hạn khớp CHÍNH XÁC "N năm", ưu tiên cột 2 par;
+sanity 0.1<y<15). TLS ladder 3 nấc cho POST (`_http_post`: certifi→OS
+trust→verify=False; `VNSTOCK_HNX_TLS_STRICT=1` cấm nấc cuối). `fetch_latest`
+lùi ngày bỏ T7/CN. Cache `_meta/hnx_yields.json` history 260 phiên (đủ mẫu
+percentile "trụ 4" VnBondLab sau này). Loaders `load_yields`/`yield_on`.
+Tắt `VNSTOCK_HNX=0`. **Wiring macro**: `_fetch_hnx` ghi 2Y/10Y SAU VBMA →
+GHI ĐÈ (nguồn ngày > PDF tuần, source="hnx"); tắt `VNSTOCK_MACRO_HNX=0`.
+Cache giữ CẢ 8 kỳ hạn (chỉ 2Y/10Y vào registry — cap 13; 5Y/7Y/15Y/20Y
+để dành cho gauge/percentile).
+
+**`vnstock_sbv.py`** — bản tin tuần SBV: LNH ON/1W/2W/1M + **OMO ròng SỐ**
+(hút=+/bơm=−, trước chỉ suy từ từ khoá tin) + **tỷ giá trung tâm**. Bài
+`sbv.gov.vn/vi/web/sbv_portal/w/<slug>` → PDF nhúng (cần uuid) → `pdf_to_text`
+(dùng lại vnstock_vbma) → `parse_sbv_text` (regex thuần, testable). Cache
+`_meta/sbv_weekly.json` merge-safe (trường None giữ giá trị cũ). `--set-omo`
+nhập tay. Tắt `VNSTOCK_SBV=0`. **Wiring macro**: LNH ON qua
+`resolve_interbank_on` (SBV↔VBMA, ưu tiên SBV + cờ divergence >15%);
+OMO/tỷ-giá-trung-tâm lưu `cache["_meta"]["sbv"]` display-only (ngoài
+registry 13).
+
+**Cross-source `resolve_interbank_on(sbv, vbma)`** → (giá trị, nguồn, cờ
+lệch): cả 2 → ưu tiên SBV + cờ khi chênh >15% (mirror `_fx_crosscheck`
+er-api↔VCB, mở rộng sang lãi suất). Thiếu 1 → dùng nguồn kia.
+
+**Doctor**: `net_hnx` + `net_sbv` vào NET_CHECKS (probe fetch thật — máy
+có mạng; sandbox toàn ❌ là bình thường). **CÒN NỢ VERIFY** (máy user có
+mạng): `python vnstock_hnx.py --diag` (endpoint + selector bảng HTML còn
+đúng? — nếu HNX đổi layout thì sửa `parse_yield_curve_html`/cột par);
+`python vnstock_sbv.py --diag` (slug bài + URL PDF SBV — hay đổi/ghi nhầm).
+HNX ăn → `run.py doctor --net` xanh dòng "HNX yield curve"; macro `--show`
+2Y/10Y source="hnx" (không phải "vbma"). Nếu HNX chết → VBMA PDF vẫn
+fallback nuôi 2Y/10Y (không gãy).
+
+**Skill sinh BÁO CÁO HTML tuần — user muốn dùng, ĐỀ XUẤT TÍCH HỢP (chờ
+chốt hướng)**: repo là report-generator (build_report_v2 → render HTML +
+audit gates + Vercel). Dashboard ĐÃ có gần hết DATA của báo cáo đó (registry
+13 chỉ số + 3 gauge + HNX 8 kỳ hạn + sub-tab 🌐 Vĩ mô). 3 hướng: (A —
+KHUYẾN NGHỊ) tab/nút "📄 Báo cáo tuần" trong dashboard render HTML tự chứa
+từ CACHE sẵn có (macro + HNX curve + gauge) → xem inline + nút tải/Artifact,
+ZERO fetch mới (~1 renderer thuần, mượn Ý cấu trúc "data-driven narrative +
+0 speculation + audit banned-words" của skill, KHÔNG copy code); (B) đẩy
+tóm tắt tuần lên Telegram (cadence tuần, tái dùng `_macro_block` — nhưng
+Telegram không render chart); (C) chạy skill offline như generator riêng
+nuôi bằng data dashboard (ít tích hợp). Xem chi tiết ở câu trả lời — chưa
+build, chờ user chọn hướng.
+
+**Khảo sát Thanhtran-165/baocaolaisuatvatiente (2026-07-16): repo = SKILL
+sinh BÁO CÁO HTML tuần + deploy Vercel (sai hình dạng Streamlit, KHÔNG
+dùng framework), NHƯNG 3 NGUỒN DỮ LIỆU ĐÃ TRIỂN KHAI (mục 🏦 trên).**
+Repo = "VN Rates Weekly": pipeline 7
 bước fetch SBV+VBMA+VNBA (PDF) + HNX+FRED (API) → report.json → HTML +
 audit gates + Playwright QA. Bản thân nó "port từ Bond Lab providers".
 KHÔNG có LICENSE = all rights reserved → mượn Ý TƯỞNG + SỰ KIỆN (URL/

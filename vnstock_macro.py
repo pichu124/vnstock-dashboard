@@ -590,6 +590,36 @@ def refresh(*, as_of: "str | None" = None) -> dict:
                 if vb.get(key) is not None:
                     _record(cache, key, float(vb[key]), vb_as_of, "vbma")
 
+    # HNX (SAU VBMA để GHI ĐÈ 2Y/10Y — nguồn NGÀY chính thức, robust hơn PDF
+    # tuần). Tắt: VNSTOCK_MACRO_HNX=0 / VNSTOCK_HNX=0. Best-effort.
+    if os.environ.get("VNSTOCK_MACRO_HNX", "1") != "0":
+        hx = _fetch_hnx()
+        if hx:
+            hx_as_of = hx.get("as_of") or day
+            for key in ("govt_bond_yield_2y", "govt_bond_yield_10y"):
+                if hx.get(key) is not None:
+                    _record(cache, key, float(hx[key]), hx_as_of, "hnx")
+
+    # SBV weekly (nguồn CHÍNH THỨC thứ 2): LNH ON cross-source với VBMA + OMO
+    # ròng (SỐ, không suy từ tin) + tỷ giá trung tâm. Tắt: VNSTOCK_MACRO_SBV=0
+    # / VNSTOCK_SBV=0. Best-effort. LNH ON: resolve SBV↔VBMA (ưu tiên SBV,
+    # cờ lệch >ngưỡng); OMO/tỷ-giá-trung-tâm lưu display-only (ngoài registry).
+    if os.environ.get("VNSTOCK_MACRO_SBV", "1") != "0":
+        sb = _fetch_sbv()
+        if sb:
+            from vnstock_sbv import resolve_interbank_on
+            val, src, diverged = resolve_interbank_on(
+                sb.get("overnight"), (vb or {}).get("interbank_on"))
+            if val is not None and src == "sbv":
+                _record(cache, "interbank_on", float(val),
+                        sb.get("as_of") or day, "sbv")
+            cache.setdefault("_meta", {})["sbv"] = {
+                "omo_net": sb.get("omo_net"),
+                "fx_central": sb.get("fx_central"),
+                "interbank_on_diverged": bool(diverged),
+                "as_of": sb.get("as_of"),
+            }
+
     # Cross-check chất lượng tỷ giá (mượn rule vimovietnam "2 nguồn chênh >2%"):
     # er-api (market ref, daily) vs trung bình mua/bán Vietcombank trong chính
     # PDF VBMA (weekly). Lệch quá _FX_XCHECK_MAX_PCT → CẢNH BÁO (không tự sửa —
@@ -712,6 +742,40 @@ def _fetch_fred() -> "dict | None":
     try:
         from vnstock_fred import fetch_daily
         return fetch_daily()
+    except Exception:
+        return None
+
+
+def _fetch_sbv() -> "dict | None":
+    """Bản tin tuần SBV qua vnstock_sbv.refresh() — LNH ON/1W + OMO ròng +
+    tỷ giá trung tâm. Mọi lỗi → None (best-effort)."""
+    try:
+        import vnstock_sbv
+        return vnstock_sbv.refresh()
+    except Exception:
+        return None
+
+
+def _fetch_hnx() -> "dict | None":
+    """Lợi suất TPCP 2Y/10Y từ HNX (vnstock_hnx) — nguồn NGÀY chính thức,
+    ưu tiên hơn VBMA PDF tuần. Trả {'govt_bond_yield_2y','govt_bond_yield_10y',
+    'as_of'} hoặc None. Mọi lỗi → None (best-effort)."""
+    try:
+        import vnstock_hnx
+        got = vnstock_hnx.refresh()          # fetch + ghi history cache riêng
+        if not got:
+            got = (vnstock_hnx.load_yields() or (None, None))[1]  # fallback cache
+        if not got:
+            return None
+        loaded = vnstock_hnx.load_yields()
+        out = {}
+        if got.get("2Y") is not None:
+            out["govt_bond_yield_2y"] = float(got["2Y"])
+        if got.get("10Y") is not None:
+            out["govt_bond_yield_10y"] = float(got["10Y"])
+        if out and loaded:
+            out["as_of"] = loaded[0]
+        return out or None
     except Exception:
         return None
 
