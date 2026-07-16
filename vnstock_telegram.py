@@ -485,6 +485,23 @@ def push_close_brief() -> dict:
     return send_message(text)
 
 
+def push_rates_weekly() -> dict:
+    """Đẩy tóm tắt tuần lãi suất & tiền tệ lên Telegram (hướng B khảo sát
+    baocaolaisuatvatiente). Text gọn từ `vnstock_rates_report.render_telegram`
+    — zero fetch, đọc cache sẵn có. Cadence tuần (gọi tay / nút dashboard /
+    lịch riêng — KHÔNG vào brief 2×/ngày)."""
+    _load_env()
+    try:
+        from vnstock_rates_report import build_report_data, render_telegram
+        data = build_report_data()
+    except Exception as e:                                    # noqa
+        return {"ok": False, "error": f"build report lỗi: {e}"}
+    if not data.get("rates") and not data.get("curve"):
+        return {"ok": False, "error": "cache vĩ mô/HNX rỗng — chạy run.py macro"}
+    text = render_telegram(data) + "\n\n<i>Powered by VNStock Dashboard</i>"
+    return send_message(text)
+
+
 def push_screener_alerts() -> dict:
     """Push screener alerts only (no brief generation)."""
     date_str = datetime.now().strftime("%d/%m/%Y %H:%M")

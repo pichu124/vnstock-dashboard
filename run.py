@@ -787,6 +787,23 @@ def cmd_gold(args) -> int:
     return 1 if rc != 0 else 0
 
 
+def cmd_rates_weekly(args) -> int:
+    """Đẩy tóm tắt tuần lãi suất & tiền tệ lên Telegram (render từ cache sẵn
+    có — zero fetch). Cadence TUẦN (chạy tay / lịch riêng sau khi cả 3 nguồn
+    LNH publish); KHÔNG vào brief 2×/ngày."""
+    try:
+        from vnstock_telegram import push_rates_weekly
+        res = push_rates_weekly()
+    except Exception as e:                                    # noqa
+        print(f"❌ {e}")
+        return 1
+    if res.get("ok"):
+        print("✅ Đã đẩy tóm tắt tuần lãi suất lên Telegram.")
+        return 0
+    print(f"⚠️ Không đẩy được: {res.get('error', res)}")
+    return 1
+
+
 def cmd_allocation(args) -> int:
     """Refresh the asset-allocation band (B0-B4) from existing caches, then
     the retrospective scorecard (both zero LLM).
@@ -1131,6 +1148,8 @@ def build_parser() -> argparse.ArgumentParser:
     ff_nn.add_argument("--days", type=int, default=5)
     sub.add_parser("macro",
                    help="Refresh macro cache (lãi suất & tỷ giá) — seed + auto-fetch FX")
+    sub.add_parser("rates-weekly",
+                   help="Đẩy tóm tắt tuần lãi suất lên Telegram (render từ cache)")
     sub.add_parser("allocation",
                    help="Refresh asset-allocation band B0-B4 + scorecard")
     sub.add_parser("gold",
@@ -1184,6 +1203,7 @@ _DISPATCH = {
     "screener": cmd_screener,
     "foreign-flow": cmd_foreign_flow,
     "macro": cmd_macro,
+    "rates-weekly": cmd_rates_weekly,
     "gold": cmd_gold,
     "allocation": cmd_allocation,
     "reflection": cmd_reflection,

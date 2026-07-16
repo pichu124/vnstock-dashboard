@@ -158,12 +158,13 @@ def _news_card(item: dict, idx: int) -> None:
 def render_news_tab() -> None:
     """Main entry point called from vnstock_dashboard.py.
 
-    4 sub-tab: tin THEO MÃ (nội dung gốc của tab), 🌐 Vĩ mô (macro_tab —
-    thuần hiển thị), 📚 Báo cáo (reports_tab — ingest + digest, P5) và
-    🧭 Phân bổ (allocation_tab — band B0-B4 + scorecard, P5).
+    5 sub-tab: tin THEO MÃ (nội dung gốc của tab), 🌐 Vĩ mô (macro_tab —
+    thuần hiển thị), 📄 Báo cáo tuần (rates_report_tab — HTML lãi suất từ
+    cache), 📚 Báo cáo (reports_tab — ingest + digest, P5) và 🧭 Phân bổ
+    (allocation_tab — band B0-B4 + scorecard, P5).
     """
-    tab_ticker, tab_macro, tab_reports, tab_alloc = st.tabs(
-        ["📰 Tin theo mã", "🌐 Vĩ mô", "📚 Báo cáo", "🧭 Phân bổ"])
+    tab_ticker, tab_macro, tab_rates, tab_reports, tab_alloc = st.tabs(
+        ["📰 Tin theo mã", "🌐 Vĩ mô", "📄 Báo cáo tuần", "📚 Báo cáo", "🧭 Phân bổ"])
     with tab_ticker:
         _render_ticker_news()
     with tab_macro:
@@ -172,6 +173,12 @@ def render_news_tab() -> None:
             render_macro_subtab()
         except Exception as _e:                              # noqa
             st.error(f"Không render được sub-tab Vĩ mô: {_e}")
+    with tab_rates:
+        try:
+            from dashboard.rates_report_tab import render_rates_report_subtab
+            render_rates_report_subtab()
+        except Exception as _e:                              # noqa
+            st.error(f"Không render được sub-tab Báo cáo tuần: {_e}")
     with tab_reports:
         try:
             from dashboard.reports_tab import render_reports_subtab

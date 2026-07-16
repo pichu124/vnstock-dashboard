@@ -1760,18 +1760,41 @@ HNX ăn → `run.py doctor --net` xanh dòng "HNX yield curve"; macro `--show`
 2Y/10Y source="hnx" (không phải "vbma"). Nếu HNX chết → VBMA PDF vẫn
 fallback nuôi 2Y/10Y (không gãy).
 
-**Skill sinh BÁO CÁO HTML tuần — user muốn dùng, ĐỀ XUẤT TÍCH HỢP (chờ
-chốt hướng)**: repo là report-generator (build_report_v2 → render HTML +
-audit gates + Vercel). Dashboard ĐÃ có gần hết DATA của báo cáo đó (registry
-13 chỉ số + 3 gauge + HNX 8 kỳ hạn + sub-tab 🌐 Vĩ mô). 3 hướng: (A —
-KHUYẾN NGHỊ) tab/nút "📄 Báo cáo tuần" trong dashboard render HTML tự chứa
-từ CACHE sẵn có (macro + HNX curve + gauge) → xem inline + nút tải/Artifact,
-ZERO fetch mới (~1 renderer thuần, mượn Ý cấu trúc "data-driven narrative +
-0 speculation + audit banned-words" của skill, KHÔNG copy code); (B) đẩy
-tóm tắt tuần lên Telegram (cadence tuần, tái dùng `_macro_block` — nhưng
-Telegram không render chart); (C) chạy skill offline như generator riêng
-nuôi bằng data dashboard (ít tích hợp). Xem chi tiết ở câu trả lời — chưa
-build, chờ user chọn hướng.
+### 📄 Báo cáo tuần lãi suất — A + B (DONE 2026-07-16, user chọn "A+B", ý skill baocaolaisuatvatiente)
+
+Skill nguồn là report-generator (fetch 5 nguồn → HTML → Vercel), nhưng
+dashboard ĐÃ có sẵn TOÀN BỘ data (registry 13 + 3 gauge + HNX 8 kỳ hạn +
+OMO/SBV) → báo cáo chỉ còn tầng RENDER. Lật ngược skill (nó ~80% code đi
+lấy data) — mượn Ý trình bày (data-driven, 0 speculation), KHÔNG copy code.
+
+**`vnstock_rates_report.py`** (thuần, deterministic, ZERO fetch/LLM):
+- `build_report_data(as_of)` → dict từ cache: `load_macro` (bảng lãi suất/
+  tỷ giá theo `_RATE_KEYS`) + 3 gauge + `vnstock_hnx.load_yields` (đường
+  cong) + `vnstock_sbv.load_weekly` (OMO/tỷ giá trung tâm). Trường thiếu →
+  bỏ, KHÔNG bịa.
+- `_narrative` = câu SUY TỪ SỐ (nhãn gauge + đổi LNH ON ≥0.10đ% + OMO
+  bơm/hút) — KHÔNG dự đoán tương lai → không cần guard/LLM.
+- `render_html(data)` → HTML TỰ CHỨA (inline CSS + **đường cong lợi suất
+  bằng inline SVG** polyline — zero external dep, verify test `http`
+  không xuất hiện) cho tab/tải/Artifact. Lãi suất tăng = màu ĐỎ (thắt).
+- `render_telegram(data)` → text gọn (không chart) cho hướng B.
+- CLI `--html out.html` / `--text` / `--as-of`.
+
+**Hướng A — tab dashboard** `dashboard/rates_report_tab.py` (sub-tab thứ 5
+"📄 Báo cáo tuần" trong tab Tin tức, cạnh 🌐/📚/🧭): lazy-import st, render
+HTML inline (`components.html`) + nút ⬇️ Tải HTML + nút 📤 Đẩy Telegram.
+UI mỏng trên cache (mirror macro_tab).
+
+**Hướng B — Telegram** `vnstock_telegram.push_rates_weekly()` (cadence
+TUẦN, render_telegram + footer) + `run.py rates-weekly` (chạy tay/lịch
+riêng — KHÔNG vào brief 2×/ngày). Cache rỗng → trả `{ok:False}` sạch.
+
+Tests: 6 test rates_report cuối `tests/test_hnx_sbv.py` + smoke tab trong
+`test_allocation_reports_tabs.py` (nay 3 tab). **VERIFY**: mở dashboard →
+tab Tin tức có sub-tab "📄 Báo cáo tuần" render bảng + đường cong SVG (cần
+`run.py macro` chạy trước để có cache); `python vnstock_rates_report.py
+--text` in bản Telegram; `run.py rates-weekly` đẩy thật (cần TELEGRAM
+token). Đường cong chỉ hiện khi HNX đã verify (--diag máy có mạng).
 
 **Khảo sát Thanhtran-165/baocaolaisuatvatiente (2026-07-16): repo = SKILL
 sinh BÁO CÁO HTML tuần + deploy Vercel (sai hình dạng Streamlit, KHÔNG

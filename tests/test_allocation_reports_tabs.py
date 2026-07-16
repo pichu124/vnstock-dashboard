@@ -13,6 +13,7 @@ import pytest
 @pytest.mark.parametrize("mod_name,fn_name", [
     ("dashboard.reports_tab", "render_reports_subtab"),
     ("dashboard.allocation_tab", "render_allocation_subtab"),
+    ("dashboard.rates_report_tab", "render_rates_report_subtab"),
 ])
 def test_module_imports_without_streamlit_and_nullary(mod_name, fn_name):
     mod = importlib.import_module(mod_name)
@@ -27,8 +28,9 @@ def test_module_imports_without_streamlit_and_nullary(mod_name, fn_name):
     assert required == []
 
 
-def test_news_tab_wires_four_subtabs():
+def test_news_tab_wires_subtabs():
     src = (__import__("pathlib").Path(__file__).resolve().parent.parent
            / "dashboard" / "news_tab.py").read_text(encoding="utf-8")
-    assert "📚 Báo cáo" in src and "🧭 Phân bổ" in src
+    assert "📚 Báo cáo" in src and "🧭 Phân bổ" in src and "📄 Báo cáo tuần" in src
     assert "render_reports_subtab" in src and "render_allocation_subtab" in src
+    assert "render_rates_report_subtab" in src

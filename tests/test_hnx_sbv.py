@@ -171,3 +171,86 @@ def test_macro_fetch_hnx_best_effort(monkeypatch):
     monkeypatch.setitem(sys.modules, "vnstock_hnx", None)     # import lỗi
     assert mac._fetch_hnx() is None
     assert mac._fetch_sbv() is None
+
+
+# ─── Báo cáo tuần lãi suất (vnstock_rates_report) — hướng A + B ─────────────
+
+import vnstock_rates_report as rr
+
+_RPT_DATA = {
+    "as_of": "2026-07-15", "week_label": "Tuần 29/2026",
+    "rates": [
+        {"key": "interbank_on", "label": "LNH qua đêm", "value": "4.28%/năm",
+         "as_of": "2026-07-10", "source": "sbv", "change": "▼ -1.39 điểm %", "dir": -1},
+        {"key": "govt_bond_yield_10y", "label": "TPCP 10 năm", "value": "4.40%/năm",
+         "as_of": "2026-07-15", "source": "hnx", "change": "", "dir": 0}],
+    "gauges": [{"name": "Thanh khoản hệ thống", "spread": -0.22,
+                "label": "bình thường", "dir": 0}],
+    "curve": {"as_of": "2026-07-15",
+              "points": [("1Y", 3.25), ("2Y", 3.50), ("5Y", 4.15),
+                         ("10Y", 4.40), ("15Y", 4.65), ("20Y", 4.85)]},
+    "omo_net": 12500.0, "fx_central": 25140.0,
+    "narrative": ["Thanh khoản hệ thống: bình thường (-0.22 điểm %).",
+                  "NHNN hút ròng 12,500 tỷ đồng qua kênh OMO trong tuần."],
+}
+
+
+def test_render_html_self_contained_with_svg():
+    h = rr.render_html(_RPT_DATA)
+    assert h.strip().lower().startswith("<!doctype html>")
+    assert "http://" not in h and "https://" not in h        # zero external dep
+    assert "<svg" in h and "polyline" in h                    # đường cong TPCP
+    assert "LNH qua đêm" in h and "4.28%/năm" in h
+    assert "hút ròng 12,500" in h
+
+
+def test_render_telegram_compact():
+    t = rr.render_telegram(_RPT_DATA)
+    assert "Báo cáo tuần lãi suất" in t and "Tuần 29/2026" in t
+    assert "LNH qua đêm" in t and "4.28%/năm" in t
+    assert "2Y 3.50" in t and "10Y 4.40" in t                 # curve segment
+    assert "hút ròng 12,500 tỷ" in t
+
+
+def test_svg_empty_when_insufficient_points():
+    assert rr._svg_yield_curve({"points": [("2Y", 3.5)]}) == ""
+    assert rr._svg_yield_curve({"points": []}) == ""
+
+
+def test_build_report_data_from_fake_caches(monkeypatch):
+    import vnstock_macro as mac
+    fake_macro = [
+        {"key": "interbank_on", "label": "LNH ON", "unit": "%/năm", "kind": "rate",
+         "value": 4.28, "as_of": "2026-07-10", "source": "sbv",
+         "change": {"delta": -1.39, "pct": None, "dir": -1}},
+        {"key": "govt_bond_yield_10y", "label": "TPCP 10Y", "unit": "%/năm",
+         "kind": "rate", "value": 4.40, "as_of": "2026-07-15", "source": "hnx",
+         "change": None},
+    ]
+    monkeypatch.setattr(mac, "load_macro", lambda *a, **k: fake_macro)
+    monkeypatch.setattr(mac, "liquidity_spread",
+                        lambda m: {"spread": -0.22, "label": "bình thường", "dir": 0})
+    monkeypatch.setattr(mac, "term_spread", lambda m: None)
+    monkeypatch.setattr(mac, "intl_spread", lambda m: None)
+    import vnstock_hnx
+    monkeypatch.setattr(vnstock_hnx, "load_yields",
+                        lambda *a, **k: ("2026-07-15", {"2Y": 3.5, "10Y": 4.4}))
+    import vnstock_sbv
+    monkeypatch.setattr(vnstock_sbv, "load_weekly",
+                        lambda: {"omo_net": 12500.0, "fx_central": 25140.0})
+    d = rr.build_report_data("2026-07-15")
+    assert d["week_label"] == "Tuần 29/2026"
+    assert any(r["source"] == "hnx" for r in d["rates"])
+    assert d["curve"]["points"][0] == ("2Y", 3.5)
+    assert d["omo_net"] == 12500.0
+    # narrative suy từ số: gauge + OMO + đổi LNH ON (|−1.39| ≥ 0.10)
+    joined = " ".join(d["narrative"])
+    assert "Thanh khoản" in joined and "hút ròng" in joined and "qua đêm" in joined
+
+
+def test_push_rates_weekly_empty_cache_guarded(monkeypatch):
+    import vnstock_telegram as tg
+    monkeypatch.setattr("vnstock_rates_report.build_report_data",
+                        lambda *a, **k: {"rates": [], "curve": None})
+    res = tg.push_rates_weekly()
+    assert res["ok"] is False and "rỗng" in res["error"]
