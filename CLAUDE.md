@@ -1772,13 +1772,35 @@ lệch): cả 2 → ưu tiên SBV + cờ khi chênh >15% (mirror `_fx_crosscheck
 er-api↔VCB, mở rộng sang lãi suất). Thiếu 1 → dùng nguồn kia.
 
 **Doctor**: `net_hnx` + `net_sbv` vào NET_CHECKS (probe fetch thật — máy
-có mạng; sandbox toàn ❌ là bình thường). **CÒN NỢ VERIFY** (máy user có
-mạng): `python vnstock_hnx.py --diag` (endpoint + selector bảng HTML còn
-đúng? — nếu HNX đổi layout thì sửa `parse_yield_curve_html`/cột par);
-`python vnstock_sbv.py --diag` (slug bài + URL PDF SBV — hay đổi/ghi nhầm).
-HNX ăn → `run.py doctor --net` xanh dòng "HNX yield curve"; macro `--show`
-2Y/10Y source="hnx" (không phải "vbma"). Nếu HNX chết → VBMA PDF vẫn
-fallback nuôi 2Y/10Y (không gãy).
+có mạng; sandbox toàn ❌ là bình thường).
+
+**✅ ĐÃ VERIFY THẬT TRÊN MÁY USER (16/07)**: HNX --diag ra 8 kỳ hạn (1Y
+3.819 … 20Y 4.658, TLS ladder → verify=False đúng); SBV --diag+refresh ra
+bài tuần 06-10.7.2026, parse ĐÚNG từ bảng (ON 5.21/1T 5.57/2T 6.13/1M
+7.32) sau fix calibrate; macro `--show`: 2Y/10Y source="hnx" ngày 07-16,
+LNH ON source="sbv". Nguồn 1+2+3 CHẠY THẬT.
+
+**⏰ CÒN NỢ — QUYẾT ĐỊNH THIẾT KẾ (user chưa chốt)**: LNH ON có 2 nguồn
+lệch — SBV 5.21 (TB TUẦN, official) vs VBMA 4.28 (điểm cuối tuần, "current"
+hơn); chênh 19.6% → cờ divergence bật. Hiện `resolve_interbank_on` ƯU TIÊN
+SBV → gauge thanh khoản ra CĂNG (5.21 > điều hành 4.5). Nếu user muốn gauge
+phản ánh điểm mới nhất → đổi ưu tiên VBMA (SBV chỉ cross-check + OMO), sửa
+~3 dòng trong `vnstock_macro.refresh` (khối SBV) + `resolve_interbank_on`.
+CHỜ user xem gauge rồi chốt.
+
+**⚠️ GOTCHA GIT (gặp thật 16/07)**: máy user checkout nhánh KHÁC
+(`claude/phase-1-kickoff-lzorv6`) nhưng CHUNG lineage với nhánh session
+(`claude/stocksharp-dashboard-research-bv9tas`) — commit SHA trùng. Khi
+user "git pull" không lấy được commit mới (khác tên nhánh) → chạy code cũ
+(bug đã fix vẫn tái hiện). Cách sửa: `git fetch origin` +
+`git merge --ff-only origin/<session-branch>` (ff sạch vì chung tổ tiên).
+Dấu hiệu chẩn đoán: `python -c "import M; print(hasattr(M,'<hàm mới>'))"`
+ra False = đang chạy code cũ dù đã "pull".
+
+**Nếu nguồn chết sau này**: HNX đổi layout bảng → sửa `parse_yield_curve_html`
+/cột par (`--diag`); SBV đổi tiêu đề bài → toàn 404, cập nhật `_SBV_TITLE_SLUGS`
+(`--diag` in URL thử); đổi layout PDF → `--dump-text` gửi lại chỉnh
+`_parse_interbank_table`. Nguồn nào chết → VBMA/FRED vẫn fallback (không gãy).
 
 ### 📄 Báo cáo tuần lãi suất — A + B (DONE 2026-07-16, user chọn "A+B", ý skill baocaolaisuatvatiente)
 
