@@ -135,6 +135,44 @@ _SBV_HEADERS = {
 _SBV_LISTING = ("https://www.sbv.gov.vn/vi/web/sbv_portal/"
                 "thong-tin-ve-hoat-dong-ngan-hang-trong-tuan")
 
+# Ứng viên link bài tuần — thử nhiều dạng (SBV đổi cấu trúc theo thời gian).
+# Từ khoá "trong-tuan"/"hoat-dong-ngan-hang" nhận diện bài; loại chính trang
+# listing. Thứ tự = ưu tiên (bài /w/ slug trước, rồi .htm/aspx).
+_ARTICLE_PATTERNS = (
+    r'href="(/vi/web/sbv_portal/w/[^"?#]*(?:tuan|hoat-dong-ngan-hang)[^"?#]*)"',
+    r'href="(https?://[^"]*sbv\.gov\.vn/[^"?#]*hoat-dong-ngan-hang[^"?#]*(?:tuan)[^"?#]*)"',
+    r'href="(/[^"?#]*hoat-dong-ngan-hang[^"?#]*tuan[^"?#]*\.(?:htm|html|aspx)[^"]*)"',
+    r'href="(/[^"?#]*(?:ban-tin|thong-tin)[^"?#]*tuan[^"?#]*)"',
+)
+
+
+def _find_article_link(html: str) -> Optional[str]:
+    """Link bài tuần mới nhất trong listing — thử nhiều pattern. Bỏ chính
+    URL trang listing (nó cũng chứa 'trong-tuan')."""
+    listing_tail = _SBV_LISTING.split("/")[-1]
+    for pat in _ARTICLE_PATTERNS:
+        for m in re.finditer(pat, html, re.I):
+            href = m.group(1)
+            if listing_tail and href.rstrip("/").endswith(listing_tail):
+                continue                     # đây là link về chính trang listing
+            return href
+    return None
+
+
+def _candidate_links(html: str) -> list:
+    """Mọi href nội bộ 'có vẻ là bài' — để --diag in ra cho user gửi lại khi
+    regex trượt (không đoán được cấu trúc từ sandbox)."""
+    out, seen = [], set()
+    for m in re.finditer(r'href="(/[^"?#]+|https?://[^"?#]*sbv\.gov\.vn/[^"?#]+)"',
+                         html, re.I):
+        h = m.group(1)
+        low = h.lower()
+        if any(k in low for k in ("tuan", "ngan-hang", "ban-tin", "sbv_portal/w/")) \
+                and h not in seen:
+            seen.add(h)
+            out.append(h)
+    return out
+
 
 def fetch_weekly(verbose: bool = False) -> "SBVWeekly | None":
     """Bài tuần SBV mới nhất → PDF → text → parse. None khi lỗi/không tìm thấy.
@@ -154,13 +192,23 @@ def fetch_weekly(verbose: bool = False) -> "SBVWeekly | None":
         if verbose:
             print(f"    → listing FAIL: {type(e).__name__}: {str(e)[:150]}")
         return None
-    # Link bài tuần (chứa 'w/' slug hoặc '-trong-tuan')
-    m = re.search(r'href="(/vi/web/sbv_portal/w/[^"]+)"', html, re.I)
-    if not m:
+    if verbose:
+        print(f"    → listing tải OK ({len(html):,} ký tự)")
+    art_path = _find_article_link(html)
+    if not art_path:
         if verbose:
             print("    → không tìm thấy link bài tuần trong listing")
+            cands = _candidate_links(html)
+            if cands:
+                print(f"    → {len(cands)} link ứng viên trên trang (gửi lại để chỉnh regex):")
+                for h in cands[:20]:
+                    print(f"        {h}")
+            else:
+                print("    → trang KHÔNG có href nội bộ nào (có thể load qua JS "
+                      "→ cần API/endpoint khác, xem Network tab DevTools)")
         return None
-    art_url = "https://www.sbv.gov.vn" + m.group(1)
+    art_url = art_path if art_path.startswith("http") \
+        else "https://www.sbv.gov.vn" + art_path
     try:
         art = requests.get(art_url, headers=_SBV_HEADERS, timeout=30).text
     except Exception:

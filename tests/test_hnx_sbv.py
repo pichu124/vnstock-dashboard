@@ -254,3 +254,29 @@ def test_push_rates_weekly_empty_cache_guarded(monkeypatch):
                         lambda *a, **k: {"rates": [], "curve": None})
     res = tg.push_rates_weekly()
     assert res["ok"] is False and "rỗng" in res["error"]
+
+
+# ─── SBV link-finder (nới sau khi --diag thật trượt regex cũ 16/07) ─────────
+
+def test_sbv_find_article_link_multiple_shapes():
+    html = ('<a href="/vi/web/sbv_portal/thong-tin-ve-hoat-dong-ngan-hang-trong-tuan">L</a>'
+            '<a href="/vi/web/sbv_portal/w/thong-tin-hoat-dong-ngan-hang-tuan-07-11072026">B</a>')
+    assert sbv._find_article_link(html) == \
+        "/vi/web/sbv_portal/w/thong-tin-hoat-dong-ngan-hang-tuan-07-11072026"
+    # chỉ có link listing → None (không tự trỏ về chính nó)
+    only = '<a href="/vi/web/sbv_portal/thong-tin-ve-hoat-dong-ngan-hang-trong-tuan">x</a>'
+    assert sbv._find_article_link(only) is None
+    # dạng .htm
+    htm = '<a href="/vi/web/ban-tin-kinh-te-tuan-4-thang-7-2026.htm">x</a>'
+    assert sbv._find_article_link(htm) == "/vi/web/ban-tin-kinh-te-tuan-4-thang-7-2026.htm"
+
+
+def test_sbv_candidate_links_for_diag():
+    html = ('<a href="/vi/web/sbv_portal/w/bai-tuan-1">a</a>'
+            '<a href="/vi/web/khac/gioi-thieu">b</a>'
+            '<a href="/vi/web/sbv_portal/ban-tin-tuan-2.htm">c</a>')
+    cands = sbv._candidate_links(html)
+    assert "/vi/web/sbv_portal/w/bai-tuan-1" in cands
+    assert "/vi/web/sbv_portal/ban-tin-tuan-2.htm" in cands
+    assert "/vi/web/khac/gioi-thieu" not in cands        # không có từ khoá bài
+    assert sbv._candidate_links("<p>JS app, no links</p>") == []
