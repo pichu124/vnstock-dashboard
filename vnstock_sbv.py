@@ -156,11 +156,10 @@ def _candidate_article_urls(monday, friday) -> list:
             + quote(f"{title}-{ds}") for title in _SBV_TITLE_SLUGS]
 
 
-def fetch_weekly(verbose: bool = False, weeks_back: int = 5) -> "SBVWeekly | None":
-    """Bài tuần SBV mới nhất → PDF → text → parse. DỰNG URL từ ngày tuần
-    (listing là JS, không scrape được). Bài tuần N publish tuần N+1 → bắt đầu
-    từ TUẦN TRƯỚC, lùi dần. 404 = tuần đó chưa có/nghỉ lễ → thử tuần trước nữa.
-    VERIFY trên máy có mạng (--diag in từng URL thử)."""
+def _fetch_pdf_text(verbose: bool = False, weeks_back: int = 5) -> "str | None":
+    """DỰNG URL bài tuần từ ngày (listing là JS) → tải PDF → text THÔ (chưa
+    parse). Bài tuần N publish tuần N+1 → bắt đầu TUẦN TRƯỚC, lùi dần; 404 =
+    nghỉ/chưa có → thử tuần trước nữa. None khi không ra bài nào."""
     if os.environ.get("VNSTOCK_SBV", "1") == "0":
         return None
     try:
@@ -199,7 +198,7 @@ def fetch_weekly(verbose: bool = False, weeks_back: int = 5) -> "SBVWeekly | Non
                 continue
             text = pdf_to_text(data)
             if text:
-                return parse_sbv_text(text)
+                return text
             if verbose:
                 print("    → tải PDF OK nhưng pdf_to_text rỗng (thiếu pypdf/pdftotext?)")
     if verbose:
@@ -207,6 +206,12 @@ def fetch_weekly(verbose: bool = False, weeks_back: int = 5) -> "SBVWeekly | Non
               "đề đều không ra. Nếu SBV đổi tiêu đề bài: mở 1 bài tuần thật trên "
               "trình duyệt, COPY URL rồi gửi tôi → tôi cập nhật _SBV_TITLE_SLUGS.")
     return None
+
+
+def fetch_weekly(verbose: bool = False, weeks_back: int = 5) -> "SBVWeekly | None":
+    """Bài tuần SBV mới nhất → PDF → text → parse (`parse_sbv_text`)."""
+    text = _fetch_pdf_text(verbose=verbose, weeks_back=weeks_back)
+    return parse_sbv_text(text) if text else None
 
 
 # ── Cache + refresh + loaders ───────────────────────────────────────────────
@@ -271,10 +276,22 @@ def main(argv=None) -> int:
     ap.add_argument("--refresh", action="store_true")
     ap.add_argument("--show", action="store_true")
     ap.add_argument("--diag", action="store_true", help="thử fetch verbose (máy có mạng)")
+    ap.add_argument("--dump-text", action="store_true",
+                    help="in TEXT THÔ của PDF bài tuần (gửi lại để chỉnh regex parse)")
     ap.add_argument("--set-omo", type=float, metavar="TỶ_VND",
                     help="nhập tay OMO ròng (+ hút / − bơm)")
     args = ap.parse_args(argv)
 
+    if args.dump_text:
+        print("[sbv] tải PDF bài tuần & in text thô…")
+        txt = _fetch_pdf_text(verbose=True)
+        if not txt:
+            print("  ❌ không lấy được PDF")
+            return 1
+        print(f"\n===== PDF TEXT ({len(txt):,} ký tự) — gửi lại phần lãi suất/OMO/"
+              "tỷ giá cho tôi =====\n")
+        print(txt[:6000])
+        return 0
     if args.diag:
         print("[sbv] dựng URL bài tuần từ ngày (listing SBV là JS, không scrape)")
         r = fetch_weekly(verbose=True)
