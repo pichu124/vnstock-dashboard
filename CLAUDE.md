@@ -1717,6 +1717,51 @@ lãi/lỗ TẠM TÍNH gross, display-only. Bảng Open recommendations thêm 2 c
 "Giá HT" + "L/L tạm" (close mới nhất từ `_load_history`, best-effort —
 thiếu giá → "—"); lệnh đang xanh/đỏ thấy ngay, không phải chờ reconcile.
 
+**Khảo sát Thanhtran-165/baocaolaisuatvatiente (2026-07-16): KHÔNG dùng
+repo (là SKILL sinh BÁO CÁO HTML tuần + deploy Vercel — sai hình dạng với
+Streamlit dashboard), NHƯNG 3 NGUỒN DỮ LIỆU đáng mượn, lấp đúng chỗ đau
+vĩ mô. CHƯA LÀM — chờ user chốt.** Repo = "VN Rates Weekly": pipeline 7
+bước fetch SBV+VBMA+VNBA (PDF) + HNX+FRED (API) → report.json → HTML +
+audit gates + Playwright QA. Bản thân nó "port từ Bond Lab providers".
+KHÔNG có LICENSE = all rights reserved → mượn Ý TƯỞNG + SỰ KIỆN (URL/
+endpoint/tenor map/cách parse), KHÔNG copy code. Phần report/Vercel/
+audit-gate/Playwright + VNBA narrative (bank PBT) = bỏ (orthogonal /
+FRED+foreign-flow đã cover global).
+
+**3 nguồn ĐÁNG MƯỢN (deterministic, lấp gap vĩ mô đã ghi ở mục Vĩ mô):**
+1. **HNX yield curve POST API — MẠNH NHẤT, thay/bổ sung VBMA PDF cho lợi
+   suất TPCP**: `https://hnx.vn/ModuleReportBonds/Bond_YieldCurve/
+   SearchAndNextPageYieldCurveData`, POST `pDate=dd/mm/YYYY` → parse HTML
+   `table tbody tr/td` → **8 kỳ hạn 1Y/2Y/3Y/5Y/7Y/10Y/15Y/20Y, granularity
+   NGÀY**, chính thức (HNX = sàn niêm yết TPCP). Hiện dashboard lấy 2Y/10Y
+   từ `vnstock_vbma._parse_bond_yields` (PDF tuần, mong manh, chỉ 2 kỳ
+   hạn) → HNX API ROBUST hơn hẳn + nhiều tenor hơn → nuôi thẳng registry
+   `govt_bond_yield_2y/10y` + 3 gauge kỳ-hạn/đường-cong/quốc-tế + mở khóa
+   thêm 5Y/7Y (percentile lịch sử "trụ 4" VnBondLab dễ hơn khi có data
+   ngày). **SSL bẫy đã ghi rõ**: HNX thiếu chứng chỉ TRUNG GIAN → cần
+   verify=False fallback — TLS ladder 3-nấc của `vnstock_nso._http_get`
+   (certifi → OS store → verify=False cho nguồn công khai) xử ĐÚNG ca này.
+   Verify-gated: sandbox chặn hnx.vn → phải `--diag` trên máy có mạng
+   (endpoint là ứng viên CHƯA verify, HTML table selector có thể đổi).
+2. **SBV weekly PDF chính thức — nguồn thứ 2 cho LNH + OMO SỐ**: article
+   `sbv.gov.vn/vi/web/sbv_portal/w/<slug>` (slug dạng "01-05.6.2026") →
+   PDF nhúng `/documents/20117/0/...pdf/<uuid>` → `parse_sbv_interbank`
+   bắt Overnight/1 tuần/2 tuần/1 tháng + **tỷ giá trung tâm** + **OMO ròng**
+   (hút=+/bơm=−, tỷ VND). Hiện: `sbv_policy_rate` NHẬP TAY, LNH qua VBMA,
+   OMO chỉ có qua từ khoá tin (`_MACRO_KEYWORDS` "bơm/hút ròng") — SBV PDF
+   cho OMO thành SỐ + LNH nguồn 2 (chính thức) + tỷ giá trung tâm (hiện
+   so er-api↔VCB, thêm trung tâm làm neo). Verify-gated (slug SBV hay ghi
+   nhầm, PDF cần uuid).
+3. **Cross-source resolution SBV↔VBMA cho LNH ON** (`resolve_cross_source`):
+   2 nguồn có cả → lấy 1 nguồn + cờ divergence khi lệch > ngưỡng (mirror
+   `_fx_crosscheck` er-api↔VCB đã có, mở rộng sang lãi suất). Làm cùng lúc
+   nếu triển khai nguồn 1+2.
+Ưu tiên nếu user chốt: **nguồn 1 (HNX) trước** — giá trị cao nhất, lấp
+đúng điểm yếu "VBMA PDF mong manh" + "cần đủ mẫu ngày cho percentile" đã
+ghi. Mô-đun mới `vnstock_hnx.py` (mirror vnstock_vbma/nso/fred: fetch +
+parse + cache `_meta/`, doctor check cadence + net probe, tắt bằng env),
+`vnstock_macro` ưu tiên HNX rồi fallback VBMA PDF cho 2Y/10Y.
+
 **Khảo sát StockSharp/StockSharp (2026-07-15): KHÔNG dùng framework —
 CẢ 3 MÓN + profit/recovery factor ĐÃ TRIỂN KHAI cùng ngày (xem mục 🕯
 bên dưới).** Nền tảng trading
