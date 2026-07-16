@@ -132,62 +132,35 @@ _SBV_HEADERS = {
     "Referer": "https://www.sbv.gov.vn/vi/web/sbv_portal/"
                "thong-tin-ve-hoat-dong-ngan-hang-trong-tuan",
 }
-_SBV_LISTING = ("https://www.sbv.gov.vn/vi/web/sbv_portal/"
-                "thong-tin-ve-hoat-dong-ngan-hang-trong-tuan")
-
-# Từ khoá nhận diện bài tuần (khớp trên href ĐÃ tách; query string giữ
-# nguyên vì slug có thể nằm trong query của URL Liferay). Ưu tiên bài /w/.
-_ARTICLE_KEYWORDS = ("hoat-dong-ngan-hang", "ban-tin", "sbv_portal/w/")
-_ASSET_SKIP = (".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",
-               ".woff", ".woff2", "javascript:", "mailto:")
-
-
-def _extract_hrefs(html: str) -> list:
-    """Mọi href nội bộ (path hoặc URL sbv.gov.vn), GIỮ CẢ query string —
-    dùng chung cho find/candidate/dump. Loại asset + trùng, giữ thứ tự."""
-    out, seen = [], set()
-    for m in re.finditer(r'href="([^"#]+)"', html, re.I):
-        h = m.group(1).strip()
-        low = h.lower()
-        if not (h.startswith("/") or "sbv.gov.vn" in low):
-            continue                          # bỏ link ngoài
-        if any(s in low for s in _ASSET_SKIP) or h in seen:
-            continue
-        seen.add(h)
-        out.append(h)
-    return out
+# Trang LISTING render bài qua JS (verify 16/07: HTML tĩnh chỉ có 1 link
+# /vi/trang-chu) → KHÔNG scrape được. Thay bằng DỰNG URL bài TỪ NGÀY tuần
+# (mirror repo gốc): slug = "<tiêu-đề>-<DD>-<DD>.<M>.<YYYY>" (ngày zero-pad,
+# THÁNG không pad). Tiêu đề là ứng viên (SBV có thể đổi) → thử nhiều biến thể.
+_SBV_TITLE_SLUGS = (
+    "diễn-biến-thị-trường-ngoại-tệ-và-thị-trường-liên-ngân-hàng-tuần-từ",
+    "thông-tin-hoạt-động-ngân-hàng-trong-tuần-từ",
+)
+# PDF nhúng trong BÀI (server-render): /documents/.../<file>.pdf/<uuid>?...
+_SBV_PDF_RE = re.compile(r'(?:src|href)="(/documents/\d+/[^"]+\.pdf/[^"]*)"', re.I)
 
 
-def _find_article_link(html: str) -> Optional[str]:
-    """Link bài tuần mới nhất — href chứa từ khoá bài + 'tuan', KHÔNG phải
-    chính trang listing. Query string được giữ (slug Liferay có thể ở query)."""
-    listing_tail = _SBV_LISTING.rstrip("/").split("/")[-1]
-    for h in _extract_hrefs(html):
-        low = h.lower()
-        base = low.split("?")[0].rstrip("/")
-        if base.endswith(listing_tail):
-            continue                          # link về chính trang listing
-        if "tuan" in low and any(k in low for k in _ARTICLE_KEYWORDS):
-            return h
-    return None
+def _week_date_slug(monday, friday) -> str:
+    """'01-05.6.2026' — ngày T2/T6 zero-pad, THÁNG không pad, năm đầy đủ."""
+    return f"{monday.day:02d}-{friday.day:02d}.{monday.month}.{monday.year}"
 
 
-def _candidate_links(html: str) -> list:
-    """href 'có vẻ là bài' (chứa tuan/ngan-hang/ban-tin) — cho --diag gửi lại."""
-    kws = ("tuan", "ngan-hang", "ban-tin", "sbv_portal/w/")
-    return [h for h in _extract_hrefs(html) if any(k in h.lower() for k in kws)]
+def _candidate_article_urls(monday, friday) -> list:
+    from urllib.parse import quote
+    ds = _week_date_slug(monday, friday)
+    return ["https://www.sbv.gov.vn/vi/web/sbv_portal/w/"
+            + quote(f"{title}-{ds}") for title in _SBV_TITLE_SLUGS]
 
 
-def _all_internal_links(html: str) -> list:
-    """MẪU tất cả link nội bộ — phơi cấu trúc URL thật khi lọc-từ-khoá trượt."""
-    return _extract_hrefs(html)
-
-
-def fetch_weekly(verbose: bool = False) -> "SBVWeekly | None":
-    """Bài tuần SBV mới nhất → PDF → text → parse. None khi lỗi/không tìm thấy.
-
-    Đi qua trang listing → link bài mới nhất → PDF nhúng (URL cần uuid). Dùng
-    lại `pdf_to_text` của vnstock_vbma. VERIFY trên máy có mạng (--diag)."""
+def fetch_weekly(verbose: bool = False, weeks_back: int = 5) -> "SBVWeekly | None":
+    """Bài tuần SBV mới nhất → PDF → text → parse. DỰNG URL từ ngày tuần
+    (listing là JS, không scrape được). Bài tuần N publish tuần N+1 → bắt đầu
+    từ TUẦN TRƯỚC, lùi dần. 404 = tuần đó chưa có/nghỉ lễ → thử tuần trước nữa.
+    VERIFY trên máy có mạng (--diag in từng URL thử)."""
     if os.environ.get("VNSTOCK_SBV", "1") == "0":
         return None
     try:
@@ -195,58 +168,45 @@ def fetch_weekly(verbose: bool = False) -> "SBVWeekly | None":
         from vnstock_vbma import pdf_to_text
     except Exception:
         return None
-    try:
-        html = requests.get(_SBV_LISTING, headers=_SBV_HEADERS, timeout=30).text
-    except Exception as e:
-        if verbose:
-            print(f"    → listing FAIL: {type(e).__name__}: {str(e)[:150]}")
-        return None
+    from datetime import timedelta
+    today = datetime.now().date()
+    this_monday = today - timedelta(days=today.weekday())
+    for back in range(1, max(2, weeks_back) + 1):
+        monday = this_monday - timedelta(weeks=back)
+        friday = monday + timedelta(days=4)
+        for url in _candidate_article_urls(monday, friday):
+            try:
+                resp = requests.get(url, headers=_SBV_HEADERS, timeout=30)
+            except Exception as e:
+                if verbose:
+                    print(f"    → LỖI {type(e).__name__}: {url[:90]}")
+                continue
+            if resp.status_code != 200:
+                if verbose:
+                    print(f"    → {resp.status_code}: {url}")
+                continue
+            pm = _SBV_PDF_RE.search(resp.text)
+            if not pm:
+                if verbose:
+                    print(f"    → 200 nhưng KHÔNG thấy PDF nhúng: {url}")
+                continue
+            pdf_url = "https://www.sbv.gov.vn" + pm.group(1).replace("&amp;", "&")
+            if verbose:
+                print(f"    ✅ bài: {url}\n       PDF: {pdf_url[:110]}")
+            try:
+                data = requests.get(pdf_url, headers=_SBV_HEADERS, timeout=45).content
+            except Exception:
+                continue
+            text = pdf_to_text(data)
+            if text:
+                return parse_sbv_text(text)
+            if verbose:
+                print("    → tải PDF OK nhưng pdf_to_text rỗng (thiếu pypdf/pdftotext?)")
     if verbose:
-        print(f"    → listing tải OK ({len(html):,} ký tự)")
-    art_path = _find_article_link(html)
-    if not art_path:
-        if verbose:
-            print("    → không tìm thấy link bài tuần trong listing")
-            cands = _candidate_links(html)
-            if cands:
-                print(f"    → {len(cands)} link ứng viên (khớp từ khoá) — gửi lại để chỉnh regex:")
-                for h in cands[:20]:
-                    print(f"        {h}")
-            else:
-                # Không có link khớp từ khoá → dump MẪU tất cả link nội bộ để
-                # thấy CẤU TRÚC URL thật (SBV có thể dùng ID số / slug khác).
-                alllinks = _all_internal_links(html)
-                if alllinks:
-                    print(f"    → không link nào khớp từ khoá. {len(alllinks)} link "
-                          f"nội bộ trên trang — MẪU 30 đầu (gửi lại để tôi nhận dạng):")
-                    for h in alllinks[:30]:
-                        print(f"        {h}")
-                else:
-                    print("    → trang KHÔNG có href nội bộ nào → gần như chắc chắn "
-                          "load bài qua JS/AJAX. Mở DevTools → Network → lọc XHR/Fetch "
-                          "khi trang load, tìm request trả danh sách bài (JSON/HTML) "
-                          "rồi gửi URL request đó cho tôi.")
-        return None
-    art_url = art_path if art_path.startswith("http") \
-        else "https://www.sbv.gov.vn" + art_path
-    try:
-        art = requests.get(art_url, headers=_SBV_HEADERS, timeout=30).text
-    except Exception:
-        return None
-    pm = re.search(r'href="(/documents/\d+/[^"]+\.pdf[^"]*)"', art, re.I)
-    if not pm:
-        if verbose:
-            print("    → không tìm thấy PDF nhúng trong bài")
-        return None
-    pdf_url = "https://www.sbv.gov.vn" + pm.group(1).replace("&amp;", "&")
-    try:
-        data = requests.get(pdf_url, headers=_SBV_HEADERS, timeout=45).content
-    except Exception:
-        return None
-    text = pdf_to_text(data)
-    if not text:
-        return None
-    return parse_sbv_text(text)
+        print(f"    → thử {weeks_back} tuần gần nhất × {len(_SBV_TITLE_SLUGS)} tiêu "
+              "đề đều không ra. Nếu SBV đổi tiêu đề bài: mở 1 bài tuần thật trên "
+              "trình duyệt, COPY URL rồi gửi tôi → tôi cập nhật _SBV_TITLE_SLUGS.")
+    return None
 
 
 # ── Cache + refresh + loaders ───────────────────────────────────────────────
@@ -316,7 +276,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
 
     if args.diag:
-        print(f"[sbv] listing {_SBV_LISTING}")
+        print("[sbv] dựng URL bài tuần từ ngày (listing SBV là JS, không scrape)")
         r = fetch_weekly(verbose=True)
         print("  ✅ " + str(asdict(r)) if r else "  ❌ không lấy được")
         return 0 if r else 1

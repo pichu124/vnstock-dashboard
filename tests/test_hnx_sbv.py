@@ -256,38 +256,53 @@ def test_push_rates_weekly_empty_cache_guarded(monkeypatch):
     assert res["ok"] is False and "rỗng" in res["error"]
 
 
-# ─── SBV link-finder (nới sau khi --diag thật trượt regex cũ 16/07) ─────────
+# ─── SBV fetch dựng URL từ ngày (listing là JS — verify thật 16/07) ─────────
 
-def test_sbv_find_article_link_multiple_shapes():
-    html = ('<a href="/vi/web/sbv_portal/thong-tin-ve-hoat-dong-ngan-hang-trong-tuan">L</a>'
-            '<a href="/vi/web/sbv_portal/w/thong-tin-hoat-dong-ngan-hang-tuan-07-11072026">B</a>')
-    assert sbv._find_article_link(html) == \
-        "/vi/web/sbv_portal/w/thong-tin-hoat-dong-ngan-hang-tuan-07-11072026"
-    # chỉ có link listing → None (không tự trỏ về chính nó)
-    only = '<a href="/vi/web/sbv_portal/thong-tin-ve-hoat-dong-ngan-hang-trong-tuan">x</a>'
-    assert sbv._find_article_link(only) is None
-    # dạng .htm
-    htm = '<a href="/vi/web/ban-tin-kinh-te-tuan-4-thang-7-2026.htm">x</a>'
-    assert sbv._find_article_link(htm) == "/vi/web/ban-tin-kinh-te-tuan-4-thang-7-2026.htm"
+def test_sbv_week_date_slug():
+    from datetime import date
+    # ngày zero-pad, THÁNG không pad, năm đầy đủ
+    assert sbv._week_date_slug(date(2026, 6, 1), date(2026, 6, 5)) == "01-05.6.2026"
+    assert sbv._week_date_slug(date(2026, 12, 28), date(2027, 1, 1)) == "28-01.12.2026"
 
 
-def test_sbv_candidate_links_for_diag():
-    html = ('<a href="/vi/web/sbv_portal/w/bai-tuan-1">a</a>'
-            '<a href="/vi/web/khac/gioi-thieu">b</a>'
-            '<a href="/vi/web/sbv_portal/ban-tin-tuan-2.htm">c</a>')
-    cands = sbv._candidate_links(html)
-    assert "/vi/web/sbv_portal/w/bai-tuan-1" in cands
-    assert "/vi/web/sbv_portal/ban-tin-tuan-2.htm" in cands
-    assert "/vi/web/khac/gioi-thieu" not in cands        # không có từ khoá bài
-    assert sbv._candidate_links("<p>JS app, no links</p>") == []
+def test_sbv_candidate_article_urls():
+    from datetime import date
+    urls = sbv._candidate_article_urls(date(2026, 6, 1), date(2026, 6, 5))
+    assert len(urls) == len(sbv._SBV_TITLE_SLUGS)
+    assert all(u.startswith("https://www.sbv.gov.vn/vi/web/sbv_portal/w/") for u in urls)
+    # ngày slug đã URL-encode nằm trong URL (01-05.6.2026)
+    assert all("01-05.6.2026" in __import__("urllib.parse").parse.unquote(u) for u in urls)
 
 
-def test_sbv_link_finder_keeps_query_string():
-    # Bug thật 16/07: URL Liferay có ?query khiến regex [^"?#] cũ vỡ → trượt.
-    html = ('<a href="/vi/web/sbv_portal/-/vru/123/thong-tin-hoat-dong-'
-            'ngan-hang-tuan-07-11072026?_x=abc">Bài</a>'
-            '<a href="/vi/web/style.css">css</a>')
-    got = sbv._find_article_link(html)
-    assert got is not None and got.endswith("?_x=abc")
-    assert got in sbv._all_internal_links(html)
-    assert "/vi/web/style.css" not in sbv._all_internal_links(html)  # asset loại
+def test_sbv_fetch_weekly_date_constructed(monkeypatch):
+    import requests
+
+    class _R:
+        def __init__(self, status=200, text="", content=b""):
+            self.status_code, self.text, self.content = status, text, content
+
+    tried = []
+
+    def fake_get(url, **k):
+        tried.append(url)
+        if "/documents/" in url:
+            return _R(200, content=b"%PDF-fake")
+        if "/w/" in url:                                  # bài tuần → có PDF nhúng
+            return _R(200, text='<a href="/documents/20117/0/sbv.pdf/uuid-9?t=1">PDF</a>')
+        return _R(404)
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    monkeypatch.setattr("vnstock_vbma.pdf_to_text", lambda d: _SBV_TEXT)
+    r = sbv.fetch_weekly()
+    assert r is not None and r.overnight == 4.28 and r.omo_net == 12500.0
+    assert any("/w/" in u for u in tried) and any("/documents/" in u for u in tried)
+
+
+def test_sbv_fetch_weekly_all_404_returns_none(monkeypatch):
+    import requests
+
+    class _R:
+        status_code, text, content = 404, "", b""
+
+    monkeypatch.setattr(requests, "get", lambda url, **k: _R())
+    assert sbv.fetch_weekly(weeks_back=2) is None       # không bài nào → None sạch

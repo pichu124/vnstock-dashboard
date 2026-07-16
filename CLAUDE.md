@@ -1738,14 +1738,28 @@ Cache giữ CẢ 8 kỳ hạn (chỉ 2Y/10Y vào registry — cap 13; 5Y/7Y/15Y/
 để dành cho gauge/percentile).
 
 **`vnstock_sbv.py`** — bản tin tuần SBV: LNH ON/1W/2W/1M + **OMO ròng SỐ**
-(hút=+/bơm=−, trước chỉ suy từ từ khoá tin) + **tỷ giá trung tâm**. Bài
-`sbv.gov.vn/vi/web/sbv_portal/w/<slug>` → PDF nhúng (cần uuid) → `pdf_to_text`
-(dùng lại vnstock_vbma) → `parse_sbv_text` (regex thuần, testable). Cache
-`_meta/sbv_weekly.json` merge-safe (trường None giữ giá trị cũ). `--set-omo`
-nhập tay. Tắt `VNSTOCK_SBV=0`. **Wiring macro**: LNH ON qua
-`resolve_interbank_on` (SBV↔VBMA, ưu tiên SBV + cờ divergence >15%);
+(hút=+/bơm=−, trước chỉ suy từ từ khoá tin) + **tỷ giá trung tâm**.
+`parse_sbv_text` (regex thuần, testable) trên PDF → `pdf_to_text` (dùng lại
+vnstock_vbma). Cache `_meta/sbv_weekly.json` merge-safe (trường None giữ giá
+trị cũ). `--set-omo` nhập tay. Tắt `VNSTOCK_SBV=0`. **Wiring macro**: LNH ON
+qua `resolve_interbank_on` (SBV↔VBMA, ưu tiên SBV + cờ divergence >15%);
 OMO/tỷ-giá-trung-tâm lưu `cache["_meta"]["sbv"]` display-only (ngoài
 registry 13).
+**FETCH — DỰNG URL TỪ NGÀY, KHÔNG scrape listing (fix 16/07 sau verify
+thật)**: `--diag` trên máy user cho thấy trang listing
+`thong-tin-ve-hoat-dong-ngan-hang-trong-tuan` render bài qua JS (HTML tĩnh
+73KB chỉ có 1 link `/vi/trang-chu`) → scrape vô nghĩa. Mirror repo gốc:
+`fetch_weekly` DỰNG URL `sbv.gov.vn/vi/web/sbv_portal/w/<title-slug>-<DD>-<DD>
+.<M>.<YYYY>` (ngày T2-T6 zero-pad, THÁNG KHÔNG pad — `_week_date_slug`;
+title-slug là ứng viên `_SBV_TITLE_SLUGS`, thử nhiều biến thể). Bài tuần N
+publish tuần N+1 → bắt đầu TUẦN TRƯỚC lùi dần (weeks_back=5); 404 = nghỉ/chưa
+có → thử tuần trước nữa. Bài (server-render) chứa PDF `/documents/…/<uuid>?…`
+→ tải + parse. `--diag` in TỪNG URL thử + status. **CÒN NỢ VERIFY**: chạy
+`python vnstock_sbv.py --diag` — nếu title-slug đúng → ra ✅; nếu SBV dùng
+tiêu đề khác (toàn 404) → mở 1 bài tuần thật trên trình duyệt, gửi URL →
+cập nhật `_SBV_TITLE_SLUGS`. (Bug phụ đã sửa dọc đường: regex link cũ
+`[^"?#]` vỡ trên query string — nhưng helper listing-scrape nay đã BỎ vì
+listing là JS.)
 
 **Cross-source `resolve_interbank_on(sbv, vbma)`** → (giá trị, nguồn, cờ
 lệch): cả 2 → ưu tiên SBV + cờ khi chênh >15% (mirror `_fx_crosscheck`
