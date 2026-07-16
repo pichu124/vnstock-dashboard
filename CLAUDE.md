@@ -1745,21 +1745,27 @@ trị cũ). `--set-omo` nhập tay. Tắt `VNSTOCK_SBV=0`. **Wiring macro**: LNH
 qua `resolve_interbank_on` (SBV↔VBMA, ưu tiên SBV + cờ divergence >15%);
 OMO/tỷ-giá-trung-tâm lưu `cache["_meta"]["sbv"]` display-only (ngoài
 registry 13).
-**FETCH — DỰNG URL TỪ NGÀY, KHÔNG scrape listing (fix 16/07 sau verify
-thật)**: `--diag` trên máy user cho thấy trang listing
-`thong-tin-ve-hoat-dong-ngan-hang-trong-tuan` render bài qua JS (HTML tĩnh
-73KB chỉ có 1 link `/vi/trang-chu`) → scrape vô nghĩa. Mirror repo gốc:
-`fetch_weekly` DỰNG URL `sbv.gov.vn/vi/web/sbv_portal/w/<title-slug>-<DD>-<DD>
-.<M>.<YYYY>` (ngày T2-T6 zero-pad, THÁNG KHÔNG pad — `_week_date_slug`;
-title-slug là ứng viên `_SBV_TITLE_SLUGS`, thử nhiều biến thể). Bài tuần N
-publish tuần N+1 → bắt đầu TUẦN TRƯỚC lùi dần (weeks_back=5); 404 = nghỉ/chưa
-có → thử tuần trước nữa. Bài (server-render) chứa PDF `/documents/…/<uuid>?…`
-→ tải + parse. `--diag` in TỪNG URL thử + status. **CÒN NỢ VERIFY**: chạy
-`python vnstock_sbv.py --diag` — nếu title-slug đúng → ra ✅; nếu SBV dùng
-tiêu đề khác (toàn 404) → mở 1 bài tuần thật trên trình duyệt, gửi URL →
-cập nhật `_SBV_TITLE_SLUGS`. (Bug phụ đã sửa dọc đường: regex link cũ
-`[^"?#]` vỡ trên query string — nhưng helper listing-scrape nay đã BỎ vì
-listing là JS.)
+**FETCH + PARSE — ĐÃ VERIFY THẬT & CHẠY (16/07)**: listing SBV render bài
+qua JS (HTML tĩnh 73KB chỉ 1 link `/vi/trang-chu`) → KHÔNG scrape. Mirror
+repo gốc: `fetch_weekly` DỰNG URL `sbv.gov.vn/vi/web/sbv_portal/w/<title-slug>
+-<DD>-<DD>.<M>.<YYYY>` (ngày T2-T6 zero-pad, THÁNG KHÔNG pad — `_week_date_slug`;
+`_SBV_TITLE_SLUGS[0]`="diễn-biến-thị-trường-ngoại-tệ-và-thị-trường-liên-ngân
+-hàng-tuần-từ" ĐÃ verify khớp). Bài tuần N publish tuần N+1 → bắt đầu TUẦN
+TRƯỚC lùi 5 tuần; 404 = nghỉ → thử tuần trước. Bài chứa PDF `/documents/…/
+<uuid>` → tải + `pdf_to_text`. `_fetch_pdf_text` tách riêng, `--dump-text`
+in text thô.
+**PARSE (calibrate từ text THẬT tuần 06-10.7.2026)**: lãi suất LNH lấy TỪ
+BẢNG cuối bản tin — `_parse_interbank_table` bắt dòng "VND <ON> <1T> <2T>
+<1 tháng>…" (≥4 token số/-, phân biệt với văn xuôi "bằng VND đạt 4.428.576
+tỷ"). KHÔNG parse câu tường thuật (BẪY: "kỳ hạn qua đêm giảm 0,03%/năm" là
+mức THAY ĐỔI + là USD; mọi kỳ hạn chung 1 mệnh đề "xuống các mức A,B,C" nên
+regex per-tenor gán SAI) → thà None (VBMA vẫn cover LNH). Bản tin FX/LNH này
+KHÔNG có tỷ giá trung tâm / OMO (ở bản tin điều hành SBV KHÁC) → 2 field đó
+= None là ĐÚNG; OMO regex nay yêu cầu ngữ cảnh "ròng"/"OMO"/"thị trường mở"
+(không bắt nhầm số doanh số). Fixture test = text thật. **Số thật verify**:
+ON 5.21 / 1T 5.57 / 2T 6.13 / 1 tháng 7.32 (%/năm, TB tuần). Cross-source:
+SBV 5.21 (TB tuần) vs VBMA 4.28 (điểm) chênh 19.6% → cờ divergence bật
+(2 nguồn đo khác thời điểm — cờ chỉ cảnh báo, ưu tiên SBV).
 
 **Cross-source `resolve_interbank_on(sbv, vbma)`** → (giá trị, nguồn, cờ
 lệch): cả 2 → ưu tiên SBV + cờ khi chênh >15% (mirror `_fx_crosscheck`

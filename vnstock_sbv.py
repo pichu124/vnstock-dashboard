@@ -68,42 +68,69 @@ def _thousands(s: str) -> Optional[float]:
         return None
 
 
+def _parse_interbank_table(text: str) -> "tuple | None":
+    """Bảng lãi suất bình quân LNH cuối bản tin — dòng 'VND <ON> <1T> <2T>
+    <1 tháng> …' (cột theo header Qua đêm|1 tuần|2 tuần|1 tháng|3 tháng…).
+    Trả (ON, 1W, 2W, 1M) hoặc None. Đây là NGUỒN CHÍNH (câu tường thuật
+    'giảm 0,03%/năm' là mức THAY ĐỔI / là USD — KHÔNG lấy)."""
+    # "VND" theo sau NGAY bởi ≥4 token lãi suất (a,bc) hoặc "-" — phân biệt với
+    # văn xuôi "bằng VND đạt 4.428.576 tỷ" (sau VND là chữ, không phải token số).
+    m = re.search(r"\bVND\b[ \t]+((?:(?:\d{1,2},\d{1,2}|-)[ \t]*){4,})", text)
+    if not m:
+        return None
+    toks = re.findall(r"\d{1,2},\d{1,2}|-", m.group(1))
+    vals = [None if t == "-" else float(t.replace(",", ".")) for t in toks]
+    if len(vals) < 4:
+        return None
+    on, w1, w2, m1 = vals[0], vals[1], vals[2], vals[3]
+
+    def _ok(v):
+        return v is None or (0.1 <= v <= 20)
+    if not all(_ok(v) for v in (on, w1, w2, m1)):
+        return None
+    return on, w1, w2, m1
+
+
 def parse_sbv_text(text: str) -> SBVWeekly:
     """Text PDF bản tin tuần SBV → SBVWeekly. Mỗi trường best-effort (thiếu →
-    None). Lãi suất LNH: '<kỳ hạn> ... <số>%'; tỷ giá trung tâm; OMO hút/bơm."""
+    None). Bản tin 'Diễn biến TT ngoại tệ & LNH' có BẢNG lãi suất bình quân
+    (ON/1T/2T/1 tháng…); tỷ giá trung tâm & OMO thường ở bản tin SBV KHÁC →
+    thiếu ở đây là bình thường."""
     r = SBVWeekly()
     if not text:
         return r
     t = text
 
-    # Lãi suất LNH theo kỳ hạn — 'Qua đêm/Overnight/O/N', '1 tuần', '2 tuần', '1 tháng'
-    def _rate(*labels) -> Optional[float]:
-        for lb in labels:
-            m = re.search(rf"{lb}[^0-9%]{{0,25}}(\d{{1,2}}[.,]\d{{1,4}})\s*%?",
-                          t, re.I)
-            if m:
-                return _num(m.group(1))
-        return None
+    # 1) Lãi suất LNH — CHỈ lấy từ BẢNG (dòng "VND <ON> <1T>…"). KHÔNG parse
+    #    câu tường thuật: mọi kỳ hạn chung 1 mệnh đề "…xuống các mức A, B, C"
+    #    nên regex per-tenor gán SAI (lấy nhầm số đầu cho mọi kỳ hạn) — thà
+    #    None (VBMA vẫn cover LNH). Số 'giảm 0,03%/năm' trong câu = mức THAY
+    #    ĐỔI / là USD, tuyệt đối không lấy.
+    tbl = _parse_interbank_table(t)
+    if tbl:
+        r.overnight, r.one_week, r.two_week, r.one_month = tbl
 
-    r.overnight = _rate("qua đêm", "overnight", r"\bO/N\b")
-    r.one_week = _rate("1 tuần", r"\b1W\b")
-    r.two_week = _rate("2 tuần", r"\b2W\b")
-    r.one_month = _rate("1 tháng", r"\b1M\b")
-
-    # Tỷ giá trung tâm — 'tỷ giá trung tâm ... 25.140'
-    m = re.search(r"tỷ giá trung tâm[^0-9]{0,40}(\d{1,2}[.,]\d{3})", t, re.I)
+    # 2) Tỷ giá trung tâm — 'tỷ giá trung tâm ... 25.140' (bản tin FX/LNH này
+    #    thường KHÔNG có → None; nằm ở bản tin điều hành khác).
+    m = re.search(r"tỷ giá trung tâm[^0-9]{0,40}(\d{2}[.,]\d{3})", t, re.I)
     if m:
         r.fx_central = _thousands(m.group(1))
 
-    # OMO ròng — 'hút (ròng) ... X tỷ' (+) hoặc 'bơm (ròng) ... X tỷ' (−).
-    # Chọn cụm XUẤT HIỆN TRƯỚC (thường là kết luận ròng của tuần).
-    mh = re.search(r"hút[^0-9]{0,30}?(\d{1,3}(?:[.,]\d{3})*)\s*tỷ", t, re.I)
-    mb = re.search(r"bơm[^0-9]{0,30}?(\d{1,3}(?:[.,]\d{3})*)\s*tỷ", t, re.I)
-    if mh and (not mb or mh.start() <= mb.start()):
-        r.omo_net = _thousands(mh.group(1))
-    elif mb:
-        v = _thousands(mb.group(1))
-        r.omo_net = -v if v is not None else None
+    # 3) OMO ròng — 'hút/bơm (ròng) ... X tỷ' (hút=+/bơm=−). Cụm xuất hiện TRƯỚC.
+    #    Yêu cầu 'ròng' hoặc 'OMO'/'thị trường mở' gần đó để không bắt số doanh
+    #    số giao dịch. Bản tin này thường KHÔNG có OMO → None.
+    def _omo(kw: str) -> "tuple | None":
+        for m in re.finditer(rf"{kw}[^0-9\n]{{0,40}}?(\d{{1,3}}(?:[.,]\d{{3}})+)\s*tỷ",
+                             t, re.I):
+            ctx = t[max(0, m.start() - 60):m.end() + 20].lower()
+            if "ròng" in ctx or "omo" in ctx or "thị trường mở" in ctx:
+                return m.start(), _thousands(m.group(1))
+        return None
+    oh, ob = _omo("hút"), _omo("bơm")
+    if oh and (not ob or oh[0] <= ob[0]):
+        r.omo_net = oh[1]
+    elif ob:
+        r.omo_net = -ob[1] if ob[1] is not None else None
     return r
 
 

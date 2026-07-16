@@ -90,28 +90,50 @@ def test_hnx_prune_keeps_recent(_hnx_meta, monkeypatch):
     assert set(hist) == {"2026-07-11", "2026-07-14"}     # giữ 2 gần nhất
 
 
-# ─── SBV parse + cross-source ───────────────────────────────────────────────
+# ─── SBV parse + cross-source (fixture = TEXT THẬT bản tin 06-10.7.2026) ────
 
-_SBV_TEXT = ("Bản tin hoạt động ngân hàng trong tuần. Lãi suất bình quân liên "
-             "ngân hàng: Qua đêm 4,28%; 1 tuần 4,92%; 2 tuần 5,10%; 1 tháng "
-             "5,45%. Tỷ giá trung tâm tham chiếu: 25.140 VND/USD. NHNN hút ròng "
-             "12.500 tỷ đồng qua kênh OMO trong tuần.")
+# Trích text PDF thật (dump 16/07): bảng lãi suất bình quân + câu tường thuật
+# BẪY ("giảm 0,03%/năm" = mức thay đổi USD) + số doanh số (không phải OMO).
+_SBV_REAL = (
+    "DIỄN BIẾN THỊ TRƯỜNG NGOẠI TỆ VÀ THỊ TRƯỜNG LIÊN NGÂN HÀNG (Tuần từ 06-10.7.2026)\n"
+    "doanh số giao dịch trên thị trường liên ngân hàng trong tuần bằng VND đạt "
+    "xấp xỉ 4.428.576 tỷ đồng, bình quân 885.715 tỷ đồng/ngày.\n"
+    "- Đối với các giao dịch bằng VND: ... kỳ hạn qua đêm, 01 tuần và 01 tháng "
+    "giảm lần lượt 2,02%/năm, 1,24%/năm và 0,46%/năm xuống các mức 5,21%/năm, "
+    "5,57%/năm và 7,32%/năm.\n"
+    "- Đối với các giao dịch bằng USD: ... kỳ hạn qua đêm giảm 0,03%/năm xuống "
+    "mức 3,62%/năm ...\n"
+    " Qua đêm 1 tuần 2 tuần 1 tháng 3 tháng 6 tháng 9 tháng\n"
+    "VND 5,21 5,57 6,13 7,32 7,76 8,64 -\n"
+    "USD 3,62 3,66 3,70 3,84 3,86 - -\n")
 
 
-def test_sbv_parse():
-    r = sbv.parse_sbv_text(_SBV_TEXT)
-    assert r.overnight == 4.28 and r.one_week == 4.92 and r.one_month == 5.45
-    assert r.fx_central == 25140.0 and r.omo_net == 12500.0        # hút = +
+def test_sbv_parse_real_table():
+    r = sbv.parse_sbv_text(_SBV_REAL)
+    # lấy ĐÚNG từ bảng VND, KHÔNG nhầm 0,03 (USD change) hay doanh số
+    assert r.overnight == 5.21 and r.one_week == 5.57
+    assert r.two_week == 6.13 and r.one_month == 7.32
+    assert r.overnight != 0.03                             # không bắt USD change
+    # bản tin FX/LNH này KHÔNG có tỷ giá trung tâm / OMO → None (đúng)
+    assert r.fx_central is None and r.omo_net is None
 
 
-def test_sbv_parse_bom_is_negative():
-    r = sbv.parse_sbv_text("NHNN bơm ròng 8.000 tỷ đồng qua OMO.")
-    assert r.omo_net == -8000.0
+def test_sbv_omo_requires_net_context():
+    # 'hút ròng'/'bơm ròng ... OMO' → bắt; doanh số 'VND đạt 4.428.576 tỷ' → bỏ
+    assert sbv.parse_sbv_text("NHNN hút ròng 12.500 tỷ đồng qua kênh OMO.").omo_net == 12500.0
+    assert sbv.parse_sbv_text("NHNN bơm ròng 8.000 tỷ đồng qua OMO.").omo_net == -8000.0
+    assert sbv.parse_sbv_text("doanh số bằng VND đạt 4.428.576 tỷ đồng.").omo_net is None
 
 
 def test_sbv_parse_empty():
     r = sbv.parse_sbv_text("")
     assert r.overnight is None and r.omo_net is None
+
+
+def test_sbv_table_ignores_transaction_volume_line():
+    # dòng doanh số 'bằng VND đạt 4.428.576 tỷ' KHÔNG được đọc thành bảng lãi suất
+    assert sbv._parse_interbank_table(
+        "doanh số bằng VND đạt 4.428.576 tỷ đồng, bình quân 885.715 tỷ") is None
 
 
 def test_sbv_resolve_interbank():
@@ -130,9 +152,11 @@ def _sbv_meta(tmp_path, monkeypatch):
 
 
 def test_sbv_refresh_merge_safe(_sbv_meta, monkeypatch):
-    monkeypatch.setattr(sbv, "fetch_weekly", lambda **k: sbv.parse_sbv_text(_SBV_TEXT))
+    # lần 1: có ON (5.21) + OMO (set tay giả lập)
+    monkeypatch.setattr(sbv, "fetch_weekly",
+                        lambda **k: sbv.SBVWeekly(overnight=5.21, omo_net=12500.0))
     c = sbv.refresh()
-    assert c["overnight"] == 4.28 and c["omo_net"] == 12500.0
+    assert c["overnight"] == 5.21 and c["omo_net"] == 12500.0
     # fetch sau chỉ có ON (thiếu OMO) → OMO cũ GIỮ (merge-safe)
     monkeypatch.setattr(sbv, "fetch_weekly",
                         lambda **k: sbv.SBVWeekly(overnight=4.10))
@@ -292,9 +316,9 @@ def test_sbv_fetch_weekly_date_constructed(monkeypatch):
         return _R(404)
 
     monkeypatch.setattr(requests, "get", fake_get)
-    monkeypatch.setattr("vnstock_vbma.pdf_to_text", lambda d: _SBV_TEXT)
+    monkeypatch.setattr("vnstock_vbma.pdf_to_text", lambda d: _SBV_REAL)
     r = sbv.fetch_weekly()
-    assert r is not None and r.overnight == 4.28 and r.omo_net == 12500.0
+    assert r is not None and r.overnight == 5.21 and r.one_month == 7.32
     assert any("/w/" in u for u in tried) and any("/documents/" in u for u in tried)
 
 
