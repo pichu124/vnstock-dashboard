@@ -1803,13 +1803,22 @@ divergence nằm trong `cache["_meta"]["sbv"]["interbank_on_diverged"]` —
 `interbank_1w` registry vẫn nguồn vbma (4.92) — SBV chỉ resolve ON, đúng
 thiết kế.
 
-**⏰ CÒN NỢ — QUYẾT ĐỊNH THIẾT KẾ (user chưa chốt)**: LNH ON có 2 nguồn
-lệch — SBV 5.21 (TB TUẦN, official) vs VBMA 4.28 (điểm cuối tuần, "current"
-hơn); chênh 19.6% → cờ divergence bật. Hiện `resolve_interbank_on` ƯU TIÊN
-SBV → gauge thanh khoản ra CĂNG (5.21 > điều hành 4.5). Nếu user muốn gauge
-phản ánh điểm mới nhất → đổi ưu tiên VBMA (SBV chỉ cross-check + OMO), sửa
-~3 dòng trong `vnstock_macro.refresh` (khối SBV) + `resolve_interbank_on`.
-CHỜ user xem gauge rồi chốt.
+**✅ QUYẾT ĐỊNH ĐÃ CHỐT (user 17/07: "muốn số liệu luôn cập nhật nhất")**:
+`resolve_interbank_on(sbv, vbma, sbv_as_of, vbma_as_of)` nay chọn theo **ĐỘ
+MỚI của DATA** — tuần data mới hơn thắng bất kể nguồn; cùng tuần/thiếu as_of
+→ ưu tiên VBMA (ĐIỂM cuối tuần sát hiện tại hơn TRUNG BÌNH cả tuần của SBV);
+cờ divergence >15% vẫn bật khi có cả 2 (SBV giữ vai trò cross-check + OMO).
+Kèm 2 fix nhãn thời gian: (a) `SBVWeekly.week_end` = thứ 6 TUẦN DATA của bản
+tin — `refresh` đóng dấu `as_of` = ngày DATA thật, KHÔNG phải ngày fetch
+(trước đó cache ghi as_of=hôm-nay dù data là tuần trước — vi phạm nguyên tắc
+data_date ≠ generated_at); (b) khối SBV trong `vnstock_macro.refresh` không
+ghi đè registry khi đã có reading MỚI hơn (VBMA fail lượt này nhưng lượt
+trước ghi tuần mới hơn → source label không bị lật bừa). Hệ quả với số hiện
+tại: cả 2 nguồn cùng tuần 06-10.7 → ON = VBMA 4.28 → gauge thanh khoản về
+"bình thường" (−0.22) thay vì CĂNG +0.71; khi SBV ra bản tin tuần mới trước
+VBMA thì SBV tự thắng. Tests: `test_sbv_resolve_interbank` (recency đủ
+nhánh) + `test_sbv_refresh_as_of_is_data_week_not_fetch_date` +
+`test_sbv_fetch_weekly_carries_week_end`.
 
 **⚠️ GOTCHA GIT (gặp thật 16/07)**: máy user checkout nhánh KHÁC
 (`claude/phase-1-kickoff-lzorv6`) nhưng CHUNG lineage với nhánh session

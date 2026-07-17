@@ -156,9 +156,21 @@ def test_sbv_single_slug_fx_interbank_only():
 
 
 def test_sbv_resolve_interbank():
-    assert sbv.resolve_interbank_on(4.28, 4.30) == (4.28, "sbv", False)
-    v, s, d = sbv.resolve_interbank_on(4.28, 6.00)
-    assert v == 4.28 and s == "sbv" and d is True                  # lệch → cờ
+    # User chốt 17/07 "luôn cập nhật nhất": cùng tuần / thiếu as_of → VBMA
+    # (điểm cuối tuần sát hơn TB tuần); tuần data MỚI hơn thắng bất kể nguồn.
+    assert sbv.resolve_interbank_on(4.28, 4.30) == (4.30, "vbma", False)
+    v, s, d = sbv.resolve_interbank_on(5.21, 4.28)
+    assert v == 4.28 and s == "vbma" and d is True                 # lệch → cờ vẫn bật
+    # SBV có tuần data MỚI hơn → SBV thắng (cờ lệch giữ nguyên)
+    v, s, d = sbv.resolve_interbank_on(5.21, 4.28,
+                                       sbv_as_of="2026-07-17", vbma_as_of="2026-07-10")
+    assert v == 5.21 and s == "sbv" and d is True
+    # VBMA mới hơn / cùng ngày → VBMA
+    assert sbv.resolve_interbank_on(5.21, 4.28, sbv_as_of="2026-07-10",
+                                    vbma_as_of="2026-07-17")[1] == "vbma"
+    assert sbv.resolve_interbank_on(5.21, 4.28, sbv_as_of="2026-07-10",
+                                    vbma_as_of="2026-07-10")[1] == "vbma"
+    # thiếu 1 nguồn → dùng nguồn kia (như cũ)
     assert sbv.resolve_interbank_on(None, 4.30) == (4.30, "vbma", False)
     assert sbv.resolve_interbank_on(4.28, None) == (4.28, "sbv", False)
     assert sbv.resolve_interbank_on(None, None)[1] == "none"
@@ -187,6 +199,44 @@ def test_sbv_refresh_merge_safe(_sbv_meta, monkeypatch):
 def test_sbv_set_omo_manual(_sbv_meta):
     sbv.set_omo(-5000.0)
     assert sbv.load_omo_net() == -5000.0
+
+
+def test_sbv_refresh_as_of_is_data_week_not_fetch_date(_sbv_meta, monkeypatch):
+    # as_of cache = thứ 6 TUẦN DATA của bản tin (data_date), KHÔNG phải hôm nay
+    monkeypatch.setattr(sbv, "fetch_weekly",
+                        lambda **k: sbv.SBVWeekly(overnight=5.21,
+                                                  week_end="2026-07-10"))
+    c = sbv.refresh()
+    assert c["as_of"] == "2026-07-10" and c["week_end"] == "2026-07-10"
+    # fetch_weekly không mang week_end (test/fake cũ) → fallback hôm nay
+    monkeypatch.setattr(sbv, "fetch_weekly",
+                        lambda **k: sbv.SBVWeekly(overnight=5.30))
+    from datetime import datetime as _dt
+    assert sbv.refresh()["as_of"] == _dt.now().date().isoformat()
+
+
+def test_sbv_fetch_weekly_carries_week_end(monkeypatch):
+    import requests
+
+    class _R:
+        def __init__(self, status=200, text="", content=b""):
+            self.status_code, self.text, self.content = status, text, content
+
+    def fake_get(url, **k):
+        if "/documents/" in url:
+            return _R(200, content=b"%PDF-fake")
+        if "/w/" in url:
+            return _R(200, text='<a href="/documents/20117/0/sbv.pdf/u-1">PDF</a>')
+        return _R(404)
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    monkeypatch.setattr("vnstock_vbma.pdf_to_text", lambda d: _SBV_REAL)
+    monkeypatch.setattr(sbv, "_REQUEST_GAP_S", 0)
+    r = sbv.fetch_weekly()
+    # tuần đầu thử = tuần TRƯỚC tuần hiện tại → week_end là 1 ngày thứ 6 ISO
+    assert r.week_end and len(r.week_end) == 10
+    from datetime import date
+    assert date.fromisoformat(r.week_end).weekday() == 4
 
 
 # ─── Wiring vào vnstock_macro ────────────────────────────────────────────────

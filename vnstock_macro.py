@@ -602,22 +602,31 @@ def refresh(*, as_of: "str | None" = None) -> dict:
 
     # SBV weekly (nguồn CHÍNH THỨC thứ 2): LNH ON cross-source với VBMA + OMO
     # ròng (SỐ, không suy từ tin) + tỷ giá trung tâm. Tắt: VNSTOCK_MACRO_SBV=0
-    # / VNSTOCK_SBV=0. Best-effort. LNH ON: resolve SBV↔VBMA (ưu tiên SBV,
-    # cờ lệch >ngưỡng); OMO/tỷ-giá-trung-tâm lưu display-only (ngoài registry).
+    # / VNSTOCK_SBV=0. Best-effort. LNH ON: resolve SBV↔VBMA theo ĐỘ MỚI của
+    # DATA (user chốt 17/07 "luôn cập nhật nhất": tuần data mới hơn thắng;
+    # cùng tuần → VBMA điểm cuối tuần sát hơn TB tuần SBV; cờ lệch >ngưỡng);
+    # OMO/tỷ-giá-trung-tâm lưu display-only (ngoài registry).
     if os.environ.get("VNSTOCK_MACRO_SBV", "1") != "0":
         sb = _fetch_sbv()
         if sb:
             from vnstock_sbv import resolve_interbank_on
+            sb_as_of = sb.get("week_end") or sb.get("as_of")
             val, src, diverged = resolve_interbank_on(
-                sb.get("overnight"), (vb or {}).get("interbank_on"))
+                sb.get("overnight"), (vb or {}).get("interbank_on"),
+                sbv_as_of=sb_as_of, vbma_as_of=(vb or {}).get("as_of"))
             if val is not None and src == "sbv":
-                _record(cache, "interbank_on", float(val),
-                        sb.get("as_of") or day, "sbv")
+                # Không ghi đè khi registry đã có reading MỚI hơn (vd VBMA fail
+                # lượt này nhưng lượt trước đã ghi tuần mới hơn) — giá trị đọc
+                # theo ngày mới nhất nên chỉ source label bị sai nếu ghi bừa.
+                hist = (((cache.get("indicators") or {}).get("interbank_on")
+                         or {}).get("history") or {})
+                if not hist or (sb_as_of or day) >= max(hist):
+                    _record(cache, "interbank_on", float(val), sb_as_of or day, "sbv")
             cache.setdefault("_meta", {})["sbv"] = {
                 "omo_net": sb.get("omo_net"),
                 "fx_central": sb.get("fx_central"),
                 "interbank_on_diverged": bool(diverged),
-                "as_of": sb.get("as_of"),
+                "as_of": sb_as_of,
             }
 
     # Cross-check chất lượng tỷ giá (mượn rule vimovietnam "2 nguồn chênh >2%"):

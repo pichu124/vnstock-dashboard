@@ -50,6 +50,8 @@ class SBVWeekly:
     one_month: Optional[float] = None
     fx_central: Optional[float] = None      # tỷ giá trung tâm (VND/USD)
     omo_net: Optional[float] = None         # + = hút ròng, − = bơm ròng (tỷ VND)
+    week_end: Optional[str] = None          # thứ 6 TUẦN DATA của bản tin (ISO)
+                                            # — ngày DATA thật, không phải ngày fetch
 
 
 def _num(s: str) -> Optional[float]:
@@ -141,10 +143,16 @@ def parse_sbv_text(text: str) -> SBVWeekly:
 
 # ── Cross-source resolution SBV ↔ VBMA (mirror _fx_crosscheck) ──────────────
 
-def resolve_interbank_on(sbv: Optional[float], vbma: Optional[float]
+def resolve_interbank_on(sbv: Optional[float], vbma: Optional[float],
+                         sbv_as_of: Optional[str] = None,
+                         vbma_as_of: Optional[str] = None,
                          ) -> "tuple[Optional[float], str, bool]":
-    """LNH ON từ 2 nguồn → (giá trị, nguồn, cờ_lệch). Có cả 2 → ưu tiên SBV
-    (chính thức) nhưng cờ lệch khi chênh > ngưỡng. Thiếu 1 → dùng nguồn kia."""
+    """LNH ON từ 2 nguồn → (giá trị, nguồn, cờ_lệch). **User chốt 17/07:
+    luôn dùng số CẬP NHẬT NHẤT** — so ngày DATA (as_of ISO): nguồn có tuần
+    data MỚI hơn thắng, bất kể nguồn nào. Cùng tuần / thiếu as_of → ưu tiên
+    VBMA (ĐIỂM cuối tuần, sát hiện tại hơn TRUNG BÌNH cả tuần của SBV).
+    Thiếu 1 nguồn → dùng nguồn kia. Cờ lệch > ngưỡng khi có cả 2 (bất kể
+    nguồn nào thắng) — SBV vẫn giữ vai trò cross-check chính thức."""
     if sbv is None and vbma is None:
         return None, "none", False
     if sbv is None:
@@ -153,7 +161,9 @@ def resolve_interbank_on(sbv: Optional[float], vbma: Optional[float]
         return sbv, "sbv", False
     avg = (sbv + vbma) / 2
     diverged = avg > 0 and abs(sbv - vbma) / avg * 100 > _INTERBANK_DIVERGENCE_PCT
-    return sbv, "sbv", bool(diverged)
+    if sbv_as_of and vbma_as_of and sbv_as_of > vbma_as_of:   # ISO so sánh chuỗi
+        return sbv, "sbv", bool(diverged)
+    return vbma, "vbma", bool(diverged)
 
 
 # ── Fetch (best-effort, verify-gated) ───────────────────────────────────────
@@ -196,10 +206,11 @@ def _candidate_article_urls(monday, friday) -> list:
             + quote(f"{title}-{ds}") for title in _SBV_TITLE_SLUGS]
 
 
-def _fetch_pdf_text(verbose: bool = False, weeks_back: int = 5) -> "str | None":
-    """DỰNG URL bài tuần từ ngày (listing là JS) → tải PDF → text THÔ (chưa
-    parse). Bài tuần N publish tuần N+1 → bắt đầu TUẦN TRƯỚC, lùi dần; 404 =
-    nghỉ/chưa có → thử tuần trước nữa. None khi không ra bài nào."""
+def _fetch_pdf_text(verbose: bool = False, weeks_back: int = 5
+                    ) -> "tuple[str, str] | None":
+    """DỰNG URL bài tuần từ ngày (listing là JS) → tải PDF → (text THÔ, thứ 6
+    TUẦN DATA dạng ISO). Bài tuần N publish tuần N+1 → bắt đầu TUẦN TRƯỚC,
+    lùi dần; 404 = nghỉ/chưa có → thử tuần trước nữa. None khi không ra bài."""
     if os.environ.get("VNSTOCK_SBV", "1") == "0":
         return None
     try:
@@ -243,7 +254,7 @@ def _fetch_pdf_text(verbose: bool = False, weeks_back: int = 5) -> "str | None":
                 continue
             text = pdf_to_text(data)
             if text:
-                return text
+                return text, friday.isoformat()
             if verbose:
                 print("    → tải PDF OK nhưng pdf_to_text rỗng (thiếu pypdf/pdftotext?)")
     if verbose:
@@ -254,9 +265,15 @@ def _fetch_pdf_text(verbose: bool = False, weeks_back: int = 5) -> "str | None":
 
 
 def fetch_weekly(verbose: bool = False, weeks_back: int = 5) -> "SBVWeekly | None":
-    """Bài tuần SBV mới nhất → PDF → text → parse (`parse_sbv_text`)."""
-    text = _fetch_pdf_text(verbose=verbose, weeks_back=weeks_back)
-    return parse_sbv_text(text) if text else None
+    """Bài tuần SBV mới nhất → PDF → text → parse (`parse_sbv_text`).
+    `week_end` = thứ 6 tuần DATA (ngày data thật — không phải ngày fetch)."""
+    got = _fetch_pdf_text(verbose=verbose, weeks_back=weeks_back)
+    if not got:
+        return None
+    text, week_end = got
+    r = parse_sbv_text(text)
+    r.week_end = week_end
+    return r
 
 
 # ── Cache + refresh + loaders ───────────────────────────────────────────────
@@ -278,7 +295,9 @@ def _save_cache(data: dict) -> None:
 
 def refresh(as_of: Optional[str] = None, verbose: bool = False) -> "dict | None":
     """Fetch bản tin tuần → ghi cache (chỉ các trường parse ĐƯỢC; None giữ
-    giá trị cũ — merge-safe). Best-effort → None khi fetch lỗi."""
+    giá trị cũ — merge-safe). Best-effort → None khi fetch lỗi.
+    `as_of` = ngày DATA (thứ 6 tuần bản tin) — KHÔNG phải ngày fetch (mirror
+    nguyên tắc data_date ≠ generated_at của market_overview)."""
     parsed = fetch_weekly(verbose=verbose)
     if parsed is None:
         return None
@@ -287,7 +306,7 @@ def refresh(as_of: Optional[str] = None, verbose: bool = False) -> "dict | None"
     if not new:
         return None
     cache.update(new)
-    cache["as_of"] = as_of or datetime.now().date().isoformat()
+    cache["as_of"] = as_of or parsed.week_end or datetime.now().date().isoformat()
     _save_cache(cache)
     return cache
 
@@ -329,12 +348,13 @@ def main(argv=None) -> int:
 
     if args.dump_text:
         print("[sbv] tải PDF bài tuần & in text thô…")
-        txt = _fetch_pdf_text(verbose=True)
-        if not txt:
+        got = _fetch_pdf_text(verbose=True)
+        if not got:
             print("  ❌ không lấy được PDF")
             return 1
-        print(f"\n===== PDF TEXT ({len(txt):,} ký tự) — gửi lại phần lãi suất/OMO/"
-              "tỷ giá cho tôi =====\n")
+        txt, week_end = got
+        print(f"\n===== PDF TEXT ({len(txt):,} ký tự, tuần data kết {week_end}) — "
+              "gửi lại phần lãi suất/OMO/tỷ giá cho tôi =====\n")
         print(txt[:6000])
         return 0
     if args.diag:
