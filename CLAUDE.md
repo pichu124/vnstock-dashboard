@@ -1879,9 +1879,11 @@ chiều VBMA 4.28 cuối tuần 10/07 — LNH đang hạ nhiệt).
 ngày × 6 kỳ hạn (15/07: on 4.16, 1w 4.74, 1m 7.17…); `run.py macro` registry
 ON **4.16 (nguồn sbv_daily, tính đến 07-15)** + 1W 4.74 sbv_daily, đổi tính
 đúng vs entry VBMA 07-10 (−0.12/−0.18đ%); gauge thanh khoản −0.34 "bình
-thường" trên số NGÀY (trễ ~1 ngày thay vì 1-2 tuần). Còn tùy chọn:
-`--backfill 3` (kéo ~1 năm lịch sử ngày — đủ mẫu percentile trụ 4) + wire
-`sbv_policy_rate` từ structure 3450482 (cần user probe-api trước, xem trên).
+thường" trên số NGÀY (trễ ~1 ngày thay vì 1-2 tuần). `--backfill 3` cũng
+đã chạy (17/07): **300 ngày ON→9M trong cache** — mẫu percentile lịch sử
+("trụ 4" VnBondLab) coi như ĐỦ, khi nào nâng gauge thanh khoản từ band tĩnh
+sang percentile thì data có sẵn. Còn để dành: wire `sbv_policy_rate` từ
+structure 3450482 (cần user probe-api trước, xem trên).
 
 ### 📄 Báo cáo tuần lãi suất — A + B (DONE 2026-07-16, user chọn "A+B", ý skill baocaolaisuatvatiente)
 
