@@ -402,6 +402,19 @@ Khi chạy close brief với data EOD đầy đủ, `intraday=False` → hành v
 5. **Rủi ro**: không mis-flag ngân hàng/CK vì D/E hay dòng tiền lớn.
 6. **Khuyến nghị đang mở**: số ngày hợp lý, rec quá hạn đã reconcile (không zombie).
 7. Mọi % giá có khung thời gian rõ; mã chỉ trong VN30.
+8. **KỊCH BẢN PHẢI KHẢ THI TRONG BIÊN ĐỘ NGÀY (trục NGỮ NGHĨA GIAO DỊCH —
+   user chốt 17/07 sau 2 lần bắt lỗi cùng ngày)**: mọi "mục tiêu"/"trigger"
+   cho phiên kế phải nằm trong tầm với thực tế (biên độ HOSE 7%/ngày là
+   trần vật lý; index thực tế còn hẹp hơn nhiều). Soi cụ thể: (a) thủng
+   S1 → mục tiêu phải THẤP HƠN S1 và là mức KẾ TIẾP (không nhảy cóc qua
+   MA200/đáy tháng để xuống thẳng đáy 52w cách 19%); vượt R1 → đối xứng;
+   (b) S1/S2, R1/R2 đúng VAI (1 = gần giá nhất); (c) không mức nào = giá
+   đóng cửa. Code đã chốt 4 tầng trong `enforce_sr_direction` (đúng phía →
+   đúng vai → vai 2 kế tiếp trong tầm `_SR_MAX_MOVE_PCT`=7% → dedupe) —
+   mục này để REVIEW SAU vẫn soi trục "có giao dịch được không", vì loại
+   lỗi này máy khó tự thấy (cần ngữ nghĩa giao dịch, không chỉ cú pháp):
+   giá vào lệnh/cắt lỗ watchlist so với giá hiện tại có với tới trong
+   1-2 phiên không, kịch bản có đòi index đi quãng đường phi lý không.
 
 → Khi đánh giá close brief, soi đúng các điểm trên + đối chiếu nội bộ (Stance ↔
 regime ↔ kịch bản, đóng góp pp ↔ ngành dẫn dắt). Chạy `python run.py test --fast`
