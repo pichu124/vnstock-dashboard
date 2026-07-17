@@ -1166,6 +1166,26 @@ băng, macro-anchor hijack).
        quy trình cũ; trục soi thêm = mục 8 checklist CLOSE brief ("kịch
        bản phải khả thi trong biên độ ngày").
 
+11. **Đợt tối 17/07 (VCI outage → probe nguồn + fallback VCI→KBS + nút 🚀)
+    — VERIFY CÒN NỢ:**
+    a. **Pipeline bù giá** (user chạy `run.py all`/nút 🚀 tối 17/07 hoặc
+       sáng 18/07, lúc VCI khỏe — probe 21:58 đã xanh): sync phải hoàn tất
+       ~1724 mã (skip-if-done bỏ phần đã tải 21:13), 12 bước về đích,
+       doctor cuối sạch → desktop production đồng bộ hoàn chỉnh lần đầu
+       với code mới. KHÔNG tắt máy giữa chừng (bệnh 0xC000013A).
+    b. **Verify THẬT của fallback = lần VCI ốm kế tiếp** (chi tiết ở mục
+       ⚡): log "⚡ MỞ MẠCH → chuyển KBS" + "⚡ VCI hồi phục" khi đóng mạch,
+       summary "⚡ Fallback KBS: N mã", run vẫn về đích, kho KHÔNG có bar
+       lệch giá (reconcile từ chối là đúng thiết kế, hiện trong Errors với
+       chữ "lệch"). Nếu thấy từ chối HÀNG LOẠT dù VCI-KBS cùng ngày →
+       nghi lệch adjustment basis diện rộng, xem lại _MAX_DIVERGENCE_PCT.
+    c. **Probe nguồn tích lũy** (passive): `python vnstock_source_probe.py`
+       chạy thêm vài run giờ KHÁC (sáng, giờ giao dịch) — cột "tích lũy"
+       mới đo được độ bền; 3 run đầu (tối outage) đã có trong cache.
+    d. Ghi nhận 17/07: desktop 759 pass (5 integration fallback chạy
+       THẬT) · sandbox 749+7 skip · VCI outage timeline 21:13 ốm → 21:52
+       chết → 21:58 hồi — khớp giả thuyết "giờ batch EOD".
+
 ### 📅 AUDIT LỊCH ĐỊNH KỲ sau ~10 đợt tích hợp (17/07 — user hỏi, CHỜ CHỐT)
 
 Đã rà `run.py all` (12 bước) + 3 task Scheduler + nút dashboard. **Phần ỔN**:
