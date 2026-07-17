@@ -818,6 +818,25 @@ mã hủy niêm yết (last 2018-2021) re-fetch nhiều NĂM mỗi lần cho 0 n
   không có trong registry quote bản này · fmp cần key (US-oriented, bỏ).
   Khi build ladder VCI→KBS: nhớ so ĐƠN VỊ + hệ số điều chỉnh cổ tức giữa
   2 nguồn trước khi ghi kho (khác adjustment basis là hỏng chuỗi giá).
+- **FALLBACK VCI→KBS ĐÃ BUILD (DONE 17/07 đêm, user "làm fallback đi" —
+  CHỜ VERIFY lần updater kế tiếp)**: `vnstock_price_fallback.py` (thuần,
+  hermetic) + wire vào `update_ticker`/`run_update`. 3 mảnh: (1)
+  `CircuitBreaker` thread-safe dùng chung 8 worker — 5 mã lỗi MẠNG liên
+  tiếp → MỞ mạch = đi thẳng KBS (hết cày 60-90s/mã), đang mở probe lại
+  VCI mỗi 25 mã → tự đóng khi hồi (log "⚡ MỞ MẠCH"/"VCI hồi phục");
+  (2) `is_outage_error` — chỉ lỗi mạng/timeout vào breaker, lỗi riêng của
+  mã (Invalid symbol…) KHÔNG fallback bừa; (3) `reconcile_fallback_df` —
+  chốt an toàn trước khi ghi kho: close bar overlap (last_date, updater
+  vốn refetch inclusive) phải khớp warehouse; ratio ~×1000 → VND thô, chia
+  1000 OHLC (volume giữ); sau chuẩn hoá lệch >8% → TỪ CHỐI (khác adjustment
+  basis cổ tức — giữ kho cũ, VCI tự lành sau); không có bar overlap → từ
+  chối. Kill switch `VNSTOCK_PRICE_FALLBACK=0` (hành vi y cũ). Summary in
+  "⚡ Fallback KBS: N mã"; result mang source/fb_note. Refactor kèm:
+  `_normalize_price_df` tách chung VCI/KBS; `_get_close_on` đọc close
+  warehouse. Tests `tests/test_price_fallback.py` (11 — 6 thuần chạy
+  sandbox, 5 integration skip khi thiếu vnstock, chạy đủ trên máy user).
+  **VERIFY khi VCI ốm lần tới**: log phải thấy "⚡ MỞ MẠCH" rồi run vẫn về
+  đích, summary có "⚡ Fallback KBS: N mã"; kho không có bar lệch giá.
 
 **Quan trọng — vnstock 4.0.4 + sponsor API gotchas** (hard-won, đừng quên):
 - `vnstock_auth._StockShim` PHẢI expose `.quote/.company/.listing/.finance`.

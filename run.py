@@ -680,6 +680,7 @@ def cmd_test(args) -> int:
             "tests/test_hnx_sbv.py",
             "tests/test_market_analyzer.py",
             "tests/test_source_probe.py",
+            "tests/test_price_fallback.py",
         ]
     else:
         test_paths = ["tests/"]
