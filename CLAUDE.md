@@ -923,23 +923,30 @@ brief thật + 3 bug hệ (Telegram sanitize, benchmark gross-vs-net đóng
 băng, macro-anchor hijack).
 
 **CÒN LẠI — ⏰ NHẮC CHỦ ĐỘNG khi user quay lại / nói "test"/"verify":**
-1. **Log task 18:00 tối 15/07** — lần đầu `run.py all` chạy TRỌN nguyên
-   khối với đủ bước mới (foreign-flow → macro → allocation → gold → test
-   → audit → reflection → doctor); nhắc user `git pull` TRƯỚC 18:00 để
-   task chạy code mới nhất. Đọc close brief phiên 15/07 trên Telegram —
-   bản đầu tiên với trọn chuỗi guard sau đợt vá (kỳ vọng: sạch; nếu lộ
-   pattern mới thì vá tiếp như quy trình đêm 14/07).
+1. **Việc TRÊN DESKTOP (máy production — gotcha 2 máy 17/07)**: (a) kiểm
+   task đêm: `Get-ScheduledTask -TaskName "VnStock *" | Get-ScheduledTaskInfo
+   | Select TaskName,LastRunTime,LastTaskResult,NextRunTime` — Daily
+   Pipeline phải LastRunTime = tối hôm trước, LastTaskResult = 0 (doctor
+   laptop 17/07 thấy cache cũ 2 ngày → nghi 16/07 không chạy, NHƯNG đó là
+   cache laptop — phải xác nhận trên desktop); (b) chép `FRED_API_KEY=...`
+   từ .env desktop sang .env laptop (doctor laptop hết ⬜ FRED);
+   (c) `python vnstock_preset_score.py --show` ~24/07 TRÊN DESKTOP (item
+   6b — screener_history do pipeline desktop nuôi, laptop thiếu snapshot).
 2. **Lần train kế tiếp**: panel Chiến lược phải hiện "p=… · N ứng viên"
    (hiệu chỉnh chọn-lọc Bonferroni mới 15/07 — p_adj = p × N, chỉ siết
    không nới); validation trong DB mang `p_value_adj` + `n_trials`.
-3. **Lần tới mở dashboard (30 giây)**: liếc 4 sub-tab tab Tin tức
-   (📰/🌐/📚/🧭) render OK; panel AI Brief có caption "🎯 Stance ngày
-   mai: đúng X/Y…" (logic đã verify qua CLI 15/07 — 2/7 điểm chấm, chỉ
-   còn xem UI hiện đúng); khi có rec mở mới → bảng Open recommendations
-   phải có cột "KL gợi ý" + "Giá HT"/"L/L tạm" + "SL trailing" (MTM +
-   trailing 15/07, CHƯA nhìn thấy thật vì chưa có rec mở; mã mỏng phải
-   hiện "(cap TK)" ở KL gợi ý) + brief gắn "KL gợi ý ~N cp"; expander ⚖️
-   nay 4 ô (thêm "Cap thanh khoản (% ADV20)").
+3. **Lần tới mở dashboard (30 giây — máy nào cũng được, UI/code check)**:
+   tab Tin tức nay **5 sub-tab** (📰/🌐/**📄**/📚/🧭) render OK; sub-tab
+   📄 Báo cáo tuần ra bảng lãi suất + đường cong SVG + nút tải/đẩy
+   Telegram; sub-tab 🌐 hiện nguồn mới (ON/1W `sbv_daily`, tái cấp vốn
+   `sbv_portal`, 2Y/10Y `hnx`) + chart `interbank_on` dày ~300 điểm ngày;
+   panel AI Brief có caption "🎯 Stance ngày mai: đúng X/Y…"; tab Screener
+   có expander "📋 Chấm điểm preset" (nút 🔄 + mục "Đọc kết quả"); khi có
+   rec mở mới → bảng Open recommendations phải có cột "KL gợi ý" + "Giá
+   HT"/"L/L tạm" + "SL trailing" (mã mỏng hiện "(cap TK)") + brief gắn
+   "KL gợi ý ~N cp"; expander ⚖️ nay 4 ô (thêm "Cap thanh khoản (% ADV20)").
+   (Log task 15/07 + close brief 15/07 của item cũ: ĐÃ XONG qua đợt review
+   🔬 15/07.)
 4. **Passive — tự đến, chỉ để ý**: scorecard allocation kỳ đầu ~đầu
    tháng 9 (đủ 2 tháng history) · decay 🔻 + log "[reconcile] … DECAYED"
    nếu chiến lược nào tụt thật · OpenRouter `qwen/qwen3-235b-a22b:free`
@@ -1038,8 +1045,9 @@ băng, macro-anchor hijack).
       tới `run.py macro` phải thấy as_of ON nhích theo (07-16, 07-17…).
       Đứng yên nhiều ngày → `python vnstock_sbv_rates.py --diag` (schema
       đổi thì sửa parse_items; doctor `--net` có dòng "SBV daily LNH").
-   c. **Lần chạy `run.py doctor --net` kế tiếp**: dòng mới "SBV daily LNH
-      (mạng)" phải ✅ trên máy có mạng (sandbox ❌ là bình thường).
+   c. ✅ XONG 17/07 (laptop): `doctor --net` ra "SBV daily LNH (mạng)" ✅
+      (on=4.16 @07-15) + cả 10 probe mạng sống; 3 ⚠️ còn lại là cache
+      laptop (xem gotcha 2 máy) — xác nhận nốt trên desktop ở item 1.
    d. **Mở dashboard**: sub-tab 🌐 Vĩ mô — chart lịch sử `interbank_on`
       giờ granularity NGÀY (300 điểm backfill) phải render mượt; nguồn
       hiển thị sbv_daily/sbv_portal đúng nhãn.
