@@ -577,9 +577,14 @@ danh sách thật vào output (LLM hay phớt block dù data có trong prompt).
   1 dòng "Đi ngang/chưa có kỳ mới: …" (8 chỉ số không nở 8 bullet); chỉ số có
   thay đổi giữ bullet riêng. Directive cập nhật (CPI/IIP/PMI nay CÓ data — chỉ
   còn cấm bịa Fed/GDP). Guard `enforce_macro` dùng chung builder → parity tự giữ.
-- **Test hermetic**: mọi test gọi `mac.refresh()` PHẢI patch `_fetch_nso` +
-  `_pmi_from_news` (autouse fixture trong test_macro/test_vbma; test_nso patch
-  trong helper) — không thì refresh chạm mạng NSO / đọc cache repo thật.
+- **Test hermetic**: mọi test gọi `mac.refresh()` PHẢI patch TOÀN BỘ fetcher
+  — autouse fixture test_macro nay chặn `_fetch_nso/_fetch_fred/_pmi_from_news/
+  _fetch_vbma/_fetch_hnx/_fetch_sbv/_fetch_sbv_daily/_fetch_sbv_policy` +
+  `_FX_ENDPOINTS=()` (FX chặn qua endpoint, KHÔNG patch hàm — test parser cần
+  hàm thật). **BÀI HỌC desktop 17/07**: sandbox chặn mạng nên fetcher lọt
+  fixture vẫn "vô tình pass"; chạy suite trên máy CÓ MẠNG là fetch thật đè
+  fixture (ON 4.11 thật đè 9.35 fake — 3 test fail). Thêm fetcher mới vào
+  `refresh()` thì PHẢI thêm vào autouse fixture cùng lúc.
 
 **(Gốc 2026-06-14)** — lấp khoảng trống "tin VĨ MÔ — lãi suất/tỷ giá" mà block
 "🔧 Đề xuất bổ sung" lâu nay vẫn xin. Cache `_meta/macro_indicators.json`

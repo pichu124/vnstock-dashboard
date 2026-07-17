@@ -261,7 +261,10 @@ def test_macro_prefers_hnx_over_vbma_for_yields(monkeypatch):
 def test_macro_fetch_hnx_best_effort(monkeypatch):
     import vnstock_macro as mac
     import sys
+    # giết ĐÚNG module từng fetcher import (desktop 17/07: chỉ giết vnstock_hnx
+    # thì _fetch_sbv vẫn import vnstock_sbv THẬT và fetch mạng thật)
     monkeypatch.setitem(sys.modules, "vnstock_hnx", None)     # import lỗi
+    monkeypatch.setitem(sys.modules, "vnstock_sbv", None)
     assert mac._fetch_hnx() is None
     assert mac._fetch_sbv() is None
 

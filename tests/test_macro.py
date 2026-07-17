@@ -13,11 +13,21 @@ import vnstock_macro as mac
 
 @pytest.fixture(autouse=True)
 def _no_external_macro_fetch(monkeypatch):
-    """refresh() nay còn gọi NSO + FRED (mạng) + PMI-from-news (đọc cache repo)
-    — chặn mặc định để test hermetic; test nào cần thì tự re-patch."""
+    """refresh() gọi cả loạt fetcher mạng — chặn TOÀN BỘ mặc định để test
+    hermetic; test nào cần thì tự re-patch. BÀI HỌC desktop 17/07: sandbox
+    bị chặn mạng nên fetcher lọt fixture vẫn 'vô tình pass', chạy trên máy
+    CÓ MẠNG là fetch thật đè fixture (ON 4.11 thật đè 9.35 fake) — thêm
+    fetcher mới vào refresh() thì PHẢI thêm vào đây."""
     monkeypatch.setattr(mac, "_fetch_nso", lambda: None)
     monkeypatch.setattr(mac, "_fetch_fred", lambda: None)
     monkeypatch.setattr(mac, "_pmi_from_news", lambda: None)
+    monkeypatch.setattr(mac, "_fetch_vbma", lambda: None)
+    monkeypatch.setattr(mac, "_fetch_hnx", lambda: None)
+    monkeypatch.setattr(mac, "_fetch_sbv", lambda: None)
+    monkeypatch.setattr(mac, "_fetch_sbv_daily", lambda: None)
+    monkeypatch.setattr(mac, "_fetch_sbv_policy", lambda: None)
+    # FX: chặn qua ENDPOINT rỗng (không patch hàm — test parser cần hàm thật)
+    monkeypatch.setattr(mac, "_FX_ENDPOINTS", ())
 
 
 def _use_tmp_cache(tmp_path, monkeypatch):
@@ -745,7 +755,10 @@ def test_macro_body_lines_include_intl_gauge_and_fed_directive():
 
 def test_fetch_usdvnd_parses_currency_api_lowercase(monkeypatch):
     # Nấc 3 (currency-api fawazahmed0) trả {"usd": {"vnd": ...}} chữ thường —
-    # 2 nấc đầu fail thì vẫn phải ra số
+    # 2 nấc đầu fail thì vẫn phải ra số. Autouse fixture đã dọn _FX_ENDPOINTS
+    # rỗng (hermetic) → test parser tự dựng lại ladder 3 nấc fake.
+    monkeypatch.setattr(mac, "_FX_ENDPOINTS",
+                        ("http://fake-1", "http://fake-2", "http://fake-3"))
     payloads = iter([OSError("nấc 1 chết"), OSError("nấc 2 chết"),
                      {"date": "2026-07-11", "usd": {"vnd": 26234.6}}])
 
