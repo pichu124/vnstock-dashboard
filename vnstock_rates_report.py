@@ -207,8 +207,11 @@ def render_html(data: dict) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Báo cáo tuần lãi suất & tiền tệ — {esc(data["week_label"])}</title>
 <style>
+ html{{background:#ffffff}}
  body{{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111827;
-  max-width:760px;margin:0 auto;padding:20px;line-height:1.5}}
+  background:#ffffff;max-width:760px;margin:0 auto;padding:20px;line-height:1.5}}
+ /* background TƯỜNG MINH: nhúng qua components.html iframe trong dashboard
+    nền TỐI thì iframe transparent → chữ #111827 tàng hình (bug thật 17/07) */
  h1{{font-size:20px;margin:0 0 2px}} h2{{font-size:15px;margin:22px 0 8px}}
  .sub{{color:#6b7280;font-size:13px;margin:0 0 8px}}
  table{{border-collapse:collapse;width:100%;font-size:13px}}

@@ -853,6 +853,27 @@ def set_value(key: str, value: float, as_of: "str | None" = None) -> dict:
     return cache
 
 
+def dense_history(key: str) -> dict:
+    """History THEO NGÀY từ cache nguồn gốc (ngoài registry): SBV daily cho
+    LNH ON/1W, HNX cho 2Y/10Y. Registry chỉ giữ vài mốc mỗi lần refresh —
+    cache nguồn có hàng trăm ngày (backfill 17/07) → chart sub-tab Vĩ mô dày
+    đúng nghĩa. Best-effort: lỗi/thiếu → {} (caller rơi về registry như cũ)."""
+    try:
+        if key in ("interbank_on", "interbank_1w"):
+            import vnstock_sbv_rates
+            tenor = "on" if key == "interbank_on" else "1w"
+            hist = vnstock_sbv_rates._load_cache().get("history") or {}
+            return {d: r[tenor] for d, r in hist.items() if r.get(tenor) is not None}
+        if key in ("govt_bond_yield_2y", "govt_bond_yield_10y"):
+            import vnstock_hnx
+            tenor = "2Y" if key.endswith("_2y") else "10Y"
+            hist = vnstock_hnx._load_cache().get("history") or {}
+            return {d: r[tenor] for d, r in hist.items() if r.get(tenor) is not None}
+    except Exception:
+        pass
+    return {}
+
+
 def drop_reading(key: str, as_of: str) -> bool:
     """Xóa 1 reading SAI NGÀY/SAI SỐ khỏi history (cache surgery có kiểm soát
     — sinh ra từ vụ cache SBV nhiễm 16-17/07: entry ghi nhầm ngày fetch làm

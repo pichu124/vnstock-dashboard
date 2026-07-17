@@ -477,6 +477,36 @@ def test_render_html_self_contained_with_svg():
     assert "<svg" in h and "polyline" in h                    # đường cong TPCP
     assert "LNH qua đêm" in h and "4.28%/năm" in h
     assert "hút ròng 12,500" in h
+    # background TƯỜNG MINH — nhúng iframe dashboard nền tối, transparent là
+    # chữ tối tàng hình (bug thật 17/07)
+    assert "background:#ffffff" in h
+
+
+def test_macro_dense_history(monkeypatch):
+    # chart LNH/TPCP phải đọc cache nguồn THEO NGÀY (registry chỉ vài mốc);
+    # helper nằm ở vnstock_macro (zero streamlit) — macro_tab chỉ gọi lại
+    import sys
+    import types
+    import vnstock_macro as mac
+    fake_sbvd = types.SimpleNamespace(_load_cache=lambda: {"history": {
+        "2026-07-14": {"on": 4.18, "1w": 4.78},
+        "2026-07-15": {"on": 4.16},                      # thiếu 1w → bỏ qua key đó
+    }})
+    fake_hnx = types.SimpleNamespace(_load_cache=lambda: {"history": {
+        "2026-07-17": {"2Y": 3.94, "10Y": 4.34}}})
+    monkeypatch.setitem(sys.modules, "vnstock_sbv_rates", fake_sbvd)
+    monkeypatch.setitem(sys.modules, "vnstock_hnx", fake_hnx)
+    assert mac.dense_history("interbank_on") == {"2026-07-14": 4.18,
+                                                 "2026-07-15": 4.16}
+    assert mac.dense_history("interbank_1w") == {"2026-07-14": 4.78}
+    assert mac.dense_history("govt_bond_yield_10y") == {"2026-07-17": 4.34}
+    assert mac.dense_history("usdvnd") == {}             # chỉ số khác → registry
+    monkeypatch.setitem(sys.modules, "vnstock_sbv_rates", None)   # import lỗi
+    assert mac.dense_history("interbank_on") == {}       # best-effort
+    # macro_tab phải dùng đúng helper này (đọc source — không import streamlit)
+    src = (__import__("pathlib").Path(__file__).resolve().parent.parent
+           / "dashboard" / "macro_tab.py").read_text(encoding="utf-8")
+    assert "dense_history" in src
 
 
 def test_render_telegram_compact():
