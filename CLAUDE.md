@@ -1089,6 +1089,26 @@ băng, macro-anchor hijack).
       sbv_daily_rates); thiết kế gợi ý: percentile của spread ON−điều hành
       trên cửa sổ 250 phiên, giữ band tĩnh làm nhãn phụ.
 
+10. **Đợt vá chiều-tối 17/07 (6 fix từ ảnh user + 2 lần bắt lỗi S/R) —
+    VERIFY trên CLOSE BRIEF KẾ TIẾP (sau khi user pull trên máy chạy brief):**
+    a. **Dòng Trigger/TLDR S/R** phải qua đủ 4 tầng `enforce_sr_direction`:
+       đúng phía + đúng VAI (S1/R1 = gần giá nhất) + vai 2 là mức KẾ TIẾP
+       trong tầm 7% (kỳ vọng với data hiện tại: "thủng S1=1,774.22 → mục
+       tiêu S2=1,770.28" = MA200; không còn mức trong tầm → vế mục tiêu bị
+       CẮT, chỉ còn "thủng S1=…"). KHÔNG còn dạng nào trong 3 bệnh cũ:
+       S=close / S1=S2 cùng số / mục tiêu cách giá ~19%.
+    b. **Mục 🌐 Vĩ mô (brief) + báo cáo tuần + sub-tab**: chỉ số đứng im
+       không còn "▲ +0.00% (VND yếu đi)" — rơi vào dòng gộp "Đi ngang"
+       (fmt_change nén đổi làm tròn về 0, formatter dùng chung).
+    c. Ghi nhận ĐÃ verify trên close 15:33 17/07: TLDR % khớp mục kỹ thuật
+       (fix vnindex_change ăn) · khối Rủi ro canonical chuẩn + ngữ cảnh
+       BĐS · watchlist "GIẢM TỶ TRỌNG nếu thủng / canh MUA NẾU vượt" đúng
+       luật bias · lead/lag "Họ VIN −1.369pp" contrib thật · caption 🎯
+       4/7 (57%) sống trên UI.
+    d. Nếu S/R vẫn lệch dạng MỚI → mở rộng test_close_1507_review theo
+       quy trình cũ; trục soi thêm = mục 8 checklist CLOSE brief ("kịch
+       bản phải khả thi trong biên độ ngày").
+
 ### 📅 AUDIT LỊCH ĐỊNH KỲ sau ~10 đợt tích hợp (17/07 — user hỏi, CHỜ CHỐT)
 
 Đã rà `run.py all` (12 bước) + 3 task Scheduler + nút dashboard. **Phần ỔN**:
