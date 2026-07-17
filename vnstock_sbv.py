@@ -302,6 +302,16 @@ def probe_url(url: str) -> int:
                        "%/năm") if k.lower() in text.lower()]
     print(f"  từ khoá lãi suất có mặt: {kws or 'KHÔNG — nghi trang render JS'}")
     print(f"\n  ── TEXT ĐẦU (1.500 ký tự) ──\n  {text[:1500]}\n")
+    # Cửa sổ text quanh từng từ khoá — nhìn thẳng vào ruột bảng thay vì menu
+    low = text.lower()
+    for kw in ("qua đêm", "bình quân", "tái cấp vốn"):
+        i = low.find(kw)
+        if i >= 0 and i > 1500:            # nằm ngoài phần đã in ở trên
+            print(f"  ── QUANH '{kw}' ──\n  …{text[max(0, i - 150):i + 550]}…\n")
+    # Ruột 2 bảng đầu (nếu có) — đây mới là phần cần parse
+    for bi, tb in enumerate(re.findall(r"(?is)<table[^>]*>.*?</table>", html)[:2]):
+        ttext = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", tb)).strip()
+        print(f"  ── BẢNG {bi + 1} ({len(ttext):,} ký tự) ──\n  {ttext[:900]}\n")
     hrefs = sorted({h for h in re.findall(r'href="([^"#]+)"', html)
                     if re.search(r"l%C3%A3i|lãi|lai-suat|interbank", h, re.I)})
     print("  ── LINK CON liên quan lãi suất ──")
