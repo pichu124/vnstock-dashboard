@@ -432,6 +432,22 @@ def test_fmt_change_pmi_uses_diem_and_moves_labels():
     assert mac.fmt_change({"key": "pmi", "change": None}) is None
 
 
+def test_fmt_change_suppresses_zero_at_display_precision():
+    # FX nhích 0.3đ trên 26,178 → pct +0.001% làm tròn "+0.00%" nhưng dir=+1
+    # → từng hiện "▲ +0.00% (VND yếu đi)" = tín hiệu giả (báo cáo tuần 17/07)
+    assert mac.fmt_change({
+        "key": "usdvnd", "kind": "fx", "unit": "VND", "value": 26178.4,
+        "change": {"delta": 0.3, "pct": 0.001, "dir": 1}}) is None
+    # lãi suất delta +0.001đ% → "+0.00 điểm %" cũng bị nén
+    assert mac.fmt_change({
+        "key": "interbank_on", "kind": "rate", "unit": "%/năm", "value": 4.16,
+        "change": {"delta": 0.001, "pct": None, "dir": 1}}) is None
+    # đổi thật ≥ 0.01 giữ nguyên
+    assert mac.fmt_change({
+        "key": "usdvnd", "kind": "fx", "unit": "VND", "value": 26178.0,
+        "change": {"delta": 80.0, "pct": 0.31, "dir": 1}}) is not None
+
+
 def test_pressure_generic_cpi_bearish_iip_bullish_pmi_noise_ignored():
     rows = [
         {"key": "cpi_yoy", "kind": "pct",

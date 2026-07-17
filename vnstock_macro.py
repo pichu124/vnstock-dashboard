@@ -990,6 +990,12 @@ def fmt_change(ind: dict) -> "tuple[str, str, str] | None":
         mag = f"{ch['pct']:+.2f}%"
     else:
         mag = f"{ch['delta']:+.2f} {d.get('delta_unit', 'điểm %')}"
+    # Đổi LÀM TRÒN VỀ 0 ở độ phân giải hiển thị (vd FX 26,178.4 → 26,178.1 =
+    # "▲ +0.00% (VND yếu đi)") → coi như KHÔNG đổi, khỏi đeo mũi tên + nhãn
+    # tín-hiệu-giả (lộ trên báo cáo tuần 17/07). Áp mọi surface vì formatter
+    # dùng chung (CLI/brief/report/tab).
+    if float(mag.split()[0].rstrip("%")) == 0:
+        return None
     up, down = d.get("moves", ("tăng", "giảm"))
     return arrow, mag, (up if ch["dir"] > 0 else down)
 

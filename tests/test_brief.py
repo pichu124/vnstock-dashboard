@@ -1378,8 +1378,10 @@ def test_close_1507_0110_fixes():
     ctx = {"macro": [
         {"key": "usdvnd", "label": "Tỷ giá USD/VND (tham chiếu)", "unit": "VND",
          "kind": "fx", "value": 26190.0, "as_of": "2026-07-14",
-         "prev_value": 26191.0, "prev_as_of": "2026-07-13",
-         "change": {"delta": -1.0, "pct": -0.0, "dir": -1}, "source": "x"}]}
+         "prev_value": 26271.0, "prev_as_of": "2026-07-13",
+         # change THẬT (−0.31%) — đổi làm tròn về 0 nay bị fmt_change nén
+         # thành "không đổi" (fix 17/07) → row rơi vào dòng gộp "Đi ngang"
+         "change": {"delta": -81.0, "pct": -0.31, "dir": -1}, "source": "x"}]}
 
     # (1) enforce_macro anchor 2 nấc: dòng văn xuôi "Rủi ro vĩ mô: lãi suất…"
     #     KHÔNG được hijack body canonical khi section 🌐 thật tồn tại
