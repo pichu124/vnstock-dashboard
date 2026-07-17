@@ -4557,6 +4557,12 @@ def enforce_pivot_labels(text: str, ctx: dict) -> str:
     return _PIVOT_LABEL_RE.sub(_sub, text)
 
 
+# Tầm với hợp lý cho MỤC TIÊU vai 2 (S2/R2) trong kịch bản phiên tới: biên độ
+# HOSE 7%/ngày là trần vật lý — mức cách giá hơn thế không thể là "mục tiêu"
+# (user chốt 17/07; index thực tế còn hẹp hơn nhiều). Tunable.
+_SR_MAX_MOVE_PCT = 7.0
+
+
 def enforce_sr_direction(text: str, ctx: dict) -> str:
     """Sanity CHIỀU cho mức S/R: hỗ trợ (S1/S2) phải NẰM DƯỚI giá đóng cửa,
     kháng cự (R1/R2) phải NẰM TRÊN. Token sai chiều → pin về mức KNOWN hợp lệ
@@ -4617,6 +4623,40 @@ def enforce_sr_direction(text: str, ctx: dict) -> str:
         if (va < vb) if support else (va > vb):      # S1 sâu hơn S2 / R1 xa hơn R2
             out = _re.sub(rf"\b{one}={_re.escape(a)}(?![\d])", f"{one}={b}", out)
             out = _re.sub(rf"\b{two}={_re.escape(b)}(?![\d])", f"{two}={a}", out)
+    # VAI 2 = mức known KẾ TIẾP sau vai 1, TRONG TẦM biên độ (user bắt lần 2
+    # 17/07: sau swap vẫn còn "thủng S1=1,774.22 → mục tiêu S2=1,445.64" —
+    # mục tiêu cách giá ~19% vô nghĩa khi biên độ ngày ~7%, giữa đường còn
+    # MA200/đáy tháng là mốc THẬT trong ctx). CHỈ can thiệp khi ctx KHÔNG có
+    # canon cho vai 2 (support_2/resistance_2 — có canon thì enforce_pivot_labels
+    # là chủ sở hữu). Không còn mức nào trong tầm → CẮT vế mục tiêu thay vì
+    # giữ mục tiêu xa. Idempotent (pin xong v2 = expected / cắt xong hết token).
+    for one, two, support in (("S1", "S2", True), ("R1", "R2", False)):
+        canon2 = vt.get("support_2" if support else "resistance_2")
+        if isinstance(canon2, (int, float)) and 800 <= canon2 <= 2500:
+            continue
+        ones = {m.group(1) for m in _re.finditer(rf"\b{one}=([\d.,]+)", out)}
+        twos = {m.group(1) for m in _re.finditer(rf"\b{two}=([\d.,]+)", out)}
+        if len(ones) != 1 or len(twos) != 1:
+            continue
+        a, b = ones.pop(), twos.pop()
+        v1, v2 = _parse_vn_number(a), _parse_vn_number(b)
+        if v1 is None or v2 is None or not all(800 <= v <= 2500 for v in (v1, v2)):
+            continue
+        side = below if support else above
+        cands = [k for k in side
+                 if ((k < v1 - 0.5) if support else (k > v1 + 0.5))]
+        reach = [k for k in cands
+                 if abs(k - close) / close * 100 <= _SR_MAX_MOVE_PCT]
+        expected = (max(reach) if support else min(reach)) if reach else None
+        if expected is None:
+            if abs(v2 - close) / close * 100 > _SR_MAX_MOVE_PCT:
+                out = _re.sub(                        # mục tiêu ngoài tầm → cắt vế
+                    rf"\s*(?:→|->)\s*(?:mục tiêu|về|test|hướng)?\s*{two}={_re.escape(b)}(?![\d])",
+                    "", out)
+            continue
+        if abs(v2 - expected) > 2.7:                  # chưa phải mức kế tiếp → pin
+            out = _re.sub(rf"\b{two}={_re.escape(b)}(?![\d])",
+                          f"{two}={expected:,.2f}", out)
     # Dedupe VAI TRÙNG MỨC (close 17/07): giá ở đáy 52w → cả S1 lẫn S2 pin về
     # cùng low_52w ra câu vô nghĩa "thủng S1=1,445.64 → mục tiêu S2=1,445.64".
     # Cùng số ở 2 vai → cắt mệnh đề mũi-tên của vai 2 (S2/R2) thừa; cặp khác

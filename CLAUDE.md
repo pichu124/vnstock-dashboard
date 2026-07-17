@@ -1037,6 +1037,14 @@ băng, macro-anchor hijack).
       GẦN giá nhất, S2 sâu hơn (R1 gần, R2 xa); cả 2 vai đúng 1 giá trị +
       thứ tự ngược → hoán đổi số giữa 2 nhãn (mức vẫn là mức thật đã pin);
       nhiều giá trị/vai → không đoán. Chạy TRƯỚC dedupe, idempotent.
+      **User bắt LẦN 2 cùng ngày — vai 2 phải TRONG TẦM**: swap xong vẫn còn
+      "→ mục tiêu S2=1,445.64" cách giá ~19% (biên độ HOSE 7%/ngày là trần
+      vật lý, giữa đường còn MA200/đáy tháng là mốc THẬT trong ctx) → pass
+      thứ 3: vai 2 = mức known KẾ TIẾP sau vai 1 trong tầm `_SR_MAX_MOVE_PCT`
+      (7%, tunable); không còn mức nào trong tầm → CẮT vế mục tiêu. CHỈ can
+      thiệp khi ctx KHÔNG có canon vai 2 (support_2/resistance_2 — có canon
+      thì enforce_pivot_labels là chủ). Chuỗi đủ 4 tầng: pin đúng phía →
+      xếp đúng vai → vai 2 kế tiếp trong tầm → dedupe trùng mức.
    e. **Caveat BUY-vs-bias**: khi regime GIẢM (score ≤ -3 / momentum ≤ -50)
       mà "Khuyến nghị đang mở" có lệnh BUY → phải có dòng ⚠️ "_BUY_BIAS_
       CAVEAT" ngay dưới khối lệnh trên Telegram (áp cả morning & close).

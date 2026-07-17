@@ -109,35 +109,52 @@ _SR_CTX = {"vnindex_tech": {
 
 def test_sr_direction_pins_support_equal_close():
     # S2=1,782.12 = close (hỗ trợ = giá hiện tại) → pin về mức known dưới close;
-    # sau đó pass xếp vai thấy S1 (1,445) SÂU hơn S2 (1,775) → hoán đổi
+    # xếp vai (S1 1,445 SÂU hơn S2 1,775 → hoán đổi); rồi vai-2 = mức KẾ TIẾP
+    # trong tầm (ma200 1,769.70) thay vì đáy 52w cách 19%
     t = ("thủng S1=1,445.64 → mục tiêu S2=1,782.12; hủy nếu vượt lại "
          "R1=1,800.80 → test R2=1,822.95")
     out = enforce_sr_direction(t, _SR_CTX)
     assert "S2=1,782.12" not in out                 # = close bị bắt
-    assert "S1=1,775.00" in out and "S2=1,445.64" in out   # vai đã xếp đúng
-    assert "R1=1,800.80" in out and "R2=1,822.95" in out   # đúng chiều, giữ
+    assert "S1=1,775.00" in out and "S2=1,769.70" in out   # vai + mức kế tiếp
+    # R2 canon (resistance_2) tồn tại → pass vai-2 không đụng cặp R
+    assert "R1=1,800.80" in out and "R2=1,822.95" in out
     assert enforce_sr_direction(out, _SR_CTX) == out       # idempotent
 
 
-def test_sr_direction_swaps_inverted_roles():
-    # User bắt 17/07 (close 15:33): "thủng S1=1,445.64 → mục tiêu S2=1,774.22"
-    # — thủng mức SÂU mà mục tiêu CAO HƠN. S1 phải là hỗ trợ GẦN nhất → swap.
+def test_sr_direction_swaps_inverted_roles_and_reachable_target():
+    # User bắt 17/07 lần 1 (close 15:33): "thủng S1=1,445.64 → mục tiêu
+    # S2=1,774.22" — ngược vai; lần 2: swap xong mục tiêu 1,445 vẫn cách ~19%
+    # (biên độ ngày 7%) trong khi MA200 1,770.28 là mốc thật ngay dưới →
+    # vai 2 phải là MỨC KẾ TIẾP trong tầm.
     ctx = {"vnindex_tech": {"close": 1782.12, "week_low": 1774.22,
+                            "ma200": 1770.28, "month_low": 1755.0,
                             "low_52w": 1445.64, "resistance_1": 1800.80,
                             "resistance_2": 1822.95}}
     t = "GIẢM — canh giảm nếu thủng S1=1,445.64 → mục tiêu S2=1,774.22"
     out = enforce_sr_direction(t, ctx)
-    assert "thủng S1=1,774.22 → mục tiêu S2=1,445.64" in out
+    assert "thủng S1=1,774.22 → mục tiêu S2=1,770.28" in out
+    assert "1,445.64" not in out
     assert enforce_sr_direction(out, ctx) == out           # idempotent
-    # R ngược vai (R1 xa hơn R2) cũng swap
+    # R ngược vai (R1 xa hơn R2) cũng swap; canon R2 có → không pin thêm
     t2 = "vượt R1=1,822.95 → test R2=1,800.80"
     assert enforce_sr_direction(t2, ctx) == "vượt R1=1,800.80 → test R2=1,822.95"
-    # cặp đúng vai giữ nguyên
-    t3 = "thủng S1=1,774.22 → về S2=1,445.64; vượt R1=1,800.80 → test R2=1,822.95"
+    # đúng vai + đúng mức kế tiếp → giữ nguyên
+    t3 = "thủng S1=1,774.22 → về S2=1,770.28; vượt R1=1,800.80 → test R2=1,822.95"
     assert enforce_sr_direction(t3, ctx) == t3
     # mỗi vai NHIỀU giá trị khác nhau → không đoán, không swap
     t4 = "S1=1,774.22 … S1=1,770.00 … S2=1,445.64"
     assert enforce_sr_direction(t4, ctx) == t4
+
+
+def test_sr_direction_cuts_target_beyond_daily_band():
+    # DƯỚI S1 không còn mức nào trong tầm 7% (chỉ có đáy 52w cách ~19%) →
+    # CẮT vế mục tiêu thay vì giữ mục tiêu bất khả thi
+    ctx = {"vnindex_tech": {"close": 1782.12, "week_low": 1774.22,
+                            "low_52w": 1445.64}}
+    t = "canh giảm nếu thủng S1=1,445.64 → mục tiêu S2=1,774.22"
+    out = enforce_sr_direction(t, ctx)
+    assert out == "canh giảm nếu thủng S1=1,774.22"
+    assert enforce_sr_direction(out, ctx) == out           # idempotent
 
 
 def test_sr_direction_ignores_stock_prices_and_valid_levels():
