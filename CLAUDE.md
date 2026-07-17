@@ -806,6 +806,18 @@ mã hủy niêm yết (last 2018-2021) re-fetch nhiều NĂM mỗi lần cho 0 n
   **Nếu tái diễn nhiều tối → build (user nói "làm đi")**: fallback ladder
   nguồn giá VCI→KBS trong updater (KBS đã verify sống) và/hoặc fail-fast:
   tỷ lệ timeout vượt ngưỡng → dừng sớm thay vì cày 30s×1724 mã.
+- **`vnstock_source_probe.py` (DONE 17/07 tối, 2 run thật) — BẢNG XẾP HẠNG
+  FALLBACK đã chốt**: đo mọi nguồn registry trên rổ FPT/BSR/SHS/VGI +
+  VNINDEX, chấm độ-phủ → đúng-giá-CÙNG-NGÀY → tốc độ (v2 date-aware — run
+  đầu vu "lệch giá" oan cho KBS vì so close khác ngày với MSN trễ 2 phiên);
+  cache 20 run `_meta/source_probe.json`, cột ok tích lũy đo độ bền.
+  **Kết quả 2 run tối 17/07 (lúc VCI outage)**: 🥇 **KBS 8/8 + index,
+  0.4-0.7s/call, bar đủ phiên = fallback DUY NHẤT đủ chuẩn** · 🥈 MSN 8/8
+  + index ~1.8s nhưng TRỄ ~2 PHIÊN (kém tươi cho EOD — dự phòng khẩn cấp
+  có caveat) · VCI 3/6 rồi 0/2 (outage nặng dần trong tối) · dnse/tcbs
+  không có trong registry quote bản này · fmp cần key (US-oriented, bỏ).
+  Khi build ladder VCI→KBS: nhớ so ĐƠN VỊ + hệ số điều chỉnh cổ tức giữa
+  2 nguồn trước khi ghi kho (khác adjustment basis là hỏng chuỗi giá).
 
 **Quan trọng — vnstock 4.0.4 + sponsor API gotchas** (hard-won, đừng quên):
 - `vnstock_auth._StockShim` PHẢI expose `.quote/.company/.listing/.finance`.
