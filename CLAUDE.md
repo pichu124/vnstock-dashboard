@@ -928,9 +928,10 @@ băng, macro-anchor hijack).
    | Select TaskName,LastRunTime,LastTaskResult,NextRunTime` — Daily
    Pipeline phải LastRunTime = tối hôm trước, LastTaskResult = 0 (doctor
    laptop 17/07 thấy cache cũ 2 ngày → nghi 16/07 không chạy, NHƯNG đó là
-   cache laptop — phải xác nhận trên desktop); (b) chép `FRED_API_KEY=...`
-   từ .env desktop sang .env laptop (doctor laptop hết ⬜ FRED);
-   (c) `python vnstock_preset_score.py --show` ~24/07 TRÊN DESKTOP (item
+   cache laptop — phải xác nhận trên desktop); (b) ✅ XONG 17/07 — FRED key
+   đã vào .env laptop, `--diag` ra us10y 4.55/fed_funds 3.63 @07-15, cả 2
+   máy nay 13/13 chỉ số auto; (c) `python vnstock_preset_score.py --show`
+   ~24/07 TRÊN DESKTOP (item
    6b — screener_history do pipeline desktop nuôi, laptop thiếu snapshot).
 2. **Lần train kế tiếp**: panel Chiến lược phải hiện "p=… · N ứng viên"
    (hiệu chỉnh chọn-lọc Bonferroni mới 15/07 — p_adj = p × N, chỉ siết
