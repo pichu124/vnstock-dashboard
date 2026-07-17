@@ -955,12 +955,19 @@ brief thật + 3 bug hệ (Telegram sanitize, benchmark gross-vs-net đóng
 băng, macro-anchor hijack).
 
 **CÒN LẠI — ⏰ NHẮC CHỦ ĐỘNG khi user quay lại / nói "test"/"verify":**
-1. **Việc TRÊN DESKTOP (máy production — gotcha 2 máy 17/07)**: (a) kiểm
-   task đêm: `Get-ScheduledTask -TaskName "VnStock *" | Get-ScheduledTaskInfo
-   | Select TaskName,LastRunTime,LastTaskResult,NextRunTime` — Daily
-   Pipeline phải LastRunTime = tối hôm trước, LastTaskResult = 0 (doctor
-   laptop 17/07 thấy cache cũ 2 ngày → nghi 16/07 không chạy, NHƯNG đó là
-   cache laptop — phải xác nhận trên desktop); (b) ✅ XONG 17/07 — FRED key
+1. **Việc TRÊN DESKTOP (máy production — gotcha 2 máy 17/07)**: (a) ✅ KIỂM
+   XONG tối 17/07 — cả 3 task ĐỀU bắn đúng lịch (kể cả chạy bù khi boot)
+   NHƯNG `LastTaskResult = 3221225786` (0xC000013A = bị NGẮT giữa chừng —
+   tắt máy/đóng console khi pipeline đang chạy) ở cả 3 → pipeline desktop
+   CHƯA TỪNG chạy trọn; cùng tối phát hiện VCI outage 21h (xem playbook ⚡)
+   → 2 bệnh có thể chung gốc: VCI chậm giờ đó → run kéo dài → user tắt máy.
+   **CÒN THEO DÕI: tối T2 20/07 18:00** — máy bật, không đụng, kỳ vọng lần
+   đầu LastTaskResult=0; user cần trả lời "hay tắt desktop lúc mấy giờ" để
+   chốt giờ task. Desktop đã seed tay 17/07: test 742 pass, macro ra ON
+   4.11 @07-16 sbv_daily + policy sbv_portal (KHÔNG cần --drop — entry
+   manual 06-15 chỉ có trên laptop), backfill 300 ngày. Còn nợ: bù GIÁ khi
+   VCI khỏe (probe 1 lệnh → bấm 🚀 Cập nhật tất cả);
+   (b) ✅ XONG 17/07 — FRED key
    đã vào .env laptop, `--diag` ra us10y 4.55/fed_funds 3.63 @07-15, cả 2
    máy nay 13/13 chỉ số auto; (c) `python vnstock_preset_score.py --show`
    ~24/07 TRÊN DESKTOP (item
