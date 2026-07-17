@@ -1827,8 +1827,11 @@ vừa set. Registry KHÔNG tự sửa được (không biết entry nào chủ �
 CLI cache-surgery `python vnstock_macro.py --drop <key> <YYYY-MM-DD>`
 (`drop_reading`, KeyError khi key lạ, False khi ngày không có). Dọn chuẩn:
 `--drop interbank_on 2026-07-17` + `--drop interbank_on 2026-07-16` →
-`run.py macro` phải ra ON 4.28 (vbma, tính đến 07-10), gauge thanh khoản
-"bình thường" −0.22. ⏳ CHỜ user chạy 2 lệnh drop này (sau git pull).
+`run.py macro` ra ON 4.28 (vbma, tính đến 07-10), gauge thanh khoản
+"bình thường" −0.22. **✅ user chạy xong 17/07 — refresh lại KHÔNG tái
+nhiễm** (recency + guard chống ghi đè giữ đúng). Toàn bộ chuỗi HNX/SBV/
+resolve/gauge coi như ĐÓNG; đổi ưu tiên/ngưỡng sau này chỉ đụng
+`resolve_interbank_on` + `_INTERBANK_DIVERGENCE_PCT`.
 
 **⚠️ GOTCHA GIT (gặp thật 16/07)**: máy user checkout nhánh KHÁC
 (`claude/phase-1-kickoff-lzorv6`) nhưng CHUNG lineage với nhánh session
