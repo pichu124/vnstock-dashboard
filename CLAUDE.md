@@ -936,18 +936,16 @@ băng, macro-anchor hijack).
 2. **Lần train kế tiếp**: panel Chiến lược phải hiện "p=… · N ứng viên"
    (hiệu chỉnh chọn-lọc Bonferroni mới 15/07 — p_adj = p × N, chỉ siết
    không nới); validation trong DB mang `p_value_adj` + `n_trials`.
-3. **Lần tới mở dashboard (30 giây — máy nào cũng được, UI/code check)**:
-   tab Tin tức nay **5 sub-tab** (📰/🌐/**📄**/📚/🧭) render OK; sub-tab
-   📄 Báo cáo tuần ra bảng lãi suất + đường cong SVG + nút tải/đẩy
-   Telegram; sub-tab 🌐 hiện nguồn mới (ON/1W `sbv_daily`, tái cấp vốn
-   `sbv_portal`, 2Y/10Y `hnx`) + chart `interbank_on` dày ~300 điểm ngày;
-   panel AI Brief có caption "🎯 Stance ngày mai: đúng X/Y…"; tab Screener
-   có expander "📋 Chấm điểm preset" (nút 🔄 + mục "Đọc kết quả"); khi có
-   rec mở mới → bảng Open recommendations phải có cột "KL gợi ý" + "Giá
-   HT"/"L/L tạm" + "SL trailing" (mã mỏng hiện "(cap TK)") + brief gắn
-   "KL gợi ý ~N cp"; expander ⚖️ nay 4 ô (thêm "Cap thanh khoản (% ADV20)").
-   (Log task 15/07 + close brief 15/07 của item cũ: ĐÃ XONG qua đợt review
-   🔬 15/07.)
+3. **✅ DASHBOARD CHECK XONG 17/07 (6/6 trạm, qua ảnh user — lộ + vá luôn
+   4 lỗi)**: 5 sub-tab ✓ · 📄 render bảng+SVG ✓ (vá 2: nền trắng tường
+   minh — iframe nền tối làm chữ tàng hình; "dữ liệu đến 2023" — loại
+   sbv_policy_rate khỏi as_of báo cáo) · 🌐 nguồn mới + chart ON/1W ~295
+   mốc ngày ✓ (vá: `dense_history` đọc cache SBV daily/HNX — registry chỉ
+   vài mốc) · caption 🎯 "đúng 4/7 (57%)" ✓ · 📋 preset expander + Đọc kết
+   quả ✓ · conviction hết "-0.00" ✓ (vá zero âm market_regime). CÒN LẠI
+   khi có rec mở mới: bảng Open recommendations phải có cột "KL gợi ý" +
+   "Giá HT"/"L/L tạm" + "SL trailing" (mã mỏng "(cap TK)") + brief gắn
+   "KL gợi ý ~N cp"; expander ⚖️ 4 ô (thêm "Cap thanh khoản (% ADV20)").
 4. **Passive — tự đến, chỉ để ý**: scorecard allocation kỳ đầu ~đầu
    tháng 9 (đủ 2 tháng history) · decay 🔻 + log "[reconcile] … DECAYED"
    nếu chiến lược nào tụt thật · OpenRouter `qwen/qwen3-235b-a22b:free`
@@ -1030,6 +1028,10 @@ băng, macro-anchor hijack).
    d. **Mức S/R**: mọi S1/S2 < giá đóng cửa, R1/R2 > giá; KHÔNG còn "S=giá
       đóng cửa". Residual chấp nhận: S1 có thể xa (=low_52w) khi giá ở đáy
       range — role-ordering thủng-S1→S2 hơi ngược vai là ĐÃ BIẾT, không vá.
+      **Nâng cấp 17/07 (close 15:33)**: dạng tệ hơn "thủng S1=X → mục tiêu
+      S2=X" (2 vai CÙNG mức vì cả hai pin về low_52w) → enforce_sr_direction
+      nay CẮT vế mũi-tên của vai 2 khi trùng số (áp cả R1/R2); cặp khác số
+      không đụng.
    e. **Caveat BUY-vs-bias**: khi regime GIẢM (score ≤ -3 / momentum ≤ -50)
       mà "Khuyến nghị đang mở" có lệnh BUY → phải có dòng ⚠️ "_BUY_BIAS_
       CAVEAT" ngay dưới khối lệnh trên Telegram (áp cả morning & close).
