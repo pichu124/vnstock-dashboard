@@ -4598,7 +4598,18 @@ def enforce_sr_direction(text: str, ctx: dict) -> str:
         nk = min(cands, key=lambda k: abs(k - v))
         return f"{label}={nk:,.2f}"
 
-    return _PIVOT_LABEL_RE.sub(_sub, text)
+    out = _PIVOT_LABEL_RE.sub(_sub, text)
+    # Dedupe VAI TRÙNG MỨC (close 17/07): giá ở đáy 52w → cả S1 lẫn S2 pin về
+    # cùng low_52w ra câu vô nghĩa "thủng S1=1,445.64 → mục tiêu S2=1,445.64".
+    # Cùng số ở 2 vai → cắt mệnh đề mũi-tên của vai 2 (S2/R2) thừa; cặp khác
+    # số không đụng. Idempotent (cắt xong hết token trùng để tái kích).
+    for one, two in (("S1", "S2"), ("R1", "R2")):
+        vals = {m.group(1) for m in _re.finditer(rf"\b{one}=([\d.,]+)", out)}
+        for num in vals:
+            out = _re.sub(
+                rf"\s*(?:→|->)\s*(?:mục tiêu|về|test|hướng)?\s*{two}={_re.escape(num)}(?![\d])",
+                "", out)
+    return out
 
 
 def enforce_scenario_levels(text: str, ctx: dict) -> str:

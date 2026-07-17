@@ -136,6 +136,26 @@ def test_sr_direction_noop_without_close_or_candidates():
     assert enforce_sr_direction("S1=1,900.00", ctx) == "S1=1,900.00"
 
 
+def test_sr_direction_dedupes_same_level_two_roles():
+    # Close 17/07: giá ở đáy 52w → S1 lẫn S2 cùng pin về low_52w ra
+    # "thủng S1=1,445.64 → mục tiêu S2=1,445.64" (vô nghĩa) — cắt vế S2 thừa
+    t = ("GIẢM, canh giảm nếu thủng S1=1,445.64 → mục tiêu S2=1,445.64; "
+         "hủy nếu vượt lại R1=1,800.80")
+    out = enforce_sr_direction(t, _SR_CTX)
+    assert "S2=" not in out and "S1=1,445.64" in out
+    assert "→ mục tiêu" not in out                  # cả cụm mũi tên bị cắt
+    assert "R1=1,800.80" in out
+    assert enforce_sr_direction(out, _SR_CTX) == out       # idempotent
+    # dạng "→ về S2=X" trong mục kỹ thuật cũng bị cắt
+    t2 = "thủng S1=1,445.64 → về S2=1,445.64"
+    assert enforce_sr_direction(t2, _SR_CTX) == "thủng S1=1,445.64"
+    # cặp KHÁC số giữ nguyên (không đụng)
+    t3 = "thủng S1=1,770.00 → về S2=1,755.00"
+    ctx3 = {"vnindex_tech": {"close": 1782.12, "week_low": 1775.0,
+                             "month_low": 1755.0}}
+    assert enforce_sr_direction(t3, ctx3) == t3
+
+
 # ── Fix 5: caveat BUY-vs-bias ở telegram (lệnh mở append ngoài guard chain) ─
 
 def test_telegram_buy_bias_caveat_logic():
