@@ -338,11 +338,38 @@ def probe_url(url: str) -> int:
         print("  ── REST /o/ (không phải .js/.css) ──")
         for a in rest[:20]:
             print(f"    {a}")
-    cfg = re.findall(r'(?i)["\']?api-?url["\']?\s*[:=]\s*["\']([^"\']+)["\']', html)
+    # Config Liferay hay bị HTML-escape (&quot;apiURL&quot;) → quét trên bản
+    # UNESCAPE; kèm resource URL portlet (p_p_lifecycle=2) — đường AJAX cổ điển.
+    unesc = (html.replace("&quot;", '"').replace("&#34;", '"')
+             .replace("&amp;", "&").replace("\\/", "/"))
+    cfg = re.findall(r'(?i)"api-?url"\s*[:=]\s*"([^"]+)"', unesc)
+    cfg += re.findall(r'(?i)\bapi-?url\s*[:=]\s*["\']([^"\']+)["\']', unesc)
     if cfg:
-        print("  ── apiURL trong config data-set ──")
+        print("  ── apiURL trong config data-set (đã unescape) ──")
         for a in sorted(set(cfg))[:10]:
             print(f"    {a}")
+    ppl = sorted({a for a in re.findall(r'["\'](/[^"\']*p_p_lifecycle=2[^"\']*)["\']',
+                                        unesc)})
+    if ppl:
+        print("  ── resource URL portlet (p_p_lifecycle=2 — AJAX đổ bảng) ──")
+        for a in ppl[:10]:
+            print(f"    {a}")
+    # /o/ REST trên bản unescape, LOẠI ảnh/media — bắt endpoint object/dataset
+    rest2 = sorted({a for a in re.findall(r'"(/o/(?!combo|adaptive-media)[^"]{5,200})"',
+                                          unesc)
+                    if not re.search(r"\.(?:js|css|map|png|jpg|svg)(?:\?|$)", a)
+                    and "frontend-js" not in a and "js_resolve" not in a})
+    if rest2:
+        print("  ── REST /o/ unescape (không media/js) ──")
+        for a in rest2[:20]:
+            print(f"    {a}")
+    # Ngữ cảnh 500 ký tự TRƯỚC mỗi <table> rỗng — wrapper thường mang data-attr
+    for bi, m2 in enumerate(re.finditer(r"<table[^>]*>", html)):
+        ctx = html[max(0, m2.start() - 500):m2.start()]
+        ctx = re.sub(r"\s+", " ", ctx)
+        print(f"  ── NGỮ CẢNH trước <table> {bi + 1} ──\n  …{ctx[-450:]}\n")
+        if bi >= 2:
+            break
     # Fallback cuối: MỌI URL chứa từ khoá lãi suất trong toàn HTML (kể cả JS inline)
     lai = sorted({a for a in re.findall(
         r'["\'](https?://[^"\']+|/[^"\']{5,200})["\']', html)
