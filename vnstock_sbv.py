@@ -276,6 +276,47 @@ def fetch_weekly(verbose: bool = False, weeks_back: int = 5) -> "SBVWeekly | Non
     return r
 
 
+def probe_url(url: str) -> int:
+    """Thăm dò 1 trang SBV (diag-only, máy có mạng): status/size, trang tĩnh
+    hay JS, số bảng, text đầu, link con liên quan lãi suất — để quyết định có
+    làm được fetcher LNH THEO NGÀY từ trang 'Lãi suất' portal SBV không."""
+    try:
+        import requests
+    except Exception:
+        print("  ❌ thiếu requests")
+        return 1
+    try:
+        resp = requests.get(url, headers=_SBV_HEADERS, timeout=30)
+    except Exception as e:
+        print(f"  ❌ fetch lỗi: {type(e).__name__}: {e}")
+        return 1
+    html = resp.text or ""
+    print(f"  HTTP {resp.status_code} — {len(html):,} ký tự HTML")
+    if resp.status_code != 200 or not html:
+        return 1
+    n_tables = len(re.findall(r"<table", html, re.I))
+    body = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", html)
+    text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", body)).strip()
+    print(f"  <table>: {n_tables} — text nhìn thấy: {len(text):,} ký tự")
+    kws = [k for k in ("qua đêm", "liên ngân hàng", "bình quân", "tái cấp vốn",
+                       "%/năm") if k.lower() in text.lower()]
+    print(f"  từ khoá lãi suất có mặt: {kws or 'KHÔNG — nghi trang render JS'}")
+    print(f"\n  ── TEXT ĐẦU (1.500 ký tự) ──\n  {text[:1500]}\n")
+    hrefs = sorted({h for h in re.findall(r'href="([^"#]+)"', html)
+                    if re.search(r"l%C3%A3i|lãi|lai-suat|interbank", h, re.I)})
+    print("  ── LINK CON liên quan lãi suất ──")
+    for h in hrefs[:20] or ["  (không có)"]:
+        print(f"    {h}")
+    # XHR/API endpoint lộ trong HTML (trang JS hay gọi API nội bộ lấy bảng)
+    apis = sorted({a for a in re.findall(
+        r'["\'](/[^"\']*(?:api|Module|getdata|Service)[^"\']*)["\']', html, re.I)})
+    if apis:
+        print("  ── ENDPOINT nội bộ lộ trong HTML (ứng viên API bảng) ──")
+        for a in apis[:15]:
+            print(f"    {a}")
+    return 0
+
+
 # ── Cache + refresh + loaders ───────────────────────────────────────────────
 
 def _load_cache() -> dict:
@@ -344,7 +385,13 @@ def main(argv=None) -> int:
                     help="in TEXT THÔ của PDF bài tuần (gửi lại để chỉnh regex parse)")
     ap.add_argument("--set-omo", type=float, metavar="TỶ_VND",
                     help="nhập tay OMO ròng (+ hút / − bơm)")
+    ap.add_argument("--probe", metavar="URL",
+                    help="thăm dò 1 trang SBV (tĩnh/JS? có bảng LNH ngày?) — máy có mạng")
     args = ap.parse_args(argv)
+
+    if args.probe:
+        print(f"[sbv] probe {args.probe}")
+        return probe_url(args.probe)
 
     if args.dump_text:
         print("[sbv] tải PDF bài tuần & in text thô…")
