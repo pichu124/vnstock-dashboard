@@ -276,6 +276,54 @@ def fetch_weekly(verbose: bool = False, weeks_back: int = 5) -> "SBVWeekly | Non
     return r
 
 
+def probe_api(url: str) -> int:
+    """GET 1 endpoint JSON (headless-delivery Liferay) và in cấu trúc — để
+    viết parser LNH-theo-ngày từ content-structures của portal SBV."""
+    try:
+        import requests
+    except Exception:
+        print("  ❌ thiếu requests")
+        return 1
+    hdrs = dict(_SBV_HEADERS)
+    hdrs["Accept"] = "application/json"
+    try:
+        resp = requests.get(url, headers=hdrs, timeout=30)
+    except Exception as e:
+        print(f"  ❌ fetch lỗi: {type(e).__name__}: {e}")
+        return 1
+    ctype = resp.headers.get("content-type", "?")
+    print(f"  HTTP {resp.status_code} — content-type: {ctype} — {len(resp.text):,} ký tự")
+    if resp.status_code != 200:
+        print(f"  body đầu: {resp.text[:500]}")
+        return 1
+    try:
+        data = resp.json()
+    except ValueError:
+        print(f"  ⚠ KHÔNG phải JSON — body đầu:\n{resp.text[:1500]}")
+        return 1
+    if isinstance(data, dict) and "items" in data:
+        items = data.get("items") or []
+        print(f"  totalCount={data.get('totalCount')} — items trả về: {len(items)}")
+        for it in items[:2]:
+            print(f"\n  ── ITEM: title={it.get('title')!r} "
+                  f"datePublished={it.get('datePublished')!r} ──")
+            for cf in (it.get("contentFields") or [])[:25]:
+                val = (cf.get("contentFieldValue") or {}).get("data")
+                nested = cf.get("nestedContentFields") or []
+                print(f"    {cf.get('name')}: {str(val)[:80]!r}"
+                      + (f"  (+{len(nested)} nested)" if nested else ""))
+                for nf in nested[:10]:
+                    nval = (nf.get("contentFieldValue") or {}).get("data")
+                    nn = nf.get("nestedContentFields") or []
+                    print(f"      · {nf.get('name')}: {str(nval)[:60]!r}"
+                          + (f"  (+{len(nn)} nested)" if nn else ""))
+                    for n2 in nn[:8]:
+                        v2 = (n2.get("contentFieldValue") or {}).get("data")
+                        print(f"          - {n2.get('name')}: {str(v2)[:50]!r}")
+    print(f"\n  ── RAW JSON (3.000 ký tự đầu) ──\n{resp.text[:3000]}")
+    return 0
+
+
 def probe_url(url: str) -> int:
     """Thăm dò 1 trang SBV (diag-only, máy có mạng): status/size, trang tĩnh
     hay JS, số bảng, text đầu, link con liên quan lãi suất — để quyết định có
@@ -452,11 +500,16 @@ def main(argv=None) -> int:
                     help="nhập tay OMO ròng (+ hút / − bơm)")
     ap.add_argument("--probe", metavar="URL",
                     help="thăm dò 1 trang SBV (tĩnh/JS? có bảng LNH ngày?) — máy có mạng")
+    ap.add_argument("--probe-api", metavar="URL",
+                    help="GET endpoint JSON headless-delivery và in cấu trúc contentFields")
     args = ap.parse_args(argv)
 
     if args.probe:
         print(f"[sbv] probe {args.probe}")
         return probe_url(args.probe)
+    if args.probe_api:
+        print(f"[sbv] probe-api {args.probe_api}")
+        return probe_api(args.probe_api)
 
     if args.dump_text:
         print("[sbv] tải PDF bài tuần & in text thô…")
