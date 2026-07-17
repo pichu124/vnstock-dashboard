@@ -319,10 +319,38 @@ def probe_url(url: str) -> int:
         print(f"    {h}")
     # XHR/API endpoint lộ trong HTML (trang JS hay gọi API nội bộ lấy bảng)
     apis = sorted({a for a in re.findall(
-        r'["\'](/[^"\']*(?:api|Module|getdata|Service)[^"\']*)["\']', html, re.I)})
+        r'["\'](/[^"\']*(?:api|Module|getdata|Service)[^"\']*)["\']', html, re.I)
+        if not re.search(r"\.(?:js|css|map)(?:\?|$)", a)})
     if apis:
         print("  ── ENDPOINT nội bộ lộ trong HTML (ứng viên API bảng) ──")
         for a in apis[:15]:
+            print(f"    {a}")
+    # Liferay data-set đổ bảng bằng XHR → đào config apiURL + REST /o/ non-js
+    iframes = re.findall(r'<iframe[^>]+src="([^"]+)"', html, re.I)
+    if iframes:
+        print("  ── IFRAME (bảng hay nhúng qua đây) ──")
+        for u in iframes[:10]:
+            print(f"    {u}")
+    rest = sorted({a for a in re.findall(r'["\'](/o/(?!combo)[^"\']{5,200})["\']', html)
+                   if not re.search(r"\.(?:js|css|map)(?:\?|$)", a)
+                   and "frontend-js" not in a})
+    if rest:
+        print("  ── REST /o/ (không phải .js/.css) ──")
+        for a in rest[:20]:
+            print(f"    {a}")
+    cfg = re.findall(r'(?i)["\']?api-?url["\']?\s*[:=]\s*["\']([^"\']+)["\']', html)
+    if cfg:
+        print("  ── apiURL trong config data-set ──")
+        for a in sorted(set(cfg))[:10]:
+            print(f"    {a}")
+    # Fallback cuối: MỌI URL chứa từ khoá lãi suất trong toàn HTML (kể cả JS inline)
+    lai = sorted({a for a in re.findall(
+        r'["\'](https?://[^"\']+|/[^"\']{5,200})["\']', html)
+        if re.search(r"lai[-_]?suat|laisuat|interbank|vnibor", a, re.I)
+        and not re.search(r"\.(?:js|css|map|png|svg)(?:\?|$)", a)})
+    if lai:
+        print("  ── URL chứa 'lai suat/interbank' bất kỳ đâu trong HTML ──")
+        for a in lai[:15]:
             print(f"    {a}")
     return 0
 
