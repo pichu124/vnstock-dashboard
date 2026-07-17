@@ -70,6 +70,11 @@ def _one_call(source: str, symbol: str, start: str, end: str) -> dict:
         return {
             "ok": True, "secs": secs, "rows": int(len(df)),
             "last_close": float(df["close"].iloc[-1]) if "close" in cols else None,
+            # ngày bar cuối — so giá PHẢI cùng ngày (bài học run đầu 17/07:
+            # MSN trễ 2 phiên → close "mới nhất" khác ngày bị so nhầm thành
+            # "lệch giá" oan cho KBS)
+            "last_time": (str(df["time"].iloc[-1])[:10] if "time" in cols
+                          else None),
             "has_vol": "volume" in cols,
         }
     except Exception as e:                                 # noqa: BLE001
@@ -121,31 +126,57 @@ def run_probe(basket: tuple = _DEFAULT_BASKET, days: int = 14,
 # ── Chấm điểm + xếp hạng (THUẦN — testable trong sandbox) ──────────────────
 
 def score_results(run: dict) -> list:
-    """run → list xếp hạng [khỏe → yếu]: mỗi entry {source, ok, n, avg_secs,
-    mismatch (mã lệch giá >3% vs median), unit_x1000, index_ok, verdict}.
-    Nguồn 'unavailable' bị loại khỏi bảng. Sort: độ phủ ↓ → lệch giá ↑ →
-    tốc độ ↑. Nguồn có mismatch KHÔNG được đề xuất làm fallback (chỉ ghi chú).
+    """run → list xếp hạng [khỏe → yếu]: {source, ok, n, avg_secs, mismatch,
+    stale, disputed, unit_x1000, index_ok, verdict}.
+
+    So giá CHỈ giữa các nguồn có bar cuối CÙNG NGÀY (ngày mới nhất của symbol
+    đó) — bài học run đầu 17/07: MSN trễ 2 phiên bị so close khác ngày →
+    "lệch giá" OAN cho KBS. Nguồn có bar cuối cũ hơn → `stale` (TRỄ PHIÊN —
+    loại khỏi fallback vì EOD cần tươi, nhưng không phải "sai giá").
+    Outlier chỉ kết tội khi ≥3 nguồn cùng ngày (median có nghĩa); đúng 2
+    nguồn bất đồng → `disputed` (ghi chú, không phân xử được).
     """
     results = (run or {}).get("results") or {}
-    # median close per symbol trên các nguồn OK — chuẩn hoá đơn vị trước khi
-    # so (nguồn trả VND thô sẽ lớn ~×1000 → đưa về cùng thang bằng log-band)
-    per_sym: dict[str, list] = {}
+    per_sym: dict[str, list] = {}                  # sym → [(src, close, date)]
     for src, r in results.items():
         for sym, c in (r.get("stocks") or {}).items():
             if c.get("ok") and c.get("last_close"):
-                per_sym.setdefault(sym, []).append(float(c["last_close"]))
+                per_sym.setdefault(sym, []).append(
+                    (src, float(c["last_close"]), c.get("last_time")))
 
-    def _median(vals):
-        s = sorted(vals)
-        return s[len(s) // 2] if s else None
-
-    med = {}
-    for sym, vals in per_sym.items():
-        # về cùng thang: giá trị > 500× min coi là VND thô → chia 1000
+    def _norm(vals):
         base = min(vals)
-        norm = [v / 1000 if base > 0 and v / base > _UNIT_RATIO_BAND[0] else v
+        return [v / 1000 if base > 0 and v / base > _UNIT_RATIO_BAND[0] else v
                 for v in vals]
-        med[sym] = _median(norm)
+
+    mismatch: dict[str, list] = {}
+    disputed: dict[str, list] = {}
+    stale: dict[str, list] = {}
+    unit_srcs: set = set()
+    for sym, entries in per_sym.items():
+        dates = [d for _, _, d in entries if d]
+        ref = max(dates) if dates else None
+        fresh = [(s, v) for s, v, d in entries if d == ref or ref is None]
+        for s, _, d in entries:
+            if ref and d and d < ref:
+                stale.setdefault(s, []).append(sym)
+        vals = [v for _, v in fresh]
+        if len(vals) < 2:
+            continue
+        norm = _norm(vals)
+        for (s, v), nv in zip(fresh, norm):
+            if v != nv:                                    # bị chia 1000 = VND thô
+                unit_srcs.add(s)
+        med = sorted(norm)[len(norm) // 2]
+        for (s, _), nv in zip(fresh, norm):
+            off = med and abs(nv / med - 1) * 100 > _MISMATCH_PCT
+            if not off:
+                continue
+            if len(fresh) >= 3:
+                mismatch.setdefault(s, []).append(sym)    # median có nghĩa
+            else:                                          # 2 nguồn cãi nhau
+                for s2, _ in fresh:
+                    disputed.setdefault(s2, []).append(sym)
 
     ranked = []
     for src, r in results.items():
@@ -153,46 +184,48 @@ def score_results(run: dict) -> list:
             continue
         stocks = r.get("stocks") or {}
         oks = [c for c in stocks.values() if c.get("ok")]
-        n_probed = len(stocks)
-        mismatch, unit_x1000 = [], False
-        for sym, c in stocks.items():
-            if not (c.get("ok") and c.get("last_close") and med.get(sym)):
-                continue
-            v, m = float(c["last_close"]), med[sym]
-            ratio = v / m if m else 1.0
-            if _UNIT_RATIO_BAND[0] < ratio < _UNIT_RATIO_BAND[1]:
-                unit_x1000 = True
-                ratio = ratio / 1000
-            if abs(ratio - 1) * 100 > _MISMATCH_PCT:
-                mismatch.append(sym)
         avg_secs = (round(sum(c["secs"] for c in oks) / len(oks), 1)
                     if oks else None)
-        idx = r.get("index") or {}
         ranked.append({
-            "source": src, "ok": len(oks), "n": n_probed,
-            "avg_secs": avg_secs, "mismatch": mismatch,
-            "unit_x1000": unit_x1000, "index_ok": bool(idx.get("ok")),
+            "source": src, "ok": len(oks), "n": len(stocks),
+            "avg_secs": avg_secs,
+            "mismatch": sorted(set(mismatch.get(src, []))),
+            "stale": sorted(set(stale.get(src, []))),
+            "disputed": sorted(set(disputed.get(src, []))),
+            "unit_x1000": src in unit_srcs,
+            "index_ok": bool((r.get("index") or {}).get("ok")),
             "fail_fast": bool(r.get("fail_fast")),
         })
-    ranked.sort(key=lambda e: (-e["ok"], len(e["mismatch"]),
+    ranked.sort(key=lambda e: (-e["ok"], len(e["mismatch"]), len(e["stale"]),
                                e["avg_secs"] if e["avg_secs"] is not None else 999))
     for e in ranked:
+        notes = []
+        if e["unit_x1000"]:
+            notes.append("đơn vị VND thô — phải chia 1000")
+        if e["disputed"]:
+            notes.append(f"bất đồng giá {','.join(e['disputed'])} (2 nguồn, "
+                         "chưa phân xử)")
+        suffix = f" ({'; '.join(notes)})" if notes else ""
         if e["ok"] == 0:
             e["verdict"] = "CHẾT (thời điểm probe)"
         elif e["mismatch"]:
-            e["verdict"] = f"LỆCH GIÁ {','.join(e['mismatch'])} — KHÔNG dùng"
+            e["verdict"] = (f"LỆCH GIÁ {','.join(e['mismatch'])} "
+                            "(vs median cùng ngày) — KHÔNG dùng")
+        elif e["stale"]:
+            e["verdict"] = (f"TRỄ PHIÊN {','.join(e['stale'])} (bar cuối cũ "
+                            "hơn nguồn khác) — kém tươi cho EOD" + suffix)
         elif e["ok"] < e["n"]:
-            e["verdict"] = "thiếu độ phủ"
+            e["verdict"] = "thiếu độ phủ" + suffix
         else:
-            e["verdict"] = "ứng viên tốt" + (" (đơn vị VND thô — phải chia 1000)"
-                                             if e["unit_x1000"] else "")
+            e["verdict"] = "ứng viên tốt" + suffix
     return ranked
 
 
 def fallback_order(ranked: list) -> list:
-    """Thứ tự fallback đề xuất: chỉ nguồn phủ ĐỦ rổ + không lệch giá."""
+    """Thứ tự fallback đề xuất: phủ ĐỦ rổ + không lệch giá + không trễ phiên."""
     return [e["source"] for e in ranked
-            if e["ok"] == e["n"] and e["n"] > 0 and not e["mismatch"]]
+            if e["ok"] == e["n"] and e["n"] > 0
+            and not e["mismatch"] and not e["stale"]]
 
 
 def render_report(run: dict, ranked: list, cumulative: "dict | None" = None) -> str:
