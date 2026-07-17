@@ -101,7 +101,13 @@ def build_report_data(as_of: Optional[str] = None) -> dict:
     except Exception:
         pass
 
-    eff = as_of or (rates[0]["as_of"] if rates else None) \
+    # "dữ liệu đến" = as_of MỚI NHẤT của các chỉ số, LOẠI sbv_policy_rate —
+    # as_of của nó là NGÀY QUYẾT ĐỊNH SBV (2023-06-19), không phải độ tươi
+    # data; rates[0] chính là policy nên bản cũ kéo cả báo cáo về "Tuần
+    # 25/2023" (bug thật 17/07 — cùng họ fix gauge as_of 14/07).
+    fresh = [r["as_of"] for r in rates
+             if r.get("as_of") and r.get("key") != "sbv_policy_rate"]
+    eff = as_of or (max(fresh) if fresh else None) \
         or datetime.now().date().isoformat()
     data = {
         "as_of": eff,

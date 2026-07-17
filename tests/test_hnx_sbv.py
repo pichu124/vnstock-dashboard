@@ -551,6 +551,15 @@ def test_build_report_data_from_fake_caches(monkeypatch):
     # narrative suy từ số: gauge + OMO + đổi LNH ON (|−1.39| ≥ 0.10)
     joined = " ".join(d["narrative"])
     assert "Thanh khoản" in joined and "hút ròng" in joined and "qua đêm" in joined
+    # REGRESSION 17/07: không truyền as_of → "dữ liệu đến" = as_of MỚI NHẤT,
+    # LOẠI sbv_policy_rate (as_of = ngày QUYẾT ĐỊNH 2023 kéo cả báo cáo về
+    # "Tuần 25/2023" vì policy đứng đầu _RATE_KEYS)
+    fake_macro.insert(0, {"key": "sbv_policy_rate", "label": "Tái cấp vốn",
+                          "unit": "%/năm", "kind": "rate", "value": 4.5,
+                          "as_of": "2023-06-19", "source": "sbv_portal",
+                          "change": None})
+    d2 = rr.build_report_data()
+    assert d2["as_of"] == "2026-07-15" and d2["week_label"] == "Tuần 29/2026"
 
 
 def test_push_rates_weekly_empty_cache_guarded(monkeypatch):
