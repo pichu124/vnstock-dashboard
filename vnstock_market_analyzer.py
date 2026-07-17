@@ -570,7 +570,9 @@ def market_regime(scores: pd.DataFrame,
 
     return {
         "regime": regime,
-        "conviction": round(avg_comp, 2),
+        # `or 0.0` khử ZERO ÂM: avg_comp ~ -0.001 → round ra -0.0 → format
+        # "+.2f" hiện "conviction -0.00" trên dashboard/brief (lộ 17/07)
+        "conviction": round(avg_comp, 2) or 0.0,
         "bullish": bullish, "bearish": bearish,
         "strong": strong, "weak": weak,
         "detail": detail,
