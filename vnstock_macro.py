@@ -629,6 +629,20 @@ def refresh(*, as_of: "str | None" = None) -> dict:
                 "as_of": sb_as_of,
             }
 
+    # SBV daily (headless-delivery API, tìm ra 17/07): LNH ON/1W THEO NGÀY —
+    # nguồn granularity mịn nhất, chạy SAU 2 nguồn tuần nên as_of mới hơn tự
+    # thắng (guard chống ghi đè ngày cũ giữ nguyên). Tắt: VNSTOCK_MACRO_SBV_DAILY=0.
+    if os.environ.get("VNSTOCK_MACRO_SBV_DAILY", "1") != "0":
+        sd = _fetch_sbv_daily()
+        if sd:
+            for key in ("interbank_on", "interbank_1w"):
+                if sd.get(key) is None:
+                    continue
+                hist = (((cache.get("indicators") or {}).get(key)
+                         or {}).get("history") or {})
+                if not hist or sd["as_of"] >= max(hist):
+                    _record(cache, key, float(sd[key]), sd["as_of"], "sbv_daily")
+
     # Cross-check chất lượng tỷ giá (mượn rule vimovietnam "2 nguồn chênh >2%"):
     # er-api (market ref, daily) vs trung bình mua/bán Vietcombank trong chính
     # PDF VBMA (weekly). Lệch quá _FX_XCHECK_MAX_PCT → CẢNH BÁO (không tự sửa —
@@ -761,6 +775,24 @@ def _fetch_sbv() -> "dict | None":
     try:
         import vnstock_sbv
         return vnstock_sbv.refresh()
+    except Exception:
+        return None
+
+
+def _fetch_sbv_daily() -> "dict | None":
+    """LNH bình quân THEO NGÀY qua vnstock_sbv_rates.refresh() →
+    {interbank_on, interbank_1w, as_of=ngày data}. Mọi lỗi → None."""
+    try:
+        import vnstock_sbv_rates
+        cache = vnstock_sbv_rates.refresh()
+        if not cache:
+            return None
+        day = cache.get("as_of")
+        rates = (cache.get("history") or {}).get(day) or {}
+        if not day or not rates:
+            return None
+        return {"interbank_on": rates.get("on"),
+                "interbank_1w": rates.get("1w"), "as_of": day}
     except Exception:
         return None
 

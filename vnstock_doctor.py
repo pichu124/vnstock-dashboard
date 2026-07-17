@@ -592,6 +592,24 @@ def net_sbv() -> dict:
                    "OMO tạm nhập tay: python vnstock_sbv.py --set-omo <số>")
 
 
+def net_sbv_daily() -> dict:
+    """LNH bình quân THEO NGÀY (headless-delivery API portal SBV)."""
+    name = "SBV daily LNH (mạng)"
+    if os.environ.get("VNSTOCK_SBV_DAILY", "1") == "0":
+        return _result("net_sbv_daily", name, "off", "đã tắt (VNSTOCK_SBV_DAILY=0)")
+    from vnstock_sbv_rates import fetch_daily
+    entries = fetch_daily()
+    if entries:
+        e = entries[0]
+        return _result("net_sbv_daily", name, "ok",
+                       f"fetch OK ({e['date']}): "
+                       + ", ".join(f"{k}={v}" for k, v in sorted(e["rates"].items())))
+    return _result("net_sbv_daily", name, "warn",
+                   "không fetch/parse được LNH ngày (registry vẫn có nguồn tuần)",
+                   "python vnstock_sbv_rates.py --diag — kiểm endpoint "
+                   "headless-delivery / schema contentFields còn đúng")
+
+
 def net_jina() -> dict:
     """Jina Reader (r.jina.ai) — full text cho tin chấm LLM."""
     name = "Jina Reader (mạng)"
@@ -615,8 +633,8 @@ OFFLINE_CHECKS = [
     check_llm_keys, check_llm_ledger, check_telegram, check_tests,
 ]
 NET_CHECKS = [
-    net_rss_feeds, net_fx, net_vbma, net_hnx, net_sbv, net_nso, net_fred,
-    net_foreign_flow_api, net_jina,
+    net_rss_feeds, net_fx, net_vbma, net_hnx, net_sbv, net_sbv_daily,
+    net_nso, net_fred, net_foreign_flow_api, net_jina,
 ]
 
 

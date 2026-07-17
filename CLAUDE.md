@@ -1847,6 +1847,38 @@ ra False = đang chạy code cũ dù đã "pull".
 (`--diag` in URL thử); đổi layout PDF → `--dump-text` gửi lại chỉnh
 `_parse_interbank_table`. Nguồn nào chết → VBMA/FRED vẫn fallback (không gãy).
 
+### 🏦② LNH THEO NGÀY từ portal SBV (DONE 2026-07-17, CHỜ USER VERIFY) — `vnstock_sbv_rates.py`
+
+Trả lời câu user "muốn số liệu luôn cập nhật nhất": truy từ trang
+`sbv.gov.vn/vi/lãi-suất-thị-trường-liên-ngân-hàng` (user gửi URL) bằng chuỗi
+probe (`vnstock_sbv.py --probe` / `--probe-api` — GIỮ LẠI làm công cụ khảo
+sát portal SBV sau này): trang Liferay render khung bảng RỖNG, data đổ bằng
+**headless-delivery API công khai, không key**:
+`/o/headless-delivery/v1.0/content-structures/3450260/structured-contents`
+→ totalCount ~3.100 bài = **~13 NĂM LNH theo NGÀY** (7 kỳ hạn ON→9M +
+doanh số). Trang "Lãi suất NHNN quy định" cùng cơ chế, structure id
+**3450482** (`_STRUCT_POLICY` — schema CHƯA soi; muốn auto sbv_policy_rate
+thì bảo user chạy `vnstock_sbv.py --probe-api ".../content-structures/
+3450482/structured-contents?pageSize=2&sort=datePublished:desc"` rồi wire).
+
+**2 bẫy data thật (test khoá cả 2)**: (a) `ngayApDung` = midnight VN
+serialize `T17:00:00Z` hôm TRƯỚC → `_vn_date` +7h rồi lấy date, không thì
+lệch 1 ngày; (b) kỳ hạn có `footNode` "(*)" = số THAM CHIẾU ngày cũ độn vào
+(9M không có giao dịch) → LOẠI khỏi rates.
+
+Mirror vnstock_hnx: cache `_meta/sbv_daily_rates.json` history 400 ngày
+(percentile "trụ 4" sắp đủ mẫu — có `--backfill N` trang×100 ngày, 1 năm ≈
+3 trang); loaders `load_rates`/`rate_on`; tắt `VNSTOCK_SBV_DAILY=0`. Macro:
+`_fetch_sbv_daily` chạy SAU 2 nguồn tuần, ghi `interbank_on`/`interbank_1w`
+source="sbv_daily" CHỈ khi as_of ≥ max history (recency 17/07 giữ nguyên —
+nguồn ngày tự thắng tuần). Tắt wiring: `VNSTOCK_MACRO_SBV_DAILY=0`. Doctor:
+`net_sbv_daily`. Số thật lúc khảo sát: ON 15/07 = 4.16, 14/07 = 4.18 (khớp
+chiều VBMA 4.28 cuối tuần 10/07 — LNH đang hạ nhiệt).
+
+**⏳ USER VERIFY**: `python vnstock_sbv_rates.py --diag` → 3 ngày gần nhất;
+`python run.py macro` → ON đổi nguồn "sbv_daily" as_of ngày mới nhất, gauge
+thanh khoản tính trên số ngày; tùy chọn `--backfill 3` (1 năm lịch sử).
+
 ### 📄 Báo cáo tuần lãi suất — A + B (DONE 2026-07-16, user chọn "A+B", ý skill baocaolaisuatvatiente)
 
 Skill nguồn là report-generator (fetch 5 nguồn → HTML → Vercel), nhưng

@@ -266,6 +266,108 @@ def test_macro_fetch_hnx_best_effort(monkeypatch):
     assert mac._fetch_sbv() is None
 
 
+# ─── SBV daily (headless-delivery — LNH theo ngày, verify thật 17/07) ────────
+
+import vnstock_sbv_rates as sbvd
+
+
+def _cf(name, data, nested=None):
+    return {"name": name, "contentFieldValue": {"data": data},
+            "nestedContentFields": nested or []}
+
+
+def _tenor_row(thoihan, rate, vol, foot=""):
+    return _cf("laiSuatThiTruongNganHangs", None, [
+        _cf("thoihan", thoihan), _cf("laiSuatBQLienNganHang", rate),
+        _cf("doanhSo", vol), _cf("footNode", foot),
+        _cf("noiDungFootNode", "Tham chiếu ngày 01/7" if foot else ""),
+    ])
+
+
+# Fixture dựng từ JSON THẬT probe-api 17/07 (structure 3450260)
+_SBVD_JSON = {"totalCount": 3112, "items": [
+    {"title": "Lãi suất...", "datePublished": "2026-07-15T21:37:00Z",
+     "contentFields": [
+         _cf("ngayApDung", "2026-07-14T17:00:00Z"), _cf("ghiChu", ""),
+         _tenor_row("Qua đêm", "4,16", "887615"),
+         _tenor_row("1 Tuần", "4,74", "10545"),
+         _tenor_row("9 Tháng", "9,26", "230", foot="(*)"),   # số tham chiếu cũ
+     ]},
+    {"title": "Lãi suất...", "datePublished": "2026-07-14T21:53:00Z",
+     "contentFields": [
+         _cf("ngayApDung", "2026-07-13T17:00:00Z"), _cf("ghiChu", ""),
+         _tenor_row("Qua đêm", "4,18", "890315"),
+         _tenor_row("1 Tuần", "4,78", "14055"),
+     ]},
+]}
+
+
+def test_sbv_daily_vn_date():
+    # midnight VN serialize thành 17:00Z hôm TRƯỚC → phải +7h (bẫy data thật)
+    assert sbvd._vn_date("2026-07-14T17:00:00Z") == "2026-07-15"
+    assert sbvd._vn_date("rác") is None and sbvd._vn_date("") is None
+
+
+def test_sbv_daily_parse_items():
+    entries = sbvd.parse_items(_SBVD_JSON)
+    assert [e["date"] for e in entries] == ["2026-07-15", "2026-07-14"]
+    assert entries[0]["rates"] == {"on": 4.16, "1w": 4.74}   # 9m stale bị LOẠI
+    assert "9m" not in entries[0]["rates"]
+    assert entries[0]["volumes"]["on"] == 887615.0
+    assert entries[1]["rates"]["on"] == 4.18
+    assert sbvd.parse_items({}) == [] and sbvd.parse_items({"items": []}) == []
+
+
+@pytest.fixture()
+def _sbvd_meta(tmp_path, monkeypatch):
+    monkeypatch.setattr(sbvd, "_META", tmp_path)
+    return tmp_path
+
+
+def test_sbv_daily_refresh_merge_prune_loaders(_sbvd_meta, monkeypatch):
+    monkeypatch.setattr(sbvd, "fetch_daily",
+                        lambda **k: sbvd.parse_items(_SBVD_JSON))
+    c = sbvd.refresh()
+    assert c["as_of"] == "2026-07-15" and len(c["history"]) == 2
+    # same-date replace + prune
+    monkeypatch.setattr(sbvd, "_RETAIN_DATES", 2)
+    monkeypatch.setattr(sbvd, "fetch_daily", lambda **k: [
+        {"date": "2026-07-16", "rates": {"on": 4.10}, "volumes": {}}])
+    c2 = sbvd.refresh()
+    assert c2["as_of"] == "2026-07-16" and len(c2["history"]) == 2
+    assert "2026-07-13" not in c2["history"]                 # ngày cũ nhất bị prune
+    # loaders: as_of filter + rate_on
+    assert sbvd.load_rates()[0] == "2026-07-16"
+    assert sbvd.load_rates(as_of="2026-07-15") == ("2026-07-15",
+                                                   {"on": 4.16, "1w": 4.74})
+    assert sbvd.rate_on("on") == 4.10
+    # fetch lỗi → giữ cache cũ, trả None
+    monkeypatch.setattr(sbvd, "fetch_daily", lambda **k: [])
+    assert sbvd.refresh() is None
+    assert sbvd.load_rates()[0] == "2026-07-16"
+
+
+def test_sbv_daily_kill_switch(monkeypatch):
+    monkeypatch.setenv("VNSTOCK_SBV_DAILY", "0")
+    assert sbvd.fetch_page() is None
+
+
+def test_macro_fetch_sbv_daily(monkeypatch):
+    import sys
+    import types
+    import vnstock_macro as mac
+    fake = types.SimpleNamespace(refresh=lambda **k: {
+        "as_of": "2026-07-15",
+        "history": {"2026-07-15": {"on": 4.16, "1w": 4.74}}})
+    monkeypatch.setitem(sys.modules, "vnstock_sbv_rates", fake)
+    got = mac._fetch_sbv_daily()
+    assert got == {"interbank_on": 4.16, "interbank_1w": 4.74,
+                   "as_of": "2026-07-15"}
+    # import lỗi / refresh None → best-effort None
+    monkeypatch.setitem(sys.modules, "vnstock_sbv_rates", None)
+    assert mac._fetch_sbv_daily() is None
+
+
 def test_macro_drop_reading(tmp_path, monkeypatch):
     # cache surgery: xóa entry sai ngày (tàn dư vụ SBV 16-17/07) → registry
     # đọc lại entry đúng còn lại; key lạ → KeyError; ngày không có → False
