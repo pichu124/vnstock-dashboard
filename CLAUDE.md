@@ -1875,9 +1875,13 @@ nguồn ngày tự thắng tuần). Tắt wiring: `VNSTOCK_MACRO_SBV_DAILY=0`. D
 `net_sbv_daily`. Số thật lúc khảo sát: ON 15/07 = 4.16, 14/07 = 4.18 (khớp
 chiều VBMA 4.28 cuối tuần 10/07 — LNH đang hạ nhiệt).
 
-**⏳ USER VERIFY**: `python vnstock_sbv_rates.py --diag` → 3 ngày gần nhất;
-`python run.py macro` → ON đổi nguồn "sbv_daily" as_of ngày mới nhất, gauge
-thanh khoản tính trên số ngày; tùy chọn `--backfill 3` (1 năm lịch sử).
+**✅ VERIFY XONG trên máy user 17/07 — ăn ngay lượt đầu**: `--diag` ra 3
+ngày × 6 kỳ hạn (15/07: on 4.16, 1w 4.74, 1m 7.17…); `run.py macro` registry
+ON **4.16 (nguồn sbv_daily, tính đến 07-15)** + 1W 4.74 sbv_daily, đổi tính
+đúng vs entry VBMA 07-10 (−0.12/−0.18đ%); gauge thanh khoản −0.34 "bình
+thường" trên số NGÀY (trễ ~1 ngày thay vì 1-2 tuần). Còn tùy chọn:
+`--backfill 3` (kéo ~1 năm lịch sử ngày — đủ mẫu percentile trụ 4) + wire
+`sbv_policy_rate` từ structure 3450482 (cần user probe-api trước, xem trên).
 
 ### 📄 Báo cáo tuần lãi suất — A + B (DONE 2026-07-16, user chọn "A+B", ý skill baocaolaisuatvatiente)
 
