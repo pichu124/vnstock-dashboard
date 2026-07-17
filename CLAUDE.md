@@ -1173,12 +1173,18 @@ băng, macro-anchor hijack).
        ~1724 mã (skip-if-done bỏ phần đã tải 21:13), 12 bước về đích,
        doctor cuối sạch → desktop production đồng bộ hoàn chỉnh lần đầu
        với code mới. KHÔNG tắt máy giữa chừng (bệnh 0xC000013A).
-    b. **Verify THẬT của fallback = lần VCI ốm kế tiếp** (chi tiết ở mục
-       ⚡): log "⚡ MỞ MẠCH → chuyển KBS" + "⚡ VCI hồi phục" khi đóng mạch,
-       summary "⚡ Fallback KBS: N mã", run vẫn về đích, kho KHÔNG có bar
-       lệch giá (reconcile từ chối là đúng thiết kế, hiện trong Errors với
-       chữ "lệch"). Nếu thấy từ chối HÀNG LOẠT dù VCI-KBS cùng ngày →
-       nghi lệch adjustment basis diện rộng, xem lại _MAX_DIVERGENCE_PCT.
+    b. **✅ VERIFY XONG NGAY TRONG ĐÊM BUILD (23:01-23:20 17/07 — VCI chết
+       suốt run)**: sau fix nuốt-lỗi (bd43f8a — _fetch_prices cũ `except:
+       pass` làm timeout thành df rỗng, breaker không bao giờ đếm được;
+       user bắt tại trận 22:51), run thật ra ĐỦ kịch bản: "⚡ MỞ MẠCH" đúng
+       phút 3:13 (8 mã đầu phải cạn ~5 lượt tenacity nội bộ vnstock ×30s
+       trước khi lỗi lộ — trễ ~3ph đầu run là BY DESIGN), progress 0→150
+       mã/34s (KBS 0.4s/mã), summary "⚡ Fallback KBS: 1299 mã", Updated
+       1396, KHÔNG mã nào bị từ chối vì "lệch %" (KBS cùng adjustment
+       basis với kho — 1299 mã ghi sạch). 121 Errors = 3 loại lành tính:
+       cả 2 nguồn cùng chết (ASA/BED) · KBS ValueError một số mã (KBS
+       không phục vụ đủ biên) · CCI reconcile từ chối vì KBS thiếu bar
+       đối chiếu (chốt an toàn chạy đúng). Tự lành khi VCI khỏe.
     c. **Probe nguồn tích lũy** (passive): `python vnstock_source_probe.py`
        chạy thêm vài run giờ KHÁC (sáng, giờ giao dịch) — cột "tích lũy"
        mới đo được độ bền; 3 run đầu (tối outage) đã có trong cache.
