@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -157,6 +158,79 @@ def fetch_daily(verbose: bool = False) -> list:
     return parse_items(data) if data else []
 
 
+# ── Lãi suất điều hành (structure 3450482 — probe-api thật 17/07) ───────────
+# totalCount=1: SBV chỉ giữ ĐÚNG 1 item = quyết định hiện hành (thay tại chỗ).
+# ⚠️ BẪY DATA THẬT: field `ngayApDung` ghi SAI THÁNG (2023-03-18T17:00Z =
+# 19/03 VN) trong khi title "19-06-2023" + QĐ "1123/QĐ-NHNN ngày 16/06/2023"
+# → ngày hiệu lực đúng là 19/06/2023. Parser ưu tiên NGÀY TRONG TITLE
+# (dd-MM-yyyy), fallback ngayApDung.
+
+_POLICY_KINDS = {
+    "tái cấp vốn": "refinancing",            # → registry sbv_policy_rate
+    "tái chiết khấu": "discount",            # display-only (ngoài registry 13)
+}
+
+
+def _title_date(title: str) -> Optional[str]:
+    """'19-06-2023' (title item điều hành) → '2023-06-19'."""
+    m = None
+    for m in re.finditer(r"\b(\d{1,2})-(\d{1,2})-(\d{4})\b", title or ""):
+        pass                                  # lấy match CUỐI nếu có nhiều
+    if not m:
+        return None
+    d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    try:
+        return datetime(y, mo, d).date().isoformat()
+    except ValueError:
+        return None
+
+
+def parse_policy_items(data: dict) -> "dict | None":
+    """JSON structure 3450482 → {as_of, refinancing, discount, decision}.
+    None khi không parse được. Giá trị '4,500%' = 4.5 (phẩy thập phân)."""
+    for it in (data or {}).get("items") or []:
+        as_of = _title_date(it.get("title") or "")
+        out: dict = {}
+        for cf in it.get("contentFields") or []:
+            name = cf.get("name")
+            if name == "ngayApDung" and not as_of:
+                as_of = _vn_date((cf.get("contentFieldValue") or {}).get("data"))
+            elif name == "banglaiSuats":
+                row = {nf.get("name"): (nf.get("contentFieldValue") or {}).get("data")
+                       for nf in cf.get("nestedContentFields") or []}
+                loai = str(row.get("loaiLaiSuat") or "").lower()
+                key = next((v for k, v in _POLICY_KINDS.items() if k in loai), None)
+                if not key:
+                    continue
+                v = _num(str(row.get("giaTri") or "").rstrip("%").strip())
+                if v is not None and 0.1 <= v <= 20:
+                    out[key] = round(v, 3)
+                    if row.get("vanBanQuyetDinh"):
+                        out.setdefault("decision", str(row["vanBanQuyetDinh"]))
+        if as_of and out.get("refinancing") is not None:
+            out["as_of"] = as_of
+            return out
+    return None
+
+
+def refresh_policy(verbose: bool = False) -> "dict | None":
+    """Fetch + parse lãi suất điều hành → ghi vào cache dưới key 'policy'.
+    Best-effort: lỗi → GIỮ cache cũ, trả None."""
+    data = fetch_page(size=5, sid=_STRUCT_POLICY, verbose=verbose)
+    parsed = parse_policy_items(data) if data else None
+    if not parsed:
+        return None
+    cache = _load_cache()
+    cache["policy"] = parsed
+    _save_cache(cache)
+    return parsed
+
+
+def load_policy() -> "dict | None":
+    """{as_of, refinancing, discount, decision} từ cache. Zero fetch."""
+    return _load_cache().get("policy") or None
+
+
 # ── Cache + refresh + loaders ───────────────────────────────────────────────
 
 def _load_cache() -> dict:
@@ -252,7 +326,20 @@ def main(argv=None) -> int:
                     help="thử fetch 1 lần (verbose) — chạy trên máy có mạng")
     ap.add_argument("--backfill", type=int, metavar="N_TRANG",
                     help="kéo lịch sử N trang × 100 ngày (1 năm ≈ 3 trang)")
+    ap.add_argument("--policy", action="store_true",
+                    help="fetch lãi suất điều hành (structure 3450482) → cache")
     args = ap.parse_args(argv)
+
+    if args.policy:
+        p = refresh_policy(verbose=True)
+        if p:
+            print(f"✅ Điều hành (hiệu lực {p['as_of']}, {p.get('decision', '?')}): "
+                  f"tái cấp vốn {p.get('refinancing')}%"
+                  + (f", tái chiết khấu {p.get('discount')}%"
+                     if p.get("discount") is not None else ""))
+        else:
+            print("⚠️ không fetch/parse được lãi suất điều hành.")
+        return 0 if p else 1
 
     if args.diag:
         print(f"[sbv-daily] GET {_API.format(sid=_STRUCT_INTERBANK, size=3, page=1)}")
@@ -289,6 +376,10 @@ def main(argv=None) -> int:
         for k in ("on", "1w", "2w", "1m", "3m", "6m", "9m"):
             if k in rates:
                 print(f"  {k:>3}: {rates[k]}%/năm")
+        pol = load_policy()
+        if pol:
+            print(f"  Điều hành (hiệu lực {pol['as_of']}): tái cấp vốn "
+                  f"{pol.get('refinancing')}%")
     return 0
 
 

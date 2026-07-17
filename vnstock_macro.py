@@ -642,6 +642,17 @@ def refresh(*, as_of: "str | None" = None) -> dict:
                          or {}).get("history") or {})
                 if not hist or sd["as_of"] >= max(hist):
                     _record(cache, key, float(sd[key]), sd["as_of"], "sbv_daily")
+        # Lãi suất điều hành từ CÙNG portal (structure 3450482) — hết nhập tay.
+        # SBV chỉ giữ 1 item = quyết định hiện hành; đổi vài lần/năm nên fetch
+        # cùng nhịp là quá đủ. Guard as_of ≥ max(hist): --set tay ngày mới hơn
+        # vẫn thắng (không clobber chủ đích của user).
+        sp = _fetch_sbv_policy()
+        if sp:
+            hist = (((cache.get("indicators") or {}).get("sbv_policy_rate")
+                     or {}).get("history") or {})
+            if not hist or sp["as_of"] >= max(hist):
+                _record(cache, "sbv_policy_rate", float(sp["refinancing"]),
+                        sp["as_of"], "sbv_portal")
 
     # Cross-check chất lượng tỷ giá (mượn rule vimovietnam "2 nguồn chênh >2%"):
     # er-api (market ref, daily) vs trung bình mua/bán Vietcombank trong chính
@@ -793,6 +804,16 @@ def _fetch_sbv_daily() -> "dict | None":
             return None
         return {"interbank_on": rates.get("on"),
                 "interbank_1w": rates.get("1w"), "as_of": day}
+    except Exception:
+        return None
+
+
+def _fetch_sbv_policy() -> "dict | None":
+    """Lãi suất điều hành từ portal SBV (structure 3450482) →
+    {as_of, refinancing, discount, decision}. Mọi lỗi → None."""
+    try:
+        import vnstock_sbv_rates
+        return vnstock_sbv_rates.refresh_policy()
     except Exception:
         return None
 

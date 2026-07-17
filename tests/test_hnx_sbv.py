@@ -352,6 +352,68 @@ def test_sbv_daily_kill_switch(monkeypatch):
     assert sbvd.fetch_page() is None
 
 
+def _policy_row(loai, gia_tri, qd="1123/QĐ-NHNN ngày 16/06/2023"):
+    return _cf("banglaiSuats", None, [
+        _cf("loaiLaiSuat", loai), _cf("giaTri", gia_tri),
+        _cf("vanBanQuyetDinh", qd),
+    ])
+
+
+# Fixture từ JSON THẬT probe-api 3450482 (17/07) — ngayApDung SAI THÁNG
+# (2023-03-18T17:00Z = 19/03 VN) trong khi title "19-06-2023" mới đúng.
+_SBVD_POLICY_JSON = {"totalCount": 1, "items": [{
+    "title": "19-06-2023", "datePublished": "2025-10-26T18:37:00Z",
+    "contentFields": [
+        _cf("ngayApDung", "2023-03-18T17:00:00Z"),
+        _policy_row("Lãi suất tái chiết khấu", "3,000%"),
+        _policy_row("Lãi suất tái cấp vốn", "4,500%"),
+    ]}]}
+
+
+def test_sbv_policy_parse_title_wins_over_wrong_ngayapdung():
+    p = sbvd.parse_policy_items(_SBVD_POLICY_JSON)
+    assert p["as_of"] == "2023-06-19"            # title thắng field sai tháng
+    assert p["refinancing"] == 4.5 and p["discount"] == 3.0   # '4,500%' = 4.5
+    assert "1123/QĐ-NHNN" in p["decision"]
+
+
+def test_sbv_policy_fallback_ngayapdung_when_title_unparseable():
+    bad = json.loads(json.dumps(_SBVD_POLICY_JSON))
+    bad["items"][0]["title"] = "Lãi suất NHNN quy định"
+    p = sbvd.parse_policy_items(bad)
+    assert p["as_of"] == "2023-03-19"            # fallback +7h từ ngayApDung
+    # thiếu tái cấp vốn → None (refinancing là trường bắt buộc cho registry)
+    bad["items"][0]["contentFields"] = [
+        _cf("ngayApDung", "2023-03-18T17:00:00Z"),
+        _policy_row("Lãi suất tái chiết khấu", "3,000%"),
+    ]
+    assert sbvd.parse_policy_items(bad) is None
+
+
+def test_sbv_policy_refresh_and_loader(_sbvd_meta, monkeypatch):
+    monkeypatch.setattr(sbvd, "fetch_page",
+                        lambda **k: _SBVD_POLICY_JSON)
+    p = sbvd.refresh_policy()
+    assert p["refinancing"] == 4.5
+    assert sbvd.load_policy()["as_of"] == "2023-06-19"
+    # fetch lỗi → giữ cache cũ, trả None
+    monkeypatch.setattr(sbvd, "fetch_page", lambda **k: None)
+    assert sbvd.refresh_policy() is None
+    assert sbvd.load_policy()["refinancing"] == 4.5
+
+
+def test_macro_fetch_sbv_policy(monkeypatch):
+    import sys
+    import types
+    import vnstock_macro as mac
+    fake = types.SimpleNamespace(refresh_policy=lambda **k: {
+        "as_of": "2023-06-19", "refinancing": 4.5, "discount": 3.0})
+    monkeypatch.setitem(sys.modules, "vnstock_sbv_rates", fake)
+    assert mac._fetch_sbv_policy()["refinancing"] == 4.5
+    monkeypatch.setitem(sys.modules, "vnstock_sbv_rates", None)
+    assert mac._fetch_sbv_policy() is None
+
+
 def test_macro_fetch_sbv_daily(monkeypatch):
     import sys
     import types

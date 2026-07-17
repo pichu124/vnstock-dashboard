@@ -1882,8 +1882,22 @@ ON **4.16 (nguồn sbv_daily, tính đến 07-15)** + 1W 4.74 sbv_daily, đổi 
 thường" trên số NGÀY (trễ ~1 ngày thay vì 1-2 tuần). `--backfill 3` cũng
 đã chạy (17/07): **300 ngày ON→9M trong cache** — mẫu percentile lịch sử
 ("trụ 4" VnBondLab) coi như ĐỦ, khi nào nâng gauge thanh khoản từ band tĩnh
-sang percentile thì data có sẵn. Còn để dành: wire `sbv_policy_rate` từ
-structure 3450482 (cần user probe-api trước, xem trên).
+sang percentile thì data có sẵn.
+
+**Lãi suất điều hành AUTO (DONE 2026-07-17, wire từ probe-api 3450482)**:
+`parse_policy_items`/`refresh_policy`/`load_policy` trong vnstock_sbv_rates —
+structure 3450482 totalCount=1 (SBV thay item tại chỗ = quyết định hiện
+hành). **BẪY DATA THẬT (test khoá)**: field `ngayApDung` ghi SAI THÁNG
+(2023-03-18T17:00Z = 19/03 VN) trong khi title "19-06-2023" + QĐ 1123 ngày
+16/06/2023 → parser ưu tiên NGÀY TRONG TITLE, fallback ngayApDung. Giá trị
+"4,500%" = 4.5 (phẩy thập phân). Macro: `_fetch_sbv_policy` cùng block
+sbv_daily → registry `sbv_policy_rate` source="sbv_portal" với guard as_of ≥
+max(hist) — `--set` tay ngày mới hơn vẫn thắng. Tái chiết khấu (3.0) lưu
+trong cache["policy"] display-only (ngoài registry 13). CLI:
+`python vnstock_sbv_rates.py --policy`. ⏳ verify: `run.py macro` → dòng
+"Lãi suất tái cấp vốn (SBV): 4.50%/năm … nguồn sbv_portal" (giá trị y cũ —
+đổi NHÃN từ manual sang auto; từ nay SBV đổi lãi suất là registry tự cập
+nhật trong ngày, hết nhập tay).
 
 ### 📄 Báo cáo tuần lãi suất — A + B (DONE 2026-07-16, user chọn "A+B", ý skill baocaolaisuatvatiente)
 
