@@ -268,13 +268,20 @@ def _fetch_prices(ticker: str, start: str, end: str) -> pd.DataFrame:
     Fetch OHLCV từ vnstock API (nguồn CHÍNH — VCI qua sponsor shim).
     start/end: 'YYYY-MM-DD'
     Trả về DataFrame với cột: time(date), open, high, low, close, volume
+
+    LỖI PHẢI LỘ RA NGOÀI (fix 22:55 17/07 — user bắt tại trận): bản cũ
+    `except: pass` NUỐT timeout → trả df RỖNG → update_ticker tưởng
+    "no_new_data" → breaker được báo OK → fallback KHÔNG BAO GIỜ kích dù
+    VCI chết cả tối. Nay: cả 2 nấc đều lỗi VÀ không có data → raise lỗi
+    cuối cùng (breaker đếm được, fallback KBS kích được); API trả rỗng
+    THẬT không kèm lỗi (mã hủy niêm yết…) vẫn ra df rỗng như cũ.
     """
-    df = None
+    df, last_exc = None, None
     try:
         ensure_api_key()
         df = get_vnstock(ticker).quote.history(start=start, end=end, interval="1D")
-    except Exception:
-        pass
+    except Exception as e:
+        last_exc = e
 
     # Fallback: try Quote directly (works on some vnstock versions)
     if df is None or (hasattr(df, 'empty') and df.empty):
@@ -285,8 +292,11 @@ def _fetch_prices(ticker: str, start: str, end: str) -> pd.DataFrame:
                 from vnstock import Quote  # type: ignore
             q = Quote(source="VCI", symbol=ticker)
             df = q.history(start=start, end=end, interval="1D")
-        except Exception:
-            pass
+        except Exception as e:
+            last_exc = e
+
+    if (df is None or (hasattr(df, "empty") and df.empty)) and last_exc is not None:
+        raise RuntimeError(f"{type(last_exc).__name__}: {last_exc}")
 
     return _normalize_price_df(df)
 

@@ -178,6 +178,51 @@ def test_update_ticker_kill_switch_keeps_old_behavior(tmp_path, monkeypatch):
     assert r["status"] == "error" and called["fb"] == 0
 
 
+def test_fetch_prices_raises_instead_of_swallowing_outage(monkeypatch):
+    # BUG BẮT TẠI TRẬN 22:51 17/07: _fetch_prices cũ `except: pass` nuốt
+    # timeout → trả df RỖNG → breaker được báo OK → fallback không bao giờ
+    # kích dù VCI chết. Nay cả 2 nấc lỗi + không data → PHẢI raise.
+    import sys
+    import types
+    up = _updater_or_skip()
+
+    def _boom(*a, **k):
+        raise RuntimeError("HTTPSConnectionPool: Read timed out. (read timeout=30)")
+
+    monkeypatch.setattr(up, "ensure_api_key", lambda: None)
+    monkeypatch.setattr(up, "get_vnstock",
+                        lambda t: (_ for _ in ()).throw(RuntimeError("Read timed out")))
+
+    class _Q:
+        def __init__(self, **k):
+            pass
+
+        def history(self, **k):
+            _boom()
+
+    monkeypatch.setitem(sys.modules, "vnstock.api.quote",
+                        types.SimpleNamespace(Quote=_Q))
+    with pytest.raises(RuntimeError, match="timed out"):
+        up._fetch_prices("FPT", "2026-07-10", "2026-07-17")
+
+    # API trả RỖNG THẬT không kèm lỗi (mã hủy niêm yết) → vẫn df rỗng, KHÔNG raise
+    shim = types.SimpleNamespace(quote=types.SimpleNamespace(
+        history=lambda **k: pd.DataFrame()))
+    monkeypatch.setattr(up, "get_vnstock", lambda t: shim)
+
+    class _QEmpty:
+        def __init__(self, **k):
+            pass
+
+        def history(self, **k):
+            return pd.DataFrame()
+
+    monkeypatch.setitem(sys.modules, "vnstock.api.quote",
+                        types.SimpleNamespace(Quote=_QEmpty))
+    out = up._fetch_prices("XXX", "2026-07-10", "2026-07-17")
+    assert out.empty
+
+
 def test_update_ticker_breaker_opens_and_skips_primary(tmp_path, monkeypatch):
     up = _updater_or_skip()
     prices_dir, _ = _seed_warehouse(tmp_path)
