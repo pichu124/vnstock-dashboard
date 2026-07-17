@@ -1780,6 +1780,25 @@ bài tuần 06-10.7.2026, parse ĐÚNG từ bảng (ON 5.21/1T 5.57/2T 6.13/1M
 7.32) sau fix calibrate; macro `--show`: 2Y/10Y source="hnx" ngày 07-16,
 LNH ON source="sbv". Nguồn 1+2+3 CHẠY THẬT.
 
+**🔎 VỤ CACHE SBV NHIỄM SỐ SAI (16-17/07, đã fix + chờ user chạy lại)**:
+`--show` cache ra {ON 4.26, 1W 7.34, 2W 7.76, 1M 7.32} trong khi `--diag`
+CÙNG LÚC parse đúng {5.21, 5.57, 6.13, 7.32} → fetch+parse hiện tại ĐÚNG,
+cache bị ghi bẩn bởi lượt refresh trước. **Root cause**: `_SBV_TITLE_SLUGS`
+từng có slug fallback thứ 2 "thông-tin-hoạt-động-ngân-hàng-trong-tuần-từ" =
+BẢN TIN KHÁC (hoạt động NH — lãi suất huy động/cho vay) cũng có dòng
+'VND <số> <số>…' → khi bài FX/LNH fail tạm (nghi WAF SBV vì gọi dồn dập —
+cùng phiên có lần `--refresh` trả "không có data"), fetch rơi xuống bài này
+và bảng huy động parse thành LNH (4.26/7.34/7.76 = số huy động). **Fix 3
+lớp (17/07)**: (1) GỠ slug #2 — chỉ còn bài FX/LNH đã verify; (2) gate
+header trong `_parse_interbank_table` — dòng VND chỉ nhận khi ~250 ký tự
+trước có "Qua đêm" (header bảng LNH; bảng tiền gửi không có); (3)
+`_REQUEST_GAP_S=2.0` giãn cách giữa các request SBV (mirror sleep_s=3 "WAF
+avoidance" của repo gốc). Tests: `test_sbv_table_requires_interbank_header`
++ `test_sbv_single_slug_fx_interbank_only`. **USER CẦN CHẠY LẠI** (sau git
+pull): `python vnstock_sbv.py --refresh` (đè cache bẩn bằng số đúng) →
+`python run.py macro` → kỳ vọng registry "LNH ON: 5.21%/năm (nguồn sbv)"
++ cờ divergence vs VBMA 4.28.
+
 **⏰ CÒN NỢ — QUYẾT ĐỊNH THIẾT KẾ (user chưa chốt)**: LNH ON có 2 nguồn
 lệch — SBV 5.21 (TB TUẦN, official) vs VBMA 4.28 (điểm cuối tuần, "current"
 hơn); chênh 19.6% → cờ divergence bật. Hiện `resolve_interbank_on` ƯU TIÊN

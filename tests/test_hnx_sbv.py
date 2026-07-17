@@ -136,6 +136,25 @@ def test_sbv_table_ignores_transaction_volume_line():
         "doanh số bằng VND đạt 4.428.576 tỷ đồng, bình quân 885.715 tỷ") is None
 
 
+def test_sbv_table_requires_interbank_header():
+    # REGRESSION cache nhiễm 16/07: bản tin SBV KHÁC (huy động/cho vay) cũng có
+    # dòng 'VND <số>…' nhưng header là kỳ hạn TIỀN GỬI, không có 'Qua đêm'
+    # → phải bị loại (trước đây parse ra 4,26/7,34/7,76 đè cache).
+    deposit_style = ("Lãi suất huy động bình quân\n"
+                     " Không kỳ hạn 1 tháng 3 tháng 6 tháng 12 tháng\n"
+                     "VND 4,26 7,34 7,76 7,32 8,10\n")
+    assert sbv._parse_interbank_table(deposit_style) is None
+    assert sbv.parse_sbv_text(deposit_style).overnight is None
+    # bảng LNH thật (có header 'Qua đêm') vẫn parse bình thường
+    assert sbv._parse_interbank_table(_SBV_REAL) == (5.21, 5.57, 6.13, 7.32)
+
+
+def test_sbv_single_slug_fx_interbank_only():
+    # slug bản tin 'thông tin hoạt động ngân hàng' đã GỠ (nguồn nhiễm cache)
+    assert len(sbv._SBV_TITLE_SLUGS) == 1
+    assert "liên-ngân-hàng" in sbv._SBV_TITLE_SLUGS[0]
+
+
 def test_sbv_resolve_interbank():
     assert sbv.resolve_interbank_on(4.28, 4.30) == (4.28, "sbv", False)
     v, s, d = sbv.resolve_interbank_on(4.28, 6.00)
@@ -317,6 +336,7 @@ def test_sbv_fetch_weekly_date_constructed(monkeypatch):
 
     monkeypatch.setattr(requests, "get", fake_get)
     monkeypatch.setattr("vnstock_vbma.pdf_to_text", lambda d: _SBV_REAL)
+    monkeypatch.setattr(sbv, "_REQUEST_GAP_S", 0)     # test không ngủ né WAF
     r = sbv.fetch_weekly()
     assert r is not None and r.overnight == 5.21 and r.one_month == 7.32
     assert any("/w/" in u for u in tried) and any("/documents/" in u for u in tried)
@@ -329,4 +349,5 @@ def test_sbv_fetch_weekly_all_404_returns_none(monkeypatch):
         status_code, text, content = 404, "", b""
 
     monkeypatch.setattr(requests, "get", lambda url, **k: _R())
+    monkeypatch.setattr(sbv, "_REQUEST_GAP_S", 0)
     assert sbv.fetch_weekly(weeks_back=2) is None       # không bài nào → None sạch

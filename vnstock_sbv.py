@@ -72,23 +72,28 @@ def _parse_interbank_table(text: str) -> "tuple | None":
     """Bảng lãi suất bình quân LNH cuối bản tin — dòng 'VND <ON> <1T> <2T>
     <1 tháng> …' (cột theo header Qua đêm|1 tuần|2 tuần|1 tháng|3 tháng…).
     Trả (ON, 1W, 2W, 1M) hoặc None. Đây là NGUỒN CHÍNH (câu tường thuật
-    'giảm 0,03%/năm' là mức THAY ĐỔI / là USD — KHÔNG lấy)."""
+    'giảm 0,03%/năm' là mức THAY ĐỔI / là USD — KHÔNG lấy).
+
+    GATE HEADER (fix 17/07 sau vụ cache nhiễm 4.26/7.34/7.76): dòng VND chỉ
+    được nhận khi ~250 ký tự TRƯỚC nó có header bảng LNH 'Qua đêm' — bản tin
+    SBV KHÁC (huy động/cho vay) cũng có dòng 'VND <số> <số>…' nhưng cột là
+    kỳ hạn tiền gửi, không phải LNH → không được lọt."""
     # "VND" theo sau NGAY bởi ≥4 token lãi suất (a,bc) hoặc "-" — phân biệt với
     # văn xuôi "bằng VND đạt 4.428.576 tỷ" (sau VND là chữ, không phải token số).
-    m = re.search(r"\bVND\b[ \t]+((?:(?:\d{1,2},\d{1,2}|-)[ \t]*){4,})", text)
-    if not m:
-        return None
-    toks = re.findall(r"\d{1,2},\d{1,2}|-", m.group(1))
-    vals = [None if t == "-" else float(t.replace(",", ".")) for t in toks]
-    if len(vals) < 4:
-        return None
-    on, w1, w2, m1 = vals[0], vals[1], vals[2], vals[3]
+    for m in re.finditer(r"\bVND\b[ \t]+((?:(?:\d{1,2},\d{1,2}|-)[ \t]*){4,})", text):
+        if "qua đêm" not in text[max(0, m.start() - 250):m.start()].lower():
+            continue                        # dòng VND không thuộc bảng LNH
+        toks = re.findall(r"\d{1,2},\d{1,2}|-", m.group(1))
+        vals = [None if t == "-" else float(t.replace(",", ".")) for t in toks]
+        if len(vals) < 4:
+            continue
+        on, w1, w2, m1 = vals[0], vals[1], vals[2], vals[3]
 
-    def _ok(v):
-        return v is None or (0.1 <= v <= 20)
-    if not all(_ok(v) for v in (on, w1, w2, m1)):
-        return None
-    return on, w1, w2, m1
+        def _ok(v):
+            return v is None or (0.1 <= v <= 20)
+        if all(_ok(v) for v in (on, w1, w2, m1)):
+            return on, w1, w2, m1
+    return None
 
 
 def parse_sbv_text(text: str) -> SBVWeekly:
@@ -162,11 +167,19 @@ _SBV_HEADERS = {
 # Trang LISTING render bài qua JS (verify 16/07: HTML tĩnh chỉ có 1 link
 # /vi/trang-chu) → KHÔNG scrape được. Thay bằng DỰNG URL bài TỪ NGÀY tuần
 # (mirror repo gốc): slug = "<tiêu-đề>-<DD>-<DD>.<M>.<YYYY>" (ngày zero-pad,
-# THÁNG không pad). Tiêu đề là ứng viên (SBV có thể đổi) → thử nhiều biến thể.
+# THÁNG không pad).
+# ⚠️ CHỈ 1 slug — bài FX/LNH đã verify thật 16/07. Slug fallback cũ
+# "thông-tin-hoạt-động-ngân-hàng-trong-tuần-từ" ĐÃ GỠ (17/07): đó là BẢN TIN
+# KHÁC (hoạt động NH — lãi suất huy động/cho vay) cũng có dòng 'VND <số>…'
+# → khi bài FX/LNH fail tạm (WAF) fetch rơi xuống bài này và parse ra số SAI
+# (cache nhiễm 4.26/7.34/7.76 ngày 16/07). SBV đổi tiêu đề bài FX/LNH → toàn
+# 404: mở 1 bài tuần thật trên trình duyệt, copy URL, cập nhật slug ở đây.
 _SBV_TITLE_SLUGS = (
     "diễn-biến-thị-trường-ngoại-tệ-và-thị-trường-liên-ngân-hàng-tuần-từ",
-    "thông-tin-hoạt-động-ngân-hàng-trong-tuần-từ",
 )
+# Giãn cách giữa các request tới SBV (repo gốc dùng sleep 3s "WAF avoidance" —
+# nghi là nguyên nhân các lần fetch fail tạm khi gọi dồn dập cùng ngày).
+_REQUEST_GAP_S = 2.0
 # PDF nhúng trong BÀI (server-render): /documents/.../<file>.pdf/<uuid>?...
 _SBV_PDF_RE = re.compile(r'(?:src|href)="(/documents/\d+/[^"]+\.pdf/[^"]*)"', re.I)
 
@@ -194,13 +207,18 @@ def _fetch_pdf_text(verbose: bool = False, weeks_back: int = 5) -> "str | None":
         from vnstock_vbma import pdf_to_text
     except Exception:
         return None
+    import time
     from datetime import timedelta
     today = datetime.now().date()
     this_monday = today - timedelta(days=today.weekday())
+    attempts = 0
     for back in range(1, max(2, weeks_back) + 1):
         monday = this_monday - timedelta(weeks=back)
         friday = monday + timedelta(days=4)
         for url in _candidate_article_urls(monday, friday):
+            if attempts and _REQUEST_GAP_S > 0:      # giãn cách né WAF SBV
+                time.sleep(_REQUEST_GAP_S)
+            attempts += 1
             try:
                 resp = requests.get(url, headers=_SBV_HEADERS, timeout=30)
             except Exception as e:
