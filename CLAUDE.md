@@ -1894,10 +1894,14 @@ hành). **BẪY DATA THẬT (test khoá)**: field `ngayApDung` ghi SAI THÁNG
 sbv_daily → registry `sbv_policy_rate` source="sbv_portal" với guard as_of ≥
 max(hist) — `--set` tay ngày mới hơn vẫn thắng. Tái chiết khấu (3.0) lưu
 trong cache["policy"] display-only (ngoài registry 13). CLI:
-`python vnstock_sbv_rates.py --policy`. ⏳ verify: `run.py macro` → dòng
-"Lãi suất tái cấp vốn (SBV): 4.50%/năm … nguồn sbv_portal" (giá trị y cũ —
-đổi NHÃN từ manual sang auto; từ nay SBV đổi lãi suất là registry tự cập
-nhật trong ngày, hết nhập tay).
+`python vnstock_sbv_rates.py --policy`. **✅ VERIFY XONG trên máy user
+17/07**: `--policy` ra đúng (hiệu lực 2023-06-19, QĐ 1123, 4.5/3.0); registry
+có entry manual 2026-06-15 (--set tay tháng 6, ngày gõ lệnh ≠ ngày hiệu lực)
+chặn guard đúng thiết kế → dọn bằng `--drop sbv_policy_rate 2026-06-15` →
+`run.py macro` ra "4.50%/năm (tính đến **2023-06-19, nguồn sbv_portal**)".
+Từ nay SBV đổi lãi suất điều hành là registry + 2 gauge tự cập nhật trong
+pipeline tối — TOÀN BỘ 13 chỉ số registry đã AUTO (PMI còn --set mùng 1-2
+nhưng có fallback RSS).
 
 ### 📄 Báo cáo tuần lãi suất — A + B (DONE 2026-07-16, user chọn "A+B", ý skill baocaolaisuatvatiente)
 
