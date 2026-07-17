@@ -681,6 +681,7 @@ def cmd_test(args) -> int:
             "tests/test_market_analyzer.py",
             "tests/test_source_probe.py",
             "tests/test_price_fallback.py",
+            "tests/test_run_pipeline.py",
         ]
     else:
         test_paths = ["tests/"]
@@ -941,11 +942,13 @@ def cmd_news(args) -> int:
     return 0
 
 
-def cmd_all(args) -> int:
-    """sync → validate → screener → news → foreign-flow → macro → allocation
-    → test → audit → doctor. Stops on first hard failure. The trailing doctor
-    pass is offline-only and just refreshes doctor_status.json so the sidebar
-    badge stays current."""
+def _all_steps(args) -> "list[tuple[str, object]]":
+    """Danh sách bước của `run.py all` — tách riêng để test được.
+
+    ``--no-sync`` (nút "Cập nhật còn lại" trên dashboard): bỏ bước sync kho
+    giá ~1724 mã (nặng nhất, ~18ph/bị VCI outage kéo dài) VÀ validate (gác
+    contract cho dữ liệu sync vừa ghi — không sync thì không có gì mới để
+    gác); mọi bước còn lại giữ NGUYÊN thứ tự pipeline đêm."""
     steps: list[tuple[str, object]] = [
         ("sync",         cmd_sync),
         ("validate",     cmd_validate),
@@ -962,6 +965,20 @@ def cmd_all(args) -> int:
     # Insert news after screener unless the caller opts out
     if not getattr(args, "no_news", False):
         steps.insert(3, ("news", cmd_news))
+    if getattr(args, "no_sync", False):
+        steps = [s for s in steps if s[0] not in ("sync", "validate")]
+    return steps
+
+
+def cmd_all(args) -> int:
+    """sync → validate → screener → news → foreign-flow → macro → allocation
+    → test → audit → doctor. Stops on first hard failure. The trailing doctor
+    pass is offline-only and just refreshes doctor_status.json so the sidebar
+    badge stays current."""
+    steps = _all_steps(args)
+    if getattr(args, "no_sync", False):
+        print("[run.py] --no-sync: bỏ bước sync kho giá + validate — chạy "
+              f"{len(steps)} bước còn lại")
 
     for name, fn in steps:
         print(f"\n=== run.py all :: {name} ===")
@@ -1177,6 +1194,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     all_ = sub.add_parser(
         "all", help="sync → validate → screener → news → test → audit → doctor")
+    all_.add_argument("--no-sync", action="store_true",
+                      help="Bỏ bước sync kho giá ~1724 mã (+validate) — chạy "
+                           "phần còn lại (nút 'Cập nhật còn lại' trên dashboard)")
     all_.add_argument("--lookback", type=int, default=60)
     all_.add_argument("--llm", action="store_true")
     all_.add_argument("--auditor", choices=["auto", "claude", "gpt", "null"],

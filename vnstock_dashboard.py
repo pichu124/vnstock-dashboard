@@ -3638,7 +3638,7 @@ with _update_col:
                 "`vnstock_data.json` → `run.py news` → `run.py macro`.\n\n"
                 "Nếu API báo rate-limit, giảm `--workers` (vd 4).\n\n"
                 "**Dùng khi:** muốn xem data ngày mới nhất (sau giờ giao dịch).\n\n"
-                "Sau khi PowerShell xong, bấm **🔄 Refresh Screener** hoặc F5 "
+                "Sau khi PowerShell xong, bấm **Refresh** hoặc F5 "
                 "để dashboard đọc dữ liệu mới.\n\n"
                 "Ẩn dụ: *tổ chức thêm trận đấu + in tờ báo mới*."
             ),
@@ -3656,48 +3656,53 @@ with _update_col:
             if _is_win:
                 st.success(
                     "✅ Đã mở cửa sổ PowerShell chạy updater + screener.\n\n"
-                    "Theo dõi tiến độ trong cửa sổ mới. Khi xong, bấm **🔄 Refresh Screener** "
+                    "Theo dõi tiến độ trong cửa sổ mới. Khi xong, bấm **Refresh** "
                     "hoặc F5 để dashboard load dữ liệu mới."
                 )
             else:
                 st.info(
                     f"🔄 Updater đang chạy nền. Log: `{_log}`\n\n"
-                    "Khi xong, bấm **🔄 Refresh Screener**."
+                    "Khi xong, bấm **Refresh** để load dữ liệu mới."
                 )
     with _uc2:
         if st.button(
-            "🔄 Refresh Screener",
-            key="run_screener",
+            "🧩 Cập nhật còn lại",
+            key="run_all_no_sync",
             use_container_width=True,
             help=(
-                "**Tính lại screener từ warehouse** (~1-2 phút).\n\n"
-                "Chạy `vnstock_runner.py` để đọc lại parquet trong "
-                "`data_warehouse/prices/`, tính lại preset/RSI/MACD/BB%... "
-                "rồi ghi đè `vnstock_data.json`.\n\n"
-                "KHÔNG tải giá mới từ API.\n\n"
-                "**Dùng khi:**\n"
-                "- Vừa sửa code logic screener (vd: đổi ngưỡng RSI).\n"
-                "- Warehouse vừa có giá mới mà muốn tính lại screener "
-                "(ít dùng, vì nút Cập nhật giá đã tự làm bước này).\n\n"
-                "Ẩn dụ: *toà soạn in lại báo với số liệu hiện có*."
+                "**Chạy pipeline `run.py all --no-sync`** — toàn bộ 12 bước "
+                "TRỪ kho giá parquet ~1.724 mã (~5-10 phút thay vì 30-40):\n"
+                "- Screener + market_overview (nguồn của brief/breadth/dòng "
+                "tiền ngành)\n"
+                "- Tin tức + sentiment\n"
+                "- NN ròng full-market (foreign-flow)\n"
+                "- Vĩ mô 13 chỉ số (FX/LNH ngày/HNX/FRED/NSO/policy)\n"
+                "- Gold, allocation band, scorecard\n"
+                "- Test badge, audit/reconcile rec, reflection, doctor badge\n\n"
+                "**Dùng khi:** kho giá đã tươi (vừa bấm 📥 Cập nhật giá / "
+                "pipeline đêm đã sync) mà muốn làm mới mọi thứ CÒN LẠI; hoặc "
+                "VCI outage không tải được giá nhưng vẫn muốn tin/vĩ mô/band "
+                "mới nhất.\n\n"
+                "Ẩn dụ: *toà soạn làm mọi việc trừ đi lấy bảng giá*."
             ),
         ):
             _is_win, _log = launch_in_new_console(
                 commands=[
-                    {"label": "Refresh Screener", "args": ["vnstock_runner.py"]},
+                    {"label": "Cap nhat con lai (all --no-sync)",
+                     "args": ["run.py", "all", "--no-sync"]},
                 ],
-                log_filename="screener.log",
+                log_filename="pipeline_rest.log",
             )
             if _is_win:
                 st.success(
-                    "✅ Đã mở cửa sổ PowerShell chạy screener (~1-2 phút).\n\n"
-                    "Khi xong, bấm **🔄 Refresh** hoặc F5 để dashboard "
-                    "load dữ liệu mới."
+                    "✅ Đã mở cửa sổ PowerShell chạy phần còn lại của pipeline "
+                    "(~5-10 phút, không đụng kho giá).\n\n"
+                    "Khi xong, bấm **Refresh** hoặc F5 để dashboard load dữ liệu mới."
                 )
             else:
                 st.info(
-                    f"🔄 Screener đang chạy nền. Log: `{_log}`\n\n"
-                    "Khi xong, bấm **🔄 Refresh** để load dữ liệu mới."
+                    f"🔄 Pipeline (không sync giá) đang chạy nền. Log: `{_log}`\n\n"
+                    "Khi xong, bấm **Refresh** để load dữ liệu mới."
                 )
     with _uc3:
         if st.button(
