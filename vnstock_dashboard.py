@@ -3615,14 +3615,14 @@ try:
 except (ValueError, TypeError, IndexError):
     pass
 
-_info_col, _update_col = st.columns([6, 2])
+_info_col, _update_col = st.columns([5, 3])
 with _info_col:
     if _screener_stale:
         st.markdown(f'<p class="updated-at" style="color:#f59e0b">⚠️ Screener cũ: {gen_time} — Bấm "Cập nhật Screener" để refresh</p>', unsafe_allow_html=True)
     else:
         st.markdown(f'<p class="updated-at">Cập nhật lúc: {gen_time}</p>', unsafe_allow_html=True)
 with _update_col:
-    _uc1, _uc2 = st.columns(2)
+    _uc1, _uc2, _uc3 = st.columns(3)
     with _uc1:
         if st.button(
             "📥 Cập nhật giá",
@@ -3697,6 +3697,48 @@ with _update_col:
             else:
                 st.info(
                     f"🔄 Screener đang chạy nền. Log: `{_log}`\n\n"
+                    "Khi xong, bấm **🔄 Refresh** để load dữ liệu mới."
+                )
+    with _uc3:
+        if st.button(
+            "🚀 Cập nhật tất cả",
+            key="run_all_pipeline",
+            use_container_width=True,
+            help=(
+                "**Chạy TRỌN pipeline tối `python run.py all` — 12 bước** "
+                "(~30-40 phút): sync giá → validate → screener → news → "
+                "foreign-flow → **vĩ mô 13 chỉ số** → gold → allocation → "
+                "test → audit/reconcile → reflection → doctor.\n\n"
+                "Đúng thứ Task Scheduler chạy 18:00 mỗi tối — dùng nút này khi "
+                "muốn làm tươi TOÀN BỘ (kho giá + overview + tin + NN ròng + "
+                "vĩ mô + band phân bổ + 2 badge sidebar) trong một phát, vd "
+                "khi task đêm bị lỡ.\n\n"
+                "⚠️ **ĐỪNG tắt máy / đóng cửa sổ PowerShell khi đang chạy** — "
+                "chuỗi bị ngắt giữa chừng là cache tươi nửa vời (đúng bệnh "
+                "LastTaskResult 0xC000013A của task đêm).\n\n"
+                "Khác biệt: **📥 Cập nhật giá** chỉ lo giá + screener + news + "
+                "macro; nút này chạy đủ 12 bước kể cả allocation/audit/doctor.\n\n"
+                "Xong thì bấm **🔄 Refresh** hoặc F5.\n\n"
+                "Ẩn dụ: *tự tay chạy nguyên ca trực đêm của toà soạn*."
+            ),
+        ):
+            _is_win, _log = launch_in_new_console(
+                commands=[
+                    {"label": "Pipeline run.py all (12 buoc)",
+                     "args": ["run.py", "all"]},
+                ],
+                log_filename="pipeline_all.log",
+            )
+            if _is_win:
+                st.success(
+                    "✅ Đã mở cửa sổ PowerShell chạy TRỌN pipeline (~30-40 phút).\n\n"
+                    "⚠️ Đừng tắt máy / đóng cửa sổ khi đang chạy. Theo dõi từng "
+                    "bước `=== run.py all :: … ===` trong cửa sổ mới; xong thì "
+                    "bấm **🔄 Refresh** hoặc F5."
+                )
+            else:
+                st.info(
+                    f"🔄 Pipeline đang chạy nền (~30-40 phút). Log: `{_log}`\n\n"
                     "Khi xong, bấm **🔄 Refresh** để load dữ liệu mới."
                 )
 
