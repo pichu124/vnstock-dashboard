@@ -1031,7 +1031,12 @@ băng, macro-anchor hijack).
       **Nâng cấp 17/07 (close 15:33)**: dạng tệ hơn "thủng S1=X → mục tiêu
       S2=X" (2 vai CÙNG mức vì cả hai pin về low_52w) → enforce_sr_direction
       nay CẮT vế mũi-tên của vai 2 khi trùng số (áp cả R1/R2); cặp khác số
-      không đụng.
+      không đụng. **Residual "ngược vai" HẾT CÒN CHẤP NHẬN (user bắt cùng
+      chiều 17/07)**: "thủng S1=1,445.64 → mục tiêu S2=1,774.22" — thủng mức
+      SÂU mà mục tiêu CAO HƠN là phi logic → pass XẾP LẠI VAI: S1 = hỗ trợ
+      GẦN giá nhất, S2 sâu hơn (R1 gần, R2 xa); cả 2 vai đúng 1 giá trị +
+      thứ tự ngược → hoán đổi số giữa 2 nhãn (mức vẫn là mức thật đã pin);
+      nhiều giá trị/vai → không đoán. Chạy TRƯỚC dedupe, idempotent.
    e. **Caveat BUY-vs-bias**: khi regime GIẢM (score ≤ -3 / momentum ≤ -50)
       mà "Khuyến nghị đang mở" có lệnh BUY → phải có dòng ⚠️ "_BUY_BIAS_
       CAVEAT" ngay dưới khối lệnh trên Telegram (áp cả morning & close).

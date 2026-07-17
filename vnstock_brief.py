@@ -4599,6 +4599,24 @@ def enforce_sr_direction(text: str, ctx: dict) -> str:
         return f"{label}={nk:,.2f}"
 
     out = _PIVOT_LABEL_RE.sub(_sub, text)
+    # XẾP LẠI VAI khi ngược thứ tự (user bắt 17/07, close 15:33): "thủng
+    # S1=1,445.64 → mục tiêu S2=1,774.22" — thủng mức SÂU mà mục tiêu CAO HƠN
+    # là phi logic. Quy ước: S1 = hỗ trợ GẦN giá nhất (cao hơn S2), R1 = kháng
+    # cự gần nhất (thấp hơn R2). Cả 2 vai cùng dải chỉ số + mỗi vai đúng 1 giá
+    # trị + thứ tự ngược → HOÁN ĐỔI số giữa 2 vai (mức vẫn là mức THẬT đã pin,
+    # chỉ đổi nhãn vai). Idempotent: sau swap thứ tự đúng → không tái kích.
+    for one, two, support in (("S1", "S2", True), ("R1", "R2", False)):
+        ones = {m.group(1) for m in _re.finditer(rf"\b{one}=([\d.,]+)", out)}
+        twos = {m.group(1) for m in _re.finditer(rf"\b{two}=([\d.,]+)", out)}
+        if len(ones) != 1 or len(twos) != 1:
+            continue                                 # nhiều giá trị/vai → không đoán
+        a, b = ones.pop(), twos.pop()
+        va, vb = _parse_vn_number(a), _parse_vn_number(b)
+        if va is None or vb is None or not all(800 <= v <= 2500 for v in (va, vb)):
+            continue
+        if (va < vb) if support else (va > vb):      # S1 sâu hơn S2 / R1 xa hơn R2
+            out = _re.sub(rf"\b{one}={_re.escape(a)}(?![\d])", f"{one}={b}", out)
+            out = _re.sub(rf"\b{two}={_re.escape(b)}(?![\d])", f"{two}={a}", out)
     # Dedupe VAI TRÙNG MỨC (close 17/07): giá ở đáy 52w → cả S1 lẫn S2 pin về
     # cùng low_52w ra câu vô nghĩa "thủng S1=1,445.64 → mục tiêu S2=1,445.64".
     # Cùng số ở 2 vai → cắt mệnh đề mũi-tên của vai 2 (S2/R2) thừa; cặp khác

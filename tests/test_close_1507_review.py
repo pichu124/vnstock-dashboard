@@ -108,15 +108,36 @@ _SR_CTX = {"vnindex_tech": {
 
 
 def test_sr_direction_pins_support_equal_close():
-    # S2=1,782.12 = close (hỗ trợ = giá hiện tại) → pin về mức known dưới close
+    # S2=1,782.12 = close (hỗ trợ = giá hiện tại) → pin về mức known dưới close;
+    # sau đó pass xếp vai thấy S1 (1,445) SÂU hơn S2 (1,775) → hoán đổi
     t = ("thủng S1=1,445.64 → mục tiêu S2=1,782.12; hủy nếu vượt lại "
          "R1=1,800.80 → test R2=1,822.95")
     out = enforce_sr_direction(t, _SR_CTX)
     assert "S2=1,782.12" not in out                 # = close bị bắt
-    assert "S2=1,775.00" in out                     # nearest below-close known
+    assert "S1=1,775.00" in out and "S2=1,445.64" in out   # vai đã xếp đúng
     assert "R1=1,800.80" in out and "R2=1,822.95" in out   # đúng chiều, giữ
-    assert "S1=1,445.64" in out                     # dưới close, hợp lệ → giữ
     assert enforce_sr_direction(out, _SR_CTX) == out       # idempotent
+
+
+def test_sr_direction_swaps_inverted_roles():
+    # User bắt 17/07 (close 15:33): "thủng S1=1,445.64 → mục tiêu S2=1,774.22"
+    # — thủng mức SÂU mà mục tiêu CAO HƠN. S1 phải là hỗ trợ GẦN nhất → swap.
+    ctx = {"vnindex_tech": {"close": 1782.12, "week_low": 1774.22,
+                            "low_52w": 1445.64, "resistance_1": 1800.80,
+                            "resistance_2": 1822.95}}
+    t = "GIẢM — canh giảm nếu thủng S1=1,445.64 → mục tiêu S2=1,774.22"
+    out = enforce_sr_direction(t, ctx)
+    assert "thủng S1=1,774.22 → mục tiêu S2=1,445.64" in out
+    assert enforce_sr_direction(out, ctx) == out           # idempotent
+    # R ngược vai (R1 xa hơn R2) cũng swap
+    t2 = "vượt R1=1,822.95 → test R2=1,800.80"
+    assert enforce_sr_direction(t2, ctx) == "vượt R1=1,800.80 → test R2=1,822.95"
+    # cặp đúng vai giữ nguyên
+    t3 = "thủng S1=1,774.22 → về S2=1,445.64; vượt R1=1,800.80 → test R2=1,822.95"
+    assert enforce_sr_direction(t3, ctx) == t3
+    # mỗi vai NHIỀU giá trị khác nhau → không đoán, không swap
+    t4 = "S1=1,774.22 … S1=1,770.00 … S2=1,445.64"
+    assert enforce_sr_direction(t4, ctx) == t4
 
 
 def test_sr_direction_ignores_stock_prices_and_valid_levels():
