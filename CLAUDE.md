@@ -1027,6 +1027,30 @@ băng, macro-anchor hijack).
       CAVEAT" ngay dưới khối lệnh trên Telegram (áp cả morning & close).
    f. Nếu lộ PATTERN LỖI MỚI → chạy lại workflow review 7-cụm×verify như
       đợt này (script cached: close-brief-guard-regression-1507), vá tiếp.
+9. **Đợt HNX/SBV 16-17/07 (nguồn LNH ngày + policy auto — mục 🏦/🏦② đã
+   verify TRỌN trên máy user; còn lại toàn PASSIVE, tự đến chỉ để ý):**
+   a. **Pipeline 18:00 tối nay**: lần đầu `run.py all` chạy bước macro với
+      2 nguồn SBV mới (daily + policy = 2 request thêm mỗi refresh) — kỳ
+      vọng chạy êm; nếu bước macro chậm/lỗi bất thường → nghi WAF SBV,
+      xem log, cân nhắc thêm gap sleep vào fetch_page (hiện chỉ backfill
+      có gap giữa các TRANG).
+   b. **LNH ngày tự dày lên**: bài SBV đăng ~1 ngày sau phiên → vài ngày
+      tới `run.py macro` phải thấy as_of ON nhích theo (07-16, 07-17…).
+      Đứng yên nhiều ngày → `python vnstock_sbv_rates.py --diag` (schema
+      đổi thì sửa parse_items; doctor `--net` có dòng "SBV daily LNH").
+   c. **Lần chạy `run.py doctor --net` kế tiếp**: dòng mới "SBV daily LNH
+      (mạng)" phải ✅ trên máy có mạng (sandbox ❌ là bình thường).
+   d. **Mở dashboard**: sub-tab 🌐 Vĩ mô — chart lịch sử `interbank_on`
+      giờ granularity NGÀY (300 điểm backfill) phải render mượt; nguồn
+      hiển thị sbv_daily/sbv_portal đúng nhãn.
+   e. **Khi SBV đổi lãi suất điều hành (vài lần/năm)**: registry phải tự
+      nhích trong ngày (item 3450482 thay tại chỗ) — đây là lần verify
+      THẬT đầu tiên của policy auto; nếu không nhích → soi `--policy` +
+      guard as_of trong khối sbv_daily của vnstock_macro.refresh.
+   f. **Chờ user "làm đi"**: nâng gauge thanh khoản band tĩnh → percentile
+      lịch sử (trụ 4 VnBondLab) — data ĐÃ ĐỦ (300 ngày ON trong cache
+      sbv_daily_rates); thiết kế gợi ý: percentile của spread ON−điều hành
+      trên cửa sổ 250 phiên, giữ band tĩnh làm nhãn phụ.
 
 **Checklist gốc (đã chạy gần hết — giữ làm tài liệu lệnh):**
 1. `python vnstock_allocation.py --refresh` → in band + bảng % + lý do 7 tín
