@@ -266,6 +266,24 @@ def test_macro_fetch_hnx_best_effort(monkeypatch):
     assert mac._fetch_sbv() is None
 
 
+def test_macro_drop_reading(tmp_path, monkeypatch):
+    # cache surgery: xóa entry sai ngày (tàn dư vụ SBV 16-17/07) → registry
+    # đọc lại entry đúng còn lại; key lạ → KeyError; ngày không có → False
+    import vnstock_macro as mac
+    monkeypatch.setattr(mac, "_CACHE", tmp_path / "macro_indicators.json")
+    cache = {}
+    mac._record(cache, "interbank_on", 4.28, "2026-07-10", "vbma")
+    mac._record(cache, "interbank_on", 5.21, "2026-07-17", "sbv")   # sai ngày
+    mac._save_cache(cache)
+    assert mac.drop_reading("interbank_on", "2026-07-17") is True
+    hist = (mac._load_cache()["indicators"]["interbank_on"]["history"])
+    assert list(hist) == ["2026-07-10"] and hist["2026-07-10"] == 4.28
+    assert mac.drop_reading("interbank_on", "2026-07-17") is False  # đã sạch
+    import pytest as _pt
+    with _pt.raises(KeyError):
+        mac.drop_reading("khong_ton_tai", "2026-07-10")
+
+
 # ─── Báo cáo tuần lãi suất (vnstock_rates_report) — hướng A + B ─────────────
 
 import vnstock_rates_report as rr

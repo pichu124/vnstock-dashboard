@@ -800,6 +800,21 @@ def set_value(key: str, value: float, as_of: "str | None" = None) -> dict:
     return cache
 
 
+def drop_reading(key: str, as_of: str) -> bool:
+    """Xóa 1 reading SAI NGÀY/SAI SỐ khỏi history (cache surgery có kiểm soát
+    — sinh ra từ vụ cache SBV nhiễm 16-17/07: entry ghi nhầm ngày fetch làm
+    registry đọc giá trị cũ với nhãn nguồn lệch). Trả True nếu có entry để xóa."""
+    if key not in _DEFS:
+        raise KeyError(f"Chỉ số không hợp lệ: {key!r}. Hợp lệ: {', '.join(_DEFS)}")
+    cache = _load_cache()
+    hist = (((cache.get("indicators") or {}).get(key)) or {}).get("history") or {}
+    if as_of not in hist:
+        return False
+    hist.pop(as_of)
+    _save_cache(cache)
+    return True
+
+
 # ── Read / derive ────────────────────────────────────────────────────────────
 
 
@@ -1201,6 +1216,8 @@ def main(argv: "list[str] | None" = None) -> int:
     ap.add_argument("--show", action="store_true", help="In cache hiện tại")
     ap.add_argument("--set", nargs=2, metavar=("KEY", "VALUE"),
                     help=f"Ghi đè tay 1 chỉ số. KEY ∈ {{{', '.join(_DEFS)}}}")
+    ap.add_argument("--drop", nargs=2, metavar=("KEY", "YYYY-MM-DD"),
+                    help="Xóa 1 reading sai ngày/sai số khỏi history (cache surgery)")
     ap.add_argument("--as-of", metavar="YYYY-MM-DD",
                     help="Ngày hiệu lực cho --set / --refresh (mặc định hôm nay)")
     a = ap.parse_args(argv)
@@ -1253,6 +1270,17 @@ def main(argv: "list[str] | None" = None) -> int:
             print(f"[macro] ❌ {e}")
             return 1
         print(f"[macro] đã ghi {key} = {val} (as_of {a.as_of or 'hôm nay'}).")
+        _show()
+        return 0
+
+    if a.drop:
+        key, day_ = a.drop
+        try:
+            removed = drop_reading(key, day_)
+        except KeyError as e:
+            print(f"[macro] ❌ {e}")
+            return 1
+        print(f"[macro] {'đã xóa' if removed else 'KHÔNG có'} reading {key} @ {day_}.")
         _show()
         return 0
 

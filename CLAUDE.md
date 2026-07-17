@@ -1819,6 +1819,16 @@ tại: cả 2 nguồn cùng tuần 06-10.7 → ON = VBMA 4.28 → gauge thanh kh
 VBMA thì SBV tự thắng. Tests: `test_sbv_resolve_interbank` (recency đủ
 nhánh) + `test_sbv_refresh_as_of_is_data_week_not_fetch_date` +
 `test_sbv_fetch_weekly_carries_week_end`.
+**Tàn dư history + `--drop` (17/07, run đầu sau fix)**: registry ra "5.21
+nguồn vbma, tính đến 07-17" — CON LAI vì history `interbank_on` còn 2 entry
+CODE CŨ ghi sai ngày (07-17=5.21 đóng dấu ngày fetch, 07-16=4.26 bẩn);
+giá trị đọc theo NGÀY MỚI NHẤT nên vớ 07-17 cũ, còn source label do VBMA
+vừa set. Registry KHÔNG tự sửa được (không biết entry nào chủ đích) → thêm
+CLI cache-surgery `python vnstock_macro.py --drop <key> <YYYY-MM-DD>`
+(`drop_reading`, KeyError khi key lạ, False khi ngày không có). Dọn chuẩn:
+`--drop interbank_on 2026-07-17` + `--drop interbank_on 2026-07-16` →
+`run.py macro` phải ra ON 4.28 (vbma, tính đến 07-10), gauge thanh khoản
+"bình thường" −0.22. ⏳ CHỜ user chạy 2 lệnh drop này (sau git pull).
 
 **⚠️ GOTCHA GIT (gặp thật 16/07)**: máy user checkout nhánh KHÁC
 (`claude/phase-1-kickoff-lzorv6`) nhưng CHUNG lineage với nhánh session
