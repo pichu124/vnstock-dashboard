@@ -792,6 +792,20 @@ mã hủy niêm yết (last 2018-2021) re-fetch nhiều NĂM mỗi lần cho 0 n
   dev). Lưu ý vận hành: 2 tiến trình cùng chạy CHIA NHAU quota (task
   fundamentals T2 08:00 + bấm nút Cập nhật giá cùng lúc = dễ chạm trần — giờ
   chỉ chậm lại chứ không chết).
+- **VCI outage 21h+ (chẩn đoán thật 17/07) — PLAYBOOK 3 PROBE + fallback
+  ứng viên**: updater rề rề toàn "Read timed out (30s)" từ
+  `trading.vietcap.com.vn`. Chẩn đoán tách biến: (1) `curl -w` tới host →
+  edge 120ms OK = mạng vô can; (2) 1 call đơn `Quote(source='VCI').history`
+  → timeout = backend query VCI sập (KHÔNG phải concurrency/8 workers);
+  (3) cùng call `source='kbs'` → **6 bar/2.5s** = outage riêng VCI, các
+  nguồn VN khác sống. Registry quote bản hiện tại: ['fmp','kbs','msn','vci'].
+  Khung 21h± là giờ batch EOD của provider — dính thì Ctrl+C updater (an
+  toàn, `--skip-if-done` chạy bù), thử lại khuya/sáng sau khi probe (2)
+  nhanh trở lại. KHOAN nâng vnii/vnai khi đang chẩn đoán (đổi biến giữa
+  chừng). Mỗi mã thực tế đốt ~60s+ vì tenacity retry bên trong vnstock.
+  **Nếu tái diễn nhiều tối → build (user nói "làm đi")**: fallback ladder
+  nguồn giá VCI→KBS trong updater (KBS đã verify sống) và/hoặc fail-fast:
+  tỷ lệ timeout vượt ngưỡng → dừng sớm thay vì cày 30s×1724 mã.
 
 **Quan trọng — vnstock 4.0.4 + sponsor API gotchas** (hard-won, đừng quên):
 - `vnstock_auth._StockShim` PHẢI expose `.quote/.company/.listing/.finance`.
