@@ -1052,6 +1052,29 @@ băng, macro-anchor hijack).
       sbv_daily_rates); thiết kế gợi ý: percentile của spread ON−điều hành
       trên cửa sổ 250 phiên, giữ band tĩnh làm nhãn phụ.
 
+### 📅 AUDIT LỊCH ĐỊNH KỲ sau ~10 đợt tích hợp (17/07 — user hỏi, CHỜ CHỐT)
+
+Đã rà `run.py all` (12 bước) + 3 task Scheduler + nút dashboard. **Phần ỔN**:
+mọi nguồn data mới đều qua bước `macro` (HNX/SBV tuần/SBV ngày/policy/FRED/
+NSO/FX) + gold/allocation/scorecard/reflection/foreign-flow/doctor là bước
+pipeline; screener tối nuôi preset history; events/overview tự refresh khi
+tạo brief; fundamentals task T2; nút "Cập nhật giá" đúng scope (chỉ giá).
+
+**3 LỖ HỔNG THẬT (cadence ngày/tuần đang chạy TAY) — user chưa chốt:**
+1. `run.py telegram morning` + `close` — 2×/ngày KHÔNG có task nào (mọi
+   brief Telegram từ trước tới nay là user chạy tay; pipeline 18:00 chỉ
+   chuẩn bị data). Đề xuất: task 11:40 T2-T6 (morning) + 19:00 T2-T6
+   (close, sau pipeline xong).
+2. `run.py rates-weekly` — báo cáo tuần lãi suất (hướng B) chưa có lịch.
+   Đề xuất: T7 09:00.
+3. `vnstock_train.py --once` — vẫn tay (user chọn 27/04, pending #1);
+   không train đều → reconcile/decay/stance-track chấm thưa. Đề xuất
+   nhắc lại: 15:05 T2-T6.
+Tùy chọn nhỏ: bước `preset-score` best-effort vào pipeline tối (cache
+expander 📋 luôn tươi thay vì chờ bấm 🔄). Khi user chốt món/giờ → sửa
+`scripts/setup_scheduled_tasks.ps1` (thêm entry vào $Tasks) + user chạy
+lại script Run-as-Admin trên desktop.
+
 **Checklist gốc (đã chạy gần hết — giữ làm tài liệu lệnh):**
 1. `python vnstock_allocation.py --refresh` → in band + bảng % + lý do 7 tín
    hiệu thật (dự đoán với nền hiện tại: B2/B3). Sau đó `--show`/`--history`.
