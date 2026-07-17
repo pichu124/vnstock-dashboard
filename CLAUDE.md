@@ -1794,10 +1794,14 @@ header trong `_parse_interbank_table` — dòng VND chỉ nhận khi ~250 ký t�
 trước có "Qua đêm" (header bảng LNH; bảng tiền gửi không có); (3)
 `_REQUEST_GAP_S=2.0` giãn cách giữa các request SBV (mirror sleep_s=3 "WAF
 avoidance" của repo gốc). Tests: `test_sbv_table_requires_interbank_header`
-+ `test_sbv_single_slug_fx_interbank_only`. **USER CẦN CHẠY LẠI** (sau git
-pull): `python vnstock_sbv.py --refresh` (đè cache bẩn bằng số đúng) →
-`python run.py macro` → kỳ vọng registry "LNH ON: 5.21%/năm (nguồn sbv)"
-+ cờ divergence vs VBMA 4.28.
++ `test_sbv_single_slug_fx_interbank_only`. **✅ VERIFY XONG trên máy user
+17/07**: `--refresh` ra {ON 5.21, 1W 5.57, 2W 6.13, 1M 7.32}; `run.py macro`
+registry "LNH ON: 5.21%/năm (nguồn sbv) (+0.95đ% vs hôm trước — hôm trước
+chính là 4.26 bẩn)"; gauge thanh khoản ra **CĂNG +0.71** (5.21 − 4.5). Cờ
+divergence nằm trong `cache["_meta"]["sbv"]["interbank_on_diverged"]` —
+`--refresh` không in ra console, xem ở sub-tab Vĩ mô/doctor. Lưu ý:
+`interbank_1w` registry vẫn nguồn vbma (4.92) — SBV chỉ resolve ON, đúng
+thiết kế.
 
 **⏰ CÒN NỢ — QUYẾT ĐỊNH THIẾT KẾ (user chưa chốt)**: LNH ON có 2 nguồn
 lệch — SBV 5.21 (TB TUẦN, official) vs VBMA 4.28 (điểm cuối tuần, "current"
