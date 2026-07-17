@@ -1880,6 +1880,18 @@ nhiễm** (recency + guard chống ghi đè giữ đúng). Toàn bộ chuỗi HN
 resolve/gauge coi như ĐÓNG; đổi ưu tiên/ngưỡng sau này chỉ đụng
 `resolve_interbank_on` + `_INTERBANK_DIVERGENCE_PCT`.
 
+**⚠️ GOTCHA 2 MÁY (lộ thật 17/07 — vụ "FRED thiếu key dù đã update")**:
+user có **desktop + laptop**, cả 2 đều clone C:\vnstock. `.env` và
+`data_warehouse/` KHÔNG đi theo git → **mỗi máy một bản riêng**:
+- **Desktop = máy PRODUCTION**: Task Scheduler (pipeline 18:00 / corp
+  actions CN / fundamentals T2) đăng ký Ở ĐÓ; .env desktop có FRED_API_KEY.
+- **Laptop = máy phụ**: doctor/badge trên laptop phản ánh cache CỦA LAPTOP
+  — thấy "overview cũ 2 ngày"/"FRED thiếu key" trên laptop KHÔNG có nghĩa
+  production hỏng. Chẩn đoán độ tươi data đêm / Get-ScheduledTaskInfo phải
+  chạy TRÊN DESKTOP; verify UI/code thì máy nào cũng được (sau khi chạy
+  tay run.py macro/screener tại chỗ).
+- Thêm key mới vào .env → nhớ thêm CẢ 2 MÁY (key free dùng chung được).
+
 **⚠️ GOTCHA GIT (gặp thật 16/07)**: máy user checkout nhánh KHÁC
 (`claude/phase-1-kickoff-lzorv6`) nhưng CHUNG lineage với nhánh session
 (`claude/stocksharp-dashboard-research-bv9tas`) — commit SHA trùng. Khi
