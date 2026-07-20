@@ -2591,6 +2591,41 @@ nhận dict, loader end-to-end trên tmp parquet) đã vào `--fast`.
   `.map`, fallback `.applymap` (chỗ dùng DUY NHẤT cả repo). Desktop vừa
   lên stack Python 3.14 mới 20/07 — khả năng cùng bệnh, fix này chữa luôn.
 
+### 💼 Fix "giá đóng băng" tab Danh mục (DONE 2026-07-20 — user bắt trên máy thật)
+
+**Bug**: user mua SSI 23,000 / EIB 19,000 NGÀY 20/07, tab hiện "Giá hiện
+tại" 26,650 (+15.87%) / 20,800 (+9.47%) — +15.87% cùng phiên vượt cả kịch
+bản sàn→trần (~15.05%) = chắc chắn sai; diag kho ra bar 20/07 = 22.70
+ĐÚNG (khớp thị trường) → lỗi ở TẦNG ĐỌC GIÁ của portfolio_tab, không phải
+data. 2 lỗ hổng: (a) `_live_quote` thắng VÔ ĐIỀU KIỆN không check tuổi —
+quote WSS cũ đóng băng giá (cùng họ bug nn_flow_cache); (b)
+`_warehouse_last_close` lấy `iloc[-1]` của FILE ĐẦU THEO TÊN — không sort
+theo thời gian (bẫy Dropbox conflicted copy đã biết từ 07/07), không
+chuẩn hóa đơn vị.
+
+**Fix — `resolve_current_price(ticker, buy_price, buy_date, warehouse)`**
+(render loop dùng hàm này; `_live_quote`/`_warehouse_last_close` giữ làm
+primitive):
+- Nguồn có **NGÀY DATA mới hơn thắng** (quote live ↔ bar cuối kho); cùng
+  ngày → live (trong phiên tươi hơn close EOD). Ngày quote từ field
+  `time` trong JSON, fallback mtime file.
+- Bar kho = mới nhất THEO THỜI GIAN, gộp mọi file parquet qua
+  `vnstock_networth._close_series` (sort + stitch).
+- Giá NEO về đơn vị buy_price (`_anchor_factor` — kho trộn VND thô ↔
+  nghìn đồng per-bar; buy_price user là nguồn chân lý đơn vị).
+- Bảng hiện **"MM-DD·nguồn"** cạnh giá (triết lý as_of) + tripwire ⚠ khi
+  %L/L ngay trong NGÀY MUA vượt ±7.5%/phiên (chính sanity check đã tóm
+  bug này) + caption cảnh báo.
+- Kèm cosmetic pandas 3: bảng Phân bổ ngành format chuỗi ("56.2" thay
+  "56.200000", Lãi/Lỗ có ngăn nghìn), `_color_diff` parse chuỗi.
+
+Tests `tests/test_portfolio_prices.py` (8, hermetic — có case tái hiện
+đúng bug quote-cũ-thua-kho-tươi + case conflicted copy) vào `--fast`
+(suite 778). Smoke-verify sandbox: seed quote HPG giả 99,999 ngày 08/07 →
+tab hiện đúng bar kho 20/07 kèm "07-20·kho". **VERIFY user**: pull → tab
+Danh mục phải ra SSI ~22,700 (−1.3%) / EIB ~19,xxx kèm ngày·nguồn;
+quote_*.json cũ trong `_live/` KHÔNG cần xóa (tự thua theo ngày).
+
 **Khảo sát je-suis-tm/quant-trading (2026-07-15): KHÔNG dùng repo —
 CẢ 3 MÓN ĐÃ TRIỂN KHAI cùng ngày (xem mục 🪃 bên dưới).** Bộ sưu tập ~15
 chiến lược quant GIÁO DỤC nổi tiếng (Python single-file, mỗi script =
