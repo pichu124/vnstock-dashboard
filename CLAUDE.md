@@ -1190,7 +1190,18 @@ băng, macro-anchor hijack).
        mới đo được độ bền; 3 run đầu (tối outage) đã có trong cache.
     d. Ghi nhận 17/07: desktop 759 pass (5 integration fallback chạy
        THẬT) · sandbox 749+7 skip · VCI outage timeline 21:13 ốm → 21:52
-       chết → 21:58 hồi — khớp giả thuyết "giờ batch EOD".
+       chết → 21:58 hồi — khớp giả thuyết "giờ batch EOD". VCI ốm TIẾP
+       đêm 18/07 23:05 → "giờ ốm buổi tối" là pattern lặp, không phải
+       sự cố lẻ.
+    e. **✅ 20/07: DESKTOP XANH TRỌN 15/15 doctor + 1271 full pass, 0
+       fail** — sau 3 lớp vá hermetic cùng một bài học (17/07 fixture
+       fast-list thiếu fetcher → 18/07 fixture file khác cũng thiếu, 6
+       fail full → 20/07 singleton BREAKER rò trạng thái giữa test, 3
+       fail updater): tất cả chốt về `tests/conftest.py` DÙNG CHUNG
+       (chặn 8 fetcher macro + _FX_ENDPOINTS=() + reset BREAKER trước/
+       sau MỖI test — file test/fetcher mới tự được bảo vệ). Quà kèm:
+       full suite 254s → ~10-20s (96% thời gian cũ là ngồi chờ mạng).
+       VCI khỏe lại trong ngày 20/07, kho bar 20/07 tươi "hôm nay".
 
 ### 📅 AUDIT LỊCH ĐỊNH KỲ sau ~10 đợt tích hợp (17/07 — user hỏi, CHỜ CHỐT)
 
