@@ -1101,6 +1101,10 @@ băng, macro-anchor hijack).
       (khảo sát DojoAgents — curve = Σ qty×close(t) từ buy_date + đường
       VNINDEX cùng kỳ, zero fetch, ~50-70 dòng) — user nói "làm đi" là
       triển; PE band lịch sử vẫn để dành (cần EPS quý, scope VN30).
+      **Spec NÂNG CẤP 20/07** (khảo sát lại DojoAgents — xem mục "Khảo
+      sát LẠI" dưới deep-dive): trục ngày = ngày bar VNINDEX,
+      forward-fill mã thiếu bar (KHÔNG drop ngày — kẻo vol/Sharpe phồng),
+      rebase 2 đường về 100, stats optional.
 8. **Đợt review guard close brief 15/07 (5 fix, mục 🔬 ở dưới) — VERIFY
    CÒN NỢ trên close brief PHIÊN SAU (mọi fix tự kích hoạt qua guard chain
    / telegram):**
@@ -2513,6 +2517,34 @@ món luôn"; tests `tests/test_llm_hardening.py` 14 test, vào `--fast`):**
 mỗi lần fail; placeholder-detection ≈ schema clamp digest + anti-hallucination
 sentinel brief; compression (prompt brief là data block, không phải hội
 thoại tích lũy); turn-intent/multi-agent/planning (không có bề mặt).
+
+**Khảo sát LẠI DojoAgents (2026-07-20, user hỏi "tích hợp được gì" lần 2 —
+12 commit mới từ 15/07): KHÔNG đổi kết luận cũ (dojosdk vẫn ĐÓNG, `quant/`
+vẫn scaffold 62 dòng, commit mới đa số là React Market Discovery UI —
+treemap/timeline/sparkline, heatmap đã bác 15/07). ĐIỂM MỚI ĐÁNG GIÁ DUY
+NHẤT: nâng cấp SPEC cho net-worth curve (món 7d) từ
+`portfolio_performance.py` + fix 13/07 của họ "dropped NAV points inflating
+vol/Sharpe/drawdown"** — 3 bài học PHẢI áp khi build:
+1. **Trục ngày = LỊCH GIAO DỊCH** (bên mình: ngày bar VNINDEX trong parquet
+   = lịch HOSE tự nhiên), KHÔNG phải "những ngày tình cờ có giá" — ngày bị
+   drop khiến return 2-3 phiên đội lốt 1 phiên → vol/Sharpe/maxDD phồng.
+2. **Forward-fill giá TỪNG MÃ** (`_forward_fill_on_or_before`): mã thiếu
+   bar/ngừng giao dịch → carry close cuối, KHÔNG drop cả ngày khỏi curve;
+   chỉ bỏ ngày khi mã CHƯA TỪNG có giá tính đến hôm đó.
+3. **Rebase cả 2 đường về 100** tại ngày đầu chung (danh mục vs VNINDEX);
+   optional block stats deterministic ~60 dòng (cumulative / vol √~250 /
+   Sharpe / maxDD / Calmar) — display-only cạnh curve.
+SKIP có lý do: `market_dynamics_service` events+sector impacts (data từ
+dojosdk đóng; concept ≡ "→ tác động" news_feeds + upcoming_events);
+`tasks/preflight` skip-ngày-nghỉ (exchange_calendars KHÔNG có lịch HOSE;
+pipeline đã T2-T6 + effective_trading_date + doctor dung sai — muốn thêm
+phải tự nuôi list nghỉ lễ VN, chưa đau); sector movers gates (min 5 thành
+viên + min cap + lead score cap×%đổi ≡ ⭐ GTGD + gate ±0.05pp +
+`_leadlag_candidates`). Bonus cho món PE band để-dành: cách của họ =
+PE(t)=close(t)×shares/LN-TTM **neo theo ngày BCTC khả dụng** (anchor
+schedule — point-in-time, không lookahead), band mean±1σ/2σ, shares giữ
+hằng → xác nhận cần LN QUÝ lịch sử (fundamentals.parquet chưa có), scope
+VN30 khi làm.
 
 **Khảo sát je-suis-tm/quant-trading (2026-07-15): KHÔNG dùng repo —
 CẢ 3 MÓN ĐÃ TRIỂN KHAI cùng ngày (xem mục 🪃 bên dưới).** Bộ sưu tập ~15
