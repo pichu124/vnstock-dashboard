@@ -996,19 +996,28 @@ băng, macro-anchor hijack).
    CHƯA TỪNG chạy trọn; cùng tối phát hiện VCI outage 21h (xem playbook ⚡)
    → 2 bệnh có thể chung gốc: VCI chậm giờ đó → run kéo dài → user tắt máy.
    **CÒN THEO DÕI: tối T2 20/07 18:00** — máy bật, không đụng, kỳ vọng lần
-   đầu LastTaskResult=0; user cần trả lời "hay tắt desktop lúc mấy giờ" để
-   chốt giờ task. Desktop đã seed tay 17/07: test 742 pass, macro ra ON
-   4.11 @07-16 sbv_daily + policy sbv_portal (KHÔNG cần --drop — entry
-   manual 06-15 chỉ có trên laptop), backfill 300 ngày. Còn nợ: bù GIÁ khi
-   VCI khỏe (probe 1 lệnh → bấm 🚀 Cập nhật tất cả);
+   đầu LastTaskResult=0 (lần đầu chạy đủ 13 BƯỚC có train — sáng hôm sau
+   kiểm `Get-ScheduledTaskInfo 'VnStock Daily Pipeline'` + log
+   `pipeline` phải có `=== run.py all :: train ===`); user cần trả lời
+   "hay tắt desktop lúc mấy giờ" để chốt giờ task. Desktop đã seed tay
+   17/07 + bù giá xong (kho bar 20/07 tươi, VCI khỏe lại); 20/07 đăng ký
+   đủ 4 task (system Python C:\Python314 — vnstock 3.5.1, KHOAN nâng khi
+   hệ đang khỏe; nâng thì chạy lại test --fast ngay);
    (b) ✅ XONG 17/07 — FRED key
    đã vào .env laptop, `--diag` ra us10y 4.55/fed_funds 3.63 @07-15, cả 2
    máy nay 13/13 chỉ số auto; (c) `python vnstock_preset_score.py --show`
    ~24/07 TRÊN DESKTOP (item
-   6b — screener_history do pipeline desktop nuôi, laptop thiếu snapshot).
-2. **Lần train kế tiếp**: panel Chiến lược phải hiện "p=… · N ứng viên"
+   6b — screener_history do pipeline desktop nuôi, laptop thiếu snapshot);
+   (d) **Rates Weekly test-fire 20/07 exit 0** — user CHƯA xác nhận
+   Telegram nhận tin: nếu sáng T7 25/07 không thấy báo cáo tuần trên
+   Telegram → chạy tay `python run.py rates-weekly` xem console (nghi
+   cache trống / thiếu TELEGRAM token trong .env desktop).
+2. **Lần train kế tiếp** (từ 20/07 train TỰ CHẠY mỗi tối trong pipeline —
+   lần kế = ngay tối 20/07): panel Chiến lược phải hiện "p=… · N ứng viên"
    (hiệu chỉnh chọn-lọc Bonferroni mới 15/07 — p_adj = p × N, chỉ siết
-   không nới); validation trong DB mang `p_value_adj` + `n_trials`.
+   không nới); validation trong DB mang `p_value_adj` + `n_trials`;
+   metrics row mang profit_factor/recovery_factor; log train KHÔNG spam
+   ScriptRunContext (mục 6e).
 3. **✅ DASHBOARD CHECK XONG 17/07 (6/6 trạm, qua ảnh user — lộ + vá luôn
    4 lỗi)**: 5 sub-tab ✓ · 📄 render bảng+SVG ✓ (vá 2: nền trắng tường
    minh — iframe nền tối làm chữ tàng hình; "dữ liệu đến 2023" — loại
