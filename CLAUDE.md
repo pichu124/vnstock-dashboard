@@ -995,12 +995,16 @@ băng, macro-anchor hijack).
    tắt máy/đóng console khi pipeline đang chạy) ở cả 3 → pipeline desktop
    CHƯA TỪNG chạy trọn; cùng tối phát hiện VCI outage 21h (xem playbook ⚡)
    → 2 bệnh có thể chung gốc: VCI chậm giờ đó → run kéo dài → user tắt máy.
-   **CÒN THEO DÕI: tối T2 20/07 18:00** — máy bật, không đụng, kỳ vọng lần
-   đầu LastTaskResult=0 (lần đầu chạy đủ 13 BƯỚC có train — sáng hôm sau
-   kiểm `Get-ScheduledTaskInfo 'VnStock Daily Pipeline'` + log
-   `pipeline` phải có `=== run.py all :: train ===`; câu "tắt desktop
-   lúc mấy giờ" user BỎ 20/07 — giữ giờ 18:00, chỉ đổi nếu tái ngắt).
-   Desktop đã seed tay
+   **CÒN THEO DÕI: tối T3 21/07 18:00** (dời từ 20/07: chạy lại setup
+   script sau 18:00 → task bị THAY MỚI, lịch hôm đó trôi + bộ đếm reset
+   sentinel 1999/267011 — lịch sử 3 lần 0xC000013A cũng mất theo; nút
+   dashboard chạy tay KHÔNG hiện trong Get-ScheduledTaskInfo) — máy bật,
+   không đụng, kỳ vọng lần đầu LastTaskResult=0, lần đầu chạy đủ 13 BƯỚC
+   có train. Sáng T4 kiểm `Get-ScheduledTaskInfo 'VnStock Daily
+   Pipeline'`; xác nhận train qua dấu vết: doctor_status.json +
+   brief_memory.db LastWriteTime tối đó + panel Chiến lược "p=… · N ứng
+   viên" (câu "tắt desktop lúc mấy giờ" user BỎ 20/07 — giữ giờ 18:00,
+   chỉ đổi nếu tái ngắt). Desktop đã seed tay
    17/07 + bù giá xong (kho bar 20/07 tươi, VCI khỏe lại); 20/07 đăng ký
    đủ 4 task (system Python C:\Python314 — vnstock 3.5.1, KHOAN nâng khi
    hệ đang khỏe; nâng thì chạy lại test --fast ngay);
