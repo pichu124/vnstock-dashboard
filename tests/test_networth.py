@@ -190,3 +190,33 @@ def test_cli_no_portfolio(tmp_path, capsys):
     assert nw.main(["--warehouse", str(tmp_path)]) == 0
     out = capsys.readouterr().out
     assert "Chưa có vị thế" in out
+
+
+def test_summary_parts_hides_risk_stats_when_few_sessions():
+    """< 10 phiên → ẩn vol/Sharpe/Calmar (nhiễu thống kê — 'Calmar -16.02'
+    trên 2 điểm, verify máy user 20/07); giữ tích lũy/VNINDEX/maxDD."""
+    closes = {"AAA": [("2026-01-05", 10.0), ("2026-01-06", 9.0)]}
+    idx2 = [("2026-01-05", 1000.0), ("2026-01-06", 990.0)]
+    res = nw.build_networth([_pos()], closes, idx2)
+    joined = " · ".join(nw.summary_parts(res))
+    assert "2 phiên" in joined
+    assert "tích lũy -10.0%" in joined
+    assert "VNINDEX cùng kỳ -1.0%" in joined
+    assert "maxDD" in joined
+    assert "vol năm hóa" not in joined
+    assert "Sharpe" not in joined.replace("vol/Sharpe/Calmar", "")
+    assert "Calmar" not in joined.replace("vol/Sharpe/Calmar", "")
+    assert "≥10 phiên" in joined
+
+
+def test_summary_parts_shows_risk_stats_when_enough_sessions():
+    n = 12
+    days = [f"2026-01-{d:02d}" for d in range(1, n + 1)]
+    closes = {"AAA": [(d, 10.0 + (i % 3) * 0.2) for i, d in enumerate(days)]}
+    idx_n = [(d, 1000.0 + i) for i, d in enumerate(days)]
+    res = nw.build_networth([_pos(date=days[0])], closes, idx_n)
+    joined = " · ".join(nw.summary_parts(res))
+    assert f"{n} phiên" in joined
+    assert "vol năm hóa" in joined
+    assert "Sharpe (rf=0)" in joined
+    assert "≥10 phiên" not in joined

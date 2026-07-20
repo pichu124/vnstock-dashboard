@@ -163,6 +163,9 @@ def resolve_current_price(ticker: str, buy_price: float, buy_date: str,
     if not candidates:
         return 0.0, "", ""
     day, _prio, price, source = max(candidates)
+    # kho lưu close float32 → nhiễu ~1e-6 tương đối (22.700001 × 1000 →
+    # GT hiện tại "454,000,015"); 6 chữ số có nghĩa đủ cho mọi thang giá
+    price = float(f"{price:.6g}")
     return price, day, source
 
 
@@ -379,6 +382,13 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
                     height=320,
                     margin=dict(l=0, r=0, t=10, b=0),
                     yaxis=dict(title="Rebase 100"),
+                    # tick theo NGÀY (hết nhãn 00:00/12:00) + ẩn T7-CN
+                    # (hết đoạn thẳng xuyên cuối tuần); ngày lễ VN vẫn
+                    # tạo gap nhỏ — chấp nhận (không có lịch nghỉ lễ)
+                    xaxis=dict(
+                        tickformat="%d/%m",
+                        rangebreaks=[dict(bounds=["sat", "mon"])],
+                    ),
                     legend=dict(orientation="h", y=1.1),
                     plot_bgcolor="#0e1117",
                     paper_bgcolor="#0e1117",
@@ -394,22 +404,10 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
                     _df_nw["VNINDEX"] = _nw["index_rebased"]
                 st.line_chart(_df_nw)
 
-            _s_nw = _nw.get("stats") or {}
-            _parts_nw = [f"{len(_nw['dates'])} phiên"]
-            if _s_nw.get("cumulative_pct") is not None:
-                _parts_nw.append(f"tích lũy {_s_nw['cumulative_pct']:+.1f}%")
-            if _nw.get("index_rebased"):
-                _parts_nw.append(
-                    f"VNINDEX cùng kỳ {_nw['index_rebased'][-1] - 100:+.1f}%")
-            if _s_nw.get("ann_vol_pct") is not None:
-                _parts_nw.append(f"vol năm hóa {_s_nw['ann_vol_pct']:.1f}%")
-            if _s_nw.get("sharpe") is not None:
-                _parts_nw.append(f"Sharpe (rf=0) {_s_nw['sharpe']:.2f}")
-            if _s_nw.get("max_drawdown_pct") is not None:
-                _parts_nw.append(f"maxDD {_s_nw['max_drawdown_pct']:.1f}%")
-            if _s_nw.get("calmar") is not None:
-                _parts_nw.append(f"Calmar {_s_nw['calmar']:.2f}")
-            st.caption("📊 " + " · ".join(_parts_nw))
+            # caption stats: builder DÙNG CHUNG với CLI (parity by
+            # construction) — gate ẩn vol/Sharpe/Calmar khi < 10 phiên
+            from vnstock_networth import summary_parts as _nw_summary
+            st.caption("📊 " + " · ".join(_nw_summary(_nw)))
 
             _notes_nw = ["Rebase 100 tại ngày đầu; vốn vị thế mua sau tính "
                          "như tiền mặt (0%) tới ngày mua — display-only."]

@@ -2585,6 +2585,18 @@ nhận dict, loader end-to-end trên tmp parquet) đã vào `--fast`.
   SANDBOX 20/07** (streamlit headless + Playwright, kho demo 70 phiên tổng
   hợp): chart 2 đường + caption stats/caveat render đúng, số UI khớp CLI,
   mua đợt 2 giữa kỳ KHÔNG tạo bước nhảy (implied cash chạy đúng).
+  **✅ VERIFY TRÊN MÁY USER 20/07 tối** (2 vị thế thật SSI/EIB mua 17/07):
+  curve 2 phiên render, điểm cuối NAV = ĐÚNG tổng "GT hiện tại" của bảng;
+  chênh tích lũy −6.2% (close→close) vs bảng −5.48% (từ giá mua) = đúng
+  thiết kế 2 mốc neo khác nhau.
+- **Đánh bóng 20/07 (3 món user chốt sau verify)**: (a) `summary_parts(res)`
+  — builder caption DÙNG CHUNG UI↔CLI (parity by construction); < 10 phiên
+  ẨN vol/Sharpe/Calmar ("Calmar −16.02" trên 2 điểm là nhiễu thống kê),
+  giữ tích lũy/VNINDEX/maxDD + dòng nhắc "hiện khi đủ ≥10 phiên";
+  (b) trục X plotly `tickformat %d/%m` + `rangebreaks` ẩn T7-CN (hết nhãn
+  00:00/12:00 + đoạn thẳng xuyên cuối tuần; ngày LỄ VN vẫn gap — chấp
+  nhận, chưa nuôi lịch nghỉ lễ); (c) xem mục 💼 — resolver làm tròn 6 chữ
+  số có nghĩa.
 - **Fix kèm (lộ khi smoke-verify trên pandas 3.0)**: khối Phân bổ ngành
   chết `'Styler' object has no attribute 'applymap'` — pandas ≥2.1
   deprecate, pandas 3 BỎ HẲN `Styler.applymap` → portfolio_tab nay ưu tiên
@@ -2619,12 +2631,18 @@ primitive):
 - Kèm cosmetic pandas 3: bảng Phân bổ ngành format chuỗi ("56.2" thay
   "56.200000", Lãi/Lỗ có ngăn nghìn), `_color_diff` parse chuỗi.
 
-Tests `tests/test_portfolio_prices.py` (8, hermetic — có case tái hiện
+Tests `tests/test_portfolio_prices.py` (9, hermetic — có case tái hiện
 đúng bug quote-cũ-thua-kho-tươi + case conflicted copy) vào `--fast`
-(suite 778). Smoke-verify sandbox: seed quote HPG giả 99,999 ngày 08/07 →
-tab hiện đúng bar kho 20/07 kèm "07-20·kho". **VERIFY user**: pull → tab
-Danh mục phải ra SSI ~22,700 (−1.3%) / EIB ~19,xxx kèm ngày·nguồn;
-quote_*.json cũ trong `_live/` KHÔNG cần xóa (tự thua theo ngày).
+(suite 781). Smoke-verify sandbox: seed quote HPG giả 99,999 ngày 08/07 →
+tab hiện đúng bar kho 20/07 kèm "07-20·kho". **✅ VERIFY TRÊN MÁY USER
+20/07 tối**: SSI ra 22,700 (07-20·kho) đúng bar kho, EIB 17,850
+(07-20·kho); tổng L/L về số thật (−5.48% — thị trường rơi, không phải
+lãi ảo +12.98%); quote_*.json cũ tự thua theo ngày, không cần xóa.
+EIB −10.3% từ giá mua trông vượt biên NHƯNG là 2 phiên cộng dồn (mua
+trong phiên 17/07 @19,900 > close 18,980, rồi 20/07 −5.95%) — đối chiếu
+chéo từ caption NAV, hợp lệ. **Rounding kèm (đánh bóng 20/07)**: resolver
+làm tròn giá 6 chữ số có nghĩa — kho lưu close float32 (22.700001×1000)
+làm "GT hiện tại" ra đuôi lẻ "454,000,015".
 
 **Khảo sát je-suis-tm/quant-trading (2026-07-15): KHÔNG dùng repo —
 CẢ 3 MÓN ĐÃ TRIỂN KHAI cùng ngày (xem mục 🪃 bên dưới).** Bộ sưu tập ~15

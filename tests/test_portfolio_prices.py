@@ -116,6 +116,16 @@ def test_no_sources_returns_zero(tmp_path):
         (0.0, "", "")
 
 
+def test_float32_noise_rounded_away(tmp_path):
+    """Kho lưu close float32 → 22.700001 × 1000 = 22,700.001 làm GT hiện tại
+    ra '454,000,015' — resolver làm tròn 6 chữ số có nghĩa → đúng 22,700."""
+    _write_prices(tmp_path, "SSI", [(D[2], 23.0), (D[3], 22.700001)])
+    price, _day, _src = resolve_current_price(
+        "SSI", 23000.0, str(TODAY), tmp_path)
+    assert price == 22700.0
+    assert price * 20000 == 454_000_000.0
+
+
 def test_bad_quote_ignored_warehouse_used(tmp_path):
     _write_prices(tmp_path, "SSI", [(D[2], 23.0), (D[3], 22.7)])
     (tmp_path / "_live").mkdir(parents=True, exist_ok=True)

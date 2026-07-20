@@ -39,6 +39,7 @@ _INDEX_TICKER = "VNINDEX"
 _TRADING_DAYS_YEAR = 250      # HOSE ~250 phiên/năm
 _MAX_CURVE_DAYS = 1900        # trần đọc kho (~5 năm lịch)
 _ANCHOR_TOL = (0.5, 2.0)      # ratio/1000^k phải nằm trong đây mới dám rescale
+_MIN_RISK_STAT_SESSIONS = 10  # dưới ngưỡng: ẩn vol/Sharpe/Calmar (nhiễu)
 
 
 # ── helpers thuần ──────────────────────────────────────────────────────────
@@ -244,6 +245,37 @@ def build_networth(positions: list[dict],
     }
 
 
+def summary_parts(res: dict) -> list[str]:
+    """Các mẩu caption thống kê — UI (portfolio_tab) và CLI DÙNG CHUNG
+    (parity by construction, mirror _macro_body_lines).
+
+    Chuỗi < `_MIN_RISK_STAT_SESSIONS` phiên: ẨN vol/Sharpe/Calmar — 1-2
+    khoảng return là nhiễu thống kê ("Calmar −16.02" trên 2 điểm, verify
+    máy user 20/07); giữ tích lũy / VNINDEX cùng kỳ / maxDD.
+    """
+    s = res.get("stats") or {}
+    dates = res.get("dates") or []
+    parts = [f"{len(dates)} phiên"]
+    if s.get("cumulative_pct") is not None:
+        parts.append(f"tích lũy {s['cumulative_pct']:+.1f}%")
+    idx = res.get("index_rebased")
+    if idx:
+        parts.append(f"VNINDEX cùng kỳ {idx[-1] - 100:+.1f}%")
+    if s.get("max_drawdown_pct") is not None:
+        parts.append(f"maxDD {s['max_drawdown_pct']:.1f}%")
+    if len(dates) >= _MIN_RISK_STAT_SESSIONS:
+        if s.get("ann_vol_pct") is not None:
+            parts.append(f"vol năm hóa {s['ann_vol_pct']:.1f}%")
+        if s.get("sharpe") is not None:
+            parts.append(f"Sharpe (rf=0) {s['sharpe']:.2f}")
+        if s.get("calmar") is not None:
+            parts.append(f"Calmar {s['calmar']:.2f}")
+    else:
+        parts.append("vol/Sharpe/Calmar hiện khi đủ "
+                     f"≥{_MIN_RISK_STAT_SESSIONS} phiên")
+    return parts
+
+
 # ── loaders (đọc kho — CLI-safe, mirror vnstock_preset_score) ──────────────
 
 def _close_series(ticker: str, days: int,
@@ -329,18 +361,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(json.dumps(res, ensure_ascii=False, indent=2))
         return 0
 
-    s = res.get("stats") or {}
     print(f"📈 NAV danh mục: {len(res['dates'])} phiên "
           f"{res['dates'][0]} → {res['dates'][-1]}")
     line = f"   Danh mục (rebase): {_fmt(res['nav_rebased'][-1], 1)}"
     if res.get("index_rebased"):
         line += f" · VNINDEX (rebase): {_fmt(res['index_rebased'][-1], 1)}"
     print(line)
-    print(f"   Tích lũy: {_fmt(s.get('cumulative_pct'), 1)}% · "
-          f"Vol năm hóa: {_fmt(s.get('ann_vol_pct'), 1)}% · "
-          f"Sharpe (rf=0): {_fmt(s.get('sharpe'))} · "
-          f"MaxDD: {_fmt(s.get('max_drawdown_pct'), 1)}% · "
-          f"Calmar: {_fmt(s.get('calmar'))}")
+    print("   " + " · ".join(summary_parts(res)))
     if res.get("skipped_days"):
         print(f"   ⚠️ Bỏ {res['skipped_days']} phiên thiếu giá (mã chưa có bar).")
     if res.get("excluded"):
