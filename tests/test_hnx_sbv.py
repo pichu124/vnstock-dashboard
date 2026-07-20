@@ -10,7 +10,14 @@ from datetime import date
 import pytest
 
 import vnstock_hnx as hnx
+import vnstock_macro as _mac_for_real
 import vnstock_sbv as sbv
+
+# Chụp HÀM THẬT lúc IMPORT (trước khi conftest autouse patch) — cho 2 test
+# cố ý exercise _fetch_sbv_daily/_fetch_sbv_policy qua fake sys.modules
+# (pattern mirror test_macro dòng ~471)
+_REAL_FETCH_SBV_DAILY = _mac_for_real._fetch_sbv_daily
+_REAL_FETCH_SBV_POLICY = _mac_for_real._fetch_sbv_policy
 
 
 _HNX_HTML = """<html><body><table id="_tableDatas"><tbody>
@@ -409,6 +416,9 @@ def test_macro_fetch_sbv_policy(monkeypatch):
     import sys
     import types
     import vnstock_macro as mac
+    # conftest autouse chặn _fetch_sbv_policy (hermetic toàn cục) → test này
+    # cố ý cần HÀM THẬT (đã chụp lúc import, trước khi fixture patch)
+    monkeypatch.setattr(mac, "_fetch_sbv_policy", _REAL_FETCH_SBV_POLICY)
     fake = types.SimpleNamespace(refresh_policy=lambda **k: {
         "as_of": "2023-06-19", "refinancing": 4.5, "discount": 3.0})
     monkeypatch.setitem(sys.modules, "vnstock_sbv_rates", fake)
@@ -421,6 +431,8 @@ def test_macro_fetch_sbv_daily(monkeypatch):
     import sys
     import types
     import vnstock_macro as mac
+    # conftest autouse chặn _fetch_sbv_daily → test này cố ý cần HÀM THẬT
+    monkeypatch.setattr(mac, "_fetch_sbv_daily", _REAL_FETCH_SBV_DAILY)
     fake = types.SimpleNamespace(refresh=lambda **k: {
         "as_of": "2026-07-15",
         "history": {"2026-07-15": {"on": 4.16, "1w": 4.74}}})
