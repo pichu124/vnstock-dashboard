@@ -443,9 +443,12 @@ gỡ: `-Remove`):
 cd "C:\Users\Administrator\Dropbox\Claude vnstock"
 .\scripts\setup_scheduled_tasks.ps1
 ```
-3 task được đăng ký: **VnStock Daily Pipeline** 18:00 T2-T6 (`run.py all` =
-sync EOD → validate → screener → news → test → audit → doctor — trọn quy
-trình tối, sau giờ đóng cửa) · **VnStock Weekly Corp Actions** CN 09:00
+4 task được đăng ký (task 4 thêm 20/07 — máy đã setup trước đó phải chạy
+LẠI script để có nó): **VnStock Daily Pipeline** 18:00 T2-T6 (`run.py all` =
+13 bước: sync EOD → validate → screener → news → … → audit → **train** →
+reflection → doctor — trọn quy trình tối, sau giờ đóng cửa) · **VnStock
+Rates Weekly** T7 09:00 (`run.py rates-weekly` — báo cáo tuần lãi suất →
+Telegram, zero LLM) · **VnStock Weekly Corp Actions** CN 09:00
 (Vietstock cổ tức/chia tách → registry) · **VnStock Fundamentals** T2 08:00
 (1×/tuần, `--force --workers 4 --delay 1` — **fix 2026-07-10: trước đó task
 chạy KHÔNG --force = incremental skip mã đã có → NO-OP từ sau lần đầu, số
@@ -1203,28 +1206,34 @@ băng, macro-anchor hijack).
        full suite 254s → ~10-20s (96% thời gian cũ là ngồi chờ mạng).
        VCI khỏe lại trong ngày 20/07, kho bar 20/07 tươi "hôm nay".
 
-### 📅 AUDIT LỊCH ĐỊNH KỲ sau ~10 đợt tích hợp (17/07 — user hỏi, CHỜ CHỐT)
+### 📅 AUDIT LỊCH ĐỊNH KỲ sau ~10 đợt tích hợp (17/07 — chốt 20/07, 2/3 DONE)
 
-Đã rà `run.py all` (12 bước) + 3 task Scheduler + nút dashboard. **Phần ỔN**:
+Đã rà `run.py all` + 4 task Scheduler + nút dashboard. **Phần ỔN**:
 mọi nguồn data mới đều qua bước `macro` (HNX/SBV tuần/SBV ngày/policy/FRED/
 NSO/FX) + gold/allocation/scorecard/reflection/foreign-flow/doctor là bước
 pipeline; screener tối nuôi preset history; events/overview tự refresh khi
 tạo brief; fundamentals task T2; nút "Cập nhật giá" đúng scope (chỉ giá).
 
-**3 LỖ HỔNG THẬT (cadence ngày/tuần đang chạy TAY) — user chưa chốt:**
-1. `run.py telegram morning` + `close` — 2×/ngày KHÔNG có task nào (mọi
-   brief Telegram từ trước tới nay là user chạy tay; pipeline 18:00 chỉ
-   chuẩn bị data). Đề xuất: task 11:40 T2-T6 (morning) + 19:00 T2-T6
-   (close, sau pipeline xong).
-2. `run.py rates-weekly` — báo cáo tuần lãi suất (hướng B) chưa có lịch.
-   Đề xuất: T7 09:00.
-3. `vnstock_train.py --once` — vẫn tay (user chọn 27/04, pending #1);
-   không train đều → reconcile/decay/stance-track chấm thưa. Đề xuất
-   nhắc lại: 15:05 T2-T6.
-Tùy chọn nhỏ: bước `preset-score` best-effort vào pipeline tối (cache
-expander 📋 luôn tươi thay vì chờ bấm 🔄). Khi user chốt món/giờ → sửa
-`scripts/setup_scheduled_tasks.ps1` (thêm entry vào $Tasks) + user chạy
-lại script Run-as-Admin trên desktop.
+**3 lỗ hổng cadence — trạng thái sau 20/07 (user "làm... tự động đi"):**
+1. `run.py telegram morning` + `close` — VẪN TREO (user chưa chốt giờ,
+   brief Telegram vẫn chạy tay). Đề xuất giữ nguyên: task 11:40 T2-T6
+   (morning) + 19:00 T2-T6 (close, sau pipeline). Nhắc khi user than
+   quên chạy brief.
+2. ✅ **DONE 20/07**: task thứ 4 "**VnStock Rates Weekly**" T7 09:00
+   (`run.py rates-weekly`, MaxMinutes 10, zero LLM — render từ cache
+   pipeline đêm đã nuôi cả tuần) vào `setup_scheduled_tasks.ps1`.
+   **CHỜ USER chạy lại script Run-as-Admin TRÊN DESKTOP** để đăng ký
+   (task theo máy). Verify: sáng T7 đầu tiên Telegram nhận báo cáo tuần.
+3. ✅ **DONE 20/07 — đóng pending #1 từ 27/04**: `vnstock_train --once`
+   thành bước **`train`** trong `run.py all` (user chốt "cho vào run.py
+   all" thay vì task 15:05 riêng) — chạy SAU audit (rec vừa đóng →
+   strategy health có số mới), TRƯỚC reflection; best-effort. Nút 🧩
+   Cập nhật còn lại + 🚀 Cập nhật tất cả TỰ HƯỞNG qua `_all_steps` dùng
+   chung (parity by construction). Tắt: `run.py all --no-train`; chạy
+   lẻ: `run.py train`. Pipeline nay **13 bước**, ước tính 35-55 phút
+   (train = backtest VN30 ~5-15 phút + vài call LLM/ngày).
+Tùy chọn nhỏ còn để dành: bước `preset-score` best-effort vào pipeline
+tối (cache expander 📋 luôn tươi thay vì chờ bấm 🔄).
 
 **Checklist gốc (đã chạy gần hết — giữ làm tài liệu lệnh):**
 1. `python vnstock_allocation.py --refresh` → in band + bảng % + lý do 7 tín
@@ -1514,33 +1523,15 @@ Toàn bộ checklist verify xong 100% (tests/doctor/macro 13 chỉ số + 3 gaug
 Jina full-text/dashboard). PR mở 2026-07-13 theo lệnh user — nếu PR đã merge
 thì XÓA mục này; nếu chưa merge, kiểm tra trạng thái PR khi user quay lại.
 
-### 1. Auto-schedule `vnstock_train.py` (NOT YET SET UP)
+### 1. ✅ Auto-schedule `vnstock_train.py` (DONE 2026-07-20 — đóng sau 3 tháng treo)
 
-**Status**: User chose to run manually for now (decided 2026-04-27).
-
-**When to bring up again**:
-- User mentions running `vnstock_train.py` and forgets / runs late
-- User asks about automation, scheduling, or "letting it run on its own"
-- User reports inconsistent / outdated training data
-- User says brief quality is plateauing
-
-**What to suggest**:
-Set up Windows Task Scheduler (or cron on Linux) to run `python vnstock_train.py --once`
-on a daily cadence aligned with VN market sessions:
-- 11:35 (after morning session close) — optional
-- 15:05 (after full close) — primary slot
-
-PowerShell command ready to paste:
-```powershell
-schtasks /Create /SC DAILY /ST 15:05 /TN "VNStock Train" `
-  /TR "<repo>\.venv\Scripts\python.exe <repo>\vnstock_train.py --once"
-```
-
-**Why daily and not continuous**: VN market data refreshes 1×/day. Running
-the training loop more often wastes API tokens without new information.
-The system is API-based (Claude/Groq/Mistral) — there are no model weights
-to fine-tune locally; "training" here means refreshing prompt few-shots,
-re-running strategy generation/backtest, and reconciling recommendations.
+**Cách chốt**: KHÔNG task 15:05 riêng — user chọn đưa thành bước `train`
+trong `run.py all` (sau audit, trước reflection; `--no-train` để tắt).
+Task đêm 18:00 + nút 🧩/🚀 dashboard tự chạy train mỗi ngày. Xem mục
+📅 AUDIT ở trên. Lý do daily-not-continuous vẫn đúng: data VN refresh
+1×/ngày, train nhiều hơn chỉ đốt token; "train" = refresh few-shots +
+strategy loop (tune/revise + validation 🧪 + Bonferroni + decay) +
+reconcile, không có model weights local.
 
 ### 2. ✅ Xác nhận OpenRouter hoạt động (DONE 2026-05-18)
 

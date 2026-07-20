@@ -823,6 +823,19 @@ def cmd_allocation(args) -> int:
     return 1 if rc != 0 else 0
 
 
+def cmd_train(args) -> int:
+    """Vòng train hàng ngày (vnstock_train --once): auto-score brief cũ +
+    few-shot pool → strategy loop (tune/revise theo rule, gate validation 🧪
+    + Bonferroni, decay check) → reconcile. User chốt 20/07 đưa vào pipeline
+    thay vì task riêng (pending #1 từ 27/04 đóng): chạy SAU audit (rec vừa
+    đóng → strategy health có số mới) trên kho vừa sync = data tươi nhất.
+    Phần nặng là backtest full VN30 (~5-15 phút) + vài call LLM/ngày.
+    Best-effort: lỗi → warning, không chặn pipeline.
+    """
+    rc = _run([sys.executable, str(REPO_ROOT / "vnstock_train.py"), "--once"])
+    return 1 if rc != 0 else 0
+
+
 def cmd_reflection(args) -> int:
     """Rút bài học từ rec vừa đóng / kỳ band vừa khép (vnstock_reflection).
 
@@ -959,6 +972,7 @@ def _all_steps(args) -> "list[tuple[str, object]]":
         ("allocation",   cmd_allocation),
         ("test",         cmd_test),
         ("audit",        cmd_audit),
+        ("train",        cmd_train),
         ("reflection",   cmd_reflection),
         ("doctor",       cmd_doctor),
     ]
@@ -967,6 +981,8 @@ def _all_steps(args) -> "list[tuple[str, object]]":
         steps.insert(3, ("news", cmd_news))
     if getattr(args, "no_sync", False):
         steps = [s for s in steps if s[0] not in ("sync", "validate")]
+    if getattr(args, "no_train", False):
+        steps = [s for s in steps if s[0] != "train"]
     return steps
 
 
@@ -1176,6 +1192,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Refresh gold-spot cache (display-only, vnstock_gold.py)")
     sub.add_parser("reflection",
                    help="Rút bài học từ rec/kỳ band đã đóng (vnstock_reflection.py)")
+    sub.add_parser("train",
+                   help="Vòng train hàng ngày (vnstock_train --once): few-shot "
+                        "+ strategy loop + reconcile")
     sub.add_parser("dashboard", help="Launch the Streamlit dashboard")
 
     tg = sub.add_parser("telegram", help="Push Telegram notifications")
@@ -1197,6 +1216,9 @@ def build_parser() -> argparse.ArgumentParser:
     all_.add_argument("--no-sync", action="store_true",
                       help="Bỏ bước sync kho giá ~1724 mã (+validate) — chạy "
                            "phần còn lại (nút 'Cập nhật còn lại' trên dashboard)")
+    all_.add_argument("--no-train", action="store_true",
+                      help="Bỏ bước train chiến lược (vnstock_train --once, "
+                           "~5-15 phút backtest + vài call LLM)")
     all_.add_argument("--lookback", type=int, default=60)
     all_.add_argument("--llm", action="store_true")
     all_.add_argument("--auditor", choices=["auto", "claude", "gpt", "null"],
@@ -1230,6 +1252,7 @@ _DISPATCH = {
     "gold": cmd_gold,
     "allocation": cmd_allocation,
     "reflection": cmd_reflection,
+    "train": cmd_train,
     "telegram": cmd_telegram,
     "news": cmd_news,
     "test": cmd_test,

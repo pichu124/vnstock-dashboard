@@ -3671,15 +3671,19 @@ with _update_col:
             key="run_all_no_sync",
             use_container_width=True,
             help=(
-                "**Chạy pipeline `run.py all --no-sync`** — toàn bộ 12 bước "
-                "TRỪ kho giá parquet ~1.724 mã (~5-10 phút thay vì 30-40):\n"
+                "**Chạy pipeline `run.py all --no-sync`** — toàn bộ 13 bước "
+                "TRỪ kho giá parquet ~1.724 mã (~10-25 phút thay vì 35-55):\n"
                 "- Screener + market_overview (nguồn của brief/breadth/dòng "
                 "tiền ngành)\n"
                 "- Tin tức + sentiment\n"
                 "- NN ròng full-market (foreign-flow)\n"
                 "- Vĩ mô 13 chỉ số (FX/LNH ngày/HNX/FRED/NSO/policy)\n"
                 "- Gold, allocation band, scorecard\n"
-                "- Test badge, audit/reconcile rec, reflection, doctor badge\n\n"
+                "- Test badge, audit/reconcile rec\n"
+                "- **Train chiến lược** (`vnstock_train --once`: tune/revise + "
+                "gate validation 🧪 + decay — phần tốn thời gian nhất, backtest "
+                "VN30 ~5-15 phút)\n"
+                "- Reflection, doctor badge\n\n"
                 "**Dùng khi:** kho giá đã tươi (vừa bấm 📥 Cập nhật giá / "
                 "pipeline đêm đã sync) mà muốn làm mới mọi thứ CÒN LẠI; hoặc "
                 "VCI outage không tải được giá nhưng vẫn muốn tin/vĩ mô/band "
@@ -3697,7 +3701,7 @@ with _update_col:
             if _is_win:
                 st.success(
                     "✅ Đã mở cửa sổ PowerShell chạy phần còn lại của pipeline "
-                    "(~5-10 phút, không đụng kho giá).\n\n"
+                    "(~10-25 phút, không đụng kho giá — gồm cả train chiến lược).\n\n"
                     "Khi xong, bấm **Refresh** hoặc F5 để dashboard load dữ liệu mới."
                 )
             else:
@@ -3711,10 +3715,11 @@ with _update_col:
             key="run_all_pipeline",
             use_container_width=True,
             help=(
-                "**Chạy TRỌN pipeline tối `python run.py all` — 12 bước** "
-                "(~30-40 phút): sync giá → validate → screener → news → "
+                "**Chạy TRỌN pipeline tối `python run.py all` — 13 bước** "
+                "(~35-55 phút): sync giá → validate → screener → news → "
                 "foreign-flow → **vĩ mô 13 chỉ số** → gold → allocation → "
-                "test → audit/reconcile → reflection → doctor.\n\n"
+                "test → audit/reconcile → **train chiến lược** → reflection "
+                "→ doctor.\n\n"
                 "Đúng thứ Task Scheduler chạy 18:00 mỗi tối — dùng nút này khi "
                 "muốn làm tươi TOÀN BỘ (kho giá + overview + tin + NN ròng + "
                 "vĩ mô + band phân bổ + 2 badge sidebar) trong một phát, vd "
@@ -3722,29 +3727,29 @@ with _update_col:
                 "⚠️ **ĐỪNG tắt máy / đóng cửa sổ PowerShell khi đang chạy** — "
                 "chuỗi bị ngắt giữa chừng là cache tươi nửa vời (đúng bệnh "
                 "LastTaskResult 0xC000013A của task đêm).\n\n"
-                "Khác biệt: **📥 Cập nhật giá** chỉ lo giá + screener + news + "
-                "macro; nút này chạy đủ 12 bước kể cả allocation/audit/doctor.\n\n"
+                "Khác biệt: **📥 Cập nhật giá** chỉ lo giá + screener; nút này "
+                "chạy đủ 13 bước kể cả allocation/audit/train/doctor.\n\n"
                 "Xong thì bấm **🔄 Refresh** hoặc F5.\n\n"
                 "Ẩn dụ: *tự tay chạy nguyên ca trực đêm của toà soạn*."
             ),
         ):
             _is_win, _log = launch_in_new_console(
                 commands=[
-                    {"label": "Pipeline run.py all (12 buoc)",
+                    {"label": "Pipeline run.py all (13 buoc)",
                      "args": ["run.py", "all"]},
                 ],
                 log_filename="pipeline_all.log",
             )
             if _is_win:
                 st.success(
-                    "✅ Đã mở cửa sổ PowerShell chạy TRỌN pipeline (~30-40 phút).\n\n"
+                    "✅ Đã mở cửa sổ PowerShell chạy TRỌN pipeline (~35-55 phút).\n\n"
                     "⚠️ Đừng tắt máy / đóng cửa sổ khi đang chạy. Theo dõi từng "
                     "bước `=== run.py all :: … ===` trong cửa sổ mới; xong thì "
                     "bấm **🔄 Refresh** hoặc F5."
                 )
             else:
                 st.info(
-                    f"🔄 Pipeline đang chạy nền (~30-40 phút). Log: `{_log}`\n\n"
+                    f"🔄 Pipeline đang chạy nền (~35-55 phút). Log: `{_log}`\n\n"
                     "Khi xong, bấm **🔄 Refresh** để load dữ liệu mới."
                 )
 
