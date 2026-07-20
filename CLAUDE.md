@@ -998,8 +998,9 @@ băng, macro-anchor hijack).
    **CÒN THEO DÕI: tối T2 20/07 18:00** — máy bật, không đụng, kỳ vọng lần
    đầu LastTaskResult=0 (lần đầu chạy đủ 13 BƯỚC có train — sáng hôm sau
    kiểm `Get-ScheduledTaskInfo 'VnStock Daily Pipeline'` + log
-   `pipeline` phải có `=== run.py all :: train ===`); user cần trả lời
-   "hay tắt desktop lúc mấy giờ" để chốt giờ task. Desktop đã seed tay
+   `pipeline` phải có `=== run.py all :: train ===`; câu "tắt desktop
+   lúc mấy giờ" user BỎ 20/07 — giữ giờ 18:00, chỉ đổi nếu tái ngắt).
+   Desktop đã seed tay
    17/07 + bù giá xong (kho bar 20/07 tươi, VCI khỏe lại); 20/07 đăng ký
    đủ 4 task (system Python C:\Python314 — vnstock 3.5.1, KHOAN nâng khi
    hệ đang khỏe; nâng thì chạy lại test --fast ngay);
