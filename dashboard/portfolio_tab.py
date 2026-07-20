@@ -257,6 +257,75 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
     )
     st.markdown(_tbl, unsafe_allow_html=True)
 
+    # ── Net-worth curve — NAV danh mục vs VNINDEX (món DojoAgents 20/07) ──
+    st.markdown("---")
+    st.markdown("#### 📈 Giá trị danh mục theo thời gian (NAV)")
+    try:
+        from vnstock_networth import load_networth
+        _nw = load_networth(warehouse)
+        if not _nw or not _nw.get("nav_rebased"):
+            st.caption("Chưa đủ dữ liệu giá trong kho để dựng đường NAV "
+                       "(cần ≥ 2 phiên kể từ ngày mua sớm nhất).")
+        else:
+            try:
+                import plotly.graph_objects as _go_nw
+                _fig_nw = _go_nw.Figure()
+                _fig_nw.add_trace(_go_nw.Scatter(
+                    x=_nw["dates"], y=_nw["nav_rebased"],
+                    name="Danh mục (NAV)",
+                    line=dict(color="#60a5fa", width=2)))
+                if _nw.get("index_rebased"):
+                    _fig_nw.add_trace(_go_nw.Scatter(
+                        x=_nw["dates"], y=_nw["index_rebased"],
+                        name="VNINDEX",
+                        line=dict(color="#94a3b8", width=1.5, dash="dash")))
+                _fig_nw.update_layout(
+                    height=320,
+                    margin=dict(l=0, r=0, t=10, b=0),
+                    yaxis=dict(title="Rebase 100"),
+                    legend=dict(orientation="h", y=1.1),
+                    plot_bgcolor="#0e1117",
+                    paper_bgcolor="#0e1117",
+                    font=dict(color="#f1f5f9"),
+                )
+                st.plotly_chart(_fig_nw, use_container_width=True)
+            except Exception:
+                import pandas as _pd_nw
+                _df_nw = _pd_nw.DataFrame(
+                    {"Danh mục": _nw["nav_rebased"]},
+                    index=_pd_nw.to_datetime(_nw["dates"]))
+                if _nw.get("index_rebased"):
+                    _df_nw["VNINDEX"] = _nw["index_rebased"]
+                st.line_chart(_df_nw)
+
+            _s_nw = _nw.get("stats") or {}
+            _parts_nw = [f"{len(_nw['dates'])} phiên"]
+            if _s_nw.get("cumulative_pct") is not None:
+                _parts_nw.append(f"tích lũy {_s_nw['cumulative_pct']:+.1f}%")
+            if _nw.get("index_rebased"):
+                _parts_nw.append(
+                    f"VNINDEX cùng kỳ {_nw['index_rebased'][-1] - 100:+.1f}%")
+            if _s_nw.get("ann_vol_pct") is not None:
+                _parts_nw.append(f"vol năm hóa {_s_nw['ann_vol_pct']:.1f}%")
+            if _s_nw.get("sharpe") is not None:
+                _parts_nw.append(f"Sharpe (rf=0) {_s_nw['sharpe']:.2f}")
+            if _s_nw.get("max_drawdown_pct") is not None:
+                _parts_nw.append(f"maxDD {_s_nw['max_drawdown_pct']:.1f}%")
+            if _s_nw.get("calmar") is not None:
+                _parts_nw.append(f"Calmar {_s_nw['calmar']:.2f}")
+            st.caption("📊 " + " · ".join(_parts_nw))
+
+            _notes_nw = ["Rebase 100 tại ngày đầu; vốn vị thế mua sau tính "
+                         "như tiền mặt (0%) tới ngày mua — display-only."]
+            if _nw.get("skipped_days"):
+                _notes_nw.append(f"Bỏ {_nw['skipped_days']} phiên thiếu giá.")
+            if _nw.get("excluded"):
+                _notes_nw.append("Loại mã không có dữ liệu giá: "
+                                 + ", ".join(_nw["excluded"]) + ".")
+            st.caption(" ".join(_notes_nw))
+    except Exception as _e_nw:
+        st.caption(f"NAV curve không khả dụng: {_e_nw}")
+
     # ── F7: Sector Exposure ────────────────────────────────────────────────
     st.markdown("---")
     st.markdown("#### 🏗 Phân bổ theo ngành")

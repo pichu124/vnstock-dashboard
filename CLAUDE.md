@@ -1097,14 +1097,10 @@ băng, macro-anchor hijack).
       model reasoning (deepseek-r1 style) — không cần verify chủ động;
       nếu một ngày digest/sentiment dính chữ "think"/suy nghĩ tiếng Anh
       lạ → nghi strip miss dạng thẻ mới, thêm tên thẻ vào _THINK_NAMES.
-   d. **Món CHƯA LÀM chờ chốt**: net-worth curve cho portfolio_tab
-      (khảo sát DojoAgents — curve = Σ qty×close(t) từ buy_date + đường
-      VNINDEX cùng kỳ, zero fetch, ~50-70 dòng) — user nói "làm đi" là
-      triển; PE band lịch sử vẫn để dành (cần EPS quý, scope VN30).
-      **Spec NÂNG CẤP 20/07** (khảo sát lại DojoAgents — xem mục "Khảo
-      sát LẠI" dưới deep-dive): trục ngày = ngày bar VNINDEX,
-      forward-fill mã thiếu bar (KHÔNG drop ngày — kẻo vol/Sharpe phồng),
-      rebase 2 đường về 100, stats optional.
+   d. ✅ **Net-worth curve — DONE 2026-07-20** (user "làm đi" sau khảo sát
+      lại DojoAgents; chi tiết + checklist verify ở mục "### 📈 Net-worth
+      curve" dưới khối Khảo sát LẠI DojoAgents). PE band lịch sử vẫn để
+      dành (cần EPS quý, scope VN30).
 8. **Đợt review guard close brief 15/07 (5 fix, mục 🔬 ở dưới) — VERIFY
    CÒN NỢ trên close brief PHIÊN SAU (mọi fix tự kích hoạt qua guard chain
    / telegram):**
@@ -2545,6 +2541,47 @@ PE(t)=close(t)×shares/LN-TTM **neo theo ngày BCTC khả dụng** (anchor
 schedule — point-in-time, không lookahead), band mean±1σ/2σ, shares giữ
 hằng → xác nhận cần LN QUÝ lịch sử (fundamentals.parquet chưa có), scope
 VN30 khi làm.
+
+### 📈 Net-worth curve NAV danh mục (DONE 2026-07-20 — món DojoAgents, user "làm đi") — `vnstock_networth.py`
+
+Display-only, deterministic thuần, zero LLM/fetch — chỉ đọc
+`_meta/portfolio.json` + kho parquet; KHÔNG ghi DB, không đụng logic P&L
+hiện có của tab. Tests `tests/test_networth.py` (14, hermetic — core thuần
+nhận dict, loader end-to-end trên tmp parquet) đã vào `--fast`.
+- **NAV(t) = tiền mặt ngầm định + Σ qty×close(t)** các vị thế đã mua tính
+  đến t: vốn vị thế mua SAU tính như cash 0% tới buy_date (mirror
+  order-replay của DojoAgents) — CỐ Ý khác sketch v0 "mã chưa mua chưa
+  tính": bỏ hẳn thì mỗi lần mua thêm tạo bước nhảy "nạp tiền" đội lốt lợi
+  nhuận → so VNINDEX thành outperform giả + vol/Sharpe bẩn. Mua đúng giá
+  close ngày mua → curve liên tục (jump duy nhất = lệch close-vs-giá-mua
+  trong phiên = P&L thật).
+- **3 bài học chống-phồng-stats áp đủ** (spec 20/07): trục ngày = ngày bar
+  VNINDEX trong kho (fallback = hợp ngày các mã khi kho thiếu index, đường
+  index ẩn); forward-fill close từng mã (thiếu bar → carry close cuối),
+  CHỈ bỏ ngày khi một mã đang giữ CHƯA TỪNG có bar tính đến hôm đó (đếm
+  `skipped_days`, hiện caption); rebase cả 2 đường về 100 tại ngày đầu chung.
+- **Neo đơn vị về buy_price của user** (`_anchor_factor`): kho parquet trộn
+  VND thô ↔ nghìn đồng per-bar (bẫy `_normalize_prices`), `_stitch_units`
+  (tái dùng từ preset_score) chỉ nhất quán NỘI BỘ từng chuỗi → cross-ticker
+  vẫn lệch 1000×. Neo bằng close phiên ≤ buy_date: ratio khớp lũy thừa 1000
+  trong dung sai [0.5, 2] mới rescale, ngoài dung sai giữ 1.0 (không đoán
+  bừa). buy_price là nguồn chân lý đơn vị (UI nhập "Giá mua (VND)" thô).
+- **Stats `compute_curve_stats`** (mirror block risk-stats DojoAgents):
+  tích lũy % · vol năm hóa √250 · Sharpe (rf=0) · maxDD % · Calmar · số
+  phiên — suy biến trả None thay vì chia 0. Vị thế buy_date TƯƠNG LAI →
+  loại hẳn (kẻo thành cash vĩnh viễn); mã không có data giá → loại khỏi
+  curve + caption "Loại mã…" (mirror triết lý missing-feed của tab).
+- **UI**: mục "📈 Giá trị danh mục theo thời gian (NAV)" trong
+  portfolio_tab (sau bảng vị thế, trước Phân bổ ngành) — plotly 2 đường
+  (NAV #60a5fa, VNINDEX dash #94a3b8; fallback st.line_chart), caption
+  stats + caveat "vốn mua sau = tiền mặt tới ngày mua", best-effort
+  try/except (mirror sector exposure). CLI: `python vnstock_networth.py
+  [--json] [--warehouse DIR]`.
+- **VERIFY trên máy user (kho giá + vị thế thật)**: mở tab 💼 Danh mục →
+  chart 2 đường + caption stats; đối chiếu: mua 1 đợt thì % tích lũy NAV ≈
+  % L/L của bảng (lệch nhỏ = close kho vs live quote); mua nhiều đợt thì
+  KHÔNG khớp là ĐÚNG (NAV tính cả kỳ tiền mặt chờ giải ngân);
+  `python vnstock_networth.py` in cùng số với UI.
 
 **Khảo sát je-suis-tm/quant-trading (2026-07-15): KHÔNG dùng repo —
 CẢ 3 MÓN ĐÃ TRIỂN KHAI cùng ngày (xem mục 🪃 bên dưới).** Bộ sưu tập ~15
