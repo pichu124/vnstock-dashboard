@@ -378,17 +378,23 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
                         x=_nw["dates"], y=_nw["index_rebased"],
                         name="VNINDEX",
                         line=dict(color="#94a3b8", width=1.5, dash="dash")))
+                # tick theo NGÀY (hết nhãn 00:00/12:00) + ẩn T7-CN
+                # (hết đoạn thẳng xuyên cuối tuần); ngày lễ VN vẫn
+                # tạo gap nhỏ — chấp nhận (không có lịch nghỉ lễ)
+                _xaxis_nw = dict(
+                    tickformat="%d/%m",
+                    rangebreaks=[dict(bounds=["sat", "mon"])],
+                )
+                if len(_nw["dates"]) <= 10:
+                    # ít điểm: plotly auto chia tick DƯỚI 1 ngày → nhãn
+                    # lặp ("16/07 · 16/07 · 17/07…") — ép tick đúng 1
+                    # ngày; chuỗi dài giữ auto (dtick cứng làm trục dày)
+                    _xaxis_nw["dtick"] = 86_400_000  # 1 ngày (ms)
                 _fig_nw.update_layout(
                     height=320,
                     margin=dict(l=0, r=0, t=10, b=0),
                     yaxis=dict(title="Rebase 100"),
-                    # tick theo NGÀY (hết nhãn 00:00/12:00) + ẩn T7-CN
-                    # (hết đoạn thẳng xuyên cuối tuần); ngày lễ VN vẫn
-                    # tạo gap nhỏ — chấp nhận (không có lịch nghỉ lễ)
-                    xaxis=dict(
-                        tickformat="%d/%m",
-                        rangebreaks=[dict(bounds=["sat", "mon"])],
-                    ),
+                    xaxis=_xaxis_nw,
                     legend=dict(orientation="h", y=1.1),
                     plot_bgcolor="#0e1117",
                     paper_bgcolor="#0e1117",

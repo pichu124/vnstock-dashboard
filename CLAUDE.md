@@ -2595,8 +2595,10 @@ nhận dict, loader end-to-end trên tmp parquet) đã vào `--fast`.
   giữ tích lũy/VNINDEX/maxDD + dòng nhắc "hiện khi đủ ≥10 phiên";
   (b) trục X plotly `tickformat %d/%m` + `rangebreaks` ẩn T7-CN (hết nhãn
   00:00/12:00 + đoạn thẳng xuyên cuối tuần; ngày LỄ VN vẫn gap — chấp
-  nhận, chưa nuôi lịch nghỉ lễ); (c) xem mục 💼 — resolver làm tròn 6 chữ
-  số có nghĩa.
+  nhận, chưa nuôi lịch nghỉ lễ) + **dtick 1 ngày KHI ≤ 10 phiên** (vòng
+  ảnh 3 của user: auto-tick dưới ngày làm nhãn lặp "16/07·16/07·17/07…";
+  chuỗi dài giữ auto — dtick cứng làm trục dày đặc); (c) xem mục 💼 —
+  resolver làm tròn 6 chữ số có nghĩa.
 - **Fix kèm (lộ khi smoke-verify trên pandas 3.0)**: khối Phân bổ ngành
   chết `'Styler' object has no attribute 'applymap'` — pandas ≥2.1
   deprecate, pandas 3 BỎ HẲN `Styler.applymap` → portfolio_tab nay ưu tiên
