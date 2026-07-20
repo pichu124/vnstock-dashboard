@@ -2581,7 +2581,15 @@ nhận dict, loader end-to-end trên tmp parquet) đã vào `--fast`.
   chart 2 đường + caption stats; đối chiếu: mua 1 đợt thì % tích lũy NAV ≈
   % L/L của bảng (lệch nhỏ = close kho vs live quote); mua nhiều đợt thì
   KHÔNG khớp là ĐÚNG (NAV tính cả kỳ tiền mặt chờ giải ngân);
-  `python vnstock_networth.py` in cùng số với UI.
+  `python vnstock_networth.py` in cùng số với UI. **Đã smoke-verify TRONG
+  SANDBOX 20/07** (streamlit headless + Playwright, kho demo 70 phiên tổng
+  hợp): chart 2 đường + caption stats/caveat render đúng, số UI khớp CLI,
+  mua đợt 2 giữa kỳ KHÔNG tạo bước nhảy (implied cash chạy đúng).
+- **Fix kèm (lộ khi smoke-verify trên pandas 3.0)**: khối Phân bổ ngành
+  chết `'Styler' object has no attribute 'applymap'` — pandas ≥2.1
+  deprecate, pandas 3 BỎ HẲN `Styler.applymap` → portfolio_tab nay ưu tiên
+  `.map`, fallback `.applymap` (chỗ dùng DUY NHẤT cả repo). Desktop vừa
+  lên stack Python 3.14 mới 20/07 — khả năng cùng bệnh, fix này chữa luôn.
 
 **Khảo sát je-suis-tm/quant-trading (2026-07-15): KHÔNG dùng repo —
 CẢ 3 MÓN ĐÃ TRIỂN KHAI cùng ngày (xem mục 🪃 bên dưới).** Bộ sưu tập ~15

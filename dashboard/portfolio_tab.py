@@ -449,8 +449,12 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
                     return "color: #ef4444"
                 return "color: #94a3b8"
 
+            # pandas ≥ 2.1 đổi Styler.applymap → Styler.map; pandas 3 BỎ HẲN
+            # applymap — ưu tiên .map, fallback .applymap cho pandas cũ.
+            _styler = _df_exp.style
+            _style_map = getattr(_styler, "map", None) or _styler.applymap
             st.dataframe(
-                _df_exp.style.applymap(_color_diff, subset=["Lệch (pp)"]),
+                _style_map(_color_diff, subset=["Lệch (pp)"]),
                 use_container_width=True,
                 hide_index=True,
             )
