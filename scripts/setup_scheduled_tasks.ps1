@@ -1,10 +1,11 @@
 # ============================================================================
 # setup_scheduled_tasks.ps1
 # ============================================================================
-# Create 3 Windows Scheduled Tasks for vnstock_dashboard pipeline:
+# Create 4 Windows Scheduled Tasks for vnstock_dashboard pipeline:
 #
 #   1. VnStock Daily Pipeline     — 18:00 Mon-Fri
-#      sync → validate → screener → news → test → audit (news integrated)
+#      sync → validate → screener → news → ... → audit → train → doctor
+#      (13 steps; train = vnstock_train --once, added 2026-07-20)
 #      Command: python run.py --warehouse data_warehouse all
 #
 #   2. VnStock Weekly Corp Actions — 09:00 Sunday
@@ -16,6 +17,10 @@
 #      Command: python vnstock_fundamental_updater.py --force --workers 4 --delay 1
 #      (--force bắt buộc — không có nó updater incremental skip mã đã có,
 #       task tuần thành no-op; fix 2026-07-10)
+#
+#   4. VnStock Rates Weekly        — 09:00 Saturday (1×/tuần)
+#      Báo cáo tuần lãi suất & tiền tệ → Telegram (render từ cache, zero LLM)
+#      Command: python run.py --warehouse data_warehouse rates-weekly
 #
 # Note: News sentiment (run.py news) is now a built-in step of the daily
 # pipeline — no separate task needed. Skip with --no-news if desired.
@@ -42,7 +47,8 @@ param(
     [string]$PythonExe        = "",
     [string]$DailyTime        = "18:00",
     [string]$WeeklyTime       = "09:00",
-    [string]$FundamentalsTime = "08:00"
+    [string]$FundamentalsTime = "08:00",
+    [string]$RatesWeeklyTime  = "09:00"
 )
 
 $ErrorActionPreference = "Stop"
@@ -111,7 +117,7 @@ $TaskDefinitions = @(
                 -At $DailyTime
         }
         MaxMinutes  = 120
-        Description = "sync (updater+rollup+fix-units+auto-heal) -> validate -> audit"
+        Description = "13 buoc: sync -> validate -> screener -> ... -> audit -> train (vnstock_train --once) -> doctor"
     },
     @{
         Name        = "VnStock Weekly Corp Actions"
@@ -144,6 +150,23 @@ $TaskDefinitions = @(
         }
         MaxMinutes  = 90
         Description = "Tai P/E / ROE / D-E / Cash Flow -> fundamentals.parquet (1x/tuan, --force full refresh)"
+    },
+    @{
+        Name        = "VnStock Rates Weekly"
+        Execute     = $PythonExe
+        # Bao cao tuan lai suat & tien te -> Telegram (huong B, user chot
+        # 20/07). Zero LLM/fetch — chi render tu cache macro/HNX/SBV (pipeline
+        # dem da nuoi ca tuan); sang T7 data tuan da chot du.
+        Args        = "`"$RunPy`" --warehouse $WareHouse rates-weekly"
+        TriggerDesc = "Weekly $RatesWeeklyTime Saturday  (+run-on-boot if missed)"
+        Trigger     = {
+            New-ScheduledTaskTrigger `
+                -Weekly `
+                -DaysOfWeek Saturday `
+                -At $RatesWeeklyTime
+        }
+        MaxMinutes  = 10
+        Description = "Render bao cao tuan lai suat tu cache -> push Telegram (run.py rates-weekly)"
     }
 )
 
@@ -241,5 +264,6 @@ Write-Host "  List tasks       : Get-ScheduledTask -TaskName 'VnStock *' | Selec
 Write-Host "  Run daily        : Start-ScheduledTask -TaskName 'VnStock Daily Pipeline'"
 Write-Host "  Run weekly       : Start-ScheduledTask -TaskName 'VnStock Weekly Corp Actions'"
 Write-Host "  Run fundamentals : Start-ScheduledTask -TaskName 'VnStock Fundamentals'"
+Write-Host "  Run rates weekly : Start-ScheduledTask -TaskName 'VnStock Rates Weekly'"
 Write-Host "  Remove all       : .\scripts\setup_scheduled_tasks.ps1 -Remove"
 Write-Host "  Update all       : .\scripts\setup_scheduled_tasks.ps1  (re-run same script)"

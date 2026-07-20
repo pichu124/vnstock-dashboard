@@ -659,6 +659,29 @@ def cmd_test(args) -> int:
             "tests/test_doctor.py",
             "tests/test_fred.py",
             "tests/test_ratelimit.py",
+            "tests/test_allocation.py",
+            "tests/test_reports.py",
+            "tests/test_report_digest.py",
+            "tests/test_gold.py",
+            "tests/test_scorecard.py",
+            "tests/test_allocation_reports_tabs.py",
+            "tests/test_reflection.py",
+            "tests/test_debate.py",
+            "tests/test_strategy_validation.py",
+            "tests/test_costs_sizing.py",
+            "tests/test_stance_track.py",
+            "tests/test_preset_score.py",
+            "tests/test_candle_patterns.py",
+            "tests/test_chop_crsi.py",
+            "tests/test_genetic.py",
+            "tests/test_psar_db_ha.py",
+            "tests/test_llm_hardening.py",
+            "tests/test_close_1507_review.py",
+            "tests/test_hnx_sbv.py",
+            "tests/test_market_analyzer.py",
+            "tests/test_source_probe.py",
+            "tests/test_price_fallback.py",
+            "tests/test_run_pipeline.py",
         ]
     else:
         test_paths = ["tests/"]
@@ -757,6 +780,71 @@ def cmd_macro(args) -> int:
     maintained manually via `python vnstock_macro.py --set <key> <value>`.
     """
     rc = _run([sys.executable, str(REPO_ROOT / "vnstock_macro.py"), "--refresh"])
+    return 1 if rc != 0 else 0
+
+
+def cmd_gold(args) -> int:
+    """Refresh the international gold-spot cache (display-only, not in the
+    macro registry). Best-effort: a blocked fetch keeps the prior cache —
+    the scorecard's Vàng proxy just skips missing dates."""
+    rc = _run([sys.executable, str(REPO_ROOT / "vnstock_gold.py"), "--refresh"])
+    return 1 if rc != 0 else 0
+
+
+def cmd_rates_weekly(args) -> int:
+    """Đẩy tóm tắt tuần lãi suất & tiền tệ lên Telegram (render từ cache sẵn
+    có — zero fetch). Cadence TUẦN (chạy tay / lịch riêng sau khi cả 3 nguồn
+    LNH publish); KHÔNG vào brief 2×/ngày."""
+    try:
+        from vnstock_telegram import push_rates_weekly
+        res = push_rates_weekly()
+    except Exception as e:                                    # noqa
+        print(f"❌ {e}")
+        return 1
+    if res.get("ok"):
+        print("✅ Đã đẩy tóm tắt tuần lãi suất lên Telegram.")
+        return 0
+    print(f"⚠️ Không đẩy được: {res.get('error', res)}")
+    return 1
+
+
+def cmd_allocation(args) -> int:
+    """Refresh the asset-allocation band (B0-B4) from existing caches, then
+    the retrospective scorecard (both zero LLM).
+
+    vnstock_allocation reads regime/sentiment/breadth/macro caches, applies
+    hysteresis + report tilt, persists state + per-day history; the scorecard
+    re-marks completed monthly periods + the report-source log. Best-effort:
+    missing inputs keep the previous state intact.
+    """
+    rc = _run([sys.executable, str(REPO_ROOT / "vnstock_allocation.py"),
+               "--refresh"])
+    _run([sys.executable, str(REPO_ROOT / "vnstock_scorecard.py"), "--refresh"])
+    return 1 if rc != 0 else 0
+
+
+def cmd_train(args) -> int:
+    """Vòng train hàng ngày (vnstock_train --once): auto-score brief cũ +
+    few-shot pool → strategy loop (tune/revise theo rule, gate validation 🧪
+    + Bonferroni, decay check) → reconcile. User chốt 20/07 đưa vào pipeline
+    thay vì task riêng (pending #1 từ 27/04 đóng): chạy SAU audit (rec vừa
+    đóng → strategy health có số mới) trên kho vừa sync = data tươi nhất.
+    Phần nặng là backtest full VN30 (~5-15 phút) + vài call LLM/ngày.
+    Best-effort: lỗi → warning, không chặn pipeline.
+    """
+    rc = _run([sys.executable, str(REPO_ROOT / "vnstock_train.py"), "--once"])
+    return 1 if rc != 0 else 0
+
+
+def cmd_reflection(args) -> int:
+    """Rút bài học từ rec vừa đóng / kỳ band vừa khép (vnstock_reflection).
+
+    1 call LLM ngắn mỗi outcome mới (trần 3/lượt) → bài học 2-4 câu được bơm
+    vào prompt brief sau. Best-effort: không key/không outcome mới = no-op.
+    Chạy SAU audit vì reconciler vừa đóng rec xong là lúc có outcome mới.
+    """
+    rc = _run([sys.executable, str(REPO_ROOT / "vnstock_reflection.py"),
+               "--refresh"])
     return 1 if rc != 0 else 0
 
 
@@ -867,23 +955,46 @@ def cmd_news(args) -> int:
     return 0
 
 
-def cmd_all(args) -> int:
-    """sync → validate → screener → news → test → audit → doctor.
-    Stops on first hard failure. The trailing doctor pass is offline-only and
-    just refreshes doctor_status.json so the sidebar badge stays current."""
+def _all_steps(args) -> "list[tuple[str, object]]":
+    """Danh sách bước của `run.py all` — tách riêng để test được.
+
+    ``--no-sync`` (nút "Cập nhật còn lại" trên dashboard): bỏ bước sync kho
+    giá ~1724 mã (nặng nhất, ~18ph/bị VCI outage kéo dài) VÀ validate (gác
+    contract cho dữ liệu sync vừa ghi — không sync thì không có gì mới để
+    gác); mọi bước còn lại giữ NGUYÊN thứ tự pipeline đêm."""
     steps: list[tuple[str, object]] = [
         ("sync",         cmd_sync),
         ("validate",     cmd_validate),
         ("screener",     cmd_screener),
         ("foreign-flow", cmd_foreign_flow),
         ("macro",        cmd_macro),
+        ("gold",         cmd_gold),
+        ("allocation",   cmd_allocation),
         ("test",         cmd_test),
         ("audit",        cmd_audit),
+        ("train",        cmd_train),
+        ("reflection",   cmd_reflection),
         ("doctor",       cmd_doctor),
     ]
     # Insert news after screener unless the caller opts out
     if not getattr(args, "no_news", False):
         steps.insert(3, ("news", cmd_news))
+    if getattr(args, "no_sync", False):
+        steps = [s for s in steps if s[0] not in ("sync", "validate")]
+    if getattr(args, "no_train", False):
+        steps = [s for s in steps if s[0] != "train"]
+    return steps
+
+
+def cmd_all(args) -> int:
+    """sync → validate → screener → news → foreign-flow → macro → allocation
+    → test → audit → doctor. Stops on first hard failure. The trailing doctor
+    pass is offline-only and just refreshes doctor_status.json so the sidebar
+    badge stays current."""
+    steps = _all_steps(args)
+    if getattr(args, "no_sync", False):
+        print("[run.py] --no-sync: bỏ bước sync kho giá + validate — chạy "
+              f"{len(steps)} bước còn lại")
 
     for name, fn in steps:
         print(f"\n=== run.py all :: {name} ===")
@@ -1073,6 +1184,17 @@ def build_parser() -> argparse.ArgumentParser:
     ff_nn.add_argument("--days", type=int, default=5)
     sub.add_parser("macro",
                    help="Refresh macro cache (lãi suất & tỷ giá) — seed + auto-fetch FX")
+    sub.add_parser("rates-weekly",
+                   help="Đẩy tóm tắt tuần lãi suất lên Telegram (render từ cache)")
+    sub.add_parser("allocation",
+                   help="Refresh asset-allocation band B0-B4 + scorecard")
+    sub.add_parser("gold",
+                   help="Refresh gold-spot cache (display-only, vnstock_gold.py)")
+    sub.add_parser("reflection",
+                   help="Rút bài học từ rec/kỳ band đã đóng (vnstock_reflection.py)")
+    sub.add_parser("train",
+                   help="Vòng train hàng ngày (vnstock_train --once): few-shot "
+                        "+ strategy loop + reconcile")
     sub.add_parser("dashboard", help="Launch the Streamlit dashboard")
 
     tg = sub.add_parser("telegram", help="Push Telegram notifications")
@@ -1091,6 +1213,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     all_ = sub.add_parser(
         "all", help="sync → validate → screener → news → test → audit → doctor")
+    all_.add_argument("--no-sync", action="store_true",
+                      help="Bỏ bước sync kho giá ~1724 mã (+validate) — chạy "
+                           "phần còn lại (nút 'Cập nhật còn lại' trên dashboard)")
+    all_.add_argument("--no-train", action="store_true",
+                      help="Bỏ bước train chiến lược (vnstock_train --once, "
+                           "~5-15 phút backtest + vài call LLM)")
     all_.add_argument("--lookback", type=int, default=60)
     all_.add_argument("--llm", action="store_true")
     all_.add_argument("--auditor", choices=["auto", "claude", "gpt", "null"],
@@ -1120,6 +1248,11 @@ _DISPATCH = {
     "screener": cmd_screener,
     "foreign-flow": cmd_foreign_flow,
     "macro": cmd_macro,
+    "rates-weekly": cmd_rates_weekly,
+    "gold": cmd_gold,
+    "allocation": cmd_allocation,
+    "reflection": cmd_reflection,
+    "train": cmd_train,
     "telegram": cmd_telegram,
     "news": cmd_news,
     "test": cmd_test,

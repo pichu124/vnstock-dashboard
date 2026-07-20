@@ -10,12 +10,53 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, date as _date, timedelta as _td
 from pathlib import Path
 from typing import Optional
+
+
+# ── Strip think-tags + ledger (2 món deep-dive DojoAgents 2026-07-15) ───────
+# Model reasoning free (deepseek-r1 style) suy nghĩ thành tiếng trong cặp
+# thẻ <think>…</think>; một số provider còn NUỐT thẻ mở → output bắt đầu
+# giữa dòng suy nghĩ và kết thúc bằng "</think>" rồi mới tới đáp án. Lọt
+# vào digest/sentiment là phá format (cùng họ lỗi "bắt buộc"/CJK leak).
+_THINK_NAMES = r"(think|thinking|reasoning|thought)"
+_THINK_PAIR_RE = re.compile(
+    rf"<\s*{_THINK_NAMES}\s*>.*?<\s*/\s*\1\s*>\s*", re.S | re.I)
+_THINK_CLOSE_ORPHAN_RE = re.compile(
+    rf"\A.*?<\s*/\s*{_THINK_NAMES}\s*>\s*", re.S | re.I)
+_THINK_OPEN_ORPHAN_RE = re.compile(
+    rf"<\s*{_THINK_NAMES}\s*>.*\Z", re.S | re.I)
+
+
+def strip_think_tags(text: "str | None") -> str:
+    """Xóa khối suy-nghĩ-thành-tiếng của model reasoning khỏi output.
+
+    3 dạng theo thứ tự: cặp thẻ đủ → xóa cả khối; "</think>" MỒ CÔI (thẻ mở
+    bị provider nuốt) → xóa từ đầu tới hết thẻ đóng; thẻ mở không đóng
+    (bị cắt giữa chừng vì hết token) → xóa từ thẻ mở tới cuối. Chỉ khớp
+    đúng 4 tên thẻ nên "P/E <10"/"M&A" không bị đụng."""
+    if not text or "<" not in text:
+        return (text or "").strip()
+    out = _THINK_PAIR_RE.sub("", text)
+    out = _THINK_CLOSE_ORPHAN_RE.sub("", out)
+    out = _THINK_OPEN_ORPHAN_RE.sub("", out)
+    return out.strip()
+
+
+def _ledger_record(provider: str, model: str, ok: bool,
+                   usage: "dict | None" = None,
+                   error: "str | None" = None) -> None:
+    """Ghi sổ call LLM — best-effort tuyệt đối (không bao giờ raise)."""
+    try:
+        from vnstock_llm_ledger import record
+        record(provider, model, ok=ok, usage=usage, error=error)
+    except Exception:
+        pass
 
 _REPO = Path(__file__).parent
 SENTIMENT_DB_PATH = _REPO / "data_warehouse" / "_meta" / "sentiment_cache.db"
@@ -111,12 +152,18 @@ def _call_provider(provider: dict, text: str) -> Optional[str]:
             timeout=15,
         )
         resp.raise_for_status()
-        raw = resp.json()["choices"][0]["message"]["content"].strip().lower()
+        body = resp.json()
+        _ledger_record(provider["name"], provider["model"], ok=True,
+                       usage=body.get("usage"))
+        raw = strip_think_tags(
+            body["choices"][0]["message"]["content"]).lower()
         for key_str, val in _SENTIMENT_MAP.items():
             if key_str in raw:
                 return val
         return "neutral"
-    except Exception:
+    except Exception as e:
+        _ledger_record(provider["name"], provider["model"], ok=False,
+                       error=str(e))
         return None
 
 
@@ -164,8 +211,13 @@ def chat_complete(system: str, user: str, max_tokens: int = 80,
                     timeout=25,
                 )
                 resp.raise_for_status()
-                return (resp.json()["choices"][0]["message"]["content"] or "").strip()
-            except Exception:
+                body = resp.json()
+                _ledger_record(p["name"], model, ok=True,
+                               usage=body.get("usage"))
+                return strip_think_tags(
+                    body["choices"][0]["message"]["content"] or "")
+            except Exception as e:
+                _ledger_record(p["name"], model, ok=False, error=str(e))
                 continue
     return None
 

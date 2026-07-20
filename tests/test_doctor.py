@@ -335,3 +335,83 @@ def test_main_offline_writes_status_and_exit_code(meta, monkeypatch, capsys):
     monkeypatch.setattr(doc, "OFFLINE_CHECKS",
                         [lambda: doc._result("b", "Nguồn B", "warn", "cũ")])
     assert doc.main(["--no-save", "--json"]) == 1   # warn → exit 1
+
+
+# ── P5: check_reports + check_allocation ─────────────────────────────────────
+
+
+def test_check_reports_off_ok_warn(meta):
+    assert doc.check_reports()["status"] == "off"
+
+    ok_rec = {"id": "aaa", "kind": "text", "chars": 5000,
+              "report_date": "2026-07-10", "source": "SSI",
+              "digest": {"has_mismatch": False}}
+    (meta / "reports_index.json").write_text(json.dumps(
+        {"reports": {"aaa": ok_rec}}), encoding="utf-8")
+    r = doc.check_reports()
+    assert r["status"] == "ok" and "1 đủ điều kiện" in r["message"]
+
+    # đủ điều kiện nhưng CHƯA digest → warn + đơn thuốc
+    no_digest = {**ok_rec, "id": "bbb"}
+    no_digest.pop("digest")
+    (meta / "reports_index.json").write_text(json.dumps(
+        {"reports": {"bbb": no_digest}}), encoding="utf-8")
+    r = doc.check_reports()
+    assert r["status"] == "warn" and "chưa digest" in r["message"]
+    assert "report_digest" in r["fix"]
+
+    # digest có claim lệch registry → warn
+    mism = {**ok_rec, "id": "ccc", "digest": {"has_mismatch": True}}
+    (meta / "reports_index.json").write_text(json.dumps(
+        {"reports": {"ccc": mism}}), encoding="utf-8")
+    r = doc.check_reports()
+    assert r["status"] == "warn" and "lệch registry" in r["message"]
+
+
+def test_check_allocation_off_ok_stale(meta, monkeypatch):
+    assert doc.check_allocation()["status"] == "off"
+    monkeypatch.setattr(doc, "_allocation_brief_reminder", lambda: None)
+
+    p = meta / "allocation_state.json"
+    p.write_text(json.dumps({
+        "band": "B2", "band_label": "trung tính", "n_inputs": 5,
+        "as_of": date.today().isoformat(),
+        "history": [{"date": date.today().isoformat()}],
+        "report_tilt": {"tilt": 1},
+    }), encoding="utf-8")
+    r = doc.check_allocation()
+    assert r["status"] == "ok"
+    assert "band B2" in r["message"] and "tilt +1" in r["message"]
+
+    p.write_text(json.dumps({
+        "band": "B3", "as_of": (date.today() - timedelta(days=9)).isoformat(),
+        "history": [],
+    }), encoding="utf-8")
+    r = doc.check_allocation()
+    assert r["status"] == "warn" and "run.py allocation" in r["fix"]
+
+
+def test_check_allocation_monthly_brief_reminder(meta, monkeypatch):
+    (meta / "allocation_state.json").write_text(json.dumps({
+        "band": "B2", "as_of": date.today().isoformat(), "history": []}),
+        encoding="utf-8")
+    monkeypatch.setattr(doc, "_allocation_brief_reminder",
+                        lambda: "⏰ chưa có brief phân bổ tháng này")
+    r = doc.check_allocation()
+    assert r["status"] == "warn" and "brief phân bổ" in r["message"]
+
+
+def test_allocation_brief_reminder_logic(monkeypatch):
+    import types, sys
+    from datetime import date as _d
+    mem = types.ModuleType("vnstock_memory")
+    rows = []
+    mem.recent_briefs = lambda t, limit=5: rows
+    monkeypatch.setitem(sys.modules, "vnstock_memory", mem)
+    # mùng 1-2: ân hạn, không nhắc
+    assert doc._allocation_brief_reminder(_d(2026, 7, 2)) is None
+    # từ mùng 3 chưa có brief tháng này → nhắc
+    assert "brief phân bổ" in doc._allocation_brief_reminder(_d(2026, 7, 13))
+    # đã có brief trong tháng → im lặng
+    rows.append({"created_at": "2026-07-05T10:00:00"})
+    assert doc._allocation_brief_reminder(_d(2026, 7, 13)) is None

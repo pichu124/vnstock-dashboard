@@ -1224,6 +1224,264 @@ def test_enforce_sentiment_consistency_pins_mood_and_momentum():
     assert enforce_sentiment_consistency(t, {}) == t
 
 
+def test_enforce_sentiment_consistency_markdown_and_duplicate_mood():
+    # Close 14/07: "Tâm lý: 📉 Tiêu cực **Sợ hãi**, momentum -29/100" — mood
+    # word bọc ** không khớp pattern cũ → đuôi "Sợ hãi" bịa sống sót cạnh
+    # label đúng. Nay [*_] quanh word được nhận + mood LẶP ngay sau bị nuốt.
+    from vnstock_brief import enforce_sentiment_consistency
+    ctx = {"market_sentiment": {"mood": "📉 Tiêu cực", "momentum": -29}}
+    t = "Tâm lý: 📉 Tiêu cực **Sợ hãi**, momentum -29/100 → xu hướng yếu."
+    f = enforce_sentiment_consistency(t, ctx)
+    assert "Tâm lý: 📉 Tiêu cực, momentum -29/100" in f
+    assert "Sợ hãi" not in f
+    assert enforce_sentiment_consistency(f, ctx) == f          # idempotent
+    # mood word đơn lẻ bọc markdown cũng bị pin
+    t2 = "Tâm lý: **Sợ hãi**, momentum -29/100."
+    f2 = enforce_sentiment_consistency(t2, ctx)
+    assert "📉 Tiêu cực" in f2 and "Sợ hãi" not in f2
+
+
+def test_close_1407_guard_regressions():
+    # 4 biến thể trượt guard lộ ra ở close brief 23:46 14/07 — mỗi cái 1 fix.
+    import vnstock_brief as vb
+
+    # (1) "bias **GIẢM** bắt buộc" — markdown quanh hướng làm guard 14 trượt
+    f = vb.enforce_no_bias_directive_leak(
+        "momentum tiêu cực (-29/100), bias **GIẢM** bắt buộc.", {})
+    assert "bắt buộc" not in f and "**GIẢM**" in f
+
+    # (2) "tâm lý sợ hãi (momentum -29/100)" không dấu ':' → pin mood word;
+    #     dedup momentum không được để lại ngoặc rỗng "()"
+    ctx = {"market_sentiment": {"mood": "📉 Tiêu cực", "momentum": -29}}
+    t = ("Độ rộng tiêu cực (A/D=1.26), tâm lý sợ hãi (momentum -29/100). "
+         "Tâm lý: 📉 Tiêu cực, momentum -29/100 → xu hướng yếu.")
+    s = vb.enforce_no_duplicate_momentum(
+        vb.enforce_sentiment_consistency(t, ctx), ctx)
+    assert "tâm lý tiêu cực" in s and "sợ hãi" not in s
+    assert "()" not in s and "momentum -29/100" in s
+    # văn tường thuật quá khứ (không có ngoặc momentum) KHÔNG bị đụng
+    past = "tâm lý hưng phấn đã biến mất từ tháng trước."
+    assert vb.enforce_sentiment_consistency(past, ctx) == past
+
+    # (3) số ngành khác gắn nhầm + dấu '+': "Ngân hàng bị bán ròng +1,471 tỷ"
+    #     (thật -1,032); pass của ngành đứng trước không được với qua câu sau
+    ctx3 = {"sectors": [{"Ngành": "Ngân hàng", "NN 1T (tỷ)": -1032.0},
+                        {"Ngành": "Họ VIN", "NN 1T (tỷ)": 1471.0}]}
+    t3 = ("Khối ngoại mua ròng mạnh nhất: Họ VIN +1,471 tỷ. "
+          "Ngân hàng bị bán ròng +1,471 tỷ (GTGD 4,072 tỷ).")
+    f3 = vb.enforce_sector_nn_figures(t3, ctx3)
+    assert "Ngân hàng bị bán ròng -1,032 tỷ" in f3
+    assert "Họ VIN +1,471 tỷ" in f3                       # số đúng giữ nguyên
+    assert vb.enforce_sector_nn_figures(f3, ctx3) == f3   # idempotent
+
+    # (4) % so phiên trước sai số học dù model TỰ ghi cả 2 vế — ctx thiếu
+    #     full_day_gtgd/cmp → Form 3 tự-chứa tính từ chính 2 operand
+    t4 = ("## 📊 Tổng kết phiên\nthanh khoản cả ngày giảm 29% so phiên trước "
+          "(15,513.6 tỷ vs 19,751.0 tỷ).\n")
+    f4 = vb.enforce_compare_direction(vb.enforce_gtgd_baseline_pct(t4, {}), {})
+    assert "giảm 21% so phiên trước" in f4 and "29%" not in f4
+    # ctx đầy đủ → Form 1 (nguồn chân lý) vẫn thắng như cũ
+    ctx4 = {"full_day_gtgd": 15513.6,
+            "full_day_gtgd_cmp": {"prev": 19751.0, "avg5": 16800.0}}
+    assert "-21% so phiên trước" in vb.enforce_gtgd_baseline_pct(t4, ctx4)
+
+
+def test_close_1407_2358_review_fixes():
+    # 3 cụm lỗi qua vòng review phản biện chéo của close 23:58 14/07.
+    import vnstock_brief as vb
+
+    # (1) NN theo ngành (khung 1 TUẦN) nêu không nhãn cạnh NN 1 NGÀY toàn thị
+    #     trường trong "Tổng kết phiên" → gắn "(1 tuần)"
+    ctx = {"sectors": [{"Ngành": "Ngân hàng", "NN 1T (tỷ)": -1032.0},
+                       {"Ngành": "Họ VIN", "NN 1T (tỷ)": 1471.0}]}
+    t = ("Khối ngoại bán ròng 159 tỷ, NN ròng ngành Ngân hàng -1,032 tỷ.\n"
+         "NN mua ròng mạnh nhất (1 tuần): Họ VIN +1,471 tỷ.\n")
+    f = vb.enforce_nn_frame_labels(t, ctx)
+    assert "Ngân hàng -1,032 tỷ (1 tuần)" in f
+    assert "159 tỷ (1 tuần)" not in f                 # số 1D không bị gắn nhầm
+    assert f.count("Họ VIN +1,471 tỷ (1 tuần)") == 0  # dòng đã có nhãn → giữ
+    assert vb.enforce_nn_frame_labels(f, ctx) == f    # idempotent
+    # GTGD không phải NN → không đụng
+    t_g = "Ngân hàng GTGD 4,072 tỷ."
+    assert vb.enforce_nn_frame_labels(t_g, ctx) == t_g
+
+    # (2) A/D 1 phiên DƯƠNG (1.26) mà gọi "độ rộng tiêu cực" → "trái chiều";
+    #     A/D thấp thật thì "tiêu cực" giữ nguyên
+    ctx2 = {"breadth": {"above_ma200_pct": 13, "ad_ratio": 1.26},
+            "market_sentiment": {"momentum": -29}}
+    t2 = "Độ rộng tiêu cực (A/D=1.26, 13% trên MA200), tâm lý tiêu cực."
+    f2 = vb.enforce_breadth_quality(t2, ctx2)
+    assert "Độ rộng trái chiều" in f2
+    assert "tâm lý tiêu cực" in f2                    # chỉ mệnh đề độ rộng bị sửa
+    assert vb.enforce_breadth_quality(f2, ctx2) == f2
+    low_ad = {"breadth": {"above_ma200_pct": 13, "ad_ratio": 0.7},
+              "market_sentiment": {"momentum": -29}}
+    assert vb.enforce_breadth_quality(t2, low_ad) == t2
+
+    # (3) sector có contrib/weight hàm ý %đổi tuần vượt trần sàn (Họ VIN
+    #     -0.873pp / 1.6% ⇒ -55%/tuần = data hỏng) → loại khỏi lead/lag
+    items = vb._leadlag_candidates({
+        "Họ VIN": {"_weight": 0.016, "_1d_contrib": -0.873},
+        "Ngân hàng": {"_weight": 0.25, "_1d_contrib": -0.35},
+        "Dầu khí": {"_weight": 0.042, "_1d_contrib": 0.06}})
+    assert min(items, key=lambda x: x[1])[0] == "Ngân hàng"
+    assert all(n != "Họ VIN" for n, _ in items)
+    # sector bình thường (kể cả biến động lớn hợp lệ) không bị loại
+    ok = vb._leadlag_candidates({"Thép": {"_weight": 0.05, "_1d_contrib": -1.2}})
+    assert ok == [("Thép", -1.2)]                     # hàm ý -24%/tuần, hợp lệ
+
+    # (4) "%VNI" của lead/lag bịa (chẩn đoán data 14/07: kho ĐỦ 4 mã, trọng
+    #     số thật ~25% — model mượn GTGD 1,653 tỷ mangle thành "1.6%VNI")
+    #     → pin về ctx sector_weights; số đúng giữ nguyên
+    ctx4 = {"lead_sector": {"name": "Dầu khí", "contrib": 0.06},
+            "lag_sector": {"name": "Họ VIN", "contrib": -0.873},
+            "sector_weights": {
+                "Họ VIN": {"_weight": 0.251, "_1d_contrib": -0.873},
+                "Dầu khí": {"_weight": 0.042, "_1d_contrib": 0.06}}}
+    t4 = ("**Dẫn dắt:** Dầu khí [4.2%VNI, đóng góp +0.060pp (1 tuần)]\n"
+          "**Tụt hậu:** Họ VIN [1.6%VNI, đóng góp -0.873pp (1 tuần)]")
+    f4 = vb.enforce_lead_lag(t4, ctx4)
+    assert "Họ VIN [25.1%VNI" in f4
+    assert "Dầu khí [4.2%VNI" in f4                   # trọng số đúng giữ nguyên
+    assert vb.enforce_lead_lag(f4, ctx4) == f4        # idempotent
+
+
+def test_allocation_prose_pct_pinned_to_band_table():
+    # Brief phân bổ ĐẦU TIÊN trên máy user (15/07): TLDR bịa "Giảm tỷ trọng
+    # cổ phiếu xuống 10% (từ 15%), duy trì tiền gửi 45%" — 10%/45% không
+    # thuộc band nào (nguyên tắc #1: LLM không sinh số %). Pass (d) của
+    # enforce_allocation_table pin % gắn tên lớp về bảng band.
+    import vnstock_brief as vb
+    ctx = {"allocation": {"band": "B4", "band_label": "căng thẳng",
+                          "score": -0.36, "as_of": "2026-07-14",
+                          "allocation": {"Cổ phiếu": 15, "Trái phiếu": 25,
+                                         "Tiền gửi": 40, "Vàng": 12, "USD": 8}}}
+    t = ("## 🎯 TLDR\n"
+         "**Hành động:** Giảm tỷ trọng cổ phiếu xuống 10% (từ 15%), "
+         "duy trì vàng 12% và tiền gửi 45%.\n"
+         "## 🧭 Phân bổ đề xuất\n"
+         "- Cổ phiếu: 15%\n- Tiền gửi: 40%\n"
+         "- Band: B4 (căng thẳng) — điểm -0.36, phiên 2026-07-14\n")
+    f = vb.enforce_allocation_table(t, ctx)
+    assert "cổ phiếu xuống 15%" in f and "10%" not in f
+    assert "tiền gửi 40%" in f and "45%" not in f
+    assert "vàng 12%" in f                              # số đúng giữ nguyên
+    assert vb.enforce_allocation_table(f, ctx) == f     # idempotent
+    # brief NGÀY (không có mục "Phân bổ đề xuất") → không đụng chữ "cổ phiếu…%"
+    daily = "Chỉ 13% mã cổ phiếu trên MA200. Cổ phiếu ngân hàng chiếm 30% thanh khoản."
+    assert vb.enforce_allocation_table(daily, ctx) == daily
+
+
+def test_close_1507_0110_fixes():
+    # Close 01:10 15/07: 2 lỗi lộ sau khi loạt fix đêm trước đã ăn.
+    import vnstock_brief as vb
+    ctx = {"macro": [
+        {"key": "usdvnd", "label": "Tỷ giá USD/VND (tham chiếu)", "unit": "VND",
+         "kind": "fx", "value": 26190.0, "as_of": "2026-07-14",
+         "prev_value": 26271.0, "prev_as_of": "2026-07-13",
+         # change THẬT (−0.31%) — đổi làm tròn về 0 nay bị fmt_change nén
+         # thành "không đổi" (fix 17/07) → row rơi vào dòng gộp "Đi ngang"
+         "change": {"delta": -81.0, "pct": -0.31, "dir": -1}, "source": "x"}]}
+
+    # (1) enforce_macro anchor 2 nấc: dòng văn xuôi "Rủi ro vĩ mô: lãi suất…"
+    #     KHÔNG được hijack body canonical khi section 🌐 thật tồn tại
+    #     (bug 01:10: khối vĩ mô splice vào mục Rủi ro, nuốt dòng D/E,
+    #     section 🌐 thật thì không được canonical-hóa)
+    t = ("## ⚠️ Rủi ro cần lưu ý\n"
+         "Rủi ro vĩ mô: lãi suất liên ngân hàng giảm mạnh có thể đảo chiều.\n"
+         "Đòn bẩy cao nhất: HNG D/E=8.83.\n"
+         "## 🌐 Vĩ mô: lãi suất & tỷ giá\n"
+         "Tỷ giá USD/VND hiện tại là 26,190 VND.\n"
+         "## 📰 Tin\n- x\n")
+    f = vb.enforce_macro(t, ctx)
+    assert "Đòn bẩy cao nhất: HNG D/E=8.83." in f      # mục Rủi ro nguyên vẹn
+    assert f.index("Tỷ giá USD/VND (tham chiếu): 26,190") > f.index("## 🌐")
+    assert vb.enforce_macro(f, ctx) == f               # idempotent
+    # không có section thật (header bị reformat) → nấc lỏng vẫn bắt (fix 16/06)
+    t_loose = "🌐 Vĩ mô: lãi suất & tỷ giá\n- Tỷ giá khoảng 24,000\n## 📰 Tin\n- x\n"
+    assert "26,190" in vb.enforce_macro(t_loose, ctx)
+
+    # (2) nhãn khung NN dạng SỐ-TRƯỚC-TÊN: "NN mua ròng 1,471 tỷ trong ngành
+    #     Họ VIN" → gắn "(1 tuần)" (pattern tên-trước của guard cũ trượt)
+    ctx2 = {"sectors": [{"Ngành": "Họ VIN", "NN 1T (tỷ)": 1471.0},
+                        {"Ngành": "Dầu khí", "NN 1T (tỷ)": 271.0}]}
+    t2 = "NN mua ròng 1,471 tỷ trong ngành Họ VIN và 271 tỷ trong ngành Dầu khí."
+    f2 = vb.enforce_nn_frame_labels(t2, ctx2)
+    assert "ngành Họ VIN (1 tuần)" in f2
+    assert vb.enforce_nn_frame_labels(f2, ctx2) == f2  # idempotent
+
+    # (3) template "Đề xuất bổ sung": CPI/Fed nay ĐÃ CÓ — không còn nằm trong
+    #     ví dụ "thứ thực sự thiếu" (model từng chép nguyên ví dụ để xin CPI)
+    from vnstock_brief import _MORNING_TEMPLATE, _AFTERNOON_TEMPLATE
+    for tpl in (_MORNING_TEMPLATE, _AFTERNOON_TEMPLATE):
+        assert "vd: giá dầu Brent/WTI" in tpl
+        assert "vd: CPI/lạm phát" not in tpl
+        assert "CPI/lạm phát, IIP, PMI, GDP" in tpl    # đã vào danh sách ĐÃ CÓ
+
+    # (4) close 01:20: so cả-ngày với baseline SÁNG nhưng KHÔNG có chữ "so"
+    #     + baseline dạng "trung bình 5 phiên sáng" (chữ "sáng" đứng cuối) →
+    #     _MORNING_CMP_RE nới; "57% GTGD (…)" đứng trước phải được GIỮ NGUYÊN
+    ctx4 = {"full_day_gtgd": 15513.6,
+            "full_day_gtgd_cmp": {"prev": 19751.0, "avg5": 16800.0,
+                                  "avg20": 16900.0}}
+    t4 = ("## 📊 Tổng kết phiên\n"
+          "Phiên chiều chiếm 57% GTGD (15,513.6 tỷ), cao hơn 35% phiên trước "
+          "(10,294.2 tỷ) và 23% trung bình 5 phiên sáng. Độ rộng trái chiều.\n")
+    f4 = vb.enforce_gtgd_compare_frame(t4, ctx4)
+    assert "57% GTGD (15,513.6 tỷ)" in f4              # số đứng trước giữ nguyên
+    assert "TB5 phiên (-8%)" in f4 and "phiên sáng" not in f4
+    assert "10,294.2" not in f4                        # baseline sáng bị thay
+    assert vb.enforce_gtgd_compare_frame(f4, ctx4) == f4   # idempotent
+    # so cả-ngày-vs-cả-ngày đúng khung → không đụng
+    ok4 = ("## 📊 Tổng kết phiên\n"
+           "GTGD 15,513.6 tỷ, thấp hơn TB5 phiên (-8%) và TB20 phiên (-8%).\n")
+    assert vb.enforce_gtgd_compare_frame(ok4, ctx4) == ok4
+
+    # (5) close 01:26: Form 4 — "±N% <baseline>" (% CÓ DẤU đứng trước
+    #     baseline, không "so"): "(-21% phiên trước, +2% TB5 phiên)" — vế
+    #     prev đúng giữ nguyên, +2% pin về TB5 thật; verb + magnitude
+    #     KHÔNG dấu ("thấp hơn 21% phiên trước") không bị đụng
+    ctx5 = {"full_day_gtgd": 15513.6,
+            "full_day_gtgd_cmp": {"prev": 19751.0, "avg5": 16862.0}}
+    t5 = ("## 📊 Tổng kết phiên\n"
+          "GTGD cả ngày 15,513.6 tỷ (-21% phiên trước, +2% TB5 phiên).\n")
+    f5 = vb.enforce_gtgd_baseline_pct(t5, ctx5)
+    assert "-21% phiên trước" in f5 and "-8% TB5 phiên" in f5
+    assert "+2%" not in f5
+    assert vb.enforce_gtgd_baseline_pct(f5, ctx5) == f5    # idempotent
+    verb = "## 📊 Tổng kết phiên\nthanh khoản thấp hơn 21% phiên trước.\n"
+    assert vb.enforce_gtgd_baseline_pct(verb, ctx5) == verb
+    ma = "## 📊 Tổng kết phiên\ntrên MA200=1,769.66 (+2.1%).\n"
+    assert vb.enforce_gtgd_baseline_pct(ma, ctx5) == ma
+
+
+def test_enforce_session_direction_pins_qualitative_label():
+    # Close 23:58 14/07: "VNINDEX đóng cửa +0.34% … — phiên GIẢM điểm nhẹ sau
+    # phiên tăng mạnh trước đó" — close dương mà gọi phiên giảm; guard % không
+    # đụng nhãn CHỮ. Pin theo dấu day_change_pct, chừa phiên KHÁC/tương lai.
+    from vnstock_brief import enforce_session_direction
+    ctx = {"vnindex_tech": {"day_change_pct": 0.34}}
+    t = ("**Kết quả phiên:** VNINDEX đóng cửa +0.34% (1,806.63) — phiên giảm "
+         "điểm nhẹ sau phiên tăng mạnh trước đó.")
+    f = enforce_session_direction(t, ctx)
+    assert "phiên tăng điểm nhẹ" in f
+    assert "sau phiên tăng mạnh trước đó" in f          # phiên TRƯỚC giữ nguyên
+    assert enforce_session_direction(f, ctx) == f        # idempotent
+    # close âm mà gọi phiên tăng → lật
+    f2 = enforce_session_direction(
+        "VNINDEX đóng cửa -0.80%, một phiên tăng điểm ấn tượng.",
+        {"vnindex_tech": {"day_change_pct": -0.8}})
+    assert "phiên giảm điểm" in f2
+    # không đụng: kịch bản tương lai, dòng không neo "đóng cửa", nhãn đã đúng
+    fut = "Kịch bản: nếu phiên tăng tiếp theo xuất hiện thì đảo chiều."
+    assert enforce_session_direction(fut, ctx) == fut
+    noanchor = "Thị trường hồi phục sau phiên giảm hôm qua."
+    assert enforce_session_direction(noanchor, ctx) == noanchor
+    ok = "VNINDEX đóng cửa -0.5%, phiên giảm thứ ba liên tiếp."
+    assert enforce_session_direction(ok, {"vnindex_tech": {"day_change_pct": -0.5}}) == ok
+    assert enforce_session_direction(t, {}) == t         # thiếu data → no-op
+
+
 def test_enforce_breadth_quality_softens_positive_claim_when_weak():
     # Close 16/06: "Độ rộng ... tích cực ... 18% trên MA200" — 18% above MA200 is
     # structurally weak; under a bearish tape that's mixed, not 'tích cực'.
@@ -2775,3 +3033,290 @@ def test_vn30_fund_block_excludes_financials_by_industry():
     assert "-35,042" not in block                         # the bank-scale OCF gone
     assert "16.88" not in block                           # bank D/E gone
     assert "HPG" in block and "1 mã âm" in block          # non-fin still ranked
+
+
+# ── P4: 📚 Báo cáo vĩ mô & phân bổ + brief allocation ────────────────────────
+
+def _p4_ctx():
+    return {
+        "allocation": {
+            "band": "B3", "band_label": "thắt chặt", "band_data": "B2",
+            "score": -0.21, "as_of": "2026-07-11",
+            "report_tilt": {"tilt": 1, "stance_cp": -1.5, "n_reports": 2,
+                            "sources": ["SSI", "HSC"]},
+            "allocation": {"Cổ phiếu": 30, "Trái phiếu": 25, "Tiền gửi": 30,
+                           "Vàng": 10, "USD": 5},
+            "inputs": [{"key": "regime", "label": "Regime thị trường",
+                        "value": "score -2 (7 tín hiệu)", "score": -0.4,
+                        "weight": 0.25, "source": "vnstock_regime",
+                        "as_of": "2026-07-11"}],
+        },
+        "macro_reports": [
+            {"id": "abc", "report_date": "2026-07-08", "source": "SSI",
+             "digest": {"tom_tat": "Vĩ mô thắt chặt, hạ tỷ trọng cổ phiếu.",
+                        "stance": {"Cổ phiếu": -2}, "has_mismatch": False}},
+            {"id": "def", "report_date": "2026-07-05", "source": "HSC",
+             "digest": {"tom_tat": "Trung lập, chờ số liệu quý.",
+                        "stance": {"Cổ phiếu": -1}, "has_mismatch": True}},
+        ],
+        "reports_consensus": {"n_reports": 2, "tilt": 1,
+                              "stance": {"Cổ phiếu": -1.5}},
+    }
+
+
+def test_macro_reports_body_lines_cap_and_content():
+    from vnstock_brief import _macro_reports_body_lines
+    body = _macro_reports_body_lines(_p4_ctx(), directive=False)
+    # 1 band + 2 báo cáo + 1 consensus = 4 dòng (cap ~5), không dòng chỉ thị
+    assert len(body) == 4
+    assert "Band phân bổ tháng: B3" in body[0]
+    assert "tilt +1" in body[0] and "band data: B2" in body[0]
+    assert "[2026-07-08] SSI" in body[1] and "stance cổ phiếu -2" in body[1]
+    assert "số lệch registry" in body[2]              # mismatch được ghi chú
+    assert "Consensus 2 báo cáo" in body[3] and "-1.50" in body[3]
+    assert not any(l.startswith("→") for l in body)   # directive=False
+    # prompt renderer có dòng chỉ thị
+    with_directive = _macro_reports_body_lines(_p4_ctx(), directive=True)
+    assert with_directive[-1].startswith("→")
+    # ctx trống → []
+    assert _macro_reports_body_lines({}, directive=False) == []
+
+
+def test_enforce_macro_reports_replaces_section_and_denial():
+    from vnstock_brief import _macro_reports_body_lines, enforce_macro_reports
+    ctx = _p4_ctx()
+    body = _macro_reports_body_lines(ctx, directive=False)
+    # (1) thay body mục có header — LLM bịa band B0 + nguồn lạ
+    text = ("## 📰 Tin kinh tế/chính trị nổi bật\n- tin A\n"
+            "## 📚 Báo cáo vĩ mô & phân bổ\n- Band B0, VNDirect khuyên mua.\n"
+            "## 📌 Danh mục đang giữ\nKhông có vị thế đang mở")
+    out = enforce_macro_reports(text, ctx)
+    assert "VNDirect khuyên mua" not in out
+    assert "Band phân bổ tháng: B3" in out
+    assert "Không có vị thế đang mở" in out           # mục sau còn nguyên
+    assert enforce_macro_reports(out, ctx) == out     # idempotent
+    # (2) không header → splice đè dòng phủ nhận
+    text2 = "## 🎯 TLDR\nx\nChưa có báo cáo vĩ mô nào.\n## 📊 Tổng kết phiên\ny"
+    out2 = enforce_macro_reports(text2, ctx)
+    assert "Chưa có báo cáo vĩ mô nào." not in out2
+    assert "Band phân bổ tháng: B3" in out2
+    # (3) no-op khi ctx trống
+    assert enforce_macro_reports(text, {}) == text
+
+
+def test_enforce_allocation_table_pins_band_tokens():
+    from vnstock_brief import enforce_allocation_table
+    ctx = _p4_ctx()
+    text = ("## 🎯 TLDR\n**Bias:** GIẢM — phù hợp band B0 hiện tại.\n"
+            "## 📚 Báo cáo vĩ mô & phân bổ\n"
+            "- 🧭 Band phân bổ tháng: B3 (thắt chặt) — điểm -0.21, phiên "
+            "2026-07-11; đã gồm tilt +1 từ báo cáo (band data: B2)\n")
+    out = enforce_allocation_table(text, ctx)
+    assert "band B3 hiện tại" in out                  # token lạc được pin
+    assert "band data: B2" in out                     # dòng canonical giữ B2
+    assert enforce_allocation_table(out, ctx) == out  # idempotent
+    assert enforce_allocation_table(text, {}) == text # no-op không allocation
+
+
+def test_enforce_allocation_table_canonical_table_for_allocation_brief():
+    from vnstock_brief import _allocation_table_lines, enforce_allocation_table
+    ctx = _p4_ctx()
+    text = ("## 🎯 TLDR\n**Band phân bổ:** B1 — tích cực.\n"
+            "## 🧭 Phân bổ đề xuất\n- Cổ phiếu: 70%\n- Vàng: 2%\n"
+            "## 📊 Vì sao ở band này\nregime yếu.")
+    out = enforce_allocation_table(text, ctx)
+    assert "**Band phân bổ:** B3" in out              # TLDR band được pin
+    assert "- Cổ phiếu: 30%" in out                   # bảng canonical thay bảng bịa
+    assert "- Vàng: 10%" in out and "- Vàng: 2%" not in out
+    assert "- Band: B3 (thắt chặt)" in out
+    assert "regime yếu." in out                       # mục sau còn nguyên
+    assert out == enforce_allocation_table(out, ctx)  # idempotent
+    assert _allocation_table_lines({}) == []
+
+
+def test_enforce_allocation_table_horizon_caveat():
+    from vnstock_brief import _ALLOC_HORIZON_CAVEAT, enforce_allocation_table
+    # band TẤN CÔNG (B1) + bias floor ngày GIẢM → caveat sau dòng band
+    ctx = _p4_ctx()
+    ctx["allocation"] = {**ctx["allocation"], "band": "B1",
+                         "band_label": "tích cực", "report_tilt": None}
+    ctx["bias_floor"] = {"dir": "GIẢM", "momentum": -60}
+    text = ("## 📚 Báo cáo vĩ mô & phân bổ\n"
+            "- 🧭 Band phân bổ tháng: B1 (tích cực) — điểm 0.30, phiên 2026-07-11\n"
+            "## 📌 Danh mục đang giữ\nx")
+    out = enforce_allocation_table(text, ctx)
+    assert _ALLOC_HORIZON_CAVEAT in out
+    lines = out.splitlines()
+    assert lines[lines.index(_ALLOC_HORIZON_CAVEAT) - 1].startswith("- 🧭 Band")
+    assert out == enforce_allocation_table(out, ctx)  # không chèn trùng
+    # caveat KHÔNG phải ranh giới mục (bắt đầu bằng "- ")
+    from vnstock_brief import _is_section_start
+    assert not _is_section_start(_ALLOC_HORIZON_CAVEAT)
+    # cùng chiều (band B3 + bias GIẢM) → không caveat
+    ctx2 = _p4_ctx()
+    ctx2["bias_floor"] = {"dir": "GIẢM"}
+    text2 = "- 🧭 Band phân bổ tháng: B3 (thắt chặt) — điểm -0.21, phiên 2026-07-11"
+    assert _ALLOC_HORIZON_CAVEAT not in enforce_allocation_table(text2, ctx2)
+
+
+def test_build_prompt_macro_reports_block_and_allocation_template():
+    ctx = {"date": "2026-07-13", "time": "15:00", **_p4_ctx()}
+    # brief ngày: có block 📚, KHÔNG có block bảng % đầy đủ
+    day = build_prompt(ctx, brief_type="afternoon")
+    assert "## 📚 Báo cáo vĩ mô & phân bổ (khung THÁNG — trung hạn)" in day
+    assert "Band phân bổ tháng: B3" in day
+    assert "## 🧭 Phân bổ hiện hành" not in day
+    # brief allocation: template riêng + block state đầy đủ (bảng % + lý do)
+    al = build_prompt(ctx, brief_type="allocation")
+    assert "BRIEF PHÂN BỔ TÀI SẢN" in al
+    assert "## 🧭 Phân bổ hiện hành" in al
+    assert "- Cổ phiếu: 30%" in al
+    assert "Lý do: Regime thị trường" in al and "vnstock_regime" in al
+    assert "Watchlist sáng mai" not in al             # không lẫn template ngày
+
+
+def test_apply_brief_guards_includes_p4_guards():
+    import inspect
+
+    import vnstock_brief
+    src = inspect.getsource(vnstock_brief.apply_brief_guards)
+    assert "enforce_macro_reports(" in src
+    assert "enforce_allocation_table(" in src
+    # chuỗi chung chạy sạch trên brief mang mục 📚 bịa + ctx P4
+    ctx = _p4_ctx()
+    text = ("## 📚 Báo cáo vĩ mô & phân bổ\n- Band B0, mua mạnh cổ phiếu.\n"
+            "## 📌 Danh mục đang giữ\nKhông có vị thế đang mở")
+    out = vnstock_brief.apply_brief_guards(text, ctx)
+    assert "Band phân bổ tháng: B3" in out and "mua mạnh" not in out
+    assert vnstock_brief.apply_brief_guards(out, ctx) == out
+
+
+def test_brief_max_tokens_bumped_for_p4():
+    from vnstock_brief import _BRIEF_MAX_TOKENS
+    assert _BRIEF_MAX_TOKENS == 2800
+
+
+# ── Vá guard từ close brief thật 14/07 (verify P4 với data thật) ─────────────
+
+def test_breadth_label_catches_so_ma_co_phieu():
+    # Close 14/07: "chỉ 13% số mã cổ phiếu tăng giá" — 13% là above_ma200_pct;
+    # regex cũ có nhánh "số mã" và "mã cổ phiếu" nhưng thiếu tổ hợp GHÉP
+    # "số mã cổ phiếu" → lọt lưới.
+    from vnstock_brief import enforce_breadth_label
+    ctx = {"breadth": {"above_ma200_pct": 13}}
+    out = enforce_breadth_label(
+        "Độ rộng tiêu cực, với chỉ 13% số mã cổ phiếu tăng giá và A/D 0.47.",
+        ctx)
+    assert "tăng giá" not in out
+    assert "13% số mã cổ phiếu trên MA200" in out
+    assert enforce_breadth_label(out, ctx) == out     # idempotent
+    # số KHÔNG khớp above_ma200_pct → không đụng (46% tăng thật từ A/D)
+    keep = "46% số mã cổ phiếu tăng giá"
+    assert enforce_breadth_label(keep, ctx) == keep
+
+
+def test_vnindex_change_skips_gtgd_subject():
+    # Close 14/07: "GTGD ... giảm 1.52% so với phiên trước" — 1.52 là % đổi
+    # VNINDEX bị enforce_vnindex_change ĐÈ vào mệnh đề GTGD (guard tự tạo lỗi
+    # vì regex whole-text không kiểm tra chủ ngữ).
+    from vnstock_brief import enforce_vnindex_change
+    ctx = {"vnindex_tech": {"day_change_pct": -1.52}}
+    text = ("VNINDEX đóng cửa 1,800.54, tăng -24% so với phiên trước. "
+            "GTGD toàn thị trường đạt 23,620.6 tỷ đồng, giảm 8.30% so với "
+            "phiên trước và tăng 25% so với trung bình 5 phiên.")
+    out = enforce_vnindex_change(text, ctx)
+    # mệnh đề chỉ số: pin về day_change_pct thật
+    assert "giảm 1.52% so với phiên trước" in out
+    # mệnh đề GTGD: GIỮ NGUYÊN số của nó, không bị đè
+    assert "giảm 8.30% so với phiên trước" in out
+    assert enforce_vnindex_change(out, ctx) == out    # idempotent
+
+
+# ── Reflection + debate wiring (khảo sát TradingAgents 14/07) ────────────────
+
+def test_reflections_block_in_prompt_all_types_not_a_brief_section():
+    from vnstock_brief import _reflections_block
+    ctx = {"date": "2026-07-14", "time": "15:00",
+           "reflections": [{"id": "rec-1", "date": "2026-07-10",
+                            "label": "BUY HPG +8.2% (tp)",
+                            "lesson": "Chỉ vào breakout khi GTGD xác nhận."}]}
+    for btype in ("morning", "afternoon", "allocation"):
+        prompt = build_prompt(ctx, brief_type=btype)
+        assert "## 🧠 Bài học từ quyết định đã đóng" in prompt, btype
+        assert "BUY HPG +8.2%" in prompt
+        assert "KHÔNG tạo mục 'Bài học'" in prompt   # chỉ thị chống echo
+    assert _reflections_block([]) == ""
+    # không có reflections trong ctx → prompt sạch
+    assert "🧠 Bài học" not in build_prompt(
+        {"date": "2026-07-14", "time": "15:00"}, brief_type="afternoon")
+
+
+def test_debate_block_only_in_allocation_prompt():
+    from vnstock_brief import _debate_block
+    ctx = {"date": "2026-07-14", "time": "15:00",
+           "allocation": {"band": "B4", "band_label": "căng thẳng",
+                          "score": -0.7, "as_of": "2026-07-13",
+                          "allocation": {"Cổ phiếu": 15, "Trái phiếu": 25,
+                                         "Tiền gửi": 40, "Vàng": 12, "USD": 8},
+                          "inputs": []},
+           "allocation_debate": {"band": "B4", "as_of": "2026-07-13",
+                                 "points": ["Độ rộng 13% là vùng quá bán.",
+                                            "Điều kiện đảo ngược: vượt MA20."]}}
+    al = build_prompt(ctx, brief_type="allocation")
+    assert "## 🗣 Phản biện band B4" in al
+    assert "Độ rộng 13% là vùng quá bán." in al
+    assert "PHẢI đối diện các phản biện" in al
+    # brief NGÀY không mang block phản biện (khung thời gian khác)
+    day = build_prompt(ctx, brief_type="afternoon")
+    assert "🗣 Phản biện" not in day
+    assert _debate_block(None) == "" and _debate_block({"points": []}) == ""
+
+
+def test_generate_brief_source_wires_debate_for_allocation_only():
+    import inspect
+
+    import vnstock_brief
+    src = inspect.getsource(vnstock_brief.generate_brief)
+    assert "run_debate" in src
+    assert 'brief_type == "allocation"' in src
+
+
+# ─── CHOP(14) + mẫu nến trong block VNINDEX kỹ thuật (khảo sát StockSharp) ───
+
+def test_build_prompt_includes_chop_and_candle_pattern_lines():
+    ctx = {"date": "2026-07-15", "time": "15:00",
+           "vnindex_tech": {"close": 1803.71, "intraday": False,
+                            "chop14": 63.4,
+                            "candle_patterns": ["Nến búa (Hammer)",
+                                                "Đáy nhíp (Tweezer Bottom)"]}}
+    p = build_prompt(ctx, brief_type="afternoon")
+    assert "CHOP(14): 63.4" in p and "đi ngang/choppy" in p
+    assert "Mẫu nến phiên gần nhất: Nến búa (Hammer); Đáy nhíp (Tweezer Bottom)" in p
+    assert "cần nến xác nhận" in p
+    # nhãn CHOP theo band: có xu hướng rõ khi < 38.2
+    ctx["vnindex_tech"]["chop14"] = 31.0
+    assert "có xu hướng rõ" in build_prompt(ctx, brief_type="afternoon")
+
+
+def test_build_prompt_omits_chop_and_candle_lines_when_absent():
+    ctx = {"date": "2026-07-15", "time": "15:00",
+           "vnindex_tech": {"close": 1803.71, "intraday": False}}
+    p = build_prompt(ctx, brief_type="afternoon")
+    assert "CHOP(14)" not in p
+    assert "Mẫu nến phiên gần nhất" not in p
+
+
+def test_build_prompt_includes_ha_streak_line():
+    ctx = {"date": "2026-07-15", "time": "15:00",
+           "vnindex_tech": {"close": 1803.71, "intraday": False,
+                            "ha_streak": 4}}
+    p = build_prompt(ctx, brief_type="afternoon")
+    assert "Heikin-Ashi: 4 nến xanh (tăng) sạch liên tiếp" in p
+    ctx["vnindex_tech"]["ha_streak"] = -3
+    assert "Heikin-Ashi: 3 nến đỏ (giảm) sạch liên tiếp" in build_prompt(
+        ctx, brief_type="afternoon")
+    # streak 0/1 hoặc thiếu → không render (nhiễu)
+    ctx["vnindex_tech"]["ha_streak"] = 1
+    assert "Heikin-Ashi" not in build_prompt(ctx, brief_type="afternoon")
+    del ctx["vnindex_tech"]["ha_streak"]
+    assert "Heikin-Ashi" not in build_prompt(ctx, brief_type="afternoon")

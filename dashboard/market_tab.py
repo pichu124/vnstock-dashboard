@@ -1607,6 +1607,16 @@ def render_market_tab() -> None:
                         except Exception as _ce:
                             st.caption(f"⚠ consensus disabled: {type(_ce).__name__}: {_ce}")
 
+                    # 🎯 Track record của chính brief: Stance ngày mai vs chiều
+                    # VNINDEX phiên kế tiếp (AI-Trader prediction scoring)
+                    try:
+                        from vnstock_stance_track import summary_line as _stl
+                        _sline = _stl()
+                        if _sline:
+                            st.caption(_sline)
+                    except Exception:
+                        pass
+
                     def _rating_block(agent_name: str, brief_type_: str):
                         try:
                             import vnstock_memory as _vm
@@ -1961,6 +1971,55 @@ def render_market_tab() -> None:
                             else:
                                 st.caption("Chưa có backtest metrics.")
 
+                        # Món 1: kiểm định thống kê chống-ăn-may (backtest gần nhất)
+                        try:
+                            _bt0 = _vm.latest_backtest(_active["id"])
+                            _val = (
+                                _json.loads(_bt0["metrics_json"]).get("validation")
+                                if _bt0 and _bt0.get("metrics_json") else None
+                            )
+                            if _val:
+                                # p hiệu chỉnh chọn-lọc (Bonferroni × n ứng
+                                # viên) nghiêm hơn p thô — ưu tiên hiện nó
+                                _p = _val.get("p_value_adj",
+                                              _val.get("p_value_sharpe"))
+                                _ptxt = (f"p={_p:.3f}" if _p is not None else "p=—")
+                                if _val.get("n_trials"):
+                                    _ptxt += f" · {_val['n_trials']} ứng viên"
+                                if _val.get("passed"):
+                                    st.caption(f"🧪 Kiểm định chống-ăn-may: ĐẠT ({_ptxt})")
+                                else:
+                                    st.warning(
+                                        f"🎲 Kiểm định chống-ăn-may KHÔNG đạt ({_ptxt}): "
+                                        + "; ".join(_val.get("reasons") or []),
+                                        icon="🎲",
+                                    )
+                        except Exception:
+                            pass
+
+                        # Món 2: sức khỏe live (win-rate rec thật vs backtest)
+                        try:
+                            from vnstock_strategy import strategy_health as _sh
+                            _hl = _sh(_active["id"])
+                            _hs = _hl.get("state")
+                            if _hs == "healthy":
+                                st.caption(
+                                    f"💚 Live khớp backtest (win-rate thật "
+                                    f"{(_hl.get('live_win_rate') or 0):.0%}, "
+                                    f"n={_hl.get('live_n')})"
+                                )
+                            elif _hs == "monitoring":
+                                st.warning("🟡 " + "; ".join(_hl.get("reasons") or []),
+                                           icon="🟡")
+                            elif _hs == "decayed":
+                                st.error(
+                                    "🔻 Chiến lược DECAY — sẽ tự demote ở lần "
+                                    "reconcile tới: " + "; ".join(_hl.get("reasons") or []),
+                                    icon="🔻",
+                                )
+                        except Exception:
+                            pass
+
                         with st.expander("Xem params & code", expanded=False):
                             try:
                                 _params = _json.loads(_active.get("params_json") or "{}")
@@ -2110,16 +2169,148 @@ def render_market_tab() -> None:
                             return f"⏳ {age}/{horizon}d"
 
                         _df_opens["Trạng thái"] = _df_opens.apply(_age_status, axis=1)
+
+                        # MTM lãi/lỗ tạm tính (AI-Trader live scoring) —
+                        # lệnh đang xanh hay đỏ, không phải chờ reconcile.
+                        _open_cols = ["ticker", "action", "entry_price",
+                                      "take_profit", "TP (%)",
+                                      "cut_loss",    "SL (%)", "R:R",
+                                      "Trạng thái", "created_at"]
+                        _adv_by_ticker = {}
+                        try:
+                            from vnstock_strategy import (
+                                _load_history as _lh,
+                                psar_stop_hint as _psh,
+                                trailing_stop_hint as _tsh,
+                                unrealized_pnl_pct as _upnl,
+                            )
+
+                            def _mtm(row):
+                                # (giá HT, L/L tạm, ADV20 cp, SL trailing)
+                                try:
+                                    h = _lh(str(row["ticker"]), days=35)
+                                    if h is None or h.empty:
+                                        return None, None, None, None
+                                    last = float(h["close"].iloc[-1])
+                                    pnl = _upnl(row["entry_price"], last,
+                                                row.get("action", "buy"))
+                                    adv = None
+                                    try:
+                                        adv = float(h["volume"].tail(20).mean())
+                                    except Exception:
+                                        pass
+                                    trail = None
+                                    try:
+                                        # closes kể từ ngày mở rec → trailing
+                                        # stop (Lean); rec SELL không áp dụng.
+                                        # Kết hợp PSAR (quant-trading): lấy
+                                        # mức CAO hơn = khóa lời chặt hơn.
+                                        if str(row.get("action", "buy")).lower() != "sell":
+                                            _created = str(row["created_at"])[:10]
+                                            _closes = h.loc[
+                                                h["time"].astype(str).str[:10]
+                                                >= _created, "close"].tolist()
+                                            trail = _tsh(row["cut_loss"], _closes)
+                                            psar = _psh(row["cut_loss"],
+                                                        h["high"], h["low"],
+                                                        h["close"])
+                                            cands = [x for x in (trail, psar)
+                                                     if x is not None]
+                                            trail = max(cands) if cands else None
+                                    except Exception:
+                                        pass
+                                    return last, pnl, adv, trail
+                                except Exception:
+                                    return None, None, None, None
+
+                            _mtms = [_mtm(r) for _, r in _df_opens.iterrows()]
+                            _adv_by_ticker = {
+                                str(r["ticker"]): m[2]
+                                for (_, r), m in zip(_df_opens.iterrows(), _mtms)
+                                if m[2]}
+                            _df_opens["Giá HT"] = [m[0] for m in _mtms]
+                            _df_opens["L/L tạm"] = [
+                                f"{m[1]:+.1f}%" if m[1] is not None else "—"
+                                for m in _mtms]
+                            _df_opens["SL trailing"] = [
+                                f"{m[3]:,.2f}" if m[3] is not None else "—"
+                                for m in _mtms]
+                            _open_cols.insert(8, "Giá HT")
+                            _open_cols.insert(9, "L/L tạm")
+                            _open_cols.insert(10, "SL trailing")
+                        except Exception:
+                            pass
+                        try:
+                            from vnstock_strategy import (
+                                load_sizing_config as _lsc,
+                                suggest_position_size as _sps,
+                            )
+                            _scfg = _lsc()
+                            if _scfg.get("nav_million"):
+                                def _kl_hint(row):
+                                    s = _sps(row["entry_price"], row["cut_loss"],
+                                             adv_shares=_adv_by_ticker.get(
+                                                 str(row["ticker"])))
+                                    if not s:
+                                        return "—"
+                                    _tag = (" (cap TK)" if s.get("capped_adv")
+                                            else " (cap)" if s["capped"] else "")
+                                    return f"{s['qty']:,} cp{_tag}"
+                                _df_opens["KL gợi ý"] = _df_opens.apply(_kl_hint, axis=1)
+                                _open_cols.insert(8, "KL gợi ý")
+                        except Exception:
+                            pass
+
                         st.dataframe(
-                            _df_opens[
-                                ["ticker", "action", "entry_price",
-                                 "take_profit", "TP (%)",
-                                 "cut_loss",    "SL (%)", "R:R",
-                                 "Trạng thái", "created_at"]
-                            ],
+                            _df_opens[_open_cols],
                             use_container_width=True,
                             hide_index=True,
                         )
+
+                        with st.expander("⚖️ Cấu hình khối lượng gợi ý (risk cố định)",
+                                         expanded=False):
+                            try:
+                                from vnstock_strategy import (
+                                    load_sizing_config as _lsc2,
+                                    save_sizing_config as _ssc,
+                                )
+                                _sc = _lsc2()
+                                st.caption(
+                                    "KL gợi ý = (NAV × %rủi ro) / (entry − SL + phí), "
+                                    "tròn xuống lô 100, cap % NAV mỗi lệnh + cap "
+                                    "thanh khoản (% KLGD TB 20 phiên — '(cap TK)'). "
+                                    "SL trailing = đỉnh close từ ngày mở × 95%, chỉ "
+                                    "gợi ý — hệ vẫn chấm theo SL gốc. "
+                                    "Chỉ hiển thị — không tự đặt lệnh. Để NAV = 0 để tắt."
+                                )
+                                _sz1, _sz2, _sz3, _sz4 = st.columns(4)
+                                _nav_in = _sz1.number_input(
+                                    "NAV (triệu đồng)", min_value=0.0, step=50.0,
+                                    value=float(_sc.get("nav_million") or 0.0),
+                                    key="_sizing_nav")
+                                _risk_in = _sz2.number_input(
+                                    "Rủi ro mỗi lệnh (% NAV)", min_value=0.1,
+                                    max_value=10.0, step=0.5,
+                                    value=float(_sc.get("risk_pct") or 1.0),
+                                    key="_sizing_risk")
+                                _cap_in = _sz3.number_input(
+                                    "Tối đa 1 lệnh (% NAV)", min_value=1.0,
+                                    max_value=100.0, step=5.0,
+                                    value=float(_sc.get("max_position_pct") or 25.0),
+                                    key="_sizing_cap")
+                                _adv_in = _sz4.number_input(
+                                    "Cap thanh khoản (% ADV20)", min_value=1.0,
+                                    max_value=100.0, step=5.0,
+                                    value=float(_sc.get("max_adv_pct") or 10.0),
+                                    key="_sizing_adv")
+                                if st.button("💾 Lưu cấu hình sizing",
+                                             key="_sizing_save"):
+                                    _ssc(nav_million=_nav_in, risk_pct=_risk_in,
+                                         max_position_pct=_cap_in,
+                                         max_adv_pct=_adv_in)
+                                    st.success("Đã lưu — bảng KL gợi ý cập nhật ở lần rerun tới.")
+                            except Exception as _e:
+                                st.caption(f"⚠ sizing config lỗi: {type(_e).__name__}: {_e}")
 
                         # Reconcile button — close expired recs by walking
                         # forward from price history. Same logic as the daily

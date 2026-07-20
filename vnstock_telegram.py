@@ -16,12 +16,21 @@ Usage:
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 
 _REPO = Path(__file__).parent
 _TELEGRAM_API = "https://api.telegram.org/bot{token}/{method}"
 _MAX_MSG_LEN  = 4000  # Telegram hard limit is 4096; stay safe
+
+# Tag CHỦ ĐÍCH mà các builder trong file này tự chèn — được giữ nguyên khi
+# sanitize. Mọi < > & khác trong thân brief (model viết "<3", tin RSS "M&A",
+# digest "P/E <10"…) phải escape, không thì Telegram trả 400
+# "can't parse entities" và NUỐT nguyên phần tin đó (bug thật 14/07: close
+# brief phần 2/2 không bao giờ tới nơi).
+_ALLOWED_TAGS = ("b", "i", "u", "s", "code", "pre")
+_TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
 
 
 # ── Credentials ──────────────────────────────────────────────────────────────
@@ -70,10 +79,39 @@ def _split_for_telegram(text: str, limit: int = _MAX_MSG_LEN) -> list[str]:
     return chunks
 
 
+def _sanitize_html(text: str) -> str:
+    """Escape < > & để parse_mode=HTML không chết 400, GIỮ tag chủ đích
+    (<b>/<i>/…) mà builder tự chèn. Escape TRƯỚC rồi un-escape whitelist —
+    idempotent với tag hợp lệ, mọi ký tự lạc còn lại đều an toàn."""
+    out = (text.replace("&", "&amp;")
+               .replace("<", "&lt;")
+               .replace(">", "&gt;"))
+    for t in _ALLOWED_TAGS:
+        out = out.replace(f"&lt;{t}&gt;", f"<{t}>")
+        out = out.replace(f"&lt;/{t}&gt;", f"</{t}>")
+    return out
+
+
+def _tg_error_detail(resp) -> str:
+    """Mô tả lỗi thật từ body API (400 của Telegram luôn kèm 'description'
+    chỉ rõ ký tự/byte lỗi — raise_for_status cũ vứt mất nên không soi được)."""
+    try:
+        return str(resp.json().get("description") or resp.text[:200])
+    except Exception:
+        try:
+            return str(resp.text[:200])
+        except Exception:
+            return ""
+
+
 def send_message(text: str, parse_mode: str = "HTML") -> dict:
     """Send text to the configured Telegram chat. Long briefs are split into
     multiple messages (Telegram caps at 4096 chars) so nothing is dropped —
     previously the tail (📰 tin tức) was truncated. Returns the LAST API response.
+
+    HTML mode: body được `_sanitize_html` trước khi gửi; nếu Telegram VẪN trả
+    400 (entity lỗi ngoài dự kiến) → gửi lại phần đó dạng PLAIN (bỏ tag) để
+    nội dung luôn tới nơi, đồng thời in description thật của API để soi.
     """
     import requests
 
@@ -84,7 +122,9 @@ def send_message(text: str, parse_mode: str = "HTML") -> dict:
     if not chat:
         raise RuntimeError("TELEGRAM_CHAT_ID chưa set trong .env")
 
-    url   = _TELEGRAM_API.format(token=token, method="sendMessage")
+    url = _TELEGRAM_API.format(token=token, method="sendMessage")
+    if parse_mode == "HTML":
+        text = _sanitize_html(text)
     parts = _split_for_telegram(text, _MAX_MSG_LEN)
     n     = len(parts)
     resp_json: dict = {}
@@ -96,6 +136,19 @@ def send_message(text: str, parse_mode: str = "HTML") -> dict:
             "parse_mode":               parse_mode,
             "disable_web_page_preview": True,
         }, timeout=15)
+        if getattr(resp, "status_code", None) == 400 and parse_mode:
+            detail = _tg_error_detail(resp)
+            print(f"[telegram] ⚠️ HTML bị từ chối ở phần {i + 1}/{n} "
+                  f"({detail}) — gửi lại dạng plain")
+            resp = requests.post(url, json={
+                "chat_id":                  chat,
+                "text":                     _TAG_RE.sub("", body),
+                "disable_web_page_preview": True,
+            }, timeout=15)
+        if getattr(resp, "status_code", None) is not None and not resp.ok:
+            detail = _tg_error_detail(resp)
+            raise requests.HTTPError(
+                f"{resp.status_code} Telegram: {detail}", response=resp)
         resp.raise_for_status()
         resp_json = resp.json()
     return resp_json
@@ -229,9 +282,47 @@ def _open_recs_block() -> str:
                 f" → TP {tp_pct:+.1f}% | SL {sl_pct:+.1f}%"
                 f" | ngày {age}/{horizon}{overdue}"
             )
+        # Cảnh báo BUY dưới bối cảnh GIẢM (mirror guard #27 enforce_buy_vs_bias
+        # _caveat, NHƯNG lệnh mở được append Ở ĐÂY — telegram-side, NGOÀI
+        # apply_brief_guards — nên guard body không với tới; đặt caveat đúng
+        # chỗ lệnh hiện. Gắn cảnh báo, KHÔNG lọc (lệnh có SL = rủi ro xác định).
+        if _has_buy_under_bear(opens):
+            from vnstock_brief import _BUY_BIAS_CAVEAT
+            lines.append(_BUY_BIAS_CAVEAT)
         return "\n".join(lines)
     except Exception as e:
         return f"📋 Khuyến nghị: lỗi ({e})"
+
+
+def _market_is_bearish() -> bool:
+    """Bối cảnh GIẢM theo đúng luật bias floor (_bias_floor_dir): regime score
+    ≤ -3 HOẶC momentum tâm lý ≤ -50. Best-effort — thiếu tín hiệu → False."""
+    momentum = regime_score = None
+    try:
+        from vnstock_market_sentiment import load_market_sentiment
+        ms = load_market_sentiment()
+        if ms and ms.get("momentum") is not None:
+            momentum = int(ms["momentum"])
+    except Exception:
+        pass
+    try:
+        from vnstock_regime import load_regime
+        r = load_regime()
+        if r and r.get("score") is not None:
+            regime_score = int(r["score"])
+    except Exception:
+        pass
+    try:
+        from vnstock_brief import _bias_floor_dir
+        return _bias_floor_dir(momentum, regime_score) == "GIẢM"
+    except Exception:
+        return False
+
+
+def _has_buy_under_bear(opens: list) -> bool:
+    """≥1 lệnh mở action=BUY VÀ thị trường đang GIẢM."""
+    has_buy = any(str(r.get("action", "")).upper() == "BUY" for r in opens)
+    return bool(has_buy and _market_is_bearish())
 
 
 def _closed_today_block() -> str:
@@ -391,6 +482,23 @@ def push_close_brief() -> dict:
     blocks.append("\n<i>Powered by VNStock Dashboard</i>")
 
     text = "\n".join(b for b in blocks if b is not None)
+    return send_message(text)
+
+
+def push_rates_weekly() -> dict:
+    """Đẩy tóm tắt tuần lãi suất & tiền tệ lên Telegram (hướng B khảo sát
+    baocaolaisuatvatiente). Text gọn từ `vnstock_rates_report.render_telegram`
+    — zero fetch, đọc cache sẵn có. Cadence tuần (gọi tay / nút dashboard /
+    lịch riêng — KHÔNG vào brief 2×/ngày)."""
+    _load_env()
+    try:
+        from vnstock_rates_report import build_report_data, render_telegram
+        data = build_report_data()
+    except Exception as e:                                    # noqa
+        return {"ok": False, "error": f"build report lỗi: {e}"}
+    if not data.get("rates") and not data.get("curve"):
+        return {"ok": False, "error": "cache vĩ mô/HNX rỗng — chạy run.py macro"}
+    text = render_telegram(data) + "\n\n<i>Powered by VNStock Dashboard</i>"
     return send_message(text)
 
 

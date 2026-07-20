@@ -13,11 +13,21 @@ import vnstock_macro as mac
 
 @pytest.fixture(autouse=True)
 def _no_external_macro_fetch(monkeypatch):
-    """refresh() nay còn gọi NSO + FRED (mạng) + PMI-from-news (đọc cache repo)
-    — chặn mặc định để test hermetic; test nào cần thì tự re-patch."""
+    """refresh() gọi cả loạt fetcher mạng — chặn TOÀN BỘ mặc định để test
+    hermetic; test nào cần thì tự re-patch. BÀI HỌC desktop 17/07: sandbox
+    bị chặn mạng nên fetcher lọt fixture vẫn 'vô tình pass', chạy trên máy
+    CÓ MẠNG là fetch thật đè fixture (ON 4.11 thật đè 9.35 fake) — thêm
+    fetcher mới vào refresh() thì PHẢI thêm vào đây."""
     monkeypatch.setattr(mac, "_fetch_nso", lambda: None)
     monkeypatch.setattr(mac, "_fetch_fred", lambda: None)
     monkeypatch.setattr(mac, "_pmi_from_news", lambda: None)
+    monkeypatch.setattr(mac, "_fetch_vbma", lambda: None)
+    monkeypatch.setattr(mac, "_fetch_hnx", lambda: None)
+    monkeypatch.setattr(mac, "_fetch_sbv", lambda: None)
+    monkeypatch.setattr(mac, "_fetch_sbv_daily", lambda: None)
+    monkeypatch.setattr(mac, "_fetch_sbv_policy", lambda: None)
+    # FX: chặn qua ENDPOINT rỗng (không patch hàm — test parser cần hàm thật)
+    monkeypatch.setattr(mac, "_FX_ENDPOINTS", ())
 
 
 def _use_tmp_cache(tmp_path, monkeypatch):
@@ -299,6 +309,56 @@ def test_enforce_macro_replaces_section_body_and_is_idempotent():
     assert vb.enforce_macro(text, {}) == text
 
 
+def test_enforce_macro_strips_prompt_directive_from_published_brief():
+    # Leak thật close 14/07: phần (2/2) Telegram mở đầu bằng nguyên dòng chỉ
+    # thị "→ Lãi suất TĂNG … DÙNG bối cảnh này … KHÔNG bịa chỉ số" — directive
+    # thuộc PROMPT, guard splice body không được mang nó vào brief xuất bản.
+    import vnstock_brief as vb
+    ctx = {"macro": [
+        {"key": "usdvnd", "label": "Tỷ giá USD/VND (tham chiếu)", "unit": "VND",
+         "kind": "fx", "value": 25500.0, "as_of": "2026-06-13",
+         "prev_value": 25000.0, "prev_as_of": "2026-06-12",
+         "change": {"delta": 500.0, "pct": 2.0, "dir": 1}, "source": "x"}]}
+    text = (
+        "## 🌐 Vĩ mô: lãi suất & tỷ giá\n"
+        "- Tỷ giá USD/VND khoảng 24,000\n"
+        "→ Lãi suất TĂNG / VND mất giá = THẮT CHẶT. DÙNG bối cảnh này khi chốt "
+        "Bias. KHÔNG bịa chỉ số vĩ mô ngoài danh sách trên.\n"
+        "## 💡 Đề xuất giao dịch\n- (none)\n"
+    )
+    fixed = vb.enforce_macro(text, ctx)
+    assert "DÙNG bối cảnh này" not in fixed and "KHÔNG bịa" not in fixed
+    assert "25,500 VND" in fixed
+    # prompt renderer VẪN có directive (chỉ guard mới bỏ)
+    body_prompt = vb._macro_body_lines(ctx["macro"])
+    assert any("KHÔNG bịa chỉ số" in l for l in body_prompt)
+    # catch-all: model echo directive ở chỗ khác → enforce_no_instruction_leak dọn
+    echoed = ("## 🎯 TLDR\nThị trường giảm.\n"
+              "→ DÙNG các tin trên khi đánh giá bối cảnh vĩ mô + rủi ro. "
+              "TUYỆT ĐỐI KHÔNG bịa tin/tiêu đề ngoài danh sách này.\n"
+              "→ Dòng tiền khối ngoại chuyển sang mua ròng dầu khí.\n")
+    cleaned = vb.enforce_no_instruction_leak(echoed, {})
+    assert "TUYỆT ĐỐI" not in cleaned
+    assert "→ Dòng tiền khối ngoại" in cleaned    # "→" nội dung thật giữ nguyên
+
+
+def test_enforce_market_news_strips_directive_from_published_brief():
+    import vnstock_brief as vb
+    ctx = {"market_news": [
+        {"title": "Tin A", "_sentiment": "negative", "_date_sort": "2026-07-14",
+         "source_feed": "CafeF", "_impact": "xấu cho ngân hàng"}]}
+    text = ("## 📰 Tin kinh tế/chính trị nổi bật\n"
+            "- Tin bịa nào đó\n"
+            "→ DÙNG các tin trên khi đánh giá bối cảnh vĩ mô + rủi ro.\n"
+            "## 📌 Kế tiếp\n- x\n")
+    fixed = vb.enforce_market_news(text, ctx)
+    assert "DÙNG các tin trên" not in fixed and "Tin A" in fixed
+    assert vb.enforce_market_news(fixed, ctx) == fixed        # idempotent
+    # prompt renderer vẫn giữ directive
+    assert any("TUYỆT ĐỐI KHÔNG bịa" in l
+               for l in vb._market_news_body_lines(ctx["market_news"]))
+
+
 def test_enforce_macro_splices_over_denial_when_no_section():
     import vnstock_brief as vb
     ctx = {"macro": [
@@ -380,6 +440,22 @@ def test_fmt_change_pmi_uses_diem_and_moves_labels():
         "change": {"delta": -1.5, "pct": None, "dir": -1}})
     assert (arrow, mag, hint) == ("▼", "-1.50 điểm", "PMI suy yếu")
     assert mac.fmt_change({"key": "pmi", "change": None}) is None
+
+
+def test_fmt_change_suppresses_zero_at_display_precision():
+    # FX nhích 0.3đ trên 26,178 → pct +0.001% làm tròn "+0.00%" nhưng dir=+1
+    # → từng hiện "▲ +0.00% (VND yếu đi)" = tín hiệu giả (báo cáo tuần 17/07)
+    assert mac.fmt_change({
+        "key": "usdvnd", "kind": "fx", "unit": "VND", "value": 26178.4,
+        "change": {"delta": 0.3, "pct": 0.001, "dir": 1}}) is None
+    # lãi suất delta +0.001đ% → "+0.00 điểm %" cũng bị nén
+    assert mac.fmt_change({
+        "key": "interbank_on", "kind": "rate", "unit": "%/năm", "value": 4.16,
+        "change": {"delta": 0.001, "pct": None, "dir": 1}}) is None
+    # đổi thật ≥ 0.01 giữ nguyên
+    assert mac.fmt_change({
+        "key": "usdvnd", "kind": "fx", "unit": "VND", "value": 26178.0,
+        "change": {"delta": 80.0, "pct": 0.31, "dir": 1}}) is not None
 
 
 def test_pressure_generic_cpi_bearish_iip_bullish_pmi_noise_ignored():
@@ -679,7 +755,10 @@ def test_macro_body_lines_include_intl_gauge_and_fed_directive():
 
 def test_fetch_usdvnd_parses_currency_api_lowercase(monkeypatch):
     # Nấc 3 (currency-api fawazahmed0) trả {"usd": {"vnd": ...}} chữ thường —
-    # 2 nấc đầu fail thì vẫn phải ra số
+    # 2 nấc đầu fail thì vẫn phải ra số. Autouse fixture đã dọn _FX_ENDPOINTS
+    # rỗng (hermetic) → test parser tự dựng lại ladder 3 nấc fake.
+    monkeypatch.setattr(mac, "_FX_ENDPOINTS",
+                        ("http://fake-1", "http://fake-2", "http://fake-3"))
     payloads = iter([OSError("nấc 1 chết"), OSError("nấc 2 chết"),
                      {"date": "2026-07-11", "usd": {"vnd": 26234.6}}])
 

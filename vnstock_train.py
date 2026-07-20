@@ -474,6 +474,34 @@ def strategy_loop(
 STALE_GRACE_DAYS = 10
 
 
+def _grade_rec(post, entry: float, tp: float, sl: float) -> tuple[float, str]:
+    """Walk-forward các bar sau ngày tạo rec (lệnh MUA) → (exit_price, hit).
+
+    Bar chứa CẢ TP lẫn SL → thứ tự theo `_bar_high_first` (heuristic
+    nautilus: cực trị gần open chạm trước); không quyết được → SL thắng
+    (pessimistic). PnL rec thật vẫn GROSS (convention DB không đổi —
+    backtest thì đã trừ phí, xem _cost_roundtrip_pct)."""
+    from vnstock_strategy import _bar_high_first
+
+    exit_price = float(post["close"].iloc[-1])
+    hit = "expire"
+    if entry <= 0:
+        return exit_price, hit
+    for _, bar in post.iterrows():
+        hi, lo = float(bar["high"]), float(bar["low"])
+        sl_hit = sl > 0 and lo <= sl
+        tp_hit = tp > 0 and hi >= tp
+        if sl_hit and tp_hit:
+            if _bar_high_first(bar):        # high (TP) chạm trước
+                return tp, "tp"
+            return sl, "sl"
+        if sl_hit:
+            return sl, "sl"
+        if tp_hit:
+            return tp, "tp"
+    return exit_price, hit
+
+
 def reconcile_recommendations(verbose: bool = True) -> dict:
     """For each open rec older than horizon_days, fetch latest close and grade.
 
@@ -526,17 +554,7 @@ def reconcile_recommendations(verbose: bool = True) -> dict:
         entry = float(r["entry_price"] or 0)
         tp    = float(r["take_profit"] or 0)
         sl    = float(r["cut_loss"] or 0)
-        exit_price = float(post["close"].iloc[-1])
-        hit = "expire"
-        if entry > 0:
-            for _, bar in post.iterrows():
-                hi, lo = float(bar["high"]), float(bar["low"])
-                if sl > 0 and lo <= sl:
-                    exit_price, hit = sl, "sl"
-                    break
-                if tp > 0 and hi >= tp:
-                    exit_price, hit = tp, "tp"
-                    break
+        exit_price, hit = _grade_rec(post, entry, tp, sl)
         mem.close_recommendation(r["id"], exit_price=exit_price, hit_target=hit)
         summary["closed"] += 1
 
@@ -545,6 +563,20 @@ def reconcile_recommendations(verbose: bool = True) -> dict:
             f"[reconcile] closed={summary['closed']} "
             f"stale={summary['stale']} still_open={summary['still_open']}"
         )
+
+    # Vòng đời decay: outcome thật vừa cập nhật là lúc đánh giá lại sức khỏe
+    # chiến lược active (zero LLM). Best-effort — lỗi không chặn reconcile.
+    try:
+        from vnstock_strategy import check_strategy_decay
+        decay = check_strategy_decay()
+        if decay:
+            summary["strategy_health"] = decay["state"]
+            if decay.get("applied") and verbose:
+                print(f"[reconcile] strategy #{decay['strategy_id']} DECAYED → "
+                      f"demoted: {'; '.join(decay['reasons'])}")
+    except Exception as e:
+        if verbose:
+            print(f"[reconcile] decay check skipped: {type(e).__name__}: {e}")
     return summary
 
 

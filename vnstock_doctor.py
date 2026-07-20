@@ -291,6 +291,39 @@ def check_pdf_tooling() -> dict:
                    "pip install --force-reinstall pypdf cryptography)")
 
 
+def check_llm_ledger() -> dict:
+    """Sổ call LLM per provider (món 3 deep-dive DojoAgents 15/07) — cảnh
+    báo khi hôm nay có call bị RATE-LIMIT (= lý do ladder rơi bậc âm thầm)
+    hoặc quá nửa call lỗi. off khi sổ chưa tồn tại (tự tích lũy)."""
+    name = "LLM call ledger"
+    p = _META / "llm_ledger.json"
+    if not p.exists():
+        return _result("llm_ledger", name, "off",
+                       "chưa có llm_ledger.json (sổ tự tích lũy khi có call LLM)")
+    data = json.loads(p.read_text(encoding="utf-8"))
+    days = data.get("days") or {}
+    today = date.today().isoformat()
+    day = days.get(today) or {}
+    if not day:
+        last = sorted(days)[-1] if days else "?"
+        return _result("llm_ledger", name, "ok",
+                       f"hôm nay chưa có call nào (ngày gần nhất có sổ: {last})")
+    calls = sum(int(r.get("calls", 0)) for r in day.values())
+    fails = sum(int(r.get("fail", 0)) for r in day.values())
+    limited = sum(int(r.get("rate_limited", 0)) for r in day.values())
+    hot = [k for k, r in day.items() if int(r.get("rate_limited", 0)) > 0]
+    msg = f"hôm nay {calls} call · {fails} lỗi · {limited} rate-limit"
+    if limited > 0:
+        return _result("llm_ledger", name, "warn",
+                       msg + f" — chạm trần: {', '.join(sorted(hot))}",
+                       "đợi trần reset / giảm số call (--max) / để ladder rơi bậc")
+    if calls >= 4 and fails * 2 > calls:
+        return _result("llm_ledger", name, "warn",
+                       msg + " — quá nửa call lỗi (không phải rate-limit)",
+                       "python vnstock_llm_ledger.py --show rồi soi provider lỗi")
+    return _result("llm_ledger", name, "ok", msg)
+
+
 def check_llm_keys() -> dict:
     """Key LLM trong .env: provider chấm sentiment + key agent viết brief."""
     name = "LLM keys (.env)"
@@ -323,6 +356,80 @@ def check_telegram() -> dict:
                        f"thêm {missing} vào .env")
     return _result("telegram", name, "off", "chưa cấu hình",
                    "thêm TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID vào .env")
+
+
+def check_reports() -> dict:
+    """Thư viện báo cáo vĩ mô (P2/P3) — metadata thiếu / digest chưa chạy /
+    claim lệch registry. off khi chưa dùng tính năng (không tính exit code)."""
+    name = "Báo cáo vĩ mô (reports)"
+    p = _META / "reports_index.json"
+    if not p.exists():
+        return _result("reports", name, "off", "chưa có báo cáo nào trong thư viện",
+                       "thêm qua sub-tab 📚 Báo cáo hoặc vnstock_reports.py --add")
+    reports = list((json.loads(p.read_text(encoding="utf-8"))
+                    .get("reports") or {}).values())
+    from vnstock_reports import in_analysis
+    ready = [r for r in reports if in_analysis(r)]
+    no_meta = sum(1 for r in reports if not in_analysis(r))
+    no_digest = sum(1 for r in ready if not r.get("digest"))
+    mismatch = sum(1 for r in ready
+                   if (r.get("digest") or {}).get("has_mismatch"))
+    parts = [f"{len(reports)} báo cáo, {len(ready)} đủ điều kiện phân tích"]
+    if no_meta:
+        parts.append(f"{no_meta} thiếu metadata/scan")
+    if no_digest:
+        parts.append(f"{no_digest} chưa digest")
+    if mismatch:
+        parts.append(f"{mismatch} digest có claim lệch registry")
+    status = "warn" if (no_digest or mismatch) else "ok"
+    fix = ("python vnstock_report_digest.py --refresh" if no_digest else
+           "python vnstock_report_digest.py --show <id> — soi claim lệch"
+           if mismatch else "")
+    return _result("reports", name, status, " · ".join(parts), fix)
+
+
+def _allocation_brief_reminder(today: "date | None" = None) -> "str | None":
+    """Nhắc tạo brief phân bổ KỲ THÁNG (mirror pmi_reminder): từ mùng 3 mà
+    tháng này chưa có brief_type='allocation' trong memory → 1 dòng nhắc.
+    Best-effort — memory lỗi/thiếu coi như không nhắc (không báo động giả)."""
+    t = today or date.today()
+    if t.day < 3:
+        return None
+    try:
+        from vnstock_memory import recent_briefs
+        rows = recent_briefs("allocation", limit=5)
+        month = t.strftime("%Y-%m")
+        if any((r.get("created_at") or "").startswith(month) for r in rows):
+            return None
+        return (f"⏰ chưa có brief phân bổ tháng {t.month}/{t.year} — tạo ở "
+                "sub-tab 🧭 Phân bổ (cadence tháng)")
+    except Exception:
+        return None
+
+
+def check_allocation() -> dict:
+    """Band phân bổ (P1) — tuổi state so phiên trước (run.py all refresh hằng
+    ngày) + nhắc brief kỳ tháng. off khi chưa chạy lần nào."""
+    name = "Phân bổ tài sản (allocation)"
+    p = _META / "allocation_state.json"
+    if not p.exists():
+        return _result("allocation", name, "off", "chưa có allocation_state.json",
+                       "python run.py allocation")
+    st = json.loads(p.read_text(encoding="utf-8"))
+    as_of = str(st.get("as_of") or "")
+    stale = bool(as_of) and date.fromisoformat(as_of) < _prev_trading_day()
+    parts = [f"band {st.get('band', '?')} ({st.get('band_label', '?')}) · "
+             f"phiên {as_of or '?'} · {st.get('n_inputs', 0)} tín hiệu · "
+             f"history {len(st.get('history') or [])} phiên"]
+    if (st.get("report_tilt") or {}).get("tilt"):
+        parts.append(f"tilt {st['report_tilt']['tilt']:+d} từ báo cáo")
+    remind = _allocation_brief_reminder()
+    if remind:
+        parts.append(remind)
+    status = "warn" if (stale or remind) else "ok"
+    fix = "python run.py allocation" if stale else \
+        ("tạo brief phân bổ ở sub-tab 🧭" if remind else "")
+    return _result("allocation", name, status, " · ".join(parts), fix)
 
 
 def check_tests() -> dict:
@@ -452,6 +559,57 @@ def net_fred() -> dict:
                    "python vnstock_fred.py --diag")
 
 
+def net_hnx() -> dict:
+    """HNX yield curve (POST API) → lợi suất TPCP 8 kỳ hạn theo ngày."""
+    name = "HNX yield curve (mạng)"
+    if os.environ.get("VNSTOCK_HNX", "1") == "0":
+        return _result("net_hnx", name, "off", "đã tắt (VNSTOCK_HNX=0)")
+    from vnstock_hnx import fetch_latest
+    got = fetch_latest(verbose=False)
+    if got:
+        d, ys = got
+        return _result("net_hnx", name, "ok",
+                       f"fetch OK ({d}): " + ", ".join(f"{k}={v}" for k, v in ys.items()))
+    return _result("net_hnx", name, "error",
+                   "không tải/parse được đường cong HNX",
+                   "python vnstock_hnx.py --diag — kiểm endpoint/selector còn đúng; "
+                   "tạm thời VBMA PDF vẫn nuôi 2Y/10Y")
+
+
+def net_sbv() -> dict:
+    """Bản tin tuần SBV (PDF) → LNH + OMO ròng + tỷ giá trung tâm."""
+    name = "SBV weekly (mạng)"
+    if os.environ.get("VNSTOCK_SBV", "1") == "0":
+        return _result("net_sbv", name, "off", "đã tắt (VNSTOCK_SBV=0)")
+    from vnstock_sbv import fetch_weekly
+    got = fetch_weekly()
+    if got:
+        fields = ", ".join(k for k, v in got.__dict__.items() if v is not None)
+        return _result("net_sbv", name, "ok", f"parse OK: {fields or '(rỗng)'}")
+    return _result("net_sbv", name, "warn",
+                   "không tải/parse được bản tin SBV (LNH vẫn có từ VBMA/HNX)",
+                   "python vnstock_sbv.py --diag — kiểm slug bài/URL PDF; "
+                   "OMO tạm nhập tay: python vnstock_sbv.py --set-omo <số>")
+
+
+def net_sbv_daily() -> dict:
+    """LNH bình quân THEO NGÀY (headless-delivery API portal SBV)."""
+    name = "SBV daily LNH (mạng)"
+    if os.environ.get("VNSTOCK_SBV_DAILY", "1") == "0":
+        return _result("net_sbv_daily", name, "off", "đã tắt (VNSTOCK_SBV_DAILY=0)")
+    from vnstock_sbv_rates import fetch_daily
+    entries = fetch_daily()
+    if entries:
+        e = entries[0]
+        return _result("net_sbv_daily", name, "ok",
+                       f"fetch OK ({e['date']}): "
+                       + ", ".join(f"{k}={v}" for k, v in sorted(e["rates"].items())))
+    return _result("net_sbv_daily", name, "warn",
+                   "không fetch/parse được LNH ngày (registry vẫn có nguồn tuần)",
+                   "python vnstock_sbv_rates.py --diag — kiểm endpoint "
+                   "headless-delivery / schema contentFields còn đúng")
+
+
 def net_jina() -> dict:
     """Jina Reader (r.jina.ai) — full text cho tin chấm LLM."""
     name = "Jina Reader (mạng)"
@@ -471,12 +629,12 @@ def net_jina() -> dict:
 OFFLINE_CHECKS = [
     check_warehouse, check_market_overview, check_fundamentals, check_macro,
     check_pdf_tooling, check_market_news, check_ticker_news,
-    check_foreign_flow, check_events, check_llm_keys, check_telegram,
-    check_tests,
+    check_foreign_flow, check_events, check_reports, check_allocation,
+    check_llm_keys, check_llm_ledger, check_telegram, check_tests,
 ]
 NET_CHECKS = [
-    net_rss_feeds, net_fx, net_vbma, net_nso, net_fred, net_foreign_flow_api,
-    net_jina,
+    net_rss_feeds, net_fx, net_vbma, net_hnx, net_sbv, net_sbv_daily,
+    net_nso, net_fred, net_foreign_flow_api, net_jina,
 ]
 
 

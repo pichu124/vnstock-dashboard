@@ -178,7 +178,8 @@ _DEFAULT_AGENT_CONFIGS: list[dict] = [
 # to ~11 sections (added 🌐 Vĩ mô + 📰 Tin, which the model also re-echoes), so
 # 1200 tokens cut the output short — observed a close brief ending right after
 # "Mức kỹ thuật", losing Dẫn dắt/Dòng tiền/Watchlist/Rủi ro/Sự kiện/Vĩ mô/Tin.
-_BRIEF_MAX_TOKENS = 2400
+# Bumped 2400→2800 (P4 2026-07-13): thêm mục 📚 Báo cáo vĩ mô & phân bổ.
+_BRIEF_MAX_TOKENS = 2800
 
 # Low temperature for briefs: they're data-extraction + structured analysis, so
 # determinism beats creativity. Unset (provider default ~1.0) caused big run-to-
@@ -260,6 +261,9 @@ Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằn
 ## 📰 Tin kinh tế/chính trị nổi bật
 [Nếu có block "📰 Tin kinh tế/chính trị" trong data: nêu 1-3 tin TÁC ĐỘNG MẠNH nhất tới thị trường (vĩ mô/lãi suất/tỷ giá/chính sách/địa chính trị), kèm hướng tác động (tích cực/tiêu cực cho TTCK) và ngành liên quan nếu rõ. DÙNG ĐÚNG tiêu đề trong block, TUYỆT ĐỐI KHÔNG bịa tin. Nếu KHÔNG có block đó → ghi "Không có tin vĩ mô nổi bật" hoặc bỏ mục này.]
 
+## 📚 Báo cáo vĩ mô & phân bổ
+[Nếu có block "📚 Báo cáo vĩ mô & phân bổ" trong data: chép các dòng của block (band phân bổ tháng + quan điểm báo cáo CTCK/chuyên gia + consensus). Đây là bối cảnh KHUNG THÁNG — TUYỆT ĐỐI KHÔNG đổi Bias/Stance NGÀY theo nó; nếu lệch chiều với Bias ngày thì ghi rõ "khung thời gian khác nhau". DÙNG ĐÚNG band/số trong block, TUYỆT ĐỐI KHÔNG bịa band (B0-B4) hay % phân bổ. Nếu KHÔNG có block đó → bỏ mục này.]
+
 ## 📌 Danh mục đang giữ
 [Nếu có block "📌 Danh mục đang giữ" trong data: với MỖI vị thế, chép NGUYÊN VĂN dòng dữ kiện của mã đó từ block (mã, số cp, vốn, hiện, lãi/lỗ %) rồi nối ' → ' + hành động (GIỮ / GIA TĂNG / GIẢM TỶ TRỌNG / CANH BÁN) + 1 lý do ngắn gắn với Stance/regime/tin trong prompt. Khi Bias/Stance nghiêng GIẢM → KHÔNG khuyên GIA TĂNG vô điều kiện (chỉ GIỮ/GIẢM TỶ TRỌNG/CANH BÁN, hoặc "GIA TĂNG chỉ khi vượt <mức>"). TUYỆT ĐỐI dùng đúng số trong block — không tự tính lại, không thêm mã ngoài block. Nếu KHÔNG có block đó → ghi "Không có vị thế đang mở" hoặc bỏ mục này.]
 
@@ -268,7 +272,7 @@ Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằn
 BẮT BUỘC: Nếu quyết định bị ảnh hưởng bởi tin tức trong block "Tin tức thị trường", PHẢI nêu rõ tên tiêu đề tin và giải thích tác động (ví dụ: "HPG: MUA — kỹ thuật vượt MA20 + tin [Hòa Phát ký hợp đồng thép 5.000 tỷ] hỗ trợ đà tăng"). Bỏ qua nếu không có khuyến nghị.
 
 ## 🔧 Đề xuất bổ sung (1 dòng, optional)
-[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, Cơ bản nhóm theo dõi (D/E/ROE/OCF), lịch GDKHQ cổ tức/chia tách (nếu có block "Sự kiện sắp tới"), VĨ MÔ — lãi suất điều hành/liên ngân hàng + tỷ giá USD/VND (nếu có block "🌐 Vĩ mô"). CHỈ nêu thứ THỰC SỰ thiếu (vd: CPI/lạm phát, lãi suất Fed, lịch công bố KQKD, định giá ngành so sánh).]
+[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, Cơ bản nhóm theo dõi (D/E/ROE/OCF), lịch GDKHQ cổ tức/chia tách (nếu có block "Sự kiện sắp tới"), VĨ MÔ — lãi suất điều hành/liên ngân hàng, tỷ giá USD/VND, lợi suất TPCP 2Y/10Y, CPI/lạm phát, IIP, PMI, GDP, cán cân thương mại, lãi suất Fed + US10Y (tất cả trong block "🌐 Vĩ mô"). CHỈ nêu thứ THỰC SỰ thiếu (vd: giá dầu Brent/WTI, lịch công bố KQKD, định giá P/E ngành so sánh).]
 
 Giới hạn 500 từ. Khi nói về cổ phiếu cụ thể, CHỈ đề cập mã CÓ TRONG các block đã cung cấp (VN30 + mid-cap thanh khoản cao); KHÔNG nhắc mã ngoài data.
 YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
@@ -343,6 +347,9 @@ Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằn
 ## 📰 Tin kinh tế/chính trị nổi bật
 [Nếu có block "📰 Tin kinh tế/chính trị" trong data: nêu 1-3 tin TÁC ĐỘNG MẠNH nhất tới thị trường (vĩ mô/lãi suất/tỷ giá/chính sách/địa chính trị), kèm hướng tác động (tích cực/tiêu cực cho TTCK) và ngành liên quan nếu rõ. DÙNG ĐÚNG tiêu đề trong block, TUYỆT ĐỐI KHÔNG bịa tin. Nếu KHÔNG có block đó → ghi "Không có tin vĩ mô nổi bật" hoặc bỏ mục này.]
 
+## 📚 Báo cáo vĩ mô & phân bổ
+[Nếu có block "📚 Báo cáo vĩ mô & phân bổ" trong data: chép các dòng của block (band phân bổ tháng + quan điểm báo cáo CTCK/chuyên gia + consensus). Đây là bối cảnh KHUNG THÁNG — TUYỆT ĐỐI KHÔNG đổi Bias/Stance NGÀY theo nó; nếu lệch chiều với Stance ngày mai thì ghi rõ "khung thời gian khác nhau". DÙNG ĐÚNG band/số trong block, TUYỆT ĐỐI KHÔNG bịa band (B0-B4) hay % phân bổ. Nếu KHÔNG có block đó → bỏ mục này.]
+
 ## 📌 Danh mục đang giữ
 [Nếu có block "📌 Danh mục đang giữ" trong data: với MỖI vị thế, chép NGUYÊN VĂN dòng dữ kiện của mã đó từ block (mã, số cp, vốn, hiện, lãi/lỗ %) rồi nối ' → ' + hành động (GIỮ / GIA TĂNG / GIẢM TỶ TRỌNG / CANH BÁN) + 1 lý do ngắn gắn với Stance/regime/tin trong prompt. Khi Bias/Stance nghiêng GIẢM → KHÔNG khuyên GIA TĂNG vô điều kiện (chỉ GIỮ/GIẢM TỶ TRỌNG/CANH BÁN, hoặc "GIA TĂNG chỉ khi vượt <mức>"). TUYỆT ĐỐI dùng đúng số trong block — không tự tính lại, không thêm mã ngoài block. Nếu KHÔNG có block đó → ghi "Không có vị thế đang mở" hoặc bỏ mục này.]
 
@@ -351,7 +358,7 @@ Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằn
 BẮT BUỘC: Nếu có tin tức tác động → nêu rõ tiêu đề tin + ảnh hưởng. Bỏ qua nếu không có khuyến nghị.
 
 ## 🔧 Đề xuất bổ sung (1 dòng, optional)
-[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, Cơ bản nhóm theo dõi (D/E/ROE/OCF), lịch GDKHQ cổ tức/chia tách (nếu có block "Sự kiện sắp tới"), VĨ MÔ — lãi suất điều hành/liên ngân hàng + tỷ giá USD/VND (nếu có block "🌐 Vĩ mô"). CHỈ nêu thứ THỰC SỰ thiếu (vd: CPI/lạm phát, lãi suất Fed, lịch công bố KQKD, định giá ngành so sánh).]
+[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, Cơ bản nhóm theo dõi (D/E/ROE/OCF), lịch GDKHQ cổ tức/chia tách (nếu có block "Sự kiện sắp tới"), VĨ MÔ — lãi suất điều hành/liên ngân hàng, tỷ giá USD/VND, lợi suất TPCP 2Y/10Y, CPI/lạm phát, IIP, PMI, GDP, cán cân thương mại, lãi suất Fed + US10Y (tất cả trong block "🌐 Vĩ mô"). CHỈ nêu thứ THỰC SỰ thiếu (vd: giá dầu Brent/WTI, lịch công bố KQKD, định giá P/E ngành so sánh).]
 
 Giới hạn 500 từ. Khi nói về cổ phiếu cụ thể, CHỈ đề cập mã CÓ TRONG các block đã cung cấp (VN30 + mid-cap thanh khoản cao); KHÔNG nhắc mã ngoài data. Nếu thị trường flat và không có signal rõ thì nói thẳng.
 YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
@@ -363,6 +370,40 @@ YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
 - Nếu không đủ data → viết "Cần thêm [data X]", không bịa.
 - MỌI % thay đổi giá PHẢI ghi rõ khung thời gian: "hôm nay", "phiên sáng", "5 phiên", "so với đóng cửa hôm qua", v.v. TUYỆT ĐỐI KHÔNG viết "X giảm Y%" mà không có khung thời gian.
 - Viết THUẦN tiếng Việt — KHÔNG chèn từ tiếng Anh (vd "mua ròng strongest" → "mua ròng mạnh nhất") HAY ký tự Trung/Nhật/Hàn (vd "达到") vào câu. Thuật ngữ chuẩn (RSI, MA20, A/D, Op.CF, D/E, GTGD…) giữ nguyên.
+"""
+
+# Brief PHÂN BỔ TÀI SẢN — brief_type="allocation", cadence THÁNG, CHỈ dashboard
+# (không đẩy Telegram — tham số duyệt #4). Khác 2 brief ngày: khung thời gian
+# trung hạn, xoay quanh band B0-B4 + bảng % của vnstock_allocation. LLM chỉ
+# viết LỜI DIỄN GIẢI — band + bảng % được guard enforce_allocation_table pin
+# lại theo data (nguyên tắc #1: LLM không bao giờ sinh số %/band).
+_ALLOCATION_TEMPLATE = """\
+{system}
+
+Dữ liệu cho BRIEF PHÂN BỔ TÀI SẢN (khung THÁNG — trung hạn, KHÔNG phải brief phiên):
+
+{data}
+
+---
+Viết BRIEF PHÂN BỔ TÀI SẢN tiếng Việt theo đúng format sau (không thêm phần nào khác):
+
+## 🎯 TLDR (2 dòng)
+**Band phân bổ:** [chép ĐÚNG band + nhãn từ block "🧭 Phân bổ hiện hành" (vd "B2 — trung tính") + 1 câu vì sao, có số]
+**Hành động:** [1 câu — điều chỉnh tỷ trọng VỀ bảng đề xuất theo lộ trình vài phiên, không xoay danh mục trong 1 phiên]
+
+## 🧭 Phân bổ đề xuất
+[Chép NGUYÊN VĂN các dòng "- <Lớp tài sản>: <số>%" và dòng "- Band: ..." từ block "🧭 Phân bổ hiện hành". TUYỆT ĐỐI KHÔNG tự sinh/đổi số % hay band — hệ thống sẽ pin lại mục này theo data.]
+
+## 📊 Vì sao ở band này
+[Từ các dòng "Lý do" trong block "🧭 Phân bổ hiện hành": diễn giải 3-5 tín hiệu (regime/tâm lý/độ rộng/áp lực vĩ mô/gauge thanh khoản-kỳ hạn-quốc tế) — mỗi tín hiệu kèm SỐ + nguồn + as_of đúng như data. KHÔNG bịa số, KHÔNG thêm tín hiệu ngoài block.]
+
+## 📚 Quan điểm từ báo cáo
+[Nếu có block "📚 Báo cáo vĩ mô & phân bổ": tóm quan điểm từng báo cáo (nguồn + ngày + stance) và consensus/tilt. Nếu KHÔNG có → ghi "Chưa có báo cáo vĩ mô trong thư viện".]
+
+## ⚠️ Rủi ro & lưu ý khung thời gian
+[Band là khung THÁNG: nếu bias/tín hiệu NGÀY trong data đang lệch chiều với band → ghi rõ 2 khung thời gian khác nhau, KHÔNG phủ định nhau, hành động phân bổ vẫn theo lộ trình. Nêu 2-3 rủi ro chính CÓ TRONG data (vĩ mô/kỹ thuật/tin) khiến band có thể đổi kỳ tới. Nếu data có block "🗣 Phản biện": PHẢI đối diện TỪNG luận điểm — mỗi luận điểm 1 câu đồng ý/bác bỏ kèm lý do bám số liệu (không in nguyên văn block, không bịa số mới). KHÔNG bịa.]
+
+Giới hạn 350 từ. Viết THUẦN tiếng Việt — KHÔNG chèn từ tiếng Anh hay ký tự Trung/Nhật/Hàn; thuật ngữ chuẩn (RSI, MA20, D/E, GTGD…) giữ nguyên. Số giữ định dạng EN như data (phẩy ngăn nghìn, chấm thập phân). Nếu data thiếu mục nào → ghi "Chưa có dữ liệu", KHÔNG suy đoán.
 """
 
 
@@ -1292,13 +1333,18 @@ def _macro_line(ind: dict) -> str:
 
 
 def _macro_body_lines(macro: list[dict],
-                      macro_news: "list[dict] | None" = None) -> list[str]:
-    """Canonical macro bullets + directive (NO section header).
+                      macro_news: "list[dict] | None" = None,
+                      directive: bool = True) -> list[str]:
+    """Canonical macro bullets (NO section header) ± directive.
 
     Shared by the prompt renderer and the post-gen guard so the guard can splice
     exactly the body without slicing the header off a joined string. Indicators
     with NO recent change are compressed into one 'Đi ngang' line so the block
     doesn't grow a bullet per indicator as the registry expands (8+ nay).
+
+    ``directive=False`` cho guard — dòng chỉ thị "→ Lãi suất TĂNG… DÙNG bối
+    cảnh này…" chỉ thuộc PROMPT, không được splice vào brief xuất bản (leak
+    thật close 14/07 — phần 2/2 mở đầu bằng nguyên dòng chỉ thị nội bộ).
     """
     from vnstock_macro import (fmt_change, fmt_value, intl_spread,
                                liquidity_spread, pmi_reminder, term_spread)
@@ -1334,20 +1380,21 @@ def _macro_body_lines(macro: list[dict],
     for n in (macro_news or [])[:3]:
         lines.append(f"- Tin liên quan [{n.get('ticker','')}] {n.get('date','')}: "
                      f"{n.get('title','')}")
-    # Fed có reading thật (fed_funds từ FRED) thì bỏ mệnh đề "Fed chưa có
-    # data" — trước đó phải CẤM BỊA vì không có nguồn; luật "không bịa chỉ số
-    # ngoài danh sách" vẫn giữ nguyên cho mọi thứ khác.
-    have_fed = any(m.get("key") == "fed_funds" for m in macro)
-    lines.append(
-        "→ Lãi suất TĂNG / VND mất giá (USD/VND tăng) / CPI tăng tốc = môi trường "
-        "THẮT CHẶT, bất lợi cho cổ phiếu (đặc biệt nhóm vay nợ cao; khối ngoại dễ "
-        "bán ròng). Lãi suất giảm / VND ổn định / GDP-IIP-PMI cải thiện = thuận "
-        "lợi hơn (PMI < 50 điểm = sản xuất thu hẹp; cán cân thương mại ÂM = nhập "
-        "siêu, kéo dài là áp lực tỷ giá). DÙNG bối cảnh này khi chốt Bias + Rủi "
-        "ro để ĐÓN ĐẦU thay đổi. DÙNG ĐÚNG số + as_of ở trên, KHÔNG bịa chỉ số "
-        "vĩ mô ngoài danh sách trên"
-        + ("." if have_fed else " (Fed… chưa có trong data).")
-    )
+    if directive:
+        # Fed có reading thật (fed_funds từ FRED) thì bỏ mệnh đề "Fed chưa có
+        # data" — trước đó phải CẤM BỊA vì không có nguồn; luật "không bịa chỉ
+        # số ngoài danh sách" vẫn giữ nguyên cho mọi thứ khác.
+        have_fed = any(m.get("key") == "fed_funds" for m in macro)
+        lines.append(
+            "→ Lãi suất TĂNG / VND mất giá (USD/VND tăng) / CPI tăng tốc = môi trường "
+            "THẮT CHẶT, bất lợi cho cổ phiếu (đặc biệt nhóm vay nợ cao; khối ngoại dễ "
+            "bán ròng). Lãi suất giảm / VND ổn định / GDP-IIP-PMI cải thiện = thuận "
+            "lợi hơn (PMI < 50 điểm = sản xuất thu hẹp; cán cân thương mại ÂM = nhập "
+            "siêu, kéo dài là áp lực tỷ giá). DÙNG bối cảnh này khi chốt Bias + Rủi "
+            "ro để ĐÓN ĐẦU thay đổi. DÙNG ĐÚNG số + as_of ở trên, KHÔNG bịa chỉ số "
+            "vĩ mô ngoài danh sách trên"
+            + ("." if have_fed else " (Fed… chưa có trong data).")
+        )
     return lines
 
 
@@ -1367,9 +1414,12 @@ def _macro_block(macro: list[dict], macro_news: "list[dict] | None" = None) -> s
 _MKT_NEWS_SENT_ICON = {"positive": "🟢", "negative": "🔴", "neutral": "⚪"}
 
 
-def _market_news_body_lines(items: list[dict]) -> list[str]:
-    """Canonical market-news bullets + directive (NO section header). Shared by the
-    prompt renderer and the guard so the section is fabrication-proof."""
+def _market_news_body_lines(items: list[dict],
+                            directive: bool = True) -> list[str]:
+    """Canonical market-news bullets (NO section header) ± directive. Shared by
+    the prompt renderer and the guard so the section is fabrication-proof.
+    ``directive=False`` cho guard — dòng chỉ thị "→ DÙNG các tin trên…" chỉ
+    thuộc prompt, không splice vào brief xuất bản (leak thật close 14/07)."""
     lines: list[str] = []
     for it in items:
         icon = _MKT_NEWS_SENT_ICON.get(it.get("_sentiment", ""), "•")
@@ -1380,11 +1430,12 @@ def _market_news_body_lines(items: list[dict]) -> list[str]:
         if it.get("_impact"):
             line += f" — tác động: {it['_impact']}"
         lines.append(line)
-    lines.append(
-        "→ DÙNG các tin trên khi đánh giá bối cảnh vĩ mô + rủi ro; gắn tin với "
-        "ngành/cổ phiếu liên quan nếu có. 🟢=tích cực /🔴=tiêu cực cho TTCK. "
-        "TUYỆT ĐỐI KHÔNG bịa tin/tiêu đề ngoài danh sách này."
-    )
+    if directive:
+        lines.append(
+            "→ DÙNG các tin trên khi đánh giá bối cảnh vĩ mô + rủi ro; gắn tin với "
+            "ngành/cổ phiếu liên quan nếu có. 🟢=tích cực /🔴=tiêu cực cho TTCK. "
+            "TUYỆT ĐỐI KHÔNG bịa tin/tiêu đề ngoài danh sách này."
+        )
     return lines
 
 
@@ -1396,6 +1447,129 @@ def _market_news_block(items: list[dict]) -> str:
         return ""
     header = "\n## 📰 Tin kinh tế/chính trị nổi bật (ảnh hưởng thị trường)"
     return "\n".join([header] + _market_news_body_lines(items))
+
+
+# ── 📚 Báo cáo vĩ mô & band phân bổ (P4) ─────────────────────────────────────
+
+def _macro_reports_body_lines(ctx: dict, directive: bool = True) -> list[str]:
+    """Canonical bullets mục 📚 — dùng chung bởi prompt renderer VÀ guard
+    (enforce_macro_reports) nên mục này fabrication-proof by construction.
+
+    Cap ~5 dòng (tham số duyệt): 1 dòng band + ≤3 báo cáo + 1 dòng consensus.
+    Claim mismatch KHÔNG BAO GIỜ xuất hiện ở đây (chỉ tom_tat + stance — số
+    lệch registry bị chặn từ tầng digest). ``directive=False`` cho guard —
+    dòng chỉ thị chỉ thuộc prompt, không được splice vào brief xuất bản.
+    """
+    reps = ctx.get("macro_reports") or []
+    alloc = ctx.get("allocation") or {}
+    cons = ctx.get("reports_consensus") or {}
+    lines: list[str] = []
+    if alloc.get("band"):
+        band_line = (f"- 🧭 Band phân bổ tháng: {alloc['band']} "
+                     f"({alloc.get('band_label', '')}) — điểm "
+                     f"{alloc.get('score', 0):+.2f}, phiên {alloc.get('as_of', '?')}")
+        rt = alloc.get("report_tilt") or {}
+        if rt.get("tilt"):
+            band_line += (f"; đã gồm tilt {rt['tilt']:+d} từ báo cáo "
+                          f"(band data: {alloc.get('band_data')})")
+        lines.append(band_line)
+    for r in reps[:3]:
+        d = r.get("digest") or {}
+        cp = (d.get("stance") or {}).get("Cổ phiếu", 0)
+        line = (f"- [{r.get('report_date', '?')}] {r.get('source', '?')}: "
+                f"{d.get('tom_tat', '')} (stance cổ phiếu {cp:+d})")
+        if d.get("has_mismatch"):
+            line += " — ⚠ báo cáo có số lệch registry, số liệu của nó không được trích dẫn"
+        lines.append(line)
+    if cons and cons.get("n_reports"):
+        cp = (cons.get("stance") or {}).get("Cổ phiếu", 0)
+        tail = (f" → tilt {cons['tilt']:+d} band" if cons.get("tilt")
+                else " → không đủ nghiêng để tilt band")
+        lines.append(f"- Consensus {cons['n_reports']} báo cáo: stance cổ phiếu "
+                     f"{cp:+.2f}{tail}")
+    if lines and directive:
+        lines.append(
+            "→ Bối cảnh KHUNG THÁNG (phân bổ tài sản trung hạn) — KHÔNG dùng để "
+            "đổi Bias/Stance NGÀY; lệch chiều với bias ngày = khung thời gian "
+            "khác nhau, không phải mâu thuẫn. KHÔNG bịa band/% ngoài block này.")
+    return lines
+
+
+def _macro_reports_block(ctx: dict) -> str:
+    """Render mục 📚 cho prompt (band tháng + digest báo cáo + consensus).
+    Empty khi chưa có gì tươi (chỉ-khi-tươi: load_for_analysis đã lọc ≤90 ngày)."""
+    body = _macro_reports_body_lines(ctx, directive=True)
+    if not body:
+        return ""
+    header = "\n## 📚 Báo cáo vĩ mô & phân bổ (khung THÁNG — trung hạn)"
+    return "\n".join([header] + body)
+
+
+def _allocation_table_lines(alloc: dict) -> list[str]:
+    """Canonical các dòng bảng % + band cho brief allocation — dùng chung bởi
+    prompt block VÀ guard enforce_allocation_table (nguyên tắc #1: LLM không
+    sinh số %/band, chỉ hệ thống in bảng)."""
+    rows = alloc.get("allocation") or {}
+    if not rows or not alloc.get("band"):
+        return []
+    lines = [f"- {cls}: {pct}%" for cls, pct in rows.items()]
+    lines.append(f"- Band: {alloc['band']} ({alloc.get('band_label', '')}) — "
+                 f"điểm {alloc.get('score', 0):+.2f}, phiên {alloc.get('as_of', '?')}")
+    return lines
+
+
+def _reflections_block(lessons: list[dict]) -> str:
+    """Block 🧠 bài học từ quyết định đã đóng (vnstock_reflection) — CHỈ ở
+    PROMPT làm ngữ cảnh mềm, model bị cấm tạo mục/chép nguyên văn vào brief.
+    (Ý tưởng reflection-sau-outcome từ khảo sát TradingAgents 14/07.)"""
+    if not lessons:
+        return ""
+    lines = ["\n## 🧠 Bài học từ quyết định đã đóng (NỘI BỘ — không phải mục brief)"]
+    for e in lessons:
+        lines.append(f"- [{e.get('date', '?')}] {e.get('label', '')}: "
+                     f"{e.get('lesson', '')}")
+    lines.append(
+        "→ DÙNG các bài học trên để tránh lặp lỗi nhận định cũ (điều chỉnh mức "
+        "thận trọng/lạc quan cho tình huống tương tự). TUYỆT ĐỐI KHÔNG chép "
+        "nguyên văn, KHÔNG tạo mục 'Bài học' trong brief, KHÔNG nhắc tới block "
+        "nội bộ này.")
+    return "\n".join(lines)
+
+
+def _debate_block(debate: "dict | None") -> str:
+    """Block 🗣 phản biện band (vnstock_debate) — CHỈ vào prompt brief
+    ALLOCATION; mục ⚠️ của brief phải đối diện từng luận điểm. Không splice
+    vào output nên không cần guard riêng (band/% đã có enforce_allocation_table)."""
+    if not debate or not debate.get("points"):
+        return ""
+    lines = [f"\n## 🗣 Phản biện band {debate.get('band', '?')} "
+             f"(devil's advocate — NỘI BỘ, phiên {debate.get('as_of', '?')})"]
+    lines += [f"- {p}" for p in debate["points"]]
+    lines.append(
+        "→ Trong mục '⚠️ Rủi ro & lưu ý khung thời gian' PHẢI đối diện các "
+        "phản biện trên: mỗi luận điểm 1 câu đồng ý/bác bỏ kèm lý do bám số "
+        "liệu đã cho. KHÔNG bịa số mới, KHÔNG in nguyên văn block này.")
+    return "\n".join(lines)
+
+
+def _allocation_state_block(alloc: dict) -> str:
+    """Data block cho brief_type='allocation': bảng % + lý do từng input
+    (nguồn + as_of) từ allocation_state — nguồn duy nhất của band/%."""
+    table = _allocation_table_lines(alloc)
+    if not table:
+        return ""
+    lines = ["\n## 🧭 Phân bổ hiện hành (từ vnstock_allocation — data, KHÔNG đổi số)"]
+    lines += table
+    rt = alloc.get("report_tilt") or {}
+    if rt.get("tilt"):
+        lines.append(f"- Tilt từ báo cáo: {rt['tilt']:+d} band "
+                     f"(band data {alloc.get('band_data')}, stance CP "
+                     f"{rt.get('stance_cp')}, {rt.get('n_reports')} báo cáo)")
+    for r in alloc.get("inputs") or []:
+        lines.append(f"- Lý do: {r.get('label')}: {r.get('value')} "
+                     f"(điểm {r.get('score', 0):+.2f} × trọng số {r.get('weight')})"
+                     f" — nguồn {r.get('source')}, as_of {r.get('as_of')}")
+    return "\n".join(lines)
 
 
 # ── Danh mục đang giữ (position-aware brief) ────────────────────────────────
@@ -1508,6 +1682,23 @@ def _market_sentiment_block(ms: dict) -> str:
 
 
 # ── Context collection ─────────────────────────────────────────────────────
+def _leadlag_candidates(sector_weights: dict) -> list[tuple[str, float]]:
+    """Ứng viên (ngành, đóng góp pp 1 tuần) cho lead/lag, có SANITY GATE:
+    contrib/weight ≡ "Giá 1T %" của row (by construction) — |%đổi tuần| > 35
+    vượt trần vật lý sàn (HOSE ±7%/phiên → ±30%/tuần) = member data hỏng
+    (close 14/07: Họ VIN 1.6%VNI với -0.873pp ⇒ -55%/tuần — chg5 rác của 1
+    thành viên kéo mean cộng đều sập) → loại khỏi ứng viên, không cho lên
+    headline Dẫn dắt/Tụt hậu."""
+    items: list[tuple[str, float]] = []
+    for name, v in (sector_weights or {}).items():
+        c = (v or {}).get("_1d_contrib", 0) or 0
+        w = (v or {}).get("_weight", 0) or 0
+        if w > 0 and abs(c / w) > 35:
+            continue
+        items.append((name, c))
+    return items
+
+
 def _select_liquid_movers(
     tickers: list[dict],
     min_gtgd_ty: float = _LIQUID_GTGD_MIN_TY,
@@ -1793,9 +1984,7 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     # brief can't dress up a negligible (+0.02pp) sector as a leader. build_prompt
     # injects these as the ONLY allowed leader/laggard.
     if _sw := ctx.get("sector_weights"):
-        _items = [
-            (name, (v or {}).get("_1d_contrib", 0) or 0) for name, v in _sw.items()
-        ]
+        _items = _leadlag_candidates(_sw)
         if _items:
             _lead = max(_items, key=lambda x: x[1])
             _lag = min(_items, key=lambda x: x[1])
@@ -1892,6 +2081,41 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
             ctx["portfolio"] = _pf
     except Exception:
         pass
+
+    # 8e. Báo cáo vĩ mô + band phân bổ (P4) — digest đã cache (P3) + state
+    # allocation (P1) cho mục "📚" (brief ngày: 1 dòng band + tóm tắt báo cáo;
+    # brief allocation: cả bảng %). Đọc cache THUẦN — zero LLM/zero fetch tại
+    # đây. Tắt: VNSTOCK_BRIEF_REPORTS=0.
+    if os.environ.get("VNSTOCK_BRIEF_REPORTS", "1") != "0":
+        try:
+            from vnstock_reports import load_for_analysis as _rp_lfa
+            _reps = [r for r in _rp_lfa(as_of=_data_date_str) if r.get("digest")]
+            if _reps:
+                ctx["macro_reports"] = _reps[:3]
+                from vnstock_report_digest import consensus as _rd_consensus
+                if _cons := _rd_consensus(as_of=_data_date_str):
+                    ctx["reports_consensus"] = _cons
+        except Exception:
+            pass
+        try:
+            from vnstock_allocation import load_state as _alloc_state
+            if _st := _alloc_state():
+                # bỏ history (nặng, không cần cho prompt); giữ bảng % + inputs
+                ctx["allocation"] = {k: v for k, v in _st.items()
+                                     if k != "history"}
+        except Exception:
+            pass
+
+    # 8f. Bài học reflection (rec đã đóng / kỳ band đã khép) — ngữ cảnh mềm
+    # giúp brief tránh lặp lỗi nhận định cũ (vnstock_reflection — ý tưởng
+    # TradingAgents). Đọc cache thuần. Tắt: VNSTOCK_BRIEF_REFLECTIONS=0.
+    if os.environ.get("VNSTOCK_BRIEF_REFLECTIONS", "1") != "0":
+        try:
+            from vnstock_reflection import load_lessons
+            if _lessons := load_lessons(limit=3):
+                ctx["reflections"] = _lessons
+        except Exception:
+            pass
 
     # 9. Deterministic bias floor from the two headline signals the user sees in
     # the header (Tâm lý momentum + Regime score) — so the TLDR Bias can't soften
@@ -2161,6 +2385,35 @@ def _vnindex_technicals() -> dict:
         except Exception:
             pass
 
+        # CHOP(14) + mẫu nến (khảo sát StockSharp 15/07) — ngữ cảnh
+        # display-only, KHÔNG vào regime score. Mẫu nến bỏ qua khi bar cuối
+        # là bar intraday chưa chốt (thân/râu còn đổi tới khi đóng phiên).
+        chop14 = None
+        try:
+            from vnstock_indicators import choppiness_index
+            v = choppiness_index(high.values, low.values, close.values)
+            chop14 = round(float(v), 1) if v is not None else None
+        except Exception:
+            pass
+        candle_patterns = []
+        ha_streak = 0
+        if not bool(df.attrs.get("intraday", False)):
+            try:
+                from vnstock_candle_patterns import detect_df, pattern_labels
+                candle_patterns = pattern_labels(detect_df(df))
+            except Exception:
+                pass
+            # Heikin-Ashi streak (quant-trading 15/07) — cùng luật skip
+            # intraday như mẫu nến (HA của bar chưa chốt còn đổi).
+            try:
+                from vnstock_indicators import ha_trend_streak
+                if "open" in df.columns:
+                    ha_streak = ha_trend_streak(
+                        df["open"].astype(float).values, high.values,
+                        low.values, close.values)
+            except Exception:
+                pass
+
         return {
             "close":          last,
             "prev_close":     prev,
@@ -2178,6 +2431,9 @@ def _vnindex_technicals() -> dict:
             "ma200":          ma200,
             "ma20_slope_pct": round(ma20_slope_pct, 2) if ma20_slope_pct is not None else None,
             "rsi14":          round(rsi14, 1) if rsi14 is not None else None,
+            "chop14":         chop14,
+            "candle_patterns": candle_patterns,
+            "ha_streak":      int(ha_streak),
             "support_1":      sup1,
             "support_2":      sup2,
             "resistance_1":   res1,
@@ -2353,6 +2609,23 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         if (rsi := vt.get("rsi14")) is not None:
             rsi_tag = "quá mua" if rsi > 70 else ("quá bán" if rsi < 30 else "trung tính")
             vt_lines.append(f"- RSI(14): {rsi:.1f} ({rsi_tag})")
+        if (chop := vt.get("chop14")) is not None:
+            chop_tag = ("đi ngang/choppy" if chop > 61.8
+                        else "có xu hướng rõ" if chop < 38.2 else "trung gian")
+            vt_lines.append(
+                f"- CHOP(14): {chop:.1f} ({chop_tag} — đo độ choppy, KHÔNG chỉ hướng)"
+            )
+        if pats := vt.get("candle_patterns"):
+            vt_lines.append(
+                "- Mẫu nến phiên gần nhất: " + "; ".join(pats)
+                + " (tín hiệu nến tham khảo, cần nến xác nhận)"
+            )
+        if abs(streak := int(vt.get("ha_streak") or 0)) >= 2:
+            _ha_dir = "xanh (tăng)" if streak > 0 else "đỏ (giảm)"
+            vt_lines.append(
+                f"- Heikin-Ashi: {abs(streak)} nến {_ha_dir} sạch liên tiếp"
+                " — lọc nhiễu trend, chỉ ngữ cảnh"
+            )
         sr_parts = []
         if vt.get("support_2") is not None:
             sr_parts.append(f"S2={_f(vt['support_2'])}")
@@ -2708,6 +2981,29 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         if block:
             lines.append(block)
 
+    # Macro reports + band phân bổ (P4) — bối cảnh KHUNG THÁNG (cap ~5 dòng,
+    # chỉ-khi-tươi). Brief allocation nhận thêm block state đầy đủ (bảng % +
+    # lý do input) vì đó là chủ đề chính của nó.
+    if ctx.get("macro_reports") or ctx.get("allocation"):
+        block = _macro_reports_block(ctx)
+        if block:
+            lines.append(block)
+    if brief_type == "allocation" and (_alloc := ctx.get("allocation")):
+        block = _allocation_state_block(_alloc)
+        if block:
+            lines.append(block)
+    # Phản biện band (devil's advocate) — chỉ brief allocation mang block này.
+    if brief_type == "allocation" and (_deb := ctx.get("allocation_debate")):
+        block = _debate_block(_deb)
+        if block:
+            lines.append(block)
+
+    # Bài học reflection — mọi brief_type (ngữ cảnh mềm, không phải mục brief).
+    if _lessons := ctx.get("reflections"):
+        block = _reflections_block(_lessons)
+        if block:
+            lines.append(block)
+
     # Held positions — per-position facts so the brief can advise theo vị thế.
     if _pf := ctx.get("portfolio"):
         block = _portfolio_block(_pf)
@@ -2739,7 +3035,9 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
     if few_shot:
         data_block = data_block + "\n" + few_shot
 
-    tmpl = _MORNING_TEMPLATE if brief_type == "morning" else _AFTERNOON_TEMPLATE
+    tmpl = {"morning": _MORNING_TEMPLATE,
+            "allocation": _ALLOCATION_TEMPLATE}.get(brief_type,
+                                                    _AFTERNOON_TEMPLATE)
     return tmpl.format(system=_SYSTEM, data=data_block)
 
 
@@ -2759,6 +3057,8 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_macro(fixed, ctx)                # canonical macro levels/changes
     fixed = enforce_macro_fx_pct(fixed, ctx)         # USD/VND % safety net (header-miss)
     fixed = enforce_market_news(fixed, ctx)          # canonical econ/political headlines
+    fixed = enforce_macro_reports(fixed, ctx)        # canonical 📚 band + digest báo cáo
+    fixed = enforce_allocation_table(fixed, ctx)     # pin band/% + caveat horizon
     fixed = enforce_portfolio_facts(fixed, ctx)      # held-position facts are data
     fixed = enforce_risk_section(fixed, ctx)         # canonical risk facts first
     fixed = enforce_realestate_ocf_context(fixed, ctx)
@@ -2767,10 +3067,12 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_money_flow_two_sides(fixed, ctx)  # close section & morning inline
     fixed = enforce_sector_nn_figures(fixed, ctx)     # fabricated sector NN anywhere
     fixed = enforce_net_flow_label(fixed, ctx)        # mua/bán ròng verb+sign ↔ real NN
+    fixed = enforce_nn_frame_labels(fixed, ctx)       # sector NN without frame → (1 tuần)
     fixed = enforce_liquidity_label(fixed, ctx)       # NN-sell figures ≠ thanh khoản
     fixed = enforce_nn_window_label(fixed, ctx)       # 1D NN total ≠ weekly
     fixed = enforce_risk_numbers(fixed, ctx)          # defensive no-op on canonical
     fixed = enforce_pivot_labels(fixed, ctx)
+    fixed = enforce_sr_direction(fixed, ctx)          # S phải < close, R phải > close
     fixed = enforce_scenario_levels(fixed, ctx)       # scenario levels = real data only
     fixed = enforce_watchlist_eligibility(fixed, ctx)
     fixed = enforce_buy_vs_bias_caveat(fixed, ctx)    # GIẢM + BUY recs → caveat (keep, contextualize)
@@ -2783,6 +3085,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_breadth_quality(fixed, ctx)       # 'độ rộng tích cực' vs weak MA200%
     fixed = enforce_sentiment_consistency(fixed, ctx)  # body mood/momentum = canonical
     fixed = enforce_vnindex_change(fixed, ctx)        # day % change = real day_change_pct
+    fixed = enforce_session_direction(fixed, ctx)     # 'phiên giảm' label = day sign
     fixed = enforce_change_verb_sign(fixed, ctx)      # 'tăng -1%' → 'giảm 1%'
     fixed = enforce_no_cjk(fixed, ctx)
     fixed = enforce_no_instruction_leak(fixed, ctx)
@@ -2851,6 +3154,18 @@ def generate_brief(
     _maybe_refresh_market_news()
 
     ctx = collect_context(brief_type, auto_refresh=True)
+
+    # Phản biện band (devil's advocate — 1 call/kỳ, cache theo as_of+band) —
+    # CHỈ brief phân bổ (cadence tháng nên +1 call chấp nhận được). Best-effort:
+    # LLM chết/tắt (VNSTOCK_ALLOC_DEBATE=0) → brief chạy như không có phản biện.
+    if brief_type == "allocation":
+        try:
+            from vnstock_debate import run_debate
+            if _deb := run_debate(ctx.get("allocation") or {},
+                                  ctx.get("reports_consensus")):
+                ctx["allocation_debate"] = _deb
+        except Exception:
+            pass
 
     # Inject few-shot golden examples + open recommendations (best-effort)
     few_shot  = _few_shot_block(brief_type)
@@ -3028,7 +3343,7 @@ def _parse_vn_number(s: str) -> float | None:
         return None
 
 
-_SECTION_EMOJIS = ("🎯", "📊", "📈", "🏆", "💰", "📋", "⚠️", "📅", "💡", "🔧", "⚡", "🔮", "🌐", "📰", "📌")
+_SECTION_EMOJIS = ("🎯", "📊", "📈", "🏆", "💰", "📋", "⚠️", "📅", "💡", "🔧", "⚡", "🔮", "🌐", "📰", "📌", "📚", "🧭")
 
 
 def _is_section_start(line: str) -> bool:
@@ -3105,21 +3420,28 @@ def enforce_macro(text: str, ctx: dict) -> str:
     if not text or not macro:
         return text
 
-    # Canonical body (bullets + directive) WITHOUT the header — the model already
-    # prints its own "## 🌐 Vĩ mô" header which we keep as the section anchor.
-    body = _macro_body_lines(macro, ctx.get("macro_news"))
+    # Canonical body WITHOUT header (model prints its own "## 🌐 Vĩ mô" which
+    # we keep as anchor) và WITHOUT directive — chỉ thị "→ … DÙNG bối cảnh
+    # này…" thuộc prompt, splice vào brief xuất bản là leak (close 14/07).
+    body = _macro_body_lines(macro, ctx.get("macro_news"), directive=False)
 
     lines = text.splitlines()
-    # Header detection: a section-start line with "vĩ mô", OR a header-like line
-    # carrying both "vĩ mô" + lãi suất/tỷ giá (the canonical "🌐 Vĩ mô: lãi suất &
-    # tỷ giá") — the looser arm catches headers the LLM reformats so _is_section_start
-    # misses (observed close 16/06: macro section not pinned → a bad "-3%" survived).
-    def _is_macro_header(l: str) -> bool:
+    # Header detection 2 NẤC. Nấc 1 (ưu tiên): dòng section-start thật có "vĩ
+    # mô". Nấc 2 (fallback — CHỈ khi không có nấc 1): dòng mang "vĩ mô" + lãi
+    # suất/tỷ giá, bắt header bị LLM reformat nên _is_section_start trượt
+    # (close 16/06). KHÔNG được thử nấc 2 trước: dòng VĂN XUÔI "Rủi ro vĩ mô:
+    # lãi suất…" trong mục Rủi ro cũng khớp → body canonical splice nhầm vào
+    # mục Rủi ro và NUỐT các dòng D/E, còn section 🌐 thật bị bỏ qua (bug thật
+    # close 01:10 15/07).
+    def _is_macro_header_loose(l: str) -> bool:
         low = l.lower()
-        return "vĩ mô" in low and (
-            _is_section_start(l) or "lãi suất" in low or "tỷ giá" in low)
+        return "vĩ mô" in low and ("lãi suất" in low or "tỷ giá" in low)
 
-    start = next((i for i, l in enumerate(lines) if _is_macro_header(l)), None)
+    start = next((i for i, l in enumerate(lines)
+                  if _is_section_start(l) and "vĩ mô" in l.lower()), None)
+    if start is None:
+        start = next((i for i, l in enumerate(lines)
+                      if _is_macro_header_loose(l)), None)
     if start is not None:
         end = next((i for i in range(start + 1, len(lines))
                     if _is_section_start(lines[i])), len(lines))
@@ -3175,7 +3497,9 @@ def enforce_market_news(text: str, ctx: dict) -> str:
     if not text or not items:
         return text
 
-    body = _market_news_body_lines(items)
+    # directive=False — dòng chỉ thị "→ DÙNG các tin trên… TUYỆT ĐỐI KHÔNG
+    # bịa…" chỉ thuộc prompt, không được vào brief xuất bản (leak 14/07).
+    body = _market_news_body_lines(items, directive=False)
     lines = text.splitlines()
     start = next((i for i, l in enumerate(lines)
                   if ("tin kinh tế" in l.lower() or "kinh tế/chính trị" in l.lower())
@@ -3198,6 +3522,131 @@ def enforce_market_news(text: str, ctx: dict) -> str:
         else:
             out.append(line)
     return "\n".join(out)
+
+
+def enforce_macro_reports(text: str, ctx: dict) -> str:
+    """Deterministic guard (P4): mục "📚 Báo cáo vĩ mô & phân bổ" là DATA thuần
+    (band tháng + tom_tat digest + consensus) — LLM không được paraphrase band,
+    bịa nguồn báo cáo hay đổi stance. Khi ctx có macro_reports/allocation, thay
+    toàn bộ body mục bằng canonical bullets từ `_macro_reports_body_lines`
+    (directive=False — dòng chỉ thị chỉ thuộc prompt); không có header → splice
+    đè dòng phủ nhận "chưa có báo cáo". No-op khi ctx trống. Idempotent.
+    """
+    body = _macro_reports_body_lines(ctx, directive=False)
+    if not text or not body:
+        return text
+
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines)
+                  if "báo cáo vĩ mô" in l.lower() and _is_section_start(l)), None)
+    if start is not None:
+        end = next((i for i in range(start + 1, len(lines))
+                    if _is_section_start(lines[i])), len(lines))
+        if lines[start + 1:end] == body:
+            return text
+        return "\n".join(lines[:start + 1] + body + lines[end:])
+
+    out: list[str] = []
+    replaced = False
+    for line in lines:
+        low = line.lower()
+        if (not replaced and "báo cáo vĩ mô" in low
+                and ("chưa có" in low or "không có" in low)):
+            out.extend(body)
+            replaced = True
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
+# Caveat horizon (P4): band THÁNG nghiêng ngược bias floor NGÀY → gắn ngữ cảnh,
+# KHÔNG override (mirror triết lý guard 27/28). Bắt đầu bằng "- ⚠️" (dash trước)
+# để KHÔNG bị _is_section_start hiểu nhầm là ranh giới mục (bài học guard 27).
+_ALLOC_HORIZON_CAVEAT = (
+    "- ⚠️ Band phân bổ là khung THÁNG, tín hiệu phiên đang lệch chiều — hai "
+    "khung thời gian khác nhau, không phủ định nhau: điều chỉnh tỷ trọng theo "
+    "lộ trình vài phiên, tôn trọng tín hiệu ngày khi vào/ra lệnh."
+)
+
+
+def enforce_allocation_table(text: str, ctx: dict) -> str:
+    """Deterministic guard (P4) — nguyên tắc #1: LLM không bao giờ sinh số
+    %/band, guard pin. Ba việc, đều no-op khi ctx thiếu allocation:
+
+    (a) Pin token "band B<x>" lạc ở BẤT KỲ ĐÂU về band thật (LLM hay chép nhầm
+        B0/B2 từ bảng ví dụ); bỏ qua dòng canonical đã mang band data/tilt
+        ("band data:", "Band phân bổ tháng", "- Band:") — các dòng đó do guard
+        khác/chính guard này in, chứa band KHÁC band hiệu lực một cách hợp lệ.
+    (b) Brief allocation: thay toàn bộ body mục "🧭 Phân bổ đề xuất" bằng bảng
+        canonical từ `_allocation_table_lines` (LLM chỉ được viết lời ở mục khác).
+    (c) Caveat horizon: band tháng nghiêng TẤN CÔNG (B0/B1) trong khi bias floor
+        ngày GIẢM (hoặc ngược lại B3/B4 vs TĂNG) → chèn 1 dòng ngữ cảnh sau dòng
+        band, KHÔNG đổi band/bias nào. Idempotent qua marker trên toàn văn.
+    """
+    alloc = ctx.get("allocation") or {}
+    band = alloc.get("band")
+    if not text or band not in ("B0", "B1", "B2", "B3", "B4"):
+        return text
+
+    _CANON_MARKS = ("band data", "band phân bổ tháng", "- band:")
+
+    def _pin_band(line: str) -> str:
+        low = line.lower()
+        if any(m in low for m in _CANON_MARKS):
+            return line
+        # "band B0" (chữ band ngay trước) + "Band phân bổ:** B0" (TLDR brief
+        # allocation — có "phân bổ"/markdown giữa "band" và token B).
+        line = _re.sub(r"\b([Bb]and\s+)B[0-4]\b", rf"\g<1>{band}", line)
+        return _re.sub(r"([Bb]and phân bổ[:\*\s]+)B[0-4]\b", rf"\g<1>{band}", line)
+
+    lines = [_pin_band(l) for l in text.splitlines()]
+
+    # (b) bảng % canonical cho brief allocation
+    table = _allocation_table_lines(alloc)
+    if table:
+        start = next((i for i, l in enumerate(lines)
+                      if "phân bổ đề xuất" in l.lower() and _is_section_start(l)),
+                     None)
+        if start is not None:
+            end = next((i for i in range(start + 1, len(lines))
+                        if _is_section_start(lines[i])), len(lines))
+            if lines[start + 1:end] != table:
+                lines = lines[:start + 1] + table + lines[end:]
+
+    out = "\n".join(lines)
+
+    # (d) Pin "%" gắn với TÊN LỚP TÀI SẢN trong VĂN XUÔI về đúng bảng band —
+    # brief phân bổ đầu tiên trên máy user (15/07, Mistral Small) bịa ngay
+    # trong TLDR: "Giảm tỷ trọng cổ phiếu xuống 10% (từ 15%), duy trì tiền
+    # gửi 45%" — 10%/45% không thuộc band nào (B4: cổ phiếu 15, tiền gửi 40).
+    # CHỈ chạy trong brief allocation (gate: có mục "Phân bổ đề xuất") để
+    # "cổ phiếu…%" trong brief ngày không bị đụng; gap tên→số không vượt
+    # dấu câu (ở lại cùng mệnh đề); giá trị đúng canonical giữ nguyên.
+    alloc_pct = alloc.get("allocation") or {}
+    if alloc_pct and "phân bổ đề xuất" in out.lower():
+        for cls, pct in alloc_pct.items():
+            def _pin_pct(m: "_re.Match", _p=pct) -> str:
+                v = _parse_vn_number(m.group(2))
+                if v is None or abs(v - _p) < 0.01:
+                    return m.group(0)
+                return f"{m.group(1)}{_p:g}{m.group(3)}"
+            out = _re.sub(
+                rf"({_re.escape(cls)}[^%\n.,;:()]{{0,30}}?)(\d+(?:\.\d+)?)(\s*%)",
+                _pin_pct, out, flags=_re.IGNORECASE)
+
+    # (c) caveat horizon — chỉ khi lệch chiều thật và chưa chèn (check toàn văn)
+    bias = (ctx.get("bias_floor") or {}).get("dir")
+    clash = (band in ("B0", "B1") and bias == "GIẢM") or \
+            (band in ("B3", "B4") and bias == "TĂNG")
+    if clash and _ALLOC_HORIZON_CAVEAT not in out:
+        lines = out.splitlines()
+        anchor = next((i for i, l in enumerate(lines)
+                       if "band phân bổ tháng" in l.lower()
+                       or l.lstrip().lower().startswith("- band:")), None)
+        if anchor is not None:
+            lines.insert(anchor + 1, _ALLOC_HORIZON_CAVEAT)
+            out = "\n".join(lines)
+    return out
 
 
 def enforce_portfolio_facts(text: str, ctx: dict) -> str:
@@ -3483,6 +3932,22 @@ def enforce_lead_lag(text: str, ctx: dict) -> str:
                     if v is not None and abs(v - _cv) > 0.005 else m.group(0))
         result = _re.sub(
             rf"({_re.escape(nm)}.{{0,30}}?đóng góp\s*)([+-]?[\d.,]+)\s*pp", _pp, result)
+
+    # Pin luôn TRỌNG SỐ "%VNI" của lead/lag về ctx sector_weights — close
+    # 23:58 14/07: "Họ VIN [1.6%VNI, đóng góp -0.873pp]" trong khi trọng số
+    # thật ~25% (model mượn GTGD 1,653 tỷ mangle thành "1.6"); cặp số tự đá
+    # nhau (hàm ý -55%/tuần). pp đã pin ở trên; trọng số cũng phải khớp data.
+    sw = ctx.get("sector_weights") or {}
+    for nm in (lead_name, lag_name):
+        w = ((sw.get(nm) or {}).get("_weight", 0) or 0) * 100
+        if w <= 0:
+            continue
+        def _wfix(m: "_re.Match", _w=w) -> str:
+            v = _parse_vn_number(m.group(2))
+            return (f"{m.group(1)}{_w:.1f}{m.group(3)}"
+                    if v is not None and abs(v - _w) > 0.5 else m.group(0))
+        result = _re.sub(
+            rf"({_re.escape(nm)}\s*\[\s*)([\d.,]+)(\s*%\s*VNI)", _wfix, result)
     return result
 
 
@@ -3614,16 +4079,38 @@ def enforce_sector_nn_figures(text: str, ctx: dict) -> str:
             if s.get("Ngành") and isinstance(s.get("NN 1T (tỷ)"), (int, float))]
     if not text or not rows:
         return text
+    all_names = {nm for nm, _ in rows}
     out = text
     for nm, vv in rows:
-        def _fix(m: "_re.Match", _vv=vv) -> str:
+        def _fix(m: "_re.Match", _vv=vv, _nm=nm) -> str:
             cur = _parse_vn_number(m.group(2))
             if cur is None or abs(cur - _vv) <= max(1.0, 0.02 * abs(_vv)):
                 return m.group(0)
+            # Số này thuộc NGÀNH KHÁC nếu ngay sau nó gắn "trong ngành <other>"
+            # (close 15/07: "…Họ VIN (1 tuần), trong khi bán ròng 703 tỷ đồng
+            # trong ngành Ngân hàng" — pass Họ VIN nuốt số 703 của Ngân hàng
+            # rồi pin thành +1,496). Đừng đụng nếu attribution ngay sau là ngành
+            # khác nm.
+            tail = m.string[m.end():m.end() + 44]
+            tm = _re.match(r"\s*(?:đồng\s*)?trong\s+ngành\s+(.+)",
+                           tail, _re.IGNORECASE)
+            if tm:
+                trailing = tm.group(1).strip().lower()
+                if any(trailing.startswith(o.lower()) and o.lower() != _nm.lower()
+                       for o in all_names):
+                    return m.group(0)
             return f"{m.group(1)}{_vv:+,.0f}{m.group(3)}"
+        # Số cho phép dấu "+" — close 14/07: "Ngân hàng bị bán ròng +1,471 tỷ"
+        # (magnitude của ngành KHÁC gắn nhầm + sign dương) trượt vì pattern cũ
+        # chỉ nhận "-?". Gap tên→verb KHÔNG được vượt ranh giới mệnh đề: cấm
+        # ".<space>" (hết câu — dấu chấm THẬP PHÂN "-0.03pp" vẫn qua), token
+        # "tỷ" (số+đơn vị đã chốt = mệnh đề ngành TRƯỚC đó) VÀ connector "trong
+        # khi" (nối 2 vế dòng-tiền — close 15/07: pass Họ VIN vượt "…, trong
+        # khi bán ròng…" sang số của Ngân hàng, pin nhầm thành +1,496).
         out = _re.sub(
-            rf"({_re.escape(nm)}.{{0,40}}?(?:NN|khối\s+ngoại)?\s*(?:bán|mua)\s+ròng\s*)"
-            rf"(-?\d[\d.,]*)(\s*tỷ)",
+            rf"({_re.escape(nm)}(?:(?!\.\s|tỷ\b|trong\s+khi)[^;\n]){{0,40}}?"
+            rf"(?:NN|khối\s+ngoại)?\s*(?:bán|mua)\s+ròng\s*)"
+            rf"([-+]?\d[\d.,]*)(\s*tỷ)",
             _fix, out)
     return out
 
@@ -3662,6 +4149,64 @@ def enforce_net_flow_label(text: str, ctx: dict) -> str:
             rf"(mua\s+ròng|bán\s+ròng)(\s*)([+-]?\d[\d.,]*)"
             rf"(\s*tỷ(?:\s*đồng)?\s*(?:trong\s+ngành\s+)?{_re.escape(nm)}\b)",
             _fix, out)
+    return out
+
+
+def enforce_nn_frame_labels(text: str, ctx: dict) -> str:
+    """Số NN ròng THEO NGÀNH là khung 1 TUẦN — khi model nêu nó KHÔNG nhãn
+    khung, gắn "(1 tuần)" vào ngay sau để khỏi bị đọc thành số hôm nay.
+
+    Close 23:58 14/07 ("Tổng kết phiên"): "Khối ngoại bán ròng 159 tỷ, NN ròng
+    ngành Ngân hàng -1,032 tỷ" — 159 là NN 1 NGÀY toàn thị trường (khung mặc
+    định của mục = hôm nay, đúng), còn -1,032 là NN 1 TUẦN của Ngân hàng; đặt
+    cạnh nhau không nhãn khiến người đọc hiểu Ngân hàng bị bán 1,032 tỷ RIÊNG
+    HÔM NAY (gấp ~6.5 lần tổng cả thị trường trong ngày — tự vô lý). Chạy SAU
+    các guard pin số (giá trị đã đúng, đây chỉ gắn nhãn khung); match giá trị
+    phải khớp |NN 1T| của đúng ngành; bỏ qua khi cùng dòng phía trước đã có
+    "tuần"/"1T" (vd dòng canonical của two_sides). Idempotent.
+    """
+    sectors = ctx.get("sectors") or []
+    rows = [(s.get("Ngành"), s.get("NN 1T (tỷ)")) for s in sectors
+            if s.get("Ngành") and isinstance(s.get("NN 1T (tỷ)"), (int, float))
+            and abs(s.get("NN 1T (tỷ)")) >= 30]
+    if not text or not rows:
+        return text
+    out = text
+    for nm, vv in rows:
+        def _fix(m: "_re.Match", _vv=vv) -> str:
+            val = _parse_vn_number(m.group(2))
+            if val is None or abs(abs(val) - abs(_vv)) > max(1.0, 0.02 * abs(_vv)):
+                return m.group(0)                      # số khác → không phải NN 1T
+            # ngữ cảnh cùng dòng phía trước + NGAY SAU match đã có nhãn khung?
+            ls = out.rfind("\n", 0, m.start()) + 1
+            window = out[ls:m.end()].lower()
+            after = out[m.end():m.end() + 12].lower()
+            if "tuần" in window or "1t" in window or "tuần" in after:
+                return m.group(0)
+            # cần từ khóa "ròng" trong cùng mệnh đề (đây là số NN, không phải GTGD)
+            if "ròng" not in window[-80:]:
+                return m.group(0)
+            return m.group(0) + " (1 tuần)"
+        out = _re.sub(
+            rf"({_re.escape(nm)}[^\n\d]{{0,18}}?)([-+]?\d[\d.,]*)\s*tỷ",
+            lambda m, _f=_fix: _f(m), out)
+
+        # Dạng SỐ-TRƯỚC-TÊN (close 01:10 15/07): "NN mua ròng 1,471 tỷ trong
+        # ngành Họ VIN" — số đứng sau verb, tên đứng cuối → pattern trên trượt.
+        def _fix_rev(m: "_re.Match", _vv=vv) -> str:
+            val = _parse_vn_number(m.group(2))
+            if val is None or abs(abs(val) - abs(_vv)) > max(1.0, 0.02 * abs(_vv)):
+                return m.group(0)
+            ls = out.rfind("\n", 0, m.start()) + 1
+            window = out[ls:m.end()].lower()
+            after = out[m.end():m.end() + 12].lower()
+            if "tuần" in window or "1t" in window or "tuần" in after:
+                return m.group(0)
+            return m.group(0) + " (1 tuần)"
+        out = _re.sub(
+            rf"((?:mua|bán)\s+ròng\s*)([-+]?\d[\d.,]*)(\s*tỷ"
+            rf"(?:(?!\.\s)[^;,\n]){{0,25}}?ngành\s*{_re.escape(nm)})",
+            lambda m, _f=_fix_rev: _f(m), out)
     return out
 
 
@@ -4012,6 +4557,119 @@ def enforce_pivot_labels(text: str, ctx: dict) -> str:
     return _PIVOT_LABEL_RE.sub(_sub, text)
 
 
+# Tầm với hợp lý cho MỤC TIÊU vai 2 (S2/R2) trong kịch bản phiên tới: biên độ
+# HOSE 7%/ngày là trần vật lý — mức cách giá hơn thế không thể là "mục tiêu"
+# (user chốt 17/07; index thực tế còn hẹp hơn nhiều). Tunable.
+_SR_MAX_MOVE_PCT = 7.0
+
+
+def enforce_sr_direction(text: str, ctx: dict) -> str:
+    """Sanity CHIỀU cho mức S/R: hỗ trợ (S1/S2) phải NẰM DƯỚI giá đóng cửa,
+    kháng cự (R1/R2) phải NẰM TRÊN. Token sai chiều → pin về mức KNOWN hợp lệ
+    gần nhất của ctx (không bịa mức mới).
+
+    Close 15/07: setup "thủng S1=1,445.64 → mục tiêu S2=1,782.12" — S2=1,782.12
+    ĐÚNG BẰNG giá đóng cửa (hỗ trợ = giá hiện tại, vô nghĩa). Gốc: support_1/
+    support_2 trong ctx = None (giá ở đáy range, không có swing-low actionable)
+    nên enforce_pivot_labels bỏ qua (canon rỗng) và LLM để lại số bịa. Guard
+    này chạy SAU pivot_labels: chỉ đụng token SAI CHIỀU (S ≥ close hoặc R ≤
+    close) trong dải chỉ số 800-2500, pin về mức known đúng phía gần nhất
+    (close/MA/support/resistance/tuần/tháng/52w). Idempotent (pin xong đúng
+    chiều → không tái kích). No-op khi thiếu close / không có mức known đúng phía.
+    """
+    vt = ctx.get("vnindex_tech") or {}
+    close = vt.get("close")
+    if not text or not isinstance(close, (int, float)):
+        return text
+    known = [vt.get(k) for k in (
+        "ma20", "ma50", "ma200", "support_1", "support_2",
+        "resistance_1", "resistance_2", "week_high", "week_low",
+        "month_high", "month_low", "high_52w", "low_52w")]
+    known = [k for k in known if isinstance(k, (int, float)) and 800 <= k <= 2500]
+    below = [k for k in known if k < close]      # ứng viên hỗ trợ (dưới giá)
+    above = [k for k in known if k > close]      # ứng viên kháng cự (trên giá)
+
+    def _sub(m: "_re.Match") -> str:
+        label, num = m.group(1), m.group(2)
+        v = _parse_vn_number(num)
+        if v is None or not (800 <= v <= 2500):
+            return m.group(0)
+        is_support = label.startswith("S")
+        wrong = (is_support and v >= close) or ((not is_support) and v <= close)
+        if not wrong:
+            return m.group(0)
+        cands = below if is_support else above
+        if not cands:
+            return m.group(0)                    # không có mức đúng phía để pin
+        nk = min(cands, key=lambda k: abs(k - v))
+        return f"{label}={nk:,.2f}"
+
+    out = _PIVOT_LABEL_RE.sub(_sub, text)
+    # XẾP LẠI VAI khi ngược thứ tự (user bắt 17/07, close 15:33): "thủng
+    # S1=1,445.64 → mục tiêu S2=1,774.22" — thủng mức SÂU mà mục tiêu CAO HƠN
+    # là phi logic. Quy ước: S1 = hỗ trợ GẦN giá nhất (cao hơn S2), R1 = kháng
+    # cự gần nhất (thấp hơn R2). Cả 2 vai cùng dải chỉ số + mỗi vai đúng 1 giá
+    # trị + thứ tự ngược → HOÁN ĐỔI số giữa 2 vai (mức vẫn là mức THẬT đã pin,
+    # chỉ đổi nhãn vai). Idempotent: sau swap thứ tự đúng → không tái kích.
+    for one, two, support in (("S1", "S2", True), ("R1", "R2", False)):
+        ones = {m.group(1) for m in _re.finditer(rf"\b{one}=([\d.,]+)", out)}
+        twos = {m.group(1) for m in _re.finditer(rf"\b{two}=([\d.,]+)", out)}
+        if len(ones) != 1 or len(twos) != 1:
+            continue                                 # nhiều giá trị/vai → không đoán
+        a, b = ones.pop(), twos.pop()
+        va, vb = _parse_vn_number(a), _parse_vn_number(b)
+        if va is None or vb is None or not all(800 <= v <= 2500 for v in (va, vb)):
+            continue
+        if (va < vb) if support else (va > vb):      # S1 sâu hơn S2 / R1 xa hơn R2
+            out = _re.sub(rf"\b{one}={_re.escape(a)}(?![\d])", f"{one}={b}", out)
+            out = _re.sub(rf"\b{two}={_re.escape(b)}(?![\d])", f"{two}={a}", out)
+    # VAI 2 = mức known KẾ TIẾP sau vai 1, TRONG TẦM biên độ (user bắt lần 2
+    # 17/07: sau swap vẫn còn "thủng S1=1,774.22 → mục tiêu S2=1,445.64" —
+    # mục tiêu cách giá ~19% vô nghĩa khi biên độ ngày ~7%, giữa đường còn
+    # MA200/đáy tháng là mốc THẬT trong ctx). CHỈ can thiệp khi ctx KHÔNG có
+    # canon cho vai 2 (support_2/resistance_2 — có canon thì enforce_pivot_labels
+    # là chủ sở hữu). Không còn mức nào trong tầm → CẮT vế mục tiêu thay vì
+    # giữ mục tiêu xa. Idempotent (pin xong v2 = expected / cắt xong hết token).
+    for one, two, support in (("S1", "S2", True), ("R1", "R2", False)):
+        canon2 = vt.get("support_2" if support else "resistance_2")
+        if isinstance(canon2, (int, float)) and 800 <= canon2 <= 2500:
+            continue
+        ones = {m.group(1) for m in _re.finditer(rf"\b{one}=([\d.,]+)", out)}
+        twos = {m.group(1) for m in _re.finditer(rf"\b{two}=([\d.,]+)", out)}
+        if len(ones) != 1 or len(twos) != 1:
+            continue
+        a, b = ones.pop(), twos.pop()
+        v1, v2 = _parse_vn_number(a), _parse_vn_number(b)
+        if v1 is None or v2 is None or not all(800 <= v <= 2500 for v in (v1, v2)):
+            continue
+        side = below if support else above
+        cands = [k for k in side
+                 if ((k < v1 - 0.5) if support else (k > v1 + 0.5))]
+        reach = [k for k in cands
+                 if abs(k - close) / close * 100 <= _SR_MAX_MOVE_PCT]
+        expected = (max(reach) if support else min(reach)) if reach else None
+        if expected is None:
+            if abs(v2 - close) / close * 100 > _SR_MAX_MOVE_PCT:
+                out = _re.sub(                        # mục tiêu ngoài tầm → cắt vế
+                    rf"\s*(?:→|->)\s*(?:mục tiêu|về|test|hướng)?\s*{two}={_re.escape(b)}(?![\d])",
+                    "", out)
+            continue
+        if abs(v2 - expected) > 2.7:                  # chưa phải mức kế tiếp → pin
+            out = _re.sub(rf"\b{two}={_re.escape(b)}(?![\d])",
+                          f"{two}={expected:,.2f}", out)
+    # Dedupe VAI TRÙNG MỨC (close 17/07): giá ở đáy 52w → cả S1 lẫn S2 pin về
+    # cùng low_52w ra câu vô nghĩa "thủng S1=1,445.64 → mục tiêu S2=1,445.64".
+    # Cùng số ở 2 vai → cắt mệnh đề mũi-tên của vai 2 (S2/R2) thừa; cặp khác
+    # số không đụng. Idempotent (cắt xong hết token trùng để tái kích).
+    for one, two in (("S1", "S2"), ("R1", "R2")):
+        vals = {m.group(1) for m in _re.finditer(rf"\b{one}=([\d.,]+)", out)}
+        for num in vals:
+            out = _re.sub(
+                rf"\s*(?:→|->)\s*(?:mục tiêu|về|test|hướng)?\s*{two}={_re.escape(num)}(?![\d])",
+                "", out)
+    return out
+
+
 def enforce_scenario_levels(text: str, ctx: dict) -> str:
     """Pin a fabricated precise VNINDEX level to the nearest real data level.
 
@@ -4258,7 +4916,13 @@ _INSTR_LEAK_RE = _re.compile(
     r"^\s*(?:Giới hạn\s*\d+\s*từ"
     r"|YÊU CẦU VỀ ĐỘ CỤ THỂ"
     r"|\(Hướng dẫn\b"
-    r"|Viết\s+(?:MORNING|AFTERNOON|CLOSE)\s+BRIEF)",
+    r"|Viết\s+(?:MORNING|AFTERNOON|CLOSE)\s+BRIEF"
+    # Dòng chỉ thị "→ …" của data block vĩ mô/tin (leak thật close 14/07 —
+    # model echo / guard cũ splice). Bắt theo TỪ KHÓA chỉ-thị đặc trưng
+    # ("KHÔNG bịa", "DÙNG bối cảnh/các tin") — KHÔNG bắt "→" trơn vì dòng
+    # nội dung hợp lệ cũng hay mở đầu bằng "→" (vd "→ Dòng tiền khối ngoại…").
+    r"|→.*?(?:KHÔNG bịa|TUYỆT ĐỐI KHÔNG|DÙNG bối cảnh này|DÙNG các tin trên"
+    r"|DÙNG ĐÚNG số))",
     _re.IGNORECASE,
 )
 
@@ -4383,11 +5047,13 @@ def enforce_no_bias_directive_leak(text: str, ctx: dict | None = None) -> str:
     directive (either order); drop a trailing '(bắt buộc)'. No-op when clean."""
     if not text or "buộc" not in text.lower():
         return text
-    # "<bias|stance|GIẢM|TĂNG> [là] bắt buộc" → drop the qualifier
-    out = _re.sub(r"(\b(?:bias|stance|GIẢM|TĂNG|TANG))\s+(?:là\s+)?bắt\s*buộc\b",
+    # "<bias|stance|GIẢM|TĂNG> [là] bắt buộc" → drop the qualifier. Cho phép
+    # [*_] bọc markdown quanh hướng — close 14/07: "bias **GIẢM** bắt buộc"
+    # trượt pattern cũ vì "**" chen giữa từ hướng và khoảng trắng.
+    out = _re.sub(r"(\b(?:bias|stance|GIẢM|TĂNG|TANG)\b[*_]{0,2})\s+(?:là\s+)?bắt\s*buộc\b",
                   r"\1", text, flags=_re.IGNORECASE)
     # "bắt buộc [=] <GIẢM|TĂNG>" → drop the qualifier (keep the direction)
-    out = _re.sub(r"\bbắt\s*buộc\s*(?:=\s*)?(?=\b(?:GIẢM|TĂNG|TANG)\b)",
+    out = _re.sub(r"\bbắt\s*buộc\s*(?:=\s*)?(?=[*_]{0,2}(?:GIẢM|TĂNG|TANG)\b)",
                   "", out, flags=_re.IGNORECASE)
     # leftover "(bắt buộc)" parenthetical
     out = _re.sub(r"\s*\(\s*bắt\s*buộc\s*\)", "", out, flags=_re.IGNORECASE)
@@ -4430,6 +5096,9 @@ def enforce_no_duplicate_momentum(text: str, ctx: dict | None = None) -> str:
             last_val = ms[-1].group(1)
             for m in reversed([m for m in ms[:-1] if m.group(1) == last_val]):
                 ln = ln[:m.start()] + ln[m.end():]
+            # gỡ ngoặc RỖNG còn sót khi "(momentum -29/100)" là toàn bộ ruột
+            # ngoặc (close 14/07: "tâm lý sợ hãi ()" lọt ra brief)
+            ln = _re.sub(r"\s*\(\s*\)", "", ln)
         out.append(ln)
     return "\n".join(out)
 
@@ -4555,8 +5224,16 @@ def enforce_gtgd_total(text: str, ctx: dict) -> str:
 # the sentence, allowing decimals inside numbers (period+space ends it, not the
 # decimal point). Group 1 = the leading comma/space to preserve.
 _MORNING_CMP_RE = _re.compile(
-    r"(,?\s*)(?:thấp hơn|cao hơn|giảm|tăng)?\s*\d[\d.,]*\s*%\s*so\b.*?"
-    r"(?:sáng phiên trước|TB\s*sáng|sáng\s+\d+\s+phiên).*?(?=\.\s|\.$|$)",
+    # Mệnh đề so sánh phải MỞ ĐẦU bằng động-từ-so-sánh + % HOẶC % + "so/vs"
+    # (một trong hai bắt buộc — "so" đơn thuần optional sẽ nuốt nhầm từ
+    # "57% GTGD (15,513.6 tỷ)," đứng trước). Close 01:20 15/07: "cao hơn 35%
+    # phiên trước (10,294.2 tỷ) và 23% trung bình 5 phiên sáng" — không có
+    # "so" nào + baseline sáng dạng mới "trung bình N phiên sáng" (chữ
+    # "sáng" đứng CUỐI).
+    r"(,?\s*)(?:(?:thấp hơn|cao hơn|giảm|tăng)\s*\d[\d.,]*\s*%"
+    r"|\d[\d.,]*\s*%\s*(?:so\b|vs\.?))\s*(?:so\b|vs\.?)?.*?"
+    r"(?:sáng phiên trước|TB\s*sáng|sáng\s+\d+\s+phiên"
+    r"|trung bình\s+\d+\s+phiên\s+sáng|\d+\s+phiên\s+sáng).*?(?=\.\s|\.$|$)",
     _re.IGNORECASE)
 
 
@@ -4626,7 +5303,25 @@ def enforce_gtgd_baseline_pct(text: str, ctx: dict) -> str:
     except (TypeError, ValueError):
         F = None
     if not F or not cmp:
-        return text
+        # Form 3 (tự-chứa, không cần ctx): "N% so <base> (A tỷ vs B tỷ)" —
+        # model tự ghi CẢ 2 vế thì % phải khớp (A/B − 1)×100. Close 14/07:
+        # "giảm 29% so phiên trước (15,513.6 tỷ vs 19,751.0 tỷ)" trong khi
+        # 15,513.6/19,751 − 1 = −21% — ctx thiếu F/cmp nên Form 1 bó tay.
+        # CHỈ chạy khi ctx thiếu (ctx là nguồn chân lý khi có — tránh operand
+        # bịa trong ngoặc override số đã pin từ ctx).
+        def _fix3(m: "_re.Match") -> str:
+            a = _parse_vn_number(m.group(3))
+            b = _parse_vn_number(m.group(4))
+            cur = _parse_vn_number(m.group(1))
+            if not a or not b or b <= 0 or cur is None:
+                return m.group(0)
+            correct = (a / b - 1) * 100
+            return (m.group(0) if abs(cur - correct) <= 1
+                    else f"{correct:+.0f}{m.group(2)}")
+        return _re.sub(
+            r"([+-]?\d[\d.,]*)(\s*%\s*(?:vs|so với|so)\s+[^(,.\n]{0,30}"
+            r"\(\s*([\d.,]+)\s*tỷ\s+vs\.?\s+([\d.,]+)\s*tỷ\s*\))",
+            _fix3, text)
 
     def _base_v(base_low: str) -> "float | None":
         # Require an explicit GTGD-baseline phrase ("TB"/"trung bình"/"phiên
@@ -4675,6 +5370,46 @@ def enforce_gtgd_baseline_pct(text: str, ctx: dict) -> str:
     out = _re.sub(
         r"((?:trung bình|TB)\s*\d+\s*phiên|phiên trước(?:\s+đó)?)\s*\(\s*([+-]?\d[\d.,]*)\s*%\s*\)",
         _fix2, out)
+
+    # Form 4: "±N% <baseline>" — % CÓ DẤU đứng NGAY TRƯỚC baseline, không
+    # connector (close 01:26 15/07: "(-21% phiên trước, +2% TB5 phiên)" —
+    # vế prev đúng nhưng +2% lệch, TB5 thật -8%; Form 1 cần "so/vs", Form 2
+    # cần baseline đứng trước → cả 2 trượt). DẤU BẮT BUỘC: quy ước signed →
+    # pin signed an toàn; "thấp hơn 21% phiên trước" (verb mang chiều,
+    # magnitude KHÔNG dấu) không bị đụng. Baseline phải mở đầu group ngay
+    # sau % nên "±N% vs TB5" (đã qua Form 1) không bị xử lần 2.
+    def _fix4(m: "_re.Match") -> str:
+        bv = _base_v(m.group(3).lower())
+        if not bv:
+            return m.group(0)
+        correct = (F / bv - 1) * 100
+        cur = _parse_vn_number(m.group(1))
+        return (m.group(0) if cur is not None and abs(cur - correct) <= 1
+                else f"{correct:+.0f}{m.group(2)}{m.group(3)}")
+    out = _re.sub(
+        r"([+-]\d[\d.,]*)(\s*%\s+)((?:TB|trung bình|phiên trước)[^,).\n]{0,12})",
+        _fix4, out)
+
+    # Form 5 (bare-direction): "(cao hơn|thấp hơn) (trung bình N phiên|phiên
+    # trước)" KHÔNG kèm %. Close 15/07: "GTGD 16,523.1 tỷ, cao hơn trung bình 5
+    # phiên gần nhất" — mệnh đề định tính không số, không guard nào đối chiếu
+    # chiều với F vs baseline. Lật từ cho khớp dấu(F/base−1); gate |p|>1% tránh
+    # nhiễu quanh mốc bằng; idempotent (khớp → no-op); bỏ mệnh đề "sáng".
+    def _fix5(m: "_re.Match") -> str:
+        bv = _base_v(m.group(3).lower())
+        if not bv:
+            return m.group(0)
+        p = (F / bv - 1) * 100
+        if abs(p) <= 1:
+            return m.group(0)
+        want = "cao hơn" if p > 0 else "thấp hơn"
+        if want == m.group(1).lower():
+            return m.group(0)
+        return want + m.group(2) + m.group(3)
+    out = _re.sub(
+        r"(cao hơn|thấp hơn)(\s+)((?:trung bình|TB)\s*\d+\s*phiên(?:\s*gần nhất)?"
+        r"|phiên trước(?:\s*đó)?)",
+        _fix5, out, flags=_re.IGNORECASE)
     return out
 
 
@@ -4785,8 +5520,10 @@ def enforce_breadth_label(text: str, ctx: dict) -> str:
             return m.group(0)
         return f"{m.group(1)}% {m.group(2)} trên MA200"
 
+    # "số mã cổ phiếu" (cả hai tiền tố ghép lại) — thấy thật close 14/07:
+    # "chỉ 13% số mã cổ phiếu tăng giá" lọt qua vì regex cũ chỉ có từng nhánh lẻ.
     return _re.sub(
-        r"(\d[\d.,]*)\s*%\s*((?:số\s+mã|mã\s+cổ phiếu|cổ phiếu|mã))\s+(?:đang\s+)?tăng\s+(?:giá|điểm)",
+        r"(\d[\d.,]*)\s*%\s*((?:số\s+mã(?:\s+cổ phiếu)?|mã\s+cổ phiếu|cổ phiếu|mã))\s+(?:đang\s+)?tăng\s+(?:giá|điểm)",
         _fix, text)
 
 
@@ -4821,10 +5558,25 @@ def enforce_sentiment_consistency(text: str, ctx: dict) -> str:
                   f"momentum {mom:+d}/100", text, flags=_re.IGNORECASE)
     e_alt = "|".join(_re.escape(e) for e in _MOOD_EMOJIS)
     w_alt = "|".join(_MOOD_WORDS)
-    # after "Tâm lý …:" — an emoji+word, a word alone, or an emoji alone
-    mood_pat = rf"(?:{e_alt})?\s*(?:{w_alt})|(?:{e_alt})"
+    # Mood word có thể bị model bọc markdown ("**Sợ hãi**") — close 14/07 lộ
+    # ra: "Tâm lý: 📉 Tiêu cực **Sợ hãi**" (label đúng + ĐUÔI mood bịa dính
+    # kèm) vì token có `**` không khớp pattern cũ. Cho phép [*_] quanh word
+    # và nuốt luôn 1 mood word LẶP ngay sau → chỉ còn canonical.
+    tok = rf"[*_]{{0,2}}(?:{w_alt})[*_]{{0,2}}"
+    # after "Tâm lý …:" — an emoji+word (± duplicate word), a word alone, or
+    # an emoji alone
+    mood_pat = rf"(?:(?:{e_alt})\s*)?(?:{tok})(?:\s+{tok})?|(?:{e_alt})"
     out = _re.sub(rf"(Tâm lý[^\n]{{0,40}}?[:\-]\s*)(?:{mood_pat})",
                   lambda m: m.group(1) + mood, out, flags=_re.IGNORECASE)
+    # Dạng KHÔNG dấu hai chấm "tâm lý sợ hãi (momentum -29/100)" (close 14/07 —
+    # mood sai làm tính từ ngay sau "tâm lý"). CHỈ pin khi có "(…momentum" theo
+    # sau (= claim trạng thái hiện tại, không đụng văn tường thuật quá khứ kiểu
+    # "tâm lý hưng phấn đã biến mất"). Thay bằng CHỮ mood canonical (bỏ emoji,
+    # thường-hóa) để hợp văn xuôi; idempotent (canonical → thay bằng chính nó).
+    mood_word = mood.split(maxsplit=1)[-1]
+    out = _re.sub(
+        rf"(tâm lý\s+)[*_]{{0,2}}(?:{w_alt})[*_]{{0,2}}(?=\s*\([^)\n]*momentum)",
+        lambda m: m.group(1) + mood_word.lower(), out, flags=_re.IGNORECASE)
     return out
 
 
@@ -4840,15 +5592,25 @@ def enforce_breadth_quality(text: str, ctx: dict) -> str:
     """
     b = ctx.get("breadth") or {}
     pct = b.get("above_ma200_pct")
+    ad = b.get("ad_ratio")
     mom = (ctx.get("market_sentiment") or {}).get("momentum")
     if not text or not isinstance(pct, (int, float)):
         return text
     if pct >= 40 or (mom is not None and mom >= 0):   # not structurally weak/bearish
         return text
 
+    # Chiều NGƯỢC (close 23:58 14/07): A/D 1 phiên DƯƠNG (1.26 ≥ 1.05 — nhãn
+    # canonical trong data block là "tích cực") mà brief gọi trơn "độ rộng
+    # tiêu cực" ngay cạnh con số → người đọc hiểu phiên nhiều mã giảm hơn.
+    # Cấu trúc yếu + ngày dương = "trái chiều" theo đúng quy ước của hệ.
+    _neg_wrong = isinstance(ad, (int, float)) and ad >= 1.05
+
     def _fix(m: "_re.Match") -> str:
         clause = m.group(0)
-        for w in ("tích cực", "khả quan", "lành mạnh", "tốt", "mạnh"):
+        words = ("tích cực", "khả quan", "lành mạnh", "tốt", "mạnh")
+        if _neg_wrong:
+            words = words + ("tiêu cực", "xấu", "yếu")
+        for w in words:
             if w in clause.lower():
                 return _re.sub(w, "trái chiều", clause, count=1, flags=_re.IGNORECASE)
         return clause
@@ -4869,10 +5631,84 @@ def enforce_vnindex_change(text: str, ctx: dict) -> str:
     if not text or not isinstance(dc, (int, float)):
         return text
     repl = f"{'tăng' if dc >= 0 else 'giảm'} {abs(dc):.2f}%"
-    return _re.sub(
+
+    # CHỦ NGỮ phải là chỉ số: mệnh đề GTGD/thanh khoản cũng viết "X% so với
+    # phiên trước" nhưng đó là ĐỔI GTGD — pin về day_change_pct là guard TỰ TẠO
+    # lỗi (thấy thật close 14/07: "GTGD ... giảm 1.52% so với phiên trước" —
+    # 1.52 là % đổi VNINDEX bị guard này đè vào). Nhìn ~45 ký tự trước match:
+    # có từ khóa turnover → không đụng.
+    _SUBJ_SKIP = ("gtgd", "thanh khoản", "khối lượng", "giá trị giao dịch")
+
+    def _fix(m: "_re.Match") -> str:
+        before = text[max(0, m.start() - 45):m.start()].lower()
+        if any(k in before for k in _SUBJ_SKIP):
+            return m.group(0)
+        return repl + m.group(1)
+
+    out = _re.sub(
         r"(?:tăng|giảm)\s*[+-]?\d[\d.,]*\s*%(\s*so với\s*"
         r"(?:phiên trước(?:\s*đó)?|hôm qua|phiên hôm qua))",
-        repl + r"\1", text, flags=_re.IGNORECASE)
+        _fix, text, flags=_re.IGNORECASE)
+
+    # Nhánh 2 — "(tăng|giảm) X%" KHÔNG kèm hậu tố "so với…" (close 15/07:
+    # "VNINDEX đóng cửa giảm 1.36% / GTGD…" và "VNINDEX giảm 1.36% với GTGD…"
+    # — bar VNINDEX phẳng → day_change_pct=0.00 mà model bịa "giảm 1.36%",
+    # mâu thuẫn mục kỹ thuật "+0.00%"). CHỈ đụng khi CHỦ NGỮ neo là chỉ số
+    # (vnindex / chỉ số / kết quả phiên trong ~35 ký tự trước) và KHÔNG phải
+    # GTGD/thanh khoản. dc≈0 → "gần như đi ngang (0.00%)" cho tự nhiên.
+    _SUBJ_IDX = ("vnindex", "chỉ số", "kết quả phiên")
+    flat = abs(dc) < 0.005
+    repl2 = "gần như đi ngang (0.00%)" if flat else repl
+
+    def _fix2(m: "_re.Match") -> str:
+        before = text[max(0, m.start() - 35):m.start()].lower()
+        if any(k in before for k in _SUBJ_SKIP):
+            return m.group(0)
+        if not any(k in before for k in _SUBJ_IDX):
+            return m.group(0)
+        return repl2
+
+    return _re.sub(r"(?:tăng|giảm)\s*[+-]?\d[\d.,]*\s*%", _fix2, out,
+                   flags=_re.IGNORECASE)
+
+
+def enforce_session_direction(text: str, ctx: dict) -> str:
+    """Nhãn ĐỊNH TÍNH "phiên tăng/giảm (điểm)" phải khớp DẤU day_change_pct.
+
+    Close 23:58 14/07: TLDR "VNINDEX đóng cửa +0.34% … — phiên GIẢM điểm nhẹ
+    sau phiên tăng mạnh trước đó" — close DƯƠNG mà gọi phiên giảm (guard
+    enforce_vnindex_change chỉ pin dạng có %, không đụng nhãn chữ). CHỈ sửa
+    khi mệnh đề nói về PHIÊN NAY: dòng phải có neo "đóng cửa"/"kết quả
+    phiên"; bỏ qua match nói về phiên KHÁC ("sau phiên tăng…", "phiên giảm
+    trước đó", "hôm qua") và kịch bản tương lai ("nếu/kỳ vọng phiên tăng",
+    "ngày mai"). Idempotent; no-op khi thiếu day_change_pct.
+    """
+    dc = (ctx.get("vnindex_tech") or {}).get("day_change_pct")
+    if not text or not isinstance(dc, (int, float)) or dc == 0:
+        return text
+    want = "tăng" if dc > 0 else "giảm"
+
+    def _fix_line(ln: str) -> str:
+        low = ln.lower()
+        if "đóng cửa" not in low and "kết quả phiên" not in low:
+            return ln
+
+        def _fix(m: "_re.Match") -> str:
+            before = ln[max(0, m.start() - 12):m.start()].lower()
+            after = ln[m.end():m.end() + 22].lower()
+            # "sau phiên tăng…", "… trước đó/hôm qua", "nếu/kỳ vọng …",
+            # "… ngày mai/tiếp theo" → phiên KHÁC, không đụng
+            if _re.search(r"(?:sau|nếu|kỳ vọng|chờ)\s*$", before):
+                return m.group(0)
+            if _re.search(r"^\s*\S*\s*(?:trước|hôm qua|ngày mai|tiếp theo|kế tiếp)",
+                          after):
+                return m.group(0)
+            return m.group(1) + want + (m.group(3) or "")
+
+        return _re.sub(r"(phiên\s+)(tăng|giảm)(\s*điểm)?", _fix, ln,
+                       flags=_re.IGNORECASE)
+
+    return "\n".join(_fix_line(ln) for ln in text.splitlines())
 
 
 def enforce_change_verb_sign(text: str, ctx: dict) -> str:
@@ -5025,6 +5861,15 @@ def _recommendation_block() -> str:
                 fresh.append(r)
         if not fresh:
             return ""
+        # KL gợi ý fixed-risk (display-only, chỉ khi user đã cấu hình NAV).
+        _sps = None
+        try:
+            from vnstock_strategy import load_sizing_config, suggest_position_size
+            if load_sizing_config().get("nav_million"):
+                _sps = suggest_position_size
+        except Exception:
+            _sps = None
+
         lines = ["\n## Khuyến nghị từ chiến lược đã backtest (tự sinh)"]
         for r in fresh[:5]:
             entry = float(r.get("entry_price") or 0)
@@ -5037,6 +5882,11 @@ def _recommendation_block() -> str:
                 line += f" TP={_fmt_rec_price(tp)}"
             if sl > 0:
                 line += f" SL={_fmt_rec_price(sl)}"
+            if _sps and entry > 0 and sl > 0:
+                _sz = _sps(entry, sl)
+                if _sz:
+                    line += (f" · KL gợi ý ~{_sz['qty']:,} cp"
+                             f" (rủi ro {_sz['risk_pct']:g}% NAV)")
             if r.get("rationale"):
                 _rat = str(r["rationale"]).strip()
                 if len(_rat) > 80:                       # truncate on a WORD

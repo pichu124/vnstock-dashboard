@@ -590,6 +590,70 @@ def refresh(*, as_of: "str | None" = None) -> dict:
                 if vb.get(key) is not None:
                     _record(cache, key, float(vb[key]), vb_as_of, "vbma")
 
+    # HNX (SAU VBMA để GHI ĐÈ 2Y/10Y — nguồn NGÀY chính thức, robust hơn PDF
+    # tuần). Tắt: VNSTOCK_MACRO_HNX=0 / VNSTOCK_HNX=0. Best-effort.
+    if os.environ.get("VNSTOCK_MACRO_HNX", "1") != "0":
+        hx = _fetch_hnx()
+        if hx:
+            hx_as_of = hx.get("as_of") or day
+            for key in ("govt_bond_yield_2y", "govt_bond_yield_10y"):
+                if hx.get(key) is not None:
+                    _record(cache, key, float(hx[key]), hx_as_of, "hnx")
+
+    # SBV weekly (nguồn CHÍNH THỨC thứ 2): LNH ON cross-source với VBMA + OMO
+    # ròng (SỐ, không suy từ tin) + tỷ giá trung tâm. Tắt: VNSTOCK_MACRO_SBV=0
+    # / VNSTOCK_SBV=0. Best-effort. LNH ON: resolve SBV↔VBMA theo ĐỘ MỚI của
+    # DATA (user chốt 17/07 "luôn cập nhật nhất": tuần data mới hơn thắng;
+    # cùng tuần → VBMA điểm cuối tuần sát hơn TB tuần SBV; cờ lệch >ngưỡng);
+    # OMO/tỷ-giá-trung-tâm lưu display-only (ngoài registry).
+    if os.environ.get("VNSTOCK_MACRO_SBV", "1") != "0":
+        sb = _fetch_sbv()
+        if sb:
+            from vnstock_sbv import resolve_interbank_on
+            sb_as_of = sb.get("week_end") or sb.get("as_of")
+            val, src, diverged = resolve_interbank_on(
+                sb.get("overnight"), (vb or {}).get("interbank_on"),
+                sbv_as_of=sb_as_of, vbma_as_of=(vb or {}).get("as_of"))
+            if val is not None and src == "sbv":
+                # Không ghi đè khi registry đã có reading MỚI hơn (vd VBMA fail
+                # lượt này nhưng lượt trước đã ghi tuần mới hơn) — giá trị đọc
+                # theo ngày mới nhất nên chỉ source label bị sai nếu ghi bừa.
+                hist = (((cache.get("indicators") or {}).get("interbank_on")
+                         or {}).get("history") or {})
+                if not hist or (sb_as_of or day) >= max(hist):
+                    _record(cache, "interbank_on", float(val), sb_as_of or day, "sbv")
+            cache.setdefault("_meta", {})["sbv"] = {
+                "omo_net": sb.get("omo_net"),
+                "fx_central": sb.get("fx_central"),
+                "interbank_on_diverged": bool(diverged),
+                "as_of": sb_as_of,
+            }
+
+    # SBV daily (headless-delivery API, tìm ra 17/07): LNH ON/1W THEO NGÀY —
+    # nguồn granularity mịn nhất, chạy SAU 2 nguồn tuần nên as_of mới hơn tự
+    # thắng (guard chống ghi đè ngày cũ giữ nguyên). Tắt: VNSTOCK_MACRO_SBV_DAILY=0.
+    if os.environ.get("VNSTOCK_MACRO_SBV_DAILY", "1") != "0":
+        sd = _fetch_sbv_daily()
+        if sd:
+            for key in ("interbank_on", "interbank_1w"):
+                if sd.get(key) is None:
+                    continue
+                hist = (((cache.get("indicators") or {}).get(key)
+                         or {}).get("history") or {})
+                if not hist or sd["as_of"] >= max(hist):
+                    _record(cache, key, float(sd[key]), sd["as_of"], "sbv_daily")
+        # Lãi suất điều hành từ CÙNG portal (structure 3450482) — hết nhập tay.
+        # SBV chỉ giữ 1 item = quyết định hiện hành; đổi vài lần/năm nên fetch
+        # cùng nhịp là quá đủ. Guard as_of ≥ max(hist): --set tay ngày mới hơn
+        # vẫn thắng (không clobber chủ đích của user).
+        sp = _fetch_sbv_policy()
+        if sp:
+            hist = (((cache.get("indicators") or {}).get("sbv_policy_rate")
+                     or {}).get("history") or {})
+            if not hist or sp["as_of"] >= max(hist):
+                _record(cache, "sbv_policy_rate", float(sp["refinancing"]),
+                        sp["as_of"], "sbv_portal")
+
     # Cross-check chất lượng tỷ giá (mượn rule vimovietnam "2 nguồn chênh >2%"):
     # er-api (market ref, daily) vs trung bình mua/bán Vietcombank trong chính
     # PDF VBMA (weekly). Lệch quá _FX_XCHECK_MAX_PCT → CẢNH BÁO (không tự sửa —
@@ -716,6 +780,68 @@ def _fetch_fred() -> "dict | None":
         return None
 
 
+def _fetch_sbv() -> "dict | None":
+    """Bản tin tuần SBV qua vnstock_sbv.refresh() — LNH ON/1W + OMO ròng +
+    tỷ giá trung tâm. Mọi lỗi → None (best-effort)."""
+    try:
+        import vnstock_sbv
+        return vnstock_sbv.refresh()
+    except Exception:
+        return None
+
+
+def _fetch_sbv_daily() -> "dict | None":
+    """LNH bình quân THEO NGÀY qua vnstock_sbv_rates.refresh() →
+    {interbank_on, interbank_1w, as_of=ngày data}. Mọi lỗi → None."""
+    try:
+        import vnstock_sbv_rates
+        cache = vnstock_sbv_rates.refresh()
+        if not cache:
+            return None
+        day = cache.get("as_of")
+        rates = (cache.get("history") or {}).get(day) or {}
+        if not day or not rates:
+            return None
+        return {"interbank_on": rates.get("on"),
+                "interbank_1w": rates.get("1w"), "as_of": day}
+    except Exception:
+        return None
+
+
+def _fetch_sbv_policy() -> "dict | None":
+    """Lãi suất điều hành từ portal SBV (structure 3450482) →
+    {as_of, refinancing, discount, decision}. Mọi lỗi → None."""
+    try:
+        import vnstock_sbv_rates
+        return vnstock_sbv_rates.refresh_policy()
+    except Exception:
+        return None
+
+
+def _fetch_hnx() -> "dict | None":
+    """Lợi suất TPCP 2Y/10Y từ HNX (vnstock_hnx) — nguồn NGÀY chính thức,
+    ưu tiên hơn VBMA PDF tuần. Trả {'govt_bond_yield_2y','govt_bond_yield_10y',
+    'as_of'} hoặc None. Mọi lỗi → None (best-effort)."""
+    try:
+        import vnstock_hnx
+        got = vnstock_hnx.refresh()          # fetch + ghi history cache riêng
+        if not got:
+            got = (vnstock_hnx.load_yields() or (None, None))[1]  # fallback cache
+        if not got:
+            return None
+        loaded = vnstock_hnx.load_yields()
+        out = {}
+        if got.get("2Y") is not None:
+            out["govt_bond_yield_2y"] = float(got["2Y"])
+        if got.get("10Y") is not None:
+            out["govt_bond_yield_10y"] = float(got["10Y"])
+        if out and loaded:
+            out["as_of"] = loaded[0]
+        return out or None
+    except Exception:
+        return None
+
+
 def set_value(key: str, value: float, as_of: "str | None" = None) -> dict:
     """Manual override for any indicator (always works, no network)."""
     if key not in _DEFS:
@@ -725,6 +851,42 @@ def set_value(key: str, value: float, as_of: "str | None" = None) -> dict:
     _record(cache, key, float(value), day, "manual")
     _save_cache(cache)
     return cache
+
+
+def dense_history(key: str) -> dict:
+    """History THEO NGÀY từ cache nguồn gốc (ngoài registry): SBV daily cho
+    LNH ON/1W, HNX cho 2Y/10Y. Registry chỉ giữ vài mốc mỗi lần refresh —
+    cache nguồn có hàng trăm ngày (backfill 17/07) → chart sub-tab Vĩ mô dày
+    đúng nghĩa. Best-effort: lỗi/thiếu → {} (caller rơi về registry như cũ)."""
+    try:
+        if key in ("interbank_on", "interbank_1w"):
+            import vnstock_sbv_rates
+            tenor = "on" if key == "interbank_on" else "1w"
+            hist = vnstock_sbv_rates._load_cache().get("history") or {}
+            return {d: r[tenor] for d, r in hist.items() if r.get(tenor) is not None}
+        if key in ("govt_bond_yield_2y", "govt_bond_yield_10y"):
+            import vnstock_hnx
+            tenor = "2Y" if key.endswith("_2y") else "10Y"
+            hist = vnstock_hnx._load_cache().get("history") or {}
+            return {d: r[tenor] for d, r in hist.items() if r.get(tenor) is not None}
+    except Exception:
+        pass
+    return {}
+
+
+def drop_reading(key: str, as_of: str) -> bool:
+    """Xóa 1 reading SAI NGÀY/SAI SỐ khỏi history (cache surgery có kiểm soát
+    — sinh ra từ vụ cache SBV nhiễm 16-17/07: entry ghi nhầm ngày fetch làm
+    registry đọc giá trị cũ với nhãn nguồn lệch). Trả True nếu có entry để xóa."""
+    if key not in _DEFS:
+        raise KeyError(f"Chỉ số không hợp lệ: {key!r}. Hợp lệ: {', '.join(_DEFS)}")
+    cache = _load_cache()
+    hist = (((cache.get("indicators") or {}).get(key)) or {}).get("history") or {}
+    if as_of not in hist:
+        return False
+    hist.pop(as_of)
+    _save_cache(cache)
+    return True
 
 
 # ── Read / derive ────────────────────────────────────────────────────────────
@@ -828,6 +990,12 @@ def fmt_change(ind: dict) -> "tuple[str, str, str] | None":
         mag = f"{ch['pct']:+.2f}%"
     else:
         mag = f"{ch['delta']:+.2f} {d.get('delta_unit', 'điểm %')}"
+    # Đổi LÀM TRÒN VỀ 0 ở độ phân giải hiển thị (vd FX 26,178.4 → 26,178.1 =
+    # "▲ +0.00% (VND yếu đi)") → coi như KHÔNG đổi, khỏi đeo mũi tên + nhãn
+    # tín-hiệu-giả (lộ trên báo cáo tuần 17/07). Áp mọi surface vì formatter
+    # dùng chung (CLI/brief/report/tab).
+    if float(mag.split()[0].rstrip("%")) == 0:
+        return None
     up, down = d.get("moves", ("tăng", "giảm"))
     return arrow, mag, (up if ch["dir"] > 0 else down)
 
@@ -1128,6 +1296,8 @@ def main(argv: "list[str] | None" = None) -> int:
     ap.add_argument("--show", action="store_true", help="In cache hiện tại")
     ap.add_argument("--set", nargs=2, metavar=("KEY", "VALUE"),
                     help=f"Ghi đè tay 1 chỉ số. KEY ∈ {{{', '.join(_DEFS)}}}")
+    ap.add_argument("--drop", nargs=2, metavar=("KEY", "YYYY-MM-DD"),
+                    help="Xóa 1 reading sai ngày/sai số khỏi history (cache surgery)")
     ap.add_argument("--as-of", metavar="YYYY-MM-DD",
                     help="Ngày hiệu lực cho --set / --refresh (mặc định hôm nay)")
     a = ap.parse_args(argv)
@@ -1180,6 +1350,17 @@ def main(argv: "list[str] | None" = None) -> int:
             print(f"[macro] ❌ {e}")
             return 1
         print(f"[macro] đã ghi {key} = {val} (as_of {a.as_of or 'hôm nay'}).")
+        _show()
+        return 0
+
+    if a.drop:
+        key, day_ = a.drop
+        try:
+            removed = drop_reading(key, day_)
+        except KeyError as e:
+            print(f"[macro] ❌ {e}")
+            return 1
+        print(f"[macro] {'đã xóa' if removed else 'KHÔNG có'} reading {key} @ {day_}.")
         _show()
         return 0
 

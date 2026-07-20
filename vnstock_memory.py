@@ -501,6 +501,7 @@ def recent_closed_recommendations(limit: int = 30) -> list[dict]:
             """
             SELECT r.id, r.created_at, r.ticker, r.action, r.entry_price,
                    r.take_profit, r.cut_loss, r.horizon_days, r.strategy_id,
+                   r.rationale,
                    o.closed_at, o.exit_price, o.pnl_pct, o.hit_target, o.notes
             FROM recommendations r
             INNER JOIN rec_outcomes o ON o.rec_id = r.id

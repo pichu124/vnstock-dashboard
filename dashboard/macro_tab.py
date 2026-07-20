@@ -108,13 +108,17 @@ def _render_history_chart(mac) -> None:
         format_func=lambda k: plottable[k].get("label", k),
         key="_macro_hist_key", label_visibility="collapsed")
     ind = plottable[key]
-    hist = ind["history"]
+    # Cache nguồn theo NGÀY (nếu có) đè lên registry cùng ngày — registry giữ
+    # vai trò fallback cho các mốc cũ hơn cache (vd VBMA weekly trước backfill).
+    hist = dict(ind["history"])
+    hist.update(mac.dense_history(key))
     ser = pd.Series({pd.to_datetime(d): float(v) for d, v in hist.items()},
                     name=ind.get("label", key)).sort_index()
     try:
         import plotly.graph_objects as go
         fig = go.Figure(go.Scatter(
-            x=ser.index, y=ser.values, mode="lines+markers",
+            x=ser.index, y=ser.values,
+            mode="lines" if len(ser) > 40 else "lines+markers",   # dày → bỏ marker
             line={"color": _LINE_COLOR, "width": 2}, marker={"size": 6},
             hovertemplate="%{x|%d/%m/%Y}: %{y:,.2f}<extra></extra>"))
         fig.update_layout(

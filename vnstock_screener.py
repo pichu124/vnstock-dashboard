@@ -207,6 +207,43 @@ def _calc_indicators(df: pd.DataFrame) -> dict:
             (result["52w_high"] - result["52w_low"]) * 100, 1
         ) if result["52w_high"] != result["52w_low"] else 50.0
 
+    # ── Mẫu nến + ConnorsRSI (khảo sát StockSharp 2026-07-15) — best-effort ──
+    try:
+        from vnstock_candle_patterns import detect_df as _detect_patterns
+        hits = _detect_patterns(df)
+        if hits:
+            result["candle_patterns"] = ",".join(h["key"] for h in hits[:4])
+            result["candle_bull"] = any(h["direction"] == "bull" for h in hits)
+            result["candle_bear"] = any(h["direction"] == "bear" for h in hits)
+    except Exception:
+        pass
+    try:
+        from vnstock_indicators import connors_rsi as _connors_rsi
+        crsi = _connors_rsi(c.values)
+        if crsi is not None:
+            result["crsi"] = round(float(crsi), 1)
+    except Exception:
+        pass
+
+    # ── Double bottom W + Heikin-Ashi streak (khảo sát quant-trading) ────────
+    try:
+        from vnstock_indicators import double_bottom_w as _dbw
+        db = _dbw(c.values, low=df["low"].astype(float).values)
+        if db:
+            result["double_bottom"] = True
+            result["db_neckline"] = db["neckline"]
+    except Exception:
+        pass
+    try:
+        from vnstock_indicators import ha_trend_streak as _ha_streak
+        streak = _ha_streak(df["open"].astype(float).values,
+                            df["high"].astype(float).values,
+                            df["low"].astype(float).values, c.values)
+        if streak:
+            result["ha_streak"] = int(streak)
+    except Exception:
+        pass
+
     return result
 
 
@@ -285,6 +322,39 @@ PRESETS = {
         "filter": None,  # Filter động trong scan()
         "sort_by": "pe_vs_industry",
         "sort_asc": True,
+    },
+    # ── 3 preset mới từ khảo sát StockSharp (2026-07-15) — được chấm alpha
+    # tự động qua vnstock_preset_score như mọi preset khác ─────────────────
+    "candle_bull": {
+        "desc": "Mẫu nến đảo chiều tăng (Hammer/Engulfing/Morning Star…) — tín hiệu nến, cần xác nhận",
+        "filter": lambda r: bool(r.get("candle_bull")),
+        "sort_by": "vol_spike",
+        "sort_asc": False,
+    },
+    "candle_bear": {
+        "desc": "Mẫu nến đảo chiều giảm (Shooting Star/Bearish Engulfing/Evening Star…) — cảnh báo chốt lời",
+        "filter": lambda r: bool(r.get("candle_bear")),
+        "sort_by": "vol_spike",
+        "sort_asc": False,
+    },
+    "crsi_oversold": {
+        "desc": "ConnorsRSI < 10 — quá bán ngắn hạn (mean-reversion nâng cao)",
+        "filter": lambda r: (r.get("crsi") is not None and r["crsi"] < 10),
+        "sort_by": "crsi",
+        "sort_asc": True,
+    },
+    # ── 2 preset từ khảo sát je-suis-tm/quant-trading (2026-07-15) ────────
+    "double_bottom": {
+        "desc": "Hai đáy hình W neo Bollinger + vừa vượt neckline — đảo chiều cấu trúc",
+        "filter": lambda r: bool(r.get("double_bottom")),
+        "sort_by": "vol_spike",
+        "sort_asc": False,
+    },
+    "ha_trend": {
+        "desc": "≥3 nến Heikin-Ashi xanh sạch liên tiếp (không râu dưới) — trend tăng sạch",
+        "filter": lambda r: (r.get("ha_streak") or 0) >= 3,
+        "sort_by": "ha_streak",
+        "sort_asc": False,
     },
 }
 

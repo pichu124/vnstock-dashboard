@@ -3615,30 +3615,33 @@ try:
 except (ValueError, TypeError, IndexError):
     pass
 
-_info_col, _update_col = st.columns([6, 2])
+_info_col, _update_col = st.columns([5, 3])
 with _info_col:
     if _screener_stale:
         st.markdown(f'<p class="updated-at" style="color:#f59e0b">⚠️ Screener cũ: {gen_time} — Bấm "Cập nhật Screener" để refresh</p>', unsafe_allow_html=True)
     else:
         st.markdown(f'<p class="updated-at">Cập nhật lúc: {gen_time}</p>', unsafe_allow_html=True)
 with _update_col:
-    _uc1, _uc2 = st.columns(2)
+    _uc1, _uc2, _uc3 = st.columns(3)
     with _uc1:
         if st.button(
             "📥 Cập nhật giá",
             key="run_updater",
             use_container_width=True,
             help=(
-                "**Tải giá mới nhất từ API + tính lại screener + tin tức + vĩ mô** "
-                "(8 luồng song song + bỏ mã đã hủy niêm yết → nhanh hơn nhiều so với "
-                "trước).\n\n"
+                "**Tải giá mới nhất từ API + tính lại screener** "
+                "(8 luồng song song + bỏ mã đã hủy niêm yết; VCI ốm → tự "
+                "fallback KBS có đối chiếu giá).\n\n"
                 "Mở cửa sổ PowerShell riêng chạy `vnstock_updater.py --force "
                 "--workers 8 --skip-stale-days 90` → ghi đè parquet trong "
                 "`data_warehouse/prices/` → `vnstock_runner.py` tạo lại "
-                "`vnstock_data.json` → `run.py news` → `run.py macro`.\n\n"
+                "`vnstock_data.json` (screener đi kèm giá — giá mới mà "
+                "overview cũ là brief cảnh báo phiên cũ).\n\n"
+                "Tin tức/vĩ mô KHÔNG nằm ở đây nữa — đó là việc của nút "
+                "**🧩 Cập nhật còn lại** (tránh chạy trùng).\n\n"
                 "Nếu API báo rate-limit, giảm `--workers` (vd 4).\n\n"
                 "**Dùng khi:** muốn xem data ngày mới nhất (sau giờ giao dịch).\n\n"
-                "Sau khi PowerShell xong, bấm **🔄 Refresh Screener** hoặc F5 "
+                "Sau khi PowerShell xong, bấm **Refresh** hoặc F5 "
                 "để dashboard đọc dữ liệu mới.\n\n"
                 "Ẩn dụ: *tổ chức thêm trận đấu + in tờ báo mới*."
             ),
@@ -3648,55 +3651,105 @@ with _update_col:
                     {"label": "Cap nhat gia",     "args": ["vnstock_updater.py", "--force",
                                                            "--workers", "8", "--skip-stale-days", "90"]},
                     {"label": "Refresh Screener", "args": ["vnstock_runner.py"]},
-                    {"label": "News Sentiment",   "args": ["run.py", "news"], "stop_on_error": False},
-                    {"label": "Macro (ty gia)",   "args": ["run.py", "macro"], "stop_on_error": False},
                 ],
                 log_filename="updater.log",
             )
             if _is_win:
                 st.success(
                     "✅ Đã mở cửa sổ PowerShell chạy updater + screener.\n\n"
-                    "Theo dõi tiến độ trong cửa sổ mới. Khi xong, bấm **🔄 Refresh Screener** "
+                    "Theo dõi tiến độ trong cửa sổ mới. Khi xong, bấm **Refresh** "
                     "hoặc F5 để dashboard load dữ liệu mới."
                 )
             else:
                 st.info(
                     f"🔄 Updater đang chạy nền. Log: `{_log}`\n\n"
-                    "Khi xong, bấm **🔄 Refresh Screener**."
+                    "Khi xong, bấm **Refresh** để load dữ liệu mới."
                 )
     with _uc2:
         if st.button(
-            "🔄 Refresh Screener",
-            key="run_screener",
+            "🧩 Cập nhật còn lại",
+            key="run_all_no_sync",
             use_container_width=True,
             help=(
-                "**Tính lại screener từ warehouse** (~1-2 phút).\n\n"
-                "Chạy `vnstock_runner.py` để đọc lại parquet trong "
-                "`data_warehouse/prices/`, tính lại preset/RSI/MACD/BB%... "
-                "rồi ghi đè `vnstock_data.json`.\n\n"
-                "KHÔNG tải giá mới từ API.\n\n"
-                "**Dùng khi:**\n"
-                "- Vừa sửa code logic screener (vd: đổi ngưỡng RSI).\n"
-                "- Warehouse vừa có giá mới mà muốn tính lại screener "
-                "(ít dùng, vì nút Cập nhật giá đã tự làm bước này).\n\n"
-                "Ẩn dụ: *toà soạn in lại báo với số liệu hiện có*."
+                "**Chạy pipeline `run.py all --no-sync`** — toàn bộ 13 bước "
+                "TRỪ kho giá parquet ~1.724 mã (~10-25 phút thay vì 35-55):\n"
+                "- Screener + market_overview (nguồn của brief/breadth/dòng "
+                "tiền ngành)\n"
+                "- Tin tức + sentiment\n"
+                "- NN ròng full-market (foreign-flow)\n"
+                "- Vĩ mô 13 chỉ số (FX/LNH ngày/HNX/FRED/NSO/policy)\n"
+                "- Gold, allocation band, scorecard\n"
+                "- Test badge, audit/reconcile rec\n"
+                "- **Train chiến lược** (`vnstock_train --once`: tune/revise + "
+                "gate validation 🧪 + decay — phần tốn thời gian nhất, backtest "
+                "VN30 ~5-15 phút)\n"
+                "- Reflection, doctor badge\n\n"
+                "**Dùng khi:** kho giá đã tươi (vừa bấm 📥 Cập nhật giá / "
+                "pipeline đêm đã sync) mà muốn làm mới mọi thứ CÒN LẠI; hoặc "
+                "VCI outage không tải được giá nhưng vẫn muốn tin/vĩ mô/band "
+                "mới nhất.\n\n"
+                "Ẩn dụ: *toà soạn làm mọi việc trừ đi lấy bảng giá*."
             ),
         ):
             _is_win, _log = launch_in_new_console(
                 commands=[
-                    {"label": "Refresh Screener", "args": ["vnstock_runner.py"]},
+                    {"label": "Cap nhat con lai (all --no-sync)",
+                     "args": ["run.py", "all", "--no-sync"]},
                 ],
-                log_filename="screener.log",
+                log_filename="pipeline_rest.log",
             )
             if _is_win:
                 st.success(
-                    "✅ Đã mở cửa sổ PowerShell chạy screener (~1-2 phút).\n\n"
-                    "Khi xong, bấm **🔄 Refresh** hoặc F5 để dashboard "
-                    "load dữ liệu mới."
+                    "✅ Đã mở cửa sổ PowerShell chạy phần còn lại của pipeline "
+                    "(~10-25 phút, không đụng kho giá — gồm cả train chiến lược).\n\n"
+                    "Khi xong, bấm **Refresh** hoặc F5 để dashboard load dữ liệu mới."
                 )
             else:
                 st.info(
-                    f"🔄 Screener đang chạy nền. Log: `{_log}`\n\n"
+                    f"🔄 Pipeline (không sync giá) đang chạy nền. Log: `{_log}`\n\n"
+                    "Khi xong, bấm **Refresh** để load dữ liệu mới."
+                )
+    with _uc3:
+        if st.button(
+            "🚀 Cập nhật tất cả",
+            key="run_all_pipeline",
+            use_container_width=True,
+            help=(
+                "**Chạy TRỌN pipeline tối `python run.py all` — 13 bước** "
+                "(~35-55 phút): sync giá → validate → screener → news → "
+                "foreign-flow → **vĩ mô 13 chỉ số** → gold → allocation → "
+                "test → audit/reconcile → **train chiến lược** → reflection "
+                "→ doctor.\n\n"
+                "Đúng thứ Task Scheduler chạy 18:00 mỗi tối — dùng nút này khi "
+                "muốn làm tươi TOÀN BỘ (kho giá + overview + tin + NN ròng + "
+                "vĩ mô + band phân bổ + 2 badge sidebar) trong một phát, vd "
+                "khi task đêm bị lỡ.\n\n"
+                "⚠️ **ĐỪNG tắt máy / đóng cửa sổ PowerShell khi đang chạy** — "
+                "chuỗi bị ngắt giữa chừng là cache tươi nửa vời (đúng bệnh "
+                "LastTaskResult 0xC000013A của task đêm).\n\n"
+                "Khác biệt: **📥 Cập nhật giá** chỉ lo giá + screener; nút này "
+                "chạy đủ 13 bước kể cả allocation/audit/train/doctor.\n\n"
+                "Xong thì bấm **🔄 Refresh** hoặc F5.\n\n"
+                "Ẩn dụ: *tự tay chạy nguyên ca trực đêm của toà soạn*."
+            ),
+        ):
+            _is_win, _log = launch_in_new_console(
+                commands=[
+                    {"label": "Pipeline run.py all (13 buoc)",
+                     "args": ["run.py", "all"]},
+                ],
+                log_filename="pipeline_all.log",
+            )
+            if _is_win:
+                st.success(
+                    "✅ Đã mở cửa sổ PowerShell chạy TRỌN pipeline (~35-55 phút).\n\n"
+                    "⚠️ Đừng tắt máy / đóng cửa sổ khi đang chạy. Theo dõi từng "
+                    "bước `=== run.py all :: … ===` trong cửa sổ mới; xong thì "
+                    "bấm **🔄 Refresh** hoặc F5."
+                )
+            else:
+                st.info(
+                    f"🔄 Pipeline đang chạy nền (~35-55 phút). Log: `{_log}`\n\n"
                     "Khi xong, bấm **🔄 Refresh** để load dữ liệu mới."
                 )
 
