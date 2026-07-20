@@ -1241,6 +1241,47 @@ băng, macro-anchor hijack).
        full suite 254s → ~10-20s (96% thời gian cũ là ngồi chờ mạng).
        VCI khỏe lại trong ngày 20/07, kho bar 20/07 tươi "hôm nay".
 
+12. **Đợt 20-21/07 (session DojoAgents — nhánh `claude/dojoagents-dashboard-
+    integration-bid9gp`: NAV curve + fix pandas 3 + fix "giá đóng băng" tab
+    Danh mục + 4 đánh bóng + guard #32; suite fast 791) — VERIFY CÒN LẠI:**
+    a. **Close brief kế tiếp với DATA MỚI (21/07, sau khi pull trên máy
+       chạy brief)**: (i) câu GTGD "Tổng kết phiên" giữ khung chuẩn
+       TB5/TB20 — KHÔNG còn "TB sáng"/"TB cả ngày" (guard #32a đã ăn trên
+       bản 01:22 21/07: ra "+28% vs TB20 phiên"); (ii) MỌI mục tiêu S/R
+       trong tầm ≤7% từ close (trần nguồn #32b đã ăn: S2 1,457.31 → model
+       tự chọn mức tròn 1,700 = −2.5%, HỢP LỆ by design — số tròn được
+       phép làm mục tiêu xấp xỉ, đã ép đúng phía/vai/tầm); lộ dạng mới →
+       mở rộng `tests/test_close_2007_review.py` theo quy trình cũ.
+    b. **Reconcile tối 21/07**: 5 rec BUY (GMD/DCL/BVB/ASM/APH) đều "ngày
+       5/5" từ 20/07 — phải được đóng ĐỦ (không zombie); phiên sập −2.46%
+       nên khả năng SL/expire hàng loạt → soi log "[reconcile]" + panel
+       Chiến lược (5 outcome mới nuôi luôn decay/reflection).
+    c. **NAV curve — passive, tự đến**: mỗi phiên sync thêm 1 điểm;
+       vol/Sharpe/Calmar tự mở khi đủ ≥10 phiên (~đầu tháng 8); nhãn tick
+       trục X hết lặp từ ~4-5 điểm (dtick 1 ngày chỉ ép khi ≤10 phiên).
+       Đối chiếu nhanh khi rảnh: `python vnstock_networth.py` in cùng số
+       với mục 📈 tab Danh mục.
+    d. **3 điểm nhỏ close 01:22 21/07 — GHI SỔ CHƯA VÁ (nói "làm đi" kèm
+       chọn món)**: (i) caveat BUY-vs-bias in 2 LẦN khi body có mục 💡
+       (guard 27 chèn) VÀ telegram append khối 📋 (fix 15/07 chèn bản
+       riêng) — mỗi khối lệnh 1 cảnh báo là hợp lý UX nhưng rườm; dedupe
+       = `_open_recs_block` bỏ caveat khi TOÀN VĂN đã chứa
+       `_BUY_BIAS_CAVEAT`; (ii) mục 📌 Danh mục: câu LÝ DO của LLM gán
+       SAI HỌ — "EIB → GIẢM TỶ TRỌNG (họ VIN yếu nhất)" trong khi EIB =
+       Họ M/Ngân hàng (số vốn/hiện/lỗ vẫn ĐÚNG, chỉ sai dẫn chứng); nếu
+       LẶP → thêm guard check ticker↔`custom_sector_for` trong câu lý do
+       mục 📌; (iii) chất lượng mapping tin CafeF máy móc — 4/6 tin
+       "ngành chứng khoán hưởng lợi…", "dư nợ margin KỶ LỤC" ngay ngày
+       sập −2.46% đọc thành 🟢 — hôm nay CHẠM ngưỡng TODO 1b (≥2-3 dòng
+       gượng/ngày); theo dõi vài hôm, còn lặp → nâng model chấm tin theo
+       3 hướng đã ghi ở TODO 1b (prompt TRUNG_LẬP / đổi model free mạnh
+       hơn / route key trả phí — ≤8 tin/ngày nên chi phí nhỏ).
+    e. **Header "⚠️ data phiên gần nhất" trên bản 01:22 là ĐÚNG THIẾT KẾ**
+       (chạy sau nửa đêm, kho mới tới 20/07) — không phải bug, đừng vá.
+    f. **Nhánh session SẴN SÀNG MERGE MAIN** — user nói "tạo PR" là mở
+       (theo nếp: chạy `python run.py test --fast` trên máy user trước,
+       kỳ vọng 791 passed).
+
 ### 📅 AUDIT LỊCH ĐỊNH KỲ sau ~10 đợt tích hợp (17/07 — chốt 20/07, 2/3 DONE)
 
 Đã rà `run.py all` + 4 task Scheduler + nút dashboard. **Phần ỔN**:
