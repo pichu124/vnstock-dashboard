@@ -1222,8 +1222,12 @@ tạo brief; fundamentals task T2; nút "Cập nhật giá" đúng scope (chỉ 
 2. ✅ **DONE 20/07**: task thứ 4 "**VnStock Rates Weekly**" T7 09:00
    (`run.py rates-weekly`, MaxMinutes 10, zero LLM — render từ cache
    pipeline đêm đã nuôi cả tuần) vào `setup_scheduled_tasks.ps1`.
-   **CHỜ USER chạy lại script Run-as-Admin TRÊN DESKTOP** để đăng ký
-   (task theo máy). Verify: sáng T7 đầu tiên Telegram nhận báo cáo tuần.
+   **User ĐÃ đăng ký trên desktop 20/07** (script chạy Run-as-Admin, đủ
+   4 task). Verify: bắn thử `Start-ScheduledTask -TaskName 'VnStock
+   Rates Weekly'` hoặc chờ sáng T7 đầu tiên Telegram nhận báo cáo tuần.
+   **LƯU Ý PYTHON**: desktop KHÔNG có `.venv` → cả 4 task trỏ
+   `C:\Python314\python.exe` (system) — dependencies phải đủ ở đó
+   (desktop 20/07 full suite 1271 pass nên khả năng cao OK).
 3. ✅ **DONE 20/07 — đóng pending #1 từ 27/04**: `vnstock_train --once`
    thành bước **`train`** trong `run.py all` (user chốt "cho vào run.py
    all" thay vì task 15:05 riêng) — chạy SAU audit (rec vừa đóng →
@@ -2034,14 +2038,18 @@ user có **desktop + laptop**, cả 2 đều clone C:\vnstock. `.env` và
   tay run.py macro/screener tại chỗ).
 - Thêm key mới vào .env → nhớ thêm CẢ 2 MÁY (key free dùng chung được).
 
-**⚠️ GOTCHA GIT (gặp thật 16/07)**: máy user checkout nhánh KHÁC
-(`claude/phase-1-kickoff-lzorv6`) nhưng CHUNG lineage với nhánh session
+**⚠️ GOTCHA GIT (gặp thật 16/07, tái 20/07)**: máy user checkout nhánh
+KHÁC (laptop 16/07: `claude/phase-1-kickoff-lzorv6`; desktop 20/07:
+`main` local) nhưng CHUNG lineage với nhánh session
 (`claude/stocksharp-dashboard-research-bv9tas`) — commit SHA trùng. Khi
-user "git pull" không lấy được commit mới (khác tên nhánh) → chạy code cũ
-(bug đã fix vẫn tái hiện). Cách sửa: `git fetch origin` +
+user "git pull" báo "Already up to date" mà KHÔNG lấy được commit mới
+(khác tên nhánh) → chạy code cũ (20/07: setup script bản cũ chỉ đăng ký
+3 task, thiếu Rates Weekly). Cách sửa: `git fetch origin` +
 `git merge --ff-only origin/<session-branch>` (ff sạch vì chung tổ tiên).
 Dấu hiệu chẩn đoán: `python -c "import M; print(hasattr(M,'<hàm mới>'))"`
-ra False = đang chạy code cũ dù đã "pull".
+ra False / output script thiếu tính năng mới = đang chạy code cũ dù đã
+"pull". Desktop main local nay ĐI TRƯỚC origin/main (chứa commit session
+chưa merge PR) — vô hại, nhưng đừng push main từ máy user.
 
 **Nếu nguồn chết sau này**: HNX đổi layout bảng → sửa `parse_yield_curve_html`
 /cột par (`--diag`); SBV đổi tiêu đề bài → toàn 404, cập nhật `_SBV_TITLE_SLUGS`
