@@ -1535,12 +1535,6 @@ mảnh nào sinh số được pin vào output:
 
 ## 📌 Pending suggestions (raise when relevant)
 
-### 0. ✅ ĐỢT VERIFY 10-13/07 HOÀN TẤT — PR đã mở về main
-
-Toàn bộ checklist verify xong 100% (tests/doctor/macro 13 chỉ số + 3 gauge/
-Jina full-text/dashboard). PR mở 2026-07-13 theo lệnh user — nếu PR đã merge
-thì XÓA mục này; nếu chưa merge, kiểm tra trạng thái PR khi user quay lại.
-
 ### 1. ✅ Auto-schedule `vnstock_train.py` (DONE 2026-07-20 — đóng sau 3 tháng treo)
 
 **Cách chốt**: KHÔNG task 15:05 riêng — user chọn đưa thành bước `train`
