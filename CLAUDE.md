@@ -364,6 +364,25 @@ trong `apply_brief_guards`, áp cho mọi agent, cả morning & close):
     BẮT BUỘC nên "thấp hơn 21% phiên trước" (verb mang chiều, magnitude
     không dấu) không bị đụng; "-35% GTGD so sáng phiên trước" là so
     sáng-với-sáng HỢP LỆ (subject = phiên sáng) — không sửa, đúng thiết kế.
+32. **Vá close 23:18 20/07 (test `test_close_2007_review.py`, user "sửa cả
+    2 bug")**: (a) guard 13 thêm dạng NHÃN-TRƯỚC-%-SAU — "cao hơn TB sáng
+    5 phiên (+42%) nhưng cao hơn TB cả ngày (+53%)" trượt cả
+    `_MORNING_CMP_RE` (đòi mở đầu verb+% / %+so) lẫn guard 22 Form 2 (cố
+    ý bỏ baseline "sáng"), lại vô lý nội tại (TB sáng > TB cả ngày là bất
+    khả — sáng là tập con cả ngày). `_MORNING_LABEL_CMP_RE` bắt CHUỖI 1-3
+    mệnh đề "verb + TB/trung bình … (±N%)" nối nhưng/và → thay TRỌN chuỗi
+    bằng canonical TB5/TB20 khi có ≥1 baseline "sáng"; chủ ngữ GTGD SÁNG
+    ("sáng" đứng TRƯỚC chuỗi trên dòng) → so sáng-với-sáng hợp lệ, không
+    đụng; canonical không chứa "sáng" → idempotent. (b) **`_select_sr_levels`
+    thêm TRẦN `_SR_MAX_MOVE_PCT` (7%) ngay từ NGUỒN** — user chốt "soi mức
+    hỗ trợ gần và hợp lý hơn": thị trường thủng đáy 60 phiên → ứng viên
+    dưới giá chỉ còn S1 sát giá + đáy 52w → "thủng S1=1,733.25 → mục tiêu
+    S2=1,457.31" (−16%!) và enforce_sr_direction tầng 3 NHƯỜNG vì canon
+    vai 2 hợp lệ. Nay mức cách giá >7% không được ĐÓNG VAI S/R (vẫn hiện
+    trong data block dưới nhãn thật đáy 52w/tháng) → canon vai 2 rỗng →
+    tầng 3 tự kéo mục tiêu LLM viết về mức known kế tiếp trong tầm (vd
+    đáy tháng) / cắt vế khi không còn mức nào. Pivot tính lại mỗi brief
+    (collect_context) → hiệu lực ngay brief kế tiếp, không cần recompute gì.
 
 **`max_tokens` brief = `_BRIEF_MAX_TOKENS` (2400, bump từ 1200 — 2026-06-16)**:
 `generate_brief._call` truyền giá trị này. Brief nay ~11 mục (thêm 🌐 Vĩ mô + 📰
@@ -409,7 +428,9 @@ Khi chạy close brief với data EOD đầy đủ, `intraday=False` → hành v
    S1 → mục tiêu phải THẤP HƠN S1 và là mức KẾ TIẾP (không nhảy cóc qua
    MA200/đáy tháng để xuống thẳng đáy 52w cách 19%); vượt R1 → đối xứng;
    (b) S1/S2, R1/R2 đúng VAI (1 = gần giá nhất); (c) không mức nào = giá
-   đóng cửa. Code đã chốt 4 tầng trong `enforce_sr_direction` (đúng phía →
+   đóng cửa. (20/07: thêm TRẦN 7% NGAY TỪ NGUỒN trong `_select_sr_levels`
+   — mức cách giá >7% không còn được chào mời làm vai S/R trong prompt;
+   xem guard #32b.) Code đã chốt 4 tầng trong `enforce_sr_direction` (đúng phía →
    đúng vai → vai 2 kế tiếp trong tầm `_SR_MAX_MOVE_PCT`=7% → dedupe) —
    mục này để REVIEW SAU vẫn soi trục "có giao dịch được không", vì loại
    lỗi này máy khó tự thấy (cần ngữ nghĩa giao dịch, không chỉ cú pháp):

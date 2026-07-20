@@ -2279,11 +2279,23 @@ _SR_MIN_GAP_PCT: float = 0.008
 def _select_sr_levels(cands: "list[float]", last: float) -> "list[float]":
     """Pick up to 2 actionable S/R levels from candidates sorted nearest-first
     (ascending for resistance, descending for support): skip levels within
-    _SR_MIN_DIST_PCT of the price and within _SR_MIN_GAP_PCT of an already
-    picked level."""
+    _SR_MIN_DIST_PCT of the price, BEYOND _SR_MAX_MOVE_PCT of the price, and
+    within _SR_MIN_GAP_PCT of an already picked level.
+
+    TRẦN khoảng cách (fix close 23:18 20/07 — user chốt "soi mức hỗ trợ gần
+    và hợp lý hơn"): thị trường thủng đáy 60 phiên → ứng viên dưới giá chỉ
+    còn S1 sát giá và đáy 52w → "S2=1,457.31" cách close ~16% được chào mời
+    làm mục tiêu kịch bản — vai S/R phải actionable trong 1-2 phiên (biên độ
+    HOSE 7%/ngày là trần vật lý). Mức xa vẫn hiện trong data block dưới nhãn
+    THẬT của nó (đáy 52 tuần/tháng…), chỉ không được ĐÓNG VAI S1/S2/R1/R2;
+    canon vai 2 rỗng → enforce_sr_direction tầng 3 (17/07) tự kéo mục tiêu
+    LLM viết về mức known kế tiếp trong tầm / cắt vế khi không còn mức nào.
+    """
     out: list[float] = []
     for v in cands:
         if not v or abs(v / last - 1) < _SR_MIN_DIST_PCT:
+            continue
+        if abs(v / last - 1) > _SR_MAX_MOVE_PCT / 100.0:
             continue
         if out and abs(v / out[-1] - 1) < _SR_MIN_GAP_PCT:
             continue
@@ -5236,6 +5248,22 @@ _MORNING_CMP_RE = _re.compile(
     r"|trung bình\s+\d+\s+phiên\s+sáng|\d+\s+phiên\s+sáng).*?(?=\.\s|\.$|$)",
     _re.IGNORECASE)
 
+# Dạng NHÃN-TRƯỚC-%-SAU (close 23:18 20/07): "cao hơn TB sáng 5 phiên (+42%)
+# nhưng cao hơn TB cả ngày (+53%)" — verb đứng TRƯỚC baseline, % nằm TRONG
+# NGOẶC ở cuối → _MORNING_CMP_RE (đòi mở đầu verb+% hoặc %+so/vs) trượt, còn
+# enforce_gtgd_baseline_pct Form 2 cố ý bỏ baseline có "sáng" → cả chuỗi sống
+# sót nguyên vẹn. Bắt CHUỖI 1-3 mệnh đề "verb + TB/trung bình … (±N%)" nối
+# bằng nhưng/và/phẩy để thay TRỌN chuỗi một lần (vế còn lại thường là nhãn mơ
+# hồ "TB cả ngày" — cũng về canonical TB5/TB20 luôn).
+_MORNING_LABEL_CLAUSE = (
+    r"(?:cao hơn|thấp hơn|so với|ngang)\s+(?:TB|trung bình)"
+    r"[^,;.()%]{0,30}\(\s*[+-]?[\d.,]+\s*%\s*\)"
+)
+_MORNING_LABEL_CMP_RE = _re.compile(
+    _MORNING_LABEL_CLAUSE
+    + r"(?:\s*(?:nhưng|và|,)\s*" + _MORNING_LABEL_CLAUSE + r"){0,2}",
+    _re.IGNORECASE)
+
 
 def enforce_gtgd_compare_frame(text: str, ctx: dict) -> str:
     """In the CLOSE 'Tổng kết phiên', the full-day GTGD figure must be compared
@@ -5275,6 +5303,21 @@ def enforce_gtgd_compare_frame(text: str, ctx: dict) -> str:
         if sec != "close":
             continue
         new = _MORNING_CMP_RE.sub(lambda m: f"{m.group(1)}{canonical}", l, count=1)
+        if new == l:
+            # Dạng nhãn-trước-%-sau (20/07 23:18) — thay CẢ CHUỖI mệnh đề
+            # khi có ≥1 baseline "sáng" (chuỗi +42% vs TB sáng và +53% vs
+            # TB cả ngày còn VÔ LÝ NỘI TẠI: TB sáng > TB cả ngày là bất
+            # khả — sáng là tập con của cả ngày). Chủ ngữ là GTGD SÁNG
+            # (chữ "sáng" đứng TRƯỚC chuỗi trên dòng) → so sáng-với-sáng
+            # HỢP LỆ, không đụng. Canonical không chứa "sáng" → idempotent.
+            def _lbl_repl(m: "_re.Match", _line: str = l) -> str:
+                seg = m.group(0)
+                if "sáng" not in seg.lower():
+                    return seg
+                if "sáng" in _line[: m.start()].lower():
+                    return seg
+                return canonical
+            new = _MORNING_LABEL_CMP_RE.sub(_lbl_repl, l)
         if new != l:
             lines[i] = new
             changed = True
