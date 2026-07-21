@@ -46,7 +46,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import asdict, dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -154,7 +154,7 @@ def _normalise_event(
         "ratio": float(ratio) if ratio is not None else float("nan"),
         "source": str(source),
         "confidence": confidence,
-        "registered_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "registered_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "note": str(note) if note else "",
     }
 

@@ -34,9 +34,9 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 
 \## Test discipline
 
-\- Sửa module lõi nào → `python run.py test --fast` (\~121 test, \~0.7s).
+\- Sửa module lõi nào → `python run.py test --fast` (\~800 test, vài giây).
 
-\- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, \~6s).
+\- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, \~1.300 test, \~25s).
 
 \- Kết quả ghi `data\_warehouse/\_meta/test\_status.json` → badge sidebar.
 
