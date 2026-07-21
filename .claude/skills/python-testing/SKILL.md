@@ -13,8 +13,8 @@ Comprehensive testing strategies for Python applications using pytest, TDD metho
 
 This repo runs pytest through its orchestrator, not bare `pytest`:
 
-- After editing any core module: `python run.py test --fast` (~121 tests, ~0.7s)
-- Before any PR to `main`: `python run.py test` (full suite, ~6s)
+- After editing any core module: `python run.py test --fast` (~800 tests, a few seconds)
+- Before any PR to `main`: `python run.py test` (full suite)
 - Results land in `data_warehouse/_meta/test_status.json` → sidebar badge. Red badge = do NOT merge/deploy.
 - Convention: every deterministic guard added to `apply_brief_guards` in `vnstock_brief.py` MUST ship with a matching test. Prompt-level instructions are not trusted; guards + tests are the enforcement point.
 - No coverage tooling is configured (`pytest --cov` sections below are generic guidance, not a repo requirement).
