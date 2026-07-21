@@ -84,14 +84,22 @@ def test_anthropic_complete_model_override(monkeypatch):
 def test_paid_route_wins_and_free_ladder_untouched(monkeypatch):
     monkeypatch.setenv("VNSTOCK_NEWS_FULLTEXT", "0")
     monkeypatch.delenv(nf._ANALYZE_PAID_ENV, raising=False)   # mặc định BẬT
-    monkeypatch.setattr("vnstock_sentiment.anthropic_complete",
-                        lambda *a, **k: "TIÊU_CỰC | Ngân hàng chịu áp lực NIM")
+    monkeypatch.delenv(nf._ANALYZE_MODEL_ENV, raising=False)
+    seen = {}
+
+    def _paid(system, user, max_tokens=120, model=None):
+        seen["model"] = model
+        return "TIÊU_CỰC | Ngân hàng chịu áp lực NIM"
+
+    monkeypatch.setattr("vnstock_sentiment.anthropic_complete", _paid)
     monkeypatch.setattr("vnstock_sentiment.chat_complete",
                         lambda *a, **k: (_ for _ in ()).throw(AssertionError(
                             "ladder free không được gọi khi paid trả kết quả")))
     s, imp = nf.analyze_item({"title": "Lãi suất tăng"})
     assert s == "negative"
     assert imp == "Ngân hàng chịu áp lực NIM"
+    # chấm tin là tác vụ nuance → mặc định Opus (user chốt 21/07); env override được
+    assert seen["model"] == nf._ANALYZE_MODEL_DEFAULT == "claude-opus-4-8"
 
 
 def test_paid_route_falls_back_to_free_ladder(monkeypatch):
