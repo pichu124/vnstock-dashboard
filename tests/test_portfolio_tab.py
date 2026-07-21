@@ -6,8 +6,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 
 def test_module_imports_without_streamlit():
     """The tab module must be importable even when Streamlit is not
@@ -85,24 +83,45 @@ def test_live_quote_handles_corrupt_json(tmp_path: Path):
     assert _live_quote("VCB", tmp_path) is None
 
 
-def test_warehouse_last_close_returns_zero_when_no_data(tmp_path: Path):
-    from dashboard.portfolio_tab import _warehouse_last_close
-    assert _warehouse_last_close("VCB", tmp_path) == 0.0
+# ── tripwire ⚠ sai đơn vị giá (review 21/07: tách hàm thuần + nới ngưỡng) ──
+
+def test_unit_suspect_same_day_thousandfold_loss():
+    from dashboard.portfolio_tab import _unit_suspect
+    assert _unit_suspect("2026-07-21", "2026-07-21", -99.7) is True
 
 
-def test_warehouse_last_close_picks_newest_close(tmp_path: Path):
-    import pandas as pd
-    import pyarrow as pa
-    import pyarrow.parquet as pq
+def test_unit_suspect_same_day_thousandfold_gain():
+    from dashboard.portfolio_tab import _unit_suspect
+    assert _unit_suspect("2026-07-21", "2026-07-21", 99_900.0) is True
 
-    from dashboard.portfolio_tab import _warehouse_last_close
 
-    year_dir = tmp_path / "prices" / "ticker=VCB" / "year=2026"
-    year_dir.mkdir(parents=True)
-    df = pd.DataFrame({
-        "time": pd.date_range("2026-01-02", periods=3, freq="B").date,
-        "close": [90.0, 91.5, 92.7],
-    })
-    pq.write_table(pa.Table.from_pandas(df, preserve_index=False),
-                   year_dir / "p.parquet")
-    assert _warehouse_last_close("VCB", tmp_path) == pytest.approx(92.7)
+def test_unit_suspect_legit_bands_not_flagged():
+    """HOSE ±7% · HNX ±10% · UPCoM ±15% · chào sàn ±40% · mua đáy −N% đóng
+    trần +N% — tất cả là %L/L cùng-ngày HỢP LỆ, không được dán nhãn 'gần như
+    chắc chắn sai' như ngưỡng ±7.5% cũ."""
+    from dashboard.portfolio_tab import _unit_suspect
+    for pct in (6.9, -9.8, 14.9, -15.0, 39.9, -40.0, 42.0, 133.0):
+        assert _unit_suspect("2026-07-21", "2026-07-21", pct) is False, pct
+
+
+def test_unit_suspect_only_fires_on_buy_day():
+    from dashboard.portfolio_tab import _unit_suspect
+    assert _unit_suspect("2026-07-18", "2026-07-21", -99.7) is False
+    assert _unit_suspect("", "2026-07-21", -99.7) is False
+    assert _unit_suspect("2026-07-21", "", -99.7) is False
+
+
+# ── trục X chart NAV (review 21/07: tách hàm thuần cho nhánh dtick) ────────
+
+def test_nav_xaxis_short_series_forces_daily_dtick():
+    from dashboard.portfolio_tab import _nav_xaxis
+    x = _nav_xaxis(5)
+    assert x["dtick"] == 86_400_000
+    assert x["tickformat"] == "%d/%m"
+    assert x["rangebreaks"] == [{"bounds": ["sat", "mon"]}]
+
+
+def test_nav_xaxis_long_series_keeps_auto_ticks():
+    from dashboard.portfolio_tab import _nav_xaxis
+    assert "dtick" not in _nav_xaxis(11)
+    assert _nav_xaxis(11)["tickformat"] == "%d/%m"

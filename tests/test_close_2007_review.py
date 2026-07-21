@@ -66,6 +66,24 @@ def test_gtgd_morning_subject_left_alone():
     assert vb.enforce_gtgd_compare_frame(text, CTX_GTGD) == text
 
 
+def test_gtgd_chain_other_subject_left_alone():
+    """Chủ ngữ câu là KHỐI NGOẠI (không phải GTGD/thanh khoản) — cùng dạng
+    "cao hơn TB sáng … (+N%)" nhưng KHÔNG được viết lại bằng số GTGD
+    (review 21/07: regex thiếu anchor chủ ngữ)."""
+    text = ("## 📊 Tổng kết phiên\n"
+            "Khối ngoại bán ròng 500 tỷ, cao hơn TB sáng 5 phiên (+42%).\n")
+    assert vb.enforce_gtgd_compare_frame(text, CTX_GTGD) == text
+
+
+def test_gtgd_chain_subject_scoped_per_sentence():
+    """GTGD ở CÂU TRƯỚC trên cùng dòng không cấp phép viết lại câu sau
+    về khối ngoại — soi chủ ngữ trong phạm vi CÂU chứa chuỗi."""
+    text = ("## 📊 Tổng kết phiên\n"
+            "GTGD cả ngày 22,821.4 tỷ. Khối ngoại bán ròng 500 tỷ, "
+            "cao hơn TB sáng 5 phiên (+42%).\n")
+    assert vb.enforce_gtgd_compare_frame(text, CTX_GTGD) == text
+
+
 def test_gtgd_label_first_reverse_order_chain():
     """Vế 'sáng' đứng SAU trong chuỗi vẫn bị thay trọn chuỗi."""
     text = (

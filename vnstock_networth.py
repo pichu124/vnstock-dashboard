@@ -278,6 +278,22 @@ def summary_parts(res: dict) -> list[str]:
 
 # ── loaders (đọc kho — CLI-safe, mirror vnstock_preset_score) ──────────────
 
+def _span_days(start: str, today: str) -> int:
+    """Số ngày lịch cần đọc kho để phủ từ `start` (ngày mua sớm nhất) tới
+    `today`, +30 ngày đệm để `_anchor_factor` luôn có close ≤ ngày mua;
+    kẹp [90, _MAX_CURVE_DAYS]. `start` rác/rỗng → 400 (hành vi cũ).
+
+    DÙNG CHUNG với dashboard/portfolio_tab.resolve_current_price — cửa sổ
+    cứng 400 ngày ở đó từng làm neo đơn vị trượt mốc khi buy_date già hơn
+    cửa sổ (review 21/07)."""
+    from datetime import date as _date
+    try:
+        span = (_date.fromisoformat(today) - _date.fromisoformat(start)).days + 30
+    except ValueError:
+        span = 400
+    return max(90, min(span, _MAX_CURVE_DAYS))
+
+
 def _close_series(ticker: str, days: int,
                   prices_dir: Optional[Path] = None) -> list[tuple[str, float]]:
     """[(iso_date, close), …] tăng dần, đơn vị nội bộ nhất quán (stitch) —
@@ -323,11 +339,7 @@ def load_networth(warehouse: Path | str = DEFAULT_WAREHOUSE) -> Optional[dict]:
         return None
 
     start = min(p["buy_date"] for p in pos)
-    try:
-        span = (_date.fromisoformat(today) - _date.fromisoformat(start)).days + 30
-    except ValueError:
-        span = 400
-    days = max(90, min(span, _MAX_CURVE_DAYS))
+    days = _span_days(start, today)
 
     prices_dir = warehouse / "prices"
     closes = {tk: _close_series(tk, days, prices_dir=prices_dir)

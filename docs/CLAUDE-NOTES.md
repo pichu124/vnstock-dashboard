@@ -373,7 +373,11 @@ trong `apply_brief_guards`, áp cho mọi agent, cả morning & close):
     mệnh đề "verb + TB/trung bình … (±N%)" nối nhưng/và → thay TRỌN chuỗi
     bằng canonical TB5/TB20 khi có ≥1 baseline "sáng"; chủ ngữ GTGD SÁNG
     ("sáng" đứng TRƯỚC chuỗi trên dòng) → so sáng-với-sáng hợp lệ, không
-    đụng; canonical không chứa "sáng" → idempotent. (b) **`_select_sr_levels`
+    đụng; canonical không chứa "sáng" → idempotent. (Addendum 21/07 —
+    review code-reviewer: thêm ANCHOR CHỦ NGỮ `_GTGD_SUBJECT_RE` — câu
+    chứa chuỗi phải nói về GTGD/giá trị giao dịch/thanh khoản/khớp lệnh,
+    soi trong phạm vi CÂU (sau ". "/"; ") — kẻo câu khối ngoại/tự doanh
+    cùng bề mặt "cao hơn TB sáng … (+N%)" bị thay bằng số GTGD.) (b) **`_select_sr_levels`
     thêm TRẦN `_SR_MAX_MOVE_PCT` (7%) ngay từ NGUỒN** — user chốt "soi mức
     hỗ trợ gần và hợp lý hơn": thị trường thủng đáy 60 phiên → ứng viên
     dưới giá chỉ còn S1 sát giá + đáy 52w → "thủng S1=1,733.25 → mục tiêu
@@ -1281,6 +1285,40 @@ băng, macro-anchor hijack).
     f. **Nhánh session SẴN SÀNG MERGE MAIN** — user nói "tạo PR" là mở
        (theo nếp: chạy `python run.py test --fast` trên máy user trước,
        kỳ vọng 791 passed).
+13. **Đợt 21/07 (session review — nhánh `claude/session-6nhlpt`):
+    code-reviewer rà 4 commit 20/07, verdict Warning (1 HIGH · 3 MEDIUM ·
+    4 LOW) → user "fix toàn bộ". Suite fast nay 795.**
+    a. **HIGH — neo đơn vị `resolve_current_price` trượt mốc khi giá trôi**
+       (tab Danh mục): (i) quote live trước NEO THẲNG vào buy_price tại
+       ngày HÔM NAY — giá trôi >2× kể từ ngày mua → residual bung
+       `_ANCHOR_TOL` → factor kẹt 1.0 → "24.5 VND" cho cổ phiếu 24,500;
+       nay quote neo qua close kho cùng/kề phiên (đã về đơn vị buy_price),
+       không có kho mới fallback neo buy_price như cũ; (ii) cửa sổ đọc kho
+       cứng 400 ngày mất close quanh ngày mua khi vị thế già hơn cửa sổ →
+       neo nhầm bar đầu cửa sổ; nay span tính từ buy_date qua
+       `vnstock_networth._span_days` (helper mới DÙNG CHUNG với
+       `load_networth`). Test: 2 ca drift mới trong test_portfolio_prices.
+    b. **Tripwire ⚠ tab Danh mục: tách hàm thuần `_unit_suspect` + nới
+       ngưỡng** — ±7.5% cũ dán nhãn "gần như chắc chắn sai" cả data hợp lệ
+       HNX ±10% / UPCoM ±15% / chào sàn ±40% / mua đáy đóng trần; nay
+       −90% / +300% (vùng chỉ còn lệch đơn vị 1000×: −99.9% / +99,900%),
+       caption đổi thành "nghi lệch đơn vị giá 1000×". `_nav_xaxis` cũng
+       tách thuần → nhánh dtick ≤10 phiên có test.
+    c. **Cache path giá**: `render_portfolio_tab` bọc `st.cache_data`
+       (resolver TTL 60s, `load_networth` TTL 300s) — resolver đọc TOÀN BỘ
+       lịch sử parquet cho TỪNG vị thế mỗi rerun Streamlit, trước không có
+       cache nào; best-effort (streamlit thiếu cache_data → gọi thẳng).
+    d. **Bỏ fallback mtime trong `_quote_price_date`**: quote thiếu field
+       `time` (legacy/corrupt — writer WSS luôn ghi) bị BỎ thay vì lấy
+       mtime file làm ngày data (Dropbox re-sync làm mới mtime → quote cũ
+       đội lốt hôm nay, thắng bar kho mới).
+    e. **Xoá `_warehouse_last_close`** — dead code sau fix 20/07 (hết
+       caller production) nhưng vẫn giữ nguyên bug iloc[-1]-file-đầu và
+       được test xanh → dễ dụ tái sử dụng; ý "giữ làm primitive" HỦY.
+    f. **Brief**: guard #32a thêm anchor chủ ngữ GTGD (xem addendum #32);
+       `_SR_MAX_MOVE_PCT` 7.0 (percent) → 0.07 (fraction — CÙNG đơn vị
+       `_SR_MIN_DIST_PCT`/`_SR_MIN_GAP_PCT`, định nghĩa dời về cùng block
+       cạnh `_select_sr_levels`) — hết `/100.0` lệch pha giữa 2 chỗ dùng.
 
 ### 📅 AUDIT LỊCH ĐỊNH KỲ sau ~10 đợt tích hợp (17/07 — chốt 20/07, 2/3 DONE)
 

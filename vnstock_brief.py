@@ -2274,6 +2274,12 @@ def _load_vnindex_df(augment: bool = True) -> "pd.DataFrame":
 # 0.05% → "vượt R1 test R2" meaningless). Tune here.
 _SR_MIN_DIST_PCT: float = 0.005
 _SR_MIN_GAP_PCT: float = 0.008
+# TRẦN khoảng cách cho VAI/MỤC TIÊU S/R (fraction of close như 2 hằng trên —
+# review 21/07 đồng nhất đơn vị: giá trị cũ 7.0 là percent, dùng phải /100):
+# biên độ HOSE 7%/ngày là trần vật lý — mức cách giá hơn thế không thể
+# actionable trong 1-2 phiên (user chốt 17/07, siết nguồn 20/07). Dùng ở cả
+# _select_sr_levels (nguồn) lẫn enforce_sr_direction tầng 3 (kéo/cắt mục tiêu).
+_SR_MAX_MOVE_PCT: float = 0.07
 
 
 def _select_sr_levels(cands: "list[float]", last: float) -> "list[float]":
@@ -2295,7 +2301,7 @@ def _select_sr_levels(cands: "list[float]", last: float) -> "list[float]":
     for v in cands:
         if not v or abs(v / last - 1) < _SR_MIN_DIST_PCT:
             continue
-        if abs(v / last - 1) > _SR_MAX_MOVE_PCT / 100.0:
+        if abs(v / last - 1) > _SR_MAX_MOVE_PCT:
             continue
         if out and abs(v / out[-1] - 1) < _SR_MIN_GAP_PCT:
             continue
@@ -4569,10 +4575,8 @@ def enforce_pivot_labels(text: str, ctx: dict) -> str:
     return _PIVOT_LABEL_RE.sub(_sub, text)
 
 
-# Tầm với hợp lý cho MỤC TIÊU vai 2 (S2/R2) trong kịch bản phiên tới: biên độ
-# HOSE 7%/ngày là trần vật lý — mức cách giá hơn thế không thể là "mục tiêu"
-# (user chốt 17/07; index thực tế còn hẹp hơn nhiều). Tunable.
-_SR_MAX_MOVE_PCT = 7.0
+# (_SR_MAX_MOVE_PCT — trần khoảng cách vai/mục tiêu S/R — định nghĩa cạnh
+# _SR_MIN_DIST_PCT/_SR_MIN_GAP_PCT phía trên _select_sr_levels.)
 
 
 def enforce_sr_direction(text: str, ctx: dict) -> str:
@@ -4658,10 +4662,10 @@ def enforce_sr_direction(text: str, ctx: dict) -> str:
         cands = [k for k in side
                  if ((k < v1 - 0.5) if support else (k > v1 + 0.5))]
         reach = [k for k in cands
-                 if abs(k - close) / close * 100 <= _SR_MAX_MOVE_PCT]
+                 if abs(k - close) / close <= _SR_MAX_MOVE_PCT]
         expected = (max(reach) if support else min(reach)) if reach else None
         if expected is None:
-            if abs(v2 - close) / close * 100 > _SR_MAX_MOVE_PCT:
+            if abs(v2 - close) / close > _SR_MAX_MOVE_PCT:
                 out = _re.sub(                        # mục tiêu ngoài tầm → cắt vế
                     rf"\s*(?:→|->)\s*(?:mục tiêu|về|test|hướng)?\s*{two}={_re.escape(b)}(?![\d])",
                     "", out)
@@ -5264,6 +5268,13 @@ _MORNING_LABEL_CMP_RE = _re.compile(
     + r"(?:\s*(?:nhưng|và|,)\s*" + _MORNING_LABEL_CLAUSE + r"){0,2}",
     _re.IGNORECASE)
 
+# Chủ ngữ hợp lệ của chuỗi so sánh GTGD dạng nhãn-trước-%-sau: câu về chủ
+# thể KHÁC (khối ngoại, tự doanh…) có cùng bề mặt "cao hơn TB sáng … (+N%)"
+# KHÔNG được viết lại bằng số GTGD (review 21/07 — _MORNING_LABEL_CMP_RE
+# không tự anchor chủ ngữ). Soi trong phạm vi CÂU chứa chuỗi (sau ". "/"; ").
+_GTGD_SUBJECT_RE = _re.compile(
+    r"GTGD|giá trị giao dịch|thanh khoản|khớp lệnh", _re.IGNORECASE)
+
 
 def enforce_gtgd_compare_frame(text: str, ctx: dict) -> str:
     """In the CLOSE 'Tổng kết phiên', the full-day GTGD figure must be compared
@@ -5309,12 +5320,18 @@ def enforce_gtgd_compare_frame(text: str, ctx: dict) -> str:
             # TB cả ngày còn VÔ LÝ NỘI TẠI: TB sáng > TB cả ngày là bất
             # khả — sáng là tập con của cả ngày). Chủ ngữ là GTGD SÁNG
             # (chữ "sáng" đứng TRƯỚC chuỗi trên dòng) → so sáng-với-sáng
-            # HỢP LỆ, không đụng. Canonical không chứa "sáng" → idempotent.
+            # HỢP LỆ, không đụng. CÂU chứa chuỗi phải nói về GTGD/thanh
+            # khoản — chủ ngữ khác (khối ngoại, tự doanh…) cùng bề mặt thì
+            # không thay (review 21/07). Canonical không chứa "sáng" và
+            # câu đã thay vẫn giữ chủ ngữ GTGD → idempotent.
             def _lbl_repl(m: "_re.Match", _line: str = l) -> str:
                 seg = m.group(0)
                 if "sáng" not in seg.lower():
                     return seg
-                if "sáng" in _line[: m.start()].lower():
+                prefix = _line[: m.start()]
+                if "sáng" in prefix.lower():
+                    return seg
+                if not _GTGD_SUBJECT_RE.search(_re.split(r"[.;]\s", prefix)[-1]):
                     return seg
                 return canonical
             new = _MORNING_LABEL_CMP_RE.sub(_lbl_repl, l)
