@@ -1350,6 +1350,36 @@ băng, macro-anchor hijack).
        PULL trên máy thật: `python vnstock_news_feeds.py --reanalyze` để
        chấm lại 8 tin mới nhất bằng prompt + model mới; theo dõi 2-3 hôm,
        còn gượng → nâng `VNSTOCK_NEWS_ANALYZE_MODEL=claude-opus-4-8`.
+    i. **KHUNG GTGD cả ngày thống nhất (audit --gtgd trên máy thật 21/07
+       phân xử xong: "+0%" ĐÚNG trong khung EOD tự nhất quán — coverage
+       count 20 phiên đều 765-873, gate 13g không đổi gì; thủ phạm THẬT là
+       TRỘN KHUNG)**: brief in "GTGD 20,453.9 tỷ (+0% vs TB20)" vì SỐ do
+       `enforce_gtgd_total` pin theo capture WSS 9h-15h (đủ sàn) còn % do
+       `enforce_gtgd_baseline_pct`/prompt tính trên khung EOD Σ giá×KLGD
+       (14,878.9/TB20 14,869.6 — subset mã đã sync); hai khung lệch hệ
+       thống ~20-40% → "+28%" bản 01:22 cùng họ (22,821 WSS / ~17.8k EOD
+       = 1.28). Fix: (i) baseline WSS cả ngày MỚI `_full_wss_baselines`
+       (cửa sổ 9h-15h của session_stats_history, mirror TB sáng; ngày
+       capture chết giữa phiên full ≤ sáng×1.05 bị loại cả today lẫn
+       baseline) → `ctx["full_wss_gtgd"]`; (ii) resolver `_gtgd_close_
+       frame(ctx)` → (F, cmp, frame) MỘT KHUNG duy nhất — ưu tiên
+       WSS-với-WSS, WSS thiếu lịch sử + EOD đủ bộ → TRỌN khung EOD (số
+       lẫn %), cấm số khung này gắn % khung kia — DÙNG CHUNG bởi
+       build_prompt + enforce_gtgd_total + enforce_gtgd_compare_frame +
+       enforce_gtgd_baseline_pct (parity by construction, mirror
+       apply_brief_guards). Side-effect tốt: enforce_gtgd_total hết pin
+       số capture nửa phiên (trước nhận full > 0 vô điều kiện). Ctx chỉ
+       có EOD (test cũ/máy không WSS) → hành vi y nguyên. VERIFY close
+       kế tiếp: số GTGD và % phải cùng ra từ 1 khung — WSS có lịch sử →
+       "GTGD ~20,xxx tỷ" + % vs baseline WSS ~19-20k (KHÔNG còn +0% giả).
+    j. **Model chấm tin mặc định → `claude-opus-4-8`** (user chốt "đổi
+       model tốt hơn" 21/07 — batch Haiku vẫn còn ca borderline "PNJ hưởng
+       lợi từ động thái của chính mình"; chấm tin là tác vụ nuance, 8
+       call/ngày × ~3K token → ~vài chục nghìn đồng/tháng). Hạ cấp/đổi:
+       `VNSTOCK_NEWS_ANALYZE_MODEL`. Model BRIEF (ClaudeAgent Haiku) GIỮ
+       NGUYÊN — brief có 30+ guard deterministic chốt số, nâng model chỉ
+       cải thiện văn phong, đổi = đổi giọng brief user đang quen (để user
+       tự quyết, 1 dòng: `ClaudeAgent(model="claude-opus-4-8")`).
 
 ### 📅 AUDIT LỊCH ĐỊNH KỲ sau ~10 đợt tích hợp (17/07 — chốt 20/07, 2/3 DONE)
 

@@ -1776,6 +1776,89 @@ def _wallclock_intraday(data_date_str: str, now: "datetime | None" = None) -> bo
     return data_date_str == now.date().isoformat() and now.time() < time(15, 5)
 
 
+def _full_wss_baselines(hist: dict, data_date: str) -> "dict | None":
+    """{today, prev, avg5, avg20} cho GTGD CẢ NGÀY khung WSS (cửa sổ ``9h-15h``
+    của session_stats_history) — mirror ``morning_gtgd`` để close brief so
+    cả-ngày-với-cả-ngày CÙNG KHUNG ĐO (fix 21/07: số WSS từng bị gắn % tính
+    trên baseline EOD — hai khung lệch hệ thống ~20-40%). Ngày capture chết
+    giữa phiên (full ≤ sáng×1.05) bị loại khỏi cả today lẫn baseline.
+    None khi hôm nay không có capture cả-ngày hợp lệ."""
+
+    def _win(dstr: str, window: str):
+        w = (hist.get(dstr, {}) or {}).get(window, {}) or {}
+        v = (w.get("VNINDEX", {}) or {}).get("gtgd")
+        try:
+            return float(v) if v else None
+        except (TypeError, ValueError):
+            return None
+
+    def _full(dstr: str):
+        f = _win(dstr, "9h-15h")
+        if not f:
+            return None
+        m = _win(dstr, "9h-11h30")
+        if m and f <= m * 1.05:        # capture dừng giữa phiên ≠ cả ngày
+            return None
+        return f
+
+    today = _full(data_date)
+    if not today:
+        return None
+    prev_days = [d for d in sorted(hist) if d < data_date]
+
+    def _avg(days):
+        vals = [v for d in days if (v := _full(d)) is not None]
+        return round(sum(vals) / len(vals), 1) if vals else None
+
+    return {"today": today,
+            "prev": _full(prev_days[-1]) if prev_days else None,
+            "avg5": _avg(prev_days[-5:]),
+            "avg20": _avg(prev_days[-20:])}
+
+
+def _gtgd_close_frame(ctx: dict) -> "tuple[float | None, dict, str]":
+    """(F, cmp, frame) — MỘT KHUNG DUY NHẤT cho GTGD cả ngày của close brief,
+    DÙNG CHUNG bởi build_prompt + enforce_gtgd_total / enforce_gtgd_compare_
+    frame / enforce_gtgd_baseline_pct (parity by construction).
+
+    Fix 21/07: close 16:18 in "GTGD 20,453.9 tỷ (+0% vs TB20)" — SỐ lấy từ
+    capture WSS còn % bị guard pin theo khung EOD (14,878.9 / TB20 14,869.6);
+    bản 01:22 "+28%" cùng họ lỗi. Hai khung lệch hệ thống ~20-40% (WSS đủ
+    sàn, EOD Σ giá×KLGD subset mã đã sync) nên % cross-frame vô nghĩa.
+
+    Ưu tiên WSS-với-WSS (capture 9h-15h hợp lệ + baseline ``full_wss_gtgd``
+    cùng cửa sổ); WSS có số nhưng KHÔNG có lịch sử trong khi EOD đủ bộ số+cmp
+    → dùng TRỌN khung EOD; còn lại WSS trơ (không %) rồi mới tới EOD trơ.
+    frame ∈ {"wss", "eod", ""} để prompt dán nhãn nguồn."""
+    w = dict(ctx.get("full_wss_gtgd") or {})
+    if not w.get("today"):
+        ss = ctx.get("session_stats") or {}
+
+        def _g(window):
+            v = (ss.get(window, {}).get("VNINDEX", {}) or {}).get("gtgd")
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return None
+
+        full, morn = _g("9h-15h"), _g("9h-11h30")
+        if full and full > 0 and (not morn or full > morn * 1.05):
+            w = {"today": full}
+    try:
+        eod_f = float(ctx["full_day_gtgd"]) if ctx.get("full_day_gtgd") else None
+    except (TypeError, ValueError):
+        eod_f = None
+    eod_cmp = dict(ctx.get("full_day_gtgd_cmp") or {})
+    if w.get("today"):
+        cmp = {k: w[k] for k in ("prev", "avg5", "avg20") if w.get(k)}
+        if cmp or not (eod_f and eod_cmp):
+            return float(w["today"]), cmp, "wss"
+        return eod_f, eod_cmp, "eod"   # WSS thiếu lịch sử, EOD đủ bộ → trọn EOD
+    if eod_f:
+        return eod_f, eod_cmp, "eod"
+    return None, {}, ""
+
+
 _GTGD_COVERAGE_MIN_RATIO = 0.7   # ngày có count < 70% median(count) = thiếu coverage
 
 
@@ -1970,6 +2053,12 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
                     "avg5": _avg(_prev_days[-5:]),
                     "avg20": _avg(_prev_days[-20:]),
                 }
+
+            # Full-day WSS baselines (cửa sổ 9h-15h) — cùng khung với capture
+            # hiển thị, để close so cả-ngày-với-cả-ngày KHÔNG mượn khung EOD
+            # (fix 21/07, xem _gtgd_close_frame).
+            if _fw := _full_wss_baselines(_hist, _data_date_str):
+                ctx["full_wss_gtgd"] = _fw
     except Exception:
         pass
 
@@ -2749,33 +2838,36 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
                 if cmp_parts:
                     line += "\nSo sánh ĐỒNG DẠNG (sáng-với-sáng): " + " | ".join(cmp_parts)
             # Full-day GTGD (only when session CLOSED, and NEVER for the morning
-            # brief — its template compares sáng-với-sáng only). Prefer the live
-            # session capture; fall back to the EOD-derived total (Σ giá×KLGD).
-            _eod_full = ctx.get("full_day_gtgd")
-            _full_day = None
-            _src = ""
+            # brief — its template compares sáng-với-sáng only). SỐ và % đi
+            # CÙNG MỘT KHUNG qua _gtgd_close_frame (WSS-với-WSS khi có capture
+            # + baseline lịch sử cùng cửa sổ; ngược lại EOD-với-EOD trọn bộ) —
+            # fix 21/07: cấm số WSS 20,453.9 gắn % tính trên khung EOD 14,878.9.
+            _F = None
+            _fcmp: dict = {}
+            _frame = ""
             if not _intraday and not _is_morning_brief:
-                if full_gtgd and morn_gtgd and full_gtgd > morn_gtgd * 1.05:
-                    _full_day = full_gtgd
-                elif isinstance(_eod_full, (int, float)) and _eod_full > 0:
+                _F, _fcmp, _frame = _gtgd_close_frame(ctx)
+            if _F:
+                _src = ""
+                if _frame == "eod":
                     _n = ctx.get("full_day_gtgd_count")
-                    _full_day = float(_eod_full)
                     _src = (f" (ước tính từ EOD: Σ giá×KLGD của {_n} mã có data phiên"
                             if _n else " (ước tính từ EOD: Σ giá×KLGD")
                     _src += ", xấp xỉ — có thể thấp hơn tổng sàn nếu kho chưa đủ mã)"
-            if _full_day:
-                line += (f"\nGTGD cả ngày: {_full_day:,.1f} tỷ{_src} → DÙNG ĐÚNG SỐ NÀY cho "
+                line += (f"\nGTGD cả ngày: {_F:,.1f} tỷ{_src} → DÙNG ĐÚNG SỐ NÀY cho "
                          f"'GTGD' trong TLDR/Tổng kết phiên; TUYỆT ĐỐI KHÔNG nhặt số khác "
                          f"(GTGD sáng, GTGD theo ngành, v.v.) làm GTGD cả ngày.")
-                _cmp = ctx.get("full_day_gtgd_cmp") or {}
-                if _cmp.get("prev"):
-                    _pct = (_full_day / _cmp["prev"] - 1) * 100 if _cmp["prev"] else 0
-                    _parts = [f"phiên trước {_cmp['prev']:,.1f} tỷ ({_pct:+.0f}%)"]
+                if _fcmp.get("prev") or _fcmp.get("avg5"):
+                    _parts = []
+                    if _fcmp.get("prev"):
+                        _parts.append(f"phiên trước {_fcmp['prev']:,.1f} tỷ "
+                                      f"({(_F / _fcmp['prev'] - 1) * 100:+.0f}%)")
                     for _k, _lbl in (("avg5", "TB5 phiên"), ("avg20", "TB20 phiên")):
-                        if _cmp.get(_k):
-                            _parts.append(f"{_lbl} {_cmp[_k]:,.1f} tỷ "
-                                          f"({(_full_day / _cmp[_k] - 1) * 100:+.0f}%)")
-                    line += ("\nSo sánh CẢ-NGÀY-với-CẢ-NGÀY: " + " | ".join(_parts) +
+                        if _fcmp.get(_k):
+                            _parts.append(f"{_lbl} {_fcmp[_k]:,.1f} tỷ "
+                                          f"({(_F / _fcmp[_k] - 1) * 100:+.0f}%)")
+                    line += ("\nSo sánh CẢ-NGÀY-với-CẢ-NGÀY (cùng khung đo): "
+                             + " | ".join(_parts) +
                              ". DÙNG % NÀY cho GTGD cả ngày; CHỈ baseline đã cho (KHÔNG "
                              "tự suy TB khác), TUYỆT ĐỐI KHÔNG gán % 'so với sáng phiên "
                              "trước' cho số cả ngày.")
@@ -5243,8 +5335,10 @@ def enforce_gtgd_total(text: str, ctx: dict) -> str:
         except (TypeError, ValueError):
             return None
 
-    full, morn = _g("9h-15h"), _g("9h-11h30")
-    close_canon = full if (full and full > 0) else eod_full   # session, else EOD
+    morn = _g("9h-11h30")
+    # Cùng khung với build_prompt/guard % (fix 21/07): capture nửa phiên không
+    # còn đóng vai số cả ngày; ưu tiên WSS hợp lệ, fallback EOD.
+    close_canon, _, _ = _gtgd_close_frame(ctx)
     intraday = bool((ctx.get("vnindex_tech") or {}).get("intraday"))
 
     lines = text.splitlines()
@@ -5325,11 +5419,9 @@ def enforce_gtgd_compare_frame(text: str, ctx: dict) -> str:
     comparison in the close summary with the canonical full-day comparison
     (TB5/TB20 phiên) from ctx. No-op without the full-day cmp or the bad pattern.
     """
-    cmp = ctx.get("full_day_gtgd_cmp") or {}
-    try:
-        F = float(ctx["full_day_gtgd"]) if ctx.get("full_day_gtgd") else None
-    except (TypeError, ValueError):
-        F = None
+    # F + baselines CÙNG KHUNG qua _gtgd_close_frame (fix 21/07 — trước đây
+    # luôn lấy khung EOD kể cả khi số hiển thị là capture WSS).
+    F, cmp, _frame = _gtgd_close_frame(ctx)
     if not text or not F or not (cmp.get("avg5") or cmp.get("avg20")):
         return text
     p5 = (F / cmp["avg5"] - 1) * 100 if cmp.get("avg5") else None
@@ -5396,11 +5488,9 @@ def enforce_gtgd_baseline_pct(text: str, ctx: dict) -> str:
     """
     if not text or "tổng kết phiên" not in text.lower():
         return text
-    cmp = ctx.get("full_day_gtgd_cmp") or {}
-    try:
-        F = float(ctx["full_day_gtgd"]) if ctx.get("full_day_gtgd") else None
-    except (TypeError, ValueError):
-        F = None
+    # F + baselines CÙNG KHUNG qua _gtgd_close_frame (fix 21/07 — % pin phải
+    # cùng khung với số GTGD mà enforce_gtgd_total đã chốt).
+    F, cmp, _frame = _gtgd_close_frame(ctx)
     if not F or not cmp:
         # Form 3 (tự-chứa, không cần ctx): "N% so <base> (A tỷ vs B tỷ)" —
         # model tự ghi CẢ 2 vế thì % phải khớp (A/B − 1)×100. Close 14/07:

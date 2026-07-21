@@ -293,10 +293,13 @@ _ANALYZE_MODELS = {
 # Route TRẢ PHÍ trước (TODO 1b, kích hoạt 21/07 sau 2 ngày liên tiếp ≥2-3
 # dòng mapping gượng từ 70B free): ≤ _MAX_ANALYZE_DEFAULT call/ngày nên chi
 # phí nhỏ; Anthropic lỗi/thiếu key → fallback ladder free như cũ. Kill-switch
-# theo nếp repo: VNSTOCK_NEWS_ANALYZE_PAID=0. Đổi model (vd claude-opus-4-8
-# khi cần nuance tối đa): VNSTOCK_NEWS_ANALYZE_MODEL.
+# theo nếp repo: VNSTOCK_NEWS_ANALYZE_PAID=0. Model mặc định = Opus (chấm
+# tin là tác vụ NUANCE — batch Haiku 21/07 vẫn còn ca borderline "PNJ hưởng
+# lợi từ động thái của chính mình"; 8 call/ngày × ~3K token → ~vài USD/tháng,
+# user chốt "đổi model tốt hơn" 21/07); hạ cấp/đổi: VNSTOCK_NEWS_ANALYZE_MODEL.
 _ANALYZE_PAID_ENV = "VNSTOCK_NEWS_ANALYZE_PAID"
 _ANALYZE_MODEL_ENV = "VNSTOCK_NEWS_ANALYZE_MODEL"
+_ANALYZE_MODEL_DEFAULT = "claude-opus-4-8"
 
 
 def _paid_analyze_enabled() -> bool:
@@ -331,7 +334,8 @@ def analyze_item(item: dict) -> tuple[str, str]:
             from vnstock_sentiment import anthropic_complete
             raw = anthropic_complete(
                 _ANALYZE_SYSTEM, user, max_tokens=120,
-                model=os.environ.get(_ANALYZE_MODEL_ENV))
+                model=os.environ.get(_ANALYZE_MODEL_ENV)
+                or _ANALYZE_MODEL_DEFAULT)
         except Exception:
             raw = None
     if not raw:
