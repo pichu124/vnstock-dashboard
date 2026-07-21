@@ -44,7 +44,7 @@ import json
 import re
 import sys
 from dataclasses import dataclass, asdict, field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
@@ -457,7 +457,7 @@ def scan_warehouse(
               file=sys.stderr)
 
     return AnomalyReport(
-        run_at=datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        run_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         tickers_scanned=scanned,
         anomalies=sorted(
             anomalies,

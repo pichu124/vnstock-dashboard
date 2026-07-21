@@ -38,7 +38,7 @@ import argparse
 import json
 import sys
 from dataclasses import dataclass, asdict
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -322,7 +322,7 @@ def reconcile(
 
     if not dates:
         return ReconciliationReport(
-            run_at=datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            run_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             dates_checked=[],
             tickers_checked=0,
             ok=0, warn=0, fail=0,
@@ -377,7 +377,7 @@ def reconcile(
 
     if api_df.empty and rolled_df.empty:
         return ReconciliationReport(
-            run_at=datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            run_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             dates_checked=[d.isoformat() for d in dates],
             tickers_checked=0,
             ok=0, warn=0, fail=0,
@@ -502,7 +502,7 @@ def reconcile(
         ))
 
     return ReconciliationReport(
-        run_at=datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        run_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         dates_checked=[d.isoformat() for d in dates],
         tickers_checked=int(merged["ticker"].nunique()),
         ok=ok, warn=warn, fail=fail,

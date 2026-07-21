@@ -30,7 +30,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -96,7 +96,7 @@ def add_to_whitelist(
         "ticker": ticker.upper(),
         "date": d,
         "kind": kind,
-        "accepted_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "accepted_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "note": note or "",
     }
     # Dedupe by (ticker, date, kind)
@@ -386,7 +386,7 @@ def _log_action(
     path = Path(warehouse) / META_SUBDIR / LOG_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps({
-        "at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "action": action,
         "ticker": str(ticker).upper(),
         "date": str(bar_date),

@@ -34,7 +34,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass, asdict
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -150,7 +150,7 @@ def quarantine_row(
         bar_date=d,
         reason=reason,
         raw_values={k: _jsonable(v) for k, v in (raw_values or {}).items()},
-        fetched_at=datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        fetched_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         retry_count=int(existing.get("retry_count", 0)),
         last_retry_at=existing.get("last_retry_at"),
         accepted=bool(existing.get("accepted", False)),
@@ -240,7 +240,7 @@ def bump_retry(
         return 0
     data = json.loads(path.read_text(encoding="utf-8"))
     data["retry_count"] = int(data.get("retry_count", 0)) + 1
-    data["last_retry_at"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    data["last_retry_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     _atomic_write(path, data)
     return int(data["retry_count"])
 
@@ -366,7 +366,7 @@ def _log_exhausted(warehouse: Path, ticker: str, bar_date: str,
     log_path = warehouse / "_meta" / "remediation_log.jsonl"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     entry = {
-        "at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "action": "auto_archive",
         "ticker": ticker,
         "date": bar_date,

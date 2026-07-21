@@ -42,7 +42,7 @@ import re
 import sys
 import time
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -289,7 +289,7 @@ def _save_cache(
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "ticker": ticker.upper(),
-        "fetched_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "events": [
             {
                 "ex_date": e.ex_date.isoformat(),
