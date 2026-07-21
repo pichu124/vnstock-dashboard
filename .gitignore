@@ -7,6 +7,8 @@ debug.log
 !.claude/settings.json
 !.claude/skills/
 !.claude/skills/**
+!.claude/rules/
+!.claude/rules/**
 data_warehouse/
 vnstock-agent-guide-main/
 files.zip
