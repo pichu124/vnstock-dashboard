@@ -14,9 +14,16 @@ list of ``{ticker, quantity, buy_price, buy_date}`` dicts. The
 
 Live price resolution
 ---------------------
-For each position, the tab tries (in order):
-  1. ``<warehouse>/_live/quote_{TICKER}.json`` — WSS realtime snapshot
-  2. Newest close in ``<warehouse>/prices/ticker={TICKER}/year=*/*.parquet``
+``resolve_current_price`` (FIX 2026-07-20 — bug user bắt: quote WSS cũ
+đóng băng giá SSI 26,650 trong khi kho đã có bar 20/07 = 22,700):
+nguồn có NGÀY DATA mới hơn thắng giữa
+  1. ``<warehouse>/_live/quote_{TICKER}.json`` — WSS snapshot (ngày từ
+     field ``time``, fallback mtime file)
+  2. bar MỚI NHẤT THEO THỜI GIAN trong kho parquet (gộp mọi file — Dropbox
+     conflicted copy — qua ``vnstock_networth._close_series``)
+cùng ngày → live (trong phiên tươi hơn close EOD); giá NEO về đơn vị
+buy_price của user (kho trộn VND thô/nghìn đồng per-bar). Bảng hiện
+ngày·nguồn cạnh giá + tripwire ⚠ khi %L/L ngay trong ngày mua vượt ±7%.
 
 If neither yields a price > 0, the row still renders but shows ``—`` for
 current price and contributes 0 to the portfolio total — intentional
@@ -90,6 +97,78 @@ def _warehouse_last_close(ticker: str, warehouse: Path) -> float:
     return 0.0
 
 
+def _quote_price_date(ticker: str, warehouse: Path) -> tuple[float, str] | None:
+    """(price, iso_date) từ snapshot WSS — ngày từ field ``time`` trong JSON,
+    fallback mtime file. None khi thiếu file / giá rác."""
+    q = _live_quote(ticker, warehouse)
+    if not q:
+        return None
+    try:
+        price = float(q.get("price", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+    if price <= 0:
+        return None
+    day = str(q.get("time") or "")[:10]
+    if len(day) != 10 or day[4:5] != "-":
+        try:
+            from datetime import datetime as _dt
+            mtime = (warehouse / "_live"
+                     / f"quote_{ticker.upper()}.json").stat().st_mtime
+            day = _dt.fromtimestamp(mtime).date().isoformat()
+        except OSError:
+            return None
+    return price, day
+
+
+def resolve_current_price(ticker: str, buy_price: float, buy_date: str,
+                          warehouse: Path) -> tuple[float, str, str]:
+    """Giá hiện tại cho 1 vị thế: (price, iso_date, source∈{live,kho}).
+
+    FIX 2026-07-20 (bug user bắt trên máy thật): trước đây quote WSS thắng
+    VÔ ĐIỀU KIỆN bất kể tuổi — file quote cũ đóng băng giá (SSI hiện 26,650
+    trong khi kho đã có bar 20/07 = 22,700; cùng họ bug nn_flow_cache), và
+    fallback kho lấy ``iloc[-1]`` của FILE ĐẦU THEO TÊN (không sort theo
+    thời gian, không chuẩn hóa đơn vị). Nay:
+    - nguồn có NGÀY DATA mới hơn thắng; cùng ngày → live (tươi hơn close);
+    - bar kho = mới nhất THEO THỜI GIAN, gộp mọi file parquet (Dropbox
+      conflicted copy) qua ``vnstock_networth._close_series``;
+    - giá NEO về đơn vị buy_price (``_anchor_factor`` — kho trộn VND thô ↔
+      nghìn đồng per-bar).
+    (0.0, "", "") khi không nguồn nào dùng được.
+    """
+    try:
+        from vnstock_networth import _anchor_factor, _close_series
+    except Exception:
+        return 0.0, "", ""
+    warehouse = Path(warehouse)
+    bp = float(buy_price or 0)
+    bd = str(buy_date or "")[:10]
+
+    candidates: list[tuple[str, int, float, str]] = []
+    try:
+        series = _close_series(ticker, 400, prices_dir=warehouse / "prices")
+    except Exception:
+        series = []
+    if series:
+        dates = [d for d, _ in series]
+        vals = [c for _, c in series]
+        f = _anchor_factor(dates, vals, bd or dates[-1], bp) if bp > 0 else 1.0
+        candidates.append((dates[-1], 0, vals[-1] * f, "kho"))
+    q = _quote_price_date(ticker, warehouse)
+    if q is not None:
+        price, day = q
+        f = _anchor_factor([day], [price], day, bp) if bp > 0 else 1.0
+        candidates.append((day, 1, price * f, "live"))
+    if not candidates:
+        return 0.0, "", ""
+    day, _prio, price, source = max(candidates)
+    # kho lưu close float32 → nhiễu ~1e-6 tương đối (22.700001 × 1000 →
+    # GT hiện tại "454,000,015"); 6 chữ số có nghĩa đủ cho mọi thang giá
+    price = float(f"{price:.6g}")
+    return price, day, source
+
+
 def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
     """Render the Portfolio tab. Lazy imports Streamlit."""
     try:
@@ -150,12 +229,8 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
         invested = qty * buy_price
         total_invested += invested
 
-        current_price = 0.0
-        q = _live_quote(ticker, warehouse)
-        if q and float(q.get("price", 0)) > 0:
-            current_price = float(q["price"])
-        else:
-            current_price = _warehouse_last_close(ticker, warehouse)
+        current_price, price_date, price_src = resolve_current_price(
+            ticker, buy_price, buy_date, warehouse)
 
         current_val = qty * current_price if current_price > 0 else 0
         total_current += current_val
@@ -168,6 +243,8 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
             "buy_price": buy_price,
             "buy_date": buy_date,
             "current_price": current_price,
+            "price_date": price_date,
+            "price_src": price_src,
             "invested": invested,
             "current_val": current_val,
             "pnl": pnl,
@@ -219,12 +296,28 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
            "font-size:12px;font-family:'IBM Plex Mono',monospace;text-align:right;")
 
     _rows_html = ""
+    _any_band_warn = False
     for r in sorted(rows, key=lambda x: x["pnl"], reverse=True):
         _pc = "#10b981" if r["pnl"] >= 0 else "#ef4444"
         _ps = "+" if r["pnl"] >= 0 else ""
         _bg = "#0d1117"
-        _cur_cell = (f"{r['current_price']:,.0f}"
-                     if r['current_price'] > 0 else "—")
+        _cur_cell = "—"
+        if r["current_price"] > 0:
+            _meta = ""
+            if r.get("price_date"):
+                _meta = (" <span style='font-size:9px;color:#6b7280'>"
+                         f"{r['price_date'][5:]}·{r.get('price_src', '')}"
+                         "</span>")
+            _cur_cell = f"{r['current_price']:,.0f}{_meta}"
+        # tripwire: %L/L ngay trong NGÀY MUA vượt biên độ ±7%/phiên HOSE
+        # → giá/đơn vị gần như chắc chắn sai (đúng cách bug 20/07 bị bắt)
+        _band_warn = bool(
+            r.get("price_date") and r.get("buy_date")
+            and str(r["buy_date"])[:10] == r["price_date"]
+            and abs(r["pnl_pct"]) > 7.5
+        )
+        _any_band_warn = _any_band_warn or _band_warn
+        _warn_mark = "⚠ " if _band_warn else ""
         _rows_html += (
             f"<tr style='background:{_bg}'>"
             f"<td style='{_td}text-align:left;color:#60a5fa;font-weight:600'>{r['ticker']}</td>"
@@ -234,7 +327,7 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
             f"<td style='{_td}color:#9ca3af'>{r['invested']:,.0f}</td>"
             f"<td style='{_td}color:#e5e7eb'>{r['current_val']:,.0f}</td>"
             f"<td style='{_td}color:{_pc};font-weight:600'>{_ps}{r['pnl']:,.0f}</td>"
-            f"<td style='{_td}color:{_pc};font-weight:600'>{_ps}{r['pnl_pct']:.2f}%</td>"
+            f"<td style='{_td}color:{_pc};font-weight:600'>{_warn_mark}{_ps}{r['pnl_pct']:.2f}%</td>"
             f"<td style='{_td}color:#9ca3af;font-size:10px'>{r['buy_date']}</td>"
             f"</tr>"
         )
@@ -256,6 +349,82 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
         f"<tbody>{_rows_html}</tbody></table></div>"
     )
     st.markdown(_tbl, unsafe_allow_html=True)
+    if _any_band_warn:
+        st.caption(
+            "⚠ %Lãi/Lỗ ngay trong NGÀY MUA vượt biên độ ±7%/phiên HOSE — "
+            "giá hoặc đơn vị gần như chắc chắn sai; soi cột Giá hiện tại "
+            "(ngày·nguồn) và kiểm tra nguồn giá."
+        )
+
+    # ── Net-worth curve — NAV danh mục vs VNINDEX (món DojoAgents 20/07) ──
+    st.markdown("---")
+    st.markdown("#### 📈 Giá trị danh mục theo thời gian (NAV)")
+    try:
+        from vnstock_networth import load_networth
+        _nw = load_networth(warehouse)
+        if not _nw or not _nw.get("nav_rebased"):
+            st.caption("Chưa đủ dữ liệu giá trong kho để dựng đường NAV "
+                       "(cần ≥ 2 phiên kể từ ngày mua sớm nhất).")
+        else:
+            try:
+                import plotly.graph_objects as _go_nw
+                _fig_nw = _go_nw.Figure()
+                _fig_nw.add_trace(_go_nw.Scatter(
+                    x=_nw["dates"], y=_nw["nav_rebased"],
+                    name="Danh mục (NAV)",
+                    line=dict(color="#60a5fa", width=2)))
+                if _nw.get("index_rebased"):
+                    _fig_nw.add_trace(_go_nw.Scatter(
+                        x=_nw["dates"], y=_nw["index_rebased"],
+                        name="VNINDEX",
+                        line=dict(color="#94a3b8", width=1.5, dash="dash")))
+                # tick theo NGÀY (hết nhãn 00:00/12:00) + ẩn T7-CN
+                # (hết đoạn thẳng xuyên cuối tuần); ngày lễ VN vẫn
+                # tạo gap nhỏ — chấp nhận (không có lịch nghỉ lễ)
+                _xaxis_nw = dict(
+                    tickformat="%d/%m",
+                    rangebreaks=[dict(bounds=["sat", "mon"])],
+                )
+                if len(_nw["dates"]) <= 10:
+                    # ít điểm: plotly auto chia tick DƯỚI 1 ngày → nhãn
+                    # lặp ("16/07 · 16/07 · 17/07…") — ép tick đúng 1
+                    # ngày; chuỗi dài giữ auto (dtick cứng làm trục dày)
+                    _xaxis_nw["dtick"] = 86_400_000  # 1 ngày (ms)
+                _fig_nw.update_layout(
+                    height=320,
+                    margin=dict(l=0, r=0, t=10, b=0),
+                    yaxis=dict(title="Rebase 100"),
+                    xaxis=_xaxis_nw,
+                    legend=dict(orientation="h", y=1.1),
+                    plot_bgcolor="#0e1117",
+                    paper_bgcolor="#0e1117",
+                    font=dict(color="#f1f5f9"),
+                )
+                st.plotly_chart(_fig_nw, use_container_width=True)
+            except Exception:
+                import pandas as _pd_nw
+                _df_nw = _pd_nw.DataFrame(
+                    {"Danh mục": _nw["nav_rebased"]},
+                    index=_pd_nw.to_datetime(_nw["dates"]))
+                if _nw.get("index_rebased"):
+                    _df_nw["VNINDEX"] = _nw["index_rebased"]
+                st.line_chart(_df_nw)
+
+            # caption stats: builder DÙNG CHUNG với CLI (parity by
+            # construction) — gate ẩn vol/Sharpe/Calmar khi < 10 phiên
+            from vnstock_networth import summary_parts as _nw_summary
+            st.caption("📊 " + " · ".join(_nw_summary(_nw)))
+
+            _notes_nw = ["Rebase 100 tại ngày đầu; vốn vị thế mua sau tính "
+                         "như tiền mặt (0%) tới ngày mua — display-only."]
+            if _nw.get("skipped_days"):
+                _notes_nw.append(f"Bỏ {_nw['skipped_days']} phiên thiếu giá.")
+            if _nw.get("excluded"):
+                _notes_nw.append("Loại mã không có dữ liệu giá: "
+                                 + ", ".join(_nw["excluded"]) + ".")
+            st.caption(" ".join(_notes_nw))
+    except Exception as _e_nw:
+        st.caption(f"NAV curve không khả dụng: {_e_nw}")
 
     # ── F7: Sector Exposure ────────────────────────────────────────────────
     st.markdown("---")
@@ -358,6 +527,8 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
                 st.plotly_chart(fig_pie, use_container_width=True)
 
             # Overweight / underweight summary table
+            # format sẵn thành CHUỖI — pandas 3 hiển thị float đầy đủ
+            # ("56.200000") và int không ngăn nghìn trong st.dataframe
             _tbl_rows = []
             for s, pct in _sectors_sorted:
                 _bench_pct = _VN30_BENCH.get(s, 0.0)
@@ -365,23 +536,31 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
                 _pnl_s = _sector_pnl.get(s, 0.0)
                 _tbl_rows.append({
                     "Ngành": f"{SECTOR_ICONS.get(s,'•')} {s}",
-                    "Danh mục %": round(pct, 1),
-                    "VN30 %": round(_bench_pct, 1),
-                    "Lệch (pp)": round(_diff, 1),
-                    "Lãi/Lỗ (VND)": int(_pnl_s),
+                    "Danh mục %": f"{pct:.1f}",
+                    "VN30 %": f"{_bench_pct:.1f}",
+                    "Lệch (pp)": f"{_diff:+.1f}",
+                    "Lãi/Lỗ (VND)": f"{int(_pnl_s):+,}",
                 })
             import pandas as _pd
             _df_exp = _pd.DataFrame(_tbl_rows)
 
             def _color_diff(val):
-                if val > 2:
+                try:
+                    _v = float(str(val).replace(",", ""))
+                except (TypeError, ValueError):
+                    return "color: #94a3b8"
+                if _v > 2:
                     return "color: #22c55e"
-                elif val < -2:
+                elif _v < -2:
                     return "color: #ef4444"
                 return "color: #94a3b8"
 
+            # pandas ≥ 2.1 đổi Styler.applymap → Styler.map; pandas 3 BỎ HẲN
+            # applymap — ưu tiên .map, fallback .applymap cho pandas cũ.
+            _styler = _df_exp.style
+            _style_map = getattr(_styler, "map", None) or _styler.applymap
             st.dataframe(
-                _df_exp.style.applymap(_color_diff, subset=["Lệch (pp)"]),
+                _style_map(_color_diff, subset=["Lệch (pp)"]),
                 use_container_width=True,
                 hide_index=True,
             )
