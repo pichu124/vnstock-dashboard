@@ -63,6 +63,8 @@ def test_is_relevant_keeps_market_drops_noise():
 
 
 def test_analyze_item_parses_sentiment_and_impact(monkeypatch):
+    # tắt route trả phí để test hermetic (máy thật có ANTHROPIC_API_KEY)
+    monkeypatch.setenv(nf._ANALYZE_PAID_ENV, "0")
     monkeypatch.setattr("vnstock_sentiment.chat_complete",
                         lambda *a, **k: "TIÊU_CỰC | Áp lực tỷ giá, bất lợi nhóm vay USD")
     s, imp = nf.analyze_item({"title": "VND mất giá mạnh"})

@@ -222,6 +222,50 @@ def chat_complete(system: str, user: str, max_tokens: int = 80,
     return None
 
 
+_ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1/messages"
+# Mặc định = model Claude repo đang dùng cho brief (ClaudeAgent) — đổi model
+# qua tham số `model` (vd claude-opus-4-8 khi cần nuance tối đa). LƯU Ý:
+# request KHÔNG gửi temperature — Opus 4.7+ đã bỏ sampling params (400).
+_ANTHROPIC_MODEL_DEFAULT = "claude-haiku-4-5-20251001"
+
+
+def anthropic_complete(system: str, user: str, max_tokens: int = 120,
+                       model: Optional[str] = None) -> Optional[str]:
+    """One-shot Anthropic Messages API — route TRẢ PHÍ cho tác vụ cần nuance
+    hơn ladder free (TODO 1b: chấm tin ≤8 call/ngày → chi phí nhỏ; 70B free
+    hay bịa chiều tác động). Wire format khác OpenAI-compat: system là field
+    riêng, header x-api-key + anthropic-version, text nằm trong content
+    blocks. None khi thiếu key / lỗi / rỗng — caller tự fallback ladder free.
+    """
+    key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+    if not key:
+        return None
+    model = (model or "").strip() or _ANTHROPIC_MODEL_DEFAULT
+    try:
+        import requests as _req
+        resp = _req.post(
+            _ANTHROPIC_ENDPOINT,
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": key,
+                "anthropic-version": "2023-06-01",
+            },
+            json={"model": model, "max_tokens": max_tokens,
+                  "system": system,
+                  "messages": [{"role": "user", "content": user}]},
+            timeout=25,
+        )
+        resp.raise_for_status()
+        body = resp.json()
+        _ledger_record("Anthropic", model, ok=True, usage=body.get("usage"))
+        text = "".join(b.get("text", "") for b in (body.get("content") or [])
+                       if isinstance(b, dict) and b.get("type") == "text")
+        return strip_think_tags(text) or None
+    except Exception as e:
+        _ledger_record("Anthropic", model, ok=False, error=str(e))
+        return None
+
+
 def score_one(item: dict) -> tuple[str, str, Optional[str]]:
     """Score one news item. Returns (item_hash, sentiment, provider_name)."""
     h      = _item_hash(item)

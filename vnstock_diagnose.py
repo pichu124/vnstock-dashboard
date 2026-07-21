@@ -427,5 +427,87 @@ def render(result: DiagnoseResult) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# GTGD baseline audit (review 21/07 — "+28% vs TB20" lúc 01:22 nhưng "+0%"
+# lúc 16:18: map gtgd_by_date cộng dồn 22 bar cuối CỦA TỪNG MÃ nên tổng
+# per-date phụ thuộc trạng thái sync kho lúc chạy screener)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def audit_gtgd(warehouse: Path | str = DEFAULT_WAREHOUSE) -> int:
+    """In bảng gtgd_by_date (total/count per ngày) + baseline TB5/TB20 TRƯỚC
+    và SAU gate coverage của `vnstock_brief._gtgd_baselines` — chạy trên máy
+    thật để thấy ngay ngày nào under-covered kéo lệch baseline.
+    Exit 0 = có data; 1 = thiếu map."""
+    ov = Path(warehouse) / "_meta" / "market_overview.json"
+    if not ov.exists():
+        print(f"❌ Không thấy {ov} — chạy `python run.py screener` trước.")
+        return 1
+    data = json.loads(ov.read_text(encoding="utf-8"))
+    byd = data.get("gtgd_by_date") or {}
+    if not byd:
+        print("❌ market_overview.json không có gtgd_by_date (runner cũ?).")
+        return 1
+
+    import statistics as _st
+    from vnstock_brief import _gtgd_baselines, _GTGD_COVERAGE_MIN_RATIO
+
+    dates = sorted(byd, reverse=True)
+    counts = [int((byd[d] or {}).get("count") or 0) for d in dates]
+    med = _st.median([c for c in counts if c > 0]) if any(counts) else 0
+    floor = _GTGD_COVERAGE_MIN_RATIO * med
+    print(f"📊 gtgd_by_date — {len(dates)} phiên · gtgd_date="
+          f"{data.get('gtgd_date')} · generated_at={data.get('generated_at')}")
+    print(f"   median(count)={med:.0f} → gate ≥ {floor:.0f} "
+          f"(ratio {_GTGD_COVERAGE_MIN_RATIO})")
+    for d in dates:
+        e = byd[d] or {}
+        t = float(e.get("total") or 0)
+        c = int(e.get("count") or 0)
+        mark = "  " if (not med or c >= floor) else "⚠️ "
+        print(f"   {mark}{d}  total={t:>12,.1f} tỷ  count={c}")
+
+    latest = dates[0]
+    ungated = [float((byd[d] or {}).get("total") or 0)
+               for d in dates if d < latest and (byd[d] or {}).get("total")]
+    if ungated:
+        a5 = sum(ungated[:5]) / len(ungated[:5])
+        line = f"   TRƯỚC gate: prev={ungated[0]:,.1f} · avg5={a5:,.1f}"
+        if len(ungated) >= 15:
+            line += f" · avg20={sum(ungated[:20]) / len(ungated[:20]):,.1f}"
+        print(line)
+    cmp = _gtgd_baselines(byd, latest)
+    if cmp:
+        line = f"   SAU gate : prev={cmp['prev']:,.1f} · avg5={cmp['avg5']:,.1f}"
+        if "avg20" in cmp:
+            line += f" · avg20={cmp['avg20']:,.1f}"
+        print(line)
+        f_latest = float((byd[latest] or {}).get("total") or 0)
+        if f_latest > 0 and cmp.get("avg20"):
+            print(f"   → GTGD {latest} = {f_latest:,.1f} tỷ: "
+                  f"{(f_latest / cmp['avg20'] - 1) * 100:+.0f}% vs TB20 (gated)")
+    else:
+        print("   ⚠️ Không còn phiên nào qua gate — soi coverage kho.")
+    return 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # CLI
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+def main(argv: "list[str] | None" = None) -> int:
+    import argparse
+    ap = argparse.ArgumentParser(description="Chẩn đoán data warehouse")
+    ap.add_argument("--gtgd", action="store_true",
+                    help="audit map gtgd_by_date + baseline TB5/TB20 "
+                         "(trước/sau gate coverage)")
+    ap.add_argument("--warehouse", default=str(DEFAULT_WAREHOUSE))
+    args = ap.parse_args(argv)
+    if args.gtgd:
+        return audit_gtgd(args.warehouse)
+    ap.print_help()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

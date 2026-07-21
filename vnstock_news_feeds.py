@@ -11,7 +11,10 @@ Thiết kế:
   • Parse RSS bằng STDLIB (``xml.etree``) — KHÔNG thêm dependency (RSS 2.0/Atom).
   • Fetch best-effort qua ``requests`` (đã là dep). Feed lỗi → bỏ qua, không bịa.
   • Phân tích LLM CHỈ chạy cho tập đã lọc + top-N mới nhất (kiểm soát token), cache
-    kết quả trong JSON nên không chấm lại.
+    kết quả trong JSON nên không chấm lại. Route TRẢ PHÍ TRƯỚC (TODO 1b —
+    Anthropic, ≤8 call/ngày, 70B free hay bịa chiều tác động), lỗi/thiếu key →
+    fallback ladder free. Tắt: ``VNSTOCK_NEWS_ANALYZE_PAID=0``; đổi model:
+    ``VNSTOCK_NEWS_ANALYZE_MODEL`` (mặc định theo ClaudeAgent của brief).
   • FULL TEXT qua Jina Reader (https://r.jina.ai/<URL> — free, không cần key):
     ``analyze_item`` tự fetch nội dung bài (best-effort) cho ĐÚNG các tin sắp
     chấm LLM → model thấy toàn bài thay vì chỉ title+description RSS (giảm lỗi
@@ -261,9 +264,19 @@ _ANALYZE_SYSTEM = (
     "mô tả chiều NGƯỢC với tiêu đề (vd tin 'giá vàng GIẢM / rời mốc 4.000 USD' "
     "KHÔNG được ghi 'PNJ hưởng lợi từ giá vàng CAO' — phải theo chiều giảm: 'PNJ: "
     "định giá tồn kho/giá vốn giảm theo' hoặc TRUNG_LẬP nếu tác động hai chiều).\n"
+    "KHÔNG SUY DIỄN NGƯỢC NỘI DUNG: kết luận phải theo đúng hướng bài viết — bài "
+    "nói việc X 'KHÔNG CÒN DỄ / khó thực hiện / gặp trở ngại' thì KHÔNG được viết "
+    "'hưởng lợi nhờ X'.\n"
+    "Tin HAI CHIỀU (cho vay/margin/dư nợ KỶ LỤC, tăng trưởng nóng, dòng tiền đầu "
+    "cơ mạnh…) = cơ hội đi kèm rủi ro → TRUNG_LẬP, nêu ngắn gọn cả hai vế.\n"
+    "Thuế/trừng phạt lên nước KHÁC: xét đúng logic cạnh tranh — đối thủ xuất khẩu "
+    "bị áp thuế thì hàng VN THÊM lợi thế ở thị trường đó (thường TÍCH_CỰC cho "
+    "ngành xuất khẩu VN cùng mặt hàng), KHÔNG viết ngược thành 'VN gặp áp lực'.\n"
     "BẮT BUỘC: tin về vàng / dầu / lãi suất / tỷ giá / Fed / CPI / lạm phát / đầu "
     "tư công / tín dụng / xuất nhập khẩu LUÔN có kênh → PHẢI nêu ngành, TUYỆT ĐỐI "
-    "KHÔNG trả 'không tác động'.\n"
+    "KHÔNG trả 'không tác động'. Nhưng KHÔNG ÉP CHIỀU: kênh tới cổ phiếu VN mơ "
+    "hồ/gián tiếp yếu → TRUNG_LẬP với mô tả thận trọng, không bịa 'hưởng lợi'/"
+    "'chịu áp lực' cho có nhãn.\n"
     "CHỈ trả 'TRUNG_LẬP | không tác động trực tiếp' khi tin HOÀN TOÀN phi kinh tế "
     "(an ninh/quân sự/chính trị nước ngoài thuần tuý, hình sự, giải trí, thể thao).\n"
     "Chỉ in 1 dòng, không giải thích thêm."
@@ -276,6 +289,19 @@ _ANALYZE_MODELS = {
     "Cerebras": "llama3.3-70b",
     "OpenRouter": "meta-llama/llama-3.3-70b-instruct:free",
 }
+
+# Route TRẢ PHÍ trước (TODO 1b, kích hoạt 21/07 sau 2 ngày liên tiếp ≥2-3
+# dòng mapping gượng từ 70B free): ≤ _MAX_ANALYZE_DEFAULT call/ngày nên chi
+# phí nhỏ; Anthropic lỗi/thiếu key → fallback ladder free như cũ. Kill-switch
+# theo nếp repo: VNSTOCK_NEWS_ANALYZE_PAID=0. Đổi model (vd claude-opus-4-8
+# khi cần nuance tối đa): VNSTOCK_NEWS_ANALYZE_MODEL.
+_ANALYZE_PAID_ENV = "VNSTOCK_NEWS_ANALYZE_PAID"
+_ANALYZE_MODEL_ENV = "VNSTOCK_NEWS_ANALYZE_MODEL"
+
+
+def _paid_analyze_enabled() -> bool:
+    return (os.environ.get(_ANALYZE_PAID_ENV) or "1").strip().lower() \
+        not in ("0", "false", "off")
 # Impact sentinel for items with no clear VN-equity link → filtered from the brief.
 _NO_IMPACT = "không tác động trực tiếp"
 
@@ -299,7 +325,18 @@ def analyze_item(item: dict) -> tuple[str, str]:
         body = fetch_fulltext(item.get("link", ""))
         if body:
             user += f"\nNội dung bài (rút gọn): {body}"
-    raw = chat_complete(_ANALYZE_SYSTEM, user, max_tokens=120, model_map=_ANALYZE_MODELS)
+    raw = None
+    if _paid_analyze_enabled():
+        try:
+            from vnstock_sentiment import anthropic_complete
+            raw = anthropic_complete(
+                _ANALYZE_SYSTEM, user, max_tokens=120,
+                model=os.environ.get(_ANALYZE_MODEL_ENV))
+        except Exception:
+            raw = None
+    if not raw:
+        raw = chat_complete(_ANALYZE_SYSTEM, user, max_tokens=120,
+                            model_map=_ANALYZE_MODELS)
     if not raw:
         return "", ""
     head, _, impact = raw.partition("|")

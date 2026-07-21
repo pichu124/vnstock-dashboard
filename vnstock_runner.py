@@ -620,7 +620,7 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
     result = result.rename(columns={"_sector_group": "Ngành"})
     result = result.sort_values("Vốn hoá (tỷ)", ascending=False).reset_index(drop=True)
 
-    # Per-date GTGD map over the last ~5 sessions: {iso_date: {total, count}}.
+    # Per-date GTGD map over the last ~20 sessions: {iso_date: {total, count}}.
     # total_gtgd_day/gtgd_ticker_count expose the latest COMPLETE session via
     # _pick_gtgd_session (an in-progress day with few names yet is skipped);
     # the brief instead looks up gtgd_by_date for ITS effective trading date.

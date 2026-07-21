@@ -1776,6 +1776,50 @@ def _wallclock_intraday(data_date_str: str, now: "datetime | None" = None) -> bo
     return data_date_str == now.date().isoformat() and now.time() < time(15, 5)
 
 
+_GTGD_COVERAGE_MIN_RATIO = 0.7   # ngày có count < 70% median(count) = thiếu coverage
+
+
+def _gtgd_baselines(byd: dict, data_date: str) -> "dict | None":
+    """full_day_gtgd_cmp {prev, avg5[, avg20]} từ map ``gtgd_by_date`` của
+    runner, LOẠI các ngày under-covered khỏi baseline.
+
+    Map per-date được cộng dồn từ 22 bar cuối CỦA TỪNG MÃ (vnstock_runner)
+    → ngày nào rơi ngoài cửa sổ của các mã sync trễ / mã thiếu bar sẽ HỤT
+    TỔNG một cách hệ thống, kéo baseline TB5/TB20 lệch theo trạng thái kho
+    tại thời điểm chạy screener (thấy thật 21/07: bản 01:22 ra "+28% vs
+    TB20" còn bản 16:18 ra "+0%" cho cùng dữ liệu — không thể cùng đúng).
+    ``count`` per-date là proxy coverage: count < 70% median(count) → loại
+    (phiên trầm lắng THẬT vẫn có ~hầu hết mã in ≥1 lệnh — count thấp là
+    thiếu DATA, không phải thị trường vắng). prev = phiên gần nhất ĐÃ QUA
+    GATE; avg20 chỉ xuất khi ≥15 phiên gated (giữ ngưỡng cũ "đủ phiên cho
+    baseline TB20 thật"). Map cũ không có count → giữ hành vi cũ (không
+    gate). None khi không còn phiên nào dùng được."""
+    entries: list[tuple[str, float, int]] = []
+    for k in sorted(byd or {}, reverse=True):
+        if k >= data_date:
+            continue
+        e = byd.get(k) or {}
+        t = e.get("total")
+        if isinstance(t, (int, float)) and t > 0:
+            entries.append((k, float(t), int(e.get("count") or 0)))
+    if not entries:
+        return None
+    counts = [c for _, _, c in entries if c > 0]
+    if counts:
+        import statistics as _st
+        _floor = _GTGD_COVERAGE_MIN_RATIO * _st.median(counts)
+        gated = [t for _, t, c in entries if c >= _floor]
+    else:                          # map cũ không có count → không gate
+        gated = [t for _, t, _ in entries]
+    if not gated:
+        return None
+    cmp: dict = {"prev": gated[0],
+                 "avg5": round(sum(gated[:5]) / len(gated[:5]), 1)}
+    if len(gated) >= 15:
+        cmp["avg20"] = round(sum(gated[:20]) / len(gated[:20]), 1)
+    return cmp
+
+
 def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> dict:
     """Collect all available market data for brief generation.
 
@@ -1853,16 +1897,11 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
                     # borrow the morning's sáng-với-sáng % (observed: "GTGD
                     # 11,929 tỷ, giảm 43% so với sáng phiên trước" — the -43%
                     # belongs to the morning figure, not the full-day total).
-                    _prior = [_byd[k]["total"] for k in sorted(_byd, reverse=True)
-                              if k < _data_date_str and _byd[k].get("total")]
-                    if _prior:
-                        ctx["full_day_gtgd_cmp"] = {
-                            "prev": _prior[0],
-                            "avg5": round(sum(_prior[:5]) / len(_prior[:5]), 1),
-                        }
-                        if len(_prior) >= 15:   # đủ phiên cho baseline TB20 thật
-                            ctx["full_day_gtgd_cmp"]["avg20"] = round(
-                                sum(_prior[:20]) / len(_prior[:20]), 1)
+                    # Baseline qua _gtgd_baselines: loại ngày under-covered
+                    # (count thấp = mã sync trễ làm hụt tổng, review 21/07).
+                    _cmp = _gtgd_baselines(_byd, _data_date_str)
+                    if _cmp:
+                        ctx["full_day_gtgd_cmp"] = _cmp
                 else:
                     ctx["full_day_gtgd_partial"] = float(_tg)
         except Exception:

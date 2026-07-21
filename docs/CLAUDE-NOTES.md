@@ -1319,6 +1319,37 @@ băng, macro-anchor hijack).
        `_SR_MAX_MOVE_PCT` 7.0 (percent) → 0.07 (fraction — CÙNG đơn vị
        `_SR_MIN_DIST_PCT`/`_SR_MIN_GAP_PCT`, định nghĩa dời về cùng block
        cạnh `_select_sr_levels`) — hết `/100.0` lệch pha giữa 2 chỗ dùng.
+    g. **Baseline GTGD TB5/TB20 gate theo COVERAGE (user "làm luôn" sau
+       brief 16:18 ra "+0% vs TB20" trong khi bản 01:22 ra "+28%")**: map
+       `gtgd_by_date` cộng dồn 22 bar cuối CỦA TỪNG MÃ → ngày rơi ngoài
+       cửa sổ của mã sync trễ bị HỤT TỔNG hệ thống, baseline lệch theo
+       trạng thái kho lúc chạy screener. Fix: `_gtgd_baselines` (vnstock_
+       brief, tách thuần + test) loại ngày có count < 70% median(count)
+       khỏi prev/avg5/avg20 (count thấp = thiếu DATA, không phải phiên
+       vắng — phiên trầm vẫn có ~hầu hết mã in ≥1 lệnh); map cũ không có
+       count giữ hành vi cũ. Soi trên máy thật: `python vnstock_diagnose.py
+       --gtgd` (in bảng total/count per ngày + baseline trước/sau gate —
+       CHẠY SAU MỖI LẦN NGHI % GTGD SAI để phân xử data vs guard). LƯU Ý:
+       chưa phân xử được bản nào trong 2 bản 21/07 đúng — cần chạy audit
+       trên kho thật; gate làm cả 2 lần chạy hội tụ về số đúng hơn.
+    h. **Nâng model chấm tin (TODO 1b kích hoạt — 2 ngày liên tiếp ≥3 dòng
+       mapping gượng: "kim cương khó mua lại → PNJ hưởng lợi", "margin kỷ
+       lục = 🟢 ngày sập", "Canada bị thuế → VN gặp áp lực" NGƯỢC logic
+       cạnh tranh)**: làm CẢ 2 hướng — (i) prompt `_ANALYZE_SYSTEM` thêm 4
+       luật trung lập: cấm suy diễn ngược nội dung bài, tin hai-chiều
+       (margin/cho vay kỷ lục) → TRUNG_LẬP, thuế lên nước KHÁC xét đúng
+       logic cạnh tranh, nới "TUYỆT ĐỐI KHÔNG 'không tác động'" bằng
+       "KHÔNG ÉP CHIỀU — kênh yếu → TRUNG_LẬP thận trọng"; (ii) route TRẢ
+       PHÍ TRƯỚC: `vnstock_sentiment.anthropic_complete` (Messages API raw
+       requests khớp pattern ClaudeAgent; KHÔNG gửi temperature — Opus
+       4.7+ bỏ sampling params trả 400; model mặc định = ClaudeAgent
+       claude-haiku-4-5-20251001, override `VNSTOCK_NEWS_ANALYZE_MODEL`
+       vd claude-opus-4-8) → lỗi/thiếu key fallback ladder free y cũ.
+       Kill-switch nếp repo: `VNSTOCK_NEWS_ANALYZE_PAID=0`. ≤8 call/ngày
+       (`_MAX_ANALYZE_DEFAULT`) → chi phí ~vài trăm đồng/ngày. SAU KHI
+       PULL trên máy thật: `python vnstock_news_feeds.py --reanalyze` để
+       chấm lại 8 tin mới nhất bằng prompt + model mới; theo dõi 2-3 hôm,
+       còn gượng → nâng `VNSTOCK_NEWS_ANALYZE_MODEL=claude-opus-4-8`.
 
 ### 📅 AUDIT LỊCH ĐỊNH KỲ sau ~10 đợt tích hợp (17/07 — chốt 20/07, 2/3 DONE)
 
