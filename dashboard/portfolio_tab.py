@@ -17,13 +17,15 @@ Live price resolution
 ``resolve_current_price`` (FIX 2026-07-20 — bug user bắt: quote WSS cũ
 đóng băng giá SSI 26,650 trong khi kho đã có bar 20/07 = 22,700):
 nguồn có NGÀY DATA mới hơn thắng giữa
-  1. ``<warehouse>/_live/quote_{TICKER}.json`` — WSS snapshot (ngày từ
-     field ``time``, fallback mtime file)
+  1. ``<warehouse>/_live/quote_{TICKER}.json`` — WSS snapshot (ngày CHỈ từ
+     field ``time``; thiếu time → bỏ nguồn, mtime không tin được)
   2. bar MỚI NHẤT THEO THỜI GIAN trong kho parquet (gộp mọi file — Dropbox
      conflicted copy — qua ``vnstock_networth._close_series``)
 cùng ngày → live (trong phiên tươi hơn close EOD); giá NEO về đơn vị
-buy_price của user (kho trộn VND thô/nghìn đồng per-bar). Bảng hiện
-ngày·nguồn cạnh giá + tripwire ⚠ khi %L/L ngay trong ngày mua vượt ±7%.
+buy_price của user (kho trộn VND thô/nghìn đồng per-bar): kho neo bằng
+close ≤ buy_date, quote neo qua close kho. Bảng hiện ngày·nguồn cạnh giá
++ tripwire ⚠ khi %L/L ngay trong ngày mua vượt xa mọi biên độ phiên hợp
+lệ (nghi lệch đơn vị 1000× — ``_unit_suspect``).
 
 If neither yields a price > 0, the row still renders but shows ``—`` for
 current price and contributes 0 to the portfolio total — intentional
@@ -79,27 +81,12 @@ def _live_quote(ticker: str, warehouse: Path) -> dict | None:
         return None
 
 
-def _warehouse_last_close(ticker: str, warehouse: Path) -> float:
-    import pyarrow.parquet as pq
-    ticker_dir = warehouse / "prices" / f"ticker={ticker}"
-    if not ticker_dir.exists():
-        return 0.0
-    try:
-        for year_dir in sorted(ticker_dir.iterdir(), reverse=True):
-            if not year_dir.is_dir():
-                continue
-            for pq_file in sorted(year_dir.glob("*.parquet"), reverse=True):
-                tbl = pq.read_table(str(pq_file), columns=["close"]).to_pandas()
-                if not tbl.empty:
-                    return float(tbl["close"].iloc[-1])
-    except Exception:
-        return 0.0
-    return 0.0
-
-
 def _quote_price_date(ticker: str, warehouse: Path) -> tuple[float, str] | None:
-    """(price, iso_date) từ snapshot WSS — ngày từ field ``time`` trong JSON,
-    fallback mtime file. None khi thiếu file / giá rác."""
+    """(price, iso_date) từ snapshot WSS — ngày CHỈ lấy từ field ``time``
+    trong JSON (writer WSS luôn ghi). None khi thiếu file / giá rác / thiếu
+    time: quote legacy/corrupt KHÔNG được lấy mtime file làm ngày data —
+    Dropbox re-sync làm mới mtime khiến quote cũ đội lốt hôm nay và thắng
+    bar kho mới (review 21/07)."""
     q = _live_quote(ticker, warehouse)
     if not q:
         return None
@@ -111,13 +98,7 @@ def _quote_price_date(ticker: str, warehouse: Path) -> tuple[float, str] | None:
         return None
     day = str(q.get("time") or "")[:10]
     if len(day) != 10 or day[4:5] != "-":
-        try:
-            from datetime import datetime as _dt
-            mtime = (warehouse / "_live"
-                     / f"quote_{ticker.upper()}.json").stat().st_mtime
-            day = _dt.fromtimestamp(mtime).date().isoformat()
-        except OSError:
-            return None
+        return None
     return price, day
 
 
@@ -132,33 +113,46 @@ def resolve_current_price(ticker: str, buy_price: float, buy_date: str,
     thời gian, không chuẩn hóa đơn vị). Nay:
     - nguồn có NGÀY DATA mới hơn thắng; cùng ngày → live (tươi hơn close);
     - bar kho = mới nhất THEO THỜI GIAN, gộp mọi file parquet (Dropbox
-      conflicted copy) qua ``vnstock_networth._close_series``;
+      conflicted copy) qua ``vnstock_networth._close_series``, cửa sổ đọc
+      tính TỪ buy_date (``_span_days`` — cửa sổ cứng 400 ngày cũ làm mất
+      close quanh ngày mua khi vị thế già hơn cửa sổ, review 21/07);
     - giá NEO về đơn vị buy_price (``_anchor_factor`` — kho trộn VND thô ↔
-      nghìn đồng per-bar).
+      nghìn đồng per-bar): kho neo bằng close ≤ buy_date; quote neo qua
+      close kho cùng/kề phiên (KHÔNG neo thẳng vào buy_price tại ngày hôm
+      nay — giá trôi >2× kể từ ngày mua làm residual bung khỏi _ANCHOR_TOL
+      → factor kẹt 1.0 → 24.5 VND cho cổ phiếu 24,500, review 21/07);
+      không có kho → fallback neo buy_price như cũ (hết mốc nào khác).
     (0.0, "", "") khi không nguồn nào dùng được.
     """
     try:
-        from vnstock_networth import _anchor_factor, _close_series
+        from vnstock_networth import _anchor_factor, _close_series, _span_days
     except Exception:
         return 0.0, "", ""
+    from datetime import date as _date
     warehouse = Path(warehouse)
     bp = float(buy_price or 0)
     bd = str(buy_date or "")[:10]
 
     candidates: list[tuple[str, int, float, str]] = []
     try:
-        series = _close_series(ticker, 400, prices_dir=warehouse / "prices")
+        days = _span_days(bd, _date.today().isoformat())
+        series = _close_series(ticker, days, prices_dir=warehouse / "prices")
     except Exception:
         series = []
+    kho_ref = 0.0
     if series:
         dates = [d for d, _ in series]
         vals = [c for _, c in series]
         f = _anchor_factor(dates, vals, bd or dates[-1], bp) if bp > 0 else 1.0
-        candidates.append((dates[-1], 0, vals[-1] * f, "kho"))
+        kho_ref = vals[-1] * f          # close kho mới nhất, ĐÃ về đơn vị buy_price
+        candidates.append((dates[-1], 0, kho_ref, "kho"))
     q = _quote_price_date(ticker, warehouse)
     if q is not None:
         price, day = q
-        f = _anchor_factor([day], [price], day, bp) if bp > 0 else 1.0
+        if kho_ref > 0:
+            f = _anchor_factor([day], [price], day, kho_ref)
+        else:
+            f = _anchor_factor([day], [price], day, bp) if bp > 0 else 1.0
         candidates.append((day, 1, price * f, "live"))
     if not candidates:
         return 0.0, "", ""
@@ -167,6 +161,46 @@ def resolve_current_price(ticker: str, buy_price: float, buy_date: str,
     # GT hiện tại "454,000,015"); 6 chữ số có nghĩa đủ cho mọi thang giá
     price = float(f"{price:.6g}")
     return price, day, source
+
+
+# Tripwire NGÀY MUA: %L/L cùng ngày vượt xa MỌI biên độ phiên hợp lệ (HOSE
+# ±7% · HNX ±10% · UPCoM ±15%, chào sàn tới ±40%; mua đáy −N% đóng trần +N%
+# cũng chỉ tới ~±hai lần biên) → gần như chỉ còn lệch đơn vị giá 1000×:
+# giá bị chia 1000 → ~−99.9%, bị nhân 1000 → ~+99,900%. Ngưỡng ±7.5% cũ
+# dán nhãn "chắc chắn sai" cho cả dữ liệu HNX/UPCoM đúng (review 21/07).
+_UNIT_TRIPWIRE_LOSS_PCT = -90.0
+_UNIT_TRIPWIRE_GAIN_PCT = 300.0
+
+
+def _unit_suspect(buy_date: str, price_date: str, pnl_pct: float) -> bool:
+    """True khi %L/L NGAY TRONG NGÀY MUA vượt ngưỡng nghi lệch đơn vị 1000×.
+    Chỉ so khi price_date == buy_date (khác ngày: giá trôi hợp lệ không giới
+    hạn — tripwire mù, đã có neo qua kho trong resolve_current_price lo)."""
+    bd = str(buy_date or "")[:10]
+    pd_ = str(price_date or "")[:10]
+    if not bd or not pd_ or bd != pd_:
+        return False
+    return (pnl_pct <= _UNIT_TRIPWIRE_LOSS_PCT
+            or pnl_pct >= _UNIT_TRIPWIRE_GAIN_PCT)
+
+
+_NAV_DTICK_MAX_SESSIONS = 10   # chuỗi ≤ ngưỡng: ép tick 1 ngày (nhãn lặp)
+_ONE_DAY_MS = 86_400_000
+
+
+def _nav_xaxis(n_sessions: int) -> dict:
+    """Cấu hình trục X chart NAV: tick theo NGÀY (hết nhãn 00:00/12:00) + ẩn
+    T7-CN (hết đoạn thẳng xuyên cuối tuần; ngày lễ VN vẫn tạo gap nhỏ — chấp
+    nhận, không có lịch nghỉ lễ). Chuỗi ngắn ≤ _NAV_DTICK_MAX_SESSIONS phiên:
+    plotly auto chia tick DƯỚI 1 ngày → nhãn lặp ("16/07 · 16/07 · 17/07…")
+    — ép dtick đúng 1 ngày; chuỗi dài giữ auto (dtick cứng làm trục dày)."""
+    xaxis: dict = {
+        "tickformat": "%d/%m",
+        "rangebreaks": [{"bounds": ["sat", "mon"]}],
+    }
+    if n_sessions <= _NAV_DTICK_MAX_SESSIONS:
+        xaxis["dtick"] = _ONE_DAY_MS
+    return xaxis
 
 
 def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
@@ -179,6 +213,14 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
 
     warehouse = Path(warehouse)
     st.markdown("### 💼 Danh mục đầu tư")
+
+    # Cache theo rerun (review 21/07): resolver đọc TOÀN BỘ lịch sử parquet
+    # của mã (gộp mọi file qua _close_series) cho TỪNG vị thế — không cache
+    # thì mỗi rerun Streamlit đọc lại từ đầu. TTL ngắn để live mode vẫn tươi;
+    # best-effort: streamlit quá cũ thiếu cache_data → gọi thẳng.
+    _cache = getattr(st, "cache_data", None)
+    _resolve_price = (_cache(ttl=60, show_spinner=False)(resolve_current_price)
+                      if _cache else resolve_current_price)
 
     positions = _load_portfolio(warehouse)
 
@@ -229,7 +271,7 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
         invested = qty * buy_price
         total_invested += invested
 
-        current_price, price_date, price_src = resolve_current_price(
+        current_price, price_date, price_src = _resolve_price(
             ticker, buy_price, buy_date, warehouse)
 
         current_val = qty * current_price if current_price > 0 else 0
@@ -309,13 +351,8 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
                          f"{r['price_date'][5:]}·{r.get('price_src', '')}"
                          "</span>")
             _cur_cell = f"{r['current_price']:,.0f}{_meta}"
-        # tripwire: %L/L ngay trong NGÀY MUA vượt biên độ ±7%/phiên HOSE
-        # → giá/đơn vị gần như chắc chắn sai (đúng cách bug 20/07 bị bắt)
-        _band_warn = bool(
-            r.get("price_date") and r.get("buy_date")
-            and str(r["buy_date"])[:10] == r["price_date"]
-            and abs(r["pnl_pct"]) > 7.5
-        )
+        _band_warn = _unit_suspect(
+            r.get("buy_date", ""), r.get("price_date", ""), r["pnl_pct"])
         _any_band_warn = _any_band_warn or _band_warn
         _warn_mark = "⚠ " if _band_warn else ""
         _rows_html += (
@@ -351,8 +388,9 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
     st.markdown(_tbl, unsafe_allow_html=True)
     if _any_band_warn:
         st.caption(
-            "⚠ %Lãi/Lỗ ngay trong NGÀY MUA vượt biên độ ±7%/phiên HOSE — "
-            "giá hoặc đơn vị gần như chắc chắn sai; soi cột Giá hiện tại "
+            "⚠ %Lãi/Lỗ ngay trong NGÀY MUA vượt xa mọi biên độ phiên hợp lệ "
+            "(HOSE ±7% · HNX ±10% · UPCoM ±15%, chào sàn tới ±40%) — nghi "
+            "lệch đơn vị giá 1000× (VND ↔ nghìn đồng); soi cột Giá hiện tại "
             "(ngày·nguồn) và kiểm tra nguồn giá."
         )
 
@@ -361,7 +399,9 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
     st.markdown("#### 📈 Giá trị danh mục theo thời gian (NAV)")
     try:
         from vnstock_networth import load_networth
-        _nw = load_networth(warehouse)
+        _nw_load = (_cache(ttl=300, show_spinner=False)(load_networth)
+                    if _cache else load_networth)
+        _nw = _nw_load(warehouse)
         if not _nw or not _nw.get("nav_rebased"):
             st.caption("Chưa đủ dữ liệu giá trong kho để dựng đường NAV "
                        "(cần ≥ 2 phiên kể từ ngày mua sớm nhất).")
@@ -378,18 +418,7 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
                         x=_nw["dates"], y=_nw["index_rebased"],
                         name="VNINDEX",
                         line=dict(color="#94a3b8", width=1.5, dash="dash")))
-                # tick theo NGÀY (hết nhãn 00:00/12:00) + ẩn T7-CN
-                # (hết đoạn thẳng xuyên cuối tuần); ngày lễ VN vẫn
-                # tạo gap nhỏ — chấp nhận (không có lịch nghỉ lễ)
-                _xaxis_nw = dict(
-                    tickformat="%d/%m",
-                    rangebreaks=[dict(bounds=["sat", "mon"])],
-                )
-                if len(_nw["dates"]) <= 10:
-                    # ít điểm: plotly auto chia tick DƯỚI 1 ngày → nhãn
-                    # lặp ("16/07 · 16/07 · 17/07…") — ép tick đúng 1
-                    # ngày; chuỗi dài giữ auto (dtick cứng làm trục dày)
-                    _xaxis_nw["dtick"] = 86_400_000  # 1 ngày (ms)
+                _xaxis_nw = _nav_xaxis(len(_nw["dates"]))
                 _fig_nw.update_layout(
                     height=320,
                     margin=dict(l=0, r=0, t=10, b=0),

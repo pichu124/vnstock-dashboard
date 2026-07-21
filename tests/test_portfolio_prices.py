@@ -98,17 +98,46 @@ def test_conflicted_copy_newest_bar_wins_by_time(tmp_path):
     assert abs(price - 22700.0) < 1.0
 
 
-def test_quote_without_time_field_uses_mtime(tmp_path):
-    """Quote thiếu field time → lấy ngày từ mtime file (hôm nay) → vẫn thắng
-    kho dừng hôm qua."""
+def test_quote_without_time_field_ignored(tmp_path):
+    """Quote thiếu field time (legacy/corrupt — writer WSS luôn ghi time):
+    mtime file KHÔNG tin được làm ngày data (Dropbox re-sync làm mới mtime →
+    quote cũ đội lốt hôm nay, thắng bar kho mới — review 21/07) → bỏ nguồn
+    live, dùng kho."""
     _write_prices(tmp_path, "SSI", [(D[2], 23.0)])
     _write_quote(tmp_path, "SSI", 22850.0, with_time=False)
-    got = _quote_price_date("SSI", tmp_path)
-    assert got is not None and got[1] == str(TODAY)
+    assert _quote_price_date("SSI", tmp_path) is None
     price, _day, src = resolve_current_price(
         "SSI", 23000.0, str(D[2]), tmp_path)
+    assert src == "kho"
+    assert abs(price - 23000.0) < 1.0
+
+
+def test_quote_unit_mismatch_with_drift_anchored_via_kho(tmp_path):
+    """Giá đã ×3 KỂ TỪ NGÀY MUA (review 21/07): neo quote thẳng vào buy_price
+    tại ngày HÔM NAY (code cũ) làm residual bung khỏi _ANCHOR_TOL → factor kẹt
+    1.0 → hiển thị 24.5 VND cho cổ phiếu 24,500. Nay quote neo qua close kho
+    cùng/kề phiên (lệch tối đa vài % — luôn trong dung sai)."""
+    _write_prices(tmp_path, "SSI", [(D[0], 8.0), (D[2], 23.0), (D[3], 24.0)])
+    _write_quote(tmp_path, "SSI", 24.5, day=str(D[3]))
+    price, day, src = resolve_current_price(
+        "SSI", 8000.0, str(D[0]), tmp_path)
     assert src == "live"
-    assert abs(price - 22850.0) < 1.0
+    assert day == str(D[3])
+    assert abs(price - 24500.0) < 1.0
+
+
+def test_kho_anchor_when_buy_date_older_than_window(tmp_path):
+    """buy_date hơn 400 ngày trước (review 21/07): cửa sổ kho cứng 400 ngày
+    (code cũ) mất close quanh ngày mua → neo vào bar ĐẦU CỬA SỔ (giá đã
+    ×2.15) → ngoài dung sai → 22 VND. Nay span đọc kho tính từ buy_date
+    như load_networth."""
+    far = TODAY - timedelta(days=500)
+    _write_prices(tmp_path, "SSI", [(far, 10.0), (D[2], 21.5), (D[3], 22.0)])
+    price, day, src = resolve_current_price(
+        "SSI", 10000.0, str(far), tmp_path)
+    assert src == "kho"
+    assert day == str(D[3])
+    assert abs(price - 22000.0) < 1.0
 
 
 def test_no_sources_returns_zero(tmp_path):
