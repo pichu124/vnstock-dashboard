@@ -11,10 +11,10 @@ Thiết kế:
   • Parse RSS bằng STDLIB (``xml.etree``) — KHÔNG thêm dependency (RSS 2.0/Atom).
   • Fetch best-effort qua ``requests`` (đã là dep). Feed lỗi → bỏ qua, không bịa.
   • Phân tích LLM CHỈ chạy cho tập đã lọc + top-N mới nhất (kiểm soát token), cache
-    kết quả trong JSON nên không chấm lại. Route TRẢ PHÍ TRƯỚC (TODO 1b —
-    Anthropic, ≤8 call/ngày, 70B free hay bịa chiều tác động), lỗi/thiếu key →
-    fallback ladder free. Tắt: ``VNSTOCK_NEWS_ANALYZE_PAID=0``; đổi model:
-    ``VNSTOCK_NEWS_ANALYZE_MODEL`` (mặc định theo ClaudeAgent của brief).
+    kết quả trong JSON nên không chấm lại. FREE-FIRST (user chốt 22/07):
+    Gemini 3.5 Flash chính qua ladder ``chat_complete`` + ``_ANALYZE_MODELS``;
+    route Opus trả phí nay là OPT-IN — bật: ``VNSTOCK_NEWS_ANALYZE_PAID=1``;
+    đổi model trả phí: ``VNSTOCK_NEWS_ANALYZE_MODEL``.
   • FULL TEXT qua Jina Reader (https://r.jina.ai/<URL> — free, không cần key):
     ``analyze_item`` tự fetch nội dung bài (best-effort) cho ĐÚNG các tin sắp
     chấm LLM → model thấy toàn bài thay vì chỉ title+description RSS (giảm lỗi
@@ -282,29 +282,35 @@ _ANALYZE_SYSTEM = (
     "Chỉ in 1 dòng, không giải thích thêm."
 )
 
-# Nuanced analysis needs a stronger model than the 8B sentiment scorer — prefer a
-# free 70B per provider, falling back to the provider default 8B if unavailable.
+# Nuance analysis dùng model MẠNH hơn con mặc định của ladder sentiment —
+# override per-provider cho chat_complete (thử override trước, hỏng rơi về
+# default của provider). Thay 22/07/2026 (probe scripts/probe_models.py, user
+# chốt bỏ Opus → free-first): Gemini 3.5 Flash là nấc chính (đa ngữ tốt nhất
+# nhóm free, ~$0.2/tháng trên key Postpay); 70B llama cũ deprecated/gỡ →
+# Groq qwen3.6-27b (Groq chỉ định thay 70B); OpenRouter nemotron-ultra-550b
+# (:free mạnh nhất catalog — qwen-235b:free chết-sống thất thường 22/07,
+# không tin cậy làm nấc). Cerebras không override → default gemma-4-31b.
 _ANALYZE_MODELS = {
-    "Groq": "llama-3.3-70b-versatile",
-    "Cerebras": "llama3.3-70b",
-    "OpenRouter": "meta-llama/llama-3.3-70b-instruct:free",
+    "Gemini": "gemini-3.5-flash",
+    "Groq": "qwen/qwen3.6-27b",
+    "OpenRouter": "nvidia/nemotron-3-ultra-550b-a55b:free",
 }
 
-# Route TRẢ PHÍ trước (TODO 1b, kích hoạt 21/07 sau 2 ngày liên tiếp ≥2-3
-# dòng mapping gượng từ 70B free): ≤ _MAX_ANALYZE_DEFAULT call/ngày nên chi
-# phí nhỏ; Anthropic lỗi/thiếu key → fallback ladder free như cũ. Kill-switch
-# theo nếp repo: VNSTOCK_NEWS_ANALYZE_PAID=0. Model mặc định = Opus (chấm
-# tin là tác vụ NUANCE — batch Haiku 21/07 vẫn còn ca borderline "PNJ hưởng
-# lợi từ động thái của chính mình"; 8 call/ngày × ~3K token → ~vài USD/tháng,
-# user chốt "đổi model tốt hơn" 21/07); hạ cấp/đổi: VNSTOCK_NEWS_ANALYZE_MODEL.
+# Route TRẢ PHÍ (Opus) nay là OPT-IN, mặc định TẮT — lịch sử: TODO 1b bật
+# Opus 21/07 vì 70B free bịa chiều tác động; 22/07 user chốt FREE-FIRST sau
+# khi Gemini flash-lite chấm đạt (batch 8 tin 22/07 — mapping kênh chuẩn,
+# tin phi kinh tế trả đúng "không tác động"). Free chấm gượng trở lại →
+# bật Opus bằng 1 dòng env, không sửa code: VNSTOCK_NEWS_ANALYZE_PAID=1
+# (+ ANTHROPIC_API_KEY); đổi model trả phí: VNSTOCK_NEWS_ANALYZE_MODEL.
 _ANALYZE_PAID_ENV = "VNSTOCK_NEWS_ANALYZE_PAID"
 _ANALYZE_MODEL_ENV = "VNSTOCK_NEWS_ANALYZE_MODEL"
 _ANALYZE_MODEL_DEFAULT = "claude-opus-4-8"
 
 
 def _paid_analyze_enabled() -> bool:
-    return (os.environ.get(_ANALYZE_PAID_ENV) or "1").strip().lower() \
-        not in ("0", "false", "off")
+    # đảo mặc định 22/07: unset/rỗng = TẮT; chỉ giá trị bật tường minh mới bật
+    return (os.environ.get(_ANALYZE_PAID_ENV) or "0").strip().lower() \
+        in ("1", "true", "on", "yes")
 # Impact sentinel for items with no clear VN-equity link → filtered from the brief.
 _NO_IMPACT = "không tác động trực tiếp"
 

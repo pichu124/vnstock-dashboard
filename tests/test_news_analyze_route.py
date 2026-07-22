@@ -83,7 +83,7 @@ def test_anthropic_complete_model_override(monkeypatch):
 
 def test_paid_route_wins_and_free_ladder_untouched(monkeypatch):
     monkeypatch.setenv("VNSTOCK_NEWS_FULLTEXT", "0")
-    monkeypatch.delenv(nf._ANALYZE_PAID_ENV, raising=False)   # mặc định BẬT
+    monkeypatch.setenv(nf._ANALYZE_PAID_ENV, "1")   # 22/07: opt-in, phải bật
     monkeypatch.delenv(nf._ANALYZE_MODEL_ENV, raising=False)
     seen = {}
 
@@ -98,12 +98,13 @@ def test_paid_route_wins_and_free_ladder_untouched(monkeypatch):
     s, imp = nf.analyze_item({"title": "Lãi suất tăng"})
     assert s == "negative"
     assert imp == "Ngân hàng chịu áp lực NIM"
-    # chấm tin là tác vụ nuance → mặc định Opus (user chốt 21/07); env override được
+    # route trả phí (khi opt-in) vẫn mặc định Opus; env override được
     assert seen["model"] == nf._ANALYZE_MODEL_DEFAULT == "claude-opus-4-8"
 
 
 def test_paid_route_falls_back_to_free_ladder(monkeypatch):
     monkeypatch.setenv("VNSTOCK_NEWS_FULLTEXT", "0")
+    monkeypatch.setenv(nf._ANALYZE_PAID_ENV, "1")
     monkeypatch.setattr("vnstock_sentiment.anthropic_complete",
                         lambda *a, **k: None)                 # lỗi/thiếu key
     monkeypatch.setattr("vnstock_sentiment.chat_complete",
@@ -130,12 +131,37 @@ def test_paid_switch_values():
 
 
 def test_paid_switch_parsing(monkeypatch):
+    # đảo mặc định 22/07 (free-first): unset/rỗng/0 = TẮT, bật phải tường minh
     for v, want in (("0", False), ("false", False), ("off", False),
-                    ("1", True), ("", True), ("yes", True)):
+                    ("", False), ("1", True), ("true", True),
+                    ("on", True), ("yes", True)):
         monkeypatch.setenv(nf._ANALYZE_PAID_ENV, v)
         assert nf._paid_analyze_enabled() is want, v
     monkeypatch.delenv(nf._ANALYZE_PAID_ENV, raising=False)
-    assert nf._paid_analyze_enabled() is True
+    assert nf._paid_analyze_enabled() is False
+
+
+def test_default_free_first_skips_paid_route(monkeypatch):
+    """Mặc định (không set env) → đi thẳng ladder free, KHÔNG gọi Anthropic."""
+    monkeypatch.setenv("VNSTOCK_NEWS_FULLTEXT", "0")
+    monkeypatch.delenv(nf._ANALYZE_PAID_ENV, raising=False)
+    monkeypatch.setattr("vnstock_sentiment.anthropic_complete",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError(
+                            "free-first mà vẫn gọi route trả phí")))
+    monkeypatch.setattr("vnstock_sentiment.chat_complete",
+                        lambda *a, **k: "TÍCH_CỰC | Dầu khí hưởng lợi")
+    s, imp = nf.analyze_item({"title": "Giá dầu tăng"})
+    assert s == "positive" and imp == "Dầu khí hưởng lợi"
+
+
+def test_analyze_models_slugs_22_07():
+    """Guard chống lùi về slug chết (llama 70B deprecated/gỡ, qwen-235b:free
+    zombie) — map override phải đúng bộ probe sống 22/07."""
+    assert nf._ANALYZE_MODELS == {
+        "Gemini": "gemini-3.5-flash",
+        "Groq": "qwen/qwen3.6-27b",
+        "OpenRouter": "nvidia/nemotron-3-ultra-550b-a55b:free",
+    }
 
 
 # ── prompt chống 3 lỗi quan sát 20-21/07 ───────────────────────────────────

@@ -3234,3 +3234,28 @@ bao giờ thay model theo catalog trên mạng, bài học kimi-k2 14/07 lặp l
    merge, cost prefix-match, ledger brief/auditor); test_sentiment +
    test_doctor thêm `GEMINI_API_KEY` vào danh sách delenv (không xóa thì máy
    có key Gemini sẽ fail test available_provider). Fast suite 795 passed.
+
+## 2026-07-22 (b) — Điểm [2] chấm tin: bỏ Opus, FREE-FIRST (user chốt)
+
+User chốt sau khi xem batch 8 tin 22/07 do Gemini flash-lite chấm (route Opus
+không chạy vì thiếu key — "hên": fallback ladder mới đỡ trọn, mapping kênh
+chuẩn, tin phi kinh tế trả đúng "không tác động trực tiếp"): **chọn model free
+tốt nhất làm CHÍNH, không dùng Opus trả phí nữa; chỉ quay lại trả phí khi
+free không đáp ứng**.
+
+- `_ANALYZE_MODELS` mới (override cho `chat_complete`, thử override trước →
+  default provider sau): Gemini `gemini-3.5-flash` (CHÍNH — mạnh nhất nhóm
+  free đã probe, đa ngữ tốt nhất; ~$0.2/tháng trên key Postpay) · Groq
+  `qwen/qwen3.6-27b` · OpenRouter `nvidia/nemotron-3-ultra-550b-a55b:free`.
+  Chuỗi hiệu dụng khi rơi hết: 3.5-flash → 3.5-flash-lite → qwen3.6-27b →
+  gpt-oss-20b → gemma-4-31b (Cerebras default) → nemotron-ultra →
+  gpt-oss-20b:free — KHÔNG còn nấc chết nào.
+- **`_paid_analyze_enabled` ĐẢO MẶC ĐỊNH**: unset/rỗng/`0` = TẮT; bật Opus
+  lại = `VNSTOCK_NEWS_ANALYZE_PAID=1` (+ key). `_ANALYZE_MODEL_DEFAULT` giữ
+  `claude-opus-4-8` cho lúc opt-in. Đường code trả phí GIỮ NGUYÊN — điều
+  kiện "free gượng mới dùng trả phí" nằm ở 1 dòng env, không phải sửa code.
+- Tests: đảo bảng parse switch (unset→False), paid-wins/fallback set env
+  `=1` tường minh, thêm `test_default_free_first_skips_paid_route` +
+  `test_analyze_models_slugs_22_07` (guard slug). Fast suite 795 passed.
+- Theo dõi 2-3 hôm: mapping gượng kiểu "PNJ hưởng lợi từ động thái của chính
+  mình" tái xuất trên 3.5-flash → bật lại Opus qua env (đừng hạ tiêu chuẩn).
