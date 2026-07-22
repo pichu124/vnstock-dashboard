@@ -99,24 +99,42 @@ _SYSTEM = (
     "Chỉ trả lời đúng 1 từ: TÍCH_CỰC hoặc TIÊU_CỰC hoặc TRUNG_LẬP."
 )
 
+# Ladder thay 22/07/2026 (probe 2 vòng trên máy thật — scripts/probe_models.py):
+# ladder 8B llama cũ chết gần hết (Groq deprecate 17/06, Cerebras đã gỡ,
+# OpenRouter hết bản :free). Nấc 1 = Gemini Flash-Lite (free tier 1,500
+# req/ngày; key Postpay ~$0.10/$0.40 per 1M — vẫn ≈0 với volume sentiment).
+# gpt-oss là REASONING model: cần "max_tokens" rộng để suy nghĩ trước khi
+# trả 1 từ (mặc định 10 là cụt output) + "extra" reasoning_effort=low trên
+# Groq; phần đuôi think-tag đã có strip_think_tags lo.
 _PROVIDERS = [
+    {
+        "name": "Gemini",
+        "env": "GEMINI_API_KEY",
+        "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        "model": "gemini-3.5-flash-lite",
+        "max_tokens": 256,
+    },
     {
         "name": "Groq",
         "env": "GROQ_API_KEY",
         "endpoint": "https://api.groq.com/openai/v1/chat/completions",
-        "model": "llama-3.1-8b-instant",
+        "model": "openai/gpt-oss-20b",
+        "max_tokens": 256,
+        "extra": {"reasoning_effort": "low"},
     },
     {
         "name": "Cerebras",
         "env": "CEREBRAS_API_KEY",
         "endpoint": "https://api.cerebras.ai/v1/chat/completions",
-        "model": "llama3.1-8b",
+        "model": "gemma-4-31b",
+        "max_tokens": 64,
     },
     {
         "name": "OpenRouter",
         "env": "OPENROUTER_API_KEY",
         "endpoint": "https://openrouter.ai/api/v1/chat/completions",
-        "model": "meta-llama/llama-3.1-8b-instruct:free",
+        "model": "openai/gpt-oss-20b:free",
+        "max_tokens": 256,
     },
 ]
 
@@ -142,12 +160,14 @@ def _call_provider(provider: dict, text: str) -> Optional[str]:
             },
             json={
                 "model": provider["model"],
-                "max_tokens": 10,
+                # reasoning model cần chỗ suy nghĩ — 10 token là cụt output
+                "max_tokens": int(provider.get("max_tokens") or 64),
                 "temperature": 0,
                 "messages": [
                     {"role": "system", "content": _SYSTEM},
                     {"role": "user", "content": text},
                 ],
+                **(provider.get("extra") or {}),
             },
             timeout=15,
         )
@@ -198,16 +218,23 @@ def chat_complete(system: str, user: str, max_tokens: int = 80,
         if ov and ov != p["model"]:
             models.append(ov)            # preferred (stronger) model first
         models.append(p["model"])        # default fallback
+        # sàn max_tokens theo provider: reasoning model (gpt-oss…) tiêu budget
+        # vào suy nghĩ trước — caller xin 80 mà cấp đúng 80 là cụt đáp án
+        floor_mt = max(max_tokens, int(p.get("max_tokens") or 0))
         for model in models:
             try:
                 resp = _req.post(
                     p["endpoint"],
                     headers={"Content-Type": "application/json",
                              "Authorization": f"Bearer {key}"},
-                    json={"model": model, "max_tokens": max_tokens,
+                    json={"model": model, "max_tokens": floor_mt,
                           "temperature": 0,
                           "messages": [{"role": "system", "content": system},
-                                       {"role": "user", "content": user}]},
+                                       {"role": "user", "content": user}],
+                          # extra tune cho model MẶC ĐỊNH của provider (vd
+                          # reasoning_effort của gpt-oss) — model override
+                          # khác họ có thể 400 vì param lạ → không gửi kèm
+                          **((p.get("extra") or {}) if model == p["model"] else {})},
                     timeout=25,
                 )
                 resp.raise_for_status()

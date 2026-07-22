@@ -336,7 +336,7 @@ def check_llm_keys() -> dict:
     if not provider and not brief_keys:
         return _result("llm_keys", name, "off", "chưa có key nào trong .env",
                        "thêm GROQ_API_KEY / ANTHROPIC_API_KEY… vào .env")
-    parts = [f"sentiment: {provider or '❌ không có (GROQ/CEREBRAS/OPENROUTER)'}"]
+    parts = [f"sentiment: {provider or '❌ không có (GEMINI/GROQ/CEREBRAS/OPENROUTER)'}"]
     parts.append(f"brief agent: {len(brief_keys)} key" if brief_keys
                  else "brief agent: ❌ không có key")
     status = "ok" if (provider and brief_keys) else "warn"

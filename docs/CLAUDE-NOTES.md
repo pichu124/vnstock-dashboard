@@ -3170,7 +3170,8 @@ the snap. See the data serialization loop (~line 2394) in `vnstock_dashboard.py`
 
 API keys live in `.env` (auto-loaded by `python-dotenv`):
 `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`,
-`DEEPSEEK_API_KEY`, `CEREBRAS_API_KEY`, `OPENROUTER_API_KEY`.
+`DEEPSEEK_API_KEY`, `CEREBRAS_API_KEY`, `OPENROUTER_API_KEY`,
+`GEMINI_API_KEY` (Google AI Studio, thêm 22/07 — sentiment nấc 1).
 
 Dashboard tab files:
 - `dashboard/market_tab.py` — Thị trường: AI Brief + training + recommendations
@@ -3186,3 +3187,50 @@ Dashboard tab files:
   load_market_news vẫn lọc within_days riêng), đọc lại mục 🎯/🌐 của brief cũ
   qua `vnstock_brief.brief_section(text, marker)` (public, cùng ranh giới mục
   với chuỗi guard) + `vnstock_memory.recent_briefs`.
+
+## 2026-07-22 — Thay ladder sentiment (điểm [1]) + ledger phủ đủ call trả phí + cột quy đổi tiền
+
+Bối cảnh: audit model 21-22/07 phát hiện ladder 8B llama chết gần hết (Groq
+deprecate `llama-3.1-8b-instant`/`llama-3.3-70b-versatile` 17/06; Cerebras đã
+gỡ `llama3.1-8b`/`llama-3.3-70b`; OpenRouter hết bản `:free` của llama 3.1-8B
+— ledger 21/07: 34/34 lỗi trên 2 nấc fallback). Slug mới chốt bằng **probe 2
+vòng trên máy thật** (`scripts/probe_models.py` — gọi 1 call thử/slug, đừng
+bao giờ thay model theo catalog trên mạng, bài học kimi-k2 14/07 lặp lại:
+`qwen3-235b-a22b:free` trên OpenRouter 4/4 OK ngày 21/07, **chết sáng 22/07**).
+
+1. **`vnstock_sentiment._PROVIDERS` mới** (điểm [1] trong sơ đồ 8 điểm dùng
+   LLM): Gemini `gemini-3.5-flash-lite` → Groq `openai/gpt-oss-20b`
+   (`extra: reasoning_effort=low`) → Cerebras `gemma-4-31b` → OpenRouter
+   `openai/gpt-oss-20b:free`. Entry provider giờ có `max_tokens` riêng
+   (reasoning model gpt-oss tiêu budget vào suy nghĩ — 10 token như cũ là cụt
+   output) + `extra` merge vào body. `chat_complete` lấy `max(max_tokens
+   caller, floor provider)`; `extra` CHỈ gửi khi gọi đúng model mặc định của
+   provider (model override qua `model_map` có thể 400 vì param lạ).
+2. **Provider Gemini mới** (OpenAI-compat
+   `generativelanguage.googleapis.com/v1beta/openai/`): key `GEMINI_API_KEY`
+   (.env.example đã có mục). Key user là Postpay Tier 1 → tính tiền theo
+   usage (~$0.10/$0.40 per 1M, sentiment ≈ $0.1/tháng) nhưng đổi lại prompt
+   KHÔNG bị dùng training + rate limit cao. Dòng 2.5-flash bị Google khóa với
+   project mới → phải dùng 3.5-flash-lite (đừng "sửa lùi" về 2.5).
+3. **Ledger phủ đủ call trả phí** (trước đây MÙ 3 chỗ): brief
+   `ClaudeAgent`/`_OpenAICompatAgent` (nhãn provider qua class attr
+   `_LEDGER`), auditor Claude/GPT, classifier `_call_claude` — tất cả ghi
+   best-effort qua helper `_ledger_record` cùng mẫu vnstock_sentiment.
+4. **`--show` có cột tiền**: `_PRICES_PER_MTOK` trong vnstock_llm_ledger
+   (prefix-match tên model, dòng cụ thể đặt TRƯỚC dòng chung — flash-lite
+   trước flash; không khớp → free $0), `_USDVND = 26,200`. Header tổng
+   `≈ $x (~y đ)`, dòng nào >0 mới in `$`. Giá là ƯỚC TÍNH hiển thị — đổi giá
+   sửa bảng, không ảnh hưởng ghi sổ.
+5. **Kết quả probe chốt (22/07)** cho các điểm [2]-[8] sắp sửa: Groq
+   `openai/gpt-oss-20b`/`openai/gpt-oss-120b`/`qwen/qwen3.6-27b` ✅ (2 llama
+   cũ còn chạy nhưng sẽ bị gỡ); Cerebras catalog CHỈ còn `gpt-oss-120b` +
+   `gemma-4-31b` + `zai-glm-4.7` (dep 17/08 — tránh); OpenRouter 14 model
+   `:free` — đáng chú ý `nvidia/nemotron-3-super-120b-a12b:free` ✅,
+   `nvidia/nemotron-3-ultra-550b-a55b:free` ✅, `google/gemma-4-31b-it:free`
+   (429 upstream — chập chờn); Gemini `gemini-3.5-flash` ✅ (6.1s),
+   `gemini-flash-lite-latest` ✅. Điểm [2]-[8] CHỜ user duyệt từng điểm —
+   đừng tự thay.
+6. Tests: `tests/test_model_ladder.py` (7 test — guard slug ladder, body
+   merge, cost prefix-match, ledger brief/auditor); test_sentiment +
+   test_doctor thêm `GEMINI_API_KEY` vào danh sách delenv (không xóa thì máy
+   có key Gemini sẽ fail test available_provider). Fast suite 795 passed.

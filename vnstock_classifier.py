@@ -383,6 +383,17 @@ class ClassificationStore:
         return self._df.copy()
 
 
+def _ledger_record(provider: str, model: str, ok: bool,
+                   usage: "dict | None" = None,
+                   error: "str | None" = None) -> None:
+    """Ghi sổ call LLM (vnstock_llm_ledger) — best-effort, không bao giờ raise."""
+    try:
+        from vnstock_llm_ledger import record
+        record(provider, model, ok=ok, usage=usage, error=error)
+    except Exception:
+        pass
+
+
 def _call_claude(prompt: str, model: str = "claude-sonnet-4-6",
                  max_tokens: int = 800) -> str:
     """Gọi Claude API, trả về text response."""
@@ -395,22 +406,29 @@ def _call_claude(prompt: str, model: str = "claude-sonnet-4-6",
             "CMD        : set ANTHROPIC_API_KEY=sk-ant-...\n"
             "Linux/Mac  : export ANTHROPIC_API_KEY=sk-ant-..."
         )
-    resp = requests.post(
-        "https://api.anthropic.com/v1/messages",
-        headers={
-            "Content-Type":      "application/json",
-            "x-api-key":         api_key,
-            "anthropic-version": "2023-06-01",
-        },
-        json={
-            "model":      model,
-            "max_tokens": max_tokens,
-            "messages":   [{"role": "user", "content": prompt}],
-        },
-        timeout=60,
-    )
-    resp.raise_for_status()
-    return resp.json()["content"][0]["text"]
+    try:
+        resp = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "Content-Type":      "application/json",
+                "x-api-key":         api_key,
+                "anthropic-version": "2023-06-01",
+            },
+            json={
+                "model":      model,
+                "max_tokens": max_tokens,
+                "messages":   [{"role": "user", "content": prompt}],
+            },
+            timeout=60,
+        )
+        resp.raise_for_status()
+        body = resp.json()
+    except Exception as e:
+        _ledger_record("Anthropic", model, ok=False,
+                       error=f"{type(e).__name__}: {str(e)[:120]}")
+        raise
+    _ledger_record("Anthropic", model, ok=True, usage=body.get("usage"))
+    return body["content"][0]["text"]
 
 
 def _build_prompt(profile: dict) -> str:

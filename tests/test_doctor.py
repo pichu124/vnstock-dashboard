@@ -215,9 +215,9 @@ def test_pdf_tooling_states(monkeypatch):
 
 
 def test_llm_keys_provider_and_brief(monkeypatch):
-    for k in ("GROQ_API_KEY", "CEREBRAS_API_KEY", "OPENROUTER_API_KEY",
-              "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "MISTRAL_API_KEY",
-              "DEEPSEEK_API_KEY"):
+    for k in ("GEMINI_API_KEY", "GROQ_API_KEY", "CEREBRAS_API_KEY",
+              "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+              "MISTRAL_API_KEY", "DEEPSEEK_API_KEY"):
         monkeypatch.delenv(k, raising=False)
     assert doc.check_llm_keys()["status"] == "off"
 

@@ -31,6 +31,38 @@ _RETAIN_DAYS = 30
 _RATE_LIMIT_TOKENS = ("429", "rate limit", "rate_limit", "ratelimit",
                       "too many requests", "quota")
 
+# ── Quy đổi chi phí ƯỚC TÍNH (thêm 22/07/2026) ─────────────────────────────
+# Đơn giá USD /1M token (input, output), khớp theo PREFIX tên model — dòng
+# CỤ THỂ hơn phải đặt TRƯỚC dòng chung (flash-lite trước flash). Model không
+# khớp dòng nào coi như free tier → $0. Giá niêm yết 07/2026 — provider đổi
+# giá thì sửa bảng này (chỉ ảnh hưởng hiển thị --show, không ảnh hưởng ghi sổ).
+_PRICES_PER_MTOK: tuple = (
+    ("claude-opus-4-8",       5.00, 25.00),
+    ("claude-sonnet-4-6",     3.00, 15.00),
+    ("claude-haiku-4-5",      1.00,  5.00),
+    ("gpt-4o-mini",           0.15,  0.60),
+    ("deepseek",              0.14,  0.28),
+    ("mistral-small",         0.15,  0.60),
+    ("gemini-3.5-flash-lite", 0.10,  0.40),   # ước tính theo lớp flash-lite
+    ("gemini-flash-lite",     0.10,  0.40),   # alias -latest
+    ("gemini-3.5-flash",      0.35,  1.50),   # ước tính theo lớp flash
+)
+_USDVND = 26_200          # tỷ giá hiển thị — chỉnh tay khi lệch nhiều
+
+
+def _cost_usd(key: str, row: dict) -> float:
+    """USD ước tính cho 1 dòng sổ 'Provider:model' — 0.0 khi model không có
+    trong bảng giá (free tier). Best-effort: dữ liệu xấu → 0.0."""
+    try:
+        model = (key.split(":", 1)[1] if ":" in key else key).lower()
+        for prefix, p_in, p_out in _PRICES_PER_MTOK:
+            if model.startswith(prefix):
+                return (int(row.get("prompt_tokens", 0)) * p_in
+                        + int(row.get("completion_tokens", 0)) * p_out) / 1e6
+    except Exception:
+        pass
+    return 0.0
+
 
 def _path() -> Path:
     return _META / "llm_ledger.json"
@@ -131,15 +163,20 @@ def summary_lines(day: "str | None" = None) -> list:
     if not s:
         return []
     t = s["totals"]
+    costs = {key: _cost_usd(key, r) for key, r in s["providers"].items()}
+    total_cost = sum(costs.values())
+    cost_txt = (f" · ≈ ${total_cost:,.4f} (~{total_cost * _USDVND:,.0f} đ)"
+                if total_cost > 0 else "")
     out = [f"📒 LLM ledger {s['day']}: {t['calls']} call · {t['ok']} OK · "
            f"{t['fail']} lỗi ({t['rate_limited']} rate-limit) · "
-           f"~{t['prompt_tokens'] + t['completion_tokens']:,} token"]
+           f"~{t['prompt_tokens'] + t['completion_tokens']:,} token{cost_txt}"]
     for key in sorted(s["providers"]):
         r = s["providers"][key]
         flag = " ⚠️" if int(r.get("rate_limited", 0)) > 0 else ""
+        row_cost = f" · ${costs[key]:,.4f}" if costs[key] > 0 else ""
         out.append(f"  {key:40s} {r.get('calls', 0):>4} call · "
                    f"{r.get('ok', 0)} OK · {r.get('fail', 0)} lỗi"
-                   f" ({r.get('rate_limited', 0)} rate-limit){flag}")
+                   f" ({r.get('rate_limited', 0)} rate-limit){row_cost}{flag}")
     return out
 
 

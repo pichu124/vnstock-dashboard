@@ -48,6 +48,18 @@ except ImportError:
     requests = None  # type: ignore
 
 
+def _ledger_record(provider: str, model: str, ok: bool,
+                   usage: "dict | None" = None,
+                   error: "str | None" = None) -> None:
+    """Ghi sổ call LLM (vnstock_llm_ledger) — best-effort, không bao giờ raise.
+    Trước 22/07 auditor KHÔNG ghi sổ → run.py audit gọi Claude mà ledger mù."""
+    try:
+        from vnstock_llm_ledger import record
+        record(provider, model, ok=ok, usage=usage, error=error)
+    except Exception:
+        pass
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Verdict
 # ─────────────────────────────────────────────────────────────────────────────
@@ -221,8 +233,13 @@ class ClaudeAuditorAgent(AuditorAgent):
                 timeout=self.timeout,
             )
             resp.raise_for_status()
-            text = resp.json()["content"][0]["text"]
+            body = resp.json()
+            text = body["content"][0]["text"]
+            _ledger_record("Anthropic", self.model, ok=True,
+                           usage=body.get("usage"))
         except Exception as e:
+            _ledger_record("Anthropic", self.model, ok=False,
+                           error=f"{type(e).__name__}: {str(e)[:120]}")
             return AuditVerdict(
                 approved=False, confidence=0.0,
                 issues=[f"Claude API error: {type(e).__name__}: {str(e)[:120]}"],
@@ -275,8 +292,13 @@ class GPTAuditorAgent(AuditorAgent):
                 timeout=self.timeout,
             )
             resp.raise_for_status()
-            text = resp.json()["choices"][0]["message"]["content"]
+            body = resp.json()
+            text = body["choices"][0]["message"]["content"]
+            _ledger_record("OpenAI", self.model, ok=True,
+                           usage=body.get("usage"))
         except Exception as e:
+            _ledger_record("OpenAI", self.model, ok=False,
+                           error=f"{type(e).__name__}: {str(e)[:120]}")
             return AuditVerdict(
                 approved=False, confidence=0.0,
                 issues=[f"OpenAI API error: {type(e).__name__}: {str(e)[:120]}"],

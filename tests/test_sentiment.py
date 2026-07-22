@@ -53,13 +53,15 @@ def test_item_hash_distinguishes_items():
 # ─── available_provider ──────────────────────────────────────────────────────
 
 def test_available_provider_returns_none_when_no_keys(monkeypatch):
-    for env in ("GROQ_API_KEY", "CEREBRAS_API_KEY", "OPENROUTER_API_KEY"):
+    for env in ("GEMINI_API_KEY", "GROQ_API_KEY", "CEREBRAS_API_KEY",
+                "OPENROUTER_API_KEY"):
         monkeypatch.delenv(env, raising=False)
     assert available_provider() is None
 
 
 def test_available_provider_returns_first_set(monkeypatch):
-    for env in ("GROQ_API_KEY", "CEREBRAS_API_KEY", "OPENROUTER_API_KEY"):
+    for env in ("GEMINI_API_KEY", "GROQ_API_KEY", "CEREBRAS_API_KEY",
+                "OPENROUTER_API_KEY"):
         monkeypatch.delenv(env, raising=False)
     monkeypatch.setenv("CEREBRAS_API_KEY", "abc123")
     out = available_provider()

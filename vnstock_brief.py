@@ -432,6 +432,18 @@ class BriefAgent(ABC):
         return (True, "✅ Kết nối OK") if err is None else (False, f"❌ {err[:120]}")
 
 
+def _ledger_record(provider: str, model: str, ok: bool,
+                   usage: "dict | None" = None,
+                   error: "str | None" = None) -> None:
+    """Ghi sổ call LLM (vnstock_llm_ledger) — best-effort, không bao giờ raise.
+    Trước 22/07 brief KHÔNG ghi sổ → ledger mù call trả phí của agent."""
+    try:
+        from vnstock_llm_ledger import record
+        record(provider, model, ok=ok, usage=usage, error=error)
+    except Exception:
+        pass
+
+
 # ── Concrete agents ────────────────────────────────────────────────────────
 class ClaudeAgent(BriefAgent):
     """Anthropic Messages API."""
@@ -469,8 +481,13 @@ class ClaudeAgent(BriefAgent):
                 timeout=90,
             )
             resp.raise_for_status()
-            return resp.json()["content"][0]["text"], None
+            body = resp.json()
+            _ledger_record("Anthropic", self.model, ok=True,
+                           usage=body.get("usage"))
+            return body["content"][0]["text"], None
         except Exception as e:
+            _ledger_record("Anthropic", self.model, ok=False,
+                           error=f"{type(e).__name__}: {str(e)[:120]}")
             return "", f"Claude API lỗi: {type(e).__name__}: {str(e)[:160]}"
 
 
@@ -480,6 +497,7 @@ class _OpenAICompatAgent(BriefAgent):
     _ENDPOINT: str = "https://api.openai.com/v1/chat/completions"
     _ENV_KEY: str = "OPENAI_API_KEY"
     _ERR_PREFIX: str = "API"
+    _LEDGER: str = "OpenAI"          # nhãn provider trong llm_ledger
 
     def __init__(self, model: str, name: str):
         self.model = model
@@ -516,8 +534,13 @@ class _OpenAICompatAgent(BriefAgent):
                 timeout=90,
             )
             resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"], None
+            body = resp.json()
+            _ledger_record(self._LEDGER, self.model, ok=True,
+                           usage=body.get("usage"))
+            return body["choices"][0]["message"]["content"], None
         except Exception as e:
+            _ledger_record(self._LEDGER, self.model, ok=False,
+                           error=f"{type(e).__name__}: {str(e)[:120]}")
             detail = ""
             try:
                 detail = " | " + str(resp.json())[:300]
@@ -543,6 +566,7 @@ class GroqAgent(_OpenAICompatAgent):
     _ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
     _ENV_KEY = "GROQ_API_KEY"
     _ERR_PREFIX = "Groq API"
+    _LEDGER = "Groq"
 
     def __init__(self, model: str = "llama-3.3-70b-versatile", name: str = "Groq Llama-3.3-70B"):
         super().__init__(model, name)
@@ -554,6 +578,7 @@ class MistralAgent(_OpenAICompatAgent):
     _ENDPOINT = "https://api.mistral.ai/v1/chat/completions"
     _ENV_KEY = "MISTRAL_API_KEY"
     _ERR_PREFIX = "Mistral API"
+    _LEDGER = "Mistral"
 
     def __init__(self, model: str = "mistral-small-latest", name: str = "Mistral Small"):
         super().__init__(model, name)
@@ -565,6 +590,7 @@ class DeepSeekAgent(_OpenAICompatAgent):
     _ENDPOINT = "https://api.deepseek.com/v1/chat/completions"
     _ENV_KEY = "DEEPSEEK_API_KEY"
     _ERR_PREFIX = "DeepSeek API"
+    _LEDGER = "DeepSeek"
 
     def __init__(self, model: str = "deepseek-chat", name: str = "DeepSeek Chat"):
         super().__init__(model, name)
@@ -576,6 +602,7 @@ class CerebrasAgent(_OpenAICompatAgent):
     _ENDPOINT = "https://api.cerebras.ai/v1/chat/completions"
     _ENV_KEY = "CEREBRAS_API_KEY"
     _ERR_PREFIX = "Cerebras API"
+    _LEDGER = "Cerebras"
 
     # Try models in order; Cerebras occasionally renames or deprecates
     _MODEL_FALLBACKS: list[str] = [
@@ -652,6 +679,7 @@ class OpenRouterAgent(_OpenAICompatAgent):
     _MODELS_ENDPOINT = "https://openrouter.ai/api/v1/models"
     _ENV_KEY = "OPENROUTER_API_KEY"
     _ERR_PREFIX = "OpenRouter API"
+    _LEDGER = "OpenRouter"
 
     # Process-level cache of free model slugs fetched from /api/v1/models
     _free_model_cache: list[str] = []
