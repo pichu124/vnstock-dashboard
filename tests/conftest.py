@@ -47,3 +47,12 @@ def _reset_price_fallback_breaker():
     _fb.BREAKER.reset()
     yield
     _fb.BREAKER.reset()
+
+
+@pytest.fixture(autouse=True)
+def _no_llm_alert_anywhere(monkeypatch):
+    """Alert "LLM ladder DOWN" (22/07) gửi Telegram THẬT nếu máy có token —
+    test đi qua đường cạn-toàn-bộ-nấc (digest (None,''), chat_complete None)
+    mà không tắt là spam điện thoại user mỗi lần chạy suite. Tắt cứng ở đây;
+    test nào test CHÍNH alert thì tự setenv VNSTOCK_LLM_ALERT=1 đè lại."""
+    monkeypatch.setenv("VNSTOCK_LLM_ALERT", "0")

@@ -132,6 +132,50 @@ def record(provider: str, model: str = "", ok: bool = True,
         pass
 
 
+_ALERT_ENV = "VNSTOCK_LLM_ALERT"     # kill-switch theo nếp repo: =0 tắt alert
+
+
+def alert_ladder_down(context: str = "") -> bool:
+    """Báo Telegram khi MỘT TÁC VỤ cạn TOÀN BỘ nấc model (mọi provider lỗi
+    hoặc thiếu key) — yêu cầu user 22/07 khi chốt all-free: "free chết hết
+    thì phải báo tôi để sửa hoặc thêm model trả phí".
+
+    Best-effort tuyệt đối + throttle 1 lần/ngày qua flag `_meta/llm_alert
+    .json`; flag CHỈ ghi khi gửi THÀNH CÔNG (telegram thiếu config/lỗi →
+    lần cạn sau thử gửi lại). Trả True khi lần gọi này đã gửi alert."""
+    try:
+        if (os.environ.get(_ALERT_ENV) or "1").strip().lower() in ("0", "false", "off"):
+            return False
+        today = date.today().isoformat()
+        flag = _META / "llm_alert.json"
+        try:
+            if json.loads(flag.read_text(encoding="utf-8")).get("day") == today:
+                return False                       # hôm nay đã báo rồi
+        except Exception:
+            pass
+        lines = summary_lines()
+        detail = "\n".join(lines[:8]) if lines else "(sổ hôm nay chưa có dòng nào)"
+        msg = ("⚠️ <b>LLM ladder DOWN</b>"
+               + (f" — {context}" if context else "") + "\n"
+               "Tác vụ vừa rồi cạn TOÀN BỘ nấc model (mọi provider lỗi/thiếu key) "
+               "→ output đang chạy THIẾU phần LLM.\n\n"
+               f"{detail}\n\n"
+               "Soi bệnh: python vnstock_llm_ledger.py --show · "
+               "python scripts/probe_models.py\n"
+               "Sửa: đổi slug/key free trong .env, hoặc bật model trả phí "
+               "(VNSTOCK_NEWS_ANALYZE_PAID=1 + ANTHROPIC_API_KEY…).")
+        from vnstock_telegram import send_message
+        send_message(msg)
+        _META.mkdir(parents=True, exist_ok=True)
+        tmp = flag.with_suffix(f".{os.getpid()}.tmp")
+        tmp.write_text(json.dumps({"day": today, "context": context},
+                                  ensure_ascii=False), encoding="utf-8")
+        os.replace(str(tmp), str(flag))
+        return True
+    except Exception:
+        return False
+
+
 def summary(day: "str | None" = None) -> dict:
     """{day, providers: {key: row}, totals: {...}} — {} khi chưa có sổ/ngày."""
     try:

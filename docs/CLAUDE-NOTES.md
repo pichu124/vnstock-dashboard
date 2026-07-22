@@ -3259,3 +3259,34 @@ free không đáp ứng**.
   `test_analyze_models_slugs_22_07` (guard slug). Fast suite 795 passed.
 - Theo dõi 2-3 hôm: mapping gượng kiểu "PNJ hưởng lợi từ động thái của chính
   mình" tái xuất trên 3.5-flash → bật lại Opus qua env (đừng hạ tiêu chuẩn).
+
+## 2026-07-22 (c) — Điểm [3][4][5] digest all-free + alert "LLM ladder DOWN"
+
+Chẩn đoán chốt: `.env` máy user TRỐNG cả ANTHROPIC_API_KEY lẫn OPENAI_API_KEY
+→ nấc Claude/GPT của digest/auditor/brief bấy lâu chỉ là hình thức. User chốt
+**all-free** + yêu cầu mới: "nếu tất cả free đều lỗi thì phải BÁO tôi để sửa
+hoặc thêm model trả phí".
+
+1. **Cascade digest mới** (`vnstock_report_digest` — dùng chung digest/
+   reflection/debate): bậc 1 = Gemini `gemini-3.5-flash` (6000 tk) + Cerebras
+   `gpt-oss-120b` (giữ, 6000) + OpenRouter `nemotron-3-ultra-550b:free`
+   (4000; thay qwen-235b:free ZOMBIE — OK 21/07, 404 sáng 22/07, OK trưa
+   22/07); bậc 2 = Groq `gpt-oss-120b` + `qwen3.6-27b`, Gemini flash-lite,
+   OpenRouter `gpt-oss-20b:free`; `_TIER2_TOKENS` 1200→3000 (bậc 2 nay có
+   reasoning model; prompt ~4K + 3K vẫn lọt TPM 8K Groq). `_PROVIDER_META`
+   thêm Gemini. Nấc Claude/GPT GIỮ NGUYÊN làm opt-in (điền key là sống lại).
+2. **Alert "LLM ladder DOWN"** (`vnstock_llm_ledger.alert_ladder_down`):
+   gửi Telegram khi 1 tác vụ cạn TOÀN BỘ nấc — throttle 1 lần/ngày (flag
+   `_meta/llm_alert.json`, CHỈ ghi khi gửi thành công → telegram hỏng thì
+   lần cạn sau thử lại), kill-switch `VNSTOCK_LLM_ALERT=0`. Điểm gọi:
+   `digest_call` trả (None,''), `chat_complete` trả None,
+   `score_news_batch` khi ≥3 tin cần chấm mà model rỗng toàn bộ. conftest
+   autouse set `VNSTOCK_LLM_ALERT=0` cho MỌI test (không tắt là suite chạy
+   trên máy có token telegram sẽ nhắn user thật); test alert tự đè =1.
+3. **Doctor**: `check_llm_ledger` thêm bậc "error" khi hôm nay calls>=3 mà
+   ok==0 (ladder down toàn phần) — trỏ probe_models + --show.
+4. Tests: digest tests cập nhật slug mới + clear thêm GEMINI_API_KEY (máy
+   user có key thật, không clear là Gemini rung ăn fake resp sai kịch bản);
+   dedup env-override test đổi sang slug bậc 2 thật; test mới: guard slug
+   digest 2 bậc, alert gửi-1-lần/ngày, kill-switch + retry khi send fail,
+   doctor error. Fast suite 795 passed.

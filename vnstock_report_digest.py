@@ -80,31 +80,42 @@ _OPENAI_MODEL = "gpt-4o-mini"
 # VIÊN theo catalog 2025-2026 — id sai/bị gỡ chỉ tốn 1 lần thử lỗi rồi
 # cascade đi tiếp, không gãy. Ghi đè model bậc 1 không cần sửa code:
 # env VNSTOCK_DIGEST_MODELS = "Groq=<model>;OpenRouter=<model>;Cerebras=<model>".
-# (Đã dò bằng lỗi THẬT trên máy user 14/07 — địa hình free tier 2026:
-#  * Groq BỎ khỏi bậc 1: TPM 8000/phút không gánh nổi prompt cỡ báo cáo +
-#    budget reasoning (413 VỀ CẤU TRÚC), và cả 2 slug mạnh thử đều
-#    model_not_found (kimi-k2, llama-4-maverick) — Groq chỉ còn ở bậc 2
-#    (70B, budget nhỏ). Groq nới TPM/thêm model thì thêm lại qua env.
-#  * Cerebras gpt-oss-120b: SỐNG và cho digest ĐẠT (verify 14/07: stance
-#    CP -2 đúng đáp án) — reasoning model, PHẢI cấp 6000 token (3000 cụt).
-#  * OpenRouter: deepseek-v3 lẫn kimi-k2 đều hết ':free' — qwen3-235b là
-#    ứng viên chưa qua thử lửa.)
+# (Địa hình free tier CẬP NHẬT 22/07/2026 — probe scripts/probe_models.py
+#  trên máy thật; user chốt ALL-FREE — 2 key trả phí trống từ lâu nên nấc
+#  Claude/GPT phía trên thực chất là opt-in, điền key là tự sống lại:
+#  * Gemini 3.5 Flash vào BẬC 1 — mạnh nhất nhóm free, đa ngữ tốt nhất;
+#    flash suy nghĩ mặc định → cấp 6000 token như gpt-oss.
+#  * Cerebras gpt-oss-120b GIỮ (digest ĐẠT 14/07: stance CP -2 đúng đáp án)
+#    nhưng chập chờn 21-22/07 (8/11 rồi 1/1 fail) — _warn_rung in body lỗi.
+#  * OpenRouter qwen3-235b:free thành ZOMBIE (4/4 OK 21/07 → 404 sáng 22/07
+#    → OK trưa 22/07) → thay nemotron-3-ultra-550b:free (free mạnh nhất
+#    catalog). Groq vẫn ngoài bậc 1: TPM 8000 không gánh prompt báo cáo +
+#    budget reasoning (bài 413 VỀ CẤU TRÚC 14/07); nới TPM thì thêm qua env.
+#  * BẬC 2 mới: 70B llama cũ deprecated (Groq 17/06) / đã gỡ (Cerebras,
+#    OpenRouter hết :free) → gpt-oss-120b + qwen3.6-27b (Groq, slug Groq
+#    chỉ định thay 70B), Gemini flash-lite, OpenRouter gpt-oss-20b:free.)
 _FREE_MODELS = {
+    "Gemini": "gemini-3.5-flash",
     "Cerebras": "gpt-oss-120b",
-    "OpenRouter": "qwen/qwen3-235b-a22b:free",
+    "OpenRouter": "nvidia/nemotron-3-ultra-550b-a55b:free",
 }
 # Budget token RA theo provider ở bậc 1 — reasoning cần chỗ suy nghĩ.
-_TIER1_TOKENS = {"Groq": 900, "Cerebras": 6000, "OpenRouter": 3000}
-_FREE_TIER2 = (                      # 70B — fallback ổn định đã chạy ổn từ P3
-    ("Groq", "llama-3.3-70b-versatile"),
-    ("Cerebras", "llama3.3-70b"),
-    ("OpenRouter", "meta-llama/llama-3.3-70b-instruct:free"),
+_TIER1_TOKENS = {"Groq": 900, "Cerebras": 6000, "OpenRouter": 4000,
+                 "Gemini": 6000}
+_FREE_TIER2 = (          # bậc ổn định — toàn slug probe sống 22/07
+    ("Groq", "openai/gpt-oss-120b"),
+    ("Groq", "qwen/qwen3.6-27b"),
+    ("Gemini", "gemini-3.5-flash-lite"),
+    ("OpenRouter", "openai/gpt-oss-20b:free"),
 )
-_TIER2_TOKENS = 1200                 # 70B không reasoning — 700-900 là đủ, dư chút
+_TIER2_TOKENS = 3000     # bậc 2 nay CÓ reasoning model (gpt-oss) — 1200 là cụt
+                         # content; prompt ~4K + 3K vẫn lọt TPM 8K của Groq
 _PROVIDER_META = {                   # env + endpoint — mirror vnstock_sentiment._PROVIDERS
     "Groq": ("GROQ_API_KEY", "https://api.groq.com/openai/v1/chat/completions"),
     "Cerebras": ("CEREBRAS_API_KEY", "https://api.cerebras.ai/v1/chat/completions"),
     "OpenRouter": ("OPENROUTER_API_KEY", "https://openrouter.ai/api/v1/chat/completions"),
+    "Gemini": ("GEMINI_API_KEY",
+               "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"),
 }
 
 
@@ -397,6 +408,13 @@ def digest_call(system: str, user: str, accept=None,
                 raw2 = strip_think_tags(raw2)
                 if _ok(raw2, f"{name}(retry)"):
                     return raw2, f"{name}(retry)"
+    try:
+        # Yêu cầu user 22/07 khi chốt all-free: cạn TOÀN BỘ nấc → BÁO
+        # (throttle 1 lần/ngày + kill-switch VNSTOCK_LLM_ALERT trong ledger)
+        from vnstock_llm_ledger import alert_ladder_down
+        alert_ladder_down("digest báo cáo (digest/reflection/debate)")
+    except Exception:
+        pass
     return None, ""
 
 

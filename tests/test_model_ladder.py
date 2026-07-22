@@ -174,3 +174,72 @@ def test_auditor_claude_records_ledger(monkeypatch, _tmp_meta):
     assert v.approved is True
     s = ledger.summary()
     assert s["providers"]["Anthropic:claude-sonnet-4-6"]["ok"] == 1
+
+
+# ─── Cascade digest all-free (điểm [3][4][5], 22/07) ─────────────────────────
+
+def test_digest_free_tiers_slugs_22_07():
+    """Guard chống lùi slug: bậc 1 + bậc 2 digest đúng bộ probe sống 22/07."""
+    import vnstock_report_digest as dg
+    assert dg._FREE_MODELS == {
+        "Gemini": "gemini-3.5-flash",
+        "Cerebras": "gpt-oss-120b",
+        "OpenRouter": "nvidia/nemotron-3-ultra-550b-a55b:free",
+    }
+    assert dg._FREE_TIER2 == (
+        ("Groq", "openai/gpt-oss-120b"),
+        ("Groq", "qwen/qwen3.6-27b"),
+        ("Gemini", "gemini-3.5-flash-lite"),
+        ("OpenRouter", "openai/gpt-oss-20b:free"),
+    )
+    assert dg._PROVIDER_META["Gemini"][0] == "GEMINI_API_KEY"
+    # bậc 2 có reasoning model — budget không được tụt về 1200 cũ
+    assert dg._TIER2_TOKENS >= 3000
+
+
+# ─── Alert "LLM ladder DOWN" (yêu cầu user 22/07 khi chốt all-free) ─────────
+
+def test_alert_ladder_down_sends_once_per_day(monkeypatch, _tmp_meta):
+    sent = []
+    monkeypatch.setenv("VNSTOCK_LLM_ALERT", "1")     # đè kill-switch conftest
+    monkeypatch.setattr("vnstock_telegram.send_message",
+                        lambda text, **k: sent.append(text) or {"ok": True})
+
+    assert ledger.alert_ladder_down("digest test") is True
+    assert len(sent) == 1 and "LLM ladder DOWN" in sent[0]
+    # throttle: cùng ngày không báo lần 2
+    assert ledger.alert_ladder_down("digest test") is False
+    assert len(sent) == 1
+
+
+def test_alert_ladder_down_killswitch_and_retry_on_send_fail(monkeypatch, _tmp_meta):
+    # kill-switch (conftest đã set =0) → không gửi, không đụng telegram
+    monkeypatch.setattr("vnstock_telegram.send_message",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            AssertionError("kill-switch bật mà vẫn gửi")))
+    assert ledger.alert_ladder_down() is False
+
+    # gửi lỗi (thiếu token…) → False và KHÔNG ghi flag → lần sau THỬ LẠI
+    monkeypatch.setenv("VNSTOCK_LLM_ALERT", "1")
+    calls = {"n": 0}
+
+    def _boom(*a, **k):
+        calls["n"] += 1
+        raise RuntimeError("TELEGRAM_BOT_TOKEN chưa set trong .env")
+
+    monkeypatch.setattr("vnstock_telegram.send_message", _boom)
+    assert ledger.alert_ladder_down() is False
+    assert ledger.alert_ladder_down() is False
+    assert calls["n"] == 2                            # không bị flag chặn
+
+
+def test_doctor_ledger_all_fail_is_error(tmp_path, monkeypatch):
+    import vnstock_doctor as doc
+    from datetime import date as _d
+    monkeypatch.setattr(doc, "_META", tmp_path)
+    (tmp_path / "llm_ledger.json").write_text(json.dumps(
+        {"days": {_d.today().isoformat(): {
+            "Groq:x": {"calls": 4, "ok": 0, "fail": 4, "rate_limited": 0}}}}),
+        encoding="utf-8")
+    r = doc.check_llm_ledger()
+    assert r["status"] == "error" and "TOÀN BỘ" in r["message"]

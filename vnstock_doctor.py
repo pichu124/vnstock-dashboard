@@ -311,8 +311,15 @@ def check_llm_ledger() -> dict:
     calls = sum(int(r.get("calls", 0)) for r in day.values())
     fails = sum(int(r.get("fail", 0)) for r in day.values())
     limited = sum(int(r.get("rate_limited", 0)) for r in day.values())
+    oks = sum(int(r.get("ok", 0)) for r in day.values())
     hot = [k for k, r in day.items() if int(r.get("rate_limited", 0)) > 0]
     msg = f"hôm nay {calls} call · {fails} lỗi · {limited} rate-limit"
+    if calls >= 3 and oks == 0:
+        # all-free 22/07: KHÔNG call nào thành công = ladder down toàn phần
+        return _result("llm_ledger", name, "error",
+                       msg + " — TOÀN BỘ call lỗi (ladder down)",
+                       "python scripts/probe_models.py soi slug/key; "
+                       "python vnstock_llm_ledger.py --show soi provider")
     if limited > 0:
         return _result("llm_ledger", name, "warn",
                        msg + f" — chạm trần: {', '.join(sorted(hot))}",

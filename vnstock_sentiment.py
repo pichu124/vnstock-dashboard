@@ -58,6 +58,17 @@ def _ledger_record(provider: str, model: str, ok: bool,
     except Exception:
         pass
 
+
+def _alert_down(context: str) -> None:
+    """Cạn TOÀN BỘ nấc model → báo Telegram (yêu cầu user 22/07 khi chốt
+    all-free). Throttle 1 lần/ngày + kill-switch VNSTOCK_LLM_ALERT nằm ở
+    vnstock_llm_ledger.alert_ladder_down — đây chỉ là wrapper best-effort."""
+    try:
+        from vnstock_llm_ledger import alert_ladder_down
+        alert_ladder_down(context)
+    except Exception:
+        pass
+
 _REPO = Path(__file__).parent
 SENTIMENT_DB_PATH = _REPO / "data_warehouse" / "_meta" / "sentiment_cache.db"
 
@@ -246,6 +257,7 @@ def chat_complete(system: str, user: str, max_tokens: int = 80,
             except Exception as e:
                 _ledger_record(p["name"], model, ok=False, error=str(e))
                 continue
+    _alert_down("chat_complete (chấm tin/analyze fallback)")
     return None
 
 
@@ -357,6 +369,12 @@ def score_news_batch(
                     progress_cb(done_count, total)
                 except Exception:
                     pass
+
+    # Batch có tin cần chấm mà KHÔNG provider nào trả kết quả (cột model
+    # rỗng toàn bộ) = ladder sentiment down → báo user (22/07). Ngưỡng ≥3
+    # tránh báo nhầm vì 1-2 tin lẻ trục trặc.
+    if total >= 3 and new_rows and all(not r[4] for r in new_rows):
+        _alert_down("sentiment tin tức (score_news_batch)")
 
     if new_rows:
         with _db_lock:
