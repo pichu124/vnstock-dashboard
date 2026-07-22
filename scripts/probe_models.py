@@ -68,32 +68,19 @@ _PROVIDERS = {
 }
 
 # (provider, model, ghi chú, extra_body)
-# "control" = slug ĐANG dùng trong repo — đo để xác nhận sống/chết,
-# "ứng viên" = slug mới định thay vào.
+# VÒNG 2 (22/07) — vòng 1 đã chốt: Groq gpt-oss-20b/120b + qwen3.6-27b ✅,
+# Cerebras chỉ còn gpt-oss-120b ✅, OpenRouter gpt-oss-20b:free ✅; toàn bộ
+# llama cũ + qwen-235b:free chết. Vòng này verify nốt slug Gemini 3.x
+# (dòng 2.5 khóa với user mới) + 3 model :free mới trên OpenRouter.
 _CANDIDATES: list[tuple[str, str, str, dict]] = [
-    # ── Groq ────────────────────────────────────────────────────────────
-    ("Groq", "openai/gpt-oss-20b",              "ứng viên [1] sentiment",        {"reasoning_effort": "low"}),
-    ("Groq", "openai/gpt-oss-120b",             "ứng viên [2][3] thay 70B",      {"reasoning_effort": "low"}),
-    ("Groq", "qwen/qwen3.6-27b",                "ứng viên [2][7] thay 70B",      {}),
-    ("Groq", "llama-3.3-70b-versatile",         "control — deprecated 17/06",    {}),
-    ("Groq", "llama-3.1-8b-instant",            "control — deprecated 17/06",    {}),
-    # ── Cerebras ────────────────────────────────────────────────────────
-    ("Cerebras", "gpt-oss-120b",                "control — bậc 1 digest",        {}),
-    ("Cerebras", "qwen-3-235b-a22b-instruct-2507", "ứng viên [3] bậc 1",         {}),
-    ("Cerebras", "qwen-3-235b-a22b-instruct",   "biến thể slug",                 {}),
-    ("Cerebras", "qwen-3-235b-a22b-thinking-2507", "biến thể slug (thinking)",   {}),
-    ("Cerebras", "qwen-3-32b",                  "control — nghi deprecated",     {}),
-    ("Cerebras", "llama3.1-8b",                 "control — 18/18 lỗi 21/07",     {}),
-    ("Cerebras", "llama-3.3-70b",               "control — nghi đã gỡ 02/2026",  {}),
-    # ── OpenRouter ──────────────────────────────────────────────────────
-    ("OpenRouter", "qwen/qwen3-235b-a22b:free",           "control — 4/4 OK 21/07", {}),
-    ("OpenRouter", "openai/gpt-oss-20b:free",             "ứng viên [1]",           {}),
-    ("OpenRouter", "openai/gpt-oss-120b:free",            "ứng viên [2][3]",        {}),
-    ("OpenRouter", "meta-llama/llama-3.3-8b-instruct:free",  "ứng viên [1]",        {}),
-    ("OpenRouter", "meta-llama/llama-3.3-70b-instruct:free", "control — còn sống?", {}),
-    # ── Gemini (provider mới — cần GEMINI_API_KEY) ──────────────────────
-    ("Gemini", "gemini-2.5-flash-lite",         "ứng viên CHÍNH [1]",            {}),
-    ("Gemini", "gemini-2.5-flash",              "ứng viên [2][8]",               {}),
+    # ── Gemini (slug lấy từ chính listing key của user, vòng 1) ─────────
+    ("Gemini", "gemini-3.5-flash-lite",         "ứng viên CHÍNH [1] sentiment",  {}),
+    ("Gemini", "gemini-3.5-flash",              "ứng viên [2][8]",               {}),
+    ("Gemini", "gemini-flash-lite-latest",      "alias tự trỏ bản mới nhất",     {}),
+    # ── OpenRouter (từ danh sách :free thật, vòng 1) ────────────────────
+    ("OpenRouter", "nvidia/nemotron-3-super-120b-a12b:free", "ứng viên [2][3] lớp 70-120B", {}),
+    ("OpenRouter", "nvidia/nemotron-3-ultra-550b-a55b:free", "ứng viên [3] bậc 1 digest",   {}),
+    ("OpenRouter", "google/gemma-4-31b-it:free",             "ứng viên [1] dự phòng",       {}),
 ]
 
 
@@ -163,6 +150,32 @@ def list_openrouter_free() -> None:
         print(f"   (không lấy được: {type(e).__name__}: {str(e)[:100]})")
 
 
+def list_and_probe_cerebras() -> None:
+    """Hỏi thẳng API Cerebras còn model nào (vòng 1: mọi slug đoán đều 404),
+    rồi probe luôn các model lạ (trừ gpt-oss-120b đã xác nhận sống)."""
+    key = _key_for("Cerebras")
+    if not key:
+        return
+    print("\n── Cerebras: catalog thật từ GET /v1/models ──")
+    try:
+        r = requests.get("https://api.cerebras.ai/v1/models",
+                         headers={"Authorization": f"Bearer {key}"},
+                         timeout=_TIMEOUT)
+        r.raise_for_status()
+        ids = sorted(str(m.get("id", "")) for m in r.json().get("data", []))
+        for mid in ids:
+            print(f"   {mid}")
+        todo = [m for m in ids if m and m != "gpt-oss-120b"][:5]
+        if todo:
+            print("   → probe thử các model trên (tối đa 5):")
+        for mid in todo:
+            time.sleep(_SLEEP_BETWEEN)
+            ok, desc, dt = probe_one("Cerebras", mid, {})
+            print(f"   {'✅' if ok else '❌'} {mid:40s} {dt:5.1f}s  {desc}")
+    except Exception as e:
+        print(f"   (không lấy được: {type(e).__name__}: {str(e)[:100]})")
+
+
 def list_gemini_models() -> None:
     """Model Gemini khả dụng với key hiện tại (xác nhận slug 2.5 flash)."""
     key = _key_for("Gemini")
@@ -207,6 +220,7 @@ def main() -> int:
         print(f"   {desc}")
 
     list_openrouter_free()
+    list_and_probe_cerebras()
     list_gemini_models()
 
     print("\n" + "=" * 74)
