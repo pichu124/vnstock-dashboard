@@ -3646,3 +3646,29 @@ từ 30/07 (sau pull) ledger sạch.
   brief mistral user đang bật trong config (trả phí nhẹ), hợp lệ.
 - `Cerebras gpt-oss-120b 1 OK/5 fail` = trộn real + rác; món "digest
   chập chờn" vẫn nằm watch list cũ.
+
+## 2026-07-30 (i) — Race header/thân brief (-60 vs -51) + 2 lỗ guard momentum
+
+Brief close ép gửi 01:21 (đường `telegram close`, không guard giờ/marker)
+lộ: header "🧭 Tâm lý … momentum -60/100" nhưng thân AI ghi "-51/100".
+KHÔNG phải LLM bịa — 2 lần TÍNH composite ở 2 thời điểm: list `blocks`
+của push_close_brief gọi `_market_sentiment_line()` (load_market_sentiment
+= TÍNH LẠI từ cache, không phải đọc file lưu) TRƯỚC `_brief_snippet()`,
+trong khi generate_brief bên trong snippet mới là bước refresh
+news/overview → header dùng cache CŨ, thân ghim ctx MỚI. Chạy 18:00 bình
+thường 2 lần tính cách nhau vài giây nên chưa từng lộ; chỉ lộ khi brief
+chạy giữa lúc dữ liệu đang được làm tươi (1h sáng).
+
+1. **Fix race**: push_close_brief + push_morning_brief sinh
+   `ai_blk = _brief_snippet(...)` TRƯỚC rồi mới dựng header — header/regime/
+   vnindex line đọc sau refresh, cùng nền cache với ctx. Test inspect-source
+   (test_telegram) giữ thứ tự cho CẢ 2 hàm.
+2. **Nới regex ghim momentum** (enforce_sentiment_consistency): bắt thêm
+   (i) markdown quanh số "momentum **-51**/100", (ii) dạng chen tính từ
+   "momentum tiêu cực (-51/100)" — giữ tính từ, ghim số trong ngoặc; không
+   đụng dạng "(momentum -29/100)" (ngoặc trước momentum — test giữ). Đêm
+   30/07 số -51 vốn ĐÚNG (trùng ví dụ prompt chỉ là trùng hợp), nhưng gặp
+   ngày LLM bịa số ở dạng chen tính từ thì guard cũ trượt.
+3. Ghi nhận brief 01:21 đọc CHẤT LƯỢNG TỐT: guard nhãn "(1 tuần)", cảnh
+   báo stance GIẢM chèn đủ 2 block lệnh, macro/news/events canonical, sàn
+   bias momentum -51 → Stance GIẢM đều hoạt động nhìn thấy được.

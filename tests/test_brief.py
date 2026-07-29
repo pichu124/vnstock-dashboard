@@ -1241,6 +1241,25 @@ def test_enforce_sentiment_consistency_markdown_and_duplicate_mood():
     assert "📉 Tiêu cực" in f2 and "Sợ hãi" not in f2
 
 
+def test_enforce_sentiment_consistency_adjective_paren_form():
+    # Close 30/07 01:21: thân brief in "momentum tiêu cực (-51/100)" — tính
+    # từ chen giữa "momentum" và số làm pattern ghim trượt, số -51 (trùng VÍ
+    # DỤ trong prompt) sống sót. Nay ghim số trong ngoặc, GIỮ tính từ.
+    from vnstock_brief import enforce_sentiment_consistency
+    ctx = {"market_sentiment": {"mood": "❄️ Sợ hãi", "momentum": -60}}
+    t = "GTGD thấp nhưng momentum tiêu cực (-51/100), bias GIẢM."
+    f = enforce_sentiment_consistency(t, ctx)
+    assert "momentum tiêu cực (-60/100)" in f and "-51" not in f
+    assert enforce_sentiment_consistency(f, ctx) == f          # idempotent
+    # markdown quanh số ở dạng trực tiếp cũng bị ghim
+    t2 = "Tâm lý: ❄️ Sợ hãi, momentum **-51**/100."
+    f2 = enforce_sentiment_consistency(t2, ctx)
+    assert "momentum -60/100" in f2 and "-51" not in f2
+    # dạng "(momentum -29/100)" — ngoặc TRƯỚC momentum — không bị regex mới đụng
+    t3 = "tâm lý sợ hãi (momentum -60/100) duy trì."
+    assert enforce_sentiment_consistency(t3, ctx) == t3
+
+
 def test_close_1407_guard_regressions():
     # 4 biến thể trượt guard lộ ra ở close brief 23:46 14/07 — mỗi cái 1 fix.
     import vnstock_brief as vb

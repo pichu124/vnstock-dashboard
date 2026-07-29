@@ -5905,8 +5905,16 @@ def enforce_sentiment_consistency(text: str, ctx: dict) -> str:
         mom = int(mom)
     except (TypeError, ValueError):
         return text
-    out = _re.sub(r"momentum\s*[+-]?\d+\s*/\s*100",
+    # Dạng trực tiếp "momentum -51/100" (± markdown quanh số).
+    out = _re.sub(r"momentum\s*[*_]{0,2}[+-]?\d+[*_]{0,2}\s*/\s*100",
                   f"momentum {mom:+d}/100", text, flags=_re.IGNORECASE)
+    # Dạng chen tính từ "momentum tiêu cực (-51/100)" (close 30/07 01:21 —
+    # LLM đệm chữ giữa "momentum" và số làm pattern trên trượt, số -51 là
+    # VÍ DỤ trong prompt sống sót). Giữ tính từ, chỉ ghim số trong ngoặc;
+    # không đụng dạng "(momentum -29/100)" vì '(' đứng TRƯỚC momentum.
+    out = _re.sub(r"(momentum[^\d\n()]{0,24}\()\s*[+-]?\d+\s*(/\s*100\s*\))",
+                  lambda m: f"{m.group(1)}{mom:+d}{m.group(2)}",
+                  out, flags=_re.IGNORECASE)
     e_alt = "|".join(_re.escape(e) for e in _MOOD_EMOJIS)
     w_alt = "|".join(_MOOD_WORDS)
     # Mood word có thể bị model bọc markdown ("**Sợ hãi**") — close 14/07 lộ

@@ -439,6 +439,10 @@ def push_morning_brief() -> dict:
     _load_env()
     screener   = _screener_block()
 
+    # Snippet trước, header sau — cùng lý do race close 30/07 01:21 (xem
+    # push_close_brief): generate_brief refresh dữ liệu, header phải đọc SAU.
+    ai_blk = _brief_snippet("morning")
+
     blocks = [
         _brief_header("📊", "VNStock Morning Brief"),
         _vnindex_line(),
@@ -446,7 +450,7 @@ def push_morning_brief() -> dict:
         _market_sentiment_line(),
         "",
         "🧠 <b>AI Brief:</b>",
-        _brief_snippet("morning"),
+        ai_blk,
         "",
         _open_recs_block(),
     ]
@@ -466,6 +470,13 @@ def push_close_brief() -> dict:
     _load_env()
     closed_blk  = _closed_today_block()
 
+    # Sinh AI brief TRƯỚC khi dựng header (close 30/07 01:21 lộ race: list
+    # blocks cũ gọi _market_sentiment_line() TRƯỚC _brief_snippet(), mà
+    # generate_brief bên trong snippet mới là bước refresh news/overview →
+    # header in composite CŨ (-60) còn thân brief ghim theo ctx MỚI (-51).
+    # Header dựng SAU snippet = cùng nền cache; vnindex/regime hưởng ké).
+    ai_blk = _brief_snippet("afternoon")
+
     blocks = [
         _brief_header("📉", "VNStock Close Brief"),
         _vnindex_line(),
@@ -473,7 +484,7 @@ def push_close_brief() -> dict:
         _market_sentiment_line(),
         "",
         "🧠 <b>AI Outlook:</b>",
-        _brief_snippet("afternoon"),
+        ai_blk,
         "",
         _open_recs_block(),
     ]

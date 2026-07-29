@@ -273,3 +273,15 @@ def test_push_test_calls_send(monkeypatch):
     monkeypatch.setattr(tg, "send_message", _stub)
     tg.push_test()
     assert "Kết nối OK" in captured["text"]
+
+
+def test_push_briefs_build_snippet_before_header():
+    """Close 30/07 01:21: header đọc composite sentiment TRƯỚC khi
+    generate_brief (chạy trong _brief_snippet) refresh news/overview →
+    header momentum -60 vs thân brief -51. Guard nếp inspect-source:
+    snippet phải sinh TRƯỚC khi dựng dòng header ở CẢ 2 hàm push."""
+    import inspect
+    for fn in (tg.push_close_brief, tg.push_morning_brief):
+        src = inspect.getsource(fn)
+        assert src.index("_brief_snippet(") < src.index(
+            "_market_sentiment_line("), fn.__name__
