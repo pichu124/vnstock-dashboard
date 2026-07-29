@@ -3400,3 +3400,30 @@ lỗi); (b) giữ agent cũ chạy song song vài hôm để kiểm định ch�
 3. **CLAUDE.md** thêm quy ước 5 dòng (probe trước khi vào code; khai tử →
    1 dòng _MODEL_MIGRATIONS + 1 slug vào _DEAD_SLUGS) — mọi session sau
    thấy ngay, không phải mở CLAUDE-NOTES.
+
+## 📌 CẬP NHẬT TODO 29/07 (sau khi máy thật xác nhận 806 passed)
+
+Trạng thái mục "TODO & CHỜ VERIFY 22/07" phía trên:
+
+- ✅ **XONG — "Nhắc quy trình" đã thành CƠ CHẾ CỨNG** (commit 52c99e7,
+  verify máy thật 29/07 full suite 806 passed): test quét slug chết toàn
+  repo (`_DEAD_SLUGS_22_07` × `_all_live_slugs()` trong
+  tests/test_model_ladder.py), probe ad-hoc `--slug "Provider=model"`,
+  quy ước 5 dòng trong CLAUDE.md.
+- ✅ Toàn bộ điểm [1][2][3][4][5][7] + ledger + cột tiền + alert đã chạy
+  production trên máy user (806 passed các đợt 22/07 và 29/07).
+
+### CÒN LẠI (giữ nguyên, chưa làm)
+
+1. **[6] Auditor** — FreeAuditorAgent qua cascade digest sẵn có;
+   NullAuditor hiện vẫn phê duyệt mọi thứ.
+2. **[8] Classifier** — đường Gemini flash cho batch; hiện crash khi
+   thiếu ANTHROPIC_API_KEY.
+3. **Checklist verify vận hành** (mục 22/07 phía trên): brief A/B Gemini
+   vs Groq qwen (soi dashboard + auto-score + ledger vài phiên), Cerebras
+   `gpt-oss-120b` digest chập chờn (soi body lỗi từ _warn_rung), alert
+   Telegram chưa bắn thật (tuỳ chọn thêm `--test-alert`), cân nhắc nạp
+   $10 OpenRouter (quota :free 50→1,000 req/ngày), doctor hiện sentiment
+   provider = Gemini.
+4. **Merge về main**: tạo PR khi user chốt (điều kiện repo: full suite
+   xanh — đã đạt 806 passed).
