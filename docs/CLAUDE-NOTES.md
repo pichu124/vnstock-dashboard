@@ -3333,3 +3333,53 @@ lỗi); (b) giữ agent cũ chạy song song vài hôm để kiểm định ch�
    map phủ đủ, inspect-source ordering/fallback/alert). Fast 795 passed.
    Theo dõi vài hôm: so 2 bản brief trong dashboard (Gemini vs Groq qwen),
    ưng thì tắt agent phụ; ledger soi token/lỗi từng con.
+
+## 📌 TODO & CHỜ VERIFY sau đợt thay model 22/07 (điểm [1]-[7] xong, còn [6][8])
+
+### Việc CHƯA làm (2/8 điểm của sơ đồ model)
+
+1. **[6] Auditor** — hiện `make_auditor("auto")` không key Anthropic/OpenAI
+   → NullAuditor **phê duyệt mọi thứ** (bước phản biện screener vô hiệu từ
+   lâu). Phương án đã bàn: viết `FreeAuditorAgent` đi qua cascade digest
+   sẵn có (`digest_call` — Gemini flash/gpt-oss chấm JSON verdict rất hợp),
+   NullAuditor chỉ còn là nấc cuối; ghi ledger như các auditor khác.
+2. **[8] Classifier** — CLI thủ công, `_call_claude` RAISE khi thiếu
+   ANTHROPIC_API_KEY (crash, không fallback). Phương án đã bàn: thêm đường
+   Gemini flash (free ~2 ngày quota cho batch 1,700 mã, hoặc ~$0.5/lần trên
+   key Postpay); giữ Claude làm opt-in khi có key.
+
+### Chờ VERIFY trên máy thật (soi trong 2-5 ngày tới)
+
+- **Brief (điểm [7])**: sau pull, lần chạy brief đầu tiên phải (i) tự đổi
+  slug trong `brief_agents.json` (Groq → qwen/qwen3.6-27b…), (ii) tự thêm
+  agent "Gemini 3.5 Flash" enabled. Bản Telegram = Gemini; dashboard có
+  thêm bản Groq so sánh. So chất lượng vài hôm (văn phong, bám template,
+  cờ 🚨, auto-score trong memory) → ưng thì tắt agent phụ trong ⚙️.
+- **Chấm tin (điểm [2])**: `Gemini:gemini-3.5-flash` gánh 8 tin/ngày —
+  soi vài hôm; ca "mapping gượng" kiểu "PNJ hưởng lợi từ chính mình" tái
+  xuất → bật lại Opus: `VNSTOCK_NEWS_ANALYZE_PAID=1` (KHÔNG hạ tiêu chuẩn).
+- **Sentiment (điểm [1])**: flash-lite tỉ lệ OK phải ~100%, không rate-limit.
+- **Digest bậc 1 Cerebras `gpt-oss-120b` đang chập chờn** (8/11 rồi 1/1
+  fail 21-22/07) — `_warn_rung` giờ in body lỗi API: soi output digest lần
+  tới để bắt đúng bệnh (capacity 503? budget? param?). Lỗi bền vững → cân
+  nhắc bỏ nấc, đã có Gemini/nemotron gánh.
+- **Ledger + cột tiền**: từ 23/07 lần đầu hiển thị ĐỦ brief+digest+sentiment
+  +analyze; tổng ngày dự kiến ~$0.02-0.05 (~500-1,300 đ). Lệnh:
+  `python vnstock_llm_ledger.py --show`.
+- **Alert "LLM ladder DOWN" chưa được bắn thật** — cơ chế đã test hermetic
+  (throttle 1 lần/ngày, flag `_meta/llm_alert.json`, kill-switch
+  `VNSTOCK_LLM_ALERT=0`) nhưng chưa có sự cố thật để xác nhận Telegram
+  nhận tin. Tuỳ chọn: thêm lệnh `--test-alert` bắn thử (chưa làm).
+- **OpenRouter**: cân nhắc nạp 1 lần $10 → quota :free 50 → 1,000 req/ngày
+  (tiền thành credit, không mất).
+- **Doctor**: `run.py doctor` phải hiện dòng sentiment provider = Gemini và
+  bậc "error" nếu một ngày toàn lỗi (đã có test, chưa thấy chạy thật).
+
+### Nhắc quy trình (đã thành nếp từ đợt này)
+
+- MỌI slug model mới phải probe sống trước khi vào code:
+  `python scripts/probe_models.py` (đừng tin catalog trên mạng — bài
+  qwen-235b:free sống 21/07 chết sáng 22/07 sống trưa 22/07).
+- Provider khai tử model → thêm 1 dòng `_MODEL_MIGRATIONS` (brief) và/hoặc
+  đổi ladder tương ứng + cập nhật test guard slug trong
+  `tests/test_model_ladder.py` (fail = có slug chết lọt lại).
