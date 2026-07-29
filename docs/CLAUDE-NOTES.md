@@ -3547,7 +3547,10 @@ trong pipeline đêm còn CHƯA TỪNG truyền `--llm` nên kể cả có key c
    inspect-source cmd_all; parser). Fixture `_no_keys` chặn
    `_ensure_env_loaded` + xoá 6 key cho factory test hermetic. Sandbox
    fast 848 passed / full 1375 passed.
-6. **Verify máy thật (chưa làm)**: chạy `python run.py audit --llm` tay →
-   log `[audit] auditor=free:Gemini:...` + ledger có call mới; phát
-   pipeline 18:00 gần nhất tự audit LLM (soi `run_daily.log`). Muốn tắt:
+6. **Verify máy thật**: ✅ full suite **1386 passed** trên máy PICHU 29/07
+   (đông hơn sandbox 1375 vì máy có vnstock/vnai nên các test skip chạy
+   đủ; 3 warning chỉ là thông báo update package vnstock — vô hại). CÒN
+   LẠI: chạy `python run.py audit --llm` tay → log
+   `[audit] auditor=free:Gemini:...` + ledger có call mới; phát pipeline
+   18:00 gần nhất tự audit LLM (soi `run_daily.log`). Muốn tắt:
    `VNSTOCK_AUDIT_LLM=0` vào .env.
