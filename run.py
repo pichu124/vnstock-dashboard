@@ -182,6 +182,35 @@ def cmd_validate(args) -> int:
     return 0
 
 
+def _audit_llm_context(days_checked: int) -> str:
+    """Chú giải schema cho auditor LLM (điểm [6] 29/07): 2 vòng verify đầu
+    (Cerebras rồi Gemini) đều disapprove toàn báo động GIẢ — so 2 lớp kiểm
+    ĐỘC LẬP với nhau (reconciler vs anomaly), tưởng payload là 1 ngày, tưởng
+    warn≈missing_in_api là double-count (thực ra by design: dòng right_only
+    vừa đếm missing_in_api vừa đếm warn — xem vnstock_reconciler). Semantics
+    chốt bằng text deterministic ở đây + test giữ, để auditor chỉ bắt lỗi
+    THẬT thay vì đêm nào cũng disapprove oan trong pipeline."""
+    return (
+        f"Daily audit for {date.today().isoformat()}.\n"
+        "SCHEMA NOTES — read before judging:\n"
+        "- 'reconciler' compares API daily bars vs intraday(WSS)-rolled bars\n"
+        f"  per ticker x trading-date ROW over the last {days_checked} trading\n"
+        "  day(s), so row totals are several times the ~1,700 listed symbols;\n"
+        "  that is expected, not duplication.\n"
+        "- 'reconciler' and 'anomalies' are INDEPENDENT checks (source drift\n"
+        "  vs per-ticker statistical outliers). Their counts never reconcile;\n"
+        "  anomalies.by_severity.fail does NOT propagate to reconciler.fail.\n"
+        "- missing_in_rolled = ticker-days the WSS intraday feed did not\n"
+        "  capture (it covers only part of the market and may be offline).\n"
+        "  By design these rows are EXCLUDED from ok/warn/fail entirely.\n"
+        "- missing_in_api rows are ALSO counted as 'warn', so warn being\n"
+        "  close to missing_in_api is by design, not double-counting.\n"
+        "- Hence ok+warn+fail and missing_in_* never add up to one total.\n"
+        "Flag only internal contradictions or impossible values in the\n"
+        "numbers themselves."
+    )
+
+
 def cmd_audit(args) -> int:
     """Run reconciler + anomaly scan. If ``--llm`` is passed, also ask the
     Auditor agent for a second opinion on the combined summary."""
@@ -249,7 +278,7 @@ def cmd_audit(args) -> int:
         agent = make_auditor(prefer=args.auditor)
         verdict = agent.audit(
             summary,
-            context=f"Daily audit for {date.today().isoformat()}.",
+            context=_audit_llm_context(len(recon.dates_checked)),
         )
         print(f"[audit] auditor={verdict.backend} "
               f"approved={verdict.approved} conf={verdict.confidence:.2f}")

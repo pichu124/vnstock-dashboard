@@ -3549,8 +3549,44 @@ trong pipeline đêm còn CHƯA TỪNG truyền `--llm` nên kể cả có key c
    fast 848 passed / full 1375 passed.
 6. **Verify máy thật**: ✅ full suite **1386 passed** trên máy PICHU 29/07
    (đông hơn sandbox 1375 vì máy có vnstock/vnai nên các test skip chạy
-   đủ; 3 warning chỉ là thông báo update package vnstock — vô hại). CÒN
-   LẠI: chạy `python run.py audit --llm` tay → log
-   `[audit] auditor=free:Gemini:...` + ledger có call mới; phát pipeline
-   18:00 gần nhất tự audit LLM (soi `run_daily.log`). Muốn tắt:
+   đủ; 3 warning chỉ là thông báo update package vnstock — vô hại).
+   ✅ `run.py audit --llm` chạy 2 vòng cùng tối: vòng 1 Gemini chết key →
+   cascade rơi đúng nấc `free:Cerebras:gpt-oss-120b`; vòng 2 (sau khi thay
+   key, xem entry (f)) `free:Gemini:gemini-3.5-flash`. Cả 2 vòng verdict
+   disapprove toàn báo động GIẢ do thiếu chú giải schema → sinh entry (f).
+   CÒN THEO DÕI: phát pipeline 18:00 tới tự audit LLM (soi `run_daily.log`);
+   sau chú giải schema kỳ vọng approved=True khi data sạch. Muốn tắt:
    `VNSTOCK_AUDIT_LLM=0` vào .env.
+
+## 2026-07-29 (f) — Sự cố key Gemini (biến Windows đè .env) + chú giải schema cho auditor
+
+**Sự cố key** (lộ khi verify điểm [6], 23:17): mọi call Gemini trả 400
+"Please pass a valid API key" dù code sentiment/digest giống hệt nhau và
+từng chạy OK 23/07. Truy ra: `.env` **CHƯA TỪNG có dòng GEMINI_API_KEY** —
+key sống từ 22/07 nằm ở biến môi trường Windows tầng **User** (setx), và
+key đó bị Google thu hồi giữa 23-29/07. Vì mọi `_ensure_env_loaded` dùng
+`load_dotenv(override=False)`, **biến Windows LUÔN THẮNG `.env`** — sửa
+`.env` sẽ không có tác dụng nếu quên biến cũ. Xử lý 29/07: tạo key mới
+(AI Studio) → điền vào `.env` (nguồn DUY NHẤT từ nay) → xoá biến User
+(`[Environment]::SetEnvironmentVariable("GEMINI_API_KEY", $null, "User")`
++ `Remove-Item Env:GEMINI_API_KEY`). Probe verify: flash-lite ✅; flash 503
+"high demand" lúc 23:28 (quá tải free tier giờ cao điểm Mỹ — không phải
+key, vài phút sau gọi lại được). Key cũ đã dán lên chat → coi như lộ,
+không tái sử dụng. **Bài học**: chẩn key ngờ ngợ thì soi đủ 3 tầng
+`$env:`, `[Environment]::GetEnvironmentVariable(...,"User"/"Machine")` và
+`Get-Content .env | Select-String` — đừng tin mỗi `.env`.
+
+**Chú giải schema cho auditor** (`run.py _audit_llm_context`): 2 vòng
+verify (Cerebras rồi Gemini — 2 model độc lập nhầm CÙNG kiểu) đều
+disapprove ~0.95 toàn báo động giả: (i) so reconciler.fail=0 với
+anomalies.by_severity.fail=126 — 2 lớp kiểm ĐỘC LẬP, không có nghĩa vụ
+khớp; (ii) tưởng payload 1 ngày nên "9.000 dòng là sai" — reconciler đếm
+ticker×date trên cả cửa sổ lookback; (iii) nghi warn≈missing_in_api là
+double-count — thực ra BY DESIGN (vnstock_reconciler: dòng right_only vừa
++1 missing_in_api vừa +1 warn; missing_in_rolled thì loại hẳn khỏi
+ok/warn/fail — WSS chỉ phủ một phần thị trường). Fix: context truyền vào
+auditor giờ là `_audit_llm_context(len(recon.dates_checked))` — text
+deterministic chốt 5 điểm semantics trên + "never add up to one total";
+2 test giữ (nội dung chú giải + inspect-source cmd_audit). Kỳ vọng từ
+giờ auditor chỉ disapprove khi có mâu thuẫn NỘI TẠI thật; nếu vẫn kêu
+oan kiểu mới → bổ sung dòng chú giải tương ứng (đừng hạ ngưỡng model).

@@ -179,6 +179,26 @@ def test_cmd_all_wires_llm_audit():
     assert "args.llm = True" in src
 
 
+def test_audit_llm_context_carries_schema_notes():
+    """Verify thật 29/07: Cerebras rồi Gemini đều disapprove toàn báo động
+    giả vì thiếu chú giải schema (so reconciler với anomaly, tưởng 1 ngày,
+    tưởng warn≈missing_in_api là double-count). Chú giải là guard
+    deterministic — mất dòng nào là auditor lại kêu oan đêm đó."""
+    ctx = runpy._audit_llm_context(6)
+    assert "Daily audit for" in ctx
+    assert "6 trading" in ctx                      # cửa sổ NHIỀU ngày, không phải 1
+    assert "INDEPENDENT" in ctx                    # reconciler ≠ anomaly
+    assert "missing_in_rolled" in ctx and "EXCLUDED" in ctx
+    assert "missing_in_api" in ctx and "by design" in ctx
+    assert "never add up" in ctx
+
+
+def test_cmd_audit_wires_schema_notes():
+    import inspect
+    src = inspect.getsource(runpy.cmd_audit)
+    assert "_audit_llm_context(len(recon.dates_checked))" in src
+
+
 def test_parser_accepts_free_auditor_and_no_llm_audit():
     assert runpy.build_parser().parse_args(
         ["all", "--no-llm-audit"]).no_llm_audit is True
