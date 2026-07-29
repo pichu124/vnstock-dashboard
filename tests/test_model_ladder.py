@@ -292,6 +292,11 @@ def test_model_migrations_upgrade_saved_config(tmp_path, monkeypatch):
     assert by_type["cerebras"]["model"] == "gpt-oss-120b"
     assert by_type["cerebras"]["enabled"] is False
     assert by_type["openrouter"]["model"] == "my/custom-model"  # không đụng
+    # Tên hiển thị (lộ 30/07 trên dashboard A/B): tên mặc định mô tả model
+    # CŨ ("Groq Llama-3.3-70B") phải được thay theo default mới; tên KHÔNG
+    # nhắc model cũ ("Cerebras") là tên user chọn → giữ nguyên.
+    assert by_type["groq"]["name"] == "Groq Qwen3.6-27B"
+    assert by_type["cerebras"]["name"] == "Cerebras"
     # merge thêm Gemini (provider mới) vào config cũ, enabled sẵn
     assert by_type["gemini"]["model"] == "gemini-3.5-flash"
     assert by_type["gemini"]["enabled"] is True

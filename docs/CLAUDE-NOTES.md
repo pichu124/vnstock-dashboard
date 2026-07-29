@@ -3722,3 +3722,21 @@ chạy giữa lúc dữ liệu đang được làm tươi (1h sáng).
 - Đường ép gửi brief (`run.py telegram close`) KHÔNG có guard giờ/marker —
   chạy tay lúc nào cũng gửi + tự refresh nếu data cũ (nặng ~10-15 phút).
   Đường chuẩn nếp: `run.py brief` (sau 15:00 + chống trùng).
+
+## 2026-07-30 (k) — Migration đổi cả TÊN hiển thị agent (lộ từ dashboard A/B)
+
+Screenshot memory 29/07 của user: 3 dòng agent vẫn mang tên
+"…Llama-3.3-70B" dù model bên dưới đã được _MODEL_MIGRATIONS đổi sang
+qwen/gpt-oss — migration chỉ sửa `model`, bỏ quên `name` → dashboard A/B
+gây nhầm đang so model gì. Fix trong load_agent_configs: khi đổi số model,
+nếu tên đang NHẮC model cũ (helper `_name_mentions_model` — token ≥4 ký tự
+của model cũ xuất hiện trong tên, vd "llama") thì thay bằng tên default
+mới của type đó; tên user tự đặt (không nhắc model) giữ nguyên. Test
+migration mở rộng: groq "Groq Llama-3.3-70B" → "Groq Qwen3.6-27B",
+cerebras tên "Cerebras" (user chọn) giữ nguyên.
+
+Đọc screenshot 29/07 (ghi để trả lời nhanh lần sau): 5 dòng đó là phiên
+SỰ CỐ (key Gemini chết + 503 + đường ép gửi 01:21) — Gemini error (503),
+Groq error, bản Telegram 01:21 thực chất do Mistral Small gánh (agent
+mạnh nhất còn sống theo _AGENT_STRENGTH). KHÔNG dùng phiên này làm dữ
+liệu A/B; A/B tính từ phiên 18:00 ngày 30/07 trở đi.

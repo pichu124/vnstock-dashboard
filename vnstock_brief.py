@@ -860,6 +860,23 @@ _MODEL_MIGRATIONS: dict[tuple[str, str], str] = {
 
 
 # ── Config helpers ─────────────────────────────────────────────────────────
+def _default_agent_name(agent_type: "str | None") -> "str | None":
+    for c in _DEFAULT_AGENT_CONFIGS:
+        if c.get("type") == agent_type:
+            return c.get("name")
+    return None
+
+
+def _name_mentions_model(name: str, model: str) -> bool:
+    """Tên hiển thị có đang MÔ TẢ model không (họ model xuất hiện trong tên)?
+    Dùng khi migration đổi model: tên mặc định kiểu "Groq Llama-3.3-70B" nhắc
+    họ "llama" → stale, cần thay; tên user tự đặt không nhắc → giữ nguyên."""
+    low = (name or "").lower()
+    toks = [t for t in _re.split(r"[^a-z]+", (model or "").lower())
+            if len(t) >= 4]
+    return any(t in low for t in toks)
+
+
 def load_agent_configs() -> list[dict]:
     """Load agent configs from JSON, merging in any new providers from defaults
     and migrating obsolete model names."""
@@ -879,6 +896,13 @@ def load_agent_configs() -> list[dict]:
         key = (cfg.get("type"), cfg.get("model"))
         if key in _MODEL_MIGRATIONS:
             cfg["model"] = _MODEL_MIGRATIONS[key]
+            # Tên hiển thị mô tả model CŨ mà giữ nguyên thì dashboard A/B
+            # gây nhầm (lộ 30/07: 3 dòng "Llama-3.3-70B" nhưng model thật
+            # đã là qwen/gpt-oss). Chỉ thay khi tên đang NHẮC model cũ —
+            # tên user tự đặt ("Bản nháp của tôi") không đụng.
+            new_name = _default_agent_name(cfg.get("type"))
+            if new_name and _name_mentions_model(cfg.get("name", ""), key[1]):
+                cfg["name"] = new_name
             changed = True
 
     # Merge: add any provider types from defaults that are absent in saved file
