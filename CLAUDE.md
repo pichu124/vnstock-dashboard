@@ -47,6 +47,11 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   `apply_brief_guards` + viết test.
 - Mọi auto-refresh đều best-effort và có env kill-switch
   (`VNSTOCK_BRIEF_AUTO_*`, `VNSTOCK_MACRO_*`).
+- Model LLM: slug MỚI phải probe sống trước khi vào code —
+  `python scripts/probe_models.py --slug "Groq=<model>"` trên máy thật
+  (catalog trên mạng hay sai/lỗi thời). Provider khai tử model → 1 dòng
+  `_MODEL_MIGRATIONS` (vnstock_brief) + thêm slug vào `_DEAD_SLUGS` ở
+  `tests/test_model_ladder.py` (test quét slug chết TOÀN repo).
 
 ## ⚠️ Bất biến — đọc docs/CLAUDE-NOTES.md trước khi đụng
 - Chart 4 panel (Price/Volume/RSI/MACD): CHỈ dùng logical-range API của

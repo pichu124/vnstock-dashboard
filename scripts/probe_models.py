@@ -195,7 +195,29 @@ def list_gemini_models() -> None:
         print(f"   (không lấy được: {type(e).__name__}: {str(e)[:100]})")
 
 
-def main() -> int:
+def main(argv=None) -> int:
+    import argparse
+    ap = argparse.ArgumentParser(
+        description="Probe slug model LLM (1 call thử/slug — chi phí ~0)")
+    ap.add_argument(
+        "--slug", action="append", default=[], metavar="Provider=model",
+        help='Probe CHỈ slug này, lặp lại được — vd --slug "Groq=qwen/qwen4-30b". '
+             "Provider ∈ Groq/Cerebras/OpenRouter/Gemini. "
+             "Không có --slug → chạy trọn bộ mặc định + listing catalog.")
+    args = ap.parse_args(argv)
+
+    candidates = list(_CANDIDATES)
+    if args.slug:                     # chế độ ad-hoc: chỉ probe slug được nêu
+        candidates = []
+        for part in args.slug:
+            name, sep, model = part.partition("=")
+            name = name.strip()
+            if sep and name in _PROVIDERS and model.strip():
+                candidates.append((name, model.strip(), "slug ad-hoc (--slug)", {}))
+            else:
+                print(f"⚠️  bỏ qua --slug không hợp lệ: {part!r} "
+                      f"(dạng Provider=model, Provider ∈ {'/'.join(_PROVIDERS)})")
+
     print("=" * 74)
     print("PROBE MODEL LLM — chạy xong DÁN TOÀN BỘ OUTPUT cho Claude")
     print(time.strftime("Thời điểm: %Y-%m-%d %H:%M:%S"))
@@ -207,7 +229,7 @@ def main() -> int:
               f"{'✅ có' if _key_for(provider) else '⏭️  THIẾU → skip'}")
 
     last_provider = None
-    for provider, model, note, extra in _CANDIDATES:
+    for provider, model, note, extra in candidates:
         if not _key_for(provider):
             print(f"⏭️  {provider:10s} {model:45s} SKIP (thiếu key)")
             continue
@@ -219,9 +241,10 @@ def main() -> int:
         print(f"{icon} {provider:10s} {model:45s} {dt:5.1f}s  {note}")
         print(f"   {desc}")
 
-    list_openrouter_free()
-    list_and_probe_cerebras()
-    list_gemini_models()
+    if not args.slug:                 # listing catalog chỉ chạy ở chế độ đầy đủ
+        list_openrouter_free()
+        list_and_probe_cerebras()
+        list_gemini_models()
 
     print("\n" + "=" * 74)
     print("XONG — copy toàn bộ output phía trên (từ dòng PROBE MODEL LLM) cho Claude.")

@@ -336,3 +336,67 @@ def test_generate_brief_orders_by_strength_and_has_fallback():
     assert src.index("_strength_sorted(agents)") < src.index("ThreadPoolExecutor")
     assert "(dự phòng)" in src
     assert "_brief_alert_down" in src
+
+
+# ─── Quét slug chết TOÀN REPO (nếp quy trình chốt 22/07) ────────────────────
+# Provider khai tử model → thêm slug vào _DEAD_SLUGS + 1 dòng _MODEL_MIGRATIONS
+# (vnstock_brief) + thay ladder tương ứng. Test này là KHÓA CỬA: slug chết
+# lọt lại BẤT KỲ đâu trong code (kể cả điểm dùng model thêm sau này, miễn
+# khai báo trong _all_live_slugs) → đỏ ngay ở run.py test --fast.
+
+_DEAD_SLUGS_22_07 = {
+    # Groq deprecated 17/06/2026 (còn phục vụ nhưng sẽ gỡ — cấm dùng mới)
+    "llama-3.3-70b-versatile", "llama-3.1-8b-instant",
+    # Cerebras đã gỡ (probe 22/07: catalog chỉ còn 3 model)
+    "llama3.3-70b", "llama-3.3-70b", "llama3.1-70b", "llama3.1-8b",
+    "qwen-3-32b",
+    # Cerebras sắp dep 17/08/2026
+    "zai-glm-4.7",
+    # OpenRouter hết bản :free (qwen-235b:free = zombie chờn vờn theo giờ)
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "meta-llama/llama-3.1-8b-instruct:free",
+    "qwen/qwen3-235b-a22b:free", "openai/gpt-oss-120b:free",
+    "meta-llama/llama-3.3-8b-instruct:free",
+    # Gemini dòng 2.5 khóa với project mới (key máy này không gọi được)
+    "gemini-2.5-flash", "gemini-2.5-flash-lite",
+}
+
+
+def _all_live_slugs() -> set:
+    """Mọi slug đang HOẠT ĐỘNG trong code — điểm dùng model mới thêm sau
+    này PHẢI khai báo vào đây để được quét."""
+    import vnstock_brief as vb
+    import vnstock_news_feeds as nf
+    import vnstock_report_digest as dg
+    slugs = set()
+    slugs |= {p["model"] for p in snt._PROVIDERS}              # [1] sentiment
+    slugs |= set(nf._ANALYZE_MODELS.values())                  # [2] chấm tin
+    slugs.add(nf._ANALYZE_MODEL_DEFAULT)                       # [2] opt-in trả phí
+    slugs |= set(dg._FREE_MODELS.values())                     # [3-5] digest bậc 1
+    slugs |= {m for _, m in dg._FREE_TIER2}                    # [3-5] digest bậc 2
+    slugs.add(dg._CLAUDE_MODEL)
+    slugs.add(dg._OPENAI_MODEL)
+    slugs |= {c["model"] for c in vb._DEFAULT_AGENT_CONFIGS}   # [7] brief defaults
+    slugs |= set(vb.CerebrasAgent._MODEL_FALLBACKS)            # [7] fallback nội bộ
+    slugs |= {cls().model for cls in vb.AGENT_REGISTRY.values()}  # [7] __init__ defaults
+    return slugs
+
+
+def test_no_dead_slug_anywhere_in_code():
+    leaked = _DEAD_SLUGS_22_07 & _all_live_slugs()
+    assert not leaked, f"slug chết lọt lại vào code: {sorted(leaked)}"
+
+
+def test_migrations_targets_are_live_and_cover_dead_defaults():
+    import vnstock_brief as vb
+    # Đích migration KHÔNG được là slug chết (bài học entry cũ dead-to-dead:
+    # cerebras llama-3.3-70b → llama3.3-70b, cả 2 đều đã bị gỡ)
+    bad_targets = set(vb._MODEL_MIGRATIONS.values()) & _DEAD_SLUGS_22_07
+    assert not bad_targets, f"migration trỏ về slug chết: {sorted(bad_targets)}"
+    # Mọi slug chết TỪNG là default của brief phải có đường migration
+    for key in (("groq", "llama-3.3-70b-versatile"),
+                ("groq", "llama-3.1-8b-instant"),
+                ("cerebras", "llama3.3-70b"),
+                ("cerebras", "llama-3.3-70b"),
+                ("openrouter", "meta-llama/llama-3.3-70b-instruct:free")):
+        assert key in vb._MODEL_MIGRATIONS, f"thiếu migration cho {key}"

@@ -3383,3 +3383,20 @@ lỗi); (b) giữ agent cũ chạy song song vài hôm để kiểm định ch�
 - Provider khai tử model → thêm 1 dòng `_MODEL_MIGRATIONS` (brief) và/hoặc
   đổi ladder tương ứng + cập nhật test guard slug trong
   `tests/test_model_ladder.py` (fail = có slug chết lọt lại).
+
+## 2026-07-29 — Nếp probe/migration thành CƠ CHẾ CỨNG (không còn chỉ là ghi chú)
+
+1. **Test quét slug chết TOÀN REPO** (`tests/test_model_ladder.py`):
+   `_DEAD_SLUGS_22_07` (15 slug chết/deprecated đã xác nhận qua probe) ×
+   `_all_live_slugs()` (gom slug từ MỌI điểm dùng model: sentiment,
+   analyze, digest 2 bậc, brief defaults + fallback nội bộ + __init__
+   registry). Slug chết lọt lại BẤT KỲ đâu → fast suite đỏ. Kèm test đích
+   migration không được trỏ về slug chết (bài entry cũ dead-to-dead:
+   cerebras llama-3.3-70b → llama3.3-70b). Điểm dùng model MỚI phải khai
+   vào `_all_live_slugs` để được quét.
+2. **`probe_models.py --slug "Provider=model"`** (lặp lại được): probe
+   ad-hoc 1-2 slug ứng viên không cần sửa file, bỏ listing catalog cho
+   nhanh; không có --slug → chạy trọn bộ như cũ.
+3. **CLAUDE.md** thêm quy ước 5 dòng (probe trước khi vào code; khai tử →
+   1 dòng _MODEL_MIGRATIONS + 1 slug vào _DEAD_SLUGS) — mọi session sau
+   thấy ngay, không phải mở CLAUDE-NOTES.
