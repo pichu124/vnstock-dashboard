@@ -3629,3 +3629,20 @@ vẫn hoạt động (setattr đè tiếp, cũng về tmp). Verify sandbox: xoá
 user: ngày 30/07 toàn rác (xoá được bằng pop key ngày trong JSON), ngày
 29/07 lẫn rác của ~3 lần chạy suite tối đó — đọc số hôm đó nhớ trừ hao;
 từ 30/07 (sau pull) ledger sạch.
+
+### Đọc ledger 29/07 (forensics sau sự cố key — lưu để khỏi tra lại)
+
+- `flash 9 (1 OK/8 fail)` + `flash-lite 8 fail`: KHÔNG phải sentiment [1]
+  gãy fallback — là [2] analyze × 8 tin lúc key chết: `chat_complete` thử
+  Gemini 2 LẦN mỗi tin (override flash rồi default flash-lite — hành vi
+  cố ý của model_map) rồi mới rời sang Groq qwen (6 OK) / nemotron.
+  Sentiment [1] không call gì vì 8 tin đã có cache SQLite.
+- `Groq:llama-3.3-70b-versatile 1 fail` — SLUG CHẾT xuất hiện 1 lần:
+  nhiều khả năng phát brief sáng 29/07 chạy TRƯỚC khi máy merge code mới
+  (config cũ chưa qua _MODEL_MIGRATIONS). ⚠️ THEO DÕI: từ 30/07 trở đi mà
+  còn dòng llama trong ledger → migration không cắn, soi brief_agents.json.
+- `Anthropic:claude-haiku 1 OK` = rác test (máy KHÔNG có key Anthropic —
+  call thật không thể OK); `Mistral:mistral-small 1 OK $0.0027` = agent
+  brief mistral user đang bật trong config (trả phí nhẹ), hợp lệ.
+- `Cerebras gpt-oss-120b 1 OK/5 fail` = trộn real + rác; món "digest
+  chập chờn" vẫn nằm watch list cũ.
