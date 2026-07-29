@@ -3672,3 +3672,53 @@ chạy giữa lúc dữ liệu đang được làm tươi (1h sáng).
 3. Ghi nhận brief 01:21 đọc CHẤT LƯỢNG TỐT: guard nhãn "(1 tuần)", cảnh
    báo stance GIẢM chèn đủ 2 block lệnh, macro/news/events canonical, sàn
    bias momentum -51 → Stance GIẢM đều hoạt động nhìn thấy được.
+
+## 📌 TODO TỔNG HỢP 30/07 (chốt sau đêm verify điểm [6] + sự cố key + 2 fix brief)
+
+### Việc CODE còn lại (chờ user ra lệnh)
+
+1. **[8] Classifier** — điểm CUỐI của sơ đồ model 8 điểm: thêm đường Gemini
+   flash cho batch ~1,700 mã (hết crash khi thiếu ANTHROPIC_API_KEY); giữ
+   Claude làm opt-in khi có key. Free ~2 ngày quota/lần batch hoặc ~$0.5
+   trên key Postpay.
+2. **`vnstock_llm_ledger.py --test-alert`** — bắn 1 tin "(TEST)" qua đúng
+   đường ống alert "LLM ladder DOWN" thật (token/chat_id/format) để verify
+   chủ động thay vì chờ sự cố. Đã đề xuất, user chưa gật.
+3. **PR về `main`** — khi user chốt (điều kiện: full suite xanh — máy thật
+   đã 1388 passed; sau 2 fix đêm 30/07 sẽ là ~1390).
+
+### VERIFY sau phát pipeline 18:00 gần nhất (liếc là xong)
+
+4. **2 fix brief đêm 30/07 (i)**: momentum ở header "🧭 Tâm lý" phải KHỚP
+   số trong thân AI Outlook (race đã đảo thứ tự + regex ghim đã nới).
+5. **LLM audit trong pipeline**: `run_daily.log` phải có dòng
+   `[audit] auditor=free:...` (mặc định BẬT từ 29/07); data sạch → kỳ vọng
+   approved=True. Disapprove từ giờ là tín hiệu ĐỌC THẬT, không phải oan.
+6. **Slug chết llama-3.3-70b-versatile**: ledger `--show` từ 30/07 trở đi
+   KHÔNG được thấy dòng này (vết 29/07 = phát brief sáng trước khi merge).
+   Còn thấy → migration không cắn, soi brief_agents.json máy đó.
+
+### QUAN SÁT vài ngày rồi quyết (công cụ chính: ledger --show, sạch rác từ 30/07)
+
+7. **A/B brief Gemini vs Groq** (~3-5 phiên): dashboard xem cả 2 bản mỗi
+   chiều (Telegram chỉ nhận bản Gemini). Chấm: bám template đủ mục / văn
+   VN tự nhiên / không bịa-lặp số / token+lỗi trong ledger. Gemini thắng
+   rõ → tắt agent phụ trong ⚙️; ngược lại → đổi _AGENT_STRENGTH.
+8. **Cerebras gpt-oss-120b digest**: soi OK/fail theo ngày trong --show +
+   body lỗi ở dòng `[digest] ⚠ Cerebras` trong run_daily.log. Fail bền
+   kiểu capacity → bỏ nấc khỏi _FREE_MODELS bậc 1 (Gemini+nemotron gánh).
+9. **OpenRouter nạp $10** (trần :free 50→1,000 req/ngày, tiền thành credit
+   không mất): CHỈ nạp khi cột "(N rate-limit)" các dòng OpenRouter > 0
+   lặp lại nhiều ngày — hiện là nấc dự phòng, 50 req/ngày dư sức.
+10. **Gemini flash 503 "high demand"**: đêm VN (cao điểm Mỹ) hay nghẽn —
+    cascade tự đỡ, KHÔNG phải hỏng. Chỉ hành động nếu ban ngày giờ VN
+    cũng nghẽn nhiều ngày liền → cân nhắc đổi nấc chính digest/brief.
+
+### Ghi chú số liệu
+
+- Ledger ngày 29/07 lẫn rác test (~3 lần chạy suite tối đó) — đọc trừ hao;
+  ngày 30/07 user đã pop key rác, và từ fix conftest (8b3ef5a) test không
+  ghi ledger thật nữa → số từ 30/07 tin được 100%.
+- Đường ép gửi brief (`run.py telegram close`) KHÔNG có guard giờ/marker —
+  chạy tay lúc nào cũng gửi + tự refresh nếu data cũ (nặng ~10-15 phút).
+  Đường chuẩn nếp: `run.py brief` (sau 15:00 + chống trùng).
