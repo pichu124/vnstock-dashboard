@@ -336,9 +336,9 @@ def check_llm_keys() -> dict:
     name = "LLM keys (.env)"
     from vnstock_sentiment import available_provider
     provider = available_provider()
-    brief_keys = [k for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY",
-                              "GROQ_API_KEY", "MISTRAL_API_KEY",
-                              "DEEPSEEK_API_KEY")
+    brief_keys = [k for k in ("GEMINI_API_KEY", "ANTHROPIC_API_KEY",
+                              "OPENAI_API_KEY", "GROQ_API_KEY",
+                              "MISTRAL_API_KEY", "DEEPSEEK_API_KEY")
                   if (os.environ.get(k) or "").strip()]
     if not provider and not brief_keys:
         return _result("llm_keys", name, "off", "chưa có key nào trong .env",

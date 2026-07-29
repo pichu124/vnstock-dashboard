@@ -3290,3 +3290,46 @@ hoặc thêm model trả phí".
    dedup env-override test đổi sang slug bậc 2 thật; test mới: guard slug
    digest 2 bậc, alert gửi-1-lần/ngày, kill-switch + retry khi send fail,
    doctor error. Fast suite 795 passed.
+
+## 2026-07-22 (d) — Điểm [7] brief: Gemini làm agent chính, ladder mạnh→yếu, bảng đổi số
+
+User chốt: (a) auto-fallback theo THỨ TỰ SỨC MẠNH (mạnh trước, yếu dần khi
+lỗi); (b) giữ agent cũ chạy song song vài hôm để kiểm định chất lượng
+(2 bản brief cùng data + cùng guard chấm — cách A/B chuẩn).
+
+1. **`GeminiAgent` mới** (registry key "gemini", default `gemini-3.5-flash`)
+   — agent CHÍNH cho brief: đa ngữ tốt nhất nhóm khả dụng, TPM 1M nuốt gọn
+   prompt brief ~10K token (Groq TPM 8K là biên rủi ro 413). flash SUY NGHĨ
+   mặc định → `generate` tự nới `max_tokens + _THINK_HEADROOM` (3000) để
+   content không bị cụt dưới _BRIEF_MAX_TOKENS. Trong `_DEFAULT_AGENT_CONFIGS`
+   đứng ĐẦU với `enabled: True` — cơ chế merge của load_agent_configs tự
+   thêm vào brief_agents.json cũ trên máy user, không phải bấm dashboard.
+2. **`_AGENT_STRENGTH` + `_strength_sorted`**: gemini → claude → openai →
+   deepseek → groq → mistral → cerebras → openrouter (openrouter :free cuối
+   vì quota 50 req/ngày + churn; type lạ xếp cuối, sort ổn định giữ thứ tự
+   config). generate_brief sort agents NGAY sau build_agents.
+3. **Kết quả sắp TẤT ĐỊNH theo sức mạnh**: trước đây results theo thứ tự
+   as_completed → bật >1 agent thì bản Telegram (_brief_snippet lấy bản đầu
+   không lỗi) phụ thuộc agent nào XONG TRƯỚC. Nay bản chính luôn = agent
+   mạnh nhất thành công; agent phụ chỉ là bản so sánh trong dashboard.
+4. **Auto-fallback "(dự phòng)"**: mọi agent đang bật đều lỗi → thử tuần tự
+   agent CÓ KEY nhưng chưa bật (mạnh→yếu), bản đầu tiên thành công gắn nhãn
+   "(dự phòng)" và ĐI QUA guard/validator/memory như thường (append vào
+   `available` trước khi các vòng đó chạy). Vẫn trắng tay → alert Telegram
+   (throttle/kill-switch dùng chung alert_ladder_down). Nhánh _no_available
+   cũng alert.
+5. **Bảng đổi số `_MODEL_MIGRATIONS`** nới 1→8 dòng: Groq 70B→qwen3.6-27b,
+   Groq 8b→gpt-oss-20b, Cerebras 4 slug llama→gpt-oss-120b, OpenRouter
+   llama :free→nemotron-super-120b:free / gpt-oss-20b:free. Chỉ đổi Ô MODEL
+   khớp đúng cặp (type, model) — enabled/thứ tự/tên/slug user tự gõ giữ
+   nguyên. Default configs + default __init__ của Groq/Cerebras/OpenRouter
+   agent cũng lên slug mới; Cerebras `_MODEL_FALLBACKS` (4 slug chết cả 4)
+   → ["gpt-oss-120b", "gemma-4-31b"].
+6. **Vá lỗ ledger**: Cerebras/OpenRouter agent OVERRIDE generate riêng nên
+   đợt phủ ledger 22/07 (a) không chạm tới — nay ghi sổ cả 2 (success+fail
+   từng model thử). Doctor brief_keys + caption market_tab thêm GEMINI.
+7. Tests: 5 test mới (headroom Gemini + ledger, migration giữ enabled/không
+   đụng slug lạ + merge Gemini, strength sort, defaults không slug chết +
+   map phủ đủ, inspect-source ordering/fallback/alert). Fast 795 passed.
+   Theo dõi vài hôm: so 2 bản brief trong dashboard (Gemini vs Groq qwen),
+   ưng thì tắt agent phụ; ledger soi token/lỗi từng con.

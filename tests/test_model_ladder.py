@@ -243,3 +243,96 @@ def test_doctor_ledger_all_fail_is_error(tmp_path, monkeypatch):
         encoding="utf-8")
     r = doc.check_llm_ledger()
     assert r["status"] == "error" and "TOÀN BỘ" in r["message"]
+
+
+# ─── Điểm [7] brief: Gemini chính + migration + thứ tự sức mạnh (22/07) ─────
+
+def test_gemini_agent_registered_with_think_headroom(monkeypatch, _tmp_meta):
+    import vnstock_brief as vb
+    assert vb.AGENT_REGISTRY["gemini"] is vb.GeminiAgent
+
+    sent = {}
+
+    def _post(url, headers=None, json=None, timeout=None):
+        sent.update(body=json, url=url)
+        return _Resp(_openai_body("brief gemini"))
+
+    monkeypatch.setattr("requests.post", _post)
+    monkeypatch.setenv("GEMINI_API_KEY", "gk")
+
+    text, err = vb.GeminiAgent().generate("prompt", max_tokens=2800)
+
+    assert (text, err) == ("brief gemini", None)
+    assert "generativelanguage.googleapis.com" in sent["url"]
+    # flash suy nghĩ mặc định → budget phải được nới thêm headroom
+    assert sent["body"]["max_tokens"] == 2800 + vb.GeminiAgent._THINK_HEADROOM
+    assert ledger.summary()["providers"]["Gemini:gemini-3.5-flash"]["ok"] == 1
+
+
+def test_model_migrations_upgrade_saved_config(tmp_path, monkeypatch):
+    """Bảng đổi số: slug chết trong brief_agents.json tự nâng cấp khi load,
+    GIỮ NGUYÊN enabled/thứ tự; slug user tự gõ (ngoài bảng) không bị đụng."""
+    import vnstock_brief as vb
+    cfg_path = tmp_path / "brief_agents.json"
+    cfg_path.write_text(json.dumps([
+        {"type": "groq", "model": "llama-3.3-70b-versatile",
+         "name": "Groq Llama-3.3-70B", "enabled": True, "max_tokens": 1200},
+        {"type": "cerebras", "model": "llama3.3-70b",
+         "name": "Cerebras", "enabled": False, "max_tokens": 1200},
+        {"type": "openrouter", "model": "my/custom-model",
+         "name": "Custom", "enabled": True, "max_tokens": 1200},
+    ], ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(vb, "AGENTS_CONFIG_PATH", cfg_path)
+
+    out = vb.load_agent_configs()
+
+    by_type = {c["type"]: c for c in out}
+    assert by_type["groq"]["model"] == "qwen/qwen3.6-27b"     # đổi số
+    assert by_type["groq"]["enabled"] is True                 # giữ lựa chọn
+    assert by_type["cerebras"]["model"] == "gpt-oss-120b"
+    assert by_type["cerebras"]["enabled"] is False
+    assert by_type["openrouter"]["model"] == "my/custom-model"  # không đụng
+    # merge thêm Gemini (provider mới) vào config cũ, enabled sẵn
+    assert by_type["gemini"]["model"] == "gemini-3.5-flash"
+    assert by_type["gemini"]["enabled"] is True
+    # file đã được ghi lại với slug mới
+    saved = json.loads(cfg_path.read_text(encoding="utf-8"))
+    assert any(c["model"] == "qwen/qwen3.6-27b" for c in saved)
+
+
+def test_strength_sorted_gemini_first():
+    import vnstock_brief as vb
+    agents = [vb.OpenRouterAgent(), vb.GroqAgent(), vb.GeminiAgent(),
+              vb.CerebrasAgent()]
+    got = [a.agent_type for a in vb._strength_sorted(agents)]
+    assert got == ["gemini", "groq", "cerebras", "openrouter"]
+
+
+def test_default_configs_no_dead_slugs_and_gemini_enabled():
+    import vnstock_brief as vb
+    cfgs = {c["type"]: c for c in vb._DEFAULT_AGENT_CONFIGS}
+    assert vb._DEFAULT_AGENT_CONFIGS[0]["type"] == "gemini"
+    assert cfgs["gemini"]["enabled"] is True
+    dead = {"llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama3.3-70b",
+            "llama3.1-8b", "meta-llama/llama-3.3-70b-instruct:free",
+            "meta-llama/llama-3.1-8b-instruct:free"}
+    assert not dead & {c["model"] for c in vb._DEFAULT_AGENT_CONFIGS}
+    # migration map phải phủ hết slug chết của 3 provider free
+    assert ("groq", "llama-3.3-70b-versatile") in vb._MODEL_MIGRATIONS
+    assert ("cerebras", "llama3.1-8b") in vb._MODEL_MIGRATIONS
+    assert ("openrouter", "meta-llama/llama-3.3-70b-instruct:free") \
+        in vb._MODEL_MIGRATIONS
+
+
+def test_generate_brief_orders_by_strength_and_has_fallback():
+    """Mirror nếp test_brief (inspect source): generate_brief phải (i) sắp
+    agent theo sức mạnh TRƯỚC khi chạy, (ii) sắp results tất định trước khi
+    trả, (iii) có nhánh dự phòng + alert khi mọi agent lỗi."""
+    import inspect
+
+    import vnstock_brief as vb
+    src = inspect.getsource(vb.generate_brief)
+    assert "_strength_sorted(agents)" in src
+    assert src.index("_strength_sorted(agents)") < src.index("ThreadPoolExecutor")
+    assert "(dự phòng)" in src
+    assert "_brief_alert_down" in src

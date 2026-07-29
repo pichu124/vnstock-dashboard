@@ -123,6 +123,15 @@ def get_vn30_live() -> set[str]:
     return set(VN30_TICKERS)
 
 _DEFAULT_AGENT_CONFIGS: list[dict] = [
+    # Gemini = agent CHÍNH (user chốt 22/07, all-free) — enabled sẵn để máy
+    # đã có config cũ cũng tự nhận nó qua cơ chế merge của load_agent_configs
+    {
+        "type": "gemini",
+        "model": "gemini-3.5-flash",
+        "name": "Gemini 3.5 Flash",
+        "enabled": True,
+        "max_tokens": 1200,
+    },
     {
         "type": "claude",
         "model": "claude-haiku-4-5-20251001",
@@ -139,8 +148,8 @@ _DEFAULT_AGENT_CONFIGS: list[dict] = [
     },
     {
         "type": "groq",
-        "model": "llama-3.3-70b-versatile",
-        "name": "Groq Llama-3.3-70B",
+        "model": "qwen/qwen3.6-27b",
+        "name": "Groq Qwen3.6-27B",
         "enabled": False,
         "max_tokens": 1200,
     },
@@ -160,15 +169,15 @@ _DEFAULT_AGENT_CONFIGS: list[dict] = [
     },
     {
         "type": "cerebras",
-        "model": "llama3.3-70b",
-        "name": "Cerebras Llama-3.3-70B",
+        "model": "gpt-oss-120b",
+        "name": "Cerebras GPT-OSS-120B",
         "enabled": False,
         "max_tokens": 1200,
     },
     {
         "type": "openrouter",
-        "model": "meta-llama/llama-3.3-70b-instruct:free",
-        "name": "OpenRouter Llama-3.3-70B",
+        "model": "nvidia/nemotron-3-super-120b-a12b:free",
+        "name": "OpenRouter Nemotron Super",
         "enabled": False,
         "max_tokens": 1200,
     },
@@ -568,7 +577,9 @@ class GroqAgent(_OpenAICompatAgent):
     _ERR_PREFIX = "Groq API"
     _LEDGER = "Groq"
 
-    def __init__(self, model: str = "llama-3.3-70b-versatile", name: str = "Groq Llama-3.3-70B"):
+    def __init__(self, model: str = "qwen/qwen3.6-27b", name: str = "Groq Qwen3.6-27B"):
+        # llama-3.3-70b-versatile deprecated 17/06/2026 — qwen3.6-27b là slug
+        # Groq chỉ định thay (probe sống 22/07, scripts/probe_models.py)
         super().__init__(model, name)
 
 
@@ -604,15 +615,15 @@ class CerebrasAgent(_OpenAICompatAgent):
     _ERR_PREFIX = "Cerebras API"
     _LEDGER = "Cerebras"
 
-    # Try models in order; Cerebras occasionally renames or deprecates
+    # Try models in order; Cerebras occasionally renames or deprecates.
+    # 22/07/2026: toàn bộ họ llama đã bị GỠ (probe: catalog chỉ còn
+    # gpt-oss-120b / gemma-4-31b / zai-glm-4.7 sắp dep 17/08).
     _MODEL_FALLBACKS: list[str] = [
-        "llama3.3-70b",    # Llama 3.3 70B (preferred, no dash)
-        "llama-3.3-70b",   # Legacy alias with dash
-        "llama3.1-70b",    # Llama 3.1 70B (always available)
-        "llama3.1-8b",     # Smallest, fastest fallback
+        "gpt-oss-120b",    # mạnh nhất còn lại (digest đạt 14/07)
+        "gemma-4-31b",     # non-reasoning, nhanh
     ]
 
-    def __init__(self, model: str = "llama3.3-70b", name: str = "Cerebras Llama-3.3-70B"):
+    def __init__(self, model: str = "gpt-oss-120b", name: str = "Cerebras GPT-OSS-120B"):
         super().__init__(model, name)
 
     def generate(self, prompt: str, max_tokens: int = 1200) -> tuple[str, str | None]:
@@ -652,11 +663,16 @@ class CerebrasAgent(_OpenAICompatAgent):
                     timeout=90,
                 )
                 resp.raise_for_status()
-                content = resp.json()["choices"][0]["message"]["content"]
+                body = resp.json()
+                _ledger_record(self._LEDGER, model, ok=True,
+                               usage=body.get("usage"))
+                content = body["choices"][0]["message"]["content"]
                 if idx > 0:
                     content = f"_(fallback: {model})_\n\n{content}"
                 return content, None
             except Exception as e:
+                _ledger_record(self._LEDGER, model, ok=False,
+                               error=f"{type(e).__name__}: {str(e)[:120]}")
                 detail = ""
                 if resp is not None:
                     try:
@@ -686,9 +702,11 @@ class OpenRouterAgent(_OpenAICompatAgent):
 
     def __init__(
         self,
-        model: str = "meta-llama/llama-3.3-70b-instruct:free",
-        name: str = "OpenRouter Llama-3.3-70B",
+        model: str = "nvidia/nemotron-3-super-120b-a12b:free",
+        name: str = "OpenRouter Nemotron Super",
     ):
+        # llama-3.3-70b hết bản :free (probe 22/07) — nemotron-3-super-120b
+        # là model :free tầm 70-120B mạnh + nhanh nhất catalog hiện tại
         super().__init__(model, name)
 
     @classmethod
@@ -760,11 +778,16 @@ class OpenRouterAgent(_OpenAICompatAgent):
             try:
                 resp = self._post_one(model, system_part, user_part, api_key, max_tokens)
                 resp.raise_for_status()
-                content = resp.json()["choices"][0]["message"]["content"]
+                body = resp.json()
+                _ledger_record(self._LEDGER, model, ok=True,
+                               usage=body.get("usage"))
+                content = body["choices"][0]["message"]["content"]
                 if idx > 0:
                     content = f"_(fallback: {model})_\n\n{content}"
                 return content, None
             except Exception as e:
+                _ledger_record(self._LEDGER, model, ok=False,
+                               error=f"{type(e).__name__}: {str(e)[:120]}")
                 detail = ""
                 if resp is not None:
                     try:
@@ -779,8 +802,31 @@ class OpenRouterAgent(_OpenAICompatAgent):
         return "", f"{self._ERR_PREFIX} lỗi: {last_err}{last_detail}"
 
 
+class GeminiAgent(_OpenAICompatAgent):
+    """Google AI Studio (Gemini) — endpoint OpenAI-compatible. Agent CHÍNH
+    cho brief từ 22/07/2026 (user chốt all-free): gemini-3.5-flash mạnh +
+    đa ngữ tốt nhất nhóm khả dụng, TPM 1M nuốt gọn prompt brief ~10K token
+    (Groq TPM 8K là biên rủi ro 413), free tier 1,500 req/ngày."""
+    agent_type = "gemini"
+    _ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    _ENV_KEY = "GEMINI_API_KEY"
+    _ERR_PREFIX = "Gemini API"
+    _LEDGER = "Gemini"
+
+    # flash SUY NGHĨ mặc định — thinking ăn budget completion; không nới thì
+    # content bị cụt dưới _BRIEF_MAX_TOKENS (bài học sentiment max_tokens=10)
+    _THINK_HEADROOM = 3000
+
+    def __init__(self, model: str = "gemini-3.5-flash", name: str = "Gemini 3.5 Flash"):
+        super().__init__(model, name)
+
+    def generate(self, prompt: str, max_tokens: int = 1200) -> tuple[str, str | None]:
+        return super().generate(prompt, max_tokens=max_tokens + self._THINK_HEADROOM)
+
+
 # ── Agent registry ─────────────────────────────────────────────────────────
 AGENT_REGISTRY: dict[str, type[BriefAgent]] = {
+    "gemini": GeminiAgent,
     "claude": ClaudeAgent,
     "openai": OpenAIAgent,
     "groq": GroqAgent,
@@ -791,10 +837,25 @@ AGENT_REGISTRY: dict[str, type[BriefAgent]] = {
 }
 
 
-# Obsolete model names → current model names (auto-migrate on load)
+# Obsolete model names → current model names (auto-migrate on load).
+# "Bảng đổi số" 22/07/2026: config đã lưu trên máy user (brief_agents.json)
+# KHÔNG tự đổi khi sửa default trong code — bảng này vá tận nơi, đúng 1 lần,
+# giữ nguyên enabled/thứ tự/tên; provider khai tử model lần tới chỉ cần thêm
+# 1 dòng map + 1 dòng test (slug mới đều đã probe sống — scripts/probe_models.py).
 _MODEL_MIGRATIONS: dict[tuple[str, str], str] = {
-    # Cerebras renamed Llama from "llama-3.3-70b" (with dash) to "llama3.3-70b"
-    ("cerebras", "llama-3.3-70b"): "llama3.3-70b",
+    # Groq deprecate 17/06/2026
+    ("groq", "llama-3.3-70b-versatile"): "qwen/qwen3.6-27b",
+    ("groq", "llama-3.1-8b-instant"):    "openai/gpt-oss-20b",
+    # Cerebras đã gỡ toàn bộ họ llama (probe 22/07: catalog còn 3 model)
+    ("cerebras", "llama-3.3-70b"):       "gpt-oss-120b",
+    ("cerebras", "llama3.3-70b"):        "gpt-oss-120b",
+    ("cerebras", "llama3.1-70b"):        "gpt-oss-120b",
+    ("cerebras", "llama3.1-8b"):         "gpt-oss-120b",
+    # OpenRouter gỡ bản :free của llama 3.3/3.1
+    ("openrouter", "meta-llama/llama-3.3-70b-instruct:free"):
+        "nvidia/nemotron-3-super-120b-a12b:free",
+    ("openrouter", "meta-llama/llama-3.1-8b-instruct:free"):
+        "openai/gpt-oss-20b:free",
 }
 
 
@@ -858,6 +919,33 @@ def build_agents(configs: list[dict] | None = None) -> list[BriefAgent]:
                 name=cfg.get("name", cfg.get("type", "")),
             ))
     return agents
+
+
+# Thứ tự SỨC MẠNH agent (user chốt 22/07: chạy/chọn bản chính từ agent mạnh
+# trước, yếu dần khi lỗi). gemini-3.5-flash đứng đầu nhóm khả dụng; claude/
+# openai là nấc trả phí opt-in (có key sẽ được ưu tiên ngay sau); openrouter
+# :free cuối vì quota 50 req/ngày + catalog churn. Type lạ (agent user tự
+# thêm) xếp sau cùng, giữ thứ tự config (sort ổn định).
+_AGENT_STRENGTH: tuple = ("gemini", "claude", "openai", "deepseek",
+                          "groq", "mistral", "cerebras", "openrouter")
+
+
+def _strength_sorted(agents: list[BriefAgent]) -> list[BriefAgent]:
+    """Sắp agent theo _AGENT_STRENGTH (mạnh → yếu), sort ổn định."""
+    def _rank(a: BriefAgent) -> int:
+        t = getattr(a, "agent_type", "")
+        return _AGENT_STRENGTH.index(t) if t in _AGENT_STRENGTH else len(_AGENT_STRENGTH)
+    return sorted(agents, key=_rank)
+
+
+def _brief_alert_down(context: str) -> None:
+    """Brief không có bản nào thành công → báo Telegram (throttle/kill-switch
+    ở vnstock_llm_ledger.alert_ladder_down). Best-effort tuyệt đối."""
+    try:
+        from vnstock_llm_ledger import alert_ladder_down
+        alert_ladder_down(context)
+    except Exception:
+        pass
 
 
 # ── Effective trading date ─────────────────────────────────────────────────
@@ -3310,6 +3398,8 @@ def generate_brief(
 
     if agents is None:
         agents = build_agents()
+    # Ưu tiên agent MẠNH trước (22/07) — quyết định cả thứ tự chọn bản chính
+    agents = _strength_sorted(agents)
 
     if not agents:
         return {"_no_agent": (
@@ -3407,6 +3497,7 @@ def generate_brief(
             "đã được load chưa, hoặc bật agent trong ⚙️ Cài đặt Agent."
         )
         results["_no_available"] = ("", "\n".join(_lines))
+        _brief_alert_down("brief: không agent nào khả dụng (thiếu key?)")
         return results
 
     # Run available agents in parallel to cut wall-clock time from N*T → T
@@ -3423,6 +3514,49 @@ def generate_brief(
                 agent = futures[fut]
                 name, result = agent.name, ("", str(exc))
             results[name] = result
+
+    # Bản CHÍNH = agent mạnh nhất thành công → sắp results theo thứ tự sức
+    # mạnh. Trước 22/07 thứ tự = as_completed (agent nào XONG TRƯỚC đứng
+    # đầu) → bản gửi Telegram không tất định khi bật >1 agent.
+    _ordered: dict = {}
+    for agent in available:
+        if agent.name in results:
+            _ordered[agent.name] = results[agent.name]
+    for _k, _v in results.items():
+        if _k not in _ordered:
+            _ordered[_k] = _v
+    results = _ordered
+
+    # Auto-fallback (user chốt 22/07): MỌI agent đang bật đều lỗi → thử tuần
+    # tự agent CÓ KEY nhưng chưa bật (mạnh → yếu), lấy bản đầu tiên thành
+    # công, gắn nhãn "(dự phòng)". Vẫn trắng tay → alert Telegram.
+    def _ok_any() -> bool:
+        return any(t and not e for t, e in
+                   (results.get(a.name, ("", None)) for a in available))
+
+    if not _ok_any():
+        try:
+            _enabled_types = {getattr(a, "agent_type", "") for a in agents}
+            _reserves = []
+            for _cfg in load_agent_configs():
+                _cls = AGENT_REGISTRY.get(_cfg.get("type", ""))
+                if _cls is None or _cfg.get("type") in _enabled_types:
+                    continue
+                _cand = _cls(model=_cfg.get("model", ""),
+                             name=_cfg.get("name", _cfg.get("type", "")))
+                if _cand.is_available:
+                    _reserves.append(_cand)
+            for _cand in _strength_sorted(_reserves):
+                _text, _rerr = _cand.generate(prompt, max_tokens=_BRIEF_MAX_TOKENS)
+                if _text and not _rerr:
+                    _cand.name = f"{_cand.name} (dự phòng)"
+                    results[_cand.name] = (_text, None)
+                    available.append(_cand)   # guard/validator/memory áp như thường
+                    break
+        except Exception:
+            pass
+        if not _ok_any():
+            _brief_alert_down("brief sáng/chiều — mọi agent đều lỗi")
 
     # Deterministic fixups the LLM is known to flub: restore the upcoming-events
     # list when the model claims "Không có sự kiện đáng chú ý" despite the data,

@@ -1511,7 +1511,8 @@ def render_market_tab() -> None:
                     "`MISTRAL_API_KEY` (Mistral) · "
                     "`DEEPSEEK_API_KEY` (DeepSeek) · "
                     "`CEREBRAS_API_KEY` (Cerebras) · "
-                    "`OPENROUTER_API_KEY` (OpenRouter)  \n"
+                    "`OPENROUTER_API_KEY` (OpenRouter) · "
+                    "`GEMINI_API_KEY` (Gemini — agent chính từ 22/07)  \n"
                     "Sau khi điền key → restart Streamlit → quay lại đây bật ✅ agent tương ứng."
                 )
 
