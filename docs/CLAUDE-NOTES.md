@@ -3489,3 +3489,21 @@ lúc mở máy SỚM NHẤT cuối tuần (tắt cả cuối tuần → bù sán
   (command không đổi), lần này danh sách task ĐỔI.
 - Tests: 3 test mới (thứ tự + cờ --force/--bulk/--register; lỗi giữa chừng
   không chặn bước sau + worst rc; parser/dispatch). Fast suite 803 passed.
+
+## 2026-07-29 (d) — Chốt trạng thái lịch chạy: máy PICHU cầm scheduler
+
+- Máy **PICHU** (user `admin`, venv `C:\Users\admin\.venv` — KHÔNG phải
+  `C:\vnstock\.venv` nên ps1 không tự dò được, phải `-PythonExe`) là máy
+  DUY NHẤT đăng ký lịch: **2 task** — Daily Pipeline 18:00 T2-T6 (14 bước,
+  kết bằng brief chiều Telegram) + Weekend Pipeline 09:00 T7. 3 task cuối
+  tuần cũ đã được script tự gỡ (verify output 29/07). Máy nào khác chỉ
+  dev/xem dashboard — KHÔNG đăng ký lịch trùng (marker chống gửi trùng
+  nằm theo máy, không chia sẻ).
+- Bẫy đã dính 29/07 (ghi để khỏi lặp): (i) chạy ps1 khi checkout còn ở
+  main cũ → đăng ký bản cũ; (ii) PowerShell admin không active venv →
+  ps1 tự dò ra system Python `C:\Python314` KHÔNG có thư viện — task sẽ
+  crash import. Thuốc: `git pull`/merge trước + luôn truyền
+  `-PythonExe "C:\Users\admin\.venv\Scripts\python.exe"` (hoặc tạo venv
+  tại `C:\vnstock\.venv` để tự dò).
+- Local main máy PICHU đã fast-forward tới 97454b1; nhắc user
+  `git push origin main` để origin/main theo kịp.
