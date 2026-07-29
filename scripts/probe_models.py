@@ -84,6 +84,49 @@ _CANDIDATES: list[tuple[str, str, str, dict]] = [
 ]
 
 
+# Map agent type (vnstock_brief) → tên provider trong _PROVIDERS.
+_BRIEF_TYPE2PROVIDER = {"gemini": "Gemini", "groq": "Groq",
+                        "cerebras": "Cerebras", "openrouter": "OpenRouter"}
+
+
+def _ladder_slugs() -> list[tuple[str, str, str, dict]]:
+    """--ladder: gom slug free ĐANG DÙNG trong code (mirror _all_live_slugs
+    của tests/test_model_ladder.py, chỉ 4 provider free probe được — model
+    trả phí Anthropic/OpenAI khác API, bỏ qua). Mỗi slug kèm tag điểm dùng
+    ([1] sentiment…[7] brief) để nhìn output biết lỗi rơi vào tính năng nào.
+    Health check chạy SAU sự cố key/deprecation: 1 call/slug, chi phí ~0."""
+    if str(_REPO) not in sys.path:
+        sys.path.insert(0, str(_REPO))
+    import vnstock_brief as vb
+    import vnstock_news_feeds as nf
+    import vnstock_report_digest as dg
+    import vnstock_sentiment as snt
+
+    tags: dict[tuple[str, str], list[str]] = {}
+
+    def _add(provider: str, model: str, tag: str) -> None:
+        if provider in _PROVIDERS:
+            tags.setdefault((provider, model), []).append(tag)
+
+    for p in snt._PROVIDERS:
+        _add(p["name"], p["model"], "[1] sentiment")
+    for prov, m in nf._ANALYZE_MODELS.items():
+        _add(prov, m, "[2] analyze")
+    for prov, m in dg._FREE_MODELS.items():
+        _add(prov, m, "[3-6] digest b1")
+    for prov, m in dg._FREE_TIER2:
+        _add(prov, m, "[3-6] digest b2")
+    for c in vb._DEFAULT_AGENT_CONFIGS:
+        prov = _BRIEF_TYPE2PROVIDER.get(c["type"])
+        if prov:
+            _add(prov, c["model"], "[7] brief")
+    for m in vb.CerebrasAgent._MODEL_FALLBACKS:
+        _add("Cerebras", m, "[7] fallback")
+
+    return [(prov, model, " + ".join(dict.fromkeys(ts)), {})
+            for (prov, model), ts in tags.items()]
+
+
 def _key_for(provider: str) -> str:
     cfg = _PROVIDERS[provider]
     key = (os.environ.get(cfg["env"]) or "").strip()
@@ -204,11 +247,19 @@ def main(argv=None) -> int:
         help='Probe CHỈ slug này, lặp lại được — vd --slug "Groq=qwen/qwen4-30b". '
              "Provider ∈ Groq/Cerebras/OpenRouter/Gemini. "
              "Không có --slug → chạy trọn bộ mặc định + listing catalog.")
+    ap.add_argument(
+        "--ladder", action="store_true",
+        help="Probe ĐÚNG bộ slug free đang dùng trong code (health check "
+             "toàn ladder [1]-[7] sau sự cố key/deprecation); bỏ listing "
+             "catalog. Kết hợp được với --slug.")
     args = ap.parse_args(argv)
 
     candidates = list(_CANDIDATES)
-    if args.slug:                     # chế độ ad-hoc: chỉ probe slug được nêu
+    if args.ladder or args.slug:      # chế độ chọn lọc: bỏ danh sách ứng viên
         candidates = []
+    if args.ladder:
+        candidates += _ladder_slugs()
+    if args.slug:                     # chế độ ad-hoc: probe thêm slug được nêu
         for part in args.slug:
             name, sep, model = part.partition("=")
             name = name.strip()
@@ -241,7 +292,7 @@ def main(argv=None) -> int:
         print(f"{icon} {provider:10s} {model:45s} {dt:5.1f}s  {note}")
         print(f"   {desc}")
 
-    if not args.slug:                 # listing catalog chỉ chạy ở chế độ đầy đủ
+    if not (args.slug or args.ladder):  # listing catalog chỉ ở chế độ đầy đủ
         list_openrouter_free()
         list_and_probe_cerebras()
         list_gemini_models()

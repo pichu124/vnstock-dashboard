@@ -391,6 +391,41 @@ def test_no_dead_slug_anywhere_in_code():
     assert not leaked, f"slug chết lọt lại vào code: {sorted(leaked)}"
 
 
+def test_probe_ladder_covers_all_free_live_slugs():
+    """`probe_models.py --ladder` (health check 29/07) phải tự gom ĐỦ slug
+    free đang dùng ở [1]-[7] — thêm điểm dùng model free mới mà _ladder_slugs
+    không gom được là health check thiếu mắt. Hermetic: chỉ gom, không call."""
+    import importlib.util
+    from pathlib import Path
+
+    import vnstock_brief as vb
+    import vnstock_news_feeds as nf
+    import vnstock_report_digest as dg
+
+    path = Path(__file__).resolve().parent.parent / "scripts" / "probe_models.py"
+    spec = importlib.util.spec_from_file_location("_probe_models_for_test", path)
+    pm = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pm)
+
+    entries = pm._ladder_slugs()
+    got = {(p, m) for p, m, _, _ in entries}
+
+    assert all(p in pm._PROVIDERS for p, _ in got)      # chỉ 4 provider free
+    assert not _DEAD_SLUGS_22_07 & {m for _, m in got}  # không probe slug chết
+    # [1] sentiment đủ 4 nấc
+    assert {(p["name"], p["model"]) for p in snt._PROVIDERS} <= got
+    # [2] analyze + [3-6] digest cả 2 bậc
+    assert {(p, m) for p, m in nf._ANALYZE_MODELS.items()} <= got
+    assert {(p, m) for p, m in dg._FREE_MODELS.items()} <= got
+    assert set(dg._FREE_TIER2) <= got
+    # [7] brief: agent chính + fallback nội bộ Cerebras
+    assert ("Gemini", "gemini-3.5-flash") in got
+    assert {("Cerebras", m) for m in vb.CerebrasAgent._MODEL_FALLBACKS} <= got
+    # tag điểm dùng phải có mặt để đọc output biết lỗi ở tính năng nào
+    notes = {note for _, _, note, _ in entries}
+    assert any("[1]" in n for n in notes) and any("[7]" in n for n in notes)
+
+
 def test_migrations_targets_are_live_and_cover_dead_defaults():
     import vnstock_brief as vb
     # Đích migration KHÔNG được là slug chết (bài học entry cũ dead-to-dead:

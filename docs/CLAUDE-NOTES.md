@@ -3596,3 +3596,16 @@ payload từng bị disapprove 3 vòng → `auditor=free:Gemini:gemini-3.5-flash
 approved=True conf=1.00`, không issue nào. Điểm [6] khép trọn: cascade +
 key mới + chú giải schema đều xác nhận sống. Còn theo dõi thụ động: phát
 pipeline 18:00 tới tự chạy audit LLM (soi run_daily.log).
+
+## 2026-07-29 (g) — `probe_models.py --ladder`: health check toàn ladder 1 lệnh
+
+Bộ `_CANDIDATES` mặc định của probe là danh sách ỨNG VIÊN đông cứng hồi
+22/07 — không phủ ladder hiện tại (Groq không được probe con nào). Thêm
+`--ladder`: tự gom slug free đang dùng ở [1]-[7] từ CHÍNH code (sentiment
+_PROVIDERS, news _ANALYZE_MODELS, digest 2 bậc, brief defaults+fallback —
+mirror `_all_live_slugs`), mỗi slug kèm tag điểm dùng để nhìn output biết
+lỗi rơi vào tính năng nào; bỏ listing catalog cho nhanh (10 slug ~15s).
+Test giữ: `--ladder` phải phủ đủ slug free sống + không probe slug chết
+(test_probe_ladder_covers_all_free_live_slugs — fast suite). Nếp dùng:
+sau sự cố key / provider deprecation / nghi model chập chờn → chạy
+`python scripts/probe_models.py --ladder` trước khi đào sâu.
