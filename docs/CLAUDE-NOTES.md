@@ -3415,8 +3415,8 @@ Trạng thái mục "TODO & CHỜ VERIFY 22/07" phía trên:
 
 ### CÒN LẠI (giữ nguyên, chưa làm)
 
-1. **[6] Auditor** — FreeAuditorAgent qua cascade digest sẵn có;
-   NullAuditor hiện vẫn phê duyệt mọi thứ.
+1. ✅ **[6] Auditor** — XONG 29/07 (e): FreeAuditorAgent qua cascade digest
+   + bật LLM audit mặc định trong pipeline (xem entry 29/07 (e) phía dưới).
 2. **[8] Classifier** — đường Gemini flash cho batch; hiện crash khi
    thiếu ANTHROPIC_API_KEY.
 3. **Checklist verify vận hành** (mục 22/07 phía trên): brief A/B Gemini
@@ -3507,3 +3507,47 @@ lúc mở máy SỚM NHẤT cuối tuần (tắt cả cuối tuần → bù sán
   tại `C:\vnstock\.venv` để tự dò).
 - Local main máy PICHU đã fast-forward tới 97454b1; nhắc user
   `git push origin main` để origin/main theo kịp.
+
+## 2026-07-29 (e) — Điểm [6] Auditor: FreeAuditorAgent + bật LLM audit trong pipeline
+
+Chốt nốt điểm [6] của sơ đồ model: trước nay máy all-free không key
+Anthropic/OpenAI → `make_auditor("auto")` rơi thẳng **NullAuditor phê duyệt
+mọi thứ** — lớp phản biện screener vô hiệu ÂM THẦM; tệ hơn, bước audit
+trong pipeline đêm còn CHƯA TỪNG truyền `--llm` nên kể cả có key cũng câm.
+
+1. **`FreeAuditorAgent`** (vnstock_auditor.py, name="free"): đi qua đúng
+   cascade `digest_call` của điểm [3-5] (Gemini 3.5-flash → Cerebras
+   gpt-oss-120b → nemotron:free → bậc 2; nấc Claude/GPT trong cascade tự
+   skip khi không key) — không thêm ladder mới, hưởng sẵn ledger từng nấc,
+   feedback 1 lượt tự sửa, alert "LLM ladder DOWN" khi cạn thang.
+   `accept=_is_parseable` (JSON verdict lấy ra được — output cắt cụt kiểu
+   Cerebras 14/07 = chấm rớt, thử nấc sau). Prompt tách tại "CONTEXT:" —
+   chỉ dẫn ổn định làm system, data biến thiên làm user. Cạn thang →
+   `approved=False` (run.py audit exit 1 CẢNH BÁO, không fail cứng).
+   Backend verdict ghi rõ nấc chấm ("free:Gemini:gemini-3.5-flash").
+2. **Factory** `make_auditor`: auto = Claude → GPT → **Free (khi có ≥1 key
+   trong `_FREE_KEY_ENVS`)** → Null; thêm prefer="free". Trả phí đứng
+   trước vì có key trả phí nghĩa là user CHỦ ĐỘNG bật. Load .env tách ra
+   `_ensure_env_loaded()` (mirror report_digest) — vừa vá bẫy CLI fresh
+   quên .env (bài digest 14/07), vừa để test monkeypatch no-op (không tách
+   thì test factory trên máy thật bị .env đè key vừa delenv → sai như vụ
+   conftest 17-18/07).
+3. **Pipeline bật LLM audit MẶC ĐỊNH** (run.py): `_audit_llm_enabled` —
+   `cmd_all` set `args.llm=True` trừ khi cờ `--no-llm-audit` hoặc env
+   `VNSTOCK_AUDIT_LLM=0` (nếp kill-switch). Subcommand `audit` lẻ vẫn
+   opt-in `--llm` như cũ. `--auditor` thêm choice "free" ở cả 2 parser.
+   Chi phí +1 call free/ngày (payload summary ~vài trăm token) — $0.
+4. **Fast list thêm `test_model_ladder.py` + `test_auditor.py`** — test
+   quét slug chết toàn repo trước giờ chỉ chạy ở FULL suite, lời hứa "đỏ
+   ngay ở test --fast" trong docstring là hứa suông; giờ mới đúng.
+   `_all_live_slugs` khai thêm DEFAULT_MODEL của Claude/GPT auditor ([6]).
+5. Tests: 9 test mới (factory free forced/auto/ưu tiên trả phí; route qua
+   digest_call + tách system/user + backend ghi nấc; accept chấm rớt JSON
+   cụt; cạn thang → unapproved; `_audit_llm_enabled` default/kill-switch;
+   inspect-source cmd_all; parser). Fixture `_no_keys` chặn
+   `_ensure_env_loaded` + xoá 6 key cho factory test hermetic. Sandbox
+   fast 848 passed / full 1375 passed.
+6. **Verify máy thật (chưa làm)**: chạy `python run.py audit --llm` tay →
+   log `[audit] auditor=free:Gemini:...` + ledger có call mới; phát
+   pipeline 18:00 gần nhất tự audit LLM (soi `run_daily.log`). Muốn tắt:
+   `VNSTOCK_AUDIT_LLM=0` vào .env.

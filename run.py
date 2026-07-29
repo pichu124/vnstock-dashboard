@@ -685,6 +685,8 @@ def cmd_test(args) -> int:
             "tests/test_networth.py",
             "tests/test_portfolio_prices.py",
             "tests/test_close_2007_review.py",
+            "tests/test_model_ladder.py",
+            "tests/test_auditor.py",
         ]
     else:
         test_paths = ["tests/"]
@@ -1087,6 +1089,19 @@ def _all_steps(args) -> "list[tuple[str, object]]":
     return steps
 
 
+def _audit_llm_enabled(args) -> bool:
+    """Điểm [6] 29/07: auditor (free-cascade, $0) BẬT MẶC ĐỊNH trong pipeline
+    đêm — trước đây --llm là opt-in nên bước audit theo lịch CHƯA TỪNG gọi
+    LLM, lớp phản biện screener vô hiệu âm thầm. Tắt: cờ --no-llm-audit
+    hoặc env VNSTOCK_AUDIT_LLM=0 (nếp kill-switch repo). Subcommand `audit`
+    chạy lẻ vẫn opt-in --llm như cũ."""
+    import os as _os
+    if getattr(args, "no_llm_audit", False):
+        return False
+    return (_os.environ.get("VNSTOCK_AUDIT_LLM") or "1").strip().lower() \
+        not in ("0", "false", "off")
+
+
 def cmd_all(args) -> int:
     """sync → validate → screener → news → foreign-flow → macro → allocation
     → test → audit → train → reflection → doctor → brief (đẩy brief chiều
@@ -1094,6 +1109,8 @@ def cmd_all(args) -> int:
     pass is offline-only and just refreshes doctor_status.json so the sidebar
     badge stays current."""
     steps = _all_steps(args)
+    if _audit_llm_enabled(args):
+        args.llm = True          # bước audit trong chuỗi sẽ gọi auditor LLM
     if getattr(args, "no_sync", False):
         print("[run.py] --no-sync: bỏ bước sync kho giá + validate — chạy "
               f"{len(steps)} bước còn lại")
@@ -1168,7 +1185,8 @@ def build_parser() -> argparse.ArgumentParser:
     audit.add_argument("--lookback", type=int, default=60)
     audit.add_argument("--llm", action="store_true",
                        help="Also ask the Auditor agent for a second opinion")
-    audit.add_argument("--auditor", choices=["auto", "claude", "gpt", "null"],
+    audit.add_argument("--auditor",
+                       choices=["auto", "claude", "gpt", "free", "null"],
                        default="auto")
     audit.add_argument("--include-non-stocks", action="store_true",
                        help="Include CW / bonds / futures / indices in anomaly scan")
@@ -1330,10 +1348,14 @@ def build_parser() -> argparse.ArgumentParser:
                            "~5-15 phút backtest + vài call LLM)")
     all_.add_argument("--lookback", type=int, default=60)
     all_.add_argument("--llm", action="store_true")
-    all_.add_argument("--auditor", choices=["auto", "claude", "gpt", "null"],
+    all_.add_argument("--auditor",
+                      choices=["auto", "claude", "gpt", "free", "null"],
                       default="auto")
     all_.add_argument("--no-news", action="store_true",
                       help="Skip the news sentiment refresh step")
+    all_.add_argument("--no-llm-audit", action="store_true",
+                      help="Tắt auditor LLM trong bước audit (mặc định BẬT "
+                           "từ 29/07 — free cascade; env: VNSTOCK_AUDIT_LLM=0)")
     all_.add_argument("--no-brief", action="store_true",
                       help="Bỏ bước cuối đẩy brief chiều lên Telegram "
                            "(kill-switch env: VNSTOCK_PIPELINE_BRIEF=0)")

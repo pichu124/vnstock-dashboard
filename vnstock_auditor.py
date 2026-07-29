@@ -307,18 +307,102 @@ class GPTAuditorAgent(AuditorAgent):
         return self._parse_verdict(text, backend=self.name)
 
 
+class FreeAuditorAgent(AuditorAgent):
+    """Điểm [6] all-free (29/07/2026): audit qua cascade digest_call của
+    vnstock_report_digest — Gemini 3.5-flash → Cerebras gpt-oss-120b →
+    nemotron:free → bậc 2 (nấc Claude/GPT trong cascade tự bỏ qua khi không
+    key). Trước đây máy không key trả phí rơi thẳng NullAuditor = lớp phản
+    biện screener VÔ HIỆU ÂM THẦM (phê duyệt suông).
+
+    Tận dụng nguyên cơ chế digest_call: ``accept`` = output có JSON parse
+    được (hỏng → thử nấc sau), 1 lượt tự sửa kèm mô tả lỗi, ghi ledger từng
+    nấc, alert "LLM ladder DOWN" khi cạn thang. Verdict khi cạn thang =
+    approved False (run.py audit → exit 1 cảnh báo, KHÔNG chặn pipeline)."""
+
+    name = "free"
+
+    @staticmethod
+    def _is_parseable(raw: str) -> bool:
+        """JSON verdict lấy ra được không — điều kiện `accept` của cascade."""
+        m = re.search(r"\{[\s\S]*\}", raw or "")
+        if not m:
+            return False
+        try:
+            json.loads(m.group(0))
+            return True
+        except json.JSONDecodeError:
+            return False
+
+    def audit(self, payload: dict, *, context: str = "") -> AuditVerdict:
+        try:
+            from vnstock_report_digest import digest_call
+        except Exception as e:  # pragma: no cover — import hỏng là lỗi môi trường
+            return AuditVerdict(
+                approved=False, confidence=0.0,
+                issues=[f"digest_call unavailable: {type(e).__name__}: {e}"],
+                backend=self.name,
+            )
+        prompt = self._build_prompt(payload, context)
+        # Tách system/user tại "CONTEXT:" — phần chỉ dẫn ổn định làm system
+        # (cache/prompt-hygiene), phần dữ liệu biến thiên làm user.
+        cut = prompt.find("CONTEXT:")
+        system = prompt[:cut].strip() if cut > 0 else ""
+        user = prompt[cut:].strip() if cut > 0 else prompt
+
+        raw, provider = digest_call(
+            system, user,
+            accept=self._is_parseable,
+            feedback=lambda r: ("không lấy ra được JSON verdict "
+                                '{"approved", "confidence", "issues", "suggestions"}'),
+        )
+        if not raw:
+            return AuditVerdict(
+                approved=False, confidence=0.0,
+                issues=["mọi nấc model free đều lỗi — không audit được "
+                        "(xem python vnstock_llm_ledger.py --show)"],
+                backend=self.name,
+            )
+        return self._parse_verdict(raw, backend=f"{self.name}:{provider}")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Factory
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+# Key free tier cho FreeAuditorAgent — mirror provider của cascade digest
+_FREE_KEY_ENVS = ("GEMINI_API_KEY", "GROQ_API_KEY", "CEREBRAS_API_KEY",
+                  "OPENROUTER_API_KEY")
+
+
+def _has_free_key() -> bool:
+    return any((os.environ.get(k) or "").strip() for k in _FREE_KEY_ENVS)
+
+
+def _ensure_env_loaded() -> None:
+    """CLI fresh (run.py audit --llm) chưa chắc đã load .env — bẫy đã ghi
+    trong CLAUDE-NOTES (digest 14/07). Best-effort, idempotent; tách hàm
+    riêng (mirror vnstock_report_digest) để test monkeypatch no-op được —
+    không tách thì test factory trên máy thật bị .env đè key vừa delenv."""
+    try:
+        from pathlib import Path as _Path
+
+        from dotenv import load_dotenv
+        load_dotenv(_Path(__file__).resolve().parent / ".env", override=False)
+    except Exception:
+        pass
 
 
 def make_auditor(prefer: str = "auto") -> AuditorAgent:
     """
     Return the best-available auditor based on env vars.
 
-    prefer = "auto" → try Claude, then GPT, then Null.
-    prefer = "claude" | "gpt" | "null" forces a specific backend.
+    prefer = "auto" → Claude → GPT → Free (cascade digest, cần ≥1 key free)
+    → Null. prefer = "claude" | "gpt" | "free" | "null" forces a backend.
+    (Thứ tự auto = trả phí trước: có key trả phí nghĩa là user CHỦ ĐỘNG
+    bật lại — mặc định máy all-free 29/07 sẽ rơi vào Free.)
     """
+    _ensure_env_loaded()
     prefer = prefer.lower()
     if prefer == "null":
         return NullAuditorAgent()
@@ -326,11 +410,15 @@ def make_auditor(prefer: str = "auto") -> AuditorAgent:
         return ClaudeAuditorAgent()
     if prefer == "gpt":
         return GPTAuditorAgent()
+    if prefer == "free":
+        return FreeAuditorAgent()
     # auto
-    if os.environ.get("ANTHROPIC_API_KEY"):
+    if (os.environ.get("ANTHROPIC_API_KEY") or "").strip():
         return ClaudeAuditorAgent()
-    if os.environ.get("OPENAI_API_KEY"):
+    if (os.environ.get("OPENAI_API_KEY") or "").strip():
         return GPTAuditorAgent()
+    if _has_free_key():
+        return FreeAuditorAgent()
     return NullAuditorAgent()
 
 
@@ -340,5 +428,6 @@ __all__ = [
     "NullAuditorAgent",
     "ClaudeAuditorAgent",
     "GPTAuditorAgent",
+    "FreeAuditorAgent",
     "make_auditor",
 ]

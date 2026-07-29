@@ -150,3 +150,40 @@ def test_cmd_weekend_continues_past_failures_and_reports_worst(monkeypatch):
 def test_parser_accepts_weekend_subcommand():
     assert runpy.build_parser().parse_args(["weekend"]).subcommand == "weekend"
     assert runpy._DISPATCH["weekend"] is runpy.cmd_weekend
+
+
+# ─── Điểm [6] 29/07: auditor LLM (free cascade) bật mặc định trong pipeline ──
+
+def test_audit_llm_enabled_default_on(monkeypatch):
+    monkeypatch.delenv("VNSTOCK_AUDIT_LLM", raising=False)
+    assert runpy._audit_llm_enabled(SimpleNamespace()) is True
+
+
+def test_audit_llm_enabled_flag_and_env_killswitch(monkeypatch):
+    monkeypatch.delenv("VNSTOCK_AUDIT_LLM", raising=False)
+    assert runpy._audit_llm_enabled(SimpleNamespace(no_llm_audit=True)) is False
+    for off in ("0", "false", "off"):
+        monkeypatch.setenv("VNSTOCK_AUDIT_LLM", off)
+        assert runpy._audit_llm_enabled(SimpleNamespace()) is False
+    monkeypatch.setenv("VNSTOCK_AUDIT_LLM", "1")
+    assert runpy._audit_llm_enabled(SimpleNamespace()) is True
+
+
+def test_cmd_all_wires_llm_audit():
+    """Mirror nếp inspect-source: cmd_all phải hỏi _audit_llm_enabled và bật
+    args.llm cho bước audit trong chuỗi — thiếu là bước audit theo lịch lại
+    câm LLM như trước 29/07."""
+    import inspect
+    src = inspect.getsource(runpy.cmd_all)
+    assert "_audit_llm_enabled" in src
+    assert "args.llm = True" in src
+
+
+def test_parser_accepts_free_auditor_and_no_llm_audit():
+    assert runpy.build_parser().parse_args(
+        ["all", "--no-llm-audit"]).no_llm_audit is True
+    assert runpy.build_parser().parse_args(["all"]).no_llm_audit is False
+    assert runpy.build_parser().parse_args(
+        ["audit", "--llm", "--auditor", "free"]).auditor == "free"
+    assert runpy.build_parser().parse_args(
+        ["all", "--auditor", "free"]).auditor == "free"

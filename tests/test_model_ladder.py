@@ -365,6 +365,7 @@ _DEAD_SLUGS_22_07 = {
 def _all_live_slugs() -> set:
     """Mọi slug đang HOẠT ĐỘNG trong code — điểm dùng model mới thêm sau
     này PHẢI khai báo vào đây để được quét."""
+    import vnstock_auditor as va
     import vnstock_brief as vb
     import vnstock_news_feeds as nf
     import vnstock_report_digest as dg
@@ -376,6 +377,9 @@ def _all_live_slugs() -> set:
     slugs |= {m for _, m in dg._FREE_TIER2}                    # [3-5] digest bậc 2
     slugs.add(dg._CLAUDE_MODEL)
     slugs.add(dg._OPENAI_MODEL)
+    slugs.add(va.ClaudeAuditorAgent.DEFAULT_MODEL)             # [6] auditor trả phí
+    slugs.add(va.GPTAuditorAgent.DEFAULT_MODEL)                # [6] (Free dùng lại
+    #                                                           cascade digest ở trên)
     slugs |= {c["model"] for c in vb._DEFAULT_AGENT_CONFIGS}   # [7] brief defaults
     slugs |= set(vb.CerebrasAgent._MODEL_FALLBACKS)            # [7] fallback nội bộ
     slugs |= {cls().model for cls in vb.AGENT_REGISTRY.values()}  # [7] __init__ defaults
