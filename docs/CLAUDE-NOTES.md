@@ -3465,3 +3465,27 @@ chiều bằng ladder điểm [7] (Gemini chính) + đẩy Telegram.
    `setup_scheduled_tasks.ps1` + guard giờ/marker tương tự bước brief chiều
    (hiện `run.py telegram morning` CHƯA có guard chống trùng). Sau khi thêm
    → user chạy lại ps1 quyền Admin để đăng ký task mới.
+
+## 2026-07-29 (c) — Gộp 3 task cuối tuần thành "VnStock Weekend Pipeline" (09:00 T7)
+
+User chốt: Corp Actions (CN) + Fundamentals (T2 sáng) + Rates Weekly (T7)
+đều 1 lần/tuần → gộp 1 task 09:00 T7; máy tắt thì StartWhenAvailable chạy
+lúc mở máy SỚM NHẤT cuối tuần (tắt cả cuối tuần → bù sáng T2).
+
+- **`run.py weekend`** mới (`cmd_weekend` + `_weekend_steps` tách riêng để
+  test): rates-weekly (nhẹ, đẩy Telegram trước) → vietstock --bulk
+  --register → fundamentals **--force** (nặng ~25-30ph để cuối; --force
+  BẮT BUỘC — bug no-op 2026-07-10 đã có test giữ). Khác `all`: 3 bước ĐỘC
+  LẬP nên lỗi bước nào ghi cảnh báo rồi VẪN chạy tiếp, trả worst exit code.
+- **ps1**: 3 task definition → 1 "VnStock Weekend Pipeline" (MaxMinutes
+  180, param -WeekendTime thay 3 param cũ); `$LegacyTaskNames` — script TỰ
+  GỠ 3 task cũ cả ở create mode lẫn -Remove (user không phải xoá tay);
+  data fundamentals lấy T7 thay vì sáng T2 = cùng số liệu (cuối tuần không
+  có phiên). `scripts/run_weekend.bat` mới để chạy tay;
+  run_weekly_corp_actions.bat GIỮ NGUYÊN (mục đích ad-hoc "nghe tin corp
+  action mới" vẫn hợp lệ).
+- ⚠️ USER PHẢI CHẠY LẠI `.\scripts\setup_scheduled_tasks.ps1` (PowerShell
+  AS ADMIN) một lần để đăng ký task mới + gỡ 3 task cũ — khác bước brief
+  (command không đổi), lần này danh sách task ĐỔI.
+- Tests: 3 test mới (thứ tự + cờ --force/--bulk/--register; lỗi giữa chừng
+  không chặn bước sau + worst rc; parser/dispatch). Fast suite 803 passed.

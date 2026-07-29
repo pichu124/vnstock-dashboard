@@ -118,3 +118,35 @@ def test_cmd_brief_pushes_and_writes_marker(tmp_path, monkeypatch):
                         lambda: (_ for _ in ()).throw(RuntimeError("token sai")))
     assert runpy.cmd_brief(args) == 1
     assert not marker.exists()
+
+
+# ─── run.py weekend: gộp 3 việc cuối tuần (29/07 — thay 3 task lẻ T7/CN/T2) ──
+
+def test_weekend_steps_order_and_flags():
+    steps = runpy._weekend_steps(SimpleNamespace(warehouse="data_warehouse"))
+    names = [n for n, _ in steps]
+    # nhẹ trước (rates đẩy Telegram), fundamentals nặng ~25-30ph để cuối
+    assert names == ["rates-weekly", "vietstock", "fundamentals"]
+    cmds = {n: c for n, c in steps}
+    # vietstock phải giữ nguyên cờ của task cũ
+    assert "--bulk" in cmds["vietstock"] and "--register" in cmds["vietstock"]
+    # fundamentals PHẢI --force (không có = incremental no-op, bug 2026-07-10)
+    assert "--force" in cmds["fundamentals"]
+
+
+def test_cmd_weekend_continues_past_failures_and_reports_worst(monkeypatch):
+    ran = []
+
+    def _fake_run(cmd):
+        ran.append(cmd)
+        return 1 if len(ran) == 2 else 0    # bước giữa (vietstock) lỗi
+
+    monkeypatch.setattr(runpy, "_run", _fake_run)
+    rc = runpy.cmd_weekend(SimpleNamespace(warehouse="data_warehouse"))
+    assert len(ran) == 3        # lỗi giữa chừng KHÔNG chặn các bước sau
+    assert rc == 1              # gom về cảnh báo
+
+
+def test_parser_accepts_weekend_subcommand():
+    assert runpy.build_parser().parse_args(["weekend"]).subcommand == "weekend"
+    assert runpy._DISPATCH["weekend"] is runpy.cmd_weekend

@@ -958,6 +958,38 @@ def cmd_news(args) -> int:
     return 0
 
 
+def _weekend_steps(args) -> "list[tuple[str, list]]":
+    """3 việc cuối tuần gộp 1 task (user chốt 29/07 — trước là 3 task lẻ
+    T7/CN/T2 sáng). Thứ tự: nhẹ → nặng; các bước ĐỘC LẬP nhau nên lỗi bước
+    nào ghi cảnh báo rồi vẫn chạy tiếp (khác `all` — dừng khi fail cứng).
+    LƯU Ý fundamentals PHẢI có --force (không có = incremental skip mã đã
+    có → task tuần thành no-op, bug 2026-07-10)."""
+    wh = getattr(args, "warehouse", "data_warehouse")
+    py = sys.executable
+    return [
+        ("rates-weekly", [py, str(REPO_ROOT / "run.py"), "--warehouse", wh,
+                          "rates-weekly"]),
+        ("vietstock",    [py, str(REPO_ROOT / "run.py"), "--warehouse", wh,
+                          "vietstock", "--bulk", "--register"]),
+        ("fundamentals", [py, str(REPO_ROOT / "vnstock_fundamental_updater.py"),
+                          "--force", "--workers", "4", "--delay", "1"]),
+    ]
+
+
+def cmd_weekend(args) -> int:
+    """rates-weekly (render cache → Telegram) → vietstock corp actions →
+    fundamentals (~25-30 phút, để cuối). Chạy 09:00 T7; máy tắt thì
+    StartWhenAvailable chạy lúc mở máy sớm nhất cuối tuần."""
+    worst = 0
+    for name, cmd in _weekend_steps(args):
+        print(f"\n=== run.py weekend :: {name} ===")
+        rc = _run(cmd)
+        if rc != 0:
+            worst = max(worst, 1 if rc == 1 else 2)
+            print(f"[run.py] weekend :: {name} exit {rc} — ghi nhận, chạy tiếp")
+    return worst
+
+
 def _brief_push_marker(args) -> Path:
     """File đánh dấu đã đẩy brief chiều hôm nào — chống gửi trùng khi pipeline
     chạy lại trong ngày (run_daily.bat tay + task 18:00)."""
@@ -1259,6 +1291,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("brief",
                    help="Đẩy brief CHIỀU lên Telegram (bước 14 pipeline; guard "
                         "chống gửi trùng trong ngày + không chạy trước 15:00)")
+    sub.add_parser("weekend",
+                   help="Gộp 3 việc cuối tuần: rates-weekly → vietstock corp "
+                        "actions → fundamentals --force (task 09:00 T7)")
     sub.add_parser("allocation",
                    help="Refresh asset-allocation band B0-B4 + scorecard")
     sub.add_parser("gold",
@@ -1308,6 +1343,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 _DISPATCH = {
     "brief": cmd_brief,
+    "weekend": cmd_weekend,
     "scan": cmd_scan,
     "doctor": cmd_doctor,
     "sync": cmd_sync,

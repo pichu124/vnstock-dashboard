@@ -9,19 +9,12 @@
 #      user chạy tay; guard chống gửi trùng + không đẩy trước 15:00)
 #      Command: python run.py --warehouse data_warehouse all
 #
-#   2. VnStock Weekly Corp Actions — 09:00 Sunday
-#      Scrape Vietstock for new dividends / splits → register
-#      Command: python run.py --warehouse data_warehouse vietstock --bulk --register
-#
-#   3. VnStock Fundamentals        — 08:00 Monday (1×/tuần)
-#      Tải P/E / ROE / D-E / Cash Flow → fundamentals.parquet
-#      Command: python vnstock_fundamental_updater.py --force --workers 4 --delay 1
-#      (--force bắt buộc — không có nó updater incremental skip mã đã có,
-#       task tuần thành no-op; fix 2026-07-10)
-#
-#   4. VnStock Rates Weekly        — 09:00 Saturday (1×/tuần)
-#      Báo cáo tuần lãi suất & tiền tệ → Telegram (render từ cache, zero LLM)
-#      Command: python run.py --warehouse data_warehouse rates-weekly
+#   2. VnStock Weekend Pipeline   — 09:00 Saturday (gộp 3 task cũ, 2026-07-29)
+#      rates-weekly (Telegram) → vietstock corp actions → fundamentals --force
+#      Command: python run.py --warehouse data_warehouse weekend
+#      Máy tắt lúc 09:00 T7 → StartWhenAvailable chạy lúc mở máy sớm nhất
+#      cuối tuần. (3 task cũ Corp Actions CN / Fundamentals T2 / Rates T7
+#      được script TỰ GỠ khi chạy lại — không cần xoá tay.)
 #
 # Note: News sentiment (run.py news) is now a built-in step of the daily
 # pipeline — no separate task needed. Skip with --no-news if desired.
@@ -38,18 +31,15 @@
 # Optional:
 #   -PythonExe "C:\path\to\python.exe"  # override auto-detected Python
 #   -DailyTime "18:00"                  # daily pipeline time (default 18:00)
-#   -WeeklyTime "09:00"                 # weekly corp-actions time (default 09:00)
-#   -FundamentalsTime "08:00"           # fundamentals time Monday (default 08:00)
+#   -WeekendTime "09:00"                # weekend pipeline time Sat (default 09:00)
 # ============================================================================
 
 param(
     [switch]$Remove,
     [switch]$DryRun,
     [string]$PythonExe        = "",
-    [string]$DailyTime        = "18:00",
-    [string]$WeeklyTime       = "09:00",
-    [string]$FundamentalsTime = "08:00",
-    [string]$RatesWeeklyTime  = "09:00"
+    [string]$DailyTime   = "18:00",
+    [string]$WeekendTime = "09:00"
 )
 
 $ErrorActionPreference = "Stop"
@@ -99,9 +89,8 @@ else {
     exit 1
 }
 
-$RunPy         = Join-Path $ProjectRoot "run.py"
-$FundUpdater   = Join-Path $ProjectRoot "vnstock_fundamental_updater.py"
-$WareHouse     = "data_warehouse"
+$RunPy     = Join-Path $ProjectRoot "run.py"
+$WareHouse = "data_warehouse"
 
 # ---- Task definitions -------------------------------------------------------
 # Each entry: Name, Execute (python exe), Args, Trigger block
@@ -121,61 +110,33 @@ $TaskDefinitions = @(
         Description = "14 buoc: sync -> validate -> screener -> ... -> audit -> train -> doctor -> brief chieu Telegram"
     },
     @{
-        Name        = "VnStock Weekly Corp Actions"
+        Name        = "VnStock Weekend Pipeline"
         Execute     = $PythonExe
-        Args        = "`"$RunPy`" --warehouse $WareHouse vietstock --bulk --register"
-        TriggerDesc = "Weekly $WeeklyTime Sunday  (+run-on-boot if missed)"
-        Trigger     = {
-            New-ScheduledTaskTrigger `
-                -Weekly `
-                -DaysOfWeek Sunday `
-                -At $WeeklyTime
-        }
-        MaxMinutes  = 60
-        Description = "Scrape Vietstock dividends/splits -> corp_actions_registry"
-    },
-    @{
-        Name        = "VnStock Fundamentals"
-        Execute     = $PythonExe
-        # --force BAT BUOC: khong co no updater chi fetch ma CHUA CO trong
-        # parquet (incremental) -> task tuan la NO-OP, so lieu dong bang o lan
-        # chay dau (bug phat hien 2026-07-10). --workers 4 --delay 1 ~ 200
-        # req/phut, an toan duoi tran 500/phut goi Golden; ca kho ~25-30 phut.
-        Args        = "`"$FundUpdater`" --force --workers 4 --delay 1"
-        TriggerDesc = "Weekly $FundamentalsTime Monday  (+run-on-boot if missed)"
-        Trigger     = {
-            New-ScheduledTaskTrigger `
-                -Weekly `
-                -DaysOfWeek Monday `
-                -At $FundamentalsTime
-        }
-        MaxMinutes  = 90
-        Description = "Tai P/E / ROE / D-E / Cash Flow -> fundamentals.parquet (1x/tuan, --force full refresh)"
-    },
-    @{
-        Name        = "VnStock Rates Weekly"
-        Execute     = $PythonExe
-        # Bao cao tuan lai suat & tien te -> Telegram (huong B, user chot
-        # 20/07). Zero LLM/fetch — chi render tu cache macro/HNX/SBV (pipeline
-        # dem da nuoi ca tuan); sang T7 data tuan da chot du.
-        Args        = "`"$RunPy`" --warehouse $WareHouse rates-weekly"
-        TriggerDesc = "Weekly $RatesWeeklyTime Saturday  (+run-on-boot if missed)"
+        Args        = "`"$RunPy`" --warehouse $WareHouse weekend"
+        TriggerDesc = "Weekly $WeekendTime Saturday  (+run-on-boot if missed)"
         Trigger     = {
             New-ScheduledTaskTrigger `
                 -Weekly `
                 -DaysOfWeek Saturday `
-                -At $RatesWeeklyTime
+                -At $WeekendTime
         }
-        MaxMinutes  = 10
-        Description = "Render bao cao tuan lai suat tu cache -> push Telegram (run.py rates-weekly)"
+        MaxMinutes  = 180
+        Description = "Gop 3 viec cuoi tuan (2026-07-29): rates-weekly Telegram -> vietstock corp actions -> fundamentals --force (~30-40 phut)"
     }
+)
+
+# Task cu da GOP vao Weekend Pipeline (2026-07-29) — tu go khi chay lai script
+$LegacyTaskNames = @(
+    "VnStock Weekly Corp Actions",
+    "VnStock Fundamentals",
+    "VnStock Rates Weekly"
 )
 
 # ---- Remove mode ------------------------------------------------------------
 if ($Remove) {
     Write-Host "`n=== Removing VnStock Scheduled Tasks ===" -ForegroundColor Yellow
-    foreach ($task in $TaskDefinitions) {
-        $name = $task.Name
+    $allNames = @($TaskDefinitions | ForEach-Object { $_.Name }) + $LegacyTaskNames
+    foreach ($name in $allNames) {
         $existing = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
         if ($existing) {
             if ($DryRun) {
@@ -189,6 +150,19 @@ if ($Remove) {
         }
     }
     exit 0
+}
+
+# ---- Gỡ task cũ đã gộp (create mode) ----------------------------------------
+foreach ($name in $LegacyTaskNames) {
+    $existing = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+    if ($existing) {
+        if ($DryRun) {
+            Write-Host "[dry-run] Would remove legacy task: $name" -ForegroundColor Yellow
+        } else {
+            Unregister-ScheduledTask -TaskName $name -Confirm:$false
+            Write-Host "[OK] Removed legacy task (da gop vao Weekend): $name" -ForegroundColor Yellow
+        }
+    }
 }
 
 # ---- Create mode ------------------------------------------------------------
@@ -263,8 +237,6 @@ Write-Host ""
 Write-Host "Useful commands:" -ForegroundColor DarkGray
 Write-Host "  List tasks       : Get-ScheduledTask -TaskName 'VnStock *' | Select TaskName,State,LastRunTime,NextRunTime"
 Write-Host "  Run daily        : Start-ScheduledTask -TaskName 'VnStock Daily Pipeline'"
-Write-Host "  Run weekly       : Start-ScheduledTask -TaskName 'VnStock Weekly Corp Actions'"
-Write-Host "  Run fundamentals : Start-ScheduledTask -TaskName 'VnStock Fundamentals'"
-Write-Host "  Run rates weekly : Start-ScheduledTask -TaskName 'VnStock Rates Weekly'"
+Write-Host "  Run weekend      : Start-ScheduledTask -TaskName 'VnStock Weekend Pipeline'"
 Write-Host "  Remove all       : .\scripts\setup_scheduled_tasks.ps1 -Remove"
 Write-Host "  Update all       : .\scripts\setup_scheduled_tasks.ps1  (re-run same script)"
