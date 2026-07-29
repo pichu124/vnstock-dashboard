@@ -3609,3 +3609,23 @@ Test giữ: `--ladder` phải phủ đủ slug free sống + không probe slug c
 (test_probe_ladder_covers_all_free_live_slugs — fast suite). Nếp dùng:
 sau sự cố key / provider deprecation / nghi model chập chờn → chạy
 `python scripts/probe_models.py --ladder` trước khi đào sâu.
+
+## 2026-07-30 (h) — Test ghi RÁC vào ledger thật (lộ nhờ --ladder + --show sau nửa đêm)
+
+User chạy `--show` lúc 00:45 → ngày 30/07 hiện "4 call Anthropic Haiku,
+3 OK" dù máy KHÔNG có key Anthropic. Truy ra: suite test (chạy ~00:0x)
+fake HTTP bằng monkeypatch requests nhưng agent/digest vẫn gọi
+`vnstock_llm_ledger.record` THẬT → usage giả 10/5 token từ fixture _Resp
+đổ vào `data_warehouse/_meta/llm_ledger.json`, cost quy tiền như thật.
+Trước giờ không ai thấy vì rác lẫn vào ngày đầy traffic thật; chạy suite
+sau nửa đêm → ngày mới tinh chỉ có rác → lộ. Tái hiện được trong sandbox
+(xoá ledger, chạy full suite → file mọc lại đúng chữ ký rác).
+
+Fix tận gốc — autouse `_ledger_to_tmp_anywhere` trong tests/conftest.py
+(cùng họ bài học `_no_llm_alert_anywhere` 22/07): redirect `_META` của
+ledger về tmp_path cho MỌI test; fixture `_tmp_meta` cục bộ các file test
+vẫn hoạt động (setattr đè tiếp, cũng về tmp). Verify sandbox: xoá ledger
+→ full suite 1378 passed → file KHÔNG mọc lại. Lưu ý số liệu cũ trên máy
+user: ngày 30/07 toàn rác (xoá được bằng pop key ngày trong JSON), ngày
+29/07 lẫn rác của ~3 lần chạy suite tối đó — đọc số hôm đó nhớ trừ hao;
+từ 30/07 (sau pull) ledger sạch.

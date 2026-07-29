@@ -56,3 +56,16 @@ def _no_llm_alert_anywhere(monkeypatch):
     mà không tắt là spam điện thoại user mỗi lần chạy suite. Tắt cứng ở đây;
     test nào test CHÍNH alert thì tự setenv VNSTOCK_LLM_ALERT=1 đè lại."""
     monkeypatch.setenv("VNSTOCK_LLM_ALERT", "0")
+
+
+@pytest.fixture(autouse=True)
+def _ledger_to_tmp_anywhere(tmp_path, monkeypatch):
+    """Cùng họ bài học với alert ở trên, lộ 30/07 trên máy user: test fake
+    HTTP nhưng agent/digest vẫn gọi vnstock_llm_ledger.record THẬT → suite
+    chạy sau nửa đêm ghi rác vào data_warehouse/_meta/llm_ledger.json
+    (--show sáng ra hiện "4 call Anthropic Haiku" dù máy không có key —
+    toàn usage giả 10/5 token từ fixture _Resp, cost tính tiền như thật).
+    Redirect _META về tmp cho MỌI test; test soi ledger (_tmp_meta cục bộ)
+    setattr đè tiếp cũng vẫn về tmp — vô hại."""
+    import vnstock_llm_ledger as _ledger
+    monkeypatch.setattr(_ledger, "_META", tmp_path)
