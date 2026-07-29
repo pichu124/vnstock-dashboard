@@ -3450,3 +3450,18 @@ chiều bằng ladder điểm [7] (Gemini chính) + đẩy Telegram.
   đăng ký lại task). Tests: 5 test mới trong test_run_pipeline (chuỗi bước,
   parser/dispatch, guard giờ+marker, kill-switch, push+marker/lỗi).
   Fast suite 800 passed.
+
+## 📌 TODO bổ sung 29/07 (b) — sau khi brief vào pipeline
+
+1. **Verify phát đầu tiên của bước 14** (chiều gần nhất sau 18:00):
+   Telegram nhận brief chiều tự động; `python vnstock_llm_ledger.py --show`
+   có dòng `Gemini:gemini-3.5-flash` ~10K token vào (chính là brief
+   pipeline) — đồng thời khép mục verify A/B điểm [7]; marker
+   `data_warehouse/_meta/brief_push.json` xuất hiện với ngày hôm đó.
+   Chạy lại `run_daily.bat` cùng ngày → log phải in "bỏ qua: … tránh gửi
+   trùng".
+2. **(Tuỳ chọn, chưa làm) Task thứ 5 "VnStock Morning Brief"** — brief SÁNG
+   tự động ~11:35 T2-T6 gọi `run.py telegram morning`: thêm entry vào
+   `setup_scheduled_tasks.ps1` + guard giờ/marker tương tự bước brief chiều
+   (hiện `run.py telegram morning` CHƯA có guard chống trùng). Sau khi thêm
+   → user chạy lại ps1 quyền Admin để đăng ký task mới.
