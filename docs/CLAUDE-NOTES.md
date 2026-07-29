@@ -3587,6 +3587,12 @@ double-count — thực ra BY DESIGN (vnstock_reconciler: dòng right_only vừa
 ok/warn/fail — WSS chỉ phủ một phần thị trường). Fix: context truyền vào
 auditor giờ là `_audit_llm_context(len(recon.dates_checked))` — text
 deterministic chốt 5 điểm semantics trên + "never add up to one total";
-2 test giữ (nội dung chú giải + inspect-source cmd_audit). Kỳ vọng từ
-giờ auditor chỉ disapprove khi có mâu thuẫn NỘI TẠI thật; nếu vẫn kêu
-oan kiểu mới → bổ sung dòng chú giải tương ứng (đừng hạ ngưỡng model).
+2 test giữ (nội dung chú giải + inspect-source cmd_audit). Nếu sau này
+auditor kêu oan kiểu MỚI → bổ sung dòng chú giải tương ứng (đừng hạ
+ngưỡng model).
+
+✅ **VERIFY máy thật 29/07 ~23:55** (sau git pull, 1388 passed): cùng
+payload từng bị disapprove 3 vòng → `auditor=free:Gemini:gemini-3.5-flash
+approved=True conf=1.00`, không issue nào. Điểm [6] khép trọn: cascade +
+key mới + chú giải schema đều xác nhận sống. Còn theo dõi thụ động: phát
+pipeline 18:00 tới tự chạy audit LLM (soi run_daily.log).
