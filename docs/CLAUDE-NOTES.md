@@ -3427,3 +3427,26 @@ Trạng thái mục "TODO & CHỜ VERIFY 22/07" phía trên:
    provider = Gemini.
 4. **Merge về main**: tạo PR khi user chốt (điều kiện repo: full suite
    xanh — đã đạt 806 passed).
+
+## 2026-07-29 (b) — Brief chiều vào pipeline đêm (bước 14, hết chạy tay)
+
+User trước giờ chạy brief tay (4 task lịch KHÔNG có task nào đẩy brief —
+phát hiện khi rà setup_scheduled_tasks.ps1). Nay `run.py all` có bước CUỐI
+`brief` (sau doctor): gọi `vnstock_telegram.push_close_brief()` → sinh brief
+chiều bằng ladder điểm [7] (Gemini chính) + đẩy Telegram.
+
+- **Guard `_should_push_close(now, marker)`** (tách riêng để test):
+  (i) `now.hour < 15` → bỏ qua — lưới đỡ cho StartWhenAvailable: máy tắt
+  lúc 18:00, task chạy bù sáng hôm sau thì KHÔNG đẩy brief chiều cũ lúc 8h;
+  (ii) marker `_meta/brief_push.json` ghi hôm nay đã đẩy → bỏ qua (chống
+  gửi trùng khi chạy lại pipeline/run_daily.bat trong ngày). Marker CHỈ ghi
+  sau khi gửi thành công.
+- Lỗi gửi → exit 1 (cảnh báo pipeline, KHÔNG fail cứng — mọi-agent-chết đã
+  có alert "LLM ladder DOWN" riêng). Kill-switch: `VNSTOCK_PIPELINE_BRIEF=0`
+  hoặc cờ `--no-brief`. Subcommand lẻ `run.py brief` dùng CÙNG guard (chạy
+  tay không lo double-send). Brief SÁNG không thuộc pipeline 18:00 — muốn
+  tự động thì đặt task riêng ~11:35 gọi `run.py telegram morning`.
+- ps1/bat cập nhật mô tả 13→14 bước (command task KHÔNG đổi — không cần
+  đăng ký lại task). Tests: 5 test mới trong test_run_pipeline (chuỗi bước,
+  parser/dispatch, guard giờ+marker, kill-switch, push+marker/lỗi).
+  Fast suite 800 passed.

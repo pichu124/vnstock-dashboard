@@ -958,6 +958,69 @@ def cmd_news(args) -> int:
     return 0
 
 
+def _brief_push_marker(args) -> Path:
+    """File đánh dấu đã đẩy brief chiều hôm nào — chống gửi trùng khi pipeline
+    chạy lại trong ngày (run_daily.bat tay + task 18:00)."""
+    return (REPO_ROOT / getattr(args, "warehouse", "data_warehouse")
+            / "_meta" / "brief_push.json")
+
+
+def _should_push_close(now, marker: Path) -> "tuple[bool, str]":
+    """(có nên đẩy brief chiều không, lý do khi KHÔNG).
+
+    - Trước 15:00 (phiên chưa đóng): KHÔNG — đây cũng là lưới đỡ cho
+      StartWhenAvailable: máy tắt lúc 18:00 → task chạy bù sáng hôm sau,
+      không được đẩy brief chiều CŨ lúc 8h sáng.
+    - Marker ghi hôm nay đã đẩy rồi: KHÔNG — chống double-send.
+    """
+    if now.hour < 15:
+        return False, (f"chưa tới 15:00 (hiện {now.strftime('%H:%M')}) — "
+                       "không đẩy brief chiều cũ (run-on-boot bù sáng hôm sau)")
+    try:
+        if json.loads(marker.read_text(encoding="utf-8")).get("close")                 == now.date().isoformat():
+            return False, "hôm nay đã đẩy brief chiều rồi (marker) — tránh gửi trùng"
+    except Exception:
+        pass
+    return True, ""
+
+
+def cmd_brief(args) -> int:
+    """Bước CUỐI pipeline đêm (user chốt 29/07 — trước đây chạy brief tay):
+    sinh brief CHIỀU + đẩy Telegram (vnstock_telegram.push_close_brief →
+    generate_brief với ladder điểm [7], agent chính Gemini). Best-effort:
+    lỗi → exit 1 (cảnh báo pipeline), KHÔNG fail cứng — trường hợp mọi agent
+    chết đã có alert "LLM ladder DOWN" riêng báo tận Telegram.
+    Kill-switch theo nếp repo: VNSTOCK_PIPELINE_BRIEF=0. Brief SÁNG không
+    nằm ở đây (pipeline chạy 18:00) — cần thì đặt task riêng ~11:35 gọi
+    `run.py telegram morning`."""
+    import os as _os
+    if (_os.environ.get("VNSTOCK_PIPELINE_BRIEF") or "1").strip().lower()             in ("0", "false", "off"):
+        print("[brief] VNSTOCK_PIPELINE_BRIEF=0 — bỏ qua bước brief")
+        return 0
+    marker = _brief_push_marker(args)
+    ok, why = _should_push_close(_datetime.now(), marker)
+    if not ok:
+        print(f"[brief] bỏ qua: {why}")
+        return 0
+    try:
+        import vnstock_telegram as _tg
+        resp = _tg.push_close_brief()
+        mid = (resp or {}).get("result", {}).get("message_id")
+        print(f"[brief] close brief sent — message_id={mid}")
+    except Exception as e:
+        print(f"[brief] ❌ {type(e).__name__}: {str(e)[:160]}")
+        return 1
+    try:
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        tmp = marker.with_suffix(f".{_os.getpid()}.tmp")
+        tmp.write_text(json.dumps({"close": _datetime.now().date().isoformat()}),
+                       encoding="utf-8")
+        _os.replace(str(tmp), str(marker))
+    except Exception:
+        pass
+    return 0
+
+
 def _all_steps(args) -> "list[tuple[str, object]]":
     """Danh sách bước của `run.py all` — tách riêng để test được.
 
@@ -978,6 +1041,7 @@ def _all_steps(args) -> "list[tuple[str, object]]":
         ("train",        cmd_train),
         ("reflection",   cmd_reflection),
         ("doctor",       cmd_doctor),
+        ("brief",        cmd_brief),
     ]
     # Insert news after screener unless the caller opts out
     if not getattr(args, "no_news", False):
@@ -986,12 +1050,15 @@ def _all_steps(args) -> "list[tuple[str, object]]":
         steps = [s for s in steps if s[0] not in ("sync", "validate")]
     if getattr(args, "no_train", False):
         steps = [s for s in steps if s[0] != "train"]
+    if getattr(args, "no_brief", False):
+        steps = [s for s in steps if s[0] != "brief"]
     return steps
 
 
 def cmd_all(args) -> int:
     """sync → validate → screener → news → foreign-flow → macro → allocation
-    → test → audit → doctor. Stops on first hard failure. The trailing doctor
+    → test → audit → train → reflection → doctor → brief (đẩy brief chiều
+    lên Telegram — bước 14, thêm 29/07). Stops on first hard failure. The trailing doctor
     pass is offline-only and just refreshes doctor_status.json so the sidebar
     badge stays current."""
     steps = _all_steps(args)
@@ -1189,6 +1256,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Refresh macro cache (lãi suất & tỷ giá) — seed + auto-fetch FX")
     sub.add_parser("rates-weekly",
                    help="Đẩy tóm tắt tuần lãi suất lên Telegram (render từ cache)")
+    sub.add_parser("brief",
+                   help="Đẩy brief CHIỀU lên Telegram (bước 14 pipeline; guard "
+                        "chống gửi trùng trong ngày + không chạy trước 15:00)")
     sub.add_parser("allocation",
                    help="Refresh asset-allocation band B0-B4 + scorecard")
     sub.add_parser("gold",
@@ -1215,7 +1285,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Chỉ refresh tin, không chấm sentiment")
 
     all_ = sub.add_parser(
-        "all", help="sync → validate → screener → news → test → audit → doctor")
+        "all", help="sync → validate → screener → news → test → audit → "
+                    "doctor → brief (14 bước)")
     all_.add_argument("--no-sync", action="store_true",
                       help="Bỏ bước sync kho giá ~1724 mã (+validate) — chạy "
                            "phần còn lại (nút 'Cập nhật còn lại' trên dashboard)")
@@ -1228,11 +1299,15 @@ def build_parser() -> argparse.ArgumentParser:
                       default="auto")
     all_.add_argument("--no-news", action="store_true",
                       help="Skip the news sentiment refresh step")
+    all_.add_argument("--no-brief", action="store_true",
+                      help="Bỏ bước cuối đẩy brief chiều lên Telegram "
+                           "(kill-switch env: VNSTOCK_PIPELINE_BRIEF=0)")
 
     return p
 
 
 _DISPATCH = {
+    "brief": cmd_brief,
     "scan": cmd_scan,
     "doctor": cmd_doctor,
     "sync": cmd_sync,

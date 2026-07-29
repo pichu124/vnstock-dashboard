@@ -5,7 +5,8 @@
 #
 #   1. VnStock Daily Pipeline     — 18:00 Mon-Fri
 #      sync → validate → screener → news → ... → audit → train → doctor
-#      (13 steps; train = vnstock_train --once, added 2026-07-20)
+#      → brief chiều Telegram (14 steps; brief added 2026-07-29 — trước đây
+#      user chạy tay; guard chống gửi trùng + không đẩy trước 15:00)
 #      Command: python run.py --warehouse data_warehouse all
 #
 #   2. VnStock Weekly Corp Actions — 09:00 Sunday
@@ -117,7 +118,7 @@ $TaskDefinitions = @(
                 -At $DailyTime
         }
         MaxMinutes  = 120
-        Description = "13 buoc: sync -> validate -> screener -> ... -> audit -> train (vnstock_train --once) -> doctor"
+        Description = "14 buoc: sync -> validate -> screener -> ... -> audit -> train -> doctor -> brief chieu Telegram"
     },
     @{
         Name        = "VnStock Weekly Corp Actions"
