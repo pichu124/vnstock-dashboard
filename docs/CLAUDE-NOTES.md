@@ -3929,3 +3929,55 @@ Full suite 1438 passed.
 **Bài học quy trình**: fix bảo mật KHÔNG được tin bản thân — vòng vá 1 trông
 rất chắc (13 test xanh, 8 đường tấn công đã chặn) mà vẫn thủng ở một cơ chế
 không ai nghĩ tới. Đối kháng độc lập + verifier chạy lại là bắt buộc.
+
+## 2026-08-06 (e) — Red-team PHÁ TIẾP vòng 2: bound method là object hạng nhất
+
+Vòng đối kháng thứ 2 (4 mũi) lại phá được: **5 escape thật**. Luật vòng 2
+`_check_dispatch_call` kiểm TẠI CHỖ GỌI — chỉ chạy khi `node.func` là
+`ast.Attribute` có `.attr ∈ _DISPATCH_ATTRS`. Nhưng bound method trong
+Python là OBJECT HẠNG NHẤT, nên chỉ cần tách lời gọi khỏi hình dạng đó:
+
+    w = df.agg;  w('to_csv', 0, path)      # node.func = ast.Name
+    [df.agg][0]('to_csv', 0, path)          # node.func = ast.Subscript
+    (lambda f: f('to_csv', 0, path))(df.agg)
+
+Red-team ghi lại được file tuỳ ý (path + NỘI DUNG do attacker chọn, dùng
+`pd.DataFrame` từ chính khay) và **.pth vào site-packages** = RCE bền vững.
+Cùng đường đó chạm được cả `to_json`/`to_pickle`/`query` (đều nằm trong
+`_FORBIDDEN_ATTRS`) lẫn dunder `__len__` — vì tên method là CHUỖI lúc chạy,
+mọi hàng rào cú pháp đều vô nghĩa.
+
+**Vá vòng 3 — đổi luật từ "chỗ gọi" sang "THAM CHIẾU"**: `_validate_ast` nay
+đi 2 lượt. Lượt A gom các `ast.Attribute` dispatch nằm ĐÚNG vị trí callee của
+lời gọi hợp lệ (đối số đầu là lambda). Lượt B: mọi `ast.Attribute` mang tên
+dispatch KHÔNG nằm trong tập đó → từ chối. Tức tên `.agg/.apply/…` không bao
+giờ được "cầm ra" như một giá trị. Đã tự kiểm 10 dạng gián tiếp (gán biến,
+try/except, list, tuple, dict, đối số lambda, default arg, giá trị trả về,
+`sorted(key=)`, DataFrame tự dựng): **0 escape, 0 file ghi được**; đối chứng
+`rolling(5).apply(lambda …)` và `.agg(lambda …)` vẫn chạy.
+
+Test 57 → 68. Full suite 1460 passed.
+
+### ⚠️ GIỚI HẠN CÒN LẠI — đọc trước khi tin sandbox này
+
+Ba vòng đối kháng cho thấy: **sandbox bằng phân tích cú pháp trên một đối
+tượng pandas THẬT là leaky by design**. `df` truyền vào `signal()` không qua
+khay, mà bề mặt pandas quá rộng (bất kỳ API nào nhận tên hàm dạng chuỗi đều
+là getattr trá hình). Mỗi vòng vá bịt được lớp cú pháp mà vòng trước bỏ sót,
+nhưng KHÔNG có gì bảo đảm đã hết.
+
+Mức bảo vệ hiện tại (đúng thực tế, không nói quá):
+* CHẶN được: mọi kỹ thuật đã biết qua 3 vòng đối kháng có test giữ.
+* KHÔNG bảo đảm: đường thoát chưa ai nghĩ ra, nhất là khi nâng phiên bản
+  pandas/numpy (API mới có thể mở lại string-dispatch ở chỗ khác).
+
+Muốn CHẮC thì phải đổi kiến trúc, không phải siết thêm regex:
+1. Truyền vào `signal()` một PROXY chỉ-đọc thay vì DataFrame thật (chặn tận
+   gốc mọi method của pandas), hoặc
+2. Chạy chiến lược trong tiến trình RIÊNG hạ quyền (user riêng/seccomp/
+   container), coi code là thù địch thay vì cố lọc nó.
+Cả hai đều là việc lớn — ghi vào TODO, chưa làm.
+
+**Nếp mới**: nâng pandas/numpy → chạy lại `tests/test_strategy_sandbox.py`
+TRƯỚC khi tin; thêm API mới vào `_ALLOWED_ATTRS` → cân nhắc nó có nhận tên
+hàm dạng chuỗi không (nếu có: thêm vào `_DISPATCH_ATTRS`).

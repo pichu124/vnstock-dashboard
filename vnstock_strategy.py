@@ -252,6 +252,23 @@ def _validate_ast(code: str) -> None:
         raise StrategyValidationError(f"SyntaxError: {e}") from e
 
     strict_attrs = _strict_attrs_enabled()
+
+    # ── Lượt A: chốt các chỗ gọi dispatch HỢP LỆ ──────────────────────────
+    # Red-team vòng 2 phá được luật "kiểm tại chỗ gọi" vì bound method trong
+    # Python là OBJECT HẠNG NHẤT: `w = df.agg` rồi `w('to_csv', 0, path)` làm
+    # node.func thành ast.Name → luật không bao giờ chạy. Biến thể ẩn danh
+    # `[df.agg][0](...)` và `(lambda f: f(...))(df.agg)` cũng vậy.
+    # Nên luật phải theo THAM CHIẾU, không theo chỗ gọi: tên dispatch CHỈ
+    # được xuất hiện đúng ở vị trí callee của một lời gọi đã qua kiểm; mọi
+    # cách nhắc tới nó như một giá trị đều bị từ chối.
+    ok_dispatch_refs = set()
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in _DISPATCH_ATTRS):
+            _check_dispatch_call(node)
+            ok_dispatch_refs.add(id(node.func))
+
     for node in ast.walk(tree):
         # No imports at all
         if isinstance(node, (ast.Import, ast.ImportFrom)):
@@ -275,6 +292,16 @@ def _validate_ast(code: str) -> None:
                     )
             if attr in _FORBIDDEN_ATTRS:
                 raise StrategyValidationError(f"Forbidden attribute: .{attr}")
+            if attr in _DISPATCH_ATTRS and id(node) not in ok_dispatch_refs:
+                # Tham chiếu tới method dispatch mà KHÔNG phải lời gọi trực
+                # tiếp (gán ra biến, nhét vào list, truyền làm đối số…) —
+                # đường thoát vòng 2 (red-team 06/08).
+                raise StrategyValidationError(
+                    f"`.{attr}` chỉ được GỌI TRỰC TIẾP với `lambda` "
+                    f"(vd `.{attr}(lambda x: …)`); không được gán ra biến "
+                    f"hay truyền đi như một giá trị — bound method là object "
+                    f"hạng nhất nên đó là đường lách string-dispatch."
+                )
             if strict_attrs and attr not in _ALLOWED_ATTRS:
                 raise StrategyValidationError(
                     f"Attribute `.{attr}` không nằm trong danh sách cho phép "

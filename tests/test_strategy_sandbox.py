@@ -400,3 +400,44 @@ def test_dispatch_bypass_variants_all_blocked(tmp_path, body):
         vs.EXECUTOR.run(code, _ohlcv(), {"m": "to_csv"})
 
     assert not proof.exists(), f"SANDBOX ESCAPE: {body}"
+
+
+# ── VÒNG 3 (red-team 06/08): bound method là OBJECT HẠNG NHẤT ─────────────
+# Luật vòng 2 kiểm TẠI CHỖ GỌI (`node.func` phải là ast.Attribute) nên chỉ
+# cần tách lời gọi khỏi hình dạng đó là thoát sạch: `w = df.agg` rồi
+# `w('to_csv', 0, path)` có node.func là ast.Name. Red-team ghi lại được file
+# tuỳ ý + .pth vào site-packages. Vòng 3 đổi luật sang THAM CHIẾU: tên
+# dispatch chỉ được xuất hiện đúng ở vị trí callee của lời gọi đã qua kiểm.
+
+@pytest.mark.parametrize("body", [
+    "w = df.agg\n    w('to_csv', 0, '{p}')",
+    "w = df.agg\n    try:\n        w('to_csv', 0, '{p}')\n    except Exception:\n        pass",
+    "[df.agg][0]('to_csv', 0, '{p}')",
+    "(lambda f: f('to_csv', 0, '{p}'))(df.agg)",
+    "t = (df.agg,)\n    t[0]('to_csv', 0, '{p}')",
+    "m = {{'f': df.apply}}\n    m['f']('to_csv', args=('{p}',))",
+    "g = lambda x, f=df.agg: f('to_csv', 0, '{p}')\n    g(1)",
+    "h = (lambda: df.agg)()\n    h('to_csv', 0, '{p}')",
+    "bad = pd.DataFrame({{'c': ['x']}})\n    w = bad.agg\n    try:\n        w('to_csv', 0, '{p}', index=False, header=False)\n    except Exception:\n        pass",
+    "sorted([1], key=df.agg)",
+])
+def test_bound_method_indirection_is_rejected(tmp_path, body):
+    """Mọi cách 'cầm' method dispatch ra khỏi chỗ gọi trực tiếp đều bị từ
+    chối — gán biến, list, tuple, dict, đối số lambda, default arg, giá trị
+    trả về, key= của sorted."""
+    proof = tmp_path / "ind.out"
+    code = _wrap(body.format(p=proof))
+
+    with pytest.raises(vs.StrategyValidationError):
+        vs.EXECUTOR.run(code, _ohlcv(), {})
+
+    assert not proof.exists(), f"SANDBOX ESCAPE qua gián tiếp: {body}"
+
+
+def test_dispatch_still_callable_directly_with_lambda():
+    """ĐỐI CHỨNG vòng 3: luật tham chiếu KHÔNG được giết idiom hợp lệ."""
+    vs.EXECUTOR.run(_wrap(
+        "x = df['close'].rolling(5).apply(lambda w: w.max() - w.min(), "
+        "raw=False).iloc[-1]"), _ohlcv(), {})
+    vs.EXECUTOR.run(_wrap(
+        "x = df['close'].agg(lambda s: s.mean())"), _ohlcv(), {})
