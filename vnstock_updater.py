@@ -42,6 +42,7 @@ console = Console()
 
 # ── vnstock import ────────────────────────────────────────────────────────────
 from vnstock_auth import ensure_api_key, get_vnstock, has_sponsor_package
+from vnstock_parquet_io import read_year_frames, write_table_atomic
 
 try:
     from vnstock_data import Reference
@@ -129,18 +130,12 @@ def _get_last_date(ticker_dir: Path) -> date | None:
 def _read_year(ticker_dir: Path, year: int) -> pd.DataFrame:
     """Đọc data một năm — gộp MỌI file parquet trong year-dir (Dropbox có thể
     đẻ "conflicted copy" cạnh file chính; đọc một file là mất data mới nếu nó
-    nằm ở file kia). File mới nhất (mtime) thắng khi trùng ngày."""
-    year_dir = ticker_dir / f"year={year}"
-    if not year_dir.exists():
-        return pd.DataFrame()
-    frames = []
-    for pf in sorted(year_dir.glob("*.parquet"), key=lambda p: p.stat().st_mtime):
-        try:
-            df = pq.read_table(str(pf)).to_pandas()
-            df["time"] = pd.to_datetime(df["time"]).dt.date
-            frames.append(df)
-        except Exception:
-            continue
+    nằm ở file kia). File mới nhất (mtime) thắng khi trùng ngày.
+
+    `strict=False`: file hỏng được CÁCH LY + cảnh báo rồi đi tiếp — updater
+    tự lành được vì `_get_last_date` bỏ qua file không đọc được → rơi về năm
+    trước → refetch nguyên năm từ API (xem vnstock_parquet_io)."""
+    frames = read_year_frames(ticker_dir / f"year={year}", strict=False)
     if not frames:
         return pd.DataFrame()
     if len(frames) == 1:
@@ -200,7 +195,10 @@ def _write_year(ticker_dir: Path, year: int, df: pd.DataFrame):
         print(f"  [contract] warning for {ticker_dir.name} y{year}: {e}")
 
     table = pa.Table.from_pandas(df, schema=PRICE_SCHEMA, safe=False)
-    pq.write_table(table, str(out_path), compression="snappy")
+    # Ghi NGUYÊN TỬ (tmp + os.replace): ghi thẳng thì process chết giữa chừng
+    # để lại file cụt → lần sau bị hiểu thành "chưa có data" → mất cả năm
+    # lịch sử (audit 06/08, xem vnstock_parquet_io).
+    write_table_atomic(table, out_path)
 
     # Consolidate: mọi file khác prices.parquet (Dropbox conflicted copy…) đã
     # được _read_year gộp vào df — xoá đi để year-dir luôn về đúng 1 file.

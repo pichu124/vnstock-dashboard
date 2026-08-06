@@ -36,6 +36,10 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from vnstock_parquet_io import (
+    CorruptWarehouseFile, read_year_frames, write_table_atomic,
+)
+
 # ═════════════════════════════════════════════════════════════════════════════
 # Paths
 # ═════════════════════════════════════════════════════════════════════════════
@@ -120,21 +124,15 @@ def is_already_done_today(job: str) -> tuple[bool, dict]:
 
 
 
-def _read_year(ticker_dir: Path, year: int) -> pd.DataFrame:
+def _read_year(ticker_dir: Path, year: int, *, strict: bool = True) -> pd.DataFrame:
     """Đọc data một năm — gộp MỌI file parquet trong year-dir (Dropbox có thể
     đẻ "conflicted copy" cạnh file chính; đọc một file là mất data mới nếu nó
-    nằm ở file kia). File mới nhất (mtime) thắng khi trùng ngày."""
-    year_dir = ticker_dir / f"year={year}"
-    if not year_dir.exists():
-        return pd.DataFrame()
-    frames = []
-    for pf in sorted(year_dir.glob("*.parquet"), key=lambda p: p.stat().st_mtime):
-        try:
-            df = pq.read_table(str(pf)).to_pandas()
-            df["time"] = pd.to_datetime(df["time"]).dt.date
-            frames.append(df)
-        except Exception:
-            continue
+    nằm ở file kia). File mới nhất (mtime) thắng khi trùng ngày.
+
+    `strict=True` (mặc định): canonical hỏng → raise `CorruptWarehouseFile`.
+    Rollup CHỈ có bar hôm nay nên ghi tiếp là tạo file 1 dòng, xoá sổ cả năm
+    lịch sử — thà bỏ qua ticker-year (xem vnstock_parquet_io)."""
+    frames = read_year_frames(ticker_dir / f"year={year}", strict=strict)
     if not frames:
         return pd.DataFrame()
     if len(frames) == 1:
@@ -162,7 +160,9 @@ def _write_year(ticker_dir: Path, year: int, df: pd.DataFrame):
     df["volume"] = df["volume"].astype("int64")
 
     table = pa.Table.from_pandas(df, schema=PRICE_SCHEMA, safe=False)
-    pq.write_table(table, str(out_path), compression="snappy")
+    # Ghi NGUYÊN TỬ — xem vnstock_parquet_io (audit 06/08: ghi thẳng + chết
+    # giữa chừng = file cụt = mất cả năm lịch sử ở lần chạy sau).
+    write_table_atomic(table, out_path)
 
     # Consolidate: mọi file khác prices.parquet (Dropbox conflicted copy…) đã
     # được _read_year gộp vào df — xoá đi để year-dir luôn về đúng 1 file.
@@ -290,7 +290,15 @@ def rollup_bars_file(bars_path: Path, dry_run: bool = False) -> dict:
                 columns={"trading_date": "time"}
             )
 
-            existing = _read_year(ticker_dir, year)
+            try:
+                existing = _read_year(ticker_dir, year)
+            except CorruptWarehouseFile as e:
+                # Canonical hỏng: ghi tiếp = ghi đè cả năm bằng bar hôm nay.
+                # Bỏ qua ticker-year; updater (chạy TRƯỚC trong run.py sync)
+                # sẽ cách ly file + tải lại nguyên năm từ API.
+                print(f"[rollup] ⛔ Bỏ qua {ticker} year={year}: {e}")
+                stats["errors"] += 1
+                continue
             if not existing.empty:
                 # Existing data (from updater API) is authoritative — rollup only
                 # fills gaps. Rollup-aggregated volume is less reliable than the

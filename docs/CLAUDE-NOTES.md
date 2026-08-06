@@ -3766,3 +3766,53 @@ Tests: truncation Gemini/Claude → ("", "bị cắt") + ledger fail; headroom
 guard. Sandbox full 1382 passed. VERIFY máy thật: pull → phát brief kế
 tiếp phải đủ mục; nếu ledger thấy `finish_reason=length` lặp lại nhiều
 ngày ở Gemini → cân nhắc nâng headroom nữa hoặc đổi agent chính.
+
+## 2026-08-06 (b) — AUDIT lỗi #2 CRITICAL: ghi parquet không nguyên tử → mất cả năm lịch sử
+
+Phát hiện trong đợt audit đa-agent toàn repo (xem mục audit cùng ngày).
+`updater._write_year` + `rollup._write_year` ghi THẲNG `pq.write_table` vào
+`prices.parquet`: lệnh này cắt file thật về 0 byte rồi chép lại, nên process
+chết đúng lúc (Task Scheduler ExecutionTimeLimit 120' kill CỨNG, máy tắt/ngủ
+giữa pipeline — thường trực vì lịch dùng StartWhenAvailable, Ctrl+C, mất
+điện) để lại file CỤT. Lần sau `_read_year` gặp file hỏng lại `except:
+continue` → KHÔNG phân biệt "file hỏng" với "chưa có data".
+
+**Đường mất data (đã tái hiện được bằng test)**: rollup chỉ có bar HÔM NAY →
+existing rỗng → `combined = new_rows` → ghi đè canonical thành file hợp lệ
+1 DÒNG → cả năm lịch sử bốc hơi, im lặng; rồi `_get_last_date` = hôm nay nên
+updater KHÔNG BAO GIỜ refetch → mất vĩnh viễn. (Đường qua updater thì tự
+lành: `_get_last_date` bỏ qua file không đọc được → rơi về năm trước →
+fetch_from phủ nguyên năm → refetch đủ từ API.)
+
+**Fix — module mới `vnstock_parquet_io.py`** (gom pattern đã có sẵn ở
+`wss._flush_bars` + `write_pipeline_status`, thay vì chép lần thứ ba):
+1. `write_table_atomic` — ghi `.tmp` rồi `os.replace` (nguyên tử: hoặc file
+   cũ nguyên vẹn, hoặc file mới nguyên vẹn). Tên tmp mang pid+thread-id và
+   KHÔNG kết thúc `.parquet` nên không bị glob nhặt nhầm thành data.
+2. `read_year_frames(year_dir, *, strict)` — lưới bắt file hỏng, KHÁC NHAU
+   theo caller vì khả năng tự lành khác nhau:
+   * updater `strict=False`: cách ly file hỏng (`.corrupt-<ts>`) + cảnh báo
+     rồi ĐI TIẾP — lần ghi ngay sau là bản đầy đủ vừa refetch → tự lành.
+   * rollup `strict=True`: raise `CorruptWarehouseFile` → caller bỏ qua
+     ticker-year + `stats["errors"] += 1`. CỐ Ý KHÔNG đổi tên file hỏng:
+     giữ làm DÂY BẪY để mọi lần rollup sau đều dừng, cho tới khi updater
+     (chạy TRƯỚC rollup trong `run.py sync`) cách ly + refetch. Đổi tên ở
+     đây sẽ khiến lần rollup kế tiếp thấy thư mục rỗng rồi ghi đúng file
+     1 dòng ta đang muốn tránh.
+   * File KHÔNG canonical (Dropbox conflicted copy) hỏng → cách ly + đi
+     tiếp ở CẢ HAI chế độ (nó không phải nguồn chân lý).
+
+Tests (`tests/test_parquet_io.py`, 10 test, vào fast list): ghi hỏng giữa
+chừng thì file CŨ nguyên vẹn + tmp được dọn; tên tmp không khớp glob
+`*.parquet`; non-strict cách ly / strict raise-và-giữ-bẫy / conflicted copy;
+2 test TÍCH HỢP qua `rollup_bars_file` thật — refuse-overwrite khi canonical
+hỏng, và đường lành vẫn merge bình thường. Đã kiểm chứng RED: `git stash`
+bỏ fix ra thì test tích hợp ĐỎ đúng chỗ (file hỏng bị ghi đè). Full suite
+1392 passed.
+
+**CÒN LẠI (chưa làm)**: `vnstock_warehouse._write_parquet` dùng
+`pq.write_to_dataset(existing_data_behavior="delete_matching")` — xoá
+partition rồi ghi, cùng họ rủi ro, và `_read_ticker` cũng nuốt lỗi trả
+rỗng. Chỉ chạy ở bulk-load thủ công (không phải đường đêm) nên xếp sau.
+Tương tự: `vnstock_macro` cache + cụm `_meta/*.json` (doctor) ghi chưa
+nguyên tử — xem danh sách audit.
