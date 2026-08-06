@@ -168,7 +168,58 @@ _ALLOWED_ATTRS = {
     "percentile", "corrcoef", "polyfit", "polyval", "concatenate", "vstack",
     "hstack", "column_stack", "diag", "identity", "eye", "cumproduct",
     "float64", "float32", "int64", "int32", "bool_", "errstate",
+    # ── Bổ sung VÒNG 2 (red-team 06/08: 6/12 chiến lược thật CHẾT oan) ────
+    # Tên cột OHLCV truy cập kiểu attribute — `df.close` là idiom cực phổ
+    # biến, thiếu nó là giết phần lớn chiến lược ngay dòng đầu.
+    "close", "high", "low", "open", "volume", "time", "price", "value",
+    # alias đầy-đủ-tên của toán tử (pandas có cả 2 dạng)
+    "subtract", "multiply", "divide", "kurtosis", "to_frame",
+    # numpy: xếp hạng / thống kê / lượng giác còn thiếu
+    "argsort", "average", "gradient", "ptp", "arctan", "arctan2", "arcsin",
+    "arccos", "count_nonzero", "convolve", "isclose", "allclose", "roll",
+    "nanpercentile", "nanquantile", "searchsorted", "power", "greater",
+    "less", "equal", "greater_equal", "less_equal", "not_equal", "mod",
+    "divmod", "true_divide", "floor_divide", "square", "cbrt", "reciprocal",
+    # pandas: dọn dữ liệu / chọn cột / tra cứu
+    "last_valid_index", "first_valid_index", "equals", "select_dtypes",
+    "filter", "corrwith", "cumcount", "get_loc", "tz_localize", "tz_convert",
+    "ohlc", "at_time", "between_time", "swaplevel", "droplevel", "explode",
+    "nunique_approx", "clip_lower", "clip_upper", "truncate", "asof",
 }
+
+
+# ── String-dispatch của pandas (red-team 06/08 phá được vòng vá 1) ─────────
+# `.apply`/`.agg`/`.aggregate`/`.transform` nhận TÊN METHOD DẠNG CHUỖI rồi tự
+# `getattr(obj, name)(...)` lúc chạy. Tên nằm trong string literal (ast.Constant)
+# nên MỌI kiểm tra trên ast.Attribute — kể cả `_FORBIDDEN_ATTRS` vốn đã có
+# 'to_csv' — đều không nhìn thấy. Red-team đã ghi được file tuỳ ý (path +
+# nội dung do attacker chọn), kể cả .pth vào site-packages = code chạy mỗi
+# lần khởi động Python. Lưu ý: `df` là DataFrame THẬT truyền vào signal(),
+# KHÔNG qua khay — nên lớp 2 không đỡ được đường này.
+#
+# Luật: đối số đầu PHẢI là `lambda` viết thẳng trong code (đã được AST soi).
+# Cố ý KHÔNG đi theo hướng "cấm chuỗi trông giống tên nguy hiểm": chuỗi ghép
+# động ('to_' + 'csv') hay biến chuỗi sẽ lách được ngay. `map`/`pipe` chưa
+# string-dispatch ở pandas 3.0.3 nhưng áp cùng luật cho chắc về sau.
+_DISPATCH_ATTRS = {
+    "apply", "applymap", "agg", "aggregate", "transform", "map", "pipe",
+}
+
+
+def _check_dispatch_call(node: "ast.Call") -> None:
+    """Chặn string-dispatch trên nhóm `_DISPATCH_ATTRS`."""
+    if not node.args or not isinstance(node.args[0], ast.Lambda):
+        raise StrategyValidationError(
+            f"`.{node.func.attr}(...)` chỉ nhận `lambda` viết thẳng làm đối số "
+            f"đầu. Dạng chuỗi (vd .agg('to_csv', ...)) bị cấm vì pandas sẽ tự "
+            f"gọi method theo tên — đường thoát sandbox đã xác nhận 06/08."
+        )
+    for kw in node.keywords:
+        if isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
+            raise StrategyValidationError(
+                f"`.{node.func.attr}(...)`: đối số chuỗi `{kw.arg}=` bị cấm "
+                f"(đường string-dispatch)."
+            )
 
 
 def _strict_attrs_enabled() -> bool:
@@ -233,18 +284,29 @@ def _validate_ast(code: str) -> None:
                 )
 
         # No file/IO function calls by name
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-            if node.func.id in _FORBIDDEN_NAMES:
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name) and node.func.id in _FORBIDDEN_NAMES:
                 raise StrategyValidationError(
                     f"Forbidden function call: {node.func.id}"
                 )
+            # String-dispatch (red-team 06/08) — xem `_check_dispatch_call`
+            if (isinstance(node.func, ast.Attribute)
+                    and node.func.attr in _DISPATCH_ATTRS):
+                _check_dispatch_call(node)
 
 
 def _safe_builtins() -> dict:
+    # VÒNG 2 (red-team 06/08): thiếu `pow` và MỌI lớp exception → chiến lược
+    # bọc try/except (nếp quant chuẩn để không vỡ vì NaN/chia 0) chết ngay ở
+    # runtime với NameError. Lớp exception không mở đường thoát nào: đi tiếp
+    # từ chúng đều cần dunder, vốn đã bị AST chặn.
     safe_names = (
         "abs all any bool dict divmod enumerate filter float int isinstance "
-        "issubclass len list map max min print range reversed round set "
-        "slice sorted str sum tuple type zip True False None"
+        "issubclass len list map max min pow print range reversed round set "
+        "slice sorted str sum tuple type zip True False None "
+        "Exception ArithmeticError ValueError TypeError KeyError IndexError "
+        "ZeroDivisionError OverflowError FloatingPointError RuntimeError "
+        "AttributeError StopIteration"
     ).split()
     real_builtins = __builtins__ if isinstance(__builtins__, dict) else __builtins__.__dict__
     out = {n: real_builtins[n] for n in safe_names if n in real_builtins}
@@ -311,6 +373,16 @@ _NP_SAFE = {
     "logical_and", "logical_or", "logical_not", "greater", "less", "equal",
     "tanh", "sinh", "cosh", "sin", "cos", "tan", "float64", "float32",
     "int64", "int32", "bool_", "errstate", "nan_to_num", "sign",
+    # VÒNG 2 — red-team: 4 tên dưới TỪNG có trong danh sách trắng AST nhưng
+    # THIẾU ở khay → qua cổng rồi chết ở runtime (bất nhất 2 tầng).
+    "unique", "degrees", "append", "hypot",
+    # …và nhóm numpy hay dùng mà vòng 1 bỏ sót
+    "argsort", "average", "gradient", "ptp", "arctan", "arctan2", "arcsin",
+    "arccos", "count_nonzero", "convolve", "isclose", "allclose", "roll",
+    "nanpercentile", "nanquantile", "searchsorted", "greater_equal",
+    "less_equal", "not_equal", "mod", "true_divide", "floor_divide",
+    "square", "cbrt", "reciprocal", "take", "repeat", "ravel", "flatten",
+    "reshape", "radians",
 }
 _MATH_SAFE = {
     "pi", "e", "tau", "inf", "nan", "sqrt", "log", "log2", "log10", "exp",

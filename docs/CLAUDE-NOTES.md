@@ -3871,3 +3871,61 @@ escape (lệnh shell chạy thật). Full suite 1407 passed.
 `python vnstock_strategy.py --audit-saved`. Nếu chiến lược ACTIVE bị từ chối
 vì một API hợp lệ → báo để thêm tên đó vào `_ALLOWED_ATTRS` (đừng để
 kill-switch bật lâu dài).
+
+## 2026-08-06 (d) — Red-team PHÁ ĐƯỢC vòng vá 1: string-dispatch của pandas
+
+Sau khi vá lỗi #1, thả 7 agent đối kháng vào chính bản vá (6 mũi tấn công +
+1 mũi tìm false-positive, mỗi escape qua verifier độc lập chạy lại). Kết
+quả: **6 escape THẬT** — bản vá vòng 1 chưa đủ.
+
+**Gốc rễ**: `.apply`/`.agg`/`.aggregate`/`.transform` của pandas nhận TÊN
+METHOD DẠNG CHUỖI rồi tự `getattr(obj, name)(...)` lúc chạy. Tên nằm trong
+string literal (`ast.Constant`) nên MỌI kiểm tra trên `ast.Attribute` — kể
+cả `_FORBIDDEN_ATTRS` vốn đã có sẵn 'to_csv' — đều không nhìn thấy:
+
+    df.agg('to_csv', 0, '/path')            # ghi file, path + nội dung tuỳ ý
+    df['close'].apply('to_csv', args=(p,))  # sạch sẽ, KHÔNG cả exception
+
+Đã chứng minh ghi được vào /tmp, thư mục repo, $HOME, và **site-packages**
+(file `.pth` ở đó = code chạy mỗi lần khởi động Python = RCE bền vững). Cả
+`EXECUTOR` lẫn `STRICT_EXECUTOR` đều dính. Lưu ý bài học: `df` là DataFrame
+THẬT truyền vào `signal()`, KHÔNG qua khay — nên lớp 2 (khay pd/np/math)
+không đỡ được đường này; an ninh thực chất dựa vào tầng AST.
+
+Bẫy phụ đáng ghi: `df.agg('to_csv', …)` có ném exception SAU đó (to_csv trả
+None rồi agg hậu xử lý) → "có exception" KHÔNG có nghĩa là an toàn, file đã
+ghi xong trước khi lỗi bật ra.
+
+**Vá vòng 2** — `_DISPATCH_ATTRS` + `_check_dispatch_call`: với nhóm
+{apply, applymap, agg, aggregate, transform, map, pipe}, đối số ĐẦU BẮT BUỘC
+là `lambda` viết thẳng trong code (đã qua AST soi), và không keyword nào
+được là chuỗi hằng. Cố ý KHÔNG chọn hướng "cấm chuỗi trông giống tên nguy
+hiểm" — chuỗi ghép động `'to_' + 'csv'`, biến chuỗi, hay tên lấy từ
+`params` (params do LLM tune, cũng là input không tin được) sẽ lách ngay.
+Luật áp theo TÊN METHOD nên phủ luôn mọi đối tượng trung gian: groupby /
+rolling / resample / ewm / expanding. `.rolling(n).apply(lambda …)` — idiom
+quant hợp lệ — vẫn chạy.
+
+**Vá kèm: 28 FALSE POSITIVE** (mũi tương thích viết 12 chiến lược thật →
+**6/12 CHẾT** vì danh sách trắng vòng 1 quá tay). Nhóm lớn:
+* `df.close` (truy cập cột kiểu attribute) — thiếu là chết ngay dòng đầu.
+* `_safe_builtins` thiếu `pow` và MỌI lớp exception → chiến lược bọc
+  try/except (nếp quant chuẩn) chết với NameError.
+* Alias đầy-đủ-tên: `subtract/multiply/divide/kurtosis/to_frame`.
+* numpy còn thiếu: `argsort/average/gradient/ptp/arctan/count_nonzero/
+  convolve/isclose/roll/nanpercentile/searchsorted/…`.
+* **Bất nhất 2 tầng**: `power/greater/less/equal` có trong khay np nhưng bị
+  AST chặn trước khi tới; ngược lại `unique/degrees/append/hypot` qua AST
+  nhưng khay thiếu → chết ở runtime. Nay có test cấu trúc
+  `test_ast_allowlist_and_runtime_trays_are_consistent` bắt buộc mọi tên
+  trong khay phải nằm trong danh sách trắng AST.
+
+Tests: 57 test trong `tests/test_strategy_sandbox.py` (từ 15 → 57), gồm 7
+test string-dispatch, 11 biến thể né luật (params/ghép chuỗi/f-string/list/
+lambda lồng/groupby/rolling/resample/ewm/expanding), 20 idiom quant đối
+chứng, test cấu trúc 2 tầng. Kiểm chứng RED trước khi vá vòng 2: 30 đỏ.
+Full suite 1438 passed.
+
+**Bài học quy trình**: fix bảo mật KHÔNG được tin bản thân — vòng vá 1 trông
+rất chắc (13 test xanh, 8 đường tấn công đã chặn) mà vẫn thủng ở một cơ chế
+không ai nghĩ tới. Đối kháng độc lập + verifier chạy lại là bắt buộc.

@@ -281,3 +281,122 @@ def test_audit_saved_strategies_fresh_machine_is_not_an_error(monkeypatch):
 
     rep = vs.audit_saved_strategies()
     assert "error" not in rep and rep["checked"] == 0
+
+
+# ── VÒNG 2 (red-team 06/08): string-dispatch của pandas ────────────────────
+# Đội đối kháng phá được bản vá vòng 1: `.apply`/`.agg`/`.aggregate`/
+# `.transform` nhận TÊN METHOD DẠNG CHUỖI rồi tự getattr(obj, name)() lúc
+# chạy. Tên nằm trong string literal (ast.Constant) nên mọi kiểm tra trên
+# ast.Attribute — kể cả _FORBIDDEN_ATTRS có sẵn 'to_csv' — đều không thấy.
+# Hậu quả đã chứng minh: ghi file tuỳ ý (path + nội dung do attacker chọn),
+# kể cả .pth vào site-packages = code chạy mỗi lần khởi động Python.
+
+@pytest.mark.parametrize("body", [
+    "df['close'].apply('to_csv', args=('{p}',))",
+    "df.agg('to_csv', 0, '{p}')",
+    "df.aggregate('to_csv', 0, '{p}')",
+    "df.transform('to_csv', 0, '{p}')",
+    "df.agg('to_pickle', 0, '{p}')",
+    "df['close'].apply('to_json', args=('{p}',))",
+    "df.agg(func='to_csv', path_or_buf='{p}')",
+])
+def test_string_dispatch_file_write_is_rejected(tmp_path, body):
+    proof = tmp_path / "pwned.out"
+    code = _wrap(body.format(p=proof))
+
+    with pytest.raises(Exception):
+        vs.EXECUTOR.run(code, _ohlcv(), {})
+
+    assert not proof.exists(), f"SANDBOX ESCAPE qua string-dispatch: {body}"
+
+
+def test_string_dispatch_blocked_at_ast_layer():
+    """Phải chặn ngay ở AST — chặn muộn hơn là file đã ghi xong rồi (agg
+    ném lỗi SAU khi to_csv chạy, nên 'có exception' KHÔNG có nghĩa là an toàn)."""
+    with pytest.raises(vs.StrategyValidationError):
+        vs._validate_ast(_wrap("df.agg('to_csv', 0, '/tmp/x')"))
+
+
+def test_computed_method_name_also_rejected():
+    """Chuỗi ghép động ('to_' + 'csv') hay biến chuỗi cũng không được lọt —
+    lý do luật là 'đối số đầu PHẢI là lambda viết thẳng', không phải 'cấm
+    chuỗi trông giống tên nguy hiểm'."""
+    for body in ("df.agg('to_' + 'csv', 0, '/tmp/x')",
+                 "f = 'to_csv'\n    df.agg(f, 0, '/tmp/x')",
+                 "df.apply(['to_csv'])"):
+        with pytest.raises(vs.StrategyValidationError):
+            vs._validate_ast(_wrap(body))
+
+
+def test_lambda_apply_still_allowed():
+    """ĐỐI CHỨNG: rolling(...).apply(lambda) là idiom quant hợp lệ — luật mới
+    chỉ cấm dạng CHUỖI, không cấm cả họ .apply."""
+    body = ("x = df['close'].rolling(5).apply(lambda w: w.max() - w.min(), "
+            "raw=False).iloc[-1]")
+    vs.EXECUTOR.run(_wrap(body), _ohlcv(), {})
+
+
+# ── VÒNG 2: false positive — danh sách trắng siết oan chiến lược thật ──────
+
+@pytest.mark.parametrize("body", [
+    "x = df.close.iloc[-1]",                       # truy cập cột kiểu attribute
+    "x = df['close'].subtract(df['open']).mean()",
+    "x = df['high'].multiply(2).divide(3).iloc[-1]",
+    "x = df['close'].to_frame().shape[0]",
+    "x = df['close'].values.argsort()[-1]",
+    "x = float(np.average(df['close'], weights=df['volume']))",
+    "x = float(np.gradient(df['close'].values)[-1])",
+    "x = float(np.ptp(df['close'].values))",
+    "x = float(np.degrees(np.arctan(0.5)))",
+    "x = int(np.count_nonzero(df['close'] > 0))",
+    "x = bool(np.isclose(1.0, 1.0))",
+    "x = float(np.nanpercentile(df['close'].values, 75))",
+    "x = df['close'].kurtosis()",
+    "x = df['close'].last_valid_index()",
+    "x = df[['close']].corrwith(df['open'])",
+    "x = df['close'].searchsorted(100)",
+    "x = df['close'].equals(df['close'])",
+    "x = df.filter(['close']).shape[1]",
+    "try:\n        x = 1 / 0\n    except ZeroDivisionError:\n        x = 0",
+    "x = pow(2, 3)",
+])
+def test_legit_quant_idioms_not_falsely_rejected(body):
+    """Red-team viết 12 chiến lược thật → 6 chết vì danh sách trắng vòng 1
+    thiếu tên. Mỗi dòng dưới đây là một idiom hợp lệ từng bị chặn oan."""
+    vs.EXECUTOR.run(_wrap(body), _ohlcv(), {})
+
+
+def test_ast_allowlist_and_runtime_trays_are_consistent():
+    """Bất nhất vòng 1 (red-team phát hiện): `power/greater/less/equal` nằm
+    trong khay np nhưng bị AST chặn trước khi tới; ngược lại `unique/degrees/
+    append/hypot` qua AST nhưng khay thiếu → chết ở runtime. Mọi tên trong
+    khay PHẢI có trong danh sách trắng AST."""
+    trays = vs._PD_SAFE | vs._NP_SAFE | vs._MATH_SAFE
+    missing = {n for n in trays if n not in vs._ALLOWED_ATTRS}
+    assert not missing, f"tên trong khay nhưng AST chặn: {sorted(missing)}"
+
+
+@pytest.mark.parametrize("body", [
+    "df.agg(params['m'], 0, '{p}')",                  # tên qua params (LLM tune)
+    "df.agg('to_' + 'csv', 0, '{p}')",                # chuỗi ghép động
+    "m = 'to_csv'\n    df.agg(m, 0, '{p}')",          # biến chuỗi
+    "df.agg(f'to_csv', 0, '{p}')",                    # f-string
+    "df.agg(['to_csv'], 0, '{p}')",                   # list chuỗi
+    "df['close'].apply(lambda s: df.agg('to_csv', 0, '{p}'))",   # lồng trong lambda
+    "df.groupby('close').agg('to_csv', 0, '{p}')",
+    "df['close'].rolling(3).agg('to_csv', '{p}')",
+    "df.set_index('time').resample('D').agg('to_csv', 0, '{p}')",
+    "df['close'].ewm(span=3).agg('to_csv', '{p}')",
+    "df['close'].expanding().agg('to_csv', '{p}')",
+])
+def test_dispatch_bypass_variants_all_blocked(tmp_path, body):
+    """Luật áp theo TÊN METHOD nên phủ mọi đối tượng trung gian (groupby/
+    rolling/resample/ewm/expanding), và mọi cách dựng chuỗi — kể cả tên
+    truyền qua `params` (params do LLM tune, cũng là input không tin được)."""
+    proof = tmp_path / "v.out"
+    code = _wrap(body.format(p=proof))
+
+    with pytest.raises(Exception):
+        vs.EXECUTOR.run(code, _ohlcv(), {"m": "to_csv"})
+
+    assert not proof.exists(), f"SANDBOX ESCAPE: {body}"
