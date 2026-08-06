@@ -491,6 +491,13 @@ class ClaudeAgent(BriefAgent):
             )
             resp.raise_for_status()
             body = resp.json()
+            if body.get("stop_reason") == "max_tokens":
+                # Output bị CẮT — bản cụt lên Telegram tệ hơn lỗi (bài close
+                # 06/08 06:53): coi là LỖI để generate_brief lấy dự phòng.
+                _ledger_record("Anthropic", self.model, ok=False,
+                               error="stop_reason=max_tokens (output cụt)")
+                return "", ("Claude API: output bị cắt (stop_reason="
+                            "max_tokens — đụng trần budget)")
             _ledger_record("Anthropic", self.model, ok=True,
                            usage=body.get("usage"))
             return body["content"][0]["text"], None
@@ -544,9 +551,20 @@ class _OpenAICompatAgent(BriefAgent):
             )
             resp.raise_for_status()
             body = resp.json()
+            choice = (body.get("choices") or [{}])[0]
+            if choice.get("finish_reason") == "length":
+                # Output bị CẮT vì đụng trần max_tokens nhưng HTTP 200 —
+                # bài close 06/08 06:53: Gemini flash "suy nghĩ" ~5k token,
+                # content đứt giữa câu vẫn được tính THÀNH CÔNG → bản cụt
+                # thắng bản trọn vẹn của agent yếu hơn và lên Telegram.
+                # Coi là LỖI agent → cơ chế "(dự phòng)" kích hoạt.
+                _ledger_record(self._LEDGER, self.model, ok=False,
+                               error="finish_reason=length (output cụt)")
+                return "", (f"{self._ERR_PREFIX}: output bị cắt (finish_"
+                            "reason=length — đụng trần budget/thinking)")
             _ledger_record(self._LEDGER, self.model, ok=True,
                            usage=body.get("usage"))
-            return body["choices"][0]["message"]["content"], None
+            return choice["message"]["content"], None
         except Exception as e:
             _ledger_record(self._LEDGER, self.model, ok=False,
                            error=f"{type(e).__name__}: {str(e)[:120]}")
@@ -664,9 +682,18 @@ class CerebrasAgent(_OpenAICompatAgent):
                 )
                 resp.raise_for_status()
                 body = resp.json()
+                choice = (body.get("choices") or [{}])[0]
+                if choice.get("finish_reason") == "length":
+                    # Output cụt (xem _OpenAICompatAgent) — kiểu "suy nghĩ"
+                    # mỗi model khác nhau → thử model kế trong danh sách.
+                    _ledger_record(self._LEDGER, model, ok=False,
+                                   error="finish_reason=length (output cụt)")
+                    last_err = "output bị cắt (finish_reason=length)"
+                    last_detail = ""
+                    continue
                 _ledger_record(self._LEDGER, model, ok=True,
                                usage=body.get("usage"))
-                content = body["choices"][0]["message"]["content"]
+                content = choice["message"]["content"]
                 if idx > 0:
                     content = f"_(fallback: {model})_\n\n{content}"
                 return content, None
@@ -779,9 +806,17 @@ class OpenRouterAgent(_OpenAICompatAgent):
                 resp = self._post_one(model, system_part, user_part, api_key, max_tokens)
                 resp.raise_for_status()
                 body = resp.json()
+                choice = (body.get("choices") or [{}])[0]
+                if choice.get("finish_reason") == "length":
+                    # Output cụt (xem _OpenAICompatAgent) → thử model kế.
+                    _ledger_record(self._LEDGER, model, ok=False,
+                                   error="finish_reason=length (output cụt)")
+                    last_err = "output bị cắt (finish_reason=length)"
+                    last_detail = ""
+                    continue
                 _ledger_record(self._LEDGER, model, ok=True,
                                usage=body.get("usage"))
-                content = body["choices"][0]["message"]["content"]
+                content = choice["message"]["content"]
                 if idx > 0:
                     content = f"_(fallback: {model})_\n\n{content}"
                 return content, None
@@ -814,8 +849,11 @@ class GeminiAgent(_OpenAICompatAgent):
     _LEDGER = "Gemini"
 
     # flash SUY NGHĨ mặc định — thinking ăn budget completion; không nới thì
-    # content bị cụt dưới _BRIEF_MAX_TOKENS (bài học sentiment max_tokens=10)
-    _THINK_HEADROOM = 3000
+    # content bị cụt dưới _BRIEF_MAX_TOKENS (bài học sentiment max_tokens=10).
+    # 3000 KHÔNG đủ (close 06/08 06:53: ngày data phức tạp flash nghĩ ~5k
+    # token → content đứt giữa câu "Tổng kết phiên") → 8000. Đây là TRẦN,
+    # không phải chi phí — không nghĩ nhiều thì không tốn; free tier chịu được.
+    _THINK_HEADROOM = 8000
 
     def __init__(self, model: str = "gemini-3.5-flash", name: str = "Gemini 3.5 Flash"):
         super().__init__(model, name)

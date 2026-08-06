@@ -343,6 +343,43 @@ def test_generate_brief_orders_by_strength_and_has_fallback():
     assert "_brief_alert_down" in src
 
 
+# ─── Output cụt = LỖI agent (close 06/08 06:53) ─────────────────────────────
+
+def test_brief_agents_truncated_output_is_error(monkeypatch, _tmp_meta):
+    """Gemini flash nghĩ ~5k token → content đứt giữa câu nhưng HTTP 200 →
+    bản CỤT được tính thành công, thắng bản trọn vẹn của agent yếu hơn và
+    lên Telegram thiếu 8 mục. Nay finish_reason=length / stop_reason=
+    max_tokens = LỖI agent (ledger ghi fail) → cơ chế dự phòng kích hoạt."""
+    import vnstock_brief as vb
+
+    def _post_openai(url, headers=None, json=None, timeout=None):
+        return _Resp({"choices": [{"message": {"content": "nửa chừng và chỉ"},
+                                   "finish_reason": "length"}],
+                      "usage": {"prompt_tokens": 9000, "completion_tokens": 700}})
+
+    monkeypatch.setattr("requests.post", _post_openai)
+    monkeypatch.setenv("GEMINI_API_KEY", "gk")
+    text, err = vb.GeminiAgent().generate("prompt", max_tokens=2800)
+    assert text == "" and "bị cắt" in err
+    assert ledger.summary()["providers"]["Gemini:gemini-3.5-flash"]["fail"] == 1
+
+    def _post_claude(url, headers=None, json=None, timeout=None):
+        return _Resp({"content": [{"text": "nửa chừng"}],
+                      "stop_reason": "max_tokens",
+                      "usage": {"input_tokens": 9000, "output_tokens": 700}})
+
+    monkeypatch.setattr("requests.post", _post_claude)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "ak")
+    text, err = vb.ClaudeAgent().generate("prompt", max_tokens=2800)
+    assert text == "" and "bị cắt" in err
+
+
+def test_gemini_think_headroom_not_regressed():
+    import vnstock_brief as vb
+    # 3000 đã chứng minh KHÔNG đủ (close 06/08) — không được tụt lại
+    assert vb.GeminiAgent._THINK_HEADROOM >= 8000
+
+
 # ─── Quét slug chết TOÀN REPO (nếp quy trình chốt 22/07) ────────────────────
 # Provider khai tử model → thêm slug vào _DEAD_SLUGS + 1 dòng _MODEL_MIGRATIONS
 # (vnstock_brief) + thay ladder tương ứng. Test này là KHÓA CỬA: slug chết

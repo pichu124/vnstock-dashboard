@@ -3740,3 +3740,29 @@ SỰ CỐ (key Gemini chết + 503 + đường ép gửi 01:21) — Gemini error
 Groq error, bản Telegram 01:21 thực chất do Mistral Small gánh (agent
 mạnh nhất còn sống theo _AGENT_STRENGTH). KHÔNG dùng phiên này làm dữ
 liệu A/B; A/B tính từ phiên 18:00 ngày 30/07 trở đi.
+
+## 2026-08-06 — Brief cụt lên Telegram: output bị cắt được tính là THÀNH CÔNG
+
+Close 06:53 (user ép gửi `telegram close` sáng 06/08) chỉ có TLDR + nửa
+mục "Tổng kết phiên" rồi đứt ngang "và chỉ" — mất 8 mục sau. Giải phẫu:
+Gemini flash "suy nghĩ" ĐỘNG, ngày data phức tạp nghĩ ~5k token trong
+tổng budget 2800+3000 headroom → content còn ~600 token, đứt giữa câu
+nhưng HTTP 200 + `finish_reason="length"` mà agent KHÔNG ĐỌC cờ này →
+trả text cụt với error=None = "thành công" → thắng bản trọn vẹn của
+agent yếu hơn, cơ chế "(dự phòng)" không kích hoạt (chỉ chạy khi agent
+BÁO LỖI). Đây là lần 2 dính họ bug này (comment _BRIEF_MAX_TOKENS đã ghi
+lần 2400→2800 hồi 13/07 — lần đó nâng trần, lần này vá tận gốc cờ cắt).
+
+Fix (2 lớp):
+1. **Mọi agent đọc cờ cắt**: OpenAI-compat (`finish_reason=="length"`) +
+   Claude (`stop_reason=="max_tokens"`) → return LỖI "output bị cắt" +
+   ledger fail (soi được qua --show). Cerebras/OpenRouter (vòng candidate)
+   → thử model kế tiếp (kiểu nghĩ mỗi model khác nhau). Kết quả: bản cụt
+   không bao giờ thắng nữa — generate_brief tự lấy dự phòng.
+2. **Gemini `_THINK_HEADROOM` 3000 → 8000** — trần, không phải chi phí;
+   3000 đã chứng minh không đủ. Test giữ không cho tụt lại (<8000).
+
+Tests: truncation Gemini/Claude → ("", "bị cắt") + ledger fail; headroom
+guard. Sandbox full 1382 passed. VERIFY máy thật: pull → phát brief kế
+tiếp phải đủ mục; nếu ledger thấy `finish_reason=length` lặp lại nhiều
+ngày ở Gemini → cân nhắc nâng headroom nữa hoặc đổi agent chính.
