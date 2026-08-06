@@ -20,12 +20,21 @@ Strategy contract
           #          "entry": float, "tp": float, "sl": float,
           #          "confidence": 0..1}
 
-Sandbox layers
---------------
-  1. AST whitelist  — reject Import, eval/exec/open, dunder escapes
-  2. Restricted globals — strip __builtins__, expose pd/np/math + safe builtins only
+Sandbox layers (siết lại 06/08/2026 sau audit — xem docs/CLAUDE-NOTES.md)
+------------------------------------------------------------------------
+  1. AST gate — chặn Import, tên cấm, tên MODULE cấm, attribute dunder,
+     attribute nguy hiểm (to_csv/query/eval/mro/format…), và mặc định mọi
+     attribute NGOÀI danh sách trắng `_ALLOWED_ATTRS`.
+  2. Restricted globals — pd/np/math KHÔNG còn là module thật mà là "khay"
+     chỉ chứa hàm đã duyệt (`_make_safe_namespace`). Đây là lớp bịt lỗ hổng
+     gốc: `pd.io.common.os.system(...)` từng lọt vì toàn tên thường.
   3. multiprocessing timeout — kill if exceeds STRATEGY_TIMEOUT_S
   4. Output schema validation — reject if missing keys or wrong types
+
+CẢNH BÁO: đây là sandbox "best effort" cho code do LLM sinh trên máy CÁ NHÂN,
+KHÔNG phải hàng rào chống attacker có chủ đích. Muốn chắc thì chạy subprocess
+hạ quyền/seccomp. Thêm điểm dùng model/API mới vào sandbox → thêm test tấn
+công vào tests/test_strategy_sandbox.py.
 """
 from __future__ import annotations
 
@@ -73,34 +82,155 @@ _FORBIDDEN_MODULES = {
 
 _ALLOWED_DUNDERS = {"__init__", "__name__"}
 
+# ── Attribute NGUY HIỂM — chặn cứng, không tắt được (audit 06/08) ──────────
+# Cổng kiểm cũ chặn `open` nhưng KHÔNG đụng `df.to_csv(...)` — ghi file y hệt
+# mà chỉ là attribute thường. Tương tự df.query/df.eval thực thi CHUỖI, và
+# type(x).mro() leo ngược cây lớp tới `object` bằng method thường (bộ lọc
+# dunder không thấy). `.format` đọc được dunder qua string literal — chỗ AST
+# không soi vào được ("{0.__class__}".format(df)).
+_FORBIDDEN_ATTRS = {
+    # ghi file qua chính đối tượng dữ liệu
+    "to_csv", "to_pickle", "to_parquet", "to_json", "to_excel", "to_sql",
+    "to_hdf", "to_feather", "to_stata", "to_clipboard", "to_gbq", "to_orc",
+    "to_xml", "to_latex", "to_string_io", "savefig", "savez", "tofile",
+    "save", "write", "writelines", "dump", "dumps",
+    # thực thi chuỗi
+    "query", "eval", "exec", "compile", "pipe_eval",
+    # leo cây lớp / phản chiếu không cần dunder
+    "mro", "mro_entries", "subclasses", "func_globals", "gi_frame",
+    "cr_frame", "f_globals", "f_locals", "f_builtins",
+    # giao thức format đọc dunder qua chuỗi
+    "format", "format_map",
+    # gọi hệ điều hành nếu bằng cách nào đó chạm được module
+    "system", "popen", "spawn", "spawnv", "fork", "execv", "execve",
+    "startfile", "call", "check_output", "run_shell",
+    # đọc/ghi qua accessor lạ
+    "plot", "style", "attrs",
+}
+
+# ── Attribute ĐƯỢC PHÉP — danh sách TRẮNG (audit 06/08) ────────────────────
+# Điểm mấu chốt của đợt sửa: danh sách ĐEN sót một tên là thành LỖ HỔNG,
+# danh sách TRẮNG sót một tên chỉ là BẤT TIỆN (thêm vào đây rồi chạy lại).
+# Gom từ chiến lược mẫu trong _STRATEGY_PROMPT + các idiom quant thông dụng.
+# Kill-switch: VNSTOCK_STRATEGY_STRICT_ATTRS=0 → lùi về chế độ chỉ chặn
+# _FORBIDDEN_ATTRS + dunder (proxy module VẪN bật, không tắt được).
+_ALLOWED_ATTRS = {
+    # truy cập/định vị
+    "iloc", "loc", "at", "iat", "values", "index", "columns", "name",
+    "shape", "size", "dtype", "dtypes", "empty", "T", "str", "dt", "array",
+    "flat", "ndim", "nbytes", "real", "imag",
+    # thống kê / tổng hợp
+    "mean", "median", "sum", "std", "var", "min", "max", "count", "prod",
+    "quantile", "mode", "sem", "skew", "kurt", "corr", "cov", "nunique",
+    "value_counts", "describe", "cumsum", "cumprod", "cummax", "cummin",
+    "rank", "pct_change", "diff", "abs", "round", "clip", "product",
+    "nanmean", "nanstd", "nanmedian", "nansum", "nanmax", "nanmin",
+    "argmax", "argmin", "idxmax", "idxmin", "nlargest", "nsmallest",
+    # cửa sổ trượt
+    "rolling", "ewm", "expanding", "shift", "resample", "apply", "agg",
+    "aggregate", "transform", "pipe", "map", "applymap",
+    # chọn / biến đổi
+    "head", "tail", "drop", "dropna", "fillna", "ffill", "bfill", "replace",
+    "reset_index", "set_index", "sort_values", "sort_index", "reindex",
+    "rename", "astype", "copy", "squeeze", "to_list", "tolist", "to_numpy",
+    "item", "unique", "isin", "between", "where", "mask", "groupby",
+    "iterrows", "itertuples", "items", "keys", "get", "reshape", "ravel",
+    "flatten", "take", "repeat", "stack", "unstack", "melt", "pivot",
+    "combine", "combine_first", "align", "join", "assign", "insert",
+    "interpolate", "shift_periods", "first", "last", "sample", "duplicated",
+    "drop_duplicates", "nan_to_num", "asfreq",
+    # toán tử dạng method
+    "add", "sub", "mul", "div", "truediv", "floordiv", "mod", "pow",
+    "radd", "rsub", "rmul", "rdiv", "gt", "lt", "ge", "le", "eq", "ne",
+    "any", "all", "notna", "isna", "isnull", "notnull", "isfinite",
+    "logical_and", "logical_or", "logical_not", "invert", "sign", "sqrt",
+    "log", "log1p", "log10", "log2", "exp", "expm1", "floor", "ceil",
+    "trunc", "maximum", "minimum", "dot", "sort", "reverse", "append",
+    "extend", "update", "setdefault", "pop", "clear", "difference",
+    "intersection", "union", "issubset", "add_prefix", "add_suffix",
+    # accessor .dt / .str (chiến lược lọc theo phiên/ngày)
+    "year", "month", "day", "hour", "minute", "second", "date", "time",
+    "weekday", "dayofweek", "dayofyear", "quarter", "days", "seconds",
+    "total_seconds", "normalize", "floor_ts", "strftime",
+    "contains", "startswith", "endswith", "lower", "upper", "strip",
+    "lstrip", "rstrip", "split", "rsplit", "len", "cat", "zfill",
+    # số học python thuần
+    "bit_length", "is_integer", "conjugate", "numerator", "denominator",
+    "hypot", "fabs", "fmod", "copysign", "degrees", "radians", "atan",
+    "atan2", "asin", "acos", "sin", "cos", "tan", "tanh", "sinh", "cosh",
+    "isnan", "isinf", "gcd", "factorial", "comb", "perm", "erf", "gamma",
+    "pi", "e", "tau", "inf", "nan", "nanargmax", "nanargmin",
+    # dựng đối tượng pandas/numpy (dùng qua khay pd./np.)
+    "DataFrame", "Series", "Index", "concat", "merge", "to_numeric",
+    "to_datetime", "to_timedelta", "date_range", "bdate_range", "Timestamp",
+    "Timedelta", "NaT", "NA", "cut", "qcut", "factorize", "get_dummies",
+    "array_split", "asarray", "arange", "linspace", "zeros", "ones", "full",
+    "percentile", "corrcoef", "polyfit", "polyval", "concatenate", "vstack",
+    "hstack", "column_stack", "diag", "identity", "eye", "cumproduct",
+    "float64", "float32", "int64", "int32", "bool_", "errstate",
+}
+
+
+def _strict_attrs_enabled() -> bool:
+    """Danh sách trắng attribute bật mặc định; kill-switch theo nếp repo cho
+    trường hợp chiến lược ĐANG CHẠY dùng API hợp lệ mà danh sách còn thiếu
+    (báo lại để bổ sung — đừng để tắt lâu dài)."""
+    return (os.environ.get("VNSTOCK_STRATEGY_STRICT_ATTRS") or "1") \
+        .strip().lower() not in ("0", "false", "off")
+
 
 class StrategyValidationError(ValueError):
     """Raised when strategy code fails AST whitelist or output contract."""
 
 
+class StrategySandboxError(RuntimeError):
+    """Sandbox chặn ở tầng RUNTIME (lớp 2) — vd chạm tới thứ không nằm trong
+    khay pd/np/math. Khác StrategyValidationError (chặn ở tầng AST)."""
+
+
 def _validate_ast(code: str) -> None:
-    """Parse code and reject if any blacklisted construct appears."""
+    """Parse code and reject if any blacklisted construct appears.
+
+    Lớp 1 của sandbox. Sau audit 06/08 kiểm 5 thứ: import, tên cấm, tên
+    MODULE cấm (trước đây `_FORBIDDEN_MODULES` là code chết), attribute dunder,
+    attribute nguy hiểm, và — mặc định — attribute NGOÀI danh sách trắng.
+    """
     try:
         tree = ast.parse(code, mode="exec")
     except SyntaxError as e:
         raise StrategyValidationError(f"SyntaxError: {e}") from e
 
+    strict_attrs = _strict_attrs_enabled()
     for node in ast.walk(tree):
         # No imports at all
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             raise StrategyValidationError("Import statements are not allowed")
 
-        # No forbidden name access
-        if isinstance(node, ast.Name) and node.id in _FORBIDDEN_NAMES:
-            raise StrategyValidationError(f"Forbidden name: {node.id}")
+        # No forbidden name access. `_FORBIDDEN_MODULES` nay ĐƯỢC DÙNG THẬT —
+        # trước 06/08 nó chỉ nằm đó cho đẹp (audit: dead code).
+        if isinstance(node, ast.Name):
+            if node.id in _FORBIDDEN_NAMES:
+                raise StrategyValidationError(f"Forbidden name: {node.id}")
+            if node.id in _FORBIDDEN_MODULES:
+                raise StrategyValidationError(f"Forbidden module name: {node.id}")
 
-        # No dunder attribute access (except __init__/__name__ on user objects)
         if isinstance(node, ast.Attribute):
-            if node.attr.startswith("__") and node.attr.endswith("__"):
-                if node.attr not in _ALLOWED_DUNDERS:
+            attr = node.attr
+            # No dunder attribute access (except __init__/__name__)
+            if attr.startswith("__") and attr.endswith("__"):
+                if attr not in _ALLOWED_DUNDERS:
                     raise StrategyValidationError(
-                        f"Forbidden dunder attribute: {node.attr}"
+                        f"Forbidden dunder attribute: {attr}"
                     )
+            if attr in _FORBIDDEN_ATTRS:
+                raise StrategyValidationError(f"Forbidden attribute: .{attr}")
+            if strict_attrs and attr not in _ALLOWED_ATTRS:
+                raise StrategyValidationError(
+                    f"Attribute `.{attr}` không nằm trong danh sách cho phép "
+                    f"của sandbox. API hợp lệ thì thêm vào _ALLOWED_ATTRS "
+                    f"(vnstock_strategy.py); tắt tạm: "
+                    f"VNSTOCK_STRATEGY_STRICT_ATTRS=0"
+                )
 
         # No file/IO function calls by name
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
@@ -122,12 +252,81 @@ def _safe_builtins() -> dict:
     return out
 
 
+# ── Lớp 2: "khay" thay cho module thật ────────────────────────────────────
+# Gốc rễ lỗ hổng audit 06/08: sandbox đưa NGUYÊN module pandas vào scope, mà
+# pandas có `import os` bên trong nên `pd.io.common.os.system(...)` chạm tới
+# shell — toàn tên thường nên cổng kiểm AST không thấy gì sai. Nay chiến lược
+# chỉ nhận một cái khay chứa đúng các hàm đã duyệt: `pd.io` KHÔNG TỒN TẠI.
+# Lớp này KHÔNG có kill-switch (khác danh sách trắng attribute).
+
+def _make_safe_namespace(label: str, module, allowed: set):
+    """Khay chỉ-đọc chứa đúng `allowed` của `module`.
+
+    Members giữ trong CLOSURE và instance có `__slots__ = ()` — instance
+    không mang thuộc tính nào, nên MỌI truy cập đều rơi vào `__getattr__` và
+    bị kiểm. Không có đường vòng nào lấy lại được module gốc.
+    """
+    members = {a: getattr(module, a) for a in allowed if hasattr(module, a)}
+
+    class _SafeNamespace:
+        __slots__ = ()
+
+        def __getattr__(self, item):
+            try:
+                return members[item]
+            except KeyError:
+                raise StrategySandboxError(
+                    f"sandbox: `{label}.{item}` không nằm trong danh sách "
+                    f"cho phép ({len(members)} hàm)"
+                ) from None
+
+        def __setattr__(self, item, value):
+            raise StrategySandboxError(
+                f"sandbox: không được gán `{label}.{item}`")
+
+        def __repr__(self):
+            return f"<sandbox {label}: {len(members)} hàm được phép>"
+
+    return _SafeNamespace()
+
+
+# Hàm/hằng module-level chiến lược được dùng. Cố ý KHÔNG có read_csv/read_*,
+# không submodule (pd.io/np.f2py…), không set_option.
+_PD_SAFE = {
+    "DataFrame", "Series", "Index", "concat", "merge", "isna", "notna",
+    "isnull", "notnull", "to_numeric", "to_datetime", "to_timedelta",
+    "date_range", "bdate_range", "Timestamp", "Timedelta", "NaT", "NA",
+    "cut", "qcut", "factorize", "get_dummies", "unique",
+}
+_NP_SAFE = {
+    "nan", "inf", "pi", "e", "array", "asarray", "arange", "linspace",
+    "zeros", "ones", "full", "where", "clip", "abs", "sqrt", "log", "log1p",
+    "log10", "log2", "exp", "expm1", "power", "sign", "maximum", "minimum",
+    "mean", "median", "std", "var", "sum", "prod", "cumsum", "cumprod",
+    "diff", "corrcoef", "cov", "percentile", "quantile", "nanmean",
+    "nanstd", "nanmedian", "nansum", "nanmax", "nanmin", "nanargmax",
+    "nanargmin", "isnan", "isinf", "isfinite", "argmax", "argmin", "max",
+    "min", "round", "floor", "ceil", "trunc", "dot", "polyfit", "polyval",
+    "sort", "concatenate", "vstack", "hstack", "column_stack", "all", "any",
+    "logical_and", "logical_or", "logical_not", "greater", "less", "equal",
+    "tanh", "sinh", "cosh", "sin", "cos", "tan", "float64", "float32",
+    "int64", "int32", "bool_", "errstate", "nan_to_num", "sign",
+}
+_MATH_SAFE = {
+    "pi", "e", "tau", "inf", "nan", "sqrt", "log", "log2", "log10", "exp",
+    "pow", "fabs", "floor", "ceil", "trunc", "isnan", "isinf", "isfinite",
+    "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "degrees",
+    "radians", "hypot", "copysign", "fmod", "gcd", "factorial", "comb",
+    "perm", "erf", "gamma", "sinh", "cosh", "tanh",
+}
+
+
 def _safe_globals(df: pd.DataFrame, params: dict) -> dict:
     return {
         "__builtins__": _safe_builtins(),
-        "pd":     pd,
-        "np":     np,
-        "math":   math,
+        "pd":     _make_safe_namespace("pd", pd, _PD_SAFE),
+        "np":     _make_safe_namespace("np", np, _NP_SAFE),
+        "math":   _make_safe_namespace("math", math, _MATH_SAFE),
         "df":     df,
         "params": params,
     }
@@ -166,10 +365,10 @@ class InProcessExecutor(StrategyExecutor):
     """Option A: AST whitelist + restricted exec + multiprocessing timeout.
 
     `fast_mode=True` skips the mp.Process spawn (which costs ~0.5s/call on
-    Windows). Code still runs through AST validation + restricted globals,
-    so import/open/dunder escapes are blocked, but it loses the timeout
-    isolation against infinite loops. Use only when running many backtest
-    windows where the mp overhead dominates.
+    Windows). Code vẫn qua ĐỦ lưới AST + khay pd/np/math (import/open/dunder/
+    module-traversal/ghi-file đều chặn), chỉ mất lưới TIMEOUT chống vòng lặp
+    vô hạn. Use only when running many backtest windows where the mp overhead
+    dominates.
     """
 
     def __init__(self, timeout_s: float = STRATEGY_TIMEOUT_S,
@@ -218,8 +417,9 @@ class InProcessExecutor(StrategyExecutor):
 
 # Default executor — swap to SubprocessExecutor when Option B lands
 # fast_mode=True because mp.Process spawn on Windows costs ~0.5s per call,
-# making 1000-window walk-forward backtest take ~10 minutes. AST whitelist
-# + restricted globals still block file/network/import attacks.
+# making 1000-window walk-forward backtest take ~10 minutes. Đánh đổi: mất
+# lưới timeout, KHÔNG mất lưới AST/khay-module (cả 2 executor dùng chung
+# `_validate_ast` + `_safe_globals`, có test giữ).
 EXECUTOR: StrategyExecutor = InProcessExecutor(fast_mode=True)
 
 # Strict executor for one-off / production execution where isolation matters
@@ -1004,8 +1204,13 @@ CONTRACT
       "tp": float,           # take-profit absolute price
       "sl": float,           # stop-loss absolute price
       "confidence": 0..1}}   # CALIBRATED — xem mục QUALITY bên dưới
-- Chỉ dùng: pd, np, math (có sẵn trong scope)
+- Chỉ dùng: pd, np, math (có sẵn trong scope — là bản RÚT GỌN chỉ gồm hàm \
+tính toán, không có submodule như pd.io)
 - KHÔNG: import, open, exec, eval, file IO, network, os, sys, getattr/setattr
+- KHÔNG dùng method ghi/đọc file hay thực thi chuỗi của DataFrame \
+(df.to_csv/to_pickle/to_json/query/eval/plot) — sandbox từ chối cả bài
+- Chỉ dùng API tính toán thông dụng (rolling/ewm/mean/std/shift/iloc/clip/\
+diff/abs/quantile/np.where…); API lạ có thể bị sandbox từ chối
 - Mọi ngưỡng (period, threshold, %) PHẢI đọc từ params để có thể tune
 
 ═══════════════════════════════════════════════════════════════
@@ -2287,3 +2492,79 @@ def analyze_ticker_consensus(
         "indicators":    indic,
         "n_agents":      len(votes),
     }
+
+
+# ── Tự kiểm chiến lược ĐÃ LƯU với sandbox hiện tại ─────────────────────────
+
+def audit_saved_strategies(limit: int = 50) -> dict:
+    """Chạy `_validate_ast` lên mọi chiến lược trong SQLite → báo cáo cái nào
+    sẽ bị sandbox từ chối.
+
+    Sinh ra sau đợt siết sandbox 06/08: danh sách trắng attribute có thể
+    thiếu một API hợp lệ mà chiến lược ĐANG CHẠY của user dùng — backtest bắt
+    mọi exception theo từng cửa sổ nên nó sẽ chết ÂM THẦM (0 trade → bị coi
+    là chiến lược tồi → retire). Lệnh này để phát hiện TRƯỚC khi chạy đêm:
+
+        python vnstock_strategy.py --audit-saved
+
+    Attribute nào bị từ chối oan → thêm vào `_ALLOWED_ATTRS` (hoặc tạm bật
+    VNSTOCK_STRATEGY_STRICT_ATTRS=0 rồi báo để bổ sung).
+    """
+    out = {"checked": 0, "ok": 0, "rejected": [], "active_ok": None}
+    try:
+        with mem._conn() as c:
+            rows = c.execute(
+                "SELECT id, name, status, code FROM strategies "
+                "ORDER BY created_at DESC LIMIT ?", (limit,),
+            ).fetchall()
+    except Exception as e:
+        if "no such table" in str(e).lower():
+            return out            # máy chưa train lần nào — không phải lỗi
+        out["error"] = f"không đọc được SQLite: {type(e).__name__}: {e}"
+        return out
+
+    for row in rows:
+        r = dict(row)
+        out["checked"] += 1
+        try:
+            _validate_ast(r.get("code") or "")
+            out["ok"] += 1
+            if r.get("status") == "active":
+                out["active_ok"] = True
+        except StrategyValidationError as e:
+            out["rejected"].append({
+                "id": r.get("id"), "name": r.get("name"),
+                "status": r.get("status"), "reason": str(e)[:200],
+            })
+            if r.get("status") == "active":
+                out["active_ok"] = False
+    return out
+
+
+if __name__ == "__main__":
+    import argparse as _ap
+
+    _p = _ap.ArgumentParser(description="Strategy sandbox utilities")
+    _p.add_argument("--audit-saved", action="store_true",
+                    help="Kiểm chiến lược đã lưu trong SQLite với sandbox hiện tại")
+    _p.add_argument("--limit", type=int, default=50)
+    _a = _p.parse_args()
+
+    if _a.audit_saved:
+        rep = audit_saved_strategies(limit=_a.limit)
+        if rep.get("error"):
+            print(f"✗ {rep['error']}")
+            raise SystemExit(2)
+        print(f"Đã kiểm {rep['checked']} chiến lược · {rep['ok']} qua sandbox")
+        for r in rep["rejected"]:
+            print(f"  ✗ [{r['status']}] #{r['id']} {r['name']}: {r['reason']}")
+        if rep["active_ok"] is False:
+            print("\n⚠️  CHIẾN LƯỢC ĐANG ACTIVE bị sandbox từ chối — backtest đêm "
+                  "sẽ ra 0 trade.\n   Thuốc: thêm attribute vào _ALLOWED_ATTRS "
+                  "(vnstock_strategy.py), hoặc tạm đặt\n   "
+                  "VNSTOCK_STRATEGY_STRICT_ATTRS=0 trong .env rồi báo để bổ sung.")
+            raise SystemExit(1)
+        if not rep["rejected"]:
+            print("✓ Tất cả đều qua sandbox")
+        raise SystemExit(0)
+    _p.print_help()

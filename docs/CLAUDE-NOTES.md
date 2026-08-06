@@ -3816,3 +3816,58 @@ partition rồi ghi, cùng họ rủi ro, và `_read_ticker` cũng nuốt lỗi 
 rỗng. Chỉ chạy ở bulk-load thủ công (không phải đường đêm) nên xếp sau.
 Tương tự: `vnstock_macro` cache + cụm `_meta/*.json` (doctor) ghi chưa
 nguyên tử — xem danh sách audit.
+
+## 2026-08-06 (c) — AUDIT lỗi #1 CRITICAL: sandbox chiến lược thoát được → siết 2 lớp
+
+`vnstock_strategy._validate_ast` chỉ chặn import / `_FORBIDDEN_NAMES` /
+attribute DUNDER, trong khi `_safe_globals` phơi NGUYÊN module pandas. Vì
+pandas có `import os` bên trong, chuỗi `pd.io.common.os.system('...')` gồm
+TOÀN tên thường, không import, không dunder → lọt cổng kiểm và CHẠY LỆNH
+SHELL THẬT (audit đã tái hiện, ghi được file proof). Cả `EXECUTOR`
+(fast_mode) lẫn `STRICT_EXECUTOR` đều dính vì `_signal_worker` dựng CÙNG
+`_safe_globals`. Đây là code do LLM sinh → lưu SQLite → chạy lại mỗi
+backtest, không ai đọc; nó đọc được `.env` (toàn bộ API key), xoá được
+warehouse, gửi được ra mạng. Nói cách khác: guard DUY NHẤT được giao việc
+nhốt output LLM là guard duy nhất không làm được việc — trái hẳn triết lý
+repo. `_FORBIDDEN_MODULES` khi đó là CODE CHẾT (khai báo, không ai dùng),
+và comment ở EXECUTOR còn khẳng định sai "vẫn chặn file/network/import".
+
+**Sandbox trước đợt này KHÔNG có một test nào** — lý do lỗ hổng sống lâu.
+
+Fix — 2 lớp, lớp 2 là lớp bịt gốc:
+1. **AST gate mở rộng** (`_validate_ast`): thêm chặn `_FORBIDDEN_MODULES`
+   (nay là code SỐNG), `_FORBIDDEN_ATTRS` (ghi file `to_csv/to_pickle/
+   to_parquet/…`, thực thi chuỗi `query/eval`, leo cây lớp `mro`, rò dunder
+   qua chuỗi `format/format_map`, `system/popen/…`, `plot/style/attrs`), và
+   — mặc định — mọi attribute NGOÀI danh sách TRẮNG `_ALLOWED_ATTRS`.
+   Điểm mấu chốt: danh sách ĐEN sót một tên là LỖ HỔNG, danh sách TRẮNG sót
+   một tên chỉ là BẤT TIỆN. Kill-switch `VNSTOCK_STRATEGY_STRICT_ATTRS=0`
+   lùi về chế độ chỉ-chặn-đen (dùng tạm, KHÔNG để lâu).
+2. **Khay thay module** (`_make_safe_namespace`): pd/np/math không còn là
+   module thật mà là object chỉ chứa hàm trong `_PD_SAFE`/`_NP_SAFE`/
+   `_MATH_SAFE` — members giữ trong CLOSURE, `__slots__=()` nên instance
+   không mang thuộc tính nào, mọi truy cập rơi vào `__getattr__` và bị kiểm.
+   `pd.io` đơn giản KHÔNG TỒN TẠI. Lớp này KHÔNG có kill-switch.
+
+Phụ trợ:
+* `audit_saved_strategies()` + CLI `python vnstock_strategy.py --audit-saved`
+  — chạy `_validate_ast` lên chiến lược ĐÃ LƯU trong SQLite. Lý do: backtest
+  bắt exception theo TỪNG CỬA SỔ, nên chiến lược active bị siết oan sẽ chết
+  ÂM THẦM (0 trade → bị coi là tồi → retire). Lệnh này lộ mặt trước khi chạy
+  đêm; exit 1 + hướng dẫn nếu chính chiến lược active bị từ chối.
+* `_STRATEGY_PROMPT` thêm 3 dòng luật mới (đỡ tốn lượt retry của LLM).
+* Sửa 3 comment/docstring khẳng định sai về mức bảo vệ; ghi rõ đây là
+  sandbox "best effort" cho máy CÁ NHÂN, không phải hàng rào chống attacker.
+
+Tests (`tests/test_strategy_sandbox.py`, 15 test, vào fast list): mỗi kỹ
+thuật thoát 1 test (module traversal ở CẢ tầng AST lẫn runtime, df.to_*,
+query/eval, mro, format, tên module trần), chống regress các chốt cũ, 2 test
+ĐỐI CHỨNG rằng chiến lược mẫu trong prompt + idiom quant thông dụng vẫn chạy
+(danh sách trắng không được siết tới mức phá code thật), 2 test cho CLI
+audit. Kiểm chứng RED: chạy trước khi vá → 8/13 ĐỎ, gồm 2 test proof-of-
+escape (lệnh shell chạy thật). Full suite 1407 passed.
+
+**Việc cần làm trên máy thật**: sau `git pull` chạy
+`python vnstock_strategy.py --audit-saved`. Nếu chiến lược ACTIVE bị từ chối
+vì một API hợp lệ → báo để thêm tên đó vào `_ALLOWED_ATTRS` (đừng để
+kill-switch bật lâu dài).
