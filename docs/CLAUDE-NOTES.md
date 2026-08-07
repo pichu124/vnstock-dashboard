@@ -4044,4 +4044,6 @@ giả — exception nào cũng làm nó xanh, kể cả lỗi của chính test.
 test kiểu "phải bị chặn", luôn kèm một khẳng định độc lập về TÁC DỤNG PHỤ
 (ở đây: `assert not proof.exists()`) và bảo đảm payload hợp lệ về cú pháp.
 
-Full suite 1462 passed (sandbox Linux); chờ máy user xác nhận trên Windows.
+Full suite 1462 passed (sandbox Linux). ✅ **Máy user (Windows) xác nhận
+1473 passed** — xanh hết và lần này là xanh THẬT (payload hợp lệ cú pháp,
+lưới `compile()` trong `_wrap` đứng chắn tái diễn).
