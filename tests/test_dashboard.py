@@ -7,7 +7,15 @@ import numpy as np
 import pandas as pd
 import pytest
 
-# Mock streamlit and vnstock_wss before importing dashboard
+# Mock streamlit trước khi import dashboard.
+#
+# ⚠️ Mấy dòng này chạy Ở CẤP MODULE nên có hiệu lực từ lúc pytest THU THẬP —
+# tức nhiễm sang MỌI file test khác trong phiên, bất kể thứ tự chạy.
+# `sys.modules["vnstock_wss"] = MagicMock()` từng nằm đây đã bị GỠ (06/08):
+# file này không hề import vnstock_dashboard (chỉ test bản replica bên dưới)
+# nên mock đó là tàn dư, mà nó làm mọi test đụng tới vnstock_wss nhận phải
+# MagicMock — `tests/test_audit_high_fixes.py` đỏ 4 test vì vậy, và chỉ đỏ
+# khi chạy CẢ SUITE (chạy riêng thì xanh) nên rất khó lần ra.
 _st_mock = MagicMock()
 _st_mock.set_page_config = MagicMock()
 _st_mock.cache_data = lambda *a, **kw: (lambda f: f)
@@ -15,7 +23,6 @@ _st_mock.cache_resource = lambda *a, **kw: (lambda f: f)
 sys.modules["streamlit"] = _st_mock
 sys.modules["streamlit.components"] = MagicMock()
 sys.modules["streamlit.components.v1"] = MagicMock()
-sys.modules["vnstock_wss"] = MagicMock()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 

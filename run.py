@@ -88,12 +88,16 @@ def cmd_sync(args) -> int:
        archive after ``MAX_RETRIES_DEFAULT`` failures.
        Disable with ``--no-auto-heal``.
     """
+    # updater nay phan biet 1 (canh bao: co ma loi nhung phan lon xong) voi
+    # 2 (fail cung: khong ma nao update duoc) — audit 06/08. Truoc day no LUON
+    # exit 0 nen cong nay chi bat duoc crash.
     updater = _run([sys.executable, "vnstock_updater.py", "--skip-if-done"])
-    if updater != 0:
+    if updater not in (0, 1):
         return 2
     rollup = _run([sys.executable, "vnstock_rollup.py", "--skip-if-done"])
-    if rollup != 0:
+    if rollup not in (0, 1):
         return 2
+    warned = (updater == 1) or (rollup == 1)
 
     if not getattr(args, "no_fix_units", False):
         try:
@@ -117,7 +121,7 @@ def cmd_sync(args) -> int:
                       f"skipped_accepted={stats['skipped_accepted']}")
         except Exception as exc:
             print(f"[sync] auto-heal skipped: {exc}", file=sys.stderr)
-    return 0
+    return 1 if warned else 0
 
 
 def cmd_heal(args) -> int:
@@ -719,6 +723,7 @@ def cmd_test(args) -> int:
             "tests/test_parquet_io.py",
             "tests/test_strategy_sandbox.py",
             "tests/test_sandbox_isolation.py",
+            "tests/test_audit_high_fixes.py",
         ]
     else:
         test_paths = ["tests/"]
@@ -771,7 +776,17 @@ def cmd_test(args) -> int:
     except OSError as e:
         print(f"[test] could not write status: {e}")
 
-    return proc.returncode
+    # Test ĐỎ = fail CỨNG (audit 06/08). Trước đây trả thẳng exit code pytest,
+    # mà pytest dùng 1 cho "có test fail" — trong `run.py all` số 1 nghĩa là
+    # "cảnh báo, chạy tiếp", nên pipeline đêm vẫn train chiến lược và ĐẨY
+    # BRIEF bằng code đang đỏ. Trái hẳn quy ước repo ("badge đỏ = không
+    # merge/deploy"). Các mã pytest khác (2 ngắt, 3 lỗi nội bộ, 4 sai tham số,
+    # 5 không thu được test nào) cũng là hỏng, không phải "cảnh báo".
+    if proc.returncode != 0:
+        print(f"[test] ✗ pytest exit={proc.returncode} → fail cứng "
+              f"(dừng pipeline)")
+        return 2
+    return 0
 
 
 def cmd_dashboard(args) -> int:
@@ -1150,8 +1165,11 @@ def cmd_all(args) -> int:
     for name, fn in steps:
         print(f"\n=== run.py all :: {name} ===")
         rc = fn(args)
-        if rc == 2:
-            print(f"[run.py] {name} returned hard failure → stopping")
+        # `rc == 2` (bản cũ) để LỌT mọi mã thoát khác: pytest 3/4/5, mã âm khi
+        # tiến trình con bị signal giết, hay bug trả 255 — tất cả bị coi là
+        # THÀNH CÔNG im lặng (audit 06/08). Nay chỉ 0 và 1 là hợp lệ.
+        if rc not in (0, 1):
+            print(f"[run.py] {name} returned hard failure (rc={rc}) → stopping")
             return 2
         if rc == 1:
             print(f"[run.py] {name} returned warnings → continuing")
