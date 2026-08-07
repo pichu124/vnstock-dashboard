@@ -3981,3 +3981,34 @@ Cả hai đều là việc lớn — ghi vào TODO, chưa làm.
 **Nếp mới**: nâng pandas/numpy → chạy lại `tests/test_strategy_sandbox.py`
 TRƯỚC khi tin; thêm API mới vào `_ALLOWED_ATTRS` → cân nhắc nó có nhận tên
 hàm dạng chuỗi không (nếu có: thêm vào `_DISPATCH_ATTRS`).
+
+## 2026-08-06 (f) — `--audit-saved` trên máy thật: 21/29 qua, và lộ bug lưu code hỏng
+
+Chạy `python vnstock_strategy.py --audit-saved` trên máy user sau khi siết
+sandbox: **29 chiến lược, 21 qua, 8 bị từ chối — KHÔNG cái nào đang active**
+(toàn `retired`/`draft`) → pipeline đêm an toàn, không cần đụng kill-switch.
+
+Quan trọng: 8 cái đó KHÔNG phải do luật mới siết oan. Lý do từ chối toàn là
+`SyntaxError` (unterminated string literal / invalid syntax) và `Import
+statements are not allowed` — hai luật CÓ TỪ ĐẦU. Tức là chúng chưa bao giờ
+chạy được, chỉ nằm chiếm chỗ trong kho.
+
+**Bug lộ ra**: sao code hỏng lại vào được SQLite? Cả `_cold_start` lẫn
+`_do_revise` gác bằng `if err and not code: continue`. Nhưng
+`_parse_params_and_code` LUÔN trả code non-empty (không parse được thì trả
+nguyên text), nên ca hay gặp nhất — LLM trả code hỏng — có `err` mà `code`
+vẫn khác rỗng → **lọt qua**, được backtest (mọi cửa sổ raise → 0 trade) rồi
+LƯU vào DB. Sửa: `if err: continue` ở cả 2 nhánh (có lỗi = không dùng được,
+chấm hết). 2 test mới: code hỏng KHÔNG được lưu + đối chứng code hợp lệ vẫn
+lưu bình thường.
+
+Ghi chú: nhóm `SyntaxError` nhiều khả năng là output LLM bị CẮT (agent
+`Groq Llama-3.3-70B` — slug đã chết, thời điểm 04→08). Fix `finish_reason=
+length` hôm nay (mục 2026-08-06 đầu tiên) đã chặn đường đó từ gốc: output cụt
+nay trả LỖI nên `if err: continue` sẽ bỏ luôn.
+
+8 dòng rác kia vô hại (retired/draft, không bao giờ được promote vì 0 trade
+< MIN_TRADES_TO_VALIDATE). Muốn dọn thì xoá tay theo id trong SQLite — chưa
+làm, không cần thiết.
+
+Full suite 1462 passed.

@@ -441,3 +441,67 @@ def test_dispatch_still_callable_directly_with_lambda():
         "raw=False).iloc[-1]"), _ohlcv(), {})
     vs.EXECUTOR.run(_wrap(
         "x = df['close'].agg(lambda s: s.mean())"), _ohlcv(), {})
+
+
+# ── Code HỎNG không được lọt vào SQLite (lộ từ --audit-saved máy user) ────
+
+def test_invalid_generated_code_is_not_saved(monkeypatch):
+    """Máy user 06/08: 8/29 chiến lược trong kho là rác (SyntaxError / có
+    import). Nguyên nhân: guard `if err and not code: continue` — LLM trả code
+    HỎNG thì `code` vẫn non-empty nên lọt qua, được backtest (mọi cửa sổ raise
+    → 0 trade) rồi LƯU vào DB. Nay có err là bỏ, không cần biết code rỗng hay
+    không."""
+    import vnstock_strategy as _vs
+    saved: list = []
+
+    class _Ag:
+        name = "fake"
+        is_available = True
+
+        def generate(self, prompt, max_tokens=2000):
+            # LLM trả code hỏng — đúng thứ đã sinh ra 8 dòng rác kia
+            return "PARAMS:\n{}\nCODE:\nimport os\ndef signal(df, p): pass", None
+
+    monkeypatch.setattr(_vs.mem, "get_active_family", lambda: None)
+    monkeypatch.setattr(_vs.mem, "save_strategy",
+                        lambda **kw: saved.append(kw) or 1)
+    monkeypatch.setattr(_vs, "_do_backtest",
+                        lambda *a, **kw: ({"expectancy": 1.0, "n_trades": 50},
+                                          "2026-01-01", "2026-06-01"))
+
+    sid, out = _vs.develop_and_backtest(_Ag(), universe=["AAA"], n_iterations=0)
+
+    assert saved == [], "code hỏng vẫn bị lưu vào SQLite"
+    assert sid is None and "error" in out
+
+
+def test_valid_generated_code_still_saved(monkeypatch):
+    """ĐỐI CHỨNG: code hợp lệ vẫn đi trọn đường lưu."""
+    import vnstock_strategy as _vs
+    saved: list = []
+    good = ("PARAMS:\n{\"n\": 5}\nCODE:\n"
+            "def signal(df, params):\n"
+            "    return {'action': 'hold', 'entry': 0, 'tp': 0, 'sl': 0, "
+            "'confidence': 0}\n")
+
+    class _Ag:
+        name = "fake"
+        is_available = True
+
+        def generate(self, prompt, max_tokens=2000):
+            return good, None
+
+    monkeypatch.setattr(_vs.mem, "get_active_family", lambda: None)
+    monkeypatch.setattr(_vs.mem, "save_strategy",
+                        lambda **kw: saved.append(kw) or 7)
+    monkeypatch.setattr(_vs.mem, "save_backtest", lambda *a, **kw: None)
+    monkeypatch.setattr(_vs.mem, "promote_strategy", lambda *a, **kw: None)
+    monkeypatch.setattr(_vs.mem, "set_status", lambda *a, **kw: None,
+                        raising=False)
+    monkeypatch.setattr(_vs, "_do_backtest",
+                        lambda *a, **kw: ({"expectancy": 1.0, "n_trades": 50},
+                                          "2026-01-01", "2026-06-01"))
+
+    sid, out = _vs.develop_and_backtest(_Ag(), universe=["AAA"], n_iterations=0)
+
+    assert len(saved) == 1 and sid == 7

@@ -1756,7 +1756,12 @@ def _cold_start(
     candidates: list[tuple[str, str, dict, dict, str, str]] = []
     for ag in unique_agents:
         code, params, err = generate_strategy(ag, context_summary=context_summary)
-        if err and not code:
+        # `err and not code` (bản cũ) KHÔNG chặn được ca hay gặp nhất: LLM trả
+        # code HỎNG (SyntaxError / import / AST reject) — `code` vẫn non-empty
+        # nên lọt qua, được backtest (mọi cửa sổ raise → 0 trade) rồi LƯU luôn
+        # vào SQLite. Máy user 06/08: 8/29 chiến lược trong kho là rác kiểu này.
+        # Có err = không dùng được, chấm hết.
+        if err:
             continue
         metrics, ps, pe = _do_backtest(code, params, cfg)
         candidates.append((ag.name, code, params, metrics, ps, pe))
@@ -1856,7 +1861,7 @@ def _do_revise(
             ag, code, cur_metrics,
             diagnosis=diagnosis, revise_reason=revise_reason,
         )
-        if err and not new_code:
+        if err:            # xem chú thích ở nhánh cold-start (develop_and_backtest)
             continue
         metrics, ps, pe = _do_backtest(new_code, new_params, cfg)
         candidates.append((ag.name, new_code, new_params, metrics, ps, pe))
