@@ -218,3 +218,56 @@ def test_default_executors_are_isolated():
     import vnstock_strategy as vs
     assert isinstance(vs.EXECUTOR, vs.IsolatedExecutor)
     assert isinstance(vs.STRICT_EXECUTOR, vs.IsolatedExecutor)
+
+# ── FileIO: đường ĐỌC-GHI không qua `open` (tự dò ra sau khi dựng tầng này) ──
+
+@pytest.mark.parametrize("label,expr", [
+    ("io.FileIO-write",   "__import__('io').FileIO(P, 'w')"),
+    ("_io.FileIO-write",  "__import__('_io').FileIO(P, 'w')"),
+    ("io.FileIO-fd",      "__import__('_io').FileIO(1, 'w')"),
+])
+def test_fileio_write_paths_blocked(tmp_path, label, expr):
+    """`io.FileIO('x','w')` ghi file mà KHÔNG đi qua `open` — bản lockdown
+    đầu tiên bỏ sót, tự dò ra 06/08."""
+    target = tmp_path / f"{label}.bin"
+    out = _run_locked(f"""
+        P = {{!r}}
+        try:
+            {{}}
+            print("LOT")
+        except Exception as e:
+            print("CHAN:" + type(e).__name__)
+    """.format(str(target), expr))
+    assert out.startswith("CHAN:"), f"{label}: {out}"
+    assert not target.exists(), f"{label}: SANDBOX ESCAPE"
+
+
+def test_fileio_cannot_read_secrets():
+    """Đường ĐỌC cũng phải khoá: `io.FileIO('.env','r')` là đường lộ API key
+    (đọc rồi nhét vào dict trả về của signal())."""
+    out = _run_locked("""
+        import io
+        for target in ('.env', '.env.example', '/etc/hostname'):
+            try:
+                data = io.FileIO(target, 'r').read(32)
+                print("LOT:" + target)
+                break
+            except Exception:
+                continue
+        else:
+            print("CHAN")
+    """)
+    assert out == "CHAN", f"đọc được file bí mật: {out}"
+
+
+def test_import_machinery_survives_fileio_gate():
+    """Ranh giới mong manh: `_io.FileIO`/`_io.open_code` CHÍNH LÀ thứ
+    importlib dùng. Chặn cứng thì không import được gì; nên đây là CỔNG theo
+    chính sách (chỉ cho đọc file module). `open_code` chỉ nhận 1 đối số —
+    truyền thêm mode là TypeError giết cơ chế import (đã dính)."""
+    out = _run_locked("""
+        import email.mime.text, xml.dom.minidom, json, csv
+        s = pd.Series(np.arange(100.0)).rolling(10).mean().iloc[-1]
+        print(f"OK {round(float(s), 2)}")
+    """)
+    assert out.startswith("OK "), out

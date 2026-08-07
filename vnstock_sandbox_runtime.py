@@ -97,6 +97,33 @@ _MODULE_DENY = {
 # ghi file, vì pandas gọi `open(...)` phân giải qua builtins.
 _OPEN_NAMESPACES = ("builtins", "io")
 
+# ── `FileIO`: khoá được mà không giết cơ chế import ───────────────────────
+# Tự dò 06/08 sau khi dựng tầng này: `io.FileIO('x','w')` ĐỌC VÀ GHI được
+# file mà KHÔNG đi qua `open` → thoát sạch (đường đọc thẳng `.env`!).
+# Nhưng `_io.FileIO`/`_io.open_code` CHÍNH LÀ thứ importlib dùng để nạp
+# module — chặn cứng thì không `import` được gì nữa (đã đo).
+# Nên: cổng theo CHÍNH SÁCH — chỉ cho ĐỌC file kiểu module, cấm mọi thứ khác.
+_IMPORT_SUFFIXES = (".py", ".pyc", ".pyo", ".pyd", ".so", ".dll", ".zip",
+                    ".egg", ".whl")
+
+
+def _guarded_fileio(real, label: str, takes_mode: bool = True):
+    """Bọc `FileIO`/`open_code`: chỉ lọt khi ĐỌC file module.
+
+    `takes_mode=False` cho `open_code(path)` — hàm này CHỈ nhận đường dẫn,
+    truyền thêm mode vào là TypeError làm chết cơ chế import (đã dính).
+    """
+    def _factory(file, mode="r", *args, **kwargs):
+        path = str(file)
+        writing = any(c in str(mode) for c in "wax+")
+        if isinstance(file, int) or writing or not path.endswith(_IMPORT_SUFFIXES):
+            raise SandboxViolation(
+                f"sandbox: `{label}` chỉ được ĐỌC file module — từ chối "
+                f"{'ghi' if writing else 'đọc'} {path[:80]!r}")
+        return real(file, mode, *args, **kwargs) if takes_mode else real(file)
+    return _factory
+
+
 # Method ghi/đổi file trên pathlib.Path — đường vòng phổ biến nhất của `open`.
 _PATH_DENY = ("open write_text write_bytes unlink mkdir rmdir rename replace "
               "touch chmod symlink_to hardlink_to")
@@ -150,6 +177,24 @@ def lockdown() -> dict:
             stats["functions"] += 1
         except Exception:
             pass
+
+    # 1b. FileIO/open_code — đường ĐỌC-GHI file KHÔNG qua `open`. Cổng theo
+    #     chính sách vì importlib cũng dùng chính chúng (xem _guarded_fileio).
+    for ns_name in ("_io", "io"):
+        mod = sys.modules.get(ns_name)
+        if mod is None:
+            continue
+        for cls_name in ("FileIO", "open_code"):
+            real = getattr(mod, cls_name, None)
+            if real is None:
+                continue
+            try:
+                setattr(mod, cls_name,
+                        _guarded_fileio(real, f"{ns_name}.{cls_name}",
+                                        takes_mode=cls_name == "FileIO"))
+                stats["functions"] += 1
+            except Exception:
+                pass
 
     # 2. Hàm nguy hiểm theo module. Vá NGAY TRÊN module object nên mọi đường
     #    vòng tới nó (pd.io.common.os, import os, …) đều nhận bản đã khoá.

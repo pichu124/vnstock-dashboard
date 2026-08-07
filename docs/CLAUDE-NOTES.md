@@ -4108,3 +4108,24 @@ có tầng năng lực làm backstop thật. Ghi để nhớ lựa chọn đó.
 **Còn lại**: đây vẫn là phòng thủ trong-tiến-trình, không phải seccomp/
 container. Muốn cứng hơn nữa phải hạ quyền ở tầng OS (user riêng /
 AppContainer / container) — việc lớn hơn nhiều, chưa làm.
+
+### Bổ sung (h1) — tự dò ra lỗ `FileIO` ngay sau khi dựng tầng năng lực
+
+Tự thử các đường I/O cấp thấp trên chính bản vừa làm: **`io.FileIO('x','w')`
+ĐỌC VÀ GHI được file mà KHÔNG đi qua `open`** → thoát sạch tầng năng lực,
+và tệ hơn: đó là đường ĐỌC THẲNG `.env` (lộ API key) chứ không chỉ ghi.
+
+Vá không đơn giản vì `_io.FileIO` / `_io.open_code` CHÍNH LÀ thứ importlib
+dùng để nạp module — chặn cứng thì `import` chết sạch (đã đo: pandas không
+import nổi). Giải: **cổng theo CHÍNH SÁCH** `_guarded_fileio` — chỉ cho ĐỌC
+file có đuôi kiểu module (.py/.pyc/.so/.dll/.zip/.egg/.whl), cấm mọi thao
+tác ghi, cấm fd dạng số, cấm mọi đuôi khác. Import vẫn chạy; `.env` thì
+không đọc được.
+
+Bẫy phụ: `open_code(path)` chỉ nhận MỘT đối số — wrapper truyền kèm `mode`
+gây TypeError giết cơ chế import (đã dính, có cờ `takes_mode`).
+
+Kiểm lại sau vá: `os.open`, `np.fromfile`, `pd.read_csv`, `np.save`,
+`ndarray.tofile`, reimport/reload `os` — chặn hết, không file nào rò; import
+mới + pandas/rolling/ewm/groupby vẫn chạy. 5 test mới (26 test trong file
+cách ly). Full suite 1488 passed.
