@@ -4623,7 +4623,11 @@ nhánh production PHẢI tự truyền — đã có test canh.
 
 Suite 1563 → 1592 passed (+29).
 
-## 2026-08-08 — Danh mục OpenRouter BỊ PHÂN TRANG: mốc tuần đầu là mốc cụt
+## 2026-08-08 — ~~Danh mục OpenRouter BỊ PHÂN TRANG~~ → KẾT LUẬN SAI, xem entry (b) ngay dưới
+
+> ⚠️ **Entry này chốt sai.** Giữ lại nguyên văn làm sử liệu về một lần suy
+> luận hỏng. Sự thật: OpenRouter có ĐÚNG 400 model, không hề bị cắt trang.
+> Đọc entry "2026-08-08 (b)" phía dưới trước khi tin bất cứ dòng nào ở đây.
 
 Máy user chạy `run.py models` 2 lần, lần 2 in `OpenRouter không đổi (400
 model)`. **400 tròn trịa** là dấu hiệu mức trần chứ không phải số thật →
@@ -4666,3 +4670,57 @@ Gemini 58 · OpenRouter 400+ (chờ số đủ sau khi vá). Cerebras = 3 khớp
 chú 22/07 ("catalog chỉ còn 3 model") — mốc tự xác nhận đọc đúng.
 
 Suite 1596 → 1601 passed.
+
+## 2026-08-08 (b) — ĐÍNH CHÍNH: OpenRouter có ĐÚNG 400 model, không cắt trang
+
+Số liệu dứt điểm từ máy user (`Invoke-RestMethod`, PowerShell thuần):
+
+```
+$r.total_count → 400
+$r.links       → next : (rỗng)
+$r.data.Count  → 400
+```
+
+`total_count` = 400 = `len(data)`, `links.next` NULL. Danh mục thật sự có 400
+model. **Không có bug cắt trang nào cả.**
+
+### Chuỗi suy luận hỏng — đáng ghi hơn cả kết luận
+
+1. Thấy `OpenRouter không đổi (400 model)`. Con số tròn → nghi mức trần. ✅
+   Nghi ngờ này ĐÚNG chỗ, phải giữ thói quen này.
+2. Nhờ user gọi endpoint, thấy khoá `['data', 'links', 'total_count']` và
+   `?limit=2000` báo KeyError `data`. → kết luận "XÁC NHẬN có phân trang".
+   ❌ **Đây là bước hỏng.**
+
+Sai ở chỗ: suy từ sự CÓ MẶT của khoá phân trang ra việc ĐANG BỊ cắt. `links`
+tồn tại trong schema không có nghĩa `links.next` khác null; `total_count` tồn
+tại không có nghĩa nó lớn hơn `len(data)`. Còn `?limit=2000` lỗi chỉ chứng
+minh tham số đó không hợp lệ — không nói gì về việc có bị cắt hay không.
+
+Dữ liệu cần để kết luận là GIÁ TRỊ của `total_count` và `links.next`, mà mãi
+2 lượt sau mới lấy (2 lượt đó mất vào lệnh `python -c` bị PowerShell nuốt
+mất dấu nháy — bài học phụ: hỏi máy Windows thì dùng `Invoke-RestMethod`,
+đừng lồng nháy trong `python -c`).
+
+**Luật rút ra**: đọc GIÁ TRỊ, đừng đọc SỰ TỒN TẠI CỦA KHOÁ. Áp cho mọi API
+lạ — `has_more`, `next_page`, `total` đều là affordance, không phải bằng chứng.
+
+### Code giữ nguyên — nhưng vì lý do khác với lúc viết
+
+`_fetch_openai_catalog` + guard "đọc thiếu → trả None" KHÔNG bỏ đi, vì:
+
+* Chi phí bằng 0 khi không cần: `links.next` null và `total_count == len(ids)`
+  → thoát ngay sau 1 request, y hệt bản cũ. Đã verify trên máy thật.
+* `links.next` CÓ trong schema nghĩa là OpenRouter phân trang khi vượt cỡ
+  trang. Hôm nay 400 model vừa đủ một trang; ngày họ vượt thì code đã sẵn
+  sàng, và quan trọng hơn là ta sẽ KHÔNG âm thầm lưu mốc cụt.
+* Guard hoàn chỉnh-hay-không (`len(ids) < total_count` → None + in lý do) là
+  thứ duy nhất biến "đọc cụt" từ lỗi CÂM thành lỗi nói được.
+
+Tức: code đúng, nhưng commit message của `6584828` ("Co phan trang that")
+chốt sai — đã merge vào main nên không sửa lịch sử, đính chính ở đây.
+
+### Kích thước danh mục THẬT (mốc 08/08, để đối chiếu về sau)
+
+Cerebras 3 · Groq 15 · Gemini 58 · **OpenRouter 400**. Cerebras = 3 khớp ghi
+chú 22/07 → xác nhận độc lập rằng phần đọc danh mục là thật.
