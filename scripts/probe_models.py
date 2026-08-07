@@ -93,11 +93,14 @@ def _ladder_slugs() -> list[tuple[str, str, str, dict]]:
     """--ladder: gom slug free ĐANG DÙNG trong code (mirror _all_live_slugs
     của tests/test_model_ladder.py, chỉ 4 provider free probe được — model
     trả phí Anthropic/OpenAI khác API, bỏ qua). Mỗi slug kèm tag điểm dùng
-    ([1] sentiment…[7] brief) để nhìn output biết lỗi rơi vào tính năng nào.
+    ([1] sentiment…[8] classifier) để nhìn output biết lỗi rơi vào tính năng
+    nào. THÊM ĐIỂM DÙNG MODEL MỚI → phải khai vào đây, không thì health check
+    mù đúng chỗ đó (test_probe_ladder_covers_all_free_live_slugs canh việc này).
     Health check chạy SAU sự cố key/deprecation: 1 call/slug, chi phí ~0."""
     if str(_REPO) not in sys.path:
         sys.path.insert(0, str(_REPO))
     import vnstock_brief as vb
+    import vnstock_classifier as vc
     import vnstock_news_feeds as nf
     import vnstock_report_digest as dg
     import vnstock_sentiment as snt
@@ -122,6 +125,8 @@ def _ladder_slugs() -> list[tuple[str, str, str, dict]]:
             _add(prov, c["model"], "[7] brief")
     for m in vb.CerebrasAgent._MODEL_FALLBACKS:
         _add("Cerebras", m, "[7] fallback")
+    for prov, m in vc._CLASSIFY_MODELS.items():
+        _add(prov, m, "[8] classifier")
 
     return [(prov, model, " + ".join(dict.fromkeys(ts)), {})
             for (prov, model), ts in tags.items()]
@@ -250,7 +255,7 @@ def main(argv=None) -> int:
     ap.add_argument(
         "--ladder", action="store_true",
         help="Probe ĐÚNG bộ slug free đang dùng trong code (health check "
-             "toàn ladder [1]-[7] sau sự cố key/deprecation); bỏ listing "
+             "toàn ladder [1]-[8] sau sự cố key/deprecation); bỏ listing "
              "catalog. Kết hợp được với --slug.")
     args = ap.parse_args(argv)
 

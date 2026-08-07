@@ -443,9 +443,12 @@ def _all_live_slugs() -> set:
     này PHẢI khai báo vào đây để được quét."""
     import vnstock_auditor as va
     import vnstock_brief as vb
+    import vnstock_classifier as vc
     import vnstock_news_feeds as nf
     import vnstock_report_digest as dg
     slugs = set()
+    slugs |= set(vc._CLASSIFY_MODELS.values())                 # [8] classifier
+    slugs.add(vc._CLASSIFY_MODEL_DEFAULT)                      # [8] opt-in trả phí
     slugs |= {p["model"] for p in snt._PROVIDERS}              # [1] sentiment
     slugs |= set(nf._ANALYZE_MODELS.values())                  # [2] chấm tin
     slugs.add(nf._ANALYZE_MODEL_DEFAULT)                       # [2] opt-in trả phí
@@ -469,7 +472,7 @@ def test_no_dead_slug_anywhere_in_code():
 
 def test_probe_ladder_covers_all_free_live_slugs():
     """`probe_models.py --ladder` (health check 29/07) phải tự gom ĐỦ slug
-    free đang dùng ở [1]-[7] — thêm điểm dùng model free mới mà _ladder_slugs
+    free đang dùng ở [1]-[8] — thêm điểm dùng model free mới mà _ladder_slugs
     không gom được là health check thiếu mắt. Hermetic: chỉ gom, không call."""
     import importlib.util
     from pathlib import Path
@@ -497,9 +500,26 @@ def test_probe_ladder_covers_all_free_live_slugs():
     # [7] brief: agent chính + fallback nội bộ Cerebras
     assert ("Gemini", "gemini-3.5-flash") in got
     assert {("Cerebras", m) for m in vb.CerebrasAgent._MODEL_FALLBACKS} <= got
+    # [8] classifier — điểm dùng model THÊM SAU (07/08); quên khai vào
+    # _ladder_slugs là health check mù đúng cái ladder chạy 1.700 mã
+    import vnstock_classifier as vc
+    assert {(p, m) for p, m in vc._CLASSIFY_MODELS.items()} <= got
     # tag điểm dùng phải có mặt để đọc output biết lỗi ở tính năng nào
     notes = {note for _, _, note, _ in entries}
     assert any("[1]" in n for n in notes) and any("[7]" in n for n in notes)
+    assert any("[8]" in n for n in notes)
+
+
+def test_classifier_slugs_are_watched_by_both_nets():
+    """Lưới chỉ soi slug được KHAI BÁO. Hôm nay `_CLASSIFY_MODELS` trùng giá
+    trị với `_ANALYZE_MODELS` nên có vẻ an toàn — nhưng đó là TRÙNG HỢP, không
+    phải bảo vệ: đổi model chấm tin mà quên classifier là slug của batch 1.700
+    mã lập tức thành điểm mù. Test này chốt classifier phải tự đứng trong lưới,
+    độc lập với news_feeds."""
+    import vnstock_classifier as vc
+    live = _all_live_slugs()
+    for slug in (*vc._CLASSIFY_MODELS.values(), vc._CLASSIFY_MODEL_DEFAULT):
+        assert slug in live, f"slug [8] ngoài tầm quét slug chết: {slug}"
 
 
 def test_migrations_targets_are_live_and_cover_dead_defaults():
