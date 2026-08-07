@@ -4622,3 +4622,47 @@ ngay (Groq TPM 8K). `run_eval` mặc định `delay=0` cho test chạy nhanh nê
 nhánh production PHẢI tự truyền — đã có test canh.
 
 Suite 1563 → 1592 passed (+29).
+
+## 2026-08-08 — Danh mục OpenRouter BỊ PHÂN TRANG: mốc tuần đầu là mốc cụt
+
+Máy user chạy `run.py models` 2 lần, lần 2 in `OpenRouter không đổi (400
+model)`. **400 tròn trịa** là dấu hiệu mức trần chứ không phải số thật →
+nhờ user gọi thẳng endpoint. Kết quả:
+
+```
+khoa: ['data', 'links', 'total_count']
+mac dinh: 400
+```
+
+`links` + `total_count` = **có phân trang**, và `?limit=2000` bị từ chối
+(response không còn khoá `data`). Tức bản `fetch_catalog` đầu tiên chỉ đọc
+TRANG ĐẦU → mốc OpenRouter lưu cho user là danh mục CỤT. Để nguyên thì mọi
+tuần sau diff sẽ sinh "bị gỡ/mới" giả tuỳ thứ tự trang đổi.
+
+Bài học lặp lại y hệt entry 14/07 ("thay model theo catalog trên mạng →
+model_not_found"): **không đoán hình dạng API, hỏi endpoint thật**. Con số
+tròn trịa là mùi, phải ngửi ra và đi kiểm chứ đừng ghi nhận rồi đi tiếp.
+
+**Vá**: `_fetch_openai_catalog` đi hết trang theo 2 chiến lược — `links.next`
+(chuẩn) rồi tham số `offset` khi `total_count` báo còn thiếu; chống lặp vô
+hạn bằng tập URL+params đã thấy, trần 12 trang. Gom mãi vẫn thiếu so với
+`total_count` → trả None KÈM DÒNG NÓI RÕ `chỉ đọc được N/M model`, tức coi
+như không đọc được: diff một danh mục cụt là sinh báo động giả hàng tuần,
+thà không biết còn hơn báo sai (cùng doctrine với "đọc hụt ≠ tập rỗng").
+
+**Lưới cho ca ngược** (`suspect_baseline`): mốc CŨ mới là cái cụt → tuần này
+đọc đủ thì thấy cả trăm model "mới". Đó là hiện tượng ĐỌC, không phải
+provider ra 240 model trong một tuần; báo cáo nay nói đúng bản chất thay vì
+khoe một đống 🆕 giả. Cùng họ với `suspect_partial` (mất >50% = nghi đọc
+thiếu) làm 08/08 trước đó.
+
+**Việc user phải làm SAU KHI PULL**: xoá `data_warehouse/_meta/
+model_watch_history.json` (mới có 2 lần chạy, không tiếc) rồi chạy lại
+`run.py models` để dựng mốc ĐỦ. Không xoá thì tuần sau vẫn ra một lần
+`suspect_baseline` — có nhãn nên không hiểu nhầm, nhưng dựng lại cho sạch.
+
+Kích thước danh mục THẬT ghi lại để đối chiếu: Cerebras 3 · Groq 15 ·
+Gemini 58 · OpenRouter 400+ (chờ số đủ sau khi vá). Cerebras = 3 khớp ghi
+chú 22/07 ("catalog chỉ còn 3 model") — mốc tự xác nhận đọc đúng.
+
+Suite 1596 → 1601 passed.

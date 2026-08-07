@@ -61,6 +61,59 @@ def test_fetch_catalog_parses_gemini_shape(monkeypatch):
     assert mw.fetch_catalog("Gemini") == {"gemini-3.5-flash"}
 
 
+def test_fetch_catalog_follows_pagination(monkeypatch):
+    """OpenRouter trả {data, links, total_count} và CẮT ở 400 (xác minh trên
+    máy user 08/08). Đọc một trang là lưu mốc CỤT → tuần sau diff nổ ra một
+    đống 'bị gỡ' giả."""
+    pages = {
+        "https://openrouter.ai/api/v1/models": {
+            "data": [{"id": f"m{i}"} for i in range(400)],
+            "links": {"next": "https://openrouter.ai/api/v1/models?offset=400"},
+            "total_count": 640},
+        "https://openrouter.ai/api/v1/models?offset=400": {
+            "data": [{"id": f"m{i}"} for i in range(400, 640)],
+            "links": {"next": None}, "total_count": 640},
+    }
+    monkeypatch.setattr("requests.get",
+                        lambda url, **k: _Resp(pages[url]))
+    got = mw.fetch_catalog("OpenRouter")
+    assert got is not None and len(got) == 640
+
+
+def test_fetch_catalog_uses_offset_when_no_next_link(monkeypatch):
+    """Không có links.next nhưng total_count nói còn thiếu → thử offset."""
+    calls = []
+
+    def _get(url, headers=None, params=None, timeout=None):
+        calls.append((params or {}).get("offset", 0))
+        off = (params or {}).get("offset", 0)
+        return _Resp({"data": [{"id": f"m{off + i}"} for i in range(3)],
+                      "total_count": 6})
+
+    monkeypatch.setattr("requests.get", _get)
+    got = mw.fetch_catalog("OpenRouter")
+    assert got is not None and len(got) == 6
+    assert calls[:2] == [0, 3]
+
+
+def test_incomplete_catalog_treated_as_unreadable(monkeypatch, capsys):
+    """Gom mãi vẫn thiếu so với total_count → coi như KHÔNG đọc được (None)
+    và nói to lý do. Diff một danh mục cụt là sinh báo động giả — thà không
+    biết còn hơn báo sai (cùng doctrine với 'đọc hụt ≠ tập rỗng')."""
+    monkeypatch.setattr("requests.get", lambda url, **k: _Resp(
+        {"data": [{"id": "m1"}], "total_count": 900}))
+    assert mw.fetch_catalog("OpenRouter") is None
+    assert "900" in capsys.readouterr().out
+
+
+def test_pagination_stops_on_repeated_url(monkeypatch):
+    """links.next trỏ vòng lại chính nó → phải thoát, không lặp vô hạn."""
+    monkeypatch.setattr("requests.get", lambda url, **k: _Resp(
+        {"data": [{"id": "m1"}],
+         "links": {"next": "https://openrouter.ai/api/v1/models"}}))
+    assert mw.fetch_catalog("OpenRouter") == {"m1"}
+
+
 def test_fetch_catalog_returns_none_on_failure(monkeypatch):
     """None ≠ tập rỗng. Gộp 2 ca này là báo "mọi model biến mất" khi thật ra
     chỉ là mạng lỗi — báo động giả tệ hơn không báo."""
@@ -119,6 +172,21 @@ def test_mass_disappearance_flagged_as_suspect_not_removal():
     # mất ít thì vẫn là gỡ thật
     d2 = mw.diff_catalogs(prev, {"Groq": [f"m{i}" for i in range(18)]})
     assert d2["Groq"]["status"] == "ok"
+
+
+def test_flood_of_new_models_flagged_as_stale_baseline():
+    """Ca ngược của suspect_partial: mốc CŨ bị cụt (đọc thiếu tuần trước) →
+    tuần này đọc đủ thì thấy cả trăm model "mới". Đó là hiện tượng đọc, không
+    phải provider ra 240 model trong một tuần — phải nói đúng bản chất."""
+    prev = {"OpenRouter": [f"m{i}" for i in range(400)]}
+    cur = {"OpenRouter": [f"m{i}" for i in range(640)]}
+    d = mw.diff_catalogs(prev, cur)
+    assert d["OpenRouter"]["status"] == "suspect_baseline"
+    assert len(d["OpenRouter"]["new"]) == 240
+
+    # thêm vừa phải thì vẫn là model mới thật
+    d2 = mw.diff_catalogs(prev, {"OpenRouter": [f"m{i}" for i in range(410)]})
+    assert d2["OpenRouter"]["status"] == "ok"
 
 
 def test_in_use_model_still_flagged_even_when_diff_suspect():

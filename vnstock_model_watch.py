@@ -228,12 +228,62 @@ def _ladder_slugs() -> "list[tuple[str, str, str, dict]]":
 
 # ── Danh mục provider ────────────────────────────────────────────────────────
 
-def fetch_catalog(provider: str) -> "set[str] | None":
-    """Tập slug provider đang công bố, hoặc None khi KHÔNG đọc được.
+_CATALOG_PAGE_MAX = 12        # 12 × 400 = 4.800 model — thừa cho mọi provider
 
-    None ≠ tập rỗng — đây là điểm sống còn: gộp hai ca lại thì một lần mạng
-    lỗi sẽ thành "toàn bộ model biến mất" và báo động giả hàng loạt. Mọi nơi
-    dùng kết quả này phải kiểm None trước.
+
+def _fetch_openai_catalog(url: str, headers: dict) -> "tuple[set, int | None]":
+    """(slug, total_count) — đi hết các trang.
+
+    OpenRouter trả `{data, links, total_count}` và CẮT ở 400/trang (xác minh
+    trên máy user 08/08). Hai chiến lược nối trang, theo thứ tự: `links.next`
+    (chuẩn) → tham số `offset` khi total_count nói còn thiếu.
+    """
+    ids: set = set()
+    total: "int | None" = None
+    seen: set = set()
+    next_url, params, page = url, {}, 0
+
+    while next_url and page < _CATALOG_PAGE_MAX:
+        marker = (next_url, tuple(sorted(params.items())))
+        if marker in seen:            # links.next trỏ vòng lại → thoát
+            break
+        seen.add(marker)
+        page += 1
+        r = requests.get(next_url, headers=headers, params=params or None,
+                         timeout=_TIMEOUT)
+        r.raise_for_status()
+        body = r.json()
+        batch = {str(m.get("id", "")) for m in body.get("data", [])}
+        batch.discard("")
+        if not batch:
+            break
+        before = len(ids)
+        ids |= batch
+        if isinstance(body.get("total_count"), int):
+            total = body["total_count"]
+
+        links = body.get("links")
+        nxt = links.get("next") if isinstance(links, dict) else None
+        if nxt:
+            next_url, params = str(nxt), {}
+            continue
+        # Không có next: chỉ đi tiếp khi total_count nói còn thiếu VÀ trang vừa
+        # rồi có thêm slug mới (tránh lặp khi provider bỏ qua offset)
+        if total is not None and len(ids) < total and len(ids) > before:
+            next_url, params = url, {"offset": len(ids)}
+            continue
+        break
+    return ids, total
+
+
+def fetch_catalog(provider: str) -> "set[str] | None":
+    """Tập slug provider đang công bố, hoặc None khi KHÔNG đọc được ĐỦ.
+
+    None ≠ tập rỗng — điểm sống còn: gộp hai ca lại thì một lần mạng lỗi sẽ
+    thành "toàn bộ model biến mất" và báo động giả hàng loạt.
+
+    Đọc THIẾU cũng trả None (kèm dòng nói rõ lý do): diff một danh mục cụt
+    sinh ra "bị gỡ" giả hàng tuần — thà không biết còn hơn báo sai.
     """
     cfg = _PROVIDERS.get(provider)
     if not cfg or not cfg.get("catalog"):
@@ -246,18 +296,23 @@ def fetch_catalog(provider: str) -> "set[str] | None":
             r = requests.get(cfg["catalog"],
                              params={"key": key, "pageSize": 200},
                              timeout=_TIMEOUT)
+            r.raise_for_status()
+            ids = {str(m.get("name", "")).removeprefix("models/")
+                   for m in r.json().get("models", [])}
+            ids.discard("")
+            total = None
         else:
             headers = {"Authorization": f"Bearer {key}"} if key else {}
-            r = requests.get(cfg["catalog"], headers=headers, timeout=_TIMEOUT)
-        r.raise_for_status()
-        body = r.json()
-        if cfg["catalog_shape"] == "gemini":
-            ids = {str(m.get("name", "")).removeprefix("models/")
-                   for m in body.get("models", [])}
-        else:
-            ids = {str(m.get("id", "")) for m in body.get("data", [])}
-        ids.discard("")
-        return ids or None            # danh mục rỗng = đọc hụt, không phải thật
+            ids, total = _fetch_openai_catalog(cfg["catalog"], headers)
+
+        if not ids:
+            return None               # danh mục rỗng = đọc hụt, không phải thật
+        if total is not None and len(ids) < total:
+            print(f"⚠ {provider}: chỉ đọc được {len(ids)}/{total} model "
+                  f"(phân trang chưa đi hết) — BỎ QUA diff lần này thay vì "
+                  f"báo nhầm 'bị gỡ'")
+            return None
+        return ids
     except Exception:
         return None
 
@@ -300,12 +355,15 @@ def diff_catalogs(prev: dict, cur: dict) -> dict:
                          "status": "no_baseline"}
             continue
         gone = sorted(set(before) - set(now))
+        new = sorted(set(now) - set(before))
         status = "ok"
-        if (len(before) >= _SUSPECT_MIN
-                and len(gone) > _SUSPECT_DROP * len(before)):
-            status = "suspect_partial"
-        out[name] = {"gone": gone, "new": sorted(set(now) - set(before)),
-                     "size": len(now), "status": status}
+        if len(before) >= _SUSPECT_MIN:
+            if len(gone) > _SUSPECT_DROP * len(before):
+                status = "suspect_partial"      # lần này đọc thiếu
+            elif len(new) > _SUSPECT_DROP * len(before):
+                status = "suspect_baseline"     # mốc CŨ mới là cái cụt
+        out[name] = {"gone": gone, "new": new, "size": len(now),
+                     "status": status}
     return out
 
 
@@ -496,6 +554,10 @@ def render_report(status: dict) -> str:
                        f"— NGHI ĐỌC THIẾU hơn là bị gỡ thật, soi kỹ trước khi tin")
             for m in d["gone"][:6]:
                 out.append(f"       ? vắng: {m}")
+        elif d["status"] == "suspect_baseline":
+            out.append(f"  ❓ {prov:<11} {size} model, +{len(d['new'])} so tuần "
+                       f"trước — NGHI MỐC CŨ BỊ CỤT (đọc thiếu lần trước), "
+                       f"không phải provider ra loạt model mới")
         elif not d["gone"] and not d["new"]:
             out.append(f"  · {prov:<11} không đổi ({size} model)")
         else:
