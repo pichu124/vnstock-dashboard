@@ -781,3 +781,25 @@ if __name__ == "__main__":
                 console.log("[dim]pipeline_status.json updated[/dim]")
             except Exception as e:
                 console.log(f"[yellow]⚠ write pipeline_status: {e}[/yellow]")
+
+        # Exit code phản ánh KẾT QUẢ (audit 06/08): trước đây script luôn
+        # exit 0 nên cổng `if updater != 0: return 2` của run.py sync chỉ bắt
+        # được CRASH — "500/1700 mã fetch lỗi" và "chạy sạch" ra cùng một mã
+        # thoát, pipeline đêm đi tiếp như không có gì. Nay:
+        #   2 = fail cứng (KHÔNG mã nào update nổi → nguồn data hỏng/mất mạng)
+        #   1 = cảnh báo (có mã lỗi nhưng phần lớn xong — pipeline chạy tiếp)
+        #   0 = sạch
+        # Ngưỡng theo TỈ LỆ chứ không theo số tuyệt đối: vài mã hủy niêm yết
+        # lỗi là chuyện thường ngày, không đáng chặn cả pipeline.
+        if stats is not None:
+            n_err = int(stats.get("error", 0))
+            n_ok = int(stats.get("updated", 0)) + int(stats.get("up_to_date", 0))
+            if n_err and n_ok == 0:
+                console.print(f"[red]✗ {n_err} mã lỗi, KHÔNG mã nào update "
+                              f"được → fail cứng[/red]")
+                raise SystemExit(2)
+            if n_err:
+                console.print(f"[yellow]⚠ {n_err} mã lỗi "
+                              f"({n_err / max(n_err + n_ok, 1) * 100:.1f}%) — "
+                              f"cảnh báo, pipeline đi tiếp[/yellow]")
+                raise SystemExit(1)
