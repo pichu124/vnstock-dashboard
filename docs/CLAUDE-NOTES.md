@@ -4455,6 +4455,14 @@ check tương ứng.
    chập chờn · OpenRouter nạp $10 CHỈ khi cột "(N rate-limit)" > 0 nhiều
    ngày · Gemini flash 503 đêm VN là bình thường, cascade tự đỡ.
 
+11. **Model watch lần chạy đầu trên máy thật** (07/08 (d)) — chạy
+    `python run.py models` một lần để: (i) xác nhận đọc được danh mục cả 4
+    provider (dòng nào "không đọc được danh mục" = endpoint sai, báo lại),
+    (ii) lưu mốc đầu tiên — **tuần đầu chưa có diff**, phải có mốc rồi tuần
+    sau mới so được. Sau đó `run.py models --eval` để xem bảng điểm bộ đề
+    (~250 call, ~4 phút) và **soi lại đáp án bộ đề** trong
+    `vnstock_model_eval.GOLDEN_*` — đáp án sai thì cả bảng điểm vô nghĩa.
+
 10. **Batch classifier thật trên máy user** (mới, sau khi làm điểm [8]) —
     chạy `python vnstock_classifier.py --classify --limit 20` rồi soi:
     (i) không đòi `ANTHROPIC_API_KEY` nữa, (ii) dòng route in ra là
@@ -4547,3 +4555,70 @@ by_both_nets` chốt việc đó độc lập.
 4.0.5, vnai 2.4.8 → 2.5.6, vnii 0.2.4 → 0.2.5). CHƯA nâng — vnstock là nguồn
 data của cả pipeline, nâng phải chạy `run.py doctor --net` + full suite ngay
 sau đó, không nâng lúc sát giờ pipeline chạy.
+
+## 2026-08-07 (d) — Module theo dõi model hàng tuần (user chốt cả 3 giai đoạn)
+
+User đề xuất: module chạy hàng tuần, test model, soi model sắp hết hạn / bị
+thay, xếp mạnh→yếu rồi áp vào các điểm dùng theo thứ tự. Bàn xong chốt lại
+như dưới — 2 vế giữ nguyên, 1 vế đổi hình thức, 1 vế cố ý KHÔNG làm.
+
+### Vế "soi model sắp hết hạn" — probe KHÔNG làm được, phải diff DANH MỤC
+
+Model đã khai tử nhưng còn phục vụ trả `200 OK` y hệt model khỏe. Bằng chứng
+ngay trong repo: `llama-3.3-70b-versatile` ("Groq deprecated 17/06, còn phục
+vụ nhưng sẽ gỡ") và `zai-glm-4.7` ("Cerebras sắp dep 17/08") — hai dòng đó
+đến từ ĐỌC THÔNG BÁO nhà cung cấp, không phải từ probe. Chỉ probe thì tuần
+nào cũng thấy xanh cho tới đúng ngày model biến mất.
+
+→ Thay bằng **diff danh mục**: mỗi tuần chụp danh sách model của 4 provider,
+so với tuần trước. Model thường rời danh mục TRƯỚC khi ngừng phục vụ. Chạy
+thử ca giả: Gemini gỡ `gemini-3.5-flash` và thêm `gemini-4.0-flash` → báo cáo
+in đúng "🗑 gỡ / 🆕 mới" + escalate 🚨 vì slug bị gỡ đang được 4 điểm dùng.
+
+**Hai bẫy đã chốt bằng test**:
+* `fetch_catalog` trả `None` khi ĐỌC HỤT, không phải tập rỗng. Gộp 2 ca là
+  một lần mạng lỗi thành "toàn bộ model biến mất" — báo động giả hàng loạt
+  tệ hơn không báo. Diff gặp None → `status: skipped`, gone/new RỖNG.
+* Chỉ báo động cho model ĐANG DÙNG. Danh mục provider đổi liên tục; báo mọi
+  thay đổi thì tuần nào cũng có tin và người đọc bỏ qua hết.
+
+### Vế "xếp mạnh→yếu" — đổi thành BỘ ĐỀ CHẤM THEO VIỆC
+
+Không làm bảng xếp hạng chung, vì "mạnh" phụ thuộc VIỆC: model viết brief hay
+chưa chắc xuất JSON 32 nhóm ngành chuẩn. 8 điểm với 8 bộ model khác nhau
+KHÔNG phải lộn xộn — đó là tri thức tích luỹ ("70B free bịa chiều tác động",
+"gpt-oss-120b digest chập chờn"); gộp thành một thứ hạng là vứt bỏ đúng phần
+giá trị nhất.
+
+→ `vnstock_model_eval`: 25 ca có đáp án người duyệt, phủ 3 dạng output khác
+hẳn nhau — classify (JSON + đúng 1/32 nhãn), sentiment (3 nhãn từ văn bản tự
+do), json (đúng schema). Chấm bằng luật xác định, KHÔNG dùng LLM chấm LLM.
+
+### Vế "tự áp vào code" — CỐ Ý KHÔNG LÀM
+
+Ba lý do: (1) brief bắn thẳng Telegram mỗi sáng — script tự đổi model là user
+đọc bản không ai duyệt, phát hiện thì tin đã gửi; (2) tiền lệ zombie
+`qwen3-235b:free` sống→404→sống trong 1 ngày, đổi config theo một lần đo là
+loạn; (3) trái doctrine repo (ràng buộc quan trọng phải là guard xác định +
+test). → Chỉ đề xuất, kèm ngưỡng **2 lần chạy liên tiếp** mới `ripe`. Module
+KHÔNG có `apply_swaps` và có test chốt là không được có.
+
+### Nối vào hệ thống
+
+`run.py models [--eval]` · bước ĐẦU của `run.py weekend` (nhẹ nhất ~10 call,
+và là thứ duy nhất phát hiện ladder sắp chết → chạy trước để bước nặng lỗi
+vẫn kịp cảnh báo; lỗi bước này KHÔNG chặn các bước sau — có test) · badge
+sidebar 🧠 đọc `_meta/model_status.json` · cảnh báo Telegram khi probe đỏ
+hoặc model đang dùng bị gỡ · kill-switch `VNSTOCK_MODEL_WATCH`,
+`VNSTOCK_MODEL_WATCH_EVAL`, `VNSTOCK_MODEL_WATCH_ALERT`.
+
+Gỡ trùng lặp: `probe_one`/`_ladder_slugs`/`_PROVIDERS` nay chỉ còn MỘT bản ở
+`vnstock_model_watch`; `scripts/probe_models.py` (323 → 192 dòng) là CLI mỏng
+import lại. Trước đó 2 bản song song — đúng kiểu "replica trôi xa bản thật".
+
+**Bẫy tự tạo, tự bắt**: bản đầu `_run_eval_stage` gọi `run_eval` không truyền
+delay → production bắn ~250 call liên tiếp lên free tier, dính rate limit
+ngay (Groq TPM 8K). `run_eval` mặc định `delay=0` cho test chạy nhanh nên
+nhánh production PHẢI tự truyền — đã có test canh.
+
+Suite 1563 → 1592 passed (+29).

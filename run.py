@@ -725,6 +725,7 @@ def cmd_test(args) -> int:
             "tests/test_sandbox_isolation.py",
             "tests/test_audit_high_fixes.py",
             "tests/test_classifier.py",
+            "tests/test_model_watch.py",
         ]
     else:
         test_paths = ["tests/"]
@@ -1017,6 +1018,11 @@ def _weekend_steps(args) -> "list[tuple[str, list]]":
     wh = getattr(args, "warehouse", "data_warehouse")
     py = sys.executable
     return [
+        # models đứng ĐẦU: nhẹ nhất (~10 call thử) và là thứ duy nhất trong
+        # nhóm này có thể phát hiện "ladder sắp chết" — chạy trước để dù các
+        # bước nặng phía sau lỗi thì cảnh báo model vẫn kịp gửi.
+        ("models",       [py, str(REPO_ROOT / "run.py"), "--warehouse", wh,
+                          "models", "--eval"]),
         ("rates-weekly", [py, str(REPO_ROOT / "run.py"), "--warehouse", wh,
                           "rates-weekly"]),
         ("vietstock",    [py, str(REPO_ROOT / "run.py"), "--warehouse", wh,
@@ -1024,6 +1030,21 @@ def _weekend_steps(args) -> "list[tuple[str, list]]":
         ("fundamentals", [py, str(REPO_ROOT / "vnstock_fundamental_updater.py"),
                           "--force", "--workers", "4", "--delay", "1"]),
     ]
+
+
+def cmd_models(args) -> int:
+    """Theo dõi ladder model LLM: probe slug đang dùng + diff danh mục provider
+    với tuần trước (vnstock_model_watch). Ghi _meta/model_status.json cho badge
+    sidebar. Exit 0 xanh · 1 có model đang dùng biến mất khỏi danh mục · 2 có
+    slug chết."""
+    from vnstock_model_watch import main as watch_main
+
+    argv = []
+    if getattr(args, "eval", False):
+        argv.append("--eval")
+    if getattr(args, "json", False):
+        argv.append("--json")
+    return watch_main(argv)
 
 
 def cmd_weekend(args) -> int:
@@ -1349,6 +1370,12 @@ def build_parser() -> argparse.ArgumentParser:
                       help="Only run the 7 test files for new modules (~103 tests, 0.5s)")
     test.add_argument("--new", action="store_true",
                       help="Alias for --fast")
+    models = sub.add_parser(
+        "models", help="Theo dõi ladder model LLM (probe + diff danh mục)")
+    models.add_argument("--eval", action="store_true",
+                        help="Chấm thêm bộ đề chuẩn + sinh đề xuất thay model")
+    models.add_argument("--json", action="store_true",
+                        help="In JSON thay vì bảng")
     sub.add_parser("screener", help="Refresh screener signals (vnstock_runner.py)")
     ff_nn = sub.add_parser("foreign-flow",
                            help="Refresh full-market foreign net-flow cache (NN ròng 1D)")
@@ -1417,6 +1444,7 @@ def build_parser() -> argparse.ArgumentParser:
 _DISPATCH = {
     "brief": cmd_brief,
     "weekend": cmd_weekend,
+    "models": cmd_models,
     "scan": cmd_scan,
     "doctor": cmd_doctor,
     "sync": cmd_sync,

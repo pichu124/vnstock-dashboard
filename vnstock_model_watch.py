@@ -1,0 +1,529 @@
+"""
+vnstock_model_watch.py — theo dõi sức khoẻ ladder model LLM hàng tuần
+=====================================================================
+Chạy 1 lần/tuần (gắn vào `run.py weekend`, 09:00 T7) và trả lời 2 câu:
+
+  1. Model nào ĐANG DÙNG đã chết?          → probe 1 call/slug (chi phí ~0)
+  2. Model nào SẮP bị thay/gỡ?             → diff danh mục provider tuần này
+                                              với tuần trước
+
+Vì sao cần cả hai: **probe KHÔNG phát hiện được "sắp hết hạn"**. Model đã bị
+khai tử nhưng còn phục vụ trả `200 OK` y hệt model khỏe — bằng chứng ngay
+trong repo: `llama-3.3-70b-versatile` (Groq deprecated 17/06/2026, "còn phục
+vụ nhưng sẽ gỡ") và `zai-glm-4.7` (Cerebras sắp dep 17/08/2026); hai dòng đó
+đến từ ĐỌC THÔNG BÁO nhà cung cấp chứ không phải từ probe. Model thường rời
+DANH MỤC trước khi ngừng phục vụ → diff danh mục là tín hiệu sớm thật.
+
+Ghi `data_warehouse/_meta/model_status.json` (badge sidebar, cùng họ với
+test_status.json / doctor_status.json) + lịch sử snapshot để tuần sau diff.
+
+Kill-switch: `VNSTOCK_MODEL_WATCH=0` tắt hẳn · `VNSTOCK_MODEL_WATCH_EVAL=0`
+tắt riêng phần chấm điểm (tốn call hơn) · `VNSTOCK_MODEL_WATCH_ALERT=0` tắt
+báo Telegram.
+
+CLI:
+    python vnstock_model_watch.py             # probe + diff danh mục
+    python vnstock_model_watch.py --eval      # + chấm điểm bộ đề (GĐ2-3)
+    python vnstock_model_watch.py --json      # in JSON thay vì bảng
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+
+import requests
+
+_REPO = Path(__file__).resolve().parent
+_META = _REPO / "data_warehouse" / "_meta"
+
+_STATUS_NAME = "model_status.json"
+_HISTORY_NAME = "model_watch_history.json"
+_HISTORY_MAX = 8              # ~2 tháng chạy hàng tuần
+
+_TIMEOUT = 45
+_MAX_TOKENS = 256             # model reasoning (gpt-oss/qwen3) cần chỗ suy nghĩ
+_SLEEP_BETWEEN = 1.0          # lịch sự với rate limit free tier (Groq TPM 8K)
+
+_THINK_RE = re.compile(
+    r"<\s*(think|thinking|reasoning|thought)\s*>.*?<\s*/\s*\1\s*>\s*", re.S | re.I)
+
+# endpoint chat + endpoint DANH MỤC của 4 provider free.
+# `catalog_shape`: "openai" = {"data":[{"id":…}]}, "gemini" = {"models":[{"name":
+# "models/…"}]}. Gemini nhận key qua query param, không phải Bearer.
+_PROVIDERS: dict[str, dict] = {
+    "Groq": {
+        "env": "GROQ_API_KEY",
+        "endpoint": "https://api.groq.com/openai/v1/chat/completions",
+        "catalog": "https://api.groq.com/openai/v1/models",
+        "catalog_shape": "openai",
+    },
+    "Cerebras": {
+        "env": "CEREBRAS_API_KEY",
+        "endpoint": "https://api.cerebras.ai/v1/chat/completions",
+        "catalog": "https://api.cerebras.ai/v1/models",
+        "catalog_shape": "openai",
+    },
+    "OpenRouter": {
+        "env": "OPENROUTER_API_KEY",
+        "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+        "catalog": "https://openrouter.ai/api/v1/models",
+        "catalog_shape": "openai",
+        "catalog_public": True,          # danh mục không cần key
+    },
+    "Gemini": {
+        "env": "GEMINI_API_KEY",
+        "env_alt": "GOOGLE_API_KEY",
+        "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        "catalog": "https://generativelanguage.googleapis.com/v1beta/models",
+        "catalog_shape": "gemini",
+    },
+}
+
+_BRIEF_TYPE2PROVIDER = {"gemini": "Gemini", "groq": "Groq",
+                        "cerebras": "Cerebras", "openrouter": "OpenRouter"}
+
+
+# ── Tiện ích ─────────────────────────────────────────────────────────────────
+
+def _flag(name: str, default: str = "1") -> bool:
+    return (os.environ.get(name) or default).strip().lower() \
+        not in ("0", "false", "off", "no")
+
+
+def _ensure_env_loaded() -> None:
+    """CLI fresh chưa chắc đã load .env (bẫy đã ghi trong CLAUDE-NOTES)."""
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(_REPO / ".env", override=False)
+    except Exception:
+        pass
+
+
+def _key_for(provider: str) -> str:
+    cfg = _PROVIDERS.get(provider) or {}
+    key = (os.environ.get(cfg.get("env", "")) or "").strip()
+    if not key and cfg.get("env_alt"):
+        key = (os.environ.get(cfg["env_alt"]) or "").strip()
+    return key
+
+
+def _preview(text: str) -> str:
+    out = _THINK_RE.sub("", text or "").strip()
+    return re.sub(r"\s+", " ", out)[:40] or "(rỗng sau strip think)"
+
+
+# ── Gọi 1 model CỤ THỂ (không phải ladder) ───────────────────────────────────
+
+def chat_once(provider: str, model: str, system: str, user: str,
+              max_tokens: int = _MAX_TOKENS,
+              extra: "dict | None" = None) -> "tuple[str | None, str | None]":
+    """(text, err) — gọi ĐÍCH DANH một model. Ladder của `chat_complete` tự
+    rơi nấc nên không dùng đo được từng model; ở đây cần biết CHÍNH model này
+    trả lời ra sao."""
+    cfg = _PROVIDERS.get(provider)
+    if not cfg:
+        return None, f"provider lạ: {provider}"
+    key = _key_for(provider)
+    if not key:
+        return None, f"thiếu {cfg['env']}"
+    try:
+        r = requests.post(
+            cfg["endpoint"],
+            headers={"Authorization": f"Bearer {key}",
+                     "Content-Type": "application/json"},
+            json={"model": model, "max_tokens": max_tokens, "temperature": 0,
+                  "messages": [{"role": "system", "content": system},
+                               {"role": "user", "content": user}],
+                  **(extra or {})},
+            timeout=_TIMEOUT)
+        if r.status_code != 200:
+            # regex tách khỏi f-string: Python 3.11 cấm backslash trong f-string
+            # (máy user 3.13 cho phép — sửa để chạy được cả hai)
+            snippet = re.sub(r"\s+", " ", r.text or "")[:120]
+            return None, f"HTTP {r.status_code}: {snippet}"
+        data = r.json()
+        content = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
+        return _THINK_RE.sub("", content or ""), None
+    except requests.Timeout:
+        return None, f"timeout >{_TIMEOUT}s"
+    except Exception as e:
+        return None, f"{type(e).__name__}: {str(e)[:120]}"
+
+
+def probe_one(provider: str, model: str,
+              extra: "dict | None" = None) -> "tuple[bool, str, float]":
+    """1 call thử → (sống, mô tả, giây). Giữ nguyên hợp đồng của
+    scripts/probe_models.py (script đó nay import lại từ đây)."""
+    t0 = time.time()
+    text, err = chat_once(provider, model, "Reply with exactly: OK", "ping",
+                          max_tokens=_MAX_TOKENS, extra=extra)
+    dt = time.time() - t0
+    if err:
+        # Param lạ (vd reasoning_effort) bị từ chối → thử lại không kèm param
+        if extra and err.startswith("HTTP 400") and any(k in err for k in extra):
+            ok2, desc2, dt2 = probe_one(provider, model, None)
+            return ok2, f"{desc2} (bỏ {'/'.join(extra)})", dt + dt2
+        return False, err, dt
+    return True, f'→ "{_preview(text)}"', dt
+
+
+# ── Slug ĐANG DÙNG trong code ────────────────────────────────────────────────
+
+def _ladder_slugs() -> "list[tuple[str, str, str, dict]]":
+    """Gom slug free ĐANG DÙNG ở các điểm [1]-[8], mỗi slug kèm tag điểm dùng.
+
+    THÊM ĐIỂM DÙNG MODEL MỚI → phải khai vào đây, không thì health check mù
+    đúng chỗ đó (`test_probe_ladder_covers_all_free_live_slugs` canh việc này).
+    """
+    if str(_REPO) not in sys.path:
+        sys.path.insert(0, str(_REPO))
+    import vnstock_brief as vb
+    import vnstock_news_feeds as nf
+    import vnstock_report_digest as dg
+    import vnstock_sentiment as snt
+
+    tags: dict[tuple[str, str], list[str]] = {}
+
+    def _add(provider: str, model: str, tag: str) -> None:
+        if provider in _PROVIDERS:
+            tags.setdefault((provider, model), []).append(tag)
+
+    for p in snt._PROVIDERS:
+        _add(p["name"], p["model"], "[1] sentiment")
+    for prov, m in nf._ANALYZE_MODELS.items():
+        _add(prov, m, "[2] analyze")
+    for prov, m in dg._FREE_MODELS.items():
+        _add(prov, m, "[3-6] digest b1")
+    for prov, m in dg._FREE_TIER2:
+        _add(prov, m, "[3-6] digest b2")
+    for c in vb._DEFAULT_AGENT_CONFIGS:
+        prov = _BRIEF_TYPE2PROVIDER.get(c["type"])
+        if prov:
+            _add(prov, c["model"], "[7] brief")
+    for m in vb.CerebrasAgent._MODEL_FALLBACKS:
+        _add("Cerebras", m, "[7] fallback")
+
+    # [8] classifier CÁCH LY: module này kéo theo SDK vnstock + xác thực mạng.
+    # Công cụ chẩn đoán LLM không được chết vì key DATA hết hạn — đó đúng lúc
+    # cần nó nhất. Hỏng thì bỏ nấc [8] nhưng KÊU TO, không nuốt im lặng.
+    try:
+        import vnstock_classifier as vc
+        classify_models = dict(vc._CLASSIFY_MODELS)
+    except Exception as e:
+        classify_models = {}
+        print(f"⚠ KHÔNG đọc được slug [8] classifier ({type(e).__name__}: "
+              f"{str(e)[:100]}) — ladder [8] KHÔNG được health-check lần này")
+    for prov, m in classify_models.items():
+        _add(prov, m, "[8] classifier")
+
+    return [(prov, model, " + ".join(dict.fromkeys(ts)), {})
+            for (prov, model), ts in tags.items()]
+
+
+# ── Danh mục provider ────────────────────────────────────────────────────────
+
+def fetch_catalog(provider: str) -> "set[str] | None":
+    """Tập slug provider đang công bố, hoặc None khi KHÔNG đọc được.
+
+    None ≠ tập rỗng — đây là điểm sống còn: gộp hai ca lại thì một lần mạng
+    lỗi sẽ thành "toàn bộ model biến mất" và báo động giả hàng loạt. Mọi nơi
+    dùng kết quả này phải kiểm None trước.
+    """
+    cfg = _PROVIDERS.get(provider)
+    if not cfg or not cfg.get("catalog"):
+        return None
+    key = _key_for(provider)
+    if not key and not cfg.get("catalog_public"):
+        return None
+    try:
+        if cfg["catalog_shape"] == "gemini":
+            r = requests.get(cfg["catalog"],
+                             params={"key": key, "pageSize": 200},
+                             timeout=_TIMEOUT)
+        else:
+            headers = {"Authorization": f"Bearer {key}"} if key else {}
+            r = requests.get(cfg["catalog"], headers=headers, timeout=_TIMEOUT)
+        r.raise_for_status()
+        body = r.json()
+        if cfg["catalog_shape"] == "gemini":
+            ids = {str(m.get("name", "")).removeprefix("models/")
+                   for m in body.get("models", [])}
+        else:
+            ids = {str(m.get("id", "")) for m in body.get("data", [])}
+        ids.discard("")
+        return ids or None            # danh mục rỗng = đọc hụt, không phải thật
+    except Exception:
+        return None
+
+
+def snapshot_catalogs() -> dict:
+    """{provider: sorted list slug} — provider đọc hụt để None (xem fetch_catalog)."""
+    out: dict[str, "list | None"] = {}
+    for name in _PROVIDERS:
+        got = fetch_catalog(name)
+        out[name] = sorted(got) if got else None
+    return out
+
+
+def diff_catalogs(prev: dict, cur: dict) -> dict:
+    """{provider: {gone, new, status}} — status ∈ ok | skipped | no_baseline.
+
+    `skipped` khi lần này đọc hụt, `no_baseline` khi chưa có snapshot trước.
+    Cả hai đều trả gone/new RỖNG: thà không biết còn hơn báo sai.
+    """
+    out: dict[str, dict] = {}
+    for name in cur:
+        now, before = cur.get(name), prev.get(name)
+        if now is None:
+            out[name] = {"gone": [], "new": [], "status": "skipped"}
+        elif before is None:
+            out[name] = {"gone": [], "new": [], "status": "no_baseline"}
+        else:
+            out[name] = {"gone": sorted(set(before) - set(now)),
+                         "new": sorted(set(now) - set(before)),
+                         "status": "ok"}
+    return out
+
+
+def gone_models_in_use(diff: dict, in_use: dict) -> list:
+    """Model BIẾN MẤT khỏi danh mục mà code ĐANG DÙNG → [(provider, model, tag)].
+
+    Lọc theo "đang dùng" là chủ ý: danh mục provider đổi liên tục, báo mọi
+    thay đổi thì tuần nào cũng có tin và người đọc sẽ bỏ qua hết.
+    """
+    hits = []
+    for provider, d in diff.items():
+        for model in d.get("gone", []):
+            tag = in_use.get((provider, model))
+            if tag:
+                hits.append((provider, model, tag))
+    return sorted(hits)
+
+
+# ── Lịch sử ──────────────────────────────────────────────────────────────────
+
+def load_history() -> dict:
+    try:
+        return json.loads((_META / _HISTORY_NAME).read_text(encoding="utf-8"))
+    except Exception:
+        return {"runs": []}
+
+
+def save_history(hist: dict) -> None:
+    try:
+        _META.mkdir(parents=True, exist_ok=True)
+        hist["runs"] = hist.get("runs", [])[-_HISTORY_MAX:]
+        (_META / _HISTORY_NAME).write_text(
+            json.dumps(hist, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError as e:
+        print(f"⚠ không ghi được lịch sử model watch: {e}")
+
+
+def _last_catalogs(hist: dict) -> dict:
+    for run in reversed(hist.get("runs", [])):
+        if run.get("catalogs"):
+            return run["catalogs"]
+    return {}
+
+
+# ── Cảnh báo ─────────────────────────────────────────────────────────────────
+
+def _alert(lines: list) -> bool:
+    """Báo Telegram — best-effort tuyệt đối, tắt bằng VNSTOCK_MODEL_WATCH_ALERT=0."""
+    if not lines or not _flag("VNSTOCK_MODEL_WATCH_ALERT"):
+        return False
+    try:
+        from vnstock_telegram import send_message
+        send_message("⚠️ <b>Model watch</b>\n" + "\n".join(lines))
+        return True
+    except Exception:
+        return False
+
+
+# ── Chạy ─────────────────────────────────────────────────────────────────────
+
+def run_watch(do_eval: bool = False) -> dict:
+    """Probe ladder + diff danh mục (+ chấm điểm khi do_eval). Ghi status file.
+
+    Không bao giờ sửa config model — xem `vnstock_model_eval.propose_swaps`:
+    kết quả chỉ là ĐỀ XUẤT để user duyệt.
+    """
+    _ensure_env_loaded()
+    if not _flag("VNSTOCK_MODEL_WATCH"):
+        status = {"ran_at": datetime.now().isoformat(), "level": "skipped",
+                  "note": "VNSTOCK_MODEL_WATCH=0"}
+        _write_status(status)
+        return status
+
+    slugs = _ladder_slugs()
+    in_use = {(p, m): tag for p, m, tag, _ in slugs}
+
+    rows = []
+    for i, (prov, model, tag, extra) in enumerate(sorted(slugs)):
+        if i:
+            time.sleep(_SLEEP_BETWEEN)
+        ok, desc, dt = probe_one(prov, model, extra or None)
+        rows.append({"provider": prov, "model": model, "tag": tag,
+                     "ok": bool(ok), "detail": desc, "seconds": round(dt, 2)})
+
+    hist = load_history()
+    catalogs = snapshot_catalogs()
+    diff = diff_catalogs(_last_catalogs(hist), catalogs)
+    gone_used = gone_models_in_use(diff, in_use)
+
+    n_fail = sum(1 for r in rows if not r["ok"])
+    level = "red" if n_fail else ("warn" if gone_used else "green")
+
+    status = {
+        "ran_at": datetime.now().isoformat(),
+        "level": level,
+        "probe": {"ok": len(rows) - n_fail, "fail": n_fail, "rows": rows},
+        "catalog": {
+            "diff": diff,
+            "gone_in_use": [{"provider": p, "model": m, "tag": t}
+                            for p, m, t in gone_used],
+            "skipped": sorted(k for k, v in diff.items()
+                              if v["status"] == "skipped"),
+        },
+        "eval": None,
+        "proposals": [],
+    }
+
+    if do_eval and _flag("VNSTOCK_MODEL_WATCH_EVAL"):
+        status.update(_run_eval_stage(rows, hist))
+
+    _write_status(status)
+    hist.setdefault("runs", []).append({
+        "at": status["ran_at"], "level": level, "catalogs": catalogs,
+        "proposals": status["proposals"],
+    })
+    save_history(hist)
+
+    alert_lines = [f"❌ {r['provider']} {r['model']} — {r['tag']}: {r['detail'][:80]}"
+                   for r in rows if not r["ok"]]
+    alert_lines += [f"🗑 {p} {m} biến mất khỏi danh mục — {t}"
+                    for p, m, t in gone_used]
+    _alert(alert_lines)
+    return status
+
+
+def _run_eval_stage(rows: list, hist: dict) -> dict:
+    """GĐ2-3 — chấm bộ đề rồi sinh đề xuất. Tách hàm để GĐ1 chạy độc lập
+    được (eval tốn call hơn hẳn: ~23 ca × số model)."""
+    try:
+        import vnstock_model_eval as me
+    except Exception as e:
+        return {"eval": {"error": f"{type(e).__name__}: {e}"}}
+
+    alive = [(r["provider"], r["model"]) for r in rows if r["ok"]]
+    # PHẢI truyền delay: bộ đề ~25 ca × ~10 model = ~250 call. Mặc định của
+    # run_eval là 0 (cho test/thư viện chạy nhanh) — bắn 250 call liên tiếp
+    # lên free tier là dính rate limit ngay (Groq TPM 8K).
+    scores = me.run_eval(alive, delay=_SLEEP_BETWEEN)
+    prev = next((r.get("proposals") or [] for r in reversed(hist.get("runs", []))
+                 if r.get("proposals") is not None), [])
+    proposals = me.propose_swaps(scores, me.current_models(),
+                                 previous_proposals=prev)
+    return {
+        "eval": {f"{p}:{m}": sc for (p, m), sc in scores.items()},
+        "proposals": proposals,
+    }
+
+
+def _write_status(status: dict) -> None:
+    try:
+        _META.mkdir(parents=True, exist_ok=True)
+        (_META / _STATUS_NAME).write_text(
+            json.dumps(status, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError as e:
+        print(f"⚠ không ghi được {_STATUS_NAME}: {e}")
+
+
+# ── In báo cáo ───────────────────────────────────────────────────────────────
+
+_LEVEL_ICON = {"green": "✅", "warn": "⚠️", "red": "❌", "skipped": "⏭"}
+
+
+def render_report(status: dict) -> str:
+    if status.get("level") == "skipped":
+        return f"⏭ model watch bỏ qua ({status.get('note', '')})"
+    out = [f"{_LEVEL_ICON.get(status['level'], '?')} MODEL WATCH — "
+           f"{status['ran_at'][:16].replace('T', ' ')}"]
+
+    pr = status["probe"]
+    out.append(f"\n── Probe ladder: {pr['ok']} sống / {pr['fail']} chết ──")
+    for r in pr["rows"]:
+        out.append(f"  {'✅' if r['ok'] else '❌'} {r['provider']:<11}"
+                   f"{r['model']:<45}{r['seconds']:>5.1f}s  {r['tag']}")
+        if not r["ok"]:
+            out.append(f"       ↳ {r['detail'][:110]}")
+
+    cat = status["catalog"]
+    out.append("\n── Danh mục provider (so tuần trước) ──")
+    for prov, d in sorted(cat["diff"].items()):
+        if d["status"] == "skipped":
+            out.append(f"  ⏭ {prov:<11} không đọc được danh mục lần này")
+        elif d["status"] == "no_baseline":
+            out.append(f"  · {prov:<11} lần đầu — đã lưu mốc để tuần sau so")
+        elif not d["gone"] and not d["new"]:
+            out.append(f"  · {prov:<11} không đổi")
+        else:
+            out.append(f"  ⚠ {prov:<11} -{len(d['gone'])} / +{len(d['new'])}")
+            for m in d["gone"][:6]:
+                out.append(f"       🗑 gỡ:  {m}")
+            for m in d["new"][:6]:
+                out.append(f"       🆕 mới: {m}")
+
+    if cat["gone_in_use"]:
+        out.append("\n🚨 MODEL ĐANG DÙNG ĐÃ BIẾN MẤT KHỎI DANH MỤC:")
+        for g in cat["gone_in_use"]:
+            out.append(f"  {g['provider']} {g['model']} — {g['tag']}")
+
+    if status.get("eval"):
+        out.append("\n── Điểm bộ đề (theo TỪNG việc, thang 0-1) ──")
+        err = status["eval"].get("error") if isinstance(status["eval"], dict) else None
+        if err:
+            out.append(f"  (không chấm được: {err})")
+        else:
+            for key, sc in sorted(status["eval"].items(),
+                                  key=lambda kv: -sum(v for v in kv[1].values()
+                                                      if isinstance(v, (int, float)))):
+                parts = " ".join(f"{t}={sc[t]:.2f}" for t in sorted(sc)
+                                 if t != "errors")
+                out.append(f"  {key:<52} {parts}")
+
+    if status.get("proposals"):
+        out.append("\n── ĐỀ XUẤT (chỉ đề xuất — không tự áp) ──")
+        for p in status["proposals"]:
+            mark = "🟢 CHÍN" if p["ripe"] else "🟡 chờ tuần sau xác nhận"
+            out.append(f"  {mark} · {p['task']}: {p['current'][0]}:{p['current'][1]}"
+                       f" ({p['current_score']:.2f}) → "
+                       f"{p['candidate'][0]}:{p['candidate'][1]}"
+                       f" ({p['candidate_score']:.2f})")
+        out.append("  Áp dụng: sửa map model của điểm tương ứng rồi chạy "
+                   "`python run.py test --fast`")
+    return "\n".join(out)
+
+
+def main(argv: "list | None" = None) -> int:
+    ap = argparse.ArgumentParser(
+        description="Theo dõi ladder model LLM (probe + diff danh mục)")
+    ap.add_argument("--eval", action="store_true",
+                    help="Chấm thêm bộ đề chuẩn + sinh đề xuất (tốn call hơn)")
+    ap.add_argument("--json", action="store_true", help="In JSON thay vì bảng")
+    args = ap.parse_args(argv)
+
+    status = run_watch(do_eval=args.eval)
+    print(json.dumps(status, ensure_ascii=False, indent=2) if args.json
+          else render_report(status))
+    return {"green": 0, "skipped": 0, "warn": 1, "red": 2}.get(status["level"], 1)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

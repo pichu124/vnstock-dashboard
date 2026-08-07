@@ -36,36 +36,15 @@ try:
 except Exception:
     pass
 
-_TIMEOUT = 45
-_MAX_TOKENS = 256          # model reasoning (gpt-oss/qwen3) cần chỗ "suy nghĩ"
-_SLEEP_BETWEEN = 1.0       # lịch sự với rate limit free tier
+# Logic probe (provider, gọi thử, gom slug đang dùng) nay là NGUỒN DUY NHẤT
+# ở vnstock_model_watch.py — script này còn là CLI mỏng. Trước 07/08 hai bản
+# tồn tại song song, đúng kiểu 'replica trôi xa bản thật' mà audit 06/08 bắt.
+if str(_REPO) not in sys.path:
+    sys.path.insert(0, str(_REPO))
 
-# Cùng họ regex strip_think_tags của vnstock_sentiment (bản rút gọn, chỉ để
-# preview output — không dùng cho logic gì khác).
-_THINK_RE = re.compile(r"<\s*(think|thinking|reasoning|thought)\s*>.*?<\s*/\s*\1\s*>\s*",
-                       re.S | re.I)
-
-_PROVIDERS = {
-    "Groq": {
-        "env": "GROQ_API_KEY",
-        "endpoint": "https://api.groq.com/openai/v1/chat/completions",
-    },
-    "Cerebras": {
-        "env": "CEREBRAS_API_KEY",
-        "endpoint": "https://api.cerebras.ai/v1/chat/completions",
-    },
-    "OpenRouter": {
-        "env": "OPENROUTER_API_KEY",
-        "endpoint": "https://openrouter.ai/api/v1/chat/completions",
-    },
-    "Gemini": {
-        # Google AI Studio, endpoint OpenAI-compatible. Key: GEMINI_API_KEY
-        # (fallback GOOGLE_API_KEY).
-        "env": "GEMINI_API_KEY",
-        "env_alt": "GOOGLE_API_KEY",
-        "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-    },
-}
+from vnstock_model_watch import (_MAX_TOKENS, _PROVIDERS,  # noqa: E402
+                                 _SLEEP_BETWEEN, _TIMEOUT, _key_for,
+                                 _ladder_slugs, _preview, probe_one)
 
 # (provider, model, ghi chú, extra_body)
 # VÒNG 2 (22/07) — vòng 1 đã chốt: Groq gpt-oss-20b/120b + qwen3.6-27b ✅,
@@ -82,116 +61,6 @@ _CANDIDATES: list[tuple[str, str, str, dict]] = [
     ("OpenRouter", "nvidia/nemotron-3-ultra-550b-a55b:free", "ứng viên [3] bậc 1 digest",   {}),
     ("OpenRouter", "google/gemma-4-31b-it:free",             "ứng viên [1] dự phòng",       {}),
 ]
-
-
-# Map agent type (vnstock_brief) → tên provider trong _PROVIDERS.
-_BRIEF_TYPE2PROVIDER = {"gemini": "Gemini", "groq": "Groq",
-                        "cerebras": "Cerebras", "openrouter": "OpenRouter"}
-
-
-def _ladder_slugs() -> list[tuple[str, str, str, dict]]:
-    """--ladder: gom slug free ĐANG DÙNG trong code (mirror _all_live_slugs
-    của tests/test_model_ladder.py, chỉ 4 provider free probe được — model
-    trả phí Anthropic/OpenAI khác API, bỏ qua). Mỗi slug kèm tag điểm dùng
-    ([1] sentiment…[8] classifier) để nhìn output biết lỗi rơi vào tính năng
-    nào. THÊM ĐIỂM DÙNG MODEL MỚI → phải khai vào đây, không thì health check
-    mù đúng chỗ đó (test_probe_ladder_covers_all_free_live_slugs canh việc này).
-    Health check chạy SAU sự cố key/deprecation: 1 call/slug, chi phí ~0."""
-    if str(_REPO) not in sys.path:
-        sys.path.insert(0, str(_REPO))
-    import vnstock_brief as vb
-    import vnstock_news_feeds as nf
-    import vnstock_report_digest as dg
-    import vnstock_sentiment as snt
-
-    tags: dict[tuple[str, str], list[str]] = {}
-
-    def _add(provider: str, model: str, tag: str) -> None:
-        if provider in _PROVIDERS:
-            tags.setdefault((provider, model), []).append(tag)
-
-    for p in snt._PROVIDERS:
-        _add(p["name"], p["model"], "[1] sentiment")
-    for prov, m in nf._ANALYZE_MODELS.items():
-        _add(prov, m, "[2] analyze")
-    for prov, m in dg._FREE_MODELS.items():
-        _add(prov, m, "[3-6] digest b1")
-    for prov, m in dg._FREE_TIER2:
-        _add(prov, m, "[3-6] digest b2")
-    for c in vb._DEFAULT_AGENT_CONFIGS:
-        prov = _BRIEF_TYPE2PROVIDER.get(c["type"])
-        if prov:
-            _add(prov, c["model"], "[7] brief")
-    for m in vb.CerebrasAgent._MODEL_FALLBACKS:
-        _add("Cerebras", m, "[7] fallback")
-    # [8] classifier CÁCH LY: module này kéo theo cả SDK vnstock + xác thực
-    # mạng (máy user 07/08: --ladder in "Authentication successful … golden").
-    # Công cụ chẩn đoán LLM không được chết vì key DATA hết hạn — đó đúng lúc
-    # cần nó nhất. Hỏng thì bỏ nấc [8] nhưng KÊU TO, không nuốt im lặng.
-    try:
-        import vnstock_classifier as vc
-        classify_models = dict(vc._CLASSIFY_MODELS)
-    except Exception as e:
-        classify_models = {}
-        print(f"⚠ KHÔNG đọc được slug [8] classifier ({type(e).__name__}: "
-              f"{str(e)[:100]}) — ladder [8] KHÔNG được health-check lần này")
-    for prov, m in classify_models.items():
-        _add(prov, m, "[8] classifier")
-
-    return [(prov, model, " + ".join(dict.fromkeys(ts)), {})
-            for (prov, model), ts in tags.items()]
-
-
-def _key_for(provider: str) -> str:
-    cfg = _PROVIDERS[provider]
-    key = (os.environ.get(cfg["env"]) or "").strip()
-    if not key and cfg.get("env_alt"):
-        key = (os.environ.get(cfg["env_alt"]) or "").strip()
-    return key
-
-
-def _preview(text: str) -> str:
-    out = _THINK_RE.sub("", text or "").strip()
-    out = re.sub(r"\s+", " ", out)
-    return out[:40] or "(rỗng sau strip think)"
-
-
-def probe_one(provider: str, model: str, extra: dict) -> tuple[bool, str, float]:
-    """1 call thử → (ok, mô tả, giây). Lỗi trả mô tả ngắn để chẩn đoán."""
-    cfg = _PROVIDERS[provider]
-    body = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": "Reply with exactly: OK"},
-            {"role": "user", "content": "ping"},
-        ],
-        "max_tokens": _MAX_TOKENS,
-        **extra,
-    }
-    t0 = time.time()
-    try:
-        r = requests.post(
-            cfg["endpoint"],
-            headers={"Authorization": f"Bearer {_key_for(provider)}",
-                     "Content-Type": "application/json"},
-            json=body, timeout=_TIMEOUT,
-        )
-        dt = time.time() - t0
-        if r.status_code != 200:
-            snippet = re.sub(r"\s+", " ", r.text or "")[:140]
-            # Param không được nhận (vd reasoning_effort) → thử lại không param
-            if r.status_code == 400 and extra and any(k in (r.text or "") for k in extra):
-                ok, desc, dt2 = probe_one(provider, model, {})
-                return ok, f"{desc} (bỏ {'/'.join(extra)})", dt + dt2
-            return False, f"HTTP {r.status_code}: {snippet}", dt
-        data = r.json()
-        content = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
-        return True, f"→ \"{_preview(content)}\"", dt
-    except requests.Timeout:
-        return False, f"timeout >{_TIMEOUT}s", time.time() - t0
-    except Exception as e:
-        return False, f"{type(e).__name__}: {str(e)[:120]}", time.time() - t0
-
 
 def list_openrouter_free() -> None:
     """Danh sách :free ĐẦY ĐỦ hiện tại từ API public (không cần key)."""

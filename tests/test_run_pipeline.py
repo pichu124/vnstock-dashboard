@@ -125,9 +125,13 @@ def test_cmd_brief_pushes_and_writes_marker(tmp_path, monkeypatch):
 def test_weekend_steps_order_and_flags():
     steps = runpy._weekend_steps(SimpleNamespace(warehouse="data_warehouse"))
     names = [n for n, _ in steps]
-    # nhẹ trước (rates đẩy Telegram), fundamentals nặng ~25-30ph để cuối
-    assert names == ["rates-weekly", "vietstock", "fundamentals"]
+    # models ĐẦU TIÊN (07/08): nhẹ nhất ~10 call thử và là thứ duy nhất phát
+    # hiện được "ladder sắp chết" → chạy trước để bước nặng lỗi vẫn kịp cảnh
+    # báo. Rồi nhẹ→nặng, fundamentals ~25-30ph để cuối.
+    assert names == ["models", "rates-weekly", "vietstock", "fundamentals"]
     cmds = {n: c for n, c in steps}
+    # task tuần chạy CẢ chấm điểm bộ đề (GĐ2-3) — 1 tuần/lần nên gánh được
+    assert "--eval" in cmds["models"]
     # vietstock phải giữ nguyên cờ của task cũ
     assert "--bulk" in cmds["vietstock"] and "--register" in cmds["vietstock"]
     # fundamentals PHẢI --force (không có = incremental no-op, bug 2026-07-10)
@@ -139,17 +143,47 @@ def test_cmd_weekend_continues_past_failures_and_reports_worst(monkeypatch):
 
     def _fake_run(cmd):
         ran.append(cmd)
-        return 1 if len(ran) == 2 else 0    # bước giữa (vietstock) lỗi
+        return 1 if len(ran) == 2 else 0    # bước thứ 2 lỗi
 
     monkeypatch.setattr(runpy, "_run", _fake_run)
     rc = runpy.cmd_weekend(SimpleNamespace(warehouse="data_warehouse"))
-    assert len(ran) == 3        # lỗi giữa chừng KHÔNG chặn các bước sau
+    assert len(ran) == 4        # lỗi giữa chừng KHÔNG chặn các bước sau
     assert rc == 1              # gom về cảnh báo
+
+
+def test_weekend_model_watch_failure_does_not_block_the_rest(monkeypatch):
+    """Bước models đứng đầu → nếu nó fail cứng mà chặn cả task tuần thì mất
+    luôn rates/vietstock/fundamentals. Phải chỉ ghi nhận rồi chạy tiếp."""
+    ran = []
+    monkeypatch.setattr(runpy, "_run",
+                        lambda cmd: (ran.append(cmd), 2 if len(ran) == 1 else 0)[1])
+    rc = runpy.cmd_weekend(SimpleNamespace(warehouse="data_warehouse"))
+    assert len(ran) == 4
+    assert rc == 2
 
 
 def test_parser_accepts_weekend_subcommand():
     assert runpy.build_parser().parse_args(["weekend"]).subcommand == "weekend"
     assert runpy._DISPATCH["weekend"] is runpy.cmd_weekend
+
+
+def test_parser_accepts_models_subcommand():
+    args = runpy.build_parser().parse_args(["models", "--eval"])
+    assert args.subcommand == "models" and args.eval is True
+    assert runpy._DISPATCH["models"] is runpy.cmd_models
+
+
+def test_cmd_models_forwards_flags(monkeypatch):
+    seen = {}
+    import vnstock_model_watch as mw
+
+    def _fake_main(argv):
+        seen["argv"] = argv
+        return 0
+
+    monkeypatch.setattr(mw, "main", _fake_main)
+    rc = runpy.cmd_models(SimpleNamespace(eval=True, json=False))
+    assert rc == 0 and seen["argv"] == ["--eval"]
 
 
 # ─── Điểm [6] 29/07: auditor LLM (free cascade) bật mặc định trong pipeline ──

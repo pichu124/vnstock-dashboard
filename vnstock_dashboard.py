@@ -3839,6 +3839,41 @@ with st.sidebar:
     except Exception:
         pass
 
+    # ── Model watch badge (ladder LLM — run.py models, chạy T7 hàng tuần) ──
+    try:
+        _mw_path = Path("data_warehouse/_meta/model_status.json")
+        if _mw_path.exists():
+            _mw = json.loads(_mw_path.read_text(encoding="utf-8"))
+            _mw_level = _mw.get("level", "green")
+            try:
+                _mw_age_d = (datetime.now()
+                             - datetime.fromisoformat(_mw.get("ran_at", ""))).days
+                _mw_age = f"{_mw_age_d}d trước" if _mw_age_d > 0 else "hôm nay"
+            except Exception:
+                _mw_age = "?"
+            _mw_color = {"green": "#22c55e", "warn": "#eab308",
+                         "red": "#ef4444", "skipped": "#9ca3af"}.get(_mw_level, "#9ca3af")
+            _mw_probe = _mw.get("probe") or {}
+            _mw_gone = len((_mw.get("catalog") or {}).get("gone_in_use", []))
+            _mw_ripe = sum(1 for _p in (_mw.get("proposals") or []) if _p.get("ripe"))
+            _mw_line = (f'{_mw_probe.get("ok", 0)}✅'
+                        + (f' · {_mw_probe.get("fail", 0)}❌' if _mw_probe.get("fail") else "")
+                        + (f' · {_mw_gone}🗑 đang dùng bị gỡ' if _mw_gone else "")
+                        + (f' · {_mw_ripe}💡 đề xuất' if _mw_ripe else ""))
+            st.markdown(
+                f'<div style="padding:6px 10px;border-radius:6px;'
+                f'border:1px solid {_mw_color};background:rgba(30,41,59,0.4);'
+                f'font-size:11px;color:{_mw_color};margin-bottom:8px;'
+                f'font-family:\'IBM Plex Sans\',sans-serif">'
+                f'🧠 <b>Ladder model</b>: {_mw_line or "?"}'
+                f'<br><span style="color:#9ca3af">Soi {_mw_age}'
+                f' · <code>run.py models</code></span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+    except Exception:
+        pass
+
     _theme = st.toggle("☀️ Light mode", value=False, key="light_mode")
     if _theme:
         _t = THEMES["light"]

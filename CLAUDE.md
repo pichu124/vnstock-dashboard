@@ -37,6 +37,9 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   `vnstock_sentiment`. Chiến lược/backtest: `vnstock_strategy` (AST sandbox),
   `vnstock_train`. Bộ nhớ brief: `vnstock_memory` (SQLite). Gửi:
   `vnstock_telegram`.
+- Theo dõi model: `vnstock_model_watch` (probe ladder + diff danh mục
+  provider, chạy trong `run.py weekend` T7) + `vnstock_model_eval` (bộ đề
+  chuẩn chấm điểm THEO VIỆC + đề xuất thay model). Chỉ ĐỀ XUẤT, không tự áp.
 - `vnstock_sectors.py` — nhóm ngành custom ("Họ VIN", "Họ M") dùng chung
   dashboard + brief; thêm họ mới = thêm 1 dòng registry.
 
@@ -53,6 +56,9 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   (catalog trên mạng hay sai/lỗi thời). Provider khai tử model → 1 dòng
   `_MODEL_MIGRATIONS` (vnstock_brief) + thêm slug vào `_DEAD_SLUGS` ở
   `tests/test_model_ladder.py` (test quét slug chết TOÀN repo).
+- THÊM ĐIỂM DÙNG MODEL MỚI → phải khai vào CẢ HAI lưới: `_all_live_slugs`
+  (test quét slug chết) và `_ladder_slugs` (`vnstock_model_watch`). Lưới chỉ
+  soi thứ ĐƯỢC KHAI BÁO — trùng slug với điểm khác là may, không phải bảo vệ.
 
 ## ⚠️ Bất biến — đọc docs/CLAUDE-NOTES.md trước khi đụng
 - Chart 4 panel (Price/Volume/RSI/MACD): CHỈ dùng logical-range API của
