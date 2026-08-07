@@ -363,3 +363,27 @@ def test_import_listing_not_over_blocked():
     assert "os.scandir" not in rt._DENY_EVENTS
     out = _run_locked("import os; print('N=' + str(len(os.listdir('.')) > 0))")
     assert out == "N=True", out
+
+def test_import_without_cached_pyc_still_works(tmp_path):
+    """Máy user (Windows) đỏ 2 test 'công việc hợp lệ': import một module
+    CHƯA có `.pyc` khiến Python `mkdir __pycache__` + ghi `.pyc`, mà chính
+    sách cấm mọi thao tác ghi → import CHẾT. Sandbox Linux không thấy vì
+    stdlib đã cache sẵn. Thuốc: `sys.dont_write_bytecode = True` ngay trong
+    lockdown() (không phụ thuộc biến môi trường)."""
+    mod = tmp_path / "freshmod_for_test.py"
+    mod.write_text("VALUE = 4242\n", encoding="utf-8")
+
+    out = _run_locked(f"""
+        import sys
+        sys.path.insert(0, {str(tmp_path)!r})
+        import freshmod_for_test as m
+        print("OK " + str(m.VALUE))
+    """)
+
+    assert out == "OK 4242", out
+    assert not (tmp_path / "__pycache__").exists()   # không ghi gì ra đĩa
+
+
+def test_lockdown_disables_bytecode_writing():
+    out = _run_locked("import sys; print('DWB=' + str(sys.dont_write_bytecode))")
+    assert out == "DWB=True", out

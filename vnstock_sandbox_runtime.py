@@ -262,6 +262,14 @@ def lockdown() -> dict:
     stats = {"functions": 0, "modules": 0,
              "env_scrubbed": scrub_secrets_from_env()}
 
+    # Tắt ghi bytecode TRƯỚC khi khoá: import một module CHƯA có `.pyc` sẽ
+    # `mkdir __pycache__` + ghi `.pyc`, mà chính sách cấm mọi thao tác ghi →
+    # import CHẾT. Máy user (Windows) đỏ đúng 2 test "công việc hợp lệ" vì
+    # vậy, còn sandbox Linux không thấy do stdlib đã cache sẵn .pyc.
+    # `minimal_env()` cũng đặt PYTHONDONTWRITEBYTECODE=1, nhưng bảo đảm này
+    # không được phụ thuộc vào env — ai gọi lockdown() cũng phải an toàn.
+    sys.dont_write_bytecode = True
+
     # 1. `open` ở mọi namespace nó cư trú
     for ns_name in _OPEN_NAMESPACES:
         mod = sys.modules.get(ns_name)

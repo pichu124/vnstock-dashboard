@@ -4192,3 +4192,26 @@ Vẫn KHÔNG phải hàng rào tuyệt đối trước attacker chủ đích: ho
 cùng tiến trình, và một khai thác ở tầng C (ctypes đã chặn, nhưng lỗi
 interpreter/extension thì không) về lý thuyết vẫn qua được. Muốn tuyệt đối
 thì phải cách ly ở tầng OS (container/seccomp/user riêng) — vẫn nằm TODO.
+
+### Bổ sung (i1) — máy Windows đỏ 2 test: chính sách cấm-ghi chặn luôn `.pyc`
+
+Máy user chạy full suite sau bản audit hook: **1510 passed, 2 failed** — cả
+hai đều thuộc nhóm "công việc hợp lệ phải chạy"
+(`test_import_machinery_survives_fileio_gate`, `test_audit_hook_allows_legit_work`).
+
+Nguyên nhân: import một module CHƯA có `.pyc` khiến Python `mkdir
+__pycache__` rồi ghi `.pyc` — chính sách cấm MỌI thao tác ghi nên import
+chết. Sandbox Linux không lộ vì stdlib ở đó đã cache sẵn `.pyc`; máy user
+có module chưa cache nên gãy. (Đã tái hiện được bằng module mới tinh:
+`SandboxViolation: posix.mkdir bị khoá`.)
+
+Thuốc: `sys.dont_write_bytecode = True` NGAY TRONG `lockdown()`, trước khi
+khoá. `minimal_env()` vốn đã đặt `PYTHONDONTWRITEBYTECODE=1` nên worker
+THẬT chưa từng dính — nhưng bảo đảm an toàn không được phụ thuộc biến môi
+trường, ai gọi `lockdown()` cũng phải chạy được. 2 test mới giữ (import
+module chưa cache + cờ dont_write_bytecode). Full suite 1503 passed.
+
+**Bài học lặp lại lần 2 trong ngày**: sandbox Linux KHÔNG đại diện cho máy
+Windows của user (lần 1: đường dẫn `C:\Users` thành escape `\U`). Việc siết
+môi trường luôn phải thử ở cả hai, hoặc ít nhất dựng lại điều kiện của máy
+kia (ở đây: xoá `__pycache__` rồi import).
