@@ -271,3 +271,95 @@ def test_import_machinery_survives_fileio_gate():
         print(f"OK {round(float(s), 2)}")
     """)
     assert out.startswith("OK "), out
+
+# ── VÒNG 4 (red-team): 5 đường phá được lớp A (setattr) → cần audit hook ──
+# Bản chất chung: KHÔNG THỂ GIẤU gì khỏi code Python chạy cùng tiến trình.
+# Audit hook (PEP 578) khác về CHẤT — sự kiện phát ra TỪ BÊN TRONG primitive
+# ở tầng C, nên tham chiếu cũ / module import lại / class lấy qua type() đều
+# đi qua nó; và sys.addaudithook KHÔNG có API gỡ.
+
+@pytest.mark.parametrize("label,expr", [
+    # 1. dựng lại module C → bản NGUYÊN GỐC chưa bị vá
+    ("reimport-posix",
+     "__import__('sys').modules.pop('posix', None); "
+     "__import__('posix').system('touch ' + P)"),
+    ("reimport-os",
+     "__import__('sys').modules.pop('os', None); "
+     "__import__('os').system('touch ' + P)"),
+    # 2. tên exec bị bỏ sót trong deny list
+    ("posix_spawn",
+     "__import__('os').posix_spawn('/bin/sh', ['sh','-c','touch ' + P], {})"),
+    # 3. _io.open cố ý không vá (sợ chết import)
+    ("_io.open-write", "__import__('_io').open(P, 'w')"),
+    # 4. module stdlib giữ THAM CHIẾU `open` gốc từ trước lockdown
+    ("tokenize-builtin-open", "__import__('tokenize')._builtin_open(P, 'w')"),
+    ("bz2-builtin-open", "__import__('bz2')._builtin_open(P, 'w')"),
+    ("tarfile-bltn-open", "__import__('tarfile').bltn_open(P, 'w')"),
+    ("numpy-datasource-open", "np.lib._datasource._open(P, 'w')"),
+    # 5. lấy lại class FileIO gốc qua một stream đang mở
+    ("type-of-stdout-buffer",
+     "type(__import__('sys').__stdout__.buffer)(P, 'wb')"),
+])
+def test_layer_a_bypasses_are_caught_by_audit_hook(tmp_path, label, expr):
+    target = tmp_path / f"{label}.out"
+    out = _run_locked(f"""
+        P = {str(target)!r}
+        try:
+            {expr}
+            print("LOT")
+        except Exception as e:
+            print("CHAN:" + type(e).__name__)
+    """)
+    assert out.startswith("CHAN:"), f"{label}: không chặn — {out}"
+    assert not target.exists(), f"{label}: SANDBOX ESCAPE"
+
+
+def test_audit_hook_blocks_reading_dotenv():
+    """Đường ĐỌC bí mật qua class FileIO gốc — lớp A không với tới được."""
+    out = _run_locked("""
+        import sys
+        Raw = type(sys.__stdout__.buffer)
+        for t in ('.env', '.env.example', '/etc/hostname'):
+            try:
+                Raw(t, 'rb').read(32); print("LOT:" + t); break
+            except Exception:
+                continue
+        else:
+            print("CHAN")
+    """)
+    assert out == "CHAN", f"đọc được file ngoài prefix: {out}"
+
+
+def test_audit_hook_is_installed_and_unremovable():
+    """Hook phải được cài (lockdown báo lại) và không có đường gỡ — đó chính
+    là lý do chọn PEP 578 thay vì tiếp tục setattr."""
+    out = _run_locked("""
+        import sys
+        st = {}
+        print("HOOK=" + str(getattr(__import__('builtins'),
+              rt.LOCKED_MARKER + '_audit', False)))
+    """)
+    assert "HOOK=True" in out
+    assert not hasattr(sys, "removeaudithook")     # CPython cố ý không có
+
+
+def test_audit_hook_allows_legit_work():
+    """Không được chặn tay: import mới, pandas, và rolling.apply(lambda)."""
+    out = _run_locked("""
+        import email.mime.text, xml.dom.minidom, json, csv
+        s = pd.Series(np.arange(300.0))
+        v = s.rolling(20).mean().ewm(span=5).std().fillna(0).iloc[-1]
+        r = s.rolling(10).apply(lambda w: float(w.max() - w.min()), raw=False)
+        print(f"OK {round(float(v), 2)} {round(float(r.iloc[-1]), 2)}")
+    """)
+    assert out.startswith("OK "), out
+
+
+def test_import_listing_not_over_blocked():
+    """`os.listdir`/`scandir`/`glob` CỐ Ý không chặn — cơ chế import cần
+    chúng, mà chúng chỉ liệt kê TÊN (nội dung đã khoá ở sự kiện `open`).
+    Chặn nhầm là gãy import (đã dính khi thử)."""
+    assert "os.listdir" not in rt._DENY_EVENTS
+    assert "os.scandir" not in rt._DENY_EVENTS
+    out = _run_locked("import os; print('N=' + str(len(os.listdir('.')) > 0))")
+    assert out == "N=True", out

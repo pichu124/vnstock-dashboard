@@ -40,8 +40,8 @@ import re
 import sys
 
 __all__ = [
-    "SandboxViolation", "lockdown", "scrub_secrets_from_env",
-    "worker_main", "LOCKED_MARKER",
+    "SandboxViolation", "lockdown", "install_audit_hook",
+    "scrub_secrets_from_env", "serve", "minimal_env", "LOCKED_MARKER",
 ]
 
 LOCKED_MARKER = "__vnstock_sandbox_locked__"
@@ -66,13 +66,15 @@ _MODULE_DENY = {
     "os": (
         "system popen remove unlink rename replace rmdir mkdir makedirs "
         "removedirs chmod chown link symlink truncate ftruncate startfile "
-        "execv execve execvp execvpe spawnv spawnve spawnl spawnle fork "
+        "execv execve execvp execvpe spawnv spawnve spawnl spawnle spawnvp "
+        "spawnvpe spawnlp spawnlpe posix_spawn posix_spawnp fork "
         "forkpty kill killpg putenv unsetenv open fdopen chdir setuid "
         "setgid umask mkfifo mknod"
     ),
     "posix": (
         "system popen remove unlink rename replace rmdir mkdir chmod chown "
-        "link symlink truncate execv execve fork kill open putenv"
+        "link symlink truncate execv execve fork kill open putenv posix_spawn "
+        "posix_spawnp write"
     ),
     "nt": (
         "system popen remove unlink rename replace rmdir mkdir chmod link "
@@ -154,8 +156,101 @@ def scrub_secrets_from_env() -> int:
     return removed
 
 
+# ── LỚP B: audit hook (PEP 578) — hàng rào THẬT, ở tầng C ─────────────────
+# Vòng đối kháng thứ 4 phá sạch lớp A (setattr lên module object) bằng 5
+# đường, tất cả cùng một bản chất: **không thể GIẤU thứ gì khỏi code Python
+# chạy cùng tiến trình**:
+#   1. `del sys.modules['posix']; import posix` → module C dựng lại NGUYÊN BẢN
+#   2. `os.posix_spawn(...)`                     → tên bị bỏ sót trong deny list
+#   3. `_io.open(...)`                           → cố ý không vá (sợ chết import)
+#   4. `tokenize._builtin_open` / `bz2._builtin_open` / `tarfile.bltn_open` /
+#      `numpy.lib._datasource._open` → giữ THAM CHIẾU tới `open` GỐC từ lúc
+#      import, setattr sau đó không đụng tới được
+#   5. `type(sys.__stdout__.buffer)`             → lấy lại class FileIO gốc
+#
+# Audit hook khác về CHẤT: sự kiện được CPython phát ra TỪ BÊN TRONG chính
+# primitive (C level), nên mọi đường trên đều đi qua nó — tham chiếu cũ,
+# module vừa import lại, class lấy qua type(), đều như nhau. Và
+# `sys.addaudithook` KHÔNG CÓ API gỡ: cài rồi thì code trong tiến trình
+# không tự tháo được. Đo thực nghiệm: chặn 8/8 đường, pandas + import vẫn
+# chạy, 300 phép rolling tốn 0.03s (chi phí ~0 vì số học không phát sự kiện).
+_DENY_EVENTS = frozenset("""
+    os.system os.exec os.posix_spawn os.spawn os.fork os.forkpty
+    os.kill os.killpg os.remove os.rename os.rmdir os.mkdir os.chmod
+    os.chown os.link os.symlink os.truncate os.putenv os.unsetenv
+    os.setuid os.setgid os.startfile os.chdir
+    os.add_dll_directory
+    subprocess.Popen
+    socket.__new__ socket.bind socket.connect socket.getaddrinfo
+    socket.sendto socket.gethostbyname
+    ctypes.dlopen ctypes.dlsym ctypes.dlsym/handle ctypes.call_function
+    ctypes.set_errno ctypes.get_errno ctypes.create_string_buffer
+    shutil.copyfile shutil.copymode shutil.copystat shutil.move
+    shutil.rmtree shutil.unpack_archive shutil.make_archive
+    webbrowser.open urllib.Request
+    mmap.__new__ fcntl.fcntl fcntl.ioctl
+    tempfile.mkstemp tempfile.mkdtemp
+""".split())
+# CỐ Ý KHÔNG chặn: `os.listdir`/`os.scandir`/`glob.glob` — cơ chế import dùng
+# chúng để quét thư mục module, mà bản thân chúng chỉ LIỆT KÊ TÊN, không đọc
+# được nội dung (đường đọc đã khoá ở sự kiện `open`). Chặn thì gãy import.
+# Cũng không chặn `exec`/`compile`/`marshal.loads`: worker PHẢI exec code
+# chiến lược, và importlib giải mã .pyc bằng marshal. Chúng không tự cấp
+# thêm năng lực nào — mọi năng lực thật đều đi qua các sự kiện phía trên.
+
+
+def _read_allowed(path: str) -> bool:
+    """Chỉ cho ĐỌC file của thư viện: file module (.py/.pyc/.so…) hoặc bất kỳ
+    file nào nằm trong prefix Python (stdlib + site-packages, gồm cả dữ liệu
+    kèm theo như zoneinfo). Thư mục repo KHÔNG nằm trong prefix nên `.env`
+    vẫn bị chặn — đó là điểm mấu chốt."""
+    if path.endswith(_IMPORT_SUFFIXES):
+        return True
+    prefixes = [p for p in (getattr(sys, "prefix", None),
+                            getattr(sys, "base_prefix", None),
+                            getattr(sys, "exec_prefix", None)) if p]
+    prefixes.append(os.path.join(os.sep, "usr", "share", "zoneinfo"))
+    return any(path.startswith(p + os.sep) for p in prefixes)
+
+
+def _audit_hook(event: str, args) -> None:
+    """Từ chối mọi năng lực nguy hiểm. KHÔNG được ném lỗi vì lý do khác —
+    hook chạy trong MỌI thao tác được audit của tiến trình."""
+    if event in _DENY_EVENTS:
+        raise SandboxViolation(
+            f"sandbox: sự kiện `{event}` bị chặn (audit hook)")
+    if event == "open":
+        path, mode, flags = (list(args) + [None, None, None])[:3]
+        if path is None:                      # open theo fd — không cho
+            raise SandboxViolation("sandbox: `open` theo file descriptor bị chặn")
+        p = str(path)
+        writing = bool(mode and any(c in str(mode) for c in "wax+"))
+        if isinstance(flags, int) and flags & (os.O_WRONLY | os.O_RDWR
+                                               | os.O_CREAT | os.O_APPEND):
+            writing = True
+        if writing:
+            raise SandboxViolation(f"sandbox: cấm GHI file — {p[:80]!r}")
+        if not _read_allowed(p):
+            raise SandboxViolation(f"sandbox: cấm ĐỌC file — {p[:80]!r}")
+
+
+def install_audit_hook() -> bool:
+    """Cài hook (một chiều, không gỡ được). True nếu vừa cài."""
+    if getattr(builtins, LOCKED_MARKER + "_audit", False):
+        return False
+    sys.addaudithook(_audit_hook)
+    setattr(builtins, LOCKED_MARKER + "_audit", True)
+    return True
+
+
 def lockdown() -> dict:
     """Vô hiệu hoá năng lực nguy hiểm trong TIẾN TRÌNH HIỆN TẠI (một chiều).
+
+    Hai lớp: (A) setattr đè hàm trên module object — thông báo lỗi thân
+    thiện, bắt sớm; (B) audit hook PEP 578 — hàng rào THẬT ở tầng C, không
+    gỡ được, bắt cả những đường lớp A không với tới (xem chú thích
+    `_DENY_EVENTS`). Lớp A một mình đã bị red-team phá 5 đường; lớp B mới là
+    thứ giữ được.
 
     CHỈ gọi trong tiến trình worker — gọi ở tiến trình chính sẽ làm hỏng
     dashboard/pipeline. Trả về thống kê để test soi.
@@ -225,6 +320,9 @@ def lockdown() -> dict:
     except Exception:
         pass
 
+    # LỚP B cài SAU CÙNG: các setattr ở trên tự chúng phát sự kiện audit
+    # (vd `object.__setattr__`), cài hook trước sẽ tự chặn chính mình.
+    stats["audit_hook"] = install_audit_hook()
     setattr(builtins, LOCKED_MARKER, True)
     return stats
 

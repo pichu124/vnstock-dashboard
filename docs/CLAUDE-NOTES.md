@@ -4129,3 +4129,66 @@ Kiểm lại sau vá: `os.open`, `np.fromfile`, `pd.read_csv`, `np.save`,
 `ndarray.tofile`, reimport/reload `os` — chặn hết, không file nào rò; import
 mới + pandas/rolling/ewm/groupby vẫn chạy. 5 test mới (26 test trong file
 cách ly). Full suite 1488 passed.
+
+## 2026-08-06 (i) — VÒNG 4 red-team phá lớp setattr → thêm AUDIT HOOK (PEP 578)
+
+Thả 4 mũi đối kháng vào tầng khoá năng lực vừa dựng, với giả định "AST đã bị
+vượt". Kết quả: **5 escape thật**, và tất cả cùng MỘT bản chất —
+**không thể GIẤU thứ gì khỏi code Python chạy cùng tiến trình**:
+
+1. `del sys.modules['posix']; import posix` → CPython dựng lại module C từ
+   snapshot gốc (m_copy) → `system/popen/open/write/fork/kill` phục hồi hết
+   trong một dòng. `setattr` của lockdown không đụng tới cache đó.
+2. `os.posix_spawn(...)` → tên exec HIỆN ĐẠI bị bỏ sót trong deny list.
+3. `_io.open(...)` → chính chỗ cố ý không vá (vì sợ chết import).
+4. `tokenize._builtin_open`, `bz2._builtin_open`, `tarfile.bltn_open`,
+   `numpy.lib._datasource._open` → các module stdlib/numpy giữ THAM CHIẾU
+   tới `open` GỐC từ lúc import; setattr sau đó không với tới.
+5. `type(sys.__stdout__.buffer)` → lấy lại class `_io.FileIO` GỐC qua một
+   stream đang mở, vượt sạch cổng `_guarded_fileio` (vốn chỉ đè attribute).
+
+**Kết luận thẳng**: `setattr` lên module object là lớp phòng thủ MỀM — tốt
+cho thông báo lỗi và chặn lỗi vô ý, KHÔNG phải hàng rào.
+
+**LỚP B — audit hook (PEP 578)** khác về CHẤT: sự kiện do CPython phát ra
+TỪ BÊN TRONG chính primitive ở tầng C, nên tham chiếu cũ / module vừa import
+lại / class lấy qua `type()` đều đi qua nó như nhau. Và `sys.addaudithook`
+CỐ Ý không có API gỡ (`sys.removeaudithook` không tồn tại — có test guard).
+
+* `_DENY_EVENTS`: os.system/exec/posix_spawn/spawn/fork/kill/remove/rename/
+  chmod/link/truncate…, subprocess.Popen, socket.*, ctypes.*, shutil.*,
+  webbrowser.open, urllib.Request, mmap/fcntl, tempfile.mk*.
+* Sự kiện `open`: cấm MỌI thao tác ghi; chỉ cho ĐỌC file module (.py/.pyc/
+  .so…) hoặc file nằm trong prefix Python (stdlib + site-packages + zoneinfo).
+  Thư mục repo KHÔNG thuộc prefix → `.env` bị chặn. Đây là điểm mấu chốt.
+* CỐ Ý KHÔNG chặn `os.listdir`/`scandir`/`glob` (cơ chế import cần, mà chúng
+  chỉ liệt kê TÊN — nội dung đã khoá ở `open`; chặn thì gãy import, đã dính),
+  và không chặn `exec`/`compile`/`marshal.loads` (worker PHẢI exec code
+  chiến lược; importlib giải mã .pyc bằng marshal — chúng không tự cấp năng
+  lực nào, mọi năng lực thật đều qua sự kiện phía trên).
+* Hook cài SAU CÙNG trong `lockdown()`: các `setattr` của lớp A tự chúng phát
+  sự kiện audit, cài hook trước là tự chặn chính mình.
+
+Đo lại sau vá: **16/16 đường thoát bị chặn, 0 file rò**, gồm cả 5 vector vòng
+4 lẫn các vector vòng 1-3; công việc hợp lệ (import mới, pandas rolling/ewm/
+groupby, `rolling.apply(lambda)`) vẫn chạy; 300 phép rolling tốn 0.03s (chi
+phí ~0 — số học không phát sự kiện audit).
+
+Tests: 39 test trong `tests/test_sandbox_isolation.py` (9 vector vòng 4 +
+đọc .env + hook-không-gỡ-được + không-chặn-tay + guard listdir). Full suite
+1501 passed.
+
+**Bẫy test tự dính**: `modules.pop('posix', None) or __import__('posix')...`
+— `pop` trả module (truthy) nên `or` short-circuit, payload KHÔNG hề chạy mà
+test vẫn "xanh". Dùng `;` thay `or`. Cùng họ bài học "xanh giả" hôm nay.
+
+### Mức bảo vệ hiện tại — nói cho đúng
+
+Có 3 lớp: (1) AST gate, (2) setattr lockdown, (3) audit hook C-level. Lớp 3
+là lớp thật. Với threat model THỰC TẾ của repo này — code do LLM sinh, không
+có kẻ tấn công chủ đích — mức này là đủ và còn dư.
+
+Vẫn KHÔNG phải hàng rào tuyệt đối trước attacker chủ đích: hook chạy trong
+cùng tiến trình, và một khai thác ở tầng C (ctypes đã chặn, nhưng lỗi
+interpreter/extension thì không) về lý thuyết vẫn qua được. Muốn tuyệt đối
+thì phải cách ly ở tầng OS (container/seccomp/user riêng) — vẫn nằm TODO.
