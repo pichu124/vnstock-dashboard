@@ -4433,9 +4433,8 @@ check tương ứng.
 
 ### 🟡 VIỆC CODE CÒN TREO
 
-6. **[8] Classifier** — điểm CUỐI của sơ đồ model 8 điểm: thêm đường Gemini
-   flash cho batch ~1,700 mã (hết crash khi thiếu `ANTHROPIC_API_KEY`); giữ
-   Claude làm opt-in khi có key. (Carry-over từ TODO 30/07 §1.)
+6. ✅ **[8] Classifier — XONG 07/08** (sơ đồ model 8 điểm nay ĐỦ CẢ 8). Xem
+   entry "07/08 (b)" cuối file. Chờ verify trên máy thật: xem §10 dưới.
 
 7. **`vnstock_llm_ledger.py --test-alert`** — bắn 1 tin "(TEST)" qua đúng
    đường ống alert "LLM ladder DOWN" thật. Đã đề xuất, user chưa gật.
@@ -4455,3 +4454,57 @@ check tương ứng.
 9. A/B brief Gemini vs Groq (~3-5 phiên) · Cerebras `gpt-oss-120b` digest
    chập chờn · OpenRouter nạp $10 CHỈ khi cột "(N rate-limit)" > 0 nhiều
    ngày · Gemini flash 503 đêm VN là bình thường, cascade tự đỡ.
+
+10. **Batch classifier thật trên máy user** (mới, sau khi làm điểm [8]) —
+    chạy `python vnstock_classifier.py --classify --limit 20` rồi soi:
+    (i) không đòi `ANTHROPIC_API_KEY` nữa, (ii) dòng route in ra là
+    "ladder free — Gemini 3.5-flash dẫn đầu", (iii) cột `model` trong
+    `industry_classification.parquet` ghi `Gemini:gemini-3.5-flash`,
+    (iv) tỉ lệ "trả lời không lấy được JSON" ở dòng tổng kết. Tỉ lệ đó cao
+    (>10-15%) nghĩa là flash không kham nổi prompt 32 nhóm ngành → cân
+    nhắc `VNSTOCK_CLASSIFY_PAID=1` cho batch đầy đủ. Ước tính quota: 1.700
+    mã tiêu ~2 ngày free tier, hoặc ~$0.5 nếu chạy Claude haiku.
+
+## 2026-08-07 (b) — Điểm [8] classifier: ladder free, Claude thành opt-in
+
+Điểm CUỐI của sơ đồ model 8 điểm. `_call_claude` là đường DUY NHẤT và RAISE
+khi thiếu `ANTHROPIC_API_KEY` → batch ~1.700 mã chết ở mã ĐẦU TIÊN; máy
+all-free không chạy được classifier chút nào.
+
+Giải y hệt điểm [6] về tinh thần (tái dùng cascade sẵn có, không chế client
+mới) nhưng CỐ Ý khác một điểm: [6] dùng `digest_call` — nấc Claude tự bật khi
+có key. Ở đây KHÔNG được như vậy: 1.700 mã × 1 call là tiền thật, `.env` vô
+tình có key mà tự tiêu tiền là hồi quy đắt. Nên dùng `chat_complete`
+(ladder FREE thuần) làm mặc định, Claude phải gõ tay mới chạy: `--paid` hoặc
+`VNSTOCK_CLASSIFY_PAID=1`. Lỗi nấc trả phí giữa batch (key hết hạn, 529) rơi
+tiếp xuống free thay vì chết.
+
+Slug: KHÔNG slug mới nào vào code (luật CLAUDE.md — slug mới phải probe sống
+trước). Cả 3 đều là bộ probe 22/07 đang chạy thật ở `_ANALYZE_MODELS`;
+`gemini-3.5-flash` chính là ứng viên đã ghi cho điểm [8] trong
+`scripts/probe_models.py`.
+
+**Hai sửa BẮT BUỘC đi theo** (không phải scope creep — chính việc đổi sang
+model yếu hơn làm 2 lỗ này từ hiếm thành thường xuyên):
+
+1. `_parse_claude_response` → `_parse_classification`, trả `None` khi model
+   HỎNG (không có JSON / JSON vỡ) thay vì bịa ra `"Khác"`. `None` ≠ `"Khác"`:
+   "Khác" là câu trả lời HỢP LỆ. Gộp 2 ca lại đúng là họ bug sentiment đóng
+   băng "neutral" (fix cùng tuần): rác ghi vào kho → `is_classified` chặn lần
+   chấm sau → sai VĨNH VIỄN, không đường tự sửa. Nay mã trả rác không được
+   ghi, để lần chạy sau chấm lại; đếm riêng và in cảnh báo cuối batch.
+
+2. Cột `model` ghi nấc THẬT đã trả lời (`"Gemini:gemini-3.5-flash"`) thay vì
+   mặc định CLI. Ghi mặc định là nói dối sổ sách — hết soi được chất lượng
+   theo model về sau, đúng thứ cần nhất khi vừa hạ từ Claude xuống free.
+   Cần thêm `chat_complete(..., with_model=True)` — tham số THÊM, mặc định
+   False nên mọi caller sẵn có không đổi một dòng.
+
+Test: 22 test mới `tests/test_classifier.py` (module này TRƯỚC ĐÂY KHÔNG CÓ
+TEST NÀO) + 2 test `with_model`. Trong đó 1 test end-to-end chỉ fake
+`requests.post`, đi qua `chat_complete` THẬT — cố ý không stub ở chỗ mình
+vừa sửa, để dựng lại nguyên chuỗi của bug gốc. Thêm `test_classifier.py` vào
+danh sách `--fast`. Full 1537 → 1561, fast 1010 → 1034.
+
+**Còn chờ máy thật**: xem "CHỜ VERIFY 07/08" §10 — chạy `--classify --limit
+20` soi route + cột model + tỉ lệ JSON hỏng.
