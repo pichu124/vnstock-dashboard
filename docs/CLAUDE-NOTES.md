@@ -4353,3 +4353,105 @@ vật cản là FILE thì `is_dir()` False → pathlib re-raise → import chế
 check độc lập soi lại kết quả thì nó biến lỗi cứng thành lỗi CÂM — ở đây là
 một tháng mất dữ liệu live. Mọi lớp "best-effort nuốt lỗi" cần một doctor
 check tương ứng.
+
+## 📌 CHỜ VERIFY 07/08 (chốt sau đợt 5 việc: WSS/rollup/guard/sentiment/exit-code)
+
+### 🔴 CHỜ ĐIỀU KIỆN THỰC TẾ — chưa verify được bằng test suite
+
+1. **WSS volume tích luỹ** (`vnstock_wss.py`) — cần chạy THẬT trong giờ giao
+   dịch (9h15–14h30, T2–T6). **Không cần đủ phiên**, ~5 phút là đủ: chỉ cần
+   feed đẩy vài chục tick để `_last_accum_vol` có mốc so sánh.
+
+   ```powershell
+   python vnstock_wss.py       # để chạy ~5 phút rồi Ctrl+C
+   ```
+
+   Rồi soi `data_warehouse\_live\`:
+   - mã cổ phiếu (VCB, HPG…) → `volume > 0` ✅
+   - `VNINDEX` / `VN30F1M` → `volume == 0` ✅
+
+   Vì sao index/futures PHẢI là 0: feed **không gửi** `accumulatedvolume` cho
+   nhóm này. Trước fix, `_pick()` rơi xuống fallback `"volume"` — là volume
+   của TỪNG tick lẻ, không phải luỹ kế — rồi `accum_to_delta()` coi mỗi tick
+   như một mốc luỹ kế mới và **cộng dồn thành số ảo**. Sau fix: `accum_raw is
+   None` → `delta_volume = 0.0`, và KHÔNG ghi vào `_last_accum_vol` (tránh
+   nhiễm mốc giả cho lần sau).
+
+   Kèm theo: `BarAggregator.diagnostics()` → `suspect_count` phải là 0.
+   (Đây chính là mục "WSS volume inflation bug" treo từ `PENDING_WORK.md`
+   §6/§7 — nay đã có fix, chỉ còn chờ xác nhận live.)
+
+2. **Đơn vị giá penny khi rollup** (`_normalize_units` trong `vnstock_rollup.py`)
+   — chỉ kích hoạt khi gặp mã có giá lệch ≥1.000 lần giữa data cũ và data mới
+   (`_UNIT_RATIO_MIN = 100.0`, `_UNIT_SCALE = 1000.0`). **Không dựng được
+   tình huống thật theo ý muốn** — phụ thuộc nguồn API đổi đơn vị.
+
+   Đã có: test unit phủ `_normalize_units`. Và nếu xảy ra thật thì rollup
+   **in cảnh báo ra log** chứ không âm thầm ghi sai như trước. Việc cần làm
+   chỉ là: thấy dòng cảnh báo đơn vị trong `run_daily.log` → đọc kỹ, đừng
+   lướt qua.
+
+### ✅ ĐÃ VERIFY XONG (không cần làm lại)
+
+3. **`enforce_vnindex_change`** — `_fix2` đọc cửa sổ từ `out[...]` thay vì
+   `text[...]` (trước đó đọc chuỗi CHƯA sửa nên guard hụt). Verify qua full
+   suite: **1537 passed** trên máy thật.
+
+4. **Sentiment không đóng băng "neutral"** — tin chấm hụt (`r[4]` rỗng) bị
+   lọc ra TRƯỚC khi cache, in `[sentiment] N/M tin chưa chấm được`. Trước đó
+   ladder chết → cả lô ghi "neutral" vào SQLite vĩnh viễn, không bao giờ
+   chấm lại. Verify qua full suite.
+
+5. **Exit code updater 3 tầng** — verify TAY trên máy thật bằng kho giả
+   (recipe tái dùng được, không đụng `data_warehouse` thật):
+
+   ```powershell
+   # dựng kho giả: GOODTK có data tương lai (→ up_to_date, khỏi gọi mạng),
+   # BADTK là thư mục rỗng (→ _get_last_date trả None → error)
+   mkdir khothu\prices\ticker=GOODTK\year=2030 -Force
+   mkdir khothu\prices\ticker=BADTK -Force
+   python -c "import pandas as pd; pd.DataFrame({'time':[pd.Timestamp('2030-01-02')],'open':[1.0],'high':[1.0],'low':[1.0],'close':[1.0],'volume':[1]}).to_parquet(r'khothu\prices\ticker=GOODTK\year=2030\prices.parquet')"
+
+   python vnstock_updater.py --warehouse khothu --force   # 1 ok + 1 err
+   echo "exit code: $LASTEXITCODE"                        # → 1  (cảnh báo)
+
+   Remove-Item -Recurse -Force khothu\prices\ticker=GOODTK
+   python vnstock_updater.py --warehouse khothu --force   # 0 ok + 1 err
+   echo "exit code: $LASTEXITCODE"                        # → 2  (fail cứng)
+
+   Remove-Item -Recurse -Force khothu                     # dọn
+   ```
+
+   | `n_ok` | `n_err` | Exit | `run.py sync` làm gì |
+   |---|---|---|---|
+   | >0 | 0 | **0** | xanh, chạy tiếp |
+   | >0 | >0 | **1** | cảnh báo, VẪN chạy rollup |
+   | 0 | >0 | **2** | DỪNG — không rollup, không brief |
+
+   Trước fix: cả 3 trường hợp đều trả `0` → 1.100 mã lỗi hết vẫn báo "xanh"
+   và brief vẫn sinh trên data cũ.
+
+### 🟡 VIỆC CODE CÒN TREO
+
+6. **[8] Classifier** — điểm CUỐI của sơ đồ model 8 điểm: thêm đường Gemini
+   flash cho batch ~1,700 mã (hết crash khi thiếu `ANTHROPIC_API_KEY`); giữ
+   Claude làm opt-in khi có key. (Carry-over từ TODO 30/07 §1.)
+
+7. **`vnstock_llm_ledger.py --test-alert`** — bắn 1 tin "(TEST)" qua đúng
+   đường ống alert "LLM ladder DOWN" thật. Đã đề xuất, user chưa gật.
+   (Carry-over từ TODO 30/07 §2.)
+
+8. **Việc mức MEDIUM/LOW của đợt audit 06/08** — chưa làm:
+   - ghi nguyên tử cho `vnstock_warehouse._write_parquet`, cache macro,
+     `_meta/*.json` (mới chỉ `vnstock_parquet_io` dùng ở updater/rollup)
+   - hiệu năng pipeline: warehouse bị quét ~14 lần/đêm
+   - test replica đã trôi xa bản thật: `tests/test_dashboard.py`,
+     `tests/test_wss.py`
+   - tách file quá lớn: `vnstock_brief.py` (6.758 dòng),
+     `dashboard/market_tab.py`
+
+### 🟠 QUAN SÁT vài ngày rồi quyết (carry-over TODO 30/07 §7-10)
+
+9. A/B brief Gemini vs Groq (~3-5 phiên) · Cerebras `gpt-oss-120b` digest
+   chập chờn · OpenRouter nạp $10 CHỈ khi cột "(N rate-limit)" > 0 nhiều
+   ngày · Gemini flash 503 đêm VN là bình thường, cascade tự đỡ.

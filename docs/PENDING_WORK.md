@@ -1,5 +1,13 @@
 # Pending Work — Resume Checkpoint
 
+> ⚠️ **File này ĐÃ CŨ (chốt 2026-05-28) và có nội dung lặp.** Danh sách việc
+> phải làm/chờ verify ĐANG DÙNG nằm ở `docs/CLAUDE-NOTES.md`, mục
+> **"📌 CHỜ VERIFY 07/08"** (cuối file). Giữ file này làm sử liệu thôi.
+>
+> Riêng §6/§7 "WSS volume inflation bug" bên dưới: **đã fix 07/08**
+> (`accum_raw is None` → delta 0, không nhiễm `_last_accum_vol`), chỉ còn
+> chờ xác nhận live — xem mục CHỜ VERIFY 07/08 §1.
+
 **Last session ended**: 2026-05-28 (post-review tune-up)
 **Branch**: `claude/review-code-summary-DkAI7`
 **Current state**: F1-F7 done, code review tune-ups applied (json logging,
