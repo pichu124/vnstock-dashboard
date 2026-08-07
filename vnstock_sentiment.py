@@ -376,6 +376,16 @@ def score_news_batch(
     if total >= 3 and new_rows and all(not r[4] for r in new_rows):
         _alert_down("sentiment tin tức (score_news_batch)")
 
+    # Tin KHÔNG provider nào chấm được (cột model rỗng) → `score_one` trả
+    # "neutral" mặc định. Ghi nó vào cache là ĐÓNG BĂNG VĨNH VIỄN: lần sau
+    # `cached` đã có hash nên tin không bao giờ được chấm lại, dù ladder đã
+    # hồi (audit 06/08). Chỉ lưu tin CÓ model; tin còn lại để lần sau thử lại.
+    unscored = [r for r in new_rows if not r[4]]
+    if unscored:
+        print(f"[sentiment] {len(unscored)}/{len(new_rows)} tin chưa chấm được "
+              f"(ladder lỗi) — KHÔNG cache, sẽ thử lại lần sau")
+        new_rows = [r for r in new_rows if r[4]]
+
     if new_rows:
         with _db_lock:
             conn = _get_conn()

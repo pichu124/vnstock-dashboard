@@ -6082,7 +6082,14 @@ def enforce_vnindex_change(text: str, ctx: dict) -> str:
     repl2 = "gần như đi ngang (0.00%)" if flat else repl
 
     def _fix2(m: "_re.Match") -> str:
-        before = text[max(0, m.start() - 35):m.start()].lower()
+        # ĐỌC TỪ `out`, KHÔNG phải `text` (audit 06/08): nhánh 1 chạy trước và
+        # ĐỔI ĐỘ DÀI chuỗi, nên `m.start()` — vị trí trong `out` — trỏ vào chỗ
+        # KHÁC của `text`. Ca thật đã dựng lại: nhánh 1 rút "giảm 111,222.333%"
+        # thành "tăng 0.31%" (lệch 7 ký tự) → cửa sổ đọc từ `text` mất chữ
+        # "chỉ số" → guard bỏ qua đúng chỗ đáng lẽ phải sửa. Chiều ngược lại
+        # còn tệ hơn: cửa sổ lệch có thể VÔ TÌNH thấy "vnindex" ở mệnh đề GTGD
+        # rồi guard tự tay ghi đè số GTGD bằng day_change_pct.
+        before = out[max(0, m.start() - 35):m.start()].lower()
         if any(k in before for k in _SUBJ_SKIP):
             return m.group(0)
         if not any(k in before for k in _SUBJ_IDX):
