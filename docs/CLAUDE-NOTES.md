@@ -4508,3 +4508,42 @@ danh sách `--fast`. Full 1537 → 1561, fast 1010 → 1034.
 
 **Còn chờ máy thật**: xem "CHỜ VERIFY 07/08" §10 — chạy `--classify --limit
 20` soi route + cột model + tỉ lệ JSON hỏng.
+
+## 2026-08-07 (c) — Probe ladder trên máy thật: 10/10 sống, và 1 bẫy lộ ra từ output
+
+User chạy `python scripts/probe_models.py --ladder` lúc 23:39 sau khi làm
+điểm [8]. Kết quả: **10/10 slug SỐNG**, 4/4 key có, độ trễ 0.8–4.8s. Ba nấc
+của [8] đều xanh: `gemini-3.5-flash` 1.5s (chính) · `qwen/qwen3.6-27b` 0.8s ·
+`nemotron-3-ultra-550b:free` 1.5s. Tag `[8] classifier` hiện đúng — xác nhận
+bản vá "khai [8] vào 2 lưới" chạy được trên máy thật (container không tự
+kiểm được việc này).
+
+**Bẫy lộ ra từ chính output**: đầu output có
+`✅ Authentication successful: Binh Le (golden)` + `Using vnstock_data
+(vnstock_classifier.py:66)`. Tức là để đọc 3 dòng slug, `--ladder` phải
+import `vnstock_classifier` — module này kéo theo SDK vnstock + xác thực
+MẠNG ngay lúc import.
+
+Nghĩa là key DATA hết hạn hoặc mạng lỗi → `--ladder` chết TRƯỚC khi probe
+được model nào. Công cụ chẩn đoán LLM bị giết bởi thứ nó không chẩn đoán,
+đúng lúc cần nó nhất. Cùng họ bài học với `_live` là FILE làm WSS chết câm:
+một lớp phụ trợ hỏng làm chết cả đường chính.
+
+Vá: import [8] nằm trong `try/except` riêng, hỏng thì bỏ nấc [8] nhưng IN
+CẢNH BÁO kèm loại lỗi. Không nuốt im lặng — nuốt im lặng là quay lại đúng
+điểm mù vừa vá xong ở entry trước. Test `test_probe_ladder_survives_broken_
+vnstock_sdk` giả lập SDK nổ và chốt: các nấc khác vẫn probe, nấc [8] biến
+mất khỏi tag, và cảnh báo phải in ra.
+
+**Bài học chung** (đáng nhớ hơn ca cụ thể): khi thêm một điểm dùng model mới,
+phải khai vào CẢ HAI lưới (`_all_live_slugs` của test + `_ladder_slugs` của
+probe) — và nhớ rằng lưới chỉ soi thứ được KHAI BÁO. Lần này slug [8] trùng
+y nguyên giá trị với `_ANALYZE_MODELS` nên nhìn thì tưởng an toàn; đó là
+TRÙNG HỢP, không phải bảo vệ. Đổi model chấm tin mà quên classifier là slug
+batch 1.700 mã thành điểm mù ngay. Đã có `test_classifier_slugs_are_watched_
+by_both_nets` chốt việc đó độc lập.
+
+**Ghi chú phụ**: máy user đang có bản mới của thư viện data (vnstock 4.0.4 →
+4.0.5, vnai 2.4.8 → 2.5.6, vnii 0.2.4 → 0.2.5). CHƯA nâng — vnstock là nguồn
+data của cả pipeline, nâng phải chạy `run.py doctor --net` + full suite ngay
+sau đó, không nâng lúc sát giờ pipeline chạy.
