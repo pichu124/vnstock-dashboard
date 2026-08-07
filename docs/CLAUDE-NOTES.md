@@ -4012,3 +4012,36 @@ nay trả LỖI nên `if err: continue` sẽ bỏ luôn.
 làm, không cần thiết.
 
 Full suite 1462 passed.
+
+## 2026-08-06 (g) — Test sandbox XANH GIẢ trên Windows (đường dẫn thành escape)
+
+Máy user chạy full suite: 1 đỏ —
+`test_module_traversal_blocked_even_if_validator_skipped` với
+`SyntaxError: (unicode error) 'unicodeescape' … truncated \UXXXXXXXX`.
+Nguyên nhân: test nhúng `tmp_path` thẳng vào SOURCE Python, mà trên Windows
+đường dẫn là `C:\Users\…` → `\U` bị đọc thành escape unicode hỏng.
+
+**Cái đỏ đó chưa phải vấn đề lớn nhất.** Test đó đỏ vì nó gọi `exec()`
+TRỰC TIẾP (không bọc `pytest.raises`). Các test tấn công CÒN LẠI đều bọc
+`pytest.raises(Exception)` — mà SyntaxError CŨNG là Exception → chúng "xanh"
+nhờ payload hỏng cú pháp chứ KHÔNG phải nhờ sandbox chặn. Tức trên Windows,
+một phần bộ test bảo mật vừa viết là **XANH GIẢ**, không kiểm gì cả.
+
+Fix 3 lớp:
+1. `_pypath(p)` = `p.as_posix()` — mọi chỗ nhúng đường dẫn vào source dùng
+   dấu `/` (hợp lệ trên cả Windows).
+2. **Lưới chống tái diễn**: `_wrap()` nay `compile()` payload ngay khi dựng.
+   Payload hỏng cú pháp → SyntaxError ném ra NGOÀI mọi `pytest.raises` →
+   test đỏ ầm ĩ thay vì xanh giả. Đã tự kiểm bằng cách giả lập đường dẫn
+   Windows: lưới bắt đúng.
+3. Payload traversal đổi `os.system('touch …')` → `os.makedirs(…)`: `touch`
+   KHÔNG tồn tại trên Windows nên test cũ ở đó vốn đã yếu (dù sandbox có
+   thủng thì file cũng không được tạo → vẫn xanh). `makedirs` chạy trên cả
+   2 hệ và vẫn chứng minh chạm được `os` thật.
+
+**Bài học chung**: test bảo mật dùng `pytest.raises(Exception)` rất dễ xanh
+giả — exception nào cũng làm nó xanh, kể cả lỗi của chính test. Khi viết
+test kiểu "phải bị chặn", luôn kèm một khẳng định độc lập về TÁC DỤNG PHỤ
+(ở đây: `assert not proof.exists()`) và bảo đảm payload hợp lệ về cú pháp.
+
+Full suite 1462 passed (sandbox Linux); chờ máy user xác nhận trên Windows.

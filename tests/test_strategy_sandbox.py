@@ -37,14 +37,35 @@ def _ohlcv(n: int = 80) -> pd.DataFrame:
     })
 
 
+def _pypath(p) -> str:
+    """Đường dẫn để NHÚNG VÀO SOURCE Python.
+
+    Bài học 06/08 (máy user, Windows): nhét thẳng `tmp_path` vào chuỗi thì
+    `C:\\Users\\…` bị đọc thành escape `\\U` → SyntaxError. Test
+    validator-skipped đỏ; TỆ HƠN là mọi test tấn công dùng
+    `pytest.raises(Exception)` lại "xanh" nhờ chính SyntaxError đó chứ không
+    phải nhờ sandbox chặn — xanh GIẢ. Dấu `/` hợp lệ trên cả Windows.
+    """
+    return p.as_posix()
+
+
 def _wrap(body: str) -> str:
-    """Bọc payload vào đúng contract signal(df, params)."""
-    return (
+    """Bọc payload vào đúng contract signal(df, params).
+
+    `compile()` ở đây là LƯỚI CHỐNG XANH GIẢ: payload hỏng cú pháp sẽ ném
+    SyntaxError NGAY tại đây (ngoài mọi `pytest.raises`) → test đỏ ầm ĩ,
+    thay vì "xanh" vì sandbox chưa kịp làm gì. Bẫy 06/08 trên Windows:
+    đường dẫn `C:\\Users\\…` nhúng vào chuỗi thành escape `\\U` hỏng, và
+    `pytest.raises(Exception)` nuốt luôn SyntaxError đó.
+    """
+    code = (
         "def signal(df, params):\n"
         f"    {body}\n"
         "    return {'action': 'hold', 'entry': 0, 'tp': 0, 'sl': 0, "
         "'confidence': 0}\n"
     )
+    compile(code, "<payload>", "exec")
+    return code
 
 
 # ── Đường thoát ĐÃ XÁC NHẬN khai thác được (audit 06/08) ───────────────────
@@ -52,8 +73,8 @@ def _wrap(body: str) -> str:
 def test_module_traversal_to_os_is_rejected(tmp_path):
     """Khai thác gốc: pd → io → common → os → system. Toàn tên thường nên
     cổng kiểm cũ cho qua và lệnh shell chạy thật."""
-    proof = tmp_path / "escape_proof.txt"
-    code = _wrap(f"pd.io.common.os.system('touch {proof}')")
+    proof = tmp_path / "escape_proof_dir"
+    code = _wrap(f"pd.io.common.os.makedirs('{_pypath(proof)}')")
 
     with pytest.raises(Exception):
         vs.EXECUTOR.run(code, _ohlcv(), {})
@@ -64,8 +85,8 @@ def test_module_traversal_to_os_is_rejected(tmp_path):
 def test_module_traversal_blocked_even_if_validator_skipped(tmp_path):
     """Phòng thủ nhiều lớp: kể cả khi cổng kiểm AST bị bỏ qua, sandbox vẫn
     phải chặn ở tầng RUNTIME — `pd.io` không được tồn tại trong scope."""
-    proof = tmp_path / "escape_proof2.txt"
-    code = _wrap(f"pd.io.common.os.system('touch {proof}')")
+    proof = tmp_path / "escape_proof2_dir"
+    code = _wrap(f"pd.io.common.os.makedirs('{_pypath(proof)}')")
     g = vs._safe_globals(_ohlcv(), {})
     loc: dict = {}
 
@@ -95,7 +116,8 @@ def test_dataframe_file_write_methods_are_rejected(tmp_path):
     for meth in ("to_csv", "to_pickle", "to_parquet", "to_json"):
         proof = tmp_path / f"{meth}.out"
         with pytest.raises(Exception):
-            vs.EXECUTOR.run(_wrap(f"df.{meth}('{proof}')"), _ohlcv(), {})
+            vs.EXECUTOR.run(_wrap(f"df.{meth}('{_pypath(proof)}')"),
+                            _ohlcv(), {})
         assert not proof.exists(), f"SANDBOX ESCAPE: df.{meth} ghi được file"
 
 
@@ -226,10 +248,10 @@ def test_common_quant_idioms_still_allowed():
 def test_strict_executor_shares_the_same_gate(tmp_path):
     """STRICT_EXECUTOR spawn subprocess nhưng _signal_worker dựng CÙNG
     _safe_globals — nó phải chặn y hệt, không được lỏng hơn."""
-    proof = tmp_path / "escape_strict.txt"
+    proof = tmp_path / "escape_strict_dir"
     with pytest.raises(Exception):
         vs.STRICT_EXECUTOR.run(
-            _wrap(f"pd.io.common.os.system('touch {proof}')"), _ohlcv(), {})
+            _wrap(f"pd.io.common.os.makedirs('{_pypath(proof)}')"), _ohlcv(), {})
     assert not proof.exists()
 
 
@@ -302,7 +324,7 @@ def test_audit_saved_strategies_fresh_machine_is_not_an_error(monkeypatch):
 ])
 def test_string_dispatch_file_write_is_rejected(tmp_path, body):
     proof = tmp_path / "pwned.out"
-    code = _wrap(body.format(p=proof))
+    code = _wrap(body.format(p=_pypath(proof)))
 
     with pytest.raises(Exception):
         vs.EXECUTOR.run(code, _ohlcv(), {})
@@ -394,7 +416,7 @@ def test_dispatch_bypass_variants_all_blocked(tmp_path, body):
     rolling/resample/ewm/expanding), và mọi cách dựng chuỗi — kể cả tên
     truyền qua `params` (params do LLM tune, cũng là input không tin được)."""
     proof = tmp_path / "v.out"
-    code = _wrap(body.format(p=proof))
+    code = _wrap(body.format(p=_pypath(proof)))
 
     with pytest.raises(Exception):
         vs.EXECUTOR.run(code, _ohlcv(), {"m": "to_csv"})
@@ -426,7 +448,7 @@ def test_bound_method_indirection_is_rejected(tmp_path, body):
     chối — gán biến, list, tuple, dict, đối số lambda, default arg, giá trị
     trả về, key= của sorted."""
     proof = tmp_path / "ind.out"
-    code = _wrap(body.format(p=proof))
+    code = _wrap(body.format(p=_pypath(proof)))
 
     with pytest.raises(vs.StrategyValidationError):
         vs.EXECUTOR.run(code, _ohlcv(), {})
