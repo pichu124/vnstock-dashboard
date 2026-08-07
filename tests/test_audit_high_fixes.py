@@ -299,3 +299,34 @@ def test_no_repo_module_is_replaced_by_a_mock():
     mocked = [name for name, mod in list(sys.modules.items())
               if name.startswith("vnstock_") and isinstance(mod, Mock)]
     assert not mocked, f"module thật của repo bị thay bằng mock: {mocked}"
+
+
+# ═══ Import vnstock_wss KHÔNG được chết vì side effect tạo thư mục ═══════
+
+def test_wss_import_survives_unusable_live_dir(tmp_path, monkeypatch):
+    """Máy user (Windows) đỏ 4 test: `LIVE_DIR.mkdir(exist_ok=True)` chạy ở
+    CẤP MODULE ném `FileExistsError` → cả module không import được, kéo theo
+    dashboard lẫn test. `mkdir(exist_ok=True)` VẪN ném khi `Path.is_dir()`
+    trả False, mà `is_dir()` nuốt mọi OSError của `stat` (ACL chặn, reparse
+    point hỏng, file bị khoá) rồi trả False — tức thư mục CÓ THẬT vẫn làm
+    import chết. Tái hiện bằng cách để đường dẫn là FILE."""
+    import vnstock_wss as w
+
+    blocker = tmp_path / "_live"
+    blocker.write_text("day la FILE chu khong phai thu muc", encoding="utf-8")
+    monkeypatch.setattr(w, "LIVE_DIR", blocker)
+
+    assert w._ensure_live_dir() is True      # có tồn tại → để bước ghi lo tiếp
+
+    missing = tmp_path / "sub" / "_live"     # đường bình thường vẫn tạo được
+    monkeypatch.setattr(w, "LIVE_DIR", missing)
+    assert w._ensure_live_dir() is True and missing.is_dir()
+
+
+def test_no_module_level_mkdir_in_wss():
+    """Guard: không được quay lại kiểu tạo thư mục ở cấp module."""
+    import pathlib
+    src = pathlib.Path("vnstock_wss.py").read_text(encoding="utf-8")
+    for line in src.splitlines():
+        if line.startswith("LIVE_DIR") and ".mkdir(" in line:
+            pytest.fail(f"mkdir ở cấp module quay lại: {line!r}")

@@ -210,7 +210,32 @@ def _pick_depth_levels(row, columns: list, side: str,
 
 
 LIVE_DIR = Path("data_warehouse/_live")
-LIVE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _ensure_live_dir() -> bool:
+    """Tạo LIVE_DIR khi CẦN GHI — cố gắng hết sức, không bao giờ ném lỗi.
+
+    Trước 06/08 đây là `LIVE_DIR.mkdir(...)` chạy thẳng ở CẤP MODULE: hỏng
+    một lần là cả module KHÔNG IMPORT ĐƯỢC, kéo theo dashboard lẫn test.
+    Máy user (Windows) đỏ 4 test đúng vì vậy — `mkdir(exist_ok=True)` VẪN
+    ném `FileExistsError` khi `Path.is_dir()` trả False, mà `is_dir()` nuốt
+    mọi OSError của `stat` (ACL chặn, reparse point hỏng, file bị khoá) rồi
+    trả False. Nói cách khác: thư mục có thật vẫn làm import chết.
+
+    Trả về True nếu thư mục dùng được. Chỗ ghi tự gọi hàm này nên không cần
+    side effect lúc import nữa.
+    """
+    try:
+        LIVE_DIR.mkdir(parents=True, exist_ok=True)
+        return True
+    except OSError:
+        try:
+            return LIVE_DIR.exists()   # đã có sẵn → cứ để bước ghi thử tiếp
+        except OSError:
+            return False
+
+
+_ensure_live_dir()          # tiện thì tạo sẵn, hỏng cũng KHÔNG chặn import
 
 STATUS_PATH = LIVE_DIR / "status.json"
 
@@ -411,6 +436,7 @@ class VnStockWSS:
         thread (Streamlit đọc file mỗi 3s). Retry với backoff nhỏ.
         """
         import os as _os
+        _ensure_live_dir()      # tạo lúc GHI, không phải lúc import
         tid = threading.get_ident()
         tmp = path.with_suffix(f".{_os.getpid()}.{tid}.tmp")
         content = json.dumps(data, ensure_ascii=False)
@@ -1167,6 +1193,7 @@ class VnStockWSS:
         if snap.empty:
             return
 
+        _ensure_live_dir()      # tạo lúc GHI, không phải lúc import
         date_str = datetime.now().strftime("%Y-%m-%d")
         out_path = LIVE_DIR / f"bars_{date_str}.parquet"
 

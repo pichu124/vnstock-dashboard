@@ -4286,3 +4286,34 @@ Full suite 1520 passed.
   data, đó là tín hiệu thật.
 * Phiên WSS đầu tiên: soi `_live/bars_*.parquet` — volume index/futures
   giờ về 0 (đúng thiết kế), volume cổ phiếu vẫn có qua delta.
+
+### Bổ sung (j1) — máy Windows đỏ 4 test: `vnstock_wss` tạo thư mục lúc IMPORT
+
+Máy user: `1528 passed, 4 failed`, cả 4 chết ngay ở dòng `import vnstock_wss`
+với `FileExistsError [WinError 183] ... data_warehouse\_live`.
+
+Cơ chế: `vnstock_wss.py` có `LIVE_DIR.mkdir(parents=True, exist_ok=True)`
+chạy ở **cấp module**. Điều bất ngờ: `exist_ok=True` VẪN ném
+`FileExistsError` — pathlib chỉ nuốt lỗi khi `self.is_dir()` trả True, mà
+`Path.is_dir()` nuốt MỌI OSError của `stat` (ACL chặn, reparse point hỏng,
+file đang bị khoá) rồi trả False. Tức là **thư mục có thật vẫn làm import
+chết**. Và vì side effect nằm ở cấp module, hỏng một lần là cả module không
+dùng được — kéo theo dashboard lẫn test.
+
+Vì sao chỉ giờ mới lộ: trước đây KHÔNG test nào import `vnstock_wss` thật
+(`tests/test_wss.py` cố tình dùng bản replica — chính điều audit đã chê).
+Test mới hôm nay là lần đầu import thật, và nó lộ ngay trên máy user.
+
+Fix: bỏ mkdir ở cấp module; thêm `_ensure_live_dir()` (cố gắng hết sức,
+KHÔNG BAO GIỜ ném) gọi tại các chỗ GHI (`_atomic_write_json`, `_flush_bars`).
+2 test giữ: import sống được khi LIVE_DIR là FILE, và guard cấm quay lại
+kiểu mkdir cấp module. Full suite 1523 passed.
+
+**Bài học lặp lại lần 3 trong ngày**: sandbox Linux không đại diện máy
+Windows (1: đường dẫn thành escape `\U`; 2: `.pyc` chưa cache; 3: `is_dir()`
+False do stat lỗi). Và: side effect ở cấp module là mìn — mọi thao tác I/O
+lúc import phải bọc, hoặc dời xuống chỗ dùng.
+
+⚠️ **User nên kiểm tra thêm**: nếu `data_warehouse\_live` thật sự không phải
+thư mục dùng được thì WSS sẽ không ghi được bar. Chạy:
+`python -c "import pathlib; p=pathlib.Path('data_warehouse/_live'); print(p.exists(), p.is_dir(), p.stat())"`
