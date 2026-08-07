@@ -510,6 +510,46 @@ def test_probe_ladder_covers_all_free_live_slugs():
     assert any("[8]" in n for n in notes)
 
 
+def test_probe_ladder_survives_broken_vnstock_sdk(capsys):
+    """Công cụ chẩn đoán KHÔNG được chết vì thứ nó không chẩn đoán.
+
+    `vnstock_classifier` kéo theo cả SDK vnstock + xác thực mạng (máy user
+    07/08: `--ladder` in ra "Authentication successful ... golden"). Key data
+    hết hạn / mạng lỗi mà làm `--ladder` chết là mất health check LLM đúng lúc
+    cần nhất. Hỏng thì bỏ qua nấc [8] nhưng phải KÊU TO — nuốt im lặng là
+    quay lại điểm mù vừa vá."""
+    import importlib.util
+    import sys as _sys
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parent.parent / "scripts" / "probe_models.py"
+    spec = importlib.util.spec_from_file_location("_probe_broken_sdk", path)
+    pm = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pm)
+
+    class _BrokenModule:                 # import được, đọc slug thì nổ
+        def __getattr__(self, name):
+            raise RuntimeError("vnstock auth failed: key expired")
+
+    real = _sys.modules.get("vnstock_classifier")
+    _sys.modules["vnstock_classifier"] = _BrokenModule()
+    try:
+        entries = pm._ladder_slugs()     # KHÔNG được raise
+    finally:
+        if real is not None:
+            _sys.modules["vnstock_classifier"] = real
+        else:
+            _sys.modules.pop("vnstock_classifier", None)
+
+    assert entries, "mất sạch ladder chỉ vì 1 module hỏng"
+    notes = {n for _, _, n, _ in entries}
+    assert any("[1]" in n for n in notes)          # các nấc khác vẫn probe
+    assert not any("[8]" in n for n in notes)      # nấc [8] bị bỏ qua
+    warn = capsys.readouterr().out
+    assert "[8]" in warn and "classifier" in warn  # và phải kêu to
+    assert "RuntimeError" in warn                  # kèm lý do để chẩn đoán
+
+
 def test_classifier_slugs_are_watched_by_both_nets():
     """Lưới chỉ soi slug được KHAI BÁO. Hôm nay `_CLASSIFY_MODELS` trùng giá
     trị với `_ANALYZE_MODELS` nên có vẻ an toàn — nhưng đó là TRÙNG HỢP, không

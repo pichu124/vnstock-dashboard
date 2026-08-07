@@ -100,7 +100,6 @@ def _ladder_slugs() -> list[tuple[str, str, str, dict]]:
     if str(_REPO) not in sys.path:
         sys.path.insert(0, str(_REPO))
     import vnstock_brief as vb
-    import vnstock_classifier as vc
     import vnstock_news_feeds as nf
     import vnstock_report_digest as dg
     import vnstock_sentiment as snt
@@ -125,7 +124,18 @@ def _ladder_slugs() -> list[tuple[str, str, str, dict]]:
             _add(prov, c["model"], "[7] brief")
     for m in vb.CerebrasAgent._MODEL_FALLBACKS:
         _add("Cerebras", m, "[7] fallback")
-    for prov, m in vc._CLASSIFY_MODELS.items():
+    # [8] classifier CÁCH LY: module này kéo theo cả SDK vnstock + xác thực
+    # mạng (máy user 07/08: --ladder in "Authentication successful … golden").
+    # Công cụ chẩn đoán LLM không được chết vì key DATA hết hạn — đó đúng lúc
+    # cần nó nhất. Hỏng thì bỏ nấc [8] nhưng KÊU TO, không nuốt im lặng.
+    try:
+        import vnstock_classifier as vc
+        classify_models = dict(vc._CLASSIFY_MODELS)
+    except Exception as e:
+        classify_models = {}
+        print(f"⚠ KHÔNG đọc được slug [8] classifier ({type(e).__name__}: "
+              f"{str(e)[:100]}) — ladder [8] KHÔNG được health-check lần này")
+    for prov, m in classify_models.items():
         _add(prov, m, "[8] classifier")
 
     return [(prov, model, " + ".join(dict.fromkeys(ts)), {})
