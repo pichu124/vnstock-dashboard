@@ -2,7 +2,8 @@
 
 > ⚠️ **File này ĐÃ CŨ (chốt 2026-05-28) và có nội dung lặp.** Danh sách việc
 > phải làm/chờ verify ĐANG DÙNG nằm ở `docs/CLAUDE-NOTES.md`, mục
-> **"📌 CHỜ VERIFY 07/08"** (cuối file). Giữ file này làm sử liệu thôi.
+> **"📌 VIỆC PHẢI LÀM — chốt 08/08/2026"** (cuối file). Giữ file này làm sử
+> liệu thôi.
 >
 > Riêng §6/§7 "WSS volume inflation bug" bên dưới: **đã fix 07/08**
 > (`accum_raw is None` → delta 0, không nhiễm `_last_accum_vol`), chỉ còn

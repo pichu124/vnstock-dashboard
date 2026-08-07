@@ -60,6 +60,12 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   (test quét slug chết) và `_ladder_slugs` (`vnstock_model_watch`). Lưới chỉ
   soi thứ ĐƯỢC KHAI BÁO — trùng slug với điểm khác là may, không phải bảo vệ.
 
+## Git — máy user làm việc trên `main`
+Claude push lên nhánh feature → trên máy user `git pull` báo "Already up to
+date" DÙ vừa tải commit mới về (git chỉ merge nhánh đang theo dõi). Lấy code
+mới phải dùng `git fetch origin <nhánh> && git merge origin/<nhánh>`. Nghi máy
+chạy code cũ → `git log --oneline -1` đối chiếu commit cuối Claude báo.
+
 ## ⚠️ Bất biến — đọc docs/CLAUDE-NOTES.md trước khi đụng
 - Chart 4 panel (Price/Volume/RSI/MACD): CHỈ dùng logical-range API của
   Lightweight Charts, cấm time-range API; 4 chart phải cùng số bar (bar
@@ -69,7 +75,9 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 - `Giá 1T %` = đổi 1 TUẦN (5 phiên), không phải 1 phiên — mọi nhãn phải ghi rõ.
 
 ## Nhật ký chi tiết
+Việc còn phải làm/test: mục **"📌 VIỆC PHẢI LÀM — chốt 08/08/2026"** ở CUỐI
+`docs/CLAUDE-NOTES.md` (đọc mục này trước khi hỏi "còn việc gì").
 Toàn bộ lịch sử fix, 30+ guard brief, khảo sát nguồn data, mục chờ verify
-(2.9K dòng) nằm ở `docs/CLAUDE-NOTES.md`. Khi làm việc trên brief / macro /
+(4.8K dòng) nằm ở `docs/CLAUDE-NOTES.md`. Khi làm việc trên brief / macro /
 strategy / chart: MỞ FILE ĐÓ tra mục liên quan trước khi sửa. Đừng chép
 ngược nội dung dài vào file này — CLAUDE.md giữ dưới ~100 dòng.
