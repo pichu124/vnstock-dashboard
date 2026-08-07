@@ -4218,3 +4218,71 @@ kia (ở đây: xoá `__pycache__` rồi import).
 
 ✅ **CHỐT: máy user (Windows) 1514 passed** — toàn bộ đợt sandbox 4 vòng đối
 kháng khép lại, xanh thật trên cả 2 hệ.
+
+## 2026-08-06 (j) — Dọn nốt 6 lỗi mức HIGH của đợt audit (5 commit theo chủ đề)
+
+Làm cùng lúc vì 6 lỗi nằm ở 6 module không đụng nhau; tách 5 commit để
+revert độc lập được.
+
+**1-2. WSS volume tích luỹ** (2 bug cùng họ với vụ 78× trên AAA)
+* `_pick(...) or 0` GỘP hai ca khác hẳn: "phiên chưa khớp lệnh nào" và
+  "bảng giá thiếu cột volume tick này". Ca 2 ghi đè baseline = 0 → tick KẾ
+  TIẾP tính delta = accum CẢ PHIÊN. Nay giữ `None` để phân biệt; thiếu số
+  liệu thì KHÔNG đụng baseline, delta = 0.
+* `_handle_tick` rơi về `tick["volume"]` khi không có `_delta_volume` — mà
+  3 nguồn tick khác price_board đều đặt số TÍCH LUỸ vào đó (fallback
+  intraday, index, và futures với `total_session_vol`), vòng poll ~1s cộng
+  lại MỖI LẦN. Nay mặc định an toàn: chỉ tick TỰ KHAI delta mới đóng góp
+  volume. Sửa 1 chỗ, phủ cả 3 nguồn lẫn nguồn thêm sau này.
+
+**3. Đơn vị giá mã penny khi rollup** — `fix_units` chỉ chạm `close > 1000`
+nên giá thô 300-900 VND (rất nhiều mã UPCOM) vào kho thành 300-900 NGHÌN
+VND, sai 1000×, không lưới nào bắt. `_normalize_units` so với chính LỊCH SỬ
+của mã: giá một phiên không thể nhảy ≥100× (biên độ sàn ±15%) nên tỉ lệ cỡ
+đó chỉ có thể là lệch đơn vị. Mã mới niêm yết (chưa có lịch sử) giữ nguyên.
+
+**4. `enforce_vnindex_change` đọc cửa sổ từ chuỗi SAI** — nhánh 2 khớp trên
+`out` (đã bị nhánh 1 đổi ĐỘ DÀI) nhưng đọc ngữ cảnh từ `text` GỐC. Dựng lại
+được ca thật: nhánh 1 rút "giảm 111,222.333%" → "tăng 0.31%" (lệch 7 ký tự)
+→ cửa sổ mất chữ "chỉ số" → guard bỏ qua đúng chỗ phải sửa. Chiều ngược lại
+còn tệ hơn: cửa sổ lệch có thể VÔ TÌNH thấy "vnindex" ở mệnh đề GTGD rồi
+guard tự tay ghi đè số GTGD.
+
+**5. Sentiment đóng băng "neutral"** — tin không provider nào chấm được vẫn
+bị ghi cache SQLite, lần sau hash đã có nên KHÔNG BAO GIỜ chấm lại dù ladder
+đã hồi. Nay chỉ cache tin CÓ model (alert ladder-down vẫn chạy trước, không
+đổi).
+
+**6. Exit code — ⚠️ ĐỔI HÀNH VI PIPELINE (có ý)**
+* `vnstock_updater.py` LUÔN exit 0 → cổng `if updater != 0` chỉ bắt CRASH;
+  "chạy sạch" và "500/1700 mã lỗi" cùng một mã thoát. Nay 2 = không mã nào
+  update được, 1 = có mã lỗi nhưng phần lớn xong, 0 = sạch. Ngưỡng theo TỈ
+  LỆ (vài mã hủy niêm yết lỗi là chuyện thường). **`cmd_sync` phải cập nhật
+  theo** — quên chỗ này thì 1 mã lỗi = fail cứng cả pipeline, hỏng nặng hơn
+  bug gốc (có test giữ).
+* `cmd_test` trả thẳng exit code pytest, mà pytest dùng 1 cho "có test
+  fail" — trong `run.py all` số 1 = "cảnh báo, chạy tiếp" → pipeline đêm vẫn
+  train và ĐẨY BRIEF bằng code đang đỏ, trái quy ước "badge đỏ = không
+  merge/deploy". Nay test đỏ → 2 (dừng).
+* `cmd_all`: `rc == 2` để lọt mọi mã khác (pytest 3/4/5, mã âm khi tiến
+  trình bị signal giết, bug trả 255) → "thành công im lặng". Nay chỉ 0 và 1
+  hợp lệ.
+
+**Bẫy phát sinh khi làm — nhiễm chéo giữa test module**: 4 test mới ĐỎ khi
+chạy cả suite nhưng XANH khi chạy riêng. Thủ phạm:
+`tests/test_dashboard.py` đặt `sys.modules["vnstock_wss"] = MagicMock()` ở
+CẤP MODULE — có hiệu lực ngay lúc pytest THU THẬP nên nhiễm mọi file, bất
+kể thứ tự. Mock đó là TÀN DƯ (file này không hề import vnstock_dashboard,
+chỉ test bản replica). Đã gỡ + thêm lưới
+`test_no_repo_module_is_replaced_by_a_mock`. Đây là kiểu lỗi tốn thời gian
+nhất để lần ra — nhớ nghi ngờ nó khi "chạy riêng thì xanh".
+
+Tests: 18 test mới (`tests/test_audit_high_fixes.py`, vào fast list).
+Full suite 1520 passed.
+
+### Việc cần soi trên máy thật sau khi pull
+* Phát `run.py sync` đầu tiên: nếu có mã lỗi sẽ thấy dòng cảnh báo tỉ lệ %
+  và pipeline VẪN chạy tiếp (rc=1). Nếu thấy fail cứng rc=2 → kiểm nguồn
+  data, đó là tín hiệu thật.
+* Phiên WSS đầu tiên: soi `_live/bars_*.parquet` — volume index/futures
+  giờ về 0 (đúng thiết kế), volume cổ phiếu vẫn có qua delta.
