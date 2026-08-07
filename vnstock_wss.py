@@ -759,8 +759,14 @@ class VnStockWSS:
                                   "last", "close", "price")
                     if price is None or price <= 0:
                         continue
-                    accum_volume = _pick(row, "accumulatedvolume", "accum_volume",
-                                         "totalvolume", "volume") or 0
+                    # `or 0` (bản cũ) GỘP hai ca khác hẳn nhau: "phiên chưa
+                    # khớp lệnh nào" và "bảng giá thiếu cột volume tick này".
+                    # Ca 2 làm baseline bị ghi đè = 0, nên tick KẾ TIẾP tính
+                    # delta = accum CẢ PHIÊN → volume bar phồng (audit 06/08,
+                    # cùng họ bug 78× trên AAA). Giữ None để phân biệt.
+                    accum_raw = _pick(row, "accumulatedvolume", "accum_volume",
+                                      "totalvolume", "volume")
+                    accum_volume = accum_raw if accum_raw is not None else 0
                     ref = _pick(row, "refprice", "ref_price", "reference")
                     high = _pick(row, "highest", "high") or price
                     low = _pick(row, "lowest", "low") or price
@@ -772,14 +778,20 @@ class VnStockWSS:
                     # total is filled by the updater API, so missing the
                     # pre-startup volume here is fine.
                     today = now_iso[:10]
-                    delta_volume = accum_to_delta(
-                        self._last_accum_vol.get(ticker),
-                        self._last_accum_date.get(ticker),
-                        accum_volume,
-                        today,
-                    )
-                    self._last_accum_vol[ticker] = accum_volume
-                    self._last_accum_date[ticker] = today
+                    if accum_raw is None:
+                        # Thiếu số liệu tick này: KHÔNG đụng baseline (ghi 0 vào
+                        # đó là mồi cho cú phồng ở tick sau), không cộng volume.
+                        delta_volume = 0.0
+                        accum_volume = self._last_accum_vol.get(ticker, 0)
+                    else:
+                        delta_volume = accum_to_delta(
+                            self._last_accum_vol.get(ticker),
+                            self._last_accum_date.get(ticker),
+                            accum_volume,
+                            today,
+                        )
+                        self._last_accum_vol[ticker] = accum_volume
+                        self._last_accum_date[ticker] = today
 
                     # price_board chỉ trả 3 mức L2 cho mọi instrument
                     bids = _pick_depth_levels(row, cols_list, "bid", 3)
@@ -1121,9 +1133,15 @@ class VnStockWSS:
             tick_time = pd.to_datetime(tick["time"])
             if tick_time.tz is not None:
                 tick_time = tick_time.tz_convert("Asia/Ho_Chi_Minh").tz_localize(None)
-            bar_volume = tick.get("_delta_volume")
-            if bar_volume is None:
-                bar_volume = tick.get("volume", 0)
+            # Không có `_delta_volume` → KHÔNG cộng volume (audit 06/08).
+            # Bản cũ rơi về `tick["volume"]`, mà 3 nguồn tick khác price_board
+            # đều đặt vào đó số TÍCH LUỸ: fallback intraday (bar mới nhất),
+            # index, và futures (`total_session_vol`). Vòng poll ~1s cộng lại
+            # con số đó MỖI LẦN → bar phồng nhiều lần. Mặc định an toàn: chỉ
+            # tick nào TỰ KHAI delta mới được đóng góp volume; giá vẫn cập
+            # nhật bình thường. Tổng ngày do updater API lấp (cùng lý lẽ với
+            # baseline delta=0 ở tick đầu phiên).
+            bar_volume = tick.get("_delta_volume") or 0.0
             self.aggregator.add_tick(
                 ticker, tick_time, tick["price"], bar_volume
             )
