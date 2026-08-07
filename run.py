@@ -668,7 +668,7 @@ def cmd_test(args) -> int:
 
     Modes:
       (default) — full tests/ directory
-      --fast    — only the 7 test files added in F1-F7 + tune-ups (103 tests, ~0.5s)
+      --fast    — curated subset covering the core modules (~1,034 tests, ~26s)
       --new     — alias for --fast
     """
     import json as _json

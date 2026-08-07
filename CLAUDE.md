@@ -16,8 +16,9 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   THEO MÁY — máy mới phải chạy lại script này, Run as Administrator).
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~121 test, ~0.7s).
-- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, ~6s).
+- Sửa module lõi nào → `python run.py test --fast` (~1.034 test, ~26s).
+- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, ~1.561
+  test, ~31s).
 - Kết quả ghi `data_warehouse/_meta/test_status.json` → badge sidebar.
   Badge đỏ = KHÔNG merge/deploy.
 
