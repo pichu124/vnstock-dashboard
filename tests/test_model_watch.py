@@ -277,6 +277,92 @@ def test_history_keeps_bounded_number_of_runs(monkeypatch, _tmp_meta):
     assert len(mw.load_history()["runs"]) == mw._HISTORY_MAX
 
 
+# ═══ Độ trễ theo tuần ══════════════════════════════════════════════════════
+
+def _hist(*runs):
+    """runs: mỗi run là dict {"Provider:model": giây}."""
+    return {"runs": [{"at": f"2026-08-{i+1:02d}T09:00:00", "probe_seconds": r}
+                     for i, r in enumerate(runs)]}
+
+
+def test_history_stores_probe_seconds(monkeypatch, _tmp_meta):
+    monkeypatch.setattr(mw, "_ladder_slugs", lambda: [("Groq", "m1", "[1]", {})])
+    monkeypatch.setattr(mw, "probe_one", lambda *a, **k: (True, "ok", 1.25))
+    monkeypatch.setattr(mw, "snapshot_catalogs", lambda: {"Groq": ["m1"]})
+    mw.run_watch(do_eval=False)
+    assert mw.load_history()["runs"][-1]["probe_seconds"] == {"Groq:m1": 1.25}
+
+
+def test_median_ignores_runs_without_timings():
+    """Lịch sử cũ (trước 08/08) không có khoá probe_seconds — phải bỏ qua chứ
+    không nổ."""
+    hist = {"runs": [{"at": "x", "catalogs": {}},          # bản cũ
+                     {"at": "y", "probe_seconds": {"Groq:m1": 2.0}},
+                     {"at": "z", "probe_seconds": {"Groq:m1": 4.0}}]}
+    assert mw._latency_medians(hist) == {"Groq:m1": 3.0}
+
+
+def test_slow_needs_both_factor_and_absolute_floor():
+    """Bài học tối 07/08: chạy dồn 4 lần/45 phút làm free tier bóp băng thông
+    → 0.9s thành 17s rồi tự hồi. Nhân hệ số thôi thì 0.8s → 2.4s (3×) cũng
+    kêu, toàn nhiễu. Phải kèm sàn tuyệt đối."""
+    hist = _hist({"Groq:m1": 0.8, "OpenRouter:m2": 1.0},
+                 {"Groq:m1": 0.8, "OpenRouter:m2": 1.0})
+    rows = [{"provider": "Groq", "model": "m1", "tag": "[1]", "ok": True,
+             "seconds": 2.4},                       # 3× nhưng chỉ 2.4s → bỏ qua
+            {"provider": "OpenRouter", "model": "m2", "tag": "[7]", "ok": True,
+             "seconds": 12.0}]                      # 12× và 12s → bắt
+    slow = mw._latency_flags(rows, hist)
+    assert [s["key"] for s in slow] == ["OpenRouter:m2"]
+    assert slow[0]["median"] == 1.0 and slow[0]["factor"] == 12.0
+
+
+def test_no_latency_flag_without_enough_history():
+    """1 mẫu không đủ làm median — tuần đầu tuyệt đối không kêu."""
+    assert mw._latency_flags(
+        [{"provider": "Groq", "model": "m1", "tag": "[1]", "ok": True,
+          "seconds": 30.0}], _hist({"Groq:m1": 1.0})) == []
+
+
+def test_dead_model_not_counted_in_latency():
+    """Model chết đã có cảnh báo riêng; đừng đếm nó vào thống kê độ trễ."""
+    hist = _hist({"Groq:m1": 1.0}, {"Groq:m1": 1.0})
+    rows = [{"provider": "Groq", "model": "m1", "tag": "[1]", "ok": False,
+             "seconds": 45.0}]
+    assert mw._latency_flags(rows, hist) == []
+
+
+def test_severe_slowdown_warns_but_mild_does_not(monkeypatch, _tmp_meta):
+    """Chậm vừa = thông tin, không đổi màu badge. Chậm tới ngưỡng sắp chạm
+    timeout 25s của chat_complete mới đáng nâng mức."""
+    monkeypatch.setattr(mw, "_ladder_slugs", lambda: [("Groq", "m1", "[1]", {})])
+    monkeypatch.setattr(mw, "snapshot_catalogs", lambda: {"Groq": ["m1"]})
+    monkeypatch.setattr(mw, "save_history", lambda h: None)
+    monkeypatch.setattr(mw, "load_history",
+                        lambda: _hist({"Groq:m1": 1.0}, {"Groq:m1": 1.0}))
+
+    monkeypatch.setattr(mw, "probe_one", lambda *a, **k: (True, "ok", 6.0))
+    assert mw.run_watch(do_eval=False)["level"] == "green"     # 6× nhưng 6s
+
+    monkeypatch.setattr(mw, "probe_one", lambda *a, **k: (True, "ok", 18.0))
+    st = mw.run_watch(do_eval=False)
+    assert st["level"] == "warn"
+    assert st["latency"]["slow"][0]["severe"] is True
+
+
+def test_report_shows_latency_section():
+    hist = _hist({"OpenRouter:m2": 1.0}, {"OpenRouter:m2": 1.0})
+    rows = [{"provider": "OpenRouter", "model": "m2", "tag": "[7] brief",
+             "ok": True, "seconds": 12.0, "detail": "ok"}]
+    slow = mw._latency_flags(rows, hist)
+    txt = mw.render_report({
+        "ran_at": "2026-08-15T09:00:00", "level": "warn",
+        "probe": {"ok": 1, "fail": 0, "rows": rows},
+        "catalog": {"diff": {}, "gone_in_use": [], "skipped": []},
+        "latency": {"slow": slow}})
+    assert "12.0s" in txt and "median 1.0s" in txt
+
+
 # ═══ GĐ2 — chấm điểm THEO VIỆC ═════════════════════════════════════════════
 
 def test_classification_scored_by_exact_industry():

@@ -406,6 +406,54 @@ def save_history(hist: dict) -> None:
         print(f"⚠ không ghi được lịch sử model watch: {e}")
 
 
+# ── Độ trễ theo tuần ─────────────────────────────────────────────────────────
+# So với MEDIAN nhiều tuần, không so tuần liền trước: đêm 07/08 chạy dồn 4 lần
+# trong 45 phút làm free tier bóp băng thông (0.9s → 17s) rồi tự hồi ngay sau
+# đó. Một lần đo là nhiễu; median chịu được cú nhảy lẻ.
+_SLOW_FACTOR = 3.0          # chậm gấp mấy lần median mới tính
+_SLOW_MIN_SECONDS = 5.0     # sàn tuyệt đối: 0.8s → 2.4s cũng 3× nhưng vô hại
+_SLOW_ALERT_SECONDS = 15.0  # tới đây thì sắp chạm timeout 25s của chat_complete
+_LATENCY_MIN_SAMPLES = 2    # 1 mẫu không đủ làm median
+
+
+def _latency_medians(hist: dict) -> dict:
+    """{provider:model: median giây} từ các lần chạy trước.
+
+    Bỏ qua run không có `probe_seconds` — lịch sử trước 08/08 chưa lưu khoá
+    này, đọc mà không phòng là nổ trên đúng máy đang có dữ liệu cũ.
+    """
+    import statistics
+
+    samples: dict[str, list] = {}
+    for run in hist.get("runs", []):
+        for key, secs in (run.get("probe_seconds") or {}).items():
+            if isinstance(secs, (int, float)):
+                samples.setdefault(key, []).append(float(secs))
+    return {k: round(statistics.median(v), 3)
+            for k, v in samples.items() if len(v) >= _LATENCY_MIN_SAMPLES}
+
+
+def _latency_flags(rows: list, hist: dict) -> list:
+    """Model chậm bất thường so với chính nó các tuần trước.
+
+    Chỉ xét model CÒN SỐNG — model chết đã có cảnh báo riêng, đếm nó vào
+    thống kê độ trễ chỉ làm nhiễu.
+    """
+    medians = _latency_medians(hist)
+    out = []
+    for r in rows:
+        if not r.get("ok"):
+            continue
+        key = f"{r['provider']}:{r['model']}"
+        med, now = medians.get(key), float(r.get("seconds") or 0)
+        if not med or now < _SLOW_MIN_SECONDS or now < _SLOW_FACTOR * med:
+            continue
+        out.append({"key": key, "tag": r.get("tag", ""), "now": round(now, 2),
+                    "median": med, "factor": round(now / med, 1),
+                    "severe": now >= _SLOW_ALERT_SECONDS})
+    return sorted(out, key=lambda d: -d["factor"])
+
+
 def _last_catalogs(hist: dict) -> dict:
     for run in reversed(hist.get("runs", [])):
         if run.get("catalogs"):
@@ -458,8 +506,11 @@ def run_watch(do_eval: bool = False) -> dict:
     diff = diff_catalogs(_last_catalogs(hist), catalogs)
     gone_used = gone_models_in_use(diff, in_use)
 
+    slow = _latency_flags(rows, hist)
     n_fail = sum(1 for r in rows if not r["ok"])
-    level = "red" if n_fail else ("warn" if gone_used else "green")
+    severe_slow = [s for s in slow if s["severe"]]
+    level = ("red" if n_fail
+             else "warn" if (gone_used or severe_slow) else "green")
 
     status = {
         "ran_at": datetime.now().isoformat(),
@@ -472,6 +523,7 @@ def run_watch(do_eval: bool = False) -> dict:
             "skipped": sorted(k for k, v in diff.items()
                               if v["status"] == "skipped"),
         },
+        "latency": {"slow": slow},
         "eval": None,
         "proposals": [],
     }
@@ -483,6 +535,10 @@ def run_watch(do_eval: bool = False) -> dict:
     hist.setdefault("runs", []).append({
         "at": status["ran_at"], "level": level, "catalogs": catalogs,
         "proposals": status["proposals"],
+        # Lưu từ 08/08 để tuần sau so được độ trễ — không có dữ liệu thì
+        # không có median, nên phải bắt đầu tích từ đâu đó.
+        "probe_seconds": {f"{r['provider']}:{r['model']}": r["seconds"]
+                          for r in rows if r["ok"]},
     })
     save_history(hist)
 
@@ -490,6 +546,8 @@ def run_watch(do_eval: bool = False) -> dict:
                    for r in rows if not r["ok"]]
     alert_lines += [f"🗑 {p} {m} biến mất khỏi danh mục — {t}"
                     for p, m, t in gone_used]
+    alert_lines += [f"🐌 {s['key']} chậm {s['factor']}× ({s['now']}s so median "
+                    f"{s['median']}s) — {s['tag']}" for s in severe_slow]
     _alert(alert_lines)
     return status
 
@@ -538,12 +596,27 @@ def render_report(status: dict) -> str:
            f"{status['ran_at'][:16].replace('T', ' ')}"]
 
     pr = status["probe"]
+    slow = (status.get("latency") or {}).get("slow") or []
+    slow_keys = {s["key"] for s in slow}
     out.append(f"\n── Probe ladder: {pr['ok']} sống / {pr['fail']} chết ──")
     for r in pr["rows"]:
+        mark = " 🐌" if f"{r['provider']}:{r['model']}" in slow_keys else ""
         out.append(f"  {'✅' if r['ok'] else '❌'} {r['provider']:<11}"
-                   f"{r['model']:<45}{r['seconds']:>5.1f}s  {r['tag']}")
+                   f"{r['model']:<45}{r['seconds']:>5.1f}s  {r['tag']}{mark}")
         if not r["ok"]:
             out.append(f"       ↳ {r['detail'][:110]}")
+
+    if slow:
+        out.append("\n── Chậm bất thường (so median các tuần trước) ──")
+        for s in slow:
+            icon = "🚨" if s["severe"] else "🐌"
+            out.append(f"  {icon} {s['key']:<52}{s['now']:>6.1f}s "
+                       f"(median {s['median']}s · chậm {s['factor']}×) {s['tag']}")
+        if any(s["severe"] for s in slow):
+            out.append(f"     ⚠ Mốc {_SLOW_ALERT_SECONDS:.0f}s là để so với "
+                       f"timeout 25s của chat_complete ([1] sentiment, "
+                       f"[2] chấm tin, [8] classifier) — prompt thật nặng hơn "
+                       f"ping rất nhiều.")
 
     cat = status["catalog"]
     out.append("\n── Danh mục provider (so tuần trước) ──")

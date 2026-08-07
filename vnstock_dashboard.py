@@ -3856,9 +3856,11 @@ with st.sidebar:
             _mw_probe = _mw.get("probe") or {}
             _mw_gone = len((_mw.get("catalog") or {}).get("gone_in_use", []))
             _mw_ripe = sum(1 for _p in (_mw.get("proposals") or []) if _p.get("ripe"))
+            _mw_slow = len((_mw.get("latency") or {}).get("slow", []))
             _mw_line = (f'{_mw_probe.get("ok", 0)}✅'
                         + (f' · {_mw_probe.get("fail", 0)}❌' if _mw_probe.get("fail") else "")
                         + (f' · {_mw_gone}🗑 đang dùng bị gỡ' if _mw_gone else "")
+                        + (f' · {_mw_slow}🐌 chậm bất thường' if _mw_slow else "")
                         + (f' · {_mw_ripe}💡 đề xuất' if _mw_ripe else ""))
             st.markdown(
                 f'<div style="padding:6px 10px;border-radius:6px;'

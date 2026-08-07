@@ -4724,3 +4724,35 @@ chốt sai — đã merge vào main nên không sửa lịch sử, đính chính
 
 Cerebras 3 · Groq 15 · Gemini 58 · **OpenRouter 400**. Cerebras = 3 khớp ghi
 chú 22/07 → xác nhận độc lập rằng phần đọc danh mục là thật.
+
+## 2026-08-08 (c) — Theo dõi độ trễ theo tuần (user yêu cầu)
+
+Thêm vào `vnstock_model_watch`: mỗi lần chạy lưu giây probe của từng slug
+vào lịch sử, so lần này với MEDIAN các tuần trước.
+
+**Vì sao median chứ không phải tuần liền trước** — bài học ngay đêm 07/08:
+chạy probe dồn 4 lần trong 45 phút làm free tier OpenRouter bóp băng thông,
+nemotron-super 4.8s → 9.6s → 17.0s rồi TỰ HỒI về 1.8s sau khi nghỉ. So với
+một lần đo là kêu oan; median chịu được cú nhảy lẻ.
+
+**Hai điều kiện PHẢI thoả cùng lúc** mới tính là chậm bất thường:
+* `now ≥ 3× median` — chậm tương đối so với CHÍNH NÓ
+* `now ≥ 5s` — sàn tuyệt đối. Thiếu sàn này thì 0.8s → 2.4s cũng 3×, toàn
+  nhiễu. (Ca thật: Groq 2.6s so median 0.8s = 3.25× nhưng KHÔNG kêu.)
+
+**Chỉ nâng mức badge/bắn Telegram khi `now ≥ 15s`** — mốc này chọn theo
+timeout **25s** của `chat_complete` (đường [1] sentiment, [2] chấm tin,
+[8] classifier), có chừa biên vì prompt thật nặng hơn ping rất nhiều. Chậm
+vừa (5-15s) chỉ hiện trong báo cáo, không đổi màu badge: cảnh báo kêu oan
+vài lần là lần sau người ta bỏ qua thật.
+
+Model CHẾT không được tính vào thống kê độ trễ (đã có cảnh báo riêng), và
+cần ≥2 mẫu mới có median — nên tuần đầu tuyệt đối không kêu.
+
+Tương thích ngược: run cũ trong lịch sử không có khoá `probe_seconds` thì bỏ
+qua, không nổ (máy user đang có đúng 1 run kiểu đó).
+
+⏳ **Khi nào có tín hiệu**: cần ≥2 lần chạy CÓ lưu giây → sớm nhất là sau 2
+lần chạy T7 nữa (~2 tuần). Trước đó phần này im lặng, đúng như thiết kế.
+
+Suite 1601 → 1608 passed.
