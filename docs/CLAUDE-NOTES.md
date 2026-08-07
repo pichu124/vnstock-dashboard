@@ -4317,3 +4317,39 @@ lúc import phải bọc, hoặc dời xuống chỗ dùng.
 ⚠️ **User nên kiểm tra thêm**: nếu `data_warehouse\_live` thật sự không phải
 thư mục dùng được thì WSS sẽ không ghi được bar. Chạy:
 `python -c "import pathlib; p=pathlib.Path('data_warehouse/_live'); print(p.exists(), p.is_dir(), p.stat())"`
+
+## 2026-08-06 (k) — 🚨 PHÁT HIỆN THẬT: `data_warehouse/_live` là FILE, WSS chết câm 1 tháng
+
+Truy tiếp cái đỏ (j1) trên máy user thì lộ ra vấn đề PRODUCTION, không phải
+chuyện test:
+
+    exists: True | is_dir: False
+    st_mode=33206 (0o100666 = FILE THƯỜNG), st_size=0
+    ctime = mtime = 2026-07-07 03:13:22
+
+`data_warehouse/_live` KHÔNG phải thư mục — nó là một **file rỗng 0 byte**.
+Thời điểm tạo trùng khít sự cố Dropbox 2 máy đã ghi trong journal
+(entry "2026-07-07 incident: Dropbox spawned conflicted copy…").
+
+**Hệ quả suốt một tháng**: WSS không ghi nổi `quote_*.json` lẫn
+`bars_*.parquet` nào. Không có tín hiệu nào báo, vì mọi đường ghi đều nằm
+trong `try/except` (cố ý — để lỗi ghi không kéo sập vòng poll). Triệu chứng
+duy nhất lộ ra bên ngoài là `missing_in_rolled` cao bất thường trong
+reconciler (audit 29/07 ghi 3,623) — nhìn qua rất giống "WSS chưa chạy".
+
+Đây cũng là lý do bug (j1) chỉ nổ trên máy user: `mkdir(exist_ok=True)` gặp
+vật cản là FILE thì `is_dir()` False → pathlib re-raise → import chết.
+
+**Thuốc cho user** (file rỗng nên xoá an toàn):
+    Remove-Item "data_warehouse\_live" -Force
+    # thư mục tự tạo lại ở lần ghi kế tiếp (_ensure_live_dir)
+
+**Lưới vĩnh viễn**: `vnstock_doctor.check_dir_shapes()` — soi
+`data_warehouse`, `prices`, `_live`, `_meta` có ĐÚNG là thư mục không, báo
+"error" kèm hướng dẫn nếu không. Rẻ (vài lần `stat`), chạy trong mọi lần
+`run.py doctor`, tức mỗi đêm. 3 test giữ. Full suite 1526 passed.
+
+**Bài học**: `try/except` quanh I/O giữ cho dịch vụ sống, nhưng nếu KHÔNG có
+check độc lập soi lại kết quả thì nó biến lỗi cứng thành lỗi CÂM — ở đây là
+một tháng mất dữ liệu live. Mọi lớp "best-effort nuốt lỗi" cần một doctor
+check tương ứng.

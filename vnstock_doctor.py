@@ -126,6 +126,41 @@ def check_warehouse() -> dict:
                    "" if status == "ok" else "python run.py sync")
 
 
+def check_dir_shapes() -> dict:
+    """Thư mục kho có ĐÚNG là thư mục không — bắt kiểu hỏng ÂM THẦM nhất.
+
+    Máy user 06/08: `data_warehouse/_live` là một FILE RỖNG 0 byte (không
+    phải thư mục), tạo lúc 07/07 03:13 — trùng sự cố Dropbox 2 máy đã ghi
+    trong journal. Suốt MỘT THÁNG sau đó WSS không ghi nổi quote/bar nào, mà
+    không có tín hiệu nào báo: mọi đường ghi đều nằm trong `try/except` để
+    khỏi kéo sập vòng poll. Triệu chứng duy nhất lộ ra là `missing_in_rolled`
+    cao bất thường trong reconciler — nhìn qua rất giống "WSS không chạy".
+
+    Check này rẻ (vài lần `stat`) và bắt đúng lớp lỗi đó.
+    """
+    name = "Hình dạng thư mục kho"
+    root = _META.parent
+    expected = [root, root / "prices", root / "_live", _META]
+    bad = []
+    for p in expected:
+        try:
+            if p.exists() and not p.is_dir():
+                bad.append(p.name)
+        except OSError:
+            bad.append(f"{p.name}(stat lỗi)")
+    if not bad:
+        return _result("dir_shapes", name, "ok",
+                       f"{len(expected)} thư mục đều đúng dạng", "")
+    joined = ", ".join(bad)
+    return _result(
+        "dir_shapes", name, "error",
+        f"KHÔNG phải thư mục: {joined} — mọi thao tác ghi vào đó đều hỏng "
+        f"âm thầm (WSS/rollup)",
+        f"kiểm tra rồi xoá vật cản: python -c \"import pathlib;"
+        f"p=pathlib.Path('data_warehouse/_live');print(p.stat())\" — nếu là "
+        f"file rỗng thì xoá đi, thư mục sẽ được tạo lại tự động")
+
+
 def check_market_overview() -> dict:
     """market_overview.json (độ rộng/movers/dòng tiền ngành/regime) — so data_date."""
     name = "Market overview (screener)"
@@ -634,6 +669,7 @@ def net_jina() -> dict:
 
 
 OFFLINE_CHECKS = [
+    check_dir_shapes,
     check_warehouse, check_market_overview, check_fundamentals, check_macro,
     check_pdf_tooling, check_market_news, check_ticker_news,
     check_foreign_flow, check_events, check_reports, check_allocation,

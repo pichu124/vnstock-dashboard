@@ -330,3 +330,38 @@ def test_no_module_level_mkdir_in_wss():
     for line in src.splitlines():
         if line.startswith("LIVE_DIR") and ".mkdir(" in line:
             pytest.fail(f"mkdir ở cấp module quay lại: {line!r}")
+
+
+def test_doctor_flags_file_where_directory_expected(tmp_path, monkeypatch):
+    """Máy user 06/08: `data_warehouse/_live` là FILE RỖNG 0 byte (tạo lúc
+    07/07 03:13, trùng sự cố Dropbox 2 máy) → WSS không ghi nổi quote/bar
+    nào suốt MỘT THÁNG mà không có tín hiệu nào, vì mọi đường ghi đều nằm
+    trong try/except để khỏi kéo sập vòng poll."""
+    import vnstock_doctor as doc
+
+    meta = tmp_path / "_meta"
+    meta.mkdir(parents=True)
+    (tmp_path / "prices").mkdir()
+    (tmp_path / "_live").write_text("")          # ← vật cản 0 byte
+    monkeypatch.setattr(doc, "_META", meta)
+
+    r = doc.check_dir_shapes()
+
+    assert r["status"] == "error"
+    assert "_live" in r["message"]
+
+
+def test_doctor_dir_shapes_ok_when_all_directories(tmp_path, monkeypatch):
+    import vnstock_doctor as doc
+
+    meta = tmp_path / "_meta"
+    for sub in ("_meta", "prices", "_live"):
+        (tmp_path / sub).mkdir(parents=True)
+    monkeypatch.setattr(doc, "_META", meta)
+
+    assert doc.check_dir_shapes()["status"] == "ok"
+
+
+def test_dir_shapes_check_is_registered():
+    import vnstock_doctor as doc
+    assert doc.check_dir_shapes in doc.OFFLINE_CHECKS
