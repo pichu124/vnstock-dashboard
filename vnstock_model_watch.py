@@ -271,23 +271,41 @@ def snapshot_catalogs() -> dict:
     return out
 
 
-def diff_catalogs(prev: dict, cur: dict) -> dict:
-    """{provider: {gone, new, status}} — status ∈ ok | skipped | no_baseline.
+# Mất quá tỉ lệ này trong MỘT tuần thì gần như chắc chắn là đọc thiếu (phân
+# trang/response cụt) chứ không phải provider gỡ thật — gắn nhãn nghi ngờ.
+_SUSPECT_DROP = 0.5
+_SUSPECT_MIN = 10          # danh mục bé thì mất vài model là chuyện thường
 
-    `skipped` khi lần này đọc hụt, `no_baseline` khi chưa có snapshot trước.
-    Cả hai đều trả gone/new RỖNG: thà không biết còn hơn báo sai.
+
+def diff_catalogs(prev: dict, cur: dict) -> dict:
+    """{provider: {gone, new, size, status}}.
+
+    status ∈ ok | skipped | no_baseline | suspect_partial
+      skipped         — lần này đọc hụt
+      no_baseline     — chưa có snapshot trước (lần chạy đầu)
+      suspect_partial — mất >50% danh mục trong 1 tuần: nghi đọc thiếu
+
+    Hai trạng thái đầu trả gone/new RỖNG (thà không biết còn hơn báo sai).
+    `suspect_partial` VẪN liệt kê gone — nhãn nghi ngờ để người soi tự quyết,
+    không được nuốt mất tín hiệu "model đang dùng biến mất".
     """
     out: dict[str, dict] = {}
     for name in cur:
         now, before = cur.get(name), prev.get(name)
         if now is None:
-            out[name] = {"gone": [], "new": [], "status": "skipped"}
-        elif before is None:
-            out[name] = {"gone": [], "new": [], "status": "no_baseline"}
-        else:
-            out[name] = {"gone": sorted(set(before) - set(now)),
-                         "new": sorted(set(now) - set(before)),
-                         "status": "ok"}
+            out[name] = {"gone": [], "new": [], "size": 0, "status": "skipped"}
+            continue
+        if before is None:
+            out[name] = {"gone": [], "new": [], "size": len(now),
+                         "status": "no_baseline"}
+            continue
+        gone = sorted(set(before) - set(now))
+        status = "ok"
+        if (len(before) >= _SUSPECT_MIN
+                and len(gone) > _SUSPECT_DROP * len(before)):
+            status = "suspect_partial"
+        out[name] = {"gone": gone, "new": sorted(set(now) - set(before)),
+                     "size": len(now), "status": status}
     return out
 
 
@@ -467,14 +485,22 @@ def render_report(status: dict) -> str:
     cat = status["catalog"]
     out.append("\n── Danh mục provider (so tuần trước) ──")
     for prov, d in sorted(cat["diff"].items()):
+        size = d.get("size", 0)
         if d["status"] == "skipped":
             out.append(f"  ⏭ {prov:<11} không đọc được danh mục lần này")
         elif d["status"] == "no_baseline":
-            out.append(f"  · {prov:<11} lần đầu — đã lưu mốc để tuần sau so")
+            out.append(f"  · {prov:<11} lần đầu — đã lưu mốc {size} model "
+                       f"để tuần sau so")
+        elif d["status"] == "suspect_partial":
+            out.append(f"  ❓ {prov:<11} còn {size} model, mất {len(d['gone'])} "
+                       f"— NGHI ĐỌC THIẾU hơn là bị gỡ thật, soi kỹ trước khi tin")
+            for m in d["gone"][:6]:
+                out.append(f"       ? vắng: {m}")
         elif not d["gone"] and not d["new"]:
-            out.append(f"  · {prov:<11} không đổi")
+            out.append(f"  · {prov:<11} không đổi ({size} model)")
         else:
-            out.append(f"  ⚠ {prov:<11} -{len(d['gone'])} / +{len(d['new'])}")
+            out.append(f"  ⚠ {prov:<11} -{len(d['gone'])} / +{len(d['new'])} "
+                       f"(còn {size})")
             for m in d["gone"][:6]:
                 out.append(f"       🗑 gỡ:  {m}")
             for m in d["new"][:6]:

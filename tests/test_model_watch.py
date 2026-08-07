@@ -95,6 +95,42 @@ def test_diff_skips_when_no_previous_snapshot():
     assert d["Groq"]["gone"] == []
 
 
+def test_diff_reports_catalog_size():
+    """Mốc lưu bao nhiêu model phải NHÌN THẤY — đọc thiếu (phân trang, response
+    cụt) mà không lộ ra thì tuần sau diff nổ ra một đống "bị gỡ" giả."""
+    d = mw.diff_catalogs({}, {"Groq": ["a", "b", "c"]})
+    assert d["Groq"]["size"] == 3
+    assert "3" in mw.render_report({
+        "ran_at": "2026-08-15T09:00:00", "level": "green",
+        "probe": {"ok": 0, "fail": 0, "rows": []},
+        "catalog": {"diff": d, "gone_in_use": [], "skipped": []}})
+
+
+def test_mass_disappearance_flagged_as_suspect_not_removal():
+    """Nửa danh mục biến mất trong 1 tuần gần như chắc chắn là ĐỌC THIẾU chứ
+    không phải provider gỡ thật. Vẫn báo, nhưng gắn nhãn nghi ngờ — báo nhầm
+    "đã gỡ 40 model" là dạng nhiễu che mất tín hiệu thật."""
+    prev = {"Groq": [f"m{i}" for i in range(20)]}
+    cur = {"Groq": ["m0", "m1", "m2"]}
+    d = mw.diff_catalogs(prev, cur)
+    assert d["Groq"]["status"] == "suspect_partial"
+    assert len(d["Groq"]["gone"]) == 17          # vẫn liệt kê để soi
+
+    # mất ít thì vẫn là gỡ thật
+    d2 = mw.diff_catalogs(prev, {"Groq": [f"m{i}" for i in range(18)]})
+    assert d2["Groq"]["status"] == "ok"
+
+
+def test_in_use_model_still_flagged_even_when_diff_suspect():
+    """Nhãn nghi ngờ KHÔNG được nuốt mất tín hiệu quan trọng nhất: model đang
+    dùng biến mất vẫn phải báo, để người soi tự quyết."""
+    prev = {"Gemini": [f"m{i}" for i in range(20)] + ["gemini-3.5-flash"]}
+    cur = {"Gemini": ["m0"]}
+    d = mw.diff_catalogs(prev, cur)
+    hits = mw.gone_models_in_use(d, {("Gemini", "gemini-3.5-flash"): "[8]"})
+    assert hits == [("Gemini", "gemini-3.5-flash", "[8]")]
+
+
 # ═══ GĐ1 — chỉ báo động cho model ĐANG DÙNG ════════════════════════════════
 
 def test_alert_only_for_models_in_use():
