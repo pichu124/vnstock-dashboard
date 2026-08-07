@@ -4215,3 +4215,6 @@ module chưa cache + cờ dont_write_bytecode). Full suite 1503 passed.
 Windows của user (lần 1: đường dẫn `C:\Users` thành escape `\U`). Việc siết
 môi trường luôn phải thử ở cả hai, hoặc ít nhất dựng lại điều kiện của máy
 kia (ở đây: xoá `__pycache__` rồi import).
+
+✅ **CHỐT: máy user (Windows) 1514 passed** — toàn bộ đợt sandbox 4 vòng đối
+kháng khép lại, xanh thật trên cả 2 hệ.
