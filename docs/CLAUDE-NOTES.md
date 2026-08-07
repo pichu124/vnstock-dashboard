@@ -4047,3 +4047,64 @@ test kiểu "phải bị chặn", luôn kèm một khẳng định độc lập 
 Full suite 1462 passed (sandbox Linux). ✅ **Máy user (Windows) xác nhận
 1473 passed** — xanh hết và lần này là xanh THẬT (payload hợp lệ cú pháp,
 lưới `compile()` trong `_wrap` đứng chắn tái diễn).
+
+## 2026-08-06 (h) — ĐỔI KIẾN TRÚC sandbox: khoá NĂNG LỰC thay vì lọc cú pháp
+
+Ba vòng red-team cho một kết luận rõ: lọc cú pháp (AST) trên một đối tượng
+pandas THẬT là phòng thủ rò rỉ theo bản chất. Mỗi vòng vá bịt được lớp trước,
+vòng sau lộ lớp mới (`pd.io.common.os` → `df.agg('to_csv')` → `w = df.agg`).
+Nay làm phần đã ghi TODO: đổi cách đánh.
+
+**Ý tưởng**: thay vì hỏi "câu lệnh này có nguy hiểm không?", khoá thẳng NĂNG
+LỰC của tiến trình chạy code — không mở được file, không gọi shell, không mở
+socket. `df.to_csv(path)` chết ở ĐÚNG bước ghi file, bất kể được gọi bằng cú
+pháp nào. Đo thực nghiệm trước khi làm: khoá `builtins.open` + `io.open` chặn
+sạch to_csv / to_pickle / to_json / agg-dispatch / np.save / tofile.
+
+**`vnstock_sandbox_runtime.py` (mới)**
+* `lockdown()` — vô hiệu hoá 97 hàm trên 7 module: `open` (builtins + io),
+  `os`/`posix`/`nt` (system, popen, remove, rename, exec*, spawn*, fork,
+  open, …), `shutil`, `subprocess`, `socket`, `webbrowser`, `ctypes`, và
+  method ghi của `pathlib.Path`. Vá NGAY TRÊN module object nên mọi đường
+  vòng tới nó (kể cả `pd.io.common.os`) đều nhận bản đã khoá.
+* `serve()` — worker nói chuyện bằng pickle có tiền tố độ dài qua
+  stdin/stdout. CỐ Ý dùng subprocess chứ KHÔNG multiprocessing: `spawn`
+  re-import `__main__` ở tiến trình con — chạy từ dashboard Streamlit thì
+  con sẽ chạy lại cả app.
+* `minimal_env()` — worker nhận env TỐI THIỂU, không kế thừa `.env` → API key
+  không bao giờ vào tới tiến trình chạy code lạ.
+
+**`IsolatedExecutor` (vnstock_strategy)** — MỘT worker phục vụ mọi lần gọi
+(cache hàm signal đã compile theo code). Đo: 0.6s lần đầu (dựng), rồi
+**0.9 ms/lần** — không còn đánh đổi "tốc độ đổi cách ly" như bản
+`fast_mode=True` cũ. Worker chết → tự dựng lại. `EXECUTOR` VÀ
+`STRICT_EXECUTOR` nay đều trỏ về đây (trước "strict" chỉ là spawn mỗi lần
+gọi — CÙNG quyền, nên thực chất không cách ly gì; red-team đã chứng minh nó
+dính y hệt bản fast). Kill-switch `VNSTOCK_STRATEGY_ISOLATION=0`.
+
+**3 bẫy đã dính khi làm, ghi lại kẻo lặp**
+1. Khoá `_io.open` = khoá luôn cơ chế import của CPython → `import` và
+   lazy-import trong pandas chết sạch. CHỈ vá `builtins.open` + `io.open`
+   (có test guard `test_io_open_deliberately_not_patched`).
+2. `scrub_secrets_from_env()` chạy SAU khi khoá `os.*` thì `del os.environ[k]`
+   (gọi xuống `os.unsetenv`, đã bị khoá) ném lỗi rồi bị nuốt — hàm trả số
+   ĐẸP mà không xoá được gì. Nay dọn TRƯỚC, và đếm số xoá THẬT.
+3. `except Exception: return False` trần trong `_spawn` nuốt mất một
+   NameError của chính nó (thiếu `import sys`) rồi âm thầm tụt về in-process
+   — đúng kiểu hỏng nguy hiểm nhất của một lớp bảo mật. Nay ghi lại lý do và
+   in cảnh báo (một lần/executor, không phải mỗi vòng backtest).
+
+**Tests** `tests/test_sandbox_isolation.py` (21 test, vào fast list): 12 đường
+thoát chạy THẲNG bằng Python trong tiến trình đã lockdown — **không qua AST**,
+đó mới là phép thử thật ("nếu mai có người lách AST lần thứ 4 thì sao?"); test
+pandas/import vẫn chạy được sau khoá; env tối thiểu không mang bí mật; worker
+tái dùng/tự hồi phục/kill-switch; chốt EXECUTOR mặc định là bản cách ly.
+Full suite 1483 passed.
+
+**Lớp AST vẫn giữ** làm hàng rào 1 (bắt sớm, rẻ, không tốn IPC). Nếu sau này
+danh sách trắng attribute còn gây false positive, có thể NỚI nó ra — vì đã
+có tầng năng lực làm backstop thật. Ghi để nhớ lựa chọn đó.
+
+**Còn lại**: đây vẫn là phòng thủ trong-tiến-trình, không phải seccomp/
+container. Muốn cứng hơn nữa phải hạ quyền ở tầng OS (user riêng /
+AppContainer / container) — việc lớn hơn nhiều, chưa làm.

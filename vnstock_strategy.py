@@ -43,6 +43,7 @@ import json
 import math
 import multiprocessing as mp
 import os
+import sys
 import time
 import traceback
 from abc import ABC, abstractmethod
@@ -514,16 +515,151 @@ class InProcessExecutor(StrategyExecutor):
         return payload
 
 
-# Default executor — swap to SubprocessExecutor when Option B lands
-# fast_mode=True because mp.Process spawn on Windows costs ~0.5s per call,
-# making 1000-window walk-forward backtest take ~10 minutes. Đánh đổi: mất
-# lưới timeout, KHÔNG mất lưới AST/khay-module (cả 2 executor dùng chung
-# `_validate_ast` + `_safe_globals`, có test giữ).
-EXECUTOR: StrategyExecutor = InProcessExecutor(fast_mode=True)
+class IsolatedExecutor(StrategyExecutor):
+    """Option B (06/08/2026) — chạy code trong TIẾN TRÌNH ĐÃ KHOÁ NĂNG LỰC.
 
-# Strict executor for one-off / production execution where isolation matters
-# more than speed. Used by emit_recommendations() before publishing buy lists.
-STRICT_EXECUTOR: StrategyExecutor = InProcessExecutor(fast_mode=False)
+    Ba vòng red-team chứng minh lọc cú pháp trên pandas thật là đuổi bắt vô
+    tận (xem vnstock_sandbox_runtime). Ở đây đổi cách đánh: worker gọi
+    `lockdown()` — không mở được file, không gọi shell, không mở socket, và
+    xoá sạch API key khỏi env — TRƯỚC khi chạm code chiến lược. `df.to_csv()`
+    chết ở đúng bước ghi file, bất kể được gọi bằng cú pháp gì.
+
+    MỘT worker phục vụ NHIỀU lần chạy (cache hàm signal đã compile theo code):
+    backtest gọi hàng nghìn cửa sổ, spawn mỗi lần thì Windows tốn ~0.5s/lần —
+    chính lý do bản cũ phải chạy in-process và mất luôn cách ly.
+
+    Worker chết/timeout → giết, spawn lại ở lần gọi sau (tự lành).
+    Tắt (chạy in-process như cũ): VNSTOCK_STRATEGY_ISOLATION=0.
+    """
+
+    def __init__(self, timeout_s: float = STRATEGY_TIMEOUT_S):
+        self.timeout_s = timeout_s
+        self._proc = None
+        self._lock_stats: dict = {}
+        self._spawn_error = ""
+        self._warned = False
+        self._fallback = InProcessExecutor(timeout_s, fast_mode=True)
+
+    # ── vòng đời worker ───────────────────────────────────────────────
+    def _spawn(self) -> bool:
+        import subprocess
+        from vnstock_sandbox_runtime import _recv, minimal_env
+        try:
+            self._proc = subprocess.Popen(
+                [sys.executable, "-u", "-m", "vnstock_sandbox_runtime"],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                cwd=str(Path(__file__).resolve().parent),
+                env=minimal_env(),          # KHÔNG kế thừa .env → không có key
+            )
+            hello = _recv(self._proc.stdout)   # worker báo sau khi lockdown
+            if not (hello or {}).get("ready"):
+                self._kill()
+                return False
+            self._lock_stats = (hello or {}).get("stats", {})
+            return True
+        except Exception as e:
+            # Ghi LẠI lý do: `except Exception: return False` trần từng nuốt
+            # mất một NameError của chính code này (thiếu `import sys`) và
+            # âm thầm tụt về in-process — đúng kiểu hỏng nguy hiểm nhất.
+            self._spawn_error = f"{type(e).__name__}: {str(e)[:160]}"
+            self._kill()
+            return False
+
+    def _kill(self) -> None:
+        proc, self._proc = self._proc, None
+        if proc is None:
+            return
+        for step in (proc.terminate, proc.kill):
+            try:
+                step()
+                proc.wait(timeout=2)
+                break
+            except Exception:
+                continue
+        for stream in (getattr(proc, "stdin", None), getattr(proc, "stdout", None)):
+            try:
+                stream.close()
+            except Exception:
+                pass
+
+    def _ensure(self) -> bool:
+        if self._proc is not None and self._proc.poll() is None:
+            return True
+        self._kill()
+        return self._spawn()
+
+    def shutdown(self) -> None:
+        from vnstock_sandbox_runtime import _send
+        if self._proc is not None and self._proc.poll() is None:
+            try:
+                _send(self._proc.stdin, {"stop": True})
+                self._proc.wait(timeout=3)
+            except Exception:
+                pass
+        self._kill()
+
+    # ── chạy ──────────────────────────────────────────────────────────
+    def run(self, code: str, df: pd.DataFrame, params: dict) -> dict:
+        if not _isolation_enabled():
+            return self._fallback.run(code, df, params)
+
+        _validate_ast(code)        # lớp 1: bắt sớm, khỏi tốn một vòng IPC
+        if not self._ensure():
+            # Không dựng được worker — KHÔNG im lặng bỏ cách ly, phải kêu to.
+            # Chỉ kêu MỘT lần/executor: backtest gọi hàng nghìn lần, in mỗi
+            # lần thì log ngập và người đọc bỏ qua luôn cảnh báo thật.
+            if not self._warned:
+                self._warned = True
+                print(f"[strategy] ⚠ không dựng được worker cách ly "
+                      f"({self._spawn_error or 'không rõ'}) — chạy in-process "
+                      f"(CHỈ CÒN lưới AST, yếu hơn hẳn). "
+                      f"Tắt cảnh báo: VNSTOCK_STRATEGY_ISOLATION=0")
+            return self._fallback.run(code, df, params)
+
+        import pickle as _pkl
+        from vnstock_sandbox_runtime import _recv, _send
+        try:
+            _send(self._proc.stdin,
+                  {"code": code, "df": _pkl.dumps(df), "params": params})
+            reply = _recv(self._proc.stdout)
+        except Exception as e:
+            self._kill()           # pipe hỏng → dựng worker mới ở lần sau
+            raise RuntimeError(
+                f"Strategy worker chết giữa chừng ({type(e).__name__})") from e
+        if reply is None:
+            self._kill()
+            raise RuntimeError("Strategy worker đóng pipe không trả lời")
+        if not reply.get("ok"):
+            raise RuntimeError(reply.get("error", "unknown worker error"))
+        return reply["result"]
+
+
+def _isolation_enabled() -> bool:
+    """Cách ly bật MẶC ĐỊNH. Kill-switch theo nếp repo — tắt thì lùi về
+    in-process (chỉ còn lưới AST, yếu hơn hẳn)."""
+    return (os.environ.get("VNSTOCK_STRATEGY_ISOLATION") or "1") \
+        .strip().lower() not in ("0", "false", "off")
+
+
+# Executor MẶC ĐỊNH từ 06/08/2026: tiến trình riêng đã khoá năng lực
+# (Option B trong sơ đồ đầu file — nay đã có thật, không còn placeholder).
+# MỘT worker phục vụ mọi lần gọi nên không còn đánh đổi tốc-độ-đổi-cách-ly
+# như bản `fast_mode=True` cũ: spawn 1 lần thay vì ~0.5s mỗi cửa sổ.
+# Tắt: VNSTOCK_STRATEGY_ISOLATION=0 (lùi về in-process, chỉ còn lưới AST).
+EXECUTOR: StrategyExecutor = IsolatedExecutor()
+
+# Trước đây "strict" nghĩa là spawn mỗi lần gọi (vẫn CÙNG quyền, nên thực ra
+# không cách ly được gì — red-team 06/08 chứng minh nó dính y hệt bản fast).
+# Nay cả hai trỏ về cùng một cơ chế cách ly thật; giữ tên cho tương thích.
+STRICT_EXECUTOR: StrategyExecutor = EXECUTOR
+
+# Worker là tiến trình CON qua subprocess — không tự chết theo cha như
+# multiprocessing daemon. Không dọn thì mỗi lần chạy dashboard/pipeline để
+# lại một tiến trình python treo.
+import atexit as _atexit
+
+_atexit.register(EXECUTOR.shutdown)
 
 
 # ── Output schema validation ───────────────────────────────────────────────
