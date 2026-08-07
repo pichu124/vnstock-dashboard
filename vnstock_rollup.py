@@ -235,6 +235,47 @@ def _aggregate_bars_to_daily(bars_df: pd.DataFrame) -> pd.DataFrame:
     return agg
 
 
+_UNIT_RATIO_MIN = 100.0     # trần biên độ 1 phiên là ±15%, nên ≥100× chắc chắn
+#                             là lệch ĐƠN VỊ chứ không phải giá chạy
+_UNIT_SCALE = 1000.0        # kho lưu NGHÌN VND, WSS trả VND thô
+
+
+def _normalize_units(new_rows: pd.DataFrame, existing: pd.DataFrame,
+                     ticker: str) -> pd.DataFrame:
+    """Quy đổi giá bar WSS (VND thô) về đơn vị kho (NGHÌN VND).
+
+    Vì sao không dựa vào `vnstock_fix_units`: nó chỉ chạm bar có
+    `close > 1000` (RAW_VND_THRESHOLD). Mã penny — 300-900 VND, rất nhiều
+    trên UPCOM — ghi thẳng số thô vào kho thì bị đọc thành 300-900 NGHÌN VND,
+    sai 1000× mà KHÔNG có lưới nào bắt (audit 06/08).
+
+    Cách chắc ăn hơn ngưỡng toàn cục: so với chính LỊCH SỬ của mã đó. Giá một
+    phiên không thể nhảy ≥100× (biên độ sàn ±15%), nên tỉ lệ cỡ đó chỉ có thể
+    là lệch đơn vị. Mã chưa có lịch sử (niêm yết mới) → giữ nguyên, để
+    `fix_units` lo phần > 1000 như cũ.
+    """
+    if new_rows.empty or existing.empty or "close" not in existing.columns:
+        return new_rows
+    ref = pd.to_numeric(existing["close"], errors="coerce").dropna()
+    ref = ref[ref > 0]
+    new_close = pd.to_numeric(new_rows["close"], errors="coerce").dropna()
+    new_close = new_close[new_close > 0]
+    if ref.empty or new_close.empty:
+        return new_rows
+
+    ratio = float(new_close.median()) / float(ref.median())
+    if ratio < _UNIT_RATIO_MIN:
+        return new_rows
+
+    out = new_rows.copy()
+    for col in ("open", "high", "low", "close"):
+        if col in out.columns:
+            out[col] = pd.to_numeric(out[col], errors="coerce") / _UNIT_SCALE
+    print(f"[rollup] {ticker}: giá bar lệch {ratio:,.0f}× so với kho → quy đổi "
+          f"VND → nghìn VND ({len(out)} dòng)")
+    return out
+
+
 def rollup_bars_file(bars_path: Path, dry_run: bool = False) -> dict:
     """
     Rollup 1 file bars_{date}.parquet → warehouse daily.
@@ -299,6 +340,8 @@ def rollup_bars_file(bars_path: Path, dry_run: bool = False) -> dict:
                 print(f"[rollup] ⛔ Bỏ qua {ticker} year={year}: {e}")
                 stats["errors"] += 1
                 continue
+            new_rows = _normalize_units(new_rows, existing, str(ticker))
+
             if not existing.empty:
                 # Existing data (from updater API) is authoritative — rollup only
                 # fills gaps. Rollup-aggregated volume is less reliable than the
