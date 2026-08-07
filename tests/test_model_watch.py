@@ -114,12 +114,17 @@ def test_pagination_stops_on_repeated_url(monkeypatch):
     assert mw.fetch_catalog("OpenRouter") == {"m1"}
 
 
-def test_fetch_catalog_returns_none_on_failure(monkeypatch):
+def test_fetch_catalog_returns_none_on_failure(monkeypatch, capsys):
     """None ≠ tập rỗng. Gộp 2 ca này là báo "mọi model biến mất" khi thật ra
-    chỉ là mạng lỗi — báo động giả tệ hơn không báo."""
+    chỉ là mạng lỗi — báo động giả tệ hơn không báo.
+
+    Và lỗi phải NÓI RA: báo cáo chỉ in "không đọc được danh mục" — không kèm
+    lý do thì không chẩn đoán được là hết key, đổi endpoint hay mạng chập."""
     monkeypatch.setenv("GROQ_API_KEY", "gk")
     monkeypatch.setattr("requests.get", lambda *a, **k: _Resp({}, status=500))
     assert mw.fetch_catalog("Groq") is None
+    out = capsys.readouterr().out
+    assert "Groq" in out and "500" in out
 
 
 def test_fetch_catalog_none_without_key(monkeypatch):

@@ -313,7 +313,12 @@ def fetch_catalog(provider: str) -> "set[str] | None":
                   f"báo nhầm 'bị gỡ'")
             return None
         return ids
-    except Exception:
+    except Exception as e:
+        # KHÔNG nuốt im lặng: báo cáo chỉ in "không đọc được danh mục", không
+        # kèm lý do thì không phân biệt được hết key / đổi endpoint / mạng
+        # chập. Mọi lớp best-effort nuốt lỗi phải có một dòng chẩn đoán.
+        print(f"⚠ {provider}: không đọc được danh mục — "
+              f"{type(e).__name__}: {str(e)[:120]}")
         return None
 
 
