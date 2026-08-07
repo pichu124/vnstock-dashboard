@@ -11,6 +11,11 @@ debug.log
 !.claude/rules/**
 data_warehouse/
 vnstock-agent-guide-main/
+# vnai (đi kèm vnstock) tự ghi file này vào gốc repo mỗi lần chạy test —
+# xem vnai/beam/agents.py:268 setup_agent_environment(). Là stub 125 byte
+# trỏ về vnstocks.com, KHÔNG phải doc của dự án (doc ở CLAUDE.md).
+# Muốn viết AGENTS.md thật thì gỡ dòng này hoặc `git add -f`.
+AGENTS.md
 files.zip
 lwc.min.js
 industry_classification_20260405.csv
