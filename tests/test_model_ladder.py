@@ -105,6 +105,40 @@ def test_chat_complete_floors_max_tokens_but_keeps_extra_for_default_only(
     assert "reasoning_effort" not in calls[0]
 
 
+def test_chat_complete_with_model_reports_the_rung_that_answered(
+        monkeypatch, _tmp_meta):
+    """`with_model=True` (thêm 07/08 cho điểm [8]) trả kèm nấc đã trả lời —
+    classifier ghi cột `model` theo nấc THẬT thay vì mặc định CLI."""
+    # Arrange — Gemini có key nhưng chết, Groq đỡ
+    def _post(url, headers=None, json=None, timeout=None):
+        if "generativelanguage" in url:
+            return _Resp({}, status=503)
+        return _Resp(_openai_body("ok"))
+
+    monkeypatch.setattr("requests.post", _post)
+    for env in ("CEREBRAS_API_KEY", "OPENROUTER_API_KEY"):
+        monkeypatch.delenv(env, raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "gk")
+    monkeypatch.setenv("GROQ_API_KEY", "gk")
+
+    # Act
+    text, model = snt.chat_complete("s", "u", with_model=True)
+
+    # Assert
+    assert text == "ok"
+    assert model == "Groq:openai/gpt-oss-20b"
+
+
+def test_chat_complete_with_model_returns_pair_when_ladder_dry(
+        monkeypatch, _tmp_meta):
+    """Cạn thang vẫn phải trả TUPLE — caller unpack, trả None là TypeError."""
+    for env in ("GEMINI_API_KEY", "GROQ_API_KEY", "CEREBRAS_API_KEY",
+                "OPENROUTER_API_KEY"):
+        monkeypatch.delenv(env, raising=False)
+    assert snt.chat_complete("s", "u", with_model=True) == (None, "")
+    assert snt.chat_complete("s", "u") is None      # chữ ký cũ không đổi
+
+
 # ─── Cột quy đổi tiền trong ledger ───────────────────────────────────────────
 
 def test_cost_usd_prefix_match_and_free_default():

@@ -3,8 +3,14 @@ vnstock_classifier.py — Phân Loại Ngành Doanh Nghiệp bằng AI
 =============================================================
 Pipeline 3 bước:
   1. sync-profiles : Tải company profile vào warehouse (gọi API 1 lần)
-  2. classify      : Đọc từ warehouse → Claude API → lưu kết quả
+  2. classify      : Đọc từ warehouse → LLM → lưu kết quả
   3. report/query  : Xem kết quả
+
+Route LLM (điểm [8], 07/08/2026) — FREE mặc định: ladder Gemini 3.5-flash →
+Groq qwen3.6-27b → Cerebras → OpenRouter (dùng chung `chat_complete`). Claude
+là OPT-IN vì batch ~1.700 mã × 1 call là tiền thật: `--paid` hoặc
+`VNSTOCK_CLASSIFY_PAID=1`. Chỉ cần MỘT key free trong `.env` là chạy được —
+trước đây thiếu ANTHROPIC_API_KEY là crash ngay mã đầu tiên.
 
 Cấu trúc warehouse:
   data_warehouse/
@@ -18,8 +24,9 @@ Cấu trúc warehouse:
 Run:
   python vnstock_classifier.py --sync-profiles          # Bước 1: tải profiles
   python vnstock_classifier.py --sync-profiles --limit 50  # Test 50 mã
-  python vnstock_classifier.py --classify               # Bước 2: phân loại AI
+  python vnstock_classifier.py --classify               # Bước 2: phân loại AI (free)
   python vnstock_classifier.py --classify --limit 50    # Test 50 mã
+  python vnstock_classifier.py --classify --paid        # dùng Claude (tốn tiền)
   python vnstock_classifier.py --query VCB              # Xem kết quả 1 mã
   python vnstock_classifier.py --report                 # Báo cáo tổng hợp
   python vnstock_classifier.py --export                 # Xuất CSV
@@ -27,6 +34,7 @@ Run:
 
 import argparse
 import json
+import os
 import re as _re
 import time
 import warnings
@@ -394,9 +402,77 @@ def _ledger_record(provider: str, model: str, ok: bool,
         pass
 
 
+# ── Điểm [8] — đường LLM free-first (07/08/2026) ─────────────────────────────
+# Trước đây `_call_claude` là đường DUY NHẤT và RAISE khi thiếu
+# ANTHROPIC_API_KEY → batch ~1.700 mã chết ở mã đầu tiên, máy all-free không
+# chạy được classifier. Nay mirror đúng route đã chạy thật ở chấm tin
+# (vnstock_news_feeds): ladder FREE mặc định, Claude thành OPT-IN.
+#
+# Vì sao Claude KHÔNG tự bật khi có key (khác digest_call): 1.700 mã × 1 call
+# là tiền thật — route trả phí phải do người gõ, không do .env vô tình có key.
+# Slug: bộ probe sống 22/07 đang chạy ở _ANALYZE_MODELS; `gemini-3.5-flash`
+# chính là ứng viên ghi cho điểm [8] trong scripts/probe_models.py.
+_CLASSIFY_MODELS = {
+    "Gemini": "gemini-3.5-flash",
+    "Groq": "qwen/qwen3.6-27b",
+    "OpenRouter": "nvidia/nemotron-3-ultra-550b-a55b:free",
+}
+_CLASSIFY_PAID_ENV = "VNSTOCK_CLASSIFY_PAID"
+_CLASSIFY_MODEL_ENV = "VNSTOCK_CLASSIFY_MODEL"
+_CLASSIFY_MODEL_DEFAULT = "claude-haiku-4-5-20251001"
+
+# System cho ladder free (endpoint OpenAI-compatible tách system/user). Cố ý
+# giữ CHUNG CHUNG: `_call_llm` phục vụ cả classify lẫn suggest/spot-check nên
+# câu system không được ghim vào một tác vụ. Nhiệm vụ cụ thể nằm trong prompt.
+# Nấc Claude vẫn nhận prompt NGUYÊN VĂN như trước — route trả phí không đổi.
+_CLASSIFY_SYSTEM = "Bạn là chuyên gia phân tích tài chính Việt Nam."
+
+
+def _paid_classify_enabled() -> bool:
+    """Route trả phí TẮT mặc định — unset/rỗng/0 = tắt, bật phải tường minh."""
+    return (os.environ.get(_CLASSIFY_PAID_ENV) or "0").strip().lower() \
+        in ("1", "true", "on", "yes")
+
+
+def _call_llm(prompt: str, model: "str | None" = None,
+              max_tokens: int = 800) -> "tuple[str, str]":
+    """(text, model_đã_trả_lời) — Claude khi opt-in, còn lại đi ladder free.
+
+    Lỗi nấc trả phí (key hết hạn, 529 giữa batch) KHÔNG làm chết lượt gọi:
+    rơi tiếp xuống ladder free. Cạn sạch mọi nấc mới raise — run_classify bắt
+    và tính là 1 mã lỗi, batch chạy tiếp.
+    """
+    if _paid_classify_enabled():
+        paid = model or os.environ.get(_CLASSIFY_MODEL_ENV) \
+            or _CLASSIFY_MODEL_DEFAULT
+        try:
+            return _call_claude(prompt, paid, max_tokens=max_tokens), paid
+        except Exception as e:
+            console.log(f"  [yellow]⚠ route trả phí lỗi ({type(e).__name__}) "
+                        f"→ rơi xuống ladder free[/yellow]")
+
+    from vnstock_sentiment import chat_complete
+    text, used = chat_complete(_CLASSIFY_SYSTEM, prompt,
+                               max_tokens=max_tokens,
+                               model_map=_CLASSIFY_MODELS, with_model=True)
+    # Điều kiện raise là CẠN THANG (`used` rỗng), không phải text rỗng: model
+    # trả lời rỗng (refusal/bị cắt) là "nấc đó chạy nhưng output không dùng
+    # được" → để `_parse_classification` trả None và đếm vào cột unparsed kèm
+    # TÊN NẤC, thay vì báo nhầm thành "không key nào chạy được".
+    if not used:
+        raise RuntimeError(
+            "không nấc LLM nào chạy được — cần ít nhất một key free "
+            "(GEMINI_API_KEY / GROQ_API_KEY / OPENROUTER_API_KEY) trong .env, "
+            f"hoặc bật route trả phí: {_CLASSIFY_PAID_ENV}=1 + ANTHROPIC_API_KEY. "
+            "Soi nấc nào chết: python vnstock_llm_ledger.py --show")
+    return text, used
+
+
 def _call_claude(prompt: str, model: str = "claude-sonnet-4-6",
                  max_tokens: int = 800) -> str:
-    """Gọi Claude API, trả về text response."""
+    """Gọi Claude API, trả về text response. KHÔNG còn là đường duy nhất —
+    xem `_call_llm` (điểm [8], 07/08): mặc định đi ladder free, hàm này chỉ
+    chạy khi opt-in. Giữ nguyên hợp đồng cũ: thiếu key thì raise."""
     import os
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
@@ -463,13 +539,18 @@ Quy tắc:
 - Tên ngành PHẢI khớp chính xác với danh sách đã cho"""
 
 
-def _parse_claude_response(text: str) -> dict:
-    match = _re.search(r"\{.*\}", text, _re.DOTALL)
+def _parse_classification(text: str) -> "dict | None":
+    """Kết quả phân loại, hoặc None khi MODEL HỎNG (không có JSON / JSON vỡ).
+
+    None ≠ "Khác". "Khác" là câu trả lời HỢP LỆ của model; None là model
+    không trả lời được. Gộp hai ca này lại chính là họ bug sentiment đóng
+    băng "neutral" (fix 07/08): rác được ghi vào kho → `is_classified` chặn
+    lần chấm sau → sai vĩnh viễn. Từ khi ladder free (yếu hơn Claude) làm
+    đường mặc định, ca "model hỏng" phổ biến hẳn lên nên phải tách bạch.
+    """
+    match = _re.search(r"\{.*\}", text or "", _re.DOTALL)
     if not match:
-        return {"primary_industry": "Khác",
-                "secondary_industries": "[]",
-                "revenue_breakdown": "{}",
-                "business_summary": ""}
+        return None
     try:
         data = json.loads(match.group())
         # Validate primary_industry — fallback về "Khác" nếu ngoài danh sách
@@ -488,10 +569,7 @@ def _parse_claude_response(text: str) -> dict:
             "business_summary":     str(data.get("business_summary", "")),
         }
     except Exception:
-        return {"primary_industry": "Khác",
-                "secondary_industries": "[]",
-                "revenue_breakdown": "{}",
-                "business_summary": ""}
+        return None
 
 
 def run_classify(
@@ -500,10 +578,14 @@ def run_classify(
     limit: int = 0,
     skip_existing: bool = True,
     delay: float = 0.5,
-    model: str = "claude-sonnet-4-6",
+    model: str = None,
     tickers_override: list = None,
 ):
-    """Đọc profiles từ warehouse → Claude → lưu kết quả."""
+    """Đọc profiles từ warehouse → LLM → lưu kết quả.
+
+    `model` chỉ áp cho route TRẢ PHÍ (opt-in); mặc định None = đi ladder free
+    (xem `_call_llm`). Mã nào model trả rác thì KHÔNG ghi vào kho — để lần
+    chạy sau chấm lại."""
     console.rule("[bold cyan]🤖 AI Industry Classification[/bold cyan]")
 
     # Lấy tickers có profile trong warehouse
@@ -530,9 +612,11 @@ def run_classify(
         console.print("[green]✅ All tickers already classified![/green]")
         return
 
-    console.log(f"  🤖 Classifying {len(tickers)} tickers with Claude...")
+    route = ("Claude (trả phí, opt-in)" if _paid_classify_enabled()
+             else "ladder free — Gemini 3.5-flash dẫn đầu")
+    console.log(f"  🤖 Classifying {len(tickers)} tickers · route: {route}")
 
-    ok = errors = 0
+    ok = errors = unparsed = 0
 
     with Progress(
         SpinnerColumn(),
@@ -553,9 +637,17 @@ def run_classify(
                 continue
 
             try:
-                prompt   = _build_prompt(profile)
-                response = _call_claude(prompt, model)
-                result   = _parse_claude_response(response)
+                prompt = _build_prompt(profile)
+                response, used_model = _call_llm(prompt, model)
+                result = _parse_classification(response)
+                if result is None:
+                    # Model trả rác → KHÔNG ghi kho (ghi là đóng băng vĩnh
+                    # viễn: is_classified chặn lần chấm sau). Để chạy lại.
+                    console.log(f"  [yellow]⚠ {ticker}: {used_model} trả lời "
+                                f"không lấy được JSON — để chấm lại[/yellow]")
+                    unparsed += 1
+                    errors += 1
+                    continue
 
                 store.upsert({
                     "ticker":               ticker,
@@ -565,7 +657,9 @@ def run_classify(
                     "revenue_breakdown":    result["revenue_breakdown"],
                     "business_summary":     result["business_summary"],
                     "classified_at":        datetime.now().strftime("%Y-%m-%d %H:%M"),
-                    "model":                model,
+                    # nấc THẬT đã trả lời, không phải mặc định CLI — có vậy
+                    # mới soi được chất lượng theo model về sau
+                    "model":                used_model,
                 })
                 ok += 1
             except Exception as e:
@@ -585,6 +679,13 @@ def run_classify(
         f"[red]{errors} errors[/red] | "
         f"Total: {len(store.all())}"
     )
+    if unparsed:
+        # Không nuốt im lặng: ladder free yếu hơn Claude nên tỉ lệ này là
+        # thước đo xem model đang dùng có kham nổi việc không.
+        console.print(
+            f"  [yellow]⚠ {unparsed}/{len(tickers)} mã model trả lời không "
+            f"lấy được JSON — chạy lại lệnh này để chấm tiếp; tỉ lệ cao thì "
+            f"cân nhắc {_CLASSIFY_PAID_ENV}=1[/yellow]")
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -704,9 +805,9 @@ def print_report(store: ClassificationStore):
 
 
 
-def suggest_industries(store: ClassificationStore, model: str = "claude-sonnet-4-6"):
+def suggest_industries(store: ClassificationStore, model: str = None):
     """
-    Phân tích các mã bị xếp 'Khác' → Claude đề xuất ngành mới cần thêm.
+    Phân tích các mã bị xếp 'Khác' → LLM đề xuất ngành mới cần thêm.
     Chạy sau khi classify xong toàn bộ để cải thiện danh sách ngành.
     """
     df = store.all()
@@ -756,9 +857,9 @@ Trả lời theo định dạng JSON:
   "remain_other": ["Các mã thực sự không thuộc ngành nào cụ thể"]
 }}"""
 
-    console.print(f"  [dim]Gửi {len(others)} mã đến Claude để phân tích...[/dim]")
+    console.print(f"  [dim]Gửi {len(others)} mã đến LLM để phân tích...[/dim]")
     try:
-        response = _call_claude(prompt, model)
+        response, _used = _call_llm(prompt, model)
         match = _re.search(r"\{.*\}", response, _re.DOTALL)
         if not match:
             console.print("[yellow]⚠ Không parse được response[/yellow]")
@@ -797,7 +898,7 @@ Trả lời theo định dạng JSON:
 
 
 
-def spot_check(store: ClassificationStore, industry: str, model: str = "claude-haiku-4-5-20251001"):
+def spot_check(store: ClassificationStore, industry: str, model: str = None):
     """
     Gửi business_summary của tất cả mã trong một ngành cho Claude,
     nhờ Claude gắn cờ những mã có vẻ bị phân loại sai.
@@ -874,7 +975,7 @@ Nếu không chắc thì bỏ qua, đừng flag nhầm."""
 
         try:
             # max_tokens=2000: đủ cho ~50 mã suspicious với reason đầy đủ
-            response = _call_claude(prompt, model, max_tokens=2000)
+            response, _used = _call_llm(prompt, model, max_tokens=2000)
             # Xóa markdown code block nếu có
             clean = _re.sub(r"```(?:json)?\s*", "", response).strip()
             match = _re.search(r"\{.*\}", clean, _re.DOTALL)
@@ -971,9 +1072,9 @@ if __name__ == "__main__":
     parser.add_argument("--rerun-others",  action="store_true",
                         help="Chỉ chạy lại các mã bị xếp 'Khác'")
     parser.add_argument("--suggest-industries", action="store_true",
-                        help="Claude đề xuất ngành mới từ các mã 'Khác'")
+                        help="LLM đề xuất ngành mới từ các mã 'Khác'")
     parser.add_argument("--spot-check",      metavar="INDUSTRY",
-                        help="Claude kiểm tra mã bị phân loại sai trong một ngành")
+                        help="LLM kiểm tra mã bị phân loại sai trong một ngành")
     parser.add_argument("--rerun-flagged",   nargs="+", metavar="TICKER",
                         help="Re-classify danh sách mã cụ thể (kết quả từ --spot-check)")
     parser.add_argument("--limit",         type=int, default=0,
@@ -988,10 +1089,18 @@ if __name__ == "__main__":
                         help="Đường dẫn warehouse")
     parser.add_argument("--delay",         type=float, default=0.4,
                         help="Delay giữa API calls (giây)")
-    parser.add_argument("--model",         default="claude-haiku-4-5-20251001",
+    parser.add_argument("--paid",          action="store_true",
+                        help="Dùng Claude thay ladder free (TỐN TIỀN — batch "
+                             "~1.700 mã; tương đương VNSTOCK_CLASSIFY_PAID=1)")
+    parser.add_argument("--model",         default=None,
                         choices=["claude-haiku-4-5-20251001", "claude-sonnet-4-6"],
-                        help="Model Claude dùng để phân loại (default: haiku — rẻ hơn 73%%)")
+                        help="Model Claude — CHỈ có tác dụng với --paid "
+                             "(default: haiku — rẻ hơn 73%%)")
     args = parser.parse_args()
+
+    # --paid là đường tắt của env; đặt trước mọi lệnh gọi để _call_llm thấy
+    if args.paid:
+        os.environ[_CLASSIFY_PAID_ENV] = "1"
 
     company_wh = CompanyWarehouse(args.warehouse)
     store      = ClassificationStore(args.warehouse)

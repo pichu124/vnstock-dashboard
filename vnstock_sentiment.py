@@ -207,7 +207,8 @@ def available_provider() -> Optional[str]:
 
 
 def chat_complete(system: str, user: str, max_tokens: int = 80,
-                  model_map: "dict | None" = None) -> Optional[str]:
+                  model_map: "dict | None" = None,
+                  with_model: bool = False):
     """Generic one-shot chat over the provider ladder (Groq→Cerebras→OpenRouter).
 
     Returns the raw assistant text, or None when no provider key works / all
@@ -217,6 +218,11 @@ def chat_complete(system: str, user: str, max_tokens: int = 80,
     ``model_map`` ({provider_name: model}) overrides the default per-provider
     model — e.g. a stronger 70B for nuanced analysis — and falls back to the
     provider's default model if the override is rejected.
+
+    ``with_model=True`` đổi kiểu trả về thành ``(text, "Provider:model")`` —
+    nấc THẬT đã trả lời, để caller ghi sổ (điểm [8] classifier ghi cột `model`
+    của kho phân loại). Cạn thang → ``(None, "")``. Mặc định False giữ nguyên
+    chữ ký cũ cho mọi caller sẵn có.
     """
     model_map = model_map or {}
     import requests as _req
@@ -252,13 +258,14 @@ def chat_complete(system: str, user: str, max_tokens: int = 80,
                 body = resp.json()
                 _ledger_record(p["name"], model, ok=True,
                                usage=body.get("usage"))
-                return strip_think_tags(
+                text = strip_think_tags(
                     body["choices"][0]["message"]["content"] or "")
+                return (text, f"{p['name']}:{model}") if with_model else text
             except Exception as e:
                 _ledger_record(p["name"], model, ok=False, error=str(e))
                 continue
     _alert_down("chat_complete (chấm tin/analyze fallback)")
-    return None
+    return (None, "") if with_model else None
 
 
 _ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1/messages"
