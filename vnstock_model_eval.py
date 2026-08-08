@@ -35,6 +35,36 @@ _MIN_GAP = 0.15
 
 _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 
+# Trả lời được dưới tỉ lệ này thì coi như KHÔNG ĐO ĐƯỢC (điểm khuyết khỏi
+# bảng), không phải model dở. Vu oan cho model vì hạn mức của chính ta là
+# cách nhanh nhất để bảng điểm thành vô dụng.
+_MIN_COVERAGE = 0.7
+# 429 = "thử lại sau", không phải "model hỏng" → lùi rồi thử lại.
+_RETRY_SLEEPS = (5.0, 15.0)
+_RATE_LIMIT_MARKS = ("429", "rate limit", "rate_limit", "quota", "resource_exhausted")
+# Dính hạn mức liên tiếp bấy nhiêu ca (mỗi ca đã retry) = quota cả ngày cạn
+# → bỏ nốt bài thay vì đốt thời gian.
+_GIVE_UP_STREAK = 3
+
+
+def _is_rate_limited(err: "str | None") -> bool:
+    return bool(err) and any(m in err.lower() for m in _RATE_LIMIT_MARKS)
+
+
+def _chat_with_retry(provider: str, model: str, system: str, user: str,
+                     max_tokens: int = 400) -> "tuple[str | None, str | None]":
+    """Như `chat_once` nhưng lùi-rồi-thử-lại khi dính hạn mức.
+
+    Chỉ retry lỗi hạn mức: 404 model_not_found thì thử lại chỉ tốn thời gian.
+    """
+    raw, err = chat_once(provider, model, system, user, max_tokens=max_tokens)
+    for pause in _RETRY_SLEEPS:
+        if not _is_rate_limited(err):
+            break
+        time.sleep(pause)
+        raw, err = chat_once(provider, model, system, user, max_tokens=max_tokens)
+    return raw, err
+
 
 # ═══ Bộ đề ═══════════════════════════════════════════════════════════════════
 # ⚠️ ĐÁP ÁN CẦN NGƯỜI DUYỆT MỘT LẦN. Cố ý chọn ca KHÔNG mập mờ (mã đầu ngành,
@@ -204,22 +234,23 @@ def run_eval(models: list, tasks: tuple = _TASKS, delay: float = 0.0) -> dict:
     groups = _industry_groups()
     out: dict = {}
     for provider, model in models:
-        scores: dict = {"errors": 0}
+        scores: dict = {"errors": 0, "coverage": {}}
         for task in tasks:
-            got, n_err = _run_one_task(provider, model, task, groups, delay)
+            got, n_err, n_ans = _run_one_task(provider, model, task, groups, delay)
             if got is not None:
                 scores[task] = got
             scores["errors"] += n_err
+            scores["coverage"][task] = n_ans
         out[(provider, model)] = scores
     return out
 
 
 def _run_one_task(provider: str, model: str, task: str, groups: list,
-                  delay: float) -> "tuple[float | None, int]":
-    """(điểm trung bình, số ca lỗi). None khi việc đó không chạy được."""
+                  delay: float) -> "tuple[float | None, int, int]":
+    """(điểm, số ca lỗi, số ca trả lời được). Điểm None = KHÔNG ĐO ĐƯỢC."""
     if task == "classify":
         if not groups:
-            return None, 0
+            return None, 0, 0
         cases = [(_CLASSIFY_SYSTEM, _classify_user(c, groups),
                   lambda raw, c=c: score_classify(raw, c["expected"]))
                  for c in GOLDEN_CLASSIFY]
@@ -232,18 +263,34 @@ def _run_one_task(provider: str, model: str, task: str, groups: list,
                   lambda raw, c=c: score_json(raw, c["required"]))
                  for c in GOLDEN_JSON]
     else:
-        return None, 0
+        return None, 0, 0
 
-    total, errors = 0.0, 0
+    total, errors, answered, streak = 0.0, 0, 0, 0
     for i, (system, user, scorer) in enumerate(cases):
         if i and delay:
             time.sleep(delay)
-        raw, err = chat_once(provider, model, system, user, max_tokens=400)
+        raw, err = _chat_with_retry(provider, model, system, user)
         if err or raw is None:
             errors += 1
-            continue                      # ca lỗi tính 0 điểm, KHÔNG bỏ khỏi mẫu
+            # Quota CẢ NGÀY cạn thì retry chỉ đốt thời gian (25 ca × 20s × 10
+            # model > 1 tiếng cho task T7). Dính hạn mức liên tiếp → bỏ nốt
+            # bài, các ca còn lại tính là hụt.
+            streak = streak + 1 if _is_rate_limited(err) else 0
+            if streak >= _GIVE_UP_STREAK:
+                errors += len(cases) - i - 1
+                break
+            continue
+        streak = 0
+        answered += 1
         total += scorer(raw)
-    return round(total / len(cases), 3), errors
+
+    # Hụt quá ngưỡng → KHÔNG ĐO ĐƯỢC, trả None thay vì điểm thấp. Chấm 429
+    # thành 0 điểm là vu oan cho model vì hạn mức của CHÍNH TA (ca thật
+    # 08/08: gemini-3.5-flash classify=1.00 nhưng json=0.00 do cạn quota
+    # giữa chừng). Cùng họ bug với "JSON hỏng ghi thành Khác".
+    if answered < _MIN_COVERAGE * len(cases):
+        return None, errors, answered
+    return round(total / answered, 3), errors, answered
 
 
 # ═══ Điểm dùng thật của từng việc ═══════════════════════════════════════════

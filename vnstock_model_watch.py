@@ -658,11 +658,27 @@ def render_report(status: dict) -> str:
             out.append(f"  (không chấm được: {err})")
         else:
             for key, sc in sorted(status["eval"].items(),
-                                  key=lambda kv: -sum(v for v in kv[1].values()
-                                                      if isinstance(v, (int, float)))):
-                parts = " ".join(f"{t}={sc[t]:.2f}" for t in sorted(sc)
-                                 if t != "errors")
-                out.append(f"  {key:<52} {parts}")
+                                  key=lambda kv: -sum(
+                                      v for t, v in kv[1].items()
+                                      if t not in ("errors", "coverage")
+                                      and isinstance(v, (int, float)))):
+                cov = sc.get("coverage") or {}
+                parts = []
+                for t in ("classify", "sentiment", "json"):
+                    if t in sc:
+                        parts.append(f"{t}={sc[t]:.2f}")
+                    elif t in cov:
+                        # KHÔNG ĐO ĐƯỢC ≠ 0 điểm: hạn mức của ta, không phải
+                        # model dở. Ghi rõ để không ai đọc nhầm thành "kém".
+                        parts.append(f"{t}=n/a")
+                err = sc.get("errors") or 0
+                tail = f"   ⚠ {err} ca hụt" if err else ""
+                out.append(f"  {key:<52} {' '.join(parts)}{tail}")
+            if any((sc.get("errors") or 0) for sc in status["eval"].values()
+                   if isinstance(sc, dict)):
+                out.append("     ⚠ 'n/a' = không đo được (hụt >30% số ca, "
+                           "thường do hạn mức free tier) — KHÔNG phải điểm 0. "
+                           "Đừng so hạng khi còn n/a.")
 
     if status.get("proposals"):
         out.append("\n── ĐỀ XUẤT (chỉ đề xuất — không tự áp) ──")

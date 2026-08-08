@@ -24,6 +24,15 @@ def _tmp_meta(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_sleep(monkeypatch):
+    """Retry hạn mức ngủ 5s + 15s THẬT. 12 ca × 20s = 4 phút cho MỘT test —
+    đủ để phá ngân sách ~30s của cả suite. Test nào cần soi thời gian ngủ thì
+    tự setattr đè (monkeypatch sau thắng)."""
+    monkeypatch.setattr(me.time, "sleep", lambda s: None)
+    monkeypatch.setattr(mw.time, "sleep", lambda s: None)
+
+
+@pytest.fixture(autouse=True)
 def _no_real_http(monkeypatch):
     """Lưới cuối: test nào quên fake là nổ chứ không lặng lẽ gọi mạng thật."""
     def _boom(*a, **k):
@@ -440,11 +449,87 @@ def test_production_eval_passes_a_throttle_delay(monkeypatch):
     assert seen.get("delay", 0) > 0
 
 
-def test_run_eval_marks_model_that_cannot_answer(monkeypatch):
+def test_rate_limited_task_is_unmeasured_not_zero(monkeypatch):
+    """Ca thật 08/08: gemini-3.5-flash được classify=1.00 (bắt buộc phải xuất
+    JSON đúng 12 lần) nhưng json=0.00 — vô lý. Bài chạy trước ăn hết quota,
+    bài sau bị 429, mà 429 lại bị chấm 0 điểm.
+
+    Cùng họ bug với "sentiment đóng băng neutral" và "JSON hỏng ghi thành
+    Khác": gộp KHÔNG ĐO ĐƯỢC với ĐO RA KẾT QUẢ KÉM. Nay hụt quá ngưỡng →
+    None (khuyết khỏi bảng), không phải 0.0."""
     monkeypatch.setattr(me, "chat_once", lambda *a, **k: (None, "HTTP 429"))
-    scores = me.run_eval([("Groq", "chet")], tasks=("classify",))
-    assert scores[("Groq", "chet")]["classify"] == 0.0
-    assert scores[("Groq", "chet")]["errors"] > 0
+    scores = me.run_eval([("Groq", "bi-bop")], tasks=("classify",))
+    assert "classify" not in scores[("Groq", "bi-bop")]
+    assert scores[("Groq", "bi-bop")]["errors"] == len(me.GOLDEN_CLASSIFY)
+
+
+def test_few_errors_still_scored_over_answered_cases(monkeypatch):
+    """Hụt lác đác thì vẫn chấm — nhưng chấm trên số ca THỰC SỰ trả lời."""
+    seen = {"n": 0}
+
+    def _chat(provider, model, system, user, max_tokens=400):
+        seen["n"] += 1
+        if seen["n"] == 1:
+            return None, "HTTP 500"
+        exp = next((c["expected"] for c in me.GOLDEN_CLASSIFY
+                    if c["ticker"] in user), "Khác")
+        return json.dumps({"primary_industry": exp}, ensure_ascii=False), None
+
+    monkeypatch.setattr(me, "chat_once", _chat)
+    sc = me.run_eval([("Groq", "hut-1-ca")], tasks=("classify",))[("Groq", "hut-1-ca")]
+    assert sc["classify"] == 1.0        # 11/11 ca trả lời đều đúng
+    assert sc["errors"] == 1
+    assert sc["coverage"]["classify"] == len(me.GOLDEN_CLASSIFY) - 1
+
+
+def test_rate_limit_is_retried_before_giving_up(monkeypatch):
+    """429 là "thử lại sau", không phải "model hỏng" — phải lùi rồi thử lại
+    thay vì bỏ luôn cả bài."""
+    calls = {"n": 0}
+    slept = []
+
+    def _chat(provider, model, system, user, max_tokens=400):
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            return None, "HTTP 429: rate limit exceeded"
+        return json.dumps({"primary_industry": "Ngân hàng"},
+                          ensure_ascii=False), None
+
+    monkeypatch.setattr(me, "chat_once", _chat)
+    monkeypatch.setattr(me.time, "sleep", lambda s: slept.append(s))
+    raw, err = me._chat_with_retry("Groq", "m", "s", "u")
+    assert err is None and raw is not None
+    assert len(slept) == 2 and slept[1] > slept[0]     # lùi tăng dần
+
+
+def test_gives_up_task_after_consecutive_rate_limits(monkeypatch):
+    """Quota CẢ NGÀY cạn thì retry chỉ đốt thời gian: 25 ca × 20s × 10 model
+    = hơn một tiếng cho task T7. Dính liên tiếp thì bỏ nốt bài, đừng cố."""
+    calls = {"n": 0}
+
+    def _chat(*a, **k):
+        calls["n"] += 1
+        return None, "HTTP 429: quota exceeded"
+
+    monkeypatch.setattr(me, "chat_once", _chat)
+    sc = me.run_eval([("Gemini", "het-quota")], tasks=("classify",))
+    assert "classify" not in sc[("Gemini", "het-quota")]      # n/a
+    # bỏ sớm: KHÔNG chạy hết 12 ca (mỗi ca 3 lần gọi kể cả retry)
+    assert calls["n"] < 3 * len(me.GOLDEN_CLASSIFY)
+
+
+def test_non_rate_limit_error_not_retried(monkeypatch):
+    """404 model_not_found thì thử lại chỉ tốn thời gian."""
+    calls = {"n": 0}
+
+    def _chat(*a, **k):
+        calls["n"] += 1
+        return None, "HTTP 404: model_not_found"
+
+    monkeypatch.setattr(me, "chat_once", _chat)
+    monkeypatch.setattr(me.time, "sleep", lambda s: None)
+    assert me._chat_with_retry("Groq", "m", "s", "u")[1] is not None
+    assert calls["n"] == 1
 
 
 # ═══ GĐ3 — đề xuất, KHÔNG tự áp ════════════════════════════════════════════

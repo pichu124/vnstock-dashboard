@@ -4867,3 +4867,56 @@ git merge origin/<nhánh-claude>
 ```
 Và khi nghi máy đang chạy code cũ: `git log --oneline -1` đối chiếu commit
 cuối Claude báo.
+
+## 2026-08-08 (d) — Bảng điểm bộ đề lần đầu chạy thật: SỐ LIỆU SAI, lỗi ở thiết kế chấm
+
+Chạy `run.py models --eval` trên máy user. Bảng ra thứ tự trông hợp lý nhưng
+có dòng tự tố cáo:
+
+```
+Gemini:gemini-3.5-flash    classify=1.00  json=0.00  sentiment=0.00
+```
+
+**Mâu thuẫn logic**: được `classify=1.00` nghĩa là model xuất JSON hợp lệ
+ĐÚNG 12 lần liên tiếp. Model làm được thế không thể trượt 0/5 bài xuất JSON.
+Kèm `nemotron-ultra`: `classify=0.92 → sentiment=0.38 → json=0.00`, giảm dần
+ĐÚNG THỨ TỰ CHẠY. Đó là chữ ký hạn mức, không phải chất lượng.
+
+**Lỗi ở tôi**: `_run_one_task` chấm ca lỗi (429) thành 0 điểm rồi chia cho
+tổng số ca. Tức gộp **KHÔNG ĐO ĐƯỢC** với **ĐO RA KẾT QUẢ KÉM** — đúng họ bug
+đã sửa 2 lần trong tuần này (sentiment đóng băng "neutral"; classifier ghi
+JSON hỏng thành "Khác"). Lần này tự tay tái phạm ở module mới.
+
+Tệ hơn: đề xuất sinh ra từ số liệu đó (`json: flash 0.00 → flash-lite 1.00`)
+là đề xuất dựa trên nhiễu. May là có ngưỡng 2 tuần nên chưa ai áp.
+
+### Bốn sửa
+
+1. **Hụt >30% số ca → điểm là `n/a`, không phải 0** (`_MIN_COVERAGE = 0.7`).
+   Điểm tính trên số ca THỰC SỰ trả lời. `propose_swaps` bỏ qua `n/a` nên
+   không đẻ đề xuất từ hạn mức.
+2. **Báo cáo HIỆN số ca hụt** + chú thích "n/a ≠ điểm 0". Trước đó tôi lọc
+   `errors` khỏi bảng → không phân biệt được "trả lời sai" với "không trả
+   lời", tức bảng không đọc được. Đây mới là lỗi gốc khiến số liệu sai lọt
+   qua mắt.
+3. **429 được lùi-rồi-thử-lại** (5s, 15s). 429 là "thử lại sau", không phải
+   "model hỏng". Lỗi khác (404 model_not_found) KHÔNG retry — chỉ tốn giờ.
+4. **Dính hạn mức 3 ca liên tiếp → bỏ nốt bài đó.** Quota cả ngày cạn mà vẫn
+   retry thì 25 ca × 20s × 10 model > 1 tiếng cho task T7.
+
+Kèm bẫy test tự tạo: retry ngủ thật làm MỘT test mất 4 phút (12 ca × 20s) —
+suite từ 30s vọt lên 258s. Thêm autouse fixture vá `time.sleep` cho cả
+`vnstock_model_eval` lẫn `vnstock_model_watch`.
+
+### Số liệu nào CÒN dùng được từ lần chạy này
+
+Dòng nào `errors = 0` thì tin được. Đáng chú ý: **`Groq:openai/gpt-oss-120b`
+và `OpenRouter:nemotron-3-super` đạt 1.00/1.00/1.00**, `gemini-3.5-flash-lite`
+0.92/1.00/1.00. Nhưng CHƯA kết luận vội — phải chạy lại sau khi vá để biết
+dòng nào 0 điểm thật, dòng nào chỉ là hụt quota.
+
+**Bài học chung**: bảng điểm mà không kèm ĐỘ PHỦ là bảng không đọc được. Mọi
+chỉ số tổng hợp phải đi kèm "đo trên bao nhiêu mẫu", nếu không thì im lặng
+biến thành số 0 và số 0 biến thành kết luận.
+
+Suite 1608 → 1612 passed.
