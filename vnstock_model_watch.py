@@ -88,6 +88,17 @@ _PROVIDERS: dict[str, dict] = {
 _BRIEF_TYPE2PROVIDER = {"gemini": "Gemini", "groq": "Groq",
                         "cerebras": "Cerebras", "openrouter": "OpenRouter"}
 
+# Hết hạn mức ≠ model chết. Gộp hai ca là báo động giả (ca thật 08/08: 3 model
+# OpenRouter dính `free-models-per-day` do chính eval của ta đốt, bị báo ❌
+# chết + đẩy trạng thái đỏ). Đây là ĐIỂM DÙNG CHUNG — `vnstock_model_eval`
+# import lại, đừng viết bản thứ hai.
+_RATE_LIMIT_MARKS = ("429", "rate limit", "rate_limit", "quota",
+                     "resource_exhausted", "free-models-per-day")
+
+
+def _is_rate_limited(err: "str | None") -> bool:
+    return bool(err) and any(m in err.lower() for m in _RATE_LIMIT_MARKS)
+
 
 # ── Tiện ích ─────────────────────────────────────────────────────────────────
 
@@ -499,7 +510,8 @@ def run_watch(do_eval: bool = False) -> dict:
             time.sleep(_SLEEP_BETWEEN)
         ok, desc, dt = probe_one(prov, model, extra or None)
         rows.append({"provider": prov, "model": model, "tag": tag,
-                     "ok": bool(ok), "detail": desc, "seconds": round(dt, 2)})
+                     "ok": bool(ok), "detail": desc, "seconds": round(dt, 2),
+                     "rate_limited": (not ok) and _is_rate_limited(desc)})
 
     hist = load_history()
     catalogs = snapshot_catalogs()
@@ -507,15 +519,19 @@ def run_watch(do_eval: bool = False) -> dict:
     gone_used = gone_models_in_use(diff, in_use)
 
     slow = _latency_flags(rows, hist)
-    n_fail = sum(1 for r in rows if not r["ok"])
+    limited = [r for r in rows if r.get("rate_limited")]
+    dead = [r for r in rows if not r["ok"] and not r.get("rate_limited")]
+    n_fail = len(dead)
     severe_slow = [s for s in slow if s["severe"]]
+    # Hết hạn mức chỉ là cảnh báo: model vẫn sống, mai có quota lại chạy.
     level = ("red" if n_fail
-             else "warn" if (gone_used or severe_slow) else "green")
+             else "warn" if (gone_used or severe_slow or limited) else "green")
 
     status = {
         "ran_at": datetime.now().isoformat(),
         "level": level,
-        "probe": {"ok": len(rows) - n_fail, "fail": n_fail, "rows": rows},
+        "probe": {"ok": sum(1 for r in rows if r["ok"]), "fail": n_fail,
+                  "rate_limited": len(limited), "rows": rows},
         "catalog": {
             "diff": diff,
             "gone_in_use": [{"provider": p, "model": m, "tag": t}
@@ -539,17 +555,32 @@ def run_watch(do_eval: bool = False) -> dict:
         # không có median, nên phải bắt đầu tích từ đâu đó.
         "probe_seconds": {f"{r['provider']}:{r['model']}": r["seconds"]
                           for r in rows if r["ok"]},
+        "eval_measured": status.get("eval_measured") or [],
     })
     save_history(hist)
 
     alert_lines = [f"❌ {r['provider']} {r['model']} — {r['tag']}: {r['detail'][:80]}"
-                   for r in rows if not r["ok"]]
+                   for r in dead]
     alert_lines += [f"🗑 {p} {m} biến mất khỏi danh mục — {t}"
                     for p, m, t in gone_used]
     alert_lines += [f"🐌 {s['key']} chậm {s['factor']}× ({s['now']}s so median "
                     f"{s['median']}s) — {s['tag']}" for s in severe_slow]
     _alert(alert_lines)
     return status
+
+
+def _eval_order(models: list, hist: dict) -> list:
+    """Model CHƯA đo lần gần nhất lên đầu — xoay vòng.
+
+    Không xoay thì model bị cắt vì hạn mức (xem `EVAL_BUDGET`) sẽ không bao
+    giờ được đo: lần nào cũng đứng cuối hàng và lần nào cũng hết quota.
+    """
+    last = set()
+    for run in reversed(hist.get("runs", [])):
+        if run.get("eval_measured"):
+            last = set(run["eval_measured"])
+            break
+    return sorted(models, key=lambda pm: (f"{pm[0]}:{pm[1]}" in last, pm))
 
 
 def _run_eval_stage(rows: list, hist: dict) -> dict:
@@ -560,17 +591,20 @@ def _run_eval_stage(rows: list, hist: dict) -> dict:
     except Exception as e:
         return {"eval": {"error": f"{type(e).__name__}: {e}"}}
 
-    alive = [(r["provider"], r["model"]) for r in rows if r["ok"]]
+    alive = _eval_order([(r["provider"], r["model"]) for r in rows if r["ok"]],
+                        hist)
     # PHẢI truyền delay: bộ đề ~25 ca × ~10 model = ~250 call. Mặc định của
     # run_eval là 0 (cho test/thư viện chạy nhanh) — bắn 250 call liên tiếp
     # lên free tier là dính rate limit ngay (Groq TPM 8K).
-    scores = me.run_eval(alive, delay=_SLEEP_BETWEEN)
+    scores = me.run_eval(alive, delay=_SLEEP_BETWEEN, budget=me.EVAL_BUDGET)
     prev = next((r.get("proposals") or [] for r in reversed(hist.get("runs", []))
                  if r.get("proposals") is not None), [])
     proposals = me.propose_swaps(scores, me.current_models(),
                                  previous_proposals=prev)
     return {
         "eval": {f"{p}:{m}": sc for (p, m), sc in scores.items()},
+        "eval_measured": [f"{p}:{m}" for (p, m), sc in scores.items()
+                          if not sc.get("skipped")],
         "proposals": proposals,
     }
 
@@ -598,13 +632,22 @@ def render_report(status: dict) -> str:
     pr = status["probe"]
     slow = (status.get("latency") or {}).get("slow") or []
     slow_keys = {s["key"] for s in slow}
-    out.append(f"\n── Probe ladder: {pr['ok']} sống / {pr['fail']} chết ──")
+    n_lim = pr.get("rate_limited", 0)
+    head = f"{pr['ok']} sống / {pr['fail']} chết"
+    if n_lim:
+        head += f" / {n_lim} hết hạn mức"
+    out.append(f"\n── Probe ladder: {head} ──")
     for r in pr["rows"]:
         mark = " 🐌" if f"{r['provider']}:{r['model']}" in slow_keys else ""
-        out.append(f"  {'✅' if r['ok'] else '❌'} {r['provider']:<11}"
+        icon = "✅" if r["ok"] else ("⏳" if r.get("rate_limited") else "❌")
+        out.append(f"  {icon} {r['provider']:<11}"
                    f"{r['model']:<45}{r['seconds']:>5.1f}s  {r['tag']}{mark}")
         if not r["ok"]:
             out.append(f"       ↳ {r['detail'][:110]}")
+    if n_lim:
+        out.append("     ⏳ = HẾT HẠN MỨC hôm nay, KHÔNG phải model chết — mai "
+                   "có quota là chạy lại. Nếu do chính `--eval` đốt thì giãn "
+                   "lịch chạy, đừng vội kết luận provider hỏng.")
 
     if slow:
         out.append("\n── Chậm bất thường (so median các tuần trước) ──")
@@ -662,6 +705,10 @@ def render_report(status: dict) -> str:
                                       v for t, v in kv[1].items()
                                       if t not in ("errors", "coverage")
                                       and isinstance(v, (int, float)))):
+                if sc.get("skipped") == "budget":
+                    out.append(f"  {key:<52} (để tuần sau — chạm hạn mức "
+                               f"call/lần của provider)")
+                    continue
                 cov = sc.get("coverage") or {}
                 parts = []
                 for t in ("classify", "sentiment", "json"):

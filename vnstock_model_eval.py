@@ -27,7 +27,7 @@ import json
 import re
 import time
 
-from vnstock_model_watch import chat_once
+from vnstock_model_watch import _is_rate_limited, chat_once
 
 # Chênh điểm tối thiểu mới đáng đề xuất đổi. Thấp hơn = nhiễu: bộ đề chỉ
 # ~12 ca nên lệch 1 ca đã là 0.08 — đổi model vì 1 ca là thrash.
@@ -41,14 +41,10 @@ _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 _MIN_COVERAGE = 0.7
 # 429 = "thử lại sau", không phải "model hỏng" → lùi rồi thử lại.
 _RETRY_SLEEPS = (5.0, 15.0)
-_RATE_LIMIT_MARKS = ("429", "rate limit", "rate_limit", "quota", "resource_exhausted")
 # Dính hạn mức liên tiếp bấy nhiêu ca (mỗi ca đã retry) = quota cả ngày cạn
-# → bỏ nốt bài thay vì đốt thời gian.
+# → bỏ nốt bài thay vì đốt thời gian. (`_is_rate_limited` dùng chung với
+# vnstock_model_watch — một bản duy nhất, đừng viết lại.)
 _GIVE_UP_STREAK = 3
-
-
-def _is_rate_limited(err: "str | None") -> bool:
-    return bool(err) and any(m in err.lower() for m in _RATE_LIMIT_MARKS)
 
 
 def _chat_with_retry(provider: str, model: str, system: str, user: str,
@@ -225,15 +221,37 @@ def _classify_user(case: dict, groups: list) -> str:
 _TASKS = ("classify", "sentiment", "json")
 
 
-def run_eval(models: list, tasks: tuple = _TASKS, delay: float = 0.0) -> dict:
+_CASE_COUNTS = {"classify": len(GOLDEN_CLASSIFY),
+                "sentiment": len(GOLDEN_SENTIMENT), "json": len(GOLDEN_JSON)}
+
+# Hạn mức call/lần chạy cho provider có quota NGÀY chật. OpenRouter free =
+# 50 req/ngày, mà 3 model × 25 ca = 75 → eval của CHÍNH TA đốt sạch, hôm sau
+# production mất nấc dự phòng (ca thật 08/08). Provider không khai = không cap.
+EVAL_BUDGET = {"OpenRouter": 25}
+
+
+def run_eval(models: list, tasks: tuple = _TASKS, delay: float = 0.0,
+             budget: "dict | None" = None) -> dict:
     """{(provider, model): {task: điểm 0-1, "errors": n}}.
 
     `delay` mặc định 0 để test/gọi thư viện chạy nhanh; production truyền
     ngưỡng lịch sự (Groq TPM 8K) — xem `vnstock_model_watch._run_eval_stage`.
     """
     groups = _industry_groups()
+    budget = budget or {}
+    need = sum(_CASE_COUNTS.get(t, 0) for t in tasks)
+    used: dict = {}
     out: dict = {}
     for provider, model in models:
+        cap = budget.get(provider)
+        if cap is not None and used.get(provider, 0) + need > cap:
+            # Không đo model này lần này — để tuần sau (thứ tự xoay vòng ở
+            # `_eval_order`). Thà đo được vài model tử tế còn hơn đo hết rồi
+            # cướp quota của pipeline thật.
+            out[(provider, model)] = {"errors": 0, "coverage": {},
+                                      "skipped": "budget"}
+            continue
+        used[provider] = used.get(provider, 0) + need
         scores: dict = {"errors": 0, "coverage": {}}
         for task in tasks:
             got, n_err, n_ans = _run_one_task(provider, model, task, groups, delay)

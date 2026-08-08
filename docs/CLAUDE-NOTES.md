@@ -4920,3 +4920,67 @@ chỉ số tổng hợp phải đi kèm "đo trên bao nhiêu mẫu", nếu khô
 biến thành số 0 và số 0 biến thành kết luận.
 
 Suite 1608 → 1612 passed.
+
+## 2026-08-08 (e) — Hết hạn mức bị báo là "model chết", và eval tự cướp quota production
+
+Lần chạy `--eval` thứ hai (22:10) ra dữ liệu SẠCH cho 7 model, nhưng lộ 2 lỗi
+mới — cả hai đều là **cùng một sai lầm gốc lặp lại ở chỗ khác**.
+
+### Lỗi 1: probe chấm 429 thành "chết"
+
+```
+❌ OpenRouter nvidia/nemotron-3-super-120b-a12b:free   [7] brief
+     ↳ HTTP 429: Rate limit exceeded: free-models-per-day
+```
+
+Ba model OpenRouter bị báo ❌ chết, trạng thái đỏ, và sẽ bắn Telegram "model
+chết" — trong khi thông báo nói rõ là hết hạn mức NGÀY. Model vẫn sống, mai
+có quota là chạy.
+
+Đây là lần thứ TƯ trong tuần cùng một họ bug: gộp "không đo được / không dùng
+được TẠM THỜI" với "hỏng thật". (1) sentiment đóng băng "neutral"; (2)
+classifier ghi JSON hỏng thành "Khác"; (3) bảng điểm chấm 429 thành 0 điểm;
+(4) probe chấm 429 thành chết. **Mỗi lần thêm một đường xử lý lỗi mới là một
+cơ hội tái phạm** — cứ gặp nhánh lỗi thì hỏi: đây là "hỏng" hay "tạm thời
+không dùng được"?
+
+Vá: `_is_rate_limited` (một bản DÙNG CHUNG cho cả watch lẫn eval) → dòng probe
+in ⏳ thay vì ❌, mức là **warn** không phải red, không vào danh sách alert
+"model chết", header ghi rõ "N hết hạn mức".
+
+### Lỗi 2: eval của ta ăn hết quota của production
+
+OpenRouter free = **50 request/ngày**. Eval chạy 3 model × 25 ca = **75 call**
+→ đốt sạch. Hôm sau probe thấy 429, và quan trọng hơn: **pipeline thật mất
+nấc dự phòng OpenRouter cả ngày đó**. Công cụ giám sát làm hỏng thứ nó giám
+sát.
+
+Vá: `EVAL_BUDGET = {"OpenRouter": 25}` — chạm hạn thì model còn lại để tuần
+sau, kèm `_eval_order()` xoay vòng (model chưa đo lần gần nhất lên đầu). Không
+xoay thì model bị cắt sẽ KHÔNG BAO GIỜ được đo.
+
+⚠️ Lưu ý khi quyết định nạp $10 OpenRouter (mục quan sát §11): lần rate-limit
+này là do CÔNG CỤ CỦA TA đốt, không phải production bị bóp. Đừng lấy nó làm
+căn cứ nạp tiền — sửa công cụ trước, quan sát lại sau.
+
+### Số liệu THẬT đầu tiên dùng được (7 model, errors=0)
+
+```
+Cerebras:gemma-4-31b            classify=1.00 sentiment=1.00 json=1.00
+Cerebras:gpt-oss-120b           classify=1.00 sentiment=1.00 json=1.00
+Gemini:gemini-3.5-flash-lite    classify=1.00 sentiment=1.00 json=1.00
+Groq:openai/gpt-oss-120b        classify=1.00 sentiment=1.00 json=1.00
+Groq:openai/gpt-oss-20b         classify=1.00 sentiment=0.88 json=0.80
+Gemini:gemini-3.5-flash         classify=0.91 sentiment=1.00 json=n/a (4 ca hụt)
+Groq:qwen/qwen3.6-27b           classify=0.33 sentiment=0.50 json=0.00
+```
+
+**`Groq:qwen/qwen3.6-27b` 0.33/0.50/0.00 với errors=0** — tức trả lời được
+NHƯNG SAI, không phải hạn mức. Mà slug này đang gánh [2] chấm tin, [3-6]
+digest b2, [7] brief VÀ [8] classifier. Đây là phát hiện đáng giá nhất của cả
+đợt, nhưng CHƯA đủ để đổi: cần lần chạy thứ hai xác nhận (ngưỡng ripe 2 tuần
+tồn tại chính vì thế). Nghi vấn cần loại trừ trước: model reasoning này có thể
+tiêu hết `max_tokens=400` vào phần suy nghĩ → output cụt. Nếu đúng thì lỗi
+nằm ở bộ đề của ta, không phải model.
+
+Suite 1612 → 1617 passed.

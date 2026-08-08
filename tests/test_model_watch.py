@@ -268,6 +268,44 @@ def test_dead_probe_turns_status_red(monkeypatch):
     assert dead[0]["tag"] == "[8] classifier"       # biết hỏng ở tính năng nào
 
 
+_RL_BODY = ('HTTP 429: {"error":{"message":"Rate limit exceeded: '
+            'free-models-per-day. Add 10 credits to unlock 1000 free models"}}')
+
+
+def test_rate_limited_probe_is_not_reported_dead(monkeypatch, _tmp_meta):
+    """Ca thật 08/08: 3 model OpenRouter dính `free-models-per-day` (do CHÍNH
+    eval của ta đốt) bị báo ❌ chết + đẩy trạng thái đỏ. Hết hạn mức trong
+    ngày ≠ model chết — cùng họ bug vừa sửa ở bảng điểm."""
+    monkeypatch.setattr(mw, "_ladder_slugs",
+                        lambda: [("OpenRouter", "m1", "[7] brief", {}),
+                                 ("Groq", "m2", "[1] sentiment", {})])
+    monkeypatch.setattr(mw, "snapshot_catalogs", lambda: {"Groq": ["m2"]})
+    monkeypatch.setattr(mw, "probe_one",
+                        lambda p, m, e=None: (False, _RL_BODY, 0.6)
+                        if p == "OpenRouter" else (True, "ok", 0.8))
+
+    st = mw.run_watch(do_eval=False)
+
+    assert st["level"] == "warn"                  # KHÔNG phải red
+    assert st["probe"]["fail"] == 0               # không tính là chết
+    assert st["probe"]["rate_limited"] == 1
+    row = next(r for r in st["probe"]["rows"] if r["provider"] == "OpenRouter")
+    assert row["rate_limited"] is True
+
+
+def test_real_death_still_red_alongside_rate_limit(monkeypatch, _tmp_meta):
+    monkeypatch.setattr(mw, "_ladder_slugs",
+                        lambda: [("OpenRouter", "m1", "[7]", {}),
+                                 ("Groq", "m2", "[1]", {})])
+    monkeypatch.setattr(mw, "snapshot_catalogs", lambda: {})
+    monkeypatch.setattr(mw, "probe_one",
+                        lambda p, m, e=None: (False, _RL_BODY, 0.6)
+                        if p == "OpenRouter"
+                        else (False, "HTTP 404: model_not_found", 0.3))
+    st = mw.run_watch(do_eval=False)
+    assert st["level"] == "red" and st["probe"]["fail"] == 1
+
+
 def test_kill_switch_skips_everything(monkeypatch, _tmp_meta):
     monkeypatch.setenv("VNSTOCK_MODEL_WATCH", "0")
     monkeypatch.setattr(mw, "probe_one",
@@ -500,6 +538,35 @@ def test_rate_limit_is_retried_before_giving_up(monkeypatch):
     raw, err = me._chat_with_retry("Groq", "m", "s", "u")
     assert err is None and raw is not None
     assert len(slept) == 2 and slept[1] > slept[0]     # lùi tăng dần
+
+
+def test_eval_respects_per_provider_budget(monkeypatch):
+    """OpenRouter free = 50 req/ngày; 3 model × 25 ca = 75 call → eval của
+    CHÍNH TA đốt sạch quota, hôm sau production mất nấc dự phòng (ca thật
+    08/08). Có hạn mức thì chỉ đo được bao nhiêu đo, phần còn lại để tuần sau."""
+    monkeypatch.setattr(me, "chat_once",
+                        lambda *a, **k: (json.dumps({"primary_industry": "Khác"}), None))
+    models = [("OpenRouter", f"m{i}") for i in range(3)]
+    sc = me.run_eval(models, tasks=("classify",), budget={"OpenRouter": 25})
+    measured = [k for k, v in sc.items() if "classify" in v]
+    assert len(measured) == 2          # 12 ca/model → chỉ lọt 2 model trong 25
+    assert sc[("OpenRouter", "m2")]["skipped"] == "budget"
+
+
+def test_budget_free_providers_untouched(monkeypatch):
+    monkeypatch.setattr(me, "chat_once",
+                        lambda *a, **k: (json.dumps({"primary_industry": "Khác"}), None))
+    sc = me.run_eval([("Groq", f"m{i}") for i in range(3)],
+                     tasks=("classify",), budget={"OpenRouter": 25})
+    assert all("classify" in v for v in sc.values())
+
+
+def test_eval_rotates_models_not_measured_recently(monkeypatch):
+    """Không xoay vòng thì model bị cắt vì hạn mức sẽ KHÔNG BAO GIỜ được đo."""
+    hist = {"runs": [{"at": "x", "eval_measured": ["OpenRouter:m0", "OpenRouter:m1"]}]}
+    order = mw._eval_order([("OpenRouter", "m0"), ("OpenRouter", "m1"),
+                            ("OpenRouter", "m2")], hist)
+    assert order[0] == ("OpenRouter", "m2")     # chưa đo lần trước → lên đầu
 
 
 def test_gives_up_task_after_consecutive_rate_limits(monkeypatch):
