@@ -540,6 +540,45 @@ def test_rate_limit_is_retried_before_giving_up(monkeypatch):
     assert len(slept) == 2 and slept[1] > slept[0]     # lùi tăng dần
 
 
+def test_eval_token_budget_fits_reasoning_models():
+    """Bộ đề cấp 400 token → model reasoning (qwen3.6, gpt-oss) tiêu hết vào
+    phần suy nghĩ rồi cụt output, bị chấm 0 điểm OAN. Chính repo đã học bài
+    này: digest cấp Groq 900 / Cerebras 6000 / OpenRouter 4000, tier2 3000
+    ("1200 là cụt content")."""
+    assert me._EVAL_MAX_TOKENS >= 900
+
+
+def test_eval_passes_generous_budget_to_model(monkeypatch):
+    seen = {}
+
+    def _chat(provider, model, system, user, max_tokens=None):
+        seen["max_tokens"] = max_tokens
+        return json.dumps({"primary_industry": "Khác"}), None
+
+    monkeypatch.setattr(me, "chat_once", _chat)
+    me.run_eval([("Groq", "m")], tasks=("classify",))
+    assert seen["max_tokens"] == me._EVAL_MAX_TOKENS
+
+
+def test_truncated_thinking_is_unmeasured_not_zero(monkeypatch):
+    """`_THINK_RE` đòi THẺ ĐÓNG, nên output cắt giữa lúc suy nghĩ không strip
+    được → không tìm thấy JSON → 0 điểm. Nhưng đó là NGÂN SÁCH CỦA TA quá
+    chật, không phải model dở. Còn thẻ <think> mở = bằng chứng bị cắt."""
+    monkeypatch.setattr(me, "chat_once",
+                        lambda *a, **k: ("<think>Để tôi cân nhắc ngành của "
+                                         "công ty này, có thể là ngân", None))
+    sc = me.run_eval([("Groq", "reasoning")], tasks=("classify",))[("Groq", "reasoning")]
+    assert "classify" not in sc            # n/a chứ không phải 0.00
+    assert sc["errors"] == len(me.GOLDEN_CLASSIFY)
+
+
+def test_closed_thinking_block_still_scored():
+    """Suy nghĩ có thẻ đóng đàng hoàng thì chat_once đã strip — vẫn chấm bình
+    thường, không được nhầm thành 'bị cắt'."""
+    assert me._truncated_thinking('{"primary_industry": "Ngân hàng"}') is False
+    assert me._truncated_thinking("<think>nghĩ mãi") is True
+
+
 def test_eval_respects_per_provider_budget(monkeypatch):
     """OpenRouter free = 50 req/ngày; 3 model × 25 ca = 75 call → eval của
     CHÍNH TA đốt sạch quota, hôm sau production mất nấc dự phòng (ca thật

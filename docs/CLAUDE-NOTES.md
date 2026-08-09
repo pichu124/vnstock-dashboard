@@ -4984,3 +4984,52 @@ tiêu hết `max_tokens=400` vào phần suy nghĩ → output cụt. Nếu đún
 nằm ở bộ đề của ta, không phải model.
 
 Suite 1612 → 1617 passed.
+
+## 2026-08-09 — Bộ đề cấp 400 token: chấm oan model reasoning (qwen3.6-27b)
+
+Lần chạy `--eval` thứ ba (22:02, sau khi quota hồi) cho dữ liệu SẠCH nhất từ
+trước tới nay: 8 model đo được, 2 model OpenRouter hoãn đúng theo hạn mức, độ
+trễ lần đầu có median và bắt trúng (nemotron-super 18.6s so median 3.26s).
+
+Nhưng `Groq:qwen/qwen3.6-27b` lặp lại kết quả kém với **errors=0**:
+
+| lần | classify | sentiment | json |
+|---|---|---|---|
+| 08/08 | 0.33 | 0.50 | 0.00 |
+| 09/08 | 0.33 | 0.38 | 0.00 |
+
+Nhất quán, và `errors=0` nghĩa là TRẢ LỜI ĐƯỢC nhưng sai. Slug này đang gánh
+[2] chấm tin, [3-6] digest b2, [7] brief VÀ [8] classifier — nếu đúng là kém
+thì đây là phát hiện đắt giá nhất của cả đợt.
+
+### Nhưng KHÔNG kết luận, vì bộ đề của ta chật token
+
+Hai cơ chế cộng lại, và cả hai đều là lỗi của tôi:
+
+1. **Cấp 400 token.** Chính repo đã học bài này ở digest: `_TIER1_TOKENS` cấp
+   Groq **900** · Cerebras **6000** · OpenRouter **4000**, `_TIER2_TOKENS
+   = 3000` kèm chú "1200 là cụt content". qwen3.6 và gpt-oss là model
+   REASONING — tiêu ngân sách vào phần suy nghĩ TRƯỚC khi trả lời.
+2. **`_THINK_RE` đòi THẺ ĐÓNG.** Output bị cắt giữa lúc suy nghĩ thì không có
+   `</think>` → không strip được → `_first_json` lục trong đống suy nghĩ →
+   không thấy JSON → 0 điểm. json=0.00 khớp chính xác dấu hiệu này.
+
+Vá: `_EVAL_MAX_TOKENS = 2000`; và thẻ `<think>` mở còn sót sau khi `chat_once`
+đã strip mọi khối ĐÓNG ĐỦ = bằng chứng bị cắt → tính là **hụt (n/a)**, không
+phải 0 điểm.
+
+Đây là lần thứ NĂM cùng một họ bug trong hai ngày: chấm "không đo được" thành
+"đo ra kết quả kém". (1) sentiment neutral · (2) classifier "Khác" · (3) bảng
+điểm 429→0 · (4) probe 429→chết · (5) output cụt→0. Danh sách này nên đọc
+như một checklist: **mỗi nhánh xử lý lỗi mới, hỏi ngay "đây là HỎNG hay TẠM
+THỜI KHÔNG ĐO ĐƯỢC?"**
+
+### Cố ý CHƯA làm: cảnh báo "nấc yếu đang dùng"
+
+`propose_swaps` chỉ soi nấc DẪN của mỗi việc, nên qwen (nấc dự phòng ở 4 điểm)
+không bao giờ sinh đề xuất — đó là giới hạn thật của thiết kế hiện tại. Nhưng
+KHÔNG thêm cảnh báo "nấc yếu" ngay bây giờ: thêm lúc này thì nó sẽ kêu ngay
+trên một số đo còn hỏng. Sửa phép đo trước, xem số sau, rồi mới quyết. Nếu
+sau khi cấp 2000 token mà qwen vẫn kém thì lúc đó cảnh báo mới có nghĩa.
+
+Suite 1617 → 1621 passed.

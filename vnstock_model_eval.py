@@ -46,9 +46,25 @@ _RETRY_SLEEPS = (5.0, 15.0)
 # vnstock_model_watch — một bản duy nhất, đừng viết lại.)
 _GIVE_UP_STREAK = 3
 
+# Model reasoning (qwen3.6, gpt-oss) tiêu ngân sách vào phần SUY NGHĨ trước
+# khi trả lời. Cấp 400 như bản đầu = cụt output → bị chấm 0 điểm OAN (ca thật
+# 08-09/08: qwen/qwen3.6-27b 0.33/0.38/0.00 với errors=0). Repo đã học bài này
+# ở digest: Groq 900 · Cerebras 6000 · OpenRouter 4000, tier2 3000 ("1200 là
+# cụt content"). 2000 đủ rộng cho mọi nấc mà vẫn nhanh.
+_EVAL_MAX_TOKENS = 2000
+
+# Thẻ <think> MỞ mà không có thẻ đóng = output bị cắt giữa lúc suy nghĩ.
+# `chat_once` đã strip mọi khối think ĐÓNG ĐỦ, nên thẻ mở còn sót lại là bằng
+# chứng bị cắt — đó là ngân sách của TA quá chật, không phải model dở.
+_OPEN_THINK_RE = re.compile(r"<\s*(think|thinking|reasoning|thought)\s*>", re.I)
+
+
+def _truncated_thinking(raw: str) -> bool:
+    return bool(raw) and bool(_OPEN_THINK_RE.search(raw))
+
 
 def _chat_with_retry(provider: str, model: str, system: str, user: str,
-                     max_tokens: int = 400) -> "tuple[str | None, str | None]":
+                     max_tokens: int = _EVAL_MAX_TOKENS) -> "tuple[str | None, str | None]":
     """Như `chat_once` nhưng lùi-rồi-thử-lại khi dính hạn mức.
 
     Chỉ retry lỗi hạn mức: 404 model_not_found thì thử lại chỉ tốn thời gian.
@@ -288,6 +304,12 @@ def _run_one_task(provider: str, model: str, task: str, groups: list,
         if i and delay:
             time.sleep(delay)
         raw, err = _chat_with_retry(provider, model, system, user)
+        if raw is not None and not err and _truncated_thinking(raw):
+            # Cắt giữa lúc suy nghĩ = ta cấp thiếu token, KHÔNG phải model sai.
+            # Chấm 0 ở đây là vu oan — cùng lỗi với chấm 429 thành 0 điểm.
+            errors += 1
+            streak = 0
+            continue
         if err or raw is None:
             errors += 1
             # Quota CẢ NGÀY cạn thì retry chỉ đốt thời gian (25 ca × 20s × 10
