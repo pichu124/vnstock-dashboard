@@ -4760,114 +4760,6 @@ qua, không nổ (máy user đang có đúng 1 run kiểu đó).
 lần chạy T7 nữa (~2 tuần). Trước đó phần này im lặng, đúng như thiết kế.
 
 Suite 1601 → 1608 passed.
-
----
-
-# 📌 VIỆC PHẢI LÀM — chốt 08/08/2026
-
-> Danh sách ĐANG DÙNG, gộp mọi thứ còn treo. Thay thế mục "CHỜ VERIFY 07/08"
-> và `docs/PENDING_WORK.md`. Trạng thái lúc chốt: full suite **1608 passed**,
-> fast **1066**, nhánh `claude/remaining-tasks-tests-4xoam3` đã push,
-> `origin/main` tụt **13 commit** so với nhánh.
-
-## 🟢 LÀM ĐƯỢC NGAY (máy user, không cần chờ gì)
-
-**1. Verify điểm [8] classifier bằng batch thật**
-```powershell
-python vnstock_classifier.py --classify --limit 20
-```
-Soi 4 thứ: (i) KHÔNG còn đòi `ANTHROPIC_API_KEY`; (ii) dòng route in ra là
-"ladder free — Gemini 3.5-flash dẫn đầu"; (iii) cột `model` trong
-`_meta/industry_classification.parquet` ghi `Gemini:gemini-3.5-flash` chứ
-không phải tên Claude; (iv) **tỉ lệ "trả lời không lấy được JSON"** ở dòng
-tổng kết. Tỉ lệ >10-15% = flash không kham nổi prompt 32 nhóm ngành → chạy
-full batch nên bật `--paid` (~$0.5 với haiku).
-
-**2. Chấm bộ đề + duyệt đáp án**
-```powershell
-python run.py models --eval          # ~250 call, ~4 phút
-```
-Rồi **soi lại đáp án** trong `vnstock_model_eval.GOLDEN_CLASSIFY` (12 mã),
-`GOLDEN_SENTIMENT` (8 tin), `GOLDEN_JSON` (5 ca). **Đáp án sai thì cả bảng
-điểm vô nghĩa** — ca nào còn phân vân thì XOÁ, đừng giữ rồi trách model.
-
-**3. Đưa 13 commit về `main` và push**
-```powershell
-git fetch origin claude/remaining-tasks-tests-4xoam3
-git merge origin/claude/remaining-tasks-tests-4xoam3
-git push origin main
-```
-
-## 🔴 CẦN GIỜ GIAO DỊCH — Thứ 2 10/08, 9h15-14h30
-
-**4. WSS volume tích luỹ** — việc nợ duy nhất từ đợt fix 07/08. ~5 phút là đủ.
-```powershell
-python vnstock_wss.py       # chạy ~5 phút rồi Ctrl+C
-```
-Soi `data_warehouse\_live\`: mã cổ phiếu (VCB, HPG…) `volume > 0`;
-`VNINDEX` / `VN30F1M` phải `volume == 0` (feed KHÔNG gửi `accumulatedvolume`
-cho index/futures — trước fix `_pick()` rơi xuống fallback `"volume"` là
-volume TỪNG TICK rồi cộng dồn thành số ảo). Kèm `BarAggregator.diagnostics()`
-→ `suspect_count = 0`.
-
-## ⏳ TỰ ĐẾN THEO LỊCH — không phải làm gì
-
-**5. Diff danh mục thật** — thứ 7 tới, task `VnStock Weekend Pipeline` 09:00
-tự chạy `run.py models --eval`. Mốc 08/08 đã lưu: Cerebras 3 · Groq 15 ·
-Gemini 58 · OpenRouter 400.
-
-**6. Độ trễ theo tuần** — cần ≥2 lần chạy CÓ lưu giây mới có median, tức sớm
-nhất sau ~2 lần chạy T7 nữa. Trước đó phần này im lặng, đúng thiết kế.
-
-**7. Đơn vị giá penny khi rollup** — không dựng được tình huống thật. Việc cần
-làm chỉ là: thấy dòng cảnh báo đơn vị trong `run_daily.log` → ĐỌC KỸ, đừng lướt.
-
-## 🟡 VIỆC CODE CÒN TREO
-
-**8. `vnstock_llm_ledger.py --test-alert`** — bắn 1 tin "(TEST)" qua đúng
-đường ống alert "LLM ladder DOWN" thật để verify chủ động thay vì chờ sự cố.
-Đã đề xuất từ 30/07, **user chưa gật**.
-
-**9. Việc mức MEDIUM/LOW của đợt audit 06/08** — chưa làm:
-* ghi nguyên tử cho `vnstock_warehouse._write_parquet`, cache macro,
-  `_meta/*.json` (hiện `vnstock_parquet_io` mới dùng ở updater/rollup)
-* hiệu năng pipeline: warehouse bị quét ~14 lần/đêm
-* test replica đã trôi xa bản thật: `tests/test_dashboard.py` (686 dòng, ghi
-  thẳng "file này không hề import vnstock_dashboard"), `tests/test_wss.py`
-* tách file quá lớn: `vnstock_brief.py` (6.765 dòng), `dashboard/market_tab.py`
-  (2.566 dòng)
-
-**10. Tuỳ chọn nhỏ (user hỏi 08/08)** — giấu số lượng model ở riêng dòng
-"không đổi" của báo cáo model watch. Giá trị con số thấp nhất đúng ở dòng đó;
-giữ lại vì nó cho biết CÒN BAO NHIÊU ĐƯỜNG LUI khi cần thay model (Cerebras
-chỉ 3 model = gần như không có đồ thay). Sửa ~2 dòng nếu user muốn.
-
-## 🟠 QUAN SÁT RỒI QUYẾT
-
-**11.** A/B brief Gemini vs Groq (~3-5 phiên) · Cerebras `gpt-oss-120b`
-digest chập chờn · OpenRouter nạp $10 CHỈ khi cột "(N rate-limit)" > 0 nhiều
-ngày · Gemini flash 503 đêm VN là bình thường, cascade tự đỡ.
-
-**12. Nâng thư viện data** — máy user đang có bản mới: vnstock 4.0.4 → 4.0.5,
-vnai 2.4.8 → 2.5.6, vnii 0.2.4 → 0.2.5. **CHƯA nâng.** vnstock là nguồn data
-của cả pipeline; nâng thì phải chạy `run.py doctor --net` + full suite ngay
-sau, và KHÔNG nâng sát giờ pipeline chạy.
-
-## 🔧 NẾP LÀM VIỆC — bẫy đã vấp 2 lần đêm 07-08/08
-
-User làm việc trên `main` cục bộ, Claude push lên nhánh feature. Nên `git pull`
-báo **"Already up to date"** DÙ vừa tải commit mới về — vì git chỉ merge nhánh
-đang theo dõi, mà HEAD đang ở `main`. Hậu quả thật: chạy `run.py models` bằng
-code cũ rồi cả hai bên cùng chẩn đoán nhầm mất 2 lượt.
-
-Lấy code mới thì dùng:
-```powershell
-git fetch origin <nhánh-claude>
-git merge origin/<nhánh-claude>
-```
-Và khi nghi máy đang chạy code cũ: `git log --oneline -1` đối chiếu commit
-cuối Claude báo.
-
 ## 2026-08-08 (d) — Bảng điểm bộ đề lần đầu chạy thật: SỐ LIỆU SAI, lỗi ở thiết kế chấm
 
 Chạy `run.py models --eval` trên máy user. Bảng ra thứ tự trông hợp lý nhưng
@@ -5033,3 +4925,116 @@ trên một số đo còn hỏng. Sửa phép đo trước, xem số sau, rồi 
 sau khi cấp 2000 token mà qwen vẫn kém thì lúc đó cảnh báo mới có nghĩa.
 
 Suite 1617 → 1621 passed.
+
+---
+
+# 📌 VIỆC PHẢI LÀM — chốt 09/08/2026
+
+> Danh sách ĐANG DÙNG. Thay thế bản "chốt 08/08" và `docs/PENDING_WORK.md`.
+> **Mục này PHẢI luôn nằm CUỐI FILE** — `CLAUDE.md` trỏ vào đây; thêm entry
+> nhật ký mới thì chèn TRƯỚC mục này.
+>
+> Trạng thái: full suite **1621 passed** · fast ~1.075 · nhánh
+> `claude/remaining-tasks-tests-4xoam3` = `426ba12`, đã push ·
+> `origin/main` = `4c6fd6c`, **thiếu 3 commit cuối**.
+
+## 🔴 GẤP NHẤT — Thứ 2 10/08, giờ giao dịch 9h15-14h30
+
+**1. WSS volume tích luỹ** — việc nợ duy nhất còn lại từ đợt fix 07/08, và
+mai là ngày làm được. ~5 phút là đủ.
+```powershell
+python vnstock_wss.py       # chạy ~5 phút rồi Ctrl+C
+```
+Soi `data_warehouse\_live\`: mã cổ phiếu (VCB, HPG…) `volume > 0`;
+`VNINDEX` / `VN30F1M` phải `volume == 0` (feed KHÔNG gửi `accumulatedvolume`
+cho index/futures — trước fix `_pick()` rơi xuống fallback `"volume"` là
+volume TỪNG TICK rồi cộng dồn thành số ảo). Kèm `BarAggregator.diagnostics()`
+→ `suspect_count = 0`.
+
+## 🟢 LÀM ĐƯỢC NGAY
+
+**2. Đồng bộ máy + `main` trên GitHub** (một công đôi việc — cũng là cách lấy
+bản vá token cho việc §3)
+```powershell
+git fetch origin claude/remaining-tasks-tests-4xoam3
+git merge origin/claude/remaining-tasks-tests-4xoam3
+git push origin main
+```
+
+**3. Chạy lại `--eval` sau bản vá token** — câu hỏi treo: qwen3.6-27b kém
+thật hay do bộ đề chật token? Chạy cách lần trước ≥1 ngày để quota hồi.
+```powershell
+python run.py models --eval
+```
+Đọc dòng `Groq:qwen/qwen3.6-27b`:
+
+| Kết quả | Kết luận |
+|---|---|
+| điểm lên rõ | lỗi ở bộ đề, model không sao — đóng hồ sơ |
+| `n/a` + số ca hụt | vẫn cụt output → cấp thêm token nữa |
+| vẫn thấp, `errors=0` | kém thật → BÀN chuyện thay ở [2][3-6][7][8] |
+
+**4. Verify điểm [8] classifier bằng batch thật**
+```powershell
+python vnstock_classifier.py --classify --limit 20
+```
+Soi: (i) KHÔNG đòi `ANTHROPIC_API_KEY`; (ii) route in ra "ladder free —
+Gemini 3.5-flash dẫn đầu"; (iii) cột `model` trong parquet ghi
+`Gemini:gemini-3.5-flash`; (iv) **tỉ lệ "không lấy được JSON"** ở dòng tổng
+kết — >10-15% thì chạy full batch nên bật `--paid` (~$0.5).
+
+**5. Duyệt đáp án bộ đề** — `vnstock_model_eval.GOLDEN_CLASSIFY` (12 mã),
+`GOLDEN_SENTIMENT` (8 tin), `GOLDEN_JSON` (5 ca). Đáp án sai thì cả bảng điểm
+vô nghĩa. Ca nào còn phân vân thì XOÁ, đừng giữ rồi trách model.
+
+## ⏳ TỰ ĐẾN — không phải làm gì
+
+**6.** Task T7 09:00 tự chạy `run.py models --eval` hàng tuần. Hai model
+OpenRouter đang hoãn vì hạn mức sẽ tự lên đầu hàng tuần sau (`_eval_order`).
+
+**7. Cảnh báo đơn vị giá penny** — thấy dòng cảnh báo đơn vị trong
+`run_daily.log` thì ĐỌC KỸ, đừng lướt.
+
+## 🟡 CODE CÒN TREO
+
+**8. Cảnh báo "nấc yếu đang dùng"** — `propose_swaps` chỉ soi nấc DẪN, nên
+model kém ở nấc DỰ PHÒNG (như qwen ở 4 điểm) không bao giờ sinh đề xuất. CỐ Ý
+hoãn tới sau §3: thêm lúc số đo còn hỏng thì nó kêu oan ngay.
+
+**9. `vnstock_llm_ledger.py --test-alert`** — bắn 1 tin "(TEST)" qua đúng
+đường ống alert thật. Đề xuất từ 30/07, **user chưa gật**.
+
+**10. MEDIUM/LOW của audit 06/08** — chưa làm:
+* ghi nguyên tử cho `vnstock_warehouse._write_parquet`, cache macro, `_meta/*.json`
+* hiệu năng: warehouse bị quét ~14 lần/đêm
+* test replica trôi xa bản thật: `tests/test_dashboard.py`, `tests/test_wss.py`
+* tách file quá lớn: `vnstock_brief.py` (6.765 dòng), `dashboard/market_tab.py`
+
+**11. Tuỳ chọn nhỏ** — giấu số lượng model ở riêng dòng "không đổi" của báo
+cáo model watch (user hỏi 08/08). Giữ lại vì nó cho biết CÒN BAO NHIÊU ĐƯỜNG
+LUI khi cần thay model (Cerebras chỉ 3 model). Sửa ~2 dòng nếu user muốn.
+
+## 🟠 QUAN SÁT RỒI QUYẾT
+
+**12.** A/B brief Gemini vs Groq (~3-5 phiên) · Cerebras `gpt-oss-120b` digest
+chập chờn · Gemini flash 503 đêm VN là bình thường.
+
+**13. OpenRouter nạp $10** — điều kiện user đặt: cột "(N rate-limit)" > 0
+nhiều ngày. ⚠️ Đợt rate-limit 08/08 là do **công cụ của ta** đốt (eval 75 call
+> hạn 50/ngày), ĐÃ VÁ bằng `EVAL_BUDGET`. Đừng lấy nó làm căn cứ — quan sát
+lại từ đầu.
+
+**14. Nâng thư viện data** — vnstock 4.0.4 → 4.0.5, vnai 2.4.8 → 2.5.6, vnii
+0.2.4 → 0.2.5. **CHƯA nâng.** Nâng thì phải chạy `run.py doctor --net` + full
+suite ngay sau, và KHÔNG nâng sát giờ pipeline chạy.
+
+**15. Độ trễ OpenRouter** — `nemotron-3-super` 18.6s (median 3.26s, chậm
+5.7×) ngày 09/08. Đang là [7] brief, timeout 90s nên chưa nguy. Nhưng lịch sử
+độ trễ mới có 2-3 mẫu → theo dõi thêm vài tuần rồi mới kết luận, đừng đổi vội.
+
+## 🔧 NẾP LÀM VIỆC — bẫy đã vấp 2 lần
+
+User làm việc trên `main` cục bộ, Claude push lên nhánh feature → `git pull`
+báo **"Already up to date"** DÙ vừa tải commit mới về. Lấy code mới phải dùng
+`git fetch origin <nhánh> && git merge origin/<nhánh>`. Nghi máy chạy code cũ
+→ `git log --oneline -1` đối chiếu commit cuối Claude báo.
