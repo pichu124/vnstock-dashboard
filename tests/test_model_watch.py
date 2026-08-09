@@ -433,6 +433,21 @@ def test_sentiment_scored_by_label():
     assert me.score_sentiment("TIÊU_CỰC | áp lực NIM", "positive") == 0.0
 
 
+def test_sentiment_label_read_from_before_pipe_only():
+    """Lộ khi tự duyệt bộ đề 10/08: production (`analyze_item`) partition
+    trên `|` và chỉ so nhãn ở PHẦN TRƯỚC — eval so cả chuỗi nên đuôi giải
+    thích "không tích cực cũng không tiêu cực" (cách diễn đạt neutral rất tự
+    nhiên) chứa "tích cực" dạng space → đè nhãn TRUNG LẬP thành positive →
+    0 điểm OAN cho ca neutral."""
+    raw = "Trung lập | không tích cực cũng không tiêu cực"
+    assert me.score_sentiment(raw, "neutral") == 1.0
+    # không có dấu | → so cả chuỗi như cũ
+    assert me.score_sentiment("TÍCH_CỰC", "positive") == 1.0
+    # và KHÔNG mirror lớp che lỗi của production (default neutral khi chẳng
+    # khớp gì): output không đọc ra nhãn = trượt
+    assert me.score_sentiment("tôi không chắc lắm", "neutral") == 0.0
+
+
 def test_json_task_scored_by_required_keys():
     good = json.dumps({"approved": True, "confidence": 0.9, "issues": []})
     assert me.score_json(good, ["approved", "confidence", "issues"]) == 1.0

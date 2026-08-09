@@ -4960,6 +4960,70 @@ Tôi bảo user `--eval` mất "~4 phút". Đo thật từ chính dấu thời g
 Lưu ý: bản vá token (400 → 2000) sẽ làm output dài hơn nữa → có thể lâu hơn.
 
 
+## 2026-08-10 (b) — Tự duyệt bộ đề theo uỷ quyền của user (biên bản từng ca)
+
+User: "bạn tự chấm và duyệt cho tôi với nỗ lực tối đa nhất rồi áp vào code".
+Tức đáp án KHÔNG còn là "người duyệt" theo nghĩa gốc — độ tin giờ dựa trên:
+(i) biên bản dưới đây, phản biện lại được TỪNG ca; (ii) các ca đều cố ý là
+kiến thức phổ thông TTCK VN, không phải judgment call tinh vi. User phủ quyết
+ca nào: sửa 1 dòng GOLDEN_* + `run.py test --fast`.
+
+### Bộ A — phân loại ngành (12 ca): 11 giữ, 1 sửa mô tả
+
+| # | Mã | Đáp án | Kết luận |
+|---|---|---|---|
+| 1 | VCB | Ngân hàng | ✅ hiển nhiên |
+| 2 | HPG | Thép & Kim loại | ✅ desc chỉ nói thép; thực tế thép áp đảo doanh thu |
+| 3 | VNM | Thực phẩm & Đồ uống | ✅ |
+| 4 | FPT | CNTT & Phần mềm | ✏️ **SỬA DESC** — desc cũ liệt kê 4 mảng không trọng số, mà list nhãn có riêng "Viễn thông" và "Giáo dục" → primary không xác định được TỪ TEXT (trái luật bộ đề). Thêm "(mảng chính, phần lớn doanh thu)". Giữ cấu trúc đa mảng vì công ty thật vốn thế |
+| 5 | VHM | Bất động sản | ✅ |
+| 6 | GAS | Dầu khí | ✅ quy ước VN: GAS thuộc "họ dầu khí" (mọi screener VN xếp vậy) dù ICB quốc tế đôi khi xếp utilities |
+| 7 | SSI | Chứng khoán & ĐTTC | ✅ |
+| 8 | BVH | Bảo hiểm | ✅ |
+| 9 | POW | Điện & NLTT | ✅ **GIỮ dù POW là nhiệt điện** — nhãn là TÊN RỔ (mọi phát điện + tái tạo), không phải khẳng định POW tái tạo; "Điện" chỉ có ở đúng 1 nhãn nên xác định được |
+| 10 | DHG | Y tế & Dược phẩm | ✅ |
+| 11 | MWG | Bán lẻ & Thương mại | ✅ |
+| 12 | VSC | Cảng & HT logistics | ✅ **GIỮ dù sát "Vận tải & Logistics"** — hai nhãn CÙNG TỒN TẠI trong production nên phân biệt cảng vs logistics tổng hợp CHÍNH LÀ kỹ năng phải đo; desc dẫn bằng "khai thác cảng biển" nên xác định được |
+
+### Bộ B — sắc thái tin (8 ca): giữ cả 8
+
+Quy ước chấm (ghi ra để sau khỏi cãi): chấm TÁC ĐỘNG TRỰC TIẾP lên ngành/
+thị trường mà tin NÓI TỚI, không đuổi theo hiệu ứng bậc hai.
+
+* B#2 hạ lãi suất điều hành → positive: quy ước thị trường (nới tiền tệ =
+  xuôi cho cổ phiếu); "NIM ngân hàng bị ép" là bậc hai.
+* B#3 giá thép giảm 5 phiên → negative: tin NÓI VỀ ngành thép (cầu yếu);
+  "nhà thầu xây dựng hưởng lợi" là bậc hai.
+* B#7/B#8 (lịch nghỉ lễ, lịch ĐHCĐ) → neutral: công bố hành chính thuần.
+* Còn lại (#1 xuất khẩu +18%, #4 thuế chống bán phá giá, #5 chậm trả trái
+  phiếu, #6 FDI +10%) một chiều rõ, không cần bàn.
+
+### Bộ C — xuất JSON (5 ca): giữ cả 5
+
+Chấm cơ học (parse được + đủ khoá), khoá yêu cầu khớp đề từng ca. Không có
+"đáp án nội dung" để duyệt.
+
+### Phát hiện đắt nhất: BUG SCORER, không phải đáp án
+
+`score_sentiment` so nhãn trên CẢ chuỗi, trong khi production
+(`analyze_item`) partition trên `|` và chỉ so PHẦN TRƯỚC. Dựng lại được ca
+cụ thể: model trả **"Trung lập | không tích cực cũng không tiêu cực"** (cách
+diễn đạt neutral rất tự nhiên) → nhãn đầu dạng space nên các khoá underscore
+trượt hết, rồi "tích cực" trong ĐUÔI khớp trước → chấm positive → **0 điểm
+OAN cho ca neutral**. Đã sửa mirror production + test chốt.
+
+Hệ quả đọc số lần --eval tới: điểm sentiment một số model có thể NHÍCH LÊN
+nhờ fix scorer (gpt-oss-20b đang 0.75-0.88 ≈ hụt 1-2 ca — có thể chính là
+nạn nhân). Đừng đọc nhầm thành "model tự khá lên".
+
+Giữ CÓ Ý một khác biệt với production: production default "neutral" khi
+không khớp gì — đó là lớp CHE LỖI; eval tính là trượt, không mirror.
+
+Bài học — phiên bản chấm-điểm của "lưới chỉ soi thứ được khai báo": duyệt
+bộ đề mà không duyệt NGƯỜI CHẤM là duyệt nửa chừng. Scorer sai thì 25 đáp
+án đúng cũng vô nghĩa.
+
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 09/08/2026
@@ -5019,9 +5083,11 @@ Gemini 3.5-flash dẫn đầu"; (iii) cột `model` trong parquet ghi
 `Gemini:gemini-3.5-flash`; (iv) **tỉ lệ "không lấy được JSON"** ở dòng tổng
 kết — >10-15% thì chạy full batch nên bật `--paid` (~$0.5).
 
-**5. Duyệt đáp án bộ đề** — `vnstock_model_eval.GOLDEN_CLASSIFY` (12 mã),
-`GOLDEN_SENTIMENT` (8 tin), `GOLDEN_JSON` (5 ca). Đáp án sai thì cả bảng điểm
-vô nghĩa. Ca nào còn phân vân thì XOÁ, đừng giữ rồi trách model.
+**5. ✅ XONG 10/08 — bộ đề đã duyệt** (user ủy quyền Claude tự duyệt; biên
+bản TỪNG CA ở entry "10/08 (b)" — muốn phủ quyết ca nào thì đọc biên bản rồi
+sửa 1 dòng). 25 ca: 24 giữ · 1 sửa desc (FPT) · 1 fix scorer sentiment (chỉ
+so nhãn TRƯỚC dấu `|`, mirror production). ⚠️ Đọc lần --eval tới: điểm
+sentiment có thể NHÍCH LÊN nhờ fix scorer — không phải model tự khá lên.
 
 ## ⏳ TỰ ĐẾN — không phải làm gì
 

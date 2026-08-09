@@ -79,9 +79,14 @@ def _chat_with_retry(provider: str, model: str, system: str, user: str,
 
 
 # ═══ Bộ đề ═══════════════════════════════════════════════════════════════════
-# ⚠️ ĐÁP ÁN CẦN NGƯỜI DUYỆT MỘT LẦN. Cố ý chọn ca KHÔNG mập mờ (mã đầu ngành,
-# tin có chiều tác động rõ) — bộ đề để đo MODEL, không phải để đố mẹo. Ca nào
-# người còn phân vân thì bỏ, đừng giữ lại rồi trách model sai.
+# ✅ ĐÃ DUYỆT 10/08/2026 — user ủy quyền Claude tự duyệt ("tự chấm và duyệt
+# với nỗ lực tối đa"), KHÔNG phải người duyệt tay. Độ tin dựa trên: (i) biên
+# bản TỪNG CA ở CLAUDE-NOTES entry "10/08 (b)" — phản biện lại được từng
+# dòng; (ii) các ca đều là kiến thức phổ thông TTCK VN, không judgment call.
+# Kết quả duyệt: 24/25 giữ nguyên · 1 sửa desc (FPT — thêm trọng số mảng) ·
+# 1 BUG SCORER (score_sentiment so cả chuỗi thay vì phần trước dấu |).
+# Nguyên tắc giữ nguyên: ca mập mờ với NGƯỜI thì bỏ/sửa, không giữ để đố mẹo.
+# Phủ quyết ca nào: đọc biên bản → sửa 1 dòng → `run.py test --fast`.
 
 GOLDEN_CLASSIFY = [
     {"ticker": "VCB", "name": "Ngân hàng TMCP Ngoại thương Việt Nam",
@@ -93,8 +98,12 @@ GOLDEN_CLASSIFY = [
     {"ticker": "VNM", "name": "CTCP Sữa Việt Nam",
      "desc": "Sản xuất và kinh doanh sữa nước, sữa bột, sữa chua, nước giải khát.",
      "expected": "Thực phẩm & Đồ uống"},
+    # Đa mảng CÓ Ý (công ty thật vốn thế) nhưng primary phải XÁC ĐỊNH ĐƯỢC
+    # TỪ TEXT: list nhãn có riêng "Viễn thông" và "Giáo dục" nên desc không
+    # trọng số là bắt model đoán — thêm "(mảng chính…)" khi duyệt 10/08.
     {"ticker": "FPT", "name": "CTCP FPT",
-     "desc": "Xuất khẩu phần mềm, tích hợp hệ thống, dịch vụ viễn thông, giáo dục.",
+     "desc": "Xuất khẩu phần mềm và dịch vụ CNTT (mảng chính, phần lớn "
+             "doanh thu); có thêm viễn thông, giáo dục.",
      "expected": "Công nghệ thông tin & Phần mềm"},
     {"ticker": "VHM", "name": "CTCP Vinhomes",
      "desc": "Phát triển và kinh doanh bất động sản nhà ở, khu đô thị.",
@@ -108,6 +117,9 @@ GOLDEN_CLASSIFY = [
     {"ticker": "BVH", "name": "Tập đoàn Bảo Việt",
      "desc": "Kinh doanh bảo hiểm nhân thọ và phi nhân thọ, tái bảo hiểm.",
      "expected": "Bảo hiểm"},
+    # Giữ dù POW là NHIỆT điện: nhãn là TÊN RỔ ("Điện & NLTT" = mọi phát điện
+    # + tái tạo), không phải khẳng định POW tái tạo; "Điện" chỉ xuất hiện ở
+    # đúng 1 nhãn nên xác định được từ desc. (Duyệt 10/08.)
     {"ticker": "POW", "name": "Tổng Công ty Điện lực Dầu khí Việt Nam",
      "desc": "Sản xuất và kinh doanh điện năng từ nhà máy nhiệt điện khí, than.",
      "expected": "Điện & Năng lượng tái tạo"},
@@ -117,6 +129,10 @@ GOLDEN_CLASSIFY = [
     {"ticker": "MWG", "name": "CTCP Đầu tư Thế giới Di động",
      "desc": "Chuỗi bán lẻ điện thoại, điện máy, bách hoá.",
      "expected": "Bán lẻ & Thương mại"},
+    # Giữ dù sát nhãn "Vận tải & Logistics": HAI nhãn này CÙNG TỒN TẠI trong
+    # production, nên phân biệt cảng vs logistics tổng hợp CHÍNH LÀ kỹ năng
+    # phải đo — không phải đố mẹo. Desc dẫn bằng "khai thác cảng biển" +
+    # "logistics CẢNG" nên xác định được. (Duyệt 10/08.)
     {"ticker": "VSC", "name": "CTCP Container Việt Nam",
      "desc": "Khai thác cảng biển, kho bãi container, dịch vụ logistics cảng.",
      "expected": "Cảng & Hạ tầng logistics"},
@@ -187,14 +203,24 @@ def score_classify(raw: str, expected: str) -> float:
 
 
 def score_sentiment(raw: str, expected: str) -> float:
-    """1.0 khi ra đúng nhãn (positive/negative/neutral). Dùng chung bảng ánh
-    xạ tiếng Việt của vnstock_sentiment để giống hệt đường chấm tin thật."""
+    """1.0 khi ra đúng nhãn (positive/negative/neutral).
+
+    Mirror ĐÚNG đường parse production (`analyze_item`): nhãn nằm TRƯỚC dấu
+    `|`, phần sau là câu giải thích — phải cắt trước khi so. Không cắt thì
+    đuôi kiểu "không tích cực cũng không tiêu cực" đè nhãn TRUNG LẬP thành
+    positive (bug lộ khi tự duyệt bộ đề 10/08 — chấm 0 điểm OAN ca neutral).
+
+    Khác production MỘT chỗ CÓ Ý: không default "neutral" khi chẳng khớp gì.
+    Đó là lớp CHE LỖI của production; với eval, output không đọc ra nhãn
+    là trượt.
+    """
     try:
         from vnstock_sentiment import _SENTIMENT_MAP
     except Exception:
         _SENTIMENT_MAP = {"tích cực": "positive", "tiêu cực": "negative",
                           "trung lập": "neutral"}
-    low = (raw or "").lower()
+    head, _, _tail = (raw or "").partition("|")
+    low = head.lower()
     got = next((v for k, v in _SENTIMENT_MAP.items() if k in low), "")
     return 1.0 if got == expected else 0.0
 
