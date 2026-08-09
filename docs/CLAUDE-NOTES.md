@@ -5069,6 +5069,11 @@ claude-haiku-4-5-20251001"). → KHÔNG cần full batch 1.700 mã nữa; route 
 chỉ gánh mã niêm yết MỚI, vài call một lần. Nỗi lo quota/$0.5 cho batch đầy
 gần như biến mất. Phân loại ngành 4 tháng tuổi vẫn dùng tốt (ngành hiếm đổi).
 
+**Chốt 10/08 00:27 — sau vá 6000 token**: `--rerun-flagged VCB SSI` → **2/2
+sạch, 0 errors** (4 giây); `--query VCB` → `Model: Gemini:gemini-3.5-flash`,
+vẫn "Ngân hàng ~100%" — KHỚP bản Claude cũ (parity chất lượng trên ca dễ).
+Điểm [8] verify TRỌN VẸN: 4/4 checkpoint.
+
 
 ---
 
@@ -5120,18 +5125,12 @@ python run.py models --eval
 | `n/a` + số ca hụt | vẫn cụt output → cấp thêm token nữa |
 | vẫn thấp, `errors=0` | kém thật → BÀN chuyện thay ở [2][3-6][7][8] |
 
-**4. 🔄 Verify điểm [8] — chạy lần đầu 10/08, còn 1 bước chốt.** Kết quả
-(10 mã `--rerun-flagged`): route ✓ · không đòi key ✓ · guard không-đóng-băng ✓
-· nhưng **2/10 "không lấy được JSON" rơi đúng VCB + SSI** = hồ sơ dày nhất lô,
-chữ ký flash-suy-nghĩ-ăn-token (xem entry 10/08 (c)). ĐÃ VÁ: 800 →
-`_CLASSIFY_MAX_TOKENS = 6000`. Bước chốt sau khi merge code mới:
-```powershell
-python vnstock_classifier.py --rerun-flagged VCB SSI
-python vnstock_classifier.py --query VCB    # Model: phải là Gemini:gemini-3.5-flash
-```
-Kỳ vọng 2/2 sạch; còn trượt thì dòng chẩn đoán mới (↳ …) sẽ nói lý do.
-📌 Kho ĐÃ ĐẦY 1.652 mã (đợt claude-haiku 04/2026) → KHÔNG cần full batch;
-route free chỉ gánh mã niêm yết mới.
+**4. ✅ XONG 10/08 — điểm [8] verify TRỌN VẸN (4/4 checkpoint).** Vòng 1
+(10 mã): 8/10 + lộ bug token 800 → `_CLASSIFY_MAX_TOKENS = 6000` (entry
+10/08 (c)). Vòng chốt sau vá: `--rerun-flagged VCB SSI` → 2/2 sạch, 0 errors;
+`--query VCB` → `Model: Gemini:gemini-3.5-flash`, vẫn "Ngân hàng ~100%" khớp
+bản Claude cũ. Kho ĐÃ ĐẦY 1.652 mã → KHÔNG cần full batch; route free chỉ
+gánh mã niêm yết mới.
 
 **5. ✅ XONG 10/08 — bộ đề đã duyệt** (user ủy quyền Claude tự duyệt; biên
 bản TỪNG CA ở entry "10/08 (b)" — muốn phủ quyết ca nào thì đọc biên bản rồi
