@@ -4464,7 +4464,8 @@ check tương ứng.
     provider (dòng nào "không đọc được danh mục" = endpoint sai, báo lại),
     (ii) lưu mốc đầu tiên — **tuần đầu chưa có diff**, phải có mốc rồi tuần
     sau mới so được. Sau đó `run.py models --eval` để xem bảng điểm bộ đề
-    (~250 call, ~4 phút) và **soi lại đáp án bộ đề** trong
+    (~200 call, **~25-30 phút** — đo thật từ dấu thời gian alert 08-09/08,
+    KHÔNG phải 4 phút như ước ban đầu) và **soi lại đáp án bộ đề** trong
     `vnstock_model_eval.GOLDEN_*` — đáp án sai thì cả bảng điểm vô nghĩa.
 
 10. **Batch classifier thật trên máy user** (mới, sau khi làm điểm [8]) —
@@ -4926,6 +4927,39 @@ sau khi cấp 2000 token mà qwen vẫn kém thì lúc đó cảnh báo mới c�
 
 Suite 1617 → 1621 passed.
 
+## 2026-08-10 — Đối chiếu 3 alert Telegram cuối tuần: task T7 CHẠY THẬT
+
+User dán 3 tin Model watch nhận cuối tuần. Đối chiếu xong:
+
+| Thời điểm | Nội dung | Kết luận |
+|---|---|---|
+| **T7 08/08 09:10** | ❌ `gpt-oss-20b:free` 429 "Provider returned error" | **Task T7 TỰ CHẠY LẦN ĐẦU** — thành công. Báo cáo lãi suất tuần gửi ngay sau, cùng 09:10 → cả chuỗi weekend chạy trót lọt |
+| T7 08/08 22:26 | ❌ cả 3 model OpenRouter "free-models-per-day" | Chạy tay. **Bằng chứng đóng đinh**: eval lúc 09:00 (75 call > hạn 50/ngày) đã đốt sạch quota, tối cả 3 nấc OpenRouter chết cho tới hết ngày |
+| CN 09/08 22:31 | 🐌 nemotron-super chậm 5.7× | Chạy tay. **Hành vi ĐÚNG** — lần đầu lưới độ trễ bắt được |
+
+Hai tin đầu do code TRƯỚC bản vá `d8847c8` (429 → ❌ "chết"). Nay 429 in ⏳ và
+KHÔNG vào danh sách alert.
+
+### Điều đáng giá nhất: xác nhận blast radius của bug quota
+
+Tin 22:26 chứng minh hậu quả thật, không phải suy đoán: từ 09:00 tới hết ngày
+T7, **production mất cả 3 nấc OpenRouter** ở [1] sentiment, [2] analyze,
+[3-6] digest, [7] brief. Lần này vô hại vì T7 không có phiên và rates-weekly
+đã chạy xong lúc 09:10 bằng Gemini/Cerebras. Nhưng nó cho thấy công cụ giám
+sát ĐÃ từng làm hỏng thứ nó giám sát — `EVAL_BUDGET` không phải phòng xa.
+
+Sau vá: T7 tới OpenRouter chỉ tiêu 3 (probe) + 25 (eval 1 model) = **28/50**,
+còn dư cho digest. Thứ tự weekend giữ nguyên (models đứng đầu) vì digest gọi
+Gemini → Cerebras trước, chỉ chạm OpenRouter khi 2 nấc kia hỏng.
+
+### Sửa số liệu tôi nói sai
+
+Tôi bảo user `--eval` mất "~4 phút". Đo thật từ chính dấu thời gian alert:
+**24 phút** (08/08: 22:02 → 22:26) và **29 phút** (09/08: 22:02 → 22:31).
+~8 model × 25 ca × (1s giãn + 1-3s API) + retry. Đã sửa trong checklist.
+Lưu ý: bản vá token (400 → 2000) sẽ làm output dài hơn nữa → có thể lâu hơn.
+
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 09/08/2026
@@ -4963,6 +4997,8 @@ git push origin main
 
 **3. Chạy lại `--eval` sau bản vá token** — câu hỏi treo: qwen3.6-27b kém
 thật hay do bộ đề chật token? Chạy cách lần trước ≥1 ngày để quota hồi.
+⏱ Mất **~25-30 phút** (đo thật 08-09/08: 22:02 → alert 22:26 và 22:31), không
+phải 4 phút. Cứ để chạy nền.
 ```powershell
 python run.py models --eval
 ```
