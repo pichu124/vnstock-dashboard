@@ -475,7 +475,12 @@ def _last_catalogs(hist: dict) -> dict:
 # ── Cảnh báo ─────────────────────────────────────────────────────────────────
 
 def _alert(lines: list) -> bool:
-    """Báo Telegram — best-effort tuyệt đối, tắt bằng VNSTOCK_MODEL_WATCH_ALERT=0."""
+    """Báo Telegram — best-effort tuyệt đối, tắt bằng VNSTOCK_MODEL_WATCH_ALERT=0.
+
+    CỐ Ý gửi cả khi chạy TAY, không chỉ khi task tự chạy: user chốt 10/08 —
+    muốn có bản lưu trên điện thoại để theo dõi, chấp nhận trùng với output
+    trên màn hình. Đừng "tối ưu" bằng cách bỏ alert lúc chạy tay.
+    """
     if not lines or not _flag("VNSTOCK_MODEL_WATCH_ALERT"):
         return False
     try:
