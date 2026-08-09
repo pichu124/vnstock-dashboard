@@ -5024,6 +5024,52 @@ bộ đề mà không duyệt NGƯỜI CHẤM là duyệt nửa chừng. Scorer 
 án đúng cũng vô nghĩa.
 
 
+## 2026-08-10 (c) — Verify [8] lần đầu: 8/10 đậu, 2 mã trượt LỘ bug token
+
+User chạy `--rerun-flagged` 10 mã quen. **Đậu 3/4 checkpoint**: không đòi
+`ANTHROPIC_API_KEY` ✓ · route "ladder free — Gemini 3.5-flash dẫn đầu" ✓ ·
+guard không-đóng-băng chạy đúng (VCB/SSI KHÔNG bị ghi rác vào kho, "để chấm
+lại") ✓ · dòng cảnh báo tổng kết in đúng thiết kế ✓.
+
+Trượt: **2/10 "không lấy được JSON" — mà là VCB và SSI**, hai mã DỄ XẾP NHẤT
+thị trường (bộ đề flash vừa đạt classify 0.91-1.00). Model không thể "không
+biết" VCB là ngân hàng → nghi output bị CẮT, và tiền lệ repo xác nhận:
+
+* c1dcb14 (06/08, brief): "output bị cắt (finish_reason=length)… nâng think
+  headroom Gemini" — flash SUY NGHĨ MẶC ĐỊNH, ngày data phức tạp nghĩ ~5k
+  token; brief phải cộng headroom **8000**, kèm chú "đây là TRẦN, không phải
+  chi phí".
+* digest `_TIER1_TOKENS` cấp Gemini **6000**.
+* Classifier cấp **800** — thừa kế nguyên xi từ thời `_call_claude` (Claude
+  haiku KHÔNG suy nghĩ, 800 đủ). **Đổi model dẫn đường mà quên đổi ngân sách
+  token đi kèm.**
+
+Vì sao trúng đúng VCB/SSI: prompt classifier nhét profile (≤800 ký tự) +
+revenue (≤400) — ngân hàng/chứng khoán lớn nhất sàn có hồ sơ tài chính DÀY
+nhất → flash nghĩ nhiều nhất → 800 token cạn trước khi JSON 4 trường kịp ra.
+
+Vá (suite 1622 → 1624):
+1. `_CLASSIFY_MAX_TOKENS = 6000` làm default `_call_llm` — suggest/spot-check
+   hưởng chung (bỏ override 2000 cũ: đó là sizing CONTENT thời Claude).
+2. Cảnh báo "không lấy được JSON" in thêm dòng chẩn đoán `_no_json_hint`:
+   thẻ `<think>` mở → "nghi bị CẮT giữa lúc suy nghĩ"; có `{` mà không parse
+   → "bị cắt giữa chừng?"; kèm đuôi 70 ký tự output. Trước đó lỗi CÂM — nhìn
+   "không lấy được JSON" không phân biệt được "hết token" (sửa 1 hằng số)
+   với "model dốt" (tốn $0.5 bật --paid). Đúng ca này suýt kết luận nhầm
+   hướng đắt tiền.
+
+Suýt là lần thứ SÁU họ bug "không đo được ≠ kém" — lần này ở tầng CHẨN ĐOÁN
+CỦA NGƯỜI chứ không phải code (guard kho đã chạy đúng): tỉ lệ 20% "không lấy
+được JSON" đọc như "flash đuối với đề 32 ngành" trong khi thật ra là ta bóp
+token. Không có danh tính 2 mã trượt (VCB! SSI!) thì đã đi nhầm hướng.
+
+**Phát hiện phụ quan trọng**: kho phân loại ĐÃ ĐẦY — 1.652 mã, chấm bằng
+claude-haiku đợt 04/2026 (--query VCB: "Phân loại: 2026-04-05 | Model:
+claude-haiku-4-5-20251001"). → KHÔNG cần full batch 1.700 mã nữa; route free
+chỉ gánh mã niêm yết MỚI, vài call một lần. Nỗi lo quota/$0.5 cho batch đầy
+gần như biến mất. Phân loại ngành 4 tháng tuổi vẫn dùng tốt (ngành hiếm đổi).
+
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 09/08/2026
@@ -5074,14 +5120,18 @@ python run.py models --eval
 | `n/a` + số ca hụt | vẫn cụt output → cấp thêm token nữa |
 | vẫn thấp, `errors=0` | kém thật → BÀN chuyện thay ở [2][3-6][7][8] |
 
-**4. Verify điểm [8] classifier bằng batch thật**
+**4. 🔄 Verify điểm [8] — chạy lần đầu 10/08, còn 1 bước chốt.** Kết quả
+(10 mã `--rerun-flagged`): route ✓ · không đòi key ✓ · guard không-đóng-băng ✓
+· nhưng **2/10 "không lấy được JSON" rơi đúng VCB + SSI** = hồ sơ dày nhất lô,
+chữ ký flash-suy-nghĩ-ăn-token (xem entry 10/08 (c)). ĐÃ VÁ: 800 →
+`_CLASSIFY_MAX_TOKENS = 6000`. Bước chốt sau khi merge code mới:
 ```powershell
-python vnstock_classifier.py --classify --limit 20
+python vnstock_classifier.py --rerun-flagged VCB SSI
+python vnstock_classifier.py --query VCB    # Model: phải là Gemini:gemini-3.5-flash
 ```
-Soi: (i) KHÔNG đòi `ANTHROPIC_API_KEY`; (ii) route in ra "ladder free —
-Gemini 3.5-flash dẫn đầu"; (iii) cột `model` trong parquet ghi
-`Gemini:gemini-3.5-flash`; (iv) **tỉ lệ "không lấy được JSON"** ở dòng tổng
-kết — >10-15% thì chạy full batch nên bật `--paid` (~$0.5).
+Kỳ vọng 2/2 sạch; còn trượt thì dòng chẩn đoán mới (↳ …) sẽ nói lý do.
+📌 Kho ĐÃ ĐẦY 1.652 mã (đợt claude-haiku 04/2026) → KHÔNG cần full batch;
+route free chỉ gánh mã niêm yết mới.
 
 **5. ✅ XONG 10/08 — bộ đề đã duyệt** (user ủy quyền Claude tự duyệt; biên
 bản TỪNG CA ở entry "10/08 (b)" — muốn phủ quyết ca nào thì đọc biên bản rồi

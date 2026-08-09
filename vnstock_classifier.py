@@ -421,6 +421,16 @@ _CLASSIFY_PAID_ENV = "VNSTOCK_CLASSIFY_PAID"
 _CLASSIFY_MODEL_ENV = "VNSTOCK_CLASSIFY_MODEL"
 _CLASSIFY_MODEL_DEFAULT = "claude-haiku-4-5-20251001"
 
+# Ngân sách token RA cho 1 call phân loại. 800 là con số thời `_call_claude`
+# (Claude haiku KHÔNG suy nghĩ — 800 đủ cho JSON 4 trường); giữ nguyên khi đổi
+# sang ladder free là quên gemini-3.5-flash SUY NGHĨ MẶC ĐỊNH — thinking ăn
+# budget completion, hồ sơ càng dày flash nghĩ càng nhiều → JSON đứt giữa
+# chừng. Ca thật 10/08: 2/10 mã "không lấy được JSON" rơi đúng VCB + SSI, hai
+# hồ sơ tài chính dày nhất lô. Chuẩn repo: digest cấp Gemini 6000; brief đo
+# flash nghĩ ~5k ngày phức tạp (c1dcb14) và cộng headroom 8000. Đây là TRẦN,
+# không phải chi phí — không nghĩ nhiều thì không tốn.
+_CLASSIFY_MAX_TOKENS = 6000
+
 # System cho ladder free (endpoint OpenAI-compatible tách system/user). Cố ý
 # giữ CHUNG CHUNG: `_call_llm` phục vụ cả classify lẫn suggest/spot-check nên
 # câu system không được ghim vào một tác vụ. Nhiệm vụ cụ thể nằm trong prompt.
@@ -435,7 +445,7 @@ def _paid_classify_enabled() -> bool:
 
 
 def _call_llm(prompt: str, model: "str | None" = None,
-              max_tokens: int = 800) -> "tuple[str, str]":
+              max_tokens: int = _CLASSIFY_MAX_TOKENS) -> "tuple[str, str]":
     """(text, model_đã_trả_lời) — Claude khi opt-in, còn lại đi ladder free.
 
     Lỗi nấc trả phí (key hết hạn, 529 giữa batch) KHÔNG làm chết lượt gọi:
@@ -537,6 +547,25 @@ Quy tắc:
 - Nếu 1 ngành: secondary_industries=[], revenue_breakdown={{"Ngành chính":"~100%"}}
 - Nếu đa ngành: liệt kê ngành phụ và ước tính tỷ trọng doanh thu
 - Tên ngành PHẢI khớp chính xác với danh sách đã cho"""
+
+
+def _no_json_hint(raw: str) -> str:
+    """1 dòng chẩn đoán cho ca "không lấy được JSON" — không nuốt im lặng.
+
+    Thiếu dòng này thì user không phân biệt được "hết token" (sửa bằng nới
+    `_CLASSIFY_MAX_TOKENS`) với "model dốt" (cân nhắc `--paid`) — đúng ca
+    10/08 suýt kết luận nhầm hướng thứ hai.
+    """
+    flat = _re.sub(r"\s+", " ", (raw or "").strip())
+    if _re.search(r"<\s*(think|thinking|reasoning|thought)\s*>", flat, _re.I):
+        # chat_complete đã strip mọi khối think ĐÓNG ĐỦ — thẻ mở còn sót lại
+        # là bằng chứng output đứt giữa lúc suy nghĩ
+        why = "nghi bị CẮT giữa lúc suy nghĩ (hết token — xem _CLASSIFY_MAX_TOKENS)"
+    elif "{" in flat:
+        why = "có '{' nhưng JSON không parse được (bị cắt giữa chừng?)"
+    else:
+        why = "không có JSON trong câu trả lời"
+    return f"{why} · đuôi: …{flat[-70:]}"
 
 
 def _parse_classification(text: str) -> "dict | None":
@@ -645,6 +674,7 @@ def run_classify(
                     # viễn: is_classified chặn lần chấm sau). Để chạy lại.
                     console.log(f"  [yellow]⚠ {ticker}: {used_model} trả lời "
                                 f"không lấy được JSON — để chấm lại[/yellow]")
+                    console.log(f"       [dim]↳ {_no_json_hint(response)}[/dim]")
                     unparsed += 1
                     errors += 1
                     continue
@@ -974,8 +1004,9 @@ Chỉ đưa vào "suspicious" những mã BẠN TỰ TIN là sai ngành.
 Nếu không chắc thì bỏ qua, đừng flag nhầm."""
 
         try:
-            # max_tokens=2000: đủ cho ~50 mã suspicious với reason đầy đủ
-            response, _used = _call_llm(prompt, model, max_tokens=2000)
+            # dùng _CLASSIFY_MAX_TOKENS chung — "2000 đủ cho ~50 mã suspicious"
+            # là sizing CONTENT thời Claude, chưa tính phần suy nghĩ của flash
+            response, _used = _call_llm(prompt, model)
             # Xóa markdown code block nếu có
             clean = _re.sub(r"```(?:json)?\s*", "", response).strip()
             match = _re.search(r"\{.*\}", clean, _re.DOTALL)

@@ -135,6 +135,39 @@ def test_free_ladder_gets_probed_model_map(monkeypatch):
     assert seen["user"] == "PROMPT BODY"
 
 
+def test_call_llm_gives_flash_room_to_think(monkeypatch):
+    """VCB + SSI trượt 2/10 hôm 10/08 — đúng 2 mã hồ sơ tài chính DÀY nhất
+    lô, chữ ký finish_reason=length của brief (c1dcb14): gemini-3.5-flash
+    SUY NGHĨ mặc định, ngày phức tạp nghĩ ~5k token, thinking ăn budget
+    completion. 800 thừa kế từ thời Claude (không suy nghĩ) là chật; chuẩn
+    repo: digest cấp Gemini 6000, brief cộng headroom 8000."""
+    seen = {}
+
+    def _chat(system, user, max_tokens=80, model_map=None, with_model=False):
+        seen["max_tokens"] = max_tokens
+        return ("{}", "Gemini:gemini-3.5-flash")
+
+    monkeypatch.delenv(vc._CLASSIFY_PAID_ENV, raising=False)
+    monkeypatch.setattr("vnstock_sentiment.chat_complete", _chat)
+    vc._call_llm("prompt")
+    assert seen["max_tokens"] >= 6000
+    assert seen["max_tokens"] == vc._CLASSIFY_MAX_TOKENS
+
+
+def test_no_json_hint_diagnoses_truncation():
+    """Cảnh báo "không lấy được JSON" phải NÓI RA vì sao — không có dòng chẩn
+    đoán thì user không phân biệt được "hết token" với "model dốt" (đúng ca
+    10/08: suýt kết luận nhầm sang --paid)."""
+    cut_think = vc._no_json_hint("<think>VCB là ngân hàng thương mại lớn nhất")
+    assert "CẮT" in cut_think
+    cut_json = vc._no_json_hint('{"primary_industry": "Ngân hà')
+    assert "cắt" in cut_json.lower()
+    prose = vc._no_json_hint("xin lỗi, tôi không thể phân loại")
+    assert "không có JSON" in prose
+    # đuôi output phải có mặt để soi bằng mắt
+    assert "ngân hàng thương mại lớn nhất" in cut_think
+
+
 def test_raises_actionable_error_when_every_rung_dead(monkeypatch):
     monkeypatch.delenv(vc._CLASSIFY_PAID_ENV, raising=False)
     monkeypatch.setattr("vnstock_sentiment.chat_complete",
