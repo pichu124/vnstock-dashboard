@@ -75,7 +75,7 @@ chạy code cũ → `git log --oneline -1` đối chiếu commit cuối Claude b
 - `Giá 1T %` = đổi 1 TUẦN (5 phiên), không phải 1 phiên — mọi nhãn phải ghi rõ.
 
 ## Nhật ký chi tiết
-Việc còn phải làm/test: mục **"📌 VIỆC PHẢI LÀM — chốt 11/08/2026"** ở CUỐI
+Việc còn phải làm/test: mục **"📌 VIỆC PHẢI LÀM — chốt 12/08/2026"** ở CUỐI
 `docs/CLAUDE-NOTES.md` (đọc mục này trước khi hỏi "còn việc gì").
 Toàn bộ lịch sử fix, 30+ guard brief, khảo sát nguồn data, mục chờ verify
 (4.8K dòng) nằm ở `docs/CLAUDE-NOTES.md`. Khi làm việc trên brief / macro /

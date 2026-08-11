@@ -5338,21 +5338,27 @@ Hiệu lực trên máy user: lần load config kế tiếp (mở dashboard ho�
 18:00) tự tắt Groq + sửa tên + lưu file — 413 hằng ngày chấm dứt từ mai.
 Suite 1652 passed.
 
+## 2026-08-12 — Đóng tuỳ chọn "giấu số model": user quyết GIỮ SỐ
+
+Mục tuỳ chọn treo từ 08/08 (giấu số lượng model ở dòng "không đổi" của báo
+cáo model watch). Phân tích 12/08: trên dòng "không đổi" con số mang 0 bit
+(tập trùng từng phần tử ⇒ size trùng; đọc cụt luôn rơi vào nhánh ❓ chứ
+không ra "không đổi") — nhưng user chọn **GIỮ NGUYÊN** cho quen mắt. Quyết
+định đóng, đừng đề xuất lại.
 
 ---
 
-# 📌 VIỆC PHẢI LÀM — chốt 11/08/2026
+# 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
 
-> Danh sách ĐANG DÙNG — bản sạch thay bản 09/08 (các mục đã xong nằm trong
-> entry nhật ký 10-11/08, không chép lại). **Mục này PHẢI luôn nằm CUỐI
-> FILE** — thêm entry nhật ký mới thì chèn TRƯỚC mục này.
+> Danh sách ĐANG DÙNG — bản sạch thay bản 11/08 (mọi mục đã xong nằm trong
+> entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
+> nhật ký mới thì chèn TRƯỚC mục này.
 >
 > Trạng thái: full suite **1652 passed** · nhánh
-> `claude/remaining-tasks-tests-4xoam3` đã push. (Đồng bộ máy + push main:
-> user tự làm THƯỜNG XUYÊN — không track làm việc nữa, user chốt 12/08;
-> cách làm nằm ở mục NẾP GIT cuối file.)
+> `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
+> user tự làm thường xuyên — KHÔNG track làm việc (user chốt 12/08).
 
-## 🔴 VIỆC TAY DUY NHẤT CÒN LẠI — T4 12/08, giờ giao dịch 9h15-14h30
+## 🔴 VIỆC TAY DUY NHẤT — hôm nay T4 12/08, giờ giao dịch 9h15-14h30
 
 **1. WSS volume tích luỹ** — món nợ verify cuối cùng của đợt fix 07/08.
 ```powershell
@@ -5360,68 +5366,58 @@ python vnstock_wss.py       # chạy ~5 phút rồi Ctrl+C
 ```
 Soi `data_warehouse\_live\`: mã cổ phiếu (VCB, HPG…) `volume > 0`;
 `VNINDEX` / `VN30F1M` phải `volume == 0` (feed KHÔNG gửi `accumulatedvolume`
-cho index/futures — trước fix, fallback `"volume"` là volume TỪNG TICK bị
-cộng dồn thành số ảo). Kèm `BarAggregator.diagnostics()` → `suspect_count = 0`.
+cho index/futures — trước fix, fallback volume TỪNG TICK bị cộng dồn thành
+số ảo). Kèm `BarAggregator.diagnostics()` → `suspect_count = 0`.
 
 ## ⏳ TỰ ĐẾN — chỉ cần ĐỌC khi tới
 
-**3. Báo cáo T7 16/08 09:00** — task tuần tự chạy `models --eval`, và đây là
-**bảng điểm sạch hoàn chỉnh ĐẦU TIÊN** (flash có nhịp riêng nên đo đủ; 2
-model OpenRouter được đo bù theo xoay vòng). Ba thứ cần đọc:
-* điểm sentiment/json ĐẦU TIÊN của `gemini-3.5-flash` — nấc dẫn [2]/[8];
-* `nemotron-ultra` hết bò chưa (11/08: 127.3s = 161× median) + điểm của nó;
-* nấc nào kém THẬT với coverage đủ → mở lại việc "cảnh báo nấc yếu" (đã bỏ
-  11/08 vì qwen vô tội — điều kiện mở lại ghi trong entry 11/08).
+**2. Báo cáo T7 16/08 09:00** — task tuần tự chạy, và là lần ĐẦU TIÊN:
+* bảng điểm sạch hoàn chỉnh (flash nhịp riêng → đo đủ; 2 model OpenRouter
+  đo bù theo xoay vòng);
+* **đủ mặt 5 nhà** — Mistral lần đầu được probe + lưu mốc danh mục + chấm
+  bộ đề (nhịp 2s);
+* soi `nemotron-ultra` còn bò không (11/08: 127.3s = 161× median) — còn bò
+  thì làm §5;
+* nấc nào kém THẬT (coverage đủ) → mở lại "cảnh báo nấc yếu" (bỏ 11/08).
 
-**4. Badge 🩺 "Quy đổi đơn vị giá"** — tự động toàn phần (entry 11/08 (b)).
-CHỈ hành động khi badge warn: soi chart mã nêu tên xem giá liên tục không;
-nghi quy đổi OAN (mã vừa chia tách?) → báo Claude kèm message.
+Cùng ngày tiện xác nhận: brief chiều từ 12/08 còn **4 giọng** (Gemini /
+Cerebras / OpenRouter / Mistral), KHÔNG còn dòng ❌ Groq — config tự sửa ở
+lần load đầu sau merge (entry 11/08 (g)).
+
+**3. Badge 🩺 "Quy đổi đơn vị giá"** — tự động toàn phần (entry 11/08 (b)).
+CHỈ hành động khi badge warn: soi chart mã nêu tên; nghi quy đổi OAN (mã
+vừa chia tách?) → báo Claude kèm message.
 
 ## 🟡 CODE CÒN TREO — không gấp
 
-**5. ✅ XONG 11/08 — `--test-alert` ĐẬU.** Tin 🧪 (TEST) tới điện thoại,
-format chuẩn — lưới an toàn cuối của hệ all-free kiểm chứng đầu-cuối.
-(Nếu terminal có in dòng ⚠ về `VNSTOCK_LLM_ALERT` thì báo lại — nghĩa là
-alert THẬT đang tắt trong .env.) Chi tiết + 2 phát hiện kèm theo: entry
-11/08 (d).
-
-**6. MEDIUM/LOW của audit 06/08** — chưa làm:
+**4. MEDIUM/LOW của audit 06/08** — chưa làm:
 * ghi nguyên tử cho `vnstock_warehouse._write_parquet`, cache macro,
   `_meta/*.json` (mới phủ updater/rollup qua `vnstock_parquet_io`)
 * hiệu năng: warehouse bị quét ~14 lần/đêm
 * test replica trôi xa bản thật: `tests/test_dashboard.py`, `tests/test_wss.py`
-* tách file quá lớn: `vnstock_brief.py` (~6.8K dòng), `dashboard/market_tab.py`
-
-**7. Tuỳ chọn nhỏ** — giấu số lượng model ở dòng "không đổi" của báo cáo
-model watch (user hỏi 08/08, chưa chốt). Sửa ~2 dòng nếu muốn.
+* tách file quá lớn: `vnstock_brief.py` (~6.9K dòng), `dashboard/market_tab.py`
 
 ## 🟠 QUAN SÁT RỒI QUYẾT
 
-**7b. ✅ QUYẾT + LÀM XONG 11/08 — Mistral GIỮ và ĐÃ VÀO LƯỚI** (entry
-11/08 (g)): probe + diff danh mục + eval (nhịp 2s). Lần `run.py models` tới
-sẽ có dòng Mistral (lần đầu = lưu mốc danh mục). Score 11/08: 0.836.
-
-**7c. ✅ LÀM XONG 11/08 — ghế brief Groq TẮT TRONG CODE** (entry 11/08 (g)):
-tắt-một-lần kèm marker (bật lại trong ⚙️ là chủ đích, không bị tắt nữa) +
-sửa 3 tên agent nói dối. Hiệu lực lần load config kế tiếp trên máy —
-413 hằng ngày chấm dứt. qwen giữ nguyên ở [2][3-6][8].
-
-**8. Độ trễ OpenRouter — ĐANG LEO THANG.** nemotron-super 18.6 → 25.8s;
+**5. Độ trễ OpenRouter — ĐANG LEO THANG.** nemotron-super 18.6 → 25.8s;
 nemotron-ultra median 0.79s → 127.3s (11/08). Production tự né qua timeout.
-T7 này vẫn bò → probe ứng viên mới rồi bàn thay:
+T7 vẫn bò → probe ứng viên mới rồi bàn thay:
 ```powershell
 python scripts/probe_models.py --slug "OpenRouter=nvidia/nemotron-3.5-lightning:free"
 ```
 (slug CHƯA probe thì CHƯA được vào code — luật CLAUDE.md.)
 
-**9. OpenRouter nạp $10** — quan sát LẠI TỪ ĐẦU: đợt rate-limit 08/08 là do
-eval của ta đốt (đã vá `EVAL_BUDGET`), không phải production bị bóp. Chỉ nạp
-khi cột "(N rate-limit)" > 0 nhiều ngày TỪ LƯU LƯỢNG THẬT.
+**6. OpenRouter nạp $10** — quan sát LẠI TỪ ĐẦU từ lưu lượng THẬT (đợt
+rate-limit 08/08 là do eval đốt, đã vá `EVAL_BUDGET`). Nay ledger có "lỗi
+cuối" nên phân biệt được 429 thật/giả dễ hơn.
 
-**10.** A/B brief Gemini vs Groq (~3-5 phiên) · Cerebras `gpt-oss-120b`
-digest chập chờn · Gemini flash 503 đêm VN là bình thường, cascade tự đỡ.
+**7. Chất lượng brief 4 giọng** — thay cho "A/B Gemini vs Groq" (đã chết,
+ghế Groq tắt 11/08): so auto-score / Lịch sử brief vài phiên giữa Gemini ·
+Cerebras · OpenRouter · Mistral (mốc 11/08: 0.830 / 0.834 / 0.862 / 0.836).
+Kèm: Cerebras `gpt-oss-120b` digest chập chờn · Gemini flash 503 đêm VN là
+bình thường, cascade tự đỡ.
 
-**11. Nâng thư viện data** — vnstock 4.0.4→4.0.5, vnai 2.4.8→2.5.6, vnii
+**8. Nâng thư viện data** — vnstock 4.0.4→4.0.5, vnai 2.4.8→2.5.6, vnii
 0.2.4→0.2.5. CHƯA nâng. Nâng thì `run.py doctor --net` + full suite ngay
 sau; KHÔNG nâng sát giờ pipeline chạy.
 

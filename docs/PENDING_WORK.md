@@ -2,7 +2,7 @@
 
 > ⚠️ **File này ĐÃ CŨ (chốt 2026-05-28) và có nội dung lặp.** Danh sách việc
 > phải làm/chờ verify ĐANG DÙNG nằm ở `docs/CLAUDE-NOTES.md`, mục
-> **"📌 VIỆC PHẢI LÀM — chốt 11/08/2026"** (cuối file). Giữ file này làm sử
+> **"📌 VIỆC PHẢI LÀM — chốt 12/08/2026"** (cuối file). Giữ file này làm sử
 > liệu thôi.
 >
 > Riêng §6/§7 "WSS volume inflation bug" bên dưới: **đã fix 07/08**
