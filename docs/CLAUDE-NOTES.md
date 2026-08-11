@@ -5263,6 +5263,44 @@ badge/JSON/last_error hiện tại, log thô còn ít giá trị, để user quy
 Suite 1639 → 1645 passed.
 
 
+## 2026-08-11 (f) — Bằng chứng Groq về: 413 CẤU TRÚC, nghi án headroom SAI
+
+`vnstock_memory.py --recent 6` (CLI vừa ship) móc được lỗi nguyên văn từ
+SQLite: **`413 Payload Too Large ... Request too large for model
+qwen/qwen3.6-27b`**. Nghi án think-headroom của tôi SAI — và kỷ luật "ĐỪNG
+vá mù" trả công cụ thể: vá headroom là NỚI max_tokens, tức làm request TO
+THÊM — bệnh nặng thêm đúng theo hướng vá.
+
+Đau nhất: notes 22/07 (dòng ~3302) đã tiên đoán ĐÚNG CHỖ NÀY — "prompt brief
+~10K token (Groq TPM 8K là biên rủi ro 413)". Rủi ro đã ghi thành chữ, nay
+thành hiện thực, và suốt 3 tuần không ai biết vì pipeline không có log
+(entry 11/08 (e)). Chuỗi công cụ tuần này (ledger đếm → test-alert nhúng
+ledger → memory CLI) chính là thứ biến nó từ vô hình thành 1 dòng ❌.
+
+Kết luận:
+* **Bệnh CẤU TRÚC**: prompt brief ~10K > trần 8K/request của Groq free —
+  không model Groq nào ở trần đó gánh nổi, không sửa bằng token/headroom.
+  A/B "Gemini vs Groq" trên giấy đã CHẾT TỪ 22/07 (ngày migrate llama→qwen).
+* **A/B thực tế vẫn sống với 4 giọng** (điểm auto-score 11/08): OpenRouter
+  nemotron-super **0.862** · Mistral Small **0.836** · Cerebras gpt-oss-120b
+  **0.834** · Gemini flash **0.83**. Groq 0.0 (fail).
+* **qwen KHÔNG mất gì ở [2][3-6][8]** — prompt các điểm đó nhỏ, bộ đề 1.00.
+  Chỉ riêng ghế brief agent là ngồi nhầm chỗ.
+* → Khuyến nghị: TẮT agent Groq trong ⚙️ dashboard (việc user, 10 giây).
+  Không có đường cứu trên Groq free; giọng thay thế đã thừa.
+
+Phát hiện kèm: **3 tên agent đang NÓI DỐI** — "Cerebras/OpenRouter/Groq
+Llama-3.3-70B" nhưng model thật là gpt-oss-120b / nemotron-super / qwen.
+Di tích trạng thái nửa-migrate (slug đã mới, tên còn cũ → fix f13a33f không
+kích hoạt lại được). Cosmetic; user đổi tên trong ⚙️ khi tiện.
+
+Bug tự ship tự bắt trong ngày: CLI `--type` bản đầu cho choices
+`morning/close` — giá trị THẬT trong DB là `morning/afternoon/allocation`
+("close" chỉ là tên gọi miệng). Filter không bao giờ khớp được dòng nào.
+Bài học: ship filter phải soi GIÁ TRỊ THẬT của data, không đặt theo thói
+quen gọi tên. Suite 1645 → 1646.
+
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 11/08/2026
@@ -5338,16 +5376,19 @@ model watch (user hỏi 08/08, chưa chốt). Sửa ~2 dòng nếu muốn.
 * **(B) Giữ làm giọng A/B thứ ba** → báo Claude đưa Mistral vào lưới watch
   (thêm provider + endpoint danh mục, một lượt code).
 
-**7c. 🔎 CẦN 1 BẰNG CHỨNG — Groq Qwen brief agent 0/2 ngày 11/08** (lỗi
-KHÔNG phải rate-limit; nghi thiếu think-headroom — qwen reasoning +
-max_tokens 1200 không cộng headroom, cùng họ bệnh classifier 800→6000).
-⚠ `run_daily.log` KHÔNG tồn tại (pipeline chưa bao giờ ghi log — entry
-11/08 (e)); bằng chứng nằm trong SQLite memory. Sau khi merge, chạy rồi dán:
-```powershell
-python vnstock_memory.py --recent 6
-```
-Dòng ❌ của "Groq Qwen3.6-27B" in lỗi nguyên văn. Thấy `finish_reason=length`
-→ vá headroom (cân trần TPM 8K của Groq); thấy 413 → hướng khác. ĐỪNG vá mù.
+Data 11/08 cho quyết định: Mistral score **0.836** — ngang các giọng khác
+(0.83-0.862). Nếu tắt cả Groq (§7c) lẫn Mistral thì A/B còn 3 giọng free;
+giữ Mistral thì 4 giọng nhưng phải đưa vào lưới.
+
+**7c. ❓ CHỜ QUYẾT — TẮT agent brief Groq (bằng chứng đã về 11/08).**
+Lỗi nguyên văn: `413 Payload Too Large` — CẤU TRÚC (prompt brief ~10K > trần
+8K/request Groq free, đúng rủi ro notes 22/07 đã ghi), không sửa bằng
+token được. A/B "Gemini vs Groq" đã chết từ 22/07; 4 giọng còn lại vẫn sống
+(nemotron-super 0.862 · Mistral 0.836 · Cerebras 0.834 · Gemini 0.83).
+qwen không mất gì ở [2][3-6][8]. → Việc của user, 10 giây: ⚙️ dashboard →
+tắt agent "Groq Llama-3.3-70B" (tên cũ — model thật là qwen). Entry 11/08 (f).
+📝 Tuỳ chọn tiện thể: 3 tên agent nói dối ("...Llama-3.3-70B" nhưng model
+thật khác) — đổi tên trong ⚙️ cho khỏi nhầm.
 
 **8. Độ trễ OpenRouter — ĐANG LEO THANG.** nemotron-super 18.6 → 25.8s;
 nemotron-ultra median 0.79s → 127.3s (11/08). Production tự né qua timeout.

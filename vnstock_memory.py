@@ -588,7 +588,11 @@ def main(argv: "list | None" = None) -> int:
                     "đây là nơi duy nhất giữ lỗi agent brief")
     ap.add_argument("--recent", type=int, default=0, metavar="N",
                     help="In N brief gần nhất: ngày, agent, model, LỖI nếu có")
-    ap.add_argument("--type", default=None, choices=["morning", "close"],
+    # giá trị THẬT trong DB (soi output máy user 11/08): morning / afternoon /
+    # allocation — bản đầu ghi "close" theo tên gọi miệng, filter không bao
+    # giờ khớp được dòng nào
+    ap.add_argument("--type", default=None,
+                    choices=["morning", "afternoon", "allocation"],
                     help="Lọc theo loại brief")
     args = ap.parse_args(argv)
     if not args.recent:
