@@ -574,5 +574,45 @@ def recommendation_performance(strategy_id: Optional[int] = None) -> dict:
 # ── Prompt version tracking ────────────────────────────────────────────────
 
 
+# ── CLI: đọc bộ nhớ brief từ terminal ──────────────────────────────────────
+# Sinh từ phát hiện 11/08: pipeline KHÔNG ghi log (Task Scheduler chạy python
+# thẳng, stdout bị vứt; run_daily.log chưa bao giờ tồn tại) → lỗi agent brief
+# chỉ còn dấu vết ở đây (save_brief lưu cột `error`). Đây là cái vòi đọc.
 
 
+def main(argv: "list | None" = None) -> int:
+    import argparse
+
+    ap = argparse.ArgumentParser(
+        description="Đọc bộ nhớ brief (SQLite) — pipeline không ghi log nên "
+                    "đây là nơi duy nhất giữ lỗi agent brief")
+    ap.add_argument("--recent", type=int, default=0, metavar="N",
+                    help="In N brief gần nhất: ngày, agent, model, LỖI nếu có")
+    ap.add_argument("--type", default=None, choices=["morning", "close"],
+                    help="Lọc theo loại brief")
+    args = ap.parse_args(argv)
+    if not args.recent:
+        ap.print_help()
+        return 0
+    rows = recent_briefs(brief_type=args.type, limit=args.recent)
+    if not rows:
+        print("(chưa có brief nào trong memory)")
+        return 1
+    for r in rows:
+        err = str(r.get("error") or "").strip()
+        mark = "❌" if err else "✅"
+        score = r.get("auto_score")
+        line = (f"{mark} {r.get('brief_date', '?')} "
+                f"{str(r.get('brief_type', '?')):8s} "
+                f"{str(r.get('agent_name', '?')):22s} "
+                f"model={r.get('model', '?')}")
+        if score is not None:
+            line += f" · score={score}"
+        print(line)
+        if err:
+            print(f"     ↳ {err[:220]}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

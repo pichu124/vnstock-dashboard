@@ -105,6 +105,11 @@ def record(provider: str, model: str = "", ok: bool = True,
             row["fail"] = int(row.get("fail", 0)) + 1
             if _is_rate_limited(error):
                 row["rate_limited"] = int(row.get("rate_limited", 0)) + 1
+            if error:
+                # Đuôi lỗi CUỐI — pipeline không có log (Task Scheduler vứt
+                # stdout, phát hiện 11/08) nên đây là nơi duy nhất giữ được
+                # "vì sao fail" cho --show / tin alert. 160 ký tự đủ chẩn đoán.
+                row["last_error"] = str(error)[:160]
         if isinstance(usage, dict):
             # OpenAI-style (prompt/completion) LẪN Anthropic-style (input/output)
             for srcs, dst in ((("prompt_tokens", "input_tokens"), "prompt_tokens"),
@@ -272,6 +277,9 @@ def summary_lines(day: "str | None" = None) -> list:
         out.append(f"  {key:40s} {r.get('calls', 0):>4} call · "
                    f"{r.get('ok', 0)} OK · {r.get('fail', 0)} lỗi"
                    f" ({r.get('rate_limited', 0)} rate-limit){row_cost}{flag}")
+        last_err = str(r.get("last_error") or "").strip()
+        if last_err and int(r.get("fail", 0)) > 0:
+            out.append(f"     ↳ lỗi cuối: {last_err}")
     return out
 
 

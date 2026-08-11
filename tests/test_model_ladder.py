@@ -139,6 +139,33 @@ def test_chat_complete_with_model_returns_pair_when_ladder_dry(
     assert snt.chat_complete("s", "u") is None      # chữ ký cũ không đổi
 
 
+def test_record_keeps_last_error_text(_tmp_meta):
+    """Phát hiện 11/08: pipeline KHÔNG có log (Task Scheduler vứt stdout) —
+    ledger chỉ đếm thì error text của sự cố mất sạch (ca Groq qwen 0/2 không
+    truy được bằng chứng). Nay giữ ĐUÔI LỖI CUỐI mỗi dòng; --show và tin
+    alert tự thành công cụ chẩn đoán."""
+    ledger.record("Groq", "qwen/qwen3.6-27b", ok=False,
+                  error="Groq API 400: " + "x" * 500)
+    ledger.record("Groq", "qwen/qwen3.6-27b", ok=True,
+                  usage={"prompt_tokens": 5, "completion_tokens": 5})
+    row = ledger.summary()["providers"]["Groq:qwen/qwen3.6-27b"]
+    assert row["last_error"].startswith("Groq API 400")
+    assert len(row["last_error"]) <= 160          # đuôi, không phải cả stack
+    assert any("lỗi cuối" in ln for ln in ledger.summary_lines())
+
+
+def test_last_error_overwritten_by_newest_fail(_tmp_meta):
+    ledger.record("Groq", "m", ok=False, error="lỗi cũ")
+    ledger.record("Groq", "m", ok=False, error="lỗi mới")
+    assert ledger.summary()["providers"]["Groq:m"]["last_error"] == "lỗi mới"
+
+
+def test_ok_only_rows_have_no_error_line(_tmp_meta):
+    ledger.record("Gemini", "flash", ok=True,
+                  usage={"prompt_tokens": 5, "completion_tokens": 5})
+    assert not any("lỗi cuối" in ln for ln in ledger.summary_lines())
+
+
 # ─── Cột quy đổi tiền trong ledger ───────────────────────────────────────────
 
 def test_cost_usd_prefix_match_and_free_default():

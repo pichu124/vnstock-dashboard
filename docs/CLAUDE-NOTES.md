@@ -5229,6 +5229,40 @@ rải đều các nấc, output vẫn ra — hệ chạy đúng thiết kế tro
 tier khó ở.
 
 
+## 2026-08-11 (e) — `run_daily.log` KHÔNG TỒN TẠI: pipeline chưa bao giờ ghi log
+
+User chạy lệnh Select-String tôi đưa → `Cannot find path run_daily.log`.
+Truy ra sự thật to hơn nhiều so với một cái tên file sai:
+
+* Cả 2 task scheduler (`Daily Pipeline`, `Weekend Pipeline`) chạy
+  `python run.py ... all/weekend` TRỰC TIẾP — Task Scheduler VỨT stdout.
+* `scripts/run_daily.bat` (chạy tay) cũng không redirect — output ra console
+  rồi mất khi đóng cửa sổ.
+* → **`run_daily.log` chưa bao giờ tồn tại** dưới cấu hình hiện tại. Mọi
+  tham chiếu "soi run_daily.log" trong notes (kể cả mục verify 29/07 "log
+  phải có dòng LLM audit") là DI TÍCH — chưa ai từng làm được các mục đó.
+* Hệ quả hay: thiết kế vết-JSON cho đơn vị giá (11/08 (b)) đúng hơn mình
+  tưởng — bản grep-log nếu làm sẽ âm thầm grep một file không tồn tại.
+
+### Hai vá để "lỗi sống sót mà không cần log"
+
+1. **`python vnstock_memory.py --recent N`** — vòi đọc bộ nhớ brief từ
+   terminal. Lỗi agent brief VẪN ĐANG được lưu vào SQLite
+   (`save_brief(..., error=err)`) từ trước tới nay — chỉ là không có cách
+   móc ra (python -c inline bị PowerShell nuốt nháy 2 lần rồi). Dòng ❌ in
+   lỗi NGUYÊN VĂN → bằng chứng vụ Groq qwen 0/2 hôm 11/08 truy được NGAY,
+   không cần chờ phiên sau.
+2. **Ledger giữ `last_error`** (đuôi 160 ký tự, mỗi dòng provider:model) —
+   `--show` và TIN ALERT từ nay tự mang theo "vì sao fail". Trước đó ledger
+   chỉ đếm: thấy 59 lỗi mà không ai biết lỗi GÌ.
+
+CHƯA làm (ghi lại làm tuỳ chọn): sửa ps1 cho task bọc `cmd /c ... >> log`
+để có log thật — cần chạy lại script as-admin trên máy; với bộ
+badge/JSON/last_error hiện tại, log thô còn ít giá trị, để user quyết sau.
+
+Suite 1639 → 1645 passed.
+
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 11/08/2026
@@ -5307,11 +5341,13 @@ model watch (user hỏi 08/08, chưa chốt). Sửa ~2 dòng nếu muốn.
 **7c. 🔎 CẦN 1 BẰNG CHỨNG — Groq Qwen brief agent 0/2 ngày 11/08** (lỗi
 KHÔNG phải rate-limit; nghi thiếu think-headroom — qwen reasoning +
 max_tokens 1200 không cộng headroom, cùng họ bệnh classifier 800→6000).
-Chạy rồi dán:
+⚠ `run_daily.log` KHÔNG tồn tại (pipeline chưa bao giờ ghi log — entry
+11/08 (e)); bằng chứng nằm trong SQLite memory. Sau khi merge, chạy rồi dán:
 ```powershell
-Select-String -Path run_daily.log -Pattern "Groq API"
+python vnstock_memory.py --recent 6
 ```
-length → vá headroom (cân trần TPM 8K); 413 → hướng khác. ĐỪNG vá mù.
+Dòng ❌ của "Groq Qwen3.6-27B" in lỗi nguyên văn. Thấy `finish_reason=length`
+→ vá headroom (cân trần TPM 8K của Groq); thấy 413 → hướng khác. ĐỪNG vá mù.
 
 **8. Độ trễ OpenRouter — ĐANG LEO THANG.** nemotron-super 18.6 → 25.8s;
 nemotron-ultra median 0.79s → 127.3s (11/08). Production tự né qua timeout.
