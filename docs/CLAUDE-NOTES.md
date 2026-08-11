@@ -5180,6 +5180,55 @@ Exit: 0 = gửi OK + gate bật · 1 = gửi OK, gate TẮT · 2 = gửi fail.
 Suite 1634 → 1639 passed (5 test mới).
 
 
+## 2026-08-11 (d) — Test-alert ĐẬU, và ledger nhúng trong tin tố 2 chuyện
+
+User chạy `--test-alert` → điện thoại nhận tin 🧪 (TEST) format chuẩn →
+**đường ống alert "LLM ladder DOWN" kiểm chứng đầu-cuối XONG**. Nhưng giá
+trị thật của lần chạy nằm ở phần ledger NHÚNG trong tin — nó phơi ra 2 thứ:
+
+### 1. Mistral Small — agent brief DI SẢN đang chạy thật, vô hình với mọi lưới
+
+Dòng lạ: `Mistral:mistral-small-latest  2 call · 2 OK · $0.0039`. Truy ra:
+* `MistralAgent` là agent [7] brief có từ thời tháng 5 (baseline accuracy
+  22/05 từng có Mistral). Default trong code: `enabled: False` — nhưng
+  config runtime máy user đang BẬT (cơ chế merge giữ lựa chọn cũ của user
+  khi đổi lineup 22/07). 2 call/ngày = brief sáng + chiều.
+* Lớp TRẢ PHÍ theo bảng giá ledger (0.15/0.60 $/M) — ~$0.004/ngày, nhỏ
+  nhưng không phải free, và trái tinh thần chốt all-free 22/07.
+* **Vô hình với mọi lưới canh**: `_BRIEF_TYPE2PROVIDER` không có "mistral"
+  → --ladder không probe; model_watch._PROVIDERS không có endpoint Mistral
+  → không diff danh mục; eval không đo. Chỉ dead-slug net biết slug (qua
+  `_DEFAULT_AGENT_CONFIGS`). Đúng bài "lưới chỉ soi thứ được khai báo".
+
+**Chờ user quyết**: (A) tắt agent Mistral trong ⚙️ dashboard — 10 giây,
+đúng all-free; hay (B) giữ làm giọng A/B thứ ba → phải đưa Mistral vào lưới
+watch (thêm provider + endpoint danh mục, một lượt code). Khuyến nghị: A,
+trừ khi còn muốn so giọng nó.
+
+### 2. Groq Qwen brief agent 0/2 hôm nay — nghi án token headroom lần thứ BA
+
+`Groq:qwen/qwen3.6-27b  2 call · 0 OK · 2 lỗi (0 rate-limit)` — B-side của
+A/B brief trượt cả 2 phát với lỗi KHÔNG phải rate-limit. Nghi án: qwen là
+model REASONING, agent brief cấp max_tokens=1200 mà KHÔNG cộng think-headroom
+— chỉ `GeminiAgent` có `_THINK_HEADROOM = 8000`; `_OpenAICompatAgent.generate`
+mặc định không cộng. Thinking ăn hết 1200 → finish_reason=length → bị tính
+là LỖI AGENT (đúng luật c1dcb14 "output bị cắt = lỗi"). Cùng họ bệnh đã vá ở
+[8] classifier (800→6000) và bộ đề eval (400→2000).
+
+**Chưa vá mù** — cần error text thật vì có 2 khả năng khác hẳn cách sửa:
+finish_reason=length (→ cộng headroom, nhưng phải cân trần TPM 8K của Groq —
+chính lý do Groq bị loại khỏi digest bậc 1) vs HTTP 413 TPM (→ hướng khác).
+User chạy: `Select-String -Path run_daily.log -Pattern "Groq API"` dán kết
+quả.
+
+### Ghi chú đọc ledger
+
+Probe/eval KHÔNG ghi sổ (cố ý — traffic chẩn đoán); số trong ledger là
+PRODUCTION thuần. Hôm nay 114 call · 50 rate-limit nhưng ladder trụ: 55 OK
+rải đều các nấc, output vẫn ra — hệ chạy đúng thiết kế trong một ngày free
+tier khó ở.
+
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 11/08/2026
@@ -5229,14 +5278,11 @@ nghi quy đổi OAN (mã vừa chia tách?) → báo Claude kèm message.
 
 ## 🟡 CODE CÒN TREO — không gấp
 
-**5. `--test-alert` — user GẬT, code XONG 11/08 (entry 11/08 (c)). Còn 1
-lệnh trên máy** (chạy lúc nào cũng được — KHÔNG đụng cờ throttle ngày):
-```powershell
-python vnstock_llm_ledger.py --test-alert
-```
-Kỳ vọng: điện thoại nhận tin 🧪 (TEST), terminal exit 0. Exit 1 = gửi OK
-nhưng `VNSTOCK_LLM_ALERT` đang TẮT trong .env (alert thật câm — cần sửa);
-exit 2 = gửi fail kèm lý do in sẵn.
+**5. ✅ XONG 11/08 — `--test-alert` ĐẬU.** Tin 🧪 (TEST) tới điện thoại,
+format chuẩn — lưới an toàn cuối của hệ all-free kiểm chứng đầu-cuối.
+(Nếu terminal có in dòng ⚠ về `VNSTOCK_LLM_ALERT` thì báo lại — nghĩa là
+alert THẬT đang tắt trong .env.) Chi tiết + 2 phát hiện kèm theo: entry
+11/08 (d).
 
 **6. MEDIUM/LOW của audit 06/08** — chưa làm:
 * ghi nguyên tử cho `vnstock_warehouse._write_parquet`, cache macro,
@@ -5249,6 +5295,23 @@ exit 2 = gửi fail kèm lý do in sẵn.
 model watch (user hỏi 08/08, chưa chốt). Sửa ~2 dòng nếu muốn.
 
 ## 🟠 QUAN SÁT RỒI QUYẾT
+
+**7b. ❓ CHỜ QUYẾT — Mistral Small: agent brief di sản đang BẬT trên máy**
+(lộ từ ledger trong tin test-alert, entry 11/08 (d)). Trả phí nhẹ
+(~$0.004/ngày), vô hình với mọi lưới canh. Chọn một:
+* **(A) Tắt** — ⚙️ dashboard → agent "Mistral Small" → disable. 10 giây,
+  đúng tinh thần all-free 22/07. (Khuyến nghị, trừ khi còn muốn so giọng.)
+* **(B) Giữ làm giọng A/B thứ ba** → báo Claude đưa Mistral vào lưới watch
+  (thêm provider + endpoint danh mục, một lượt code).
+
+**7c. 🔎 CẦN 1 BẰNG CHỨNG — Groq Qwen brief agent 0/2 ngày 11/08** (lỗi
+KHÔNG phải rate-limit; nghi thiếu think-headroom — qwen reasoning +
+max_tokens 1200 không cộng headroom, cùng họ bệnh classifier 800→6000).
+Chạy rồi dán:
+```powershell
+Select-String -Path run_daily.log -Pattern "Groq API"
+```
+length → vá headroom (cân trần TPM 8K); 413 → hướng khác. ĐỪNG vá mù.
 
 **8. Độ trễ OpenRouter — ĐANG LEO THANG.** nemotron-super 18.6 → 25.8s;
 nemotron-ultra median 0.79s → 127.3s (11/08). Production tự né qua timeout.
