@@ -5347,10 +5347,10 @@ Suite 1652 passed.
 > entry nhật ký 10-11/08, không chép lại). **Mục này PHẢI luôn nằm CUỐI
 > FILE** — thêm entry nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **1634 passed** · fast 1107 · nhánh
-> `claude/remaining-tasks-tests-4xoam3` = `1052ed7`, đã push · máy user
-> THIẾU 2 commit cuối (nhịp eval Gemini + tự động hoá đơn vị giá) ·
-> `origin/main` = `813fd91`, tụt sau nhánh.
+> Trạng thái: full suite **1652 passed** · nhánh
+> `claude/remaining-tasks-tests-4xoam3` đã push. (Đồng bộ máy + push main:
+> user tự làm THƯỜNG XUYÊN — không track làm việc nữa, user chốt 12/08;
+> cách làm nằm ở mục NẾP GIT cuối file.)
 
 ## 🔴 VIỆC TAY DUY NHẤT CÒN LẠI — T4 12/08, giờ giao dịch 9h15-14h30
 
@@ -5362,15 +5362,6 @@ Soi `data_warehouse\_live\`: mã cổ phiếu (VCB, HPG…) `volume > 0`;
 `VNINDEX` / `VN30F1M` phải `volume == 0` (feed KHÔNG gửi `accumulatedvolume`
 cho index/futures — trước fix, fallback `"volume"` là volume TỪNG TICK bị
 cộng dồn thành số ảo). Kèm `BarAggregator.diagnostics()` → `suspect_count = 0`.
-
-## 🟢 MỘT LỆNH, LÚC NÀO TIỆN
-
-**2. Đồng bộ máy + main** (lấy 2 commit mới + đẩy main một thể):
-```powershell
-git fetch origin claude/remaining-tasks-tests-4xoam3
-git merge origin/claude/remaining-tasks-tests-4xoam3
-git push origin main
-```
 
 ## ⏳ TỰ ĐẾN — chỉ cần ĐỌC khi tới
 
