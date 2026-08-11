@@ -5153,116 +5153,90 @@ mới tự động được chặn).
 Suite 1625 → 1634 passed. Dòng print trong log GIỮ NGUYÊN — cho người đọc
 tay khi cần; file JSON là cho máy.
 
-
 ---
 
-# 📌 VIỆC PHẢI LÀM — chốt 09/08/2026
+# 📌 VIỆC PHẢI LÀM — chốt 11/08/2026
 
-> Danh sách ĐANG DÙNG. Thay thế bản "chốt 08/08" và `docs/PENDING_WORK.md`.
-> **Mục này PHẢI luôn nằm CUỐI FILE** — `CLAUDE.md` trỏ vào đây; thêm entry
-> nhật ký mới thì chèn TRƯỚC mục này.
+> Danh sách ĐANG DÙNG — bản sạch thay bản 09/08 (các mục đã xong nằm trong
+> entry nhật ký 10-11/08, không chép lại). **Mục này PHẢI luôn nằm CUỐI
+> FILE** — thêm entry nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái 11/08: full suite **1625 passed** · nhánh
-> `claude/remaining-tasks-tests-4xoam3` đã push · `origin/main` = `813fd91`,
-> tụt sau nhánh — `git push origin main` khi tiện.
+> Trạng thái: full suite **1634 passed** · fast 1107 · nhánh
+> `claude/remaining-tasks-tests-4xoam3` = `1052ed7`, đã push · máy user
+> THIẾU 2 commit cuối (nhịp eval Gemini + tự động hoá đơn vị giá) ·
+> `origin/main` = `813fd91`, tụt sau nhánh.
 
-## 🔴 GẤP NHẤT — Thứ 2 10/08, giờ giao dịch 9h15-14h30
+## 🔴 VIỆC TAY DUY NHẤT CÒN LẠI — T4 12/08, giờ giao dịch 9h15-14h30
 
-**1. WSS volume tích luỹ** — việc nợ duy nhất còn lại từ đợt fix 07/08, và
-mai là ngày làm được. ~5 phút là đủ.
+**1. WSS volume tích luỹ** — món nợ verify cuối cùng của đợt fix 07/08.
 ```powershell
 python vnstock_wss.py       # chạy ~5 phút rồi Ctrl+C
 ```
 Soi `data_warehouse\_live\`: mã cổ phiếu (VCB, HPG…) `volume > 0`;
 `VNINDEX` / `VN30F1M` phải `volume == 0` (feed KHÔNG gửi `accumulatedvolume`
-cho index/futures — trước fix `_pick()` rơi xuống fallback `"volume"` là
-volume TỪNG TICK rồi cộng dồn thành số ảo). Kèm `BarAggregator.diagnostics()`
-→ `suspect_count = 0`.
+cho index/futures — trước fix, fallback `"volume"` là volume TỪNG TICK bị
+cộng dồn thành số ảo). Kèm `BarAggregator.diagnostics()` → `suspect_count = 0`.
 
-## 🟢 LÀM ĐƯỢC NGAY
+## 🟢 MỘT LỆNH, LÚC NÀO TIỆN
 
-**2. Đồng bộ máy + `main` trên GitHub** (một công đôi việc — cũng là cách lấy
-bản vá token cho việc §3)
+**2. Đồng bộ máy + main** (lấy 2 commit mới + đẩy main một thể):
 ```powershell
 git fetch origin claude/remaining-tasks-tests-4xoam3
 git merge origin/claude/remaining-tasks-tests-4xoam3
 git push origin main
 ```
 
-**3. ✅ XONG 11/08 — hồ sơ qwen ĐÓNG: model vô tội.** Sau vá token + scorer,
-qwen3.6-27b đạt **1.00/1.00/1.00** (từ 0.33/0.38/0.00). Ladder giữ nguyên,
-không đổi model nào. Bảng điểm sạch + 2 lưới bắt cá thật lần đầu: entry 11/08.
+## ⏳ TỰ ĐẾN — chỉ cần ĐỌC khi tới
 
-**4. ✅ XONG 10/08 — điểm [8] verify TRỌN VẸN (4/4 checkpoint).** Vòng 1
-(10 mã): 8/10 + lộ bug token 800 → `_CLASSIFY_MAX_TOKENS = 6000` (entry
-10/08 (c)). Vòng chốt sau vá: `--rerun-flagged VCB SSI` → 2/2 sạch, 0 errors;
-`--query VCB` → `Model: Gemini:gemini-3.5-flash`, vẫn "Ngân hàng ~100%" khớp
-bản Claude cũ. Kho ĐÃ ĐẦY 1.652 mã → KHÔNG cần full batch; route free chỉ
-gánh mã niêm yết mới.
+**3. Báo cáo T7 16/08 09:00** — task tuần tự chạy `models --eval`, và đây là
+**bảng điểm sạch hoàn chỉnh ĐẦU TIÊN** (flash có nhịp riêng nên đo đủ; 2
+model OpenRouter được đo bù theo xoay vòng). Ba thứ cần đọc:
+* điểm sentiment/json ĐẦU TIÊN của `gemini-3.5-flash` — nấc dẫn [2]/[8];
+* `nemotron-ultra` hết bò chưa (11/08: 127.3s = 161× median) + điểm của nó;
+* nấc nào kém THẬT với coverage đủ → mở lại việc "cảnh báo nấc yếu" (đã bỏ
+  11/08 vì qwen vô tội — điều kiện mở lại ghi trong entry 11/08).
 
-**5. ✅ XONG 10/08 — bộ đề đã duyệt** (user ủy quyền Claude tự duyệt; biên
-bản TỪNG CA ở entry "10/08 (b)" — muốn phủ quyết ca nào thì đọc biên bản rồi
-sửa 1 dòng). 25 ca: 24 giữ · 1 sửa desc (FPT) · 1 fix scorer sentiment (chỉ
-so nhãn TRƯỚC dấu `|`, mirror production). ⚠️ Đọc lần --eval tới: điểm
-sentiment có thể NHÍCH LÊN nhờ fix scorer — không phải model tự khá lên.
+**4. Badge 🩺 "Quy đổi đơn vị giá"** — tự động toàn phần (entry 11/08 (b)).
+CHỈ hành động khi badge warn: soi chart mã nêu tên xem giá liên tục không;
+nghi quy đổi OAN (mã vừa chia tách?) → báo Claude kèm message.
 
-## ⏳ TỰ ĐẾN — không phải làm gì
+## 🟡 CODE CÒN TREO — không gấp
 
-**6.** Task T7 09:00 tự chạy `run.py models --eval` hàng tuần. Hai model
-OpenRouter đang hoãn vì hạn mức sẽ tự lên đầu hàng tuần sau (`_eval_order`).
+**5. `vnstock_llm_ledger.py --test-alert`** — bắn 1 tin "(TEST)" qua đúng
+đường ống alert "LLM ladder DOWN" thật. Đề xuất từ 30/07, **chờ user gật**.
 
-**7. ✅ TỰ ĐỘNG HOÁ 11/08 — cảnh báo đơn vị giá penny.** Hết phải nhớ quét
-`run_daily.log`: rollup ghi vết vào `_meta/unit_normalizations.json`, doctor
-đọc vết (pipeline 18:00 chạy sẵn), badge sidebar 🩺 tự warn kèm ĐÍCH DANH mã
-+ tỉ lệ. Việc còn lại của người CHỈ KHI badge warn: soi chart mã đó xem giá
-liên tục không; nghi quy đổi oan (chia tách?) → báo Claude kèm message.
-Vết >7 ngày tự về ok. (Entry 11/08 (b).)
-
-## 🟡 CODE CÒN TREO
-
-**8. ~~Cảnh báo "nấc yếu đang dùng"~~ — BỎ 11/08.** Động lực duy nhất là
-qwen bị nghi yếu ở 4 nấc dự phòng; hồ sơ đã đóng (model vô tội, lỗi phép đo).
-Xây nó lúc trước = có một cái chuông chuyên kêu oan. Nếu sau này bảng điểm
-SẠCH chỉ ra nấc dự phòng nào kém thật thì mở lại.
-
-**9. `vnstock_llm_ledger.py --test-alert`** — bắn 1 tin "(TEST)" qua đúng
-đường ống alert thật. Đề xuất từ 30/07, **user chưa gật**.
-
-**10. MEDIUM/LOW của audit 06/08** — chưa làm:
-* ghi nguyên tử cho `vnstock_warehouse._write_parquet`, cache macro, `_meta/*.json`
+**6. MEDIUM/LOW của audit 06/08** — chưa làm:
+* ghi nguyên tử cho `vnstock_warehouse._write_parquet`, cache macro,
+  `_meta/*.json` (mới phủ updater/rollup qua `vnstock_parquet_io`)
 * hiệu năng: warehouse bị quét ~14 lần/đêm
 * test replica trôi xa bản thật: `tests/test_dashboard.py`, `tests/test_wss.py`
-* tách file quá lớn: `vnstock_brief.py` (6.765 dòng), `dashboard/market_tab.py`
+* tách file quá lớn: `vnstock_brief.py` (~6.8K dòng), `dashboard/market_tab.py`
 
-**11. Tuỳ chọn nhỏ** — giấu số lượng model ở riêng dòng "không đổi" của báo
-cáo model watch (user hỏi 08/08). Giữ lại vì nó cho biết CÒN BAO NHIÊU ĐƯỜNG
-LUI khi cần thay model (Cerebras chỉ 3 model). Sửa ~2 dòng nếu user muốn.
+**7. Tuỳ chọn nhỏ** — giấu số lượng model ở dòng "không đổi" của báo cáo
+model watch (user hỏi 08/08, chưa chốt). Sửa ~2 dòng nếu muốn.
 
 ## 🟠 QUAN SÁT RỒI QUYẾT
 
-**12.** A/B brief Gemini vs Groq (~3-5 phiên) · Cerebras `gpt-oss-120b` digest
-chập chờn · Gemini flash 503 đêm VN là bình thường.
-
-**13. OpenRouter nạp $10** — điều kiện user đặt: cột "(N rate-limit)" > 0
-nhiều ngày. ⚠️ Đợt rate-limit 08/08 là do **công cụ của ta** đốt (eval 75 call
-> hạn 50/ngày), ĐÃ VÁ bằng `EVAL_BUDGET`. Đừng lấy nó làm căn cứ — quan sát
-lại từ đầu.
-
-**14. Nâng thư viện data** — vnstock 4.0.4 → 4.0.5, vnai 2.4.8 → 2.5.6, vnii
-0.2.4 → 0.2.5. **CHƯA nâng.** Nâng thì phải chạy `run.py doctor --net` + full
-suite ngay sau, và KHÔNG nâng sát giờ pipeline chạy.
-
-**15. Độ trễ OpenRouter — ĐANG LEO THANG.** nemotron-super 18.6s (09/08) →
-25.8s (11/08); nemotron-ultra median 0.79s → **127.3s (161×)** ngày 11/08.
-Production tự né qua timeout nên chưa cháy nhà. Nếu còn bò 1-2 tuần nữa:
-probe sống ứng viên mới `nvidia/nemotron-3.5-lightning:free` (xuất hiện trong
-danh mục 11/08):
+**8. Độ trễ OpenRouter — ĐANG LEO THANG.** nemotron-super 18.6 → 25.8s;
+nemotron-ultra median 0.79s → 127.3s (11/08). Production tự né qua timeout.
+T7 này vẫn bò → probe ứng viên mới rồi bàn thay:
 ```powershell
 python scripts/probe_models.py --slug "OpenRouter=nvidia/nemotron-3.5-lightning:free"
 ```
-rồi mới bàn thay — slug CHƯA probe thì CHƯA được vào code (luật CLAUDE.md).
+(slug CHƯA probe thì CHƯA được vào code — luật CLAUDE.md.)
 
-## 🔧 NẾP LÀM VIỆC — bẫy đã vấp 2 lần
+**9. OpenRouter nạp $10** — quan sát LẠI TỪ ĐẦU: đợt rate-limit 08/08 là do
+eval của ta đốt (đã vá `EVAL_BUDGET`), không phải production bị bóp. Chỉ nạp
+khi cột "(N rate-limit)" > 0 nhiều ngày TỪ LƯU LƯỢNG THẬT.
+
+**10.** A/B brief Gemini vs Groq (~3-5 phiên) · Cerebras `gpt-oss-120b`
+digest chập chờn · Gemini flash 503 đêm VN là bình thường, cascade tự đỡ.
+
+**11. Nâng thư viện data** — vnstock 4.0.4→4.0.5, vnai 2.4.8→2.5.6, vnii
+0.2.4→0.2.5. CHƯA nâng. Nâng thì `run.py doctor --net` + full suite ngay
+sau; KHÔNG nâng sát giờ pipeline chạy.
+
+## 🔧 NẾP GIT — bẫy đã vấp 2 lần
 
 User làm việc trên `main` cục bộ, Claude push lên nhánh feature → `git pull`
 báo **"Already up to date"** DÙ vừa tải commit mới về. Lấy code mới phải dùng
