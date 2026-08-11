@@ -5301,6 +5301,44 @@ Bài học: ship filter phải soi GIÁ TRỊ THẬT của data, không đặt t
 quen gọi tên. Suite 1645 → 1646.
 
 
+## 2026-08-11 (g) — Thi hành 2 quyết định: TẮT ghế brief Groq (trong code) + Mistral VÀO LƯỚI
+
+User chốt: "tắt Groq giúp tôi luôn" + "giữ Mistral + vào lưới".
+
+### Tắt Groq — cơ chế tắt-một-lần, không giành tay lái
+
+`_BRIEF_AGENT_DISABLES` trong vnstock_brief: registry (type, model) → lý do,
+họ hàng với `_MODEL_MIGRATIONS` nhưng nghĩa khác — migration đổi slug CHẾT
+sang slug SỐNG; đây là ghế NGỒI NHẦM CHỖ (model sống, việc không gánh nổi:
+prompt brief ~10K > trần 8K/request Groq free, 413 cấu trúc). Tắt kèm marker
+`auto_disabled` + in một dòng nói to; user bật lại trong ⚙️ = chủ đích,
+load sau KHÔNG tắt nữa (có test chốt cả 2 chiều).
+
+**Đổi chủ ý có ghi chép**: test 29/07 chốt "migration giữ nguyên enabled" —
+nhưng CHÍNH kịch bản đó (llama enabled → qwen giữ enabled) sinh ra 3 tuần
+413 câm. Test sửa theo chủ ý mới, comment trỏ về đây.
+
+Kèm: pass sửa TÊN NÓI DỐI (hoàn tất f13a33f cho trạng thái nửa-migrate) —
+tên nhắc model ĐÃ MIGRATE ĐI của cùng type mà không nhắc model hiện tại →
+thay bằng tên mặc định; "Cerebras Llama-3.3-70B" (chạy gpt-oss-120b) hết
+nói dối, tên user tự đặt không đụng.
+
+### Mistral vào lưới — provider hạng nhất
+
+* `model_watch._PROVIDERS` += Mistral (env MISTRAL_API_KEY, endpoint chat +
+  catalog /v1/models dạng openai) → probe hàng tuần + diff danh mục.
+* `_BRIEF_TYPE2PROVIDER` += mistral → slug vào `_ladder_slugs` tag [7].
+* `EVAL_DELAYS` += Mistral 2.0s (free tier bóp theo giây) → bộ đề chấm nó
+  từ T7 tới.
+* Luật "slug mới phải probe sống trước": thoả bằng bằng chứng MẠNH HƠN probe
+  — đang chạy thật trong production (2 OK, score 0.836 ngày 11/08).
+* Dead-slug net đã phủ sẵn (slug nằm trong _DEFAULT_AGENT_CONFIGS).
+
+Hiệu lực trên máy user: lần load config kế tiếp (mở dashboard hoặc pipeline
+18:00) tự tắt Groq + sửa tên + lưu file — 413 hằng ngày chấm dứt từ mai.
+Suite 1652 passed.
+
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 11/08/2026
@@ -5368,27 +5406,14 @@ model watch (user hỏi 08/08, chưa chốt). Sửa ~2 dòng nếu muốn.
 
 ## 🟠 QUAN SÁT RỒI QUYẾT
 
-**7b. ❓ CHỜ QUYẾT — Mistral Small: agent brief di sản đang BẬT trên máy**
-(lộ từ ledger trong tin test-alert, entry 11/08 (d)). Trả phí nhẹ
-(~$0.004/ngày), vô hình với mọi lưới canh. Chọn một:
-* **(A) Tắt** — ⚙️ dashboard → agent "Mistral Small" → disable. 10 giây,
-  đúng tinh thần all-free 22/07. (Khuyến nghị, trừ khi còn muốn so giọng.)
-* **(B) Giữ làm giọng A/B thứ ba** → báo Claude đưa Mistral vào lưới watch
-  (thêm provider + endpoint danh mục, một lượt code).
+**7b. ✅ QUYẾT + LÀM XONG 11/08 — Mistral GIỮ và ĐÃ VÀO LƯỚI** (entry
+11/08 (g)): probe + diff danh mục + eval (nhịp 2s). Lần `run.py models` tới
+sẽ có dòng Mistral (lần đầu = lưu mốc danh mục). Score 11/08: 0.836.
 
-Data 11/08 cho quyết định: Mistral score **0.836** — ngang các giọng khác
-(0.83-0.862). Nếu tắt cả Groq (§7c) lẫn Mistral thì A/B còn 3 giọng free;
-giữ Mistral thì 4 giọng nhưng phải đưa vào lưới.
-
-**7c. ❓ CHỜ QUYẾT — TẮT agent brief Groq (bằng chứng đã về 11/08).**
-Lỗi nguyên văn: `413 Payload Too Large` — CẤU TRÚC (prompt brief ~10K > trần
-8K/request Groq free, đúng rủi ro notes 22/07 đã ghi), không sửa bằng
-token được. A/B "Gemini vs Groq" đã chết từ 22/07; 4 giọng còn lại vẫn sống
-(nemotron-super 0.862 · Mistral 0.836 · Cerebras 0.834 · Gemini 0.83).
-qwen không mất gì ở [2][3-6][8]. → Việc của user, 10 giây: ⚙️ dashboard →
-tắt agent "Groq Llama-3.3-70B" (tên cũ — model thật là qwen). Entry 11/08 (f).
-📝 Tuỳ chọn tiện thể: 3 tên agent nói dối ("...Llama-3.3-70B" nhưng model
-thật khác) — đổi tên trong ⚙️ cho khỏi nhầm.
+**7c. ✅ LÀM XONG 11/08 — ghế brief Groq TẮT TRONG CODE** (entry 11/08 (g)):
+tắt-một-lần kèm marker (bật lại trong ⚙️ là chủ đích, không bị tắt nữa) +
+sửa 3 tên agent nói dối. Hiệu lực lần load config kế tiếp trên máy —
+413 hằng ngày chấm dứt. qwen giữ nguyên ở [2][3-6][8].
 
 **8. Độ trễ OpenRouter — ĐANG LEO THANG.** nemotron-super 18.6 → 25.8s;
 nemotron-ultra median 0.79s → 127.3s (11/08). Production tự né qua timeout.

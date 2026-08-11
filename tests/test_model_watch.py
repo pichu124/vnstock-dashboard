@@ -54,6 +54,32 @@ class _Resp:
         return self._body
 
 
+# ═══ Mistral vào lưới (user quyết 11/08: GIỮ làm giọng brief thứ tư) ════════
+
+def test_mistral_is_a_watched_provider():
+    """Trước 11/08 Mistral vô hình với mọi lưới (lộ qua ledger trong tin
+    test-alert). User quyết GIỮ → phải thành provider hạng nhất: có endpoint
+    probe + danh mục. Slug không cần probe trước — nó đang chạy THẬT trong
+    production (2 OK, score 0.836 ngày 11/08), bằng chứng mạnh hơn probe."""
+    assert "Mistral" in mw._PROVIDERS
+    cfg = mw._PROVIDERS["Mistral"]
+    assert cfg["env"] == "MISTRAL_API_KEY"
+    assert "api.mistral.ai" in cfg["endpoint"]
+    assert cfg["catalog_shape"] == "openai"
+
+
+def test_mistral_brief_slug_enters_ladder():
+    entries = mw._ladder_slugs()
+    got = {(p, m): n for p, m, n, _ in entries}
+    assert ("Mistral", "mistral-small-latest") in got
+    assert "[7]" in got[("Mistral", "mistral-small-latest")]
+
+
+def test_mistral_eval_has_polite_pacing():
+    """Free tier Mistral bóp theo GIÂY — eval phải có nhịp riêng như Gemini."""
+    assert me.EVAL_DELAYS.get("Mistral", 0) >= 1.5
+
+
 # ═══ GĐ1 — danh mục ════════════════════════════════════════════════════════
 
 def test_fetch_catalog_parses_openai_shape(monkeypatch):

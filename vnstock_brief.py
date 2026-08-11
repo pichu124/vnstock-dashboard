@@ -915,6 +915,20 @@ def _name_mentions_model(name: str, model: str) -> bool:
     return any(t in low for t in toks)
 
 
+# Agent brief bị TẮT CHỦ ĐỘNG theo (type, model) — khác _MODEL_MIGRATIONS
+# (đổi slug chết sang slug sống): đây là ghế NGỒI NHẦM CHỖ, model sống nhưng
+# không gánh nổi VIỆC NÀY. Tắt đúng MỘT lần qua marker `auto_disabled` —
+# user bật lại trong ⚙️ là chủ đích, load sau không giành tay lái nữa.
+_BRIEF_AGENT_DISABLES: dict[tuple, str] = {
+    # 413 CẤU TRÚC (bằng chứng 11/08 qua memory CLI): prompt brief ~10K token
+    # > trần 8K/request Groq free — rủi ro notes 22/07 đã ghi, thành hiện
+    # thực từ ngày migrate llama→qwen, fail 100% suốt 3 tuần (không log nên
+    # không ai biết). qwen vẫn phục vụ [2][3-6][8] bình thường (prompt nhỏ).
+    ("groq", "qwen/qwen3.6-27b"):
+        "413 Payload Too Large — prompt brief ~10K > trần 8K/request Groq free",
+}
+
+
 def load_agent_configs() -> list[dict]:
     """Load agent configs from JSON, merging in any new providers from defaults
     and migrating obsolete model names."""
@@ -942,6 +956,32 @@ def load_agent_configs() -> list[dict]:
             if new_name and _name_mentions_model(cfg.get("name", ""), key[1]):
                 cfg["name"] = new_name
             changed = True
+
+    # Sửa tên NÓI DỐI — trạng thái nửa-migrate (lộ 11/08 qua memory CLI):
+    # config đổi model TRƯỚC khi f13a33f thêm rename → "Cerebras Llama-3.3-70B"
+    # chạy gpt-oss-120b, key migration không còn khớp nên rename không bao giờ
+    # re-fire. Chỉ thay tên đang NHẮC một model đã migrate đi của cùng type;
+    # tên user tự đặt ("Bản nháp của tôi") không nhắc model nào → giữ nguyên.
+    for cfg in saved:
+        t, model, name = cfg.get("type"), cfg.get("model", ""), cfg.get("name", "")
+        if not (t and model and name) or _name_mentions_model(name, model):
+            continue
+        if any(k[0] == t and _name_mentions_model(name, k[1])
+               for k in _MODEL_MIGRATIONS):
+            new_name = _default_agent_name(t)
+            if new_name and new_name != name:
+                cfg["name"] = new_name
+                changed = True
+
+    # Tắt agent ngồi nhầm chỗ (xem _BRIEF_AGENT_DISABLES) — một lần duy nhất
+    for cfg in saved:
+        why = _BRIEF_AGENT_DISABLES.get((cfg.get("type"), cfg.get("model")))
+        if why and cfg.get("enabled") and not cfg.get("auto_disabled"):
+            cfg["enabled"] = False
+            cfg["auto_disabled"] = why
+            changed = True
+            print(f"[brief] tự tắt agent {cfg.get('name')}: {why} "
+                  f"(bật lại trong ⚙️ nếu muốn — sẽ không tự tắt nữa)")
 
     # Merge: add any provider types from defaults that are absent in saved file
     saved_types = {c.get("type") for c in saved}

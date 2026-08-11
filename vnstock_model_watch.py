@@ -83,10 +83,22 @@ _PROVIDERS: dict[str, dict] = {
         "catalog": "https://generativelanguage.googleapis.com/v1beta/models",
         "catalog_shape": "gemini",
     },
+    # User quyết 11/08: GIỮ Mistral làm giọng brief thứ tư → vào lưới hạng
+    # nhất (trước đó vô hình: không probe, không diff danh mục, không eval —
+    # lộ qua ledger trong tin test-alert). Slug mistral-small-latest không
+    # cần probe trước: đang chạy THẬT trong production (2 OK, score 0.836
+    # ngày 11/08) — bằng chứng mạnh hơn một call ping.
+    "Mistral": {
+        "env": "MISTRAL_API_KEY",
+        "endpoint": "https://api.mistral.ai/v1/chat/completions",
+        "catalog": "https://api.mistral.ai/v1/models",
+        "catalog_shape": "openai",
+    },
 }
 
 _BRIEF_TYPE2PROVIDER = {"gemini": "Gemini", "groq": "Groq",
-                        "cerebras": "Cerebras", "openrouter": "OpenRouter"}
+                        "cerebras": "Cerebras", "openrouter": "OpenRouter",
+                        "mistral": "Mistral"}
 
 # Hết hạn mức ≠ model chết. Gộp hai ca là báo động giả (ca thật 08/08: 3 model
 # OpenRouter dính `free-models-per-day` do chính eval của ta đốt, bị báo ❌

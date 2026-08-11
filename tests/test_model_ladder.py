@@ -412,7 +412,13 @@ def test_model_migrations_upgrade_saved_config(tmp_path, monkeypatch):
 
     by_type = {c["type"]: c for c in out}
     assert by_type["groq"]["model"] == "qwen/qwen3.6-27b"     # đổi số
-    assert by_type["groq"]["enabled"] is True                 # giữ lựa chọn
+    # ĐỔI CHỦ Ý 11/08 (user quyết): bản 29/07 chốt "migration giữ enabled" —
+    # nhưng CHÍNH kịch bản này (llama enabled → qwen giữ enabled) sinh ra 3
+    # tuần 413 câm lặng: ghế brief Groq hỏng CẤU TRÚC (prompt ~10K > trần
+    # 8K/request). Nay migrate xong bị tắt MỘT LẦN kèm marker; user bật lại
+    # trong ⚙️ là chủ đích, không bị tắt nữa (test_brief_agent_config).
+    assert by_type["groq"]["enabled"] is False
+    assert "413" in by_type["groq"]["auto_disabled"]
     assert by_type["cerebras"]["model"] == "gpt-oss-120b"
     assert by_type["cerebras"]["enabled"] is False
     assert by_type["openrouter"]["model"] == "my/custom-model"  # không đụng

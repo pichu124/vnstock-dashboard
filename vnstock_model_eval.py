@@ -277,7 +277,10 @@ EVAL_BUDGET = {"OpenRouter": 25}
 # chạy flash đều là nạn nhân quota (08/08 chấm 0 oan · 09/08 json n/a · 11/08
 # 15 ca hụt) dù probe luôn sống. Job tuần chạy nền — chậm thêm ~3 phút không
 # sao, ĐO ĐƯỢC mới quan trọng. Provider không khai = dùng nhịp chung.
-EVAL_DELAYS = {"Gemini": 7.0}
+EVAL_DELAYS = {"Gemini": 7.0,
+               # Mistral free tier bóp theo GIÂY (~1 req/s) — nhịp lịch sự,
+               # retry 429 làm lưới đỡ phía sau
+               "Mistral": 2.0}
 
 
 def run_eval(models: list, tasks: tuple = _TASKS, delay: float = 0.0,
