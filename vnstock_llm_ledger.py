@@ -135,6 +135,23 @@ def record(provider: str, model: str = "", ok: bool = True,
 _ALERT_ENV = "VNSTOCK_LLM_ALERT"     # kill-switch theo nếp repo: =0 tắt alert
 
 
+def _alert_message(context: str = "") -> str:
+    """Thân tin "LLM ladder DOWN" — DÙNG CHUNG cho alert thật và
+    `--test-alert` (điểm parity, mirror doctrine `apply_brief_guards`:
+    format trôi giữa 2 đường là test hết giá trị chứng thực)."""
+    lines = summary_lines()
+    detail = "\n".join(lines[:8]) if lines else "(sổ hôm nay chưa có dòng nào)"
+    return ("⚠️ <b>LLM ladder DOWN</b>"
+            + (f" — {context}" if context else "") + "\n"
+            "Tác vụ vừa rồi cạn TOÀN BỘ nấc model (mọi provider lỗi/thiếu key) "
+            "→ output đang chạy THIẾU phần LLM.\n\n"
+            f"{detail}\n\n"
+            "Soi bệnh: python vnstock_llm_ledger.py --show · "
+            "python scripts/probe_models.py\n"
+            "Sửa: đổi slug/key free trong .env, hoặc bật model trả phí "
+            "(VNSTOCK_NEWS_ANALYZE_PAID=1 + ANTHROPIC_API_KEY…).")
+
+
 def alert_ladder_down(context: str = "") -> bool:
     """Báo Telegram khi MỘT TÁC VỤ cạn TOÀN BỘ nấc model (mọi provider lỗi
     hoặc thiếu key) — yêu cầu user 22/07 khi chốt all-free: "free chết hết
@@ -153,19 +170,8 @@ def alert_ladder_down(context: str = "") -> bool:
                 return False                       # hôm nay đã báo rồi
         except Exception:
             pass
-        lines = summary_lines()
-        detail = "\n".join(lines[:8]) if lines else "(sổ hôm nay chưa có dòng nào)"
-        msg = ("⚠️ <b>LLM ladder DOWN</b>"
-               + (f" — {context}" if context else "") + "\n"
-               "Tác vụ vừa rồi cạn TOÀN BỘ nấc model (mọi provider lỗi/thiếu key) "
-               "→ output đang chạy THIẾU phần LLM.\n\n"
-               f"{detail}\n\n"
-               "Soi bệnh: python vnstock_llm_ledger.py --show · "
-               "python scripts/probe_models.py\n"
-               "Sửa: đổi slug/key free trong .env, hoặc bật model trả phí "
-               "(VNSTOCK_NEWS_ANALYZE_PAID=1 + ANTHROPIC_API_KEY…).")
         from vnstock_telegram import send_message
-        send_message(msg)
+        send_message(_alert_message(context))
         _META.mkdir(parents=True, exist_ok=True)
         tmp = flag.with_suffix(f".{os.getpid()}.tmp")
         tmp.write_text(json.dumps({"day": today, "context": context},
@@ -174,6 +180,51 @@ def alert_ladder_down(context: str = "") -> bool:
         return True
     except Exception:
         return False
+
+
+def test_alert() -> int:
+    """`--test-alert` — bắn 1 tin "(TEST)" qua ĐÚNG đường ống alert thật để
+    verify chủ động (đề xuất 30/07, user gật 11/08). Lưới an toàn chưa từng
+    bắn là lưới Schrödinger: hỏng thì chỉ biết đúng lúc cần nó nhất.
+
+    Khác `alert_ladder_down` ở đúng 3 chỗ, đều CÓ Ý:
+    * KHÔNG đọc/ghi cờ throttle ngày — test buổi sáng mà ghi cờ thì sự cố
+      THẬT buổi chiều cùng ngày bị nuốt.
+    * KHÔNG nuốt lỗi — mục đích là lộ bệnh, in rõ từng mắt xích.
+    * Gửi CẢ khi kill-switch tắt (chạy tay là chủ đích) — nhưng exit 1 kèm
+      cảnh báo to: alert THẬT đang câm.
+
+    Exit: 0 = gửi OK + gate bật · 1 = gửi OK nhưng gate TẮT · 2 = gửi fail.
+    """
+    gate_raw = (os.environ.get(_ALERT_ENV) or "1").strip()
+    gate_on = gate_raw.lower() not in ("0", "false", "off")
+    print(f"[test-alert] cổng {_ALERT_ENV} = {gate_raw!r} → alert thật đang "
+          f"{'BẬT' if gate_on else '❌ TẮT'}")
+    flag = _META / "llm_alert.json"
+    try:
+        day = json.loads(flag.read_text(encoding="utf-8")).get("day")
+        print(f"[test-alert] cờ throttle: lần alert thật gần nhất {day} "
+              f"(test này KHÔNG đụng cờ)")
+    except Exception:
+        print("[test-alert] cờ throttle: chưa từng có alert thật nào")
+
+    msg = ("🧪 <b>(TEST)</b> — tin thử đường ống alert, KHÔNG có sự cố. "
+           "Nội dung dưới là format tin thật:\n\n" + _alert_message("test thủ công"))
+    try:
+        from vnstock_telegram import send_message
+        send_message(msg)
+    except Exception as e:
+        print(f"[test-alert] ❌ GỬI FAIL: {type(e).__name__}: {e}")
+        print("[test-alert] → alert thật cũng sẽ fail Y HỆT (nó còn nuốt lỗi "
+              "im lặng). Sửa config Telegram trong .env rồi chạy lại.")
+        return 2
+    print("[test-alert] ✅ đã gửi — kiểm tra điện thoại có tin 🧪 (TEST)")
+    if not gate_on:
+        print(f"[test-alert] ⚠ ĐƯỜNG ỐNG SỐNG nhưng {_ALERT_ENV} đang tắt → "
+              f"sự cố thật sẽ KHÔNG có tin nào. Muốn bật: xoá dòng đó khỏi "
+              f".env (mặc định là bật).")
+        return 1
+    return 0
 
 
 def summary(day: "str | None" = None) -> dict:
@@ -228,7 +279,12 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Sổ call/token LLM per provider")
     ap.add_argument("--show", action="store_true")
     ap.add_argument("--day", default=None, help="YYYY-MM-DD (mặc định hôm nay/gần nhất)")
+    ap.add_argument("--test-alert", action="store_true",
+                    help='Bắn 1 tin "(TEST)" qua đúng đường ống alert '
+                         '"LLM ladder DOWN" thật (KHÔNG đụng cờ throttle ngày)')
     args = ap.parse_args(argv)
+    if args.test_alert:
+        return test_alert()
     lines = summary_lines(args.day)
     if not lines:
         print("Chưa có dữ liệu ledger (sổ tự tích lũy khi có call LLM).")

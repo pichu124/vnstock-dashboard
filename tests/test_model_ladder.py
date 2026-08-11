@@ -267,6 +267,69 @@ def test_alert_ladder_down_killswitch_and_retry_on_send_fail(monkeypatch, _tmp_m
     assert calls["n"] == 2                            # không bị flag chặn
 
 
+# ─── --test-alert: bắn tin (TEST) qua đúng đường ống thật (user gật 11/08) ──
+
+def test_test_alert_skips_throttle_flag(monkeypatch, _tmp_meta):
+    """Bẫy thiết kế PHẢI né: test-alert mà ghi cờ ngày thì test buổi sáng
+    nuốt mất sự cố THẬT buổi chiều cùng ngày — phản tác dụng đúng chỗ hiểm."""
+    sent = []
+    monkeypatch.setenv("VNSTOCK_LLM_ALERT", "1")
+    monkeypatch.setattr("vnstock_telegram.send_message",
+                        lambda text, **k: sent.append(text) or {"ok": True})
+
+    assert ledger.test_alert() == 0
+    assert len(sent) == 1
+    assert "(TEST)" in sent[0] and "LLM ladder DOWN" in sent[0]
+    assert not (_tmp_meta / "llm_alert.json").exists()   # KHÔNG đụng cờ
+    # và alert THẬT ngay sau đó vẫn gửi được — không bị test chặn
+    assert ledger.alert_ladder_down("sự cố thật") is True
+    assert len(sent) == 2
+
+
+def test_test_alert_warns_when_killswitch_off(monkeypatch, _tmp_meta):
+    """Gate tắt: VẪN gửi (chạy tay là chủ đích) nhưng exit 1 — phát hiện
+    "alert thật đang câm" chính là một nửa lý do tồn tại của test này."""
+    sent = []
+    # conftest đã set VNSTOCK_LLM_ALERT=0 — giữ nguyên
+    monkeypatch.setattr("vnstock_telegram.send_message",
+                        lambda text, **k: sent.append(text) or {"ok": True})
+    assert ledger.test_alert() == 1
+    assert len(sent) == 1 and "(TEST)" in sent[0]
+
+
+def test_test_alert_reports_send_failure(monkeypatch, _tmp_meta, capsys):
+    """Gửi fail → exit 2 KÈM lý do — test-alert không được nuốt lỗi như
+    alert thật (mục đích của nó là lộ bệnh)."""
+    monkeypatch.setenv("VNSTOCK_LLM_ALERT", "1")
+    monkeypatch.setattr("vnstock_telegram.send_message",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            RuntimeError("TELEGRAM_BOT_TOKEN chưa set trong .env")))
+    assert ledger.test_alert() == 2
+    assert "TELEGRAM_BOT_TOKEN" in capsys.readouterr().out
+
+
+def test_alert_body_shared_between_real_and_test(monkeypatch, _tmp_meta):
+    """Parity: thân tin test = thân tin thật (cùng `_alert_message`) — format
+    trôi là test hết giá trị chứng thực. Mirror doctrine apply_brief_guards."""
+    sent = []
+    monkeypatch.setenv("VNSTOCK_LLM_ALERT", "1")
+    monkeypatch.setattr("vnstock_telegram.send_message",
+                        lambda text, **k: sent.append(text) or {"ok": True})
+    ledger.test_alert()
+    ledger.alert_ladder_down("ctx")
+    test_msg, real_msg = sent
+    body = ledger._alert_message("test thủ công")   # builder dùng chung
+    assert body in test_msg                 # test = banner (TEST) + body thật
+    assert "Soi bệnh" in real_msg and "Soi bệnh" in test_msg
+
+
+def test_cli_accepts_test_alert(monkeypatch, _tmp_meta):
+    monkeypatch.setenv("VNSTOCK_LLM_ALERT", "1")
+    monkeypatch.setattr("vnstock_telegram.send_message",
+                        lambda *a, **k: {"ok": True})
+    assert ledger.main(["--test-alert"]) == 0
+
+
 def test_doctor_ledger_all_fail_is_error(tmp_path, monkeypatch):
     import vnstock_doctor as doc
     from datetime import date as _d

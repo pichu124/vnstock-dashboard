@@ -5153,6 +5153,33 @@ mới tự động được chặn).
 Suite 1625 → 1634 passed. Dòng print trong log GIỮ NGUYÊN — cho người đọc
 tay khi cần; file JSON là cho máy.
 
+## 2026-08-11 (c) — `--test-alert`: kiểm chủ động lưới an toàn cuối (user gật)
+
+Đề xuất treo từ 30/07, user gật 11/08. `alert_ladder_down` — chuông "free
+chết hết" của hệ all-free — chưa từng bắn thật, mà nó best-effort nuốt mọi
+lỗi: hỏng thì chỉ biết đúng giữa sự cố, chuông câm. Các tin "Model watch"
+cuối tuần đã chứng minh phần VẬN CHUYỂN (token/chat_id/format) sống; phần
+còn mù là logic riêng: cổng env, cờ throttle ngày, nhúng summary_lines.
+
+`python vnstock_llm_ledger.py --test-alert` — bắn 1 tin 🧪 (TEST) qua đúng
+đường ống thật, in trạng thái từng mắt xích. Khác alert thật ĐÚNG 3 chỗ,
+đều có ý:
+* **KHÔNG đọc/ghi cờ throttle** — bẫy thiết kế phải né: test buổi sáng ghi
+  cờ thì sự cố THẬT buổi chiều cùng ngày bị nuốt. Test chốt: chạy test-alert
+  xong, alert thật NGAY SAU ĐÓ vẫn gửi được.
+* **KHÔNG nuốt lỗi** — mục đích là lộ bệnh; gửi fail in rõ lý do, exit 2.
+* **Gửi cả khi kill-switch tắt** (chạy tay là chủ đích) nhưng exit 1 + cảnh
+  báo to "alert thật đang câm" — phát hiện env tắt nhầm chính là nửa lý do
+  tồn tại của test.
+
+Parity chốt bằng refactor: thân tin tách ra `_alert_message(context)` dùng
+chung cho cả alert thật lẫn test (mirror doctrine `apply_brief_guards` —
+format trôi giữa 2 đường là test hết giá trị chứng thực), có test canh.
+
+Exit: 0 = gửi OK + gate bật · 1 = gửi OK, gate TẮT · 2 = gửi fail.
+Suite 1634 → 1639 passed (5 test mới).
+
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 11/08/2026
@@ -5202,8 +5229,14 @@ nghi quy đổi OAN (mã vừa chia tách?) → báo Claude kèm message.
 
 ## 🟡 CODE CÒN TREO — không gấp
 
-**5. `vnstock_llm_ledger.py --test-alert`** — bắn 1 tin "(TEST)" qua đúng
-đường ống alert "LLM ladder DOWN" thật. Đề xuất từ 30/07, **chờ user gật**.
+**5. `--test-alert` — user GẬT, code XONG 11/08 (entry 11/08 (c)). Còn 1
+lệnh trên máy** (chạy lúc nào cũng được — KHÔNG đụng cờ throttle ngày):
+```powershell
+python vnstock_llm_ledger.py --test-alert
+```
+Kỳ vọng: điện thoại nhận tin 🧪 (TEST), terminal exit 0. Exit 1 = gửi OK
+nhưng `VNSTOCK_LLM_ALERT` đang TẮT trong .env (alert thật câm — cần sửa);
+exit 2 = gửi fail kèm lý do in sẵn.
 
 **6. MEDIUM/LOW của audit 06/08** — chưa làm:
 * ghi nguyên tử cho `vnstock_warehouse._write_parquet`, cache macro,
