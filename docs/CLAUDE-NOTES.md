@@ -5120,6 +5120,40 @@ hàng với EVAL_BUDGET theo ngày). Job tuần chậm thêm ~3 phút, đổi l�
 ĐƯỢC. Suite 1624 → 1625 passed.
 
 
+## 2026-08-11 (b) — Tự động hoá mục canh chừng đơn vị giá: vết máy-đọc + doctor check
+
+User hỏi "việc canh run_daily.log làm thế nào" rồi chốt "làm cho tôi đi để
+tự động nhất có thể". Thiết kế CỐ Ý không grep log: log mong manh (encoding
+tiếng Việt trên Windows, không biết bat xoay vòng kiểu gì, phụ thuộc máy) —
+nguồn sự thật là chính ROLLUP.
+
+Vòng tự động khép kín, không ai phải nhớ gì:
+```
+_normalize_units bắn (lệch ≥100×, tự quy đổi)
+  → ghi vết _meta/unit_normalizations.json   (best-effort, trần 50 event)
+    → run.py doctor đọc vết                  (pipeline 18:00 chạy doctor sẵn)
+      → badge sidebar 🩺 tự warn, nêu ĐÍCH DANH mã + tỉ lệ
+```
+
+Chi tiết chốt:
+* Vết >7 ngày coi như đã xem → về ok (vẫn nhắc "lần cuối") — warn vĩnh viễn
+  là alarm fatigue, badge kêu mãi thì người ta bỏ qua thật.
+* Timestamp hỏng trong vết → coi là MỚI (thà soi thừa hơn nuốt im lặng).
+* Ghi vết best-effort tuyệt đối: `_meta` hỏng (vd là FILE — bài `_live`
+  06/08) thì rollup VẪN quy đổi và chạy tiếp, có test chốt.
+* Message warn nêu rõ việc còn lại của NGƯỜI: soi chart mã đó xem giá liên
+  tục không; nghi quy đổi OAN (chia tách tỉ lệ cực lớn?) → báo Claude.
+
+Lưới chống chính mình: test đi qua `_normalize_units` nay sẽ ghi vết —
+không redirect là suite chạy trên máy user ghi VẾT GIẢ vào kho thật, sáng
+sau badge warn OAN. Thêm autouse `_rollup_meta_to_tmp_anywhere` vào
+conftest (cùng họ bài học ledger 30/07: fixture chặn toàn cục, file test
+mới tự động được chặn).
+
+Suite 1625 → 1634 passed. Dòng print trong log GIỮ NGUYÊN — cho người đọc
+tay khi cần; file JSON là cho máy.
+
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 09/08/2026
@@ -5177,8 +5211,12 @@ sentiment có thể NHÍCH LÊN nhờ fix scorer — không phải model tự kh
 **6.** Task T7 09:00 tự chạy `run.py models --eval` hàng tuần. Hai model
 OpenRouter đang hoãn vì hạn mức sẽ tự lên đầu hàng tuần sau (`_eval_order`).
 
-**7. Cảnh báo đơn vị giá penny** — thấy dòng cảnh báo đơn vị trong
-`run_daily.log` thì ĐỌC KỸ, đừng lướt.
+**7. ✅ TỰ ĐỘNG HOÁ 11/08 — cảnh báo đơn vị giá penny.** Hết phải nhớ quét
+`run_daily.log`: rollup ghi vết vào `_meta/unit_normalizations.json`, doctor
+đọc vết (pipeline 18:00 chạy sẵn), badge sidebar 🩺 tự warn kèm ĐÍCH DANH mã
++ tỉ lệ. Việc còn lại của người CHỈ KHI badge warn: soi chart mã đó xem giá
+liên tục không; nghi quy đổi oan (chia tách?) → báo Claude kèm message.
+Vết >7 ngày tự về ok. (Entry 11/08 (b).)
 
 ## 🟡 CODE CÒN TREO
 

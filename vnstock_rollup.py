@@ -238,6 +238,34 @@ def _aggregate_bars_to_daily(bars_df: pd.DataFrame) -> pd.DataFrame:
 _UNIT_RATIO_MIN = 100.0     # trần biên độ 1 phiên là ±15%, nên ≥100× chắc chắn
 #                             là lệch ĐƠN VỊ chứ không phải giá chạy
 _UNIT_SCALE = 1000.0        # kho lưu NGHÌN VND, WSS trả VND thô
+_UNIT_LOG_NAME = "unit_normalizations.json"
+_UNIT_LOG_MAX = 50          # đủ soi lịch sử, không phình vô hạn
+
+
+def _record_unit_normalization(ticker: str, ratio: float, rows: int) -> None:
+    """Ghi vết mỗi lần quy đổi đơn vị vào `_meta` — nguồn cho doctor check.
+
+    Dòng print trong `_normalize_units` là cho NGƯỜI đọc log; file này cho
+    MÁY: doctor đọc → badge sidebar tự warn (pipeline 18:00 chạy doctor sẵn),
+    khỏi ai phải nhớ quét run_daily.log (mục canh chừng 07/08, tự động hoá
+    11/08). Best-effort tuyệt đối — ghi vết hỏng không được làm chết rollup.
+    """
+    try:
+        path = META_DIR / _UNIT_LOG_NAME
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            events = data.get("events", []) if isinstance(data, dict) else []
+        except Exception:
+            events = []
+        events.append({"at": datetime.now().isoformat(timespec="seconds"),
+                       "ticker": str(ticker), "ratio": round(float(ratio), 1),
+                       "rows": int(rows)})
+        META_DIR.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"events": events[-_UNIT_LOG_MAX:]},
+                                   ensure_ascii=False, indent=2),
+                        encoding="utf-8")
+    except Exception:
+        pass
 
 
 def _normalize_units(new_rows: pd.DataFrame, existing: pd.DataFrame,
@@ -273,6 +301,7 @@ def _normalize_units(new_rows: pd.DataFrame, existing: pd.DataFrame,
             out[col] = pd.to_numeric(out[col], errors="coerce") / _UNIT_SCALE
     print(f"[rollup] {ticker}: giá bar lệch {ratio:,.0f}× so với kho → quy đổi "
           f"VND → nghìn VND ({len(out)} dòng)")
+    _record_unit_normalization(ticker, ratio, len(out))
     return out
 
 

@@ -59,6 +59,17 @@ def _no_llm_alert_anywhere(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _rollup_meta_to_tmp_anywhere(tmp_path, monkeypatch):
+    """Cùng họ bài học ledger 30/07: `_normalize_units` (11/08) nay ghi vết
+    vào `_meta/unit_normalizations.json` — test nào đi qua đường quy đổi mà
+    không redirect là ghi VẾT GIẢ vào kho thật, sáng hôm sau badge doctor
+    trên máy user warn OAN "có quy đổi đơn vị". Redirect cho MỌI test; test
+    soi vết thật thì tự setattr đè (vô hại, cùng tmp_path)."""
+    import vnstock_rollup as _vr
+    monkeypatch.setattr(_vr, "META_DIR", tmp_path)
+
+
+@pytest.fixture(autouse=True)
 def _ledger_to_tmp_anywhere(tmp_path, monkeypatch):
     """Cùng họ bài học với alert ở trên, lộ 30/07 trên máy user: test fake
     HTTP nhưng agent/digest vẫn gọi vnstock_llm_ledger.record THẬT → suite

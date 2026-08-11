@@ -101,6 +101,52 @@ def _fmt_age(n: "int | None") -> str:
 # ── OFFLINE checks — tuổi cache + cấu hình ───────────────────────────────────
 
 
+_UNIT_WARN_DAYS = 7     # vết cũ hơn coi như đã xem — warn vĩnh viễn = alarm fatigue
+
+
+def check_unit_normalizations() -> dict:
+    """Guard đơn vị giá penny (rollup 07/08) có VỪA kích hoạt không.
+
+    `_normalize_units` tự quy đổi khi giá bar lệch ≥100× lịch sử của chính mã
+    đó, và ghi vết vào `_meta/unit_normalizations.json` (11/08). Tự sửa xong
+    vẫn cần NGƯỜI liếc chart mã đó — ca quy đổi OAN lý thuyết là chia tách tỉ
+    lệ cực lớn. Trước đây việc này là "nhớ quét run_daily.log"; nay badge tự
+    báo, đúng doctrine: mọi lớp best-effort tự-sửa cần một doctor check.
+    """
+    name = "Quy đổi đơn vị giá (rollup)"
+    path = _META / "unit_normalizations.json"
+    if not path.exists():
+        return _result("unit_norm", name, "ok", "guard chưa từng kích hoạt", "")
+    try:
+        events = json.loads(path.read_text(encoding="utf-8")).get("events", [])
+    except Exception as e:
+        return _result("unit_norm", name, "error",
+                       f"không đọc được vết quy đổi: {type(e).__name__}",
+                       f"xem tay file {path}")
+    cutoff = datetime.now() - timedelta(days=_UNIT_WARN_DAYS)
+    fresh = []
+    for ev in events:
+        try:
+            if datetime.fromisoformat(str(ev.get("at", ""))) >= cutoff:
+                fresh.append(ev)
+        except ValueError:
+            fresh.append(ev)        # timestamp hỏng → coi là MỚI, thà soi thừa
+    if not fresh:
+        last = events[-1] if events else None
+        note = (f"lần cuối {str(last.get('at', '?'))[:10]} "
+                f"({last.get('ticker', '?')})" if last
+                else "guard chưa từng kích hoạt")
+        return _result("unit_norm", name, "ok", note, "")
+    tickers = ", ".join(f"{e.get('ticker', '?')} ({e.get('ratio', '?')}×)"
+                        for e in fresh[-5:])
+    return _result(
+        "unit_norm", name, "warn",
+        f"{len(fresh)} lần quy đổi trong {_UNIT_WARN_DAYS} ngày: {tickers} — "
+        f"guard ĐÃ tự sửa, việc còn lại là soi chart các mã này xem giá có "
+        f"liên tục không",
+        "nghi quy đổi OAN (mã vừa chia tách?) → báo Claude kèm dòng này")
+
+
 def check_warehouse() -> dict:
     """Kho giá EOD: bar VNINDEX cuối cùng, dung sai 2 PHIÊN.
 
@@ -669,7 +715,7 @@ def net_jina() -> dict:
 
 
 OFFLINE_CHECKS = [
-    check_dir_shapes,
+    check_dir_shapes, check_unit_normalizations,
     check_warehouse, check_market_overview, check_fundamentals, check_macro,
     check_pdf_tooling, check_market_news, check_ticker_news,
     check_foreign_flow, check_events, check_reports, check_allocation,
