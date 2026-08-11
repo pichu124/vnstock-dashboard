@@ -594,6 +594,24 @@ def test_closed_thinking_block_still_scored():
     assert me._truncated_thinking("<think>nghĩ mãi") is True
 
 
+def test_eval_paces_gemini_by_the_minute(monkeypatch):
+    """Gemini free tier bóp THEO PHÚT (flash chỉ ~10-15 req/phút), không chỉ
+    theo ngày: eval bắn flash-lite 25 ca rồi flash ngay cùng cửa sổ phút →
+    flash 429 hàng loạt. Cả 3 lần chạy flash đều là nạn nhân quota (08/08
+    chấm 0 oan · 09/08 json n/a · 11/08 15 ca hụt) dù probe luôn sống.
+    Job tuần chạy nền — chậm thêm vài phút không sao, ĐO ĐƯỢC mới quan trọng."""
+    slept = []
+    monkeypatch.setattr(me.time, "sleep", lambda s: slept.append(s))
+    monkeypatch.setattr(me, "chat_once",
+                        lambda *a, **k: (json.dumps({"primary_industry": "Khác"}), None))
+    me.run_eval([("Gemini", "flash")], tasks=("classify",), delay=1.0)
+    assert slept and all(s >= 6.0 for s in slept)
+
+    slept.clear()
+    me.run_eval([("Groq", "m")], tasks=("classify",), delay=1.0)
+    assert slept and all(s == 1.0 for s in slept)   # provider khác giữ nhịp chung
+
+
 def test_eval_respects_per_provider_budget(monkeypatch):
     """OpenRouter free = 50 req/ngày; 3 model × 25 ca = 75 call → eval của
     CHÍNH TA đốt sạch quota, hôm sau production mất nấc dự phòng (ca thật

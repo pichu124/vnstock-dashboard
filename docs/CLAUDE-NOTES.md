@@ -5075,6 +5075,51 @@ vẫn "Ngân hàng ~100%" — KHỚP bản Claude cũ (parity chất lượng tr
 Điểm [8] verify TRỌN VẸN: 4/4 checkpoint.
 
 
+## 2026-08-11 — Lần --eval thứ 4: hồ sơ qwen ĐÓNG (model vô tội) + 2 lưới bắt cá thật lần đầu
+
+### qwen3.6-27b: 0.33/0.38/0.00 → 1.00/1.00/1.00
+
+Sau vá token (400 → 2000) + fix scorer sentiment: qwen đạt TUYỆT ĐỐI cả 3
+việc. Chốt: model chưa bao giờ kém — PHÉP ĐO bóp nó (reasoning model, 400
+token cạn vào phần suy nghĩ). Ladder GIỮ NGUYÊN ở cả 4 điểm [2][3-6][7][8].
+Mục "cảnh báo nấc yếu đang dùng" mất lý do tồn tại → BỎ (may đã hoãn — xây
+trên số đo hỏng thì giờ có một cái chuông chuyên kêu oan).
+
+Bảng điểm sạch hiện tại: 5 model đạt 1.00/1.00/1.00 (gemma-4-31b* ·
+gpt-oss-120b cả Cerebras lẫn Groq · flash-lite · qwen3.6-27b) · gpt-oss-20b
+1.00/0.75/0.80 (nấc phụ, đủ dùng; 0.88 → 0.75 là nhiễu mẫu 8 ca) ·
+nemotron-ultra 0.75/0.88/0.80 (đo đúng lúc đang bò 127s — xem dưới).
+(*gemma 1 ca hụt nhưng đủ coverage.)
+
+### Lưới danh mục bắt cá thật: Gemini gỡ cả dòng 2.0-flash
+
+Diff tuần đầu tiên có nội dung: Gemini **-6 model** (gemini-2.0-flash /
+-flash-001 / -flash-lite / -flash-lite-001 · gemini-3-pro-preview ·
+robotics-preview). KHÔNG con nào đang dùng → đúng thiết kế: ghi nhận, không
+báo động. Đây chính xác là loại cảnh báo sớm user đặt hàng từ đầu ("model
+nào sắp hết hạn") — nếu ladder còn ở dòng 2.0 thì tuần này đã có 🚨 TRƯỚC
+khi nó chết hẳn. OpenRouter: -1 (gpt-5.3-chat, không dùng) / +4, trong đó
+**nvidia/nemotron-3.5-lightning:free** — ứng viên thay nếu ultra còn bò.
+
+### Lưới độ trễ bắt cá thật: nemotron-ultra 127.3s (161× median 0.79s)
+
+Không phải nhiễu chạy dồn (median đã 3 mẫu, các lần trước 0.5-3.2s). Nấc dự
+phòng của [2]/[3-6]/[8] đang bò; production TỰ NÉ (chat_complete timeout 25s
+→ rơi nấc kế; 127s thì brief timeout 90s cũng không đỡ nổi). Chưa hành động
+— nếu còn bò 1-2 tuần: probe sống nemotron-3.5-lightning:free (luật repo:
+slug mới phải probe trước khi vào code) rồi bàn thay.
+
+### Nạn nhân quota cuối cùng: Gemini flash — vá nhịp theo provider
+
+flash: classify=1.00 nhưng 15 ca hụt (sentiment + json n/a). Nhìn lại thì CẢ
+3 lần chạy flash đều là nạn nhân quota (08/08 chấm 0 oan · 09/08 json n/a ·
+11/08 15 ca hụt) dù probe luôn sống — vì Gemini bóp theo PHÚT (flash ~10-15
+req/phút), mà eval bắn flash-lite 25 ca rồi flash ngay trong cùng cửa sổ.
+Vá: `EVAL_DELAYS = {"Gemini": 7.0}` — nhịp riêng theo provider (mirror họ
+hàng với EVAL_BUDGET theo ngày). Job tuần chậm thêm ~3 phút, đổi lấy ĐO
+ĐƯỢC. Suite 1624 → 1625 passed.
+
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 09/08/2026
@@ -5083,9 +5128,9 @@ vẫn "Ngân hàng ~100%" — KHỚP bản Claude cũ (parity chất lượng tr
 > **Mục này PHẢI luôn nằm CUỐI FILE** — `CLAUDE.md` trỏ vào đây; thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **1621 passed** · fast ~1.075 · nhánh
-> `claude/remaining-tasks-tests-4xoam3` = `426ba12`, đã push ·
-> `origin/main` = `4c6fd6c`, **thiếu 3 commit cuối**.
+> Trạng thái 11/08: full suite **1625 passed** · nhánh
+> `claude/remaining-tasks-tests-4xoam3` đã push · `origin/main` = `813fd91`,
+> tụt sau nhánh — `git push origin main` khi tiện.
 
 ## 🔴 GẤP NHẤT — Thứ 2 10/08, giờ giao dịch 9h15-14h30
 
@@ -5110,20 +5155,9 @@ git merge origin/claude/remaining-tasks-tests-4xoam3
 git push origin main
 ```
 
-**3. Chạy lại `--eval` sau bản vá token** — câu hỏi treo: qwen3.6-27b kém
-thật hay do bộ đề chật token? Chạy cách lần trước ≥1 ngày để quota hồi.
-⏱ Mất **~25-30 phút** (đo thật 08-09/08: 22:02 → alert 22:26 và 22:31), không
-phải 4 phút. Cứ để chạy nền.
-```powershell
-python run.py models --eval
-```
-Đọc dòng `Groq:qwen/qwen3.6-27b`:
-
-| Kết quả | Kết luận |
-|---|---|
-| điểm lên rõ | lỗi ở bộ đề, model không sao — đóng hồ sơ |
-| `n/a` + số ca hụt | vẫn cụt output → cấp thêm token nữa |
-| vẫn thấp, `errors=0` | kém thật → BÀN chuyện thay ở [2][3-6][7][8] |
+**3. ✅ XONG 11/08 — hồ sơ qwen ĐÓNG: model vô tội.** Sau vá token + scorer,
+qwen3.6-27b đạt **1.00/1.00/1.00** (từ 0.33/0.38/0.00). Ladder giữ nguyên,
+không đổi model nào. Bảng điểm sạch + 2 lưới bắt cá thật lần đầu: entry 11/08.
 
 **4. ✅ XONG 10/08 — điểm [8] verify TRỌN VẸN (4/4 checkpoint).** Vòng 1
 (10 mã): 8/10 + lộ bug token 800 → `_CLASSIFY_MAX_TOKENS = 6000` (entry
@@ -5148,9 +5182,10 @@ OpenRouter đang hoãn vì hạn mức sẽ tự lên đầu hàng tuần sau (`
 
 ## 🟡 CODE CÒN TREO
 
-**8. Cảnh báo "nấc yếu đang dùng"** — `propose_swaps` chỉ soi nấc DẪN, nên
-model kém ở nấc DỰ PHÒNG (như qwen ở 4 điểm) không bao giờ sinh đề xuất. CỐ Ý
-hoãn tới sau §3: thêm lúc số đo còn hỏng thì nó kêu oan ngay.
+**8. ~~Cảnh báo "nấc yếu đang dùng"~~ — BỎ 11/08.** Động lực duy nhất là
+qwen bị nghi yếu ở 4 nấc dự phòng; hồ sơ đã đóng (model vô tội, lỗi phép đo).
+Xây nó lúc trước = có một cái chuông chuyên kêu oan. Nếu sau này bảng điểm
+SẠCH chỉ ra nấc dự phòng nào kém thật thì mở lại.
 
 **9. `vnstock_llm_ledger.py --test-alert`** — bắn 1 tin "(TEST)" qua đúng
 đường ống alert thật. Đề xuất từ 30/07, **user chưa gật**.
@@ -5179,9 +5214,15 @@ lại từ đầu.
 0.2.4 → 0.2.5. **CHƯA nâng.** Nâng thì phải chạy `run.py doctor --net` + full
 suite ngay sau, và KHÔNG nâng sát giờ pipeline chạy.
 
-**15. Độ trễ OpenRouter** — `nemotron-3-super` 18.6s (median 3.26s, chậm
-5.7×) ngày 09/08. Đang là [7] brief, timeout 90s nên chưa nguy. Nhưng lịch sử
-độ trễ mới có 2-3 mẫu → theo dõi thêm vài tuần rồi mới kết luận, đừng đổi vội.
+**15. Độ trễ OpenRouter — ĐANG LEO THANG.** nemotron-super 18.6s (09/08) →
+25.8s (11/08); nemotron-ultra median 0.79s → **127.3s (161×)** ngày 11/08.
+Production tự né qua timeout nên chưa cháy nhà. Nếu còn bò 1-2 tuần nữa:
+probe sống ứng viên mới `nvidia/nemotron-3.5-lightning:free` (xuất hiện trong
+danh mục 11/08):
+```powershell
+python scripts/probe_models.py --slug "OpenRouter=nvidia/nemotron-3.5-lightning:free"
+```
+rồi mới bàn thay — slug CHƯA probe thì CHƯA được vào code (luật CLAUDE.md).
 
 ## 🔧 NẾP LÀM VIỆC — bẫy đã vấp 2 lần
 

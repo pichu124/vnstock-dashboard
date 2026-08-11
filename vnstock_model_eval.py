@@ -271,6 +271,14 @@ _CASE_COUNTS = {"classify": len(GOLDEN_CLASSIFY),
 # production mất nấc dự phòng (ca thật 08/08). Provider không khai = không cap.
 EVAL_BUDGET = {"OpenRouter": 25}
 
+# Nhịp giữa các ca THEO PROVIDER — cho provider bóp theo PHÚT chứ không chỉ
+# theo ngày. Gemini free tier: flash chỉ ~10-15 req/phút; eval bắn flash-lite
+# 25 ca rồi flash ngay trong cùng cửa sổ phút → flash 429 hàng loạt. Cả 3 lần
+# chạy flash đều là nạn nhân quota (08/08 chấm 0 oan · 09/08 json n/a · 11/08
+# 15 ca hụt) dù probe luôn sống. Job tuần chạy nền — chậm thêm ~3 phút không
+# sao, ĐO ĐƯỢC mới quan trọng. Provider không khai = dùng nhịp chung.
+EVAL_DELAYS = {"Gemini": 7.0}
+
 
 def run_eval(models: list, tasks: tuple = _TASKS, delay: float = 0.0,
              budget: "dict | None" = None) -> dict:
@@ -295,8 +303,9 @@ def run_eval(models: list, tasks: tuple = _TASKS, delay: float = 0.0,
             continue
         used[provider] = used.get(provider, 0) + need
         scores: dict = {"errors": 0, "coverage": {}}
+        pace = max(delay, EVAL_DELAYS.get(provider, 0.0))
         for task in tasks:
-            got, n_err, n_ans = _run_one_task(provider, model, task, groups, delay)
+            got, n_err, n_ans = _run_one_task(provider, model, task, groups, pace)
             if got is not None:
                 scores[task] = got
             scores["errors"] += n_err
