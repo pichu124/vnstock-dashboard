@@ -148,6 +148,7 @@ _MUST_BE_ATOMIC = [
     ("vnstock_classifier.py", "kho phân loại 1.652 mã + company profiles"),
     ("vnstock_model_watch.py", "model_status.json + lịch sử probe/danh mục"),
     ("vnstock_rollup.py", "vết quy đổi đơn vị giá"),
+    ("dashboard/watchlist_io.py", "watchlist user tự tay dựng"),
 ]
 
 

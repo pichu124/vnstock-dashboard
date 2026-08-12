@@ -1,4 +1,24 @@
-"""Tests for dashboard helpers — price normalization, indicators, value area."""
+"""Test helper của dashboard — chuẩn hoá giá, chỉ báo, value area, bảng, v.v.
+
+ĐỢT 2 GỠ REPLICA (12/08) — file này giờ import **ĐỒ THẬT** hoàn toàn, không
+còn hàm chép tay nào.
+
+Vì sao từng có replica: `vnstock_dashboard.py` gọi `st.set_page_config()` ở
+cấp module rồi dựng UI ngay khi import, nên test không import nổi. Giải pháp
+cũ là chép hàm sang đây — và bản chép TRÔI: `compute_indicators` replica vẫn
+giữ công thức RSI cũ (để NaN ở đuôi), `cell_color` replica thiếu hẳn nhánh
+`Trend`/`Ticker`/`Ngành`. Test xanh trên bản chép = không bảo vệ gì cả.
+Giải pháp mới: kéo logic ra module thuần (`vnstock_price_units`,
+`dashboard/chart_indicators` …) rồi import thẳng.
+
+Mock streamlit vẫn giữ: một số module dưới `dashboard/` còn import streamlit.
+⚠️ Mock chạy Ở CẤP MODULE nên có hiệu lực từ lúc pytest THU THẬP — tức nhiễm
+sang MỌI file test khác trong phiên, bất kể thứ tự chạy.
+`sys.modules["vnstock_wss"] = MagicMock()` từng nằm đây đã bị GỠ (06/08) vì nó
+làm mọi test đụng tới vnstock_wss nhận phải MagicMock —
+`tests/test_audit_high_fixes.py` đỏ 4 test vì vậy, và chỉ đỏ khi chạy CẢ SUITE
+(chạy riêng thì xanh) nên rất khó lần ra.
+"""
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -7,16 +27,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-# Mock streamlit trước khi import dashboard.
-#
-# ⚠️ Mấy dòng này chạy Ở CẤP MODULE nên có hiệu lực từ lúc pytest THU THẬP —
-# tức nhiễm sang MỌI file test khác trong phiên, bất kể thứ tự chạy.
-# `sys.modules["vnstock_wss"] = MagicMock()` từng nằm đây đã bị GỠ (06/08):
-# ĐANG GỠ REPLICA (12/08): hàm nào đã tách ra module helper thì import
-# ĐỒ THẬT; phần còn lại vẫn là replica, gỡ dần từng đợt.
-# nên mock đó là tàn dư, mà nó làm mọi test đụng tới vnstock_wss nhận phải
-# MagicMock — `tests/test_audit_high_fixes.py` đỏ 4 test vì vậy, và chỉ đỏ
-# khi chạy CẢ SUITE (chạy riêng thì xanh) nên rất khó lần ra.
 _st_mock = MagicMock()
 _st_mock.set_page_config = MagicMock()
 _st_mock.cache_data = lambda *a, **kw: (lambda f: f)
@@ -27,70 +37,20 @@ sys.modules["streamlit.components.v1"] = MagicMock()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-
-# Import individual functions — dashboard module does heavy init,
-# so we extract and test the pure logic directly.
-
-def _normalize_price_units(df: pd.DataFrame) -> pd.DataFrame:
-    """Replica from vnstock_dashboard.py:192"""
-    if df.empty:
-        return df
-    df = df.copy()
-    for col in ("open", "high", "low", "close"):
-        if col not in df.columns:
-            continue
-        vals = df[col].astype(float)
-        mask = vals > 500
-        if mask.any():
-            df.loc[mask, col] = vals[mask] / 1000
-    return df
-
-
-def _normalize_live_price(historical_last_close: float, live_price: float) -> float:
-    """Replica from vnstock_dashboard.py:996"""
-    if historical_last_close <= 0 or live_price <= 0:
-        return live_price
-    ratio = live_price / historical_last_close
-    if ratio > 100:
-        return live_price / 1000.0
-    if ratio < 0.01:
-        return live_price * 1000.0
-    return live_price
-
-
-def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    """Replica from vnstock_dashboard.py:301"""
-    df = df.copy()
-    c = df["close"].astype(float)
-
-    delta = c.diff()
-    gain = delta.clip(lower=0).rolling(14).mean()
-    loss = (-delta.clip(upper=0)).rolling(14).mean()
-    df["rsi"] = 100 - (100 / (1 + gain / loss.replace(0, np.nan)))
-
-    for span in (9, 21, 50, 200):
-        if len(c) >= span:
-            df[f"ema{span}"] = c.ewm(span=span, adjust=False).mean()
-        else:
-            df[f"ema{span}"] = np.nan
-
-    ema12 = c.ewm(span=12, adjust=False).mean()
-    ema26 = c.ewm(span=26, adjust=False).mean()
-    df["macd"] = ema12 - ema26
-    df["macd_signal"] = df["macd"].ewm(span=9, adjust=False).mean()
-    df["macd_hist"] = df["macd"] - df["macd_signal"]
-
-    sma20 = c.rolling(20).mean()
-    std20 = c.rolling(20).std()
-    df["bb_up"] = sma20 + 2 * std20
-    df["bb_lo"] = sma20 - 2 * std20
-    df["bb_mid"] = sma20
-    df["vol_ma20"] = df["volume"].astype(float).rolling(20).mean()
-
-    return df
-
-
-from dashboard.volume_profile import calc_value_area as _calc_value_area
+from dashboard.chart_indicators import compute_indicators          # noqa: E402
+from dashboard.table_style import cell_color, cell_weight          # noqa: E402
+from dashboard.volume_profile import calc_value_area as _calc_value_area  # noqa: E402
+from dashboard.watchlist_io import (                               # noqa: E402
+    load_watchlist as _load_watchlist,
+    save_watchlist as _save_watchlist,
+)
+from vnstock_console_launch import build_ps_command                # noqa: E402
+from vnstock_price_units import (                                  # noqa: E402
+    normalize_live_price as _normalize_live_price,
+    normalize_price_units as _normalize_price_units,
+)
+from vnstock_sectors import SECTOR_GROUPS as _SECTOR_GROUPS        # noqa: E402
+from vnstock_sectors import get_sector as _get_sector              # noqa: E402
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -241,43 +201,12 @@ class TestCalcValueArea:
         assert poc_p == 80.0
 
 
-# ── cell_color / cell_weight (replica from vnstock_dashboard.py:2110,2135) ─────
+# ── cell_color / cell_weight ────────────────────────────────────────────────
+# Đồ THẬT từ `dashboard/table_style.py`. Replica cũ ở đây thiếu hẳn nhánh
+# Trend/Ticker/Ngành và bậc RSI 40/60 — các nhánh đó nay có test ở dưới.
 
-def _cell_color(col, val):
-    """Replica — verifies the (ValueError, TypeError) narrow except works."""
-    if not val or val == "—":
-        return "#4b5563"
-    if col in ("1D%", "5D%", "20D%", "BB%", "52W%"):
-        try:
-            v = float(str(val).replace("%", "").replace("+", ""))
-            return "#10b981" if v > 0 else ("#ef4444" if v < 0 else "#9ca3af")
-        except (ValueError, TypeError):
-            return "#6b7280"
-    if col == "RSI":
-        try:
-            v = float(val)
-            if v < 30: return "#10b981"
-            if v > 70: return "#ef4444"
-            return "#e5e7eb"
-        except (ValueError, TypeError):
-            return "#6b7280"
-    return "#d1d5db"
-
-
-def _cell_weight(col, val):
-    if col == "Ticker":
-        return "600"
-    if col in ("1D%", "5D%", "20D%", "BB%", "52W%"):
-        try:
-            return "500" if float(str(val).replace("%", "").replace("+", "")) != 0 else "400"
-        except (ValueError, TypeError):
-            return "400"
-    if col == "RSI":
-        try:
-            return "700" if (float(val) < 30 or float(val) > 70) else "400"
-        except (ValueError, TypeError):
-            return "400"
-    return "400"
+_cell_color = cell_color
+_cell_weight = cell_weight
 
 
 class TestCellColor:
@@ -342,31 +271,7 @@ class TestCellWeight:
         assert _cell_weight("RSI", "xyz") == "400"
 
 
-# ── Watchlist I/O roundtrip (replica from vnstock_dashboard.py:1905) ──────────
-
-def _load_watchlist(path):
-    if not path.exists():
-        return []
-    try:
-        import json
-        with open(path, encoding="utf-8") as f:
-            return json.load(f).get("tickers", [])
-    except (OSError, PermissionError):
-        return []
-    except (__import__("json").JSONDecodeError):  # noqa: F821
-        return []
-
-
-def _save_watchlist(path, tickers):
-    import json
-    from datetime import datetime
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(
-            {"tickers": sorted(set(tickers)), "updated_at": datetime.now().isoformat()},
-            f, ensure_ascii=False, indent=2,
-        )
-
+# ── Watchlist I/O roundtrip ─────────────────────────────────────────────────
 
 class TestWatchlistIO:
 
@@ -389,24 +294,8 @@ class TestWatchlistIO:
 # ── launch_in_new_console PowerShell command generation ──────────────────────
 
 def _build_ps_command(commands, python_exe="/usr/bin/python"):
-    """Replica of the Windows branch of launch_in_new_console — command string only."""
-    parts = [
-        "$env:PYTHONIOENCODING='utf-8'",
-        "chcp 65001 | Out-Null",
-    ]
-    for i, cmd in enumerate(commands):
-        parts.append(f"Write-Host '=== {cmd['label']} ===' -ForegroundColor Cyan")
-        quoted = " ".join(f"'{a}'" for a in cmd["args"])
-        parts.append(f"& '{python_exe}' {quoted}")
-        if cmd.get("stop_on_error", True) and i < len(commands) - 1:
-            parts.append(
-                "if ($LASTEXITCODE -ne 0) { "
-                "Write-Host 'Previous step failed' -ForegroundColor Red; "
-                "Read-Host 'Nhan Enter de dong cua so'; exit 1 }"
-            )
-    parts.append("Write-Host ''")
-    parts.append("Read-Host 'Hoan tat. Nhan Enter de dong cua so'")
-    return "; ".join(parts)
+    """Đồ thật, chỉ gắn sẵn python_exe cho gọn ở phần assert bên dưới."""
+    return build_ps_command(commands, python_exe)
 
 
 class TestLaunchInNewConsole:
@@ -446,46 +335,7 @@ class TestLaunchInNewConsole:
 
 # ── Money Flow helpers (replica from vnstock_dashboard.py) ───────────────────
 
-# SECTOR_GROUPS mapping (31 → 15)
-_SECTOR_GROUPS = {
-    "Ngân hàng": "Ngân hàng",
-    "Chứng khoán & Đầu tư tài chính": "Chứng khoán",
-    "Bảo hiểm": "Bảo hiểm",
-    "Bất động sản": "Bất động sản",
-    "Xây dựng & Hạ tầng": "Xây dựng & Hạ tầng",
-    "Thép & Kim loại": "Thép & Kim loại",
-    "Vật liệu xây dựng": "Hoá chất & Vật liệu",
-    "Hóa chất & Phân bón": "Hoá chất & Vật liệu",
-    "Nhựa & Bao bì": "Hoá chất & Vật liệu",
-    "Cơ khí & Thiết bị công nghiệp": "Hoá chất & Vật liệu",
-    "Dầu khí": "Năng lượng",
-    "Điện & Năng lượng tái tạo": "Năng lượng",
-    "Khai khoáng & Tài nguyên": "Năng lượng",
-    "Công nghệ thông tin & Phần mềm": "Công nghệ",
-    "Viễn thông": "Công nghệ",
-    "Truyền thông & Quảng cáo": "Công nghệ",
-    "Bán lẻ & Thương mại": "Tiêu dùng",
-    "Thực phẩm & Đồ uống": "Tiêu dùng",
-    "Dệt may & May mặc": "Tiêu dùng",
-    "Thể thao & Hàng tiêu dùng": "Tiêu dùng",
-    "Nông nghiệp & Thủy sản": "Nông & Thuỷ sản",
-    "Y tế & Dược phẩm": "Y tế & Dược",
-    "Vận tải & Logistics": "Vận tải & Cảng",
-    "Cảng & Hạ tầng logistics": "Vận tải & Cảng",
-    "Du lịch & Khách sạn": "Dịch vụ & Du lịch",
-    "Giáo dục": "Dịch vụ & Du lịch",
-    "Dịch vụ công ích & Môi trường": "Dịch vụ & Du lịch",
-    "Dịch vụ tư vấn & Kiểm định": "Dịch vụ & Du lịch",
-    "Đa ngành": "Khác",
-    "In ấn & Xuất bản": "Khác",
-    "Gỗ & Nội thất": "Khác",
-    "Khác": "Khác",
-}
-
-
-def _get_sector(primary_industry):
-    return _SECTOR_GROUPS.get(primary_industry, "Khác")
-
+# SECTOR_GROUPS / _get_sector: đồ THẬT từ `vnstock_sectors` (import ở đầu file).
 
 from dashboard.money_flow_score import (  # đồ THẬT, không còn replica
     compute_money_flow_score as _compute_money_flow_score,

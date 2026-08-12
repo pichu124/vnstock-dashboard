@@ -103,60 +103,13 @@ SESSION_STATS_PATH = Path("data_warehouse/_meta/market_session_stats.json")
 
 
 # ── Sector groups (31 → 15 nhóm) ────────────────────────────────────────────
-SECTOR_GROUPS = {
-    "Ngân hàng":            "Ngân hàng",
-    "Chứng khoán & Đầu tư tài chính": "Chứng khoán",
-    "Bảo hiểm":            "Bảo hiểm",
-    "Bất động sản":         "Bất động sản",
-    "Xây dựng & Hạ tầng":  "Xây dựng & Hạ tầng",
-    "Thép & Kim loại":     "Thép & Kim loại",
-    "Vật liệu xây dựng":  "Hoá chất & Vật liệu",
-    "Hóa chất & Phân bón": "Hoá chất & Vật liệu",
-    "Nhựa & Bao bì":      "Hoá chất & Vật liệu",
-    "Cơ khí & Thiết bị công nghiệp": "Hoá chất & Vật liệu",
-    "Dầu khí":             "Năng lượng",
-    "Điện & Năng lượng tái tạo": "Năng lượng",
-    "Khai khoáng & Tài nguyên":  "Năng lượng",
-    "Công nghệ thông tin & Phần mềm": "Công nghệ",
-    "Viễn thông":          "Công nghệ",
-    "Truyền thông & Quảng cáo": "Công nghệ",
-    "Bán lẻ & Thương mại": "Tiêu dùng",
-    "Thực phẩm & Đồ uống": "Tiêu dùng",
-    "Dệt may & May mặc":  "Tiêu dùng",
-    "Thể thao & Hàng tiêu dùng": "Tiêu dùng",
-    "Nông nghiệp & Thủy sản": "Nông & Thuỷ sản",
-    "Y tế & Dược phẩm":   "Y tế & Dược",
-    "Vận tải & Logistics": "Vận tải & Cảng",
-    "Cảng & Hạ tầng logistics": "Vận tải & Cảng",
-    "Du lịch & Khách sạn": "Dịch vụ & Du lịch",
-    "Giáo dục":            "Dịch vụ & Du lịch",
-    "Dịch vụ công ích & Môi trường": "Dịch vụ & Du lịch",
-    "Dịch vụ tư vấn & Kiểm định": "Dịch vụ & Du lịch",
-    "Đa ngành":            "Khác",
-    "In ấn & Xuất bản":   "Khác",
-    "Gỗ & Nội thất":      "Khác",
-    "Khác":                "Khác",
-}
-
-SECTOR_ORDER = [
-    "Ngân hàng", "Chứng khoán", "Bảo hiểm", "Bất động sản",
-    "Xây dựng & Hạ tầng", "Thép & Kim loại", "Hoá chất & Vật liệu",
-    "Năng lượng", "Công nghệ", "Tiêu dùng", "Nông & Thuỷ sản",
-    "Y tế & Dược", "Vận tải & Cảng", "Dịch vụ & Du lịch", "Khác",
-]
-
-SECTOR_ICONS = {
-    "Ngân hàng": "🏦", "Chứng khoán": "📈", "Bảo hiểm": "🛡",
-    "Bất động sản": "🏠", "Xây dựng & Hạ tầng": "🏗", "Thép & Kim loại": "⚙️",
-    "Hoá chất & Vật liệu": "🧪", "Năng lượng": "⚡", "Công nghệ": "💻",
-    "Tiêu dùng": "🛒", "Nông & Thuỷ sản": "🌾", "Y tế & Dược": "💊",
-    "Vận tải & Cảng": "🚢", "Dịch vụ & Du lịch": "✈️", "Khác": "📦",
-}
-
-
-def _get_sector(primary_industry: str) -> str:
-    """Map ngành gốc → nhóm 15."""
-    return SECTOR_GROUPS.get(primary_industry, "Khác")
+# Bảng ngành + icon nay ở `vnstock_sectors` (module thuần, test import được).
+# Giữ tên cũ ở đây vì `dashboard/money_flow_tab.py`, `portfolio_tab.py` và
+# `vnstock_vn30_weights.py` đang import qua `vnstock_dashboard`.
+from vnstock_sectors import (  # noqa: E402,F401  (re-export cho các tab)
+    SECTOR_GROUPS, SECTOR_ICONS, SECTOR_ORDER,
+    get_sector as _get_sector,
+)
 
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -620,6 +573,10 @@ from dashboard.money_flow_score import (  # noqa: E402
     score_bar_html as _score_bar_html,
     score_label as _score_label,
 )
+from dashboard.table_style import cell_color, cell_weight  # noqa: E402
+
+
+from vnstock_console_launch import build_ps_command as _build_ps_command  # noqa: E402
 
 
 def launch_in_new_console(commands: list, log_filename: str = "subprocess.log") -> tuple:
@@ -640,23 +597,7 @@ def launch_in_new_console(commands: list, log_filename: str = "subprocess.log") 
     py = sys.executable
     cwd = str(Path(__file__).parent)
     if os.name == "nt":
-        parts = [
-            "$env:PYTHONIOENCODING='utf-8'",
-            "chcp 65001 | Out-Null",
-        ]
-        for i, cmd in enumerate(commands):
-            parts.append(f"Write-Host '=== {cmd['label']} ===' -ForegroundColor Cyan")
-            quoted = " ".join(f"'{a}'" for a in cmd["args"])
-            parts.append(f"& '{py}' {quoted}")
-            if cmd.get("stop_on_error", True) and i < len(commands) - 1:
-                parts.append(
-                    "if ($LASTEXITCODE -ne 0) { "
-                    "Write-Host 'Previous step failed' -ForegroundColor Red; "
-                    "Read-Host 'Nhan Enter de dong cua so'; exit 1 }"
-                )
-        parts.append("Write-Host ''")
-        parts.append("Read-Host 'Hoan tat. Nhan Enter de dong cua so'")
-        ps_cmd = "; ".join(parts)
+        ps_cmd = _build_ps_command(commands, py)
         subprocess.Popen(
             ["powershell.exe", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd],
             cwd=cwd,
@@ -789,33 +730,18 @@ html, body, [class*="css"] {
 # Analysis functions
 # ═══════════════════════════════════════════════════════
 
+from vnstock_price_units import (  # noqa: E402
+    normalize_live_price as _normalize_live_price,
+    normalize_price_units as _normalize_price_units_raw,
+)
+
+# Logic chuẩn hoá đơn vị giá ở `vnstock_price_units` (module thuần). Ở đây chỉ
+# bọc thêm cache của Streamlit. Giữ tên `_normalize_price_units` vì
+# `dashboard/screener_tab.py:71` lấy qua `_vnd._normalize_price_units`.
 @st.cache_data(ttl=300)
 def _normalize_price_units(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Normalize đơn vị giá về nghìn VND.
-
-    vnstock (free VCI) trả giá ở nghìn VND: FPT = 77.7
-    vnstock_data (sponsor) trả giá ở VND:   FPT = 77700
-
-    Warehouse + bars parquet có thể pha trộn cả 2 đơn vị, thậm chí
-    trong cùng 1 row (open=77.8 nghìn, close=77700 VND).
-
-    Rule: không có mã nào trên sàn VN giá > 500 nghìn VND (500,000 VND).
-    Vậy bất kỳ giá OHLC nào > 500 chắc chắn là VND → chia 1000.
-    """
-    if df.empty:
-        return df
-
-    df = df.copy()
-    for col in ("open", "high", "low", "close"):
-        if col not in df.columns:
-            continue
-        vals = df[col].astype(float)
-        mask = vals > 500
-        if mask.any():
-            df.loc[mask, col] = vals[mask] / 1000
-
-    return df
+    """Normalize đơn vị giá về nghìn VND (cache 5 phút)."""
+    return _normalize_price_units_raw(df)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -900,66 +826,7 @@ def get_all_tickers() -> list:
 # Technical Analysis (pure pandas)
 # ═════════════════════════════════════════════════════════════════════════════
 
-def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    c = df["close"].astype(float)
-
-    # RSI 14 — when loss is 0 (all-up streak), force RSI=100 instead of NaN.
-    # The naive `loss.replace(0, NaN)` leaves gaps at the END of the series,
-    # which makes the chart panel auto-fit to a shorter range than candles.
-    delta = c.diff()
-    gain  = delta.clip(lower=0).rolling(14).mean()
-    loss  = (-delta.clip(upper=0)).rolling(14).mean()
-    rs    = gain / loss.replace(0, np.nan)
-    rsi   = 100 - (100 / (1 + rs))
-    df["rsi"] = rsi.where(loss != 0, 100.0)
-
-    # EMAs — chỉ tính khi đủ data (tránh EMA chưa hội tụ trên data ngắn)
-    for span in (9, 21, 50, 200):
-        if len(c) >= span:
-            df[f"ema{span}"] = c.ewm(span=span, adjust=False).mean()
-        else:
-            df[f"ema{span}"] = np.nan
-
-    # MACD
-    ema12 = c.ewm(span=12, adjust=False).mean()
-    ema26 = c.ewm(span=26, adjust=False).mean()
-    df["macd"]        = ema12 - ema26
-    df["macd_signal"] = df["macd"].ewm(span=9, adjust=False).mean()
-    df["macd_hist"]   = df["macd"] - df["macd_signal"]
-
-    # Bollinger Bands 20
-    sma20       = c.rolling(20).mean()
-    std20       = c.rolling(20).std()
-    df["bb_up"] = sma20 + 2 * std20
-    df["bb_lo"] = sma20 - 2 * std20
-    df["bb_mid"]= sma20
-
-    # Volume MA20
-    df["vol_ma20"] = df["volume"].astype(float).rolling(20).mean()
-
-    # VWAP — Volume Weighted Average Price (chỉ có ý nghĩa cho intraday)
-    # VWAP PHẢI reset mỗi ngày giao dịch (cumulative trong ngày, không qua ngày).
-    _is_intraday = len(df) > 50 and (df["time"].iloc[-1] - df["time"].iloc[-2]).total_seconds() < 7200
-    if _is_intraday:
-        tp = (df["high"].astype(float) + df["low"].astype(float) + c) / 3
-        vol = df["volume"].astype(float).replace(0, np.nan)
-
-        # Group by date → cumulative VWAP reset mỗi ngày
-        dates = df["time"].dt.date
-        cum_tp_vol = (tp * vol).groupby(dates).cumsum()
-        cum_vol = vol.groupby(dates).cumsum()
-        df["vwap"] = cum_tp_vol / cum_vol
-
-        # VWAP bands: ±1σ, ±2σ (cũng reset mỗi ngày)
-        vwap_dev = (((tp - df["vwap"]) ** 2) * vol).groupby(dates).cumsum() / cum_vol
-        vwap_std = np.sqrt(vwap_dev)
-        df["vwap_upper1"] = df["vwap"] + vwap_std
-        df["vwap_lower1"] = df["vwap"] - vwap_std
-        df["vwap_upper2"] = df["vwap"] + 2 * vwap_std
-        df["vwap_lower2"] = df["vwap"] - 2 * vwap_std
-
-    return df
+from dashboard.chart_indicators import compute_indicators  # noqa: E402,F401
 
 
 
@@ -1534,23 +1401,9 @@ def render_order_book(bids: list, asks: list, scale: float = 1.0,
     st.markdown(html, unsafe_allow_html=True)
 
 
-def _normalize_live_price(historical_last_close: float, live_price: float) -> float:
-    """
-    Chuẩn hoá đơn vị giá live cho khớp với scale của chart historical.
-    vnstock thường trả intraday dạng thousand (25.55 = 25,550đ) trong khi
-    Market.price_board() trả giá VND thật (25550). Khi merge trực tiếp
-    sẽ phá scale của chart.
-    """
-    if historical_last_close <= 0 or live_price <= 0:
-        return live_price
-    ratio = live_price / historical_last_close
-    if ratio > 100:
-        # Live cao gấp ~1000x → historical ở dạng thousand
-        return live_price / 1000.0
-    if ratio < 0.01:
-        # Live thấp hơn ~1000x → historical ở VND
-        return live_price * 1000.0
-    return live_price
+# `_normalize_live_price` nay import từ `vnstock_price_units` (xem phần
+# "Analysis functions"). Tên giữ nguyên: `dashboard/analysis_tab.py` import cả
+# tĩnh (dòng 46) LẪN ĐỘNG trong thân hàm (dòng ~406) qua tên này.
 
 
 def _merge_live_quote(df: pd.DataFrame, quote: dict) -> pd.DataFrame:
@@ -2746,24 +2599,21 @@ def load_results():
 
 # ── Watchlist ──────────────────────────────────────────────────────────────────
 
+from dashboard.watchlist_io import (  # noqa: E402
+    load_watchlist as _load_watchlist,
+    save_watchlist as _save_watchlist,
+)
+
+# I/O ở `dashboard/watchlist_io.py` (ghi nguyên tử — watchlist là state user).
+# Hai wrapper này chỉ gắn đường dẫn cố định + cache của Streamlit.
+
 @st.cache_data(ttl=600, show_spinner=False)
 def load_watchlist() -> list:
-    if not WATCHLIST_PATH.exists():
-        return []
-    try:
-        with open(WATCHLIST_PATH, encoding="utf-8") as f:
-            return json.load(f).get("tickers", [])
-    except (OSError, PermissionError) as e:
-        log.warning("Không đọc được watchlist (%s): %s", WATCHLIST_PATH, e)
-    except json.JSONDecodeError as e:
-        log.error("Watchlist JSON hỏng (%s): %s", WATCHLIST_PATH, e)
-    return []
+    return _load_watchlist(WATCHLIST_PATH)
 
 
 def save_watchlist(tickers: list):
-    WATCHLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(WATCHLIST_PATH, "w", encoding="utf-8") as f:
-        json.dump({"tickers": sorted(set(tickers)), "updated_at": datetime.now().isoformat()}, f, ensure_ascii=False, indent=2)
+    _save_watchlist(WATCHLIST_PATH, tickers)
     # Invalidate cache so next load_watchlist() reads updated file
     load_watchlist.clear()
 
@@ -2875,41 +2725,8 @@ def render_table(df: pd.DataFrame, top_n: int = 50):
             r[col] = str(v) if v is not None else "—"
         rows_data.append(r)
 
-    def cell_color(col, val):
-        if not val or val == "—": return "#4b5563"
-        if col in ("1D%","5D%","20D%","BB%","52W%"):
-            try:
-                v = float(str(val).replace("%","").replace("+",""))
-                return "#10b981" if v>0 else ("#ef4444" if v<0 else "#9ca3af")
-            except (ValueError, TypeError): return "#6b7280"
-        if col == "RSI":
-            try:
-                v = float(val)
-                if v<30: return "#10b981"
-                if v>70: return "#ef4444"
-                if v<40: return "#6ee7b7"
-                if v>60: return "#fca5a5"
-                return "#e5e7eb"
-            except (ValueError, TypeError): return "#6b7280"
-        if col == "MACD":
-            m={"BUY":"#10b981","BULL":"#34d399","SELL":"#ef4444","BEAR":"#f87171"}
-            return m.get(str(val).upper(),"#9ca3af")
-        if col == "Trend":
-            return "#10b981" if str(val).upper()=="UP" else ("#ef4444" if str(val).upper() in ("DOWN","DN") else "#9ca3af")
-        if col == "Ticker": return "#60a5fa"
-        if col == "Ngành":  return "#a78bfa"
-        return "#d1d5db"
-
-    def cell_weight(col, val):
-        if col == "Ticker": return "600"
-        if col in ("1D%","5D%","20D%","BB%","52W%"):
-            try: return "500" if float(str(val).replace("%","").replace("+",""))!=0 else "400"
-            except (ValueError, TypeError): return "400"
-        if col == "RSI":
-            try: return "700" if (float(val)<30 or float(val)>70) else "400"
-            except (ValueError, TypeError): return "400"
-        if col == "MACD" and str(val).upper() in ("BUY","SELL"): return "700"
-        return "400"
+    # cell_color / cell_weight nay ở `dashboard/table_style.py` (import ở đầu
+    # file). Trước đây là closure lồng trong hàm này nên test không với tới.
 
     # Build rows HTML
     rows_html_parts = []

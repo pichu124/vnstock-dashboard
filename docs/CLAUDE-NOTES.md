@@ -5443,6 +5443,57 @@ Suite 1666 passed (số không đổi — đợt này ĐỔI CHẤT chứ không
 17 test WSS + 4 nhóm dashboard nay bảo vệ code THẬT).
 
 
+## 2026-08-12 (c) — Gỡ test replica ĐỢT 2: hết replica, và 45 test cho vùng trắng
+
+Xong mục ③. `tests/test_dashboard.py` nay **không còn một hàm chép tay nào**.
+
+### 6 module mới (đều KHÔNG import streamlit → test import thẳng được)
+
+| Module | Nội dung | Vì sao ở đó |
+|---|---|---|
+| `vnstock_price_units.py` (73) | `normalize_price_units`, `normalize_live_price` | ngưỡng >500 là **bất biến dữ liệu của cả pipeline**, không riêng UI (`vnstock_brief.py:1820` đã tự nhắc "cùng quy ước") |
+| `dashboard/chart_indicators.py` (95) | `compute_indicators` | thuần pandas |
+| `dashboard/table_style.py` (87) | `cell_color`, `cell_weight` | trước là **closure lồng trong hàm render** → test không với tới được |
+| `dashboard/watchlist_io.py` (43) | `load/save_watchlist(path,…)` | state của user |
+| `vnstock_console_launch.py` (37) | `build_ps_command` | CHỈ phần dựng chuỗi |
+| `vnstock_sectors.py` (+73) | `SECTOR_GROUPS/ORDER/ICONS` + `get_sector` | gộp vào module ngành sẵn có, không đẻ file mới |
+
+`vnstock_dashboard.py`: **3.974 → 3.715 dòng** (−259). Mọi tên cũ giữ nguyên
+bằng alias import — `_normalize_price_units` (screener_tab lấy qua
+`_vnd.`), `_normalize_live_price` (analysis_tab import **ĐỘNG trong thân
+hàm** dòng 406), `_get_sector`/`SECTOR_*` (money_flow, portfolio,
+vn30_weights), `cell_color`/`cell_weight`, `compute_indicators`.
+`launch_in_new_console` Ở LẠI root (cần `Path(__file__).parent`), chỉ chuỗi
+PowerShell đi ra.
+
+### Vá kèm: watchlist cũng là ghi-thẳng
+
+`save_watchlist` cũ `open(w)` → cắt file về 0 trước khi ghi. Chết giữa chừng
+= **watchlist user tự tay dựng biến mất**, mà `load_watchlist` nuốt
+JSONDecodeError trả `[]` nên mất IM LẶNG. Nay qua `write_json_atomic`, và
+`dashboard/watchlist_io.py` vào lưới `_MUST_BE_ATOMIC` (mục thứ 6).
+
+### Phần trả lại giá trị thật: `tests/test_dashboard_branches.py` (45 test)
+
+Đợt 1 đã chỉ ra "chỗ trôi trùng khít chỗ không được phủ". Đợt 2 phủ đúng
+những chỗ đó:
+
+* **RSI khi `loss == 0`** — nhánh `.where(loss != 0, 100.0)`, chính là bản vá
+  bất biến "4 panel cùng số bar". Có cả test *chứng minh công thức cũ SAI*
+  (`naive.iloc[-1]` là NaN) để lần sau ai định "đơn giản hoá" thì đỏ ngay.
+* **VWAP intraday** — replica không có LẤY MỘT DÒNG: có/không thêm cột theo
+  daily-vs-intraday, **reset theo phiên** (phiên trước giá 20, phiên sau 30 →
+  bar đầu phiên sau phải đúng 30), thứ tự band ±1σ/±2σ, số dòng không đổi.
+* **`cell_color`** — nhánh `Trend`/`Ticker`/`Ngành` và hai bậc RSI mềm 40/60
+  mà replica không hề có.
+* **`vnstock_sectors`** — hai chiều của bảng ngành: nhóm nào map tới mà thiếu
+  trong `SECTOR_ORDER` là **nhóm tàng hình** (bảng ngành lặng lẽ bỏ qua);
+  ngược lại là nhóm hiện rỗng mãi mãi.
+
+Suite **1712 passed** (+46). `test_dashboard.py` + file mới vào danh sách
+`--fast`.
+
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -5451,7 +5502,7 @@ Suite 1666 passed (số không đổi — đợt này ĐỔI CHẤT chứ không
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **1652 passed** · nhánh
+> Trạng thái: full suite **1712 passed** · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
 > user tự làm thường xuyên — KHÔNG track làm việc (user chốt 12/08).
 
@@ -5488,13 +5539,17 @@ vừa chia tách?) → báo Claude kèm message.
 ## 🟡 CODE CÒN TREO — không gấp
 
 **4. MEDIUM/LOW của audit 06/08** — đang dọn theo thứ tự ③→①→④→②:
-* ✅ **ghi nguyên tử XONG 12/08** (entry 12/08) — warehouse xoá-rồi-ghi +
-  meta + 4 file state; có lưới `_MUST_BE_ATOMIC` chặn tái phát
-* hiệu năng: warehouse bị quét ~14 lần/đêm — **ĐO TRƯỚC rồi mới quyết**,
-  nhiều khả năng BỎ (pipeline chạy 18:00 không ai ngồi đợi; sửa phải đụng
-  nhiều module để đổi lấy sự tiện không ai cảm nhận)
-* test replica trôi xa bản thật: `tests/test_dashboard.py`, `tests/test_wss.py`
-* tách file quá lớn: `vnstock_brief.py` (~6.9K dòng), `dashboard/market_tab.py`
+* ✅ **③ test replica XONG 12/08** (entry 12/08 (b)+(c)) — `test_wss.py` và
+  `test_dashboard.py` hết sạch replica; 6 module thuần tách ra; +45 test cho
+  các nhánh trắng lộ ra (RSI loss=0, VWAP intraday, cell_color, bảng ngành)
+* ✅ **① ghi nguyên tử XONG 12/08** (entry 12/08) — warehouse xoá-rồi-ghi +
+  meta + 5 file state; có lưới `_MUST_BE_ATOMIC` chặn tái phát
+* ⏭ **④ TIẾP THEO — tách file quá lớn**: `vnstock_brief.py` (~6.9K dòng),
+  `dashboard/market_tab.py`. Tách DẦN, mỗi lần một cụm; điểm parity
+  `apply_brief_guards` không được đụng
+* **② hiệu năng** (làm cuối): warehouse bị quét ~14 lần/đêm — **ĐO TRƯỚC rồi
+  mới quyết**, nhiều khả năng BỎ (pipeline chạy 18:00 không ai ngồi đợi; sửa
+  phải đụng nhiều module để đổi lấy sự tiện không ai cảm nhận)
 
 ## 🟠 QUAN SÁT RỒI QUYẾT
 
