@@ -614,64 +614,14 @@ def _batch_load_live_quotes(tickers: list) -> dict:
     return result
 
 
-def _compute_money_flow_score(nn_net: float, nn_median: float,
-                              buy_ratio: float,
-                              big_order_score: float = 0) -> float:
-    """
-    Tính money flow score (-100 đến +100).
-    nn_net:          NN ròng cho mã này (tỷ VND)
-    nn_median:       median |NN ròng| của toàn thị trường (dùng để normalize)
-    buy_ratio:       buy/sell ratio (0-1)
-    big_order_score: lệnh lớn score (-100 đến +100), 0 nếu chưa có data
-    """
-    # NN score: clamp nn_net / median * 50
-    if nn_median > 0:
-        nn_score = max(-100, min(100, (nn_net / nn_median) * 50))
-    else:
-        nn_score = 0
-
-    # Buy/Sell score: 0.5 → 0, 0.7 → +40, 0.3 → -40
-    bs_score = max(-100, min(100, (buy_ratio - 0.5) * 200))
-
-    # BigOrder score: đã clamp -100~100 từ _fetch_order_stats_batch
-    bo_score = max(-100, min(100, big_order_score))
-
-    # Weighted combination: 40% NN + 35% BuySell + 25% BigOrder
-    return round(0.40 * nn_score + 0.35 * bs_score + 0.25 * bo_score, 1)
+# Lõi chấm điểm dòng tiền đã tách sang dashboard/money_flow_score.py (12/08).
+from dashboard.money_flow_score import (  # noqa: E402
+    compute_money_flow_score as _compute_money_flow_score,
+    score_bar_html as _score_bar_html,
+    score_label as _score_label,
+)
 
 
-def _score_label(score: float) -> tuple:
-    """Return (label, color_hex) cho money flow score."""
-    if score > 30:
-        return "VÀO", "#10b981"
-    if score > 10:
-        return "Vào nhẹ", "#6ee7b7"
-    if score > -10:
-        return "Trung lập", "#9ca3af"
-    if score > -30:
-        return "Ra nhẹ", "#fca5a5"
-    return "RA", "#ef4444"
-
-
-def _score_bar_html(score: float) -> str:
-    """Render mini bar HTML cho score."""
-    label, color = _score_label(score)
-    width = min(abs(score), 80)
-    direction = "right" if score >= 0 else "left"
-    return (
-        f'<div style="display:flex;align-items:center;gap:6px">'
-        f'<div style="width:80px;height:14px;background:#1f2937;border-radius:7px;'
-        f'position:relative;overflow:hidden">'
-        f'<div style="position:absolute;{direction}:50%;width:{width/2}%;height:100%;'
-        f'background:{color};border-radius:7px"></div>'
-        f'<div style="position:absolute;left:50%;width:1px;height:100%;background:#4b5563">'
-        f'</div></div>'
-        f'<span style="color:{color};font-size:11px;font-weight:600;min-width:52px">'
-        f'{label}</span></div>'
-    )
-
-
-# ── Subprocess launcher ──────────────────────────────────────────────────────
 def launch_in_new_console(commands: list, log_filename: str = "subprocess.log") -> tuple:
     """
     Chạy một chuỗi Python script trong cửa sổ PowerShell mới (Windows)
@@ -1324,57 +1274,9 @@ def fetch_volume_profile_direct(ticker: str) -> list:
         return []
 
 
-def _calc_value_area(profile: list, pct: float = 0.70) -> tuple:
-    """
-    Tính Value Area — vùng giá chứa `pct` (mặc định 70%) tổng volume.
-
-    Thuật toán:
-    1. Tìm POC (price level có total_vol cao nhất)
-    2. Từ POC, mở rộng ra 2 bên (trên + dưới) — mỗi bước chọn bên nào
-       có volume cao hơn
-    3. Dừng khi tổng volume trong vùng đạt ≥ pct × total_all_vol
-
-    Returns: (poc_idx, vah_idx, val_idx, poc_price, vah_price, val_price)
-      trong đó idx là index trong list profile (đã sort theo price giảm dần).
-    """
-    if not profile:
-        return (0, 0, 0, 0, 0, 0)
-
-    # Profile đã sort theo price giảm dần
-    volumes = [float(r.get("total_vol", 0)) for r in profile]
-    prices = [float(r.get("price", 0)) for r in profile]
-    total_all = sum(volumes)
-    if total_all <= 0:
-        return (0, 0, len(profile) - 1, prices[0], prices[0],
-                prices[-1] if prices else 0)
-
-    # POC = index có volume cao nhất
-    poc_idx = max(range(len(volumes)), key=lambda i: volumes[i])
-
-    # Mở rộng từ POC ra 2 bên
-    va_vol = volumes[poc_idx]
-    target = total_all * pct
-    upper = poc_idx - 1   # index nhỏ hơn = price cao hơn (sort giảm dần)
-    lower = poc_idx + 1   # index lớn hơn = price thấp hơn
-
-    while va_vol < target and (upper >= 0 or lower < len(volumes)):
-        up_vol = volumes[upper] if upper >= 0 else -1
-        lo_vol = volumes[lower] if lower < len(volumes) else -1
-
-        if up_vol >= lo_vol and upper >= 0:
-            va_vol += up_vol
-            upper -= 1
-        elif lower < len(volumes):
-            va_vol += lo_vol
-            lower += 1
-        else:
-            break
-
-    vah_idx = max(upper + 1, 0)
-    val_idx = min(lower - 1, len(volumes) - 1)
-
-    return (poc_idx, vah_idx, val_idx,
-            prices[poc_idx], prices[vah_idx], prices[val_idx])
+# Lõi tính Value Area/POC đã tách sang dashboard/volume_profile.py (12/08)
+# để tests import ĐỒ THẬT. Giữ tên cũ ở đây cho mọi chỗ đang gọi.
+from dashboard.volume_profile import calc_value_area as _calc_value_area
 
 
 def render_volume_profile(profile: list, current_price: float = 0,

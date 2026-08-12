@@ -5398,6 +5398,51 @@ chỉ soi thứ ĐƯỢC KHAI BÁO (bài học lặp lần thứ ba tuần này)
 Suite 1652 → 1666 passed (14 test mới).
 
 
+## 2026-08-12 (b) — Gỡ test replica ĐỢT 1: WSS sạch hẳn + 2 module tách khỏi dashboard
+
+Mục ③ của bó MEDIUM/LOW. Dùng workflow 8 agent đối chiếu TỪNG hàm replica
+với bản thật (17 hàm) trước khi động dao — kết quả là bản đồ drift + kế
+hoạch tách module, không phải đoán.
+
+### Phát hiện quan trọng nhất: 4 vùng trôi = 4 vùng TRẮNG TEST
+
+`compute_indicators` · `cell_color` · `cell_weight` · `BarAggregator` đều
+DRIFTED (replica là ảnh chụp CŨ). Nhưng đổi sang import thật thì test vẫn
+XANH — vì không test nào chạm nhánh đã trôi. Tức chỗ trôi trùng khít chỗ
+không được phủ. Ví dụ cụ thể: bản thật `compute_indicators` có
+`.where(loss != 0, 100.0)` (vá lỗi chart auto-fit, ảnh hưởng TRỰC TIẾP tín
+hiệu rsi_sig: rsi=100 → "SELL", NaN → "NEUTRAL") — replica thiếu, và không
+test nào phủ nhánh loss==0.
+
+### Đợt 1 (làm 12/08)
+
+* **tests/test_wss.py sạch replica hoàn toàn** — import thật `is_futures`,
+  `BarAggregator`, `accum_to_delta`, `MAX_SINGLE_TICK_VOLUME`. Lý do lịch
+  sử ("heavy init at import") ĐÃ HẾT HẠN từ commit 6cb23d9 (07/08); đo lại
+  12/08: import mất **0.4s**, không tác dụng phụ. Replica BarAggregator đã
+  trôi thật: thiếu `diagnostics()`, thiếu 2 khoá chẩn đoán, chép cứng
+  500_000 thay vì dùng hằng số.
+* **`dashboard/volume_profile.py`** (64 dòng) — `calc_value_area`. Agent
+  đối chiếu ở mức AST: replica tương đương TUYỆT ĐỐI bản thật.
+* **`dashboard/money_flow_score.py`** (68 dòng) — `compute_money_flow_score`
+  + `score_label` + `score_bar_html` (phải cùng file: hàm 3 gọi hàm 2).
+* `vnstock_dashboard` giữ TÊN CŨ bằng alias import → mọi chỗ đang gọi
+  không gãy.
+
+### Còn lại (đợt 2) — 9 replica, rủi ro cao hơn
+
+`_normalize_price_units` + `_normalize_live_price` (có `@st.cache_data`,
+và `dashboard/analysis_tab.py:406` import ĐỘNG trong thân hàm — grep dễ sót)
+· `compute_indicators` (DRIFTED, ảnh hưởng tín hiệu) · `cell_color`/
+`cell_weight` (DRIFTED) · watchlist I/O (cache + `.clear()`) ·
+`_build_ps_command` (chỉ tách phần dựng chuỗi; `launch_in_new_console` phải
+Ở LẠI root vì dùng `Path(__file__).parent`) · `_get_sector` (về
+`vnstock_sectors.py`, không tạo file mới).
+
+Suite 1666 passed (số không đổi — đợt này ĐỔI CHẤT chứ không thêm lượng:
+17 test WSS + 4 nhóm dashboard nay bảo vệ code THẬT).
+
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026

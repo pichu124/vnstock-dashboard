@@ -12,7 +12,8 @@ import pytest
 # ⚠️ Mấy dòng này chạy Ở CẤP MODULE nên có hiệu lực từ lúc pytest THU THẬP —
 # tức nhiễm sang MỌI file test khác trong phiên, bất kể thứ tự chạy.
 # `sys.modules["vnstock_wss"] = MagicMock()` từng nằm đây đã bị GỠ (06/08):
-# file này không hề import vnstock_dashboard (chỉ test bản replica bên dưới)
+# ĐANG GỠ REPLICA (12/08): hàm nào đã tách ra module helper thì import
+# ĐỒ THẬT; phần còn lại vẫn là replica, gỡ dần từng đợt.
 # nên mock đó là tàn dư, mà nó làm mọi test đụng tới vnstock_wss nhận phải
 # MagicMock — `tests/test_audit_high_fixes.py` đỏ 4 test vì vậy, và chỉ đỏ
 # khi chạy CẢ SUITE (chạy riêng thì xanh) nên rất khó lần ra.
@@ -89,36 +90,7 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _calc_value_area(profile: list, pct: float = 0.70) -> tuple:
-    """Replica from vnstock_dashboard.py:688"""
-    if not profile:
-        return (0, 0, 0, 0, 0, 0)
-    volumes = [float(r.get("total_vol", 0)) for r in profile]
-    prices = [float(r.get("price", 0)) for r in profile]
-    total_all = sum(volumes)
-    if total_all <= 0:
-        return (0, 0, len(profile) - 1, prices[0], prices[0],
-                prices[-1] if prices else 0)
-    poc_idx = max(range(len(volumes)), key=lambda i: volumes[i])
-    va_vol = volumes[poc_idx]
-    target = total_all * pct
-    upper = poc_idx - 1
-    lower = poc_idx + 1
-    while va_vol < target and (upper >= 0 or lower < len(volumes)):
-        up_vol = volumes[upper] if upper >= 0 else -1
-        lo_vol = volumes[lower] if lower < len(volumes) else -1
-        if up_vol >= lo_vol and upper >= 0:
-            va_vol += up_vol
-            upper -= 1
-        elif lower < len(volumes):
-            va_vol += lo_vol
-            lower += 1
-        else:
-            break
-    vah_idx = max(upper + 1, 0)
-    val_idx = min(lower - 1, len(volumes) - 1)
-    return (poc_idx, vah_idx, val_idx,
-            prices[poc_idx], prices[vah_idx], prices[val_idx])
+from dashboard.volume_profile import calc_value_area as _calc_value_area
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -515,43 +487,11 @@ def _get_sector(primary_industry):
     return _SECTOR_GROUPS.get(primary_industry, "Khác")
 
 
-def _compute_money_flow_score(nn_net, nn_median, buy_ratio, big_order_score=0):
-    if nn_median > 0:
-        nn_score = max(-100, min(100, (nn_net / nn_median) * 50))
-    else:
-        nn_score = 0
-    bs_score = max(-100, min(100, (buy_ratio - 0.5) * 200))
-    bo_score = max(-100, min(100, big_order_score))
-    return round(0.40 * nn_score + 0.35 * bs_score + 0.25 * bo_score, 1)
-
-
-def _score_label(score):
-    if score > 30:
-        return "VÀO", "#10b981"
-    if score > 10:
-        return "Vào nhẹ", "#6ee7b7"
-    if score > -10:
-        return "Trung lập", "#9ca3af"
-    if score > -30:
-        return "Ra nhẹ", "#fca5a5"
-    return "RA", "#ef4444"
-
-
-def _score_bar_html(score):
-    label, color = _score_label(score)
-    width = min(abs(score), 80)
-    direction = "right" if score >= 0 else "left"
-    return (
-        f'<div style="display:flex;align-items:center;gap:6px">'
-        f'<div style="width:80px;height:14px;background:#1f2937;border-radius:7px;'
-        f'position:relative;overflow:hidden">'
-        f'<div style="position:absolute;{direction}:50%;width:{width/2}%;height:100%;'
-        f'background:{color};border-radius:7px"></div>'
-        f'<div style="position:absolute;left:50%;width:1px;height:100%;background:#4b5563">'
-        f'</div></div>'
-        f'<span style="color:{color};font-size:11px;font-weight:600;min-width:52px">'
-        f'{label}</span></div>'
-    )
+from dashboard.money_flow_score import (  # đồ THẬT, không còn replica
+    compute_money_flow_score as _compute_money_flow_score,
+    score_bar_html as _score_bar_html,
+    score_label as _score_label,
+)
 
 
 class TestGetSector:
