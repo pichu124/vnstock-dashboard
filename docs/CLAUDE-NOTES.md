@@ -5735,6 +5735,28 @@ chỉ soi `except` ở TẦNG NGUỒN, bỏ qua handler trong hàm con lồng b�
 Suite **1888 passed** (+32).
 
 
+## 2026-08-12 (h) — Render smoke test: máy tự kiểm phần UI vừa tách
+
+Đợt tách kéo ~2.400 dòng UI ra khỏi hai hàm khổng lồ, mà suite chỉ soi được
+phần THUẦN (định dạng, nhận định, sparkline). Rủi ro còn lại rất cụ thể: **cắt
+khối ra mà rơi mất một biến** — thứ chỉ lộ khi mở dashboard bằng mắt.
+
+`tests/test_tab_render_smoke.py` (9 test) gọi THẲNG `render_market_tab()` và
+`render_brief_panel()` với một Streamlit giả (widget vừa là giá trị vừa là
+context manager; `vnstock_dashboard` bị stub vì module thật dựng UI ngay khi
+import). Ba đường: kho trống · có data đầy đủ · đã chọn ngành để drill-down
+(chạm thang màu riêng của drill-down). Cộng 5 test gọi LẺ từng panel brief —
+panel phải tự đứng được, không dựa vào biến panel trước tình cờ để lại.
+
+Nói rõ giới hạn để không tưởng bở: test này KHÔNG kiểm hiển thị đúng/đẹp, và
+KHÔNG chạy nhánh sau khi bấm nút (nút giả luôn trả "không bấm" — train/scan/
+gọi LLM là việc thật). Nó trả lời đúng một câu: *code có chạy hết không*. Đó
+lại chính là rủi ro của một đợt refactor.
+
+Suite **1897 passed** (+9), `--fast` **1435 passed / 33.8s**. Phần còn phải
+dùng mắt đã gom vào mục "🔴 VIỆC TAY" ở cuối file.
+
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -5743,11 +5765,48 @@ Suite **1888 passed** (+32).
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **1888 passed** · nhánh
+> Trạng thái: full suite **1897 passed** (`--fast` 1.435 / 33.8s) · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
 > user tự làm thường xuyên — KHÔNG track làm việc (user chốt 12/08).
 
-## 🔴 VIỆC TAY DUY NHẤT — hôm nay T4 12/08, giờ giao dịch 9h15-14h30
+## 🔴 VIỆC TAY — sau đợt tách file 12/08
+
+**0. Liếc dashboard một lượt SAU KHI merge** (~10 phút, làm 1 lần).
+Đợt 12/08 kéo ~2.400 dòng giao diện ra khỏi hai hàm khổng lồ. Máy đã tự kiểm
+được phần "code có chạy hết không" (`tests/test_tab_render_smoke.py` render
+thẳng tab + 5 panel bằng Streamlit giả). Nhưng máy KHÔNG kiểm được **hiển thị
+có đúng không** và **nhánh sau khi BẤM nút** — đó là phần phải dùng mắt:
+
+```powershell
+git fetch origin claude/remaining-tasks-tests-4xoam3
+git merge origin/claude/remaining-tasks-tests-4xoam3
+python run.py dashboard
+```
+* **Tab Thị trường** — bảng ngành lên đủ cột và CÓ MÀU (xanh/đỏ/gradient biên
+  độ); cột sparkline vẽ được; bấm vào một ngành → drill-down ra bảng mã và màu
+  vẫn đúng (drill-down dùng thang màu riêng); mục **🧭 Nhận định tổng quan**
+  có chữ.
+* **Khối 🤖 AI Market Brief** (cuối tab Thị trường) — mở được cả 4 expander:
+  Cài đặt AI Agent · Lịch sử brief · Chiến lược & khuyến nghị. Bấm **sinh
+  brief** một lần xem có ra chữ không (đây là nhánh test không chạm tới vì nó
+  gọi LLM thật).
+* **Tab Phân tích** — chart 4 panel (Price/Volume/RSI/MACD) vẫn **thẳng hàng,
+  cùng số nến**. `compute_indicators` vừa đổi chỗ ở, đây là bất biến của nó.
+* **Watchlist** — thêm rồi xoá một mã trong tab Screener. Cách ghi file
+  watchlist vừa đổi sang ghi nguyên tử.
+
+Thấy chỗ nào lệch → báo Claude kèm ảnh chụp, ĐỪNG tự sửa (dễ lệch khỏi nhánh).
+
+**0b. Đọc brief sáng/chiều kế tiếp — có dòng "KHÔNG CÓ …" nào oan không.**
+Prompt vừa thêm cảnh báo cho 3 khối (movers, dẫn dắt/tụt hậu, quant regime).
+Cảnh báo chỉ được hiện khi nguồn đó THẬT SỰ thiếu data. Brief bình thường mà
+lại thấy "Chưa có dữ liệu mã đủ thanh khoản" hay "chưa có regime hôm nay" →
+báo Claude: nghĩa là điều kiện nhận diện đang bắt nhầm.
+
+**0c. Sau lần chạy pipeline kế tiếp, xem `run_daily.log`.**
+Tìm dòng `collect_context: nguồn '<tên>' hỏng`. Trước 12/08 các nguồn này chết
+là im re; nay có tên rõ ràng. Không có dòng nào = mọi nguồn khoẻ. Có dòng nào
+lặp lại mỗi tối → báo Claude tên nguồn đó.
 
 **1. WSS volume tích luỹ** — món nợ verify cuối cùng của đợt fix 07/08.
 ```powershell
