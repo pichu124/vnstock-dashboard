@@ -5494,6 +5494,63 @@ Suite **1712 passed** (+46). `test_dashboard.py` + file mới vào danh sách
 `--fast`.
 
 
+## 2026-08-12 (d) — Tách `vnstock_brief.py`: 6.807 → 4.045 dòng (mục ④, cụm 1)
+
+Cắt theo ĐƯỜNG RANH GIỚI THẬT, không cắt theo số dòng. Trước khi động dao,
+dựng bản đồ phụ thuộc bằng AST (free-name của từng node so với binding của
+phần còn lại) — nhờ vậy biết CHÍNH XÁC hợp đồng giữa hai bên thay vì đoán.
+
+### Hợp đồng đo được (chứ không phỏng đoán)
+
+Cụm validator (2.548 dòng, 49 hàm) hoá ra gần như tự chứa: 26/31 hằng số nó
+dùng đã nằm SẴN trong cụm. Chỉ 11 tên phải nhập từ ngoài, và chiều ngược lại
+đúng 3 tên (`_re`, `apply_brief_guards`, `validate_brief_factuality`).
+
+### 3 module, phụ thuộc MỘT CHIỀU
+
+* **`vnstock_brief_canon.py`** (290) — hằng số + khối canon: `VN30_TICKERS`,
+  `_FINANCIAL_TICKERS`, ngưỡng `_SR_MAX_MOVE_PCT`/`_WATCHLIST_GTGD_MIN_TY`,
+  bước giá `_vn_tick`/`_round_tick`, và 6 hàm dựng khối
+  (`_macro_body_lines`, `_market_news_body_lines`, `_macro_reports_body_lines`,
+  `_allocation_table_lines`, `_portfolio_fact_line`, `_gtgd_close_frame`).
+  **Vì sao module này phải tồn tại:** prompt builder dựng khối để đưa vào
+  prompt, guard dựng LẠI đúng khối đó để ép output khớp. Hai bên phải dùng
+  CHUNG một hàm — tách đôi là guard sẽ "sửa" brief về một chuẩn khác chuẩn đã
+  đưa vào prompt, loại lỗi im lặng khó lần nhất.
+* **`vnstock_brief_guards.py`** (2.646) — 44 guard + chuỗi `apply_brief_guards`.
+  Chuỗi về ở CÙNG FILE với các guard nó gọi.
+* **`vnstock_brief.py`** (4.045) — context → prompt → agent → gọi chuỗi.
+
+Chiều: brief → guards → canon. Mọi tên re-export qua `vnstock_brief` (84 tên)
+nên `vnstock_events`, `vnstock_train`, `vnstock_telegram`, `vnstock_diagnose`,
+`vnstock_stance_track` và toàn bộ test cũ **không phải sửa một dòng nào**.
+
+### `tests/test_brief_split.py` (27 test) — giữ cho ranh giới khỏi mờ lại
+
+Tách file chỉ có giá trị nếu ranh giới không mờ lại. Ba kiểu mờ đã thấy thật
+trong repo này, mỗi kiểu một lưới:
+
+1. **Vòng import lén** — soi cả `import` LƯỜI trong thân hàm, không chỉ đầu file.
+2. **Định nghĩa trùng** — đúng bài học mục ③: bản chép sống song song rồi trôi,
+   test vẫn xanh vì nó soi bản chép. Nay tên định nghĩa ở guards/canon mà
+   `vnstock_brief` cũng định nghĩa lại là ĐỎ (re-export không tính).
+3. **Guard viết ra rồi bỏ quên** — họ lỗi lặp nhiều nhất repo này ("lưới chỉ
+   soi thứ ĐƯỢC KHAI BÁO"). `enforce_*` không nối vào chuỗi = code chết trông
+   y hệt code sống, mà test riêng của nó vẫn xanh. Lưới soi cả hai chiều: guard
+   mồ côi, và chuỗi gọi tên không tồn tại.
+
+Kèm lưới re-export quét TOÀN BỘ tên đã chuyển (không chỉ danh sách tay).
+
+Suite **1739 passed** (+27). CLAUDE.md đã sửa bản đồ kiến trúc + quy ước
+"thêm guard".
+
+### Còn lại của mục ④
+
+`vnstock_brief_guards.py` (2.646) và `dashboard/market_tab.py` (2.566) vẫn
+trên mốc 800 dòng. Cắt tiếp được: guard chia theo chủ đề (chữ nghĩa / con số /
+cấu trúc), chuỗi giữ nguyên một chỗ. Làm DẦN, mỗi lần một cụm.
+
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -5502,7 +5559,7 @@ Suite **1712 passed** (+46). `test_dashboard.py` + file mới vào danh sách
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **1712 passed** · nhánh
+> Trạng thái: full suite **1739 passed** · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
 > user tự làm thường xuyên — KHÔNG track làm việc (user chốt 12/08).
 
@@ -5544,9 +5601,11 @@ vừa chia tách?) → báo Claude kèm message.
   các nhánh trắng lộ ra (RSI loss=0, VWAP intraday, cell_color, bảng ngành)
 * ✅ **① ghi nguyên tử XONG 12/08** (entry 12/08) — warehouse xoá-rồi-ghi +
   meta + 5 file state; có lưới `_MUST_BE_ATOMIC` chặn tái phát
-* ⏭ **④ TIẾP THEO — tách file quá lớn**: `vnstock_brief.py` (~6.9K dòng),
-  `dashboard/market_tab.py`. Tách DẦN, mỗi lần một cụm; điểm parity
-  `apply_brief_guards` không được đụng
+* 🔄 **④ tách file quá lớn — cụm 1 XONG 12/08** (entry 12/08 (d)):
+  `vnstock_brief.py` 6.807 → **4.045** dòng; hệ guard ra
+  `vnstock_brief_guards.py`, khối canon ra `vnstock_brief_canon.py`; 27 test
+  canh ranh giới. **Còn**: guards (2.646) chia theo chủ đề chữ nghĩa/con số/
+  cấu trúc, và `dashboard/market_tab.py` (2.566). Tách DẦN, mỗi lần một cụm
 * **② hiệu năng** (làm cuối): warehouse bị quét ~14 lần/đêm — **ĐO TRƯỚC rồi
   mới quyết**, nhiều khả năng BỎ (pipeline chạy 18:00 không ai ngồi đợi; sửa
   phải đụng nhiều module để đổi lấy sự tiện không ai cảm nhận)

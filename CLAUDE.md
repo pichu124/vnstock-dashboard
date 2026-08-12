@@ -26,9 +26,13 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 - `vnstock_dashboard.py` — UI chính; các tab trong `dashboard/` (market,
   analysis, news+macro, money_flow, screener, portfolio, allocation,
   reports, rates_report).
-- `vnstock_brief.py` — sinh AI brief morning/close. Chuỗi guard hậu kiểm
+- `vnstock_brief.py` — sinh AI brief morning/close (context → prompt → agent).
+  Hệ guard hậu kiểm ở `vnstock_brief_guards.py`: 44 guard + chuỗi
   `apply_brief_guards(text, ctx)` DÙNG CHUNG cho cả 2 brief — KHÔNG BAO GIỜ
-  inline lại chuỗi vào `generate_brief` (điểm parity duy nhất).
+  inline lại chuỗi vào `generate_brief` (điểm parity duy nhất). Hằng số + khối
+  canon mà CẢ prompt lẫn guard dựng chung ở `vnstock_brief_canon.py`; phụ
+  thuộc một chiều brief → guards → canon (`tests/test_brief_split.py` canh).
+  Mọi tên vẫn re-export qua `vnstock_brief` nên đường import cũ không đổi.
 - Pipeline data: `vnstock_updater` (sync giá) → `vnstock_rollup` (1m→daily)
   → `vnstock_warehouse` (Parquet) → `vnstock_runner`/`vnstock_screener`
   (screener + market_overview.json) → brief.
@@ -47,8 +51,9 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 - Output cho người dùng (brief, UI) bằng tiếng Việt; format số kiểu EN
   (`{:,.2f}` — phẩy nghìn, chấm thập phân).
 - LLM hay phớt chỉ thị prompt → mọi ràng buộc quan trọng chốt bằng guard
-  deterministic trong code + test đi kèm. Thêm guard = thêm vào
-  `apply_brief_guards` + viết test.
+  deterministic trong code + test đi kèm. Thêm guard = viết trong
+  `vnstock_brief_guards.py` + NỐI VÀO `apply_brief_guards` + viết test (guard
+  quên nối = code chết trông y như code sống; có lưới canh).
 - Mọi auto-refresh đều best-effort và có env kill-switch
   (`VNSTOCK_BRIEF_AUTO_*`, `VNSTOCK_MACRO_*`).
 - Model LLM: slug MỚI phải probe sống trước khi vào code —
