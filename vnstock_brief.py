@@ -1000,10 +1000,12 @@ def load_agent_configs() -> list[dict]:
 
 
 def save_agent_configs(configs: list[dict]) -> None:
-    AGENTS_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    AGENTS_CONFIG_PATH.write_text(
-        json.dumps(configs, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    # Nguyên tử: đây là LỰA CHỌN CỦA USER (bật/tắt agent, tên tự đặt) — mất
+    # là user phải chỉnh lại tay, khác cache dựng lại được. Ghi thẳng thì
+    # crash giữa chừng để lại file JSON cụt, load sau parse hỏng → rơi về
+    # _DEFAULT_AGENT_CONFIGS, im lặng mất hết tuỳ chỉnh.
+    from vnstock_parquet_io import write_json_atomic
+    write_json_atomic(configs, AGENTS_CONFIG_PATH)
 
 
 def build_agents(configs: list[dict] | None = None) -> list[BriefAgent]:

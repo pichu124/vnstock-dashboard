@@ -423,8 +423,8 @@ def save_history(hist: dict) -> None:
     try:
         _META.mkdir(parents=True, exist_ok=True)
         hist["runs"] = hist.get("runs", [])[-_HISTORY_MAX:]
-        (_META / _HISTORY_NAME).write_text(
-            json.dumps(hist, ensure_ascii=False, indent=2), encoding="utf-8")
+        from vnstock_parquet_io import write_json_atomic
+        write_json_atomic(hist, _META / _HISTORY_NAME)
     except OSError as e:
         print(f"⚠ không ghi được lịch sử model watch: {e}")
 
@@ -629,8 +629,8 @@ def _run_eval_stage(rows: list, hist: dict) -> dict:
 def _write_status(status: dict) -> None:
     try:
         _META.mkdir(parents=True, exist_ok=True)
-        (_META / _STATUS_NAME).write_text(
-            json.dumps(status, ensure_ascii=False, indent=2), encoding="utf-8")
+        from vnstock_parquet_io import write_json_atomic
+        write_json_atomic(status, _META / _STATUS_NAME)
     except OSError as e:
         print(f"⚠ không ghi được {_STATUS_NAME}: {e}")
 

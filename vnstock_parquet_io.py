@@ -45,6 +45,7 @@ cách ly + cảnh báo ở CẢ HAI chế độ — nó không phải nguồn ch
 """
 from __future__ import annotations
 
+import json
 import os
 import threading
 from datetime import datetime
@@ -77,6 +78,29 @@ def write_table_atomic(table, out_path: "Path | str",
         f"{out_path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     try:
         pq.write_table(table, str(tmp), compression=compression)
+        os.replace(str(tmp), str(out_path))
+    except Exception:
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
+
+
+def write_json_atomic(payload, out_path: "Path | str", *, indent: int = 2) -> None:
+    """Ghi JSON theo kiểu tmp-rồi-tráo — anh em của `write_table_atomic`.
+
+    Quét 12/08 cho thấy repo đã lặp pattern tmp+os.replace ở ~15 module (ai
+    cũng tự viết lại), còn vài chỗ giữ STATE thì ghi thẳng. Gom về một chỗ:
+    serialize TRƯỚC khi đụng đĩa, nên payload hỏng cũng không cắt cụt file cũ.
+    """
+    out_path = Path(out_path)
+    blob = json.dumps(payload, ensure_ascii=False, indent=indent, default=str)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out_path.with_name(
+        f"{out_path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    try:
+        tmp.write_text(blob, encoding="utf-8")
         os.replace(str(tmp), str(out_path))
     except Exception:
         try:

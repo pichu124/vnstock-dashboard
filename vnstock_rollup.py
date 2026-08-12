@@ -37,7 +37,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from vnstock_parquet_io import (
-    CorruptWarehouseFile, read_year_frames, write_table_atomic,
+    CorruptWarehouseFile, read_year_frames, write_json_atomic, write_table_atomic,
 )
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -260,10 +260,7 @@ def _record_unit_normalization(ticker: str, ratio: float, rows: int) -> None:
         events.append({"at": datetime.now().isoformat(timespec="seconds"),
                        "ticker": str(ticker), "ratio": round(float(ratio), 1),
                        "rows": int(rows)})
-        META_DIR.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"events": events[-_UNIT_LOG_MAX:]},
-                                   ensure_ascii=False, indent=2),
-                        encoding="utf-8")
+        write_json_atomic({"events": events[-_UNIT_LOG_MAX:]}, path)
     except Exception:
         pass
 

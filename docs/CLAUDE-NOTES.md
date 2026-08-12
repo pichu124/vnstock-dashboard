@@ -5346,6 +5346,58 @@ cáo model watch). Phân tích 12/08: trên dòng "không đổi" con số mang 
 không ra "không đổi") — nhưng user chọn **GIỮ NGUYÊN** cho quen mắt. Quyết
 định đóng, đừng đề xuất lại.
 
+## 2026-08-12 — Ghi nguyên tử đợt 2: lỗ NẶNG HƠN cả ca CRITICAL đã vá 06/08
+
+Dọn mục MEDIUM/LOW của audit 06/08 theo thứ tự ưu tiên tự đặt (③ replica →
+① nguyên tử → ④ tách file → ② hiệu năng). Đây là ①.
+
+Quét bằng MÁY (không đoán) 55 điểm ghi toàn repo → lọc dương tính giả
+(st.write UI, stdout, sandbox stream) → còn các file giữ STATE. Phát hiện
+ngược kỳ vọng: phần lớn module ĐÃ ghi nguyên tử sẵn (tmp + os.replace, lặp
+pattern ở ~15 chỗ). Nợ thật nhỏ hơn ghi chú audit — nhưng lỗ còn lại NẶNG
+hơn nhiều so với mô tả "cache macro, _meta/*.json":
+
+### `VnStockWarehouse._write_parquet` — xoá-rồi-ghi
+
+Dùng `pq.write_to_dataset(..., existing_data_behavior="delete_matching")`:
+XOÁ partition cũ RỒI mới ghi. Chết giữa hai bước (Task Scheduler kill 120',
+máy ngủ, Ctrl+C, mất điện — đúng loạt kịch bản vnstock_parquet_io đã liệt
+kê) thì partition BIẾN MẤT HẲN, không phải hỏng. Tệ hơn ca CRITICAL 06/08:
+file cụt còn để lại dấu vết, mất partition thì `_read_ticker` trả DataFrame
+rỗng — im lặng tuyệt đối.
+
+Vá: ghi từng file year qua `write_table_atomic`. Bẫy khi vá (test bắt):
+file year KHÔNG được chứa cột ticker/year — chúng nằm trong TÊN THƯ MỤC,
+`_read_ticker` đọc bằng hive partitioning nên nhét vào file là trùng tên cột
+→ pyarrow lỗi → `except` nuốt → kho đọc ra RỖNG. Thêm `_YEAR_FILE_SCHEMA`
+(mirror `vnstock_rollup.PRICE_SCHEMA`). Verify tay: 3 đợt ghi nối tiếp bắc
+qua năm → gộp đúng, dedup bản mới thắng, và ROLLUP đọc lại được y nguyên
+(hai module cùng layout).
+
+### `_save_meta` — `open(w)` cắt file về 0
+
+Chết giữa chừng = meta cụt → `_get_last_date` trả None cho MỌI mã → updater
+tưởng kho trống.
+
+### Bốn file state còn lại
+
+`brief_agents.json` (LỰA CHỌN của user — mất là phải chỉnh tay lại) ·
+kho phân loại 1.652 mã + company profiles (chấm lại tốn cả batch LLM) ·
+model_status/history · vết quy đổi đơn vị giá. Tất cả qua helper mới
+`write_json_atomic` (serialize TRƯỚC khi đụng đĩa nên payload hỏng cũng
+không cắt cụt file cũ; `default=str` cố ý cho date/Path trong _meta).
+
+### Lưới chặn tái phát
+
+`test_state_writers_stay_atomic` — parametrize trên danh sách file "giữ
+state của user/kho" (KHÔNG phải mọi file: cache dựng lại được, không đáng
+siết). Quét mã nguồn, thấy điểm ghi không có os.replace/helper trong 8 dòng
+quanh đó là ĐỎ. Thêm điểm ghi state mới → khai vào `_MUST_BE_ATOMIC`; lưới
+chỉ soi thứ ĐƯỢC KHAI BÁO (bài học lặp lần thứ ba tuần này).
+
+Suite 1652 → 1666 passed (14 test mới).
+
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -5390,10 +5442,12 @@ vừa chia tách?) → báo Claude kèm message.
 
 ## 🟡 CODE CÒN TREO — không gấp
 
-**4. MEDIUM/LOW của audit 06/08** — chưa làm:
-* ghi nguyên tử cho `vnstock_warehouse._write_parquet`, cache macro,
-  `_meta/*.json` (mới phủ updater/rollup qua `vnstock_parquet_io`)
-* hiệu năng: warehouse bị quét ~14 lần/đêm
+**4. MEDIUM/LOW của audit 06/08** — đang dọn theo thứ tự ③→①→④→②:
+* ✅ **ghi nguyên tử XONG 12/08** (entry 12/08) — warehouse xoá-rồi-ghi +
+  meta + 4 file state; có lưới `_MUST_BE_ATOMIC` chặn tái phát
+* hiệu năng: warehouse bị quét ~14 lần/đêm — **ĐO TRƯỚC rồi mới quyết**,
+  nhiều khả năng BỎ (pipeline chạy 18:00 không ai ngồi đợi; sửa phải đụng
+  nhiều module để đổi lấy sự tiện không ai cảm nhận)
 * test replica trôi xa bản thật: `tests/test_dashboard.py`, `tests/test_wss.py`
 * tách file quá lớn: `vnstock_brief.py` (~6.9K dòng), `dashboard/market_tab.py`
 

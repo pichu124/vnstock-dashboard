@@ -128,6 +128,12 @@ OHLCV_SCHEMA = pa.schema([
     pa.field("year",   pa.int16()),   # partition column
 ])
 
+# Schema của FILE trên đĩa: bỏ 2 cột partition (ticker/year) vì chúng nằm
+# trong tên thư mục `ticker=X/year=Y` — mirror `vnstock_rollup.PRICE_SCHEMA`.
+# Nhét chúng vào file là trùng tên với cột hive → `_read_ticker` đọc rỗng.
+_YEAR_FILE_SCHEMA = pa.schema(
+    [f for f in OHLCV_SCHEMA if f.name not in ("ticker", "year")])
+
 import re as _re
 
 VALID_EXCHANGES = {"HOSE", "HNX", "UPCOM"}
@@ -253,8 +259,11 @@ class VnStockWarehouse:
         return {}
 
     def _save_meta(self):
-        with open(self.meta_file, "w") as f:
-            json.dump(self._meta, f, indent=2)
+        # `open(w)` cắt file về 0 TRƯỚC khi chép nội dung mới — chết giữa
+        # chừng là meta cụt, `_get_last_date` trả None cho MỌI mã → updater
+        # tưởng kho trống. Ghi nguyên tử (dọn 12/08).
+        from vnstock_parquet_io import write_json_atomic
+        write_json_atomic(self._meta, self.meta_file)
 
     def _get_last_date(self, ticker: str) -> Optional[str]:
         """Return the last stored date for a ticker, or None."""
@@ -534,15 +543,32 @@ class VnStockWarehouse:
         )
         combined["year"] = pd.to_datetime(combined["time"]).dt.year.astype("int16")
 
-        # Write partitioned by year
-        table = pa.Table.from_pandas(combined, schema=OHLCV_SCHEMA, safe=False)
-        pq.write_to_dataset(
-            table,
-            root_path=str(self.prices_dir),
-            partition_cols=["ticker", "year"],
-            existing_data_behavior="delete_matching",
-            compression="snappy",
-        )
+        # Write partitioned by year — NGUYÊN TỬ theo từng năm.
+        #
+        # Bản cũ dùng `pq.write_to_dataset(..., existing_data_behavior=
+        # "delete_matching")`: XOÁ partition cũ RỒI mới ghi. Chết giữa hai
+        # bước (Task Scheduler kill 120', máy ngủ, Ctrl+C, mất điện — đúng
+        # loạt kịch bản đã liệt kê trong vnstock_parquet_io) thì partition
+        # BIẾN MẤT hẳn, không phải hỏng; `_read_ticker` đọc thư mục rỗng trả
+        # DataFrame rỗng nên mất im lặng. Đây là CÙNG lỗ CRITICAL audit 06/08
+        # đã vá cho updater/rollup, sót lại ở đường warehouse (dọn 12/08).
+        #
+        # Nay mỗi file year ghi qua `write_table_atomic` (tmp → os.replace):
+        # hoặc còn nguyên file cũ, hoặc đã là file mới. Không có khoảng nửa vời.
+        # Layout phải KHỚP bản write_to_dataset cũ (và khớp `vnstock_rollup.
+        # _write_year`): file year chỉ chứa 6 cột OHLCV, còn ticker/year nằm
+        # trong TÊN THƯ MỤC — `_read_ticker` đọc bằng hive partitioning nên
+        # nhét ticker/year vào file là trùng tên cột → pyarrow lỗi → bị
+        # `except` nuốt → kho đọc ra RỖNG.
+        from vnstock_parquet_io import write_table_atomic
+
+        for year, chunk in combined.groupby("year", sort=True):
+            part = chunk.drop(columns=["ticker", "year"], errors="ignore")
+            table = pa.Table.from_pandas(part, schema=_YEAR_FILE_SCHEMA,
+                                         safe=False, preserve_index=False)
+            out = (self.prices_dir / f"ticker={ticker}" / f"year={int(year)}"
+                   / "prices.parquet")
+            write_table_atomic(table, out, compression="snappy")
 
     def _read_ticker(self, ticker: str) -> pd.DataFrame:
         """Read all stored data for a ticker. Returns empty DataFrame if none."""

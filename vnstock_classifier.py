@@ -198,7 +198,9 @@ class CompanyWarehouse:
         ticker_dir.mkdir(exist_ok=True)
         df = pd.DataFrame([data])
         table = pa.Table.from_pandas(df, schema=PROFILE_SCHEMA, safe=False)
-        pq.write_table(table, str(ticker_dir / "overview.parquet"), compression="snappy")
+        # nguyên tử — hồ sơ công ty tải lại tốn 1 call API/mã
+        from vnstock_parquet_io import write_table_atomic
+        write_table_atomic(table, ticker_dir / "overview.parquet")
 
     def load_profile(self, ticker: str) -> dict:
         pf = self.companies_dir / f"ticker={ticker}" / "overview.parquet"
@@ -374,7 +376,9 @@ class ClassificationStore:
         if self._df.empty:
             return
         table = pa.Table.from_pandas(self._df, schema=CLASSIFY_SCHEMA, safe=False)
-        pq.write_table(table, str(self.path), compression="snappy")
+        # nguyên tử — kho phân loại 1.652 mã, chấm lại tốn cả batch LLM
+        from vnstock_parquet_io import write_table_atomic
+        write_table_atomic(table, self.path)
 
     def is_classified(self, ticker: str) -> bool:
         return ticker in self._df["ticker"].values

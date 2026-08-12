@@ -729,6 +729,7 @@ def cmd_test(args) -> int:
             "tests/test_unit_norm_watch.py",
             "tests/test_memory_cli.py",
             "tests/test_brief_agent_config.py",
+            "tests/test_atomic_writes.py",
         ]
     else:
         test_paths = ["tests/"]
