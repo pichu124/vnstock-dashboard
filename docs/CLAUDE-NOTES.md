@@ -5551,6 +5551,59 @@ trên mốc 800 dòng. Cắt tiếp được: guard chia theo chủ đề (chữ
 cấu trúc), chuỗi giữ nguyên một chỗ. Làm DẦN, mỗi lần một cụm.
 
 
+## 2026-08-12 (e) — Tách `market_tab.py`: 2.567 → 1.295 (mục ④, cụm 2)
+
+Đây là ca NẶNG HƠN brief dù ít dòng hơn: cả tab là **MỘT hàm 2.544 dòng** —
+đúng thứ rule của repo cấm (hàm < 50 dòng). Brief 6.8K dòng ít ra còn chia
+sẵn thành 128 hàm.
+
+### Cắt lớn: panel AI Market Brief (1.172 dòng)
+
+Đo bằng AST trước khi động dao (tên tự do của khối so với binding của phần
+trước nó): khối chỉ cần **ĐÚNG MỘT** tên từ scope ngoài — `st`. Vậy là cắt
+được nguyên khối sang `dashboard/market_brief_panel.py::render_brief_panel()`,
+mọi thứ khác nó tự import trong thân. Giữ nguyên nết import LƯỜI Streamlit để
+pytest vẫn import module được (có test canh).
+
+Khối này gom: cài đặt agent · nút sinh brief · consensus · bảng điểm độ chính
+xác · lịch sử brief · panel chiến lược + equity curve · khuyến nghị đã đóng ·
+training · scan.
+
+### Cắt nhỏ nhưng đáng giá hơn: thang màu + định dạng ô
+
+`dashboard/market_table_format.py` (134) + `dashboard/sparkline.py` (65) —
+6 hàm trước là closure nên **chưa từng có test**.
+
+Phát hiện khi kéo ra: `_amp_color` bị **chép nguyên bản** thành `_dd_amp_color`
+cho khối drill-down, hai bản y hệt chỉ khác biến closure — đúng họ lỗi vừa dọn
+ở mục ③. Và hai bản ĐÃ lệch thật: bản bảng tổng có chốt chặn `range = 0 → 1`,
+bản drill-down `max - min` trần trụi ⇒ mọi giá trị bằng nhau là **chia 0**.
+Nay `scale_range()` dùng chung, hết đường lệch.
+
+Sửa lại thành hàm nhận `(vmin, vrange)` làm THAM SỐ thay vì bắt qua closure —
+nhờ vậy bảng tổng và drill-down dùng chung một hàm với hai thang khác nhau.
+
+### Đối chiếu vi phân trước khi tin
+
+Không tin mắt: chạy bản CŨ (chép từ git HEAD) và bản mới trên cùng lưới giá
+trị, so cả **kiểu ngoại lệ** — **1.480 phép so sánh cho bảng, 24 cho
+sparkline, 0 khác biệt**. Sau đó mới chốt thành 44 test
+(`tests/test_market_table_format.py`), nhắm vào bất biến dễ hỏng âm thầm:
+thiếu data phải ra "—" chứ không ra 0; thang phẳng không được chia 0; chữ trên
+nền đậm phải đổi trắng; điểm sparkline không được vẽ ra ngoài khung.
+
+Suite **1785 passed** (+46).
+
+### Còn lại của mục ④ (sau cụm 2)
+
+* `vnstock_brief_guards.py` (2.646) — chia theo chủ đề chữ nghĩa/con số/cấu trúc
+* `dashboard/market_brief_panel.py` (1.194) — bản thân nó cũng nên chia panel con
+* `market_tab` còn 2 closure không tách được ngay: `_live_market_fragment`
+  (fragment Streamlit) và `_build_commentary` (đọc `st.session_state` + `idx_df`;
+  muốn tách phải luồn 2 tham số vào — đáng làm vì đó là 220 dòng SINH CHỮ
+  tiếng Việt cho user mà chưa có test)
+
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -5559,7 +5612,7 @@ cấu trúc), chuỗi giữ nguyên một chỗ. Làm DẦN, mỗi lần một c
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **1739 passed** · nhánh
+> Trạng thái: full suite **1785 passed** · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
 > user tự làm thường xuyên — KHÔNG track làm việc (user chốt 12/08).
 
@@ -5601,11 +5654,15 @@ vừa chia tách?) → báo Claude kèm message.
   các nhánh trắng lộ ra (RSI loss=0, VWAP intraday, cell_color, bảng ngành)
 * ✅ **① ghi nguyên tử XONG 12/08** (entry 12/08) — warehouse xoá-rồi-ghi +
   meta + 5 file state; có lưới `_MUST_BE_ATOMIC` chặn tái phát
-* 🔄 **④ tách file quá lớn — cụm 1 XONG 12/08** (entry 12/08 (d)):
-  `vnstock_brief.py` 6.807 → **4.045** dòng; hệ guard ra
-  `vnstock_brief_guards.py`, khối canon ra `vnstock_brief_canon.py`; 27 test
-  canh ranh giới. **Còn**: guards (2.646) chia theo chủ đề chữ nghĩa/con số/
-  cấu trúc, và `dashboard/market_tab.py` (2.566). Tách DẦN, mỗi lần một cụm
+* 🔄 **④ tách file quá lớn — 2 cụm XONG 12/08** (entry 12/08 (d)+(e)):
+  `vnstock_brief.py` 6.807 → **4.045** (guard ra `vnstock_brief_guards.py`,
+  canon ra `vnstock_brief_canon.py`, 27 test canh ranh giới);
+  `dashboard/market_tab.py` 2.567 → **1.295** (panel brief ra
+  `market_brief_panel.py`, thang màu/định dạng ra `market_table_format.py` +
+  `sparkline.py`, 44 test — kèm vá bản chép `_dd_amp_color` chia 0).
+  **Còn**: guards (2.646) chia theo chủ đề; `market_brief_panel` (1.194) chia
+  panel con; `_build_commentary` (220 dòng sinh chữ cho user, chưa có test).
+  Tách DẦN, mỗi lần một cụm
 * **② hiệu năng** (làm cuối): warehouse bị quét ~14 lần/đêm — **ĐO TRƯỚC rồi
   mới quyết**, nhiều khả năng BỎ (pipeline chạy 18:00 không ai ngồi đợi; sửa
   phải đụng nhiều module để đổi lấy sự tiện không ai cảm nhận)
