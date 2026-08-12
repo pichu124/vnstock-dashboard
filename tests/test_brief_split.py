@@ -21,7 +21,13 @@ _MODULES = {
     "brief": ROOT / "vnstock_brief.py",
     "guards": ROOT / "vnstock_brief_guards.py",
     "canon": ROOT / "vnstock_brief_canon.py",
+    "common": ROOT / "vnstock_brief_guards_common.py",
+    "sections": ROOT / "vnstock_brief_guards_sections.py",
+    "numbers": ROOT / "vnstock_brief_guards_numbers.py",
+    "text": ROOT / "vnstock_brief_guards_text.py",
 }
+# 3 module chủ đề — 44 guard chia theo "sai chuyện gì / sai số / lộ ruột"
+_THEMES = ("sections", "numbers", "text")
 
 
 def _tree(key: str) -> ast.Module:
@@ -56,10 +62,30 @@ def _bindings(tree: ast.Module) -> set:
 
 # ── 1. Phụ thuộc một chiều ──────────────────────────────────────────────────
 
-def test_guards_never_import_brief():
+@pytest.mark.parametrize("mod", ["guards", *_THEMES, "common"])
+def test_guards_never_import_brief(mod):
     """`vnstock_brief` import guards, nên guards import ngược = vòng.
     Soi cả import LƯỜI trong thân hàm — kiểu lách hay gặp nhất."""
-    assert "vnstock_brief" not in _imported_modules(_tree("guards"))
+    assert "vnstock_brief" not in _imported_modules(_tree(mod))
+
+
+@pytest.mark.parametrize("mod", _THEMES)
+def test_theme_modules_never_import_the_chain(mod):
+    """Chuỗi import 3 nhóm; nhóm import ngược chuỗi = vòng."""
+    assert "vnstock_brief_guards" not in _imported_modules(_tree(mod))
+
+
+@pytest.mark.parametrize("mod", _THEMES)
+def test_theme_modules_never_import_each_other(mod):
+    """Ba nhóm phải ĐỘC LẬP. Cần dùng chung thì đưa xuống
+    `vnstock_brief_guards_common` — import chéo là vòng chờ sẵn."""
+    others = {f"vnstock_brief_guards_{m}" for m in _THEMES if m != mod}
+    assert not (_imported_modules(_tree(mod)) & others)
+
+
+def test_common_stays_a_leaf():
+    imported = _imported_modules(_tree("common"))
+    assert not any(str(m).startswith("vnstock_brief") for m in imported)
 
 
 def test_canon_is_a_leaf_module():
@@ -74,7 +100,7 @@ def test_brief_imports_guards_not_the_other_way():
 
 # ── 2. Không định nghĩa trùng ───────────────────────────────────────────────
 
-@pytest.mark.parametrize("other", ["guards", "canon"])
+@pytest.mark.parametrize("other", ["guards", "canon", "common", *_THEMES])
 def test_no_duplicate_definition_left_in_brief(other):
     """Tên đã chuyển đi mà `vnstock_brief` vẫn còn định nghĩa riêng = hai bản
     sống song song. Re-export thì KHÔNG tính (chỉ là import lại)."""
@@ -82,12 +108,27 @@ def test_no_duplicate_definition_left_in_brief(other):
     assert not dupes, f"Định nghĩa trùng giữa vnstock_brief và {other}: {dupes}"
 
 
-def test_guards_and_canon_do_not_overlap():
-    dupes = sorted(_bindings(_tree("guards")) & _bindings(_tree("canon")))
-    assert not dupes, f"Định nghĩa trùng giữa guards và canon: {dupes}"
+def test_no_name_is_defined_twice_across_the_split():
+    """Quét chéo TẤT CẢ các file của hệ brief: một tên chỉ được định nghĩa ở
+    ĐÚNG MỘT nơi. Đây là lưới chống đúng thứ vừa dọn ở mục ③."""
+    seen, dupes = {}, []
+    for mod in ("brief", "guards", "canon", "common", *_THEMES):
+        for name in _bindings(_tree(mod)):
+            if name in seen:
+                dupes.append(f"{name}: {seen[name]} + {mod}")
+            else:
+                seen[name] = mod
+    assert not dupes, "Định nghĩa trùng: " + "; ".join(sorted(dupes))
 
 
 # ── 3. Guard nào cũng phải được NỐI VÀO CHUỖI ───────────────────────────────
+
+def _all_guards() -> set:
+    """Mọi `enforce_*` định nghĩa ở BA module chủ đề. Thêm module chủ đề mới
+    → thêm vào `_THEMES`; lưới chỉ soi thứ ĐƯỢC KHAI BÁO."""
+    return {n.name for mod in _THEMES for n in _tree(mod).body
+            if isinstance(n, ast.FunctionDef) and n.name.startswith("enforce_")}
+
 
 def test_every_guard_is_wired_into_the_chain():
     """Họ lỗi lặp lại nhiều nhất repo này: lưới chỉ soi thứ ĐƯỢC KHAI BÁO.
@@ -97,11 +138,30 @@ def test_every_guard_is_wired_into_the_chain():
 
     import vnstock_brief_guards as g
 
-    defined = {n.name for n in _tree("guards").body
-               if isinstance(n, ast.FunctionDef) and n.name.startswith("enforce_")}
     chain = inspect.getsource(g.apply_brief_guards)
-    orphan = sorted(d for d in defined if f"{d}(" not in chain)
+    orphan = sorted(d for d in _all_guards() if f"{d}(" not in chain)
     assert not orphan, f"Guard không nằm trong apply_brief_guards: {orphan}"
+
+
+def test_no_guard_hides_outside_the_theme_modules():
+    """Guard viết thẳng vào file chuỗi (hoặc common) sẽ lọt khỏi lưới bên trên
+    — nên chặn luôn: `enforce_*` chỉ được ở module chủ đề."""
+    stray = sorted(n for mod in ("guards", "common", "canon", "brief")
+                   for n in _bindings(_tree(mod)) if n.startswith("enforce_"))
+    assert not stray, f"Guard nằm ngoài 3 module chủ đề: {stray}"
+
+
+def test_the_44_guards_are_all_accounted_for():
+    """Con số chốt: chuỗi gọi đúng bằng số guard được định nghĩa, không dư
+    không thiếu."""
+    import inspect
+    import re
+
+    import vnstock_brief_guards as g
+    called = re.findall(r"fixed = (enforce_\w+)\(",
+                        inspect.getsource(g.apply_brief_guards))
+    assert len(called) == len(set(called)), "Có guard bị gọi hai lần trong chuỗi"
+    assert set(called) == _all_guards()
 
 
 def test_chain_calls_only_real_guards():
@@ -147,10 +207,12 @@ def test_old_import_paths_still_work(name):
 
 
 def test_all_moved_names_are_reexported():
-    """Quét TOÀN BỘ chứ không chỉ danh sách trên: mọi tên định nghĩa ở guards
-    và canon phải với tới được qua `vnstock_brief`."""
+    """Quét TOÀN BỘ chứ không chỉ danh sách trên: mọi tên định nghĩa ở các
+    module đã tách phải với tới được qua `vnstock_brief`."""
     import vnstock_brief
 
-    moved = _bindings(_tree("guards")) | _bindings(_tree("canon"))
+    moved = set()
+    for mod in ("guards", "canon", "common", *_THEMES):
+        moved |= _bindings(_tree(mod))
     gone = sorted(n for n in moved if not hasattr(vnstock_brief, n))
     assert not gone, f"Tên đã chuyển nhưng KHÔNG re-export: {gone}"

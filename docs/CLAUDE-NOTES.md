@@ -5604,6 +5604,70 @@ Suite **1785 passed** (+46).
   tiếng Việt cho user mà chưa có test)
 
 
+## 2026-08-12 (f) — Mục ④ XONG: nốt 3 việc còn treo, mọi file mới đều < 800 dòng
+
+### 1. `_build_commentary` → `dashboard/market_commentary.py` (280)
+
+220 dòng SINH CHỮ tiếng Việt cho user, chưa từng có test. Hai thứ nó bắt qua
+closure (`st.session_state`, `idx_df`) thành THAM SỐ ⇒ hết dính Streamlit.
+Chia ba đúng ba mục nó vốn sinh: `index_strength_lines` · `breadth_lines` ·
+`quant_lines`.
+
+Ngưỡng nay có TÊN ở đầu file (`_TREND_STRONG_UP`, `_MA200_BROAD_UPTREND`, …):
+đây là **lời khuyên gửi tới user**, không phải hằng số kỹ thuật — sửa số ở đây
+là đổi lời khuyên, phải thấy rõ chứ không nằm rải trong 220 dòng.
+
+Đối chiếu vi phân trước khi tin: bản cũ (chép từ commit faf4667) vs bản mới
+trên **600 tổ hợp** (breadth × chỉ số × bảng ngành × bảng mã, kể cả
+None/rỗng/thiếu cột) — **0 khác biệt**. 37 test.
+
+**Cố ý GIỮ một wart**: thị trường xấu toàn tập thì tiêu đề "🎯 Ngành đáng quan
+tâm" vẫn hiện dù không có dòng nào bên dưới (tiêu đề in trước vòng lặp). Đổi
+output nhìn thấy được TRONG LÚC refactor là cách nhanh nhất làm refactor mất
+tin cậy — muốn sửa thì sửa RIÊNG, có test đi kèm.
+
+### 2. `vnstock_brief_guards.py` 2.646 → 244, chia 3 chủ đề
+
+Phân nhóm bằng dependency analysis chứ không bằng cảm giác: 44 guard + 24 hằng
+số/helper, tính xem mỗi hằng số bị NHÓM NÀO dùng. Kết quả: chỉ **4 thứ** dùng
+chung (`_parse_vn_number`, `_SECTION_EMOJIS`, `_is_section_start`,
+`_PIVOT_LABEL_RE`) → `_guards_common` (64). Còn lại rơi gọn vào đúng một nhóm.
+
+| Module | Dòng | Lo phần |
+|---|---|---|
+| `_guards_sections` | 1.204 | brief nói **SAI CHUYỆN GÌ** (dựng lại khối canon) |
+| `_guards_numbers` | 1.061 | brief nói **SAI SỐ / SAI CHIỀU** |
+| `_guards_text` | 233 | brief **lộ ruột / nói nhảm** |
+| `_guards_common` | 64 | tiện ích cả ba dùng |
+| `vnstock_brief_guards` | 244 | **chuỗi** + validator + re-export |
+
+Ba nhóm **không import lẫn nhau** và không import file chuỗi — có test canh cả
+ba chiều. Thêm 3 lưới nữa: guard không được nấp ngoài 3 module chủ đề (nấp là
+lọt khỏi lưới "guard mồ côi"), chuỗi không được gọi trùng, và số guard gọi phải
+BẰNG số guard định nghĩa.
+
+### 3. `market_brief_panel.py` 1.194 → 42, chia 5 panel
+
+Lại đo bằng AST: 5 panel con chỉ dính nhau qua `st` + vài tên import từ
+`vnstock_brief` — tức chúng **vốn đã rời nhau**, chỉ là nằm chung một hàm.
+`brief_agent_settings` (125) · `brief_run_panel` (184) ·
+`brief_accuracy_panel` (57) · `brief_history_panel` (196) ·
+`brief_strategy_panel` (663). File gốc còn đúng việc điều phối.
+
+Lưới kèm theo: mọi panel phải import Streamlit LƯỜI (import ở cấp module là kéo
+runtime vào lúc pytest thu thập — đúng thứ khiến cả tab trước đây không test
+được), phải nullary, và **panel nào cũng phải được gọi** (panel viết ra mà quên
+gọi = code chết trông y như code sống).
+
+### Kết
+
+Suite **1856 passed** (+34 so với cụm 2, +190 so với đầu đợt). Không còn file
+NÀO do đợt tách này sinh ra vượt 800 dòng. `vnstock_brief.py` (4.045) và
+`vnstock_dashboard.py` (3.715) vẫn lớn nhưng đã ngoài phạm vi audit 06/08;
+muốn cắt tiếp thì mục tiêu rõ ràng là `build_prompt` (591 dòng) và
+`collect_context` (356) — đó là chia HÀM, việc khác loại với chia file.
+
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -5612,7 +5676,7 @@ Suite **1785 passed** (+46).
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **1785 passed** · nhánh
+> Trạng thái: full suite **1856 passed** · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
 > user tự làm thường xuyên — KHÔNG track làm việc (user chốt 12/08).
 
@@ -5654,15 +5718,14 @@ vừa chia tách?) → báo Claude kèm message.
   các nhánh trắng lộ ra (RSI loss=0, VWAP intraday, cell_color, bảng ngành)
 * ✅ **① ghi nguyên tử XONG 12/08** (entry 12/08) — warehouse xoá-rồi-ghi +
   meta + 5 file state; có lưới `_MUST_BE_ATOMIC` chặn tái phát
-* 🔄 **④ tách file quá lớn — 2 cụm XONG 12/08** (entry 12/08 (d)+(e)):
-  `vnstock_brief.py` 6.807 → **4.045** (guard ra `vnstock_brief_guards.py`,
-  canon ra `vnstock_brief_canon.py`, 27 test canh ranh giới);
-  `dashboard/market_tab.py` 2.567 → **1.295** (panel brief ra
-  `market_brief_panel.py`, thang màu/định dạng ra `market_table_format.py` +
-  `sparkline.py`, 44 test — kèm vá bản chép `_dd_amp_color` chia 0).
-  **Còn**: guards (2.646) chia theo chủ đề; `market_brief_panel` (1.194) chia
-  panel con; `_build_commentary` (220 dòng sinh chữ cho user, chưa có test).
-  Tách DẦN, mỗi lần một cụm
+* ✅ **④ tách file quá lớn XONG 12/08** (entry 12/08 (d)+(e)+(f)):
+  `vnstock_brief.py` 6.807 → **4.045**, hệ guard 2.646 → **244 + 4 module chủ
+  đề**; `dashboard/market_tab.py` 2.567 → **1.082**, panel brief 1.194 → **42
+  + 5 panel con**; nhận định thị trường ra `market_commentary.py`.
+  Không còn file nào do đợt tách sinh ra vượt 800 dòng.
+  Cắt tiếp (NGOÀI phạm vi audit, chỉ làm nếu thấy vướng): `build_prompt` 591
+  dòng và `collect_context` 356 trong `vnstock_brief.py` — đó là chia HÀM,
+  việc khác loại với chia file
 * **② hiệu năng** (làm cuối): warehouse bị quét ~14 lần/đêm — **ĐO TRƯỚC rồi
   mới quyết**, nhiều khả năng BỎ (pipeline chạy 18:00 không ai ngồi đợi; sửa
   phải đụng nhiều module để đổi lấy sự tiện không ai cảm nhận)

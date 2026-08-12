@@ -27,12 +27,14 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   analysis, news+macro, money_flow, screener, portfolio, allocation,
   reports, rates_report).
 - `vnstock_brief.py` — sinh AI brief morning/close (context → prompt → agent).
-  Hệ guard hậu kiểm ở `vnstock_brief_guards.py`: 44 guard + chuỗi
-  `apply_brief_guards(text, ctx)` DÙNG CHUNG cho cả 2 brief — KHÔNG BAO GIỜ
-  inline lại chuỗi vào `generate_brief` (điểm parity duy nhất). Hằng số + khối
-  canon mà CẢ prompt lẫn guard dựng chung ở `vnstock_brief_canon.py`; phụ
-  thuộc một chiều brief → guards → canon (`tests/test_brief_split.py` canh).
-  Mọi tên vẫn re-export qua `vnstock_brief` nên đường import cũ không đổi.
+  Chuỗi `apply_brief_guards(text, ctx)` ở `vnstock_brief_guards.py` DÙNG CHUNG
+  cho cả 2 brief — KHÔNG BAO GIỜ inline lại vào `generate_brief` (điểm parity
+  duy nhất). 44 guard chia 3 chủ đề: `_guards_sections` (sai chuyện gì) /
+  `_guards_numbers` (sai số, sai chiều) / `_guards_text` (lộ ruột, nói nhảm),
+  tiện ích chung ở `_guards_common`, hằng số + khối canon mà CẢ prompt lẫn
+  guard dựng chung ở `vnstock_brief_canon.py`. Một chiều: brief → guards →
+  3 nhóm → common/canon (`tests/test_brief_split.py` canh). Mọi tên vẫn
+  re-export qua `vnstock_brief` nên đường import cũ không đổi.
 - Pipeline data: `vnstock_updater` (sync giá) → `vnstock_rollup` (1m→daily)
   → `vnstock_warehouse` (Parquet) → `vnstock_runner`/`vnstock_screener`
   (screener + market_overview.json) → brief.

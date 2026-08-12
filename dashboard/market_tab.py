@@ -13,20 +13,23 @@ without the runtime. Dashboard-level helpers (``load_market_overview``,
 ``VN30_SYMBOLS`` / ``INDEX_SYMBOLS`` / ``WSS_AVAILABLE`` constants) are
 lazy-imported inside the render function.
 
-Tách đợt 12/08 (mục ④ audit 06/08) — `render_market_tab` từ 2.544 dòng
-xuống ~1.260:
+Tách đợt 12/08 (mục ④ audit 06/08) — ``render_market_tab`` từ 2.544
+dòng xuống ~1.040:
 
 * ``dashboard/market_brief_panel.py`` — khối 🤖 AI Market Brief (1.172
   dòng: cài đặt agent, consensus, lịch sử, panel chiến lược, training,
   scan). Đo bằng AST trước khi cắt: khối chỉ cần ĐÚNG MỘT tên từ scope
   ngoài (``st``).
+* ``dashboard/market_commentary.py`` — 🧭 Nhận định tổng quan (220 dòng
+  SINH CHỮ cho user). ``st.session_state`` + ``idx_df`` trước bắt qua
+  closure, nay là tham số.
 * ``dashboard/market_table_format.py`` — thang màu + định dạng ô bảng
   ngành. ``_amp_color`` từng bị chép nguyên thành ``_dd_amp_color`` cho
   drill-down; nay một hàm nhận (min, range) làm tham số.
 * ``dashboard/sparkline.py`` — SVG sparkline alpha 30 phiên.
 
-Còn inline: ``_live_market_fragment`` (fragment Streamlit, không tách
-được) và ``_build_commentary`` (đọc ``st.session_state`` + ``idx_df``).
+Còn inline: ``_live_market_fragment`` — fragment Streamlit
+(``@st.fragment``), theo thiết kế phải nằm trong hàm render.
 """
 
 from __future__ import annotations
@@ -981,233 +984,17 @@ def render_market_tab() -> None:
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("#### 🧭 Nhận định tổng quan thị trường")
 
-        def _build_commentary(breadth_data, mkt_data, idx_data):
-            """Generate market commentary từ data có sẵn."""
-            lines = []
+        # Nhận định thị trường → dashboard/market_commentary.py.
+        # `idx_df` và bảng mã trong session_state trước bắt qua closure,
+        # nay truyền THAM SỐ nên hàm sinh chữ test được.
+        from dashboard.market_commentary import build_commentary
 
-            # 1. Đánh giá sức mạnh chung VNINDEX/VN30
-            lines.append("**📊 Sức mạnh chung**")
-            if idx_data is not None and not idx_data.empty:
-                for idx_name in ["VNINDEX", "VN30"]:
-                    chg_col = f"{idx_name}_chg"
-                    if chg_col in idx_data.columns:
-                        recent = idx_data[chg_col].dropna().head(5)
-                        avg_chg = recent.mean()
-                        up_days = (recent > 0).sum()
-                        last_close = idx_data[idx_name].dropna().iloc[0] if idx_name in idx_data.columns else None
-                        close_str = f" ({last_close:,.0f})" if last_close else ""
-                        if avg_chg > 0.3:
-                            trend = "tăng tích cực"
-                            icon = "🟢"
-                        elif avg_chg > 0:
-                            trend = "đi ngang thiên tăng"
-                            icon = "🟡"
-                        elif avg_chg > -0.3:
-                            trend = "đi ngang thiên giảm"
-                            icon = "🟠"
-                        else:
-                            trend = "giảm rõ rệt"
-                            icon = "🔴"
-                        lines.append(f"- {icon} **{idx_name}**{close_str}: {trend} — 5 phiên gần nhất {up_days}/5 tăng, TB {avg_chg:+.2f}%/phiên")
-
-            # 2. Breadth assessment
-            if breadth_data:
-                lines.append("")
-                lines.append("**🌡️ Sức khỏe thị trường**")
-                pct200 = breadth_data["above_ma200_pct"]
-                ad = breadth_data["ad_ratio"]
-                ov = breadth_data["rsi_oversold"]
-                ob = breadth_data["rsi_overbought"]
-                nnh = breadth_data["net_new_highs"]
-
-                if pct200 > 50:
-                    lines.append(f"- 🟢 {pct200:.0f}% mã trên MA200 — thị trường trong xu hướng tăng rộng")
-                elif pct200 > 30:
-                    lines.append(f"- 🟡 {pct200:.0f}% mã trên MA200 — thị trường phân hóa, chọn lọc")
-                else:
-                    lines.append(f"- 🔴 Chỉ {pct200:.0f}% mã trên MA200 — đa số cổ phiếu trong xu hướng giảm")
-
-                if ad > 1.2:
-                    lines.append(f"- A/D ratio {ad:.2f} — lực cầu chiếm ưu thế")
-                elif ad < 0.8:
-                    lines.append(f"- A/D ratio {ad:.2f} — lực bán áp đảo")
-
-                if ov > 50:
-                    lines.append(f"- ⚠️ {ov} mã RSI<30 — vùng quá bán rộng, cơ hội nếu có tín hiệu đảo chiều")
-                if ob > 30:
-                    lines.append(f"- ⚠️ {ob} mã RSI>70 — nhiều mã quá mua, cẩn trọng đuổi giá")
-
-                if nnh > 10:
-                    lines.append(f"- {nnh:+d} net new highs — thị trường tạo đỉnh mới tốt")
-                elif nnh < -10:
-                    lines.append(f"- {nnh:+d} net new highs — nhiều mã tạo đáy mới hơn đỉnh mới")
-
-            # 3. Đánh giá ngành — quant-style scoring
-            _has_1m = mkt_data is not None and not mkt_data.empty and "Giá 1M %" in mkt_data.columns
-            if _has_1m:
-                try:
-                    from vnstock_market_analyzer import (
-                        compute_scores, market_regime, rank, format_row,
-                        session_timing_signal, build_preset_sets,
-                        compute_index_returns,
-                        load_quarantine_tickers, load_recent_exdiv,
-                    )
-                    # Load screener presets for ticker-level technical overlay
-                    try:
-                        from vnstock_dashboard import load_screener_results
-                        _preset_sets = build_preset_sets(load_screener_results())
-                    except Exception:
-                        _preset_sets = None
-
-                    # Load 90-day index data for alpha computation
-                    _idx_ret = None
-                    try:
-                        _idx_long = idx_df  # reuse already-loaded 90d data
-                        if _idx_long is not None and not _idx_long.empty:
-                            _idx_ret = compute_index_returns(_idx_long, index_col="VNINDEX")
-                    except Exception:
-                        pass
-
-                    # Quarantine + ex-div filters
-                    _quar_set = load_quarantine_tickers()
-                    _exdiv_map = load_recent_exdiv(days_back=7)
-
-                    scores = compute_scores(mkt_data, index_returns=_idx_ret,
-                                           exdiv_map=_exdiv_map)
-                    regime = market_regime(scores, breadth_data)
-                    ranked = rank(mkt_data, scores, n_top=5, n_bot=5,
-                                  name_col="Ngành", quarantined=_quar_set)
-
-                    lines.append("")
-                    lines.append(f"**🧠 Quant regime: {regime['regime']}**  · "
-                                 f"conviction `{regime['conviction']:+.2f}` · {regime['detail']}")
-                    if _idx_ret:
-                        lines.append(f"  · **VNINDEX benchmark**: "
-                                     f"1T `{_idx_ret['1T']:+.1f}%` · "
-                                     f"1M `{_idx_ret['1M']:+.1f}%` · "
-                                     f"3M `{_idx_ret['3M']:+.1f}%` "
-                                     f"— alpha dương = outperform")
-
-                    # Session timing signal (institutional vs retail bias)
-                    try:
-                        from vnstock_session_stats import load_session_stats_history
-                        from datetime import date as _td
-                        _sess_hist = load_session_stats_history()
-                        _today_key = _td.today().isoformat()
-                        _today_sess = _sess_hist.get(_today_key)
-                        if _today_sess:
-                            _st = session_timing_signal(_today_sess, _sess_hist, index_name="VNINDEX")
-                            if _st["signal"] != "N/A":
-                                lines.append(f"  · **Session timing**: {_st['signal']} — {_st['detail']}")
-                    except Exception:
-                        pass
-
-                    # Top sectors
-                    if ranked["top"]:
-                        lines.append("")
-                        lines.append("**🎯 Ngành đáng quan tâm (composite cao nhất)**")
-                        for row in ranked["top"]:
-                            if row.get("composite", 0) <= 0:
-                                break  # không show ngành có composite âm
-                            for ln in format_row(row, name_col="Ngành"):
-                                lines.append(ln if ln.startswith("  ") else f"- {ln}")
-
-                    # Rotation signal (warming-up sectors)
-                    if ranked.get("rotation"):
-                        lines.append("")
-                        lines.append("**🔄 Sector rotation: ngành đang ấm lên (alpha 1M > 3M)**")
-                        for row in ranked["rotation"]:
-                            for ln in format_row(row, name_col="Ngành"):
-                                lines.append(ln if ln.startswith("  ") else f"- {ln}")
-
-                    # Stealth watch
-                    if ranked["stealth"]:
-                        lines.append("")
-                        lines.append("**🕵️ Stealth watch (tín hiệu ẩn, composite chưa mạnh)**")
-                        for row in ranked["stealth"]:
-                            for ln in format_row(row, name_col="Ngành"):
-                                lines.append(ln if ln.startswith("  ") else f"- {ln}")
-
-                    # Distribution warning
-                    if ranked["distribution"]:
-                        lines.append("")
-                        lines.append("**⚠️ Distribution watch (giá tăng nhưng dòng tiền thoát)**")
-                        for row in ranked["distribution"]:
-                            for ln in format_row(row, name_col="Ngành"):
-                                lines.append(ln if ln.startswith("  ") else f"- {ln}")
-
-                    # Avoid list
-                    if ranked["avoid"]:
-                        lines.append("")
-                        lines.append("**⛔ Ngành nên tránh (composite thấp nhất)**")
-                        for row in ranked["avoid"]:
-                            if row.get("composite", 0) >= 0:
-                                break  # không show ngành composite dương
-                            for ln in format_row(row, name_col="Ngành"):
-                                lines.append(ln if ln.startswith("  ") else f"- {ln}")
-
-                    # Top tickers trong top 3 ngành
-                    tick_data = st.session_state.get("_mkt_ticker_data")
-                    if (tick_data is not None and not tick_data.empty
-                            and "Ngành" in tick_data.columns and ranked["top"]):
-                        lines.append("")
-                        lines.append("**⭐ Mã dẫn dắt trong ngành top (quant-ranked)**")
-                        for sec_row in ranked["top"][:3]:
-                            if sec_row.get("composite", 0) <= 0:
-                                continue
-                            sname = sec_row["Ngành"]
-                            sub = tick_data[tick_data["Ngành"] == sname].copy()
-                            if sub.empty:
-                                continue
-                            t_scores = compute_scores(sub, presets=_preset_sets,
-                                                     index_returns=_idx_ret, exdiv_map=_exdiv_map)
-                            t_ranked = rank(sub, t_scores, n_top=3, n_bot=0,
-                                            name_col="Mã", quarantined=_quar_set)
-                            picks = []
-                            for tr in t_ranked["top"]:
-                                if tr.get("composite", 0) <= 0:
-                                    continue
-                                flag = " 🚨" if tr.get("red_flags") else ""
-                                picks.append(
-                                    f"**{tr.get('Mã','?')}** (`{tr['composite']:+.2f}`){flag}"
-                                )
-                            if picks:
-                                lines.append(f"- **{sname}**: " + " · ".join(picks))
-
-                    # Mã cần tránh trong ngành tệ nhất (đầu avoid list)
-                    if (tick_data is not None and not tick_data.empty
-                            and "Ngành" in tick_data.columns and ranked["avoid"]):
-                        bad_secs = [r for r in ranked["avoid"] if r.get("composite", 0) < 0][:2]
-                        if bad_secs:
-                            lines.append("")
-                            lines.append("**💀 Mã yếu nhất trong ngành tệ nhất**")
-                            for sec_row in bad_secs:
-                                sname = sec_row["Ngành"]
-                                sub = tick_data[tick_data["Ngành"] == sname].copy()
-                                if sub.empty:
-                                    continue
-                                t_scores = compute_scores(sub, presets=_preset_sets,
-                                                         index_returns=_idx_ret, exdiv_map=_exdiv_map)
-                                t_ranked = rank(sub, t_scores, n_top=0, n_bot=3,
-                                                name_col="Mã", quarantined=_quar_set)
-                                flops = []
-                                for tr in t_ranked["avoid"]:
-                                    if tr.get("composite", 0) >= 0:
-                                        continue
-                                    flops.append(f"**{tr.get('Mã','?')}** (`{tr['composite']:+.2f}`)")
-                                if flops:
-                                    lines.append(f"- **{sname}**: " + " · ".join(flops))
-
-                except Exception as _e:
-                    lines.append(f"")
-                    lines.append(f"⚠️ Không tính được quant score: `{_e}`")
-
-            return "\n".join(lines)
-
-        commentary = _build_commentary(
+        commentary = build_commentary(
             breadth if breadth else None,
             mkt_df,
-            idx_df if not idx_df.empty else None
+            idx_df if not idx_df.empty else None,
+            idx_long=idx_df,
+            tick_data=st.session_state.get("_mkt_ticker_data"),
         )
         st.markdown(commentary)
         st.caption("⚠️ Nhận định tự động dựa trên dữ liệu kỹ thuật, không phải khuyến nghị đầu tư.")
