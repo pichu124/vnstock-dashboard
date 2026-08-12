@@ -22,6 +22,7 @@ No Streamlit dependency — safe to call from CLI or other modules.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re as _re
 from abc import ABC, abstractmethod
@@ -1716,6 +1717,28 @@ def _market_sentiment_block(ms: dict) -> str:
 
 
 # ── Context collection ─────────────────────────────────────────────────────
+
+_log = logging.getLogger(__name__)
+
+
+def _note_loader_error(ctx: dict, loader: str, exc: Exception) -> None:
+    """Ghi vết một nguồn dữ liệu hỏng, thay cho `except Exception: pass`.
+
+    `collect_context` gọi ~15 nguồn, nguồn nào cũng best-effort — đúng như
+    thiết kế: một nguồn chết KHÔNG được kéo sập cả brief. Nhưng nuốt trọn lỗi
+    thì khi brief thiếu hẳn một mục, không ai biết vì sao, cũng không biết là
+    nguồn nào (quét 12/08: 13 chỗ nuốt im, và `ctx["quant_error"]` viết ra rồi
+    KHÔNG AI ĐỌC).
+
+    Hai thứ nhỏ nhưng đủ dùng: một dòng WARNING vào `run_daily.log` (chỗ user
+    thật sự đọc) và một breadcrumb trong ctx để test/UI soi được.
+
+    KHÔNG đổi luồng: vẫn nuốt lỗi, vẫn chạy tiếp. Thiếu data thì prompt đã có
+    sentinel "KHÔNG CÓ …" lo phần chống bịa (xem `tests/test_prompt_sentinels.py`).
+    """
+    ctx.setdefault("loader_errors", {})[loader] = f"{type(exc).__name__}: {exc}"
+    _log.warning("collect_context: nguồn '%s' hỏng — %s: %s",
+                 loader, type(exc).__name__, exc)
 def _leadlag_candidates(sector_weights: dict) -> list[tuple[str, float]]:
     """Ứng viên (ngành, đóng góp pp 1 tuần) cho lead/lag, có SANITY GATE:
     contrib/weight ≡ "Giá 1T %" của row (by construction) — |%đổi tuần| > 35
@@ -1980,8 +2003,8 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
                         ctx["full_day_gtgd_cmp"] = _cmp
                 else:
                     ctx["full_day_gtgd_partial"] = float(_tg)
-        except Exception:
-            pass
+        except Exception as _e:
+            _note_loader_error(ctx, "market_overview", _e)
 
     # Record freshness of the screener-produced blocks vs the session date so
     # the prompt/header can warn when they trail the intraday VNINDEX.
@@ -2006,7 +2029,8 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
             ctx["quant_distribution"] = ranked.get("distribution", [])[:2]
             ctx["vol_regime"] = scores["_vol_regime"].mode().iloc[0] if "_vol_regime" in scores.columns else "normal"
         except Exception as e:
-            ctx["quant_error"] = str(e)
+            ctx["quant_error"] = str(e)      # giữ khoá cũ
+            _note_loader_error(ctx, "quant_scores", e)
 
     # 3. Session stats (intraday GTGD profile)
     # Use effective data date — falls back to latest available day when today
@@ -2052,8 +2076,8 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
             # (fix 21/07, xem _gtgd_close_frame).
             if _fw := _full_wss_baselines(_hist, _data_date_str):
                 ctx["full_wss_gtgd"] = _fw
-    except Exception:
-        pass
+    except Exception as _e:
+        _note_loader_error(ctx, "session_stats", _e)
 
     # 4. Top movers — whole-market scan, liquidity-filtered (not just VN30) so
     #    the brief can surface liquid mid-cap movers, not only index members.
@@ -2064,8 +2088,8 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
             ctx["vn30_gainers"] = _g
             ctx["vn30_losers"] = _l
             ctx["mover_universe"] = _uni
-        except Exception:
-            pass
+        except Exception as _e:
+            _note_loader_error(ctx, "movers", _e)
 
     # 5. Market-cap weights + intraday contributions (sector & ticker level)
     if ctx["tickers"] and ctx["sectors"]:
@@ -2098,8 +2122,8 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
                         sec_df["_1d_contrib"] = sec_df["_weight"] * sec_df["Giá 1T %"].fillna(0)
                     keep = [c for c in ["_weight", "_1d_contrib"] if c in sec_df.columns]
                     ctx["sector_weights"] = sec_df.set_index("Ngành")[keep].to_dict("index")
-        except Exception:
-            pass
+        except Exception as _e:
+            _note_loader_error(ctx, "sector_weights", _e)
 
     # Deterministically pick the strongest +/- sector contributor (1 tuần) so the
     # brief can't dress up a negligible (+0.02pp) sector as a leader. build_prompt
@@ -2157,8 +2181,8 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
         _ev = load_upcoming(within_days=14, tickers=_fund_universe)
         if _ev:
             ctx["upcoming_events"] = _ev
-    except Exception:
-        pass
+    except Exception as _e:
+        _note_loader_error(ctx, "upcoming_events", _e)
 
     # 8. Composite market sentiment (tâm lý thị trường) — synthesises breadth +
     # NN flow + index momentum + news sentiment into one short-term mood.
@@ -2167,8 +2191,8 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
         _ms = load_market_sentiment(vnindex_tech=_vt_early, breadth=ctx.get("breadth"))
         if _ms:
             ctx["market_sentiment"] = _ms
-    except Exception:
-        pass
+    except Exception as _e:
+        _note_loader_error(ctx, "market_sentiment", _e)
 
     # 8b. Macro context (lãi suất & tỷ giá) — current levels + change detection
     # so the brief can frame the session against monetary conditions and ĐÓN ĐẦU
@@ -2180,8 +2204,8 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
         if _macro:
             ctx["macro"] = _macro
             ctx["macro_news"] = macro_news()
-    except Exception:
-        pass
+    except Exception as _e:
+        _note_loader_error(ctx, "macro", _e)
 
     # 8c. Broad economic/political news (RSS, market-moving) with LLM sentiment +
     # impact — surfaces macro/geopolitical context beyond per-ticker corporate news.
@@ -2192,16 +2216,16 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
         _mkt_news = load_market_news(within_days=3, limit=6, drop_no_impact=True)
         if _mkt_news:
             ctx["market_news"] = _mkt_news
-    except Exception:
-        pass
+    except Exception as _e:
+        _note_loader_error(ctx, "market_news", _e)
 
     # 8d. Held positions (dashboard portfolio) so the brief ties Rủi ro /
     # hành động vào các mã user thực sự đang cầm (position-aware analysis).
     try:
         if _pf := load_portfolio_positions():
             ctx["portfolio"] = _pf
-    except Exception:
-        pass
+    except Exception as _e:
+        _note_loader_error(ctx, "portfolio", _e)
 
     # 8e. Báo cáo vĩ mô + band phân bổ (P4) — digest đã cache (P3) + state
     # allocation (P1) cho mục "📚" (brief ngày: 1 dòng band + tóm tắt báo cáo;
@@ -2216,16 +2240,16 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
                 from vnstock_report_digest import consensus as _rd_consensus
                 if _cons := _rd_consensus(as_of=_data_date_str):
                     ctx["reports_consensus"] = _cons
-        except Exception:
-            pass
+        except Exception as _e:
+            _note_loader_error(ctx, "macro_reports", _e)
         try:
             from vnstock_allocation import load_state as _alloc_state
             if _st := _alloc_state():
                 # bỏ history (nặng, không cần cho prompt); giữ bảng % + inputs
                 ctx["allocation"] = {k: v for k, v in _st.items()
                                      if k != "history"}
-        except Exception:
-            pass
+        except Exception as _e:
+            _note_loader_error(ctx, "allocation", _e)
 
     # 8f. Bài học reflection (rec đã đóng / kỳ band đã khép) — ngữ cảnh mềm
     # giúp brief tránh lặp lỗi nhận định cũ (vnstock_reflection — ý tưởng
@@ -2235,8 +2259,8 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
             from vnstock_reflection import load_lessons
             if _lessons := load_lessons(limit=3):
                 ctx["reflections"] = _lessons
-        except Exception:
-            pass
+        except Exception as _e:
+            _note_loader_error(ctx, "reflections", _e)
 
     # 9. Deterministic bias floor from the two headline signals the user sees in
     # the header (Tâm lý momentum + Regime score) — so the TLDR Bias can't soften
@@ -2246,8 +2270,8 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     try:
         from vnstock_regime import load_regime as _load_reg
         _reg_score = _load_reg().get("score")
-    except Exception:
-        pass
+    except Exception as _e:
+        _note_loader_error(ctx, "regime", _e)
     if _fl := _bias_floor_dir(_mom, _reg_score):
         ctx["bias_floor"] = {"dir": _fl, "momentum": _mom, "regime_score": _reg_score}
 
@@ -2630,6 +2654,17 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             _b.append(f"- Tránh/Bán: GHI 'Chưa có nhóm tụt hậu rõ rệt' (đóng góp -pp yếu nhất chỉ {_gc:+.3f}pp > -0.05).")
         _b.append("TUYỆT ĐỐI không chọn ngành khác làm dẫn dắt/tụt hậu.")
         lines.append("\n".join(_b))
+    else:
+        # Template có mục BẮT BUỘC "## 🏆 Dẫn dắt & Tụt hậu" và bảo model
+        # "DÙNG ĐÚNG block 🎯 ... ở trên". Block biến mất âm thầm = model được
+        # trỏ tới một block không tồn tại nhưng vẫn phải nộp mục đó.
+        lines.append(
+            "\n## 🎯 Dẫn dắt/Tụt hậu — KHÔNG CÓ DỮ LIỆU\n"
+            "⚠️ Chưa tính được đóng góp ngành hôm nay. BẮT BUỘC: mục "
+            "'Dẫn dắt & Tụt hậu' ghi 'Chưa có nhóm dẫn dắt rõ ràng' và "
+            "'Chưa có nhóm tụt hậu rõ rệt'. TUYỆT ĐỐI KHÔNG tự chọn ngành nào "
+            "làm dẫn dắt/tụt hậu."
+        )
 
     # Deterministic bias floor: when the headline signals are strongly one-sided,
     # the TLDR Bias must follow them (no softening to "Trung tính"/opposite).
@@ -2685,6 +2720,14 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         vr_note = " | ⚡ Biên độ cao — high-vol regime" if vr == "high" else ""
         lines.append(f"\n## Quant Market Regime\n{r['regime']} | conviction={r['conviction']:+.2f}"
                      f"{vr_note} | {r['detail']}")
+    else:
+        # Template nhắc "regime" ở nhiều chỗ ràng buộc (stance, hướng setup,
+        # lý do phân bổ). Không có block = model tự đặt ra một regime.
+        lines.append(
+            "\n## Quant Market Regime\n"
+            "⚠️ KHÔNG CÓ quant regime hôm nay — TUYỆT ĐỐI KHÔNG nêu tên regime "
+            "hay conviction; nếu cần nhắc thì ghi 'chưa có regime hôm nay'."
+        )
 
     # VNINDEX technical levels — emit BEFORE breadth/sectors so the LLM
     # treats these as the canonical reference numbers instead of making up
@@ -3079,6 +3122,20 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         lines.append("\n## Top Losers thanh khoản cao (VN30 + mid-cap; thay đổi 1 TUẦN/5 phiên — KHÔNG phải 1 phiên, với đóng góp vào VNINDEX)")
         for g in losers:
             lines.append(_vn30_line(g))
+
+    # Cùng bất biến chống bịa với block VNINDEX/breadth ở trên, và đây là ca
+    # NẶNG NHẤT: template bảo model "CHỈ chọn mã trong block Top Gainers/Losers
+    # CÓ DẤU ⭐" và còn nói block đó "BÌNH THƯỜNG có sẵn vài mã". Khối biến mất
+    # âm thầm = model được lệnh chọn từ một danh sách KHÔNG TỒN TẠI, trong khi
+    # vẫn phải nộp tối đa 3 setup → nó bịa mã + bịa giá.
+    if not gainers and not losers:
+        lines.append(
+            "\n## Top Gainers/Losers thanh khoản cao\n"
+            "⚠️ KHÔNG CÓ dữ liệu movers hôm nay (loader thất bại hoặc kho trống). "
+            "BẮT BUỘC: mục 'Đề xuất giao dịch' viết 'Chưa có dữ liệu mã đủ thanh khoản "
+            "hôm nay — không đề xuất setup'. TUYỆT ĐỐI KHÔNG nêu tên mã, giá, "
+            "hỗ trợ/kháng cự của bất kỳ mã nào từ trí nhớ."
+        )
 
     # Sector money flow (foreign net flow + liquidity by sector) so the agent
     # can describe rotation / where smart money is going.

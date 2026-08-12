@@ -5668,6 +5668,73 @@ muốn cắt tiếp thì mục tiêu rõ ràng là `build_prompt` (591 dòng) v�
 `collect_context` (356) — đó là chia HÀM, việc khác loại với chia file.
 
 
+## 2026-08-12 (g) — Soi `build_prompt`/`collect_context`: KHÔNG chia hàm, nhưng tìm ra lỗ thật
+
+User hỏi "chia tiếp có lợi ích gì không". Đo trước khi trả lời — và câu trả
+lời hoá ra là **KHÔNG chia, nhưng có lỗi phải vá**.
+
+### Đo cái gì
+
+`build_prompt`: 591 dòng, **94 `if`**, 121 biến cục bộ, lồng sâu 6.
+`collect_context`: 356 dòng, 39 `if`, **15 `try/except`**.
+
+Chia cơ học 25 khối của `build_prompt` thành 25 hàm = churn rủi ro cao (121
+biến phải luồn qua chữ ký) đổi lấy một con số dòng đẹp hơn. **Không làm.**
+Nhưng quét thì lộ ra thứ đáng giá hơn nhiều.
+
+### Lỗ 1: khối prompt biến mất âm thầm → model bịa
+
+Trong `build_prompt` có sẵn một bất biến ghi rõ bằng chữ:
+
+> "CRITICAL anti-hallucination invariant: … a missing block leaves a vacuum
+> the LLM fills from imagination."
+
+Nhưng nó chỉ được áp cho **5 khối**, bằng tay, không có lưới. Quét AST 17 khối
+prompt có điều kiện → **11 khối biến mất âm thầm**.
+
+Không phải cả 11 đều sai, và đó chính là lý do lưới phải là DANH SÁCH KHAI BÁO
+chứ không phải luật quét mù:
+* khối **cảnh báo** (độ tươi dữ liệu, ràng buộc bias) chỉ hiện KHI CÓ vấn đề →
+  vắng mặt là ĐÚNG;
+* khối **dữ liệu** mà template lại ra lệnh "dùng đúng block ở trên" → vắng mặt
+  là để lại khoảng trống, mà model vẫn buộc phải nộp mục đó.
+
+Vá 3 khối, chọn đúng 3 vì đọc template thấy nó trỏ thẳng vào:
+* **Top Gainers/Losers** — nặng nhất. Template nói "CHỈ chọn mã trong block
+  Top Gainers/Losers CÓ DẤU ⭐", còn thêm "block đó BÌNH THƯỜNG có sẵn vài mã",
+  trong khi vẫn đòi tối đa 3 setup. Khối vắng = model được lệnh chọn từ danh
+  sách KHÔNG TỒN TẠI → bịa mã + bịa giá.
+* **🎯 Dẫn dắt/Tụt hậu** — template có mục BẮT BUỘC "## 🏆 Dẫn dắt & Tụt hậu"
+  trỏ thẳng vào block này.
+* **Quant Market Regime** — template ràng buộc stance/hướng setup theo regime.
+
+`tests/test_prompt_sentinels.py` (20 test) canh cả hai chiều: khối khai báo
+phải cảnh báo khi rỗng, VÀ khối cảnh-báo-theo-thiết-kế phải im khi không có gì
+để cảnh báo (sentinel bật nhầm còn tệ hơn không có — nó dạy model im lặng).
+
+### Lỗ 2: 13 nguồn nuốt lỗi im lặng, breadcrumb duy nhất thì không ai đọc
+
+`collect_context` gọi ~15 nguồn best-effort. 13 chỗ `except Exception: pass`,
+và `ctx["quant_error"]` — grep toàn repo: **viết ra rồi KHÔNG AI ĐỌC**.
+
+Tin tốt (kiểm rồi mới nói): đây KHÔNG phải họ lỗi "không đo được ≠ đo ra kết
+quả xấu". `ctx` khởi tạo bằng `[]`/`{}` nên nguồn hỏng để lại RỖNG, và prompt
+đọc rỗng thành "không có data" → sentinel bật. Không có ca nào biến lỗi thành
+số 0 giả.
+
+Vấn đề còn lại chỉ là MẤT DẤU: brief thiếu hẳn một mục mà không ai biết nguồn
+nào chết. Vá bằng `_note_loader_error(ctx, tên, lỗi)` — ghi vào
+`ctx["loader_errors"]` + một dòng WARNING vào `run_daily.log` (chỗ user THẬT
+SỰ đọc). Không đổi luồng: vẫn nuốt lỗi, vẫn chạy tiếp.
+
+`tests/test_loader_breadcrumbs.py` (12 test). Lưới có một ranh giới CÓ LÝ DO:
+chỉ soi `except` ở TẦNG NGUỒN, bỏ qua handler trong hàm con lồng bên trong
+(`_morn()` bọc `float(v)` hỏng ở một ngày lịch sử là chuyện thường — ghi vết ở
+đó chỉ tạo báo động giả, mà báo động giả làm người ta ngừng đọc cảnh báo thật).
+
+Suite **1888 passed** (+32).
+
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -5676,7 +5743,7 @@ muốn cắt tiếp thì mục tiêu rõ ràng là `build_prompt` (591 dòng) v�
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **1856 passed** · nhánh
+> Trạng thái: full suite **1888 passed** · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
 > user tự làm thường xuyên — KHÔNG track làm việc (user chốt 12/08).
 
@@ -5723,9 +5790,9 @@ vừa chia tách?) → báo Claude kèm message.
   đề**; `dashboard/market_tab.py` 2.567 → **1.082**, panel brief 1.194 → **42
   + 5 panel con**; nhận định thị trường ra `market_commentary.py`.
   Không còn file nào do đợt tách sinh ra vượt 800 dòng.
-  Cắt tiếp (NGOÀI phạm vi audit, chỉ làm nếu thấy vướng): `build_prompt` 591
-  dòng và `collect_context` 356 trong `vnstock_brief.py` — đó là chia HÀM,
-  việc khác loại với chia file
+  Đã soi `build_prompt`/`collect_context` (entry 12/08 (g)): KHÔNG chia hàm
+  (churn cao, lợi ích chỉ là con số dòng) nhưng vá 2 lỗ thật tìm được lúc
+  quét — khối prompt biến mất âm thầm, và 13 nguồn nuốt lỗi im lặng
 * **② hiệu năng** (làm cuối): warehouse bị quét ~14 lần/đêm — **ĐO TRƯỚC rồi
   mới quyết**, nhiều khả năng BỎ (pipeline chạy 18:00 không ai ngồi đợi; sửa
   phải đụng nhiều module để đổi lấy sự tiện không ai cảm nhận)
