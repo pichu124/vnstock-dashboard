@@ -6189,6 +6189,33 @@ Bằng chứng sống ngay lần chạy đầu: `python run.py test` đi qua mai
 → sinh `run_daily.log` đầu tiên trong đời dự án (187 KB, nguyên output
 pytest của tiến trình con). Suite 2008 → **2023 passed**.
 
+## 2026-08-13 (k) — Nút "Tạo brief phân bổ" nổ ngay lần bấm THẬT đầu tiên
+
+User tạo brief phân bổ tháng 8 (4 giọng đều ra, số ghim chuẩn) nhưng cuối
+trang hiện hộp đỏ "Không render được sub tab Phân bổ: too many values to
+unpack (expected 2)". Truy: `_render_brief` mổ
+`for name, (text, err) in results.items()` — mổ NGAY TRONG câu for, TRƯỚC
+dòng lọc `name.startswith("_")` ngay bên dưới. `generate_brief` trả kèm
+metadata `_brief_ids` (list id các brief vừa lưu) → 4 agent thành công =
+list 4 phần tử = unpack (expected 2) nổ. Nghịch lý đáng nhớ: brief càng
+THÀNH CÔNG nhiều giọng càng chắc chắn nổ — còn smoke test không bao giờ
+thấy vì Streamlit giả "không bấm nút nào" (giới hạn đã tự ghi trong
+docstring test_tab_render_smoke). `brief_run_panel` làm ĐÚNG từ đầu (lọc
+trước, mổ sau) — chỉ panel phân bổ sai kiểu.
+
+Fix: lọc "_" trước rồi mới mổ payload (mirror brief_run_panel). Test mới
+`TestAllocationBriefButtonBranch` (2 test): fake button bấm THẬT key
+`_al_brief` + stub generate_brief trả đúng HÌNH DẠNG thật (kèm _brief_ids
+4 phần tử, _warnings dict, _no_available) — chứng minh ĐỎ trước fix
+(ValueError đúng dòng 167) rồi mới xanh sau fix.
+
+Hệ quả dễ chịu: brief KHÔNG mất — save vào memory nằm BÊN TRONG
+generate_brief, chạy xong trước vòng render, nên 4 brief đã trong SQLite,
+doctor ⚠️ phân bổ tự tắt, expander "Brief gần nhất" mở lại là thấy. User
+chỉ cần merge để lần bấm sau không đỏ.
+
+Suite 2023 → **2025 passed**.
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -6197,7 +6224,7 @@ pytest của tiến trình con). Suite 2008 → **2023 passed**.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2023 passed** (`--fast` ~1.534 test — ~26-35s trên CI,
+> Trạng thái: full suite **2025 passed** (`--fast` ~1.534 test — ~26-35s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
@@ -6290,9 +6317,10 @@ Select-String -Path run_daily.log -Pattern "collect_context"
   lại mỗi tối → báo Claude tên nguồn đó.
 (Thích đọc cả file: `notepad run_daily.log`, Ctrl+F `tier=`.)
 ✅ **Đã giải mã badge 2⚠️ (user dán doctor 13/08)** — KHÔNG có nguồn hỏng,
-15 ✅: (1) **Phân bổ tài sản** = nhắc việc THÁNG: chưa tạo brief phân bổ
-tháng 8/2026 (sub-tab 🧭, 1 phút) — engine vẫn khoẻ, band B4 căng thẳng,
-7 tín hiệu; (2) **LLM ledger** 50 call/26 lỗi/6 rate-limit ngày 13/08 —
+15 ✅: (1) **Phân bổ tài sản** = nhắc việc THÁNG — ✅ user đã tạo brief
+tháng 8 ngay 13/08 (4 giọng, số ghim chuẩn; lộ + vá luôn bug render
+"too many values" — entry 13/08 (k)), ⚠️ này tự tắt;
+(2) **LLM ledger** 50 call/26 lỗi/6 rate-limit ngày 13/08 —
 hôm đó tự mình đốt tải (sinh brief thật 4 giọng + test), chạm trần Gemini
 flash + 2 gemma free đúng hồ sơ đã biết (503 đêm VN + 429 free tier, mục
 6/7 đang theo dõi). Đào sâu khi cần: `python vnstock_llm_ledger.py --show`

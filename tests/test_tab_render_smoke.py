@@ -297,3 +297,59 @@ def test_no_panel_silently_disables_itself(render_env):
     disabled = [s for s in said
                 if "disabled" in s.lower() or "Không tìm thấy" in s]
     assert not disabled, "Panel tự tắt thay vì chạy thân:\n  " + "\n  ".join(disabled)
+
+
+class TestAllocationBriefButtonBranch:
+    """Nhánh SAU KHI BẤM nút "📝 Tạo brief phân bổ" — chỗ smoke thường né.
+
+    Bug user bắt 13/08, ngay lần bấm nút THẬT đầu tiên: generate_brief trả
+    kèm metadata `_brief_ids` (list N id) / `_warnings` (dict); vòng for cũ
+    mổ `(text, err)` NGAY TRONG câu for — trước cả dòng lọc key "_" — nên
+    brief càng THÀNH CÔNG (4 agent → _brief_ids 4 phần tử) càng chắc nổ
+    "too many values to unpack (expected 2)". Panel bọc try/except nên chỉ
+    hiện hộp đỏ "Không render được sub tab Phân bổ" SAU khi đã vẽ đủ brief.
+    """
+
+    def _st_pressed(self):
+        st = _fake_streamlit()
+        st.button = lambda label, *a, key=None, **k: key == "_al_brief"
+        return st
+
+    def test_brief_button_survives_metadata_keys(self, monkeypatch):
+        import vnstock_brief as vb
+        import vnstock_memory as mem
+        from dashboard.allocation_tab import _render_brief
+
+        realistic = {
+            "Gemini 3.5 Flash": ("brief A", None),
+            "Mistral Small": ("brief B", None),
+            "Cerebras GPT-OSS-120B": ("", "429 rate limit"),
+            "_brief_ids": [101, 102, 103, 104],   # thủ phạm: 4 phần tử ≠ 2
+            "_warnings": {"Gemini 3.5 Flash": ["1 câu bị guard sửa"]},
+        }
+        monkeypatch.setattr(vb, "generate_brief", lambda *a, **k: dict(realistic))
+        monkeypatch.setattr(mem, "recent_briefs", lambda *a, **k: [])
+
+        st = self._st_pressed()
+        _render_brief(st)          # trước fix: ValueError ngay dòng for
+
+        rendered = " | ".join(str(c.args[0]) if c.args else ""
+                              for c in st.markdown.call_args_list)
+        assert "brief A" in rendered and "brief B" in rendered
+        assert "_brief_ids" not in rendered   # metadata không hiện như agent
+
+    def test_all_agents_failed_shows_error_not_crash(self, monkeypatch):
+        import vnstock_brief as vb
+        import vnstock_memory as mem
+        from dashboard.allocation_tab import _render_brief
+
+        monkeypatch.setattr(vb, "generate_brief", lambda *a, **k: {
+            "Gemini 3.5 Flash": ("", "hết quota"),
+            "_no_available": ("", "3 key đều thiếu"),
+            "_brief_ids": [],                  # list rỗng: unpack cũng nổ
+        })
+        monkeypatch.setattr(mem, "recent_briefs", lambda *a, **k: [])
+
+        st = self._st_pressed()
+        _render_brief(st)
+        assert st.error.called                # báo lỗi tử tế, không crash

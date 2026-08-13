@@ -164,9 +164,15 @@ def _render_brief(st) -> None:
         with st.spinner("Đang tạo brief phân bổ…"):
             results = vb.generate_brief("allocation", force=True)
         shown = False
-        for name, (text, err) in results.items():
+        # Lọc key "_" TRƯỚC rồi mới mổ tuple (mirror brief_run_panel):
+        # results còn chở metadata (_brief_ids = list N id, _warnings =
+        # dict) — mổ (text, err) ngay trong câu for là nổ "too many values
+        # to unpack" đúng lúc brief THÀNH CÔNG nhiều agent (user bắt 13/08,
+        # ngay lần bấm nút thật đầu tiên).
+        for name, payload in results.items():
             if name.startswith("_"):
                 continue
+            text, err = payload
             if text:
                 st.markdown(f"**{name}:**")
                 st.markdown(text)
