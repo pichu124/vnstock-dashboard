@@ -392,6 +392,7 @@ def strategy_loop(
     verbose: bool = True,
     lite: bool = False,
     mode: str = "auto",
+    tier: str = "short",
 ) -> dict:
     """Adaptive strategy training shared across all enabled agents.
 
@@ -443,6 +444,7 @@ def strategy_loop(
             cfg=cfg,
             mode=mode,
             extra_agents=pool,
+            tier=tier,
         )
         if sid is None:
             if verbose:
@@ -646,6 +648,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--interval-hours", type=float, default=24,
                         help="Sleep between iterations when --schedule (default 24).")
     parser.add_argument("--quiet", action="store_true", help="Suppress logs.")
+    parser.add_argument("--tier", choices=("short", "position", "both"),
+                        default="short",
+                        help="Tầng chiến lược: short=5 phiên (mặc định), "
+                             "position=20 phiên (chốt từ số đo 13/08), both=cả hai.")
     parser.add_argument("--lite", action="store_true",
                         help="Train on 10 curated diverse tickers with a smaller "
                              "backtest window (~30-60s). Default: full VN30 "
@@ -674,7 +680,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.briefs_only:
         brief_loop(verbose=verbose)
     elif args.strategy_only:
-        strategy_loop(verbose=verbose, lite=args.lite, mode=args.mode)
+        for _t in (("short", "position") if args.tier == "both" else (args.tier,)):
+            strategy_loop(verbose=verbose, lite=args.lite, mode=args.mode, tier=_t)
     elif args.reconcile_only:
         reconcile_recommendations(verbose=verbose)
     else:

@@ -3620,30 +3620,45 @@ def _active_strategy_validation(ctx: dict | None = None) -> dict:
     """
     out = {"known": False, "passed": True, "p": None, "reasons": []}
     try:
-        import json as _json
-
         import vnstock_memory as _mem
         active = _mem.get_active_family()
-        if not active:
-            return out
-        bt = _mem.latest_backtest(active["id"])
-        val = (_json.loads(bt["metrics_json"]).get("validation")
-               if bt and bt.get("metrics_json") else None)
-        if not val:
-            return out
-        out = {
-            "known": True,
-            "passed": bool(val.get("passed")),
-            # p hiệu chỉnh chọn-lọc nghiêm hơn p thô — ưu tiên như panel dashboard
-            "p": val.get("p_value_adj", val.get("p_value_sharpe")),
-            "reasons": list(val.get("reasons") or []),
-        }
+        if active:
+            out = _validation_of_strategy(active["id"])
     except Exception as e:
         if ctx is not None:
             _note_loader_error(ctx, "strategy_validation", e)
     if ctx is not None:
         ctx["strategy_validation"] = out
     return out
+
+
+def _validation_of_strategy(strategy_id) -> dict:
+    """Kiểm định của MỘT chiến lược theo id — cùng hợp đồng known/passed/p.
+
+    Tách riêng (13/08) vì rec nay mang `strategy_id` của chính nó và hai tier
+    chạy song song: rec của tầng vị thế phải được xử theo kiểm định của CHÍNH
+    chiến lược vị thế, không phải của chiến lược 5 phiên đang active.
+    Mọi lỗi đọc → unknown (không đo được ≠ trượt).
+    """
+    out = {"known": False, "passed": True, "p": None, "reasons": []}
+    try:
+        import json as _json
+
+        import vnstock_memory as _mem
+        bt = _mem.latest_backtest(strategy_id)
+        val = (_json.loads(bt["metrics_json"]).get("validation")
+               if bt and bt.get("metrics_json") else None)
+        if not val:
+            return out
+        return {
+            "known": True,
+            "passed": bool(val.get("passed")),
+            # p hiệu chỉnh chọn-lọc nghiêm hơn p thô — ưu tiên như panel dashboard
+            "p": val.get("p_value_adj", val.get("p_value_sharpe")),
+            "reasons": list(val.get("reasons") or []),
+        }
+    except Exception:
+        return out
 
 
 def _recommendation_block(ctx: dict | None = None) -> str:
@@ -3680,11 +3695,35 @@ def _recommendation_block(ctx: dict | None = None) -> str:
         if not fresh:
             return ""
 
-        _val = _active_strategy_validation(ctx)
-        if _val["known"] and not _val["passed"]:
+        # Gating THEO TỪNG CHIẾN LƯỢC (13/08, hai tier chạy song song): rec
+        # mang strategy_id của chính nó — rec tầng vị thế không bị xử theo
+        # kiểm định của tầng 5 phiên. Rec cũ không có strategy_id → dùng
+        # kiểm định của active short (hành vi cũ).
+        _short_val = _active_strategy_validation(ctx)
+        _val_cache: dict = {}
+
+        def _val_of(rec) -> dict:
+            sid = rec.get("strategy_id")
+            if sid is None:
+                return _short_val
+            if sid not in _val_cache:
+                _val_cache[sid] = _validation_of_strategy(sid)
+            return _val_cache[sid]
+
+        emitted, hidden_vals = [], []
+        for r in fresh:
+            v = _val_of(r)
+            if v["known"] and not v["passed"]:
+                if v not in hidden_vals:
+                    hidden_vals.append(v)
+                continue
+            emitted.append(r)
+
+        if not emitted:
             if ctx is not None:
                 ctx["strategy_recs_in_prompt"] = False
-            _p = _val.get("p")
+            _p = next((v.get("p") for v in hidden_vals
+                       if isinstance(v.get("p"), float)), None)
             _ptxt = f" (p={_p:.3f})" if isinstance(_p, float) else ""
             return (
                 "\n## Khuyến nghị từ chiến lược đã backtest (tự sinh)\n"
@@ -3694,6 +3733,7 @@ def _recommendation_block(ctx: dict | None = None) -> str:
                 "mục 'Đề xuất giao dịch' CHỈ dùng mã ⭐ từ block Top Gainers/Losers "
                 "(không có mã ⭐ thì ghi 'Chưa có setup đủ điều kiện')."
             )
+        fresh = emitted
         # KL gợi ý fixed-risk (display-only, chỉ khi user đã cấu hình NAV).
         _sps = None
         try:
@@ -3706,9 +3746,14 @@ def _recommendation_block(ctx: dict | None = None) -> str:
         lines = ["\n## Khuyến nghị từ chiến lược đã backtest (tự sinh)"]
         for r in fresh[:5]:
             entry = float(r.get("entry_price") or 0)
+            _h = int(r.get("horizon_days") or 5)
             tp    = float(r.get("take_profit") or 0)
             sl    = float(r.get("cut_loss") or 0)
             line = f"- {r['ticker']} {r['action'].upper()}"
+            if _h >= 15:
+                # Tầng vị thế: nhãn khung thời gian ghi RÕ (bài học "Giá 1T %"
+                # — mọi nhãn phải nói nó thuộc khung nào).
+                line += f" [vị thế ~{_h} phiên]"
             if entry > 0:
                 line += f" entry={_fmt_rec_price(entry)}"
             if tp > 0:
@@ -3727,6 +3772,12 @@ def _recommendation_block(ctx: dict | None = None) -> str:
                 line += f" — {_rat}"
             lines.append(line)
 
+        if hidden_vals:
+            # Một phần bị ẩn (tier trượt kiểm định) — nói ra để model không
+            # tự bịa lý do "thiếu khuyến nghị", và không nhắc tier đó nữa.
+            lines.append(
+                "(Một phần khuyến nghị đã bị ẩn vì chiến lược sinh ra chúng "
+                "CHƯA ĐẠT kiểm định — KHÔNG nhắc tới các mã ngoài danh sách trên.)")
         if ctx is not None:
             ctx["strategy_recs_in_prompt"] = True
         return "\n".join(lines)

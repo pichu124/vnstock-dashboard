@@ -140,6 +140,11 @@ def _migrate(c: sqlite3.Connection) -> None:
         c.execute("ALTER TABLE strategies ADD COLUMN last_tuned_at TEXT")
     if "is_core_stable" not in cols:
         c.execute("ALTER TABLE strategies ADD COLUMN is_core_stable INTEGER DEFAULT 0")
+    # Tầng thời gian (13/08, user chốt "theo dõi cả ngắn/dài"): 'short' =
+    # 5 phiên (mọi chiến lược cũ), 'position' = ~20 phiên. Mỗi tier có MỘT
+    # active riêng — DEFAULT 'short' nên toàn bộ dữ liệu cũ giữ nguyên nghĩa.
+    if "tier" not in cols:
+        c.execute("ALTER TABLE strategies ADD COLUMN tier TEXT NOT NULL DEFAULT 'short'")
     # Indexes that depend on migrated columns
     c.execute("CREATE INDEX IF NOT EXISTS ix_strats_family ON strategies(family_id)")
 
@@ -231,16 +236,17 @@ def save_strategy(
     parent_id: Optional[int] = None,
     status: str = "draft",
     family_id: Optional[str] = None,
+    tier: str = "short",
 ) -> int:
     init_db()
     with _conn() as c:
         cur = c.execute(
             "INSERT INTO strategies (created_at, agent_name, name, description, "
-            "code, params_json, parent_id, status, family_id) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
+            "code, params_json, parent_id, status, family_id, tier) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
             (_now(), agent_name, name, description, code,
              json.dumps(params or {}, ensure_ascii=False), parent_id, status,
-             family_id),
+             family_id, tier),
         )
         return int(cur.lastrowid)
 
@@ -269,23 +275,36 @@ def mark_core_stable(strategy_id: int, stable: bool = True) -> None:
                   (1 if stable else 0, strategy_id))
 
 
-def get_active_family() -> Optional[dict]:
-    """Return the single currently-active strategy (no agent filter).
+def get_active_family(tier: str = "short") -> Optional[dict]:
+    """Return the currently-active strategy OF ONE TIER (no agent filter).
     All enabled agents share this strategy and can tune/revise it.
+
+    Mặc định 'short' giữ nguyên nghĩa cho mọi chỗ gọi cũ (trước 13/08 chỉ có
+    một tier). Mỗi tier một active — 'position' chạy song song, không tranh
+    ghế với 'short'.
     """
+    init_db()
     with _conn() as c:
         row = c.execute(
-            "SELECT * FROM strategies WHERE status='active' "
-            "ORDER BY created_at DESC LIMIT 1"
+            "SELECT * FROM strategies WHERE status='active' AND tier=? "
+            "ORDER BY created_at DESC LIMIT 1", (tier,)
         ).fetchone()
         return dict(row) if row else None
 
 
 def promote_strategy(strategy_id: int, retire_others: bool = True) -> None:
-    """Mark this strategy as 'active'. Optionally retire other actives."""
+    """Mark this strategy as 'active'. Optionally retire other actives.
+
+    `retire_others` chỉ đụng active CÙNG TIER — promote chiến lược vị thế
+    không được kéo chiến lược 5-phiên đang chạy xuống ghế (và ngược lại).
+    """
     with _conn() as c:
         if retire_others:
-            c.execute("UPDATE strategies SET status='retired' WHERE status='active'")
+            row = c.execute("SELECT tier FROM strategies WHERE id=?",
+                            (strategy_id,)).fetchone()
+            tier = (row["tier"] if row and row["tier"] else "short")
+            c.execute("UPDATE strategies SET status='retired' "
+                      "WHERE status='active' AND tier=?", (tier,))
         c.execute("UPDATE strategies SET status='active' WHERE id=?", (strategy_id,))
 
 

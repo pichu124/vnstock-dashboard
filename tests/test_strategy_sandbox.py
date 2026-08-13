@@ -484,7 +484,7 @@ def test_invalid_generated_code_is_not_saved(monkeypatch):
             # LLM trả code hỏng — đúng thứ đã sinh ra 8 dòng rác kia
             return "PARAMS:\n{}\nCODE:\nimport os\ndef signal(df, p): pass", None
 
-    monkeypatch.setattr(_vs.mem, "get_active_family", lambda: None)
+    monkeypatch.setattr(_vs.mem, "get_active_family", lambda *a, **k: None)
     monkeypatch.setattr(_vs.mem, "save_strategy",
                         lambda **kw: saved.append(kw) or 1)
     monkeypatch.setattr(_vs, "_do_backtest",
@@ -513,7 +513,7 @@ def test_valid_generated_code_still_saved(monkeypatch):
         def generate(self, prompt, max_tokens=2000):
             return good, None
 
-    monkeypatch.setattr(_vs.mem, "get_active_family", lambda: None)
+    monkeypatch.setattr(_vs.mem, "get_active_family", lambda *a, **k: None)
     monkeypatch.setattr(_vs.mem, "save_strategy",
                         lambda **kw: saved.append(kw) or 7)
     monkeypatch.setattr(_vs.mem, "save_backtest", lambda *a, **kw: None)

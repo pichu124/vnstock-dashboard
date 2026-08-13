@@ -744,6 +744,8 @@ def cmd_test(args) -> int:
             "tests/test_exit_reachability.py",
             "tests/test_fundamentals_history.py",
             "tests/test_reachability.py",
+            "tests/test_strategy_tiers.py",
+            "tests/test_strategy_tiers.py",
         ]
     else:
         test_paths = ["tests/"]

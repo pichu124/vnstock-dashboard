@@ -60,6 +60,33 @@ import vnstock_memory as mem
 STRATEGY_TIMEOUT_S = 10
 DEFAULT_HORIZON_DAYS = 5
 DEFAULT_BACKTEST_LOOKBACK_DAYS = 365
+
+# ── Tầng thời gian (13/08 — user chốt "theo dõi cả ngắn/dài") ───────────────
+# Số chọn từ ĐO THỰC trên máy user (vnstock_reachability, 30 mã VN30 × 500
+# phiên, _meta/reachability.json):
+#   horizon   p60 MFE (×ATR)   TP 2.5×ATR với tới
+#      5d          1.30              16%   ← TP 2.5–4×ATR hiện tại gần như ảo
+#     20d          2.89              46%   ← khớp đúng dải tp_atr_mult 2.5–3.0
+#     40d          4.30              61%   (vốn nằm gấp đôi, MAE p50 −7.5%)
+# → tier "position" lấy 20 phiên: TP hiện hành trở nên VỚI TỚI ĐƯỢC mà vốn
+# không bị giam quá lâu. 40d để sau nếu user muốn thêm tầng nữa.
+#
+# BẤT BIẾN step ≥ horizon: hai lệnh backtest chồng cửa sổ là CÙNG một cú sóng
+# đếm nhiều lần — mẫu "độc lập" giả làm p-value đẹp giả, kiểm định chống-ăn-may
+# thành trang trí. Có test canh (tests/test_strategy_tiers.py).
+TIER_CONFIGS: "dict[str, dict]" = {
+    "short":    {"horizon_days": 5,  "step_days": 5,  "lookback_days": 365},
+    "position": {"horizon_days": 20, "step_days": 20, "lookback_days": 730},
+}
+
+
+def tier_config(tier: str, universe: "list[str]") -> "BacktestConfig":
+    """BacktestConfig chuẩn cho một tier. Tier lạ → ValueError (không đoán)."""
+    if tier not in TIER_CONFIGS:
+        raise ValueError(f"tier không khai báo: {tier!r} (có: {sorted(TIER_CONFIGS)})")
+    t = TIER_CONFIGS[tier]
+    return BacktestConfig(universe=universe, lookback_days=t["lookback_days"],
+                          horizon_days=t["horizon_days"], step_days=t["step_days"])
 MIN_TRADES_TO_VALIDATE = 10
 
 # ── AST whitelist ──────────────────────────────────────────────────────────
@@ -1715,14 +1742,48 @@ def _parse_params_and_code(text: str) -> tuple[dict, str]:
     return params, code
 
 
+def _reachability_hint(horizon_days: int) -> str:
+    """Neo TP/SL của prompt sinh chiến lược vào SỐ ĐO thay vì con số bịa.
+
+    Đọc `_meta/reachability.json` (user chạy `vnstock_reachability` trên máy
+    thật). Vì sao phải neo: hướng dẫn cũ "tp_atr_mult 2.5-4.0" viết chung cho
+    mọi horizon, mà đo 13/08 cho thấy ở 5 phiên TP 2.5×ATR chỉ với tới 16% số
+    lần → 0/49 khuyến nghị live chạm chốt lời. Best-effort: thiếu file/thiếu
+    horizon → chuỗi rỗng, prompt như cũ (không đo được thì không bịa neo).
+    """
+    try:
+        blob = json.loads(Path("data_warehouse/_meta/reachability.json")
+                          .read_text(encoding="utf-8"))
+        s = (blob.get("summary") or {}).get(str(int(horizon_days)))
+        if not s:
+            return ""
+        p60 = float(s["mfe_atr"]["p60"])
+        reach = float(s["tp_reach_share"]["2.5"])
+        return (
+            f"\nĐO THỰC trên kho giá ({blob.get('generated_at', '?')[:10]}, "
+            f"{blob.get('tickers_measured', '?')} mã): trong {int(horizon_days)} phiên, "
+            f"p60 của mức lãi tối đa = {p60:.2f}×ATR; TP đặt 2.5×ATR chỉ với tới "
+            f"{reach:.0%} số lần. Chọn tp_atr_mult quanh {p60:.1f} (±0.5) để TP "
+            f"với tới được ~40-60% số lần — TUYỆT ĐỐI KHÔNG đặt TP xa hơn mức "
+            f"giá thực sự đi được trong horizon này."
+        )
+    except Exception:
+        return ""
+
+
 def generate_strategy(
     agent,
     context_summary: str = "",
     prior_feedback: str = "",
+    horizon_days: int = DEFAULT_HORIZON_DAYS,
 ) -> tuple[str, dict, str | None]:
     """Ask an agent to generate a fresh strategy. Returns (code, params, error)."""
+    _ctx = (context_summary or "Thị trường VN, large-cap, daily timeframe.")
+    _ctx += (f"\nHorizon giữ lệnh: {int(horizon_days)} phiên — TP/SL phải với "
+             f"tới được trong đúng ngần ấy phiên.")
+    _ctx += _reachability_hint(horizon_days)
     prompt = _STRATEGY_PROMPT.format(
-        context=context_summary or "Thị trường VN, large-cap, daily timeframe.",
+        context=_ctx,
         prior_feedback=prior_feedback or "(không có feedback ưu tiên)",
     )
     text, err = agent.generate(prompt, max_tokens=2000)
@@ -1912,7 +1973,8 @@ def _do_backtest(code: str, params: dict, cfg: BacktestConfig) -> tuple[dict, st
 
 
 def _cold_start(
-    agent, universe, context_summary, cfg, extra_agents: list | None = None
+    agent, universe, context_summary, cfg, extra_agents: list | None = None,
+    tier: str = "short",
 ) -> tuple[Optional[int], dict]:
     """Generate fresh strategy with competition — all agents write independently, best wins."""
     all_agents = [agent] + (extra_agents or [])
@@ -1926,7 +1988,8 @@ def _cold_start(
     # Each agent independently generates a fresh strategy
     candidates: list[tuple[str, str, dict, dict, str, str]] = []
     for ag in unique_agents:
-        code, params, err = generate_strategy(ag, context_summary=context_summary)
+        code, params, err = generate_strategy(ag, context_summary=context_summary,
+                                              horizon_days=cfg.horizon_days)
         # `err and not code` (bản cũ) KHÔNG chặn được ca hay gặp nhất: LLM trả
         # code HỎNG (SyntaxError / import / AST reject) — `code` vẫn non-empty
         # nên lọt qua, được backtest (mọi cửa sổ raise → 0 trade) rồi LƯU luôn
@@ -1960,6 +2023,7 @@ def _cold_start(
         params=params,
         description=f"Cold-start competition ({', '.join(competitors)})",
         status="draft",
+        tier=tier,
         family_id=family,
     )
     mem.save_backtest(sid, ps, pe, ",".join(universe[:10]), metrics)
@@ -2057,6 +2121,7 @@ def _do_revise(
         description=f"Revise competition ({', '.join(competitors)}): {revise_reason}",
         parent_id=active["id"],
         status="draft",
+        tier=(active.get("tier") or "short"),
         family_id=family,
     )
     mem.save_backtest(sid, best_ps, best_pe, ",".join(cfg.universe[:10]), best_metrics)
@@ -2135,8 +2200,9 @@ def develop_and_backtest(
     cfg: Optional[BacktestConfig] = None,
     mode: str = "auto",
     extra_agents: list | None = None,
+    tier: str = "short",
 ) -> tuple[Optional[int], dict]:
-    """Develop / tune / revise the active strategy. Adaptive cadence.
+    """Develop / tune / revise the active strategy OF ONE TIER. Adaptive cadence.
 
     Modes:
       auto    — choose tune vs revise based on age + stability flag (default)
@@ -2144,17 +2210,20 @@ def develop_and_backtest(
       revise  — force weekly revise (rewrite core)
       fresh   — force cold start (ignore existing active, retire it)
 
-    All enabled agents share one family. `agent` is the lead; `extra_agents`
-    additional agents that participate in the daily tune competition.
+    All enabled agents share one family PER TIER. `agent` is the lead;
+    `extra_agents` additional agents in the daily tune competition. `tier`
+    ("short" 5 phiên / "position" 20 phiên) chọn active + config riêng —
+    hai tier chạy song song, không tranh ghế (xem TIER_CONFIGS).
     """
     if cfg is None:
-        cfg = BacktestConfig(universe=universe)
+        cfg = tier_config(tier, universe)
     cfg.universe = universe  # ensure consistency
 
-    active = mem.get_active_family()
+    active = mem.get_active_family(tier=tier)
 
     if mode == "fresh" or active is None:
-        return _cold_start(agent, universe, context_summary, cfg, extra_agents=extra_agents)
+        return _cold_start(agent, universe, context_summary, cfg,
+                           extra_agents=extra_agents, tier=tier)
 
     if mode == "revise" or (mode == "auto" and _should_revise(active)):
         return _do_revise(agent, active, cfg, extra_agents=extra_agents)
@@ -2207,6 +2276,10 @@ def emit_recommendations(
     recs: list[dict] = []
     for s in bests:
         code = s["code"]
+        # Horizon theo TIER của chính chiến lược sinh rec — rec của tầng vị
+        # thế phải sống 20 phiên, không phải 5 (reconcile đóng theo số này).
+        _tier_h = TIER_CONFIGS.get(s.get("tier") or "short", {}).get("horizon_days")
+        _rec_horizon = int(_tier_h or horizon_days)
         # Strategy params live in params_json (e.g. rsi_period, ma_window).
         # Without these, code that reads params['rsi_period'] throws KeyError
         # on every ticker — same pattern used by backtest()/analyze_ticker().
@@ -2256,7 +2329,7 @@ def emit_recommendations(
                 tp=tp,
                 sl=sl,
                 rationale=f"Strategy #{s['id']} ({s['name']}), conf={sig['confidence']:.2f}",
-                horizon_days=horizon_days,
+                horizon_days=_rec_horizon,
                 brief_id=brief_id,
                 strategy_id=s["id"],
             )

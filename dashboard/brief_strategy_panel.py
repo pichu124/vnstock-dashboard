@@ -132,6 +132,27 @@ def render_strategy_panel() -> None:
                 except Exception:
                     pass
 
+                # Tầng vị thế 20 phiên (13/08) — chạy song song, ghế riêng.
+                try:
+                    _pos = _vm.get_active_family(tier="position")
+                    if _pos:
+                        _pv = None
+                        _pbt = _vm.latest_backtest(_pos["id"])
+                        if _pbt and _pbt.get("metrics_json"):
+                            _pv = _json.loads(_pbt["metrics_json"]).get("validation")
+                        _pstate = ("✅ đạt kiểm định" if _pv and _pv.get("passed")
+                                   else "🎲 chưa đạt" if _pv else "⏳ chưa backtest")
+                        st.caption(f"🕰 Tầng vị thế (~20 phiên): "
+                                   f"**{_pos['name']}** · {_pstate}")
+                    else:
+                        st.caption(
+                            "🕰 Tầng vị thế (~20 phiên): chưa có — tạo bằng "
+                            "`python vnstock_train.py --strategy-only --tier position`")
+                except TypeError:
+                    pass    # vnstock_memory cũ chưa có tier — bỏ qua
+                except Exception:
+                    pass
+
                 with st.expander("Xem params & code", expanded=False):
                     try:
                         _params = _json.loads(_active.get("params_json") or "{}")

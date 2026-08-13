@@ -5986,13 +5986,59 @@ MỘT ảnh chụp `_meta/fundamentals_history/fundamentals-YYYY-MM.parquet` (b�
 
 ### Còn lại của lộ trình dài hạn (chờ 2 việc trên máy thật)
 
-1. User chạy `python vnstock_reachability.py` → số chọn horizon + TP.
+1. ✅ User chạy `python vnstock_reachability.py` → số chọn horizon + TP
+   (kết quả ở entry (e) ngay dưới).
 2. Kiểm cổ tức trong kho giá (gap ex-div chưa điều chỉnh) — chưa làm.
-3. RỒI MỚI: tầng A "vị thế 20–40 phiên" (family thứ hai theo horizon —
-   cần cột tier trong vnstock_memory + train loop theo tier) và cân nhắc
-   tầng B danh mục tháng.
+3. ✅ Tầng A "vị thế 20 phiên" ĐÃ DỰNG (entry (e)). Tầng B danh mục tháng
+   vẫn để sau.
 
 Suite **1971 passed** (+25).
+
+
+## 2026-08-13 (e) — Số đo về: giả thuyết ĐÚNG, và tầng "vị thế 20 phiên" ra đời
+
+### Số đo trên máy user (30/30 mã VN30 × 500 phiên, 3.390 mẫu/horizon)
+
+| Horizon | p60 MFE (×ATR) | TP 2.5×ATR với tới | MAE p50 |
+|---|---|---|---|
+| 5d | 1.30 | **16%** | −2.3% |
+| 10d | 1.95 | 30% | −3.3% |
+| **20d** | **2.89** | **46%** | −4.8% |
+| 40d | 4.30 | 61% | −7.5% |
+
+Đọc ra ba điều:
+* **Giả thuyết 0/49 được xác nhận**: TP 2.5×ATR (ĐÁY của dải cấu hình 2.5–4.0)
+  trong 5 phiên chỉ với tới 16% số lần — R:R 1.5 "trên giấy" có tử số gần như
+  không bao giờ bắn. TP đúng cỡ cho 5 phiên là ~1.3×ATR (p60).
+* **20 phiên là điểm khớp**: p60 = 2.89×ATR trùng đúng dải tp_atr_mult hiện
+  hành → tầng vị thế lấy **20 phiên** (40d với tới 61% nhưng vốn nằm gấp đôi,
+  MAE sâu −7.5%).
+* Caveat trung thực: 500 phiên gần nhất phần lớn là thị trường đi lên —
+  MFE nghiêng theo regime; số này để CHỌN THAM SỐ, không phải lời hứa lợi nhuận.
+
+### Tầng "position" — dựng xong, cấu hình từ số đo
+
+* `vnstock_memory`: cột `tier` (migration idempotent, dữ liệu cũ = 'short'
+  nên nghĩa không đổi); `get_active_family(tier=)`; **promote scope theo tier**
+  — không có scope thì tạo tầng vị thế xong là tầng 5 phiên mất ghế ngay.
+* `vnstock_strategy`: `TIER_CONFIGS` — position = horizon 20 / step 20 /
+  lookback 730. **Bất biến step ≥ horizon** (test canh): lệnh chồng cửa sổ là
+  cùng cú sóng đếm nhiều lần, p-value đẹp giả, kiểm định thành trang trí.
+  `develop_and_backtest(tier=)` → cold-start/revise lưu đúng tier;
+  `emit_recommendations` đặt horizon rec THEO TIER của chiến lược sinh ra nó.
+* **Prompt sinh chiến lược neo vào số đo**: `_reachability_hint(horizon)` đọc
+  `reachability.json` → "trong N phiên p60 = X×ATR, TP 2.5×ATR với tới Y% —
+  chọn tp_atr_mult quanh X". Hết thời hướng dẫn "2.5–4.0" viết chung cho mọi
+  horizon. Chưa đo → hint rỗng (không bịa neo).
+* `vnstock_train --tier {short,position,both}` (mặc định short — hành vi cũ
+  nguyên vẹn; nightly không tự chạy position).
+* Brief: gating **theo TỪNG chiến lược** — rec mang `strategy_id`, tầng vị thế
+  không bị xử theo kiểm định của tầng 5 phiên. Rec vị thế mang nhãn
+  `[vị thế ~20 phiên]` (bài học "Giá 1T %": nhãn phải nói rõ khung). Ẩn một
+  phần thì NÓI RA trong prompt (chống model bịa lý do thiếu).
+* Panel: dòng "🕰 Tầng vị thế" + lệnh tạo khi chưa có.
+
+Suite **1987 passed** (+16), `--fast` 1.525 / 26s CI.
 
 
 ---
@@ -6003,7 +6049,7 @@ Suite **1971 passed** (+25).
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **1971 passed** (`--fast` 1.509 test — ~35s trên CI,
+> Trạng thái: full suite **1987 passed** (`--fast` 1.525 test — ~26-35s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
@@ -6055,13 +6101,19 @@ Từ 13/08 (d) thêm một điều ĐÚNG THIẾT KẾ, đừng báo lỗi: chi�
 lược** nữa (user chốt "trượt là không phát"). Mục Đề xuất giao dịch chỉ còn
 setup từ movers ⭐. Khuyến nghị tự quay lại khi chiến lược đạt kiểm định.
 
-**0d. Chạy đo tầm với TP (5 phút, MỘT lần) — chìa khoá mở tầng dài hạn:**
+**0d. ✅ XONG 13/08 — đã đo tầm với TP.** Kết quả + diễn giải ở entry 13/08
+(e). Chốt: tầng vị thế = 20 phiên; TP 2.5×ATR ở 5 phiên chỉ với tới 16%.
+
+**0e. Khởi tạo tầng vị thế (MỘT lần, ~5-15 phút vì gọi LLM + backtest):**
 ```powershell
-python vnstock_reachability.py
+python vnstock_train.py --strategy-only --tier position
 ```
-Dán bảng kết quả cho Claude. Số này quyết định: horizon tầng "vị thế" (20 hay
-40 phiên), và TP hiện 2.5–4×ATR có vô lý với horizon 5 phiên đúng như giả
-thuyết 0/49 không. Chưa có số này thì CHƯA cấu hình tầng dài hạn.
+Các agent sẽ sinh chiến lược 20 phiên (prompt đã tự neo TP vào số đo 0d),
+backtest 730 ngày, qua đủ cổng kiểm định (p-value, walk-forward, TP-với-tới).
+Xong thì panel Chiến lược hiện dòng "🕰 Tầng vị thế". Khuyến nghị của tầng này
+CHỈ vào brief khi nó ĐẠT kiểm định — đúng luật "trượt là không phát" đã chốt.
+Muốn train định kỳ cả hai tầng: thêm `--tier both` vào lệnh strategy-only
+trong scheduled task (nightly mặc định vẫn chỉ chạy short).
 
 **0c. Sau lần chạy pipeline kế tiếp, xem `run_daily.log`.**
 Tìm dòng `collect_context: nguồn '<tên>' hỏng`. Trước 12/08 các nguồn này chết
