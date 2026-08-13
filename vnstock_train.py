@@ -608,14 +608,19 @@ def reconcile_recommendations(verbose: bool = True) -> dict:
 def run_once(briefs: bool = True, strategy: bool = True,
              reconcile: bool = True, emit: bool = True,
              verbose: bool = True,
-             lite: bool = False, mode: str = "auto") -> dict:
+             lite: bool = False, mode: str = "auto",
+             tier: str = "short") -> dict:
     out: dict = {"started_at": datetime.now().isoformat(timespec="seconds")}
     if briefs:
         out["brief_loop"] = brief_loop(verbose=verbose)
     if reconcile:
         out["reconcile"] = reconcile_recommendations(verbose=verbose)
     if strategy:
-        out["strategy_loop"] = strategy_loop(verbose=verbose, lite=lite, mode=mode)
+        # tier="both" → tune cả hai tầng trong một đêm (user đổi scheduled
+        # task sang `--once --tier both` là đủ, không phải thêm task mới).
+        for _t in (("short", "position") if tier == "both" else (tier,)):
+            out[f"strategy_loop_{_t}"] = strategy_loop(
+                verbose=verbose, lite=lite, mode=mode, tier=_t)
     if emit:
         from vnstock_strategy import emit_recommendations as _emit
         scan_u = _scan_universe()
@@ -707,7 +712,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     elif args.reconcile_only:
         reconcile_recommendations(verbose=verbose)
     else:
-        run_once(verbose=verbose, lite=args.lite, mode=args.mode)
+        run_once(verbose=verbose, lite=args.lite, mode=args.mode, tier=args.tier)
     return 0
 
 

@@ -6104,16 +6104,21 @@ setup từ movers ⭐. Khuyến nghị tự quay lại khi chiến lược đạ
 **0d. ✅ XONG 13/08 — đã đo tầm với TP.** Kết quả + diễn giải ở entry 13/08
 (e). Chốt: tầng vị thế = 20 phiên; TP 2.5×ATR ở 5 phiên chỉ với tới 16%.
 
-**0e. Khởi tạo tầng vị thế (MỘT lần, ~5-15 phút vì gọi LLM + backtest):**
-```powershell
-python vnstock_train.py --strategy-only --tier position
-```
-Các agent sẽ sinh chiến lược 20 phiên (prompt đã tự neo TP vào số đo 0d),
-backtest 730 ngày, qua đủ cổng kiểm định (p-value, walk-forward, TP-với-tới).
-Xong thì panel Chiến lược hiện dòng "🕰 Tầng vị thế". Khuyến nghị của tầng này
-CHỈ vào brief khi nó ĐẠT kiểm định — đúng luật "trượt là không phát" đã chốt.
-Muốn train định kỳ cả hai tầng: thêm `--tier both` vào lệnh strategy-only
-trong scheduled task (nightly mặc định vẫn chỉ chạy short).
+**0e. ✅ XONG 13/08 — tầng vị thế đã khởi tạo.** Chiến lược #32: 67 lệnh,
+expectancy +0.197, exit mix **TP 44.8%** / SL 40.3% / hết hạn 14.9% — cơ chế
+thoát ĐÃ CHỮA XONG (live tầng 5 phiên cũ: TP 0%, hết hạn 71%; số đo dự báo
+trần ~46% ở 2.5×ATR — trúng). Kiểm định: 🎲 CHƯA ĐẠT — p thô 0.377 (hiệu
+chỉnh chọn-lọc 1.0), chỉ 25% cửa sổ thời gian dương (lãi dồn cục — khớp
+caveat "500 phiên gần nhất toàn thị trường lên"). Brief đúng luật KHÔNG nhận
+rec của #32; nó ở lại ghế làm việc, được tune + đối soát để tự chứng minh.
+
+**0f. QUYẾT: có cho tầng vị thế vào vòng train hằng đêm không?**
+`--tier` đã nối qua cả `--once` (13/08). Muốn cả hai tầng cùng tune mỗi đêm:
+sửa lệnh trong scheduled task thành `python vnstock_train.py --once --tier both`
+(chi phí: thêm ~5-15 phút LLM + backtest 730 ngày mỗi đêm). Không sửa thì
+tầng vị thế đứng yên — thỉnh thoảng chạy tay
+`python vnstock_train.py --strategy-only --tier position`. Khuyến nghị của
+Claude: BẬT both — không tune thì #32 không bao giờ có cơ hội đạt kiểm định.
 
 **0c. Sau lần chạy pipeline kế tiếp, xem `run_daily.log`.**
 Tìm dòng `collect_context: nguồn '<tên>' hỏng`. Trước 12/08 các nguồn này chết
