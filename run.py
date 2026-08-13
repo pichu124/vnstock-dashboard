@@ -745,6 +745,11 @@ def cmd_test(args) -> int:
 
     started = _time.time()
     cmd = [sys.executable, "-m", "pytest", *test_paths, "-v", "--tb=short"]
+    if getattr(args, "slow", False):
+        # Xếp hạng test chậm nhất. Phần lớn thời gian nằm ở test CHẠM DỮ LIỆU
+        # THẬT (kho parquet, gọi mạng) — máy có kho đầy đủ chậm hơn CI nhiều
+        # lần, nên chỉ đo trên máy thật mới ra đúng thủ phạm.
+        cmd.append("--durations=20")
     proc = _sp.run(cmd, capture_output=True, text=True)
     elapsed = _time.time() - started
 
@@ -1381,6 +1386,8 @@ def build_parser() -> argparse.ArgumentParser:
     test = sub.add_parser("test", help="Run pytest + write status to test_status.json")
     test.add_argument("--fast", action="store_true",
                       help="Only run the 7 test files for new modules (~103 tests, 0.5s)")
+    test.add_argument("--slow", action="store_true",
+                      help="Liệt kê 20 test chậm nhất (dò vòng lặp --fast bị ì)")
     test.add_argument("--new", action="store_true",
                       help="Alias for --fast")
     models = sub.add_parser(

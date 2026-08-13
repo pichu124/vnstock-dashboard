@@ -130,17 +130,27 @@ def test_never_raises_even_on_a_weird_exception():
 
 # ── Phân biệt "rỗng" với "hỏng" ─────────────────────────────────────────────
 
-def test_empty_result_is_not_an_error():
+@pytest.fixture(scope="module")
+def real_ctx():
+    """Gọi `collect_context` THẬT — đúng MỘT lần cho cả file.
+
+    Đây là test duy nhất ở đây chạm dữ liệu thật, và nó đắt: trên máy có kho
+    đầy đủ, một lần gọi là đọc parquet + JSON của ~15 nguồn. Phạm vi `module`
+    là cố ý — bản đầu vô tình gọi 4 lần (1 + 3 tham số hoá), tức trả giá đó 4
+    lần trong vòng lặp `--fast` vốn phải NHANH.
+    """
+    return vb.collect_context(brief_type="morning", auto_refresh=False)
+
+
+def test_empty_result_is_not_an_error(real_ctx):
     """Nguồn chạy ngon mà hôm nay không có gì (cuối tuần, chưa tới giờ) thì
     KHÔNG được ghi vết — báo động giả làm người ta ngừng đọc cảnh báo thật."""
-    ctx = vb.collect_context(brief_type="morning", auto_refresh=False)
-    assert not ctx.get("loader_errors"), (
-        "Nguồn trả rỗng bị tính là hỏng: " + str(ctx.get("loader_errors")))
+    assert not real_ctx.get("loader_errors"), (
+        "Nguồn trả rỗng bị tính là hỏng: " + str(real_ctx.get("loader_errors")))
 
 
 @pytest.mark.parametrize("key", ["sectors", "breadth", "tickers"])
-def test_context_starts_with_empty_containers_not_fake_numbers(key):
+def test_context_starts_with_empty_containers_not_fake_numbers(real_ctx, key):
     """Khởi tạo bằng rỗng (chứ không phải 0 hay số mặc định) là thứ giữ cho
     prompt phân biệt được "không có data" với "đo được bằng 0"."""
-    ctx = vb.collect_context(brief_type="morning", auto_refresh=False)
-    assert ctx[key] in ([], {}, None) or ctx[key]
+    assert real_ctx[key] in ([], {}, None) or real_ctx[key]
