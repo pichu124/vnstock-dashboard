@@ -61,8 +61,20 @@ def _fake_streamlit():
     st.selectbox = lambda label, options=(), **k: (list(options)[0] if len(options) else None)
     st.multiselect = lambda *a, **k: []
     st.text_input = lambda *a, **k: ""
+    st.text_area = lambda *a, **k: ""
     st.slider = lambda label, *a, **k: (a[0] if a else 0)
-    st.number_input = lambda *a, **k: 0
+    # Widget nào QUÊN khai ở đây sẽ trả về MagicMock, và dòng `if giá_trị > 0`
+    # ngay sau đó ném TypeError → panel rơi vào `except` rồi tự tắt. Test vẫn
+    # XANH mà không soi gì cả (đúng ca `select_slider` bị sót, phát hiện 13/08).
+    # `test_no_panel_silently_disables_itself` bên dưới là lưới chặn ca đó.
+    st.select_slider = lambda label, options=(), value=None, **k: (
+        value if value is not None else (list(options)[0] if len(options) else 0))
+    st.number_input = lambda label, min_value=0, max_value=None, value=0, **k: value
+    st.date_input = lambda *a, **k: __import__("datetime").date(2026, 8, 12)
+    st.color_picker = lambda *a, **k: "#000000"
+    st.file_uploader = lambda *a, **k: None
+    st.feedback = lambda *a, **k: None
+    st.data_editor = lambda df=None, *a, **k: df
     return st
 
 
@@ -116,13 +128,74 @@ def _stub_dashboard(sector_df=None, index_df=None):
     return m
 
 
+def _fake_analyzer():
+    """Lớp chấm điểm quant — thay bằng bản giả.
+
+    KHÔNG phải để test chạy được (bản thật chạy được), mà để test chạy NHANH và
+    ỔN ĐỊNH: bản thật đọc quarantine, ex-div, session stats, foreign flow từ đĩa.
+    Đo trên máy user 13/08: ba test render này ngốn 20.5s = 19% cả vòng lặp
+    `--fast`, gần hết là I/O của lớp này. Test ở đây soi CODE RENDER của mình,
+    không soi thuật toán chấm điểm (đã có test riêng).
+    """
+    m = types.ModuleType("vnstock_market_analyzer")
+    m.compute_scores = lambda df, presets=None, index_returns=None, exdiv_map=None: {"n": len(df)}
+    m.market_regime = lambda scores, breadth: {
+        "regime": "RISK-ON", "conviction": 0.42, "detail": "smoke"}
+    m.format_row = lambda row, name_col="Ngành": [
+        f"{row[name_col]} `{row['composite']:+.2f}`", "  dòng phụ"]
+    m.build_preset_sets = lambda x: None
+    m.compute_index_returns = lambda df, index_col="VNINDEX": {"1T": 1.2, "1M": -0.4, "3M": 5.6}
+    m.load_quarantine_tickers = lambda: set()
+    m.load_recent_exdiv = lambda days_back=7: {}
+    m.session_timing_signal = lambda t, h, index_name="VNINDEX": {"signal": "N/A", "detail": ""}
+
+    def _rank(df, scores, n_top=5, n_bot=5, name_col="Ngành", quarantined=None):
+        names = list(df[name_col])
+        rows = [{name_col: n, "composite": round(1.5 - i, 2)} for i, n in enumerate(names)]
+        return {"top": rows[:n_top], "avoid": list(reversed(rows))[:n_bot],
+                "stealth": rows[1:2], "distribution": rows[:1], "rotation": rows[:2]}
+    m.rank = _rank
+    return m
+
+
+def _fake_memory():
+    """Bộ nhớ brief (SQLite) — bản giả TRẢ RỖNG, không phải MagicMock.
+
+    Cố ý: MagicMock sẽ làm panel rơi vào nhánh `except` rồi in "panel disabled",
+    tức test không còn soi thân panel nữa — nhanh hơn mà mất tác dụng. Trả rỗng
+    thì panel chạy hết nhánh "chưa có dữ liệu", đúng cảnh máy vừa dựng lại.
+    """
+    m = types.ModuleType("vnstock_memory")
+    m.init_db = lambda *a, **k: None
+    m.get_active_family = lambda *a, **k: None
+    m.best_strategies = lambda *a, **k: []
+    m.open_recommendations = lambda *a, **k: []
+    m.recommendation_performance = lambda *a, **k: {}
+    m.recent_closed_recommendations = lambda *a, **k: []
+    m.outcome_distribution = lambda *a, **k: {}
+    m.family_history = lambda *a, **k: []
+    m.latest_backtest = lambda *a, **k: None
+    m.update_rating = lambda *a, **k: None
+    m.top_rated_briefs = lambda *a, **k: []
+    m.recent_briefs = lambda *a, **k: []
+    m._conn = lambda *a, **k: None
+    return m
+
+
 @pytest.fixture
 def render_env(monkeypatch):
-    """Cài Streamlit giả + stub dashboard, rồi nạp lại module tab."""
+    """Cài Streamlit giả + stub các module ĐỌC ĐĨA, rồi nạp lại module tab."""
     st = _fake_streamlit()
     monkeypatch.setitem(sys.modules, "streamlit", st)
     monkeypatch.setitem(sys.modules, "streamlit.components", MagicMock())
     monkeypatch.setitem(sys.modules, "streamlit.components.v1", MagicMock())
+
+    monkeypatch.setitem(sys.modules, "vnstock_market_analyzer", _fake_analyzer())
+    monkeypatch.setitem(sys.modules, "vnstock_memory", _fake_memory())
+    sess = types.ModuleType("vnstock_session_stats")
+    sess.load_session_stats_history = lambda *a, **k: {}
+    sess.load_session_stats = lambda *a, **k: {}
+    monkeypatch.setitem(sys.modules, "vnstock_session_stats", sess)
     return st
 
 
@@ -176,3 +249,22 @@ def test_each_brief_subpanel_renders_on_its_own(render_env, mod, fn):
     """Gọi lẻ từng panel: panel phải tự đứng được, không dựa vào biến mà panel
     trước tình cờ để lại."""
     getattr(_load(mod), fn)()
+
+
+def test_no_panel_silently_disables_itself(render_env):
+    """Panel nào cũng bọc `try/except` rộng để một panel hỏng không kéo sập cả
+    tab — rất đúng cho production, nhưng nó cũng NUỐT luôn giá trị của smoke
+    test: panel rơi vào `except` thì test vẫn xanh mà chẳng soi gì.
+
+    Đã dính thật (13/08): Streamlit giả sót `select_slider` → panel Lịch sử
+    tự tắt, mà test vẫn báo PASS. Lưới này bắt đúng ca đó."""
+    st = render_env
+    said = []
+    for name in ("caption", "warning", "error", "info"):
+        setattr(st, name, lambda *a, _s=said, **k: _s.append(str(a[0]) if a else ""))
+
+    _load("dashboard.market_brief_panel").render_brief_panel()
+
+    disabled = [s for s in said
+                if "disabled" in s.lower() or "Không tìm thấy" in s]
+    assert not disabled, "Panel tự tắt thay vì chạy thân:\n  " + "\n  ".join(disabled)

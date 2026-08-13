@@ -5757,6 +5757,50 @@ Suite **1897 passed** (+9), `--fast` **1435 passed / 33.8s**. Phần còn phải
 dùng mắt đã gom vào mục "🔴 VIỆC TAY" ở cuối file.
 
 
+## 2026-08-13 — Vòng lặp `--fast` bị ì: đo trên MÁY THẬT mới ra thủ phạm
+
+User chạy `--fast` trên máy mình: **143.87s**, trong khi CLAUDE.md ghi vòng
+lặp này vốn ~26s. Container CI báo 30s nên KHÔNG tự thấy được — máy có kho dữ
+liệu đầy đủ + mạng thật chậm hơn nhiều lần. Bài học nhỏ: **thời gian test phải
+đo ở nơi có dữ liệu thật**, con số CI chỉ để so tương đối.
+
+Thêm `python run.py test --fast --slow` (xếp hạng 20 test chậm nhất) rồi nhờ
+user chạy. Bảng đó chỉ thẳng vào thủ phạm:
+
+### Thủ phạm 1 — do chính đợt này gây ra (đã vá)
+
+* `test_loader_breadcrumbs.py` gọi `collect_context()` THẬT **4 lần**
+  (1 + 3 tham số hoá). Mỗi lần đọc parquet + JSON của ~15 nguồn. →
+  fixture `scope="module"`, còn 1 lần. **143.87s → 108.63s**.
+* `test_tab_render_smoke.py` ba test render ngốn **20.5s = 19% cả vòng lặp**:
+  chúng stub `vnstock_dashboard` nhưng vẫn để đường quant chạy THẬT
+  (`vnstock_market_analyzer` đọc quarantine/ex-div/foreign-flow, `vnstock_memory`
+  mở SQLite). Nay stub thêm 3 module đọc đĩa đó. Trên CI: 2.44s → 0.42s.
+
+### Phát hiện phụ, đáng giá hơn cả phần tốc độ
+
+Khi stub `vnstock_memory` bằng bản trả RỖNG (cố ý, không dùng MagicMock — xem
+docstring), lộ ra: Streamlit giả **sót `select_slider`** → panel Lịch sử brief
+nhận MagicMock, so sánh `> 0` ném TypeError, panel rơi vào `except` rồi tự tắt
+— **mà test vẫn báo PASS**.
+
+Đây đúng cái bẫy của smoke test trên code có `try/except` rộng: panel tự tắt
+thì test không soi gì cả nhưng vẫn xanh. Thêm
+`test_no_panel_silently_disables_itself` — bắt mọi dòng "disabled"/"Không tìm
+thấy" mà panel in ra. Đã thử gỡ `select_slider` để chứng minh lưới CÓ RĂNG:
+đỏ ngay.
+
+### Thủ phạm 2 — có sẵn, CHƯA đụng vào (chờ user quyết)
+
+`tests/test_sandbox_isolation.py`: 41 test, mỗi test spawn một process
+(Windows spawn đắt). Chiếm **~44s trong 108s**. Bỏ khỏi `--fast` sẽ đưa vòng
+lặp về ~64s, NHƯNG đây là test an ninh của sandbox AST (`vnstock_strategy`) —
+bỏ ra khỏi vòng lặp nhanh là giảm độ phủ an ninh khi sửa hằng ngày. Bộ đầy đủ
+vẫn chạy chúng trước khi merge. **Không tự quyết** — user chốt.
+
+CI sau vá: full **1898 passed / 34.4s**, `--fast` **1436 / 28.7s**.
+
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -5765,7 +5809,8 @@ dùng mắt đã gom vào mục "🔴 VIỆC TAY" ở cuối file.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **1897 passed** (`--fast` 1.435 / 33.8s) · nhánh
+> Trạng thái: full suite **1898 passed** (`--fast` 1.436 / 28.7s trên CI;
+> 108s trên máy user — xem entry 13/08, còn 1 quyết định về sandbox) · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
 > user tự làm thường xuyên — KHÔNG track làm việc (user chốt 12/08).
 
