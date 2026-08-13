@@ -490,7 +490,7 @@ def _allocation_brief_reminder(today: "date | None" = None) -> "str | None":
         if any((r.get("created_at") or "").startswith(month) for r in rows):
             return None
         return (f"⏰ chưa có brief phân bổ tháng {t.month}/{t.year} — tạo ở "
-                "sub-tab 🧭 Phân bổ (cadence tháng)")
+                "tab Tin tức → sub-tab 🧭 Phân bổ (cadence tháng)")
     except Exception:
         return None
 
@@ -516,7 +516,8 @@ def check_allocation() -> dict:
         parts.append(remind)
     status = "warn" if (stale or remind) else "ok"
     fix = "python run.py allocation" if stale else \
-        ("tạo brief phân bổ ở sub-tab 🧭" if remind else "")
+        ("dashboard → tab Tin tức → sub-tab 🧭 Phân bổ → nút 📝 Tạo brief"
+         if remind else "")
     return _result("allocation", name, status, " · ".join(parts), fix)
 
 
