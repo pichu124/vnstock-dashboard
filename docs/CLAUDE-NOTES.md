@@ -5827,6 +5827,14 @@ CI sau vá: full **1898 passed / 34.4s**, `--fast` **1436 / 28.7s**.
 
 ## 🔴 VIỆC TAY — sau đợt tách file 12/08
 
+> ✅ **Mục 🧭 Nhận định thị trường: ĐÃ VERIFY XONG 13/08** — bỏ khỏi phần
+> phải soi bên dưới. Đối chiếu 3 tầng trên máy thật: 37/37 test máy · cấu
+> trúc đủ 3 mục đúng thứ tự · **9/9 con số khớp** — MA200 10.8%→"11%" (làm
+> tròn có chủ ý), RSI<30 118 mã, RSI>70 117 mã, **A/D 1.08 → IM LẶNG đúng
+> thiết kế** (bằng chứng mạnh nhất: ngưỡng 0.8–1.2 còn nguyên), net new highs
+> −33 đúng dấu đúng nhánh, VNINDEX/VN30 đều 3/5 tăng + TB lệch 0.01pp (dưới
+> sai số làm tròn 0.05pp của bảng %D). Chi tiết trong lịch sử hội thoại 13/08.
+
 **0. Liếc dashboard một lượt SAU KHI merge** (~10 phút, làm 1 lần).
 Đợt 12/08 kéo ~2.400 dòng giao diện ra khỏi hai hàm khổng lồ. Máy đã tự kiểm
 được phần "code có chạy hết không" (`tests/test_tab_render_smoke.py` render
@@ -5840,8 +5848,8 @@ python run.py dashboard
 ```
 * **Tab Thị trường** — bảng ngành lên đủ cột và CÓ MÀU (xanh/đỏ/gradient biên
   độ); cột sparkline vẽ được; bấm vào một ngành → drill-down ra bảng mã và màu
-  vẫn đúng (drill-down dùng thang màu riêng); mục **🧭 Nhận định tổng quan**
-  có chữ.
+  vẫn đúng (drill-down dùng thang màu riêng). *(Mục 🧭 Nhận định: XONG 13/08,
+  xem ghi chú trên.)*
 * **Khối 🤖 AI Market Brief** (cuối tab Thị trường) — mở được cả 4 expander:
   Cài đặt AI Agent · Lịch sử brief · Chiến lược & khuyến nghị. Bấm **sinh
   brief** một lần xem có ra chữ không (đây là nhánh test không chạm tới vì nó
