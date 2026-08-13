@@ -16,11 +16,15 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   THEO MÁY — máy mới phải chạy lại script này, Run as Administrator).
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~1.034 test, ~26s).
-- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, ~1.561
-  test, ~31s).
+- Sửa module lõi nào → `python run.py test --fast` (~1.436 test; ~29s trên CI,
+  **~64s trên máy thật** vì có kho dữ liệu + mạng).
+- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, ~1.898 test).
 - Kết quả ghi `data_warehouse/_meta/test_status.json` → badge sidebar.
   Badge đỏ = KHÔNG merge/deploy.
+- `--fast` ì → `python run.py test --fast --slow` (20 test chậm nhất). Đo phải
+  làm TRÊN MÁY THẬT: số CI không thấy được I/O đĩa/mạng.
+- ~44s của `--fast` là `test_sandbox_isolation` (41 test spawn process). **ĐÃ
+  CHỐT GIỮ** (user 13/08) — đừng đề xuất bỏ ra để chạy nhanh hơn.
 
 ## Bản đồ kiến trúc
 - `vnstock_dashboard.py` — UI chính; các tab trong `dashboard/` (market,

@@ -5790,13 +5790,23 @@ thì test không soi gì cả nhưng vẫn xanh. Thêm
 thấy" mà panel in ra. Đã thử gỡ `select_slider` để chứng minh lưới CÓ RĂNG:
 đỏ ngay.
 
-### Thủ phạm 2 — có sẵn, CHƯA đụng vào (chờ user quyết)
+### Thủ phạm 2 — ❌ ĐÃ CHỐT KHÔNG SỬA (user quyết 13/08)
 
 `tests/test_sandbox_isolation.py`: 41 test, mỗi test spawn một process
 (Windows spawn đắt). Chiếm **~44s trong 108s**. Bỏ khỏi `--fast` sẽ đưa vòng
-lặp về ~64s, NHƯNG đây là test an ninh của sandbox AST (`vnstock_strategy`) —
-bỏ ra khỏi vòng lặp nhanh là giảm độ phủ an ninh khi sửa hằng ngày. Bộ đầy đủ
-vẫn chạy chúng trước khi merge. **Không tự quyết** — user chốt.
+lặp về ~20s.
+
+**User chốt: GIỮ NGUYÊN** — "không sửa code để đảm bảo an toàn code".
+
+Ghi rõ để lần sau KHÔNG ai đề xuất lại: đây là test an ninh của sandbox AST
+(`vnstock_strategy`) — chặn ghi file, chặn `subprocess`, chặn đọc `.env` khi
+chạy code chiến lược. Bỏ khỏi vòng lặp nhanh nghĩa là sửa code hằng ngày
+không còn kiểm hàng rào đó, và lỗ hổng sandbox thuộc loại phát hiện MUỘN thì
+đã muộn. 44 giây/lần chạy là cái giá đã được cân nhắc và chấp nhận, không
+phải nợ kỹ thuật bỏ quên.
+
+Hệ quả cần biết khi đọc số: `--fast` trên máy thật ~**64s** (sau vá thủ phạm
+1), không còn là "~26s" như CLAUDE.md ghi từ thời 1.034 test.
 
 CI sau vá: full **1898 passed / 34.4s**, `--fast` **1436 / 28.7s**.
 
@@ -5809,8 +5819,9 @@ CI sau vá: full **1898 passed / 34.4s**, `--fast` **1436 / 28.7s**.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **1898 passed** (`--fast` 1.436 / 28.7s trên CI;
-> 108s trên máy user — xem entry 13/08, còn 1 quyết định về sandbox) · nhánh
+> Trạng thái: full suite **1898 passed** (`--fast` 1.436 test — 28.7s trên CI,
+> ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
+> 13/08 — xem entry 13/08) · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
 > user tự làm thường xuyên — KHÔNG track làm việc (user chốt 12/08).
 
