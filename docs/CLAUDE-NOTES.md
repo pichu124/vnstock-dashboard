@@ -6107,6 +6107,27 @@ chuẩn — hoặc dữ liệu mới tích đủ lệnh cho params hiện tại.
 
 Suite **1996 passed**.
 
+## 2026-08-13 (h) — Verify tay đợt chót: chart 4 panel + watchlist → mục 0 ĐÓNG
+
+User soi tab Phân tích trên máy thật (ảnh VCB + VCI, khung 1D) rồi kéo/zoom
+tay. Đạt 4/4 tiêu chí: nhãn thời gian 4 panel chung cột dọc; nến đầu/cuối
+chung mép; RSI/MACD chạm đúng nến cuối (không hụt mép phải); kéo/zoom panel
+giá → 3 panel dưới trôi theo đồng bộ. Bất biến logical-range sống khoẻ sau
+đợt chuyển nhà `compute_indicators` → `dashboard/chart_indicators.py`.
+
+Chi tiết đắt giá: VCB đang giữa chuỗi tăng ~53→59.7, RSI 76.64 — đúng kịch
+bản "cửa sổ 14 phiên gần như không có phiên giảm" TỪNG gây RSI đứt đuôi
+(công thức ngây thơ chia 0 → NaN → hụt khúc phải). Ảnh cho thấy đường vẽ
+liền tới nến cuối: `test_no_nan_at_the_tail` canh đúng chỗ, nay có thêm
+bằng chứng mắt thường trên ca thật.
+
+Watchlist: user thêm rồi xoá một mã trong tab Screener, danh sách cập nhật
+đúng — đường ghi nguyên tử mới (`dashboard/watchlist_io.py`) chạy êm.
+
+Ghi nhận ngoài lề (CHƯA soi, không chặn gì): sidebar có 2 badge cảnh báo —
+nguồn dữ liệu 2⚠️ (`run.py doctor` xem tên) + ladder model có mục bất thường
+(nhiều khả năng là nemotron-ultra chậm đã biết từ 11/08; báo cáo T7 16/08
+sẽ tự soi). User rảnh thì dán output `run.py doctor` cho Claude xem.
 
 ---
 
@@ -6132,28 +6153,18 @@ Suite **1996 passed**.
 > −33 đúng dấu đúng nhánh, VNINDEX/VN30 đều 3/5 tăng + TB lệch 0.01pp (dưới
 > sai số làm tròn 0.05pp của bảng %D). Chi tiết trong lịch sử hội thoại 13/08.
 
-**0. Liếc dashboard một lượt SAU KHI merge** (~10 phút, làm 1 lần).
-Đợt 12/08 kéo ~2.400 dòng giao diện ra khỏi hai hàm khổng lồ. Máy đã tự kiểm
-được phần "code có chạy hết không" (`tests/test_tab_render_smoke.py` render
-thẳng tab + 5 panel bằng Streamlit giả). Nhưng máy KHÔNG kiểm được **hiển thị
-có đúng không** và **nhánh sau khi BẤM nút** — đó là phần phải dùng mắt:
-
-```powershell
-git fetch origin claude/remaining-tasks-tests-4xoam3
-git merge origin/claude/remaining-tasks-tests-4xoam3
-python run.py dashboard
-```
-* ✅ **Tab Thị trường** — XONG 13/08 qua ảnh chụp: bảng ngành đủ cột + màu +
-  sparkline; drill-down Ngân hàng (27 mã) VÀ Họ VIN/Họ M (sau vá) đều mở đúng.
-* ✅ **Khối 🤖 AI Market Brief** — XONG 13/08 qua ảnh chụp: Cài đặt agent ·
-  Lịch sử · Chiến lược đều render đủ; đã sinh brief thật (4 giọng, consensus).
-* ⬜ **Tab Phân tích** — chart 4 panel (Price/Volume/RSI/MACD) vẫn **thẳng
-  hàng, cùng số nến**. `compute_indicators` vừa đổi chỗ ở, đây là bất biến
-  của nó. CHƯA soi.
-* ⬜ **Watchlist** — thêm rồi xoá một mã trong tab Screener. Cách ghi file
-  watchlist vừa đổi sang ghi nguyên tử. CHƯA soi.
-
-Thấy chỗ nào lệch → báo Claude kèm ảnh chụp, ĐỪNG tự sửa (dễ lệch khỏi nhánh).
+**0. ✅ ĐÓNG 13/08 — đã liếc dashboard đủ một lượt sau merge (4/4 mục).**
+Đợt 12/08 kéo ~2.400 dòng giao diện ra khỏi hai hàm khổng lồ; máy tự kiểm
+"code có chạy hết không", phần "hiển thị có đúng không" đã soi mắt xong:
+* ✅ **Tab Thị trường** — 13/08 qua ảnh: bảng ngành đủ cột + màu + sparkline;
+  drill-down Ngân hàng (27 mã) VÀ Họ VIN/Họ M (sau vá) đều mở đúng.
+* ✅ **Khối 🤖 AI Market Brief** — 13/08 qua ảnh: Cài đặt agent · Lịch sử ·
+  Chiến lược render đủ; đã sinh brief thật (4 giọng, consensus).
+* ✅ **Tab Phân tích** — 13/08 qua ảnh VCB/VCI + kéo/zoom tay: 4 panel thẳng
+  hàng cùng số nến, RSI/MACD chạm nến cuối, kéo/zoom đồng bộ — chi tiết ở
+  entry 13/08 (h).
+* ✅ **Watchlist** — 13/08: thêm rồi xoá một mã trong Screener, danh sách
+  cập nhật đúng — đường ghi nguyên tử mới chạy êm.
 
 **0b. Đọc brief sáng/chiều kế tiếp — có dòng "KHÔNG CÓ …" nào oan không.**
 Prompt vừa thêm cảnh báo cho 3 khối (movers, dẫn dắt/tụt hậu, quant regime).
