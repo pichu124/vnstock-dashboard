@@ -1012,10 +1012,28 @@ def backtest(code: str, cfg: BacktestConfig) -> dict:
         ),
         "profit_factor":   pf,
         "recovery_factor": rf,
+        "exit_mix":     exit_mix(trades),
         "validation":   validate_backtest_quality(trades),
         "trades":       trades[:200],
         "errors":       errors[:20],
     }
+
+
+def exit_mix(trades: "list[dict]") -> "dict[str, float]":
+    """Tỷ lệ lệnh theo LÝ DO THOÁT: {"tp": …, "sl": …, "expire": …}.
+
+    Lý do thoát đã được ghi vào TỪNG lệnh từ đầu (`_simulate_trade` trả
+    "tp"/"sl"/"expire") nhưng chưa bao giờ được gom — nên win rate 45% che mất
+    sự thật "0% lệnh chạm chốt lời, toàn hết hạn khi đang lãi nhẹ". User phải
+    đợi 49 khuyến nghị THẬT qua nhiều tuần mới thấy điều mà mọi backtest tính
+    ra được ngay (phát hiện 13/08). Một chiến lược tp≈0 là TP đặt ngoài tầm
+    với của horizon — chết từ thiết kế, bất kể p-value đẹp cỡ nào.
+    """
+    reasons = [t.get("reason") for t in trades if t.get("reason")]
+    if not reasons:
+        return {}
+    n = len(reasons)
+    return {r: round(reasons.count(r) / n, 3) for r in sorted(set(reasons))}
 
 
 def profit_and_recovery(pnls: "np.ndarray") -> tuple:
@@ -1057,6 +1075,12 @@ _BOOT_SIMS = 1000
 _BOOT_CI = 0.90                # CI 90% cho Sharpe (percentile bootstrap)
 _WF_FOLDS = 4
 _WF_MIN_POSITIVE_FRAC = 0.5    # ≥ nửa số cửa sổ thời gian phải dương
+# Chốt lời phải VỚI TỚI ĐƯỢC: dưới tỷ lệ này lệnh chạm TP → TP nằm ngoài tầm
+# với của horizon (ca thật 13/08: 0/49 khuyến nghị live chạm TP, 35 hết hạn —
+# TP 2.5-4×ATR không thể tới trong 5 phiên, còn SL 1.5-2.5×ATR nằm gọn trong
+# nhiễu). Cần đủ lệnh ĐÃ ĐÓNG mới dám kết luận — không đo được ≠ đo ra xấu.
+_TP_REACH_MIN_SHARE = 0.05
+_TP_REACH_MIN_CLOSED = 20
 
 
 def monte_carlo_pvalue(pnls: "np.ndarray", n_sim: int = _MC_SIMS,
@@ -1133,6 +1157,17 @@ def validate_backtest_quality(trades: list[dict]) -> "dict | None":
     if wf is not None and wf["positive_frac"] < _WF_MIN_POSITIVE_FRAC:
         reasons.append(f"chỉ {wf['positive_frac']:.0%} cửa sổ thời gian dương "
                        f"— hiệu năng dồn cục, không bền")
+    # Cổng "chốt lời phải với tới được" (13/08). Chỉ đếm lệnh ĐÃ ĐÓNG
+    # (tp/sl/expire) — "hold" không nói gì về tầm với của TP.
+    _closed = [t.get("reason") for t in trades
+               if t.get("reason") in ("tp", "sl", "expire")]
+    if len(_closed) >= _TP_REACH_MIN_CLOSED:
+        _tp_share = _closed.count("tp") / len(_closed)
+        if _tp_share < _TP_REACH_MIN_SHARE:
+            reasons.append(
+                f"chỉ {_tp_share:.0%} lệnh chạm chốt lời "
+                f"({_closed.count('expire')}/{len(_closed)} hết hạn) — "
+                f"TP nằm ngoài tầm với của horizon, R:R trên giấy không thực hiện được")
     return {
         "p_value_sharpe": p,
         "sharpe_ci": list(ci) if ci else None,

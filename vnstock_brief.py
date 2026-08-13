@@ -3652,10 +3652,15 @@ def _recommendation_block(ctx: dict | None = None) -> str:
     Overdue recs (held longer than their horizon) are excluded — they should be
     reconciled/closed, not re-surfaced as fresh actionable buys.
 
-    Chiến lược TRƯỢT kiểm định chống-ăn-may vẫn được nêu, nhưng kèm cảnh báo
-    (`_UNVALIDATED_STRATEGY_CAVEAT`) — xem lý do chọn cảnh-báo-thay-vì-lọc-bỏ
-    trong `vnstock_brief_canon`. Guard `enforce_unvalidated_strategy_caveat`
-    canh cho câu đó sống sót tới brief cuối.
+    Chiến lược TRƯỢT kiểm định chống-ăn-may → KHÔNG nêu khuyến nghị nào
+    (user chốt 13/08, thay lựa chọn cảnh-báo-kèm-theo trước đó): thà không có
+    còn hơn có mà phải kèm "đừng tin lắm". Thay danh sách bằng sentinel
+    "KHÔNG CÓ" — cùng bất biến chống-khoảng-trống của build_prompt: block biến
+    mất âm thầm thì template vẫn trỏ tới "block Khuyến nghị" và model tự bịa.
+
+    Sổ khuyến nghị trong DB VẪN được ghi/đối soát bình thường (vnstock_train)
+    — đó là cách chiến lược tự chứng minh bằng số liệu live để một ngày ĐẠT
+    kiểm định; chỉ kênh brief tới user là đóng.
     """
     try:
         import vnstock_memory as _mem
@@ -3674,6 +3679,21 @@ def _recommendation_block(ctx: dict | None = None) -> str:
                 fresh.append(r)
         if not fresh:
             return ""
+
+        _val = _active_strategy_validation(ctx)
+        if _val["known"] and not _val["passed"]:
+            if ctx is not None:
+                ctx["strategy_recs_in_prompt"] = False
+            _p = _val.get("p")
+            _ptxt = f" (p={_p:.3f})" if isinstance(_p, float) else ""
+            return (
+                "\n## Khuyến nghị từ chiến lược đã backtest (tự sinh)\n"
+                f"⚠️ KHÔNG CÓ khuyến nghị hôm nay — chiến lược hiện tại CHƯA ĐẠT "
+                f"kiểm định chống-ăn-may{_ptxt}. "
+                "BẮT BUỘC: KHÔNG viết câu kiểu 'chiến lược khuyến nghị mua …'; "
+                "mục 'Đề xuất giao dịch' CHỈ dùng mã ⭐ từ block Top Gainers/Losers "
+                "(không có mã ⭐ thì ghi 'Chưa có setup đủ điều kiện')."
+            )
         # KL gợi ý fixed-risk (display-only, chỉ khi user đã cấu hình NAV).
         _sps = None
         try:
@@ -3707,12 +3727,8 @@ def _recommendation_block(ctx: dict | None = None) -> str:
                 line += f" — {_rat}"
             lines.append(line)
 
-        _val = _active_strategy_validation(ctx)
-        if _val["known"] and not _val["passed"]:
-            _why = "; ".join(_val["reasons"][:2])
-            lines.append(_UNVALIDATED_STRATEGY_CAVEAT
-                         + (f" (lý do: {_why})" if _why else ""))
-            lines.append("BẮT BUỘC giữ nguyên dòng ⚠️ trên khi viết mục khuyến nghị.")
+        if ctx is not None:
+            ctx["strategy_recs_in_prompt"] = True
         return "\n".join(lines)
     except Exception:
         return ""

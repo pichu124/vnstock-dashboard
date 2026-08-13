@@ -1206,22 +1206,27 @@ def enforce_stance_sentiment_caution(text: str, ctx: dict) -> str:
 
 
 def enforce_unvalidated_strategy_caveat(text: str, ctx: dict) -> str:
-    """Chiến lược TRƯỢT kiểm định chống-ăn-may thì mục khuyến nghị phải NÓI RA.
+    """Khuyến nghị của chiến lược trượt kiểm định LỌT vào brief → phải NÓI RA.
 
-    `_recommendation_block` đã gắn câu cảnh báo vào prompt, nhưng LLM hay lược
-    bỏ đúng những câu bất lợi cho ý tưởng nó vừa viết — nên chốt lại bằng guard,
-    đúng quy ước CLAUDE.md ("ràng buộc quan trọng chốt bằng code, không phải
-    bằng câu chữ trong prompt").
+    Từ 13/08 (user chốt "không đạt thì không khuyến nghị gì") đường CHÍNH đã
+    chặn ở nguồn: `_recommendation_block` trượt kiểm định là thay danh sách
+    bằng sentinel KHÔNG CÓ. Guard này còn lại vai trò HÀNG RÀO DỰ PHÒNG cho
+    đường không chính thống — ai đó gọi `build_prompt(rec_block=...)` tự dựng,
+    hoặc luồng cũ chưa cập nhật.
 
-    Chỉ bắn khi ctx nói RÕ là trượt (`known=True, passed=False`). Không đọc được
-    kiểm định (chưa có chiến lược / chưa backtest / DB lỗi) thì IM — không đo
-    được khác đo ra kết quả xấu, cảnh báo oan làm người ta ngừng đọc cảnh báo.
+    Vì thế điều kiện bắn có thêm `strategy_recs_in_prompt=True` (cờ do
+    `_recommendation_block` set khi THẬT SỰ đưa khuyến nghị vào prompt). Thiếu
+    cờ mà cứ bắn là gắn nhãn oan: mục "Đề xuất giao dịch" còn chứa setup từ
+    movers ⭐ — những setup đó KHÔNG đến từ chiến lược, caveat "chiến lược chưa
+    kiểm định" đặt lên chúng là nói sai nguồn.
 
-    Giữ khuyến nghị, chỉ thêm bối cảnh — cùng lựa chọn với `_BUY_BIAS_CAVEAT`.
-    Idempotent: đã có câu cảnh báo thì không thêm lần hai.
+    Không đọc được kiểm định (chưa có chiến lược / DB lỗi) thì IM — không đo
+    được khác đo ra kết quả xấu. Idempotent.
     """
     val = (ctx or {}).get("strategy_validation") or {}
     if not text or not val.get("known") or val.get("passed", True):
+        return text
+    if not (ctx or {}).get("strategy_recs_in_prompt"):
         return text
     if _UNVALIDATED_STRATEGY_CAVEAT[:40] in text:
         return text

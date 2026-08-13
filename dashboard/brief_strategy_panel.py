@@ -72,10 +72,24 @@ def render_strategy_panel() -> None:
                 # Món 1: kiểm định thống kê chống-ăn-may (backtest gần nhất)
                 try:
                     _bt0 = _vm.latest_backtest(_active["id"])
-                    _val = (
-                        _json.loads(_bt0["metrics_json"]).get("validation")
-                        if _bt0 and _bt0.get("metrics_json") else None
+                    _bt_metrics = (
+                        _json.loads(_bt0["metrics_json"])
+                        if _bt0 and _bt0.get("metrics_json") else {}
                     )
+                    _val = _bt_metrics.get("validation")
+                    # Exit mix — "TP 0%" nói thẳng điều mà p-value nói vòng:
+                    # chốt lời không với tới được thì R:R chỉ nằm trên giấy.
+                    if _mix := _bt_metrics.get("exit_mix"):
+                        _mix_txt = " · ".join(
+                            f"{_lbl} {_mix.get(_k, 0):.0%}"
+                            for _k, _lbl in (("tp", "🎯 TP"), ("sl", "🔴 SL"),
+                                             ("expire", "⏳ hết hạn")))
+                        st.caption(f"Exit mix (backtest): {_mix_txt}")
+                        if _mix.get("tp", 0) < 0.05:
+                            st.warning(
+                                f"🎯 Chỉ {_mix.get('tp', 0):.0%} lệnh backtest chạm "
+                                "chốt lời — TP nằm ngoài tầm với của horizon; "
+                                "R:R trên giấy không thực hiện được.", icon="🎯")
                     if _val:
                         # p hiệu chỉnh chọn-lọc (Bonferroni × n ứng
                         # viên) nghiêm hơn p thô — ưu tiên hiện nó

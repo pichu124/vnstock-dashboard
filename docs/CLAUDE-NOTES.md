@@ -5929,6 +5929,72 @@ re-export — nó làm đúng việc.
 Full **1946 passed**, `--fast` **1484 / 34.5s**.
 
 
+## 2026-08-13 (d) — 3 quyết định của user + nền cho tầng chiến lược DÀI HẠN
+
+User chốt: **(1)** theo dõi cả ngắn/dài, **(2)** không chiến lược nào đạt kiểm
+định thì KHÔNG khuyến nghị gì, **(3)** bật lưu lịch sử fundamentals hàng tháng.
+Đợt này làm 3 bước nền (thứ tự đã thống nhất); tầng dài hạn THẬT chờ số đo từ
+máy user.
+
+### Quyết định (2) — THAY hành vi sáng cùng ngày
+
+Sáng 13/08 chọn "giữ khuyến nghị + cảnh báo"; user chốt lại: **trượt là không
+phát**. Giờ:
+
+* `_recommendation_block` trượt kiểm định → thay danh sách bằng **sentinel
+  "KHÔNG CÓ khuyến nghị"** (không phải im lặng — cùng bất biến chống-khoảng-
+  trống: block biến mất âm thầm thì template vẫn trỏ tới "block Khuyến nghị"
+  và model tự bịa). Sentinel kèm chỉ đường hợp lệ: chỉ dùng mã ⭐ movers.
+* **Sổ khuyến nghị trong DB vẫn ghi/đối soát bình thường** — đó là cách chiến
+  lược tự chứng minh bằng live để một ngày ĐẠT; chỉ kênh brief tới user đóng.
+  Đạt kiểm định là khuyến nghị tự chảy lại, không cần bật tay.
+* Guard `enforce_unvalidated_strategy_caveat` hạ xuống **hàng rào dự phòng**,
+  thêm điều kiện cờ `strategy_recs_in_prompt` — thiếu cờ mà bắn là gắn nhãn
+  "chiến lược chưa kiểm định" lên setup movers vốn không liên quan chiến lược.
+
+### Exit mix + cổng "chốt lời phải với tới được"
+
+Lý do thoát ("tp"/"sl"/"expire") đã ghi vào TỪNG lệnh từ đầu mà chưa bao giờ
+được gom — win rate 45% che mất "0/49 chạm TP". Giờ:
+
+* `exit_mix(trades)` nằm trong metrics của MỌI backtest; panel hiện
+  `Exit mix: 🎯 TP x% · 🔴 SL y% · ⏳ hết hạn z%` + cảnh báo khi TP < 5%.
+* `validate_backtest_quality` thêm lý do trượt: đủ ≥ 20 lệnh ĐÓNG mà TP < 5%
+  → "TP nằm ngoài tầm với của horizon, R:R trên giấy không thực hiện được".
+  Lý do này tự chảy vào `passed` → cổng promote (revise/tune) chặn ứng viên
+  cùng bệnh, và (2) tự đóng kênh brief. **"hold" không tính là lệnh đóng**,
+  dưới 20 lệnh đóng thì IM — không đo được ≠ đo ra xấu.
+
+### `vnstock_reachability.py` — chọn horizon bằng SỐ ĐO, không đoán
+
+Đo MFE/MAE (mức lãi tối đa/lỗ sâu nhất trong N phiên sau ngày vào) theo % và
+theo **bội ATR14** — so thẳng được với `tp_atr_mult` 2.5–4.0 đang dùng. Trả
+lời 3 câu: TP hiện tại với tới bao nhiêu % số lần ở từng horizon · muốn với
+tới ~60% thì TP đặt đâu (p60 MFE) · tầng vị thế nên lấy horizon 20 hay 40.
+Ghi `_meta/reachability.json` (nguyên tử). Test bằng dữ liệu tổng hợp canh
+BẤT BIẾN của phép đo (MFE không giảm theo horizon, tỷ lệ với-tới giảm theo
+mốc ATR, không mẫu → {}).
+
+### Quyết định (3) — lịch sử fundamentals point-in-time
+
+`_save` của `vnstock_fundamental_updater` nay ghi nguyên tử + mỗi tháng giữ
+MỘT ảnh chụp `_meta/fundamentals_history/fundamentals-YYYY-MM.parquet` (bản
+đầu tháng thắng; best-effort — hỏng archive không hỏng update chính; vào lưới
+`_MUST_BE_ATOMIC` vì ảnh chụp mất là KHÔNG tái tạo được). Đây là chìa khoá để
+6–12 tháng nữa backtest tầng đầu tư cơ bản không dính look-ahead. Snapshot
+đầu tiên tự rơi vào lần update fundamentals kế tiếp trên máy user.
+
+### Còn lại của lộ trình dài hạn (chờ 2 việc trên máy thật)
+
+1. User chạy `python vnstock_reachability.py` → số chọn horizon + TP.
+2. Kiểm cổ tức trong kho giá (gap ex-div chưa điều chỉnh) — chưa làm.
+3. RỒI MỚI: tầng A "vị thế 20–40 phiên" (family thứ hai theo horizon —
+   cần cột tier trong vnstock_memory + train loop theo tier) và cân nhắc
+   tầng B danh mục tháng.
+
+Suite **1971 passed** (+25).
+
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -5937,7 +6003,7 @@ Full **1946 passed**, `--fast` **1484 / 34.5s**.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **1946 passed** (`--fast` 1.484 test — 34.5s trên CI,
+> Trạng thái: full suite **1971 passed** (`--fast` 1.509 test — ~35s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
@@ -5984,6 +6050,18 @@ Prompt vừa thêm cảnh báo cho 3 khối (movers, dẫn dắt/tụt hậu, qu
 Cảnh báo chỉ được hiện khi nguồn đó THẬT SỰ thiếu data. Brief bình thường mà
 lại thấy "Chưa có dữ liệu mã đủ thanh khoản" hay "chưa có regime hôm nay" →
 báo Claude: nghĩa là điều kiện nhận diện đang bắt nhầm.
+Từ 13/08 (d) thêm một điều ĐÚNG THIẾT KẾ, đừng báo lỗi: chiến lược hiện tại
+đang trượt kiểm định (p=0.974) → brief **không còn mục khuyến nghị từ chiến
+lược** nữa (user chốt "trượt là không phát"). Mục Đề xuất giao dịch chỉ còn
+setup từ movers ⭐. Khuyến nghị tự quay lại khi chiến lược đạt kiểm định.
+
+**0d. Chạy đo tầm với TP (5 phút, MỘT lần) — chìa khoá mở tầng dài hạn:**
+```powershell
+python vnstock_reachability.py
+```
+Dán bảng kết quả cho Claude. Số này quyết định: horizon tầng "vị thế" (20 hay
+40 phiên), và TP hiện 2.5–4×ATR có vô lý với horizon 5 phiên đúng như giả
+thuyết 0/49 không. Chưa có số này thì CHƯA cấu hình tầng dài hạn.
 
 **0c. Sau lần chạy pipeline kế tiếp, xem `run_daily.log`.**
 Tìm dòng `collect_context: nguồn '<tên>' hỏng`. Trước 12/08 các nguồn này chết

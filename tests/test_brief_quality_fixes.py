@@ -8,6 +8,9 @@ ra, hoặc nói ra thành thứ khác.
    VALIDATED strategies" nhưng CHƯA HỀ kiểm. Chiến lược đang hoạt động có
    p=0.974 (Sharpe không hơn ăn may), expectancy −0.58, **0/49 lệnh chạm chốt
    lời** — vẫn vào brief y như một chiến lược đạt.
+   Bản đầu (13/08 sáng) chọn cảnh-báo-kèm-theo; user chốt cùng ngày: **trượt
+   thì KHÔNG khuyến nghị gì** — block thay danh sách bằng sentinel KHÔNG CÓ,
+   guard hạ xuống vai trò hàng rào dự phòng cho đường rec_block tự dựng.
 2. **Ký hiệu nội bộ rò ra brief.** Mistral viết "cắt lỗ 77,600 (entry < TP >
    SL)" — nhại ràng buộc trong prompt, và nhại SAI (đúng là SL < entry < TP).
 3. **Cùng một con số, ba nhãn khác nhau.** 11% trên MA200 + A/D 1.08: một agent
@@ -34,12 +37,14 @@ _RECS_TEXT = ("## 💡 Đề xuất giao dịch\n"
               "\n## ⚠️ Rủi ro cần lưu ý\n- ...")
 
 
-def _ctx(passed, known=True, p=0.974):
+def _ctx(passed, known=True, p=0.974, recs_in_prompt=True):
     return {"strategy_validation": {"known": known, "passed": passed,
-                                    "p": p, "reasons": ["p-value 0.974 ≥ 0.1"]}}
+                                    "p": p, "reasons": ["p-value 0.974 ≥ 0.1"]},
+            "strategy_recs_in_prompt": recs_in_prompt}
 
 
 def test_failed_validation_adds_a_caveat():
+    """Đường dự phòng: rec ĐÃ lọt vào prompt (cờ True) + trượt → phải nói ra."""
     out = vb.enforce_unvalidated_strategy_caveat(_RECS_TEXT, _ctx(passed=False))
     assert "CHƯA QUA kiểm định" in out
     assert "p=0.974" in out
@@ -53,6 +58,15 @@ def test_caveat_lands_inside_the_recommendation_section():
     i_caveat = next(i for i, l in enumerate(lines) if "CHƯA QUA kiểm định" in l)
     i_risk = next(i for i, l in enumerate(lines) if "Rủi ro cần lưu ý" in l)
     assert i_caveat < i_risk
+
+
+def test_caveat_silent_when_recs_were_suppressed_at_source():
+    """Đường CHÍNH từ 13/08: block đã chặn ở nguồn (cờ False) → setup còn lại
+    trong mục Đề xuất đến từ movers ⭐, KHÔNG phải từ chiến lược. Bắn caveat
+    lúc này là nói sai nguồn — gắn nhãn "chiến lược chưa kiểm định" lên setup
+    không liên quan gì tới chiến lược."""
+    ctx = _ctx(passed=False, recs_in_prompt=False)
+    assert vb.enforce_unvalidated_strategy_caveat(_RECS_TEXT, ctx) == _RECS_TEXT
 
 
 def test_passing_strategy_says_nothing():
@@ -106,27 +120,46 @@ def _fake_memory(monkeypatch, *, validation, recs=None):
     return m
 
 
-def test_block_warns_when_strategy_failed(monkeypatch):
+def test_block_suppresses_recs_when_strategy_failed(monkeypatch):
+    """USER CHỐT 13/08: trượt kiểm định → KHÔNG khuyến nghị gì. Không còn là
+    "kèm cảnh báo" — danh sách mã phải BIẾN MẤT khỏi prompt."""
     _fake_memory(monkeypatch, validation={"passed": False, "p_value_sharpe": 0.974,
                                           "reasons": ["p-value 0.974 ≥ 0.1"]})
     ctx = {}
     block = vb._recommendation_block(ctx)
-    assert "GAS" in block
-    assert "CHƯA QUA kiểm định" in block
-    assert "p-value 0.974" in block                 # lý do cụ thể, không nói suông
+    assert "GAS" not in block                       # mã bị chặn ở nguồn
+    assert "KHÔNG CÓ khuyến nghị" in block          # sentinel, không phải im lặng
+    assert "p=0.974" in block
+    assert ctx["strategy_recs_in_prompt"] is False
     assert ctx["strategy_validation"]["passed"] is False
 
 
-def test_block_silent_when_strategy_passed(monkeypatch):
+def test_suppression_is_a_sentinel_not_a_vacuum(monkeypatch):
+    """Cùng bất biến chống-khoảng-trống của build_prompt: block biến mất âm
+    thầm thì template vẫn trỏ tới "block Khuyến nghị" và model tự bịa. Sentinel
+    phải CẤM rõ ràng, không chỉ ghi nhận thiếu."""
+    _fake_memory(monkeypatch, validation={"passed": False, "p_value_sharpe": 0.974,
+                                          "reasons": []})
+    block = vb._recommendation_block({})
+    assert "KHÔNG viết câu kiểu" in block
+    assert "⭐" in block                             # chỉ đường thay thế hợp lệ
+
+
+def test_block_lists_recs_when_strategy_passed(monkeypatch):
     _fake_memory(monkeypatch, validation={"passed": True, "p_value_sharpe": 0.01})
-    block = vb._recommendation_block({})
-    assert "GAS" in block and "CHƯA QUA kiểm định" not in block
+    ctx = {}
+    block = vb._recommendation_block(ctx)
+    assert "GAS" in block and "KHÔNG CÓ khuyến nghị" not in block
+    assert ctx["strategy_recs_in_prompt"] is True
 
 
-def test_block_silent_when_no_backtest(monkeypatch):
+def test_block_lists_recs_when_no_backtest(monkeypatch):
+    """Không đo được ≠ trượt: backtest cũ chưa có validation → vẫn phát."""
     _fake_memory(monkeypatch, validation=None)
-    block = vb._recommendation_block({})
-    assert "GAS" in block and "CHƯA QUA kiểm định" not in block
+    ctx = {}
+    block = vb._recommendation_block(ctx)
+    assert "GAS" in block and "KHÔNG CÓ khuyến nghị" not in block
+    assert ctx["strategy_recs_in_prompt"] is True
 
 
 def test_block_prefers_selection_adjusted_pvalue(monkeypatch):

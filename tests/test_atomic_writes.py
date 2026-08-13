@@ -149,6 +149,8 @@ _MUST_BE_ATOMIC = [
     ("vnstock_model_watch.py", "model_status.json + lịch sử probe/danh mục"),
     ("vnstock_rollup.py", "vết quy đổi đơn vị giá"),
     ("dashboard/watchlist_io.py", "watchlist user tự tay dựng"),
+    ("vnstock_fundamental_updater.py",
+     "fundamentals + snapshot lịch sử point-in-time (mất là không tái tạo được)"),
 ]
 
 

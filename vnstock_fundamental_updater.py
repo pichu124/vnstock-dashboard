@@ -106,7 +106,43 @@ def _save(df: pd.DataFrame):
 
     table = pa.Table.from_pandas(df[schema.names], schema=schema,
                                   preserve_index=False)
-    pq.write_table(table, str(FUND_PATH), compression="snappy")
+    # Nguyên tử: fundamentals nuôi mục Rủi ro của brief + (sắp tới) bộ lọc
+    # chất lượng — file cụt giữa chừng là brief đọc thiếu nửa bảng mà không hay.
+    from vnstock_parquet_io import write_table_atomic
+    write_table_atomic(table, FUND_PATH, compression="snappy")
+    _archive_monthly_snapshot(table)
+
+
+# Lịch sử fundamentals THEO THỜI ĐIỂM — user chốt bật 13/08.
+#
+# Vì sao phải lưu: backtest "chọn cổ phiếu theo cơ bản" cần biết số liệu NHƯ
+# ĐÃ BIẾT tại từng thời điểm (point-in-time). `fundamentals.parquet` bị ghi đè
+# mỗi lần update nên quá khứ mất sạch — dùng số hôm nay cho ngày hôm qua là
+# look-ahead, backtest đẹp giả. Ảnh chụp mất rồi thì KHÔNG tái tạo được (API
+# chỉ trả hiện tại) — nên đây là state thật, ghi nguyên tử, có lưới
+# `_MUST_BE_ATOMIC` canh. Chi phí ~1 file/tháng, vài trăm KB.
+FUND_HISTORY_DIR = META_DIR / "fundamentals_history"
+
+
+def _archive_monthly_snapshot(table, now=None) -> "Path | None":
+    """Mỗi tháng giữ MỘT ảnh chụp `fundamentals-YYYY-MM.parquet`.
+
+    Idempotent trong tháng: bản đầu của tháng thắng (không ghi đè — ảnh chụp
+    càng gần đầu tháng càng gần "như đã biết lúc đó"). Best-effort: hỏng archive
+    không được làm hỏng update chính. Trả path khi VỪA ghi, None khi bỏ qua.
+    """
+    from datetime import datetime as _dt
+    try:
+        stamp = (now or _dt.now()).strftime("%Y-%m")
+        dest = FUND_HISTORY_DIR / f"fundamentals-{stamp}.parquet"
+        if dest.exists():
+            return None
+        from vnstock_parquet_io import write_table_atomic
+        write_table_atomic(table, dest, compression="snappy")
+        return dest
+    except Exception as e:
+        console.print(f"[yellow]⚠ Không lưu được snapshot fundamentals: {e}[/yellow]")
+        return None
 
 
 # Sponsor / free Finance classes accept different keyword combos across
