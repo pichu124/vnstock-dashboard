@@ -6129,6 +6129,33 @@ nguồn dữ liệu 2⚠️ (`run.py doctor` xem tên) + ladder model có mục 
 (nhiều khả năng là nemotron-ultra chậm đã biết từ 11/08; báo cáo T7 16/08
 sẽ tự soi). User rảnh thì dán output `run.py doctor` cho Claude xem.
 
+## 2026-08-13 (i) — WSS volume verify ĐẠT trên máy thật: món nợ 07/08 đóng
+
+Bối cảnh: user hỏi "mục 1 cụ thể làm thế nào" → lộ ra lệnh trong checklist
+(`python vnstock_wss.py` trần + Ctrl+C) KHÔNG chạy được — không tham số chỉ
+in help rồi thoát — và việc soi parquet + suspect_count bằng tay quá lắt
+nhắt với người không lập trình. Viết `scripts/verify_wss_live.py`: MỘT
+lệnh, tự mở WSS 38 mã ~5 phút, tự chấm 3 bất biến, exit 0/1/2; logic chấm
+là hàm thuần với 11 test canh (`tests/test_verify_wss_live.py`) — ca canh
+kỹ nhất thuộc họ bug quen "không đo được bị đọc thành đạt": snapshot rỗng
+phải ra ⚠️/1, cấm ra ✅/0.
+
+Kết quả máy thật (phiên 13/08): ✅ 28/30 mã cổ phiếu volume > 0 (top TCB
+264,700 · BID 126,000 · VHM 90,607) · ✅ index volume == 0 đủ 4 chỉ số
+(VNINDEX/VN30/HNX30/HNXINDEX) · ✅ suspect_count = 0 ·
+`bars_2026-08-13.parquet` 8,036 bytes. 2/30 mã volume 0 trong 5 phút = mã
+ít thanh khoản, bình thường.
+
+Chi tiết soi thêm TRƯỚC khi tick: dòng [2] không có VN30F1M — tra code xác
+nhận ĐÚNG THIẾT KẾ. Phái sinh không đi đường tick→BarAggregator mà đi kênh
+riêng poll `price_depth` → ghi `quote_VN30F1M.json` độc lập (docstring
+`_fetch_volume_profile` + main loop bước 3); đường tick→bar chỉ chở cổ
+phiếu + index, và cả hai đã được chấm. Câu "VNINDEX/VN30F1M phải volume
+== 0" trong checklist cũ viết theo trí nhớ bug gốc — bề mặt rủi ro THẬT
+của vụ accum→delta chính là chỗ script đã phủ.
+
+Suite 2008 passed (11 test mới của `grade()`).
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -6223,29 +6250,20 @@ Cùng chủ đề sức khoẻ nguồn: ảnh sidebar 13/08 thấy badge **ngu�
 2⚠️** (chữ nhỏ không đọc được tên) — lúc rảnh chạy `python run.py doctor`
 rồi dán output cho Claude xem 2 nguồn đó là gì.
 
-**1. WSS volume tích luỹ** — món nợ verify cuối cùng của đợt fix 07/08.
-Trong giờ giao dịch (9:00-15:00, thứ 2-6), từ thư mục repo, MỘT lệnh:
-```powershell
-python scripts\verify_wss_live.py
-```
-Script tự làm trọn gói ~5 phút rồi tự dừng: mở WSS 38 mã, gom bar, CHẤM
-3 bất biến — mã cổ phiếu `volume > 0` · `VNINDEX`/`VN30F1M` `volume == 0`
-(feed không gửi accum cho index/futures; trước fix, fallback từng tick bị
-cộng dồn thành số ảo) · `suspect_count == 0` — rồi in ✅/⚠️/❌ từng mục.
-✅ cả 3 = tick mục này. Có ❌ = dán NGUYÊN output cho Claude. ⚠️ = chưa kết
-luận được (ngoài giờ/thiếu tick), chạy lại trong phiên. Logic chấm có lưới
-`tests/test_verify_wss_live.py` canh (họ bug quen: "không đo được" không
-bao giờ được in thành ✅).
-*(Lệnh cũ ghi ở mục này — `python vnstock_wss.py` trần — KHÔNG chạy được:
-không tham số chỉ in help rồi thoát. Phát hiện 13/08 khi user hỏi cách làm
-cụ thể; script verify mới thay thế.)*
-Cùng phiên đó tiện thể mục ↪ (heatmap, gộp từ 0 xuống): mở dashboard, vào
-tab **Phân tích** bật toggle **Real-time WSS** (mục 🔴 Live Mode ở sidebar,
-chờ chấm tròn xanh CONNECTED + "~1.100 mã đã subscribe"), rồi SANG tab
-**Thị trường** — đầu tab phải thấy khung chỉ số + heatmap VN30 tự cập nhật
-(5 giây/lần). "⏳ Chờ WSS data..." đứng im quá vài phút → chụp ảnh báo
-Claude. Chạy song song với script verify cũng không sao — script chấm từ
-bộ nhớ riêng của nó.
+**1. ✅ PHẦN VOLUME XONG 13/08 — WSS volume tích luỹ ĐẠT CẢ 3 bất biến.**
+Món nợ verify cuối của đợt fix 07/08 ĐÃ ĐÓNG: user chạy
+`python scripts\verify_wss_live.py` trong phiên 13/08 → ✅ 28/30 mã volume
+> 0 (top TCB 264,700) · ✅ index volume == 0 đủ 4 chỉ số · ✅ suspect_count
+= 0. VN30F1M vắng trong bảng chấm là ĐÚNG THIẾT KẾ — phái sinh đi kênh
+riêng poll `price_depth` → `quote_VN30F1M.json`, không qua đường tick→bar;
+đường đó chỉ chở cổ phiếu + index và cả hai đã chấm (entry 13/08 (i)).
+Cần chạy lại sau này (nghi WSS hỏng): vẫn lệnh đó, trong phiên.
+* ⬜ **CÒN NỢ heatmap** (mục ↪ gộp từ 0 xuống — khối duy nhất chưa mắt nào
+  soi sau đợt 12/08): một phiên nào đó mở dashboard → tab **Phân tích**
+  bật toggle **Real-time WSS** (🔴 Live Mode ở sidebar, chờ chấm xanh
+  CONNECTED + "~1.100 mã đã subscribe") → SANG tab **Thị trường** — đầu
+  tab phải thấy khung chỉ số + heatmap VN30 tự cập nhật ~5 giây/lần.
+  "⏳ Chờ WSS data..." đứng im quá vài phút → chụp ảnh báo Claude.
 
 ## ⏳ TỰ ĐẾN — chỉ cần ĐỌC khi tới
 
