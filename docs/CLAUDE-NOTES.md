@@ -6258,12 +6258,15 @@ Món nợ verify cuối của đợt fix 07/08 ĐÃ ĐÓNG: user chạy
 riêng poll `price_depth` → `quote_VN30F1M.json`, không qua đường tick→bar;
 đường đó chỉ chở cổ phiếu + index và cả hai đã chấm (entry 13/08 (i)).
 Cần chạy lại sau này (nghi WSS hỏng): vẫn lệnh đó, trong phiên.
-* ⬜ **CÒN NỢ heatmap** (mục ↪ gộp từ 0 xuống — khối duy nhất chưa mắt nào
-  soi sau đợt 12/08): một phiên nào đó mở dashboard → tab **Phân tích**
-  bật toggle **Real-time WSS** (🔴 Live Mode ở sidebar, chờ chấm xanh
-  CONNECTED + "~1.100 mã đã subscribe") → SANG tab **Thị trường** — đầu
-  tab phải thấy khung chỉ số + heatmap VN30 tự cập nhật ~5 giây/lần.
-  "⏳ Chờ WSS data..." đứng im quá vài phút → chụp ảnh báo Claude.
+* ⬜ **CÒN NỢ heatmap — 13/08 hết giờ giao dịch, DỜI PHIÊN SAU** (mục ↪
+  gộp từ 0 xuống — khối duy nhất chưa mắt nào soi sau đợt 12/08). Việc
+  1 phút, chỉ làm được trong phiên (9:00-15:00, thứ 2-6): mở dashboard →
+  tab **Phân tích** bật toggle **Real-time WSS** (🔴 Live Mode ở sidebar,
+  chờ chấm xanh CONNECTED + "~1.100 mã đã subscribe") → SANG tab
+  **Thị trường** — đầu tab phải thấy khung chỉ số + heatmap VN30 tự cập
+  nhật ~5 giây/lần. "⏳ Chờ WSS data..." đứng im quá vài phút → chụp ảnh
+  báo Claude. Gợi ý ghép việc: sáng 14/08 soi `run_daily.log` (mục 0c)
+  xong thì trong phiên tiện tay liếc luôn cái này.
 
 ## ⏳ TỰ ĐẾN — chỉ cần ĐỌC khi tới
 
