@@ -6153,9 +6153,9 @@ sẽ tự soi). User rảnh thì dán output `run.py doctor` cho Claude xem.
 > −33 đúng dấu đúng nhánh, VNINDEX/VN30 đều 3/5 tăng + TB lệch 0.01pp (dưới
 > sai số làm tròn 0.05pp của bảng %D). Chi tiết trong lịch sử hội thoại 13/08.
 
-**0. ✅ ĐÓNG 13/08 — đã liếc dashboard đủ một lượt sau merge (4/4 mục).**
+**0. Liếc dashboard sau merge — 4 mục chính ✅ XONG 13/08; CÒN 1 liếc 5 giây.**
 Đợt 12/08 kéo ~2.400 dòng giao diện ra khỏi hai hàm khổng lồ; máy tự kiểm
-"code có chạy hết không", phần "hiển thị có đúng không" đã soi mắt xong:
+"code có chạy hết không", phần "hiển thị có đúng không" soi mắt:
 * ✅ **Tab Thị trường** — 13/08 qua ảnh: bảng ngành đủ cột + màu + sparkline;
   drill-down Ngân hàng (27 mã) VÀ Họ VIN/Họ M (sau vá) đều mở đúng.
 * ✅ **Khối 🤖 AI Market Brief** — 13/08 qua ảnh: Cài đặt agent · Lịch sử ·
@@ -6165,6 +6165,13 @@ sẽ tự soi). User rảnh thì dán output `run.py doctor` cho Claude xem.
   entry 13/08 (h).
 * ✅ **Watchlist** — 13/08: thêm rồi xoá một mã trong Screener, danh sách
   cập nhật đúng — đường ghi nguyên tử mới chạy êm.
+* ⬜ **Treemap + Chart xu hướng** (giữa mục Nhận định và khối AI Brief) —
+  liếc 5 giây: có vẽ ra hình là đạt; trắng hoặc báo "cần plotly" → báo
+  Claude. *(User bắt sót 13/08 — mục này trước đó chỉ nằm trong chat,
+  chưa vào note; ghi lại để không lọt nữa.)*
+* ↪ **Live Market Heatmap VN30** (đầu tab Thị trường) — khối DUY NHẤT máy
+  không phủ được dòng nào vì chỉ chạy khi WSS sống trong giờ giao dịch.
+  Rủi ro thấp (code không đổi) → GỘP vào mục 1 bên dưới, làm cùng phiên.
 
 **0b. Đọc brief sáng/chiều kế tiếp — có dòng "KHÔNG CÓ …" nào oan không.**
 Prompt vừa thêm cảnh báo cho 3 khối (movers, dẫn dắt/tụt hậu, quant regime).
@@ -6216,6 +6223,9 @@ Soi `data_warehouse\_live\`: mã cổ phiếu (VCB, HPG…) `volume > 0`;
 `VNINDEX` / `VN30F1M` phải `volume == 0` (feed KHÔNG gửi `accumulatedvolume`
 cho index/futures — trước fix, fallback volume TỪNG TICK bị cộng dồn thành
 số ảo). Kèm `BarAggregator.diagnostics()` → `suspect_count = 0`.
+Cùng phiên đó tiện thể: mở dashboard, bật Live Mode, liếc **Live Market
+Heatmap VN30** đầu tab Thị trường có vẽ ô màu cập nhật theo tick không
+(mục ↪ gộp từ 0 xuống — khối duy nhất chưa mắt nào soi sau đợt 12/08).
 
 ## ⏳ TỰ ĐẾN — chỉ cần ĐỌC khi tới
 
