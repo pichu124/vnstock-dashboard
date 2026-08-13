@@ -6214,6 +6214,9 @@ mục khuyến nghị trong brief.
 Tìm dòng `collect_context: nguồn '<tên>' hỏng`. Trước 12/08 các nguồn này chết
 là im re; nay có tên rõ ràng. Không có dòng nào = mọi nguồn khoẻ. Có dòng nào
 lặp lại mỗi tối → báo Claude tên nguồn đó.
+Cùng chủ đề sức khoẻ nguồn: ảnh sidebar 13/08 thấy badge **nguồn dữ liệu
+2⚠️** (chữ nhỏ không đọc được tên) — lúc rảnh chạy `python run.py doctor`
+rồi dán output cho Claude xem 2 nguồn đó là gì.
 
 **1. WSS volume tích luỹ** — món nợ verify cuối cùng của đợt fix 07/08.
 ```powershell
