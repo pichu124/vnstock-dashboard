@@ -6216,6 +6216,43 @@ chỉ cần merge để lần bấm sau không đỏ.
 
 Suite 2023 → **2025 passed**.
 
+## 2026-08-13 (l) — 4d: checker điều chỉnh cổ tức kho giá — code xong, chờ máy thật
+
+Bối cảnh: tầng vị thế 20 phiên sống → giữ lệnh xuyên GDKHQ thành chuyện
+thường ngày. Kho build tăng dần và tin 100% nguồn vnstock; `vnstock_adjust`
+tự ghi rõ tầng back-adjust "was never wired into production". Chưa ai từng
+kiểm chuỗi có nhất quán điều chỉnh qua các đợt ex-div — reachability
+(13/08 (e)) cũng đã dặn MAE p90 nhiễm nghi vấn này.
+
+`vnstock_div_check.py` — thiết kế:
+* Nguồn sự kiện: cache `_meta/corp_actions/{TICKER}.parquet` của
+  `vnstock_adjust` (ex_date/type/cash_amount/ratio) — KHÔNG phải
+  `vnstock_events` như checklist cũ ghi (module đó chỉ giữ sự kiện
+  TƯƠNG LAI, không dùng soi lịch sử được).
+* Chuỗi giá: `vnstock_strategy._load_history` — đúng loader backtest dùng,
+  audit đúng thứ backtest nhìn thấy.
+* Mỗi sự kiện = phép thử 2 giả thuyết trên gap close(T−1) → open(ex-date):
+  H_adjusted ≈ 0 vs H_raw ≈ −drop kỳ vọng (cash: VND/1000/giá nghìn đồng;
+  split r>1: 1−1/r; bonus 0<r≤1: r/(1+r)) — chọn giả thuyết GẦN quan sát.
+* Kỷ luật "không đo được ≠ đạt" cài 5 cửa inconclusive: cổ tức < max(1%,
+  2×nhiễu ngày thường) = chìm nhiễu · gap sâu hơn kỳ vọng + 6×nhiễu = sập
+  sàn trùng ngày, không đổ oan cho cổ tức · yield >40% = nghi sai đơn vị
+  nguồn · đứt chuỗi >7 ngày lịch quanh ex-date · chuỗi <30 bar. Toàn
+  inconclusive → exit 1, KHÔNG bao giờ ra ✅.
+* Exit 0/1/2 chuẩn repo · ghi `_meta/div_check.json` (write_json_atomic) ·
+  `--refresh` fetch events cho mã thiếu cache · mặc định VN30 · 750 ngày
+  (khớp lookback tầng vị thế).
+* `tests/test_div_check.py` — 22 test hermetic trên chuỗi tổng hợp: chuỗi
+  thô bị bắt / chuỗi sạch được xác nhận / đủ 5 cửa inconclusive / grade
+  không bao giờ thăng hạng khi không đo được. Vào danh sách `--fast`
+  (tiện tay bỏ dòng `test_strategy_tiers` bị lặp đôi trong list).
+
+Chờ máy thật: user chạy `python vnstock_div_check.py` (hướng dẫn ở mục 4d).
+Kịch bản ❌ mới phải bàn tiếp: refetch lịch sử mã dính vs dạy backtest cộng
+cổ tức vào equity — chưa quyết trước, đợi số liệu thật.
+
+Suite 2025 → **2047 passed**.
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -6224,7 +6261,7 @@ Suite 2023 → **2025 passed**.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2025 passed** (`--fast` ~1.534 test — ~26-35s trên CI,
+> Trạng thái: full suite **2047 passed** (`--fast` ~1.534 test — ~26-35s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
@@ -6384,13 +6421,21 @@ vừa chia tách?) → báo Claude kèm message.
   mới quyết**, nhiều khả năng BỎ (pipeline chạy 18:00 không ai ngồi đợi; sửa
   phải đụng nhiều module để đổi lấy sự tiện không ai cảm nhận)
 
-**4d. Kiểm cổ tức trong kho giá** — tiền đề còn thiếu của backtest giữ lệnh
-dài (entry 13/08 (d), mục "Còn lại" #2). Kho lấy giá vnstock (thường ĐÃ điều
-chỉnh) nhưng chưa ai xác nhận chuỗi nhất quán qua các đợt ex-div — gap cổ tức
-chưa điều chỉnh làm backtest 20-40 phiên báo lỗ giả. Việc của Claude: viết
-checker (lấy ex-div từ `vnstock_events`, soi bar quanh ngày đó tìm gap bất
-thường) + user chạy trên máy thật. Tầng vị thế đã chạy nên mục này TĂNG độ
-ưu tiên — nói Claude làm là xong trong một buổi.
+**4d. Kiểm cổ tức trong kho giá — ✅ CODE XONG 13/08, CHỜ USER CHẠY (~5 phút).**
+Lý do giữ nguyên: kho tin 100% nguồn vnstock, tầng back-adjust chưa từng
+nối production — gap cổ tức chưa điều chỉnh làm backtest 20-40 phiên báo lỗ
+giả. `vnstock_div_check.py` đã viết (entry 13/08 (l)): mỗi sự kiện GDKHQ là
+một phép thử trên gap qua đêm tại ex-date (≈0 = đã điều chỉnh · ≈−cổ tức/giá
+= chuỗi THÔ); chỉ chấm khi cổ tức đủ lớn so nhiễu; sập sàn trùng ngày không
+bị đổ oan. 22 test hermetic canh. Chạy trên máy thật:
+```powershell
+python vnstock_div_check.py
+```
+Đọc kết quả: **✅ exit 0** = chuỗi nhất quán, backtest dài yên tâm ·
+**⚠️** = thiếu events cache — chạy `python run.py refresh-metadata --events`
+(chậm, gọi API từng mã) rồi kiểm lại, hoặc dùng `--refresh` fetch đúng bộ
+đang kiểm · **❌** = CÓ GAP THÔ — dán NGUYÊN output cho Claude (lúc đó mới
+bàn đường vá: refetch lịch sử mã dính hay dạy backtest cộng cổ tức).
 
 **4e. Tầng B — danh mục xoay vòng tháng** (entry 13/08 (d)): để sau, chỉ làm
 khi tầng A chạy ổn và user muốn đầu tư backtester cấp danh mục (~3-5 buổi).
