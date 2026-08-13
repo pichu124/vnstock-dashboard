@@ -5966,6 +5966,28 @@ vừa chia tách?) → báo Claude kèm message.
 
 ## 🟠 QUAN SÁT RỒI QUYẾT
 
+**4b. Mã của nhóm tuỳ biến ĐẾM HAI LẦN — chờ user chốt.** Lộ ra khi verify bản
+vá drill-down 13/08 (entry 12/08 (b)):
+
+* Bảng ngành: **Ngân hàng 26 mã** — vì EIB đã được chuyển sang Họ M
+* Bấm vào Ngân hàng: **"27 mã"** — vì drill-down lọc theo ngành GỐC
+
+Lệch đúng 1 = EIB. Không riêng Ngân hàng: 11 mã của hai nhóm đều có ngành gốc,
+nên Bất động sản (row 102) bấm vào sẽ ra 105, Chứng khoán lệch 1 vì VIX…
+
+Hệ quả THẬT chứ không chỉ khó nhìn: **cộng bảng chi tiết không ra dòng tổng** —
+vốn hoá/GTGD/NN ở dòng "Ngân hàng" đã trừ EIB, bảng chi tiết thì cộng cả vào.
+
+Hai hướng:
+1. **Cho khớp dòng tổng** — drill-down loại mã đã thuộc nhóm tuỳ biến (Ngân
+   hàng ra đúng 26, EIB chỉ ở Họ M). Số hai chỗ luôn khớp, cộng ra đúng.
+2. **Giữ nguyên** — coi nhóm tuỳ biến là LỚP PHỦ, EIB vừa là ngân hàng vừa là
+   Họ M. Nhìn ngành nào cũng đủ mã, nhưng sống chung với 26 ≠ 27.
+
+Claude nghiêng hướng 1 (số tự mâu thuẫn thì lần sau không biết tin số nào).
+Nhưng đây là quyết định về Ý NGHĨA của "ngành", không phải kỹ thuật → **user
+chốt**. Sửa thì chỉ đụng `rows_for_sector` + test, khoảng 15 phút.
+
 **5. Độ trễ OpenRouter — ĐANG LEO THANG.** nemotron-super 18.6 → 25.8s;
 nemotron-ultra median 0.79s → 127.3s (11/08). Production tự né qua timeout.
 T7 vẫn bò → probe ứng viên mới rồi bàn thay:
