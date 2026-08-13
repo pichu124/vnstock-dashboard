@@ -2179,7 +2179,12 @@ def _do_tune(agents: list, active: dict, cfg: BacktestConfig) -> tuple[Optional[
     cur_exp = cur_metrics.get("expectancy") or -999
     new_exp = new_metrics.get("expectancy") or -999
 
-    if new_exp > cur_exp and _validation_ok(new_metrics):
+    # Sàn n_trades GIỐNG cổng cold-start/revise — tune là đường DUY NHẤT từng
+    # thiếu nó (lộ 13/08: tune thắng bằng cách co 67 lệnh còn 19 — co mẫu là
+    # cách rẻ nhất để thổi expectancy khi thi đấu theo expectancy).
+    if new_exp > cur_exp \
+       and new_metrics.get("n_trades", 0) >= MIN_TRADES_TO_VALIDATE \
+       and _validation_ok(new_metrics):
         mem.update_strategy_params(active["id"], new_params, name)
         mem.save_backtest(
             active["id"],

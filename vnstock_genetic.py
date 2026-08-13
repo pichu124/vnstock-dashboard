@@ -320,8 +320,14 @@ def genetic_tune_active(apply: bool = False, config: str = "lite",
 
     best_metrics = result.get("best_metrics") or {}
     best_fit = result.get("best_fitness")
+    # Sàn n_trades: dùng sàn CỦA CHÍNH RUN (config-aware — lite hạ sàn có chủ
+    # đích cho smoke test, xem _MIN_TRADES_LITE), không phải sàn cứng 10 —
+    # nhưng vẫn phải hiện diện NGAY TRONG cổng adopt (lộ 13/08: cổng tune bên
+    # vnstock_strategy thiếu sàn, ứng viên co mẫu thắng bằng expectancy ảo).
     adopted = (best_fit is not None and cur_fit is not None
-               and best_fit > cur_fit and vs._validation_ok(best_metrics))
+               and best_fit > cur_fit
+               and (best_metrics.get("n_trades") or 0) >= min_trades
+               and vs._validation_ok(best_metrics))
 
     applied = False
     if apply and adopted:

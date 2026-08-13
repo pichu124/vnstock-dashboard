@@ -198,3 +198,36 @@ def test_reachability_hint_silent_without_measurement(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     from vnstock_strategy import _reachability_hint
     assert _reachability_hint(20) == ""
+
+
+# ── Mọi cổng adopt/promote đều phải có SÀN SỐ LỆNH ──────────────────────────
+
+@pytest.mark.parametrize("path", ["vnstock_strategy.py", "vnstock_genetic.py"])
+def test_every_adoption_gate_has_a_trade_floor(path):
+    """Lộ 13/08 khi chạy thật: cổng TUNE thiếu sàn n_trades mà cold-start và
+    revise đều có — tune thi đấu theo expectancy, và CO MẪU (67 lệnh → 19) là
+    cách rẻ nhất để thổi expectancy. Lưới: mọi biểu thức gọi `_validation_ok`
+    phải kèm `MIN_TRADES_TO_VALIDATE` trong CÙNG điều kiện — thêm cổng adopt
+    mới mà quên sàn là đỏ ngay."""
+    import ast as _ast
+    from pathlib import Path as _P
+    src = (_P(__file__).resolve().parent.parent / path).read_text(encoding="utf-8")
+    tree = _ast.parse(src)
+    bad = []
+    for node in _ast.walk(tree):
+        expr = None
+        if isinstance(node, _ast.If):
+            expr = node.test
+        elif isinstance(node, _ast.Assign):
+            expr = node.value
+        if expr is None:
+            continue
+        text = _ast.unparse(expr)
+        if "_validation_ok(" not in text:
+            continue
+        # Sàn hợp lệ: hằng số chung HOẶC sàn config-aware của chính run
+        # (genetic dùng `min_trades` — lite hạ sàn có chủ đích cho smoke test).
+        if "MIN_TRADES_TO_VALIDATE" not in text and "min_trades" not in text:
+            bad.append(f"{path}:{node.lineno}: {text[:80]}")
+    assert not bad, ("Cổng adopt gọi _validation_ok mà KHÔNG có sàn n_trades:\n  "
+                     + "\n  ".join(bad))

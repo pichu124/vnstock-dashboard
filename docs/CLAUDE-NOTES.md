@@ -6041,6 +6041,44 @@ Suite **1971 passed** (+25).
 Suite **1987 passed** (+16), `--fast` 1.525 / 26s CI.
 
 
+## 2026-08-13 (f) — Lần chạy `--tier both` đầu tiên: một đạt, một trượt, một lỗ hổng lộ ra
+
+### Kết quả trên máy user
+
+* **Tầng 5 phiên** — ứng viên #33 (116 lệnh): expectancy **+0.52** (cũ −0.58!),
+  TP 22% (live cũ 0%), p **0.184** (cũ 0.974). CHƯA ĐẠT (p ≥ 0.1) → hệ ĐÚNG
+  khi không nhận — nhưng xu hướng cải thiện rõ rệt: neo prompt vào số đo
+  reachability đang kéo tầng ngắn về phía khả thi.
+* **Tầng vị thế** — #32 sau MỘT vòng tune: 67 lệnh → **19 lệnh**, expectancy
+  0.197 → **2.37**, kiểm định **✅ ĐẠT (p hiệu chỉnh 0.040)**. 5 rec đã emit
+  (quét 3.125 mã) → brief kế tiếp SẼ có mục khuyến nghị `[vị thế ~20 phiên]`.
+
+### Đọc kết quả #32 một cách trung thực
+
+Đạt theo ĐÚNG luật đã chốt — nhưng bằng chứng MỎNG: 19 lệnh, và kiểu thắng
+"co 67 lệnh còn 19 để expectancy nhảy ×12" là chữ ký kinh điển của overfit
+(chọn lọc entry đẹp trong mẫu). KHÔNG chặn hồi tố (#32 giữ ghế + rec vẫn phát
+— luật tại thời điểm chạy là luật; mỗi rec tự mang SL; trọng tài THẬT là live
+reconcile ~20 phiên tới + `strategy_health` tự demote khi decay).
+
+### Lỗ hổng lộ ra → vá + lưới
+
+Cổng TUNE là đường adopt DUY NHẤT thiếu sàn `n_trades ≥ MIN_TRADES_TO_VALIDATE`
+(cold-start và revise đều có; tune thi đấu theo expectancy nên co mẫu là cách
+rẻ nhất để thắng). Đã vá tune + genetic (genetic dùng sàn CONFIG-AWARE của
+chính run — lite hạ sàn có chủ đích cho smoke test, lưới của chính đợt này
+bắt được bản vá đầu sai chỗ đó). Lưới mới trong `test_strategy_tiers.py`:
+mọi biểu thức gọi `_validation_ok` phải kèm sàn số lệnh NGAY TRONG điều kiện.
+
+Lưu ý: sàn 10 KHÔNG chặn được ca 19 lệnh hôm nay — vá này là NHẤT QUÁN CỔNG,
+không phải chặn hồi tố. Câu hỏi mở cho user (mục 🟠): **có nâng sàn kiểm định
+lên ~30 lệnh không?** Nâng = #32 quay lại "chưa đạt" ở backtest kế tiếp, brief
+đóng lại cho tới khi đủ mẫu. Không nâng = tin p=0.040 trên 19 lệnh + để live
+phân xử. Claude nghiêng NÂNG nhưng đây là quyết định khẩu vị rủi ro của user.
+
+Suite **1989 passed**.
+
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -6049,7 +6087,7 @@ Suite **1987 passed** (+16), `--fast` 1.525 / 26s CI.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **1987 passed** (`--fast` 1.525 test — ~26-35s trên CI,
+> Trạng thái: full suite **1989 passed** (`--fast` 1.527 test — ~26-35s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
@@ -6174,6 +6212,14 @@ vừa chia tách?) → báo Claude kèm message.
   phải đụng nhiều module để đổi lấy sự tiện không ai cảm nhận)
 
 ## 🟠 QUAN SÁT RỒI QUYẾT
+
+**4c. Sàn kiểm định 10 lệnh có quá thấp? — chờ user chốt (13/08 (f)).**
+#32 đạt kiểm định với 19 lệnh sau khi tune co mẫu từ 67. Hai đường:
+nâng `MIN_TRADES_TO_VALIDATE` 10 → ~30 (brief đóng lại với #32 tới khi đủ
+mẫu — an toàn hơn, chậm hơn) hoặc giữ 10 và để live reconcile ~20 phiên
+phân xử (rec có SL, `strategy_health` tự demote khi decay). Claude nghiêng
+NÂNG. Trong lúc chờ: xem 5 rec `[vị thế ~20 phiên]` trong brief kế tiếp
+với đúng trọng số "bằng chứng mỏng".
 
 **4b. Mã của nhóm tuỳ biến ĐẾM HAI LẦN — user chốt 13/08: TẠM GIỮ NGUYÊN.**
 
