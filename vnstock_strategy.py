@@ -87,7 +87,11 @@ def tier_config(tier: str, universe: "list[str]") -> "BacktestConfig":
     t = TIER_CONFIGS[tier]
     return BacktestConfig(universe=universe, lookback_days=t["lookback_days"],
                           horizon_days=t["horizon_days"], step_days=t["step_days"])
-MIN_TRADES_TO_VALIDATE = 10
+# 10 → 30 (user chốt 13/08): #32 đạt p=0.040 với vỏn vẹn 19 lệnh sau khi tune
+# co mẫu từ 67 — thống kê trên mẫu mỏng + chọn lọc trong-mẫu là công thức
+# overfit. 30 lệnh là mức tối thiểu để một verdict "đạt" mang được tiền thật;
+# hạ xuống là quyết định khẩu vị rủi ro của user, không phải tinh chỉnh kỹ thuật.
+MIN_TRADES_TO_VALIDATE = 30
 
 # ── AST whitelist ──────────────────────────────────────────────────────────
 _FORBIDDEN_NAMES = {

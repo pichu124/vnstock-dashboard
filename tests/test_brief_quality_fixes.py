@@ -114,7 +114,10 @@ def _fake_memory(monkeypatch, *, validation, recs=None):
     }])
     m.get_active_family = lambda: {"id": 1}
     m.latest_backtest = lambda sid: (
-        {"metrics_json": json.dumps({"validation": validation})}
+        # n_trades=60: đủ sàn bằng chứng (13/08) — các test ở đây soi hành vi
+        # ĐẠT/TRƯỢT của kiểm định, không soi sàn (sàn có test riêng).
+        {"n_trades": 60, "metrics_json": json.dumps(
+            {"validation": validation, "n_trades": 60})}
         if validation is not None else None)
     monkeypatch.setitem(sys.modules, "vnstock_memory", m)
     return m

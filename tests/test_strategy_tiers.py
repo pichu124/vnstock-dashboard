@@ -126,7 +126,12 @@ def _fake_memory_two_tiers(monkeypatch):
     m.get_active_family = lambda *a, **k: {"id": 1}
     _vals = {1: {"passed": False, "p_value_sharpe": 0.974, "reasons": ["p cao"]},
              2: {"passed": True, "p_value_sharpe": 0.02, "reasons": []}}
-    m.latest_backtest = lambda sid: {"metrics_json": json.dumps({"validation": _vals[sid]})}
+    # n_trades PHẢI có mặt: từ 13/08 sàn bằng chứng áp ở điểm đọc — verdict
+    # "đạt" với mẫu mỏng bị hạ. Chiến lược đạt ở đây cho 67 lệnh (đủ sàn).
+    _ns = {1: 116, 2: 67}
+    m.latest_backtest = lambda sid: {
+        "n_trades": _ns[sid],
+        "metrics_json": json.dumps({"validation": _vals[sid], "n_trades": _ns[sid]})}
     monkeypatch.setitem(sys.modules, "vnstock_memory", m)
     return vb
 
@@ -154,8 +159,9 @@ def test_position_rec_carries_its_horizon_label(monkeypatch):
 def test_all_tiers_failed_gives_the_sentinel(monkeypatch):
     vb = _fake_memory_two_tiers(monkeypatch)
     import vnstock_memory as m
-    m.latest_backtest = lambda sid: {"metrics_json": json.dumps(
-        {"validation": {"passed": False, "p_value_sharpe": 0.9, "reasons": []}})}
+    m.latest_backtest = lambda sid: {"n_trades": 80, "metrics_json": json.dumps(
+        {"validation": {"passed": False, "p_value_sharpe": 0.9, "reasons": []},
+         "n_trades": 80})}
     ctx = {}
     block = vb._recommendation_block(ctx)
     assert "KHÔNG CÓ khuyến nghị" in block
@@ -231,3 +237,94 @@ def test_every_adoption_gate_has_a_trade_floor(path):
             bad.append(f"{path}:{node.lineno}: {text[:80]}")
     assert not bad, ("Cổng adopt gọi _validation_ok mà KHÔNG có sàn n_trades:\n  "
                      + "\n  ".join(bad))
+
+
+# ── Sàn bằng chứng 30 lệnh (user chốt 13/08) ────────────────────────────────
+
+def test_evidence_floor_is_30_by_user_decision():
+    """#32 đạt p=0.040 với 19 lệnh sau khi tune co mẫu từ 67 — user chốt nâng
+    sàn 10 → 30. Hạ số này xuống là quyết định khẩu vị rủi ro của USER, không
+    phải tinh chỉnh kỹ thuật — đừng sửa mà không hỏi."""
+    from vnstock_strategy import MIN_TRADES_TO_VALIDATE
+    assert MIN_TRADES_TO_VALIDATE == 30
+
+
+def test_genetic_full_follows_the_shared_floor():
+    """Mọi đường adopt trên config FULL cùng một sàn — genetic không được là
+    cửa sau. Lite giữ sàn thấp riêng CÓ CHỦ ĐÍCH cho smoke test."""
+    import vnstock_genetic as vg
+    from vnstock_strategy import MIN_TRADES_TO_VALIDATE
+    assert vg._MIN_TRADES_DEFAULT == MIN_TRADES_TO_VALIDATE
+    assert vg._MIN_TRADES_LITE < vg._MIN_TRADES_DEFAULT
+
+
+def test_stored_pass_with_thin_sample_is_demoted_at_read(monkeypatch):
+    """CHÍNH CA #32: passed=True đã LƯU trong DB (tính theo luật cũ) nhưng chỉ
+    19 lệnh. Sàn áp ở ĐIỂM ĐỌC nên verdict cũ bị hạ NGAY — không phải đợi
+    backtest mới (tune không lưu backtest khi không có ứng viên thắng)."""
+    import vnstock_brief as vb
+    m = types.ModuleType("vnstock_memory")
+    m.latest_backtest = lambda sid: {"n_trades": 19, "metrics_json": json.dumps(
+        {"validation": {"passed": True, "p_value_adj": 0.040, "reasons": []},
+         "n_trades": 19})}
+    monkeypatch.setitem(sys.modules, "vnstock_memory", m)
+    out = vb._validation_of_strategy(32)
+    assert out["known"] is True
+    assert out["passed"] is False
+    assert any("mỏng" in r for r in out["reasons"])
+    assert out["p"] == 0.040                      # p thật vẫn giữ để hiển thị
+
+
+def test_enough_sample_keeps_the_stored_pass(monkeypatch):
+    import vnstock_brief as vb
+    m = types.ModuleType("vnstock_memory")
+    m.latest_backtest = lambda sid: {"n_trades": 35, "metrics_json": json.dumps(
+        {"validation": {"passed": True, "p_value_adj": 0.040, "reasons": []},
+         "n_trades": 35})}
+    monkeypatch.setitem(sys.modules, "vnstock_memory", m)
+    assert vb._validation_of_strategy(1)["passed"] is True
+
+
+def test_floor_never_promotes_a_failed_verdict(monkeypatch):
+    """Sàn chỉ HẠ verdict đạt-mà-mỏng, tuyệt đối không nâng verdict trượt."""
+    import vnstock_brief as vb
+    m = types.ModuleType("vnstock_memory")
+    m.latest_backtest = lambda sid: {"n_trades": 200, "metrics_json": json.dumps(
+        {"validation": {"passed": False, "p_value_sharpe": 0.9,
+                        "reasons": ["p cao"]}, "n_trades": 200})}
+    monkeypatch.setitem(sys.modules, "vnstock_memory", m)
+    assert vb._validation_of_strategy(1)["passed"] is False
+
+
+def test_missing_validation_stays_unknown_regardless_of_n(monkeypatch):
+    """Backtest cũ không có validation → unknown (không đo được ≠ trượt),
+    kể cả khi n nhỏ — sàn không được biến 'không biết' thành 'trượt'."""
+    import vnstock_brief as vb
+    m = types.ModuleType("vnstock_memory")
+    m.latest_backtest = lambda sid: {"n_trades": 5, "metrics_json": json.dumps(
+        {"n_trades": 5})}
+    monkeypatch.setitem(sys.modules, "vnstock_memory", m)
+    out = vb._validation_of_strategy(1)
+    assert out["known"] is False and out["passed"] is True
+
+
+def test_thin_pass_recs_are_suppressed_end_to_end(monkeypatch):
+    """Đường đầy đủ: rec của chiến lược 19-lệnh-passed phải BỊ ẨN khỏi prompt,
+    sentinel nêu lý do mẫu mỏng (chỉ in p=0.040 sẽ gây hiểu lầm 'p tốt mà')."""
+    import vnstock_brief as vb
+    m = types.ModuleType("vnstock_memory")
+    now = datetime.now().isoformat()
+    m.open_recommendations = lambda: [
+        {"ticker": "FPT", "action": "buy", "entry_price": 140.0, "take_profit": 155.0,
+         "cut_loss": 132.0, "horizon_days": 20, "created_at": now, "strategy_id": 32}]
+    m.get_active_family = lambda *a, **k: None
+    m.latest_backtest = lambda sid: {"n_trades": 19, "metrics_json": json.dumps(
+        {"validation": {"passed": True, "p_value_adj": 0.040, "reasons": []},
+         "n_trades": 19})}
+    monkeypatch.setitem(sys.modules, "vnstock_memory", m)
+    ctx = {}
+    block = vb._recommendation_block(ctx)
+    assert "FPT" not in block
+    assert "KHÔNG CÓ khuyến nghị" in block
+    assert "mỏng" in block                        # sentinel nêu lý do, không chỉ p
+    assert ctx["strategy_recs_in_prompt"] is False

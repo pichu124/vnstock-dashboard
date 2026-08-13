@@ -3632,6 +3632,19 @@ def _active_strategy_validation(ctx: dict | None = None) -> dict:
     return out
 
 
+def _evidence_floor() -> int:
+    """Sàn số lệnh để một verdict "đạt" được phép mang tiền thật.
+
+    Đọc từ `vnstock_strategy` để không nuôi hai bản; import hỏng thì dùng 30
+    (đúng giá trị user chốt 13/08) thay vì tắt sàn.
+    """
+    try:
+        from vnstock_strategy import MIN_TRADES_TO_VALIDATE
+        return int(MIN_TRADES_TO_VALIDATE)
+    except Exception:
+        return 30
+
+
 def _validation_of_strategy(strategy_id) -> dict:
     """Kiểm định của MỘT chiến lược theo id — cùng hợp đồng known/passed/p.
 
@@ -3639,6 +3652,13 @@ def _validation_of_strategy(strategy_id) -> dict:
     chạy song song: rec của tầng vị thế phải được xử theo kiểm định của CHÍNH
     chiến lược vị thế, không phải của chiến lược 5 phiên đang active.
     Mọi lỗi đọc → unknown (không đo được ≠ trượt).
+
+    SÀN BẰNG CHỨNG áp ở ĐIỂM ĐỌC (user chốt nâng 10→30, 13/08): `passed` lưu
+    trong DB được tính theo luật tại thời điểm backtest — nếu chỉ sửa hằng số
+    thì #32 (19 lệnh, passed=True đã lưu) tiếp tục phát rec cho tới khi có
+    backtest MỚI, mà tune không lưu backtest khi không có ứng viên thắng. Áp
+    tại điểm đọc = quyết định nâng sàn có hiệu lực NGAY với verdict cũ.
+    Chỉ hạ verdict "đạt" xuống; validation vắng (backtest cũ) vẫn là unknown.
     """
     out = {"known": False, "passed": True, "p": None, "reasons": []}
     try:
@@ -3646,17 +3666,27 @@ def _validation_of_strategy(strategy_id) -> dict:
 
         import vnstock_memory as _mem
         bt = _mem.latest_backtest(strategy_id)
-        val = (_json.loads(bt["metrics_json"]).get("validation")
-               if bt and bt.get("metrics_json") else None)
+        if not bt or not bt.get("metrics_json"):
+            return out
+        mt = _json.loads(bt["metrics_json"])
+        val = mt.get("validation")
         if not val:
             return out
-        return {
+        out = {
             "known": True,
             "passed": bool(val.get("passed")),
             # p hiệu chỉnh chọn-lọc nghiêm hơn p thô — ưu tiên như panel dashboard
             "p": val.get("p_value_adj", val.get("p_value_sharpe")),
             "reasons": list(val.get("reasons") or []),
         }
+        n = int(bt.get("n_trades") or mt.get("n_trades") or 0)
+        floor = _evidence_floor()
+        if out["passed"] and n < floor:
+            out["passed"] = False
+            out["reasons"] = out["reasons"] + [
+                f"mẫu quá mỏng (n={n} < {floor}) — thống kê đẹp trên ít lệnh "
+                f"chưa đủ bằng chứng để phát khuyến nghị"]
+        return out
     except Exception:
         return out
 
@@ -3724,7 +3754,13 @@ def _recommendation_block(ctx: dict | None = None) -> str:
                 ctx["strategy_recs_in_prompt"] = False
             _p = next((v.get("p") for v in hidden_vals
                        if isinstance(v.get("p"), float)), None)
+            _why = next((v["reasons"][0] for v in hidden_vals
+                         if v.get("reasons")), None)
+            # Kèm LÝ DO đầu tiên: từ khi có sàn bằng chứng, p có thể rất đẹp
+            # (0.040) mà vẫn trượt vì mẫu mỏng — chỉ in p sẽ gây hiểu lầm.
             _ptxt = f" (p={_p:.3f})" if isinstance(_p, float) else ""
+            if _why:
+                _ptxt += f" — {_why}"
             return (
                 "\n## Khuyến nghị từ chiến lược đã backtest (tự sinh)\n"
                 f"⚠️ KHÔNG CÓ khuyến nghị hôm nay — chiến lược hiện tại CHƯA ĐẠT "

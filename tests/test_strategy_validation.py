@@ -184,7 +184,7 @@ def _patch_revise(monkeypatch, metrics, recorder):
 
 def test_do_revise_blocks_failed_validation(monkeypatch):
     rec: list = []
-    metrics = {"expectancy": 0.9, "n_trades": 25,
+    metrics = {"expectancy": 0.9, "n_trades": 45,
                "validation": {"passed": False, "reasons": ["p-value cao"]}}
     _patch_revise(monkeypatch, metrics, rec)
     active = {"id": 1, "code": "c", "family_id": "fam", "is_core_stable": 0}
@@ -199,7 +199,7 @@ def test_do_revise_blocks_failed_validation(monkeypatch):
 
 def test_do_revise_promotes_when_validation_passes(monkeypatch):
     rec: list = []
-    metrics = {"expectancy": 0.9, "n_trades": 25,
+    metrics = {"expectancy": 0.9, "n_trades": 45,
                "validation": {"passed": True, "reasons": []}}
     _patch_revise(monkeypatch, metrics, rec)
     active = {"id": 1, "code": "c", "family_id": "fam", "is_core_stable": 0}
@@ -216,7 +216,7 @@ def test_do_tune_blocks_failed_validation(monkeypatch):
         calls["n"] += 1
         if calls["n"] == 1:            # re-benchmark active (net)
             return ({"expectancy": 0.1, "n_trades": 20}, "a", "b")
-        return ({"expectancy": 0.9, "n_trades": 25,
+        return ({"expectancy": 0.9, "n_trades": 45,
                  "validation": {"passed": False, "reasons": ["x"]}}, "a", "b")
 
     monkeypatch.setattr(vs.mem, "update_strategy_params",
@@ -242,7 +242,7 @@ def test_do_tune_adopts_with_same_cost_basis(monkeypatch):
         calls["n"] += 1
         if calls["n"] == 1:            # active net sau phí: âm
             return ({"expectancy": -0.05, "n_trades": 20}, "a", "b")
-        return ({"expectancy": 0.3, "n_trades": 25,
+        return ({"expectancy": 0.3, "n_trades": 45,
                  "validation": {"passed": True, "reasons": []}}, "a", "b")
 
     monkeypatch.setattr(vs.mem, "update_strategy_params",

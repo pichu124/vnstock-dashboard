@@ -6079,6 +6079,35 @@ phân xử. Claude nghiêng NÂNG nhưng đây là quyết định khẩu vị r
 Suite **1989 passed**.
 
 
+## 2026-08-13 (g) — User chốt: NÂNG sàn bằng chứng 10 → 30 lệnh
+
+Điểm kỹ thuật quan trọng nhất của bản vá: nâng hằng số KHÔNG đủ. `passed` lưu
+trong DB được tính theo luật tại thời điểm backtest, mà tune KHÔNG lưu backtest
+mới khi không có ứng viên thắng → #32 (19 lệnh, passed=True đã lưu) sẽ tiếp
+tục phát rec vô thời hạn. Vì thế sàn áp ở **ĐIỂM ĐỌC** (`_validation_of_strategy`
+đọc `n_trades` từ row/metrics_json, verdict "đạt" + n < 30 → hạ xuống kèm lý
+do "mẫu quá mỏng") — quyết định có hiệu lực NGAY với verdict cũ.
+
+Các chốt đi kèm:
+* `MIN_TRADES_TO_VALIDATE = 30` (comment ghi rõ: hạ xuống là quyết định khẩu
+  vị rủi ro của USER, đừng sửa mà không hỏi — có test pin đúng giá trị 30).
+* Genetic FULL đi theo sàn chung (`_MIN_TRADES_DEFAULT = MIN_TRADES_TO_VALIDATE`);
+  lite giữ sàn 4 CÓ CHỦ ĐÍCH cho smoke test.
+* Sàn chỉ HẠ verdict đạt-mà-mỏng; verdict trượt giữ nguyên; validation vắng
+  (backtest cũ) vẫn là unknown — sàn không biến "không biết" thành "trượt".
+* Sentinel + panel nêu LÝ DO: từ giờ p có thể rất đẹp (0.040) mà vẫn đóng vì
+  mẫu mỏng — chỉ in p sẽ gây hiểu lầm "p tốt mà sao trượt".
+* 4 fixture test cũ dùng ứng viên n=25 (hợp sàn cũ) nâng lên 45 — ý đồ của
+  chúng là cơ chế adopt, không phải giá trị sàn.
+
+Hệ quả user thấy được: brief kế tiếp KHÔNG có rec vị thế (đóng lại đúng như
+đã chốt); panel ghi "thống kê ĐẠT (p=0.040) nhưng mẫu quá mỏng (n=19 < 30)".
+Đường mở lại: vòng train đêm (`--tier both`) tìm được ứng viên ≥ 30 lệnh đạt
+chuẩn — hoặc dữ liệu mới tích đủ lệnh cho params hiện tại.
+
+Suite **1996 passed**.
+
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -6087,7 +6116,7 @@ Suite **1989 passed**.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **1989 passed** (`--fast` 1.527 test — ~26-35s trên CI,
+> Trạng thái: full suite **1996 passed** (`--fast` ~1.534 test — ~26-35s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
@@ -6213,13 +6242,10 @@ vừa chia tách?) → báo Claude kèm message.
 
 ## 🟠 QUAN SÁT RỒI QUYẾT
 
-**4c. Sàn kiểm định 10 lệnh có quá thấp? — chờ user chốt (13/08 (f)).**
-#32 đạt kiểm định với 19 lệnh sau khi tune co mẫu từ 67. Hai đường:
-nâng `MIN_TRADES_TO_VALIDATE` 10 → ~30 (brief đóng lại với #32 tới khi đủ
-mẫu — an toàn hơn, chậm hơn) hoặc giữ 10 và để live reconcile ~20 phiên
-phân xử (rec có SL, `strategy_health` tự demote khi decay). Claude nghiêng
-NÂNG. Trong lúc chờ: xem 5 rec `[vị thế ~20 phiên]` trong brief kế tiếp
-với đúng trọng số "bằng chứng mỏng".
+**4c. ✅ ĐÃ CHỐT 13/08: NÂNG sàn kiểm định 10 → 30 lệnh** (entry 13/08 (g)).
+Hệ quả tức thì: #32 (19 lệnh) bị hạ verdict NGAY tại điểm đọc — brief kế tiếp
+KHÔNG còn rec `[vị thế ~20 phiên]` nữa; panel hiện "🎲 mẫu mỏng (n=19)".
+Mở lại khi có backtest ≥ 30 lệnh đạt chuẩn (tune/revise đêm sẽ tự tìm).
 
 **4b. Mã của nhóm tuỳ biến ĐẾM HAI LẦN — user chốt 13/08: TẠM GIỮ NGUYÊN.**
 

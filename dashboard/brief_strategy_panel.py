@@ -98,7 +98,20 @@ def render_strategy_panel() -> None:
                         _ptxt = (f"p={_p:.3f}" if _p is not None else "p=—")
                         if _val.get("n_trials"):
                             _ptxt += f" · {_val['n_trials']} ứng viên"
-                        if _val.get("passed"):
+                        # Sàn bằng chứng áp ở điểm đọc (user chốt 13/08) —
+                        # verdict lưu theo luật cũ không được hiện "ĐẠT" nữa.
+                        _n_bt = int(_bt0.get("n_trades")
+                                    or _bt_metrics.get("n_trades") or 0)
+                        try:
+                            from vnstock_strategy import MIN_TRADES_TO_VALIDATE as _fl
+                        except Exception:
+                            _fl = 30
+                        if _val.get("passed") and _n_bt < _fl:
+                            st.warning(
+                                f"🎲 Kiểm định: thống kê ĐẠT ({_ptxt}) nhưng mẫu "
+                                f"quá mỏng (n={_n_bt} < {_fl}) → chưa đủ bằng chứng "
+                                "— brief KHÔNG nhận khuyến nghị.", icon="🎲")
+                        elif _val.get("passed"):
                             st.caption(f"🧪 Kiểm định chống-ăn-may: ĐẠT ({_ptxt})")
                         else:
                             st.warning(
@@ -140,7 +153,13 @@ def render_strategy_panel() -> None:
                         _pbt = _vm.latest_backtest(_pos["id"])
                         if _pbt and _pbt.get("metrics_json"):
                             _pv = _json.loads(_pbt["metrics_json"]).get("validation")
-                        _pstate = ("✅ đạt kiểm định" if _pv and _pv.get("passed")
+                        _pn = int((_pbt or {}).get("n_trades") or 0)
+                        try:
+                            from vnstock_strategy import MIN_TRADES_TO_VALIDATE as _pfl
+                        except Exception:
+                            _pfl = 30
+                        _pstate = ("✅ đạt kiểm định" if _pv and _pv.get("passed") and _pn >= _pfl
+                                   else f"🎲 mẫu mỏng (n={_pn})" if _pv and _pv.get("passed")
                                    else "🎲 chưa đạt" if _pv else "⏳ chưa backtest")
                         st.caption(f"🕰 Tầng vị thế (~20 phiên): "
                                    f"**{_pos['name']}** · {_pstate}")

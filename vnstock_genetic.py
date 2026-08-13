@@ -65,7 +65,9 @@ _SEED_DEFAULT = 20260715     # deterministic — cùng data ra cùng kết quả
 _SPAN_LO, _SPAN_HI = 0.4, 2.5   # khoảng tìm kiếm quanh giá trị hiện tại
 
 _FITNESS_KEYS = ("expectancy", "sharpe", "profit_factor", "recovery_factor")
-_MIN_TRADES_DEFAULT = 8      # dưới ngưỡng → fitness -inf (mẫu quá mỏng)
+_MIN_TRADES_DEFAULT = vs.MIN_TRADES_TO_VALIDATE   # full ĐI THEO sàn chung
+# (user chốt 13/08: mọi đường adopt trên config full cùng một sàn bằng chứng;
+#  dưới ngưỡng → fitness -inf, mẫu quá mỏng)
 _MIN_TRADES_LITE = 4         # lite/medium tự nhiên ít lệnh hơn nhiều — 8
                              # chặn sạch mọi ứng viên (thấy thật 15/07:
                              # benchmark có số mà GA toàn "—")
