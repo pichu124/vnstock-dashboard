@@ -6143,18 +6143,15 @@ git fetch origin claude/remaining-tasks-tests-4xoam3
 git merge origin/claude/remaining-tasks-tests-4xoam3
 python run.py dashboard
 ```
-* **Tab Thị trường** — bảng ngành lên đủ cột và CÓ MÀU (xanh/đỏ/gradient biên
-  độ); cột sparkline vẽ được; bấm vào một ngành → drill-down ra bảng mã và màu
-  vẫn đúng (drill-down dùng thang màu riêng). *(Mục 🧭 Nhận định: XONG 13/08,
-  xem ghi chú trên.)*
-* **Khối 🤖 AI Market Brief** (cuối tab Thị trường) — mở được cả 4 expander:
-  Cài đặt AI Agent · Lịch sử brief · Chiến lược & khuyến nghị. Bấm **sinh
-  brief** một lần xem có ra chữ không (đây là nhánh test không chạm tới vì nó
-  gọi LLM thật).
-* **Tab Phân tích** — chart 4 panel (Price/Volume/RSI/MACD) vẫn **thẳng hàng,
-  cùng số nến**. `compute_indicators` vừa đổi chỗ ở, đây là bất biến của nó.
-* **Watchlist** — thêm rồi xoá một mã trong tab Screener. Cách ghi file
-  watchlist vừa đổi sang ghi nguyên tử.
+* ✅ **Tab Thị trường** — XONG 13/08 qua ảnh chụp: bảng ngành đủ cột + màu +
+  sparkline; drill-down Ngân hàng (27 mã) VÀ Họ VIN/Họ M (sau vá) đều mở đúng.
+* ✅ **Khối 🤖 AI Market Brief** — XONG 13/08 qua ảnh chụp: Cài đặt agent ·
+  Lịch sử · Chiến lược đều render đủ; đã sinh brief thật (4 giọng, consensus).
+* ⬜ **Tab Phân tích** — chart 4 panel (Price/Volume/RSI/MACD) vẫn **thẳng
+  hàng, cùng số nến**. `compute_indicators` vừa đổi chỗ ở, đây là bất biến
+  của nó. CHƯA soi.
+* ⬜ **Watchlist** — thêm rồi xoá một mã trong tab Screener. Cách ghi file
+  watchlist vừa đổi sang ghi nguyên tử. CHƯA soi.
 
 Thấy chỗ nào lệch → báo Claude kèm ảnh chụp, ĐỪNG tự sửa (dễ lệch khỏi nhánh).
 
@@ -6178,14 +6175,20 @@ trần ~46% ở 2.5×ATR — trúng). Kiểm định: 🎲 CHƯA ĐẠT — p th
 chỉnh chọn-lọc 1.0), chỉ 25% cửa sổ thời gian dương (lãi dồn cục — khớp
 caveat "500 phiên gần nhất toàn thị trường lên"). Brief đúng luật KHÔNG nhận
 rec của #32; nó ở lại ghế làm việc, được tune + đối soát để tự chứng minh.
+*(Diễn biến tiếp: tune 13/08 co mẫu 67→19 và "đạt" p=0.040 → user chốt nâng
+sàn bằng chứng lên 30 lệnh, verdict bị hạ lại tại điểm đọc — entry (f)+(g).
+Trạng thái hiện tại: brief ĐÓNG với cả hai tầng, chờ ứng viên ≥30 lệnh đạt.)*
 
-**0f. QUYẾT: có cho tầng vị thế vào vòng train hằng đêm không?**
-`--tier` đã nối qua cả `--once` (13/08). Muốn cả hai tầng cùng tune mỗi đêm:
-sửa lệnh trong scheduled task thành `python vnstock_train.py --once --tier both`
-(chi phí: thêm ~5-15 phút LLM + backtest 730 ngày mỗi đêm). Không sửa thì
-tầng vị thế đứng yên — thỉnh thoảng chạy tay
-`python vnstock_train.py --strategy-only --tier position`. Khuyến nghị của
-Claude: BẬT both — không tune thì #32 không bao giờ có cơ hội đạt kiểm định.
+**0f. Sửa scheduled task train sang `--tier both` (2 phút, MỘT lần).**
+User đã chạy tay `--once --tier both` OK (13/08) nhưng task đêm vẫn chạy lệnh
+cũ = tầng vị thế đứng yên giữa các lần chạy tay. Mở Task Scheduler → task
+train → sửa lệnh thành:
+```powershell
+python vnstock_train.py --once --tier both
+```
+(chi phí thêm ~5-15 phút LLM + backtest 730 ngày mỗi đêm). Sau sàn 30 lệnh,
+đây là CON ĐƯỜNG DUY NHẤT để hai tầng tự tìm ứng viên đạt chuẩn và mở lại
+mục khuyến nghị trong brief.
 
 **0c. Sau lần chạy pipeline kế tiếp, xem `run_daily.log`.**
 Tìm dòng `collect_context: nguồn '<tên>' hỏng`. Trước 12/08 các nguồn này chết
@@ -6239,6 +6242,17 @@ vừa chia tách?) → báo Claude kèm message.
 * **② hiệu năng** (làm cuối): warehouse bị quét ~14 lần/đêm — **ĐO TRƯỚC rồi
   mới quyết**, nhiều khả năng BỎ (pipeline chạy 18:00 không ai ngồi đợi; sửa
   phải đụng nhiều module để đổi lấy sự tiện không ai cảm nhận)
+
+**4d. Kiểm cổ tức trong kho giá** — tiền đề còn thiếu của backtest giữ lệnh
+dài (entry 13/08 (d), mục "Còn lại" #2). Kho lấy giá vnstock (thường ĐÃ điều
+chỉnh) nhưng chưa ai xác nhận chuỗi nhất quán qua các đợt ex-div — gap cổ tức
+chưa điều chỉnh làm backtest 20-40 phiên báo lỗ giả. Việc của Claude: viết
+checker (lấy ex-div từ `vnstock_events`, soi bar quanh ngày đó tìm gap bất
+thường) + user chạy trên máy thật. Tầng vị thế đã chạy nên mục này TĂNG độ
+ưu tiên — nói Claude làm là xong trong một buổi.
+
+**4e. Tầng B — danh mục xoay vòng tháng** (entry 13/08 (d)): để sau, chỉ làm
+khi tầng A chạy ổn và user muốn đầu tư backtester cấp danh mục (~3-5 buổi).
 
 ## 🟠 QUAN SÁT RỒI QUYẾT
 
