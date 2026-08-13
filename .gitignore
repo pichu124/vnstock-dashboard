@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 *.tmp.*
 debug.log
+run_daily.log
 .claude/*
 !.claude/settings.json
 !.claude/skills/

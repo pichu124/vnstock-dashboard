@@ -1731,8 +1731,9 @@ def _note_loader_error(ctx: dict, loader: str, exc: Exception) -> None:
     nguồn nào (quét 12/08: 13 chỗ nuốt im, và `ctx["quant_error"]` viết ra rồi
     KHÔNG AI ĐỌC).
 
-    Hai thứ nhỏ nhưng đủ dùng: một dòng WARNING vào `run_daily.log` (chỗ user
-    thật sự đọc) và một breadcrumb trong ctx để test/UI soi được.
+    Hai thứ nhỏ nhưng đủ dùng: một dòng WARNING (từ 13/08 chảy vào
+    `run_daily.log` THẬT qua tee của run.py — trước đó file này chưa từng
+    tồn tại, xem entry 13/08 (j)) và một breadcrumb trong ctx để test/UI soi.
 
     KHÔNG đổi luồng: vẫn nuốt lỗi, vẫn chạy tiếp. Thiếu data thì prompt đã có
     sentinel "KHÔNG CÓ …" lo phần chống bịa (xem `tests/test_prompt_sentinels.py`).

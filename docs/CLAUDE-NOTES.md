@@ -6156,6 +6156,39 @@ của vụ accum→delta chính là chỗ script đã phủ.
 
 Suite 2008 passed (11 test mới của `grade()`).
 
+## 2026-08-13 (j) — `run_daily.log` CÓ THẬT từ hôm nay: tee tại run.py, một điểm chặn
+
+User hỏi "soi run_daily.log làm thế nào" → truy code mới vỡ ra: sự thật
+11/08 (e) VẪN CÒN NGUYÊN — file đó chưa từng tồn tại (Task Scheduler vứt
+stdout), mục 0c như đang viết là bất khả thi. Tệ hơn: docstring
+`_note_loader_error` (12/08) hứa "WARNING vào run_daily.log" — lời hứa
+viết vào một file không tồn tại, đúng vết xe 11/08 (e) khai quật hôm
+trước. Lần này vá bằng CODE, không phải bằng hướng dẫn:
+
+* `run.py main()` → `_install_run_log()`: mở `run_daily.log` (append, cạnh
+  run.py — đúng tên/chỗ mọi tham chiếu cũ trong notes), ghi header mốc giờ
+  + lệnh, tee `sys.stdout`/`sys.stderr`. MỌI lần gọi run.py đều ghi
+  (all / train / doctor / test…), không riêng task đêm. Quá ~5 MB tự cắt
+  giữ đuôi ~1 MB.
+* `_run()` đổi `subprocess.run` → `Popen(stdout=PIPE, stderr=STDOUT)`, bơm
+  từng dòng qua print của cha → output TIẾN TRÌNH CON (updater, train,
+  brief…) cùng chảy vào tee. Env con thêm PYTHONUNBUFFERED +
+  PYTHONIOENCODING=utf-8. Đánh đổi chấp nhận: progress bar `\r` (tqdm)
+  nhìn như đứng im tới khi xuống dòng.
+* `strategy_loop` in `tier=` trong dòng verbose → `Select-String "tier="`
+  là ra ngay bằng chứng đêm đó train tầng nào (phục vụ 0c/0f).
+* Best-effort triệt để CẢ HAI phía tee (console chết dưới scheduler / file
+  chết vì đĩa đầy) — hỏng đường log KHÔNG được giết pipeline. `.gitignore`
+  thêm `run_daily.log`.
+* Lưới `tests/test_run_log.py` (15 test): chuỗi con→PIPE→tee→file chạy
+  THẬT (subprocess thật), hai phía chết không nổ, trim giữ đuôi, net AST
+  canh main() còn gọi `_install_run_log` / `_run` còn đi PIPE / train còn
+  in `tier=` — ai gỡ tee là test đỏ, khỏi tái diễn "log ma" lần ba.
+
+Bằng chứng sống ngay lần chạy đầu: `python run.py test` đi qua main() mới
+→ sinh `run_daily.log` đầu tiên trong đời dự án (187 KB, nguyên output
+pytest của tiến trình con). Suite 2008 → **2023 passed**.
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -6164,7 +6197,7 @@ Suite 2008 passed (11 test mới của `grade()`).
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2008 passed** (`--fast` ~1.534 test — ~26-35s trên CI,
+> Trạng thái: full suite **2023 passed** (`--fast` ~1.534 test — ~26-35s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
@@ -6242,13 +6275,27 @@ tier=position); hoặc sáng hôm sau soi `run_daily.log` thấy cả hai tầng
 đây là CON ĐƯỜNG DUY NHẤT để hai tầng tự tìm ứng viên đạt chuẩn và mở lại
 mục khuyến nghị trong brief.
 
-**0c. Sau lần chạy pipeline kế tiếp, xem `run_daily.log`.**
-Tìm dòng `collect_context: nguồn '<tên>' hỏng`. Trước 12/08 các nguồn này chết
-là im re; nay có tên rõ ràng. Không có dòng nào = mọi nguồn khoẻ. Có dòng nào
-lặp lại mỗi tối → báo Claude tên nguồn đó.
+**0c. Sau merge + phát pipeline 18:00 kế tiếp, soi `run_daily.log`.**
+File này TỪ 13/08 MỚI TỒN TẠI (run.py tự tee — entry 13/08 (j); trước đó
+mọi mục "soi log" trong notes là bất khả thi, xem 11/08 (e)). Sáng hôm
+sau, PowerShell tại thư mục repo:
+```powershell
+Select-String -Path run_daily.log -Pattern "tier="
+Select-String -Path run_daily.log -Pattern "collect_context"
+```
+* Lệnh 1 phải ra ĐỦ HAI dòng `[strategy_loop] tier=short …` VÀ
+  `tier=position …` = bản vá train 2 tầng chạy thật (đóng luôn phần
+  kiểm chứng của 0f).
+* Lệnh 2 không ra gì = mọi nguồn khoẻ. Có dòng `nguồn '<tên>' hỏng` lặp
+  lại mỗi tối → báo Claude tên nguồn đó.
+(Thích đọc cả file: `notepad run_daily.log`, Ctrl+F `tier=`.)
 Cùng chủ đề sức khoẻ nguồn: ảnh sidebar 13/08 thấy badge **nguồn dữ liệu
-2⚠️** (chữ nhỏ không đọc được tên) — lúc rảnh chạy `python run.py doctor`
-rồi dán output cho Claude xem 2 nguồn đó là gì.
+2⚠️** (chữ nhỏ không đọc được tên) — lúc rảnh chạy:
+```powershell
+python run.py doctor | clip
+```
+rồi Ctrl+V dán cho Claude (lệnh `| clip` tự copy output vào clipboard;
+không ưng thì chạy trần rồi bôi đen + Enter, hoặc chụp ảnh).
 
 **1. ✅ PHẦN VOLUME XONG 13/08 — WSS volume tích luỹ ĐẠT CẢ 3 bất biến.**
 Món nợ verify cuối của đợt fix 07/08 ĐÃ ĐÓNG: user chạy

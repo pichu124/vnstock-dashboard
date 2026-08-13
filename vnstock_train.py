@@ -430,8 +430,10 @@ def strategy_loop(
 
     if verbose:
         names = ", ".join(a.name for a in available)
-        print(f"[strategy_loop] mode={mode} lite={lite} | agents: {names} "
-              f"| lead={lead.name}")
+        # tier= đứng đầu dòng để Select-String "tier=" trong run_daily.log
+        # là ra ngay bằng chứng đêm đó train những tầng nào (mục 0c/0f).
+        print(f"[strategy_loop] tier={tier} mode={mode} lite={lite} "
+              f"| agents: {names} | lead={lead.name}")
 
     summary: dict = {"agents_run": len(available), "validated": 0,
                      "mode": mode, "errors": []}

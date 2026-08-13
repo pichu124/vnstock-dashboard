@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from datetime import date, datetime as _datetime
@@ -1233,13 +1234,110 @@ def cmd_all(args) -> int:
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
+# Run log — run_daily.log (điểm chặn duy nhất, thêm 13/08)
+#
+# Sự thật khai quật 11/08 (e): Task Scheduler chạy `run.py all` trực tiếp và
+# VỨT stdout — `run_daily.log` mà notes nhắc suốt CHƯA TỪNG TỒN TẠI, mọi mục
+# "soi log" đều bất khả thi. Vá tại một chỗ: main() tee stdout/stderr ra file
+# (append), _run() bơm output tiến trình con qua pipe để cùng chảy vào tee.
+# Best-effort triệt để: hỏng đường ghi file KHÔNG được làm pipeline chết.
+# ─────────────────────────────────────────────────────────────────────────────
+
+RUN_LOG_PATH = REPO_ROOT / "run_daily.log"
+_RUN_LOG_MAX_BYTES = 5 * 1024 * 1024    # phình quá ~5 MB thì cắt…
+_RUN_LOG_KEEP_BYTES = 1 * 1024 * 1024   # …giữ lại đuôi ~1 MB gần nhất
+
+
+class _Tee:
+    """Nhân bản mọi write ra console + file log; hai phía đều best-effort.
+
+    Console chết (chạy dưới Task Scheduler không cửa sổ) hay file chết
+    (đĩa đầy, bị khoá) đều nuốt im — bên còn lại vẫn nhận đủ.
+    """
+
+    def __init__(self, stream, log_handle):
+        self._stream = stream
+        self._log = log_handle
+
+    def write(self, text: str) -> int:
+        try:
+            self._stream.write(text)
+        except Exception:
+            pass
+        try:
+            self._log.write(text)
+            self._log.flush()
+        except Exception:
+            pass
+        return len(text)
+
+    def flush(self) -> None:
+        for h in (self._stream, self._log):
+            try:
+                h.flush()
+            except Exception:
+                pass
+
+    def __getattr__(self, name):    # encoding, isatty… uỷ quyền cho console
+        return getattr(self._stream, name)
+
+
+def _trim_run_log(path: Path | None = None) -> None:
+    """Giữ log không phình vô hạn: quá MAX thì chỉ giữ đuôi KEEP bytes."""
+    p = path or RUN_LOG_PATH
+    try:
+        if p.exists() and p.stat().st_size > _RUN_LOG_MAX_BYTES:
+            tail = p.read_bytes()[-_RUN_LOG_KEEP_BYTES:]
+            p.write_bytes(b"[run.py] (log qua dai - da cat, giu duoi ~1MB)\n"
+                          + tail)
+    except Exception:
+        pass
+
+
+def _install_run_log(argv_note: str) -> None:
+    """Mở run_daily.log (append) + tee stdout/stderr, ghi header mốc giờ.
+
+    Gọi MỘT lần ở đầu main(); mọi print của run.py lẫn output tiến trình
+    con (qua _run) từ đó chảy vào cả console lẫn file.
+    """
+    try:
+        _trim_run_log()
+        handle = open(RUN_LOG_PATH, "a", encoding="utf-8", errors="replace")
+    except Exception:
+        return                      # không có log vẫn phải chạy pipeline
+    stamp = _datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        handle.write(f"\n{'=' * 66}\n[run.py] {stamp} | {argv_note}\n"
+                     f"{'=' * 66}\n")
+        handle.flush()
+    except Exception:
+        pass
+    sys.stdout = _Tee(sys.stdout, handle)
+    sys.stderr = _Tee(sys.stderr, handle)
 
 
 def _run(cmd: list[str]) -> int:
-    """Run a subprocess in the repo root, streaming its output."""
+    """Run a subprocess in the repo root, streaming its output.
+
+    Output con đi qua PIPE rồi được in lại (thay vì cho con ghi thẳng
+    console) để MỌI dòng đều chảy qua tee → `run_daily.log` (entry 13/08
+    (j): Task Scheduler vứt stdout — file log là bằng chứng duy nhất còn
+    lại sau phiên chạy đêm; trước 13/08 file này chưa từng tồn tại).
+    Đánh đổi chấp nhận: progress bar dùng ``\\r`` (tqdm) chỉ hiện khi xuống
+    dòng — nhìn như đứng im nhưng vẫn chạy.
+    """
     print(f"[run.py] $ {' '.join(cmd)}")
-    proc = subprocess.run(cmd, cwd=str(REPO_ROOT))
-    return proc.returncode
+    env = {**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"}
+    proc = subprocess.Popen(cmd, cwd=str(REPO_ROOT), stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True,
+                            encoding="utf-8", errors="replace", env=env)
+    assert proc.stdout is not None    # stdout=PIPE ở trên bảo đảm
+    try:
+        for line in proc.stdout:
+            print(line, end="")
+    finally:
+        proc.stdout.close()
+    return proc.wait()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1512,8 +1610,11 @@ _DISPATCH = {
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    _install_run_log(" ".join(argv if argv is not None else sys.argv[1:]))
     handler = _DISPATCH[args.subcommand]
-    return handler(args)
+    rc = handler(args)
+    print(f"[run.py] {args.subcommand} → exit {rc}")
+    return rc
 
 
 if __name__ == "__main__":
