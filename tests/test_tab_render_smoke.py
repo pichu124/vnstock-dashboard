@@ -233,6 +233,35 @@ def test_market_tab_renders_when_drilldown_sector_selected(render_env, monkeypat
     _load("dashboard.market_tab").render_market_tab()
 
 
+def test_custom_sector_drilldown_is_not_empty(render_env, monkeypatch):
+    """Ca user báo 13/08: bấm vào "Họ VIN" ra "Không có dữ liệu ticker".
+
+    Bảng MÃ giữ `Ngành` = ngành GỐC (VIC/VHM = Bất động sản), nên lọc theo nhãn
+    nhóm luôn rỗng. Đây là test đi ĐÚNG đường user bấm, khác với test đơn vị ở
+    `test_custom_sector_drilldown.py` chỉ soi hàm lọc."""
+    sectors = _sector_df()
+    sectors.loc[0, "Ngành"] = "Họ VIN"          # nhóm tuỳ biến xuất hiện ở bảng ngành
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard",
+                        _stub_dashboard(sectors, _index_df()))
+
+    ticks = _ticker_df()
+    ticks["Mã"] = ["VIC", "VHM", "FPT"]
+    ticks["Ngành"] = ["Bất động sản", "Bất động sản", "Công nghệ"]  # KHÔNG mã nào là "Họ VIN"
+
+    st = render_env
+    st.session_state["_mkt_ticker_data"] = ticks
+    st.selectbox = lambda label, options=(), **k: (
+        "Họ VIN" if "Họ VIN" in list(options)
+        else (list(options)[0] if len(options) else None))
+    said = []
+    st.info = lambda *a, **k: said.append(str(a[0]) if a else "")
+
+    _load("dashboard.market_tab").render_market_tab()
+
+    assert not [s for s in said if "Không có dữ liệu ticker" in s], (
+        "Drill-down nhóm tuỳ biến vẫn rỗng — dùng vnstock_sectors.rows_for_sector")
+
+
 def test_brief_panel_renders(render_env):
     """5 panel con vừa tách — nổ ở đây nghĩa là cắt khối mà rơi mất biến."""
     _load("dashboard.market_brief_panel").render_brief_panel()

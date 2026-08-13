@@ -111,3 +111,36 @@ CUSTOM_FAMILY = frozenset(_TICKER_TO_GROUP)
 def custom_sector_for(symbol: str) -> "str | None":
     """Return the custom sector label for a ticker, else None."""
     return _TICKER_TO_GROUP.get(symbol)
+
+
+def tickers_in_group(label: str) -> "frozenset[str] | None":
+    """Mã thuộc một nhóm tuỳ biến; None nếu `label` là ngành chuẩn."""
+    for name, family in _CUSTOM_GROUPS:
+        if name == label:
+            return family
+    return None
+
+
+def rows_for_sector(df, label: str, *, ticker_col: str = "Mã",
+                    sector_col: str = "Ngành"):
+    """Lọc bảng MÃ theo một nhãn ngành — hiểu CẢ nhóm tuỳ biến.
+
+    Vì sao cần hàm này thay vì `df[df["Ngành"] == label]`:
+
+    Bảng cấp NGÀNH gom theo nhóm tuỳ biến (nên "Họ VIN" hiện ra như một ngành),
+    nhưng bảng cấp MÃ cố ý giữ `Ngành` = ngành GỐC — `vnstock_runner` ghi rõ lý
+    do: brief dựa vào ngành gốc để nhận diện bất động sản / tài chính, đổi đi là
+    hỏng chỗ khác. Hệ quả: lọc `Ngành == "Họ VIN"` LUÔN ra rỗng, dù bảng ngành
+    vẫn hiện đủ 4 mã (user báo 13/08: bấm vào Họ VIN / Họ M → "Không có dữ liệu
+    ticker").
+
+    Nhóm tuỳ biến vì thế phải lọc theo DANH SÁCH MÃ, ngành chuẩn thì lọc theo
+    cột ngành. Gom vào đây để hai chỗ dùng (drill-down bảng ngành và khối "mã
+    dẫn dắt" trong nhận định) không mỗi nơi tự chế một bản.
+
+    Không import pandas: chỉ dùng giao diện của `df` truyền vào.
+    """
+    family = tickers_in_group(label)
+    if family:
+        return df[df[ticker_col].isin(family)]
+    return df[df[sector_col] == label]

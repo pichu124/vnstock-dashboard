@@ -677,7 +677,10 @@ def render_market_tab() -> None:
         if _selected_nganh != "Tổng quan theo ngành":
             tick_data = st.session_state.get("_mkt_ticker_data")
             if tick_data is not None and not tick_data.empty:
-                sector_df = tick_data[tick_data["Ngành"] == _selected_nganh].copy()
+                # Nhóm tuỳ biến ("Họ VIN", "Họ M") phải lọc theo DANH SÁCH MÃ:
+                # bảng mã giữ `Ngành` = ngành gốc nên so chuỗi luôn ra rỗng.
+                from vnstock_sectors import rows_for_sector
+                sector_df = rows_for_sector(tick_data, _selected_nganh).copy()
                 if not sector_df.empty:
                     st.markdown(f"#### 🏢 Chi tiết ngành: {_selected_nganh} ({len(sector_df)} mã)")
 

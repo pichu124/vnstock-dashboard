@@ -233,7 +233,10 @@ def _ticker_lines(ranked, tick_data, compute_scores, rank,
         return []
 
     def _picks(sector_name, *, top):
-        sub = tick_data[tick_data["Ngành"] == sector_name].copy()
+        # Cùng lý do như drill-down bảng ngành: nhóm tuỳ biến ("Họ VIN", "Họ M")
+        # không nằm trong cột `Ngành` của bảng mã, phải lọc theo danh sách mã.
+        from vnstock_sectors import rows_for_sector
+        sub = rows_for_sector(tick_data, sector_name).copy()
         if sub.empty:
             return []
         t_scores = compute_scores(sub, presets=preset_sets,

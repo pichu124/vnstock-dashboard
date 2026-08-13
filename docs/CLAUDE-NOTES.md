@@ -5811,6 +5811,50 @@ Hệ quả cần biết khi đọc số: `--fast` trên máy thật ~**64s** (sa
 CI sau vá: full **1898 passed / 34.4s**, `--fast` **1436 / 28.7s**.
 
 
+## 2026-08-13 (b) — User bắt được lỗi thật: nhóm tuỳ biến không mở được ở cấp mã
+
+Trong lúc soi dashboard sau đợt tách, user phát hiện: bảng ngành hiện đủ
+**"Họ VIN" (4 mã)** và **"Họ M" (7 mã)** với đầy đủ số liệu, nhưng bấm vào để
+xem chi tiết thì ra **"Không có dữ liệu ticker cho ngành Họ M"**. Mọi ngành
+chuẩn mở bình thường.
+
+### Nguyên nhân — và nó KHÔNG do đợt tách gây ra
+
+`vnstock_runner` gom bảng cấp NGÀNH theo nhóm tuỳ biến, nhưng **cố ý** để bảng
+cấp MÃ giữ `Ngành` = ngành GỐC. Comment tại chỗ ghi rõ lý do và lý do đó ĐÚNG:
+brief dựa vào ngành gốc để nhận diện bất động sản / tài chính, đổi đi là hỏng
+chỗ khác.
+
+Hệ quả không ai nối tiếp: `df[df["Ngành"] == "Họ VIN"]` **luôn rỗng**, vì không
+mã nào mang nhãn đó. Điểm mấu chốt khiến lọc-theo-cột không bao giờ đủ: 4 mã họ
+VIN nằm ở **hai ngành gốc khác nhau** (VIC/VHM/VRE = Bất động sản, VPL = Du
+lịch & Khách sạn).
+
+Đã đối chiếu git: dòng lọc có từ lần tách tab gốc (PR #15), tức lỗi CÓ TỪ
+TRƯỚC 12/08. Nhóm tuỳ biến được thêm cho đường bảng-ngành + brief; đường
+drill-down không ai nối.
+
+### Vá — một nơi, hai chỗ dùng
+
+`vnstock_sectors.rows_for_sector(df, label)`: nhóm tuỳ biến → lọc theo DANH
+SÁCH MÃ, ngành chuẩn → lọc theo cột như cũ. Không import pandas (chỉ dùng giao
+diện của df) nên module vẫn là leaf.
+
+Hai chỗ gọi: drill-down bảng ngành (`market_tab`) và khối "⭐ Mã dẫn dắt / 💀 Mã
+yếu nhất" (`market_commentary`) — chỗ thứ hai dính CÙNG lỗi mà chưa ai thấy, vì
+nó chỉ lộ khi một nhóm tuỳ biến lọt vào top-3/avoid-2.
+
+### Test (13 + 1)
+
+`tests/test_custom_sector_drilldown.py` — soi hàm lọc, kèm lưới chặn tái phát:
+chỗ nào lọc bảng mã theo nhãn ngành mà tự viết `df["Ngành"] == label` là ĐỎ.
+Cộng một test render đi **đúng đường user bấm** trong
+`test_tab_render_smoke.py`: chọn "Họ VIN" ở drill-down rồi bắt câu "Không có dữ
+liệu ticker". Đã thử trả lại cách lọc cũ để chứng minh test có răng — đỏ ngay.
+
+Full **1912 passed**, `--fast` **1450 / 36.2s**.
+
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -5819,7 +5863,7 @@ CI sau vá: full **1898 passed / 34.4s**, `--fast` **1436 / 28.7s**.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **1898 passed** (`--fast` 1.436 test — 28.7s trên CI,
+> Trạng thái: full suite **1912 passed** (`--fast` 1.450 test — 36.2s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
