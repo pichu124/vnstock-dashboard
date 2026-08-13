@@ -6153,7 +6153,8 @@ sẽ tự soi). User rảnh thì dán output `run.py doctor` cho Claude xem.
 > −33 đúng dấu đúng nhánh, VNINDEX/VN30 đều 3/5 tăng + TB lệch 0.01pp (dưới
 > sai số làm tròn 0.05pp của bảng %D). Chi tiết trong lịch sử hội thoại 13/08.
 
-**0. Liếc dashboard sau merge — 4 mục chính ✅ XONG 13/08; CÒN 1 liếc 5 giây.**
+**0. ✅ ĐÓNG TRỌN 13/08 — dashboard đã soi mắt đủ 5/5 mục** (riêng heatmap
+live cần giờ giao dịch → gộp mục 1).
 Đợt 12/08 kéo ~2.400 dòng giao diện ra khỏi hai hàm khổng lồ; máy tự kiểm
 "code có chạy hết không", phần "hiển thị có đúng không" soi mắt:
 * ✅ **Tab Thị trường** — 13/08 qua ảnh: bảng ngành đủ cột + màu + sparkline;
@@ -6165,10 +6166,14 @@ sẽ tự soi). User rảnh thì dán output `run.py doctor` cho Claude xem.
   entry 13/08 (h).
 * ✅ **Watchlist** — 13/08: thêm rồi xoá một mã trong Screener, danh sách
   cập nhật đúng — đường ghi nguyên tử mới chạy êm.
-* ⬜ **Treemap + Chart xu hướng** (giữa mục Nhận định và khối AI Brief) —
-  liếc 5 giây: có vẽ ra hình là đạt; trắng hoặc báo "cần plotly" → báo
-  Claude. *(User bắt sót 13/08 — mục này trước đó chỉ nằm trong chat,
-  chưa vào note; ghi lại để không lọt nữa.)*
+* ✅ **Treemap + Chart xu hướng** — 13/08 qua ảnh: cả hai vẽ đủ hình, số
+  hợp lý (treemap VIC/VCB dẫn vốn hoá, màu khớp chiều 1M; chart cột sắp
+  đúng thứ tự, có đủ Họ VIN/Họ M). Ghi nhận một bất đối xứng ĐÚNG THIẾT KẾ,
+  đừng báo lỗi: treemap gom theo NGÀNH GỐC nên KHÔNG có ô Họ VIN/Họ M —
+  bản chất treemap mỗi mã chỉ được MỘT ô, không vẽ lớp phủ được; chart cột
+  đi theo bảng ngành nên CÓ hai nhóm tuỳ biến (lớp phủ §4b). Đã soi code
+  `market_tab.py` xác nhận 13/08. *(Mục từng bị sót vì chỉ nằm trong
+  chat — user bắt 13/08.)*
 * ↪ **Live Market Heatmap VN30** (đầu tab Thị trường) — khối DUY NHẤT máy
   không phủ được dòng nào vì chỉ chạy khi WSS sống trong giờ giao dịch.
   Rủi ro thấp (code không đổi) → GỘP vào mục 1 bên dưới, làm cùng phiên.
