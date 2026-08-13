@@ -6289,13 +6289,15 @@ Select-String -Path run_daily.log -Pattern "collect_context"
 * Lệnh 2 không ra gì = mọi nguồn khoẻ. Có dòng `nguồn '<tên>' hỏng` lặp
   lại mỗi tối → báo Claude tên nguồn đó.
 (Thích đọc cả file: `notepad run_daily.log`, Ctrl+F `tier=`.)
-Cùng chủ đề sức khoẻ nguồn: ảnh sidebar 13/08 thấy badge **nguồn dữ liệu
-2⚠️** (chữ nhỏ không đọc được tên) — lúc rảnh chạy:
-```powershell
-python run.py doctor | clip
-```
-rồi Ctrl+V dán cho Claude (lệnh `| clip` tự copy output vào clipboard;
-không ưng thì chạy trần rồi bôi đen + Enter, hoặc chụp ảnh).
+✅ **Đã giải mã badge 2⚠️ (user dán doctor 13/08)** — KHÔNG có nguồn hỏng,
+15 ✅: (1) **Phân bổ tài sản** = nhắc việc THÁNG: chưa tạo brief phân bổ
+tháng 8/2026 (sub-tab 🧭, 1 phút) — engine vẫn khoẻ, band B4 căng thẳng,
+7 tín hiệu; (2) **LLM ledger** 50 call/26 lỗi/6 rate-limit ngày 13/08 —
+hôm đó tự mình đốt tải (sinh brief thật 4 giọng + test), chạm trần Gemini
+flash + 2 gemma free đúng hồ sơ đã biết (503 đêm VN + 429 free tier, mục
+6/7 đang theo dõi). Đào sâu khi cần: `python vnstock_llm_ledger.py --show`
+(có cột last_error). Doctor hôm khác vẫn ⚠️ ledger dù KHÔNG test tay →
+lúc đó mới đáng soi.
 
 **1. ✅ PHẦN VOLUME XONG 13/08 — WSS volume tích luỹ ĐẠT CẢ 3 bất biến.**
 Món nợ verify cuối của đợt fix 07/08 ĐÃ ĐÓNG: user chạy
