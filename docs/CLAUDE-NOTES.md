@@ -6137,7 +6137,7 @@ sẽ tự soi). User rảnh thì dán output `run.py doctor` cho Claude xem.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **1997 passed** (`--fast` ~1.534 test — ~26-35s trên CI,
+> Trạng thái: full suite **2008 passed** (`--fast` ~1.534 test — ~26-35s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
@@ -6224,16 +6224,28 @@ Cùng chủ đề sức khoẻ nguồn: ảnh sidebar 13/08 thấy badge **ngu�
 rồi dán output cho Claude xem 2 nguồn đó là gì.
 
 **1. WSS volume tích luỹ** — món nợ verify cuối cùng của đợt fix 07/08.
+Trong giờ giao dịch (9:00-15:00, thứ 2-6), từ thư mục repo, MỘT lệnh:
 ```powershell
-python vnstock_wss.py       # chạy ~5 phút rồi Ctrl+C
+python scripts\verify_wss_live.py
 ```
-Soi `data_warehouse\_live\`: mã cổ phiếu (VCB, HPG…) `volume > 0`;
-`VNINDEX` / `VN30F1M` phải `volume == 0` (feed KHÔNG gửi `accumulatedvolume`
-cho index/futures — trước fix, fallback volume TỪNG TICK bị cộng dồn thành
-số ảo). Kèm `BarAggregator.diagnostics()` → `suspect_count = 0`.
-Cùng phiên đó tiện thể: mở dashboard, bật Live Mode, liếc **Live Market
-Heatmap VN30** đầu tab Thị trường có vẽ ô màu cập nhật theo tick không
-(mục ↪ gộp từ 0 xuống — khối duy nhất chưa mắt nào soi sau đợt 12/08).
+Script tự làm trọn gói ~5 phút rồi tự dừng: mở WSS 38 mã, gom bar, CHẤM
+3 bất biến — mã cổ phiếu `volume > 0` · `VNINDEX`/`VN30F1M` `volume == 0`
+(feed không gửi accum cho index/futures; trước fix, fallback từng tick bị
+cộng dồn thành số ảo) · `suspect_count == 0` — rồi in ✅/⚠️/❌ từng mục.
+✅ cả 3 = tick mục này. Có ❌ = dán NGUYÊN output cho Claude. ⚠️ = chưa kết
+luận được (ngoài giờ/thiếu tick), chạy lại trong phiên. Logic chấm có lưới
+`tests/test_verify_wss_live.py` canh (họ bug quen: "không đo được" không
+bao giờ được in thành ✅).
+*(Lệnh cũ ghi ở mục này — `python vnstock_wss.py` trần — KHÔNG chạy được:
+không tham số chỉ in help rồi thoát. Phát hiện 13/08 khi user hỏi cách làm
+cụ thể; script verify mới thay thế.)*
+Cùng phiên đó tiện thể mục ↪ (heatmap, gộp từ 0 xuống): mở dashboard, vào
+tab **Phân tích** bật toggle **Real-time WSS** (mục 🔴 Live Mode ở sidebar,
+chờ chấm tròn xanh CONNECTED + "~1.100 mã đã subscribe"), rồi SANG tab
+**Thị trường** — đầu tab phải thấy khung chỉ số + heatmap VN30 tự cập nhật
+(5 giây/lần). "⏳ Chờ WSS data..." đứng im quá vài phút → chụp ảnh báo
+Claude. Chạy song song với script verify cũng không sao — script chấm từ
+bộ nhớ riêng của nó.
 
 ## ⏳ TỰ ĐẾN — chỉ cần ĐỌC khi tới
 
