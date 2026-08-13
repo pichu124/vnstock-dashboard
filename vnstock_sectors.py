@@ -138,6 +138,14 @@ def rows_for_sector(df, label: str, *, ticker_col: str = "Mã",
     cột ngành. Gom vào đây để hai chỗ dùng (drill-down bảng ngành và khối "mã
     dẫn dắt" trong nhận định) không mỗi nơi tự chế một bản.
 
+    ⚠️ NỢ ĐÃ BIẾT — user chốt 13/08 TẠM GIỮ NGUYÊN (docs/CLAUDE-NOTES.md §4b):
+    mã thuộc nhóm tuỳ biến vẫn hiện ở drill-down của ngành GỐC, trong khi bảng
+    cấp ngành đã chuyển nó sang nhóm. Nên "Ngân hàng" ghi 26 mã ở dòng tổng
+    nhưng bấm vào ra 27 (EIB thuộc Họ M). Hệ quả: CỘNG bảng chi tiết KHÔNG ra
+    dòng tổng. Muốn khớp thì lọc thêm `custom_sector_for(mã) is None` ở nhánh
+    ngành chuẩn — đừng sửa lặng lẽ, đọc mục §4b trước vì đây là lựa chọn có
+    chủ đích, không phải sót.
+
     Không import pandas: chỉ dùng giao diện của `df` truyền vào.
     """
     family = tickers_in_group(label)
