@@ -167,3 +167,26 @@ class TestGradeReport:
     def test_no_events_anywhere_is_unsure_not_pass(self):
         rep = grade_report([_t("VCB", []), _t("HPG", [])])
         assert rep["exit_code"] == 1
+
+
+class TestVerbosePrint:
+    def test_verbose_shows_inconclusive_reason(self, capsys):
+        from vnstock_div_check import _print_report
+        rep = grade_report([_t("VIC", [{**_ev(VERDICT_UNSURE),
+                                        "reason": "chìm trong nhiễu"}])])
+        rep["days"] = 750
+        rep["per_ticker"] = [_t("VIC", [{**_ev(VERDICT_UNSURE),
+                                         "reason": "chìm trong nhiễu"}])]
+        _print_report(rep, verbose=True)
+        out = capsys.readouterr().out
+        assert "chìm trong nhiễu" in out          # lý do phải nhìn thấy được
+
+    def test_default_hides_inconclusive_detail(self, capsys):
+        from vnstock_div_check import _print_report
+        rep = grade_report([_t("VIC", [{**_ev(VERDICT_UNSURE),
+                                        "reason": "chìm trong nhiễu"}])])
+        rep["days"] = 750
+        rep["per_ticker"] = [_t("VIC", [{**_ev(VERDICT_UNSURE),
+                                         "reason": "chìm trong nhiễu"}])]
+        _print_report(rep, verbose=False)
+        assert "chìm trong nhiễu" not in capsys.readouterr().out

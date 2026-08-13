@@ -259,7 +259,7 @@ def run_check(tickers: "list[str]", days: int = 750,
     return report
 
 
-def _print_report(report: dict) -> None:
+def _print_report(report: dict, verbose: bool = False) -> None:
     print("🧾 Kiểm điều chỉnh cổ tức kho giá — "
           f"{report['n_tickers']} mã · {report['days']} ngày")
     print("=" * 64)
@@ -281,6 +281,13 @@ def _print_report(report: dict) -> None:
                 print(f"       ↳ ❌ {ev['ex_date']} [{ev['type']}] kỳ vọng "
                       f"−{ev['expected_pct']:.2f}% — quan sát "
                       f"{ev['observed_pct']:+.2f}% → {ev['reason']}")
+            elif verbose and ev["verdict"] == VERDICT_UNSURE:
+                exp = (f"−{ev['expected_pct']:.2f}%"
+                       if ev.get("expected_pct") is not None else "?")
+                obs = (f"{ev['observed_pct']:+.2f}%"
+                       if ev.get("observed_pct") is not None else "?")
+                print(f"       ↳ ⚠️ {ev['ex_date']} [{ev['type']}] kỳ vọng "
+                      f"{exp} — quan sát {obs} → {ev['reason']}")
 
     print("-" * 64)
     print(f"Tổng: {report['n_adjusted']} sự kiện khớp ĐÃ điều chỉnh · "
@@ -320,6 +327,8 @@ def main() -> int:
     ap.add_argument("--refresh", action="store_true",
                     help="fetch events cho mã thiếu cache (gọi API, cần mạng)")
     ap.add_argument("--json", action="store_true", help="in JSON thay bảng")
+    ap.add_argument("--verbose", "-v", action="store_true",
+                    help="in cả lý do của sự kiện 'chưa kết luận' (soi VIC…)")
     args = ap.parse_args()
 
     if args.tickers:
@@ -334,7 +343,7 @@ def main() -> int:
         slim = {k: v for k, v in report.items() if k != "per_ticker"}
         print(json.dumps(slim, ensure_ascii=False, indent=2))
     else:
-        _print_report(report)
+        _print_report(report, verbose=args.verbose)
 
     try:
         from datetime import datetime
