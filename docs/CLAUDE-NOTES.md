@@ -5855,6 +5855,80 @@ liệu ticker". Đã thử trả lại cách lọc cũ để chứng minh test c
 Full **1912 passed**, `--fast` **1450 / 36.2s**.
 
 
+## 2026-08-13 (c) — User soi brief chiều, ra 4 lỗ. Cùng một họ.
+
+Bốn thứ nhìn khác nhau nhưng **cùng một bệnh**: hệ thống BIẾT sự thật, chỉ là
+không nói ra, hoặc nói ra thành thứ khác.
+
+### 🔴 1. Chiến lược trượt kiểm định vẫn phát khuyến nghị mà không nói một lời
+
+Panel Chiến lược tự báo rất rõ: **p=0.974** (Sharpe không hơn ăn may),
+**expectancy −0.58**, chỉ 25% cửa sổ thời gian dương, và **0/49 lệnh đã đóng
+chạm chốt lời** (14 dính cắt lỗ, 35 hết hạn — chốt lời đặt quá xa so với thời
+hạn 5 phiên). Vậy mà nó vẫn giữ cờ "Active" và bơm 8 khuyến nghị vào brief.
+
+Đọc code thì thấy `_recommendation_block` viết trong docstring là *"open
+recommendations from VALIDATED strategies"* — **nhưng chưa hề kiểm**. Câu
+docstring đó tồn tại từ lâu và không ai để ý là nó nói dối.
+
+Chọn **CẢNH BÁO, không LỌC BỎ** — cùng doctrine với `_BUY_BIAS_CAVEAT` và khối
+BĐS Op.CF: mỗi khuyến nghị đã tự mang cắt lỗ (rủi ro có giới hạn), thêm bối
+cảnh đúng hơn là giấu tín hiệu.
+
+Vá hai tầng, đúng quy ước CLAUDE.md: `_recommendation_block` gắn câu cảnh báo
+vào PROMPT, và guard `enforce_unvalidated_strategy_caveat` bảo đảm nó sống sót
+tới brief cuối — vì LLM hay lược bỏ đúng những câu bất lợi cho ý tưởng nó vừa
+viết.
+
+Điểm quan trọng: **không đọc được kiểm định thì IM**, không coi là trượt.
+Chưa có chiến lược / chưa backtest / DB lỗi là KHÔNG ĐO ĐƯỢC.
+
+### 🟡 2. Ký hiệu nội bộ rò ra brief — và rò sai
+
+Mistral viết: `cắt lỗ 77,600 (entry < TP > SL)`. Nó nhại lại ràng buộc trong
+template (`BẮT BUỘC SL < entry < TP`) — **và nhại sai chiều**. Vừa lộ ruột vừa
+sai. Guard `enforce_no_instruction_leak` cũ không bắt được vì nó chỉ soi DÒNG
+mở đầu bằng vài mẫu cố định, còn đây là cụm nằm GIỮA câu.
+
+Thêm `enforce_no_constraint_notation`: chỉ xoá cụm gồm TOÀN ký hiệu nội bộ nối
+bằng dấu so sánh, trong ngoặc. Câu tiếng Việt có chữ "entry" bình thường không
+bị đụng.
+
+### 🟡 3. Cùng một con số, ba nhãn khác nhau
+
+11% trên MA200 + A/D 1.08: một agent gọi độ rộng **"TÍCH CỰC"**, ba agent gọi
+**"yếu"**, còn dashboard gán 🔴 **"đa số cổ phiếu trong xu hướng giảm"**.
+
+Có guard cho đúng ca này (`enforce_breadth_quality`) nhưng nó **đứng ngoài** vì
+cổng kích hoạt đòi momentum âm, mà hôm đó momentum +16.
+
+Thêm nấc thứ hai: dưới `_MA200_CALL_IT_WEAK = 30` thì gọi "tích cực" là sai
+**bất kể momentum**. Ngưỡng 30 lấy đúng biên 🔴 của bảng nhận định, và có test
+`test_threshold_matches_the_dashboard_red_band` canh hai hằng số khỏi trôi khỏi
+nhau — hai màn hình không được nói hai kiểu về một con số.
+
+### 🟡 4. "0%" khi mẫu là 2
+
+Bảng độ chính xác hiện `0%` cho agent mới chấm được 1-2 brief → nhìn như agent
+sai hết, sự thật là **chưa đủ mẫu**. Đây đúng họ lỗi đã vấp nhiều lần:
+**không đo được bị trình bày thành đo ra kết quả xấu**.
+
+`format_accuracy` phân biệt BA trạng thái: chưa chấm gì → `—`; đã chấm nhưng
+`n < 5` → `— (n=2)`; đủ mẫu → `40% (n=5)`. Bảng cũng xếp agent đủ mẫu lên trước
+(trước đây agent 0/1 đứng trên agent đã chấm 20 brief).
+
+### Chốt
+
+Lỗ 1 và lỗ 4 là **cùng một bài học ở hai chiều ngược nhau**: một cái xấu mà
+im, một cái chưa biết mà kêu.
+
+`tests/test_brief_quality_fixes.py` (34 test). Chuỗi guard: 44 → **46**.
+Lưới `test_all_moved_names_are_reexported` bắt đúng 2 hằng số mới quên
+re-export — nó làm đúng việc.
+
+Full **1946 passed**, `--fast` **1484 / 34.5s**.
+
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -5863,7 +5937,7 @@ Full **1912 passed**, `--fast` **1450 / 36.2s**.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **1912 passed** (`--fast` 1.450 test — 36.2s trên CI,
+> Trạng thái: full suite **1946 passed** (`--fast` 1.484 test — 34.5s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:

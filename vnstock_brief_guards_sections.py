@@ -17,6 +17,7 @@ from __future__ import annotations
 import re as _re
 
 from vnstock_brief_canon import (
+    _UNVALIDATED_STRATEGY_CAVEAT,
     VN30_TICKERS,
     _FINANCIAL_TICKERS,
     _WATCHLIST_GTGD_MIN_TY,
@@ -1202,3 +1203,46 @@ def enforce_stance_sentiment_caution(text: str, ctx: dict) -> str:
               f"(momentum {int(mom)}/100) — ưu tiên quản trị rủi ro, chỉ gia tăng "
               f"tỷ trọng khi giá XÁC NHẬN (vượt kháng cự), tôn trọng cắt lỗ.")
     return "\n".join(lines[:stance_i + 1] + [caveat] + lines[stance_i + 1:])
+
+
+def enforce_unvalidated_strategy_caveat(text: str, ctx: dict) -> str:
+    """Chiến lược TRƯỢT kiểm định chống-ăn-may thì mục khuyến nghị phải NÓI RA.
+
+    `_recommendation_block` đã gắn câu cảnh báo vào prompt, nhưng LLM hay lược
+    bỏ đúng những câu bất lợi cho ý tưởng nó vừa viết — nên chốt lại bằng guard,
+    đúng quy ước CLAUDE.md ("ràng buộc quan trọng chốt bằng code, không phải
+    bằng câu chữ trong prompt").
+
+    Chỉ bắn khi ctx nói RÕ là trượt (`known=True, passed=False`). Không đọc được
+    kiểm định (chưa có chiến lược / chưa backtest / DB lỗi) thì IM — không đo
+    được khác đo ra kết quả xấu, cảnh báo oan làm người ta ngừng đọc cảnh báo.
+
+    Giữ khuyến nghị, chỉ thêm bối cảnh — cùng lựa chọn với `_BUY_BIAS_CAVEAT`.
+    Idempotent: đã có câu cảnh báo thì không thêm lần hai.
+    """
+    val = (ctx or {}).get("strategy_validation") or {}
+    if not text or not val.get("known") or val.get("passed", True):
+        return text
+    if _UNVALIDATED_STRATEGY_CAVEAT[:40] in text:
+        return text
+
+    lines = text.splitlines()
+    # Mục khuyến nghị: brief gọi "💡 Đề xuất giao dịch" (close) hoặc "Khuyến nghị"
+    start = next((i for i, l in enumerate(lines)
+                  if _is_section_start(l)
+                  and ("đề xuất giao dịch" in l.lower() or "khuyến nghị" in l.lower())),
+                 None)
+    if start is None:
+        return text
+    end = next((i for i in range(start + 1, len(lines))
+                if _is_section_start(lines[i])), len(lines))
+    if not any(l.strip() for l in lines[start + 1:end]):
+        return text                      # mục rỗng → không có gì để cảnh báo
+
+    _p = val.get("p")
+    caveat = _UNVALIDATED_STRATEGY_CAVEAT + (f" (p={_p:.3f})" if isinstance(_p, float) else "")
+
+    insert_at = end
+    while insert_at > start + 1 and not lines[insert_at - 1].strip():
+        insert_at -= 1
+    return "\n".join(lines[:insert_at] + [caveat] + lines[insert_at:])

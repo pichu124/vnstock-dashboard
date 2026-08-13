@@ -48,6 +48,7 @@ def render_brief_history() -> None:
                 try:
                     from vnstock_brief import (
                         agent_accuracy_summary as _aas,
+                        format_accuracy as _fmt_acc,
                         _load_vnindex_closes as _lvc,
                         evaluate_brief_accuracy as _eba,
                     )
@@ -82,14 +83,17 @@ def render_brief_history() -> None:
                     if _summary:
                         st.markdown("**📊 Độ chính xác per-agent**")
                         _rows = []
+                        # Xếp agent ĐỦ MẪU lên trước, rồi mới tới accuracy —
+                        # nếu không, agent 0/1 lại đứng trên agent đã chấm 20 brief.
                         for _name, _slot in sorted(
                             _summary.items(),
-                            key=lambda kv: -(kv[1].get("accuracy") or 0)
+                            key=lambda kv: (not kv[1].get("reliable"),
+                                            -(kv[1].get("accuracy") or 0),
+                                            -(kv[1].get("n_evaluated") or 0))
                         ):
-                            _acc = _slot.get("accuracy")
-                            _acc_str = (
-                                f"{_acc*100:.0f}%" if _acc is not None else "—"
-                            )
+                            # "— (n=2)" chứ KHÔNG phải "0%": chưa đủ mẫu khác
+                            # với đo ra kết quả xấu (xem `format_accuracy`).
+                            _acc_str = _fmt_acc(_slot)
                             _sd = _slot.get("stance_dist", {})
                             _stance_str = (
                                 f"🟢{_sd.get('bullish',0)} "

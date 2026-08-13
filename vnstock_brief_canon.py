@@ -19,6 +19,27 @@ Module thuần: không import gì ngoài stdlib, nên `vnstock_brief` và
 from __future__ import annotations
 
 
+# ── Cảnh báo chiến lược chưa qua kiểm định ──────────────────────────────────
+# Dùng ở CẢ HAI phía: `_recommendation_block` gắn vào prompt, và
+# `enforce_unvalidated_strategy_caveat` bảo đảm nó sống sót tới brief cuối
+# (LLM hay lược bỏ đúng những câu bất lợi).
+#
+# Vì sao phải có: `_recommendation_block` viết trong docstring là "open
+# recommendations from VALIDATED strategies" nhưng CHƯA HỀ kiểm — nên khuyến
+# nghị của một chiến lược trượt kiểm định chống-ăn-may vẫn vào brief y như
+# chiến lược đạt, không phân biệt được (user phát hiện 13/08: chiến lược đang
+# hoạt động có p=0.974, expectancy −0.58, 0/49 lệnh chạm chốt lời).
+#
+# Chọn CẢNH BÁO chứ không LỌC BỎ — cùng doctrine với `_BUY_BIAS_CAVEAT` và
+# khối BĐS Op.CF: mỗi khuyến nghị đã tự mang cắt lỗ (rủi ro có giới hạn), nên
+# thêm bối cảnh đúng hơn là giấu tín hiệu.
+_UNVALIDATED_STRATEGY_CAVEAT = (
+    "⚠️ Khuyến nghị trên đến từ chiến lược CHƯA QUA kiểm định chống-ăn-may "
+    "— coi là ý tưởng tham khảo, không phải tín hiệu đã được kiểm chứng; "
+    "bắt buộc tôn trọng cắt lỗ và cân nhắc giảm tỷ trọng."
+)
+
+
 # ── Vũ trụ mã ─────────────────────────────────────────────────────────────────
 # VN30 tickers — current composition (keep in sync with _VN30_FALLBACK in vnstock_news.py)
 # Try dynamic fetch first; fall back to this set when vnstock API is unavailable.

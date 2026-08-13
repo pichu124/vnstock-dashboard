@@ -56,6 +56,35 @@ _INSTR_LEAK_RE = _re.compile(
     _re.IGNORECASE,
 )
 
+# Ký hiệu RÀNG BUỘC nội bộ lọt vào GIỮA câu — khác `_INSTR_LEAK_RE` (chỉ soi
+# dòng chỉ thị nguyên vẹn). Template ghi `BẮT BUỘC SL < entry < TP`, và model
+# nhại lại ngay sau setup: "cắt lỗ 77,600 (entry < TP > SL)" (Mistral, brief
+# chiều 13/08 — user phát hiện). Hai cái sai một lúc: lộ ký hiệu nội bộ CHO
+# NGƯỜI ĐỌC, và nhại SAI luật (đúng phải là SL < entry < TP).
+#
+# Chỉ bắt cụm gồm TOÀN ký hiệu nội bộ (entry/TP/SL/giá) nối bằng dấu so sánh,
+# nằm trong ngoặc. Không đụng câu tiếng Việt có chữ "entry" bình thường
+# ("entry quanh 80,000") vì cụm đó không có dấu < > nối hai ký hiệu.
+_CONSTRAINT_NOTATION_RE = _re.compile(
+    r"\s*[（(]\s*(?:entry|tp|sl|giá|price)\s*[<>=≤≥]+"
+    r"(?:\s*(?:entry|tp|sl|giá|price)\s*[<>=≤≥]*)+\s*[）)]",
+    _re.IGNORECASE,
+)
+
+
+def enforce_no_constraint_notation(text: str, ctx: dict | None = None) -> str:
+    """Xoá ký hiệu ràng buộc nội bộ kiểu "(entry < TP > SL)" khỏi brief.
+
+    Đây là chữ dành cho MODEL, không phải cho người đọc — và khi model nhại
+    lại nó còn nhại sai chiều, thành ra vừa lộ ruột vừa sai. Xoá cụm, giữ
+    nguyên phần còn lại của dòng (setup vẫn đầy đủ entry/TP/SL bằng tiếng Việt).
+
+    No-op khi sạch; idempotent.
+    """
+    if not text:
+        return text
+    return _CONSTRAINT_NOTATION_RE.sub("", text)
+
 
 def enforce_no_instruction_leak(text: str, ctx: dict | None = None) -> str:
     """Deterministic guard: drop lines that echo the prompt's own instructions

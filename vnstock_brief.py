@@ -58,6 +58,7 @@ def _ensure_env_loaded() -> None:
 # Hằng số + khối canon dùng CHUNG với hệ guard → `vnstock_brief_canon`.
 # Re-export nguyên tên: vnstock_events/vnstock_train/test đang import qua đây.
 from vnstock_brief_canon import (  # noqa: F401  (re-export: giữ nguyên đường import cũ)
+    _UNVALIDATED_STRATEGY_CAVEAT,
     VN30_TICKERS,
     _FINANCIAL_TICKERS,
     _MKT_NEWS_SENT_ICON,
@@ -3242,12 +3243,14 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     _ALLOC_HORIZON_CAVEAT,
     _BUY_BIAS_CAVEAT,
     _CJK_RE,
+    _CONSTRAINT_NOTATION_RE,
     _COMPOSITE_LEAK_RE,
     _GTGD_CTX_RE,
     _GTGD_SUBJECT_RE,
     _INSTR_LEAK_RE,
     _MOOD_EMOJIS,
     _MOOD_WORDS,
+    _MA200_CALL_IT_WEAK,
     _MORNING_CMP_RE,
     _MORNING_LABEL_CLAUSE,
     _MORNING_LABEL_CMP_RE,
@@ -3287,6 +3290,7 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     enforce_no_bias_directive_leak,
     enforce_no_cjk,
     enforce_no_composite_jargon,
+    enforce_no_constraint_notation,
     enforce_no_duplicate_momentum,
     enforce_no_instruction_leak,
     enforce_no_placeholder_leak,
@@ -3304,6 +3308,7 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     enforce_session_direction,
     enforce_sr_direction,
     enforce_stance_sentiment_caution,
+    enforce_unvalidated_strategy_caveat,
     enforce_upcoming_events,
     enforce_vnindex_change,
     enforce_watchlist_eligibility,
@@ -3383,7 +3388,7 @@ def generate_brief(
 
     # Inject few-shot golden examples + open recommendations (best-effort)
     few_shot  = _few_shot_block(brief_type)
-    rec_block = _recommendation_block()
+    rec_block = _recommendation_block(ctx)
     news_block = _news_block()
 
     prompt = build_prompt(ctx, brief_type, few_shot=few_shot,
@@ -3603,11 +3608,54 @@ def _fmt_rec_price(p: float) -> str:
     return f"{p:,.0f}"
 
 
-def _recommendation_block() -> str:
+def _active_strategy_validation(ctx: dict | None = None) -> dict:
+    """Kiểm định chống-ăn-may của chiến lược ĐANG HOẠT ĐỘNG.
+
+    Trả `{"known": bool, "passed": bool, "p": float|None, "reasons": [...]}`.
+    `known=False` khi chưa đọc được (chưa có chiến lược, chưa có backtest, DB
+    lỗi) — và đó KHÔNG được coi là "trượt": không đo được khác đo ra kết quả
+    xấu (họ lỗi đã vấp nhiều lần ở repo này), nên im lặng chứ không cảnh báo oan.
+
+    Ghi vào `ctx["strategy_validation"]` để guard dùng lại, khỏi đọc DB hai lần.
+    """
+    out = {"known": False, "passed": True, "p": None, "reasons": []}
+    try:
+        import json as _json
+
+        import vnstock_memory as _mem
+        active = _mem.get_active_family()
+        if not active:
+            return out
+        bt = _mem.latest_backtest(active["id"])
+        val = (_json.loads(bt["metrics_json"]).get("validation")
+               if bt and bt.get("metrics_json") else None)
+        if not val:
+            return out
+        out = {
+            "known": True,
+            "passed": bool(val.get("passed")),
+            # p hiệu chỉnh chọn-lọc nghiêm hơn p thô — ưu tiên như panel dashboard
+            "p": val.get("p_value_adj", val.get("p_value_sharpe")),
+            "reasons": list(val.get("reasons") or []),
+        }
+    except Exception as e:
+        if ctx is not None:
+            _note_loader_error(ctx, "strategy_validation", e)
+    if ctx is not None:
+        ctx["strategy_validation"] = out
+    return out
+
+
+def _recommendation_block(ctx: dict | None = None) -> str:
     """Insert open recommendations from validated strategies.
 
     Overdue recs (held longer than their horizon) are excluded — they should be
     reconciled/closed, not re-surfaced as fresh actionable buys.
+
+    Chiến lược TRƯỢT kiểm định chống-ăn-may vẫn được nêu, nhưng kèm cảnh báo
+    (`_UNVALIDATED_STRATEGY_CAVEAT`) — xem lý do chọn cảnh-báo-thay-vì-lọc-bỏ
+    trong `vnstock_brief_canon`. Guard `enforce_unvalidated_strategy_caveat`
+    canh cho câu đó sống sót tới brief cuối.
     """
     try:
         import vnstock_memory as _mem
@@ -3658,6 +3706,13 @@ def _recommendation_block() -> str:
                     _rat = _rat[:80].rsplit(" ", 1)[0].rstrip(" ,;:-(") + "…"
                 line += f" — {_rat}"
             lines.append(line)
+
+        _val = _active_strategy_validation(ctx)
+        if _val["known"] and not _val["passed"]:
+            _why = "; ".join(_val["reasons"][:2])
+            lines.append(_UNVALIDATED_STRATEGY_CAVEAT
+                         + (f" (lý do: {_why})" if _why else ""))
+            lines.append("BẮT BUỘC giữ nguyên dòng ⚠️ trên khi viết mục khuyến nghị.")
         return "\n".join(lines)
     except Exception:
         return ""
@@ -4099,4 +4154,33 @@ def agent_accuracy_summary(
             slot["n_match"] / slot["n_evaluated"]
             if slot["n_evaluated"] > 0 else None
         )
+        # Mẫu quá nhỏ thì con số KHÔNG nói lên điều gì — xem `format_accuracy`.
+        slot["reliable"] = slot["n_evaluated"] >= _ACCURACY_MIN_SAMPLE
     return by_agent
+
+
+# Số brief ĐÃ CHẤM tối thiểu để dám hiện một con số phần trăm. Dưới ngưỡng này
+# "0%" đọc ra thành "agent sai hết", trong khi sự thật chỉ là "chưa đủ mẫu" —
+# đúng họ lỗi đã vấp nhiều lần ở repo này: KHÔNG ĐO ĐƯỢC bị trình bày thành
+# ĐO RA KẾT QUẢ XẤU (ca thật 13/08: Gemini 0/2 hiện "0%", Mistral 0/1 hiện
+# "0%" — nhìn như hai agent tệ, thực ra chưa chấm nổi 2 brief).
+# 5 là mức tối thiểu để một tỷ lệ bắt đầu có nghĩa; muốn phân biệt thật với
+# tung đồng xu thì còn cần nhiều hơn.
+_ACCURACY_MIN_SAMPLE: int = 5
+
+
+def format_accuracy(slot: dict) -> str:
+    """Chuỗi hiển thị độ chính xác của một agent.
+
+    Ba trạng thái KHÁC NHAU, không được gộp:
+      * chưa chấm được brief nào      → "—"
+      * đã chấm nhưng chưa đủ mẫu     → "— (n=2)"  ← không phải "0%"
+      * đủ mẫu                        → "40% (n=5)"
+    """
+    n = int(slot.get("n_evaluated") or 0)
+    acc = slot.get("accuracy")
+    if n <= 0 or acc is None:
+        return "—"
+    if n < _ACCURACY_MIN_SAMPLE:
+        return f"— (n={n})"
+    return f"{acc * 100:.0f}% (n={n})"

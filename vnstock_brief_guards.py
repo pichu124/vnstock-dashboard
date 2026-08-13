@@ -60,12 +60,14 @@ from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
     enforce_risk_section,
     enforce_sector_nn_figures,
     enforce_stance_sentiment_caution,
+    enforce_unvalidated_strategy_caveat,
     enforce_upcoming_events,
     enforce_watchlist_eligibility,
     enforce_watchlist_hygiene,
 )
 
 from vnstock_brief_guards_numbers import (  # noqa: F401  (re-export)
+    _MA200_CALL_IT_WEAK,
     _GTGD_CTX_RE,
     _GTGD_SUBJECT_RE,
     _MOOD_EMOJIS,
@@ -92,6 +94,7 @@ from vnstock_brief_guards_numbers import (  # noqa: F401  (re-export)
 )
 
 from vnstock_brief_guards_text import (  # noqa: F401  (re-export)
+    _CONSTRAINT_NOTATION_RE,
     _CJK_RE,
     _COMPOSITE_LEAK_RE,
     _INSTR_LEAK_RE,
@@ -100,6 +103,7 @@ from vnstock_brief_guards_text import (  # noqa: F401  (re-export)
     enforce_no_bias_directive_leak,
     enforce_no_cjk,
     enforce_no_composite_jargon,
+    enforce_no_constraint_notation,
     enforce_no_duplicate_momentum,
     enforce_no_instruction_leak,
     enforce_no_placeholder_leak,
@@ -220,6 +224,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_scenario_levels(fixed, ctx)       # scenario levels = real data only
     fixed = enforce_watchlist_eligibility(fixed, ctx)
     fixed = enforce_buy_vs_bias_caveat(fixed, ctx)    # GIẢM + BUY recs → caveat (keep, contextualize)
+    fixed = enforce_unvalidated_strategy_caveat(fixed, ctx)  # chiến lược trượt kiểm định → nói ra
     fixed = enforce_stance_sentiment_caution(fixed, ctx)  # TĂNG stance + tâm lý tiêu cực → caveat
     fixed = enforce_gtgd_total(fixed, ctx)            # full-day (close) / sáng (morning)
     fixed = enforce_gtgd_compare_frame(fixed, ctx)    # close-only: full-day ≠ morning baseline
@@ -234,6 +239,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_no_cjk(fixed, ctx)
     fixed = enforce_no_instruction_leak(fixed, ctx)
     fixed = enforce_no_placeholder_leak(fixed, ctx)
+    fixed = enforce_no_constraint_notation(fixed, ctx)  # '(entry < TP > SL)' là chữ cho model
     fixed = enforce_no_composite_jargon(fixed, ctx)
     fixed = enforce_composite_rotation_hygiene(fixed, ctx)  # no bucket↔label clash / 'Net BS'
     fixed = enforce_no_bias_directive_leak(fixed, ctx)   # 'bắt buộc' is internal

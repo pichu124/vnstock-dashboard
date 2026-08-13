@@ -900,6 +900,13 @@ def enforce_sentiment_consistency(text: str, ctx: dict) -> str:
     return out
 
 
+# Dưới ngưỡng này, "độ rộng tích cực" sai bất kể đà giá — trùng đúng biên 🔴 của
+# bảng nhận định trên dashboard (`dashboard/market_commentary._MA200_MIXED`), để
+# brief và dashboard không gán hai nhãn khác nhau cho cùng một con số.
+# `tests/test_breadth_label_parity.py` canh hai hằng số này khỏi trôi khỏi nhau.
+_MA200_CALL_IT_WEAK: float = 30.0
+
+
 def enforce_breadth_quality(text: str, ctx: dict) -> str:
     """Soften a positive breadth claim that contradicts a structurally weak tape.
 
@@ -916,7 +923,16 @@ def enforce_breadth_quality(text: str, ctx: dict) -> str:
     mom = (ctx.get("market_sentiment") or {}).get("momentum")
     if not text or not isinstance(pct, (int, float)):
         return text
-    if pct >= 40 or (mom is not None and mom >= 0):   # not structurally weak/bearish
+    # Hai nấc kích hoạt:
+    #  • pct < 40 VÀ momentum âm — nấc gốc, "cấu trúc yếu + đà xuống".
+    #  • pct <= _MA200_CALL_IT_WEAK — nấc THÊM 13/08: dưới ngưỡng này thì gọi
+    #    độ rộng "tích cực" là sai BẤT KỂ momentum. Ca thật: 11% trên MA200,
+    #    A/D 1.08, momentum +16 → guard cũ đứng ngoài (vì mom ≥ 0) và một
+    #    agent viết "Độ rộng thị trường TÍCH CỰC" trong khi 3 agent kia viết
+    #    "yếu" trên CÙNG bộ số. Chính dashboard cũng gán nhãn 🔴 "đa số cổ
+    #    phiếu trong xu hướng giảm" ở mức này — ba nguồn trong nhà không được
+    #    nói ba kiểu về một con số.
+    if pct > _MA200_CALL_IT_WEAK and (pct >= 40 or (mom is not None and mom >= 0)):
         return text
 
     # Chiều NGƯỢC (close 23:58 14/07): A/D 1 phiên DƯƠNG (1.26 ≥ 1.05 — nhãn
