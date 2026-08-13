@@ -460,6 +460,28 @@ def strategy_loop(
                     f"trades={metrics.get('n_trades')} "
                     f"expectancy={metrics.get('expectancy')}"
                 )
+                # "active" chỉ là ghế làm việc, KHÔNG phải phán quyết — phán
+                # quyết là kiểm định, và nó quyết brief có nhận rec hay không
+                # (13/08: user chạy cold-start xong không biết đạt hay trượt
+                # vì dòng trên không nói).
+                _mix = metrics.get("exit_mix") or {}
+                if _mix:
+                    print(f"     exit mix: TP {_mix.get('tp', 0):.0%} · "
+                          f"SL {_mix.get('sl', 0):.0%} · "
+                          f"hết hạn {_mix.get('expire', 0):.0%}")
+                _v = metrics.get("validation")
+                if _v is None:
+                    print("     kiểm định: ⏳ chưa đủ lệnh để chấm")
+                elif _v.get("passed"):
+                    _p = _v.get("p_value_adj", _v.get("p_value_sharpe"))
+                    print(f"     kiểm định: ✅ ĐẠT (p={_p:.3f})"
+                          if isinstance(_p, float) else "     kiểm định: ✅ ĐẠT")
+                    print("     → khuyến nghị của chiến lược này SẼ vào brief")
+                else:
+                    print("     kiểm định: 🎲 CHƯA ĐẠT — "
+                          + "; ".join(_v.get("reasons") or ["?"]))
+                    print("     → brief sẽ KHÔNG nhận khuyến nghị từ chiến lược "
+                          "này (vẫn ghi sổ + đối soát để nó tự chứng minh)")
     except Exception as e:
         err = f"{lead.name}: {type(e).__name__}: {e}"
         summary["errors"].append(err)
