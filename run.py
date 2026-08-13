@@ -910,8 +910,15 @@ def cmd_train(args) -> int:
     đóng → strategy health có số mới) trên kho vừa sync = data tươi nhất.
     Phần nặng là backtest full VN30 (~5-15 phút) + vài call LLM/ngày.
     Best-effort: lỗi → warning, không chặn pipeline.
+
+    `--tier both` (user chốt 13/08 "theo dõi cả ngắn/dài"): đêm nào cũng tune
+    CẢ tầng 5 phiên lẫn tầng vị thế 20 phiên. Sau khi nâng sàn bằng chứng lên
+    30 lệnh, đây là con đường duy nhất để hai tầng tự tìm ứng viên đạt chuẩn
+    và mở lại mục khuyến nghị trong brief. Chi phí thêm ~5-15 phút/đêm
+    (backtest lookback 730 ngày của tầng vị thế).
     """
-    rc = _run([sys.executable, str(REPO_ROOT / "vnstock_train.py"), "--once"])
+    rc = _run([sys.executable, str(REPO_ROOT / "vnstock_train.py"),
+               "--once", "--tier", "both"])
     return 1 if rc != 0 else 0
 
 

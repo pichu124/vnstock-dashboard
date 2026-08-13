@@ -6116,7 +6116,7 @@ Suite **1996 passed**.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **1996 passed** (`--fast` ~1.534 test — ~26-35s trên CI,
+> Trạng thái: full suite **1997 passed** (`--fast` ~1.534 test — ~26-35s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
@@ -6179,14 +6179,16 @@ rec của #32; nó ở lại ghế làm việc, được tune + đối soát đ�
 sàn bằng chứng lên 30 lệnh, verdict bị hạ lại tại điểm đọc — entry (f)+(g).
 Trạng thái hiện tại: brief ĐÓNG với cả hai tầng, chờ ứng viên ≥30 lệnh đạt.)*
 
-**0f. Sửa scheduled task train sang `--tier both` (2 phút, MỘT lần).**
-User đã chạy tay `--once --tier both` OK (13/08) nhưng task đêm vẫn chạy lệnh
-cũ = tầng vị thế đứng yên giữa các lần chạy tay. Mở Task Scheduler → task
-train → sửa lệnh thành:
-```powershell
-python vnstock_train.py --once --tier both
-```
-(chi phí thêm ~5-15 phút LLM + backtest 730 ngày mỗi đêm). Sau sàn 30 lệnh,
+**0f. Train 2 tầng mỗi đêm — ĐÃ GIẢI QUYẾT TRONG CODE, chỉ cần merge.**
+Ban đầu tưởng phải sửa Task Scheduler, nhưng soi `setup_scheduled_tasks.ps1`
+thì task đêm gọi `run.py ... all` chứ KHÔNG gọi `vnstock_train.py` trực tiếp
+→ sửa 1 chỗ trong `run.py cmd_train` thành `--tier both` là mọi đường chạy
+(task đêm, `run.py train`, `run.py all`) đều train cả hai tầng. Đã sửa + test
+`test_nightly_pipeline_trains_both_tiers` canh (13/08). User KHÔNG phải đụng
+Task Scheduler — chỉ merge code mới về là xong. Kiểm chứng: sau merge chạy
+`python run.py train` phải thấy HAI khối strategy_loop (tier=short rồi
+tier=position); hoặc sáng hôm sau soi `run_daily.log` thấy cả hai tầng.
+(Chi phí thêm ~5-15 phút LLM + backtest 730 ngày mỗi đêm.) Sau sàn 30 lệnh,
 đây là CON ĐƯỜNG DUY NHẤT để hai tầng tự tìm ứng viên đạt chuẩn và mở lại
 mục khuyến nghị trong brief.
 

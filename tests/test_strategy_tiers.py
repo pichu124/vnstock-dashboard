@@ -328,3 +328,19 @@ def test_thin_pass_recs_are_suppressed_end_to_end(monkeypatch):
     assert "KHÔNG CÓ khuyến nghị" in block
     assert "mỏng" in block                        # sentinel nêu lý do, không chỉ p
     assert ctx["strategy_recs_in_prompt"] is False
+
+
+def test_nightly_pipeline_trains_both_tiers():
+    """Task đêm chạy `run.py all` → cmd_train — KHÔNG gọi vnstock_train trực
+    tiếp (phát hiện 13/08 khi định hướng dẫn user sửa Task Scheduler: chỗ sửa
+    đúng là run.py). Thiếu `--tier both` ở đây = tầng vị thế đứng yên vĩnh
+    viễn dù mọi thứ khác đã dựng xong."""
+    import ast as _ast
+    from pathlib import Path as _P
+    src = (_P(__file__).resolve().parent.parent / "run.py").read_text(encoding="utf-8")
+    tree = _ast.parse(src)
+    fn = next(n for n in tree.body
+              if isinstance(n, _ast.FunctionDef) and n.name == "cmd_train")
+    body = _ast.unparse(fn)
+    assert "'--tier'" in body and "'both'" in body, (
+        "cmd_train không truyền --tier both — pipeline đêm chỉ tune tầng short")
