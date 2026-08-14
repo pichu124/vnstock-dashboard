@@ -6353,23 +6353,24 @@ tier=position); hoặc sáng hôm sau soi `run_daily.log` thấy cả hai tầng
 đây là CON ĐƯỜNG DUY NHẤT để hai tầng tự tìm ứng viên đạt chuẩn và mở lại
 mục khuyến nghị trong brief.
 
-**0c. Soi `run_daily.log` sau phát pipeline 18:00 — ⚠️ 14/08: PHÁT HIỆN
-pipeline tối 13/08 KHÔNG CHẠY.**
-Diễn biến 14/08 sáng: user grep log → 5 header đều là chạy TAY 13/08
-(doctor ×3 15:03-15:05 · dashboard 15:13 · refresh-metadata 16:13) —
-**bộ tee sống hoàn hảo từ 15:03**, nhưng KHÔNG có header `all` nào lúc
-18:00 → task đêm không fire (máy tắt/ngủ lúc 18:00? task hỏng/thiếu trên
-máy?). Giả thuyết đầu của Claude ("18:00 chạy bằng code cũ chưa biết ghi
-log") bị chính log này BÁC — code mới đã nằm trên máy từ 15:03. Đang chẩn
-đoán bằng:
-```powershell
-Get-ScheduledTaskInfo "VnStock Daily Pipeline" | Format-List LastRunTime,LastTaskResult,NextRunTime
-```
-(LastRunTime 12/08 = máy tắt lúc 18:00 hôm 13 · LastTaskResult ≠ 0 = task
-fire nhưng fail, dán mã lỗi · task không tồn tại = chạy lại
-`scripts/setup_scheduled_tasks.ps1` as-admin — đăng ký THEO MÁY.)
-Việc soi tier=/collect_context bên dưới DỜI sang sáng sau đêm pipeline
-chạy được. File này TỪ 13/08 MỚI TỒN TẠI (entry 13/08 (j)); lệnh gốc:
+**0c. Soi `run_daily.log` sau phát pipeline 18:00 — ⚠️ 14/08: hoá ra nãy
+giờ soi NHẦM MÁY. Việc này là việc của MÁY BÀN.**
+Diễn biến: grep log ra 5 header đều chạy tay 13/08 (doctor ×3 · dashboard
+15:13 · refresh-metadata 16:13 — tee sống hoàn hảo từ 15:03), không có
+phát `all` 18:00 → Claude kết luận "pipeline không chạy". User đính chính:
+**đang làm trên LAPTOP** — mà cả `run_daily.log` lẫn Task Scheduler đều
+THEO MÁY; desktop mới là máy production (notes ~2201). Laptop không có
+task 18:00 là BÌNH THƯỜNG, không nói gì về pipeline thật.
+Chuyện lộ ra TO HƠN: mọi merge 13-14/08 mới nằm trên laptop — nếu desktop
+CHƯA merge thì production vẫn chạy code cũ: KHÔNG ghi log, và đêm nào
+cũng chỉ train TẦNG NGẮN (chưa có `--tier both`), thiếu cả loạt fix khác.
+**VIỆC KHI NGỒI MÁY BÀN (một lần):**
+1. `git fetch origin claude/remaining-tasks-tests-4xoam3` rồi
+   `git merge origin/claude/remaining-tasks-tests-4xoam3`
+2. (tuỳ, 10 giây) `Get-ScheduledTaskInfo "VnStock Daily Pipeline" |
+   Format-List LastRunTime,LastTaskResult,NextRunTime` — xác nhận task
+   sống + lần chạy cuối
+3. SÁNG HÔM SAU chạy 2 lệnh dưới TRÊN MÁY BÀN:
 ```powershell
 Select-String -Path run_daily.log -Pattern "tier="
 Select-String -Path run_daily.log -Pattern "collect_context"
