@@ -241,3 +241,57 @@ def test_parser_accepts_free_auditor_and_no_llm_audit():
         ["audit", "--llm", "--auditor", "free"]).auditor == "free"
     assert runpy.build_parser().parse_args(
         ["all", "--auditor", "free"]).auditor == "free"
+
+
+def test_close_session_date_mapping():
+    from datetime import datetime as dt
+    f = runpy._close_session_date
+    assert f(dt(2026, 8, 14, 18, 0)).isoformat() == "2026-08-14"   # T6 → chính nó
+    assert f(dt(2026, 8, 15, 9, 0)).isoformat() == "2026-08-14"    # T7 → T6
+    assert f(dt(2026, 8, 16, 22, 0)).isoformat() == "2026-08-14"   # CN → T6
+    assert f(dt(2026, 8, 17, 16, 0)).isoformat() == "2026-08-17"   # T2 → chính nó
+
+
+def test_should_push_close_weekend_rules(tmp_path):
+    """User chốt 15/08: T7/CN gửi GIỜ NÀO CŨNG ĐƯỢC (không có phiên mới),
+    nhưng bất biến là MỘT brief cho mỗi PHIÊN — marker theo NGÀY PHIÊN chứ
+    không phải ngày gửi. Luật cũ chặn <15:00 mọi ngày → brief chiều thứ 6
+    MẤT VĨNH VIỄN mỗi khi máy tắt tối thứ 6 (chạy bù T7 sáng bị chặn, sang
+    T2 đã thành phiên khác) — đúng ca user vấp 15/08."""
+    from datetime import datetime as dt
+    import json as _json
+    marker = tmp_path / "brief_push.json"
+    # T7 9h sáng (2026-08-15): ĐẨY — ca chạy bù cuối tuần
+    ok, _ = runpy._should_push_close(dt(2026, 8, 15, 9, 0), marker)
+    assert ok is True
+    # Máy bật tối T6 đã gửi (marker = ngày phiên T6) → T7 chạy bù phải IM
+    marker.write_text(_json.dumps({"close": "2026-08-14"}), encoding="utf-8")
+    ok, why = runpy._should_push_close(dt(2026, 8, 15, 20, 0), marker)
+    assert ok is False and "trùng" in why
+    # CN chạy nữa → vẫn IM (cùng phiên thứ 6)
+    ok, _ = runpy._should_push_close(dt(2026, 8, 16, 10, 0), marker)
+    assert ok is False
+    # Sang T2 sau 15:00 → phiên MỚI → đẩy bình thường
+    ok, _ = runpy._should_push_close(dt(2026, 8, 17, 18, 0), marker)
+    assert ok is True
+    # T2 TRƯỚC 15:00 vẫn bị chặn như cũ (ngày làm việc, phiên chưa đóng)
+    ok, why = runpy._should_push_close(dt(2026, 8, 17, 8, 0), marker)
+    assert ok is False and "15:00" in why
+
+
+def test_cmd_brief_marker_records_session_date(tmp_path, monkeypatch):
+    """Marker phải mang NGÀY PHIÊN (T7/CN gửi thì ghi ngày thứ 6) — nếu ghi
+    ngày gửi, chạy T7 xong CN sẽ bắn trùng brief của cùng phiên."""
+    import json as _json
+    from datetime import datetime as dt
+
+    import vnstock_telegram as _tg
+    monkeypatch.delenv("VNSTOCK_PIPELINE_BRIEF", raising=False)
+    monkeypatch.setattr(runpy, "_should_push_close", lambda now, m: (True, ""))
+    monkeypatch.setattr(_tg, "push_close_brief",
+                        lambda: {"result": {"message_id": 9}})
+    args = SimpleNamespace(warehouse=str(tmp_path))
+    assert runpy.cmd_brief(args) == 0
+    payload = _json.loads(
+        runpy._brief_push_marker(args).read_text(encoding="utf-8"))["close"]
+    assert payload == runpy._close_session_date(dt.now()).isoformat()

@@ -6411,6 +6411,32 @@ chốt thế giới `get_active_family → None` — ý đồ của chúng là l
 + độ chính xác giá, không phải gating. Suite **2068 passed** (số không
 đổi — sửa test, không thêm).
 
+## 2026-08-15 (r) — Brief chiều cuối tuần: user bắt lỗi thiết kế lưới 15:00 → bất biến mới "một brief mỗi PHIÊN"
+
+User hỏi "sao chưa thấy brief lên Telegram" → truy ra 3 tầng: (1) brief
+là bước CUỐI, hai phát hôm nay đều chết ở bước test — chưa tới lượt;
+(2) kể cả tới, lưới `_should_push_close` chặn <15:00 mọi ngày; (3) user
+chỉ ra lưới đó SAI cho cuối tuần: "sau 15h thứ 6 đến hết chủ nhật thì
+nên để chạy lúc nào cũng được". Phân tích thêm thì còn tệ hơn user nói:
+với luật cũ, máy tắt tối thứ 6 (chuyện thường) → brief chiều THỨ 6 MẤT
+VĨNH VIỄN — chạy bù T7/CN bị chặn <15:00, sang T2 sau 15:00 đã thành
+brief phiên thứ 2. Nghĩa là cả một lớp brief cuối tuần chưa từng đến tay
+user mà không ai hay (không có log thì càng không ai hay).
+
+Thiết kế lại quanh bất biến MỚI: **một brief chiều cho mỗi PHIÊN giao
+dịch** (`_close_session_date`: T2-T6 = hôm nay, T7/CN = thứ 6 vừa rồi):
+* Ngày làm việc <15:00: chặn như cũ (phiên chưa đóng, đỡ run-on-boot).
+* T7/CN: gửi giờ nào cũng được — dữ liệu không thể tươi hơn phiên thứ 6.
+* Marker chống-trùng đổi từ NGÀY GỬI sang NGÀY PHIÊN → T7 gửi rồi CN im;
+  tối T6 đã gửi thì T7 chạy bù cũng im. Marker cũ tương thích ngược 100%
+  (ngày gửi các ngày làm việc ≡ ngày phiên).
+* Ngày lễ giữa tuần: chưa phân biệt (không theo dõi lịch nghỉ) — ghi rõ
+  trong docstring, hành vi như cũ.
+3 test mới (mapping T6/T7/CN/T2 · luật cuối tuần đủ 5 nhánh · marker
+phải mang ngày phiên — ghi ngày gửi là T7 xong CN bắn trùng).
+
+Suite 2068 → **2071 passed**.
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -6419,7 +6445,7 @@ chốt thế giới `get_active_family → None` — ý đồ của chúng là l
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2068 passed** (`--fast` ~1.534 test — ~26-35s trên CI,
+> Trạng thái: full suite **2071 passed** (`--fast` ~1.534 test — ~26-35s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:

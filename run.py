@@ -32,7 +32,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import date, datetime as _datetime
+from datetime import date, datetime as _datetime, timedelta as _timedelta
 from pathlib import Path
 
 
@@ -1109,20 +1109,41 @@ def _brief_push_marker(args) -> Path:
             / "_meta" / "brief_push.json")
 
 
+def _close_session_date(now) -> "date":
+    """Phiên mà brief chiều tại thời điểm `now` nói về: T2-T6 là hôm nay,
+    T7/CN là thứ 6 vừa rồi (cuối tuần không có phiên mới — dữ liệu mới nhất
+    đứng yên ở phiên thứ 6). Ngày lễ giữa tuần chưa phân biệt được (không
+    theo dõi lịch nghỉ) — chấp nhận, giữ hành vi cũ cho ca đó."""
+    d = now.date()
+    if d.weekday() == 5:                       # thứ 7
+        return d - _timedelta(days=1)
+    if d.weekday() == 6:                       # chủ nhật
+        return d - _timedelta(days=2)
+    return d
+
+
 def _should_push_close(now, marker: Path) -> "tuple[bool, str]":
     """(có nên đẩy brief chiều không, lý do khi KHÔNG).
 
-    - Trước 15:00 (phiên chưa đóng): KHÔNG — đây cũng là lưới đỡ cho
-      StartWhenAvailable: máy tắt lúc 18:00 → task chạy bù sáng hôm sau,
-      không được đẩy brief chiều CŨ lúc 8h sáng.
-    - Marker ghi hôm nay đã đẩy rồi: KHÔNG — chống double-send.
+    Bất biến (đổi 15/08, user chốt): MỘT brief chiều cho mỗi PHIÊN giao dịch.
+    - NGÀY LÀM VIỆC trước 15:00: KHÔNG — phiên hôm nay chưa đóng; đây cũng là
+      lưới đỡ cho StartWhenAvailable (máy tắt 18:00 → chạy bù sáng hôm sau
+      không được bắn brief chiều CŨ lúc 8h sáng).
+    - T7/CN: gửi GIỜ NÀO CŨNG ĐƯỢC — cuối tuần không có phiên mới, brief nói
+      về phiên thứ 6 và dữ liệu không thể tươi hơn. (Trước 15/08 chặn cứng
+      <15:00 mọi ngày → brief chiều thứ 6 MẤT VĨNH VIỄN mỗi khi máy tắt tối
+      thứ 6: chạy bù T7/CN bị chặn, sang T2 đã thành phiên khác.)
+    - Marker ghi ĐÃ đẩy cho PHIÊN này (theo ngày phiên, không phải ngày gửi):
+      KHÔNG — chống gửi trùng, kể cả chạy cả T7 lẫn CN.
     """
-    if now.hour < 15:
+    if now.weekday() < 5 and now.hour < 15:
         return False, (f"chưa tới 15:00 (hiện {now.strftime('%H:%M')}) — "
                        "không đẩy brief chiều cũ (run-on-boot bù sáng hôm sau)")
+    sess = _close_session_date(now).isoformat()
     try:
-        if json.loads(marker.read_text(encoding="utf-8")).get("close")                 == now.date().isoformat():
-            return False, "hôm nay đã đẩy brief chiều rồi (marker) — tránh gửi trùng"
+        if json.loads(marker.read_text(encoding="utf-8")).get("close") == sess:
+            return False, (f"đã đẩy brief chiều cho phiên {sess} rồi (marker) "
+                           "— tránh gửi trùng")
     except Exception:
         pass
     return True, ""
@@ -1157,8 +1178,9 @@ def cmd_brief(args) -> int:
     try:
         marker.parent.mkdir(parents=True, exist_ok=True)
         tmp = marker.with_suffix(f".{_os.getpid()}.tmp")
-        tmp.write_text(json.dumps({"close": _datetime.now().date().isoformat()}),
-                       encoding="utf-8")
+        tmp.write_text(json.dumps(
+            {"close": _close_session_date(_datetime.now()).isoformat()}),
+            encoding="utf-8")
         _os.replace(str(tmp), str(marker))
     except Exception:
         pass
