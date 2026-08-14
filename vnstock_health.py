@@ -535,6 +535,7 @@ def _render_remediate_panels(snap: HealthSnapshot, warehouse: Path) -> None:
             with st.spinner("Audit đang chạy..."):
                 try:
                     proc = subprocess.run(cmd, capture_output=True, text=True,
+                                           encoding="utf-8", errors="replace",
                                            timeout=600)
                 except Exception as e:
                     st.error(f"Không chạy được: {e}")

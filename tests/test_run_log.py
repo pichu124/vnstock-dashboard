@@ -73,6 +73,16 @@ class TestTee:
         log.close()
         assert "vẫn phải vào file" in log_path.read_text(encoding="utf-8")
 
+
+    def test_write_none_never_raises(self):
+        """Bài học 15/08: cmd_test đưa proc.stdout=None vào tee (chuỗi decode
+        cp1252 chết trên máy bàn) → len(None) nổ NGOÀI try, giết cả pipeline
+        dù lời hứa của tee là best-effort trọn vẹn. None phải thành no-op."""
+        console = io.StringIO()
+        tee = run_mod._Tee(console, io.StringIO())
+        assert tee.write(None) == 0            # không nổ, không ghi gì
+        assert console.getvalue() == ""
+
     def test_attribute_passthrough(self):
         console = io.StringIO()
         tee = run_mod._Tee(console, io.StringIO())
@@ -165,6 +175,13 @@ class TestWiringNets:
     def test_run_streams_children_through_pipe(self):
         src = self._func_source("_run")
         assert "Popen" in src and "PIPE" in src and "STDOUT" in src
+
+
+    def test_cmd_test_captures_with_explicit_encoding(self):
+        # Bug 15/08: capture pytest không khai encoding → Windows cp1252
+        # chết giữa chừng, proc.stdout=None. Net canh encoding tường minh.
+        src = self._func_source("cmd_test")
+        assert "encoding" in src and "utf-8" in src
 
     def test_strategy_loop_prints_tier_marker(self):
         # Bằng chứng "đêm nay train tầng nào" trong log = dòng tier=…

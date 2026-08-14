@@ -758,17 +758,25 @@ def cmd_test(args) -> int:
         # THẬT (kho parquet, gọi mạng) — máy có kho đầy đủ chậm hơn CI nhiều
         # lần, nên chỉ đo trên máy thật mới ra đúng thủ phạm.
         cmd.append("--durations=20")
-    proc = _sp.run(cmd, capture_output=True, text=True)
+    # encoding tường minh (15/08): thiếu nó, Windows decode cp1252 → gặp byte
+    # UTF-8 tiếng Việt trong output pytest là luồng đọc CHẾT giữa chừng và
+    # proc.stdout thành None (anh em sinh đôi của bug đã vá trong _run 13/08
+    # — quét sót vì cmd_test có lệnh subprocess riêng).
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    proc = _sp.run(cmd, capture_output=True, text=True,
+                   encoding="utf-8", errors="replace", env=env)
     elapsed = _time.time() - started
+    out_text = proc.stdout or ""
+    err_text = proc.stderr or ""
 
     # Echo output verbatim so user still sees the regular pytest run
-    sys.stdout.write(proc.stdout)
-    sys.stderr.write(proc.stderr)
+    sys.stdout.write(out_text)
+    sys.stderr.write(err_text)
 
     # Parse the last "==== N passed, M failed in Xs ====" summary line
     summary_line = ""
     n_passed = n_failed = n_skipped = n_error = 0
-    for line in reversed(proc.stdout.splitlines()):
+    for line in reversed(out_text.splitlines()):
         if " passed" in line or " failed" in line or " error" in line:
             summary_line = line.strip()
             break
@@ -1286,7 +1294,12 @@ class _Tee:
         self._stream = stream
         self._log = log_handle
 
-    def write(self, text: str) -> int:
+    def write(self, text) -> int:
+        # Tee KHÔNG BAO GIỜ được là thứ giết pipeline — kể cả khi bị đưa
+        # None/bytes (bài học 15/08: cmd_test đưa proc.stdout=None vào đây,
+        # len(None) nổ NGOÀI try trong khi lời hứa là best-effort trọn vẹn).
+        if not isinstance(text, str):
+            text = "" if text is None else str(text)
         try:
             self._stream.write(text)
         except Exception:

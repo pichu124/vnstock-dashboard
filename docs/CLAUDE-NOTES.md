@@ -6359,6 +6359,36 @@ phải lỗ hổng dữ liệu.
 
 Suite 2062 → **2066 passed**.
 
+## 2026-08-15 (p) — Phát `all` tay đầu tiên trên máy bàn chết ở bước test: 2 bug Windows-only xếp chồng
+
+Bối cảnh: user chạy tay cả chuỗi trên máy bàn (04:54 sáng 15/08), 8 bước
+đầu ngon lành, đến bước test thì UnicodeDecodeError trong luồng đọc
+subprocess rồi TypeError trong _Tee giết cả pipeline. Chẩn đoán một phát
+ăn ngay NHỜ chính run_daily.log vừa xây — traceback nằm nguyên trong log.
+
+Chuỗi nhân quả (CHỈ hiện trên Windows — container Linux mù ca này):
+1. `cmd_test` capture output pytest với text=True mà KHÔNG khai encoding
+   → Windows decode cp1252 → gặp byte UTF-8 tiếng Việt (0x8F — byte cuối
+   chữ "ỏ") là luồng đọc CHẾT → proc.stdout = None. Anh em sinh đôi của
+   bug đã vá trong `_run` 13/08 — QUÉT SÓT vì cmd_test có lệnh subprocess
+   riêng.
+2. `sys.stdout.write(None)` rơi vào `_Tee.write` → `return len(text)` nằm
+   NGOÀI try → TypeError giết pipeline — vi phạm chính lời hứa "tee không
+   bao giờ được giết pipeline" trong docstring của nó.
+
+Vá 3 chỗ + 2 test: cmd_test thêm encoding="utf-8"/errors="replace" +
+PYTHONIOENCODING (net AST canh); chỗ đọc proc.stdout đỡ None (`or ""`);
+`_Tee.write` ép mọi thứ không phải str về str/"" trước khi làm gì (test
+tee.write(None) == 0 không nổ). Quét cùng họ: vnstock_health.py:537 cùng
+bug tiềm ẩn (suy biến êm chứ không crash) — vá luôn.
+
+LỘC từ phát chết giữa chừng — SỐ THẬT ĐẦU TIÊN cho mục ② (8 bước đầu):
+sync 870s · screener 514s · news 121s · validate 86s · foreign-flow 14s
+· macro 12s · allocation 2s · gold 2s ≈ **27 phút**, sync là hog (~54%).
+Đợi phát TRỌN VẸN (kèm test/train/brief) rồi mới phán theo luật ②.
+
+Suite 2066 → **2068 passed**.
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -6367,7 +6397,7 @@ Suite 2062 → **2066 passed**.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2066 passed** (`--fast` ~1.534 test — ~26-35s trên CI,
+> Trạng thái: full suite **2068 passed** (`--fast` ~1.534 test — ~26-35s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
@@ -6468,9 +6498,12 @@ cũng chỉ train TẦNG NGẮN (chưa có `--tier both`), thiếu cả loạt f
    sync đều bấy lâu). NHƯNG LastTaskResult = 0xC000013A: phát bù bị NGẮT
    GIỮA CHỪNG (tắt máy khi pipeline đang chạy). BÀI HỌC VẬN HÀNH: tối nào
    máy bàn đang chạy pipeline (~20-40 phút) thì để xong hẵng tắt. Task
-   daily chỉ chạy NGÀY LÀM VIỆC (NextRun 17/08 thứ Hai) — cuối tuần muốn
-   có số ngay: merge xong chạy tay `python run.py all` rồi soi 3 lệnh
-   dưới luôn, khỏi đợi thứ Ba.
+   daily chỉ chạy NGÀY LÀM VIỆC (NextRun 17/08 thứ Hai). Phát chạy tay
+   sáng 15/08 CHẾT ở bước test — 2 bug Windows-only, ĐÃ VÁ (entry (p)).
+   CHẠY LẠI sau merge bằng:
+   `python run.py all --no-sync`
+   (bỏ sync+validate đã xong sáng 15/08, tiết kiệm ~16 phút; ĐỂ MÁY BẬT
+   tới khi xong ~15-25 phút) rồi soi 3 lệnh dưới luôn, khỏi đợi thứ Ba.
 3. (tiện tay, ~10 phút, cần mạng) thử phủ vùng mù 4d sau bản gộp 3 nguồn:
 ```powershell
 python run.py refresh-metadata --events
