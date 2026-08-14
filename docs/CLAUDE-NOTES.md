@@ -6526,18 +6526,16 @@ rec của #32; nó ở lại ghế làm việc, được tune + đối soát đ�
 sàn bằng chứng lên 30 lệnh, verdict bị hạ lại tại điểm đọc — entry (f)+(g).
 Trạng thái hiện tại: brief ĐÓNG với cả hai tầng, chờ ứng viên ≥30 lệnh đạt.)*
 
-**0f. Train 2 tầng mỗi đêm — ĐÃ GIẢI QUYẾT TRONG CODE, chỉ cần merge.**
-Ban đầu tưởng phải sửa Task Scheduler, nhưng soi `setup_scheduled_tasks.ps1`
-thì task đêm gọi `run.py ... all` chứ KHÔNG gọi `vnstock_train.py` trực tiếp
-→ sửa 1 chỗ trong `run.py cmd_train` thành `--tier both` là mọi đường chạy
-(task đêm, `run.py train`, `run.py all`) đều train cả hai tầng. Đã sửa + test
-`test_nightly_pipeline_trains_both_tiers` canh (13/08). User KHÔNG phải đụng
-Task Scheduler — chỉ merge code mới về là xong. Kiểm chứng: sau merge chạy
-`python run.py train` phải thấy HAI khối strategy_loop (tier=short rồi
-tier=position); hoặc sáng hôm sau soi `run_daily.log` thấy cả hai tầng.
-(Chi phí thêm ~5-15 phút LLM + backtest 730 ngày mỗi đêm.) Sau sàn 30 lệnh,
-đây là CON ĐƯỜNG DUY NHẤT để hai tầng tự tìm ứng viên đạt chuẩn và mở lại
-mục khuyến nghị trong brief.
+**0f. ✅ ĐÓNG 15/08 — PRODUCTION TRAIN CẢ 2 TẦNG, bằng chứng log máy bàn.**
+Phát `all --no-sync` lần 3 (15/08): log ghi ĐỦ HAI dòng
+`[strategy_loop] tier=short …` và `tier=position …` — cùng 4 agent
+(Mistral lead · Cerebras · Nemotron · Gemini). Chuỗi giải quyết: tưởng
+sửa Task Scheduler → hoá ra sửa 1 chỗ `run.py cmd_train --tier both`
+(13/08) → merge máy bàn + 3 vòng vá bug production (encoding cp1252, tee
+nuốt None, test không hermetic) → chạy thông. Từ nay MỖI ĐÊM ngày làm
+việc hai tầng tự tune/tìm ứng viên ≥30 lệnh đạt chuẩn — con đường duy
+nhất mở lại mục khuyến nghị trong brief. `collect_context` cùng phát:
+IM LẶNG = mọi nguồn dữ liệu khoẻ (đóng luôn vế nguồn của 0c).
 
 **0c. Soi `run_daily.log` sau phát pipeline 18:00 — ⚠️ 14/08: hoá ra nãy
 giờ soi NHẦM MÁY. Việc này là việc của MÁY BÀN.**
@@ -6747,6 +6745,30 @@ Docstring của hàm đó cũng đã ghi lưu ý này (chỗ người sửa sau 
 
 **KHÔNG ảnh hưởng**: brief, dữ liệu kho, phép tính trong pipeline — đây thuần
 là chuyện hai con số hiển thị trên dashboard không khớp nhau.
+
+**9. Nhãn KỲ của số khối ngoại trong brief — LLM dán nhầm (bắt 15/08).**
+Brief chiều #212: "khối ngoại bán ròng 856 tỷ TUẦN QUA" — 856 thật ra là
+số MỘT NGÀY 14/08 (foreign-flow cache in rõ); chỗ khác cùng brief lại
+"bán ròng 1,965 tỷ tuần qua" — 1,965 là số TUẦN của riêng Họ VIN bị nói
+như toàn thị trường. Số đúng, NHÃN sai — họ lỗi quen của LLM. Ứng viên
+guard mới: canon line cho NN flow (số + kỳ + phạm vi ghim cứng), guard
+chặn LLM tự viết lại nhãn kỳ. CHỜ USER GẬT rồi Claude làm.
+
+**10. Mục "Khuyến nghị đang mở" hiện trên Telegram khi CẢ 2 tầng trượt
+kiểm định — chờ user chốt chính sách (bắt 15/08).**
+Brief #212 liệt 10 lệnh BUY đang mở kèm TP/SL (đều tầng 5 phiên, "ngày
+0-3/5" — forensic: phát 20:22 tối thứ 6 chạy CODE CŨ đã đi tới tận train
+và emit trước khi bị tắt máy). Mục "Đề xuất giao dịch" đã bị chặn đúng
+luật ("Chưa có setup đủ điều kiện") nhưng danh sách lệnh-đang-mở thì vẫn
+hiện — và kể cả code mới, emit đêm VẪN mở lệnh mới khi trượt kiểm định
+(chỉ mục Đề xuất bị ẩn; emit cần cho accuracy tracking/decay). 3 phương án:
+(a) giữ nguyên — minh bạch tracking, đã có caveat "tín hiệu backtest từng
+mã, bối cảnh GIẢM";
+(b) Telegram ẨN danh sách đang-mở khi chiến lược nguồn chưa đạt kiểm định,
+dashboard vẫn hiện đủ (Claude nghiêng phương án này: Telegram là kênh
+hành động, dashboard là phòng máy);
+(c) chặn từ gốc — không emit khi chưa đạt (mạnh tay nhất, nhưng mất luôn
+dữ liệu đối soát để chiến lược tự chứng minh).
 
 **5. Độ trễ OpenRouter — ĐANG LEO THANG.** nemotron-super 18.6 → 25.8s;
 nemotron-ultra median 0.79s → 127.3s (11/08). Production tự né qua timeout.
