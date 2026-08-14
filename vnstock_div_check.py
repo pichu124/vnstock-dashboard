@@ -50,8 +50,13 @@ _NOISE_MULT = 2.0
 # Gap sâu hơn (kỳ vọng + đệm nhiễu) coi như nhiễu thị trường trội (sập sàn
 # trùng ex-date) — không dám kết luận thô hay điều chỉnh.
 _CRASH_BUFFER_NOISE_MULT = 6.0
-# Yield một đợt vượt mức này ở VN gần như chắc là sai đơn vị/tỷ lệ nguồn.
-_MAX_PLAUSIBLE_YIELD_PCT = 40.0
+# Trần hợp lý cho drop kỳ vọng — THEO LOẠI sự kiện (bài học VIC 14/08:
+# bonus 1:1 kỳ vọng −49.8% là chuyện THƯỜNG với chia thưởng/chia tách,
+# nhưng trần 40% hiệu chỉnh cho cổ tức TIỀN đã bịt miệng oan ca đó —
+# trong khi chính nó là bằng chứng điều chỉnh mạnh nhất: cú halving
+# vô hình trong chuỗi thì không thể là nhiễu).
+_MAX_PLAUSIBLE_YIELD_PCT = 40.0     # cash: yield/đợt vượt 40% = nghi đơn vị
+_MAX_PLAUSIBLE_DROP_STOCK_PCT = 90.0  # split/bonus: 10:1 = 90%, hơn nữa = nghi
 # prev-bar → ex-bar cách quá số ngày lịch này = đứt chuỗi quanh sự kiện.
 _MAX_CALENDAR_GAP_DAYS = 7
 _MIN_BARS_FOR_NOISE = 30
@@ -103,10 +108,13 @@ def _daily_noise_pct(close: "pd.Series") -> float:
     return float(rets.median()) * 100.0 if len(rets) else 0.0
 
 
-def classify_event(df: "pd.DataFrame", ex_date, expected_pct: float) -> dict:
+def classify_event(df: "pd.DataFrame", ex_date, expected_pct: float,
+                   max_plausible_pct: float = _MAX_PLAUSIBLE_YIELD_PCT) -> dict:
     """Chấm MỘT sự kiện trên chuỗi giá kho: adjusted_ok / raw_gap / inconclusive.
 
     df cần cột time (datetime) + open/close, sort sẵn hay chưa đều được.
+    `max_plausible_pct` = trần drop kỳ vọng còn tin được — caller chọn theo
+    LOẠI sự kiện (cash 40% / split-bonus 90%, xem hằng số đầu file).
     Trả dict {verdict, observed_pct, expected_pct, reason}.
     """
     out = {"verdict": VERDICT_UNSURE, "observed_pct": None,
@@ -146,9 +154,9 @@ def classify_event(df: "pd.DataFrame", ex_date, expected_pct: float) -> dict:
         out["reason"] = (f"cổ tức nhỏ chìm trong nhiễu "
                          f"(kỳ vọng {expected_pct:.2f}% < sàn {floor:.2f}%)")
         return out
-    if expected_pct > _MAX_PLAUSIBLE_YIELD_PCT:
-        out["reason"] = (f"yield {expected_pct:.1f}% bất thường — "
-                         f"nghi sai đơn vị/tỷ lệ nguồn")
+    if expected_pct > max_plausible_pct:
+        out["reason"] = (f"drop kỳ vọng {expected_pct:.1f}% vượt trần "
+                         f"{max_plausible_pct:.0f}% — nghi sai đơn vị/tỷ lệ nguồn")
         return out
     if observed < -(expected_pct + _CRASH_BUFFER_NOISE_MULT * noise):
         out["reason"] = "gap sâu hơn hẳn cổ tức — nhiễu thị trường trội"
@@ -234,7 +242,12 @@ def check_ticker(ticker: str, days: int = 750) -> dict:
                 "type": row.get("type"), "verdict": VERDICT_UNSURE,
                 "observed_pct": None, "expected_pct": None, "reason": why})
             continue
-        res = classify_event(hist, ex, exp)
+        # Trần theo LOẠI: cash 40% (yield hơn = nghi đơn vị) · split/bonus
+        # 90% (halving 1:1 là bình thường — ca VIC 14/08).
+        cap = (_MAX_PLAUSIBLE_YIELD_PCT
+               if str(row.get("type") or "").lower() == "cash"
+               else _MAX_PLAUSIBLE_DROP_STOCK_PCT)
+        res = classify_event(hist, ex, exp, max_plausible_pct=cap)
         out["events"].append({
             "ticker": out["ticker"], "ex_date": str(row["ex_date"]),
             "type": row.get("type"), **res})

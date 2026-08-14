@@ -190,3 +190,54 @@ class TestVerbosePrint:
                                          "reason": "chìm trong nhiễu"}])]
         _print_report(rep, verbose=False)
         assert "chìm trong nhiễu" not in capsys.readouterr().out
+
+
+class TestVicHalvingCase:
+    """Ca VIC 14/08 — bonus 1:1 (kỳ vọng −49.8%) bị trần 40% bịt miệng oan.
+
+    Trần 40% hiệu chỉnh cho cổ tức TIỀN (yield/đợt hơn 40% = nghi đơn vị)
+    nhưng với chia thưởng/chia tách thì halving là bình thường — và chuỗi
+    phẳng qua một cú halving chính là bằng chứng điều chỉnh MẠNH NHẤT
+    (cổ tức 2% còn trốn được trong nhiễu, cú −50% thì không).
+    """
+
+    def test_halving_bonus_flat_series_confirmed_adjusted(self):
+        res = classify_event(_series(gap_pct=0.0), EX, expected_pct=49.82,
+                             max_plausible_pct=90.0)
+        assert res["verdict"] == VERDICT_ADJUSTED
+
+    def test_raw_halving_still_caught(self):
+        res = classify_event(_series(gap_pct=-49.8), EX, expected_pct=49.82,
+                             max_plausible_pct=90.0)
+        assert res["verdict"] == VERDICT_RAW
+
+    def test_cash_keeps_strict_40_cap(self):
+        # Mặc định (đường cash) vẫn nghi ngờ yield 49.8% — đúng thiết kế
+        res = classify_event(_series(), EX, expected_pct=49.82)
+        assert res["verdict"] == VERDICT_UNSURE
+        assert "vượt trần" in res["reason"]
+
+    def test_beyond_stock_cap_still_suspicious(self):
+        res = classify_event(_series(), EX, expected_pct=95.0,
+                             max_plausible_pct=90.0)
+        assert res["verdict"] == VERDICT_UNSURE
+
+
+class TestCheckTickerTypeAwareCap:
+    def test_bonus_event_goes_through_stock_cap_end_to_end(self, monkeypatch):
+        """check_ticker phải tự chọn trần 90% cho bonus — tái hiện VIC."""
+        import vnstock_adjust
+        import vnstock_strategy
+        from vnstock_div_check import check_ticker
+
+        events = pd.DataFrame([{
+            "ticker": "VIC", "ex_date": EX.date(), "type": "bonus",
+            "cash_amount": None, "ratio": 0.993, "raw": "thưởng 1:1"}])
+        monkeypatch.setattr(vnstock_adjust, "load_events",
+                            lambda *a, **k: events)
+        monkeypatch.setattr(vnstock_strategy, "_load_history",
+                            lambda *a, **k: _series(gap_pct=0.0))
+
+        out = check_ticker("VIC", days=750)
+        assert len(out["events"]) == 1
+        assert out["events"][0]["verdict"] == VERDICT_ADJUSTED

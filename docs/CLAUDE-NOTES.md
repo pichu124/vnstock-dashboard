@@ -6267,6 +6267,27 @@ backtest cộng cổ tức vào equity — chưa quyết trước, đợi số l
 
 Suite 2025 → **2049 passed** (24 test div_check).
 
+## 2026-08-14 (m) — VIC -v: checker tự tố lỗi trần; ca "chưa kết luận" hoá bằng chứng mạnh nhất
+
+User chạy `div_check -v` (laptop): 29 sự kiện sạch + VIC 1 inconclusive,
+lý do lộ ra: `2025-12-13 [bonus] kỳ vọng −49.82% — quan sát −0.14% → nghi
+sai đơn vị/tỷ lệ nguồn`. Đọc lại cho đúng: ratio ≈ 1 (thưởng 1:1, VIC chia
+cuối 2025) → giá PHẢI giảm một nửa tại GDKHQ; quan sát −0.14% = cú halving
+hoàn toàn VÔ HÌNH trong chuỗi kho = chuỗi được back-adjust hoàn hảo. Cổ
+tức tiền 2% còn trốn được trong nhiễu — halving thì không: đây là bằng
+chứng điều chỉnh MẠNH NHẤT cả đợt kiểm, bị chính trần của checker bịt oan.
+
+Lỗi thiết kế: `_MAX_PLAUSIBLE_YIELD_PCT = 40` hiệu chỉnh cho cổ tức TIỀN
+(yield/đợt >40% = gần chắc sai đơn vị) nhưng bị áp cho MỌI loại sự kiện —
+với chia thưởng/chia tách, 50% là chuyện thường. Sửa: trần theo LOẠI chọn
+tại check_ticker (cash 40 / split-bonus 90 — split 10:1 = 90%),
+`classify_event` nhận `max_plausible_pct`. 5 test mới, có regression đúng
+ca VIC (chuỗi phẳng + kỳ vọng 49.82 + trần 90 → adjusted_ok; chuỗi gap
+−49.8 → raw_gap vẫn bị bắt; đường cash giữ nguyên trần 40).
+
+Lặt vặt: ACB 1→2 sự kiện giữa hai lần chạy — cache/cửa sổ dịch chuyển,
+cả hai lần đều adjusted, vô hại. Suite 2049 → **2054 passed**.
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -6275,7 +6296,7 @@ Suite 2025 → **2049 passed** (24 test div_check).
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2049 passed** (`--fast` ~1.534 test — ~26-35s trên CI,
+> Trạng thái: full suite **2054 passed** (`--fast` ~1.534 test — ~26-35s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
@@ -6449,25 +6470,22 @@ vừa chia tách?) → báo Claude kèm message.
   mới quyết**, nhiều khả năng BỎ (pipeline chạy 18:00 không ai ngồi đợi; sửa
   phải đụng nhiều module để đổi lấy sự tiện không ai cảm nhận)
 
-**4d. Kiểm cổ tức kho giá — ✅ LẦN ĐẦU 13/08: 0 GAP THÔ trên 28 sự kiện/17 mã.**
-Backtest giữ lệnh dài đứng nền sạch TRONG PHẠM VI ĐO (entry 13/08 (l)).
-⚠️ ĐÍNH CHÍNH 14/08 (log lộ ra): user ĐÃ chạy `refresh-metadata --events`
-lúc 16:13 13/08 — TRƯỚC lần div_check đầu. Vậy 11 mã "0 sự kiện trong cửa
-sổ" (VNM/SAB/TCB/VPB/MSN/MWG/PLX/STB…) nhiều khả năng KHÔNG phải cache cũ
-như Claude đoán ban đầu, mà là NGUỒN sự kiện (VCI dividends/events) phủ
-mỏng cho các mã đó — refresh lại lần nữa sẽ không đổi gì. GVR fetch fail
-im lặng (best-effort của vnstock_adjust).
-Việc còn (1 lệnh, không cần refresh lại):
-```powershell
-python vnstock_div_check.py -v
-```
-→ đọc dòng `↳ ⚠️` của VIC (lý do inconclusive — "nhiễu trội/chìm nhiễu"
-là bình thường; "yield bất thường" thì dán cho Claude). Về 13 mã chưa phủ:
-ghi nhận trung thực là GIỚI HẠN NGUỒN — đánh giá rủi ro thấp vì 17 mã đo
-được đều sạch và mọi mã đi CHUNG một đường sync/kho; muốn đóng kín hoàn
-toàn thì cần nguồn sự kiện thứ hai (việc mới, chưa xếp lịch).
-Nếu muốn chắc phát 16:13 chạy trọn: `Get-Content run_daily.log |
-Select-Object -Skip 771 -First 30` xem khối output của nó.
+**4d. ✅ ĐÓNG 14/08 — kho giá NHẤT QUÁN điều chỉnh cổ tức. VIC hoá ra là
+bằng chứng mạnh nhất.**
+Hai lần chạy máy thật (13-14/08): 29 sự kiện / 17 mã đều "đã điều chỉnh",
+0 gap thô — backtest giữ lệnh dài đứng trên nền sạch. Ca VIC "chưa kết
+luận" khi soi `-v` hoá ra là LỖI TRẦN của chính checker (entry 14/08 (m)):
+bonus 1:1 kỳ vọng −49.8% bị trần-40%-của-cash bịt oan, trong khi quan sát
+−0.14% nghĩa là cú halving VÔ HÌNH trong chuỗi = bằng chứng back-adjust
+mạnh nhất cả đợt. Đã sửa trần theo LOẠI (cash 40% / split-bonus 90%) + 5
+test; sau merge chạy lại sẽ thấy VIC ✅ → 30 sự kiện / 18 mã sạch (chạy
+lại là TUỲ CHỌN — verdict đã đứng vững, không chờ gì thêm).
+Giới hạn ghi nhận trung thực: 12 mã không có sự kiện để chấm — 11 mã nguồn
+VCI phủ mỏng (VNM/SAB/TCB/VPB/MSN/MWG/PLX/STB… — user đã refresh 16:13
+13/08 TRƯỚC lần chạy đầu nên không phải cache cũ; refresh nữa vô ích) +
+GVR fetch fail im lặng. Rủi ro thấp: mọi mã đi CHUNG một đường sync/kho
+và mọi ca đo được đều sạch. Muốn đóng kín 100% cần NGUỒN SỰ KIỆN THỨ HAI
+— việc mới, user quyết có đáng không (chưa xếp lịch).
 
 **4e. Tầng B — danh mục xoay vòng tháng** (entry 13/08 (d)): để sau, chỉ làm
 khi tầng A chạy ổn và user muốn đầu tư backtester cấp danh mục (~3-5 buổi).
