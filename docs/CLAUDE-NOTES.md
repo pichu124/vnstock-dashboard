@@ -6543,14 +6543,21 @@ VCI phủ mỏng (VNM/SAB/TCB/VPB/MSN/MWG/PLX/STB… — user đã refresh 16:13
 GVR fetch fail im lặng. Rủi ro thấp: mọi mã đi CHUNG một đường sync/kho
 và mọi ca đo được đều sạch. Muốn đóng kín 100% cần NGUỒN SỰ KIỆN THỨ HAI
 — ✅ ĐÃ LÀM 14/08 (entry (n)): `refresh_events` đổi first-wins → GỘP 3
-nguồn + khử trùng-gần. THỬ PHỦ NỐT trên máy thật (~10 phút, cần mạng,
-sau merge):
+nguồn + khử trùng-gần. **User chạy phủ nốt NGAY 14/08**: refresh 1.723 mã
+(fail=0) → div_check 29 → **37 sự kiện, vẫn 0 gap thô** — TCB thoát vùng
+mù (0→1 ✅), FPT/HPG/SHB/SSB/VIB/VJC dày thêm. Kết luận 4d càng vững.
+CÒN 11 mã trắng sự kiện (BCM/BVH/MSN/MWG/PLX/SAB/STB/VHM/VNM/VPB/VRE) +
+GVR (nhóm "skip" của refresh = 3 nguồn đều trả rỗng). NGHI VẤN MỚI thay
+cho "nguồn mù": VNM trả cổ tức đều nhiều đợt/năm mà 3 nguồn cùng trắng
+750 ngày, 11/30 VN30 mù = tỷ lệ quá cao → khả năng cao dữ liệu VỀ Ở DẠNG
+KHÁC mà `_extract_dividends` chưa đọc (cổ tức theo % MỆNH GIÁ thay vì
+VND, tên cột lạ). Phân xử bằng đồ nghề mới (tuỳ chọn, 1 phút):
 ```powershell
-python run.py refresh-metadata --events
-python vnstock_div_check.py
+python scripts\dump_dividend_shape.py VNM SAB GVR
 ```
-Mã nào VẪN 0 sự kiện sau khi gộp 3 nguồn = cả ba nguồn đều mù mã đó —
-chấp nhận giới hạn, ghi sổ rồi thôi.
+→ dán nguyên output cho Claude: dạng chưa đọc được → viết parser, 11 mã
+sáng đèn; rỗng thật → chốt giới hạn như đã ghi. 4d vẫn ĐÓNG dù chọn nhánh
+nào — đây chỉ là đường phủ nốt.
 
 **4e. Tầng B — danh mục xoay vòng tháng** (entry 13/08 (d)): để sau, chỉ làm
 khi tầng A chạy ổn và user muốn đầu tư backtester cấp danh mục (~3-5 buổi).
