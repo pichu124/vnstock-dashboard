@@ -6418,23 +6418,42 @@ task 18:00 là BÌNH THƯỜNG, không nói gì về pipeline thật.
 Chuyện lộ ra TO HƠN: mọi merge 13-14/08 mới nằm trên laptop — nếu desktop
 CHƯA merge thì production vẫn chạy code cũ: KHÔNG ghi log, và đêm nào
 cũng chỉ train TẦNG NGẮN (chưa có `--tier both`), thiếu cả loạt fix khác.
-**VIỆC KHI NGỒI MÁY BÀN (một lần):**
-1. `git fetch origin claude/remaining-tasks-tests-4xoam3` rồi
+**📋 GÓI MÁY BÀN — trọn bộ việc còn lại, chốt với user 14/08 (một buổi
++ một buổi sáng):**
+
+*Buổi ngồi máy bàn:*
+1. **Merge** (mở khoá mọi thứ bên dưới):
+   `git fetch origin claude/remaining-tasks-tests-4xoam3` rồi
    `git merge origin/claude/remaining-tasks-tests-4xoam3`
 2. (tuỳ, 10 giây) `Get-ScheduledTaskInfo "VnStock Daily Pipeline" |
-   Format-List LastRunTime,LastTaskResult,NextRunTime` — xác nhận task
-   sống + lần chạy cuối
-3. SÁNG HÔM SAU chạy 2 lệnh dưới TRÊN MÁY BÀN:
+   Format-List LastRunTime,LastTaskResult,NextRunTime` — task đêm còn
+   sống không, lần chạy cuối khi nào
+3. (tiện tay, ~10 phút, cần mạng) thử phủ vùng mù 4d sau bản gộp 3 nguồn:
+```powershell
+python run.py refresh-metadata --events
+python vnstock_div_check.py
+```
+   (cách đọc kết quả: mục 4d — mã nào vẫn 0 sự kiện = cả 3 nguồn đều mù.)
+
+*SÁNG HÔM SAU (sau đêm 18:00 đầu tiên chạy code mới) — BA lệnh một thể,
+TRÊN MÁY BÀN:*
 ```powershell
 Select-String -Path run_daily.log -Pattern "tier="
 Select-String -Path run_daily.log -Pattern "collect_context"
+Select-String -Path run_daily.log -Pattern "⏱"
 ```
-* Lệnh 1 phải ra ĐỦ HAI dòng `[strategy_loop] tier=short …` VÀ
-  `tier=position …` = bản vá train 2 tầng chạy thật (đóng luôn phần
-  kiểm chứng của 0f).
-* Lệnh 2 không ra gì = mọi nguồn khoẻ. Có dòng `nguồn '<tên>' hỏng` lặp
-  lại mỗi tối → báo Claude tên nguồn đó.
-(Thích đọc cả file: `notepad run_daily.log`, Ctrl+F `tier=`.)
+* `tier=` phải ra ĐỦ HAI dòng `[strategy_loop] tier=short …` VÀ
+  `tier=position …` = train 2 tầng chạy thật (đóng luôn kiểm chứng 0f).
+* `collect_context` không ra gì = mọi nguồn khoẻ. Có dòng `nguồn '<tên>'
+  hỏng` lặp lại mỗi tối → báo Claude tên nguồn.
+* `⏱` nhìn dòng `TỔNG X phút`: X < ~30 và không bước nào chiếm quá nửa
+  → mục ② khép luôn với kết luận "không đáng tối ưu"; một bước nghẽn rõ
+  → dán output cho Claude mổ đúng bước đó (luật đầy đủ: mục ②). Việc ĐO
+  pipeline tự làm mỗi đêm — lệnh này chỉ là cửa sổ ĐỌC, không phải việc
+  định kỳ; sau lần quyết ② nó thành công cụ chẩn đoán khi nào thấy
+  pipeline ì thì lôi ra.
+(Thích đọc cả file: `notepad run_daily.log`.)
+*Còn heatmap VN30 cần PHIÊN GIAO DỊCH, máy nào cũng được — xem mục 1.*
 ✅ **Đã giải mã badge 2⚠️ (user dán doctor 13/08)** — KHÔNG có nguồn hỏng,
 15 ✅: (1) **Phân bổ tài sản** = nhắc việc THÁNG — ✅ user đã tạo brief
 tháng 8 ngay 13/08 (4 giọng, số ghim chuẩn; lộ + vá luôn bug render
