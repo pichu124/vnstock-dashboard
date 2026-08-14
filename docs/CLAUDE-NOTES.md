@@ -6463,9 +6463,14 @@ cũng chỉ train TẦNG NGẮN (chưa có `--tier both`), thiếu cả loạt f
 1. **Merge** (mở khoá mọi thứ bên dưới):
    `git fetch origin claude/remaining-tasks-tests-4xoam3` rồi
    `git merge origin/claude/remaining-tasks-tests-4xoam3`
-2. (tuỳ, 10 giây) `Get-ScheduledTaskInfo "VnStock Daily Pipeline" |
-   Format-List LastRunTime,LastTaskResult,NextRunTime` — task đêm còn
-   sống không, lần chạy cuối khi nào
+2. ✅ ĐÃ SOI (cuối tuần 15-16/08): task SỐNG, có "chạy bù khi lỡ hẹn" —
+   14/08 máy tắt lúc 18:00 → tự chạy bù 20:22 (giải thích vì sao kho vẫn
+   sync đều bấy lâu). NHƯNG LastTaskResult = 0xC000013A: phát bù bị NGẮT
+   GIỮA CHỪNG (tắt máy khi pipeline đang chạy). BÀI HỌC VẬN HÀNH: tối nào
+   máy bàn đang chạy pipeline (~20-40 phút) thì để xong hẵng tắt. Task
+   daily chỉ chạy NGÀY LÀM VIỆC (NextRun 17/08 thứ Hai) — cuối tuần muốn
+   có số ngay: merge xong chạy tay `python run.py all` rồi soi 3 lệnh
+   dưới luôn, khỏi đợi thứ Ba.
 3. (tiện tay, ~10 phút, cần mạng) thử phủ vùng mù 4d sau bản gộp 3 nguồn:
 ```powershell
 python run.py refresh-metadata --events
