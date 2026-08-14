@@ -2365,6 +2365,14 @@ def test_recommendation_block_excludes_overdue_and_keeps_precision(monkeypatch):
     now = _datetime.now()
     fresh   = (now - _timedelta(days=2)).isoformat()
     overdue = (now - _timedelta(days=34)).isoformat()
+    # Hermetic (bài học 15/08, đỏ lần đầu trên MÁY BÀN): rec giả không mang
+    # strategy_id → _recommendation_block rơi về kiểm định của chiến lược
+    # ACTIVE = đọc DB SQLite THẬT của máy đang chạy test. Máy có chiến lược
+    # trượt kiểm định (desktop: p=0.764) → mọi rec bị chặn đúng luật → test
+    # đỏ oan. Ý đồ test này là lọc-quá-hạn + độ chính xác giá, không phải
+    # gating — chốt thế giới: không có chiến lược active.
+    monkeypatch.setattr("vnstock_memory.get_active_family",
+                        lambda *a, **k: None)
     monkeypatch.setattr("vnstock_memory.open_recommendations", lambda: [
         {"ticker": "FPT", "action": "buy", "entry_price": 124.0,
          "take_profit": 130.0, "cut_loss": 120.0, "horizon_days": 5,
@@ -2386,6 +2394,9 @@ def test_recommendation_block_excludes_overdue_and_keeps_precision(monkeypatch):
 
 def test_recommendation_block_empty_when_all_overdue(monkeypatch):
     overdue = (_datetime.now() - _timedelta(days=40)).isoformat()
+    # Cùng lỗ hermetic với test trên — chốt thế giới không chiến lược active
+    monkeypatch.setattr("vnstock_memory.get_active_family",
+                        lambda *a, **k: None)
     monkeypatch.setattr("vnstock_memory.open_recommendations", lambda: [
         {"ticker": "KSF", "action": "buy", "entry_price": 113.0,
          "take_profit": 129.0, "cut_loss": 105.0, "horizon_days": 5,

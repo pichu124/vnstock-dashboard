@@ -6389,6 +6389,28 @@ sync 870s · screener 514s · news 121s · validate 86s · foreign-flow 14s
 
 Suite 2066 → **2068 passed**.
 
+## 2026-08-15 (q) — Phát `all --no-sync` lần hai: encoding ĐÃ ỔN, lộ tiếp 1 test không hermetic
+
+Bản vá encoding chạy chuẩn (bước test chạy trọn 67s, pipeline dừng đúng
+thiết kế khi test đỏ, `⏱ TỔNG` in cả khi fail giữa chừng — screener 540s
+là hog của phát no-sync). Lộ ra: **2067 passed · 1 FAILED chỉ trên máy
+bàn** — `test_recommendation_block_excludes_overdue_and_keeps_precision`.
+
+Nguyên nhân (tái hiện được 100% trong container bằng cách giả lập DB máy
+bàn): test stub `open_recommendations` nhưng QUÊN stub `get_active_family`
+— rec giả không mang strategy_id → `_recommendation_block` rơi về đường
+"kiểm định của chiến lược ACTIVE" → đọc DB SQLite THẬT của máy chạy test.
+Máy bàn có chiến lược active TRƯỢT kiểm định (p=0.764, số thật của nó) →
+mọi rec fixture bị chặn ĐÚNG LUẬT → sentinel thay vì FPT → test đỏ oan.
+Container/CI không có DB → unknown → không chặn → xanh. Máy bàn là máy
+ĐẦU TIÊN vừa mang DB trượt kiểm định vừa chạy FULL suite (test_brief
+không nằm trong --fast) — nên lỗ hermetic 13/08 mới lộ hôm nay.
+
+Vá: 2 test (cái đỏ + đứa em `..._empty_when_all_overdue` cùng lỗ tiềm ẩn)
+chốt thế giới `get_active_family → None` — ý đồ của chúng là lọc-quá-hạn
++ độ chính xác giá, không phải gating. Suite **2068 passed** (số không
+đổi — sửa test, không thêm).
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
