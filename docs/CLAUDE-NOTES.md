@@ -6353,10 +6353,23 @@ tier=position); hoặc sáng hôm sau soi `run_daily.log` thấy cả hai tầng
 đây là CON ĐƯỜNG DUY NHẤT để hai tầng tự tìm ứng viên đạt chuẩn và mở lại
 mục khuyến nghị trong brief.
 
-**0c. Sau merge + phát pipeline 18:00 kế tiếp, soi `run_daily.log`.**
-File này TỪ 13/08 MỚI TỒN TẠI (run.py tự tee — entry 13/08 (j); trước đó
-mọi mục "soi log" trong notes là bất khả thi, xem 11/08 (e)). Sáng hôm
-sau, PowerShell tại thư mục repo:
+**0c. Soi `run_daily.log` sau phát pipeline 18:00 — ⚠️ 14/08: PHÁT HIỆN
+pipeline tối 13/08 KHÔNG CHẠY.**
+Diễn biến 14/08 sáng: user grep log → 5 header đều là chạy TAY 13/08
+(doctor ×3 15:03-15:05 · dashboard 15:13 · refresh-metadata 16:13) —
+**bộ tee sống hoàn hảo từ 15:03**, nhưng KHÔNG có header `all` nào lúc
+18:00 → task đêm không fire (máy tắt/ngủ lúc 18:00? task hỏng/thiếu trên
+máy?). Giả thuyết đầu của Claude ("18:00 chạy bằng code cũ chưa biết ghi
+log") bị chính log này BÁC — code mới đã nằm trên máy từ 15:03. Đang chẩn
+đoán bằng:
+```powershell
+Get-ScheduledTaskInfo "VnStock Daily Pipeline" | Format-List LastRunTime,LastTaskResult,NextRunTime
+```
+(LastRunTime 12/08 = máy tắt lúc 18:00 hôm 13 · LastTaskResult ≠ 0 = task
+fire nhưng fail, dán mã lỗi · task không tồn tại = chạy lại
+`scripts/setup_scheduled_tasks.ps1` as-admin — đăng ký THEO MÁY.)
+Việc soi tier=/collect_context bên dưới DỜI sang sáng sau đêm pipeline
+chạy được. File này TỪ 13/08 MỚI TỒN TẠI (entry 13/08 (j)); lệnh gốc:
 ```powershell
 Select-String -Path run_daily.log -Pattern "tier="
 Select-String -Path run_daily.log -Pattern "collect_context"
@@ -6435,22 +6448,25 @@ vừa chia tách?) → báo Claude kèm message.
   mới quyết**, nhiều khả năng BỎ (pipeline chạy 18:00 không ai ngồi đợi; sửa
   phải đụng nhiều module để đổi lấy sự tiện không ai cảm nhận)
 
-**4d. Kiểm cổ tức kho giá — ✅ LẦN ĐẦU 13/08: 0 GAP THÔ; CÒN bù cache phủ nốt.**
-Lần chạy đầu (entry 13/08 (l)): 28/28 sự kiện chấm được trên 17 mã đều
-"đã điều chỉnh" — backtest giữ lệnh dài đứng nền sạch TRONG PHẠM VI ĐO.
-Chưa toàn tập: 11 mã "0 sự kiện trong cửa sổ" gồm cả mã chắc chắn có trả
-cổ tức (VNM/SAB/TCB/VPB/MSN/MWG/PLX/STB…) = cache events CŨ/THIẾU, không
-phải kho sạch; GVR thiếu hẳn cache; VIC 1 ca chưa kết luận (bản cũ không
-in lý do — đã thêm cờ `-v`). Việc còn (~10 phút, cần mạng, KHÔNG cần giờ
-giao dịch):
+**4d. Kiểm cổ tức kho giá — ✅ LẦN ĐẦU 13/08: 0 GAP THÔ trên 28 sự kiện/17 mã.**
+Backtest giữ lệnh dài đứng nền sạch TRONG PHẠM VI ĐO (entry 13/08 (l)).
+⚠️ ĐÍNH CHÍNH 14/08 (log lộ ra): user ĐÃ chạy `refresh-metadata --events`
+lúc 16:13 13/08 — TRƯỚC lần div_check đầu. Vậy 11 mã "0 sự kiện trong cửa
+sổ" (VNM/SAB/TCB/VPB/MSN/MWG/PLX/STB…) nhiều khả năng KHÔNG phải cache cũ
+như Claude đoán ban đầu, mà là NGUỒN sự kiện (VCI dividends/events) phủ
+mỏng cho các mã đó — refresh lại lần nữa sẽ không đổi gì. GVR fetch fail
+im lặng (best-effort của vnstock_adjust).
+Việc còn (1 lệnh, không cần refresh lại):
 ```powershell
-python run.py refresh-metadata --events   # bù cache sự kiện (chậm vài phút)
-python vnstock_div_check.py -v            # chạy lại, in cả lý do inconclusive
+python vnstock_div_check.py -v
 ```
-Đọc: **✅** = phủ rộng hơn mà vẫn 0 gap thô → đóng hẳn mục này ·
-**❌** = dán NGUYÊN output cho Claude (mới bàn đường vá: refetch lịch sử mã
-dính hay dạy backtest cộng cổ tức) · dòng `↳ ⚠️` của VIC = đọc lý do xem
-có phải "nhiễu trội/chìm nhiễu" (bình thường) không.
+→ đọc dòng `↳ ⚠️` của VIC (lý do inconclusive — "nhiễu trội/chìm nhiễu"
+là bình thường; "yield bất thường" thì dán cho Claude). Về 13 mã chưa phủ:
+ghi nhận trung thực là GIỚI HẠN NGUỒN — đánh giá rủi ro thấp vì 17 mã đo
+được đều sạch và mọi mã đi CHUNG một đường sync/kho; muốn đóng kín hoàn
+toàn thì cần nguồn sự kiện thứ hai (việc mới, chưa xếp lịch).
+Nếu muốn chắc phát 16:13 chạy trọn: `Get-Content run_daily.log |
+Select-Object -Skip 771 -First 30` xem khối output của nó.
 
 **4e. Tầng B — danh mục xoay vòng tháng** (entry 13/08 (d)): để sau, chỉ làm
 khi tầng A chạy ổn và user muốn đầu tư backtester cấp danh mục (~3-5 buổi).
