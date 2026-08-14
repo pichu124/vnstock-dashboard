@@ -258,11 +258,13 @@ def run_check(tickers: "list[str]", days: int = 750,
               refresh: bool = False) -> dict:
     """Chạy checker trên một rổ mã; trả report đầy đủ (kèm exit_code)."""
     if refresh:
-        from vnstock_adjust import load_events, refresh_events
+        # Fetch lại events cho TOÀN BỘ mã đang kiểm (đổi 14/08 — bản đầu chỉ
+        # fetch mã TRỐNG cache, vô dụng cho vùng mù VNM/SAB…: cache họ không
+        # trống, chỉ thiếu vì extractor cũ chưa đọc được dạng VCI).
+        from vnstock_adjust import refresh_events
         for tk in tickers:
             try:
-                if load_events(tk).empty:
-                    refresh_events(tk)
+                refresh_events(tk)
             except Exception:
                 continue                    # best-effort — thiếu thì báo ở dưới
     per_ticker = [check_ticker(tk, days=days) for tk in tickers]
@@ -338,7 +340,8 @@ def main() -> int:
     ap.add_argument("--days", type=int, default=750,
                     help="cửa sổ giá gần nhất (mặc định 750 ≈ lookback tầng vị thế)")
     ap.add_argument("--refresh", action="store_true",
-                    help="fetch events cho mã thiếu cache (gọi API, cần mạng)")
+                    help="fetch lại events cho TOÀN BỘ mã đang kiểm "
+                         "(gọi API ~vài phút, cần mạng)")
     ap.add_argument("--json", action="store_true", help="in JSON thay bảng")
     ap.add_argument("--verbose", "-v", action="store_true",
                     help="in cả lý do của sự kiện 'chưa kết luận' (soi VIC…)")

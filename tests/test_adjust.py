@@ -136,3 +136,75 @@ class TestMergedSources:
                                           ("ok", lambda _t: ok)]))
         df = _fetch_events("VNM")
         assert len(df) == 1
+
+
+def _vci_events_company(rows):
+    """Company giả chỉ có events() — hình dạng VCI thật (dump 14/08)."""
+    class _C:
+        def events(self):
+            return pd.DataFrame(rows)
+    return _C()
+
+
+class TestVciEventShape:
+    """Hình dạng THẬT chép từ dump VNM/SAB/GVR 14/08 — extractor từng mù
+    trọn nhóm trả cổ tức TIỀN MẶT vì: chỉ bắt chia tách/thưởng, dò cột
+    ex_date (VCI: exright_date), đọc nhãn event_name (VCI: event_name_vi)."""
+
+    _DIV_ROW = {
+        "event_name_vi": "Trả cổ tức bằng tiền mặt", "ticker": "VNM",
+        "event_code": "DIV", "category": "DIVIDEND",
+        "exright_date": "2026-06-26", "record_date": "2026-06-29",
+        "value_per_share": 1850.0, "exercise_ratio": 0.185,
+    }
+    _MEETING_ROW = {
+        "event_name_vi": "Đại hội Đồng Cổ đông", "ticker": "VNM",
+        "event_code": "AGME", "category": "SHAREHOLDER_MEETING",
+        "exright_date": "2026-05-14", "value_per_share": float("nan"),
+        "exercise_ratio": float("nan"),
+    }
+    _INSIDER_ROW = {
+        "event_name_vi": "Giao dịch nội bộ: Giao dịch tổ chức", "ticker": "VNM",
+        "event_code": "DDINS", "category": "MAJOR_SHAREHOLDER_TRADING",
+        "exright_date": float("nan"), "value_per_share": float("nan"),
+        "exercise_ratio": float("nan"),
+    }
+
+    def test_cash_dividend_parsed_meetings_and_insiders_skipped(self, monkeypatch):
+        from vnstock_adjust import _fetch_events
+        _sources(monkeypatch, _vci_events_company(
+            [self._DIV_ROW, self._MEETING_ROW, self._INSIDER_ROW]))
+        df = _fetch_events("VNM")
+        assert len(df) == 1
+        row = df.iloc[0]
+        assert row["type"] == "cash"
+        assert row["cash_amount"] == 1850.0          # value_per_share, VND/cp
+        assert str(row["ex_date"]) == "2026-06-26"   # exright_date, không phải record
+
+    def test_stock_dividend_bonus_parsed_via_exercise_ratio(self, monkeypatch):
+        from vnstock_adjust import _fetch_events
+        bonus = {**self._DIV_ROW,
+                 "event_name_vi": "Trả cổ tức bằng cổ phiếu",
+                 "event_code": "ISS", "category": "ISSUE",
+                 "value_per_share": float("nan"), "exercise_ratio": 0.15,
+                 "exright_date": "2026-03-05"}
+        _sources(monkeypatch, _vci_events_company([bonus]))
+        df = _fetch_events("VNM")
+        assert len(df) == 1
+        assert df.iloc[0]["type"] == "bonus"
+        assert df.iloc[0]["ratio"] == 0.15
+
+    def test_div_missing_exright_date_skipped_not_crash(self, monkeypatch):
+        from vnstock_adjust import _fetch_events
+        broken = {**self._DIV_ROW, "exright_date": float("nan")}
+        _sources(monkeypatch, _vci_events_company([broken]))
+        assert _fetch_events("VNM").empty
+
+    def test_old_flat_shape_still_parsed(self, monkeypatch):
+        # Hình dạng cũ (ex_date/event_name/ratio) không được vỡ khi thêm VCI
+        from vnstock_adjust import _fetch_events
+        old = {"event_name": "Stock split 2:1", "ex_date": "2026-02-10",
+               "ratio": 2.0}
+        _sources(monkeypatch, _vci_events_company([old]))
+        df = _fetch_events("VNM")
+        assert len(df) == 1 and df.iloc[0]["type"] == "split"

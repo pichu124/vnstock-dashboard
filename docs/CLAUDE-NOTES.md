@@ -6321,6 +6321,38 @@ cũ) rồi mới code.
 
 Suite 2054 → **2062 passed**.
 
+## 2026-08-14 (o) — Dump phân xử: EXTRACTOR MÙ, nguồn sáng trưng — vá 3 chỗ đọc VCI
+
+User chạy `dump_dividend_shape VNM SAB GVR` → nguồn VCI có ĐẦY ĐỦ cổ tức
+tiền mặt ngay trong events(): VNM 1,850đ GDKHQ 26/06 · SAB 3 đợt
+2,000-3,000đ · **cả GVR** (tưởng "3 nguồn đều mù") cũng có 400đ GDKHQ
+13/11/2025 — số nằm trong cột chuẩn `value_per_share` (VND/cp) +
+`exright_date`. Extractor mù vì đúng 3 chỗ:
+1. chỉ bắt chia tách/thưởng từ events(), BỎ QUA hẳn loại DIV tiền mặt;
+2. dò cột `ex_date`/`ex_rights_date` — VCI đặt tên `exright_date`
+   (vnstock_events.py biết tên đúng từ lâu, vnstock_adjust thì không);
+3. đọc nhãn `event_name` — VCI dùng `event_name_vi`.
+Nhóm ngân hàng thoát nạn nhờ đường vòng capital_history (cổ tức bằng cổ
+phiếu → tăng vốn điều lệ) — nên vùng mù rơi CHÍNH XÁC vào nhóm trả TIỀN
+MẶT. "11/30 VN30 mù" hoá ra không phải nguồn thiếu mà là mình không đọc.
+
+Vá `_extract_events`: nhận cash qua event_code=DIV / category=DIVIDEND /
+nhãn "cổ tức bằng tiền" (cash_amount = `value_per_share`); thêm
+`exright_date` + `event_name_vi`/`event_title_vi` vào ứng viên cột; skip
+category họp/nội bộ/khác; bonus nhận thêm nhãn "cổ tức bằng cổ phiếu" +
+cột `exercise_ratio`; NaN xử lý tử tế (`_first_val`). `div_check
+--refresh` ĐỔI NGHĨA: fetch lại events cho TOÀN BỘ mã đang kiểm (bản đầu
+chỉ fetch mã trống cache — vô dụng cho vùng mù vì cache họ không trống,
+chỉ thiếu). 4 test mới với hình dạng VCI THẬT chép từ dump + 1 test giữ
+hình dạng cũ không vỡ.
+
+Việc user còn MỘT lệnh (sau merge): `python vnstock_div_check.py
+--refresh -v` (~2-3 phút, fetch 30 mã + chấm). Kỳ vọng:
+VNM/SAB/GVR/PLX/MSN/MWG/VPB… sáng đèn; STB/VHM/VRE có thể vẫn trắng
+THẬT (giai đoạn này không trả cổ tức — đúng thực tế, không phải lỗi).
+
+Suite 2062 → **2066 passed**.
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -6329,7 +6361,7 @@ Suite 2054 → **2062 passed**.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2062 passed** (`--fast` ~1.534 test — ~26-35s trên CI,
+> Trạng thái: full suite **2066 passed** (`--fast` ~1.534 test — ~26-35s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
@@ -6546,18 +6578,16 @@ và mọi ca đo được đều sạch. Muốn đóng kín 100% cần NGUỒN S
 nguồn + khử trùng-gần. **User chạy phủ nốt NGAY 14/08**: refresh 1.723 mã
 (fail=0) → div_check 29 → **37 sự kiện, vẫn 0 gap thô** — TCB thoát vùng
 mù (0→1 ✅), FPT/HPG/SHB/SSB/VIB/VJC dày thêm. Kết luận 4d càng vững.
-CÒN 11 mã trắng sự kiện (BCM/BVH/MSN/MWG/PLX/SAB/STB/VHM/VNM/VPB/VRE) +
-GVR (nhóm "skip" của refresh = 3 nguồn đều trả rỗng). NGHI VẤN MỚI thay
-cho "nguồn mù": VNM trả cổ tức đều nhiều đợt/năm mà 3 nguồn cùng trắng
-750 ngày, 11/30 VN30 mù = tỷ lệ quá cao → khả năng cao dữ liệu VỀ Ở DẠNG
-KHÁC mà `_extract_dividends` chưa đọc (cổ tức theo % MỆNH GIÁ thay vì
-VND, tên cột lạ). Phân xử bằng đồ nghề mới (tuỳ chọn, 1 phút):
+Vùng mù 11 mã + GVR: user dump hình dạng dữ liệu 14/08 → PHÂN XỬ XONG,
+"extractor mù, nguồn sáng" (entry (o)): VCI có đủ cổ tức tiền mặt trong
+events() (cả GVR!), extractor cũ không đọc được dạng VCI. Đã vá parser +
+đổi nghĩa `--refresh`. VIỆC CÒN — MỘT lệnh sau merge (~2-3 phút, mạng):
 ```powershell
-python scripts\dump_dividend_shape.py VNM SAB GVR
+python vnstock_div_check.py --refresh -v
 ```
-→ dán nguyên output cho Claude: dạng chưa đọc được → viết parser, 11 mã
-sáng đèn; rỗng thật → chốt giới hạn như đã ghi. 4d vẫn ĐÓNG dù chọn nhánh
-nào — đây chỉ là đường phủ nốt.
+Kỳ vọng: VNM/SAB/GVR/PLX/MSN/MWG/VPB… sáng đèn, phủ gần kín VN30. Mã nào
+vẫn trắng (STB/VHM/VRE?) = giai đoạn này không trả cổ tức THẬT — đúng
+thực tế, chốt sổ luôn, không tiếc nữa.
 
 **4e. Tầng B — danh mục xoay vòng tháng** (entry 13/08 (d)): để sau, chỉ làm
 khi tầng A chạy ổn và user muốn đầu tư backtester cấp danh mục (~3-5 buổi).

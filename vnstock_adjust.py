@@ -272,7 +272,31 @@ _EVENT_METHOD_NAMES = (
 )
 
 
+# Category VCI không phải corp-action giá — bỏ qua thẳng (họp ĐHĐCĐ, giao
+# dịch nội bộ, đổi địa chỉ… không làm giá tham chiếu bị điều chỉnh).
+_EVENT_SKIP_CATEGORIES = {"MAJOR_SHAREHOLDER_TRADING", "SHAREHOLDER_MEETING",
+                          "OTHER"}
+
+
+def _first_val(r, *names):
+    """Giá trị đầu tiên khác rỗng/NaN trong các cột ứng viên."""
+    for n in names:
+        v = r.get(n)
+        if v is None or (isinstance(v, float) and pd.isna(v)) or v == "":
+            continue
+        return v
+    return None
+
+
 def _extract_events(company, ticker: str) -> list[dict]:
+    """Đọc events() về CHUẨN schema — hiểu cả hai hình dạng dữ liệu.
+
+    Bài học 14/08 (dump VNM/SAB/GVR): extractor cũ chỉ bắt chia tách/thưởng
+    và dò cột `ex_date`/`event_name` — trong khi VCI trả cổ tức TIỀN MẶT
+    nằm ngay trong events() (event_code=DIV, `value_per_share` VND/cp) với
+    cột tên `exright_date`/`event_name_vi`. Kết quả: nhóm trả tiền mặt
+    (VNM/SAB/PLX/GVR…) trắng sự kiện oan suốt — "extractor mù, nguồn sáng".
+    """
     name, evt = _call_first_working(company, _EVENT_METHOD_NAMES)
     if evt is None:
         return []
@@ -280,30 +304,48 @@ def _extract_events(company, ticker: str) -> list[dict]:
     evt.columns = [c.lower() for c in evt.columns]
     out: list[dict] = []
     for _, r in evt.iterrows():
-        ex = r.get("ex_date") or r.get("exercise_date") or r.get("ex_rights_date")
-        label = str(r.get("event_name") or r.get("title")
-                    or r.get("event") or "").lower()
-        if "split" in label or "chia tách" in label or "tách cổ phiếu" in label:
-            ratio = (r.get("ratio") or r.get("split_ratio")
-                     or r.get("exercise_ratio"))
+        cat = str(r.get("category") or "").upper()
+        if cat in _EVENT_SKIP_CATEGORIES:
+            continue
+        ex = _first_val(r, "ex_date", "exercise_date", "ex_rights_date",
+                        "exright_date")
+        label = str(_first_val(r, "event_name_vi", "event_name",
+                               "event_title_vi", "title", "event") or "").lower()
+        code = str(r.get("event_code") or "").upper()
+
+        def _num(*names):
+            v = _first_val(r, *names)
             try:
-                ratio_val = float(ratio) if ratio else None
+                return float(v) if v is not None else None
             except (TypeError, ValueError):
-                ratio_val = None
-            if ex is None or ratio_val is None:
+                return None
+
+        if ex is None:
+            continue
+        if (code == "DIV" or cat == "DIVIDEND" or "cổ tức bằng tiền" in label
+                or "cash dividend" in label):
+            cash_val = _num("value_per_share", "cash_dividend", "cash_value",
+                            "value", "amount")
+            if cash_val is None or not cash_val > 0:
+                continue
+            out.append({
+                "ticker": ticker, "ex_date": ex, "type": "cash",
+                "cash_amount": cash_val, "ratio": None,
+                "raw": str(r.to_dict()),
+            })
+        elif "split" in label or "chia tách" in label or "tách cổ phiếu" in label:
+            ratio_val = _num("ratio", "split_ratio", "exercise_ratio")
+            if ratio_val is None:
                 continue
             out.append({
                 "ticker": ticker, "ex_date": ex, "type": "split",
                 "cash_amount": None, "ratio": ratio_val,
                 "raw": str(r.to_dict()),
             })
-        elif "bonus" in label or "thưởng" in label or "stock dividend" in label:
-            ratio = r.get("ratio") or r.get("exercise_ratio")
-            try:
-                ratio_val = float(ratio) if ratio else None
-            except (TypeError, ValueError):
-                ratio_val = None
-            if ex is None or ratio_val is None:
+        elif ("bonus" in label or "thưởng" in label or "stock dividend" in label
+                or "cổ tức bằng cổ phiếu" in label):
+            ratio_val = _num("ratio", "exercise_ratio")
+            if ratio_val is None:
                 continue
             out.append({
                 "ticker": ticker, "ex_date": ex, "type": "bonus",
