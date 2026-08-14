@@ -170,3 +170,24 @@ class TestWiringNets:
         # Bằng chứng "đêm nay train tầng nào" trong log = dòng tier=…
         src = (REPO_ROOT / "vnstock_train.py").read_text(encoding="utf-8")
         assert "tier={tier}" in src
+
+
+class TestStepTiming:
+    """Mục ② (14/08): cmd_all tự đo từng bước — số đo máy thật nằm sẵn trong
+    run_daily.log mỗi đêm, khỏi cần phiên profiling riêng."""
+
+    def test_summary_ranks_heaviest_first_and_totals_minutes(self):
+        line = run_mod._format_step_summary(
+            [("sync", 100.0), ("test", 300.0), ("brief", 20.0)])
+        assert "⏱ TỔNG 7.0 phút (3 bước)" in line
+        assert line.index("test 300s") < line.index("sync 100s") < \
+            line.index("brief 20s")
+
+    def test_summary_uses_en_thousands_format(self):
+        line = run_mod._format_step_summary([("sync", 1234.5)])
+        assert "sync 1,234s" in line     # quy ước format số EN của repo
+
+    def test_cmd_all_wires_timing(self):
+        # Net AST: ai gỡ đo giờ khỏi cmd_all là đỏ — số đo là đầu vào quyết ②
+        src = TestWiringNets._func_source("cmd_all")
+        assert "⏱" in src and "_format_step_summary" in src

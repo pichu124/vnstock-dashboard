@@ -1210,6 +1210,7 @@ def cmd_all(args) -> int:
     lên Telegram — bước 14, thêm 29/07). Stops on first hard failure. The trailing doctor
     pass is offline-only and just refreshes doctor_status.json so the sidebar
     badge stays current."""
+    import time as _time
     steps = _all_steps(args)
     if _audit_llm_enabled(args):
         args.llm = True          # bước audit trong chuỗi sẽ gọi auditor LLM
@@ -1217,22 +1218,48 @@ def cmd_all(args) -> int:
         print("[run.py] --no-sync: bỏ bước sync kho giá + validate — chạy "
               f"{len(steps)} bước còn lại")
 
+    # Mục ② (14/08): pipeline TỰ ĐO từng bước mỗi đêm → run_daily.log.
+    # Sáng sau: Select-String -Path run_daily.log -Pattern "⏱" — quyết
+    # bỏ/sửa ② bằng SỐ ĐO máy thật thay vì đoán (luật quyết ở checklist ②).
+    durations: list[tuple[str, float]] = []
     for name, fn in steps:
         print(f"\n=== run.py all :: {name} ===")
+        _t0 = _time.time()
         rc = fn(args)
+        durations.append((name, _time.time() - _t0))
+        print(f"[run.py] ⏱ {name}: {durations[-1][1]:,.1f}s")
         # `rc == 2` (bản cũ) để LỌT mọi mã thoát khác: pytest 3/4/5, mã âm khi
         # tiến trình con bị signal giết, hay bug trả 255 — tất cả bị coi là
         # THÀNH CÔNG im lặng (audit 06/08). Nay chỉ 0 và 1 là hợp lệ.
         if rc not in (0, 1):
             print(f"[run.py] {name} returned hard failure (rc={rc}) → stopping")
+            print(_format_step_summary(durations))
             return 2
         if rc == 1:
             print(f"[run.py] {name} returned warnings → continuing")
+    print("\n" + _format_step_summary(durations))
     return 0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _format_step_summary(durations: "list[tuple[str, float]]") -> str:
+    """Một dòng tổng kết thời lượng các bước `all` — bước NẶNG nhất đứng đầu.
+
+    Mục ② đo hiệu năng: dòng này (grep "⏱ TỔNG") là đầu vào cho quyết định
+    bỏ/sửa vụ "warehouse bị quét ~14 lần/đêm" — nếu tổng đêm ngắn và không
+    bước nào nghẽn bất thường thì việc tối ưu KHÔNG đáng làm.
+    """
+    total = sum(d for _, d in durations)
+    ranked = sorted(durations, key=lambda nd: -nd[1])
+    parts = " · ".join(f"{n} {d:,.0f}s" for n, d in ranked)
+    return (f"[run.py] ⏱ TỔNG {total / 60:,.1f} phút "
+            f"({len(durations)} bước) — {parts}")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Run log — run_daily.log (điểm chặn duy nhất, thêm 13/08)
 #

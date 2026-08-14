@@ -6288,6 +6288,39 @@ ca VIC (chuỗi phẳng + kỳ vọng 49.82 + trần 90 → adjusted_ok; chuỗi
 Lặt vặt: ACB 1→2 sự kiện giữa hai lần chạy — cache/cửa sổ dịch chuyển,
 cả hai lần đều adjusted, vô hại. Suite 2049 → **2054 passed**.
 
+## 2026-08-14 (n) — Hàng chờ code: ② gắn máy đo · 4d gộp 3 nguồn · 4e giữ cổng
+
+User gọi "làm hàng chờ đi". Ba món — hai làm, một giữ có lý do:
+
+**② Đo hiệu năng warehouse — hết đoán, pipeline TỰ ĐO mỗi đêm.** `cmd_all`
+bấm giờ từng bước: in `[run.py] ⏱ <bước>: Xs` sau mỗi bước + dòng tổng kết
+`⏱ TỔNG X phút — <bước nặng nhất đứng đầu>` cuối chuỗi (in cả khi dừng
+giữa chừng vì hard-fail). Số nằm sẵn trong run_daily.log — khỏi cần phiên
+profiling riêng, và đo đúng điều kiện thật (đĩa/mạng máy bàn, 18:00).
+Helper `_format_step_summary` thuần + 3 test (2 unit + 1 net AST canh
+cmd_all còn đo).
+
+**4d nguồn sự kiện thứ hai — hoá ra ĐÃ CÓ 3 nguồn, vùng mù nằm ở chữ
+`break`.** `_fetch_events` thử vnstock_data → VCI → KBS nhưng "nguồn đầu
+có GÌ ĐÓ là dừng": mã nào nguồn 1 trả vài dòng cũ là nguồn 2-3 không bao
+giờ được hỏi — đúng hình vùng mù VNM/SAB/TCB/VPB…. Đổi thành GỘP cả 3
+nguồn: dedupe chính xác `keep="first"` (nguồn giàu sử liệu đứng trước
+thắng — dividends extractor cũng chạy trước nên bản "đến trước" giàu field
+hơn) + khử TRÙNG GẦN `_drop_near_duplicates` (cùng ticker+type, ex_date
+lệch ≤5 ngày = MỘT sự kiện bị hai nguồn ghi hai mốc ex/record — không khử
+thì div_check chấm sự kiện MA ngay cạnh sự kiện thật; đánh đổi ghi rõ:
+hai sự kiện cùng loại cách ≤5 ngày coi như không tồn tại ở corp action
+VN). 5 test mới (test_adjust.py 3→8).
+
+**4e tầng B — GIỮ CỔNG, chưa làm.** Điều kiện chốt sẵn là "tầng A chạy
+ổn"; thực tế 14/08: production còn chưa merge, tầng vị thế chưa train đêm
+nào trên máy bàn, chưa có chiến lược đạt kiểm định để mà xoay vòng danh
+mục — xây 4e bây giờ là xây tầng trên móng chưa đông. Khi tầng A có ứng
+viên ≥30 lệnh đạt chuẩn chạy ổn định → nêu ý tưởng thiết kế trước (nếp
+cũ) rồi mới code.
+
+Suite 2054 → **2062 passed**.
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -6296,7 +6329,7 @@ cả hai lần đều adjusted, vô hại. Suite 2049 → **2054 passed**.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2054 passed** (`--fast` ~1.534 test — ~26-35s trên CI,
+> Trạng thái: full suite **2062 passed** (`--fast` ~1.534 test — ~26-35s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
@@ -6466,9 +6499,14 @@ vừa chia tách?) → báo Claude kèm message.
   Đã soi `build_prompt`/`collect_context` (entry 12/08 (g)): KHÔNG chia hàm
   (churn cao, lợi ích chỉ là con số dòng) nhưng vá 2 lỗ thật tìm được lúc
   quét — khối prompt biến mất âm thầm, và 13 nguồn nuốt lỗi im lặng
-* **② hiệu năng** (làm cuối): warehouse bị quét ~14 lần/đêm — **ĐO TRƯỚC rồi
-  mới quyết**, nhiều khả năng BỎ (pipeline chạy 18:00 không ai ngồi đợi; sửa
-  phải đụng nhiều module để đổi lấy sự tiện không ai cảm nhận)
+* **② hiệu năng — ✅ MÁY ĐO GẮN XONG 14/08, chờ SỐ từ đêm máy bàn đầu tiên.**
+  Nghi vấn gốc: warehouse bị quét ~14 lần/đêm. `cmd_all` nay tự bấm giờ
+  từng bước → sáng sau xem:
+  `Select-String -Path run_daily.log -Pattern "⏱"`.
+  LUẬT QUYẾT (chốt trước cho khỏi cãi nhau với chính mình sau): TỔNG < ~30
+  phút VÀ không bước nào chiếm quá nửa vô lý → **BỎ ②** đúng dự đoán
+  ("18:00 không ai ngồi đợi"); một bước nghẽn rõ (audit/validate 20+ phút
+  chẳng hạn) → mổ ĐÚNG bước đó, không tối ưu cả dàn.
 
 **4d. ✅ ĐÓNG 14/08 — kho giá NHẤT QUÁN điều chỉnh cổ tức. VIC hoá ra là
 bằng chứng mạnh nhất.**
@@ -6485,10 +6523,21 @@ VCI phủ mỏng (VNM/SAB/TCB/VPB/MSN/MWG/PLX/STB… — user đã refresh 16:13
 13/08 TRƯỚC lần chạy đầu nên không phải cache cũ; refresh nữa vô ích) +
 GVR fetch fail im lặng. Rủi ro thấp: mọi mã đi CHUNG một đường sync/kho
 và mọi ca đo được đều sạch. Muốn đóng kín 100% cần NGUỒN SỰ KIỆN THỨ HAI
-— việc mới, user quyết có đáng không (chưa xếp lịch).
+— ✅ ĐÃ LÀM 14/08 (entry (n)): `refresh_events` đổi first-wins → GỘP 3
+nguồn + khử trùng-gần. THỬ PHỦ NỐT trên máy thật (~10 phút, cần mạng,
+sau merge):
+```powershell
+python run.py refresh-metadata --events
+python vnstock_div_check.py
+```
+Mã nào VẪN 0 sự kiện sau khi gộp 3 nguồn = cả ba nguồn đều mù mã đó —
+chấp nhận giới hạn, ghi sổ rồi thôi.
 
 **4e. Tầng B — danh mục xoay vòng tháng** (entry 13/08 (d)): để sau, chỉ làm
 khi tầng A chạy ổn và user muốn đầu tư backtester cấp danh mục (~3-5 buổi).
+*(14/08 user gọi làm luôn cả hàng chờ — GIỮ CỔNG có lý do, entry (n):
+production chưa train tầng vị thế đêm nào, chưa có chiến lược đạt kiểm
+định để xoay vòng. Đủ điều kiện → nêu ý tưởng thiết kế trước rồi mới code.)*
 
 ## 🟠 QUAN SÁT RỒI QUYẾT
 

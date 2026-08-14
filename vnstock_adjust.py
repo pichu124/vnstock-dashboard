@@ -90,10 +90,14 @@ def refresh_events(
 def _fetch_events(ticker: str, *, verbose: bool = False) -> pd.DataFrame:
     """Query vnstock for corp actions. Returns empty DF on any failure.
 
-    Tries sources in order until one yields data:
+    GỘP kết quả của MỌI nguồn (đổi 14/08 — trước đó "nguồn đầu có gì đó là
+    dừng", và đó chính là vùng mù 12 mã của div_check: nguồn 1 trả vài dòng
+    CŨ là nguồn 2-3 không bao giờ được hỏi, VNM/SAB/TCB/VPB... vì thế trắng
+    sự kiện 750 ngày dù công ty trả cổ tức đều). Nguồn xếp theo độ giàu sử
+    liệu; trùng lặp khử ở dưới, dòng của nguồn ĐỨNG TRƯỚC thắng.
       1. vnstock_data.Company (Golden tier — richest history)
-      2. vnstock Vnstock(source="TCBS").stock.company
-      3. vnstock Vnstock(source="VCI").stock.company
+      2. vnstock Vnstock(source="VCI").stock.company
+      3. vnstock Vnstock(source="KBS").stock.company
     """
     rows: list[dict] = []
 
@@ -109,17 +113,15 @@ def _fetch_events(ticker: str, *, verbose: bool = False) -> pd.DataFrame:
         dividends = _extract_dividends(company, ticker)
         events = _extract_events(company, ticker)
         capital = _extract_capital_history_as_events(company, ticker)
-        rows.extend(dividends)
-        rows.extend(events)
-        rows.extend(capital)
-        if rows:
-            if verbose:
+        found = dividends + events + capital
+        rows.extend(found)
+        if verbose:
+            if found:
                 print(f"  [{ticker}] {source_name}: "
                       f"{len(dividends)} div, {len(events)} event, "
                       f"{len(capital)} capital-change")
-            break
-        elif verbose:
-            print(f"  [{ticker}] {source_name}: no data")
+            else:
+                print(f"  [{ticker}] {source_name}: no data")
 
     if not rows:
         return pd.DataFrame(columns=EVENT_SCHEMA_COLS)
@@ -131,8 +133,40 @@ def _fetch_events(ticker: str, *, verbose: bool = False) -> pd.DataFrame:
     df = df[EVENT_SCHEMA_COLS]
     df["ex_date"] = pd.to_datetime(df["ex_date"], errors="coerce").dt.date
     df = df.dropna(subset=["ex_date", "ticker"])
-    df = df.drop_duplicates(subset=["ticker", "ex_date", "type"], keep="last")
+    # keep="first": rows đang theo THỨ TỰ ƯU TIÊN nguồn (giàu sử liệu trước),
+    # và trong mỗi nguồn extractor dividends (đủ cash_amount) chạy trước —
+    # bản "đến trước" luôn là bản giàu thông tin hơn.
+    df = df.drop_duplicates(subset=["ticker", "ex_date", "type"], keep="first")
+    df = _drop_near_duplicates(df)
     return df.sort_values("ex_date").reset_index(drop=True)
+
+
+# Hai nguồn ghi cùng một sự kiện bằng hai mốc ngày lệch nhau (ex-date vs
+# record-date thường cách 1-2 ngày làm việc) → nếu giữ cả hai, div_check sẽ
+# chấm một "sự kiện" không có thật ngay cạnh sự kiện thật.
+_NEAR_DUP_DAYS = 5
+
+
+def _drop_near_duplicates(df: pd.DataFrame) -> pd.DataFrame:
+    """Khử sự kiện TRÙNG GẦN giữa các nguồn: cùng (ticker, type) mà ex_date
+    lệch ≤ ``_NEAR_DUP_DAYS`` ngày = một sự kiện thật bị hai nguồn ghi hai
+    mốc. Giữ dòng đến TRƯỚC (nguồn ưu tiên hơn). Đánh đổi ghi rõ: hai sự
+    kiện CÙNG LOẠI cách nhau ≤5 ngày lịch gần như không tồn tại ở corp
+    action VN — chấp nhận gộp nhầm ca đó để đổi lấy không chấm sự kiện ma.
+    """
+    if df.empty:
+        return df
+    keep_rows = []
+    kept_dates: dict[tuple, list] = {}
+    for _, row in df.iterrows():
+        key = (row["ticker"], row["type"])
+        ex = pd.Timestamp(row["ex_date"])
+        if any(abs((ex - d).days) <= _NEAR_DUP_DAYS
+               for d in kept_dates.get(key, [])):
+            continue
+        kept_dates.setdefault(key, []).append(ex)
+        keep_rows.append(row)
+    return pd.DataFrame(keep_rows).reset_index(drop=True)
 
 
 def _company_sources():
