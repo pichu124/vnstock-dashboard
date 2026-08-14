@@ -6625,7 +6625,13 @@ Cần chạy lại sau này (nghi WSS hỏng): vẫn lệnh đó, trong phiên.
 
 ## ⏳ TỰ ĐẾN — chỉ cần ĐỌC khi tới
 
-**2. Báo cáo T7 16/08 09:00** — task tuần tự chạy, và là lần ĐẦU TIÊN:
+**2. Báo cáo T7 15/08 09:00** *(note cũ ghi 16/08 là trượt lịch — 16/08 là
+CN; TaskInfo xác nhận NextRun 15/08 09:00)* — task tuần tự chạy. ⚠️ Soi
+TaskInfo 15/08 còn lộ: phát tuần trước (08/08) **LastTaskResult=2 = FAIL
+CỨNG trong im lặng** (thời chưa có log). Phát hôm nay là phát cuối tuần
+ĐẦU TIÊN có log — máy phải BẬT qua 9h; xong thì soi
+`Select-String -Path run_daily.log -Pattern "\[run.py\] 20"` thấy header
+`| ... weekend`, đọc tiếp trong log nếu có bước fail. Lần ĐẦU TIÊN:
 * bảng điểm sạch hoàn chỉnh (flash nhịp riêng → đo đủ; 2 model OpenRouter
   đo bù theo xoay vòng);
 * **đủ mặt 5 nhà** — Mistral lần đầu được probe + lưu mốc danh mục + chấm
