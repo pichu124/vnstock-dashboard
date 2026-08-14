@@ -6478,8 +6478,8 @@ luận" khi soi `-v` hoá ra là LỖI TRẦN của chính checker (entry 14/08 
 bonus 1:1 kỳ vọng −49.8% bị trần-40%-của-cash bịt oan, trong khi quan sát
 −0.14% nghĩa là cú halving VÔ HÌNH trong chuỗi = bằng chứng back-adjust
 mạnh nhất cả đợt. Đã sửa trần theo LOẠI (cash 40% / split-bonus 90%) + 5
-test; sau merge chạy lại sẽ thấy VIC ✅ → 30 sự kiện / 18 mã sạch (chạy
-lại là TUỲ CHỌN — verdict đã đứng vững, không chờ gì thêm).
+test; user merge + chạy lại NGAY 14/08: **ĐÚNG DỰ ĐOÁN — VIC ✅, chốt sổ
+30 sự kiện / 18 mã sạch, 0 gap thô, 0 chưa kết luận** (exit 0).
 Giới hạn ghi nhận trung thực: 12 mã không có sự kiện để chấm — 11 mã nguồn
 VCI phủ mỏng (VNM/SAB/TCB/VPB/MSN/MWG/PLX/STB… — user đã refresh 16:13
 13/08 TRƯỚC lần chạy đầu nên không phải cache cũ; refresh nữa vô ích) +
