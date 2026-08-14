@@ -12,8 +12,9 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 - Orchestrator: `python run.py <sub>` — scan / doctor / sync / validate /
   audit / test / dashboard / all. Exit code: 0 ok, 1 cảnh báo, 2 fail cứng.
 - Dashboard: `python run.py dashboard` (Streamlit, localhost:8501).
-- Lịch chạy tự động: `scripts/setup_scheduled_tasks.ps1` (4 task, đăng ký
-  THEO MÁY — máy mới phải chạy lại script này, Run as Administrator).
+- Lịch chạy tự động: `scripts/setup_scheduled_tasks.ps1` (2 task: Daily
+  18:00 ngày làm việc + Weekend — gộp từ 29/07; đăng ký THEO MÁY — máy mới
+  phải chạy lại script này, Run as Administrator).
 
 ## Test discipline
 - Sửa module lõi nào → `python run.py test --fast` (~1.436 test; ~29s trên CI,

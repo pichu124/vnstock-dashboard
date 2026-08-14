@@ -962,6 +962,9 @@ def cmd_telegram(args) -> int:
         elif action == "close":
             resp = _tg.push_close_brief()
             print(f"[telegram] close brief sent — message_id={resp.get('result',{}).get('message_id')}")
+            # Lệnh tay cũng tính "phiên này đã có brief" — pipeline chạy
+            # sau đó khỏi bắn trùng (bất biến một-brief-mỗi-phiên, 15/08)
+            _write_close_marker(args)
         elif action == "screener":
             resp = _tg.push_screener_alerts()
             print(f"[telegram] screener sent — message_id={resp.get('result',{}).get('message_id')}")
@@ -1103,10 +1106,30 @@ def cmd_weekend(args) -> int:
 
 
 def _brief_push_marker(args) -> Path:
-    """File đánh dấu đã đẩy brief chiều hôm nào — chống gửi trùng khi pipeline
-    chạy lại trong ngày (run_daily.bat tay + task 18:00)."""
+    """File đánh dấu đã đẩy brief chiều cho phiên nào — chống gửi trùng khi
+    pipeline chạy lại trong ngày (run_daily.bat tay + task 18:00)."""
     return (REPO_ROOT / getattr(args, "warehouse", "data_warehouse")
             / "_meta" / "brief_push.json")
+
+
+def _write_close_marker(args) -> None:
+    """Ghi "phiên này đã có brief chiều" (theo NGÀY PHIÊN, atomic).
+
+    Dùng chung cho bước pipeline LẪN lệnh tay `telegram close` — bất biến
+    một-brief-mỗi-phiên không phân biệt đường gửi (ca thật 15/08: user gửi
+    tay thành công, nhưng lệnh tay không ghi marker → chạy `all` ngay sau
+    đó là Telegram nhận brief TRÙNG cùng phiên). Best-effort."""
+    import os as _os
+    marker = _brief_push_marker(args)
+    try:
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        tmp = marker.with_suffix(f".{_os.getpid()}.tmp")
+        tmp.write_text(json.dumps(
+            {"close": _close_session_date(_datetime.now()).isoformat()}),
+            encoding="utf-8")
+        _os.replace(str(tmp), str(marker))
+    except Exception:
+        pass
 
 
 def _close_session_date(now) -> "date":
@@ -1175,15 +1198,7 @@ def cmd_brief(args) -> int:
     except Exception as e:
         print(f"[brief] ❌ {type(e).__name__}: {str(e)[:160]}")
         return 1
-    try:
-        marker.parent.mkdir(parents=True, exist_ok=True)
-        tmp = marker.with_suffix(f".{_os.getpid()}.tmp")
-        tmp.write_text(json.dumps(
-            {"close": _close_session_date(_datetime.now()).isoformat()}),
-            encoding="utf-8")
-        _os.replace(str(tmp), str(marker))
-    except Exception:
-        pass
+    _write_close_marker(args)
     return 0
 
 

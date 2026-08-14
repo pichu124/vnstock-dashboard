@@ -295,3 +295,20 @@ def test_cmd_brief_marker_records_session_date(tmp_path, monkeypatch):
     payload = _json.loads(
         runpy._brief_push_marker(args).read_text(encoding="utf-8"))["close"]
     assert payload == runpy._close_session_date(dt.now()).isoformat()
+
+
+def test_cmd_telegram_close_writes_session_marker(tmp_path, monkeypatch):
+    """Lệnh tay `telegram close` phải ghi marker PHIÊN — không thì gửi tay
+    xong chạy `all` là Telegram nhận brief TRÙNG cùng phiên (ca thật 15/08:
+    user test tay message_id=212 rồi định chạy all ngay sau đó)."""
+    import json as _json
+    from datetime import datetime as dt
+
+    import vnstock_telegram as _tg
+    monkeypatch.setattr(_tg, "push_close_brief",
+                        lambda: {"result": {"message_id": 5}})
+    args = SimpleNamespace(warehouse=str(tmp_path), action="close")
+    assert runpy.cmd_telegram(args) == 0
+    payload = _json.loads(
+        runpy._brief_push_marker(args).read_text(encoding="utf-8"))["close"]
+    assert payload == runpy._close_session_date(dt.now()).isoformat()

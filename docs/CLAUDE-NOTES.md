@@ -6435,7 +6435,23 @@ dịch** (`_close_session_date`: T2-T6 = hôm nay, T7/CN = thứ 6 vừa rồi):
 3 test mới (mapping T6/T7/CN/T2 · luật cuối tuần đủ 5 nhánh · marker
 phải mang ngày phiên — ghi ngày gửi là T7 xong CN bắn trùng).
 
-Suite 2068 → **2071 passed**.
+**Diễn biến tiếp (user test tay NGAY 15/08): Telegram sống end-to-end** —
+`telegram test` message_id=210 ✅ · `telegram close` gửi brief chiều THẬT
+message_id=212 ✅. Lộ thêm lỗ nhỏ: lệnh tay `telegram close` KHÔNG ghi
+marker → gửi tay xong chạy `all` là bắn TRÙNG cùng phiên. Vá: tách
+`_write_close_marker` dùng chung pipeline + lệnh tay (bất biến
+một-brief-mỗi-phiên không phân biệt đường gửi) + 1 test. LƯU Ý một lần:
+phát gửi tay #212 xảy ra TRƯỚC bản vá nên marker chưa có trên máy bàn —
+phát `all` ĐẦU TIÊN sau đó sẽ gửi thêm 1 bản trùng phiên 14/08 (vô hại,
+coi như test end-to-end đường pipeline; muốn tránh thì `--no-brief`).
+Từ phiên sau thì hết trùng.
+
+Task roster máy bàn xác nhận đủ: 2/2 (Daily + Weekend) — CLAUDE.md ghi
+"4 task" là số CŨ trước đợt gộp 29/07, đã sửa thành 2. Brief SÁNG chưa
+từng có task tự động (thiết kế cần task riêng ~11:35 gọi `run.py telegram
+morning`) — user muốn thì nói Claude thêm vào setup script.
+
+Suite 2068 → **2072 passed**.
 
 ---
 
@@ -6445,7 +6461,7 @@ Suite 2068 → **2071 passed**.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2071 passed** (`--fast` ~1.534 test — ~26-35s trên CI,
+> Trạng thái: full suite **2072 passed** (`--fast` ~1.534 test — ~26-35s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
