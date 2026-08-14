@@ -6346,10 +6346,16 @@ chỉ fetch mã trống cache — vô dụng cho vùng mù vì cache họ không
 chỉ thiếu). 4 test mới với hình dạng VCI THẬT chép từ dump + 1 test giữ
 hình dạng cũ không vỡ.
 
-Việc user còn MỘT lệnh (sau merge): `python vnstock_div_check.py
---refresh -v` (~2-3 phút, fetch 30 mã + chấm). Kỳ vọng:
-VNM/SAB/GVR/PLX/MSN/MWG/VPB… sáng đèn; STB/VHM/VRE có thể vẫn trắng
-THẬT (giai đoạn này không trả cổ tức — đúng thực tế, không phải lỗi).
+**Kết quả chạy `--refresh -v` (user, ngay 14/08): ĐÚNG DỰ ĐOÁN VÀ HƠN THẾ.**
+Độ phủ 18 → **28/30 mã** · 37 → **64 sự kiện đều "đã điều chỉnh" · 0 GAP
+THÔ** · 19 chưa kết luận — TOÀN BỘ 19 ca đều là "cổ tức nhỏ chìm trong
+nhiễu" (0.7-1.9% dưới sàn 2×nhiễu/mã — đúng thiết kế không phán bừa; để ý
+hầu hết observed DƯƠNG +0.3..+1.2%, nếu chuỗi thô thì phải âm ≈ −kỳ vọng
+→ thêm một lớp yên tâm không chính thức). Nhóm tiền mặt vừa mở khoá được
+chấm lần đầu: SAB 4/4 · VNM 3/4 · PLX 2/2 · GAS 3/3 · VPB 2/2 — sạch hết.
+Hai mã còn trắng là trắng THẬT: STB không chia cổ tức từ 2015 (tái cơ
+cấu), MSN không chia tiền mặt giai đoạn này — thực tế doanh nghiệp, không
+phải lỗ hổng dữ liệu.
 
 Suite 2062 → **2066 passed**.
 
@@ -6578,16 +6584,13 @@ và mọi ca đo được đều sạch. Muốn đóng kín 100% cần NGUỒN S
 nguồn + khử trùng-gần. **User chạy phủ nốt NGAY 14/08**: refresh 1.723 mã
 (fail=0) → div_check 29 → **37 sự kiện, vẫn 0 gap thô** — TCB thoát vùng
 mù (0→1 ✅), FPT/HPG/SHB/SSB/VIB/VJC dày thêm. Kết luận 4d càng vững.
-Vùng mù 11 mã + GVR: user dump hình dạng dữ liệu 14/08 → PHÂN XỬ XONG,
-"extractor mù, nguồn sáng" (entry (o)): VCI có đủ cổ tức tiền mặt trong
-events() (cả GVR!), extractor cũ không đọc được dạng VCI. Đã vá parser +
-đổi nghĩa `--refresh`. VIỆC CÒN — MỘT lệnh sau merge (~2-3 phút, mạng):
-```powershell
-python vnstock_div_check.py --refresh -v
-```
-Kỳ vọng: VNM/SAB/GVR/PLX/MSN/MWG/VPB… sáng đèn, phủ gần kín VN30. Mã nào
-vẫn trắng (STB/VHM/VRE?) = giai đoạn này không trả cổ tức THẬT — đúng
-thực tế, chốt sổ luôn, không tiếc nữa.
+**CHỐT SỔ HOÀN TOÀN 14/08 sau 4 vòng đo** (28→30→37→**64 sự kiện**, entry
+(l)-(o)): độ phủ **28/30 mã VN30**, 64 sự kiện đủ cả tiền mặt lẫn chia
+thưởng đều "đã điều chỉnh", **0 gap thô xuyên suốt**; 19 ca "chìm nhiễu"
+đúng thiết kế không phán bừa; STB/MSN trắng THẬT (không chia cổ tức giai
+đoạn này — thực tế doanh nghiệp). KHÔNG CÒN VIỆC GÌ Ở MỤC NÀY. Tool ở lại
+làm lính gác: nghi ngờ kho lúc nào chạy
+`python vnstock_div_check.py --refresh -v` lúc đó.
 
 **4e. Tầng B — danh mục xoay vòng tháng** (entry 13/08 (d)): để sau, chỉ làm
 khi tầng A chạy ổn và user muốn đầu tư backtester cấp danh mục (~3-5 buổi).
