@@ -931,22 +931,49 @@ def enforce_liquidity_label(text: str, ctx: dict) -> str:
 
 
 def enforce_nn_window_label(text: str, ctx: dict | None = None) -> str:
-    """A foreign-flow figure can't be both weekly AND one-day. The composite
-    'NN ròng 1D' total (from the market-sentiment block) is a ONE-DAY net flow,
-    but the LLM weaves it into the (weekly) money-flow narrative tagged 'tuần'
-    (observed 12:42: "Khối ngoại bán ròng mạnh 665 tỷ tuần này (1D: -665 tỷ)" —
-    which also understates the week: Ngân hàng alone is -703 tỷ/tuần).
+    """A foreign-flow figure can't be both weekly AND one-day — and one
+    SECTOR's week is not the MARKET's week. The composite 'NN ròng 1D' total
+    (market-sentiment block) is a ONE-DAY net flow; sector 'NN 1T (tỷ)' values
+    are per-sector WEEKLY flows. The LLM mixes both frames when narrating
+    (12:42: "bán ròng mạnh 665 tỷ tuần này (1D: -665 tỷ)"; brief #212 15/08:
+    TLDR "bán ròng **856 tỷ** tuần qua" — 856 is the 14/08 ONE-DAY total —
+    and "Khối ngoại bán ròng 1,965 tỷ tuần qua (Họ VIN -1,965 tỷ…)" — Họ
+    VIN's weekly figure claimed for the whole market).
 
     1) Self-contradiction (ctx-free, always safe): "<N tỷ> <tuần…> (1D…)" → drop
        the weekly tag — the model already labeled it 1D.
     2) The exact 1D magnitude from ctx tagged weekly with NO 1D marker → relabel
        to 1D. Skipped if a weekly sector value shares that magnitude (coincidence).
+    3) A magnitude matching exactly ONE sector's weekly value claimed as a
+       market-wide weekly total ("khối ngoại/NN bán|mua ròng <N> tỷ <tuần…>")
+       → inject the sector name right after "ròng" so the claim is scoped.
+       Skipped when ≥2 sectors share the magnitude or it equals the 1D total
+       (can't referee), or the clause already names the sector there.
+
+    Every gap tolerates markdown bold: #212's "**856 tỷ** tuần qua" slipped
+    past the old whitespace-only regexes purely because of the '**' between
+    figure and window word. Dropped bold markers are re-emitted so pairs stay
+    balanced (an unbalanced '**' bleeds bold over the rest of a Telegram brief).
     """
     if not text:
         return text
     _wk = r"(?:trong\s+)?(?:tuần\s+này|tuần\s+qua|cả\s+tuần|1\s*tuần|tuần)"
-    new = _re.sub(rf"(\d[\d.,]*\s*tỷ)\s*{_wk}(\s*\(\s*1D)", r"\1\2", text)
+    _g = r"[\s*]*"                       # gap: whitespace and/or markdown '**'
 
+    def _stars(gap: str) -> str:
+        return "*" * gap.count("*")
+
+    # 1) "<N tỷ> [**] tuần… [**] (1D…)" → "<N tỷ>[**] (1D…)"
+    new = _re.sub(
+        rf"(\d[\d.,]*\s*tỷ)({_g}{_wk})({_g}\(\s*1D)",
+        lambda m: m.group(1) + _stars(m.group(2)) + m.group(3),
+        text)
+
+    sectors = [s for s in ((ctx or {}).get("sectors") or [])
+               if isinstance(s.get("NN 1T (tỷ)"), (int, float))]
+
+    # 2) exact 1D magnitude tagged weekly, no 1D marker → relabel to 1D
+    mag_1d = None
     ms = (ctx or {}).get("market_sentiment") or {}
     sig = next((s for s in ms.get("signals", [])
                 if "1d" in str(s.get("name", "")).lower()
@@ -955,15 +982,29 @@ def enforce_nn_window_label(text: str, ctx: dict | None = None) -> str:
         val = _parse_vn_number(
             str(sig.get("value", "")).replace("tỷ", "").replace("+", "").strip())
         if val is not None:
-            mag = f"{abs(val):,.0f}"
-            coincident = any(
-                isinstance(s.get("NN 1T (tỷ)"), (int, float))
-                and f"{abs(s['NN 1T (tỷ)']):,.0f}" == mag
-                for s in ((ctx or {}).get("sectors") or []))
+            mag_1d = f"{abs(val):,.0f}"
+            coincident = any(f"{abs(s['NN 1T (tỷ)']):,.0f}" == mag_1d
+                             for s in sectors)
             if not coincident:
                 new = _re.sub(
-                    rf"({_re.escape(mag)}\s*tỷ)\s*{_wk}\b(?!\s*\(\s*1D)",
-                    r"\1 (1D, phiên gần nhất)", new)
+                    rf"({_re.escape(mag_1d)}\s*tỷ)({_g}{_wk})\b(?!{_g}\(\s*1D)",
+                    lambda m: (m.group(1) + _stars(m.group(2))
+                               + " (1D, phiên gần nhất)"),
+                    new)
+
+    # 3) one sector's weekly figure claimed market-wide → scope it by name
+    by_mag: dict[str, list[str]] = {}
+    for s in sectors:
+        by_mag.setdefault(f"{abs(s['NN 1T (tỷ)']):,.0f}", []).append(
+            str(s.get("Ngành") or "").strip())
+    for mag, names in by_mag.items():
+        if len(names) != 1 or not names[0] or mag == mag_1d:
+            continue
+        new = _re.sub(
+            rf"(\b(?:khối\s+ngoại|NN)\b{_g}(?:bán|mua)\s+ròng\s+(?:mạnh\s+)?{_g})"
+            rf"({_re.escape(mag)}\s*tỷ{_g}{_wk}\b)",
+            lambda m, _n=names[0]: m.group(1) + _n + " " + m.group(2),
+            new, flags=_re.IGNORECASE)
     return new
 
 

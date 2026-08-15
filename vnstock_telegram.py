@@ -256,14 +256,32 @@ def _fmt_price(p: float) -> str:
 
 
 def _open_recs_block() -> str:
+    """Lệnh đang mở cho push Telegram.
+
+    Mục 10 (user chốt 15/08, phương án b): lệnh có chiến lược nguồn TRƯỢT
+    kiểm định chống-ăn-may bị ẨN khỏi Telegram — cùng luật
+    `split_recs_by_validation` với brief (ẩn ⇔ known-và-trượt; không đo được
+    vẫn hiện) — chỉ còn dòng đếm trỏ về dashboard. Sổ lệnh trên dashboard
+    vẫn đầy đủ để đối soát; kênh đóng là kênh ĐẨY tới user, không phải sổ.
+    """
     try:
         import vnstock_memory as _vm
         opens = _vm.open_recommendations()
         if not opens:
             return "📋 <b>Khuyến nghị đang mở:</b> không có"
 
-        lines = [f"📋 <b>Khuyến nghị đang mở ({len(opens)} mã):</b>"]
-        for r in opens:
+        from vnstock_brief import split_recs_by_validation
+        shown, _hidden_vals = split_recs_by_validation(opens)
+        n_hidden = len(opens) - len(shown)
+        hidden_note = (
+            f"  · {n_hidden} lệnh ẩn — chiến lược nguồn chưa đạt kiểm định "
+            f"(xem đầy đủ trong dashboard)"
+        ) if n_hidden else None
+        if not shown:
+            return "📋 <b>Khuyến nghị đang mở:</b>\n" + hidden_note
+
+        lines = [f"📋 <b>Khuyến nghị đang mở ({len(shown)} mã):</b>"]
+        for r in shown:
             ticker = r.get("ticker", "?")
             action = r.get("action", "?").upper()
             entry  = float(r.get("entry_price") or 0)
@@ -282,11 +300,14 @@ def _open_recs_block() -> str:
                 f" → TP {tp_pct:+.1f}% | SL {sl_pct:+.1f}%"
                 f" | ngày {age}/{horizon}{overdue}"
             )
+        if hidden_note:
+            lines.append(hidden_note)
         # Cảnh báo BUY dưới bối cảnh GIẢM (mirror guard #27 enforce_buy_vs_bias
         # _caveat, NHƯNG lệnh mở được append Ở ĐÂY — telegram-side, NGOÀI
         # apply_brief_guards — nên guard body không với tới; đặt caveat đúng
         # chỗ lệnh hiện. Gắn cảnh báo, KHÔNG lọc (lệnh có SL = rủi ro xác định).
-        if _has_buy_under_bear(opens):
+        # Chỉ xét lệnh ĐANG HIỆN — lệnh ẩn không in ra thì không cần caveat.
+        if _has_buy_under_bear(shown):
             from vnstock_brief import _BUY_BIAS_CAVEAT
             lines.append(_BUY_BIAS_CAVEAT)
         return "\n".join(lines)

@@ -3692,6 +3692,39 @@ def _validation_of_strategy(strategy_id) -> dict:
         return out
 
 
+def split_recs_by_validation(recs: list, ctx: dict | None = None) -> tuple[list, list]:
+    """Chia recs theo kiểm định chống-ăn-may của CHIẾN LƯỢC NGUỒN từng rec.
+
+    Trả `(emitted, hidden_vals)`: `emitted` giữ nguyên thứ tự vào; `hidden_vals`
+    là các validation-dict (dedup) của những chiến lược bị ẩn — đủ để chỗ gọi
+    in p/lý do. Luật MỘT nơi (mục 10, 15/08) dùng chung brief + Telegram —
+    hai kênh không được tự diễn giải "trượt" khác nhau:
+      ẨN ⇔ `known` VÀ `not passed`; không đo được ≠ trượt (unknown vẫn phát).
+    Rec mang `strategy_id` xử theo kiểm định của CHÍNH nó (hai tier song song,
+    13/08); rec cũ không có `strategy_id` → kiểm định của active short.
+    """
+    _short_val = _active_strategy_validation(ctx)
+    _val_cache: dict = {}
+
+    def _val_of(rec) -> dict:
+        sid = rec.get("strategy_id")
+        if sid is None:
+            return _short_val
+        if sid not in _val_cache:
+            _val_cache[sid] = _validation_of_strategy(sid)
+        return _val_cache[sid]
+
+    emitted, hidden_vals = [], []
+    for r in recs:
+        v = _val_of(r)
+        if v["known"] and not v["passed"]:
+            if v not in hidden_vals:
+                hidden_vals.append(v)
+            continue
+        emitted.append(r)
+    return emitted, hidden_vals
+
+
 def _recommendation_block(ctx: dict | None = None) -> str:
     """Insert open recommendations from validated strategies.
 
@@ -3726,29 +3759,11 @@ def _recommendation_block(ctx: dict | None = None) -> str:
         if not fresh:
             return ""
 
-        # Gating THEO TỪNG CHIẾN LƯỢC (13/08, hai tier chạy song song): rec
-        # mang strategy_id của chính nó — rec tầng vị thế không bị xử theo
-        # kiểm định của tầng 5 phiên. Rec cũ không có strategy_id → dùng
-        # kiểm định của active short (hành vi cũ).
-        _short_val = _active_strategy_validation(ctx)
-        _val_cache: dict = {}
-
-        def _val_of(rec) -> dict:
-            sid = rec.get("strategy_id")
-            if sid is None:
-                return _short_val
-            if sid not in _val_cache:
-                _val_cache[sid] = _validation_of_strategy(sid)
-            return _val_cache[sid]
-
-        emitted, hidden_vals = [], []
-        for r in fresh:
-            v = _val_of(r)
-            if v["known"] and not v["passed"]:
-                if v not in hidden_vals:
-                    hidden_vals.append(v)
-                continue
-            emitted.append(r)
+        # Gating THEO TỪNG CHIẾN LƯỢC (13/08, hai tier chạy song song) — luật
+        # nằm ở split_recs_by_validation để Telegram dùng CHUNG (mục 10),
+        # KHÔNG inline lại tại đây (cùng lý lẽ với điểm parity
+        # apply_brief_guards: hai kênh một luật).
+        emitted, hidden_vals = split_recs_by_validation(fresh, ctx)
 
         if not emitted:
             if ctx is not None:

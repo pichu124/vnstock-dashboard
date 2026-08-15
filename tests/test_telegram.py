@@ -192,6 +192,12 @@ def test_open_recs_block_handles_empty(monkeypatch):
 
 
 def test_open_recs_block_formats_entries(monkeypatch):
+    # Hermetic (bài học 15/08): rec giả không mang strategy_id → gate mục 10
+    # rơi về kiểm định của chiến lược ACTIVE = đọc SQLite THẬT của máy chạy
+    # test → máy có chiến lược trượt sẽ ẩn rec và test đỏ oan. Ý đồ test là
+    # FORMAT, không phải gating — chốt thế giới: không có chiến lược active.
+    monkeypatch.setattr("vnstock_memory.get_active_family",
+                        lambda *a, **k: None)
     monkeypatch.setattr(
         "vnstock_memory.open_recommendations",
         lambda: [{
@@ -219,6 +225,8 @@ def test_fmt_price_keeps_precision_for_low_priced_instruments():
 
 
 def test_open_recs_block_low_price_cw_not_rounded_to_zero(monkeypatch):
+    monkeypatch.setattr("vnstock_memory.get_active_family",  # hermetic mục 10
+                        lambda *a, **k: None)
     monkeypatch.setattr(
         "vnstock_memory.open_recommendations",
         lambda: [{
@@ -237,6 +245,8 @@ def test_open_recs_block_flags_overdue(monkeypatch):
     from datetime import datetime, timedelta
     old = (datetime.now() - timedelta(days=34)).isoformat()
     fresh = (datetime.now() - timedelta(days=2)).isoformat()
+    monkeypatch.setattr("vnstock_memory.get_active_family",  # hermetic mục 10
+                        lambda *a, **k: None)
     monkeypatch.setattr(
         "vnstock_memory.open_recommendations",
         lambda: [
@@ -255,6 +265,99 @@ def test_open_recs_block_flags_overdue(monkeypatch):
     # Overdue position (age 34 > horizon 5) is flagged; fresh one is not.
     assert "quá hạn" in cw_line
     assert "quá hạn" not in acb_line
+
+
+# ─── Mục 10 (user chốt 15/08, phương án b): lệnh có chiến lược nguồn TRƯỢT ────
+# kiểm định bị ẨN khỏi Telegram (dòng đếm trỏ về dashboard); unknown vẫn hiện.
+# Stub Ở TẦNG SQLITE (get_active_family/latest_backtest) chứ không stub
+# splitter — để chuỗi thật open_recs → split_recs_by_validation →
+# _validation_of_strategy chạy đủ, hermetic trên mọi máy.
+
+def _muc10_recs(action_a="buy", action_b="buy"):
+    from datetime import datetime
+    now = datetime.now().isoformat()
+    return [
+        {"ticker": "AAA", "action": action_a, "entry_price": 10.0,
+         "take_profit": 11.0, "cut_loss": 9.5, "horizon_days": 5,
+         "created_at": now, "strategy_id": 7},
+        {"ticker": "BBB", "action": action_b, "entry_price": 20.0,
+         "take_profit": 22.0, "cut_loss": 19.0, "horizon_days": 5,
+         "created_at": now, "strategy_id": 8},
+    ]
+
+
+def _muc10_stub_db(monkeypatch, failed_sids, unknown_sids=()):
+    import json
+    bt_fail = {"metrics_json": json.dumps({
+        "validation": {"passed": False, "p_value_adj": 0.764,
+                       "reasons": ["p quá cao"]},
+        "n_trades": 40}), "n_trades": 40}
+    bt_pass = {"metrics_json": json.dumps({
+        "validation": {"passed": True, "p_value_adj": 0.012, "reasons": []},
+        "n_trades": 40}), "n_trades": 40}
+    monkeypatch.setattr("vnstock_memory.get_active_family",
+                        lambda *a, **k: None)
+    monkeypatch.setattr(
+        "vnstock_memory.latest_backtest",
+        lambda sid: (None if sid in unknown_sids
+                     else bt_fail if sid in failed_sids else bt_pass))
+
+
+def test_open_recs_block_hides_failed_validation_with_summary(monkeypatch):
+    monkeypatch.setattr("vnstock_memory.open_recommendations",
+                        lambda: _muc10_recs())
+    _muc10_stub_db(monkeypatch, failed_sids={7}, unknown_sids={8})
+    monkeypatch.setattr(tg, "_market_is_bearish", lambda: False)
+    out = tg._open_recs_block()
+    assert "AAA" not in out                      # known-và-trượt → ẩn
+    assert "BBB" in out                          # unknown: không đo được ≠ trượt
+    assert "Khuyến nghị đang mở (1 mã)" in out   # đếm theo lệnh HIỆN
+    assert "1 lệnh ẩn" in out and "dashboard" in out
+
+
+def test_open_recs_block_all_hidden_keeps_header_and_count(monkeypatch):
+    monkeypatch.setattr("vnstock_memory.open_recommendations",
+                        lambda: _muc10_recs())
+    _muc10_stub_db(monkeypatch, failed_sids={7, 8})
+    out = tg._open_recs_block()
+    assert out.startswith("📋")
+    assert "AAA" not in out and "BBB" not in out
+    assert "2 lệnh ẩn" in out and "dashboard" in out
+
+
+def test_open_recs_block_passed_validation_untouched_no_hidden_note(monkeypatch):
+    monkeypatch.setattr("vnstock_memory.open_recommendations",
+                        lambda: _muc10_recs())
+    _muc10_stub_db(monkeypatch, failed_sids=set())
+    monkeypatch.setattr(tg, "_market_is_bearish", lambda: False)
+    out = tg._open_recs_block()
+    assert "AAA" in out and "BBB" in out
+    assert "Khuyến nghị đang mở (2 mã)" in out
+    assert "lệnh ẩn" not in out
+
+
+def test_open_recs_block_buy_bear_caveat_considers_shown_only(monkeypatch):
+    # Lệnh BUY bị ẨN không được kéo caveat "BUY dưới bối cảnh GIẢM" vào block
+    # — caveat nói về thứ ĐANG in ra trước mặt user.
+    from vnstock_brief import _BUY_BIAS_CAVEAT
+    monkeypatch.setattr("vnstock_memory.open_recommendations",
+                        lambda: _muc10_recs(action_a="buy", action_b="sell"))
+    _muc10_stub_db(monkeypatch, failed_sids={7})     # AAA (BUY) ẩn, BBB (SELL) hiện
+    monkeypatch.setattr(tg, "_market_is_bearish", lambda: True)
+    out = tg._open_recs_block()
+    assert _BUY_BIAS_CAVEAT not in out
+    # đối chứng: BUY đang HIỆN + thị trường GIẢM → caveat phải có
+    monkeypatch.setattr("vnstock_memory.open_recommendations",
+                        lambda: _muc10_recs(action_a="sell", action_b="buy"))
+    out2 = tg._open_recs_block()
+    assert _BUY_BIAS_CAVEAT in out2
+
+
+def test_open_recs_block_delegates_to_shared_splitter():
+    # Net parity (gương của test_recommendation_block_delegates_to_shared_
+    # splitter bên test_brief): hai kênh một luật, ai inline lại là đỏ.
+    import inspect
+    assert "split_recs_by_validation" in inspect.getsource(tg._open_recs_block)
 
 
 def test_screener_block_empty_when_no_cache(tmp_path, monkeypatch):

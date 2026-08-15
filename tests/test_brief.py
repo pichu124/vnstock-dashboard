@@ -683,6 +683,60 @@ def test_enforce_nn_window_label_noop_cases():
     assert enforce_nn_window_label("665 tỷ tuần này.\n", {}) == "665 tỷ tuần này.\n"
 
 
+def test_enforce_nn_window_label_tolerates_markdown_bold():
+    # Brief #212 (15/08) NGUYÊN VĂN: "khối ngoại bán ròng **856 tỷ** tuần qua"
+    # — 856 là NN ròng MỘT NGÀY 14/08, ctx có đủ dữ liệu, nhưng guard cũ đòi
+    # khoảng trắng thuần giữa số và "tuần" nên cặp ** của markdown lọt qua.
+    from vnstock_brief import enforce_nn_window_label
+    ctx = {"market_sentiment": {"signals": [{"name": "NN ròng 1D",
+                                             "value": "-856 tỷ"}]},
+           "sectors": [{"Ngành": "Họ VIN", "NN 1T (tỷ)": -1965.0}]}
+    text = ("Độ rộng thị trường tiêu cực (A/D=0.56), khối ngoại bán ròng "
+            "**856 tỷ** tuần qua. Tâm lý: Sợ hãi.\n")
+    fixed = enforce_nn_window_label(text, ctx)
+    assert "**856 tỷ** (1D, phiên gần nhất)" in fixed
+    assert "tuần qua" not in fixed
+    assert fixed.count("**") % 2 == 0        # bold không được lệch cặp
+    assert enforce_nn_window_label(fixed, ctx) == fixed   # idempotent
+
+
+def test_enforce_nn_window_label_scopes_sector_week_claimed_marketwide():
+    # Brief #212: "Khối ngoại **bán ròng 1,965 tỷ** tuần qua (Họ VIN -1,965
+    # tỷ, GTGD 1,594 tỷ)" — số TUẦN của RIÊNG Họ VIN nói như toàn thị trường.
+    # Guard chèn tên ngành ngay sau "ròng" để phạm vi claim đúng.
+    from vnstock_brief import enforce_nn_window_label
+    ctx = {"market_sentiment": {"signals": [{"name": "NN ròng 1D",
+                                             "value": "-856 tỷ"}]},
+           "sectors": [{"Ngành": "Họ VIN", "NN 1T (tỷ)": -1965.0},
+                       {"Ngành": "Họ M", "NN 1T (tỷ)": 477.0}]}
+    text = ("Khối ngoại **bán ròng 1,965 tỷ** tuần qua (Họ VIN -1,965 tỷ, "
+            "GTGD 1,594 tỷ) — áp lực phân phối rõ rệt.\n")
+    fixed = enforce_nn_window_label(text, ctx)
+    assert "**bán ròng Họ VIN 1,965 tỷ** tuần qua" in fixed
+    assert enforce_nn_window_label(fixed, ctx) == fixed   # idempotent
+    # câu ĐÃ nêu tên ngành trước con số thì không đụng (không chèn trùng)
+    ok = "NN bán ròng Họ VIN 1,965 tỷ tuần qua.\n"
+    assert enforce_nn_window_label(ok, ctx) == ok
+    # dòng canon "mạnh nhất (1 tuần): {ngành} {v} tỷ" cũng không được đụng
+    canon = "NN mua ròng mạnh nhất (1 tuần): Họ M +477 tỷ.\n"
+    assert enforce_nn_window_label(canon, ctx) == canon
+
+
+def test_enforce_nn_window_label_sector_scope_skips_unrefereeable():
+    from vnstock_brief import enforce_nn_window_label
+    # ≥2 ngành trùng magnitude tuần → không biết của ai → không đụng
+    ctx2 = {"sectors": [{"Ngành": "Họ VIN", "NN 1T (tỷ)": -1965.0},
+                        {"Ngành": "Ngân hàng", "NN 1T (tỷ)": 1965.0}]}
+    t = "Khối ngoại bán ròng 1,965 tỷ tuần qua.\n"
+    assert enforce_nn_window_label(t, ctx2) == t
+    # magnitude trùng tổng 1D → cũng không phân xử được → không đụng
+    # (nhánh 2 đã skip vì coincident với ngành — nhánh 3 phải skip nốt)
+    ctx3 = {"market_sentiment": {"signals": [{"name": "NN ròng 1D",
+                                              "value": "-1,965 tỷ"}]},
+            "sectors": [{"Ngành": "Họ VIN", "NN 1T (tỷ)": -1965.0}]}
+    assert enforce_nn_window_label(t, ctx3) == t
+
+
 def test_enforce_no_bias_directive_leak_strips_bat_buoc():
     # 12:24 & 12:51 leaked the internal directive word into the TLDR:
     # "bias GIẢM bắt buộc". The qualifier must be stripped, the direction kept.
@@ -2403,6 +2457,41 @@ def test_recommendation_block_empty_when_all_overdue(monkeypatch):
          "created_at": overdue},
     ])
     assert _recommendation_block() == ""
+
+
+# ─── split_recs_by_validation: luật ẩn dùng chung brief + Telegram (mục 10) ───
+
+def test_split_recs_by_validation_hides_only_known_failed(monkeypatch):
+    import vnstock_brief as vb
+    vals = {
+        7: {"known": True, "passed": False, "p": 0.764, "reasons": ["p quá cao"]},
+        8: {"known": True, "passed": True, "p": 0.012, "reasons": []},
+        9: {"known": False, "passed": True, "p": None, "reasons": []},
+    }
+    monkeypatch.setattr(vb, "_validation_of_strategy", lambda sid: vals[sid])
+    monkeypatch.setattr(vb, "_active_strategy_validation",
+                        lambda ctx=None: {"known": True, "passed": False,
+                                          "p": 0.5, "reasons": ["active trượt"]})
+    recs = [{"ticker": "AAA", "strategy_id": 7},
+            {"ticker": "BBB", "strategy_id": 8},
+            {"ticker": "CCC", "strategy_id": 9},   # unknown → VẪN phát
+            {"ticker": "DDD"},                     # legacy → active (trượt) → ẩn
+            {"ticker": "EEE", "strategy_id": 7}]   # cùng chiến lược 7 → dedup
+    emitted, hidden = vb.split_recs_by_validation(recs)
+    assert [r["ticker"] for r in emitted] == ["BBB", "CCC"]
+    # hidden_vals: validation-dict dedup (7 bị ẩn 2 rec nhưng chỉ 1 entry),
+    # còn đủ p/lý do để chỗ gọi in sentinel
+    assert {v["p"] for v in hidden} == {0.764, 0.5}
+    assert len(hidden) == 2
+
+
+def test_recommendation_block_delegates_to_shared_splitter():
+    # Net parity (mục 10): luật ẩn nằm MỘT chỗ — ai inline lại _val_of vào
+    # _recommendation_block là tách luật brief khỏi luật Telegram (cùng họ
+    # lỗi với inline lại apply_brief_guards).
+    import inspect
+    import vnstock_brief as vb
+    assert "split_recs_by_validation(" in inspect.getsource(vb._recommendation_block)
 
 
 # ─── Live intraday VNINDEX augmentation (morning brief uses today's session) ──

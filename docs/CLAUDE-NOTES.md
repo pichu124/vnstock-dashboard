@@ -6453,6 +6453,55 @@ morning`) — user muốn thì nói Claude thêm vào setup script.
 
 Suite 2068 → **2072 passed**.
 
+
+## 2026-08-15 (s) — Làm mục 9 + 10 (user gật "theo ý bạn"): vá guard nhãn kỳ NN + gate kiểm định cho Telegram
+
+### Mục 9 — guard ĐÃ TỒN TẠI, trượt vì 2 dấu sao markdown
+
+Đi tìm "viết guard mới" thì phát hiện `enforce_nn_window_label` (nhánh
+"1D bị dán nhãn tuần") đã nằm sẵn trong chuỗi từ 12/08, VÀ ctx phiên #212
+có đủ dữ liệu (block Tâm lý/momentum trong chính brief chứng minh
+`market_sentiment` sống, signal `NN ròng 1D = -856 tỷ` chuẩn format).
+Nó không bắn chỉ vì regex đòi KHOẢNG TRẮNG THUẦN giữa số và "tuần" —
+brief viết "bán ròng **856 tỷ** tuần qua", cặp `**` chen giữa là thoát.
+Bài học cùng họ với "guard quên nối = code chết trông y như sống": guard
+NỐI RỒI mà pattern hụt một ký tự thì cũng chết y như vậy, và chỉ lộ khi
+đối chiếu output THẬT (ở đây là brief Telegram thật user dán về).
+
+Vá + mở rộng, vẫn MỘT guard (không đẻ guard trùng chủ đề):
+* Mọi khe trong 2 nhánh cũ nay dung `[\s*]*`; dấu `*` bị nuốt được TRẢ
+  LẠI qua hàm thay thế — cặp bold không lệch (lệch là loang đậm cả brief).
+* Nhánh 3 MỚI cho vế sau của mục 9: số TUẦN của MỘT ngành bị nói như
+  toàn thị trường ("Khối ngoại bán ròng 1,965 tỷ tuần qua (Họ VIN -1,965
+  tỷ…)"). Magnitude khớp ĐÚNG MỘT ngành → chèn tên ngành ngay sau "ròng"
+  ("bán ròng **Họ VIN** 1,965 tỷ…" — claim tự đúng phạm vi). Không phân
+  xử được thì KHÔNG đụng: ≥2 ngành trùng số, trùng tổng 1D, hoặc câu đã
+  nêu tên ngành trước con số (dòng canon "mạnh nhất (1 tuần): …" an toàn
+  nhờ luật này). 3 test mới dùng NGUYÊN VĂN hai câu lỗi của #212.
+
+### Mục 10 — phương án (b): Telegram ẩn, dashboard giữ nguyên
+
+Luật ẩn của brief (`_val_of` trong `_recommendation_block`) tách ra
+`split_recs_by_validation` (vnstock_brief) — MỘT nơi cho cả hai kênh,
+cùng lý lẽ với điểm parity `apply_brief_guards`: ẨN ⇔ known-VÀ-trượt;
+không đo được ≠ trượt (unknown vẫn hiện); rec mang `strategy_id` xử theo
+kiểm định của CHÍNH nó. `_open_recs_block` (vnstock_telegram) giờ lọc
+qua đó: lệnh trượt biến khỏi danh sách, thay bằng dòng đếm "· N lệnh ẩn
+— chiến lược nguồn chưa đạt kiểm định (xem đầy đủ trong dashboard)";
+header đếm theo lệnh HIỆN; caveat BUY-dưới-bối-cảnh-GIẢM chỉ xét lệnh
+ĐANG HIỆN. Ẩn hết thì còn header + dòng đếm (block không biến mất âm
+thầm). Dashboard không đổi — sổ đối soát vẫn đủ.
+
+Lưới: 2 net parity (brief + telegram đều phải GỌI splitter — ai inline
+lại là đỏ) · unit splitter (known-failed ẩn / passed + unknown hiện /
+legacy không sid theo active / dedup validation) · 5 test telegram stub
+Ở TẦNG SQLITE (get_active_family/latest_backtest) để chuỗi thật chạy đủ
+mà vẫn hermetic — né đúng vết 15/08 (q); 3 test format cũ của
+`_open_recs_block` cũng được trám stub active-family vì gate mới đã đứng
+trước format.
+
+Suite 2072 → **2082 passed** (+10).
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -6461,7 +6510,7 @@ Suite 2068 → **2072 passed**.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2072 passed** (`--fast` ~1.534 test — ~26-35s trên CI,
+> Trạng thái: full suite **2082 passed** (`--fast` ~1.580 test — ~26-35s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh
 > `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
@@ -6746,29 +6795,26 @@ Docstring của hàm đó cũng đã ghi lưu ý này (chỗ người sửa sau 
 **KHÔNG ảnh hưởng**: brief, dữ liệu kho, phép tính trong pipeline — đây thuần
 là chuyện hai con số hiển thị trên dashboard không khớp nhau.
 
-**9. Nhãn KỲ của số khối ngoại trong brief — LLM dán nhầm (bắt 15/08).**
-Brief chiều #212: "khối ngoại bán ròng 856 tỷ TUẦN QUA" — 856 thật ra là
-số MỘT NGÀY 14/08 (foreign-flow cache in rõ); chỗ khác cùng brief lại
-"bán ròng 1,965 tỷ tuần qua" — 1,965 là số TUẦN của riêng Họ VIN bị nói
-như toàn thị trường. Số đúng, NHÃN sai — họ lỗi quen của LLM. Ứng viên
-guard mới: canon line cho NN flow (số + kỳ + phạm vi ghim cứng), guard
-chặn LLM tự viết lại nhãn kỳ. CHỜ USER GẬT rồi Claude làm.
+**9. ✅ ĐÓNG 15/08 — nhãn KỲ số khối ngoại: vá guard có sẵn + thêm nhánh
+phạm-vi-ngành** (entry 15/08 (s)). Hoá ra `enforce_nn_window_label` đã
+nằm trong chuỗi từ 12/08 và ctx #212 đủ dữ liệu — trượt CHỈ vì regex
+không dung cặp `**` markdown giữa số và "tuần". Vá khe `[\s*]*` (trả lại
+dấu sao cho bold khỏi lệch) + nhánh 3 mới: số tuần của MỘT ngành nói như
+toàn thị trường → chèn tên ngành sau "ròng"; không phân xử được (trùng
+số 1D, ≥2 ngành trùng, đã nêu tên) thì không đụng. Test dùng nguyên văn
+2 câu lỗi #212. **Verify phiên tới: đọc brief chiều, soi mục Dòng tiền +
+TLDR — số NN kèm nhãn kỳ/phạm vi có còn tự mâu thuẫn không.**
 
-**10. Mục "Khuyến nghị đang mở" hiện trên Telegram khi CẢ 2 tầng trượt
-kiểm định — chờ user chốt chính sách (bắt 15/08).**
-Brief #212 liệt 10 lệnh BUY đang mở kèm TP/SL (đều tầng 5 phiên, "ngày
-0-3/5" — forensic: phát 20:22 tối thứ 6 chạy CODE CŨ đã đi tới tận train
-và emit trước khi bị tắt máy). Mục "Đề xuất giao dịch" đã bị chặn đúng
-luật ("Chưa có setup đủ điều kiện") nhưng danh sách lệnh-đang-mở thì vẫn
-hiện — và kể cả code mới, emit đêm VẪN mở lệnh mới khi trượt kiểm định
-(chỉ mục Đề xuất bị ẩn; emit cần cho accuracy tracking/decay). 3 phương án:
-(a) giữ nguyên — minh bạch tracking, đã có caveat "tín hiệu backtest từng
-mã, bối cảnh GIẢM";
-(b) Telegram ẨN danh sách đang-mở khi chiến lược nguồn chưa đạt kiểm định,
-dashboard vẫn hiện đủ (Claude nghiêng phương án này: Telegram là kênh
-hành động, dashboard là phòng máy);
-(c) chặn từ gốc — không emit khi chưa đạt (mạnh tay nhất, nhưng mất luôn
-dữ liệu đối soát để chiến lược tự chứng minh).
+**10. ✅ ĐÓNG 15/08 — user chốt phương án (b): Telegram ẨN lệnh có chiến
+lược nguồn trượt kiểm định, dashboard giữ đủ** (entry 15/08 (s)). Luật ẩn
+tách ra `split_recs_by_validation` dùng CHUNG brief + Telegram (ẩn ⇔
+known-và-trượt; unknown vẫn hiện; rec xử theo kiểm định của CHÍNH chiến
+lược nguồn). `_open_recs_block` thay lệnh ẩn bằng dòng đếm trỏ về
+dashboard; caveat BUY-GIẢM chỉ xét lệnh đang hiện; 2 net parity canh ai
+inline lại luật. Emit đêm vẫn mở lệnh cho accuracy tracking (không chọn
+(c) — giữ dữ liệu để chiến lược tự chứng minh). **Verify push Telegram
+kế tiếp: 10 lệnh tầng 5 phiên (chiến lược trượt p=0.974) phải biến thành
+"· 10 lệnh ẩn …"; khi nào có chiến lược ĐẠT thì lệnh của nó hiện lại.**
 
 **5. Độ trễ OpenRouter — ĐANG LEO THANG.** nemotron-super 18.6 → 25.8s;
 nemotron-ultra median 0.79s → 127.3s (11/08). Production tự né qua timeout.
