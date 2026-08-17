@@ -6658,9 +6658,19 @@ key mới rơi về key cũ (giữ vai trò hàng rào cho luồng chưa cập n
 2 test mới (unit + end-to-end dựng đúng kịch bản #217: active #1 trượt
 p=1.0, rec sid=32 đạt n=94) — đối chứng cả hai ĐỎ trên code cũ.
 Suite 2088 → **2090 passed**.
-Ghi nhận nhỏ chưa xử: (1) đếm lệch — reconcile still_open=7 + emit 5
-= 12 nhưng brief hiện 4 + ẩn 6 = 10; nghi emit dedup mã trùng lệnh cũ,
-soi sổ khuyến nghị dashboard khi rảnh, lệch còn đó thì báo Claude;
+Ghi nhận nhỏ: (1) ✅ đếm lệch 12-vs-10 ĐÓNG — user chụp panel Chiến
+lược 17/08: đúng 10 lệnh mở, khớp Telegram 4+6 TỪNG DÒNG (6 ẩn = đúng
+6 lệnh 5d tầng ngắn: ABW mới + SBG/MSB/HNM/DSE/CTF cũ; 4 hiện = đúng 4
+lệnh 20d của #32). Cơ chế là BY DESIGN: `emit_recommendations` supersede
+lệnh mở trùng mã trước khi mở lệnh mới (`supersede_open_recommendations`,
+vnstock_strategy ~2328) — 2 lệnh cũ trùng mã bị thay, 7−2+5=10. Panel
+còn khép kín chuỗi bug caveat: tầng ngắn active (family-05f9d495) hiện
+đúng "KHÔNG đạt (p=1.000)" = con số bị dán nhầm vào #217. Quan sát nhỏ
+không chặn: card active short mang nhãn "v1 · tuned 16/06" nhưng số
+expectancy −0.29/329 lệnh khớp #35 (bản backtest đêm qua, retired) chứ
+không khớp dòng #16 (−1.06/113) ở Top strategies — khả năng card lấy
+backtest MỚI NHẤT của family còn nhãn là bản active gốc; không ảnh
+hưởng gating, khi nào rảnh soi code panel cho rõ lineage.
 (2) "bán ròng -588 tỷ" mang dấu âm thừa (bán ròng đã hàm ý âm) — thẩm
 mỹ, chưa đáng thêm guard.
 
