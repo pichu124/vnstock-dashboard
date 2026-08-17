@@ -6552,6 +6552,31 @@ tab Phân tích…" — cùng lý lẽ "block không biến mất âm thầm" c�
 này (khi chưa bật live) = máy còn chạy bản cũ. Test render "skip" mở
 rộng canh caption này (ai dọn mất là đỏ). Suite giữ 2087.
 
+**Bổ sung lần 2 — toggle Live Mode CHUYỂN LÊN sidebar chung + đối chứng
+end-to-end bằng trình duyệt thật.** Sau merge bản vá, user vẫn báo "bật
+livemode rồi mà vẫn báo tắt" (caption 🔌 hiện = code mới ĐÃ chạy). Dựng
+Streamlit THẬT 1.61.1 + Playwright/Chromium trong container để đo: (a)
+repro tối giản pills + toggle-trong-tab-A + đọc-cờ-ở-tab-B → cơ chế vá
+ĐÚNG, cờ sống qua chuyển tab; (b) vậy nghi phạm còn lại là thao tác —
+repo có tới BA toggle tên na ná ("Real-time WSS" tab Phân tích ·
+"🔴 Live Scan (real-time)" Screener · "Live Scan (real-time)" Dòng Tiền,
+user hỏi đúng về cái thứ ba giữa lúc debug), bật nhầm Live Scan thì cờ
+động cơ vẫn tắt. Sửa TẬN GỐC cả hai chuyện: chuyển toggle + dải trạng
+thái WSS từ sidebar tab Phân tích LÊN SIDEBAR CHUNG của main script
+(dưới Light mode) — widget render MỌI lượt nên không còn lớp bug dọn
+widget-state nào, và công tắc động cơ thấy được từ mọi tab, hết nhầm
+với Live Scan (vốn chỉ là CONSUMER đọc quote do động cơ ghi ra
+`data_warehouse/_live/`). Tab Phân tích giờ chỉ ĐỌC cờ. Lưới structural
+viết lại: cấm mọi file bind widget `key="live_mode"` · toggle
+`live_mode_toggle` PHẢI ở main script và CẤM ở dashboard/*.py (ai dời
+về tab là đỏ) · market_tab phải còn đọc đúng key. Đối chứng cuối: boot
+DASHBOARD THẬT trong container (mồi screener_results.json tối thiểu),
+Playwright đi đúng đường user — bật toggle ở sidebar → sang tab Thị
+trường → hết "Live Mode tắt", khối live render "⏳ Chờ WSS data..."
+(container không có tick; trên máy thật trong phiên sẽ ra heatmap).
+Suite giữ **2087 passed**. Ghi chú vận hành cho máy user: sau merge phải
+RESTART dashboard; toggle giờ nằm sidebar trái mọi tab.
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -6717,10 +6742,13 @@ Cần chạy lại sau này (nghi WSS hỏng): vẫn lệnh đó, trong phiên.
   cờ `live_mode` bind thẳng vào widget toggle nên bị Streamlit dọn ngay
   khi rời tab Phân tích → khối heatmap CHƯA BAO GIỜ render được qua
   đường điều hướng thật (chi tiết + lưới 5 test: entry 17/08; nhánh
-  `claude/tong-hop-cong-viec-test-w8mvrc`). Việc còn lại sau khi merge,
-  1 phút, trong phiên (9:00-15:00, thứ 2-6): mở dashboard → tab
-  **Phân tích** bật toggle **Real-time WSS** (🔴 Live Mode ở sidebar,
-  chờ chấm xanh CONNECTED + "~1.100 mã đã subscribe") → SANG tab
+  `claude/tong-hop-cong-viec-test-w8mvrc`; bổ sung lần 2 cùng ngày:
+  toggle CHUYỂN LÊN sidebar chung + đối chứng end-to-end Playwright).
+  Việc còn lại sau khi merge + RESTART dashboard, 1 phút, trong phiên
+  (9:00-15:00, thứ 2-6): bật toggle **Real-time WSS** ở **sidebar trái,
+  mục 🔴 Live Mode** (giờ thấy được từ MỌI tab — đừng nhầm với "Live
+  Scan (real-time)" của Screener/Dòng Tiền, đó là consumer, không phải
+  động cơ), chờ chấm xanh CONNECTED + "~1.100 mã đã subscribe" → tab
   **Thị trường** — GIỮA hàng badge và tiêu đề "Diễn biến chỉ số…" phải
   thấy khung 4 chỉ số + lưới ~30 ô màu VN30 + dòng breadth `↑x =y ↓z`,
   tự cập nhật ~5 giây/lần. "⏳ Chờ WSS data..." đứng im quá vài phút →

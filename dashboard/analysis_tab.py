@@ -138,50 +138,12 @@ def render_analysis_tab() -> None:
         st.markdown("### 📐 Hiển thị chart")
         chart_height = st.slider("Chiều cao chart (px)", 500, 1400, 850, step=50, key="chart_height_anal")
 
-        st.divider()
-        st.markdown("### 🔴 Live Mode")
-        if WSS_AVAILABLE:
-            # Cờ live_mode được tab KHÁC đọc (market_tab) — nav st.pills chỉ
-            # render 1 tab/lượt, mà Streamlit XOÁ session_state của widget
-            # không được render → key widget phải KHÁC key cờ, cờ gán tay
-            # mới sống qua chuyển tab (bug user bắt 17/08: heatmap VN30
-            # không bao giờ hiện ở tab Thị trường).
-            live_on = st.toggle(
-                "Real-time WSS",
-                value=st.session_state.get("live_mode", False),
-                key="live_mode_toggle",
-                help="Stream real-time toàn thị trường (~1,100 mã), poll mỗi 2s"
-            )
-            st.session_state["live_mode"] = live_on
-            if live_on:
-                _wss_client = _get_wss_singleton(full_market=True)
-                if _wss_client is not None:
-                    _wss_status = _wss_client.get_status()
-                    _status_label = _wss_status.get("status", "unknown")
-                    _mode_label = _wss_status.get("mode", "?")
-                    _color = {
-                        "connected": "#10b981",
-                        "reconnecting": "#fbbf24",
-                        "market_closed": "#6b7280",
-                        "error": "#ef4444",
-                        "disconnected": "#6b7280",
-                    }.get(_status_label, "#6b7280")
-                    st.markdown(
-                        f'<div style="display:flex;align-items:center;gap:8px;padding:6px 0">'
-                        f'<span style="width:8px;height:8px;border-radius:50%;background:{_color};'
-                        f'box-shadow:0 0 8px {_color}"></span>'
-                        f'<span style="color:#d1d5db;font-size:12px">{_status_label.upper()}</span>'
-                        f'<span style="color:#6b7280;font-size:11px">({_mode_label})</span>'
-                        f'</div>',
-                        unsafe_allow_html=True
-                    )
-                    st.caption(f"📡 {_wss_status.get('subscribed_count', 0)} mã đã subscribe")
-                    if _wss_status.get("error"):
-                        st.caption(f"⚠ {_wss_status['error'][:80]}")
-                else:
-                    st.caption("⚠ Không khởi động được WSS client")
-        else:
-            st.caption("⚠ Module `vnstock_wss` chưa có — Live mode không khả dụng")
+        # Toggle 🔴 Live Mode đã CHUYỂN LÊN sidebar chung (vnstock_dashboard,
+        # cuối khối `with st.sidebar:`) — 17/08: widget nằm trong tab là bị
+        # Streamlit dọn state khi user rời tab, và user còn nhầm nó với các
+        # toggle "Live Scan" của Screener/Dòng Tiền. Đặt ở sidebar chung thì
+        # widget render MỌI lượt (hết lớp bug dọn state) và thấy được từ mọi
+        # tab. Tab này chỉ còn ĐỌC cờ `st.session_state["live_mode"]`.
 
         st.divider()
         st.markdown("### 📼 Intraday Replay")

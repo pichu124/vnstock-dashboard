@@ -3595,6 +3595,55 @@ with st.sidebar:
     except Exception:
         pass
 
+    # ── 🔴 Live Mode — công tắc ĐỘNG CƠ WSS, đặt ở sidebar CHUNG ─────────────
+    # Phải nằm đây (render mọi lượt, mọi tab) chứ không trong tab Phân tích:
+    # widget nằm trong tab là bị Streamlit dọn session_state khi user rời tab
+    # (bug 17/08 — heatmap Thị trường không bao giờ hiện), và tên na ná các
+    # toggle "Live Scan" của Screener/Dòng Tiền làm user bật nhầm công tắc.
+    # Key widget vẫn TÁCH khỏi key cờ: tab khác đọc st.session_state["live_mode"].
+    st.divider()
+    st.markdown("### 🔴 Live Mode")
+    if WSS_AVAILABLE:
+        _live_on = st.toggle(
+            "Real-time WSS",
+            value=st.session_state.get("live_mode", False),
+            key="live_mode_toggle",
+            help="Động cơ stream real-time toàn thị trường (~1,100 mã), poll mỗi "
+                 "2s — nuôi heatmap tab Thị trường, live chart tab Phân tích và "
+                 "Live Scan ở Screener/Dòng Tiền."
+        )
+        st.session_state["live_mode"] = _live_on
+        if _live_on:
+            _wss_client = _get_wss_singleton(full_market=True)
+            if _wss_client is not None:
+                _wss_status = _wss_client.get_status()
+                _status_label = _wss_status.get("status", "unknown")
+                _mode_label = _wss_status.get("mode", "?")
+                _color = {
+                    "connected": "#10b981",
+                    "reconnecting": "#fbbf24",
+                    "market_closed": "#6b7280",
+                    "error": "#ef4444",
+                    "disconnected": "#6b7280",
+                }.get(_status_label, "#6b7280")
+                st.markdown(
+                    f'<div style="display:flex;align-items:center;gap:8px;padding:6px 0">'
+                    f'<span style="width:8px;height:8px;border-radius:50%;background:{_color};'
+                    f'box-shadow:0 0 8px {_color}"></span>'
+                    f'<span style="color:#d1d5db;font-size:12px">{_status_label.upper()}</span>'
+                    f'<span style="color:#6b7280;font-size:11px">({_mode_label})</span>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+                st.caption(f"📡 {_wss_status.get('subscribed_count', 0)} mã đã subscribe")
+                if _wss_status.get("error"):
+                    st.caption(f"⚠ {_wss_status['error'][:80]}")
+            else:
+                st.caption("⚠ Không khởi động được WSS client")
+    else:
+        st.caption("⚠ Module `vnstock_wss` chưa có — Live mode không khả dụng")
+
+    st.divider()
     _theme = st.toggle("☀️ Light mode", value=False, key="light_mode")
     if _theme:
         _t = THEMES["light"]

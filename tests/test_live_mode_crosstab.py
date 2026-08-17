@@ -27,27 +27,44 @@ from tests.test_tab_render_smoke import (
 )
 
 ROOT = Path(__file__).resolve().parent.parent
-_ANALYSIS_SRC = (ROOT / "dashboard" / "analysis_tab.py").read_text(encoding="utf-8")
+_MAIN_SRC = (ROOT / "vnstock_dashboard.py").read_text(encoding="utf-8")
 _MARKET_SRC = (ROOT / "dashboard" / "market_tab.py").read_text(encoding="utf-8")
+_TAB_SRCS = {p.name: p.read_text(encoding="utf-8")
+             for p in (ROOT / "dashboard").glob("*.py")}
 
 
-# ── Structural: hợp đồng key giữa hai tab ────────────────────────────────────
+# ── Structural: hợp đồng key + vị trí toggle ─────────────────────────────────
 
-def test_toggle_widget_must_not_bind_the_crosstab_flag_key():
+def test_no_widget_anywhere_binds_the_crosstab_flag_key():
     """Widget bind `key="live_mode"` là tái phát bug: Streamlit sẽ xoá cờ
-    ngay khi rời tab Phân tích. Key widget phải là key KHÁC."""
-    assert not re.search(r'key\s*=\s*["\']live_mode["\']', _ANALYSIS_SRC), (
-        "Toggle đang bind thẳng key='live_mode' — cờ sẽ chết khi chuyển tab "
-        "(widget-state bị Streamlit dọn khi widget không render). "
+    ngay khi widget rời cây render. Key widget phải là key KHÁC."""
+    offenders = [name for name, src in {**_TAB_SRCS,
+                                        "vnstock_dashboard.py": _MAIN_SRC}.items()
+                 if re.search(r'key\s*=\s*["\']live_mode["\']', src)]
+    assert not offenders, (
+        f"{offenders} đang bind widget thẳng key='live_mode' — cờ sẽ chết khi "
+        "widget không render (Streamlit dọn widget-state). "
         "Dùng key widget riêng + gán tay st.session_state['live_mode']."
     )
 
 
-def test_analysis_tab_assigns_plain_flag_for_other_tabs():
-    """Cờ phải được GÁN TAY thành key thường thì mới sống qua chuyển tab."""
-    assert re.search(r'st\.session_state\[["\']live_mode["\']\]\s*=\s*\w', _ANALYSIS_SRC), (
-        "analysis_tab không còn gán st.session_state['live_mode'] — "
-        "market_tab sẽ không bao giờ thấy cờ bật."
+def test_toggle_lives_in_always_rendered_sidebar_and_assigns_plain_flag():
+    """Bổ sung 17/08 (lần 2): toggle CHUYỂN LÊN sidebar chung của main script
+    — render mọi lượt, mọi tab, hết cả lớp bug dọn-state lẫn cảnh user tìm
+    không ra công tắc giữa 3 toggle 'Live...'. Ai dời nó về một tab
+    (dashboard/*.py) là mở lại lớp bug đó → đỏ."""
+    assert re.search(r'key\s*=\s*["\']live_mode_toggle["\']', _MAIN_SRC), (
+        "vnstock_dashboard.py không còn toggle Live Mode ở sidebar chung."
+    )
+    assert re.search(r'st\.session_state\[["\']live_mode["\']\]\s*=\s*\w', _MAIN_SRC), (
+        "Sidebar chung không còn gán st.session_state['live_mode'] — "
+        "các tab sẽ không bao giờ thấy cờ bật."
+    )
+    offenders = [name for name, src in _TAB_SRCS.items()
+                 if re.search(r'key\s*=\s*["\']live_mode_toggle["\']', src)]
+    assert not offenders, (
+        f"{offenders} render toggle Live Mode TRONG TAB — widget sẽ bị dọn "
+        "state khi user rời tab. Toggle phải ở sidebar chung (main script)."
     )
 
 

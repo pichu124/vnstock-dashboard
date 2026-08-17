@@ -259,8 +259,8 @@ def render_market_tab() -> None:
         # đường bật. Dòng này kiêm luôn "chứng chỉ code mới" khi nghi máy
         # đang chạy bản cũ.
         st.caption(
-            "🔌 Live Mode tắt — bật **Real-time WSS** ở sidebar tab "
-            "Phân tích để xem chỉ số + heatmap VN30 real-time tại đây."
+            "🔌 Live Mode tắt — bật **Real-time WSS** ở sidebar bên trái "
+            "(mục 🔴 Live Mode) để xem chỉ số + heatmap VN30 real-time tại đây."
         )
 
     # ── Chỉ số thị trường ────────────────────────────────────────────────────

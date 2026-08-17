@@ -117,7 +117,7 @@ def render_money_flow_tab() -> None:
             key="mf_live",
             help=(
                 "**Bật**: cập nhật Buy/Sell ratio mỗi 15 giây từ live quote "
-                "data (chỉ hoạt động khi Live Mode đang bật trong tab Phân tích).\n\n"
+                "data (chỉ hoạt động khi 🔴 Live Mode đang bật ở sidebar trái).\n\n"
                 "**Tắt**: chỉ xem dữ liệu offline (NN ròng + Buy/Sell từ "
                 "lần poll gần nhất).\n\n"
                 "Live Scan **không có NN ròng** real-time (dữ liệu NN chỉ "
