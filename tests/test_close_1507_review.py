@@ -207,6 +207,13 @@ def test_telegram_buy_bias_caveat_logic():
 
 
 def test_open_recs_block_appends_caveat_under_bear():
+    # Hermetic mục 10 (vết 15/08 (q), CA SÓT bắt được 17/08 trên máy user):
+    # rec GMD không mang strategy_id → gate mục 10 rơi về kiểm định của
+    # chiến lược ACTIVE = đọc SQLite THẬT của máy chạy test. Máy user có
+    # chiến lược active TRƯỢT (p=0.974) → GMD bị ẩn thành "1 lệnh ẩn",
+    # caveat mất chỗ bám, test đỏ làm `run.py all` fail cứng giữa pipeline;
+    # CI không có DB thì xanh. Ý đồ test là CAVEAT BUY-dưới-bối-cảnh-GIẢM,
+    # không phải gating — chốt thế giới: không có chiến lược active.
     import unittest.mock as m
     import vnstock_telegram as tg
     from vnstock_brief import _BUY_BIAS_CAVEAT
@@ -214,10 +221,12 @@ def test_open_recs_block_appends_caveat_under_bear():
                    "take_profit": 84, "cut_loss": 74, "horizon_days": 5,
                    "created_at": "2026-07-15T00:00:00"}]
     with m.patch("vnstock_memory.open_recommendations", return_value=fake_opens), \
+         m.patch("vnstock_memory.get_active_family", return_value=None), \
          m.patch.object(tg, "_market_is_bearish", return_value=True):
         out = tg._open_recs_block()
         assert _BUY_BIAS_CAVEAT in out and "GMD" in out
     with m.patch("vnstock_memory.open_recommendations", return_value=fake_opens), \
+         m.patch("vnstock_memory.get_active_family", return_value=None), \
          m.patch.object(tg, "_market_is_bearish", return_value=False):
         assert _BUY_BIAS_CAVEAT not in tg._open_recs_block()
 

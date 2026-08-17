@@ -6589,6 +6589,27 @@ sidebar trái trước." Test structural mới trong
 chiều: Screener tắt→caption hiện, bật động cơ→caption biến, Dòng Tiền
 đang bật→sạch, tắt lại→caption hiện lại. Suite 2087 → **2088 passed**.
 
+**Bổ sung lần 4 — máy user `run.py all` FAIL CỨNG ở bước test: ca sót
+của vết 15/08 (q), test không hermetic chỉ đỏ trên máy có DB thật.**
+`test_open_recs_block_appends_caveat_under_bear` (test_close_1507_review)
+patch open_recommendations + _market_is_bearish nhưng QUÊN trám tầng
+SQLite — rec GMD không mang strategy_id → gate mục 10 rơi về kiểm định
+của chiến lược ACTIVE đọc từ DB thật. Máy user: active trượt (p=0.974)
+→ GMD ẩn thành "1 lệnh ẩn" → caveat mất chỗ bám → test đỏ → `all` dừng
+TRƯỚC audit/train/reflection/doctor/brief (các bước data TRƯỚC đó đều
+xong). CI/container không có DB → xanh — đúng lý do lưới 15/08 chỉ trám
+được 3 test trong test_telegram.py mà không thấy test thứ 4 ở file khác.
+Tái hiện trong container bằng stub get_active_family={id}+backtest fail
+→ đỏ Y HỆT log user; vá cùng pattern "hermetic mục 10" (stub
+get_active_family=None trong cả 2 with-block, kèm comment tại chỗ);
+repro pass ở CẢ HAI trạng thái DB. Đã quét: các file khác đụng
+_recommendation_block/splitter đều có stub, và full suite của user
+(2087 pass + 1 fail) chính là bằng chứng tích hợp mạnh nhất rằng chỉ
+sót đúng ca này. Suite giữ **2088 passed**.
+Tiện ghi từ log user: ⏱ TỔNG 64.7' — sync 2.376s vẫn nặng (quarantine
+3.836 bar đang tự rút theo retry, dự kiến teo sau 1-2 phát); mục 8 đổi
+số: vnstock 4.0.6 / vnai 2.5.7 đã ra (vẫn CHƯA nâng, đúng kế hoạch).
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -6930,9 +6951,10 @@ Cerebras · OpenRouter · Mistral (mốc 11/08: 0.830 / 0.834 / 0.862 / 0.836).
 Kèm: Cerebras `gpt-oss-120b` digest chập chờn · Gemini flash 503 đêm VN là
 bình thường, cascade tự đỡ.
 
-**8. Nâng thư viện data** — vnstock 4.0.4→4.0.5, vnai 2.4.8→2.5.6, vnii
-0.2.4→0.2.5. CHƯA nâng. Nâng thì `run.py doctor --net` + full suite ngay
-sau; KHÔNG nâng sát giờ pipeline chạy.
+**8. Nâng thư viện data** — vnstock 4.0.4→**4.0.6**, vnai 2.4.8→**2.5.7**,
+vnii 0.2.4→0.2.5 *(số mới theo warning trong log 17/08 của user)*. CHƯA
+nâng. Nâng thì `run.py doctor --net` + full suite ngay sau; KHÔNG nâng
+sát giờ pipeline chạy.
 
 ## 🔧 NẾP GIT — bẫy đã vấp 2 lần
 
