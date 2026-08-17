@@ -105,9 +105,11 @@ def test_market_tab_renders_heatmap_when_flag_alive(render_env, monkeypatch):
     )
 
 
-def test_market_tab_skips_live_block_without_flag(render_env, monkeypatch):
-    """Không bật live thì khối live vắng mặt — hành vi chủ ý (không phải bug),
-    ghi lại đây cho khỏi tưởng nhầm là lỗi render."""
+def test_market_tab_skips_live_block_without_flag_but_says_so(render_env, monkeypatch):
+    """Không bật live thì khối live vắng CÓ CHỦ Ý — nhưng phải để lại MỘT dòng
+    chỉ đường. Bài học 17/08: khối vắng âm thầm thì user không phân biệt được
+    "chưa bật" với "cờ chết" với "máy chạy code cũ" — dòng caption này là
+    chứng chỉ code-mới-đang-chạy, đừng để ai dọn mất."""
     stub = _stub_dashboard()
     stub.WSS_AVAILABLE = True
     stub.load_live_quote = _live_quote
@@ -116,3 +118,8 @@ def test_market_tab_skips_live_block_without_flag(render_env, monkeypatch):
     _load("dashboard.market_tab").render_market_tab()
 
     assert "VN30 Heatmap" not in _markdown_dump(render_env)
+    caps = " | ".join(str(c.args[0]) if c.args else ""
+                      for c in render_env.caption.call_args_list)
+    assert "Live Mode tắt" in caps, (
+        "Cờ tắt mà không có dòng chỉ đường — khối live lại vắng mặt âm thầm."
+    )

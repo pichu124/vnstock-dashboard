@@ -6540,6 +6540,18 @@ user, smoke gọi thẳng hàm không thấy được vòng đời session_state
 Suite 2082 → **2087 passed** (+5). Còn nợ verify MẮT trong phiên sau khi
 merge — mục 1 cập nhật trạng thái.
 
+**Bổ sung cùng ngày — khối live không được vắng mặt ÂM THẦM nữa.** User
+báo "vẫn không thấy gì" sau bản vá đầu (khả năng cao máy chạy code cũ —
+Streamlit KHÔNG tự nạp lại module `dashboard/` đã import, sửa file phải
+RESTART process, và `git pull` thì dính bẫy "Already up to date"). Nhưng
+gốc rễ khó chẩn đoán là: cờ tắt thì khối biến mất không dấu vết — không
+phân biệt nổi "chưa bật" / "cờ chết" / "code cũ". Vá thêm nhánh `elif
+WSS_AVAILABLE`: caption "🔌 Live Mode tắt — bật Real-time WSS ở sidebar
+tab Phân tích…" — cùng lý lẽ "block không biến mất âm thầm" của Telegram
+15/08 (s), kiêm CHỨNG CHỈ CODE MỚI: mở tab Thị trường mà không thấy dòng
+này (khi chưa bật live) = máy còn chạy bản cũ. Test render "skip" mở
+rộng canh caption này (ai dọn mất là đỏ). Suite giữ 2087.
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026

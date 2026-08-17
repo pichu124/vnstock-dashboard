@@ -253,6 +253,15 @@ def render_market_tab() -> None:
 
         _live_market_fragment()
         st.divider()
+    elif WSS_AVAILABLE:
+        # Đừng vắng mặt ÂM THẦM (bài học 17/08: khối im lặng thì không ai
+        # phân biệt được "chưa bật live" với "cờ chết") — cờ tắt thì nói rõ
+        # đường bật. Dòng này kiêm luôn "chứng chỉ code mới" khi nghi máy
+        # đang chạy bản cũ.
+        st.caption(
+            "🔌 Live Mode tắt — bật **Real-time WSS** ở sidebar tab "
+            "Phân tích để xem chỉ số + heatmap VN30 real-time tại đây."
+        )
 
     # ── Chỉ số thị trường ────────────────────────────────────────────────────
     # Load 90 ngày một lần, reuse cho sparklines + quant analysis + commentary
