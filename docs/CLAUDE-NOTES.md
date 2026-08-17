@@ -6735,6 +6735,23 @@ no-sync trọn bộ 25.6' (15/08) / 54.4' (17/08, brief 1,131s vì 429 tự
 lệnh `Get-ScheduledTaskInfo` để soi LastRunTime/LastTaskResult, chờ
 kết quả. Phát 18:00 tối 18/08 (code đã merge đủ fix) mới là "đêm tự
 động đầu tiên" đúng nghĩa → sáng 19/08 lặp lại 3 lệnh, chấm ② lúc đó.
+→ **GIẢI MÃ (user dán TaskInfo ngay sau):**
+* **Daily 17/08**: task ĐÃ kích hoạt — LastRunTime **19:07:07** (chạy
+  bù sau khi lỡ hẹn 18:00, lúc đó phát tay 64.7' của user đang chiếm
+  máy) nhưng LastTaskResult **0xC000013A = BỊ NGẮT giữa chừng** trước
+  khi xong bước nào (vì thế log trắng — ⏱ chỉ in khi một bước XONG).
+  Khớp hoàn cảnh: buổi tối user đang merge + chạy tay `all --no-sync`
+  22:17 — hai phát giẫm nhau / cửa sổ console của task bị đóng nhầm.
+  KHÔNG phải lỗi cấu hình: NextRun 18/08 18:00 đã lên nòng. BÀI HỌC
+  VẬN HÀNH (nối bài 15-16/08): tránh chạy pipeline TAY vắt qua giờ
+  18:00, và buổi tối thấy cửa sổ console lạ đang chạy thì đó có thể là
+  task chạy bù — đừng Ctrl+C/đóng.
+* **Weekend 15/08**: LastRunTime 09:00 đúng hẹn, LastTaskResult **1 =
+  chạy XONG có cảnh báo** (bình thường với probe model — tuần trước
+  08/08 mới là fail cứng result=2). Tức báo cáo model watch T7 ĐANG
+  NẰM TRONG LOG mà mục 2 checklist vẫn CHƯA ĐỌC — việc đọc nó (bảng
+  điểm 5 nhà, Mistral lần đầu, nemotron-ultra còn bò → quyết mục 5)
+  vẫn mở.
 
 **0b. Đọc brief sáng/chiều kế tiếp — có dòng "KHÔNG CÓ …" nào oan không.**
 Prompt vừa thêm cảnh báo cho 3 khối (movers, dẫn dắt/tụt hậu, quant regime).
