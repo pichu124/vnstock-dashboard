@@ -6610,6 +6610,33 @@ Tiện ghi từ log user: ⏱ TỔNG 64.7' — sync 2.376s vẫn nặng (quarant
 3.836 bar đang tự rút theo retry, dự kiến teo sau 1-2 phát); mục 8 đổi
 số: vnstock 4.0.6 / vnai 2.5.7 đã ra (vẫn CHƯA nâng, đúng kế hoạch).
 
+**Bổ sung lần 5 — user merge fix, chạy `all --no-sync` TRỌN BỘ exit 0,
+và 🏁 CHIẾN LƯỢC ĐẦU TIÊN ĐẠT KIỂM ĐỊNH SAU KHI NÂNG SÀN 30 LỆNH.**
+Log 17/08 (12 bước, TỔNG 54.4'): 2088 test pass trên máy thật (fix
+hermetic ăn) → audit approved (Gemini conf 1.00) → train 2 tầng:
+* tier=short #35 RETIRED — 329 lệnh, expectancy −0.287, p=0.885 → đúng
+  luật không phát rec;
+* **tier=position #32 ACTIVE — 94 lệnh (≥ sàn 30), expectancy +2.47,
+  exit mix TP 34/SL 35/hết hạn 31, kiểm định ✅ ĐẠT p=0.012 →
+  `emit_recommendations` phát 5 rec mới** (scan 3.125 mã, vol ≥ 100K).
+  Đây là sự kiện cả hàng chờ 0e/4c đợi từ 13/08: mục khuyến nghị
+  [vị thế ~20 phiên] MỞ LẠI trong brief bằng con đường tự chứng minh
+  (tune đêm + gate Bonferroni + sàn 30), không phải nới luật.
+  Lưu ý đối soát khi rảnh: expectancy nhảy 0.197 (67 lệnh, 13/08) →
+  2.47 (94 lệnh) sau 2 đêm tune — hợp lệ qua gate nhưng đáng liếc panel
+  Chiến lược xem tham số revise thành gì.
+* reflection 3 bài học (Gemini/Cerebras 429 → ladder tự rơi bậc, đúng
+  hồ sơ); doctor 15✅·2⚠️; brief chiều #217 ĐÃ GỬI (bước brief 1.131s —
+  nặng nhất pipeline, phần lớn là chờ retry 429; để mắt phát 18:00).
+* Doctor ⚠️ quy đổi giá KÍCH HOẠT mục 3: soi chart WSS · WTC · XPH ·
+  YBM · YEG — YEG tỷ lệ 764× lệch xa 1000 đáng ngờ nhất (nghi chia
+  tách bị quy đổi oan → báo Claude kèm dòng doctor). Ledger ⚠️ hôm nay
+  là tự đốt (2 phát pipeline + brief tay) — đúng luật "chỉ soi khi ngày
+  KHÔNG chạy tay vẫn ⚠️".
+→ Brief #217 giờ là bàn VERIFY 3-trong-1 cho 0b + mục 9 + mục 10, và
+mục 10 có đủ CẢ HAI chiều: lệnh tầng ngắn (trượt) phải thành dòng "N
+lệnh ẩn", lệnh #32 (đạt) phải HIỆN.
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -6682,7 +6709,9 @@ caveat "500 phiên gần nhất toàn thị trường lên"). Brief đúng luậ
 rec của #32; nó ở lại ghế làm việc, được tune + đối soát để tự chứng minh.
 *(Diễn biến tiếp: tune 13/08 co mẫu 67→19 và "đạt" p=0.040 → user chốt nâng
 sàn bằng chứng lên 30 lệnh, verdict bị hạ lại tại điểm đọc — entry (f)+(g).
-Trạng thái hiện tại: brief ĐÓNG với cả hai tầng, chờ ứng viên ≥30 lệnh đạt.)*
+→ **17/08: #32 TỰ CHỨNG MINH XONG** — 94 lệnh ≥ sàn 30, p=0.012, ACTIVE,
+phát 5 rec: mục khuyến nghị tầng vị thế MỞ LẠI trong brief (entry 17/08
+bổ sung lần 5). Tầng ngắn vẫn đóng — #35 retired p=0.885.)*
 
 **0f. ✅ ĐÓNG 15/08 — PRODUCTION TRAIN CẢ 2 TẦNG, bằng chứng log máy bàn.**
 Phát `all --no-sync` lần 3 (15/08): log ghi ĐỦ HAI dòng
@@ -6876,6 +6905,11 @@ production chưa train tầng vị thế đêm nào, chưa có chiến lược �
 Hệ quả tức thì: #32 (19 lệnh) bị hạ verdict NGAY tại điểm đọc — brief kế tiếp
 KHÔNG còn rec `[vị thế ~20 phiên]` nữa; panel hiện "🎲 mẫu mỏng (n=19)".
 Mở lại khi có backtest ≥ 30 lệnh đạt chuẩn (tune/revise đêm sẽ tự tìm).
+→ **✅ ĐIỀU KIỆN MỞ LẠI ĐÃ XẢY RA 17/08**: #32 đạt p=0.012 với n=94 ≥ 30,
+phát 5 rec tầng vị thế (entry 17/08 bổ sung lần 5) — sàn 30 hoạt động đúng
+thiết kế: chặn lúc mỏng, tự mở khi đủ bằng chứng. Việc còn lại: đọc brief
+#217 soi rec hiện đúng nhãn `[vị thế ~20 phiên]`, và liếc panel Chiến lược
+xem tham số tune (expectancy 0.197→2.47 sau 2 đêm — hợp lệ nhưng đáng soi).
 
 **4b. Mã của nhóm tuỳ biến ĐẾM HAI LẦN — user chốt 13/08: TẠM GIỮ NGUYÊN.**
 
