@@ -1263,8 +1263,18 @@ def enforce_unvalidated_strategy_caveat(text: str, ctx: dict) -> str:
 
     Không đọc được kiểm định (chưa có chiến lược / DB lỗi) thì IM — không đo
     được khác đo ra kết quả xấu. Idempotent.
+
+    17/08 (brief #217): caveat phải theo kiểm định của CHÍNH recs trong prompt
+    (`strategy_recs_validation`, do `_recommendation_block` ghi cùng lúc với
+    cờ) — KHÔNG phải của chiến lược active tầng ngắn. Hai tier chạy song song:
+    đêm #32 [vị thế] ĐẠT p=0.012 mà guard này dán "(p=1.000)" của tầng ngắn
+    lên chính rec của nó, tự mâu thuẫn với block "Khuyến nghị đang mở" ngay
+    dưới. Thiếu key mới (luồng cũ chưa cập nhật / rec_block tự dựng) → rơi về
+    `strategy_validation` — đúng vai trò hàng rào dự phòng nguyên bản.
     """
-    val = (ctx or {}).get("strategy_validation") or {}
+    val = (ctx or {}).get("strategy_recs_validation")
+    if val is None:
+        val = (ctx or {}).get("strategy_validation") or {}
     if not text or not val.get("known") or val.get("passed", True):
         return text
     if not (ctx or {}).get("strategy_recs_in_prompt"):

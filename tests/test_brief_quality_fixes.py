@@ -95,6 +95,18 @@ def test_caveat_is_idempotent():
     assert vb.enforce_unvalidated_strategy_caveat(once, _ctx(passed=False)) == once
 
 
+def test_caveat_follows_recs_in_prompt_not_short_tier():
+    """Regression brief #217 (17/08): recs trong prompt là của #32 [vị thế]
+    ĐẠT p=0.012, nhưng guard đọc kiểm định của tầng NGẮN active (trượt,
+    p=1.000) → dán caveat sai nguồn, tự mâu thuẫn với block "Khuyến nghị
+    đang mở". Có `strategy_recs_validation` (kiểm định của CHÍNH recs) thì
+    nó phải THẮNG `strategy_validation`."""
+    ctx = _ctx(passed=False, p=1.0)                   # tầng ngắn trượt
+    ctx["strategy_recs_validation"] = {"known": True, "passed": True,
+                                       "p": 0.012, "reasons": []}
+    assert vb.enforce_unvalidated_strategy_caveat(_RECS_TEXT, ctx) == _RECS_TEXT
+
+
 def test_caveat_survives_the_whole_chain():
     """Điểm parity: đi qua CẢ chuỗi thì cảnh báo vẫn còn (guard sau không xoá)."""
     out = vb.apply_brief_guards(_RECS_TEXT, _ctx(passed=False))
@@ -163,6 +175,43 @@ def test_block_lists_recs_when_no_backtest(monkeypatch):
     block = vb._recommendation_block(ctx)
     assert "GAS" in block and "KHÔNG CÓ khuyến nghị" not in block
     assert ctx["strategy_recs_in_prompt"] is True
+
+
+def test_brief217_position_rec_not_stamped_with_short_tier_p(monkeypatch):
+    """End-to-end regression brief #217 (17/08), đêm ĐẦU TIÊN có chiến lược
+    đạt sau nâng sàn 30: active tầng ngắn #1 TRƯỢT (p_adj=1.0), rec mang
+    strategy_id=32 [vị thế 20 phiên] ĐẠT (p=0.012, n=94). Block phải phát
+    rec #32 vào prompt, và guard caveat KHÔNG được dán "(p=1.000)" của tầng
+    ngắn lên nó — trước fix, chuỗi này in đúng dòng lỗi user dán về."""
+    from datetime import datetime
+    m = _fake_memory(
+        monkeypatch,
+        validation={"passed": False, "p_value_adj": 1.0, "reasons": ["p quá cao"]},
+        recs=[{"ticker": "SBT", "action": "buy", "entry_price": 23.0,
+               "take_profit": 26.0, "cut_loss": 22.0, "horizon_days": 20,
+               "strategy_id": 32,
+               "created_at": datetime.now().isoformat()}])
+    _bt = {
+        32: {"n_trades": 94, "metrics_json": json.dumps(
+            {"validation": {"passed": True, "p_value_adj": 0.012, "reasons": []},
+             "n_trades": 94})},
+        1: {"n_trades": 60, "metrics_json": json.dumps(
+            {"validation": {"passed": False, "p_value_adj": 1.0,
+                            "reasons": ["p quá cao"]},
+             "n_trades": 60})},
+    }
+    m.latest_backtest = lambda sid: _bt.get(sid)
+
+    ctx = {}
+    block = vb._recommendation_block(ctx)
+    assert "SBT" in block and "vị thế" in block       # rec ĐẠT vào prompt đủ nhãn
+    assert ctx["strategy_recs_validation"]["passed"] is True
+    assert ctx["strategy_validation"]["passed"] is False   # tầng ngắn vẫn trượt
+
+    text = ("## 💡 Đề xuất giao dịch\n"
+            "- SBT MUA entry=23 TP=26 SL=22\n"
+            "\n## ⚠️ Rủi ro cần lưu ý\n- ...")
+    assert vb.enforce_unvalidated_strategy_caveat(text, ctx) == text
 
 
 def test_block_prefers_selection_adjusted_pvalue(monkeypatch):

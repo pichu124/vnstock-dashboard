@@ -6637,6 +6637,33 @@ hermetic ăn) → audit approved (Gemini conf 1.00) → train 2 tầng:
 mục 10 có đủ CẢ HAI chiều: lệnh tầng ngắn (trượt) phải thành dòng "N
 lệnh ẩn", lệnh #32 (đạt) phải HIỆN.
 
+**Bổ sung lần 6 — user dán brief #217: verify 3-trong-1 ĐẠT, nhưng lộ
+1 bug xuyên tầng THẬT trong guard caveat → vá + 2 test.**
+Kết quả soi #217: ✅ 0b (không dòng "KHÔNG CÓ" oan — "Chưa có nhóm dẫn
+dắt rõ ràng" là nhận định nội dung hợp lệ phiên đi ngang; regime/momentum
+đủ số) · ✅ mục 9 (NN 1D "-588 tỷ trong phiên" khớp doctor -587.6; số
+tuần đều kèm nhãn "1 tuần" + TÊN NGÀNH — không còn tự mâu thuẫn như #212)
+· ✅ mục 10 CẢ HAI chiều (4 rec #32 hiện đúng "ngày 0/20", tầng ngắn gom
+"6 lệnh ẩn — xem trong dashboard").
+BUG lộ ra: mục Đề xuất giao dịch dán caveat "CHƯA QUA kiểm định
+**(p=1.000)**" lên chính rec của #32 vừa ĐẠT p=0.012 — tự mâu thuẫn với
+block Khuyến nghị đang mở ngay dưới. Nguyên nhân:
+`enforce_unvalidated_strategy_caveat` đọc `ctx["strategy_validation"]`
+= kiểm định của active tầng NGẮN (trượt, p_adj=1.0), trong khi cờ
+`strategy_recs_in_prompt` từ 13/08 không còn ngầm định "rec = của tầng
+ngắn" (hai tier + splitter 15/08: emitted chỉ còn passed/unknown). Vá:
+`_recommendation_block` ghi thêm `ctx["strategy_recs_validation"]`
+(kiểm định của CHÍNH recs trong prompt), guard ưu tiên key này, thiếu
+key mới rơi về key cũ (giữ vai trò hàng rào cho luồng chưa cập nhật).
+2 test mới (unit + end-to-end dựng đúng kịch bản #217: active #1 trượt
+p=1.0, rec sid=32 đạt n=94) — đối chứng cả hai ĐỎ trên code cũ.
+Suite 2088 → **2090 passed**.
+Ghi nhận nhỏ chưa xử: (1) đếm lệch — reconcile still_open=7 + emit 5
+= 12 nhưng brief hiện 4 + ẩn 6 = 10; nghi emit dedup mã trùng lệnh cũ,
+soi sổ khuyến nghị dashboard khi rảnh, lệch còn đó thì báo Claude;
+(2) "bán ròng -588 tỷ" mang dấu âm thừa (bán ròng đã hàm ý âm) — thẩm
+mỹ, chưa đáng thêm guard.
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -6645,7 +6672,7 @@ lệnh ẩn", lệnh #32 (đạt) phải HIỆN.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2088 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
+> Trạng thái: full suite **2090 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh `claude/remaining-tasks-tests-4xoam3`
 > đã merge máy bàn 15/08 · nhánh MỚI `claude/tong-hop-cong-viec-test-w8mvrc`
@@ -6953,8 +6980,9 @@ không dung cặp `**` markdown giữa số và "tuần". Vá khe `[\s*]*` (tr�
 dấu sao cho bold khỏi lệch) + nhánh 3 mới: số tuần của MỘT ngành nói như
 toàn thị trường → chèn tên ngành sau "ròng"; không phân xử được (trùng
 số 1D, ≥2 ngành trùng, đã nêu tên) thì không đụng. Test dùng nguyên văn
-2 câu lỗi #212. **Verify phiên tới: đọc brief chiều, soi mục Dòng tiền +
-TLDR — số NN kèm nhãn kỳ/phạm vi có còn tự mâu thuẫn không.**
+2 câu lỗi #212. ✅ **VERIFY XONG 17/08 qua brief #217**: NN 1D ghi rõ
+"trong phiên" khớp doctor; mọi số tuần kèm nhãn "1 tuần" + tên ngành —
+hết tự mâu thuẫn (entry 17/08 bổ sung lần 6). MỤC NÀY ĐÓNG.
 
 **10. ✅ ĐÓNG 15/08 — user chốt phương án (b): Telegram ẨN lệnh có chiến
 lược nguồn trượt kiểm định, dashboard giữ đủ** (entry 15/08 (s)). Luật ẩn
@@ -6963,9 +6991,11 @@ known-và-trượt; unknown vẫn hiện; rec xử theo kiểm định của CH�
 lược nguồn). `_open_recs_block` thay lệnh ẩn bằng dòng đếm trỏ về
 dashboard; caveat BUY-GIẢM chỉ xét lệnh đang hiện; 2 net parity canh ai
 inline lại luật. Emit đêm vẫn mở lệnh cho accuracy tracking (không chọn
-(c) — giữ dữ liệu để chiến lược tự chứng minh). **Verify push Telegram
-kế tiếp: 10 lệnh tầng 5 phiên (chiến lược trượt p=0.974) phải biến thành
-"· 10 lệnh ẩn …"; khi nào có chiến lược ĐẠT thì lệnh của nó hiện lại.**
+(c) — giữ dữ liệu để chiến lược tự chứng minh). ✅ **VERIFY XONG 17/08
+qua brief #217, đủ CẢ HAI chiều**: tầng ngắn trượt gom "6 lệnh ẩn — xem
+trong dashboard", 4 lệnh #32 (ĐẠT p=0.012) hiện đúng "ngày 0/20" (entry
+17/08 bổ sung lần 5+6). MỤC NÀY ĐÓNG — còn cái đuôi đếm lệch 12 vs 10
+ghi ở bổ sung lần 6, soi dashboard khi rảnh.
 
 **5. Độ trễ OpenRouter — ĐANG LEO THANG.** nemotron-super 18.6 → 25.8s;
 nemotron-ultra median 0.79s → 127.3s (11/08). Production tự né qua timeout.

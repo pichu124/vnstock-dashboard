@@ -3832,6 +3832,15 @@ def _recommendation_block(ctx: dict | None = None) -> str:
                 "CHƯA ĐẠT kiểm định — KHÔNG nhắc tới các mã ngoài danh sách trên.)")
         if ctx is not None:
             ctx["strategy_recs_in_prompt"] = True
+            # 17/08 (brief #217): cờ recs_in_prompt từng ngầm định "rec trong
+            # prompt = của chiến lược active tầng NGẮN". Hai tier (13/08) +
+            # gate ở nguồn (15/08) làm ngầm định gãy: emitted sau splitter chỉ
+            # còn passed/unknown và có thể thuộc tier KHÁC — đêm #32 [vị thế]
+            # ĐẠT p=0.012 mà caveat dán (p=1.000) của tầng ngắn lên chính rec
+            # của nó. Ghi kiểm định của CHÍNH recs vừa vào prompt để guard
+            # caveat theo đúng nguồn.
+            ctx["strategy_recs_validation"] = {
+                "known": True, "passed": True, "p": None, "reasons": []}
         return "\n".join(lines)
     except Exception:
         return ""
