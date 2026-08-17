@@ -6724,6 +6724,18 @@ live cần giờ giao dịch → gộp mục 1).
   không phủ được dòng nào vì chỉ chạy khi WSS sống trong giờ giao dịch.
   Rủi ro thấp (code không đổi) → GỘP vào mục 1 bên dưới, làm cùng phiên.
 
+**0g. Sáng 18/08 — user chạy 3 lệnh Select-String (checklist 0c):**
+`tier=` ✅ đủ 2 dòng ở CẢ HAI phát 12 bước (15/08 + 17/08 tối) ·
+`collect_context` ✅ im lặng = mọi nguồn khoẻ · `⏱` đọc được: sync
+9,731s (heal đỉnh) → 2,376s (17/08) đang teo đúng dự đoán; pipeline lõi
+no-sync trọn bộ 25.6' (15/08) / 54.4' (17/08, brief 1,131s vì 429 tự
+đốt). **Mục ② CHƯA chấm — log KHÔNG có phát 18:00 TỰ ĐỘNG nào**: từ
+23:11 17/08 về trước chỉ toàn phát tay. ⚠️ NGHI VẤN MỚI: task Daily
+18:00 hôm 17/08 không để lại dấu vết trong run_daily.log — đã đưa user
+lệnh `Get-ScheduledTaskInfo` để soi LastRunTime/LastTaskResult, chờ
+kết quả. Phát 18:00 tối 18/08 (code đã merge đủ fix) mới là "đêm tự
+động đầu tiên" đúng nghĩa → sáng 19/08 lặp lại 3 lệnh, chấm ② lúc đó.
+
 **0b. Đọc brief sáng/chiều kế tiếp — có dòng "KHÔNG CÓ …" nào oan không.**
 Prompt vừa thêm cảnh báo cho 3 khối (movers, dẫn dắt/tụt hậu, quant regime).
 Cảnh báo chỉ được hiện khi nguồn đó THẬT SỰ thiếu data. Brief bình thường mà
