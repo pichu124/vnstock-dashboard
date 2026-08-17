@@ -141,12 +141,18 @@ def render_analysis_tab() -> None:
         st.divider()
         st.markdown("### 🔴 Live Mode")
         if WSS_AVAILABLE:
+            # Cờ live_mode được tab KHÁC đọc (market_tab) — nav st.pills chỉ
+            # render 1 tab/lượt, mà Streamlit XOÁ session_state của widget
+            # không được render → key widget phải KHÁC key cờ, cờ gán tay
+            # mới sống qua chuyển tab (bug user bắt 17/08: heatmap VN30
+            # không bao giờ hiện ở tab Thị trường).
             live_on = st.toggle(
                 "Real-time WSS",
                 value=st.session_state.get("live_mode", False),
-                key="live_mode",
+                key="live_mode_toggle",
                 help="Stream real-time toàn thị trường (~1,100 mã), poll mỗi 2s"
             )
+            st.session_state["live_mode"] = live_on
             if live_on:
                 _wss_client = _get_wss_singleton(full_market=True)
                 if _wss_client is not None:

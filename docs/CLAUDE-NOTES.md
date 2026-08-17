@@ -6502,6 +6502,44 @@ trước format.
 
 Suite 2072 → **2082 passed** (+10).
 
+
+## 2026-08-17 — Heatmap VN30 live CHƯA BAO GIỜ hiện được: cờ `live_mode` chết khi chuyển tab (mục 1 bắt đúng con mồi)
+
+User làm mục 1: bật Live Mode ở tab Phân tích rồi sang tab Thị trường —
+khối live KHÔNG hiện, không cả dòng "⏳ Chờ WSS data..." (ảnh chụp: hàng
+badge dính sát tiêu đề "Diễn biến chỉ số…", sidebar không còn mục Live
+Mode). Chẩn đoán ra bug thật, không phải thao tác sai:
+
+* Nav dùng `st.pills` + render có điều kiện → mỗi lượt chạy CHỈ tab đang
+  mở được render (chính comment code: "dùng pills thay tabs để tránh
+  lazy-render").
+* Toggle "Real-time WSS" nằm trong sidebar tab Phân tích, bind THẲNG
+  `key="live_mode"` — mà Streamlit XOÁ session_state của widget không
+  được render trong lượt. Bấm sang Thị trường là toggle biến khỏi cây
+  render → cờ bị dọn → `market_tab` đọc `get("live_mode")` ra None →
+  toàn khối live (khung chỉ số + heatmap VN30) skip IM LẶNG.
+* WSS client vẫn sống (`@st.cache_resource` singleton) — chỉ LÁ CỜ chết.
+  Tức khối heatmap chưa bao giờ render được qua đường điều hướng thật;
+  đúng khối duy nhất smoke 12/08 không phủ được, và đúng thứ bước soi
+  mắt mục 1 sinh ra để bắt.
+
+Vá (`dashboard/analysis_tab.py`): tách key — widget giữ
+`key="live_mode_toggle"`, cờ cho tab khác đọc GÁN TAY
+`st.session_state["live_mode"] = live_on` (key thường, Streamlit không
+dọn; quay lại tab Phân tích toggle tự khôi phục qua `value=`). Nhánh đọc
+nội bộ tab Phân tích (fragment live chart) không đổi vì cùng đọc cờ tay.
+
+Lưới mới `tests/test_live_mode_crosstab.py` (+5): 3 structural canh CẢ
+HAI PHÍA hợp đồng key (widget cấm bind `live_mode` · analysis phải gán
+tay · market phải còn đọc đúng key — đổi tên một phía là đỏ) + 2 render
+qua harness smoke (cờ sống → markup "VN30 Heatmap" phải xuất hiện; không
+cờ → vắng chủ ý). Đối chứng: regex chạy trên bản CŨ → đỏ đúng cả hai.
+Cùng họ bài học 15/08 (s): lỗi chỉ lộ khi đối chiếu ĐƯỜNG ĐI THẬT của
+user, smoke gọi thẳng hàm không thấy được vòng đời session_state.
+
+Suite 2082 → **2087 passed** (+5). Còn nợ verify MẮT trong phiên sau khi
+merge — mục 1 cập nhật trạng thái.
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -6510,10 +6548,11 @@ Suite 2072 → **2082 passed** (+10).
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2082 passed** (`--fast` ~1.580 test — ~26-35s trên CI,
+> Trạng thái: full suite **2087 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
-> 13/08 — xem entry 13/08) · nhánh
-> `claude/remaining-tasks-tests-4xoam3` đã push. Đồng bộ máy + push main:
+> 13/08 — xem entry 13/08) · nhánh `claude/remaining-tasks-tests-4xoam3`
+> đã merge máy bàn 15/08 · nhánh MỚI `claude/tong-hop-cong-viec-test-w8mvrc`
+> (fix live_mode 17/08) đã push, CHỜ MERGE. Đồng bộ máy + push main:
 > user tự làm thường xuyên — KHÔNG track làm việc (user chốt 12/08).
 
 ## 🔴 VIỆC TAY — sau đợt tách file 12/08
@@ -6660,15 +6699,20 @@ Món nợ verify cuối của đợt fix 07/08 ĐÃ ĐÓNG: user chạy
 riêng poll `price_depth` → `quote_VN30F1M.json`, không qua đường tick→bar;
 đường đó chỉ chở cổ phiếu + index và cả hai đã chấm (entry 13/08 (i)).
 Cần chạy lại sau này (nghi WSS hỏng): vẫn lệnh đó, trong phiên.
-* ⬜ **CÒN NỢ heatmap — 13/08 hết giờ giao dịch, DỜI PHIÊN SAU** (mục ↪
-  gộp từ 0 xuống — khối duy nhất chưa mắt nào soi sau đợt 12/08). Việc
-  1 phút, chỉ làm được trong phiên (9:00-15:00, thứ 2-6): mở dashboard →
-  tab **Phân tích** bật toggle **Real-time WSS** (🔴 Live Mode ở sidebar,
+* ⬜ **CÒN NỢ heatmap — 17/08 user soi và BẮT ĐƯỢC BUG THẬT, đã vá, chờ
+  merge + soi lại.** Lần soi 17/08: bật Live Mode xong sang tab Thị
+  trường thì khối live vắng hẳn (không cả "⏳ Chờ WSS data...") — hoá ra
+  cờ `live_mode` bind thẳng vào widget toggle nên bị Streamlit dọn ngay
+  khi rời tab Phân tích → khối heatmap CHƯA BAO GIỜ render được qua
+  đường điều hướng thật (chi tiết + lưới 5 test: entry 17/08; nhánh
+  `claude/tong-hop-cong-viec-test-w8mvrc`). Việc còn lại sau khi merge,
+  1 phút, trong phiên (9:00-15:00, thứ 2-6): mở dashboard → tab
+  **Phân tích** bật toggle **Real-time WSS** (🔴 Live Mode ở sidebar,
   chờ chấm xanh CONNECTED + "~1.100 mã đã subscribe") → SANG tab
-  **Thị trường** — đầu tab phải thấy khung chỉ số + heatmap VN30 tự cập
-  nhật ~5 giây/lần. "⏳ Chờ WSS data..." đứng im quá vài phút → chụp ảnh
-  báo Claude. Gợi ý ghép việc: sáng 14/08 soi `run_daily.log` (mục 0c)
-  xong thì trong phiên tiện tay liếc luôn cái này.
+  **Thị trường** — GIỮA hàng badge và tiêu đề "Diễn biến chỉ số…" phải
+  thấy khung 4 chỉ số + lưới ~30 ô màu VN30 + dòng breadth `↑x =y ↓z`,
+  tự cập nhật ~5 giây/lần. "⏳ Chờ WSS data..." đứng im quá vài phút →
+  chụp ảnh báo Claude.
 
 ## ⏳ TỰ ĐẾN — chỉ cần ĐỌC khi tới
 
