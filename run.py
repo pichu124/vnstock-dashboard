@@ -1092,7 +1092,8 @@ def cmd_models(args) -> int:
 
 
 def cmd_weekend(args) -> int:
-    """rates-weekly (render cache → Telegram) → vietstock corp actions →
+    """models (model watch + eval, đứng đầu — xem _weekend_steps) →
+    rates-weekly (render cache → Telegram) → vietstock corp actions →
     fundamentals (~25-30 phút, để cuối). Chạy 09:00 T7; máy tắt thì
     StartWhenAvailable chạy lúc mở máy sớm nhất cuối tuần."""
     worst = 0

@@ -6884,24 +6884,28 @@ Cần chạy lại sau này (nghi WSS hỏng): vẫn lệnh đó, trong phiên.
 
 ## ⏳ TỰ ĐẾN — chỉ cần ĐỌC khi tới
 
-**2. Báo cáo T7 15/08 09:00** *(note cũ ghi 16/08 là trượt lịch — 16/08 là
-CN; TaskInfo xác nhận NextRun 15/08 09:00)* — task tuần tự chạy. ⚠️ Soi
-TaskInfo 15/08 còn lộ: phát tuần trước (08/08) **LastTaskResult=2 = FAIL
-CỨNG trong im lặng** (thời chưa có log). Phát hôm nay là phát cuối tuần
-ĐẦU TIÊN có log — máy phải BẬT qua 9h; xong thì soi
-`Select-String -Path run_daily.log -Pattern "\[run.py\] 20"` thấy header
-`| ... weekend`, đọc tiếp trong log nếu có bước fail. Lần ĐẦU TIÊN:
-* bảng điểm sạch hoàn chỉnh (flash nhịp riêng → đo đủ; 2 model OpenRouter
-  đo bù theo xoay vòng);
-* **đủ mặt 5 nhà** — Mistral lần đầu được probe + lưu mốc danh mục + chấm
-  bộ đề (nhịp 2s);
-* soi `nemotron-ultra` còn bò không (11/08: 127.3s = 161× median) — còn bò
-  thì làm §5;
-* nấc nào kém THẬT (coverage đủ) → mở lại "cảnh báo nấc yếu" (bỏ 11/08).
-
-Cùng ngày tiện xác nhận: brief chiều từ 12/08 còn **4 giọng** (Gemini /
-Cerebras / OpenRouter / Mistral), KHÔNG còn dòng ❌ Groq — config tự sửa ở
-lần load đầu sau merge (entry 11/08 (g)).
+**2. ✅ ĐÓNG 18/08 — báo cáo model watch T7 15/08 đã đọc trọn** (user dán
+nguyên văn; task chạy đúng 09:00, exit 1 = cảnh báo mềm, KHÔNG có gì
+chết). Đối chiếu 4 câu hỏi đặt trước:
+* **Đủ mặt 5 nhà ✅** — Mistral lần đầu: probe 0.8s sống, lưu mốc 55
+  model, chấm bộ đề (classify 1.00 / sentiment 0.88 / json 1.00).
+* **Probe ladder: 10 sống / 0 chết / 1 ⏳** — chỉ OpenRouter
+  `gpt-oss-20b:free` hết quota ngày (429 free tier, tự hồi), không phải
+  model chết.
+* **nemotron-ultra HẾT BÒ** — probe 2.1s (11/08 từng 127.3s = 161×
+  median), mục "── Chậm bất thường ──" KHÔNG xuất hiện = không model nào
+  chậm bất thường. → mục 5 HẠ NHIỆT (xem cập nhật ở mục 5).
+* **Bảng điểm**: 8/10 nấc đo đủ, 6 nấc điểm tuyệt đối. Ba điểm để mắt
+  T7 sau (22/08): (a) `gemini-3.5-flash` vẫn n/a — 22 ca hụt dù có nhịp
+  riêng (quota free tối T7); (b) **Groq `gpt-oss-20b` sentiment 0.75 mà
+  vai của nó chính là [1] sentiment** — tuần sau vẫn ≤0.75 thì mở lại
+  "cảnh báo nấc yếu" + cân nhắc đổi nấc [1] (gemma-4-31b cùng vai đang
+  1.00); (c) nemotron-ultra được xoay vòng chấm bù.
+* Danh mục: Gemini +2 (có `gemini-3.7-flash` MỚI — cả bản OpenRouter);
+  OpenRouter -1/+10 (model bị gỡ không nằm trong ladder). 3.7-flash là
+  ứng viên nâng cấp tương lai — LUẬT CŨ GIỮ NGUYÊN: probe sống trên máy
+  thật trước khi vào code.
+Brief chiều 4 giọng không còn ❌ Groq đã xác nhận từ #217.
 
 **3. Badge 🩺 "Quy đổi đơn vị giá"** — tự động toàn phần (entry 11/08 (b)).
 CHỈ hành động khi badge warn: soi chart mã nêu tên; nghi quy đổi OAN (mã
@@ -7036,9 +7040,11 @@ trong dashboard", 4 lệnh #32 (ĐẠT p=0.012) hiện đúng "ngày 0/20" (entr
 17/08 bổ sung lần 5+6). MỤC NÀY ĐÓNG — còn cái đuôi đếm lệch 12 vs 10
 ghi ở bổ sung lần 6, soi dashboard khi rảnh.
 
-**5. Độ trễ OpenRouter — ĐANG LEO THANG.** nemotron-super 18.6 → 25.8s;
-nemotron-ultra median 0.79s → 127.3s (11/08). Production tự né qua timeout.
-T7 vẫn bò → probe ứng viên mới rồi bàn thay:
+**5. Độ trễ OpenRouter — ✅ HẠ NHIỆT 18/08 (hết leo thang).** Báo cáo T7
+15/08: nemotron-ultra probe **2.1s** (11/08 từng 127.3s = 161× median),
+nemotron-super 1.4s, mục "Chậm bất thường" trống. KHÔNG cần probe ứng
+viên thay nữa. Đóng hẳn khi báo cáo T7 22/08 chấm bộ đề ultra (đang xoay
+vòng) mà latency vẫn thường. Nếu tái bò thì lệnh probe ứng viên vẫn đây:
 ```powershell
 python scripts/probe_models.py --slug "OpenRouter=nvidia/nemotron-3.5-lightning:free"
 ```
