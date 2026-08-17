@@ -111,10 +111,15 @@ def render_money_flow_tab() -> None:
             ),
         )
         _mf_days = {"1D": 0, "5D": 7, "20D": 30}[_mf_window]
+        # Consumer của động cơ WSS (user chốt 17/08): động cơ tắt thì toggle
+        # bị KHOÁ + kéo về OFF kèm chỉ đường, khỏi bật chay vô dụng.
+        _wss_engine_on = bool(st.session_state.get("live_mode")) and WSS_AVAILABLE
+        if not _wss_engine_on:
+            st.session_state["mf_live"] = False
         _mf_live_on = st.toggle(
             "Live Scan (real-time)",
-            value=False,
             key="mf_live",
+            disabled=not _wss_engine_on,
             help=(
                 "**Bật**: cập nhật Buy/Sell ratio mỗi 15 giây từ live quote "
                 "data (chỉ hoạt động khi 🔴 Live Mode đang bật ở sidebar trái).\n\n"
@@ -124,6 +129,8 @@ def render_money_flow_tab() -> None:
                 "có cuối ngày) — chỉ dựa trên tỷ lệ Buy/Sell volume."
             ),
         )
+        if not _wss_engine_on:
+            st.caption("🔌 Cần bật **🔴 Live Mode** ở sidebar trái trước.")
         st.caption(
             "**NN ròng**: khối ngoại mua - bán ròng (tỷ VND)\n\n"
             "**Buy/Sell**: tỷ lệ mua/bán chủ động "

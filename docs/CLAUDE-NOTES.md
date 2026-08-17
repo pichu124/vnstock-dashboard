@@ -6577,6 +6577,18 @@ trường → hết "Live Mode tắt", khối live render "⏳ Chờ WSS data...
 Suite giữ **2087 passed**. Ghi chú vận hành cho máy user: sau merge phải
 RESTART dashboard; toggle giờ nằm sidebar trái mọi tab.
 
+**Bổ sung lần 3 — user chốt hướng (a): khoá Live Scan khi động cơ tắt.**
+Hai toggle Live Scan (Screener `live_scan_on` · Dòng Tiền `mf_live`) giờ
+gate theo động cơ: `_wss_engine_on = cờ live_mode AND WSS_AVAILABLE` —
+động cơ tắt thì toggle `disabled` + KÉO VỀ OFF (khỏi đứng ON-nhưng-xám
+nói dối trạng thái; bỏ `value=False` để set-state không sinh warning
+default-vs-state của Streamlit) + caption "🔌 Cần bật 🔴 Live Mode ở
+sidebar trái trước." Test structural mới trong
+`test_live_mode_crosstab.py` canh đủ 3 vế (nhìn cờ / disabled / kéo OFF
++ caption) cho CẢ HAI file. Đối chứng app thật bằng Playwright đủ 4
+chiều: Screener tắt→caption hiện, bật động cơ→caption biến, Dòng Tiền
+đang bật→sạch, tắt lại→caption hiện lại. Suite 2087 → **2088 passed**.
+
 ---
 
 # 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
@@ -6585,7 +6597,7 @@ RESTART dashboard; toggle giờ nằm sidebar trái mọi tab.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2087 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
+> Trạng thái: full suite **2088 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh `claude/remaining-tasks-tests-4xoam3`
 > đã merge máy bàn 15/08 · nhánh MỚI `claude/tong-hop-cong-viec-test-w8mvrc`

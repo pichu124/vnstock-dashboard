@@ -76,6 +76,30 @@ def test_market_tab_still_reads_the_same_flag_key():
     )
 
 
+def test_live_scan_consumers_are_gated_on_the_engine():
+    """Hướng (a) user chốt 17/08: hai toggle Live Scan là CONSUMER của động
+    cơ WSS — động cơ tắt thì phải KHOÁ (disabled) + kéo về OFF + caption chỉ
+    đường, thay vì bật chay được rồi chỉ thấy "Chưa có quote data" (chính
+    cảnh làm user tưởng Live Scan là Live Mode)."""
+    for fname, widget_key in (("screener_tab.py", "live_scan_on"),
+                              ("money_flow_tab.py", "mf_live")):
+        src = _TAB_SRCS[fname]
+        assert re.search(r'session_state\.get\(\s*["\']live_mode["\']', src), (
+            f"{fname}: toggle Live Scan không còn nhìn cờ động cơ live_mode."
+        )
+        assert re.search(r'disabled\s*=\s*not\s+_wss_engine_on', src), (
+            f"{fname}: toggle Live Scan không còn bị khoá khi động cơ tắt."
+        )
+        assert re.search(
+            rf'st\.session_state\[["\']{widget_key}["\']\]\s*=\s*False', src), (
+            f"{fname}: không còn kéo '{widget_key}' về OFF khi động cơ tắt — "
+            "toggle sẽ đứng ON-nhưng-xám, trạng thái nói dối."
+        )
+        assert "Cần bật" in src, (
+            f"{fname}: mất caption chỉ đường về 🔴 Live Mode."
+        )
+
+
 # ── Render: phía tiêu thụ thật sự vẽ heatmap khi cờ sống ─────────────────────
 
 def _live_quote(sym):

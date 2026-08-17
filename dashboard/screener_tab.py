@@ -190,12 +190,20 @@ def render_screener_tab(
             st.caption(f"⚠ preset scorecard lỗi: {type(_e).__name__}: {_e}")
 
     # ── Live Screener (real-time scan trong phiên) ──────────────────────
+    # Consumer của động cơ WSS (user chốt 17/08): động cơ 🔴 Live Mode tắt
+    # thì toggle bị KHOÁ + kéo về OFF kèm chỉ đường — trước đây bật chay
+    # được rồi chỉ thấy "Chưa có quote data", dễ tưởng nhầm là Live Mode.
+    _wss_engine_on = bool(st.session_state.get("live_mode")) and WSS_AVAILABLE
+    if not _wss_engine_on:
+        st.session_state["live_scan_on"] = False
     _live_scan_on = st.toggle(
         "🔴 Live Scan (real-time)",
-        value=False,
         key="live_scan_on",
+        disabled=not _wss_engine_on,
         help="Scan tín hiệu trên giá real-time mỗi 10s — cần Live Mode đang bật"
     )
+    if not _wss_engine_on:
+        st.caption("🔌 Cần bật **🔴 Live Mode** ở sidebar trái trước.")
 
     if _live_scan_on and WSS_AVAILABLE:
         @st.fragment(run_every=10)
