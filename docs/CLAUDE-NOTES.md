@@ -6990,14 +6990,38 @@ CHÍNH BADGE mới là thứ phải sửa.** User soi 5 chart (WSS/WTC/XPH/YBM/Y
 * ⚠️ **VVS — ca thật DUY NHẤT còn lại, đã xác nhận KỀ PHIÊN**: user chạy
   `--ticker VVS` sau bản vá gap: `2026-06-15: 112.50 → 71.21 (−36.7%)`,
   hai bar 12/06 → 15/06 (thứ Sáu → thứ Hai) nên KHÔNG phải gap artifact.
-  Hệ số giá **1.580×** — bất khả với biên ±15%, đúng chữ ký sự kiện quyền
-  chưa back-adjust (1.58 ≈ thưởng tỉ lệ 100:58). Kho VVS quanh vùng đó
-  KHÔNG được điều chỉnh lùi, tức chuỗi giá VVS trước 15/06 đang **cao hơn
-  thực tế ~58%** → mọi backtest/chỉ báo dài hạn trên VVS đều lệch. Chưa
-  chữa (cần xác nhận sự kiện thật + quyết cách back-adjust); mục 4d chốt
-  "kho NHẤT QUÁN điều chỉnh cổ tức" dựa trên 28/30 mã VN30 — VVS là mã
-  UPCOM ngoài mẫu đó, KHÔNG mâu thuẫn kết luận cũ nhưng mở rộng phạm vi:
-  độ phủ back-adjust ngoài VN30 chưa được kiểm.
+  Hệ số giá **1.580×** — bất khả với biên ±15%.
+  **KHÔNG PHẢI sự kiện quyền — giả thuyết "thưởng 100:58" của Claude SAI,
+  rút lại.** Bằng chứng loại trừ (user chạy `vnstock_div_check --tickers
+  VVS --refresh -v` 18/08): VVS có 3 sự kiện trong 750 ngày → **2 đã điều
+  chỉnh · 0 GAP THÔ · 1 chưa kết luận** (2026-03-08 [bonus] kỳ vọng
+  −97.68% — chính div_check gắn cờ "nghi sai đơn vị/tỷ lệ NGUỒN"). Nếu có
+  sự kiện quyền ở 15/06 mà kho chưa điều chỉnh thì div_check BẮT BUỘC
+  phải báo GAP THÔ ở đúng ngày đó; nó báo 0 → **không có sự kiện nào ở
+  15/06**. Hai tool bổ trợ nhau chứ không mâu thuẫn: div_check chỉ soi
+  TẠI ngày sự kiện, nên vách nằm ngoài ngày sự kiện thì nó không bao giờ
+  nhìn tới — đó đúng là vùng mù mà `check_unit_continuity` vừa lấp.
+  **Nghi phạm còn lại (có bằng chứng cấu trúc): kho trộn HAI CƠ SỞ ĐIỀU
+  CHỈNH.** Vendor rebase toàn chuỗi sau một sự kiện, mà sync incremental
+  chỉ nối bar MỚI (đã rebase) lên lịch sử CŨ (chưa rebase) → chuỗi gãy
+  đúng tại ngày đổi cơ sở, không trùng ngày GDKHQ nào. Khớp cả với chi
+  tiết 71.21 không phải bội số bước giá 100 VND (giá >50k trên sàn niêm
+  yết) — tức là số ĐÃ QUA PHÉP TÍNH, không phải giá khớp lệnh thô.
+  → **Chữa: refetch TOÀN BỘ lịch sử một mã cho về một cơ sở duy nhất**
+  `python vnstock_updater.py --tickers VVS --force` rồi chạy lại
+  `check_unit_continuity --ticker VVS`. CHƯA LÀM — chờ user.
+  ⚠️ **Lỗ hổng lộ ra từ ca này: lưới đối chiếu chỉ có ở làn FALLBACK.**
+  `reconcile_fallback_df` (từ chối data lệch >8% so với kho) chỉ được gọi
+  trong nhánh fallback (`vnstock_updater.py:441`); **đường VCI CHÍNH ghi
+  thẳng vào kho không qua đối chiếu nào**. Vendor đổi cơ sở điều chỉnh là
+  đi lọt cửa chính. Vá thì phải đụng đường ghi kho (rủi ro nhất repo) và
+  phải miễn trừ đúng các ngày GDKHQ hợp lệ — NÊU RA ĐỂ USER QUYẾT, không
+  tự làm.
+  Ảnh hưởng thực tế: VVS lọt bộ lọc `min_avg_volume=100.000` của
+  `emit_recommendations` (KL ~40k-500k/phiên, giá ~100 nghìn) nên chuỗi
+  lệch 58% này CÓ THỂ vào tính toán chiến lược. Mục 4d chốt "kho nhất
+  quán điều chỉnh" dựa trên 28/30 mã VN30 — VVS ngoài rổ đó, nên kết luận
+  cũ KHÔNG sai, nhưng độ phủ ngoài VN30 nay biết là CHƯA được kiểm.
 * **Tool nay tự trả lời "VÌ SAO", không chỉ "có vách"** (nối tiếp ca VVS):
   mỗi vách nghi vấn được đối chiếu với kho sự kiện quyền có sẵn
   (`vnstock_adjust.load_events`, cache 3 nguồn từ 14/08), cửa sổ ±3 ngày
