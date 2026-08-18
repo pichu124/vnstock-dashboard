@@ -128,3 +128,45 @@ def test_volume_factor_needs_enough_overlap_before_it_is_trusted():
     wh2 = pd.DataFrame({"time": t2, "volume": [100] * 8})
     src2 = pd.DataFrame({"time": t2, "volume": [200] * 8})
     assert rth._measure_volume_factor(wh2, src2) == pytest.approx(2.0)
+
+
+# ── Khối lượng: chữa giá mà bỏ volume là đổi lỗi này lấy lỗi khác ───────────
+#
+# Chia tách 1:1 làm SỐ CỔ PHIẾU gấp đôi. Nếu nguồn chỉ điều chỉnh GIÁ (đo được
+# hệ số volume ≈ 1.0) mà chuỗi volume lại nhảy bậc ~2× tại vách, thì chữa giá
+# xong GTGD lịch sử chỉ còn một nửa — mà GTGD chính là thứ screener/strategy
+# dùng lọc thanh khoản (min_avg_volume=100.000).
+
+def test_volume_step_measures_the_jump_at_the_break():
+    t = _dates(12)
+    vols = [1000 if x.date() < BRK else 2000 for x in t]
+    wh = pd.DataFrame({"time": t, "volume": vols})
+    assert rth._volume_step(wh, BRK) == pytest.approx(2.0)
+
+
+def test_auto_scales_volume_when_source_leaves_it_unadjusted(tmp_path, stub_source):
+    """auto: nguồn không đổi volume (1.0×) + volume gãy đúng bậc hệ số giá
+    ⇒ nhân khối lượng lịch sử để GTGD liền mạch."""
+    wh = _wh(tmp_path)
+    rth.main(["--warehouse", str(wh), "--ticker", "VHM", "--apply"])
+    got = pd.read_parquet(wh / "prices" / "ticker=VHM" / "year=2026" / "p.parquet")
+    got["time"] = pd.to_datetime(got["time"])
+    old = got[got["time"].dt.date < BRK]["volume"]
+    assert float(old.median()) == pytest.approx(4000.0)   # 2000 nguồn × 2.0
+
+
+def test_source_mode_never_invents_volume(tmp_path, stub_source):
+    """--volume source: giữ đúng con số nguồn, không suy diễn. Dùng khi muốn
+    kho khớp nguồn tuyệt đối để đối chiếu."""
+    wh = _wh(tmp_path)
+    rth.main(["--warehouse", str(wh), "--ticker", "VHM", "--apply",
+              "--volume", "source"])
+    got = pd.read_parquet(wh / "prices" / "ticker=VHM" / "year=2026" / "p.parquet")
+    got["time"] = pd.to_datetime(got["time"])
+    old = got[got["time"].dt.date < BRK]["volume"]
+    assert float(old.median()) == pytest.approx(2000.0)
+
+
+def test_volume_step_is_nan_safe_without_bars():
+    empty = pd.DataFrame({"time": pd.to_datetime([]), "volume": []})
+    assert rth._volume_step(empty, BRK) != rth._volume_step(empty, BRK)  # NaN

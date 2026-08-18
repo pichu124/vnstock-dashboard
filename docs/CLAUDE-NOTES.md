@@ -6682,7 +6682,7 @@ mỹ, chưa đáng thêm guard.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2142 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
+> Trạng thái: full suite **2146 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh `claude/remaining-tasks-tests-4xoam3`
 > đã merge máy bàn 15/08 · nhánh MỚI `claude/tong-hop-cong-viec-test-w8mvrc`
@@ -7117,6 +7117,22 @@ CHÍNH BADGE mới là thứ phải sửa.** User soi 5 chart (WSS/WTC/XPH/YBM/Y
   đỏ + gợi ý mã bị rebase nhiều lần thì chạy lại). 7 test soi đúng phần
   an toàn: chạy thử không đụng byte nào · từ chối khi `source_error` ·
   backup giữ bản gốc · ngưỡng chồng lấn tối thiểu cho hệ số khối lượng.
+  ✅ **Chạy thử VHM trên máy thật 18/08 — kịch bản TỐT NHẤT**: nguồn phủ
+  từ **2011-11-10**, trùng đúng ngày đầu của kho (3.476 bar) ⇒ **3.464/3.464
+  bar lấy thẳng giá nguồn, 0 bar phải nhân hệ số ước lượng**; không mất một
+  ngày lịch sử nào.
+  ⚠️ **Nhưng lộ vấn đề KHỐI LƯỢNG, phát hiện đúng lúc chạy thử**: hệ số
+  volume nguồn/kho = **1.0000×** ⇒ nguồn CHỈ điều chỉnh GIÁ. Chia tách 1:1
+  làm số cổ phiếu gấp đôi, nên nếu chữa giá (÷2) mà giữ nguyên khối lượng
+  thì **GTGD lịch sử còn một nửa** — mà GTGD chính là thứ screener và
+  `min_avg_volume=100.000` của `emit_recommendations` dùng để lọc thanh
+  khoản. Chữa một lỗi mà đẻ lỗi khác. Đã bổ sung: đo **bậc nhảy khối lượng
+  tại vách** (trung vị 20 bar sau / 20 bar trước) rồi quyết —
+  `--volume auto` (mặc định): nhân khối lượng lịch sử theo hệ số giá KHI
+  nguồn không điều chỉnh volume (≈1.0×) VÀ volume gãy đúng bậc đó ·
+  `adjust`: luôn nhân · `source`: giữ đúng số nguồn (khi muốn kho khớp
+  nguồn tuyệt đối để đối chiếu). +4 test. In rõ quyết định + lý do ra màn
+  hình trước khi ghi.
   ⏭ **VIỆC KẾ TIẾP (chờ user)**: chạy thử VHM → soi số → `--apply` → chạy
   lại `--all` xem 149 rút còn bao nhiêu. Sau đó mới tính chuyện chặn TÁI
   PHÁT (lưới đối chiếu ở đường ghi CHÍNH — hiện chỉ làn fallback có).

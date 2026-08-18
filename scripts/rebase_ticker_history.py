@@ -87,7 +87,27 @@ def _measure_volume_factor(wh: pd.DataFrame, src: pd.DataFrame) -> float:
         return 1.0
 
 
-def _rebase_one(tk: str, wh_root: Path, apply: bool) -> int:
+def _volume_step(wh_head: pd.DataFrame, brk: date, n: int = 20) -> float:
+    """Khối lượng có NHẢY BẬC tại ngày vách không (trung vị sau / trước).
+
+    Vì sao phải hỏi: chia tách 1:1 làm SỐ CỔ PHIẾU gấp đôi, nên khối lượng
+    sau vách tự nhiên gấp ~2× trước vách. Nếu nguồn chỉ điều chỉnh GIÁ mà
+    không điều chỉnh KHỐI LƯỢNG (đo được hệ số volume ≈ 1.0), thì chữa giá
+    xong sẽ tạo ra lỗi MỚI: giá lịch sử /2 mà khối lượng giữ nguyên ⇒ GTGD
+    lịch sử còn một nửa, mà GTGD chính là thứ screener/strategy dùng để lọc
+    thanh khoản. Đo rồi quyết, đừng mặc định.
+    """
+    try:
+        before = wh_head[wh_head["time"].dt.date < brk].tail(n)["volume"]
+        after = wh_head[wh_head["time"].dt.date >= brk].head(n)["volume"]
+        b, a = float(before.median()), float(after.median())
+        return a / b if b > 0 else float("nan")
+    except Exception:
+        return float("nan")
+
+
+def _rebase_one(tk: str, wh_root: Path, apply: bool,
+                volume_mode: str = "auto") -> int:
     from check_unit_continuity import find_jumps, load_bars
     from probe_price_basis import _find_break, fetch_source
 
@@ -144,7 +164,25 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool) -> int:
     vol_factor = _measure_volume_factor(
         wh_head[wh_head["time"].dt.date < brk],
         src_all[src_all["time"].dt.date < brk])
-    print(f"[rebase] hệ số khối lượng đo được: {vol_factor:.4f}×")
+    step = _volume_step(wh_head, brk)
+    print(f"[rebase] khối lượng: nguồn/kho = {vol_factor:.4f}× · "
+          f"bậc nhảy tại vách (sau/trước) = {step:.2f}×")
+    # Nguồn KHÔNG điều chỉnh volume (≈1.0) MÀ khối lượng lại nhảy bậc đúng
+    # bằng hệ số giá ⇒ chuỗi volume cũng đang gãy; chữa giá mà bỏ volume là
+    # đổi một lỗi lấy một lỗi khác.
+    scale_vol = 1.0
+    _near = abs(step - factor) <= 0.35 * factor if step == step else False
+    if volume_mode == "adjust" or (volume_mode == "auto" and
+                                   abs(vol_factor - 1.0) < 0.05 and _near):
+        scale_vol = factor
+        print(f"[rebase] → NHÂN khối lượng lịch sử × {scale_vol:.4f} "
+              f"(nguồn chỉ điều chỉnh giá; không nhân thì GTGD lịch sử còn "
+              f"1/{factor:.2f} thực tế — screener lọc thanh khoản bằng số đó)")
+    elif volume_mode == "source":
+        print("[rebase] → GIỮ NGUYÊN khối lượng theo nguồn (--volume source)")
+    else:
+        print("[rebase] → giữ khối lượng theo nguồn: không thấy bằng chứng "
+              "volume gãy tại vách")
 
     n_src, n_scaled, touched = 0, 0, 0
     plan = {}
@@ -165,14 +203,16 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool) -> int:
                     if c in out.columns and c in row:
                         out.at[i, c] = float(row[c])
                 if "volume" in out.columns and "volume" in row:
-                    out.at[i, "volume"] = float(row["volume"])
+                    out.at[i, "volume"] = float(row["volume"]) * scale_vol
                 n_src += 1
             else:
                 for c in OHLC:
                     if c in out.columns:
                         out.at[i, c] = float(out.at[i, c]) / factor
-                if "volume" in out.columns and vol_factor != 1.0:
-                    out.at[i, "volume"] = float(out.at[i, "volume"]) * vol_factor
+                if "volume" in out.columns:
+                    _vf = vol_factor if vol_factor != 1.0 else scale_vol
+                    if _vf != 1.0:
+                        out.at[i, "volume"] = float(out.at[i, "volume"]) * _vf
                 n_scaled += 1
             touched += 1
         plan[path] = out
@@ -212,6 +252,12 @@ def main(argv: "list[str] | None" = None) -> int:
     ap.add_argument("--warehouse", default="data_warehouse")
     ap.add_argument("--apply", action="store_true",
                     help="GHI THẬT vào kho (mặc định chỉ chạy thử)")
+    ap.add_argument("--volume", choices=("auto", "adjust", "source"),
+                    default="auto",
+                    help="auto (mặc định): nhân khối lượng theo hệ số giá KHI "
+                         "đo thấy nguồn không điều chỉnh volume mà chuỗi volume "
+                         "lại gãy tại vách · adjust: luôn nhân · source: luôn "
+                         "giữ nguyên theo nguồn")
     args = ap.parse_args(argv)
 
     wh_root = Path(args.warehouse)
@@ -219,7 +265,8 @@ def main(argv: "list[str] | None" = None) -> int:
         wh_root = REPO_ROOT / wh_root
     worst = 0
     for tk in args.ticker:
-        worst = max(worst, _rebase_one(tk.upper(), wh_root, args.apply))
+        worst = max(worst, _rebase_one(tk.upper(), wh_root, args.apply,
+                                       args.volume))
     return worst
 
 
