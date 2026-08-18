@@ -6694,9 +6694,9 @@ mỹ, chưa đáng thêm guard.
 
 ## 🔴 LÀM NGAY — nợ từ tối 18/08
 
-**A. ✅ ĐÓNG 19/08 — chạy bù TRỌN VẸN.** User chạy full `all` (14 bước,
-exit 0, TỔNG 43.6'). Đính chính diễn biến tối 18/08 theo ⏱ log: phát
-18:00 KHÔNG chết ở sync — nó đi hết sync 4,429s (74'!) · validate ·
+**A. ✅ ĐÓNG 18/08 — chạy bù TRỌN VẸN.** User chạy full `all` (14 bước,
+exit 0, TỔNG 43.6'). Đính chính diễn biến TỐI 17/08 theo ⏱ log: phát
+18:00 bị kill (267014) KHÔNG chết ở sync — nó đi hết sync 4,429s (74'!) · validate ·
 screener 1,395s · news/ff/macro/gold/allocation · test · audit 369s, và
 **bị kill lúc đang TRAIN** (tier= đã in). Vậy hôm đó chỉ thiếu
 train-hoàn-tất/reflection/doctor/brief. Ghi chú khảo cổ còn mở (không
@@ -6705,7 +6705,7 @@ rủi ro): theo ⏱, sync kết thúc ~19:14, vậy AI ghi lại dataset PNJ đ�
 dữ liệu nguồn rebase (probe 1.0000× toàn dải), kho đúng; lưới D là câu
 trả lời hệ thống thay cho việc truy tiếp.
 
-**B. ✅ ĐÓNG 19/08 — 3 lệnh soi log ĐẠT, và CHẤM XONG MỤC ②:**
+**B. ✅ ĐÓNG 18/08 — 3 lệnh soi log ĐẠT, và CHẤM XONG MỤC ②:**
 * `tier=` đủ 2 dòng short+position ở cả 2 phát · `collect_context` im
   lặng = mọi nguồn khoẻ.
 * **Mục ② (nghi "warehouse bị quét ~14 lần/đêm"): BỎ — đúng dự đoán.**
@@ -6720,14 +6720,33 @@ trả lời hệ thống thay cho việc truy tiếp.
   batch), không đụng phần còn lại.
 * `brief 0.0s` trong phát bù là **ĐÚNG THIẾT KẾ**, không phải lỗi: chạy
   trước 15:00 ngày làm việc → `_should_push_close` chặn (lưới
-  run-on-boot chống bắn brief phiên CŨ). Hệ quả chấp nhận: brief chiều
-  phiên 18/08 mất hẳn; brief kế tiếp là chiều 19/08 do task 18:00 gửi.
+  run-on-boot chống bắn brief phiên CŨ). Hệ quả TƯỞNG là mất brief chiều
+  18/08 — SAI: task 18:00 tối 18/08 tự chạy trọn, brief phiên 18/08 về
+  Telegram lúc 23:16 (chấm ở C).
 
-**C. Đọc brief CHIỀU 19/08 (task 18:00 tối nay gửi)** — 3 vế gộp một lần đọc:
-* mục Đề xuất giao dịch KHÔNG còn dán caveat "(p=1.000)" sai nguồn (fix
-  17/08); rec `[vị thế ~20 phiên]` của #32 vẫn hiện.
-* không có dòng "KHÔNG CÓ dữ liệu…" nào oan (0b).
-* Telegram: lệnh của chiến lược trượt gom thành "N lệnh ẩn".
+**C. ✅ ĐÓNG tối 18/08 — brief chiều phiên 18/08 VỀ LÚC 23:16, cả 4 điểm ĐẠT.**
+* Caveat "(p=1.000)" sai nguồn: BIẾN MẤT. Caveat duy nhất dưới sổ lệnh là
+  `_BUY_BIAS_CAVEAT` (BUY dưới bối cảnh GIẢM) — đúng luật: regime -5 ≤ -3,
+  momentum -57, và có 6 lệnh BUY đang hiện.
+* Rec #32 hiện đủ: cả 6 lệnh đều `ngày X/20` — mẫu số 20 phiên chính là dấu
+  tầng vị thế ở đuôi Telegram (nhãn chữ `[vị thế ~20 phiên]` nằm ở khối
+  prompt cho AI, không in ra Telegram — đúng thiết kế, hai kênh hai dạng).
+* KHÔNG có dòng "KHÔNG CÓ khuyến nghị" oan.
+* Dòng "4 lệnh ẩn — chiến lược nguồn chưa đạt kiểm định (xem đầy đủ trong
+  dashboard)" khớp NGUYÊN VĂN template telegram; 6 hiện + 4 ẩn = 10 lệnh mở.
+* Guard phụ cũng đứng vững: S1/S2/R1/R2 nhất quán TLDR↔khối kỹ thuật; không
+  GIA TĂNG dưới bear (EIB/SSI + watchlist đều GIẢM TỶ TRỌNG); nhãn "1 tuần"
+  in đủ ở Dẫn dắt/dòng tiền; disclaimer GDKHQ (VIX 20/08) + Op.CF BĐS có.
+* MSR vừa là BUY rec vừa nằm watchlist "GIẢM TỶ TRỌNG nếu thủng ~41,150":
+  KHÔNG mâu thuẫn — watchlist chính là kịch bản hỏng của lệnh (SL -5.7% từ
+  42 ≈ 39.6 ≈ mục tiêu ~39.500 của watchlist); caveat BUY-dưới-bear đã phủ.
+* CÂU HỎI MỞ → gộp vào J: brief về 23:16 thay vì ~18:45. Hoặc task nổ muộn
+  (~22:30 + ~44' — vô hại), hoặc nổ đúng 18:00 và kéo ~5h16' (sync lại
+  phình). Sáng mai phân định bằng 2 lệnh:
+  `Select-String -Path run_daily.log -Pattern "⏱"` và
+  `Get-ScheduledTaskInfo -TaskName <Daily>` (LastRunTime + result). Nếu đêm
+  nay đúng là task tự chạy → ĐÊM TỰ ĐỘNG ĐẦU TIÊN chạy trọn tới brief
+  (cổng "vài đêm train tự động" của mục O bắt đầu tích luỹ từ đêm nay).
 
 ## ⚠️ BÀI HỌC VẬN HÀNH — đã vấp 2 tối liền
 
@@ -6780,8 +6799,11 @@ khi log đầy) và trỏ thẳng vào `scripts/check_unit_continuity.py`.
 
 ## 🟡 QUAN SÁT DÀI HẠN
 
-**J. Sync time** — 9.731s (đỉnh heal) → 2.376s (17/08). Vài phát nữa phải
-teo về bình thường khi quarantine cạn; vẫn ~40-60 phút thì báo Claude.
+**J. Sync time** — chuỗi đo: 9.731s (đỉnh heal) → 2.376s → 4.429s (phát bị
+kill tối 17/08) → 1.205s (chạy bù trưa 18/08). Ngưỡng chốt (mục B): 2-3 đêm
+nữa sync phải **< ~10 phút**; không teo thì mổ đúng bước heal (dời sang
+tuần / cap batch), không đụng phần còn lại. Điểm đo kế tiếp: đêm 18/08 —
+brief về 23:16 (xem câu hỏi mở ở C), lấy số bằng Select-String ⏱.
 
 **K. #32 tự chứng minh bằng live** — theo dõi dòng "💚 Live khớp backtest"
 trên panel Chiến lược vài tuần. Lưu ý: kho VHM/PNJ/GEX vừa đổi hệ số nên
