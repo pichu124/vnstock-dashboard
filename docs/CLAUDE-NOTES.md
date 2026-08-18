@@ -6694,24 +6694,36 @@ mỹ, chưa đáng thêm guard.
 
 ## 🔴 LÀM NGAY — nợ từ tối 18/08
 
-**A. Chạy bù pipeline 18/08** — phát 18:00 bị NGƯỜI DÙNG chấm dứt giữa
-chừng (`LastTaskResult = 267014`), dừng quanh bước sync nên **audit /
-train / reflection / doctor / brief chiều đều CHƯA chạy**:
-```powershell
-python run.py all --no-sync
-```
+**A. ✅ ĐÓNG 19/08 — chạy bù TRỌN VẸN.** User chạy full `all` (14 bước,
+exit 0, TỔNG 43.6'). Đính chính diễn biến tối 18/08 theo ⏱ log: phát
+18:00 KHÔNG chết ở sync — nó đi hết sync 4,429s (74'!) · validate ·
+screener 1,395s · news/ff/macro/gold/allocation · test · audit 369s, và
+**bị kill lúc đang TRAIN** (tier= đã in). Vậy hôm đó chỉ thiếu
+train-hoàn-tất/reflection/doctor/brief. Ghi chú khảo cổ còn mở (không
+rủi ro): theo ⏱, sync kết thúc ~19:14, vậy AI ghi lại dataset PNJ đúng
+20:47:04 vẫn chưa chốt được từng phút — nội dung ghi thì ĐÃ xác minh là
+dữ liệu nguồn rebase (probe 1.0000× toàn dải), kho đúng; lưới D là câu
+trả lời hệ thống thay cho việc truy tiếp.
 
-**B. 3 lệnh soi log sáng** (chấm mục ② hiệu năng — vẫn CHƯA chấm được vì
-chưa có đêm tự động nào chạy trọn):
-```powershell
-Select-String -Path run_daily.log -Pattern "tier="
-Select-String -Path run_daily.log -Pattern "collect_context"
-Select-String -Path run_daily.log -Pattern "⏱"
-```
-Luật quyết ②: `⏱ TỔNG` < ~30 phút và không bước nào chiếm quá nửa vô lý →
-**BỎ ②**; một bước nghẽn rõ → dán cho Claude mổ đúng bước đó.
+**B. ✅ ĐÓNG 19/08 — 3 lệnh soi log ĐẠT, và CHẤM XONG MỤC ②:**
+* `tier=` đủ 2 dòng short+position ở cả 2 phát · `collect_context` im
+  lặng = mọi nguồn khoẻ.
+* **Mục ② (nghi "warehouse bị quét ~14 lần/đêm"): BỎ — đúng dự đoán.**
+  Số đo phát trọn vẹn đầu tiên: TỔNG 43.6', trong đó pipeline LÕI (trừ
+  sync) chỉ **~24'** — dưới ngưỡng 30', không bước nào nghẽn vô lý
+  (screener 541s · validate 311s · train 230s · audit 142s). "18:00
+  không ai ngồi đợi" đứng vững, không tối ưu cả dàn.
+* Bước nghẽn duy nhất là **sync** (1,205s = 46% tổng) nhưng nguyên nhân
+  ĐÃ BIẾT và đang tự rút: quarantine heal 4,429s (18/08 tối) → 1,205s
+  (19/08) → GỘP vào mục J với ngưỡng chốt: **2-3 đêm nữa sync phải
+  < ~10 phút**; không teo thì mổ đúng bước heal (dời sang tuần / cap
+  batch), không đụng phần còn lại.
+* `brief 0.0s` trong phát bù là **ĐÚNG THIẾT KẾ**, không phải lỗi: chạy
+  trước 15:00 ngày làm việc → `_should_push_close` chặn (lưới
+  run-on-boot chống bắn brief phiên CŨ). Hệ quả chấp nhận: brief chiều
+  phiên 18/08 mất hẳn; brief kế tiếp là chiều 19/08 do task 18:00 gửi.
 
-**C. Đọc brief chiều kế tiếp** — 3 vế gộp một lần đọc:
+**C. Đọc brief CHIỀU 19/08 (task 18:00 tối nay gửi)** — 3 vế gộp một lần đọc:
 * mục Đề xuất giao dịch KHÔNG còn dán caveat "(p=1.000)" sai nguồn (fix
   17/08); rec `[vị thế ~20 phiên]` của #32 vẫn hiện.
 * không có dòng "KHÔNG CÓ dữ liệu…" nào oan (0b).
