@@ -7183,6 +7183,24 @@ CHÍNH BADGE mới là thứ phải sửa.** User soi 5 chart (WSS/WTC/XPH/YBM/Y
   cùng bậc + không vách → `aligned` ("kho khớp nguồn, không còn gì để
   chữa"). +1 test mới, 1 test cũ sửa assert cho đúng ý (giữ "không phải
   warehouse_basis" thay vì ghim cứng `source_error`).
+  🔎 **TRUY RA AI CHỮA PNJ (18/08 22:0x) — và lộ việc PHẢI LÀM NGAY.**
+  Hai bằng chứng: (1) mtime CẢ 18 file `ticker=PNJ` giống hệt
+  **20:47:04**, tên kiểu hash = `write_to_dataset` ghi lại cả thư mục;
+  (2) `LastTaskResult = 267014` (0x41306) = **tác vụ bị NGƯỜI DÙNG chấm
+  dứt**, LastRunTime 18:00. Loại trừ: `vnstock_screener`/`vnstock_runner`
+  KHÔNG có lệnh ghi parquet nào (đã grep), reconciler chỉ chuẩn hoá
+  "before comparison" (log ghi rõ). ⇒ **Phát 18:00 vẫn đang chạy bước
+  sync lúc 20:47** (chậm hơn thường lệ), chính `updater` ghi lại dataset
+  PNJ với dữ liệu nguồn ĐÃ REBASE — kho được chữa là TÁC DỤNG PHỤ của
+  sync, không phải cơ chế tự lành có chủ đích. Nhận định "repo không có
+  đường nạp lại lịch sử" vẫn ĐÚNG về mặt thiết kế.
+  ⚠️ **HỆ QUẢ PHẢI XỬ: pipeline 18/08 CHƯA HOÀN TẤT** — bị kill giữa
+  chừng nên audit/train/reflection/doctor/brief chiều đều chưa chạy.
+  Chạy bù: `python run.py all --no-sync`.
+  📌 **BÀI HỌC VẬN HÀNH LẶP LẦN 2** (17/08: 0xC000013A ngắt giữa chừng;
+  18/08: 267014 user chấm dứt): tối nào cũng đừng gõ lệnh nặng vắt qua
+  giờ pipeline. Muốn làm việc buổi tối thì làm TRƯỚC 18:00 hoặc SAU khi
+  thấy pipeline xong (soi `run_daily.log` có dòng `⏱ TỔNG`).
   ⏭ **VIỆC KẾ TIẾP (chờ user)**: chạy thử VHM → soi số → `--apply` → chạy
   lại `--all` xem 149 rút còn bao nhiêu. Sau đó mới tính chuyện chặn TÁI
   PHÁT (lưới đối chiếu ở đường ghi CHÍNH — hiện chỉ làn fallback có).
