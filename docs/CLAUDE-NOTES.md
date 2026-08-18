@@ -6676,727 +6676,131 @@ mỹ, chưa đáng thêm guard.
 
 ---
 
-# 📌 VIỆC PHẢI LÀM — chốt 12/08/2026
+# 📌 VIỆC PHẢI LÀM — chốt 18/08/2026
 
-> Danh sách ĐANG DÙNG — bản sạch thay bản 11/08 (mọi mục đã xong nằm trong
-> entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
+> Danh sách ĐANG DÙNG — bản sạch thay bản 12/08 (mọi mục đã xong nằm trong
+> entry nhật ký 13-18/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2148 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
-> ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
-> 13/08 — xem entry 13/08) · nhánh `claude/remaining-tasks-tests-4xoam3`
-> đã merge máy bàn 15/08 · nhánh MỚI `claude/tong-hop-cong-viec-test-w8mvrc`
-> (fix live_mode 17/08) đã push, CHỜ MERGE. Đồng bộ máy + push main:
-> user tự làm thường xuyên — KHÔNG track làm việc (user chốt 12/08).
+> Trạng thái: full suite **2148 passed** (`--fast` ~1.588 test — ~30-42s CI,
+> ~64s máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ 13/08).
+> Nhánh `claude/tong-hop-cong-viec-test-w8mvrc` đã push đủ. Đồng bộ máy +
+> push main: user tự làm — KHÔNG track (chốt 12/08).
+>
+> ĐÃ ĐÓNG trong đợt 13-18/08, đừng nêu lại: heatmap VN30 live (bug cờ
+> `live_mode` + 3 bản vá) · mục 2 báo cáo model watch · mục 3 badge quy đổi
+> đơn vị · mục 5 độ trễ OpenRouter · mục 9 nhãn kỳ NN · mục 10 gate Telegram
+> · 4c/0e (#32 đạt kiểm định, rec mở lại) · 4d · 0f (train 2 tầng).
 
-## 🔴 VIỆC TAY — sau đợt tách file 12/08
+## 🔴 LÀM NGAY — nợ từ tối 18/08
 
-> ✅ **Mục 🧭 Nhận định thị trường: ĐÃ VERIFY XONG 13/08** — bỏ khỏi phần
-> phải soi bên dưới. Đối chiếu 3 tầng trên máy thật: 37/37 test máy · cấu
-> trúc đủ 3 mục đúng thứ tự · **9/9 con số khớp** — MA200 10.8%→"11%" (làm
-> tròn có chủ ý), RSI<30 118 mã, RSI>70 117 mã, **A/D 1.08 → IM LẶNG đúng
-> thiết kế** (bằng chứng mạnh nhất: ngưỡng 0.8–1.2 còn nguyên), net new highs
-> −33 đúng dấu đúng nhánh, VNINDEX/VN30 đều 3/5 tăng + TB lệch 0.01pp (dưới
-> sai số làm tròn 0.05pp của bảng %D). Chi tiết trong lịch sử hội thoại 13/08.
-
-**0. ✅ ĐÓNG TRỌN 13/08 — dashboard đã soi mắt đủ 5/5 mục** (riêng heatmap
-live cần giờ giao dịch → gộp mục 1).
-Đợt 12/08 kéo ~2.400 dòng giao diện ra khỏi hai hàm khổng lồ; máy tự kiểm
-"code có chạy hết không", phần "hiển thị có đúng không" soi mắt:
-* ✅ **Tab Thị trường** — 13/08 qua ảnh: bảng ngành đủ cột + màu + sparkline;
-  drill-down Ngân hàng (27 mã) VÀ Họ VIN/Họ M (sau vá) đều mở đúng.
-* ✅ **Khối 🤖 AI Market Brief** — 13/08 qua ảnh: Cài đặt agent · Lịch sử ·
-  Chiến lược render đủ; đã sinh brief thật (4 giọng, consensus).
-* ✅ **Tab Phân tích** — 13/08 qua ảnh VCB/VCI + kéo/zoom tay: 4 panel thẳng
-  hàng cùng số nến, RSI/MACD chạm nến cuối, kéo/zoom đồng bộ — chi tiết ở
-  entry 13/08 (h).
-* ✅ **Watchlist** — 13/08: thêm rồi xoá một mã trong Screener, danh sách
-  cập nhật đúng — đường ghi nguyên tử mới chạy êm.
-* ✅ **Treemap + Chart xu hướng** — 13/08 qua ảnh: cả hai vẽ đủ hình, số
-  hợp lý (treemap VIC/VCB dẫn vốn hoá, màu khớp chiều 1M; chart cột sắp
-  đúng thứ tự, có đủ Họ VIN/Họ M). Ghi nhận một bất đối xứng ĐÚNG THIẾT KẾ,
-  đừng báo lỗi: treemap gom theo NGÀNH GỐC nên KHÔNG có ô Họ VIN/Họ M —
-  bản chất treemap mỗi mã chỉ được MỘT ô, không vẽ lớp phủ được; chart cột
-  đi theo bảng ngành nên CÓ hai nhóm tuỳ biến (lớp phủ §4b). Đã soi code
-  `market_tab.py` xác nhận 13/08. *(Mục từng bị sót vì chỉ nằm trong
-  chat — user bắt 13/08.)*
-* ↪ **Live Market Heatmap VN30** (đầu tab Thị trường) — khối DUY NHẤT máy
-  không phủ được dòng nào vì chỉ chạy khi WSS sống trong giờ giao dịch.
-  Rủi ro thấp (code không đổi) → GỘP vào mục 1 bên dưới, làm cùng phiên.
-
-**0g. Sáng 18/08 — user chạy 3 lệnh Select-String (checklist 0c):**
-`tier=` ✅ đủ 2 dòng ở CẢ HAI phát 12 bước (15/08 + 17/08 tối) ·
-`collect_context` ✅ im lặng = mọi nguồn khoẻ · `⏱` đọc được: sync
-9,731s (heal đỉnh) → 2,376s (17/08) đang teo đúng dự đoán; pipeline lõi
-no-sync trọn bộ 25.6' (15/08) / 54.4' (17/08, brief 1,131s vì 429 tự
-đốt). **Mục ② CHƯA chấm — log KHÔNG có phát 18:00 TỰ ĐỘNG nào**: từ
-23:11 17/08 về trước chỉ toàn phát tay. ⚠️ NGHI VẤN MỚI: task Daily
-18:00 hôm 17/08 không để lại dấu vết trong run_daily.log — đã đưa user
-lệnh `Get-ScheduledTaskInfo` để soi LastRunTime/LastTaskResult, chờ
-kết quả. Phát 18:00 tối 18/08 (code đã merge đủ fix) mới là "đêm tự
-động đầu tiên" đúng nghĩa → sáng 19/08 lặp lại 3 lệnh, chấm ② lúc đó.
-→ **GIẢI MÃ (user dán TaskInfo ngay sau):**
-* **Daily 17/08**: task ĐÃ kích hoạt — LastRunTime **19:07:07** (chạy
-  bù sau khi lỡ hẹn 18:00, lúc đó phát tay 64.7' của user đang chiếm
-  máy) nhưng LastTaskResult **0xC000013A = BỊ NGẮT giữa chừng** trước
-  khi xong bước nào (vì thế log trắng — ⏱ chỉ in khi một bước XONG).
-  Khớp hoàn cảnh: buổi tối user đang merge + chạy tay `all --no-sync`
-  22:17 — hai phát giẫm nhau / cửa sổ console của task bị đóng nhầm.
-  KHÔNG phải lỗi cấu hình: NextRun 18/08 18:00 đã lên nòng. BÀI HỌC
-  VẬN HÀNH (nối bài 15-16/08): tránh chạy pipeline TAY vắt qua giờ
-  18:00, và buổi tối thấy cửa sổ console lạ đang chạy thì đó có thể là
-  task chạy bù — đừng Ctrl+C/đóng.
-* **Weekend 15/08**: LastRunTime 09:00 đúng hẹn, LastTaskResult **1 =
-  chạy XONG có cảnh báo** (bình thường với probe model — tuần trước
-  08/08 mới là fail cứng result=2). Tức báo cáo model watch T7 ĐANG
-  NẰM TRONG LOG mà mục 2 checklist vẫn CHƯA ĐỌC — việc đọc nó (bảng
-  điểm 5 nhà, Mistral lần đầu, nemotron-ultra còn bò → quyết mục 5)
-  vẫn mở.
-
-**0b. Đọc brief sáng/chiều kế tiếp — có dòng "KHÔNG CÓ …" nào oan không.**
-Prompt vừa thêm cảnh báo cho 3 khối (movers, dẫn dắt/tụt hậu, quant regime).
-Cảnh báo chỉ được hiện khi nguồn đó THẬT SỰ thiếu data. Brief bình thường mà
-lại thấy "Chưa có dữ liệu mã đủ thanh khoản" hay "chưa có regime hôm nay" →
-báo Claude: nghĩa là điều kiện nhận diện đang bắt nhầm.
-Từ 13/08 (d) thêm một điều ĐÚNG THIẾT KẾ, đừng báo lỗi: chiến lược hiện tại
-đang trượt kiểm định (p=0.974) → brief **không còn mục khuyến nghị từ chiến
-lược** nữa (user chốt "trượt là không phát"). Mục Đề xuất giao dịch chỉ còn
-setup từ movers ⭐. Khuyến nghị tự quay lại khi chiến lược đạt kiểm định.
-
-**0d. ✅ XONG 13/08 — đã đo tầm với TP.** Kết quả + diễn giải ở entry 13/08
-(e). Chốt: tầng vị thế = 20 phiên; TP 2.5×ATR ở 5 phiên chỉ với tới 16%.
-
-**0e. ✅ XONG 13/08 — tầng vị thế đã khởi tạo.** Chiến lược #32: 67 lệnh,
-expectancy +0.197, exit mix **TP 44.8%** / SL 40.3% / hết hạn 14.9% — cơ chế
-thoát ĐÃ CHỮA XONG (live tầng 5 phiên cũ: TP 0%, hết hạn 71%; số đo dự báo
-trần ~46% ở 2.5×ATR — trúng). Kiểm định: 🎲 CHƯA ĐẠT — p thô 0.377 (hiệu
-chỉnh chọn-lọc 1.0), chỉ 25% cửa sổ thời gian dương (lãi dồn cục — khớp
-caveat "500 phiên gần nhất toàn thị trường lên"). Brief đúng luật KHÔNG nhận
-rec của #32; nó ở lại ghế làm việc, được tune + đối soát để tự chứng minh.
-*(Diễn biến tiếp: tune 13/08 co mẫu 67→19 và "đạt" p=0.040 → user chốt nâng
-sàn bằng chứng lên 30 lệnh, verdict bị hạ lại tại điểm đọc — entry (f)+(g).
-→ **17/08: #32 TỰ CHỨNG MINH XONG** — 94 lệnh ≥ sàn 30, p=0.012, ACTIVE,
-phát 5 rec: mục khuyến nghị tầng vị thế MỞ LẠI trong brief (entry 17/08
-bổ sung lần 5). Tầng ngắn vẫn đóng — #35 retired p=0.885.)*
-
-**0f. ✅ ĐÓNG 15/08 — PRODUCTION TRAIN CẢ 2 TẦNG, bằng chứng log máy bàn.**
-Phát `all --no-sync` lần 3 (15/08): log ghi ĐỦ HAI dòng
-`[strategy_loop] tier=short …` và `tier=position …` — cùng 4 agent
-(Mistral lead · Cerebras · Nemotron · Gemini). Chuỗi giải quyết: tưởng
-sửa Task Scheduler → hoá ra sửa 1 chỗ `run.py cmd_train --tier both`
-(13/08) → merge máy bàn + 3 vòng vá bug production (encoding cp1252, tee
-nuốt None, test không hermetic) → chạy thông. Từ nay MỖI ĐÊM ngày làm
-việc hai tầng tự tune/tìm ứng viên ≥30 lệnh đạt chuẩn — con đường duy
-nhất mở lại mục khuyến nghị trong brief. `collect_context` cùng phát:
-IM LẶNG = mọi nguồn dữ liệu khoẻ (đóng luôn vế nguồn của 0c).
-
-**0c. Soi `run_daily.log` sau phát pipeline 18:00 — ⚠️ 14/08: hoá ra nãy
-giờ soi NHẦM MÁY. Việc này là việc của MÁY BÀN.**
-Diễn biến: grep log ra 5 header đều chạy tay 13/08 (doctor ×3 · dashboard
-15:13 · refresh-metadata 16:13 — tee sống hoàn hảo từ 15:03), không có
-phát `all` 18:00 → Claude kết luận "pipeline không chạy". User đính chính:
-**đang làm trên LAPTOP** — mà cả `run_daily.log` lẫn Task Scheduler đều
-THEO MÁY; desktop mới là máy production (notes ~2201). Laptop không có
-task 18:00 là BÌNH THƯỜNG, không nói gì về pipeline thật.
-Chuyện lộ ra TO HƠN: mọi merge 13-14/08 mới nằm trên laptop — nếu desktop
-CHƯA merge thì production vẫn chạy code cũ: KHÔNG ghi log, và đêm nào
-cũng chỉ train TẦNG NGẮN (chưa có `--tier both`), thiếu cả loạt fix khác.
-**📋 GÓI MÁY BÀN — trọn bộ việc còn lại, chốt với user 14/08 (một buổi
-+ một buổi sáng):**
-
-*Buổi ngồi máy bàn:*
-1. **Merge** (mở khoá mọi thứ bên dưới):
-   `git fetch origin claude/remaining-tasks-tests-4xoam3` rồi
-   `git merge origin/claude/remaining-tasks-tests-4xoam3`
-2. ✅ ĐÃ SOI (cuối tuần 15-16/08): task SỐNG, có "chạy bù khi lỡ hẹn" —
-   14/08 máy tắt lúc 18:00 → tự chạy bù 20:22 (giải thích vì sao kho vẫn
-   sync đều bấy lâu). NHƯNG LastTaskResult = 0xC000013A: phát bù bị NGẮT
-   GIỮA CHỪNG (tắt máy khi pipeline đang chạy). BÀI HỌC VẬN HÀNH: tối nào
-   máy bàn đang chạy pipeline (~20-40 phút) thì để xong hẵng tắt. Task
-   daily chỉ chạy NGÀY LÀM VIỆC (NextRun 17/08 thứ Hai). Phát chạy tay
-   sáng 15/08 CHẾT ở bước test — 2 bug Windows-only, ĐÃ VÁ (entry (p)).
-   CHẠY LẠI sau merge bằng:
-   `python run.py all --no-sync`
-   (bỏ sync+validate đã xong sáng 15/08, tiết kiệm ~16 phút; ĐỂ MÁY BẬT
-   tới khi xong ~15-25 phút) rồi soi 3 lệnh dưới luôn, khỏi đợi thứ Ba.
-3. (tiện tay, ~10 phút, cần mạng) thử phủ vùng mù 4d sau bản gộp 3 nguồn:
+**A. Chạy bù pipeline 18/08** — phát 18:00 bị NGƯỜI DÙNG chấm dứt giữa
+chừng (`LastTaskResult = 267014`), dừng quanh bước sync nên **audit /
+train / reflection / doctor / brief chiều đều CHƯA chạy**:
 ```powershell
-python run.py refresh-metadata --events
-python vnstock_div_check.py
+python run.py all --no-sync
 ```
-   (cách đọc kết quả: mục 4d — mã nào vẫn 0 sự kiện = cả 3 nguồn đều mù.)
 
-*SÁNG HÔM SAU (sau đêm 18:00 đầu tiên chạy code mới) — BA lệnh một thể,
-TRÊN MÁY BÀN:*
+**B. 3 lệnh soi log sáng** (chấm mục ② hiệu năng — vẫn CHƯA chấm được vì
+chưa có đêm tự động nào chạy trọn):
 ```powershell
 Select-String -Path run_daily.log -Pattern "tier="
 Select-String -Path run_daily.log -Pattern "collect_context"
 Select-String -Path run_daily.log -Pattern "⏱"
 ```
-* `tier=` phải ra ĐỦ HAI dòng `[strategy_loop] tier=short …` VÀ
-  `tier=position …` = train 2 tầng chạy thật (đóng luôn kiểm chứng 0f).
-* `collect_context` không ra gì = mọi nguồn khoẻ. Có dòng `nguồn '<tên>'
-  hỏng` lặp lại mỗi tối → báo Claude tên nguồn.
-* `⏱` nhìn dòng `TỔNG X phút`: X < ~30 và không bước nào chiếm quá nửa
-  → mục ② khép luôn với kết luận "không đáng tối ưu"; một bước nghẽn rõ
-  → dán output cho Claude mổ đúng bước đó (luật đầy đủ: mục ②). Việc ĐO
-  pipeline tự làm mỗi đêm — lệnh này chỉ là cửa sổ ĐỌC, không phải việc
-  định kỳ; sau lần quyết ② nó thành công cụ chẩn đoán khi nào thấy
-  pipeline ì thì lôi ra.
-(Thích đọc cả file: `notepad run_daily.log`.)
-*Còn heatmap VN30 cần PHIÊN GIAO DỊCH, máy nào cũng được — xem mục 1.*
-✅ **Đã giải mã badge 2⚠️ (user dán doctor 13/08)** — KHÔNG có nguồn hỏng,
-15 ✅: (1) **Phân bổ tài sản** = nhắc việc THÁNG — ✅ user đã tạo brief
-tháng 8 ngay 13/08 (4 giọng, số ghim chuẩn; lộ + vá luôn bug render
-"too many values" — entry 13/08 (k)), ⚠️ này tự tắt;
-(2) **LLM ledger** 50 call/26 lỗi/6 rate-limit ngày 13/08 —
-hôm đó tự mình đốt tải (sinh brief thật 4 giọng + test), chạm trần Gemini
-flash + 2 gemma free đúng hồ sơ đã biết (503 đêm VN + 429 free tier, mục
-6/7 đang theo dõi). Đào sâu khi cần: `python vnstock_llm_ledger.py --show`
-(có cột last_error). Doctor hôm khác vẫn ⚠️ ledger dù KHÔNG test tay →
-lúc đó mới đáng soi.
+Luật quyết ②: `⏱ TỔNG` < ~30 phút và không bước nào chiếm quá nửa vô lý →
+**BỎ ②**; một bước nghẽn rõ → dán cho Claude mổ đúng bước đó.
 
-**1. ✅ PHẦN VOLUME XONG 13/08 — WSS volume tích luỹ ĐẠT CẢ 3 bất biến.**
-Món nợ verify cuối của đợt fix 07/08 ĐÃ ĐÓNG: user chạy
-`python scripts\verify_wss_live.py` trong phiên 13/08 → ✅ 28/30 mã volume
-> 0 (top TCB 264,700) · ✅ index volume == 0 đủ 4 chỉ số · ✅ suspect_count
-= 0. VN30F1M vắng trong bảng chấm là ĐÚNG THIẾT KẾ — phái sinh đi kênh
-riêng poll `price_depth` → `quote_VN30F1M.json`, không qua đường tick→bar;
-đường đó chỉ chở cổ phiếu + index và cả hai đã chấm (entry 13/08 (i)).
-Cần chạy lại sau này (nghi WSS hỏng): vẫn lệnh đó, trong phiên.
-* ✅ **HEATMAP ĐÓNG 18/08 — soi mắt ĐẠT qua ảnh user, trong phiên.**
-  Món nợ soi mắt CUỐI CÙNG của đợt tách file 12/08 khép sổ. Hành trình:
-  17/08 user soi → bắt bug thật (cờ `live_mode` bind widget bị Streamlit
-  dọn khi rời tab → khối live CHƯA BAO GIỜ render qua đường điều hướng
-  thật) → 3 bản vá (tách key cờ · caption chỉ đường chống-vắng-âm-thầm ·
-  toggle chuyển lên sidebar CHUNG + khoá 2 nút Live Scan theo động cơ)
-  + lưới test + đối chứng Playwright trên app thật → 18/08 trưa user
-  bật lại trong phiên: ảnh cho thấy ĐỦ VÀ ĐÚNG — khung 4 chỉ số
-  (VNINDEX 1,734.72 +0.49%…), nhãn heatmap, lưới 30 ô sắp giảm dần theo
-  % (PLX +6.36% → TCB −2.20%), breadth `↑16 =2 ↓12 (30 mã)` cộng đúng,
-  sidebar CONNECTED (polling) · 3091 mã subscribe. Ghi nhận: ô hàng cuối
-  giãn rộng là flex-wrap đúng code; "3091 mã" > ước lượng cũ "~1.100"
-  trong docs vì full-market gồm cả UPCOM/CW — con số docs là ước lượng
-  lỗi thời, không phải lỗi. Cần soi lại sau này (nghi WSS): vẫn trình
-  tự đó — toggle sidebar trái → tab Thị trường, trong phiên.
-  ↪ **Nâng cấp cùng ngày (user đặt): bề rộng ô ≈ VỐN HOÁ tương đối.**
-  Cap đọc từ `_mkt_ticker_data` (bảng ticker screener). Ba quyết định
-  đều ĐO trên trình duyệt thật trước khi chốt, không đoán:
-  (1) nén **sqrt** — VIC/POW cap chênh 23.9× ra bề rộng 4.5×: ô nhỏ vẫn
-  đọc được chữ mà tương quan vẫn thấy ngay;
-  (2) **flex-basis %** chứ KHÔNG phải flex-grow — bản grow đo được
-  28/30 ô dính đúng 80px (min-width nuốt sạch chênh lệch, tỷ lệ chết);
-  (3) **grow = 0** — bản grow=1 làm TCB phình 575px ở hàng cuối, bề
-  rộng lúc đó NÓI DỐI vốn hoá; đổi lại lề phải hàng cuối so le.
-  Mã thiếu cap đi trọng số TRUNG VỊ (không teo, không phình, không
-  tooltip); chưa có bảng cap (lượt render đầu, fragment chạy TRƯỚC thân
-  tab) → mọi ô bằng nhau như cũ và KHÔNG hiện nhãn "rộng ô ≈ vốn hoá"
-  (nhãn mà không scale là nói dối). Hằng số `_HEATMAP_WIDTH_SPAN=300`
-  (≈3 hàng) ở đầu `market_tab`. Kiểm chứng cuối: dựng HTML DO CHÍNH
-  CODE SINH RA rồi đo trong Chromium — VIC 379px · VCB 299 · VHM 256 ·
-  TCB 220 · PLX 107 · POW 84. +4 test (tỷ lệ sqrt & tổng % = span ·
-  cấm stretch · mã thiếu cap ăn trung vị · fallback bằng nhau).
-  Suite 2090 → **2094 passed**.
+**C. Đọc brief chiều kế tiếp** — 3 vế gộp một lần đọc:
+* mục Đề xuất giao dịch KHÔNG còn dán caveat "(p=1.000)" sai nguồn (fix
+  17/08); rec `[vị thế ~20 phiên]` của #32 vẫn hiện.
+* không có dòng "KHÔNG CÓ dữ liệu…" nào oan (0b).
+* Telegram: lệnh của chiến lược trượt gom thành "N lệnh ẩn".
+
+## ⚠️ BÀI HỌC VẬN HÀNH — đã vấp 2 tối liền
+
+Đừng gõ lệnh nặng vắt qua giờ pipeline 18:00 (17/08: `0xC000013A` ngắt
+giữa chừng · 18/08: `267014` bị chấm dứt). Làm việc buổi tối thì làm
+TRƯỚC 18:00, hoặc chờ thấy dòng `⏱ TỔNG` trong `run_daily.log` rồi mới gõ
+tiếp. Đây là nguyên nhân số 1 khiến đêm tự động chưa lần nào chạy trọn.
+
+## 🟠 DỮ LIỆU — sau đợt phát hiện KHO LỆCH CƠ SỞ (18/08)
+
+**D. Chặn TÁI PHÁT — việc đáng làm nhất còn lại.** `reconcile_fallback_df`
+(từ chối data lệch >8% so với kho) CHỈ được gọi ở nhánh fallback
+(`vnstock_updater.py:441`); **đường VCI CHÍNH ghi thẳng vào kho không qua
+đối chiếu nào**. Vendor rebase toàn chuỗi là đi lọt cửa chính, vài tháng
+sau mới lộ. Thiết kế đề xuất (CHƯA code, đụng đường ghi kho nên phải bàn
+trước): đối chiếu bar overlap khi fetch → lệch quá ngưỡng VÀ không trùng
+ngày sự kiện quyền nào → quarantine + cảnh báo, thay vì ghi đè im lặng.
+
+**E. ~140 mã đuôi có vách, GTGD < 5 tỷ** — `check_unit_continuity --all`
+ra 149 mã; nhóm đầu (VHM/GEX/PNJ/GEE/PVD/VVS…) đã sạch. Phần còn lại gần
+như không ảnh hưởng quyết định nào và sửa hàng loạt tốn ~140 lần gọi
+mạng. **Đề nghị ĐỂ NGUYÊN**, chỉ chạy khi rảnh máy. Bộ công cụ:
+`check_unit_continuity` (quét, xếp theo thanh khoản) → `probe_price_basis`
+(phân định kho-lệch-cơ-sở vs nguồn-sai) → `rebase_ticker_history`
+(chữa, mặc định chạy thử, có sao lưu + tự kiểm).
+
+**F. Vết quy đổi sót 14/04** — BII/HSI/LCS/VLF cùng vách ~1000× ngày
+2026-04-14 (penny 300-600 VND ghi thẳng số thô). Lọt CẢ HAI lưới:
+`fix_units` đòi close > 1000, `_normalize_units` chỉ áp cho bar rollup/WSS
+chứ không áp cho đường updater. GTGD ~0 nên vô hại — ghi nhận làm bằng
+chứng lỗ hổng, chưa cần chữa.
+
+**G. Ticker tái sử dụng** — VHM có vách 2018-05-17 cách 308 ngày = ngày
+Vinhomes niêm yết; dữ liệu trước đó là mã KHÁC từng dùng ticker VHM. Chữ
+ký: quãng nghỉ dài + nhảy lớn. Có thể còn ở mã khác, CHƯA quét. Ngoài mọi
+lookback thực tế (backtest dài nhất 730 ngày) nên không gấp.
 
 ## ⏳ TỰ ĐẾN — chỉ cần ĐỌC khi tới
 
-**2. ✅ ĐÓNG 18/08 — báo cáo model watch T7 15/08 đã đọc trọn** (user dán
-nguyên văn; task chạy đúng 09:00, exit 1 = cảnh báo mềm, KHÔNG có gì
-chết). Đối chiếu 4 câu hỏi đặt trước:
-* **Đủ mặt 5 nhà ✅** — Mistral lần đầu: probe 0.8s sống, lưu mốc 55
-  model, chấm bộ đề (classify 1.00 / sentiment 0.88 / json 1.00).
-* **Probe ladder: 10 sống / 0 chết / 1 ⏳** — chỉ OpenRouter
-  `gpt-oss-20b:free` hết quota ngày (429 free tier, tự hồi), không phải
-  model chết.
-* **nemotron-ultra HẾT BÒ** — probe 2.1s (11/08 từng 127.3s = 161×
-  median), mục "── Chậm bất thường ──" KHÔNG xuất hiện = không model nào
-  chậm bất thường. → mục 5 HẠ NHIỆT (xem cập nhật ở mục 5).
-* **Bảng điểm**: 8/10 nấc đo đủ, 6 nấc điểm tuyệt đối. Ba điểm để mắt
-  T7 sau (22/08): (a) `gemini-3.5-flash` vẫn n/a — 22 ca hụt dù có nhịp
-  riêng (quota free tối T7); (b) **Groq `gpt-oss-20b` sentiment 0.75 mà
-  vai của nó chính là [1] sentiment** — tuần sau vẫn ≤0.75 thì mở lại
-  "cảnh báo nấc yếu" + cân nhắc đổi nấc [1] (gemma-4-31b cùng vai đang
-  1.00); (c) nemotron-ultra được xoay vòng chấm bù.
-* Danh mục: Gemini +2 (có `gemini-3.7-flash` MỚI — cả bản OpenRouter);
-  OpenRouter -1/+10 (model bị gỡ không nằm trong ladder). 3.7-flash là
-  ứng viên nâng cấp tương lai — LUẬT CŨ GIỮ NGUYÊN: probe sống trên máy
-  thật trước khi vào code.
-Brief chiều 4 giọng không còn ❌ Groq đã xác nhận từ #217.
+**H. Báo cáo model watch T7 22/08** — 3 điểm hẹn sẵn: (a) `gemini-3.5-flash`
+còn n/a không (22 ca hụt vì quota free tối T7); (b) **Groq `gpt-oss-20b`
+sentiment ≤0.75 lần thứ 2 → mở lại "cảnh báo nấc yếu"** + cân nhắc đổi nấc
+[1] sang `gemma-4-31b` (đang 1.00); (c) bộ đề chấm bù `nemotron-ultra` —
+latency vẫn thường → **đóng hẳn mục 5**. Ứng viên mới `gemini-3.7-flash`
+đã xuất hiện trong danh mục: muốn dùng phải probe sống trước (luật CLAUDE.md).
 
-**3. ✅ ĐÓNG 18/08 — badge "Quy đổi đơn vị giá": không có ca oan nào, và
-CHÍNH BADGE mới là thứ phải sửa.** User soi 5 chart (WSS/WTC/XPH/YBM/YEG)
-17-18/08; điều tra 6 hướng + đối chứng phản biện cho kết quả:
-* **Không thể quy đổi oan vì CHIA TÁCH** (chứng minh cấu trúc, không cần
-  dữ liệu): guard chỉ bắn khi ratio ≥ **100×**; chia tách/thưởng LÀM GIẢM
-  giá nên chỉ kéo ratio XUỐNG — tức chỉ gây BỎ SÓT, không thể gây oan.
-  Muốn oan phải có giá TĂNG ≥100× trong một phiên, bất khả với biên
-  ±7/10/15%. Thêm một lớp chặn: `_should_rollup_to_warehouse` chỉ cho mã
-  3 CHỮ CÁI qua rollup nên CW/chứng chỉ quỹ/futures/index không bao giờ
-  chạm `_normalize_units` (fix_units thì KHÔNG có lớp lọc này — bất đối
-  xứng có thật, chưa gây hại). Ca oan "chia tách" ghi từ 11/08 ĐÓNG.
-* ⚠️ **Nhưng CÒN MỘT đường oan lý thuyết — mẫu số không có sàn dưới.**
-  `ref = ref[ref > 0]` (`vnstock_rollup.py:284-285`) chỉ lọc dương, không
-  đòi giá hợp lý. Nếu LỊCH SỬ kho của một mã đã hỏng theo hướng nhỏ bất
-  thường (ví dụ từng bị chia 1000× hai lần → 0.006 thay vì 6.0) thì bar
-  MỚI ĐÚNG đơn vị cũng cho ratio ≥100 → bị chia oan, và sai số tự nuôi
-  nhau. Khác hẳn ca chia tách: cần kho hỏng SẴN mới xảy ra. CHƯA quan sát
-  thấy ca thật; KHÔNG vá vội (YAGNI + đụng đường ghi kho là rủi ro), vì
-  ca này ĐÃ CÓ LƯỚI PHÁT HIỆN: chuỗi kho sẽ mang vách ~1000× và
-  `check_unit_continuity` bắt đúng loại đó. Muốn chặn tận gốc thì thêm
-  sàn `ref.median() > 0.01` (10 VND — dưới hẳn mã penny 300-900 VND vốn
-  là lý do guard này tồn tại) + test; chỉ làm khi có ca thật.
-* **Con số `ratio` KHÔNG phải thước đo đúng/sai**: `ratio = trung vị close
-  bar mới (VND) / trung vị close YTD của chính mã (nghìn VND)`
-  (`vnstock_rollup.py:291`, mẫu số là `_read_year` = file `year=<năm bar>`).
-  Tức ratio ≈ 1000 × (giá hôm đó / trung vị YTD) — chỉ tròn 1000 khi giá
-  bằng đúng trung vị năm. **YEG 764.1× chỉ nói YEG đang thấp hơn trung vị
-  năm ~24%** (khớp chart giảm đều 12 → 7.6), KHÔNG phải dấu vết quy đổi
-  sai. Claude từng nêu 764.1× là "đáng ngờ nhất" (17/08) — SAI, rút lại.
-* **Badge nói quá ở 3 chỗ → ĐÃ VÁ**: (1) in ratio kèm mã như thể đó là độ
-  tin cậy → bỏ; (2) 5 mã hiện ra là `fresh[-5:]` mà rollup duyệt
-  `groupby("ticker")` = ALPHABET → luôn là ĐUÔI BẢNG CHỮ CÁI (đúng
-  W-W-X-Y-Y), không phải 5 ca nặng nhất → nay in tổng số mã + ghi rõ "5 mã
-  cuối theo vần"; (3) "50 lần" đúng bằng trần log `_UNIT_LOG_MAX=50` nên
-  là SÀN chứ không phải số thật → nay in "≥50 (log đầy)". 6 test mới.
-* **Việc soi mắt thay bằng lệnh**: `scripts/check_unit_continuity.py` —
-  đọc CÙNG nguồn badge đọc, in bar cuối + bắt vách >30% và PHÂN LOẠI
-  (~1000× = vết sót · ~2× = nghi chia tách · khác = thiếu phiên/lỗi), so
-  bar cuối với `_live/quote_*.json`. Exit 0 sạch / 1 cần soi / 2 không đọc
-  được kho. 13 test. Badge nay trỏ thẳng vào lệnh này.
-* ✅ **CHỐT BẰNG DỮ LIỆU THẬT 18/08 — user chạy tool trên 50 mã**: KHÔNG
-  mã nào có vách ~1000× (vết quy đổi sót). Cả 5 mã badge nêu đều sạch,
-  **kể cả XPH: kho 15.00 nghìn ↔ live 14,900 (lệch 0.99×)** — XPH giao
-  dịch 14.0-16.5 suốt tháng 7-8, chưa từng ở vùng 10. MỤC 6 ĐÓNG HOÀN
-  TOÀN: guard quy đổi chạy đúng.
-* ⚠️ **BÀI HỌC ĐẮT — "soi chart bằng mắt" suýt đẻ ra kết luận sai, và
-  Claude đã dính**: chart trong ảnh XPH KHÔNG phải của XPH (chuỗi
-  ~9.5-10.2 đúng dải của WTC, mã user xem TRƯỚC đó). Cùng hiện tượng ở
-  ảnh WTC (hiện chart WSS). Nguyên nhân: khi đổi mã, quote strip +
-  volume profile render TRƯỚC nên đã là mã mới, còn chart render SAU
-  (phía sau 2 lời gọi mạng VCI chặn của `_today_bar_writer`) vẫn là mã
-  cũ — cửa sổ lệch pha vài giây, đủ để chụp ảnh và suy luận sai. Claude
-  đã dựng nguyên một giả thuyết "3 phiên trần UPCOM" từ dữ liệu của mã
-  khác. ĐỀ XUẤT CHƯA LÀM (chờ user quyết): chart hiện placeholder
-  "⏳ đang tải {mã}" khi mã đang xem ≠ mã chart vừa vẽ, thay vì để
-  nguyên khung cũ. Trước mắt: ĐỌC NHÃN TRONG CHART trước khi kết luận.
-* **Tool tự bắt lỗi của chính nó ngay lần chạy thật đầu**: 8/50 mã bị
-  gắn cờ oan vì "hai bar liền nhau" ≠ "hai phiên liền nhau" — mã kém
-  thanh khoản có bar cách nhau HÀNG THÁNG (VTS: 2026-03-10 → 2026-08-07,
-  150 ngày, rơi 40% = tích luỹ nhiều phiên chứ không phải vách). Đã vá:
-  thêm điều kiện `gap_days ≤ 4` mới kết tội "vượt biên độ sàn"; vách
-  ~1000× thì luôn nghi vấn bất kể cách bao lâu (không quãng thời gian
-  nào biến giá thành sai đơn vị); vách qua quãng nghỉ in ℹ để đọc chứ
-  không tính suspect. +5 test.
-* ⚠️ **VVS — ca thật DUY NHẤT còn lại, đã xác nhận KỀ PHIÊN**: user chạy
-  `--ticker VVS` sau bản vá gap: `2026-06-15: 112.50 → 71.21 (−36.7%)`,
-  hai bar 12/06 → 15/06 (thứ Sáu → thứ Hai) nên KHÔNG phải gap artifact.
-  Hệ số giá **1.580×** — bất khả với biên ±15%.
-  **KHÔNG PHẢI sự kiện quyền — giả thuyết "thưởng 100:58" của Claude SAI,
-  rút lại.** Bằng chứng loại trừ (user chạy `vnstock_div_check --tickers
-  VVS --refresh -v` 18/08): VVS có 3 sự kiện trong 750 ngày → **2 đã điều
-  chỉnh · 0 GAP THÔ · 1 chưa kết luận** (2026-03-08 [bonus] kỳ vọng
-  −97.68% — chính div_check gắn cờ "nghi sai đơn vị/tỷ lệ NGUỒN"). Nếu có
-  sự kiện quyền ở 15/06 mà kho chưa điều chỉnh thì div_check BẮT BUỘC
-  phải báo GAP THÔ ở đúng ngày đó; nó báo 0 → **không có sự kiện nào ở
-  15/06**. Hai tool bổ trợ nhau chứ không mâu thuẫn: div_check chỉ soi
-  TẠI ngày sự kiện, nên vách nằm ngoài ngày sự kiện thì nó không bao giờ
-  nhìn tới — đó đúng là vùng mù mà `check_unit_continuity` vừa lấp.
-  **Nghi phạm còn lại (có bằng chứng cấu trúc): kho trộn HAI CƠ SỞ ĐIỀU
-  CHỈNH.** Vendor rebase toàn chuỗi sau một sự kiện, mà sync incremental
-  chỉ nối bar MỚI (đã rebase) lên lịch sử CŨ (chưa rebase) → chuỗi gãy
-  đúng tại ngày đổi cơ sở, không trùng ngày GDKHQ nào. Khớp cả với chi
-  tiết 71.21 không phải bội số bước giá 100 VND (giá >50k trên sàn niêm
-  yết) — tức là số ĐÃ QUA PHÉP TÍNH, không phải giá khớp lệnh thô.
-  ⚠️ **BẪY: `--force` KHÔNG refetch lịch sử** (Claude hiểu sai 18/08, user
-  chạy ra "Số ngày mới: 1"). `--force` chỉ bỏ qua kiểm tra cuối tuần
-  (`skip_weekends=not args.force`); `update_ticker` LUÔN fetch từ
-  `_get_last_date` — **repo KHÔNG có đường nạp lại lịch sử một mã**. Phép
-  thử đó vì thế vô hiệu, chưa kết luận được gì.
-  → **Phép thử đúng, chỉ ĐỌC: `scripts/probe_price_basis.py`** (mới
-  18/08) — fetch nguồn qua đúng `_fetch_prices` của updater (cùng chuẩn
-  hoá đơn vị) rồi so tỉ lệ kho/nguồn HAI BÊN ngày vách:
-  `python scripts/probe_price_basis.py --ticker VVS --break-date 2026-06-15`
-  · tỉ lệ ĐỔI BẬC tại ngày vách ⇒ `warehouse_basis` (nguồn liền mạch, kho
-    giữ cơ sở cũ) → chữa bằng ghi đè lịch sử;
-  · tỉ lệ NHƯ NHAU hai bên ⇒ `source_error` (nguồn cũng gãy) → ghi đè vô
-    ích, chữa ở nguồn/cách ly.
-  Hai chẩn đoán chữa NGƯỢC NHAU nên phải phân định TRƯỚC khi sửa. Hàm
-  phán `basis_report` là hàm thuần + 6 test (fetch cần mạng nên tách ra).
-  ✅ **CHỐT 18/08 — `warehouse_basis`, bằng chứng không thể rõ hơn**: user
-  chạy probe, tỉ lệ kho/nguồn = **1.6543× cho MỌI bar trước 15/06** (43
-  bar, sai số ±0.0002) rồi **1.0000× cho MỌI bar từ 15/06**. Nguồn liền
-  mạch, kho gãy ⇒ VVS có sự kiện quyền ex-date 15/06 hệ số ~1.654 (thưởng
-  ~65%), nguồn rebase CẢ CHUỖI, còn sync chỉ nối bar mới lên lịch sử cũ.
-  Diễn giải phụ: giá "thật" phiên 12/06 theo cơ sở mới là 112.50/1.6543 =
-  68.01, nên phiên 15/06 đóng 71.21 là **+4.7% bình thường** — vách 36.7%
-  hoàn toàn là ảo ảnh do trộn hai cơ sở.
+**I. Badge 🩺 doctor** — chỉ hành động khi warn. Badge "Quy đổi đơn vị giá"
+nay nói thật (bỏ ratio gây hiểu nhầm, ghi rõ "5 mã cuối theo vần", in "≥50"
+khi log đầy) và trỏ thẳng vào `scripts/check_unit_continuity.py`.
 
-  🔴 **ĐÂY LÀ LỖI HỆ THỐNG, KHÔNG PHẢI CA CÁ BIỆT** — mọi mã có sự kiện
-  quyền lớn (chia tách/thưởng) đều dính cùng cơ chế, vì repo KHÔNG có
-  đường nạp lại lịch sử và đường ghi CHÍNH không có lưới đối chiếu.
-  Vì sao mục 4d (28/30 VN30, 64 sự kiện, 0 gap thô) không bắt được: sự
-  kiện VN30 trong cửa sổ đó chủ yếu là CỔ TỨC TIỀN MẶT — hệ số điều chỉnh
-  1.01-1.05, chìm dưới nhiễu (đúng 19 ca "chìm nhiễu" đã ghi). Rủi ro dồn
-  vào đúng nhóm hệ số LỚN, tức nơi sai số tàn phá nhất. Kết luận 4d không
-  sai trong phạm vi của nó, nhưng KHÔNG suy rộng ra được.
-  → **Đã thêm `check_unit_continuity --all`** (quét toàn kho, chỉ in mã
-  nghi vấn) để đo độ rộng thiệt hại; vách "kề phiên" nay ghi thẳng "nghi
-  KHO LỆCH CƠ SỞ" + trỏ sang `probe_price_basis` thay vì bỏ lửng ở chữ
-  "dữ liệu lỗi". CHƯA có đường CHỮA (ghi đè lịch sử) — chờ user quyết,
-  vì đó là ghi vào kho.
-  ⚠️ **Lần quét `--all` ĐẦU TIÊN gắn cờ 1.902/3.125 mã — LỖI CỦA CÔNG CỤ,
-  không phải của kho** (user chạy 18/08). Hai nguyên nhân, đã vá cả hai:
-  (1) quét cả CHỨNG QUYỀN (CFPT2528…, hàng nghìn mã), TRÁI PHIẾU
-  (CTG121030, MBB125008), phái sinh HNX (41I1G4000) và cả VNINDEX — những
-  thứ KHÔNG có biên độ ±15% nên nhảy 30-50%/phiên là bình thường; nay lọc
-  bằng chính `vnstock_anomaly._is_stock` (bất đối xứng đã ghi nhận từ
-  trước: anomaly có `stocks_only`, fix_units/tool này thì không).
-  (2) quét cả 20 năm lịch sử nên nhiễu 2006-2013 nhấn chìm tín hiệu mới;
-  nay `--all` mặc định cắt **365 ngày** (`--since N`, 0 = toàn bộ; soi mã
-  lẻ vẫn xem toàn lịch sử). Danh sách in ra cũng cắt còn 40 mã + "(+N)".
-  +3 test. **Bài học lặp lại lần thứ ba trong ngày**: mỗi lần công cụ gặp
-  dữ liệu THẬT là lộ một giả định ngầm sai (bar liền nhau ≠ phiên liền
-  nhau · mọi mã ≠ cổ phiếu · lịch sử dài ≠ lịch sử liên quan). Đừng tin
-  con số quét lần đầu; luôn soi vài dòng mẫu trước khi kết luận diện rộng.
-  → **Quét lần 2 (sau lọc): 149/1.579 mã cổ phiếu (9,4%) có vách trong 365
-  ngày.** Con số này đã có nghĩa. Nhưng 149 dòng TÊN thì vẫn không dùng
-  được: probe từng mã là 149 lần gọi mạng, mà phần lớn là penny không ai
-  giao dịch. Nên `--all` nay in **một dòng/mã kèm ngày vách + HỆ SỐ + GTGD
-  TB20, XẾP THEO THANH KHOẢN giảm dần** — câu hỏi thật không phải "mã nào
-  có vách" mà "mã nào đủ thanh khoản để lọt universe chiến lược
-  (`min_avg_volume=100.000`) và làm hỏng tính toán". Đọc từ trên xuống,
-  gặp GTGD nhỏ là dừng. Hệ số in kèm cũng giúp nhận dạng nhanh: hệ số
-  "đẹp" (1.65, 2.00) → gần chắc là rebase; hệ số lộn xộn → nguyên nhân
-  khác. +1 test canh thứ tự xếp.
+## 🟡 QUAN SÁT DÀI HẠN
 
-  🔴🔴 **BẢNG QUÉT 18/08 — THIỆT HẠI CHẠM VN30, KHÔNG CÒN LÀ CHUYỆN PENNY.**
-  Nhóm đầu (GTGD/phiên): **VHM 596 tỷ · vách 03/08 148.10→74.00 hệ số
-  2.001×** · **GEX 311 tỷ · 28/04 hệ số 1.480×** · **PNJ 260 tỷ · 17/04
-  hệ số 1.472×** · GEE 81 tỷ (1.730×) · PVD 50 tỷ (1.632×) · PET 12.7 tỷ
-  (1.439×, CÓ sự kiện quyền khớp) · F88 11.6 tỷ (2.062×) · VVS 10.6 tỷ
-  (1.580×) · KSV 4.7 tỷ · TOS 2.3 tỷ · L40 1.7 tỷ. **VHM và PNJ nằm
-  trong VN30** — tức trong brief, screener, chart, chiến lược. Hệ số
-  2.001× của VHM là chữ ký chia tách/thưởng 100%.
-  ⇒ **Kết luận 4d "kho nhất quán điều chỉnh, 0 gap thô" KHÔNG còn đứng
-  cho VN30**: div_check chỉ soi TẠI ngày sự kiện có trong cache, mà cache
-  thiếu đúng những sự kiện này (ca PET là ngoại lệ — có sự kiện khớp).
-  Vùng mù đó chính là chỗ `check_unit_continuity` lấp.
-  ⇒ Hệ quả PHẢI GIẢ ĐỊNH cho tới khi chữa: mọi chỉ báo/backtest/vốn hoá
-  của VHM trước 03/08, PNJ trước 17/04, GEX trước 28/04 đều SAI HỆ SỐ.
-  Chiến lược #32 (đang phát rec) chạy trên universe 3.125 mã → có thể đã
-  học trên chuỗi lệch. **Chưa kết luận vội** — phải probe từng mã trước.
-  ⇒ `probe_price_basis` nay nhận NHIỀU `--ticker` và TỰ TÌM ngày vách
-  (dùng lại `find_jumps`, một nơi định nghĩa "vách"), nên phân định cả
-  nhóm đầu bằng một lệnh. +3 test.
-  ⇒ Ghi nhận phụ: 4 mã BII/HSI/LCS/VLF cùng vách **1000×** ngày
-  **2026-04-14** = VẾT QUY ĐỔI SÓT THẬT (penny 300-600 VND ghi thẳng số
-  thô). Lọt cả hai lưới: `fix_units` đòi close > 1000 (300 không đủ),
-  `_normalize_units` chỉ áp cho bar rollup/WSS chứ không áp cho đường
-  updater. GTGD ~0 nên vô hại, nhưng là bằng chứng lỗ hổng thứ ba.
+**J. Sync time** — 9.731s (đỉnh heal) → 2.376s (17/08). Vài phát nữa phải
+teo về bình thường khi quarantine cạn; vẫn ~40-60 phút thì báo Claude.
 
-  ✅ **PROBE 5 MÃ ĐẦU BẢNG — CẢ 5 ĐỀU `warehouse_basis`, tỉ lệ sạch tuyệt
-  đối** (user chạy 18/08): VHM **2.0000×** · PNJ **1.4999×** · GEX 1.4498×
-  · GEE 1.7593× (sau vách còn 1.0052× — dư 0.5%, nghi cổ tức tiền mặt
-  nguồn có mà kho không, chưa đụng) · PVD 1.6692×. Không bar nào lệch khỏi
-  hệ số ⇒ hết đường nghi ngờ: lịch sử kho giữ cơ sở cũ, nguồn liền mạch.
-  Suy ra thẳng: **MA200/RSI/MACD/backtest/vốn hoá của VHM trước 03/08 sai
-  gấp ĐÔI**, PNJ trước 17/04 sai 1.5×; VHM vốn hoá lớn nên còn kéo lệch cả
-  tổng ngành Bất động sản trong bảng screener.
+**K. #32 tự chứng minh bằng live** — theo dõi dòng "💚 Live khớp backtest"
+trên panel Chiến lược vài tuần. Lưu ý: kho VHM/PNJ/GEX vừa đổi hệ số nên
+vài đêm train tới có thể cho verdict/expectancy khác — đó là dữ liệu ĐÚNG
+hơn, không phải hỏng.
 
-  🔧 **ĐÃ DỰNG ĐƯỜNG CHỮA: `scripts/rebase_ticker_history.py`** (CHƯA
-  CHẠY trên kho thật — quyết định ghi kho là của user). Thiết kế ưu tiên
-  ĐÚNG hơn TIỆN: ngày nào NGUỒN CÓ thì lấy thẳng giá nguồn (không nhân
-  chia, chính xác tuyệt đối), ngày nào cũ hơn độ phủ nguồn thì nhân hệ số
-  ĐO ĐƯỢC — giữ nguyên độ sâu 20 năm của kho (backtest tầng vị thế cần
-  730 ngày, ghi đè cụt bằng độ phủ nguồn là mất dữ liệu). Hệ số KHỐI
-  LƯỢNG đo riêng (chia tách đổi cả số cổ phiếu); không đo đủ chồng lấn thì
-  để yên chứ không đoán. Bốn cửa an toàn: **mặc định CHẠY THỬ** (phải
-  `--apply` mới ghi) · **từ chối** nếu probe không phán `warehouse_basis`
-  · **sao lưu** nguyên thư mục mã vào `_meta/backup_rebase/<mã>_<lúc>` ·
-  ghi **nguyên tử** từng file rồi **TỰ KIỂM** (đọc lại; còn vách thì báo
-  đỏ + gợi ý mã bị rebase nhiều lần thì chạy lại). 7 test soi đúng phần
-  an toàn: chạy thử không đụng byte nào · từ chối khi `source_error` ·
-  backup giữ bản gốc · ngưỡng chồng lấn tối thiểu cho hệ số khối lượng.
-  ✅ **Chạy thử VHM trên máy thật 18/08 — kịch bản TỐT NHẤT**: nguồn phủ
-  từ **2011-11-10**, trùng đúng ngày đầu của kho (3.476 bar) ⇒ **3.464/3.464
-  bar lấy thẳng giá nguồn, 0 bar phải nhân hệ số ước lượng**; không mất một
-  ngày lịch sử nào.
-  ⚠️ **Nhưng lộ vấn đề KHỐI LƯỢNG, phát hiện đúng lúc chạy thử**: hệ số
-  volume nguồn/kho = **1.0000×** ⇒ nguồn CHỈ điều chỉnh GIÁ. Chia tách 1:1
-  làm số cổ phiếu gấp đôi, nên nếu chữa giá (÷2) mà giữ nguyên khối lượng
-  thì **GTGD lịch sử còn một nửa** — mà GTGD chính là thứ screener và
-  `min_avg_volume=100.000` của `emit_recommendations` dùng để lọc thanh
-  khoản. Chữa một lỗi mà đẻ lỗi khác. Đã bổ sung: đo **bậc nhảy khối lượng
-  tại vách** (trung vị 20 bar sau / 20 bar trước) rồi quyết —
-  `--volume auto` (mặc định): nhân khối lượng lịch sử theo hệ số giá KHI
-  nguồn không điều chỉnh volume (≈1.0×) VÀ volume gãy đúng bậc đó ·
-  `adjust`: luôn nhân · `source`: giữ đúng số nguồn (khi muốn kho khớp
-  nguồn tuyệt đối để đối chiếu). +4 test. In rõ quyết định + lý do ra màn
-  hình trước khi ghi.
-  ✅✅ **VHM ĐÃ CHỮA XONG 18/08 20:37 — ca đầu tiên, trọn quy trình.**
-  Bậc nhảy khối lượng đo được **1.95×** (≈ hệ số giá 2.0, lệch 2.5% là dao
-  động trung vị bình thường) ⇒ `auto` nhân khối lượng ×2.0000 — bằng chứng
-  thực nghiệm khớp lý thuyết chia tách 1:1. Sao lưu
-  `_meta/backup_rebase/VHM_20260818-203753`, ghi nguyên tử 16 file, TỰ KIỂM
-  báo "chuỗi đã liền". Sau khi chữa: giá ÷2 và khối lượng ×2 nên **GTGD
-  lịch sử giữ nguyên** — đúng bản chất chia tách, không đẻ lỗi mới.
-  ✅ **Soi TOÀN LỊCH SỬ VHM sau khi chữa: sạch trong mọi phạm vi có ý
-  nghĩa.** Còn đúng 2 dòng, cả hai đều KHÔNG phải lỗi kho:
-  * `ℹ 2018-05-17: 8.41 → 30.99, cách 308 ngày` = ngày **Vinhomes niêm
-    yết**. Tức dữ liệu VHM trước mốc đó KHÔNG PHẢI Vinhomes mà là mã cũ
-    từng dùng ticker VHM (ngừng giao dịch 308 ngày rồi ticker được cấp
-    lại). Chữ ký TICKER TÁI SỬ DỤNG: quãng nghỉ dài + nhảy lớn. Có thể
-    còn ở mã khác — ghi nhận, chưa quét.
-  * `⚠ 2015-06-10 +40%` nằm trong phần lịch sử "tiền Vinhomes" đó.
-  **Nguyên tắc rút ra**: sau khi rebase, kho = nguồn 100%, nên MỌI VÁCH
-  CÒN LẠI ĐỀU LÀ VÁCH CỦA NGUỒN — probe sẽ ra `source_error`, công cụ
-  rebase không chữa được và cũng không nên chữa. Vách 2015 nằm ngoài mọi
-  lookback thực tế (backtest dài nhất repo là 730 ngày) → BỎ QUA.
-  🔴 **VẾT NUỐT LỖI — bắt được ngay trong đêm 18/08.** User chạy rebase
-  cho PNJ/GEX/GEE/PVD, cả 4 in "✅ không còn vách nghi vấn" — MÂU THUẪN
-  với bảng quét một giờ trước (PNJ 17/04 −32%, GEX 28/04, GEE 28/04, PVD
-  09/07). Nguyên nhân: `_find_break` bọc `try/except` quanh CẢ HÀM rồi trả
-  `None`, mà `None` được in thành "✅ sạch" ⇒ **"kho sạch" và "tìm hỏng"
-  trông y hệt nhau**. Đúng họ lỗi repo đã vấp: `except: pass` nuốt timeout
-  (17/07), guard quên nối (12/08) — code chết trông y như code sống.
-  Đã vá: `_find_break` KHÔNG bọc try/except, kho rỗng thì `raise` kèm chỉ
-  dẫn; `rebase` bắt riêng và in "✗ KHÔNG SOI ĐƯỢC (…) — ĐỪNG coi là sạch"
-  + trả exit 1; dòng ✅ nay in kèm SỐ BAR đã soi để không thể "sạch trong
-  im lặng". +2 test. **Chưa biết PNJ/GEX/GEE/PVD thực sự sạch hay chưa —
-  phải chạy lại sau khi merge.**
-  🟢 **BẤT NGỜ TỐI 18/08 — PNJ/GEX/GEE/PVD TỰ SẠCH, KHÔNG PHẢI DO CLAUDE.**
-  Sau khi vá vết nuốt lỗi, chạy lại: cả 4 báo "sạch (soi 250 bar)" và
-  probe PNJ tại 17/04 cho **tỉ lệ kho/nguồn = 1.0000× TOÀN DẢI** 18/03 →
-  15/05 (sáng cùng ngày còn 1.4999×). Kho ĐÃ đổi giữa 15:28 và 22:01, mà
-  Claude chưa từng ghi gì cho 4 mã đó (lần chạy trước thoát ngay ở
-  `_find_break`). ⇒ **Nghi phát pipeline 18:00 tự chữa** — nếu đúng thì
-  nhận định "repo KHÔNG có đường nạp lại lịch sử" PHẢI SỬA, và VHM có lẽ
-  cũng tự lành nếu chờ thêm. CHƯA XÁC MINH: cần soi `run_daily.log` phát
-  18:00 xem bước nào ghi lại kho (nghi `audit`/reconciler — log 17/08 có
-  dòng `[reconciler] normalise_units: rolled rescaled 6280/7030 row(s)`).
-  Giá PNJ cũng đổi mốc (tháng 5 ~67-70 → 18/08 còn 35.05) — có thể còn
-  một sự kiện quyền nữa; chưa truy.
-  🔧 **Vá kèm: verdict `aligned` mới.** "Cùng bậc hai bên" CHƯA đủ để kết
-  tội nguồn — phải CÓ VÁCH THẬT tại ngày đó đã. Ca PNJ: kho khớp nguồn
-  hoàn hảo, không còn vách, mà tool vẫn hô "NGUỒN CŨNG GÃY" (báo động giả
-  đúng loại đã dặn nhau tránh). Nay: cùng bậc + có vách → `source_error`;
-  cùng bậc + không vách → `aligned` ("kho khớp nguồn, không còn gì để
-  chữa"). +1 test mới, 1 test cũ sửa assert cho đúng ý (giữ "không phải
-  warehouse_basis" thay vì ghim cứng `source_error`).
-  🔎 **TRUY RA AI CHỮA PNJ (18/08 22:0x) — và lộ việc PHẢI LÀM NGAY.**
-  Hai bằng chứng: (1) mtime CẢ 18 file `ticker=PNJ` giống hệt
-  **20:47:04**, tên kiểu hash = `write_to_dataset` ghi lại cả thư mục;
-  (2) `LastTaskResult = 267014` (0x41306) = **tác vụ bị NGƯỜI DÙNG chấm
-  dứt**, LastRunTime 18:00. Loại trừ: `vnstock_screener`/`vnstock_runner`
-  KHÔNG có lệnh ghi parquet nào (đã grep), reconciler chỉ chuẩn hoá
-  "before comparison" (log ghi rõ). ⇒ **Phát 18:00 vẫn đang chạy bước
-  sync lúc 20:47** (chậm hơn thường lệ), chính `updater` ghi lại dataset
-  PNJ với dữ liệu nguồn ĐÃ REBASE — kho được chữa là TÁC DỤNG PHỤ của
-  sync, không phải cơ chế tự lành có chủ đích. Nhận định "repo không có
-  đường nạp lại lịch sử" vẫn ĐÚNG về mặt thiết kế.
-  ⚠️ **HỆ QUẢ PHẢI XỬ: pipeline 18/08 CHƯA HOÀN TẤT** — bị kill giữa
-  chừng nên audit/train/reflection/doctor/brief chiều đều chưa chạy.
-  Chạy bù: `python run.py all --no-sync`.
-  📌 **BÀI HỌC VẬN HÀNH LẶP LẦN 2** (17/08: 0xC000013A ngắt giữa chừng;
-  18/08: 267014 user chấm dứt): tối nào cũng đừng gõ lệnh nặng vắt qua
-  giờ pipeline. Muốn làm việc buổi tối thì làm TRƯỚC 18:00 hoặc SAU khi
-  thấy pipeline xong (soi `run_daily.log` có dòng `⏱ TỔNG`).
-  ⏭ **VIỆC KẾ TIẾP (chờ user)**: chạy thử VHM → soi số → `--apply` → chạy
-  lại `--all` xem 149 rút còn bao nhiêu. Sau đó mới tính chuyện chặn TÁI
-  PHÁT (lưới đối chiếu ở đường ghi CHÍNH — hiện chỉ làn fallback có).
-  ⚠️ **Lỗ hổng lộ ra từ ca này: lưới đối chiếu chỉ có ở làn FALLBACK.**
-  `reconcile_fallback_df` (từ chối data lệch >8% so với kho) chỉ được gọi
-  trong nhánh fallback (`vnstock_updater.py:441`); **đường VCI CHÍNH ghi
-  thẳng vào kho không qua đối chiếu nào**. Vendor đổi cơ sở điều chỉnh là
-  đi lọt cửa chính. Vá thì phải đụng đường ghi kho (rủi ro nhất repo) và
-  phải miễn trừ đúng các ngày GDKHQ hợp lệ — NÊU RA ĐỂ USER QUYẾT, không
-  tự làm.
-  Ảnh hưởng thực tế: VVS lọt bộ lọc `min_avg_volume=100.000` của
-  `emit_recommendations` (KL ~40k-500k/phiên, giá ~100 nghìn) nên chuỗi
-  lệch 58% này CÓ THỂ vào tính toán chiến lược. Mục 4d chốt "kho nhất
-  quán điều chỉnh" dựa trên 28/30 mã VN30 — VVS ngoài rổ đó, nên kết luận
-  cũ KHÔNG sai, nhưng độ phủ ngoài VN30 nay biết là CHƯA được kiểm.
-* **Tool nay tự trả lời "VÌ SAO", không chỉ "có vách"** (nối tiếp ca VVS):
-  mỗi vách nghi vấn được đối chiếu với kho sự kiện quyền có sẵn
-  (`vnstock_adjust.load_events`, cache 3 nguồn từ 14/08), cửa sổ ±3 ngày
-  (ngày chốt quyền vs ngày GDKHQ lệch nhau). Trùng → đổi thông điệp thành
-  "TRÙNG SỰ KIỆN QUYỀN (loại, GDKHQ ngày) → kho CHƯA back-adjust" kèm
-  **hệ số giá quan sát vs ratio sự kiện** để đối chiếu tay, và in nguyên
-  văn mô tả. Không trùng → GIỮ NGUYÊN "dữ liệu lỗi", không bịa nguyên
-  nhân. Vách qua quãng nghỉ thì không đi tra sự kiện (không phải nghi vấn
-  thì đừng gán tội). +5 test. Đây là bước biến "cần soi tay" thành "đã
-  biết chữa ở tầng nào".
-* ~~Còn treo — XPH~~ *(giả thuyết sai, giữ lại để không ai đi lại đường
-  cũ)*: live 15,600 VND vs chart ~10.2 nghìn (lệch ~1.5×).
-  KHÔNG phải lỗi đơn vị: mọi hệ số trong repo là 1000× và
-  `normalize_live_price` chỉ kích hoạt khi >100×/<0.01× nên không đường
-  code nào đẻ ra 1.5×. Hai giả thuyết còn lại, cần dữ liệu máy thật để
-  chốt: (a) kho lỡ phiên — số học ủng hộ mạnh: bar WSS lúc quy đổi ≈10.16
-  nghìn, mà 10,160 × 1.15³ = 15,450 ≈ 15,600 = **3 phiên trần UPCOM**;
-  (b) file `_live/quote_XPH.json` thiu — `load_live_quote` KHÔNG kiểm tra
-  tuổi file và strip chỉ in HH:MM:SS (không có ngày), mã UPCOM không khớp
-  lệnh thì file không được ghi đè. → user chạy
-  `python scripts/check_unit_continuity.py --bars 20` trên máy thật.
-* **WTC**: ảnh chụp lúc trang đang rerun (mờ), chart còn khung của mã
-  trước. Soi code: không state nào giữ dữ liệu mã cũ (cache theo key
-  ticker, iframe srcdoc nhúng tên mã) → là khung cũ chưa bị thay, cửa sổ
-  dài vì giữa quote strip và render_chart còn 2 lời gọi mạng VCI chặn.
-  Phân định dứt điểm nếu tái diễn: chờ trang hết mờ rồi đọc NHÃN TRONG
-  chart — vẫn ghi mã cũ mới là stale thật.
+**L. OpenRouter nạp $10** — quan sát từ lưu lượng thật; ledger có cột
+`last_error` để phân biệt 429 thật/giả (`python vnstock_llm_ledger.py --show`).
 
-## 🟡 CODE CÒN TREO — không gấp
-
-**4. MEDIUM/LOW của audit 06/08** — đang dọn theo thứ tự ③→①→④→②:
-* ✅ **③ test replica XONG 12/08** (entry 12/08 (b)+(c)) — `test_wss.py` và
-  `test_dashboard.py` hết sạch replica; 6 module thuần tách ra; +45 test cho
-  các nhánh trắng lộ ra (RSI loss=0, VWAP intraday, cell_color, bảng ngành)
-* ✅ **① ghi nguyên tử XONG 12/08** (entry 12/08) — warehouse xoá-rồi-ghi +
-  meta + 5 file state; có lưới `_MUST_BE_ATOMIC` chặn tái phát
-* ✅ **④ tách file quá lớn XONG 12/08** (entry 12/08 (d)+(e)+(f)):
-  `vnstock_brief.py` 6.807 → **4.045**, hệ guard 2.646 → **244 + 4 module chủ
-  đề**; `dashboard/market_tab.py` 2.567 → **1.082**, panel brief 1.194 → **42
-  + 5 panel con**; nhận định thị trường ra `market_commentary.py`.
-  Không còn file nào do đợt tách sinh ra vượt 800 dòng.
-  Đã soi `build_prompt`/`collect_context` (entry 12/08 (g)): KHÔNG chia hàm
-  (churn cao, lợi ích chỉ là con số dòng) nhưng vá 2 lỗ thật tìm được lúc
-  quét — khối prompt biến mất âm thầm, và 13 nguồn nuốt lỗi im lặng
-* **② hiệu năng — ✅ MÁY ĐO GẮN XONG 14/08, chờ SỐ từ đêm máy bàn đầu tiên.**
-  Nghi vấn gốc: warehouse bị quét ~14 lần/đêm. `cmd_all` nay tự bấm giờ
-  từng bước → sáng sau xem:
-  `Select-String -Path run_daily.log -Pattern "⏱"`.
-  LUẬT QUYẾT (chốt trước cho khỏi cãi nhau với chính mình sau): TỔNG < ~30
-  phút VÀ không bước nào chiếm quá nửa vô lý → **BỎ ②** đúng dự đoán
-  ("18:00 không ai ngồi đợi"); một bước nghẽn rõ (audit/validate 20+ phút
-  chẳng hạn) → mổ ĐÚNG bước đó, không tối ưu cả dàn.
-
-**4d. ✅ ĐÓNG 14/08 — kho giá NHẤT QUÁN điều chỉnh cổ tức. VIC hoá ra là
-bằng chứng mạnh nhất.**
-Hai lần chạy máy thật (13-14/08): 29 sự kiện / 17 mã đều "đã điều chỉnh",
-0 gap thô — backtest giữ lệnh dài đứng trên nền sạch. Ca VIC "chưa kết
-luận" khi soi `-v` hoá ra là LỖI TRẦN của chính checker (entry 14/08 (m)):
-bonus 1:1 kỳ vọng −49.8% bị trần-40%-của-cash bịt oan, trong khi quan sát
-−0.14% nghĩa là cú halving VÔ HÌNH trong chuỗi = bằng chứng back-adjust
-mạnh nhất cả đợt. Đã sửa trần theo LOẠI (cash 40% / split-bonus 90%) + 5
-test; user merge + chạy lại NGAY 14/08: **ĐÚNG DỰ ĐOÁN — VIC ✅, chốt sổ
-30 sự kiện / 18 mã sạch, 0 gap thô, 0 chưa kết luận** (exit 0).
-Giới hạn ghi nhận trung thực: 12 mã không có sự kiện để chấm — 11 mã nguồn
-VCI phủ mỏng (VNM/SAB/TCB/VPB/MSN/MWG/PLX/STB… — user đã refresh 16:13
-13/08 TRƯỚC lần chạy đầu nên không phải cache cũ; refresh nữa vô ích) +
-GVR fetch fail im lặng. Rủi ro thấp: mọi mã đi CHUNG một đường sync/kho
-và mọi ca đo được đều sạch. Muốn đóng kín 100% cần NGUỒN SỰ KIỆN THỨ HAI
-— ✅ ĐÃ LÀM 14/08 (entry (n)): `refresh_events` đổi first-wins → GỘP 3
-nguồn + khử trùng-gần. **User chạy phủ nốt NGAY 14/08**: refresh 1.723 mã
-(fail=0) → div_check 29 → **37 sự kiện, vẫn 0 gap thô** — TCB thoát vùng
-mù (0→1 ✅), FPT/HPG/SHB/SSB/VIB/VJC dày thêm. Kết luận 4d càng vững.
-**CHỐT SỔ HOÀN TOÀN 14/08 sau 4 vòng đo** (28→30→37→**64 sự kiện**, entry
-(l)-(o)): độ phủ **28/30 mã VN30**, 64 sự kiện đủ cả tiền mặt lẫn chia
-thưởng đều "đã điều chỉnh", **0 gap thô xuyên suốt**; 19 ca "chìm nhiễu"
-đúng thiết kế không phán bừa; STB/MSN trắng THẬT (không chia cổ tức giai
-đoạn này — thực tế doanh nghiệp). KHÔNG CÒN VIỆC GÌ Ở MỤC NÀY. Tool ở lại
-làm lính gác: nghi ngờ kho lúc nào chạy
-`python vnstock_div_check.py --refresh -v` lúc đó.
-
-**4e. Tầng B — danh mục xoay vòng tháng** (entry 13/08 (d)): để sau, chỉ làm
-khi tầng A chạy ổn và user muốn đầu tư backtester cấp danh mục (~3-5 buổi).
-*(14/08 user gọi làm luôn cả hàng chờ — GIỮ CỔNG có lý do, entry (n):
-production chưa train tầng vị thế đêm nào, chưa có chiến lược đạt kiểm
-định để xoay vòng. Đủ điều kiện → nêu ý tưởng thiết kế trước rồi mới code.)*
-
-## 🟠 QUAN SÁT RỒI QUYẾT
-
-**4c. ✅ ĐÃ CHỐT 13/08: NÂNG sàn kiểm định 10 → 30 lệnh** (entry 13/08 (g)).
-Hệ quả tức thì: #32 (19 lệnh) bị hạ verdict NGAY tại điểm đọc — brief kế tiếp
-KHÔNG còn rec `[vị thế ~20 phiên]` nữa; panel hiện "🎲 mẫu mỏng (n=19)".
-Mở lại khi có backtest ≥ 30 lệnh đạt chuẩn (tune/revise đêm sẽ tự tìm).
-→ **✅ ĐIỀU KIỆN MỞ LẠI ĐÃ XẢY RA 17/08**: #32 đạt p=0.012 với n=94 ≥ 30,
-phát 5 rec tầng vị thế (entry 17/08 bổ sung lần 5) — sàn 30 hoạt động đúng
-thiết kế: chặn lúc mỏng, tự mở khi đủ bằng chứng. Việc còn lại: đọc brief
-#217 soi rec hiện đúng nhãn `[vị thế ~20 phiên]`, và liếc panel Chiến lược
-xem tham số tune (expectancy 0.197→2.47 sau 2 đêm — hợp lệ nhưng đáng soi).
-
-**4b. Mã của nhóm tuỳ biến ĐẾM HAI LẦN — user chốt 13/08: TẠM GIỮ NGUYÊN.**
-
-> ⚠️ **ĐỪNG XOÁ MỤC NÀY.** Đây là nợ ĐÃ BIẾT và CHẤP NHẬN CÓ THỜI HẠN, không
-> phải việc đã xong. User chốt "tạm thời giữ nguyên, ghi lại để không quên".
-> Giữ ở đây cho tới khi có quyết định cuối.
-
-Lộ ra khi verify bản vá drill-down 13/08 (entry 12/08 (b)):
-
-* Bảng ngành: **Ngân hàng 26 mã** — vì EIB đã được chuyển sang Họ M
-* Bấm vào Ngân hàng: **"27 mã"** — vì drill-down lọc theo ngành GỐC
-
-Lệch đúng 1 = EIB. Không riêng Ngân hàng: 11 mã của hai nhóm đều có ngành gốc,
-nên Bất động sản (row 102) bấm vào sẽ ra 105, Chứng khoán lệch 1 vì VIX…
-
-Hệ quả THẬT chứ không chỉ khó nhìn: **cộng bảng chi tiết không ra dòng tổng** —
-vốn hoá/GTGD/NN ở dòng "Ngân hàng" đã trừ EIB, bảng chi tiết thì cộng cả vào.
-
-Hai hướng đã cân:
-1. **Cho khớp dòng tổng** — drill-down loại mã đã thuộc nhóm tuỳ biến (Ngân
-   hàng ra đúng 26, EIB chỉ ở Họ M). Số hai chỗ luôn khớp, cộng ra đúng.
-   *(Claude nghiêng hướng này: số tự mâu thuẫn thì lần sau không biết tin số nào.)*
-2. ✅ **Giữ nguyên — ĐANG DÙNG.** Coi nhóm tuỳ biến là LỚP PHỦ: EIB vừa là ngân
-   hàng vừa là Họ M. Nhìn ngành nào cũng đủ mã, đổi lại sống chung với 26 ≠ 27.
-
-**Khi nào lôi ra làm lại** — một trong các dấu hiệu sau:
-* thêm họ mới vào registry (càng nhiều mã bị đếm đôi, lệch càng khó bỏ qua);
-* có nhu cầu CỘNG bảng chi tiết ra đúng dòng tổng (báo cáo, xuất CSV đối soát);
-* thấy mình lưỡng lự "tin số nào" khi đọc hai chỗ.
-
-Sửa thì chỉ đụng `vnstock_sectors.rows_for_sector` + test, khoảng 15 phút.
-Docstring của hàm đó cũng đã ghi lưu ý này (chỗ người sửa sau vấp vào đầu tiên).
-
-**KHÔNG ảnh hưởng**: brief, dữ liệu kho, phép tính trong pipeline — đây thuần
-là chuyện hai con số hiển thị trên dashboard không khớp nhau.
-
-**9. ✅ ĐÓNG 15/08 — nhãn KỲ số khối ngoại: vá guard có sẵn + thêm nhánh
-phạm-vi-ngành** (entry 15/08 (s)). Hoá ra `enforce_nn_window_label` đã
-nằm trong chuỗi từ 12/08 và ctx #212 đủ dữ liệu — trượt CHỈ vì regex
-không dung cặp `**` markdown giữa số và "tuần". Vá khe `[\s*]*` (trả lại
-dấu sao cho bold khỏi lệch) + nhánh 3 mới: số tuần của MỘT ngành nói như
-toàn thị trường → chèn tên ngành sau "ròng"; không phân xử được (trùng
-số 1D, ≥2 ngành trùng, đã nêu tên) thì không đụng. Test dùng nguyên văn
-2 câu lỗi #212. ✅ **VERIFY XONG 17/08 qua brief #217**: NN 1D ghi rõ
-"trong phiên" khớp doctor; mọi số tuần kèm nhãn "1 tuần" + tên ngành —
-hết tự mâu thuẫn (entry 17/08 bổ sung lần 6). MỤC NÀY ĐÓNG.
-
-**10. ✅ ĐÓNG 15/08 — user chốt phương án (b): Telegram ẨN lệnh có chiến
-lược nguồn trượt kiểm định, dashboard giữ đủ** (entry 15/08 (s)). Luật ẩn
-tách ra `split_recs_by_validation` dùng CHUNG brief + Telegram (ẩn ⇔
-known-và-trượt; unknown vẫn hiện; rec xử theo kiểm định của CHÍNH chiến
-lược nguồn). `_open_recs_block` thay lệnh ẩn bằng dòng đếm trỏ về
-dashboard; caveat BUY-GIẢM chỉ xét lệnh đang hiện; 2 net parity canh ai
-inline lại luật. Emit đêm vẫn mở lệnh cho accuracy tracking (không chọn
-(c) — giữ dữ liệu để chiến lược tự chứng minh). ✅ **VERIFY XONG 17/08
-qua brief #217, đủ CẢ HAI chiều**: tầng ngắn trượt gom "6 lệnh ẩn — xem
-trong dashboard", 4 lệnh #32 (ĐẠT p=0.012) hiện đúng "ngày 0/20" (entry
-17/08 bổ sung lần 5+6). MỤC NÀY ĐÓNG — còn cái đuôi đếm lệch 12 vs 10
-ghi ở bổ sung lần 6, soi dashboard khi rảnh.
-
-**5. Độ trễ OpenRouter — ✅ HẠ NHIỆT 18/08 (hết leo thang).** Báo cáo T7
-15/08: nemotron-ultra probe **2.1s** (11/08 từng 127.3s = 161× median),
-nemotron-super 1.4s, mục "Chậm bất thường" trống. KHÔNG cần probe ứng
-viên thay nữa. Đóng hẳn khi báo cáo T7 22/08 chấm bộ đề ultra (đang xoay
-vòng) mà latency vẫn thường. Nếu tái bò thì lệnh probe ứng viên vẫn đây:
-```powershell
-python scripts/probe_models.py --slug "OpenRouter=nvidia/nemotron-3.5-lightning:free"
-```
-(slug CHƯA probe thì CHƯA được vào code — luật CLAUDE.md.)
-
-**6. OpenRouter nạp $10** — quan sát LẠI TỪ ĐẦU từ lưu lượng THẬT (đợt
-rate-limit 08/08 là do eval đốt, đã vá `EVAL_BUDGET`). Nay ledger có "lỗi
-cuối" nên phân biệt được 429 thật/giả dễ hơn.
-
-**7. Chất lượng brief 4 giọng** — thay cho "A/B Gemini vs Groq" (đã chết,
-ghế Groq tắt 11/08): so auto-score / Lịch sử brief vài phiên giữa Gemini ·
+**M. Chất lượng brief 4 giọng** — so auto-score vài phiên giữa Gemini ·
 Cerebras · OpenRouter · Mistral (mốc 11/08: 0.830 / 0.834 / 0.862 / 0.836).
-Kèm: Cerebras `gpt-oss-120b` digest chập chờn · Gemini flash 503 đêm VN là
-bình thường, cascade tự đỡ.
 
-**8. Nâng thư viện data** — vnstock 4.0.4→**4.0.6**, vnai 2.4.8→**2.5.7**,
-vnii 0.2.4→0.2.5 *(số mới theo warning trong log 17/08 của user)*. CHƯA
-nâng. Nâng thì `run.py doctor --net` + full suite ngay sau; KHÔNG nâng
-sát giờ pipeline chạy.
+**N. Nâng thư viện** — vnstock 4.0.4→**4.0.6**, vnai 2.4.8→**2.5.7**, vnii
+0.2.4→0.2.5. Nâng thì `run.py doctor --net` + full suite NGAY sau; KHÔNG
+nâng sát giờ pipeline.
+
+## 🚪 TREO CÓ CỔNG — chỉ làm khi đủ điều kiện
+
+**O. Tầng B — danh mục xoay vòng tháng** (~3-5 buổi): cổng "có chiến lược
+đạt" ĐÃ MỞ (#32); còn cổng "tầng A chạy ổn vài đêm train tự động" đang
+tích luỹ — mà đêm tự động chưa lần nào trọn vẹn (xem mục A/B). Đủ cả hai
++ user muốn → nêu thiết kế trước rồi mới code.
+
+**P. Đếm hai lần nhóm tuỳ biến** (Ngân hàng 26 vs drill-down 27, lệch
+EIB) — nợ đã biết, user chốt TẠM GIỮ. Lôi ra khi: thêm họ mới vào registry
+/ cần cộng bảng chi tiết ra đúng dòng tổng / thấy lưỡng lự "tin số nào".
+Sửa ~15 phút, chỉ đụng `vnstock_sectors.rows_for_sector` + test.
+
+**Q. Lineage card panel Chiến lược** — card active short mang nhãn "v1 ·
+tuned 16/06" nhưng số expectancy/trades là của backtest MỚI NHẤT (#35).
+Không ảnh hưởng gating; muốn nhãn/số nhất quán thì gọi Claude soi code panel.
 
 ## 🔧 NẾP GIT — bẫy đã vấp 2 lần
 
