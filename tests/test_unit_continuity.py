@@ -130,9 +130,10 @@ def test_suspect_jump_matching_a_corp_action_names_the_cause(tmp_path, capsys):
     assert "100:58" in out                      # nguyên văn để đối chiếu tay
 
 
-def test_jump_without_a_matching_event_keeps_the_neutral_wording(tmp_path, capsys):
-    """Không có sự kiện trùng → KHÔNG được bịa nguyên nhân, giữ nguyên
-    "dữ liệu lỗi" (bài học xuyên suốt: đoán sai tệ hơn không đoán)."""
+def test_jump_without_a_matching_event_points_at_the_basis_probe(tmp_path, capsys):
+    """Không có sự kiện trùng → KHÔNG bịa nguyên nhân, nhưng cũng đừng bỏ lửng
+    ở chữ "lỗi": ca VVS 18/08 chứng minh chữ ký này thường là KHO LỆCH CƠ SỞ
+    (nguồn rebase sau sự kiện quyền), nên trỏ thẳng sang bước phân định."""
     wh = tmp_path / "wh"
     _seed_events(wh, ["ABC"])
     _write_bars(wh, "ABC", _gapped([10.0, 6.0], ["2026-08-14", "2026-08-17"]))
@@ -141,7 +142,25 @@ def test_jump_without_a_matching_event_keeps_the_neutral_wording(tmp_path, capsy
                                "ratio": None, "raw": "cổ tức tiền mặt"}])
     cuc.main(["--warehouse", str(wh)])
     out = capsys.readouterr().out
-    assert "TRÙNG SỰ KIỆN" not in out and "vượt biên độ sàn" in out
+    assert "TRÙNG SỰ KIỆN" not in out
+    assert "LỆCH CƠ SỞ" in out and "probe_price_basis" in out
+
+
+def test_all_mode_sweeps_the_warehouse_and_hides_clean_tickers(tmp_path, capsys):
+    """Sau ca VVS: phải quét được TOÀN KHO để biết còn mã nào cùng triệu chứng.
+    In cả nghìn mã sạch thì phần đáng đọc chìm nghỉm → --all chỉ in mã nghi
+    vấn, nhưng TỔNG vẫn đếm trên toàn bộ mã có dữ liệu."""
+    wh = tmp_path / "wh"
+    _write_bars(wh, "AAA", _series([10.0, 10.1, 10.0]))
+    _write_bars(wh, "BBB", _series([20.0, 20.1, 20.0]))
+    _write_bars(wh, "CCC", _gapped([112.5, 71.21],
+                                   ["2026-06-12", "2026-06-15"]))
+    rc = cuc.main(["--warehouse", str(wh), "--all"])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "3 mã" in out                       # quét đủ 3
+    assert "CCC" in out and "1/3 mã cần soi tay" in out
+    assert "AAA" not in out and "BBB" not in out   # mã sạch bị ẩn
 
 
 def test_gap_moves_are_not_blamed_on_corp_actions(tmp_path, capsys):

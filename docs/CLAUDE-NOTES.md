@@ -6682,7 +6682,7 @@ mỹ, chưa đáng thêm guard.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2127 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
+> Trạng thái: full suite **2128 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh `claude/remaining-tasks-tests-4xoam3`
 > đã merge máy bàn 15/08 · nhánh MỚI `claude/tong-hop-cong-viec-test-w8mvrc`
@@ -7022,6 +7022,28 @@ CHÍNH BADGE mới là thứ phải sửa.** User soi 5 chart (WSS/WTC/XPH/YBM/Y
     ích, chữa ở nguồn/cách ly.
   Hai chẩn đoán chữa NGƯỢC NHAU nên phải phân định TRƯỚC khi sửa. Hàm
   phán `basis_report` là hàm thuần + 6 test (fetch cần mạng nên tách ra).
+  ✅ **CHỐT 18/08 — `warehouse_basis`, bằng chứng không thể rõ hơn**: user
+  chạy probe, tỉ lệ kho/nguồn = **1.6543× cho MỌI bar trước 15/06** (43
+  bar, sai số ±0.0002) rồi **1.0000× cho MỌI bar từ 15/06**. Nguồn liền
+  mạch, kho gãy ⇒ VVS có sự kiện quyền ex-date 15/06 hệ số ~1.654 (thưởng
+  ~65%), nguồn rebase CẢ CHUỖI, còn sync chỉ nối bar mới lên lịch sử cũ.
+  Diễn giải phụ: giá "thật" phiên 12/06 theo cơ sở mới là 112.50/1.6543 =
+  68.01, nên phiên 15/06 đóng 71.21 là **+4.7% bình thường** — vách 36.7%
+  hoàn toàn là ảo ảnh do trộn hai cơ sở.
+
+  🔴 **ĐÂY LÀ LỖI HỆ THỐNG, KHÔNG PHẢI CA CÁ BIỆT** — mọi mã có sự kiện
+  quyền lớn (chia tách/thưởng) đều dính cùng cơ chế, vì repo KHÔNG có
+  đường nạp lại lịch sử và đường ghi CHÍNH không có lưới đối chiếu.
+  Vì sao mục 4d (28/30 VN30, 64 sự kiện, 0 gap thô) không bắt được: sự
+  kiện VN30 trong cửa sổ đó chủ yếu là CỔ TỨC TIỀN MẶT — hệ số điều chỉnh
+  1.01-1.05, chìm dưới nhiễu (đúng 19 ca "chìm nhiễu" đã ghi). Rủi ro dồn
+  vào đúng nhóm hệ số LỚN, tức nơi sai số tàn phá nhất. Kết luận 4d không
+  sai trong phạm vi của nó, nhưng KHÔNG suy rộng ra được.
+  → **Đã thêm `check_unit_continuity --all`** (quét toàn kho, chỉ in mã
+  nghi vấn) để đo độ rộng thiệt hại; vách "kề phiên" nay ghi thẳng "nghi
+  KHO LỆCH CƠ SỞ" + trỏ sang `probe_price_basis` thay vì bỏ lửng ở chữ
+  "dữ liệu lỗi". CHƯA có đường CHỮA (ghi đè lịch sử) — chờ user quyết,
+  vì đó là ghi vào kho.
   ⚠️ **Lỗ hổng lộ ra từ ca này: lưới đối chiếu chỉ có ở làn FALLBACK.**
   `reconcile_fallback_df` (từ chối data lệch >8% so với kho) chỉ được gọi
   trong nhánh fallback (`vnstock_updater.py:441`); **đường VCI CHÍNH ghi

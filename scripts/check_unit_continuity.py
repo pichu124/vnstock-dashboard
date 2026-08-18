@@ -136,7 +136,14 @@ def find_jumps(df: pd.DataFrame, jump_pct: float = JUMP_PCT) -> list[dict]:
         elif SPLIT_LO <= ratio <= SPLIT_HI or SPLIT_LO <= inv <= SPLIT_HI:
             why, suspect = "nghi CHIA TÁCH/THƯỞNG chưa back-adjust (~2×)", True
         else:
-            why, suspect = "kề phiên mà vượt biên độ sàn — dữ liệu lỗi", True
+            # Ca VVS (18/08) chốt bằng `probe_price_basis`: chữ ký này thường
+            # KHÔNG phải "dữ liệu lỗi" mà là KHO LỆCH CƠ SỞ ĐIỀU CHỈNH —
+            # nguồn rebase cả chuỗi sau sự kiện quyền, sync chỉ nối bar mới
+            # lên lịch sử cũ (updater luôn fetch từ bar cuối). Trỏ thẳng sang
+            # bước phân định thay vì bỏ lửng người đọc ở chữ "lỗi".
+            why = ("kề phiên mà vượt biên độ sàn — nghi KHO LỆCH CƠ SỞ "
+                   "điều chỉnh (nguồn rebase sau sự kiện quyền)")
+            suspect = True
         out.append({"time": str(df['time'].iloc[i].date()),
                     "prev": float(prev), "cur": float(cur), "pct": float(pct),
                     "gap_days": gap, "why": why, "suspect": suspect})
@@ -274,6 +281,9 @@ def main(argv: "list[str] | None" = None) -> int:
     ap.add_argument("--warehouse", default="data_warehouse")
     ap.add_argument("--ticker", action="append", default=None,
                     help="chỉ định mã (lặp lại được); mặc định lấy từ vết quy đổi")
+    ap.add_argument("--all", action="store_true",
+                    help="quét TOÀN KHO (chỉ in mã nghi vấn) — tìm mã lệch cơ "
+                         "sở điều chỉnh sau ca VVS 18/08")
     ap.add_argument("--days", type=int, default=7,
                     help="cửa sổ vết quy đổi (mặc định 7 — giống doctor)")
     ap.add_argument("--bars", type=int, default=10, help="số bar cuối in ra")
@@ -288,7 +298,12 @@ def main(argv: "list[str] | None" = None) -> int:
         print(f"[unit-continuity] ✗ không thấy kho giá tại {prices_dir}")
         return 2
 
-    if args.ticker:
+    if args.all:
+        tickers = sorted(p.name.removeprefix("ticker=")
+                         for p in prices_dir.glob("ticker=*") if p.is_dir())
+        print(f"[unit-continuity] quét TOÀN KHO: {len(tickers):,} mã "
+              f"(chỉ in mã nghi vấn)")
+    elif args.ticker:
         tickers = [t.upper() for t in args.ticker]
         print(f"[unit-continuity] soi {len(tickers)} mã chỉ định")
     else:
@@ -305,15 +320,23 @@ def main(argv: "list[str] | None" = None) -> int:
                             warehouse=wh)
                for t in tickers]
     for res in results:
+        # Quét toàn kho mà in cả nghìn mã sạch thì không ai đọc nổi phần
+        # đáng đọc — chế độ --all chỉ in mã nghi vấn.
+        if args.all and res["status"] != "suspect":
+            continue
         render(res, args.bars)
 
     suspect = [r["ticker"] for r in results if r["status"] == "suspect"]
+    n_data = sum(1 for r in results if r["status"] != "no_data")
     print()
     if suspect:
-        print(f"[unit-continuity] ⚠️ {len(suspect)}/{len(results)} mã cần soi tay: "
+        print(f"[unit-continuity] ⚠️ {len(suspect)}/{n_data} mã cần soi tay: "
               f"{', '.join(suspect)}")
+        print("        Vách 'nghi KHO LỆCH CƠ SỞ' → phân định từng mã bằng:")
+        print("        python scripts/probe_price_basis.py --ticker <MÃ> "
+              "--break-date <ngày vách>")
         return 1
-    print(f"[unit-continuity] ✅ {len(results)} mã đều liên tục — quy đổi ĐÚNG")
+    print(f"[unit-continuity] ✅ {n_data} mã đều liên tục — quy đổi ĐÚNG")
     return 0
 
 
