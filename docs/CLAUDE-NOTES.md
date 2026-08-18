@@ -7140,6 +7140,18 @@ CHÍNH BADGE mới là thứ phải sửa.** User soi 5 chart (WSS/WTC/XPH/YBM/Y
   `_meta/backup_rebase/VHM_20260818-203753`, ghi nguyên tử 16 file, TỰ KIỂM
   báo "chuỗi đã liền". Sau khi chữa: giá ÷2 và khối lượng ×2 nên **GTGD
   lịch sử giữ nguyên** — đúng bản chất chia tách, không đẻ lỗi mới.
+  ✅ **Soi TOÀN LỊCH SỬ VHM sau khi chữa: sạch trong mọi phạm vi có ý
+  nghĩa.** Còn đúng 2 dòng, cả hai đều KHÔNG phải lỗi kho:
+  * `ℹ 2018-05-17: 8.41 → 30.99, cách 308 ngày` = ngày **Vinhomes niêm
+    yết**. Tức dữ liệu VHM trước mốc đó KHÔNG PHẢI Vinhomes mà là mã cũ
+    từng dùng ticker VHM (ngừng giao dịch 308 ngày rồi ticker được cấp
+    lại). Chữ ký TICKER TÁI SỬ DỤNG: quãng nghỉ dài + nhảy lớn. Có thể
+    còn ở mã khác — ghi nhận, chưa quét.
+  * `⚠ 2015-06-10 +40%` nằm trong phần lịch sử "tiền Vinhomes" đó.
+  **Nguyên tắc rút ra**: sau khi rebase, kho = nguồn 100%, nên MỌI VÁCH
+  CÒN LẠI ĐỀU LÀ VÁCH CỦA NGUỒN — probe sẽ ra `source_error`, công cụ
+  rebase không chữa được và cũng không nên chữa. Vách 2015 nằm ngoài mọi
+  lookback thực tế (backtest dài nhất repo là 730 ngày) → BỎ QUA.
   ⏭ **VIỆC KẾ TIẾP (chờ user)**: chạy thử VHM → soi số → `--apply` → chạy
   lại `--all` xem 149 rút còn bao nhiêu. Sau đó mới tính chuyện chặn TÁI
   PHÁT (lưới đối chiếu ở đường ghi CHÍNH — hiện chỉ làn fallback có).
