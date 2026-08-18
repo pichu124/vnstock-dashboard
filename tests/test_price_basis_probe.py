@@ -48,8 +48,18 @@ def test_source_broken_the_same_way_is_not_a_warehouse_problem():
     d = [date(2026, 6, 11), date(2026, 6, 12), BRK, date(2026, 6, 16)]
     wh = _df([(d[0], 110.0), (d[1], 112.5), (d[2], 71.21), (d[3], 72.0)])
     rep = ppb.basis_report(wh, wh.copy(), BRK)
-    assert rep["verdict"] == "source_error"
+    assert rep["verdict"] == "source_error" and rep["has_break"]
     assert rep["ratio_before"] == pytest.approx(1.0, abs=1e-6)
+
+
+def test_matching_series_without_a_break_is_aligned_not_broken():
+    """Ca PNJ 18/08: kho đã khớp nguồn 1.0000× toàn dải và KHÔNG còn vách —
+    tool vẫn hô "NGUỒN CŨNG GÃY". "Cùng bậc hai bên" chưa đủ để kết tội
+    nguồn; phải CÓ VÁCH THẬT tại ngày đó đã."""
+    d = [date(2026, 6, 11), date(2026, 6, 12), BRK, date(2026, 6, 16)]
+    wh = _df([(d[0], 72.0), (d[1], 73.0), (d[2], 74.0), (d[3], 73.5)])
+    rep = ppb.basis_report(wh, wh.copy(), BRK)
+    assert rep["verdict"] == "aligned" and not rep["has_break"]
 
 
 def test_small_rounding_differences_still_count_as_same_basis():
@@ -57,7 +67,9 @@ def test_small_rounding_differences_still_count_as_same_basis():
     d = _dates(6)
     wh = _df([(x, 100.0 + i * 0.1) for i, x in enumerate(d)])
     src = _df([(x, (100.0 + i * 0.1) * 1.008) for i, x in enumerate(d)])
-    assert ppb.basis_report(wh, src, BRK)["verdict"] == "source_error"
+    # Ý test: KHÔNG được đọc thành đổi cơ sở. Chuỗi này mượt (không vách) nên
+    # verdict đúng là `aligned`; điều phải giữ là "không phải warehouse_basis".
+    assert ppb.basis_report(wh, src, BRK)["verdict"] != "warehouse_basis"
 
 
 def test_no_overlap_is_reported_not_guessed():

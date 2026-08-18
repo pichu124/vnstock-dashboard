@@ -6682,7 +6682,7 @@ mỹ, chưa đáng thêm guard.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2147 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
+> Trạng thái: full suite **2148 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh `claude/remaining-tasks-tests-4xoam3`
 > đã merge máy bàn 15/08 · nhánh MỚI `claude/tong-hop-cong-viec-test-w8mvrc`
@@ -7164,6 +7164,25 @@ CHÍNH BADGE mới là thứ phải sửa.** User soi 5 chart (WSS/WTC/XPH/YBM/Y
   + trả exit 1; dòng ✅ nay in kèm SỐ BAR đã soi để không thể "sạch trong
   im lặng". +2 test. **Chưa biết PNJ/GEX/GEE/PVD thực sự sạch hay chưa —
   phải chạy lại sau khi merge.**
+  🟢 **BẤT NGỜ TỐI 18/08 — PNJ/GEX/GEE/PVD TỰ SẠCH, KHÔNG PHẢI DO CLAUDE.**
+  Sau khi vá vết nuốt lỗi, chạy lại: cả 4 báo "sạch (soi 250 bar)" và
+  probe PNJ tại 17/04 cho **tỉ lệ kho/nguồn = 1.0000× TOÀN DẢI** 18/03 →
+  15/05 (sáng cùng ngày còn 1.4999×). Kho ĐÃ đổi giữa 15:28 và 22:01, mà
+  Claude chưa từng ghi gì cho 4 mã đó (lần chạy trước thoát ngay ở
+  `_find_break`). ⇒ **Nghi phát pipeline 18:00 tự chữa** — nếu đúng thì
+  nhận định "repo KHÔNG có đường nạp lại lịch sử" PHẢI SỬA, và VHM có lẽ
+  cũng tự lành nếu chờ thêm. CHƯA XÁC MINH: cần soi `run_daily.log` phát
+  18:00 xem bước nào ghi lại kho (nghi `audit`/reconciler — log 17/08 có
+  dòng `[reconciler] normalise_units: rolled rescaled 6280/7030 row(s)`).
+  Giá PNJ cũng đổi mốc (tháng 5 ~67-70 → 18/08 còn 35.05) — có thể còn
+  một sự kiện quyền nữa; chưa truy.
+  🔧 **Vá kèm: verdict `aligned` mới.** "Cùng bậc hai bên" CHƯA đủ để kết
+  tội nguồn — phải CÓ VÁCH THẬT tại ngày đó đã. Ca PNJ: kho khớp nguồn
+  hoàn hảo, không còn vách, mà tool vẫn hô "NGUỒN CŨNG GÃY" (báo động giả
+  đúng loại đã dặn nhau tránh). Nay: cùng bậc + có vách → `source_error`;
+  cùng bậc + không vách → `aligned` ("kho khớp nguồn, không còn gì để
+  chữa"). +1 test mới, 1 test cũ sửa assert cho đúng ý (giữ "không phải
+  warehouse_basis" thay vì ghim cứng `source_error`).
   ⏭ **VIỆC KẾ TIẾP (chờ user)**: chạy thử VHM → soi số → `--apply` → chạy
   lại `--all` xem 149 rút còn bao nhiêu. Sau đó mới tính chuyện chặn TÁI
   PHÁT (lưới đối chiếu ở đường ghi CHÍNH — hiện chỉ làn fallback có).

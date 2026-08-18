@@ -37,6 +37,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Hai chuỗi coi là CÙNG cơ sở khi tỉ lệ nằm trong ±2% (làm tròn giá, tick size).
 SAME_BASIS_TOL = 0.02
+# Ngưỡng coi là CÓ VÁCH tại ngày chỉ định — giống check_unit_continuity.
+BREAK_PCT = 0.30
 
 
 def load_wh(prices_dir: Path, ticker: str, d0: date, d1: date) -> pd.DataFrame:
@@ -73,7 +75,8 @@ def basis_report(wh: pd.DataFrame, src: pd.DataFrame, break_date: date) -> dict:
     """Hàm THUẦN (test được offline): tỉ lệ kho/nguồn hai bên ngày vách.
 
     Trả verdict:
-      * `source_error`  — hai bên cùng bậc ở CẢ HAI phía ⇒ nguồn cũng gãy.
+      * `aligned`       — cùng bậc VÀ không có vách ⇒ kho khớp nguồn, xong.
+      * `source_error`  — cùng bậc NHƯNG vẫn có vách ⇒ nguồn cũng gãy.
       * `warehouse_basis` — bậc ĐỔI tại ngày vách ⇒ kho giữ cơ sở cũ ở lịch sử.
       * `no_overlap` / `inconclusive` — không đủ dữ liệu để phán.
     """
@@ -90,8 +93,23 @@ def basis_report(wh: pd.DataFrame, src: pd.DataFrame, break_date: date) -> dict:
                 "rows": m}
     r_before, r_after = float(before.median()), float(after.median())
     same = abs(r_before - r_after) <= SAME_BASIS_TOL * max(r_after, 1e-9)
+    # "Cùng bậc hai bên" CHƯA đủ để kết tội nguồn: phải CÓ VÁCH THẬT tại ngày
+    # đó đã. Không có vách mà vẫn hô "NGUỒN CŨNG GÃY" là báo động giả — ca
+    # PNJ 18/08: kho đã khớp nguồn 1.0000× toàn dải, không còn gì để chữa,
+    # mà tool vẫn phán nguồn gãy.
+    mm = m.reset_index(drop=True)
+    pos = mm.index[mm["time"] >= break_date]
+    has_break = False
+    if len(pos) and pos[0] > 0:
+        i = int(pos[0])
+        prev, cur = float(mm.at[i - 1, "close_wh"]), float(mm.at[i, "close_wh"])
+        has_break = prev > 0 and abs(cur / prev - 1) >= BREAK_PCT
+    if same:
+        verdict = "source_error" if has_break else "aligned"
+    else:
+        verdict = "warehouse_basis"
     return {
-        "verdict": "source_error" if same else "warehouse_basis",
+        "verdict": verdict, "has_break": has_break,
         "n": len(m), "n_before": len(before), "n_after": len(after),
         "ratio_before": r_before, "ratio_after": r_after,
         "shift": r_before / r_after if r_after else float("nan"),
@@ -189,6 +207,10 @@ def _probe_one(tk: str, wh_root: Path, args) -> int:
         print("        Nguồn liền mạch còn kho gãy ⇒ lịch sử kho giữ cơ sở CŨ.")
         print("        Chữa: ghi đè phần lịch sử bằng dữ liệu nguồn "
               "(updater chỉ fetch từ bar cuối nên KHÔNG tự sửa được).")
+    elif rep["verdict"] == "aligned":
+        print(f"[basis] ✅ KHO KHỚP NGUỒN: tỉ lệ ≈ {rep['ratio_after']:.4f}× ở "
+              f"cả hai phía {brk} và KHÔNG có vách tại ngày đó — không còn gì "
+              f"để chữa ở mã này.")
     elif rep["verdict"] == "source_error":
         print(f"[basis] ⚠️ NGUỒN CŨNG GÃY: kho/nguồn ≈ {rep['ratio_after']:.4f}× "
               f"ở cả hai phía {brk} — kho chép đúng nguồn.")
