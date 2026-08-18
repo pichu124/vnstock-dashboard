@@ -6682,7 +6682,7 @@ mỹ, chưa đáng thêm guard.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2135 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
+> Trạng thái: full suite **2142 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh `claude/remaining-tasks-tests-4xoam3`
 > đã merge máy bàn 15/08 · nhánh MỚI `claude/tong-hop-cong-viec-test-w8mvrc`
@@ -7093,6 +7093,33 @@ CHÍNH BADGE mới là thứ phải sửa.** User soi 5 chart (WSS/WTC/XPH/YBM/Y
   thô). Lọt cả hai lưới: `fix_units` đòi close > 1000 (300 không đủ),
   `_normalize_units` chỉ áp cho bar rollup/WSS chứ không áp cho đường
   updater. GTGD ~0 nên vô hại, nhưng là bằng chứng lỗ hổng thứ ba.
+
+  ✅ **PROBE 5 MÃ ĐẦU BẢNG — CẢ 5 ĐỀU `warehouse_basis`, tỉ lệ sạch tuyệt
+  đối** (user chạy 18/08): VHM **2.0000×** · PNJ **1.4999×** · GEX 1.4498×
+  · GEE 1.7593× (sau vách còn 1.0052× — dư 0.5%, nghi cổ tức tiền mặt
+  nguồn có mà kho không, chưa đụng) · PVD 1.6692×. Không bar nào lệch khỏi
+  hệ số ⇒ hết đường nghi ngờ: lịch sử kho giữ cơ sở cũ, nguồn liền mạch.
+  Suy ra thẳng: **MA200/RSI/MACD/backtest/vốn hoá của VHM trước 03/08 sai
+  gấp ĐÔI**, PNJ trước 17/04 sai 1.5×; VHM vốn hoá lớn nên còn kéo lệch cả
+  tổng ngành Bất động sản trong bảng screener.
+
+  🔧 **ĐÃ DỰNG ĐƯỜNG CHỮA: `scripts/rebase_ticker_history.py`** (CHƯA
+  CHẠY trên kho thật — quyết định ghi kho là của user). Thiết kế ưu tiên
+  ĐÚNG hơn TIỆN: ngày nào NGUỒN CÓ thì lấy thẳng giá nguồn (không nhân
+  chia, chính xác tuyệt đối), ngày nào cũ hơn độ phủ nguồn thì nhân hệ số
+  ĐO ĐƯỢC — giữ nguyên độ sâu 20 năm của kho (backtest tầng vị thế cần
+  730 ngày, ghi đè cụt bằng độ phủ nguồn là mất dữ liệu). Hệ số KHỐI
+  LƯỢNG đo riêng (chia tách đổi cả số cổ phiếu); không đo đủ chồng lấn thì
+  để yên chứ không đoán. Bốn cửa an toàn: **mặc định CHẠY THỬ** (phải
+  `--apply` mới ghi) · **từ chối** nếu probe không phán `warehouse_basis`
+  · **sao lưu** nguyên thư mục mã vào `_meta/backup_rebase/<mã>_<lúc>` ·
+  ghi **nguyên tử** từng file rồi **TỰ KIỂM** (đọc lại; còn vách thì báo
+  đỏ + gợi ý mã bị rebase nhiều lần thì chạy lại). 7 test soi đúng phần
+  an toàn: chạy thử không đụng byte nào · từ chối khi `source_error` ·
+  backup giữ bản gốc · ngưỡng chồng lấn tối thiểu cho hệ số khối lượng.
+  ⏭ **VIỆC KẾ TIẾP (chờ user)**: chạy thử VHM → soi số → `--apply` → chạy
+  lại `--all` xem 149 rút còn bao nhiêu. Sau đó mới tính chuyện chặn TÁI
+  PHÁT (lưới đối chiếu ở đường ghi CHÍNH — hiện chỉ làn fallback có).
   ⚠️ **Lỗ hổng lộ ra từ ca này: lưới đối chiếu chỉ có ở làn FALLBACK.**
   `reconcile_fallback_df` (từ chối data lệch >8% so với kho) chỉ được gọi
   trong nhánh fallback (`vnstock_updater.py:441`); **đường VCI CHÍNH ghi
