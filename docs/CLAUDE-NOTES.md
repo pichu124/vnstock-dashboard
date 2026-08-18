@@ -6864,23 +6864,21 @@ Món nợ verify cuối của đợt fix 07/08 ĐÃ ĐÓNG: user chạy
 riêng poll `price_depth` → `quote_VN30F1M.json`, không qua đường tick→bar;
 đường đó chỉ chở cổ phiếu + index và cả hai đã chấm (entry 13/08 (i)).
 Cần chạy lại sau này (nghi WSS hỏng): vẫn lệnh đó, trong phiên.
-* ⬜ **CÒN NỢ heatmap — 17/08 user soi và BẮT ĐƯỢC BUG THẬT, đã vá, chờ
-  merge + soi lại.** Lần soi 17/08: bật Live Mode xong sang tab Thị
-  trường thì khối live vắng hẳn (không cả "⏳ Chờ WSS data...") — hoá ra
-  cờ `live_mode` bind thẳng vào widget toggle nên bị Streamlit dọn ngay
-  khi rời tab Phân tích → khối heatmap CHƯA BAO GIỜ render được qua
-  đường điều hướng thật (chi tiết + lưới 5 test: entry 17/08; nhánh
-  `claude/tong-hop-cong-viec-test-w8mvrc`; bổ sung lần 2 cùng ngày:
-  toggle CHUYỂN LÊN sidebar chung + đối chứng end-to-end Playwright).
-  Việc còn lại sau khi merge + RESTART dashboard, 1 phút, trong phiên
-  (9:00-15:00, thứ 2-6): bật toggle **Real-time WSS** ở **sidebar trái,
-  mục 🔴 Live Mode** (giờ thấy được từ MỌI tab — đừng nhầm với "Live
-  Scan (real-time)" của Screener/Dòng Tiền, đó là consumer, không phải
-  động cơ), chờ chấm xanh CONNECTED + "~1.100 mã đã subscribe" → tab
-  **Thị trường** — GIỮA hàng badge và tiêu đề "Diễn biến chỉ số…" phải
-  thấy khung 4 chỉ số + lưới ~30 ô màu VN30 + dòng breadth `↑x =y ↓z`,
-  tự cập nhật ~5 giây/lần. "⏳ Chờ WSS data..." đứng im quá vài phút →
-  chụp ảnh báo Claude.
+* ✅ **HEATMAP ĐÓNG 18/08 — soi mắt ĐẠT qua ảnh user, trong phiên.**
+  Món nợ soi mắt CUỐI CÙNG của đợt tách file 12/08 khép sổ. Hành trình:
+  17/08 user soi → bắt bug thật (cờ `live_mode` bind widget bị Streamlit
+  dọn khi rời tab → khối live CHƯA BAO GIỜ render qua đường điều hướng
+  thật) → 3 bản vá (tách key cờ · caption chỉ đường chống-vắng-âm-thầm ·
+  toggle chuyển lên sidebar CHUNG + khoá 2 nút Live Scan theo động cơ)
+  + lưới test + đối chứng Playwright trên app thật → 18/08 trưa user
+  bật lại trong phiên: ảnh cho thấy ĐỦ VÀ ĐÚNG — khung 4 chỉ số
+  (VNINDEX 1,734.72 +0.49%…), nhãn heatmap, lưới 30 ô sắp giảm dần theo
+  % (PLX +6.36% → TCB −2.20%), breadth `↑16 =2 ↓12 (30 mã)` cộng đúng,
+  sidebar CONNECTED (polling) · 3091 mã subscribe. Ghi nhận: ô hàng cuối
+  giãn rộng là flex-wrap đúng code; "3091 mã" > ước lượng cũ "~1.100"
+  trong docs vì full-market gồm cả UPCOM/CW — con số docs là ước lượng
+  lỗi thời, không phải lỗi. Cần soi lại sau này (nghi WSS): vẫn trình
+  tự đó — toggle sidebar trái → tab Thị trường, trong phiên.
 
 ## ⏳ TỰ ĐẾN — chỉ cần ĐỌC khi tới
 
