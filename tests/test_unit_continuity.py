@@ -102,6 +102,66 @@ def test_unit_residue_is_suspect_even_across_a_long_gap():
     assert "QUY ĐỔI SÓT" in jumps[0]["why"]
 
 
+# ── Đối chiếu sự kiện quyền: nói VÌ SAO, không chỉ nói "có vách" ────────────
+
+def _write_events(wh: Path, ticker: str, rows: list[dict]) -> None:
+    d = wh / "_meta" / "corp_actions"
+    d.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_parquet(d / f"{ticker}.parquet", index=False)
+
+
+def test_suspect_jump_matching_a_corp_action_names_the_cause(tmp_path, capsys):
+    """Ca THẬT 18/08 (VVS): kề phiên rơi 36.7%, hệ số 1.58×. Biết "có vách"
+    mới xong nửa việc — trùng ngày GDKHQ thì nguyên nhân là back-adjust chưa
+    áp (chữa ở tầng điều chỉnh), KHÁC HẲN "dữ liệu lỗi" (chữa ở nguồn)."""
+    wh = tmp_path / "wh"
+    _seed_events(wh, ["VVS"])
+    _write_bars(wh, "VVS", _gapped([112.50, 71.21, 72.0],
+                                   ["2026-06-12", "2026-06-15", "2026-06-16"]))
+    _write_events(wh, "VVS", [{"ticker": "VVS", "ex_date": "2026-06-15",
+                               "type": "bonus", "cash_amount": None,
+                               "ratio": 1.58, "raw": "Thưởng CP tỉ lệ 100:58"}])
+    rc = cuc.main(["--warehouse", str(wh)])
+    out = capsys.readouterr().out
+    assert rc == 1                              # vẫn phải sửa, nhưng biết sửa gì
+    assert "TRÙNG SỰ KIỆN QUYỀN" in out and "bonus" in out
+    assert "back-adjust" in out
+    assert "1.580" in out                       # hệ số quan sát ≈ ratio sự kiện
+    assert "100:58" in out                      # nguyên văn để đối chiếu tay
+
+
+def test_jump_without_a_matching_event_keeps_the_neutral_wording(tmp_path, capsys):
+    """Không có sự kiện trùng → KHÔNG được bịa nguyên nhân, giữ nguyên
+    "dữ liệu lỗi" (bài học xuyên suốt: đoán sai tệ hơn không đoán)."""
+    wh = tmp_path / "wh"
+    _seed_events(wh, ["ABC"])
+    _write_bars(wh, "ABC", _gapped([10.0, 6.0], ["2026-08-14", "2026-08-17"]))
+    _write_events(wh, "ABC", [{"ticker": "ABC", "ex_date": "2025-01-02",
+                               "type": "cash", "cash_amount": 1000.0,
+                               "ratio": None, "raw": "cổ tức tiền mặt"}])
+    cuc.main(["--warehouse", str(wh)])
+    out = capsys.readouterr().out
+    assert "TRÙNG SỰ KIỆN" not in out and "vượt biên độ sàn" in out
+
+
+def test_gap_moves_are_not_blamed_on_corp_actions(tmp_path, capsys):
+    """Vách qua quãng nghỉ không phải nghi vấn → đừng đi tra sự kiện rồi gán
+    nguyên nhân cho nó; giữ nguyên thông điệp "không kết luận được"."""
+    wh = tmp_path / "wh"
+    _seed_events(wh, ["VTS"])
+    _write_bars(wh, "VTS", _gapped([7.0, 4.2], ["2026-03-10", "2026-08-07"]))
+    _write_events(wh, "VTS", [{"ticker": "VTS", "ex_date": "2026-08-07",
+                               "type": "bonus", "cash_amount": None,
+                               "ratio": 1.6, "raw": "x"}])
+    assert cuc.main(["--warehouse", str(wh)]) == 0
+    assert "TRÙNG SỰ KIỆN" not in capsys.readouterr().out
+
+
+def test_missing_event_cache_is_silent(tmp_path):
+    """Không có cache sự kiện (máy vừa dựng) → None, không nổ."""
+    assert cuc.match_corp_action("ZZZ", tmp_path, "2026-06-15") is None
+
+
 def test_ticker_with_only_gap_moves_is_clean(tmp_path, capsys):
     """Mã chỉ có vách qua quãng nghỉ → status sạch, exit 0. Đây là điều kiện
     để badge/tool không kêu oan hàng chục mã mỗi lần chạy."""

@@ -6682,7 +6682,7 @@ mỹ, chưa đáng thêm guard.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2117 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
+> Trạng thái: full suite **2121 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh `claude/remaining-tasks-tests-4xoam3`
 > đã merge máy bàn 15/08 · nhánh MỚI `claude/tong-hop-cong-viec-test-w8mvrc`
@@ -6987,10 +6987,27 @@ CHÍNH BADGE mới là thứ phải sửa.** User soi 5 chart (WSS/WTC/XPH/YBM/Y
   ~1000× thì luôn nghi vấn bất kể cách bao lâu (không quãng thời gian
   nào biến giá thành sai đơn vị); vách qua quãng nghỉ in ℹ để đọc chứ
   không tính suspect. +5 test.
-* **Còn soi riêng — VVS 2026-06-15: 112.50 → 71.21 (−36.7%)**, mã thanh
-  khoản tốt (vài trăm nghìn cp/phiên). Nếu sau bản vá vẫn còn cờ (tức 2
-  bar KỀ PHIÊN) thì đây là sự kiện quyền chưa back-adjust — khác hẳn
-  nhóm gap artifact, đáng đối chiếu với `vnstock_div_check`.
+* ⚠️ **VVS — ca thật DUY NHẤT còn lại, đã xác nhận KỀ PHIÊN**: user chạy
+  `--ticker VVS` sau bản vá gap: `2026-06-15: 112.50 → 71.21 (−36.7%)`,
+  hai bar 12/06 → 15/06 (thứ Sáu → thứ Hai) nên KHÔNG phải gap artifact.
+  Hệ số giá **1.580×** — bất khả với biên ±15%, đúng chữ ký sự kiện quyền
+  chưa back-adjust (1.58 ≈ thưởng tỉ lệ 100:58). Kho VVS quanh vùng đó
+  KHÔNG được điều chỉnh lùi, tức chuỗi giá VVS trước 15/06 đang **cao hơn
+  thực tế ~58%** → mọi backtest/chỉ báo dài hạn trên VVS đều lệch. Chưa
+  chữa (cần xác nhận sự kiện thật + quyết cách back-adjust); mục 4d chốt
+  "kho NHẤT QUÁN điều chỉnh cổ tức" dựa trên 28/30 mã VN30 — VVS là mã
+  UPCOM ngoài mẫu đó, KHÔNG mâu thuẫn kết luận cũ nhưng mở rộng phạm vi:
+  độ phủ back-adjust ngoài VN30 chưa được kiểm.
+* **Tool nay tự trả lời "VÌ SAO", không chỉ "có vách"** (nối tiếp ca VVS):
+  mỗi vách nghi vấn được đối chiếu với kho sự kiện quyền có sẵn
+  (`vnstock_adjust.load_events`, cache 3 nguồn từ 14/08), cửa sổ ±3 ngày
+  (ngày chốt quyền vs ngày GDKHQ lệch nhau). Trùng → đổi thông điệp thành
+  "TRÙNG SỰ KIỆN QUYỀN (loại, GDKHQ ngày) → kho CHƯA back-adjust" kèm
+  **hệ số giá quan sát vs ratio sự kiện** để đối chiếu tay, và in nguyên
+  văn mô tả. Không trùng → GIỮ NGUYÊN "dữ liệu lỗi", không bịa nguyên
+  nhân. Vách qua quãng nghỉ thì không đi tra sự kiện (không phải nghi vấn
+  thì đừng gán tội). +5 test. Đây là bước biến "cần soi tay" thành "đã
+  biết chữa ở tầng nào".
 * ~~Còn treo — XPH~~ *(giả thuyết sai, giữ lại để không ai đi lại đường
   cũ)*: live 15,600 VND vs chart ~10.2 nghìn (lệch ~1.5×).
   KHÔNG phải lỗi đơn vị: mọi hệ số trong repo là 1000× và

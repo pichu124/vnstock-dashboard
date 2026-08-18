@@ -57,6 +57,9 @@ LIVE_TOLERANCE = 1.3
 # thứ Hai đã là 3 ngày; nghỉ lễ dài hơn). Mã kém thanh khoản có bar cách nhau
 # hàng tháng — chấm biên độ sàn lên quãng đó là báo động giả.
 MAX_ADJACENT_DAYS = 4
+# Ngày GDKHQ trong cache có thể lệch 1-2 phiên so với bar rơi giá (nguồn ghi
+# ngày chốt quyền vs ngày giao dịch không hưởng quyền) → cửa sổ đối chiếu.
+EVENT_WINDOW_DAYS = 3
 
 
 def _load_events(meta_dir: Path, days: int) -> list[dict]:
@@ -140,6 +143,44 @@ def find_jumps(df: pd.DataFrame, jump_pct: float = JUMP_PCT) -> list[dict]:
     return out
 
 
+def match_corp_action(ticker: str, warehouse: Path, jump_date: str,
+                      window_days: int = EVENT_WINDOW_DAYS) -> dict | None:
+    """Vách này có trùng một SỰ KIỆN QUYỀN đã biết không?
+
+    Thêm 18/08 sau ca VVS (kề phiên mà rơi 36.7% — bất khả với biên ±15%):
+    biết "có vách" mới xong nửa việc, người đọc vẫn phải tự đi tra vì sao.
+    Kho sự kiện đã có sẵn (`vnstock_adjust.load_events`, gộp 3 nguồn từ 14/08)
+    nên tool tự đối chiếu được: trùng ngày GDKHQ ⇒ nguyên nhân là back-adjust
+    chưa áp, chữa ở tầng điều chỉnh — KHÁC HẲN "dữ liệu lỗi" (chữa ở nguồn).
+    Không có cache sự kiện → trả None, im lặng như `live_gap`.
+    """
+    try:
+        import sys
+        if str(REPO_ROOT) not in sys.path:
+            sys.path.insert(0, str(REPO_ROOT))
+        from vnstock_adjust import load_events
+        ev = load_events(ticker, warehouse)
+    except Exception:
+        return None
+    if ev is None or ev.empty or "ex_date" not in ev.columns:
+        return None
+    try:
+        target = pd.to_datetime(jump_date).date()
+        ex = pd.to_datetime(ev["ex_date"]).dt.date
+        dist = ex.map(lambda d: abs((d - target).days))
+        near = ev[dist <= window_days]
+        if near.empty:
+            return None
+        row = near.iloc[int(dist[dist <= window_days].argmin())]
+    except Exception:
+        return None
+    return {"ex_date": str(row.get("ex_date", "?")),
+            "type": str(row.get("type", "?")),
+            "ratio": row.get("ratio"),
+            "cash_amount": row.get("cash_amount"),
+            "raw": str(row.get("raw", ""))[:90]}
+
+
 def live_gap(live_dir: Path, ticker: str, last_close: float) -> dict | None:
     """So bar cuối của kho với giá live. None = không có quote để so."""
     path = live_dir / f"quote_{ticker.upper()}.json"
@@ -159,11 +200,21 @@ def live_gap(live_dir: Path, ticker: str, last_close: float) -> dict | None:
 
 
 def check_ticker(ticker: str, prices_dir: Path, live_dir: Path,
-                 n_bars: int, jump_pct: float) -> dict:
+                 n_bars: int, jump_pct: float,
+                 warehouse: "Path | None" = None) -> dict:
     df = load_bars(prices_dir, ticker)
     if df.empty:
         return {"ticker": ticker, "status": "no_data"}
     jumps = find_jumps(df, jump_pct)
+    if warehouse is not None:
+        for j in jumps:
+            if not j["suspect"]:
+                continue        # vách qua quãng nghỉ: không cần truy nguyên nhân
+            ev = match_corp_action(ticker, warehouse, j["time"])
+            if ev:
+                j["event"] = ev
+                j["why"] = (f"TRÙNG SỰ KIỆN QUYỀN ({ev['type']}, GDKHQ "
+                            f"{ev['ex_date']}) → kho CHƯA back-adjust")
     last_close = float(pd.to_numeric(df["close"], errors="coerce").iloc[-1])
     gap = live_gap(live_dir, ticker, last_close)
     hot = [j for j in jumps if j["suspect"]]
@@ -191,6 +242,16 @@ def render(res: dict, n_bars: int) -> None:
         print(f"   {'⚠' if j['suspect'] else 'ℹ'} {j['time']}: "
               f"{j['prev']:,.2f} → {j['cur']:,.2f} "
               f"({j['pct']:+,.1f}%) — {j['why']}")
+        ev = j.get("event")
+        if ev:
+            _r = ev.get("ratio")
+            _c = ev.get("cash_amount")
+            print(f"      ↳ hệ số giá quan sát {j['prev'] / j['cur']:.3f}× "
+                  + (f"· ratio sự kiện {float(_r):,.3f} "
+                     if _r is not None and pd.notna(_r) else "")
+                  + (f"· tiền mặt {float(_c):,.0f} " if _c is not None
+                     and pd.notna(_c) else "")
+                  + (f"· \"{ev['raw']}\"" if ev.get("raw") else ""))
     if not any(j["suspect"] for j in res["jumps"]):
         print(f"   ↳ không vách đứt đáng ngờ giữa hai phiên KỀ NHAU "
               f"(ngưỡng {JUMP_PCT:.0f}%)")
@@ -240,7 +301,8 @@ def main(argv: "list[str] | None" = None) -> int:
         print("[unit-continuity] ✅ không có mã nào cần soi")
         return 0
 
-    results = [check_ticker(t, prices_dir, live_dir, args.bars, args.jump_pct)
+    results = [check_ticker(t, prices_dir, live_dir, args.bars, args.jump_pct,
+                            warehouse=wh)
                for t in tickers]
     for res in results:
         render(res, args.bars)
