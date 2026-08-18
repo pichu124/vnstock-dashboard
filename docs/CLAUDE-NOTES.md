@@ -6682,7 +6682,7 @@ mỹ, chưa đáng thêm guard.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2094 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
+> Trạng thái: full suite **2113 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh `claude/remaining-tasks-tests-4xoam3`
 > đã merge máy bàn 15/08 · nhánh MỚI `claude/tong-hop-cong-viec-test-w8mvrc`
@@ -6923,9 +6923,49 @@ chết). Đối chiếu 4 câu hỏi đặt trước:
   thật trước khi vào code.
 Brief chiều 4 giọng không còn ❌ Groq đã xác nhận từ #217.
 
-**3. Badge 🩺 "Quy đổi đơn vị giá"** — tự động toàn phần (entry 11/08 (b)).
-CHỈ hành động khi badge warn: soi chart mã nêu tên; nghi quy đổi OAN (mã
-vừa chia tách?) → báo Claude kèm message.
+**3. ✅ ĐÓNG 18/08 — badge "Quy đổi đơn vị giá": không có ca oan nào, và
+CHÍNH BADGE mới là thứ phải sửa.** User soi 5 chart (WSS/WTC/XPH/YBM/YEG)
+17-18/08; điều tra 6 hướng + đối chứng phản biện cho kết quả:
+* **Không thể quy đổi oan vì chia tách** (chứng minh cấu trúc, không cần
+  dữ liệu): guard chỉ bắn khi ratio ≥ **100×**; chia tách/thưởng LÀM GIẢM
+  giá nên chỉ kéo ratio XUỐNG — tức chỉ gây BỎ SÓT, không thể gây oan.
+  Muốn oan phải có giá TĂNG ≥100× trong một phiên, bất khả với biên
+  ±7/10/15%. Ca oan "lý thuyết" ghi từ 11/08 nay đóng lại bằng lập luận
+  này, đừng nêu lại.
+* **Con số `ratio` KHÔNG phải thước đo đúng/sai**: `ratio = trung vị close
+  bar mới (VND) / trung vị close YTD của chính mã (nghìn VND)`
+  (`vnstock_rollup.py:291`, mẫu số là `_read_year` = file `year=<năm bar>`).
+  Tức ratio ≈ 1000 × (giá hôm đó / trung vị YTD) — chỉ tròn 1000 khi giá
+  bằng đúng trung vị năm. **YEG 764.1× chỉ nói YEG đang thấp hơn trung vị
+  năm ~24%** (khớp chart giảm đều 12 → 7.6), KHÔNG phải dấu vết quy đổi
+  sai. Claude từng nêu 764.1× là "đáng ngờ nhất" (17/08) — SAI, rút lại.
+* **Badge nói quá ở 3 chỗ → ĐÃ VÁ**: (1) in ratio kèm mã như thể đó là độ
+  tin cậy → bỏ; (2) 5 mã hiện ra là `fresh[-5:]` mà rollup duyệt
+  `groupby("ticker")` = ALPHABET → luôn là ĐUÔI BẢNG CHỮ CÁI (đúng
+  W-W-X-Y-Y), không phải 5 ca nặng nhất → nay in tổng số mã + ghi rõ "5 mã
+  cuối theo vần"; (3) "50 lần" đúng bằng trần log `_UNIT_LOG_MAX=50` nên
+  là SÀN chứ không phải số thật → nay in "≥50 (log đầy)". 6 test mới.
+* **Việc soi mắt thay bằng lệnh**: `scripts/check_unit_continuity.py` —
+  đọc CÙNG nguồn badge đọc, in bar cuối + bắt vách >30% và PHÂN LOẠI
+  (~1000× = vết sót · ~2× = nghi chia tách · khác = thiếu phiên/lỗi), so
+  bar cuối với `_live/quote_*.json`. Exit 0 sạch / 1 cần soi / 2 không đọc
+  được kho. 13 test. Badge nay trỏ thẳng vào lệnh này.
+* **Còn treo — XPH**: live 15,600 VND vs chart ~10.2 nghìn (lệch ~1.5×).
+  KHÔNG phải lỗi đơn vị: mọi hệ số trong repo là 1000× và
+  `normalize_live_price` chỉ kích hoạt khi >100×/<0.01× nên không đường
+  code nào đẻ ra 1.5×. Hai giả thuyết còn lại, cần dữ liệu máy thật để
+  chốt: (a) kho lỡ phiên — số học ủng hộ mạnh: bar WSS lúc quy đổi ≈10.16
+  nghìn, mà 10,160 × 1.15³ = 15,450 ≈ 15,600 = **3 phiên trần UPCOM**;
+  (b) file `_live/quote_XPH.json` thiu — `load_live_quote` KHÔNG kiểm tra
+  tuổi file và strip chỉ in HH:MM:SS (không có ngày), mã UPCOM không khớp
+  lệnh thì file không được ghi đè. → user chạy
+  `python scripts/check_unit_continuity.py --bars 20` trên máy thật.
+* **WTC**: ảnh chụp lúc trang đang rerun (mờ), chart còn khung của mã
+  trước. Soi code: không state nào giữ dữ liệu mã cũ (cache theo key
+  ticker, iframe srcdoc nhúng tên mã) → là khung cũ chưa bị thay, cửa sổ
+  dài vì giữa quote strip và render_chart còn 2 lời gọi mạng VCI chặn.
+  Phân định dứt điểm nếu tái diễn: chờ trang hết mờ rồi đọc NHÃN TRONG
+  chart — vẫn ghi mã cũ mới là stale thật.
 
 ## 🟡 CODE CÒN TREO — không gấp
 

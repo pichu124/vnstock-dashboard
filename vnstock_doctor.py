@@ -137,14 +137,38 @@ def check_unit_normalizations() -> dict:
                 f"({last.get('ticker', '?')})" if last
                 else "guard chưa từng kích hoạt")
         return _result("unit_norm", name, "ok", note, "")
-    tickers = ", ".join(f"{e.get('ticker', '?')} ({e.get('ratio', '?')}×)"
-                        for e in fresh[-5:])
+    # Ba chỗ badge từng NÓI SAI, sửa 18/08 sau khi user đi soi 5 chart oan:
+    # 1. In `ratio` kèm mã khiến người đọc tưởng "1000× = đúng, 764× = sai".
+    #    Thực ra ratio = giá bar mới / TRUNG VỊ YTD của chính mã (rollup:291)
+    #    nên nó đo mã đang ở đâu so với trung vị năm, KHÔNG đo độ tin cậy của
+    #    phép quy đổi. Bỏ khỏi badge; ai cần thì đọc thẳng file vết.
+    # 2. `fresh[-5:]` là 5 vết CUỐI, mà rollup duyệt `groupby("ticker")` =
+    #    alphabet → luôn ra đuôi bảng chữ cái (WSS/WTC/XPH/YBM/YEG), không
+    #    phải 5 ca đáng ngờ nhất. Nay nói rõ "5 mã cuối theo vần" + tổng số mã.
+    # 3. Log giữ tối đa `_UNIT_LOG_MAX` vết (rollup:242) nên khi đầy, con số
+    #    đếm được là SÀN chứ không phải số thật — phải ghi "≥".
+    n_tickers = len({str(e.get("ticker", "?")) for e in fresh})
+    shown = [str(e.get("ticker", "?")) for e in fresh[-5:]]
+    saturated = len(events) >= _rollup_log_cap()
+    count = f"≥{len(fresh)}" if saturated else str(len(fresh))
+    tail = f"{', '.join(shown)}{' …' if n_tickers > len(shown) else ''}"
     return _result(
         "unit_norm", name, "warn",
-        f"{len(fresh)} lần quy đổi trong {_UNIT_WARN_DAYS} ngày: {tickers} — "
-        f"guard ĐÃ tự sửa, việc còn lại là soi chart các mã này xem giá có "
-        f"liên tục không",
-        "nghi quy đổi OAN (mã vừa chia tách?) → báo Claude kèm dòng này")
+        f"{count} lần quy đổi / {n_tickers} mã trong {_UNIT_WARN_DAYS} ngày"
+        f"{' (log đầy — số thật có thể hơn)' if saturated else ''}: {tail}"
+        f"{' (5 mã cuối theo vần, không phải nặng nhất)' if n_tickers > len(shown) else ''}"
+        f" — guard ĐÃ tự sửa, việc còn lại là soi giá có liên tục không",
+        "python scripts/check_unit_continuity.py "
+        "(vách ~1000× = vết sót · ~2× = nghi chia tách · lệch giá live = kho lỡ phiên)")
+
+
+def _rollup_log_cap() -> int:
+    """Trần lưu vết của rollup — đọc từ nguồn, không nuôi bản sao hằng số."""
+    try:
+        from vnstock_rollup import _UNIT_LOG_MAX
+        return int(_UNIT_LOG_MAX)
+    except Exception:
+        return 50
 
 
 def check_warehouse() -> dict:
