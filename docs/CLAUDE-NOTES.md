@@ -7133,6 +7133,13 @@ CHÍNH BADGE mới là thứ phải sửa.** User soi 5 chart (WSS/WTC/XPH/YBM/Y
   `adjust`: luôn nhân · `source`: giữ đúng số nguồn (khi muốn kho khớp
   nguồn tuyệt đối để đối chiếu). +4 test. In rõ quyết định + lý do ra màn
   hình trước khi ghi.
+  ✅✅ **VHM ĐÃ CHỮA XONG 18/08 20:37 — ca đầu tiên, trọn quy trình.**
+  Bậc nhảy khối lượng đo được **1.95×** (≈ hệ số giá 2.0, lệch 2.5% là dao
+  động trung vị bình thường) ⇒ `auto` nhân khối lượng ×2.0000 — bằng chứng
+  thực nghiệm khớp lý thuyết chia tách 1:1. Sao lưu
+  `_meta/backup_rebase/VHM_20260818-203753`, ghi nguyên tử 16 file, TỰ KIỂM
+  báo "chuỗi đã liền". Sau khi chữa: giá ÷2 và khối lượng ×2 nên **GTGD
+  lịch sử giữ nguyên** — đúng bản chất chia tách, không đẻ lỗi mới.
   ⏭ **VIỆC KẾ TIẾP (chờ user)**: chạy thử VHM → soi số → `--apply` → chạy
   lại `--all` xem 149 rút còn bao nhiêu. Sau đó mới tính chuyện chặn TÁI
   PHÁT (lưới đối chiếu ở đường ghi CHÍNH — hiện chỉ làn fallback có).
