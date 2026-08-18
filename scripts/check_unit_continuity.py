@@ -81,7 +81,30 @@ def _load_events(meta_dir: Path, days: int) -> list[dict]:
     return fresh
 
 
-def load_bars(prices_dir: Path, ticker: str) -> pd.DataFrame:
+def _is_equity(ticker: str) -> bool:
+    """Chỉ CỔ PHIẾU mới chịu biên độ ±15% — dùng lại bộ lọc của anomaly.
+
+    Bài học 18/08: lần quét toàn kho đầu tiên gắn cờ 1.902/3.125 mã, mà phần
+    lớn là CHỨNG QUYỀN (CFPT2528…), TRÁI PHIẾU (CTG121030…), phái sinh
+    (41I1G4000) và cả VNINDEX — những thứ KHÔNG có biên độ nên nhảy 30-50%
+    một phiên là bình thường. Chấm chúng bằng thước cổ phiếu là báo động giả
+    hàng loạt, đúng thứ làm người ta bỏ qua cả báo động thật.
+    Import hỏng → tự lọc thô, thà sót còn hơn kêu oan 1.900 dòng.
+    """
+    try:
+        import sys
+        if str(REPO_ROOT) not in sys.path:
+            sys.path.insert(0, str(REPO_ROOT))
+        from vnstock_anomaly import _is_stock
+        return bool(_is_stock(ticker))
+    except Exception:
+        import re as _re
+        t = ticker.strip().upper()
+        return bool(t) and t[0].isalpha() and not _re.match(r"^[A-Z]{2,6}\d{4,6}$", t)
+
+
+def load_bars(prices_dir: Path, ticker: str,
+              since_days: int = 0) -> pd.DataFrame:
     tdir = prices_dir / f"ticker={ticker.upper()}"
     if not tdir.exists():
         return pd.DataFrame()
@@ -96,6 +119,9 @@ def load_bars(prices_dir: Path, ticker: str) -> pd.DataFrame:
         return pd.DataFrame()
     df = pd.concat(frames, ignore_index=True)
     df["time"] = pd.to_datetime(df["time"])
+    if since_days > 0:
+        cutoff = pd.Timestamp.now().normalize() - pd.Timedelta(days=since_days)
+        df = df[df["time"] >= cutoff]
     return df.sort_values("time").reset_index(drop=True)
 
 
@@ -208,8 +234,9 @@ def live_gap(live_dir: Path, ticker: str, last_close: float) -> dict | None:
 
 def check_ticker(ticker: str, prices_dir: Path, live_dir: Path,
                  n_bars: int, jump_pct: float,
-                 warehouse: "Path | None" = None) -> dict:
-    df = load_bars(prices_dir, ticker)
+                 warehouse: "Path | None" = None,
+                 since_days: int = 0) -> dict:
+    df = load_bars(prices_dir, ticker, since_days)
     if df.empty:
         return {"ticker": ticker, "status": "no_data"}
     jumps = find_jumps(df, jump_pct)
@@ -281,6 +308,11 @@ def main(argv: "list[str] | None" = None) -> int:
     ap.add_argument("--warehouse", default="data_warehouse")
     ap.add_argument("--ticker", action="append", default=None,
                     help="chỉ định mã (lặp lại được); mặc định lấy từ vết quy đổi")
+    ap.add_argument("--since", type=int, default=None, metavar="N",
+                    help="chỉ soi N ngày gần nhất (0 = toàn lịch sử). Mặc định: "
+                         "365 khi --all, 0 khi soi mã lẻ — lịch sử 20 năm có sẵn "
+                         "nhiễu cũ, quét rộng mà không cắt cửa sổ thì tín hiệu "
+                         "mới chìm nghỉm")
     ap.add_argument("--all", action="store_true",
                     help="quét TOÀN KHO (chỉ in mã nghi vấn) — tìm mã lệch cơ "
                          "sở điều chỉnh sau ca VVS 18/08")
@@ -298,11 +330,15 @@ def main(argv: "list[str] | None" = None) -> int:
         print(f"[unit-continuity] ✗ không thấy kho giá tại {prices_dir}")
         return 2
 
+    since = args.since if args.since is not None else (365 if args.all else 0)
     if args.all:
-        tickers = sorted(p.name.removeprefix("ticker=")
-                         for p in prices_dir.glob("ticker=*") if p.is_dir())
-        print(f"[unit-continuity] quét TOÀN KHO: {len(tickers):,} mã "
-              f"(chỉ in mã nghi vấn)")
+        every = sorted(p.name.removeprefix("ticker=")
+                       for p in prices_dir.glob("ticker=*") if p.is_dir())
+        tickers = [t for t in every if _is_equity(t)]
+        print(f"[unit-continuity] quét TOÀN KHO: {len(tickers):,} mã cổ phiếu "
+              f"(bỏ {len(every) - len(tickers):,} CW/trái phiếu/phái sinh/chỉ số "
+              f"— không có biên độ nên không chấm bằng thước cổ phiếu) · "
+              f"{since} ngày gần nhất · chỉ in mã nghi vấn")
     elif args.ticker:
         tickers = [t.upper() for t in args.ticker]
         print(f"[unit-continuity] soi {len(tickers)} mã chỉ định")
@@ -317,7 +353,7 @@ def main(argv: "list[str] | None" = None) -> int:
         return 0
 
     results = [check_ticker(t, prices_dir, live_dir, args.bars, args.jump_pct,
-                            warehouse=wh)
+                            warehouse=wh, since_days=since)
                for t in tickers]
     for res in results:
         # Quét toàn kho mà in cả nghìn mã sạch thì không ai đọc nổi phần
@@ -330,8 +366,10 @@ def main(argv: "list[str] | None" = None) -> int:
     n_data = sum(1 for r in results if r["status"] != "no_data")
     print()
     if suspect:
+        _head = ", ".join(suspect[:40])
+        _more = f" … (+{len(suspect) - 40} mã)" if len(suspect) > 40 else ""
         print(f"[unit-continuity] ⚠️ {len(suspect)}/{n_data} mã cần soi tay: "
-              f"{', '.join(suspect)}")
+              f"{_head}{_more}")
         print("        Vách 'nghi KHO LỆCH CƠ SỞ' → phân định từng mã bằng:")
         print("        python scripts/probe_price_basis.py --ticker <MÃ> "
               "--break-date <ngày vách>")

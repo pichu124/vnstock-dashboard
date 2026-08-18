@@ -6682,7 +6682,7 @@ mỹ, chưa đáng thêm guard.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2128 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
+> Trạng thái: full suite **2131 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh `claude/remaining-tasks-tests-4xoam3`
 > đã merge máy bàn 15/08 · nhánh MỚI `claude/tong-hop-cong-viec-test-w8mvrc`
@@ -7044,6 +7044,20 @@ CHÍNH BADGE mới là thứ phải sửa.** User soi 5 chart (WSS/WTC/XPH/YBM/Y
   KHO LỆCH CƠ SỞ" + trỏ sang `probe_price_basis` thay vì bỏ lửng ở chữ
   "dữ liệu lỗi". CHƯA có đường CHỮA (ghi đè lịch sử) — chờ user quyết,
   vì đó là ghi vào kho.
+  ⚠️ **Lần quét `--all` ĐẦU TIÊN gắn cờ 1.902/3.125 mã — LỖI CỦA CÔNG CỤ,
+  không phải của kho** (user chạy 18/08). Hai nguyên nhân, đã vá cả hai:
+  (1) quét cả CHỨNG QUYỀN (CFPT2528…, hàng nghìn mã), TRÁI PHIẾU
+  (CTG121030, MBB125008), phái sinh HNX (41I1G4000) và cả VNINDEX — những
+  thứ KHÔNG có biên độ ±15% nên nhảy 30-50%/phiên là bình thường; nay lọc
+  bằng chính `vnstock_anomaly._is_stock` (bất đối xứng đã ghi nhận từ
+  trước: anomaly có `stocks_only`, fix_units/tool này thì không).
+  (2) quét cả 20 năm lịch sử nên nhiễu 2006-2013 nhấn chìm tín hiệu mới;
+  nay `--all` mặc định cắt **365 ngày** (`--since N`, 0 = toàn bộ; soi mã
+  lẻ vẫn xem toàn lịch sử). Danh sách in ra cũng cắt còn 40 mã + "(+N)".
+  +3 test. **Bài học lặp lại lần thứ ba trong ngày**: mỗi lần công cụ gặp
+  dữ liệu THẬT là lộ một giả định ngầm sai (bar liền nhau ≠ phiên liền
+  nhau · mọi mã ≠ cổ phiếu · lịch sử dài ≠ lịch sử liên quan). Đừng tin
+  con số quét lần đầu; luôn soi vài dòng mẫu trước khi kết luận diện rộng.
   ⚠️ **Lỗ hổng lộ ra từ ca này: lưới đối chiếu chỉ có ở làn FALLBACK.**
   `reconcile_fallback_df` (từ chối data lệch >8% so với kho) chỉ được gọi
   trong nhánh fallback (`vnstock_updater.py:441`); **đường VCI CHÍNH ghi

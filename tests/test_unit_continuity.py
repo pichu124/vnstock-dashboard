@@ -275,3 +275,43 @@ def test_missing_ticker_data_is_not_a_failure(tmp_path, capsys):
     (wh / "prices").mkdir(parents=True, exist_ok=True)
     assert cuc.main(["--warehouse", str(wh)]) == 0
     assert "không có dữ liệu trong kho" in capsys.readouterr().out
+
+
+# ── Lọc loại chứng khoán + cửa sổ thời gian (sau lần quét toàn kho 18/08) ────
+#
+# Lần quét đầu gắn cờ 1.902/3.125 mã. Hai nguyên nhân, cả hai đều là lỗi của
+# công cụ chứ không phải của kho: chấm CW/trái phiếu/chỉ số bằng thước biên độ
+# cổ phiếu, và quét cả 20 năm lịch sử nên nhiễu cũ nhấn chìm tín hiệu mới.
+
+def test_is_equity_rejects_non_stock_instruments():
+    for bad in ("CFPT2528", "CHPG2601", "CVNM2204",   # chứng quyền
+                "CTG121030", "MBB125008", "VBA121033",  # trái phiếu
+                "41I1G4000",                            # phái sinh HNX
+                "VNINDEX", "VN30"):                     # chỉ số
+        assert not cuc._is_equity(bad), bad
+    for good in ("VVS", "XPH", "VNM", "FPT", "SSI"):
+        assert cuc._is_equity(good), good
+
+
+def test_all_mode_skips_non_equities(tmp_path, capsys):
+    """CW nhảy 40% một phiên là BÌNH THƯỜNG (không có biên độ) — quét toàn kho
+    mà chấm nó bằng thước cổ phiếu thì 1.900 dòng báo động giả."""
+    wh = tmp_path / "wh"
+    _write_bars(wh, "CFPT2528", _gapped([1.0, 0.5], ["2026-08-14", "2026-08-17"]))
+    _write_bars(wh, "AAA", _series([10.0, 10.1, 10.0]))
+    rc = cuc.main(["--warehouse", str(wh), "--all"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "CFPT2528" not in out
+    assert "bỏ 1" in out                      # nói rõ đã bỏ bao nhiêu mã
+
+
+def test_since_window_hides_ancient_noise(tmp_path, capsys):
+    """Vách năm 2010 không nói gì về kho hôm nay. --all cắt cửa sổ 365 ngày;
+    soi mã lẻ thì vẫn xem toàn lịch sử (0 = không cắt)."""
+    wh = tmp_path / "wh"
+    _write_bars(wh, "AAA", _gapped([10.0, 6.0, 6.1],
+                                   ["2010-03-01", "2010-03-02", "2010-03-03"]))
+    assert cuc.main(["--warehouse", str(wh), "--all"]) == 0        # cửa sổ 365
+    assert cuc.main(["--warehouse", str(wh), "--ticker", "AAA"]) == 1  # toàn bộ
+    assert "2010-03-02" in capsys.readouterr().out
