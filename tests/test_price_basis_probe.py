@@ -119,5 +119,11 @@ def test_no_suspect_jump_returns_none_not_a_guess(tmp_path):
     assert ppb._find_break(wh / "prices", "AAA") is None
 
 
-def test_missing_ticker_dir_does_not_explode(tmp_path):
-    assert ppb._find_break(tmp_path / "prices", "ZZZ") is None
+def test_missing_ticker_raises_instead_of_looking_clean(tmp_path):
+    """VẾT 18/08: `_find_break` từng bọc try/except cả hàm rồi trả None, nên
+    "kho sạch" và "tìm hỏng" in ra Y HỆT NHAU — user chạy rebase cho 4 mã,
+    thấy 4 dòng ✅ và tưởng đã chữa xong, trong khi chưa soi được gì. Lỗi
+    PHẢI nổi lên; chỉ "thật sự không có vách" mới được trả None."""
+    import pytest as _pt
+    with _pt.raises(Exception):
+        ppb._find_break(tmp_path / "prices", "ZZZ")

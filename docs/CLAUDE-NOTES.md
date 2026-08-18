@@ -6682,7 +6682,7 @@ mỹ, chưa đáng thêm guard.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2146 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
+> Trạng thái: full suite **2148 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh `claude/remaining-tasks-tests-4xoam3`
 > đã merge máy bàn 15/08 · nhánh MỚI `claude/tong-hop-cong-viec-test-w8mvrc`
@@ -7152,6 +7152,18 @@ CHÍNH BADGE mới là thứ phải sửa.** User soi 5 chart (WSS/WTC/XPH/YBM/Y
   CÒN LẠI ĐỀU LÀ VÁCH CỦA NGUỒN — probe sẽ ra `source_error`, công cụ
   rebase không chữa được và cũng không nên chữa. Vách 2015 nằm ngoài mọi
   lookback thực tế (backtest dài nhất repo là 730 ngày) → BỎ QUA.
+  🔴 **VẾT NUỐT LỖI — bắt được ngay trong đêm 18/08.** User chạy rebase
+  cho PNJ/GEX/GEE/PVD, cả 4 in "✅ không còn vách nghi vấn" — MÂU THUẪN
+  với bảng quét một giờ trước (PNJ 17/04 −32%, GEX 28/04, GEE 28/04, PVD
+  09/07). Nguyên nhân: `_find_break` bọc `try/except` quanh CẢ HÀM rồi trả
+  `None`, mà `None` được in thành "✅ sạch" ⇒ **"kho sạch" và "tìm hỏng"
+  trông y hệt nhau**. Đúng họ lỗi repo đã vấp: `except: pass` nuốt timeout
+  (17/07), guard quên nối (12/08) — code chết trông y như code sống.
+  Đã vá: `_find_break` KHÔNG bọc try/except, kho rỗng thì `raise` kèm chỉ
+  dẫn; `rebase` bắt riêng và in "✗ KHÔNG SOI ĐƯỢC (…) — ĐỪNG coi là sạch"
+  + trả exit 1; dòng ✅ nay in kèm SỐ BAR đã soi để không thể "sạch trong
+  im lặng". +2 test. **Chưa biết PNJ/GEX/GEE/PVD thực sự sạch hay chưa —
+  phải chạy lại sau khi merge.**
   ⏭ **VIỆC KẾ TIẾP (chờ user)**: chạy thử VHM → soi số → `--apply` → chạy
   lại `--all` xem 149 rút còn bao nhiêu. Sau đó mới tính chuyện chặn TÁI
   PHÁT (lưới đối chiếu ở đường ghi CHÍNH — hiện chỉ làn fallback có).

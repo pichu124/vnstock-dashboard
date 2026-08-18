@@ -170,3 +170,12 @@ def test_source_mode_never_invents_volume(tmp_path, stub_source):
 def test_volume_step_is_nan_safe_without_bars():
     empty = pd.DataFrame({"time": pd.to_datetime([]), "volume": []})
     assert rth._volume_step(empty, BRK) != rth._volume_step(empty, BRK)  # NaN
+
+
+def test_unsoiable_ticker_is_not_reported_as_clean(tmp_path, capsys):
+    """Cùng vết: rebase phải nói "KHÔNG SOI ĐƯỢC" và trả 1, chứ không in ✅
+    như mã sạch. Hai trạng thái này dẫn tới hai hành động ngược nhau."""
+    assert rth.main(["--warehouse", str(tmp_path), "--ticker", "ZZZ"]) == 1
+    out = capsys.readouterr().out
+    assert "KHÔNG SOI ĐƯỢC" in out or "không có trong kho" in out
+    assert "✅" not in out

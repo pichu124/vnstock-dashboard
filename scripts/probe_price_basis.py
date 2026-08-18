@@ -127,19 +127,23 @@ def _find_break(prices_dir: Path, ticker: str) -> "date | None":
     Dùng lại `find_jumps` của `check_unit_continuity` để hai công cụ không bao
     giờ bất đồng về "đâu là vách" (một nơi định nghĩa, hai nơi dùng).
     """
-    try:
-        import sys
-        _scripts = str(Path(__file__).resolve().parent)
-        if _scripts not in sys.path:
-            sys.path.insert(0, _scripts)
-        from check_unit_continuity import find_jumps, load_bars
-        df = load_bars(prices_dir, ticker, since_days=365)
-        hot = [j for j in find_jumps(df) if j["suspect"]]
-        if not hot:
-            return None
-        return date.fromisoformat(max(hot, key=lambda j: abs(j["pct"]))["time"])
-    except Exception:
+    import sys
+    _scripts = str(Path(__file__).resolve().parent)
+    if _scripts not in sys.path:
+        sys.path.insert(0, _scripts)
+    # KHÔNG bọc try/except quanh cả hàm (vết 18/08): nuốt lỗi rồi trả None
+    # khiến "kho sạch" và "tìm hỏng" in ra Y HỆT NHAU — người đọc tưởng đã
+    # chữa xong trong khi thực ra chưa soi được gì. Lỗi phải NỔI LÊN.
+    from check_unit_continuity import find_jumps, load_bars
+    df = load_bars(prices_dir, ticker, since_days=365)
+    if df.empty:
+        raise RuntimeError(
+            f"{ticker}: không đọc được bar nào trong 365 ngày từ {prices_dir} "
+            f"— kho thiếu mã này, hay sai đường dẫn --warehouse?")
+    hot = [j for j in find_jumps(df) if j["suspect"]]
+    if not hot:
         return None
+    return date.fromisoformat(max(hot, key=lambda j: abs(j["pct"]))["time"])
 
 
 def _probe_one(tk: str, wh_root: Path, args) -> int:

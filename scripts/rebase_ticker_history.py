@@ -117,9 +117,17 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
         print(f"\n[rebase] ⬜ {tk}: không có trong kho")
         return 1
 
-    brk = _find_break(prices_dir, tk)
+    try:
+        brk = _find_break(prices_dir, tk)
+    except Exception as e:
+        # Phân biệt RÕ "sạch" với "không soi được" — gộp hai cái làm một là
+        # cách chắc chắn nhất để người dùng tưởng đã chữa xong (vết 18/08).
+        print(f"\n[rebase] ✗ {tk}: KHÔNG SOI ĐƯỢC ({type(e).__name__}: {e}) "
+              f"— chưa kết luận được gì, ĐỪNG coi là sạch")
+        return 1
     if brk is None:
-        print(f"\n[rebase] ✅ {tk}: không còn vách nghi vấn trong 365 ngày")
+        print(f"\n[rebase] ✅ {tk}: không còn vách nghi vấn trong 365 ngày "
+              f"(soi {len(load_bars(prices_dir, tk, since_days=365)):,} bar)")
         return 0
     print(f"\n[rebase] {tk} · vách {brk}")
 
