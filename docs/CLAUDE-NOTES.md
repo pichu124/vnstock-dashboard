@@ -6682,7 +6682,7 @@ mỹ, chưa đáng thêm guard.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2090 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
+> Trạng thái: full suite **2094 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh `claude/remaining-tasks-tests-4xoam3`
 > đã merge máy bàn 15/08 · nhánh MỚI `claude/tong-hop-cong-viec-test-w8mvrc`
@@ -6879,6 +6879,24 @@ Cần chạy lại sau này (nghi WSS hỏng): vẫn lệnh đó, trong phiên.
   trong docs vì full-market gồm cả UPCOM/CW — con số docs là ước lượng
   lỗi thời, không phải lỗi. Cần soi lại sau này (nghi WSS): vẫn trình
   tự đó — toggle sidebar trái → tab Thị trường, trong phiên.
+  ↪ **Nâng cấp cùng ngày (user đặt): bề rộng ô ≈ VỐN HOÁ tương đối.**
+  Cap đọc từ `_mkt_ticker_data` (bảng ticker screener). Ba quyết định
+  đều ĐO trên trình duyệt thật trước khi chốt, không đoán:
+  (1) nén **sqrt** — VIC/POW cap chênh 23.9× ra bề rộng 4.5×: ô nhỏ vẫn
+  đọc được chữ mà tương quan vẫn thấy ngay;
+  (2) **flex-basis %** chứ KHÔNG phải flex-grow — bản grow đo được
+  28/30 ô dính đúng 80px (min-width nuốt sạch chênh lệch, tỷ lệ chết);
+  (3) **grow = 0** — bản grow=1 làm TCB phình 575px ở hàng cuối, bề
+  rộng lúc đó NÓI DỐI vốn hoá; đổi lại lề phải hàng cuối so le.
+  Mã thiếu cap đi trọng số TRUNG VỊ (không teo, không phình, không
+  tooltip); chưa có bảng cap (lượt render đầu, fragment chạy TRƯỚC thân
+  tab) → mọi ô bằng nhau như cũ và KHÔNG hiện nhãn "rộng ô ≈ vốn hoá"
+  (nhãn mà không scale là nói dối). Hằng số `_HEATMAP_WIDTH_SPAN=300`
+  (≈3 hàng) ở đầu `market_tab`. Kiểm chứng cuối: dựng HTML DO CHÍNH
+  CODE SINH RA rồi đo trong Chromium — VIC 379px · VCB 299 · VHM 256 ·
+  TCB 220 · PLX 107 · POW 84. +4 test (tỷ lệ sqrt & tổng % = span ·
+  cấm stretch · mã thiếu cap ăn trung vị · fallback bằng nhau).
+  Suite 2090 → **2094 passed**.
 
 ## ⏳ TỰ ĐẾN — chỉ cần ĐỌC khi tới
 

@@ -146,6 +146,71 @@ def test_market_tab_renders_heatmap_when_flag_alive(render_env, monkeypatch):
     )
 
 
+_CELL_RE = r"flex:0 1 ([0-9.]+)%'><div style='[^']*'>([A-Z0-9]+)</div>"
+
+
+def _heatmap_env(monkeypatch, render_env, tickers, caps=None):
+    import pandas as pd
+    stub = _stub_dashboard()
+    stub.WSS_AVAILABLE = True
+    stub.VN30_SYMBOLS = list(tickers)
+    stub.load_live_quote = _live_quote
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard", stub)
+    render_env.session_state["live_mode"] = True
+    if caps:
+        render_env.session_state["_mkt_ticker_data"] = pd.DataFrame(
+            {"Mã": list(caps), "Vốn hoá (tỷ)": [float(v) for v in caps.values()]})
+    _load("dashboard.market_tab").render_market_tab()
+    return _markdown_dump(render_env)
+
+
+def test_heatmap_cell_width_scales_with_market_cap(render_env, monkeypatch):
+    """User chốt 18/08: rộng ô ≈ vốn hoá TƯƠNG ĐỐI, nén sqrt — VCB cap gấp
+    16× SSB thì bề rộng gấp ~4×. Bề rộng đi bằng flex-BASIS %: dùng
+    flex-grow thì min-width nuốt hết chênh lệch (đo trên trình duyệt thật
+    18/08: 28/30 ô dính đúng 80px). Tổng % của mọi ô = _HEATMAP_WIDTH_SPAN
+    nên số hàng ổn định dù cap thay đổi."""
+    dump = _heatmap_env(monkeypatch, render_env, ["VCB", "SSB"],
+                        {"VCB": 400_000, "SSB": 25_000})
+    w = {tk: float(p) for p, tk in re.findall(_CELL_RE, dump)}
+    assert set(w) == {"VCB", "SSB"}, f"không parse được cell: {w}"
+    ratio = w["VCB"] / w["SSB"]
+    assert 3.5 < ratio < 4.5, f"cap 16× phải ra rộng ~4× (sqrt), đang {ratio:.2f}×"
+    from dashboard.market_tab import _HEATMAP_WIDTH_SPAN
+    assert abs(sum(w.values()) - _HEATMAP_WIDTH_SPAN) < 0.5
+    assert "rộng ô ≈ vốn hoá" in dump
+    assert "vốn hoá ~400,000 tỷ" in dump          # tooltip format EN
+
+
+def test_heatmap_cell_does_not_stretch_to_fill_last_row(render_env, monkeypatch):
+    """grow phải là 0: bản grow=1 đo được TCB phình 575px ở hàng cuối —
+    bề rộng lúc đó NÓI DỐI vốn hoá. Lề phải so le là cái giá chấp nhận."""
+    dump = _heatmap_env(monkeypatch, render_env, ["VCB", "SSB"],
+                        {"VCB": 400_000, "SSB": 25_000})
+    assert "flex:0 1 " in dump and "flex:1 1 " not in dump
+
+
+def test_heatmap_ticker_without_cap_takes_median_weight(render_env, monkeypatch):
+    """Mã thiếu cap (mã mới / bảng screener chưa có) không được teo bằng 0
+    cũng không được phình — đi trọng số TRUNG VỊ, và không có tooltip."""
+    dump = _heatmap_env(monkeypatch, render_env, ["VCB", "SSB", "XYZ"],
+                        {"VCB": 400_000, "SSB": 25_000})
+    w = {tk: float(p) for p, tk in re.findall(_CELL_RE, dump)}
+    assert set(w) == {"VCB", "SSB", "XYZ"}
+    assert w["SSB"] <= w["XYZ"] <= w["VCB"], f"XYZ phải nằm giữa: {w}"
+    assert "XYZ: vốn hoá" not in dump
+
+
+def test_heatmap_without_cap_data_falls_back_to_equal_widths(render_env, monkeypatch):
+    """Lượt render đầu (`_mkt_ticker_data` chưa có vì fragment đứng trước
+    thân tab): mọi ô rộng bằng nhau, KHÔNG nổ, và không ghi chú vốn hoá
+    (ghi mà không scale là nhãn nói dối)."""
+    dump = _heatmap_env(monkeypatch, render_env, ["VCB", "SSB"])
+    assert not re.findall(_CELL_RE, dump), "thiếu cap mà vẫn scale theo %"
+    assert dump.count("flex:1 1 0") == 2, "mọi ô phải rộng bằng nhau"
+    assert "rộng ô ≈ vốn hoá" not in dump
+
+
 def test_market_tab_skips_live_block_without_flag_but_says_so(render_env, monkeypatch):
     """Không bật live thì khối live vắng CÓ CHỦ Ý — nhưng phải để lại MỘT dòng
     chỉ đường. Bài học 17/08: khối vắng âm thầm thì user không phân biệt được

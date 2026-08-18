@@ -34,6 +34,12 @@ Còn inline: ``_live_market_fragment`` — fragment Streamlit
 
 from __future__ import annotations
 
+# Tổng bề rộng các ô heatmap VN30 tính theo bề ngang khung (%): 300 ≈ 3 hàng
+# cho 30 mã. Tăng = ô to hơn/nhiều hàng hơn, giảm = dẹt lại. Xem khối
+# "Chiều rộng ô ≈ VỐN HOÁ" trong `_live_market_fragment` để biết vì sao là
+# flex-basis % chứ không phải flex-grow.
+_HEATMAP_WIDTH_SPAN = 300.0
+
 
 def render_market_tab() -> None:
     """Render the Thị trường tab. Lazy imports Streamlit + dashboard helpers."""
@@ -188,11 +194,45 @@ def render_market_tab() -> None:
                     unsafe_allow_html=True,
                 )
 
+            # Chiều rộng ô ≈ VỐN HOÁ TƯƠNG ĐỐI (user chốt 18/08). Cap lấy từ
+            # bảng ticker screener (`_mkt_ticker_data` — có thể CHƯA có ở lượt
+            # render đầu vì fragment đứng TRƯỚC phần thân tab; lượt refresh 5s
+            # sau tự có) → thiếu cap thì mọi ô rộng bằng nhau như trước.
+            #
+            # Ba quyết định đo bằng trình duyệt thật trước khi chốt (18/08):
+            # 1. NÉN sqrt — cap VIC/POW chênh 24× mà bề rộng chỉ chênh ~4.5×:
+            #    ô nhỏ vẫn đọc được chữ, tương quan lớn/nhỏ vẫn thấy ngay.
+            # 2. flex-basis THEO % (`flex:0 1 x%`) chứ KHÔNG phải flex-grow:
+            #    grow chỉ chia phần thừa nên min-width nuốt hết chênh lệch
+            #    (đo được: 28/30 ô dính đúng 80px, tỷ lệ chết).
+            # 3. grow = 0: hàng cuối để lề phải so le, KHÔNG kéo giãn ô cuối
+            #    (đo bản grow=1: TCB phình 575px — bề rộng nói dối vốn hoá).
+            # `_HEATMAP_WIDTH_SPAN` ≈ tổng bề rộng tính theo màn hình → ~3 hàng.
+            import math as _math
+            _cap_by_tk: dict = {}
+            try:
+                _td = st.session_state.get("_mkt_ticker_data")
+                if _td is not None and "Mã" in _td.columns \
+                        and "Vốn hoá (tỷ)" in _td.columns:
+                    for _ma, _cap in zip(_td["Mã"], _td["Vốn hoá (tỷ)"]):
+                        if _cap and float(_cap) > 0:
+                            _cap_by_tk[str(_ma)] = float(_cap)
+            except Exception:
+                _cap_by_tk = {}
+            _w_of = {_q["ticker"]: _math.sqrt(_cap_by_tk[_q["ticker"]])
+                     for _q in _vn30_quotes if _q.get("ticker") in _cap_by_tk}
+            # Mã thiếu cap đi trọng số TRUNG VỊ: không nổi bật cũng không teo.
+            _w_known = sorted(_w_of.values())
+            _w_mid = _w_known[len(_w_known) // 2] if _w_known else 1.0
+            _w_total = sum(_w_of.get(_q.get("ticker"), _w_mid)
+                           for _q in _vn30_quotes) or 1.0
+
             # VN30 Heatmap
+            _lbl_extra = " · rộng ô ≈ vốn hoá" if _w_known else ""
             st.markdown(
                 "<div style='color:#6b7280;font-size:11px;margin-bottom:6px;"
                 "text-transform:uppercase;letter-spacing:0.08em'>"
-                "🔴 VN30 Heatmap — Real-time</div>",
+                f"🔴 VN30 Heatmap — Real-time{_lbl_extra}</div>",
                 unsafe_allow_html=True,
             )
             _cells = ""
@@ -224,9 +264,14 @@ def render_market_tab() -> None:
                     _tc = "#9ca3af"
 
                 _sign = "+" if _chg >= 0 else ""
+                _pct = (_w_of.get(_tk, _w_mid) / _w_total) * _HEATMAP_WIDTH_SPAN
+                _flex = (f"flex:0 1 {_pct:.2f}%" if _w_known else "flex:1 1 0")
+                _cap_note = (f" title='{_tk}: vốn hoá ~{_cap_by_tk[_tk]:,.0f} tỷ'"
+                             if _tk in _cap_by_tk else "")
                 _cells += (
-                    f"<div style='background:{_bg};border-radius:4px;padding:6px 4px;"
-                    f"text-align:center;min-width:80px;flex:1'>"
+                    f"<div{_cap_note} style='background:{_bg};border-radius:4px;"
+                    f"padding:6px 4px;overflow:hidden;"
+                    f"text-align:center;min-width:64px;{_flex}'>"
                     f"<div style='color:{_tc};font-weight:700;font-size:12px'>{_tk}</div>"
                     f"<div style='color:{_tc};font-size:11px'>{_p:,.0f}</div>"
                     f"<div style='color:{_tc};font-size:10px;font-weight:600'>{_sign}{_chg:.2f}%</div>"
