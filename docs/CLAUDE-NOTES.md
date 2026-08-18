@@ -6682,7 +6682,7 @@ mỹ, chưa đáng thêm guard.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2131 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
+> Trạng thái: full suite **2132 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh `claude/remaining-tasks-tests-4xoam3`
 > đã merge máy bàn 15/08 · nhánh MỚI `claude/tong-hop-cong-viec-test-w8mvrc`
@@ -7058,6 +7058,16 @@ CHÍNH BADGE mới là thứ phải sửa.** User soi 5 chart (WSS/WTC/XPH/YBM/Y
   dữ liệu THẬT là lộ một giả định ngầm sai (bar liền nhau ≠ phiên liền
   nhau · mọi mã ≠ cổ phiếu · lịch sử dài ≠ lịch sử liên quan). Đừng tin
   con số quét lần đầu; luôn soi vài dòng mẫu trước khi kết luận diện rộng.
+  → **Quét lần 2 (sau lọc): 149/1.579 mã cổ phiếu (9,4%) có vách trong 365
+  ngày.** Con số này đã có nghĩa. Nhưng 149 dòng TÊN thì vẫn không dùng
+  được: probe từng mã là 149 lần gọi mạng, mà phần lớn là penny không ai
+  giao dịch. Nên `--all` nay in **một dòng/mã kèm ngày vách + HỆ SỐ + GTGD
+  TB20, XẾP THEO THANH KHOẢN giảm dần** — câu hỏi thật không phải "mã nào
+  có vách" mà "mã nào đủ thanh khoản để lọt universe chiến lược
+  (`min_avg_volume=100.000`) và làm hỏng tính toán". Đọc từ trên xuống,
+  gặp GTGD nhỏ là dừng. Hệ số in kèm cũng giúp nhận dạng nhanh: hệ số
+  "đẹp" (1.65, 2.00) → gần chắc là rebase; hệ số lộn xộn → nguyên nhân
+  khác. +1 test canh thứ tự xếp.
   ⚠️ **Lỗ hổng lộ ra từ ca này: lưới đối chiếu chỉ có ở làn FALLBACK.**
   `reconcile_fallback_df` (từ chối data lệch >8% so với kho) chỉ được gọi
   trong nhánh fallback (`vnstock_updater.py:441`); **đường VCI CHÍNH ghi

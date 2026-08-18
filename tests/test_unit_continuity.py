@@ -315,3 +315,22 @@ def test_since_window_hides_ancient_noise(tmp_path, capsys):
     assert cuc.main(["--warehouse", str(wh), "--all"]) == 0        # cửa sổ 365
     assert cuc.main(["--warehouse", str(wh), "--ticker", "AAA"]) == 1  # toàn bộ
     assert "2010-03-02" in capsys.readouterr().out
+
+
+def test_all_mode_ranks_by_liquidity_not_alphabet(tmp_path, capsys):
+    """149 dòng TÊN thì không xếp được ưu tiên: penny không ai giao dịch nằm
+    lẫn với mã có thể vào universe chiến lược. Quét rộng phải trả lời "mã nào
+    ĐÁNG LO", nên xếp theo GTGD giảm dần và in kèm ngày vách + hệ số."""
+    dates = [str(d.date()) for d in pd.bdate_range(end="2026-08-17", periods=2)]
+    for tk, close, vol in (("PENNY", [1.0, 0.6], 3_000),
+                           ("BIGLQ", [112.5, 71.21], 200_000)):
+        d = tmp_path / "wh" / "prices" / f"ticker={tk}" / "year=2026"
+        d.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame({"time": pd.to_datetime(dates), "open": close,
+                      "high": close, "low": close, "close": close,
+                      "volume": [vol] * 2}).to_parquet(d / "p.parquet", index=False)
+
+    cuc.main(["--warehouse", str(tmp_path / "wh"), "--all"])
+    out = capsys.readouterr().out
+    assert out.index("BIGLQ") < out.index("PENNY")     # thanh khoản cao lên trước
+    assert "1.580×" in out and "GTGD20" in out         # hệ số + thanh khoản

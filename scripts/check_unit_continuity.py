@@ -252,7 +252,22 @@ def check_ticker(ticker: str, prices_dir: Path, live_dir: Path,
     last_close = float(pd.to_numeric(df["close"], errors="coerce").iloc[-1])
     gap = live_gap(live_dir, ticker, last_close)
     hot = [j for j in jumps if j["suspect"]]
+    # GTGD TB 20 phiên (tỷ VND): kho ở NGHÌN VND, volume ở cổ phiếu →
+    # close*1000*vol/1e9 = close*vol/1e6. Dùng để XẾP ƯU TIÊN: 149 mã nghi vấn
+    # mà đa số là penny không ai giao dịch thì danh sách tên vô dụng — thứ cần
+    # biết là mã nào đủ thanh khoản để lọt vào universe chiến lược.
+    gtgd = 0.0
+    try:
+        tail = df.tail(20)
+        gtgd = float((pd.to_numeric(tail["close"], errors="coerce")
+                      * pd.to_numeric(tail["volume"], errors="coerce")
+                      / 1e6).median())
+    except Exception:
+        gtgd = 0.0
+    worst = max(hot, key=lambda j: abs(j["pct"]), default=None)
     return {
+        "gtgd20": gtgd,
+        "worst": worst,
         "ticker": ticker,
         "status": "suspect" if (hot or (gap and not gap["ok"])) else "clean",
         "bars": len(df),
@@ -262,6 +277,21 @@ def check_ticker(ticker: str, prices_dir: Path, live_dir: Path,
         "live": gap,
         "tail": df.tail(n_bars),
     }
+
+
+def render_compact(res: dict) -> None:
+    """Một dòng/mã cho chế độ quét rộng — tên không kèm số thì không xếp được
+    ưu tiên, mà 149 dòng chi tiết thì không ai đọc."""
+    w = res.get("worst")
+    tk = res["ticker"]
+    gt = res.get("gtgd20") or 0.0
+    if not w:
+        print(f"⚠️ {tk:<10} · lệch giá live · GTGD20 ~{gt:,.2f} tỷ")
+        return
+    factor = w["prev"] / w["cur"] if w["cur"] else float("nan")
+    print(f"⚠️ {tk:<10} · {w['time']} {w['prev']:,.2f}→{w['cur']:,.2f} "
+          f"({factor:,.3f}×) · GTGD20 ~{gt:,.2f} tỷ"
+          + ("  ← có sự kiện quyền" if w.get("event") else ""))
 
 
 def render(res: dict, n_bars: int) -> None:
@@ -355,12 +385,16 @@ def main(argv: "list[str] | None" = None) -> int:
     results = [check_ticker(t, prices_dir, live_dir, args.bars, args.jump_pct,
                             warehouse=wh, since_days=since)
                for t in tickers]
-    for res in results:
-        # Quét toàn kho mà in cả nghìn mã sạch thì không ai đọc nổi phần
-        # đáng đọc — chế độ --all chỉ in mã nghi vấn.
-        if args.all and res["status"] != "suspect":
-            continue
-        render(res, args.bars)
+    if args.all:
+        hot = [r for r in results if r["status"] == "suspect"]
+        hot.sort(key=lambda r: -(r.get("gtgd20") or 0.0))
+        print(f"\n── {len(hot)} mã nghi vấn, xếp theo THANH KHOẢN giảm dần "
+              f"(mã dưới cùng gần như không ảnh hưởng quyết định nào) ──")
+        for res in hot:
+            render_compact(res)
+    else:
+        for res in results:
+            render(res, args.bars)
 
     suspect = [r["ticker"] for r in results if r["status"] == "suspect"]
     n_data = sum(1 for r in results if r["status"] != "no_data")
