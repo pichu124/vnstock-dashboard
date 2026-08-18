@@ -6926,12 +6926,25 @@ Brief chiều 4 giọng không còn ❌ Groq đã xác nhận từ #217.
 **3. ✅ ĐÓNG 18/08 — badge "Quy đổi đơn vị giá": không có ca oan nào, và
 CHÍNH BADGE mới là thứ phải sửa.** User soi 5 chart (WSS/WTC/XPH/YBM/YEG)
 17-18/08; điều tra 6 hướng + đối chứng phản biện cho kết quả:
-* **Không thể quy đổi oan vì chia tách** (chứng minh cấu trúc, không cần
+* **Không thể quy đổi oan vì CHIA TÁCH** (chứng minh cấu trúc, không cần
   dữ liệu): guard chỉ bắn khi ratio ≥ **100×**; chia tách/thưởng LÀM GIẢM
   giá nên chỉ kéo ratio XUỐNG — tức chỉ gây BỎ SÓT, không thể gây oan.
   Muốn oan phải có giá TĂNG ≥100× trong một phiên, bất khả với biên
-  ±7/10/15%. Ca oan "lý thuyết" ghi từ 11/08 nay đóng lại bằng lập luận
-  này, đừng nêu lại.
+  ±7/10/15%. Thêm một lớp chặn: `_should_rollup_to_warehouse` chỉ cho mã
+  3 CHỮ CÁI qua rollup nên CW/chứng chỉ quỹ/futures/index không bao giờ
+  chạm `_normalize_units` (fix_units thì KHÔNG có lớp lọc này — bất đối
+  xứng có thật, chưa gây hại). Ca oan "chia tách" ghi từ 11/08 ĐÓNG.
+* ⚠️ **Nhưng CÒN MỘT đường oan lý thuyết — mẫu số không có sàn dưới.**
+  `ref = ref[ref > 0]` (`vnstock_rollup.py:284-285`) chỉ lọc dương, không
+  đòi giá hợp lý. Nếu LỊCH SỬ kho của một mã đã hỏng theo hướng nhỏ bất
+  thường (ví dụ từng bị chia 1000× hai lần → 0.006 thay vì 6.0) thì bar
+  MỚI ĐÚNG đơn vị cũng cho ratio ≥100 → bị chia oan, và sai số tự nuôi
+  nhau. Khác hẳn ca chia tách: cần kho hỏng SẴN mới xảy ra. CHƯA quan sát
+  thấy ca thật; KHÔNG vá vội (YAGNI + đụng đường ghi kho là rủi ro), vì
+  ca này ĐÃ CÓ LƯỚI PHÁT HIỆN: chuỗi kho sẽ mang vách ~1000× và
+  `check_unit_continuity` bắt đúng loại đó. Muốn chặn tận gốc thì thêm
+  sàn `ref.median() > 0.01` (10 VND — dưới hẳn mã penny 300-900 VND vốn
+  là lý do guard này tồn tại) + test; chỉ làm khi có ca thật.
 * **Con số `ratio` KHÔNG phải thước đo đúng/sai**: `ratio = trung vị close
   bar mới (VND) / trung vị close YTD của chính mã (nghìn VND)`
   (`vnstock_rollup.py:291`, mẫu số là `_read_year` = file `year=<năm bar>`).
