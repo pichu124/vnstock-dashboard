@@ -49,23 +49,70 @@ def test_thousand_fold_cliff_flagged_as_unit_residue():
     """Vết quy đổi sót: bar nhảy ~1000× — chữ ký VND lẫn nghìn VND."""
     jumps = cuc.find_jumps(_series([9.8, 10.0, 10_200.0, 10.1]))
     assert len(jumps) == 2                       # lên rồi xuống
-    assert all("QUY ĐỔI SÓT" in j["why"] for j in jumps)
+    assert all("QUY ĐỔI SÓT" in j["why"] and j["suspect"] for j in jumps)
 
 
 def test_halving_flagged_as_possible_split():
     """Rơi ~1/2 trong một phiên là bất khả trên sàn VN → nghi chia tách."""
     jumps = cuc.find_jumps(_series([20.0, 20.2, 10.1, 10.0]))
     assert len(jumps) == 1
-    assert "CHIA TÁCH" in jumps[0]["why"]
+    assert "CHIA TÁCH" in jumps[0]["why"] and jumps[0]["suspect"]
     assert jumps[0]["pct"] == pytest.approx(-50.0, abs=0.1)
 
 
 def test_odd_gap_is_reported_without_guessing_a_cause():
-    """Vách 60% không khớp chữ ký nào — nói "dữ liệu lỗi/thiếu phiên", không
-    bịa nguyên nhân (bài học: đoán sai nguyên nhân tệ hơn không đoán)."""
+    """Vách 60% không khớp chữ ký nào — nói "dữ liệu lỗi", không bịa nguyên
+    nhân (bài học: đoán sai nguyên nhân tệ hơn không đoán)."""
     jumps = cuc.find_jumps(_series([10.0, 16.5]))
     assert len(jumps) == 1
-    assert "biên độ sàn" in jumps[0]["why"]
+    assert "vượt biên độ sàn" in jumps[0]["why"] and jumps[0]["suspect"]
+
+
+# ── Khoảng cách ngày: điều kiện thứ hai, thêm sau lần chạy thật 18/08 ────────
+
+def _gapped(closes, dates):
+    return pd.DataFrame({"time": pd.to_datetime(dates), "open": closes,
+                         "high": closes, "low": closes, "close": closes,
+                         "volume": [100] * len(closes)})
+
+
+def test_move_across_a_trading_gap_is_reported_but_not_suspect():
+    """Ca THẬT 18/08 (VTS): bar 2026-03-10 → 2026-08-07 rơi 40%. Mã kém thanh
+    khoản nghỉ 5 tháng thì "hai bar liền nhau" KHÔNG phải "hai phiên liền
+    nhau" — chấm biên độ sàn lên quãng đó là báo động giả (8/50 mã dính)."""
+    jumps = cuc.find_jumps(_gapped([7.0, 4.2], ["2026-03-10", "2026-08-07"]))
+    assert len(jumps) == 1
+    j = jumps[0]
+    assert not j["suspect"]                    # ghi nhận, KHÔNG kết tội
+    assert "không kết luận" in j["why"].lower()
+    assert j["gap_days"] == 150
+
+
+def test_weekend_still_counts_as_adjacent():
+    """Thứ Sáu → thứ Hai cách 3 ngày lịch — vẫn là hai phiên kề nhau."""
+    jumps = cuc.find_jumps(_gapped([10.0, 6.0], ["2026-08-14", "2026-08-17"]))
+    assert jumps and jumps[0]["suspect"]
+
+
+def test_unit_residue_is_suspect_even_across_a_long_gap():
+    """Không quãng thời gian nào biến giá thành SAI ĐƠN VỊ — vách ~1000× luôn
+    là nghi vấn, kể cả khi hai bar cách nhau nửa năm."""
+    jumps = cuc.find_jumps(_gapped([10.0, 10_100.0], ["2026-01-05", "2026-08-17"]))
+    assert jumps and jumps[0]["suspect"]
+    assert "QUY ĐỔI SÓT" in jumps[0]["why"]
+
+
+def test_ticker_with_only_gap_moves_is_clean(tmp_path, capsys):
+    """Mã chỉ có vách qua quãng nghỉ → status sạch, exit 0. Đây là điều kiện
+    để badge/tool không kêu oan hàng chục mã mỗi lần chạy."""
+    wh = tmp_path / "wh"
+    _seed_events(wh, ["VTS"])
+    _write_bars(wh, "VTS", _gapped([7.0, 4.2, 4.3],
+                                   ["2026-03-10", "2026-08-07", "2026-08-10"]))
+    assert cuc.main(["--warehouse", str(wh)]) == 0
+    out = capsys.readouterr().out
+    assert "ℹ" in out                          # vẫn in ra để đọc
+    assert "cần soi tay" not in out
 
 
 # ── live_gap: kho vs giá live ────────────────────────────────────────────────

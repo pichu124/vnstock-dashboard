@@ -6682,7 +6682,7 @@ mỹ, chưa đáng thêm guard.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2113 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
+> Trạng thái: full suite **2117 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh `claude/remaining-tasks-tests-4xoam3`
 > đã merge máy bàn 15/08 · nhánh MỚI `claude/tong-hop-cong-viec-test-w8mvrc`
@@ -6963,7 +6963,36 @@ CHÍNH BADGE mới là thứ phải sửa.** User soi 5 chart (WSS/WTC/XPH/YBM/Y
   (~1000× = vết sót · ~2× = nghi chia tách · khác = thiếu phiên/lỗi), so
   bar cuối với `_live/quote_*.json`. Exit 0 sạch / 1 cần soi / 2 không đọc
   được kho. 13 test. Badge nay trỏ thẳng vào lệnh này.
-* **Còn treo — XPH**: live 15,600 VND vs chart ~10.2 nghìn (lệch ~1.5×).
+* ✅ **CHỐT BẰNG DỮ LIỆU THẬT 18/08 — user chạy tool trên 50 mã**: KHÔNG
+  mã nào có vách ~1000× (vết quy đổi sót). Cả 5 mã badge nêu đều sạch,
+  **kể cả XPH: kho 15.00 nghìn ↔ live 14,900 (lệch 0.99×)** — XPH giao
+  dịch 14.0-16.5 suốt tháng 7-8, chưa từng ở vùng 10. MỤC 6 ĐÓNG HOÀN
+  TOÀN: guard quy đổi chạy đúng.
+* ⚠️ **BÀI HỌC ĐẮT — "soi chart bằng mắt" suýt đẻ ra kết luận sai, và
+  Claude đã dính**: chart trong ảnh XPH KHÔNG phải của XPH (chuỗi
+  ~9.5-10.2 đúng dải của WTC, mã user xem TRƯỚC đó). Cùng hiện tượng ở
+  ảnh WTC (hiện chart WSS). Nguyên nhân: khi đổi mã, quote strip +
+  volume profile render TRƯỚC nên đã là mã mới, còn chart render SAU
+  (phía sau 2 lời gọi mạng VCI chặn của `_today_bar_writer`) vẫn là mã
+  cũ — cửa sổ lệch pha vài giây, đủ để chụp ảnh và suy luận sai. Claude
+  đã dựng nguyên một giả thuyết "3 phiên trần UPCOM" từ dữ liệu của mã
+  khác. ĐỀ XUẤT CHƯA LÀM (chờ user quyết): chart hiện placeholder
+  "⏳ đang tải {mã}" khi mã đang xem ≠ mã chart vừa vẽ, thay vì để
+  nguyên khung cũ. Trước mắt: ĐỌC NHÃN TRONG CHART trước khi kết luận.
+* **Tool tự bắt lỗi của chính nó ngay lần chạy thật đầu**: 8/50 mã bị
+  gắn cờ oan vì "hai bar liền nhau" ≠ "hai phiên liền nhau" — mã kém
+  thanh khoản có bar cách nhau HÀNG THÁNG (VTS: 2026-03-10 → 2026-08-07,
+  150 ngày, rơi 40% = tích luỹ nhiều phiên chứ không phải vách). Đã vá:
+  thêm điều kiện `gap_days ≤ 4` mới kết tội "vượt biên độ sàn"; vách
+  ~1000× thì luôn nghi vấn bất kể cách bao lâu (không quãng thời gian
+  nào biến giá thành sai đơn vị); vách qua quãng nghỉ in ℹ để đọc chứ
+  không tính suspect. +5 test.
+* **Còn soi riêng — VVS 2026-06-15: 112.50 → 71.21 (−36.7%)**, mã thanh
+  khoản tốt (vài trăm nghìn cp/phiên). Nếu sau bản vá vẫn còn cờ (tức 2
+  bar KỀ PHIÊN) thì đây là sự kiện quyền chưa back-adjust — khác hẳn
+  nhóm gap artifact, đáng đối chiếu với `vnstock_div_check`.
+* ~~Còn treo — XPH~~ *(giả thuyết sai, giữ lại để không ai đi lại đường
+  cũ)*: live 15,600 VND vs chart ~10.2 nghìn (lệch ~1.5×).
   KHÔNG phải lỗi đơn vị: mọi hệ số trong repo là 1000× và
   `normalize_live_price` chỉ kích hoạt khi >100×/<0.01× nên không đường
   code nào đẻ ra 1.5×. Hai giả thuyết còn lại, cần dữ liệu máy thật để

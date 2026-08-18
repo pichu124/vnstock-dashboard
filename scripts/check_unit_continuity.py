@@ -53,6 +53,10 @@ SPLIT_LO, SPLIT_HI = 1.8, 3.3
 # Kho vs live: một phiên trần/sàn rộng nhất là ±15% (UPCOM), cộng biên cho
 # kho trễ một phiên → 1.3×. Quá mức đó là kho lỡ NHIỀU phiên, phải soi.
 LIVE_TOLERANCE = 1.3
+# Hai bar cách quá số ngày này thì KHÔNG còn là hai phiên kề nhau (thứ Sáu →
+# thứ Hai đã là 3 ngày; nghỉ lễ dài hơn). Mã kém thanh khoản có bar cách nhau
+# hàng tháng — chấm biên độ sàn lên quãng đó là báo động giả.
+MAX_ADJACENT_DAYS = 4
 
 
 def _load_events(meta_dir: Path, days: int) -> list[dict]:
@@ -93,10 +97,22 @@ def load_bars(prices_dir: Path, ticker: str) -> pd.DataFrame:
 
 
 def find_jumps(df: pd.DataFrame, jump_pct: float = JUMP_PCT) -> list[dict]:
-    """Vách đứt giữa hai bar liền nhau, kèm CHẨN ĐOÁN theo tỉ lệ."""
+    """Vách đứt giữa hai bar liền nhau, kèm CHẨN ĐOÁN theo tỉ lệ VÀ khoảng cách.
+
+    KHOẢNG CÁCH NGÀY là điều kiện thứ hai, thêm sau lần chạy thật đầu tiên
+    (18/08, 50 mã): mã kém thanh khoản có bar cách nhau HÀNG THÁNG (VTS: 2026-03-10
+    → 2026-08-07), nên "hai bar liền nhau" không có nghĩa "hai phiên liền nhau".
+    Chấm biên độ sàn lên một quãng 5 tháng là báo động giả — 8/50 mã bị gắn cờ
+    oan đúng kiểu đó. Nay chỉ KẾT TỘI khi hai bar thật sự kề phiên; cách xa thì
+    ghi nhận để đọc chứ không tính là nghi vấn.
+
+    Ngoại lệ: vách ~1000× luôn là nghi vấn bất kể cách nhau bao lâu — không
+    quãng thời gian nào biến giá thành sai đơn vị.
+    """
     if df.empty or "close" not in df.columns or len(df) < 2:
         return []
     close = pd.to_numeric(df["close"], errors="coerce")
+    times = pd.to_datetime(df["time"])
     out = []
     for i in range(1, len(close)):
         prev, cur = close.iloc[i - 1], close.iloc[i]
@@ -107,15 +123,20 @@ def find_jumps(df: pd.DataFrame, jump_pct: float = JUMP_PCT) -> list[dict]:
             continue
         ratio = cur / prev
         inv = 1 / ratio
+        gap = int((times.iloc[i] - times.iloc[i - 1]).days)
         if UNIT_LO <= ratio <= UNIT_HI or UNIT_LO <= inv <= UNIT_HI:
-            why = "VẾT QUY ĐỔI SÓT (~1000× — VND lẫn nghìn VND)"
+            why, suspect = "VẾT QUY ĐỔI SÓT (~1000× — VND lẫn nghìn VND)", True
+        elif gap > MAX_ADJACENT_DAYS:
+            why = (f"cách {gap} ngày (mã nghỉ giao dịch) — biến động tích luỹ "
+                   f"nhiều phiên, KHÔNG kết luận được")
+            suspect = False
         elif SPLIT_LO <= ratio <= SPLIT_HI or SPLIT_LO <= inv <= SPLIT_HI:
-            why = "nghi CHIA TÁCH/THƯỞNG chưa back-adjust (~2×)"
+            why, suspect = "nghi CHIA TÁCH/THƯỞNG chưa back-adjust (~2×)", True
         else:
-            why = "vượt biên độ sàn — dữ liệu lỗi hoặc thiếu phiên"
+            why, suspect = "kề phiên mà vượt biên độ sàn — dữ liệu lỗi", True
         out.append({"time": str(df['time'].iloc[i].date()),
-                    "prev": float(prev), "cur": float(cur),
-                    "pct": float(pct), "why": why})
+                    "prev": float(prev), "cur": float(cur), "pct": float(pct),
+                    "gap_days": gap, "why": why, "suspect": suspect})
     return out
 
 
@@ -145,9 +166,10 @@ def check_ticker(ticker: str, prices_dir: Path, live_dir: Path,
     jumps = find_jumps(df, jump_pct)
     last_close = float(pd.to_numeric(df["close"], errors="coerce").iloc[-1])
     gap = live_gap(live_dir, ticker, last_close)
+    hot = [j for j in jumps if j["suspect"]]
     return {
         "ticker": ticker,
-        "status": "suspect" if (jumps or (gap and not gap["ok"])) else "clean",
+        "status": "suspect" if (hot or (gap and not gap["ok"])) else "clean",
         "bars": len(df),
         "last_time": str(df["time"].iloc[-1].date()),
         "last_close": last_close,
@@ -166,10 +188,12 @@ def render(res: dict, n_bars: int) -> None:
     print(f"\n{icon} {tk}: {res['bars']:,} bar · bar cuối {res['last_time']} "
           f"· close {res['last_close']:,.2f} nghìn VND")
     for j in res["jumps"]:
-        print(f"   ⚠ {j['time']}: {j['prev']:,.2f} → {j['cur']:,.2f} "
+        print(f"   {'⚠' if j['suspect'] else 'ℹ'} {j['time']}: "
+              f"{j['prev']:,.2f} → {j['cur']:,.2f} "
               f"({j['pct']:+,.1f}%) — {j['why']}")
-    if not res["jumps"]:
-        print(f"   ↳ chuỗi LIÊN TỤC (không bar nào lệch > {JUMP_PCT:.0f}% so với bar trước)")
+    if not any(j["suspect"] for j in res["jumps"]):
+        print(f"   ↳ không vách đứt đáng ngờ giữa hai phiên KỀ NHAU "
+              f"(ngưỡng {JUMP_PCT:.0f}%)")
     gap = res["live"]
     if gap:
         if gap["ok"]:
