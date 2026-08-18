@@ -86,3 +86,38 @@ def test_zero_and_negative_closes_are_dropped_before_dividing():
     rep = ppb.basis_report(wh, src, BRK)
     assert rep["n"] == 2                      # bar 0 bị loại
     assert rep["verdict"] == "warehouse_basis"
+
+
+# ── Tự tìm ngày vách + chạy nhiều mã (thêm 18/08 sau bảng quét 149 mã) ──────
+
+def _write_bars(wh: Path, ticker: str, closes, dates):
+    import pandas as _pd
+    d = wh / "prices" / f"ticker={ticker}" / "year=2026"
+    d.mkdir(parents=True, exist_ok=True)
+    _pd.DataFrame({"time": _pd.to_datetime(dates), "open": closes,
+                   "high": closes, "low": closes, "close": closes,
+                   "volume": [100_000] * len(closes)}).to_parquet(
+        d / "p.parquet", index=False)
+
+
+def test_break_date_is_found_from_the_warehouse(tmp_path):
+    """Bảng quét ra 149 mã; bắt người dùng chép tay từng ngày vách là mời sai
+    sót. Probe tự tìm vách NẶNG NHẤT, dùng lại `find_jumps` của tool kia để
+    hai bên không bao giờ bất đồng về "đâu là vách"."""
+    import pandas as _pd
+    wh = tmp_path / "wh"
+    dates = [str(d.date()) for d in _pd.bdate_range(end="2026-08-17", periods=4)]
+    _write_bars(wh, "VHM", [148.10, 74.00, 75.0, 76.0], dates)
+    assert ppb._find_break(wh / "prices", "VHM").isoformat() == dates[1]
+
+
+def test_no_suspect_jump_returns_none_not_a_guess(tmp_path):
+    import pandas as _pd
+    wh = tmp_path / "wh"
+    dates = [str(d.date()) for d in _pd.bdate_range(end="2026-08-17", periods=3)]
+    _write_bars(wh, "AAA", [10.0, 10.1, 10.0], dates)
+    assert ppb._find_break(wh / "prices", "AAA") is None
+
+
+def test_missing_ticker_dir_does_not_explode(tmp_path):
+    assert ppb._find_break(tmp_path / "prices", "ZZZ") is None

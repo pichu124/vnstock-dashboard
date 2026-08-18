@@ -6682,7 +6682,7 @@ mỹ, chưa đáng thêm guard.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2132 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
+> Trạng thái: full suite **2135 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh `claude/remaining-tasks-tests-4xoam3`
 > đã merge máy bàn 15/08 · nhánh MỚI `claude/tong-hop-cong-viec-test-w8mvrc`
@@ -7068,6 +7068,31 @@ CHÍNH BADGE mới là thứ phải sửa.** User soi 5 chart (WSS/WTC/XPH/YBM/Y
   gặp GTGD nhỏ là dừng. Hệ số in kèm cũng giúp nhận dạng nhanh: hệ số
   "đẹp" (1.65, 2.00) → gần chắc là rebase; hệ số lộn xộn → nguyên nhân
   khác. +1 test canh thứ tự xếp.
+
+  🔴🔴 **BẢNG QUÉT 18/08 — THIỆT HẠI CHẠM VN30, KHÔNG CÒN LÀ CHUYỆN PENNY.**
+  Nhóm đầu (GTGD/phiên): **VHM 596 tỷ · vách 03/08 148.10→74.00 hệ số
+  2.001×** · **GEX 311 tỷ · 28/04 hệ số 1.480×** · **PNJ 260 tỷ · 17/04
+  hệ số 1.472×** · GEE 81 tỷ (1.730×) · PVD 50 tỷ (1.632×) · PET 12.7 tỷ
+  (1.439×, CÓ sự kiện quyền khớp) · F88 11.6 tỷ (2.062×) · VVS 10.6 tỷ
+  (1.580×) · KSV 4.7 tỷ · TOS 2.3 tỷ · L40 1.7 tỷ. **VHM và PNJ nằm
+  trong VN30** — tức trong brief, screener, chart, chiến lược. Hệ số
+  2.001× của VHM là chữ ký chia tách/thưởng 100%.
+  ⇒ **Kết luận 4d "kho nhất quán điều chỉnh, 0 gap thô" KHÔNG còn đứng
+  cho VN30**: div_check chỉ soi TẠI ngày sự kiện có trong cache, mà cache
+  thiếu đúng những sự kiện này (ca PET là ngoại lệ — có sự kiện khớp).
+  Vùng mù đó chính là chỗ `check_unit_continuity` lấp.
+  ⇒ Hệ quả PHẢI GIẢ ĐỊNH cho tới khi chữa: mọi chỉ báo/backtest/vốn hoá
+  của VHM trước 03/08, PNJ trước 17/04, GEX trước 28/04 đều SAI HỆ SỐ.
+  Chiến lược #32 (đang phát rec) chạy trên universe 3.125 mã → có thể đã
+  học trên chuỗi lệch. **Chưa kết luận vội** — phải probe từng mã trước.
+  ⇒ `probe_price_basis` nay nhận NHIỀU `--ticker` và TỰ TÌM ngày vách
+  (dùng lại `find_jumps`, một nơi định nghĩa "vách"), nên phân định cả
+  nhóm đầu bằng một lệnh. +3 test.
+  ⇒ Ghi nhận phụ: 4 mã BII/HSI/LCS/VLF cùng vách **1000×** ngày
+  **2026-04-14** = VẾT QUY ĐỔI SÓT THẬT (penny 300-600 VND ghi thẳng số
+  thô). Lọt cả hai lưới: `fix_units` đòi close > 1000 (300 không đủ),
+  `_normalize_units` chỉ áp cho bar rollup/WSS chứ không áp cho đường
+  updater. GTGD ~0 nên vô hại, nhưng là bằng chứng lỗ hổng thứ ba.
   ⚠️ **Lỗ hổng lộ ra từ ca này: lưới đối chiếu chỉ có ở làn FALLBACK.**
   `reconcile_fallback_df` (từ chối data lệch >8% so với kho) chỉ được gọi
   trong nhánh fallback (`vnstock_updater.py:441`); **đường VCI CHÍNH ghi

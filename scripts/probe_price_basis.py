@@ -18,8 +18,9 @@ vị) rồi in đối chiếu. KHÔNG ghi gì vào kho — quyết định sửa
 
 Dùng
 ----
+    python scripts/probe_price_basis.py --ticker VVS            # tự tìm ngày vách
+    python scripts/probe_price_basis.py --ticker VHM --ticker PNJ --ticker GEX
     python scripts/probe_price_basis.py --ticker VVS --break-date 2026-06-15
-    python scripts/probe_price_basis.py --ticker VVS --from 2026-05-01 --to 2026-07-15
 
 Exit: 0 in được đối chiếu · 2 không lấy được data một bên.
 """
@@ -100,24 +101,61 @@ def basis_report(wh: pd.DataFrame, src: pd.DataFrame, break_date: date) -> dict:
 
 def main(argv: "list[str] | None" = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--ticker", required=True)
-    ap.add_argument("--break-date", help="ngày vách (YYYY-MM-DD)")
+    ap.add_argument("--ticker", required=True, action="append",
+                    help="lặp lại được: --ticker VHM --ticker PNJ")
+    ap.add_argument("--break-date",
+                    help="ngày vách (YYYY-MM-DD); bỏ trống = tự tìm vách nặng nhất")
     ap.add_argument("--from", dest="d_from", help="mặc định: vách − 30 ngày")
     ap.add_argument("--to", dest="d_to", help="mặc định: vách + 30 ngày")
     ap.add_argument("--warehouse", default="data_warehouse")
     args = ap.parse_args(argv)
 
-    if not args.break_date and not (args.d_from and args.d_to):
-        ap.error("cần --break-date, hoặc cả --from và --to")
-    brk = (date.fromisoformat(args.break_date) if args.break_date
-           else date.fromisoformat(args.d_from))
-    d0 = date.fromisoformat(args.d_from) if args.d_from else brk - timedelta(days=30)
-    d1 = date.fromisoformat(args.d_to) if args.d_to else brk + timedelta(days=30)
-
     wh_root = Path(args.warehouse)
     if not wh_root.is_absolute():
         wh_root = REPO_ROOT / wh_root
-    tk = args.ticker.upper()
+
+    worst = 0
+    for _tk in args.ticker:
+        rc = _probe_one(_tk.upper(), wh_root, args)
+        worst = max(worst, rc)
+    return worst
+
+
+def _find_break(prices_dir: Path, ticker: str) -> "date | None":
+    """Tự tìm ngày vách nặng nhất — khỏi bắt người dùng chép tay từ bảng quét.
+
+    Dùng lại `find_jumps` của `check_unit_continuity` để hai công cụ không bao
+    giờ bất đồng về "đâu là vách" (một nơi định nghĩa, hai nơi dùng).
+    """
+    try:
+        import sys
+        _scripts = str(Path(__file__).resolve().parent)
+        if _scripts not in sys.path:
+            sys.path.insert(0, _scripts)
+        from check_unit_continuity import find_jumps, load_bars
+        df = load_bars(prices_dir, ticker, since_days=365)
+        hot = [j for j in find_jumps(df) if j["suspect"]]
+        if not hot:
+            return None
+        return date.fromisoformat(max(hot, key=lambda j: abs(j["pct"]))["time"])
+    except Exception:
+        return None
+
+
+def _probe_one(tk: str, wh_root: Path, args) -> int:
+    if args.break_date:
+        brk = date.fromisoformat(args.break_date)
+    elif args.d_from:
+        brk = date.fromisoformat(args.d_from)
+    else:
+        brk = _find_break(wh_root / "prices", tk)
+        if brk is None:
+            print(f"\n[basis] ⬜ {tk}: không tìm thấy vách nghi vấn trong 365 "
+                  f"ngày — không có gì để phân định")
+            return 0
+        print(f"\n[basis] {tk}: vách tự tìm được = {brk}")
+    d0 = date.fromisoformat(args.d_from) if args.d_from else brk - timedelta(days=30)
+    d1 = date.fromisoformat(args.d_to) if args.d_to else brk + timedelta(days=30)
     wh = load_wh(wh_root / "prices", tk, d0, d1)
     print(f"[basis] {tk} · {d0} → {d1} · kho {len(wh)} bar")
     if wh.empty:
