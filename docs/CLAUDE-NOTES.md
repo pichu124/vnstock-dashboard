@@ -6682,7 +6682,7 @@ mỹ, chưa đáng thêm guard.
 > entry nhật ký 10-12/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
 > nhật ký mới thì chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2121 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
+> Trạng thái: full suite **2127 passed** (`--fast` ~1.585 test — ~26-42s trên CI,
 > ~64s trên máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ
 > 13/08 — xem entry 13/08) · nhánh `claude/remaining-tasks-tests-4xoam3`
 > đã merge máy bàn 15/08 · nhánh MỚI `claude/tong-hop-cong-viec-test-w8mvrc`
@@ -7007,9 +7007,21 @@ CHÍNH BADGE mới là thứ phải sửa.** User soi 5 chart (WSS/WTC/XPH/YBM/Y
   đúng tại ngày đổi cơ sở, không trùng ngày GDKHQ nào. Khớp cả với chi
   tiết 71.21 không phải bội số bước giá 100 VND (giá >50k trên sàn niêm
   yết) — tức là số ĐÃ QUA PHÉP TÍNH, không phải giá khớp lệnh thô.
-  → **Chữa: refetch TOÀN BỘ lịch sử một mã cho về một cơ sở duy nhất**
-  `python vnstock_updater.py --tickers VVS --force` rồi chạy lại
-  `check_unit_continuity --ticker VVS`. CHƯA LÀM — chờ user.
+  ⚠️ **BẪY: `--force` KHÔNG refetch lịch sử** (Claude hiểu sai 18/08, user
+  chạy ra "Số ngày mới: 1"). `--force` chỉ bỏ qua kiểm tra cuối tuần
+  (`skip_weekends=not args.force`); `update_ticker` LUÔN fetch từ
+  `_get_last_date` — **repo KHÔNG có đường nạp lại lịch sử một mã**. Phép
+  thử đó vì thế vô hiệu, chưa kết luận được gì.
+  → **Phép thử đúng, chỉ ĐỌC: `scripts/probe_price_basis.py`** (mới
+  18/08) — fetch nguồn qua đúng `_fetch_prices` của updater (cùng chuẩn
+  hoá đơn vị) rồi so tỉ lệ kho/nguồn HAI BÊN ngày vách:
+  `python scripts/probe_price_basis.py --ticker VVS --break-date 2026-06-15`
+  · tỉ lệ ĐỔI BẬC tại ngày vách ⇒ `warehouse_basis` (nguồn liền mạch, kho
+    giữ cơ sở cũ) → chữa bằng ghi đè lịch sử;
+  · tỉ lệ NHƯ NHAU hai bên ⇒ `source_error` (nguồn cũng gãy) → ghi đè vô
+    ích, chữa ở nguồn/cách ly.
+  Hai chẩn đoán chữa NGƯỢC NHAU nên phải phân định TRƯỚC khi sửa. Hàm
+  phán `basis_report` là hàm thuần + 6 test (fetch cần mạng nên tách ra).
   ⚠️ **Lỗ hổng lộ ra từ ca này: lưới đối chiếu chỉ có ở làn FALLBACK.**
   `reconcile_fallback_df` (từ chối data lệch >8% so với kho) chỉ được gọi
   trong nhánh fallback (`vnstock_updater.py:441`); **đường VCI CHÍNH ghi
