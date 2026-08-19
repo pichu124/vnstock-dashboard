@@ -99,7 +99,16 @@ chặn · vẫn ❌ = nguồn thật sự hỏng, lúc đó mới đáng sửa c
 **Mức khẩn:** Jina chỉ làm tin chấm bằng title+summary — **không gấp**. NSO thì
 có HẠN: các chỉ số CPI / IIP / GDP / cán cân thương mại hiện đang dùng số
 `as_of 2026-07-31` từ cache. Kỳ công bố tháng 8 rơi vào cuối tháng — **không
-kéo được kỳ đó là brief bắt đầu nói số vĩ mô cũ**. Còn ~2 tuần.
+kéo được kỳ đó là brief bắt đầu nói số vĩ mô cũ**, mà doctor KHÔNG báo giúp
+(nó chỉ biết "nguồn fetch hỏng", không biết "số trong brief đã lỗi thời").
+Còn ~2 tuần.
+
+**Việc cụ thể: phát 4G từ điện thoại, nối máy vào, rồi chạy**
+```powershell
+python run.py doctor --net
+```
+NSO ✅ = mạng nhà chặn, xử ở router/ISP, KHÔNG đụng code · vẫn ❌ = nguồn thật
+sự đổi, lúc đó mới đáng sửa `vnstock_nso`. Làm trong 2 tuần tới là kịp.
 
 **KHÔNG nâng vnstock trên desktop.** Bản 4.0.6 làm chết mọi lệnh gọi mạng
 (`env.py:136 get_hosting_service()` UnboundLocalError), đã trả giá 19/08. Để
