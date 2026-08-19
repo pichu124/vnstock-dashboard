@@ -32,9 +32,9 @@ origin/<nhánh>` (`git pull` báo "Already up to date" dù vừa tải commit v�
 
 | Việc | Trạng thái |
 |---|---|
-| Chữa lệch cơ sở (kho DÙNG CHUNG, làm 1 lần) | ghi 70/70 trên laptop · quét lại **68 sạch, còn VTP + QNS** · code đã vá, chạy lại 2 mã bằng bản mới ở máy nào cũng được |
+| Chữa lệch cơ sở | ✅ **XONG 19/08 21:17** — quét ra `160 mã: tỉ lệ kho/nguồn KHÔNG đổi bậc`. Tổng 76 mã đã chữa |
 | Trần task Daily `PT180M` — 🖥️ desktop | **chưa xác nhận** · cần PowerShell Administrator |
-| Chạy lại backtest/kiểm định | **chưa** · chỉ chạy sau khi kho về 0 mã lệch. Mọi verdict trước 19/08 (kể cả #32 p=0.012) coi như VÔ HIỆU |
+| Chạy lại backtest/kiểm định | 🎯 **LÀM ĐƯỢC NGAY** — kho đã sạch. `python vnstock_train.py --strategy-only --tier both --mode tune`. Mọi verdict trước 19/08 (kể cả #32 p=0.012) VÔ HIỆU cho tới khi chạy lại |
 | V1 — guard chặn tái phát | ✅ **XONG 19/08** (`vnstock_basis_guard.py`, 19 test) — cửa gác nằm ở đúng đường ghi chính, có badge doctor + kill-switch |
 
 **✅ ĐÃ GIẢI — DROPBOX, không phải chép tay.** `C:\vnstock` vẫn được Dropbox

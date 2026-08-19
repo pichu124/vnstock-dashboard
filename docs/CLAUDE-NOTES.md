@@ -6966,6 +6966,39 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# ✅ U14. KHO ĐÃ SẠCH LỆCH CƠ SỞ — 160/160 mã, 19/08 21:17
+
+`probe_price_basis --sweep` trên desktop `PICHU`: **"✅ 160 mã: tỉ lệ kho/nguồn
+KHÔNG đổi bậc"**. Đóng mục U10 (70/159 mã lệch) sau một ngày.
+
+**Tổng cộng đã chữa 76 mã**: 70 mã lượt `--from-sweep` (laptop 15:43, Dropbox
+đưa sang desktop) + VVS + VNM (chữa lẻ trước đó) + VTP + QNS (cần bản vá đa
+bậc) + HHP + NTP (nảy ra tối 19/08).
+
+**HHP là bằng chứng SỐNG rằng cơ chế vẫn đang chạy.** Lượt quét 17:45 soi 159
+mã và HHP (GTGD20 18,2 tỷ) sạch. Lượt 21:09 nó lệch `1.0650×` vách
+`2026-08-13`. Giữa hai mốc chỉ có một việc: **pipeline chạy 18:00-18:43 trên
+code `65ec935`, TRƯỚC khi V1 được merge**. Tức chính `sync` tối đó nối bar cơ
+sở mới lên lịch sử cơ sở cũ — đúng cơ chế vừa dựng lại vài giờ trước.
+⇒ Đo được nhịp thật: **~1 mã/đêm trong mùa cổ tức**. Từ phát 20/08 (đã merge
+V1) tình huống này thành "từ chối nối + vào sổ cách ly + badge doctor".
+
+**NTP thì khác — nó không mới.** Universe nhích 159 → 160 mã (số mã dưới ngưỡng
+1.564 → 1.563) vì cửa sổ GTGD20 trượt một phiên và NTP (5,4 tỷ) vượt ngưỡng lọc
+5,0 tỷ. Vách `2026-06-05` vốn có từ lâu, chỉ nằm dưới bộ lọc thanh khoản.
+⇒ **Ngưỡng GTGD của bộ quét là một điểm mù có thật**: mã lệch nằm ngay dưới
+ngưỡng vẫn vào được backtest khi thanh khoản nhích lên. Đáng cân nhắc hạ ngưỡng
+quét (chi phí: mỗi mã 1 lần gọi nguồn) hoặc quét định kỳ toàn bộ mã cổ phiếu.
+
+**NTP cũng là mã duy nhất trong cả đợt được NHÂN khối lượng đúng lý do đầy đủ**:
+bậc volume 1,20 khớp cỡ hệ số giá 1,2305 (tỉ lệ 0,97) VÀ hệ số đủ lớn để loại
+trừ cổ tức tiền mặt. Cùng đợt, HCM/KLB/SSB nhân theo bằng chứng volume; HHP giữ
+nguyên vì bậc 1,69 lệch cỡ hệ số 1,065.
+
+**Hệ quả mở khoá:** nay mới được phép chạy lại backtest/kiểm định. Mọi verdict
+trước 19/08 (kể cả #32 p=0.012, n=94) coi như VÔ HIỆU cho tới khi
+`vnstock_train.py --strategy-only --tier both --mode tune` chạy trên kho này.
+
 # ✅ U13. ĐÃ VÁ — watchlist nay biết ngày GDKHQ của chính mã nó nêu
 
 Bắt được ở brief chiều 19/08 (gửi tay 20:41). Cùng một brief chứa hai khối
