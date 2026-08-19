@@ -147,6 +147,11 @@ def check_unit_normalizations() -> dict:
     #    phải 5 ca đáng ngờ nhất. Nay nói rõ "5 mã cuối theo vần" + tổng số mã.
     # 3. Log giữ tối đa `_UNIT_LOG_MAX` vết (rollup:242) nên khi đầy, con số
     #    đếm được là SÀN chứ không phải số thật — phải ghi "≥".
+    # Đã có người đối chiếu SAU sự kiện mới nhất và ra sạch chưa? Nếu rồi thì
+    # đây là "guard tự sửa, đã kiểm, xong" chứ không phải việc còn treo.
+    verdict = _continuity_verdict(fresh)
+    if verdict is not None:
+        return verdict
     n_tickers = len({str(e.get("ticker", "?")) for e in fresh})
     shown = [str(e.get("ticker", "?")) for e in fresh[-5:]]
     saturated = len(events) >= _rollup_log_cap()
@@ -160,6 +165,39 @@ def check_unit_normalizations() -> dict:
         f" — guard ĐÃ tự sửa, việc còn lại là soi giá có liên tục không",
         "python scripts/check_unit_continuity.py "
         "(vách ~1000× = vết sót · ~2× = nghi chia tách · lệch giá live = kho lỡ phiên)")
+
+
+def _continuity_verdict(fresh: list) -> "dict | None":
+    """Đọc vết đối chiếu của `scripts/check_unit_continuity.py`.
+
+    Trả `ok` khi lượt soi diễn ra SAU sự kiện quy đổi mới nhất VÀ không mã nào
+    cần soi tay. Soi trước sự kiện mới nhất thì không tính — nó chưa nhìn thấy
+    thứ vừa xảy ra. Trả None để badge giữ nguyên đường cũ (cảnh báo).
+    """
+    path = _META / "unit_continuity_check.json"
+    if not path.exists() or not fresh:
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        checked = datetime.fromisoformat(str(data.get("checked_at")))
+    except Exception:
+        return None
+    if data.get("scope") not in ("trace", "all") or data.get("suspect"):
+        return None
+    newest = None
+    for ev in fresh:
+        try:
+            at = datetime.fromisoformat(str(ev.get("at", "")))
+        except Exception:
+            continue
+        newest = at if newest is None or at > newest else newest
+    if newest is None or checked < newest:
+        return None
+    return _result(
+        "unit_norm", "Quy đổi đơn vị giá (rollup)", "ok",
+        f"guard tự sửa {len(fresh)} lần trong {_UNIT_WARN_DAYS} ngày — ĐÃ đối "
+        f"chiếu {data.get('scanned', '?')} mã lúc "
+        f"{checked.strftime('%d/%m %H:%M')}: không mã nào cần soi tay", "")
 
 
 def _rollup_log_cap() -> int:

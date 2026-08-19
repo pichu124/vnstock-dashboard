@@ -381,6 +381,38 @@ def render(res: dict, n_bars: int) -> None:
         print(res["tail"].to_string(index=False))
 
 
+def _write_check_stamp(warehouse: Path, results: list, scope: str) -> None:
+    """Ghi lại KẾT QUẢ đối chiếu để badge doctor thôi kêu thứ đã kiểm rồi.
+
+    Vết 19/08: badge "Quy đổi đơn vị giá" kêu vàng suốt 7 ngày vì guard rollup
+    có kích hoạt, trong khi công cụ này đã đối chiếu và ra 0 mã cần soi. Bắt
+    người ta kiểm lại thứ vừa kiểm là cách nhanh nhất để họ quen với màu vàng
+    rồi bỏ qua cả cảnh báo thật.
+
+    Chỉ ghi cho lượt soi TOÀN BỘ danh sách (vết quy đổi hoặc --all) — soi vài
+    mã lẻ KHÔNG chứng minh được gì về cả danh sách, ghi vào là nói dối badge.
+    """
+    if scope not in ("trace", "all"):
+        return
+    out = warehouse / "_meta" / "unit_continuity_check.json"
+    payload = {
+        "checked_at": datetime.now().isoformat(timespec="seconds"),
+        "scope": scope,
+        "scanned": len(results),
+        "suspect": sorted(r["ticker"] for r in results
+                          if r.get("status") == "suspect"),
+    }
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        tmp = out.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2),
+                       encoding="utf-8")
+        import os as _os
+        _os.replace(tmp, out)
+    except Exception as e:      # best-effort: không được chặn việc soi
+        print(f"[unit-continuity] (không ghi được vết đối chiếu: {e})")
+
+
 def main(argv: "list[str] | None" = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--warehouse", default="data_warehouse")
@@ -436,6 +468,8 @@ def main(argv: "list[str] | None" = None) -> int:
     results = [check_ticker(t, prices_dir, live_dir, args.bars, args.jump_pct,
                             warehouse=wh, since_days=since)
                for t in tickers]
+    _write_check_stamp(wh, results,
+                       "all" if args.all else ("trace" if not args.ticker else "ticker"))
     if args.all:
         hot = [r for r in results if r["status"] == "suspect"]
         hot.sort(key=lambda r: -(r.get("gtgd20") or 0.0))
