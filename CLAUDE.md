@@ -22,9 +22,9 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   laptop clone repo về KHÔNG có gì để soi. Đừng bảo user chạy trên laptop.
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~1.588 test; ~29s trên CI,
+- Sửa module lõi nào → `python run.py test --fast` (~1.636 test; ~30s trên CI,
   **~64s trên máy thật** vì có kho dữ liệu + mạng).
-- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.148 test).
+- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.152 test).
 - Kết quả ghi `data_warehouse/_meta/test_status.json` → badge sidebar.
   Badge đỏ = KHÔNG merge/deploy.
 - `--fast` ì → `python run.py test --fast --slow` (20 test chậm nhất). Đo phải

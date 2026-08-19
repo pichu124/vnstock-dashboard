@@ -669,7 +669,7 @@ def cmd_test(args) -> int:
 
     Modes:
       (default) — full tests/ directory
-      --fast    — curated subset covering the core modules (~1,588 tests, ~30s CI)
+      --fast    — curated subset covering the core modules (~1,636 tests, ~31s CI)
       --new     — alias for --fast
     """
     import json as _json
@@ -728,6 +728,13 @@ def cmd_test(args) -> int:
             "tests/test_classifier.py",
             "tests/test_model_watch.py",
             "tests/test_unit_norm_watch.py",
+            # Bộ 3 công cụ đơn vị giá (thêm 19/08): sửa script nào trong
+            # đó rồi chạy `--fast` mà thiếu 3 file này là chạy KHÔNG có
+            # lưới — chúng canh đúng phần phán "kho lệch cơ sở hay nguồn
+            # sai", nơi phán nhầm là sửa nhầm chỗ vào kho giá.
+            "tests/test_unit_continuity.py",
+            "tests/test_price_basis_probe.py",
+            "tests/test_rebase_history.py",
             "tests/test_memory_cli.py",
             "tests/test_brief_agent_config.py",
             "tests/test_atomic_writes.py",
@@ -752,7 +759,15 @@ def cmd_test(args) -> int:
         test_paths = ["tests/"]
 
     started = _time.time()
-    cmd = [sys.executable, "-m", "pytest", *test_paths, "-v", "--tb=short"]
+    # KHÔNG dùng `-v` (19/08): output bị capture rồi mới echo, nên `-v` KHÔNG
+    # cho phản hồi tiến độ nào — nó chỉ đẻ ra 1 dòng/test (đo được: 1.596 dòng
+    # với --fast, 2.204 dòng với full). Toàn bộ chảy qua _Tee vào run_daily.log
+    # và chính là thứ đẩy log qua ngưỡng 5 MB → `_trim_run_log` cắt còn 1 MB,
+    # XOÁ MẤT dấu vết pipeline mấy hôm trước (vấp thật 19/08: mất log 18/08 nên
+    # không truy được vì sao brief không gửi). `-q` giữ nguyên phần cần đọc:
+    # dòng tổng kết + `short test summary info` liệt kê FAILED (ép bằng -r fE).
+    cmd = [sys.executable, "-m", "pytest", *test_paths,
+           "-q", "--tb=short", "-r", "fE"]
     if getattr(args, "slow", False):
         # Xếp hạng test chậm nhất. Phần lớn thời gian nằm ở test CHẠM DỮ LIỆU
         # THẬT (kho parquet, gọi mạng) — máy có kho đầy đủ chậm hơn CI nhiều
@@ -1378,6 +1393,17 @@ def _install_run_log(argv_note: str) -> None:
     Gọi MỘT lần ở đầu main(); mọi print của run.py lẫn output tiến trình
     con (qua _run) từ đó chảy vào cả console lẫn file.
     """
+    # Dưới pytest thì KHÔNG đụng vào log vận hành (19/08). `tests/test_run.py`
+    # gọi `orchestrator.main([...])` 10 lần mà RUN_LOG_PATH là hằng số tuyệt
+    # đối theo `__file__` → mỗi phát full suite bơm 9 khối header GIẢ vào
+    # `run_daily.log` THẬT, và mỗi khối còn gọi `_trim_run_log()` trên chính
+    # file đó. Log vận hành phải chỉ chứa dấu vết pipeline thật.
+    # Cửa chặn HẸP có chủ ý: chỉ né đúng file log VẬN HÀNH. Test nào cố tình
+    # kiểm cơ chế này (trỏ RUN_LOG_PATH sang tmp_path) vẫn chạy đủ đường —
+    # chặn rộng hơn là tự tay vô hiệu hoá lưới canh chính nó.
+    if (os.environ.get("PYTEST_CURRENT_TEST")
+            and RUN_LOG_PATH == REPO_ROOT / "run_daily.log"):
+        return
     try:
         _trim_run_log()
         handle = open(RUN_LOG_PATH, "a", encoding="utf-8", errors="replace")

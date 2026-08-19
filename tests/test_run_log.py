@@ -208,3 +208,58 @@ class TestStepTiming:
         # Net AST: ai gỡ đo giờ khỏi cmd_all là đỏ — số đo là đầu vào quyết ②
         src = TestWiringNets._func_source("cmd_all")
         assert "⏱" in src and "_format_step_summary" in src
+
+
+# ── Log vận hành phải SẠCH: chỉ dấu vết pipeline thật (thêm 19/08) ──────────
+#
+# Vấp thật 19/08: `run_daily.log` phình qua 5 MB → `_trim_run_log` cắt còn 1 MB
+# → mất sạch dấu vết phát chạy 18/08, nên không truy được vì sao brief không
+# gửi. Hai nguồn rác, vá cả hai:
+#   (a) bước `test` echo output `pytest -v` (1 dòng/test) qua _Tee vào log;
+#   (b) `tests/test_run.py` gọi `main()` 10 lần → 9 khối header GIẢ.
+
+class TestRunLogStaysClean:
+
+    def _src(self, name):
+        import inspect, run as runpy
+        return inspect.getsource(getattr(runpy, name))
+
+    def test_pytest_not_run_verbose_so_log_does_not_explode(self):
+        """`-v` đẻ 1 dòng/test (đo được 2.204 dòng mỗi lần chạy full) mà KHÔNG
+        cho phản hồi tiến độ nào — output bị capture rồi mới echo một lần."""
+        src = self._src("cmd_test")
+        assert '"-v"' not in src, "cmd_test dùng lại -v → log lại phình"
+        assert '"-q"' in src
+
+    def test_failed_tests_still_named_in_output(self):
+        """Bỏ `-v` KHÔNG được làm mất tên test đỏ — đó là thứ duy nhất người
+        đọc log cần khi pipeline dừng cứng ở bước test."""
+        src = self._src("cmd_test")
+        assert '"-r", "fE"' in src or '"-rfE"' in src
+
+    def test_install_run_log_is_a_noop_on_the_real_log_under_pytest(self):
+        """Test gọi run.main() KHÔNG được ghi vào log VẬN HÀNH (đường thật)."""
+        import run as runpy
+        real = runpy.REPO_ROOT / "run_daily.log"
+        before = real.read_bytes() if real.exists() else None
+        real_stdout = sys.stdout
+        runpy._install_run_log("--warehouse data_warehouse all")
+        assert sys.stdout is real_stdout, "không được thay stdout khi dưới pytest"
+        after = real.read_bytes() if real.exists() else None
+        assert after == before, "đã ghi vào run_daily.log vận hành khi chạy test"
+
+    def test_guard_is_narrow_redirected_log_still_written(self, tmp_path, monkeypatch):
+        """Cửa chặn chỉ né ĐÚNG file vận hành: test cố tình kiểm cơ chế (trỏ
+        RUN_LOG_PATH sang tmp_path) vẫn phải chạy đủ đường — chặn rộng hơn là
+        tự vô hiệu hoá lưới canh chính nó."""
+        import run as runpy
+        log = tmp_path / "run_daily.log"
+        monkeypatch.setattr(runpy, "RUN_LOG_PATH", log)
+        saved_out, saved_err = sys.stdout, sys.stderr
+        try:
+            runpy._install_run_log("--warehouse data_warehouse all")
+            print("duong-chuyen-huong")
+            sys.stdout.flush()
+        finally:
+            sys.stdout, sys.stderr = saved_out, saved_err
+        assert log.exists() and "duong-chuyen-huong" in log.read_text(encoding="utf-8")
