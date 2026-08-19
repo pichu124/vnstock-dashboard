@@ -80,6 +80,25 @@ TIER_CONFIGS: "dict[str, dict]" = {
 }
 
 
+# `horizon_days` LÀ SỐ PHIÊN, không phải ngày lịch — backtest cắt cửa sổ theo
+# BAR (`hist.head(horizon)`). Chỗ nào chỉ có ngày lịch trong tay (nhãn hiển thị,
+# bộ lọc brief) thì quy đổi qua đây thay vì so thẳng: 5 phiên ≈ 7 ngày lịch,
+# 20 phiên ≈ 28 ngày. So thẳng là đóng/ẩn lệnh SỚM ~30% (vết 19/08).
+# Xấp xỉ 7/5 CỐ Ý bỏ qua lễ tết: nó chỉ dùng cho nhãn và bộ lọc, còn quyết định
+# ĐÓNG LỆNH thì đếm bar thật (`reconcile_recommendations`).
+_CALENDAR_PER_SESSION = 7 / 5
+
+
+def calendar_days_for_sessions(sessions: int) -> int:
+    """Số ngày lịch tối thiểu để trôi qua `sessions` phiên (làm tròn LÊN)."""
+    import math as _math
+    try:
+        n = int(sessions)
+    except Exception:
+        return 0
+    return max(n, _math.ceil(n * _CALENDAR_PER_SESSION))
+
+
 def tier_config(tier: str, universe: "list[str]") -> "BacktestConfig":
     """BacktestConfig chuẩn cho một tier. Tier lạ → ValueError (không đoán)."""
     if tier not in TIER_CONFIGS:

@@ -540,9 +540,20 @@ def reconcile_recommendations(verbose: bool = True) -> dict:
     open_recs = mem.open_recommendations()
     summary = {"closed": 0, "still_open": 0, "stale": 0}
 
+    def _cal(horizon: int) -> int:
+        """`horizon_days` là số PHIÊN → đổi sang ngày lịch trước khi so với
+        tuổi tính bằng ngày. Một nơi định nghĩa (vnstock_strategy), fallback
+        7/5 để lỗi import không âm thầm quay lại luật cũ."""
+        try:
+            from vnstock_strategy import calendar_days_for_sessions
+            return calendar_days_for_sessions(horizon)
+        except Exception:
+            import math as _m
+            return max(int(horizon), _m.ceil(int(horizon) * 7 / 5))
+
     def _maybe_stale(rec: dict, age: int, horizon: int) -> bool:
         """Force-close an un-fetchable, well-overdue rec. Returns True if closed."""
-        if age >= horizon + STALE_GRACE_DAYS:
+        if age >= _cal(horizon) + STALE_GRACE_DAYS:
             mem.close_recommendation(
                 rec["id"], exit_price=None, hit_target="stale",
                 notes=f"no price history after {age}d (horizon {horizon}d)",
@@ -558,10 +569,14 @@ def reconcile_recommendations(verbose: bool = True) -> dict:
             continue
         age_days = (datetime.now() - created).days
         horizon = int(r.get("horizon_days") or 5)
-        if age_days < horizon:
-            summary["still_open"] += 1
-            continue
-        hist = _load_history(r["ticker"], days=horizon + 10)
+        # KHÔNG chặn theo tuổi nữa (19/08): cổng cũ `age_days < horizon` khiến
+        # lệnh THỦNG CẮT LỖ ngày thứ 2 vẫn nằm trong sổ tới ngày 20 mới được
+        # nhận ra. `_grade_rec` vốn walk-forward và thoát ngay tại bar chạm
+        # TP/SL — đúng ngữ nghĩa backtest; soi mỗi lượt thì live mới khớp
+        # backtest (đó chính là phép so mà mục theo dõi #32 dựa vào).
+        # Chi phí: thêm 1 lần đọc kho cho mỗi lệnh đang mở (~10 lệnh) — không
+        # đáng kể cạnh sync/screener.
+        hist = _load_history(r["ticker"], days=_cal(horizon) + 10)
         if hist.empty:
             if not _maybe_stale(r, age_days, horizon):
                 summary["still_open"] += 1
@@ -581,6 +596,16 @@ def reconcile_recommendations(verbose: bool = True) -> dict:
         tp    = float(r["take_profit"] or 0)
         sl    = float(r["cut_loss"] or 0)
         exit_price, hit = _grade_rec(post, entry, tp, sl)
+        # VẾT 19/08 — lỗi số liệu nặng nhất của sổ lệnh: `head(horizon)` trả
+        # về ÍT hơn horizon bar khi chưa đủ phiên, mà `_grade_rec` vẫn chấm
+        # "expire" tại close của bar CUỐI CÙNG CÓ SẴN. Lệnh 20 phiên bị chốt ở
+        # ~bar 14 (−30%), lệnh 5 phiên ở ~bar 3-4 (−20%…−40%) — và đóng là
+        # VĨNH VIỄN (không có đường mở lại). Chạm TP/SL thì đóng sớm là ĐÚNG
+        # (thoát thật); chỉ "expire" mới đòi đủ cửa sổ.
+        if hit == "expire" and len(post) < horizon:
+            if not _maybe_stale(r, age_days, horizon):
+                summary["still_open"] += 1
+            continue
         mem.close_recommendation(r["id"], exit_price=exit_price, hit_target=hit)
         summary["closed"] += 1
 

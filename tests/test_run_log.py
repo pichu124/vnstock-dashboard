@@ -263,3 +263,38 @@ class TestRunLogStaysClean:
         finally:
             sys.stdout, sys.stderr = saved_out, saved_err
         assert log.exists() and "duong-chuyen-huong" in log.read_text(encoding="utf-8")
+
+
+class TestSyncReportsItsOwnBreakdown:
+    """`sync` là bước nặng nhất (60' đêm 18/08 = 62% tổng) nhưng nó gộp 4 việc
+    khác bản chất — dòng ⏱ ở cmd_all chỉ nói "sync lâu", không nói lâu ở đâu.
+    Thiếu số thì tối ưu là đoán mò (bẫy đã tránh khi chấm mục ②)."""
+
+    def _src(self, name):
+        import inspect, run as runpy
+        return inspect.getsource(getattr(runpy, name))
+
+    def test_all_four_stages_are_timed(self):
+        src = self._src("cmd_sync")
+        for stage in ("updater", "rollup", "fix-units", "auto-heal"):
+            assert f'_timed("{stage}"' in src, f"chặng {stage} không được đo"
+
+    def test_breakdown_printed_even_when_a_stage_fails_hard(self):
+        """Chặng chết giữa chừng là lúc CẦN số nhất — không được im."""
+        src = self._src("cmd_sync")
+        assert src.count("_print_sync_breakdown(_sub)") >= 3
+
+    def test_breakdown_ranks_heaviest_first(self):
+        import run as runpy
+        out = []
+        runpy._print_sync_breakdown([("updater", 60.0), ("fix-units", 900.0),
+                                     ("rollup", 30.0)])
+        src = self._src("_print_sync_breakdown")
+        assert "sorted" in src and "-nd[1]" in src
+
+    def test_fix_units_reports_scan_size_even_with_zero_fixes(self):
+        """Bước này quét TOÀN KHO mỗi đêm; "không tìm thấy gì" vẫn tốn đúng
+        ngần ấy I/O, nên con số scanned phải hiện để quyết có thu hẹp không."""
+        src = self._src("cmd_sync")
+        assert "scanned_tickers" in src and "scanned_bars" in src
+        assert "if report.fixes:" not in src, "vẫn giấu số khi không có fix"

@@ -1199,7 +1199,7 @@ def _maybe_reconcile_overdue() -> int:
                 age = (now - datetime.fromisoformat(r["created_at"])).days
             except Exception:
                 age = 0
-            if age > horizon:
+            if age > _horizon_calendar_days(horizon):
                 has_overdue = True
                 break
         if not has_overdue:
@@ -3633,6 +3633,21 @@ def _active_strategy_validation(ctx: dict | None = None) -> dict:
     return out
 
 
+def _horizon_calendar_days(horizon: int) -> int:
+    """`horizon_days` là số PHIÊN → ngày lịch tương đương (một nơi định nghĩa
+    ở `vnstock_strategy`, cùng nếp với `_evidence_floor`).
+
+    So thẳng phiên với ngày là ẩn/đóng lệnh sớm ~30% (vết 19/08): lệnh 20 phiên
+    biến mất khỏi brief sau 20 ngày lịch ≈ 14 phiên, trong khi sổ vẫn mở.
+    """
+    try:
+        from vnstock_strategy import calendar_days_for_sessions
+        return calendar_days_for_sessions(horizon)
+    except Exception:
+        import math as _m
+        return max(int(horizon), _m.ceil(int(horizon) * 7 / 5))
+
+
 def _evidence_floor() -> int:
     """Sàn số lệnh để một verdict "đạt" được phép mang tiền thật.
 
@@ -3754,7 +3769,7 @@ def _recommendation_block(ctx: dict | None = None) -> str:
                 age = (_now - datetime.fromisoformat(r["created_at"])).days
             except Exception:
                 age = 0
-            if age <= horizon:
+            if age <= _horizon_calendar_days(horizon):
                 fresh.append(r)
         if not fresh:
             return ""

@@ -75,6 +75,21 @@ def cmd_doctor(args) -> int:
     return doctor_main(argv)
 
 
+def _print_sync_breakdown(sub: "list[tuple[str, float]]") -> None:
+    """Một dòng nói sync tiêu 60 phút VÀO ĐÂU — grep `[sync] ⏱ CHẶNG`.
+
+    Bốn việc trong `sync` có bản chất khác hẳn nhau: updater (gọi mạng theo
+    mã), rollup (CPU + đĩa), fix-units (quét TOÀN KHO), auto-heal (gọi mạng
+    theo bar cách ly). Biết chặng nào nặng mới chữa đúng chỗ.
+    """
+    if not sub:
+        return
+    total = sum(d for _, d in sub)
+    ranked = sorted(sub, key=lambda nd: -nd[1])
+    parts = " · ".join(f"{n} {d:,.0f}s" for n, d in ranked)
+    print(f"[sync] ⏱ CHẶNG {total / 60:,.1f} phút — {parts}")
+
+
 def cmd_sync(args) -> int:
     """Run incremental daily updater, then roll up any intraday bars.
 
@@ -92,28 +107,53 @@ def cmd_sync(args) -> int:
     # updater nay phan biet 1 (canh bao: co ma loi nhung phan lon xong) voi
     # 2 (fail cung: khong ma nao update duoc) — audit 06/08. Truoc day no LUON
     # exit 0 nen cong nay chi bat duoc crash.
-    updater = _run([sys.executable, "vnstock_updater.py", "--skip-if-done"])
+    # ⏱ TỪNG CHẶNG (19/08): `sync` là bước nặng nhất pipeline (3.609s = 60'
+    # đêm 18/08, chiếm 62% tổng) nhưng nó gộp 4 việc rất khác nhau, nên dòng
+    # ⏱ ở cmd_all chỉ nói "sync lâu" chứ không nói LÂU Ở ĐÂU. Không đo được
+    # thì tối ưu là đoán mò — đúng cái bẫy đã tránh khi chấm mục ②.
+    import time as _time
+    _sub: "list[tuple[str, float]]" = []
+
+    def _timed(name, fn):
+        _t = _time.time()
+        try:
+            return fn()
+        finally:
+            _sub.append((name, _time.time() - _t))
+            print(f"[sync] ⏱ {name}: {_sub[-1][1]:,.1f}s")
+
+    updater = _timed("updater", lambda: _run(
+        [sys.executable, "vnstock_updater.py", "--skip-if-done"]))
     if updater not in (0, 1):
+        _print_sync_breakdown(_sub)
         return 2
-    rollup = _run([sys.executable, "vnstock_rollup.py", "--skip-if-done"])
+    rollup = _timed("rollup", lambda: _run(
+        [sys.executable, "vnstock_rollup.py", "--skip-if-done"]))
     if rollup not in (0, 1):
+        _print_sync_breakdown(_sub)
         return 2
     warned = (updater == 1) or (rollup == 1)
 
     if not getattr(args, "no_fix_units", False):
         try:
             from vnstock_fix_units import run as fix_units_run
-            report = fix_units_run(Path(args.warehouse), dry_run=False)
-            if report.fixes:
-                print(f"[sync] fix-units: rescaled {len(report.fixes)} bar(s) "
-                      f"across {report.ticker_count} ticker(s)")
+            report = _timed("fix-units", lambda: fix_units_run(
+                Path(args.warehouse), dry_run=False))
+            # In cả khi KHÔNG có fix: bước này quét TOÀN KHO (mọi mã, mọi năm)
+            # mỗi đêm, nên "không tìm thấy gì" vẫn tốn đúng ngần ấy I/O —
+            # con số scanned là đầu vào để quyết có thu hẹp cửa sổ quét không.
+            print(f"[sync] fix-units: rescaled {len(report.fixes)} bar(s) "
+                  f"across {report.ticker_count} ticker(s) "
+                  f"— quét {report.scanned_tickers:,} mã / "
+                  f"{report.scanned_bars:,} bar")
         except Exception as exc:
             print(f"[sync] fix-units skipped: {exc}", file=sys.stderr)
 
     if not getattr(args, "no_auto_heal", False):
         try:
             from vnstock_quarantine import auto_heal
-            stats = auto_heal(Path(args.warehouse), verbose=False)
+            stats = _timed("auto-heal", lambda: auto_heal(
+                Path(args.warehouse), verbose=False))
             if stats.get("scanned", 0):
                 print(f"[sync] auto-heal: scanned={stats['scanned']} "
                       f"healed={stats['refetched_ok']} "
@@ -122,6 +162,7 @@ def cmd_sync(args) -> int:
                       f"skipped_accepted={stats['skipped_accepted']}")
         except Exception as exc:
             print(f"[sync] auto-heal skipped: {exc}", file=sys.stderr)
+    _print_sync_breakdown(_sub)
     return 1 if warned else 0
 
 
@@ -669,7 +710,7 @@ def cmd_test(args) -> int:
 
     Modes:
       (default) — full tests/ directory
-      --fast    — curated subset covering the core modules (~1,636 tests, ~31s CI)
+      --fast    — curated subset covering the core modules (~1,648 tests, ~31s CI)
       --new     — alias for --fast
     """
     import json as _json
@@ -732,6 +773,9 @@ def cmd_test(args) -> int:
             # đó rồi chạy `--fast` mà thiếu 3 file này là chạy KHÔNG có
             # lưới — chúng canh đúng phần phán "kho lệch cơ sở hay nguồn
             # sai", nơi phán nhầm là sửa nhầm chỗ vào kho giá.
+            # Sổ lệnh: horizon đếm PHIÊN chứ không phải ngày lịch —
+            # sai ở đây là đóng lệnh sớm và đóng VĨNH VIỄN (vết 19/08).
+            "tests/test_rec_horizon_sessions.py",
             "tests/test_unit_continuity.py",
             "tests/test_price_basis_probe.py",
             "tests/test_rebase_history.py",

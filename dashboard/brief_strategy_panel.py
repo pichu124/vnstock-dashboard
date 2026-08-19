@@ -316,9 +316,13 @@ def render_strategy_panel() -> None:
                         return "—"
                     age = (_dt_cls.now() - created).days
                     horizon = int(row.get("horizon_days") or 5)
-                    if age >= horizon:
+                    # horizon = số PHIÊN; hiển thị theo ngày lịch tương đương
+                    # để nhãn "đến hạn" không bật sớm ~30% (vết 19/08).
+                    from vnstock_brief import _horizon_calendar_days
+                    cal = _horizon_calendar_days(horizon)
+                    if age >= cal:
                         return f"🕒 {age}d (đến hạn — bấm Cập nhật)"
-                    return f"⏳ {age}/{horizon}d"
+                    return f"⏳ {age}/{cal}d ({horizon} phiên)"
 
                 _df_opens["Trạng thái"] = _df_opens.apply(_age_status, axis=1)
 

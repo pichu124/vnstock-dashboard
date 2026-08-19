@@ -294,7 +294,10 @@ def _open_recs_block() -> str:
                 age = (datetime.now() - datetime.fromisoformat(r["created_at"])).days
             except Exception:
                 age = 0
-            overdue = " ⚠️ quá hạn" if age > horizon else ""
+            # horizon đếm PHIÊN, age đếm NGÀY LỊCH — so thẳng là dán nhãn
+            # "quá hạn" sớm ~30% (vết 19/08).
+            from vnstock_brief import _horizon_calendar_days
+            overdue = " ⚠️ quá hạn" if age > _horizon_calendar_days(horizon) else ""
             lines.append(
                 f"  • <b>{ticker}</b> {action} @{_fmt_price(entry)}"
                 f" → TP {tp_pct:+.1f}% | SL {sl_pct:+.1f}%"
