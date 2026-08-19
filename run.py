@@ -778,6 +778,7 @@ def cmd_test(args) -> int:
             # Cửa gác lệch cơ sở ở ĐƯỜNG GHI CHÍNH (V1, 19/08): nó có
             # quyền TỪ CHỐI ghi kho, nên sửa updater mà chạy `--fast`
             # thiếu file này là bỏ lưới đúng chỗ nguy hiểm nhất.
+            "tests/test_conflicted_copy_reads.py",
             "tests/test_brief_exdate_guard.py",
             "tests/test_basis_guard.py",
             # Cửa `--skip-if-done`: sai ở đây là kho ĐỨNG YÊN nguyên đêm mà
@@ -1402,8 +1403,14 @@ def _format_step_summary(durations: "list[tuple[str, float]]") -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 RUN_LOG_PATH = REPO_ROOT / "run_daily.log"
-_RUN_LOG_MAX_BYTES = 5 * 1024 * 1024    # phình quá ~5 MB thì cắt…
-_RUN_LOG_KEEP_BYTES = 1 * 1024 * 1024   # …giữ lại đuôi ~1 MB gần nhất
+_RUN_LOG_MAX_BYTES = 5 * 1024 * 1024    # phình quá ~5 MB thì xoay vòng…
+_RUN_LOG_KEEP_BYTES = 1 * 1024 * 1024   # …đuôi ~1 MB đi tiếp sang file mới
+# Số ĐỜI log cũ giữ lại (`run_daily.1.log` … `.3.log`). Trước 19/08 chính sách
+# là CẮT: giữ đuôi 1 MB, vứt 80% còn lại VĨNH VIỄN. Nó đã xoá mất bằng chứng
+# phát 18/08 (mục "log đã bị tự cắt → bằng chứng các phát trước MẤT") và cắt
+# tiếp một lần nữa ngay tối 19/08 khi log vượt 5 MB giữa lúc đang gỡ. Xoay
+# vòng tốn thêm ~15 MB đĩa và không đời nào mất dấu vết nữa.
+_RUN_LOG_KEEP_GENERATIONS = 3
 
 
 class _Tee:
@@ -1445,14 +1452,48 @@ class _Tee:
         return getattr(self._stream, name)
 
 
+def _rotate_run_log(p: Path) -> None:
+    """Đẩy `x.log` → `x.1.log` → … → `x.N.log`, bỏ đời quá hạn.
+
+    Gọi TRƯỚC khi mở handle (đầu `_install_run_log`) nên file chưa bị chính
+    tiến trình này giữ. Máy khác đang giữ file thì `os.replace` ném — caller
+    nuốt và quay về đường cắt cũ, thà cắt còn hơn mất log.
+    """
+    suffix = p.suffix or ".log"
+    stem = p.name[: -len(suffix)] if suffix and p.name.endswith(suffix) else p.name
+
+    def _gen(i: int) -> Path:
+        return p.with_name(f"{stem}.{i}{suffix}")
+
+    oldest = _gen(_RUN_LOG_KEEP_GENERATIONS)
+    if oldest.exists():
+        oldest.unlink()
+    for i in range(_RUN_LOG_KEEP_GENERATIONS - 1, 0, -1):
+        src = _gen(i)
+        if src.exists():
+            os.replace(str(src), str(_gen(i + 1)))
+    os.replace(str(p), str(_gen(1)))
+
+
 def _trim_run_log(path: Path | None = None) -> None:
-    """Giữ log không phình vô hạn: quá MAX thì chỉ giữ đuôi KEEP bytes."""
+    """Giữ log không phình vô hạn — quá MAX thì XOAY VÒNG, không cắt bỏ.
+
+    File mới vẫn được mồi bằng đuôi ~1 MB gần nhất để phát đang chạy còn
+    ngữ cảnh liền mạch; toàn bộ phần cũ nằm nguyên ở `<tên>.1.log`.
+    Xoay vòng hỏng (file bị khoá) → quay về hành vi cắt cũ: mất lịch sử vẫn
+    hơn là để log phình vô hạn rồi mỗi lệnh `run.py` đọc/ghi lại cả file.
+    """
     p = path or RUN_LOG_PATH
     try:
-        if p.exists() and p.stat().st_size > _RUN_LOG_MAX_BYTES:
-            tail = p.read_bytes()[-_RUN_LOG_KEEP_BYTES:]
-            p.write_bytes(b"[run.py] (log qua dai - da cat, giu duoi ~1MB)\n"
-                          + tail)
+        if not (p.exists() and p.stat().st_size > _RUN_LOG_MAX_BYTES):
+            return
+        tail = p.read_bytes()[-_RUN_LOG_KEEP_BYTES:]
+        head = b"[run.py] (log qua dai - da xoay vong, phan cu o *.1.log)\n"
+        try:
+            _rotate_run_log(p)
+        except Exception:
+            head = b"[run.py] (log qua dai - da cat, giu duoi ~1MB)\n"
+        p.write_bytes(head + tail)
     except Exception:
         pass
 

@@ -7182,9 +7182,16 @@ ký của ĐỒNG BỘ THEO DELTA. Bài học: một hạ tầng không đọc �
   KHÔNG có trường máy ⇒ badge sidebar có thể là kết quả của MÁY KIA.
   `brief_push.json` chạy ở laptop ⇒ desktop câm brief tối đó mà vẫn `return 0`.
 * **Đừng đụng kho ở máy kia trong lúc pipeline chạy.** Hai bên ghi cùng file là
-  Dropbox sinh `... (conflicted copy).parquet` nằm NGAY trong `prices/`, mà
-  `load_bars` glob `year=*/*.parquet` sẽ đọc luôn file đó → bar trùng/lẫn cơ sở.
-  Chưa có guard nào chặn; đáng làm một check doctor quét tên file "conflicted".
+  Dropbox sinh `... (conflicted copy).parquet` nằm NGAY trong `prices/`.
+  ⚠️ **Tôi đã nói SAI ở đây lúc đầu ("chưa có guard nào chặn") — repo xử chuyện
+  này từ lâu và xử đúng:** `vnstock_parquet_io.read_year_frames` gộp MỌI file
+  (không mất phần data nằm ở bản kia), `vnstock_updater._read_year` khử trùng
+  ngày giữ bản mtime mới nhất, `_write_year` dồn year-dir về đúng 1 file, và
+  `vnstock_health` báo year-dir nào có >1 file (`run.py scan`, có test riêng).
+  Lỗ hổng THẬT chỉ nằm ở đường ĐỌC PHÂN TÍCH: `vnstock_strategy.
+  _load_history_from_parquet` (loader của backtest) nối thẳng mọi file, KHÔNG
+  khử trùng ⇒ bar nằm ở cả hai file bị đếm HAI LẦN, n_trades và Sharpe sai mà
+  không dấu hiệu gì. Đã vá 19/08 (`tests/test_conflicted_copy_reads.py`).
 * `write_table_atomic` / `write_json_atomic` (`vnstock_parquet_io.py:76-108`)
   **không có retry**, trong khi `vnstock_wss.py:455-467` và
   `vnstock_quarantine.py:94-110` thì có. Trên Windows, Dropbox giữ handle lúc

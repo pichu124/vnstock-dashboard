@@ -149,11 +149,51 @@ class TestTrim:
         assert data.endswith(b"DUOI-PHAI-GIU-LAI")
         assert data.startswith(b"[run.py]")
 
+    def test_oversized_log_is_rotated_not_destroyed(self, tmp_path, monkeypatch):
+        """Chính sách CŨ vứt 80% log vĩnh viễn — nó đã xoá bằng chứng phát
+        18/08, rồi cắt tiếp một lần nữa ngay tối 19/08 giữa lúc đang gỡ."""
+        monkeypatch.setattr(run_mod, "_RUN_LOG_MAX_BYTES", 1_000)
+        monkeypatch.setattr(run_mod, "_RUN_LOG_KEEP_BYTES", 200)
+        p = tmp_path / "run_daily.log"
+        p.write_bytes(b"DAU-PHAI-CON-O-DOI-1" + b"A" * 5_000 + b"DUOI")
+        run_mod._trim_run_log(p)
+        gen1 = tmp_path / "run_daily.1.log"
+        assert gen1.exists(), "log cũ bị vứt thay vì xoay vòng"
+        assert gen1.read_bytes().startswith(b"DAU-PHAI-CON-O-DOI-1")
+        assert p.read_bytes().endswith(b"DUOI")      # file mới vẫn liền ngữ cảnh
+
+    def test_rotation_keeps_a_bounded_number_of_generations(self, tmp_path,
+                                                            monkeypatch):
+        monkeypatch.setattr(run_mod, "_RUN_LOG_MAX_BYTES", 1_000)
+        monkeypatch.setattr(run_mod, "_RUN_LOG_KEEP_BYTES", 50)
+        monkeypatch.setattr(run_mod, "_RUN_LOG_KEEP_GENERATIONS", 2)
+        p = tmp_path / "run_daily.log"
+        for marker in (b"DOI-A", b"DOI-B", b"DOI-C"):
+            p.write_bytes(marker + b"Z" * 5_000)
+            run_mod._trim_run_log(p)
+        assert (tmp_path / "run_daily.1.log").read_bytes().startswith(b"DOI-C")
+        assert (tmp_path / "run_daily.2.log").read_bytes().startswith(b"DOI-B")
+        assert not (tmp_path / "run_daily.3.log").exists()   # đời quá hạn đã bỏ
+
+    def test_rotation_failure_falls_back_to_the_old_cut(self, tmp_path,
+                                                        monkeypatch):
+        """Xoay vòng hỏng (file bị khoá) vẫn phải chặn log phình vô hạn."""
+        monkeypatch.setattr(run_mod, "_RUN_LOG_MAX_BYTES", 1_000)
+        monkeypatch.setattr(run_mod, "_RUN_LOG_KEEP_BYTES", 200)
+        monkeypatch.setattr(run_mod, "_rotate_run_log",
+                            lambda _p: (_ for _ in ()).throw(PermissionError("khoá")))
+        p = tmp_path / "run_daily.log"
+        p.write_bytes(b"A" * 5_000 + b"DUOI")
+        run_mod._trim_run_log(p)
+        assert len(p.read_bytes()) < 1_000 and p.read_bytes().endswith(b"DUOI")
+        assert not (tmp_path / "run_daily.1.log").exists()
+
     def test_small_log_untouched(self, tmp_path):
         p = tmp_path / "run_daily.log"
         p.write_bytes(b"nho xiu")
         run_mod._trim_run_log(p)
         assert p.read_bytes() == b"nho xiu"
+        assert not (tmp_path / "run_daily.1.log").exists()
 
 
 class TestWiringNets:

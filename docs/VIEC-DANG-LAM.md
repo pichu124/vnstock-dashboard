@@ -26,7 +26,7 @@ Ra 2 task = **desktop**. Rỗng = **laptop** (`CFA-BINHLD-LT`).
 ## 📍 ĐIỂM DỪNG 19/08/2026 — mở lại thì đọc 10 dòng này trước
 
 Commit cuối của Claude: xem `git log -1` sau khi merge. Nhánh
-`claude/tong-hop-cong-viec-test-w8mvrc`. Suite **2.281 passed** (fast 1.761).
+`claude/tong-hop-cong-viec-test-w8mvrc`. Suite **2.288 passed** (fast 1.768).
 Máy user đang ở `main` → lấy code phải `git fetch origin <nhánh> && git merge
 origin/<nhánh>` (`git pull` báo "Already up to date" dù vừa tải commit về).
 
@@ -113,7 +113,7 @@ bằng factor, chỉ chạm bộ lọc thanh khoản. Ép thủ công:
 ### ○ Sau khi chữa xong — 3 lệnh chạy lại (một lần, máy nào cũng được)
 
 ```powershell
-python run.py test                                    # full suite, kỳ vọng 2.281 passed
+python run.py test                                    # full suite, kỳ vọng 2.288 passed
 python run.py validate                                # hợp đồng dữ liệu trên kho vừa chữa
 python vnstock_train.py --strategy-only --tier both --mode tune
 ```

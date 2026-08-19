@@ -19,8 +19,10 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 >    `run.py telegram close` chạy ở laptop là desktop câm brief tối đó.
 > 3. **Đừng đụng kho ở máy kia trong lúc pipeline chạy** (18:00-19:xx ngày làm
 >    việc). Hai bên ghi cùng file ⇒ Dropbox đẻ `... (conflicted copy).parquet`
->    NGAY trong `prices/`, mà `load_bars` glob `year=*/*.parquet` đọc luôn file
->    đó. Chưa có guard nào chặn.
+>    NGAY trong `prices/`. Đường GHI đã xử đủ (`read_year_frames` gộp mọi file ·
+>    `_read_year` khử trùng giữ bản mtime mới · `_write_year` dồn về 1 file ·
+>    `run.py scan` báo year-dir >1 file) nên không mất data — nhưng vẫn tránh,
+>    vì trước lần sync kế tiếp thì các đường ĐỌC khác còn đếm trùng.
 > 4. **Đừng suy hạ tầng từ timestamp.** File Dropbox tải xuống nhận
 >    `CreationTime` LÚC TẢI còn TÊN do bên gửi đặt — 19/08 tôi đọc dấu hiệu này
 >    thành "chép tay" và sai suốt buổi. Hạ tầng không đọc được từ code thì HỎI.
@@ -55,8 +57,8 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   lần**, KHÔNG phải ⇄ CẢ HAI (sửa 19/08).
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~1.761 test; ~41s trên CI).
-- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.281 test).
+- Sửa module lõi nào → `python run.py test --fast` (~1.768 test; ~41s trên CI).
+- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.288 test).
   Đo trên MÁY THẬT 19/08 (sau đợt vá): **2.181 passed / 100,3s** — khớp CI từng test một
   (CI ~36s; máy thật chậm hơn ~3× vì có kho dữ liệu, không phải vì bỏ test).
 - Kết quả ghi `data_warehouse/_meta/test_status.json` → badge sidebar.

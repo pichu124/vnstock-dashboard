@@ -48,6 +48,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -64,6 +65,33 @@ class CorruptWarehouseFile(Exception):
     này, tuyệt đối không ghi đè như thể chưa có dữ liệu."""
 
 
+# Số lần thử lại `os.replace` và mốc nghỉ đầu tiên. Windows khoá file kiểu
+# TRANSIENT: antivirus quét file vừa ghi, Explorer/Streamlit đang mở, và — từ
+# 19/08 biết chắc — **Dropbox đang đồng bộ chính thư mục kho**. `os.replace`
+# gặp handle đang mở thì ném PermissionError NGAY, không tự đợi. Không thử lại
+# = mất đúng lần ghi đó, và exception bay lên giữa vòng sync 1.700 mã.
+# `vnstock_wss` và `vnstock_quarantine` đã tự vá bằng vòng lặp riêng từ lâu;
+# hai hàm ATOMIC DÙNG CHUNG này thì chưa — đúng kiểu lỗ hổng "chỗ nào cũng vá
+# trừ chỗ trung tâm".
+_REPLACE_RETRIES = 6
+_REPLACE_BACKOFF = 0.01          # 10ms, 20ms, 40ms, 80ms, 160ms, 320ms
+
+
+def _replace_with_retry(tmp: Path, dest: Path) -> None:
+    """`os.replace` có thử lại — xem `_REPLACE_RETRIES`. Hết lượt thì ném lỗi
+    CUỐI CÙNG, không nuốt: caller phải biết lần ghi đó đã trượt."""
+    last: "Exception | None" = None
+    for attempt in range(_REPLACE_RETRIES):
+        try:
+            os.replace(str(tmp), str(dest))
+            return
+        except (PermissionError, OSError) as e:
+            last = e
+            if attempt < _REPLACE_RETRIES - 1:
+                time.sleep(_REPLACE_BACKOFF * (2 ** attempt))
+    raise last if last is not None else OSError(f"không tráo được {tmp} → {dest}")
+
+
 def write_table_atomic(table, out_path: "Path | str",
                        compression: str = "snappy") -> None:
     """Ghi `table` ra `out_path` theo kiểu tmp-rồi-tráo (xem docstring module).
@@ -78,7 +106,7 @@ def write_table_atomic(table, out_path: "Path | str",
         f"{out_path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     try:
         pq.write_table(table, str(tmp), compression=compression)
-        os.replace(str(tmp), str(out_path))
+        _replace_with_retry(tmp, out_path)
     except Exception:
         try:
             tmp.unlink(missing_ok=True)
@@ -101,7 +129,7 @@ def write_json_atomic(payload, out_path: "Path | str", *, indent: int = 2) -> No
         f"{out_path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     try:
         tmp.write_text(blob, encoding="utf-8")
-        os.replace(str(tmp), str(out_path))
+        _replace_with_retry(tmp, out_path)
     except Exception:
         try:
             tmp.unlink(missing_ok=True)

@@ -863,7 +863,13 @@ def _load_history_from_parquet(
         return pd.DataFrame()
     frames = []
     for yd in sorted(base.glob("year=*")):
-        for pf in yd.glob("*.parquet"):
+        # Đọc theo mtime CŨ→MỚI rồi khử trùng ngày giữ bản MỚI — cùng ngữ nghĩa
+        # `vnstock_updater._read_year`. Vì sao cần (19/08): year-dir có thể tạm
+        # có nhiều file khi Dropbox đẻ "conflicted copy" (kho đồng bộ giữa hai
+        # máy), và `_write_year` chỉ gộp lại về 1 file ở lần sync KẾ TIẾP. Vòng
+        # cũ nối thẳng mọi file, không khử trùng ⇒ backtest đếm HAI LẦN các bar
+        # nằm ở cả hai file: n_trades và Sharpe đều sai mà không có dấu hiệu gì.
+        for pf in sorted(yd.glob("*.parquet"), key=lambda f: f.stat().st_mtime):
             try:
                 frames.append(_pq.read_table(
                     str(pf),
@@ -875,6 +881,8 @@ def _load_history_from_parquet(
         return pd.DataFrame()
     df = pd.concat(frames, ignore_index=True)
     df["time"] = pd.to_datetime(df["time"])
+    if len(frames) > 1:
+        df = df.drop_duplicates(subset=["time"], keep="last")
     if days > 0:
         df = df[df["time"] >= _dt.now() - _td(days=days)]
     df = df.sort_values("time").reset_index(drop=True)
