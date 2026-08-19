@@ -6847,8 +6847,20 @@ python -c "import json;d=json.load(open(r'C:\vnstock\data_warehouse\_meta\market
 ```
 `generated_at` < 15:05 ngày 18/08 → độ rộng trong brief 23:16 là số giữa phiên;
 chữa bằng `python run.py screener` (ĐỪNG gửi lại brief — sẽ thành brief trùng).
-Bằng chứng dự phòng không bị đè: `_meta/screener_history/2026-08-18.json` có
-`generated_at` riêng (tối mai ghi file 19/08 nên không đụng).
+Bằng chứng dự phòng KHÔNG bị đè: `_meta/screener_history/2026-08-18.json`
+(vnstock_runner.py:125-137 — `shutil.copy2` của `screener_results.json`, KHÔNG
+phải market_overview.json, nhưng cùng do bước screener sinh nên `generated_at`
+của nó trả lời đúng câu "screener chạy lúc mấy giờ"; copy2 giữ nguyên mtime nên
+cả timestamp file cũng suy ra được). Đặt tên theo NGÀY CHẠY, giữ 30 ngày → phát
+19/08 ghi file khác, không đụng. ⇒ việc soi này KHÔNG gấp.
+
+**R8. Cả 3 lệnh R6/R2 BẮT BUỘC chạy trên DESKTOP (máy chạy pipeline), laptop
+không làm được.** `run_daily.log` và `data_warehouse/` đều nằm trong
+`.gitignore` (dòng 6 và 12) và `git ls-files` ra 0 file → clone repo về laptop
+KHÔNG có chúng. Kho dữ liệu nay là local `C:\vnstock` (đã bỏ Dropbox) nên
+không tự đồng bộ sang máy khác. Task Scheduler cũng đăng ký THEO MÁY nên
+`Get-ScheduledTaskInfo` trên laptop sẽ báo không tìm thấy task. Trên laptop chỉ
+đọc được brief trên Telegram + code/notes trong repo.
 
 **R7. Đường ÉP GỬI AN TOÀN là `python run.py brief`, KHÔNG phải
 `run.py telegram close`.** `cmd_brief` (run.py:1176-1203) đi qua đủ 3 cửa gác
