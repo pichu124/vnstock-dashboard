@@ -6777,10 +6777,11 @@ GIỮA PHIÊN; chữa bằng `python run.py screener`, **đừng gửi lại bri
 chứng dự phòng 30 ngày: `_meta/screener_history/2026-08-18.json` (copy2 giữ
 nguyên mtime — vnstock_runner.py:125-137).
 
-**3. `python vnstock_classifier.py --classify --limit 20`** (vài phút, desktop).
-Nợ treo từ §10 07/08 chưa ai nhắc lại: classifier đã đổi sang ladder free nhưng
-CHƯA có bằng chứng chạy thật — soi: không đòi `ANTHROPIC_API_KEY` nữa, và dòng
-route "ladder free".
+**3. ✅ ĐÓNG 19/08 — classifier chạy thật, ladder free hoạt động.** Nợ §10 từ
+07/08. `--rerun-flagged VNM` in đúng `route: ladder free — Gemini 3.5-flash
+dẫn đầu`, 1 classified / 0 errors, KHÔNG đòi `ANTHROPIC_API_KEY`. Ghi chú cho
+lần sau: `--classify` thường KHÔNG xác minh được gì vì 1652/1652 mã đã phân
+loại nên nó skip sạch, không gọi LLM lần nào — phải dùng `--rerun-flagged`.
 
 ## 🟠 NỢ CODE MỚI PHÁT HIỆN — đáng làm, không ai chặn
 

@@ -61,12 +61,13 @@ Select-String -Path C:\vnstock\run_daily.log -Pattern '[brief]' -SimpleMatch | S
 Get-Content C:\vnstock\run_daily.log -Tail 15
 ```
 
-### Khi rảnh — 1 lệnh (nợ treo từ 07/08)
+### ✅ Classifier — ĐÃ XÁC MINH 19/08, đóng nợ 07/08
 
-```powershell
-python vnstock_classifier.py --classify --limit 20
-```
-Soi: không còn đòi `ANTHROPIC_API_KEY`, có dòng route "ladder free". Dán kết quả.
+`--rerun-flagged VNM` trên laptop in đúng `route: ladder free — Gemini
+3.5-flash dẫn đầu`, 1 classified / 0 errors, KHÔNG đòi `ANTHROPIC_API_KEY`.
+Bậc thang model free chạy thật, không chỉ chạy trong test.
+(Chạy `--classify` thường sẽ báo "All tickers already classified" vì 1652/1652
+đã xong — muốn xác minh lại phải dùng `--rerun-flagged`.)
 
 ### ✅ Kho laptop — ĐÃ KIỂM 19/08, sạch
 
