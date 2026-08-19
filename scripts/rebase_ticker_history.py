@@ -54,6 +54,7 @@ MIN_OVERLAP = 5
 def _probe(tk: str, wh_root: Path, brk: date, win: int = 30) -> dict:
     from probe_price_basis import basis_report, fetch_source, load_wh
     d0, d1 = brk - timedelta(days=win), brk + timedelta(days=win)
+    d1 = min(d1, date.today())     # xin giá tương lai là vô nghĩa (vết 19/08)
     wh = load_wh(wh_root / "prices", tk, d0, d1)
     src = fetch_source(tk, d0, d1)
     if wh.empty or src.empty:

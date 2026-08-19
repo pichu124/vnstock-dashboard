@@ -164,6 +164,18 @@ def _find_break(prices_dir: Path, ticker: str) -> "date | None":
     return date.fromisoformat(max(hot, key=lambda j: abs(j["pct"]))["time"])
 
 
+def _clamp_today(d: date) -> date:
+    """Không bao giờ hỏi nguồn giá về NGÀY MAI.
+
+    Vết 19/08: vách càng gần hôm nay thì `brk + 30 ngày` càng vượt quá hôm nay
+    — VNM/2026-08-01 sinh ra khoảng tới 2026-08-31 và nguồn nổ
+    `UnboundLocalError` (bọc trong RetryError), một lỗi vô nghĩa với người đọc.
+    Xin dữ liệu tương lai là vô nghĩa dù thư viện có xử lý êm hay không.
+    """
+    today = date.today()
+    return d if d <= today else today
+
+
 def _probe_one(tk: str, wh_root: Path, args) -> int:
     if args.break_date:
         brk = date.fromisoformat(args.break_date)
@@ -178,6 +190,7 @@ def _probe_one(tk: str, wh_root: Path, args) -> int:
         print(f"\n[basis] {tk}: vách tự tìm được = {brk}")
     d0 = date.fromisoformat(args.d_from) if args.d_from else brk - timedelta(days=30)
     d1 = date.fromisoformat(args.d_to) if args.d_to else brk + timedelta(days=30)
+    d1 = _clamp_today(d1)
     wh = load_wh(wh_root / "prices", tk, d0, d1)
     print(f"[basis] {tk} · {d0} → {d1} · kho {len(wh)} bar")
     if wh.empty:

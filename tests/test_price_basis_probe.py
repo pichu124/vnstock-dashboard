@@ -139,3 +139,27 @@ def test_missing_ticker_raises_instead_of_looking_clean(tmp_path):
     import pytest as _pt
     with _pt.raises(Exception):
         ppb._find_break(tmp_path / "prices", "ZZZ")
+
+
+# ── Không bao giờ hỏi nguồn về NGÀY MAI (vá 19/08) ─────────────────────────
+
+def test_window_never_reaches_into_the_future():
+    """Vết 19/08: vách càng gần hôm nay thì `brk + 30 ngày` càng vượt quá hôm
+    nay. VNM/2026-08-01 sinh khoảng tới 2026-08-31 và nguồn nổ
+    `UnboundLocalError` bọc trong RetryError — lỗi vô nghĩa với người đọc.
+    Xin dữ liệu tương lai là vô nghĩa dù thư viện có xử êm hay không."""
+    from datetime import date as _d, timedelta as _td
+    assert ppb._clamp_today(_d.today() + _td(days=30)) == _d.today()
+    assert ppb._clamp_today(_d.today()) == _d.today()
+    past = _d.today() - _td(days=45)
+    assert ppb._clamp_today(past) == past, "quá khứ KHÔNG được đụng vào"
+
+
+def test_rebase_window_is_clamped_too():
+    """Cùng lỗi ở công cụ chữa — nó cũng dựng cửa sổ quanh vách."""
+    import inspect, sys
+    from pathlib import Path as _P
+    sys.path.insert(0, str(_P(__file__).resolve().parent.parent / "scripts"))
+    import rebase_ticker_history as rth
+    src = inspect.getsource(rth)
+    assert "min(d1, date.today())" in src
