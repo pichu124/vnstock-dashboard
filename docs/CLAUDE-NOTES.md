@@ -6689,10 +6689,12 @@ mỹ, chưa đáng thêm guard.
 > được lôi ra đây; vài mô tả cũ bị đính chính. Mục nào ghi "đối soát ✅" nghĩa là
 > đã mở file kiểm lại, không phải chép sổ.
 >
-> Trạng thái đo được TRONG CONTAINER: full suite **2.148 passed** (0 skip,
-> 0 xfail), `--fast` **1.588 test**. ⚠️ Trên MÁY THẬT con số có thể thấp hơn —
-> log 17/08 ghi 2.088 pass (chênh 60, do nhánh env-gated). Đừng coi 2.148 là
-> "số pass phải thấy" trên desktop; badge đỏ mới là tín hiệu, không phải con số. Bộ test HERMETIC với mạng (chặn socket vẫn 2.148 passed) và
+> Trạng thái: full suite **2.168 passed** (0 skip, 0 xfail), `--fast` 1.648.
+> **ĐO TRÊN MÁY THẬT 19/08: cũng đúng 2.168 passed** (113,7s) — khớp container
+> từng test một. ⇒ **HUỶ nghi ngờ "chênh 60 test do nhánh env-gated"** mà bản
+> trước ghi: con số 2.088 trong log 17/08 chỉ là bộ test của NGÀY HÔM ĐÓ, ít
+> hơn vì các test thêm sau đó chưa tồn tại. Không có nhánh nào bị env nuốt, và
+> 6 cổng `importorskip` (mục T-a) KHÔNG kích hoạt trên máy user. Bộ test HERMETIC với mạng (chặn socket vẫn 2.148 passed) và
 > KHÔNG đụng byte nào trong kho. Nhánh `claude/tong-hop-cong-viec-test-w8mvrc`
 > đã push đủ, cây sạch.
 >
