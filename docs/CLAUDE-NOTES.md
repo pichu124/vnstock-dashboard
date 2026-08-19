@@ -6927,6 +6927,14 @@ Sync 74' như 17/08 là đủ để Windows chấm dứt task TRƯỚC bước b
 `MaxMinutes` hoặc tách brief ra task riêng (`run.py --no-brief` + task thứ 3 —
 cờ đã có sẵn ở run.py:1234).
 
+**U4-bis (19/08, đo trên máy thật).** `vnstock_classifier` in `✅ Using
+vnstock_data` ⇒ **nhánh SPONSOR đang hoạt động trên máy thật**, trong khi
+container KHÔNG có `vnstock_data`/`vnii` (find_spec → None) nên toàn bộ test
+2.181 chỉ chứng minh nhánh FREE. Đây chính là mục T-c (`USE_UNIFIED` — 4 module
+rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụng đúng nhánh mà
+lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
+pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
+
 **U4. Nâng thư viện** — vnstock 4.0.4→**4.0.6**, vnai 2.4.8→**2.5.7**, vnii
 0.2.4→0.2.5. **Đính chính mô tả cũ**: repo KHÔNG pin bản nào — `requirements.txt`
 chỉ có `vnstock>=3.5.0`, vnai/vnii không hề được khai (dep gián tiếp). Nâng là
