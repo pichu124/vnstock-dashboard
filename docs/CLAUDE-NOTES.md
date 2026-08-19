@@ -6966,6 +6966,58 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 📏 U12. ĐÃ ĐO ĐƯỢC: `sync` 43 phút — 84% là AUTO-HEAL, không phải fix-units
+
+Phát 19/08 18:00 trên desktop `PICHU` (code `65ec935`), dòng `[sync] ⏱ CHẶNG`
+lần đầu có số thật:
+
+```
+auto-heal  2,156.7s  (35.9 phút — 83,4% của sync)
+updater      302.2s  ( 5.0 phút)
+fix-units     98.1s  ( 1.6 phút)
+rollup        27.6s  ( 0.5 phút)
+[sync] ⏱ CHẶNG 43.1 phút
+```
+
+**Nghi phạm cũ SAI.** Việc #0 trong sổ ghi "nghi phạm số 1: `fix-units` quét
+TOÀN KHO mỗi đêm" — đo ra `fix-units` chỉ 98 giây, tức **1,6%**. Kẻ ăn thời
+gian là `auto-heal` (`vnstock_quarantine.auto_heal`), và nó gọi MẠNG theo từng
+bar bị cách ly (`vnstock_quarantine.py:284,337` → `vnstock_remediate.refetch`)
+— đó mới là chỗ đáng mổ. Câu hỏi tiếp theo phải hỏi: hàng đợi cách ly có bao
+nhiêu bar, và có phải đêm nào cũng thử lại đúng những bar không bao giờ lành?
+
+Tổng cả phát: **70,7 phút / 9 bước** — `sync 2.585s · screener 1.251s ·
+news 134s · validate 123s · test 69s · macro 65s · foreign-flow 14s ·
+allocation 2s · gold 2s`. `screener` 21 phút là chi phí số 2.
+
+## Phát này chết ở bước 9 `test` (rc=2), KHÔNG phải chạm trần
+
+`LastTaskResult = 2` (đúng exit code fail cứng của `run.py`), không phải
+`267014 = 0x41306` (task bị chấm dứt). Trần vẫn đang là `PT2H` — **chưa nâng**
+— nhưng 70,7 phút còn xa 120. Ước tính đủ 14 bước: +train 230s +audit 142s
++reflection 14s ≈ **77 phút**, vẫn dưới trần.
+
+⇒ **Nâng trần lên PT180M nay là BẢO HIỂM, không phải bản vá.** Vẫn nên làm vì
+`auto-heal` biến động mạnh, nhưng đừng coi nó là nguyên nhân mất brief.
+
+## Nguyên nhân thật sự: một test đỏ trên máy thật
+
+Bước `test` chạy full suite và trả rc=2 ⇒ `cmd_all` dừng cứng ⇒ train /
+reflection / doctor / **brief** không bao giờ được gọi. Đây là ĐÊM THỨ HAI
+chết đúng bước 9 vì cùng cơ chế.
+
+Nghi phạm số 1 (chờ xác nhận bằng tên test trong log):
+`test_doctor::test_tests_badge_states` — nó cắm `ran_at = hôm nay 10:00` rồi
+để `_code_changed_after` quét mtime file repo THẬT, nên hễ có file .py nào đổi
+sau 10:00 là đỏ. User `git pull` lúc **17:37** ⇒ toàn bộ file merge mang mtime
+17:37 ⇒ test đỏ ở phát 18:00. Tôi vấp đúng lỗi này trong container lúc 11:51
+và đã vá ở `5ac88e4`, nhưng bản vá lên sau khi user merge nên phát tối nay
+chạy code CHƯA có nó.
+
+**Bài học vận hành:** merge lúc 17:37 rồi để phát 18:00 chạy full suite là
+đúng cửa sổ nguy hiểm nhất — bước 9 biến mọi test đỏ thành "mất brief". Muốn
+an toàn thì merge xong chạy `python run.py test` NGAY, đừng đợi task tự chạy.
+
 # 🔴 U11. KHO HAI MÁY DÙNG CHUNG QUA DROPBOX — GHI CHÚ CŨ SAI, ĐÃ SỬA 19/08
 
 **Kết luận cuối, sau khi hỏi user:** `C:\vnstock` VẪN được Dropbox đồng bộ

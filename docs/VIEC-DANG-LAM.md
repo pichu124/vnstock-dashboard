@@ -273,7 +273,7 @@ cần `git fetch origin <nhánh> && git merge origin/<nhánh>` rồi chạy lạ
 
 | # | Việc | Vì sao đáng | Công |
 |---|---|---|---|
-| 0 | ⏳ **Mổ `sync` 60 phút** — đã cắm đồng hồ từng chặng (`a83ee51`), **chờ số đêm nay** | Chiếm 62% thời gian chạy. Nghi phạm số 1: `fix-units` quét TOÀN KHO mỗi đêm | chờ đo |
+| 0 | 🎯 **Mổ `auto-heal`** — ĐÃ ĐO 19/08: sync 43,1' = auto-heal **35,9'** (83%) · updater 5,0' · fix-units 1,6' · rollup 0,5'. Nghi phạm cũ (`fix-units`) SAI. auto-heal gọi mạng theo từng bar cách ly | Chiếm 51% cả phát. Hỏi trước: hàng đợi cách ly bao nhiêu bar, có phải đêm nào cũng thử lại đúng những bar không bao giờ lành? | ~1 buổi |
 | ~~1~~ | ✅ **XONG 19/08** (`970a504`) — test hết ghi bẩn `run_daily.log` | Đo lại: chạy full suite xong log không đổi **một byte** | — |
 | ~~2~~ | ✅ **XONG 19/08** (`a83ee51`) — rec hết bị đóng sớm; lệnh thủng SL nay nhận ra ngay thay vì chờ hết horizon | Verdict #32 từ nay chấm trên đúng khung | — |
 | ~~V1~~ | ✅ **XONG 19/08** — `vnstock_basis_guard`: nới cửa sổ fetch để đối chiếu, lệch >1,2% thì TỪ CHỐI nối + cách ly + badge doctor | Mùa cổ tức sau không lặp lại 70 mã nữa | — |
