@@ -4,6 +4,27 @@ Nền tảng phân tích chứng khoán VN (Streamlit): screener 9 preset, phân
 kỹ thuật/cơ bản, tổng quan thị trường, live mode WSS ~1.100 mã, warehouse
 Parquet local, AI brief sáng/chiều gửi Telegram.
 
+> ## 🟦 ĐỌC TRƯỚC — `C:\vnstock` ĐỒNG BỘ QUA DROPBOX GIỮA HAI MÁY
+>
+> Desktop `PICHU` và laptop `CFA-BINHLD-LT` **dùng CHUNG một kho**. User xác
+> nhận 19/08/2026. Ghi chú cũ "đã bỏ Dropbox, hai kho độc lập" là **SAI** và đã
+> làm hỏng nguyên một ngày làm việc — xem `docs/CLAUDE-NOTES.md` mục U11.
+>
+> **4 hệ quả, thuộc lòng trước khi giao việc cho user:**
+> 1. **Chữa kho làm MỘT LẦN là đủ** — đừng bao giờ gán nhãn ⇄ CẢ HAI cho việc
+>    đụng `data_warehouse`. Máy kia tự có sau vài phút.
+> 2. **Marker + badge cũng đồng bộ.** `pipeline_status.json` /`brief_push.json`/
+>    `test_status.json` / `doctor_status.json` đều nằm TRONG kho và **không có
+>    trường máy** ⇒ badge sidebar có thể là kết quả của MÁY KIA;
+>    `run.py telegram close` chạy ở laptop là desktop câm brief tối đó.
+> 3. **Đừng đụng kho ở máy kia trong lúc pipeline chạy** (18:00-19:xx ngày làm
+>    việc). Hai bên ghi cùng file ⇒ Dropbox đẻ `... (conflicted copy).parquet`
+>    NGAY trong `prices/`, mà `load_bars` glob `year=*/*.parquet` đọc luôn file
+>    đó. Chưa có guard nào chặn.
+> 4. **Đừng suy hạ tầng từ timestamp.** File Dropbox tải xuống nhận
+>    `CreationTime` LÚC TẢI còn TÊN do bên gửi đặt — 19/08 tôi đọc dấu hiệu này
+>    thành "chép tay" và sai suốt buổi. Hạ tầng không đọc được từ code thì HỎI.
+
 ## Môi trường & lệnh chính
 - Windows + venv: `& "C:\Users\Administrator\.venv\Scripts\Activate.ps1"`,
   thư mục làm việc `C:\vnstock` (đường dẫn Dropbox CŨ không còn dùng, nhưng
@@ -17,33 +38,21 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   18:00 ngày làm việc + Weekend — gộp từ 29/07; đăng ký THEO MÁY — máy mới
   phải chạy lại script này, Run as Administrator). Trần task Daily 120 phút:
   sync phình >~75' là task bị chấm dứt TRƯỚC bước brief (bước cuối 14/14).
-- ⚠️ HAI MÁY: desktop `PICHU` (2 task lịch, sinh brief) và laptop
-  `CFA-BINHLD-LT` (kho đầy đủ nhưng KHÔNG có task). Cả hai đều `C:\vnstock`.
-  **KHÔNG nhận dạng bằng đường dẫn hay tên venv** — desktop 19/08 chạy dưới
-  `C:\Users\admin\.venv`, phát trước đó in `C:\Users\Administrator\.venv`,
-  tức venv đổi theo TÀI KHOẢN ĐANG ĐĂNG NHẬP chứ không theo máy. Dấu hiệu duy
-  nhất đáng tin: `$env:COMPUTERNAME` + `Get-ScheduledTask -TaskName 'VnStock *'`
-  (2 task = desktop, rỗng = laptop). Đã quy sai máy 3 lần trong ngày 19/08.
-- ⚠️ **KHO DÙNG CHUNG QUA DROPBOX** (user xác nhận 19/08 — ghi chú cũ "đã bỏ
-  Dropbox, hai kho độc lập" là SAI, đã gây quy sai máy + gán nhãn sai suốt
-  ngày 19/08). Hệ quả: chữa kho làm MỘT LẦN là đủ, máy kia tự có. Nhưng
-  `pipeline_status.json` / `brief_push.json` / `test_status.json` /
-  `doctor_status.json` cũng nằm TRONG kho ⇒ marker và badge cũng đồng bộ:
-  badge sidebar có thể là kết quả của MÁY KIA, và `run.py telegram close` chạy
-  ở laptop là desktop câm brief tối đó. Cửa `--skip-if-done` cố ý bỏ qua
-  cross-machine (đúng cho kho dùng chung); kho tách riêng thì bật
-  `VNSTOCK_INDEPENDENT_WAREHOUSE=1`.
-- ⚠️ Dropbox ghi vào kho song song với pipeline ⇒ **đừng đụng kho ở máy kia
-  trong lúc pipeline chạy** (18:00-19:xx ngày làm việc) — hai bên ghi cùng
-  file là sinh "conflicted copy" nằm ngay trong `prices/`, mà `load_bars` glob
-  `year=*/*.parquet` sẽ đọc cả file đó.
+- ⚠️ HAI MÁY: desktop `PICHU` (2 task lịch, sinh brief) · laptop
+  `CFA-BINHLD-LT` (không task). **KHÔNG nhận dạng bằng đường dẫn hay tên venv**
+  — cả hai đều `C:\vnstock`, và venv đổi theo TÀI KHOẢN đăng nhập chứ không
+  theo máy (desktop in `\admin\`, phát trước in `\Administrator\`). Dấu hiệu
+  duy nhất đáng tin: `$env:COMPUTERNAME` + `Get-ScheduledTask -TaskName
+  'VnStock *'` (2 task = desktop). Đã quy sai máy 3 lần ngày 19/08.
+- Cửa `--skip-if-done` cố ý bỏ qua cross-machine (đúng cho kho dùng chung —
+  xem banner đầu file); kho tách riêng thì bật `VNSTOCK_INDEPENDENT_WAREHOUSE=1`.
 - ⚠️ **MỌI việc/test giao cho user PHẢI ghi rõ máy nào**, theo 4 nhãn dùng trong
   `docs/VIEC-DANG-LAM.md`: 🖥️ DESKTOP · 💻 LAPTOP · ⇄ CẢ HAI (phải làm lặp lại
   ở từng máy khi việc đó KHÔNG nằm trong kho — kho thì Dropbox lo) · ○ máy nào
   cũng được. Lệnh soi trạng
   thái (`run_daily.log`, `_meta/*.json`, `Get-ScheduledTaskInfo`) là 🖥️ DESKTOP
-  — log và kho đều trong `.gitignore`, task đăng ký theo máy. Việc CHỮA KHO là
-  ⇄ CẢ HAI.
+  — log và task đăng ký theo máy (kho thì Dropbox lo). Việc CHỮA KHO là **○ một
+  lần**, KHÔNG phải ⇄ CẢ HAI (sửa 19/08).
 
 ## Test discipline
 - Sửa module lõi nào → `python run.py test --fast` (~1.743 test; ~40s trên CI).
@@ -71,12 +80,10 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   3 nhóm → common/canon (`tests/test_brief_split.py` canh). Mọi tên vẫn
   re-export qua `vnstock_brief` nên đường import cũ không đổi.
 - `vnstock_basis_guard` — cửa gác LỆCH CƠ SỞ ở đường ghi chính (V1, 19/08 sau
-  ca 70/159 mã). `update_ticker` nới cửa sổ fetch lùi 30 ngày CHỈ để đối chiếu
-  (cắt lại trước khi merge, kho không dày thêm bar nào); trung vị tỉ lệ
-  kho/nguồn lệch >1,2% ⇒ nguồn vừa rebase toàn chuỗi ⇒ **KHÔNG nối**, ghi mã
-  vào `_meta/basis_drift_pending.json`, doctor dựng badge. Bar `last_date` bị
-  loại khỏi phép so (có thể dở dang). Chữa bằng `rebase_ticker_history` —
-  chữa xong tool tự xoá mã khỏi sổ. Ngưỡng 1,2% phải KHỚP
+  ca 70/159 mã). `update_ticker` nới fetch lùi 30 ngày CHỈ để đối chiếu (cắt
+  lại trước khi merge); trung vị kho/nguồn lệch >1,2% ⇒ **KHÔNG nối**, ghi mã
+  vào `_meta/basis_drift_pending.json` + badge doctor. Bar `last_date` loại
+  khỏi phép so (có thể dở dang). Ngưỡng phải KHỚP
   `probe_price_basis.SAME_BASIS_TOL` (có test canh).
 - Pipeline data: `vnstock_updater` (sync giá) → `vnstock_rollup` (1m→daily)
   → `vnstock_warehouse` (Parquet) → `vnstock_runner`/`vnstock_screener`
