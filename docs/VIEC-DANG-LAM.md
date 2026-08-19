@@ -34,7 +34,15 @@ Một đêm sync phình như 17/08 (74') là vượt trần. Đã sửa sẵn tr
 `setup_scheduled_tasks.ps1` (commit 943e5ea) nhưng file đó chỉ có tác dụng khi
 đăng ký lại task — lệnh trên là đường tắt.
 
-### Sáng hôm sau — kiểm 1 phút
+### Sáng hôm sau — kiểm 1 phút (nay có thêm 1 dòng đáng xem)
+
+```powershell
+Select-String -Path C:\vnstock\run_daily.log -Pattern 'CHANG|CHẶNG' | Select-Object -Last 3
+```
+Dòng `[sync] ⏱ CHẶNG …` nói sync tiêu 60 phút vào chặng nào (updater / rollup /
+fix-units / auto-heal). Dán cho Claude — đây là số còn thiếu để chữa đúng chỗ.
+
+### Brief chiều — kiểm 1 phút
 
 Telegram có brief chiều không? **Có** = đêm tự động trọn vẹn ĐẦU TIÊN (mở luôn
 cổng đang chặn mục "tầng B"). **Không** → chạy lệnh này rồi dán cho Claude:
@@ -84,9 +92,9 @@ cần `git fetch origin <nhánh> && git merge origin/<nhánh>` rồi chạy lạ
 
 | # | Việc | Vì sao đáng | Công |
 |---|---|---|---|
-| 0 | **Mổ `sync` 60 phút** ← nút thắt lớn nhất hiện nay | Chiếm 62% thời gian chạy; là lý do trần task thành vấn đề và đêm nào cũng suýt chết | ~1 buổi |
+| 0 | ⏳ **Mổ `sync` 60 phút** — đã cắm đồng hồ từng chặng (`a83ee51`), **chờ số đêm nay** | Chiếm 62% thời gian chạy. Nghi phạm số 1: `fix-units` quét TOÀN KHO mỗi đêm | chờ đo |
 | ~~1~~ | ✅ **XONG 19/08** (`970a504`) — test hết ghi bẩn `run_daily.log` | Đo lại: chạy full suite xong log không đổi **một byte** | — |
-| 2 | **Rec bị đóng sớm 20-40%** — horizon ghi bằng PHIÊN nhưng thi hành bằng NGÀY LỊCH | Lỗi số liệu nặng nhất; đang bóp méo verdict của #32 | ~30' |
+| ~~2~~ | ✅ **XONG 19/08** (`a83ee51`) — rec hết bị đóng sớm; lệnh thủng SL nay nhận ra ngay thay vì chờ hết horizon | Verdict #32 từ nay chấm trên đúng khung | — |
 | 3 | **Ghi JSON nguyên tử** (12 điểm/7 file) + nối vào lưới `_MUST_BE_ATOMIC` | Pipeline đã bị kill 2 lần; bản cụt còn lây sang file dự phòng | ~30' |
 | ~~4~~ | ✅ **XONG 19/08** (`970a504`) — 3 test bộ công cụ đơn vị giá đã vào `--fast` | `--fast` nay 1.636 test | — |
 | 5 | **Doctor soi kill-switch** (`VNSTOCK_PIPELINE_BRIEF`…) | Chính ẩn số của Bước 1 lẽ ra phải có badge báo | ~30' |
