@@ -16,10 +16,13 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   18:00 ngày làm việc + Weekend — gộp từ 29/07; đăng ký THEO MÁY — máy mới
   phải chạy lại script này, Run as Administrator). Trần task Daily 120 phút:
   sync phình >~75' là task bị chấm dứt TRƯỚC bước brief (bước cuối 14/14).
-- ⚠️ HAI MÁY: desktop (có 2 task lịch, sinh brief) và laptop `CFA-BINHLD-LT`
-  (kho đầy đủ nhưng KHÔNG có task). Cả hai đều dùng `C:\vnstock` + venv
-  `Administrator` nên **KHÔNG nhận dạng máy bằng đường dẫn** — hỏi
-  `$env:COMPUTERNAME` + `Get-ScheduledTask -TaskName 'VnStock *'`.
+- ⚠️ HAI MÁY: desktop `PICHU` (2 task lịch, sinh brief) và laptop
+  `CFA-BINHLD-LT` (kho đầy đủ nhưng KHÔNG có task). Cả hai đều `C:\vnstock`.
+  **KHÔNG nhận dạng bằng đường dẫn hay tên venv** — desktop 19/08 chạy dưới
+  `C:\Users\admin\.venv`, phát trước đó in `C:\Users\Administrator\.venv`,
+  tức venv đổi theo TÀI KHOẢN ĐANG ĐĂNG NHẬP chứ không theo máy. Dấu hiệu duy
+  nhất đáng tin: `$env:COMPUTERNAME` + `Get-ScheduledTask -TaskName 'VnStock *'`
+  (2 task = desktop, rỗng = laptop). Đã quy sai máy 3 lần trong ngày 19/08.
 - ⚠️ **MỌI việc/test giao cho user PHẢI ghi rõ máy nào**, theo 4 nhãn dùng trong
   `docs/VIEC-DANG-LAM.md`: 🖥️ DESKTOP · 💻 LAPTOP · ⇄ CẢ HAI (phải làm lặp lại
   ở từng máy — hai kho KHÔNG tự đồng bộ) · ○ máy nào cũng được. Lệnh soi trạng

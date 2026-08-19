@@ -33,10 +33,26 @@ origin/<nhánh>` (`git pull` báo "Already up to date" dù vừa tải commit v�
 | Việc | Trạng thái |
 |---|---|
 | Chữa lệch cơ sở — 💻 laptop | ghi 70/70 · quét lại **68 sạch, còn VTP + QNS** · code đã vá, phải chạy lại 2 mã bằng bản mới |
-| Chữa lệch cơ sở — 🖥️ desktop | **chưa động gì** · phải `--sweep` trước (vết quét là file local từng máy) |
+| Chữa lệch cơ sở — 🖥️ desktop `PICHU` | quét 19/08 17:45 ra **ĐÚNG 2 mã** (VTP `0.8521×` · QNS `0.9785×`) chứ không phải ~70 ⇒ kho desktop **đã ở trạng thái sau khi chữa**. Chưa giải thích được vì sao — xem ❓ dưới |
 | Trần task Daily `PT180M` — 🖥️ desktop | **chưa làm** · cần PowerShell Administrator, làm trước 18:00 |
 | Chạy lại backtest/kiểm định | **chưa** · chỉ chạy sau khi kho về 0 mã lệch. Mọi verdict trước 19/08 (kể cả #32 p=0.012) coi như VÔ HIỆU |
 | V1 — guard chặn tái phát | **chưa viết dòng code nào** · phương án đã chốt ở mục "CHỜ BẠN QUYẾT" cuối trang, nói "làm V1" là Claude bắt tay |
+
+**❓ CHƯA GIẢI THÍCH ĐƯỢC — đừng bỏ qua.** Lượt `--apply` 19/08 15:43 được
+hiểu là chạy trên laptop, nhưng 17:45 desktop `PICHU` quét ra ĐÚNG 2 mã còn
+lại với ĐÚNG tỉ lệ tới 4 chữ số (`0.8521×` / `0.9785×`) và ĐÚNG bộ đếm
+universe (159 · 1.564 · 1.402). Hai kho độc lập không thể trùng như vậy. Hoặc
+lượt đó thật ra chạy trên desktop (venv in ra `Administrator` vs `admin` —
+venv theo TÀI KHOẢN, không theo máy), hoặc `C:\vnstock` giữa hai máy KHÔNG
+độc lập như `CLAUDE.md` đang ghi. Kiểm quyết định:
+
+```powershell
+Get-ChildItem C:\vnstock\data_warehouse\_meta\backup_rebase |
+  Select-Object Name, CreationTime | Sort-Object CreationTime | Select-Object -Last 5
+(Get-ChildItem C:\vnstock\data_warehouse\_meta\backup_rebase).Count
+```
+Có ~70 thư mục đóng dấu `20260819-154x` = lượt ghi đó xảy ra trên CHÍNH kho
+này. Câu trả lời đổi hẳn nhãn "⇄ CẢ HAI" của mọi việc chữa kho.
 
 **Lệnh đầu tiên khi quay lại (💻 laptop):**
 
