@@ -106,7 +106,11 @@ $TaskDefinitions = @(
                 -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday `
                 -At $DailyTime
         }
-        MaxMinutes  = 120
+        # 120 -> 180 (19/08): phat 18/08 chay 96.6' MOI DEN buoc 9 (sync 60' +
+        # screener 28'), con 4 buoc nua moi toi brief. Du dia chi 16' — mot dem
+        # sync phinh nhu 17/08 (74') la task bi cham dut TRUOC brief, dung cai
+        # da xay ra. Weekend da dung 180 tu dau.
+        MaxMinutes  = 180
         Description = "14 buoc: sync -> validate -> screener -> ... -> audit -> train -> doctor -> brief chieu Telegram"
     },
     @{
