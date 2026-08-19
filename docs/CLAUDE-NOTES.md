@@ -6676,27 +6676,33 @@ mỹ, chưa đáng thêm guard.
 
 ---
 
-# ⚠️ HAI MÁY, HAI KHO — phát hiện 19/08, đọc TRƯỚC khi tin bất kỳ số nào
+# ⚠️ HAI MÁY, HAI KHO — chốt 19/08 (bản đã sửa 2 lần, đọc kỹ)
 
-`CFA-BINHLD-LT` (laptop) có **kho ĐẦY ĐỦ 3.125 mã** + `run_daily.log`, nhưng
-**KHÔNG có task lịch nào** (`Get-ScheduledTask 'VnStock *'` ra rỗng). Suy ra:
+Hai lần tôi kết luận sai về máy trong cùng một buổi; bản này là bản đúng, giữ
+lại cả vết sai để không lặp.
 
-* Mọi phát `run.py all` ghi trong log của laptop là **chạy TAY**, không phải
-  task đêm. ⇒ Kết luận sáng 19/08 "pipeline đêm chết ở bước test (9/14)" mô tả
-  **một phát chạy tay trên laptop**, KHÔNG chứng minh được gì về task 18:00
-  trên desktop. Đừng chép lại nó như sự thật về đêm tự động.
-* Nhận dạng máy KHÔNG được suy từ `C:\vnstock` hay venv `Administrator` — hai
-  máy cài giống hệt nhau (tôi đã nhầm 19/08). Dùng `$env:COMPUTERNAME` +
-  `Get-ScheduledTask`.
-* **RỦI RO CHÍNH: hai kho có thể đã phân kỳ.** Kho desktop do task đêm cập
-  nhật; kho laptop chỉ đổi khi chạy tay; CLAUDE.md ghi rõ kho là local (đã bỏ
-  Dropbox) nên KHÔNG có gì tự đồng bộ. Đợt chữa lệch cơ sở 18/08 (VHM rebase
-  `--apply`, và PNJ/GEX/GEE/PVD) đã ghi vào kho của MỘT máy — máy còn lại nhiều
-  khả năng VẪN GIỮ chuỗi hỏng. Chưa xác định máy nào.
-  Kiểm rẻ nhất, chạy trên TỪNG máy:
-  `python scripts/check_unit_continuity.py --ticker VHM` — sạch = máy đó đã chữa.
-* Kéo theo: mọi số đo hiệu năng (sync 3.609s, screener 1.657s, TỔNG 96,6') cũng
-  là của laptop. Số của desktop chưa ai đọc.
+**Sự thật:**
+* **Desktop** — có 2 task lịch, là máy chạy pipeline và sinh brief. Toàn bộ
+  chẩn đoán sáng 19/08 (log 1,19 MB đã bị cắt · phát `all` gần nhất **chết ở
+  bước `test` 9/14, `rc=2 → stopping`** · sync 3.609s / screener 1.657s / TỔNG
+  96,6 phút · `test_close_1507_review` nay đã xanh) đều đo TRÊN DESKTOP và
+  **VẪN ĐÚNG**.
+* **Laptop `CFA-BINHLD-LT`** — KHÔNG có task lịch, nhưng có **kho đầy đủ 3.125
+  mã** + `run_daily.log` riêng. Full suite 2.168 passed / 113,7s đo ở đây.
+
+**Hai lần nhầm, để làm bài học:**
+1. Suy nhận dạng máy từ `C:\vnstock` + venv `Administrator` → sai, hai máy cài
+   giống hệt nhau. Phải dùng `$env:COMPUTERNAME` + `Get-ScheduledTask`.
+2. Thấy laptop không có task → vội quy TOÀN BỘ log về laptop và gỡ nhãn chẩn
+   đoán đúng. Sai chiều: user chỉ vừa đổi sang laptop ở cuối buổi. **Bài học:
+   khi phát hiện nhầm bối cảnh, hỏi mốc chuyển chứ đừng quy hồi tố tất cả.**
+
+**RỦI RO CÒN LẠI — kho laptop nhiều khả năng đang HỎNG:** đợt chữa lệch cơ sở
+18/08 (VHM rebase `--apply`, PNJ/GEX/GEE/PVD) chạy trên DESKTOP, mà kho là local
+(đã bỏ Dropbox) nên không có gì đồng bộ sang laptop. ⇒ Kho laptop nhiều khả
+năng vẫn giữ chuỗi VHM lệch 2.0000×. Không nguy hiểm cho brief (brief sinh trên
+desktop) nhưng **đừng dùng laptop để soi/phân tích số**. Kiểm: `python
+scripts/check_unit_continuity.py --ticker VHM` — báo vách = kho máy đó chưa chữa.
 
 ---
 

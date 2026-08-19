@@ -68,6 +68,16 @@ python vnstock_classifier.py --classify --limit 20
 ```
 Soi: không còn đòi `ANTHROPIC_API_KEY`, có dòng route "ladder free". Dán kết quả.
 
+### Khi rảnh — kiểm kho LAPTOP có bị bỏ quên không
+
+Đợt chữa lệch cơ sở 18/08 chạy trên desktop; kho là local nên laptop KHÔNG được
+đồng bộ. Trên laptop chạy:
+```powershell
+python scripts\check_unit_continuity.py --ticker VHM
+```
+Báo vách = kho laptop vẫn hỏng → hoặc chữa bằng `rebase_ticker_history`, hoặc
+chấp nhận và **không dùng laptop để soi số**.
+
 ### Chỉ làm được TRONG GIỜ GIAO DỊCH (9h15–14h30, T2–T6)
 
 Mở dashboard → bật 🔴 **Live Mode** ở sidebar trái → tab **Thị trường**. Xác nhận
@@ -83,10 +93,10 @@ một biến số vào đúng lúc đang gỡ.
 
 ## ✅ ĐÃ CHỐT — không phải làm lại
 
-* ~~Vì sao brief không gửi~~ — **CHƯA CHỐT ĐƯỢC, đã gỡ nhãn**. Phát chạy chết
-  ở bước `test` (9/14, `rc=2 → stopping`) mà tôi soi sáng 19/08 nằm trong log
-  của **laptop** `CFA-BINHLD-LT`, mà laptop KHÔNG có task lịch → đó là một phát
-  chạy TAY. Log của desktop chưa ai đọc. Câu hỏi vẫn mở.
+* **Vì sao brief không gửi**: phát `all` gần nhất trên DESKTOP **chết ở bước
+  `test` (9/14)** với `rc=2 → stopping`, nên train/reflection/doctor/brief chưa
+  bao giờ được gọi. Không phải bị bỏ qua, không phải kill-switch, không phải
+  marker. Test đó nay đã xanh trên chính desktop (18 passed).
 * **Test đó nay ĐÃ XANH trên máy thật** (`18 passed`) — phát chết là chạy trên
   code cũ trước khi merge. Đêm tới sẽ đi qua được bước 9.
 * **Máy không thiếu code**: HEAD đã ở đúng commit mới nhất.
