@@ -2589,12 +2589,26 @@ def test_market_data_freshness_flags_stale_overview(tmp_path, monkeypatch):
     assert fr["stale_blocks"]
 
 
-def test_market_data_freshness_fresh_when_same_day(tmp_path):
+def test_market_data_freshness_fresh_when_same_day_and_after_the_close(tmp_path):
+    """Cùng phiên VÀ chốt SAU 15:05 mới là tươi.
+
+    Bản cũ của test này chỉ đòi CÙNG NGÀY, và nó chính là lỗ hổng: overview
+    chốt lúc 11:00 mang cùng `data_date` với overview chốt phiên nên được coi
+    là tươi, trong khi độ rộng/movers/dòng tiền mới thấy nửa buổi sáng. Xem
+    `tests/test_brief_freshness_intraday.py`.
+    """
     p = tmp_path / "market_overview.json"
-    p.write_text('{"generated_at": "2026-06-09 11:00:00"}')
+    p.write_text('{"generated_at": "2026-06-09 18:30:00"}')
     fr = market_data_freshness(data_date="2026-06-09", overview_path=p)
     assert fr["stale"] is False
     assert fr["stale_blocks"] == []
+
+
+def test_market_data_freshness_same_day_but_mid_session_is_stale(tmp_path):
+    p = tmp_path / "market_overview.json"
+    p.write_text('{"generated_at": "2026-06-09 11:00:00"}')
+    fr = market_data_freshness(data_date="2026-06-09", overview_path=p)
+    assert fr["stale"] is True and fr["reason"] == "intraday"
 
 
 def test_market_data_freshness_prefers_data_date_over_generated_at(tmp_path):

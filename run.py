@@ -794,6 +794,7 @@ def cmd_test(args) -> int:
             # Cửa gác lệch cơ sở ở ĐƯỜNG GHI CHÍNH (V1, 19/08): nó có
             # quyền TỪ CHỐI ghi kho, nên sửa updater mà chạy `--fast`
             # thiếu file này là bỏ lưới đúng chỗ nguy hiểm nhất.
+            "tests/test_brief_freshness_intraday.py",
             "tests/test_ohlc_repair.py",
             "tests/test_quarantine.py",
             "tests/test_conflicted_copy_reads.py",

@@ -1132,24 +1132,81 @@ def _bias_floor_dir(momentum: "int | None", regime_score: "int | None") -> "str 
     return None
 
 
+# Mốc coi PHIÊN ĐÃ ĐÓNG (user chốt 19/08) — khớp mốc screener đang dùng.
+# Dưới mốc này, `market_overview` chỉ mới thấy MỘT PHẦN phiên.
+SESSION_CLOSE_CUTOFF = time(15, 5)
+
+
+def _market_overview_generated_at(
+        path: "str | Path | None" = None) -> "datetime | None":
+    """`generated_at` ĐẦY ĐỦ (có giờ) của market_overview.json.
+
+    Vì sao cần cả GIỜ, không chỉ ngày: `_market_overview_data_date` trả về NGÀY
+    nên "độ rộng chốt lúc 11:00" và "độ rộng chốt phiên" trông y hệt nhau —
+    `stale` = False cho cả hai, và brief chiều mô tả cả phiên trong khi độ rộng
+    / VN30 movers / dòng tiền ngành mới thấy nửa buổi sáng. Đó là lỗ hổng độ
+    tươi phải kiểm bằng TAY suốt (mục "Bước 2" trong sổ việc).
+
+    Chấp nhận cả `"%Y-%m-%d %H:%M:%S"` (định dạng `vnstock_runner` đang ghi),
+    bản không giây, và ISO có `T`. Không parse được → None (chỗ gọi tự lo).
+    """
+    p = Path(path) if path else Path("data_warehouse/_meta/market_overview.json")
+    if not p.exists():
+        return None
+    try:
+        raw = str(json.loads(p.read_text(encoding="utf-8"))
+                  .get("generated_at", "")).strip()
+    except Exception:
+        return None
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw)
+    except ValueError:
+        pass
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
+    return None
+
+
 def market_data_freshness(
     data_date: str | None = None,
     overview_path: "str | Path | None" = None,
 ) -> dict:
     """Compare the screener-produced blocks' DATA date to the session date.
 
-    Returns {"data_date", "overview_date", "stale", "stale_blocks"}. `stale` is
-    True when market_overview (breadth/movers/sector flow/regime) is from an
-    older session than the VNINDEX data the brief describes.
+    Trả `{"data_date", "overview_date", "stale", "stale_blocks", "reason",
+    "overview_time"}`. HAI kiểu cũ (`reason`):
+
+    * `prev_session` — overview từ phiên TRƯỚC. Luật cũ, so NGÀY.
+    * `intraday` — overview CÙNG phiên nhưng chốt TRƯỚC `SESSION_CLOSE_CUTOFF`
+      ⇒ nó mới thấy một phần phiên. Luật này thêm 19/08: so ngày là không đủ,
+      "độ rộng lúc 11:00" và "độ rộng chốt phiên" cùng một `data_date`, nên lỗ
+      hổng phải kiểm bằng tay suốt.
+
+    Mốc so là GIỜ GHI của overview, KHÔNG phải giờ hiện tại — nên hàm vẫn
+    thuần theo file, chạy lúc nào cũng ra cùng kết quả.
     """
     dd = data_date or effective_trading_date()
     ov = _market_overview_data_date(overview_path)
     stale = bool(ov and dd and ov < dd)
+    reason = "prev_session" if stale else ""
+    gen = _market_overview_generated_at(overview_path)
+    if not stale and ov and dd and ov == dd and gen is not None:
+        # Chỉ tính là "giữa phiên" khi overview được ghi ĐÚNG trong ngày phiên
+        # đó. Ghi ở ngày SAU (chạy bù sáng hôm sau từ data EOD) thì nó đã thấy
+        # trọn phiên — cờ ở đây là báo động giả.
+        if gen.date().isoformat() == dd and gen.time() < SESSION_CLOSE_CUTOFF:
+            stale, reason = True, "intraday"
     blocks = (
         ["độ rộng", "VN30 movers", "dòng tiền ngành", "regime"] if stale else []
     )
     return {"data_date": dd, "overview_date": ov, "stale": stale,
-            "stale_blocks": blocks}
+            "stale_blocks": blocks, "reason": reason,
+            "overview_time": gen.strftime("%H:%M") if gen else None}
 
 
 def _auto_refresh_market_overview() -> bool:
@@ -2629,14 +2686,28 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
     # Freshness warning: VNINDEX is intraday/fresh but the screener-produced
     # blocks (breadth / movers / sector flow / regime) trail a session.
     if (fr := ctx.get("freshness")) and fr.get("stale"):
-        lines.append(
-            f"\n## ⚠️ Độ tươi dữ liệu — KHÔNG BỎ QUA\n"
-            f"VNINDEX là phiên {fr.get('data_date')} (mới/intraday), NHƯNG độ rộng, "
-            f"VN30 movers, dòng tiền ngành và regime lấy từ market_overview ngày "
-            f"{fr.get('overview_date')} (PHIÊN TRƯỚC). BẮT BUỘC: thêm 1 câu cảnh báo "
-            f"các khối này từ phiên trước, và khi mâu thuẫn thì ƯU TIÊN tín hiệu giá "
-            f"VNINDEX hiện tại — đừng kết luận xu hướng dựa trên độ rộng/regime cũ."
-        )
+        if fr.get("reason") == "intraday":
+            # Cùng phiên nhưng overview chốt GIỮA phiên — khối độ rộng mới thấy
+            # một phần. Câu cảnh báo phải nói ĐÚNG chuyện đó, không được mượn
+            # câu "phiên trước" (sai sự thật và người đọc sẽ bỏ qua).
+            lines.append(
+                f"\n## ⚠️ Độ tươi dữ liệu — KHÔNG BỎ QUA\n"
+                f"VNINDEX là phiên {fr.get('data_date')} (đã chốt), NHƯNG độ rộng, "
+                f"VN30 movers, dòng tiền ngành và regime lấy từ market_overview "
+                f"chốt lúc {fr.get('overview_time')} — GIỮA PHIÊN, chưa thấy hết "
+                f"phiên. BẮT BUỘC: thêm 1 câu nói rõ các khối này tính đến "
+                f"{fr.get('overview_time')} chứ không phải cuối phiên, và khi "
+                f"mâu thuẫn thì ƯU TIÊN tín hiệu giá VNINDEX chốt phiên."
+            )
+        else:
+            lines.append(
+                f"\n## ⚠️ Độ tươi dữ liệu — KHÔNG BỎ QUA\n"
+                f"VNINDEX là phiên {fr.get('data_date')} (mới/intraday), NHƯNG độ rộng, "
+                f"VN30 movers, dòng tiền ngành và regime lấy từ market_overview ngày "
+                f"{fr.get('overview_date')} (PHIÊN TRƯỚC). BẮT BUỘC: thêm 1 câu cảnh báo "
+                f"các khối này từ phiên trước, và khi mâu thuẫn thì ƯU TIÊN tín hiệu giá "
+                f"VNINDEX hiện tại — đừng kết luận xu hướng dựa trên độ rộng/regime cũ."
+            )
 
     # Deterministic leader/laggard: the strongest +/- sector contributor (1 tuần)
     # is computed in collect_context. Inject it as the ONLY allowed choice so the

@@ -39,7 +39,7 @@ git pull origin claude/tong-hop-cong-viec-test-w8mvrc
 python run.py test
 ```
 
-Phải ra **2.319 passed**. **Chạy `run.py test` NGAY sau khi merge** — đừng để
+Phải ra **2.337 passed**. **Chạy `run.py test` NGAY sau khi merge** — đừng để
 task 18:00 phát hiện hộ. Bài học 19/08: merge lúc 17:37 rồi để phát 18:00 chạy
 full suite ở bước 9, một test đỏ là dừng cứng và **mất brief cả đêm**.
 
@@ -172,16 +172,8 @@ Hoặc bằng mắt: dashboard → 🔴 Live Mode ở sidebar → tab **Thị tr
 |---|---|---|---|
 | 0 | **Đọc số đêm mai rồi mổ tiếp `auto-heal`** — đã chặn trần + chữa nguồn bơm, còn phải xem hàng đợi có teo thật không | Nó từng chiếm 51% cả phát | chờ đo |
 | 3 | **Ghi JSON nguyên tử** (12 điểm/7 file) + nối vào lưới `_MUST_BE_ATOMIC` | Pipeline đã bị kill 2 lần; bản cụt còn lây sang file dự phòng | ~30' |
-| 7 | **Vá gốc lỗ hổng độ tươi** (bị cắt ở `vnstock_brief.py:1095`) | Hết phải kiểm độ tươi brief bằng tay | ~1 buổi |
 | 9 | **Tầng NGẮN (#16) đang trắng** — `trades=None`, không đóng góp khuyến nghị nào | Nửa hệ chiến lược đang không chạy mà không ai biết | ~1 buổi |
 | 10 | **Điểm mù ngưỡng GTGD của bộ quét** — NTP lệch từ 06/2026 mà chỉ lộ khi thanh khoản nhích qua 5 tỷ | Còn một lớp mã lệch đang chờ sẵn dưới ngưỡng | ~30' |
-
----
-
-## ❓ CHỜ BẠN QUYẾT
-
-**Q2. Mốc giờ coi là "phiên đã đóng"** — dùng cho việc #7. Đề xuất **15:05**
-(khớp mốc screener đang dùng). Đồng ý thì Claude lấy luôn.
 
 ---
 

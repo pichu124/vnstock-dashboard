@@ -6966,6 +6966,40 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# ✅ U18. VÁ GỐC LỖ HỔNG ĐỘ TƯƠI — so CẢ GIỜ, mốc 15:05 (user chốt 19/08)
+
+**Lỗ hổng:** `market_data_freshness` chỉ so NGÀY (`overview_date < data_date`).
+Nên "độ rộng chốt lúc 11:00" và "độ rộng chốt phiên" mang CÙNG `data_date` và
+cùng được coi là TƯƠI — trong khi brief chiều mô tả cả phiên còn khối độ rộng /
+VN30 movers / dòng tiền ngành / regime mới thấy nửa buổi sáng. Đây chính là thứ
+phải kiểm bằng TAY suốt (mục "Bước 2" trong sổ việc).
+
+**Vá:** thêm `SESSION_CLOSE_CUTOFF = time(15, 5)` + `_market_overview_generated_at`
+đọc `generated_at` ĐẦY ĐỦ CÓ GIỜ (chấp nhận `"%Y-%m-%d %H:%M:%S"` mà
+`vnstock_runner` đang ghi, bản không giây, và ISO có `T`). `market_data_freshness`
+nay trả thêm `reason` + `overview_time`, với HAI kiểu cũ:
+* `prev_session` — luật cũ, so ngày.
+* `intraday` — cùng phiên nhưng chốt TRƯỚC 15:05.
+
+**Hai chốt chống báo động giả** (nới quá tay thì sáng nào cũng kêu, và người
+đọc học cách bỏ qua cảnh báo — hỏng còn nặng hơn):
+1. Chỉ tính `intraday` khi overview được ghi ĐÚNG trong ngày phiên đó. Ghi ở
+   NGÀY SAU (chạy bù sáng hôm sau từ data EOD) thì nó đã thấy trọn phiên.
+2. Không có `generated_at` / parse không ra → rơi về luật ngày như cũ, KHÔNG
+   biến thành "luôn stale".
+
+**Câu cảnh báo trong prompt tách làm hai.** Mượn câu "PHIÊN TRƯỚC" cho ca giữa
+phiên là nói SAI sự thật; câu mới nói rõ "chốt lúc HH:MM — GIỮA PHIÊN, chưa
+thấy hết phiên" và yêu cầu brief ghi mốc giờ đó. Có test canh cả hai chiều.
+
+**Một test cũ phải sửa vì nó ENCODE chính cái bug:**
+`test_market_data_freshness_fresh_when_same_day` khẳng định overview 11:00
+cùng ngày là "tươi". Đổi thành 18:30 (sau mốc) + thêm test riêng cho ca 11:00
+phải stale.
+
+Lưới: `tests/test_brief_freshness_intraday.py` 17 test, đã vào `--fast`.
+Suite: 2.337 passed (fast 1.838).
+
 # 🌐 U17. NSO ❌ / JINA ⚠️ — HỎNG TRÊN CẢ HAI MÁY (19/08)
 
 `doctor --net` trên desktop `PICHU`: **28 ✅ · 1 ⚠️ · 1 ❌** — hỏng đúng hai

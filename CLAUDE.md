@@ -65,8 +65,8 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   lần**, KHÔNG phải ⇄ CẢ HAI (sửa 19/08).
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~1.820 test; ~28s trên CI).
-- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.319 test).
+- Sửa module lõi nào → `python run.py test --fast` (~1.838 test; ~34s trên CI).
+- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.337 test).
   Đo trên MÁY THẬT 19/08 (sau đợt vá): **2.181 passed / 100,3s** — khớp CI từng test một
   (CI ~36s; máy thật chậm hơn ~3× vì có kho dữ liệu, không phải vì bỏ test).
 - Kết quả ghi `data_warehouse/_meta/test_status.json` → badge sidebar.
@@ -146,6 +146,8 @@ chạy code cũ → `git log --oneline -1` đối chiếu commit cuối Claude b
 - Rollup cố tình skip index → brief sáng thấy data hôm nay duy nhất qua
   `_augment_with_live_vnindex()`.
 - `Giá 1T %` = đổi 1 TUẦN (5 phiên), không phải 1 phiên — mọi nhãn phải ghi rõ.
+- Độ tươi `market_overview` so CẢ GIỜ, không chỉ ngày: cùng phiên mà chốt
+  trước `SESSION_CLOSE_CUTOFF` (15:05) là GIỮA PHIÊN ⇒ stale, `reason=intraday`.
 
 ## Nhật ký chi tiết
 **Hỏi "còn việc gì?" → mở `docs/VIEC-DANG-LAM.md`** (1 trang, việc-của-user vs
