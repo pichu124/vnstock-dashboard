@@ -739,8 +739,69 @@ def net_jina() -> dict:
                    "kiểm tra mạng/allowlist r.jina.ai; tắt hẳn: VNSTOCK_NEWS_FULLTEXT=0")
 
 
+# Kill-switch NGUY HIỂM: tắt hẳn một bước, im lặng, và KHÔNG để lại dấu nào
+# ngoài một dòng log dễ trôi. Vết 19/08: cả buổi truy "vì sao brief không gửi"
+# mà `VNSTOCK_PIPELINE_BRIEF=0` là một trong bốn nghi phạm — doctor lẽ ra phải
+# nói ngay. Doctor cũ chỉ soi 6 cờ tắt của nguồn vĩ mô, không soi nhóm này.
+#
+# Bẫy đường lây: một dòng trong `.env` cũng đủ, vì các bước chạy IN-PROCESS
+# (`cmd_news` bước 4, `cmd_doctor` bước 13) đều `load_dotenv` vào os.environ
+# trước khi tới bước 14.
+_DANGEROUS_SWITCHES = {
+    "VNSTOCK_PIPELINE_BRIEF": "tắt HẲN bước brief — pipeline chạy xong mà "
+                              "Telegram không nhận gì",
+    "VNSTOCK_BRIEF_AUTO_REFRESH": "brief thôi tự làm mới độ rộng thị trường "
+                                  "→ có thể báo số giữa phiên",
+    "VNSTOCK_BRIEF_AUTO_RECONCILE": "thôi tự đóng lệnh quá hạn → sổ lệnh đầy "
+                                    "lệnh zombie",
+    "VNSTOCK_NEWS_FULLTEXT": "tin chỉ chấm bằng title+summary",
+    "VNSTOCK_STRATEGY_ISOLATION": "nới cách ly sandbox chiến lược",
+}
+_OFF_VALUES = {"0", "false", "off", "no"}
+
+
+def check_kill_switches() -> dict:
+    """Có cờ môi trường nào đang TẮT một phần pipeline không.
+
+    Chỉ báo khi cờ được đặt về giá trị TẮT — đặt "1"/"true" là mặc định, không
+    phải chuyện đáng nói. Đọc `.env` nữa chứ không chỉ os.environ, vì đó mới là
+    nơi cờ sống dai và là đường lây đã vấp.
+    """
+    name = "Kill-switch pipeline"
+    found: "list[str]" = []
+    seen: "dict[str, str]" = {}
+    for k in _DANGEROUS_SWITCHES:
+        v = os.environ.get(k)
+        if v is not None:
+            seen[k] = v.strip()
+    env_file = _REPO / ".env"
+    if env_file.exists():
+        try:
+            for line in env_file.read_text(encoding="utf-8", errors="replace").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, _, v = line.partition("=")
+                k = k.strip()
+                if k in _DANGEROUS_SWITCHES:
+                    seen.setdefault(k, v.strip().strip('"\''))
+        except Exception:
+            pass
+    for k, v in seen.items():
+        if str(v).strip().lower() in _OFF_VALUES:
+            found.append(f"{k}={v} ({_DANGEROUS_SWITCHES[k]})")
+    if not found:
+        return _result("kill_switches", name, "ok",
+                       "không cờ nào đang tắt phần nào của pipeline", "")
+    return _result(
+        "kill_switches", name, "warn",
+        "ĐANG TẮT: " + " · ".join(found),
+        "bỏ dòng đó khỏi .env (hoặc biến môi trường User/Machine) rồi chạy lại; "
+        "cố ý tắt thì bỏ qua cảnh báo này")
+
+
 OFFLINE_CHECKS = [
-    check_dir_shapes, check_unit_normalizations,
+    check_dir_shapes, check_unit_normalizations, check_kill_switches,
     check_warehouse, check_market_overview, check_fundamentals, check_macro,
     check_pdf_tooling, check_market_news, check_ticker_news,
     check_foreign_flow, check_events, check_reports, check_allocation,

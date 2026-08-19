@@ -710,7 +710,7 @@ def cmd_test(args) -> int:
 
     Modes:
       (default) — full tests/ directory
-      --fast    — curated subset covering the core modules (~1,648 tests, ~31s CI)
+      --fast    — curated subset covering the core modules (~1,661 tests, ~31s CI)
       --new     — alias for --fast
     """
     import json as _json
@@ -776,6 +776,7 @@ def cmd_test(args) -> int:
             # Sổ lệnh: horizon đếm PHIÊN chứ không phải ngày lịch —
             # sai ở đây là đóng lệnh sớm và đóng VĨNH VIỄN (vết 19/08).
             "tests/test_rec_horizon_sessions.py",
+            "tests/test_doctor_kill_switches.py",
             "tests/test_unit_continuity.py",
             "tests/test_price_basis_probe.py",
             "tests/test_rebase_history.py",
@@ -1019,6 +1020,22 @@ def cmd_telegram(args) -> int:
             resp = _tg.push_morning_brief()
             print(f"[telegram] morning brief sent — message_id={resp.get('result',{}).get('message_id')}")
         elif action == "close":
+            # VẾT 19/08 — cửa gửi này GHI marker nhưng KHÔNG ĐỌC nó, và cũng
+            # không có cửa gác giờ. Hai cách hỏng, cả hai đều âm thầm:
+            #   • gõ hai lần  → hai brief chiều cho cùng một phiên;
+            #   • gõ trước 15:00 ngày làm việc → marker được đóng dấu, làm CÂM
+            #     brief của task 18:00 cùng phiên (mất hẳn brief hôm đó).
+            # Nay đi qua ĐÚNG cửa gác của `cmd_brief` (`_should_push_close`:
+            # kill-switch → giờ → marker). Muốn cố tình vượt thì `--force`,
+            # có in cảnh báo — ép gửi vẫn phải là hành động CÓ Ý THỨC.
+            marker = _brief_push_marker(args)
+            ok, why = _should_push_close(_datetime.now(), marker)
+            if not ok and not getattr(args, "force", False):
+                print(f"[telegram] bỏ qua: {why}")
+                print("[telegram]   (chắc chắn muốn gửi thì thêm --force)")
+                return 0
+            if not ok:
+                print(f"[telegram] ⚠️ --force: bỏ qua cửa gác ({why})")
             resp = _tg.push_close_brief()
             print(f"[telegram] close brief sent — message_id={resp.get('result',{}).get('message_id')}")
             # Lệnh tay cũng tính "phiên này đã có brief" — pipeline chạy
@@ -1687,6 +1704,9 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["test", "morning", "close", "screener"],
         help="test=verify connection, morning=morning brief, close=close brief, screener=alerts only",
     )
+    tg.add_argument("--force", action="store_true",
+                    help="close: bỏ qua cửa gác giờ/marker (gửi trùng được — "
+                         "chỉ dùng khi CỐ Ý)")
 
     news_p = sub.add_parser(
         "news", help="Refresh tin + chấm sentiment (cho tín hiệu tâm lý tin tức trong brief)")

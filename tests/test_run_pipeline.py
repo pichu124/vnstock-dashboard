@@ -2,6 +2,8 @@
 bỏ ĐÚNG sync+validate, giữ nguyên thứ tự phần còn lại."""
 from __future__ import annotations
 
+import sys
+from datetime import datetime as _dt
 from types import SimpleNamespace
 
 import run as runpy
@@ -300,15 +302,118 @@ def test_cmd_brief_marker_records_session_date(tmp_path, monkeypatch):
 def test_cmd_telegram_close_writes_session_marker(tmp_path, monkeypatch):
     """Lệnh tay `telegram close` phải ghi marker PHIÊN — không thì gửi tay
     xong chạy `all` là Telegram nhận brief TRÙNG cùng phiên (ca thật 15/08:
-    user test tay message_id=212 rồi định chạy all ngay sau đó)."""
+    user test tay message_id=212 rồi định chạy all ngay sau đó).
+
+    Từ 19/08 cửa gửi này đi qua `_should_push_close` nên test phải nói rõ ý
+    định bằng `--force` (chạy trong giờ CI thì cửa gác giờ chặn) — điều PHẢI
+    giữ ở đây là: hễ ĐÃ GỬI thì marker được đóng dấu."""
     import json as _json
     from datetime import datetime as dt
 
     import vnstock_telegram as _tg
     monkeypatch.setattr(_tg, "push_close_brief",
                         lambda: {"result": {"message_id": 5}})
-    args = SimpleNamespace(warehouse=str(tmp_path), action="close")
+    args = SimpleNamespace(warehouse=str(tmp_path), action="close", force=True)
     assert runpy.cmd_telegram(args) == 0
     payload = _json.loads(
         runpy._brief_push_marker(args).read_text(encoding="utf-8"))["close"]
     assert payload == runpy._close_session_date(dt.now()).isoformat()
+
+
+# ── `telegram close` phải đi qua đúng cửa gác của bước brief (vá 19/08) ─────
+#
+# Vết: cửa gửi tay GHI marker nhưng KHÔNG ĐỌC nó và không có cửa gác giờ. Hai
+# cách hỏng âm thầm: gõ hai lần → hai brief cùng phiên; gõ trước 15:00 ngày làm
+# việc → marker bị đóng dấu, làm CÂM brief của task 18:00 cùng phiên.
+
+class TestTelegramCloseRespectsTheSameGates:
+
+    def _args(self, tmp_path, force=False):
+        import argparse
+        return argparse.Namespace(action="close", warehouse=str(tmp_path),
+                                  force=force)
+
+    def _fake_tg(self, sent):
+        import types
+        m = types.SimpleNamespace()
+        m.push_close_brief = lambda: sent.append(1) or {"result": {"message_id": 9}}
+        return m
+
+    def _after_close_bell(self, monkeypatch):
+        """Đông cứng giờ vào 16:00 một ngày làm việc — nếu không, cửa gác GIỜ
+        chặn trước và test hoá ra xanh vì lý do khác với thứ nó định kiểm."""
+        import run as runpy
+
+        class _Clock:
+            @staticmethod
+            def now():
+                return _dt(2026, 8, 18, 16, 0, 0)      # thứ Ba, sau 15:00
+
+        monkeypatch.setattr(runpy, "_datetime", _Clock)
+        return _dt(2026, 8, 18, 16, 0, 0)
+
+    def test_marker_of_the_same_session_blocks_a_second_send(
+            self, tmp_path, monkeypatch):
+        import json
+        import run as runpy
+        now = self._after_close_bell(monkeypatch)
+        meta = tmp_path / "_meta"
+        meta.mkdir(parents=True)
+        sess = runpy._close_session_date(now).isoformat()
+        (meta / "brief_push.json").write_text(json.dumps({"close": sess}),
+                                              encoding="utf-8")
+        sent: list = []
+        monkeypatch.setitem(sys.modules, "vnstock_telegram", self._fake_tg(sent))
+        rc = runpy.cmd_telegram(self._args(tmp_path))
+        assert rc == 0 and sent == [], "gửi trùng brief cho cùng một phiên"
+
+    def test_sends_normally_after_the_bell_when_no_marker(
+            self, tmp_path, monkeypatch):
+        """Cửa gác phải HẸP: sau 15:00 mà chưa có marker thì vẫn gửi bình
+        thường, không cần --force."""
+        import run as runpy
+        self._after_close_bell(monkeypatch)
+        (tmp_path / "_meta").mkdir(parents=True)
+        sent: list = []
+        monkeypatch.setitem(sys.modules, "vnstock_telegram", self._fake_tg(sent))
+        assert runpy.cmd_telegram(self._args(tmp_path)) == 0
+        assert sent == [1]
+
+    def test_before_the_bell_it_refuses_and_leaves_no_marker(
+            self, tmp_path, monkeypatch):
+        """Ca hỏng nguy hiểm nhất: gõ trước 15:00 thì marker KHÔNG được đóng
+        dấu — đóng dấu là làm CÂM brief của task 18:00 cùng phiên."""
+        import run as runpy
+
+        class _Clock:
+            @staticmethod
+            def now():
+                return _dt(2026, 8, 18, 9, 30, 0)      # thứ Ba, trước 15:00
+
+        monkeypatch.setattr(runpy, "_datetime", _Clock)
+        (tmp_path / "_meta").mkdir(parents=True)
+        sent: list = []
+        monkeypatch.setitem(sys.modules, "vnstock_telegram", self._fake_tg(sent))
+        assert runpy.cmd_telegram(self._args(tmp_path)) == 0
+        assert sent == []
+        assert not (tmp_path / "_meta" / "brief_push.json").exists()
+
+    def test_force_overrides_the_gate(self, tmp_path, monkeypatch):
+        import json
+        import run as runpy
+        meta = tmp_path / "_meta"
+        meta.mkdir(parents=True)
+        sess = runpy._close_session_date(_dt.now()).isoformat()
+        (meta / "brief_push.json").write_text(json.dumps({"close": sess}),
+                                              encoding="utf-8")
+        sent: list = []
+        monkeypatch.setitem(sys.modules, "vnstock_telegram", self._fake_tg(sent))
+        rc = runpy.cmd_telegram(self._args(tmp_path, force=True))
+        assert rc == 0 and sent == [1], "--force phải vượt được cửa gác"
+
+    def test_force_flag_exists_on_the_parser(self):
+        import run as runpy
+        ns = runpy.build_parser().parse_args(["telegram", "close", "--force"])
+        assert ns.force is True
+        ns2 = runpy.build_parser().parse_args(["telegram", "close"])
+        assert ns2.force is False

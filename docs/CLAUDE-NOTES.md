@@ -6705,9 +6705,12 @@ trạng thái desktop sau khi chữa: chỉ còn 2 vết vô hại là vách 201
 quãng nghỉ 308 ngày tới 2018-05-17 — **cả hai nằm TRƯỚC ngày Vinhomes niêm yết
 (17/05/2018), tức thuộc doanh nghiệp KHÁC từng dùng ticker VHM**, ngoài mọi
 lookback thực tế (backtest dài nhất 730 ngày).
-⇒ Kho laptop đang mang dữ liệu đã chữa và cập nhật tới 18/08 — dùng để soi số
-được. (Hai kho vẫn KHÔNG tự đồng bộ, nên lần chữa kho sau phải làm trên cả hai
-hoặc chép lại; và 4 mã còn lại PNJ/GEX/GEE/PVD chưa kiểm trên laptop.)
+**4 mã còn lại cũng SẠCH trên laptop** (đo 19/08): PNJ 4.347 bar ·
+GEX 2.700 · GEE 1.093 · PVD 4.910 — đều "không vách đứt đáng ngờ", bar cuối
+18/08, khớp giá live 0.98-1.03×. ⇒ **Kho laptop = bản đầy đủ, đã chữa, cập nhật
+tới 18/08 — dùng để soi số được.** Đóng hẳn nghi vấn phân kỳ cho đợt 18/08.
+Còn giữ: hai kho KHÔNG tự đồng bộ, nên **lần chữa kho sau phải làm trên CẢ HAI
+máy** (hoặc chép lại) — nếu không thì lần sau mới thật sự lệch.
 
 ---
 
