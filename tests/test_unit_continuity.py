@@ -397,3 +397,45 @@ def test_full_flag_restores_every_ticker(tmp_path, capsys):
     cuc.main(["--warehouse", str(wh), "--ticker", "CLEANA", "--full"])
     out = capsys.readouterr().out
     assert "bar cuối" in out and "không cần đọc" not in out
+
+
+# ── Vách ĐẢO CHIỀU ≠ lệch cơ sở (vá 19/08 sau ca XDH) ───────────────────────
+
+def test_reverting_dip_is_not_a_basis_shift(tmp_path, capsys):
+    """Ca XDH 19/08: 15.41 → 10.40 → 13.97. Công cụ hô "nghi KHO LỆCH CƠ SỞ",
+    nhưng probe xác nhận kho khớp nguồn 1.0000× TỪNG BAR — dữ liệu nguồn đúng,
+    chỉ là mã kém thanh khoản khớp lác đác. Lệch cơ sở là BẬC THANG GIỮ
+    NGUYÊN: nguồn rebase cả chuỗi thì giá không quay lại mức cũ."""
+    import datetime as _d
+    days = [(_d.date.today() - _d.timedelta(days=n)).isoformat()
+            for n in (12, 11, 10, 9)]
+    wh = tmp_path / "wh"
+    _write_bars(wh, "XDH", _gapped([15.41, 10.40, 13.97, 11.94], days))
+    assert cuc.main(["--warehouse", str(wh), "--ticker", "XDH"]) == 0
+    out = capsys.readouterr().out
+    assert "cần soi tay" not in out
+
+
+def test_persistent_step_is_still_a_basis_shift(tmp_path, capsys):
+    """Chống nới tay: ca VVS (112.50 → 71.21 rồi ở nguyên vùng 71-72) PHẢI
+    vẫn bị kết tội — đó mới là chữ ký lệch cơ sở thật."""
+    import datetime as _d
+    days = [(_d.date.today() - _d.timedelta(days=n)).isoformat()
+            for n in (12, 11, 10, 9)]
+    wh = tmp_path / "wh"
+    _write_bars(wh, "VVS", _gapped([112.50, 71.21, 72.0, 71.5], days))
+    assert cuc.main(["--warehouse", str(wh), "--ticker", "VVS"]) == 1
+    assert "cần soi tay" in capsys.readouterr().out
+
+
+def test_revert_reason_is_spelled_out(tmp_path, capsys):
+    """Người đọc phải biết VÌ SAO nó thôi bị kết tội, không thì lần sau lại
+    nghi ngờ chính công cụ."""
+    import datetime as _d
+    days = [(_d.date.today() - _d.timedelta(days=n)).isoformat()
+            for n in (12, 11, 10)]
+    wh = tmp_path / "wh"
+    _write_bars(wh, "XDH", _gapped([15.41, 10.40, 13.97], days))
+    cuc.main(["--warehouse", str(wh), "--ticker", "XDH", "--full"])
+    out = capsys.readouterr().out
+    assert "ĐẢO CHIỀU" in out and "kém thanh khoản" in out

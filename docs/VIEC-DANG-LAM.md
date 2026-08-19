@@ -28,7 +28,9 @@ Ra 2 task = **desktop**. Rỗng = **laptop** (`CFA-BINHLD-LT`).
 ### ⇄ CẢ HAI MÁY · Chữa VVS — ✅ laptop 19/08 · ⏳ **DESKTOP CHƯA LÀM**
 
 *(Sau khi chữa, laptop chạy lại `check_unit_continuity` ra **1/50 mã cần soi**
-thay vì 11 — VVS đã ✅ sạch. Mã còn lại là XDH, GTGD ~48 triệu/phiên, xem dưới.)*
+thay vì 11 — VVS đã ✅ sạch. Mã cuối cùng là XDH: probe chốt kho khớp nguồn
+**1.0000× từng bar** → dữ liệu nguồn đúng, không có gì để chữa. Công cụ nay tự
+nhận ra loại này (vách đảo chiều ≠ lệch cơ sở) nên **danh sách về 0**.)*
 
 Đầu mối để rơi từ 18/08: VVS chính là mã khởi đầu cuộc điều tra, probe đã chốt
 `warehouse_basis 1.6543×`, rồi mình chuyển sang VHM/PNJ/GEX/GEE/PVD và **quên

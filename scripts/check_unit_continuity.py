@@ -64,6 +64,13 @@ MAX_ADJACENT_DAYS = 4
 # mã bị gắn cờ, mà 10 trong đó là vết 2006-2025 của penny; mã DUY NHẤT đáng
 # chữa (VVS, vách 2026-06-15, GTGD ~13 tỷ/phiên) chìm nghỉm giữa đám đó.
 LOOKBACK_DAYS = 730
+# Lệch CƠ SỞ điều chỉnh là một BẬC THANG GIỮ NGUYÊN — nguồn rebase cả chuỗi thì
+# mức giá mới không quay lại mức cũ. Vách rồi ĐẢO CHIỀU về gần chỗ cũ trong vài
+# phiên là dao động thật của mã kém thanh khoản (khớp lác đác, giá nhảy cóc).
+# Ca XDH 19/08: 15.41 → 10.40 → 13.97, probe xác nhận kho khớp nguồn 1.0000×
+# TỪNG BAR — tức công cụ đã hô "nghi KHO LỆCH CƠ SỞ" cho dữ liệu nguồn đúng.
+REVERT_BARS = 5
+REVERT_TOL = 0.12
 # Ngày GDKHQ trong cache có thể lệch 1-2 phiên so với bar rơi giá (nguồn ghi
 # ngày chốt quyền vs ngày giao dịch không hưởng quyền) → cửa sổ đối chiếu.
 EVENT_WINDOW_DAYS = 3
@@ -161,7 +168,8 @@ def find_jumps(df: pd.DataFrame, jump_pct: float = JUMP_PCT) -> list[dict]:
         inv = 1 / ratio
         gap = int((times.iloc[i] - times.iloc[i - 1]).days)
         age_days = int((pd.Timestamp.now().normalize() - times.iloc[i]).days)
-        if UNIT_LO <= ratio <= UNIT_HI or UNIT_LO <= inv <= UNIT_HI:
+        is_unit = UNIT_LO <= ratio <= UNIT_HI or UNIT_LO <= inv <= UNIT_HI
+        if is_unit:
             why, suspect = "VẾT QUY ĐỔI SÓT (~1000× — VND lẫn nghìn VND)", True
         elif gap > MAX_ADJACENT_DAYS:
             why = (f"cách {gap} ngày (mã nghỉ giao dịch) — biến động tích luỹ "
@@ -178,6 +186,32 @@ def find_jumps(df: pd.DataFrame, jump_pct: float = JUMP_PCT) -> list[dict]:
             why = ("kề phiên mà vượt biên độ sàn — nghi KHO LỆCH CƠ SỞ "
                    "điều chỉnh (nguồn rebase sau sự kiện quyền)")
             suspect = True
+        # Vách có ĐẢO CHIỀU không? Soi CẢ HAI PHÍA vì chữ V có hai chân, và
+        # chân thứ hai (cú hồi) tự nó cũng vượt ngưỡng: nhìn xuôi bắt được
+        # chân đi xuống, nhìn ngược bắt được chân đi lên của cùng một cú.
+        # NGOẠI LỆ ~1000×: không quãng thời gian hay cú hồi nào biến giá thành
+        # sai đơn vị — giữ nguyên luật cũ, nếu không lưới này nuốt mất chính
+        # ca mà công cụ sinh ra để bắt.
+        reverted_in = 0
+        if suspect and not is_unit:
+            lo, hi = prev * (1 - REVERT_TOL), prev * (1 + REVERT_TOL)
+            for k in range(i + 1, min(i + 1 + REVERT_BARS, len(close))):
+                nxt = close.iloc[k]
+                if nxt > 0 and lo <= nxt <= hi:
+                    reverted_in = k - i
+                    break
+            if not reverted_in:
+                blo, bhi = cur * (1 - REVERT_TOL), cur * (1 + REVERT_TOL)
+                for k in range(i - 2, max(i - 2 - REVERT_BARS, -1), -1):
+                    prv = close.iloc[k]
+                    if prv > 0 and blo <= prv <= bhi:
+                        reverted_in = i - k
+                        break
+        if reverted_in:
+            why = (f"vách ĐẢO CHIỀU trong {reverted_in} phiên — dao động thật "
+                   f"của mã kém thanh khoản, KHÔNG phải lệch cơ sở (lệch cơ sở "
+                   f"thì bậc thang GIỮ NGUYÊN, giá không quay lại mức cũ)")
+            suspect = False
         stale = suspect and age_days > LOOKBACK_DAYS
         if stale:
             why = (f"{why} · NGOÀI lookback {LOOKBACK_DAYS} ngày "
@@ -185,6 +219,7 @@ def find_jumps(df: pd.DataFrame, jump_pct: float = JUMP_PCT) -> list[dict]:
         out.append({"time": str(df['time'].iloc[i].date()),
                     "prev": float(prev), "cur": float(cur), "pct": float(pct),
                     "gap_days": gap, "age_days": age_days, "why": why,
+                    "reverted_in": reverted_in,
                     "suspect": suspect and not stale, "stale_history": stale})
     return out
 
