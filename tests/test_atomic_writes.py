@@ -151,6 +151,22 @@ _MUST_BE_ATOMIC = [
     ("dashboard/watchlist_io.py", "watchlist user tự tay dựng"),
     ("vnstock_fundamental_updater.py",
      "fundamentals + snapshot lịch sử point-in-time (mất là không tái tạo được)"),
+    # Mở rộng 19/08 sau khi pipeline bị kill lần thứ hai. Chọn theo HẬU QUẢ
+    # của một bản cụt, không theo "file nào cũng nên nguyên tử":
+    ("vnstock_fix_units.py", "ghi ĐÈ prices.parquet canonical, chạy MỖI ĐÊM "
+                             "trong sync — cụt là mất nguyên năm giá"),
+    ("vnstock_remediate.py", "ghi đè year-file sau khi bỏ bar hỏng"),
+    ("vnstock_wss_backfill.py", "_live/bars_*.parquet — WSS KHÔNG phát lại "
+                                "được, cụt là mất vi cấu trúc phiên vĩnh viễn"),
+    ("vnstock_freefloat.py", "bản đồ freefloat screener lọc thanh khoản theo"),
+    ("vnstock_events.py", "upcoming_events.parquet — guard GDKHQ đọc thẳng "
+                          "file này; cụt là brief mất cảnh báo chốt quyền"),
+    ("vnstock_runner.py", "screener_results.json (dashboard POLL rồi json.load "
+                          "TRẦN) + market_overview.json (brief dựng độ rộng / "
+                          "movers / dòng tiền / regime từ đây)"),
+    ("vnstock_session_stats.py", "market_session_stats.json — mốc so GTGD"),
+    ("run.py", "test_status.json — badge sidebar chặn merge/deploy"),
+    ("vnstock_doctor.py", "doctor_status.json — badge sidebar"),
 ]
 
 

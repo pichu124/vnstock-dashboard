@@ -145,7 +145,10 @@ def backfill_rolled_bars(
             if not df.empty else synth_df
         )
         table = pa.Table.from_pandas(merged, preserve_index=False)
-        pq.write_table(table, live_path, compression="snappy")
+        # Nguyên tử: bar phút WSS KHÔNG phát lại được — cụt file này là mất
+        # vi cấu trúc trong phiên vĩnh viễn.
+        from vnstock_parquet_io import write_table_atomic
+        write_table_atomic(table, live_path)
         fixed += len(synth_rows)
 
     return {"fixed": fixed, "skipped": skipped, "no_api_row": no_api}

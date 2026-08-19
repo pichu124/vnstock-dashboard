@@ -253,7 +253,10 @@ def archive(
             import pyarrow as pa
             kept["time"] = pd.to_datetime(kept["time"])
             table = pa.Table.from_pandas(kept, preserve_index=False)
-            pq.write_table(table, str(pq_file), compression="snappy")
+            # Nguyên tử: đây là đường ghi ĐÈ lịch sử sau khi bỏ bar hỏng —
+            # cụt ở đây là mất phần còn lại của năm đó.
+            from vnstock_parquet_io import write_table_atomic
+            write_table_atomic(table, pq_file)
 
     if removed_total == 0:
         _log_action(warehouse, "archive", ticker, target,

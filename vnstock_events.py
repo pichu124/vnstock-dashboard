@@ -138,7 +138,12 @@ def refresh_upcoming(
     if not out.empty:
         out = out.drop_duplicates(subset=["ticker", "ex_date", "title"])
         _META.mkdir(parents=True, exist_ok=True)
-        out.to_parquet(UPCOMING_EVENTS_PATH, index=False)
+        # Nguyên tử: guard GDKHQ trong brief đọc thẳng file này; bản cụt là brief
+    # mất cảnh báo chốt quyền mà không ai biết.
+    import pyarrow as _pa
+    from vnstock_parquet_io import write_table_atomic
+    write_table_atomic(_pa.Table.from_pandas(out, preserve_index=False),
+                       UPCOMING_EVENTS_PATH)
     if verbose:
         print(f"  → refresh: {refreshed} mã OK, {failed} mã lỗi (giữ cache cũ), "
               f"tổng {len(out)} sự kiện tương lai")

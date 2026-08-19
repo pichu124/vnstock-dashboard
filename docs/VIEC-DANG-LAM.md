@@ -39,7 +39,7 @@ git pull origin claude/tong-hop-cong-viec-test-w8mvrc
 python run.py test
 ```
 
-Phải ra **2.337 passed**. **Chạy `run.py test` NGAY sau khi merge** — đừng để
+Phải ra **2.352 passed**. **Chạy `run.py test` NGAY sau khi merge** — đừng để
 task 18:00 phát hiện hộ. Bài học 19/08: merge lúc 17:37 rồi để phát 18:00 chạy
 full suite ở bước 9, một test đỏ là dừng cứng và **mất brief cả đêm**.
 
@@ -171,10 +171,10 @@ Hoặc bằng mắt: dashboard → 🔴 Live Mode ở sidebar → tab **Thị tr
 
 | # | Việc | Vì sao đáng | Công |
 |---|---|---|---|
+| ~~3~~ | ✅ **XONG 19/08** — 10 điểm ghi state chuyển sang nguyên tử, 9 file mới vào lưới `_MUST_BE_ATOMIC` | Gồm cả `fix_units` (ghi đè prices.parquet MỖI ĐÊM) và `screener_results.json` (dashboard poll rồi `json.load` trần) | — |
+| ~~9~~ | ✅ **XONG 19/08** — tầng NGẮN KHÔNG chết: `_do_tune` trả dict trống-chỉ-có-error khi không ứng viên nào thắng, nên log in `trades=None`. Nay trả metrics THẬT của chiến lược đang chạy + `tune_note` | Dòng log nói sai chuyện gì đã xảy ra | — |
+| ~~10~~ | ✅ **XONG 19/08** — `--sweep` nay LUÔN soi universe backtest (VN30/VNMID) dù dưới ngưỡng GTGD | Ngưỡng GTGD là phỏng đoán; universe chọn theo thành phần chỉ số — khoảng hở giữa hai tiêu chí đi thẳng vào backtest | — |
 | 0 | **Đọc số đêm mai rồi mổ tiếp `auto-heal`** — đã chặn trần + chữa nguồn bơm, còn phải xem hàng đợi có teo thật không | Nó từng chiếm 51% cả phát | chờ đo |
-| 3 | **Ghi JSON nguyên tử** (12 điểm/7 file) + nối vào lưới `_MUST_BE_ATOMIC` | Pipeline đã bị kill 2 lần; bản cụt còn lây sang file dự phòng | ~30' |
-| 9 | **Tầng NGẮN (#16) đang trắng** — `trades=None`, không đóng góp khuyến nghị nào | Nửa hệ chiến lược đang không chạy mà không ai biết | ~1 buổi |
-| 10 | **Điểm mù ngưỡng GTGD của bộ quét** — NTP lệch từ 06/2026 mà chỉ lộ khi thanh khoản nhích qua 5 tỷ | Còn một lớp mã lệch đang chờ sẵn dưới ngưỡng | ~30' |
 
 ---
 

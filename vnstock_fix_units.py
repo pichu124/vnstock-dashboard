@@ -184,7 +184,12 @@ def apply_fixes(warehouse: Path, fixes: list[UnitFix]) -> int:
                 if col in df.columns:
                     df.loc[mask, col] = (df.loc[mask, col] / 1000.0).astype(df[col].dtype)
             table = pa.Table.from_pandas(df, preserve_index=False)
-            pq.write_table(table, pq_file, compression="snappy")
+            # Ghi NGUYÊN TỬ: `pq.write_table` thẳng vào file đích cắt nó về 0
+            # rồi mới stream nội dung — chết giữa chừng là mất/cụt nguyên năm
+            # dữ liệu (audit 06/08). Bước này chạy MỖI ĐÊM trong `sync`, và
+            # pipeline đã bị kill 2 lần.
+            from vnstock_parquet_io import write_table_atomic
+            write_table_atomic(table, pq_file)
             updated += n
     return updated
 

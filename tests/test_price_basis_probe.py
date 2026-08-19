@@ -251,3 +251,74 @@ class TestSweepCli:
                         .read_text(encoding="utf-8"))
         assert data["scanned"] == 120 and data["suspect"] == ["ABC", "VNM"]
         assert data["unchecked"] == ["XYZ"]
+
+
+# ── Điểm mù ngưỡng GTGD ─────────────────────────────────────────────────────
+# Ca NTP (19/08): lệch cơ sở từ 06/2026 nhưng chỉ LỘ RA khi thanh khoản nhích
+# qua 5 tỷ và rơi vào tầm quét. Ngưỡng GTGD chỉ là PHỎNG ĐOÁN cho "mã nào quan
+# trọng", còn universe huấn luyện chọn theo THÀNH PHẦN CHỈ SỐ (VN30/VNMID) —
+# hai tiêu chí khác nhau, và khoảng hở giữa chúng đi thẳng vào backtest.
+
+class TestUniverseBlindSpot:
+    def _warehouse(self, tmp_path, tickers, gtgd_ty):
+        """Kho giả: mỗi mã 20 bar với GTGD ~ `gtgd_ty` tỷ/phiên."""
+        days = pd.bdate_range(end="2026-08-17", periods=20)
+        for tk in tickers:
+            d = tmp_path / "prices" / f"ticker={tk}" / "year=2026"
+            d.mkdir(parents=True)
+            close = 10.0
+            vol = gtgd_ty[tk] * 1e6 / close      # close×volume/1e6 = tỷ
+            pd.DataFrame({"time": days, "open": close, "high": close,
+                          "low": close, "close": close,
+                          "volume": [vol] * len(days)}).to_parquet(
+                d / "p.parquet", index=False)
+        return tmp_path
+
+    def test_universe_ticker_below_the_threshold_is_still_scanned(
+            self, tmp_path, monkeypatch, capsys):
+        wh = self._warehouse(tmp_path, ["AAA", "NTP"],
+                             {"AAA": 50.0, "NTP": 1.0})
+        monkeypatch.setattr(ppb, "strategy_universe", lambda: {"NTP"})
+        seen = []
+        monkeypatch.setattr(ppb, "fetch_source",
+                            lambda tk, d0, d1: seen.append(tk) or pd.DataFrame())
+        ppb._sweep_universe(wh, min_gtgd=5.0, since_days=365, limit=0, delay=0)
+        assert "NTP" in seen, "mã trong universe backtest bị bỏ sót vì thanh khoản"
+        assert "NTP" in capsys.readouterr().out
+
+    def test_no_universe_flag_restores_the_pure_liquidity_scan(
+            self, tmp_path, monkeypatch):
+        wh = self._warehouse(tmp_path, ["AAA", "NTP"],
+                             {"AAA": 50.0, "NTP": 1.0})
+        monkeypatch.setattr(ppb, "strategy_universe", lambda: {"NTP"})
+        seen = []
+        monkeypatch.setattr(ppb, "fetch_source",
+                            lambda tk, d0, d1: seen.append(tk) or pd.DataFrame())
+        ppb._sweep_universe(wh, min_gtgd=5.0, since_days=365, limit=0, delay=0,
+                            with_universe=False)
+        assert seen == ["AAA"]
+
+    def test_a_ticker_is_never_scanned_twice(self, tmp_path, monkeypatch):
+        """Mã vừa trên ngưỡng vừa trong universe — mỗi mã một lần gọi mạng."""
+        wh = self._warehouse(tmp_path, ["AAA"], {"AAA": 50.0})
+        monkeypatch.setattr(ppb, "strategy_universe", lambda: {"AAA"})
+        seen = []
+        monkeypatch.setattr(ppb, "fetch_source",
+                            lambda tk, d0, d1: seen.append(tk) or pd.DataFrame())
+        ppb._sweep_universe(wh, min_gtgd=5.0, since_days=365, limit=0, delay=0)
+        assert seen == ["AAA"]
+
+    def test_unavailable_universe_says_so_instead_of_going_quiet(
+            self, tmp_path, monkeypatch, capsys):
+        """Không lấy được universe = quét THIẾU. Im lặng ở đây là tệ nhất."""
+        wh = self._warehouse(tmp_path, ["AAA"], {"AAA": 50.0})
+        monkeypatch.setattr(ppb, "strategy_universe", lambda: set())
+        monkeypatch.setattr(ppb, "fetch_source",
+                            lambda tk, d0, d1: pd.DataFrame())
+        ppb._sweep_universe(wh, min_gtgd=5.0, since_days=365, limit=0, delay=0)
+        assert "BỎ SÓT" in capsys.readouterr().out
+
+    def test_strategy_universe_is_never_none_and_upper_cased(self):
+        u = ppb.strategy_universe()
+        assert isinstance(u, set)
+        assert all(t == t.upper() for t in u)

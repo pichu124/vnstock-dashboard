@@ -228,8 +228,14 @@ def test_do_tune_blocks_failed_validation(monkeypatch):
     active = {"id": 1, "code": "c", "params_json": '{"x": 1}'}
     sid, out = vs._do_tune([_FakeAgent()], active,
                            vs.BacktestConfig(universe=["AAA"]))
-    assert "adopted" not in rec and "error" in out
+    assert "adopted" not in rec
     assert ("save_bt", 1) in rec       # active có row backtest mới (net + 🧪)
+    # KHÔNG adopt thì phải trả metrics của chính chiến lược ĐANG CHẠY, không
+    # phải dict trống-chỉ-có-error. Vết 19/08: dict trống làm dòng log đêm in
+    # `trades=None expectancy=None` + "chưa đủ lệnh để chấm", và nó bị đọc
+    # thành "nửa hệ chiến lược đang chết" trong khi tầng đó chạy bình thường.
+    assert out["n_trades"] == 20 and out["expectancy"] == 0.1
+    assert out["tune_note"] == "no candidate improved expectancy"
 
 
 def test_do_tune_adopts_with_same_cost_basis(monkeypatch):
@@ -364,3 +370,32 @@ def test_check_decay_guards(monkeypatch):
     monkeypatch.setattr(vs.mem, "get_active_family", lambda: {"id": 7})
     monkeypatch.setenv("VNSTOCK_STRATEGY_DECAY", "0")   # kill switch
     assert vs.check_strategy_decay() is None
+
+
+def test_do_tune_reports_the_active_metrics_when_nothing_improves(monkeypatch):
+    """Tune không tìm được ứng viên tốt hơn là kết quả LÀNH MẠNH, không phải
+    lỗi. Dòng log đêm phải nói đúng chuyện đó — kèm SỐ THẬT của chiến lược đang
+    chạy — thay vì `trades=None` khiến người đọc tưởng tầng đó chết."""
+    rec: list = []
+    calls = {"n": 0}
+
+    def _fake_bt(c, p, cfg):
+        calls["n"] += 1
+        if calls["n"] == 1:            # active, đã re-backtest cùng cost-basis
+            return ({"expectancy": 2.5, "n_trades": 61,
+                     "validation": {"passed": True, "reasons": []}}, "a", "b")
+        return ({"expectancy": 0.2, "n_trades": 44}, "a", "b")   # ứng viên tệ hơn
+
+    monkeypatch.setattr(vs.mem, "update_strategy_params",
+                        lambda *a, **kw: rec.append("adopted"))
+    monkeypatch.setattr(vs.mem, "save_backtest", lambda sid, *a, **kw: None)
+    monkeypatch.setattr(vs, "tune_params", lambda *a, **kw: ({"x": 2}, None))
+    monkeypatch.setattr(vs, "_do_backtest", _fake_bt)
+    active = {"id": 16, "code": "c", "params_json": '{"x": 1}'}
+    sid, out = vs._do_tune([_FakeAgent()], active,
+                           vs.BacktestConfig(universe=["AAA"]))
+
+    assert sid == 16 and "adopted" not in rec
+    assert out["n_trades"] == 61 and out["expectancy"] == 2.5
+    assert out["validation"]["passed"] is True     # verdict vẫn tới được log
+    assert out["tune_note"]

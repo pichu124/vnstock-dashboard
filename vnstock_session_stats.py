@@ -534,8 +534,5 @@ def _write_history(all_data: dict, calibration: dict | None = None):
                 pruned["_calibration"] = existing["_calibration"]
         except Exception:
             pass
-    SESSION_STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    SESSION_STATS_PATH.write_text(
-        json.dumps(pruned, ensure_ascii=False, indent=2),
-        encoding="utf-8"
-    )
+    from vnstock_parquet_io import write_json_atomic
+    write_json_atomic(pruned, SESSION_STATS_PATH)

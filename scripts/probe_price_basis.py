@@ -178,8 +178,35 @@ def find_basis_step(wh: pd.DataFrame, src: pd.DataFrame,
             "shift": shift, "n": len(m)}
 
 
+def strategy_universe() -> set:
+    """Mã mà BACKTEST thật sự chạy trên đó — VN30 + VNMID.
+
+    Vì sao cần: ngưỡng GTGD của bộ quét chỉ là PHỎNG ĐOÁN cho "mã nào quan
+    trọng", còn universe huấn luyện lại chọn theo THÀNH PHẦN CHỈ SỐ. Mã nằm
+    trong VN30/VNMID mà GTGD20 tình cờ dưới ngưỡng thì không bao giờ được quét
+    — trong khi nó VẪN vào backtest. Đúng ca NTP (19/08): lệch cơ sở từ
+    06/2026, chỉ lộ ra khi thanh khoản nhích qua 5 tỷ và rơi vào tầm quét.
+
+    Lấy được thì trả set; hỏng thì trả rỗng (chỗ gọi tự lo) — KHÔNG đoán.
+    """
+    import sys as _sys
+    _root = str(REPO_ROOT)
+    if _root not in _sys.path:
+        _sys.path.insert(0, _root)
+    for get in (lambda: __import__("vnstock_train")._training_universe(lite=False),
+                lambda: __import__("vnstock_brief").VN30_TICKERS):
+        try:
+            out = {str(t).upper() for t in (get() or []) if str(t).strip()}
+            if out:
+                return out
+        except Exception:
+            continue
+    return set()
+
+
 def _sweep_universe(wh_root: Path, min_gtgd: float, since_days: int,
-                    limit: int, delay: float) -> int:
+                    limit: int, delay: float,
+                    with_universe: bool = True) -> int:
     """Quét universe thanh khoản, chỉ in mã ĐỔI BẬC tỉ lệ."""
     import time as _time
 
@@ -194,7 +221,11 @@ def _sweep_universe(wh_root: Path, min_gtgd: float, since_days: int,
                    for p in prices_dir.glob("ticker=*") if p.is_dir())
     equities = [t for t in every if _is_equity(t)]
 
-    ranked = []
+    _uni = strategy_universe() if with_universe else set()
+    if with_universe and not _uni:
+        print("[basis] ⚠️ không lấy được universe backtest — chỉ quét theo "
+              "ngưỡng GTGD, mã trong VN30/VNMID dưới ngưỡng sẽ BỊ BỎ SÓT")
+    ranked, forced = [], []
     for tk in equities:
         df = load_bars(prices_dir, tk, since_days=since_days)
         if df.empty:
@@ -208,8 +239,19 @@ def _sweep_universe(wh_root: Path, min_gtgd: float, since_days: int,
             g = 0.0
         if g >= min_gtgd:
             ranked.append((g, tk))
+        elif with_universe and tk in _uni:
+            # Dưới ngưỡng thanh khoản NHƯNG nằm trong universe backtest ⇒ vẫn
+            # phải soi: lệch cơ sở ở đây vào thẳng backtest.
+            forced.append((g, tk))
     ranked.sort(reverse=True)
-    dropped_liq = len(equities) - len(ranked)
+    dropped_liq = len(equities) - len(ranked) - len(forced)
+    if forced:
+        forced.sort(reverse=True)
+        print(f"[basis] + {len(forced)} mã DƯỚI ngưỡng nhưng nằm trong universe "
+              f"backtest (VN30/VNMID) — vẫn soi: "
+              + ", ".join(t for _, t in forced[:10])
+              + (" …" if len(forced) > 10 else ""))
+        ranked = ranked + forced
     if limit and len(ranked) > limit:
         print(f"[basis] ⚠️ CẮT còn {limit}/{len(ranked)} mã theo --limit — "
               f"{len(ranked) - limit} mã thanh khoản thấp hơn KHÔNG được soi")
@@ -297,6 +339,10 @@ def main(argv: "list[str] | None" = None) -> int:
                          "tức (2-5%%) — lớp lỗi mà check_unit_continuity mù "
                          "hoàn toàn vì nó nhìn vách giá, không nhìn tỉ lệ "
                          "kho/nguồn. Mỗi mã 1 lần gọi nguồn.")
+    ap.add_argument("--no-universe", action="store_true",
+                    help="CHỈ quét theo ngưỡng GTGD, bỏ luật 'mã trong universe "
+                         "backtest luôn được soi'. Nhanh hơn, nhưng bỏ sót đúng "
+                         "lớp mã mà backtest thật sự chạy trên đó.")
     ap.add_argument("--min-gtgd", type=float, default=5.0, metavar="TY",
                     help="sweep: ngưỡng GTGD20 (tỷ VND, mặc định 5) — dưới "
                          "ngưỡng thì mã không lọt universe chiến lược nên "
@@ -316,7 +362,8 @@ def main(argv: "list[str] | None" = None) -> int:
 
     if args.sweep:
         return _sweep_universe(wh_root, args.min_gtgd, args.since,
-                               args.limit, args.delay)
+                               args.limit, args.delay,
+                               with_universe=not args.no_universe)
     if not args.ticker:
         ap.error("cần --ticker hoặc --sweep")
 

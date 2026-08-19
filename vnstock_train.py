@@ -471,6 +471,10 @@ def strategy_loop(
                     print(f"     exit mix: TP {_mix.get('tp', 0):.0%} · "
                           f"SL {_mix.get('sl', 0):.0%} · "
                           f"hết hạn {_mix.get('expire', 0):.0%}")
+                if _note := metrics.get("tune_note"):
+                    # Phân biệt "tune không tìm được ứng viên tốt hơn" (LÀNH
+                    # MẠNH) với "chưa đủ lệnh để chấm" (thiếu bằng chứng).
+                    print(f"     tune: giữ nguyên tham số — {_note}")
                 _v = metrics.get("validation")
                 if _v is None:
                     print("     kiểm định: ⏳ chưa đủ lệnh để chấm")

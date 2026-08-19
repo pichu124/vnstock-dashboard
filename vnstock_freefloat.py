@@ -96,7 +96,8 @@ class FreefloatUpdater:
 
     def save(self, df: pd.DataFrame):
         table = pa.Table.from_pandas(df, schema=FREEFLOAT_SCHEMA, safe=False)
-        pq.write_table(table, str(self.path), compression="snappy")
+        from vnstock_parquet_io import write_table_atomic
+        write_table_atomic(table, self.path)
 
     def load_map(self) -> dict[str, float]:
         """Return {ticker: freefloat_pct} dict — instant lookup."""

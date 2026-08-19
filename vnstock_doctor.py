@@ -1016,10 +1016,9 @@ def write_status(results: list[dict], mode: str) -> "Path | None":
         "checks": results,
     }
     try:
-        _META.mkdir(parents=True, exist_ok=True)
         out = _META / _STATUS_NAME
-        out.write_text(json.dumps(payload, ensure_ascii=False, indent=2),
-                       encoding="utf-8")
+        from vnstock_parquet_io import write_json_atomic
+        write_json_atomic(payload, out)
         return out
     except OSError:
         return None

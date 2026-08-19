@@ -892,11 +892,8 @@ def cmd_test(args) -> int:
     }
     out_path = REPO_ROOT / "data_warehouse" / "_meta" / "test_status.json"
     try:
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(
-            _json.dumps(status, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        from vnstock_parquet_io import write_json_atomic
+        write_json_atomic(status, out_path)
         print(f"\n[test] status written → {out_path}")
     except OSError as e:
         print(f"[test] could not write status: {e}")

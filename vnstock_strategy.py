@@ -2225,7 +2225,15 @@ def _do_tune(agents: list, active: dict, cfg: BacktestConfig) -> tuple[Optional[
             new_metrics,
         )
         return active["id"], {**new_metrics, "tuned_by": name}
-    return active["id"], {"error": "no candidate improved expectancy"}
+    # KHÔNG trả dict trống-chỉ-có-error. `cur_metrics` là backtest TƯƠI của
+    # chính chiến lược đang chạy (vừa chạy lại ngay trên), nên trả nó ra thì
+    # dòng log đêm mới nói đúng chuyện đã xảy ra.
+    # Vết 19/08: tầng NGẮN in `trades=None expectancy=None` + "⏳ chưa đủ lệnh
+    # để chấm" và bị đọc thành "nửa hệ chiến lược đang chết". Thực tế tầng đó
+    # chạy bình thường, chỉ là KHÔNG ứng viên tune nào thắng — một kết quả
+    # LÀNH MẠNH. Dòng log nói sai chuyện gì đã xảy ra là lỗi của dòng log.
+    return active["id"], {**cur_metrics,
+                          "tune_note": "no candidate improved expectancy"}
 
 
 def develop_and_backtest(

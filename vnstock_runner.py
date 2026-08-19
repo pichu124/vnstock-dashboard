@@ -124,8 +124,12 @@ def save_results(output: dict, warehouse: str = "data_warehouse"):
     meta_dir.mkdir(parents=True, exist_ok=True)
     out_path = meta_dir / OUTPUT_FILE
 
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(output, f, ensure_ascii=False, indent=2)
+    # Nguyên tử. `open(..., "w")` CẮT file về 0 rồi mới stream — mà dashboard
+    # chủ động poll mtime file này (`_get_data_mtime` → `st.rerun()`) rồi
+    # `json.load` TRẦN, không try/except. Đọc trúng cửa sổ ghi là sập trang,
+    # và đó là kịch bản được lập trình để xảy ra chứ không phải xui.
+    from vnstock_parquet_io import write_json_atomic
+    write_json_atomic(output, out_path)
 
     # Save daily snapshot for alerts comparison
     history_dir = meta_dir / "screener_history"
@@ -490,12 +494,15 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
 
             # Save cache
             try:
-                _NB_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-                _NB_CACHE_PATH.write_text(
-                    json.dumps({"generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"), "data": nb_data},
-                               ensure_ascii=False),
-                    encoding="utf-8"
-                )
+                # Cache thuần (TTL 12h) nên mất không sao — nhưng file này ở
+                # trong file đã vào lưới `_MUST_BE_ATOMIC`, và lưới soi theo
+                # FILE chứ không theo điểm ghi. Nguyên tử luôn cho khỏi phải
+                # cấy ngoại lệ vào lưới (ngoại lệ là chỗ lỗi thật hay trốn).
+                from vnstock_parquet_io import write_json_atomic
+                write_json_atomic(
+                    {"generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                     "data": nb_data},
+                    _NB_CACHE_PATH)
             except Exception:
                 pass
             console.log(
@@ -715,8 +722,10 @@ def save_market_overview(data: dict, warehouse: str = "data_warehouse"):
     meta_dir.mkdir(parents=True, exist_ok=True)
     out_path = meta_dir / MARKET_OVERVIEW_FILE
     cleaned = _clean_nan(data)
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(cleaned, f, ensure_ascii=False, indent=2, default=_json_safe)
+    # Nguyên tử: brief dựng độ rộng / VN30 movers / dòng tiền ngành / regime từ
+    # file này. Bản cụt = brief im lặng mất mấy khối đó.
+    from vnstock_parquet_io import write_json_atomic
+    write_json_atomic(cleaned, out_path)
     console.print(f"[green]✅ Market overview → {out_path}[/green]")
     return out_path
 
