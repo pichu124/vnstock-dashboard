@@ -6676,6 +6676,30 @@ mỹ, chưa đáng thêm guard.
 
 ---
 
+# ⚠️ HAI MÁY, HAI KHO — phát hiện 19/08, đọc TRƯỚC khi tin bất kỳ số nào
+
+`CFA-BINHLD-LT` (laptop) có **kho ĐẦY ĐỦ 3.125 mã** + `run_daily.log`, nhưng
+**KHÔNG có task lịch nào** (`Get-ScheduledTask 'VnStock *'` ra rỗng). Suy ra:
+
+* Mọi phát `run.py all` ghi trong log của laptop là **chạy TAY**, không phải
+  task đêm. ⇒ Kết luận sáng 19/08 "pipeline đêm chết ở bước test (9/14)" mô tả
+  **một phát chạy tay trên laptop**, KHÔNG chứng minh được gì về task 18:00
+  trên desktop. Đừng chép lại nó như sự thật về đêm tự động.
+* Nhận dạng máy KHÔNG được suy từ `C:\vnstock` hay venv `Administrator` — hai
+  máy cài giống hệt nhau (tôi đã nhầm 19/08). Dùng `$env:COMPUTERNAME` +
+  `Get-ScheduledTask`.
+* **RỦI RO CHÍNH: hai kho có thể đã phân kỳ.** Kho desktop do task đêm cập
+  nhật; kho laptop chỉ đổi khi chạy tay; CLAUDE.md ghi rõ kho là local (đã bỏ
+  Dropbox) nên KHÔNG có gì tự đồng bộ. Đợt chữa lệch cơ sở 18/08 (VHM rebase
+  `--apply`, và PNJ/GEX/GEE/PVD) đã ghi vào kho của MỘT máy — máy còn lại nhiều
+  khả năng VẪN GIỮ chuỗi hỏng. Chưa xác định máy nào.
+  Kiểm rẻ nhất, chạy trên TỪNG máy:
+  `python scripts/check_unit_continuity.py --ticker VHM` — sạch = máy đó đã chữa.
+* Kéo theo: mọi số đo hiệu năng (sync 3.609s, screener 1.657s, TỔNG 96,6') cũng
+  là của laptop. Số của desktop chưa ai đọc.
+
+---
+
 # 📌 VIỆC PHẢI LÀM — chốt 18/08/2026 (bản 2, sau đợt đối soát code)
 
 > ⚠️ ĐÂY LÀ KHO LƯU (lý do + file:line). Muốn LÀM THEO thì mở

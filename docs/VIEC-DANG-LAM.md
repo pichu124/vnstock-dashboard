@@ -8,6 +8,15 @@
 
 ## 🔴 VIỆC CỦA BẠN — làm trên DESKTOP `C:\vnstock`
 
+### 0. Xác định đang ngồi máy nào (2 giây, làm TRƯỚC mọi thứ)
+
+```powershell
+$env:COMPUTERNAME; Get-ScheduledTask -TaskName 'VnStock *' | Select-Object TaskName
+```
+Ra 2 task = **desktop** (máy chạy pipeline). Rỗng = **laptop** → mọi việc dưới
+đây để dành. Đừng nhận dạng máy bằng đường dẫn `C:\vnstock` hay tên venv —
+hai máy cài giống hệt nhau (đã nhầm 19/08).
+
 ### ⏰ GẤP — làm TRƯỚC 18:00 bất kỳ ngày làm việc nào
 
 Nếu bỏ qua, task đêm vẫn có nguy cơ bị Windows chấm dứt trước bước brief.
@@ -74,9 +83,10 @@ một biến số vào đúng lúc đang gỡ.
 
 ## ✅ ĐÃ CHỐT — không phải làm lại
 
-* **Vì sao brief không gửi**: pipeline **chết ở bước `test` (9/14)** với
-  `rc=2 → stopping`, nên train/reflection/doctor/brief chưa bao giờ được gọi.
-  Không phải bị bỏ qua, không phải kill-switch, không phải marker.
+* ~~Vì sao brief không gửi~~ — **CHƯA CHỐT ĐƯỢC, đã gỡ nhãn**. Phát chạy chết
+  ở bước `test` (9/14, `rc=2 → stopping`) mà tôi soi sáng 19/08 nằm trong log
+  của **laptop** `CFA-BINHLD-LT`, mà laptop KHÔNG có task lịch → đó là một phát
+  chạy TAY. Log của desktop chưa ai đọc. Câu hỏi vẫn mở.
 * **Test đó nay ĐÃ XANH trên máy thật** (`18 passed`) — phát chết là chạy trên
   code cũ trước khi merge. Đêm tới sẽ đi qua được bước 9.
 * **Máy không thiếu code**: HEAD đã ở đúng commit mới nhất.
