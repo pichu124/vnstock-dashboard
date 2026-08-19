@@ -6966,7 +6966,17 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
-**U4. Nâng thư viện** — vnstock 4.0.4→**4.0.6**, vnai 2.4.8→**2.5.7**, vnii
+**U4. ✅ NÂNG THƯ VIỆN — LAPTOP XONG 19/08, desktop chờ soak.**
+`vnstock 4.0.4→4.0.6 · vnai 2.4.8→2.5.7 · vnii 0.2.4→0.2.5` trên laptop
+`CFA-BINHLD-LT`: cài trót lọt (vnii build từ sdist), **2.196 passed** y nguyên,
+`check_unit_continuity` vẫn đọc kho đúng (50/50 mã liên tục). Đây là bằng chứng
+mạnh vì laptop chạy nhánh SPONSOR (`vnstock_data`) — nhánh mà bộ test không
+chạm tới.
+⏳ **DESKTOP: CHƯA nâng, và CỐ Ý chưa.** Để laptop chạy vài ngày đã; nâng
+desktop thì tuyệt đối không sát 18:00, và nâng xong phải `run.py doctor --net`
++ full suite ngay. Lùi lại: `pip install vnstock==4.0.4 vnai==2.4.8`.
+
+**U4-cũ (bối cảnh)** — vnstock 4.0.4→**4.0.6**, vnai 2.4.8→**2.5.7**, vnii
 0.2.4→0.2.5. **Đính chính mô tả cũ**: repo KHÔNG pin bản nào — `requirements.txt`
 chỉ có `vnstock>=3.5.0`, vnai/vnii không hề được khai (dep gián tiếp). Nâng là
 việc `pip` trên máy thật, không đụng file repo. Tin có ích: container NÀY đang

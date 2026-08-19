@@ -112,6 +112,12 @@ bộ, nên lần chữa kho sau phải làm trên CẢ HAI máy (hoặc chép l�
 Mở dashboard → bật 🔴 **Live Mode** ở sidebar trái → tab **Thị trường**. Xác nhận
 heatmap VN30 có số nhảy thật. (Code + Playwright đã xong, chỉ thiếu một lần nhìn.)
 
+### ⇄ CẢ HAI · ✅ Nâng thư viện — laptop XONG 19/08 · ⏳ desktop chờ soak
+
+vnstock 4.0.6 · vnai 2.5.7 · vnii 0.2.5 trên laptop: 2.196 passed y nguyên, kho
+đọc vẫn đúng. **Desktop cố ý CHƯA nâng** — để laptop chạy vài ngày đã, và khi
+nâng thì không sát 18:00, nâng xong chạy `doctor --net` + full suite ngay.
+
 ### 💻 LAPTOP TRƯỚC · ĐỪNG làm bây giờ
 
 Nâng vnstock 4.0.4→4.0.6 / vnai 2.4.8→2.5.7 / vnii 0.2.4→0.2.5 (máy đã báo có
