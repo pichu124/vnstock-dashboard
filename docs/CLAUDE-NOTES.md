@@ -6986,7 +6986,20 @@ câu này; muốn biết phải so tỉ lệ kho/nguồn từng mã (mỗi mã 1
 (trước đây chỉ tự dò ≥30% nên KHÔNG với tới lớp lỗi này).
 Chữa VNM (⇄ CẢ HAI MÁY):
 `python scripts/rebase_ticker_history.py --ticker VNM --break-date 2026-06-23`
-(chạy thử trước; xem nguồn có phủ đủ lịch sử không rồi mới `--apply`).
+Dry-run 19/08: **5.089/5.089 bar lấy thẳng từ nguồn, 0 bar nhân hệ số** (nguồn
+phủ từ 2006-01-19, đúng bằng điểm đầu của kho) — phần GIÁ hoàn hảo.
+
+**NHƯNG dry-run đó suýt làm hỏng KHỐI LƯỢNG, đã vá kịp:** heuristic `--volume
+auto` định NHÂN volume 5.089 bar × 1.0327 với lý do "bậc nhảy volume ≈ hệ số
+giá". Sai: 1.0327 là **cổ tức TIỀN MẶT**, không tạo thêm cổ phiếu nào — nhân
+lên là bịa ra 3,27% khối lượng chưa từng khớp. Lỗ hổng của heuristic: điều
+kiện "gần bằng" ở hệ số 1.03 thoả với MỌI bậc nhảy trong 0.67-1.39×, tức toàn
+bộ dao động khối lượng thường ngày; 1.95× của VHM mới là tín hiệu thật.
+**Đã vá:** rebase nay TRA SỰ KIỆN QUYỀN trước (`match_corp_action` →
+`vnstock_adjust.load_events`): `cash` → không bao giờ nhân; `split`/`bonus` →
+được phép nhân; không tra được VÀ hệ số < `VOL_SIGNAL_MIN_FACTOR` (1.15) →
+giữ nguyên và nói rõ vì sao. Ép tay vẫn còn `--volume adjust`.
+⇒ Chạy lại dry-run trước khi `--apply`, phải thấy dòng "GIỮ NGUYÊN khối lượng".
 
 **U8. ⛔ BẢN NÂNG 4.0.6 LÀM HỎNG ĐƯỜNG FETCH — LÙI LẠI, KHÔNG NÂNG DESKTOP
 (19/08).** Sau khi nâng laptop, mọi lượt fetch nguồn đều nổ

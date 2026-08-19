@@ -227,3 +227,56 @@ def test_explicit_break_date_skips_autodetect(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert called == [], "vẫn gọi bộ dò dù đã chỉ định ngày"
     assert "vách do người chỉ định = 2026-06-23" in out
+
+
+# ── Khối lượng: chỉ nhân khi SỐ CỔ PHIẾU thật sự đổi (vá 19/08, ca VNM) ─────
+
+class TestVolumeOnlyScalesForShareCountEvents:
+    """Ca VNM 19/08: hệ số giá 1.0327 (cổ tức tiền mặt) mà heuristic cũ vẫn
+    định NHÂN khối lượng 5.089 bar × 1.0327 — bịa ra 3,27% cổ phiếu chưa từng
+    khớp. Lỗ hổng: điều kiện "bậc nhảy volume ≈ hệ số giá" ở hệ số 1.03 thoả
+    với mọi bậc trong 0.67-1.39 lần, tức toàn bộ dao động thường ngày."""
+
+    def _src(self):
+        import inspect
+        import sys
+        from pathlib import Path as _P
+        sys.path.insert(0, str(_P(__file__).resolve().parent.parent / "scripts"))
+        import rebase_ticker_history as rth
+        return inspect.getsource(rth)
+
+    def test_threshold_is_above_any_cash_dividend(self):
+        """Cổ tức tiền mặt VN thường 2-8% giá; chia tách/thưởng thật đổi ≥15%."""
+        import sys
+        from pathlib import Path as _P
+        sys.path.insert(0, str(_P(__file__).resolve().parent.parent / "scripts"))
+        import rebase_ticker_history as rth
+        assert rth.VOL_SIGNAL_MIN_FACTOR >= 1.10
+
+    def test_cash_dividend_never_scales_volume(self):
+        src = self._src()
+        assert '_ev == "cash"' in src
+        assert "cổ tức TIỀN MẶT không tạo" in src
+
+    def test_small_factor_without_event_refuses_to_guess(self):
+        """Không tra được sự kiện + hệ số nhỏ → giữ nguyên và NÓI RÕ vì sao,
+        đúng nếp 'thà không chữa còn hơn chữa sai'."""
+        src = self._src()
+        assert "_too_small_to_tell" in src and "thà" in src
+
+    def test_split_sized_factor_still_scales(self):
+        """Chống nới tay: ca VHM (1.95 lần, volume nhảy đúng bậc) PHẢI vẫn nhân
+        — đó mới là bằng chứng thật."""
+        import sys
+        from pathlib import Path as _P
+        sys.path.insert(0, str(_P(__file__).resolve().parent.parent / "scripts"))
+        import rebase_ticker_history as rth
+        assert 1.95 >= rth.VOL_SIGNAL_MIN_FACTOR
+        src = self._src()
+        assert "_shares_changed or not _too_small_to_tell" in src
+
+    def test_corp_action_lookup_reuses_the_existing_store(self):
+        """Một nơi định nghĩa: đọc sự kiện qua match_corp_action chứ không
+        dựng bản sao thứ hai của kho sự kiện."""
+        src = self._src()
+        assert "from check_unit_continuity import match_corp_action" in src

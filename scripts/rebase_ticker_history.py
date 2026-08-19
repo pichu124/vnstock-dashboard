@@ -49,6 +49,26 @@ OHLC = ("open", "high", "low", "close")
 # Vùng chồng lấn tối thiểu để tin hệ số đo được. Dưới mức này thì một vài bar
 # lẻ có thể kéo trung vị đi — thà không chữa còn hơn chữa sai cả lịch sử.
 MIN_OVERLAP = 5
+# Dưới hệ số này, bậc nhảy khối lượng KHÔNG phân biệt được với dao động thường
+# ngày, nên nó không còn là bằng chứng gì. Chia tách/thưởng thật đổi giá ít
+# nhất ~15%; cổ tức tiền mặt VN thường 2-8%. Ca VNM 19/08: hệ số 1.0327 mà
+# heuristic cũ vẫn "thấy" bậc nhảy 1.03 rồi định nhân volume 5.089 bar.
+VOL_SIGNAL_MIN_FACTOR = 1.15
+
+
+def _corp_action_kind(tk: str, wh_root: Path, brk: date) -> "str | None":
+    """Loại sự kiện quyền quanh ngày vách: cash / stock / split / bonus.
+
+    Dùng lại kho sự kiện đã có (match_corp_action -> vnstock_adjust.load_events)
+    theo nếp một-nơi-định-nghĩa. Không tra được thì trả None để chỗ gọi tự
+    quyết, KHÔNG đoán bừa.
+    """
+    try:
+        from check_unit_continuity import match_corp_action
+        ev = match_corp_action(tk, wh_root, brk.isoformat())
+        return str(ev.get("type")) if ev else None
+    except Exception:
+        return None
 
 
 def _probe(tk: str, wh_root: Path, brk: date, win: int = 30) -> dict:
@@ -190,8 +210,34 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
     # đổi một lỗi lấy một lỗi khác.
     scale_vol = 1.0
     _near = abs(step - factor) <= 0.35 * factor if step == step else False
-    if volume_mode == "adjust" or (volume_mode == "auto" and
-                                   abs(vol_factor - 1.0) < 0.05 and _near):
+    # HỎI SỰ KIỆN QUYỀN TRƯỚC KHI SUY TỪ SỐ (vá 19/08, ca VNM).
+    # Chỉ sự kiện ĐỔI SỐ CỔ PHIẾU (split/bonus) mới kéo theo khối lượng; cổ tức
+    # TIỀN MẶT hạ giá mà KHÔNG tạo thêm cổ phiếu nào — nhân volume lên là bịa
+    # ra cổ phiếu chưa từng khớp.
+    # Vì sao heuristic cũ không đủ: nó chỉ hỏi "bậc nhảy volume có gần hệ số giá
+    # không". Với hệ số 1.0327 (VNM), điều kiện đó thoả với MỌI bậc trong
+    # khoảng 0.67-1.39 lần — tức toàn bộ dao động khối lượng thường ngày. Ở hệ
+    # số nhỏ, bậc nhảy volume KHÔNG mang tín hiệu; 1.95 lần của VHM mới là
+    # tín hiệu thật.
+    _ev = _corp_action_kind(tk, wh_root, brk)
+    _shares_changed = _ev in ("split", "bonus")
+    _too_small_to_tell = factor < VOL_SIGNAL_MIN_FACTOR
+    if _ev:
+        print(f"[rebase] sự kiện quyền quanh vách: {_ev}"
+              + (" -> CÓ đổi số cổ phiếu" if _shares_changed
+                 else " -> KHÔNG đổi số cổ phiếu"))
+    if volume_mode == "auto" and _ev == "cash":
+        print("[rebase] -> GIỮ NGUYÊN khối lượng: cổ tức TIỀN MẶT không tạo "
+              "thêm cổ phiếu nào (nhân lên là bịa ra khối lượng chưa từng khớp)")
+    elif volume_mode == "auto" and not _ev and _too_small_to_tell:
+        print(f"[rebase] -> GIỮ NGUYÊN khối lượng: hệ số {factor:.4f} lần quá "
+              f"nhỏ để bậc nhảy volume mang tín hiệu (ngưỡng "
+              f"{VOL_SIGNAL_MIN_FACTOR}) và không tra được sự kiện quyền — thà "
+              f"không chữa còn hơn chữa sai. Chắc chắn là chia tách/thưởng thì "
+              f"ép bằng --volume adjust")
+    elif volume_mode == "adjust" or (volume_mode == "auto" and
+                                     abs(vol_factor - 1.0) < 0.05 and _near
+                                     and (_shares_changed or not _too_small_to_tell)):
         scale_vol = factor
         print(f"[rebase] → NHÂN khối lượng lịch sử × {scale_vol:.4f} "
               f"(nguồn chỉ điều chỉnh giá; không nhân thì GTGD lịch sử còn "
