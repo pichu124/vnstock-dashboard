@@ -445,6 +445,15 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
               f"xong. Soi tay: probe_price_basis --ticker {tk} "
               f"--break-date {_left['break']}")
         return 1
+    # Chữa xong thì mã hết lý do nằm trong sổ cách ly của cửa gác V1 — để lại
+    # là doctor kêu mãi và người mất niềm tin vào badge. Xoá ở ĐÂY chứ không ở
+    # updater: sync chạy 8 worker, đọc-sửa-ghi sổ 1.700 lần mỗi đêm là tự chuốc
+    # lost-update vào đúng thứ sinh ra để giữ.
+    try:
+        from vnstock_basis_guard import clear_drift
+        clear_drift(wh_root, tk)
+    except Exception:
+        pass
     print(f"[rebase] ✅ {tk}: chuỗi đã liền — không còn vách trong 365 ngày")
     return 0
 

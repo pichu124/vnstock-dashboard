@@ -58,7 +58,11 @@ def test_partial_today_bar_is_refetched_and_replaced(tmp_path, monkeypatch):
     res = vu.update_ticker("AAA", prices, today)
     # Old behavior: "up_to_date" (fetch_from = 11/06 > today) → frozen partial.
     assert res["status"] == "updated"
-    assert fetched["start"] == "2026-06-10"       # inclusive refetch of last bar
+    # Bất biến là "fetch BAO GỒM bar cuối" chứ không phải "start đúng bằng bar
+    # cuối": từ 19/08 basis guard nới cửa sổ lùi thêm để có vùng chồng lấn mà
+    # đối chiếu cơ sở (superset — bar dở vẫn được lành). Canh literal là canh
+    # chi tiết cài đặt, không phải canh bất biến.
+    assert fetched["start"] <= "2026-06-10"       # inclusive refetch of last bar
 
     out = pd.read_parquet(prices / "ticker=AAA/year=2026/prices.parquet")
     out["time"] = pd.to_datetime(out["time"]).dt.date
@@ -75,7 +79,7 @@ def test_next_day_run_heals_yesterdays_partial(tmp_path, monkeypatch):
     _seed(prices, "BBB", [_bar("2026-06-10", 20.0, 100_000)])  # stale partial
 
     def fake_fetch(ticker, start, end):
-        assert start == "2026-06-10"              # heals the last stored day
+        assert start <= "2026-06-10"              # heals the last stored day
         return pd.DataFrame([
             {"time": date(2026, 6, 10), "open": 20, "high": 21, "low": 19.8,
              "close": 20.5, "volume": 800_000.0},

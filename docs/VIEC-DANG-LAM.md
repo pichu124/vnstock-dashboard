@@ -26,7 +26,7 @@ Ra 2 task = **desktop**. Rỗng = **laptop** (`CFA-BINHLD-LT`).
 ## 📍 ĐIỂM DỪNG 19/08/2026 — mở lại thì đọc 10 dòng này trước
 
 Commit cuối của Claude: **`7fcfe88`**. Nhánh
-`claude/tong-hop-cong-viec-test-w8mvrc`. Suite **2.236 passed** (fast 1.716).
+`claude/tong-hop-cong-viec-test-w8mvrc`. Suite **2.256 passed** (fast 1.736).
 Máy user đang ở `main` → lấy code phải `git fetch origin <nhánh> && git merge
 origin/<nhánh>` (`git pull` báo "Already up to date" dù vừa tải commit về).
 
@@ -36,7 +36,7 @@ origin/<nhánh>` (`git pull` báo "Already up to date" dù vừa tải commit v�
 | Chữa lệch cơ sở — 🖥️ desktop `PICHU` | quét 19/08 17:45 ra **ĐÚNG 2 mã** (VTP `0.8521×` · QNS `0.9785×`) chứ không phải ~70 ⇒ kho desktop **đã ở trạng thái sau khi chữa**. Chưa giải thích được vì sao — xem ❓ dưới |
 | Trần task Daily `PT180M` — 🖥️ desktop | **chưa làm** · cần PowerShell Administrator, làm trước 18:00 |
 | Chạy lại backtest/kiểm định | **chưa** · chỉ chạy sau khi kho về 0 mã lệch. Mọi verdict trước 19/08 (kể cả #32 p=0.012) coi như VÔ HIỆU |
-| V1 — guard chặn tái phát | **chưa viết dòng code nào** · phương án đã chốt ở mục "CHỜ BẠN QUYẾT" cuối trang, nói "làm V1" là Claude bắt tay |
+| V1 — guard chặn tái phát | ✅ **XONG 19/08** (`vnstock_basis_guard.py`, 19 test) — cửa gác nằm ở đúng đường ghi chính, có badge doctor + kill-switch |
 
 **❓ CHƯA GIẢI THÍCH ĐƯỢC — đừng bỏ qua.** Lượt `--apply` 19/08 15:43 được
 hiểu là chạy trên laptop, nhưng 17:45 desktop `PICHU` quét ra ĐÚNG 2 mã còn
@@ -118,7 +118,7 @@ bằng factor, chỉ chạm bộ lọc thanh khoản. Ép thủ công: `--ticker
 ### ○ Sau khi chữa xong — 3 lệnh chạy lại, máy nào chữa thì máy đó chạy
 
 ```powershell
-python run.py test                                    # full suite, kỳ vọng 2.236 passed
+python run.py test                                    # full suite, kỳ vọng 2.256 passed
 python run.py validate                                # hợp đồng dữ liệu trên kho vừa chữa
 python vnstock_train.py --strategy-only --tier both --mode tune
 ```
@@ -256,7 +256,7 @@ cần `git fetch origin <nhánh> && git merge origin/<nhánh>` rồi chạy lạ
 | 0 | ⏳ **Mổ `sync` 60 phút** — đã cắm đồng hồ từng chặng (`a83ee51`), **chờ số đêm nay** | Chiếm 62% thời gian chạy. Nghi phạm số 1: `fix-units` quét TOÀN KHO mỗi đêm | chờ đo |
 | ~~1~~ | ✅ **XONG 19/08** (`970a504`) — test hết ghi bẩn `run_daily.log` | Đo lại: chạy full suite xong log không đổi **một byte** | — |
 | ~~2~~ | ✅ **XONG 19/08** (`a83ee51`) — rec hết bị đóng sớm; lệnh thủng SL nay nhận ra ngay thay vì chờ hết horizon | Verdict #32 từ nay chấm trên đúng khung | — |
-| V1 | **Guard chặn tái phát lệch cơ sở** — phương án đã chốt (ngưỡng 1,5% trên bar chồng lấn · cách ly + cảnh báo, không tự ghi đè) | Chữa 70 mã mà không chặn thì mùa cổ tức sau lại đúng ngần ấy | ~1 buổi |
+| ~~V1~~ | ✅ **XONG 19/08** — `vnstock_basis_guard`: nới cửa sổ fetch để đối chiếu, lệch >1,2% thì TỪ CHỐI nối + cách ly + badge doctor | Mùa cổ tức sau không lặp lại 70 mã nữa | — |
 | 3 | **Ghi JSON nguyên tử** (12 điểm/7 file) + nối vào lưới `_MUST_BE_ATOMIC` | Pipeline đã bị kill 2 lần; bản cụt còn lây sang file dự phòng | ~30' |
 | ~~4~~ | ✅ **XONG 19/08** (`970a504`) — 3 test bộ công cụ đơn vị giá đã vào `--fast` | `--fast` nay 1.636 test | — |
 | ~~5~~ | ✅ **XONG 19/08** (`0a3e785`) — doctor có badge "Kill-switch pipeline", đọc cả `.env` | Ẩn số kiểu này từ nay tự lộ | — |

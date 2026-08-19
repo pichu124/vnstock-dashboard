@@ -31,8 +31,8 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   ⇄ CẢ HAI.
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~1.716 test; ~33s trên CI).
-- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.236 test).
+- Sửa module lõi nào → `python run.py test --fast` (~1.736 test; ~40s trên CI).
+- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.256 test).
   Đo trên MÁY THẬT 19/08 (sau đợt vá): **2.181 passed / 100,3s** — khớp CI từng test một
   (CI ~36s; máy thật chậm hơn ~3× vì có kho dữ liệu, không phải vì bỏ test).
 - Kết quả ghi `data_warehouse/_meta/test_status.json` → badge sidebar.
@@ -55,6 +55,14 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   guard dựng chung ở `vnstock_brief_canon.py`. Một chiều: brief → guards →
   3 nhóm → common/canon (`tests/test_brief_split.py` canh). Mọi tên vẫn
   re-export qua `vnstock_brief` nên đường import cũ không đổi.
+- `vnstock_basis_guard` — cửa gác LỆCH CƠ SỞ ở đường ghi chính (V1, 19/08 sau
+  ca 70/159 mã). `update_ticker` nới cửa sổ fetch lùi 30 ngày CHỈ để đối chiếu
+  (cắt lại trước khi merge, kho không dày thêm bar nào); trung vị tỉ lệ
+  kho/nguồn lệch >1,2% ⇒ nguồn vừa rebase toàn chuỗi ⇒ **KHÔNG nối**, ghi mã
+  vào `_meta/basis_drift_pending.json`, doctor dựng badge. Bar `last_date` bị
+  loại khỏi phép so (có thể dở dang). Chữa bằng `rebase_ticker_history` —
+  chữa xong tool tự xoá mã khỏi sổ. Ngưỡng 1,2% phải KHỚP
+  `probe_price_basis.SAME_BASIS_TOL` (có test canh).
 - Pipeline data: `vnstock_updater` (sync giá) → `vnstock_rollup` (1m→daily)
   → `vnstock_warehouse` (Parquet) → `vnstock_runner`/`vnstock_screener`
   (screener + market_overview.json) → brief.
@@ -77,7 +85,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   `vnstock_brief_guards.py` + NỐI VÀO `apply_brief_guards` + viết test (guard
   quên nối = code chết trông y như code sống; có lưới canh).
 - Mọi auto-refresh đều best-effort và có env kill-switch
-  (`VNSTOCK_BRIEF_AUTO_*`, `VNSTOCK_MACRO_*`).
+  (`VNSTOCK_BRIEF_AUTO_*`, `VNSTOCK_MACRO_*`, `VNSTOCK_BASIS_GUARD`).
 - Model LLM: slug MỚI phải probe sống trước khi vào code —
   `python scripts/probe_models.py --slug "Groq=<model>"` trên máy thật
   (catalog trên mạng hay sai/lỗi thời). Provider khai tử model → 1 dòng

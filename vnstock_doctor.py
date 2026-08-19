@@ -832,6 +832,8 @@ _DANGEROUS_SWITCHES = {
                                     "lệnh zombie",
     "VNSTOCK_NEWS_FULLTEXT": "tin chỉ chấm bằng title+summary",
     "VNSTOCK_STRATEGY_ISOLATION": "nới cách ly sandbox chiến lược",
+    "VNSTOCK_BASIS_GUARD": "tắt cửa gác lệch cơ sở — nguồn rebase là kho lại "
+                           "sinh bậc giả âm thầm như trước 19/08",
 }
 _OFF_VALUES = {"0", "false", "off", "no"}
 
@@ -876,8 +878,39 @@ def check_kill_switches() -> dict:
         "cố ý tắt thì bỏ qua cảnh báo này")
 
 
+def check_basis_drift() -> dict:
+    """Có mã nào bị cửa gác lệch cơ sở CÁCH LY mà chưa chữa không?
+
+    Guard ở `vnstock_updater` từ chối nối bar mới khi phát hiện nguồn vừa
+    rebase toàn chuỗi (V1, sau ca 70/159 mã ngày 19/08) và ghi mã vào
+    `_meta/basis_drift_pending.json`. Mã nằm trong sổ = ĐANG KHÔNG được cập
+    nhật giá — im lặng là mất data, nên đây là warn chứ không phải info.
+    """
+    name = "Lệch cơ sở — mã bị cách ly"
+    try:
+        from vnstock_basis_guard import load_pending
+        pending = load_pending(_META.parent)   # tests monkeypatch _META
+    except Exception as e:
+        return _result("basis_drift", name, "error",
+                       f"không đọc được sổ cách ly ({type(e).__name__}: {e})", "")
+    if not pending:
+        return _result("basis_drift", name, "ok",
+                       "không mã nào bị cách ly vì lệch cơ sở", "")
+    items = sorted(pending.items())
+    head = " · ".join(f"{tk} {v.get('ratio', 0):.4f}× ({v.get('detected_at')})"
+                      for tk, v in items[:6])
+    more = f" … +{len(items) - 6} mã" if len(items) > 6 else ""
+    return _result(
+        "basis_drift", name, "warn",
+        f"{len(items)} mã ĐANG KHÔNG cập nhật giá: {head}{more}",
+        "chữa: python scripts/rebase_ticker_history.py --ticker <MÃ> --apply "
+        "(chữa xong tool tự xoá khỏi sổ). Cố ý bỏ qua thì "
+        "VNSTOCK_BASIS_GUARD=0 — nhưng khi đó lệch quay lại âm thầm")
+
+
 OFFLINE_CHECKS = [
     check_dir_shapes, check_unit_normalizations, check_kill_switches,
+    check_basis_drift,
     check_warehouse, check_market_overview, check_fundamentals, check_macro,
     check_pdf_tooling, check_market_news, check_ticker_news,
     check_foreign_flow, check_events, check_reports, check_allocation,

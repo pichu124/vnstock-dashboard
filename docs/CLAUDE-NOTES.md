@@ -6966,6 +6966,63 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# ✅ V1. CỬA GÁC LỆCH CƠ SỞ Ở ĐƯỜNG GHI CHÍNH — XONG 19/08
+
+`vnstock_basis_guard.py` + wire vào `vnstock_updater.update_ticker`. 19 test
+(`tests/test_basis_guard.py`, đã vào `--fast`). Suite 2.256 / fast 1.736.
+
+**Chỗ đặt guard là điểm chính của thiết kế.** Bộ quét `--sweep` là phát hiện
+SAU — mỗi mùa quyền lại phải chữa lại ngần ấy mã. `update_ticker` là chỗ DUY
+NHẤT biết cùng lúc "kho trước khi ghi" và "nguồn sau khi ghi".
+
+**Cách chạy:**
+1. Nới cửa sổ fetch lùi `LOOKBACK_DAYS = 30` ngày lịch (~20 phiên). **Không
+   tốn thêm lần gọi mạng nào** — cùng một call, chỉ khác tham số `start`.
+2. So trung vị tỉ lệ kho/nguồn trên vùng chồng lấn, **bỏ HẲN bar `last_date`**
+   — đúng bar đó có thể DỞ DANG (updater từng chạy trong phiên, VCI trả daily
+   bar partial). Đó là nguồn báo động giả đáng kể duy nhất ở ngưỡng 1,2%.
+3. Lệch > `TOL = 0.012` ⇒ **KHÔNG nối**, ghi mã vào
+   `_meta/basis_drift_pending.json`, in cảnh báo đỏ, `status="basis_drift"`.
+4. Bình thường ⇒ **cắt `new_df` lại về >= `fetch_from`** rồi merge y như cũ —
+   phần nới thêm CHỈ để đối chiếu, kho không dày thêm một bar nào.
+
+**Ba quyết định đáng ghi lại:**
+* **Cách ly, KHÔNG tự ghi đè.** Sync chạy 3h sáng không ai nhìn; tự động viết
+  lại 20 năm lịch sử lúc đó là đúng loại hành động không nên tự làm. Mất một
+  ngày dữ liệu của một mã thì chữa xong lần sync sau tự lấy lại; một bậc giả
+  im lặng thì không.
+* **Ngưỡng 1,2% = `probe_price_basis.SAME_BASIS_TOL`**, có test canh hai bên
+  bằng nhau. Lệch nhau là sinh ra mã guard cho qua mà bộ quét gắn cờ (hoặc
+  ngược lại) — đúng cái bẫy đã vấp với 5 mã CTG/DPG/MWG/NLG/VPB. Ngưỡng 8% của
+  nhánh fallback quá thô: nó lọt sạch 70 mã vừa rồi.
+* **Kho sự kiện quyền chỉ để GHI KÈM, không để bật/tắt báo động.** Sổ đang
+  mỏng (70 mã lệch chỉ 3 mã tra ra loại) nên tra không ra vẫn phải kêu.
+
+**Guard KHÔNG làm 70 mã ngừng cập nhật trên máy chưa chữa** — điểm này quan
+trọng, đã kiểm bằng số học: sau sự kiện quyền, mỗi đêm merge `keep="last"` đẩy
+ranh giới lên một phiên, nên bar gần đây của kho về cơ sở mới trong ~1 phiên.
+Qua `LOOKBACK_DAYS` là vùng chồng lấn sạch và guard im. Nó bắt đúng KHOẢNH KHẮC
+lệch sinh ra, không bắt di chứng cũ.
+
+**Xoá khỏi sổ là việc của bộ chữa, không phải của sync.** `rebase_ticker_history`
+gọi `clear_drift` sau khi tự kiểm xanh. Updater chạy 8 worker; cho nó đọc-sửa-ghi
+sổ 1.700 lần mỗi đêm là tự chuốc lost-update vào đúng thứ sinh ra để giữ.
+Ghi sổ có `threading.Lock` + ghi nguyên tử.
+
+**Badge doctor:** `check_basis_drift` — warn kèm tên mã + tỉ lệ + lệnh chữa.
+`VNSTOCK_BASIS_GUARD` cũng đã vào danh sách kill-switch nguy hiểm của doctor,
+nên tắt guard là badge kia kêu.
+
+**Hai test cũ phải sửa theo, đều là test canh SAI THỨ:**
+* `test_updater_partial_bar` canh `start == "2026-06-10"` — canh chi tiết cài
+  đặt. Bất biến thật là "fetch BAO GỒM bar cuối"; cửa sổ mới là superset nên
+  bar dở vẫn được lành. Đổi thành `start <= ...`.
+* `test_doctor::test_tests_badge_states` đỏ/xanh theo **GIỜ TRONG NGÀY**: nó
+  cắm `ran_at = hôm nay 10:00` rồi để `_code_changed_after` quét mtime file
+  repo THẬT — chạy trước 10:00 thì xanh, sau 10:00 mà vừa sửa file nào là đỏ
+  (vấp lúc 11:51). Nay monkeypatch `_code_changed_after`, và tách một test
+  RIÊNG cho nhánh đó với repo giả + mtime dựng tay.
+
 # 🔴🔴 U10. LỆCH CƠ SỞ LÀ CHUYỆN HỆ THỐNG — 70/159 MÃ (44%) UNIVERSE THANH KHOẢN
 
 Quét `probe_price_basis --sweep` trên laptop 19/08 (GTGD20 ≥ 5 tỷ, cửa sổ 365

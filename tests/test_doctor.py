@@ -8,7 +8,7 @@ embedded dates are shifted relative to today.
 import json
 import os
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 import pytest
@@ -241,7 +241,12 @@ def test_telegram_env_states(monkeypatch):
     assert doc.check_telegram()["status"] == "ok"
 
 
-def test_tests_badge_states(meta):
+def test_tests_badge_states(meta, monkeypatch):
+    # Nhánh "code đã đổi sau lần chạy test" có lưới riêng ngay dưới. Ở đây
+    # phải TRUNG HOÀ nó: mốc `ran_at` cố định 10:00 + mtime file repo THẬT
+    # nghĩa là test đỏ/xanh theo GIỜ TRONG NGÀY — chạy trước 10:00 thì xanh,
+    # sau 10:00 mà vừa sửa file nào là đỏ. Đã vấp thật 19/08 lúc 11:51.
+    monkeypatch.setattr(doc, "_code_changed_after", lambda _at: None)
     assert doc.check_tests()["status"] == "off"
     p = meta / "test_status.json"
     now = f"{date.today().isoformat()}T10:00:00"
@@ -252,6 +257,30 @@ def test_tests_badge_states(meta):
                              "mode": "fast"}), encoding="utf-8")
     r = doc.check_tests()
     assert r["status"] == "error" and "2 FAIL" in r["message"]
+
+
+def test_badge_goes_amber_when_code_changed_after_the_last_test_run(
+        meta, monkeypatch, tmp_path):
+    """Badge xanh mà code đã đổi sau đó là lời trấn an SAI — ca thật 19/08:
+    user merge code mới rồi chạy `pytest` thẳng (không qua run.py nên badge
+    không được ghi), badge vẫn khoe con số của hôm trước."""
+    p = meta / "test_status.json"
+    ran = f"{date.today().isoformat()}T10:00:00"
+    p.write_text(json.dumps({"ran_at": ran, "passed": 121, "failed": 0,
+                             "errors": 0, "mode": "fast"}), encoding="utf-8")
+    monkeypatch.setattr(doc, "_REPO", tmp_path)
+    old_py = tmp_path / "cu.py"
+    old_py.write_text("x = 1", encoding="utf-8")
+    os.utime(old_py, (0, datetime.fromisoformat(ran).timestamp() - 3600))
+    assert doc._code_changed_after(ran) is None
+    assert doc.check_tests()["status"] == "ok"
+
+    new_py = tmp_path / "moi.py"
+    new_py.write_text("x = 2", encoding="utf-8")
+    os.utime(new_py, (0, datetime.fromisoformat(ran).timestamp() + 3600))
+    assert (doc._code_changed_after(ran) or "").startswith("moi.py")
+    r = doc.check_tests()
+    assert r["status"] == "warn" and "CODE đã đổi" in r["message"]
 
 
 # ── orchestration ────────────────────────────────────────────────────────────

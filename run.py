@@ -775,6 +775,10 @@ def cmd_test(args) -> int:
             # sai", nơi phán nhầm là sửa nhầm chỗ vào kho giá.
             # Sổ lệnh: horizon đếm PHIÊN chứ không phải ngày lịch —
             # sai ở đây là đóng lệnh sớm và đóng VĨNH VIỄN (vết 19/08).
+            # Cửa gác lệch cơ sở ở ĐƯỜNG GHI CHÍNH (V1, 19/08): nó có
+            # quyền TỪ CHỐI ghi kho, nên sửa updater mà chạy `--fast`
+            # thiếu file này là bỏ lưới đúng chỗ nguy hiểm nhất.
+            "tests/test_basis_guard.py",
             "tests/test_rec_horizon_sessions.py",
             "tests/test_doctor_kill_switches.py",
             "tests/test_unit_badge_verdict.py",

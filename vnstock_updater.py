@@ -327,6 +327,53 @@ def _get_close_on(ticker_dir: Path, d: date):
         return None
 
 
+def _wh_closes_between(ticker_dir: Path, d0: date, d1: date) -> dict:
+    """{ngày: close} của kho trong [d0, d1] — vùng chồng lấn cho basis guard."""
+    out = {}
+    try:
+        for y in range(d0.year, d1.year + 1):
+            df = _read_year(ticker_dir, y)
+            if df.empty:
+                continue
+            df = df.copy()
+            df["time"] = pd.to_datetime(df["time"]).dt.date
+            for t, c in zip(df["time"], df["close"]):
+                if d0 <= t <= d1:
+                    out[t] = float(c)
+    except Exception:
+        return {}
+    return out
+
+
+def _corp_event_kind(warehouse_root: Path, ticker: str, around: date,
+                     window_days: int = 10):
+    """Loại sự kiện quyền quanh `around` (cash/stock/split/bonus) — hoặc None.
+
+    Dùng CHUNG kho sự kiện với `check_unit_continuity.match_corp_action`
+    (`vnstock_adjust.load_events`) theo nếp một-nơi-định-nghĩa. Kho sự kiện
+    đang MỎNG (19/08: 70 mã lệch chỉ 3 mã tra ra loại) nên tra không ra vẫn
+    phải báo động — chỉ dùng để ghi kèm cho người đọc, KHÔNG dùng làm điều
+    kiện bật/tắt cảnh báo.
+    """
+    try:
+        from vnstock_adjust import load_events
+        ev = load_events(ticker, warehouse_root)
+        if ev is None or ev.empty or "ex_date" not in ev.columns:
+            return None
+        ex = pd.to_datetime(ev["ex_date"]).dt.date
+        dist = ex.map(lambda d: abs((d - around).days))
+        near = ev[dist <= window_days]
+        if near.empty:
+            return None
+        row = near.iloc[int(dist[dist <= window_days].argmin())]
+        for col in ("type", "type_", "event_type", "kind"):
+            if col in row and row[col] is not None:
+                return str(row[col])
+        return "unknown"
+    except Exception:
+        return None
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # Core update logic
 # ═════════════════════════════════════════════════════════════════════════════
@@ -402,7 +449,14 @@ def update_ticker(
     from vnstock_ratelimit import call_with_rate_limit_retry
     import vnstock_price_fallback as fb
 
-    _kwargs = {"start": fetch_from.strftime("%Y-%m-%d"),
+    # V1 (19/08) — nới cửa sổ fetch lùi lại để CÓ vùng chồng lấn mà đối chiếu
+    # cơ sở. KHÔNG tốn thêm lần gọi mạng nào: cùng một call, chỉ khác `start`.
+    # `new_df` được CẮT lại về >= fetch_from ngay trước khi merge, nên đường
+    # ghi kho không đổi một byte so với trước.
+    import vnstock_basis_guard as bg
+    _guard = bg.enabled()
+    _win_from = bg.fetch_start(fetch_from) if _guard else fetch_from
+    _kwargs = {"start": _win_from.strftime("%Y-%m-%d"),
                "end": today.strftime("%Y-%m-%d")}
     _on_wait = lambda w, i: console.print(                       # noqa: E731
         f"  [dim yellow]⏳ {ticker}: rate-limit, chờ {w}s (lần {i})[/dim yellow]")
@@ -458,6 +512,37 @@ def update_ticker(
     if new_df is None or new_df.empty:
         result["status"] = "no_new_data"
         return result
+
+    # ── V1: NGUỒN có vừa rebase toàn chuỗi dưới chân kho không? ─────────────
+    # Đây là chỗ DUY NHẤT biết cả "kho trước khi ghi" lẫn "nguồn sau khi ghi".
+    # Bỏ qua nhánh fallback: data KBS đã có cửa gác riêng
+    # (`reconcile_fallback_df`, ngưỡng 8%) và cơ sở của nó vốn khác nguồn chính.
+    if _guard and not result.get("source"):
+        try:
+            _src_closes = {t: float(c)
+                           for t, c in zip(new_df["time"], new_df["close"])}
+        except Exception:
+            _src_closes = {}
+        _chk = bg.check_basis(
+            _wh_closes_between(ticker_dir, _win_from, fetch_from),
+            _src_closes, fetch_from)
+        if _chk.get("verdict") == "basis_changed":
+            _chk["event"] = _corp_event_kind(prices_dir.parent, ticker,
+                                             fetch_from)
+            console.print(f"[red]{bg.warn_line(ticker, _chk)}[/red]")
+            bg.record_drift(prices_dir.parent, ticker, _chk, today=today)
+            result["status"] = "basis_drift"
+            result["error"] = (f"nguồn đổi cơ sở {_chk['ratio']:.4f}× "
+                               f"— đã cách ly, chưa ghi")
+            result["ratio"] = _chk["ratio"]
+            return result
+
+    # Cắt lại đúng cửa sổ cũ: phần nới thêm CHỈ để đối chiếu, không để ghi.
+    if _guard:
+        new_df = new_df[new_df["time"] >= fetch_from]
+        if new_df.empty:
+            result["status"] = "no_new_data"
+            return result
 
     # Merge vào warehouse theo năm
     years_affected = sorted(new_df["time"].apply(lambda d: d.year).unique())
