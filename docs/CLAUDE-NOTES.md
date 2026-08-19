@@ -7006,17 +7006,30 @@ Bước `test` chạy full suite và trả rc=2 ⇒ `cmd_all` dừng cứng ⇒ 
 reflection / doctor / **brief** không bao giờ được gọi. Đây là ĐÊM THỨ HAI
 chết đúng bước 9 vì cùng cơ chế.
 
-Nghi phạm số 1 (chờ xác nhận bằng tên test trong log):
-`test_doctor::test_tests_badge_states` — nó cắm `ran_at = hôm nay 10:00` rồi
+**✅ ĐÃ XÁC NHẬN bằng log** (`run_daily.log:74584`):
+```
+FAILED tests/test_doctor.py::test_tests_badge_states - AssertionError: assert...
+1 failed, 2235 passed, 3 warnings in 66.78s
+```
+2.235 + 1 = **2.236, khớp ĐÚNG số của container** ở cùng commit — máy thật và
+CI đồng ý từng test một, đóng nốt nỗi lo "máy thật có test bị env chặn".
+
+Test đó là `test_doctor::test_tests_badge_states` — nó cắm `ran_at = hôm nay 10:00` rồi
 để `_code_changed_after` quét mtime file repo THẬT, nên hễ có file .py nào đổi
 sau 10:00 là đỏ. User `git pull` lúc **17:37** ⇒ toàn bộ file merge mang mtime
 17:37 ⇒ test đỏ ở phát 18:00. Tôi vấp đúng lỗi này trong container lúc 11:51
 và đã vá ở `5ac88e4`, nhưng bản vá lên sau khi user merge nên phát tối nay
 chạy code CHƯA có nó.
 
+**Lỗi này do CHÍNH TÔI gây ra.** `_code_changed_after` thêm ở `0a3e785`
+(badge "code đã đổi sau lần chạy test") biến một test sẵn có thành phụ thuộc
+GIỜ TRONG NGÀY, mà tôi không nhận ra cho tới khi tự vấp lúc 11:51. Tính năng
+badge vẫn đáng giữ — cái sai là để nó quét mtime repo THẬT trong test.
+
 **Bài học vận hành:** merge lúc 17:37 rồi để phát 18:00 chạy full suite là
 đúng cửa sổ nguy hiểm nhất — bước 9 biến mọi test đỏ thành "mất brief". Muốn
 an toàn thì merge xong chạy `python run.py test` NGAY, đừng đợi task tự chạy.
+Quy tắc: **merge → test xanh → mới để máy chạy lịch.**
 
 # 🔴 U11. KHO HAI MÁY DÙNG CHUNG QUA DROPBOX — GHI CHÚ CŨ SAI, ĐÃ SỬA 19/08
 
