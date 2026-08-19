@@ -25,29 +25,62 @@ Ra 2 task = **desktop**. Rỗng = **laptop** (`CFA-BINHLD-LT`).
 
 ## 🔴 VIỆC CỦA BẠN
 
-### ⇄ CẢ HAI MÁY · Chữa VVS — ✅ laptop 19/08 · ⏳ **DESKTOP CHƯA LÀM**
+### ⇄ CẢ HAI MÁY · 🔥 SỐ 1 — Chữa 70 mã lệch cơ sở
 
-*(Sau khi chữa, laptop chạy lại `check_unit_continuity` ra **1/50 mã cần soi**
-thay vì 11 — VVS đã ✅ sạch. Mã cuối cùng là XDH: probe chốt kho khớp nguồn
-**1.0000× từng bar** → dữ liệu nguồn đúng, không có gì để chữa. Công cụ nay tự
-nhận ra loại này (vách đảo chiều ≠ lệch cơ sở) nên **danh sách về 0**.)*
+Việc lớn nhất đang mở. Quét 19/08 trên laptop: **70/159 mã thanh khoản lệch cơ
+sở kho/nguồn**, gần trọn VN30, vách rải từ 03–08/2026 (mùa chia cổ tức). Chạy
+thử 2 lần đã sạch: **70/70 mã chữa được**, chỉ 3 mã (HCM, KLB, SSB) cần nhân
+khối lượng. Kho chưa chữa thì **mọi backtest/kiểm định đều vô hiệu**.
 
-Đầu mối để rơi từ 18/08: VVS chính là mã khởi đầu cuộc điều tra, probe đã chốt
-`warehouse_basis 1.6543×`, rồi mình chuyển sang VHM/PNJ/GEX/GEE/PVD và **quên
-chữa chính nó**. Vách 2026-06-15 — mới 2 tháng, nằm trong mọi cửa sổ backtest —
-và VVS **không hề thanh khoản thấp**: ~13 tỷ/phiên, đủ lọt universe chiến lược.
+**💻 LAPTOP — làm được NGAY** (vết quét đã có sẵn từ lần chạy 19/08):
 
 ```powershell
-python scripts\rebase_ticker_history.py --ticker VVS --apply
-python scripts\check_unit_continuity.py --ticker VVS
+git fetch origin claude/tong-hop-cong-viec-test-w8mvrc
+git merge origin/claude/tong-hop-cong-viec-test-w8mvrc
+
+python scripts\rebase_ticker_history.py --from-sweep --apply
+python scripts\probe_price_basis.py --sweep      # kỳ vọng: 0 mã
 ```
 
-**Đã chạy trên LAPTOP 19/08 13:04** — 908/908 bar lấy thẳng từ nguồn, 0 bar
-nhân hệ số, sao lưu `_meta/backup_rebase/VVS_20260819-130408`, ghi 5 file nguyên
-tử, tự kiểm: *"chuỗi đã liền — không còn vách trong 365 ngày"*.
+**🖥️ DESKTOP — PHẢI QUÉT LẠI TRƯỚC.** `--from-sweep` đọc
+`data_warehouse/_meta/basis_sweep_check.json` — file **local từng máy** (kho nằm
+trong `.gitignore`, không đi theo git). Desktop chưa quét lần nào nên chưa có
+file này; chạy thẳng `--from-sweep` sẽ báo *"chưa có vết quét"* và không làm gì.
 
-⏳ **DESKTOP CÒN NGUYÊN LỆCH** — và desktop mới là máy sinh khuyến nghị/brief,
-nên đây mới là bản chữa có hậu quả thật. Hai kho không tự đồng bộ.
+```powershell
+python scripts\probe_price_basis.py --sweep           # ~160 lần gọi nguồn, vài phút
+python scripts\rebase_ticker_history.py --from-sweep  # chạy THỬ, đọc kỹ
+python scripts\rebase_ticker_history.py --from-sweep --apply
+python scripts\probe_price_basis.py --sweep           # kỳ vọng: 0 mã
+```
+
+Danh sách 70 mã của desktop có thể KHÁC laptop (hai kho lệch nhau) — đó là lý
+do bắt buộc quét tại chỗ, không chép danh sách qua.
+
+*Việc này nuốt luôn mục **chữa VVS** cũ: VVS ~13 tỷ/phiên nên nằm trong universe
+quét, `--from-sweep` trên desktop sẽ tự bắt. Laptop đã chữa VVS riêng 19/08.*
+
+**An toàn:** mỗi mã tự sao lưu vào `_meta/backup_rebase/<MÃ>_<timestamp>/` trước
+khi ghi, ghi nguyên tử, tự kiểm sau khi ghi — tự kiểm fail thì mã đó tự khôi
+phục. Cứ để chạy hết rồi đọc tổng kết cuối.
+
+**Sai số đã chấp nhận có ý thức:** PET (thưởng, factor 1.4499 vs bước 0.43) và
+F88 (chia tách 2.0000× vs bước 3.08) — bằng chứng khối lượng mâu thuẫn sổ sự
+kiện nên công cụ GIỮ khối lượng nguồn. Hệ quả: GTGD lịch sử 2 mã này hụt đúng
+bằng factor, chỉ chạm bộ lọc thanh khoản. Ép thủ công: `--ticker PET --volume adjust`.
+
+### ○ Sau khi chữa xong — 3 lệnh chạy lại, máy nào chữa thì máy đó chạy
+
+```powershell
+python run.py test                                    # full suite, kỳ vọng 2.228 passed
+python run.py validate                                # hợp đồng dữ liệu trên kho vừa chữa
+python vnstock_train.py --strategy-only --tier both --mode tune
+```
+
+Lệnh thứ 3 là cái đáng giá nhất: nó chấm lại backtest + kiểm định chống-ăn-may
+trên chuỗi giá đã liền. **Coi mọi verdict trước 19/08 là VÔ HIỆU** — kể cả #32
+(p=0.012, n=94), vì nó được chấm trên 44% universe có bậc giả. Dán kết quả cho
+Claude, nhất là số lệnh và p-value mới.
 
 ### 🖥️ DESKTOP · ⏰ GẤP — làm TRƯỚC 18:00 bất kỳ ngày làm việc nào
 
@@ -93,6 +126,42 @@ Select-String -Path C:\vnstock\run_daily.log -Pattern '[brief]' -SimpleMatch | S
 Get-Content C:\vnstock\run_daily.log -Tail 15
 ```
 
+### 🖥️ DESKTOP · `doctor --net` — phân xử NSO/Jina
+
+Laptop chạy ra NSO ❌ + Jina ⚠️, cả 3 URL đều `ConnectTimeout`/`ConnectionReset`
+— **lỗi tầng kết nối, chưa kết luận được nguồn có hỏng hay không**. Desktop chạy
+lệnh này là phân xử được ngay: desktop cũng ❌ = nguồn hỏng thật; desktop ✅ =
+chính sách mạng laptop, không phải lỗi code.
+
+```powershell
+python run.py doctor --net
+```
+
+### ○ Chỉ làm được TRONG GIỜ GIAO DỊCH (9h15–14h30, T2–T6)
+
+Máy nào cũng được — WSS là kết nối mạng thuần, không phụ thuộc kho đêm, và
+laptop có kho đầy đủ.
+
+```powershell
+python scripts\verify_wss_live.py --duration 120
+```
+Exit 0 = đạt cả 3 bất biến · 1 = ngoài giờ/thiếu tick (KHÔNG phải fail) · 2 = sai.
+Hoặc bằng mắt: mở dashboard → bật 🔴 **Live Mode** ở sidebar → tab **Thị trường**,
+xác nhận heatmap VN30 có số nhảy thật.
+
+### 💻 LAPTOP · Thử — sổ sự kiện quyền có dày lên được không (đọc, không ghi)
+
+Sổ sự kiện quyền đang mỏng: trong 70 mã lệch chỉ **3 mã** tra ra được loại sự
+kiện. Đây là gốc khiến bộ chữa phải đoán khối lượng bằng heuristic. Lệnh dưới
+CHỈ ĐỌC và in ra (không có `--register` = không ghi gì vào kho):
+
+```powershell
+python run.py vietstock --ticker PET --fdate 2026-01-01
+python run.py cash-dividends --ticker VNM
+```
+Ra được sự kiện = đường này dùng được, Claude sẽ nối vào bộ chữa. Timeout hết =
+mạng laptop chặn (giống NSO/Jina), phải thử lại trên desktop. Dán kết quả.
+
 ### ○ ✅ Classifier — ĐÃ XÁC MINH 19/08 (trên laptop), đóng nợ 07/08
 
 `--rerun-flagged VNM` trên laptop in đúng `route: ladder free — Gemini
@@ -101,28 +170,16 @@ Bậc thang model free chạy thật, không chỉ chạy trong test.
 (Chạy `--classify` thường sẽ báo "All tickers already classified" vì 1652/1652
 đã xong — muốn xác minh lại phải dùng `--rerun-flagged`.)
 
-### 💻 ✅ Kho laptop — ĐÃ KIỂM 19/08, sạch (trừ VVS ở trên)
-
-VHM/PNJ/GEX/GEE/PVD đều liên tục, bar cuối 18/08, khớp giá live. Kho laptop là
-bản đầy đủ đã chữa → dùng soi số được. **Nhớ dài hạn:** hai kho KHÔNG tự đồng
-bộ, nên lần chữa kho sau phải làm trên CẢ HAI máy (hoặc chép lại).
-
-### 🖥️ DESKTOP · Chỉ làm được TRONG GIỜ GIAO DỊCH (9h15–14h30, T2–T6)
-
-Mở dashboard → bật 🔴 **Live Mode** ở sidebar trái → tab **Thị trường**. Xác nhận
-heatmap VN30 có số nhảy thật. (Code + Playwright đã xong, chỉ thiếu một lần nhìn.)
-
 ### ⇄ CẢ HAI · ✅ Nâng thư viện — laptop XONG 19/08 · ⏳ desktop chờ soak
 
 vnstock 4.0.6 · vnai 2.5.7 · vnii 0.2.5 trên laptop: 2.196 passed y nguyên, kho
 đọc vẫn đúng. **Desktop cố ý CHƯA nâng** — để laptop chạy vài ngày đã, và khi
 nâng thì không sát 18:00, nâng xong chạy `doctor --net` + full suite ngay.
 
-### 💻 LAPTOP TRƯỚC · ĐỪNG làm bây giờ
-
-Nâng vnstock 4.0.4→4.0.6 / vnai 2.4.8→2.5.7 / vnii 0.2.4→0.2.5 (máy đã báo có
-bản mới). Để sau khi pipeline chạy trót lọt một đêm đã — nâng lúc này là thêm
-một biến số vào đúng lúc đang gỡ.
+⚠️ **Cảnh báo đã trả giá 19/08:** 4.0.6 từng làm chết MỌI lệnh gọi mạng
+(`env.py:136 get_hosting_service()` UnboundLocalError) → phải lùi về 4.0.4 mới
+probe được. Nếu desktop nâng mà `probe_price_basis` báo `RetryError`/
+`UnboundLocalError` thì lùi ngay: `pip install vnstock==4.0.4 vnai==2.4.8`.
 
 ---
 
@@ -161,13 +218,21 @@ cần `git fetch origin <nhánh> && git merge origin/<nhánh>` rồi chạy lạ
 
 ---
 
-## ❓ CHỜ BẠN QUYẾT — Claude không code cho tới khi có câu trả lời
+## ❓ CHỜ BẠN QUYẾT — nói "khác đi" là Claude đổi, im lặng là Claude làm theo đề xuất
 
-**Q1. Guard chặn tái phát lệch cơ sở** (việc kỹ thuật đáng nhất còn lại).
-Đường VCI chính đang ghi đè kho im lặng, không đối chiếu gì. Cần chốt 3 điều:
-* Lệch bao nhiêu % thì coi là đáng ngờ? (nhánh fallback đang dùng 8%)
-* Có tra lịch sự kiện quyền trước khi báo động không? (tránh báo nhầm ngày GDKHQ)
-* Gặp nghi vấn thì **cách ly + cảnh báo**, hay chỉ **ghi log cảnh báo** rồi vẫn ghi?
+**Q1. Guard chặn tái phát lệch cơ sở (V1)** — đường VCI chính đang ghi đè kho im
+lặng, không đối chiếu gì. **Claude bắt tay làm theo phương án dưới**, anh chỉ cần
+chặn lại nếu thấy sai:
+* **Ngưỡng 1,5%** trên tỉ lệ kho/nguồn của phần bar chồng lấn (bằng ngưỡng
+  `--sweep` đang bắt được cỡ cổ tức; 8% của nhánh fallback là quá thô, lọt hết
+  70 mã vừa rồi).
+* **Có tra sổ sự kiện quyền trước khi báo động** — nhưng sổ mỏng nên tra ra thì
+  ghi kèm loại sự kiện vào cảnh báo, tra không ra thì VẪN báo động (không im
+  lặng bỏ qua chỉ vì sổ thiếu).
+* **Cách ly + cảnh báo**, KHÔNG tự ghi đè: gặp nghi vấn thì bỏ qua lần nối đó,
+  đánh dấu mã "cần nạp lại toàn bộ lịch sử", ghi cảnh báo vào `run_daily.log` và
+  bật badge trong doctor. Lý do: sync chạy 3h sáng không ai nhìn — tự động ghi
+  đè lịch sử lúc đó là đúng loại hành động không nên tự làm.
 
 **Q2. Mốc giờ coi là "phiên đã đóng"** — dùng cho việc #7 ở trên. Đề xuất 15:05
 (khớp mốc mà screener đang dùng). Đồng ý thì Claude lấy luôn.
