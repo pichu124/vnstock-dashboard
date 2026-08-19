@@ -6999,7 +6999,10 @@ bộ dao động khối lượng thường ngày; 1.95× của VHM mới là tí
 `vnstock_adjust.load_events`): `cash` → không bao giờ nhân; `split`/`bonus` →
 được phép nhân; không tra được VÀ hệ số < `VOL_SIGNAL_MIN_FACTOR` (1.15) →
 giữ nguyên và nói rõ vì sao. Ép tay vẫn còn `--volume adjust`.
-⇒ Chạy lại dry-run trước khi `--apply`, phải thấy dòng "GIỮ NGUYÊN khối lượng".
+⇒ Dry-run sau khi vá (19/08 14:39) in đúng: `sự kiện quyền quanh vách: cash
+-> KHÔNG đổi số cổ phiếu` rồi `GIỮ NGUYÊN khối lượng`. Kho sự kiện quyền
+XÁC NHẬN đây là cổ tức tiền mặt — chẩn đoán 1.0327× không còn là suy luận
+từ độ lớn nữa mà có bản ghi hậu thuẫn. An toàn để `--apply`.
 
 **U8. ⛔ BẢN NÂNG 4.0.6 LÀM HỎNG ĐƯỜNG FETCH — LÙI LẠI, KHÔNG NÂNG DESKTOP
 (19/08).** Sau khi nâng laptop, mọi lượt fetch nguồn đều nổ
