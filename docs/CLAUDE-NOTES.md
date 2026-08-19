@@ -6985,10 +6985,35 @@ pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 thẳng desktop thì lỗi này nổ lúc 18:00 GIỮA pipeline, ở bước sync — mất cả đêm
 data lẫn brief, và phải gỡ trong lúc gấp. Bộ test 2.201 KHÔNG bắt được vì nhánh
 sponsor không có test nào chạm tới (mục T-c).
-**Còn treo:** báo lỗi lên tác giả vnstock? Cần thu traceback đầy đủ trước —
-`python -c "from vnstock import Vnstock; Vnstock().stock(symbol='VNM',
-source='VCI').quote.history(start='2026-06-01', end='2026-07-31',
-interval='1D')"` gọi thẳng thư viện, không qua code repo.
+**NGUYÊN NHÂN GỐC — đã có traceback, không còn phải đoán:**
+```
+vnstock/core/utils/env.py:136  in get_hosting_service()
+    return hosting_service
+UnboundLocalError: cannot access local variable 'hosting_service'
+                   where it is not associated with a value
+```
+Chuỗi gọi: `send_request` (client.py:159) → `is_colab()` (env.py:34) →
+`get_hosting_service()` (env.py:136). Hàm này rõ ràng gán `hosting_service`
+trong các nhánh nhận diện môi trường (Colab/Kaggle/…) mà **thiếu nhánh mặc
+định cho máy thường**, nên trên PC Windows nó rơi thẳng xuống `return` với
+biến chưa gán.
+⇒ **`send_request` là helper HTTP DÙNG CHUNG**, nên MỌI lệnh gọi mạng của
+vnstock 4.0.6 đều chết — kể cả đường `Quote` mới mà chính thư viện khuyến nghị
+thay cho `Vnstock().stock()` đã deprecated. Không có đường vòng trong code
+repo; `_fetch_prices` có nhánh dự phòng dùng `Quote` nhưng nhánh đó cũng đi qua
+`send_request`.
+⇒ Kết luận: **vnstock 4.0.6 không dùng được trên máy local.** Lùi về 4.0.4.
+
+**Báo ngược lên tác giả (tuỳ user, nội dung đã sẵn):** "vnstock 4.0.6,
+Windows/Python 3.13, không phải môi trường hosting nào. Mọi call mạng chết ở
+`core/utils/env.py:136 get_hosting_service()` — `UnboundLocalError:
+hosting_service`. Có vẻ thiếu nhánh gán mặc định khi không nhận ra hosting
+service. 4.0.4 không bị."
+
+**Ghi chú phụ từ cùng output:** gói sponsor cũng có bản mới
+(`vnstock_data 3.2.1→3.2.8`, `vnstock_news 2.2.1→2.2.2`,
+`vnstock_pipeline 2.2.5→2.3.2`, cài qua `vnstock-installer`) — CHƯA thử, và
+đừng thử chung lượt với việc khác.
 
 **U4. ✅ NÂNG THƯ VIỆN — LAPTOP XONG 19/08, desktop chờ soak.**
 `vnstock 4.0.4→4.0.6 · vnai 2.4.8→2.5.7 · vnii 0.2.4→0.2.5` trên laptop
