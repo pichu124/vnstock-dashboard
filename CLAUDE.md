@@ -65,8 +65,8 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   lần**, KHÔNG phải ⇄ CẢ HAI (sửa 19/08).
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~1.799 test; ~28s trên CI).
-- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.298 test).
+- Sửa module lõi nào → `python run.py test --fast` (~1.820 test; ~28s trên CI).
+- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.319 test).
   Đo trên MÁY THẬT 19/08 (sau đợt vá): **2.181 passed / 100,3s** — khớp CI từng test một
   (CI ~36s; máy thật chậm hơn ~3× vì có kho dữ liệu, không phải vì bỏ test).
 - Kết quả ghi `data_warehouse/_meta/test_status.json` → badge sidebar.
@@ -89,6 +89,11 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   guard dựng chung ở `vnstock_brief_canon.py`. Một chiều: brief → guards →
   3 nhóm → common/canon (`tests/test_brief_split.py` canh). Mọi tên vẫn
   re-export qua `vnstock_brief` nên đường import cũ không đổi.
+- `vnstock_ohlc_repair` — nới `low`/`high` cho bar TỰ MÂU THUẪN ngay ở đường
+  ghi (19/08). `low := min(low, open, close)`, `high := max(high, open, close)`
+  — giá mới là open/close ĐÃ khớp nên không bịa số. Nới > `MAX_WIDEN_PCT`
+  (20%, trên cả biên độ ±15% của UPCoM) ⇒ bar HỎNG, không sửa, để hợp đồng
+  cách ly như cũ. Ghi vết `_meta/ohlc_repairs.json` + badge doctor.
 - `vnstock_basis_guard` — cửa gác LỆCH CƠ SỞ ở đường ghi chính (V1, 19/08 sau
   ca 70/159 mã). `update_ticker` nới fetch lùi 30 ngày CHỈ để đối chiếu (cắt
   lại trước khi merge); trung vị kho/nguồn lệch >1,2% ⇒ **KHÔNG nối**, ghi mã
@@ -117,7 +122,8 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   `vnstock_brief_guards.py` + NỐI VÀO `apply_brief_guards` + viết test (guard
   quên nối = code chết trông y như code sống; có lưới canh).
 - Mọi auto-refresh đều best-effort và có env kill-switch
-  (`VNSTOCK_BRIEF_AUTO_*`, `VNSTOCK_MACRO_*`, `VNSTOCK_BASIS_GUARD`).
+  (`VNSTOCK_BRIEF_AUTO_*`, `VNSTOCK_MACRO_*`, `VNSTOCK_BASIS_GUARD`,
+  `VNSTOCK_OHLC_REPAIR`, `VNSTOCK_AUTOHEAL_BUDGET_S`).
 - Model LLM: slug MỚI phải probe sống trước khi vào code —
   `python scripts/probe_models.py --slug "Groq=<model>"` trên máy thật
   (catalog trên mạng hay sai/lỗi thời). Provider khai tử model → 1 dòng

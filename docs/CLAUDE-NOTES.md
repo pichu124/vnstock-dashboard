@@ -7030,7 +7030,21 @@ Và đây là chỗ vòng lặp vô nghĩa: bar bị cách ly vì mâu thuẫn N
 đồng lần nữa. Chỉ lành khi nhà cung cấp tự sửa dữ liệu — đo được **35/3.844
 = 0,9%**.
 
-**Hai đường chữa gốc, CHỜ USER QUYẾT (đụng dữ liệu giá nên không tự làm):**
+**✅ USER CHỌN (a) — ĐÃ LÀM 19/08: `vnstock_ohlc_repair`.**
+Nới ngay ở `_write_year`, TRƯỚC khi hợp đồng phán:
+`low := min(low, open, close)` · `high := max(high, open, close)`.
+Lập luận vì sao không phải bịa số: giá trị mới CHÍNH LÀ `open` hoặc `close` —
+mức đã KHỚP trong phiên. Bar nói "thấp nhất là X" mà có lệnh khớp dưới X thì
+mâu thuẫn nằm ở X, không nằm ở lệnh đã khớp.
+Trần `MAX_WIDEN_PCT = 20%`: biên độ một phiên ở VN tối đa ±15% (UPCoM), nên cần
+nới hơn thế là feed HỎNG chứ không phải bar dở ⇒ KHÔNG sửa, để cách ly như cũ
+(có test canh: bar cần nới 190% phải đi nguyên vẹn vào hàng đợi).
+Ghi vết `_meta/ohlc_repairs.json` (cap 500 ca, `total` vẫn đếm tiếp) + badge
+doctor `check_ohlc_repairs` (tự im sau 7 ngày để khỏi alarm fatigue) +
+kill-switch `VNSTOCK_OHLC_REPAIR=0` đã vào danh sách cờ nguy hiểm của doctor.
+Lưới: `tests/test_ohlc_repair.py` 21 test, đã vào `--fast`.
+
+**Hai đường đã cân nhắc (giữ lại để biết vì sao chọn (a)):**
 * **(a) Vá tại đường ghi** — chuẩn hoá tối thiểu `low = min(low, open, close)`,
   `high = max(high, open, close)`. Bar tự mâu thuẫn thì phép sửa nhỏ nhất và
   đúng nhất là NỚI low/high để bao được open/close. Sau đó bar qua hợp đồng,

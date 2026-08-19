@@ -834,6 +834,8 @@ _DANGEROUS_SWITCHES = {
     "VNSTOCK_STRATEGY_ISOLATION": "nới cách ly sandbox chiến lược",
     "VNSTOCK_BASIS_GUARD": "tắt cửa gác lệch cơ sở — nguồn rebase là kho lại "
                            "sinh bậc giả âm thầm như trước 19/08",
+    "VNSTOCK_OHLC_REPAIR": "thôi nới bar tự mâu thuẫn — chúng quay lại hàng "
+                           "đợi cách ly và đốt 36 phút refetch mỗi đêm",
 }
 _OFF_VALUES = {"0", "false", "off", "no"}
 
@@ -908,9 +910,46 @@ def check_basis_drift() -> dict:
         "VNSTOCK_BASIS_GUARD=0 — nhưng khi đó lệch quay lại âm thầm")
 
 
+def check_ohlc_repairs() -> dict:
+    """Bar tự mâu thuẫn đã được NỚI low/high — người vẫn phải liếc qua.
+
+    `vnstock_ohlc_repair` sửa `low > min(open, close)` / `high < max(...)` ở
+    đường ghi (V-OHLC, 19/08) để bar khỏi rơi vào hàng đợi cách ly rồi bị
+    refetch vô ích 36 phút mỗi đêm. Giá trị mới là chính open/close nên không
+    bịa số — nhưng đây vẫn là lớp TỰ SỬA, và doctrine của repo là mọi lớp tự
+    sửa best-effort đều cần một badge để không âm thầm.
+    """
+    name = "Nới OHLC (bar tự mâu thuẫn)"
+    try:
+        from vnstock_ohlc_repair import MAX_WIDEN_PCT, load_repairs
+        data = load_repairs(_META.parent)   # tests monkeypatch _META
+    except Exception as e:
+        return _result("ohlc_repair", name, "error",
+                       f"không đọc được vết nới OHLC ({type(e).__name__}: {e})", "")
+    events = list(data.get("events") or [])
+    if not events:
+        return _result("ohlc_repair", name, "ok", "chưa nới bar nào", "")
+    total = int(data.get("total") or len(events))
+    cutoff = (date.today() - timedelta(days=_UNIT_WARN_DAYS)).isoformat()
+    fresh = [e for e in events if str(e.get("at", ""))[:10] >= cutoff]
+    if not fresh:
+        return _result("ohlc_repair", name, "ok",
+                       f"tổng {total:,} lần, gần nhất "
+                       f"{str(events[-1].get('at', '?'))[:10]}", "")
+    widest = max((float(e.get("widen_pct") or 0) for e in fresh), default=0.0)
+    tickers = sorted({str(e.get("ticker", "?")) for e in fresh})
+    head = ", ".join(tickers[:5]) + (" …" if len(tickers) > 5 else "")
+    return _result(
+        "ohlc_repair", name, "warn",
+        f"{len(fresh):,} bar nới trong {_UNIT_WARN_DAYS} ngày / {len(tickers)} mã "
+        f"({head}) · nới rộng nhất {widest:.2f}% (trần {MAX_WIDEN_PCT:.0%})",
+        "xem _meta/ohlc_repairs.json — giá mới là open/close ĐÃ khớp nên không "
+        "bịa số; nới sát trần thì soi lại bar đó. Tắt: VNSTOCK_OHLC_REPAIR=0")
+
+
 OFFLINE_CHECKS = [
     check_dir_shapes, check_unit_normalizations, check_kill_switches,
-    check_basis_drift,
+    check_basis_drift, check_ohlc_repairs,
     check_warehouse, check_market_overview, check_fundamentals, check_macro,
     check_pdf_tooling, check_market_news, check_ticker_news,
     check_foreign_flow, check_events, check_reports, check_allocation,

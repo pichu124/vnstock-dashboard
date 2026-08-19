@@ -166,11 +166,31 @@ def _write_year(ticker_dir: Path, year: int, df: pd.DataFrame):
     df["close"]  = df["close"].astype("float32")
     df["volume"] = df["volume"].astype("int64")
 
+    ticker = ticker_dir.name.removeprefix("ticker=")
+
+    # Nới low/high cho bar TỰ MÂU THUẪN, TRƯỚC khi hợp đồng phán. Xem
+    # `vnstock_ohlc_repair`: ~34.000 mục cách ly trong lịch sử có lý do gốc là
+    # `low > min(open, close, high)`, và refetch không bao giờ chữa được vì
+    # nguồn trả về cùng bar đó (đo 19/08: lành 35/3.844 = 0,9%, tốn 36 phút
+    # mỗi đêm). Giá trị mới là chính open/close — mức ĐÃ KHỚP trong phiên —
+    # nên không phải bịa số. Nới quá `MAX_WIDEN_PCT` thì KHÔNG sửa, để hợp
+    # đồng loại như cũ.
+    try:
+        import vnstock_ohlc_repair as _ohlc
+        if _ohlc.enabled():
+            df, _reps = _ohlc.repair_ohlc(df, ticker)
+            if _reps:
+                _ohlc.record_repairs(ticker_dir.parent.parent, _reps)
+                print(f"  [ohlc] {ticker} y{year}: nới low/high cho "
+                      f"{len(_reps)} bar tự mâu thuẫn (giá mới = open/close đã "
+                      f"khớp) — vết ở _meta/ohlc_repairs.json")
+    except Exception as _e:
+        print(f"  [ohlc] {ticker} y{year}: bỏ qua sửa OHLC — {_e}")
+
     # Contract check (ticker/year are partition cols — add for validation only).
     # Dropped rows → quarantine instead of silent discard.
     try:
         from vnstock_contracts import validate_ohlcv
-        ticker = ticker_dir.name.removeprefix("ticker=")
         check_df = df.assign(ticker=ticker, year=int(year))
         check_df, report = validate_ohlcv(
             check_df, strict=False, drop_invalid=True, return_dropped=True,
