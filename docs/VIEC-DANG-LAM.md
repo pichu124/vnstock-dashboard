@@ -34,7 +34,7 @@ origin/<nhánh>` (`git pull` báo "Already up to date" dù vừa tải commit v�
 |---|---|
 | Chữa lệch cơ sở | ✅ **XONG 19/08 21:17** — quét ra `160 mã: tỉ lệ kho/nguồn KHÔNG đổi bậc`. Tổng 76 mã đã chữa |
 | Trần task Daily `PT180M` — 🖥️ desktop | **chưa xác nhận** · cần PowerShell Administrator |
-| Chạy lại backtest/kiểm định | 🎯 **LÀM ĐƯỢC NGAY** — kho đã sạch. `python vnstock_train.py --strategy-only --tier both --mode tune`. Mọi verdict trước 19/08 (kể cả #32 p=0.012) VÔ HIỆU cho tới khi chạy lại |
+| Chạy lại backtest/kiểm định | ✅ **XONG 19/08** — #32 chấm lại trên kho sạch: **vẫn ĐẠT** (39 lệnh, expectancy 3.02, p=0.012, TP 51%). Edge không phải artifact. ⚠️ tầng NGẮN (#16) đang trắng |
 | V1 — guard chặn tái phát | ✅ **XONG 19/08** (`vnstock_basis_guard.py`, 19 test) — cửa gác nằm ở đúng đường ghi chính, có badge doctor + kill-switch |
 
 **✅ ĐÃ GIẢI — DROPBOX, không phải chép tay.** `C:\vnstock` vẫn được Dropbox

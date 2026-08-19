@@ -6966,6 +6966,46 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# ✅ U15. #32 CHẤM LẠI TRÊN KHO ĐÃ CHỮA — VẪN ĐẠT (19/08 21:2x)
+
+`vnstock_train.py --strategy-only --tier both --mode tune` trên kho sạch:
+
+```
+tier=short    → strategy_id=16 status=active trades=None expectancy=None
+                kiểm định: ⏳ chưa đủ lệnh để chấm
+tier=position → strategy_id=32 status=active trades=39 expectancy=3.0188
+                exit mix: TP 51% · SL 44% · hết hạn 5%
+                kiểm định: ✅ ĐẠT (p=0.012) → rec SẼ vào brief
+```
+
+**Kết luận chính: edge của #32 KHÔNG phải sản phẩm của bậc giả.** Nó sống sót
+qua việc chữa 76 mã. Cảnh báo "mọi verdict trước 19/08 là VÔ HIỆU" **gỡ bỏ**
+cho #32; các verdict khác vẫn phải chạy lại mới tính.
+
+**KHÔNG được đọc n: 94 → 39 là "58% lệnh cũ là artifact".** `--mode tune` chỉnh
+lại tham số CÙNG LÚC với việc dữ liệu đổi ⇒ hai biến động một lượt, không tách
+được. Lịch sử #32 vốn đã nhảy 67 → 19 → 94 → 39 qua các vòng tune, nên số lệnh
+biến động theo tham số là chuyện thường. Muốn đo riêng ảnh hưởng của việc chữa
+kho thì phải chạy THAM SỐ CŨ trên DỮ LIỆU MỚI — chưa làm.
+
+**39 lệnh chỉ hơn sàn 30 đúng 9.** Mẫu mỏng; một vòng tune xấu là tụt xuống
+dưới sàn và mục khuyến nghị tắt.
+
+**p=0.012 trùng khít con số cũ — là NGẪU NHIÊN, không phải giá trị cũ còn sót.**
+`monte_carlo_pvalue` seed cố định 42, `_MC_SIMS = 1000` nên p = (k+1)/1001, tức
+bội của ~0.001; in 3 chữ số thì cả k=11 lẫn k=12 đều ra "0.012". Metrics là bản
+tươi (trades/expectancy đều khác lần trước) nên p cũng tươi. Ghi ra đây để lần
+sau không ai đọc nhầm thành "chấm lại mà không đổi gì".
+
+**Exit mix qua cổng "TP với tới được"**: 51% lệnh đóng chạm TP, xa trên ngưỡng
+`_TP_REACH_MIN_SHARE = 0.05`. Nghĩa là TP nằm trong tầm với thật của horizon 20
+phiên, không phải R:R đẹp trên giấy.
+
+**⚠️ Tầng NGẮN (#16) đang trắng** — `trades=None`, "chưa đủ lệnh để chấm". Tầng
+5 phiên hiện không đóng góp khuyến nghị nào vào brief; chỉ tầng vị thế chạy.
+Chưa rõ là tune không sinh ứng viên mới hay backtest không ra lệnh nào. Đáng
+soi, không chặn gì.
+
 # ✅ U14. KHO ĐÃ SẠCH LỆCH CƠ SỞ — 160/160 mã, 19/08 21:17
 
 `probe_price_basis --sweep` trên desktop `PICHU`: **"✅ 160 mã: tỉ lệ kho/nguồn
