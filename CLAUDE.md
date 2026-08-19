@@ -4,11 +4,18 @@ Nền tảng phân tích chứng khoán VN (Streamlit): screener 9 preset, phân
 kỹ thuật/cơ bản, tổng quan thị trường, live mode WSS ~1.100 mã, warehouse
 Parquet local, AI brief sáng/chiều gửi Telegram.
 
-> ## 🟦 ĐỌC TRƯỚC — `C:\vnstock` ĐỒNG BỘ QUA DROPBOX GIỮA HAI MÁY
+> ## 🟦 ĐỌC TRƯỚC — `data_warehouse` ĐỒNG BỘ QUA DROPBOX GIỮA HAI MÁY
 >
 > Desktop `PICHU` và laptop `CFA-BINHLD-LT` **dùng CHUNG một kho**. User xác
 > nhận 19/08/2026. Ghi chú cũ "đã bỏ Dropbox, hai kho độc lập" là **SAI** và đã
 > làm hỏng nguyên một ngày làm việc — xem `docs/CLAUDE-NOTES.md` mục U11.
+>
+> **Cơ chế:** `C:\vnstock\data_warehouse` TRỎ sang
+> `E:\Dropbox\vnstock_data\data_warehouse` (bằng chứng 19/08:
+> `VnStockWarehouse(root="data_warehouse")` in ra đường E: — code chỉ làm
+> `Path(root).resolve()`, mà `resolve()` đi theo junction/symlink). Tức **KHO
+> đồng bộ, CODE thì không** — repo `C:\vnstock` đi bằng git, `run_daily.log` ở
+> gốc repo nên cũng KHÔNG đồng bộ (nó là nhân chứng riêng của từng máy).
 >
 > **4 hệ quả, thuộc lòng trước khi giao việc cho user:**
 > 1. **Chữa kho làm MỘT LẦN là đủ** — đừng bao giờ gán nhãn ⇄ CẢ HAI cho việc

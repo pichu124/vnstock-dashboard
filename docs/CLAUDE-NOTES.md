@@ -7039,10 +7039,22 @@ Và đây là chỗ vòng lặp vô nghĩa: bar bị cách ly vì mâu thuẫn N
 * **(b) Thôi refetch loại vi phạm hợp đồng** — rẻ, không đụng dữ liệu, nhưng
   chỉ chặn lãng phí chứ bar vẫn thiếu trong kho.
 
-Trước cả hai, cần một phép thử rẻ để loại giả thuyết "đường fetch của refetch
-hỏng": gọi `VnStockWarehouse._fetch_price` cho một mã + ngày CHẮC CHẮN có bar.
-Ra data ⇒ đường fetch tốt, 84.897 empty là mã hủy niêm yết/ngày cũ thật.
-Ra rỗng ⇒ cả vòng auto-heal vô nghĩa từ đầu, phải sửa ở đó trước.
+**✅ Đã loại giả thuyết "đường fetch hỏng"** (19/08 23:10):
+`VnStockWarehouse._fetch_price("VNM", "2026-08-11", "2026-08-15")` trả **4 bar
+đúng**. Đường fetch tốt ⇒ 84.897 lần rỗng là mã hủy niêm yết / ngày cũ THẬT,
+không phải trục trặc hạ tầng. Vòng auto-heal gọi đúng nguồn, chỉ là hỏi những
+câu đã biết trước câu trả lời.
+
+**🔍 Phép thử đó lộ thêm CƠ CHẾ Dropbox**, thứ cả ngày chỉ suy được gián tiếp:
+lệnh in ra `📦 Warehouse: E:\Dropbox\vnstock_data\data_warehouse` trong khi
+tham số truyền vào là `root="data_warehouse"` và cwd là `C:\vnstock`. Code chỉ
+làm `Path(root).resolve()`, mà `resolve()` ĐI THEO junction/symlink ⇒
+`C:\vnstock\data_warehouse` là một liên kết trỏ sang `E:\Dropbox\...`.
+
+Hệ quả cho mọi suy luận trước đó: **KHO đồng bộ, CODE thì không.** Repo đi
+bằng git (khớp reflog: mỗi máy tự `git pull`), `run_daily.log` nằm ở GỐC REPO
+nên là nhân chứng RIÊNG của từng máy — đúng như đã dùng nó để đối chiếu.
+`_meta/*.json` (marker, badge) nằm trong kho nên đồng bộ — đúng như đã ghi.
 
 # ✅ U15. #32 CHẤM LẠI TRÊN KHO ĐÃ CHỮA — VẪN ĐẠT (19/08 21:2x)
 
