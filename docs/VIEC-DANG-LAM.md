@@ -43,7 +43,7 @@ Phải ra **2.352 passed**. **Chạy `run.py test` NGAY sau khi merge** — đ�
 task 18:00 phát hiện hộ. Bài học 19/08: merge lúc 17:37 rồi để phát 18:00 chạy
 full suite ở bước 9, một test đỏ là dừng cứng và **mất brief cả đêm**.
 
-* 🖥️ **DESKTOP: ✅ xong 19/08** — `2.337 passed` trên máy thật, khớp CI từng
+* 🖥️ **DESKTOP: ✅ xong 19/08** — `2.352 passed` trên máy thật, khớp CI từng
   test một. (Lượt merge giữa chừng có 1 test đỏ do test PHỤ THUỘC KHO THẬT —
   đã vá, xem `docs/CLAUDE-NOTES.md` mục U18.)
 * 💻 **LAPTOP: ⏳ chưa** — chạy đúng hai lệnh trên khi nào mở máy. Không gấp
