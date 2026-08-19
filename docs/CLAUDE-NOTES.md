@@ -6678,6 +6678,10 @@ mỹ, chưa đáng thêm guard.
 
 # 📌 VIỆC PHẢI LÀM — chốt 18/08/2026 (bản 2, sau đợt đối soát code)
 
+> ⚠️ ĐÂY LÀ KHO LƯU (lý do + file:line). Muốn LÀM THEO thì mở
+> **`docs/VIEC-DANG-LAM.md`** — 1 trang, có lệnh sẵn, tách việc-của-user và
+> việc-của-Claude. Sửa mục nào ở đây thì soát lại trang kia.
+>
 > Danh sách ĐANG DÙNG. **Luôn nằm CUỐI FILE** — entry nhật ký mới chèn TRƯỚC mục này.
 >
 > Bản này khác bản trước ở chỗ: mọi mục đã được ĐỐI SOÁT VỚI CODE THẬT (4 hướng

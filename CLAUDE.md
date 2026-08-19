@@ -92,8 +92,9 @@ chạy code cũ → `git log --oneline -1` đối chiếu commit cuối Claude b
 - `Giá 1T %` = đổi 1 TUẦN (5 phiên), không phải 1 phiên — mọi nhãn phải ghi rõ.
 
 ## Nhật ký chi tiết
-Việc còn phải làm/test: mục **"📌 VIỆC PHẢI LÀM — chốt 12/08/2026"** ở CUỐI
-`docs/CLAUDE-NOTES.md` (đọc mục này trước khi hỏi "còn việc gì").
+**Hỏi "còn việc gì?" → mở `docs/VIEC-DANG-LAM.md`** (1 trang, việc-của-user vs
+việc-của-Claude, có lệnh sẵn). Bản đầy đủ kèm file:line và lý do nằm ở mục
+"📌 VIỆC PHẢI LÀM" CUỐI `docs/CLAUDE-NOTES.md` — kho lưu, không phải để làm theo.
 Toàn bộ lịch sử fix, 30+ guard brief, khảo sát nguồn data, mục chờ verify
 (4.8K dòng) nằm ở `docs/CLAUDE-NOTES.md`. Khi làm việc trên brief / macro /
 strategy / chart: MỞ FILE ĐÓ tra mục liên quan trước khi sửa. Đừng chép
