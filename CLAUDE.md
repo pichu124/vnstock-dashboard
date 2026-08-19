@@ -6,7 +6,8 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 
 ## Môi trường & lệnh chính
 - Windows + venv: `& "C:\Users\Administrator\.venv\Scripts\Activate.ps1"`,
-  thư mục làm việc `C:\vnstock` (KHÔNG còn đường dẫn Dropbox cũ).
+  thư mục làm việc `C:\vnstock` (đường dẫn Dropbox CŨ không còn dùng, nhưng
+  Dropbox VẪN đồng bộ thư mục này giữa hai máy — xem cảnh báo bên dưới).
 - `pip install -r requirements.txt`. API keys trong `.env` (VNSTOCK_API_KEY,
   ANTHROPIC/GROQ/CEREBRAS/OPENROUTER, FRED_API_KEY) — không bao giờ commit.
 - Orchestrator: `python run.py <sub>` — scan / doctor / sync / validate /
@@ -23,13 +24,23 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   tức venv đổi theo TÀI KHOẢN ĐANG ĐĂNG NHẬP chứ không theo máy. Dấu hiệu duy
   nhất đáng tin: `$env:COMPUTERNAME` + `Get-ScheduledTask -TaskName 'VnStock *'`
   (2 task = desktop, rỗng = laptop). Đã quy sai máy 3 lần trong ngày 19/08.
-- ⚠️ Kho hai máy ĐỘC LẬP, nhưng `pipeline_status.json` / `brief_push.json` /
-  `test_status.json` / `doctor_status.json` đều nằm TRONG kho ⇒ **chép kho
-  giữa hai máy là chép cả marker lẫn badge**. Cửa `--skip-if-done` đã vá để so
-  tên máy (19/08); ba file kia thì chưa — chép kho xong phải tự kiểm.
+- ⚠️ **KHO DÙNG CHUNG QUA DROPBOX** (user xác nhận 19/08 — ghi chú cũ "đã bỏ
+  Dropbox, hai kho độc lập" là SAI, đã gây quy sai máy + gán nhãn sai suốt
+  ngày 19/08). Hệ quả: chữa kho làm MỘT LẦN là đủ, máy kia tự có. Nhưng
+  `pipeline_status.json` / `brief_push.json` / `test_status.json` /
+  `doctor_status.json` cũng nằm TRONG kho ⇒ marker và badge cũng đồng bộ:
+  badge sidebar có thể là kết quả của MÁY KIA, và `run.py telegram close` chạy
+  ở laptop là desktop câm brief tối đó. Cửa `--skip-if-done` cố ý bỏ qua
+  cross-machine (đúng cho kho dùng chung); kho tách riêng thì bật
+  `VNSTOCK_INDEPENDENT_WAREHOUSE=1`.
+- ⚠️ Dropbox ghi vào kho song song với pipeline ⇒ **đừng đụng kho ở máy kia
+  trong lúc pipeline chạy** (18:00-19:xx ngày làm việc) — hai bên ghi cùng
+  file là sinh "conflicted copy" nằm ngay trong `prices/`, mà `load_bars` glob
+  `year=*/*.parquet` sẽ đọc cả file đó.
 - ⚠️ **MỌI việc/test giao cho user PHẢI ghi rõ máy nào**, theo 4 nhãn dùng trong
   `docs/VIEC-DANG-LAM.md`: 🖥️ DESKTOP · 💻 LAPTOP · ⇄ CẢ HAI (phải làm lặp lại
-  ở từng máy — hai kho KHÔNG tự đồng bộ) · ○ máy nào cũng được. Lệnh soi trạng
+  ở từng máy khi việc đó KHÔNG nằm trong kho — kho thì Dropbox lo) · ○ máy nào
+  cũng được. Lệnh soi trạng
   thái (`run_daily.log`, `_meta/*.json`, `Get-ScheduledTaskInfo`) là 🖥️ DESKTOP
   — log và kho đều trong `.gitignore`, task đăng ký theo máy. Việc CHỮA KHO là
   ⇄ CẢ HAI.

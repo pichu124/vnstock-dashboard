@@ -6966,7 +6966,45 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
-# 🔴 U11. KHO DESKTOP BỊ CHÉP ĐÈ TỪ LAPTOP LÚC 17:39 NGÀY 19/08
+# 🔴 U11. KHO HAI MÁY DÙNG CHUNG QUA DROPBOX — GHI CHÚ CŨ SAI, ĐÃ SỬA 19/08
+
+**Kết luận cuối, sau khi hỏi user:** `C:\vnstock` VẪN được Dropbox đồng bộ
+giữa desktop `PICHU` và laptop `CFA-BINHLD-LT`. Dòng trong `CLAUDE.md` nói
+"đã bỏ Dropbox, hai kho ĐỘC LẬP" là **SAI**, và nó là nguyên nhân gốc của
+chuỗi quy sai máy + gán nhãn sai suốt ngày 19/08.
+
+**Đường suy luận sai của tôi, ghi lại để không lặp:** thấy 77 thư mục
+`backup_rebase` có tên đóng dấu 15:43–15:48 mà `CreationTime` 17:39 → kết luận
+"chép tay". Đúng dữ kiện, sai diễn giải: Dropbox **tải file xuống** thì file
+nhận `CreationTime` lúc tải, còn TÊN thì do bên gửi đặt. 25.940 file khác giữ
+ngày tạo cũ vì chúng không đổi nên Dropbox không tải lại — con số đó tôi từng
+đọc là "phần lớn kho là bản gốc, vậy chép rất hẹp", trong khi nó chính là chữ
+ký của ĐỒNG BỘ THEO DELTA. Bài học: một hạ tầng không đọc được từ code thì
+đừng suy từ timestamp — HỎI.
+
+**Hệ quả tốt:** chữa kho làm **MỘT LẦN** là đủ, máy kia tự có. Mọi nhãn
+"⇄ CẢ HAI MÁY" gán cho việc chữa kho trong ngày đều thừa.
+
+**Hệ quả phải nhớ:**
+* Marker + badge cũng đi theo kho: `test_status.json` / `doctor_status.json`
+  KHÔNG có trường máy ⇒ badge sidebar có thể là kết quả của MÁY KIA.
+  `brief_push.json` chạy ở laptop ⇒ desktop câm brief tối đó mà vẫn `return 0`.
+* **Đừng đụng kho ở máy kia trong lúc pipeline chạy.** Hai bên ghi cùng file là
+  Dropbox sinh `... (conflicted copy).parquet` nằm NGAY trong `prices/`, mà
+  `load_bars` glob `year=*/*.parquet` sẽ đọc luôn file đó → bar trùng/lẫn cơ sở.
+  Chưa có guard nào chặn; đáng làm một check doctor quét tên file "conflicted".
+* `write_table_atomic` / `write_json_atomic` (`vnstock_parquet_io.py:76-108`)
+  **không có retry**, trong khi `vnstock_wss.py:455-467` và
+  `vnstock_quarantine.py:94-110` thì có. Trên Windows, Dropbox giữ handle lúc
+  `os.replace` ⇒ `PermissionError` ⇒ mất đúng lần ghi đó.
+
+**Cửa `--skip-if-done` GIỮ hành vi gốc.** Nó cố ý bỏ qua khi máy khác đã sync
+hôm nay — với kho dùng chung thì đó là ĐÚNG, và đó là cấu hình thật. Tôi đã
+đổi mặc định thành "đòi đúng tên máy" khi còn tin ghi chú sai, nay **trả lại
+mặc định cũ**; ai tách kho riêng thì bật `VNSTOCK_INDEPENDENT_WAREHOUSE=1`.
+Lưới `tests/test_pipeline_status_gate.py` canh CẢ HAI chế độ.
+
+# 🗄️ U11b. (giữ lại) SỔ LỆNH ĐÃ KIỂM — KHÔNG MẤT
 
 **Bằng chứng, không phải suy đoán:** 77 thư mục `_meta/backup_rebase` trên
 desktop `PICHU` có TÊN đóng dấu `20260819-1543..1548` (giờ lượt `--apply`

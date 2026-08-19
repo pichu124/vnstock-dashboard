@@ -10,7 +10,7 @@
 |---|---|
 | 🖥️ **DESKTOP** | Chỉ chạy được trên máy chạy pipeline (có 2 task lịch). Laptop không có log / task / kho được cập nhật đêm. |
 | 💻 **LAPTOP** | Chỉ nên làm trên laptop (thường là thử nghiệm rủi ro — hỏng cũng không mất brief đêm). |
-| ⇄ **CẢ HAI** | Phải làm **lặp lại trên từng máy**. Hai kho KHÔNG tự đồng bộ (đã bỏ Dropbox) — làm một máy là máy kia vẫn hỏng. |
+| ⇄ **CẢ HAI** | Phải làm **lặp lại trên từng máy** — dành cho thứ KHÔNG nằm trong kho (venv, thư viện pip, task lịch, biến môi trường). **Việc chữa KHO thì KHÔNG thuộc nhóm này**: `C:\vnstock` đồng bộ qua Dropbox nên làm một máy là xong cả hai (sửa 19/08, trước đó ghi sai). |
 | ○ **MÁY NÀO CŨNG ĐƯỢC** | Kết quả như nhau ở đâu cũng vậy (chạy test, đọc code). |
 
 **Xác định đang ngồi máy nào** (2 giây, làm trước mọi thứ — đừng đoán bằng
@@ -25,36 +25,42 @@ Ra 2 task = **desktop**. Rỗng = **laptop** (`CFA-BINHLD-LT`).
 
 ## 📍 ĐIỂM DỪNG 19/08/2026 — mở lại thì đọc 10 dòng này trước
 
-Commit cuối của Claude: **`7fcfe88`**. Nhánh
+Commit cuối của Claude: **`f4dd0e2`**. Nhánh
 `claude/tong-hop-cong-viec-test-w8mvrc`. Suite **2.263 passed** (fast 1.743).
 Máy user đang ở `main` → lấy code phải `git fetch origin <nhánh> && git merge
 origin/<nhánh>` (`git pull` báo "Already up to date" dù vừa tải commit về).
 
 | Việc | Trạng thái |
 |---|---|
-| Chữa lệch cơ sở — 💻 laptop | ghi 70/70 · quét lại **68 sạch, còn VTP + QNS** · code đã vá, phải chạy lại 2 mã bằng bản mới |
-| Chữa lệch cơ sở — 🖥️ desktop `PICHU` | quét 19/08 17:45 ra **ĐÚNG 2 mã** (VTP `0.8521×` · QNS `0.9785×`) chứ không phải ~70 ⇒ kho desktop **đã ở trạng thái sau khi chữa**. Chưa giải thích được vì sao — xem ❓ dưới |
-| Trần task Daily `PT180M` — 🖥️ desktop | **chưa làm** · cần PowerShell Administrator, làm trước 18:00 |
+| Chữa lệch cơ sở (kho DÙNG CHUNG, làm 1 lần) | ghi 70/70 trên laptop · quét lại **68 sạch, còn VTP + QNS** · code đã vá, chạy lại 2 mã bằng bản mới ở máy nào cũng được |
+| Trần task Daily `PT180M` — 🖥️ desktop | **chưa xác nhận** · cần PowerShell Administrator |
 | Chạy lại backtest/kiểm định | **chưa** · chỉ chạy sau khi kho về 0 mã lệch. Mọi verdict trước 19/08 (kể cả #32 p=0.012) coi như VÔ HIỆU |
 | V1 — guard chặn tái phát | ✅ **XONG 19/08** (`vnstock_basis_guard.py`, 19 test) — cửa gác nằm ở đúng đường ghi chính, có badge doctor + kill-switch |
 
-**✅ ĐÃ GIẢI — kho desktop bị CHÉP ĐÈ từ laptop lúc 17:39 ngày 19/08.**
+**✅ ĐÃ GIẢI — DROPBOX, không phải chép tay.** `C:\vnstock` vẫn được Dropbox
+đồng bộ giữa desktop `PICHU` và laptop `CFA-BINHLD-LT` (user xác nhận 19/08).
 77 thư mục `_meta/backup_rebase` có TÊN đóng dấu 15:43–15:48 nhưng
-`CreationTime` là 17:39, trải đúng 17 giây — chữ ký chép hàng loạt. Lượt chữa
-70 mã chạy trên LAPTOP; kho được chép sang desktop 21 phút trước phát 18:00.
-Một lần chép TAY, **không phải** hai kho tự đồng bộ — dòng "hai kho KHÔNG tự
-đồng bộ" trong `CLAUDE.md` vẫn đúng.
+`CreationTime` 17:39 vì đó là lúc Dropbox **tải chúng xuống** desktop. Cùng lý
+do: 25.940 file khác giữ ngày tạo cũ — chúng không đổi nên Dropbox không tải
+lại. Lượt chữa 70 mã chạy trên laptop và tự có mặt trên desktop.
 
-✅ **Đã kiểm: sổ lệnh KHÔNG mất.** Chép là đè vào cây có sẵn (4 thư mục gốc
-vẫn giữ CreationTime tháng 4), và `brief_memory.db` đọc ra 805 briefs · 148
-rec · 138 outcome, brief cuối `2026-08-18T23:16:05` — đúng bản desktop gửi
-tay tối 18/08. Lượt chép chỉ đụng `prices/` + `backup_rebase`.
+🔴 **Ghi chú cũ trong `CLAUDE.md` ("đã bỏ Dropbox, hai kho ĐỘC LẬP") là SAI** —
+chính nó làm Claude quy sai máy và gán nhãn ⇄ CẢ HAI cho mọi việc chữa kho
+suốt ngày 19/08. Đã sửa. **Chữa kho làm MỘT LẦN là đủ.**
 
-⚠️ Vẫn nhớ dài hạn: `brief_memory.db` là nơi DUY NHẤT giữ sổ lệnh + outcome +
-verdict kiểm định, **không module nào backup nó**, rec không suy ngược được từ
-kho giá. Lần chép kho sau phải chừa file này ra.
+⚠️ Đổi lại: marker và badge cũng đi theo kho. `test_status.json` /
+`doctor_status.json` không có trường máy nên badge sidebar có thể là kết quả
+của MÁY KIA; `brief_push.json` chạy ở laptop là desktop câm brief tối đó.
+Và **đừng đụng kho ở máy kia trong lúc pipeline chạy** — hai bên ghi cùng file
+là Dropbox sinh "conflicted copy" nằm ngay trong `prices/`, mà `load_bars`
+glob `year=*/*.parquet` sẽ đọc luôn file đó.
 
-**Lệnh đầu tiên khi quay lại (💻 laptop):**
+✅ **Sổ lệnh KHÔNG mất.** `brief_memory.db`: 805 briefs · 148 rec · 138
+outcome, brief cuối `2026-08-18T23:16:05` — đúng bản desktop gửi tay tối
+18/08. Nhưng nhớ dài hạn: đây là nơi DUY NHẤT giữ sổ lệnh + outcome + verdict
+kiểm định và **không module nào backup nó**.
+
+**Lệnh đầu tiên khi quay lại (○ máy nào cũng được — kho dùng chung):**
 
 ```powershell
 git fetch origin claude/tong-hop-cong-viec-test-w8mvrc
@@ -67,7 +73,7 @@ python scripts\probe_price_basis.py --sweep      # kỳ vọng: 0 mã
 
 ## 🔴 VIỆC CỦA BẠN
 
-### ⇄ CẢ HAI MÁY · 🔥 SỐ 1 — Chữa 70 mã lệch cơ sở
+### ○ MỘT MÁY LÀ ĐỦ · 🔥 SỐ 1 — Chữa 70 mã lệch cơ sở
 
 Việc lớn nhất đang mở. Quét 19/08 trên laptop: **70/159 mã thanh khoản lệch cơ
 sở kho/nguồn**, gần trọn VN30, vách rải từ 03–08/2026 (mùa chia cổ tức). Chạy

@@ -109,26 +109,29 @@ def write_pipeline_status(job: str, update: dict):
 
 
 def is_already_done_today(job: str) -> tuple[bool, dict]:
-    """Check nếu job đã chạy thành công hôm nay (VN time) TRÊN CHÍNH MÁY NÀY.
+    """Check nếu job đã chạy thành công hôm nay (VN time).
 
-    Điều kiện "chính máy này" thêm 19/08 và nó sửa một giả định đã CHẾT: cửa
-    `--skip-if-done` sinh ra thời kho nằm trên Dropbox dùng chung, khi đó "máy
-    khác đã sync hôm nay" ĐÚNG là "kho đã mới". Bỏ Dropbox rồi thì hai kho độc
-    lập, nên câu đó thành sai — mà `pipeline_status.json` lại nằm TRONG kho,
-    nên chỉ cần chép kho từ máy này sang máy kia là máy nhận tự bỏ qua sync
-    + rollup, in "✓ đã chạy hôm nay bởi máy X" rồi đi tiếp, kho đứng yên
-    nguyên đêm. Đúng ca 19/08: kho laptop được chép lên desktop lúc 17:39, 21
-    phút trước phát 18:00.
+    MẶC ĐỊNH: kho DÙNG CHUNG (Dropbox) — "máy khác đã sync hôm nay" ĐÚNG là
+    "kho đã mới", nên bỏ qua là hành vi mong muốn. Đây là thiết kế gốc và là
+    cấu hình thật của user (xác nhận 19/08: `C:\vnstock` đồng bộ qua Dropbox
+    giữa desktop PICHU và laptop CFA-BINHLD-LT).
 
-    Kho THẬT SỰ dùng chung (mount mạng, Dropbox sống lại) thì bật lại hành vi
-    cũ bằng `VNSTOCK_SHARED_WAREHOUSE=1`.
+    `VNSTOCK_INDEPENDENT_WAREHOUSE=1` — mỗi máy MỘT kho riêng. Khi đó câu trên
+    thành sai: `pipeline_status.json` nằm TRONG kho nên chỉ cần chép kho sang
+    máy kia là máy nhận tự bỏ qua cả sync lẫn rollup, in "✓ đã chạy hôm nay
+    bởi máy X" rồi đi tiếp — kho đứng yên nguyên đêm mà pipeline vẫn XANH.
+    Bật cờ này thì cửa đòi đúng TÊN MÁY mới cho bỏ qua.
+
+    Vì sao mặc định là "dùng chung" chứ không phải cái an toàn hơn: đổi mặc
+    định là đổi hành vi production của một cửa đã chạy nhiều tháng đúng thiết
+    kế. Cấu hình nào đúng thì chỉ user biết — code không đoán được.
     """
     status = read_pipeline_status().get(job, {})
     last_date_str = status.get("last_success_date", "")
     today_str = get_today_vn().isoformat()
     done = (last_date_str == today_str
             and status.get("last_result") == "success")
-    if done and os.environ.get("VNSTOCK_SHARED_WAREHOUSE", "0") != "1":
+    if done and os.environ.get("VNSTOCK_INDEPENDENT_WAREHOUSE", "0") == "1":
         last_machine = str(status.get("last_machine", "") or "")
         if last_machine and last_machine != get_hostname():
             return False, status
