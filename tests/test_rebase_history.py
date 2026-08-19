@@ -349,3 +349,35 @@ class TestBatchFromSweep:
         import inspect
         rth = self._rth()
         assert "find_basis_step" in inspect.getsource(rth._basis_break_of)
+
+
+def test_volume_down_is_never_evidence_of_more_shares():
+    """VẾT 19/08 (chạy thử 70 mã): luật cũ so TRỪ với biên ±35% nên ở hệ số
+    1.30 nó chấp nhận cả bậc nhảy 0.85-1.75 — tức coi volume ĐI XUỐNG là bằng
+    chứng số cổ phiếu TĂNG. Đo được ở HSG (bậc/hệ số 0.71) · SSI 0.73 ·
+    VJC 0.70 · VTP 0.72 · TCX 0.82, cả 5 đều suýt bị nhân khối lượng."""
+    import sys
+    from pathlib import Path as _P
+    sys.path.insert(0, str(_P(__file__).resolve().parent.parent / "scripts"))
+    import rebase_ticker_history as rth
+    src = _P("scripts/rebase_ticker_history.py").read_text(encoding="utf-8")
+    assert "0.85 <= step / factor <= 1.25" in src
+    for factor, step in ((1.3002, 0.92), (1.2513, 0.91), (1.3001, 0.91),
+                         (1.3594, 0.98), (1.2001, 0.98)):
+        assert not (0.85 <= step / factor <= 1.25), (factor, step)
+    for factor, step in ((1.95, 1.95), (1.1598, 1.17), (1.2052, 1.25)):
+        assert 0.85 <= step / factor <= 1.25, (factor, step)
+
+
+def test_probe_tolerance_matches_the_sweep_threshold():
+    """Hai ngưỡng phải khớp, nếu không danh sách quét có mã KHÔNG AI CHỮA NỔI:
+    sweep gắn cờ từ 1,5% mà probe (2%) lại phán 'aligned' rồi rebase từ chối —
+    đúng 5 ca CTG/DPG/MWG/NLG/VPB (1,52-1,93%) trong lượt chạy thử 70 mã."""
+    import sys
+    from pathlib import Path as _P
+    sys.path.insert(0, str(_P(__file__).resolve().parent.parent / "scripts"))
+    import probe_price_basis as ppb
+    assert ppb.SAME_BASIS_TOL < ppb.BASIS_STEP_TOL, (
+        "probe phải nhạy hơn (hoặc bằng) sweep, không thì có mã bị gắn cờ mà "
+        "công cụ chữa từ chối")
+    assert ppb.SAME_BASIS_TOL > 0.008, "vẫn phải trên mức nhiễu làm tròn"

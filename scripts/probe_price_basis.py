@@ -40,8 +40,13 @@ import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Hai chuỗi coi là CÙNG cơ sở khi tỉ lệ nằm trong ±2% (làm tròn giá, tick size).
-SAME_BASIS_TOL = 0.02
+# Hai chuỗi coi là CÙNG cơ sở khi tỉ lệ nằm trong ±1,2% (làm tròn giá, tick
+# size). HẠ TỪ 2% xuống 19/08: chế độ --sweep gắn cờ từ 1,5%, nên mọi mã lệch
+# trong dải 1,5-2% bị gắn cờ rồi lại bị chính công cụ chữa TỪ CHỐI vì probe
+# phán "aligned" — đúng 5 ca CTG/DPG/MWG/NLG/VPB (1,52-1,93%) trong lượt chạy
+# thử 70 mã. Hai ngưỡng phải khớp, nếu không danh sách có mã không ai chữa nổi.
+# Vẫn để trên mức nhiễu làm tròn (~0,8%, có test canh).
+SAME_BASIS_TOL = 0.012
 # Ngưỡng coi là CÓ VÁCH tại ngày chỉ định — giống check_unit_continuity.
 BREAK_PCT = 0.30
 

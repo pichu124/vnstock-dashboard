@@ -252,17 +252,11 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
     # Nguồn KHÔNG điều chỉnh volume (≈1.0) MÀ khối lượng lại nhảy bậc đúng
     # bằng hệ số giá ⇒ chuỗi volume cũng đang gãy; chữa giá mà bỏ volume là
     # đổi một lỗi lấy một lỗi khác.
-    scale_vol = 1.0
-    _near = abs(step - factor) <= 0.35 * factor if step == step else False
-    # HỎI SỰ KIỆN QUYỀN TRƯỚC KHI SUY TỪ SỐ (vá 19/08, ca VNM).
-    # Chỉ sự kiện ĐỔI SỐ CỔ PHIẾU (split/bonus) mới kéo theo khối lượng; cổ tức
-    # TIỀN MẶT hạ giá mà KHÔNG tạo thêm cổ phiếu nào — nhân volume lên là bịa
-    # ra cổ phiếu chưa từng khớp.
-    # Vì sao heuristic cũ không đủ: nó chỉ hỏi "bậc nhảy volume có gần hệ số giá
-    # không". Với hệ số 1.0327 (VNM), điều kiện đó thoả với MỌI bậc trong
-    # khoảng 0.67-1.39 lần — tức toàn bộ dao động khối lượng thường ngày. Ở hệ
-    # số nhỏ, bậc nhảy volume KHÔNG mang tín hiệu; 1.95 lần của VHM mới là
-    # tín hiệu thật.
+    # So NHÂN chứ không so TRỪ: bậc nhảy phải cùng CỠ hệ số giá. Biên ±35%
+    # kiểu trừ ở hệ số 1.3 chấp nhận cả bậc 0.85-1.75 — tức nhận cả volume ĐI
+    # XUỐNG làm bằng chứng số cổ phiếu TĂNG (đo được ở HSG/SSI/VJC/VTP/TCX).
+    _corroborates = (0.85 <= step / factor <= 1.25) if (step == step
+                     and factor) else False
     _ev = _corp_action_kind(tk, wh_root, brk)
     _shares_changed = _ev in ("split", "bonus")
     _too_small_to_tell = factor < VOL_SIGNAL_MIN_FACTOR
@@ -270,27 +264,45 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
         print(f"[rebase] sự kiện quyền quanh vách: {_ev}"
               + (" -> CÓ đổi số cổ phiếu" if _shares_changed
                  else " -> KHÔNG đổi số cổ phiếu"))
-    if volume_mode == "auto" and _ev == "cash":
-        print("[rebase] -> GIỮ NGUYÊN khối lượng: cổ tức TIỀN MẶT không tạo "
-              "thêm cổ phiếu nào (nhân lên là bịa ra khối lượng chưa từng khớp)")
-    elif volume_mode == "auto" and not _ev and _too_small_to_tell:
-        print(f"[rebase] -> GIỮ NGUYÊN khối lượng: hệ số {factor:.4f} lần quá "
-              f"nhỏ để bậc nhảy volume mang tín hiệu (ngưỡng "
-              f"{VOL_SIGNAL_MIN_FACTOR}) và không tra được sự kiện quyền — thà "
-              f"không chữa còn hơn chữa sai. Chắc chắn là chia tách/thưởng thì "
-              f"ép bằng --volume adjust")
-    elif volume_mode == "adjust" or (volume_mode == "auto" and
-                                     abs(vol_factor - 1.0) < 0.05 and _near
-                                     and (_shares_changed or not _too_small_to_tell)):
+    # Quyết định khối lượng — luật ĐÃ SIẾT 19/08 sau lượt chạy thử 70 mã.
+    # Luật cũ chỉ đòi "bậc nhảy volume gần hệ số giá" với biên ±35% kiểu TRỪ,
+    # và nó cho qua cả những ca NGƯỢC HẲN: HSG hệ số 1.3002 mà volume nhảy
+    # XUỐNG 0.92 (bậc/hệ số = 0.71) vẫn được coi là bằng chứng chia tách.
+    # Tương tự SSI 0.73 · VJC 0.70 · VTP 0.72 · TCX 0.82. Khối lượng ĐI XUỐNG
+    # không thể là bằng chứng số cổ phiếu TĂNG.
+    # Nay đòi bằng chứng DƯƠNG: bậc/hệ số phải nằm trong 0.85-1.25 (so NHÂN),
+    # cộng thêm một trong hai — kho sự kiện xác nhận split/bonus, HOẶC hệ số
+    # đủ lớn để không thể là cổ tức tiền mặt. `cash` thì không bao giờ nhân.
+    scale_vol = 1.0
+    _src_untouched = abs(vol_factor - 1.0) < 0.05
+    _why_keep = None
+    if volume_mode == "source":
+        _why_keep = "--volume source"
+    elif volume_mode != "adjust":
+        if _ev == "cash":
+            _why_keep = ("cổ tức TIỀN MẶT không tạo thêm cổ phiếu nào (nhân "
+                         "lên là bịa ra khối lượng chưa từng khớp)")
+        elif not _src_untouched:
+            _why_keep = f"nguồn ĐÃ điều chỉnh volume rồi ({vol_factor:.4f}×)"
+        elif not _corroborates:
+            _why_keep = (f"bậc nhảy volume {step:.2f}× KHÔNG cùng cỡ hệ số giá "
+                         f"{factor:.4f}× (tỉ lệ {step / factor:.2f}, cần "
+                         f"0.85-1.25) — không có bằng chứng số cổ phiếu đổi")
+        elif not (_shares_changed or not _too_small_to_tell):
+            _why_keep = (f"hệ số {factor:.4f}× quá nhỏ để loại trừ cổ tức tiền "
+                         f"mặt (ngưỡng {VOL_SIGNAL_MIN_FACTOR}×) và kho sự kiện "
+                         f"không xác nhận chia tách/thưởng")
+    if _why_keep is None:
         scale_vol = factor
-        print(f"[rebase] → NHÂN khối lượng lịch sử × {scale_vol:.4f} "
-              f"(nguồn chỉ điều chỉnh giá; không nhân thì GTGD lịch sử còn "
-              f"1/{factor:.2f} thực tế — screener lọc thanh khoản bằng số đó)")
-    elif volume_mode == "source":
-        print("[rebase] → GIỮ NGUYÊN khối lượng theo nguồn (--volume source)")
+        print(f"[rebase] -> NHÂN khối lượng lịch sử × {scale_vol:.4f} "
+              f"(nguồn chỉ điều chỉnh giá, bậc nhảy volume {step:.2f}× khớp "
+              f"hệ số"
+              + (f", kho sự kiện xác nhận '{_ev}'" if _shares_changed else "")
+              + ")")
     else:
-        print("[rebase] → giữ khối lượng theo nguồn: không thấy bằng chứng "
-              "volume gãy tại vách")
+        print(f"[rebase] -> GIỮ NGUYÊN khối lượng: {_why_keep}"
+              + ("" if volume_mode == "source"
+                 else " · chắc chắn là chia tách/thưởng thì ép --volume adjust"))
 
     n_src, n_scaled, touched = 0, 0, 0
     plan = {}
