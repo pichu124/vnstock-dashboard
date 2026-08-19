@@ -190,8 +190,11 @@ def test_ticker_with_only_gap_moves_is_clean(tmp_path, capsys):
                                    ["2026-03-10", "2026-08-07", "2026-08-10"]))
     assert cuc.main(["--warehouse", str(wh)]) == 0
     out = capsys.readouterr().out
-    assert "ℹ" in out                          # vẫn in ra để đọc
     assert "cần soi tay" not in out
+    assert "1 mã liên tục" in out              # gói gọn, không bắt cuộn
+    # Lý do vẫn đọc được khi CẦN — `--full` là chế độ đối chiếu sau lúc chữa.
+    assert cuc.main(["--warehouse", str(wh), "--full"]) == 0
+    assert "ℹ" in capsys.readouterr().out
 
 
 # ── live_gap: kho vs giá live ────────────────────────────────────────────────
@@ -317,8 +320,11 @@ def test_ancient_break_is_shown_but_not_actionable(tmp_path, capsys):
                                    ["2010-03-01", "2010-03-02", "2010-03-03"]))
     assert cuc.main(["--warehouse", str(wh), "--all"]) == 0        # cửa sổ 365
     assert cuc.main(["--warehouse", str(wh), "--ticker", "AAA"]) == 0
+    assert "1 mã liên tục" in capsys.readouterr().out
+    # Vẫn tra được lý do khi cần — chỉ là không bắt đọc mỗi lần chạy.
+    assert cuc.main(["--warehouse", str(wh), "--ticker", "AAA", "--full"]) == 0
     out = capsys.readouterr().out
-    assert "2010-03-02" in out, "vẫn phải in ra để đọc"
+    assert "2010-03-02" in out
     assert "NGOÀI lookback" in out, "phải nói RÕ vì sao không tính"
 
 
@@ -359,3 +365,35 @@ def test_all_mode_ranks_by_liquidity_not_alphabet(tmp_path, capsys):
     out = capsys.readouterr().out
     assert out.index("BIGLQ") < out.index("PENNY")     # thanh khoản cao lên trước
     assert "1.580×" in out and "GTGD20" in out         # hệ số + thanh khoản
+
+
+def test_clean_tickers_are_folded_into_one_line(tmp_path, capsys):
+    """Ca thật 19/08: 50 mã × (chú thích + bảng 10 bar) = ~600 dòng phải cuộn
+    để tìm đúng 1 mã đáng đọc. Danh sách phải cuộn thì người ta bỏ qua — cùng
+    lý do đã hạ vách ngoài lookback xuống ℹ."""
+    import datetime as _d
+    wh = tmp_path / "wh"
+    ok = [str(d.date()) for d in pd.bdate_range(end="2026-08-17", periods=3)]
+    _write_bars(wh, "CLEANA", _gapped([10.0, 10.1, 10.2], ok))
+    _write_bars(wh, "CLEANB", _gapped([20.0, 20.1, 20.2], ok))
+    recent = [(_d.date.today() - _d.timedelta(days=n)).isoformat()
+              for n in (9, 8, 7)]
+    _write_bars(wh, "BROKEN", _gapped([112.5, 71.21, 72.0], recent))
+
+    cuc.main(["--warehouse", str(wh), "--ticker", "CLEANA",
+              "--ticker", "CLEANB", "--ticker", "BROKEN"])
+    out = capsys.readouterr().out
+    assert "2 mã liên tục, không cần đọc" in out
+    assert "CLEANA, CLEANB" in out
+    assert out.count("bar cuối") == 1, "chỉ mã cần soi mới in khối đầy đủ"
+    assert "BROKEN" in out
+
+
+def test_full_flag_restores_every_ticker(tmp_path, capsys):
+    """`--full` phải in lại đủ — đó là chế độ dùng khi ĐỐI CHIẾU sau lúc chữa."""
+    wh = tmp_path / "wh"
+    ok = [str(d.date()) for d in pd.bdate_range(end="2026-08-17", periods=3)]
+    _write_bars(wh, "CLEANA", _gapped([10.0, 10.1, 10.2], ok))
+    cuc.main(["--warehouse", str(wh), "--ticker", "CLEANA", "--full"])
+    out = capsys.readouterr().out
+    assert "bar cuối" in out and "không cần đọc" not in out

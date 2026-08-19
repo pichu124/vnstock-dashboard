@@ -12,8 +12,8 @@ paths:
 Use **pytest** as the testing framework. In this repo, always run it through the orchestrator:
 
 ```bash
-python run.py test --fast   # ~1,661 tests, ~31s — after any core-module change
-python run.py test          # full suite, ~2,181 tests, ~40s — before any PR to main
+python run.py test --fast   # ~1,665 tests, ~31s — after any core-module change
+python run.py test          # full suite, ~2,185 tests, ~40s — before any PR to main
 ```
 
 Results are written to `data_warehouse/_meta/test_status.json` (sidebar badge). Red badge = no merge/deploy.

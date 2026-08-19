@@ -356,6 +356,9 @@ def main(argv: "list[str] | None" = None) -> int:
                          "365 khi --all, 0 khi soi mã lẻ — lịch sử 20 năm có sẵn "
                          "nhiễu cũ, quét rộng mà không cắt cửa sổ thì tín hiệu "
                          "mới chìm nghỉm")
+    ap.add_argument("--full", action="store_true",
+                    help="in đầy đủ cả mã sạch (mặc định chỉ in mã cần soi) — "
+                         "dùng khi đối chiếu sau lúc chữa")
     ap.add_argument("--all", action="store_true",
                     help="quét TOÀN KHO (chỉ in mã nghi vấn) — tìm mã lệch cơ "
                          "sở điều chỉnh sau ca VVS 18/08")
@@ -406,7 +409,18 @@ def main(argv: "list[str] | None" = None) -> int:
         for res in hot:
             render_compact(res)
     else:
+        # Mặc định: mã SẠCH gói vào một dòng, chỉ mã cần soi mới in đầy đủ.
+        # Ca thật 19/08: 50 mã × (6 dòng chú thích + bảng 10 bar) = phải cuộn
+        # qua ~600 dòng để tìm đúng 1 mã đáng đọc. Danh sách mà phải cuộn thì
+        # người ta bỏ qua — cùng lý do đã hạ vách ngoài lookback xuống ℹ.
+        # `--full` giữ hành vi cũ (dùng khi ĐỐI CHIẾU sau lúc chữa).
+        clean = [r for r in results if r["status"] == "clean"]
+        if clean and not args.full:
+            print(f"\n✅ {len(clean)} mã liên tục, không cần đọc: "
+                  f"{', '.join(r['ticker'] for r in clean)}")
         for res in results:
+            if res["status"] == "clean" and not args.full:
+                continue
             render(res, args.bars)
 
     suspect = [r["ticker"] for r in results if r["status"] == "suspect"]

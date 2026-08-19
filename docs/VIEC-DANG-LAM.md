@@ -27,6 +27,9 @@ Ra 2 task = **desktop**. Rỗng = **laptop** (`CFA-BINHLD-LT`).
 
 ### ⇄ CẢ HAI MÁY · Chữa VVS — ✅ laptop 19/08 · ⏳ **DESKTOP CHƯA LÀM**
 
+*(Sau khi chữa, laptop chạy lại `check_unit_continuity` ra **1/50 mã cần soi**
+thay vì 11 — VVS đã ✅ sạch. Mã còn lại là XDH, GTGD ~48 triệu/phiên, xem dưới.)*
+
 Đầu mối để rơi từ 18/08: VVS chính là mã khởi đầu cuộc điều tra, probe đã chốt
 `warehouse_basis 1.6543×`, rồi mình chuyển sang VHM/PNJ/GEX/GEE/PVD và **quên
 chữa chính nó**. Vách 2026-06-15 — mới 2 tháng, nằm trong mọi cửa sổ backtest —

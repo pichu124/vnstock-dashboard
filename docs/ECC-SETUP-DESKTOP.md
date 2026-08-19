@@ -97,7 +97,7 @@ Cuối cùng chạy test để chốt mọi thứ xanh:
 
 ```powershell
 & "C:\Users\Administrator\.venv\Scripts\Activate.ps1"
-python run.py test    # kỳ vọng ~2.181 pass, không còn warning utcnow
+python run.py test    # kỳ vọng ~2.185 pass, không còn warning utcnow
 ```
 
 ## Ghi chú
