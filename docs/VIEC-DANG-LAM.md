@@ -68,15 +68,11 @@ python vnstock_classifier.py --classify --limit 20
 ```
 Soi: không còn đòi `ANTHROPIC_API_KEY`, có dòng route "ladder free". Dán kết quả.
 
-### Khi rảnh — kiểm kho LAPTOP có bị bỏ quên không
+### ✅ Kho laptop — ĐÃ KIỂM 19/08, sạch
 
-Đợt chữa lệch cơ sở 18/08 chạy trên desktop; kho là local nên laptop KHÔNG được
-đồng bộ. Trên laptop chạy:
-```powershell
-python scripts\check_unit_continuity.py --ticker VHM
-```
-Báo vách = kho laptop vẫn hỏng → hoặc chữa bằng `rebase_ticker_history`, hoặc
-chấp nhận và **không dùng laptop để soi số**.
+VHM/PNJ/GEX/GEE/PVD đều liên tục, bar cuối 18/08, khớp giá live. Kho laptop là
+bản đầy đủ đã chữa → dùng soi số được. **Nhớ dài hạn:** hai kho KHÔNG tự đồng
+bộ, nên lần chữa kho sau phải làm trên CẢ HAI máy (hoặc chép lại).
 
 ### Chỉ làm được TRONG GIỜ GIAO DỊCH (9h15–14h30, T2–T6)
 
@@ -117,8 +113,8 @@ cần `git fetch origin <nhánh> && git merge origin/<nhánh>` rồi chạy lạ
 | ~~2~~ | ✅ **XONG 19/08** (`a83ee51`) — rec hết bị đóng sớm; lệnh thủng SL nay nhận ra ngay thay vì chờ hết horizon | Verdict #32 từ nay chấm trên đúng khung | — |
 | 3 | **Ghi JSON nguyên tử** (12 điểm/7 file) + nối vào lưới `_MUST_BE_ATOMIC` | Pipeline đã bị kill 2 lần; bản cụt còn lây sang file dự phòng | ~30' |
 | ~~4~~ | ✅ **XONG 19/08** (`970a504`) — 3 test bộ công cụ đơn vị giá đã vào `--fast` | `--fast` nay 1.636 test | — |
-| 5 | **Doctor soi kill-switch** (`VNSTOCK_PIPELINE_BRIEF`…) | Chính ẩn số của Bước 1 lẽ ra phải có badge báo | ~30' |
-| 6 | **`telegram close` phải có cửa gác** | Gõ 2 lần = 2 brief; gõ trước 15:00 = câm brief tối đó | ~30' |
+| ~~5~~ | ✅ **XONG 19/08** (`0a3e785`) — doctor có badge "Kill-switch pipeline", đọc cả `.env` | Ẩn số kiểu này từ nay tự lộ | — |
+| ~~6~~ | ✅ **XONG 19/08** (`0a3e785`) — `telegram close` qua đúng cửa gác, muốn vượt phải `--force` | Hết bẫy gõ-2-lần và bẫy-câm-brief | — |
 | 7 | **Vá gốc lỗ hổng độ tươi** (giờ bị cắt ở `vnstock_brief.py:1095`) | Vá xong thì khỏi phải làm Bước 2 bằng tay nữa | ~1 buổi |
 
 ---
