@@ -664,7 +664,10 @@ def net_nso() -> dict:
         return _result("net_nso", name, "ok",
                        f"parse OK (as_of {got.get('as_of', '?')}): {keys}")
     return _result("net_nso", name, "error", "không tải/parse được bài NSO",
-                   "python vnstock_nso.py --diag --dump — gửi output để chỉnh regex")
+                   "python vnstock_nso.py --diag --dump. TOÀN lỗi kết nối "
+                   "(ConnectTimeout/ConnectionReset) = mạng máy này chặn, "
+                   "thử máy/mạng khác TRƯỚC khi sửa code; tải được mà parse "
+                   "hỏng mới là chuyện regex")
 
 
 def net_foreign_flow_api() -> dict:

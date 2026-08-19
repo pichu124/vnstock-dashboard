@@ -6940,19 +6940,23 @@ Sync 74' như 17/08 là đủ để Windows chấm dứt task TRƯỚC bước b
 `MaxMinutes` hoặc tách brief ra task riêng (`run.py --no-brief` + task thứ 3 —
 cờ đã có sẵn ở run.py:1234).
 
-**U6. NSO CHẾT — nguồn vĩ mô duy nhất đang ❌ (phát hiện 19/08 qua
-`doctor --net`).** Bảng: 25 ✅ · 2 ⚠️ · 1 ❌, và cái ❌ là *"NSO monthly (mạng)
-— không tải/parse được bài NSO"*. Hậu quả: CPI / IIP / cán cân thương mại /
-PMI đang chạy bằng số THÁNG 7 trong cache; số tháng 8 (NSO công bố cuối tháng)
-sẽ KHÔNG về. Doctor offline không phát hiện được vì nó chỉ so tuổi cache.
-Chẩn: `python vnstock_nso.py --diag --dump` (○ máy nào cũng được, cần mạng) →
-gửi output để chỉnh regex. Nhiều khả năng NSO đổi layout trang.
-
-**U7. Jina Reader không truy cập được** (⚠️, cùng lượt đo). Tin chấm LLM tụt
-xuống chỉ dùng title+summary — vẫn chạy, chất lượng giảm. CHƯA biết là chính
-sách mạng của laptop hay dịch vụ chết: phải chạy `doctor --net` trên DESKTOP
-mới phân định (🖥️ DESKTOP). Tắt hẳn thì `VNSTOCK_NEWS_FULLTEXT=0` — nhưng cờ
-này nay bị badge Kill-switch soi nên đừng để quên.
+**U6. NSO + Jina không truy cập được TỪ LAPTOP — nhiều khả năng là MẠNG, không
+phải nguồn chết** (19/08, `doctor --net` trên laptop `CFA-BINHLD-LT`).
+Bảng: 25 ✅ · 2 ⚠️ · 1 ❌.
+`vnstock_nso.py --diag --dump` cho thấy CẢ BA URL chết ở tầng KẾT NỐI, chưa
+tải được byte nào: `www.nso.gov.vn` ConnectTimeout · `nso.gov.vn`
+ConnectionReset (WinError 10054 — remote host CHỦ ĐỘNG đóng) · `www.gso.gov.vn`
+ConnectTimeout. ⇒ **KHÔNG phải đổi layout, đừng đi sửa regex.**
+Ghép với `r.jina.ai` cũng không tới được trong CÙNG lượt đo: hai host ngoài
+độc lập cùng chết trên một máy = chữ ký của chặn mạng (laptop có tên kiểu máy
+công ty), không phải hai nguồn cùng hỏng một lúc.
+**Việc phân định (🖥️ DESKTOP): chạy `python run.py doctor --net` trên desktop.**
+* Desktop cũng ❌ → nguồn/chính sách thật, lúc đó mới bàn sửa code.
+* Desktop ✅ → chỉ là mạng laptop; production KHÔNG hỏng, và bài học là
+  **không kết luận "nguồn chết" từ một máy** (cùng họ với bài học nhận dạng máy).
+Hậu quả nếu desktop cũng hỏng: CPI / IIP / cán cân thương mại chạy bằng số
+THÁNG 7 trong cache, số tháng 8 sẽ không về. Doctor offline không thấy vì nó
+chỉ so tuổi cache.
 
 **U4-bis (19/08, đo trên máy thật).** `vnstock_classifier` in `✅ Using
 vnstock_data` ⇒ **nhánh SPONSOR đang hoạt động trên máy thật**, trong khi
