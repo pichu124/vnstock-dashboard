@@ -23,6 +23,10 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   tức venv đổi theo TÀI KHOẢN ĐANG ĐĂNG NHẬP chứ không theo máy. Dấu hiệu duy
   nhất đáng tin: `$env:COMPUTERNAME` + `Get-ScheduledTask -TaskName 'VnStock *'`
   (2 task = desktop, rỗng = laptop). Đã quy sai máy 3 lần trong ngày 19/08.
+- ⚠️ Kho hai máy ĐỘC LẬP, nhưng `pipeline_status.json` / `brief_push.json` /
+  `test_status.json` / `doctor_status.json` đều nằm TRONG kho ⇒ **chép kho
+  giữa hai máy là chép cả marker lẫn badge**. Cửa `--skip-if-done` đã vá để so
+  tên máy (19/08); ba file kia thì chưa — chép kho xong phải tự kiểm.
 - ⚠️ **MỌI việc/test giao cho user PHẢI ghi rõ máy nào**, theo 4 nhãn dùng trong
   `docs/VIEC-DANG-LAM.md`: 🖥️ DESKTOP · 💻 LAPTOP · ⇄ CẢ HAI (phải làm lặp lại
   ở từng máy — hai kho KHÔNG tự đồng bộ) · ○ máy nào cũng được. Lệnh soi trạng
@@ -31,8 +35,8 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   ⇄ CẢ HAI.
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~1.736 test; ~40s trên CI).
-- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.256 test).
+- Sửa module lõi nào → `python run.py test --fast` (~1.743 test; ~40s trên CI).
+- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.263 test).
   Đo trên MÁY THẬT 19/08 (sau đợt vá): **2.181 passed / 100,3s** — khớp CI từng test một
   (CI ~36s; máy thật chậm hơn ~3× vì có kho dữ liệu, không phải vì bỏ test).
 - Kết quả ghi `data_warehouse/_meta/test_status.json` → badge sidebar.

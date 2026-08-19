@@ -6966,6 +6966,68 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🔴 U11. KHO DESKTOP BỊ CHÉP ĐÈ TỪ LAPTOP LÚC 17:39 NGÀY 19/08
+
+**Bằng chứng, không phải suy đoán:** 77 thư mục `_meta/backup_rebase` trên
+desktop `PICHU` có TÊN đóng dấu `20260819-1543..1548` (giờ lượt `--apply`
+chạy) nhưng `CreationTime` là **17:39**, trải đúng 17 giây — chữ ký của một
+lượt chép hàng loạt. `shutil.copytree` lúc rebase chạy thật thì CreationTime
+phải là 15:43. ⇒ Lượt chữa 70 mã chạy trên LAPTOP; kho được chép sang desktop
+lúc 17:39, **21 phút trước phát 18:00**.
+
+Việc này GIẢI câu hỏi treo ở `VIEC-DANG-LAM.md` ("vì sao desktop quét ra đúng
+2 mã với đúng bộ đếm universe của laptop"). Kết luận: **một lần chép tay, KHÔNG
+phải hai kho tự đồng bộ.** Dòng "hai kho KHÔNG tự đồng bộ" trong `CLAUDE.md`
+vẫn đúng.
+
+## Cái giá: `brief_memory.db` là kho DUY NHẤT, KHÔNG tái tạo được
+
+`data_warehouse/_meta/brief_memory.db` (`vnstock_memory.py:26`) giữ 5 bảng —
+`briefs` / `strategies` / `backtests` / `recommendations` / `rec_outcomes` —
+và **kết quả kiểm định nằm trong `backtests.metrics_json["validation"]`**
+(`vnstock_strategy.py:1066`), tức verdict #32 cũng ở đây. Không module nào
+backup file này (quét toàn repo: chỉ `rebase_ticker_history` backup thư mục
+giá). Rec là ẢNH CHỤP QUYẾT ĐỊNH tại thời điểm phát — không suy ngược được từ
+kho giá. Đóng lệnh là MỘT CHIỀU (`rec_outcomes.rec_id` UNIQUE, không có đường
+mở lại — `vnstock_memory.py:106-113`, comment `vnstock_train.py:604`).
+
+Desktop mới là máy sinh khuyến nghị; laptop chỉ chạy thử. Nếu bản chép đè DB
+thì sổ lệnh thật bị thay bằng sổ thử nghiệm — **mất vĩnh viễn**.
+
+Cùng nhóm không-tái-tạo-được, và cả 3 agent soi đầu đều bỏ sót: **file người
+dùng nhập tay** trong `_meta` — `portfolio.json`, `watchlist.json`,
+`price_alerts.json`, `reports_index.json` + `reports/<id>.txt|pdf`,
+`sizing_config.json`, `allocation_config.json`, các whitelist. Và **bar phút
+WSS** `_live/bars_*.parquet` (+ `archive/` 30 ngày) — WSS không phát lại quá
+khứ, chỉ vá được bằng 1 bar tổng hợp giả (`vnstock_wss_backfill.py:100-152`).
+
+## ✅ Đã vá NGAY: cửa `--skip-if-done` nay so cả TÊN MÁY
+
+`is_already_done_today` (`vnstock_rollup.py`) trước chỉ so ngày + kết quả.
+`pipeline_status.json` nằm TRONG kho nên đi theo bản chép ⇒ chỉ cần chép kho
+là máy nhận tự bỏ qua **cả sync lẫn rollup**, in "✓ đã chạy hôm nay bởi máy
+X" rồi đi tiếp — kho đứng yên nguyên đêm mà pipeline vẫn XANH.
+
+Giả định đã chết đứng sau cửa đó: nó sinh ra thời kho nằm trên Dropbox dùng
+chung, khi ấy "máy khác đã sync" ĐÚNG là "kho đã mới". Bỏ Dropbox rồi thì câu
+đó thành sai. Nay khác máy ⇒ KHÔNG bỏ qua. Kho thật sự dùng chung (mount
+mạng) thì bật lại hành vi cũ bằng `VNSTOCK_SHARED_WAREHOUSE=1`.
+Vết cũ chưa có trường `last_machine` thì giữ hành vi cũ (không biến thành
+"luôn chạy lại"). Lưới: `tests/test_pipeline_status_gate.py` 7 test.
+
+## Bom thứ hai cùng loại, CHƯA vá: `brief_push.json`
+
+Marker chống gửi trùng cũng nằm trong kho và cũng không có trường máy. Laptop
+lỡ chạy `run.py telegram close` hôm nào là desktop câm brief hôm đó, mà
+`cmd_brief` vẫn `return 0` (pipeline xanh, không ai biết).
+
+## Hai badge đang nói dối sau lượt chép
+
+`test_status.json` và `doctor_status.json` KHÔNG có trường máy
+(`run.py:858-867`, `vnstock_doctor.py:979-983`). Badge sidebar trên desktop
+hiện đang hiển thị kết quả test/doctor **của laptop**, không có cách nào phân
+biệt ngoài `ran_at`.
+
 # ✅ V1. CỬA GÁC LỆCH CƠ SỞ Ở ĐƯỜNG GHI CHÍNH — XONG 19/08
 
 `vnstock_basis_guard.py` + wire vào `vnstock_updater.update_ticker`. 19 test

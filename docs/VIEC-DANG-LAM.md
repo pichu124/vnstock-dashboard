@@ -26,7 +26,7 @@ Ra 2 task = **desktop**. Rỗng = **laptop** (`CFA-BINHLD-LT`).
 ## 📍 ĐIỂM DỪNG 19/08/2026 — mở lại thì đọc 10 dòng này trước
 
 Commit cuối của Claude: **`7fcfe88`**. Nhánh
-`claude/tong-hop-cong-viec-test-w8mvrc`. Suite **2.256 passed** (fast 1.736).
+`claude/tong-hop-cong-viec-test-w8mvrc`. Suite **2.263 passed** (fast 1.743).
 Máy user đang ở `main` → lấy code phải `git fetch origin <nhánh> && git merge
 origin/<nhánh>` (`git pull` báo "Already up to date" dù vừa tải commit về).
 
@@ -38,21 +38,17 @@ origin/<nhánh>` (`git pull` báo "Already up to date" dù vừa tải commit v�
 | Chạy lại backtest/kiểm định | **chưa** · chỉ chạy sau khi kho về 0 mã lệch. Mọi verdict trước 19/08 (kể cả #32 p=0.012) coi như VÔ HIỆU |
 | V1 — guard chặn tái phát | ✅ **XONG 19/08** (`vnstock_basis_guard.py`, 19 test) — cửa gác nằm ở đúng đường ghi chính, có badge doctor + kill-switch |
 
-**❓ CHƯA GIẢI THÍCH ĐƯỢC — đừng bỏ qua.** Lượt `--apply` 19/08 15:43 được
-hiểu là chạy trên laptop, nhưng 17:45 desktop `PICHU` quét ra ĐÚNG 2 mã còn
-lại với ĐÚNG tỉ lệ tới 4 chữ số (`0.8521×` / `0.9785×`) và ĐÚNG bộ đếm
-universe (159 · 1.564 · 1.402). Hai kho độc lập không thể trùng như vậy. Hoặc
-lượt đó thật ra chạy trên desktop (venv in ra `Administrator` vs `admin` —
-venv theo TÀI KHOẢN, không theo máy), hoặc `C:\vnstock` giữa hai máy KHÔNG
-độc lập như `CLAUDE.md` đang ghi. Kiểm quyết định:
+**✅ ĐÃ GIẢI — kho desktop bị CHÉP ĐÈ từ laptop lúc 17:39 ngày 19/08.**
+77 thư mục `_meta/backup_rebase` có TÊN đóng dấu 15:43–15:48 nhưng
+`CreationTime` là 17:39, trải đúng 17 giây — chữ ký chép hàng loạt. Lượt chữa
+70 mã chạy trên LAPTOP; kho được chép sang desktop 21 phút trước phát 18:00.
+Một lần chép TAY, **không phải** hai kho tự đồng bộ — dòng "hai kho KHÔNG tự
+đồng bộ" trong `CLAUDE.md` vẫn đúng.
 
-```powershell
-Get-ChildItem C:\vnstock\data_warehouse\_meta\backup_rebase |
-  Select-Object Name, CreationTime | Sort-Object CreationTime | Select-Object -Last 5
-(Get-ChildItem C:\vnstock\data_warehouse\_meta\backup_rebase).Count
-```
-Có ~70 thư mục đóng dấu `20260819-154x` = lượt ghi đó xảy ra trên CHÍNH kho
-này. Câu trả lời đổi hẳn nhãn "⇄ CẢ HAI" của mọi việc chữa kho.
+Cái giá phải kiểm: `_meta/brief_memory.db` là nơi DUY NHẤT giữ sổ lệnh +
+outcome + verdict kiểm định, **không module nào backup nó**, và rec không suy
+ngược được từ kho giá. Desktop mới là máy sinh khuyến nghị. Lệnh kiểm ở mục
+🖥️ DESKTOP bên dưới.
 
 **Lệnh đầu tiên khi quay lại (💻 laptop):**
 
@@ -118,7 +114,7 @@ bằng factor, chỉ chạm bộ lọc thanh khoản. Ép thủ công: `--ticker
 ### ○ Sau khi chữa xong — 3 lệnh chạy lại, máy nào chữa thì máy đó chạy
 
 ```powershell
-python run.py test                                    # full suite, kỳ vọng 2.256 passed
+python run.py test                                    # full suite, kỳ vọng 2.263 passed
 python run.py validate                                # hợp đồng dữ liệu trên kho vừa chữa
 python vnstock_train.py --strategy-only --tier both --mode tune
 ```

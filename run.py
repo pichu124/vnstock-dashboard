@@ -779,6 +779,9 @@ def cmd_test(args) -> int:
             # quyền TỪ CHỐI ghi kho, nên sửa updater mà chạy `--fast`
             # thiếu file này là bỏ lưới đúng chỗ nguy hiểm nhất.
             "tests/test_basis_guard.py",
+            # Cửa `--skip-if-done`: sai ở đây là kho ĐỨNG YÊN nguyên đêm mà
+            # pipeline vẫn xanh (vết 19/08, kho bị chép giữa hai máy).
+            "tests/test_pipeline_status_gate.py",
             "tests/test_rec_horizon_sessions.py",
             "tests/test_doctor_kill_switches.py",
             "tests/test_unit_badge_verdict.py",
