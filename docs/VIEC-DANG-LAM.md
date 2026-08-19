@@ -73,18 +73,20 @@ python scripts\probe_price_basis.py --sweep      # kỳ vọng: 0 mã
 
 ## 🔴 VIỆC CỦA BẠN
 
-### ○ MỘT MÁY LÀ ĐỦ · 🔥 SỐ 1 — Chữa 70 mã lệch cơ sở
+### ○ MỘT MÁY LÀ ĐỦ · 🔥 SỐ 1 — Chữa nốt VTP + QNS
 
-Việc lớn nhất đang mở. Quét 19/08 trên laptop: **70/159 mã thanh khoản lệch cơ
-sở kho/nguồn**, gần trọn VN30, vách rải từ 03–08/2026 (mùa chia cổ tức). Chạy
-thử 2 lần đã sạch: **70/70 mã chữa được**, chỉ 3 mã (HCM, KLB, SSB) cần nhân
-khối lượng. Kho chưa chữa thì **mọi backtest/kiểm định đều vô hiệu**.
+Quét 19/08: **70/159 mã thanh khoản lệch cơ sở**, gần trọn VN30, vách rải
+03–08/2026 (mùa chia cổ tức). Đã chạy `--apply` trên laptop lúc 15:43 → ghi
+70/70; Dropbox đưa sang desktop, quét lại 17:45 trên desktop ra **68 sạch**.
 
-**💻 LAPTOP — đã chạy 19/08 15:43, còn ĐÚNG 2 mã.** Ghi được 70/70, quét lại
-ra **68 sạch · VTP `0.8521×` · QNS `0.9785×`** (cùng vách 2026-03-17). Hai mã
-này bị nguồn rebase HAI lần nên có hai bậc; bản cũ chữa tới ngày vách là bỏ
+**Còn đúng 2 mã: VTP `0.8521×` · QNS `0.9785×`** (cùng vách 2026-03-17). Hai
+mã này bị nguồn rebase HAI lần nên có hai bậc; bản cũ chữa tới ngày vách là bỏ
 sót lớp giữa, và tự kiểm cũ chỉ soi vách giá ≥30% nên vẫn in ✅. Cả hai lỗi đã
-vá — **chạy lại lệnh cũ y nguyên sẽ không đổi gì**, phải lấy code mới trước:
+vá (`7fcfe88`) — **chạy lại lệnh cũ y nguyên sẽ không đổi gì**, phải lấy code
+mới trước.
+
+Kho dùng chung nên **chạy ở máy nào cũng được, một lần**. Đừng chạy song song
+hai máy. Nếu chạy trên desktop thì phải đợi pipeline đêm xong.
 
 ```powershell
 git fetch origin claude/tong-hop-cong-viec-test-w8mvrc
@@ -94,34 +96,21 @@ python scripts\rebase_ticker_history.py --ticker VTP --ticker QNS --apply
 python scripts\probe_price_basis.py --sweep      # kỳ vọng: 0 mã
 ```
 
-**🖥️ DESKTOP — PHẢI QUÉT LẠI TRƯỚC.** `--from-sweep` đọc
-`data_warehouse/_meta/basis_sweep_check.json` — file **local từng máy** (kho nằm
-trong `.gitignore`, không đi theo git). Desktop chưa quét lần nào nên chưa có
-file này; chạy thẳng `--from-sweep` sẽ báo *"chưa có vết quét"* và không làm gì.
+*Vết quét `_meta/basis_sweep_check.json` cũng nằm TRONG kho nên nó đồng bộ —
+không cần quét lại ở máy thứ hai. (Ghi chú cũ bảo "phải quét lại trước vì file
+local từng máy" là SAI, sửa 19/08.)*
 
-```powershell
-python scripts\probe_price_basis.py --sweep           # ~160 lần gọi nguồn, vài phút
-python scripts\rebase_ticker_history.py --from-sweep  # chạy THỬ, đọc kỹ
-python scripts\rebase_ticker_history.py --from-sweep --apply
-python scripts\probe_price_basis.py --sweep           # kỳ vọng: 0 mã
-```
-
-Danh sách 70 mã của desktop có thể KHÁC laptop (hai kho lệch nhau) — đó là lý
-do bắt buộc quét tại chỗ, không chép danh sách qua.
-
-*Việc này nuốt luôn mục **chữa VVS** cũ: VVS ~13 tỷ/phiên nên nằm trong universe
-quét, `--from-sweep` trên desktop sẽ tự bắt. Laptop đã chữa VVS riêng 19/08.*
-
-**An toàn:** mỗi mã tự sao lưu vào `_meta/backup_rebase/<MÃ>_<timestamp>/` trước
-khi ghi, ghi nguyên tử, tự kiểm sau khi ghi — tự kiểm fail thì mã đó tự khôi
-phục. Cứ để chạy hết rồi đọc tổng kết cuối.
+**An toàn:** mỗi mã tự sao lưu vào `_meta/backup_rebase/<MÃ>_<timestamp>/`
+trước khi ghi, ghi nguyên tử, tự kiểm sau khi ghi — tự kiểm fail thì mã đó tự
+khôi phục.
 
 **Sai số đã chấp nhận có ý thức:** PET (thưởng, factor 1.4499 vs bước 0.43) và
 F88 (chia tách 2.0000× vs bước 3.08) — bằng chứng khối lượng mâu thuẫn sổ sự
 kiện nên công cụ GIỮ khối lượng nguồn. Hệ quả: GTGD lịch sử 2 mã này hụt đúng
-bằng factor, chỉ chạm bộ lọc thanh khoản. Ép thủ công: `--ticker PET --volume adjust`.
+bằng factor, chỉ chạm bộ lọc thanh khoản. Ép thủ công:
+`--ticker PET --volume adjust`.
 
-### ○ Sau khi chữa xong — 3 lệnh chạy lại, máy nào chữa thì máy đó chạy
+### ○ Sau khi chữa xong — 3 lệnh chạy lại (một lần, máy nào cũng được)
 
 ```powershell
 python run.py test                                    # full suite, kỳ vọng 2.263 passed
@@ -177,6 +166,31 @@ cổng đang chặn mục "tầng B"). **Không** → chạy lệnh này rồi d
 Select-String -Path C:\vnstock\run_daily.log -Pattern '[brief]' -SimpleMatch | Select-Object -Last 5
 Get-Content C:\vnstock\run_daily.log -Tail 15
 ```
+
+### 🖥️ DESKTOP · Marker `brief_push.json` — 5 giây, làm sớm
+
+Marker chống gửi trùng nằm TRONG kho nên đi theo Dropbox: laptop lỡ chạy
+`run.py telegram close` hôm nào là desktop **câm brief tối đó** mà `cmd_brief`
+vẫn `return 0` (pipeline xanh, không ai biết).
+
+```powershell
+Get-Content C:\vnstock\data_warehouse\_meta\brief_push.json -Raw
+```
+Ra ngày HÔM NAY = brief tối nay sẽ bị bỏ qua → đợi pipeline xong rồi gửi tay
+bằng `python run.py telegram close --force`. Ra ngày cũ hoặc không có file =
+bình thường.
+
+### 🖥️ DESKTOP · Quét "conflicted copy" — sau mỗi lần hai máy cùng động vào kho
+
+Dropbox ghi song song với pipeline ⇒ có thể đẻ `... (conflicted copy).parquet`
+NGAY trong `prices/`, mà `load_bars` glob `year=*/*.parquet` sẽ đọc luôn file
+đó → bar trùng, lẫn cơ sở. Chưa có guard nào chặn (Claude đang xếp làm).
+
+```powershell
+Get-ChildItem -Recurse C:\vnstock\data_warehouse -Filter "*conflicted*" |
+  Select-Object FullName, Length, LastWriteTime
+```
+Ra file nào thì ĐỪNG xoá vội — dán cho Claude, phải xem nó là bản nào trước.
 
 ### 🖥️ DESKTOP · `doctor --net` — phân xử NSO/Jina
 
