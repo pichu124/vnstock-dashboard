@@ -6979,9 +6979,20 @@ LỊCH SỬ sai, mà quét liên tục không nhìn vào tỉ lệ kho/nguồn.
 **Hậu quả:** backtest bắc qua 23/06 thấy VNM rơi giả 3,2%. Với tầng vị thế
 (lookback 730 ngày) thì mọi cửa sổ đều bắc qua. Đây là mã VN30 — chắc chắn
 nằm trong universe chiến lược.
-**Chưa biết còn bao nhiêu mã như vậy.** Bộ quét hiện tại KHÔNG trả lời được
-câu này; muốn biết phải so tỉ lệ kho/nguồn từng mã (mỗi mã 1 lần gọi mạng).
-Đề xuất: quét theo universe thanh khoản (VN30 + GTGD ≥ 5 tỷ) chứ không cả kho.
+**✅ VNM ĐÃ CHỮA trên LAPTOP 19/08 14:42** (5.089 bar lấy thẳng nguồn, khối
+lượng GIỮ NGUYÊN, backup `VNM_20260819-144220`, 21 file nguyên tử; probe lại
+ra **1.0 ở TỪNG BAR**). ⏳ **DESKTOP chưa chữa.**
+
+**Còn bao nhiêu mã như vậy — nay ĐÃ CÓ công cụ trả lời:**
+`python scripts/probe_price_basis.py --sweep` (19/08). Quét universe thanh
+khoản (mặc định GTGD20 ≥ 5 tỷ, cửa sổ 365 ngày, mỗi mã 1 lần gọi nguồn, nghỉ
+0,3s). Lõi là hàm THUẦN `find_basis_step`: bước 1 tìm điểm tỉ lệ kho/nguồn nhảy
+mạnh nhất (rẻ, O(n)); bước 2 XÁC NHẬN bằng trung vị hai phía — bar lỗi đơn lẻ
+làm bước 1 kêu nhưng không đổi được trung vị nên bị loại. Ngưỡng
+`BASIS_STEP_TOL = 1,5%` (dưới đó là nhiễu làm tròn/bước giá).
+Ra mã nào thì chữa bằng `rebase_ticker_history --ticker <MÃ> --break-date <ngày>`.
+Có ghi vết `_meta/basis_sweep_check.json` (cùng hợp đồng với bộ quét kia; badge
+doctor CHƯA nối — làm sau khi có kết quả thật để không dựng badge trống).
 **Đã làm được phần công cụ:** `rebase_ticker_history` nay nhận `--break-date`
 (trước đây chỉ tự dò ≥30% nên KHÔNG với tới lớp lỗi này).
 Chữa VNM (⇄ CẢ HAI MÁY):

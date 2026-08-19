@@ -31,6 +31,11 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
+import json
+import os
+from datetime import datetime
+
+import numpy as np
 import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -117,20 +122,198 @@ def basis_report(wh: pd.DataFrame, src: pd.DataFrame, break_date: date) -> dict:
     }
 
 
+# ── Quét LỆCH CƠ SỞ theo universe (thêm 19/08 sau ca VNM) ──────────────────
+#
+# Vì sao cần thêm một chế độ nữa: `check_unit_continuity` nhìn VÁCH GIÁ, nên nó
+# chỉ thấy lệch cơ sở đủ LỚN (≥30%). Ca VNM 19/08 lệch 3,27% — cỡ một lần cổ
+# tức tiền mặt — và hoàn toàn vô hình với nó: giá liền mạch, khớp giá live, mã
+# được báo sạch, trong khi TOÀN BỘ lịch sử trước 23/06 ở cơ sở cũ. Backtest
+# tầng vị thế (lookback 730 ngày) thì mọi cửa sổ đều bắc qua các mốc cổ tức.
+#
+# Lớp lỗi này chỉ hiện qua TỈ LỆ kho/nguồn, mà tỉ lệ thì cần fetch nguồn —
+# đắt hơn nhiều so với quét kho. Nên quét theo UNIVERSE THANH KHOẢN chứ không
+# cả kho: mã GTGD < ngưỡng không lọt vào universe chiến lược thì lệch cơ sở ở
+# đó không đổi quyết định nào.
+
+# Bậc tỉ lệ nhỏ hơn mức này coi như nhiễu làm tròn/bước giá, không phải đổi cơ
+# sở. Cổ tức tiền mặt VN nhỏ nhất đáng kể ~1,5% giá.
+BASIS_STEP_TOL = 0.015
+# Mỗi phía của bậc phải có đủ bar thì trung vị mới có nghĩa.
+BASIS_MIN_SIDE = 5
+
+
+def find_basis_step(wh: pd.DataFrame, src: pd.DataFrame,
+                    tol: float = BASIS_STEP_TOL) -> "dict | None":
+    """Tỉ lệ kho/nguồn có ĐỔI BẬC ở đâu đó trong cửa sổ không?
+
+    Hàm THUẦN (test được offline). Hai bước, cố ý tách:
+      1. tìm điểm tỉ lệ nhảy mạnh nhất giữa hai bar kề nhau — rẻ, O(n);
+      2. XÁC NHẬN bằng trung vị hai phía. Một bar lỗi đơn lẻ làm bước 1 kêu
+         nhưng không đổi được trung vị, nên bước 2 loại nó.
+    """
+    m = wh.merge(src, on="time", suffixes=("_wh", "_src"))
+    m = m[(m["close_wh"] > 0) & (m["close_src"] > 0)].sort_values("time")
+    if len(m) < 2 * BASIS_MIN_SIDE:
+        return None
+    r = (m["close_wh"] / m["close_src"]).to_numpy()
+    times = m["time"].tolist()
+    jumps = np.abs(r[1:] / r[:-1] - 1.0)
+    i = int(np.argmax(jumps)) + 1
+    if jumps[i - 1] < tol:
+        return None
+    if i < BASIS_MIN_SIDE or len(r) - i < BASIS_MIN_SIDE:
+        return None
+    before, after = float(np.median(r[:i])), float(np.median(r[i:]))
+    if before <= 0 or after <= 0:
+        return None
+    shift = before / after
+    if abs(shift - 1.0) < tol:
+        return None                      # bar lỗi đơn lẻ, không đổi bậc thật
+    return {"break": times[i], "ratio_before": before, "ratio_after": after,
+            "shift": shift, "n": len(m)}
+
+
+def _sweep_universe(wh_root: Path, min_gtgd: float, since_days: int,
+                    limit: int, delay: float) -> int:
+    """Quét universe thanh khoản, chỉ in mã ĐỔI BẬC tỉ lệ."""
+    import time as _time
+
+    import sys as _sys
+    _scripts = str(Path(__file__).resolve().parent)
+    if _scripts not in _sys.path:
+        _sys.path.insert(0, _scripts)
+    from check_unit_continuity import _is_equity, load_bars
+
+    prices_dir = wh_root / "prices"
+    every = sorted(p.name.removeprefix("ticker=")
+                   for p in prices_dir.glob("ticker=*") if p.is_dir())
+    equities = [t for t in every if _is_equity(t)]
+
+    ranked = []
+    for tk in equities:
+        df = load_bars(prices_dir, tk, since_days=since_days)
+        if df.empty:
+            continue
+        tail = df.tail(20)
+        try:
+            g = float((pd.to_numeric(tail["close"], errors="coerce")
+                       * pd.to_numeric(tail["volume"], errors="coerce")
+                       / 1e6).median())
+        except Exception:
+            g = 0.0
+        if g >= min_gtgd:
+            ranked.append((g, tk))
+    ranked.sort(reverse=True)
+    dropped_liq = len(equities) - len(ranked)
+    if limit and len(ranked) > limit:
+        print(f"[basis] ⚠️ CẮT còn {limit}/{len(ranked)} mã theo --limit — "
+              f"{len(ranked) - limit} mã thanh khoản thấp hơn KHÔNG được soi")
+        ranked = ranked[:limit]
+
+    print(f"[basis] quét {len(ranked):,} mã (GTGD20 ≥ {min_gtgd:,.1f} tỷ) · "
+          f"bỏ {dropped_liq:,} mã dưới ngưỡng · "
+          f"{len(every) - len(equities):,} CW/trái phiếu/chỉ số · "
+          f"cửa sổ {since_days} ngày · mỗi mã 1 lần gọi nguồn")
+
+    d1 = date.today()
+    d0 = d1 - timedelta(days=since_days)
+    hits, errs, scanned = [], [], 0
+    for n, (g, tk) in enumerate(ranked, 1):
+        try:
+            wh = load_wh(prices_dir, tk, d0, d1)
+            src = fetch_source(tk, d0, d1)
+            if wh.empty or src.empty:
+                errs.append((tk, "không có bar một bên"))
+                continue
+            step = find_basis_step(wh, src)
+            scanned += 1
+            if step:
+                step["ticker"], step["gtgd20"] = tk, g
+                hits.append(step)
+                print(f"  ⚠️ {tk:<8} {step['break']} · {step['shift']:.4f}× "
+                      f"· GTGD20 ~{g:,.1f} tỷ")
+        except Exception as e:
+            errs.append((tk, f"{type(e).__name__}: {e}"))
+        if delay:
+            _time.sleep(delay)
+        if n % 25 == 0:
+            print(f"  … {n}/{len(ranked)} mã")
+
+    print()
+    if errs:
+        # KHÔNG im lặng bỏ qua: mã không soi được ≠ mã sạch (vết 18/08).
+        print(f"[basis] ⬜ {len(errs)} mã KHÔNG soi được (chưa kết luận gì): "
+              + ", ".join(t for t, _ in errs[:12])
+              + (" …" if len(errs) > 12 else ""))
+    if not hits:
+        print(f"[basis] ✅ {scanned:,} mã: tỉ lệ kho/nguồn KHÔNG đổi bậc")
+    else:
+        hits.sort(key=lambda h: -h["gtgd20"])
+        print(f"[basis] ⚠️ {len(hits)}/{scanned:,} mã LỆCH CƠ SỞ, xếp theo "
+              f"thanh khoản giảm dần:")
+        for h in hits:
+            print(f"   {h['ticker']:<8} vách {h['break']} · lệch "
+                  f"{h['shift']:.4f}× · GTGD20 ~{h['gtgd20']:,.1f} tỷ")
+        print("        Chữa từng mã: python scripts/rebase_ticker_history.py "
+              "--ticker <MÃ> --break-date <ngày vách>")
+    _write_sweep_stamp(wh_root, scanned, [h["ticker"] for h in hits],
+                       [t for t, _ in errs])
+    return 1 if hits else 0
+
+
+def _write_sweep_stamp(wh_root: Path, scanned: int, suspect: list,
+                       unchecked: list) -> None:
+    """Ghi vết để badge doctor đọc được — cùng hợp đồng với bộ quét kia."""
+    out = wh_root / "_meta" / "basis_sweep_check.json"
+    payload = {"checked_at": datetime.now().isoformat(timespec="seconds"),
+               "scanned": scanned, "suspect": sorted(suspect),
+               "unchecked": sorted(unchecked)}
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        tmp = out.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2),
+                       encoding="utf-8")
+        os.replace(tmp, out)
+    except Exception as e:
+        print(f"[basis] (không ghi được vết quét: {e})")
+
+
 def main(argv: "list[str] | None" = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--ticker", required=True, action="append",
+    ap.add_argument("--ticker", action="append",
                     help="lặp lại được: --ticker VHM --ticker PNJ")
     ap.add_argument("--break-date",
                     help="ngày vách (YYYY-MM-DD); bỏ trống = tự tìm vách nặng nhất")
     ap.add_argument("--from", dest="d_from", help="mặc định: vách − 30 ngày")
     ap.add_argument("--to", dest="d_to", help="mặc định: vách + 30 ngày")
     ap.add_argument("--warehouse", default="data_warehouse")
+    ap.add_argument("--sweep", action="store_true",
+                    help="QUÉT universe thanh khoản tìm mã lệch cơ sở cỡ cổ "
+                         "tức (2-5%%) — lớp lỗi mà check_unit_continuity mù "
+                         "hoàn toàn vì nó nhìn vách giá, không nhìn tỉ lệ "
+                         "kho/nguồn. Mỗi mã 1 lần gọi nguồn.")
+    ap.add_argument("--min-gtgd", type=float, default=5.0, metavar="TY",
+                    help="sweep: ngưỡng GTGD20 (tỷ VND, mặc định 5) — dưới "
+                         "ngưỡng thì mã không lọt universe chiến lược nên "
+                         "lệch cơ sở ở đó không đổi quyết định nào")
+    ap.add_argument("--since", type=int, default=365, metavar="N",
+                    help="sweep: cửa sổ soi, mặc định 365 ngày")
+    ap.add_argument("--limit", type=int, default=0, metavar="N",
+                    help="sweep: chỉ soi N mã thanh khoản nhất (0 = tất cả); "
+                         "cắt bao nhiêu sẽ được IN RA, không cắt im lặng")
+    ap.add_argument("--delay", type=float, default=0.3, metavar="S",
+                    help="sweep: nghỉ giữa hai lần gọi nguồn (mặc định 0.3s)")
     args = ap.parse_args(argv)
 
     wh_root = Path(args.warehouse)
     if not wh_root.is_absolute():
         wh_root = REPO_ROOT / wh_root
+
+    if args.sweep:
+        return _sweep_universe(wh_root, args.min_gtgd, args.since,
+                               args.limit, args.delay)
+    if not args.ticker:
+        ap.error("cần --ticker hoặc --sweep")
 
     worst = 0
     for _tk in args.ticker:

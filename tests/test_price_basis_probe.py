@@ -163,3 +163,91 @@ def test_rebase_window_is_clamped_too():
     import rebase_ticker_history as rth
     src = inspect.getsource(rth)
     assert "min(d1, date.today())" in src
+
+
+# ── Quét lệch cơ sở theo universe (thêm 19/08 sau ca VNM) ──────────────────
+#
+# Vì sao: `check_unit_continuity` nhìn VÁCH GIÁ nên chỉ thấy lệch ≥30%. VNM
+# lệch 3,27% (cỡ một lần cổ tức tiền mặt) hoàn toàn vô hình với nó — giá liền
+# mạch, khớp giá live, mã được báo sạch, trong khi TOÀN BỘ lịch sử trước 23/06
+# ở cơ sở cũ. Lớp lỗi này chỉ hiện qua TỈ LỆ kho/nguồn.
+
+def _pair(n, ratio_before, ratio_after, split_at, start="2026-05-01"):
+    d = pd.bdate_range(start=start, periods=n)
+    src = [50.0 + i * 0.1 for i in range(n)]
+    wh = [s * (ratio_before if i < split_at else ratio_after)
+          for i, s in enumerate(src)]
+    return (pd.DataFrame({"time": [x.date() for x in d], "close": wh}),
+            pd.DataFrame({"time": [x.date() for x in d], "close": src}))
+
+
+class TestFindBasisStep:
+
+    def test_dividend_sized_step_is_found(self):
+        """Ca VNM: 1.0327× trước, 1.0000× sau — dưới xa ngưỡng 30% của bộ dò
+        vách giá, nên đây là lớp lỗi CHỈ chế độ này thấy."""
+        wh, src = _pair(40, 1.0327, 1.0, 20)
+        step = ppb.find_basis_step(wh, src)
+        assert step is not None
+        assert step["shift"] == pytest.approx(1.0327, abs=1e-3)
+        assert step["break"] == wh["time"].iloc[20]
+
+    def test_matching_series_reports_nothing(self):
+        wh, src = _pair(40, 1.0, 1.0, 20)
+        assert ppb.find_basis_step(wh, src) is None
+
+    def test_rounding_noise_is_not_a_step(self):
+        """Chênh do làm tròn/bước giá (~0,3%) KHÔNG được đọc thành đổi cơ sở —
+        báo động oan ở đây là làm hỏng cả danh sách."""
+        wh, src = _pair(40, 1.003, 1.0, 20)
+        assert ppb.find_basis_step(wh, src) is None
+
+    def test_one_bad_bar_does_not_fake_a_step(self):
+        """Bar lỗi ĐƠN LẺ làm bước 1 (nhảy tỉ lệ) kêu, nhưng không đổi được
+        trung vị hai phía — bước 2 phải loại nó."""
+        wh, src = _pair(40, 1.0, 1.0, 20)
+        wh.loc[15, "close"] = wh.loc[15, "close"] * 1.20
+        assert ppb.find_basis_step(wh, src) is None
+
+    def test_step_too_close_to_the_edge_is_refused(self):
+        """Bậc sát mép cửa sổ thì một phía không đủ bar để trung vị có nghĩa."""
+        wh, src = _pair(30, 1.05, 1.0, 2)
+        assert ppb.find_basis_step(wh, src) is None
+
+    def test_short_series_is_refused_not_guessed(self):
+        wh, src = _pair(6, 1.05, 1.0, 3)
+        assert ppb.find_basis_step(wh, src) is None
+
+    def test_step_in_the_other_direction_too(self):
+        wh, src = _pair(40, 1.0, 1.04, 20)
+        step = ppb.find_basis_step(wh, src)
+        assert step is not None and step["shift"] == pytest.approx(1 / 1.04, abs=1e-3)
+
+
+class TestSweepCli:
+
+    def test_sweep_flag_exists_and_ticker_optional(self):
+        ns = ppb.__dict__
+        import argparse
+        assert "_sweep_universe" in ns
+        p = Path("scripts/probe_price_basis.py").read_text(encoding="utf-8")
+        assert '"--sweep"' in p and '"--min-gtgd"' in p and '"--limit"' in p
+
+    def test_cut_by_limit_is_announced_not_silent(self):
+        """Nếp repo: cắt bao nhiêu phải IN RA — cắt im lặng đọc thành
+        'đã soi hết' trong khi chưa."""
+        p = Path("scripts/probe_price_basis.py").read_text(encoding="utf-8")
+        assert "CẮT còn" in p and "KHÔNG được soi" in p
+
+    def test_unfetchable_tickers_are_not_counted_clean(self):
+        """Vết 18/08: 'không soi được' ≠ 'sạch'. Phải in riêng."""
+        p = Path("scripts/probe_price_basis.py").read_text(encoding="utf-8")
+        assert "KHÔNG soi được (chưa kết luận gì)" in p
+
+    def test_sweep_writes_a_stamp_for_the_badge(self, tmp_path):
+        ppb._write_sweep_stamp(tmp_path, 120, ["VNM", "ABC"], ["XYZ"])
+        import json as _j
+        data = _j.loads((tmp_path / "_meta" / "basis_sweep_check.json")
+                        .read_text(encoding="utf-8"))
+        assert data["scanned"] == 120 and data["suspect"] == ["ABC", "VNM"]
+        assert data["unchecked"] == ["XYZ"]
