@@ -84,10 +84,11 @@ cần `git fetch origin <nhánh> && git merge origin/<nhánh>` rồi chạy lạ
 
 | # | Việc | Vì sao đáng | Công |
 |---|---|---|---|
-| 1 | **Test hết ghi bẩn `run_daily.log`** | Làm trước thì mọi lần soi log sau chỉ còn 1 dòng grep, và log hết bị tự cắt | ~30' |
+| 0 | **Mổ `sync` 60 phút** ← nút thắt lớn nhất hiện nay | Chiếm 62% thời gian chạy; là lý do trần task thành vấn đề và đêm nào cũng suýt chết | ~1 buổi |
+| ~~1~~ | ✅ **XONG 19/08** (`970a504`) — test hết ghi bẩn `run_daily.log` | Đo lại: chạy full suite xong log không đổi **một byte** | — |
 | 2 | **Rec bị đóng sớm 20-40%** — horizon ghi bằng PHIÊN nhưng thi hành bằng NGÀY LỊCH | Lỗi số liệu nặng nhất; đang bóp méo verdict của #32 | ~30' |
 | 3 | **Ghi JSON nguyên tử** (12 điểm/7 file) + nối vào lưới `_MUST_BE_ATOMIC` | Pipeline đã bị kill 2 lần; bản cụt còn lây sang file dự phòng | ~30' |
-| 4 | **3 test bộ công cụ đơn vị giá vào `--fast`** | Đang sửa 3 script đó mà chạy `--fast` là chạy không lưới | vài phút |
+| ~~4~~ | ✅ **XONG 19/08** (`970a504`) — 3 test bộ công cụ đơn vị giá đã vào `--fast` | `--fast` nay 1.636 test | — |
 | 5 | **Doctor soi kill-switch** (`VNSTOCK_PIPELINE_BRIEF`…) | Chính ẩn số của Bước 1 lẽ ra phải có badge báo | ~30' |
 | 6 | **`telegram close` phải có cửa gác** | Gõ 2 lần = 2 brief; gõ trước 15:00 = câm brief tối đó | ~30' |
 | 7 | **Vá gốc lỗ hổng độ tươi** (giờ bị cắt ở `vnstock_brief.py:1095`) | Vá xong thì khỏi phải làm Bước 2 bằng tay nữa | ~1 buổi |
