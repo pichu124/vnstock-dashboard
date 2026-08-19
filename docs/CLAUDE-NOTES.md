@@ -6824,11 +6824,23 @@ nếu sync không teo về <10' thì phải nới trần task hoặc tách brief
 Lưu ý phụ: log KHÔNG phân biệt được task với `run_daily.bat` (argv giống hệt)
 — phải đối chiếu `LastRunTime` của Task Scheduler với mốc giờ header trong log.
 
-**R6. Việc user phải gõ — 1 lệnh, thêm 1 lệnh tuỳ kết quả:**
+**R6. Việc user phải gõ — 1 lệnh, thêm 1 lệnh tuỳ kết quả.**
+⚠️ Lệnh phải LỌC RÁC: `run_daily.log` có ~9 khối header GIẢ mỗi phát `all`, do
+chính bước test sinh ra (`tests/test_run.py` gọi `orchestrator.main([...])` 9
+lần mà KHÔNG patch `RUN_LOG_PATH`, nên nó ghi vào log THẬT ở REPO_ROOT). Header
+rác mang subcommand scan/sync/audit + đường dẫn `pytest-of-…`, còn header thật
+kết thúc bằng ` all`. Và `[brief]` không chỉ do `cmd_brief` in — `vnstock_brief.py:965`
+cũng in `[brief] tự tắt agent …`. Lệnh đã lọc:
 ```powershell
-Select-String -Path C:\vnstock\run_daily.log -Encoding UTF8 `
-  -Pattern '\[brief\]|\| --warehouse' | Select-Object -Last 20
+Select-String -Path C:\vnstock\run_daily.log -Encoding utf8 `
+  -Pattern '^\[run\.py\] 20\d\d-.* all$|^\[brief\]|brief returned|^\[telegram\] close brief' `
+  | Select-Object -Last 25
 ```
+Đọc THEO CỤM: mỗi dòng `[run.py] <giờ> | --warehouse data_warehouse all` mở một
+phát; các dòng dưới nó mới thuộc phát đó (dòng `[brief]` KHÔNG có mốc giờ nên
+đọc rời là gán nhầm phát). `[telegram] close brief sent` = phát gửi tay (và
+phát đó ĐÃ ghi marker). Nhánh lỗi kéo theo `[run.py] brief returned warnings`.
+
 Ra `chưa tới 15:00` → chạy tiếp lệnh 2 (R2 có thể đã dính):
 ```powershell
 python -c "import json;d=json.load(open(r'C:\vnstock\data_warehouse\_meta\market_overview.json',encoding='utf-8'));print(d.get('generated_at'),d.get('data_date'),d.get('gtgd_date'))"
@@ -6837,6 +6849,12 @@ python -c "import json;d=json.load(open(r'C:\vnstock\data_warehouse\_meta\market
 chữa bằng `python run.py screener` (ĐỪNG gửi lại brief — sẽ thành brief trùng).
 Bằng chứng dự phòng không bị đè: `_meta/screener_history/2026-08-18.json` có
 `generated_at` riêng (tối mai ghi file 19/08 nên không đụng).
+
+**R7. Đường ÉP GỬI AN TOÀN là `python run.py brief`, KHÔNG phải
+`run.py telegram close`.** `cmd_brief` (run.py:1176-1203) đi qua đủ 3 cửa gác
+(kill-switch → guard giờ → marker) rồi mới gửi và ghi marker; `telegram close`
+gửi thẳng không đọc gì. Từ nay gửi tay thì dùng `run.py brief`; chỉ khi cần
+CỐ TÌNH vượt guard mới dùng `telegram close`.
 
 ## 🟠 DỮ LIỆU — sau đợt phát hiện KHO LỆCH CƠ SỞ (18/08)
 
