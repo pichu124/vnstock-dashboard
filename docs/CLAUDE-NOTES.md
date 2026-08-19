@@ -6676,287 +6676,270 @@ mỹ, chưa đáng thêm guard.
 
 ---
 
-# 📌 VIỆC PHẢI LÀM — chốt 18/08/2026
+# 📌 VIỆC PHẢI LÀM — chốt 18/08/2026 (bản 2, sau đợt đối soát code)
 
-> Danh sách ĐANG DÙNG — bản sạch thay bản 12/08 (mọi mục đã xong nằm trong
-> entry nhật ký 13-18/08). **Mục này PHẢI luôn nằm CUỐI FILE** — thêm entry
-> nhật ký mới thì chèn TRƯỚC mục này.
+> Danh sách ĐANG DÙNG. **Luôn nằm CUỐI FILE** — entry nhật ký mới chèn TRƯỚC mục này.
 >
-> Trạng thái: full suite **2148 passed** (`--fast` ~1.588 test — ~30-42s CI,
-> ~64s máy thật; ~44s trong đó là test an ninh sandbox, user chốt GIỮ 13/08).
-> Nhánh `claude/tong-hop-cong-viec-test-w8mvrc` đã push đủ. Đồng bộ máy +
-> push main: user tự làm — KHÔNG track (chốt 12/08).
+> Bản này khác bản trước ở chỗ: mọi mục đã được ĐỐI SOÁT VỚI CODE THẬT (4 hướng
+> quét song song + phản biện, 18/08). Nhiều nợ cũ nằm rải trong thân notes đã
+> được lôi ra đây; vài mô tả cũ bị đính chính. Mục nào ghi "đối soát ✅" nghĩa là
+> đã mở file kiểm lại, không phải chép sổ.
 >
-> ĐÃ ĐÓNG trong đợt 13-18/08, đừng nêu lại: heatmap VN30 live (bug cờ
-> `live_mode` + 3 bản vá) · mục 2 báo cáo model watch · mục 3 badge quy đổi
-> đơn vị · mục 5 độ trễ OpenRouter · mục 9 nhãn kỳ NN · mục 10 gate Telegram
-> · 4c/0e (#32 đạt kiểm định, rec mở lại) · 4d · 0f (train 2 tầng).
+> Trạng thái đo được: full suite **2.148 passed** (0 skip, 0 xfail), `--fast`
+> **1.588 test**. Bộ test HERMETIC với mạng (chặn socket vẫn 2.148 passed) và
+> KHÔNG đụng byte nào trong kho. Nhánh `claude/tong-hop-cong-viec-test-w8mvrc`
+> đã push đủ, cây sạch.
+>
+> ⚠️ MỌI lệnh soi trạng thái CHỈ chạy được TRÊN DESKTOP `C:\vnstock` — log và kho
+> đều trong `.gitignore`, task đăng ký theo máy (đã chốt vào CLAUDE.md).
+>
+> ĐÃ ĐÓNG 13-18/08, đừng nêu lại: heatmap VN30 live · mục 2 model watch · mục 3
+> badge đơn vị · mục 5 độ trễ OpenRouter · mục 9 nhãn kỳ NN · mục 10 gate
+> Telegram · 4c/0e (#32 đạt kiểm định) · 4d · 0f · **A** (chạy bù 14 bước) ·
+> **B** (3 lệnh soi log + chấm mục ② = BỎ) · **C** (brief chiều 18/08 đạt 4/4) ·
+> **I** (badge doctor — phần code xong, chỉ còn đọc khi warn).
 
-## 🔴 LÀM NGAY — nợ từ tối 18/08
+## 🔴 LÀM NGAY — 1 lệnh trên DESKTOP, và nên làm SỚM
 
-**A. ✅ ĐÓNG 18/08 — chạy bù TRỌN VẸN.** User chạy full `all` (14 bước,
-exit 0, TỔNG 43.6'). Đính chính diễn biến TỐI 17/08 theo ⏱ log: phát
-18:00 bị kill (267014) KHÔNG chết ở sync — nó đi hết sync 4,429s (74'!) · validate ·
-screener 1,395s · news/ff/macro/gold/allocation · test · audit 369s, và
-**bị kill lúc đang TRAIN** (tier= đã in). Vậy hôm đó chỉ thiếu
-train-hoàn-tất/reflection/doctor/brief. Ghi chú khảo cổ còn mở (không
-rủi ro): theo ⏱, sync kết thúc ~19:14, vậy AI ghi lại dataset PNJ đúng
-20:47:04 vẫn chưa chốt được từng phút — nội dung ghi thì ĐÃ xác minh là
-dữ liệu nguồn rebase (probe 1.0000× toàn dải), kho đúng; lưới D là câu
-trả lời hệ thống thay cho việc truy tiếp.
-
-**B. ✅ ĐÓNG 18/08 — 3 lệnh soi log ĐẠT, và CHẤM XONG MỤC ②:**
-* `tier=` đủ 2 dòng short+position ở cả 2 phát · `collect_context` im
-  lặng = mọi nguồn khoẻ.
-* **Mục ② (nghi "warehouse bị quét ~14 lần/đêm"): BỎ — đúng dự đoán.**
-  Số đo phát trọn vẹn đầu tiên: TỔNG 43.6', trong đó pipeline LÕI (trừ
-  sync) chỉ **~24'** — dưới ngưỡng 30', không bước nào nghẽn vô lý
-  (screener 541s · validate 311s · train 230s · audit 142s). "18:00
-  không ai ngồi đợi" đứng vững, không tối ưu cả dàn.
-* Bước nghẽn duy nhất là **sync** (1,205s = 46% tổng) nhưng nguyên nhân
-  ĐÃ BIẾT và đang tự rút: quarantine heal 4,429s (18/08 tối) → 1,205s
-  (19/08) → GỘP vào mục J với ngưỡng chốt: **2-3 đêm nữa sync phải
-  < ~10 phút**; không teo thì mổ đúng bước heal (dời sang tuần / cap
-  batch), không đụng phần còn lại.
-* `brief 0.0s` trong phát bù là **ĐÚNG THIẾT KẾ**, không phải lỗi: chạy
-  trước 15:00 ngày làm việc → `_should_push_close` chặn (lưới
-  run-on-boot chống bắn brief phiên CŨ). Hệ quả TƯỞNG là mất brief chiều
-  18/08 — SAI: task 18:00 tối 18/08 tự chạy trọn, brief phiên 18/08 về
-  Telegram lúc 23:16 (chấm ở C).
-
-**C. ✅ ĐÓNG tối 18/08 — brief chiều phiên 18/08 VỀ LÚC 23:16, cả 4 điểm ĐẠT.**
-* Caveat "(p=1.000)" sai nguồn: BIẾN MẤT. Caveat duy nhất dưới sổ lệnh là
-  `_BUY_BIAS_CAVEAT` (BUY dưới bối cảnh GIẢM) — đúng luật: regime -5 ≤ -3,
-  momentum -57, và có 6 lệnh BUY đang hiện.
-* Rec #32 hiện đủ: cả 6 lệnh đều `ngày X/20` — mẫu số 20 phiên chính là dấu
-  tầng vị thế ở đuôi Telegram (nhãn chữ `[vị thế ~20 phiên]` nằm ở khối
-  prompt cho AI, không in ra Telegram — đúng thiết kế, hai kênh hai dạng).
-* KHÔNG có dòng "KHÔNG CÓ khuyến nghị" oan.
-* Dòng "4 lệnh ẩn — chiến lược nguồn chưa đạt kiểm định (xem đầy đủ trong
-  dashboard)" khớp NGUYÊN VĂN template telegram; 6 hiện + 4 ẩn = 10 lệnh mở.
-* Guard phụ cũng đứng vững: S1/S2/R1/R2 nhất quán TLDR↔khối kỹ thuật; không
-  GIA TĂNG dưới bear (EIB/SSI + watchlist đều GIẢM TỶ TRỌNG); nhãn "1 tuần"
-  in đủ ở Dẫn dắt/dòng tiền; disclaimer GDKHQ (VIX 20/08) + Op.CF BĐS có.
-* MSR vừa là BUY rec vừa nằm watchlist "GIẢM TỶ TRỌNG nếu thủng ~41,150":
-  KHÔNG mâu thuẫn — watchlist chính là kịch bản hỏng của lệnh (SL -5.7% từ
-  42 ≈ 39.6 ≈ mục tiêu ~39.500 của watchlist); caveat BUY-dưới-bear đã phủ.
-* ĐÍNH CHÍNH (user báo ngay sau đó): brief 23:16 là **GỬI TAY**, không phải
-  task tự chạy. Nên: (a) mục O vẫn CHƯA có đêm tự động trọn vẹn nào — cổng
-  chưa tích luỹ; (b) 23:16 không nói gì về giờ task, câu hỏi "task 18:00
-  tối 18/08 có nổ không" vẫn MỞ → xem R.
-
-## ⚠️ BÀI HỌC VẬN HÀNH — đã vấp 2 tối liền
-
-Đừng gõ lệnh nặng vắt qua giờ pipeline 18:00 (17/08: `0xC000013A` ngắt
-giữa chừng · 18/08: `267014` bị chấm dứt). Làm việc buổi tối thì làm
-TRƯỚC 18:00, hoặc chờ thấy dòng `⏱ TỔNG` trong `run_daily.log` rồi mới gõ
-tiếp. Đây là nguyên nhân số 1 khiến đêm tự động chưa lần nào chạy trọn.
-
-## 🔴 R. GỬI BRIEF TAY 18/08 — soi bằng 4 hướng audit song song + phản biện
-
-Bối cảnh: bước `brief` trong phát `run.py all` 18/08 in `brief 0.0s` (không gửi
-gì), user gửi tay, Telegram nhận 23:16.
-
-**R1. `brief 0.0s` có ĐÚNG 4 lối ra, không phải 3** (phản biện bắt được vế
-thiếu). Cả 4 đều để lại đúng 1 dòng `[brief]` trong `run_daily.log`:
-1. `[brief] VNSTOCK_PIPELINE_BRIEF=0 — bỏ qua bước brief` (run.py:1186-1188).
-2. `[brief] bỏ qua: chưa tới 15:00 (hiện HH:MM)` (run.py:1163-1165).
-3. `[brief] bỏ qua: đã đẩy brief chiều cho phiên <ngày> rồi (marker)` (:1166-1170).
-4. `[brief] ❌ <Lỗi>` → return 1 (run.py:1194-1201).
-**`exit 0` KHÔNG loại được ca 4**: `cmd_all` coi rc==1 là cảnh báo rồi vẫn
-return 0 (run.py:1284-1287). Và ca 4 ra được 0.0s thật nếu nổ ngay ở
-`import vnstock_telegram` (module chỉ import os/re/datetime/pathlib).
-CHỈ ca 1 lặp lại vào tối mai; ca 2/3 tự khỏi.
-Bẫy lây kill-switch: một dòng `VNSTOCK_PIPELINE_BRIEF=0` trong `.env` LUÔN
-tới được cửa gác bước 14, vì cả `cmd_news` (bước 4, run.py:999-1000) lẫn
-`cmd_doctor` (bước 13 → vnstock_doctor.py:820-823) đều `load_dotenv` IN-PROCESS,
-mà doctor không có cờ tắt trong `all`.
-
-**R2. LỖ HỔNG GUARD MỚI (đáng giá nhất đợt này) — độ tươi chỉ so NGÀY, không
-so GIỜ.** A/D, % trên MA200, VN30 movers, dòng tiền ngành và phần độ rộng của
-Regime/Tâm lý đọc thẳng `market_overview.json` (vnstock_brief.py:1966-1972,
-vnstock_regime.py:66-75, vnstock_market_sentiment.py:199-209). Nếu screener
-chạy TRƯỚC 15:05, nó tính trên bar partial mà VCI trả giữa phiên
-(vnstock_updater.py:368-381 — quan sát 10/06: ≈57% giá trị ngày), và:
-* cờ stale chỉ so NGÀY (vnstock_brief.py:1147; telegram :445-451; doctor
-  :246-249) → 18/08 == 18/08 → IM.
-* auto-refresh từ chối chạy lại (vnstock_brief.py:1169-1170), và **không tự
-  lành trong cùng ngày phiên** vì `_warehouse_eod_date()` chỉ nhìn bar
-  VNINDEX (:1100-1113) — sync tối chữa bar cổ phiếu xong thì ov==eod, vẫn từ chối.
-⇒ Brief giữa phiên có thể in độ rộng dở dang mà KHÔNG cảnh báo gì. Chữa duy
-nhất: chạy lại `python run.py screener`.
-ĐÍNH CHÍNH giả thuyết ban đầu của tôi: dòng "phiên chiều chiếm 60% GTGD"
-KHÔNG chứng minh screener chạy sau 15:00 — khung GTGD ưu tiên capture WSS
-(vnstock_brief_canon.py:285-308), độc lập với file overview.
-
-**R3. Marker chống-trùng: ghi ở 2 cửa, ĐỌC ở 1 cửa.** Ghi: `cmd_telegram`
-action close (run.py:967) + `cmd_brief` (:1202). Đọc: chỉ `_should_push_close`
-do `cmd_brief` gọi (:1190). Hệ quả thực dụng:
-* `run.py telegram close` **không kiểm marker trước khi gửi** → gõ 2 lần là
-  2 brief. Không có lock; cũng có cửa sổ đua (cmd_brief kiểm marker TRƯỚC khi
-  gọi LLM, ghi marker SAU khi gửi).
-* Nó cũng **không có guard giờ nhưng VẪN ghi marker** → ép gửi trước 15:00
-  ngày làm việc sẽ làm CÂM brief của task 18:00 cùng phiên. Sáng dùng
-  `telegram morning` (đường morning không đụng marker).
-* Marker `{"close":"2026-08-18"}` KHÔNG chặn brief phiên 19/08 — so theo NGÀY
-  PHIÊN. **Đừng xoá marker "cho chắc"**, xoá là mở lại cửa gửi trùng.
-* Marker thiếu/hỏng ≠ chứng minh chưa gửi: mọi lỗi đọc/ghi đều bị nuốt
-  (`except: pass`, run.py:1132-1133 & 1171-1172) và lỗi đọc thì trả True (gửi).
-* `send_message` cắt brief dài thành nhiều message và raise giữa vòng
-  (vnstock_telegram.py:128-153) → có thể "nửa brief đã tới mà không có marker".
-
-**R4. Đã loại trừ — không cần lo:** (a) state KHÔNG thiếu gì: mọi ghi
-(save_brief + auto_score, reconcile lệnh quá hạn, refresh events/macro/news/
-overview) nằm TRONG `generate_brief` (vnstock_brief.py:3365-3376, 3535-3557),
-ngoài nó chỉ còn marker; brief là bước CUỐI 14/14 nên không bước nào bị bỏ đói.
-(b) CWD lúc gửi tay ĐÚNG — tự chứng minh: `_open_recs_block`/`_closed_today_block`
-đọc `brief_memory.db` qua đường TƯƠNG ĐỐI (vnstock_memory.py:26), CWD sai thì
-brief in "📋 Khuyến nghị: lỗi (no such table…)" chứ không ra 6 lệnh kèm TP/SL
-và CTF/DSE. (c) Không có bẫy nửa đêm (duyệt đủ 4 mốc chuyển ngày).
-(d) KHÔNG có task brief sáng (chỉ 2 task) — sáng không có gì tự chạy.
-
-**R5. GIẢ THUYẾT MẠNH cho câu "vì sao đêm tự động chưa lần nào tới brief":
-trần 120 phút của task.** `setup_scheduled_tasks.ps1:109` MaxMinutes=120 →
-`-ExecutionTimeLimit`. Phát khoẻ 43.6' thì an toàn, nhưng 17/08 riêng sync đã
-74' → tổng vượt 120' → Windows chấm dứt task (đúng mã 267014 đã thấy) TRƯỚC
-khi tới brief, vì brief là bước 14/14. Khớp cả 2 đêm hỏng. ⇒ gộp vào mục J:
-nếu sync không teo về <10' thì phải nới trần task hoặc tách brief ra task riêng.
-Lưu ý phụ: log KHÔNG phân biệt được task với `run_daily.bat` (argv giống hệt)
-— phải đối chiếu `LastRunTime` của Task Scheduler với mốc giờ header trong log.
-
-**R6. Việc user phải gõ — 1 lệnh, thêm 1 lệnh tuỳ kết quả.**
-⚠️ Lệnh phải LỌC RÁC: `run_daily.log` có ~9 khối header GIẢ mỗi phát `all`, do
-chính bước test sinh ra (`tests/test_run.py` gọi `orchestrator.main([...])` 9
-lần mà KHÔNG patch `RUN_LOG_PATH`, nên nó ghi vào log THẬT ở REPO_ROOT). Header
-rác mang subcommand scan/sync/audit + đường dẫn `pytest-of-…`, còn header thật
-kết thúc bằng ` all`. Và `[brief]` không chỉ do `cmd_brief` in — `vnstock_brief.py:965`
-cũng in `[brief] tự tắt agent …`. Lệnh đã lọc:
+**1. Soi `run_daily.log` giải mã `brief 0.0s`** (mục R cũ). Đây là thứ duy nhất
+đang chặn việc hiểu vì sao đêm tự động chưa lần nào tới brief.
 ```powershell
 Select-String -Path C:\vnstock\run_daily.log -Encoding utf8 `
   -Pattern '^\[run\.py\] 20\d\d-.* all$|^\[brief\]|brief returned|^\[telegram\] close brief' `
   | Select-Object -Last 25
 ```
-Đọc THEO CỤM: mỗi dòng `[run.py] <giờ> | --warehouse data_warehouse all` mở một
-phát; các dòng dưới nó mới thuộc phát đó (dòng `[brief]` KHÔNG có mốc giờ nên
-đọc rời là gán nhầm phát). `[telegram] close brief sent` = phát gửi tay (và
-phát đó ĐÃ ghi marker). Nhánh lỗi kéo theo `[run.py] brief returned warnings`.
+4 kết cục, mỗi cái một dòng `[brief]`: `VNSTOCK_PIPELINE_BRIEF=0` (kill-switch —
+LẶP LẠI đêm sau, phải xoá khỏi `.env`) · `bỏ qua: chưa tới 15:00` (đúng thiết kế,
+nhưng kéo theo việc 2) · `bỏ qua: … (marker)` · `❌ <Lỗi>` (lỗi thật).
+`exit 0` KHÔNG loại được ca lỗi — `cmd_all` coi rc==1 là cảnh báo rồi vẫn trả 0
+(run.py:1284-1287). Đọc THEO CỤM dưới từng header có mốc giờ; dòng `[brief]`
+không mang giờ nên đọc rời là gán nhầm phát.
 
-Ra `chưa tới 15:00` → chạy tiếp lệnh 2 (R2 có thể đã dính):
+⏰ **SỚM chừng nào tốt chừng ấy**: bước `test` đổ TOÀN BỘ output `pytest -v` vào
+`run_daily.log` (1.596 dòng mỗi `--fast`, 2.204 dòng mỗi lần full — run.py:764),
+mà log quá 5 MB thì `_trim_run_log` chỉ giữ đuôi 1 MB. Log trong container đã
+5,12 MB. Mỗi phát `all` nữa là bằng chứng có thể bị xén.
+
+**2. Chỉ khi việc 1 ra "chưa tới 15:00"** — kiểm độ tươi độ rộng của brief 23:16:
 ```powershell
 python -c "import json;d=json.load(open(r'C:\vnstock\data_warehouse\_meta\market_overview.json',encoding='utf-8'));print(d.get('generated_at'),d.get('data_date'),d.get('gtgd_date'))"
 ```
-`generated_at` < 15:05 ngày 18/08 → độ rộng trong brief 23:16 là số giữa phiên;
-chữa bằng `python run.py screener` (ĐỪNG gửi lại brief — sẽ thành brief trùng).
-Bằng chứng dự phòng KHÔNG bị đè: `_meta/screener_history/2026-08-18.json`
-(vnstock_runner.py:125-137 — `shutil.copy2` của `screener_results.json`, KHÔNG
-phải market_overview.json, nhưng cùng do bước screener sinh nên `generated_at`
-của nó trả lời đúng câu "screener chạy lúc mấy giờ"; copy2 giữ nguyên mtime nên
-cả timestamp file cũng suy ra được). Đặt tên theo NGÀY CHẠY, giữ 30 ngày → phát
-19/08 ghi file khác, không đụng. ⇒ việc soi này KHÔNG gấp.
+`generated_at` < 15:05 → A/D 0.91 + movers + dòng tiền ngành trong brief là số
+GIỮA PHIÊN; chữa bằng `python run.py screener`, **đừng gửi lại brief**. Bằng
+chứng dự phòng 30 ngày: `_meta/screener_history/2026-08-18.json` (copy2 giữ
+nguyên mtime — vnstock_runner.py:125-137).
 
-**R8. Cả 3 lệnh R6/R2 BẮT BUỘC chạy trên DESKTOP (máy chạy pipeline), laptop
-không làm được.** `run_daily.log` và `data_warehouse/` đều nằm trong
-`.gitignore` (dòng 6 và 12) và `git ls-files` ra 0 file → clone repo về laptop
-KHÔNG có chúng. Kho dữ liệu nay là local `C:\vnstock` (đã bỏ Dropbox) nên
-không tự đồng bộ sang máy khác. Task Scheduler cũng đăng ký THEO MÁY nên
-`Get-ScheduledTaskInfo` trên laptop sẽ báo không tìm thấy task. Trên laptop chỉ
-đọc được brief trên Telegram + code/notes trong repo.
+**3. `python vnstock_classifier.py --classify --limit 20`** (vài phút, desktop).
+Nợ treo từ §10 07/08 chưa ai nhắc lại: classifier đã đổi sang ladder free nhưng
+CHƯA có bằng chứng chạy thật — soi: không đòi `ANTHROPIC_API_KEY` nữa, và dòng
+route "ladder free".
 
-**R7. Đường ÉP GỬI AN TOÀN là `python run.py brief`, KHÔNG phải
-`run.py telegram close`.** `cmd_brief` (run.py:1176-1203) đi qua đủ 3 cửa gác
-(kill-switch → guard giờ → marker) rồi mới gửi và ghi marker; `telegram close`
-gửi thẳng không đọc gì. Từ nay gửi tay thì dùng `run.py brief`; chỉ khi cần
-CỐ TÌNH vượt guard mới dùng `telegram close`.
+## 🟠 NỢ CODE MỚI PHÁT HIỆN — đáng làm, không ai chặn
 
-## 🟠 DỮ LIỆU — sau đợt phát hiện KHO LỆCH CƠ SỞ (18/08)
+**S1. Lỗ hổng độ tươi: giờ bị cắt ngay từ nguồn** (~1 buổi, nên hỏi mốc giờ).
+`vnstock_brief.py:1095` — `return gen.split(" ")[0] if gen else None` VỨT phần
+giờ của `generated_at`, nên cờ stale (:1147) và auto-refresh (:1169) chỉ so được
+NGÀY. Overview sinh giữa phiên trôi lọt không cảnh báo. Tệ hơn: không tự lành
+trong cùng ngày vì `_warehouse_eod_date()` (:1100-1113) chỉ nhìn bar VNINDEX.
+Đây là gốc của việc 2 ở trên — vá gốc thì khỏi phải soi tay mỗi lần.
 
-**D. Chặn TÁI PHÁT — việc đáng làm nhất còn lại.** `reconcile_fallback_df`
-(từ chối data lệch >8% so với kho) CHỈ được gọi ở nhánh fallback
-(`vnstock_updater.py:441`); **đường VCI CHÍNH ghi thẳng vào kho không qua
-đối chiếu nào**. Vendor rebase toàn chuỗi là đi lọt cửa chính, vài tháng
-sau mới lộ. Thiết kế đề xuất (CHƯA code, đụng đường ghi kho nên phải bàn
-trước): đối chiếu bar overlap khi fetch → lệch quá ngưỡng VÀ không trùng
-ngày sự kiện quyền nào → quarantine + cảnh báo, thay vì ghi đè im lặng.
+**S2. `run.py telegram close` — cửa gửi không có gác nhưng vẫn ghi marker**
+(~30'). run.py:962-967 gửi thẳng, KHÔNG gọi `_should_push_close`, rồi vẫn
+`_write_close_marker`. Hai hậu quả: gõ 2 lần = 2 brief; gõ trước 15:00 ngày làm
+việc = làm CÂM brief của task 18:00 cùng phiên. Hiện chỉ vá bằng kỷ luật ("dùng
+`run.py brief`" — đường đó qua đủ 3 cửa gác).
 
-**E. ~140 mã đuôi có vách, GTGD < 5 tỷ** — `check_unit_continuity --all`
-ra 149 mã; nhóm đầu (VHM/GEX/PNJ/GEE/PVD/VVS…) đã sạch. Phần còn lại gần
-như không ảnh hưởng quyết định nào và sửa hàng loạt tốn ~140 lần gọi
-mạng. **Đề nghị ĐỂ NGUYÊN**, chỉ chạy khi rảnh máy. Bộ công cụ:
-`check_unit_continuity` (quét, xếp theo thanh khoản) → `probe_price_basis`
-(phân định kho-lệch-cơ-sở vs nguồn-sai) → `rebase_ticker_history`
-(chữa, mặc định chạy thử, có sao lưu + tự kiểm).
+**S3. Bộ test ghi bẩn + tự cắt `run_daily.log`** (~30'). `tests/test_run.py` gọi
+`orchestrator.main([...])` **10 lần** mà không patch `RUN_LOG_PATH`
+(run.py:1319 là hằng số module, `_install_run_log` gọi vô điều kiện ở :1691) →
+mỗi phát full suite bơm 10 khối header giả vào log THẬT (`--fast` không dính).
+Cộng với S3b (bước test đổ `pytest -v` vào log) là thứ đẩy log tới ngưỡng tự
+cắt. Sửa: fixture autouse trỏ `RUN_LOG_PATH` sang `tmp_path`, hoặc
+`_install_run_log` tự tắt khi thấy `PYTEST_CURRENT_TEST`. Làm cái này thì lệnh
+soi ở việc 1 gọn lại còn một dòng grep.
+*(Đính chính bản trước: 10 header chứ không phải 9.)*
 
-**F. Vết quy đổi sót 14/04** — BII/HSI/LCS/VLF cùng vách ~1000× ngày
-2026-04-14 (penny 300-600 VND ghi thẳng số thô). Lọt CẢ HAI lưới:
-`fix_units` đòi close > 1000, `_normalize_units` chỉ áp cho bar rollup/WSS
-chứ không áp cho đường updater. GTGD ~0 nên vô hại — ghi nhận làm bằng
-chứng lỗ hổng, chưa cần chữa.
+**S4. Khuyến nghị bị đóng SỚM: horizon đếm PHIÊN nhưng reconcile đếm NGÀY LỊCH**
+(~30'). `vnstock_train.py:559` `age_days = (datetime.now() - created).days` rồi
+:561 so với `horizon` — trong khi `horizon_days` là số PHIÊN (TIER_CONFIGS
+short=5, position=20; backtest cắt hist theo BAR ở :574). Lệnh tầng vị thế 20
+phiên bị đóng sau 20 ngày lịch ≈ 14 phiên. **Ảnh hưởng trực tiếp mục T3 (#32
+live tracking)** — verdict đang được chấm trên khung ngắn hơn thiết kế.
 
-**G. Ticker tái sử dụng** — VHM có vách 2018-05-17 cách 308 ngày = ngày
-Vinhomes niêm yết; dữ liệu trước đó là mã KHÁC từng dùng ticker VHM. Chữ
-ký: quãng nghỉ dài + nhảy lớn. Có thể còn ở mã khác, CHƯA quét. Ngoài mọi
-lookback thực tế (backtest dài nhất 730 ngày) nên không gấp.
+**S5. `market_overview.json` + `screener_results.json` ghi KHÔNG nguyên tử**
+(vài phút). vnstock_runner.py:127-128 và :718-719 dùng `open()+json.dump` thẳng,
+trong khi cả repo đã có `write_json_atomic`. Pipeline đã bị kill giữa chừng 2
+lần (17/08, 18/08) — đúng kịch bản để lại JSON cụt.
+
+**S6. Doctor mù với kill-switch nguy hiểm nhất** (~30'). `vnstock_doctor.py` chỉ
+đọc 6-7 cờ env của nguồn vĩ mô (:604, :620, :655, :678, :695, :711); KHÔNG soi
+`VNSTOCK_PIPELINE_BRIEF` (tắt hẳn brief), `VNSTOCK_BRIEF_AUTO_*`,
+`VNSTOCK_STRATEGY_ISOLATION`. Chính ẩn số của việc 1 lẽ ra phải có badge báo.
+
+**S7. 3 file test bộ công cụ đơn vị giá nằm NGOÀI `--fast`** (vài phút).
+`test_unit_continuity` / `test_price_basis_probe` / `test_rebase_history` =
+48 test, không có trong fast-list (run.py:680-748) → sửa 3 script đó rồi chạy
+`--fast` là chạy mà không có lưới. Thêm 3 dòng là xong.
+
+**S8. Mục T3 đang so hai thứ khác đơn vị** (vài phút). P&L khuyến nghị thật tính
+GROSS (`vnstock_train.py:503-510`), còn expectancy backtest đã trừ phí roundtrip
+0,4% (`vnstock_strategy.py:907`). "Live khớp backtest" vì thế luôn thiên vị live.
+
+**S9. Rổ VN30 hardcode ở 4 nơi, không test đồng bộ** (~30'). `vnstock_wss.py:44`,
+`vnstock_brief_canon.py:46`, `vnstock_news.py:65`, + module tính trọng số
+benchmark luôn ưu tiên bản hardcode. HOSE cơ cấu lại rổ là 4 nơi lệch nhau âm thầm.
+
+**S10. `_read_ticker` nuốt lỗi trả rỗng** (~30'). Vế thứ HAI của nợ audit 06/08
+(vế một đã vá): `vnstock_warehouse._write_parquet` lấy `_read_ticker` làm bản gốc
+để merge, mà `_read_ticker` nuốt mọi lỗi và trả DataFrame rỗng → một file year
+hỏng có thể bị ghi đè mất. Chỉ dính đường bulk-load thủ công nên không gấp, nhưng
+cùng họ rủi ro với mục U1.
+
+## 🧪 TEST — bộ test khoẻ hơn tưởng, 6 lỗ thật
+
+Tin tốt đã kiểm: 2.148 passed, **0 skip / 0 xfail / 0 skipif** trong toàn repo;
+chặn sạch socket ra ngoài vẫn 2.148 passed; chạy full suite không đụng byte nào
+trong `data_warehouse/`. Bài học SQLite cũ (test_close_1507_review) đã đóng thật.
+
+**T-a. 6 cổng `importorskip` có thể nuốt ~22 test âm thầm** (~30'), mà badge
+sidebar không đọc trường `skipped` nên vẫn hiện XANH. Nặng nhất là 2 cổng
+module-level: `test_updater_partial_bar.py:24` (mất cả 4 test),
+`test_portfolio_prices.py:15-16` (mất cả 11 test).
+
+**T-b. Vẫn còn 1 call mạng THẬT mỗi lần chạy test** (vài phút) — ở bước IMPORT
+chứ không trong thân test: `tests/test_classifier.py:17` → `vnstock_classifier.py:70`
+`from vnstock import Vnstock` → telemetry của gói vnai gọi ra Fastly.
+
+**T-c. `USE_UNIFIED` — 4 module rẽ nhánh, 0 test chạm** (~1 buổi, cần user quyết
+có đáng không). `vnstock_updater.py:49/53`, `vnstock_classifier.py:64/68/263/297`,
+`vnstock_warehouse.py:105/107`. Đây đúng loại "xanh trên CI nhưng chạy CODE KHÁC
+trên máy user".
+
+**T-d. 9/16 hàm render tab không bao giờ chạy thân trong test** (~1 buổi) — tái
+sử dụng được fixture `render_env` có sẵn ở `tests/test_tab_render_smoke.py`.
+
+**T-e. `vnstock_auth.py` (224 dòng) và `vnstock_freefloat.py` (200 dòng) không có
+một test nào.** auth là cửa quyết định sponsor/free mà gần như cả repo import ở
+module level — dính thẳng vào mục U4 (nâng thư viện). freefloat thì hỏng ÂM THẦM
+trong đường chạy đêm (`vnstock_runner.py:206-210` chỉ log 1 dòng mờ).
+
+**T-f. `probe_price_basis` không test CLI** (~30') — 2 công cụ anh em đều có test
+`main()` với exit code, riêng nó chỉ test 2 hàm thuần.
 
 ## ⏳ TỰ ĐẾN — chỉ cần ĐỌC khi tới
 
-**H. Báo cáo model watch T7 22/08** — 3 điểm hẹn sẵn: (a) `gemini-3.5-flash`
-còn n/a không (22 ca hụt vì quota free tối T7); (b) **Groq `gpt-oss-20b`
-sentiment ≤0.75 lần thứ 2 → mở lại "cảnh báo nấc yếu"** + cân nhắc đổi nấc
-[1] sang `gemma-4-31b` (đang 1.00); (c) bộ đề chấm bù `nemotron-ultra` —
-latency vẫn thường → **đóng hẳn mục 5**. Ứng viên mới `gemini-3.7-flash`
-đã xuất hiện trong danh mục: muốn dùng phải probe sống trước (luật CLAUDE.md).
+**U1. Báo cáo model watch T7 22/08** — 3 điểm hẹn: (a) `gemini-3.5-flash` còn n/a
+không; (b) Groq `gpt-oss-20b` sentiment ≤0,75 lần 2 → cân nhắc đổi nấc [1] sang
+`gemma-4-31b`; (c) chấm bù `nemotron-ultra` → đóng hẳn mục 5.
+**3 cảnh báo trước để khỏi hoảng:**
+* Đổi nấc [1] sẽ làm ĐỎ NGAY `test_providers_ladder_slugs_22_07`
+  (tests/test_model_ladder.py:46-55 khoá cứng cả danh sách VÀ thứ tự) — đỏ có chủ ý.
+* Bỏ `gemini-3.5-flash` phải sửa ít nhất 6 điểm (vnstock_brief.py:112 & :840,
+  vnstock_report_digest.py:98, scripts/probe_models.py:57, vnstock_llm_ledger.py:48)
+  + 1 assert cứng trong test.
+* `_DEAD_SLUGS_22_07` là danh sách TAY đóng băng từ 22/07 — đã 4 tuần chưa động,
+  và `zai-glm-4.7` vừa tới hạn khai tử 17/08 (hôm kia).
+* Ứng viên mới `gemini-3.7-flash`: grep toàn repo = 0 kết quả (đúng luật, chưa ai
+  lỡ tay nhét vào). Muốn dùng phải probe sống trước.
 
-**I. Badge 🩺 doctor** — chỉ hành động khi warn. Badge "Quy đổi đơn vị giá"
-nay nói thật (bỏ ratio gây hiểu nhầm, ghi rõ "5 mã cuối theo vần", in "≥50"
-khi log đầy) và trỏ thẳng vào `scripts/check_unit_continuity.py`.
+**U2. Không có cơ chế bắt slug MỚI chết** (~30'). Ngày khai tử chỉ nằm trong
+COMMENT (`vnstock_model_watch.py:12-13`, `vnstock_brief.py:619`) — không hằng số,
+không field trong `model_status.json`, không assert. Thêm `sunset_date` vào
+`_DEAD_SLUGS` + 1 test canh "ngày đã qua mà slug vẫn live".
 
-## 🟡 QUAN SÁT DÀI HẠN
+**U3. Sync time** — chuỗi đo: 9.731s → 2.376s → 4.429s (phát bị kill tối 17/08)
+→ 1.205s (chạy bù 18/08). Ngưỡng: **2-3 đêm nữa phải < ~10 phút**.
+**Ngưỡng CỨNG: trần task Daily là 120 phút** (`setup_scheduled_tasks.ps1:109`).
+Sync 74' như 17/08 là đủ để Windows chấm dứt task TRƯỚC bước brief (bước 14/14)
+— nghi phạm chính khiến đêm tự động chưa lần nào tới brief. Không teo thì nới
+`MaxMinutes` hoặc tách brief ra task riêng (`run.py --no-brief` + task thứ 3 —
+cờ đã có sẵn ở run.py:1234).
 
-**J. Sync time** — chuỗi đo: 9.731s (đỉnh heal) → 2.376s → 4.429s (phát bị
-kill tối 17/08) → 1.205s (chạy bù trưa 18/08). Ngưỡng chốt (mục B): 2-3 đêm
-nữa sync phải **< ~10 phút**; không teo thì mổ đúng bước heal (dời sang
-tuần / cap batch), không đụng phần còn lại.
-**Ngưỡng CỨNG mới (từ R5): trần task Daily là 120 phút.** Sync 74' như
-17/08 là đủ để Windows chấm dứt task trước khi tới brief (bước 14/14) —
-đây nhiều khả năng là lý do đêm tự động chưa lần nào tới brief. Nếu sync
-không teo về <10' thì phải nới `MaxMinutes` trong
-`scripts/setup_scheduled_tasks.ps1:109` hoặc tách brief ra task riêng.
+**U4. Nâng thư viện** — vnstock 4.0.4→**4.0.6**, vnai 2.4.8→**2.5.7**, vnii
+0.2.4→0.2.5. **Đính chính mô tả cũ**: repo KHÔNG pin bản nào — `requirements.txt`
+chỉ có `vnstock>=3.5.0`, vnai/vnii không hề được khai (dep gián tiếp). Nâng là
+việc `pip` trên máy thật, không đụng file repo. Tin có ích: container NÀY đang
+chạy đúng vnstock 4.0.6 + vnai 2.5.7 và 2.148 test XANH — nhưng chỉ chứng minh
+được nhánh FREE (vnstock_data và vnii đều MISSING ở đây, tức nhánh sponsor chưa
+ai thử). Nâng xong: `run.py doctor --net` + full suite ngay, KHÔNG sát giờ pipeline.
 
-**K. #32 tự chứng minh bằng live** — theo dõi dòng "💚 Live khớp backtest"
-trên panel Chiến lược vài tuần. Lưu ý: kho VHM/PNJ/GEX vừa đổi hệ số nên
-vài đêm train tới có thể cho verdict/expectancy khác — đó là dữ liệu ĐÚNG
-hơn, không phải hỏng.
+**U5. Quan sát dài hạn** — OpenRouter nạp $10 (ledger có cột `last_error`,
+`python vnstock_llm_ledger.py --show`) · chất lượng brief 4 giọng auto-score
+(mốc 11/08: 0.830 / 0.834 / 0.862 / 0.836) · badge 🩺 doctor chỉ hành động khi warn.
 
-**L. OpenRouter nạp $10** — quan sát từ lưu lượng thật; ledger có cột
-`last_error` để phân biệt 429 thật/giả (`python vnstock_llm_ledger.py --show`).
+## 🚪 CHỜ CỔNG hoặc CHỜ USER QUYẾT
 
-**M. Chất lượng brief 4 giọng** — so auto-score vài phiên giữa Gemini ·
-Cerebras · OpenRouter · Mistral (mốc 11/08: 0.830 / 0.834 / 0.862 / 0.836).
+**V1. Chặn TÁI PHÁT lệch cơ sở — việc kỹ thuật đáng nhất còn lại** (~1 buổi,
+CHỜ USER CHỐT THIẾT KẾ vì đụng đường ghi kho). Đối soát ✅: `reconcile_fallback_df`
+có ĐÚNG 1 điểm gọi, ở nhánh fallback (`vnstock_updater.py:441` trong khối
+`if use_fb and new_df is None`); đường VCI chính đi thẳng :419 → merge :463-480
+với `drop_duplicates(keep="last")` = đè im lặng. **Tin tốt chưa ghi lần trước:
+hạ tầng quarantine ĐÃ cắm sẵn vào đúng đường ghi của cả 2 nguồn**
+(`vnstock_updater.py:170-190`), nên chỉ cần thêm phép so bar overlap — rẻ hơn
+tưởng. Cần chốt: ngưỡng lệch bao nhiêu, có tra lịch sự kiện quyền không,
+quarantine hay chỉ cảnh báo.
 
-**N. Nâng thư viện** — vnstock 4.0.4→**4.0.6**, vnai 2.4.8→**2.5.7**, vnii
-0.2.4→0.2.5. Nâng thì `run.py doctor --net` + full suite NGAY sau; KHÔNG
-nâng sát giờ pipeline.
+**V2. Tầng B — danh mục xoay vòng tháng** (nhiều buổi). Cổng "có chiến lược đạt"
+ĐÃ MỞ (#32); cổng "tầng A chạy ổn vài đêm train tự động" **vẫn ở mốc 0** — chưa
+đêm nào chạy trọn tới brief. Đối soát ✅: chưa có một dòng code nào cho tầng B
+(khái niệm "tier" đang có là short/position của tầng A, đừng nhầm).
 
-## 🚪 TREO CÓ CỔNG — chỉ làm khi đủ điều kiện
+**V3. Backtest không mô phỏng ràng buộc thị trường VN** (~1 buổi, cần user chốt).
+`vnstock_strategy.py:949-960` cho ĐÓNG LỆNH NGAY BAR KẾ TIẾP (T+1, thực tế VN là
+T+2,5) và :963-977 vẫn tính P&L SHORT cho tín hiệu sell (VN không bán khống).
+Đụng thẳng vào số liệu gating nên phải bàn trước.
 
-**O. Tầng B — danh mục xoay vòng tháng** (~3-5 buổi): cổng "có chiến lược
-đạt" ĐÃ MỞ (#32); còn cổng "tầng A chạy ổn vài đêm train tự động" VẪN Ở
-MỐC 0 — tính tới 18/08 chưa đêm tự động nào chạy trọn tới brief (17/08 bị
-kill, 18/08 brief phải gửi tay — xem A/B/R). Đủ cả hai
-+ user muốn → nêu thiết kế trước rồi mới code.
+**V4. Đếm hai lần nhóm tuỳ biến** (Ngân hàng 26 vs drill-down 27, lệch EIB) —
+user chốt TẠM GIỮ. **Bổ sung làm ước lượng đúng hơn**: sửa xong sẽ LÀM ĐỎ một
+test đang khoá chính hành vi đếm-hai-lần, nên không chỉ là "thêm 1 điều kiện lọc"
+(`vnstock_sectors.py:174-175`).
 
-**P. Đếm hai lần nhóm tuỳ biến** (Ngân hàng 26 vs drill-down 27, lệch
-EIB) — nợ đã biết, user chốt TẠM GIỮ. Lôi ra khi: thêm họ mới vào registry
-/ cần cộng bảng chi tiết ra đúng dòng tổng / thấy lưỡng lự "tin số nào".
-Sửa ~15 phút, chỉ đụng `vnstock_sectors.rows_for_sector` + test.
+**V5. Brief SÁNG không có task tự động** (~30' + user chạy lại ps1 quyền Admin).
+Treo từ 20/07. Nửa tính năng quảng cáo ở đầu CLAUDE.md ("brief sáng/chiều") chưa
+bao giờ tự chạy; đường gửi tay `run.py telegram morning` KHÔNG có cửa gác nào —
+gõ 2 lần là 2 brief. Cần user chốt GIỜ bắn (đề xuất cũ 11:35-11:40 T2-T6).
 
-**Q. Lineage card panel Chiến lược** — card active short mang nhãn "v1 ·
-tuned 16/06" nhưng số expectancy/trades là của backtest MỚI NHẤT (#35).
-Không ảnh hưởng gating; muốn nhãn/số nhất quán thì gọi Claude soi code panel.
+**V6. Chuẩn hoá đơn vị penny trong đường phát rec** (~1 buổi, cần user chọn
+hướng). Bẫy "chuẩn hoá PER-BAR" với mã quanh mốc 500 VND (return giả tới ±96,9%)
+mới vá ở preset_score / networth / candle_patterns; đường `_load_history` của
+backtest/emit rec CHƯA. Hai hướng: áp `_stitch_units` vào `_load_history`, hoặc
+loại hẳn penny khỏi universe phát rec.
+
+**V7. Ngày lễ GIỮA TUẦN** (~30' nếu chỉ cần danh sách cấu hình được).
+`_close_session_date` (run.py:1136-1146) không biết lịch nghỉ → tối ngày lễ
+pipeline vẫn bắn "brief chiều phiên hôm nay" dựng trên dữ liệu phiên trước.
+1-2 ca/năm — user quyết có đáng làm không.
+
+**V8. Kho giá chưa bao giờ kiểm nhất quán điều chỉnh cổ tức** (~1 buổi, máy thật).
+`vnstock_adjust.py:31-33` ghi rõ tầng back-adjust từng viết ra nhưng CHƯA BAO GIỜ
+nối vào production. Cùng họ với V1.
+
+## 🔍 CHỜ MẮT NGƯỜI — chỉ làm được trong giờ giao dịch
+
+**W1. Heatmap VN30 live có SỐ THẬT trong phiên** — chuỗi vá cờ `live_mode` đã
+đóng về mặt code + Playwright, nhưng chưa entry nào ghi nhận đã nhìn tận mắt
+trong phiên. Làm trong 9h15-14h30 T2-T6 trên desktop: bật 🔴 Live Mode ở sidebar
+trái → mở tab Thị trường.
+
+## 🩹 ĐÍNH CHÍNH SỔ (đã sửa trong bản này)
+
+* Số test: CLAUDE.md ghi ~1.436/~1.898 và run.py:672 ghi ~1.034 — **đã sửa** thành
+  1.588 / 2.148 (commit f3f95ff).
+* Mục B và mục J từng ghi lệch 1 ngày cho cùng chuỗi đo sync — bản này thống nhất
+  theo J (khớp mục A): 4.429s là phát bị kill **tối 17/08**.
+* R6: 10 khối header rác mỗi phát full, không phải 9; `--fast` không dính.
+* N/U4: repo không pin phiên bản nào.
 
 ## 🔧 NẾP GIT — bẫy đã vấp 2 lần
 
-User làm việc trên `main` cục bộ, Claude push lên nhánh feature → `git pull`
-báo **"Already up to date"** DÙ vừa tải commit mới về. Lấy code mới phải dùng
-`git fetch origin <nhánh> && git merge origin/<nhánh>`. Nghi máy chạy code cũ
-→ `git log --oneline -1` đối chiếu commit cuối Claude báo.
+User làm việc trên `main` cục bộ, Claude push lên nhánh feature → `git pull` báo
+**"Already up to date"** DÙ vừa tải commit mới về. Lấy code mới phải dùng
+`git fetch origin <nhánh> && git merge origin/<nhánh>`. Nghi máy chạy code cũ →
+`git log --oneline -1` đối chiếu commit cuối Claude báo.
+
+## ⚠️ BÀI HỌC VẬN HÀNH
+
+Đừng gõ lệnh nặng vắt qua giờ pipeline 18:00 (17/08: `0xC000013A` · 18/08:
+`267014`). Làm buổi tối thì làm TRƯỚC 18:00, hoặc chờ thấy dòng `⏱ TỔNG` trong
+`run_daily.log` rồi mới gõ tiếp. **Nhưng lưu ý U3**: nguyên nhân số 1 có thể
+không phải bạn, mà là trần 120 phút của task.
