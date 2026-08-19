@@ -6966,6 +6966,28 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+**U9. 🔴 LỚP LỖI MỚI: lệch cơ sở cỡ CỔ TỨC (2-5%) — bộ quét MÙ hoàn toàn.
+Phát hiện tình cờ 19/08 khi test thư viện.**
+`probe_price_basis --ticker VNM` (VN30, blue chip) cho:
+kho/nguồn **1.0327× tới 2026-06-22**, rồi **1.0000× từ 2026-06-23**.
+⇒ Toàn bộ lịch sử VNM trước 23/06 đang ở cơ sở CŨ, lệch **3,27%** — cỡ một lần
+trả cổ tức tiền mặt (~1.850đ trên giá ~57.000).
+**Vì sao lọt lưới:** `check_unit_continuity` chỉ bắt vách ≥30% giữa hai phiên
+kề nhau (JUMP_PCT). Bậc 3,27% nằm sâu dưới ngưỡng, nên VNM được báo
+"✅ không vách đứt đáng ngờ · khớp giá live 1.00×" — bar GẦN ĐÂY đúng, chỉ
+LỊCH SỬ sai, mà quét liên tục không nhìn vào tỉ lệ kho/nguồn.
+**Hậu quả:** backtest bắc qua 23/06 thấy VNM rơi giả 3,2%. Với tầng vị thế
+(lookback 730 ngày) thì mọi cửa sổ đều bắc qua. Đây là mã VN30 — chắc chắn
+nằm trong universe chiến lược.
+**Chưa biết còn bao nhiêu mã như vậy.** Bộ quét hiện tại KHÔNG trả lời được
+câu này; muốn biết phải so tỉ lệ kho/nguồn từng mã (mỗi mã 1 lần gọi mạng).
+Đề xuất: quét theo universe thanh khoản (VN30 + GTGD ≥ 5 tỷ) chứ không cả kho.
+**Đã làm được phần công cụ:** `rebase_ticker_history` nay nhận `--break-date`
+(trước đây chỉ tự dò ≥30% nên KHÔNG với tới lớp lỗi này).
+Chữa VNM (⇄ CẢ HAI MÁY):
+`python scripts/rebase_ticker_history.py --ticker VNM --break-date 2026-06-23`
+(chạy thử trước; xem nguồn có phủ đủ lịch sử không rồi mới `--apply`).
+
 **U8. ⛔ BẢN NÂNG 4.0.6 LÀM HỎNG ĐƯỜNG FETCH — LÙI LẠI, KHÔNG NÂNG DESKTOP
 (19/08).** Sau khi nâng laptop, mọi lượt fetch nguồn đều nổ
 `RuntimeError: RetryError[... raised UnboundLocalError]` ở nhánh SPONSOR

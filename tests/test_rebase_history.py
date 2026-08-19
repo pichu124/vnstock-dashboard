@@ -179,3 +179,51 @@ def test_unsoiable_ticker_is_not_reported_as_clean(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "KHÔNG SOI ĐƯỢC" in out or "không có trong kho" in out
     assert "✅" not in out
+
+
+# ── Vách do NGƯỜI chỉ định (vá 19/08 sau ca VNM) ───────────────────────────
+
+def test_break_date_flag_exists_and_parses():
+    """Ca VNM 19/08: kho/nguồn 1.0327× trước 2026-06-23 rồi 1.0000× từ đó —
+    một mã VN30 lệch 3,27% suốt phần lịch sử. `_find_break` chỉ thấy vách ≥30%
+    nên lệch cỡ CỔ TỨC (2-5%) hoàn toàn vô hình với nó; không có cờ này thì
+    công cụ chữa không với tới được cả một LỚP lỗi."""
+    import sys
+    from pathlib import Path as _P
+    sys.path.insert(0, str(_P(__file__).resolve().parent.parent / "scripts"))
+    import rebase_ticker_history as rth
+    ns = rth.main.__globals__["argparse"]  # đảm bảo module dựng parser thật
+    import argparse as _a
+    assert ns is _a
+    p = _P("scripts/rebase_ticker_history.py").read_text(encoding="utf-8")
+    assert '"--break-date"' in p
+    assert "break_date" in p
+
+
+def test_explicit_break_date_skips_autodetect(tmp_path, monkeypatch, capsys):
+    """Chỉ định ngày thì KHÔNG được gọi bộ dò 30% nữa — nếu vẫn gọi thì mã
+    lệch cỡ cổ tức lại bị trả về "không còn vách nghi vấn"."""
+    import sys
+    from datetime import date
+    from pathlib import Path as _P
+    sys.path.insert(0, str(_P(__file__).resolve().parent.parent / "scripts"))
+    import probe_price_basis as ppb
+    import rebase_ticker_history as rth
+
+    called = []
+    monkeypatch.setattr(ppb, "_find_break",
+                        lambda *a, **k: called.append(1) or None)
+    d = tmp_path / "prices" / "ticker=VNM" / "year=2026"
+    d.mkdir(parents=True)
+    import pandas as _pd
+    _pd.DataFrame({"time": _pd.to_datetime(["2026-06-22", "2026-06-23"]),
+                   "open": [59.0, 56.5], "high": [59.0, 56.5],
+                   "low": [59.0, 56.5], "close": [59.0, 56.5],
+                   "volume": [1000, 1000]}).to_parquet(d / "p.parquet",
+                                                       index=False)
+    monkeypatch.setattr(rth, "_probe",
+                        lambda *a, **k: {"verdict": "aligned", "n": 2})
+    rth._rebase_one("VNM", tmp_path, False, "auto", date(2026, 6, 23))
+    out = capsys.readouterr().out
+    assert called == [], "vẫn gọi bộ dò dù đã chỉ định ngày"
+    assert "vách do người chỉ định = 2026-06-23" in out

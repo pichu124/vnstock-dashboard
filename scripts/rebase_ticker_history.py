@@ -108,7 +108,8 @@ def _volume_step(wh_head: pd.DataFrame, brk: date, n: int = 20) -> float:
 
 
 def _rebase_one(tk: str, wh_root: Path, apply: bool,
-                volume_mode: str = "auto") -> int:
+                volume_mode: str = "auto",
+                break_date: "date | None" = None) -> int:
     from check_unit_continuity import find_jumps, load_bars
     from probe_price_basis import _find_break, fetch_source
 
@@ -118,14 +119,22 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
         print(f"\n[rebase] ⬜ {tk}: không có trong kho")
         return 1
 
-    try:
-        brk = _find_break(prices_dir, tk)
-    except Exception as e:
+    if break_date is not None:
+        # Vách do NGƯỜI chỉ định: `_find_break` chỉ thấy vách ≥30%, nên lệch cơ
+        # sở cỡ CỔ TỨC (2-5%) hoàn toàn vô hình với nó. Ca VNM 19/08:
+        # kho/nguồn 1.0327× trước 2026-06-23 rồi 1.0000× từ đó — một mã VN30
+        # lệch 3,27% suốt phần lịch sử, mà quét liên tục KHÔNG hề kêu.
+        brk = break_date
+        print(f"\n[rebase] {tk}: vách do người chỉ định = {brk}")
+    else:
+        try:
+            brk = _find_break(prices_dir, tk)
+        except Exception as e:
         # Phân biệt RÕ "sạch" với "không soi được" — gộp hai cái làm một là
         # cách chắc chắn nhất để người dùng tưởng đã chữa xong (vết 18/08).
-        print(f"\n[rebase] ✗ {tk}: KHÔNG SOI ĐƯỢC ({type(e).__name__}: {e}) "
-              f"— chưa kết luận được gì, ĐỪNG coi là sạch")
-        return 1
+            print(f"\n[rebase] ✗ {tk}: KHÔNG SOI ĐƯỢC ({type(e).__name__}: {e}) "
+                  f"— chưa kết luận được gì, ĐỪNG coi là sạch")
+            return 1
     if brk is None:
         print(f"\n[rebase] ✅ {tk}: không còn vách nghi vấn trong 365 ngày "
               f"(soi {len(load_bars(prices_dir, tk, since_days=365)):,} bar)")
@@ -261,6 +270,10 @@ def main(argv: "list[str] | None" = None) -> int:
     ap.add_argument("--warehouse", default="data_warehouse")
     ap.add_argument("--apply", action="store_true",
                     help="GHI THẬT vào kho (mặc định chỉ chạy thử)")
+    ap.add_argument("--break-date",
+                    help="ngày vách (YYYY-MM-DD) khi tự tìm KHÔNG ra — lệch cơ "
+                         "sở cỡ cổ tức (2-5%%) nằm dưới ngưỡng 30%% của bộ dò, "
+                         "phải lấy ngày từ probe_price_basis")
     ap.add_argument("--volume", choices=("auto", "adjust", "source"),
                     default="auto",
                     help="auto (mặc định): nhân khối lượng theo hệ số giá KHI "
@@ -274,8 +287,9 @@ def main(argv: "list[str] | None" = None) -> int:
         wh_root = REPO_ROOT / wh_root
     worst = 0
     for tk in args.ticker:
+        _bd = date.fromisoformat(args.break_date) if args.break_date else None
         worst = max(worst, _rebase_one(tk.upper(), wh_root, args.apply,
-                                       args.volume))
+                                       args.volume, _bd))
     return worst
 
 
