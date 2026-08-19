@@ -6966,24 +6966,29 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
-**U8. ⛔ CHƯA ĐƯỢC NÂNG DESKTOP — có một lỗi fetch CHƯA phân định (19/08).**
-Sau khi nâng laptop, `probe_price_basis --ticker VNM --break-date 2026-08-01`
-nổ `RuntimeError: RetryError[... raised UnboundLocalError]` ở bước fetch nguồn
-(nhánh SPONSOR `vnstock_data`). `_fetch_prices` của repo khởi tạo biến đầy đủ
-nên UnboundLocalError đến từ TRONG thư viện vnstock.
-**Hai giả thuyết chưa tách được:**
-1. Bản 4.0.6 làm hỏng đường fetch → phải lùi và KHÔNG nâng desktop.
-2. Khoảng ngày VƯỢT QUÁ HÔM NAY là thủ phạm: `brk + 30 ngày` với vách
-   2026-08-01 ra 2026-08-31 (tương lai). Các lượt fetch THÀNH CÔNG trước đó
-   (XDH 2024-12→2025-02, VVS quanh 2026-06) đều nằm HOÀN TOÀN trong quá khứ.
-**Lệnh phân định (💻 LAPTOP, đã nâng):**
-`python scripts/probe_price_basis.py --ticker VNM --break-date 2026-07-01`
-(khoảng 2026-06-01 → 2026-07-31, toàn quá khứ). Chạy được = giả thuyết 2,
-thư viện không có lỗi. Vẫn nổ = giả thuyết 1 → `pip install vnstock==4.0.4
-vnai==2.4.8` và ghim mục U4 lại.
-**Đã vá phía mình bất kể kết quả:** cả `probe_price_basis` lẫn
-`rebase_ticker_history` nay CẮT cửa sổ về hôm nay — xin giá tương lai là vô
-nghĩa dù thư viện có xử êm hay không.
+**U8. ⛔ BẢN NÂNG 4.0.6 LÀM HỎNG ĐƯỜNG FETCH — LÙI LẠI, KHÔNG NÂNG DESKTOP
+(19/08).** Sau khi nâng laptop, mọi lượt fetch nguồn đều nổ
+`RuntimeError: RetryError[... raised UnboundLocalError]` ở nhánh SPONSOR
+(`vnstock_data`). Đã loại trừ từng biến số một, không đoán:
+* KHÔNG phải code repo: `_fetch_prices` (vnstock_updater.py:278) khởi tạo
+  `df, last_exc = None, None` ngay đầu hàm → UnboundLocalError đến từ TRONG
+  thư viện, bị tenacity bọc thành RetryError.
+* KHÔNG phải ngày tương lai: cắt cửa sổ về hôm nay (`→ 2026-08-19`) vẫn nổ.
+* KHÔNG phải phiên đang dở: khoảng QUÁ KHỨ HOÀN TOÀN (2026-06-01 → 2026-07-31)
+  cũng nổ.
+* Trước khi nâng, CÙNG đường fetch chạy tốt 3 lượt: XDH (45 bar), VVS probe,
+  VVS rebase (956 bar).
+⇒ **Desktop giữ nguyên vnstock 4.0.4 / vnai 2.4.8 / vnii 0.2.4.** Lùi laptop:
+`python -m pip install vnstock==4.0.4 vnai==2.4.8`, rồi chạy lại
+`probe_price_basis --ticker VNM --break-date 2026-07-01` để xác nhận sống lại.
+**BÀI HỌC (đắt nếu bỏ qua):** đây đúng là lý do thử trên laptop trước. Nâng
+thẳng desktop thì lỗi này nổ lúc 18:00 GIỮA pipeline, ở bước sync — mất cả đêm
+data lẫn brief, và phải gỡ trong lúc gấp. Bộ test 2.201 KHÔNG bắt được vì nhánh
+sponsor không có test nào chạm tới (mục T-c).
+**Còn treo:** báo lỗi lên tác giả vnstock? Cần thu traceback đầy đủ trước —
+`python -c "from vnstock import Vnstock; Vnstock().stock(symbol='VNM',
+source='VCI').quote.history(start='2026-06-01', end='2026-07-31',
+interval='1D')"` gọi thẳng thư viện, không qua code repo.
 
 **U4. ✅ NÂNG THƯ VIỆN — LAPTOP XONG 19/08, desktop chờ soak.**
 `vnstock 4.0.4→4.0.6 · vnai 2.4.8→2.5.7 · vnii 0.2.4→0.2.5` trên laptop
