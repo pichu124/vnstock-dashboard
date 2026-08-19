@@ -14,7 +14,12 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 - Dashboard: `python run.py dashboard` (Streamlit, localhost:8501).
 - Lịch chạy tự động: `scripts/setup_scheduled_tasks.ps1` (2 task: Daily
   18:00 ngày làm việc + Weekend — gộp từ 29/07; đăng ký THEO MÁY — máy mới
-  phải chạy lại script này, Run as Administrator).
+  phải chạy lại script này, Run as Administrator). Trần task Daily 120 phút:
+  sync phình >~75' là task bị chấm dứt TRƯỚC bước brief (bước cuối 14/14).
+- ⚠️ MỌI lệnh soi trạng thái (đọc `run_daily.log`, `data_warehouse/_meta/*.json`,
+  `Get-ScheduledTaskInfo`) CHỈ chạy được TRÊN DESKTOP chạy pipeline. Log + kho
+  đều trong `.gitignore`, kho là local (bỏ Dropbox), task đăng ký theo máy →
+  laptop clone repo về KHÔNG có gì để soi. Đừng bảo user chạy trên laptop.
 
 ## Test discipline
 - Sửa module lõi nào → `python run.py test --fast` (~1.436 test; ~29s trên CI,
