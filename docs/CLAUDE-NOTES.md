@@ -7003,6 +7003,17 @@ sau lại đúng ngần ấy.
 * `rebase` nay tự dò được vách cỡ cổ tức (`_basis_break_of` → dùng chung
   `find_basis_step` với chế độ quét, một nơi định nghĩa).
 
+**Chạy thử lần 2 sau khi vá (19/08 15:23): 70/70 mã chữa được**, chỉ còn 3 mã
+nhân khối lượng — HCM (bậc/hệ số 1.01) · KLB (0.96) · SSB (1.04), đều có bằng
+chứng khớp thật. 5 mã suýt bị nhân oan (HSG 0.71 · SSI 0.73 · VJC 0.70 ·
+VTP 0.72 · TCX 0.82) nay giữ nguyên.
+**Sai số CHẤP NHẬN có ý thức:** khi kho sự kiện xác nhận split/bonus mà bằng
+chứng volume lại ngược (PET: bonus, hệ số 1.4499, bậc 0.43) — hoặc chia tách
+rõ ràng mà bậc lệch (F88 2.0000×, bậc 3.08) — công cụ GIỮ NGUYÊN volume. Hệ
+quả: GTGD lịch sử của mấy mã đó thấp hơn thực tế đúng bằng hệ số. Đây là lỗi
+CÓ BIÊN, chỉ chạm bộ lọc thanh khoản, và được IN RA từng ca — đổi lại không
+bịa ra khối lượng. Muốn sửa từng mã thì `--ticker <MÃ> --volume adjust`.
+
 **Thứ tự làm (⇄ CẢ HAI MÁY, desktop trước vì nó sinh khuyến nghị):**
 1. `--from-sweep` chạy thử, đọc xem mã nào bị từ chối và vì sao.
 2. `--from-sweep --apply`.
