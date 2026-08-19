@@ -25,7 +25,7 @@ Ra 2 task = **desktop**. Rỗng = **laptop** (`CFA-BINHLD-LT`).
 
 ## 📍 ĐIỂM DỪNG 19/08/2026 — mở lại thì đọc 10 dòng này trước
 
-Commit cuối của Claude: **`ff7e0ee`**. Nhánh
+Commit cuối của Claude: xem `git log -1` sau khi merge. Nhánh
 `claude/tong-hop-cong-viec-test-w8mvrc`. Suite **2.281 passed** (fast 1.761).
 Máy user đang ở `main` → lấy code phải `git fetch origin <nhánh> && git merge
 origin/<nhánh>` (`git pull` báo "Already up to date" dù vừa tải commit về).
@@ -33,7 +33,7 @@ origin/<nhánh>` (`git pull` báo "Already up to date" dù vừa tải commit v�
 | Việc | Trạng thái |
 |---|---|
 | Chữa lệch cơ sở | ✅ **XONG 19/08 21:17** — quét ra `160 mã: tỉ lệ kho/nguồn KHÔNG đổi bậc`. Tổng 76 mã đã chữa |
-| Trần task Daily `PT180M` — 🖥️ desktop | **chưa xác nhận** · cần PowerShell Administrator |
+| Trần task Daily | ✅ **XONG 19/08** — `PT3H` đã xác nhận trên desktop |
 | Chạy lại backtest/kiểm định | ✅ **XONG 19/08** — #32 chấm lại trên kho sạch: **vẫn ĐẠT** (39 lệnh, expectancy 3.02, p=0.012, TP 51%). Edge không phải artifact. ⚠️ tầng NGẮN (#16) đang trắng |
 | V1 — guard chặn tái phát | ✅ **XONG 19/08** (`vnstock_basis_guard.py`, 19 test) — cửa gác nằm ở đúng đường ghi chính, có badge doctor + kill-switch |
 
@@ -123,7 +123,14 @@ trên chuỗi giá đã liền. **Coi mọi verdict trước 19/08 là VÔ HIỆ
 (p=0.012, n=94), vì nó được chấm trên 44% universe có bậc giả. Dán kết quả cho
 Claude, nhất là số lệnh và p-value mới.
 
-### 🖥️ DESKTOP · ⏰ GẤP — làm TRƯỚC 18:00 bất kỳ ngày làm việc nào
+### ✅ 🖥️ DESKTOP · Trần task — XONG 19/08 (`PT3H` đã xác nhận)
+
+*Giữ lại lệnh phòng khi phải đăng ký lại task (máy mới / chạy lại
+`setup_scheduled_tasks.ps1`). Lưu ý số đo 19/08: phát 9 bước hết 70,7 phút,
+đủ 14 bước ước ~77 phút — trần 120 KHÔNG phải nguyên nhân mất brief hôm đó,
+thủ phạm là một test đỏ ở bước 9.*
+
+<details><summary>Lệnh nâng trần</summary>
 
 Nếu bỏ qua, task đêm vẫn có nguy cơ bị Windows chấm dứt trước bước brief.
 
@@ -141,7 +148,9 @@ $t.Settings.ExecutionTimeLimit = 'PT180M'
 Set-ScheduledTask -TaskName 'VnStock Daily Pipeline' -Settings $t.Settings
 (Get-ScheduledTask -TaskName 'VnStock Daily Pipeline').Settings.ExecutionTimeLimit
 ```
-Dòng cuối phải in `PT3H` (hoặc `PT180M`). Xong thì **để yên máy qua 18:00**.
+Dòng cuối phải in `PT3H` (hoặc `PT180M`).
+
+</details>
 
 *Vì sao:* phát gần nhất chạy hết **96,6 phút mới tới bước 9/14** (sync 60' +
 screener 28'), còn 4 bước nữa mới tới brief → dư địa chỉ 16 phút dưới trần 120.
