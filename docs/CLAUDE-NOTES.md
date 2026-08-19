@@ -6966,6 +6966,43 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🔴 U13. LỖ HỔNG GUARD: watchlist KHÔNG biết ngày GDKHQ của chính mã nó nêu
+
+Bắt được ở brief chiều 19/08 (gửi tay 20:41). Cùng một brief chứa hai khối
+mâu thuẫn nhau:
+
+* **Watchlist sáng mai** — `VIX (Giá 13,100) — GIẢM TỶ TRỌNG/TRÁNH nếu thủng
+  12,700 · mục tiêu về 12,000 · hủy nếu vượt lại 13,500 — "Áp lực bán gia tăng
+  trước ngày giao dịch không hưởng quyền."`
+* **Sự kiện sắp tới** — `VIX: Trả Cổ tức bằng Cổ phiếu tỉ lệ 5.0% — ngày
+  2026-08-20` kèm đúng câu cảnh báo `(Giá tự điều chỉnh trong ngày GDKHQ —
+  không phải giảm do thị trường.)`
+
+**Số học:** 13.100 × 100/105 = **12.476**. Giá tham chiếu mở cửa 20/08 nằm
+DƯỚI ngưỡng 12.700 ⇒ tín hiệu "thủng 12.700" kích hoạt **cơ học ngay lúc mở
+cửa**, không phải do bán. Mốc hủy 13.500 thành xa 8% — bất khả. Toàn bộ setup
+vô hiệu, mà câu diễn giải còn quy nhân quả sai ("áp lực bán").
+
+**Vì sao lọt:** khối canon ĐÃ có cảnh báo GDKHQ, nhưng nó nằm ở mục Sự kiện và
+KHÔNG lan sang mục Watchlist. Guard hiện có canh "nói đúng chuyện" trong từng
+mục, chưa có guard nào canh NHẤT QUÁN GIỮA HAI MỤC.
+
+**Guard đề xuất (deterministic, test được):** mọi mục watchlist / khuyến nghị
+có mã trùng một `ex_date` nằm trong horizon của setup thì phải một trong ba —
+(a) quy đổi mốc giá theo tỉ lệ quyền, (b) loại mục đó khỏi watchlist, hoặc
+(c) gắn cảnh báo INLINE ngay tại mục ("mốc chưa quy đổi GDKHQ 20/08, giá tham
+chiếu ≈ 12.476"). Nguồn `ex_date` đã có sẵn (`vnstock_adjust.load_events`, cùng
+đường mà mục Sự kiện đang dùng) nên không phải dựng thêm hạ tầng.
+
+# ⚠️ U13b. 6 khuyến nghị đang mở đứng trên kiểm định TRƯỚC khi chữa kho
+
+Brief 19/08 nêu SCL/SBT/PVP/MSR/HTN/GMD và 4 lệnh ẩn "chiến lược nguồn chưa
+đạt kiểm định". Kho giá ĐÃ được chữa (68/70 mã) nhưng
+`vnstock_train.py --strategy-only` CHƯA chạy lại — phát 19/08 chết ở bước 9
+nên `train` không được gọi. Nghĩa là các chiến lược phát ra 6 lệnh này vẫn
+mang verdict chấm trên dữ liệu có bậc giả. Chưa chạy lại thì mọi lệnh mới đều
+thừa hưởng nguyên vẹn cảnh báo "verdict trước 19/08 là VÔ HIỆU".
+
 # 📏 U12. ĐÃ ĐO ĐƯỢC: `sync` 43 phút — 84% là AUTO-HEAL, không phải fix-units
 
 Phát 19/08 18:00 trên desktop `PICHU` (code `65ec935`), dòng `[sync] ⏱ CHẶNG`
