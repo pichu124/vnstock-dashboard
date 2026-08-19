@@ -45,10 +45,14 @@ origin/<nhánh>` (`git pull` báo "Already up to date" dù vừa tải commit v�
 Một lần chép TAY, **không phải** hai kho tự đồng bộ — dòng "hai kho KHÔNG tự
 đồng bộ" trong `CLAUDE.md` vẫn đúng.
 
-Cái giá phải kiểm: `_meta/brief_memory.db` là nơi DUY NHẤT giữ sổ lệnh +
-outcome + verdict kiểm định, **không module nào backup nó**, và rec không suy
-ngược được từ kho giá. Desktop mới là máy sinh khuyến nghị. Lệnh kiểm ở mục
-🖥️ DESKTOP bên dưới.
+✅ **Đã kiểm: sổ lệnh KHÔNG mất.** Chép là đè vào cây có sẵn (4 thư mục gốc
+vẫn giữ CreationTime tháng 4), và `brief_memory.db` đọc ra 805 briefs · 148
+rec · 138 outcome, brief cuối `2026-08-18T23:16:05` — đúng bản desktop gửi
+tay tối 18/08. Lượt chép chỉ đụng `prices/` + `backup_rebase`.
+
+⚠️ Vẫn nhớ dài hạn: `brief_memory.db` là nơi DUY NHẤT giữ sổ lệnh + outcome +
+verdict kiểm định, **không module nào backup nó**, rec không suy ngược được từ
+kho giá. Lần chép kho sau phải chừa file này ra.
 
 **Lệnh đầu tiên khi quay lại (💻 laptop):**
 

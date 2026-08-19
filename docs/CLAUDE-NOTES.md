@@ -6980,7 +6980,29 @@ Việc này GIẢI câu hỏi treo ở `VIEC-DANG-LAM.md` ("vì sao desktop qué
 phải hai kho tự đồng bộ.** Dòng "hai kho KHÔNG tự đồng bộ" trong `CLAUDE.md`
 vẫn đúng.
 
-## Cái giá: `brief_memory.db` là kho DUY NHẤT, KHÔNG tái tạo được
+## ✅ ĐÃ KIỂM — sổ lệnh KHÔNG mất
+
+Chép là **đè vào cây có sẵn**, không phải mirror: 4 thư mục gốc của
+`data_warehouse` (`prices` / `_meta` / `companies` / `_live`) đều giữ
+CreationTime tháng 4/2026, tức không bị xoá và tạo lại.
+
+`brief_memory.db` đọc ra (19/08, mode=ro): **805 briefs · 37 strategies ·
+71 backtests · 148 recommendations · 138 rec_outcomes**, `brief cuối
+2026-08-18T23:16:05` — ĐÚNG bản close brief desktop gửi tay tối 18/08, và
+`rec cuối 2026-08-18T23:08:51` cùng phiên đó. Laptop chưa bao giờ sinh brief
+⇒ đây là sổ THẬT của desktop, không bị thay. 138 outcome cũng khớp mạch với
+n=94 của verdict #32 (thêm lệnh đã đóng từ đó tới nay).
+
+Suy ra lượt chép 17:39 chỉ đụng `prices/` + `_meta/backup_rebase` +
+`basis_sweep_check.json`, không đụng DB.
+
+**Mốc thời gian dựng lại được từ reflog + CreationTime:**
+17:37:47 `git pull` (fast-forward tới `65ec935`) → ~17:39 chép kho từ laptop →
+17:45 quét `--sweep` ra 2 mã → 18:00 task đêm khởi động. Merge nằm TRƯỚC
+18:00 nên phát tối nay chạy MỘT bản code nhất quán, không có cảnh nửa cũ nửa
+mới.
+
+## Cái giá suýt phải trả: `brief_memory.db` là kho DUY NHẤT, KHÔNG tái tạo được
 
 `data_warehouse/_meta/brief_memory.db` (`vnstock_memory.py:26`) giữ 5 bảng —
 `briefs` / `strategies` / `backtests` / `recommendations` / `rec_outcomes` —
