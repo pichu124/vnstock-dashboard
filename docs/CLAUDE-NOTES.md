@@ -6966,6 +6966,27 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🎯 U16. AUTO-HEAL LÀ KẺ ĂN THỜI GIAN — đã chặn trần, chưa chữa gốc
+
+Số đo 19/08: `auto-heal 2.156,7s` = **35,9 phút = 83% bước sync và 51% cả
+phát**. Nghi phạm cũ trong sổ (`fix-units` quét toàn kho) chỉ 98s = 1,6%.
+
+**Đã làm (chặn thiệt hại):** `auto_heal(..., time_budget_s=AUTO_HEAL_BUDGET_S)`
+— mặc định **600s**, env `VNSTOCK_AUTOHEAL_BUDGET_S` chỉnh được, `0` = tắt
+trần. Hết giờ thì dừng TRƯỚC một lần gọi mạng mới (không cắt giữa chừng một
+mục), trả `stopped_early` + `remaining`, và `run.py` in ra hàng đợi còn bao
+nhiêu. Cắt được vì `auto_heal` idempotent: mục chưa xử lý còn nguyên trong
+hàng đợi, đêm sau chạy tiếp. Trần này đưa worst case của `sync` từ 43 phút
+xuống ~17 phút.
+
+**CHƯA chữa gốc, và đây mới là câu hỏi thật.** Mỗi mục hàng đợi = MỘT lần gọi
+mạng, `MAX_RETRIES_DEFAULT = 3` rồi tự dọn — nên một mục chỉ sống được 3 đêm.
+36 phút ⇒ cỡ **1.000-2.000 mục/đêm** ⇒ hàng đợi đang được BƠM LẠI liên tục,
+cỡ 500-700 bar bị cách ly mỗi đêm. Phải trả lời: **cái gì đang cách ly ngần ấy
+bar?** Số cần đọc đã có sẵn trong log, dòng
+`[sync] auto-heal: scanned=… healed=… retry_bumped=… archived=…` — chưa lấy.
+Chữa đúng chỗ là chặn nguồn bơm, không phải tăng tốc vòng lặp.
+
 # ✅ U15. #32 CHẤM LẠI TRÊN KHO ĐÃ CHỮA — VẪN ĐẠT (19/08 21:2x)
 
 `vnstock_train.py --strategy-only --tier both --mode tune` trên kho sạch:

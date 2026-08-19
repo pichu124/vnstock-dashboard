@@ -26,7 +26,7 @@ Ra 2 task = **desktop**. Rỗng = **laptop** (`CFA-BINHLD-LT`).
 ## 📍 ĐIỂM DỪNG 19/08/2026 — mở lại thì đọc 10 dòng này trước
 
 Commit cuối của Claude: xem `git log -1` sau khi merge. Nhánh
-`claude/tong-hop-cong-viec-test-w8mvrc`. Suite **2.288 passed** (fast 1.768).
+`claude/tong-hop-cong-viec-test-w8mvrc`. Suite **2.288 passed** (fast 1.765).
 Máy user đang ở `main` → lấy code phải `git fetch origin <nhánh> && git merge
 origin/<nhánh>` (`git pull` báo "Already up to date" dù vừa tải commit về).
 
@@ -282,7 +282,7 @@ cần `git fetch origin <nhánh> && git merge origin/<nhánh>` rồi chạy lạ
 
 | # | Việc | Vì sao đáng | Công |
 |---|---|---|---|
-| 0 | 🎯 **Mổ `auto-heal`** — ĐÃ ĐO 19/08: sync 43,1' = auto-heal **35,9'** (83%) · updater 5,0' · fix-units 1,6' · rollup 0,5'. Nghi phạm cũ (`fix-units`) SAI. auto-heal gọi mạng theo từng bar cách ly | Chiếm 51% cả phát. Hỏi trước: hàng đợi cách ly bao nhiêu bar, có phải đêm nào cũng thử lại đúng những bar không bao giờ lành? | ~1 buổi |
+| 0 | 🎯 **Mổ `auto-heal` — CHẶN TRẦN xong, chưa chữa gốc.** Đã có `time_budget_s` 600s (env `VNSTOCK_AUTOHEAL_BUDGET_S`), sync worst case 43' → ~17'. Còn phải trả lời: **cái gì cách ly 500-700 bar mỗi đêm?** Số nằm sẵn ở dòng `[sync] auto-heal: scanned=…` trong log | 0b | ~~cũ~~ — ĐÃ ĐO 19/08: sync 43,1' = auto-heal **35,9'** (83%) · updater 5,0' · fix-units 1,6' · rollup 0,5'. Nghi phạm cũ (`fix-units`) SAI. auto-heal gọi mạng theo từng bar cách ly | Chiếm 51% cả phát. Hỏi trước: hàng đợi cách ly bao nhiêu bar, có phải đêm nào cũng thử lại đúng những bar không bao giờ lành? | ~1 buổi |
 | ~~1~~ | ✅ **XONG 19/08** (`970a504`) — test hết ghi bẩn `run_daily.log` | Đo lại: chạy full suite xong log không đổi **một byte** | — |
 | ~~2~~ | ✅ **XONG 19/08** (`a83ee51`) — rec hết bị đóng sớm; lệnh thủng SL nay nhận ra ngay thay vì chờ hết horizon | Verdict #32 từ nay chấm trên đúng khung | — |
 | ~~V1~~ | ✅ **XONG 19/08** — `vnstock_basis_guard`: nới cửa sổ fetch để đối chiếu, lệch >1,2% thì TỪ CHỐI nối + cách ly + badge doctor | Mùa cổ tức sau không lặp lại 70 mã nữa | — |

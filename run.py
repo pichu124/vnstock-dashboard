@@ -151,15 +151,27 @@ def cmd_sync(args) -> int:
 
     if not getattr(args, "no_auto_heal", False):
         try:
-            from vnstock_quarantine import auto_heal
+            from vnstock_quarantine import AUTO_HEAL_BUDGET_S, auto_heal
+            try:
+                _budget = float(os.environ.get("VNSTOCK_AUTOHEAL_BUDGET_S")
+                                or AUTO_HEAL_BUDGET_S)
+            except ValueError:
+                _budget = AUTO_HEAL_BUDGET_S
             stats = _timed("auto-heal", lambda: auto_heal(
-                Path(args.warehouse), verbose=False))
+                Path(args.warehouse), verbose=False,
+                time_budget_s=_budget if _budget > 0 else None))
             if stats.get("scanned", 0):
                 print(f"[sync] auto-heal: scanned={stats['scanned']} "
                       f"healed={stats['refetched_ok']} "
                       f"retry_bumped={stats['refetched_fail']} "
                       f"archived={stats['archived']} "
                       f"skipped_accepted={stats['skipped_accepted']}")
+            # Bị cắt vì trần thời gian là THÔNG TIN, không phải lỗi — nhưng
+            # phải nói ra, nếu không hàng đợi phình mà không ai biết.
+            if stats.get("stopped_early"):
+                print(f"[sync] ⏳ auto-heal dừng theo trần thời gian — còn "
+                      f"{stats.get('remaining', '?')} mục trong hàng đợi, "
+                      f"đêm sau chạy tiếp (nới: VNSTOCK_AUTOHEAL_BUDGET_S)")
         except Exception as exc:
             print(f"[sync] auto-heal skipped: {exc}", file=sys.stderr)
     _print_sync_breakdown(_sub)
@@ -778,6 +790,7 @@ def cmd_test(args) -> int:
             # Cửa gác lệch cơ sở ở ĐƯỜNG GHI CHÍNH (V1, 19/08): nó có
             # quyền TỪ CHỐI ghi kho, nên sửa updater mà chạy `--fast`
             # thiếu file này là bỏ lưới đúng chỗ nguy hiểm nhất.
+            "tests/test_quarantine.py",
             "tests/test_conflicted_copy_reads.py",
             "tests/test_brief_exdate_guard.py",
             "tests/test_basis_guard.py",

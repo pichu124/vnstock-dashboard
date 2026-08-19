@@ -320,3 +320,90 @@ def test_auto_heal_no_archive_option_leaves_exhausted_entries(tmp_path, monkeypa
     assert stats["archived"] == 1
     # Entry survives
     assert not list_quarantine(tmp_path).empty
+
+
+# ── Trần thời gian auto_heal ─────────────────────────────────────────────
+# Đo trên máy thật 19/08: `auto-heal 2.156,7s` = 35,9 phút = 83% cả bước sync
+# và 51% cả phát pipeline. Mỗi mục hàng đợi là MỘT lần gọi mạng, nên hàng đợi
+# phình là cửa sổ chạy đêm phình theo — mà task lịch có trần cứng, chạm trần
+# là mất brief. Cắt được vì auto_heal idempotent: phần chưa xử lý còn nguyên.
+
+
+def _queue(tmp_path, n: int, day0: int = 1):
+    for i in range(n):
+        quarantine_row("VCB", f"2026-04-{day0 + i:02d}", "close<=0", {},
+                       warehouse=tmp_path)
+
+
+def test_auto_heal_stops_at_the_time_budget_and_reports_the_rest(
+        tmp_path, monkeypatch):
+    from vnstock_quarantine import auto_heal
+
+    _queue(tmp_path, 5)
+    clock = {"t": 0.0}
+    monkeypatch.setattr("time.monotonic", lambda: clock["t"])
+
+    def _slow_refetch(ticker, bar_date, *, warehouse, **_kw):
+        clock["t"] += 10.0                      # mỗi mục "tốn" 10s
+        clear_quarantine(ticker, bar_date, warehouse=warehouse)
+        return {"status": "ok"}
+
+    monkeypatch.setattr("vnstock_remediate.refetch", _slow_refetch)
+    stats = auto_heal(tmp_path, time_budget_s=25.0)
+
+    assert stats["stopped_early"] is True
+    assert stats["scanned"] == 3                # 0s, 10s, 20s → mục thứ 4 bị chặn
+    assert stats["remaining"] == 2
+    assert stats["refetched_ok"] == 3
+
+
+def test_auto_heal_without_a_budget_runs_the_whole_queue(tmp_path, monkeypatch):
+    from vnstock_quarantine import auto_heal
+
+    _queue(tmp_path, 4)
+    clock = {"t": 0.0}
+    monkeypatch.setattr("time.monotonic", lambda: clock["t"])
+
+    def _slow_refetch(ticker, bar_date, *, warehouse, **_kw):
+        clock["t"] += 1_000.0
+        clear_quarantine(ticker, bar_date, warehouse=warehouse)
+        return {"status": "ok"}
+
+    monkeypatch.setattr("vnstock_remediate.refetch", _slow_refetch)
+    stats = auto_heal(tmp_path, time_budget_s=None)
+    assert stats["scanned"] == 4
+    assert "stopped_early" not in stats
+
+
+def test_auto_heal_within_budget_reports_nothing_extra(tmp_path, monkeypatch):
+    """Không được thêm khoá lạ vào stats khi chạy trọn — dòng log trong
+    `run.py` chỉ in cảnh báo khi THẬT SỰ bị cắt."""
+    from vnstock_quarantine import auto_heal
+
+    _queue(tmp_path, 2)
+
+    def _fast_refetch(ticker, bar_date, *, warehouse, **_kw):
+        clear_quarantine(ticker, bar_date, warehouse=warehouse)
+        return {"status": "ok"}
+
+    monkeypatch.setattr("vnstock_remediate.refetch", _fast_refetch)
+    stats = auto_heal(tmp_path, time_budget_s=600.0)
+    assert stats == {"scanned": 2, "refetched_ok": 2, "refetched_fail": 0,
+                     "archived": 0, "skipped_accepted": 0}
+
+
+def test_dry_run_ignores_the_budget(tmp_path, monkeypatch):
+    """Chạy thử không gọi mạng nên không có gì để chặn — cắt ở đây chỉ làm
+    người đọc thấy sai hình dạng hàng đợi."""
+    from vnstock_quarantine import auto_heal
+
+    _queue(tmp_path, 6)
+    monkeypatch.setattr("time.monotonic", lambda: 10_000.0)
+    stats = auto_heal(tmp_path, dry_run=True, time_budget_s=1.0)
+    assert stats["scanned"] == 6 and "stopped_early" not in stats
+
+
+def test_budget_default_is_wired_and_bounded():
+    """Trần mặc định phải TỒN TẠI và nhỏ hơn hẳn 36 phút đã đo."""
+    from vnstock_quarantine import AUTO_HEAL_BUDGET_S
+    assert 0 < AUTO_HEAL_BUDGET_S <= 900

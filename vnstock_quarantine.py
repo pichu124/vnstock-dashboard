@@ -45,6 +45,14 @@ QUARANTINE_SUBDIR = "_meta/quarantine"
 WHITELIST_FILE = "_meta/quarantine_whitelist.json"
 
 MAX_RETRIES_DEFAULT = 3
+# Trần thời gian cho MỘT lượt auto-heal, tính bằng giây. Đo trên máy thật
+# 19/08: `auto-heal 2.156,7s` = 35,9 phút = **83% của cả bước sync** và 51%
+# của cả phát pipeline — kẻ ăn thời gian số 1, không phải `fix-units` (98s)
+# như sổ ghi trước đó. Mỗi mục trong hàng đợi là MỘT lần gọi mạng, nên hàng
+# đợi phình là cửa sổ chạy đêm phình theo, và task có trần cứng.
+# Auto-heal vốn best-effort và IDEMPOTENT: phần chưa xử lý nằm nguyên trong
+# hàng đợi, đêm sau chạy tiếp. Cắt theo thời gian không mất gì ngoài độ trễ.
+AUTO_HEAL_BUDGET_S = 600.0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -257,6 +265,7 @@ def auto_heal(
     archive_exhausted: bool = True,
     dry_run: bool = False,
     verbose: bool = False,
+    time_budget_s: "float | None" = AUTO_HEAL_BUDGET_S,
 ) -> dict:
     """Walk every pending quarantine entry and try to heal it automatically.
 
@@ -268,6 +277,13 @@ def auto_heal(
          the quarantine file (the row in warehouse was never written, so
          no extra archive step needed). A one-line entry is appended to
          the remediation log so the decision is traceable.
+
+    ``time_budget_s`` chặn trần thời gian MỘT lượt (mặc định
+    ``AUTO_HEAL_BUDGET_S``; ``None`` = không chặn). Hết giờ thì dừng và trả
+    thêm ``{"stopped_early": True, "remaining": n}``. Cắt được vì hàm này
+    idempotent: mục chưa xử lý còn nguyên trong hàng đợi, đêm sau chạy tiếp.
+    Mục ĐÃ cạn lượt vẫn được dọn trước khi tính giờ ở vòng sau, nên hàng đợi
+    không kẹt vì rác.
 
     Returns a stats dict ``{"scanned": n, "refetched_ok": n,
     "refetched_fail": n, "archived": n, "skipped_accepted": n}``.
@@ -299,7 +315,19 @@ def auto_heal(
         return stats
 
     warehouse = Path(warehouse)
-    for _, row in df.iterrows():
+    _t0 = time.monotonic()
+    _rows = list(df.iterrows())
+    for _i, (_, row) in enumerate(_rows):
+        # Trần thời gian: chỉ chặn TRƯỚC một lần gọi mạng mới, không cắt giữa
+        # chừng một mục đang xử lý.
+        if (time_budget_s is not None and not dry_run
+                and time.monotonic() - _t0 >= time_budget_s):
+            stats["stopped_early"] = True
+            stats["remaining"] = len(_rows) - _i
+            if verbose:
+                print(f"[quarantine.auto_heal] hết trần {time_budget_s:.0f}s — "
+                      f"còn {stats['remaining']} mục, để đêm sau")
+            break
         stats["scanned"] += 1
         ticker = str(row.get("ticker", "")).strip()
         bar_date = str(row.get("bar_date", "")).strip()
