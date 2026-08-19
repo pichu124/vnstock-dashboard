@@ -25,7 +25,7 @@ Ra 2 task = **desktop**. Rỗng = **laptop** (`CFA-BINHLD-LT`).
 
 ## 📍 ĐIỂM DỪNG 19/08/2026 — mở lại thì đọc 10 dòng này trước
 
-Commit cuối của Claude: **`f4dd0e2`**. Nhánh
+Commit cuối của Claude: **`ff7e0ee`**. Nhánh
 `claude/tong-hop-cong-viec-test-w8mvrc`. Suite **2.263 passed** (fast 1.743).
 Máy user đang ở `main` → lấy code phải `git fetch origin <nhánh> && git merge
 origin/<nhánh>` (`git pull` báo "Already up to date" dù vừa tải commit về).
