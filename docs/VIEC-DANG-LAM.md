@@ -27,7 +27,7 @@ $env:COMPUTERNAME; Get-ScheduledTask -TaskName 'VnStock *' | Select-Object TaskN
 
 ---
 
-## 🔴 GẤP NHẤT — ⇄ CẢ HAI MÁY, desktop trước 18:00 mai
+## 🔴 GẤP NHẤT — ⇄ CẢ HAI MÁY · 🖥️ desktop ✅ XONG · 💻 laptop ⏳ CHƯA
 
 Code KHÔNG đồng bộ. Máy nào chưa merge là máy đó vẫn chạy bản cũ — và bản cũ
 có đúng những lỗi hôm nay vừa vá (bộ chữa kho không hội tụ, tự kiểm mù,
@@ -35,14 +35,22 @@ có đúng những lỗi hôm nay vừa vá (bộ chữa kho không hội tụ, 
 
 ```powershell
 cd C:\vnstock
-git fetch origin claude/tong-hop-cong-viec-test-w8mvrc
-git merge origin/claude/tong-hop-cong-viec-test-w8mvrc
+git pull origin claude/tong-hop-cong-viec-test-w8mvrc
 python run.py test
 ```
 
 Phải ra **2.319 passed**. **Chạy `run.py test` NGAY sau khi merge** — đừng để
 task 18:00 phát hiện hộ. Bài học 19/08: merge lúc 17:37 rồi để phát 18:00 chạy
 full suite ở bước 9, một test đỏ là dừng cứng và **mất brief cả đêm**.
+
+* 🖥️ **DESKTOP: ✅ xong 19/08** — fast-forward tới `1f9ea0b`, `2.319 passed`
+  trên máy thật, khớp CI từng test một.
+* 💻 **LAPTOP: ⏳ chưa** — chạy đúng hai lệnh trên khi nào mở máy. Không gấp
+  (laptop không có task lịch) nhưng đừng chạy công cụ kho ở đó trước khi merge.
+
+*Ghi chú về bẫy `git pull`: `git pull origin <nhánh>` CÓ tác dụng (nó merge
+`origin/<nhánh>` vào nhánh đang đứng). Bẫy "Already up to date" chỉ xảy ra với
+`git pull` TRỐNG — khi đó git chỉ nhìn nhánh upstream của `main`.*
 
 ---
 
