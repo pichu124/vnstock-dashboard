@@ -23,6 +23,32 @@ Ra 2 task = **desktop**. Rỗng = **laptop** (`CFA-BINHLD-LT`).
 
 ---
 
+## 📍 ĐIỂM DỪNG 19/08/2026 — mở lại thì đọc 10 dòng này trước
+
+Commit cuối của Claude: **`7fcfe88`**. Nhánh
+`claude/tong-hop-cong-viec-test-w8mvrc`. Suite **2.236 passed** (fast 1.716).
+Máy user đang ở `main` → lấy code phải `git fetch origin <nhánh> && git merge
+origin/<nhánh>` (`git pull` báo "Already up to date" dù vừa tải commit về).
+
+| Việc | Trạng thái |
+|---|---|
+| Chữa lệch cơ sở — 💻 laptop | ghi 70/70 · quét lại **68 sạch, còn VTP + QNS** · code đã vá, phải chạy lại 2 mã bằng bản mới |
+| Chữa lệch cơ sở — 🖥️ desktop | **chưa động gì** · phải `--sweep` trước (vết quét là file local từng máy) |
+| Trần task Daily `PT180M` — 🖥️ desktop | **chưa làm** · cần PowerShell Administrator, làm trước 18:00 |
+| Chạy lại backtest/kiểm định | **chưa** · chỉ chạy sau khi kho về 0 mã lệch. Mọi verdict trước 19/08 (kể cả #32 p=0.012) coi như VÔ HIỆU |
+| V1 — guard chặn tái phát | **chưa viết dòng code nào** · phương án đã chốt ở mục "CHỜ BẠN QUYẾT" cuối trang, nói "làm V1" là Claude bắt tay |
+
+**Lệnh đầu tiên khi quay lại (💻 laptop):**
+
+```powershell
+git fetch origin claude/tong-hop-cong-viec-test-w8mvrc
+git merge origin/claude/tong-hop-cong-viec-test-w8mvrc
+python scripts\rebase_ticker_history.py --ticker VTP --ticker QNS --apply
+python scripts\probe_price_basis.py --sweep      # kỳ vọng: 0 mã
+```
+
+---
+
 ## 🔴 VIỆC CỦA BẠN
 
 ### ⇄ CẢ HAI MÁY · 🔥 SỐ 1 — Chữa 70 mã lệch cơ sở
@@ -214,6 +240,7 @@ cần `git fetch origin <nhánh> && git merge origin/<nhánh>` rồi chạy lạ
 | 0 | ⏳ **Mổ `sync` 60 phút** — đã cắm đồng hồ từng chặng (`a83ee51`), **chờ số đêm nay** | Chiếm 62% thời gian chạy. Nghi phạm số 1: `fix-units` quét TOÀN KHO mỗi đêm | chờ đo |
 | ~~1~~ | ✅ **XONG 19/08** (`970a504`) — test hết ghi bẩn `run_daily.log` | Đo lại: chạy full suite xong log không đổi **một byte** | — |
 | ~~2~~ | ✅ **XONG 19/08** (`a83ee51`) — rec hết bị đóng sớm; lệnh thủng SL nay nhận ra ngay thay vì chờ hết horizon | Verdict #32 từ nay chấm trên đúng khung | — |
+| V1 | **Guard chặn tái phát lệch cơ sở** — phương án đã chốt (ngưỡng 1,5% trên bar chồng lấn · cách ly + cảnh báo, không tự ghi đè) | Chữa 70 mã mà không chặn thì mùa cổ tức sau lại đúng ngần ấy | ~1 buổi |
 | 3 | **Ghi JSON nguyên tử** (12 điểm/7 file) + nối vào lưới `_MUST_BE_ATOMIC` | Pipeline đã bị kill 2 lần; bản cụt còn lây sang file dự phòng | ~30' |
 | ~~4~~ | ✅ **XONG 19/08** (`970a504`) — 3 test bộ công cụ đơn vị giá đã vào `--fast` | `--fast` nay 1.636 test | — |
 | ~~5~~ | ✅ **XONG 19/08** (`0a3e785`) — doctor có badge "Kill-switch pipeline", đọc cả `.env` | Ẩn số kiểu này từ nay tự lộ | — |
