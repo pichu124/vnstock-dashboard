@@ -25,7 +25,7 @@ Ra 2 task = **desktop**. Rỗng = **laptop** (`CFA-BINHLD-LT`).
 
 ## 🔴 VIỆC CỦA BẠN
 
-### ⇄ CẢ HAI MÁY · Chữa VVS — lệch cơ sở 1.6543×, CHƯA chữa máy nào
+### ⇄ CẢ HAI MÁY · Chữa VVS — ✅ laptop 19/08 · ⏳ **DESKTOP CHƯA LÀM**
 
 Đầu mối để rơi từ 18/08: VVS chính là mã khởi đầu cuộc điều tra, probe đã chốt
 `warehouse_basis 1.6543×`, rồi mình chuyển sang VHM/PNJ/GEX/GEE/PVD và **quên
@@ -37,10 +37,12 @@ python scripts\rebase_ticker_history.py --ticker VVS --apply
 python scripts\check_unit_continuity.py --ticker VVS
 ```
 
-Chạy thử trên laptop 19/08 cho ca sạch nhất có thể: **908/908 bar lấy thẳng từ
-nguồn, 0 bar phải nhân hệ số** (nguồn phủ đúng từ 2022-10-07 = điểm đầu của
-kho), khối lượng không gãy. Tool tự sao lưu + tự kiểm sau khi ghi.
-**Phải chạy trên CẢ HAI máy** — desktop mới là máy sinh khuyến nghị.
+**Đã chạy trên LAPTOP 19/08 13:04** — 908/908 bar lấy thẳng từ nguồn, 0 bar
+nhân hệ số, sao lưu `_meta/backup_rebase/VVS_20260819-130408`, ghi 5 file nguyên
+tử, tự kiểm: *"chuỗi đã liền — không còn vách trong 365 ngày"*.
+
+⏳ **DESKTOP CÒN NGUYÊN LỆCH** — và desktop mới là máy sinh khuyến nghị/brief,
+nên đây mới là bản chữa có hậu quả thật. Hai kho không tự đồng bộ.
 
 ### 🖥️ DESKTOP · ⏰ GẤP — làm TRƯỚC 18:00 bất kỳ ngày làm việc nào
 

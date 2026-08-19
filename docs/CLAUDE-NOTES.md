@@ -6705,6 +6705,9 @@ tỷ/phiên nên KHÔNG thuộc diện "đuôi thanh khoản thấp bỏ qua". D
 ca sạch nhất: 908/908 bar lấy thẳng nguồn, 0 bar nhân hệ số, volume không gãy.
 Lệnh: `python scripts/rebase_ticker_history.py --ticker VVS --apply` rồi
 `check_unit_continuity --ticker VVS`. **Phải chạy trên CẢ HAI máy.**
+✅ LAPTOP xong 19/08 13:04 (backup `VVS_20260819-130408`, 5 file ghi nguyên tử,
+tự kiểm "chuỗi đã liền"). ⏳ **DESKTOP chưa làm** — bản chữa có hậu quả thật
+nằm ở đó, vì desktop mới sinh khuyến nghị.
 
 **RỦI RO PHÂN KỲ — ĐÃ ĐO, KHÔNG XẢY RA (ít nhất với VHM).** Lo ban đầu: đợt
 chữa 18/08 chạy trên desktop, kho local không đồng bộ ⇒ laptop còn chuỗi hỏng.
