@@ -2598,15 +2598,22 @@ def test_market_data_freshness_fresh_when_same_day_and_after_the_close(tmp_path)
     `tests/test_brief_freshness_intraday.py`.
     """
     p = tmp_path / "market_overview.json"
-    p.write_text('{"generated_at": "2026-06-09 18:30:00"}')
+    p.write_text('{"data_date": "2026-06-09", '
+                 '"generated_at": "2026-06-09 18:30:00"}')
     fr = market_data_freshness(data_date="2026-06-09", overview_path=p)
     assert fr["stale"] is False
     assert fr["stale_blocks"] == []
 
 
 def test_market_data_freshness_same_day_but_mid_session_is_stale(tmp_path):
+    # `data_date` ghi THẲNG trong file: bỏ trống thì `_market_overview_data_date`
+    # rơi về `_warehouse_eod_date()` — đọc KHO THẬT, nên test đỏ/xanh theo máy
+    # (xanh trong container không có giá, đỏ trên máy user có kho). Đã vấp
+    # đúng thế 19/08; test cạnh bên né bằng monkeypatch, ở đây né bằng cách
+    # không đụng tới đường fallback.
     p = tmp_path / "market_overview.json"
-    p.write_text('{"generated_at": "2026-06-09 11:00:00"}')
+    p.write_text('{"data_date": "2026-06-09", '
+                 '"generated_at": "2026-06-09 11:00:00"}')
     fr = market_data_freshness(data_date="2026-06-09", overview_path=p)
     assert fr["stale"] is True and fr["reason"] == "intraday"
 

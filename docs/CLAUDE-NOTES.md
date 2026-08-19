@@ -6992,6 +6992,23 @@ nay trả thêm `reason` + `overview_time`, với HAI kiểu cũ:
 phiên là nói SAI sự thật; câu mới nói rõ "chốt lúc HH:MM — GIỮA PHIÊN, chưa
 thấy hết phiên" và yêu cầu brief ghi mốc giờ đó. Có test canh cả hai chiều.
 
+**⚠️ Tôi lại vấp đúng lỗi vừa chê — lần thứ HAI trong ngày.** Hai test mới
+thêm vào `tests/test_brief.py` viết file overview KHÔNG có `data_date`, nên
+`_market_overview_data_date` rơi về `_warehouse_eod_date()` — hàm đọc **KHO
+THẬT**. Container không có giá nên trả None → test xanh; máy user có kho nên
+trả `2026-08-19` → test đỏ. Đúng họ lỗi của `test_tests_badge_states` (đỏ theo
+GIỜ TRONG NGÀY) mà tôi vá ban sáng, chỉ đổi từ "phụ thuộc đồng hồ" sang "phụ
+thuộc kho".
+
+Cách né: ghi `data_date` THẲNG vào file test để không bao giờ chạm đường
+fallback. Test cạnh bên né bằng `monkeypatch` `_warehouse_eod_date` — cũng
+được, nhưng ghi thẳng thì không phụ thuộc tên hàm nội bộ.
+
+**Quy tắc rút ra, áp cho mọi test sau này:** test nào chạm hàm có đường rơi về
+đọc kho / đọc đồng hồ / đọc mtime repo thì phải CẮM giá trị, không được để nó
+tự đi tìm. Xanh trong container ≠ xanh trên máy thật, và cái giá phải trả là
+một phát pipeline chết ở bước 9.
+
 **Một test cũ phải sửa vì nó ENCODE chính cái bug:**
 `test_market_data_freshness_fresh_when_same_day` khẳng định overview 11:00
 cùng ngày là "tươi". Đổi thành 18:30 (sau mốc) + thêm test riêng cho ca 11:00
