@@ -7003,13 +7003,46 @@ biệt hai loại trượt mà `auto_heal` lại gộp làm một —
 `archive_exhausted=False` chặn CẢ hai đường dọn. `run.py` in riêng số mục dọn
 vì vắng cấu trúc.
 
-**Còn lại phải trả lời:** Mỗi mục hàng đợi = MỘT lần gọi
-mạng, `MAX_RETRIES_DEFAULT = 3` rồi tự dọn — nên một mục chỉ sống được 3 đêm.
-36 phút ⇒ cỡ **1.000-2.000 mục/đêm** ⇒ hàng đợi đang được BƠM LẠI liên tục,
-cỡ 500-700 bar bị cách ly mỗi đêm. **cái gì đang cách ly 3.844 bar?** Bản vá trên
-dọn được phần rác trong MỘT đêm thay vì ba, nhưng nếu nguồn bơm vẫn chảy thì
-đêm nào cũng có hàng đợi mới. Đếm lý do trong `_meta/remediation_log.jsonl`
-là bước tiếp theo.
+**ĐÃ ĐẾM `remediation_log.jsonl` — và nó đổi trọng tâm.** Tổng lịch sử:
+
+| Lý do | Số lần |
+|---|---|
+| `API returned empty` | **84.897** |
+| `retries=3 exhausted; original reason: low > min(open, close, high)` | 19.180 |
+| `no row for target date in response` | **18.070** |
+| `retries=3 exhausted; … low must be <= min(open, close, high)` | 12.177 |
+| `retries=3 exhausted; high < max(open, close, low)` | 2.792 |
+| whitelist (`zero_vol_move` / `gap` / `ohlc`) | ~3.100 |
+
+**1. Bản vá "vắng cấu trúc" chỉ chạm ~18% lượt trượt.** `no row for target
+date` là 18.070; bucket lớn nhất `API returned empty` (84.897) thì CỐ Ý không
+dọn ngay vì nó mơ hồ với outage. Vá vẫn đúng, nhưng đừng kỳ vọng `sync` co lại
+ngay.
+
+**2. NGUỒN BƠM đã lộ mặt: vi phạm hợp đồng OHLC.** Dòng `retries=3 exhausted`
+ghi kèm LÝ DO GỐC lúc bị cách ly, và ~34.000 trong số đó là
+`low > min(open, close, high)` / `high < max(open, close, low)` — bar có `low`
+CAO HƠN giá thấp nhất trong (open, close), hoặc `high` THẤP HƠN giá cao nhất.
+Bar tự mâu thuẫn.
+
+Và đây là chỗ vòng lặp vô nghĩa: bar bị cách ly vì mâu thuẫn NỘI TẠI ⇒
+`refetch` gọi lại **cùng nguồn** ⇒ nhận **cùng bar mâu thuẫn** ⇒ trượt hợp
+đồng lần nữa. Chỉ lành khi nhà cung cấp tự sửa dữ liệu — đo được **35/3.844
+= 0,9%**.
+
+**Hai đường chữa gốc, CHỜ USER QUYẾT (đụng dữ liệu giá nên không tự làm):**
+* **(a) Vá tại đường ghi** — chuẩn hoá tối thiểu `low = min(low, open, close)`,
+  `high = max(high, open, close)`. Bar tự mâu thuẫn thì phép sửa nhỏ nhất và
+  đúng nhất là NỚI low/high để bao được open/close. Sau đó bar qua hợp đồng,
+  không vào hàng đợi, 36 phút/đêm biến mất. Đổi lại: ta ĐANG SỬA số của nhà
+  cung cấp — phải ghi vết từng ca, đúng nếp `unit_normalizations.json`.
+* **(b) Thôi refetch loại vi phạm hợp đồng** — rẻ, không đụng dữ liệu, nhưng
+  chỉ chặn lãng phí chứ bar vẫn thiếu trong kho.
+
+Trước cả hai, cần một phép thử rẻ để loại giả thuyết "đường fetch của refetch
+hỏng": gọi `VnStockWarehouse._fetch_price` cho một mã + ngày CHẮC CHẮN có bar.
+Ra data ⇒ đường fetch tốt, 84.897 empty là mã hủy niêm yết/ngày cũ thật.
+Ra rỗng ⇒ cả vòng auto-heal vô nghĩa từ đầu, phải sửa ở đó trước.
 
 # ✅ U15. #32 CHẤM LẠI TRÊN KHO ĐÃ CHỮA — VẪN ĐẠT (19/08 21:2x)
 
