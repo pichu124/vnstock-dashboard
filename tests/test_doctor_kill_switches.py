@@ -70,3 +70,70 @@ def test_broken_dotenv_does_not_crash_the_check(_clean_env):
 def test_check_is_wired_into_the_offline_run():
     """Guard quên nối = code chết trông y như code sống (nếp của repo)."""
     assert doc.check_kill_switches in doc.OFFLINE_CHECKS
+
+
+# ── Badge test không được XANH khi code đã đổi sau lần chạy (vá 19/08) ──────
+
+
+@pytest.fixture
+def meta(tmp_path, monkeypatch):
+    m = tmp_path / "_meta"
+    m.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(doc, "_META", m)
+    return m
+
+
+class TestStaleTestBadge:
+    """Ca thật 19/08: user merge code mới rồi chạy `pytest` thẳng (không qua
+    `run.py test` nên badge không được ghi) — badge vẫn khoe "2148 passed" của
+    hôm trước trong khi thực tế đã 2196. Badge XANH mà code đã đổi sau đó là
+    lời trấn an sai, đúng loại hỏng vừa vá ở badge quy đổi đơn vị."""
+
+    def _status(self, meta, ran_at, passed=2148, failed=0):
+        import json
+        meta.joinpath("test_status.json").write_text(json.dumps({
+            "passed": passed, "failed": failed, "errors": 0,
+            "mode": "full", "ran_at": ran_at.isoformat()}), encoding="utf-8")
+
+    def test_warns_when_a_py_file_is_newer_than_the_run(self, meta, tmp_path,
+                                                        monkeypatch):
+        import os
+        from datetime import datetime, timedelta
+        monkeypatch.setattr(doc, "_REPO", tmp_path)
+        ran = datetime.now() - timedelta(hours=3)
+        self._status(meta, ran)
+        f = tmp_path / "vnstock_brief.py"
+        f.write_text("x = 1", encoding="utf-8")
+        newer = (ran + timedelta(hours=1)).timestamp()
+        os.utime(f, (newer, newer))
+        r = doc.check_tests()
+        assert r["status"] == "warn"
+        assert "CODE đã đổi sau đó" in r["message"] and "vnstock_brief.py" in r["message"]
+
+    def test_stays_green_when_nothing_changed_since(self, meta, tmp_path,
+                                                    monkeypatch):
+        import os
+        from datetime import datetime, timedelta
+        monkeypatch.setattr(doc, "_REPO", tmp_path)
+        ran = datetime.now() - timedelta(hours=1)
+        self._status(meta, ran)
+        f = tmp_path / "vnstock_brief.py"
+        f.write_text("x = 1", encoding="utf-8")
+        older = (ran - timedelta(hours=5)).timestamp()
+        os.utime(f, (older, older))
+        assert doc.check_tests()["status"] == "ok"
+
+    def test_a_real_failure_still_beats_the_staleness_warning(self, meta,
+                                                              tmp_path,
+                                                              monkeypatch):
+        """Test ĐỎ phải thắng: đừng hạ một lỗi thật xuống thành cảnh báo cũ."""
+        import os
+        from datetime import datetime, timedelta
+        monkeypatch.setattr(doc, "_REPO", tmp_path)
+        ran = datetime.now() - timedelta(hours=3)
+        self._status(meta, ran, passed=2100, failed=3)
+        f = tmp_path / "vnstock_brief.py"
+        f.write_text("x = 1", encoding="utf-8")
+        newer = (ran + timedelta(hours=1)).timestamp()
+        os.utime(f, (newer, newer))
+        assert doc.check_tests()["status"] == "error"

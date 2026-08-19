@@ -599,8 +599,43 @@ def check_tests() -> dict:
     if bad:
         return _result("tests", name, "error", msg,
                        "python run.py test --fast — xem test nào fail trước khi merge")
+    # Badge XANH mà CODE đã đổi sau lần chạy đó là lời trấn an sai — đúng loại
+    # hỏng vừa vá ở badge quy đổi đơn vị. Ca thật 19/08: user merge code mới rồi
+    # chạy `pytest` thẳng (không qua `run.py test` nên badge không được ghi) —
+    # badge vẫn khoe "2148 passed" của hôm trước trong khi thực tế đã 2196.
+    stale_vs = _code_changed_after(str(st.get("ran_at", "")))
+    if stale_vs:
+        return _result("tests", name, "warn",
+                       f"{msg} — nhưng CODE đã đổi sau đó ({stale_vs})",
+                       "python run.py test  (chạy qua run.py mới cập nhật badge; "
+                       "`pytest` thẳng thì badge không biết)")
     return _result("tests", name, "ok" if (age is not None and age <= 7) else "warn",
                    msg, "" if (age is not None and age <= 7) else "python run.py test --fast")
+
+
+def _code_changed_after(ran_at: str) -> "str | None":
+    """File .py nào mới hơn lần chạy test gần nhất? Trả tên file mới nhất.
+
+    Câu hỏi badge cần trả lời không phải "test chạy lâu chưa" mà "có ai chạy
+    test SAU lần code đổi gần nhất không". Dùng mtime: `git merge` chạm file
+    nào thì file đó có mtime mới — đúng ngữ nghĩa cần.
+    """
+    try:
+        ran = datetime.fromisoformat(ran_at)
+    except Exception:
+        return None
+    newest, newest_at = None, ran
+    for pat in ("*.py", "dashboard/*.py", "scripts/*.py", "tests/*.py"):
+        for f in _REPO.glob(pat):
+            try:
+                at = datetime.fromtimestamp(f.stat().st_mtime)
+            except Exception:
+                continue
+            if at > newest_at:
+                newest, newest_at = f.name, at
+    if newest is None:
+        return None
+    return f"{newest} lúc {newest_at.strftime('%d/%m %H:%M')}"
 
 
 # ── NET checks (--net) — probe thật từng nguồn ngoài ─────────────────────────
