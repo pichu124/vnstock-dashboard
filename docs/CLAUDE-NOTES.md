@@ -6752,42 +6752,91 @@ giữa chừng · 18/08: `267014` bị chấm dứt). Làm việc buổi tối t
 TRƯỚC 18:00, hoặc chờ thấy dòng `⏱ TỔNG` trong `run_daily.log` rồi mới gõ
 tiếp. Đây là nguyên nhân số 1 khiến đêm tự động chưa lần nào chạy trọn.
 
-## 🔴 R. GỬI BRIEF TAY 18/08 — 1 việc phải check, phần còn lại đã soi xong
+## 🔴 R. GỬI BRIEF TAY 18/08 — soi bằng 4 hướng audit song song + phản biện
 
-Bối cảnh: bước `brief` trong phát `run.py all` trưa 18/08 không gửi, user
-gửi tay lúc 23:16.
+Bối cảnh: bước `brief` trong phát `run.py all` 18/08 in `brief 0.0s` (không gửi
+gì), user gửi tay, Telegram nhận 23:16.
 
-**R1. Việc PHẢI check — nguy cơ brief TRÙNG.** Bất biến "một brief mỗi
-phiên" dựa vào marker `data_warehouse/_meta/brief_push.json`; marker chỉ
-được ghi ở HAI cửa: `cmd_brief` (bước pipeline) và `cmd_telegram` action
-`close` (`run.py:967`). Gửi tay bằng đường KHÁC (gọi thẳng
-`vnstock_telegram.push_close_brief()` trong python -c / notebook) thì
-marker KHÔNG có → task 18:00 nếu còn đang chạy dở, hoặc bất kỳ `run.py all`
-nào trong cùng ngày phiên, sẽ bắn brief THỨ HAI. Check 1 lệnh:
-`type data_warehouse\_meta\brief_push.json` → phải ra `{"close":
-"2026-08-18"}`. Không có/khác ngày → đừng chạy `all` lại trong hôm nay.
-(`vnstock_telegram.py` KHÔNG có khối `__main__`, nên nhiều khả năng user
-đã dùng đúng `run.py telegram close` và marker đã ghi.)
+**R1. `brief 0.0s` có ĐÚNG 4 lối ra, không phải 3** (phản biện bắt được vế
+thiếu). Cả 4 đều để lại đúng 1 dòng `[brief]` trong `run_daily.log`:
+1. `[brief] VNSTOCK_PIPELINE_BRIEF=0 — bỏ qua bước brief` (run.py:1186-1188).
+2. `[brief] bỏ qua: chưa tới 15:00 (hiện HH:MM)` (run.py:1163-1165).
+3. `[brief] bỏ qua: đã đẩy brief chiều cho phiên <ngày> rồi (marker)` (:1166-1170).
+4. `[brief] ❌ <Lỗi>` → return 1 (run.py:1194-1201).
+**`exit 0` KHÔNG loại được ca 4**: `cmd_all` coi rc==1 là cảnh báo rồi vẫn
+return 0 (run.py:1284-1287). Và ca 4 ra được 0.0s thật nếu nổ ngay ở
+`import vnstock_telegram` (module chỉ import os/re/datetime/pathlib).
+CHỈ ca 1 lặp lại vào tối mai; ca 2/3 tự khỏi.
+Bẫy lây kill-switch: một dòng `VNSTOCK_PIPELINE_BRIEF=0` trong `.env` LUÔN
+tới được cửa gác bước 14, vì cả `cmd_news` (bước 4, run.py:999-1000) lẫn
+`cmd_doctor` (bước 13 → vnstock_doctor.py:820-823) đều `load_dotenv` IN-PROCESS,
+mà doctor không có cờ tắt trong `all`.
 
-**R2. Không cần check — brief gửi tay KHÔNG khác brief pipeline.** Cùng
-một hàm `push_close_brief`, nên: cùng guards, cùng `_open_recs_block`
-(gate hai tầng), và vẫn được lưu vào SQLite — `save_brief` nằm TRONG
-`generate_brief` (`vnstock_brief.py:3543`), không phải ở lớp gọi. Lịch sử
-brief / auto-score / dashboard không thủng lỗ nào. Mục C chấm nội dung
-brief này vẫn có giá trị nguyên.
+**R2. LỖ HỔNG GUARD MỚI (đáng giá nhất đợt này) — độ tươi chỉ so NGÀY, không
+so GIỜ.** A/D, % trên MA200, VN30 movers, dòng tiền ngành và phần độ rộng của
+Regime/Tâm lý đọc thẳng `market_overview.json` (vnstock_brief.py:1966-1972,
+vnstock_regime.py:66-75, vnstock_market_sentiment.py:199-209). Nếu screener
+chạy TRƯỚC 15:05, nó tính trên bar partial mà VCI trả giữa phiên
+(vnstock_updater.py:368-381 — quan sát 10/06: ≈57% giá trị ngày), và:
+* cờ stale chỉ so NGÀY (vnstock_brief.py:1147; telegram :445-451; doctor
+  :246-249) → 18/08 == 18/08 → IM.
+* auto-refresh từ chối chạy lại (vnstock_brief.py:1169-1170), và **không tự
+  lành trong cùng ngày phiên** vì `_warehouse_eod_date()` chỉ nhìn bar
+  VNINDEX (:1100-1113) — sync tối chữa bar cổ phiếu xong thì ov==eod, vẫn từ chối.
+⇒ Brief giữa phiên có thể in độ rộng dở dang mà KHÔNG cảnh báo gì. Chữa duy
+nhất: chạy lại `python run.py screener`.
+ĐÍNH CHÍNH giả thuyết ban đầu của tôi: dòng "phiên chiều chiếm 60% GTGD"
+KHÔNG chứng minh screener chạy sau 15:00 — khung GTGD ưu tiên capture WSS
+(vnstock_brief_canon.py:285-308), độc lập với file overview.
 
-**R3. "Không chạy được brief" — phân định BỎ QUA vs LỖI (1 lệnh).**
-`Select-String -Path run_daily.log -Pattern "\[brief\]"`
-* ra `[brief] bỏ qua: chưa tới 15:00 …` → **ĐÚNG THIẾT KẾ**, không phải
-  lỗi (phát trưa chạy trước 15:00, lưới run-on-boot chặn brief phiên cũ).
-  Khớp với `brief 0.0s` trong ⏱ — brief thật tốn hàng chục giây.
-* ra `[brief] ❌ <Lỗi>` → lỗi THẬT ở đường gửi/agent, gửi tôi nguyên dòng.
-* ra `[brief] bỏ qua: đã đẩy … (marker)` → marker của phiên trước còn sót.
+**R3. Marker chống-trùng: ghi ở 2 cửa, ĐỌC ở 1 cửa.** Ghi: `cmd_telegram`
+action close (run.py:967) + `cmd_brief` (:1202). Đọc: chỉ `_should_push_close`
+do `cmd_brief` gọi (:1190). Hệ quả thực dụng:
+* `run.py telegram close` **không kiểm marker trước khi gửi** → gõ 2 lần là
+  2 brief. Không có lock; cũng có cửa sổ đua (cmd_brief kiểm marker TRƯỚC khi
+  gọi LLM, ghi marker SAU khi gửi).
+* Nó cũng **không có guard giờ nhưng VẪN ghi marker** → ép gửi trước 15:00
+  ngày làm việc sẽ làm CÂM brief của task 18:00 cùng phiên. Sáng dùng
+  `telegram morning` (đường morning không đụng marker).
+* Marker `{"close":"2026-08-18"}` KHÔNG chặn brief phiên 19/08 — so theo NGÀY
+  PHIÊN. **Đừng xoá marker "cho chắc"**, xoá là mở lại cửa gửi trùng.
+* Marker thiếu/hỏng ≠ chứng minh chưa gửi: mọi lỗi đọc/ghi đều bị nuốt
+  (`except: pass`, run.py:1132-1133 & 1171-1172) và lỗi đọc thì trả True (gửi).
+* `send_message` cắt brief dài thành nhiều message và raise giữa vòng
+  (vnstock_telegram.py:128-153) → có thể "nửa brief đã tới mà không có marker".
 
-**R4. Câu hỏi còn mở**: task 18:00 tối 18/08 có nổ không (nếu nổ mà chưa
-xong thì R1 thành khẩn cấp). `Get-ScheduledTaskInfo -TaskName <Daily>` →
-LastRunTime + LastTaskResult; và `Select-String run_daily.log -Pattern "⏱ TỔNG"`
-xem có phát thứ hai trong ngày không.
+**R4. Đã loại trừ — không cần lo:** (a) state KHÔNG thiếu gì: mọi ghi
+(save_brief + auto_score, reconcile lệnh quá hạn, refresh events/macro/news/
+overview) nằm TRONG `generate_brief` (vnstock_brief.py:3365-3376, 3535-3557),
+ngoài nó chỉ còn marker; brief là bước CUỐI 14/14 nên không bước nào bị bỏ đói.
+(b) CWD lúc gửi tay ĐÚNG — tự chứng minh: `_open_recs_block`/`_closed_today_block`
+đọc `brief_memory.db` qua đường TƯƠNG ĐỐI (vnstock_memory.py:26), CWD sai thì
+brief in "📋 Khuyến nghị: lỗi (no such table…)" chứ không ra 6 lệnh kèm TP/SL
+và CTF/DSE. (c) Không có bẫy nửa đêm (duyệt đủ 4 mốc chuyển ngày).
+(d) KHÔNG có task brief sáng (chỉ 2 task) — sáng không có gì tự chạy.
+
+**R5. GIẢ THUYẾT MẠNH cho câu "vì sao đêm tự động chưa lần nào tới brief":
+trần 120 phút của task.** `setup_scheduled_tasks.ps1:109` MaxMinutes=120 →
+`-ExecutionTimeLimit`. Phát khoẻ 43.6' thì an toàn, nhưng 17/08 riêng sync đã
+74' → tổng vượt 120' → Windows chấm dứt task (đúng mã 267014 đã thấy) TRƯỚC
+khi tới brief, vì brief là bước 14/14. Khớp cả 2 đêm hỏng. ⇒ gộp vào mục J:
+nếu sync không teo về <10' thì phải nới trần task hoặc tách brief ra task riêng.
+Lưu ý phụ: log KHÔNG phân biệt được task với `run_daily.bat` (argv giống hệt)
+— phải đối chiếu `LastRunTime` của Task Scheduler với mốc giờ header trong log.
+
+**R6. Việc user phải gõ — 1 lệnh, thêm 1 lệnh tuỳ kết quả:**
+```powershell
+Select-String -Path C:\vnstock\run_daily.log -Encoding UTF8 `
+  -Pattern '\[brief\]|\| --warehouse' | Select-Object -Last 20
+```
+Ra `chưa tới 15:00` → chạy tiếp lệnh 2 (R2 có thể đã dính):
+```powershell
+python -c "import json;d=json.load(open(r'C:\vnstock\data_warehouse\_meta\market_overview.json',encoding='utf-8'));print(d.get('generated_at'),d.get('data_date'),d.get('gtgd_date'))"
+```
+`generated_at` < 15:05 ngày 18/08 → độ rộng trong brief 23:16 là số giữa phiên;
+chữa bằng `python run.py screener` (ĐỪNG gửi lại brief — sẽ thành brief trùng).
+Bằng chứng dự phòng không bị đè: `_meta/screener_history/2026-08-18.json` có
+`generated_at` riêng (tối mai ghi file 19/08 nên không đụng).
 
 ## 🟠 DỮ LIỆU — sau đợt phát hiện KHO LỆCH CƠ SỞ (18/08)
 
