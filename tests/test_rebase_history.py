@@ -381,3 +381,131 @@ def test_probe_tolerance_matches_the_sweep_threshold():
         "probe phải nhạy hơn (hoặc bằng) sweep, không thì có mã bị gắn cờ mà "
         "công cụ chữa từ chối")
     assert ppb.SAME_BASIS_TOL > 0.008, "vẫn phải trên mức nhiễu làm tròn"
+
+
+# ── Mã bị rebase NHIỀU LẦN: một vách không nói hết chuyện ───────────────────
+# Vết 19/08: chữa xong 70 mã, quét lại vẫn còn ĐÚNG 2 mã (VTP 0.8521× · QNS
+# 0.9785×, cùng vách 2026-03-17). Số học ép ra nguyên nhân: sau khi ghi, mọi
+# bar TRƯỚC vách bằng nguồn từng đồng (ratio 1.0), nên bậc còn lại chỉ có thể
+# nằm ở phần SAU vách. Mà vòng ghi chỉ đụng `time < brk` ⇒ chạy lại bao nhiêu
+# lượt cũng ghi đúng phần đã đúng, không bao giờ hội tụ.
+
+def _ratio_frames(ratios, end="2026-08-17"):
+    """Dựng cặp (kho, nguồn) có tỉ lệ kho/nguồn đúng bằng `ratios` từng bar."""
+    t = pd.bdate_range(end=end, periods=len(ratios)).normalize()
+    src = [100 + i for i in range(len(ratios))]
+    wh = [p * r for p, r in zip(src, ratios)]
+    return (pd.DataFrame({"time": t, "close": wh}),
+            pd.DataFrame({"time": t, "close": src}))
+
+
+def test_repair_window_reaches_past_the_break_when_a_second_step_survives():
+    # Đã chữa lớp cũ (1.0), còn lớp giữa 1.17, đuôi lại về 1.0 — hình dạng
+    # của VTP sau lượt chạy 19/08.
+    wh, src = _ratio_frames([1.0] * 6 + [1.17] * 6 + [1.0] * 6)
+    last = rth.last_divergent_day(wh, src, today=date(2026, 12, 31))
+    assert last is not None
+    # Mốc chữa phải trùm hết lớp giữa, tức nằm sau bar lệch đầu tiên.
+    assert last == src["time"].iloc[11].date()
+
+
+def test_aligned_series_has_no_repair_window():
+    wh, src = _ratio_frames([1.0] * 18)
+    assert rth.last_divergent_day(wh, src, today=date(2026, 12, 31)) is None
+
+
+def test_rounding_noise_is_not_a_repair_window():
+    # ±0,8% là nhiễu làm tròn giá/tick size — dưới ngưỡng 1,2%, không được kêu.
+    wh, src = _ratio_frames([1.008, 0.992] * 9)
+    assert rth.last_divergent_day(wh, src, today=date(2026, 12, 31)) is None
+
+
+def test_todays_unfinished_bar_never_widens_the_repair_window():
+    # Phiên chưa đóng: bar kho dựng từ rollup 1 phút lệch bar nguồn là thường.
+    wh, src = _ratio_frames([1.0] * 17 + [1.30])
+    today = src["time"].iloc[-1].date()
+    assert rth.last_divergent_day(wh, src, today=today) is None
+
+
+def test_divergence_up_to_yesterday_is_still_repaired():
+    wh, src = _ratio_frames([1.0] * 16 + [1.30, 1.30])
+    today = src["time"].iloc[-1].date()
+    assert rth.last_divergent_day(wh, src, today=today) == \
+        src["time"].iloc[-2].date()
+
+
+def test_self_check_sees_a_leftover_basis_step_not_just_price_cliffs(
+        tmp_path, monkeypatch):
+    """Tự kiểm cũ chỉ soi vách GIÁ ≥30% nên in ✅ trong khi tỉ lệ còn lệch."""
+    d = tmp_path / "prices" / "ticker=XXX" / "year=2026"
+    d.mkdir(parents=True, exist_ok=True)
+    t = pd.bdate_range(end="2026-08-17", periods=30).normalize()
+    src_px = [100 + i for i in range(len(t))]
+    # Không có vách giá nào (chuỗi kho vẫn tăng đều), nhưng nửa sau lệch 17%.
+    wh_px = [p if i < 15 else p * 1.17 for i, p in enumerate(src_px)]
+    pd.DataFrame({"time": t, "close": wh_px}).to_parquet(d / "p.parquet",
+                                                         index=False)
+    src_all = pd.DataFrame({"time": t, "close": src_px})
+    step = rth._residual_basis_step(tmp_path / "prices", "XXX", src_all)
+    assert step is not None
+    assert abs(step["shift"] - 1 / 1.17) < 0.01
+
+
+def _staircase_wh(tmp_path: Path, ratios) -> Path:
+    """Kho có NHIỀU bậc cơ sở chồng nhau — mã đã bị nguồn rebase nhiều lần."""
+    d = tmp_path / "prices" / "ticker=VTP" / "year=2026"
+    d.mkdir(parents=True, exist_ok=True)
+    t = pd.bdate_range(end="2026-08-17", periods=len(ratios)).normalize()
+    src = [100 + i for i in range(len(ratios))]
+    px = [p * r for p, r in zip(src, ratios)]
+    pd.DataFrame({"time": t, "open": px, "high": px, "low": px, "close": px,
+                  "volume": [1000] * len(t)}).to_parquet(d / "p.parquet",
+                                                         index=False)
+    return tmp_path
+
+
+@pytest.fixture()
+def stub_source_long(monkeypatch):
+    t = pd.bdate_range(end="2026-08-17", periods=30).normalize()
+    px = [100 + i for i in range(len(t))]
+    src = pd.DataFrame({"time": t, "open": px, "high": px, "low": px,
+                        "close": px, "volume": [1000] * len(t)})
+    import probe_price_basis as ppb
+    monkeypatch.setattr(ppb, "fetch_source",
+                        lambda tk, d0, d1: src[["time", "close"]].assign(
+                            time=src["time"].dt.date))
+    mod = type(sys)("vnstock_updater")
+    mod._fetch_prices = lambda tk, s, e: src.copy()
+    monkeypatch.setitem(sys.modules, "vnstock_updater", mod)
+    return src
+
+
+def test_a_second_basis_step_is_repaired_in_the_same_pass(tmp_path,
+                                                          stub_source_long):
+    """Ca VTP/QNS: chữa "mọi bar trước vách" bỏ sót nguyên lớp GIỮA.
+
+    Bậc cũ 1.17× rồi bậc giữa 1.06× rồi đuôi đúng. Bộ dò chỉ chỉ vào ranh giới
+    1.17→1.02; dừng ở đó là lớp 1.02 sống sót, mà lượt chạy sau bộ dò vẫn chỉ
+    đúng chỗ cũ ⇒ ghi lại phần đã đúng, mãi không hội tụ.
+    """
+    wh = _staircase_wh(tmp_path, [1.17] * 10 + [1.06] * 10 + [1.0] * 10)
+    assert rth.main(["--warehouse", str(wh), "--ticker", "VTP", "--apply"]) == 0
+    got = pd.read_parquet(wh / "prices" / "ticker=VTP" / "year=2026" / "p.parquet")
+    got["time"] = pd.to_datetime(got["time"])
+    exp = stub_source_long.set_index("time")["close"]
+    for _, r in got.iterrows():
+        assert r["close"] == pytest.approx(float(exp.loc[r["time"]]), rel=1e-9), \
+            f"còn bậc sót tại {r['time'].date()}"
+
+
+def test_leftover_step_is_reported_instead_of_a_green_tick(tmp_path,
+                                                           stub_source_long,
+                                                           monkeypatch, capsys):
+    """Ghi xong mà tỉ lệ còn lệch thì phải báo ⚠️ + rc=1, KHÔNG in ✅."""
+    wh = _staircase_wh(tmp_path, [1.17] * 10 + [1.06] * 10 + [1.0] * 10)
+    # Ép quay lại hành vi cũ: chỉ chữa tới đúng ngày vách.
+    monkeypatch.setattr(rth, "last_divergent_day", lambda *a, **k: None)
+    rc = rth.main(["--warehouse", str(wh), "--ticker", "VTP", "--apply"])
+    out = capsys.readouterr().out
+    assert rc == 1, "còn bậc mà vẫn báo xong"
+    assert "VẪN đổi" in out and "✅" not in out

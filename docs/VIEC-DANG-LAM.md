@@ -32,13 +32,17 @@ sở kho/nguồn**, gần trọn VN30, vách rải từ 03–08/2026 (mùa chia 
 thử 2 lần đã sạch: **70/70 mã chữa được**, chỉ 3 mã (HCM, KLB, SSB) cần nhân
 khối lượng. Kho chưa chữa thì **mọi backtest/kiểm định đều vô hiệu**.
 
-**💻 LAPTOP — làm được NGAY** (vết quét đã có sẵn từ lần chạy 19/08):
+**💻 LAPTOP — đã chạy 19/08 15:43, còn ĐÚNG 2 mã.** Ghi được 70/70, quét lại
+ra **68 sạch · VTP `0.8521×` · QNS `0.9785×`** (cùng vách 2026-03-17). Hai mã
+này bị nguồn rebase HAI lần nên có hai bậc; bản cũ chữa tới ngày vách là bỏ
+sót lớp giữa, và tự kiểm cũ chỉ soi vách giá ≥30% nên vẫn in ✅. Cả hai lỗi đã
+vá — **chạy lại lệnh cũ y nguyên sẽ không đổi gì**, phải lấy code mới trước:
 
 ```powershell
 git fetch origin claude/tong-hop-cong-viec-test-w8mvrc
 git merge origin/claude/tong-hop-cong-viec-test-w8mvrc
 
-python scripts\rebase_ticker_history.py --from-sweep --apply
+python scripts\rebase_ticker_history.py --ticker VTP --ticker QNS --apply
 python scripts\probe_price_basis.py --sweep      # kỳ vọng: 0 mã
 ```
 
@@ -72,7 +76,7 @@ bằng factor, chỉ chạm bộ lọc thanh khoản. Ép thủ công: `--ticker
 ### ○ Sau khi chữa xong — 3 lệnh chạy lại, máy nào chữa thì máy đó chạy
 
 ```powershell
-python run.py test                                    # full suite, kỳ vọng 2.228 passed
+python run.py test                                    # full suite, kỳ vọng 2.236 passed
 python run.py validate                                # hợp đồng dữ liệu trên kho vừa chữa
 python vnstock_train.py --strategy-only --tier both --mode tune
 ```

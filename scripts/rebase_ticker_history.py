@@ -128,6 +128,63 @@ def _volume_step(wh_head: pd.DataFrame, brk: date, n: int = 20) -> float:
         return float("nan")
 
 
+def _as_dates(df: pd.DataFrame) -> pd.DataFrame:
+    """Đưa cột time về `date` thuần để hai phía merge được dù ai chuẩn hoá kiểu gì."""
+    out = df.copy()
+    out["time"] = pd.to_datetime(out["time"]).dt.date
+    return out
+
+
+def last_divergent_day(wh: pd.DataFrame, src: pd.DataFrame,
+                       tol: float = 0.012,
+                       today: "date | None" = None) -> "date | None":
+    """Ngày CUỐI CÙNG giá kho còn lệch nguồn quá `tol` — mốc chữa thật sự.
+
+    Hàm THUẦN (test được offline). Vì sao không dừng ở ngày vách: bộ dò chỉ
+    trả về MỘT vách — cái nhảy mạnh nhất. Mã bị nguồn rebase NHIỀU LẦN (mỗi
+    mùa quyền một lần) có nhiều bậc chồng nhau; chữa "mọi bar TRƯỚC vách" thì
+    bậc Ở GIỮA sống sót, mà lần chạy sau bộ dò VẪN chỉ đúng cái vách cũ nên
+    ghi lại y hệt phần đã đúng ⇒ chạy bao nhiêu lượt cũng không hội tụ.
+    Đo được 19/08 sau lượt 70 mã: VTP (còn 0.8521×) và QNS (0.9785×) là hai
+    mã duy nhất có bậc thứ hai, và chúng đứng yên qua mọi lượt chạy lại.
+
+    Bỏ bar HÔM NAY: phiên chưa đóng thì bar kho (dựng từ rollup 1 phút) lệch
+    bar nguồn là chuyện thường, không phải lệch cơ sở.
+    """
+    today = today or date.today()
+    try:
+        m = _as_dates(wh).merge(_as_dates(src), on="time",
+                                suffixes=("_wh", "_src"))
+        m = m[(m["close_wh"] > 0) & (m["close_src"] > 0)]
+        m = m[m["time"] < today]
+        if m.empty:
+            return None
+        m = m.sort_values("time")
+        bad = m[((m["close_wh"] / m["close_src"]) - 1.0).abs() > tol]
+        return None if bad.empty else bad["time"].iloc[-1]
+    except Exception:
+        return None
+
+
+def _residual_basis_step(prices_dir: Path, tk: str, src_all: pd.DataFrame,
+                         since_days: int = 365) -> "dict | None":
+    """Ghi xong rồi: tỉ lệ kho/nguồn CÒN đổi bậc không? Dùng lại nguồn đã fetch."""
+    from probe_price_basis import find_basis_step, load_wh
+    d1 = date.today()
+    d0 = d1 - timedelta(days=since_days)
+    try:
+        wh = load_wh(prices_dir, tk, d0, d1)
+        if wh.empty:
+            return None
+        src = _as_dates(src_all[["time", "close"]])
+        src = src[(src["time"] >= d0) & (src["time"] <= d1)]
+        if src.empty:
+            return None
+        return find_basis_step(wh, src)
+    except Exception:
+        return None
+
+
 def _basis_break_of(tk: str, wh_root: Path, since_days: int = 365) -> "date | None":
     """Ngày ĐỔI BẬC tỉ lệ kho/nguồn — bộ dò dành cho lệch cỡ cổ tức.
 
@@ -249,6 +306,17 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
     step = _volume_step(wh_head, brk)
     print(f"[rebase] khối lượng: nguồn/kho = {vol_factor:.4f}× · "
           f"bậc nhảy tại vách (sau/trước) = {step:.2f}×")
+    # Mốc chữa KHÔNG dừng ở ngày vách — xem `last_divergent_day`.
+    from probe_price_basis import SAME_BASIS_TOL
+    _last_bad = last_divergent_day(wh_head[["time", "close"]],
+                                   src_all[["time", "close"]],
+                                   tol=SAME_BASIS_TOL)
+    cut = brk
+    if _last_bad is not None and _last_bad >= brk:
+        cut = _last_bad + timedelta(days=1)
+        print(f"[rebase] ⚠️ còn bậc SAU vách: bar lệch nguồn cuối cùng là "
+              f"{_last_bad} (mã bị rebase nhiều lần) → chữa tới hết "
+              f"{_last_bad}, không dừng ở {brk}")
     # Nguồn KHÔNG điều chỉnh volume (≈1.0) MÀ khối lượng lại nhảy bậc đúng
     # bằng hệ số giá ⇒ chuỗi volume cũng đang gãy; chữa giá mà bỏ volume là
     # đổi một lỗi lấy một lỗi khác.
@@ -310,7 +378,7 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
     for path, df in files.items():
         out = df.copy()
         t = pd.to_datetime(out["time"]).dt.normalize()
-        mask_old = t.dt.date < brk
+        mask_old = t.dt.date < cut
         if not mask_old.any():
             continue
         for i in out.index[mask_old]:
@@ -323,7 +391,11 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
                     if c in out.columns and c in row:
                         out.at[i, c] = float(row[c])
                 if "volume" in out.columns and "volume" in row:
-                    out.at[i, "volume"] = float(row["volume"]) * scale_vol
+                    # Hệ số khối lượng chỉ đúng cho phần TRƯỚC sự kiện quyền;
+                    # bar sau vách đã đếm trên số cổ phiếu mới rồi, nhân nữa
+                    # là thổi GTGD lịch sử lên lần thứ hai.
+                    _sv = scale_vol if day.date() < brk else 1.0
+                    out.at[i, "volume"] = float(row["volume"]) * _sv
                 n_src += 1
             else:
                 for c in OHLC:
@@ -337,7 +409,7 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
             touched += 1
         plan[path] = out
 
-    print(f"[rebase] {touched:,} bar trước {brk} sẽ đổi: "
+    print(f"[rebase] {touched:,} bar trước {cut} sẽ đổi: "
           f"{n_src:,} lấy thẳng từ nguồn · {n_scaled:,} nhân hệ số")
     if not apply:
         print(f"[rebase] 🔎 CHẠY THỬ — chưa ghi gì. Thêm --apply để ghi thật.")
@@ -361,6 +433,17 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
         print(f"[rebase] ⚠️ VẪN CÒN {len(left)} vách sau khi chữa "
               f"(vách đầu: {left[0]['time']}) — có thể mã bị rebase NHIỀU LẦN, "
               f"chạy lại lệnh này để chữa tiếp lớp sau.")
+        return 1
+    # `find_jumps` chỉ thấy vách GIÁ ≥30% nên nó báo XANH cả khi tỉ lệ
+    # kho/nguồn còn đổi bậc — đúng chuyện xảy ra 19/08: VTP/QNS in "chuỗi đã
+    # liền" xong lượt quét ngay sau đó vẫn gắn cờ cả hai. Tự kiểm mà mù đúng
+    # lớp lỗi mình sinh ra để chữa thì không phải tự kiểm.
+    _left = _residual_basis_step(prices_dir, tk, src_all)
+    if _left is not None:
+        print(f"[rebase] ⚠️ {tk}: giá đã liền nhưng TỈ LỆ kho/nguồn VẪN đổi "
+              f"bậc {_left['shift']:.4f}× tại {_left['break']} — CHƯA chữa "
+              f"xong. Soi tay: probe_price_basis --ticker {tk} "
+              f"--break-date {_left['break']}")
         return 1
     print(f"[rebase] ✅ {tk}: chuỗi đã liền — không còn vách trong 365 ngày")
     return 0

@@ -7021,6 +7021,42 @@ bịa ra khối lượng. Muốn sửa từng mã thì `--ticker <MÃ> --volume 
 4. Chạy lại backtest/kiểm định; coi mọi verdict trước 19/08 là VÔ HIỆU.
 5. Làm V1 trước mùa cổ tức tới.
 
+**CHẠY THẬT LẦN ĐẦU — LAPTOP 19/08 15:43→15:51 (`--from-sweep --apply`).**
+Nhận dạng máy bằng BẰNG CHỨNG chứ không đoán: lệnh chạy được `--from-sweep`
+mà không cần quét trước ⇒ vết quét có sẵn ⇒ laptop; và lượt quét lại đếm
+159 + 1.564 + 1.402 = 3.125 thư mục mã, đúng con số laptop đã báo.
+
+* Ghi: **70/70 mã**, mỗi mã một backup `_meta/backup_rebase/<MÃ>_<lúc>`.
+* Quét lại ngay sau đó: **68 sạch · CÒN 2** — VTP `0.8521×` và QNS `0.9785×`,
+  cả hai cùng vách `2026-03-17`. Hai mã này in `✅ chuỗi đã liền` lúc ghi.
+
+**Hai lỗi THẬT của bộ công cụ, lộ ra đúng nhờ lượt chạy thật này:**
+
+1. **Chữa không hội tụ với mã bị rebase NHIỀU LẦN.** Số học ép ra nguyên nhân,
+   không phải phỏng đoán: vòng ghi chỉ đụng `time < brk` và lấy THẲNG giá
+   nguồn, nên sau khi ghi mọi bar trước vách bằng nguồn từng đồng ⇒ tỉ lệ
+   phía trước = 1.0. Quét lại vẫn ra bậc `0.8521×` tại đúng ngày cũ ⇒ phía SAU
+   vách đang ở `1/0.8521 = 1.1736×`. Tức mã có **hai bậc** (hai mùa quyền), bộ
+   dò chỉ chỉ vào bậc mạnh nhất, chữa tới đó là bỏ nguyên lớp GIỮA. Chạy lại
+   lệnh cũ là **no-op**: bộ dò vẫn chỉ đúng ngày ấy, tool ghi lại phần đã đúng.
+   → Vá: hàm thuần `last_divergent_day` — mốc chữa là **bar lệch nguồn CUỐI
+   CÙNG** (bỏ bar hôm nay vì phiên chưa đóng), không phải ngày vách. Hệ số
+   khối lượng vẫn chỉ áp cho phần TRƯỚC vách (bar sau vách đã đếm trên số cổ
+   phiếu mới).
+2. **Tự kiểm mù đúng lớp lỗi nó sinh ra để chữa.** Tự kiểm cũ chỉ gọi
+   `find_jumps` (vách GIÁ ≥30%) nên in `✅` cho VTP/QNS trong khi tỉ lệ còn
+   lệch 17%. → Vá: thêm `_residual_basis_step` — đọc lại kho vừa ghi, đo lại
+   tỉ lệ bằng chính `find_basis_step`, còn bậc thì in ⚠️ và trả rc=1.
+
+Lưới: `tests/test_rebase_history.py` 36 test — cầu thang 3 bậc phải liền sau
+MỘT lượt, và khi ép về hành vi cũ thì phải báo ⚠️ chứ không được in ✅.
+Suite: **2.236 passed** (fast 1.716).
+
+**Việc còn lại của lượt này:** chạy lại đúng 2 mã trên LAPTOP bằng code mới
+(`--ticker VTP --ticker QNS --apply`), rồi `--sweep` kỳ vọng 0. DESKTOP chưa
+làm gì cả — phải `--sweep` trước vì `basis_sweep_check.json` là file local
+từng máy (kho nằm trong `.gitignore`).
+
 **U9. 🔴 LỚP LỖI MỚI: lệch cơ sở cỡ CỔ TỨC (2-5%) — bộ quét MÙ hoàn toàn.
 Phát hiện tình cờ 19/08 khi test thư viện.**
 `probe_price_basis --ticker VNM` (VN30, blue chip) cho:
