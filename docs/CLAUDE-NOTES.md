@@ -7051,10 +7051,22 @@ tham số truyền vào là `root="data_warehouse"` và cwd là `C:\vnstock`. Co
 làm `Path(root).resolve()`, mà `resolve()` ĐI THEO junction/symlink ⇒
 `C:\vnstock\data_warehouse` là một liên kết trỏ sang `E:\Dropbox\...`.
 
+**✅ Xác nhận bằng `Get-Item` (19/08 23:1x):** `LinkType: Junction`,
+`Target: E:\Dropbox\vnstock_data\data_warehouse`. Không còn suy diễn.
+
 Hệ quả cho mọi suy luận trước đó: **KHO đồng bộ, CODE thì không.** Repo đi
 bằng git (khớp reflog: mỗi máy tự `git pull`), `run_daily.log` nằm ở GỐC REPO
 nên là nhân chứng RIÊNG của từng máy — đúng như đã dùng nó để đối chiếu.
 `_meta/*.json` (marker, badge) nằm trong kho nên đồng bộ — đúng như đã ghi.
+
+**Việc phát sinh: `_meta/backup_rebase/` cũng nằm trong Dropbox.** Mỗi lần
+`rebase_ticker_history --apply` là một `shutil.copytree` NGUYÊN thư mục mã
+(NTP: 21 file, 2006→2026) — riêng 19/08 đẻ **77 thư mục**, tất cả được đẩy lên
+mây và kéo sang máy kia. **Không module nào dọn chúng.** Chưa gấp (đĩa còn),
+nhưng nên có chính sách giữ N ngày, hoặc ít nhất đưa `backup_rebase` ra NGOÀI
+junction để khỏi đồng bộ bản sao lưu cục bộ. Lệnh xem dung lượng:
+`(Get-ChildItem C:\vnstock\data_warehouse\_meta\backup_rebase -Recurse -File |
+Measure-Object Length -Sum).Sum / 1MB`
 
 # ✅ U15. #32 CHẤM LẠI TRÊN KHO ĐÃ CHỮA — VẪN ĐẠT (19/08 21:2x)
 

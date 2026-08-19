@@ -10,12 +10,13 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 > nhận 19/08/2026. Ghi chú cũ "đã bỏ Dropbox, hai kho độc lập" là **SAI** và đã
 > làm hỏng nguyên một ngày làm việc — xem `docs/CLAUDE-NOTES.md` mục U11.
 >
-> **Cơ chế:** `C:\vnstock\data_warehouse` TRỎ sang
-> `E:\Dropbox\vnstock_data\data_warehouse` (bằng chứng 19/08:
-> `VnStockWarehouse(root="data_warehouse")` in ra đường E: — code chỉ làm
-> `Path(root).resolve()`, mà `resolve()` đi theo junction/symlink). Tức **KHO
+> **Cơ chế (xác nhận 19/08 bằng `Get-Item`):** `C:\vnstock\data_warehouse` là
+> **Junction** trỏ sang `E:\Dropbox\vnstock_data\data_warehouse`. Tức **KHO
 > đồng bộ, CODE thì không** — repo `C:\vnstock` đi bằng git, `run_daily.log` ở
-> gốc repo nên cũng KHÔNG đồng bộ (nó là nhân chứng riêng của từng máy).
+> gốc repo nên KHÔNG đồng bộ (nó là nhân chứng riêng của từng máy).
+> Hệ quả phụ: MỌI thứ dưới `data_warehouse` đều nằm trong Dropbox, kể cả
+> `_meta/backup_rebase/` — bản sao lưu trước khi chữa kho được đẩy lên mây và
+> sang máy kia, và **không có cơ chế dọn**; 19/08 một ngày đã đẻ 77 thư mục.
 >
 > **4 hệ quả, thuộc lòng trước khi giao việc cho user:**
 > 1. **Chữa kho làm MỘT LẦN là đủ** — đừng bao giờ gán nhãn ⇄ CẢ HAI cho việc
