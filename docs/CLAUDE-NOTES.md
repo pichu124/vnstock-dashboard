@@ -6697,12 +6697,17 @@ lại cả vết sai để không lặp.
    đoán đúng. Sai chiều: user chỉ vừa đổi sang laptop ở cuối buổi. **Bài học:
    khi phát hiện nhầm bối cảnh, hỏi mốc chuyển chứ đừng quy hồi tố tất cả.**
 
-**RỦI RO CÒN LẠI — kho laptop nhiều khả năng đang HỎNG:** đợt chữa lệch cơ sở
-18/08 (VHM rebase `--apply`, PNJ/GEX/GEE/PVD) chạy trên DESKTOP, mà kho là local
-(đã bỏ Dropbox) nên không có gì đồng bộ sang laptop. ⇒ Kho laptop nhiều khả
-năng vẫn giữ chuỗi VHM lệch 2.0000×. Không nguy hiểm cho brief (brief sinh trên
-desktop) nhưng **đừng dùng laptop để soi/phân tích số**. Kiểm: `python
-scripts/check_unit_continuity.py --ticker VHM` — báo vách = kho máy đó chưa chữa.
+**RỦI RO PHÂN KỲ — ĐÃ ĐO, KHÔNG XẢY RA (ít nhất với VHM).** Lo ban đầu: đợt
+chữa 18/08 chạy trên desktop, kho local không đồng bộ ⇒ laptop còn chuỗi hỏng.
+Đo thật trên laptop 19/08: **VHM SẠCH** — 3.476 bar, bar cuối 2026-08-18,
+KHÔNG còn vách 2026, khớp giá live 68.200 (lệch 0.99×). Chữ ký trùng KHỚP
+trạng thái desktop sau khi chữa: chỉ còn 2 vết vô hại là vách 2015-06-10 và
+quãng nghỉ 308 ngày tới 2018-05-17 — **cả hai nằm TRƯỚC ngày Vinhomes niêm yết
+(17/05/2018), tức thuộc doanh nghiệp KHÁC từng dùng ticker VHM**, ngoài mọi
+lookback thực tế (backtest dài nhất 730 ngày).
+⇒ Kho laptop đang mang dữ liệu đã chữa và cập nhật tới 18/08 — dùng để soi số
+được. (Hai kho vẫn KHÔNG tự đồng bộ, nên lần chữa kho sau phải làm trên cả hai
+hoặc chép lại; và 4 mã còn lại PNJ/GEX/GEE/PVD chưa kiểm trên laptop.)
 
 ---
 
