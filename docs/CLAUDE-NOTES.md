@@ -6885,8 +6885,12 @@ khi log đầy) và trỏ thẳng vào `scripts/check_unit_continuity.py`.
 **J. Sync time** — chuỗi đo: 9.731s (đỉnh heal) → 2.376s → 4.429s (phát bị
 kill tối 17/08) → 1.205s (chạy bù trưa 18/08). Ngưỡng chốt (mục B): 2-3 đêm
 nữa sync phải **< ~10 phút**; không teo thì mổ đúng bước heal (dời sang
-tuần / cap batch), không đụng phần còn lại. Điểm đo kế tiếp: đêm 18/08 —
-brief về 23:16 (xem câu hỏi mở ở C), lấy số bằng Select-String ⏱.
+tuần / cap batch), không đụng phần còn lại.
+**Ngưỡng CỨNG mới (từ R5): trần task Daily là 120 phút.** Sync 74' như
+17/08 là đủ để Windows chấm dứt task trước khi tới brief (bước 14/14) —
+đây nhiều khả năng là lý do đêm tự động chưa lần nào tới brief. Nếu sync
+không teo về <10' thì phải nới `MaxMinutes` trong
+`scripts/setup_scheduled_tasks.ps1:109` hoặc tách brief ra task riêng.
 
 **K. #32 tự chứng minh bằng live** — theo dõi dòng "💚 Live khớp backtest"
 trên panel Chiến lược vài tuần. Lưu ý: kho VHM/PNJ/GEX vừa đổi hệ số nên
