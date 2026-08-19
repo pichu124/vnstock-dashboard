@@ -2,22 +2,47 @@
 
 > Đây là bản để LÀM THEO. Kho lưu chi tiết (lý do, file:line, lịch sử) nằm ở
 > `docs/CLAUDE-NOTES.md` — đừng mở nó để biết "hôm nay làm gì".
-> Cập nhật: 18/08/2026.
+> Cập nhật: 19/08/2026.
 
----
+## 🏷️ NHÃN MÁY — mọi việc trong file này BẮT BUỘC có một nhãn
 
-## 🔴 VIỆC CỦA BẠN — làm trên DESKTOP `C:\vnstock`
+| Nhãn | Nghĩa |
+|---|---|
+| 🖥️ **DESKTOP** | Chỉ chạy được trên máy chạy pipeline (có 2 task lịch). Laptop không có log / task / kho được cập nhật đêm. |
+| 💻 **LAPTOP** | Chỉ nên làm trên laptop (thường là thử nghiệm rủi ro — hỏng cũng không mất brief đêm). |
+| ⇄ **CẢ HAI** | Phải làm **lặp lại trên từng máy**. Hai kho KHÔNG tự đồng bộ (đã bỏ Dropbox) — làm một máy là máy kia vẫn hỏng. |
+| ○ **MÁY NÀO CŨNG ĐƯỢC** | Kết quả như nhau ở đâu cũng vậy (chạy test, đọc code). |
 
-### 0. Xác định đang ngồi máy nào (2 giây, làm TRƯỚC mọi thứ)
+**Xác định đang ngồi máy nào** (2 giây, làm trước mọi thứ — đừng đoán bằng
+đường dẫn `C:\vnstock` hay tên venv, hai máy cài giống hệt nhau, đã nhầm 19/08):
 
 ```powershell
 $env:COMPUTERNAME; Get-ScheduledTask -TaskName 'VnStock *' | Select-Object TaskName
 ```
-Ra 2 task = **desktop** (máy chạy pipeline). Rỗng = **laptop** → mọi việc dưới
-đây để dành. Đừng nhận dạng máy bằng đường dẫn `C:\vnstock` hay tên venv —
-hai máy cài giống hệt nhau (đã nhầm 19/08).
+Ra 2 task = **desktop**. Rỗng = **laptop** (`CFA-BINHLD-LT`).
 
-### ⏰ GẤP — làm TRƯỚC 18:00 bất kỳ ngày làm việc nào
+---
+
+## 🔴 VIỆC CỦA BẠN
+
+### ⇄ CẢ HAI MÁY · Chữa VVS — lệch cơ sở 1.6543×, CHƯA chữa máy nào
+
+Đầu mối để rơi từ 18/08: VVS chính là mã khởi đầu cuộc điều tra, probe đã chốt
+`warehouse_basis 1.6543×`, rồi mình chuyển sang VHM/PNJ/GEX/GEE/PVD và **quên
+chữa chính nó**. Vách 2026-06-15 — mới 2 tháng, nằm trong mọi cửa sổ backtest —
+và VVS **không hề thanh khoản thấp**: ~13 tỷ/phiên, đủ lọt universe chiến lược.
+
+```powershell
+python scripts\rebase_ticker_history.py --ticker VVS --apply
+python scripts\check_unit_continuity.py --ticker VVS
+```
+
+Chạy thử trên laptop 19/08 cho ca sạch nhất có thể: **908/908 bar lấy thẳng từ
+nguồn, 0 bar phải nhân hệ số** (nguồn phủ đúng từ 2022-10-07 = điểm đầu của
+kho), khối lượng không gãy. Tool tự sao lưu + tự kiểm sau khi ghi.
+**Phải chạy trên CẢ HAI máy** — desktop mới là máy sinh khuyến nghị.
+
+### 🖥️ DESKTOP · ⏰ GẤP — làm TRƯỚC 18:00 bất kỳ ngày làm việc nào
 
 Nếu bỏ qua, task đêm vẫn có nguy cơ bị Windows chấm dứt trước bước brief.
 
@@ -43,7 +68,7 @@ Một đêm sync phình như 17/08 (74') là vượt trần. Đã sửa sẵn tr
 `setup_scheduled_tasks.ps1` (commit 943e5ea) nhưng file đó chỉ có tác dụng khi
 đăng ký lại task — lệnh trên là đường tắt.
 
-### Sáng hôm sau — kiểm 1 phút (nay có thêm 1 dòng đáng xem)
+### 🖥️ DESKTOP · Sáng hôm sau — kiểm 1 phút
 
 ```powershell
 Select-String -Path C:\vnstock\run_daily.log -Pattern 'CHANG|CHẶNG' | Select-Object -Last 3
@@ -51,7 +76,7 @@ Select-String -Path C:\vnstock\run_daily.log -Pattern 'CHANG|CHẶNG' | Select-O
 Dòng `[sync] ⏱ CHẶNG …` nói sync tiêu 60 phút vào chặng nào (updater / rollup /
 fix-units / auto-heal). Dán cho Claude — đây là số còn thiếu để chữa đúng chỗ.
 
-### Brief chiều — kiểm 1 phút
+### 🖥️ DESKTOP · Brief chiều — kiểm 1 phút
 
 Telegram có brief chiều không? **Có** = đêm tự động trọn vẹn ĐẦU TIÊN (mở luôn
 cổng đang chặn mục "tầng B"). **Không** → chạy lệnh này rồi dán cho Claude:
@@ -61,7 +86,7 @@ Select-String -Path C:\vnstock\run_daily.log -Pattern '[brief]' -SimpleMatch | S
 Get-Content C:\vnstock\run_daily.log -Tail 15
 ```
 
-### ✅ Classifier — ĐÃ XÁC MINH 19/08, đóng nợ 07/08
+### ○ ✅ Classifier — ĐÃ XÁC MINH 19/08 (trên laptop), đóng nợ 07/08
 
 `--rerun-flagged VNM` trên laptop in đúng `route: ladder free — Gemini
 3.5-flash dẫn đầu`, 1 classified / 0 errors, KHÔNG đòi `ANTHROPIC_API_KEY`.
@@ -69,18 +94,18 @@ Bậc thang model free chạy thật, không chỉ chạy trong test.
 (Chạy `--classify` thường sẽ báo "All tickers already classified" vì 1652/1652
 đã xong — muốn xác minh lại phải dùng `--rerun-flagged`.)
 
-### ✅ Kho laptop — ĐÃ KIỂM 19/08, sạch
+### 💻 ✅ Kho laptop — ĐÃ KIỂM 19/08, sạch (trừ VVS ở trên)
 
 VHM/PNJ/GEX/GEE/PVD đều liên tục, bar cuối 18/08, khớp giá live. Kho laptop là
 bản đầy đủ đã chữa → dùng soi số được. **Nhớ dài hạn:** hai kho KHÔNG tự đồng
 bộ, nên lần chữa kho sau phải làm trên CẢ HAI máy (hoặc chép lại).
 
-### Chỉ làm được TRONG GIỜ GIAO DỊCH (9h15–14h30, T2–T6)
+### 🖥️ DESKTOP · Chỉ làm được TRONG GIỜ GIAO DỊCH (9h15–14h30, T2–T6)
 
 Mở dashboard → bật 🔴 **Live Mode** ở sidebar trái → tab **Thị trường**. Xác nhận
 heatmap VN30 có số nhảy thật. (Code + Playwright đã xong, chỉ thiếu một lần nhìn.)
 
-### ĐỪNG làm bây giờ
+### 💻 LAPTOP TRƯỚC · ĐỪNG làm bây giờ
 
 Nâng vnstock 4.0.4→4.0.6 / vnai 2.4.8→2.5.7 / vnii 0.2.4→0.2.5 (máy đã báo có
 bản mới). Để sau khi pipeline chạy trót lọt một đêm đã — nâng lúc này là thêm
@@ -106,6 +131,9 @@ một biến số vào đúng lúc đang gỡ.
 
 Xếp theo thứ tự nên làm. Mỗi việc xong Claude chạy `run.py test --fast`, bạn chỉ
 cần `git fetch origin <nhánh> && git merge origin/<nhánh>` rồi chạy lại test trên máy thật.
+
+> Việc của Claude làm trong container; bạn chỉ cần merge về rồi chạy test —
+> ○ **máy nào cũng được**.
 
 | # | Việc | Vì sao đáng | Công |
 |---|---|---|---|

@@ -6697,6 +6697,15 @@ lại cả vết sai để không lặp.
    đoán đúng. Sai chiều: user chỉ vừa đổi sang laptop ở cuối buổi. **Bài học:
    khi phát hiện nhầm bối cảnh, hỏi mốc chuyển chứ đừng quy hồi tố tất cả.**
 
+**⇄ VVS CHƯA CHỮA TRÊN MÁY NÀO (phát hiện lại 19/08).** Đầu mối để rơi: VVS
+là mã KHỞI ĐẦU cuộc điều tra 18/08 (probe chốt `warehouse_basis 1.6543×`), rồi
+đợt quét `--all` lôi ra VHM/PNJ/GEX/GEE/PVD và mình chữa nhóm đó — **quên chính
+VVS**. Vách 2026-06-15 (mới 2 tháng, trong mọi cửa sổ backtest), GTGD ~13
+tỷ/phiên nên KHÔNG thuộc diện "đuôi thanh khoản thấp bỏ qua". Dry-run 19/08 cho
+ca sạch nhất: 908/908 bar lấy thẳng nguồn, 0 bar nhân hệ số, volume không gãy.
+Lệnh: `python scripts/rebase_ticker_history.py --ticker VVS --apply` rồi
+`check_unit_continuity --ticker VVS`. **Phải chạy trên CẢ HAI máy.**
+
 **RỦI RO PHÂN KỲ — ĐÃ ĐO, KHÔNG XẢY RA (ít nhất với VHM).** Lo ban đầu: đợt
 chữa 18/08 chạy trên desktop, kho local không đồng bộ ⇒ laptop còn chuỗi hỏng.
 Đo thật trên laptop 19/08: **VHM SẠCH** — 3.476 bar, bar cuối 2026-08-18,

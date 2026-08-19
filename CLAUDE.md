@@ -16,10 +16,16 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   18:00 ngày làm việc + Weekend — gộp từ 29/07; đăng ký THEO MÁY — máy mới
   phải chạy lại script này, Run as Administrator). Trần task Daily 120 phút:
   sync phình >~75' là task bị chấm dứt TRƯỚC bước brief (bước cuối 14/14).
-- ⚠️ MỌI lệnh soi trạng thái (đọc `run_daily.log`, `data_warehouse/_meta/*.json`,
-  `Get-ScheduledTaskInfo`) CHỈ chạy được TRÊN DESKTOP chạy pipeline. Log + kho
-  đều trong `.gitignore`, kho là local (bỏ Dropbox), task đăng ký theo máy →
-  laptop clone repo về KHÔNG có gì để soi. Đừng bảo user chạy trên laptop.
+- ⚠️ HAI MÁY: desktop (có 2 task lịch, sinh brief) và laptop `CFA-BINHLD-LT`
+  (kho đầy đủ nhưng KHÔNG có task). Cả hai đều dùng `C:\vnstock` + venv
+  `Administrator` nên **KHÔNG nhận dạng máy bằng đường dẫn** — hỏi
+  `$env:COMPUTERNAME` + `Get-ScheduledTask -TaskName 'VnStock *'`.
+- ⚠️ **MỌI việc/test giao cho user PHẢI ghi rõ máy nào**, theo 4 nhãn dùng trong
+  `docs/VIEC-DANG-LAM.md`: 🖥️ DESKTOP · 💻 LAPTOP · ⇄ CẢ HAI (phải làm lặp lại
+  ở từng máy — hai kho KHÔNG tự đồng bộ) · ○ máy nào cũng được. Lệnh soi trạng
+  thái (`run_daily.log`, `_meta/*.json`, `Get-ScheduledTaskInfo`) là 🖥️ DESKTOP
+  — log và kho đều trong `.gitignore`, task đăng ký theo máy. Việc CHỮA KHO là
+  ⇄ CẢ HAI.
 
 ## Test discipline
 - Sửa module lõi nào → `python run.py test --fast` (~1.661 test; ~30s trên CI).
