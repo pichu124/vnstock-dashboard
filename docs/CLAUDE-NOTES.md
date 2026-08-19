@@ -6966,6 +6966,33 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🌐 U17. NSO ❌ / JINA ⚠️ — HỎNG TRÊN CẢ HAI MÁY (19/08)
+
+`doctor --net` trên desktop `PICHU`: **28 ✅ · 1 ⚠️ · 1 ❌** — hỏng đúng hai
+nguồn y như laptop. ⇒ **Loại giả thuyết "chính sách mạng laptop"**, thứ đã treo
+từ sáng.
+
+⚠️ Nhưng KHÔNG được kết luận "nguồn hỏng thật": hai máy nhiều khả năng chung
+một đường ra internet nên phép thử không độc lập. Phép thử độc lập rẻ nhất:
+phát 4G từ điện thoại rồi chạy lại `doctor --net`.
+
+**Xếp mức khẩn theo HẬU QUẢ, không theo màu badge:**
+* **Jina ⚠️ — không gấp.** Mất fulltext thì tin chỉ chấm bằng title+summary;
+  brief 19/08 vẫn có 43 tin gắn tác động. Tắt hẳn: `VNSTOCK_NEWS_FULLTEXT=0`.
+* **NSO ❌ — có HẠN.** CPI / IIP / GDP / cán cân thương mại đang dùng cache
+  `as_of 2026-07-31`. Kỳ công bố tháng 8 rơi cuối tháng; không kéo được kỳ đó
+  là brief bắt đầu nói số vĩ mô CŨ mà không ai biết (doctor chỉ báo nguồn
+  fetch hỏng, không báo "số trong brief đã lỗi thời"). Còn ~2 tuần.
+
+**Quan sát phụ đáng theo dõi, chưa phải việc:** badge LLM ledger ghi
+`hôm nay 36 call · 12 lỗi` — tỉ lệ lỗi 33%. Bậc thang model có fallback nên
+lỗi rồi rơi bậc là chuyện bình thường, nhưng 1/3 là cao. Nếu tuần tới vẫn vậy
+thì đáng soi bậc nào đang chết.
+
+**Hai badge MỚI đã sống và đang xanh** ở lượt này: "Lệch cơ sở — mã bị cách ly"
+và "Nới OHLC (bar tự mâu thuẫn)". Chưa có sync nào chạy sau khi merge nên xanh
+là đúng — đêm 20/08 mới là lần đầu chúng có cơ hội kêu.
+
 # 🎯 U16. AUTO-HEAL LÀ KẺ ĂN THỜI GIAN — đã chặn trần, chưa chữa gốc
 
 Số đo 19/08: `auto-heal 2.156,7s` = **35,9 phút = 83% bước sync và 51% cả

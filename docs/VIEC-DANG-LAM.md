@@ -87,12 +87,19 @@ vẹn ĐẦU TIÊN, mở luôn cổng đang chặn mục "tầng B".
 
 ## 🖥️ DESKTOP — khi rảnh, không gấp
 
-**Phân xử NSO / Jina.** Laptop ra NSO ❌ + Jina ⚠️, cả 3 URL đều
-`ConnectTimeout`/`ConnectionReset` — lỗi tầng kết nối, chưa kết luận được.
-```powershell
-python run.py doctor --net
-```
-Desktop cũng ❌ = nguồn hỏng thật · desktop ✅ = chính sách mạng laptop.
+**✅ Đã phân xử NSO / Jina — KHÔNG phải chính sách riêng của laptop.**
+Desktop chạy `doctor --net` 19/08 ra **28 ✅ · 1 ⚠️ · 1 ❌**, hỏng đúng hai
+nguồn y như laptop: NSO ❌, Jina ⚠️. Loại được giả thuyết "mạng laptop chặn".
+
+⚠️ **Nhưng chưa loại được "mạng NHÀ chặn"** — hai máy nhiều khả năng chung một
+đường ra internet, nên phép thử không độc lập. Muốn chốt hẳn thì thử từ mạng
+khác (phát 4G từ điện thoại) rồi chạy lại `doctor --net`. Ra ✅ = mạng nhà
+chặn · vẫn ❌ = nguồn thật sự hỏng, lúc đó mới đáng sửa code.
+
+**Mức khẩn:** Jina chỉ làm tin chấm bằng title+summary — **không gấp**. NSO thì
+có HẠN: các chỉ số CPI / IIP / GDP / cán cân thương mại hiện đang dùng số
+`as_of 2026-07-31` từ cache. Kỳ công bố tháng 8 rơi vào cuối tháng — **không
+kéo được kỳ đó là brief bắt đầu nói số vĩ mô cũ**. Còn ~2 tuần.
 
 **KHÔNG nâng vnstock trên desktop.** Bản 4.0.6 làm chết mọi lệnh gọi mạng
 (`env.py:136 get_hosting_service()` UnboundLocalError), đã trả giá 19/08. Để
