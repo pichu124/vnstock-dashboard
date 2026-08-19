@@ -26,7 +26,7 @@ _MODULES = {
     "numbers": ROOT / "vnstock_brief_guards_numbers.py",
     "text": ROOT / "vnstock_brief_guards_text.py",
 }
-# 3 module chủ đề — 44 guard chia theo "sai chuyện gì / sai số / lộ ruột"
+# 3 module chủ đề — 47 guard chia theo "sai chuyện gì / sai số / lộ ruột"
 _THEMES = ("sections", "numbers", "text")
 
 
@@ -151,7 +151,7 @@ def test_no_guard_hides_outside_the_theme_modules():
     assert not stray, f"Guard nằm ngoài 3 module chủ đề: {stray}"
 
 
-def test_the_44_guards_are_all_accounted_for():
+def test_every_guard_in_the_chain_is_defined_exactly_once():
     """Con số chốt: chuỗi gọi đúng bằng số guard được định nghĩa, không dư
     không thiếu."""
     import inspect

@@ -778,6 +778,7 @@ def cmd_test(args) -> int:
             # Cửa gác lệch cơ sở ở ĐƯỜNG GHI CHÍNH (V1, 19/08): nó có
             # quyền TỪ CHỐI ghi kho, nên sửa updater mà chạy `--fast`
             # thiếu file này là bỏ lưới đúng chỗ nguy hiểm nhất.
+            "tests/test_brief_exdate_guard.py",
             "tests/test_basis_guard.py",
             # Cửa `--skip-if-done`: sai ở đây là kho ĐỨNG YÊN nguyên đêm mà
             # pipeline vẫn xanh (vết 19/08, kho bị chép giữa hai máy).

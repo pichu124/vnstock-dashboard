@@ -26,7 +26,7 @@ Ra 2 task = **desktop**. Rỗng = **laptop** (`CFA-BINHLD-LT`).
 ## 📍 ĐIỂM DỪNG 19/08/2026 — mở lại thì đọc 10 dòng này trước
 
 Commit cuối của Claude: **`ff7e0ee`**. Nhánh
-`claude/tong-hop-cong-viec-test-w8mvrc`. Suite **2.263 passed** (fast 1.743).
+`claude/tong-hop-cong-viec-test-w8mvrc`. Suite **2.281 passed** (fast 1.761).
 Máy user đang ở `main` → lấy code phải `git fetch origin <nhánh> && git merge
 origin/<nhánh>` (`git pull` báo "Already up to date" dù vừa tải commit về).
 
@@ -113,7 +113,7 @@ bằng factor, chỉ chạm bộ lọc thanh khoản. Ép thủ công:
 ### ○ Sau khi chữa xong — 3 lệnh chạy lại (một lần, máy nào cũng được)
 
 ```powershell
-python run.py test                                    # full suite, kỳ vọng 2.263 passed
+python run.py test                                    # full suite, kỳ vọng 2.281 passed
 python run.py validate                                # hợp đồng dữ liệu trên kho vừa chữa
 python vnstock_train.py --strategy-only --tier both --mode tune
 ```
@@ -281,6 +281,7 @@ cần `git fetch origin <nhánh> && git merge origin/<nhánh>` rồi chạy lạ
 | ~~4~~ | ✅ **XONG 19/08** (`970a504`) — 3 test bộ công cụ đơn vị giá đã vào `--fast` | `--fast` nay 1.636 test | — |
 | ~~5~~ | ✅ **XONG 19/08** (`0a3e785`) — doctor có badge "Kill-switch pipeline", đọc cả `.env` | Ẩn số kiểu này từ nay tự lộ | — |
 | ~~6~~ | ✅ **XONG 19/08** (`0a3e785`) — `telegram close` qua đúng cửa gác, muốn vượt phải `--force` | Hết bẫy gõ-2-lần và bẫy-câm-brief | — |
+| ~~8~~ | ✅ **XONG 19/08** — guard `enforce_exdate_levels`: mốc giá của mã sắp GDKHQ nay tự nói "chưa quy đổi" (ca VIX 20/08) · `_fmt_rec_price` giữ 1 thập phân dải 10-100 | Brief hết ra tín hiệu nổ cơ học ngày chốt quyền | — |
 | 7 | **Vá gốc lỗ hổng độ tươi** (giờ bị cắt ở `vnstock_brief.py:1095`) | Vá xong thì khỏi phải làm Bước 2 bằng tay nữa | ~1 buổi |
 
 ---

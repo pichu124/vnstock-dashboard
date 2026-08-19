@@ -3262,7 +3262,11 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     _STANCE_CAUTION_MOMENTUM,
     _VNI_CONTEXT_RE,
     _VNI_MAGNITUDE_RE,
+    _EXDATE_MARK,
+    _EXDATE_REC_DAYS,
+    _EXDATE_WL_DAYS,
     _WL_META_RE,
+    _exdate_map,
     _canonical_risk_lines,
     _is_section_start,
     _parse_vn_number,
@@ -3312,6 +3316,7 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     enforce_unvalidated_strategy_caveat,
     enforce_upcoming_events,
     enforce_vnindex_change,
+    enforce_exdate_levels,
     enforce_watchlist_eligibility,
     enforce_watchlist_hygiene,
     validate_brief_factuality,
@@ -3598,6 +3603,15 @@ def _fmt_rec_price(p: float) -> str:
 
     Integer thousands collapse low-priced instruments (CW, penny) and distort
     the implied TP/SL %, so keep decimals when the price is small.
+
+    Ngưỡng "nhỏ" NỚI TỪ 10 LÊN 100 (19/08). Phần lớn cổ phiếu VN nằm trong dải
+    10-100 nghìn đồng, mà bỏ hết thập phân ở đó sai tới ±0,5 nghìn: brief chiều
+    19/08 in `SBT entry=24 TP=25 SL=23` trong khi sổ ghi TP +7,4% / SL −2,7%
+    trên entry ≈ 23,5 — mốc TP thật ≈ 25,2. Sai số 0,5 trên một mục tiêu 7,4%
+    là hơn một phần tư biên lợi nhuận, và lệch cả HAI chiều bất lợi cho người
+    đọc (chốt lời sớm, cắt lỗ sát hơn ý đồ). Một chữ số thập phân đưa sai số
+    xuống ≤0,5% ở đáy dải và ≤0,1% ở giữa dải. Bỏ đuôi ".0" để giá tròn vẫn
+    đọc gọn ("13" chứ không "13.0").
     """
     a = abs(p)
     if a == 0:
@@ -3606,6 +3620,8 @@ def _fmt_rec_price(p: float) -> str:
         return f"{p:,.3f}"
     if a < 10:
         return f"{p:,.2f}"
+    if a < 100:
+        return f"{p:,.1f}".removesuffix(".0")
     return f"{p:,.0f}"
 
 

@@ -1145,6 +1145,110 @@ _BUY_BIAS_CAVEAT = (
 )
 
 
+# Cảnh báo GDKHQ tính bằng NGÀY LỊCH, hai ngưỡng cho hai loại mục:
+# watchlist "sáng mai" chỉ quan tâm phiên kế tiếp (3 ngày phủ được T6→T2);
+# đề xuất/khuyến nghị có horizon 5-20 phiên nên lấy trọn cửa sổ nạp sự kiện.
+_EXDATE_WL_DAYS = 3
+_EXDATE_REC_DAYS = 14
+_EXDATE_MARK = "⚠️ GDKHQ"
+
+
+def _exdate_map(ctx: dict | None, within_days: int) -> dict:
+    """{MÃ: (ex_date, title)} của sự kiện quyền rơi trong `within_days` ngày.
+
+    Mã có NHIỀU sự kiện thì giữ cái GẦN NHẤT — đó là cái làm hỏng mốc giá trước.
+    `ctx["today"]` cho phép test cắm ngày cố định; ngoài đời lấy ngày hệ thống.
+    """
+    from datetime import date as _date, timedelta as _td
+
+    today = (ctx or {}).get("today") or _date.today()
+    if isinstance(today, str):
+        try:
+            today = _date.fromisoformat(today[:10])
+        except ValueError:
+            today = _date.today()
+    limit = today + _td(days=within_days)
+    out: dict = {}
+    for e in (ctx or {}).get("upcoming_events") or []:
+        try:
+            d = _date.fromisoformat(str(e.get("ex_date"))[:10])
+        except (TypeError, ValueError):
+            continue
+        if d < today or d > limit:
+            continue
+        tk = str(e.get("ticker") or "").strip().upper()
+        if not tk:
+            continue
+        if tk not in out or d < out[tk][0]:
+            out[tk] = (d, str(e.get("title") or "").strip())
+    return out
+
+
+def enforce_exdate_levels(text: str, ctx: dict) -> str:
+    """Mốc giá của một mã sắp GDKHQ phải NÓI RA rằng nó chưa quy đổi quyền.
+
+    Ca thật, brief chiều 19/08 — cùng một brief chứa hai khối đá nhau:
+      * Watchlist: "VIX (Giá 13,100) — TRÁNH nếu thủng 12,700 … Áp lực bán gia
+        tăng trước ngày giao dịch không hưởng quyền."
+      * Sự kiện:   "VIX: Trả Cổ tức bằng Cổ phiếu tỉ lệ 5.0% — ngày 2026-08-20"
+    13.100 × 100/105 = 12.476 ⇒ mốc "thủng 12.700" kích hoạt CƠ HỌC ngay lúc mở
+    cửa hôm sau, không phải do ai bán; mốc hủy 13.500 thành bất khả. Câu diễn
+    giải còn quy nhân quả sai. Cảnh báo GDKHQ vốn ĐÃ có — nhưng nó nằm ở mục Sự
+    kiện và không lan sang Watchlist. Đây là lớp lỗi MỚI: guard cũ canh "nói
+    đúng chuyện" TRONG từng mục, chưa cái nào canh NHẤT QUÁN GIỮA HAI MỤC.
+
+    Cố ý KHÔNG tự quy đổi mốc giá. Tỉ lệ quyền chỉ nằm trong CHỮ của `title`, mà
+    cổ tức TIỀN MẶT điều chỉnh theo MỆNH GIÁ (tỉ lệ × 10.000đ) chứ không theo %
+    giá — đoán sai chỗ này còn hại hơn không đoán. Guard nêu SỰ KIỆN và nói
+    thẳng "mốc chưa quy đổi", để người đọc tự trừ. Quy đổi tự động chờ kho sự
+    kiện có tỉ lệ dạng SỐ (mục còn treo — kho đang mỏng).
+
+    Idempotent: đã có dấu `⚠️ GDKHQ` trên dòng thì bỏ qua.
+    """
+    if not text:
+        return text
+    maps = {"wl": _exdate_map(ctx, _EXDATE_WL_DAYS),
+            "rec": _exdate_map(ctx, _EXDATE_REC_DAYS)}
+    if not maps["wl"] and not maps["rec"]:
+        return text
+
+    def _zone_of(line: str) -> "str | None":
+        low = line.lower()
+        if "watchlist" in low or "trọng tâm theo dõi" in low:
+            return "wl"
+        if "đề xuất giao dịch" in low or "khuyến nghị đang mở" in low:
+            return "rec"
+        return None
+
+    out, zone, changed = [], None, False
+    for line in text.splitlines():
+        if _is_section_start(line) or line.lstrip().startswith(
+                ("##", "⚠️", "📅", "💡", "🔧", "📋", "📌")):
+            zone = _zone_of(line)
+            out.append(line)
+            continue
+        item = _re.match(r"\s*(?:\d+\.|[-•*])\s+", line)
+        if zone is None or not item or _EXDATE_MARK in line:
+            out.append(line)
+            continue
+        hit = next(((tk, d, ti) for tk, (d, ti) in sorted(maps[zone].items())
+                    if _re.search(rf"\b{_re.escape(tk)}\b", line)), None)
+        if hit is None:
+            out.append(line)
+            continue
+        tk, d, title = hit
+        note = f" · {_EXDATE_MARK} {d.isoformat()}"
+        if title:
+            note += f" ({title[:60]})"
+        note += " — giá tham chiếu tự điều chỉnh, mốc trên CHƯA quy đổi"
+        out.append(line.rstrip() + note)
+        changed = True
+    # Không đổi gì thì trả NGUYÊN văn bản: `splitlines()/join` nuốt mất newline
+    # cuối, và một guard no-op mà vẫn sửa text là thứ khó truy nhất khi xâu
+    # chuỗi 47 guard lại với nhau.
+    return "\n".join(out) if changed else text
+
+
 def enforce_buy_vs_bias_caveat(text: str, ctx: dict) -> str:
     """Deterministic guard: when the bias floor is GIẢM (bearish market) yet the
     "💡 Đề xuất giao dịch" section still lists BUY/MUA setups (from the backtested-

@@ -6966,7 +6966,7 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
-# 🔴 U13. LỖ HỔNG GUARD: watchlist KHÔNG biết ngày GDKHQ của chính mã nó nêu
+# ✅ U13. ĐÃ VÁ — watchlist nay biết ngày GDKHQ của chính mã nó nêu
 
 Bắt được ở brief chiều 19/08 (gửi tay 20:41). Cùng một brief chứa hai khối
 mâu thuẫn nhau:
@@ -6987,12 +6987,29 @@ vô hiệu, mà câu diễn giải còn quy nhân quả sai ("áp lực bán").
 KHÔNG lan sang mục Watchlist. Guard hiện có canh "nói đúng chuyện" trong từng
 mục, chưa có guard nào canh NHẤT QUÁN GIỮA HAI MỤC.
 
-**Guard đề xuất (deterministic, test được):** mọi mục watchlist / khuyến nghị
-có mã trùng một `ex_date` nằm trong horizon của setup thì phải một trong ba —
-(a) quy đổi mốc giá theo tỉ lệ quyền, (b) loại mục đó khỏi watchlist, hoặc
-(c) gắn cảnh báo INLINE ngay tại mục ("mốc chưa quy đổi GDKHQ 20/08, giá tham
-chiếu ≈ 12.476"). Nguồn `ex_date` đã có sẵn (`vnstock_adjust.load_events`, cùng
-đường mà mục Sự kiện đang dùng) nên không phải dựng thêm hạ tầng.
+**Đã làm:** `enforce_exdate_levels` (guard thứ 47, ở `_guards_sections`, nối
+vào `apply_brief_guards` ngay sau `enforce_watchlist_eligibility`). Gắn cảnh
+báo INLINE vào đúng dòng setup: `· ⚠️ GDKHQ 2026-08-20 (<tên sự kiện>) — giá
+tham chiếu tự điều chỉnh, mốc trên CHƯA quy đổi`.
+
+Hai ngưỡng ngày lịch, cố ý khác nhau: watchlist **3 ngày** (kịch bản cho phiên
+kế tiếp, 3 ngày phủ T6→T2) · đề xuất/khuyến nghị **14 ngày** (horizon 5-20
+phiên). Kêu cho watchlist về quyền 10 ngày nữa là alarm fatigue.
+
+**Cố ý KHÔNG tự quy đổi mốc giá.** Tỉ lệ quyền chỉ nằm trong CHỮ của `title`,
+mà cổ tức TIỀN MẶT điều chỉnh theo MỆNH GIÁ (tỉ lệ × 10.000đ) chứ không theo %
+giá — đoán sai chỗ đó còn hại hơn không đoán, và hôm nay đã có đủ bài học về
+việc suy diễn từ dữ liệu mỏng. Quy đổi tự động chờ kho sự kiện có tỉ lệ dạng
+SỐ. Có test canh đúng điều này (`test_guard_does_not_invent_an_adjusted_price`).
+
+Lưới: `tests/test_brief_exdate_guard.py` 16 test, đã vào `--fast`.
+
+**Vá kèm — độ chính xác giá hiển thị.** `_fmt_rec_price` giữ thập phân khi giá
+< 10 rồi cắt sạch từ 10 trở lên, mà phần lớn cổ phiếu VN nằm dải 10-100: brief
+in `SBT entry=24 TP=25 SL=23` trong khi sổ ghi TP +7,4% / SL −2,7% trên entry
+≈ 23,5 (TP thật ≈ 25,2). Sai 0,5 nghìn trên mục tiêu 7,4% là hơn một phần tư
+biên lợi nhuận, và lệch cả hai chiều BẤT LỢI: chốt lời sớm, cắt lỗ sát hơn ý
+đồ. Nay giữ 1 chữ số thập phân cho dải 10-100 (bỏ đuôi ".0"), sai số ≤0,5%.
 
 # ⚠️ U13b. 6 khuyến nghị đang mở đứng trên kiểm định TRƯỚC khi chữa kho
 

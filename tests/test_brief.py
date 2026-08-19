@@ -2412,6 +2412,28 @@ def test_fmt_rec_price_adaptive_precision():
     assert _fmt_rec_price(13.0) == "13"
     assert _fmt_rec_price(1.23) == "1.23"
     assert _fmt_rec_price(0.39) == "0.390"
+
+
+def test_fmt_rec_price_keeps_a_decimal_in_the_10_100_band():
+    """Vết brief chiều 19/08: in `SBT entry=24 TP=25 SL=23` trong khi sổ ghi
+    TP +7,4% / SL −2,7% trên entry ≈ 23,5 — mốc TP thật ≈ 25,2. Bỏ hết thập
+    phân ở dải 10-100 (nơi phần lớn cổ phiếu VN nằm) sai tới ±0,5 nghìn, tức
+    hơn một phần tư một mục tiêu 7,4%, và lệch cả hai chiều BẤT LỢI cho người
+    đọc: chốt lời sớm, cắt lỗ sát hơn ý đồ."""
+    assert _fmt_rec_price(23.5) == "23.5"
+    assert _fmt_rec_price(25.24) == "25.2"
+    assert _fmt_rec_price(42.6) == "42.6"
+    # giá tròn vẫn đọc gọn, không đuôi ".0"
+    assert _fmt_rec_price(49.03) == "49"
+    assert _fmt_rec_price(99.9) == "99.9"
+
+
+def test_fmt_rec_price_error_stays_under_half_a_percent():
+    """Bất biến thật sự cần giữ, không phải số chữ số: sai số hiển thị phải
+    nhỏ hơn hẳn biên TP/SL điển hình (5-15%)."""
+    for v in (10.04, 12.37, 23.51, 47.83, 99.94, 137.4, 213.6):
+        shown = float(_fmt_rec_price(v).replace(",", ""))
+        assert abs(shown - v) / v < 0.005, f"{v} hiển thị {shown}"
     assert _fmt_rec_price(0) == "0"
 
 
