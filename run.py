@@ -669,7 +669,7 @@ def cmd_test(args) -> int:
 
     Modes:
       (default) — full tests/ directory
-      --fast    — curated subset covering the core modules (~1,034 tests, ~26s)
+      --fast    — curated subset covering the core modules (~1,588 tests, ~30s CI)
       --new     — alias for --fast
     """
     import json as _json
