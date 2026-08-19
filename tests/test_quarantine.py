@@ -407,3 +407,86 @@ def test_budget_default_is_wired_and_bounded():
     """Trần mặc định phải TỒN TẠI và nhỏ hơn hẳn 36 phút đã đo."""
     from vnstock_quarantine import AUTO_HEAL_BUDGET_S
     assert 0 < AUTO_HEAL_BUDGET_S <= 900
+
+
+# ── Vắng CÓ CẤU TRÚC vs trục trặc nhất thời ──────────────────────────────
+# Đo 19/08 trên máy thật: `scanned=3844 healed=35 retry_bumped=3809 archived=0`
+# — 99,1% lượt gọi mạng vô ích, và mỗi mục còn phải trượt đủ max_retries ĐÊM
+# nữa mới được dọn, mỗi đêm 36 phút. Nguồn TRẢ LỜI được mà không có bar ngày
+# đó thì thử lại đêm mai chắc chắn cũng vậy.
+
+
+def test_structural_absence_is_archived_immediately(tmp_path, monkeypatch):
+    from vnstock_quarantine import auto_heal
+
+    quarantine_row("VCB", "2026-04-15", "close<=0", {}, warehouse=tmp_path)
+    monkeypatch.setattr(
+        "vnstock_remediate.refetch",
+        lambda *a, **k: {"status": "fail", "reason": "no row for target date"})
+
+    stats = auto_heal(tmp_path)
+    assert stats["archived"] == 1
+    assert stats["archived_structural"] == 1
+    assert stats["refetched_fail"] == 0
+    assert list_quarantine(tmp_path).empty, "mục vắng cấu trúc phải được dọn"
+
+
+def test_empty_api_response_still_goes_through_the_retry_path(tmp_path,
+                                                              monkeypatch):
+    """"API returned empty" là MƠ HỒ — có thể là outage cả cửa sổ 5 ngày. Dọn
+    ngay ở đây là một đợt outage xoá sạch hàng đợi."""
+    from vnstock_quarantine import auto_heal
+
+    quarantine_row("VCB", "2026-04-15", "close<=0", {}, warehouse=tmp_path)
+    monkeypatch.setattr(
+        "vnstock_remediate.refetch",
+        lambda *a, **k: {"status": "fail", "reason": "API returned empty"})
+
+    stats = auto_heal(tmp_path)
+    assert stats["refetched_fail"] == 1
+    assert stats["archived"] == 0
+    assert not list_quarantine(tmp_path).empty     # vẫn giữ để thử lại
+
+
+def test_transient_error_still_goes_through_the_retry_path(tmp_path, monkeypatch):
+    from vnstock_quarantine import auto_heal
+
+    quarantine_row("VCB", "2026-04-15", "close<=0", {}, warehouse=tmp_path)
+    monkeypatch.setattr(
+        "vnstock_remediate.refetch",
+        lambda *a, **k: {"status": "error", "reason": "fetch failed: timeout"})
+
+    stats = auto_heal(tmp_path)
+    assert stats["refetched_fail"] == 1 and stats["archived"] == 0
+
+
+def test_structural_archive_is_traceable_in_the_remediation_log(tmp_path,
+                                                                monkeypatch):
+    """Dọn mà không để lại vết là xoá dữ liệu trong bóng tối."""
+    import json
+
+    from vnstock_quarantine import auto_heal
+
+    quarantine_row("VCB", "2026-04-15", "close<=0", {}, warehouse=tmp_path)
+    monkeypatch.setattr(
+        "vnstock_remediate.refetch",
+        lambda *a, **k: {"status": "fail", "reason": "no row for target date"})
+    auto_heal(tmp_path)
+
+    log = tmp_path / "_meta" / "remediation_log.jsonl"
+    assert log.exists()
+    rows = [json.loads(l) for l in log.read_text(encoding="utf-8").splitlines() if l]
+    assert any("vắng cấu trúc" in str(r) for r in rows)
+
+
+def test_archive_exhausted_false_never_deletes_anything(tmp_path, monkeypatch):
+    """Cờ tắt-dọn phải chặn CẢ đường vắng-cấu-trúc, không chỉ đường hết lượt."""
+    from vnstock_quarantine import auto_heal
+
+    quarantine_row("VCB", "2026-04-15", "close<=0", {}, warehouse=tmp_path)
+    monkeypatch.setattr(
+        "vnstock_remediate.refetch",
+        lambda *a, **k: {"status": "fail", "reason": "no row for target date"})
+
+    auto_heal(tmp_path, archive_exhausted=False)
+    assert not list_quarantine(tmp_path).empty

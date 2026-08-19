@@ -53,6 +53,13 @@ MAX_RETRIES_DEFAULT = 3
 # Auto-heal vốn best-effort và IDEMPOTENT: phần chưa xử lý nằm nguyên trong
 # hàng đợi, đêm sau chạy tiếp. Cắt theo thời gian không mất gì ngoài độ trễ.
 AUTO_HEAL_BUDGET_S = 600.0
+# Dấu hiệu "nguồn TRẢ LỜI được nhưng KHÔNG CÓ bar ngày đó" — `vnstock_remediate.
+# refetch` chỉ trả lý do này khi API đã đưa về các bar quanh ngày mục tiêu mà
+# thiếu đúng ngày ấy. Đó là VẮNG CÓ CẤU TRÚC (mã chưa niêm yết, bị tạm ngừng,
+# ngày không giao dịch), không phải trục trặc nhất thời — thử lại đêm mai chắc
+# chắn cũng vậy. Phân biệt với "API returned empty" (không có gì trong cả cửa
+# sổ 5 ngày), thứ CÓ THỂ là outage nên vẫn đi đường thử-lại bình thường.
+_STRUCTURAL_FAIL_MARK = "no row for target date"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -277,6 +284,9 @@ def auto_heal(
          the quarantine file (the row in warehouse was never written, so
          no extra archive step needed). A one-line entry is appended to
          the remediation log so the decision is traceable.
+      4. Refetch trả ``fail`` với lý do "no row for target date" → nguồn TRẢ
+         LỜI được nhưng KHÔNG có bar ngày đó ⇒ vắng có CẤU TRÚC, dọn NGAY
+         thay vì đốt thêm ``max_retries`` đêm gọi mạng vô ích.
 
     ``time_budget_s`` chặn trần thời gian MỘT lượt (mặc định
     ``AUTO_HEAL_BUDGET_S``; ``None`` = không chặn). Hết giờ thì dừng và trả
@@ -371,11 +381,29 @@ def auto_heal(
                       f"raised: {exc}")
             continue
 
-        status = (result or {}).get("status") if isinstance(result, dict) else None
+        _res = result if isinstance(result, dict) else {}
+        status = _res.get("status")
         if status == "ok":
             stats["refetched_ok"] += 1
             if verbose:
                 print(f"[quarantine.auto_heal] healed {ticker} {bar_date}")
+        elif (status == "fail"
+              and _STRUCTURAL_FAIL_MARK in str(_res.get("reason") or "")):
+            # Đo 19/08: 3.844 mục quét, 35 chữa được, 3.809 trượt, 0 dọn — tức
+            # 99,1% lượt gọi mạng là vô ích và mỗi mục còn phải trượt đủ
+            # `max_retries` ĐÊM nữa mới được dọn. Vắng có cấu trúc thì một lần
+            # xác nhận là đủ; giữ lại chỉ để đốt thêm 2 đêm × 36 phút.
+            if archive_exhausted:
+                _log_exhausted(warehouse, ticker, bar_date, retry_count,
+                               "nguồn không có bar ngày này (vắng cấu trúc)")
+                clear_quarantine(ticker, bar_date, warehouse=warehouse)
+            else:
+                bump_retry(ticker, bar_date, warehouse=warehouse)
+            stats["archived"] += 1
+            stats["archived_structural"] = stats.get("archived_structural", 0) + 1
+            if verbose:
+                print(f"[quarantine.auto_heal] {ticker} {bar_date}: nguồn KHÔNG "
+                      f"có bar ngày này → dọn luôn, không thử lại")
         else:
             bump_retry(ticker, bar_date, warehouse=warehouse)
             stats["refetched_fail"] += 1

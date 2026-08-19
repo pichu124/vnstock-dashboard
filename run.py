@@ -168,6 +168,10 @@ def cmd_sync(args) -> int:
                       f"skipped_accepted={stats['skipped_accepted']}")
             # Bị cắt vì trần thời gian là THÔNG TIN, không phải lỗi — nhưng
             # phải nói ra, nếu không hàng đợi phình mà không ai biết.
+            if stats.get("archived_structural"):
+                print(f"[sync] auto-heal: {stats['archived_structural']} mục "
+                      f"nguồn KHÔNG có bar ngày đó → dọn luôn (vắng cấu trúc, "
+                      f"thử lại đêm sau cũng vậy)")
             if stats.get("stopped_early"):
                 print(f"[sync] ⏳ auto-heal dừng theo trần thời gian — còn "
                       f"{stats.get('remaining', '?')} mục trong hàng đợi, "

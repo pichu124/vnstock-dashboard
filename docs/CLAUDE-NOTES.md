@@ -6979,13 +6979,37 @@ nhiêu. Cắt được vì `auto_heal` idempotent: mục chưa xử lý còn ngu
 hàng đợi, đêm sau chạy tiếp. Trần này đưa worst case của `sync` từ 43 phút
 xuống ~17 phút.
 
-**CHƯA chữa gốc, và đây mới là câu hỏi thật.** Mỗi mục hàng đợi = MỘT lần gọi
+**ĐÃ CÓ SỐ — và nó chỉ thẳng vào chỗ phải chữa** (`run_daily.log:6908`):
+
+```
+[sync] auto-heal: scanned=3844 healed=35 retry_bumped=3809 archived=0
+```
+
+**99,1% lượt gọi mạng là vô ích.** 2.156,7s / 3.844 ≈ 0,56s mỗi mục. Và
+`archived=0` nghĩa là chưa mục nào cạn lượt — tức mỗi mục trong 3.809 mục
+trượt đó còn phải đốt thêm `MAX_RETRIES=3` ĐÊM × 36 phút nữa mới được dọn.
+
+**Đã vá (chữa đúng gốc, không phải tăng tốc vòng lặp):** `refetch` vốn phân
+biệt hai loại trượt mà `auto_heal` lại gộp làm một —
+* `fail` + `"no row for target date"` = nguồn TRẢ LỜI được, đưa về các bar
+  quanh ngày đó, nhưng THIẾU đúng ngày ấy ⇒ **vắng có cấu trúc** (mã chưa
+  niêm yết, tạm ngừng, ngày không giao dịch). Đêm mai hỏi lại chắc chắn cũng
+  vậy ⇒ nay **dọn NGAY**, có ghi vết vào `remediation_log.jsonl`.
+* `fail` + `"API returned empty"` = không có gì trong CẢ cửa sổ 5 ngày ⇒ MƠ HỒ,
+  có thể là outage ⇒ giữ nguyên đường thử-lại 3 lượt. Dọn ngay ở đây là một
+  đợt outage xoá sạch hàng đợi.
+* `error` (timeout/exception) = nhất thời ⇒ giữ nguyên đường thử-lại.
+
+`archive_exhausted=False` chặn CẢ hai đường dọn. `run.py` in riêng số mục dọn
+vì vắng cấu trúc.
+
+**Còn lại phải trả lời:** Mỗi mục hàng đợi = MỘT lần gọi
 mạng, `MAX_RETRIES_DEFAULT = 3` rồi tự dọn — nên một mục chỉ sống được 3 đêm.
 36 phút ⇒ cỡ **1.000-2.000 mục/đêm** ⇒ hàng đợi đang được BƠM LẠI liên tục,
-cỡ 500-700 bar bị cách ly mỗi đêm. Phải trả lời: **cái gì đang cách ly ngần ấy
-bar?** Số cần đọc đã có sẵn trong log, dòng
-`[sync] auto-heal: scanned=… healed=… retry_bumped=… archived=…` — chưa lấy.
-Chữa đúng chỗ là chặn nguồn bơm, không phải tăng tốc vòng lặp.
+cỡ 500-700 bar bị cách ly mỗi đêm. **cái gì đang cách ly 3.844 bar?** Bản vá trên
+dọn được phần rác trong MỘT đêm thay vì ba, nhưng nếu nguồn bơm vẫn chảy thì
+đêm nào cũng có hàng đợi mới. Đếm lý do trong `_meta/remediation_log.jsonl`
+là bước tiếp theo.
 
 # ✅ U15. #32 CHẤM LẠI TRÊN KHO ĐÃ CHỮA — VẪN ĐẠT (19/08 21:2x)
 
