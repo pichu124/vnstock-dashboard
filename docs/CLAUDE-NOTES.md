@@ -6740,13 +6740,10 @@ trả lời hệ thống thay cho việc truy tiếp.
 * MSR vừa là BUY rec vừa nằm watchlist "GIẢM TỶ TRỌNG nếu thủng ~41,150":
   KHÔNG mâu thuẫn — watchlist chính là kịch bản hỏng của lệnh (SL -5.7% từ
   42 ≈ 39.6 ≈ mục tiêu ~39.500 của watchlist); caveat BUY-dưới-bear đã phủ.
-* CÂU HỎI MỞ → gộp vào J: brief về 23:16 thay vì ~18:45. Hoặc task nổ muộn
-  (~22:30 + ~44' — vô hại), hoặc nổ đúng 18:00 và kéo ~5h16' (sync lại
-  phình). Sáng mai phân định bằng 2 lệnh:
-  `Select-String -Path run_daily.log -Pattern "⏱"` và
-  `Get-ScheduledTaskInfo -TaskName <Daily>` (LastRunTime + result). Nếu đêm
-  nay đúng là task tự chạy → ĐÊM TỰ ĐỘNG ĐẦU TIÊN chạy trọn tới brief
-  (cổng "vài đêm train tự động" của mục O bắt đầu tích luỹ từ đêm nay).
+* ĐÍNH CHÍNH (user báo ngay sau đó): brief 23:16 là **GỬI TAY**, không phải
+  task tự chạy. Nên: (a) mục O vẫn CHƯA có đêm tự động trọn vẹn nào — cổng
+  chưa tích luỹ; (b) 23:16 không nói gì về giờ task, câu hỏi "task 18:00
+  tối 18/08 có nổ không" vẫn MỞ → xem R.
 
 ## ⚠️ BÀI HỌC VẬN HÀNH — đã vấp 2 tối liền
 
@@ -6754,6 +6751,43 @@ trả lời hệ thống thay cho việc truy tiếp.
 giữa chừng · 18/08: `267014` bị chấm dứt). Làm việc buổi tối thì làm
 TRƯỚC 18:00, hoặc chờ thấy dòng `⏱ TỔNG` trong `run_daily.log` rồi mới gõ
 tiếp. Đây là nguyên nhân số 1 khiến đêm tự động chưa lần nào chạy trọn.
+
+## 🔴 R. GỬI BRIEF TAY 18/08 — 1 việc phải check, phần còn lại đã soi xong
+
+Bối cảnh: bước `brief` trong phát `run.py all` trưa 18/08 không gửi, user
+gửi tay lúc 23:16.
+
+**R1. Việc PHẢI check — nguy cơ brief TRÙNG.** Bất biến "một brief mỗi
+phiên" dựa vào marker `data_warehouse/_meta/brief_push.json`; marker chỉ
+được ghi ở HAI cửa: `cmd_brief` (bước pipeline) và `cmd_telegram` action
+`close` (`run.py:967`). Gửi tay bằng đường KHÁC (gọi thẳng
+`vnstock_telegram.push_close_brief()` trong python -c / notebook) thì
+marker KHÔNG có → task 18:00 nếu còn đang chạy dở, hoặc bất kỳ `run.py all`
+nào trong cùng ngày phiên, sẽ bắn brief THỨ HAI. Check 1 lệnh:
+`type data_warehouse\_meta\brief_push.json` → phải ra `{"close":
+"2026-08-18"}`. Không có/khác ngày → đừng chạy `all` lại trong hôm nay.
+(`vnstock_telegram.py` KHÔNG có khối `__main__`, nên nhiều khả năng user
+đã dùng đúng `run.py telegram close` và marker đã ghi.)
+
+**R2. Không cần check — brief gửi tay KHÔNG khác brief pipeline.** Cùng
+một hàm `push_close_brief`, nên: cùng guards, cùng `_open_recs_block`
+(gate hai tầng), và vẫn được lưu vào SQLite — `save_brief` nằm TRONG
+`generate_brief` (`vnstock_brief.py:3543`), không phải ở lớp gọi. Lịch sử
+brief / auto-score / dashboard không thủng lỗ nào. Mục C chấm nội dung
+brief này vẫn có giá trị nguyên.
+
+**R3. "Không chạy được brief" — phân định BỎ QUA vs LỖI (1 lệnh).**
+`Select-String -Path run_daily.log -Pattern "\[brief\]"`
+* ra `[brief] bỏ qua: chưa tới 15:00 …` → **ĐÚNG THIẾT KẾ**, không phải
+  lỗi (phát trưa chạy trước 15:00, lưới run-on-boot chặn brief phiên cũ).
+  Khớp với `brief 0.0s` trong ⏱ — brief thật tốn hàng chục giây.
+* ra `[brief] ❌ <Lỗi>` → lỗi THẬT ở đường gửi/agent, gửi tôi nguyên dòng.
+* ra `[brief] bỏ qua: đã đẩy … (marker)` → marker của phiên trước còn sót.
+
+**R4. Câu hỏi còn mở**: task 18:00 tối 18/08 có nổ không (nếu nổ mà chưa
+xong thì R1 thành khẩn cấp). `Get-ScheduledTaskInfo -TaskName <Daily>` →
+LastRunTime + LastTaskResult; và `Select-String run_daily.log -Pattern "⏱ TỔNG"`
+xem có phát thứ hai trong ngày không.
 
 ## 🟠 DỮ LIỆU — sau đợt phát hiện KHO LỆCH CƠ SỞ (18/08)
 
@@ -6823,8 +6857,9 @@ nâng sát giờ pipeline.
 ## 🚪 TREO CÓ CỔNG — chỉ làm khi đủ điều kiện
 
 **O. Tầng B — danh mục xoay vòng tháng** (~3-5 buổi): cổng "có chiến lược
-đạt" ĐÃ MỞ (#32); còn cổng "tầng A chạy ổn vài đêm train tự động" đang
-tích luỹ — mà đêm tự động chưa lần nào trọn vẹn (xem mục A/B). Đủ cả hai
+đạt" ĐÃ MỞ (#32); còn cổng "tầng A chạy ổn vài đêm train tự động" VẪN Ở
+MỐC 0 — tính tới 18/08 chưa đêm tự động nào chạy trọn tới brief (17/08 bị
+kill, 18/08 brief phải gửi tay — xem A/B/R). Đủ cả hai
 + user muốn → nêu thiết kế trước rồi mới code.
 
 **P. Đếm hai lần nhóm tuỳ biến** (Ngân hàng 26 vs drill-down 27, lệch
