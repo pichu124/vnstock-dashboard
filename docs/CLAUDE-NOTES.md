@@ -7059,14 +7059,14 @@ bằng git (khớp reflog: mỗi máy tự `git pull`), `run_daily.log` nằm �
 nên là nhân chứng RIÊNG của từng máy — đúng như đã dùng nó để đối chiếu.
 `_meta/*.json` (marker, badge) nằm trong kho nên đồng bộ — đúng như đã ghi.
 
-**Việc phát sinh: `_meta/backup_rebase/` cũng nằm trong Dropbox.** Mỗi lần
-`rebase_ticker_history --apply` là một `shutil.copytree` NGUYÊN thư mục mã
-(NTP: 21 file, 2006→2026) — riêng 19/08 đẻ **77 thư mục**, tất cả được đẩy lên
-mây và kéo sang máy kia. **Không module nào dọn chúng.** Chưa gấp (đĩa còn),
-nhưng nên có chính sách giữ N ngày, hoặc ít nhất đưa `backup_rebase` ra NGOÀI
-junction để khỏi đồng bộ bản sao lưu cục bộ. Lệnh xem dung lượng:
-`(Get-ChildItem C:\vnstock\data_warehouse\_meta\backup_rebase -Recurse -File |
-Measure-Object Length -Sum).Sum / 1MB`
+**`_meta/backup_rebase/` nằm trong Dropbox — ĐÃ ĐO, KHÔNG ĐÁNG LÀM GÌ.**
+Tôi có nêu lo ngại: mỗi `rebase --apply` là một `copytree` nguyên thư mục mã,
+19/08 đẻ 77 thư mục, tất cả đẩy lên mây và kéo sang máy kia, không module nào
+dọn. Đo ra: **10,4 MB cho cả 77 thư mục** (~135 KB/mã). Với nhịp đó thì cả năm
+chữa kho cũng chỉ vài trăm MB.
+⇒ **Bỏ cả hai đề xuất** (chính sách giữ N ngày · đưa ra ngoài junction). Ghi
+lại đây kèm số để không ai đào lên lần nữa. Lệnh đo nếu cần kiểm lại:
+`"{0:N1} MB" -f ((Get-ChildItem C:\vnstock\data_warehouse\_meta\backup_rebase -Recurse -File | Measure-Object Length -Sum).Sum / 1MB)`
 
 # ✅ U15. #32 CHẤM LẠI TRÊN KHO ĐÃ CHỮA — VẪN ĐẠT (19/08 21:2x)
 

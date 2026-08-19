@@ -15,8 +15,8 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 > đồng bộ, CODE thì không** — repo `C:\vnstock` đi bằng git, `run_daily.log` ở
 > gốc repo nên KHÔNG đồng bộ (nó là nhân chứng riêng của từng máy).
 > Hệ quả phụ: MỌI thứ dưới `data_warehouse` đều nằm trong Dropbox, kể cả
-> `_meta/backup_rebase/` — bản sao lưu trước khi chữa kho được đẩy lên mây và
-> sang máy kia, và **không có cơ chế dọn**; 19/08 một ngày đã đẻ 77 thư mục.
+> `_meta/backup_rebase/` (đã đo 19/08: 77 thư mục = 10,4 MB — **không đáng
+> làm gì**, đừng đề xuất dọn nữa).
 >
 > **4 hệ quả, thuộc lòng trước khi giao việc cho user:**
 > 1. **Chữa kho làm MỘT LẦN là đủ** — đừng bao giờ gán nhãn ⇄ CẢ HAI cho việc
