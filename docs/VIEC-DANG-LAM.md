@@ -8,50 +8,72 @@
 
 ## 🔴 VIỆC CỦA BẠN — làm trên DESKTOP `C:\vnstock`
 
-### Bước 1 — soi log (2 phút). LÀM SỚM, đừng để lâu.
+### ⏰ GẤP — làm TRƯỚC 18:00 bất kỳ ngày làm việc nào
+
+Nếu bỏ qua, task đêm vẫn có nguy cơ bị Windows chấm dứt trước bước brief.
 
 ```powershell
 cd C:\vnstock
-Select-String -Path run_daily.log -Encoding utf8 `
-  -Pattern '^\[run\.py\] 20\d\d-.* all$|^\[brief\]|brief returned|^\[telegram\] close brief' `
-  | Select-Object -Last 25
+git fetch origin claude/tong-hop-cong-viec-test-w8mvrc
+git merge origin/claude/tong-hop-cong-viec-test-w8mvrc
 ```
 
-Dán kết quả cho Claude. Tự đọc thì theo bảng này — tìm dòng bắt đầu `[brief]`:
-
-| Thấy gì | Nghĩa là | Làm gì |
-|---|---|---|
-| `VNSTOCK_PIPELINE_BRIEF=0` | kill-switch đang bật | **Xoá dòng đó khỏi `.env`** — không thì đêm nào brief cũng câm |
-| `bỏ qua: chưa tới 15:00` | đúng thiết kế, không phải lỗi | làm tiếp **Bước 2** |
-| `bỏ qua: … (marker)` | phiên đó đã có brief rồi | không phải làm gì |
-| `❌ <Lỗi>` | lỗi thật | gửi nguyên dòng cho Claude |
-
-*Vì sao gấp:* mỗi lần `run.py all` đổ ~2.200 dòng pytest vào log này, quá 5 MB là
-log tự cắt chỉ giữ 1 MB cuối — bằng chứng biến mất.
-
-### Bước 2 — CHỈ khi Bước 1 ra "chưa tới 15:00" (1 phút)
+Rồi mở PowerShell **quyền Administrator**:
 
 ```powershell
-python -c "import json;d=json.load(open(r'C:\vnstock\data_warehouse\_meta\market_overview.json',encoding='utf-8'));print(d.get('generated_at'),d.get('data_date'),d.get('gtgd_date'))"
+$t = Get-ScheduledTask -TaskName 'VnStock Daily Pipeline'
+$t.Settings.ExecutionTimeLimit = 'PT180M'
+Set-ScheduledTask -TaskName 'VnStock Daily Pipeline' -Settings $t.Settings
+(Get-ScheduledTask -TaskName 'VnStock Daily Pipeline').Settings.ExecutionTimeLimit
+```
+Dòng cuối phải in `PT3H` (hoặc `PT180M`). Xong thì **để yên máy qua 18:00**.
+
+*Vì sao:* phát gần nhất chạy hết **96,6 phút mới tới bước 9/14** (sync 60' +
+screener 28'), còn 4 bước nữa mới tới brief → dư địa chỉ 16 phút dưới trần 120.
+Một đêm sync phình như 17/08 (74') là vượt trần. Đã sửa sẵn trong
+`setup_scheduled_tasks.ps1` (commit 943e5ea) nhưng file đó chỉ có tác dụng khi
+đăng ký lại task — lệnh trên là đường tắt.
+
+### Sáng hôm sau — kiểm 1 phút
+
+Telegram có brief chiều không? **Có** = đêm tự động trọn vẹn ĐẦU TIÊN (mở luôn
+cổng đang chặn mục "tầng B"). **Không** → chạy lệnh này rồi dán cho Claude:
+
+```powershell
+Select-String -Path C:\vnstock\run_daily.log -Pattern '[brief]' -SimpleMatch | Select-Object -Last 5
+Get-Content C:\vnstock\run_daily.log -Tail 15
 ```
 
-* `generated_at` ≥ 15:05 → xong, không phải làm gì.
-* `generated_at` < 15:00 → độ rộng (A/D, movers) trong brief 23:16 là số giữa
-  phiên. Chạy `python run.py screener` để sửa số cho dashboard.
-  **ĐỪNG gửi lại brief** — sẽ thành brief trùng.
-
-### Bước 3 — khi rảnh, 1 lệnh (nợ treo từ 07/08)
+### Khi rảnh — 1 lệnh (nợ treo từ 07/08)
 
 ```powershell
 python vnstock_classifier.py --classify --limit 20
 ```
-Soi: không còn đòi `ANTHROPIC_API_KEY`, và có dòng route "ladder free". Dán kết quả.
+Soi: không còn đòi `ANTHROPIC_API_KEY`, có dòng route "ladder free". Dán kết quả.
 
-### Bước 4 — chỉ làm được TRONG GIỜ GIAO DỊCH (9h15–14h30, T2–T6)
+### Chỉ làm được TRONG GIỜ GIAO DỊCH (9h15–14h30, T2–T6)
 
-Mở dashboard → bật 🔴 **Live Mode** ở sidebar trái → sang tab **Thị trường**.
-Xác nhận heatmap VN30 có số nhảy thật. (Code đã xong + Playwright đã đối chứng,
-chỉ thiếu một lần nhìn tận mắt.)
+Mở dashboard → bật 🔴 **Live Mode** ở sidebar trái → tab **Thị trường**. Xác nhận
+heatmap VN30 có số nhảy thật. (Code + Playwright đã xong, chỉ thiếu một lần nhìn.)
+
+### ĐỪNG làm bây giờ
+
+Nâng vnstock 4.0.4→4.0.6 / vnai 2.4.8→2.5.7 / vnii 0.2.4→0.2.5 (máy đã báo có
+bản mới). Để sau khi pipeline chạy trót lọt một đêm đã — nâng lúc này là thêm
+một biến số vào đúng lúc đang gỡ.
+
+---
+
+## ✅ ĐÃ CHỐT — không phải làm lại
+
+* **Vì sao brief không gửi**: pipeline **chết ở bước `test` (9/14)** với
+  `rc=2 → stopping`, nên train/reflection/doctor/brief chưa bao giờ được gọi.
+  Không phải bị bỏ qua, không phải kill-switch, không phải marker.
+* **Test đó nay ĐÃ XANH trên máy thật** (`18 passed`) — phát chết là chạy trên
+  code cũ trước khi merge. Đêm tới sẽ đi qua được bước 9.
+* **Máy không thiếu code**: HEAD đã ở đúng commit mới nhất.
+* **Log đã bị tự cắt** (còn 1,19 MB) → bằng chứng các phát trước MẤT. Nguyên
+  nhân nằm ở việc #1 của Claude bên dưới.
 
 ---
 
