@@ -6966,6 +6966,50 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🔴🔴 U10. LỆCH CƠ SỞ LÀ CHUYỆN HỆ THỐNG — 70/159 MÃ (44%) UNIVERSE THANH KHOẢN
+
+Quét `probe_price_basis --sweep` trên laptop 19/08 (GTGD20 ≥ 5 tỷ, cửa sổ 365
+ngày): **70/159 mã lệch cơ sở**, gồm gần trọn VN30 — HPG 1.1201× · SSI 1.2511×
+· TCB 1.0210× · VPB 1.0178× · MWG 1.0155× · MBB 1.2487× · ACB 1.1606× · CTG
+1.0154× · NVL 1.0750× · VND 1.0289× · VJC 1.3001× … Ngày vách rải từ 03 tới
+08/2026, đúng mùa ĐHCĐ/chia cổ tức. Biên độ 1.5% (cổ tức tiền mặt) tới 2.0000×
+(F88, chia tách).
+
+**HỆ QUẢ PHẢI ĐỐI MẶT — đây mới là phần quan trọng, không phải chuyện vệ sinh
+dữ liệu:**
+* Backtest 365-730 ngày của **44% universe** đang chạy trên chuỗi giá có bậc
+  giả. Mọi cửa sổ bắc qua ngày vách đều thấy một cú rơi/nhảy KHÔNG CÓ THẬT.
+* ⇒ **Kiểm định chống-ăn-may hiện tại KHÔNG đáng tin**, kể cả #32 (p=0.012,
+  n=94) — nó được chấm trên dữ liệu này. Sau khi chữa kho PHẢI chạy lại
+  backtest/kiểm định rồi mới bàn tiếp về tầng B hay theo dõi live.
+* Screener lọc thanh khoản bằng close×volume cũng lệch theo ở phần lịch sử.
+* Vì sao không ai thấy suốt bao lâu nay: `check_unit_continuity` nhìn VÁCH GIÁ
+  (≥30%) nên mù; giá vẫn liền mạch, vẫn khớp giá live, mã vẫn được báo "sạch".
+
+**Vì sao xảy ra (đã biết từ 18/08, nay rõ quy mô):** nguồn back-adjust TOÀN
+chuỗi sau mỗi sự kiện quyền, còn `update_ticker` chỉ fetch từ `_get_last_date`
+— KHÔNG có đường nạp lại lịch sử. Nên mỗi lần một mã trả cổ tức là kho lại lệch
+thêm một bậc. Đây chính là mục **V1** (chặn tái phát): trước đây xếp "đáng làm
+nhất còn lại", nay là **BẮT BUỘC** — chữa 70 mã mà không chặn thì mùa cổ tức
+sau lại đúng ngần ấy.
+
+**Công cụ đã sẵn (19/08):**
+* Quét: `python scripts/probe_price_basis.py --sweep` (ghi vết
+  `_meta/basis_sweep_check.json`).
+* Chữa hàng loạt: `python scripts/rebase_ticker_history.py --from-sweep`
+  (mặc định CHẠY THỬ; thêm `--apply` mới ghi). Mỗi mã vẫn qua đủ cửa gác:
+  probe phải phán `warehouse_basis`, có sao lưu + tự kiểm riêng, và dòng TỔNG
+  KHÔNG gộp "chưa chữa được" vào "xong".
+* `rebase` nay tự dò được vách cỡ cổ tức (`_basis_break_of` → dùng chung
+  `find_basis_step` với chế độ quét, một nơi định nghĩa).
+
+**Thứ tự làm (⇄ CẢ HAI MÁY, desktop trước vì nó sinh khuyến nghị):**
+1. `--from-sweep` chạy thử, đọc xem mã nào bị từ chối và vì sao.
+2. `--from-sweep --apply`.
+3. Quét lại `--sweep` → kỳ vọng 0 mã.
+4. Chạy lại backtest/kiểm định; coi mọi verdict trước 19/08 là VÔ HIỆU.
+5. Làm V1 trước mùa cổ tức tới.
+
 **U9. 🔴 LỚP LỖI MỚI: lệch cơ sở cỡ CỔ TỨC (2-5%) — bộ quét MÙ hoàn toàn.
 Phát hiện tình cờ 19/08 khi test thư viện.**
 `probe_price_basis --ticker VNM` (VN30, blue chip) cho:

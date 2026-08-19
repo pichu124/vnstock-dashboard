@@ -280,3 +280,72 @@ class TestVolumeOnlyScalesForShareCountEvents:
         dựng bản sao thứ hai của kho sự kiện."""
         src = self._src()
         assert "from check_unit_continuity import match_corp_action" in src
+
+
+# ── Chữa HÀNG LOẠT từ vết quét (thêm 19/08 sau khi sweep ra 70/159 mã) ─────
+
+class TestBatchFromSweep:
+    """Quét 19/08 ra 70/159 mã universe thanh khoản lệch cơ sở — chữa tay từng
+    mã là 70 lệnh, và mỗi lệnh phải tự tra ngày vách. Nhưng chữa hàng loạt
+    KHÔNG được nới lỏng cửa gác: mỗi mã vẫn phải qua probe (verdict phải là
+    warehouse_basis), vẫn sao lưu và tự kiểm riêng."""
+
+    def _rth(self):
+        import sys
+        from pathlib import Path as _P
+        sys.path.insert(0, str(_P(__file__).resolve().parent.parent / "scripts"))
+        import rebase_ticker_history as rth
+        return rth
+
+    def test_reads_ticker_list_from_the_sweep_stamp(self, tmp_path):
+        import json
+        rth = self._rth()
+        meta = tmp_path / "_meta"
+        meta.mkdir(parents=True)
+        (meta / "basis_sweep_check.json").write_text(json.dumps({
+            "checked_at": "2026-08-19T15:00:00", "scanned": 159,
+            "suspect": ["HPG", "SSI", "TCB"], "unchecked": []}),
+            encoding="utf-8")
+        assert rth._sweep_targets(tmp_path) == ["HPG", "SSI", "TCB"]
+
+    def test_missing_stamp_says_run_the_sweep_first(self, tmp_path, capsys):
+        rth = self._rth()
+        assert rth._sweep_targets(tmp_path) == []
+        assert "--sweep" in capsys.readouterr().out
+
+    def test_corrupt_stamp_returns_empty_not_garbage(self, tmp_path, capsys):
+        rth = self._rth()
+        meta = tmp_path / "_meta"
+        meta.mkdir(parents=True)
+        (meta / "basis_sweep_check.json").write_text("{hong", encoding="utf-8")
+        assert rth._sweep_targets(tmp_path) == []
+        assert "hỏng" in capsys.readouterr().out
+
+    def test_batch_summary_never_folds_failures_into_done(self):
+        """Vết 18/08: gộp 'chưa chữa được' vào 'xong' là cách chắc nhất khiến
+        người đọc tưởng cả rổ đã sạch."""
+        import inspect
+        rth = self._rth()
+        src = inspect.getsource(rth.main)
+        assert "KHÔNG chữa được" in src and "CHƯA sạch" in src
+
+    def test_batch_still_dry_run_by_default(self):
+        import inspect
+        rth = self._rth()
+        src = inspect.getsource(rth.main)
+        assert "CHẠY THỬ, chưa ghi gì" in src
+
+    def test_autodetect_falls_back_to_basis_step(self):
+        """Không có vách GIÁ ≥30% KHÔNG có nghĩa là sạch — phải hỏi nốt bộ dò
+        tỉ lệ kho/nguồn trước khi tuyên bố."""
+        import inspect
+        rth = self._rth()
+        src = inspect.getsource(rth._rebase_one)
+        assert "_basis_break_of" in src
+
+    def test_basis_detector_is_shared_not_duplicated(self):
+        """Một nơi định nghĩa 'vách ở đâu': dùng lại find_basis_step của
+        probe chứ không nuôi bản thứ hai."""
+        import inspect
+        rth = self._rth()
+        assert "find_basis_step" in inspect.getsource(rth._basis_break_of)

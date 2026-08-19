@@ -31,6 +31,7 @@ Exit: 0 xong/sạch · 1 có mã không chữa được · 2 lỗi đọc kho/ng
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import sys
@@ -127,6 +128,41 @@ def _volume_step(wh_head: pd.DataFrame, brk: date, n: int = 20) -> float:
         return float("nan")
 
 
+def _basis_break_of(tk: str, wh_root: Path, since_days: int = 365) -> "date | None":
+    """Ngày ĐỔI BẬC tỉ lệ kho/nguồn — bộ dò dành cho lệch cỡ cổ tức.
+
+    `_find_break` chỉ thấy vách giá ≥30% nên mù với lớp lỗi này (ca VNM
+    1.0327×). Dùng chung `find_basis_step` với chế độ quét để hai bên không
+    bao giờ bất đồng về "vách ở đâu".
+    """
+    from probe_price_basis import fetch_source, find_basis_step, load_wh
+    d1 = date.today()
+    d0 = d1 - timedelta(days=since_days)
+    wh = load_wh(wh_root / "prices", tk, d0, d1)
+    if wh.empty:
+        return None
+    src = fetch_source(tk, d0, d1)
+    if src.empty:
+        return None
+    step = find_basis_step(wh, src)
+    return step["break"] if step else None
+
+
+def _sweep_targets(wh_root: Path) -> list:
+    """Danh sách mã từ vết quét gần nhất. Lỗi đọc thì trả rỗng, KHÔNG đoán."""
+    p = wh_root / "_meta" / "basis_sweep_check.json"
+    if not p.exists():
+        print(f"[rebase] ✗ chưa có vết quét ({p}) — chạy trước: "
+              f"python scripts/probe_price_basis.py --sweep")
+        return []
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as e:
+        print(f"[rebase] ✗ vết quét hỏng ({type(e).__name__}: {e})")
+        return []
+    return list(data.get("suspect") or [])
+
+
 def _rebase_one(tk: str, wh_root: Path, apply: bool,
                 volume_mode: str = "auto",
                 break_date: "date | None" = None) -> int:
@@ -155,6 +191,14 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
             print(f"\n[rebase] ✗ {tk}: KHÔNG SOI ĐƯỢC ({type(e).__name__}: {e}) "
                   f"— chưa kết luận được gì, ĐỪNG coi là sạch")
             return 1
+    if brk is None:
+        # Không có vách GIÁ ≥30% ≠ không có lệch cơ sở: lớp lỗi cỡ cổ tức
+        # (2-5%) chỉ hiện qua TỈ LỆ kho/nguồn (ca VNM 19/08, và 70/159 mã
+        # universe thanh khoản). Hỏi nốt bộ dò kia trước khi tuyên bố sạch.
+        brk = _basis_break_of(tk, wh_root)
+        if brk is not None:
+            print(f"\n[rebase] {tk}: không có vách giá, nhưng TỈ LỆ kho/nguồn "
+                  f"đổi bậc tại {brk}")
     if brk is None:
         print(f"\n[rebase] ✅ {tk}: không còn vách nghi vấn trong 365 ngày "
               f"(soi {len(load_bars(prices_dir, tk, since_days=365)):,} bar)")
@@ -312,7 +356,7 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
 
 def main(argv: "list[str] | None" = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--ticker", required=True, action="append")
+    ap.add_argument("--ticker", action="append")
     ap.add_argument("--warehouse", default="data_warehouse")
     ap.add_argument("--apply", action="store_true",
                     help="GHI THẬT vào kho (mặc định chỉ chạy thử)")
@@ -320,6 +364,11 @@ def main(argv: "list[str] | None" = None) -> int:
                     help="ngày vách (YYYY-MM-DD) khi tự tìm KHÔNG ra — lệch cơ "
                          "sở cỡ cổ tức (2-5%%) nằm dưới ngưỡng 30%% của bộ dò, "
                          "phải lấy ngày từ probe_price_basis")
+    ap.add_argument("--from-sweep", action="store_true",
+                    help="chữa HÀNG LOẠT mọi mã trong vết quét gần nhất "
+                         "(_meta/basis_sweep_check.json). Mỗi mã vẫn qua đủ "
+                         "cửa: probe phải phán warehouse_basis mới ghi, có sao "
+                         "lưu + tự kiểm riêng. Mặc định vẫn CHẠY THỬ.")
     ap.add_argument("--volume", choices=("auto", "adjust", "source"),
                     default="auto",
                     help="auto (mặc định): nhân khối lượng theo hệ số giá KHI "
@@ -331,11 +380,35 @@ def main(argv: "list[str] | None" = None) -> int:
     wh_root = Path(args.warehouse)
     if not wh_root.is_absolute():
         wh_root = REPO_ROOT / wh_root
-    worst = 0
-    for tk in args.ticker:
+    tickers = [t.upper() for t in (args.ticker or [])]
+    if args.from_sweep:
+        tickers = _sweep_targets(wh_root) or tickers
+        if not tickers:
+            return 2
+        print(f"[rebase] chữa hàng loạt {len(tickers)} mã từ vết quét"
+              + ("" if args.apply else " — CHẠY THỬ, chưa ghi gì"))
+    if not tickers:
+        ap.error("cần --ticker hoặc --from-sweep")
+
+    worst, done, refused = 0, 0, []
+    for tk in tickers:
         _bd = date.fromisoformat(args.break_date) if args.break_date else None
-        worst = max(worst, _rebase_one(tk.upper(), wh_root, args.apply,
-                                       args.volume, _bd))
+        rc = _rebase_one(tk, wh_root, args.apply, args.volume, _bd)
+        worst = max(worst, rc)
+        if rc == 0:
+            done += 1
+        else:
+            refused.append(tk)
+    if len(tickers) > 1:
+        print(f"\n[rebase] TỔNG: {done}/{len(tickers)} mã xong"
+              + (f" · {len(refused)} mã KHÔNG chữa được: "
+                 + ", ".join(refused[:15]) + (" …" if len(refused) > 15 else "")
+                 if refused else ""))
+        if refused:
+            # Không gộp "chưa chữa được" vào "xong" (vết 18/08): người đọc
+            # thấy dòng TỔNG rồi tưởng cả rổ đã sạch.
+            print("[rebase]   → mã ở trên CHƯA sạch, soi từng cái bằng "
+                  "probe_price_basis trước khi kết luận")
     return worst
 
 

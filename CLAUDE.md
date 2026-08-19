@@ -28,8 +28,8 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   ⇄ CẢ HAI.
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~1.699 test; ~30s trên CI).
-- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.219 test).
+- Sửa module lõi nào → `python run.py test --fast` (~1.706 test; ~30s trên CI).
+- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.226 test).
   Đo trên MÁY THẬT 19/08 (sau đợt vá): **2.181 passed / 100,3s** — khớp CI từng test một
   (CI ~36s; máy thật chậm hơn ~3× vì có kho dữ liệu, không phải vì bỏ test).
 - Kết quả ghi `data_warehouse/_meta/test_status.json` → badge sidebar.
