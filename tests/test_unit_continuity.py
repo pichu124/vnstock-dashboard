@@ -306,15 +306,40 @@ def test_all_mode_skips_non_equities(tmp_path, capsys):
     assert "bỏ 1" in out                      # nói rõ đã bỏ bao nhiêu mã
 
 
-def test_since_window_hides_ancient_noise(tmp_path, capsys):
-    """Vách năm 2010 không nói gì về kho hôm nay. --all cắt cửa sổ 365 ngày;
-    soi mã lẻ thì vẫn xem toàn lịch sử (0 = không cắt)."""
+def test_ancient_break_is_shown_but_not_actionable(tmp_path, capsys):
+    """Vách năm 2010 vẫn được IN (soi mã lẻ xem toàn lịch sử) nhưng KHÔNG
+    được tính là "cần soi tay": backtest dài nhất là 730 ngày nên không quyết
+    định nào chạm tới nó. Ca thật 19/08: 11/50 mã bị gắn cờ, 10 trong đó là
+    vết 2006-2025 của penny, làm mã DUY NHẤT đáng chữa (VVS, vách 2 tháng
+    trước, GTGD ~13 tỷ/phiên) chìm nghỉm."""
     wh = tmp_path / "wh"
     _write_bars(wh, "AAA", _gapped([10.0, 6.0, 6.1],
                                    ["2010-03-01", "2010-03-02", "2010-03-03"]))
     assert cuc.main(["--warehouse", str(wh), "--all"]) == 0        # cửa sổ 365
-    assert cuc.main(["--warehouse", str(wh), "--ticker", "AAA"]) == 1  # toàn bộ
-    assert "2010-03-02" in capsys.readouterr().out
+    assert cuc.main(["--warehouse", str(wh), "--ticker", "AAA"]) == 0
+    out = capsys.readouterr().out
+    assert "2010-03-02" in out, "vẫn phải in ra để đọc"
+    assert "NGOÀI lookback" in out, "phải nói RÕ vì sao không tính"
+
+
+def test_recent_break_is_still_actionable(tmp_path, capsys):
+    """Lưới không được nới rộng đến mức nuốt luôn ca thật: vách trong tầm
+    lookback vẫn phải làm exit 1 (ca VVS 2026-06-15)."""
+    import datetime as _d
+    recent = [(_d.date.today() - _d.timedelta(days=n)).isoformat()
+              for n in (9, 8, 7)]
+    wh = tmp_path / "wh"
+    _write_bars(wh, "BBB", _gapped([112.5, 71.21, 72.0], recent))
+    assert cuc.main(["--warehouse", str(wh), "--ticker", "BBB"]) == 1
+    assert "cần soi tay" in capsys.readouterr().out
+
+
+def test_lookback_boundary_is_the_backtest_horizon(tmp_path):
+    """Ranh giới phải neo vào lookback dài nhất của backtest (730 ngày), không
+    phải một con số tuỳ hứng — lệch nhau là tool và chiến lược nói hai chuyện."""
+    from vnstock_strategy import TIER_CONFIGS
+    assert cuc.LOOKBACK_DAYS >= max(
+        c["lookback_days"] for c in TIER_CONFIGS.values())
 
 
 def test_all_mode_ranks_by_liquidity_not_alphabet(tmp_path, capsys):

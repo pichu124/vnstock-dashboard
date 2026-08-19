@@ -57,6 +57,13 @@ LIVE_TOLERANCE = 1.3
 # thứ Hai đã là 3 ngày; nghỉ lễ dài hơn). Mã kém thanh khoản có bar cách nhau
 # hàng tháng — chấm biên độ sàn lên quãng đó là báo động giả.
 MAX_ADJACENT_DAYS = 4
+# Vách CŨ HƠN mọi lookback thực tế thì không quyết định nào chạm tới nó nữa:
+# backtest dài nhất là tầng vị thế 730 ngày (vnstock_strategy.TIER_CONFIGS).
+# Vẫn IN ra để đọc, nhưng KHÔNG tính là "cần soi tay" — nếu không, một vách
+# năm 2006 làm mã bị gắn cờ ngang với vách tháng trước. Ca thật 19/08: 11/50
+# mã bị gắn cờ, mà 10 trong đó là vết 2006-2025 của penny; mã DUY NHẤT đáng
+# chữa (VVS, vách 2026-06-15, GTGD ~13 tỷ/phiên) chìm nghỉm giữa đám đó.
+LOOKBACK_DAYS = 730
 # Ngày GDKHQ trong cache có thể lệch 1-2 phiên so với bar rơi giá (nguồn ghi
 # ngày chốt quyền vs ngày giao dịch không hưởng quyền) → cửa sổ đối chiếu.
 EVENT_WINDOW_DAYS = 3
@@ -153,6 +160,7 @@ def find_jumps(df: pd.DataFrame, jump_pct: float = JUMP_PCT) -> list[dict]:
         ratio = cur / prev
         inv = 1 / ratio
         gap = int((times.iloc[i] - times.iloc[i - 1]).days)
+        age_days = int((pd.Timestamp.now().normalize() - times.iloc[i]).days)
         if UNIT_LO <= ratio <= UNIT_HI or UNIT_LO <= inv <= UNIT_HI:
             why, suspect = "VẾT QUY ĐỔI SÓT (~1000× — VND lẫn nghìn VND)", True
         elif gap > MAX_ADJACENT_DAYS:
@@ -170,9 +178,14 @@ def find_jumps(df: pd.DataFrame, jump_pct: float = JUMP_PCT) -> list[dict]:
             why = ("kề phiên mà vượt biên độ sàn — nghi KHO LỆCH CƠ SỞ "
                    "điều chỉnh (nguồn rebase sau sự kiện quyền)")
             suspect = True
+        stale = suspect and age_days > LOOKBACK_DAYS
+        if stale:
+            why = (f"{why} · NGOÀI lookback {LOOKBACK_DAYS} ngày "
+                   f"({age_days:,} ngày trước) — không quyết định nào chạm tới")
         out.append({"time": str(df['time'].iloc[i].date()),
                     "prev": float(prev), "cur": float(cur), "pct": float(pct),
-                    "gap_days": gap, "why": why, "suspect": suspect})
+                    "gap_days": gap, "age_days": age_days, "why": why,
+                    "suspect": suspect and not stale, "stale_history": stale})
     return out
 
 
