@@ -28,15 +28,22 @@ $env:COMPUTERNAME; Get-ScheduledTask -TaskName 'VnStock *' | Select-Object TaskN
 **Quy ước (user chốt 20/08): máy đang ngồi là TRẠNG THÁI DÍNH.** User báo đổi
 máy thì mới đổi; không báo thì mặc định vẫn là máy của lượt trước. Lệnh trên
 chỉ dùng khi thật sự chưa biết — hỏi lại điều user đã nói cũng là một kiểu quy
-sai máy. **Phiên hiện tại: 💻 LAPTOP.**
+sai máy. **Phiên hiện tại: 🖥️ DESKTOP** (user báo 20/08, sau khi làm xong ở laptop).
 
 ---
 
-## 🔴 GẤP NHẤT — ⇄ CẢ HAI MÁY · 💻 laptop ✅ XONG · 🖥️ desktop ⏳ CHƯA
+## ✅ HẾT GẤP — ⇄ CẢ HAI MÁY ĐÃ Ở `2.447` (20/08)
 
-Code KHÔNG đồng bộ. Máy nào chưa merge là máy đó vẫn chạy bản cũ — và bản cũ
-có đúng những lỗi hôm nay vừa vá (bộ chữa kho không hội tụ, tự kiểm mù,
-`test_tests_badge_states` đỏ theo giờ trong ngày).
+| Máy | Kết quả trên máy thật |
+|---|---|
+| 💻 **LAPTOP** | `2447 passed / 116,56s` · badge xanh |
+| 🖥️ **DESKTOP** | `2447 passed / 165,45s` · badge xanh |
+
+Cả hai khớp CI từng test một. Desktop nay có đủ 4 đợt của ngày 20/08: guard
+GDKHQ tự quy đổi · rổ VN30 kỳ 08/2026 · tầng nóng live · bộ chấm biết lịch
+phiên. **Phát 18:00 tối nay chạy trên code mới.**
+
+Quy trình chuẩn cho lần sau (đừng bỏ bước nào):
 
 ```powershell
 cd C:\vnstock
@@ -44,26 +51,17 @@ git pull origin claude/tong-hop-cong-viec-test-w8mvrc
 python run.py test
 ```
 
-Phải ra **2.447 passed**. **Chạy `run.py test` NGAY sau khi merge** — đừng để
-task 18:00 phát hiện hộ. Bài học 19/08: merge lúc 17:37 rồi để phát 18:00 chạy
-full suite ở bước 9, một test đỏ là dừng cứng và **mất brief cả đêm**.
-
-HEAD là `2.447` sau nguyên ngày 20/08 (corp-ratio · lịch phiên · rổ VN30 ·
-tầng nóng live).
-
-* 💻 **LAPTOP: ✅ CHỐT 20/08** — `2447 passed / 116,56s` trên máy thật, badge
-  xanh, khớp CI từng test một. Laptop **sạch sổ hoàn toàn**.
-* 🖥️ **DESKTOP: ⏳ CHƯA MERGE LẦN NÀO HÔM NAY — làm TRƯỚC 18:00**. Nó đang ở
-  `2.352`, tức là **thiếu cả 4 đợt**: guard GDKHQ tự quy đổi (hôm nay đúng
-  ngày GDKHQ của VIX), rổ VN30 kỳ 08/2026 (desktop đang vẽ rổ CŨ), tầng nóng
-  live, và bộ chấm biết lịch phiên. **Đừng merge sát 18:00**: chạy full suite
-  xong hẵng thôi (~2 phút trên máy thật), bài học 19/08 ngay trên.
-* (Lượt merge 19/08 có 1 test đỏ do test PHỤ THUỘC KHO THẬT — đã vá, xem
-  `docs/CLAUDE-NOTES.md` mục U18.)
+**Chạy `run.py test` NGAY sau khi merge, và KHÔNG merge sát 18:00** — bài học
+19/08: merge lúc 17:37 rồi để phát 18:00 chạy full suite ở bước 9, một test đỏ
+là dừng cứng và **mất brief cả đêm**.
 
 *Ghi chú về bẫy `git pull`: `git pull origin <nhánh>` CÓ tác dụng (nó merge
 `origin/<nhánh>` vào nhánh đang đứng). Bẫy "Already up to date" chỉ xảy ra với
 `git pull` TRỐNG — khi đó git chỉ nhìn nhánh upstream của `main`.*
+
+*Ghi nhận phụ (đo 20/08): desktop có thêm gói `vnii` (subscription) và
+`vnai 2.5.8 available` còn laptop báo `2.5.7` — bộ gói hai máy KHÔNG giống
+nhau. Cả hai vẫn ở **vnstock 4.0.4 / vnai 2.4.8**, đúng mốc đang chốt.*
 
 ---
 
