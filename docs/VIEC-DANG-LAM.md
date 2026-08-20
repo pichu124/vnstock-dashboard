@@ -46,8 +46,8 @@ full suite ở bước 9, một test đỏ là dừng cứng và **mất brief c
 HEAD là `2.444` sau nguyên ngày 20/08 (corp-ratio · lịch phiên · rổ VN30 ·
 tầng nóng live).
 
-* 💻 **LAPTOP: ✅ theo kịp** — đã merge và test nhiều lượt trong ngày; lượt
-  cuối cần chạy lại sau đợt rổ VN30 (xem lệnh trên).
+* 💻 **LAPTOP: ✅ CHỐT 20/08** — `2444 passed / 110,00s` trên máy thật, badge
+  xanh, khớp CI từng test một. Laptop **sạch sổ hoàn toàn**.
 * 🖥️ **DESKTOP: ⏳ CHƯA MERGE LẦN NÀO HÔM NAY — làm TRƯỚC 18:00**. Nó đang ở
   `2.352`, tức là **thiếu cả 4 đợt**: guard GDKHQ tự quy đổi (hôm nay đúng
   ngày GDKHQ của VIX), rổ VN30 kỳ 08/2026 (desktop đang vẽ rổ CŨ), tầng nóng
