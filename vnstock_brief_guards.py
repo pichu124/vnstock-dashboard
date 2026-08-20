@@ -41,6 +41,7 @@ from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
     _BUY_BIAS_CAVEAT,
     _STANCE_CAUTION_MARK,
     _STANCE_CAUTION_MOMENTUM,
+    _adjusted_ref_price,
     _EXDATE_MARK,
     _EXDATE_REC_DAYS,
     _EXDATE_WL_DAYS,

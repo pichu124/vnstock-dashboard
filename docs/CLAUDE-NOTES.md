@@ -6997,7 +6997,25 @@ số cổ phiếu — dùng nó làm bằng chứng là dùng sai đại lượn
 
 ## Hai việc mở ra từ đây (chưa làm)
 
-**(1) Bơm tỉ lệ quyền vào guard GDKHQ + bộ chữa.** `fetch_corp_events` ĐÃ trả
+**✅ (1) ĐÃ LÀM 19/08 — phần guard.** `vnstock_corp_ratio` (hàm thuần, 31
+test) đọc tỉ lệ từ tiêu đề; `enforce_exdate_levels` nay in thẳng giá tham
+chiếu: `VIX (Giá 13,100) … ⚠️ GDKHQ 2026-08-20 (…) — giá tham chiếu ≈ 12,476`.
+PET với HAI sự kiện cùng ngày ra 29.000 → 20.000 (gộp 20:1 + 5:2 = 1.45), đúng
+luật cộng dồn.
+
+Ranh giới an toàn giữ nguyên chỗ cũ, chỉ dịch từ "không bao giờ quy đổi" sang
+"không quy đổi khi ĐỌC THIẾU": `_exdate_map` nay giữ MỌI tiêu đề của ngày gần
+nhất, và `combine` trả None nếu không parse được TRỌN BỘ — thiếu một vế ra
+1.05 hay 1.40 thay vì 1.45, cả hai đều trông hợp lý. Loại phát hành có giá mua
+(`quyền mua`, `chào bán`) bị TỪ CHỐI thẳng vì công thức cần thêm giá phát hành.
+
+⏳ Phần còn lại của (1): dùng tỉ lệ này trong `rebase_ticker_history` để bỏ
+heuristic bậc-nhảy-volume. Chưa làm — nó là công cụ GHI KHO nên đáng một lượt
+riêng, và `vnstock_adjust.load_events` có cột `ratio` với ngữ nghĩa CHƯA rõ
+("10:1 split → ratio=10" — không biết là ×10 hay 10 cũ ăn 1 mới), phải xác
+minh trước khi tin.
+
+**(1-cũ) Bơm tỉ lệ quyền vào guard GDKHQ + bộ chữa.** `fetch_corp_events` ĐÃ trả
 `ratio` / `cash_amount` có cấu trúc. Nhưng `vnstock_events.load_upcoming` — thứ
 brief thực sự đọc — lấy từ nguồn KHÁC (VCI `company.events()`) và chỉ giữ
 `ticker / ex_date / title / category`, vứt phần tỉ lệ. Vá bằng cách phân tích

@@ -39,7 +39,7 @@ git pull origin claude/tong-hop-cong-viec-test-w8mvrc
 python run.py test
 ```
 
-Phải ra **2.352 passed**. **Chạy `run.py test` NGAY sau khi merge** — đừng để
+Phải ra **2.387 passed**. **Chạy `run.py test` NGAY sau khi merge** — đừng để
 task 18:00 phát hiện hộ. Bài học 19/08: merge lúc 17:37 rồi để phát 18:00 chạy
 full suite ở bước 9, một test đỏ là dừng cứng và **mất brief cả đêm**.
 

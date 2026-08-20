@@ -148,8 +148,65 @@ def test_guard_is_wired_into_the_chain():
     assert "enforce_exdate_levels(" in inspect.getsource(g.apply_brief_guards)
 
 
-def test_guard_does_not_invent_an_adjusted_price():
-    """Cố ý KHÔNG tự quy đổi: tỉ lệ chỉ nằm trong CHỮ, mà cổ tức TIỀN MẶT điều
-    chỉnh theo MỆNH GIÁ chứ không theo % giá — đoán sai còn hại hơn không đoán."""
-    out = _line(enforce_exdate_levels(_WL, _ctx()), "**VIX**")
-    assert "12,476" not in out and "12.476" not in out
+def test_guard_never_computes_from_a_PARTIAL_event_set():
+    """Bản đầu (19/08) CỐ Ý không quy đổi vì tỉ lệ chỉ nằm trong chữ. Nay quy
+    đổi được, nhưng ranh giới vẫn giữ nguyên chỗ cũ: đọc được MỘT PHẦN sự kiện
+    của một ngày GDKHQ thì KHÔNG đưa số — thiếu một vế ra con số sai trông rất
+    thuyết phục (PET: 1.05 hay 1.40 thay vì 1.45)."""
+    txt = ("📋 Watchlist sáng mai\n"
+           "1. **PET** (Giá 29,000) — canh MUA NẾU vượt 30,000\n")
+    out = enforce_exdate_levels(txt, {"today": "2026-08-19", "upcoming_events": [
+        {"ticker": "PET", "ex_date": "2026-08-20",
+         "title": "Trả cổ tức bằng cổ phiếu, tỷ lệ 20:1"},
+        {"ticker": "PET", "ex_date": "2026-08-20",
+         "title": "Phát hành thêm cho cổ đông hiện hữu, tỷ lệ 2:1"},   # có giá mua
+    ]})
+    assert _EXDATE_MARK in out
+    assert "≈" not in out, "đọc thiếu một vế mà vẫn đưa số"
+
+
+# ── Quy đổi mốc giá (thêm 19/08 sau khi Vietstock cho tỉ lệ đọc được) ───────
+# Bản đầu của guard CỐ Ý không quy đổi vì tỉ lệ chỉ nằm trong chữ. Nay có
+# `vnstock_corp_ratio` (hàm thuần, có lưới) nên quy đổi được — nhưng giữ nguyên
+# tinh thần: đọc không trọn bộ thì KHÔNG đưa số.
+
+def _ctx_multi(events, today="2026-08-19"):
+    return {"today": today, "upcoming_events": events}
+
+
+def test_reference_price_is_computed_when_the_ratio_is_readable():
+    out = enforce_exdate_levels(_WL, _ctx())
+    vix = _line(out, "**VIX**")
+    assert "12,476" in vix          # 13,100 / 1.05
+    assert "CHƯA quy đổi" in vix    # vẫn nói rõ mốc trên chưa được sửa
+
+
+def test_all_events_on_the_same_exdate_are_combined():
+    """Ca PET: 20:1 + 5:2 cùng ngày ⇒ 1.45, không phải 1.05 hay 1.40."""
+    txt = "📋 Watchlist sáng mai\n1. **PET** (Giá 29,000) — canh MUA NẾU vượt 30,000\n"
+    out = enforce_exdate_levels(txt, _ctx_multi([
+        {"ticker": "PET", "ex_date": "2026-08-20",
+         "title": "Trả cổ tức bằng cổ phiếu, tỷ lệ 20:1"},
+        {"ticker": "PET", "ex_date": "2026-08-20",
+         "title": "Thưởng cổ phiếu, tỷ lệ 5:2"},
+    ]))
+    assert "20,000" in out          # 29,000 / 1.45
+    assert "27,619" not in out      # 29,000 / 1.05 — thiếu một vế
+    assert "20,714" not in out      # 29,000 / 1.40 — thiếu vế kia
+
+
+def test_unreadable_ratio_falls_back_to_the_wordy_warning():
+    txt = "📋 Watchlist sáng mai\n1. **VIX** (Giá 13,100) — TRÁNH nếu thủng 12,700\n"
+    out = enforce_exdate_levels(txt, _ctx_multi([
+        {"ticker": "VIX", "ex_date": "2026-08-20",
+         "title": "Đại hội cổ đông thường niên 2026"},
+    ]))
+    assert "giá tham chiếu tự điều chỉnh" in out
+    assert "≈" not in out
+
+
+def test_no_price_in_the_line_means_no_number():
+    """Dòng đề xuất (`entry=13`) không có `(Giá …)` — không được bịa mốc."""
+    txt = "💡 Đề xuất giao dịch\n- VIX BUY entry=13 TP=15 SL=12\n"
+    out = enforce_exdate_levels(txt, _ctx())
+    assert _EXDATE_MARK in out and "≈" not in out

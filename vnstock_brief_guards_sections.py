@@ -1154,10 +1154,13 @@ _EXDATE_MARK = "⚠️ GDKHQ"
 
 
 def _exdate_map(ctx: dict | None, within_days: int) -> dict:
-    """{MÃ: (ex_date, title)} của sự kiện quyền rơi trong `within_days` ngày.
+    """{MÃ: (ex_date, [tiêu đề])} của sự kiện quyền trong `within_days` ngày.
 
-    Mã có NHIỀU sự kiện thì giữ cái GẦN NHẤT — đó là cái làm hỏng mốc giá trước.
-    `ctx["today"]` cho phép test cắm ngày cố định; ngoài đời lấy ngày hệ thống.
+    Giữ ngày GẦN NHẤT và **MỌI** sự kiện rơi đúng ngày đó — không phải một cái.
+    Vì sao quan trọng (ca PET 19/08): cùng ngày GDKHQ 09/07 có `20:1` VÀ `5:2`;
+    lấy một cái ra hệ số 1.05 hoặc 1.40, gộp cả hai mới ra 1.45 — đúng bằng số
+    đo độc lập từ giá. Thiếu một vế là ra con số sai trông rất thuyết phục.
+    `ctx["today"]` cho phép test cắm ngày cố định.
     """
     from datetime import date as _date, timedelta as _td
 
@@ -1179,9 +1182,33 @@ def _exdate_map(ctx: dict | None, within_days: int) -> dict:
         tk = str(e.get("ticker") or "").strip().upper()
         if not tk:
             continue
+        title = str(e.get("title") or "").strip()
         if tk not in out or d < out[tk][0]:
-            out[tk] = (d, str(e.get("title") or "").strip())
+            out[tk] = (d, [title])
+        elif d == out[tk][0]:
+            out[tk][1].append(title)
     return out
+
+
+def _adjusted_ref_price(line: str, titles: list) -> "float | None":
+    """Giá tham chiếu ngày GDKHQ cho dòng setup này — None khi không chắc.
+
+    Cần HAI vế: giá hiện tại đọc được từ chính dòng (`**VIX** (Giá 13,100)`),
+    và TRỌN BỘ sự kiện của ngày đó đọc được thành tỉ lệ. Thiếu vế nào thì
+    trả None để guard quay về cảnh báo không kèm số — thà nói "chưa quy đổi"
+    còn hơn đưa một con số sai.
+    """
+    m = _re.search(r"\(\s*(?:Giá\s*)?([\d][\d.,]*)\s*\)", line)
+    if not m:
+        return None
+    px = _parse_vn_number(m.group(1))
+    if px is None or px <= 0:
+        return None
+    try:
+        from vnstock_corp_ratio import adjusted_price
+        return adjusted_price(px, titles)
+    except Exception:
+        return None
 
 
 def enforce_exdate_levels(text: str, ctx: dict) -> str:
@@ -1236,11 +1263,15 @@ def enforce_exdate_levels(text: str, ctx: dict) -> str:
         if hit is None:
             out.append(line)
             continue
-        tk, d, title = hit
+        tk, d, titles = hit
         note = f" · {_EXDATE_MARK} {d.isoformat()}"
-        if title:
-            note += f" ({title[:60]})"
-        note += " — giá tham chiếu tự điều chỉnh, mốc trên CHƯA quy đổi"
+        if titles and titles[0]:
+            note += (f" ({'; '.join(t for t in titles if t)[:70]})")
+        adj = _adjusted_ref_price(line, titles)
+        if adj is not None:
+            note += f" — giá tham chiếu ≈ {adj:,.0f}, mốc trên CHƯA quy đổi"
+        else:
+            note += " — giá tham chiếu tự điều chỉnh, mốc trên CHƯA quy đổi"
         out.append(line.rstrip() + note)
         changed = True
     # Không đổi gì thì trả NGUYÊN văn bản: `splitlines()/join` nuốt mất newline

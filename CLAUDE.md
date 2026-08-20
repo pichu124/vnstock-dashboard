@@ -65,8 +65,8 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   lần**, KHÔNG phải ⇄ CẢ HAI (sửa 19/08).
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~1.853 test; ~44s trên CI).
-- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.352 test).
+- Sửa module lõi nào → `python run.py test --fast` (~1.888 test; ~40s trên CI).
+- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.387 test).
   Đo trên MÁY THẬT 19/08 (sau đợt vá): **2.181 passed / 100,3s** — khớp CI từng test một
   (CI ~36s; máy thật chậm hơn ~3× vì có kho dữ liệu, không phải vì bỏ test).
 - Kết quả ghi `data_warehouse/_meta/test_status.json` → badge sidebar.
@@ -89,6 +89,12 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   guard dựng chung ở `vnstock_brief_canon.py`. Một chiều: brief → guards →
   3 nhóm → common/canon (`tests/test_brief_split.py` canh). Mọi tên vẫn
   re-export qua `vnstock_brief` nên đường import cũ không đổi.
+- `vnstock_corp_ratio` — đọc TỈ LỆ QUYỀN từ tiêu đề sự kiện (hàm thuần).
+  `tỷ lệ A:B` = A cũ nhận thêm B mới; nhiều sự kiện CÙNG ngày GDKHQ thì **cộng
+  dồn trên số cổ phiếu GỐC**, KHÔNG nhân dây chuyền (PET 19/08: 1.45 khớp số đo
+  từ giá 1.4499×, còn nhân dây chuyền ra 1.47 — lệch 1,4%). Cổ tức TIỀN MẶT trừ
+  theo SỐ TUYỆT ĐỐI, "tỷ lệ 10%" là 10% MỆNH GIÁ. `P_adj = (P − D)/(1 + r)`.
+  Không đọc trọn bộ sự kiện ⇒ trả None, chỗ gọi cảnh báo không kèm số.
 - `vnstock_ohlc_repair` — nới `low`/`high` cho bar TỰ MÂU THUẪN ngay ở đường
   ghi (19/08). `low := min(low, open, close)`, `high := max(high, open, close)`
   — giá mới là open/close ĐÃ khớp nên không bịa số. Nới > `MAX_WIDEN_PCT`

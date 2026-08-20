@@ -3333,6 +3333,7 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     _STANCE_CAUTION_MOMENTUM,
     _VNI_CONTEXT_RE,
     _VNI_MAGNITUDE_RE,
+    _adjusted_ref_price,
     _EXDATE_MARK,
     _EXDATE_REC_DAYS,
     _EXDATE_WL_DAYS,

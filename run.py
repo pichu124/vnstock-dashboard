@@ -798,6 +798,7 @@ def cmd_test(args) -> int:
             "tests/test_ohlc_repair.py",
             "tests/test_quarantine.py",
             "tests/test_conflicted_copy_reads.py",
+            "tests/test_corp_ratio.py",
             "tests/test_brief_exdate_guard.py",
             "tests/test_basis_guard.py",
             # Cửa `--skip-if-done`: sai ở đây là kho ĐỨNG YÊN nguyên đêm mà
