@@ -6966,6 +6966,74 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🔧 U20. BỘ CHẤM LIVE MODE MÙ LỊCH PHIÊN — báo động giả chờ sẵn (20/08)
+
+`python scripts\verify_wss_live.py --duration 120` trên máy thật:
+
+```
+⚠️ [1] Chỉ 14/30 mã có volume > 0 (mã volume 0: BCM, BID, BVH, GAS, GVR, MBB, MWG, PLX…)
+✅ [2] Index/futures volume == 0 đúng thiết kế
+✅ [3] suspect_count = 0
+```
+
+**Hai bất biến THẬT SỰ từng vỡ hồi 07/08 ([2] và [3]) đều ✅.** [1] không phải
+bất biến của code — nó là phép đo thanh khoản, và vừa trượt ngưỡng 50% sát sao
+(14 < 15).
+
+**Danh sách mã volume 0 mới là chỗ đọc được chuyện gì đã xảy ra:** BID, MBB,
+GAS, MWG thuộc nhóm thanh khoản cao nhất sàn — chúng KHÔNG THỂ đứng im 2 phút
+giữa khớp lệnh liên tục. Nên cửa sổ đo gần như chắc chắn rơi ngoài khớp lệnh
+liên tục: nghỉ trưa 11:30-13:00, hoặc sau 14:30 (ATC / thoả thuận).
+
+**Gốc rễ:** `vnstock_wss._is_market_open()` chỉ so `MARKET_OPEN = 9:00` với
+`MARKET_CLOSE = 15:00` (`vnstock_wss.py:243`) — KHÔNG biết nghỉ trưa. Trong giờ
+nghỉ nó vẫn báo `status=connected`, bar vẫn hình thành mỗi phút (bar sinh từ
+tick GIÁ, không phải từ lệnh khớp), chỉ khối lượng tích luỹ là đứng yên. Khớp
+với số đo: 102 bar / 3 mốc phút / 38 mã — tức MỌI mã đều ra bar đều đặn.
+
+**Đây là báo động giả CHỜ SẴN, không chỉ là thông báo khó hiểu:** một lượt đo
+gọn trong giờ nghỉ trưa ⇒ TOÀN BỘ mã volume = 0 ⇒ nhánh `traded.empty` chấm
+**❌ `_FAIL` "feed đổi schema hoặc lỗi accum→delta quay lại?"** — đổ lỗi cho
+feed vì cái lỗi của lịch. Đúng họ bug quen của repo: "không đo được" bị đọc
+thành "đo ra kết quả xấu".
+
+**Đã vá 20/08** — `scripts/verify_wss_live.py`:
+* Hai hàm thuần mới: `quiet_phases(t0, t1)` (tên các khung KHÔNG khớp lệnh liên
+  tục mà cửa sổ đo dính: ATO · NGHỈ TRƯA · ATC · sau ATC) và
+  `has_continuous_matching(t0, t1)`. Biên nửa mở — chạm đúng 11:30 không tính
+  là còn khớp lệnh.
+* `grade(..., window=(t0, t1))`: cửa sổ KHÔNG chạm khớp lệnh liên tục thì
+  all-zero xuống `_UNSURE` kèm lý do, **không** còn `_FAIL`. Chạm khớp lệnh
+  liên tục mà vẫn all-zero thì giữ nguyên ❌ cứng.
+* Dòng ⚠️ [1] nay nói đúng việc phải làm: dính khung nghỉ ⇒ "chạy lại
+  9:15-11:30 hoặc 13:00-14:30"; trong giờ khớp lệnh ⇒ "chạy lại lâu hơn".
+* In thêm dòng `Cửa sổ đo: HH:MM:SS → HH:MM:SS` — trước đây output KHÔNG hề
+  nói nó đo lúc nào, nên không chẩn đoán được từ output dán lại.
+* `window` là tham số TUỲ CHỌN: gọi không truyền thì giữ nguyên hành vi cũ
+  (có test canh).
+* Lịch phiên KHÔNG được che lỗi thật: rò volume index vẫn ❌ cứng dù đo lúc
+  nghỉ trưa (có test canh).
+* 13 test mới trong `tests/test_verify_wss_live.py` (11 → 24), và file này
+  **được thêm vào `--fast`** — trước đó nó không nằm trong lưới nhanh.
+
+**Còn lại chưa vá (cố ý):** `_is_market_open()` trong `vnstock_wss.py` vẫn
+9:00-15:00. Nó điều khiển đường CHẠY THẬT của live mode — đổi nó là đổi hành vi
+sản phẩm chứ không phải sửa công cụ chẩn đoán, và giờ nghỉ trưa vẫn cần poll
+giá để giữ bảng sống. Ghi lại đây, không tự ý đụng.
+
+**`write tick ACB: [WinError 5] Access is denied`** trong cùng lượt chạy: KHÔNG
+phải lỗi mới. `_atomic_write_json` (`vnstock_wss.py:432`) đã retry 6 lần
+(~310ms) rồi mới ném; lỗi xếp vào `transient_markers` và tự xoá sau vòng poll
+kế — đúng như quan sát (hiện ở 30s, sạch ở 45s). Nguyên nhân gần như chắc chắn
+là **Dropbox**: `data_warehouse/_live/` nằm TRONG junction, mà live mode ghi đè
+~38 file `quote_*.json` mỗi ~2s suốt phiên ⇒ Dropbox mở file để sync đúng lúc
+`os.replace` ⇒ WinError 5. Mất 1 tick JSON là vô hại (tick sau ghi đè 2 giây
+sau). Muốn dứt điểm thì đánh dấu `_live` là ignored trong Dropbox — việc cấu
+hình MÁY, không phải việc code.
+
+---
+
+
 # 🎯 U19. VIETSTOCK CHẠY ĐƯỢC — VÀ PET XÁC NHẬN TOÀN BỘ CHẨN ĐOÁN LỆCH CƠ SỞ
 
 `run.py vietstock --ticker PET --fdate 2026-01-01` trên laptop 19/08 trả về:

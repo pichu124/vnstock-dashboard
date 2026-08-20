@@ -804,6 +804,10 @@ def cmd_test(args) -> int:
             # Cửa `--skip-if-done`: sai ở đây là kho ĐỨNG YÊN nguyên đêm mà
             # pipeline vẫn xanh (vết 19/08, kho bị chép giữa hai máy).
             "tests/test_pipeline_status_gate.py",
+            # Bộ chấm live mode: `_is_market_open()` chỉ biết 9:00-15:00, nó
+            # KHÔNG biết nghỉ trưa — không có lưới này thì một lượt đo lúc
+            # 11:40 bị chấm ❌ "feed đổi schema" (báo động giả 20/08).
+            "tests/test_verify_wss_live.py",
             "tests/test_rec_horizon_sessions.py",
             "tests/test_doctor_kill_switches.py",
             "tests/test_unit_badge_verdict.py",

@@ -156,13 +156,27 @@ là ○ (máy nào cũng được) hoặc 🖥️ desktop.
 
 ## ○ MỘT LẦN — máy nào cũng được
 
-**Trong giờ giao dịch (9h15–14h30, T2–T6)** — mục live mode còn treo, chỉ thiếu
-một lần nhìn:
+**Chạy lại `verify_wss_live` — lượt 20/08 đo TRÚNG khung không khớp lệnh.**
+
+Lượt 20/08 ra `⚠️ 14/30 mã volume > 0`. Hai bất biến THẬT (index/futures im
+lặng · suspect = 0) đều ✅; riêng [1] không kết luận được vì trong danh sách
+volume 0 có BID, MBB, GAS, MWG — nhóm thanh khoản cao nhất sàn, không thể đứng
+im 2 phút giữa phiên. Tức cửa sổ đo rơi vào **nghỉ trưa 11:30–13:00** hoặc
+**sau 14:30**. Bộ chấm nay tự nói ra điều đó (mục U20).
+
+Chạy lại **trong khớp lệnh liên tục: 9:15–11:30 hoặc 13:00–14:30**, để mặc
+định 300s cho chắc:
+
 ```powershell
-python scripts\verify_wss_live.py --duration 120
+python scripts\verify_wss_live.py
 ```
 Exit 0 = đạt cả 3 bất biến · 1 = ngoài giờ/thiếu tick (KHÔNG phải fail) · 2 = sai.
+Output nay in `Cửa sổ đo: HH:MM:SS → HH:MM:SS` — dán cả dòng đó nếu lại ⚠️.
 Hoặc bằng mắt: dashboard → 🔴 Live Mode ở sidebar → tab **Thị trường**.
+
+*Dòng `write tick …: [WinError 5]` thoáng qua rồi tự sạch là **bình thường** —
+Dropbox giữ file `_live/quote_*.json` đúng lúc ghi. Đã có retry, mất 1 tick vô
+hại. Chỉ báo nếu nó KHÔNG tự sạch sau 15s.*
 
 ---
 
