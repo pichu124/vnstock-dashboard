@@ -44,9 +44,9 @@ _UNVALIDATED_STRATEGY_CAVEAT = (
 # VN30 tickers — current composition (keep in sync with _VN30_FALLBACK in vnstock_news.py)
 # Try dynamic fetch first; fall back to this set when vnstock API is unavailable.
 VN30_TICKERS: set[str] = {
-    "ACB", "BCM", "BID", "BVH", "CTG", "FPT", "GAS", "GVR", "HDB", "HPG",
-    "MBB", "MSN", "MWG", "PLX", "POW", "SAB", "SHB", "SSB", "SSI", "STB",
-    "TCB", "TPB", "VCB", "VHM", "VIB", "VIC", "VJC", "VNM", "VPB", "VRE",
+    "ACB", "BID", "BSR", "CTG", "FPT", "GAS", "GVR", "HDB", "HPG", "LPB",
+    "MBB", "MCH", "MSN", "MWG", "SAB", "SHB", "SSB", "SSI", "STB", "TCB",
+    "TCX", "VCB", "VHM", "VIB", "VIC", "VJC", "VNM", "VPB", "VPL", "VRE",
 }
 # Financial-sector tickers (banks / securities / insurance). Their balance-sheet
 # leverage (bank D/E ~9-17 is NORMAL) and operating cash flow (driven by

@@ -105,13 +105,17 @@ def brief_loop(verbose: bool = True) -> dict:
 # and re-ranks candidates by recent average volume, so the universe
 # automatically adapts to quarterly index reviews and liquidity shifts.
 
-# Sector map for current VN30 — used for sector-stratified Lite selection.
+# Sector map — used for sector-stratified Lite selection.
 # Supplemented (or overridden) by industry_classification.parquet when available.
+# CỐ Ý giữ cả mã ĐÃ RỜI VN30 (BCM, BVH, PLX, POW, TPB rời rổ 08/2026): rổ đổi
+# 2 lần/năm và mã rời VN30 thường rơi xuống VNMID, nên xoá đi là mất phân
+# ngành ở đúng chỗ vẫn còn dùng. Thừa một dòng thì vô hại, thiếu thì lệch tầng.
 _VN30_SECTOR_MAP: dict[str, str] = {
     # Ngân hàng
     "ACB": "bank", "BID": "bank", "CTG": "bank", "HDB": "bank",
-    "MBB": "bank", "SHB": "bank", "SSB": "bank", "STB": "bank",
-    "TCB": "bank", "TPB": "bank", "VCB": "bank", "VIB": "bank", "VPB": "bank",
+    "LPB": "bank", "MBB": "bank", "SHB": "bank", "SSB": "bank",
+    "STB": "bank", "TCB": "bank", "TPB": "bank", "VCB": "bank",
+    "VIB": "bank", "VPB": "bank",
     # Bảo hiểm
     "BVH": "insurance",
     # Chứng khoán
@@ -121,15 +125,19 @@ _VN30_SECTOR_MAP: dict[str, str] = {
     # Công nghệ
     "FPT": "tech",
     # Năng lượng / dầu khí
-    "GAS": "energy", "PLX": "energy", "POW": "energy",
+    "BSR": "energy", "GAS": "energy", "PLX": "energy", "POW": "energy",
     # Vật liệu / thép / cao su
     "HPG": "materials", "GVR": "materials",
     # Tiêu dùng
-    "MSN": "consumer", "MWG": "consumer", "SAB": "consumer", "VNM": "consumer",
+    "MCH": "consumer", "MSN": "consumer", "MWG": "consumer",
+    "SAB": "consumer", "VNM": "consumer",
     # Tập đoàn / đa ngành
     "VIC": "conglomerate",
-    # Vận tải / dịch vụ hàng không
-    "VJC": "transport",
+    # Vận tải / dịch vụ hàng không · du lịch nghỉ dưỡng
+    "VJC": "transport", "VPL": "transport",
+    # ⚠️ TCX (vào rổ 08/2026) CỐ Ý để trống: chưa xác minh được ngành, mà gán
+    # bừa thì lệch tầng ÂM THẦM, còn thiếu thì rơi về
+    # industry_classification.parquet — hỏng theo kiểu ồn ào hơn, đỡ hơn.
 }
 
 # Fallback VNMID list — 20 mã đa ngành, dùng khi API lỗi.

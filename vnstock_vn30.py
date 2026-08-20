@@ -254,6 +254,20 @@ def _diag() -> int:
         print(f"[vn30] ⚠️ LỆCH hằng số — VÀO rổ: {added or '-'} · RỜI rổ: {removed or '-'}")
     else:
         print("[vn30] ✅ khớp hằng số chép cứng")
+
+    # Rổ đúng chưa đủ: mã MỚI vào rổ mà kho chưa có giá thì heatmap vẫn ô
+    # trống và screener vẫn bỏ sót — hỏng ở chỗ khác hẳn, phải nói ra.
+    prices = _REPO / "data_warehouse" / "prices"
+    if prices.is_dir():
+        missing = [t for t in ok if not (prices / f"ticker={t}").is_dir()]
+        if missing:
+            print(f"[vn30] ⚠️ {len(missing)} mã trong rổ CHƯA có giá trong kho: "
+                  f"{', '.join(missing)}")
+            print("[vn30]    chữa: python run.py sync   (updater sẽ kéo lịch sử)")
+        else:
+            print(f"[vn30] ✅ cả {len(ok)} mã đều có thư mục giá trong kho")
+    else:
+        print(f"[vn30] ⬜ không thấy {prices} — bỏ qua phần đối chiếu kho")
     return 0
 
 

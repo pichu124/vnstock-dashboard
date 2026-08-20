@@ -224,3 +224,42 @@ class TestBriefUsesTheSameResolver:
             raise RuntimeError("nổ")
         monkeypatch.setattr(v30, "get_members", _boom)
         assert vnstock_brief.get_vn30_live() == set(VN30_TICKERS)
+
+
+class TestTheThreeHardcodedCopiesNeverDrift:
+    """
+    Rổ VN30 chép cứng ở BA module. Trước 20/08 không lưới nào canh chúng KHỚP
+    NHAU — sửa một chỗ quên hai chỗ kia thì brief, tin và heatmap nói ba rổ
+    khác nhau, im lặng. Lưới này rẻ và chặn đúng cái đó.
+    """
+
+    def _copies(self):
+        from vnstock_brief_canon import VN30_TICKERS
+        from vnstock_news import _VN30_FALLBACK
+        from vnstock_wss import VN30_SYMBOLS
+        return {
+            "vnstock_brief_canon.VN30_TICKERS": set(VN30_TICKERS),
+            "vnstock_news._VN30_FALLBACK": set(_VN30_FALLBACK),
+            "vnstock_wss.VN30_SYMBOLS": set(VN30_SYMBOLS),
+        }
+
+    def test_all_three_copies_are_identical(self):
+        copies = self._copies()
+        ref_name, ref = next(iter(copies.items()))
+        for name, got in copies.items():
+            assert got == ref, (
+                f"{name} lệch {ref_name}: thừa {sorted(got - ref)} · "
+                f"thiếu {sorted(ref - got)}")
+
+    def test_each_copy_holds_exactly_thirty_unique_tickers(self):
+        from vnstock_news import _VN30_FALLBACK
+        from vnstock_wss import VN30_SYMBOLS
+        for name, got in self._copies().items():
+            assert len(got) == 30, f"{name} có {len(got)} mã"
+        # list thì còn phải không trùng lặp (set che mất trùng)
+        assert len(_VN30_FALLBACK) == len(set(_VN30_FALLBACK))
+        assert len(VN30_SYMBOLS) == len(set(VN30_SYMBOLS))
+
+    def test_the_copies_pass_the_resolver_sanity_check(self):
+        for name, got in self._copies().items():
+            assert v30.validate(sorted(got)) is not None, name

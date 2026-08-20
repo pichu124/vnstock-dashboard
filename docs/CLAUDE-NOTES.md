@@ -7046,6 +7046,34 @@ bug repo đã đặt tên: *"guard quên nối = code chết trông y như code 
   _fetch_live".
 * 10 test mới, trong đó test đầu tiên dựng đúng `pd.Series(name="symbol")`.
 
+### ①c Rổ mới, kỳ tháng 8/2026 (đo được 20/08 sau khi vá Series)
+
+```
+[vn30] type=Series columns=(không có) len=30
+[vn30] ✅ rổ sống 30 mã
+[vn30] ⚠️ LỆCH hằng số — VÀO rổ: ['BSR', 'LPB', 'MCH', 'TCX', 'VPL']
+                         · RỜI rổ: ['BCM', 'BVH', 'PLX', 'POW', 'TPB']
+```
+
+**5 mã vào / 5 mã ra** — thay 1/6 rổ. Đã cập nhật hằng số ở cả ba file, và
+thêm lưới `TestTheThreeHardcodedCopiesNeverDrift` canh **ba bản chép phải
+KHỚP NHAU** (trước đó không có gì canh: sửa một chỗ quên hai chỗ kia thì
+brief, tin và heatmap nói ba rổ khác nhau, im lặng).
+
+**Đuôi phải dọn theo, không chỉ ba danh sách:**
+* `vnstock_sectors` — VPL (Vinpearl) ĐÃ có sẵn trong "Họ VIN", không phải sửa.
+* `vnstock_brief_canon._FINANCIAL_TICKERS` — LPB ĐÃ có sẵn, không phải sửa.
+* `vnstock_train._VN30_SECTOR_MAP` — thêm BSR→energy, LPB→bank, MCH→consumer,
+  VPL→transport. **CỐ Ý GIỮ** BCM/BVH/PLX/POW/TPB dù đã rời rổ: mã rời VN30
+  thường rơi xuống VNMID, xoá đi là mất phân ngành ở chỗ vẫn còn dùng.
+* **TCX cố ý ĐỂ TRỐNG** trong bản đồ ngành — chưa xác minh được ngành, mà gán
+  bừa thì lệch tầng ÂM THẦM, còn thiếu thì rơi về
+  `industry_classification.parquet`, hỏng theo kiểu ồn ào hơn.
+
+`--diag` nay đối chiếu luôn với kho: rổ đúng mà mã mới CHƯA có `ticker=<MÃ>`
+trong `prices/` thì heatmap vẫn ô trống và screener vẫn bỏ sót — hỏng ở chỗ
+khác hẳn, phải nói ra chứ đừng để user tự đoán.
+
 ## ② "Phản hồi chậm" = độ trễ CỘNG DỒN, không phải feed chậm
 
 Ba tầng nối tiếp nhau, mỗi tầng góp trễ:

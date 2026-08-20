@@ -63,9 +63,9 @@ PORTFOLIO_PATH  = _REPO / "data_warehouse" / "_meta" / "portfolio.json"
 
 # ── VN30 baseline (hardcoded fallback if dashboard symbols unavailable) ────
 _VN30_FALLBACK: list[str] = [
-    "ACB", "BCM", "BID", "BVH", "CTG", "FPT", "GAS", "GVR", "HDB", "HPG",
-    "MBB", "MSN", "MWG", "PLX", "POW", "SAB", "SHB", "SSB", "SSI", "STB",
-    "TCB", "TPB", "VCB", "VHM", "VIB", "VIC", "VJC", "VNM", "VPB", "VRE",
+    "ACB", "BID", "BSR", "CTG", "FPT", "GAS", "GVR", "HDB", "HPG", "LPB",
+    "MBB", "MCH", "MSN", "MWG", "SAB", "SHB", "SSB", "SSI", "STB", "TCB",
+    "TCX", "VCB", "VHM", "VIB", "VIC", "VJC", "VNM", "VPB", "VPL", "VRE",
 ]
 
 # ── In-process cache (avoids re-reading disk on every Streamlit rerun) ─────

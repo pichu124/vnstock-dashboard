@@ -165,34 +165,26 @@ im lặng đúng thiết kế · `suspect_count = 0`. Mục 1 của checklist li
 bắt được **hai lỗi mà script không thể thấy** (mục U21): rổ VN30 vẽ **rổ CŨ**
 (HOSE đã đổi rổ) và phản hồi chậm. Cả hai đã vá — xem ⬇️.
 
-### ⚠️ MỘT VIỆC CẦN MÁY CÓ MẠNG — nạp rổ VN30 mới
+### ✅ RỔ VN30 ĐÃ CẬP NHẬT (20/08) — còn một lệnh đối chiếu kho
 
-Rổ VN30 nay lấy động (API sống → cache → hằng số), nhưng **cache chưa có**.
-Chạy MỘT LẦN ở máy nào cũng được (cache nằm trong kho ⇒ Dropbox lo máy kia):
+Rổ kỳ tháng 8/2026 đã đo được và **hằng số ở cả 3 file đã sửa**:
+
+| VÀO rổ | RỜI rổ |
+|---|---|
+| BSR · LPB · MCH · TCX · VPL | BCM · BVH · PLX · POW · TPB |
+
+Thay 1/6 rổ. Sau khi merge, chạy để chắc kho có giá cho 5 mã mới:
 
 ```powershell
 git pull origin claude/tong-hop-cong-viec-test-w8mvrc
-python run.py doctor --net
+python vnstock_vn30.py --diag
 ```
 
-*Lượt 20/08 đầu tiên ra `⚠️ API không trả rổ dùng được` — thủ phạm là
-`symbols_by_group` trả **pd.Series** chứ không phải DataFrame, đã vá (U21①b).
-Nhớ `git pull` lấy bản vá TRƯỚC khi chạy lại.*
-
-Tìm dòng **"Rổ VN30 — làm mới từ nguồn"**:
-* `✅ … khớp hằng số` ⇒ xong, không phải làm gì nữa.
-* `⚠️ rổ thật đã đổi — VÀO rổ: … · RỜI rổ: …` ⇒ **dán nguyên dòng đó cho
-  Claude** để sửa hằng số ở 3 file. Heatmap/brief đã tự chạy rổ mới rồi, sửa
-  hằng số chỉ là dọn lưới cuối.
-* Còn `⚠️ API không trả rổ dùng được` ⇒ chạy `python vnstock_vn30.py --diag`
-  và dán toàn bộ output — nó in thẳng nguồn trả về type/columns/mấy mã.
-
-Sau đó mở lại dashboard: heatmap phải hiện đúng rổ mới, và caption sidebar có
-thêm dòng **`⏱ vòng quét …s · N mã/vòng (nóng)`** — nhịp THẬT của động cơ.
-
-*Dòng `write tick …: [WinError 5]` thoáng qua rồi tự sạch là **bình thường** —
-Dropbox giữ file `_live/quote_*.json` đúng lúc ghi. Đã có retry, mất 1 tick vô
-hại. Chỉ báo nếu nó KHÔNG tự sạch sau 15s.*
+* `✅ khớp hằng số chép cứng` + `✅ cả 30 mã đều có thư mục giá trong kho`
+  ⇒ **xong hẳn**, mở dashboard là thấy rổ mới.
+* `⚠️ N mã trong rổ CHƯA có giá trong kho: …` ⇒ chạy `python run.py sync`
+  (hoặc đợi phát 18:00) để updater kéo lịch sử về. Heatmap sẽ để ô trống cho
+  tới lúc đó.
 
 ---
 
