@@ -43,16 +43,16 @@ Phải ra **2.387 passed**. **Chạy `run.py test` NGAY sau khi merge** — đ�
 task 18:00 phát hiện hộ. Bài học 19/08: merge lúc 17:37 rồi để phát 18:00 chạy
 full suite ở bước 9, một test đỏ là dừng cứng và **mất brief cả đêm**.
 
-**CẢ HAI MÁY đang ở `2.352`** (mốc merge 19/08) — HEAD nay là `2.387` sau đợt
-`vnstock_corp_ratio` + guard GDKHQ tự quy đổi. Nên cả hai đều phải merge lại.
+HEAD là `2.387` sau đợt `vnstock_corp_ratio` + guard GDKHQ tự quy đổi.
 
-* 🖥️ **DESKTOP: ⏳ nên làm TRƯỚC 18:00 hôm nay (20/08)** — hôm nay đúng ngày
-  GDKHQ của VIX. Bản `2.352` chỉ cảnh báo "mốc CHƯA quy đổi"; bản `2.387` in
-  thẳng `giá tham chiếu ≈ 12,476`. Không merge thì brief chiều nay vẫn là bản
-  cảnh báo suông — không sai, chỉ kém. **Đừng merge sát 18:00**: chạy full
-  suite xong hẵng thôi, bài học 19/08 ngay dưới đây.
-* 💻 **LAPTOP: ⏳ chưa** — chạy đúng hai lệnh trên khi nào mở máy. Không gấp
-  (laptop không có task lịch) nhưng đừng chạy công cụ kho ở đó trước khi merge.
+* 💻 **LAPTOP: ✅ XONG 20/08** — `2387 passed / 120,16s` trên máy thật, khớp CI
+  từng test một. Laptop nay **sạch sổ**.
+* 🖥️ **DESKTOP: ⏳ CHƯA — nên làm TRƯỚC 18:00 hôm nay (20/08)**, desktop vẫn
+  đang ở `2.352`. Hôm nay đúng ngày GDKHQ của VIX: bản `2.352` chỉ cảnh báo
+  "mốc CHƯA quy đổi"; bản `2.387` in thẳng `giá tham chiếu ≈ 12,476`. Không
+  merge thì brief chiều nay vẫn là bản cảnh báo suông — không sai, chỉ kém.
+  **Đừng merge sát 18:00**: chạy full suite xong hẵng thôi (laptop vừa đo
+  ~2 phút), bài học 19/08 ngay trên.
 * (Lượt merge 19/08 có 1 test đỏ do test PHỤ THUỘC KHO THẬT — đã vá, xem
   `docs/CLAUDE-NOTES.md` mục U18.)
 
@@ -146,9 +146,9 @@ xác nhận độc lập cho toàn bộ chẩn đoán lệch cơ sở. Kết qu�
 sự kiện tiền mặt nên đường đó nhiều khả năng thừa; Claude sẽ quyết bỏ hay giữ,
 KHÔNG cần user thử lại. Chi tiết: mục U19 trong `docs/CLAUDE-NOTES.md`.
 
-⇒ Còn đúng **một** việc bắt buộc ở laptop: **merge + `run.py test`** (mục 🔴
-đầu trang). Xong hai lệnh đó là laptop sạch sổ — mọi thứ còn lại đều là ○ (máy
-nào cũng được) hoặc 🖥️ desktop.
+⇒ Việc bắt buộc cuối cùng — **merge + `run.py test`** — cũng đã xong 20/08
+(`2387 passed`). **Laptop hiện KHÔNG còn việc riêng nào**; mọi thứ còn lại đều
+là ○ (máy nào cũng được) hoặc 🖥️ desktop.
 
 *Nhớ merge trước khi chạy bất cứ công cụ kho nào ở laptop — code không đồng bộ.*
 
