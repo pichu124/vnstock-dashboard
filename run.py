@@ -808,6 +808,9 @@ def cmd_test(args) -> int:
             # KHÔNG biết nghỉ trưa — không có lưới này thì một lượt đo lúc
             # 11:40 bị chấm ❌ "feed đổi schema" (báo động giả 20/08).
             "tests/test_verify_wss_live.py",
+            # Rổ VN30 đổi 2 lần/năm (HOSE). Chép cứng ở 3 module mà không
+            # lưới nào canh = heatmap/brief vẽ rổ cũ âm thầm (vết 20/08).
+            "tests/test_vn30_basket.py",
             "tests/test_rec_horizon_sessions.py",
             "tests/test_doctor_kill_switches.py",
             "tests/test_unit_badge_verdict.py",

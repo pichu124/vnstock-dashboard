@@ -67,6 +67,19 @@ if "FUTURES_SYMBOLS" not in dir():
     FUTURES_SYMBOLS = []  # type: ignore
 if "VN30_SYMBOLS" not in dir():
     VN30_SYMBOLS = []  # type: ignore
+
+
+def get_vn30_symbols() -> list:
+    """Rổ VN30 hiện hành cho mọi tab. Hằng số chỉ là lưới cuối.
+
+    HOSE xét lại rổ 2 lần/năm — chép cứng là sẽ vẽ rổ cũ sau mỗi kỳ (vết
+    20/08/2026, phát hiện bằng mắt trên heatmap live).
+    """
+    try:
+        from vnstock_wss import get_vn30_symbols as _g
+        return list(_g()) or list(VN30_SYMBOLS)
+    except Exception:
+        return list(VN30_SYMBOLS)
 if "INDEX_SYMBOLS" not in dir():
     INDEX_SYMBOLS = []  # type: ignore
 
@@ -3636,6 +3649,14 @@ with st.sidebar:
                     unsafe_allow_html=True
                 )
                 st.caption(f"📡 {_wss_status.get('subscribed_count', 0)} mã đã subscribe")
+                # Nhịp THẬT của vòng quét — "heatmap chậm" đọc ở đây chứ
+                # không đoán. batch_n < subscribed_count là tầng nóng đang
+                # chạy (VN30 tươi mỗi vòng, phần còn lại mỗi 5 vòng).
+                _cyc = _wss_status.get("cycle_s")
+                if _cyc is not None:
+                    _bn = _wss_status.get("batch_n") or 0
+                    _tier = "nóng" if _wss_status.get("hot_tier") else "đều"
+                    st.caption(f"⏱ vòng quét {_cyc:.1f}s · {_bn} mã/vòng ({_tier})")
                 if _wss_status.get("error"):
                     st.caption(f"⚠ {_wss_status['error'][:80]}")
             else:

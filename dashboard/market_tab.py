@@ -159,10 +159,24 @@ def render_market_tab() -> None:
 
     # ── Live Market Heatmap (VN30 real-time) ──────────────────────────────
     if st.session_state.get("live_mode") and WSS_AVAILABLE:
-        @st.fragment(run_every=5)
+        # run_every=2 khớp POLL_INTERVAL của động cơ (20/08). Để 5s thì dù
+        # dữ liệu tươi 2s, ô vẫn đứng im tới 5s — user báo "phản hồi chậm"
+        # chính là độ trễ CỘNG DỒN này, không phải độ trễ của feed.
+        @st.fragment(run_every=2)
         def _live_market_fragment():
+            # Rổ VN30 HIỆN HÀNH (HOSE đổi rổ 2 lần/năm) — không phải hằng số
+            # chép cứng. Đi qua `vnstock_dashboard` chứ không import thẳng
+            # `vnstock_wss`: tab này lấy MỌI hằng số live từ đó, và test dựng
+            # module giả ở đúng chỗ đó.
+            try:
+                import vnstock_dashboard as _vd
+                _basket = list(_vd.get_vn30_symbols())
+            except Exception:
+                _basket = VN30_SYMBOLS
+            if not _basket:
+                _basket = VN30_SYMBOLS
             _vn30_quotes = []
-            for _sym in VN30_SYMBOLS:
+            for _sym in _basket:
                 _q = load_live_quote(_sym)
                 if _q and float(_q.get("price", 0)) > 0:
                     _vn30_quotes.append(_q)

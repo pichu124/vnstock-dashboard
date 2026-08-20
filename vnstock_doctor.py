@@ -947,17 +947,101 @@ def check_ohlc_repairs() -> dict:
         "bịa số; nới sát trần thì soi lại bar đó. Tắt: VNSTOCK_OHLC_REPAIR=0")
 
 
+def check_vn30_basket() -> dict:
+    """Rổ VN30 chép cứng có còn khớp rổ thật không?
+
+    HOSE xét lại VN30 **hai lần mỗi năm** (hiệu lực đầu tháng 2 và đầu tháng
+    8). Danh sách 30 mã từng được chép cứng ở ba module độc lập, không chỗ
+    nào tự làm mới ⇒ mỗi kỳ đổi rổ là brief, screener và heatmap live cùng
+    nói sai mà KHÔNG có gì báo. Vết 20/08/2026: user nhìn heatmap trong phiên
+    mới phát hiện.
+
+    Ở đây `warn` là trạng thái ĐÚNG khi vừa qua kỳ đổi rổ — nó nhắc sửa hằng
+    số, không phải báo hỏng.
+    """
+    name = "Rổ VN30 (HOSE đổi 2 lần/năm)"
+    try:
+        import vnstock_vn30 as _v30
+        # OFFLINE: đọc cache thôi, cấm gọi mạng ở đây (net_vn30_basket lo
+        # phần làm mới).
+        st = _v30.status(allow_fetch=False)
+        added, removed = _v30.diff_vs_fallback(st["members"])
+    except Exception as e:
+        return _result("vn30_basket", name, "error",
+                       f"không phân giải được rổ VN30 ({type(e).__name__}: {e})", "")
+
+    src = st.get("source")
+    if src == "fallback":
+        return _result(
+            "vn30_basket", name, "warn",
+            "chưa từng lấy được rổ sống — đang chạy bằng hằng số chép cứng",
+            "chạy `python run.py doctor --net` trên máy có mạng để nạp cache "
+            "_meta/vn30_members.json. Cố ý dùng hằng số thì VNSTOCK_VN30_DYNAMIC=0")
+
+    if not added and not removed:
+        age = st.get("age_days")
+        age_txt = f", cache {age:.1f} ngày" if isinstance(age, (int, float)) else ""
+        return _result("vn30_basket", name, "ok",
+                       f"{len(st['members'])} mã, khớp hằng số (nguồn {src}{age_txt})", "")
+
+    parts = []
+    if added:
+        parts.append("VÀO rổ: " + ", ".join(added))
+    if removed:
+        parts.append("RỜI rổ: " + ", ".join(removed))
+    return _result(
+        "vn30_basket", name, "warn",
+        f"rổ thật đã đổi so với hằng số — {' · '.join(parts)}",
+        "sửa VN30_TICKERS (vnstock_brief_canon.py), VN30_SYMBOLS "
+        "(vnstock_wss.py) và _VN30_FALLBACK (vnstock_news.py) cho khớp. "
+        "Đường sống + heatmap đã tự dùng rổ mới; hằng số chỉ là lưới cuối")
+
+
 OFFLINE_CHECKS = [
     check_dir_shapes, check_unit_normalizations, check_kill_switches,
-    check_basis_drift, check_ohlc_repairs,
+    check_basis_drift, check_ohlc_repairs, check_vn30_basket,
     check_warehouse, check_market_overview, check_fundamentals, check_macro,
     check_pdf_tooling, check_market_news, check_ticker_news,
     check_foreign_flow, check_events, check_reports, check_allocation,
     check_llm_keys, check_llm_ledger, check_telegram, check_tests,
 ]
+def net_vn30_basket() -> dict:
+    """Làm mới rổ VN30 từ API rồi so với hằng số chép cứng.
+
+    Bản offline chỉ đọc cache; bản này mới được gọi mạng — và nó GHI lại
+    cache trong `_meta/` nên chạy một lần ở máy nào cũng phục vụ cả hai máy
+    (kho đi qua Dropbox).
+    """
+    name = "Rổ VN30 — làm mới từ nguồn"
+    try:
+        import vnstock_vn30 as _v30
+        st = _v30.status(force_refresh=True)
+        added, removed = _v30.diff_vs_fallback(st["members"])
+    except Exception as e:
+        return _result("vn30_basket_net", name, "error",
+                       f"không lấy được rổ VN30 ({type(e).__name__}: {e})",
+                       "kiểm tra VNSTOCK_API_KEY trong .env và đường mạng")
+    if st.get("source") != "live":
+        return _result("vn30_basket_net", name, "warn",
+                       f"API không trả rổ dùng được (đang dùng {st.get('source')})",
+                       "nguồn đổi endpoint? soi vnstock_vn30._fetch_live")
+    if not added and not removed:
+        return _result("vn30_basket_net", name, "ok",
+                       f"{len(st['members'])} mã, khớp hằng số chép cứng", "")
+    parts = []
+    if added:
+        parts.append("VÀO rổ: " + ", ".join(added))
+    if removed:
+        parts.append("RỜI rổ: " + ", ".join(removed))
+    return _result("vn30_basket_net", name, "warn",
+                   f"rổ thật đã đổi — {' · '.join(parts)}",
+                   "sửa hằng số ở vnstock_brief_canon.py, vnstock_wss.py, "
+                   "vnstock_news.py cho khớp")
+
+
 NET_CHECKS = [
     net_rss_feeds, net_fx, net_vbma, net_hnx, net_sbv, net_sbv_daily,
-    net_nso, net_fred, net_foreign_flow_api, net_jina,
+    net_nso, net_fred, net_foreign_flow_api, net_jina, net_vn30_basket,
 ]
 
 

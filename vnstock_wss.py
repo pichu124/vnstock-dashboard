@@ -41,11 +41,56 @@ import pandas as pd
 # Constants
 # ═════════════════════════════════════════════════════════════════════════════
 
+# ⚠️ HẰNG SỐ NÀY LÀ LƯỚI CUỐI, KHÔNG PHẢI NGUỒN SỰ THẬT.
+# HOSE xét lại rổ VN30 hai lần mỗi năm ⇒ danh sách chép cứng sẽ SAI sau mỗi
+# kỳ (vết 20/08/2026: heatmap live vẽ rổ cũ). Nguồn thật là
+# `vnstock_vn30.get_members()` (API sống → cache `_meta/vn30_members.json` →
+# hằng số này). Dùng `get_vn30_symbols()` ở mọi chỗ cần rổ hiện hành.
 VN30_SYMBOLS = [
     "ACB", "BCM", "BID", "BVH", "CTG", "FPT", "GAS", "GVR", "HDB", "HPG",
     "MBB", "MSN", "MWG", "PLX", "POW", "SAB", "SHB", "SSB", "SSI", "STB",
     "TCB", "TPB", "VCB", "VHM", "VIB", "VIC", "VJC", "VNM", "VPB", "VRE",
 ]
+
+
+def get_vn30_symbols() -> list[str]:
+    """Rổ VN30 hiện hành. Không bao giờ ném — xấu nhất trả VN30_SYMBOLS."""
+    try:
+        import vnstock_vn30
+        return vnstock_vn30.get_members()
+    except Exception:
+        return list(VN30_SYMBOLS)
+
+_HOT_TIER_ENV = "VNSTOCK_WSS_HOT_TIER"
+
+
+def hot_tier_enabled() -> bool:
+    """Kill-switch tầng nóng: đặt VNSTOCK_WSS_HOT_TIER=0 để quét đều như cũ."""
+    return os.environ.get(_HOT_TIER_ENV, "1").strip().lower() \
+        not in ("0", "false", "no")
+
+
+def split_hot_cold(symbols, hot_set, cycle: int, every_n: int = 5,
+                   tiering: bool = True) -> list[str]:
+    """
+    Chọn danh sách mã cho vòng poll thứ ``cycle``. HÀM THUẦN.
+
+    Vòng chia hết cho ``every_n`` quét TẤT CẢ; vòng khác chỉ quét mã nóng.
+    Không có mã nóng nào (hoặc tắt tiering) ⇒ trả nguyên danh sách — không
+    bao giờ trả rỗng khi đầu vào khác rỗng, vì một vòng quét rỗng là feed
+    đứng hình mà status vẫn "connected".
+    """
+    if not symbols:
+        return []
+    if not tiering or every_n <= 1:
+        return list(symbols)
+    hot = [s for s in symbols if s in hot_set]
+    if not hot or len(hot) == len(symbols):
+        return list(symbols)
+    if cycle % every_n == 0:
+        return list(symbols)
+    return hot
+
 
 INDEX_SYMBOLS = ["VNINDEX", "VN30", "HNXINDEX", "HNX30"]
 
@@ -389,6 +434,15 @@ class VnStockWSS:
     """
 
     POLL_INTERVAL = 2   # seconds — near real-time (25% quota Golden)
+    # ── Tầng NÓNG (20/08) ────────────────────────────────────────────────
+    # `full_market=True` subscribe ~1.100 mã, và MỖI vòng poll gọi
+    # price_board cho CẢ 1.100 rồi ghi ~1.100 file JSON — nên một quote VN30
+    # chỉ tươi lại sau trọn một vòng quét toàn thị trường. Heatmap chỉ cần 30
+    # mã. Tách hai tầng: mã NÓNG (VN30 + index + futures) quét MỖI vòng, phần
+    # còn lại quét mỗi COLD_EVERY_N vòng. Live Scan của Screener/Dòng Tiền
+    # chậm lại đúng chừng đó — đổi lấy heatmap bám tick.
+    # Với `full_market=False` (38 mã) thì cold rỗng ⇒ hành vi KHÔNG đổi.
+    COLD_EVERY_N = 5
     POLL_WORKERS = 16   # parallel HTTP fetchers
 
     def __init__(self):
@@ -418,7 +472,22 @@ class VnStockWSS:
         self._file_locks: dict[str, threading.Lock] = {}
         self._file_locks_guard = threading.Lock()
 
+        # Nhịp poll — dùng cho tầng nóng/lạnh + đo thời gian vòng quét.
+        # Không đo được thì không chẩn đoán được "heatmap chậm" là do đâu.
+        self._poll_cycle: int = 0
+        self._last_cycle_s: float | None = None
+        self._last_batch_s: float | None = None
+        self._last_batch_n: int = 0
+        self._hot_cache: frozenset[str] = frozenset()
+
         self._detect_mode()
+
+    def _hot_set(self) -> frozenset[str]:
+        """Mã cần tươi MỖI vòng: rổ VN30 hiện hành + index + futures."""
+        if not self._hot_cache:
+            self._hot_cache = frozenset(get_vn30_symbols()) \
+                | frozenset(INDEX_SYMBOLS) | frozenset(FUTURES_SYMBOLS)
+        return self._hot_cache
 
     def _get_file_lock(self, ticker: str) -> threading.Lock:
         """Lấy hoặc tạo lock cho 1 ticker file. Thread-safe."""
@@ -564,7 +633,9 @@ class VnStockWSS:
                 self.subscribed.update(INDEX_SYMBOLS)
                 self.subscribed.update(FUTURES_SYMBOLS)
             else:
-                self.subscribed.update(ALL_SYMBOLS)
+                self.subscribed.update(get_vn30_symbols())
+                self.subscribed.update(INDEX_SYMBOLS)
+                self.subscribed.update(FUTURES_SYMBOLS)
         print(f"[vnstock_wss] Subscribed {len(self.subscribed)} symbols")
 
 
@@ -581,6 +652,12 @@ class VnStockWSS:
                 "error": self.last_error,
                 "market_open": self._is_market_open(),
                 "updated_at": datetime.now().isoformat(timespec="seconds"),
+                # Nhịp thật của vòng quét — "heatmap chậm" chẩn đoán từ đây,
+                # không phải từ cảm giác.
+                "cycle_s": self._last_cycle_s,
+                "batch_s": self._last_batch_s,
+                "batch_n": self._last_batch_n,
+                "hot_tier": hot_tier_enabled(),
             }
 
     def _write_status(self):
@@ -646,6 +723,7 @@ class VnStockWSS:
         """
         self.status = "connected"
         self._write_status()
+        _t_cycle = time.time()
 
         with self._lock:
             symbols = sorted(self.subscribed)
@@ -662,8 +740,18 @@ class VnStockWSS:
         stocks_only = [s for s in symbols
                        if s not in INDEX_SYMBOLS and not is_futures(s)]
 
+        # ── Tầng nóng/lạnh ────────────────────────────────────────────────
+        cycle = self._poll_cycle
+        self._poll_cycle += 1
+        batch_symbols = split_hot_cold(stocks_only, self._hot_set(), cycle,
+                                       every_n=self.COLD_EVERY_N,
+                                       tiering=hot_tier_enabled())
+
         # ── 1. Batch stocks qua Market.price_board ────────────────────────
-        batch_ok = self._fetch_batch_price_board(stocks_only)
+        _t_batch = time.time()
+        batch_ok = self._fetch_batch_price_board(batch_symbols)
+        self._last_batch_s = round(time.time() - _t_batch, 2)
+        self._last_batch_n = len(batch_symbols)
 
         # ── 2. Indices fetch riêng ────────────────────────────────────────
         from concurrent.futures import ThreadPoolExecutor, wait
@@ -686,11 +774,11 @@ class VnStockWSS:
                 pool.shutdown(wait=False, cancel_futures=False)
 
         # ── Fallback nếu batch fail ───────────────────────────────────────
-        if not batch_ok and stocks_only:
+        if not batch_ok and batch_symbols:
             pool = ThreadPoolExecutor(max_workers=self.POLL_WORKERS)
             try:
                 futs = [pool.submit(self._fetch_single_intraday, s)
-                        for s in stocks_only]
+                        for s in batch_symbols]
                 wait(futs, timeout=max(self.POLL_INTERVAL - 4, 5))
             finally:
                 pool.shutdown(wait=False, cancel_futures=False)
@@ -704,6 +792,7 @@ class VnStockWSS:
             if any(m in self.last_error.lower() for m in transient_markers):
                 self.last_error = None
 
+        self._last_cycle_s = round(time.time() - _t_cycle, 2)
         self._stop_event.wait(timeout=max(self.POLL_INTERVAL - 5, 1))
 
     # ─────────────────────────────────────────────────────────────────────

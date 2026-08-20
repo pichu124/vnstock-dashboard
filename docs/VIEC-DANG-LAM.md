@@ -161,16 +161,28 @@ là ○ (máy nào cũng được) hoặc 🖥️ desktop.
 im lặng đúng thiết kế · `suspect_count = 0`. Mục 1 của checklist live mode
 **đóng**. (Lượt 120s trước đó ⚠️ vì đo trúng khung không khớp lệnh — xem U20.)
 
-**Còn đúng một mục live mode, và nó cần MẮT NGƯỜI, script không thay được**
-(W1 trong `docs/CLAUDE-NOTES.md`): heatmap VN30 có số THẬT chạy trong phiên hay
-không. Trong **9:15–11:30 hoặc 13:00–14:30**:
+**✅ W1 (mắt người) cũng XONG 20/08 — heatmap CHẠY.** Và chính lượt nhìn đó
+bắt được **hai lỗi mà script không thể thấy** (mục U21): rổ VN30 vẽ **rổ CŨ**
+(HOSE đã đổi rổ) và phản hồi chậm. Cả hai đã vá — xem ⬇️.
+
+### ⚠️ MỘT VIỆC CẦN MÁY CÓ MẠNG — nạp rổ VN30 mới
+
+Rổ VN30 nay lấy động (API sống → cache → hằng số), nhưng **cache chưa có**.
+Chạy MỘT LẦN ở máy nào cũng được (cache nằm trong kho ⇒ Dropbox lo máy kia):
 
 ```powershell
-python run.py dashboard
+git pull origin claude/tong-hop-cong-viec-test-w8mvrc
+python run.py doctor --net
 ```
-→ sidebar trái bật **🔴 Live Mode → Real-time WSS** → sang tab **Thị trường** →
-xem **Live Market Heatmap VN30** có đổi màu ô theo tick không. Đổi màu = xong
-hẳn mục live mode.
+
+Tìm dòng **"Rổ VN30 — làm mới từ nguồn"**:
+* `✅ … khớp hằng số` ⇒ xong, không phải làm gì nữa.
+* `⚠️ rổ thật đã đổi — VÀO rổ: … · RỜI rổ: …` ⇒ **dán nguyên dòng đó cho
+  Claude** để sửa hằng số ở 3 file. Heatmap/brief đã tự chạy rổ mới rồi, sửa
+  hằng số chỉ là dọn lưới cuối.
+
+Sau đó mở lại dashboard: heatmap phải hiện đúng rổ mới, và caption sidebar có
+thêm dòng **`⏱ vòng quét …s · N mã/vòng (nóng)`** — nhịp THẬT của động cơ.
 
 *Dòng `write tick …: [WinError 5]` thoáng qua rồi tự sạch là **bình thường** —
 Dropbox giữ file `_live/quote_*.json` đúng lúc ghi. Đã có retry, mất 1 tick vô
@@ -194,6 +206,7 @@ hại. Chỉ báo nếu nó KHÔNG tự sạch sau 15s.*
 | Trần task Daily | `PT3H` |
 | Sổ lệnh | **Không mất** — 805 briefs · 148 rec · 138 outcome |
 | Live mode (20/08) | `verify_wss_live` **✅ đạt cả 3 bất biến** trong phiên (24/30 mã có volume, index im lặng, suspect = 0). Bộ chấm nay biết lịch phiên |
+| W1 mắt người (20/08) | Heatmap **chạy thật**. Lượt nhìn bắt được 2 lỗi script không thấy: rổ VN30 cũ · phản hồi chậm — đã vá (U21) |
 
 ---
 

@@ -65,8 +65,8 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   lần**, KHÔNG phải ⇄ CẢ HAI (sửa 19/08).
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~1.888 test; ~40s trên CI).
-- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.387 test).
+- Sửa module lõi nào → `python run.py test --fast` (~1.938 test; ~40s trên CI).
+- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.429 test).
   Đo trên MÁY THẬT 19/08 (sau đợt vá): **2.181 passed / 100,3s** — khớp CI từng test một
   (CI ~36s; máy thật chậm hơn ~3× vì có kho dữ liệu, không phải vì bỏ test).
 - Kết quả ghi `data_warehouse/_meta/test_status.json` → badge sidebar.
@@ -119,6 +119,19 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   chuẩn chấm điểm THEO VIỆC + đề xuất thay model). Chỉ ĐỀ XUẤT, không tự áp.
 - `vnstock_sectors.py` — nhóm ngành custom ("Họ VIN", "Họ M") dùng chung
   dashboard + brief; thêm họ mới = thêm 1 dòng registry.
+- `vnstock_vn30.py` — **rổ VN30 hiện hành, một nguồn sự thật duy nhất**. HOSE
+  xét lại rổ 2 lần/năm (đầu tháng 2 và đầu tháng 8) ⇒ danh sách chép cứng ở
+  `vnstock_brief_canon.VN30_TICKERS` / `vnstock_wss.VN30_SYMBOLS` /
+  `vnstock_news._VN30_FALLBACK` chỉ còn là **lưới cuối**, KHÔNG phải nguồn.
+  Thứ tự: API sống → cache `_meta/vn30_members.json` (7 ngày, đi qua Dropbox
+  nên fetch 1 lần phục vụ cả 2 máy) → hằng số. `validate()` từ chối rổ dưới
+  25 mã (API dở dang làm rổ TEO âm thầm còn tệ hơn rổ cũ). Badge doctor
+  `vn30_basket` réo khi rổ thật lệch hằng số. Vết 20/08: heatmap live vẽ rổ cũ.
+- Động cơ live (`vnstock_wss`) chia **tầng nóng/lạnh**: VN30 + index + futures
+  quét MỖI vòng, ~1.100 mã còn lại mỗi `COLD_EVERY_N` (5) vòng — heatmap bám
+  tick mà vẫn giữ Live Scan toàn thị trường. `split_hot_cold` là hàm thuần và
+  KHÔNG BAO GIỜ trả vòng quét rỗng. Nhịp thật đọc ở `get_status()["cycle_s"]`
+  và caption sidebar, đừng đoán.
 
 ## Quy ước
 - Output cho người dùng (brief, UI) bằng tiếng Việt; format số kiểu EN
@@ -129,7 +142,8 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   quên nối = code chết trông y như code sống; có lưới canh).
 - Mọi auto-refresh đều best-effort và có env kill-switch
   (`VNSTOCK_BRIEF_AUTO_*`, `VNSTOCK_MACRO_*`, `VNSTOCK_BASIS_GUARD`,
-  `VNSTOCK_OHLC_REPAIR`, `VNSTOCK_AUTOHEAL_BUDGET_S`).
+  `VNSTOCK_OHLC_REPAIR`, `VNSTOCK_AUTOHEAL_BUDGET_S`, `VNSTOCK_VN30_DYNAMIC`,
+  `VNSTOCK_WSS_HOT_TIER`).
 - Model LLM: slug MỚI phải probe sống trước khi vào code —
   `python scripts/probe_models.py --slug "Groq=<model>"` trên máy thật
   (catalog trên mạng hay sai/lỗi thời). Provider khai tử model → 1 dòng

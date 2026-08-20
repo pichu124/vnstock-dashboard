@@ -149,11 +149,13 @@ def test_market_tab_renders_heatmap_when_flag_alive(render_env, monkeypatch):
 _CELL_RE = r"flex:0 1 ([0-9.]+)%'><div style='[^']*'>([A-Z0-9]+)</div>"
 
 
-def _heatmap_env(monkeypatch, render_env, tickers, caps=None):
+def _heatmap_env(monkeypatch, render_env, tickers, caps=None, live_basket=None):
     import pandas as pd
     stub = _stub_dashboard()
     stub.WSS_AVAILABLE = True
     stub.VN30_SYMBOLS = list(tickers)
+    if live_basket is not None:
+        stub.get_vn30_symbols = lambda: list(live_basket)
     stub.load_live_quote = _live_quote
     monkeypatch.setitem(sys.modules, "vnstock_dashboard", stub)
     render_env.session_state["live_mode"] = True
@@ -229,3 +231,27 @@ def test_market_tab_skips_live_block_without_flag_but_says_so(render_env, monkey
     assert "Live Mode tắt" in caps, (
         "Cờ tắt mà không có dòng chỉ đường — khối live lại vắng mặt âm thầm."
     )
+
+
+def test_heatmap_follows_the_live_basket_not_the_constant(render_env, monkeypatch):
+    """HOSE đổi rổ VN30 2 lần/năm. Heatmap phải vẽ rổ SỐNG, không phải hằng số
+    chép cứng — vết 20/08/2026: user nhìn heatmap trong phiên mới phát hiện nó
+    còn vẽ rổ cũ, vì `VN30_SYMBOLS` không chỗ nào tự làm mới."""
+    dump = _heatmap_env(monkeypatch, render_env, ["VCB", "POW"],
+                        live_basket=["VCB", "VIX"])
+    assert ">VIX<" in dump, "mã MỚI vào rổ phải xuất hiện"
+    assert ">POW<" not in dump, "mã ĐÃ rời rổ không được vẽ nữa"
+
+
+def test_heatmap_falls_back_to_the_constant_when_resolver_is_missing(
+        render_env, monkeypatch):
+    """Không phân giải được rổ sống thì vẫn phải vẽ — hằng số là lưới cuối,
+    không phải màn hình trắng."""
+    dump = _heatmap_env(monkeypatch, render_env, ["VCB", "SSB"])
+    assert ">VCB<" in dump and ">SSB<" in dump
+
+
+def test_heatmap_ignores_an_empty_live_basket(render_env, monkeypatch):
+    """Resolver trả rỗng (API dở dang) không được làm heatmap trắng bảng."""
+    dump = _heatmap_env(monkeypatch, render_env, ["VCB", "SSB"], live_basket=[])
+    assert ">VCB<" in dump and ">SSB<" in dump

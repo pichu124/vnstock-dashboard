@@ -6966,6 +6966,88 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🔴 U21. HEATMAP LIVE: RỔ VN30 CŨ + ĐỘ TRỄ CỘNG DỒN (20/08, mắt người)
+
+User bật Live Mode trong phiên, nhìn heatmap và báo hai chuyện — **cả hai đều
+là lỗi thật, và cả hai đều KHÔNG có lưới nào bắt được**. Đây chính là giá trị
+của mục W1 (mắt người): script `verify_wss_live` chấm ✅ cả 3 bất biến vài phút
+trước đó mà không thấy gì, vì nó chấm *cơ chế volume*, không chấm *nội dung*.
+
+## ① Rổ VN30 đã đổi, dashboard vẫn vẽ rổ cũ
+
+**Gốc rễ:** danh sách 30 mã được **CHÉP CỨNG ở ba module độc lập**, không chỗ
+nào tự làm mới:
+
+| Chỗ chép | Dùng cho |
+|---|---|
+| `vnstock_brief_canon.VN30_TICKERS` | brief, screener, guard |
+| `vnstock_wss.VN30_SYMBOLS` | subscribe WSS + heatmap live |
+| `vnstock_news._VN30_FALLBACK` | lọc tin |
+
+HOSE xét lại rổ VN30 **2 lần/năm** (hiệu lực đầu tháng 2 và đầu tháng 8) ⇒ cứ
+mỗi kỳ là brief, screener và heatmap **cùng nói sai một lúc**, im lặng. Trớ
+trêu: `vnstock_brief.get_vn30_live()` ĐÃ có sẵn đường lấy rổ sống
+(`listing.symbols_by_group("VN30")`) từ lâu — nhưng chỉ brief dùng, và nó
+không ghi cache nên không ai khác thấy.
+
+**Đã vá — `vnstock_vn30.py`, một nguồn sự thật duy nhất:**
+* Thứ tự **API sống → cache `_meta/vn30_members.json` (7 ngày) → hằng số**.
+  Cache nằm trong kho ⇒ đi Dropbox ⇒ **fetch một lần phục vụ cả hai máy**.
+* `validate()` từ chối rổ ngoài dải 25–35 mã. Đây là lưới quan trọng nhất:
+  API trả dở dang 12 mã mà được nhận thì heatmap **teo âm thầm** — tệ hơn hẳn
+  rổ cũ, vì rổ cũ ít ra còn đủ 30 ô.
+* `resolve()` là **hàm thuần** (fetch/cache tiêm vào) nên test được cả 3 tầng
+  ưu tiên mà không cần mạng.
+* Hằng số chép cứng **giữ nguyên** — vẫn là lưới cuối khi mất mạng. Nhưng nó
+  không còn là nguồn sự thật.
+* Badge doctor `vn30_basket` (offline, **cấm gọi mạng**, chỉ đọc cache) +
+  `net_vn30_basket` (`--net`, làm mới rồi so). Lệch thì in thẳng
+  `VÀO rổ: … · RỜI rổ: …` và chỉ ba file cần sửa hằng số.
+* Heatmap đi qua `vnstock_dashboard.get_vn30_symbols()` — không import thẳng
+  `vnstock_wss`, vì mọi hằng số live của tab đều lấy từ đó (và test dựng module
+  giả ở đúng chỗ đó).
+
+⚠️ **Việc còn lại cho máy có mạng:** chạy `python run.py doctor --net` một lần
+để nạp cache. Đường sống + heatmap tự dùng rổ mới ngay; hằng số ở 3 file thì
+Claude sẽ sửa sau khi biết rổ thật (doctor sẽ in ra).
+
+## ② "Phản hồi chậm" = độ trễ CỘNG DỒN, không phải feed chậm
+
+Ba tầng nối tiếp nhau, mỗi tầng góp trễ:
+
+| Tầng | Trước | Sau |
+|---|---|---|
+| `@st.fragment(run_every=)` heatmap | **5s** | **2s** (khớp `POLL_INTERVAL`) |
+| Vòng poll với `full_market=True` | quét CẢ ~1.100 mã mỗi vòng | VN30+index+futures MỖI vòng, phần còn lại mỗi 5 vòng |
+| Đo được nhịp thật | **không có gì đo** | `get_status()["cycle_s"]` + caption sidebar |
+
+Tầng 2 mới là chỗ đau: heatmap cần **30 mã**, nhưng động cơ gọi `price_board`
+cho ~1.100 mã rồi ghi ~1.100 file JSON MỖI VÒNG — nên một quote VN30 chỉ tươi
+lại sau trọn một vòng quét toàn thị trường. (Cũng chính là nguồn của
+`[WinError 5]` ở U20: 1.100 lượt ghi/vòng vào thư mục Dropbox.)
+
+**`split_hot_cold()` là hàm thuần**, và bất biến quan trọng nhất của nó:
+**KHÔNG BAO GIỜ trả vòng quét rỗng** cho đầu vào khác rỗng — một vòng rỗng là
+feed đứng hình trong khi status vẫn `connected`, đúng họ bug "im lặng trông
+như bình thường". Không có mã nóng nào ⇒ quét tất cả. `subscribe_all()` (38
+mã, mọi mã đều nóng) ⇒ **hành vi KHÔNG đổi**, nên `verify_wss_live` vẫn đo đúng
+thứ nó vẫn đo. Kill-switch `VNSTOCK_WSS_HOT_TIER=0`.
+
+**Giá phải trả (cố ý):** Live Scan của Screener/Dòng Tiền chậm lại ~5×. Đổi lấy
+heatmap bám tick — user nhìn heatmap, không nhìn Live Scan mỗi 2 giây.
+
+**Đừng tối ưu tiếp bằng cảm giác.** Nay đã có `cycle_s` trong badge sidebar:
+đọc số thật rồi mới quyết có cần chia nhỏ `price_board` hay bỏ ghi JSON từng
+mã hay không.
+
+## Lưới mới
+`tests/test_vn30_basket.py` (26) + 3 test heatmap-theo-rổ-sống trong
+`tests/test_live_mode_crosstab.py`. Cả hai file đều vào `--fast`.
+Suite: **2.429 passed** (fast 1.938).
+
+---
+
+
 # 🔧 U20. BỘ CHẤM LIVE MODE MÙ LỊCH PHIÊN — báo động giả chờ sẵn (20/08)
 
 `python scripts\verify_wss_live.py --duration 120` trên máy thật:
