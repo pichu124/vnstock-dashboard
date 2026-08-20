@@ -111,10 +111,18 @@ python run.py doctor --net
 NSO ✅ = mạng nhà chặn, xử ở router/ISP, KHÔNG đụng code · vẫn ❌ = nguồn thật
 sự đổi, lúc đó mới đáng sửa `vnstock_nso`. Làm trong 2 tuần tới là kịp.
 
-**KHÔNG nâng vnstock trên desktop.** Bản 4.0.6 làm chết mọi lệnh gọi mạng
-(`env.py:136 get_hosting_service()` UnboundLocalError), đã trả giá 19/08. Để
-laptop soak vài ngày. Khi nâng: không sát 18:00, nâng xong chạy `doctor --net`
-+ full suite ngay, hỏng thì `pip install vnstock==4.0.4 vnai==2.4.8`.
+**⛔ vnstock 4.0.6 BỊ CHẶN — không nâng máy nào cả.** Bản đó làm chết mọi
+lệnh gọi mạng (`env.py:136 get_hosting_service()` UnboundLocalError). Laptop
+đã nâng thử 19/08 rồi **phải lùi ngay** về 4.0.4 / vnai 2.4.8 để chạy được
+probe; desktop chưa từng nâng.
+
+⚠️ Sửa ghi chú sai: từng ghi "laptop XONG, desktop chờ soak" — **không có cuộc
+soak nào cả**, cả hai máy đều đang ở 4.0.4 (xác nhận 19/08 qua warning pytest
+trên cả hai). Mục này KHÔNG chờ thời gian, nó chờ **bản vá của nhà cung cấp**.
+
+Khi 4.0.7+ ra: nâng ở 💻 **laptop trước**, chạy `doctor --net` + full suite
+ngay, chạy được vài ngày rồi mới đụng desktop, và **không nâng sát 18:00**.
+Hỏng thì lùi: `pip install vnstock==4.0.4 vnai==2.4.8`.
 
 ---
 

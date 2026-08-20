@@ -7678,6 +7678,12 @@ giữ nguyên và nói rõ vì sao. Ép tay vẫn còn `--volume adjust`.
 XÁC NHẬN đây là cổ tức tiền mặt — chẩn đoán 1.0327× không còn là suy luận
 từ độ lớn nữa mà có bản ghi hậu thuẫn. An toàn để `--apply`.
 
+**✅ Xác nhận 19/08 cuối ngày: CẢ HAI máy đều đang ở 4.0.4 / vnai 2.4.8.**
+Warning pytest trên desktop lẫn laptop đều in `Current: 4.0.4`. Ghi chú "laptop
+đã nâng xong, desktop chờ soak" là SAI — laptop nâng rồi LÙI ngay trong ngày để
+chạy probe. Không có cuộc soak nào; mục này chờ BẢN VÁ của nhà cung cấp
+(4.0.7+), không chờ thời gian.
+
 **U8. ⛔ BẢN NÂNG 4.0.6 LÀM HỎNG ĐƯỜNG FETCH — LÙI LẠI, KHÔNG NÂNG DESKTOP
 (19/08).** Sau khi nâng laptop, mọi lượt fetch nguồn đều nổ
 `RuntimeError: RetryError[... raised UnboundLocalError]` ở nhánh SPONSOR
