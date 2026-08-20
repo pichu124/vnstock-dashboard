@@ -126,7 +126,16 @@ Hỏng thì lùi: `pip install vnstock==4.0.4 vnai==2.4.8`.
 
 ---
 
-## 💻 LAPTOP — việc còn treo
+## 💻 LAPTOP — ✅ đã thử xong 19/08
+
+`run.py vietstock` **chạy được** và trả tỉ lệ quyền có cấu trúc. PET ra
+`20:1` + `5:2` cùng ngày 09/07 ⇒ hệ số 1.45, khớp 1.4499× mà bộ chữa đo độc
+lập từ giá (lệch 0,007%) — xác nhận độc lập cho toàn bộ chẩn đoán lệch cơ sở.
+`run.py cash-dividends` thì **hỏng** (CafeF 404), nhưng Vietstock đã trả cả sự
+kiện tiền mặt nên đường đó có thể thừa. Chi tiết + hai việc mở ra: mục U19
+trong `docs/CLAUDE-NOTES.md`.
+
+## 💻 LAPTOP — việc còn treo (cũ)
 
 **Thử sổ sự kiện quyền có dày lên được không** (CHỈ ĐỌC, không `--register`
 nên không ghi gì vào kho):

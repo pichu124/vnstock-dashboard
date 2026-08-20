@@ -6966,6 +6966,54 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🎯 U19. VIETSTOCK CHẠY ĐƯỢC — VÀ PET XÁC NHẬN TOÀN BỘ CHẨN ĐOÁN LỆCH CƠ SỞ
+
+`run.py vietstock --ticker PET --fdate 2026-01-01` trên laptop 19/08 trả về:
+
+```
+2026-07-09  bonus   Trả cổ tức năm 2025 bằng cổ phiếu, tỷ lệ 20:1
+2026-07-09  bonus   Thưởng cổ phiếu, tỷ lệ 5:2
+2026-01-12  cash    Trả cổ tức năm 2024 bằng tiền, 500 đồng/CP
+```
+
+**Phép kiểm khớp đến 4 chữ số.** Hai sự kiện cùng ngày GDKHQ 09/07, tính trên
+CÙNG số cổ phiếu chốt quyền (không nhân dây chuyền):
+`100 → +5 (20:1) +40 (5:2) = 145` ⇒ hệ số **1.45**.
+Bộ chữa kho đo độc lập từ giá: **1.4499×** (vách 2026-07-07). Lệch 0,007%.
+
+Đây là XÁC NHẬN ĐỘC LẬP cho toàn bộ chẩn đoán lệch cơ sở của ngày 19/08: hệ số
+đo từ tỉ lệ kho/nguồn trùng khít hệ số tính từ sổ sự kiện quyền của một nguồn
+KHÁC HẲN. Không còn là suy luận.
+
+**Và nó chốt luôn LUẬT GHÉP** — thứ suýt làm sai nếu tự đoán: nhiều sự kiện
+cùng một ngày GDKHQ thì cộng dồn trên số cổ phiếu GỐC (1.05 + 0.40 = 1.45),
+KHÔNG nhân dây chuyền (1.05 × 1.40 = 1.47 — lệch 1,4%, đủ để sai).
+
+**Về heuristic khối lượng:** bộ chữa TỪ CHỐI nhân khối lượng PET vì bậc nhảy
+volume 0.43× ngược chiều hệ số giá 1.4499×. Quyết định đó ĐÚNG về mặt thận
+trọng, nhưng nay biết câu trả lời thật: **hệ số phải lấy từ SỔ SỰ KIỆN, không
+lấy từ bậc nhảy volume.** Volume sau sự kiện phụ thuộc thanh khoản, không phải
+số cổ phiếu — dùng nó làm bằng chứng là dùng sai đại lượng.
+
+## Hai việc mở ra từ đây (chưa làm)
+
+**(1) Bơm tỉ lệ quyền vào guard GDKHQ + bộ chữa.** `fetch_corp_events` ĐÃ trả
+`ratio` / `cash_amount` có cấu trúc. Nhưng `vnstock_events.load_upcoming` — thứ
+brief thực sự đọc — lấy từ nguồn KHÁC (VCI `company.events()`) và chỉ giữ
+`ticker / ex_date / title / category`, vứt phần tỉ lệ. Vá bằng cách phân tích
+tỉ lệ từ chính `title` (cùng cách diễn đạt ở cả hai nguồn), THẬN TRỌNG: chỉ
+nhận mẫu chắc chắn, không khớp thì giữ nguyên hành vi hiện tại (cảnh báo không
+kèm số). Khi có tỉ lệ thì:
+* guard GDKHQ tự quy đổi được mốc giá thay vì chỉ nói "chưa quy đổi";
+* `rebase_ticker_history` hết phải đoán khối lượng bằng bậc nhảy volume.
+⚠️ Cổ tức TIỀN MẶT vẫn phải xử riêng: điều chỉnh theo SỐ TUYỆT ĐỐI
+(`500 đồng/CP`), không theo % giá.
+
+**(2) `run.py cash-dividends` HỎNG:** `HTTP 404 on
+https://s.cafef.vn/lich-su-su-kien/VNM.chn` — CafeF đổi URL. Nhưng Vietstock đã
+trả cả sự kiện `cash` kèm số tiền/CP, nên đường CafeF có thể THỪA. Cân nhắc bỏ
+hẳn thay vì sửa URL — một nguồn ít hơn là một chỗ hỏng ít hơn.
+
 # ✅ U18. VÁ GỐC LỖ HỔNG ĐỘ TƯƠI — so CẢ GIỜ, mốc 15:05 (user chốt 19/08)
 
 **Lỗ hổng:** `market_data_freshness` chỉ so NGÀY (`overview_date < data_date`).
