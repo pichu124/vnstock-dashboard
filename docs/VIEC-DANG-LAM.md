@@ -165,26 +165,24 @@ im lặng đúng thiết kế · `suspect_count = 0`. Mục 1 của checklist li
 bắt được **hai lỗi mà script không thể thấy** (mục U21): rổ VN30 vẽ **rổ CŨ**
 (HOSE đã đổi rổ) và phản hồi chậm. Cả hai đã vá — xem ⬇️.
 
-### ✅ RỔ VN30 ĐÃ CẬP NHẬT (20/08) — còn một lệnh đối chiếu kho
+### ✅ RỔ VN30 ĐÃ XONG HẲN (20/08)
 
-Rổ kỳ tháng 8/2026 đã đo được và **hằng số ở cả 3 file đã sửa**:
+Rổ kỳ tháng 8/2026 đã đo trên máy thật, hằng số ở cả 3 file đã sửa, và
+`--diag` xác nhận **✅ rổ sống 30 mã · ✅ khớp hằng số · ✅ cả 30 mã đều có giá
+trong kho**:
 
 | VÀO rổ | RỜI rổ |
 |---|---|
 | BSR · LPB · MCH · TCX · VPL | BCM · BVH · PLX · POW · TPB |
 
-Thay 1/6 rổ. Sau khi merge, chạy để chắc kho có giá cho 5 mã mới:
+*Sửa nhỏ sau đó: `--diag` nay GHI LẠI cache vừa lấy được (lượt 20/08 in ✅ cả
+ba dòng mà vẫn "chưa có cache" — nó gọi API rồi vứt kết quả đi). Merge bản mới
+rồi chạy lại `python vnstock_vn30.py --diag` một lần để nạp cache — sau đó
+dashboard/brief không phải gọi API nữa, và máy kia hưởng luôn qua Dropbox.*
 
-```powershell
-git pull origin claude/tong-hop-cong-viec-test-w8mvrc
-python vnstock_vn30.py --diag
-```
-
-* `✅ khớp hằng số chép cứng` + `✅ cả 30 mã đều có thư mục giá trong kho`
-  ⇒ **xong hẳn**, mở dashboard là thấy rổ mới.
-* `⚠️ N mã trong rổ CHƯA có giá trong kho: …` ⇒ chạy `python run.py sync`
-  (hoặc đợi phát 18:00) để updater kéo lịch sử về. Heatmap sẽ để ô trống cho
-  tới lúc đó.
+**Còn treo, nhỏ:** ngành của **TCX** chưa xác minh nên cố ý để trống trong
+`vnstock_train._VN30_SECTOR_MAP` (gán bừa thì lệch tầng âm thầm). Biết nó là
+ngành gì thì báo Claude điền một dòng.
 
 ---
 

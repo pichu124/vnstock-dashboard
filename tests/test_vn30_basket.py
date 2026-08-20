@@ -263,3 +263,53 @@ class TestTheThreeHardcodedCopiesNeverDrift:
     def test_the_copies_pass_the_resolver_sanity_check(self):
         for name, got in self._copies().items():
             assert v30.validate(sorted(got)) is not None, name
+
+
+class TestDiagPersistsWhatItFetched:
+    """
+    Vết 20/08: `--diag` in ✅ cả ba dòng nhưng vẫn để `(chưa có cache)` — nó
+    gọi thẳng API rồi vứt kết quả đi. Lượt sau lại gọi mạng, và máy kia không
+    được hưởng gì qua Dropbox, đúng lúc thiết kế nói "fetch 1 lần phục vụ cả
+    2 máy".
+    """
+
+    def test_diag_writes_the_cache_after_a_good_fetch(self, monkeypatch, tmp_path, capsys):
+        import pandas as pd
+        cache = tmp_path / "vn30_members.json"
+        monkeypatch.setattr(v30, "CACHE_PATH", cache)
+        monkeypatch.setattr(v30, "load_cache", lambda: None)
+
+        class _Listing:
+            @staticmethod
+            def symbols_by_group(_g):
+                return pd.Series(_REAL30, name="symbol")
+
+        monkeypatch.setitem(
+            __import__("sys").modules, "vnstock_auth",
+            type("M", (), {"get_vnstock": staticmethod(
+                lambda *a, **k: type("C", (), {"listing": _Listing})())}))
+
+        assert v30._diag() == 0
+        assert cache.exists(), "diag phải ghi lại rổ vừa lấy được"
+        import json
+        assert set(json.loads(cache.read_text(encoding="utf-8"))["members"]) \
+            == set(_REAL30)
+
+    def test_diag_does_not_write_a_rejected_basket(self, monkeypatch, tmp_path):
+        import pandas as pd
+        cache = tmp_path / "vn30_members.json"
+        monkeypatch.setattr(v30, "CACHE_PATH", cache)
+        monkeypatch.setattr(v30, "load_cache", lambda: None)
+
+        class _Listing:
+            @staticmethod
+            def symbols_by_group(_g):
+                return pd.Series(["VCB", "FPT"], name="symbol")   # rổ teo
+
+        monkeypatch.setitem(
+            __import__("sys").modules, "vnstock_auth",
+            type("M", (), {"get_vnstock": staticmethod(
+                lambda *a, **k: type("C", (), {"listing": _Listing})())}))
+
+        assert v30._diag() == 2
+        assert not cache.exists(), "rổ không qua validate thì TUYỆT ĐỐI không ghi đè cache"

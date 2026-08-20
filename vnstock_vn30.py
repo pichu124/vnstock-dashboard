@@ -248,6 +248,15 @@ def _diag() -> int:
         print(f"[vn30] ❌ không qua validate (cần {MIN_MEMBERS}-{MAX_MEMBERS} mã, "
               f"mã 3-4 ký tự chữ+số)")
         return 2
+    # Diag ĐÃ trả giá cho lượt fetch — không ghi cache thì lượt sau lại gọi
+    # mạng, và máy kia không được hưởng gì qua Dropbox. (Vết 20/08: diag ra
+    # ✅ cả ba dòng mà vẫn in "chưa có cache".)
+    try:
+        save_cache(ok)
+        print(f"[vn30] 💾 đã ghi cache → {CACHE_PATH}")
+    except Exception as e:
+        print(f"[vn30] ⚠️ không ghi được cache ({type(e).__name__}: {e})")
+
     added, removed = diff_vs_fallback(ok)
     print(f"[vn30] ✅ rổ sống {len(ok)} mã")
     if added or removed:
