@@ -2,7 +2,7 @@
 
 > Bản để LÀM THEO. Kho lưu chi tiết (lý do, file:line, lịch sử) ở
 > `docs/CLAUDE-NOTES.md` — đừng mở nó để biết "hôm nay làm gì".
-> Cập nhật: 19/08/2026, cuối ngày.
+> Cập nhật: 20/08/2026.
 
 ## 🏷️ NHÃN MÁY — quy tắc gốc: KHO đồng bộ, CODE thì không
 
@@ -43,11 +43,18 @@ Phải ra **2.387 passed**. **Chạy `run.py test` NGAY sau khi merge** — đ�
 task 18:00 phát hiện hộ. Bài học 19/08: merge lúc 17:37 rồi để phát 18:00 chạy
 full suite ở bước 9, một test đỏ là dừng cứng và **mất brief cả đêm**.
 
-* 🖥️ **DESKTOP: ✅ xong 19/08** — `2.352 passed` trên máy thật, khớp CI từng
-  test một. (Lượt merge giữa chừng có 1 test đỏ do test PHỤ THUỘC KHO THẬT —
-  đã vá, xem `docs/CLAUDE-NOTES.md` mục U18.)
+**CẢ HAI MÁY đang ở `2.352`** (mốc merge 19/08) — HEAD nay là `2.387` sau đợt
+`vnstock_corp_ratio` + guard GDKHQ tự quy đổi. Nên cả hai đều phải merge lại.
+
+* 🖥️ **DESKTOP: ⏳ nên làm TRƯỚC 18:00 hôm nay (20/08)** — hôm nay đúng ngày
+  GDKHQ của VIX. Bản `2.352` chỉ cảnh báo "mốc CHƯA quy đổi"; bản `2.387` in
+  thẳng `giá tham chiếu ≈ 12,476`. Không merge thì brief chiều nay vẫn là bản
+  cảnh báo suông — không sai, chỉ kém. **Đừng merge sát 18:00**: chạy full
+  suite xong hẵng thôi, bài học 19/08 ngay dưới đây.
 * 💻 **LAPTOP: ⏳ chưa** — chạy đúng hai lệnh trên khi nào mở máy. Không gấp
   (laptop không có task lịch) nhưng đừng chạy công cụ kho ở đó trước khi merge.
+* (Lượt merge 19/08 có 1 test đỏ do test PHỤ THUỘC KHO THẬT — đã vá, xem
+  `docs/CLAUDE-NOTES.md` mục U18.)
 
 *Ghi chú về bẫy `git pull`: `git pull origin <nhánh>` CÓ tác dụng (nó merge
 `origin/<nhánh>` vào nhánh đang đứng). Bẫy "Already up to date" chỉ xảy ra với
@@ -126,29 +133,22 @@ Hỏng thì lùi: `pip install vnstock==4.0.4 vnai==2.4.8`.
 
 ---
 
-## 💻 LAPTOP — ✅ đã thử xong 19/08
+## 💻 LAPTOP — sau khi merge thì HẾT việc riêng
 
-`run.py vietstock` **chạy được** và trả tỉ lệ quyền có cấu trúc. PET ra
-`20:1` + `5:2` cùng ngày 09/07 ⇒ hệ số 1.45, khớp 1.4499× mà bộ chữa đo độc
-lập từ giá (lệch 0,007%) — xác nhận độc lập cho toàn bộ chẩn đoán lệch cơ sở.
-`run.py cash-dividends` thì **hỏng** (CafeF 404), nhưng Vietstock đã trả cả sự
-kiện tiền mặt nên đường đó có thể thừa. Chi tiết + hai việc mở ra: mục U19
-trong `docs/CLAUDE-NOTES.md`.
+**Việc treo cuối cùng của laptop đã xong 19/08.** `run.py vietstock` **chạy
+được** và trả tỉ lệ quyền có cấu trúc: PET ra `20:1` + `5:2` cùng ngày 09/07
+⇒ hệ số 1.45, khớp 1.4499× mà bộ chữa kho đo độc lập từ giá (lệch 0,007%) —
+xác nhận độc lập cho toàn bộ chẩn đoán lệch cơ sở. Kết quả đó đã thành code:
+`vnstock_corp_ratio` đọc tỉ lệ từ tiêu đề sự kiện, guard GDKHQ nay **tự quy
+đổi** mốc giá thay vì chỉ cảnh báo.
 
-## 💻 LAPTOP — việc còn treo (cũ)
+`run.py cash-dividends` thì **hỏng** (CafeF 404) — nhưng Vietstock đã trả cả
+sự kiện tiền mặt nên đường đó nhiều khả năng thừa; Claude sẽ quyết bỏ hay giữ,
+KHÔNG cần user thử lại. Chi tiết: mục U19 trong `docs/CLAUDE-NOTES.md`.
 
-**Thử sổ sự kiện quyền có dày lên được không** (CHỈ ĐỌC, không `--register`
-nên không ghi gì vào kho):
-
-```powershell
-python run.py vietstock --ticker PET --fdate 2026-01-01
-python run.py cash-dividends --ticker VNM
-```
-
-Vì sao đáng: sổ sự kiện đang mỏng — trong 70 mã lệch cơ sở chỉ **3 mã** tra ra
-loại sự kiện. Đó là gốc khiến bộ chữa phải đoán khối lượng bằng heuristic, và
-cũng là lý do guard GDKHQ chưa tự quy đổi được mốc giá. Ra sự kiện = đường này
-dùng được. Timeout hết = mạng laptop chặn, thử lại trên desktop.
+⇒ Còn đúng **một** việc bắt buộc ở laptop: **merge + `run.py test`** (mục 🔴
+đầu trang). Xong hai lệnh đó là laptop sạch sổ — mọi thứ còn lại đều là ○ (máy
+nào cũng được) hoặc 🖥️ desktop.
 
 *Nhớ merge trước khi chạy bất cứ công cụ kho nào ở laptop — code không đồng bộ.*
 
