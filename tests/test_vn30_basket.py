@@ -159,3 +159,68 @@ class TestHotTierSplit:
         for cycle in range(5):
             seen.update(split_hot_cold(self.SYMS, self.HOT, cycle, every_n=5))
         assert seen == set(self.SYMS)
+
+
+class TestExtractSymbolsAcceptsWhatTheApiActuallyReturns:
+    """
+    Vết 20/08: `Listing.symbols_by_group("VN30")` của VCI trả **pd.Series**
+    (`return df["symbol"]`), nhưng cả `vnstock_vn30._fetch_live` lẫn
+    `vnstock_brief.get_vn30_live` đều dò `.columns` ⇒ AttributeError mỗi lần
+    ⇒ im lặng rơi về hằng số. Đường "lấy rổ động" là **code chết trông y như
+    code sống**, chỉ lòi ra khi doctor --net in "API không trả rổ dùng được".
+    """
+
+    def test_pandas_series_is_the_real_shape(self):
+        import pandas as pd
+        got = v30.extract_symbols(pd.Series(_REAL30, name="symbol"))
+        assert got == _REAL30
+
+    def test_dataframe_with_named_column_still_works(self):
+        import pandas as pd
+        assert v30.extract_symbols(pd.DataFrame({"ticker": _REAL30})) == _REAL30
+
+    def test_single_column_frame_with_an_odd_name_is_accepted(self):
+        import pandas as pd
+        assert v30.extract_symbols(pd.DataFrame({"mã": _REAL30})) == _REAL30
+
+    def test_multi_column_frame_without_a_symbol_column_is_refused(self):
+        import pandas as pd
+        df = pd.DataFrame({"a": _REAL30, "b": _REAL30})
+        assert v30.extract_symbols(df) is None
+
+    def test_plain_list_and_set(self):
+        assert v30.extract_symbols(["VCB", " FPT "]) == ["VCB", "FPT"]
+        assert sorted(v30.extract_symbols({"VCB", "FPT"})) == ["FPT", "VCB"]
+
+    def test_empty_and_none_give_none_not_an_empty_basket(self):
+        import pandas as pd
+        assert v30.extract_symbols(None) is None
+        assert v30.extract_symbols([]) is None
+        assert v30.extract_symbols(pd.Series([], dtype=object)) is None
+
+    def test_drops_nulls_without_stringifying_them(self):
+        got = v30.extract_symbols(["VCB", None, "", "  ", "FPT"])
+        assert got == ["VCB", "FPT"]
+
+    def test_a_live_series_flows_all_the_way_through_resolve(self):
+        import pandas as pd
+        live = pd.Series(sorted(set(_REAL30) - {"POW"} | {"VIX"}), name="symbol")
+        out = v30.resolve(fetch=lambda: v30.extract_symbols(live),
+                          cache=None, fallback=_REAL30)
+        assert out["source"] == "live" and "VIX" in out["members"]
+
+
+class TestBriefUsesTheSameResolver:
+    def test_get_vn30_live_delegates_to_the_resolver(self, monkeypatch):
+        import vnstock_brief
+        monkeypatch.setattr(v30, "get_members", lambda: ["VCB", "VIX"])
+        assert vnstock_brief.get_vn30_live() == {"VCB", "VIX"}
+
+    def test_get_vn30_live_falls_back_when_the_resolver_explodes(self, monkeypatch):
+        import vnstock_brief
+        from vnstock_brief_canon import VN30_TICKERS
+
+        def _boom():
+            raise RuntimeError("nổ")
+        monkeypatch.setattr(v30, "get_members", _boom)
+        assert vnstock_brief.get_vn30_live() == set(VN30_TICKERS)

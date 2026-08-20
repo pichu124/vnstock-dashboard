@@ -65,8 +65,8 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   lần**, KHÔNG phải ⇄ CẢ HAI (sửa 19/08).
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~1.938 test; ~40s trên CI).
-- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.429 test).
+- Sửa module lõi nào → `python run.py test --fast` (~1.948 test; ~40s trên CI).
+- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.439 test).
   Đo trên MÁY THẬT 19/08 (sau đợt vá): **2.181 passed / 100,3s** — khớp CI từng test một
   (CI ~36s; máy thật chậm hơn ~3× vì có kho dữ liệu, không phải vì bỏ test).
 - Kết quả ghi `data_warehouse/_meta/test_status.json` → badge sidebar.
@@ -124,7 +124,9 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   `vnstock_brief_canon.VN30_TICKERS` / `vnstock_wss.VN30_SYMBOLS` /
   `vnstock_news._VN30_FALLBACK` chỉ còn là **lưới cuối**, KHÔNG phải nguồn.
   Thứ tự: API sống → cache `_meta/vn30_members.json` (7 ngày, đi qua Dropbox
-  nên fetch 1 lần phục vụ cả 2 máy) → hằng số. `validate()` từ chối rổ dưới
+  nên fetch 1 lần phục vụ cả 2 máy) → hằng số. ⚠️ `symbols_by_group` trả
+  **pd.Series** chứ không phải DataFrame — dò `.columns` là ném im lặng
+  (`extract_symbols` nhận mọi dạng). Chẩn đoán: `python vnstock_vn30.py --diag`. `validate()` từ chối rổ dưới
   25 mã (API dở dang làm rổ TEO âm thầm còn tệ hơn rổ cũ). Badge doctor
   `vn30_basket` réo khi rổ thật lệch hằng số. Vết 20/08: heatmap live vẽ rổ cũ.
 - Động cơ live (`vnstock_wss`) chia **tầng nóng/lạnh**: VN30 + index + futures

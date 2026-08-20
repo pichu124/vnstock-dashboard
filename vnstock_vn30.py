@@ -114,16 +114,47 @@ def resolve(fetch=None, cache=None, fallback=None,
 # ─────────────────────────────────────────────────────────────────────────
 # Đường có I/O — mỏng, gói quanh `resolve`
 # ─────────────────────────────────────────────────────────────────────────
+def extract_symbols(obj) -> list[str] | None:
+    """
+    Bóc danh sách mã ra khỏi thứ mà API trả về. HÀM THUẦN.
+
+    ⚠️ `Listing.symbols_by_group("VN30")` của VCI trả **pd.Series** (`return
+    df["symbol"]`), KHÔNG phải DataFrame. Bản đầu ở đây — và
+    `vnstock_brief.get_vn30_live()` từ trước tới nay — đều dò `obj.columns`
+    nên ném AttributeError ngay và im lặng rơi về hằng số: đường "lấy rổ
+    động" trông như đang sống mà thực ra CHƯA BAO GIỜ chạy (doctor --net
+    20/08 mới lòi ra). Nhận mọi dạng hợp lý, đừng đoán dạng nào.
+    """
+    if obj is None:
+        return None
+    # pandas Series — dạng THẬT của VCI
+    if hasattr(obj, "tolist") and not hasattr(obj, "columns"):
+        vals = list(obj.tolist())
+    # pandas DataFrame
+    elif hasattr(obj, "columns"):
+        cols = [str(c) for c in obj.columns]
+        col = next((c for c in cols
+                    if str(c).lower() in ("ticker", "symbol", "code")), None)
+        if col is None:
+            if len(cols) != 1:
+                return None
+            col = cols[0]           # 1 cột tên lạ vẫn dùng được
+        vals = list(obj[col])
+    elif isinstance(obj, dict):
+        vals = list(obj.values())
+    elif isinstance(obj, (list, tuple, set, frozenset)):
+        vals = list(obj)
+    else:
+        return None
+    out = [str(v).strip() for v in vals if v is not None and str(v).strip()]
+    return out or None
+
+
 def _fetch_live() -> list[str] | None:
     """Hỏi API danh sách thành phần VN30. Lỗi gì cũng trả None."""
     from vnstock_auth import get_vnstock
-    df = get_vnstock("VCB", "VCI").listing.symbols_by_group("VN30")
-    if df is None or getattr(df, "empty", True):
-        return None
-    col = next((c for c in ("ticker", "symbol", "code") if c in df.columns), None)
-    if col is None:
-        return None
-    return [str(v) for v in df[col] if v]
+    return extract_symbols(
+        get_vnstock("VCB", "VCI").listing.symbols_by_group("VN30"))
 
 
 def load_cache() -> dict | None:
@@ -181,3 +212,51 @@ def status(force_refresh: bool = False, allow_fetch: bool = True) -> dict:
         # vẫn phải được thử lấy rổ sống.
         _MEM = dict(out)
     return dict(out)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Chẩn đoán — `python vnstock_vn30.py --diag`
+# ─────────────────────────────────────────────────────────────────────────
+def _diag() -> int:
+    """In THẬT nguồn trả về cái gì. Không có nó thì 'API không trả rổ dùng
+    được' là một câu bí hiểm — 20/08 thủ phạm hoá ra là Series-vs-DataFrame."""
+    print(f"[vn30] kill-switch {_ENV_FLAG}={os.environ.get(_ENV_FLAG, '(mặc định 1)')}"
+          f" → enabled={enabled()}")
+    print(f"[vn30] cache: {CACHE_PATH}")
+    cache = load_cache()
+    if cache:
+        print(f"[vn30]   {len(cache.get('members') or [])} mã · "
+              f"updated_at={cache.get('updated_at')} · "
+              f"tuổi={cache_age_days(cache.get('updated_at'))}")
+    else:
+        print("[vn30]   (chưa có cache)")
+
+    print("[vn30] gọi listing.symbols_by_group('VN30')…")
+    try:
+        from vnstock_auth import get_vnstock
+        raw = get_vnstock("VCB", "VCI").listing.symbols_by_group("VN30")
+    except Exception as e:
+        print(f"[vn30] ❌ gọi API ném {type(e).__name__}: {e}")
+        return 2
+    print(f"[vn30]   type={type(raw).__name__} "
+          f"columns={getattr(raw, 'columns', '(không có)')} "
+          f"len={len(raw) if hasattr(raw, '__len__') else '?'}")
+    syms = extract_symbols(raw)
+    print(f"[vn30]   bóc ra: {len(syms) if syms else 0} mã → {(syms or [])[:8]}…")
+    ok = validate(syms)
+    if not ok:
+        print(f"[vn30] ❌ không qua validate (cần {MIN_MEMBERS}-{MAX_MEMBERS} mã, "
+              f"mã 3-4 ký tự chữ+số)")
+        return 2
+    added, removed = diff_vs_fallback(ok)
+    print(f"[vn30] ✅ rổ sống {len(ok)} mã")
+    if added or removed:
+        print(f"[vn30] ⚠️ LỆCH hằng số — VÀO rổ: {added or '-'} · RỜI rổ: {removed or '-'}")
+    else:
+        print("[vn30] ✅ khớp hằng số chép cứng")
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+    raise SystemExit(_diag() if "--diag" in sys.argv else _diag())

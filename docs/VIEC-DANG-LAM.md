@@ -175,11 +175,17 @@ git pull origin claude/tong-hop-cong-viec-test-w8mvrc
 python run.py doctor --net
 ```
 
+*Lượt 20/08 đầu tiên ra `⚠️ API không trả rổ dùng được` — thủ phạm là
+`symbols_by_group` trả **pd.Series** chứ không phải DataFrame, đã vá (U21①b).
+Nhớ `git pull` lấy bản vá TRƯỚC khi chạy lại.*
+
 Tìm dòng **"Rổ VN30 — làm mới từ nguồn"**:
 * `✅ … khớp hằng số` ⇒ xong, không phải làm gì nữa.
 * `⚠️ rổ thật đã đổi — VÀO rổ: … · RỜI rổ: …` ⇒ **dán nguyên dòng đó cho
   Claude** để sửa hằng số ở 3 file. Heatmap/brief đã tự chạy rổ mới rồi, sửa
   hằng số chỉ là dọn lưới cuối.
+* Còn `⚠️ API không trả rổ dùng được` ⇒ chạy `python vnstock_vn30.py --diag`
+  và dán toàn bộ output — nó in thẳng nguồn trả về type/columns/mấy mã.
 
 Sau đó mở lại dashboard: heatmap phải hiện đúng rổ mới, và caption sidebar có
 thêm dòng **`⏱ vòng quét …s · N mã/vòng (nóng)`** — nhịp THẬT của động cơ.

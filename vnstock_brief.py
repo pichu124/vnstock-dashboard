@@ -90,19 +90,19 @@ _LIQUID_PRICE_MIN_TY: float = 5.0
 
 
 def get_vn30_live() -> set[str]:
-    """Try to fetch current VN30 from vnstock API; fall back to VN30_TICKERS."""
+    """Rổ VN30 hiện hành; lui về VN30_TICKERS khi không lấy được.
+
+    Đi qua `vnstock_vn30` — MỘT đường duy nhất, có cache trong kho (nên hai
+    máy dùng chung) và có badge doctor. Bản cũ tự gọi API ở đây và dò
+    `df.columns`, nhưng `symbols_by_group` trả **pd.Series** nên nó ném
+    AttributeError mỗi lần và im lặng rơi về hằng số: "lấy rổ động" là code
+    chết trông y như code sống suốt từ đó (lòi ra 20/08).
+    """
     try:
-        from vnstock_auth import get_vnstock
-        df = get_vnstock("VCB", "VCI").listing.symbols_by_group("VN30")
-        if df is not None and not df.empty:
-            col = next((c for c in ("ticker", "symbol", "code") if c in df.columns), None)
-            if col:
-                tickers = {str(v).upper() for v in df[col] if v}
-                if len(tickers) >= 20:
-                    return tickers
+        import vnstock_vn30
+        return set(vnstock_vn30.get_members())
     except Exception:
-        pass
-    return set(VN30_TICKERS)
+        return set(VN30_TICKERS)
 
 _DEFAULT_AGENT_CONFIGS: list[dict] = [
     # Gemini = agent CHÍNH (user chốt 22/07, all-free) — enabled sẵn để máy

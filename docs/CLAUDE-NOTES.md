@@ -7011,6 +7011,41 @@ không ghi cache nên không ai khác thấy.
 để nạp cache. Đường sống + heatmap tự dùng rổ mới ngay; hằng số ở 3 file thì
 Claude sẽ sửa sau khi biết rổ thật (doctor sẽ in ra).
 
+### ①b Vòng 2 — "API không trả rổ dùng được": Series ≠ DataFrame
+
+`doctor --net` 20/08 ra `⚠️ Rổ VN30 — làm mới từ nguồn — API không trả rổ dùng
+được (đang dùng fallback)`. Đọc thẳng mã nguồn gói đã cài
+(`vnstock.explorer.vci.listing.Listing.symbols_by_group`) thì dòng cuối là:
+
+```python
+df = pd.DataFrame(json_data)
+df.source = "VCI"
+return df["symbol"]        # ← pd.Series, KHÔNG phải DataFrame
+```
+
+Cả `vnstock_vn30._fetch_live` (bản đầu, viết cùng ngày) **lẫn**
+`vnstock_brief.get_vn30_live()` (có từ lâu) đều dò `df.columns`. Series không
+có `.columns` ⇒ AttributeError ⇒ `except Exception: pass` ⇒ im lặng rơi về
+hằng số.
+
+**Hệ quả nặng hơn cái badge:** `get_vn30_live()` trong brief là **code chết
+trông y như code sống** — nó CHƯA BAO GIỜ lấy được rổ động, từ ngày viết. Không
+có badge doctor mới thì chuyện này còn ẩn tiếp qua nhiều kỳ đổi rổ nữa. Đúng họ
+bug repo đã đặt tên: *"guard quên nối = code chết trông y như code sống"*.
+
+**Vá:**
+* `extract_symbols(obj)` — hàm thuần, nhận **Series** (dạng thật) · DataFrame
+  có cột `ticker`/`symbol`/`code` · DataFrame 1 cột tên lạ · list/tuple/set/
+  dict. Từ chối DataFrame nhiều cột không có cột mã (đoán bừa còn tệ hơn).
+* `vnstock_brief.get_vn30_live()` nay **uỷ quyền** cho `vnstock_vn30` — một
+  đường duy nhất, một chỗ sửa, có cache dùng chung hai máy.
+* `python vnstock_vn30.py --diag` in THẬT nguồn trả gì: type, columns, số mã,
+  8 mã đầu, kết quả validate, và diff so hằng số. Không có nó thì "API không
+  trả rổ dùng được" là câu bí hiểm.
+* Badge `net_vn30_basket` nay trỏ thẳng vào lệnh diag thay vì "soi
+  _fetch_live".
+* 10 test mới, trong đó test đầu tiên dựng đúng `pd.Series(name="symbol")`.
+
 ## ② "Phản hồi chậm" = độ trễ CỘNG DỒN, không phải feed chậm
 
 Ba tầng nối tiếp nhau, mỗi tầng góp trễ:

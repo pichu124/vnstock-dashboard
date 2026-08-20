@@ -1024,7 +1024,8 @@ def net_vn30_basket() -> dict:
     if st.get("source") != "live":
         return _result("vn30_basket_net", name, "warn",
                        f"API không trả rổ dùng được (đang dùng {st.get('source')})",
-                       "nguồn đổi endpoint? soi vnstock_vn30._fetch_live")
+                       "chạy `python vnstock_vn30.py --diag` — nó in THẬT nguồn "
+                       "trả về type/columns/mấy mã, đừng đoán")
     if not added and not removed:
         return _result("vn30_basket_net", name, "ok",
                        f"{len(st['members'])} mã, khớp hằng số chép cứng", "")
