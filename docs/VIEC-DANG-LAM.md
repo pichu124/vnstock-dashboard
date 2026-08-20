@@ -27,7 +27,7 @@ $env:COMPUTERNAME; Get-ScheduledTask -TaskName 'VnStock *' | Select-Object TaskN
 
 ---
 
-## 🔴 GẤP NHẤT — ⇄ CẢ HAI MÁY · 🖥️ desktop ✅ XONG · 💻 laptop ⏳ CHƯA
+## 🔴 GẤP NHẤT — ⇄ CẢ HAI MÁY · 💻 laptop ✅ XONG · 🖥️ desktop ⏳ CHƯA
 
 Code KHÔNG đồng bộ. Máy nào chưa merge là máy đó vẫn chạy bản cũ — và bản cũ
 có đúng những lỗi hôm nay vừa vá (bộ chữa kho không hội tụ, tự kiểm mù,
@@ -39,20 +39,20 @@ git pull origin claude/tong-hop-cong-viec-test-w8mvrc
 python run.py test
 ```
 
-Phải ra **2.387 passed**. **Chạy `run.py test` NGAY sau khi merge** — đừng để
+Phải ra **2.444 passed**. **Chạy `run.py test` NGAY sau khi merge** — đừng để
 task 18:00 phát hiện hộ. Bài học 19/08: merge lúc 17:37 rồi để phát 18:00 chạy
 full suite ở bước 9, một test đỏ là dừng cứng và **mất brief cả đêm**.
 
-HEAD là `2.387` sau đợt `vnstock_corp_ratio` + guard GDKHQ tự quy đổi.
+HEAD là `2.444` sau nguyên ngày 20/08 (corp-ratio · lịch phiên · rổ VN30 ·
+tầng nóng live).
 
-* 💻 **LAPTOP: ✅ XONG 20/08** — `2387 passed / 120,16s` trên máy thật, khớp CI
-  từng test một. Laptop nay **sạch sổ**.
-* 🖥️ **DESKTOP: ⏳ CHƯA — nên làm TRƯỚC 18:00 hôm nay (20/08)**, desktop vẫn
-  đang ở `2.352`. Hôm nay đúng ngày GDKHQ của VIX: bản `2.352` chỉ cảnh báo
-  "mốc CHƯA quy đổi"; bản `2.387` in thẳng `giá tham chiếu ≈ 12,476`. Không
-  merge thì brief chiều nay vẫn là bản cảnh báo suông — không sai, chỉ kém.
-  **Đừng merge sát 18:00**: chạy full suite xong hẵng thôi (laptop vừa đo
-  ~2 phút), bài học 19/08 ngay trên.
+* 💻 **LAPTOP: ✅ theo kịp** — đã merge và test nhiều lượt trong ngày; lượt
+  cuối cần chạy lại sau đợt rổ VN30 (xem lệnh trên).
+* 🖥️ **DESKTOP: ⏳ CHƯA MERGE LẦN NÀO HÔM NAY — làm TRƯỚC 18:00**. Nó đang ở
+  `2.352`, tức là **thiếu cả 4 đợt**: guard GDKHQ tự quy đổi (hôm nay đúng
+  ngày GDKHQ của VIX), rổ VN30 kỳ 08/2026 (desktop đang vẽ rổ CŨ), tầng nóng
+  live, và bộ chấm biết lịch phiên. **Đừng merge sát 18:00**: chạy full suite
+  xong hẵng thôi (~2 phút trên máy thật), bài học 19/08 ngay trên.
 * (Lượt merge 19/08 có 1 test đỏ do test PHỤ THUỘC KHO THẬT — đã vá, xem
   `docs/CLAUDE-NOTES.md` mục U18.)
 
