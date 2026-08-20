@@ -175,10 +175,9 @@ trong kho**:
 |---|---|
 | BSR · LPB · MCH · TCX · VPL | BCM · BVH · PLX · POW · TPB |
 
-*Sửa nhỏ sau đó: `--diag` nay GHI LẠI cache vừa lấy được (lượt 20/08 in ✅ cả
-ba dòng mà vẫn "chưa có cache" — nó gọi API rồi vứt kết quả đi). Merge bản mới
-rồi chạy lại `python vnstock_vn30.py --diag` một lần để nạp cache — sau đó
-dashboard/brief không phải gọi API nữa, và máy kia hưởng luôn qua Dropbox.*
+Cache `_meta/vn30_members.json` đã ghi (💾 xác nhận 20/08) ⇒ dashboard/brief
+không gọi API nữa trong 7 ngày, và **desktop hưởng luôn qua Dropbox** — không
+phải làm lại ở máy kia. **Mục này đóng.**
 
 **Còn treo, nhỏ:** ngành của **TCX** chưa xác minh nên cố ý để trống trong
 `vnstock_train._VN30_SECTOR_MAP` (gán bừa thì lệch tầng âm thầm). Biết nó là

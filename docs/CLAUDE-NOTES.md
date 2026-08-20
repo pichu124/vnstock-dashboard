@@ -7074,6 +7074,22 @@ brief, tin và heatmap nói ba rổ khác nhau, im lặng).
 trong `prices/` thì heatmap vẫn ô trống và screener vẫn bỏ sót — hỏng ở chỗ
 khác hẳn, phải nói ra chứ đừng để user tự đoán.
 
+### ①d Chốt trên máy thật (20/08)
+
+```
+[vn30] type=Series columns=(không có) len=30
+[vn30] 💾 đã ghi cache → C:\vnstock\data_warehouse\_meta\vn30_members.json
+[vn30] ✅ rổ sống 30 mã
+[vn30] ✅ khớp hằng số chép cứng
+[vn30] ✅ cả 30 mã đều có thư mục giá trong kho
+```
+
+Ba lượt diag liên tiếp mới ra được ba dòng ✅ + cache — mỗi lượt lộ một lỗi
+khác nhau (Series → rổ lệch → cache không ghi). **Mục ① đóng.**
+
+Còn treo, nhỏ: ngành của **TCX** chưa xác minh, cố ý để trống trong
+`vnstock_train._VN30_SECTOR_MAP`.
+
 ## ② "Phản hồi chậm" = độ trễ CỘNG DỒN, không phải feed chậm
 
 Ba tầng nối tiếp nhau, mỗi tầng góp trễ:
