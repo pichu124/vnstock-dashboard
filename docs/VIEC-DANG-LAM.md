@@ -25,6 +25,11 @@ $env:COMPUTERNAME; Get-ScheduledTask -TaskName 'VnStock *' | Select-Object TaskN
 ```
 2 task = **desktop**. Rỗng = **laptop**.
 
+**Quy ước (user chốt 20/08): máy đang ngồi là TRẠNG THÁI DÍNH.** User báo đổi
+máy thì mới đổi; không báo thì mặc định vẫn là máy của lượt trước. Lệnh trên
+chỉ dùng khi thật sự chưa biết — hỏi lại điều user đã nói cũng là một kiểu quy
+sai máy. **Phiên hiện tại: 💻 LAPTOP.**
+
 ---
 
 ## 🔴 GẤP NHẤT — ⇄ CẢ HAI MÁY · 💻 laptop ✅ XONG · 🖥️ desktop ⏳ CHƯA

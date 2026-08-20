@@ -54,6 +54,10 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   theo máy (desktop in `\admin\`, phát trước in `\Administrator\`). Dấu hiệu
   duy nhất đáng tin: `$env:COMPUTERNAME` + `Get-ScheduledTask -TaskName
   'VnStock *'` (2 task = desktop). Đã quy sai máy 3 lần ngày 19/08.
+- ⚠️ **MÁY ĐANG NGỒI LÀ TRẠNG THÁI DÍNH** (user chốt 20/08): user báo đổi máy
+  thì mới đổi, KHÔNG báo thì **giữ nguyên máy của lượt trước**. Đừng hỏi lại
+  mỗi lượt và đừng suy từ venv — hỏi lại khi user đã nói rồi cũng là một kiểu
+  quy sai máy.
 - Cửa `--skip-if-done` cố ý bỏ qua cross-machine (đúng cho kho dùng chung —
   xem banner đầu file); kho tách riêng thì bật `VNSTOCK_INDEPENDENT_WAREHOUSE=1`.
 - ⚠️ **MỌI việc/test giao cho user PHẢI ghi rõ máy nào**, theo 4 nhãn dùng trong
