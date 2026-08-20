@@ -7016,6 +7016,24 @@ thành "đo ra kết quả xấu".
 * 13 test mới trong `tests/test_verify_wss_live.py` (11 → 24), và file này
   **được thêm vào `--fast`** — trước đó nó không nằm trong lưới nhanh.
 
+**✅ ĐO LẠI TRONG KHỚP LỆNH LIÊN TỤC — ĐẠT CẢ 3 (20/08):**
+
+```
+Cửa sổ đo: 09:59:51 → 10:04:51  (khớp lệnh liên tục)
+✅ [1] 24/30 mã cổ phiếu volume > 0 (top: HDB 31,600, FPT 24,900, SSB 8,400)
+✅ [2] Index/futures volume == 0 đúng thiết kế (HNX30, HNXINDEX, VN30, VNINDEX)
+✅ [3] suspect_count = 0
+```
+
+Exit 0. **Mục 1 của checklist live mode đóng.** 6 mã còn volume 0 là bình
+thường cho 5 phút với nhóm cuối VN30. Lưu ý cách đọc: lượt 09:59 KHÔNG chứng
+minh được lượt 120s trước đó rơi vào khung nghỉ — lượt cũ chạy bằng bản chưa in
+`Cửa sổ đo` nên không truy ngược được giờ. Nó chỉ chứng minh **feed lành trong
+khớp lệnh liên tục**, và từ nay mọi lượt đo đều tự khai giờ.
+
+Còn treo: **W1 — mắt người nhìn heatmap VN30 trong phiên** (script không thay
+được).
+
 **Còn lại chưa vá (cố ý):** `_is_market_open()` trong `vnstock_wss.py` vẫn
 9:00-15:00. Nó điều khiển đường CHẠY THẬT của live mode — đổi nó là đổi hành vi
 sản phẩm chứ không phải sửa công cụ chẩn đoán, và giờ nghỉ trưa vẫn cần poll
