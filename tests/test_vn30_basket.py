@@ -313,3 +313,38 @@ class TestDiagPersistsWhatItFetched:
 
         assert v30._diag() == 2
         assert not cache.exists(), "rổ không qua validate thì TUYỆT ĐỐI không ghi đè cache"
+
+
+class TestFinancialsInTheBasketAreClassifiedAsFinancial:
+    """
+    `_FINANCIAL_TICKERS` là thứ giữ cho ngân hàng/chứng khoán/bảo hiểm KHÔNG
+    bị xếp hạng rủi ro cơ bản chung với doanh nghiệp thường (D/E ngân hàng
+    9-17 là BÌNH THƯỜNG, Op.CF âm chục nghìn tỷ cũng vậy). Mỗi kỳ đổi rổ mà
+    quên bổ sung định chế tài chính MỚI là brief bắt đầu gọi tên nó như một
+    rủi ro — sai mà nghe rất thuyết phục.
+
+    TCX (Techcom Securities, vào rổ 08/2026) là ca đầu tiên chạm lưới này.
+    """
+
+    def test_every_financial_in_the_sector_map_is_in_the_financial_set(self):
+        from vnstock_brief_canon import _FINANCIAL_TICKERS
+        from vnstock_train import _VN30_SECTOR_MAP
+        financial_kinds = {"bank", "securities", "insurance"}
+        missing = sorted(
+            tk for tk, kind in _VN30_SECTOR_MAP.items()
+            if kind in financial_kinds and tk not in _FINANCIAL_TICKERS)
+        assert not missing, (
+            f"định chế tài chính thiếu trong _FINANCIAL_TICKERS: {missing} — "
+            f"brief sẽ chấm chúng là rủi ro cơ bản vì đòn bẩy")
+
+    def test_tcx_is_securities_in_both_files(self):
+        from vnstock_brief_canon import _FINANCIAL_TICKERS
+        from vnstock_train import _VN30_SECTOR_MAP
+        assert _VN30_SECTOR_MAP.get("TCX") == "securities"
+        assert "TCX" in _FINANCIAL_TICKERS
+
+    def test_every_basket_member_has_a_sector(self):
+        from vnstock_brief_canon import VN30_TICKERS
+        from vnstock_train import _VN30_SECTOR_MAP
+        missing = sorted(set(VN30_TICKERS) - set(_VN30_SECTOR_MAP))
+        assert not missing, f"mã trong rổ chưa có ngành: {missing}"

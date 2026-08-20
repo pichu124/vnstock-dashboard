@@ -7087,8 +7087,32 @@ khác hẳn, phải nói ra chứ đừng để user tự đoán.
 Ba lượt diag liên tiếp mới ra được ba dòng ✅ + cache — mỗi lượt lộ một lỗi
 khác nhau (Series → rổ lệch → cache không ghi). **Mục ① đóng.**
 
-Còn treo, nhỏ: ngành của **TCX** chưa xác minh, cố ý để trống trong
-`vnstock_train._VN30_SECTOR_MAP`.
+### ①e TCX = Techcom Securities (TCBS) — CÔNG TY CHỨNG KHOÁN
+
+Tra ra (CafeF · VietstockFinance · DNSE đều khớp): **TCX = CTCP Chứng khoán
+Kỹ Thương (Techcom Securities / TCBS)**, công ty con của Techcombank, niêm yết
+HOSE 21/10/2025, vốn hoá ~108.000 tỷ — lớn nhất ngành chứng khoán.
+
+Điền `TCX → "securities"` trong `_VN30_SECTOR_MAP`. **Nhưng chỗ quan trọng
+hơn là chỗ suýt bỏ sót:** `vnstock_brief_canon._FINANCIAL_TICKERS`. Set đó
+giữ cho ngân hàng/chứng khoán/bảo hiểm KHÔNG bị xếp hạng rủi ro cơ bản chung
+với doanh nghiệp thường (D/E ngân hàng 9-17 là BÌNH THƯỜNG, Op.CF âm chục
+nghìn tỷ cũng vậy — xem ca "MBB Op.CF -64.972 tỷ"). TCX không có trong đó ⇒
+brief sẽ gọi tên một công ty chứng khoán như một rủi ro cơ bản, **sai mà nghe
+rất thuyết phục**.
+
+Đây là bẫy TÁI DIỄN mỗi kỳ đổi rổ, nên chốt bằng lưới chứ không bằng trí nhớ:
+`test_every_financial_in_the_sector_map_is_in_the_financial_set` — mọi mã
+được gán bank/securities/insurance PHẢI có trong `_FINANCIAL_TICKERS`. Kèm
+`test_every_basket_member_has_a_sector` để không mã nào trong rổ còn trống
+ngành nữa.
+
+Đối chiếu 4 mã mới còn lại: LPB đã có sẵn trong `_FINANCIAL_TICKERS` ✓ · BSR
+(lọc hoá dầu) · MCH (Masan Consumer) · VPL (Vinpearl) đều KHÔNG phải định chế
+tài chính ✓. "Họ M" trong `vnstock_sectors` là hệ Gelex chứ không phải Masan
+nên MCH không thuộc nhóm đó.
+
+**Mục ① đóng hoàn toàn.**
 
 ## ② "Phản hồi chậm" = độ trễ CỘNG DỒN, không phải feed chậm
 

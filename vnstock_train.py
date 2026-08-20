@@ -119,7 +119,7 @@ _VN30_SECTOR_MAP: dict[str, str] = {
     # Bảo hiểm
     "BVH": "insurance",
     # Chứng khoán
-    "SSI": "securities",
+    "SSI": "securities", "TCX": "securities",
     # Bất động sản
     "BCM": "realestate", "VHM": "realestate", "VRE": "realestate",
     # Công nghệ
@@ -135,9 +135,6 @@ _VN30_SECTOR_MAP: dict[str, str] = {
     "VIC": "conglomerate",
     # Vận tải / dịch vụ hàng không · du lịch nghỉ dưỡng
     "VJC": "transport", "VPL": "transport",
-    # ⚠️ TCX (vào rổ 08/2026) CỐ Ý để trống: chưa xác minh được ngành, mà gán
-    # bừa thì lệch tầng ÂM THẦM, còn thiếu thì rơi về
-    # industry_classification.parquet — hỏng theo kiểu ồn ào hơn, đỡ hơn.
 }
 
 # Fallback VNMID list — 20 mã đa ngành, dùng khi API lỗi.

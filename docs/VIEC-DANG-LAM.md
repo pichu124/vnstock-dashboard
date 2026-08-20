@@ -179,9 +179,11 @@ Cache `_meta/vn30_members.json` đã ghi (💾 xác nhận 20/08) ⇒ dashboard/
 không gọi API nữa trong 7 ngày, và **desktop hưởng luôn qua Dropbox** — không
 phải làm lại ở máy kia. **Mục này đóng.**
 
-**Còn treo, nhỏ:** ngành của **TCX** chưa xác minh nên cố ý để trống trong
-`vnstock_train._VN30_SECTOR_MAP` (gán bừa thì lệch tầng âm thầm). Biết nó là
-ngành gì thì báo Claude điền một dòng.
+**✅ TCX đã tra xong:** = CTCP Chứng khoán Kỹ Thương (Techcom Securities /
+TCBS), niêm yết HOSE 21/10/2025. Đã điền `securities` — và bổ sung vào
+`_FINANCIAL_TICKERS`, chỗ suýt bỏ sót: thiếu đó thì brief gọi tên một công ty
+chứng khoán như "rủi ro cơ bản" chỉ vì đòn bẩy kiểu định chế tài chính. Có
+lưới canh để kỳ đổi rổ sau không lặp lại.
 
 ---
 

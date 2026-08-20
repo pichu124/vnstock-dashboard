@@ -59,9 +59,11 @@ _FINANCIAL_TICKERS: frozenset[str] = frozenset({
     "ACB", "BID", "CTG", "HDB", "MBB", "SHB", "SSB", "STB", "TCB", "TPB",
     "VCB", "VIB", "VPB", "MSB", "EIB", "LPB", "OCB", "NAB", "ABB", "BAB",
     "KLB", "PGB", "SGB", "VAB", "VBB", "NVB",
-    # Chứng khoán
+    # Chứng khoán (TCX = Techcom Securities/TCBS, niêm yết HOSE 21/10/2025,
+    # vào VN30 kỳ 08/2026 — công ty CHỨNG KHOÁN, phải nằm đây để không bị
+    # chấm là "rủi ro cơ bản" chỉ vì đòn bẩy kiểu định chế tài chính)
     "SSI", "VND", "HCM", "VCI", "VIX", "SHS", "MBS", "FTS", "BSI", "CTS",
-    "AGR", "ORS", "VDS", "TVS", "APG",
+    "AGR", "ORS", "VDS", "TVS", "APG", "TCX",
     # Bảo hiểm
     "BVH", "BIC", "BMI", "MIG", "PVI", "PGI", "ABI", "BLI",
 })
