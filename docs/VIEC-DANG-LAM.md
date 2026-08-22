@@ -2,7 +2,7 @@
 
 > Bản để LÀM THEO. Kho lưu chi tiết (lý do, file:line, lịch sử) ở
 > `docs/CLAUDE-NOTES.md` — đừng mở nó để biết "hôm nay làm gì".
-> Cập nhật: 20/08/2026.
+> Cập nhật: 22/08/2026.
 
 ## 🏷️ NHÃN MÁY — quy tắc gốc: KHO đồng bộ, CODE thì không
 
@@ -32,18 +32,10 @@ sai máy. **Phiên hiện tại: 🖥️ DESKTOP** (user báo 20/08, sau khi là
 
 ---
 
-## ✅ HẾT GẤP — ⇄ CẢ HAI MÁY ĐÃ Ở `2.447` (20/08)
+## 🔴 GẤP — ⇄ CẢ HAI MÁY đang ở `2.447`, HEAD là `2.498`
 
-| Máy | Kết quả trên máy thật |
-|---|---|
-| 💻 **LAPTOP** | `2447 passed / 116,56s` · badge xanh |
-| 🖥️ **DESKTOP** | `2447 passed / 165,45s` · badge xanh |
-
-Cả hai khớp CI từng test một. Desktop nay có đủ 4 đợt của ngày 20/08: guard
-GDKHQ tự quy đổi · rổ VN30 kỳ 08/2026 · tầng nóng live · bộ chấm biết lịch
-phiên. **Phát 18:00 tối nay chạy trên code mới.**
-
-Quy trình chuẩn cho lần sau (đừng bỏ bước nào):
+Ngày 21-22/08 vá thêm 4 đợt (guard số chỉ số · dọn khối tin · dải ±3% không
+được gọi là hỗ trợ/kháng cự · sổ tự đếm nghi ngờ). **Chưa máy nào merge.**
 
 ```powershell
 cd C:\vnstock
@@ -51,48 +43,63 @@ git pull origin claude/tong-hop-cong-viec-test-w8mvrc
 python run.py test
 ```
 
+Phải ra **2.498 passed**. Làm ở 🖥️ desktop TRƯỚC (nó chạy phát tối), rồi 💻
+laptop khi nào mở.
+
 **Chạy `run.py test` NGAY sau khi merge, và KHÔNG merge sát 18:00** — bài học
 19/08: merge lúc 17:37 rồi để phát 18:00 chạy full suite ở bước 9, một test đỏ
-là dừng cứng và **mất brief cả đêm**.
+là dừng cứng và **mất brief cả đêm**. Hôm nay T7 nên không có phát 18:00, merge
+lúc nào cũng được; phát kế tiếp là **T2 24/08**.
 
 *Ghi chú về bẫy `git pull`: `git pull origin <nhánh>` CÓ tác dụng (nó merge
 `origin/<nhánh>` vào nhánh đang đứng). Bẫy "Already up to date" chỉ xảy ra với
 `git pull` TRỐNG — khi đó git chỉ nhìn nhánh upstream của `main`.*
 
-*Ghi nhận phụ (đo 20/08): desktop có thêm gói `vnii` (subscription) và
-`vnai 2.5.8 available` còn laptop báo `2.5.7` — bộ gói hai máy KHÔNG giống
-nhau. Cả hai vẫn ở **vnstock 4.0.4 / vnai 2.4.8**, đúng mốc đang chốt.*
-
 ---
 
-## 🖥️ DESKTOP — tối mai, sau khi phát 18:00 chạy xong (~19:15)
+## 🖥️ DESKTOP — hai phép đo còn NỢ
 
-Đêm mai là phép thử thật của mọi thứ vá hôm nay. Bốn dòng, một lệnh:
+### ✅ Câu hỏi lớn nhất đã có đáp án
+Phát 18:00 **21/08 chạy trọn và Telegram CÓ brief chiều** — đêm tự động trọn
+vẹn đầu tiên, xác nhận bằng chính bản brief user dán lại. Bước 14/14 tới nơi.
+
+### ⏳ NHƯNG bốn dòng số thì chưa ai đọc
+Biết "chạy xong" khác với biết "chạy hết bao lâu, vào đâu". Chẩn đoán
+`auto-heal` chiếm 51% cả phát vẫn **chưa được kiểm chứng**:
 
 ```powershell
-Select-String -Path C:\vnstock\run_daily.log -Pattern '⏱ TỔNG|⏱ CHẶNG|auto-heal|\[ohlc\]' | Select-Object -Last 10
+Select-String -Path C:\vnstock\run_daily.log -Pattern '⏱ TỔNG|⏱ CHẶNG|auto-heal|\[ohlc\]' | Select-Object -Last 12
 ```
 
 | Dòng | Kỳ vọng | Nếu khác |
 |---|---|---|
-| `⏱ TỔNG` | **14 bước** (19/08 dừng ở 9) | Còn <14 ⇒ vẫn chết giữa chừng, đọc dòng `hard failure` ngay trên nó |
-| `⏱ CHẶNG` | `auto-heal` teo hẳn so với 35,9' | Vẫn ~36' ⇒ chẩn đoán OHLC của Claude SAI, dán số để đọc lại |
+| `⏱ TỔNG` | **14 bước** | Còn <14 ⇒ đọc dòng `hard failure` ngay trên nó |
+| `⏱ CHẶNG` | `auto-heal` teo hẳn so với 35,9′ | Vẫn ~36′ ⇒ chẩn đoán của Claude SAI, dán số để đọc lại |
 | `[ohlc] … nới low/high cho N bar` | Có xuất hiện | Không có ⇒ hoặc nguồn hết bar mâu thuẫn (tốt), hoặc guard chưa chạy |
-| `auto-heal: scanned=…` | `scanned` nhỏ hẳn so với 3.844 | Không giảm ⇒ nguồn bơm nằm chỗ khác |
+| `auto-heal: scanned=…` | nhỏ hẳn so với 3.844 | Không giảm ⇒ nguồn bơm nằm chỗ khác |
+
+### ⏳ Lượt chạy T7 22/08 bị TẮT GIỮA CHỪNG — cần biết task nào
+
+User tắt task đang chạy để kịp `git pull`. **Task T7 là `weekend`, không phải
+`all`** (weekend = model watch + eval → rates-weekly → vietstock corp actions →
+fundamentals ~25-30′). Xem task nào vừa chạy rồi mới quyết chạy lại cái gì:
+
+```powershell
+Get-ScheduledTaskInfo -TaskName 'VnStock *' | Select-Object TaskName, LastRunTime, LastTaskResult
+```
+* Task **Weekend** vừa chạy ⇒ chạy lại `python run.py weekend`.
+* Task **Daily** vừa chạy (bắt bù ngày làm việc lỡ) ⇒ `python run.py all`.
+* Không chắc ⇒ **cứ để T2 24/08 chạy** — không mất gì, `weekend` sẽ bù ở T7 sau.
 
 Rồi:
 
 ```powershell
 python run.py doctor
 ```
-Hai badge MỚI, **vàng là dấu hiệu TỐT** (guard đang làm việc, không phải hỏng):
-* **"Lệch cơ sở — mã bị cách ly"** — V1 vừa chặn một mã. Chữa:
-  `python scripts\rebase_ticker_history.py --ticker <MÃ> --apply`
-* **"Nới OHLC (bar tự mâu thuẫn)"** — in mã, số bar, mức nới rộng nhất so với
-  trần 20%. Nới sát trần thì soi lại bar đó.
-
-Và câu hỏi lớn nhất: **Telegram có brief chiều không?** Có = đêm tự động trọn
-vẹn ĐẦU TIÊN, mở luôn cổng đang chặn mục "tầng B".
+Badge **vàng là dấu hiệu TỐT** (guard đang làm việc, không phải hỏng): "Lệch
+cơ sở — mã bị cách ly" (chữa: `python scripts\rebase_ticker_history.py
+--ticker <MÃ> --apply`) · "Nới OHLC (bar tự mâu thuẫn)" · "Sổ theo dõi nghi
+ngờ brief" (xem mục 🔔 cuối trang).
 
 ---
 
@@ -217,7 +224,9 @@ lưới canh để kỳ đổi rổ sau không lặp lại.
 | ~~3~~ | ✅ **XONG 19/08** — 10 điểm ghi state chuyển sang nguyên tử, 9 file mới vào lưới `_MUST_BE_ATOMIC` | Gồm cả `fix_units` (ghi đè prices.parquet MỖI ĐÊM) và `screener_results.json` (dashboard poll rồi `json.load` trần) | — |
 | ~~9~~ | ✅ **XONG 19/08** — tầng NGẮN KHÔNG chết: `_do_tune` trả dict trống-chỉ-có-error khi không ứng viên nào thắng, nên log in `trades=None`. Nay trả metrics THẬT của chiến lược đang chạy + `tune_note` | Dòng log nói sai chuyện gì đã xảy ra | — |
 | ~~10~~ | ✅ **XONG 19/08** — `--sweep` nay LUÔN soi universe backtest (VN30/VNMID) dù dưới ngưỡng GTGD | Ngưỡng GTGD là phỏng đoán; universe chọn theo thành phần chỉ số — khoảng hở giữa hai tiêu chí đi thẳng vào backtest | — |
-| 0 | **Đọc số đêm mai rồi mổ tiếp `auto-heal`** — đã chặn trần + chữa nguồn bơm, còn phải xem hàng đợi có teo thật không | Nó từng chiếm 51% cả phát | chờ đo |
+| 0 | **Mổ tiếp `auto-heal`** — đã chặn trần + chữa nguồn bơm, còn phải xem hàng đợi có teo thật không | Nó từng chiếm 51% cả phát | chờ user dán `⏱ CHẶNG` |
+| 1 | **Nối pivot THẬT vào mốc watchlist** (`vnstock_strategy._ticker_pivots`, 60 bar, bỏ 2 bar cuối) ở tầng dựng ctx — rồi mới được gọi là hỗ trợ/kháng cự | Hiện mốc là dải ±3%, đã gọi đúng tên nhưng vẫn là số vô nghĩa về kỹ thuật (U23) | 1 buổi |
+| 2 | **Bỏ hay giữ đường CafeF `cash-dividends`** (404 từ 19/08) — Vietstock đã trả cả sự kiện tiền mặt | Code chết trông như code sống | nhỏ |
 
 ---
 
