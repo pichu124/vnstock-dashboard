@@ -140,13 +140,11 @@ _PROVIDERS = [
         "model": "gemma-4-31b",
         "max_tokens": 64,
     },
-    {
-        "name": "OpenRouter",
-        "env": "OPENROUTER_API_KEY",
-        "endpoint": "https://openrouter.ai/api/v1/chat/completions",
-        "model": "openai/gpt-oss-20b:free",
-        "max_tokens": 256,
-    },
+    # 22/08: nấc OpenRouter `openai/gpt-oss-20b:free` ĐÃ GỠ — probe T7 ra
+    # HTTP 404 "This model is unavailable for free" và slug biến mất khỏi
+    # danh mục. Nấc cuối chỉ có thể hỏng thì giữ lại là tốn một request mỗi
+    # lần rơi hết thang. Muốn có lại nấc thứ 4 thì probe slug free mới TRÊN
+    # MÁY THẬT trước (scripts/probe_models.py) — không chép từ catalog.
 ]
 
 _SENTIMENT_MAP: dict[str, str] = {

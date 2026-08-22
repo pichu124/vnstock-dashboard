@@ -106,7 +106,8 @@ _FREE_TIER2 = (          # bậc ổn định — toàn slug probe sống 22/07
     ("Groq", "openai/gpt-oss-120b"),
     ("Groq", "qwen/qwen3.6-27b"),
     ("Gemini", "gemini-3.5-flash-lite"),
-    ("OpenRouter", "openai/gpt-oss-20b:free"),
+    # ("OpenRouter", "openai/gpt-oss-20b:free") — GỠ 22/08: HTTP 404
+    # "unavailable for free" + biến mất khỏi danh mục.
 )
 _TIER2_TOKENS = 3000     # bậc 2 nay CÓ reasoning model (gpt-oss) — 1200 là cụt
                          # content; prompt ~4K + 3K vẫn lọt TPM 8K của Groq

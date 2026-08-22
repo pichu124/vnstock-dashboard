@@ -6966,6 +6966,94 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🟠 U24. WEEKEND 22/08 — HỎNG TÀI KHOẢN ≠ HỎNG MODEL (và nhãn tuần/phiên)
+
+`run.py weekend` chạy trọn, gửi được cả hai báo cáo. Soi ra hai lỗi TRÌNH BÀY
+— không lỗi số, nhưng cả hai đều dẫn người đọc đi làm sai việc.
+
+## ① Model watch: 3 dòng ❌ giống hệt nhau, đòi HAI hành động khác hẳn
+
+```
+❌ Cerebras gemma-4-31b   — HTTP 402: Payment required … Visit your billing
+❌ Cerebras gpt-oss-120b  — HTTP 402: Payment required …
+❌ OpenRouter openai/gpt-oss-20b:free — HTTP 404: This model is unavailable for free
+🗑 OpenRouter openai/gpt-oss-20b:free biến mất khỏi danh mục
+```
+
+**HTTP 402 KHÔNG phải model chết** — đó là hỏng **TÀI KHOẢN**. Mọi model
+Cerebras sẽ 402 y như vậy, nên chạy quy trình `_MODEL_MIGRATIONS` +
+`_DEAD_SLUGS` cho Cerebras là **mất công vô ích**: slug mới cũng 402. Việc
+đúng là chuyện hoá đơn/hạn mức, không phải chuyện code.
+
+**HTTP 404 + biến mất khỏi danh mục MỚI là model chết** — đúng ca dùng quy
+trình đó.
+
+Báo cáo cũ trộn hai thứ vào một loại dòng ⇒ người đọc dễ đi thay slug
+Cerebras rồi vẫn hỏng. **Vá:** `build_dead_alerts()` / `account_level_code()`
+(hàm thuần) gộp theo PROVIDER khi mã là 401/402/403:
+
+```
+🏦 Cerebras — TÀI KHOẢN hết quyền truy cập — cần nạp tiền (HTTP 402).
+   MỌI model Cerebras sẽ hỏng y như vậy, ĐỔI SLUG KHÔNG CỨU ĐƯỢC.
+   Đang mất: gemma-4-31b ([1] sentiment + [7] fallback) · gpt-oss-120b (…)
+❌ OpenRouter openai/gpt-oss-20b:free — [1] sentiment + [3-6] digest b2: HTTP 404 …
+```
+
+**429 CỐ Ý không gộp** — nghẽn tạm thời, gộp thành "tài khoản chết" là báo
+động giả (chính vết `vnstock_model_watch` đã ghi: 4 lượt probe trong 45 phút
+làm free tier throttle 0,9s → 17s rồi tự khỏi).
+
+### Bản đồ thiệt hại thật (đọc từ code, không đoán)
+
+| Điểm | Thang trước | Còn sống |
+|---|---|---|
+| [1] sentiment | Gemini → Groq → Cerebras → OpenRouter | **Gemini → Groq** (Cerebras 402, OR gỡ) |
+| [3-6] digest bậc 1 | Gemini / Cerebras / OpenRouter-nemotron | **Gemini + nemotron** |
+| [3-6] digest bậc 2 | Groq×2 → Gemini-lite → OpenRouter | **Groq×2 → Gemini-lite** |
+| [7] brief | Gemini (CHÍNH) + Cerebras | **Gemini** |
+
+⇒ **Không điểm nào chết**, khớp với việc brief 21/08 vẫn ra. Nhưng lưới dự
+phòng mỏng đi rõ: sentiment từ 4 nấc còn 2, và Gemini nay gánh cả brief lẫn
+digest bậc 1 lẫn nấc 1 sentiment. Gemini nghẽn là hụt nhiều chỗ cùng lúc.
+
+**Đã gỡ `openai/gpt-oss-20b:free`** khỏi cả hai thang + thêm vào `_DEAD_SLUGS`
++ **sửa migration trỏ vào chính nó** (`meta-llama/llama-3.1-8b-instruct:free`
+→ nó → chết: migration trỏ vào model chết thì vô dụng; nay dồn về
+`nvidia/nemotron-3-super-120b-a12b:free`).
+
+**CỐ Ý KHÔNG thêm slug mới**: quy tắc repo là slug mới phải probe SỐNG trên
+máy thật trước, không chép từ catalog. Muốn có lại nấc thứ 4 thì probe rồi
+hẵng thêm.
+
+## ② Báo cáo TUẦN in con số đổi của MỘT PHIÊN, không ghi mốc
+
+```
+• Lãi suất liên ngân hàng ON: 3.01%/năm  ▼ -1.01 điểm %
+📝 … qua đêm giảm 1.01 điểm % so với kỳ trước.
+```
+
+`change` của `vnstock_macro` là so với **LẦN ĐỌC LIỀN TRƯỚC** (`_pick` lấy
+`dates[idx-1]`) — với lãi suất LNH đó là **phiên trước**, ở đây 2026-08-19.
+Trong một bản mang tên "Báo cáo TUẦN", "kỳ trước" đọc ra là **tuần trước**, và
+con số trần trụi `▼ -1.01` đọc ra là đổi trong tuần. Bản brief hằng ngày thì
+ghi đúng ("so với 2026-08-19") — tức bản tuần LÀM MẤT nhãn mà bản ngày giữ.
+
+Cùng họ bất biến với `Giá 1T %` trong CLAUDE.md: **mọi nhãn phải ghi rõ khung
+thời gian**. **Vá:** đưa `prev_as_of` vào cả 3 chỗ — bullet Telegram, ô HTML,
+và câu narrative (`so với 2026-08-19` thay cho `so với kỳ trước`; thiếu ngày
+thì lùi về "lần đọc trước", **không bịa ra tuần**).
+
+## Đã kiểm, KHÔNG có lỗi
+Toàn bộ số học báo cáo tuần khớp: ON−điều hành −1,49 · 10Y−điều hành −0,10 ·
+10Y−2Y +0,42 · VN10Y−US10Y −0,25 · HNX 2Y/5Y/10Y khớp dòng TPCP.
+
+## Lưới mới
+`tests/test_weekend_2208_review.py` (18), đã vào `--fast`.
+Suite: **2.516 passed** (fast 2.025).
+
+---
+
+
 # 🔴 U23. ±3% ĐƯỢC GỌI LÀ "HỖ TRỢ/KHÁNG CỰ" — CHÍNH REPO BỊA, KHÔNG PHẢI MODEL
 
 Soi tiếp mục ③ của U22 bằng 4 luồng đọc code song song. Kết quả **lật ngược

@@ -44,14 +44,19 @@ def _openai_body(content: str, usage: "dict | None" = None) -> dict:
 # ─── Ladder sentiment mới (điểm [1]) ─────────────────────────────────────────
 
 def test_providers_ladder_slugs_22_07():
-    """Guard chống lùi về slug chết: đúng thứ tự Gemini→Groq→Cerebras→OR,
-    đúng slug đã probe sống 22/07."""
+    """Guard chống lùi về slug chết: đúng thứ tự Gemini→Groq→Cerebras.
+
+    Nấc OpenRouter `openai/gpt-oss-20b:free` GỠ 22/08 (probe model watch:
+    HTTP 404 "unavailable for free" + slug biến mất khỏi danh mục). Thang
+    còn 3 nấc — và Cerebras đang hỏng ở mức TÀI KHOẢN (402), nên thực tế
+    chỉ Gemini + Groq còn sống. Thêm nấc mới thì PHẢI probe trên máy thật
+    trước, đừng chép từ catalog.
+    """
     got = [(p["name"], p["model"]) for p in snt._PROVIDERS]
     assert got == [
         ("Gemini", "gemini-3.5-flash-lite"),
         ("Groq", "openai/gpt-oss-20b"),
         ("Cerebras", "gemma-4-31b"),
-        ("OpenRouter", "openai/gpt-oss-20b:free"),
     ]
     # slug chết không được quay lại
     dead = {"llama-3.1-8b-instant", "llama3.1-8b",
@@ -247,11 +252,11 @@ def test_digest_free_tiers_slugs_22_07():
         "Cerebras": "gpt-oss-120b",
         "OpenRouter": "nvidia/nemotron-3-ultra-550b-a55b:free",
     }
+    # Nấc OpenRouter GỠ 22/08 (HTTP 404 + biến mất khỏi danh mục)
     assert dg._FREE_TIER2 == (
         ("Groq", "openai/gpt-oss-120b"),
         ("Groq", "qwen/qwen3.6-27b"),
         ("Gemini", "gemini-3.5-flash-lite"),
-        ("OpenRouter", "openai/gpt-oss-20b:free"),
     )
     assert dg._PROVIDER_META["Gemini"][0] == "GEMINI_API_KEY"
     # bậc 2 có reasoning model — budget không được tụt về 1200 cũ
@@ -528,6 +533,9 @@ _DEAD_SLUGS_22_07 = {
     "meta-llama/llama-3.3-70b-instruct:free",
     "meta-llama/llama-3.1-8b-instruct:free",
     "qwen/qwen3-235b-a22b:free", "openai/gpt-oss-120b:free",
+    # 22/08/2026: probe model watch ra HTTP 404 "This model is unavailable
+    # for free" + slug biến mất khỏi danh mục OpenRouter.
+    "openai/gpt-oss-20b:free",
     "meta-llama/llama-3.3-8b-instruct:free",
     # Gemini dòng 2.5 khóa với project mới (key máy này không gọi được)
     "gemini-2.5-flash", "gemini-2.5-flash-lite",

@@ -576,14 +576,60 @@ def run_watch(do_eval: bool = False) -> dict:
     })
     save_history(hist)
 
-    alert_lines = [f"❌ {r['provider']} {r['model']} — {r['tag']}: {r['detail'][:80]}"
-                   for r in dead]
+    alert_lines = build_dead_alerts(dead)
     alert_lines += [f"🗑 {p} {m} biến mất khỏi danh mục — {t}"
                     for p, m, t in gone_used]
     alert_lines += [f"🐌 {s['key']} chậm {s['factor']}× ({s['now']}s so median "
                     f"{s['median']}s) — {s['tag']}" for s in severe_slow]
     _alert(alert_lines)
     return status
+
+
+# ── Hỏng TÀI KHOẢN vs hỏng MODEL ─────────────────────────────────────────
+# Báo cáo T7 22/08 in 3 dòng ❌ trông y hệt nhau, nhưng chúng đòi hai hành
+# động HOÀN TOÀN khác nhau:
+#   Cerebras HTTP 402 "Payment required … Visit your billing"  → TÀI KHOẢN.
+#       Đổi slug là vô ích: MỌI model Cerebras sẽ 402 y như vậy.
+#   OpenRouter HTTP 404 "unavailable for free"                  → MODEL chết.
+#       Đây mới là ca dùng quy trình `_MODEL_MIGRATIONS` + `_DEAD_SLUGS`.
+# Không phân biệt thì người đọc sẽ đi thay slug Cerebras — mất công, và vẫn
+# hỏng.
+_ACCOUNT_CODES = ("401", "402", "403")
+
+
+def account_level_code(detail: str) -> "str | None":
+    """Mã HTTP báo hiệu hỏng ở TÀI KHOẢN/khoá, không phải ở model. Hàm thuần."""
+    import re as _re2
+    m = _re2.search(r"HTTP\s*(\d{3})", str(detail or ""))
+    code = m.group(1) if m else None
+    return code if code in _ACCOUNT_CODES else None
+
+
+def build_dead_alerts(dead: list) -> list:
+    """Dòng cảnh báo cho model hỏng — gộp theo PROVIDER khi lỗi là tài khoản.
+
+    Hàm thuần: cùng đầu vào luôn ra cùng danh sách, test được không cần mạng.
+    """
+    by_provider: dict = {}
+    model_level: list = []
+    for r in dead or []:
+        code = account_level_code(r.get("detail"))
+        if code:
+            by_provider.setdefault((r.get("provider"), code), []).append(r)
+        else:
+            model_level.append(r)
+
+    out: list = []
+    for (prov, code), rows in sorted(by_provider.items(), key=lambda kv: str(kv[0])):
+        who = " · ".join(f"{r.get('model')} ({r.get('tag')})" for r in rows)
+        why = {"401": "khoá API sai/hết hạn", "402": "hết quyền truy cập — cần nạp tiền",
+               "403": "khoá bị từ chối"}[code]
+        out.append(
+            f"🏦 {prov} — TÀI KHOẢN {why} (HTTP {code}). MỌI model {prov} sẽ "
+            f"hỏng y như vậy, ĐỔI SLUG KHÔNG CỨU ĐƯỢC. Đang mất: {who}")
+    out += [f"❌ {r['provider']} {r['model']} — {r['tag']}: {str(r['detail'])[:80]}"
+            for r in model_level]
+    return out
 
 
 def _eval_order(models: list, hist: dict) -> list:

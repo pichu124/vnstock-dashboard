@@ -32,7 +32,7 @@ sai máy. **Phiên hiện tại: 🖥️ DESKTOP** (user báo 20/08, sau khi là
 
 ---
 
-## 🔴 GẤP — ⇄ CẢ HAI MÁY đang ở `2.447`, HEAD là `2.498`
+## 🔴 GẤP — ⇄ CẢ HAI MÁY đang ở `2.447`, HEAD là `2.516`
 
 Ngày 21-22/08 vá thêm 4 đợt (guard số chỉ số · dọn khối tin · dải ±3% không
 được gọi là hỗ trợ/kháng cự · sổ tự đếm nghi ngờ). **Chưa máy nào merge.**
@@ -43,7 +43,7 @@ git pull origin claude/tong-hop-cong-viec-test-w8mvrc
 python run.py test
 ```
 
-Phải ra **2.498 passed**. Làm ở 🖥️ desktop TRƯỚC (nó chạy phát tối), rồi 💻
+Phải ra **2.516 passed**. Làm ở 🖥️ desktop TRƯỚC (nó chạy phát tối), rồi 💻
 laptop khi nào mở.
 
 **Chạy `run.py test` NGAY sau khi merge, và KHÔNG merge sát 18:00** — bài học
@@ -100,6 +100,39 @@ Badge **vàng là dấu hiệu TỐT** (guard đang làm việc, không phải h
 cơ sở — mã bị cách ly" (chữa: `python scripts\rebase_ticker_history.py
 --ticker <MÃ> --apply`) · "Nới OHLC (bar tự mâu thuẫn)" · "Sổ theo dõi nghi
 ngờ brief" (xem mục 🔔 cuối trang).
+
+---
+
+## 💳 QUYẾT ĐỊNH CỦA USER — Cerebras hết quyền truy cập (402)
+
+Model watch T7 22/08: **Cerebras trả HTTP 402 "Payment required"** ở cả hai
+model đang dùng. Đây là **hỏng TÀI KHOẢN, không phải model chết** — đổi slug
+không cứu được, mọi model Cerebras sẽ 402 y như vậy.
+
+Hệ thống **KHÔNG chết** (brief 21/08 vẫn ra) nhưng lưới dự phòng mỏng hẳn:
+
+| Điểm | Còn sống |
+|---|---|
+| [1] sentiment | Gemini → Groq (từ 4 nấc còn 2) |
+| [3-6] digest | Gemini + nemotron · Groq×2 → Gemini-lite |
+| [7] brief | Gemini (agent CHÍNH) |
+
+⚠️ **Gemini nay gánh cả brief lẫn digest bậc 1 lẫn nấc 1 sentiment** — nghẽn
+Gemini là hụt nhiều chỗ cùng lúc.
+
+**Ba lựa chọn, bạn chọn:**
+1. **Kệ** — Gemini + Groq đủ chạy. Rẻ nhất, rủi ro tập trung vào Gemini.
+2. **Nạp tiền Cerebras** — khôi phục nguyên trạng, không đụng code.
+3. **Tìm nhà cung cấp free thay thế** — phải probe SỐNG trên máy thật trước:
+   ```powershell
+   python scripts\probe_models.py --slug "OpenRouter=<slug>"
+   ```
+   Ra ✅ thì báo Claude, Claude nối vào thang + lưới.
+
+*(Đã tự xử: `openai/gpt-oss-20b:free` của OpenRouter chết thật — HTTP 404 +
+biến mất khỏi danh mục — nên đã gỡ khỏi cả hai thang, thêm vào `_DEAD_SLUGS`,
+và sửa một migration đang trỏ vào chính nó. Không thêm slug mới vì quy tắc
+repo là phải probe sống trước.)*
 
 ---
 

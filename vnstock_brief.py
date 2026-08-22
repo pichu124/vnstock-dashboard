@@ -877,8 +877,13 @@ _MODEL_MIGRATIONS: dict[tuple[str, str], str] = {
     # OpenRouter gỡ bản :free của llama 3.3/3.1
     ("openrouter", "meta-llama/llama-3.3-70b-instruct:free"):
         "nvidia/nemotron-3-super-120b-a12b:free",
+    # 22/08: đích cũ `openai/gpt-oss-20b:free` CHÍNH NÓ đã chết (HTTP 404
+    # "unavailable for free" + biến mất khỏi danh mục) — migration trỏ vào
+    # model chết thì vô dụng, nên dồn về cùng đích với dòng trên.
     ("openrouter", "meta-llama/llama-3.1-8b-instruct:free"):
-        "openai/gpt-oss-20b:free",
+        "nvidia/nemotron-3-super-120b-a12b:free",
+    ("openrouter", "openai/gpt-oss-20b:free"):
+        "nvidia/nemotron-3-super-120b-a12b:free",
 }
 
 

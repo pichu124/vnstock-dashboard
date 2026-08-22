@@ -65,6 +65,13 @@ def build_report_data(as_of: Optional[str] = None) -> dict:
             "as_of": m.get("as_of"),
             "source": m.get("source"),
             "change": (f"{ch[0]} {ch[1]}" if ch else ""),
+            # MỐC SO SÁNH phải đi kèm con số. `change` của vnstock_macro là
+            # so với LẦN ĐỌC LIỀN TRƯỚC (`_pick` lấy `dates[idx-1]`) — với
+            # lãi suất LNH đó là PHIÊN TRƯỚC, không phải TUẦN trước. Trong một
+            # bản mang tên "Báo cáo TUẦN", một con số trần trụi "▼ -1.01 điểm
+            # %" bị đọc thành đổi trong tuần. Cùng họ bất biến với "Giá 1T %"
+            # (CLAUDE.md): mọi nhãn phải ghi rõ khung thời gian.
+            "prev_as_of": m.get("prev_as_of"),
             "dir": (m.get("change") or {}).get("dir", 0),
         })
 
@@ -135,8 +142,13 @@ def _narrative(data: dict, by_key: dict, mac) -> list:
         d = on["change"]["delta"]
         if abs(d) >= 0.10:
             verb = "tăng" if d > 0 else "giảm"
+            # "so với kỳ trước" trong bản TUẦN đọc ra là "so với tuần trước",
+            # nhưng mốc thật là LẦN ĐỌC LIỀN TRƯỚC (thường là phiên trước).
+            # Nói thẳng ngày ra thì không thể hiểu nhầm.
+            since = on.get("prev_as_of")
+            when = f"so với {since}" if since else "so với lần đọc trước"
             out.append(f"Lãi suất liên ngân hàng qua đêm {verb} "
-                       f"{abs(d):.2f} điểm % so với kỳ trước.")
+                       f"{abs(d):.2f} điểm % {when}.")
     omo = data.get("omo_net")
     if isinstance(omo, (int, float)) and abs(omo) >= 1:
         side = "hút ròng" if omo > 0 else "bơm ròng"
@@ -186,10 +198,18 @@ _DIR_COLOR = {1: "#dc2626", -1: "#16a34a", 0: "#6b7280"}   # lãi suất tăng =
 def render_html(data: dict) -> str:
     """HTML tự chứa (1 chuỗi). Không phụ thuộc mạng — nhúng inline CSS/SVG."""
     esc = _html.escape
+
+    def _since(r: dict) -> str:
+        """Mốc so sánh của con số thay đổi — thiếu nó thì "▼ -1.01" trong bản
+        TUẦN bị đọc thành đổi trong tuần, dù mốc thật là phiên trước."""
+        if not (r.get("change") and r.get("prev_as_of")):
+            return ""
+        return f' <span class="dim">(so {esc(str(r["prev_as_of"]))})</span>'
+
     rows = "".join(
         f'<tr><td>{esc(r["label"])}</td><td class="num">{esc(r["value"])}</td>'
         f'<td class="num" style="color:{_DIR_COLOR.get(r["dir"], "#6b7280")}">'
-        f'{esc(r["change"])}</td>'
+        f'{esc(r["change"])}{_since(r)}</td>'
         f'<td class="dim">{esc(str(r.get("as_of") or ""))}'
         f'{" · " + esc(r["source"]) if r.get("source") else ""}</td></tr>'
         for r in data["rates"])
@@ -252,6 +272,8 @@ def render_telegram(data: dict) -> str:
              f"<i>dữ liệu đến {data['as_of']}</i>", ""]
     for r in data["rates"]:
         ch = f"  {r['change']}" if r["change"] else ""
+        if ch and r.get("prev_as_of"):
+            ch += f" <i>(so {r['prev_as_of']})</i>"
         lines.append(f"• {r['label']}: <b>{r['value']}</b>{ch}")
     if data.get("curve"):
         pts = data["curve"]["points"]
