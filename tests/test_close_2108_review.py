@@ -107,3 +107,94 @@ class TestImpactTextCannotBreakTheNewsBlock:
     def test_hyphens_and_percentages_survive(self):
         s = "Giá dầu -3.5% gây áp lực lên nhóm dầu khí"
         assert sanitize_impact(s) == s
+
+
+class TestReferenceBandIsNotCalledSupportOrResistance:
+    """
+    Đây KHÔNG phải model bịa mốc — CHÍNH repo bịa hộ nó, đều đặn mọi phiên.
+
+    `_vn30_line` (vnstock_brief.py) gắn vào mỗi mã ⭐ một nhãn tính bằng
+    `giá × 0,97` và `giá × 1,03` rồi GỌI CHÚNG LÀ "hỗ trợ ~X / kháng cự ~Y",
+    và template còn ra lệnh "MỐC GIÁ SETUP MỖI MÃ LẤY TỪ …". Model chép lại
+    trung thực ⇒ brief close 21/08: "giữ vững trên hỗ trợ 81,000 và hướng tới
+    kháng cự 86,000" cho GAS — nghe như mốc kỹ thuật đo được, thực chất là
+    83.500 ±3%. R:R chẵn 1,00 là hệ quả TẤT YẾU của cấu tạo đó, không phải
+    trùng hợp.
+
+    Đổi nhãn ở prompt là điều kiện CẦN. Guard này là điều kiện ĐỦ (doctrine
+    repo: model phớt chỉ thị).
+    """
+
+    CTX = {"vn30_gainers": [{"Mã": "GAS", "last": 83.5}],
+           "vn30_losers": [{"Mã": "PNJ", "last": 39.9}]}
+
+    def _wl(self, body: str) -> str:
+        return f"## 📋 Watchlist sáng mai\n{body}\n\n## ⚠️ Rủi ro cần lưu ý\nKháng cự 86,000 ở mục khác.\n"
+
+    def test_the_real_gas_line_stops_claiming_support_and_resistance(self):
+        from vnstock_brief_guards_sections import enforce_reference_band_wording
+        src = self._wl("1. **GAS** (Giá 83,500) — MUA vùng 83,500 · chốt lời "
+                       "86,000 · cắt lỗ 81,000 — Canh mua nếu giá giữ vững trên "
+                       "hỗ trợ 81,000 và hướng tới kháng cự 86,000.")
+        out = enforce_reference_band_wording(src, self.CTX)
+        assert "hỗ trợ 81,000" not in out and "kháng cự 86,000" not in out.split("## ⚠️")[0]
+        assert "mốc tham chiếu 81,000" in out and "mốc tham chiếu 86,000" in out
+
+    def test_a_genuinely_measured_level_is_left_alone(self):
+        # Mốc KHÔNG trùng dải ±3% ⇒ có thể là mốc thật ⇒ guard KHÔNG được đụng.
+        # Nếu sau này nối pivot thật vào, guard vẫn im lặng đúng chỗ đó.
+        from vnstock_brief_guards_sections import enforce_reference_band_wording
+        src = self._wl("1. **GAS** (Giá 83,500) — MUA vùng 83,500 — giữ trên hỗ trợ 79,200.")
+        assert "hỗ trợ 79,200" in enforce_reference_band_wording(src, self.CTX)
+
+    def test_other_sections_are_untouched(self):
+        from vnstock_brief_guards_sections import enforce_reference_band_wording
+        src = self._wl("1. **GAS** (Giá 83,500) — giữ trên hỗ trợ 81,000.")
+        assert "Kháng cự 86,000 ở mục khác." in enforce_reference_band_wording(src, self.CTX)
+
+    def test_exdate_suffix_numbers_are_not_mistaken_for_levels(self):
+        from vnstock_brief_guards_sections import enforce_reference_band_wording
+        src = self._wl("1. **GAS** (Giá 83,500) — giữ trên hỗ trợ 81,000 · "
+                       "⚠️ GDKHQ 2026-08-26 (Cổ tức) — giá tham chiếu ≈ 81,000, "
+                       "mốc trên CHƯA quy đổi")
+        out = enforce_reference_band_wording(src, self.CTX)
+        assert "mốc tham chiếu 81,000 ·" in out
+        assert "giá tham chiếu ≈ 81,000" in out      # phần GDKHQ giữ nguyên
+
+    def test_idempotent(self):
+        from vnstock_brief_guards_sections import enforce_reference_band_wording
+        src = self._wl("1. **GAS** (Giá 83,500) — giữ trên hỗ trợ 81,000.")
+        once = enforce_reference_band_wording(src, self.CTX)
+        assert enforce_reference_band_wording(once, self.CTX) == once
+
+    def test_noop_without_ctx(self):
+        from vnstock_brief_guards_sections import enforce_reference_band_wording
+        src = self._wl("1. **GAS** (Giá 83,500) — giữ trên hỗ trợ 81,000.")
+        assert enforce_reference_band_wording(src, {}) == src
+
+    def test_bands_match_what_the_prompt_actually_prints(self):
+        # Guard và prompt PHẢI dựng cùng một bộ số — lệch một bên là guard mù
+        from vnstock_brief import build_prompt
+        from vnstock_brief_guards_sections import _reference_bands
+        ctx = {"date": "2026-08-21", "time": "15:00",
+               "vn30_gainers": [{"Mã": "GAS", "Giá 1T %": 2.0, "Ngành": "NL",
+                                 "last": 83.5, "GTGD TB (tỷ)": 300.0}]}
+        p = build_prompt(ctx, brief_type="afternoon")
+        assert "dải ±3% quanh giá: 81,000 – 86,000" in p
+        assert _reference_bands(ctx)["GAS"] == {81000, 86000}
+
+    def test_prompt_forbids_the_support_resistance_wording(self):
+        from vnstock_brief import build_prompt
+        p = build_prompt({"date": "2026-08-21", "time": "15:00",
+                          "vn30_gainers": [{"Mã": "GAS", "Giá 1T %": 2.0,
+                                            "Ngành": "NL", "last": 83.5,
+                                            "GTGD TB (tỷ)": 300.0}]},
+                         brief_type="afternoon")
+        assert "KHÔNG gọi chúng là" in p
+
+    def test_guard_is_wired_into_the_chain(self):
+        # Guard quên nối = code chết trông y như code sống (doctrine repo)
+        import inspect
+
+        from vnstock_brief_guards import apply_brief_guards
+        assert "enforce_reference_band_wording" in inspect.getsource(apply_brief_guards)

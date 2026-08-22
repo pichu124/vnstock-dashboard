@@ -221,6 +221,30 @@ lưới canh để kỳ đổi rổ sau không lặp lại.
 
 ---
 
+## 🔔 SỔ TỰ NHẮC — không phải việc gõ tay
+
+Ba nghi ngờ từ đợt soi brief 21/08 nay **máy tự theo dõi**, bạn không phải nhớ:
+
+| Nghi ngờ | Cơ chế nhắc |
+|---|---|
+| Op.CF quá lớn so với vốn hoá (KBC 0,83×) | Mỗi phiên brief tự ghi vào `_meta/brief_watch.json` |
+| Câu "khối ngoại bán ròng nhóm X" ngược data (ca SSI) | như trên |
+
+Badge **"Sổ theo dõi nghi ngờ brief"** trong `python run.py doctor`:
+* `✅ … chưa nhặt được nghi ngờ nào` → im lặng, không phải làm gì.
+* `✅ … CHƯA đủ mẫu (cần ≥5 phiên)` → đang đếm, **cố ý chưa kết luận**.
+* `⚠️ … ĐỦ mẫu, đáng quyết` → **lúc đó mới gọi Claude**, dán nguyên dòng badge.
+  Quyết xong thì xoá `_meta/brief_watch.json` để đếm lại.
+
+Tắt hẳn: `VNSTOCK_BRIEF_WATCH=0`.
+
+**Việc mở của Claude (không cần bạn làm gì):** nối pivot thật
+(`vnstock_strategy._ticker_pivots`) vào mốc watchlist, để chúng được gọi là
+hỗ trợ/kháng cự một cách trung thực. Hiện tại chúng là dải ±3% và **đã được
+gọi đúng tên** — xem `docs/CLAUDE-NOTES.md` mục U23.
+
+---
+
 ## ⏳ TỰ ĐẾN — chỉ đọc
 
 * **T7 22/08**: báo cáo model watch (Claude đã ghi sẵn 3 điểm cần soi).

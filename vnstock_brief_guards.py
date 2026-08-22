@@ -9,7 +9,7 @@ như code sống; `tests/test_brief_split.py` canh cả hai chiều).
 Vì sao guard tồn tại: LLM hay phớt chỉ thị prompt, nên mọi ràng buộc quan trọng
 phải chốt bằng code deterministic hậu kiểm, không phải bằng câu chữ trong prompt.
 
-47 guard chia theo CHỦ ĐỀ (12/08, mục ④ — file này từng là 2.646 dòng):
+49 guard chia theo CHỦ ĐỀ (12/08, mục ④ — file này từng là 2.646 dòng):
 
 * `vnstock_brief_guards_sections` — brief nói SAI CHUYỆN GÌ (dựng lại khối canon)
 * `vnstock_brief_guards_numbers`  — brief nói SAI SỐ / SAI CHIỀU
@@ -68,6 +68,10 @@ from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
     enforce_unvalidated_strategy_caveat,
     enforce_upcoming_events,
     enforce_exdate_levels,
+    enforce_reference_band_wording,
+    _reference_bands,
+    _BAND_WORDS,
+    _BAND_SAFE,
     enforce_watchlist_eligibility,
     enforce_watchlist_hygiene,
 )
@@ -231,6 +235,9 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_scenario_levels(fixed, ctx)       # scenario levels = real data only
     fixed = enforce_watchlist_eligibility(fixed, ctx)
     fixed = enforce_exdate_levels(fixed, ctx)     # mốc giá mã sắp GDKHQ phải nói rõ chưa quy đổi
+    # Chạy SAU exdate: guard này cắt phần " ⚠️ GDKHQ …" trước khi soi mốc, nên
+    # phải để phần đó đã được gắn xong.
+    fixed = enforce_reference_band_wording(fixed, ctx)   # dải ±3% ≠ hỗ trợ/kháng cự
     fixed = enforce_buy_vs_bias_caveat(fixed, ctx)    # GIẢM + BUY recs → caveat (keep, contextualize)
     fixed = enforce_unvalidated_strategy_caveat(fixed, ctx)  # chiến lược trượt kiểm định → nói ra
     fixed = enforce_stance_sentiment_caution(fixed, ctx)  # TĂNG stance + tâm lý tiêu cực → caveat

@@ -6966,6 +6966,96 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🔴 U23. ±3% ĐƯỢC GỌI LÀ "HỖ TRỢ/KHÁNG CỰ" — CHÍNH REPO BỊA, KHÔNG PHẢI MODEL
+
+Soi tiếp mục ③ của U22 bằng 4 luồng đọc code song song. Kết quả **lật ngược
+quy kết ban đầu của tôi**, và đó mới là phần đáng ghi.
+
+## ① Watchlist: không phải model bịa mốc — repo bịa hộ nó, đều đặn mọi phiên
+
+Tôi từng ghi "watchlist có mùi công thức… một phiên hai mã chưa đủ mẫu, đếm
+thêm vài phiên". **Sai ở khâu quy kết**: chuyện này không cần đếm, đọc hai
+dòng code là xong.
+
+`vnstock_brief._vn30_line` gắn vào MỌI mã ⭐:
+
+```python
+_p = float(price) * 1000
+line += f" ⭐ [mốc của mã: hỗ trợ ~{_round_tick(_p*0.97, _p):,} / kháng cự ~{_round_tick(_p*1.03, _p):,}]"
+```
+
+và template ra lệnh `MỐC GIÁ SETUP MỖI MÃ LẤY TỪ "[mốc của mã…]"`. Nghĩa là
+**chính ctx dán nhãn "hỗ trợ/kháng cự" lên hai con số chỉ là giá ×0,97 và
+×1,03**. Model chép lại trung thực ⇒ close 21/08: *"giữ vững trên hỗ trợ
+81,000 và hướng tới kháng cự 86,000"* cho GAS — nghe như mốc kỹ thuật đo được,
+thực chất là 83.500 ±3%. Tái dựng khớp từng đồng: 83.500 → 81.000/86.000;
+39.900 → 38.700/41.100 (bước giá 100 và 50).
+
+**R:R chẵn 1,00 là hệ quả TẤT YẾU của cấu tạo**, không phải trùng hợp — nên
+"đếm thêm vài phiên" là việc vô nghĩa: phiên nào cũng sẽ ra 1,00.
+
+Repo CÓ pivot thật (`vnstock_strategy._ticker_pivots`, 60 bar, bỏ 2 bar cuối)
+nhưng chưa bao giờ nối vào đường watchlist — và ctx watchlist **không hề có**
+OHLC/MA/ATR của mã (chỉ `Mã / Giá 1T % / Ngành / last / GTGD TB`), nên không
+thể tính mốc thật ở tầng guard. Nối được thì phải đọc kho ở tầng dựng ctx.
+
+**Vá (chừng nào chưa nối pivot thật): NÓI THẬT TÊN.**
+* Nhãn ctx: `⭐ [dải ±3% quanh giá: 81,000 – 86,000 — mốc THAM CHIẾU tính từ
+  giá, KHÔNG phải hỗ trợ/kháng cự đo được]`.
+* Template cấm hẳn chữ "hỗ trợ"/"kháng cự"/"vùng cung cầu" cho các mốc này.
+* **Guard `enforce_reference_band_wording`** — vì doctrine repo là model phớt
+  chỉ thị nên đổi nhãn chỉ là điều kiện CẦN. Guard đổi "hỗ trợ/kháng cự N"
+  → "mốc tham chiếu N" **CHỈ KHI N trùng KHỚP TUYỆT ĐỐI** một mốc ±3% mà
+  chính prompt đã tính cho mã đó. Mốc thật (nếu sau này nối pivot) không
+  trùng nên không bị đụng — guard không được phép làm nghèo brief thật. Cắt
+  phần `⚠️ GDKHQ` trước khi soi (nó mang giá tham chiếu riêng).
+
+**Việc mở, đã có mỏ neo:** nối `_ticker_pivots` vào tầng dựng ctx cho 1-3 mã
+watchlist (đọc kho, ~60 bar/mã, rẻ) rồi mới được gọi là hỗ trợ/kháng cự; giữ
+±3% làm lưới cuối và GIỮ NGUYÊN nhãn "tham chiếu" cho lưới cuối đó.
+
+## ② Hai nghi ngờ còn lại: ĐẾM, đừng đoán ngưỡng
+
+Ghi vào `docs/CLAUDE-NOTES.md` là **ghi vào chỗ không bao giờ nổi lên lại** —
+chính file này tự nhận là "kho lưu, không phải để làm theo". Nên chuyển sang
+cho MÁY đếm: `vnstock_brief_watch` + badge doctor `brief_watch`.
+
+**(a) Op.CF quá lớn so với quy mô.** KBC −17.344 tỷ ≈ **0,826× vốn hoá**.
+Đo được, nhưng ngưỡng nào là "sai" thì chưa biết: BĐS tích luỹ quỹ đất âm
+nặng là chuyện THẬT, và đó chính là tín hiệu mục Rủi ro sinh ra để nói —
+ngưỡng đặt bừa sẽ giết đúng tín hiệu đó. Ghi nhận từ 0,5× trở lên.
+Đường số hoàn toàn xác định: `operating_cf` chia 1e9 lúc ghi parquet,
+`Vốn hoá (tỷ)` chia 1e9 ở runner ⇒ cùng đơn vị tỷ VND, tỉ số không thứ nguyên.
+*(Ghi chú: mục U-cũ trong file này từng khẳng định "là SỐ THẬT" — đó là khẳng
+định KHÔNG có phép đo kèm, nay đã có phép đo nên để sổ quyết.)*
+
+**(b) Câu viện dẫn dòng tiền ngoại không có trong data.** Lý do bán SSI nói
+"khối ngoại bán ròng mạnh nhóm Chứng khoán", trong khi `ctx["sectors"]` cho
+ngành đó **NN 1T = +340 tỷ** (MUA ròng). Guard **biết nhiều hơn model**:
+prompt chỉ đưa top-3 mỗi chiều, ctx giữ trọn ~32 dòng ngành. Chỉ ghi nhận khi
+tên ngành khớp CHÍNH XÁC một dòng ctx — khớp mờ là tự tạo báo động giả.
+Không kiểm được chữ "liên tục": ctx chỉ có 3 ảnh chụp chồng lấn (1T/1M/3M),
+không có chuỗi theo phiên.
+
+**Kỷ luật của sổ:**
+* Dưới `MIN_SAMPLES` phiên ⇒ badge **ok kèm n=…**, TUYỆT ĐỐI không warn. Vết
+  13/08 của repo là trình bày "chưa đo được" thành "đo ra kết quả xấu" (n=2
+  vẽ thành "0%").
+* Cùng ngày + cùng máy thì GHI ĐÈ: chạy lại `run.py brief` ba lần một tối
+  không được thành ba lần bằng chứng.
+* Mỗi quan sát có trường `host` — kho đi qua Dropbox nên hai máy dùng chung
+  file; không có trường máy thì sổ trộn hai máy mà không ai biết (đúng hệ quả
+  #2 của banner Dropbox).
+* Trần 400 sự kiện. Kill-switch `VNSTOCK_BRIEF_WATCH=0`.
+
+## Lưới mới
+`tests/test_brief_watch.py` (27) + 9 test dải ±3% trong
+`tests/test_close_2108_review.py`. Cả hai file đều ở `--fast`.
+Suite: **2.498 passed** (fast 2.007).
+
+---
+
+
 # 🔴 U22. BRIEF CLOSE 21/08 — GUARD SỐ LÀ NO-OP VÌ MỘT TRẠNG TỪ (22/08)
 
 Phát 18:00 ngày 21/08 chạy trọn và gửi được brief. Soi bản gửi ra hai lỗi lọt

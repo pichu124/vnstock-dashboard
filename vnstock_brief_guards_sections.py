@@ -1280,6 +1280,82 @@ def enforce_exdate_levels(text: str, ctx: dict) -> str:
     return "\n".join(out) if changed else text
 
 
+# ── Dải ±3% KHÔNG được gọi là hỗ trợ/kháng cự ─────────────────────────────
+# Đổi nhãn ở prompt là điều kiện CẦN, không phải đủ: doctrine của repo là mọi
+# ràng buộc quan trọng phải chốt bằng guard deterministic, vì model phớt chỉ
+# thị. Ca thật close 21/08: "Canh mua nếu giá giữ vững trên hỗ trợ 81,000 và
+# hướng tới kháng cự 86,000" — 81.000/86.000 chính là 83.500 ×0,97 và ×1,03.
+_BAND_WORDS = ("hỗ trợ", "kháng cự", "vùng cung", "vùng cầu", "ngưỡng cản")
+_BAND_SAFE = "mốc tham chiếu"
+
+
+def _reference_bands(ctx: dict | None) -> dict:
+    """{MÃ: {mốc ±3% đã làm tròn bước giá}} — đúng bộ số prompt đưa cho model."""
+    from vnstock_brief_canon import _round_tick
+
+    out: dict = {}
+    for key in ("vn30_gainers", "vn30_losers"):
+        for m in (ctx or {}).get(key) or []:
+            tk = str(m.get("Mã") or "").strip().upper()
+            try:
+                p_vnd = float(m.get("last")) * 1000
+            except (TypeError, ValueError):
+                continue
+            if not tk or p_vnd <= 0:
+                continue
+            out.setdefault(tk, set()).update(
+                {_round_tick(p_vnd * 0.97, p_vnd), _round_tick(p_vnd * 1.03, p_vnd)})
+    return out
+
+
+def enforce_reference_band_wording(text: str, ctx: dict) -> str:
+    """Gọi dải ±3% là "hỗ trợ/kháng cự" ⇒ đổi thành "mốc tham chiếu".
+
+    CHỈ đụng khi con số TRÙNG KHỚP TUYỆT ĐỐI một mốc ±3% mà chính prompt đã
+    tính cho mã đó. Mốc kỹ thuật thật (nếu sau này nối pivot vào) sẽ không
+    trùng nên không bị đụng — guard không được phép làm nghèo brief thật.
+
+    Hàm thuần, idempotent, no-op khi thiếu ctx.
+    """
+    bands = _reference_bands(ctx)
+    if not text or not bands:
+        return text
+
+    # Định vị mục theo cùng idiom với enforce_watchlist_eligibility (so
+    # LOWERCASE) — `brief_section` phân biệt hoa/thường nên trượt header thật.
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines)
+                  if "watchlist sáng mai" in l.lower()), None)
+    if start is None:
+        return text
+    end = next((i for i in range(start + 1, len(lines))
+                if _is_section_start(lines[i])), len(lines))
+
+    out_lines = []
+    for line in lines[start:end]:
+        m = _re.search(r"\*\*([A-Z0-9]{3,4})\*\*", line)
+        nums = bands.get(m.group(1)) if m else None
+        if nums:
+            # Cắt phần GDKHQ trước: nó mang giá tham chiếu riêng, không phải mốc setup
+            head, mark, tail = line.partition(_EXDATE_MARK)
+
+            def _swap(mm: "_re.Match") -> str:
+                val = _parse_vn_number(mm.group(2))
+                if val is None or int(round(val)) not in nums:
+                    return mm.group(0)
+                return f"{_BAND_SAFE} {mm.group(2)}"
+
+            head = _re.sub(
+                r"(" + "|".join(_BAND_WORDS) + r")\s+([\d.,]+)",
+                _swap, head, flags=_re.IGNORECASE)
+            line = head + mark + tail
+        out_lines.append(line)
+
+    if out_lines == lines[start:end]:
+        return text
+    return "\n".join(lines[:start] + out_lines + lines[end:])
+
+
 def enforce_buy_vs_bias_caveat(text: str, ctx: dict) -> str:
     """Deterministic guard: when the bias floor is GIẢM (bearish market) yet the
     "💡 Đề xuất giao dịch" section still lists BUY/MUA setups (from the backtested-

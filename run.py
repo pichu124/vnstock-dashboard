@@ -777,6 +777,9 @@ def cmd_test(args) -> int:
             "tests/test_portfolio_prices.py",
             "tests/test_close_2007_review.py",
             "tests/test_close_2108_review.py",
+            # Sổ ĐẾM TRƯỚC QUYẾT SAU: sai ở đây là badge réo khi CHƯA đủ mẫu
+            # (trình bày "chưa đo được" thành "đo ra kết quả xấu" — vết 13/08).
+            "tests/test_brief_watch.py",
             "tests/test_model_ladder.py",
             "tests/test_auditor.py",
             "tests/test_parquet_io.py",

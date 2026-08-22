@@ -3083,7 +3083,12 @@ def test_movers_star_line_carries_per_stock_reference_levels():
                              "last": 70.6, "GTGD TB (tỷ)": 800.0}]}
     p = build_prompt(ctx, brief_type="afternoon")
     assert "STB" in p and "⭐" in p
-    assert "mốc của mã: hỗ trợ ~68,500 / kháng cự ~72,700" in p
+    # NHÃN phải nói thật: 68.500/72.700 là giá ×0,97 và ×1,03, KHÔNG đo từ
+    # đỉnh/đáy nào. Nhãn cũ ("hỗ trợ ~X / kháng cự ~Y") làm model chép lại
+    # thành "giữ vững trên hỗ trợ 81,000" (brief close 21/08) — nghe như mốc
+    # kỹ thuật đo được.
+    assert "dải ±3% quanh giá: 68,500 – 72,700" in p
+    assert "KHÔNG phải hỗ trợ/kháng cự đo được" in p
     assert "LẤY TỪ" in p          # watchlist instruction points at these levels
 
 

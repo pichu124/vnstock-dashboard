@@ -69,8 +69,8 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   lần**, KHÔNG phải ⇄ CẢ HAI (sửa 19/08).
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~1.971 test; ~40s trên CI).
-- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.462 test).
+- Sửa module lõi nào → `python run.py test --fast` (~2.007 test; ~40s trên CI).
+- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.498 test).
   Đo trên MÁY THẬT 19/08 (sau đợt vá): **2.181 passed / 100,3s** — khớp CI từng test một
   (CI ~36s; máy thật chậm hơn ~3× vì có kho dữ liệu, không phải vì bỏ test).
 - Kết quả ghi `data_warehouse/_meta/test_status.json` → badge sidebar.
@@ -87,7 +87,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 - `vnstock_brief.py` — sinh AI brief morning/close (context → prompt → agent).
   Chuỗi `apply_brief_guards(text, ctx)` ở `vnstock_brief_guards.py` DÙNG CHUNG
   cho cả 2 brief — KHÔNG BAO GIỜ inline lại vào `generate_brief` (điểm parity
-  duy nhất). 48 guard chia 3 chủ đề: `_guards_sections` (sai chuyện gì) /
+  duy nhất). 49 guard chia 3 chủ đề: `_guards_sections` (sai chuyện gì) /
   `_guards_numbers` (sai số, sai chiều) / `_guards_text` (lộ ruột, nói nhảm),
   tiện ích chung ở `_guards_common`, hằng số + khối canon mà CẢ prompt lẫn
   guard dựng chung ở `vnstock_brief_canon.py`. Một chiều: brief → guards →
@@ -150,7 +150,11 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 - Mọi auto-refresh đều best-effort và có env kill-switch
   (`VNSTOCK_BRIEF_AUTO_*`, `VNSTOCK_MACRO_*`, `VNSTOCK_BASIS_GUARD`,
   `VNSTOCK_OHLC_REPAIR`, `VNSTOCK_AUTOHEAL_BUDGET_S`, `VNSTOCK_VN30_DYNAMIC`,
-  `VNSTOCK_WSS_HOT_TIER`).
+  `VNSTOCK_WSS_HOT_TIER`, `VNSTOCK_BRIEF_WATCH`).
+- Nghi ngờ CHƯA đủ căn cứ để vá → **đừng ghi vào notes, hãy ĐẾM**:
+  `vnstock_brief_watch` nhặt bằng chứng mỗi phiên vào `_meta/brief_watch.json`,
+  badge doctor `brief_watch` chỉ réo khi ≥ `MIN_SAMPLES` phiên. Dưới sàn mẫu
+  badge phải **ok kèm n=…**, không bao giờ warn (vết 13/08: n=2 vẽ thành "0%").
 - Model LLM: slug MỚI phải probe sống trước khi vào code —
   `python scripts/probe_models.py --slug "Groq=<model>"` trên máy thật
   (catalog trên mạng hay sai/lỗi thời). Provider khai tử model → 1 dòng

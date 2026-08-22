@@ -997,9 +997,55 @@ def check_vn30_basket() -> dict:
         "Đường sống + heatmap đã tự dùng rổ mới; hằng số chỉ là lưới cuối")
 
 
+def check_brief_watch() -> dict:
+    """Sổ theo dõi nghi ngờ của brief — ĐẾM TRƯỚC, QUYẾT SAU.
+
+    Hai mục từ đợt soi close 21/08 (U22) chưa đủ căn cứ để viết guard: Op.CF
+    quá lớn so với quy mô (KBC −17.344 tỷ ≈ 0,8× vốn hoá — ngưỡng nào là
+    "sai" thì chưa biết, BĐS âm nặng là chuyện thật) và câu viện dẫn dòng
+    tiền ngoại không có trong ctx (ca SSI).
+
+    DƯỚI sàn mẫu thì badge **ok kèm n=…**, tuyệt đối không warn: trình bày
+    "chưa đo được" thành "đo ra kết quả xấu" đúng là lỗi repo đã dính (n=2 vẽ
+    thành "0%", 13/08).
+    """
+    name = "Sổ theo dõi nghi ngờ brief"
+    try:
+        import vnstock_brief_watch as _w
+        st = _w.summarize(_META.parent)
+    except Exception as e:
+        return _result("brief_watch", name, "error",
+                       f"không đọc được sổ ({type(e).__name__}: {e})", "")
+    if not st["n_ocf"] and not st["n_flow"]:
+        return _result("brief_watch", name, "ok",
+                       f"chưa nhặt được nghi ngờ nào (đã soi {st['n_days']} phiên)", "")
+    parts = []
+    if st["n_ocf"]:
+        w = st["worst_ocf"] or {}
+        parts.append(f"Op.CF/vốn hoá lớn bất thường ×{st['n_ocf']} "
+                     f"({', '.join(st['ocf_tickers'][:5])}"
+                     + (" …" if len(st["ocf_tickers"]) > 5 else "") +
+                     f"; đậm nhất {w.get('ticker','?')} {w.get('ratio','?')}×)")
+    if st["n_flow"]:
+        parts.append(f"câu dòng tiền ngoại NGƯỢC data ×{st['n_flow']} "
+                     f"({', '.join(st['flow_sectors'][:3])})")
+    msg = f"{st['n_days']} phiên đã soi — " + " · ".join(parts)
+    if not st["enough"]:
+        return _result("brief_watch", name, "ok",
+                       f"{msg} — CHƯA đủ mẫu để kết luận "
+                       f"(cần ≥{_w.MIN_SAMPLES} phiên)", "")
+    return _result(
+        "brief_watch", name, "warn",
+        f"{msg} — ĐỦ mẫu, đáng quyết",
+        "đọc _meta/brief_watch.json rồi chốt: Op.CF lệch đơn vị hay số thật của "
+        "BĐS? câu dòng tiền ngoại có đáng viết guard chặn không? Xong thì xoá "
+        "file để đếm lại. Tắt sổ: VNSTOCK_BRIEF_WATCH=0")
+
+
 OFFLINE_CHECKS = [
     check_dir_shapes, check_unit_normalizations, check_kill_switches,
     check_basis_drift, check_ohlc_repairs, check_vn30_basket,
+    check_brief_watch,
     check_warehouse, check_market_overview, check_fundamentals, check_macro,
     check_pdf_tooling, check_market_news, check_ticker_news,
     check_foreign_flow, check_events, check_reports, check_allocation,
