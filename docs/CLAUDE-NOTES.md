@@ -6966,6 +6966,82 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🔴 U22. BRIEF CLOSE 21/08 — GUARD SỐ LÀ NO-OP VÌ MỘT TRẠNG TỪ (22/08)
+
+Phát 18:00 ngày 21/08 chạy trọn và gửi được brief. Soi bản gửi ra hai lỗi lọt
+lưới, cộng ba điểm đáng ngờ chưa đủ chứng cứ để sửa.
+
+## ① "VNINDEX đóng cửa tăng mạnh +51% so với phiên trước"
+
+Chỉ số thật **+1.95%** — 51 là % đổi **GTGD** bị dán sang chỉ số. Chính brief
+đó viết +1.95% ở **cả TLDR lẫn mục kỹ thuật** ⇒ tự mâu thuẫn trong một bản.
+Đối chiếu độc lập: tin VnExpress cùng ngày "Chứng khoán tăng gần 34 điểm", mà
+1.768,12 / 1,0195 = 1.734,3 ⇒ +33,8 điểm. Khớp. Vậy +1.95% đúng, +51% sai.
+
+**`enforce_vnindex_change` ĐÃ CÓ MẶT để chặn đúng ca này** (vết 16/06 dán
+momentum -24 vào; vết 15/07 bịa "giảm 1.36%" khi bar phẳng). Nó vẫn nằm trong
+`apply_brief_guards`, vẫn có test — mà **không làm gì cả**:
+
+```python
+r"(?:tăng|giảm)\s*[+-]?\d[\d.,]*\s*%"      # "tăng mạnh +51%" KHÔNG khớp
+```
+
+`\s*` giữa động từ và con số không nuốt được chữ **"mạnh"**. Guard sống, test
+xanh, nhưng câu model hay viết nhất thì nó không thấy. Đây là biến thể của họ
+bug đã đặt tên trong repo — không phải "quên nối guard", mà **"guard nối rồi
+nhưng regex hụt đúng cách viết phổ biến"**, khó thấy hơn hẳn vì mọi lưới đều
+xanh.
+
+**Vá:** thêm nhóm `_ADVERB` — danh sách ĐÓNG (`mạnh mẽ|mạnh|nhẹ|vọt|nhanh|sâu|
+đáng kể|ấn tượng|khá|tốt|đột biến|kịch trần`), **cố ý KHÔNG dùng `\w+` chung
+chung**: bắt bừa một từ bất kỳ là guard tự tay ghi đè số của mệnh đề khác — đúng
+cái bẫy `_SUBJ_SKIP` đã dựng để tránh (vết 14/07: guard đè số GTGD bằng
+day_change_pct). Có test canh cả hai chiều: sửa được câu thật, và **KHÔNG** đụng
+mệnh đề GTGD trong CÙNG câu (`(tăng 51% so với phiên trước…` giữ nguyên).
+
+## ② Khối 📰 Tin vỡ dòng
+
+```
+- ⚪ … Hormuz (VnExpress Thế giới) — tác động: An ninh tại Horm
+- ⚪ … bầu cử (VnExpress Thế giới) — tác động: `
+*
+- 🟢 … Iran 'sụp đổ' (VnExpress Thế giới) — tác động: C
+```
+
+Thủ phạm KHÔNG phải cái trần `[:160]` (ba câu này ngắn hơn nhiều) mà là **ký
+tự xuống dòng + rác markdown nằm TRONG `_impact`**. `_market_news_body_lines`
+dựng khối theo TỪNG DÒNG, nên một `\n` trong impact đẩy phần còn lại thành
+dòng lạc — nhìn hệt như câu bị cụt. Trần `[:160]` thì lỗi kiểu khác: nó cắt
+**giữa từ** và không có dấu `…` nên người đọc không biết là còn nữa.
+
+**Vá:** `sanitize_impact()` (hàm thuần, trong `vnstock_brief_canon`) — gộp MỌI
+khoảng trắng kể cả `\n`, bỏ ký tự điều khiển markdown, rồi cắt ở **biên từ**
+kèm `…`. Đặt ở **CẢ HAI đường**: đường ghi (`analyze_item`) và đường hiển thị
+(`_market_news_body_lines`) — vì cache tin đã chứa sẵn giá trị bẩn, sửa mỗi
+đường ghi thì bản gửi tối nay vẫn vỡ. Tiêu đề tin cũng gộp dòng (`_one_line`).
+
+## ③ Chưa sửa — cần thêm chứng cứ
+
+* **Watchlist có mùi công thức.** GAS 83.500 ±2.500 · PNJ 39.900 ±1.200 —
+  **cả hai đúng ±3,0% đối xứng**, R:R chẵn 1,00. Câu chữ thì nói "giữ vững
+  trên hỗ trợ 81.000 và hướng tới kháng cự 86.000" như thể đó là mốc THẬT.
+  Nếu đúng là model dựng bằng ±3% rồi gọi tên là hỗ trợ/kháng cự thì đây là
+  bịa mốc — nhưng một phiên hai mã chưa đủ mẫu. **Đếm thêm vài phiên trước
+  khi viết guard.**
+* **KBC Op.CF = −17.344 tỷ** — rất lớn so với quy mô KBC. Có thể thật (BĐS
+  tích luỹ quỹ đất) nhưng đáng soi lại đơn vị.
+* **Lý do bán SSI** nói "khối ngoại liên tục bán ròng mạnh nhóm Chứng khoán",
+  trong khi mục 💰 Dòng tiền của CÙNG brief liệt kê bên bán ròng mạnh nhất là
+  **Họ VIN và Ngân hàng** — không có Chứng khoán. Model viện dẫn dữ kiện không
+  có trong data.
+
+## Lưới mới
+`tests/test_close_2108_review.py` (15), đã vào `--fast`.
+Suite: **2.462 passed** (fast 1.971).
+
+---
+
+
 # 🔴 U21. HEATMAP LIVE: RỔ VN30 CŨ + ĐỘ TRỄ CỘNG DỒN (20/08, mắt người)
 
 User bật Live Mode trong phiên, nhìn heatmap và báo hai chuyện — **cả hai đều

@@ -97,6 +97,7 @@ from vnstock_brief_guards_numbers import (  # noqa: F401  (re-export)
     enforce_session_direction,
     enforce_sr_direction,
     enforce_vnindex_change,
+    _ADVERB,
 )
 
 from vnstock_brief_guards_text import (  # noqa: F401  (re-export)

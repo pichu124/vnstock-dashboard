@@ -954,6 +954,16 @@ def enforce_breadth_quality(text: str, ctx: dict) -> str:
     return _re.sub(r"[ĐđDd]ộ rộng[^\n.]{0,70}", _fix, text)
 
 
+# TRẠNG TỪ chen giữa động từ và con số. Không có nhóm này thì guard là NO-OP
+# với đúng câu mà model hay viết nhất: close 21/08 "VNINDEX đóng cửa tăng
+# **mạnh** +51% so với phiên trước" — 51 là % đổi GTGD bị dán sang chỉ số, và
+# `tăng\s*\d` không khớp vì có chữ "mạnh" ở giữa. Danh sách ĐÓNG, không dùng
+# `\w+` chung chung: bắt bừa một từ bất kỳ là guard tự tay ghi đè số của mệnh
+# đề khác.
+_ADVERB = (r"(?:\s+(?:mạnh mẽ|mạnh|nhẹ|vọt|nhanh|sâu|đáng kể|ấn tượng|"
+           r"khá|tốt|đột biến|kịch trần))?")
+
+
 def enforce_vnindex_change(text: str, ctx: dict) -> str:
     """Pin the VNINDEX day-over-day % change to the real value (day_change_pct).
 
@@ -982,7 +992,7 @@ def enforce_vnindex_change(text: str, ctx: dict) -> str:
         return repl + m.group(1)
 
     out = _re.sub(
-        r"(?:tăng|giảm)\s*[+-]?\d[\d.,]*\s*%(\s*so với\s*"
+        r"(?:tăng|giảm)" + _ADVERB + r"\s*[+-]?\d[\d.,]*\s*%(\s*so với\s*"
         r"(?:phiên trước(?:\s*đó)?|hôm qua|phiên hôm qua))",
         _fix, text, flags=_re.IGNORECASE)
 
@@ -1011,8 +1021,8 @@ def enforce_vnindex_change(text: str, ctx: dict) -> str:
             return m.group(0)
         return repl2
 
-    return _re.sub(r"(?:tăng|giảm)\s*[+-]?\d[\d.,]*\s*%", _fix2, out,
-                   flags=_re.IGNORECASE)
+    return _re.sub(r"(?:tăng|giảm)" + _ADVERB + r"\s*[+-]?\d[\d.,]*\s*%",
+                   _fix2, out, flags=_re.IGNORECASE)
 
 
 def enforce_session_direction(text: str, ctx: dict) -> str:

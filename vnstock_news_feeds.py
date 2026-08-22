@@ -352,7 +352,11 @@ def analyze_item(item: dict) -> tuple[str, str]:
     head, _, impact = raw.partition("|")
     low = head.lower()
     sentiment = next((v for k, v in _SENTIMENT_MAP.items() if k in low), "neutral")
-    return sentiment, _strip_html(impact)[:160]
+    # Dọn ở ĐƯỜNG GHI luôn (đường hiển thị cũng dọn — cache cũ đã bẩn):
+    # cắt trần bằng `[:160]` thẳng tay là cắt giữa từ, và nó KHÔNG hề đụng
+    # tới xuống dòng/rác markdown, thủ phạm thật của khối tin vỡ 21/08.
+    from vnstock_brief_canon import sanitize_impact
+    return sentiment, sanitize_impact(_strip_html(impact))
 
 
 # ── Cache I/O ────────────────────────────────────────────────────────────────

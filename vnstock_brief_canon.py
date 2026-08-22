@@ -176,6 +176,46 @@ def _macro_body_lines(macro: list[dict],
 
 # ── Khối tin kinh tế / chính trị ──────────────────────────────────────────────
 _MKT_NEWS_SENT_ICON = {"positive": "🟢", "negative": "🔴", "neutral": "⚪"}
+
+IMPACT_MAX_CHARS = 160
+
+
+def sanitize_impact(s, max_len: int = IMPACT_MAX_CHARS) -> str:
+    """Dọn câu "tác động:" của LLM trước khi dán vào MỘT dòng bullet.
+
+    Bản close 21/08 lộ hai lỗi cùng lúc trong khối tin:
+
+        — tác động: An ninh tại Horm          ← cắt GIỮA TỪ, không dấu …
+        — tác động: `
+        *                                     ← rác markdown + XUỐNG DÒNG
+
+    Xuống dòng là thứ nguy hiểm nhất: khối tin dựng theo TỪNG DÒNG, một ký tự
+    `\n` trong `_impact` đẩy phần còn lại thành dòng lạc, nhìn hệt như câu bị
+    cụt. Nên gộp MỌI khoảng trắng (kể cả xuống dòng) về một dấu cách, bỏ ký
+    tự điều khiển markdown, rồi mới cắt — và cắt ở BIÊN TỪ kèm "…" để người
+    đọc biết là còn nữa.
+
+    Hàm thuần, chạy ở đường HIỂN THỊ nên cache cũ (đã bẩn) cũng được dọn.
+    """
+    if not s:
+        return ""
+    import re as _re2
+    t = _re2.sub(r"[`*_~>#]+", " ", str(s))      # rác markdown
+    t = _re2.sub(r"\s+", " ", t).strip()          # gộp cả \n \t về 1 dấu cách
+    if not t:
+        return ""
+    if len(t) <= max_len:
+        return t
+    cut = t[:max_len].rsplit(" ", 1)[0].rstrip(" ,.;:-–—")
+    return (cut or t[:max_len].rstrip()) + "…"
+
+
+def _one_line(s) -> str:
+    """Gộp mọi khoảng trắng về một dấu cách — tiêu đề tin cũng có thể có \n."""
+    if not s:
+        return ""
+    import re as _re2
+    return _re2.sub(r"\s+", " ", str(s)).strip()
 def _market_news_body_lines(items: list[dict],
                             directive: bool = True) -> list[str]:
     """Canonical market-news bullets (NO section header) ± directive. Shared by
@@ -186,11 +226,12 @@ def _market_news_body_lines(items: list[dict],
     for it in items:
         icon = _MKT_NEWS_SENT_ICON.get(it.get("_sentiment", ""), "•")
         d = it.get("_date_sort", "") or "?"
-        title = (it.get("title") or "").strip()
-        src = it.get("source_feed", "")
+        title = _one_line(it.get("title"))
+        src = _one_line(it.get("source_feed"))
         line = f"- {icon} [{d}] {title}" + (f" ({src})" if src else "")
-        if it.get("_impact"):
-            line += f" — tác động: {it['_impact']}"
+        impact = sanitize_impact(it.get("_impact"))
+        if impact:
+            line += f" — tác động: {impact}"
         lines.append(line)
     if directive:
         lines.append(
