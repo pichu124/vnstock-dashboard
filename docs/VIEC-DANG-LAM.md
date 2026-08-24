@@ -32,10 +32,14 @@ sai máy. **Phiên hiện tại: 🖥️ DESKTOP** (user báo 20/08, sau khi là
 
 ---
 
-## 🔴 GẤP — ⇄ CẢ HAI MÁY đang ở `2.447`, HEAD là `2.532`
+## ✅ HẾT GẤP — 🖥️ DESKTOP đã ở `2.532` (24/08)
 
-Ngày 21-22/08 vá thêm 4 đợt (guard số chỉ số · dọn khối tin · dải ±3% không
-được gọi là hỗ trợ/kháng cự · sổ tự đếm nghi ngờ). **Chưa máy nào merge.**
+`2532 passed / 84,47s`, badge xanh, exit 0. **Phát 18:00 mai chạy trên code
+mới** — brief sẽ hết cả 3 lỗi thấy trong bản 24/08 (cảnh báo GDKHQ sai cho
+ĐHĐCĐ · khối tin cụt chữ · dải ±3% bị gọi là hỗ trợ/kháng cự).
+
+* 💻 **LAPTOP: ⏳ chưa** — đang ở `2.447`. Không gấp (không có task lịch),
+  nhưng đừng chạy công cụ kho ở đó trước khi merge.
 
 ```powershell
 cd C:\vnstock
@@ -43,13 +47,9 @@ git pull origin claude/tong-hop-cong-viec-test-w8mvrc
 python run.py test
 ```
 
-Phải ra **2.532 passed**. Làm ở 🖥️ desktop TRƯỚC (nó chạy phát tối), rồi 💻
-laptop khi nào mở.
-
 **Chạy `run.py test` NGAY sau khi merge, và KHÔNG merge sát 18:00** — bài học
-19/08: merge lúc 17:37 rồi để phát 18:00 chạy full suite ở bước 9, một test đỏ
-là dừng cứng và **mất brief cả đêm**. Hôm nay T7 nên không có phát 18:00, merge
-lúc nào cũng được; phát kế tiếp là **T2 24/08**.
+19/08 VÀ 24/08: `test` là bước 9/14, một test đỏ là `exit 2` dừng cứng, mất
+luôn train / reflection / doctor / **brief**.
 
 *Ghi chú về bẫy `git pull`: `git pull origin <nhánh>` CÓ tác dụng (nó merge
 `origin/<nhánh>` vào nhánh đang đứng). Bẫy "Already up to date" chỉ xảy ra với
@@ -154,6 +154,16 @@ python run.py doctor --net
 ```
 NSO ✅ = mạng nhà chặn, xử ở router/ISP, KHÔNG đụng code · vẫn ❌ = nguồn thật
 sự đổi, lúc đó mới đáng sửa `vnstock_nso`. Làm trong 2 tuần tới là kịp.
+
+**📦 vnstock 4.0.7 ĐÃ RA (thấy trong log 24/08) — cổng gỡ chặn đã mở.**
+Quy trình đã chốt, làm ĐÚNG THỨ TỰ:
+1. 💻 **Laptop TRƯỚC**: `pip install vnstock==4.0.7` → `python run.py doctor --net`
+   + `python run.py test` NGAY.
+2. Chạy vài ngày xem có gì lạ.
+3. Chỉ khi laptop sạch mới đụng 🖥️ desktop, và **không nâng sát 18:00**.
+4. Hỏng thì lùi: `pip install vnstock==4.0.4 vnai==2.4.8`.
+
+Desktop giữ 4.0.4 — nó là máy chạy phát tối, không phải chỗ để thử.
 
 **⛔ vnstock 4.0.6 BỊ CHẶN — không nâng máy nào cả.** Bản đó làm chết mọi
 lệnh gọi mạng (`env.py:136 get_hosting_service()` UnboundLocalError). Laptop
