@@ -6966,6 +6966,56 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🔴 U26. TEST PHỤ THUỘC HỆ ĐIỀU HÀNH — LẦN THỨ HAI GIẾT PIPELINE (24/08)
+
+`run.py test` trên desktop: **1 failed / 2.530 passed → exit 2 → dừng cứng**.
+
+```
+tests/test_brief_watch.py:125 test_record_never_raises_on_a_bad_path
+    assert w.record("/proc/definitely/not/writable", …) is False
+E   AssertionError: assert True is False
+```
+
+**Lỗi của Claude, và là lần THỨ HAI cùng một họ.** Test dựng "đường dẫn không
+ghi được" bằng chuỗi POSIX `/proc/...`. Trên Windows chuỗi đó KHÔNG phải đường
+dẫn hỏng — nó là `C:\proc\definitely\not\writable`, và `mkdir(parents=True)`
+**thành công**. Nên `record()` ghi được thật, trả True, test đỏ. Xanh trong
+container Linux, đỏ trên máy thật.
+
+Lần thứ nhất là U18 (hai test độ tươi phụ thuộc KHO THẬT). Bài học lúc đó ghi
+là "cắm dữ liệu vào fixture"; bài học lần này rộng hơn:
+
+> **Test không được giả định gì về MÔI TRƯỜNG** — không hệ tệp, không hệ điều
+> hành, không kho, không giờ trong ngày. Muốn thử nhánh hỏng thì **bắt chính
+> bước hỏng ném lỗi** (monkeypatch), đừng đi tìm một đường dẫn "chắc là hỏng".
+
+**Giá phải trả cụ thể:** `cmd_all` coi `rc not in (0,1)` là fail cứng, và
+`test` là bước 9/14 ⇒ một test đỏ giết luôn train / reflection / doctor /
+**brief**. Đúng cơ chế đã mất brief đêm 19/08. Lần này rơi vào lượt chạy tay
+nên không mất brief — nhưng nếu user merge lúc 17:5x thì đã mất.
+
+**Vá:** đổi sang monkeypatch `vnstock_parquet_io.write_json_atomic` cho ném
+`OSError`, kiểm đúng HỢP ĐỒNG ("sổ hỏng không được kéo brief theo") mà không
+đụng hệ tệp. Thêm một test nữa cho `observe_brief` ở cùng nhánh. Docstring
+phải để raw-string vì trong đó có `C:\proc` — chuỗi thường đẻ SyntaxWarning.
+
+**Rác để lại trên máy user:** lượt test đỏ đã TẠO THẬT thư mục
+`C:\proc\definitely\not\writable\_meta\brief_watch.json`.
+Xoá: `Remove-Item -Recurse -Force C:\proc`.
+
+**Đã quét lại toàn bộ test thêm trong đợt này** (`test_vn30_basket`,
+`test_close_2108_review`, `test_weekend_2208_review`, `test_close_2408_review`,
+`test_verify_wss_live`, `test_brief_watch`): không còn chỗ nào đụng đường dẫn
+tuyệt đối, mạng, kho thật hay giờ trong ngày. Vài chỗ dùng `datetime.now()`
+nhưng chỉ để dựng mốc "vừa mới" / "30 ngày trước" rồi khẳng định stale —
+không phụ thuộc giờ chạy. Kho thật cũng đã kiểm: `_meta/` KHÔNG có
+`brief_watch.json` do test sinh ra.
+
+Suite: **2.532 passed**.
+
+---
+
+
 # 🔴 U25. CLOSE 24/08 — ⚠️ GDKHQ CHO SỰ KIỆN KHÔNG ĐỔI GIÁ (ca PNJ)
 
 Phát 18:00 T2 24/08 chạy trọn, gửi được brief. **Lưu ý đọc: phát này chạy trên
