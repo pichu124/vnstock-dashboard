@@ -6966,6 +6966,113 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🔴 U27. SỐ THẬT CỦA PHÁT 24/08 — CHẨN ĐOÁN CŨ ĐÚNG MỘT NỬA, VÀ TÔI LÀM CHẬM UPDATER
+
+Bốn dòng số user dán về (phát 18:00 T2 24/08):
+
+```
+[sync] ⏱ auto-heal: 629.7s
+[sync] auto-heal: scanned=1956 healed=0 retry_bumped=855 archived=1101
+[sync] ⏳ auto-heal dừng theo trần thời gian — còn 849 mục trong hàng đợi
+[sync] ⏱ CHẶNG 110.0 phút — updater 5,659s · auto-heal 630s · fix-units 302s · rollup 12s
+[run.py] ⏱ TỔNG 166.3 phút (14 bước) — sync 6,602s · screener 1,393s · train 672s ·
+         audit 421s · validate 364s · brief 190s · news 189s · test 95s · …
+```
+
+## ① ✅ Trần auto-heal CHẠY ĐÚNG — 2.157s → 630s
+
+Chặn trần 600s có tác dụng: từ **35,9′ xuống 10,5′**. Dòng "dừng theo trần
+thời gian" xác nhận nó bị cắt đúng chỗ. Chẩn đoán "auto-heal là kẻ ăn thời
+gian" **đúng về triệu chứng**.
+
+## ② ❌ NHƯNG healed = 0 — 630 giây gọi mạng, chữa được KHÔNG MÃ NÀO
+
+`scanned=1956` = `archived=1101` + `retry_bumped=855`. **Không một mục nào
+lành.** 1.101 mục bị dọn là loại "vắng cấu trúc" (bản vá 19/08 — dọn ngay thay
+vì thử lại 3 đêm), phần đó tốt. Nhưng 855 mục được đẩy sang đêm sau, cộng 849
+mục chưa kịp quét ⇒ **hàng đợi đêm mai ≈ 1.704**.
+
+Tức auto-heal đang chạy **cối xay**: mỗi đêm tiêu trọn ngân sách 600s để đạt
+số 0. Trần chỉ chặn thiệt hại, KHÔNG chữa gốc. Gốc là: đám còn lại refetch bao
+nhiêu lần cũng không lành — nguồn trả về đúng bar hỏng đó.
+
+**Việc mở:** hoặc hạ trần mạnh (120s) cho tới khi hiểu vì sao 855 mục kia
+không lành, hoặc soi một mẫu trong `retry_bumped` xem chúng vướng hợp đồng nào.
+
+## ③ ❌ `updater` 5.659s = 57% CẢ PHÁT — và nghi phạm số 1 là bản vá của tôi
+
+Đây mới là kẻ ăn thời gian THẬT SỰ, lớn gấp 9 lần auto-heal.
+
+Đối chiếu: 18/08 sync = 3.609s với auto-heal 2.156s + fix-units 98s + rollup
+12s ⇒ updater ≈ **1.343s**. Nay **5.659s** — gấp **4,2×**.
+
+Giữa hai mốc đó, thứ duy nhất đụng đường fetch của updater là **cửa gác lệch
+cơ sở (V1, 19/08) — của tôi**:
+
+```python
+_win_from = bg.fetch_start(fetch_from)      # lùi THẲNG 30 ngày
+```
+
+`fetch_from = last_date`, nên lượt cập nhật thường chỉ cần **1-3 ngày**. Nới
+thành ~32 ngày là cửa sổ fetch phình **~16×**, nhân với ~1.600 mã, mỗi đêm.
+
+⚠️ **Chưa CHỨNG MINH được** — mới là suy luận từ hai mốc đo cách nhau 6 ngày,
+và tôi không đo được trên máy thật. Nhưng nó là thay đổi duy nhất đúng chỗ,
+đúng chiều, đúng cỡ.
+
+**Vá (đúng dù nguyên nhân là gì): `window_start()` — nới THEO NHU CẦU.**
+Kho nằm ở ĐĨA (miễn phí), nên đếm bar tại chỗ trước rồi mới quyết nới cửa sổ
+MẠNG bao nhiêu:
+* mã thanh khoản cao ⇒ ~11 ngày là đủ 8 bar chồng lấn (thay vì 30);
+* mã nghỉ giao dịch dài / kho rỗng ⇒ **tự giãn tới trần 30 ngày**;
+* sàn 3 ngày để không bao giờ hẹp đến mức vô nghĩa.
+
+Sức phát hiện KHÔNG đổi: vùng chồng lấn luôn còn ≥ `MIN_BARS` bar. Chỉ bỏ phần
+thừa.
+
+**Phép thử để CHỐT nguyên nhân (một đêm, không cần code):**
+```powershell
+$env:VNSTOCK_BASIS_GUARD = "0"     # trả về đúng hành vi trước 19/08
+python run.py sync
+```
+Đọc `⏱ CHẶNG`. `updater` về ~1.400s ⇒ đúng là do nới cửa sổ, và bản vá thu
+hẹp sẽ ăn phần lớn khoản đó. Vẫn ~5.600s ⇒ **tôi sai**, thủ phạm nằm chỗ
+khác (mạng chậm hơn? số mã tăng?) và phải đo tiếp.
+
+## ④ 🔴 RỦI RO LỚN NHẤT: 166,3′ / trần 180′ — chỉ còn 13,7′ đệm (7,6%)
+
+Trần task Daily là `PT3H`. Phát này **chạy hết 92,4% trần**. Task bị chấm dứt
+là cắt TRƯỚC bước brief (bước 14/14) ⇒ **mất brief cả đêm**, đúng cơ chế đã
+xảy ra 19/08.
+
+Chỉ cần một đêm mạng chậm hơn 8% là mất. Đây là việc gấp hơn cả ③, và ③ chính
+là cách rẻ nhất để lấy lại đệm.
+
+Xếp hạng nguồn thời gian (166,3′):
+| Bước | Thời gian | % |
+|---|---|---|
+| **sync** | 110,0′ | **66%** |
+| — updater | 94,3′ | 57% |
+| — auto-heal | 10,5′ | 6% |
+| — fix-units | 5,0′ | 3% |
+| screener | 23,2′ | 14% |
+| train | 11,2′ | 7% |
+| audit | 7,0′ | 4% |
+| validate | 6,1′ | 4% |
+| brief | 3,2′ | 2% |
+
+`fix-units` cũng đáng soi: 98s (18/08) → 302s, gấp 3, và nó quét TOÀN KHO mỗi
+đêm.
+
+## Lưới mới
+7 test `TestOverlapWindowIsNoWiderThanNeeded` trong `tests/test_basis_guard.py`
+— canh cả hai chiều: hẹp lại cho mã thanh khoản cao, VẪN giãn tới trần cho mã
+nghỉ giao dịch dài và cho kho rỗng.
+Suite: **2.539 passed** (fast 2.048).
+
+---
+
+
 # 🔴 U26. TEST PHỤ THUỘC HỆ ĐIỀU HÀNH — LẦN THỨ HAI GIẾT PIPELINE (24/08)
 
 `run.py test` trên desktop: **1 failed / 2.530 passed → exit 2 → dừng cứng**.

@@ -475,7 +475,18 @@ def update_ticker(
     # ghi kho không đổi một byte so với trước.
     import vnstock_basis_guard as bg
     _guard = bg.enabled()
-    _win_from = bg.fetch_start(fetch_from) if _guard else fetch_from
+    # Kho nằm ở ĐĨA nên đếm bar tại chỗ trước, rồi mới quyết nới cửa sổ MẠNG
+    # bao nhiêu. Bản V1 nới thẳng 30 ngày cho MỌI mã MỌI đêm trong khi lượt
+    # cập nhật thường chỉ cần 1-3 ngày ⇒ cửa sổ fetch phình ~16× trên ~1.600
+    # mã. Đo 24/08: updater 5.659s = 57% cả phát, và phát 166,3' chỉ còn
+    # 13,7' đệm dưới trần task 3 giờ.
+    _wh_recent: dict = {}
+    if _guard:
+        _wh_recent = _wh_closes_between(ticker_dir, bg.fetch_start(fetch_from),
+                                        fetch_from)
+        _win_from = bg.window_start(list(_wh_recent), fetch_from)
+    else:
+        _win_from = fetch_from
     _kwargs = {"start": _win_from.strftime("%Y-%m-%d"),
                "end": today.strftime("%Y-%m-%d")}
     _on_wait = lambda w, i: console.print(                       # noqa: E731
@@ -544,7 +555,7 @@ def update_ticker(
         except Exception:
             _src_closes = {}
         _chk = bg.check_basis(
-            _wh_closes_between(ticker_dir, _win_from, fetch_from),
+            {d: c for d, c in _wh_recent.items() if _win_from <= d <= fetch_from},
             _src_closes, fetch_from)
         if _chk.get("verdict") == "basis_changed":
             _chk["event"] = _corp_event_kind(prices_dir.parent, ticker,

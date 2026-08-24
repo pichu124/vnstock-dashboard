@@ -63,20 +63,42 @@ luôn train / reflection / doctor / **brief**.
 Phát 18:00 **21/08 chạy trọn và Telegram CÓ brief chiều** — đêm tự động trọn
 vẹn đầu tiên, xác nhận bằng chính bản brief user dán lại. Bước 14/14 tới nơi.
 
-### ⏳ NHƯNG bốn dòng số thì chưa ai đọc
-Biết "chạy xong" khác với biết "chạy hết bao lâu, vào đâu". Chẩn đoán
-`auto-heal` chiếm 51% cả phát vẫn **chưa được kiểm chứng**:
+### 🔴 ĐÃ ĐỌC SỐ 24/08 — và lòi ra rủi ro lớn hơn cả auto-heal
+
+**Phát chạy 166,3′ / trần task 180′ ⇒ chỉ còn 13,7′ đệm (7,6%).** Trần cắt
+TRƯỚC bước brief (14/14) nên chỉ cần một đêm chậm hơn 8% là **mất brief**.
+
+| Nguồn thời gian | | |
+|---|---|---|
+| **updater** | 94,3′ | **57%** — kẻ ăn thời gian THẬT |
+| screener | 23,2′ | 14% |
+| train | 11,2′ | 7% |
+| auto-heal | 10,5′ | 6% (đã teo từ 35,9′ — trần chạy đúng) |
+| fix-units | 5,0′ | 3% (98s → 302s, gấp 3) |
+
+Hai phát hiện xấu:
+* **auto-heal `healed=0`** — 630s gọi mạng, chữa được KHÔNG mã nào. 855 mục
+  đẩy sang đêm sau + 849 chưa quét ⇒ đêm mai hàng đợi ~1.704. Cối xay.
+* **`updater` gấp 4,2× so 18/08**, và nghi phạm số 1 là bản vá cửa gác lệch
+  cơ sở của Claude (nới thẳng 30 ngày cho MỌI mã MỌI đêm).
+
+Claude đã vá phần chắc chắn đúng: cửa sổ nay **nới theo nhu cầu** — đếm bar
+trong kho (miễn phí, ở đĩa) rồi mới quyết gọi mạng bao nhiêu. Mã thanh khoản
+cao ~11 ngày thay vì 30; mã nghỉ giao dịch dài vẫn giãn tới trần.
+
+### 🖥️ MỘT PHÉP THỬ để chốt nguyên nhân (một đêm, không cần code)
 
 ```powershell
-Select-String -Path C:\vnstock\run_daily.log -Pattern '⏱ TỔNG|⏱ CHẶNG|auto-heal|\[ohlc\]' | Select-Object -Last 12
+$env:VNSTOCK_BASIS_GUARD = "0"
+python run.py sync
 ```
+Rồi đọc dòng `⏱ CHẶNG`:
+* `updater` về **~1.400s** ⇒ đúng là do nới cửa sổ; bản vá thu hẹp sẽ lấy lại
+  phần lớn khoản đó.
+* vẫn **~5.600s** ⇒ **Claude sai**, thủ phạm nằm chỗ khác — dán số để đo tiếp.
 
-| Dòng | Kỳ vọng | Nếu khác |
-|---|---|---|
-| `⏱ TỔNG` | **14 bước** | Còn <14 ⇒ đọc dòng `hard failure` ngay trên nó |
-| `⏱ CHẶNG` | `auto-heal` teo hẳn so với 35,9′ | Vẫn ~36′ ⇒ chẩn đoán của Claude SAI, dán số để đọc lại |
-| `[ohlc] … nới low/high cho N bar` | Có xuất hiện | Không có ⇒ hoặc nguồn hết bar mâu thuẫn (tốt), hoặc guard chưa chạy |
-| `auto-heal: scanned=…` | nhỏ hẳn so với 3.844 | Không giảm ⇒ nguồn bơm nằm chỗ khác |
+*(Nhớ `Remove-Item Env:VNSTOCK_BASIS_GUARD` sau khi thử, hoặc mở PowerShell
+mới — đừng để phát 18:00 chạy với guard đang tắt.)*
 
 ### ✅ Lượt T7 22/08 — đã chạy lại xong
 `run.py weekend` chạy trọn, gửi được cả báo cáo model watch lẫn báo cáo tuần

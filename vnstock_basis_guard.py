@@ -172,8 +172,43 @@ def clear_drift(warehouse_root: Path, ticker: str) -> None:
 
 
 def fetch_start(last_date: date, lookback_days: int = LOOKBACK_DAYS) -> date:
-    """Ngày `start` cho lần fetch — lùi lại để có vùng chồng lấn mà đối chiếu."""
+    """Trần lùi tối đa — dùng để ĐỌC KHO, không phải để gọi mạng."""
     return last_date - timedelta(days=lookback_days)
+
+
+# Cửa sổ chồng lấn chỉ cần đủ `MIN_BARS` bar để so trung vị. Thêm biên cho
+# ngày nghỉ / mã nghỉ giao dịch, nhưng KHÔNG cần tới 30 ngày.
+WANT_BARS = MIN_BARS + 3
+MIN_LOOKBACK_DAYS = 3
+
+
+def window_start(wh_dates, fetch_from: date,
+                 want_bars: int = WANT_BARS,
+                 max_days: int = LOOKBACK_DAYS,
+                 min_days: int = MIN_LOOKBACK_DAYS) -> date:
+    """Ngày `start` HẸP NHẤT vẫn đủ ``want_bars`` bar kho để đối chiếu.
+
+    HÀM THUẦN. Vì sao cần: bản V1 nới thẳng 30 ngày cho MỌI mã, MỌI đêm —
+    trong khi lượt cập nhật thường chỉ lấy 1-3 ngày. Tức cửa sổ fetch phình
+    ~16× trên ~1.600 mã, mỗi đêm. Đo 24/08: `updater` chiếm **5.659s = 57%
+    cả phát**, và cả phát 166,3' chỉ còn 13,7' đệm dưới trần task 3 giờ.
+
+    Kho nằm ở ĐĨA (miễn phí), nên đếm bar tại chỗ rồi mới quyết nới bao nhiêu:
+    mã thanh khoản cao ⇒ ~10 ngày là đủ 8 bar · mã nghỉ giao dịch dài ⇒ tự
+    giãn tới trần 30 ngày. Sức phát hiện KHÔNG đổi (vẫn ≥ `MIN_BARS` bar),
+    chỉ bỏ phần chồng lấn thừa.
+
+    Không có bar nào trong kho ⇒ trả trần: chưa biết gì thì đừng thu hẹp.
+    """
+    floor = fetch_from - timedelta(days=max_days)
+    ceil_ = fetch_from - timedelta(days=min_days)
+    usable = sorted(d for d in (wh_dates or ()) if d is not None and d <= fetch_from)
+    if len(usable) < want_bars:
+        return floor
+    start = usable[-want_bars]
+    if start < floor:
+        return floor
+    return min(start, ceil_)
 
 
 def warn_line(ticker: str, info: dict) -> str:

@@ -250,3 +250,64 @@ def test_repairing_a_ticker_clears_it_from_the_quarantine_sheet(tmp_path):
     assert "VTP" in bg.load_pending(tmp_path)
     bg.clear_drift(tmp_path, "VTP")
     assert bg.load_pending(tmp_path) == {}
+
+
+class TestOverlapWindowIsNoWiderThanNeeded:
+    """
+    Bản V1 nới thẳng 30 ngày cho MỌI mã MỌI đêm, trong khi lượt cập nhật
+    thường chỉ cần 1-3 ngày ⇒ cửa sổ fetch phình ~16× trên ~1.600 mã.
+
+    Đo trên máy thật 24/08: `updater` **5.659s = 57% cả phát**, và cả phát
+    **166,3′ chỉ còn 13,7′ đệm** dưới trần task 3 giờ. Trần task cắt TRƯỚC
+    bước brief (bước 14/14) nên phình thêm chút nữa là mất brief cả đêm.
+
+    Bất biến phải giữ: hẹp đi nhưng **sức phát hiện KHÔNG đổi** — vùng chồng
+    lấn luôn còn ≥ `MIN_BARS` bar, và mã nghỉ giao dịch dài vẫn được giãn tới
+    trần.
+    """
+    from datetime import date as _d, timedelta as _td
+
+    FF = _d(2026, 8, 24)
+
+    def _liquid(self):
+        return [self.FF - self._td(days=i) for i in range(40)
+                if (self.FF - self._td(days=i)).weekday() < 5]
+
+    def test_a_liquid_ticker_gets_a_much_narrower_window(self):
+        import vnstock_basis_guard as bg
+        back = (self.FF - bg.window_start(self._liquid(), self.FF)).days
+        assert back < bg.LOOKBACK_DAYS
+        assert back <= 15                      # ~2 tuần, không phải ~5 tuần
+
+    def test_the_narrow_window_still_holds_enough_bars_to_decide(self):
+        import vnstock_basis_guard as bg
+        start = bg.window_start(self._liquid(), self.FF)
+        kept = [d for d in self._liquid() if start <= d <= self.FF]
+        assert len(kept) >= bg.MIN_BARS
+
+    def test_a_thinly_traded_ticker_still_stretches_to_the_ceiling(self):
+        import vnstock_basis_guard as bg
+        sparse = [self.FF - self._td(days=i) for i in (1, 15, 33)]
+        assert bg.window_start(sparse, self.FF) == bg.fetch_start(self.FF)
+
+    def test_no_warehouse_bars_falls_back_to_the_ceiling(self):
+        # Chưa biết gì thì ĐỪNG thu hẹp
+        import vnstock_basis_guard as bg
+        assert bg.window_start([], self.FF) == bg.fetch_start(self.FF)
+        assert bg.window_start(None, self.FF) == bg.fetch_start(self.FF)
+
+    def test_never_narrower_than_the_floor(self):
+        import vnstock_basis_guard as bg
+        dense = [self.FF - self._td(days=i) for i in range(12)]
+        back = (self.FF - bg.window_start(dense, self.FF)).days
+        assert back >= bg.MIN_LOOKBACK_DAYS
+
+    def test_never_wider_than_the_ceiling(self):
+        import vnstock_basis_guard as bg
+        ancient = [self.FF - self._td(days=i) for i in range(200)]
+        assert bg.window_start(ancient, self.FF) >= bg.fetch_start(self.FF)
+
+    def test_future_dates_in_the_warehouse_are_ignored(self):
+        import vnstock_basis_guard as bg
+        mixed = self._liquid() + [self.FF + self._td(days=5)]
+        assert bg.window_start(mixed, self.FF) <= self.FF
