@@ -46,6 +46,34 @@ _CASH_WORDS = ("bang tien", "dong/cp", "dong/co phieu", "tien mat")
 _REFUSE_WORDS = ("quyen mua", "chao ban", "phat hanh them cho co dong",
                  "phat hanh rieng le")
 
+# Sự kiện CÓ ngày chốt quyền nhưng KHÔNG đụng tới giá tham chiếu: chốt danh
+# sách để DỰ HỌP / BỎ PHIẾU. Không có gì chia ra khỏi doanh nghiệp ⇒ HOSE
+# KHÔNG điều chỉnh giá. Vết close 24/08: mã PNJ bị gắn "⚠️ GDKHQ … — giá
+# tham chiếu TỰ ĐIỀU CHỈNH" cho sự kiện "Tổ chức ĐHĐCĐ bất thường 2026" —
+# cảnh báo một cú giảm giá KHÔNG BAO GIỜ xảy ra, tệ hơn im lặng vì nó khiến
+# người đọc bỏ qua một cú giảm THẬT ở mã khác.
+_NON_ADJUSTING_WORDS = (
+    "dai hoi dong co dong", "dai hoi co dong", "dhdcd",
+    "lay y kien co dong", "lay y kien bang van ban",
+    "to chuc dai hoi", "hop dai hoi", "tham du dai hoi",
+    "hoi nghi nha dau tu",
+)
+
+
+def adjusts_price(title: str) -> bool:
+    """Sự kiện này có làm giá tham chiếu đổi trong ngày GDKHQ không? Hàm thuần.
+
+    Có phân phối (tiền/cổ phiếu) hoặc quyền mua ⇒ CÓ. Chỉ chốt danh sách dự
+    họp/bỏ phiếu ⇒ KHÔNG. Không nhận ra ⇒ **mặc định CÓ** — cảnh báo thừa còn
+    đỡ hơn bỏ sót một cú điều chỉnh thật.
+    """
+    t = _norm(title)
+    if not t:
+        return True
+    if any(w in t for w in _STOCK_WORDS + _CASH_WORDS + _REFUSE_WORDS):
+        return True                      # có chia/có quyền mua ⇒ giá đổi
+    return not any(w in t for w in _NON_ADJUSTING_WORDS)
+
 
 def _norm(text: str) -> str:
     """Bỏ dấu + hạ chữ thường — tiêu đề đến từ nhiều nguồn, dấu không đồng nhất."""

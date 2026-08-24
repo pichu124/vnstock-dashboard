@@ -3408,6 +3408,7 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     _ADVERB,
     enforce_exdate_levels,
     enforce_reference_band_wording,
+    _adjusts_price,
     _reference_bands,
     _BAND_WORDS,
     _BAND_SAFE,

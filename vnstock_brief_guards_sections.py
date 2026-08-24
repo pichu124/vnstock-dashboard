@@ -51,8 +51,14 @@ def enforce_upcoming_events(text: str, ctx: dict) -> str:
         return (f"{e.get('ticker','?')}: {e.get('title') or 'Sự kiện DN'}"
                 f" — ngày {e.get('ex_date','?')}")
 
-    ev_lines = [_fmt(e) for e in events[:3]]
-    ev_lines.append("(Giá tự điều chỉnh trong ngày GDKHQ — không phải giảm do thị trường.)")
+    shown = events[:3]
+    ev_lines = [_fmt(e) for e in shown]
+    # Dòng ghi chú chỉ đúng khi TRONG SỐ ĐANG HIỆN có ít nhất một sự kiện
+    # thật sự làm đổi giá tham chiếu. Ba dòng toàn ĐHĐCĐ mà vẫn dán "(Giá tự
+    # điều chỉnh…)" là nói sai chuyện sẽ xảy ra (vết PNJ 24/08).
+    if any(_adjusts_price(str(e.get("title") or "")) for e in shown):
+        ev_lines.append(
+            "(Giá tự điều chỉnh trong ngày GDKHQ — không phải giảm do thị trường.)")
 
     lines = text.splitlines()
     start = next((i for i, l in enumerate(lines)
@@ -1183,11 +1189,27 @@ def _exdate_map(ctx: dict | None, within_days: int) -> dict:
         if not tk:
             continue
         title = str(e.get("title") or "").strip()
+        # Sự kiện chỉ chốt danh sách DỰ HỌP/BỎ PHIẾU không đụng giá tham
+        # chiếu — gắn ⚠️ cho nó là cảnh báo một cú giảm KHÔNG BAO GIỜ xảy ra
+        # (vết PNJ "Tổ chức ĐHĐCĐ bất thường", close 24/08). Tệ hơn im lặng:
+        # cảnh báo sai làm người đọc bỏ qua cú giảm THẬT ở mã khác.
+        if not _adjusts_price(title):
+            continue
         if tk not in out or d < out[tk][0]:
             out[tk] = (d, [title])
         elif d == out[tk][0]:
             out[tk][1].append(title)
     return out
+
+
+def _adjusts_price(title: str) -> bool:
+    """Bọc `vnstock_corp_ratio.adjusts_price` — hỏng import thì coi như CÓ
+    đổi giá (giữ nguyên hành vi cũ, cảnh báo thừa hơn bỏ sót)."""
+    try:
+        from vnstock_corp_ratio import adjusts_price
+        return adjusts_price(title)
+    except Exception:
+        return True
 
 
 def _adjusted_ref_price(line: str, titles: list) -> "float | None":

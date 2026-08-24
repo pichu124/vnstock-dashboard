@@ -783,6 +783,9 @@ def cmd_test(args) -> int:
             # Báo cáo weekend: sai ở đây là (a) đi thay slug trong khi lỗi
             # nằm ở TÀI KHOẢN, (b) đọc số đổi 1 phiên thành đổi cả tuần.
             "tests/test_weekend_2208_review.py",
+            # ⚠️ GDKHQ cho sự kiện KHÔNG đổi giá (ĐHĐCĐ) = cảnh báo một cú
+            # giảm không bao giờ xảy ra ⇒ người đọc lướt qua cú giảm THẬT.
+            "tests/test_close_2408_review.py",
             "tests/test_model_ladder.py",
             "tests/test_auditor.py",
             "tests/test_parquet_io.py",

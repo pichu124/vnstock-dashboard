@@ -196,10 +196,14 @@ def test_all_events_on_the_same_exdate_are_combined():
 
 
 def test_unreadable_ratio_falls_back_to_the_wordy_warning():
+    # Sự kiện CÓ đổi giá nhưng KHÔNG đọc được tỉ lệ — quyền mua cần thêm giá
+    # phát hành, không suy được từ tiêu đề. (Bản cũ dùng "Đại hội cổ đông"
+    # làm ví dụ, nhưng từ 24/08 ĐHĐCĐ bị loại hẳn khỏi cảnh báo vì nó KHÔNG
+    # làm đổi giá tham chiếu — xem tests/test_close_2408_review.py.)
     txt = "📋 Watchlist sáng mai\n1. **VIX** (Giá 13,100) — TRÁNH nếu thủng 12,700\n"
     out = enforce_exdate_levels(txt, _ctx_multi([
         {"ticker": "VIX", "ex_date": "2026-08-20",
-         "title": "Đại hội cổ đông thường niên 2026"},
+         "title": "Thực hiện quyền mua cổ phiếu cho cổ đông hiện hữu"},
     ]))
     assert "giá tham chiếu tự điều chỉnh" in out
     assert "≈" not in out

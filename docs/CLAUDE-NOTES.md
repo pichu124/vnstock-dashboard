@@ -6966,6 +6966,86 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🔴 U25. CLOSE 24/08 — ⚠️ GDKHQ CHO SỰ KIỆN KHÔNG ĐỔI GIÁ (ca PNJ)
+
+Phát 18:00 T2 24/08 chạy trọn, gửi được brief. **Lưu ý đọc: phát này chạy trên
+bản `2.447`** — desktop chưa merge các đợt vá 21-22/08, nên hai lỗi đã vá rồi
+vẫn xuất hiện trong bản này (khối tin cụt chữ). Chỉ mục ① dưới đây là lỗi MỚI.
+
+## ① Lỗi mới: cảnh báo một cú giảm KHÔNG BAO GIỜ xảy ra
+
+```
+1. **PNJ** (Giá 42,650) — MUA vùng 42,650 … · ⚠️ GDKHQ 2026-08-24
+   (PNJ - Tổ chức ĐHĐCĐ bất thường 2026) — giá tham chiếu tự điều chỉnh,
+   mốc trên CHƯA quy đổi
+```
+
+**Tổ chức ĐHĐCĐ là chốt danh sách DỰ HỌP.** Không có gì chia ra khỏi doanh
+nghiệp ⇒ HOSE **KHÔNG** điều chỉnh giá tham chiếu. Câu cảnh báo nói về một cú
+giảm không tồn tại. Mục 📅 Sự kiện sắp tới cũng dán ghi chú "(Giá tự điều
+chỉnh trong ngày GDKHQ…)" cho danh sách mà sự kiện đầu là ĐHĐCĐ.
+
+**Vì sao đây KHÔNG phải lỗi nhỏ:** sai kiểu này **tệ hơn im lặng**. Nó dạy
+người đọc rằng ⚠️ GDKHQ hay báo hão, nên đúng lúc có cú điều chỉnh THẬT — MSB
+thưởng cổ phiếu **tỉ lệ 20%** ngày 28/08, giá sẽ rơi ~16,7% — thì họ lướt qua.
+Cùng họ "alarm fatigue" mà `vnstock_doctor` đã đặt tên.
+
+**Gốc rễ:** `_exdate_map` nhận MỌI sự kiện có `ex_date`, và nhánh dự phòng của
+`enforce_exdate_levels` khẳng định "giá tham chiếu **tự điều chỉnh**" cho bất
+kỳ tiêu đề nào không đọc được tỉ lệ. `vnstock_corp_ratio.parse_event` trả None
+cho ĐHĐCĐ là ĐÚNG (không có tỉ lệ), nhưng "không đọc được tỉ lệ" bị đánh đồng
+với "có đổi giá mà chưa quy đổi được".
+
+**Vá:** `vnstock_corp_ratio.adjusts_price(title)` — hàm thuần, ba tầng:
+1. Có phân phối (tiền/cổ phiếu) hoặc quyền mua ⇒ **CÓ** đổi giá.
+2. Chỉ chốt danh sách dự họp/bỏ phiếu (`đại hội đồng cổ đông`, `lấy ý kiến
+   bằng văn bản`, `tham dự đại hội`…) ⇒ **KHÔNG**.
+3. Không nhận ra ⇒ **mặc định CÓ** — bỏ sót một cú điều chỉnh thật tệ hơn
+   nhiều so với cảnh báo thừa.
+
+Tầng 1 đặt TRƯỚC tầng 2 có chủ đích: "ĐHĐCĐ thông qua trả cổ tức bằng tiền"
+vẫn phải cảnh báo.
+
+Nối vào HAI chỗ: `_exdate_map` bỏ qua sự kiện không đổi giá (mã chỉ có ĐHĐCĐ
+thì không còn ⚠️ nào), và footer mục Sự kiện chỉ hiện khi trong 3 dòng đang
+hiện có ít nhất một sự kiện thật sự đổi giá. **Sự kiện vẫn được LIỆT KÊ** —
+chỉ bỏ câu ghi chú sai.
+
+Một test cũ (`test_unreadable_ratio_falls_back_to_the_wordy_warning`) dùng
+"Đại hội cổ đông thường niên" làm ví dụ "không đọc được tỉ lệ" — nay đổi sang
+"quyền mua" (đúng loại: CÓ đổi giá nhưng không suy được tỉ lệ từ tiêu đề).
+
+## ② Đã vá từ 22/08, chỉ chờ desktop merge
+
+* Khối tin vẫn cụt: `tác động: C` · `tác động: Căng` · `…cạnh tranh tại thị`.
+  `sanitize_impact` (bản 2.462) gộp xuống dòng + cắt ở biên từ kèm `…`.
+  **Phép thử sau khi merge:** nếu câu vẫn cụt Y NGUYÊN thì gốc rễ nằm ở tầng
+  SINH (`analyze_item` gọi `chat_complete(max_tokens=120)` — chính LLM bị cắt
+  giữa câu), không phải tầng dọn; lúc đó nới `max_tokens` mới đúng chỗ.
+* Watchlist PNJ/PVS/CEO đều ±3,0% đối xứng, R:R chẵn 1,00 — đúng như U23 nói:
+  hệ quả tất yếu của cấu tạo, không phải model bịa.
+
+## ③ Đã kiểm, KHÔNG có lỗi
+* Số học vĩ mô khớp cả 5 phép: ON−điều hành −1,22 · 10Y−ON +1,13 ·
+  10Y−điều hành −0,09 · 10Y−2Y +0,42 · VN10Y−US10Y −0,28.
+* MA khớp: 1.788,78 so MA20 1.751,52 = +2,13% · MA50 1.786,86 = +0,11% ·
+  MA200 1.778,19 = +0,60%.
+* GTGD 22.582,8 tỷ "+11% so phiên trước" — KHÔNG bị dán nhầm sang chỉ số
+  (+1,17%), tức lỗi U22① không tái diễn ngay cả trên bản cũ.
+* Guard lệch khung thời gian ĐANG chạy: brief tự nói "Band phân bổ là khung
+  THÁNG, tín hiệu phiên đang lệch chiều — hai khung không phủ định nhau".
+
+## ④ Chưa đủ căn cứ, đã vào sổ tự đếm
+"Tụt hậu: **Chưa có nhóm tụt hậu rõ rệt** [đóng góp −0.044pp]" — vừa nói không
+có vừa đưa số. Một lần chưa đủ để biết là mẫu câu cố định hay ngẫu nhiên.
+
+## Lưới mới
+`tests/test_close_2408_review.py` (15), đã vào `--fast`.
+Suite: **2.531 passed** (fast 2.040).
+
+---
+
+
 # 🟠 U24. WEEKEND 22/08 — HỎNG TÀI KHOẢN ≠ HỎNG MODEL (và nhãn tuần/phiên)
 
 `run.py weekend` chạy trọn, gửi được cả hai báo cáo. Soi ra hai lỗi TRÌNH BÀY

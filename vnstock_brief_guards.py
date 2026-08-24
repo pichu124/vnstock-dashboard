@@ -69,6 +69,7 @@ from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
     enforce_upcoming_events,
     enforce_exdate_levels,
     enforce_reference_band_wording,
+    _adjusts_price,
     _reference_bands,
     _BAND_WORDS,
     _BAND_SAFE,

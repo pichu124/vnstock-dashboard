@@ -32,7 +32,7 @@ sai máy. **Phiên hiện tại: 🖥️ DESKTOP** (user báo 20/08, sau khi là
 
 ---
 
-## 🔴 GẤP — ⇄ CẢ HAI MÁY đang ở `2.447`, HEAD là `2.516`
+## 🔴 GẤP — ⇄ CẢ HAI MÁY đang ở `2.447`, HEAD là `2.531`
 
 Ngày 21-22/08 vá thêm 4 đợt (guard số chỉ số · dọn khối tin · dải ±3% không
 được gọi là hỗ trợ/kháng cự · sổ tự đếm nghi ngờ). **Chưa máy nào merge.**
@@ -43,7 +43,7 @@ git pull origin claude/tong-hop-cong-viec-test-w8mvrc
 python run.py test
 ```
 
-Phải ra **2.516 passed**. Làm ở 🖥️ desktop TRƯỚC (nó chạy phát tối), rồi 💻
+Phải ra **2.531 passed**. Làm ở 🖥️ desktop TRƯỚC (nó chạy phát tối), rồi 💻
 laptop khi nào mở.
 
 **Chạy `run.py test` NGAY sau khi merge, và KHÔNG merge sát 18:00** — bài học
