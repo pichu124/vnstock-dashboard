@@ -23,3 +23,4 @@ industry_classification_20260405.csv
 static/today_bars/*.json
 !.claude/commands/
 !.claude/commands/**
+run_daily*.log
