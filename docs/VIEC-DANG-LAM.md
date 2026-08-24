@@ -2,7 +2,7 @@
 
 > Bản để LÀM THEO. Kho lưu chi tiết (lý do, file:line, lịch sử) ở
 > `docs/CLAUDE-NOTES.md` — đừng mở nó để biết "hôm nay làm gì".
-> Cập nhật: 22/08/2026.
+> Cập nhật: 24/08/2026, cuối ngày.
 
 ## 🏷️ NHÃN MÁY — quy tắc gốc: KHO đồng bộ, CODE thì không
 
@@ -78,20 +78,14 @@ Select-String -Path C:\vnstock\run_daily.log -Pattern '⏱ TỔNG|⏱ CHẶNG|au
 | `[ohlc] … nới low/high cho N bar` | Có xuất hiện | Không có ⇒ hoặc nguồn hết bar mâu thuẫn (tốt), hoặc guard chưa chạy |
 | `auto-heal: scanned=…` | nhỏ hẳn so với 3.844 | Không giảm ⇒ nguồn bơm nằm chỗ khác |
 
-### ⏳ Lượt chạy T7 22/08 bị TẮT GIỮA CHỪNG — cần biết task nào
+### ✅ Lượt T7 22/08 — đã chạy lại xong
+`run.py weekend` chạy trọn, gửi được cả báo cáo model watch lẫn báo cáo tuần
+lãi suất. Hai lỗi TRÌNH BÀY tìm ra ở đó đã vá (U24). **Không còn nợ gì.**
 
-User tắt task đang chạy để kịp `git pull`. **Task T7 là `weekend`, không phải
-`all`** (weekend = model watch + eval → rates-weekly → vietstock corp actions →
-fundamentals ~25-30′). Xem task nào vừa chạy rồi mới quyết chạy lại cái gì:
+### ✅ Phát T2 24/08 — chạy trọn, có brief
+Nhưng chạy trên bản `2.447` nên brief còn 3 lỗi đã vá ở HEAD. Chi tiết U25.
 
-```powershell
-Get-ScheduledTaskInfo -TaskName 'VnStock *' | Select-Object TaskName, LastRunTime, LastTaskResult
-```
-* Task **Weekend** vừa chạy ⇒ chạy lại `python run.py weekend`.
-* Task **Daily** vừa chạy (bắt bù ngày làm việc lỡ) ⇒ `python run.py all`.
-* Không chắc ⇒ **cứ để T2 24/08 chạy** — không mất gì, `weekend` sẽ bù ở T7 sau.
-
-Rồi:
+Sau khi merge, chạy:
 
 ```powershell
 python run.py doctor
@@ -289,6 +283,11 @@ gọi đúng tên** — xem `docs/CLAUDE-NOTES.md` mục U23.
 
 ## ⏳ TỰ ĐẾN — chỉ đọc
 
-* **T7 22/08**: báo cáo model watch (Claude đã ghi sẵn 3 điểm cần soi).
+* **✅ T7 22/08**: model watch đã ra — Cerebras 402, OpenRouter gỡ slug. Xem
+  mục 💳 phía trên (cần bạn quyết một việc).
 * **Vài đêm tới**: #32 mới 39 lệnh, chỉ hơn sàn 30 đúng 9 — một vòng tune xấu
   là tụt dưới sàn và mục Khuyến nghị tự tắt. Theo dõi, chưa phải làm gì.
+  *(Close 24/08 báo **14 lệnh ẩn** — tăng từ 11 hôm 21/08, tức chiến lược
+  nguồn vẫn CHƯA đạt kiểm định. Đó là cổng đang đóng, không phải lỗi.)*
+* **T7 29/08**: kỳ model watch kế tiếp — báo cáo sẽ dùng bản mới, gộp lỗi
+  TÀI KHOẢN thành một dòng 🏦 thay vì n dòng ❌ (U24).
