@@ -121,9 +121,31 @@ class TestLedgerIO:
         assert w.record(tmp_path, [{"kind": "ocf_scale"}]) is False
         assert not w.watch_path(tmp_path).exists()
 
-    def test_record_never_raises_on_a_bad_path(self):
-        assert w.record("/proc/definitely/not/writable",
-                        [{"kind": "ocf_scale"}]) is False
+    def test_record_never_raises_when_the_write_fails(self, tmp_path, monkeypatch):
+        r"""Sổ hỏng KHÔNG được kéo brief theo.
+
+        ⚠️ Bản đầu của test này dựng "đường dẫn không ghi được" bằng chuỗi
+        POSIX `/proc/...`. Trên Windows chuỗi đó là `C:\proc\...` và
+        `mkdir(parents=True)` THÀNH CÔNG ⇒ test xanh trong container, ĐỎ trên
+        máy thật, và `run.py test` exit 2 = dừng cứng pipeline trước bước
+        brief (đúng cách đã mất brief đêm 19/08). Nay chặn ở tầng hành vi:
+        bắt chính bước ghi ném lỗi, không giả định gì về hệ tệp.
+        """
+        import vnstock_parquet_io as pio
+
+        def _boom(*a, **k):
+            raise OSError("đĩa đầy")
+
+        monkeypatch.setattr(pio, "write_json_atomic", _boom)
+        assert w.record(tmp_path, [{"kind": "ocf_scale"}]) is False
+
+    def test_observe_brief_never_raises_when_the_write_fails(self, tmp_path,
+                                                             monkeypatch):
+        import vnstock_parquet_io as pio
+        monkeypatch.setattr(pio, "write_json_atomic",
+                            lambda *a, **k: (_ for _ in ()).throw(OSError("x")))
+        # Vẫn trả danh sách quan sát, chỉ là không ghi được — brief đi tiếp
+        assert w.observe_brief(tmp_path, _SSI_LINE, _CTX, today="2026-08-21")
 
     def test_load_on_corrupt_file_returns_empty(self, tmp_path):
         p = w.watch_path(tmp_path)
