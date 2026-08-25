@@ -32,7 +32,7 @@ sai máy. **Phiên hiện tại: 🖥️ DESKTOP** (user báo 20/08, sau khi là
 
 ---
 
-## ✅ HẾT GẤP — 🖥️ DESKTOP đã ở `2.532` (24/08)
+## ✅ HẾT GẤP — 🖥️ DESKTOP đã ở `2.532` (HEAD nay `2.550`) (24/08)
 
 `2532 passed / 84,47s`, badge xanh, exit 0. **Phát 18:00 mai chạy trên code
 mới** — brief sẽ hết cả 3 lỗi thấy trong bản 24/08 (cảnh báo GDKHQ sai cho
@@ -86,19 +86,29 @@ Claude đã vá phần chắc chắn đúng: cửa sổ nay **nới theo nhu c�
 trong kho (miễn phí, ở đĩa) rồi mới quyết gọi mạng bao nhiêu. Mã thanh khoản
 cao ~11 ngày thay vì 30; mã nghỉ giao dịch dài vẫn giãn tới trần.
 
-### 🖥️ MỘT PHÉP THỬ để chốt nguyên nhân (một đêm, không cần code)
+### ✅ PHÉP THỬ ĐÃ CHỐT (25/08) — guard tiêu 57 phút mỗi đêm
 
-```powershell
-$env:VNSTOCK_BASIS_GUARD = "0"
-python run.py sync
-```
-Rồi đọc dòng `⏱ CHẶNG`:
-* `updater` về **~1.400s** ⇒ đúng là do nới cửa sổ; bản vá thu hẹp sẽ lấy lại
-  phần lớn khoản đó.
-* vẫn **~5.600s** ⇒ **Claude sai**, thủ phạm nằm chỗ khác — dán số để đo tiếp.
+| | updater |
+|---|---|
+| Guard BẬT (nới thẳng 30 ngày) | 5.659s |
+| Guard TẮT | 2.224s |
+| **Chênh** | **−57 phút** |
 
-*(Nhớ `Remove-Item Env:VNSTOCK_BASIS_GUARD` sau khi thử, hoặc mở PowerShell
-mới — đừng để phát 18:00 chạy với guard đang tắt.)*
+Giả thuyết đúng. Bản vá `window_start` (nới theo nhu cầu) đã có trong HEAD —
+**đo thật ở phát kế tiếp**: dán lại `⏱ CHẶNG` và `⏱ TỔNG`.
+
+Dự phóng: 166,3′ → ~109′ ⇒ đệm dưới trần 3 giờ đi từ 13,7′ lên ~71′.
+
+⚠️ Nếu bạn còn mở PowerShell đã đặt `VNSTOCK_BASIS_GUARD=0` thì **đóng nó đi**
+— đừng để phát 18:00 chạy với cửa gác đang tắt.
+
+### 🔔 auto-heal: 0 lành / 3.076 lượt — nay MÁY tự nhắc
+
+Hai đêm liền tiêu ~620s để chữa được **số 0**. Không cần bạn dán log nữa:
+badge **"Hiệu suất auto-heal"** trong `run.py doctor` sẽ nói.
+* đủ mẫu mà 0 lành ⇒ ⚠️ kèm cần gạt `VNSTOCK_AUTOHEAL_BUDGET_S=120` (hoặc `0`).
+* Đây là **đánh đổi của bạn**, Claude cố ý không tự hạ trần: 10 phút mỗi đêm
+  đổi lấy khả năng chữa những mã cách ly MỚI (đám cũ thì gần như vô vọng).
 
 ### ✅ Lượt T7 22/08 — đã chạy lại xong
 `run.py weekend` chạy trọn, gửi được cả báo cáo model watch lẫn báo cáo tuần

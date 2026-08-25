@@ -1042,9 +1042,42 @@ def check_brief_watch() -> dict:
         "file để đếm lại. Tắt sổ: VNSTOCK_BRIEF_WATCH=0")
 
 
+def check_autoheal_yield() -> dict:
+    """auto-heal có chữa được gì không, hay chỉ đang xay không tải?
+
+    Đo trên máy thật 24-25/08: **0 mã lành / 3.076 lượt refetch** qua hai
+    đêm, mỗi đêm tiêu trọn ~620s ngân sách. Con số này lẽ ra phải TỰ nổi
+    lên chứ không phải chờ user dán log về — badge này là chỗ đó.
+
+    Dưới sàn mẫu ⇒ ok kèm n=…, không warn.
+    """
+    name = "Hiệu suất auto-heal"
+    try:
+        from vnstock_quarantine import HEAL_MIN_ATTEMPTS, heal_stats
+        st = heal_stats(_META.parent)
+    except Exception as e:
+        return _result("autoheal_yield", name, "error",
+                       f"không đọc được sổ ({type(e).__name__}: {e})", "")
+    if not st["runs"]:
+        return _result("autoheal_yield", name, "ok", "chưa có lượt nào được ghi", "")
+    head = (f"{st['healed']:,}/{st['attempts']:,} bar lành qua {st['runs']} lượt"
+            + (f" ({st['rate']:.1%})" if st["rate"] is not None else ""))
+    if not st["enough"]:
+        return _result("autoheal_yield", name, "ok",
+                       f"{head} — chưa đủ mẫu (cần ≥{HEAL_MIN_ATTEMPTS:,} lượt)", "")
+    if st["healed"]:
+        return _result("autoheal_yield", name, "ok", head, "")
+    return _result(
+        "autoheal_yield", name, "warn",
+        f"{head} — refetch KHÔNG chữa được gì, đang tiêu ngân sách vô ích",
+        "hạ trần: VNSTOCK_AUTOHEAL_BUDGET_S=120 (hoặc 0 để tắt hẳn) cho tới khi "
+        "hiểu vì sao hàng đợi không lành; xem _meta/autoheal_runs.json")
+
+
 OFFLINE_CHECKS = [
     check_dir_shapes, check_unit_normalizations, check_kill_switches,
     check_basis_drift, check_ohlc_repairs, check_vn30_basket,
+    check_autoheal_yield,
     check_brief_watch,
     check_warehouse, check_market_overview, check_fundamentals, check_macro,
     check_pdf_tooling, check_market_news, check_ticker_news,

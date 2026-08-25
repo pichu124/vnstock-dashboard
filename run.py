@@ -786,6 +786,9 @@ def cmd_test(args) -> int:
             # ⚠️ GDKHQ cho sự kiện KHÔNG đổi giá (ĐHĐCĐ) = cảnh báo một cú
             # giảm không bao giờ xảy ra ⇒ người đọc lướt qua cú giảm THẬT.
             "tests/test_close_2408_review.py",
+            # Sổ hiệu suất auto-heal: sai ở đây là badge réo khi CHƯA đủ mẫu,
+            # hoặc im lặng trong khi mỗi đêm tiêu 600s chữa được số 0.
+            "tests/test_autoheal_yield.py",
             "tests/test_model_ladder.py",
             "tests/test_auditor.py",
             "tests/test_parquet_io.py",

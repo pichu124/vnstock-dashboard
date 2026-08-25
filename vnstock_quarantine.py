@@ -413,7 +413,69 @@ def auto_heal(
         # Tiny pause so batch runs don't hammer the API
         time.sleep(0.05)
 
+    record_heal_run(warehouse, stats)
     return stats
+
+
+# ── Sổ HIỆU SUẤT auto-heal ───────────────────────────────────────────────
+# Đo 24-25/08 trên máy thật: **0 mã lành / 3.076 lượt refetch** qua hai đêm
+# (24/08: scanned 1.956, healed 0 · 25/08: scanned 1.120, healed 0), mỗi đêm
+# tiêu trọn ngân sách ~620s. Trước đó 19/08 đo 35/3.844 = 0,9%. Tức đường
+# refetch gần như KHÔNG chữa được thứ còn lại trong hàng đợi.
+#
+# Bài học quy trình: con số này lẽ ra phải tự nổi lên, không phải chờ user
+# dán log về. Nên ghi sổ ngay tại đây rồi để badge doctor nói hộ.
+HEAL_LOG_NAME = "autoheal_runs.json"
+HEAL_LOG_MAX = 30
+HEAL_MIN_ATTEMPTS = 200          # dưới mức này thì KHÔNG kết luận gì
+
+
+def heal_log_path(warehouse) -> Path:
+    return Path(warehouse) / "_meta" / HEAL_LOG_NAME
+
+
+def record_heal_run(warehouse, stats: dict, today=None) -> bool:
+    """Nối một lượt auto-heal vào sổ. Best-effort, KHÔNG BAO GIỜ ném."""
+    try:
+        from datetime import date as _date
+
+        from vnstock_parquet_io import write_json_atomic
+        path = heal_log_path(warehouse)
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            runs = list(data.get("runs") or []) if isinstance(data, dict) else []
+        except (OSError, ValueError):
+            runs = []
+        runs.append({
+            "at": str(today or _date.today()),
+            "scanned": int(stats.get("scanned") or 0),
+            "healed": int(stats.get("refetched_ok") or stats.get("healed") or 0),
+            "bumped": int(stats.get("refetched_fail") or 0),
+            "archived": int(stats.get("archived") or 0),
+        })
+        write_json_atomic({"runs": runs[-HEAL_LOG_MAX:]}, path)
+        return True
+    except Exception:
+        return False
+
+
+def heal_stats(warehouse) -> dict:
+    """Gộp sổ — cho badge doctor. Hàm chỉ ĐỌC, không phán."""
+    try:
+        data = json.loads(heal_log_path(warehouse).read_text(encoding="utf-8"))
+        runs = list(data.get("runs") or [])
+    except (OSError, ValueError):
+        runs = []
+    attempts = sum(int(r.get("scanned") or 0) for r in runs)
+    healed = sum(int(r.get("healed") or 0) for r in runs)
+    return {
+        "runs": len(runs),
+        "attempts": attempts,
+        "healed": healed,
+        "rate": (healed / attempts) if attempts else None,
+        "enough": attempts >= HEAL_MIN_ATTEMPTS,
+        "last": runs[-1] if runs else None,
+    }
 
 
 def _log_exhausted(warehouse: Path, ticker: str, bar_date: str,

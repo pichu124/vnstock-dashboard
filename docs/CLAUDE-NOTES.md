@@ -6966,6 +6966,75 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# ✅ U28. PHÉP THỬ CHỐT: CỬA GÁC CỦA TÔI TIÊU 57 PHÚT MỖI ĐÊM (25/08)
+
+```
+VNSTOCK_BASIS_GUARD=0
+[sync] ⏱ CHẶNG 52.3 phút — updater 2,224s · auto-heal 618s · fix-units 286s · rollup 7s
+```
+
+Đối chiếu phát 24/08 (guard BẬT): `updater 5,659s`.
+
+| | updater | chênh |
+|---|---|---|
+| Guard BẬT (nới thẳng 30 ngày) | 5.659s | |
+| Guard TẮT (cửa sổ gốc 1-3 ngày) | 2.224s | **−3.435s = −57 phút** |
+
+**Giả thuyết U27 ③ ĐÚNG.** Cửa gác lệch cơ sở V1 của tôi tiêu **57 phút mỗi
+đêm** — bằng 34% cả phát 166,3′. Không phải mạng chậm, không phải số mã tăng:
+đúng cửa sổ fetch bị nới 16×.
+
+⚠️ **Nhiễu còn lại, ghi cho trung thực:** hai lượt đo ở hai thời điểm khác
+nhau (phát 18:00 vs chạy tay), mạng có thể khác. Nhưng SỐ LƯỢT gọi mạng là như
+nhau (~1.600 mã, đều fetch `[last_date, today]`), chỉ độ RỘNG cửa sổ đổi — tức
+đúng biến đang thử. Cỡ hiệu ứng 2,5× quá lớn để quy cho nhiễu.
+
+**Bản vá `window_start()` (U27) chưa được đo trên máy thật.** Kỳ vọng nằm giữa
+2.224s và 5.659s, lệch hẳn về phía thấp (cửa sổ ~11 ngày thay vì 30 với mã
+thanh khoản cao). Đo thật ở phát kế tiếp.
+
+## Và một con số nữa nói dứt khoát: auto-heal KHÔNG chữa được gì
+
+```
+24/08: scanned=1956 healed=0 retry_bumped=855  archived=1101
+25/08: scanned=1120 healed=0 retry_bumped=1047 archived=73
+```
+
+**0 bar lành / 3.076 lượt refetch**, hai đêm liền, mỗi đêm tiêu trọn ~620s.
+Đối chiếu 19/08: 35/3.844 = 0,9%. Hàng đợi còn lại gần như KHÔNG lành được —
+nguồn trả về đúng bar hỏng đó.
+
+Hàng đợi khớp sổ sách: 24/08 để lại 855+849 = 1.704; 25/08 quét 1.120, còn
+584 ⇒ 1.120+584 = 1.704 ✓. Không có mục mới vào, chỉ xoay vòng. `archived`
+tụt từ 1.101 xuống 73 vì đám "vắng cấu trúc" đã bị dọn hết đêm trước; phần còn
+lại phải chờ đủ `MAX_RETRIES_DEFAULT = 3` lượt bump mới được lưu trữ.
+
+**Bài học quy trình (quan trọng hơn con số):** hai đêm liền tiêu 620s để đạt
+số 0, mà phải chờ user dán log về Claude mới biết. Con số đó phải TỰ nổi lên.
+
+**Vá:** `record_heal_run()` ghi mỗi lượt vào `_meta/autoheal_runs.json` (trần
+30 lượt) + badge doctor **"Hiệu suất auto-heal"**:
+* `< HEAL_MIN_ATTEMPTS (200)` lượt ⇒ **ok kèm n=…**, không kêu;
+* có lành ⇒ ok;
+* đủ mẫu mà `healed = 0` ⇒ **warn**, kèm đúng cần gạt:
+  `VNSTOCK_AUTOHEAL_BUDGET_S=120` (hoặc 0 để tắt hẳn).
+
+CỐ Ý không tự hạ trần trong code: đó là đánh đổi của user (dừng chữa hẳn vs
+tiêu 10 phút mỗi đêm), và `run.py sync` vẫn `exit 1` khi có mã lỗi nên việc
+này không im lặng.
+
+## Dự phóng thời gian phát
+166,3′ − 57′ ≈ **109′** ⇒ đệm dưới trần 3 giờ đi từ 13,7′ lên ~71′. Nếu
+`window_start` chỉ lấy lại được một nửa thì vẫn ~138′, đệm ~42′ — vẫn thoát
+khỏi vùng nguy hiểm.
+
+## Lưới mới
+`tests/test_autoheal_yield.py` (11), đã vào `--fast`. Suite: **2.550 passed**
+(fast 2.059).
+
+---
+
+
 # 🔴 U27. SỐ THẬT CỦA PHÁT 24/08 — CHẨN ĐOÁN CŨ ĐÚNG MỘT NỬA, VÀ TÔI LÀM CHẬM UPDATER
 
 Bốn dòng số user dán về (phát 18:00 T2 24/08):
