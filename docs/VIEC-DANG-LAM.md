@@ -87,25 +87,35 @@ Claude đã vá phần chắc chắn đúng: cửa sổ nay **nới theo nhu c�
 trong kho (miễn phí, ở đĩa) rồi mới quyết gọi mạng bao nhiêu. Mã thanh khoản
 cao ~11 ngày thay vì 30; mã nghỉ giao dịch dài vẫn giãn tới trần.
 
-### ✅ PHÉP THỬ ĐÃ CHỐT (25/08) — guard tiêu 57 phút mỗi đêm
+### ✅ RỦI RO CHẠM TRẦN ĐÃ HẾT — phát 25/08 chạy **69,0′ / trần 180′**
 
-| | updater |
-|---|---|
-| Guard BẬT (nới thẳng 30 ngày) | 5.659s |
-| Guard TẮT | 2.224s |
-| **Chênh** | **−57 phút** |
+| | TỔNG | updater |
+|---|---|---|
+| 24/08 (cửa gác nới 30 ngày) | 166,3′ | 5.659s |
+| 25/08 tay, cửa gác TẮT | — | 2.224s |
+| 25/08 phát (cửa gác + cửa sổ hẹp) | **69,0′** | **308s** |
 
-Giả thuyết đúng. Bản vá `window_start` (nới theo nhu cầu) đã có trong HEAD —
-**đo thật ở phát kế tiếp**: dán lại `⏱ CHẶNG` và `⏱ TỔNG`.
+Đệm dưới trần từ 13,7′ lên **111′**. Mục lo lớn nhất — mất brief vì chạm trần
+— **đóng**.
 
-Dự phóng: 166,3′ → ~109′ ⇒ đệm dưới trần 3 giờ đi từ 13,7′ lên ~71′.
+⚠️ **Nhưng đừng đọc 308s là công của bản vá.** Cửa sổ mới ~11 ngày, mà lượt
+TẮT guard chỉ ~1-3 ngày — bản vá lẽ ra phải CHẬM hơn lượt tắt, không phải
+nhanh hơn 7×. Còn biến số khác chưa nhận diện; nghi phạm rõ nhất là **cùng
+ngày đã chạy tay `run.py sync`**.
 
-⚠️ Nếu bạn còn mở PowerShell đã đặt `VNSTOCK_BASIS_GUARD=0` thì **đóng nó đi**
-— đừng để phát 18:00 chạy với cửa gác đang tắt.
+**📏 Phép đo SẠCH = phát kế tiếp trong ngày KHÔNG chạy tay gì trước đó.**
+Dán lại `⏱ TỔNG` + `⏱ CHẶNG` hôm đó — chỉ cần một lần, rồi đóng mục này.
+
+### 🔎 Kẻ ăn thời gian MỚI (không gấp)
+`screener` 1.318s = 22′, nay lớn hơn CẢ `sync` (1.145s) — trước bị `updater`
+che khuất, chưa soi bao giờ. `fix-units` 316s cũng tăng đều (98 → 302 → 316s),
+nó quét TOÀN KHO mỗi đêm. Đệm đang 111′ nên chưa cần đụng.
 
 ### 🔔 auto-heal: 0 lành / 3.076 lượt — nay MÁY tự nhắc
 
-Hai đêm liền tiêu ~620s để chữa được **số 0**. Không cần bạn dán log nữa:
+Ba đêm liền: **0 lành / 4.707 lượt**. Hàng đợi cuối cùng đã rút
+(1.704 → 1.631 → 778, thêm ~2 đêm là sạch) nhưng rút bằng LƯU TRỮ, không phải
+bằng chữa. Không cần bạn dán log nữa:
 badge **"Hiệu suất auto-heal"** trong `run.py doctor` sẽ nói.
 * đủ mẫu mà 0 lành ⇒ ⚠️ kèm cần gạt `VNSTOCK_AUTOHEAL_BUDGET_S=120` (hoặc `0`).
 * Đây là **đánh đổi của bạn**, Claude cố ý không tự hạ trần: 10 phút mỗi đêm

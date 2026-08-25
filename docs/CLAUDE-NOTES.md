@@ -6966,6 +6966,72 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# ⚠️ U29. PHÁT 25/08: 69,0′ — SỐ ĐẸP NHƯNG **KHÔNG SẠCH** (đừng ghi công vội)
+
+```
+⏱ CHẶNG 19.1 phút — auto-heal 504s · fix-units 316s · updater 308s · rollup 15s
+⏱ TỔNG  69.0 phút (14 bước) — screener 1,318s · sync 1,145s · train 752s ·
+         audit 286s · validate 249s · brief 206s · test 85s · news 46s · …
+```
+
+## ✅ Kết quả thô: đệm dưới trần task từ 13,7′ lên **111′**
+
+| | TỔNG | updater |
+|---|---|---|
+| 24/08 (guard nới 30 ngày) | 166,3′ | 5.659s |
+| 25/08 tay, guard TẮT | — | 2.224s |
+| 25/08 phát (guard + `window_start`) | **69,0′** | **308s** |
+
+Trần task `PT3H` nay chỉ dùng 38%. Rủi ro "mất brief vì chạm trần" — mục lo
+lớn nhất của U27 ④ — **đã hết**.
+
+## ⚠️ NHƯNG đây KHÔNG phải phép đo sạch của `window_start`
+
+Số học không cho phép ghi công: cửa sổ mới ~11 ngày, cửa sổ khi **TẮT** guard
+là ~1-3 ngày. Bản vá lẽ ra phải **chậm hơn** lượt tắt guard, chứ không phải
+**nhanh hơn 7×** (308s vs 2.224s). Một thay đổi 30→11 ngày cho tối đa ~2,7×,
+không thể ra 18×.
+
+Nên còn biến số khác chưa nhận diện được. Nghi phạm rõ nhất: **cùng ngày đã
+chạy tay `run.py sync` trước đó**, nên phát 18:00 gặp một cái kho đã ấm theo
+cách nào đó. (Lưu ý: KHÔNG phải "mã đã up-to-date nên bỏ qua" —
+`vnstock_updater` cố ý refetch cả khi `last_date == today` để thay bar dở
+dang; chỉ bar ở TƯƠNG LAI mới cho `up_to_date`.)
+
+**Phép đo SẠCH là phát kế tiếp trong một ngày KHÔNG chạy tay gì trước đó.**
+Chưa có nó thì `window_start` vẫn là "đúng về lý, chưa đo được về lượng".
+
+Ghi lại đây vì đúng cái bẫy repo đã dính nhiều lần: **một con số đẹp trong
+điều kiện không sạch, đọc thành bằng chứng.**
+
+## ✅ auto-heal: hàng đợi CUỐI CÙNG cũng rút
+
+```
+24/08: scanned 1956 · archived 1101 · bumped 855  → còn 1.704
+25/08: scanned 1120 · archived 73   · bumped 1047 → còn 1.631
+25/08: scanned 1631 · archived 853  · bumped 778  → còn 778
+```
+
+`archived` bật lên 853 vì đám bị bump các đêm trước đã chạm
+`MAX_RETRIES_DEFAULT = 3`. Quét hết 1.631 mục, không còn mục tồn. Thêm ~2 đêm
+là sạch hàng đợi.
+
+**Nhưng `healed` vẫn = 0** — nay là **0 / 4.707 lượt refetch qua ba đêm**. Kết
+luận không đổi: đường refetch KHÔNG chữa được thứ trong hàng đợi này, nó chỉ
+đang lưu trữ dần. Badge "Hiệu suất auto-heal" (U28) sẽ nói đúng chuyện đó.
+
+## 🔎 Kẻ ăn thời gian MỚI: `screener` 1.318s = 22′
+
+Nay lớn hơn CẢ `sync` (1.145s). Trước đây bị `updater` che khuất. Chưa soi bao
+giờ — ứng viên tiếp theo nếu cần lấy thêm thời gian, nhưng **không gấp** khi
+đệm đang là 111′.
+
+`fix-units` 316s cũng đáng soi: nó quét TOÀN KHO mỗi đêm và đã tăng đều
+(98s → 302s → 316s).
+
+---
+
+
 # ✅ U28. PHÉP THỬ CHỐT: CỬA GÁC CỦA TÔI TIÊU 57 PHÚT MỖI ĐÊM (25/08)
 
 ```
