@@ -6966,6 +6966,70 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🚀 U33. NET BS: TUẦN TỰ CÓ SLEEP → SONG SONG CÓ NHỊP (26/08)
+
+Ứng viên lớn còn lại của bước `screener` (1.318s). Vòng lấy Net Buy-Sell ở
+`vnstock_runner.compute_market_overview`:
+
+```python
+for tk in _top_tickers:              # ~1.000 mã, KHÔNG hề cắt
+    os_df = Trading(symbol=tk).order_stats()
+    ...
+    except Exception: pass
+    _nb_time.sleep(0.15)
+```
+
+## Ba khiếm khuyết, không phải một
+
+**① Sàn 150 giây chỉ để NGỦ.** 1.000 × 0,15s. Cộng round-trip mạng cũng nối
+tiếp nhau ⇒ vài trăm giây nữa. Trong khi hạn mức Sponsor là **600 req/phút =
+10 req/s** — đường tuần tự dùng **chưa tới 1/10 quota** mà vẫn chậm. Nhịp cũ
+áp cho MỖI lượt và cộng dồn; đúng ra phải áp cho TOÀN BỘ.
+
+**② `except Exception: pass` — mất data IM LẶNG.** Mã bị hạn mức chặn biến
+mất khỏi `nb_data` không dấu vết. Không ai biết `Net BS 1T` của một ngành
+thiếu mấy mã.
+
+**③ Không có gì đo được.** Dòng log chỉ in tổng giây — không tốc độ, không số
+lỗi. Nên "vòng này chậm" mãi là cảm giác.
+
+## Vá
+
+* **Pool worker + MỘT bộ nhịp dùng chung** (`_RatePacer`). Khoá chỉ giữ lúc
+  tính mốc "lượt kế tiếp"; `sleep` nằm **ngoài** khoá nên worker không chặn
+  nhau — chúng xếp hàng theo thời điểm, còn round-trip thì **chồng lên nhau**.
+  Tổng tốc độ bị chặn ở `_NB_RATE_PER_SEC = 8.0` **bất kể bao nhiêu worker**
+  (đo: 20 lượt @20/s qua 4 luồng = 0,95s, đúng bằng một luồng).
+* 8 dưới 10 có chủ đích — chừa biên, và bước khác của phát cũng gọi mạng.
+* `call_with_rate_limit_retry(retries=2)` thay cho nuốt trần: 429 nay được
+  chờ rồi thử lại chứ không làm bốc hơi một mã.
+* Đếm `_nb_fail` và in ra: `Net Buy-Sell: 987/1002 (128s · 7.8 req/s · 8
+  luồng · 15 LỖI) → cached`. Nay chẩn đoán được.
+* Kill-switch `VNSTOCK_NETBS_WORKERS=1` là quay về đúng hành vi tuần tự.
+
+Kỳ vọng: từ ~650s (1.000 × (0,15 + rtt 0,5)) xuống **~125s** — sàn nay là HẠN
+MỨC chứ không phải độ trễ nối tiếp. ~5×.
+
+## ⚠️ CỐ Ý KHÔNG đụng TTL cache
+
+TTL 12h < nhịp phát 24h nên cache **luôn nguội** ở đường đêm. Nhìn thì như
+một chỗ đáng "tối ưu" — **không phải**. `Net BS 1T` là tổng **5 phiên**; xài
+lại cache hôm qua là thiếu mất phiên hôm nay, tức một **lỗi số liệu im lặng**
+trong mục Dòng Tiền của brief. Cache chỉ để cứu lượt chạy lại trong cùng buổi
+tối, và nó làm đúng việc đó.
+
+Có test canh hằng số `_NB_CACHE_TTL_H = 12` kèm lý do, để lần sau không ai
+"tối ưu" nó thành số sai.
+
+## Lưới mới
+`tests/test_netbs_parallel.py` (14) — trong đó test sống chết là **tổng tốc độ
+không cộng dồn theo số luồng**: vượt quota là bị nhà cung cấp chặn, mất nhiều
+hơn được.
+Suite: **2.615 passed** (fast 2.121).
+
+---
+
+
 # ✅ U32. ĐỐI CHỨNG fix-units TRÊN KHO THẬT — và nó lộ ra một bug CÓ SẴN (26/08)
 
 Hai lượt `run.py fix-units --dry-run --json` trên desktop, bật/tắt phép lọc:

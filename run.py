@@ -795,6 +795,9 @@ def cmd_test(args) -> int:
             "tests/test_screener_ind_cache.py",
             "tests/test_fix_units_footer_prune.py",
             "tests/test_watchlist_real_pivots.py",
+            # Net BS gọi song song: gỡ bộ nhịp là VƯỢT hạn mức và bị nhà cung
+            # cấp chặn — mất nhiều hơn được.
+            "tests/test_netbs_parallel.py",
             "tests/test_model_ladder.py",
             "tests/test_auditor.py",
             "tests/test_parquet_io.py",

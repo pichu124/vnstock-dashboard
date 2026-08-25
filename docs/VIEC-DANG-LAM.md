@@ -97,7 +97,7 @@ Laptop đang ở `2.447`, HEAD là **`2.550`**.
 ```powershell
 cd C:\vnstock
 git pull origin claude/tong-hop-cong-viec-test-w8mvrc
-python run.py test          # phải ra 2.601 passed
+python run.py test          # phải ra 2.615 passed
 ```
 
 **📦 vnstock 4.0.7 đã ra — cổng gỡ chặn 4.0.6 đã mở.** Đúng thứ tự:
@@ -134,6 +134,7 @@ hiệu guard đang LÀM VIỆC, không phải hỏng.
 | ~~1~~ | **Pivot THẬT cho mốc watchlist** | ✅ **XONG 26/08** — `ticker_sr_levels` (pivot 60 phiên, bỏ 2 bar cuối, có 3 sàn nhiễu). Thiếu vế nào thì NÓI là thiếu, không bịa. *(Recon lật kế hoạch: `_ticker_pivots` là hàm SAI — trả chuỗi, làm tròn 1,2%, không sàn nào.)* |
 | ~~2~~ | **`screener` 1.318s** | ✅ **XONG 26/08** — nó quét kho **14 lần y hệt nhau** (14 preset, filter chỉ áp SAU khi đã đọc + tính). Nhớ chỉ báo ⇒ 14 lượt → 1. |
 | ~~3~~ | **`fix-units` 316s** | ✅ **XONG 26/08** — lọc bằng **thống kê footer parquet** (tương đương chứng minh được, không thêm state), + chỉ giải nén `time`/`close`. |
+| ~~1~~ | **Vòng lặp Net BS** | ✅ **XONG 26/08** — song song có nhịp (8 luồng, tổng tốc độ chặn ở 8 req/s < quota 10). Kỳ vọng ~650s → ~125s. |
 | 4 | **Bỏ hay giữ đường CafeF `cash-dividends`** (404 từ 19/08) | Vietstock đã trả cả sự kiện tiền mặt ⇒ code chết trông như code sống |
 | 5 | **Vòng lặp Net BS trong screener** — gọi `order_stats()` TUẦN TỰ cho MỌI mã (~1.000 lần), `sleep(0.15)` ⇒ sàn 135-165s; cache TTL 12h < nhịp 24h nên **nguội mỗi đêm** | Ứng viên co-equal với #2, chưa tách được khỏi 1.318s nếu chỉ đọc code |
 

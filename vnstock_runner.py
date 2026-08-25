@@ -167,6 +167,52 @@ def _normalize_prices(df):
     return df
 
 
+# ── Nhịp gọi API dùng chung cho pool worker ──────────────────────────────
+# Hạn mức Sponsor: 600 req/phút = 10 req/s (xem `vnstock_updater` khi in
+# "600 req/min"). Đặt dưới mức đó để chừa biên — và vì các bước khác của phát
+# có thể còn gọi mạng.
+_NB_RATE_PER_SEC = 8.0
+_NB_WORKERS_DEFAULT = 8
+_NB_WORKERS_ENV = "VNSTOCK_NETBS_WORKERS"
+
+
+def _nb_pool_size() -> int:
+    """Số luồng gọi Net BS. `VNSTOCK_NETBS_WORKERS=1` là quay về tuần tự."""
+    import os as _os
+    try:
+        n = int(_os.environ.get(_NB_WORKERS_ENV, "") or _NB_WORKERS_DEFAULT)
+    except ValueError:
+        n = _NB_WORKERS_DEFAULT
+    return max(1, min(n, 32))
+
+
+class _RatePacer:
+    """Chặn TỔNG tốc độ gọi ở `per_sec`, bất kể bao nhiêu worker.
+
+    Khoá chỉ giữ lúc tính mốc "lượt kế tiếp"; `sleep` nằm NGOÀI khoá nên các
+    worker không chặn nhau — chúng chỉ xếp hàng theo thời điểm. Đây là chỗ
+    khác biệt so với `sleep(0.15)` cũ: nhịp cũ áp cho MỖI lượt nối tiếp nhau
+    (0,15s + round-trip, cộng dồn), nhịp mới áp cho TOÀN BỘ (round-trip chồng
+    lên nhau).
+    """
+
+    def __init__(self, per_sec: float):
+        import threading as _th
+        self._gap = 1.0 / max(per_sec, 0.001)
+        self._lock = _th.Lock()
+        self._next = 0.0
+
+    def wait(self) -> None:
+        import time as _t
+        with self._lock:
+            now = _t.monotonic()
+            slot = max(now, self._next)
+            self._next = slot + self._gap
+        delay = slot - now
+        if delay > 0:
+            _t.sleep(delay)
+
+
 def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
     """
     Compute sector metrics + breadth indicators from warehouse parquet.
@@ -465,6 +511,58 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
             _t0_nb = _nb_time.time()
             _top_tickers = [r["ticker"] for r in sorted(rows, key=lambda r: -r.get("mktcap", 0))]
 
+            # ── Gọi SONG SONG có nhịp, thay vì tuần tự có sleep ───────────
+            # Bản cũ: `for tk in ...: order_stats(tk); sleep(0.15)`. Với
+            # ~1.000 mã đó là **sàn 150 giây chỉ để NGỦ**, cộng round-trip
+            # mạng cũng nối tiếp nhau ⇒ vài trăm giây nữa. Trong khi hạn mức
+            # Sponsor là 600 req/phút = 10 req/s: đường tuần tự dùng chưa tới
+            # 1/10 quota mà vẫn chậm.
+            #
+            # Nay: pool worker + MỘT bộ nhịp dùng chung. Tổng tốc độ bị chặn ở
+            # `_NB_RATE_PER_SEC` bất kể bao nhiêu worker (bộ nhịp giữ mốc
+            # "lượt kế tiếp" dưới khoá, còn `sleep` thì nằm NGOÀI khoá nên
+            # worker không chặn nhau). Sàn thời gian nay là HẠN MỨC, không
+            # phải độ trễ nối tiếp.
+            #
+            # ⚠️ CỐ Ý KHÔNG đụng TTL 12h của cache: phát chạy mỗi ~24h nên
+            # cache LUÔN nguội ở đường đêm — nhưng đó là ĐÚNG. `Net BS 1T` là
+            # tổng 5 phiên; xài lại cache hôm qua là thiếu mất phiên hôm nay,
+            # một lỗi số liệu IM LẶNG. Cache chỉ để cứu lượt chạy lại trong
+            # cùng buổi tối, và nó làm đúng việc đó.
+            _nb_workers = _nb_pool_size()
+            _nb_pacer = _RatePacer(_NB_RATE_PER_SEC)
+            _nb_fail = 0
+
+            def _nb_fetch_one(tk: str) -> "tuple[str, dict | None, bool]":
+                """(mã, số liệu | None, có LỖI không). Chạy trong worker."""
+                from vnstock_ratelimit import call_with_rate_limit_retry
+                _nb_pacer.wait()
+                try:
+                    os_df = call_with_rate_limit_retry(
+                        lambda: Trading(symbol=tk).order_stats(), retries=2)
+                except Exception:
+                    # Nuốt im lặng như bản cũ là MẤT DATA không dấu vết: mã bị
+                    # hạn mức chặn biến mất khỏi nb_data mà không ai biết.
+                    return tk, None, True
+                if os_df is None or os_df.empty:
+                    return tk, None, False        # thật sự không có data
+                try:
+                    os_df = os_df.sort_values("trading_date")
+                    bv = pd.to_numeric(os_df["total_buy_trade_volume"],
+                                       errors="coerce").fillna(0)
+                    sv = pd.to_numeric(os_df["total_sell_trade_volume"],
+                                       errors="coerce").fillna(0)
+                    net = bv - sv
+                    return tk, {
+                        "1w": round(float(net.tail(5).sum())   / 1e6, 1),
+                        "1m": round(float(net.tail(20).sum())  / 1e6, 1),
+                        "3m": round(float(net.tail(60).sum())  / 1e6, 1),
+                        "6m": round(float(net.tail(120).sum()) / 1e6, 1),
+                    }, False
+                except Exception:
+                    return tk, None, True
+
+            from concurrent.futures import ThreadPoolExecutor, as_completed
             with Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
@@ -472,25 +570,23 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
                 TaskProgressColumn(), TimeElapsedColumn(),
                 console=console,
             ) as _nb_progress:
-                _nb_task = _nb_progress.add_task("Net BS...", total=len(_top_tickers))
-                for tk in _top_tickers:
-                    _nb_progress.update(_nb_task, description=f"[cyan]{tk:6s}[/cyan]", advance=1)
-                    try:
-                        os_df = Trading(symbol=tk).order_stats()
-                        if os_df is not None and not os_df.empty:
-                            os_df = os_df.sort_values("trading_date")
-                            bv = pd.to_numeric(os_df["total_buy_trade_volume"], errors="coerce").fillna(0)
-                            sv = pd.to_numeric(os_df["total_sell_trade_volume"], errors="coerce").fillna(0)
-                            net = bv - sv
-                            nb_data[tk] = {
-                                "1w": round(float(net.tail(5).sum())   / 1e6, 1),
-                                "1m": round(float(net.tail(20).sum())  / 1e6, 1),
-                                "3m": round(float(net.tail(60).sum())  / 1e6, 1),
-                                "6m": round(float(net.tail(120).sum()) / 1e6, 1),
-                            }
-                    except Exception:
-                        pass
-                    _nb_time.sleep(0.15)
+                _nb_task = _nb_progress.add_task(
+                    f"Net BS ({_nb_workers} luồng)...", total=len(_top_tickers))
+                with ThreadPoolExecutor(max_workers=_nb_workers) as _nb_pool:
+                    _futs = [_nb_pool.submit(_nb_fetch_one, tk) for tk in _top_tickers]
+                    for _fut in as_completed(_futs):
+                        try:
+                            tk, val, failed = _fut.result()
+                        except Exception:
+                            _nb_fail += 1
+                            _nb_progress.update(_nb_task, advance=1)
+                            continue
+                        if val is not None:
+                            nb_data[tk] = val
+                        if failed:
+                            _nb_fail += 1
+                        _nb_progress.update(_nb_task, description=f"[cyan]{tk:6s}[/cyan]",
+                                            advance=1)
 
             # Save cache
             try:
@@ -505,9 +601,12 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
                     _NB_CACHE_PATH)
             except Exception:
                 pass
+            _nb_secs = _nb_time.time() - _t0_nb
+            _nb_rate = len(_top_tickers) / _nb_secs if _nb_secs > 0 else 0
             console.log(
                 f"  Net Buy-Sell: {len(nb_data)}/{len(_top_tickers)} tickers "
-                f"({_nb_time.time() - _t0_nb:.0f}s) → cached"
+                f"({_nb_secs:.0f}s · {_nb_rate:.1f} req/s · {_nb_workers} luồng"
+                + (f" · {_nb_fail} LỖI" if _nb_fail else "") + ") → cached"
             )
     except ImportError:
         console.log("  [dim]vnstock_data not installed — Net BS data skipped[/dim]")
