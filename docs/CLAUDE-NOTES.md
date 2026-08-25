@@ -6966,6 +6966,61 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# ✅ U32. ĐỐI CHỨNG fix-units TRÊN KHO THẬT — và nó lộ ra một bug CÓ SẴN (26/08)
+
+Hai lượt `run.py fix-units --dry-run --json` trên desktop, bật/tắt phép lọc:
+
+| | `scanned_bars` | `skipped_by_footer` | `fix_count` | `errors` |
+|---|---|---|---|---|
+| Lọc **BẬT** | **4.460** | **3.081** / 3.125 | 0 | — |
+| Lọc **TẮT** | **5.018.868** | 0 | 0 | **1 (HFB)** |
+
+## ✅ Tương đương đã được xác nhận trên KHO THẬT
+`fix_count` bằng nhau (0 = 0) — điều duy nhất phải khớp.
+
+## 📉 Mức lợi lớn hơn dự tính rất nhiều
+**Giải nén 4.460 bar thay vì 5.018.868 — ít hơn 1.125×**, và bỏ qua
+**98,6% số mã** (3.081/3.125). Chỉ 44 mã thật sự cần đọc. Con số đó nói rằng
+kho gần như KHÔNG còn bar raw-VND nào — bước này đã thành một phép kiểm tra
+gần như thuần footer.
+
+## 🐛 Và lượt TẮT lộ ra một bug CÓ SẴN, không phải do bản vá
+
+```
+"errors": [{"ticker": "HFB",
+            "message": "Cannot compare Timestamp with datetime.date..."}]
+```
+
+Kho có mã lưu `time` kiểu **date32** ở năm này và **timestamp** ở năm kia.
+`pd.concat` hai kiểu đó ra cột `object`, rồi `sort_values("time")` ném lỗi.
+`scan()` bắt lỗi và ghi vào `report.errors` — nghĩa là **mã đó im lặng không
+được soi**.
+
+Tái dựng cho thấy đây KHÔNG chỉ là ồn ào: dựng HFB với một bar `close =
+9.999` (đúng loại raw-VND cần sửa), đường cũ trả **`fixes: 0`** — lỗi ĂN MẤT
+một bản sửa thật.
+
+**Vì sao trước đây không ai thấy:** với phép lọc BẬT, HFB thật (max close ≤
+ngưỡng) bị bỏ qua nên không bao giờ chạm vào đoạn code hỏng. Phép lọc **che**
+bug. Che một bug bỏ sót bar sai đơn vị thì vẫn là bỏ sót ⇒ phải vá gốc.
+
+**Vá:** chuẩn hoá `time` sang datetime TRƯỚC khi sắp xếp, `errors="coerce"` +
+`dropna` để hàng có dấu thời gian rác bị bỏ chứ không làm chết cả mã. Dùng
+`format="mixed"` khi cột là `object` để pandas khỏi in `UserWarning "Could not
+infer format"` vào log đêm.
+
+## Bài học quy trình
+Cái kill-switch `VNSTOCK_FIXUNITS_FOOTER_PRUNE` thêm vào chỉ để user **đối
+chứng thay vì tin lời tôi** — và chính nó tìm ra bug. Nếu tôi chỉ nói "tôi đã
+chứng minh tương đương, có 16 test" thì lượt TẮT không bao giờ chạy, và HFB
+vẫn im lặng bị bỏ sót. **Đường đối chứng không phải thủ tục thừa; nó là một
+phép đo riêng.**
+
+Suite: **2.601 passed** (fast 2.107).
+
+---
+
+
 # 🚀 U31. BA BẢN VÁ 26/08 — screener quét 14 lần, fix-units đọc thừa, watchlist có mốc THẬT
 
 Ba việc user giao cùng lúc. Bốn luồng đọc code song song trước khi sửa — và

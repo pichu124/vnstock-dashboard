@@ -95,7 +95,24 @@ def _detect_in_ticker(ticker: str, df: pd.DataFrame) -> list[UnitFix]:
     if df.empty or "close" not in df.columns:
         return []
 
-    work = df.sort_values("time").reset_index(drop=True)
+    # Chuẩn hoá `time` TRƯỚC khi sắp xếp. Kho có mã lưu `time` kiểu date32 ở
+    # năm này và timestamp ở năm kia (ca HFB, lộ ra 26/08 khi đối chứng phép
+    # lọc footer); `pd.concat` hai kiểu đó ra cột object, và `sort_values` ném
+    # "Cannot compare Timestamp with datetime.date". Lỗi bị `scan()` bắt và
+    # ghi vào `report.errors` — nghĩa là mã đó **im lặng không được soi**, kể
+    # cả khi nó CÓ bar sai đơn vị (tái dựng: bar 9.999 không hề được sửa).
+    work = df.copy()
+    _t = work["time"]
+    if _t.dtype == object:
+        # Cột trộn kiểu (date32 + timestamp, hoặc lẫn chuỗi). `format="mixed"`
+        # để pandas khỏi in UserWarning "Could not infer format" vào log đêm.
+        _t = pd.to_datetime(_t, errors="coerce", format="mixed")
+    else:
+        _t = pd.to_datetime(_t, errors="coerce")
+    work["time"] = _t
+    work = work.dropna(subset=["time"]).sort_values("time").reset_index(drop=True)
+    if work.empty:
+        return []
     close = pd.to_numeric(work["close"], errors="coerce")
 
     candidates = close > RAW_VND_THRESHOLD

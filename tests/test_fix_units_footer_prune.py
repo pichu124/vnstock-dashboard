@@ -157,3 +157,60 @@ class TestKillSwitch:
     def test_default_is_on(self, monkeypatch):
         monkeypatch.delenv("VNSTOCK_FIXUNITS_FOOTER_PRUNE", raising=False)
         assert fu.prune_enabled() is True
+
+
+class TestMixedTimeDtypeAcrossYearFiles:
+    """
+    Ca HFB — lộ ra 26/08 khi đối chứng phép lọc footer trên kho THẬT.
+
+    Kho có mã lưu `time` kiểu **date32** ở năm này và **timestamp** ở năm kia.
+    `pd.concat` hai kiểu đó ra cột object, `sort_values("time")` ném
+    *"Cannot compare Timestamp with datetime.date"*, `scan()` bắt lỗi và ghi
+    vào `report.errors` — nghĩa là **mã đó im lặng không được soi**, kể cả khi
+    nó CÓ bar sai đơn vị.
+
+    Đây là bug CÓ SẴN, không phải do phép lọc. Phép lọc chỉ che nó (mã sạch
+    thì không đọc tới). Nhưng che một bug bỏ sót bar sai đơn vị thì vẫn là bỏ
+    sót — nên phải vá gốc.
+    """
+
+    def _mixed(self, root, dirty_close):
+        d = root / "prices" / "ticker=HFB"
+        (d / "year=2025").mkdir(parents=True)
+        pq.write_table(pa.Table.from_pandas(pd.DataFrame({
+            "time": pd.date_range("2025-01-01", periods=25).date,   # date32
+            "open": [9.0] * 25, "high": [9.0] * 25, "low": [9.0] * 25,
+            "close": [9.0] * 25, "volume": [1] * 25}), preserve_index=False),
+            d / "year=2025" / "prices.parquet")
+        (d / "year=2026").mkdir(parents=True)
+        pq.write_table(pa.Table.from_pandas(pd.DataFrame({
+            "time": pd.date_range("2026-01-01", periods=5),          # timestamp
+            "open": [9.0] * 5, "high": [9.0] * 5, "low": [9.0] * 5,
+            "close": [dirty_close] + [9.0] * 4, "volume": [1] * 5}),
+            preserve_index=False),
+            d / "year=2026" / "prices.parquet")
+
+    def test_mixed_dtypes_no_longer_raise(self, wh):
+        self._mixed(wh, 9999.0)
+        assert fu.scan(wh).errors == []
+
+    def test_the_raw_vnd_bar_is_actually_found(self, wh):
+        """Bằng chứng lỗi cũ ĂN MẤT một bản sửa thật, chứ không chỉ ồn ào."""
+        self._mixed(wh, 9999.0)
+        got = [(f.ticker, f.time, f.close_after) for f in fu.scan(wh).fixes]
+        assert got == [("HFB", "2026-01-01", 9.999)]
+
+    def test_a_clean_mixed_dtype_ticker_is_still_pruned(self, wh):
+        self._mixed(wh, 9.0)
+        assert fu.scan(wh).skipped_by_footer == 1
+
+    def test_unparseable_timestamps_are_dropped_not_fatal(self, wh):
+        d = wh / "prices" / "ticker=XAU" / "year=2026"
+        d.mkdir(parents=True)
+        df = pd.DataFrame({"time": ["khong-phai-ngay"] * 3 + ["2026-01-04"],
+                           "open": [9.0] * 4, "high": [9.0] * 4, "low": [9.0] * 4,
+                           "close": [9.0, 9.0, 9.0, 9999.0], "volume": [1] * 4})
+        pq.write_table(pa.Table.from_pandas(df, preserve_index=False),
+                       d / "prices.parquet")
+        rep = fu.scan(wh)
+        assert rep.errors == []          # không được ném
