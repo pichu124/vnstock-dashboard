@@ -32,11 +32,12 @@ sai máy. **Phiên hiện tại: 🖥️ DESKTOP** (user báo 20/08, sau khi là
 
 ---
 
-## ✅ HẾT GẤP — 🖥️ DESKTOP đã ở `2.532` (HEAD nay `2.550`) (24/08)
+## ✅ HẾT GẤP — 🖥️ DESKTOP đã ở `2.550` = HEAD (25/08) (24/08)
 
-`2532 passed / 84,47s`, badge xanh, exit 0. **Phát 18:00 mai chạy trên code
-mới** — brief sẽ hết cả 3 lỗi thấy trong bản 24/08 (cảnh báo GDKHQ sai cho
-ĐHĐCĐ · khối tin cụt chữ · dải ±3% bị gọi là hỗ trợ/kháng cự).
+`2550 passed / 86,23s`, badge xanh, exit 0. **Phát 18:00 kế tiếp chạy trên
+code mới** — brief hết 3 lỗi của bản 24/08 (cảnh báo GDKHQ sai cho ĐHĐCĐ ·
+khối tin cụt chữ · dải ±3% bị gọi là hỗ trợ/kháng cự), VÀ đây là lượt đo thật
+đầu tiên của cửa sổ đối chiếu hẹp.
 
 * 💻 **LAPTOP: ⏳ chưa** — đang ở `2.447`. Không gấp (không có task lịch),
   nhưng đừng chạy công cụ kho ở đó trước khi merge.
