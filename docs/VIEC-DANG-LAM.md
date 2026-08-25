@@ -106,12 +106,6 @@ python run.py test          # phải ra 2.553 passed
 Desktop giữ 4.0.4 — nó chạy phát tối, không phải chỗ để thử.
 *(4.0.6 làm chết mọi lệnh gọi mạng — `env.py:136 UnboundLocalError`.)*
 
-## 5. 🧹 Dọn rác — 🖥️ desktop, 1 lệnh
-```powershell
-Remove-Item -Recurse -Force C:\proc
-```
-Thư mục do một test đỏ của Claude tạo nhầm (U26).
-
 ---
 
 # 🔔 MÁY TỰ NHẮC — không phải việc gõ tay
@@ -165,3 +159,4 @@ hiệu guard đang LÀM VIỆC, không phải hỏng.
 | Chất lượng brief | Guard số chỉ số (trạng từ) · dọn khối tin · GDKHQ không cảnh báo cho ĐHĐCĐ · dải ±3% gọi đúng tên |
 | Đồng bộ code | 🖥️ desktop `2.553 passed / 97,37s` = HEAD (25/08) |
 | Sổ lệnh | **Không mất** — 805 briefs · 148 rec · 138 outcome |
+| Rác `C:\proc` | **Không tồn tại** — Claude suy nhầm là đã tạo, user kiểm 25/08 ra PathNotFound (U26) |

@@ -7274,9 +7274,16 @@ nên không mất brief — nhưng nếu user merge lúc 17:5x thì đã mất.
 đụng hệ tệp. Thêm một test nữa cho `observe_brief` ở cùng nhánh. Docstring
 phải để raw-string vì trong đó có `C:\proc` — chuỗi thường đẻ SyntaxWarning.
 
-**Rác để lại trên máy user:** lượt test đỏ đã TẠO THẬT thư mục
-`C:\proc\definitely\not\writable\_meta\brief_watch.json`.
-Xoá: `Remove-Item -Recurse -Force C:\proc`.
+**Đính chính (25/08):** tôi từng ghi ở đây rằng lượt test đỏ "đã TẠO THẬT"
+`C:\proc\definitely\not\writable\_meta\`. Đó là **suy luận, không phải
+quan sát** — tôi lập luận từ việc `record()` trả `True` (nghĩa là
+`write_json_atomic` đã chạy xong, mà hàm đó có `mkdir(parents=True)`). User
+kiểm trên máy thật: `Remove-Item C:\proc` → **PathNotFound, không hề tồn tại**.
+
+Chưa giải thích được vì sao, và **không đáng đào tiếp** (không có rác, test đã
+vá). Nhưng đáng ghi lại như một vết của đúng thói xấu mà cả trang này tồn tại
+để chống: **trình bày một suy luận bằng giọng của một phép đo.** Lần sau: hoặc
+bảo user kiểm rồi mới ghi, hoặc viết rõ "có thể đã tạo — kiểm bằng …".
 
 **Đã quét lại toàn bộ test thêm trong đợt này** (`test_vn30_basket`,
 `test_close_2108_review`, `test_weekend_2208_review`, `test_close_2408_review`,
