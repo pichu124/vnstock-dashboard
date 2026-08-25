@@ -236,9 +236,32 @@ class TestStepTiming:
     def test_summary_ranks_heaviest_first_and_totals_minutes(self):
         line = run_mod._format_step_summary(
             [("sync", 100.0), ("test", 300.0), ("brief", 20.0)])
-        assert "⏱ TỔNG 7.0 phút (3 bước)" in line
+        assert "7.0 phút (3 bước)" in line
         assert line.index("test 300s") < line.index("sync 100s") < \
             line.index("brief 20s")
+
+    def test_summary_carries_the_run_timestamp(self):
+        """`run_daily.log` xoay vòng và giữ nhiều đêm trong MỘT file, còn dòng
+        `⏱` thì trần trụi không mang ngày. Vết 25/08: grep ra 4 dòng `⏱` mà
+        không ai biết dòng nào của đêm nào ⇒ phép đo "bản vá có nhanh hơn
+        không" phải chờ thêm một đêm chỉ vì thiếu 16 ký tự."""
+        from datetime import datetime
+        line = run_mod._format_step_summary(
+            [("sync", 100.0)], now=datetime(2026, 8, 26, 18, 5))
+        assert "[2026-08-26 18:05]" in line
+
+    def test_the_stamp_sits_between_the_label_and_the_number(self):
+        # Grep vẫn phải bắt được "⏱ TỔNG", và mắt vẫn đọc được số ngay sau dấu
+        from datetime import datetime
+        line = run_mod._format_step_summary(
+            [("sync", 100.0)], now=datetime(2026, 8, 26, 18, 5))
+        assert line.index("⏱ TỔNG") < line.index("[2026-08-26") < \
+            line.index("1.7 phút")
+
+    def test_stage_line_is_stamped_too(self):
+        import inspect
+        src = inspect.getsource(run_mod._print_sync_breakdown)
+        assert "_stamp()" in src and "⏱ CHẶNG" in src
 
     def test_summary_uses_en_thousands_format(self):
         line = run_mod._format_step_summary([("sync", 1234.5)])

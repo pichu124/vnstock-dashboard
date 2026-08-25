@@ -36,7 +36,18 @@ nhanh hơn cả lượt TẮT cửa gác (2.224s) — bản vá không thể gi�
 ```powershell
 Select-String -Path C:\vnstock\run_daily.log -Pattern '⏱ TỔNG|⏱ CHẶNG' | Select-Object -Last 4
 ```
-Dán cho Claude **một lần** rồi đóng mục này. Chi tiết: U29.
+
+⚠️ **Chưa đo được** — lượt grep 25/08 trả về đúng 4 dòng CŨ. `run_daily.log`
+xoay vòng và giữ nhiều đêm trong một file, mà dòng `⏱` thì trần trụi không
+mang ngày ⇒ không phân biệt được đêm nào.
+
+**Đã vá:** từ HEAD, cả hai dòng mang dấu thời gian —
+`⏱ TỔNG [2026-08-26 18:05] 69.0 phút …`. Nên lần sau nhìn là biết ngay dòng
+nào mới.
+
+**Điều kiện đo SẠCH:** một ngày **KHÔNG chạy tay** `run.py sync` / `run.py all`
+trước phát 18:00. Thấy dòng có dấu ngày MỚI thì dán cho Claude **một lần** rồi
+đóng mục này. Chi tiết: U29.
 
 ## 2. 💳 Quyết Cerebras 402 — ○ máy nào cũng được
 

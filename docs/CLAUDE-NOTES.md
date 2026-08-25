@@ -6966,6 +6966,39 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🔧 U30. DÒNG ĐO KHÔNG MANG NGÀY — phép đo phải chờ thêm một đêm (25/08)
+
+User dán lại 4 dòng `⏱` để chốt việc #1 (đo sạch bản vá cửa sổ). Nhưng đó
+đúng là **4 dòng CŨ** — chưa có phát mới. Không ai phát hiện ngay được, kể cả
+Claude, vì:
+
+```
+[run.py] ⏱ TỔNG 69.0 phút (14 bước) — screener 1,318s · sync 1,145s · …
+[sync]   ⏱ CHẶNG 19.1 phút — auto-heal 504s · fix-units 316s · …
+```
+
+**Không dòng nào mang ngày.** Mà `run_daily.log` thì XOAY VÒNG và giữ nhiều
+đêm trong cùng một file (`_rotate_run_log`, 3 thế hệ). Nên `Select-Object
+-Last 4` trả về một hỗn hợp: TỔNG của 24/08, CHẶNG của lượt chạy TAY 25/08,
+CHẶNG + TỔNG của phát 25/08 — và người đọc phải tự nhớ thứ tự để biết dòng
+nào là dòng nào.
+
+Hệ quả cụ thể: một phép đo hiệu năng phải hoãn thêm một đêm **chỉ vì thiếu 16
+ký tự**. Đây là họ bug "dữ liệu đúng nhưng không truy được nguồn gốc" — cùng
+loại với U20 (bộ chấm live mode không in cửa sổ đo nên không chẩn đoán được
+từ output dán lại).
+
+**Vá:** `_stamp()` (hàm thuần, nhận `now` để test cắm giờ cố định) và cả hai
+dòng nay in
+`⏱ TỔNG [2026-08-26 18:05] 69.0 phút (14 bước) — …`.
+Dấu đặt GIỮA nhãn và con số nên `grep '⏱ TỔNG'` vẫn bắt được y như cũ, và mắt
+vẫn đọc số ngay sau dấu. 4 test canh: có dấu · đúng vị trí · dòng CHẶNG cũng
+được đóng dấu · format số EN không đổi.
+
+Suite: **2.553 passed** (fast 2.059).
+
+---
+
 # ⚠️ U29. PHÁT 25/08: 69,0′ — SỐ ĐẸP NHƯNG **KHÔNG SẠCH** (đừng ghi công vội)
 
 ```

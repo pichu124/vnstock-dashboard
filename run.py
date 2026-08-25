@@ -87,7 +87,7 @@ def _print_sync_breakdown(sub: "list[tuple[str, float]]") -> None:
     total = sum(d for _, d in sub)
     ranked = sorted(sub, key=lambda nd: -nd[1])
     parts = " · ".join(f"{n} {d:,.0f}s" for n, d in ranked)
-    print(f"[sync] ⏱ CHẶNG {total / 60:,.1f} phút — {parts}")
+    print(f"[sync] ⏱ CHẶNG [{_stamp()}] {total / 60:,.1f} phút — {parts}")
 
 
 def cmd_sync(args) -> int:
@@ -1415,7 +1415,20 @@ def cmd_all(args) -> int:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _format_step_summary(durations: "list[tuple[str, float]]") -> str:
+def _stamp(now=None) -> str:
+    """Dấu thời gian cho dòng đo — KHÔNG có nó thì dòng đo vô dụng khi grep.
+
+    `run_daily.log` xoay vòng và giữ nhiều đêm trong một file, còn các dòng
+    `⏱` thì trần trụi không mang ngày. Hệ quả thật (25/08): grep ra 4 dòng
+    `⏱` mà không ai — kể cả Claude — biết dòng nào của đêm nào, nên phép đo
+    "bản vá có nhanh hơn không" phải chờ thêm một đêm nữa chỉ vì thiếu 16 ký
+    tự. Tham số `now` để test cắm giờ cố định.
+    """
+    from datetime import datetime as _dt
+    return (now or _dt.now()).strftime("%Y-%m-%d %H:%M")
+
+
+def _format_step_summary(durations: "list[tuple[str, float]]", now=None) -> str:
     """Một dòng tổng kết thời lượng các bước `all` — bước NẶNG nhất đứng đầu.
 
     Mục ② đo hiệu năng: dòng này (grep "⏱ TỔNG") là đầu vào cho quyết định
@@ -1425,7 +1438,7 @@ def _format_step_summary(durations: "list[tuple[str, float]]") -> str:
     total = sum(d for _, d in durations)
     ranked = sorted(durations, key=lambda nd: -nd[1])
     parts = " · ".join(f"{n} {d:,.0f}s" for n, d in ranked)
-    return (f"[run.py] ⏱ TỔNG {total / 60:,.1f} phút "
+    return (f"[run.py] ⏱ TỔNG [{_stamp(now)}] {total / 60:,.1f} phút "
             f"({len(durations)} bước) — {parts}")
 
 
