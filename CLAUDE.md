@@ -69,8 +69,8 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   lần**, KHÔNG phải ⇄ CẢ HAI (sửa 19/08).
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~2.100 test; ~40s trên CI).
-- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.594 test).
+- Sửa module lõi nào → `python run.py test --fast` (~2.103 test; ~40s trên CI).
+- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.597 test).
   Đo trên MÁY THẬT 19/08 (sau đợt vá): **2.181 passed / 100,3s** — khớp CI từng test một
   (CI ~36s; máy thật chậm hơn ~3× vì có kho dữ liệu, không phải vì bỏ test).
 - Kết quả ghi `data_warehouse/_meta/test_status.json` → badge sidebar.
@@ -154,7 +154,8 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 - Mọi auto-refresh đều best-effort và có env kill-switch
   (`VNSTOCK_BRIEF_AUTO_*`, `VNSTOCK_MACRO_*`, `VNSTOCK_BASIS_GUARD`,
   `VNSTOCK_OHLC_REPAIR`, `VNSTOCK_AUTOHEAL_BUDGET_S`, `VNSTOCK_VN30_DYNAMIC`,
-  `VNSTOCK_WSS_HOT_TIER`, `VNSTOCK_BRIEF_WATCH`).
+  `VNSTOCK_WSS_HOT_TIER`, `VNSTOCK_BRIEF_WATCH`,
+  `VNSTOCK_FIXUNITS_FOOTER_PRUNE`).
 - Nghi ngờ CHƯA đủ căn cứ để vá → **đừng ghi vào notes, hãy ĐẾM**:
   `vnstock_brief_watch` nhặt bằng chứng mỗi phiên vào `_meta/brief_watch.json`,
   badge doctor `brief_watch` chỉ réo khi ≥ `MIN_SAMPLES` phiên. Dưới sàn mẫu

@@ -128,3 +128,32 @@ class TestReportCarriesTheMeasurement:
         _mk(wh, "B", [10.0] * 20 + [9999.0] + [10.0] * 9)
         rep = fu.scan(wh, tickers=["A"])
         assert rep.scanned_tickers == 1 and {f.ticker for f in rep.fixes} == {"A"}
+
+
+class TestKillSwitch:
+    """Bước này GHI vào kho giá, nên phải có đường đối chứng — user không
+    được buộc phải tin rằng phép lọc là tương đương."""
+
+    def test_disabling_the_prune_reads_everything(self, wh, monkeypatch):
+        _mk(wh, "SACH", [10.0] * 40)
+        monkeypatch.setenv("VNSTOCK_FIXUNITS_FOOTER_PRUNE", "0")
+        rep = fu.scan(wh)
+        assert rep.skipped_by_footer == 0
+        assert rep.scanned_bars == 40          # đã giải nén thật
+
+    def test_both_modes_find_exactly_the_same_fixes(self, wh, monkeypatch):
+        _mk(wh, "SACH", [10.0] * 40)
+        _mk(wh, "BAN", [10.0] * 20 + [12345.0] + [10.0] * 19)
+        _mk(wh, "NUA", [25.0] * 30)
+
+        def _fixes():
+            return {(f.ticker, f.time, f.close_after) for f in fu.scan(wh).fixes}
+
+        monkeypatch.setenv("VNSTOCK_FIXUNITS_FOOTER_PRUNE", "0")
+        off = _fixes()
+        monkeypatch.setenv("VNSTOCK_FIXUNITS_FOOTER_PRUNE", "1")
+        assert _fixes() == off
+
+    def test_default_is_on(self, monkeypatch):
+        monkeypatch.delenv("VNSTOCK_FIXUNITS_FOOTER_PRUNE", raising=False)
+        assert fu.prune_enabled() is True

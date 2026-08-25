@@ -176,8 +176,27 @@ def _max_close_from_footer(pq_file: Path) -> "float | None":
     return best
 
 
+_PRUNE_ENV = "VNSTOCK_FIXUNITS_FOOTER_PRUNE"
+
+
+def prune_enabled() -> bool:
+    """Kill-switch cho phép lọc footer.
+
+    Bước này GHI vào kho giá, nên user phải tự đối chứng được chứ không phải
+    tin lời ai: đặt `VNSTOCK_FIXUNITS_FOOTER_PRUNE=0` là quay về đúng hành vi
+    cũ (đọc MỌI mã, MỌI cột). Chạy `run.py fix-units --dry-run --json` hai
+    lượt bật/tắt rồi so `fix_count` — bằng nhau nghĩa là phép lọc đúng là
+    tương đương.
+    """
+    import os as _os
+    return _os.environ.get(_PRUNE_ENV, "1").strip().lower() \
+        not in ("0", "false", "no")
+
+
 def _needs_read(ticker_dir: Path) -> bool:
     """Mã này có thể chứa bar sai đơn vị không? Sai lệch về phía ĐỌC."""
+    if not prune_enabled():
+        return True
     files = sorted(ticker_dir.glob("year=*/*.parquet"))
     if not files:
         return False

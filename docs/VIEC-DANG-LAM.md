@@ -26,6 +26,29 @@ desktop). **Phiên hiện tại: 🖥️ DESKTOP.**
 
 # 🔴 CÒN PHẢI LÀM
 
+## 0. 🔬 Đối chứng `fix-units` — 🖥️ desktop, CHỈ ĐỌC, làm TRƯỚC
+
+Bản vá 26/08 lọc bằng thống kê footer parquet trên đường **GHI KHO GIÁ**. Tôi
+chứng minh nó tương đương và có 16 test canh — nhưng bạn phải tự kiểm được,
+không phải tin lời tôi. Hai lượt CHỈ ĐỌC (`--dry-run` không sửa file nào):
+
+```powershell
+python run.py fix-units --dry-run --json
+$env:VNSTOCK_FIXUNITS_FOOTER_PRUNE = "0"
+python run.py fix-units --dry-run --json
+Remove-Item Env:VNSTOCK_FIXUNITS_FOOTER_PRUNE
+```
+
+* **`fix_count` hai lượt BẰNG NHAU** ⇒ phép lọc đúng là tương đương. Đó là
+  điều duy nhất phải khớp.
+* `skipped_by_footer` (lượt 1) cho biết bỏ qua được bao nhiêu mã — đó là phần
+  thời gian tiết kiệm.
+* Chênh thời gian giữa hai lượt là mức lợi thật trên đĩa Dropbox của bạn.
+
+⚠️ Nhớ `Remove-Item Env:...` (hoặc mở PowerShell mới) trước 18:00.
+
+---
+
 ## 1. 📏 Đo SẠCH thời gian phát — 🖥️ desktop, 1 lệnh
 
 Phát 25/08 chạy **69,0′** (từ 166,3′), đệm dưới trần task lên **111′**. Nhưng
@@ -93,7 +116,7 @@ Laptop đang ở `2.447`, HEAD là **`2.550`**.
 ```powershell
 cd C:\vnstock
 git pull origin claude/tong-hop-cong-viec-test-w8mvrc
-python run.py test          # phải ra 2.553 passed
+python run.py test          # phải ra 2.597 passed
 ```
 
 **📦 vnstock 4.0.7 đã ra — cổng gỡ chặn 4.0.6 đã mở.** Đúng thứ tự:
