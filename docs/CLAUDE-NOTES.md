@@ -6966,6 +6966,117 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🚀 U31. BA BẢN VÁ 26/08 — screener quét 14 lần, fix-units đọc thừa, watchlist có mốc THẬT
+
+Ba việc user giao cùng lúc. Bốn luồng đọc code song song trước khi sửa — và
+recon **lật một kế hoạch của tôi**, đó mới là phần đáng ghi.
+
+## ① Screener 1.318s: 14 lượt quét kho **y hệt nhau**
+
+`run_all_presets` lặp preset ở NGOÀI, `scan()` lặp mã ở TRONG, và filter của
+preset chỉ được áp **SAU** khi đã đọc parquet + tính trọn bộ chỉ báo:
+
+```python
+df  = self._load_ticker(ticker)      # 2 file parquet
+ind = _calc_indicators(df)           # RSI/EMA/MACD/BB/52w + nến + CRSI + W + HA
+if filter_fn: ...                    # ← preset chỉ khác NHAU ở ĐÂY
+```
+
+`_calc_indicators` là hàm THUẦN của `df`, `df` là hàm thuần của
+`(ticker, lookback_days)`. Không gì phụ thuộc preset. Nên **13/14 lượt là lặp
+lại nguyên xi**.
+
+⚠️ **`PRESETS` có 14 mục, không phải 9** — CLAUDE.md ghi sai từ lâu, và con số
+đó chính là HỆ SỐ NHÂN của toàn bộ chi phí bước này. Đã sửa.
+
+Đo bằng kho tổng hợp (300 mã × 3 năm × ~250 bar): **17-19 ms/mã/lượt**, chia
+gần đều I/O (8,5 ms) và pandas (8,8 ms), **đúng 2 lần mở parquet mỗi mã mỗi
+lượt**. Suy ra ~1.100 mã × 2 file × 14 preset ≈ **31.000 lần mở parquet mỗi
+đêm** chỉ cho bước 1.
+
+**Vá:** `_indicators_for(ticker, min_rows)` — nhớ `(len(df), ind)` trên
+instance. 14 lượt → 1. Ba điểm phải cẩn thận, đều có test canh:
+* trả **bản SAO** — chỗ gọi gắn `ticker`/`industry` vào dict, sửa thẳng cache
+  là preset sau nhận rác preset trước;
+* `min_rows` **đổi theo preset** nên xét lại mỗi lượt, không nướng vào cache;
+* mã rỗng / chỉ báo rỗng cũng phải nhớ là MISS, không thì vẫn đọc lại 14 lần.
+
+Cache sống trên MỘT instance trong tiến trình ngắn của `vnstock_runner.py`, và
+không bước nào ghi `prices/` lúc đó ⇒ không thể ôi.
+
+*(Chưa vá, ghi lại: vòng lặp Net BS ở `vnstock_runner.py:466-493` gọi
+`Trading(symbol=tk).order_stats()` **tuần tự cho MỌI mã** — biến tên
+`_top_tickers` nhưng không hề cắt — với `sleep(0.15)`, tức sàn 135-165s trước
+cả thời gian mạng; cache TTL 12h < nhịp 24h nên **nguội mỗi đêm**. Đây là ứng
+viên co-equal, không tách được khỏi 1.318s nếu chỉ đọc code.)*
+
+## ② fix-units 316s: lọc bằng THỐNG KÊ FOOTER, không thêm state nào
+
+Bước này quét ~**3.125** thư mục mã (KHÔNG lọc `_is_stock` như updater chỉ
+~1.600) và giải nén **cả 6 cột** trong khi chỉ dùng `time` + `close`.
+
+Chìa khoá: `_detect_in_ticker` chỉ có thể sinh fix khi tồn tại bar
+`close > RAW_VND_THRESHOLD`. Parquet ghi sẵn min/max mỗi cột trong **footer**,
+và `pq.read_metadata` đọc footer mà **không giải nén data page**. Nên
+`max(close) ≤ ngưỡng ⇒ bỏ qua` là phép lọc **tương đương chứng minh được**,
+không phải phỏng đoán.
+
+Bất biến sống chết: **nghi ngờ thì ĐỌC**. Thiếu cột `close`, thiếu statistics,
+footer hỏng, ném lỗi ⇒ đọc như cũ. Bỏ sót một bar sai đơn vị là ghi số sai vào
+kho giá — đắt hơn nhiều so với đọc thừa vài mã. Có test cho cả 5 nhánh nghi ngờ.
+
+Thêm `skipped_by_footer` vào `FixReport` + `to_dict()`: trước đây **không gì
+ghi lại** bước này tốn công vào đâu, nên con số 98s → 302s → 316s không ai
+giải thích được. (Và git cũng không giải thích: commit duy nhất đụng
+`vnstock_fix_units.py` trong khoảng đó chỉ đổi đường GHI, mà đường ghi không
+chạy khi không có fix. Bar tăng cũng không: 3 phiên giữa 98s và 302s.)
+
+## ③ Watchlist: mốc THẬT — và tôi suýt dùng nhầm hàm
+
+Tôi định nối `vnstock_strategy._ticker_pivots` (chính tôi đã ghi tên nó vào
+sổ). Recon cho thấy **đó là hàm sai**:
+* nó trả về một **CHUỖI tiếng Việt đã format**, không phải số;
+* nó `round(v, 0)` trên đơn vị **nghìn VND** — với GAS ở 83,5 thì bước làm
+  tròn là **1,2%**, nhiễu còn lớn hơn khoảng cách tới mốc;
+* nó **không có sàn** khoảng cách / khoảng hở / tầm với nào — R1 chỉ là đỉnh
+  bar gần nhất trên giá, có thể cách 0,1%.
+
+Bản đúng nằm ngay trong `vnstock_brief.py`: **`_select_sr_levels`** — thuần,
+bất biến theo đơn vị (mọi phép so là TỈ SỐ), và đã có đủ ba sàn
+`_SR_MIN_DIST_PCT` / `_SR_MIN_GAP_PCT` / `_SR_MAX_MOVE_PCT` sinh ra từ đúng
+những ca nhiễu mà đường CHỈ SỐ đã dính (S1 cách close 0,03%; R1→R2 cách 0,05%;
+S2 cách 16% được chào làm mục tiêu).
+
+**Vá:** `ticker_sr_levels(highs, lows, last)` — hàm thuần, cùng cửa sổ với
+đường chỉ số (60 bar **bỏ 2 bar cuối**, vì 2 bar cuối còn dính giá hiện tại
+nên chưa phải đỉnh/đáy đã hình thành). I/O nằm ở `_attach_ticker_sr`, gọi từ
+**`collect_context`** — KHÔNG phải `build_prompt` (test gọi nó với ctx 2 khoá,
+không có kho) và KHÔNG phải tầng guard (ctx watchlist không mang OHLC nên
+guard không thể tự tính). Rẻ: `_select_liquid_movers` trả tối đa 5+5 mã.
+
+Ba dạng nhãn, đều có test:
+```
+⭐ [hỗ trợ 81,200 / kháng cự 87,400 — pivot 60 phiên]
+⭐ [kháng cự 13,900 — pivot 60 phiên, CHƯA có mốc còn lại trong tầm]
+⭐ [dải ±3% quanh giá: 41,350 – 43,950 — mốc THAM CHIẾU …]
+```
+Vế thiếu thì **nói là thiếu**, tuyệt đối không bịa. Template dạy model đọc kỹ
+dạng nào rồi hẵng viết.
+
+Guard `_reference_bands` nay **bỏ qua** mã đã có pivot thật: nạp dải ±3% vào
+đó chỉ tạo nguy cơ ghi đè nhầm một mốc THẬT tình cờ trùng số.
+
+## Lưới mới
+`test_screener_ind_cache.py` (9) · `test_fix_units_footer_prune.py` (13) ·
+`test_watchlist_real_pivots.py` (19). Cả ba vào `--fast`.
+Suite: **2.594 passed** (fast 2.100).
+
+**Chưa đo được trên máy thật.** Kỳ vọng: screener 1.318s → vài trăm giây (trừ
+phần Net BS chưa đụng), fix-units 316s → nhỏ hơn hẳn. Phát kế tiếp là phép đo.
+
+---
+
+
 # 🔧 U30. DÒNG ĐO KHÔNG MANG NGÀY — phép đo phải chờ thêm một đêm (25/08)
 
 User dán lại 4 dòng `⏱` để chốt việc #1 (đo sạch bản vá cửa sổ). Nhưng đó

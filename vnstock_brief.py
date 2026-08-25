@@ -322,7 +322,9 @@ Block "Top Gainers/Losers thanh khoản cao" BÌNH THƯỜNG có sẵn vài mã 
 CHIỀU LỆNH — hướng setup PHẢI nhất quán với "Stance ngày mai"/bias: Stance GIẢM (regime/momentum yếu) → ƯU TIÊN mẫu phòng thủ (GIẢM TỶ TRỌNG/TRÁNH), KHÔNG mở loạt setup MUA mới; nếu nêu MUA thì PHẢI là kèo CÓ ĐIỀU KIỆN ("chỉ canh MUA NẾU vượt lại [kháng cự]"). Stance TĂNG → ưu tiên MUA. Chọn ĐÚNG 1 trong 2 mẫu, mốc giá phải đúng thứ tự (TỰ KIỂM TRA trước khi xuất, không được mâu thuẫn):
 - Ý tưởng TĂNG → "MUA vùng [entry] · chốt lời [TP] · cắt lỗ [SL]" — BẮT BUỘC SL < entry < TP.
 - Ý tưởng GIẢM → KHÔNG viết "SELL ở [giá]" (TTCK VN không cho NĐT cá nhân bán khống). Viết: "GIẢM TỶ TRỌNG/TRÁNH nếu thủng [hỗ trợ] · mục tiêu về [thấp hơn] · hủy kịch bản nếu vượt lại [cao hơn]" — BẮT BUỘC mục tiêu < hỗ trợ < mức hủy.
-MỐC GIÁ SETUP MỖI MÃ LẤY TỪ "[dải ±3% quanh giá: X – Y]" ĐÃ TÍNH SẴN ngay sau mã ⭐ trong block movers. Dùng đúng các số đó: entry/mốc dưới ≈ X, mốc trên/mục tiêu tăng ≈ Y, TP/SL nới thêm vài % cùng thang. ⚠️ X,Y là GIÁ ×0,97 và ×1,03 — KHÔNG đo từ đỉnh/đáy nào: TUYỆT ĐỐI KHÔNG gọi chúng là "hỗ trợ", "kháng cự", "vùng cung cầu" hay bất kỳ chữ nào hàm ý mốc kỹ thuật đo được; gọi là "mốc tham chiếu" / "dải ±3%". TUYỆT ĐỐI KHÔNG dùng mức S1/S2/R1/R2 của VNINDEX (vd 1.801,66 / 1.789,31 — đó là ĐIỂM SỐ CHỈ SỐ, KHÔNG phải giá cổ phiếu) làm mốc cho setup một mã. Nếu mốc setup có cùng thang số với VNINDEX (1.7xx-1.8xx) trong khi Giá mã ở thang khác → SAI, làm lại bằng "dải ±3% quanh giá".
+MỐC GIÁ SETUP MỖI MÃ LẤY TỪ khối trong ngoặc vuông ngay sau mã ⭐ trong block movers. Có HAI dạng, ĐỌC KỸ dạng nào rồi hẵng viết:
+(a) "[hỗ trợ X / kháng cự Y — pivot 60 phiên]" = mốc THẬT, đo từ đỉnh/đáy 60 phiên. ĐƯỢC gọi là hỗ trợ/kháng cự. Dùng: entry quanh X (kèo tăng) hoặc mốc thủng X (kèo giảm), mục tiêu Y, TP/SL nới thêm vài % cùng thang. Chỉ có MỘT vế thì CHỈ dùng vế đó, TUYỆT ĐỐI KHÔNG bịa vế còn lại.
+(b) "[dải ±3% quanh giá: X – Y — mốc THAM CHIẾU…]" = KHÔNG đo được mốc thật, X,Y chỉ là giá ×0,97 và ×1,03. TUYỆT ĐỐI KHÔNG gọi chúng là "hỗ trợ", "kháng cự", "vùng cung cầu" hay bất kỳ chữ nào hàm ý mốc kỹ thuật đo được; gọi là "mốc tham chiếu" / "dải ±3%". TUYỆT ĐỐI KHÔNG dùng mức S1/S2/R1/R2 của VNINDEX (vd 1.801,66 / 1.789,31 — đó là ĐIỂM SỐ CHỈ SỐ, KHÔNG phải giá cổ phiếu) làm mốc cho setup một mã. Nếu mốc setup có cùng thang số với VNINDEX (1.7xx-1.8xx) trong khi Giá mã ở thang khác → SAI, làm lại bằng "dải ±3% quanh giá".
 Setup đưa ra là setup THẬT để theo dõi — TUYỆT ĐỐI KHÔNG viết chú thích meta kiểu "(đây là ví dụ)", "(không dùng thực tế)", "(mang tính minh họa)", "(không có đủ thông tin)". Nếu không đủ tự tin về một mã → BỎ HẲN mã đó (ít setup hơn vẫn tốt hơn setup kèm disclaimer).
 1. **[Mã]** (Giá [số] từ data) — [đúng 1 trong 2 mẫu trên] — [trigger 1 dòng]
 2. [chỉ thêm nếu có mã thứ 2 ĐỦ GIÁ — nếu không, bỏ dòng này]
@@ -1986,6 +1988,41 @@ def _gtgd_baselines(byd: dict, data_date: str) -> "dict | None":
     return cmp
 
 
+def _attach_ticker_sr(movers: list) -> None:
+    """Gắn `sr_support` / `sr_resistance` (nghìn VND) vào từng mover, tại chỗ.
+
+    Đặt ở TẦNG DỰNG CTX chứ không phải tầng guard hay `build_prompt`: ctx
+    watchlist không mang OHLC của mã nên guard KHÔNG thể tự tính, còn
+    `build_prompt` phải giữ sạch I/O (test gọi nó với ctx 2 khoá, không có
+    kho). `collect_context` thì vốn đã đọc đĩa.
+
+    Rẻ: `_select_liquid_movers` trả tối đa 5+5 mã. Hỏng mã nào thì mã đó
+    KHÔNG có mốc và rơi về dải ±3% — không kéo cả brief theo.
+    """
+    if not movers:
+        return
+    try:
+        from vnstock_strategy import _load_history_from_parquet
+    except Exception:
+        return
+    for m in movers:
+        tk = str(m.get("Mã") or "").strip().upper()
+        if not tk:
+            continue
+        try:
+            df = _load_history_from_parquet(tk, days=90)
+            if df is None or df.empty or "high" not in df or "low" not in df:
+                continue
+            sup, res = ticker_sr_levels(list(df["high"]), list(df["low"]),
+                                        m.get("last"))
+            if sup is not None:
+                m["sr_support"] = sup
+            if res is not None:
+                m["sr_resistance"] = res
+        except Exception:
+            continue
+
+
 def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> dict:
     """Collect all available market data for brief generation.
 
@@ -2152,6 +2189,8 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     if ctx["tickers"]:
         try:
             _g, _l, _uni = _select_liquid_movers(ctx["tickers"])
+            _attach_ticker_sr(_g)
+            _attach_ticker_sr(_l)
             ctx["vn30_gainers"] = _g
             ctx["vn30_losers"] = _l
             ctx["mover_universe"] = _uni
@@ -2486,6 +2525,44 @@ def _load_vnindex_df(augment: bool = True) -> "pd.DataFrame":
 # 0.05% → "vượt R1 test R2" meaningless). Tune here.
 _SR_MIN_DIST_PCT: float = 0.005
 _SR_MIN_GAP_PCT: float = 0.008
+
+
+# ── S/R THẬT cho một MÃ (không phải chỉ số) ──────────────────────────────
+# Mốc watchlist trước nay là `giá ×0,97 / ×1,03` — đã gọi đúng tên "dải ±3%"
+# (U23) nhưng vẫn vô nghĩa về kỹ thuật. Đường CHỈ SỐ thì đã có S/R thật từ
+# lâu; chỉ là chưa ai nối nó cho từng mã.
+#
+# ⚠️ CỐ Ý KHÔNG dùng `vnstock_strategy._ticker_pivots`, dù tên nó nghe đúng
+# việc: nó trả về một CHUỖI tiếng Việt đã format, và nó `round(v, 0)` trên
+# đơn vị nghìn VND — với GAS ở 83,5 thì bước làm tròn là 1,2%, tức nhiễu lớn
+# hơn cả khoảng cách tới mốc. Nó cũng không có sàn khoảng cách/khoảng hở nào.
+# `_select_sr_levels` ngay dưới đây mới là bản đã học đủ bài (các sàn
+# `_SR_MIN_DIST_PCT` / `_SR_MIN_GAP_PCT` / `_SR_MAX_MOVE_PCT` sinh ra từ đúng
+# những ca nhiễu mà đường chỉ số đã dính).
+def ticker_sr_levels(highs, lows, last: float) -> "tuple[float | None, float | None]":
+    """(hỗ trợ, kháng cự) gần nhất ACTIONABLE của một mã. HÀM THUẦN.
+
+    Cùng cửa sổ với đường chỉ số: 60 bar gần nhất **bỏ 2 bar cuối** (2 bar
+    cuối còn dính giá hiện tại nên không phải "đỉnh/đáy đã hình thành").
+    Không đủ bar hoặc không có ứng viên nào qua sàn ⇒ trả None — thà không
+    có mốc còn hơn có mốc bịa.
+    """
+    try:
+        last = float(last)
+    except (TypeError, ValueError):
+        return (None, None)
+    if not last or last <= 0:
+        return (None, None)
+    hs = [float(v) for v in (highs or []) if v == v and v]
+    ls = [float(v) for v in (lows or []) if v == v and v]
+    if len(hs) < 12 or len(ls) < 12:
+        return (None, None)
+    hs, ls = hs[-62:-2], ls[-62:-2]
+    above = sorted({round(v, 2) for v in hs if v > last})
+    below = sorted({round(v, 2) for v in ls if v < last}, reverse=True)
+    res = _select_sr_levels(above, last)
+    sup = _select_sr_levels(below, last)
+    return (sup[0] if sup else None, res[0] if res else None)
 
 
 def _select_sr_levels(cands: "list[float]", last: float) -> "list[float]":
@@ -3198,9 +3275,24 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             # pivot thật (`vnstock_strategy._ticker_pivots`) nhưng chưa nối
             # vào đường này; chừng nào chưa nối thì nhãn phải nói thật.
             _p = float(price) * 1000
-            line += (f" ⭐ [dải ±3% quanh giá: {_round_tick(_p * 0.97, _p):,} – "
-                     f"{_round_tick(_p * 1.03, _p):,} — mốc THAM CHIẾU tính từ "
-                     f"giá, KHÔNG phải hỗ trợ/kháng cự đo được]")
+            # Ưu tiên MỐC THẬT nếu `collect_context` đọc được lịch sử giá
+            # (`_attach_ticker_sr` → `ticker_sr_levels`, pivot 60 phiên bỏ 2
+            # bar cuối, có sàn khoảng cách/khoảng hở). Chỉ khi KHÔNG có mới
+            # rơi về dải ±3% — và khi đó nhãn phải nói thật nó là gì.
+            _sup, _res = g.get("sr_support"), g.get("sr_resistance")
+            _parts = []
+            if _sup:
+                _parts.append(f"hỗ trợ {_round_tick(float(_sup) * 1000, _p):,}")
+            if _res:
+                _parts.append(f"kháng cự {_round_tick(float(_res) * 1000, _p):,}")
+            if _parts:
+                line += (f" ⭐ [{' / '.join(_parts)} — pivot 60 phiên"
+                         + (", CHƯA có mốc còn lại trong tầm"
+                            if len(_parts) == 1 else "") + "]")
+            else:
+                line += (f" ⭐ [dải ±3% quanh giá: {_round_tick(_p * 0.97, _p):,} – "
+                         f"{_round_tick(_p * 1.03, _p):,} — mốc THAM CHIẾU tính từ "
+                         f"giá, KHÔNG phải hỗ trợ/kháng cự đo được]")
         return line
 
     if gainers := ctx.get("vn30_gainers"):

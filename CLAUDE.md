@@ -1,6 +1,6 @@
 # CLAUDE.md — vnstock-dashboard
 
-Nền tảng phân tích chứng khoán VN (Streamlit): screener 9 preset, phân tích
+Nền tảng phân tích chứng khoán VN (Streamlit): screener 14 preset, phân tích
 kỹ thuật/cơ bản, tổng quan thị trường, live mode WSS ~1.100 mã, warehouse
 Parquet local, AI brief sáng/chiều gửi Telegram.
 
@@ -69,8 +69,8 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   lần**, KHÔNG phải ⇄ CẢ HAI (sửa 19/08).
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~2.059 test; ~40s trên CI).
-- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.553 test).
+- Sửa module lõi nào → `python run.py test --fast` (~2.100 test; ~40s trên CI).
+- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 2.594 test).
   Đo trên MÁY THẬT 19/08 (sau đợt vá): **2.181 passed / 100,3s** — khớp CI từng test một
   (CI ~36s; máy thật chậm hơn ~3× vì có kho dữ liệu, không phải vì bỏ test).
 - Kết quả ghi `data_warehouse/_meta/test_status.json` → badge sidebar.

@@ -125,12 +125,16 @@ hiệu guard đang LÀM VIỆC, không phải hỏng.
 
 # 🟠 VIỆC CỦA CLAUDE — nói "làm đi" là chạy
 
-| # | Việc | Vì sao đáng |
+| # | Việc | Trạng thái |
 |---|---|---|
-| 1 | **Nối pivot THẬT vào mốc watchlist** (`vnstock_strategy._ticker_pivots`) ở tầng dựng ctx | Mốc hiện là dải ±3%, đã gọi ĐÚNG TÊN nhưng vẫn vô nghĩa về kỹ thuật (U23) |
-| 2 | **Soi `screener` 1.318s = 22′** — nay lớn hơn CẢ `sync`, trước bị `updater` che khuất | Chưa ai soi bao giờ. Không gấp khi đệm 111′ |
-| 3 | **Soi `fix-units` 316s** — quét TOÀN KHO mỗi đêm, tăng đều 98 → 302 → 316s | Cùng lý do |
+| ~~1~~ | **Pivot THẬT cho mốc watchlist** | ✅ **XONG 26/08** — `ticker_sr_levels` (pivot 60 phiên, bỏ 2 bar cuối, có 3 sàn nhiễu). Thiếu vế nào thì NÓI là thiếu, không bịa. *(Recon lật kế hoạch: `_ticker_pivots` là hàm SAI — trả chuỗi, làm tròn 1,2%, không sàn nào.)* |
+| ~~2~~ | **`screener` 1.318s** | ✅ **XONG 26/08** — nó quét kho **14 lần y hệt nhau** (14 preset, filter chỉ áp SAU khi đã đọc + tính). Nhớ chỉ báo ⇒ 14 lượt → 1. |
+| ~~3~~ | **`fix-units` 316s** | ✅ **XONG 26/08** — lọc bằng **thống kê footer parquet** (tương đương chứng minh được, không thêm state), + chỉ giải nén `time`/`close`. |
 | 4 | **Bỏ hay giữ đường CafeF `cash-dividends`** (404 từ 19/08) | Vietstock đã trả cả sự kiện tiền mặt ⇒ code chết trông như code sống |
+| 5 | **Vòng lặp Net BS trong screener** — gọi `order_stats()` TUẦN TỰ cho MỌI mã (~1.000 lần), `sleep(0.15)` ⇒ sàn 135-165s; cache TTL 12h < nhịp 24h nên **nguội mỗi đêm** | Ứng viên co-equal với #2, chưa tách được khỏi 1.318s nếu chỉ đọc code |
+
+**📏 Phát kế tiếp là phép đo của cả ba bản vá** — dán `⏱ TỔNG` + `⏱ CHẶNG` +
+dòng `screener` như thường lệ.
 
 ---
 

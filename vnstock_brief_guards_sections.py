@@ -1318,6 +1318,11 @@ def _reference_bands(ctx: dict | None) -> dict:
     out: dict = {}
     for key in ("vn30_gainers", "vn30_losers"):
         for m in (ctx or {}).get(key) or []:
+            # Mã ĐÃ có pivot thật thì prompt không hề đưa dải ±3% cho nó —
+            # nạp dải vào đây chỉ tạo nguy cơ ghi đè nhầm một mốc THẬT tình
+            # cờ trùng số.
+            if m.get("sr_support") or m.get("sr_resistance"):
+                continue
             tk = str(m.get("Mã") or "").strip().upper()
             try:
                 p_vnd = float(m.get("last")) * 1000

@@ -67,6 +67,10 @@ class UnitFix:
 class FixReport:
     scanned_tickers: int = 0
     scanned_bars: int = 0
+    # Mã bị LOẠI bằng thống kê footer (max(close) ≤ ngưỡng ⇒ không thể có bar
+    # sai đơn vị). Con số này là phép ĐO: trước đây không có gì ghi lại việc
+    # quét toàn kho mỗi đêm tốn công vào đâu.
+    skipped_by_footer: int = 0
     fixes: list[UnitFix] = field(default_factory=list)
     errors: list[tuple[str, str]] = field(default_factory=list)
 
@@ -78,6 +82,7 @@ class FixReport:
         return {
             "scanned_tickers": self.scanned_tickers,
             "scanned_bars": self.scanned_bars,
+            "skipped_by_footer": self.skipped_by_footer,
             "fix_count": len(self.fixes),
             "ticker_count": self.ticker_count,
             "fixes": [f.__dict__ for f in self.fixes],
@@ -128,17 +133,107 @@ def _detect_in_ticker(ticker: str, df: pd.DataFrame) -> list[UnitFix]:
     return out
 
 
+# ── Lọc bằng THỐNG KÊ FOOTER, không giải nén data page ───────────────────
+# `_detect_in_ticker` chỉ có thể sinh fix khi tồn tại bar `close >
+# RAW_VND_THRESHOLD` (dòng `candidates = close > RAW_VND_THRESHOLD`; không có
+# bar nào vượt thì nó trả [] ngay). Nên nếu **max(close) của cả lịch sử một
+# mã ≤ ngưỡng**, đọc mã đó là chắc chắn phí công.
+#
+# Parquet ghi sẵn min/max mỗi cột trong footer. `pq.read_metadata` đọc đúng
+# footer, KHÔNG giải nén data page — nên biết được max(close) gần như miễn
+# phí. Đây là phép lọc **tương đương chứng minh được**, không phải phỏng
+# đoán: bỏ qua đúng những mã mà đường cũ cũng sẽ không sinh fix nào.
+#
+# Vì sao đáng: đo 25/08 bước này 316s và ĐANG TĂNG (98s → 302s → 316s), nó
+# quét ~3.125 thư mục mã (KHÔNG lọc `_is_stock` như updater) và đọc CẢ 6 cột
+# trong khi chỉ dùng `time` + `close`.
+#
+# Không đọc được thống kê (thiếu cột, thiếu statistics, file lạ, ném lỗi) ⇒
+# **ĐỌC** mã đó như cũ. Nghi ngờ thì đọc — bỏ sót một bar sai đơn vị là ghi
+# số sai vào kho giá.
+def _max_close_from_footer(pq_file: Path) -> "float | None":
+    """max(close) đọc từ footer. None = KHÔNG kết luận được ⇒ phải đọc thật."""
+    import pyarrow.parquet as _pq
+
+    try:
+        md = _pq.read_metadata(str(pq_file))
+        idx = md.schema.names.index("close")
+    except Exception:
+        return None
+    best: "float | None" = None
+    for rg in range(md.num_row_groups):
+        try:
+            st = md.row_group(rg).column(idx).statistics
+        except Exception:
+            return None
+        if st is None or not st.has_min_max:
+            return None
+        try:
+            v = float(st.max)
+        except (TypeError, ValueError):
+            return None
+        best = v if best is None else max(best, v)
+    return best
+
+
+def _needs_read(ticker_dir: Path) -> bool:
+    """Mã này có thể chứa bar sai đơn vị không? Sai lệch về phía ĐỌC."""
+    files = sorted(ticker_dir.glob("year=*/*.parquet"))
+    if not files:
+        return False
+    for pq_file in files:
+        m = _max_close_from_footer(pq_file)
+        if m is None or m > RAW_VND_THRESHOLD:
+            return True
+    return False
+
+
+def _iter_candidate_tickers(warehouse: Path):
+    """Như `vnstock_anomaly._iter_warehouse_tickers` nhưng (a) bỏ qua mã mà
+    footer đã chứng minh là không thể có bar sai đơn vị, (b) chỉ giải nén
+    `time` + `close`.
+
+    Trả `(ticker, df | None)` — `None` = đã LOẠI bằng footer, chỗ gọi vẫn đếm
+    được là đã soi mà không phải đọc.
+    """
+    from vnstock_anomaly import PRICES_SUBDIR
+
+    prices_dir = warehouse / PRICES_SUBDIR
+    if not prices_dir.exists():
+        return
+    for ticker_dir in sorted(prices_dir.glob("ticker=*")):
+        if not ticker_dir.is_dir():
+            continue
+        ticker = ticker_dir.name.removeprefix("ticker=")
+        if not _needs_read(ticker_dir):
+            yield ticker, None
+            continue
+        frames: list[pd.DataFrame] = []
+        for pq_file in sorted(ticker_dir.glob("year=*/*.parquet")):
+            try:
+                frames.append(pd.read_parquet(pq_file, columns=["time", "close"]))
+            except Exception:
+                try:                      # cột lạ/thiếu ⇒ đọc trọn như cũ
+                    frames.append(pd.read_parquet(pq_file))
+                except Exception:
+                    continue
+        if not frames:
+            continue
+        yield ticker, pd.concat(frames, ignore_index=True)
+
+
 def scan(warehouse: Path, *, tickers: list[str] | None = None) -> FixReport:
     """Walk warehouse and collect all unit-mismatch bars (read-only)."""
-    from vnstock_anomaly import _iter_warehouse_tickers
-
     report = FixReport()
     target = {t.upper() for t in tickers} if tickers else None
 
-    for ticker, df in _iter_warehouse_tickers(warehouse):
+    for ticker, df in _iter_candidate_tickers(warehouse):
         if target is not None and ticker.upper() not in target:
             continue
         report.scanned_tickers += 1
+        if df is None:                    # footer đã loại — không có bar nào cần sửa
+            report.skipped_by_footer += 1
+            continue
         report.scanned_bars += len(df)
         try:
             report.fixes.extend(_detect_in_ticker(ticker, df))

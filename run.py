@@ -789,6 +789,12 @@ def cmd_test(args) -> int:
             # Sổ hiệu suất auto-heal: sai ở đây là badge réo khi CHƯA đủ mẫu,
             # hoặc im lặng trong khi mỗi đêm tiêu 600s chữa được số 0.
             "tests/test_autoheal_yield.py",
+            # Ba bản vá 26/08. Sai ở đây là: (a) cache chỉ báo làm LỆCH kết
+            # quả sàng lọc, (b) lọc footer BỎ SÓT bar sai đơn vị ⇒ ghi số sai
+            # vào kho, (c) watchlist bịa mốc hỗ trợ/kháng cự không đo được.
+            "tests/test_screener_ind_cache.py",
+            "tests/test_fix_units_footer_prune.py",
+            "tests/test_watchlist_real_pivots.py",
             "tests/test_model_ladder.py",
             "tests/test_auditor.py",
             "tests/test_parquet_io.py",

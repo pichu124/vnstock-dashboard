@@ -408,6 +408,45 @@ class MarketScreener:
             self.fundamentals, warehouse_root
         ) if self.fundamentals is not None else {}
 
+        # ── Bộ nhớ chỉ báo dùng chung cho MỌI preset ─────────────────────
+        # `run_all_presets` lặp preset ở NGOÀI, `scan()` lặp mã ở TRONG, và
+        # filter của preset chỉ được áp SAU khi đã đọc parquet + tính trọn bộ
+        # chỉ báo. 14 preset ⇒ **14 lượt quét kho y hệt nhau** cho cùng ~1.600
+        # mã. Đo 25/08 trên máy thật: bước `screener` 1.318s = 22 phút, nặng
+        # nhất cả phát — hơn cả `sync`.
+        #
+        # `_calc_indicators(df)` là hàm THUẦN của df, và df là hàm thuần của
+        # (ticker, lookback_days). Không có gì phụ thuộc preset. Nên nhớ kết
+        # quả một lần là đủ: 14 lượt → 1.
+        #
+        # Cache sống trên MỘT instance, trong tiến trình ngắn của
+        # `vnstock_runner.py`, và không bước nào ghi vào `prices/` lúc đó ⇒
+        # không thể ôi.
+        self._ind_cache: "dict[str, tuple[int, dict] | None]" = {}
+
+    def _indicators_for(self, ticker: str, min_rows: int) -> "dict | None":
+        """Chỉ báo của một mã — đọc parquet + tính TỐI ĐA MỘT LẦN mỗi lượt chạy.
+
+        Trả bản SAO: chỗ gọi có gắn thêm `ticker`/`industry` vào dict, sửa
+        thẳng vào cache là preset sau nhận rác của preset trước.
+        """
+        if ticker not in self._ind_cache:
+            df = self._load_ticker(ticker)
+            if df.empty:
+                self._ind_cache[ticker] = None
+            else:
+                ind = _calc_indicators(df)
+                self._ind_cache[ticker] = (len(df), ind) if ind else None
+        entry = self._ind_cache[ticker]
+        if entry is None:
+            return None
+        n_rows, ind = entry
+        # `min_rows` đổi theo preset nên PHẢI xét lại mỗi lượt, không được
+        # nướng vào cache.
+        if n_rows < min_rows:
+            return None
+        return dict(ind)
+
     def _load_ticker(self, ticker: str) -> pd.DataFrame:
         """Load dữ liệu gần nhất cho một ticker."""
         ticker_dir = self.prices_dir / f"ticker={ticker}"
@@ -524,11 +563,7 @@ class MarketScreener:
             for ticker in scan_list:
                 progress.update(task, description=f"[cyan]{ticker:6s}[/cyan]", advance=1)
 
-                df = self._load_ticker(ticker)
-                if df.empty or len(df) < min_rows:
-                    continue
-
-                ind = _calc_indicators(df)
+                ind = self._indicators_for(ticker, min_rows)
                 if not ind:
                     continue
 
