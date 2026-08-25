@@ -2,7 +2,7 @@
 
 > Bản để LÀM THEO. Kho lưu chi tiết (lý do, file:line, lịch sử) ở
 > `docs/CLAUDE-NOTES.md` — đừng mở nó để biết "hôm nay làm gì".
-> Cập nhật: 25/08/2026, sau phát 18:00.
+> Cập nhật: 26/08/2026, trước phát 18:00.
 
 ## 🏷️ NHÃN MÁY — quy tắc gốc: KHO đồng bộ, CODE thì không
 
@@ -26,43 +26,32 @@ desktop). **Phiên hiện tại: 🖥️ DESKTOP.**
 
 # 🔴 CÒN PHẢI LÀM
 
-## ✅ ĐÃ ĐỐI CHỨNG `fix-units` (26/08) — và nó tìm ra một bug
+## 1. 📏 Đo phát 18:00 — 🖥️ desktop, TỐI NAY
 
-| | bar giải nén | mã bỏ qua | `fix_count` |
-|---|---|---|---|
-| Lọc BẬT | **4.460** | **3.081**/3.125 | 0 |
-| Lọc TẮT | **5.018.868** | 0 | 0 |
+Phát tối nay là phép đo của **bốn bản vá cùng lúc**, và là lượt đầu chạy trong
+điều kiện sạch (không chạy tay gì trước).
 
-`fix_count` khớp ⇒ tương đương, xác nhận trên **kho thật**. Giải nén ít hơn
-**1.125×**, bỏ qua **98,6%** số mã.
+| Bản vá | Kỳ vọng |
+|---|---|
+| Cửa sổ đối chiếu hẹp (26/08) | `updater` giảm |
+| Screener 14 lượt → 1 | `screener` từ 1.318s xuống mạnh |
+| fix-units lọc footer | từ 316s xuống mạnh (đã đo: đọc ít hơn 1.125×) |
+| Mốc watchlist THẬT | nhìn trong brief, không phải trong log |
 
-**Lượt TẮT lộ ra bug CÓ SẴN:** mã `HFB` lưu `time` kiểu date32 ở năm này và
-timestamp ở năm kia ⇒ `sort_values` ném lỗi ⇒ **mã đó im lặng không được soi**,
-kể cả khi nó CÓ bar sai đơn vị (tái dựng: bar 9.999 không hề được sửa). Đã vá
-gốc. Chi tiết: U32.
+⚠️ **Từ giờ tới 18:00 đừng gõ lệnh kho nào** (`run.py sync` / `all` /
+`fix-units` không có `--dry-run`) — mọi lệnh tay đều làm hỏng điều kiện đo.
 
-## 1. 📏 Đo SẠCH thời gian phát — 🖥️ desktop, 1 lệnh
-
-Phát 25/08 chạy **69,0′** (từ 166,3′), đệm dưới trần task lên **111′**. Nhưng
-số đó **không sạch**: cùng ngày đã chạy tay `run.py sync`, và `updater 308s`
-nhanh hơn cả lượt TẮT cửa gác (2.224s) — bản vá không thể giải thích nổi mức
-đó. Cần một phát trong ngày **không chạy tay gì trước**:
-
+Sau ~19:15, dán **ba thứ**:
 ```powershell
 Select-String -Path C:\vnstock\run_daily.log -Pattern '⏱ TỔNG|⏱ CHẶNG' | Select-Object -Last 4
+python run.py doctor
 ```
++ **bản brief Telegram** (lần đầu watchlist có `pivot 60 phiên`).
 
-⚠️ **Chưa đo được** — lượt grep 25/08 trả về đúng 4 dòng CŨ. `run_daily.log`
-xoay vòng và giữ nhiều đêm trong một file, mà dòng `⏱` thì trần trụi không
-mang ngày ⇒ không phân biệt được đêm nào.
+Dòng có **`[ngày giờ]`** là dòng MỚI — không có dấu thì phát chưa xong, khỏi dán.
 
-**Đã vá:** từ HEAD, cả hai dòng mang dấu thời gian —
-`⏱ TỔNG [2026-08-26 18:05] 69.0 phút …`. Nên lần sau nhìn là biết ngay dòng
-nào mới.
-
-**Điều kiện đo SẠCH:** một ngày **KHÔNG chạy tay** `run.py sync` / `run.py all`
-trước phát 18:00. Thấy dòng có dấu ngày MỚI thì dán cho Claude **một lần** rồi
-đóng mục này. Chi tiết: U29.
+`⏱ TỔNG` không giảm rõ so với 69,0′ ⇒ còn biến số chưa thấy, đáng đào tiếp
+(đúng như lần `updater` hoá ra mới là kẻ ăn 57 phút chứ không phải `auto-heal`).
 
 ## 2. 💳 Quyết Cerebras 402 — ○ máy nào cũng được
 
@@ -177,5 +166,6 @@ dòng `screener` như thường lệ.
 | Phát tự động trọn vẹn | 21/08, 24/08, 25/08 đều đủ 14 bước và **có brief Telegram** |
 | Chất lượng brief | Guard số chỉ số (trạng từ) · dọn khối tin · GDKHQ không cảnh báo cho ĐHĐCĐ · dải ±3% gọi đúng tên |
 | Đồng bộ code | 🖥️ desktop `2.601 passed / 111,01s` = HEAD (26/08) |
+| `fix-units` đối chứng | 26/08 trên KHO THẬT: `fix_count` khớp, giải nén **ít hơn 1.125×**, bỏ qua **98,6%** mã. Lượt đối chứng còn tìm ra bug HFB (`time` trộn kiểu ⇒ mã bị bỏ sót im lặng) — đã vá (U32) |
 | Sổ lệnh | **Không mất** — 805 briefs · 148 rec · 138 outcome |
 | Rác `C:\proc` | **Không tồn tại** — Claude suy nhầm là đã tạo, user kiểm 25/08 ra PathNotFound (U26) |
