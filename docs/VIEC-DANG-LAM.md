@@ -38,12 +38,17 @@ Phát tối nay là phép đo của **bốn bản vá cùng lúc**, và là lư�
 | fix-units lọc footer | từ 316s xuống mạnh (đã đo: đọc ít hơn 1.125×) |
 | Mốc watchlist THẬT | nhìn trong brief, không phải trong log |
 
-⚠️ **Từ giờ tới 18:00 đừng gõ lệnh kho nào** (`run.py sync` / `all` /
-`fix-units` không có `--dry-run`) — mọi lệnh tay đều làm hỏng điều kiện đo.
+⚠️ **Từ giờ tới 18:00 đừng gõ lệnh kho nào** — `run.py sync` / `all` /
+`fix-units` không có `--dry-run`, và **đặc biệt là `run.py screener`**.
+
+Bẫy cụ thể với `screener`: nó **ghi cache Net BS** (`_meta/net_bs_cache.json`,
+TTL 12h). Chạy tay trước 18:00 thì phát tối **trúng cache và bỏ qua hẳn** vòng
+Net BS ⇒ đo được một bước `screener` KHÔNG có Net BS, không so được với mốc
+1.318s. Bản vá lớn nhất lại thành thứ duy nhất không đo được.
 
 Sau ~19:15, dán **ba thứ**:
 ```powershell
-Select-String -Path C:\vnstock\run_daily.log -Pattern '⏱ TỔNG|⏱ CHẶNG' | Select-Object -Last 4
+Select-String -Path C:\vnstock\run_daily.log -Pattern '⏱ TỔNG|⏱ CHẶNG|Net Buy-Sell' | Select-Object -Last 6
 python run.py doctor
 ```
 + **bản brief Telegram** (lần đầu watchlist có `pivot 60 phiên`).
@@ -166,7 +171,7 @@ dòng `screener` như thường lệ.
 | Rủi ro chạm trần task | 166,3′ → 69,0′ ⇒ đệm 13,7′ → **111′** *(số chưa sạch — xem việc #1)* |
 | Phát tự động trọn vẹn | 21/08, 24/08, 25/08 đều đủ 14 bước và **có brief Telegram** |
 | Chất lượng brief | Guard số chỉ số (trạng từ) · dọn khối tin · GDKHQ không cảnh báo cho ĐHĐCĐ · dải ±3% gọi đúng tên |
-| Đồng bộ code | 🖥️ desktop `2.601 passed / 111,01s` = HEAD (26/08) |
+| Đồng bộ code | 🖥️ desktop `2.615 passed / 102,05s` = HEAD (26/08) |
 | `fix-units` đối chứng | 26/08 trên KHO THẬT: `fix_count` khớp, giải nén **ít hơn 1.125×**, bỏ qua **98,6%** mã. Lượt đối chứng còn tìm ra bug HFB (`time` trộn kiểu ⇒ mã bị bỏ sót im lặng) — đã vá (U32) |
 | Sổ lệnh | **Không mất** — 805 briefs · 148 rec · 138 outcome |
 | Rác `C:\proc` | **Không tồn tại** — Claude suy nhầm là đã tạo, user kiểm 25/08 ra PathNotFound (U26) |
