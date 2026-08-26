@@ -637,3 +637,107 @@ class TestCafefFetchVsParseFailure:
         monkeypatch.setattr(S, "fetch_cafef", fake)
         df = S.fetch_cafef_years("VCB", (2015, 2016), pause_s=0)
         assert len(E.detect_period_columns(df.columns)) == 8
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Chẩn đoán: bộ bóc trật ở trang THẬT (đo 26/08 lượt 2). `cafef_quarters_in`
+# THẤY đủ 4 kỳ trong HTML mà `pick_balance_table` không ra bảng nào — tức
+# chuỗi kỳ nằm ngoài ô <td>/<th>. Lưới ở đây canh việc chẩn đoán phân biệt
+# đúng các CA HỎNG, vì mỗi ca chữa một kiểu.
+# ─────────────────────────────────────────────────────────────────────────
+_JS_PAGE = """<html><body><div id="app"></div>
+<script>var cfg={url:"/Ajax/CongTy/BaoCaoTaiChinh.ashx?sym=VCB&type=BSheet"};
+var d=[{"name":"Quý 1-2016","v":1},{"name":"Quý 4-2016","v":2}];</script>
+</body></html>"""
+
+_DIV_PAGE = """<html><body>
+<div class="row"><div>CHỈ TIÊU</div><div>Quý 1-2016</div><div>Quý 4-2016</div></div>
+<table><tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></table>
+</body></html>"""
+
+
+class TestRawTagCounts:
+    def test_counts_tables_rows_and_cells(self):
+        c = S.raw_tag_counts(_CAFEF_PAGE)
+        assert c["table"] == 2 and c["tr"] > 5 and c["td"] > 5
+
+    def test_a_javascript_page_has_no_tables(self):
+        assert S.raw_tag_counts(_JS_PAGE)["table"] == 0
+
+    def test_scripts_are_counted(self):
+        assert S.raw_tag_counts(_JS_PAGE)["script"] == 1
+
+    def test_empty_input_gives_zeros(self):
+        assert S.raw_tag_counts("")["table"] == 0
+        assert S.raw_tag_counts(None)["tr"] == 0
+
+
+class TestContextAround:
+    def test_shows_the_text_surrounding_a_hit(self):
+        ctx = S.context_around("xxx<th>Quý 1-2016</th>yyy", "Quý 1-2016", width=10)
+        assert ctx and "th" in ctx[0]
+
+    def test_whitespace_is_collapsed_so_one_paste_stays_readable(self):
+        ctx = S.context_around("a\n\n  b Quý 1-2016 c", "Quý 1-2016")
+        assert "\n" not in ctx[0]
+
+    def test_multiple_hits_are_capped(self):
+        html = "Quý 1-2016 " * 10
+        assert len(S.context_around(html, "Quý 1-2016", limit=3)) == 3
+
+    def test_no_hit_gives_nothing(self):
+        assert S.context_around("<html/>", "Quý 1-2016") == []
+
+    def test_none_html_does_not_raise(self):
+        assert S.context_around(None, "x") == []
+
+
+class TestCandidateDataUrls:
+    def test_finds_an_ajax_handler_url(self):
+        urls = S.candidate_data_urls(_JS_PAGE)
+        assert any("BaoCaoTaiChinh.ashx" in u for u in urls)
+
+    def test_a_plain_table_page_offers_nothing_misleading(self):
+        assert S.candidate_data_urls(_CAFEF_PAGE) == []
+
+    def test_duplicates_are_collapsed(self):
+        html = '"/api/x/data.ashx" "/api/x/data.ashx"'
+        assert len(S.candidate_data_urls(html)) == 1
+
+    def test_the_list_is_capped(self):
+        html = " ".join(f'"/api/{i}/data.ashx"' for i in range(50))
+        assert len(S.candidate_data_urls(html, limit=5)) == 5
+
+    def test_none_html_does_not_raise(self):
+        assert S.candidate_data_urls(None) == []
+
+
+class TestDiagnoseAndVerdict:
+    def test_a_good_page_is_diagnosed_as_recognised(self):
+        d = S.diagnose_cafef(_CAFEF_PAGE)
+        assert d["balance_table_found"] is True
+        assert "nhận ra bảng" in S.verdict_line(d)
+
+    def test_a_javascript_page_points_at_the_data_url_not_the_selector(self):
+        d = S.diagnose_cafef(_JS_PAGE)
+        assert d["raw"]["table"] == 0
+        assert "JS dựng" in S.verdict_line(d)
+        assert d["data_urls"]
+
+    def test_headers_outside_cells_are_named_as_such(self):
+        """Đúng ca của lần đo 26/08: thấy chuỗi kỳ trong trang, mà không ô
+        <td>/<th> nào chứa nó."""
+        d = S.diagnose_cafef(_DIV_PAGE)
+        assert d["quarters_seen"] and not d["balance_table_found"]
+        assert "ngoài ô" in S.verdict_line(d)
+
+    def test_diagnosis_reports_the_quarters_it_saw(self):
+        d = S.diagnose_cafef(_CAFEF_PAGE)
+        assert d["quarters_seen"] == [(2016, 1), (2016, 2), (2016, 3), (2016, 4)]
+
+    def test_diagnosis_reports_the_biggest_table_size(self):
+        assert S.diagnose_cafef(_CAFEF_PAGE)["biggest_table_rows"] >= 10
+
+    def test_an_empty_page_does_not_raise(self):
+        d = S.diagnose_cafef("")
+        assert d["balance_table_found"] is False and d["quarters_seen"] == []

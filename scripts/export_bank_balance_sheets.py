@@ -266,53 +266,90 @@ def probe_all(ticker: str, limit: int, lang: str, want_year: int = 2015) -> int:
 
 def dump_cafef(ticker: str, year: int, quarter: int = 4,
                out_dir: "Path | None" = None) -> int:
-    """In CẤU TRÚC trang CafeF + lưu HTML thô, để sửa bộ bóc mà không đoán.
+    """In CHẨN ĐOÁN trang CafeF + lưu HTML thô, để sửa bộ bóc mà không đoán.
 
     Bộ bóc được viết khi chưa ai nhìn trang thật (máy soạn code bị chặn
-    egress). Trật thì cái cần là cấu trúc THẬT, không phải một lần đoán nữa.
+    egress). Trật thì cái cần là DỮ KIỆN về trang thật — nó hỏng kiểu gì —
+    chứ không phải một lần đoán nữa. Thử CẢ HAI đường URL, vì hai đường có
+    thể trả hai trang khác nhau.
     """
-    from scripts.bank_bs_sources import (cafef_quarters_in, cafef_unit_note,
+    from scripts.bank_bs_sources import (context_around, diagnose_cafef,
                                          fetch_cafef, header_periods,
-                                         parse_tables, pick_balance_table)
-
-    status, text, url = fetch_cafef(ticker, year, quarter)
-    print(f"[dump-cafef] {ticker} {year}-Q{quarter}")
-    if status is None:
-        print(f"[dump-cafef] ❌ {text}")
-        return 2
-    print(f"[dump-cafef] HTTP {status} · {len(text):,} ký tự")
-    print(f"[dump-cafef] URL cuối: {url}")
+                                         parse_tables, pick_balance_table,
+                                         verdict_line)
 
     out_dir = Path(out_dir or REPO / "_cafef_dump")
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"{ticker}_{year}Q{quarter}.html"
-    path.write_text(text, encoding="utf-8", errors="replace")
-    print(f"[dump-cafef] đã lưu: {path}")
+    print(f"[dump-cafef] {ticker} {year}-Q{quarter}\n")
 
-    print(f"[dump-cafef] kỳ thấy trong trang: "
-          + (", ".join(quarter_label(*q) for q in cafef_quarters_in(text)) or "—"))
-    print(f"[dump-cafef] đơn vị: {cafef_unit_note(text) or '— KHÔNG thấy'}")
+    best = None
+    for legacy in (False, True):
+        tag = "legacy" if legacy else "mới"
+        status, text, url = fetch_cafef(ticker, year, quarter, legacy=legacy)
+        if status is None:
+            print(f"── đường {tag}: ❌ {text}")
+            continue
+        path = out_dir / f"{ticker}_{year}Q{quarter}_{tag}.html"
+        path.write_text(text, encoding="utf-8", errors="replace")
+        d = diagnose_cafef(text)
+        raw = d["raw"]
+        print(f"── đường {tag}: HTTP {status} · {len(text):,} ký tự")
+        print(f"   URL cuối : {url}")
+        print(f"   đã lưu   : {path}")
+        print(f"   thẻ thô  : <table>={raw['table']} <tr>={raw['tr']} "
+              f"<td>={raw['td']} <script>={raw['script']}")
+        print(f"   bộ bóc   : {d['tables_parsed']} bảng · bảng lớn nhất "
+              f"{d['biggest_table_rows']} hàng · nhận ra bảng cân đối: "
+              f"{'CÓ' if d['balance_table_found'] else 'KHÔNG'}")
+        print(f"   kỳ thấy  : "
+              + (", ".join(quarter_label(*q) for q in d["quarters_seen"]) or "—"))
+        print(f"   đơn vị   : {d['unit_note'] or '— KHÔNG thấy'}")
+        print(f"   ⇒ {verdict_line(d)}")
+        if d["data_urls"]:
+            print("   URL nghi là đường dữ liệu:")
+            for u in d["data_urls"]:
+                print(f"      {u[:120]}")
+        print()
+        if best is None or d["balance_table_found"]:
+            best = (text, d, tag)
+
+    if best is None:
+        print("❌ KHÔNG tải được trang nào ở cả hai đường.")
+        return 2
+
+    text, d, tag = best
+    # Chuỗi kỳ nằm ở ĐÂU trong trang? Đây là câu hỏi quyết định: trong ô
+    # <td>/<th> thì sửa selector, trong <div> hay JSON thì đổi hẳn cách lấy.
+    if d["quarters_seen"]:
+        y, q = d["quarters_seen"][-1]
+        for needle in (f"Quý {q}-{y}", f"Q{q}/{y}"):
+            ctx = context_around(text, needle)
+            if ctx:
+                print(f"── chuỗi '{needle}' đứng ở đâu (đường {tag}):")
+                for c in ctx:
+                    print(f"   …{c[:220]}…")
+                break
+        print()
 
     tables = parse_tables(text)
-    print(f"[dump-cafef] {len(tables)} bảng <table>")
     chosen = pick_balance_table(tables)
+    shown = 0
     for i, tb in enumerate(tables):
         rows = tb.get("rows") or []
-        if len(rows) < 5:
+        if len(rows) < 4 or shown >= 6:
             continue
+        shown += 1
         ident = tb["attrs"].get("id") or tb["attrs"].get("class") or "—"
         star = " ⭐ ĐANG CHỌN" if tb is chosen else ""
-        print(f"\n── bảng #{i}  {ident}  ·  {len(rows)} hàng{star}")
+        has_q = " · CÓ tiêu đề KỲ" if any(header_periods(r) for r in rows[:8]) else ""
+        print(f"── bảng #{i}  {ident}  ·  {len(rows)} hàng{has_q}{star}")
         for r in rows[:4]:
-            cells = " | ".join(str(c)[:26] for c in r[:8])
-            print(f"   {cells[:150]}")
-        if any(header_periods(r) for r in rows[:6]):
-            print("   (có tiêu đề KỲ)")
-    if chosen is None:
-        print("\n❌ KHÔNG bảng nào nhận ra được. Dán toàn bộ phần trên ra.")
-        return 2
-    print("\n✅ nhận ra bảng — nếu số trong sheet vẫn sai thì dán phần trên ra.")
-    return 0
+            print("   " + " | ".join(str(c)[:26] for c in r[:8])[:150])
+    if not shown:
+        print("── KHÔNG bảng nào đủ 4 hàng để in.")
+
+    print("\n👉 Dán TOÀN BỘ phần trên ra — đủ để sửa mà không phải đoán.")
+    return 0 if d["balance_table_found"] else 2
 
 
 # Nhãn dòng TỔNG TÀI SẢN ở các nguồn — dùng để đối chiếu đơn vị.

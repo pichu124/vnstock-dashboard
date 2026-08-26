@@ -444,6 +444,94 @@ def fetch_cafef(ticker: str, year: int, quarter: int = 4,
     return resp.status_code, resp.text, resp.url
 
 
+# ── Chẩn đoán: TẠI SAO không bóc được ───────────────────────────────────
+# Đo 26/08 lượt 2: `cafef_quarters_in` THẤY đủ `Quý 1-2016 … Quý 4-2016`
+# trong HTML, nhưng `pick_balance_table` không tìm ra bảng nào. Tức chuỗi kỳ
+# nằm ở đâu đó KHÔNG PHẢI ô `<td>/<th>` — có thể trong `<div>`, có thể trong
+# một khối JSON mà trang tự dựng bảng bằng JS. Hai ca đó chữa khác nhau hoàn
+# toàn, nên phải NHÌN chỗ chuỗi đó đứng, đừng đoán lần nữa.
+_DATA_URL_RE = re.compile(
+    r"""["'(]\s*(/?[^\s"'()<>]*?(?:/ajax/|\.ashx|\.aspx|/api/|
+        handler|getdata|json)[^\s"'()<>]*)""",
+    re.I | re.X)
+
+
+def context_around(html: str, needle: str, width: int = 90, limit: int = 3):
+    """Vài đoạn văn bản quanh mỗi lần `needle` xuất hiện — để NHÌN chỗ nó đứng."""
+    text, out, start = html or "", [], 0
+    while len(out) < limit:
+        i = text.find(needle, start)
+        if i < 0:
+            break
+        lo, hi = max(0, i - width), min(len(text), i + len(needle) + width)
+        out.append(re.sub(r"\s+", " ", text[lo:hi]).strip())
+        start = i + len(needle)
+    return out
+
+
+def candidate_data_urls(html: str, limit: int = 12) -> list:
+    """Các URL trông như đường LẤY DỮ LIỆU trong trang (ajax/ashx/api/json).
+
+    Trang dựng bảng bằng JS thì số không nằm trong HTML — khi đó thứ cần tìm
+    là cái endpoint này, không phải một selector khéo hơn.
+    """
+    seen, out = set(), []
+    for m in _DATA_URL_RE.finditer(html or ""):
+        u = m.group(1).strip()
+        if len(u) < 8 or u in seen:
+            continue
+        seen.add(u)
+        out.append(u)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def raw_tag_counts(html: str) -> dict:
+    """Đếm thẻ bằng regex thô — để so với số bảng bộ bóc nhận ra.
+
+    Lệch nhau nói lên ca hỏng: `<table>` thô = 0 ⇒ trang dựng bảng bằng JS.
+    `<table>` thô > 0 mà bộ bóc ra 0 ⇒ lỗi ở bộ bóc.
+    """
+    text = html or ""
+    return {
+        "table": len(re.findall(r"<table\b", text, re.I)),
+        "tr": len(re.findall(r"<tr\b", text, re.I)),
+        "td": len(re.findall(r"<td\b", text, re.I)),
+        "script": len(re.findall(r"<script\b", text, re.I)),
+    }
+
+
+def diagnose_cafef(html: str) -> dict:
+    """Gói gọn: trang này hỏng kiểu gì? Trả DỮ KIỆN, không trả kết luận chắc nịch."""
+    tables = parse_tables(html)
+    quarters = cafef_quarters_in(html)
+    biggest = max((len(t.get("rows") or []) for t in tables), default=0)
+    return {
+        "quarters_seen": quarters,
+        "raw": raw_tag_counts(html),
+        "tables_parsed": len(tables),
+        "biggest_table_rows": biggest,
+        "balance_table_found": pick_balance_table(tables) is not None,
+        "unit_note": cafef_unit_note(html),
+        "data_urls": candidate_data_urls(html),
+    }
+
+
+def verdict_line(diag: dict) -> str:
+    """Một câu về CA HỎNG — suy từ dữ kiện trong `diag`, không từ trí nhớ."""
+    raw = diag["raw"]
+    if raw["table"] == 0:
+        return ("trang KHÔNG có thẻ <table> nào ⇒ bảng do JS dựng; phải tìm "
+                "đường lấy dữ liệu (xem 'URL nghi là đường dữ liệu')")
+    if diag["tables_parsed"] == 0:
+        return "có <table> thô nhưng bộ bóc ra 0 bảng ⇒ lỗi BỘ BÓC"
+    if not diag["balance_table_found"]:
+        return ("bóc được bảng nhưng không bảng nào có ≥2 ô tiêu đề là KỲ ⇒ "
+                "tiêu đề kỳ nằm ngoài ô <td>/<th>, hoặc ở hàng quá sâu")
+    return "nhận ra bảng — nếu số vẫn sai thì lỗi ở khâu đọc ô"
+
+
 class CafefFetchError(RuntimeError):
     """KHÔNG tải được trang — khác hẳn tải được mà không bóc ra bảng.
 

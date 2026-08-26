@@ -6977,7 +6977,17 @@ nguồn — ghi lại để lần sau khỏi mò lại:
 | `vci`   | ✅ **2018-Q1 → 2026-Q2**, 83 chỉ tiêu | 26/08, máy user |
 | `kbs`   | ❌ `TypeError: balance_sheet() got an unexpected keyword` — rồi gọi theo chữ ký thật vẫn RỖNG | 26/08, máy user |
 | `tcbs`  | ❌ **404** — endpoint `apipubaws` đã chết | 26/08, máy user |
-| `cafef` | ✅ **HTTP 200, đủ `Quý 1-2016 → Quý 4-2016`** | 26/08, máy user |
+| `cafef` | ⚠️ tải được (HTTP 200, thấy đủ `Quý 1-2016 → Quý 4-2016` trong HTML) nhưng **bộ bóc KHÔNG ra bảng nào** | 26/08 lượt 2, máy user |
+
+**Lượt 2 (sau khi vá):** `kbs` hết `TypeError` — chữ ký đã đọc đúng — nhưng
+vẫn RỖNG, nên KBS chết thật, không phải chết vì tôi gọi sai. Còn `cafef`:
+`cafef_quarters_in` THẤY đủ 4 kỳ trong HTML mà `pick_balance_table` không tìm
+ra bảng nào ⇒ **chuỗi kỳ nằm NGOÀI ô `<td>/<th>`**. Hai khả năng, chữa khác
+hẳn nhau: tiêu đề nằm trong `<div>` (sửa bộ bóc) hay trang dựng bảng bằng JS
+(phải tìm endpoint dữ liệu). `--dump-cafef` được viết lại để phân biệt: đếm
+thẻ THÔ bằng regex rồi so với số bảng bộ bóc ra, in ngữ cảnh quanh chuỗi kỳ,
+và liệt kê URL nghi là đường lấy dữ liệu (`/ajax/`, `.ashx`, `/api/`, `json`).
+`verdict_line` suy CA HỎNG từ chính các con số đó, không từ trí nhớ.
 
 **⇒ CafeF là nguồn DUY NHẤT có 2015-2016.** Một trang = 4 quý của MỘT năm
 (`/du-lieu/bao-cao-tai-chinh/<mã>/bsheet/<năm>/4/0/0/…`), nên 2015-2016 là
