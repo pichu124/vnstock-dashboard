@@ -1012,3 +1012,122 @@ class TestCellsWithYear:
 
     def test_the_diagnosis_carries_it(self):
         assert S.diagnose_cafef(_REAL_SHAPE_PAGE)["year_cells"]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# HÌNH DẠNG THẬT, đo 26/08 lượt 5 (`--dump-cafef VCB --dump-year 2016`).
+# Điều quyết định: CafeF để **hàng tiêu đề ở một `<table>` KHÁC** với bảng
+# số liệu. `tableContent` 119 hàng KHÔNG có tiêu đề nào; các ô
+# `<td class="h_t"> Quý 1- 2016</td>` nằm trong một bảng khác. Vì thế đường
+# cũ — đòi tiêu đề và dữ liệu CÙNG một bảng — luôn trắng tay dù cả hai mảnh
+# đều nằm ngay trong HTML.
+#
+# Trích nguyên văn từ dump: dấu ngăn đứng SÁT số quý rồi mới tới khoảng
+# trắng (`Quý 1- 2016`), số là ĐỒNG nguyên với dấu chấm ngăn nghìn
+# (`7.642.463.000.000`), và có một cột `Tăng trưởng` ở cuối.
+# ─────────────────────────────────────────────────────────────────────────
+def _split_header_page(year: int = 2016) -> str:
+    head = "".join(
+        f'<td class="h_t" style="width: 15%;"> Quý {q}- {year}</td>'
+        for q in (1, 2, 3, 4))
+    rows = [
+        ("TÀI SẢN", None),
+        ("A- TÀI SẢN NGẮN HẠN", None),
+        ("I. Tiền và các khoản tương đương tiền",
+         ("7.642.463.000.000", "8.230.533.000.000",
+          "8.778.862.000.000", "9.692.054.000.000")),
+        ("1. Tiền", None),
+        ("II. Các khoản đầu tư tài chính ngắn hạn",
+         ("13.420.795.000.000", "16.502.854.000.000",
+          "21.083.502.000.000", "17.387.127.000.000")),
+        ("III. Các khoản phải thu ngắn hạn",
+         ("106.095.611.000.000", "99.010.079.000.000",
+          "106.954.719.000.000", "151.759.427.000.000")),
+    ]
+    body = []
+    for name, vals in rows:
+        cells = "".join(f"<td>{v}</td>" for v in (vals or ("", "", "", "")))
+        body.append(f"<tr><td>{name}</td>{cells}<td></td></tr>")
+    # Đủ hàng để vượt sàn min_rows=10, giống bảng thật 119 hàng.
+    for i in range(12):
+        body.append(f"<tr><td>Chỉ tiêu phụ {i}</td><td>{i}.000.000.000</td>"
+                    f"<td>{i}.100.000.000</td><td>{i}.200.000.000</td>"
+                    f"<td>{i}.300.000.000</td><td></td></tr>")
+    return f"""<html><body>
+<div>Đơn vị: tỷ đồng</div>
+<table id="header"><tr><td><div>CHỈ TIÊU</div></td>{head}
+  <td class="h_t_tt"> Tăng trưởng</td></tr></table>
+<table id="tableContent">{''.join(body)}</table>
+</body></html>"""
+
+
+_SPLIT_PAGE = _split_header_page()
+
+
+class TestSplitHeaderPage:
+    def test_the_old_same_table_path_finds_nothing(self):
+        """Đúng thứ đã xảy ra: không bảng nào vừa có tiêu đề vừa có dữ liệu."""
+        assert S.pick_balance_table(S.parse_tables(_SPLIT_PAGE)) is None
+
+    def test_the_header_is_found_by_scanning_every_table(self):
+        per, ncols = S.find_header_periods(S.parse_tables(_SPLIT_PAGE))
+        assert [qq for _, qq in per] == [(2016, 1), (2016, 2), (2016, 3), (2016, 4)]
+        assert ncols == 6
+
+    def test_the_data_table_is_the_wide_many_row_one(self):
+        tables = S.parse_tables(_SPLIT_PAGE)
+        data = S.pick_data_table(tables, min_cols=5)
+        assert data["attrs"]["id"] == "tableContent"
+
+    def test_a_narrow_table_is_never_taken_as_data(self):
+        tables = [{"attrs": {"id": "nav"}, "rows": [["a"]] * 40}]
+        assert S.pick_data_table(tables, min_cols=5) is None
+
+    def test_the_frame_now_comes_out(self):
+        assert not S.cafef_to_frame(_SPLIT_PAGE).empty
+
+    def test_all_four_quarters_are_columns(self):
+        df = S.cafef_to_frame(_SPLIT_PAGE)
+        assert [qq for _, qq in E.detect_period_columns(df.columns)] == \
+            [(2016, 1), (2016, 2), (2016, 3), (2016, 4)]
+
+    def test_numbers_land_under_the_right_quarter(self):
+        d = E.tidy(S.cafef_to_frame(_SPLIT_PAGE))
+        key = "I. Tiền và các khoản tương đương tiền"
+        assert d[(2016, 1)][key] == 7_642_463_000_000.0
+        assert d[(2016, 4)][key] == 9_692_054_000_000.0
+
+    def test_dot_thousands_are_not_read_as_decimals(self):
+        """`7.642.463.000.000` là bảy nghìn sáu trăm tỉ, không phải 7,64."""
+        assert S.parse_vn_number("7.642.463.000.000") == 7_642_463_000_000.0
+
+    def test_heading_rows_keep_their_place_with_blank_values(self):
+        d = E.tidy(S.cafef_to_frame(_SPLIT_PAGE))
+        assert "A- TÀI SẢN NGẮN HẠN" in d[(2016, 1)]
+        assert E._is_blank(d[(2016, 1)]["A- TÀI SẢN NGẮN HẠN"])
+
+    def test_the_growth_column_never_becomes_a_quarter(self):
+        cols = S.cafef_to_frame(_SPLIT_PAGE).columns
+        assert len(E.detect_period_columns(cols)) == 4
+
+    def test_the_item_column_is_column_zero_here(self):
+        items = S.cafef_to_frame(_SPLIT_PAGE)["item"].tolist()
+        assert items[0] == "TÀI SẢN"
+
+    def test_two_years_merge_into_eight_columns(self):
+        a = S.cafef_to_frame(_split_header_page(2015))
+        b = S.cafef_to_frame(_SPLIT_PAGE)
+        assert len(E.detect_period_columns(S.merge_frames([a, b]).columns)) == 8
+
+    def test_the_diagnosis_names_the_split_header_case(self):
+        d = S.diagnose_cafef(_SPLIT_PAGE)
+        assert d["split_header"] and not d["balance_table_found"]
+        assert "HAI bảng khác nhau" in S.verdict_line(d)
+
+    def test_the_page_unit_note_is_recorded_even_though_it_disagrees(self):
+        """Trang ghi 'tỷ đồng' mà ô số là đồng nguyên. Ghi lại NGUYÊN VĂN,
+        không quy đổi, và sheet phải nói rõ đó chỉ là tham khảo."""
+        assert S.cafef_to_frame(_SPLIT_PAGE).attrs["unit_note"] == "tỷ đồng"
+
+    def test_the_real_header_spacing_is_matched(self):
+        assert S.cell_quarter(" Quý 1- 2016") == (2016, 1)

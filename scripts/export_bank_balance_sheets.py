@@ -480,10 +480,13 @@ def write_workbook(path: Path, per_bank: dict, items: list, quarters: list,
         "• Ô TRỐNG = nguồn KHÔNG có số cho ô đó. KHÁC hẳn số 0.\n"
         "• Mọi sheet ngân hàng dùng CHUNG một bộ dòng chỉ tiêu (hợp nhất từ "
         "tất cả các mã) và CHUNG một bộ cột quý, nên so ngang được.\n"
-        f"• Nguồn: {source}. Đơn vị: "
-        + (f"trang nguồn ghi '{unit_note}'" if unit_note else "nguồn KHÔNG ghi")
-        + ", script KHÔNG quy đổi. Xem cột '|Giá trị| lớn nhất' để tự nhận ra "
-        "thang (ngân hàng lớn cỡ 1e15 là VND; cỡ 1e6 là triệu VND).\n"
+        f"• Nguồn: {source}. "
+        + (f"Trang nguồn ghi 'Đơn vị: {unit_note}' — ĐÂY LÀ GHI CHÚ THAM "
+           f"KHẢO, KHÔNG PHẢI KẾT LUẬN. " if unit_note else "Nguồn KHÔNG ghi đơn vị. ")
+        + "Script KHÔNG quy đổi gì cả. Thang THẬT đọc ở cột '|Giá trị| lớn "
+        "nhất' bên trái: ngân hàng lớn cỡ 1e15 là ĐỒNG nguyên, cỡ 1e12 là "
+        "triệu đồng, cỡ 1e9 là tỷ đồng. (Đo 26/08: trang CafeF ghi 'tỷ đồng' "
+        "mà ô số lại là đồng nguyên — nên đừng tin câu đó.)\n"
         "• 'Số quý CÓ' < 'Số quý XIN' nghĩa là nguồn thiếu kỳ, KHÔNG phải "
         "script bỏ sót.")
     note.font = Font(name=_FONT, size=9, italic=True)

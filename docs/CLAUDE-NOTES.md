@@ -6979,7 +6979,41 @@ nguồn — ghi lại để lần sau khỏi mò lại:
 | `tcbs`  | ❌ **404** — endpoint `apipubaws` đã chết | 26/08, máy user |
 | `cafef` | ⚠️ tải được (HTTP 200, thấy đủ `Quý 1-2016 → Quý 4-2016` trong HTML) nhưng **bộ bóc KHÔNG ra bảng nào** | 26/08 lượt 2, máy user |
 
-**Lượt 4 — giả thuyết đang kiểm: DẤU NGĂN.** Sau khi vá cả ba thứ ở lượt 3,
+**Lượt 5 — ĐÃ RA: tiêu đề và số liệu ở HAI BẢNG KHÁC NHAU.**
+
+`--dump-cafef` in ra chữ thật, và nó bác luôn giả thuyết dấu ngăn ở lượt 4:
+
+    ô có chứa năm 20xx: 'Quý 1- 2016' · 'Quý 2- 2016' · 'Quý 3- 2016' · 'Quý 4- 2016'
+    ── bảng #123  tableContent · 119 hàng · KHÔNG có tiêu đề KỲ
+
+Tức các ô kỳ **CÓ** trong trang, **CÓ** trong một bảng, và mẫu regex khớp
+chúng — nhưng chúng **không nằm trong `tableContent`**. HTML thật:
+
+    <td class="h_t"> Quý 1- 2016</td> … <td class="h_t_tt"> Tăng trưởng</td>
+
+nằm ở một `<table>` riêng, còn 119 hàng số nằm ở `tableContent` **không có
+tiêu đề nào**. `pick_balance_table` đòi tiêu đề và dữ liệu CÙNG một bảng nên
+luôn trắng tay, dù cả hai mảnh đều nằm ngay trong HTML.
+
+⇒ Thêm đường thứ hai: `find_header_periods` quét MỌI bảng lấy hàng tiêu đề ·
+`pick_data_table` lấy bảng nhiều hàng ĐỦ RỘNG nhất (có tới cột kỳ cuối) ·
+ghép hai mảnh theo CHỈ SỐ CỘT. Đường cũ (tiêu đề cùng bảng) giữ nguyên vì
+vẫn đúng ở trang khác.
+
+**⚠️ ĐƠN VỊ TRANG NÓI DỐI.** Trang ghi `Đơn vị: tỷ đồng`, mà ô số là
+`7.642.463.000.000` — **ĐỒNG NGUYÊN**. Câu "Đơn vị" bắt được thuộc một khung
+khác trên trang. Nên `unit_note` chỉ là GHI CHÚ THAM KHẢO, sheet phải nói rõ
+thế, và thang THẬT đọc ở cột `|Giá trị| lớn nhất` + `--crosscheck`. Đây đúng
+là ca mà quy đổi hộ sẽ sai một bậc nghìn mà bảng vẫn nhìn hợp lý.
+
+**⚠️ CHƯA KIỂM: khung chỉ tiêu.** 10 hàng đầu ra `A- TÀI SẢN NGẮN HẠN`,
+`I. Tiền và các khoản tương đương tiền`, `II. Các khoản đầu tư tài chính` —
+đó là khung DOANH NGHIỆP THƯỜNG, không phải khung tổ chức tín dụng. Mới nhìn
+10/119 hàng nên chưa kết luận được, nhưng **phải mở file ra kiểm** trước khi
+dùng số: nếu CafeF ép số ngân hàng vào khung doanh nghiệp thì tên dòng không
+mang nghĩa kế toán ngân hàng.
+
+**Lượt 4 — giả thuyết dấu ngăn (SAI, nhưng bản nới vẫn giữ vì vô hại):** Sau khi vá cả ba thứ ở lượt 3,
 bộ bóc VẪN không nhận ra bảng nào. Điều đó thu hẹp lại rất mạnh: **không một
 ô `<td>/<th>` nào trong 124 bảng khớp mẫu kỳ**, trong khi `cafef_quarters_in`
 vẫn thấy 4 kỳ trong HTML thô. Nghi phạm rõ nhất là chính cái regex:

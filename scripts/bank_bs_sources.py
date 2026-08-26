@@ -243,10 +243,14 @@ def cell_quarter(text) -> "tuple | None":
 
 
 def cafef_unit_note(html: str) -> "str | None":
-    """Câu "Đơn vị: Triệu VNĐ" trong trang — GHI LẠI, không quy đổi.
+    """Câu "Đơn vị: …" ĐẦU TIÊN trong trang — GHI LẠI, KHÔNG tin, không quy đổi.
 
-    Quy đổi hộ là cách chắc chắn nhất để sai một bậc nghìn mà bảng vẫn nhìn
-    hợp lý. Ghi nguyên văn vào sheet, để người đọc tự biết mình đang đọc gì.
+    ⚠️ Đo 26/08: trang `VCB 2016-Q4` ghi **"tỷ đồng"** trong khi ô số lại là
+    `7.642.463.000.000`, tức **ĐỒNG nguyên**. Câu "Đơn vị" bắt được có thể
+    thuộc một khung khác trên trang, không phải bảng cân đối. Vì vậy nó chỉ
+    là GHI CHÚ THAM KHẢO: thang thật đọc ở cột `|Giá trị| lớn nhất` của sheet
+    `0_TẦM PHỦ` và ở `--crosscheck`. Quy đổi theo câu này là cách chắc chắn
+    nhất để sai một bậc nghìn mà bảng vẫn nhìn hợp lý.
     """
     m = _UNIT_RE.search(html or "")
     if not m:
@@ -353,7 +357,7 @@ def header_row_index(rows, min_periods: int = 2) -> "int | None":
     return None
 
 
-def label_col_index(rows, header_idx: int, period_cols) -> int:
+def label_col_from_body(body_rows, period_cols) -> int:
     """Cột nào chứa TÊN chỉ tiêu? — cột nhiều CHỮ nhất bên trái cột kỳ đầu.
 
     Không mặc định cột 0: bảng thật hay có một cột rỗng để thụt dòng hoặc
@@ -363,7 +367,7 @@ def label_col_index(rows, header_idx: int, period_cols) -> int:
     best, best_score = 0, -1
     for ci in range(max(first_period, 1)):
         score = 0
-        for row in (rows or [])[header_idx + 1:]:
+        for row in body_rows or []:
             if ci >= len(row):
                 continue
             cell = str(row[ci]).strip()
@@ -371,6 +375,53 @@ def label_col_index(rows, header_idx: int, period_cols) -> int:
                 score += 1
         if score > best_score:
             best, best_score = ci, score
+    return best
+
+
+def label_col_index(rows, header_idx: int, period_cols) -> int:
+    """Như trên, cho ca tiêu đề NẰM CHUNG bảng với dữ liệu."""
+    return label_col_from_body((rows or [])[header_idx + 1:], period_cols)
+
+
+def find_header_periods(tables, min_periods: int = 2):
+    """(các cột kỳ, số ô của hàng tiêu đề) — tìm ở **MỌI** bảng trong trang.
+
+    ⚠️ Đo 26/08 lượt 5, trang `VCB 2016-Q4`: CafeF để **hàng tiêu đề ở một
+    `<table>` KHÁC** với bảng dữ liệu. Hàng đó là
+
+        <td class="h_t"> Quý 1- 2016</td> … <td class="h_t_tt"> Tăng trưởng</td>
+
+    còn số nằm trong `tableContent` (119 hàng) **không có tiêu đề nào**. Vì
+    thế `pick_balance_table` — vốn đòi tiêu đề và dữ liệu CÙNG một bảng —
+    luôn trắng tay, dù cả hai mảnh đều nằm ngay trong HTML.
+    """
+    for tb in tables or []:
+        for row in tb.get("rows") or []:
+            per = header_periods(row)
+            if len(per) >= min_periods:
+                return per, len(row)
+    return [], 0
+
+
+def pick_data_table(tables, min_cols: int, min_rows: int = 10,
+                    exclude=None) -> "dict | None":
+    """Bảng SỐ LIỆU khi tiêu đề nằm ở bảng khác — bảng nhiều hàng ĐỦ RỘNG nhất.
+
+    "Đủ rộng" = có ít nhất `min_cols` ô, tức với tới được cột kỳ cuối cùng
+    của hàng tiêu đề. Không có ràng buộc đó thì một bảng trang trí nhiều
+    hàng cũng lọt.
+    """
+    best, best_rows = None, 0
+    for tb in tables or []:
+        if tb is exclude:
+            continue
+        rows = tb.get("rows") or []
+        if len(rows) < min_rows:
+            continue
+        wide = sum(1 for r in rows if len(r) >= min_cols)
+        if wide < min_rows or len(rows) <= best_rows:
+            continue
+        best, best_rows = tb, len(rows)
     return best
 
 
@@ -433,17 +484,27 @@ def cafef_to_frame(html: str, lang: str = "vi"):
     """
     import pandas as pd
 
-    table = pick_balance_table(parse_tables(html))
-    if table is None:
-        return pd.DataFrame()
-    rows = table["rows"]
-    h_idx = header_row_index(rows)
-    periods = header_periods(rows[h_idx])
-    l_idx = label_col_index(rows, h_idx, periods)
+    tables = parse_tables(html)
+    table = pick_balance_table(tables)
+    if table is not None:                    # tiêu đề NẰM CHUNG với dữ liệu
+        rows = table["rows"]
+        h_idx = header_row_index(rows)
+        periods = header_periods(rows[h_idx])
+        body = rows[h_idx + 1:]
+    else:                                    # tiêu đề ở BẢNG KHÁC — ca CafeF thật
+        periods, ncols = find_header_periods(tables)
+        if not periods:
+            return pd.DataFrame()
+        need = max(ci for ci, _ in periods) + 1
+        data = pick_data_table(tables, min_cols=need)
+        if data is None:
+            return pd.DataFrame()
+        body = data["rows"]
+    l_idx = label_col_from_body(body, periods)
 
     items, cols = [], {qq: [] for _, qq in periods}
     seen: dict = {}
-    for row in rows[h_idx + 1:]:
+    for row in body:
         if l_idx >= len(row):
             continue
         name = str(row[l_idx]).strip()
@@ -658,6 +719,7 @@ def diagnose_cafef(html: str) -> dict:
         "unit_note": cafef_unit_note(html),
         "data_urls": candidate_data_urls(html),
         "year_cells": cells_with_year(tables),
+        "split_header": bool(find_header_periods(tables)[0]),
     }
 
 
@@ -670,6 +732,10 @@ def verdict_line(diag: dict) -> str:
     if diag["tables_parsed"] == 0:
         return "có <table> thô nhưng bộ bóc ra 0 bảng ⇒ lỗi BỘ BÓC"
     if not diag["balance_table_found"]:
+        if diag.get("split_header"):
+            return ("tiêu đề KỲ và SỐ LIỆU nằm ở HAI bảng khác nhau — dùng "
+                    "đường ghép tiêu đề rời (find_header_periods + "
+                    "pick_data_table)")
         return ("bóc được bảng nhưng không bảng nào có ≥2 ô tiêu đề là KỲ ⇒ "
                 "tiêu đề kỳ nằm ngoài ô <td>/<th>, hoặc ở hàng quá sâu")
     return "nhận ra bảng — nếu số vẫn sai thì lỗi ở khâu đọc ô"
