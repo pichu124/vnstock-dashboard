@@ -313,12 +313,13 @@ class TestTheTrapsAreDocumentedWhereTheyBite:
 
 
 class TestSourceSelection:
-    """Hai nguồn trong `vnstock` có TẦM PHỦ khác nhau. VCI đo được: sớm nhất
-    2018-Q1. KBS chưa đo — nên script phải cho chọn, và `--probe` phải in ra
-    nguồn nào đang dùng, chứ không để người đọc tự đoán."""
+    """Ba nguồn, TẦM PHỦ khác nhau: VCI sớm nhất 2018-Q1 (đo 26/08) · KBS trả
+    RỖNG (đo 26/08) · TCBS gọi HTTP thẳng, chưa đo sống. Script phải cho
+    chọn, và `--probe` phải in ra nguồn nào đang dùng, chứ không để người đọc
+    tự đoán."""
 
-    def test_both_sources_are_offered(self):
-        assert set(_m.SOURCES) == {"vci", "kbs"}
+    def test_all_three_sources_are_offered(self):
+        assert set(_m.SOURCES) == {"vci", "kbs", "tcbs"}
 
     def test_kbs_goes_through_the_kbs_explorer(self):
         import inspect

@@ -117,6 +117,43 @@ Desktop giữ 4.0.4 — nó chạy phát tối, không phải chỗ để thử.
 
 ---
 
+## 5. 📊 Bảng cân đối ngân hàng 2015-2016 — ○ máy nào cũng được, CẦN MẠNG
+
+Nguồn trong app **không có 2015-2016**: `vci` sớm nhất **2018-Q1**, `kbs` trả
+**rỗng** (đo 26/08). Đã thêm nguồn thứ ba (`tcbs`, gọi HTTP thẳng) nhưng
+**máy Claude bị chặn egress tới mọi host tài chính VN** ⇒ chỉ máy anh đo được.
+
+Hai lệnh, đọc kết quả rồi báo lại:
+
+```powershell
+cd C:\vnstock
+python scripts\export_bank_balance_sheets.py --probe-all VCB
+```
+Đọc cột **SỚM NHẤT**:
+* Có dòng nào ra **2015-Q1** hoặc sớm hơn → chạy tiếp lệnh dưới.
+* Không dòng nào tới 2015 → dán bảng đó, khi ấy mới tính đường ngoài app.
+
+```powershell
+python scripts\export_bank_balance_sheets.py --crosscheck VCB
+```
+Đối chiếu **đơn vị** giữa `vci` và `tcbs` ở các quý trùng nhau. TCBS hay trả
+tỉ VND còn VCI trả triệu VND — chưa có tỉ số đo được thì **đừng tin số**.
+Tỉ số phẳng (`✅ ỔN ĐỊNH`) → ghép được. `⚠️ LỞM CHỞM` → hai bảng không cùng
+một chỉ tiêu, dán ra đây.
+
+Cả hai xanh thì ra file:
+```powershell
+python scripts\export_bank_balance_sheets.py --from 2015 --to 2016 --source tcbs
+```
+
+**Cả ba nguồn trượt thì còn ba đường** (xếp theo mức tin được): ① anh xuất
+Excel từ Wichart/FiinPro, tôi viết bộ đọc — số truy được về một file nguồn,
+sạch nhất · ② tôi bóc CafeF rồi đối chiếu chéo với VCI ở các quý trùng ·
+③ ~~PDF HOSE/HNX~~ — 26 ngân hàng × 8 quý × ~60 chỉ tiêu ≈ **12.000 con số**
+chép tay, **tôi không làm**: ở quy mô đó chép tay là bịa số có hệ thống.
+
+---
+
 # 🔔 MÁY TỰ NHẮC — không phải việc gõ tay
 
 Chạy `python run.py doctor` và chỉ **nhìn badge**. Vàng ở đây thường là dấu

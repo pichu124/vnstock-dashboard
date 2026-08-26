@@ -801,6 +801,7 @@ def cmd_test(args) -> int:
             # Xuất bảng cân đối ngân hàng: sai ở đây là ra một file Excel
             # trông như thật nhưng rỗng/lệch bố cục giữa các sheet.
             "tests/test_bank_balance_export.py",
+            "tests/test_bank_bs_sources.py",
             "tests/test_model_ladder.py",
             "tests/test_auditor.py",
             "tests/test_parquet_io.py",

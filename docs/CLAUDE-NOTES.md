@@ -6966,6 +6966,73 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 📊 U34. BẢNG CÂN ĐỐI NGÂN HÀNG 2015-2016: BA NGUỒN, VÀ CÁI TÔI KHÔNG ĐO ĐƯỢC (26/08)
+
+User xin file Excel bảng cân đối kế toán **theo quý** của các ngân hàng
+**năm 2015-2016**, mỗi ngân hàng một sheet, format đồng nhất. Kết quả tra
+nguồn — ghi lại để lần sau khỏi mò lại:
+
+| nguồn | có trong `vnstock`? | kỳ sớm nhất | đo lúc nào |
+|---|---|---|---|
+| `vci`  | có | **2018-Q1** (86 chỉ tiêu) | 26/08, `--probe VCB`, máy user |
+| `kbs`  | có | **trả RỖNG** (`0 hàng × 0 cột`) | 26/08, máy user |
+| `tcbs` | **KHÔNG** — 4.x bỏ explorer này | CHƯA ĐO | — |
+
+## Ba cái bẫy đã né được (viết ra vì cả ba đều ghi ra file trông như thật)
+
+1. **`limit` mặc định = 4 kỳ.** `vci…Finance._get_financial_report` có
+   `effective_limit = limit if limit is not None else 4`, mà `balance_sheet()`
+   công khai KHÔNG nhận `limit`. Đi đường thường ⇒ 4 quý gần nhất, file vẫn ghi
+   bình thường. Phải gọi thẳng `_get_financial_report(..., limit=N)`.
+2. **`dropna=True` bỏ CHỈ TIÊU toàn 0** (`df.loc[:, (df != 0).any(axis=0)]`),
+   mỗi ngân hàng bỏ một bộ khác nhau — đúng thứ phá yêu cầu "format đồng nhất".
+3. **Dạng frame ngược với giả định đầu tiên của tôi**: hàng = CHỈ TIÊU, cột =
+   KỲ (`item | item_en | item_id | 2018-Q1 | … | 2026-Q2`). Tôi đã đoán
+   hàng=kỳ theo kiểu `yearReport`/`lengthReport` — sai. `--probe` bắt được
+   trước khi ghi file.
+
+## Điều PHẢI nhớ về máy chạy Claude: EGRESS BỊ CHẶN
+
+Container của Claude **không ra được mọi host tài chính VN** — agent proxy trả
+`403` cho `CONNECT`: `kbsec.com.vn`, `apipubaws.tcbs.com.vn`, cả
+`hq.vnstocks.com` (nên `vnstock` chạy ở đây luôn ở tier `guest`). Hệ quả:
+
+* **Mọi thứ chạm mạng chỉ kiểm được TRÊN MÁY USER.** Đừng bao giờ viết "đã
+  kiểm nguồn X" nếu chỉ chạy trong container — đó là vết U26 lặp lại (trình
+  bày suy luận bằng giọng của phép đo).
+* Vì thế `tcbs_to_frame` viết theo hướng **không lọc theo danh mục**: trường
+  lạ vẫn ra bảng với tên gốc (`_camel_to_words`). Danh mục `TCBS_VI` chỉ để
+  DỊCH tên, không để chọn dòng — danh mục chép theo trí nhớ mà đem lọc thì
+  trường thiếu = số biến mất im lặng.
+* Và **đơn vị TCBS chưa xác nhận** (TCBS hay trả tỉ VND, VCI trả triệu VND).
+  Không nhân chia gì hết: `--crosscheck` lấy dòng TỔNG TÀI SẢN ở các quý CẢ
+  HAI nguồn cùng có rồi in TỈ SỐ. Tỉ số phẳng (max/min < 1,01) ⇒ chênh đúng
+  một bậc đơn vị, ghép được. Tỉ số lởm chởm ⇒ **hai bảng không cùng nói về
+  một chỉ tiêu**, đừng ghép.
+
+## Ba lệnh, theo thứ tự
+
+    python scripts\export_bank_balance_sheets.py --probe-all VCB    # nguồn nào với tới 2015?
+    python scripts\export_bank_balance_sheets.py --crosscheck VCB   # đơn vị có khớp không?
+    python scripts\export_bank_balance_sheets.py --from 2015 --to 2016 --source tcbs
+
+`--probe-all` so MỌI nguồn trên cùng một mã trong một lệnh, cộng thêm một
+phép thăm dò CafeF (chỉ hỏi "trang có chứa quý mình xin không", CHƯA bóc số —
+bóc số chỉ viết sau khi nhìn cấu trúc bảng thật). Exit 0 = có nguồn với tới,
+exit 2 = không.
+
+## Nếu cả ba nguồn đều trượt
+
+Còn ba đường, xếp theo mức tin được:
+
+1. **User xuất Excel từ Wichart/FiinPro, Claude viết bộ đọc.** Số truy được
+   về một file nguồn — sạch nhất.
+2. **Bóc CafeF** (`s.cafef.vn/bao-cao-tai-chinh/<mã>/BSheet/<năm>/<quý>/…`),
+   đối chiếu chéo với VCI ở các quý trùng (2018+) trước khi tin.
+3. ~~PDF HOSE/HNX~~ — 26 ngân hàng × 8 quý × ~60 chỉ tiêu ≈ **12.000 con
+   số** chép tay. **Không làm.** Chép tay ở quy mô đó là bịa số có hệ thống,
+   mà bảng bịa thì trông y hệt bảng thật.
+
 # 🚀 U33. NET BS: TUẦN TỰ CÓ SLEEP → SONG SONG CÓ NHỊP (26/08)
 
 Ứng viên lớn còn lại của bước `screener` (1.318s). Vòng lấy Net Buy-Sell ở
