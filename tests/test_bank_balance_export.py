@@ -310,3 +310,34 @@ class TestTheTrapsAreDocumentedWhereTheyBite:
     def test_default_limit_is_deep_enough_for_2015(self):
         # 2015-Q1 cách hiện tại ~46 quý
         assert _m.DEFAULT_LIMIT >= 60
+
+
+class TestSourceSelection:
+    """Hai nguồn trong `vnstock` có TẦM PHỦ khác nhau. VCI đo được: sớm nhất
+    2018-Q1. KBS chưa đo — nên script phải cho chọn, và `--probe` phải in ra
+    nguồn nào đang dùng, chứ không để người đọc tự đoán."""
+
+    def test_both_sources_are_offered(self):
+        assert set(_m.SOURCES) == {"vci", "kbs"}
+
+    def test_kbs_goes_through_the_kbs_explorer(self):
+        import inspect
+        src = inspect.getsource(_m.fetch_balance_sheet)
+        assert "vnstock.explorer.kbs.financial" in src
+        assert "vnstock.explorer.vci.financial" in src
+
+    def test_probe_names_the_source_it_used(self, monkeypatch, capsys):
+        monkeypatch.setattr(_m, "fetch_balance_sheet",
+                            lambda *a, **k: _frame(["TS"], [(2018, 1)],
+                                                   {("TS", 2018, 1): 1}))
+        _m.probe("VCB", 200, "vi", "kbs")
+        assert "nguồn=kbs" in capsys.readouterr().out
+
+    def test_probe_shouts_the_earliest_period(self, monkeypatch, capsys):
+        """Câu hỏi sống còn với yêu cầu 2015-2016 là 'nguồn có từ bao giờ'."""
+        monkeypatch.setattr(_m, "fetch_balance_sheet",
+                            lambda *a, **k: _frame(["TS"], [(2018, 1), (2019, 2)],
+                                                   {("TS", 2018, 1): 1}))
+        _m.probe("VCB", 200, "vi", "vci")
+        out = capsys.readouterr().out
+        assert "KỲ SỚM NHẤT" in out and "2018-Q1" in out

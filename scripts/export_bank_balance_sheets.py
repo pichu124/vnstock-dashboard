@@ -206,26 +206,37 @@ def bank_tickers() -> list:
     return re.findall(r'"([A-Z]{3,4})"', blk)
 
 
+SOURCES = ("vci", "kbs")
+
+
 def fetch_balance_sheet(ticker: str, limit: int = DEFAULT_LIMIT,
-                        lang: str = "vi"):
+                        lang: str = "vi", source: str = "vci"):
     """Bảng cân đối theo quý, ĐỦ SÂU. Ném lỗi rõ ràng thay vì trả rỗng.
 
-    Đi qua `_get_financial_report` vì đó là chỗ DUY NHẤT nhận `limit` —
-    xem hai cái bẫy ở đầu file.
+    Hai nguồn có sẵn trong `vnstock`, TẦM PHỦ KHÁC NHAU — đo bằng `--probe`,
+    đừng tin nguồn nào "chắc là có":
+    * `vci` — đo 26/08: sớm nhất **2018-Q1** (86 chỉ tiêu).
+    * `kbs` — nguồn thứ hai, CHƯA ĐO. Có thể sâu hơn, có thể không.
     """
     from vnstock_auth import ensure_api_key
     ensure_api_key()
-    from vnstock.explorer.vci.financial import Finance
 
-    fin = Finance(ticker, period="quarter", show_log=False)
-    return fin._get_financial_report(
+    if source == "kbs":
+        from vnstock.explorer.kbs.financial import Finance as KFinance
+        return KFinance(ticker, period="quarter", show_log=False)\
+            .balance_sheet(period="quarter", display_mode=None, show_log=False)
+
+    from vnstock.explorer.vci.financial import Finance
+    # `_get_financial_report` là chỗ DUY NHẤT nhận `limit` — xem bẫy ① đầu file
+    return Finance(ticker, period="quarter", show_log=False)._get_financial_report(
         "balance_sheet", period="quarter", lang=lang,
         dropna=False, limit=limit, show_log=False)
 
 
-def probe(ticker: str, limit: int, lang: str) -> int:
+def probe(ticker: str, limit: int, lang: str, source: str = "vci") -> int:
     """Soi MỘT mã: hình dạng, cột kỳ, TẦM PHỦ THẬT. Chạy cái này TRƯỚC."""
-    df = fetch_balance_sheet(ticker, limit=limit, lang=lang)
+    df = fetch_balance_sheet(ticker, limit=limit, lang=lang, source=source)
+    print(f"[probe] nguồn={source}")
     print(f"[probe] {ticker}: {df.shape[0]} hàng × {df.shape[1]} cột")
     if df.empty:
         print("[probe] ❌ nguồn trả về RỖNG")
@@ -393,13 +404,15 @@ def main(argv=None) -> int:
                     help="Số kỳ xin về từ nguồn (mặc định 200 — API mặc định "
                          "CHỈ 4, xem ghi chú đầu file)")
     ap.add_argument("--lang", default="vi", choices=("vi", "en"))
+    ap.add_argument("--source", default="vci", choices=SOURCES,
+                    help="vci = đã đo, sớm nhất 2018-Q1 · kbs = nguồn thứ hai, CHƯA đo tầm phủ")
     ap.add_argument("--out", default=None)
     ap.add_argument("--probe", metavar="MÃ", default=None,
                     help="Soi một mã rồi thoát — CHẠY CÁI NÀY TRƯỚC")
     args = ap.parse_args(argv)
 
     if args.probe:
-        return probe(args.probe.upper(), args.limit, args.lang)
+        return probe(args.probe.upper(), args.limit, args.lang, args.source)
 
     quarters = quarters_between(args.y_from, args.y_to)
     tickers = [t.upper() for t in (args.tickers or bank_tickers())]
@@ -411,7 +424,8 @@ def main(argv=None) -> int:
     for i, tk in enumerate(tickers, 1):
         print(f"[{i:2d}/{len(tickers)}] {tk} …", end=" ", flush=True)
         try:
-            df = fetch_balance_sheet(tk, limit=args.limit, lang=args.lang)
+            df = fetch_balance_sheet(tk, limit=args.limit, lang=args.lang,
+                                     source=args.source)
         except Exception as exc:
             print(f"LỖI: {type(exc).__name__}: {exc}")
             failed.append((tk, f"{type(exc).__name__}: {exc}"))
