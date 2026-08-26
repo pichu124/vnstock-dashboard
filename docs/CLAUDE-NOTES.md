@@ -6966,6 +6966,52 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🔌 U35. FINHAY MCP: CÓ GÌ, DÙNG ĐƯỢC GÌ CHO APP (26/08)
+
+68 tool. **Ràng buộc quyết định mọi thứ bên dưới: đây là MCP connector của
+Claude, KHÔNG phải thư viện Python.** Phát 18:00 chạy tự động không có Claude
+trong vòng lặp ⇒ **KHÔNG nối được vào pipeline**. Giá trị của Finhay là
+**ĐỐI CHỨNG trong phiên**, không phải thay nguồn.
+
+## Đã ĐO (không phải đọc mô tả)
+
+| tool | đo được gì | 26/08 |
+|---|---|---|
+| `get_macro_indicator` | **27 chỉ tiêu VN**; CPI YoY tươi tới **2026-07**, sâu tới **2021-06** (2014→2021-05 trả rỗng) | ✅ tươi, nông |
+| `screen_stocks` | toàn thị trường, phân trang 50; có `foreign_net_value` + `proprietary_net_value` luỹ kế theo `window` (1D…YTD), kèm `pe`/`ma50`. `updated_at` = ngay lúc gọi | ✅ sống |
+| `get_financial_statement` | **trần 5 kỳ** cứng trong schema — xem U34 | ⚠️ nông |
+| `get_bank_interest_rates` | 20 ngân hàng, nhưng `effective_date: 4/5/2026` — **cũ ~4 tháng** so với 26/08 | ❌ ôi |
+| `list_calendar_events` | country=Vietnam trả **0 sự kiện**; United States trả **138** ⇒ tool chạy tốt, chỉ là **không phủ VN** | ❌ với VN |
+
+## Nhóm dịch vụ (theo mô tả tool, chưa đo hết)
+
+giá & lịch sử (stock/index/ETF/bond/crypto/forex/hàng hoá/quỹ) · sổ lệnh ·
+dòng tiền ngoại + tự doanh (có `_history`) · room ngoại · thống kê lệnh chủ
+động · hồ sơ & cơ cấu sở hữu DN · BCTC + 247 trường phân tích · sàng lọc ·
+**16 chỉ báo kỹ thuật khung ngày, tới 5 năm** · tin tức theo topic/mã +
+toàn văn · báo cáo khuyến nghị CTCK · tài khoản cá nhân (chỉ đọc).
+
+## Dùng vào việc gì — xếp theo giá trị THẬT
+
+1. **Đối chứng Net BS.** `screen_stocks` trả dòng tiền ngoại/tự doanh cả thị
+   trường trong một lệnh. App phải gọi `order_stats()` ~1.000 mã (vòng Net BS
+   135-165s). ⇒ Sau mỗi phát 18:00, Claude soi `market_overview.json` đối
+   chiếu Finhay để biết số đêm qua có đúng không. **Đây là việc đáng làm nhất.**
+2. **Đối chứng chỉ báo.** `get_stock_technicals` (RSI/MACD/BBANDS/ADX/…) là
+   nguồn THỨ HAI để kiểm số `vnstock_screener` tự tính và chart 4 panel.
+3. **Lấp vĩ mô khi NSO hỏng.** Có CPI/GDP/IIP/bán lẻ/PMI/FDI/M2/dự trữ ngoại
+   hối. ⚠️ Nếu ghi vào kho thì **BẮT BUỘC có trường `source`** — số vào kho
+   mà không truy được nguồn là thứ sẽ cắn về sau.
+4. Tin tức theo mã + báo cáo khuyến nghị CTCK — app chưa có, bổ sung được cho
+   news tab và brief.
+
+## ĐỪNG
+
+* Đừng nối Finhay vào `SOURCES` / pipeline (không gọi được MCP lúc 18:00).
+* Đừng thay `vnstock_sbv_rates` bằng `get_bank_interest_rates` — dữ liệu ôi.
+* Đừng dùng `list_calendar_events` cho lịch VN — rỗng.
+* Đừng dùng `get_financial_statement` cho quá khứ — trần 5 kỳ (U34).
+
 # 📊 U34. BÁO CÁO TÀI CHÍNH QUÁ KHỨ: TẦM PHỦ CỦA MỌI NGUỒN (26/08) — TRA BẢNG NÀY TRƯỚC
 
 > ## 🛑 ĐÃ TRA HẾT NGÀY 26/08 — ĐỪNG DÒ LẠI
