@@ -5,9 +5,13 @@ Mỗi ngân hàng một sheet, **bố cục dòng GIỐNG HỆT nhau giữa mọ
 
 Chạy trên máy có mạng + `VNSTOCK_API_KEY` trong `.env`:
 
-    python scripts/export_bank_balance_sheets.py --from 2015 --to 2016
+    python scripts/export_bank_balance_sheets.py --probe VCB     # soi TRƯỚC
+    python scripts/export_bank_balance_sheets.py --from 2018 --to 2019
     python scripts/export_bank_balance_sheets.py --tickers VCB CTG BID
-    python scripts/export_bank_balance_sheets.py --probe VCB     # soi trước 1 mã
+
+⚠️ **KỲ SỚM NHẤT NGUỒN CÓ LÀ 2018-Q1** (đo bằng `--probe VCB` ngày 26/08:
+`item | item_en | item_id | 2018-Q1 | … | 2026-Q2`). Xin 2015-2016 thì nguồn
+KHÔNG có — script sẽ nói ra và gợi khoảng dùng được, chứ không ghi file rỗng.
 
 ════════════════════════════════════════════════════════════════════════════
 HAI CÁI BẪY ĐÃ ĐỌC RA TỪ MÃ NGUỒN `vnstock` — nếu không né thì file ra SAI
@@ -43,13 +47,19 @@ sys.path.insert(0, str(REPO))
 # Số kỳ xin về. 2015-Q1 cách hiện tại ~46 quý; xin dư cho chắc.
 DEFAULT_LIMIT = 200
 
-# Tên cột kỳ báo cáo có thể gặp — nguồn đổi nhãn theo `lang`/phiên bản.
-_YEAR_KEYS = ("yearreport", "năm", "nam", "year", "reportyear")
-_QUARTER_KEYS = ("lengthreport", "quý", "quy", "quarter", "reportquarter",
-                 "kỳ", "ky")
-# Cột không phải chỉ tiêu tài chính
-_META_KEYS = set(_YEAR_KEYS) | set(_QUARTER_KEYS) | {
-    "report_period", "ticker", "symbol", "mã", "ma", "cp"}
+# ── DẠNG THẬT của frame VCI (đo bằng --probe VCB, 26/08) ────────────────
+#   86 hàng × 37 cột
+#   item | item_en | item_id | 2018-Q1 | 2018-Q2 | … | 2026-Q2
+# Tức **HÀNG là chỉ tiêu, CỘT là kỳ** — ngược hẳn giả định ban đầu của tôi
+# (tôi đã đoán hàng=kỳ, cột=chỉ tiêu theo kiểu `yearReport`/`lengthReport`).
+# Đây chính là lý do `--probe` phải chạy trước: đoán sai dạng thì script ghi
+# ra một file trông như thật.
+#
+# ⚠️ VÀ: kỳ SỚM NHẤT nguồn có là **2018-Q1**. 2015-2016 KHÔNG tồn tại ở
+# nguồn này, không phải script bỏ sót.
+_LABEL_COLS = ("item", "item_en", "item_id", "ticker", "symbol")
+
+
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -68,58 +78,84 @@ def _norm(name) -> str:
     return str(name).strip().lower()
 
 
-def detect_period_columns(columns) -> "tuple[str, str] | None":
-    """(cột NĂM, cột QUÝ) trong frame nguồn — None khi không nhận ra.
+def detect_period_columns(columns) -> list:
+    """[(tên cột, (năm, quý))] cho các cột kỳ dạng `2018-Q1`, theo thứ tự tăng.
 
-    Không đoán bừa: nhận không ra thì chỗ gọi phải dừng và in danh sách cột
-    ra cho người xem, chứ không được ghi một file trông như thật.
+    Nhận không ra cột kỳ nào ⇒ trả [] và chỗ gọi PHẢI dừng: đoán bừa dạng
+    frame là ghi ra một file trông như thật (vết 26/08 — tôi đoán hàng=kỳ,
+    thực tế hàng=chỉ tiêu).
     """
-    cols = list(columns)
-    lut = {_norm(c): c for c in cols}
-    ycol = next((lut[k] for k in _YEAR_KEYS if k in lut), None)
-    qcol = next((lut[k] for k in _QUARTER_KEYS if k in lut), None)
-    if ycol is None or qcol is None:
-        return None
-    return (ycol, qcol)
+    import re
+    pat = re.compile(r"^\s*(\d{4})\s*[-/ ]?\s*Q([1-4])\s*$", re.I)
+    out = []
+    for c in columns:
+        m = pat.match(str(c))
+        if m:
+            out.append((c, (int(m.group(1)), int(m.group(2)))))
+    return sorted(out, key=lambda t: t[1])
 
 
-def line_items(columns, year_col, quarter_col) -> list:
-    """Các cột CHỈ TIÊU (bỏ cột kỳ/metadata), giữ nguyên thứ tự nguồn."""
-    skip = {_norm(year_col), _norm(quarter_col)} | _META_KEYS
-    return [c for c in columns if _norm(c) not in skip]
+def label_column(columns, lang: str = "vi") -> "str | None":
+    """Cột chứa TÊN chỉ tiêu. `item` = tiếng Việt, `item_en` = tiếng Anh."""
+    lut = {str(c).strip().lower(): c for c in columns}
+    order = ("item_en", "item") if lang == "en" else ("item", "item_en")
+    return next((lut[k] for k in order if k in lut), None)
 
 
-def tidy(df, year_col, quarter_col) -> dict:
-    """{(năm, quý): {chỉ tiêu: giá trị}} — bỏ hàng không đọc được kỳ."""
-    out: dict = {}
-    items = line_items(df.columns, year_col, quarter_col)
+def tidy(df, lang: str = "vi") -> dict:
+    """{(năm, quý): {chỉ tiêu: giá trị}} từ frame dạng hàng=chỉ tiêu.
+
+    Giữ NGUYÊN thứ tự hàng của nguồn — đó đã là thứ tự bảng cân đối chuẩn
+    (tài sản → nợ → vốn chủ). Tự sắp lại theo khung của mình là rước rủi ro
+    xếp nhầm dòng, mà xếp nhầm một dòng thì cả bảng sai.
+    """
+    periods = detect_period_columns(df.columns)
+    lbl = label_column(df.columns, lang)
+    if not periods or lbl is None:
+        return {}
+    out: dict = {qq: {} for _, qq in periods}
     for _, row in df.iterrows():
-        try:
-            y, q = int(row[year_col]), int(row[quarter_col])
-        except (TypeError, ValueError):
+        name = str(row[lbl]).strip()
+        if not name or name.lower() == "nan":
             continue
-        if not 1 <= q <= 4:
-            continue
-        out[(y, q)] = {c: row[c] for c in items}
+        for col, qq in periods:
+            out[qq][name] = row[col]
     return out
 
 
-def unified_items(per_bank: dict) -> list:
+def source_item_order(df, lang: str = "vi") -> list:
+    """Danh sách chỉ tiêu THEO ĐÚNG thứ tự nguồn trả về."""
+    lbl = label_column(df.columns, lang)
+    if lbl is None:
+        return []
+    seen, out = set(), []
+    for v in df[lbl]:
+        name = str(v).strip()
+        if name and name.lower() != "nan" and name not in seen:
+            seen.add(name)
+            out.append(name)
+    return out
+
+
+def unified_items(per_bank: dict, orders: "dict | None" = None) -> list:
     """Danh mục chỉ tiêu HỢP NHẤT — bộ xương dùng chung cho MỌI sheet.
 
-    Giữ thứ tự xuất hiện đầu tiên (bảng cân đối có trật tự có nghĩa: tài sản
-    → nợ → vốn chủ; sắp xếp abc là phá cấu trúc đó). Ngân hàng nào thiếu chỉ
-    tiêu nào thì ô đó TRỐNG, không phải 0.
+    Ưu tiên thứ tự NGUỒN của từng mã (`orders`), vì đó đã là thứ tự bảng cân
+    đối chuẩn. Mã nào có chỉ tiêu mà mã khác không có thì chỉ tiêu đó vẫn
+    xuất hiện ở mọi sheet — ô của mã thiếu để TRỐNG.
     """
-    seen: list = []
-    known = set()
-    for data in per_bank.values():
-        for period in sorted(data):
-            for item in data[period]:
-                if item not in known:
-                    known.add(item)
-                    seen.append(item)
-    return seen
+    seen, out = set(), []
+    for tk in sorted(per_bank):
+        src = (orders or {}).get(tk)
+        if not src:
+            src = []
+            for period in sorted(per_bank[tk]):
+                src.extend(per_bank[tk][period])
+        for item in src:
+            if item not in seen:
+                seen.add(item)
+                out.append(item)
+    return out
 
 
 def sheet_matrix(items: list, quarters: list, data: dict) -> list:
@@ -188,27 +224,28 @@ def fetch_balance_sheet(ticker: str, limit: int = DEFAULT_LIMIT,
 
 
 def probe(ticker: str, limit: int, lang: str) -> int:
-    """Soi MỘT mã rồi in ra: hình dạng, cột kỳ, tầm phủ. Chạy cái này TRƯỚC."""
+    """Soi MỘT mã: hình dạng, cột kỳ, TẦM PHỦ THẬT. Chạy cái này TRƯỚC."""
     df = fetch_balance_sheet(ticker, limit=limit, lang=lang)
     print(f"[probe] {ticker}: {df.shape[0]} hàng × {df.shape[1]} cột")
     if df.empty:
         print("[probe] ❌ nguồn trả về RỖNG")
         return 2
-    per = detect_period_columns(df.columns)
-    if per is None:
-        print("[probe] ❌ KHÔNG nhận ra cột kỳ báo cáo. Dán danh sách cột này "
-              "cho Claude để bổ sung:")
-        print("  " + " | ".join(str(c) for c in list(df.columns)[:40]))
+    periods = detect_period_columns(df.columns)
+    lbl = label_column(df.columns, lang)
+    if not periods or lbl is None:
+        print("[probe] ❌ KHÔNG nhận ra cột kỳ / cột tên chỉ tiêu. Dán danh "
+              "sách cột này cho Claude:")
+        print("  " + " | ".join(str(c) for c in list(df.columns)[:45]))
         return 2
-    ycol, qcol = per
-    data = tidy(df, ycol, qcol)
-    ks = sorted(data)
-    print(f"[probe] cột kỳ: năm='{ycol}' quý='{qcol}'")
-    print(f"[probe] chỉ tiêu: {len(line_items(df.columns, ycol, qcol))}")
-    print(f"[probe] tầm phủ: {quarter_label(*ks[0])} → {quarter_label(*ks[-1])}"
-          f" ({len(ks)} quý)")
-    print("[probe] 8 chỉ tiêu đầu: "
-          + " | ".join(str(c) for c in line_items(df.columns, ycol, qcol)[:8]))
+    items = source_item_order(df, lang)
+    print(f"[probe] cột tên chỉ tiêu: '{lbl}' · {len(items)} chỉ tiêu")
+    print(f"[probe] TẦM PHỦ: {quarter_label(*periods[0][1])} → "
+          f"{quarter_label(*periods[-1][1])} ({len(periods)} quý)")
+    print(f"[probe] ⚠️ KỲ SỚM NHẤT nguồn có: "
+          f"{quarter_label(*periods[0][1])} — xin sớm hơn là KHÔNG có data")
+    print("[probe] 8 chỉ tiêu đầu:")
+    for it in items[:8]:
+        print(f"          {it}")
     return 0
 
 
@@ -265,6 +302,15 @@ def write_workbook(path: Path, per_bank: dict, items: list, quarters: list,
                     end_row=note.row + 6, end_column=7)
 
     # ── Mỗi ngân hàng một sheet, BỐ CỤC Y HỆT NHAU ──────────────────────
+    # Thứ tự dòng dựng MỘT LẦN từ `items` — đó chính là điều kiện "đồng nhất".
+    # Dòng nào nhìn như TIÊU ĐỀ MỤC (toàn hoa, hoặc "TỔNG …") thì tô đậm để
+    # bảng đọc ra hình dạng bảng cân đối; KHÔNG tự chèn tiêu đề của mình và
+    # KHÔNG đổi tên chỉ tiêu — nguồn đã trả đúng thứ tự báo cáo, sắp lại theo
+    # khung riêng là rước rủi ro xếp nhầm dòng.
+    sec_font = Font(name=_FONT, bold=True, size=10)
+    sec_fill = PatternFill("solid", fgColor="F2F2F2")
+    chk_font = Font(name=_FONT, bold=True, size=10, italic=True)
+
     for ticker in sorted(per_bank):
         ws = wb.create_sheet(ticker[:31])
         ws.append([f"BẢNG CÂN ĐỐI KẾ TOÁN — {ticker} (theo quý)"])
@@ -275,16 +321,25 @@ def write_workbook(path: Path, per_bank: dict, items: list, quarters: list,
             c.alignment = Alignment(horizontal="center")
         ws["A2"].alignment = Alignment(horizontal="left")
 
-        for item, row in zip(items, sheet_matrix(items, quarters,
-                                                 per_bank[ticker])):
-            ws.append([item] + row)
-
-        for r in ws.iter_rows(min_row=3, min_col=1, max_col=len(quarters) + 1):
-            r[0].font = body_font
+        by_item = dict(zip(items, sheet_matrix(items, quarters,
+                                               per_bank[ticker])))
+        row_of: dict = {}
+        for label in items:
+            ws.append([label] + by_item[label])
+            row_of[label] = ws.max_row
+            r = ws[ws.max_row]
+            head = is_heading(label)
+            r[0].font = sec_font if head else body_font
             r[0].alignment = Alignment(wrap_text=True, vertical="top")
             for c in r[1:]:
-                c.font = body_font
+                c.font = sec_font if head else body_font
                 c.number_format = _NUM_FMT
+            if head:
+                for c in r:
+                    c.fill = sec_fill
+
+        _append_balance_check(ws, items, row_of, quarters, chk_font)
+
         ws.column_dimensions["A"].width = 52
         for i in range(2, len(quarters) + 2):
             ws.column_dimensions[get_column_letter(i)].width = 18
@@ -293,11 +348,45 @@ def write_workbook(path: Path, per_bank: dict, items: list, quarters: list,
     wb.save(path)
 
 
+def _append_balance_check(ws, items, row_of, quarters, font):
+    """Hàng KIỂM TRA CÂN ĐỐI — bằng CÔNG THỨC, không phải số Python tính sẵn.
+
+    Bảng cân đối chỉ có đúng một bất biến: TỔNG TÀI SẢN = TỔNG NGUỒN VỐN.
+    Viết bằng công thức để nó tự tính lại khi ai đó sửa số trong file.
+
+    Không định vị được cả hai dòng ⇒ ghi một dòng NÓI RÕ là không kiểm được,
+    chứ không im lặng bỏ qua.
+    """
+    from openpyxl.utils import get_column_letter
+
+    ta = find_row(items, "tong tai san", "total assets")
+    tn = find_row(items, "tong no phai tra va von chu so huu",
+                  "tong nguon von", "total liabilities and owner s equity",
+                  "total resources")
+    ws.append([])
+    if ta is None or tn is None:
+        ws.append(["⚠ Không định vị được dòng TỔNG TÀI SẢN và/hoặc TỔNG NGUỒN "
+                   "VỐN trong dữ liệu nguồn → KHÔNG kiểm được cân đối"])
+        ws[ws.max_row][0].font = font
+        return
+    r_ta, r_tn = row_of[items[ta]], row_of[items[tn]]
+    ws.append(["KIỂM TRA: Tổng tài sản − Tổng nguồn vốn (phải = 0)"])
+    r = ws.max_row
+    ws[r][0].font = font
+    for i in range(len(quarters)):
+        col = get_column_letter(i + 2)
+        c = ws.cell(row=r, column=i + 2)
+        c.value = f"=IFERROR({col}{r_ta}-{col}{r_tn},\"\")"
+        c.font = font
+        c.number_format = _NUM_FMT
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description="Xuất bảng cân đối kế toán theo quý của các ngân hàng")
-    ap.add_argument("--from", dest="y_from", type=int, default=2015)
-    ap.add_argument("--to", dest="y_to", type=int, default=2016)
+    ap.add_argument("--from", dest="y_from", type=int, default=2018,
+                    help="Nguồn VCI chỉ có từ 2018-Q1")
+    ap.add_argument("--to", dest="y_to", type=int, default=2019)
     ap.add_argument("--tickers", nargs="*", default=None,
                     help="Mặc định: toàn bộ ngân hàng trong vnstock_brief_canon")
     ap.add_argument("--limit", type=int, default=DEFAULT_LIMIT,
@@ -318,6 +407,7 @@ def main(argv=None) -> int:
                f"bang_can_doi_ngan_hang_{args.y_from}_{args.y_to}.xlsx")
 
     per_bank, coverage, failed = {}, [], []
+    orders, earliest = {}, []
     for i, tk in enumerate(tickers, 1):
         print(f"[{i:2d}/{len(tickers)}] {tk} …", end=" ", flush=True)
         try:
@@ -330,25 +420,37 @@ def main(argv=None) -> int:
             print("rỗng")
             failed.append((tk, "nguồn trả về rỗng"))
             continue
-        per = detect_period_columns(df.columns)
-        if per is None:
-            print("KHÔNG nhận ra cột kỳ")
-            failed.append((tk, "không nhận ra cột kỳ báo cáo"))
+        avail = detect_period_columns(df.columns)
+        if not avail or label_column(df.columns, args.lang) is None:
+            print("KHÔNG nhận ra cột kỳ / cột tên chỉ tiêu")
+            failed.append((tk, "không nhận ra cột kỳ / tên chỉ tiêu"))
             continue
-        data = tidy(df, *per)
+        earliest.append(avail[0][1])
+        data = tidy(df, args.lang)
         kept = {qq: v for qq, v in data.items() if qq in set(quarters)}
         per_bank[tk] = kept
+        orders[tk] = source_item_order(df, args.lang)
         coverage.append(coverage_row(tk, quarters, kept))
-        print(f"{len(kept)}/{len(quarters)} quý")
+        print(f"{len(kept)}/{len(quarters)} quý"
+              + ("" if kept else
+                 f"  (nguồn chỉ có từ {quarter_label(*avail[0][1])})"))
 
-    if not per_bank:
-        print("\n❌ KHÔNG mã nào có dữ liệu — KHÔNG ghi file (file rỗng trông "
+    covered = [tk for tk, d in per_bank.items() if d]
+    if not covered:
+        print("\n❌ KHÔNG mã nào có dữ liệu trong khoảng "
+              f"{args.y_from}-{args.y_to} — KHÔNG ghi file (file rỗng trông "
               "như thật là thứ nguy hiểm nhất ở đây).")
-        for tk, why in failed:
+        if earliest:
+            e = min(earliest)
+            print(f"\n   👉 Kỳ SỚM NHẤT nguồn có là {quarter_label(*e)}. "
+                  f"Xin sớm hơn thì nguồn KHÔNG có, không phải script bỏ sót.")
+            print(f"   👉 Thử lại: --from {e[0]} --to {e[0] + 1}")
+        for tk, why in failed[:5]:
             print(f"   {tk}: {why}")
         return 2
 
-    items = unified_items(per_bank)
+    per_bank = {tk: d for tk, d in per_bank.items() if d}
+    items = unified_items(per_bank, orders)
     write_workbook(out, per_bank, items, quarters, coverage, args.lang)
     print(f"\n✅ {out}")
     print(f"   {len(per_bank)} sheet ngân hàng · {len(items)} dòng chỉ tiêu "
@@ -365,3 +467,63 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Sắp chỉ tiêu theo KHUNG bảng cân đối — hàm thuần
+# ─────────────────────────────────────────────────────────────────────────
+def _strip_accents(text: str) -> str:
+    import unicodedata
+    s = unicodedata.normalize("NFD", str(text or ""))
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return s.replace("đ", "d").replace("Đ", "D")
+
+
+# Số thứ tự đầu dòng: "1." "1)" "IV." "a)" — PHẢI có dấu ngăn phía sau.
+# Không có ràng buộc đó thì bộ lọc ăn luôn chữ cái đầu của chỉ tiêu thật:
+# "Cho vay khách hàng" → "ho vay khach hang" (c là chữ số La Mã), "Vốn điều
+# lệ" → "on dieu le". Bắt được lúc chạy thử tay 26/08.
+_ORDINAL_RE = None
+
+
+def _key(label: str) -> str:
+    """Chuẩn hoá nhãn để so khớp: bỏ dấu, bỏ số thứ tự đầu dòng, bỏ dấu câu."""
+    import re
+    global _ORDINAL_RE
+    if _ORDINAL_RE is None:
+        _ORDINAL_RE = re.compile(
+            r"^\s*(?:\d+|[IVXLCDM]+|[a-zA-Z])\s*[\.\)\-–]\s*")
+    s = _strip_accents(label)
+    while True:                       # "I. 1. Tiền mặt" — bóc nhiều tầng
+        stripped = _ORDINAL_RE.sub("", s)
+        if stripped == s:
+            break
+        s = stripped
+    s = re.sub(r"[^a-zA-Z0-9\s]", " ", s).lower()
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def is_heading(label: str) -> bool:
+    """Dòng này là TIÊU ĐỀ MỤC / dòng TỔNG? (để tô đậm, thuần trình bày)
+
+    Chỉ nhìn HÌNH DẠNG nhãn, không suy diễn ý nghĩa: viết hoa toàn bộ, hoặc
+    bắt đầu bằng "TỔNG"/"TOTAL". Nhận nhầm chỉ làm đậm nhầm một dòng — không
+    đụng tới con số.
+    """
+    t = str(label or "").strip()
+    if not t:
+        return False
+    k = _key(t)
+    if k.startswith(("tong ", "total ")) or k in ("tong tai san", "tong nguon von"):
+        return True
+    letters = [c for c in _strip_accents(t) if c.isalpha()]
+    return bool(letters) and all(c.isupper() for c in letters)
+
+
+def find_row(items: list, *keys) -> "int | None":
+    """Vị trí (0-based) của chỉ tiêu khớp một trong `keys`. None nếu không có."""
+    want = {_key(k) for k in keys}
+    for i, it in enumerate(items):
+        if _key(it) in want:
+            return i
+    return None

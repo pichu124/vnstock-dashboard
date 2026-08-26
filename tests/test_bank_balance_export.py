@@ -9,9 +9,17 @@ CHỈ TIÊU toàn 0**, mỗi ngân hàng bỏ một bộ khác nhau.
 Ca nguy hiểm thứ hai, tệ hơn: `_get_financial_report` có
 `effective_limit = limit if limit is not None else 4`, mà phương thức công
 khai `balance_sheet()` KHÔNG nhận `limit`. Đi đường thường ⇒ chỉ 4 quý gần
-nhất ⇒ file 2015-2016 RỖNG mà vẫn ghi ra bình thường. **File rỗng trông như
-thật là thứ nguy hiểm nhất ở đây**, nên script từ chối ghi khi không có mã nào
-có dữ liệu.
+nhất. **File rỗng trông như thật là thứ nguy hiểm nhất ở đây**, nên script từ
+chối ghi khi không mã nào có dữ liệu trong khoảng đã xin.
+
+⚠️ DẠNG FRAME THẬT (đo bằng `--probe VCB`, 26/08) — **ngược hẳn giả định đầu
+tiên của tôi**:
+
+    86 hàng × 37 cột
+    item | item_en | item_id | 2018-Q1 | 2018-Q2 | … | 2026-Q2
+
+tức **HÀNG là chỉ tiêu, CỘT là kỳ**. Và kỳ SỚM NHẤT nguồn có là **2018-Q1** —
+2015-2016 KHÔNG tồn tại ở nguồn này.
 """
 from __future__ import annotations
 
@@ -27,160 +35,226 @@ _m = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_m)
 
 
-def _frame(rows, items):
-    """Frame giống nguồn: hàng = kỳ, cột = chỉ tiêu."""
+def _frame(items, quarters, values=None, drop=()):
+    """Frame ĐÚNG DẠNG NGUỒN: hàng = chỉ tiêu, cột = kỳ (`2018-Q1`…)."""
     recs = []
-    for (y, q), vals in rows.items():
-        rec = {"yearReport": y, "lengthReport": q, "report_period": "quarter"}
-        rec.update({it: vals.get(it) for it in items})
+    for i, it in enumerate(items):
+        if it in drop:
+            continue
+        rec = {"item": it, "item_en": it, "item_id": i}
+        for (y, q) in quarters:
+            rec[f"{y}-Q{q}"] = (values or {}).get((it, y, q))
         recs.append(rec)
     return pd.DataFrame(recs)
 
 
+_Q = [(2018, 1), (2018, 2)]
+
+
 class TestQuarterAxis:
     def test_two_years_give_eight_quarters_in_order(self):
-        qs = _m.quarters_between(2015, 2016)
-        assert len(qs) == 8 and qs[0] == (2015, 1) and qs[-1] == (2016, 4)
+        qs = _m.quarters_between(2018, 2019)
+        assert len(qs) == 8 and qs[0] == (2018, 1) and qs[-1] == (2019, 4)
 
     def test_label_format(self):
-        assert _m.quarter_label(2015, 3) == "2015-Q3"
+        assert _m.quarter_label(2018, 3) == "2018-Q3"
 
 
 class TestPeriodColumnDetection:
-    def test_finds_the_vci_column_names(self):
-        assert _m.detect_period_columns(
-            ["yearReport", "lengthReport", "Tổng tài sản"]) == \
-            ("yearReport", "lengthReport")
+    def test_finds_the_real_vci_period_columns(self):
+        cols = ["item", "item_en", "item_id", "2018-Q1", "2018-Q2", "2026-Q2"]
+        assert _m.detect_period_columns(cols) == [
+            ("2018-Q1", (2018, 1)), ("2018-Q2", (2018, 2)),
+            ("2026-Q2", (2026, 2))]
 
-    def test_finds_vietnamese_labels(self):
-        assert _m.detect_period_columns(["Năm", "Quý", "X"]) == ("Năm", "Quý")
+    def test_periods_come_back_sorted(self):
+        got = _m.detect_period_columns(["2019-Q1", "2018-Q3", "2018-Q1"])
+        assert [p for _, p in got] == [(2018, 1), (2018, 3), (2019, 1)]
 
-    def test_returns_none_rather_than_guessing(self):
-        # Đoán bừa cột kỳ = ghi ra một file trông như thật nhưng sai kỳ
-        assert _m.detect_period_columns(["a", "b", "c"]) is None
+    def test_label_columns_are_not_mistaken_for_periods(self):
+        assert _m.detect_period_columns(["item", "item_en", "item_id"]) == []
 
-    def test_missing_one_of_the_pair_is_still_none(self):
-        assert _m.detect_period_columns(["yearReport", "Tổng tài sản"]) is None
+    def test_no_period_columns_returns_empty_not_a_guess(self):
+        # Đoán bừa dạng frame = ghi ra file trông như thật (vết 26/08)
+        assert _m.detect_period_columns(["a", "b"]) == []
+
+    def test_label_column_follows_lang(self):
+        cols = ["item", "item_en", "item_id"]
+        assert _m.label_column(cols, "vi") == "item"
+        assert _m.label_column(cols, "en") == "item_en"
+
+    def test_label_column_missing_is_none(self):
+        assert _m.label_column(["2018-Q1"], "vi") is None
 
 
 class TestTidy:
-    def test_maps_periods_to_line_items(self):
-        df = _frame({(2015, 1): {"TS": 10, "NO": 4}}, ["TS", "NO"])
-        got = _m.tidy(df, "yearReport", "lengthReport")
-        assert got == {(2015, 1): {"TS": 10, "NO": 4}}
+    def test_transposes_rows_of_items_into_periods(self):
+        df = _frame(["TS", "NO"], _Q,
+                    {("TS", 2018, 1): 10, ("NO", 2018, 1): 4,
+                     ("TS", 2018, 2): 11, ("NO", 2018, 2): 5})
+        assert _m.tidy(df, "vi") == {(2018, 1): {"TS": 10, "NO": 4},
+                                     (2018, 2): {"TS": 11, "NO": 5}}
 
-    def test_metadata_columns_are_not_line_items(self):
-        df = _frame({(2015, 1): {"TS": 10}}, ["TS"])
-        assert list(_m.tidy(df, "yearReport", "lengthReport")[(2015, 1)]) == ["TS"]
+    def test_a_frame_without_period_columns_yields_nothing(self):
+        assert _m.tidy(pd.DataFrame([{"item": "TS"}]), "vi") == {}
 
-    def test_unreadable_period_rows_are_dropped_not_guessed(self):
-        df = pd.DataFrame([{"yearReport": "x", "lengthReport": 1, "TS": 5},
-                           {"yearReport": 2015, "lengthReport": 9, "TS": 6},
-                           {"yearReport": 2015, "lengthReport": 2, "TS": 7}])
-        assert list(_m.tidy(df, "yearReport", "lengthReport")) == [(2015, 2)]
+    def test_source_row_order_is_preserved(self):
+        """Nguồn ĐÃ trả đúng thứ tự bảng cân đối (tài sản → nợ → vốn chủ).
+        Tự sắp lại theo khung riêng là rước rủi ro xếp nhầm dòng."""
+        order = ["TỔNG TÀI SẢN", "1. Tiền mặt", "2. Tiền gửi"]
+        df = _frame(order, _Q)
+        assert _m.source_item_order(df, "vi") == order
+
+
+class TestHeadingDetection:
+    def test_all_caps_and_totals_are_headings(self):
+        assert _m.is_heading("TỔNG TÀI SẢN")
+        assert _m.is_heading("A. TÀI SẢN")
+        assert _m.is_heading("Tổng nợ phải trả")
+
+    def test_ordinary_line_items_are_not(self):
+        assert not _m.is_heading("1. Tiền mặt, vàng bạc, đá quý")
+        assert not _m.is_heading("Cho vay khách hàng")
+
+    def test_blank_is_not_a_heading(self):
+        assert not _m.is_heading("") and not _m.is_heading(None)
+
+
+class TestOrdinalStripping:
+    def test_a_leading_number_is_stripped(self):
+        assert _m._key("1. Tiền mặt, vàng bạc, đá quý") == "tien mat vang bac da quy"
+
+    def test_a_roman_numeral_is_stripped(self):
+        assert _m._key("IV. Chứng khoán đầu tư") == "chung khoan dau tu"
+
+    def test_a_leading_letter_of_a_real_word_is_NOT_eaten(self):
+        """Vết 26/08: regex bỏ số thứ tự ăn luôn chữ cái đầu — 'Cho vay khách
+        hàng' thành 'ho vay khach hang' (c là chữ số La Mã), 'Vốn điều lệ'
+        thành 'on dieu le'. Phải có dấu ngăn phía sau mới được bóc."""
+        assert _m._key("Cho vay khách hàng") == "cho vay khach hang"
+        assert _m._key("Vốn điều lệ") == "von dieu le"
+        assert _m._key("Chi phí dự phòng") == "chi phi du phong"
 
 
 class TestUnifiedLayout:
-    """Trái tim của yêu cầu 'format đồng nhất'."""
+    """Trái tim của yêu cầu 'format đồng nhất giữa các sheet'."""
 
     def _two_banks(self):
-        a = _m.tidy(_frame({(2015, 1): {"TS": 1, "NO": 2}}, ["TS", "NO"]),
-                    "yearReport", "lengthReport")
-        b = _m.tidy(_frame({(2015, 1): {"TS": 3, "VON": 4}}, ["TS", "VON"]),
-                    "yearReport", "lengthReport")
-        return {"AAA": a, "BBB": b}
+        a = _frame(["TS", "NO"], _Q, {("TS", 2018, 1): 1, ("NO", 2018, 1): 2})
+        b = _frame(["TS", "VON"], _Q, {("TS", 2018, 1): 3, ("VON", 2018, 1): 4})
+        per = {"AAA": _m.tidy(a, "vi"), "BBB": _m.tidy(b, "vi")}
+        orders = {"AAA": _m.source_item_order(a, "vi"),
+                  "BBB": _m.source_item_order(b, "vi")}
+        return per, orders
 
     def test_union_covers_items_only_one_bank_has(self):
-        assert set(_m.unified_items(self._two_banks())) == {"TS", "NO", "VON"}
+        per, orders = self._two_banks()
+        assert set(_m.unified_items(per, orders)) == {"TS", "NO", "VON"}
 
     def test_source_order_is_preserved_not_alphabetised(self):
-        # Bảng cân đối có trật tự CÓ NGHĨA (tài sản → nợ → vốn chủ);
-        # sắp xếp abc là phá cấu trúc đó
-        assert _m.unified_items(self._two_banks()) == ["TS", "NO", "VON"]
+        per, orders = self._two_banks()
+        assert _m.unified_items(per, orders) == ["TS", "NO", "VON"]
 
     def test_every_bank_gets_the_same_number_of_rows(self):
-        per = self._two_banks()
-        items, qs = _m.unified_items(per), _m.quarters_between(2015, 2015)
-        sizes = {tk: len(_m.sheet_matrix(items, qs, d)) for tk, d in per.items()}
-        assert len(set(sizes.values())) == 1 == len(set(sizes.values()))
+        per, orders = self._two_banks()
+        items = _m.unified_items(per, orders)
+        sizes = {tk: len(_m.sheet_matrix(items, _Q, d)) for tk, d in per.items()}
         assert set(sizes.values()) == {3}
 
     def test_a_missing_item_is_BLANK_not_zero(self):
         """Trong bảng cân đối, 'không có số' và 'bằng 0' là hai chuyện khác
         hẳn — điền 0 là bịa một dữ kiện."""
-        per = self._two_banks()
-        items, qs = _m.unified_items(per), _m.quarters_between(2015, 2015)
-        rows = _m.sheet_matrix(items, qs, per["AAA"])
+        per, orders = self._two_banks()
+        items = _m.unified_items(per, orders)
+        rows = _m.sheet_matrix(items, _Q, per["AAA"])
         assert rows[items.index("VON")][0] is None
 
     def test_a_missing_quarter_is_blank_across_the_whole_column(self):
-        per = self._two_banks()
-        items, qs = _m.unified_items(per), _m.quarters_between(2015, 2015)
-        rows = _m.sheet_matrix(items, qs, per["AAA"])
-        assert all(r[3] is None for r in rows)          # Q4 không có data
+        per, orders = self._two_banks()
+        items = _m.unified_items(per, orders)
+        rows = _m.sheet_matrix(items, [(2018, 1), (2019, 4)], per["AAA"])
+        assert all(r[1] is None for r in rows)
 
     def test_nan_is_treated_as_missing(self):
-        d = _m.tidy(_frame({(2015, 1): {"TS": float("nan")}}, ["TS"]),
-                    "yearReport", "lengthReport")
-        assert _m.sheet_matrix(["TS"], [(2015, 1)], d) == [[None]]
+        d = _m.tidy(_frame(["TS"], _Q, {("TS", 2018, 1): float("nan")}), "vi")
+        assert _m.sheet_matrix(["TS"], [(2018, 1)], d) == [[None]]
 
 
 class TestCoverage:
     def test_reports_gaps_instead_of_hiding_them(self):
-        d = _m.tidy(_frame({(2015, 1): {"TS": 5}}, ["TS"]),
-                    "yearReport", "lengthReport")
-        r = _m.coverage_row("AAA", _m.quarters_between(2015, 2016), d)
+        d = _m.tidy(_frame(["TS"], [(2018, 1)], {("TS", 2018, 1): 5}), "vi")
+        r = _m.coverage_row("AAA", _m.quarters_between(2018, 2019), d)
         assert r["quarters_found"] == 1 and r["quarters_asked"] == 8
-        assert r["first"] == "2015-Q1" and r["last"] == "2015-Q1"
+        assert r["first"] == "2018-Q1" and r["last"] == "2018-Q1"
 
     def test_max_abs_lets_the_reader_infer_the_unit(self):
-        d = _m.tidy(_frame({(2015, 1): {"TS": -1.2e15}}, ["TS"]),
-                    "yearReport", "lengthReport")
-        assert _m.coverage_row("AAA", [(2015, 1)], d)["max_abs"] == pytest.approx(1.2e15)
+        d = _m.tidy(_frame(["TS"], [(2018, 1)], {("TS", 2018, 1): -1.2e15}), "vi")
+        assert _m.coverage_row("AAA", [(2018, 1)], d)["max_abs"] == pytest.approx(1.2e15)
 
     def test_a_bank_with_nothing_reports_zero_not_a_crash(self):
-        r = _m.coverage_row("ZZZ", _m.quarters_between(2015, 2016), {})
+        r = _m.coverage_row("ZZZ", _m.quarters_between(2018, 2019), {})
         assert r["quarters_found"] == 0 and r["first"] == ""
 
 
 class TestWorkbook:
+    def _build(self, tmp_path):
+        items_a = ["TÀI SẢN", "1. Tiền mặt", "TỔNG TÀI SẢN",
+                   "TỔNG NỢ PHẢI TRẢ VÀ VỐN CHỦ SỞ HỮU"]
+        items_b = ["TÀI SẢN", "1. Tiền mặt", "2. Cho vay khách hàng",
+                   "TỔNG TÀI SẢN", "TỔNG NỢ PHẢI TRẢ VÀ VỐN CHỦ SỞ HỮU"]
+        va = {(it, 2018, 1): 10 for it in items_a}
+        vb = {(it, 2018, 1): 20 for it in items_b}
+        fa, fb = _frame(items_a, _Q, va), _frame(items_b, _Q, vb)
+        per = {"AAA": _m.tidy(fa, "vi"), "BBB": _m.tidy(fb, "vi")}
+        orders = {"AAA": _m.source_item_order(fa, "vi"),
+                  "BBB": _m.source_item_order(fb, "vi")}
+        items = _m.unified_items(per, orders)
+        cov = [_m.coverage_row(t, _Q, d) for t, d in per.items()]
+        out = tmp_path / "x.xlsx"
+        _m.write_workbook(out, per, items, _Q, cov, "vi")
+        return out, items
+
     def test_it_really_writes_a_readable_workbook(self, tmp_path):
         from openpyxl import load_workbook
-        per = {"AAA": _m.tidy(_frame({(2015, 1): {"TS": 1, "NO": 2}}, ["TS", "NO"]),
-                              "yearReport", "lengthReport"),
-               "BBB": _m.tidy(_frame({(2015, 2): {"TS": 3, "VON": 4}}, ["TS", "VON"]),
-                              "yearReport", "lengthReport")}
-        qs = _m.quarters_between(2015, 2015)
-        items = _m.unified_items(per)
-        cov = [_m.coverage_row(t, qs, d) for t, d in per.items()]
-        out = tmp_path / "x.xlsx"
-        _m.write_workbook(out, per, items, qs, cov, "vi")
-
+        out, items = self._build(tmp_path)
         wb = load_workbook(out)
-        assert wb.sheetnames[0].startswith("0_")        # tầm phủ đứng đầu
+        assert wb.sheetnames[0].startswith("0_")
         assert set(wb.sheetnames[1:]) == {"AAA", "BBB"}
 
-        # BỐ CỤC ĐỒNG NHẤT: cùng dòng chỉ tiêu, cùng cột quý
         def _layout(ws):
-            heads = [c.value for c in ws[2]]
-            labels = [ws.cell(row=r, column=1).value
-                      for r in range(3, 3 + len(items))]
-            return heads, labels
+            return [ws.cell(row=r, column=1).value
+                    for r in range(2, ws.max_row + 1)]
         assert _layout(wb["AAA"]) == _layout(wb["BBB"])
 
-        # Ô thiếu phải TRỐNG, không phải 0
-        row_von = 3 + items.index("VON")
-        assert wb["AAA"].cell(row=row_von, column=2).value is None
+        row = 3 + items.index("2. Cho vay khách hàng")
+        assert wb["AAA"].cell(row=row, column=2).value is None   # TRỐNG, không phải 0
+        assert wb["BBB"].cell(row=row, column=2).value == 20
+
+    def test_the_balance_check_is_a_formula_not_a_python_result(self, tmp_path):
+        from openpyxl import load_workbook
+        out, _ = self._build(tmp_path)
+        ws = load_workbook(out)["AAA"]
+        assert "KIỂM TRA" in str(ws.cell(row=ws.max_row, column=1).value)
+        f = str(ws.cell(row=ws.max_row, column=2).value)
+        assert f.startswith("=IFERROR(") and "-" in f
+
+    def test_headings_are_bold(self, tmp_path):
+        from openpyxl import load_workbook
+        out, items = self._build(tmp_path)
+        ws = load_workbook(out)["AAA"]
+        r_head = 3 + items.index("TỔNG TÀI SẢN")
+        r_item = 3 + items.index("1. Tiền mặt")
+        assert ws.cell(row=r_head, column=1).font.bold
+        assert not ws.cell(row=r_item, column=1).font.bold
 
     def test_sheet_names_stay_within_the_excel_limit(self, tmp_path):
         from openpyxl import load_workbook
         long_tk = "A" * 40
-        per = {long_tk: _m.tidy(_frame({(2015, 1): {"TS": 1}}, ["TS"]),
-                                "yearReport", "lengthReport")}
-        qs = _m.quarters_between(2015, 2015)
+        f = _frame(["TS"], _Q, {("TS", 2018, 1): 1})
+        per = {long_tk: _m.tidy(f, "vi")}
         out = tmp_path / "y.xlsx"
-        _m.write_workbook(out, per, ["TS"], qs,
-                          [_m.coverage_row(long_tk, qs, per[long_tk])], "vi")
+        _m.write_workbook(out, per, ["TS"], _Q,
+                          [_m.coverage_row(long_tk, _Q, per[long_tk])], "vi")
         assert all(len(n) <= 31 for n in load_workbook(out).sheetnames)
 
 
@@ -193,6 +267,35 @@ class TestRefusesToShipAnEmptyFile:
         rc = _m.main(["--tickers", "AAA", "--out", str(out)])
         assert rc == 2 and not out.exists()
         assert "KHÔNG ghi file" in capsys.readouterr().out
+
+    def test_asking_before_the_source_starts_says_so_and_suggests_a_range(
+            self, tmp_path, monkeypatch, capsys):
+        """Ca THẬT 26/08: user xin 2015-2016, nguồn chỉ có từ 2018-Q1. Script
+        phải nói ra kỳ sớm nhất và gợi khoảng dùng được — im lặng trả file
+        rỗng là đổ lỗi cho user."""
+        df = _frame(["TS"], [(2018, 1), (2018, 2)], {("TS", 2018, 1): 5})
+        monkeypatch.setattr(_m, "fetch_balance_sheet", lambda *a, **k: df)
+        out = tmp_path / "z.xlsx"
+        rc = _m.main(["--tickers", "AAA", "--from", "2015", "--to", "2016",
+                      "--out", str(out)])
+        got = capsys.readouterr().out
+        assert rc == 2 and not out.exists()
+        assert "2018-Q1" in got and "--from 2018" in got
+
+    def test_a_bank_with_no_quarters_is_dropped_not_shipped_blank(
+            self, tmp_path, monkeypatch):
+        """Mã không có quý nào trong khoảng thì không được thành một sheet
+        trống rỗng nằm giữa các sheet có số."""
+        full = _frame(["TS"], [(2018, 1)], {("TS", 2018, 1): 5})
+        empty = _frame(["TS"], [(2020, 1)], {("TS", 2020, 1): 7})
+        seq = {"AAA": full, "BBB": empty}
+        monkeypatch.setattr(_m, "fetch_balance_sheet",
+                            lambda tk, **k: seq[tk])
+        out = tmp_path / "z.xlsx"
+        assert _m.main(["--tickers", "AAA", "BBB", "--from", "2018",
+                        "--to", "2018", "--out", str(out)]) == 0
+        from openpyxl import load_workbook
+        assert set(load_workbook(out).sheetnames[1:]) == {"AAA"}
 
 
 class TestTheTrapsAreDocumentedWhereTheyBite:
