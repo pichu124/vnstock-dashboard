@@ -741,3 +741,208 @@ class TestDiagnoseAndVerdict:
     def test_an_empty_page_does_not_raise(self):
         d = S.diagnose_cafef("")
         assert d["balance_table_found"] is False and d["quarters_seen"] == []
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Trang CafeF THẬT (đo 26/08 lượt 3, `--dump-cafef VCB`): 124 thẻ <table>,
+# bảng lớn nhất `tableContent` 119 hàng, đơn vị "tỷ đồng", và **4 hàng đầu
+# rỗng trơn**. Bảng LỒNG trong bảng là chuyện bình thường ở đó. Ba lưới dưới
+# đây tái hiện đúng ba thứ đã làm bộ bóc trượt.
+# ─────────────────────────────────────────────────────────────────────────
+_NESTED_PAGE = """<html><body>
+<div>Đơn vị: tỷ đồng</div>
+<table id="outer">
+  <tr><td><table id="inner"><tr><td>quảng cáo</td></tr></table></td>
+      <td>CỘT SAU BẢNG LỒNG</td></tr>
+</table>
+</body></html>"""
+
+_REAL_SHAPE_PAGE = """<html><body>
+<div>Đơn vị: tỷ đồng</div>
+<table id="tableContent">
+  <tr></tr>
+  <tr><td></td><td></td></tr>
+  <tr></tr>
+  <tr></tr>
+  <tr><td></td><td>CHỈ TIÊU</td><td>Quý 1 - 2016</td><td>Quý 2 - 2016</td>
+      <td>Quý 3 - 2016</td><td>Quý 4 - 2016</td></tr>
+  <tr><td>+</td><td>TỔNG TÀI SẢN</td><td>750,000</td><td>770,000</td>
+      <td>790,000</td><td>820,000</td></tr>
+  <tr><td>+</td><td>Cho vay khách hàng</td><td>420,000</td><td>430,500</td>
+      <td>445,120</td><td>460,000</td></tr>
+  <tr><td></td><td>Dự phòng rủi ro</td><td>(5,120)</td><td>(5,400)</td>
+      <td>(5,610)</td><td>(6,000)</td></tr>
+  <tr><td></td><td>VỐN CHỦ SỞ HỮU</td><td>50,000</td><td>52,000</td>
+      <td>54,000</td><td>56,000</td></tr>
+  <tr><td></td><td>Vốn điều lệ</td><td>35,977</td><td>35,977</td>
+      <td>35,977</td><td>35,977</td></tr>
+  <tr><td></td><td>Các quỹ</td><td>5,903</td><td>6,973</td><td>7,823</td>
+      <td>8,623</td></tr>
+  <tr><td></td><td>Lợi nhuận chưa phân phối</td><td>8,120</td><td>9,050</td>
+      <td>10,200</td><td>11,400</td></tr>
+  <tr><td></td><td>Tiền mặt</td><td>8,552</td><td>9,001</td><td>9,120</td>
+      <td>10,340</td></tr>
+  <tr><td></td><td>Tiền gửi tại NHNN</td><td>10,000</td><td>11,000</td>
+      <td>12,000</td><td>13,000</td></tr>
+  <tr><td></td><td>Tài sản có khác</td><td>3,000</td><td>3,100</td>
+      <td>3,200</td><td>3,300</td></tr>
+</table>
+</body></html>"""
+
+
+class TestNestedTables:
+    """Bản đầu giữ hàng/ô ở mức TOÀN CỤC, nên `</tr>` của bảng CON đặt hàng
+    đang mở về None và mọi ô còn lại của hàng NGOÀI rơi mất. Đó là lý do
+    bảng 119 hàng ra 4 hàng đầu rỗng trơn — mất luôn hàng tiêu đề."""
+
+    def test_a_cell_after_a_nested_table_is_not_lost(self):
+        outer = next(t for t in S.parse_tables(_NESTED_PAGE)
+                     if t["attrs"].get("id") == "outer")
+        assert "CỘT SAU BẢNG LỒNG" in outer["rows"][0]
+
+    def test_the_inner_table_is_reported_separately(self):
+        inner = next(t for t in S.parse_tables(_NESTED_PAGE)
+                     if t["attrs"].get("id") == "inner")
+        assert inner["rows"] == [["quảng cáo"]]
+
+    def test_inner_text_does_not_leak_into_the_outer_cell(self):
+        outer = next(t for t in S.parse_tables(_NESTED_PAGE)
+                     if t["attrs"].get("id") == "outer")
+        assert "quảng cáo" not in " ".join(outer["rows"][0])
+
+    def test_the_row_key_is_not_left_behind_in_the_result(self):
+        assert all("row" not in t for t in S.parse_tables(_NESTED_PAGE))
+
+    def test_deeply_nested_tables_all_come_back(self):
+        html = "<table><tr><td><table><tr><td><table><tr><td>x</td></tr>" \
+               "</table></td></tr></table></td></tr></table>"
+        assert len(S.parse_tables(html)) == 3
+
+
+class TestHeaderRowIndex:
+    def test_finds_a_header_that_is_not_in_the_first_rows(self):
+        rows = S.parse_tables(_REAL_SHAPE_PAGE)[0]["rows"]
+        assert S.header_row_index(rows) == 4
+
+    def test_a_table_without_periods_has_no_header(self):
+        assert S.header_row_index([["a", "b"], ["c", "d"]]) is None
+
+    def test_one_period_cell_is_not_a_header(self):
+        assert S.header_row_index([["CHỈ TIÊU", "Quý 1-2016"]]) is None
+
+    def test_empty_rows_do_not_raise(self):
+        assert S.header_row_index([]) is None and S.header_row_index(None) is None
+
+
+class TestLabelColIndex:
+    def test_picks_the_text_column_not_the_leading_button_column(self):
+        rows = S.parse_tables(_REAL_SHAPE_PAGE)[0]["rows"]
+        h = S.header_row_index(rows)
+        assert S.label_col_index(rows, h, S.header_periods(rows[h])) == 1
+
+    def test_falls_back_to_column_zero_when_there_is_nothing_to_the_left(self):
+        rows = [["CHỈ TIÊU", "Quý 1-2016", "Quý 2-2016"], ["TS", "1", "2"]]
+        assert S.label_col_index(rows, 0, S.header_periods(rows[0])) == 0
+
+
+class TestRealShapePage:
+    """Cả ba khiếm khuyết cùng lúc: hàng chèn rỗng, tiêu đề kỳ có khoảng
+    trắng (`Quý 1 - 2016`), cột đầu là nút bấm chứ không phải tên chỉ tiêu."""
+
+    def test_the_balance_table_is_recognised(self):
+        assert S.pick_balance_table(S.parse_tables(_REAL_SHAPE_PAGE)) is not None
+
+    def test_all_four_quarters_come_through(self):
+        df = S.cafef_to_frame(_REAL_SHAPE_PAGE)
+        assert [qq for _, qq in E.detect_period_columns(df.columns)] == \
+            [(2016, 1), (2016, 2), (2016, 3), (2016, 4)]
+
+    def test_item_names_come_from_the_right_column(self):
+        items = S.cafef_to_frame(_REAL_SHAPE_PAGE)["item"].tolist()
+        assert "TỔNG TÀI SẢN" in items and "+" not in items
+
+    def test_numbers_land_under_the_right_quarter(self):
+        d = E.tidy(S.cafef_to_frame(_REAL_SHAPE_PAGE))
+        assert d[(2016, 1)]["TỔNG TÀI SẢN"] == 750000.0
+        assert d[(2016, 4)]["TỔNG TÀI SẢN"] == 820000.0
+
+    def test_negatives_in_parentheses_survive(self):
+        d = E.tidy(S.cafef_to_frame(_REAL_SHAPE_PAGE))
+        assert d[(2016, 2)]["Dự phòng rủi ro"] == -5400.0
+
+    def test_the_unit_is_recorded_verbatim_not_converted(self):
+        assert S.cafef_to_frame(_REAL_SHAPE_PAGE).attrs["unit_note"] == "tỷ đồng"
+
+    def test_the_header_row_never_becomes_a_line_item(self):
+        assert "CHỈ TIÊU" not in \
+            [i for i in S.cafef_to_frame(_REAL_SHAPE_PAGE)["item"]
+             if S.cell_quarter(i)]
+
+    def test_the_diagnosis_now_says_recognised(self):
+        assert "nhận ra bảng" in S.verdict_line(S.diagnose_cafef(_REAL_SHAPE_PAGE))
+
+
+class TestQuarterContexts:
+    """Vết 26/08: bản đầu dò bằng chuỗi ghép tay `f"Quý {q}-{y}"`, nên trang
+    thật viết `Quý 4 - 2016` là không khớp — phần chẩn đoán quan trọng nhất
+    im lặng bỏ qua. Đã thấy bằng regex nào thì phải định vị bằng regex đó."""
+
+    def test_a_spaced_quarter_label_is_located(self):
+        ctx = S.quarter_contexts("<td>Quý 4 - 2016</td>")
+        assert ctx and "td" in ctx[0]
+
+    def test_it_finds_what_cafef_quarters_in_found(self):
+        html = "<div>Quý 1 - 2016</div>"
+        assert S.cafef_quarters_in(html) and S.quarter_contexts(html)
+
+    def test_output_is_capped(self):
+        html = " ".join(f"Quý {q} - 2016" for q in (1, 2, 3, 4)) * 5
+        assert len(S.quarter_contexts(html, limit=4)) == 4
+
+    def test_no_quarter_gives_nothing(self):
+        assert S.quarter_contexts("<html/>") == []
+
+    def test_none_html_does_not_raise(self):
+        assert S.quarter_contexts(None) == []
+
+
+class TestNonemptyRows:
+    def test_leading_blank_rows_are_skipped(self):
+        rows = S.parse_tables(_REAL_SHAPE_PAGE)[0]["rows"]
+        assert S.nonempty_rows(rows)[0][0] == 4
+
+    def test_the_original_row_index_is_kept(self):
+        out = S.nonempty_rows([[""], ["x"], [""], ["y"]])
+        assert [i for i, _ in out] == [1, 3]
+
+    def test_the_list_is_capped(self):
+        assert len(S.nonempty_rows([["x"]] * 50, limit=6)) == 6
+
+    def test_all_blank_gives_nothing(self):
+        assert S.nonempty_rows([[""], ["", " "]]) == []
+
+
+class TestDuplicateItemNames:
+    """Bỏ dòng trùng tên là MẤT SỐ im lặng. Bảng cân đối thật có nhãn lặp
+    lại ở hai mục khác nhau; đánh số là việc tất định nên mọi ngân hàng vẫn
+    ra cùng một bộ nhãn, xếp ngang được."""
+
+    _DUP = _REAL_SHAPE_PAGE.replace(
+        "<td>Tài sản có khác</td><td>3,000</td>",
+        "<td>Tài sản có khác</td><td>3,000</td>", 1).replace(
+        "</table>",
+        "<tr><td></td><td>Tài sản có khác</td><td>777</td><td>778</td>"
+        "<td>779</td><td>780</td></tr></table>", 1)
+
+    def test_the_second_occurrence_is_numbered_not_dropped(self):
+        items = S.cafef_to_frame(self._DUP)["item"].tolist()
+        assert "Tài sản có khác" in items and "Tài sản có khác (2)" in items
+
+    def test_the_second_occurrence_keeps_its_own_numbers(self):
+        d = E.tidy(S.cafef_to_frame(self._DUP))
+        assert d[(2016, 1)]["Tài sản có khác"] == 3000.0
+        assert d[(2016, 1)]["Tài sản có khác (2)"] == 777.0
+
+    def test_row_count_grows_by_one(self):
+        assert len(S.cafef_to_frame(self._DUP)) == \
+            len(S.cafef_to_frame(_REAL_SHAPE_PAGE)) + 1

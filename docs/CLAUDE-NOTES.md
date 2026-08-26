@@ -6979,6 +6979,29 @@ nguồn — ghi lại để lần sau khỏi mò lại:
 | `tcbs`  | ❌ **404** — endpoint `apipubaws` đã chết | 26/08, máy user |
 | `cafef` | ⚠️ tải được (HTTP 200, thấy đủ `Quý 1-2016 → Quý 4-2016` trong HTML) nhưng **bộ bóc KHÔNG ra bảng nào** | 26/08 lượt 2, máy user |
 
+**Lượt 3 — `--dump-cafef VCB` đã chỉ ra ba khiếm khuyết, và cái đầu là BUG
+CỦA TÔI:**
+
+Trang thật: `<table>=124` `<tr>=363` `<td>=1564`, bảng lớn nhất `tableContent`
+119 hàng, **đơn vị `tỷ đồng`**, mà bộ bóc ra "4 hàng đầu rỗng trơn".
+
+1. **`_TableParser` không chịu được BẢNG LỒNG BẢNG.** Bản đầu giữ `_row` /
+   `_cell` ở mức TOÀN CỤC. CafeF lồng bảng khắp nơi (124 thẻ!), nên khi một
+   `<table>` con đóng `</tr>` của nó thì `_row` bị đặt về None và **mọi ô còn
+   lại của hàng NGOÀI rơi mất** — trong đó có hàng tiêu đề chứa các kỳ. Chữa:
+   mỗi bảng giữ hàng đang mở của RIÊNG nó, ô xếp theo ngăn xếp.
+2. **Tiêu đề không nằm ở `rows[:6]`** — `tableContent` mở đầu bằng 4 hàng
+   chèn rỗng. `header_row_index` giờ quét TOÀN BỘ bảng, lấy hàng đầu tiên có
+   ≥2 ô là kỳ (hàng dữ liệu không chứa chuỗi kỳ nên không nhận nhầm).
+3. **Cột 0 không phải tên chỉ tiêu** — đó là cột nút bấm/thụt dòng.
+   `label_col_index` chọn cột nhiều CHỮ nhất bên trái cột kỳ đầu tiên.
+
+**Và một vết trong chính phần chẩn đoán:** `dump_cafef` dò chỗ đứng của chuỗi
+kỳ bằng chuỗi ghép tay `f"Quý {q}-{y}"`, trong khi trang viết `Quý 4 - 2016`
+(có khoảng trắng) — regex nhận ra nhưng chuỗi ghép tay thì không, nên phần
+chẩn đoán QUAN TRỌNG NHẤT im lặng bỏ qua. **Đã thấy bằng regex nào thì phải
+định vị bằng đúng regex đó** (`quarter_contexts`).
+
 **Lượt 2 (sau khi vá):** `kbs` hết `TypeError` — chữ ký đã đọc đúng — nhưng
 vẫn RỖNG, nên KBS chết thật, không phải chết vì tôi gọi sai. Còn `cafef`:
 `cafef_quarters_in` THẤY đủ 4 kỳ trong HTML mà `pick_balance_table` không tìm

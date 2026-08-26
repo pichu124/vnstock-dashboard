@@ -16,8 +16,8 @@ Chạy trên máy có mạng + `VNSTOCK_API_KEY` trong `.env`:
   theo chữ ký thật rồi thì vẫn trả về RỖNG.
 * `tcbs`  — ❌ **404**, endpoint `apipubaws` đã chết. Giữ lại trong danh sách
   để `--probe-all` còn NÓI RA điều đó, thay vì im lặng bỏ qua.
-* `cafef` — ✅ **có 2015-2016** (trang `/2016/4/…` trả HTTP 200 với đủ
-  `Quý 1-2016 → Quý 4-2016`). Mỗi trang = 4 quý của MỘT năm.
+* `cafef` — ✅ **có 2015-2016**, đơn vị trang ghi **`tỷ đồng`**. Mỗi trang =
+  4 quý của MỘT năm, nên 2015-2016 là hai lượt tải mỗi mã.
 
 Xin khoảng nguồn không có ⇒ script NÓI RA và gợi khoảng dùng được, chứ không
 ghi ra một file rỗng trông như thật.
@@ -273,10 +273,11 @@ def dump_cafef(ticker: str, year: int, quarter: int = 4,
     chứ không phải một lần đoán nữa. Thử CẢ HAI đường URL, vì hai đường có
     thể trả hai trang khác nhau.
     """
-    from scripts.bank_bs_sources import (context_around, diagnose_cafef,
-                                         fetch_cafef, header_periods,
+    from scripts.bank_bs_sources import (diagnose_cafef, fetch_cafef,
+                                         header_periods, header_row_index,
+                                         label_col_index, nonempty_rows,
                                          parse_tables, pick_balance_table,
-                                         verdict_line)
+                                         quarter_contexts, verdict_line)
 
     out_dir = Path(out_dir or REPO / "_cafef_dump")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -320,33 +321,37 @@ def dump_cafef(ticker: str, year: int, quarter: int = 4,
     text, d, tag = best
     # Chuỗi kỳ nằm ở ĐÂU trong trang? Đây là câu hỏi quyết định: trong ô
     # <td>/<th> thì sửa selector, trong <div> hay JSON thì đổi hẳn cách lấy.
-    if d["quarters_seen"]:
-        y, q = d["quarters_seen"][-1]
-        for needle in (f"Quý {q}-{y}", f"Q{q}/{y}"):
-            ctx = context_around(text, needle)
-            if ctx:
-                print(f"── chuỗi '{needle}' đứng ở đâu (đường {tag}):")
-                for c in ctx:
-                    print(f"   …{c[:220]}…")
-                break
+    ctx = quarter_contexts(text)
+    if ctx:
+        print(f"── chuỗi KỲ đứng ở đâu (đường {tag}):")
+        for c in ctx:
+            print(f"   …{c[:230]}…")
         print()
 
     tables = parse_tables(text)
     chosen = pick_balance_table(tables)
-    shown = 0
-    for i, tb in enumerate(tables):
+    # In BẢNG TO NHẤT dù có được chọn hay không — nó gần như chắc chắn là
+    # bảng cân đối, và cái cần nhìn là các hàng CÓ CHỮ, không phải hàng chèn.
+    ranked = sorted(tables, key=lambda tb: -len(tb.get("rows") or []))[:4]
+    for tb in ranked:
         rows = tb.get("rows") or []
-        if len(rows) < 4 or shown >= 6:
+        if len(rows) < 4:
             continue
-        shown += 1
+        i = tables.index(tb)
         ident = tb["attrs"].get("id") or tb["attrs"].get("class") or "—"
         star = " ⭐ ĐANG CHỌN" if tb is chosen else ""
-        has_q = " · CÓ tiêu đề KỲ" if any(header_periods(r) for r in rows[:8]) else ""
-        print(f"── bảng #{i}  {ident}  ·  {len(rows)} hàng{has_q}{star}")
-        for r in rows[:4]:
-            print("   " + " | ".join(str(c)[:26] for c in r[:8])[:150])
-    if not shown:
-        print("── KHÔNG bảng nào đủ 4 hàng để in.")
+        h = header_row_index(rows)
+        hdr = f" · tiêu đề KỲ ở hàng {h}" if h is not None else " · KHÔNG có tiêu đề KỲ"
+        ne = nonempty_rows(rows, limit=10)
+        print(f"── bảng #{i}  {ident}  ·  {len(rows)} hàng "
+              f"({len(ne)}+ có chữ){hdr}{star}")
+        if h is not None:
+            per = header_periods(rows[h])
+            print(f"   cột kỳ: {[(ci, quarter_label(*qq)) for ci, qq in per]}")
+            print(f"   cột tên chỉ tiêu đoán là: {label_col_index(rows, h, per)}")
+        for ri, r in ne:
+            print(f"   [{ri:3d}] " + " | ".join(str(c)[:24] for c in r[:9])[:160])
+        print()
 
     print("\n👉 Dán TOÀN BỘ phần trên ra — đủ để sửa mà không phải đoán.")
     return 0 if d["balance_table_found"] else 2

@@ -26,10 +26,14 @@ nên MỌI phần mạng chỉ chạy được trên máy user. Ba hệ quả vi
 * **Danh mục trường TCBS** chép theo trí nhớ ⇒ có thể thiếu. Vì thế
   `tcbs_to_frame` **không lọc theo danh mục**: trường lạ vẫn ra bảng với tên
   gốc. Danh mục chỉ để DỊCH tên, không để chọn dòng.
-* **Bộ bóc CafeF viết mà chưa nhìn trang thật.** Nó nhận diện bảng theo HÌNH
-  DẠNG (có ≥2 cột tiêu đề là kỳ, đủ dòng) chứ không theo `id`/`class`, và
-  không nhận ra thì trả frame RỖNG. Trật thì `--dump-cafef` in ra cấu trúc
-  thật để sửa — đừng đoán tiếp.
+* **Bộ bóc CafeF** nhận diện bảng theo HÌNH DẠNG (hàng đầu tiên có ≥2 ô là
+  kỳ, bảng đủ dòng) chứ không theo `id`/`class`, và không nhận ra thì trả
+  frame RỖNG. `--dump-cafef` in ra cấu trúc thật để sửa — đừng đoán tiếp.
+  Ba khiếm khuyết của trang thật đã đo được (26/08, `VCB 2016-Q4`) và đã có
+  lưới canh: **124 thẻ `<table>` LỒNG nhau** · bảng `tableContent` mở đầu
+  bằng **4 hàng rỗng** nên tiêu đề nằm ở hàng 4-5 · tiêu đề viết **`Quý 4 -
+  2016`** có khoảng trắng, và **cột 0 là nút bấm** chứ không phải tên chỉ
+  tiêu. Đơn vị trang đó ghi: **`tỷ đồng`**.
 * **Đơn vị không quy đổi.** Câu "Đơn vị: …" của trang được ghi NGUYÊN VĂN vào
   `df.attrs["unit_note"]` rồi in lên sheet. `--crosscheck` đối chiếu quý
   trùng nhau giữa hai nguồn và in TỈ SỐ; chưa có tỉ số đo được thì đừng nhân
@@ -241,42 +245,64 @@ def cafef_unit_note(html: str) -> "str | None":
 # `lxml`/`html5lib`/`bs4` đều KHÔNG có trong `requirements.txt`, nên không
 # được phép dựa vào. `html.parser` có sẵn ở mọi máy.
 class _TableParser(HTMLParser):
-    """Bóc mọi `<table>` thành [{attrs, rows:[[ô, …]]}] — chịu được HTML bẩn."""
+    """Bóc mọi `<table>` thành [{attrs, rows:[[ô, …]]}] — chịu được HTML bẩn.
+
+    ⚠️ **Trang CafeF LỒNG bảng trong bảng** — đo 26/08: một trang có **124
+    thẻ `<table>`**. Bản đầu của lớp này giữ `_row`/`_cell` ở mức TOÀN CỤC,
+    nên khi một `<table>` con đóng `</tr>` của nó thì `_row` bị đặt về None
+    và MỌI ô còn lại của hàng NGOÀI rơi mất — bảng lớn nhất ra 119 hàng mà 4
+    hàng đầu RỖNG TRƠN, trong đó có hàng tiêu đề chứa các kỳ. Đó chính là lý
+    do `pick_balance_table` không nhận ra bảng nào dù trang có đủ số.
+
+    Chữa: mỗi bảng giữ hàng đang mở của RIÊNG nó, và các ô xếp chồng theo
+    ngăn xếp — chữ trong bảng con thuộc ô của bảng con, không lẫn ra ngoài.
+    """
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.tables, self._stack = [], []
-        self._row, self._cell = None, None
+        self.tables, self._stack, self._cells = [], [], []
 
     def handle_starttag(self, tag, attrs):
         if tag == "table":
-            self._stack.append({"attrs": dict(attrs), "rows": []})
+            self._stack.append({"attrs": dict(attrs), "rows": [], "row": None})
         elif tag == "tr" and self._stack:
-            self._row = []
+            self._close_row()
+            self._stack[-1]["row"] = []
         elif tag in ("td", "th") and self._stack:
-            self._cell = []
+            if self._stack[-1]["row"] is None:     # `<td>` không có `<tr>` bọc
+                self._stack[-1]["row"] = []
+            self._cells.append([])
 
     def handle_data(self, data):
-        if self._cell is not None:
-            self._cell.append(data)
+        if self._cells:
+            self._cells[-1].append(data)
 
     def handle_endtag(self, tag):
-        if tag in ("td", "th") and self._cell is not None:
-            text = re.sub(r"\s+", " ", "".join(self._cell)).strip()
-            if self._row is not None:
-                self._row.append(text)
-            self._cell = None
-        elif tag == "tr" and self._row is not None:
-            if self._stack:
-                self._stack[-1]["rows"].append(self._row)
-            self._row = None
+        if tag in ("td", "th"):
+            if self._cells:
+                text = re.sub(r"\s+", " ", "".join(self._cells.pop())).strip()
+                if self._stack and self._stack[-1]["row"] is not None:
+                    self._stack[-1]["row"].append(text)
+        elif tag == "tr":
+            self._close_row()
         elif tag == "table" and self._stack:
-            self.tables.append(self._stack.pop())
+            self._close_row()
+            tb = self._stack.pop()
+            tb.pop("row", None)
+            self.tables.append(tb)
+
+    def _close_row(self):
+        if self._stack and self._stack[-1]["row"] is not None:
+            self._stack[-1]["rows"].append(self._stack[-1]["row"])
+            self._stack[-1]["row"] = None
 
     def finish(self) -> list:
         self.close()
         while self._stack:                        # thẻ </table> thiếu
-            self.tables.append(self._stack.pop())
+            self._close_row()
+            tb = self._stack.pop()
+            tb.pop("row", None)
+            self.tables.append(tb)
         return self.tables
 
 
@@ -300,19 +326,51 @@ def header_periods(row) -> list:
     return out
 
 
+def header_row_index(rows, min_periods: int = 2) -> "int | None":
+    """Hàng nào là hàng TIÊU ĐỀ? — hàng ĐẦU TIÊN có ≥2 ô là kỳ.
+
+    Quét TOÀN BỘ bảng chứ không chỉ vài hàng đầu: trang CafeF thật có mấy
+    hàng rỗng chèn trước (đo 26/08 — 4 hàng đầu của `tableContent` trắng
+    trơn). Hàng dữ liệu không chứa chuỗi kỳ nên không có nguy cơ nhận nhầm.
+    """
+    for i, row in enumerate(rows or []):
+        if len(header_periods(row)) >= min_periods:
+            return i
+    return None
+
+
+def label_col_index(rows, header_idx: int, period_cols) -> int:
+    """Cột nào chứa TÊN chỉ tiêu? — cột nhiều CHỮ nhất bên trái cột kỳ đầu.
+
+    Không mặc định cột 0: bảng thật hay có một cột rỗng để thụt dòng hoặc
+    một cột nút bấm ở đầu. Chọn nhầm cột là cả bảng mất tên chỉ tiêu.
+    """
+    first_period = min((i for i, _ in period_cols), default=1)
+    best, best_score = 0, -1
+    for ci in range(max(first_period, 1)):
+        score = 0
+        for row in (rows or [])[header_idx + 1:]:
+            if ci >= len(row):
+                continue
+            cell = str(row[ci]).strip()
+            if cell and parse_vn_number(cell) is None:
+                score += 1
+        if score > best_score:
+            best, best_score = ci, score
+    return best
+
+
 def pick_balance_table(tables, min_rows: int = 10) -> "dict | None":
     """Bảng nào là bảng cân đối? — bảng có tiêu đề KỲ và nhiều dòng nhất.
 
-    Nhận diện theo HÌNH DẠNG (có ≥2 cột kỳ, đủ dòng), không theo `id`/`class`
-    — tên lớp CSS của CafeF đổi lúc nào không ai báo, còn hình dạng thì không.
+    Nhận diện theo HÌNH DẠNG (có ≥2 ô tiêu đề là kỳ, đủ dòng), không theo
+    `id`/`class` — tên lớp CSS của CafeF đổi lúc nào không ai báo, còn hình
+    dạng thì không.
     """
     best, best_rows = None, 0
     for tb in tables or []:
         rows = tb.get("rows") or []
-        if len(rows) < min_rows:
-            continue
-        hdr = next((r for r in rows[:6] if len(header_periods(r)) >= 2), None)
-        if hdr is None:
+        if len(rows) < min_rows or header_row_index(rows) is None:
             continue
         if len(rows) > best_rows:
             best, best_rows = tb, len(rows)
@@ -365,21 +423,26 @@ def cafef_to_frame(html: str, lang: str = "vi"):
     if table is None:
         return pd.DataFrame()
     rows = table["rows"]
-    h_idx = next(i for i, r in enumerate(rows[:6]) if len(header_periods(r)) >= 2)
+    h_idx = header_row_index(rows)
     periods = header_periods(rows[h_idx])
+    l_idx = label_col_index(rows, h_idx, periods)
 
     items, cols = [], {qq: [] for _, qq in periods}
-    seen = set()
+    seen: dict = {}
     for row in rows[h_idx + 1:]:
-        if not row:
+        if l_idx >= len(row):
             continue
-        name = str(row[0]).strip()
+        name = str(row[l_idx]).strip()
         if not name or cell_quarter(name) is not None:
             continue
+        # Tên TRÙNG NHAU thì ĐÁNH SỐ, KHÔNG bỏ. Bảng cân đối thật có những
+        # nhãn lặp lại ở hai mục khác nhau ("Tài sản khác"…), mà bỏ dòng thứ
+        # hai là mất số im lặng. Đánh số là việc tất định, mọi ngân hàng ra
+        # cùng một bộ nhãn nên vẫn xếp ngang được.
         key = name.lower()
-        if key in seen:                      # CafeF lặp lại dòng tổng ở cuối
-            continue
-        seen.add(key)
+        seen[key] = seen.get(key, 0) + 1
+        if seen[key] > 1:
+            name = f"{name} ({seen[key]})"
         items.append(name)
         for ci, qq in periods:
             cols[qq].append(parse_vn_number(row[ci]) if ci < len(row) else None)
@@ -466,6 +529,44 @@ def context_around(html: str, needle: str, width: int = 90, limit: int = 3):
         lo, hi = max(0, i - width), min(len(text), i + len(needle) + width)
         out.append(re.sub(r"\s+", " ", text[lo:hi]).strip())
         start = i + len(needle)
+    return out
+
+
+def quarter_contexts(html: str, width: int = 110, limit: int = 4) -> list:
+    """Ngữ cảnh quanh các chuỗi KỲ — dò bằng CHÍNH regex đã nhận ra chúng.
+
+    Vết 26/08: bản đầu dò bằng chuỗi ghép tay `f"Quý {q}-{y}"`, nên trang
+    thật viết `Quý 4 - 2016` (có khoảng trắng) là không khớp và phần chẩn
+    đoán QUAN TRỌNG NHẤT im lặng bỏ qua. Đã thấy chuỗi bằng regex nào thì
+    phải định vị bằng đúng regex đó.
+    """
+    text, out, seen = html or "", [], set()
+    for pat in _CAFEF_QUARTER_PATTERNS:
+        for m in pat.finditer(text):
+            key = m.group(0)
+            if key in seen:
+                continue
+            seen.add(key)
+            lo = max(0, m.start() - width)
+            hi = min(len(text), m.end() + width)
+            out.append(re.sub(r"\s+", " ", text[lo:hi]).strip())
+            if len(out) >= limit:
+                return out
+    return out
+
+
+def nonempty_rows(rows, limit: int = 12) -> list:
+    """[(chỉ số hàng, hàng)] cho các hàng CÓ chữ — bỏ hàng chèn rỗng.
+
+    Bảng thật của CafeF mở đầu bằng mấy hàng trắng; in `rows[:4]` ra là in ra
+    bốn dòng trống, tức chẩn đoán không nói gì (đo 26/08).
+    """
+    out = []
+    for i, row in enumerate(rows or []):
+        if any(str(c).strip() for c in row):
+            out.append((i, row))
+            if len(out) >= limit:
+                break
     return out
 
 
