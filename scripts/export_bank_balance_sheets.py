@@ -306,6 +306,11 @@ def dump_cafef(ticker: str, year: int, quarter: int = 4,
               + (", ".join(quarter_label(*q) for q in d["quarters_seen"]) or "—"))
         print(f"   đơn vị   : {d['unit_note'] or '— KHÔNG thấy'}")
         print(f"   ⇒ {verdict_line(d)}")
+        # Ô nào CÓ CHỨA một năm 20xx? Đây là chẩn đoán dứt điểm cho ca "không
+        # thấy kỳ nào": có ô kiểu "Quý 4 2016" ⇒ lỗi regex của tôi; không ô
+        # nào chứa năm ⇒ tiêu đề nằm chỗ khác hẳn.
+        print("   ô có chứa năm 20xx: "
+              + (" · ".join(f"'{c}'" for c in d["year_cells"]) or "— KHÔNG Ô NÀO"))
         if d["data_urls"]:
             print("   URL nghi là đường dữ liệu:")
             for u in d["data_urls"]:

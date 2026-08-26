@@ -946,3 +946,69 @@ class TestDuplicateItemNames:
     def test_row_count_grows_by_one(self):
         assert len(S.cafef_to_frame(self._DUP)) == \
             len(S.cafef_to_frame(_REAL_SHAPE_PAGE)) + 1
+
+
+class TestQuarterSeparatorIsOptional:
+    """Vết 26/08 lượt 4: tiêu đề kỳ hay bị thẻ cắt đôi —
+    `<td><div>Quý 4</div><div>2016</div></td>` — gộp chữ trong ô lại ra
+    `"Quý 4 2016"`, KHÔNG có gạch nối. Bản đầu bắt buộc `[-/]` nên khớp được
+    chuỗi `Quý 4 - 2016` rải rác trong trang (đủ để `cafef_quarters_in` báo
+    'thấy 4 kỳ') mà KHÔNG khớp ô tiêu đề thật ⇒ không nhận ra bảng nào. Đúng
+    cái mâu thuẫn đã đo: thấy kỳ trong trang, không thấy kỳ trong ô nào."""
+
+    def test_no_separator_still_matches(self):
+        assert S.cell_quarter("Quý 4 2016") == (2016, 4)
+
+    def test_a_tag_split_header_cell_matches(self):
+        rows = S.parse_tables(
+            "<table><tr><td><div>Quý 4</div><div>2016</div></td>"
+            "<td><div>Quý 3</div><div>2016</div></td></tr></table>")[0]["rows"]
+        assert len(S.header_periods(rows[0])) == 2
+
+    def test_dash_and_slash_still_match(self):
+        assert S.cell_quarter("Quý 4 - 2016") == (2016, 4)
+        assert S.cell_quarter("Q4/2016") == (2016, 4)
+
+    def test_a_dot_separator_matches(self):
+        assert S.cell_quarter("Q4.2016") == (2016, 4)
+
+    def test_year_first_form_matches(self):
+        assert S.cell_quarter("2016-Q4") == (2016, 4)
+        assert S.cell_quarter("2016 Q4") == (2016, 4)
+
+    def test_a_plain_number_is_not_a_quarter(self):
+        assert S.cell_quarter("750,000") is None
+        assert S.cell_quarter("2016") is None
+
+    def test_an_item_name_is_not_a_quarter(self):
+        assert S.cell_quarter("Cho vay khách hàng") is None
+
+    def test_a_year_without_a_quarter_marker_is_not_a_quarter(self):
+        assert S.cell_quarter("Năm 2016") is None
+
+    def test_the_page_scan_sees_the_year_first_form_too(self):
+        assert (2016, 4) in S.cafef_quarters_in("<th>2016-Q4</th>")
+
+
+class TestCellsWithYear:
+    def test_reports_header_cells_verbatim(self):
+        tables = S.parse_tables(_REAL_SHAPE_PAGE)
+        assert "Quý 1 - 2016" in S.cells_with_year(tables)
+
+    def test_long_prose_cells_are_not_reported_as_headers(self):
+        tables = [{"attrs": {}, "rows": [["x" * 60 + " 2016"]]}]
+        assert S.cells_with_year(tables) == []
+
+    def test_duplicates_are_collapsed(self):
+        tables = [{"attrs": {}, "rows": [["Quý 1 2016"], ["Quý 1 2016"]]}]
+        assert S.cells_with_year(tables) == ["Quý 1 2016"]
+
+    def test_the_list_is_capped(self):
+        rows = [[f"Quý 1 20{n:02d}"] for n in range(50)]
+        assert len(S.cells_with_year([{"attrs": {}, "rows": rows}], limit=5)) == 5
+
+    def test_no_year_anywhere_gives_nothing(self):
+        assert S.cells_with_year([{"attrs": {}, "rows": [["a", "b"]]}]) == []
+
+    def test_the_diagnosis_carries_it(self):
+        assert S.diagnose_cafef(_REAL_SHAPE_PAGE)["year_cells"]

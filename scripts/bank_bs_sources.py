@@ -203,10 +203,20 @@ CAFEF_BS_URL_LEGACY = ("https://s.cafef.vn/bao-cao-tai-chinh/{ticker}/BSheet/"
 
 CAFEF_RATE_LIMIT_S = 1.5   # lịch sự: 26 ngân hàng × 2 trang = 52 lượt
 
+# ⚠️ DẤU NGĂN PHẢI ĐỂ TÙY CHỌN. Trong HTML, tiêu đề kỳ hay bị cắt bởi thẻ:
+# `<td><div>Quý 4</div><div>2016</div></td>`. Gộp chữ trong ô lại ra
+# `"Quý 4 2016"` — KHÔNG có gạch nối. Bản đầu bắt buộc `[-/]` nên khớp được
+# chuỗi `Quý 4 - 2016` nằm rải rác trong trang (đủ để `cafef_quarters_in`
+# báo "thấy 4 kỳ") mà KHÔNG khớp ô tiêu đề thật ⇒ `pick_balance_table` trắng
+# tay. Đúng cái mâu thuẫn đo được 26/08: thấy kỳ trong trang, không thấy kỳ
+# trong ô nào.
 _CAFEF_QUARTER_PATTERNS = (
-    re.compile(r"Quý\s*([1-4])\s*[-/]\s*(20\d{2})", re.I),
-    re.compile(r"Q([1-4])\s*[-/]\s*(20\d{2})", re.I),
+    re.compile(r"\bQuý\s*([1-4])\s*[-/.]?\s*(20\d{2})\b", re.I),
+    re.compile(r"\bQ\s*([1-4])\s*[-/.]?\s*(20\d{2})\b", re.I),
 )
+# Dạng NĂM TRƯỚC (`2016-Q4`, `2016 Q4`) — trả (năm, quý) đảo lại.
+_QUARTER_PATTERN_YEAR_FIRST = re.compile(
+    r"\b(20\d{2})\s*[-/.]?\s*Q\s*([1-4])\b", re.I)
 _UNIT_RE = re.compile(r"Đơn\s*vị\s*[:：]?\s*([^<\n\r|]{1,40})", re.I)
 
 
@@ -216,16 +226,20 @@ def cafef_quarters_in(html: str) -> list:
     for pat in _CAFEF_QUARTER_PATTERNS:
         for m in pat.finditer(html or ""):
             found.add((int(m.group(2)), int(m.group(1))))
+    for m in _QUARTER_PATTERN_YEAR_FIRST.finditer(html or ""):
+        found.add((int(m.group(1)), int(m.group(2))))
     return sorted(found)
 
 
 def cell_quarter(text) -> "tuple | None":
     """Ô tiêu đề này là một KỲ? → (năm, quý), không thì None."""
+    s = str(text or "")
     for pat in _CAFEF_QUARTER_PATTERNS:
-        m = pat.search(str(text or ""))
+        m = pat.search(s)
         if m:
             return (int(m.group(2)), int(m.group(1)))
-    return None
+    m = _QUARTER_PATTERN_YEAR_FIRST.search(s)
+    return (int(m.group(1)), int(m.group(2))) if m else None
 
 
 def cafef_unit_note(html: str) -> "str | None":
@@ -541,7 +555,7 @@ def quarter_contexts(html: str, width: int = 110, limit: int = 4) -> list:
     phải định vị bằng đúng regex đó.
     """
     text, out, seen = html or "", [], set()
-    for pat in _CAFEF_QUARTER_PATTERNS:
+    for pat in _CAFEF_QUARTER_PATTERNS + (_QUARTER_PATTERN_YEAR_FIRST,):
         for m in pat.finditer(text):
             key = m.group(0)
             if key in seen:
@@ -603,6 +617,33 @@ def raw_tag_counts(html: str) -> dict:
     }
 
 
+_YEARISH_RE = re.compile(r"\b20\d{2}\b")
+
+
+def cells_with_year(tables, limit: int = 14) -> list:
+    """Các ô CÓ CHỨA MỘT NĂM `20xx` — nguyên văn, không diễn giải.
+
+    Chẩn đoán quyết định khi bộ bóc "không thấy kỳ nào": nếu có ô kiểu
+    `"Quý 4 2016"` thì lỗi ở REGEX của tôi; nếu chỉ có `"Quý 4"` rời khỏi
+    năm, hoặc không ô nào chứa năm, thì tiêu đề nằm chỗ khác hẳn. Hai ca đó
+    chữa khác nhau, nên phải NHÌN chữ thật thay vì suy.
+    """
+    seen, out = set(), []
+    for tb in tables or []:
+        for row in tb.get("rows") or []:
+            for cell in row:
+                text = str(cell).strip()
+                if not text or len(text) > 40 or not _YEARISH_RE.search(text):
+                    continue
+                if text in seen:
+                    continue
+                seen.add(text)
+                out.append(text)
+                if len(out) >= limit:
+                    return out
+    return out
+
+
 def diagnose_cafef(html: str) -> dict:
     """Gói gọn: trang này hỏng kiểu gì? Trả DỮ KIỆN, không trả kết luận chắc nịch."""
     tables = parse_tables(html)
@@ -616,6 +657,7 @@ def diagnose_cafef(html: str) -> dict:
         "balance_table_found": pick_balance_table(tables) is not None,
         "unit_note": cafef_unit_note(html),
         "data_urls": candidate_data_urls(html),
+        "year_cells": cells_with_year(tables),
     }
 
 

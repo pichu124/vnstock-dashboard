@@ -6979,6 +6979,23 @@ nguồn — ghi lại để lần sau khỏi mò lại:
 | `tcbs`  | ❌ **404** — endpoint `apipubaws` đã chết | 26/08, máy user |
 | `cafef` | ⚠️ tải được (HTTP 200, thấy đủ `Quý 1-2016 → Quý 4-2016` trong HTML) nhưng **bộ bóc KHÔNG ra bảng nào** | 26/08 lượt 2, máy user |
 
+**Lượt 4 — giả thuyết đang kiểm: DẤU NGĂN.** Sau khi vá cả ba thứ ở lượt 3,
+bộ bóc VẪN không nhận ra bảng nào. Điều đó thu hẹp lại rất mạnh: **không một
+ô `<td>/<th>` nào trong 124 bảng khớp mẫu kỳ**, trong khi `cafef_quarters_in`
+vẫn thấy 4 kỳ trong HTML thô. Nghi phạm rõ nhất là chính cái regex:
+
+    <td><div>Quý 4</div><div>2016</div></td>   →  gộp chữ ra "Quý 4 2016"
+
+Mẫu cũ bắt buộc `[-/]` giữa quý và năm ⇒ khớp được chuỗi `Quý 4 - 2016` nằm
+rải rác đâu đó trong trang (đủ để báo "thấy 4 kỳ") mà KHÔNG khớp ô tiêu đề
+thật. Đã nới: dấu ngăn TÙY CHỌN, thêm dạng năm-trước (`2016-Q4`, `2016 Q4`),
+`\b` hai đầu để khỏi ăn nhầm giữa chữ.
+
+⚠️ Đây là GIẢ THUYẾT, chưa đo — nên `cells_with_year` được thêm vào chẩn
+đoán: in NGUYÊN VĂN mọi ô có chứa `20xx`. Có ô `"Quý 4 2016"` ⇒ giả thuyết
+đúng. Không ô nào chứa năm ⇒ tiêu đề nằm chỗ khác hẳn, phải đổi cách lấy.
+Trả lời được bằng chữ THẬT, không phải bằng một vòng đoán nữa.
+
 **Lượt 3 — `--dump-cafef VCB` đã chỉ ra ba khiếm khuyết, và cái đầu là BUG
 CỦA TÔI:**
 
