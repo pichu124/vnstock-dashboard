@@ -617,72 +617,6 @@ def cmd_vietstock(args) -> int:
     return 2
 
 
-def cmd_cash_dividends(args) -> int:
-    """Scrape CafeF for cash dividends; optionally register."""
-    from vnstock_cash_dividends import (
-        fetch_and_register, fetch_cash_dividends,
-    )
-    warehouse = Path(args.warehouse)
-
-    if args.ticker and not args.bulk:
-        if args.register:
-            res = fetch_and_register(args.ticker, warehouse=warehouse,
-                                      use_cache=not args.no_cache)
-            print(json.dumps(res, indent=2, ensure_ascii=False, default=str))
-        else:
-            events = fetch_cash_dividends(args.ticker, warehouse=warehouse,
-                                            use_cache=not args.no_cache)
-            for e in events:
-                print(f"  {e.ex_date}  {e.cash_amount_vnd:>10,.0f} VND  "
-                      f"({e.note[:80]})")
-            print(f"\nTotal: {len(events)} cash dividends")
-        return 0
-
-    if args.bulk:
-        from vnstock_anomaly import _is_stock
-        prices = warehouse / "prices"
-        tickers = sorted(
-            p.name.removeprefix("ticker=")
-            for p in prices.glob("ticker=*")
-            if p.is_dir() and _is_stock(p.name.removeprefix("ticker="))
-        )
-        if args.limit:
-            tickers = tickers[: args.limit]
-        print(f"[cash_div] processing {len(tickers)} tickers...")
-        success = empty = fail = 0
-        for i, t in enumerate(tickers, 1):
-            try:
-                if args.register:
-                    res = fetch_and_register(
-                        t, warehouse=warehouse,
-                        use_cache=not args.no_cache,
-                    )
-                    if res["fetched"] > 0:
-                        success += 1
-                    else:
-                        empty += 1
-                else:
-                    events = fetch_cash_dividends(
-                        t, warehouse=warehouse,
-                        use_cache=not args.no_cache,
-                    )
-                    if events:
-                        success += 1
-                    else:
-                        empty += 1
-            except Exception as e:
-                fail += 1
-                print(f"  [{i}/{len(tickers)}] {t}: {e}", file=sys.stderr)
-            if i % 50 == 0:
-                print(f"  progress: {i}/{len(tickers)} "
-                      f"(ok={success} empty={empty} fail={fail})")
-        print(f"[cash_div] done: ok={success} empty={empty} fail={fail}")
-        return 0
-
-    print("[cash_div] specify --ticker or --bulk", file=sys.stderr)
-    return 2
-
-
 def cmd_fix_units(args) -> int:
     """Rescale unit-mismatch OHLC bars (volume=0 with raw-VND prices)."""
     from vnstock_fix_units import run as fix_run
@@ -1734,15 +1668,6 @@ def build_parser() -> argparse.ArgumentParser:
     reg.add_argument("--source-to-clear")
     reg.add_argument("--note", default=None)
 
-    cash = sub.add_parser("cash-dividends",
-                           help="Scrape CafeF for cash dividends")
-    cash.add_argument("--ticker")
-    cash.add_argument("--bulk", action="store_true")
-    cash.add_argument("--limit", type=int, default=0)
-    cash.add_argument("--no-cache", action="store_true")
-    cash.add_argument("--register", action="store_true",
-                      help="Push fetched events into corp_actions_registry")
-
     vs = sub.add_parser("vietstock", help="Scrape Vietstock for corp actions")
     vs.add_argument("--ticker", help="Single ticker")
     vs.add_argument("--bulk", action="store_true", help="All warehouse tickers")
@@ -1870,7 +1795,6 @@ _DISPATCH = {
     "top-offenders": cmd_top_offenders,
     "diagnose": cmd_diagnose,
     "registry": cmd_registry,
-    "cash-dividends": cmd_cash_dividends,
     "vietstock": cmd_vietstock,
     "fix-units": cmd_fix_units,
     "freefloat": cmd_freefloat,

@@ -7013,14 +7013,36 @@ có nguồn". Câu `fix` chỉ sang `run.py vietstock --bulk --register`, và n�
 thẳng rằng `run.py cash-dividends` đã 404 — gợi ý một lệnh đã chết chính là
 cái bẫy vừa gỡ.
 
+## ✅ Đã XOÁ đường CafeF — cùng ngày, sau khi có bằng chứng
+
+Badge trên máy thật (💻 laptop, 26/08) báo **`đường registry trả 1 mã trong 7
+ngày`** ⇒ sổ đăng ký gánh được. Đó là điều kiện đã đặt ra, nên xoá:
+
+* `vnstock_cash_dividends.py` (399 dòng) + `tests/test_cash_dividends.py`
+* `run.py cash-dividends` (lệnh con + dispatch + subparser)
+* **và cả đường ĐỌC `_exdiv_from_cafef_cache`** — chỗ này mới đáng nói.
+
+**Vì sao xoá luôn đường đọc:** giữ một bộ đọc cho kho đã đóng băng nghe có vẻ
+"an toàn", nhưng nó chứng minh được là RỖNG VĨNH VIỄN. Mọi chỗ gọi
+(`market_commentary:171`, `market_tab:782`) đều dùng cửa sổ **7 ngày**; kho đó
+chỉ có thể chứa sự kiện từ **19/08** trở đi; từ 19/08 lệnh ghi đã 404. Giữ lại
+= nuôi thêm đúng một đoạn code chết trông như sống, tức là lặp lại chính cái
+bệnh vừa chữa.
+
+`test_run.py` nay canh **`"cash-dividends" not in names`** — lệnh đã bỏ thì
+lưới phải biết nó đã bỏ.
+
+**Badge nói thêm TỔNG SỔ.** "trả 1 mã" một mình không đọc được: 1 vì tuần này
+im, hay 1 vì sổ gần rỗng? Nay in kèm `(sổ có N sự kiện tất cả các kỳ)`.
+
 ## Còn treo
 
-**Chưa xoá đường CafeF.** Đổi chỗ ĐỌC và xoá chỗ GHI trong cùng một nhịp thì
-hỏng cái gì cũng không biết tại cái nào. Xoá sau khi user chạy `run.py doctor`
-và badge `exdiv_source` báo `đường registry trả N mã` — lúc đó mới có bằng
-chứng sổ đăng ký gánh được.
+Con số **1 mã / 7 ngày** vẫn mỏng. Chưa biết sổ đăng ký dày tới đâu — badge
+mới sẽ nói ra ở lượt `doctor` kế tiếp. Sổ mỏng thì nạp bằng
+`python run.py vietstock --bulk --register` (**GHI KHO** — đừng chạy trong
+lúc phát 18:00).
 
-29 test ở `tests/test_exdiv_source.py`.
+30 test ở `tests/test_exdiv_source.py`.
 
 # 🔌 U35. FINHAY MCP: CÓ GÌ, DÙNG ĐƯỢC GÌ CHO APP (26/08)
 

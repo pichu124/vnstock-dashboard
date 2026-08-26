@@ -14,8 +14,13 @@ thẳng ra dashboard. `{}` là giá trị hợp lệ nên không chỗ nào kêu
 trông y như code sống.**
 
 Vá: đọc SỔ ĐĂNG KÝ `_meta/corp_actions_registry.parquet` (nhiều nguồn nạp, có
-sẵn cột `cash_amount`) làm đường CHÍNH, kho JSON cũ làm lưới sau, HỢP NHẤT chứ
-không loại nhau. Badge `exdiv_source` để lần sau nó tự nổi lên.
+sẵn cột `cash_amount`) làm nguồn DUY NHẤT. Badge `exdiv_source` canh để nó
+không lặng lẽ chết lần nữa.
+
+Kho JSON cũ đã **xoá hẳn** cùng ngày, sau khi badge trên máy thật xác nhận sổ
+đăng ký trả lời được. Nó chứng minh được là rỗng vĩnh viễn: mọi chỗ gọi dùng
+cửa sổ 7 ngày, nên nó chỉ có thể chứa sự kiện từ 19/08 trở đi — mà từ 19/08
+lệnh ghi đã 404.
 """
 from __future__ import annotations
 
@@ -127,74 +132,78 @@ class TestContractUnchanged:
         assert isinstance(got["VNM"]["amount"], float)
 
 
-class TestBothPathsAreMerged:
-    """Hai đường HỢP NHẤT chứ không loại nhau: sổ thắng khi trùng mã, nhưng mã
-    chỉ có ở kho cũ vẫn được giữ — bỏ đi là mất một lần chặn cờ giả mà chẳng
-    được gì."""
+class TestSingleSource:
+    """Một nguồn, và nó phải NÓI RA khi rỗng chứ không âm thầm trả {}."""
 
-    def test_the_registry_wins_on_a_shared_ticker(self, monkeypatch):
-        monkeypatch.setattr(ma, "_exdiv_from_cafef_cache",
-                            lambda c, t: {"VNM": {"ex_date": "2026-08-01",
-                                                  "amount": 1.0}})
+    def test_it_reads_the_registry(self, monkeypatch):
         monkeypatch.setattr(ma, "_exdiv_from_registry",
                             lambda c, t: {"VNM": {"ex_date": "2026-08-20",
                                                   "amount": 900.0}})
         assert ma.load_recent_exdiv()["VNM"]["amount"] == 900.0
 
-    def test_a_ticker_only_in_the_old_cache_is_kept(self, monkeypatch):
-        monkeypatch.setattr(ma, "_exdiv_from_cafef_cache",
-                            lambda c, t: {"FPT": {"ex_date": "2026-08-20",
-                                                  "amount": 1.0}})
-        monkeypatch.setattr(ma, "_exdiv_from_registry", lambda c, t: {})
-        assert "FPT" in ma.load_recent_exdiv()
-
-    def test_both_empty_gives_empty(self, monkeypatch):
-        monkeypatch.setattr(ma, "_exdiv_from_cafef_cache", lambda c, t: {})
+    def test_an_empty_registry_gives_empty(self, monkeypatch):
         monkeypatch.setattr(ma, "_exdiv_from_registry", lambda c, t: {})
         assert ma.load_recent_exdiv() == {}
 
-    def test_it_never_raises_when_everything_is_missing(self):
+    def test_it_never_raises_when_the_registry_is_missing(self):
         assert isinstance(ma.load_recent_exdiv(days_back=7), dict)
+
+    def test_the_dead_cafef_reader_is_gone(self):
+        """Kho JSON của CafeF chỉ nhận được sự kiện từ 19/08 trở đi, mà từ
+        19/08 lệnh ghi đã 404 — với cửa sổ 7 ngày thì nó rỗng vĩnh viễn. Giữ
+        lại là nuôi thêm một đoạn code chết trông như sống."""
+        assert not hasattr(ma, "_exdiv_from_cafef_cache")
+
+    def test_the_window_is_honoured(self, monkeypatch):
+        seen = {}
+
+        def spy(cutoff, today):
+            seen["days"] = (today - cutoff).days
+            return {}
+        monkeypatch.setattr(ma, "_exdiv_from_registry", spy)
+        ma.load_recent_exdiv(days_back=30)
+        assert seen["days"] == 30
 
 
 class TestDoctorBadge:
-    def _status(self, monkeypatch, registry=0, cache=0, ever=None):
-        src = "registry" if registry else ("cafef_cache" if cache else "none")
+    def _status(self, monkeypatch, recent=0, total=0):
         monkeypatch.setattr(ma, "exdiv_source_status",
-                            lambda days_back=7: {"registry": registry,
-                                                 "cafef_cache": cache,
-                                                 "source": src, "days_back": 7})
-        monkeypatch.setattr(ma, "_exdiv_from_registry",
-                            lambda *a, **k: ever if ever is not None else {})
+                            lambda days_back=7: {
+                                "recent": recent, "total_cash": total,
+                                "source": "registry" if recent else "none",
+                                "days_back": 7})
 
     def test_the_registry_answering_is_ok(self, monkeypatch):
-        self._status(monkeypatch, registry=3)
+        self._status(monkeypatch, recent=3, total=400)
         r = vnstock_doctor.check_exdiv_source()
-        assert r["status"] == "ok" and "registry" in r["message"]
+        assert r["status"] == "ok" and "3 mã" in r["message"]
 
-    def test_a_quiet_week_with_a_populated_registry_is_OK_not_a_warning(
+    def test_it_shows_the_whole_ledger_size_so_a_small_number_is_readable(
+            self, monkeypatch):
+        """'trả 1 mã' một mình không đọc được — 1 vì tuần này im, hay 1 vì sổ
+        gần rỗng? Con số tổng làm nó có nghĩa."""
+        self._status(monkeypatch, recent=1, total=412)
+        assert "412" in vnstock_doctor.check_exdiv_source()["message"]
+
+    def test_a_quiet_week_with_a_populated_ledger_is_OK_not_a_warning(
             self, monkeypatch):
         """7 ngày không mã nào chia cổ tức là chuyện BÌNH THƯỜNG. Kêu ở đây là
         báo động giả, mà báo động giả dạy người ta bỏ qua badge."""
-        self._status(monkeypatch, ever={"VNM": {}, "FPT": {}})
+        self._status(monkeypatch, recent=0, total=412)
         r = vnstock_doctor.check_exdiv_source()
         assert r["status"] == "ok" and "không mã nào chia" in r["message"]
 
-    def test_no_source_at_all_warns(self, monkeypatch):
-        self._status(monkeypatch, ever={})
+    def test_an_empty_ledger_warns(self, monkeypatch):
+        self._status(monkeypatch, recent=0, total=0)
         r = vnstock_doctor.check_exdiv_source()
         assert r["status"] == "warn" and "chạy CHAY" in r["message"]
 
     def test_the_warning_names_a_command_that_still_works(self, monkeypatch):
-        """Gợi ý `run.py cash-dividends` là gợi ý một lệnh đã 404 — đúng cái
-        bẫy vừa gỡ."""
-        self._status(monkeypatch, ever={})
+        """Gợi ý `run.py cash-dividends` là gợi ý một lệnh đã xoá — đúng cái
+        bẫy vừa gỡ. Và lệnh gợi ý GHI KHO nên phải nói rõ thời điểm."""
+        self._status(monkeypatch, recent=0, total=0)
         fix = vnstock_doctor.check_exdiv_source()["fix"]
-        assert "vietstock" in fix and "404" in fix
-
-    def test_the_old_cache_answering_alone_is_still_ok(self, monkeypatch):
-        self._status(monkeypatch, cache=2)
-        assert vnstock_doctor.check_exdiv_source()["status"] == "ok"
+        assert "vietstock" in fix and "GHI KHO" in fix and "404" in fix
 
     def test_a_broken_reader_is_reported_as_error_not_silence(self, monkeypatch):
         def boom(days_back=7):
@@ -210,27 +219,27 @@ class TestDoctorBadge:
 
 
 class TestStatusHelper:
-    def test_it_names_which_path_answered(self, monkeypatch):
-        monkeypatch.setattr(ma, "_exdiv_from_registry", lambda c, t: {"VNM": {}})
-        monkeypatch.setattr(ma, "_exdiv_from_cafef_cache", lambda c, t: {})
+    def test_it_names_the_registry_when_there_are_recent_events(self, tmp_path,
+                                                                monkeypatch):
+        monkeypatch.setattr(ma, "_exdiv_from_registry",
+                            lambda c, t: {"VNM": {}})
         assert ma.exdiv_source_status()["source"] == "registry"
 
-    def test_it_falls_back_to_naming_the_old_cache(self, monkeypatch):
-        monkeypatch.setattr(ma, "_exdiv_from_registry", lambda c, t: {})
-        monkeypatch.setattr(ma, "_exdiv_from_cafef_cache", lambda c, t: {"F": {}})
-        assert ma.exdiv_source_status()["source"] == "cafef_cache"
-
-    def test_none_when_neither_answers(self, monkeypatch):
-        monkeypatch.setattr(ma, "_exdiv_from_registry", lambda c, t: {})
-        monkeypatch.setattr(ma, "_exdiv_from_cafef_cache", lambda c, t: {})
+    def test_none_when_the_window_is_empty(self, monkeypatch):
+        monkeypatch.setattr(ma, "_exdiv_from_registry",
+                            lambda c, t: {} if (t - c).days <= 7 else {"A": {}})
         assert ma.exdiv_source_status()["source"] == "none"
 
-    def test_it_counts_both_paths_separately(self, monkeypatch):
-        monkeypatch.setattr(ma, "_exdiv_from_registry", lambda c, t: {"A": {}})
-        monkeypatch.setattr(ma, "_exdiv_from_cafef_cache",
-                            lambda c, t: {"B": {}, "C": {}})
+    def test_total_counts_every_period_not_just_the_window(self, monkeypatch):
+        monkeypatch.setattr(
+            ma, "_exdiv_from_registry",
+            lambda c, t: {"A": {}} if (t - c).days <= 7 else {"A": {}, "B": {}})
         st = ma.exdiv_source_status()
-        assert st["registry"] == 1 and st["cafef_cache"] == 2
+        assert st["recent"] == 1 and st["total_cash"] == 2
+
+    def test_the_window_size_is_reported(self, monkeypatch):
+        monkeypatch.setattr(ma, "_exdiv_from_registry", lambda c, t: {})
+        assert ma.exdiv_source_status(days_back=30)["days_back"] == 30
 
 
 if __name__ == "__main__":

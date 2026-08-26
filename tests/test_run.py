@@ -18,7 +18,10 @@ def test_build_parser_lists_all_subcommands():
     names = set(sub_action.choices.keys())
     assert {"scan", "sync", "validate", "audit", "refresh-metadata",
             "remediate", "top-offenders", "diagnose", "registry",
-            "cash-dividends", "freefloat", "screener", "test", "dashboard", "all"} <= names
+            "vietstock", "freefloat", "screener", "test", "dashboard", "all"} <= names
+    # `cash-dividends` đã BỎ 26/08 (U36): cào CafeF, 404 từ 19/08, không nằm
+    # trong `cmd_all`, và thứ nó nuôi nay đọc thẳng sổ đăng ký.
+    assert "cash-dividends" not in names
 
 
 def test_dispatch_table_matches_parser():

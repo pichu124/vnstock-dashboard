@@ -253,61 +253,22 @@ def _exdiv_from_registry(cutoff, today, warehouse=None) -> dict:
     return out
 
 
-def _exdiv_from_cafef_cache(cutoff, today) -> dict:
-    """Đường CŨ: `_meta/cash_dividends/*.json`, chỉ do `run.py cash-dividends`
-    nạp — mà lệnh đó cào CafeF và **404 từ 19/08**, lại KHÔNG nằm trong
-    `cmd_all`. Giữ làm lưới sau, không làm đường chính.
-    """
-    import json
-    from datetime import date
-    from pathlib import Path
-
-    cache_dir = Path("data_warehouse/_meta/cash_dividends")
-    if not cache_dir.exists():
-        return {}
-    result: dict = {}
-    for fpath in cache_dir.glob("*.json"):
-        try:
-            ticker = fpath.stem.upper()
-            records = json.loads(fpath.read_text(encoding="utf-8"))
-            if not isinstance(records, list):
-                continue
-            for rec in records:
-                ex_str = rec.get("ex_date") or rec.get("ex_rights_date") or ""
-                try:
-                    ex_date = date.fromisoformat(str(ex_str)[:10])
-                except Exception:
-                    continue
-                if cutoff <= ex_date <= today:
-                    result[ticker] = {
-                        "ex_date": ex_date.isoformat(),
-                        "amount": rec.get("amount") or rec.get("value") or 0,
-                    }
-                    break
-        except Exception:
-            continue
-    return result
-
-
 def exdiv_source_status(days_back: int = 7) -> dict:
-    """Đường nào đang TRẢ LỜI, và bao nhiêu mã — để badge doctor réo được.
+    """Sổ đăng ký có trả sự kiện cổ tức không, và tổng sổ dày bao nhiêu.
 
-    Vết 26/08: `load_recent_exdiv` chỉ đọc kho JSON của CafeF. `run.py
-    cash-dividends` cào CafeF thì **404 từ 19/08**, và lệnh đó KHÔNG nằm trong
-    `cmd_all` nên chưa bao giờ tự chạy. Cửa sổ mặc định là 7 ngày ⇒ từ khoảng
-    26/08 hàm này **luôn trả {}**, và cờ "phân phối" giả không còn bị chặn —
-    lặng lẽ, không ai biết. Đúng kiểu code chết trông y như code sống.
+    `recent` một mình KHÔNG đọc được: 7 ngày không mã nào chia cổ tức là
+    chuyện BÌNH THƯỜNG. Phải kèm `total_cash` — tổng sự kiện `cash` ở MỌI kỳ —
+    mới phân biệt được "tuần này im" với "sổ rỗng, không có nguồn".
     """
     from datetime import date, timedelta
 
     today = date.today()
-    cutoff = today - timedelta(days=days_back)
-    reg = _exdiv_from_registry(cutoff, today)
-    cache = _exdiv_from_cafef_cache(cutoff, today)
+    recent = _exdiv_from_registry(today - timedelta(days=days_back), today)
+    ever = _exdiv_from_registry(date(1990, 1, 1), today)
     return {
-        "registry": len(reg),
-        "cafef_cache": len(cache),
-        "source": ("registry" if reg else ("cafef_cache" if cache else "none")),
+        "recent": len(recent),
+        "total_cash": len(ever),
+        "source": "registry" if recent else "none",
         "days_back": days_back,
     }
 
@@ -320,21 +281,18 @@ def load_recent_exdiv(days_back: int = 7) -> dict:
 
     Returns {ticker_upper: {"ex_date": str, "amount": float}} for each match.
 
-    SỔ ĐĂNG KÝ trước, kho JSON của CafeF sau. Hai đường HỢP NHẤT chứ không
-    loại nhau: sổ thắng khi trùng mã, nhưng mã chỉ có ở kho cũ vẫn được giữ —
-    bỏ đi là mất một lần chặn cờ giả mà chẳng được gì.
+    Nguồn DUY NHẤT là sổ `_meta/corp_actions_registry.parquet`. Kho JSON cũ
+    `_meta/cash_dividends/` **đã bỏ 26/08**: nó chỉ do `run.py cash-dividends`
+    ghi, lệnh đó cào CafeF và **404 từ 19/08**, lại không nằm trong `cmd_all`.
+    Cửa sổ ở MỌI chỗ gọi là 7 ngày ⇒ kho ấy chỉ có thể chứa sự kiện từ 19/08
+    trở đi, mà từ 19/08 không gì được ghi. **Chứng minh được là rỗng vĩnh
+    viễn**, nên giữ lại chỉ là nuôi thêm một đoạn code chết trông như sống.
     """
     from datetime import date, timedelta
 
     today = date.today()
-    cutoff = today - timedelta(days=days_back)
+    return _exdiv_from_registry(today - timedelta(days=days_back), today)
 
-    result = _exdiv_from_cafef_cache(cutoff, today)
-    result.update(_exdiv_from_registry(cutoff, today))
-    return result
-
-
-# ── Core scoring ──────────────────────────────────────────────────────────
 def compute_scores(df: pd.DataFrame,
                     presets: dict | None = None,
                     index_returns: dict | None = None,
