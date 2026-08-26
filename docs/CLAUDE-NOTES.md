@@ -6979,6 +6979,29 @@ nguồn — ghi lại để lần sau khỏi mò lại:
 | `tcbs`  | ❌ **404** — endpoint `apipubaws` đã chết | 26/08, máy user |
 | `cafef` | ⚠️ tải được (HTTP 200, thấy đủ `Quý 1-2016 → Quý 4-2016` trong HTML) nhưng **bộ bóc KHÔNG ra bảng nào** | 26/08 lượt 2, máy user |
 
+**Lượt 8 — Finhay MCP: ĐÚNG KHUNG, nhưng TRẦN 5 KỲ.** (user thêm connector
+26/08). Đã đo, không suy:
+
+| gọi gì | trả về |
+|---|---|
+| `get_financial_statement(VCB, balance-sheet, quarterly, limit=5)` | **2025-Q2 → 2026-Q2** |
+| `get_financial_statement(VCB, balance-sheet, annual, limit=5)` | **2021 → 2025** |
+| `get_financial_analysis(VCB, quarterly)` | 12 kỳ, **2023-Q3 → 2026-Q2** — là TỈ SỐ, không phải bảng cân đối |
+
+`limit` có `maximum: 5` ngay trong schema và **không có tham số năm/kỳ nào**,
+nên 2015-2016 không có đường nào với tới. Trần cứng, không phải chuyện xin
+thêm.
+
+**NHƯNG khung thì ĐÚNG** — đây là thứ CafeF không có: `chovaykhachhang`,
+`tienguicuakhachhang`, `phathanhgiaytocogia`, `duphongruirochovaykhachhang`,
+`tienguitainganhangnhanuoc` — ~75 chỉ tiêu khung tổ chức tín dụng, đơn vị
+VND nguyên, và `nophaitravavonchusohuu` == `tongtaisan` (cân đối khớp).
+
+⚠️ **Finhay là MCP connector của Claude, KHÔNG phải thư viện trên máy user.**
+`scripts/export_bank_balance_sheets.py` chạy độc lập nên KHÔNG nối vào được —
+đừng thêm nó vào `SOURCES`. Muốn dùng thì phải là Claude gọi rồi ghi ra file.
+Với 5 kỳ thì không bõ: VCI đã phủ 2018-Q1 → nay, sâu hơn nhiều.
+
 **Lượt 7 — KẾT: CafeF KHÔNG DÙNG ĐƯỢC cho bảng cân đối NGÂN HÀNG.**
 
 `--items VCB --source cafef` trả lời dứt điểm:
