@@ -6966,6 +6966,68 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🧭 U38. 0/47 TRA RA SỰ KIỆN — LỖI Ở KHO TRA CỨU, KHÔNG Ở 47 MÃ (26/08)
+
+Chạy `triage_basis_drift --plan` trên máy thật. Con số đáng giá nhất là con
+số **KHÔNG có**: nhóm "có sự kiện quyền khớp" **trống trơn — 0/47**.
+
+    🔴 KHÔNG sự kiện, tỉ lệ lẻ · 34 mã
+    🟡 tỉ lệ TRÒN, chưa khớp sự kiện · 12 mã
+    ⚪ sát ngưỡng · 1 mã (MCH — VN30, đứng 5 ngày, 1,48%)
+    ✅ có sự kiện · 0 mã
+    đứng lâu nhất 5 ngày · tổng ~154 bar giá đang thiếu
+
+## Đọc đúng: `event: None` = KHO KHÔNG BIẾT
+
+Chính `vnstock_updater._corp_event_kind` đã ghi sẵn:
+*"Kho sự kiện đang MỎNG (19/08: 70 mã lệch chỉ 3 mã tra ra loại)"*.
+19/08: 3/70. 26/08: **0/47**. Đang tệ đi.
+
+**Vì sao tệ dần:** 14 bước của `cmd_all` là sync · validate · screener ·
+foreign-flow · macro · gold · allocation · test · audit · train · reflection ·
+doctor · brief (+news). **KHÔNG có `vietstock`, không có `registry`.** Kho sự
+kiện quyền chỉ được nạp BẰNG TAY ⇒ nó cũ dần theo thời gian, trong khi sự
+kiện quyền vẫn diễn ra mỗi ngày. Cửa gác chặn đúng, tra tên không ra, mã nằm
+lại sổ vĩnh viễn chờ người.
+
+⇒ **Đây là lỗi cấu trúc, không phải 47 sự cố riêng lẻ.**
+
+## Bộ soi của tôi ĐỌC SAI, và tôi đã sửa trong cùng ngày
+
+Bản đầu (U37) xếp 34 mã vào *"🔴 chưa biết vì sao — CHỮA MÙ Ở ĐÂY LÀ NHÂN BẢN
+SỐ SAI"*. Đọc như thể **các mã** đáng ngờ. Thực tế lỗi ở **kho tra cứu**, và
+cách trình bày đó đẩy người dùng đi soi tay 46 mã — để rồi phát hiện gần như
+tất cả đều là cổ tức. 46 lần phí công, và là cách chắc chắn nhất để bỏ cuộc
+giữa chừng.
+
+Đã thêm `event_store_is_blind`: tra ra <10% trên sổ ≥10 mã ⇒ in cảnh báo
+NGAY ĐẦU rằng **đây là phát biểu về KHO SỰ KIỆN, không phải về các mã**, đổi
+nhãn nhóm đỏ thành **"CHƯA TRA ĐƯỢC"**, **giấu** câu "nhân bản số sai" (đúng
+khi kho tra được mà vẫn không khớp; khi kho mù thì chỉ làm sợ nhầm chỗ), và
+`batch_plan` **thay 46 lệnh soi tay bằng 2 lệnh**: nạp kho → chạy lại.
+
+Sàn `BLIND_MIN_N = 10` để không kết luận từ mẫu bé — đúng vết 13/08 (n=2 vẽ
+thành "0%").
+
+## Một ngưỡng tôi đặt sai, cũng sửa luôn
+
+`NOISE_PCT` ban đầu là **1,5 hằng số**, trong khi cửa gác kích hoạt ở
+`vnstock_basis_guard.TOL = 0.012` (1,2%). Tức tôi đẻ ra ngưỡng thứ hai phải
+giữ đồng bộ bằng tay — đúng thứ `CLAUDE.md` cấm. Nay dẫn xuất:
+`NOISE_PCT = TOL × 100 × 1,25`, có test canh nó bám vào `TOL`.
+
+Hệ quả cụ thể: **MCH** (VN30) ở 1,48% nằm trong vùng "sát ngưỡng" — vẫn phải
+nhìn, vì nó là mã VN30 và đã đứng 5 ngày, nhưng ở quanh mốc 1,2% thì làm tròn
+giá đủ gây ra (ghi sẵn trong `vnstock_basis_guard`).
+
+## Đề xuất cấu trúc — CHƯA làm, cần đo
+
+Thêm bước làm mới kho sự kiện vào `cmd_all`. Nhưng nó **thêm thời gian vào
+pipeline vừa mới lấy lại được đệm**, và tối nay đã là đêm đo 4 bản vá. Đo
+trước, thêm sau.
+
+60 test ở `tests/test_triage_basis_drift.py`.
+
 # 🔬 U37. 47 MÃ ĐỨNG GIÁ — PHÂN LOẠI TRƯỚC KHI CHỮA (26/08)
 
 `run.py doctor` trên máy thật: **47 mã ĐANG KHÔNG cập nhật giá**, ngày phát

@@ -32,9 +32,23 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-# Lệch dưới ngưỡng này thì gần như chắc là làm tròn/nhiễu, không phải sự kiện
-# quyền. Trên nó mà KHÔNG có sự kiện mới thật sự đáng ngờ.
-NOISE_PCT = 1.5
+def _guard_tol_pct() -> float:
+    """Ngưỡng kích hoạt của chính cửa gác, tính bằng %. MỘT nguồn sự thật.
+
+    Mọi mã trong sổ đều đã vượt ngưỡng này — đó là lý do nó có mặt. Đặt một
+    con số riêng ở đây là đẻ ra ngưỡng thứ hai phải giữ đồng bộ bằng tay,
+    đúng thứ `CLAUDE.md` cấm.
+    """
+    try:
+        from vnstock_basis_guard import TOL
+        return float(TOL) * 100.0
+    except Exception:
+        return 1.2
+
+
+# "Sát ngưỡng" = trong vòng 25% phía trên mốc kích hoạt. Ở quanh đó, làm tròn
+# giá là nguồn báo động giả đáng kể (ghi ngay trong `vnstock_basis_guard`).
+NOISE_PCT = _guard_tol_pct() * 1.25
 
 # Tỉ lệ "tròn" hay gặp ở chia tách / thưởng / cổ tức cổ phiếu VN.
 ROUND_RATIOS = (1.05, 1.10, 1.15, 1.20, 1.25, 1.50, 2.00, 3.00)
@@ -95,7 +109,8 @@ NHOM = {
                      "nhiều khả năng là quyền chưa vào sổ — soi tay trước"),
     "chua_ro": ("🔴 KHÔNG sự kiện, tỉ lệ lẻ",
                 "chưa biết vì sao — CHỮA MÙ Ở ĐÂY LÀ NHÂN BẢN SỐ SAI"),
-    "nhieu": (f"⚪ lệch < {NOISE_PCT}%", "gần ngưỡng, có thể chỉ là làm tròn"),
+    "nhieu": (f"⚪ SÁT ngưỡng ({_guard_tol_pct():.1f}%–{NOISE_PCT:.1f}%)",
+              "quanh mốc kích hoạt, làm tròn giá có thể đủ gây ra"),
 }
 NHOM_ORDER = ("chua_ro", "tron_chua_ro", "co_su_kien", "nhieu")
 
@@ -119,6 +134,36 @@ def summarize(pending: dict, today: "date | None" = None) -> dict:
     }
 
 
+def match_rate(groups: dict) -> "float | None":
+    """Bao nhiêu phần trăm mã tra ra được loại sự kiện. Sổ rỗng ⇒ None."""
+    total = sum(len(g) for g in groups.values())
+    if not total:
+        return None
+    return len(groups.get("co_su_kien", [])) / total
+
+
+# Dưới sàn này thì con số nói về KHO SỰ KIỆN chứ không nói về các mã.
+BLIND_RATE = 0.10
+BLIND_MIN_N = 10
+
+
+def event_store_is_blind(groups: dict) -> bool:
+    """Kho sự kiện có đang MÙ không — tra gần như không ra gì?
+
+    ⚠️ Đây là chỗ dễ đọc sai nhất của cả bộ soi. `event: None` nghĩa là **kho
+    sự kiện không biết**, KHÔNG phải "mã này không có sự kiện quyền". Chính
+    `vnstock_updater._corp_event_kind` đã ghi: *"Kho sự kiện đang MỎNG (19/08:
+    70 mã lệch chỉ 3 mã tra ra loại)"*.
+
+    Khi tra ra gần bằng 0 trên một sổ đủ lớn, xếp cả đống vào "🔴 chưa biết vì
+    sao" là **đổ lỗi cho các mã trong khi lỗi nằm ở kho tra cứu** — và nó đẩy
+    người đọc đi soi tay hàng chục mã thay vì nạp lại kho một lần.
+    """
+    total = sum(len(g) for g in groups.values())
+    rate = match_rate(groups)
+    return bool(total >= BLIND_MIN_N and rate is not None and rate < BLIND_RATE)
+
+
 def vn30_hits(pending: dict, basket) -> list:
     """Mã VN30 nào đang bị cách ly — một mã VN30 đứng giá nặng hơn hẳn.
 
@@ -130,8 +175,24 @@ def vn30_hits(pending: dict, basket) -> list:
 
 
 def batch_plan(groups: dict) -> list:
-    """Các dòng lệnh đề xuất, THEO NHÓM. Chạy thử trước, không gộp nhóm đỏ."""
+    """Các dòng lệnh đề xuất, THEO NHÓM. Chạy thử trước, không gộp nhóm đỏ.
+
+    Kho sự kiện đang MÙ ⇒ việc đầu tiên là NẠP LẠI KHO, không phải đi soi tay
+    hàng chục mã. Soi tay 46 lần để rồi phát hiện cả 46 đều là cổ tức thì đó
+    là 46 lần phí công.
+    """
     lines = []
+    if event_store_is_blind(groups):
+        lines.append((
+            "① NẠP LẠI KHO SỰ KIỆN TRƯỚC — gần như không mã nào tra ra loại "
+            "sự kiện, đó là chuyện của KHO chứ không phải của các mã",
+            "python run.py vietstock --bulk --register"))
+        lines.append((
+            "② rồi chạy lại bộ soi — phần lớn sẽ chuyển sang nhóm ✅ và chữa "
+            "hàng loạt được",
+            "python scripts/triage_basis_drift.py --plan"))
+        return lines
+
     safe = [r["ticker"] for r in groups.get("co_su_kien", [])]
     if safe:
         args = " ".join(f"--ticker {t}" for t in safe)
@@ -181,6 +242,19 @@ def main(argv=None) -> int:
         print(f"[triage] đứng lâu nhất {st['max_stale']} ngày · "
               f"tổng ~{st['bars_lost']} bar giá đang thiếu")
 
+    blind = event_store_is_blind(st["groups"])
+    if blind:
+        rate = match_rate(st["groups"]) or 0.0
+        print("\n" + "!" * 70)
+        print(f"⚠️  CHỈ {rate:.0%} SỐ MÃ TRA RA ĐƯỢC LOẠI SỰ KIỆN "
+              f"({len(st['groups']['co_su_kien'])}/{st['total']}).")
+        print("    Đây là phát biểu về KHO SỰ KIỆN, KHÔNG phải về các mã này.")
+        print("    `event: None` = kho tra cứu không biết, không phải 'mã này")
+        print("    không có sự kiện quyền'. Nhóm 🔴 bên dưới vì thế đọc là")
+        print("    'CHƯA TRA ĐƯỢC', đừng đọc thành 'đáng ngờ'.")
+        print("    ⇒ Việc đầu tiên là NẠP LẠI KHO, không phải soi tay từng mã.")
+        print("!" * 70)
+
     vn30 = vn30_hits(pending, _basket())
     if vn30:
         print(f"[triage] ⚠️ trong đó có {len(vn30)} mã VN30: {', '.join(vn30)}"
@@ -191,6 +265,8 @@ def main(argv=None) -> int:
         if not rows:
             continue
         title, why = NHOM[key]
+        if blind and key in ("chua_ro", "tron_chua_ro"):
+            why = "CHƯA TRA ĐƯỢC (kho sự kiện đang mù) — không phải đáng ngờ"
         print(f"\n── {title} · {len(rows)} mã — {why}")
         print(f"   {'MÃ':<6} {'TỈ LỆ':>8} {'LỆCH %':>8} {'ĐỨNG':>6}  SỰ KIỆN / GỢI Ý")
         for r in rows:
@@ -212,7 +288,7 @@ def main(argv=None) -> int:
         print("=" * 70)
         for label, cmd in batch_plan(st["groups"]):
             print(f"\n# {label}\n{cmd}")
-        if st["groups"]["chua_ro"]:
+        if st["groups"]["chua_ro"] and not blind:
             print(f"\n🔴 {len(st['groups']['chua_ro'])} mã KHÔNG có sự kiện và "
                   f"tỉ lệ lẻ — ĐỪNG gộp vào lệnh chữa hàng loạt.")
             print("   Chữa mù ở đó là nhân bản một con số sai lên toàn bộ lịch "

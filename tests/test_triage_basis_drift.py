@@ -261,3 +261,114 @@ class TestReadOnly:
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+class TestThresholdComesFromTheGuard:
+    """`CLAUDE.md`: ngưỡng phải KHỚP một nguồn, có test canh. Đặt một con số
+    riêng ở đây là đẻ ra ngưỡng thứ hai phải giữ đồng bộ bằng tay."""
+
+    def test_the_near_threshold_band_is_derived_not_hardcoded(self):
+        from vnstock_basis_guard import TOL
+        assert T._guard_tol_pct() == pytest.approx(TOL * 100.0)
+
+    def test_the_band_starts_where_the_guard_fires(self):
+        """Mọi mã trong sổ đều đã vượt ngưỡng gác — đó là lý do nó có mặt.
+        Nên vùng 'sát ngưỡng' phải bắt đầu TỪ mốc đó, không thấp hơn."""
+        assert T.NOISE_PCT > T._guard_tol_pct()
+
+    def test_a_drift_below_the_guard_threshold_cannot_reach_this_ledger(self):
+        assert T.classify(_rec(ratio=1.013, pct=1.3)) == "nhieu"
+
+
+class TestBlindEventStore:
+    """Chỗ dễ đọc sai nhất của cả bộ soi.
+
+    Đo trên máy thật 26/08: **0/47 mã tra ra được loại sự kiện**. Chính
+    `vnstock_updater._corp_event_kind` đã ghi *"Kho sự kiện đang MỎNG (19/08:
+    70 mã lệch chỉ 3 mã tra ra loại)"* — tức `event: None` nghĩa là **kho tra
+    cứu không biết**, KHÔNG phải "mã này không có sự kiện quyền".
+
+    Xếp cả đống vào "🔴 chưa biết vì sao" khi ấy là **đổ lỗi cho các mã trong
+    khi lỗi ở kho tra cứu**, và đẩy người đọc đi soi tay hàng chục mã thay vì
+    nạp lại kho một lần.
+    """
+
+    def _groups(self, matched, unmatched):
+        return {"co_su_kien": [{"ticker": f"S{i}"} for i in range(matched)],
+                "chua_ro": [{"ticker": f"U{i}"} for i in range(unmatched)],
+                "tron_chua_ro": [], "nhieu": []}
+
+    def test_zero_matches_on_a_big_ledger_is_called_blind(self):
+        assert T.event_store_is_blind(self._groups(0, 47))
+
+    def test_a_healthy_match_rate_is_not_blind(self):
+        assert not T.event_store_is_blind(self._groups(30, 17))
+
+    def test_a_tiny_ledger_is_never_called_blind(self):
+        """2 mã cùng không tra ra thì chưa nói lên gì về kho — kết luận từ
+        mẫu bé là đúng lỗi repo đã dính (n=2 vẽ thành '0%', 13/08)."""
+        assert not T.event_store_is_blind(self._groups(0, 2))
+
+    def test_an_empty_ledger_is_not_blind(self):
+        assert not T.event_store_is_blind(self._groups(0, 0))
+
+    def test_match_rate_is_none_on_an_empty_ledger(self):
+        assert T.match_rate(self._groups(0, 0)) is None
+
+    def test_match_rate_counts_only_the_matched_group(self):
+        assert T.match_rate(self._groups(1, 3)) == pytest.approx(0.25)
+
+
+class TestPlanWhenBlind:
+    def _blind_pending(self):
+        return {f"T{i:02d}": _rec("2026-08-21", 1.05, 5.0) for i in range(12)}
+
+    def test_the_plan_says_refill_the_store_FIRST(self, monkeypatch, tmp_path,
+                                                  capsys):
+        monkeypatch.setattr(T, "load_pending", lambda wh: self._blind_pending())
+        T.main(["--warehouse", str(tmp_path), "--plan"])
+        out = capsys.readouterr().out
+        assert "vietstock --bulk --register" in out
+        assert out.index("vietstock") < out.index("triage_basis_drift.py --plan")
+
+    def test_it_does_NOT_dump_dozens_of_probe_commands(self, monkeypatch):
+        """Soi tay 46 lần để rồi phát hiện cả 46 đều là cổ tức là 46 lần phí
+        công — và là cách chắc chắn nhất để user bỏ cuộc giữa chừng."""
+        st = T.summarize(self._blind_pending())
+        cmds = [c for _, c in T.batch_plan(st["groups"])]
+        assert len([c for c in cmds if "probe_price_basis" in c]) == 0
+
+    def test_it_never_proposes_a_blind_rebase(self, monkeypatch):
+        st = T.summarize(self._blind_pending())
+        assert not [c for _, c in T.batch_plan(st["groups"]) if "rebase" in c]
+
+    def test_the_banner_says_it_is_about_the_STORE_not_the_tickers(
+            self, monkeypatch, tmp_path, capsys):
+        monkeypatch.setattr(T, "load_pending", lambda wh: self._blind_pending())
+        T.main(["--warehouse", str(tmp_path)])
+        out = capsys.readouterr().out
+        assert "KHO SỰ KIỆN" in out and "KHÔNG phải về các mã" in out
+
+    def test_the_red_group_is_relabelled_as_not_yet_looked_up(
+            self, monkeypatch, tmp_path, capsys):
+        monkeypatch.setattr(T, "load_pending", lambda wh: self._blind_pending())
+        T.main(["--warehouse", str(tmp_path)])
+        assert "CHƯA TRA ĐƯỢC" in capsys.readouterr().out
+
+    def test_the_scary_do_not_batch_line_is_suppressed_when_blind(
+            self, monkeypatch, tmp_path, capsys):
+        """Câu 'nhân bản số sai' đúng khi kho tra được mà vẫn không khớp. Khi
+        kho đang mù, nó chỉ làm người đọc sợ nhầm chỗ."""
+        monkeypatch.setattr(T, "load_pending", lambda wh: self._blind_pending())
+        T.main(["--warehouse", str(tmp_path), "--plan"])
+        assert "nhân bản một con số sai" not in capsys.readouterr().out
+
+    def test_a_healthy_store_keeps_the_original_plan(self, monkeypatch,
+                                                    tmp_path, capsys):
+        pending = {f"S{i:02d}": _rec("2026-08-21", 1.10, 10.0, event="stock")
+                   for i in range(11)}
+        pending["AAM"] = _rec("2026-08-24", 1.0424, 4.24)
+        monkeypatch.setattr(T, "load_pending", lambda wh: pending)
+        T.main(["--warehouse", str(tmp_path), "--plan"])
+        out = capsys.readouterr().out
+        assert "rebase_ticker_history" in out and "nhân bản một con số sai" in out
