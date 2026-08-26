@@ -117,48 +117,6 @@ Desktop giữ 4.0.4 — nó chạy phát tối, không phải chỗ để thử.
 
 ---
 
-## 5. 📊 Bảng cân đối ngân hàng 2015-2016 — ○ máy nào cũng được, CẦN MẠNG
-
-Đo `--probe-all VCB` ngày 26/08 xong: **CafeF là nguồn DUY NHẤT có 2015-2016.**
-
-| nguồn | kết quả |
-|---|---|
-| `vci`   | ✅ nhưng chỉ từ **2018-Q1** |
-| `kbs`   | ❌ chữ ký khác bản, sửa rồi vẫn rỗng |
-| `tcbs`  | ❌ **404**, endpoint đã chết |
-| `cafef` | ✅ **HTTP 200, đủ Quý 1-2016 → Quý 4-2016** |
-
-Ba lệnh, theo thứ tự — **dừng lại ở lệnh nào ra ❌ và dán kết quả ra**:
-
-```powershell
-cd C:\vnstock
-git fetch origin claude/tong-hop-cong-viec-test-w8mvrc
-git merge origin/claude/tong-hop-cong-viec-test-w8mvrc
-
-# 1) CafeF bóc ra được bảng không? (bộ bóc viết mà chưa nhìn trang thật)
-python scripts\export_bank_balance_sheets.py --probe-all VCB
-
-# 2) Đơn vị CafeF có khớp VCI không? Đối chiếu ở 2018-2019 — năm CẢ HAI cùng có
-python scripts\export_bank_balance_sheets.py --crosscheck VCB
-
-# 3) Ra file (26 ngân hàng × 2 trang, ~80s vì có nhịp 1,5s/lượt cho lịch sự)
-python scripts\export_bank_balance_sheets.py --from 2015 --to 2016 --source cafef
-```
-
-**Nếu (1) báo `cafef ❌`:** bộ bóc trật, không phải mạng. Chạy
-`--dump-cafef VCB --dump-year 2016` rồi dán phần tóm tắt cấu trúc ra — nó in
-số bảng, 4 hàng đầu mỗi bảng, và bảng nào đang được chọn. **Đừng đoán tiếp.**
-
-**Nếu (2) báo `⚠️ LỞM CHỞM`:** hai nguồn không cùng nói về một chỉ tiêu, dán
-bảng tỉ số ra. `✅ ỔN ĐỊNH` = chênh đúng một bậc đơn vị, ghép được.
-
-Còn CafeF cũng trượt nốt thì đường cuối: anh xuất Excel từ Wichart/FiinPro,
-tôi viết bộ đọc — số truy được về một file nguồn. ~~PDF HOSE/HNX~~ tôi không
-làm: 26 ngân hàng × 8 quý × ~60 chỉ tiêu ≈ **12.000 con số** chép tay, ở quy
-mô đó chép tay là bịa số có hệ thống.
-
----
-
 # 🔔 MÁY TỰ NHẮC — không phải việc gõ tay
 
 Chạy `python run.py doctor` và chỉ **nhìn badge**. Vàng ở đây thường là dấu
@@ -216,4 +174,5 @@ dòng `screener` như thường lệ.
 | Đồng bộ code | 🖥️ desktop `2.615 passed / 102,05s` = HEAD (26/08) |
 | `fix-units` đối chứng | 26/08 trên KHO THẬT: `fix_count` khớp, giải nén **ít hơn 1.125×**, bỏ qua **98,6%** mã. Lượt đối chứng còn tìm ra bug HFB (`time` trộn kiểu ⇒ mã bị bỏ sót im lặng) — đã vá (U32) |
 | Sổ lệnh | **Không mất** — 805 briefs · 148 rec · 138 outcome |
+| BCTC ngân hàng 2015-2016 | **TẠM DỪNG** (user chốt 26/08) — đã đo 5 nguồn: `vci` sớm nhất 2018-Q1 (đúng khung, tốt nhất) · `finhay` trần 5 kỳ · `cafef` có 2015-2016 nhưng **sai khung (doanh nghiệp thường)** · `kbs` rỗng · `tcbs` 404. Muốn data cũ hơn ⇒ user xuất Wichart/FiinPro, Claude viết bộ đọc. **Đừng dò lại** — xem U34 `docs/CLAUDE-NOTES.md` |
 | Rác `C:\proc` | **Không tồn tại** — Claude suy nhầm là đã tạo, user kiểm 25/08 ra PathNotFound (U26) |

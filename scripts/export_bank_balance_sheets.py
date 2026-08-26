@@ -10,17 +10,29 @@ Chạy trên máy có mạng + `VNSTOCK_API_KEY` trong `.env`:
     python scripts/export_bank_balance_sheets.py --from 2018 --to 2019
     python scripts/export_bank_balance_sheets.py --tickers VCB CTG BID
 
-⚠️ TẦM PHỦ THEO NGUỒN — đo 26/08 trên máy user, `--probe-all VCB`:
-* `vci`   — ✅ 2018-Q1 → 2026-Q2, 83 chỉ tiêu. **Không có 2015-2016.**
-* `kbs`   — ❌ chữ ký `balance_sheet` khác nhau giữa các bản `vnstock`; gọi
-  theo chữ ký thật rồi thì vẫn trả về RỖNG.
-* `tcbs`  — ❌ **404**, endpoint `apipubaws` đã chết. Giữ lại trong danh sách
-  để `--probe-all` còn NÓI RA điều đó, thay vì im lặng bỏ qua.
-* `cafef` — ✅ **có 2015-2016**, đơn vị trang ghi **`tỷ đồng`**. Mỗi trang =
-  4 quý của MỘT năm, nên 2015-2016 là hai lượt tải mỗi mã.
+════════════════════════════════════════════════════════════════════════════
+🛑 TẦM PHỦ ĐÃ TRA HẾT NGÀY 26/08 TRÊN MÁY THẬT — ĐỪNG DÒ LẠI
 
-Xin khoảng nguồn không có ⇒ script NÓI RA và gợi khoảng dùng được, chứ không
-ghi ra một file rỗng trông như thật.
+| nguồn    | kỳ SỚM NHẤT          | khung          | kết luận               |
+|----------|----------------------|----------------|------------------------|
+| `vci`    | **2018-Q1** → nay    | ✅ ngân hàng   | **DÙNG CÁI NÀY**       |
+| `cafef`  | 2015-Q1              | ❌ doanh nghiệp| có data, SAI KHUNG     |
+| `kbs`    | —                    | —              | trả RỖNG               |
+| `tcbs`   | —                    | —              | 404, endpoint đã chết  |
+
+`finhay` (MCP connector của Claude) cũng đúng khung ngân hàng nhưng **trần 5
+kỳ** cứng trong schema — và script này chạy độc lập trên máy user nên KHÔNG
+gọi được MCP. **Đừng thêm vào `SOURCES`.**
+
+**Xin 2018 trở đi ⇒ chạy luôn, `--source vci`.** Xin sớm hơn ⇒ không nguồn
+API nào có; đường duy nhất là user xuất Excel từ Wichart/FiinPro rồi viết bộ
+đọc. Chi tiết 8 lượt dò + lý do bác từng nguồn: U34 `docs/CLAUDE-NOTES.md`.
+════════════════════════════════════════════════════════════════════════════
+
+Script từ chối ghi file trong HAI ca, vì cả hai đều "trông đúng":
+* không mã nào có dữ liệu trong khoảng đã xin (file rỗng trông như thật);
+* khung bảng KHÔNG phải khung ngân hàng (file đầy số, tên dòng sai nghĩa) —
+  đây đúng là ca CafeF. Ép ghi: `--allow-any-template`.
 
 ════════════════════════════════════════════════════════════════════════════
 HAI CÁI BẪY ĐÃ ĐỌC RA TỪ MÃ NGUỒN `vnstock` — nếu không né thì file ra SAI

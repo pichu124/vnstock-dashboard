@@ -6966,11 +6966,43 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
-# 📊 U34. BẢNG CÂN ĐỐI NGÂN HÀNG 2015-2016: BA NGUỒN, VÀ CÁI TÔI KHÔNG ĐO ĐƯỢC (26/08)
+# 📊 U34. BÁO CÁO TÀI CHÍNH QUÁ KHỨ: TẦM PHỦ CỦA MỌI NGUỒN (26/08) — TRA BẢNG NÀY TRƯỚC
 
-User xin file Excel bảng cân đối kế toán **theo quý** của các ngân hàng
-**năm 2015-2016**, mỗi ngân hàng một sheet, format đồng nhất. Kết quả tra
-nguồn — ghi lại để lần sau khỏi mò lại:
+> ## 🛑 ĐÃ TRA HẾT NGÀY 26/08 — ĐỪNG DÒ LẠI
+>
+> User xin bảng cân đối kế toán **theo quý, năm 2015-2016** của 26 ngân hàng.
+> Đã đo **5 nguồn trên máy thật**, hết 8 lượt. **KHÔNG nguồn API nào có
+> 2015-2016 đúng khung ngân hàng.** User CHỐT TẠM DỪNG 26/08.
+>
+> | nguồn | kỳ SỚM NHẤT | khung | dùng được cho việc gì |
+> |---|---|---|---|
+> | **`vci`** | **2018-Q1** (→ nay, 34 quý, 83 chỉ tiêu) | ✅ ngân hàng | **Đây là nguồn TỐT NHẤT. Xin 2018+ thì dùng ngay.** |
+> | `finhay` (MCP) | quý: **2025-Q2** · năm: **2021** | ✅ ngân hàng (~75 chỉ tiêu, VND nguyên) | Trần **5 kỳ** cứng trong schema, không có tham số năm. Hiện tại thôi. |
+> | `cafef` | 2015-Q1 ✅ | ❌ **DOANH NGHIỆP THƯỜNG** | **KHÔNG dùng được.** Có 2015-2016 nhưng ép số ngân hàng vào khung sai. |
+> | `kbs` | — | — | ❌ trả RỖNG (gọi đúng chữ ký rồi vẫn rỗng) |
+> | `tcbs` | — | — | ❌ **404**, endpoint `apipubaws` đã chết |
+>
+> **Muốn 2015-2016 thì chỉ còn một đường:** user xuất Excel từ Wichart/FiinPro,
+> Claude viết bộ đọc. ~~PDF HOSE/HNX~~ đã bác: 26 mã × 8 quý × ~60 chỉ tiêu ≈
+> **12.000 con số** chép tay = bịa số có hệ thống.
+>
+> **Đừng đề xuất lại:** dò TCBS · dò KBS · "thử CafeF xem sao" · nối Finhay
+> vào `SOURCES` (Finhay là MCP của Claude, script chạy trên máy user không
+> gọi được) · chép tay từ PDF.
+>
+> **Công cụ đã có, đừng viết lại:** `scripts/export_bank_balance_sheets.py`
+> (`--probe-all` so mọi nguồn · `--crosscheck` đo bậc đơn vị · `--items` gọi
+> tên KHUNG bảng · `--dump-cafef` chẩn đoán HTML), `bank_bs_sources.py`
+> (bóc HTML bằng `html.parser`), `bank_bs_shape.py`, `bank_bs_excel.py`.
+> 200+ test ở `tests/test_bank_bs_sources.py` + `test_bank_balance_export.py`.
+>
+> ⚠️ **File `bang_can_doi_ngan_hang_2015_2016.xlsx` sinh ngày 26/08 là FILE
+> HỎNG** (khung doanh nghiệp) — bảo user xoá nếu còn. Script nay đã TỪ CHỐI
+> ghi file kiểu đó.
+
+Bên dưới là nhật ký 8 lượt, giữ lại vì mỗi lượt là một kiểu sai khác nhau —
+đọc khi làm việc với nguồn HTML hay báo cáo tài chính, không phải để tra tầm
+phủ (tra ở bảng trên).
 
 | nguồn | kết quả | đo lúc nào |
 |---|---|---|

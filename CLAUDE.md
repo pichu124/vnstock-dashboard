@@ -125,6 +125,14 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 - Theo dõi model: `vnstock_model_watch` (probe ladder + diff danh mục
   provider, chạy trong `run.py weekend` T7) + `vnstock_model_eval` (bộ đề
   chuẩn chấm điểm THEO VIỆC + đề xuất thay model). Chỉ ĐỀ XUẤT, không tự áp.
+- `scripts/export_bank_balance_sheets.py` — xuất BCTC ngân hàng ra Excel.
+  🛑 **Tầm phủ đã tra hết 26/08, ĐỪNG DÒ LẠI:** `vci` sớm nhất **2018-Q1**
+  (đúng khung ngân hàng — dùng cái này) · `cafef` có 2015-2016 nhưng **sai
+  khung (doanh nghiệp thường)** · `kbs` rỗng · `tcbs` 404 · `finhay` (MCP)
+  đúng khung nhưng **trần 5 kỳ** và script chạy trên máy user nên không gọi
+  được MCP. Xin sớm hơn 2018 ⇒ chỉ còn đường user xuất Wichart/FiinPro. Lý do
+  bác từng nguồn + 8 lượt dò: mục **U34** `docs/CLAUDE-NOTES.md`.
+
 - `vnstock_sectors.py` — nhóm ngành custom ("Họ VIN", "Họ M") dùng chung
   dashboard + brief; thêm họ mới = thêm 1 dòng registry.
 - `vnstock_vn30.py` — **rổ VN30 hiện hành, một nguồn sự thật duy nhất**. HOSE
