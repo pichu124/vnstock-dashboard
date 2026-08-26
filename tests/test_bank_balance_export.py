@@ -318,8 +318,12 @@ class TestSourceSelection:
     chọn, và `--probe` phải in ra nguồn nào đang dùng, chứ không để người đọc
     tự đoán."""
 
-    def test_all_three_sources_are_offered(self):
-        assert set(_m.SOURCES) == {"vci", "kbs", "tcbs"}
+    def test_all_four_sources_are_offered(self):
+        assert set(_m.SOURCES) == {"vci", "kbs", "tcbs", "cafef"}
+
+    def test_cafef_is_present_because_it_is_the_only_2015_source(self):
+        # Đo 26/08: vci sớm nhất 2018-Q1 · kbs rỗng · tcbs 404 · cafef có 2016.
+        assert "cafef" in _m.SOURCES
 
     def test_kbs_goes_through_the_kbs_explorer(self):
         import inspect

@@ -167,7 +167,13 @@ class TestCafefProbe:
         assert S.cafef_quarters_in(None) == []
 
     def test_url_carries_ticker_year_and_quarter(self):
-        url = S.CAFEF_BS_URL.format(ticker="VCB", year=2016, quarter=4)
+        url = S.CAFEF_BS_URL.format(ticker="VCB", ticker_lower="vcb",
+                                    year=2016, quarter=4)
+        assert "/vcb/bsheet/2016/4/" in url
+
+    def test_legacy_url_is_kept_as_a_spare(self):
+        url = S.CAFEF_BS_URL_LEGACY.format(ticker="VCB", ticker_lower="vcb",
+                                           year=2016, quarter=4)
         assert "/VCB/BSheet/2016/4/" in url
 
 
@@ -288,19 +294,19 @@ class TestProbeAllExitCodes:
 
     def test_exit_zero_when_a_source_reaches_the_wanted_year(self, monkeypatch):
         monkeypatch.setattr(E, "source_coverage",
-                            lambda t, l, lg, s: self._cov((2015, 1)))
+                            lambda t, l, lg, s, years=None: self._cov((2015, 1)))
         monkeypatch.setattr(E, "SOURCES", ("vci",))
         assert E.probe_all("VCB", 200, "vi", 2015) == 0
 
     def test_exit_two_when_no_source_goes_back_far_enough(self, monkeypatch):
         monkeypatch.setattr(E, "source_coverage",
-                            lambda t, l, lg, s: self._cov((2018, 1)))
+                            lambda t, l, lg, s, years=None: self._cov((2018, 1)))
         monkeypatch.setattr(E, "SOURCES", ("vci",))
         assert E.probe_all("VCB", 200, "vi", 2015) == 2
 
     def test_exit_two_when_every_source_is_broken(self, monkeypatch):
         monkeypatch.setattr(E, "source_coverage",
-                            lambda t, l, lg, s: self._cov(None))
+                            lambda t, l, lg, s, years=None: self._cov(None))
         monkeypatch.setattr(E, "SOURCES", ("vci", "kbs"))
         assert E.probe_all("VCB", 200, "vi", 2015) == 2
 
@@ -352,3 +358,282 @@ class TestNoNetworkAtImport:
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# CafeF: bộ bóc bảng. Viết KHI CHƯA NHÌN TRANG THẬT (máy soạn code bị chặn
+# egress), nên lưới ở đây canh HÀNH VI chứ không canh một trang cụ thể:
+# nhận diện theo hình dạng, trật thì trả RỖNG, và không bao giờ biến ô trống
+# thành số 0.
+# ─────────────────────────────────────────────────────────────────────────
+_CAFEF_PAGE = """
+<html><body>
+<div>Đơn vị: Triệu VNĐ</div>
+<table id="menu"><tr><td>Trang chủ</td><td>Dữ liệu</td></tr></table>
+<table id="tblGridData">
+  <tr><th>CHỈ TIÊU</th><th>Quý 1-2016</th><th>Quý 2-2016</th>
+      <th>Quý 3-2016</th><th>Quý 4-2016</th></tr>
+  <tr><td>A. TÀI SẢN</td><td></td><td></td><td></td><td></td></tr>
+  <tr><td>I. Tiền mặt, vàng bạc, đá quý</td><td>8,552</td><td>9,001</td>
+      <td>9,120</td><td>10,340</td></tr>
+  <tr><td>II. Cho vay khách hàng</td><td>420,000</td><td>430,500</td>
+      <td>445,120</td><td>460,000</td></tr>
+  <tr><td>III. Dự phòng rủi ro</td><td>(5,120)</td><td>(5,400)</td>
+      <td>(5,610)</td><td>(6,000)</td></tr>
+  <tr><td>TỔNG TÀI SẢN</td><td>750,000</td><td>770,000</td>
+      <td>790,000</td><td>820,000</td></tr>
+  <tr><td>B. NỢ PHẢI TRẢ</td><td>700,000</td><td>-</td>
+      <td>740,000</td><td>770,000</td></tr>
+  <tr><td>VỐN CHỦ SỞ HỮU</td><td>50,000</td><td>52,000</td>
+      <td>54,000</td><td>56,000</td></tr>
+  <tr><td>Vốn điều lệ</td><td>35,977</td><td>35,977</td>
+      <td>35,977</td><td>35,977</td></tr>
+  <tr><td>Lợi nhuận chưa phân phối</td><td>8,120</td><td>9,050</td>
+      <td>10,200</td><td>11,400</td></tr>
+  <tr><td>Các quỹ</td><td>5,903</td><td>6,973</td><td>7,823</td>
+      <td>8,623</td></tr>
+</table>
+</body></html>
+"""
+
+
+class TestTableParser:
+    def test_finds_every_table(self):
+        assert len(S.parse_tables(_CAFEF_PAGE)) == 2
+
+    def test_cells_come_out_as_trimmed_text(self):
+        tables = S.parse_tables(_CAFEF_PAGE)
+        assert tables[0]["rows"][0] == ["Trang chủ", "Dữ liệu"]
+
+    def test_table_attributes_are_kept(self):
+        ids = {t["attrs"].get("id") for t in S.parse_tables(_CAFEF_PAGE)}
+        assert ids == {"menu", "tblGridData"}
+
+    def test_a_missing_closing_tag_does_not_lose_the_table(self):
+        assert len(S.parse_tables("<table><tr><td>a</td></tr>")) == 1
+
+    def test_empty_input_gives_no_tables(self):
+        assert S.parse_tables("") == [] and S.parse_tables(None) == []
+
+    def test_entities_are_decoded(self):
+        rows = S.parse_tables("<table><tr><td>a&amp;b</td></tr></table>")
+        assert rows[0]["rows"][0] == ["a&b"]
+
+
+class TestPickBalanceTable:
+    def test_picks_the_table_with_quarter_headers(self):
+        tb = S.pick_balance_table(S.parse_tables(_CAFEF_PAGE), min_rows=5)
+        assert tb["attrs"]["id"] == "tblGridData"
+
+    def test_a_navigation_table_is_never_picked(self):
+        tables = [{"attrs": {"id": "menu"},
+                   "rows": [["a", "b"]] * 40}]
+        assert S.pick_balance_table(tables) is None
+
+    def test_one_quarter_column_is_not_enough(self):
+        tables = [{"attrs": {}, "rows": [["CHỈ TIÊU", "Quý 1-2016"]] + [["x", "1"]] * 20}]
+        assert S.pick_balance_table(tables) is None
+
+    def test_nothing_recognised_returns_none_instead_of_the_first_table(self):
+        assert S.pick_balance_table([{"attrs": {}, "rows": [["a"]] * 30}]) is None
+
+    def test_empty_input_returns_none(self):
+        assert S.pick_balance_table([]) is None and S.pick_balance_table(None) is None
+
+
+class TestParseVnNumber:
+    def test_comma_thousands(self):
+        assert S.parse_vn_number("1,234,567") == 1234567.0
+
+    def test_dot_thousands(self):
+        assert S.parse_vn_number("1.234.567") == 1234567.0
+
+    def test_parentheses_mean_negative(self):
+        assert S.parse_vn_number("(5,120)") == -5120.0
+
+    def test_leading_minus_means_negative(self):
+        assert S.parse_vn_number("-5,120") == -5120.0
+
+    def test_a_real_decimal_is_kept(self):
+        assert S.parse_vn_number("1,234.56") == 1234.56
+
+    def test_blank_is_none_not_zero(self):
+        assert S.parse_vn_number("") is None
+        assert S.parse_vn_number("   ") is None
+
+    def test_a_dash_placeholder_is_none_not_zero(self):
+        assert S.parse_vn_number("-") is None
+
+    def test_text_is_none(self):
+        assert S.parse_vn_number("n/a") is None
+        assert S.parse_vn_number("chưa có") is None
+
+    def test_a_genuine_zero_stays_zero(self):
+        assert S.parse_vn_number("0") == 0.0
+
+    def test_none_does_not_raise(self):
+        assert S.parse_vn_number(None) is None
+
+
+class TestCafefToFrame:
+    def test_shape_matches_the_shared_contract(self):
+        df = S.cafef_to_frame(_CAFEF_PAGE)
+        assert list(df.columns)[0] == "item"
+        assert [qq for _, qq in E.detect_period_columns(df.columns)] == \
+            [(2016, 1), (2016, 2), (2016, 3), (2016, 4)]
+
+    def test_numbers_are_parsed_not_left_as_text(self):
+        d = E.tidy(S.cafef_to_frame(_CAFEF_PAGE))
+        assert d[(2016, 1)]["TỔNG TÀI SẢN"] == 750000.0
+
+    def test_negative_in_parentheses_survives(self):
+        d = E.tidy(S.cafef_to_frame(_CAFEF_PAGE))
+        assert d[(2016, 1)]["III. Dự phòng rủi ro"] == -5120.0
+
+    def test_a_dash_cell_is_blank_not_zero(self):
+        d = E.tidy(S.cafef_to_frame(_CAFEF_PAGE))
+        assert E._is_blank(d[(2016, 2)]["B. NỢ PHẢI TRẢ"])
+
+    def test_heading_rows_with_no_numbers_are_kept_as_rows(self):
+        assert "A. TÀI SẢN" in S.cafef_to_frame(_CAFEF_PAGE)["item"].tolist()
+
+    def test_source_row_order_is_preserved(self):
+        items = S.cafef_to_frame(_CAFEF_PAGE)["item"].tolist()
+        assert items[0] == "A. TÀI SẢN"
+        assert items.index("TỔNG TÀI SẢN") < items.index("VỐN CHỦ SỞ HỮU")
+
+    def test_the_header_row_never_becomes_a_line_item(self):
+        assert "CHỈ TIÊU" not in \
+            [i for i in S.cafef_to_frame(_CAFEF_PAGE)["item"] if "Quý" in i]
+
+    def test_unit_note_is_recorded_verbatim(self):
+        assert "Triệu" in (S.cafef_to_frame(_CAFEF_PAGE).attrs["unit_note"] or "")
+
+    def test_a_page_without_a_balance_table_gives_an_empty_frame(self):
+        assert S.cafef_to_frame("<html><body>lỗi 404</body></html>").empty
+
+    def test_empty_html_gives_an_empty_frame(self):
+        assert S.cafef_to_frame("").empty
+
+
+class TestCafefUnitNote:
+    def test_reads_the_unit_sentence(self):
+        assert S.cafef_unit_note("<i>Đơn vị: Tỷ VNĐ</i>") == "Tỷ VNĐ"
+
+    def test_missing_unit_is_none_not_a_guess(self):
+        assert S.cafef_unit_note("<html>không nói</html>") is None
+
+    def test_none_input_does_not_raise(self):
+        assert S.cafef_unit_note(None) is None
+
+
+class TestMergeFrames:
+    def test_two_years_become_eight_quarter_columns(self):
+        a = S.cafef_to_frame(_CAFEF_PAGE.replace("2016", "2015"))
+        b = S.cafef_to_frame(_CAFEF_PAGE)
+        out = S.merge_frames([a, b])
+        assert len(E.detect_period_columns(out.columns)) == 8
+
+    def test_quarter_columns_come_out_in_order(self):
+        a = S.cafef_to_frame(_CAFEF_PAGE.replace("2016", "2015"))
+        b = S.cafef_to_frame(_CAFEF_PAGE)
+        cols = [qq for _, qq in E.detect_period_columns(S.merge_frames([a, b]).columns)]
+        assert cols == sorted(cols) and cols[0] == (2015, 1)
+
+    def test_an_item_only_in_the_later_year_is_not_dropped(self):
+        a = S.cafef_to_frame(_CAFEF_PAGE.replace("2016", "2015"))
+        b = S.cafef_to_frame(
+            _CAFEF_PAGE.replace("<td>Các quỹ</td>", "<td>Chỉ tiêu MỚI</td>"))
+        assert "Chỉ tiêu MỚI" in S.merge_frames([a, b])["item"].tolist()
+
+    def test_an_item_missing_from_one_year_is_blank_there_not_zero(self):
+        a = S.cafef_to_frame(_CAFEF_PAGE.replace("2016", "2015"))
+        b = S.cafef_to_frame(
+            _CAFEF_PAGE.replace("<td>Các quỹ</td>", "<td>Chỉ tiêu MỚI</td>"))
+        d = E.tidy(S.merge_frames([a, b]))
+        assert E._is_blank(d[(2015, 1)]["Chỉ tiêu MỚI"])
+
+    def test_a_single_frame_passes_through(self):
+        a = S.cafef_to_frame(_CAFEF_PAGE)
+        assert S.merge_frames([a]) is a
+
+    def test_empty_frames_are_ignored(self):
+        a = S.cafef_to_frame(_CAFEF_PAGE)
+        assert not S.merge_frames([pd.DataFrame(), a]).empty
+
+    def test_all_empty_gives_empty(self):
+        assert S.merge_frames([pd.DataFrame(), None]).empty
+
+    def test_unit_note_survives_the_merge(self):
+        a = S.cafef_to_frame(_CAFEF_PAGE.replace("2016", "2015"))
+        b = S.cafef_to_frame(_CAFEF_PAGE)
+        assert S.merge_frames([a, b]).attrs.get("unit_note")
+
+
+class TestSignatureSafeCall:
+    """Vết 26/08: `vnstock` 4.0.4 trên máy user KHÔNG có `display_mode` trong
+    `kbs…balance_sheet`, bản trong container thì CÓ. Truyền cứng ⇒ TypeError
+    trên đúng cái máy duy nhất chạy được mạng."""
+
+    def test_an_unsupported_kwarg_is_dropped_instead_of_raising(self):
+        def f(period=None):
+            return period
+        assert E._call_with_supported_kwargs(f, period="quarter",
+                                             display_mode=None) == "quarter"
+
+    def test_a_supported_kwarg_is_passed_through(self):
+        def f(period=None, show_log=False):
+            return (period, show_log)
+        assert E._call_with_supported_kwargs(
+            f, period="quarter", show_log=True) == ("quarter", True)
+
+    def test_a_function_taking_nothing_is_called_bare(self):
+        assert E._call_with_supported_kwargs(lambda: "ok", period="quarter") == "ok"
+
+
+class TestCrosscheckYears:
+    def test_crosscheck_years_overlap_what_vci_actually_has(self):
+        """VCI sớm nhất 2018-Q1. Đối chiếu ở 2015-2016 là đối chiếu với một
+        bên RỖNG — không so được gì mà lại trông như đã kiểm."""
+        assert min(E.CROSSCHECK_YEARS) >= 2018
+
+    def test_cafef_default_years_are_the_ones_the_user_asked_for(self):
+        assert set(E.CAFEF_DEFAULT_YEARS) == {2015, 2016}
+
+
+class TestCafefFetchVsParseFailure:
+    """Hai kiểu hỏng, hai cách chữa: KHÔNG tải được trang (mạng/URL) khác hẳn
+    tải được mà bộ bóc không nhận ra bảng. Gộp thành 'rỗng' là đẩy người đọc
+    đi sai đường — vết 26/08."""
+
+    def test_no_page_downloaded_raises_instead_of_returning_empty(self, monkeypatch):
+        monkeypatch.setattr(S, "fetch_cafef",
+                            lambda t, y, q=4, **k: (403, "", "u"))
+        with pytest.raises(S.CafefFetchError):
+            S.fetch_cafef_years("VCB", (2015, 2016), pause_s=0)
+
+    def test_the_error_names_the_http_status(self, monkeypatch):
+        monkeypatch.setattr(S, "fetch_cafef",
+                            lambda t, y, q=4, **k: (404, "", "u"))
+        with pytest.raises(S.CafefFetchError, match="404"):
+            S.fetch_cafef_years("VCB", (2016,), pause_s=0)
+
+    def test_a_downloaded_but_unparseable_page_returns_empty_not_an_error(
+            self, monkeypatch):
+        monkeypatch.setattr(S, "fetch_cafef",
+                            lambda t, y, q=4, **k: (200, "<html>trống</html>", "u"))
+        assert S.fetch_cafef_years("VCB", (2016,), pause_s=0).empty
+
+    def test_one_good_year_survives_one_bad_year(self, monkeypatch):
+        def fake(t, y, q=4, **k):
+            return (200, _CAFEF_PAGE, "u") if y == 2016 else (404, "", "u")
+        monkeypatch.setattr(S, "fetch_cafef", fake)
+        df = S.fetch_cafef_years("VCB", (2015, 2016), pause_s=0)
+        assert len(E.detect_period_columns(df.columns)) == 4
+
+    def test_two_good_years_merge_into_eight_quarters(self, monkeypatch):
+        def fake(t, y, q=4, **k):
+            return (200, _CAFEF_PAGE.replace("2016", str(y)), "u")
+        monkeypatch.setattr(S, "fetch_cafef", fake)
+        df = S.fetch_cafef_years("VCB", (2015, 2016), pause_s=0)
+        assert len(E.detect_period_columns(df.columns)) == 8

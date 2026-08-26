@@ -10,13 +10,14 @@ Chạy trên máy có mạng + `VNSTOCK_API_KEY` trong `.env`:
     python scripts/export_bank_balance_sheets.py --from 2018 --to 2019
     python scripts/export_bank_balance_sheets.py --tickers VCB CTG BID
 
-⚠️ TẦM PHỦ THEO NGUỒN — đo, đừng đoán:
-* `vci`  — sớm nhất **2018-Q1**, 86 chỉ tiêu (đo 26/08 bằng `--probe VCB`:
-  `item | item_en | item_id | 2018-Q1 | … | 2026-Q2`). Không có 2015-2016.
-* `kbs`  — đo 26/08 trên máy user: **trả về RỖNG** (`0 hàng × 0 cột`).
-* `tcbs` — HTTP thẳng tới `apipubaws`, KHÔNG qua `vnstock` (bản 4.x đã bỏ
-  explorer TCBS). **CHƯA đo sống** — máy soạn script bị chặn egress tới mọi
-  host tài chính VN, nên nguồn này chỉ kiểm được trên máy user.
+⚠️ TẦM PHỦ THEO NGUỒN — đo 26/08 trên máy user, `--probe-all VCB`:
+* `vci`   — ✅ 2018-Q1 → 2026-Q2, 83 chỉ tiêu. **Không có 2015-2016.**
+* `kbs`   — ❌ chữ ký `balance_sheet` khác nhau giữa các bản `vnstock`; gọi
+  theo chữ ký thật rồi thì vẫn trả về RỖNG.
+* `tcbs`  — ❌ **404**, endpoint `apipubaws` đã chết. Giữ lại trong danh sách
+  để `--probe-all` còn NÓI RA điều đó, thay vì im lặng bỏ qua.
+* `cafef` — ✅ **có 2015-2016** (trang `/2016/4/…` trả HTTP 200 với đủ
+  `Quý 1-2016 → Quý 4-2016`). Mỗi trang = 4 quý của MỘT năm.
 
 Xin khoảng nguồn không có ⇒ script NÓI RA và gợi khoảng dùng được, chứ không
 ghi ra một file rỗng trông như thật.
@@ -65,143 +66,17 @@ DEFAULT_LIMIT = 200
 #
 # ⚠️ VÀ: kỳ SỚM NHẤT nguồn có là **2018-Q1**. 2015-2016 KHÔNG tồn tại ở
 # nguồn này, không phải script bỏ sót.
-_LABEL_COLS = ("item", "item_en", "item_id", "ticker", "symbol")
-
-
-
 
 # ─────────────────────────────────────────────────────────────────────────
-# Hàm THUẦN — test được không cần mạng
+# Hàm THUẦN đã tách sang `bank_bs_shape` (trần 800 dòng/file). Nhập lại
+# NGUYÊN TÊN ở đây để mọi chỗ gọi cũ — và lưới test — không phải đổi.
 # ─────────────────────────────────────────────────────────────────────────
-def quarters_between(year_from: int, year_to: int) -> list:
-    """[(2015,1), (2015,2), … (2016,4)] — thứ tự cột, cố định mọi sheet."""
-    return [(y, q) for y in range(year_from, year_to + 1) for q in (1, 2, 3, 4)]
-
-
-def quarter_label(year: int, quarter: int) -> str:
-    return f"{year}-Q{quarter}"
-
-
-def _norm(name) -> str:
-    return str(name).strip().lower()
-
-
-def detect_period_columns(columns) -> list:
-    """[(tên cột, (năm, quý))] cho các cột kỳ dạng `2018-Q1`, theo thứ tự tăng.
-
-    Nhận không ra cột kỳ nào ⇒ trả [] và chỗ gọi PHẢI dừng: đoán bừa dạng
-    frame là ghi ra một file trông như thật (vết 26/08 — tôi đoán hàng=kỳ,
-    thực tế hàng=chỉ tiêu).
-    """
-    import re
-    pat = re.compile(r"^\s*(\d{4})\s*[-/ ]?\s*Q([1-4])\s*$", re.I)
-    out = []
-    for c in columns:
-        m = pat.match(str(c))
-        if m:
-            out.append((c, (int(m.group(1)), int(m.group(2)))))
-    return sorted(out, key=lambda t: t[1])
-
-
-def label_column(columns, lang: str = "vi") -> "str | None":
-    """Cột chứa TÊN chỉ tiêu. `item` = tiếng Việt, `item_en` = tiếng Anh."""
-    lut = {str(c).strip().lower(): c for c in columns}
-    order = ("item_en", "item") if lang == "en" else ("item", "item_en")
-    return next((lut[k] for k in order if k in lut), None)
-
-
-def tidy(df, lang: str = "vi") -> dict:
-    """{(năm, quý): {chỉ tiêu: giá trị}} từ frame dạng hàng=chỉ tiêu.
-
-    Giữ NGUYÊN thứ tự hàng của nguồn — đó đã là thứ tự bảng cân đối chuẩn
-    (tài sản → nợ → vốn chủ). Tự sắp lại theo khung của mình là rước rủi ro
-    xếp nhầm dòng, mà xếp nhầm một dòng thì cả bảng sai.
-    """
-    periods = detect_period_columns(df.columns)
-    lbl = label_column(df.columns, lang)
-    if not periods or lbl is None:
-        return {}
-    out: dict = {qq: {} for _, qq in periods}
-    for _, row in df.iterrows():
-        name = str(row[lbl]).strip()
-        if not name or name.lower() == "nan":
-            continue
-        for col, qq in periods:
-            out[qq][name] = row[col]
-    return out
-
-
-def source_item_order(df, lang: str = "vi") -> list:
-    """Danh sách chỉ tiêu THEO ĐÚNG thứ tự nguồn trả về."""
-    lbl = label_column(df.columns, lang)
-    if lbl is None:
-        return []
-    seen, out = set(), []
-    for v in df[lbl]:
-        name = str(v).strip()
-        if name and name.lower() != "nan" and name not in seen:
-            seen.add(name)
-            out.append(name)
-    return out
-
-
-def unified_items(per_bank: dict, orders: "dict | None" = None) -> list:
-    """Danh mục chỉ tiêu HỢP NHẤT — bộ xương dùng chung cho MỌI sheet.
-
-    Ưu tiên thứ tự NGUỒN của từng mã (`orders`), vì đó đã là thứ tự bảng cân
-    đối chuẩn. Mã nào có chỉ tiêu mà mã khác không có thì chỉ tiêu đó vẫn
-    xuất hiện ở mọi sheet — ô của mã thiếu để TRỐNG.
-    """
-    seen, out = set(), []
-    for tk in sorted(per_bank):
-        src = (orders or {}).get(tk)
-        if not src:
-            src = []
-            for period in sorted(per_bank[tk]):
-                src.extend(per_bank[tk][period])
-        for item in src:
-            if item not in seen:
-                seen.add(item)
-                out.append(item)
-    return out
-
-
-def sheet_matrix(items: list, quarters: list, data: dict) -> list:
-    """Ma trận [chỉ tiêu][quý] — ô thiếu là None (ghi ra Excel là ô TRỐNG)."""
-    rows = []
-    for item in items:
-        row = []
-        for qq in quarters:
-            v = (data.get(qq) or {}).get(item)
-            row.append(None if _is_blank(v) else v)
-        rows.append(row)
-    return rows
-
-
-def _is_blank(v) -> bool:
-    if v is None:
-        return True
-    try:
-        return v != v          # NaN
-    except Exception:
-        return False
-
-
-def coverage_row(ticker: str, quarters: list, data: dict) -> dict:
-    """Một dòng báo cáo TẦM PHỦ — để chỗ thiếu hiện ra, không im lặng."""
-    have = [qq for qq in quarters if data.get(qq)]
-    nums = [v for qq in have for v in (data.get(qq) or {}).values()
-            if isinstance(v, (int, float)) and not _is_blank(v)]
-    return {
-        "ticker": ticker,
-        "quarters_found": len(have),
-        "quarters_asked": len(quarters),
-        "first": quarter_label(*have[0]) if have else "",
-        "last": quarter_label(*have[-1]) if have else "",
-        "line_items": len(data.get(have[0], {})) if have else 0,
-        "max_abs": max((abs(v) for v in nums), default=0),
-    }
-
+from scripts.bank_bs_shape import (  # noqa: E402
+    _is_blank, _key, _LABEL_COLS, _norm, _strip_accents, coverage_row,
+    detect_period_columns, find_row, is_heading, label_column,
+    quarter_label, quarters_between, sheet_matrix, source_item_order,
+    tidy, unified_items,
+)
 
 # ─────────────────────────────────────────────────────────────────────────
 # Đường có MẠNG
@@ -214,21 +89,50 @@ def bank_tickers() -> list:
     return re.findall(r'"([A-Z]{3,4})"', blk)
 
 
-SOURCES = ("vci", "kbs", "tcbs")
+SOURCES = ("vci", "kbs", "tcbs", "cafef")
+
+# Năm mặc định cho nguồn CafeF khi chỗ gọi không nói rõ (mỗi trang = 1 năm).
+CAFEF_DEFAULT_YEARS = (2015, 2016)
+
+# Năm dùng để ĐỐI CHIẾU hai nguồn. Phải là năm CẢ HAI cùng có — VCI chỉ có từ
+# 2018-Q1, nên đối chiếu ở 2015-2016 là đối chiếu với một bên rỗng.
+CROSSCHECK_YEARS = (2018, 2019)
+
+
+def _call_with_supported_kwargs(func, **kwargs):
+    """Gọi `func` với ĐÚNG những kwarg chữ ký nó nhận.
+
+    Vết 26/08: `vnstock` 4.0.4 trên máy user KHÔNG có `display_mode` trong
+    `kbs…balance_sheet`, bản trong container thì CÓ. Truyền cứng ⇒ `TypeError`
+    trên đúng máy duy nhất chạy được mạng. Đọc chữ ký rồi hãy gọi.
+    """
+    import inspect
+    try:
+        params = inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return func()
+    ok = {k: v for k, v in kwargs.items() if k in params}
+    return func(**ok)
 
 
 def fetch_balance_sheet(ticker: str, limit: int = DEFAULT_LIMIT,
-                        lang: str = "vi", source: str = "vci"):
+                        lang: str = "vi", source: str = "vci",
+                        years=None):
     """Bảng cân đối theo quý, ĐỦ SÂU. Ném lỗi rõ ràng thay vì trả rỗng.
 
-    Ba nguồn, TẦM PHỦ KHÁC NHAU — đo bằng `--probe-all`, đừng tin nguồn nào
-    "chắc là có":
-    * `vci` — đo 26/08: sớm nhất **2018-Q1** (86 chỉ tiêu). Trong `vnstock`.
-    * `kbs` — trong `vnstock`; đo 26/08 trên máy user: **trả về RỖNG**.
-    * `tcbs` — HTTP thẳng, KHÔNG qua `vnstock` (bản 4.x đã bỏ explorer này).
-      CHƯA đo sống — bảng gọn hơn VCI nhiều, và **đơn vị chưa xác nhận**
-      (dùng `--crosscheck` trước khi tin số).
+    Bốn nguồn, đo 26/08 trên máy user bằng `--probe-all VCB`:
+    * `vci`   — ✅ sớm nhất **2018-Q1**, 83 chỉ tiêu. Trong `vnstock`.
+    * `kbs`   — ❌ `TypeError` vì chữ ký khác giữa các bản `vnstock`; gọi
+      theo chữ ký thật rồi vẫn **trả về RỖNG**.
+    * `tcbs`  — ❌ **404**, endpoint `apipubaws` đã chết. Giữ lại để
+      `--probe-all` còn nói ra điều đó thay vì im lặng bỏ qua.
+    * `cafef` — ✅ **có 2015-2016**. Mỗi trang = 4 quý của MỘT năm, nên
+      `years` quyết định tải mấy trang.
     """
+    if source == "cafef":
+        from scripts.bank_bs_sources import fetch_cafef_years
+        return fetch_cafef_years(ticker, years or CAFEF_DEFAULT_YEARS, lang)
+
     if source == "tcbs":
         from scripts.bank_bs_sources import fetch_tcbs, tcbs_to_frame
         payload, _ = fetch_tcbs(ticker)
@@ -239,8 +143,9 @@ def fetch_balance_sheet(ticker: str, limit: int = DEFAULT_LIMIT,
 
     if source == "kbs":
         from vnstock.explorer.kbs.financial import Finance as KFinance
-        return KFinance(ticker, period="quarter", show_log=False)\
-            .balance_sheet(period="quarter", display_mode=None, show_log=False)
+        fin = KFinance(ticker, period="quarter", show_log=False)
+        return _call_with_supported_kwargs(
+            fin.balance_sheet, period="quarter", lang=lang, show_log=False)
 
     from vnstock.explorer.vci.financial import Finance
     # `_get_financial_report` là chỗ DUY NHẤT nhận `limit` — xem bẫy ① đầu file
@@ -276,7 +181,8 @@ def probe(ticker: str, limit: int, lang: str, source: str = "vci") -> int:
     return 0
 
 
-def source_coverage(ticker: str, limit: int, lang: str, source: str) -> dict:
+def source_coverage(ticker: str, limit: int, lang: str, source: str,
+                    years=None) -> dict:
     """Đo MỘT nguồn: đọc được không · kỳ sớm nhất · bao nhiêu chỉ tiêu.
 
     Không ném: hỏng thì ghi lý do vào `error` để bảng so sánh vẫn in đủ dòng.
@@ -285,7 +191,8 @@ def source_coverage(ticker: str, limit: int, lang: str, source: str) -> dict:
            "first": None, "last": None, "n_periods": 0, "n_items": 0,
            "error": None}
     try:
-        df = fetch_balance_sheet(ticker, limit=limit, lang=lang, source=source)
+        df = fetch_balance_sheet(ticker, limit=limit, lang=lang, source=source,
+                                 years=years)
     except Exception as exc:                      # noqa: BLE001 — probe báo cáo
         row["error"] = f"{type(exc).__name__}: {exc}"
         return row
@@ -312,9 +219,10 @@ def probe_all(ticker: str, limit: int, lang: str, want_year: int = 2015) -> int:
     print(f"[probe-all] {ticker} · xin tới {want_year}-Q1\n")
     print(f"{'NGUỒN':<8} {'ĐỌC ĐƯỢC':<9} {'SỚM NHẤT':<10} {'MỚI NHẤT':<10} "
           f"{'SỐ QUÝ':>7} {'CHỈ TIÊU':>9}  GHI CHÚ")
+    years = (want_year, want_year + 1)
     rows = []
     for src in SOURCES:
-        r = source_coverage(ticker, limit, lang, src)
+        r = source_coverage(ticker, limit, lang, src, years=years)
         rows.append(r)
         first = quarter_label(*r["first"]) if r["first"] else "—"
         last = quarter_label(*r["last"]) if r["last"] else "—"
@@ -323,34 +231,16 @@ def probe_all(ticker: str, limit: int, lang: str, want_year: int = 2015) -> int:
         print(f"{src:<8} {mark:<8} {first:<10} {last:<10} "
               f"{r['n_periods']:>7} {r['n_items']:>9}  {note}")
 
-    # CafeF: mới chỉ hỏi "trang có chứa quý mình xin không", chưa bóc số.
-    try:
-        from scripts.bank_bs_sources import cafef_quarters_in, fetch_cafef
-        status, text, url = fetch_cafef(ticker, want_year + 1, 4)
-        if status is None:
-            print(f"{'cafef':<8} {'❌':<8} {'—':<10} {'—':<10} "
-                  f"{'':>7} {'':>9}  {text[:60]}")
-        else:
-            qs = cafef_quarters_in(text)
-            hit = [q for q in qs if q[0] in (want_year, want_year + 1)]
-            print(f"{'cafef':<8} {'HTTP ' + str(status):<8} "
-                  f"{(quarter_label(*qs[0]) if qs else '—'):<10} "
-                  f"{(quarter_label(*qs[-1]) if qs else '—'):<10} "
-                  f"{len(qs):>7} {'?':>9}  "
-                  f"{'thấy kỳ ' + str(want_year) + '-' + str(want_year + 1) if hit else 'KHÔNG thấy kỳ xin'}")
-            print(f"         {url}")
-    except Exception as exc:                      # noqa: BLE001
-        print(f"{'cafef':<8} ❌ {type(exc).__name__}: {exc}")
-
     winners = [r["source"] for r in rows if reaches(r, want_year)]
     print()
     if winners:
         print(f"👉 Nguồn với tới {want_year}-Q1: {', '.join(winners)}")
         print(f"   Chạy: python scripts/export_bank_balance_sheets.py "
               f"--from {want_year} --to {want_year + 1} --source {winners[0]}")
-        if "tcbs" in winners:
-            print(f"   TRƯỚC ĐÓ: --crosscheck {ticker} — đối chiếu đơn vị với "
-                  f"VCI ở quý trùng nhau (chưa đo tỉ số thì đừng tin số).")
+        if set(winners) - {"vci"}:
+            print(f"   TRƯỚC ĐÓ: --crosscheck {ticker} --with {winners[0]} — "
+                  f"đối chiếu ĐƠN VỊ với VCI ở quý trùng nhau. Chưa đo tỉ số "
+                  f"thì đừng tin số.")
         return 0
     ok = [r for r in rows if r["ok"]]
     if ok:
@@ -359,7 +249,70 @@ def probe_all(ticker: str, limit: int, lang: str, want_year: int = 2015) -> int:
               f"{quarter_label(*e)}.")
     else:
         print("❌ KHÔNG nguồn nào đọc được — xem cột GHI CHÚ.")
+    cf = next((r for r in rows if r["source"] == "cafef"), None)
+    if cf and not cf["ok"]:
+        # Phân biệt HAI kiểu hỏng — hai cách chữa khác nhau, và nói nhầm là
+        # đẩy người đọc đi sai đường.
+        fetch_broke = "CafefFetchError" in (cf["error"] or "")
+        print("\n   CafeF hỏng ở bước " +
+              ("TẢI TRANG (mạng/URL), chưa tới bước bóc bảng."
+               if fetch_broke else
+               "BÓC BẢNG — trang tải được nhưng không nhận ra bảng."))
+        print(f"   python scripts/export_bank_balance_sheets.py "
+              f"--dump-cafef {ticker} --dump-year {want_year + 1}")
+        print("   rồi dán phần tóm tắt cấu trúc ra — đừng đoán tiếp.")
     return 2
+
+
+def dump_cafef(ticker: str, year: int, quarter: int = 4,
+               out_dir: "Path | None" = None) -> int:
+    """In CẤU TRÚC trang CafeF + lưu HTML thô, để sửa bộ bóc mà không đoán.
+
+    Bộ bóc được viết khi chưa ai nhìn trang thật (máy soạn code bị chặn
+    egress). Trật thì cái cần là cấu trúc THẬT, không phải một lần đoán nữa.
+    """
+    from scripts.bank_bs_sources import (cafef_quarters_in, cafef_unit_note,
+                                         fetch_cafef, header_periods,
+                                         parse_tables, pick_balance_table)
+
+    status, text, url = fetch_cafef(ticker, year, quarter)
+    print(f"[dump-cafef] {ticker} {year}-Q{quarter}")
+    if status is None:
+        print(f"[dump-cafef] ❌ {text}")
+        return 2
+    print(f"[dump-cafef] HTTP {status} · {len(text):,} ký tự")
+    print(f"[dump-cafef] URL cuối: {url}")
+
+    out_dir = Path(out_dir or REPO / "_cafef_dump")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{ticker}_{year}Q{quarter}.html"
+    path.write_text(text, encoding="utf-8", errors="replace")
+    print(f"[dump-cafef] đã lưu: {path}")
+
+    print(f"[dump-cafef] kỳ thấy trong trang: "
+          + (", ".join(quarter_label(*q) for q in cafef_quarters_in(text)) or "—"))
+    print(f"[dump-cafef] đơn vị: {cafef_unit_note(text) or '— KHÔNG thấy'}")
+
+    tables = parse_tables(text)
+    print(f"[dump-cafef] {len(tables)} bảng <table>")
+    chosen = pick_balance_table(tables)
+    for i, tb in enumerate(tables):
+        rows = tb.get("rows") or []
+        if len(rows) < 5:
+            continue
+        ident = tb["attrs"].get("id") or tb["attrs"].get("class") or "—"
+        star = " ⭐ ĐANG CHỌN" if tb is chosen else ""
+        print(f"\n── bảng #{i}  {ident}  ·  {len(rows)} hàng{star}")
+        for r in rows[:4]:
+            cells = " | ".join(str(c)[:26] for c in r[:8])
+            print(f"   {cells[:150]}")
+        if any(header_periods(r) for r in rows[:6]):
+            print("   (có tiêu đề KỲ)")
+    if chosen is None:
+        print("\n❌ KHÔNG bảng nào nhận ra được. Dán toàn bộ phần trên ra.")
+        return 2
+    print("\n✅ nhận ra bảng — nếu số trong sheet vẫn sai thì dán phần trên ra.")
+    return 0
 
 
 # Nhãn dòng TỔNG TÀI SẢN ở các nguồn — dùng để đối chiếu đơn vị.
@@ -392,16 +345,22 @@ def unit_ratios(data_a: dict, data_b: dict, items_a: list, items_b: list,
 
 
 def crosscheck(ticker: str, limit: int, lang: str,
-               src_a: str = "vci", src_b: str = "tcbs") -> int:
+               src_a: str = "vci", src_b: str = "cafef") -> int:
     """Đối chiếu HAI nguồn ở các quý trùng nhau — trước khi tin nguồn mới.
 
     Nguồn mới chưa đo mà đem ghi thẳng vào file là cách chắc chắn nhất để đẻ
     ra một bảng cân đối trông chuẩn mà sai đơn vị.
+
+    Năm đối chiếu là `CROSSCHECK_YEARS`, **không phải** 2015-2016: VCI chỉ có
+    từ 2018-Q1, mà so hai nguồn KHÔNG có quý nào chung thì không so được gì.
     """
-    print(f"[crosscheck] {ticker}: {src_a} ⇄ {src_b}")
+    print(f"[crosscheck] {ticker}: {src_a} ⇄ {src_b} "
+          f"(năm {'-'.join(str(y) for y in CROSSCHECK_YEARS)})")
     try:
-        df_a = fetch_balance_sheet(ticker, limit=limit, lang=lang, source=src_a)
-        df_b = fetch_balance_sheet(ticker, limit=limit, lang=lang, source=src_b)
+        df_a = fetch_balance_sheet(ticker, limit=limit, lang=lang, source=src_a,
+                                   years=CROSSCHECK_YEARS)
+        df_b = fetch_balance_sheet(ticker, limit=limit, lang=lang, source=src_b,
+                                   years=CROSSCHECK_YEARS)
     except Exception as exc:                      # noqa: BLE001
         print(f"❌ {type(exc).__name__}: {exc}")
         return 2
@@ -439,7 +398,8 @@ _NUM_FMT = "#,##0;(#,##0);-"
 
 
 def write_workbook(path: Path, per_bank: dict, items: list, quarters: list,
-                   coverage: list, lang: str) -> None:
+                   coverage: list, lang: str, source: str = "vci",
+                   unit_note: "str | None" = None) -> None:
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
@@ -473,9 +433,10 @@ def write_workbook(path: Path, per_bank: dict, items: list, quarters: list,
         "• Ô TRỐNG = nguồn KHÔNG có số cho ô đó. KHÁC hẳn số 0.\n"
         "• Mọi sheet ngân hàng dùng CHUNG một bộ dòng chỉ tiêu (hợp nhất từ "
         "tất cả các mã) và CHUNG một bộ cột quý, nên so ngang được.\n"
-        "• Đơn vị: theo nguồn VCI, KHÔNG quy đổi. Xem cột "
-        "'|Giá trị| lớn nhất' để tự nhận ra thang (ngân hàng lớn cỡ 1e15 là "
-        "VND; cỡ 1e6 là triệu VND).\n"
+        f"• Nguồn: {source}. Đơn vị: "
+        + (f"trang nguồn ghi '{unit_note}'" if unit_note else "nguồn KHÔNG ghi")
+        + ", script KHÔNG quy đổi. Xem cột '|Giá trị| lớn nhất' để tự nhận ra "
+        "thang (ngân hàng lớn cỡ 1e15 là VND; cỡ 1e6 là triệu VND).\n"
         "• 'Số quý CÓ' < 'Số quý XIN' nghĩa là nguồn thiếu kỳ, KHÔNG phải "
         "script bỏ sót.")
     note.font = Font(name=_FONT, size=9, italic=True)
@@ -567,7 +528,8 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description="Xuất bảng cân đối kế toán theo quý của các ngân hàng")
     ap.add_argument("--from", dest="y_from", type=int, default=2018,
-                    help="Nguồn VCI chỉ có từ 2018-Q1")
+                    help="VCI chỉ có từ 2018-Q1; muốn 2015-2016 thì "
+                         "--source cafef")
     ap.add_argument("--to", dest="y_to", type=int, default=2019)
     ap.add_argument("--tickers", nargs="*", default=None,
                     help="Mặc định: toàn bộ ngân hàng trong vnstock_brief_canon")
@@ -576,8 +538,8 @@ def main(argv=None) -> int:
                          "CHỈ 4, xem ghi chú đầu file)")
     ap.add_argument("--lang", default="vi", choices=("vi", "en"))
     ap.add_argument("--source", default="vci", choices=SOURCES,
-                    help="vci = đã đo, sớm nhất 2018-Q1 · kbs = đo 26/08 trả "
-                         "RỖNG · tcbs = HTTP thẳng, CHƯA đo sống")
+                    help="cafef = nguồn DUY NHẤT có 2015-2016 · vci = "
+                         "2018-Q1 trở đi · kbs/tcbs = đo 26/08 đều hỏng")
     ap.add_argument("--out", default=None)
     ap.add_argument("--probe", metavar="MÃ", default=None,
                     help="Soi một mã ở MỘT nguồn rồi thoát")
@@ -586,14 +548,23 @@ def main(argv=None) -> int:
     ap.add_argument("--want-year", type=int, default=2015,
                     help="Năm cần với tới, dùng cho --probe-all")
     ap.add_argument("--crosscheck", metavar="MÃ", default=None,
-                    help="Đối chiếu vci ⇄ tcbs ở các quý trùng nhau (đơn vị)")
+                    help="Đối chiếu ĐƠN VỊ vci ⇄ nguồn khác ở quý trùng nhau")
+    ap.add_argument("--with", dest="with_source", default="cafef",
+                    choices=SOURCES, help="Nguồn đem đối chiếu với vci")
+    ap.add_argument("--dump-cafef", dest="dump_cafef", metavar="MÃ",
+                    default=None,
+                    help="In CẤU TRÚC trang CafeF + lưu HTML thô, khi bộ bóc trật")
+    ap.add_argument("--dump-year", type=int, default=2016)
     args = ap.parse_args(argv)
 
     if args.probe_all:
         return probe_all(args.probe_all.upper(), args.limit, args.lang,
                          args.want_year)
+    if args.dump_cafef:
+        return dump_cafef(args.dump_cafef.upper(), args.dump_year)
     if args.crosscheck:
-        return crosscheck(args.crosscheck.upper(), args.limit, args.lang)
+        return crosscheck(args.crosscheck.upper(), args.limit, args.lang,
+                          src_b=args.with_source)
     if args.probe:
         return probe(args.probe.upper(), args.limit, args.lang, args.source)
 
@@ -604,11 +575,13 @@ def main(argv=None) -> int:
 
     per_bank, coverage, failed = {}, [], []
     orders, earliest = {}, []
+    unit_note = None          # câu "Đơn vị: …" của trang nguồn, GHI nguyên văn
     for i, tk in enumerate(tickers, 1):
         print(f"[{i:2d}/{len(tickers)}] {tk} …", end=" ", flush=True)
         try:
             df = fetch_balance_sheet(tk, limit=args.limit, lang=args.lang,
-                                     source=args.source)
+                                     source=args.source,
+                                     years=range(args.y_from, args.y_to + 1))
         except Exception as exc:
             print(f"LỖI: {type(exc).__name__}: {exc}")
             failed.append((tk, f"{type(exc).__name__}: {exc}"))
@@ -626,6 +599,7 @@ def main(argv=None) -> int:
         data = tidy(df, args.lang)
         kept = {qq: v for qq, v in data.items() if qq in set(quarters)}
         per_bank[tk] = kept
+        unit_note = unit_note or df.attrs.get("unit_note")
         orders[tk] = source_item_order(df, args.lang)
         coverage.append(coverage_row(tk, quarters, kept))
         print(f"{len(kept)}/{len(quarters)} quý"
@@ -648,7 +622,8 @@ def main(argv=None) -> int:
 
     per_bank = {tk: d for tk, d in per_bank.items() if d}
     items = unified_items(per_bank, orders)
-    write_workbook(out, per_bank, items, quarters, coverage, args.lang)
+    write_workbook(out, per_bank, items, quarters, coverage, args.lang,
+                   source=args.source, unit_note=unit_note)
     print(f"\n✅ {out}")
     print(f"   {len(per_bank)} sheet ngân hàng · {len(items)} dòng chỉ tiêu "
           f"(GIỐNG NHAU mọi sheet) · {len(quarters)} cột quý")
@@ -664,63 +639,3 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-# ─────────────────────────────────────────────────────────────────────────
-# Sắp chỉ tiêu theo KHUNG bảng cân đối — hàm thuần
-# ─────────────────────────────────────────────────────────────────────────
-def _strip_accents(text: str) -> str:
-    import unicodedata
-    s = unicodedata.normalize("NFD", str(text or ""))
-    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
-    return s.replace("đ", "d").replace("Đ", "D")
-
-
-# Số thứ tự đầu dòng: "1." "1)" "IV." "a)" — PHẢI có dấu ngăn phía sau.
-# Không có ràng buộc đó thì bộ lọc ăn luôn chữ cái đầu của chỉ tiêu thật:
-# "Cho vay khách hàng" → "ho vay khach hang" (c là chữ số La Mã), "Vốn điều
-# lệ" → "on dieu le". Bắt được lúc chạy thử tay 26/08.
-_ORDINAL_RE = None
-
-
-def _key(label: str) -> str:
-    """Chuẩn hoá nhãn để so khớp: bỏ dấu, bỏ số thứ tự đầu dòng, bỏ dấu câu."""
-    import re
-    global _ORDINAL_RE
-    if _ORDINAL_RE is None:
-        _ORDINAL_RE = re.compile(
-            r"^\s*(?:\d+|[IVXLCDM]+|[a-zA-Z])\s*[\.\)\-–]\s*")
-    s = _strip_accents(label)
-    while True:                       # "I. 1. Tiền mặt" — bóc nhiều tầng
-        stripped = _ORDINAL_RE.sub("", s)
-        if stripped == s:
-            break
-        s = stripped
-    s = re.sub(r"[^a-zA-Z0-9\s]", " ", s).lower()
-    return re.sub(r"\s+", " ", s).strip()
-
-
-def is_heading(label: str) -> bool:
-    """Dòng này là TIÊU ĐỀ MỤC / dòng TỔNG? (để tô đậm, thuần trình bày)
-
-    Chỉ nhìn HÌNH DẠNG nhãn, không suy diễn ý nghĩa: viết hoa toàn bộ, hoặc
-    bắt đầu bằng "TỔNG"/"TOTAL". Nhận nhầm chỉ làm đậm nhầm một dòng — không
-    đụng tới con số.
-    """
-    t = str(label or "").strip()
-    if not t:
-        return False
-    k = _key(t)
-    if k.startswith(("tong ", "total ")) or k in ("tong tai san", "tong nguon von"):
-        return True
-    letters = [c for c in _strip_accents(t) if c.isalpha()]
-    return bool(letters) and all(c.isupper() for c in letters)
-
-
-def find_row(items: list, *keys) -> "int | None":
-    """Vị trí (0-based) của chỉ tiêu khớp một trong `keys`. None nếu không có."""
-    want = {_key(k) for k in keys}
-    for i, it in enumerate(items):
-        if _key(it) in want:
-            return i
-    return None

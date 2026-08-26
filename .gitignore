@@ -24,3 +24,4 @@ static/today_bars/*.json
 !.claude/commands/
 !.claude/commands/**
 run_daily*.log
+_cafef_dump/

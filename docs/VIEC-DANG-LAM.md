@@ -119,38 +119,43 @@ Desktop giữ 4.0.4 — nó chạy phát tối, không phải chỗ để thử.
 
 ## 5. 📊 Bảng cân đối ngân hàng 2015-2016 — ○ máy nào cũng được, CẦN MẠNG
 
-Nguồn trong app **không có 2015-2016**: `vci` sớm nhất **2018-Q1**, `kbs` trả
-**rỗng** (đo 26/08). Đã thêm nguồn thứ ba (`tcbs`, gọi HTTP thẳng) nhưng
-**máy Claude bị chặn egress tới mọi host tài chính VN** ⇒ chỉ máy anh đo được.
+Đo `--probe-all VCB` ngày 26/08 xong: **CafeF là nguồn DUY NHẤT có 2015-2016.**
 
-Hai lệnh, đọc kết quả rồi báo lại:
+| nguồn | kết quả |
+|---|---|
+| `vci`   | ✅ nhưng chỉ từ **2018-Q1** |
+| `kbs`   | ❌ chữ ký khác bản, sửa rồi vẫn rỗng |
+| `tcbs`  | ❌ **404**, endpoint đã chết |
+| `cafef` | ✅ **HTTP 200, đủ Quý 1-2016 → Quý 4-2016** |
+
+Ba lệnh, theo thứ tự — **dừng lại ở lệnh nào ra ❌ và dán kết quả ra**:
 
 ```powershell
 cd C:\vnstock
+git fetch origin claude/tong-hop-cong-viec-test-w8mvrc
+git merge origin/claude/tong-hop-cong-viec-test-w8mvrc
+
+# 1) CafeF bóc ra được bảng không? (bộ bóc viết mà chưa nhìn trang thật)
 python scripts\export_bank_balance_sheets.py --probe-all VCB
-```
-Đọc cột **SỚM NHẤT**:
-* Có dòng nào ra **2015-Q1** hoặc sớm hơn → chạy tiếp lệnh dưới.
-* Không dòng nào tới 2015 → dán bảng đó, khi ấy mới tính đường ngoài app.
 
-```powershell
+# 2) Đơn vị CafeF có khớp VCI không? Đối chiếu ở 2018-2019 — năm CẢ HAI cùng có
 python scripts\export_bank_balance_sheets.py --crosscheck VCB
-```
-Đối chiếu **đơn vị** giữa `vci` và `tcbs` ở các quý trùng nhau. TCBS hay trả
-tỉ VND còn VCI trả triệu VND — chưa có tỉ số đo được thì **đừng tin số**.
-Tỉ số phẳng (`✅ ỔN ĐỊNH`) → ghép được. `⚠️ LỞM CHỞM` → hai bảng không cùng
-một chỉ tiêu, dán ra đây.
 
-Cả hai xanh thì ra file:
-```powershell
-python scripts\export_bank_balance_sheets.py --from 2015 --to 2016 --source tcbs
+# 3) Ra file (26 ngân hàng × 2 trang, ~80s vì có nhịp 1,5s/lượt cho lịch sự)
+python scripts\export_bank_balance_sheets.py --from 2015 --to 2016 --source cafef
 ```
 
-**Cả ba nguồn trượt thì còn ba đường** (xếp theo mức tin được): ① anh xuất
-Excel từ Wichart/FiinPro, tôi viết bộ đọc — số truy được về một file nguồn,
-sạch nhất · ② tôi bóc CafeF rồi đối chiếu chéo với VCI ở các quý trùng ·
-③ ~~PDF HOSE/HNX~~ — 26 ngân hàng × 8 quý × ~60 chỉ tiêu ≈ **12.000 con số**
-chép tay, **tôi không làm**: ở quy mô đó chép tay là bịa số có hệ thống.
+**Nếu (1) báo `cafef ❌`:** bộ bóc trật, không phải mạng. Chạy
+`--dump-cafef VCB --dump-year 2016` rồi dán phần tóm tắt cấu trúc ra — nó in
+số bảng, 4 hàng đầu mỗi bảng, và bảng nào đang được chọn. **Đừng đoán tiếp.**
+
+**Nếu (2) báo `⚠️ LỞM CHỞM`:** hai nguồn không cùng nói về một chỉ tiêu, dán
+bảng tỉ số ra. `✅ ỔN ĐỊNH` = chênh đúng một bậc đơn vị, ghép được.
+
+Còn CafeF cũng trượt nốt thì đường cuối: anh xuất Excel từ Wichart/FiinPro,
+tôi viết bộ đọc — số truy được về một file nguồn. ~~PDF HOSE/HNX~~ tôi không
+làm: 26 ngân hàng × 8 quý × ~60 chỉ tiêu ≈ **12.000 con số** chép tay, ở quy
+mô đó chép tay là bịa số có hệ thống.
 
 ---
 

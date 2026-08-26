@@ -6972,11 +6972,17 @@ User xin file Excel bảng cân đối kế toán **theo quý** của các ngân
 **năm 2015-2016**, mỗi ngân hàng một sheet, format đồng nhất. Kết quả tra
 nguồn — ghi lại để lần sau khỏi mò lại:
 
-| nguồn | có trong `vnstock`? | kỳ sớm nhất | đo lúc nào |
-|---|---|---|---|
-| `vci`  | có | **2018-Q1** (86 chỉ tiêu) | 26/08, `--probe VCB`, máy user |
-| `kbs`  | có | **trả RỖNG** (`0 hàng × 0 cột`) | 26/08, máy user |
-| `tcbs` | **KHÔNG** — 4.x bỏ explorer này | CHƯA ĐO | — |
+| nguồn | kết quả | đo lúc nào |
+|---|---|---|
+| `vci`   | ✅ **2018-Q1 → 2026-Q2**, 83 chỉ tiêu | 26/08, máy user |
+| `kbs`   | ❌ `TypeError: balance_sheet() got an unexpected keyword` — rồi gọi theo chữ ký thật vẫn RỖNG | 26/08, máy user |
+| `tcbs`  | ❌ **404** — endpoint `apipubaws` đã chết | 26/08, máy user |
+| `cafef` | ✅ **HTTP 200, đủ `Quý 1-2016 → Quý 4-2016`** | 26/08, máy user |
+
+**⇒ CafeF là nguồn DUY NHẤT có 2015-2016.** Một trang = 4 quý của MỘT năm
+(`/du-lieu/bao-cao-tai-chinh/<mã>/bsheet/<năm>/4/0/0/…`), nên 2015-2016 là
+**hai lượt tải**, không phải tám. `s.cafef.vn/bao-cao-tai-chinh/…` chuyển
+hướng sang đường trên.
 
 ## Ba cái bẫy đã né được (viết ra vì cả ba đều ghi ra file trông như thật)
 
@@ -7013,23 +7019,52 @@ Container của Claude **không ra được mọi host tài chính VN** — agen
 ## Ba lệnh, theo thứ tự
 
     python scripts\export_bank_balance_sheets.py --probe-all VCB    # nguồn nào với tới 2015?
-    python scripts\export_bank_balance_sheets.py --crosscheck VCB   # đơn vị có khớp không?
-    python scripts\export_bank_balance_sheets.py --from 2015 --to 2016 --source tcbs
+    python scripts\export_bank_balance_sheets.py --crosscheck VCB   # đơn vị có khớp không? (năm 2018-2019)
+    python scripts\export_bank_balance_sheets.py --from 2015 --to 2016 --source cafef
 
 `--probe-all` so MỌI nguồn trên cùng một mã trong một lệnh, cộng thêm một
 phép thăm dò CafeF (chỉ hỏi "trang có chứa quý mình xin không", CHƯA bóc số —
 bóc số chỉ viết sau khi nhìn cấu trúc bảng thật). Exit 0 = có nguồn với tới,
 exit 2 = không.
 
-## Nếu cả ba nguồn đều trượt
+## Hai cái bẫy nữa lộ ra từ lần đo 26/08
 
-Còn ba đường, xếp theo mức tin được:
+**① Chữ ký `vnstock` KHÁC NHAU giữa các máy.** `kbs…balance_sheet` ở
+container CÓ `display_mode`, ở 4.0.4 trên máy user thì KHÔNG ⇒ truyền cứng là
+`TypeError` trên đúng cái máy duy nhất chạy được mạng. Chữa bằng
+`_call_with_supported_kwargs` — đọc `inspect.signature` rồi mới gọi. Bài học
+rộng hơn: **container và máy user không cùng một thư viện**, đừng suy chữ ký
+ở đây ra chữ ký ở kia.
+
+**② "Không tải được" ≠ "tải được mà không bóc ra bảng".** Bản đầu của
+`fetch_cafef_years` nuốt cả hai thành "rỗng", rồi `--probe-all` gợi ý "hỏng ở
+bước bóc bảng" ngay cả khi proxy chặn ở bước TẢI. Hai kiểu hỏng cần hai cách
+chữa khác nhau ⇒ tách hẳn: tải hỏng ném `CafefFetchError` kèm mã HTTP, bóc
+hỏng mới trả frame rỗng.
+
+## Bộ bóc CafeF — viết mà CHƯA NHÌN TRANG THẬT
+
+Vì egress bị chặn. Nên nó được viết theo hướng chịu sai:
+
+* Nhận diện bảng theo **HÌNH DẠNG** (có ≥2 ô tiêu đề là kỳ, ≥10 dòng), không
+  theo `id`/`class` — tên lớp CSS của CafeF đổi lúc nào không ai báo.
+* Dùng `html.parser` của thư viện chuẩn. `lxml`/`bs4`/`html5lib` đều KHÔNG có
+  trong `requirements.txt`, không được phép dựa vào.
+* Không nhận ra ⇒ frame RỖNG, và `--dump-cafef` in ra cấu trúc THẬT (số bảng,
+  4 hàng đầu mỗi bảng, bảng nào đang được chọn) + lưu HTML thô vào
+  `_cafef_dump/`. Trật thì sửa theo cấu trúc, **đừng đoán tiếp**.
+* `parse_vn_number`: `1,234,567` lẫn `1.234.567`, âm trong ngoặc `(1,234)`.
+  Phân biệt dấu NGHÌN với dấu THẬP PHÂN bằng chỗ đứng — dấu cuối cùng mà theo
+  sau không phải đúng 3 chữ số thì đó là dấu thập phân. Ô `-` hay trống ⇒
+  **None, không phải 0**.
+* Đơn vị trang ghi (`"Đơn vị: Triệu VNĐ"`) được lấy NGUYÊN VĂN vào
+  `df.attrs["unit_note"]` rồi in lên sheet `0_TẦM PHỦ`. **Không quy đổi.**
+
+## Nếu CafeF cũng trượt
 
 1. **User xuất Excel từ Wichart/FiinPro, Claude viết bộ đọc.** Số truy được
    về một file nguồn — sạch nhất.
-2. **Bóc CafeF** (`s.cafef.vn/bao-cao-tai-chinh/<mã>/BSheet/<năm>/<quý>/…`),
-   đối chiếu chéo với VCI ở các quý trùng (2018+) trước khi tin.
-3. ~~PDF HOSE/HNX~~ — 26 ngân hàng × 8 quý × ~60 chỉ tiêu ≈ **12.000 con
+2. ~~PDF HOSE/HNX~~ — 26 ngân hàng × 8 quý × ~60 chỉ tiêu ≈ **12.000 con
    số** chép tay. **Không làm.** Chép tay ở quy mô đó là bịa số có hệ thống,
    mà bảng bịa thì trông y hệt bảng thật.
 
