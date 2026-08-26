@@ -715,6 +715,7 @@ def cmd_test(args) -> int:
             # (trình bày "chưa đo được" thành "đo ra kết quả xấu" — vết 13/08).
             "tests/test_brief_watch.py",
             "tests/test_exdiv_source.py",
+            "tests/test_triage_basis_drift.py",
             # Báo cáo weekend: sai ở đây là (a) đi thay slug trong khi lỗi
             # nằm ở TÀI KHOẢN, (b) đọc số đổi 1 phiên thành đổi cả tuần.
             "tests/test_weekend_2208_review.py",

@@ -1,0 +1,263 @@
+"""
+Lưới cho `scripts/triage_basis_drift.py` — soi sổ cách ly lệch cơ sở.
+
+Bối cảnh 26/08: `run.py doctor` báo **47 mã ĐANG KHÔNG cập nhật giá**. Cửa
+gác làm đúng việc (chặn không nối data lệch cơ sở), nhưng chặn xong thì chờ
+người chữa — và ngày phát hiện trải từ 21/08 đến 25/08, tức nó **đang tích
+tụ**, không phải một cục cũ.
+
+Điều mà "47 mã" KHÔNG nói được là **mỗi mã lệch vì sao**, và đó mới là thứ
+quyết định cách xử lý:
+
+* có sự kiện quyền khớp ngày vách ⇒ chữa máy móc, hàng loạt;
+* không sự kiện nào ⇒ **chữa mù là nhân bản một con số sai lên toàn bộ lịch
+  sử của mã**, đúng thứ cửa gác sinh ra để chặn.
+
+Vì thế lưới ở đây canh chặt hai điều: **không nhóm nào bị nuốt**, và **gợi ý
+không bao giờ được trình bày như kết luận**.
+"""
+from __future__ import annotations
+
+import importlib.util
+from datetime import date
+from pathlib import Path
+
+import pytest
+
+_SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "triage_basis_drift.py"
+_spec = importlib.util.spec_from_file_location("triage_basis_drift", _SCRIPT)
+T = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(T)
+
+TODAY = date(2026, 8, 26)
+
+
+def _rec(detected="2026-08-24", ratio=1.05, pct=5.0, event=None):
+    return {"detected_at": detected, "ratio": ratio, "pct": pct, "event": event}
+
+
+class TestDaysStale:
+    def test_counts_days_since_detection(self):
+        assert T.days_stale("2026-08-21", TODAY) == 5
+
+    def test_same_day_is_zero(self):
+        assert T.days_stale("2026-08-26", TODAY) == 0
+
+    def test_a_future_date_never_goes_negative(self):
+        assert T.days_stale("2026-09-01", TODAY) == 0
+
+    def test_a_timestamp_is_accepted(self):
+        assert T.days_stale("2026-08-21T18:03:11", TODAY) == 5
+
+    def test_an_unreadable_date_is_none_not_zero(self):
+        """None nghĩa là KHÔNG ĐO ĐƯỢC. Trả 0 sẽ đọc thành 'mới phát hiện hôm
+        nay' — trình bày cái chưa biết thành một phép đo."""
+        assert T.days_stale("rác", TODAY) is None
+        assert T.days_stale("", TODAY) is None
+
+
+class TestNearRoundRatio:
+    def test_a_ten_percent_bonus_is_recognised(self):
+        assert T.near_round_ratio(1.1) == 1.10
+
+    def test_a_slightly_off_ratio_still_matches(self):
+        assert T.near_round_ratio(1.098) == 1.10
+
+    def test_the_tolerance_is_tight_enough_to_mean_something(self):
+        """Các mốc cách nhau 0,05. Nới rộng là bắt nhầm gần một phần ba dải:
+        1.0424 "khớp" 1.05 rồi tụt khỏi nhóm ĐỎ — đúng nhóm cần người nhìn."""
+        assert T.near_round_ratio(1.0424) is None
+        assert T.near_round_ratio(1.1098) is None
+
+    def test_an_odd_ratio_matches_nothing(self):
+        assert T.near_round_ratio(1.0424) is None
+
+    def test_a_two_for_one_split_is_recognised(self):
+        assert T.near_round_ratio(2.0) == 2.00
+
+    def test_garbage_does_not_raise(self):
+        assert T.near_round_ratio(None) is None
+        assert T.near_round_ratio("x") is None
+
+
+class TestClassify:
+    def test_a_matched_event_is_the_safe_group(self):
+        assert T.classify(_rec(event="stock")) == "co_su_kien"
+
+    def test_an_event_wins_even_when_the_ratio_is_odd(self):
+        """Sự kiện là BẰNG CHỨNG, tỉ lệ tròn chỉ là gợi ý. Bằng chứng thắng."""
+        assert T.classify(_rec(ratio=1.0371, pct=3.71, event="cash")) == "co_su_kien"
+
+    def test_a_round_ratio_without_an_event_is_only_a_hint(self):
+        assert T.classify(_rec(ratio=1.1015, pct=10.15)) == "tron_chua_ro"
+
+    def test_an_odd_ratio_without_an_event_is_the_red_group(self):
+        assert T.classify(_rec(ratio=1.0424, pct=4.24)) == "chua_ro"
+
+    def test_a_tiny_drift_is_noise_not_a_mystery(self):
+        assert T.classify(_rec(ratio=1.008, pct=0.8)) == "nhieu"
+
+    def test_a_tiny_drift_WITH_an_event_is_still_the_safe_group(self):
+        assert T.classify(_rec(ratio=1.008, pct=0.8, event="cash")) == "co_su_kien"
+
+    def test_a_missing_pct_does_not_crash(self):
+        assert T.classify({"ratio": 1.0424}) in T.NHOM_ORDER
+
+    def test_every_class_has_a_label_and_a_reason(self):
+        """Nhóm không có nhãn = nhóm bị nuốt lúc in ra."""
+        assert set(T.NHOM) == set(T.NHOM_ORDER)
+        assert all(len(v) == 2 and all(v) for v in T.NHOM.values())
+
+
+class TestSummarize:
+    PENDING = {
+        "AAM": _rec("2026-08-24", 1.0424, 4.24),
+        "BCF": _rec("2026-08-21", 1.1015, 10.15),   # sát 1.10 → chỉ là GỢI Ý
+        "VCB": _rec("2026-08-25", 1.10, 10.0, event="stock"),
+        "XYZ": _rec("2026-08-25", 1.008, 0.8),
+    }
+
+    def test_every_ticker_lands_in_exactly_one_group(self):
+        st = T.summarize(self.PENDING, TODAY)
+        landed = [r["ticker"] for g in st["groups"].values() for r in g]
+        assert sorted(landed) == sorted(self.PENDING)
+        assert len(landed) == len(set(landed))
+
+    def test_the_total_matches_the_input(self):
+        assert T.summarize(self.PENDING, TODAY)["total"] == 4
+
+    def test_the_worst_staleness_is_reported(self):
+        assert T.summarize(self.PENDING, TODAY)["max_stale"] == 5
+
+    def test_lost_bars_are_summed_across_tickers(self):
+        """Con số này là thứ đọc ra được TÁC ĐỘNG: 47 mã × mấy ngày = bao
+        nhiêu bar giá đang thiếu trong kho."""
+        assert T.summarize(self.PENDING, TODAY)["bars_lost"] == 2 + 5 + 1 + 1
+
+    def test_tickers_come_out_sorted(self):
+        st = T.summarize(self.PENDING, TODAY)
+        red = [r["ticker"] for r in st["groups"]["chua_ro"]]
+        assert red == sorted(red)
+
+    def test_an_empty_ledger_gives_empty_groups_not_a_crash(self):
+        st = T.summarize({}, TODAY)
+        assert st["total"] == 0 and st["max_stale"] is None
+
+    def test_the_input_is_not_mutated(self):
+        """Sổ cách ly là dữ liệu thật của kho — bộ soi CHỈ ĐỌC."""
+        import copy
+        before = copy.deepcopy(self.PENDING)
+        T.summarize(self.PENDING, TODAY)
+        assert self.PENDING == before
+
+    def test_an_unreadable_date_does_not_drop_the_ticker(self):
+        st = T.summarize({"AAA": _rec("rác", 1.0424, 4.24)}, TODAY)
+        assert st["groups"]["chua_ro"][0]["stale"] is None
+        assert st["total"] == 1
+
+
+class TestVn30Hits:
+    def test_a_quarantined_vn30_name_is_surfaced(self):
+        assert T.vn30_hits({"VCB": {}, "AAM": {}}, ["VCB", "FPT"]) == ["VCB"]
+
+    def test_matching_is_case_insensitive(self):
+        assert T.vn30_hits({"vcb": {}}, ["VCB"]) == ["VCB"]
+
+    def test_nothing_in_the_basket_gives_nothing(self):
+        assert T.vn30_hits({"AAM": {}}, ["VCB"]) == []
+
+    def test_a_missing_basket_does_not_crash(self):
+        assert T.vn30_hits({"AAM": {}}, None) == []
+
+
+class TestBatchPlan:
+    def test_the_safe_group_gets_a_dry_run_BEFORE_the_apply(self):
+        """Chạy thử trước là bất biến, không phải phép lịch sự: `--apply` ghi
+        đè lịch sử giá của mã."""
+        st = T.summarize(TestSummarize.PENDING, TODAY)
+        cmds = [c for _, c in T.batch_plan(st["groups"])]
+        dry = next(i for i, c in enumerate(cmds)
+                   if "rebase" in c and "--apply" not in c)
+        apply_i = next(i for i, c in enumerate(cmds) if "--apply" in c)
+        assert dry < apply_i
+
+    def test_the_red_group_never_appears_in_a_rebase_command(self):
+        """Đây là bất biến QUAN TRỌNG NHẤT của file này. Gộp một mã chưa rõ
+        nguyên nhân vào lệnh chữa hàng loạt là nhân bản số sai."""
+        st = T.summarize(TestSummarize.PENDING, TODAY)
+        rebase = [c for _, c in T.batch_plan(st["groups"]) if "rebase" in c]
+        assert all("AAM" not in c for c in rebase)
+
+    def test_the_round_but_unmatched_group_is_also_kept_out_of_rebase(self):
+        st = T.summarize(TestSummarize.PENDING, TODAY)
+        rebase = [c for _, c in T.batch_plan(st["groups"]) if "rebase" in c]
+        assert all("BCF" not in c for c in rebase)
+
+    def test_unclear_tickers_get_a_probe_command_instead(self):
+        st = T.summarize(TestSummarize.PENDING, TODAY)
+        probes = [c for _, c in T.batch_plan(st["groups"]) if "probe" in c]
+        assert any("AAM" in c for c in probes) and any("BCF" in c for c in probes)
+
+    def test_no_safe_tickers_means_no_rebase_command_at_all(self):
+        st = T.summarize({"AAM": _rec("2026-08-24", 1.0424, 4.24)}, TODAY)
+        assert not [c for _, c in T.batch_plan(st["groups"]) if "rebase" in c]
+
+    def test_every_line_carries_a_label(self):
+        st = T.summarize(TestSummarize.PENDING, TODAY)
+        assert all(lbl and cmd for lbl, cmd in T.batch_plan(st["groups"]))
+
+
+class TestExitCode:
+    def test_an_empty_ledger_exits_zero(self, tmp_path, capsys):
+        assert T.main(["--warehouse", str(tmp_path)]) == 0
+        assert "RỖNG" in capsys.readouterr().out
+
+    def test_unclear_tickers_make_it_exit_nonzero(self, tmp_path, monkeypatch,
+                                                  capsys):
+        """Exit khác 0 để lượt chạy tự động không lặng lẽ coi là xong."""
+        monkeypatch.setattr(T, "load_pending",
+                            lambda wh: {"AAM": _rec("2026-08-24", 1.0424, 4.24)})
+        assert T.main(["--warehouse", str(tmp_path)]) == 1
+
+    def test_only_safe_tickers_exit_zero(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(T, "load_pending",
+                            lambda wh: {"VCB": _rec(event="stock")})
+        assert T.main(["--warehouse", str(tmp_path)]) == 0
+
+    def test_the_plan_warns_that_fixing_writes_the_shared_warehouse(
+            self, tmp_path, monkeypatch, capsys):
+        """Kho đi qua Dropbox — laptop chữa là desktop thấy, và phát 18:00
+        đang chạy thì hai bên ghi cùng file."""
+        monkeypatch.setattr(T, "load_pending",
+                            lambda wh: {"VCB": _rec(event="stock")})
+        T.main(["--warehouse", str(tmp_path), "--plan"])
+        out = capsys.readouterr().out
+        assert "GHI KHO" in out and "18:00" in out
+
+    def test_the_red_group_gets_an_explicit_do_not_batch_warning(
+            self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setattr(T, "load_pending",
+                            lambda wh: {"AAM": _rec("2026-08-24", 1.0424, 4.24)})
+        T.main(["--warehouse", str(tmp_path), "--plan"])
+        assert "ĐỪNG gộp" in capsys.readouterr().out
+
+
+class TestReadOnly:
+    def test_the_script_never_imports_a_writer(self):
+        """Bộ soi phải chạy được sát giờ phát 18:00. Nó chỉ được ĐỌC."""
+        src = _SCRIPT.read_text(encoding="utf-8")
+        # In RA một lệnh có `--apply` là hợp lệ — script gợi ý, người chạy.
+        # Cấm là cấm tự GHI hoặc tự CHẠY.
+        for forbidden in ("write_text(", "to_parquet(", "record_drift",
+                          "os.remove", "shutil.", "subprocess", "os.system"):
+            assert forbidden not in src, forbidden
+
+    def test_it_reads_the_ledger_through_the_owning_module(self):
+        """Sổ cách ly có một chủ sở hữu (`vnstock_basis_guard`). Tự mở file
+        JSON ở đây là đẻ ra chỗ thứ hai biết định dạng của nó."""
+        import inspect
+        assert "vnstock_basis_guard" in inspect.getsource(T.load_pending)
+
+
+if __name__ == "__main__":
+    raise SystemExit(pytest.main([__file__, "-q"]))

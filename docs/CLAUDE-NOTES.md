@@ -6966,6 +6966,57 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🔬 U37. 47 MÃ ĐỨNG GIÁ — PHÂN LOẠI TRƯỚC KHI CHỮA (26/08)
+
+`run.py doctor` trên máy thật: **47 mã ĐANG KHÔNG cập nhật giá**, ngày phát
+hiện trải **21/08 → 25/08** ⇒ **đang tích tụ**, không phải một cục cũ. Cửa gác
+lệch cơ sở (V1, U-basis) làm đúng việc — chặn không nối data lệch — nhưng chặn
+xong thì chờ người chữa.
+
+## Vì sao KHÔNG chạy thẳng `rebase_ticker_history --from-sweep`
+
+Công cụ chữa hàng loạt đã có sẵn. Nhưng "47 mã" không nói được thứ quyết định
+cách xử lý: **mỗi mã lệch VÌ SAO.**
+
+* **Có sự kiện quyền khớp ngày vách** ⇒ lệch là ĐÚNG DỰ KIẾN, kho chỉ chưa
+  nối lại thang giá. Chữa máy móc, hàng loạt, an toàn.
+* **Không sự kiện nào** ⇒ chưa biết vì sao. Chữa mù ở đây là **nhân bản một
+  con số sai lên TOÀN BỘ lịch sử của mã** — đúng thứ cửa gác sinh ra để chặn.
+
+Gộp hai nhóm vào một lệnh là bỏ qua đúng chỗ cần người quyết.
+
+## `scripts/triage_basis_drift.py` — CHỈ ĐỌC
+
+Chạy được lúc nào cũng được, kể cả sát 18:00. Có lưới canh điều đó
+(`test_the_script_never_imports_a_writer`: cấm `write_text` / `to_parquet` /
+`subprocess` / `shutil`; **in ra** một lệnh có `--apply` thì hợp lệ — script
+gợi ý, người chạy).
+
+Bốn nhóm: `co_su_kien` ✅ · `tron_chua_ro` 🟡 · `chua_ro` 🔴 · `nhieu` ⚪.
+Kèm **số ngày đứng** và **tổng bar giá đang thiếu** — đó mới là con số đọc ra
+được TÁC ĐỘNG. Và cờ **mã VN30 nào đang bị cách ly**: một mã VN30 đứng giá
+nặng hơn hẳn (vào chỉ số, vào brief, vào heatmap tầng nóng) mà lẫn trong 47
+cái tên thì không ai nhận ra.
+
+`--plan` in kế hoạch: chạy thử TRƯỚC `--apply`, và **nhóm 🔴 không bao giờ
+lọt vào lệnh rebase** — đó là bất biến quan trọng nhất, có test riêng.
+
+## ⚠️ Dung sai "tỉ lệ tròn" phải CHẶT — bắt được ngay khi viết test
+
+Bản đầu để `ROUND_TOL = 0.015`, mà các mốc (1.05 / 1.10 / 1.15…) cách nhau
+0,05 ⇒ **bắt nhầm gần một phần ba dải**. Cụ thể: AAM `1.0424` "khớp" `1.05`
+rồi tụt từ nhóm 🔴 xuống 🟡 — đúng cái nhóm cần người nhìn. Siết còn `0.005`.
+**Gợi ý bắt bừa tệ hơn không gợi ý**, vì nó xếp một mã đáng ngờ vào ô "chắc
+là quyền thôi".
+
+## Chưa làm
+
+Chưa chạy trên kho thật — container không có kho. Con số phân nhóm thật sẽ ra
+ở lượt user chạy. Và **việc CHỮA ghi kho**: kho dùng chung qua Dropbox nên
+laptop chữa là desktop thấy ⇒ đừng chữa trong lúc phát 18:00-19:xx.
+
+44 test ở `tests/test_triage_basis_drift.py`.
+
 # 🩹 U36. BỘ CHẶN CỜ CỔ TỨC CHẠY CHAY TỪ 19/08 — MỘT LỖI IM LẶNG (26/08)
 
 Đi tìm câu trả lời cho việc #4 ("bỏ hay giữ đường CafeF `cash-dividends`") thì
