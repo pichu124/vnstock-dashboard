@@ -362,24 +362,80 @@ def dump_cafef(ticker: str, year: int, quarter: int = 4,
     return 0 if d["balance_table_found"] else 2
 
 
+# Nhãn CHỈ CÓ Ở BẢNG CÂN ĐỐI NGÂN HÀNG. Nếu một bảng không có dòng nào trong
+# số này thì nó đang dùng khung DOANH NGHIỆP THƯỜNG — tên dòng không mang
+# nghĩa kế toán ngân hàng, và người đọc phải biết điều đó TRƯỚC khi dùng số.
+BANK_ONLY_ITEMS = ("Cho vay khách hàng", "Tiền gửi của khách hàng",
+                   "Tiền gửi tại Ngân hàng Nhà nước",
+                   "Phát hành giấy tờ có giá",
+                   "Dự phòng rủi ro cho vay khách hàng")
+# Nhãn ĐẶC TRƯNG khung doanh nghiệp — có chúng ở một ngân hàng là dấu hiệu
+# nguồn đã ép số vào khung sai.
+CORPORATE_ITEMS = ("Hàng tồn kho", "Tài sản ngắn hạn", "Tài sản dài hạn",
+                   "Các khoản phải thu ngắn hạn", "Nợ ngắn hạn")
+
+
+def template_kind(items: list) -> dict:
+    """Bảng này theo khung NGÂN HÀNG hay khung DOANH NGHIỆP THƯỜNG?
+
+    Hàm thuần, đếm nhãn đặc trưng chứ không suy diễn. Trả DỮ KIỆN kèm một
+    nhãn ngắn; chỗ gọi in ra để người đọc tự quyết, vì đây là chuyện NGHĨA
+    của con số, không phải chuyện định dạng.
+    """
+    bank = [k for k in BANK_ONLY_ITEMS if find_row(items, k) is not None]
+    corp = [k for k in CORPORATE_ITEMS if find_row(items, k) is not None]
+    if bank:
+        kind = "NGÂN HÀNG" if len(bank) >= len(corp) else "LẪN LỘN"
+    else:
+        kind = "DOANH NGHIỆP THƯỜNG" if corp else "KHÔNG NHẬN RA"
+    return {"kind": kind, "bank_hits": bank, "corporate_hits": corp}
+
+
+def show_items(ticker: str, limit: int, lang: str, source: str, years) -> int:
+    """In DANH SÁCH chỉ tiêu của một mã + khung bảng — để trả lời câu hỏi
+    NGHĨA: nguồn có thật sự đưa bảng cân đối NGÂN HÀNG không.
+
+    Định dạng đúng mà nghĩa sai là ca tệ nhất ở đây: file mở ra trông chuẩn,
+    26 sheet đều nhau, mà tên dòng lại là khung doanh nghiệp.
+    """
+    df = fetch_balance_sheet(ticker, limit=limit, lang=lang, source=source,
+                             years=years)
+    if df.empty:
+        print(f"[items] ❌ {source} trả về RỖNG cho {ticker}")
+        return 2
+    items = source_item_order(df, lang)
+    data = tidy(df, lang)
+    periods = [qq for _, qq in detect_period_columns(df.columns)]
+    tk = template_kind(items)
+
+    print(f"[items] {ticker} · nguồn={source} · {len(items)} chỉ tiêu · "
+          f"{len(periods)} quý")
+    print(f"[items] KHUNG BẢNG: {tk['kind']}")
+    print(f"        nhãn ngân hàng thấy được: "
+          + (", ".join(tk["bank_hits"]) or "— KHÔNG CÓ"))
+    print(f"        nhãn doanh nghiệp thấy được: "
+          + (", ".join(tk["corporate_hits"]) or "— không có"))
+    if tk["kind"] != "NGÂN HÀNG":
+        print("        ⚠️ Tên dòng KHÔNG mang nghĩa kế toán ngân hàng. Đọc số "
+              "theo tên dòng ở đây là hiểu sai.")
+    print(f"\n{'#':>4}  {'CÓ SỐ':>6}  CHỈ TIÊU")
+    for i, name in enumerate(items, 1):
+        n = sum(1 for qq in periods if not _is_blank((data.get(qq) or {}).get(name)))
+        print(f"{i:>4}  {n:>2}/{len(periods):<3}  {name[:70]}")
+    empty = sum(1 for name in items
+                if all(_is_blank((data.get(qq) or {}).get(name)) for qq in periods))
+    print(f"\n{empty}/{len(items)} chỉ tiêu KHÔNG có số ở kỳ nào — "
+          f"để TRỐNG, không điền 0.")
+    return 0
+
+
 # Nhãn dòng TỔNG TÀI SẢN ở các nguồn — dùng để đối chiếu đơn vị.
 _TOTAL_ASSET_KEYS = ("TỔNG TÀI SẢN", "TỔNG CỘNG TÀI SẢN", "Tổng tài sản",
                      "TOTAL ASSETS", "Total assets")
 
 
-def unit_ratios(data_a: dict, data_b: dict, items_a: list, items_b: list,
-                keys=_TOTAL_ASSET_KEYS) -> list:
-    """[(kỳ, giá trị A, giá trị B, tỉ số)] ở các quý CẢ HAI nguồn cùng có.
-
-    Hàm thuần. Không kết luận hộ — chỉ đưa tỉ số ra để người nhìn. Tỉ số
-    quanh 1 000 nghĩa là hai nguồn khác nhau một bậc đơn vị; tỉ số lởm chởm
-    nghĩa là **hai bảng không cùng nói về một chỉ tiêu**, khi đó đừng ghép.
-    """
-    ia = find_row(items_a, *keys)
-    ib = find_row(items_b, *keys)
-    if ia is None or ib is None:
-        return []
-    name_a, name_b = items_a[ia], items_b[ib]
+def _ratio_rows(name_a: str, name_b: str, data_a: dict, data_b: dict) -> list:
+    """[(kỳ, A, B, tỉ số)] cho MỘT cặp nhãn — bỏ ô trống/NaN, không bỏ số 0."""
     out = []
     for qq in sorted(set(data_a) & set(data_b)):
         va, vb = data_a[qq].get(name_a), data_b[qq].get(name_b)
@@ -387,7 +443,71 @@ def unit_ratios(data_a: dict, data_b: dict, items_a: list, items_b: list,
             fa, fb = float(va), float(vb)
         except (TypeError, ValueError):
             continue
+        if _is_blank(fa) or _is_blank(fb):
+            continue
         out.append((qq, fa, fb, (fa / fb) if fb else None))
+    return out
+
+
+def unit_ratios(data_a: dict, data_b: dict, items_a: list, items_b: list,
+                keys=_TOTAL_ASSET_KEYS) -> list:
+    """[(kỳ, giá trị A, giá trị B, tỉ số)] ở các quý CẢ HAI nguồn cùng có.
+
+    Thử LẦN LƯỢT từng nhãn và **bỏ qua nhãn nào rỗng số**. Vết 26/08: bản
+    đầu lấy nhãn khớp ĐẦU TIÊN rồi thôi — nó trúng một dòng TIÊU ĐỀ MỤC mà
+    CafeF để trống, thế là cả phép đối chiếu ra `nan` và không kết luận được
+    gì, trong khi bảng có thừa số để so.
+
+    Hàm thuần. Không kết luận hộ — chỉ đưa tỉ số ra để người nhìn.
+    """
+    def _candidates(items):
+        out = []
+        for key in keys:
+            i = find_row(items, key)
+            if i is not None and items[i] not in out:
+                out.append(items[i])
+        return out
+
+    # Hai nguồn có thể gọi cùng một dòng bằng hai tên (VI ⇄ EN), nên thử MỌI
+    # cặp — và cặp nào rỗng số thì đi tiếp, đừng dừng lại ở nó.
+    for name_a in _candidates(items_a):
+        for name_b in _candidates(items_b):
+            rows = _ratio_rows(name_a, name_b, data_a, data_b)
+            if rows:
+                return rows
+    return []
+
+
+def _max_abs(period_values: dict):
+    """|giá trị| lớn nhất trong một kỳ — None nếu kỳ đó không có số nào."""
+    nums = []
+    for v in (period_values or {}).values():
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            continue
+        if not _is_blank(f):
+            nums.append(abs(f))
+    return max(nums) if nums else None
+
+
+def magnitude_ratios(data_a: dict, data_b: dict) -> list:
+    """Tỉ số THANG ĐO, KHÔNG cần nhãn: |giá trị| lớn nhất mỗi kỳ ở mỗi nguồn.
+
+    Lưới cuối cho câu hỏi ĐƠN VỊ khi hai nguồn đặt tên chỉ tiêu khác nhau.
+    Trong một bảng cân đối, số lớn nhất luôn là tổng tài sản (hoặc tổng
+    nguồn vốn, bằng nhau), nên tỉ số này đo đúng thứ cần đo — bậc đơn vị —
+    mà không phụ thuộc vào việc khớp được nhãn hay không.
+
+    Nó KHÔNG chứng minh hai bảng nói cùng một chỉ tiêu. Chỉ trả lời: chênh
+    nhau mấy bậc nghìn.
+    """
+    out = []
+    for qq in sorted(set(data_a) & set(data_b)):
+        ma, mb = _max_abs(data_a[qq]), _max_abs(data_b[qq])
+        if ma is None or mb is None:
+            continue
+        out.append((qq, ma, mb, (ma / mb) if mb else None))
     return out
 
 
@@ -414,15 +534,22 @@ def crosscheck(ticker: str, limit: int, lang: str,
     if df_a.empty or df_b.empty:
         print(f"❌ rỗng: {src_a}={df_a.shape} · {src_b}={df_b.shape}")
         return 2
-    rows = unit_ratios(tidy(df_a, lang), tidy(df_b, lang),
-                       source_item_order(df_a, lang),
+    ta, tb = tidy(df_a, lang), tidy(df_b, lang)
+    rows = unit_ratios(ta, tb, source_item_order(df_a, lang),
                        source_item_order(df_b, lang))
+    how = "dòng TỔNG TÀI SẢN"
     if not rows:
-        print("❌ KHÔNG tìm được dòng TỔNG TÀI SẢN ở cả hai nguồn, hoặc hai "
-              "nguồn không có quý nào trùng. Dán 10 chỉ tiêu đầu của mỗi bên:")
+        # Không khớp được nhãn thì vẫn còn đo được BẬC ĐƠN VỊ, và đó mới là
+        # câu hỏi ở đây. Nói rõ đang đo bằng cách nào.
+        rows = magnitude_ratios(ta, tb)
+        how = "|giá trị| LỚN NHẤT mỗi kỳ (không khớp được nhãn)"
+    if not rows:
+        print("❌ Hai nguồn không có quý nào trùng, hoặc một bên không có số "
+              "nào. Dán 10 chỉ tiêu đầu của mỗi bên:")
         for nm, d in ((src_a, df_a), (src_b, df_b)):
             print(f"  [{nm}] " + " | ".join(source_item_order(d, lang)[:10]))
         return 2
+    print(f"đo bằng: {how}\n")
     print(f"{'KỲ':<9} {src_a:>18} {src_b:>18} {'TỈ SỐ':>10}")
     for qq, fa, fb, ratio in rows[-12:]:
         r = f"{ratio:,.3f}" if ratio else "—"
@@ -438,140 +565,9 @@ def crosscheck(ticker: str, limit: int, lang: str,
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# Ghi Excel
+# Ghi Excel đã tách sang `bank_bs_excel` (trần 800 dòng/file).
 # ─────────────────────────────────────────────────────────────────────────
-_FONT = "Arial"
-_NUM_FMT = "#,##0;(#,##0);-"
-
-
-def write_workbook(path: Path, per_bank: dict, items: list, quarters: list,
-                   coverage: list, lang: str, source: str = "vci",
-                   unit_note: "str | None" = None) -> None:
-    from openpyxl import Workbook
-    from openpyxl.styles import Alignment, Font, PatternFill
-    from openpyxl.utils import get_column_letter
-
-    wb = Workbook()
-    head_font = Font(name=_FONT, bold=True, size=10)
-    body_font = Font(name=_FONT, size=10)
-    head_fill = PatternFill("solid", fgColor="DDEBF7")
-
-    # ── Sheet 1: TẦM PHỦ (đọc TRƯỚC khi tin bất kỳ sheet nào) ───────────
-    cov = wb.active
-    cov.title = "0_TẦM PHỦ"
-    cov.append(["Mã", "Số quý CÓ", "Số quý XIN", "Quý đầu", "Quý cuối",
-                "Số chỉ tiêu", "|Giá trị| lớn nhất"])
-    for c in cov[1]:
-        c.font, c.fill = head_font, head_fill
-    for r in coverage:
-        cov.append([r["ticker"], r["quarters_found"], r["quarters_asked"],
-                    r["first"], r["last"], r["line_items"], r["max_abs"]])
-    for row in cov.iter_rows(min_row=2):
-        for c in row:
-            c.font = body_font
-        row[6].number_format = _NUM_FMT
-    for i, w in enumerate((10, 12, 12, 12, 12, 14, 22), start=1):
-        cov.column_dimensions[get_column_letter(i)].width = w
-    cov.freeze_panes = "A2"
-
-    note = cov.cell(row=len(coverage) + 3, column=1)
-    note.value = (
-        "GHI CHÚ — đọc trước khi dùng số:\n"
-        "• Ô TRỐNG = nguồn KHÔNG có số cho ô đó. KHÁC hẳn số 0.\n"
-        "• Mọi sheet ngân hàng dùng CHUNG một bộ dòng chỉ tiêu (hợp nhất từ "
-        "tất cả các mã) và CHUNG một bộ cột quý, nên so ngang được.\n"
-        f"• Nguồn: {source}. "
-        + (f"Trang nguồn ghi 'Đơn vị: {unit_note}' — ĐÂY LÀ GHI CHÚ THAM "
-           f"KHẢO, KHÔNG PHẢI KẾT LUẬN. " if unit_note else "Nguồn KHÔNG ghi đơn vị. ")
-        + "Script KHÔNG quy đổi gì cả. Thang THẬT đọc ở cột '|Giá trị| lớn "
-        "nhất' bên trái: ngân hàng lớn cỡ 1e15 là ĐỒNG nguyên, cỡ 1e12 là "
-        "triệu đồng, cỡ 1e9 là tỷ đồng. (Đo 26/08: trang CafeF ghi 'tỷ đồng' "
-        "mà ô số lại là đồng nguyên — nên đừng tin câu đó.)\n"
-        "• 'Số quý CÓ' < 'Số quý XIN' nghĩa là nguồn thiếu kỳ, KHÔNG phải "
-        "script bỏ sót.")
-    note.font = Font(name=_FONT, size=9, italic=True)
-    note.alignment = Alignment(wrap_text=True, vertical="top")
-    cov.merge_cells(start_row=note.row, start_column=1,
-                    end_row=note.row + 6, end_column=7)
-
-    # ── Mỗi ngân hàng một sheet, BỐ CỤC Y HỆT NHAU ──────────────────────
-    # Thứ tự dòng dựng MỘT LẦN từ `items` — đó chính là điều kiện "đồng nhất".
-    # Dòng nào nhìn như TIÊU ĐỀ MỤC (toàn hoa, hoặc "TỔNG …") thì tô đậm để
-    # bảng đọc ra hình dạng bảng cân đối; KHÔNG tự chèn tiêu đề của mình và
-    # KHÔNG đổi tên chỉ tiêu — nguồn đã trả đúng thứ tự báo cáo, sắp lại theo
-    # khung riêng là rước rủi ro xếp nhầm dòng.
-    sec_font = Font(name=_FONT, bold=True, size=10)
-    sec_fill = PatternFill("solid", fgColor="F2F2F2")
-    chk_font = Font(name=_FONT, bold=True, size=10, italic=True)
-
-    for ticker in sorted(per_bank):
-        ws = wb.create_sheet(ticker[:31])
-        ws.append([f"BẢNG CÂN ĐỐI KẾ TOÁN — {ticker} (theo quý)"])
-        ws["A1"].font = Font(name=_FONT, bold=True, size=12)
-        ws.append(["Chỉ tiêu"] + [quarter_label(*qq) for qq in quarters])
-        for c in ws[2]:
-            c.font, c.fill = head_font, head_fill
-            c.alignment = Alignment(horizontal="center")
-        ws["A2"].alignment = Alignment(horizontal="left")
-
-        by_item = dict(zip(items, sheet_matrix(items, quarters,
-                                               per_bank[ticker])))
-        row_of: dict = {}
-        for label in items:
-            ws.append([label] + by_item[label])
-            row_of[label] = ws.max_row
-            r = ws[ws.max_row]
-            head = is_heading(label)
-            r[0].font = sec_font if head else body_font
-            r[0].alignment = Alignment(wrap_text=True, vertical="top")
-            for c in r[1:]:
-                c.font = sec_font if head else body_font
-                c.number_format = _NUM_FMT
-            if head:
-                for c in r:
-                    c.fill = sec_fill
-
-        _append_balance_check(ws, items, row_of, quarters, chk_font)
-
-        ws.column_dimensions["A"].width = 52
-        for i in range(2, len(quarters) + 2):
-            ws.column_dimensions[get_column_letter(i)].width = 18
-        ws.freeze_panes = "B3"
-
-    wb.save(path)
-
-
-def _append_balance_check(ws, items, row_of, quarters, font):
-    """Hàng KIỂM TRA CÂN ĐỐI — bằng CÔNG THỨC, không phải số Python tính sẵn.
-
-    Bảng cân đối chỉ có đúng một bất biến: TỔNG TÀI SẢN = TỔNG NGUỒN VỐN.
-    Viết bằng công thức để nó tự tính lại khi ai đó sửa số trong file.
-
-    Không định vị được cả hai dòng ⇒ ghi một dòng NÓI RÕ là không kiểm được,
-    chứ không im lặng bỏ qua.
-    """
-    from openpyxl.utils import get_column_letter
-
-    ta = find_row(items, "tong tai san", "total assets")
-    tn = find_row(items, "tong no phai tra va von chu so huu",
-                  "tong nguon von", "total liabilities and owner s equity",
-                  "total resources")
-    ws.append([])
-    if ta is None or tn is None:
-        ws.append(["⚠ Không định vị được dòng TỔNG TÀI SẢN và/hoặc TỔNG NGUỒN "
-                   "VỐN trong dữ liệu nguồn → KHÔNG kiểm được cân đối"])
-        ws[ws.max_row][0].font = font
-        return
-    r_ta, r_tn = row_of[items[ta]], row_of[items[tn]]
-    ws.append(["KIỂM TRA: Tổng tài sản − Tổng nguồn vốn (phải = 0)"])
-    r = ws.max_row
-    ws[r][0].font = font
-    for i in range(len(quarters)):
-        col = get_column_letter(i + 2)
-        c = ws.cell(row=r, column=i + 2)
-        c.value = f"=IFERROR({col}{r_ta}-{col}{r_tn},\"\")"
-        c.font = font
-        c.number_format = _NUM_FMT
+from scripts.bank_bs_excel import write_workbook  # noqa: E402
 
 
 def main(argv=None) -> int:
@@ -605,6 +601,9 @@ def main(argv=None) -> int:
                     default=None,
                     help="In CẤU TRÚC trang CafeF + lưu HTML thô, khi bộ bóc trật")
     ap.add_argument("--dump-year", type=int, default=2016)
+    ap.add_argument("--items", metavar="MÃ", default=None,
+                    help="In danh sách chỉ tiêu + KHUNG bảng (ngân hàng hay "
+                         "doanh nghiệp thường) rồi thoát")
     args = ap.parse_args(argv)
 
     if args.probe_all:
@@ -615,6 +614,9 @@ def main(argv=None) -> int:
     if args.crosscheck:
         return crosscheck(args.crosscheck.upper(), args.limit, args.lang,
                           src_b=args.with_source)
+    if args.items:
+        return show_items(args.items.upper(), args.limit, args.lang,
+                          args.source, range(args.y_from, args.y_to + 1))
     if args.probe:
         return probe(args.probe.upper(), args.limit, args.lang, args.source)
 

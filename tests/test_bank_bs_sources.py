@@ -328,11 +328,26 @@ class TestCrosscheckExitCodes:
         monkeypatch.setattr(E, "fetch_balance_sheet", lambda *a, **k: df)
         assert E.crosscheck("VCB", 200, "vi") == 0
 
-    def test_no_shared_line_item_is_a_failure_not_a_silent_pass(self, monkeypatch):
+    def test_no_shared_label_falls_back_to_magnitude_and_SAYS_SO(
+            self, monkeypatch, capsys):
+        """Không khớp được nhãn thì vẫn còn đo được BẬC ĐƠN VỊ — và đó mới là
+        câu hỏi của `--crosscheck`. Điều bắt buộc là NÓI RA đang đo bằng cách
+        nào, chứ không phải im lặng như thể đã khớp nhãn. Vết 26/08: bản đầu
+        lấy nhãn khớp đầu tiên, trúng một dòng tiêu đề CafeF để trống, ra
+        `nan` hết và không kết luận được gì."""
         frames = iter([
-            _frame(["TỔNG TÀI SẢN"], [(2018, 1)], {("TỔNG TÀI SẢN", 2018, 1): 5}),
+            _frame(["TỔNG TÀI SẢN"], [(2018, 1)], {("TỔNG TÀI SẢN", 2018, 1): 5000}),
             _frame(["Cho vay khách hàng"], [(2018, 1)],
                    {("Cho vay khách hàng", 2018, 1): 5}),
+        ])
+        monkeypatch.setattr(E, "fetch_balance_sheet", lambda *a, **k: next(frames))
+        assert E.crosscheck("VCB", 200, "vi") == 0
+        assert "không khớp được nhãn" in capsys.readouterr().out
+
+    def test_no_overlapping_quarter_is_still_a_failure(self, monkeypatch):
+        frames = iter([
+            _frame(["TỔNG TÀI SẢN"], [(2018, 1)], {("TỔNG TÀI SẢN", 2018, 1): 5}),
+            _frame(["TỔNG TÀI SẢN"], [(2019, 1)], {("TỔNG TÀI SẢN", 2019, 1): 5}),
         ])
         monkeypatch.setattr(E, "fetch_balance_sheet", lambda *a, **k: next(frames))
         assert E.crosscheck("VCB", 200, "vi") == 2
@@ -1131,3 +1146,145 @@ class TestSplitHeaderPage:
 
     def test_the_real_header_spacing_is_matched(self):
         assert S.cell_quarter(" Quý 1- 2016") == (2016, 1)
+
+
+class TestBlankLabelledRowIsSkipped:
+    """Vết 26/08 lượt 6: `--crosscheck VCB` ra `nan` toàn bộ. Nhãn khớp đầu
+    tiên trúng một dòng TIÊU ĐỀ MỤC mà CafeF để trống, và bản đầu dừng luôn ở
+    đó — trong khi bảng có thừa số để so."""
+
+    QS = [(2018, 1), (2018, 2)]
+
+    def test_a_blank_total_row_makes_it_try_the_next_label(self):
+        a = {qq: {"TỔNG TÀI SẢN": 1000.0} for qq in self.QS}
+        b = {qq: {"TỔNG TÀI SẢN": None, "TỔNG CỘNG TÀI SẢN": 1.0}
+             for qq in self.QS}
+        rows = E.unit_ratios(a, b, ["TỔNG TÀI SẢN"],
+                             ["TỔNG TÀI SẢN", "TỔNG CỘNG TÀI SẢN"])
+        assert [round(r) for *_, r in rows] == [1000, 1000]
+
+    def test_a_nan_value_is_treated_as_blank(self):
+        a = {(2018, 1): {"TỔNG TÀI SẢN": 5.0}}
+        b = {(2018, 1): {"TỔNG TÀI SẢN": float("nan")}}
+        assert E.unit_ratios(a, b, ["TỔNG TÀI SẢN"], ["TỔNG TÀI SẢN"]) == []
+
+    def test_cross_language_labels_still_pair_up(self):
+        a = {(2018, 1): {"TỔNG TÀI SẢN": 1000.0}}
+        b = {(2018, 1): {"TOTAL ASSETS": 1.0}}
+        rows = E.unit_ratios(a, b, ["TỔNG TÀI SẢN"], ["TOTAL ASSETS"])
+        assert rows and round(rows[0][3]) == 1000
+
+
+class TestMagnitudeRatios:
+    """Lưới cuối cho câu hỏi ĐƠN VỊ: số lớn nhất trong một bảng cân đối luôn
+    là tổng tài sản, nên tỉ số này đo đúng bậc đơn vị mà không cần khớp nhãn.
+    Nó KHÔNG chứng minh hai bảng nói cùng một chỉ tiêu — chỉ trả lời: chênh
+    nhau mấy bậc nghìn."""
+
+    def test_a_clean_thousand_fold_gap_shows_up(self):
+        a = {(2018, 1): {"x": 1_000_000.0, "y": 5.0}}
+        b = {(2018, 1): {"khác hẳn": 1_000.0, "z": 1.0}}
+        assert round(E.magnitude_ratios(a, b)[0][3]) == 1000
+
+    def test_negative_values_count_by_magnitude(self):
+        a = {(2018, 1): {"dự phòng": -900.0, "x": 100.0}}
+        b = {(2018, 1): {"q": 9.0}}
+        assert round(E.magnitude_ratios(a, b)[0][3]) == 100
+
+    def test_only_overlapping_quarters_are_compared(self):
+        a = {(2018, 1): {"x": 5.0}, (2018, 2): {"x": 6.0}}
+        b = {(2018, 1): {"y": 5.0}}
+        assert [qq for qq, *_ in E.magnitude_ratios(a, b)] == [(2018, 1)]
+
+    def test_a_quarter_with_no_numbers_is_skipped(self):
+        a = {(2018, 1): {"x": None}}
+        b = {(2018, 1): {"y": 5.0}}
+        assert E.magnitude_ratios(a, b) == []
+
+    def test_blank_and_nan_never_become_the_maximum(self):
+        a = {(2018, 1): {"x": float("nan"), "y": 3.0}}
+        b = {(2018, 1): {"z": 3.0}}
+        assert E.magnitude_ratios(a, b)[0][1] == 3.0
+
+    def test_no_shared_quarter_gives_nothing(self):
+        assert E.magnitude_ratios({(2018, 1): {"x": 1.0}},
+                                  {(2019, 1): {"x": 1.0}}) == []
+
+
+class TestTemplateKind:
+    """Câu hỏi NGHĨA, không phải câu hỏi định dạng: nguồn có thật sự đưa bảng
+    cân đối NGÂN HÀNG không? Dump 26/08 cho thấy 10 hàng đầu của CafeF là
+    `A- TÀI SẢN NGẮN HẠN`, `I. Tiền và các khoản tương đương tiền` — khung
+    DOANH NGHIỆP THƯỜNG. Định dạng đúng mà nghĩa sai là ca tệ nhất: file mở
+    ra trông chuẩn, 26 sheet đều nhau, mà tên dòng lại sai khung."""
+
+    BANK = ["TỔNG TÀI SẢN", "Cho vay khách hàng", "Tiền gửi của khách hàng",
+            "Phát hành giấy tờ có giá"]
+    CORP = ["TỔNG TÀI SẢN", "A- TÀI SẢN NGẮN HẠN", "Hàng tồn kho",
+            "Các khoản phải thu ngắn hạn", "Nợ ngắn hạn"]
+
+    def test_a_bank_template_is_recognised(self):
+        assert E.template_kind(self.BANK)["kind"] == "NGÂN HÀNG"
+
+    def test_a_corporate_template_is_called_out(self):
+        assert E.template_kind(self.CORP)["kind"] == "DOANH NGHIỆP THƯỜNG"
+
+    def test_the_matching_labels_are_reported_as_evidence(self):
+        got = E.template_kind(self.BANK)
+        assert "Cho vay khách hàng" in got["bank_hits"]
+
+    def test_a_mixed_template_is_not_passed_off_as_a_bank_one(self):
+        mixed = ["Cho vay khách hàng", "Hàng tồn kho", "Tài sản ngắn hạn",
+                 "Nợ ngắn hạn", "Tài sản dài hạn"]
+        assert E.template_kind(mixed)["kind"] == "LẪN LỘN"
+
+    def test_an_unrecognisable_list_says_so_instead_of_guessing(self):
+        assert E.template_kind(["Chỉ tiêu lạ"])["kind"] == "KHÔNG NHẬN RA"
+
+    def test_matching_ignores_accents_numbering_and_case(self):
+        assert E.template_kind(["1. cho vay khach hang", "Tiền gửi của khách hàng",
+                                "Phát hành giấy tờ có giá"])["kind"] == "NGÂN HÀNG"
+
+    def test_an_empty_list_does_not_raise(self):
+        assert E.template_kind([])["kind"] == "KHÔNG NHẬN RA"
+
+
+class TestShowItems:
+    def _df(self):
+        return _frame(["TỔNG TÀI SẢN", "Cho vay khách hàng", "Dòng rỗng"],
+                      [(2015, 1), (2015, 2)],
+                      {("TỔNG TÀI SẢN", 2015, 1): 5,
+                       ("TỔNG TÀI SẢN", 2015, 2): 6,
+                       ("Cho vay khách hàng", 2015, 1): 3})
+
+    def test_it_prints_the_template_verdict(self, monkeypatch, capsys):
+        monkeypatch.setattr(E, "fetch_balance_sheet", lambda *a, **k: self._df())
+        assert E.show_items("VCB", 200, "vi", "cafef", (2015, 2016)) == 0
+        assert "KHUNG BẢNG" in capsys.readouterr().out
+
+    def test_it_counts_how_many_quarters_each_item_actually_has(
+            self, monkeypatch, capsys):
+        monkeypatch.setattr(E, "fetch_balance_sheet", lambda *a, **k: self._df())
+        E.show_items("VCB", 200, "vi", "cafef", (2015, 2016))
+        out = capsys.readouterr().out
+        assert "2/2" in out and "1/2" in out and "0/2" in out
+
+    def test_it_reports_how_many_items_are_entirely_empty(
+            self, monkeypatch, capsys):
+        monkeypatch.setattr(E, "fetch_balance_sheet", lambda *a, **k: self._df())
+        E.show_items("VCB", 200, "vi", "cafef", (2015, 2016))
+        assert "1/3 chỉ tiêu KHÔNG có số" in capsys.readouterr().out
+
+    def test_an_empty_source_is_a_failure_not_an_empty_listing(
+            self, monkeypatch):
+        monkeypatch.setattr(E, "fetch_balance_sheet",
+                            lambda *a, **k: pd.DataFrame())
+        assert E.show_items("VCB", 200, "vi", "cafef", (2015, 2016)) == 2
+
+    def test_a_corporate_template_gets_an_explicit_warning(
+            self, monkeypatch, capsys):
+        df = _frame(["Hàng tồn kho", "Nợ ngắn hạn", "Tài sản ngắn hạn"],
+                    [(2015, 1)], {("Hàng tồn kho", 2015, 1): 1})
+        monkeypatch.setattr(E, "fetch_balance_sheet", lambda *a, **k: df)
+        E.show_items("VCB", 200, "vi", "cafef", (2015, 2016))
+        assert "KHÔNG mang nghĩa kế toán ngân hàng" in capsys.readouterr().out

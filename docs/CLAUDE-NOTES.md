@@ -6979,6 +6979,31 @@ nguồn — ghi lại để lần sau khỏi mò lại:
 | `tcbs`  | ❌ **404** — endpoint `apipubaws` đã chết | 26/08, máy user |
 | `cafef` | ⚠️ tải được (HTTP 200, thấy đủ `Quý 1-2016 → Quý 4-2016` trong HTML) nhưng **bộ bóc KHÔNG ra bảng nào** | 26/08 lượt 2, máy user |
 
+**Lượt 6 — RA FILE, và hai việc còn treo.**
+
+`--probe-all VCB`: `cafef ✅ 2015-Q1 → 2016-Q4 · 8 quý · 119 chỉ tiêu`. File
+`bang_can_doi_ngan_hang_2015_2016.xlsx` ghi ra: **26 sheet · 119 dòng giống
+nhau · 8 cột quý**, 25/26 mã đủ 8 quý (NVB 4/8).
+
+**① `--crosscheck` ra `nan` HẾT — và đó là lỗi của phép đo, không phải của
+dữ liệu.** `unit_ratios` lấy nhãn khớp ĐẦU TIÊN rồi dừng; nó trúng một dòng
+TIÊU ĐỀ MỤC mà CafeF để trống ⇒ `nan` toàn bộ, không kết luận được gì, trong
+khi bảng có thừa số để so. Chữa hai tầng:
+* thử LẦN LƯỢT mọi cặp nhãn (kể cả VI ⇄ EN) và **bỏ qua cặp nào rỗng số**;
+* không cặp nào khớp thì rơi xuống `magnitude_ratios` — tỉ số |giá trị| LỚN
+  NHẤT mỗi kỳ. Trong bảng cân đối, số lớn nhất luôn là tổng tài sản, nên nó
+  đo đúng thứ cần đo (BẬC ĐƠN VỊ) mà không cần khớp nhãn. Bắt buộc **in ra
+  đang đo bằng cách nào** — im lặng đổi cách đo là tệ hơn không đo.
+
+**② Khung chỉ tiêu — câu hỏi NGHĨA, chưa trả lời được.** 10 hàng đầu là
+`A- TÀI SẢN NGẮN HẠN` / `I. Tiền và các khoản tương đương tiền` / `Các khoản
+phải thu ngắn hạn` — khung **DOANH NGHIỆP THƯỜNG**, không phải khung tổ chức
+tín dụng. Thêm `--items MÃ`: in cả 119 dòng kèm số kỳ CÓ SỐ, và `template_kind`
+đếm nhãn đặc trưng (`Cho vay khách hàng`, `Tiền gửi của khách hàng`… vs
+`Hàng tồn kho`, `Nợ ngắn hạn`…) để gọi tên khung. **Định dạng đúng mà nghĩa
+sai là ca tệ nhất ở đây** — file mở ra trông chuẩn, 26 sheet đều nhau, mà tên
+dòng lại sai khung.
+
 **Lượt 5 — ĐÃ RA: tiêu đề và số liệu ở HAI BẢNG KHÁC NHAU.**
 
 `--dump-cafef` in ra chữ thật, và nó bác luôn giả thuyết dấu ngăn ở lượt 4:
