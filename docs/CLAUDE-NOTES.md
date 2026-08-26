@@ -6966,6 +6966,62 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🩹 U36. BỘ CHẶN CỜ CỔ TỨC CHẠY CHAY TỪ 19/08 — MỘT LỖI IM LẶNG (26/08)
+
+Đi tìm câu trả lời cho việc #4 ("bỏ hay giữ đường CafeF `cash-dividends`") thì
+lòi ra chuyện lớn hơn: **cái nó nuôi đã chết theo nó, và không ai biết.**
+
+## Chuỗi phụ thuộc
+
+    dashboard/market_commentary.py:171
+      → load_recent_exdiv(days_back=7)            (vnstock_market_analyzer)
+        → _meta/cash_dividends/*.json             ← nguồn DUY NHẤT
+          ← run.py cash-dividends                 ← cào CafeF
+
+Ba dữ kiện cộng lại thành một lỗi im lặng:
+1. `run.py cash-dividends` cào CafeF, **404 từ 19/08** (U17 mục 2).
+2. Lệnh đó **KHÔNG nằm trong `cmd_all`** — chưa bao giờ tự chạy, chỉ gõ tay.
+3. Cửa sổ mặc định **7 ngày**.
+
+⇒ Từ khoảng 26/08, `load_recent_exdiv` **luôn trả `{}`**. Công dụng của nó là
+**bỏ qua cờ "phân phối"** khi giá rơi chỉ vì cổ tức — nên cờ phân phối GIẢ đi
+thẳng ra dashboard mỗi lần một mã GDKHQ. Và `{}` là giá trị hợp lệ nên không
+chỗ nào kêu. **Code chết trông y như code sống**, đúng cái repo này sợ nhất.
+
+## Vá
+
+`_meta/corp_actions_registry.parquet` đã có sẵn cột `cash_amount` và được
+NHIỀU nguồn nạp (vietstock, capital_history, manual), không phụ thuộc CafeF.
+
+* `_exdiv_from_registry` — đường CHÍNH: lọc `type == "cash"`, trong cửa sổ,
+  mã trùng thì lấy kỳ MỚI NHẤT.
+* `_exdiv_from_cafef_cache` — đường cũ, giữ làm lưới sau.
+* `load_recent_exdiv` **HỢP NHẤT hai đường**, sổ thắng khi trùng mã. Không
+  loại nhau: mã chỉ có ở kho cũ vẫn được giữ — bỏ đi là mất một lần chặn cờ
+  giả mà chẳng được gì.
+* Sổ có sự kiện mà **thiếu số tiền** vẫn chặn cờ (amount=0). Sự kiện tồn tại
+  đã là bằng chứng giá rơi vì cổ tức; bỏ dòng đó chỉ vì thiếu một con số là
+  vứt luôn phần biết được.
+
+## Badge `exdiv_source` — để lần sau nó TỰ nổi lên
+
+Chỗ khó của badge này: **7 ngày không mã nào chia cổ tức là chuyện BÌNH
+THƯỜNG.** Kêu vì rỗng là báo động giả, mà báo động giả dạy người ta bỏ qua
+badge — hỏng nặng hơn cái nó cảnh báo. Nên nó chỉ warn khi **cả sổ đăng ký
+cũng trống rỗng ở MỌI kỳ**, tức không phải "tuần này không có" mà là "không
+có nguồn". Câu `fix` chỉ sang `run.py vietstock --bulk --register`, và nói
+thẳng rằng `run.py cash-dividends` đã 404 — gợi ý một lệnh đã chết chính là
+cái bẫy vừa gỡ.
+
+## Còn treo
+
+**Chưa xoá đường CafeF.** Đổi chỗ ĐỌC và xoá chỗ GHI trong cùng một nhịp thì
+hỏng cái gì cũng không biết tại cái nào. Xoá sau khi user chạy `run.py doctor`
+và badge `exdiv_source` báo `đường registry trả N mã` — lúc đó mới có bằng
+chứng sổ đăng ký gánh được.
+
+29 test ở `tests/test_exdiv_source.py`.
+
 # 🔌 U35. FINHAY MCP: CÓ GÌ, DÙNG ĐƯỢC GÌ CHO APP (26/08)
 
 68 tool. **Ràng buộc quyết định mọi thứ bên dưới: đây là MCP connector của

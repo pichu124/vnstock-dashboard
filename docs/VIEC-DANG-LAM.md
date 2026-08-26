@@ -140,8 +140,7 @@ hiệu guard đang LÀM VIỆC, không phải hỏng.
 | ~~2~~ | **`screener` 1.318s** | ✅ **XONG 26/08** — nó quét kho **14 lần y hệt nhau** (14 preset, filter chỉ áp SAU khi đã đọc + tính). Nhớ chỉ báo ⇒ 14 lượt → 1. |
 | ~~3~~ | **`fix-units` 316s** | ✅ **XONG 26/08** — lọc bằng **thống kê footer parquet** (tương đương chứng minh được, không thêm state), + chỉ giải nén `time`/`close`. |
 | ~~1~~ | **Vòng lặp Net BS** | ✅ **XONG 26/08** — song song có nhịp (8 luồng, tổng tốc độ chặn ở 8 req/s < quota 10). Kỳ vọng ~650s → ~125s. |
-| 4 | **Bỏ hay giữ đường CafeF `cash-dividends`** (404 từ 19/08) | Vietstock đã trả cả sự kiện tiền mặt ⇒ code chết trông như code sống |
-| 5 | **Vòng lặp Net BS trong screener** — gọi `order_stats()` TUẦN TỰ cho MỌI mã (~1.000 lần), `sleep(0.15)` ⇒ sàn 135-165s; cache TTL 12h < nhịp 24h nên **nguội mỗi đêm** | Ứng viên co-equal với #2, chưa tách được khỏi 1.318s nếu chỉ đọc code |
+| ~~4~~ | **Đường CafeF `cash-dividends`** | 🟡 **VÁ NỬA 26/08** — soi ra chuyện lớn hơn: cái nó nuôi (`load_recent_exdiv`, bộ chặn cờ "phân phối" giả) **chạy chay từ 19/08**, im lặng. Đã nối sang sổ đăng ký + badge `exdiv_source`. **Chưa xoá** đường CafeF — chờ badge báo `registry trả N mã` đã. Xem U36 |
 
 **📏 Phát kế tiếp là phép đo của cả ba bản vá** — dán `⏱ TỔNG` + `⏱ CHẶNG` +
 dòng `screener` như thường lệ.

@@ -205,27 +205,67 @@ def load_quarantine_tickers() -> set[str]:
         return set()
 
 
-def load_recent_exdiv(days_back: int = 7) -> dict:
-    """Return tickers whose ex-dividend date falls within the last ``days_back`` days.
+def _exdiv_from_registry(cutoff, today, warehouse=None) -> dict:
+    """Sự kiện CỔ TỨC TIỀN MẶT trong khoảng, lấy từ SỔ ĐĂNG KÝ sự kiện.
 
-    Used to suppress false "sell" red-flags when a price drop is simply the
-    stock going ex-dividend, not a distribution signal.
-
-    Returns {ticker_upper: {"ex_date": str, "amount": float}} for each match.
-    Best-effort: returns {} when the cash-dividend cache doesn't exist yet.
+    Sổ `_meta/corp_actions_registry.parquet` được nhiều nguồn nạp (vietstock,
+    capital_history, manual…) và có sẵn cột `cash_amount`. Đây là đường CHÍNH
+    từ 26/08 — xem `_exdiv_from_cafef_cache` để biết vì sao.
     """
-    from datetime import date, timedelta
-    import json
     from pathlib import Path
 
-    today = date.today()
-    cutoff = today - timedelta(days=days_back)
-    result: dict = {}
+    import pandas as pd
+
+    wh = Path(warehouse or "data_warehouse")
+    path = wh / "_meta" / "corp_actions_registry.parquet"
+    if not path.exists():
+        return {}
+    try:
+        df = pd.read_parquet(path)
+    except Exception:
+        return {}
+    if df is None or df.empty or "ex_date" not in df.columns:
+        return {}
+
+    out: dict = {}
+    for _, row in df.iterrows():
+        if str(row.get("type", "")).lower() != "cash":
+            continue
+        try:
+            ex_date = pd.to_datetime(row["ex_date"]).date()
+        except Exception:
+            continue
+        if not (cutoff <= ex_date <= today):
+            continue
+        ticker = str(row.get("ticker", "")).strip().upper()
+        if not ticker:
+            continue
+        amount = row.get("cash_amount")
+        try:
+            amount = float(amount)
+        except (TypeError, ValueError):
+            amount = 0.0
+        if amount != amount:                     # NaN — sổ có sự kiện, thiếu số
+            amount = 0.0
+        prev = out.get(ticker)
+        if prev is None or ex_date.isoformat() > prev["ex_date"]:
+            out[ticker] = {"ex_date": ex_date.isoformat(), "amount": amount}
+    return out
+
+
+def _exdiv_from_cafef_cache(cutoff, today) -> dict:
+    """Đường CŨ: `_meta/cash_dividends/*.json`, chỉ do `run.py cash-dividends`
+    nạp — mà lệnh đó cào CafeF và **404 từ 19/08**, lại KHÔNG nằm trong
+    `cmd_all`. Giữ làm lưới sau, không làm đường chính.
+    """
+    import json
+    from datetime import date
+    from pathlib import Path
 
     cache_dir = Path("data_warehouse/_meta/cash_dividends")
     if not cache_dir.exists():
         return {}
-
+    result: dict = {}
     for fpath in cache_dir.glob("*.json"):
         try:
             ticker = fpath.stem.upper()
@@ -246,6 +286,51 @@ def load_recent_exdiv(days_back: int = 7) -> dict:
                     break
         except Exception:
             continue
+    return result
+
+
+def exdiv_source_status(days_back: int = 7) -> dict:
+    """Đường nào đang TRẢ LỜI, và bao nhiêu mã — để badge doctor réo được.
+
+    Vết 26/08: `load_recent_exdiv` chỉ đọc kho JSON của CafeF. `run.py
+    cash-dividends` cào CafeF thì **404 từ 19/08**, và lệnh đó KHÔNG nằm trong
+    `cmd_all` nên chưa bao giờ tự chạy. Cửa sổ mặc định là 7 ngày ⇒ từ khoảng
+    26/08 hàm này **luôn trả {}**, và cờ "phân phối" giả không còn bị chặn —
+    lặng lẽ, không ai biết. Đúng kiểu code chết trông y như code sống.
+    """
+    from datetime import date, timedelta
+
+    today = date.today()
+    cutoff = today - timedelta(days=days_back)
+    reg = _exdiv_from_registry(cutoff, today)
+    cache = _exdiv_from_cafef_cache(cutoff, today)
+    return {
+        "registry": len(reg),
+        "cafef_cache": len(cache),
+        "source": ("registry" if reg else ("cafef_cache" if cache else "none")),
+        "days_back": days_back,
+    }
+
+
+def load_recent_exdiv(days_back: int = 7) -> dict:
+    """Return tickers whose ex-dividend date falls within the last ``days_back`` days.
+
+    Used to suppress false "sell" red-flags when a price drop is simply the
+    stock going ex-dividend, not a distribution signal.
+
+    Returns {ticker_upper: {"ex_date": str, "amount": float}} for each match.
+
+    SỔ ĐĂNG KÝ trước, kho JSON của CafeF sau. Hai đường HỢP NHẤT chứ không
+    loại nhau: sổ thắng khi trùng mã, nhưng mã chỉ có ở kho cũ vẫn được giữ —
+    bỏ đi là mất một lần chặn cờ giả mà chẳng được gì.
+    """
+    from datetime import date, timedelta
+
+    today = date.today()
+    cutoff = today - timedelta(days=days_back)
+
+    result = _exdiv_from_cafef_cache(cutoff, today)
+    result.update(_exdiv_from_registry(cutoff, today))
     return result
 
 

@@ -1042,6 +1042,54 @@ def check_brief_watch() -> dict:
         "file để đếm lại. Tắt sổ: VNSTOCK_BRIEF_WATCH=0")
 
 
+def check_exdiv_source() -> dict:
+    """Bộ chặn cờ "phân phối" GIẢ có data để chặn không, hay đang chạy chay?
+
+    `market_commentary` gọi `load_recent_exdiv(days_back=7)` để **bỏ qua** cờ
+    phân phối khi giá rơi chỉ vì cổ tức. Không có data thì hàm trả `{}`, cờ
+    giả đi thẳng ra dashboard — **im lặng**, vì `{}` là giá trị hợp lệ.
+
+    Vết 26/08: đường nạp duy nhất khi đó là `_meta/cash_dividends/*.json`, mà
+    kho đó chỉ do `run.py cash-dividends` ghi — lệnh cào CafeF **404 từ 19/08**
+    và **KHÔNG nằm trong `cmd_all`** nên chưa bao giờ tự chạy. Cửa sổ 7 ngày
+    ⇒ hàm luôn rỗng. Đã nối thêm đường SỔ ĐĂNG KÝ; badge này là chỗ để biết
+    đường nào đang thật sự trả lời.
+
+    Cửa sổ 7 ngày mà KHÔNG mã nào chia cổ tức là chuyện BÌNH THƯỜNG, nên
+    "rỗng" một mình KHÔNG đủ để warn — chỉ warn khi **cả sổ đăng ký cũng
+    trống rỗng**, tức không phải "tuần này không có" mà là "không có nguồn".
+    """
+    name = "Nguồn chặn cờ cổ tức"
+    try:
+        from vnstock_market_analyzer import _exdiv_from_registry, exdiv_source_status
+        st = exdiv_source_status()
+    except Exception as e:
+        return _result("exdiv_source", name, "error",
+                       f"không đọc được ({type(e).__name__}: {e})", "")
+
+    if st["source"] != "none":
+        return _result("exdiv_source", name, "ok",
+                       f"đường {st['source']} trả {st[st['source']]} mã "
+                       f"trong {st['days_back']} ngày", "")
+
+    # Rỗng: phân biệt "tuần này không có mã nào chia" với "KHÔNG CÓ NGUỒN".
+    from datetime import date, timedelta
+    try:
+        ever = _exdiv_from_registry(date(1990, 1, 1), date.today())
+    except Exception:
+        ever = {}
+    if ever:
+        return _result("exdiv_source", name, "ok",
+                       f"{st['days_back']} ngày qua không mã nào chia cổ tức "
+                       f"(sổ đăng ký có {len(ever)} mã ở các kỳ khác)", "")
+    return _result(
+        "exdiv_source", name, "warn",
+        "KHÔNG nguồn nào trả sự kiện cổ tức tiền mặt — bộ chặn cờ "
+        "\"phân phối\" giả đang chạy CHAY",
+        "nạp sổ đăng ký: `python run.py vietstock --bulk --register` "
+        "(đường CafeF `run.py cash-dividends` đã 404 từ 19/08, đừng dựa vào)")
+
+
 def check_autoheal_yield() -> dict:
     """auto-heal có chữa được gì không, hay chỉ đang xay không tải?
 
@@ -1079,6 +1127,7 @@ OFFLINE_CHECKS = [
     check_basis_drift, check_ohlc_repairs, check_vn30_basket,
     check_autoheal_yield,
     check_brief_watch,
+    check_exdiv_source,
     check_warehouse, check_market_overview, check_fundamentals, check_macro,
     check_pdf_tooling, check_market_news, check_ticker_news,
     check_foreign_flow, check_events, check_reports, check_allocation,
