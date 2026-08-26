@@ -1288,3 +1288,124 @@ class TestShowItems:
         monkeypatch.setattr(E, "fetch_balance_sheet", lambda *a, **k: df)
         E.show_items("VCB", 200, "vi", "cafef", (2015, 2016))
         assert "KHÔNG mang nghĩa kế toán ngân hàng" in capsys.readouterr().out
+
+
+class TestInsaneValues:
+    """Đo 26/08 lượt 7: `--crosscheck VCB` cho thấy ô lớn nhất của CafeF là
+    ~1e24 ở 6/8 quý, trong khi VCI là ~1e15 — cùng CHỮ SỐ ĐẦU, lệch đúng
+    1e9. Đó là lỗi BÓC SỐ, không phải ngoại lệ kế toán: ngân hàng lớn nhất
+    VN cỡ 3e15 đồng. Một ô như thế lọt vào file sẽ kéo lệch mọi phép so mà
+    chẳng ai để ý, nên phải NÊU RA."""
+
+    def test_a_value_past_the_ceiling_is_reported(self):
+        per = {"VCB": {(2015, 1): {"TỔNG TÀI SẢN": 1.0039e24}}}
+        assert E.insane_values(per)[0][0] == "VCB"
+
+    def test_a_real_bank_sized_number_is_not_reported(self):
+        per = {"VCB": {(2015, 1): {"TỔNG TÀI SẢN": 1.0039e15}}}
+        assert E.insane_values(per) == []
+
+    def test_a_large_negative_is_caught_too(self):
+        per = {"VCB": {(2015, 1): {"Dự phòng": -5e20}}}
+        assert len(E.insane_values(per)) == 1
+
+    def test_blanks_and_text_never_trip_it(self):
+        per = {"VCB": {(2015, 1): {"a": None, "b": "n/a", "c": float("nan")}}}
+        assert E.insane_values(per) == []
+
+    def test_it_names_the_quarter_and_the_item(self):
+        per = {"VCB": {(2016, 3): {"Hàng tồn kho": 9e19}}}
+        tk, qq, name, v = E.insane_values(per)[0]
+        assert qq == (2016, 3) and name == "Hàng tồn kho"
+
+    def test_nothing_is_silently_dropped_or_fixed(self):
+        """Chỉ NÊU RA. Tự sửa hay tự bỏ là che mất dấu hiệu bộ bóc hỏng."""
+        per = {"VCB": {(2015, 1): {"x": 9e19}}}
+        E.insane_values(per)
+        assert per["VCB"][(2015, 1)]["x"] == 9e19
+
+
+class TestWrongTemplateIsRefused:
+    """Chốt chặn NGHĨA. "File rỗng trông như thật" đã chặn từ trước; đây là ca
+    tệ hơn — file ĐẦY SỐ, 26 sheet đều tăm tắp, mà tên dòng thuộc khung kế
+    toán khác. Đo 26/08: CafeF trả VCB theo khung DOANH NGHIỆP THƯỜNG, 78/119
+    dòng rỗng, và có cả "IV. Hàng tồn kho 8/8" cho một ngân hàng."""
+
+    _CORP = ["TỔNG CỘNG TÀI SẢN", "A- TÀI SẢN NGẮN HẠN", "IV. Hàng tồn kho",
+             "III. Các khoản phải thu ngắn hạn", "I. Nợ ngắn hạn"]
+
+    def _run(self, monkeypatch, items, extra=()):
+        df = _frame(items, [(2015, 1)], {(items[0], 2015, 1): 1.0})
+        monkeypatch.setattr(E, "fetch_balance_sheet", lambda *a, **k: df)
+        monkeypatch.setattr(E, "write_workbook",
+                            lambda *a, **k: (_ for _ in ()).throw(
+                                AssertionError("KHÔNG được ghi file")))
+        return E.main(["--tickers", "VCB", "--source", "cafef",
+                       "--from", "2015", "--to", "2015", *extra])
+
+    def test_a_corporate_template_refuses_to_write(self, monkeypatch, capsys):
+        assert self._run(monkeypatch, self._CORP) == 2
+        assert "KHÔNG ghi file" in capsys.readouterr().out
+
+    def test_the_refusal_shows_the_evidence(self, monkeypatch, capsys):
+        self._run(monkeypatch, self._CORP)
+        out = capsys.readouterr().out
+        assert "Hàng tồn kho" in out and "KHÔNG CÓ" in out
+
+    def test_the_refusal_points_at_the_items_command(self, monkeypatch, capsys):
+        self._run(monkeypatch, self._CORP)
+        assert "--items VCB" in capsys.readouterr().out
+
+    def test_an_explicit_flag_lets_it_through(self, monkeypatch, tmp_path):
+        df = _frame(self._CORP, [(2015, 1)], {(self._CORP[0], 2015, 1): 1.0})
+        monkeypatch.setattr(E, "fetch_balance_sheet", lambda *a, **k: df)
+        written = {}
+        monkeypatch.setattr(E, "write_workbook",
+                            lambda path, *a, **k: written.setdefault("p", path))
+        rc = E.main(["--tickers", "VCB", "--source", "cafef", "--from", "2015",
+                     "--to", "2015", "--allow-any-template",
+                     "--out", str(tmp_path / "x.xlsx")])
+        assert rc == 0 and written
+
+    def test_a_real_bank_template_writes_without_the_flag(self, monkeypatch,
+                                                          tmp_path):
+        items = ["TỔNG TÀI SẢN", "Cho vay khách hàng",
+                 "Tiền gửi của khách hàng", "Phát hành giấy tờ có giá"]
+        df = _frame(items, [(2015, 1)], {(items[0], 2015, 1): 1.0})
+        monkeypatch.setattr(E, "fetch_balance_sheet", lambda *a, **k: df)
+        written = {}
+        monkeypatch.setattr(E, "write_workbook",
+                            lambda path, *a, **k: written.setdefault("p", path))
+        rc = E.main(["--tickers", "VCB", "--source", "cafef", "--from", "2015",
+                     "--to", "2015", "--out", str(tmp_path / "x.xlsx")])
+        assert rc == 0 and written
+
+
+class TestUnknownTemplateIsNotRefused:
+    """CHẶN thì phải có BẰNG CHỨNG. `KHÔNG NHẬN RA` nghĩa là chưa đủ nhãn để
+    kết luận, không phải là sai — chặn ở đó sẽ đẻ ra từ chối oan cho mọi
+    nguồn đặt tên khác danh mục của tôi (bắt được ngay khi một test cũ đỏ)."""
+
+    def test_an_unrecognised_template_still_writes(self, monkeypatch, tmp_path):
+        df = _frame(["TS", "NO"], [(2015, 1)], {("TS", 2015, 1): 1.0})
+        monkeypatch.setattr(E, "fetch_balance_sheet", lambda *a, **k: df)
+        written = {}
+        monkeypatch.setattr(E, "write_workbook",
+                            lambda path, *a, **k: written.setdefault("p", path))
+        rc = E.main(["--tickers", "VCB", "--from", "2015", "--to", "2015",
+                     "--out", str(tmp_path / "x.xlsx")])
+        assert rc == 0 and written
+
+    def test_but_it_says_it_could_not_tell(self, monkeypatch, tmp_path, capsys):
+        df = _frame(["TS", "NO"], [(2015, 1)], {("TS", 2015, 1): 1.0})
+        monkeypatch.setattr(E, "fetch_balance_sheet", lambda *a, **k: df)
+        monkeypatch.setattr(E, "write_workbook", lambda *a, **k: None)
+        E.main(["--tickers", "VCB", "--from", "2015", "--to", "2015",
+                "--out", str(tmp_path / "x.xlsx")])
+        assert "Không đủ nhãn đặc trưng" in capsys.readouterr().out
+
+    def test_only_positive_evidence_blocks(self):
+        assert "DOANH NGHIỆP THƯỜNG" in E.WRONG_TEMPLATES
+        assert "LẪN LỘN" in E.WRONG_TEMPLATES
+        assert "KHÔNG NHẬN RA" not in E.WRONG_TEMPLATES
+        assert "NGÂN HÀNG" not in E.WRONG_TEMPLATES

@@ -6979,6 +6979,43 @@ nguồn — ghi lại để lần sau khỏi mò lại:
 | `tcbs`  | ❌ **404** — endpoint `apipubaws` đã chết | 26/08, máy user |
 | `cafef` | ⚠️ tải được (HTTP 200, thấy đủ `Quý 1-2016 → Quý 4-2016` trong HTML) nhưng **bộ bóc KHÔNG ra bảng nào** | 26/08 lượt 2, máy user |
 
+**Lượt 7 — KẾT: CafeF KHÔNG DÙNG ĐƯỢC cho bảng cân đối NGÂN HÀNG.**
+
+`--items VCB --source cafef` trả lời dứt điểm:
+
+    KHUNG BẢNG: DOANH NGHIỆP THƯỜNG
+    nhãn ngân hàng thấy được: — KHÔNG CÓ
+    nhãn doanh nghiệp: Hàng tồn kho, Tài sản ngắn hạn, Tài sản dài hạn,
+                       Các khoản phải thu ngắn hạn, Nợ ngắn hạn
+    78/119 chỉ tiêu KHÔNG có số ở kỳ nào
+
+CafeF ép số ngân hàng vào **khung doanh nghiệp thường**. Không có `Cho vay
+khách hàng`, không có `Tiền gửi của khách hàng`, không có `Phát hành giấy tờ
+có giá`. Đổi lại có `IV. Hàng tồn kho 8/8` cho VCB — một ngân hàng có "hàng
+tồn kho" đủ 8 quý là chuyện vô nghĩa. **Không biết được chỉ tiêu ngân hàng
+nào bị nhét vào ô doanh nghiệp nào**, nên số ở đây không đọc được theo tên
+dòng. Sửa bộ bóc không cứu được — lỗi ở NGUỒN.
+
+Và `--crosscheck` lộ thêm một lỗi bóc số: ô lớn nhất của CafeF ra **~1e24** ở
+6/8 quý (VCI ~1e15), **cùng chữ số đầu, lệch đúng 1e9**. Chưa truy ra nguyên
+nhân — và cũng không truy nữa, vì nguồn đã bỏ. Ghi lại vì `parse_vn_number` /
+bộ bóc bảng còn dùng cho nguồn HTML khác sau này.
+
+**⇒ Hai chốt chặn thêm vào code, vì cả hai lỗi đều thuộc loại "trông đúng":**
+* `template_kind` + `WRONG_TEMPLATES`: **từ chối ghi file** khi khung không
+  phải khung ngân hàng. Nhưng chỉ chặn khi có **BẰNG CHỨNG** (`DOANH NGHIỆP
+  THƯỜNG` / `LẪN LỘN`); `KHÔNG NHẬN RA` là *chưa biết*, chặn ở đó là đẻ ra từ
+  chối oan cho mọi nguồn đặt tên khác danh mục — một test cũ đỏ ngay lúc tôi
+  chặn quá tay, đó là cách bắt được.
+* `insane_values` + `SANE_MAX_VND = 1e18`: nêu ra ô vượt trần tỉnh táo. Ngân
+  hàng lớn nhất VN cỡ 3e15 đồng; vượt 1e18 là lỗi bóc số, không phải ngoại lệ
+  kế toán. **Chỉ nêu, không tự sửa cũng không tự bỏ** — tự dọn là che mất dấu
+  hiệu bộ bóc hỏng.
+
+**⇒ Đường còn lại cho 2015-2016:** user xuất Excel từ Wichart/FiinPro, Claude
+viết bộ đọc. Đó là đường duy nhất vừa có 2015-2016 vừa đúng khung tổ chức tín
+dụng, và số truy được về một file nguồn.
+
 **Lượt 6 — RA FILE, và hai việc còn treo.**
 
 `--probe-all VCB`: `cafef ✅ 2015-Q1 → 2016-Q4 · 8 quý · 119 chỉ tiêu`. File

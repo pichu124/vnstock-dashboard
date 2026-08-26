@@ -374,6 +374,11 @@ BANK_ONLY_ITEMS = ("Cho vay khách hàng", "Tiền gửi của khách hàng",
 CORPORATE_ITEMS = ("Hàng tồn kho", "Tài sản ngắn hạn", "Tài sản dài hạn",
                    "Các khoản phải thu ngắn hạn", "Nợ ngắn hạn")
 
+# Khung nào là BẰNG CHỨNG sai — chỉ chặn ghi file ở những khung này.
+# "KHÔNG NHẬN RA" nghĩa là chưa biết, KHÔNG phải sai: chặn vì chưa biết là
+# đẻ ra từ chối oan cho mọi nguồn đặt tên khác danh mục trên.
+WRONG_TEMPLATES = ("DOANH NGHIỆP THƯỜNG", "LẪN LỘN")
+
 
 def template_kind(items: list) -> dict:
     """Bảng này theo khung NGÂN HÀNG hay khung DOANH NGHIỆP THƯỜNG?
@@ -389,6 +394,32 @@ def template_kind(items: list) -> dict:
     else:
         kind = "DOANH NGHIỆP THƯỜNG" if corp else "KHÔNG NHẬN RA"
     return {"kind": kind, "bank_hits": bank, "corporate_hits": corp}
+
+
+# Trần TỈNH TÁO cho một ô trong bảng cân đối ngân hàng VN, tính bằng ĐỒNG.
+# Ngân hàng lớn nhất nước cỡ 2-3 triệu tỷ = ~3e15. Vượt 1e18 thì đó KHÔNG
+# phải một con số kế toán, đó là lỗi bóc số — và một ô như thế lọt vào file
+# sẽ kéo lệch mọi phép so sánh mà chẳng ai để ý.
+SANE_MAX_VND = 1e18
+
+
+def insane_values(per_bank: dict, ceiling: float = SANE_MAX_VND) -> list:
+    """[(mã, kỳ, chỉ tiêu, giá trị)] cho các ô vượt trần tỉnh táo.
+
+    Hàm thuần. Không tự sửa và không tự bỏ — chỉ NÊU RA, vì một ô sai kiểu
+    này là dấu hiệu bộ bóc hỏng chứ không phải một ngoại lệ cần vá riêng.
+    """
+    out = []
+    for tk in sorted(per_bank):
+        for qq in sorted(per_bank[tk]):
+            for name, v in (per_bank[tk][qq] or {}).items():
+                try:
+                    f = float(v)
+                except (TypeError, ValueError):
+                    continue
+                if not _is_blank(f) and abs(f) > ceiling:
+                    out.append((tk, qq, name, f))
+    return out
 
 
 def show_items(ticker: str, limit: int, lang: str, source: str, years) -> int:
@@ -601,6 +632,10 @@ def main(argv=None) -> int:
                     default=None,
                     help="In CẤU TRÚC trang CafeF + lưu HTML thô, khi bộ bóc trật")
     ap.add_argument("--dump-year", type=int, default=2016)
+    ap.add_argument("--allow-any-template", dest="allow_any_template",
+                    action="store_true",
+                    help="Ghi file KỂ CẢ khi nguồn dùng khung kế toán khác "
+                         "(mặc định: từ chối ghi)")
     ap.add_argument("--items", metavar="MÃ", default=None,
                     help="In danh sách chỉ tiêu + KHUNG bảng (ngân hàng hay "
                          "doanh nghiệp thường) rồi thoát")
@@ -674,6 +709,37 @@ def main(argv=None) -> int:
 
     per_bank = {tk: d for tk, d in per_bank.items() if d}
     items = unified_items(per_bank, orders)
+
+    # ── Chốt chặn NGHĨA. "File rỗng trông như thật" đã chặn ở trên; đây là
+    # ca tệ hơn: file ĐẦY SỐ, 26 sheet đều tăm tắp, mà tên dòng thuộc khung
+    # kế toán khác. Đọc số theo tên dòng khi đó là hiểu sai, và không có gì
+    # trong file tự nói ra điều đó.
+    tk_info = template_kind(items)
+    if tk_info["kind"] in WRONG_TEMPLATES and not args.allow_any_template:
+        print(f"\n❌ KHUNG BẢNG là {tk_info['kind']} — KHÔNG ghi file.")
+        print("   nhãn ngân hàng thấy được: "
+              + (", ".join(tk_info["bank_hits"]) or "— KHÔNG CÓ"))
+        print("   nhãn doanh nghiệp thấy được: "
+              + (", ".join(tk_info["corporate_hits"]) or "— không có"))
+        print("   Nguồn đang ép số ngân hàng vào khung kế toán KHÁC. File sẽ")
+        print("   đầy số và đều tăm tắp, mà tên dòng KHÔNG mang nghĩa kế toán")
+        print("   ngân hàng — đó là kiểu sai khó phát hiện nhất.")
+        print(f"   Soi cụ thể: --items {tickers[0]} --source {args.source}")
+        print("   Vẫn muốn ghi (để tự xem): thêm --allow-any-template")
+        return 2
+    if tk_info["kind"] == "KHÔNG NHẬN RA":
+        # CHẶN thì phải có BẰNG CHỨNG. Không đủ nhãn để kết luận là "chưa
+        # biết", không phải "sai" — chặn ở đây là đẻ ra từ chối oan cho mọi
+        # nguồn đặt tên khác với danh mục của tôi.
+        print("\n⚠️ Không đủ nhãn đặc trưng để nói khung này là ngân hàng hay "
+              f"không. Kiểm bằng: --items {tickers[0]} --source {args.source}")
+
+    bad = insane_values(per_bank)
+    if bad:
+        print(f"\n⚠️ {len(bad)} ô vượt trần tỉnh táo ({SANE_MAX_VND:,.0f} đồng) "
+              f"— dấu hiệu BÓC SỐ HỎNG, không phải ngoại lệ kế toán:")
+        for tkr, qq, name, v in bad[:5]:
+            print(f"   {tkr} {quarter_label(*qq)} · {name[:40]} = {v:,.0f}")
     write_workbook(out, per_bank, items, quarters, coverage, args.lang,
                    source=args.source, unit_note=unit_note)
     print(f"\n✅ {out}")
