@@ -536,22 +536,62 @@ class TestTwoEventStores:
 
 
 class TestEventWindow:
-    """Vách gãy nằm TRONG cửa sổ so sánh. Lấy một ngày rồi nới ±N là đoán chỗ
-    gãy; lấy trọn khoảng thì không phải đoán."""
+    """⚠️ Lưới này ĐÃ VIẾT SAI ở bản đầu — nó chốt cứng niềm tin "vách gãy nằm
+    TRONG cửa sổ so sánh", nên test XANH trong khi code trượt 100%.
 
-    def test_it_uses_the_recorded_comparison_window(self):
-        rec = {"window": ["2026-07-25", "2026-08-24"], "detected_at": "2026-08-26"}
-        assert T.event_window(rec) == (date(2026, 7, 25), date(2026, 8, 24))
+    Chiều đúng, từ chính cơ chế lỗi ghi ở `vnstock_basis_guard`:
 
-    def test_it_falls_back_to_a_padded_detection_date(self):
-        a, b = T.event_window({"detected_at": "2026-08-24"}, pad_days=10)
-        assert a == date(2026, 8, 14) and b == date(2026, 9, 3)
+        nguồn back-adjust MỌI bar TRƯỚC ex_date; bar từ ex_date trở đi giữ nguyên
+        ⇒ ρ(d) = kho/nguồn = f ≠ 1 với d < ex_date, ρ(d) = 1.0 với d ≥ ex_date
 
-    def test_a_half_missing_window_falls_back_rather_than_guessing_one_end(self):
-        rec = {"window": [None, "2026-08-24"], "detected_at": "2026-08-24"}
-        a, b = T.event_window(rec, pad_days=5)
-        assert a == date(2026, 8, 19) and b == date(2026, 8, 29)
+    `check_basis` chỉ báo `basis_changed` khi TRUNG VỊ ρ trên `[first, last]`
+    lệch khỏi 1 ⇒ mọi bar trong khoảng cùng một phía của ex_date ⇒
+    **ex_date > last**. Nếu ex_date nằm TRƯỚC khoảng thì ρ = 1, verdict
+    `aligned`, guard câm — không có gì vào sổ cả.
+
+    Cửa sổ so sánh còn HẸP (~7 phiên: `WANT_BARS = MIN_BARS + 3`), nên
+    `[first, last]` lại càng không thể chứa ex_date.
+    """
+
+    TODAY = date(2026, 8, 26)
+
+    def test_it_searches_FORWARD_from_the_window_edge(self):
+        rec = {"window": ["2026-08-01", "2026-08-09"], "detected_at": "2026-08-09"}
+        lo, hi = T.event_window(rec, pad_days=5, today=self.TODAY)
+        assert lo == date(2026, 8, 9) and hi == date(2026, 8, 14)
+
+    def test_it_never_looks_inside_the_comparison_window(self):
+        """Bản đầu trả (first, last) — khoảng mà ex_date CHẮC CHẮN không nằm
+        trong. Đó là lý do nhánh tra sổ đăng ký ra 1/70."""
+        rec = {"window": ["2026-08-01", "2026-08-09"], "detected_at": "2026-08-09"}
+        lo, _ = T.event_window(rec, today=self.TODAY)
+        assert lo >= date(2026, 8, 9)
+
+    def test_the_range_covers_the_gap_the_warehouse_is_missing(self):
+        rec = {"window": ["2026-08-01", "2026-08-09"], "detected_at": "2026-08-20"}
+        lo, hi = T.event_window(rec, pad_days=5, today=self.TODAY)
+        assert lo == date(2026, 8, 9) and hi == date(2026, 8, 25)
+
+    def test_it_never_reaches_into_the_future(self):
+        """Sự kiện chưa tới thì không thể là nguyên nhân giá đã lệch."""
+        rec = {"window": ["2026-08-20", "2026-08-25"], "detected_at": "2026-08-25"}
+        _, hi = T.event_window(rec, pad_days=30, today=self.TODAY)
+        assert hi == self.TODAY
+
+    def test_only_a_detection_date_still_gives_a_forward_range(self):
+        lo, hi = T.event_window({"detected_at": "2026-08-24"}, pad_days=5,
+                                today=self.TODAY)
+        assert lo < hi and hi <= self.TODAY
 
     def test_nothing_readable_gives_none(self):
-        assert T.event_window({}) is None
-        assert T.event_window({"detected_at": "rác"}) is None
+        assert T.event_window({}, today=self.TODAY) is None
+        assert T.event_window({"detected_at": "rác"}, today=self.TODAY) is None
+
+    def test_the_range_is_never_inverted(self):
+        rec = {"window": [None, "2026-08-30"], "detected_at": "2026-08-30"}
+        lo, hi = T.event_window(rec, today=date(2026, 8, 26))
+        assert lo <= hi
+
+
+if __name__ == "__main__":
+    raise SystemExit(pytest.main([__file__, "-q"]))

@@ -6966,6 +6966,68 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🎯 U41. EX-DATE NẰM **SAU** CỬA SỔ ĐỐI CHIẾU — VÀ TEST CỦA TÔI CHỐT CỨNG CHIỀU SAI (26/08)
+
+Cho fan-out đọc lại mã nguồn vì tôi đã sai ba lần trong ngày. Nó bác đúng giả
+thuyết của tôi, kèm chứng minh.
+
+## Chứng minh: ex_date > `last`
+
+Cơ chế lỗi (ghi ngay đầu `vnstock_basis_guard`): nguồn **back-adjust MỌI bar
+TRƯỚC ex_date**, bar từ ex_date trở đi giữ nguyên. Đặt ρ(d) = kho(d)/nguồn(d):
+
+    ρ(d) = f ≠ 1   với d < ex_date
+    ρ(d) = 1.0     với d ≥ ex_date
+
+`check_basis` chỉ báo `basis_changed` khi **trung vị ρ** trên `[first, last]`
+lệch khỏi 1 ⇒ **mọi bar trong khoảng phải cùng một phía của ex_date** ⇒
+**ex_date > `last`**.
+
+Chiều ngược lại cũng chặn: ex_date nằm TRƯỚC khoảng thì kho đã ở cơ sở mới,
+ρ = 1, verdict `aligned`, **guard câm hẳn** — đúng như docstring của guard tự
+nói: *"bắt đúng khoảnh khắc lệch sinh ra, không bắt di chứng cũ."*
+
+Và cửa sổ đối chiếu **HẸP** — `WANT_BARS = MIN_BARS + 3 = 8`, tức ~7 phiên
+ngay trước `last_date`, KHÔNG phải 30 ngày. Càng không thể chứa ex_date.
+
+## Bug trong code tôi viết cùng ngày
+
+`registry_event_kind` lọc `ex >= start & ex <= end` với `(start, end) =
+(first, last)` — **khoảng mà ex_date chắc chắn KHÔNG nằm trong**. Nhánh tra sổ
+đăng ký vì thế **trượt 100% về mặt cấu trúc**. Đó là lý do ra 1/70 dù sổ đăng
+ký đã có 1.520 mã.
+
+Nhánh kia (`event_around` → `_corp_event_kind` nới ±10 ngày quanh `last`) may
+mà đúng chiều, nhưng nó tra **cache theo mã** — kho đang cũ (U40).
+
+⇒ `event_window` nay tìm **VỀ PHÍA TRƯỚC**: `(last, detected_at + 5]`, chặn
+trên bằng hôm nay. Đó đúng là khe mà kho chưa cập nhật — nơi ex_date phải nằm.
+
+## ⚠️ Lỗi đáng ghi nhất: TEST CỦA TÔI CHỐT CỨNG CHIỀU SAI
+
+`TestEventWindow` bản đầu có `test_it_uses_the_recorded_comparison_window`,
+khẳng định `event_window` trả đúng `(first, last)`. Test **XANH**, code
+**trượt 100%**. Lưới không bắt được gì vì nó được viết từ cùng một niềm tin
+sai với code.
+
+Bài học: test chỉ canh được thứ mình đã hiểu đúng. Với một cơ chế chưa nắm
+chắc, phải **suy ra chiều từ mã nguồn của cơ chế** (ở đây: `check_basis` đo
+trung vị ⇒ mọi bar cùng phía ⇒ ex_date ở phía nào) rồi mới viết test — chứ
+viết test theo trực giác thì chỉ đóng dấu cho trực giác.
+
+Lưới mới có `test_it_never_looks_inside_the_comparison_window` — canh đúng
+chiều, và tên nói thẳng chiều nào là sai.
+
+## Còn treo — đang phản biện riêng
+
+`probe_price_basis --ticker SDK` (lệch 1.4857×) in ra *"không tìm thấy vách
+nghi vấn trong 365 ngày"*. Cùng lúc `_rebase_one` khi không có vách sẽ in
+**"✅ không còn vách nghi vấn"** và **return 0**. Nghi vấn: cửa gác và công cụ
+chữa bất đồng vĩnh viễn, cả hai cùng báo thành công. Đang cho 4 góc nhìn phản
+biện — chưa chốt.
+
+**Cho tới khi chốt: KHÔNG chạy `rebase_ticker_history --from-sweep`.**
+
 # 🧨 U40. HAI KHO SỰ KIỆN QUYỀN SONG SONG — TÔI BẢO USER NẠP NHẦM KHO (26/08)
 
 Sau khi nạp `vietstock --bulk --register` (ok=1520/1723), chạy lại bộ soi:

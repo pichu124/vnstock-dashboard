@@ -163,8 +163,9 @@ def registry_event_kind(ticker: str, warehouse, start, end):
     HAI, còn cửa gác tra kho THỨ NHẤT ⇒ vẫn 0/70. Bộ soi vì thế phải hỏi CẢ
     HAI, nếu không nó báo "không có sự kiện" trong khi sự kiện nằm ngay đó.
 
-    Tìm theo KHOẢNG (cửa sổ so sánh của chính lần phát hiện) chứ không theo
-    một ngày ± N: vách gãy nằm đâu đó TRONG khoảng ấy, không nhất thiết ở mép.
+    Khoảng tìm do `event_window` quyết định, và nó tìm **về phía TRƯỚC** từ
+    mép cửa sổ so sánh — ex_date nằm SAU khoảng đối chiếu, không nằm trong.
+    Xem chứng minh ở docstring của `event_window`.
     """
     try:
         import pandas as pd
@@ -187,27 +188,49 @@ def registry_event_kind(ticker: str, warehouse, start, end):
         return None
 
 
-def event_window(rec: dict, pad_days: int = 10):
-    """(đầu, cuối) khoảng tìm sự kiện — cửa sổ so sánh của chính lần phát hiện.
+def event_window(rec: dict, pad_days: int = 5, today: "date | None" = None):
+    """(đầu, cuối) khoảng tìm sự kiện — **VỀ PHÍA TRƯỚC** từ mép cửa sổ so sánh.
 
-    Vách gãy nằm TRONG cửa sổ ấy. Lấy một ngày rồi nới ±N là đoán chỗ gãy;
-    lấy trọn khoảng thì không phải đoán.
+    ⚠️ Bản đầu của hàm này viết *"vách gãy nằm TRONG cửa sổ ấy"* và tìm trong
+    `[first, last]`. **SAI**, và sai theo kiểu đảm bảo trượt 100%. Chứng minh
+    từ chính cơ chế lỗi (`vnstock_basis_guard` đầu module):
+
+        nguồn back-adjust MỌI bar TRƯỚC ex_date; bar từ ex_date trở đi giữ nguyên
+        ⇒ ρ(d) = kho/nguồn = f ≠ 1 với d < ex_date,  ρ(d) = 1.0 với d ≥ ex_date
+
+    `check_basis` báo `basis_changed` khi TRUNG VỊ ρ trên `[first, last]` lệch
+    khỏi 1. Muốn trung vị lệch thì **mọi bar trong khoảng phải cùng một phía
+    của ex_date**, tức `ex_date > last`. Chiều ngược lại cũng chặn: nếu ex_date
+    nằm TRƯỚC khoảng thì kho đã ở cơ sở mới, ρ = 1, verdict `aligned`, guard
+    câm hẳn — đúng như docstring của guard nói (*"bắt đúng khoảnh khắc lệch
+    sinh ra, không bắt di chứng cũ"*).
+
+    ⇒ Tìm trong `(last, detected_at + pad]`: ex_date nằm đúng trong khe mà kho
+    chưa cập nhật, từ bar cuối tới lúc cửa gác nổ.
+
+    Và cửa sổ so sánh **hẹp** (~7 phiên: `WANT_BARS = MIN_BARS + 3`), nên
+    `[first, last]` lại càng không thể chứa ex_date.
     """
     from datetime import timedelta
 
-    win = rec.get("window") or []
     def _d(v):
         try:
             return date.fromisoformat(str(v)[:10])
         except Exception:
             return None
-    a, b = (_d(win[0]) if win else None), (_d(win[-1]) if win else None)
-    if a and b:
-        return (a, b)
-    mid = _d(rec.get("detected_at"))
-    if mid is None:
+
+    win = rec.get("window") or []
+    last = _d(win[-1]) if win else None
+    seen = _d(rec.get("detected_at"))
+    if last is None and seen is None:
         return None
-    return (mid - timedelta(days=pad_days), mid + timedelta(days=pad_days))
+    hi_base = seen or last
+    lo = last or (seen - timedelta(days=pad_days))
+    hi = hi_base + timedelta(days=pad_days)
+    cap = today or date.today()
+    if hi > cap:
+        hi = cap
+    return (lo, hi) if lo <= hi else (lo, lo)
 
 
 def live_event_kind(ticker: str, warehouse, around, window_days: int = 10):
@@ -215,10 +238,9 @@ def live_event_kind(ticker: str, warehouse, around, window_days: int = 10):
 
     ⚠️ Vì sao phải tra lại: trường `event` trong sổ cách ly là **ảnh chụp lúc
     PHÁT HIỆN** — `vnstock_updater` ghi nó vào đúng lúc mã bị chặn. Nạp lại
-    kho sự kiện (`run.py vietstock --bulk --register`) **không viết ngược lại
-    sổ**. Nếu bộ soi chỉ đọc ảnh chụp thì nạp kho xong chạy lại vẫn ra y
-    nguyên 0/47, và người dùng sẽ kết luận việc nạp kho vô ích — trong khi
-    thật ra chỉ là đang đọc số cũ.
+    kho sự kiện **không viết ngược lại sổ**. Bộ soi chỉ đọc ảnh chụp thì nạp
+    kho xong chạy lại vẫn ra y nguyên số cũ, và người đọc kết luận việc nạp
+    kho vô ích — trong khi thật ra đang đọc số cũ.
 
     Chỉ ĐỌC: `load_events` đọc parquet trong `_meta/corp_actions/`.
     """
@@ -230,7 +252,12 @@ def live_event_kind(ticker: str, warehouse, around, window_days: int = 10):
 
 
 def event_around(rec: dict) -> "date | None":
-    """Ngày để tra sự kiện: cuối cửa sổ so sánh, không có thì ngày phát hiện."""
+    """Ngày để tra CACHE THEO MÃ: mép cuối cửa sổ so sánh (`last`).
+
+    `_corp_event_kind` tự nới ±`window_days` quanh mốc này, và vì ex_date nằm
+    **SAU** `last` (xem `event_window`), phần nới VỀ PHÍA TRƯỚC mới là phần
+    có tác dụng.
+    """
     win = rec.get("window") or []
     for cand in (win[-1] if win else None, rec.get("detected_at")):
         try:
