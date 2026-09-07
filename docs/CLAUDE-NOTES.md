@@ -6966,6 +6966,63 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🔦 U49. BẢNG TRIAGE DẪN NGƯỜI TỚI ĐÚNG CÔNG CỤ MÙ (07/09)
+
+GH3 với cửa thưa: **13 bar trải 16 ngày** — cần 180. Từ chối ĐÚNG, cửa hoạt
+động như thiết kế. Nhưng bước tiếp theo mới là chỗ hỏng.
+
+Bảng triage bảo soi tay bằng `probe_price_basis --ticker <MÃ>`. Chạy thật:
+
+    [basis] ⬜ GH3: không tìm thấy vách nghi vấn trong 365 ngày — không có gì để phân định
+    [basis] ⬜ DRG: không tìm thấy vách nghi vấn trong 365 ngày — không có gì để phân định
+
+**Đó là công cụ chỉ chạy bộ dò BẬC** — đúng lớp bộ dò mà U42 và U45 đã chứng
+minh là mù với mã bị gác chặn. Nó nói "không có gì để phân định" trong khi có
+rất nhiều: tỉ lệ 1.1356×, spread 1.0011, 13 bar trải 16 ngày, độ dày kho, và
+mỗi bộ dò còn lại nói một câu khác nhau.
+
+*Dẫn người tới một công cụ mù rồi bảo "soi tay đi" là bỏ mặc, không phải giao
+việc.* Và nó đội lốt một lời khuyên đầy đủ — tệ hơn im lặng.
+
+## `--explain`, chỉ đọc
+
+`rebase_ticker_history --ticker <MÃ> --explain` in:
+
+* **KHO** — tổng bar, ngày đầu/cuối, bar trong 365 ngày;
+* **CHỒNG** — số bar chồng lấn, tầm phủ, tỉ lệ, spread, **và phần trăm bề dài
+  lịch sử kho mà vùng chồng lấn phủ được**;
+* **BỘ DÒ** — bốn dòng, mỗi bộ một dòng, kể cả bộ im (*"không nói gì" và
+  "không được hỏi" nhìn giống hệt nhau trong một bản in thiếu dòng*);
+* **⇒** — lệnh chữa cụ thể, hoặc "CẦN MẮT NGƯỜI" kèm lý do.
+
+Không thay `probe_price_basis`: nó là tầng ĐO, đây là tầng đọc số đo bằng ống
+kính MỨC. Giữ một chiều phụ thuộc rebase → probe. Triage nay trỏ sang đây.
+
+## Phần trăm phủ — câu hỏi tiếp theo cho GH3
+
+16 ngày của một mã **mới niêm yết** phủ TRỌN đời nó; 16 ngày của một mã 20 năm
+tuổi thì không phủ gì. **Hai con số bằng nhau, hai kết luận ngược nhau.** Nếu
+vùng chồng lấn phủ ~100% lịch sử kho thì không có phần nào cũ hơn để nằm ở cơ
+sở khác — bằng chứng khi ấy mạnh hơn cả 240 bar của một mã lâu năm, và cửa
+đúng phải là *"phủ trọn lịch sử kho"* chứ không phải *"trải ≥180 ngày"*.
+
+**Chưa sửa cửa** — đang chờ số đo, vì đây sẽ là lần nới thứ ba và hai lần
+trước đều có số đo trước khi nới.
+
+## Bốn test đỏ lên, và chúng đỏ vì viết sai chỗ cần canh
+
+Bất biến *"mã chưa rõ không được vào lệnh chữa hàng loạt"* viết bằng
+`if "rebase" in c`. Thêm một lệnh **chỉ đọc** cũng gọi `rebase_ticker_history`
+là chúng bắt nhầm ngay — phép dò ấy đo **TÊN FILE** chứ không đo **VIỆC**. Nay
+có `_write_cmds()`: lệnh ghi = gọi rebase **và không có** `--explain`. Kèm một
+test ngược chiều: mã đỏ **phải** có mặt trong lệnh soi (*"không bỏ mặc mã đỏ"*)
+— bất biến cũ chỉ cấm, không đòi, nên "im lặng hoàn toàn" cũng lọt.
+
+Và một test riêng cho `--explain --apply`: gõ nhầm là chuyện sẽ xảy ra, nó
+phải vẫn chỉ đọc.
+
+10 test mới. Suite: **3.107 pass**.
+
 # 🕸️ U48. CỬA THƯA: ĐẾM BAR LÀ PROXY, TẦM PHỦ MỚI LÀ CÂU HỎI THẬT (07/09)
 
 Sổ cách ly xuống **2 mã** (DRG · GH3) sau khi ACE tự xoá đúng như U47 dự

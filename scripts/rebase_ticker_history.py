@@ -669,6 +669,97 @@ def _restore_one(tk: str, wh_root: Path, apply: bool) -> int:
     return 0
 
 
+def _explain_one(tk: str, wh_root: Path) -> int:
+    """In MỌI số đo của một mã rồi dừng. **Chỉ đọc, không ghi, không chữa.**
+
+    Vì sao cần: bảng triage vẫn dẫn người dùng tới
+    `probe_price_basis --ticker <MÃ>`, mà lệnh đó chỉ chạy bộ dò **BẬC** —
+    đúng lớp bộ dò đã chứng minh là mù với mã bị gác chặn (U42, U45). Đo
+    07/09: cả GH3 lẫn DRG đều nhận *"không tìm thấy vách nghi vấn trong 365
+    ngày — không có gì để phân định"*, trong khi có rất nhiều thứ để nói —
+    tỉ lệ, spread, tầm phủ, độ dày kho. Dẫn người tới một công cụ mù rồi bảo
+    "soi tay đi" là bỏ mặc, không phải giao việc.
+
+    Không thay `probe_price_basis`: nó là tầng ĐO, còn đây là tầng đọc số đo
+    bằng ống kính MỨC. Giữ một chiều phụ thuộc (rebase → probe).
+    """
+    tk = tk.upper()
+    prices_dir = wh_root / "prices"
+    print(f"\n{'=' * 62}\n[soi] {tk}\n{'=' * 62}")
+
+    # ── kho có gì ────────────────────────────────────────────────────────
+    try:
+        from check_unit_continuity import load_bars
+        allbars = load_bars(prices_dir, tk, since_days=0)
+        yr = load_bars(prices_dir, tk, since_days=365)
+        if allbars is None or allbars.empty:
+            print("[soi] ⬜ kho RỖNG — không có gì để đo")
+            return 0
+        t = pd.to_datetime(allbars["time"])
+        print(f"[soi] KHO   : {len(allbars):,} bar · {t.min().date()} → "
+              f"{t.max().date()} · trong 365 ngày: {len(yr):,} bar")
+    except Exception as e:                        # noqa: BLE001
+        print(f"[soi] ✗ không đọc được kho ({type(e).__name__}: {e})")
+        return 2
+
+    # ── vùng chồng lấn với nguồn ────────────────────────────────────────
+    uni = _uniform_probe(tk, wh_root)
+    _n, _sp = uni.get("n") or 0, uni.get("span_days") or 0
+    if _n:
+        print(f"[soi] CHỒNG : {_n:,} bar trải {_sp} ngày · tỉ lệ kho/nguồn "
+              f"{uni['ratio']:.4f}× · spread {uni['spread']:.4f}")
+        # Vùng chồng lấn phủ được bao nhiêu phần lịch sử kho? Với mã MỚI
+        # niêm yết, 16 ngày có thể là TRỌN đời của nó — khác hẳn 16 ngày của
+        # một mã 20 năm tuổi, dù hai con số bằng nhau.
+        _life = max(1, (t.max() - t.min()).days)
+        print(f"[soi]         vùng chồng lấn phủ ~{100.0 * _sp / _life:.0f}% "
+              f"bề dài lịch sử kho ({_life} ngày)")
+    else:
+        print(f"[soi] CHỒNG : — ({uni.get('why')})")
+
+    # ── từng bộ dò nói gì ───────────────────────────────────────────────
+    print("[soi] BỘ DÒ :")
+    try:
+        from probe_price_basis import _find_break
+        _b1 = _find_break(prices_dir, tk)
+    except Exception as e:                        # noqa: BLE001
+        _b1 = f"lỗi: {type(e).__name__}"
+    print(f"[soi]   vách giá ≥30% (ĐẠO HÀM)      : {_b1 or '—'}")
+    try:
+        _b2 = _basis_break_of(tk, wh_root)
+    except Exception as e:                        # noqa: BLE001
+        _b2 = f"lỗi: {type(e).__name__}"
+    print(f"[soi]   bậc tỉ lệ (ĐẠO HÀM)          : {_b2 or '—'}")
+    _lb = _level_break_of(tk, wh_root)
+    print(f"[soi]   vách theo MỨC                : "
+          f"{_lb.get('break') or '— ' + str(_lb.get('why', ''))}")
+    _lvl = _level_divergence(tk, wh_root)
+    print(f"[soi]   còn lệch MỨC tới ngày        : {_lvl or '— (sạch)'}")
+    print(f"[soi]   sổ cách ly                   : "
+          f"{'CÓ' if _in_drift_ledger(tk, wh_root) else 'không'}")
+
+    # ── kết luận: làm gì tiếp ───────────────────────────────────────────
+    print("[soi] ⇒ ", end="")
+    if uni.get("aligned") and _in_drift_ledger(tk, wh_root):
+        print(f"kho ĐÃ SẠCH, chỉ bản ghi trong sổ là cũ. Chữa:\n"
+              f"      python scripts/rebase_ticker_history.py --ticker {tk} "
+              f"--apply")
+    elif _lb.get("break") is not None:
+        print(f"có VÁCH THẬT tại {_lb['break']}. Chữa:\n"
+              f"      python scripts/rebase_ticker_history.py --ticker {tk} "
+              f"--apply")
+    elif uni.get("uniform"):
+        print(f"lệch ĐỒNG ĐỀU {uni['ratio']:.4f}×. Chữa:\n"
+              f"      python scripts/rebase_ticker_history.py --ticker {tk} "
+              f"--whole-series --apply")
+    elif _lvl is None and not _in_drift_ledger(tk, wh_root):
+        print("mã SẠCH, không có gì phải làm.")
+    else:
+        print(f"CẦN MẮT NGƯỜI — không cửa nào mở, và lý do là:\n"
+              f"      {uni.get('why')}")
+    return 0
+
+
 def _rebase_one(tk: str, wh_root: Path, apply: bool,
                 volume_mode: str = "auto",
                 break_date: "date | None" = None,
@@ -1089,6 +1180,12 @@ def main(argv: "list[str] | None" = None) -> int:
                          "vết quét dùng bộ dò BẬC nên không bao giờ thấy lớp "
                          "lệch ĐỒNG ĐỀU, còn sổ cách ly do cửa gác ghi mà gác "
                          "đo MỨC. Mỗi mã vẫn qua đủ cửa riêng. Mặc định CHẠY THỬ.")
+    ap.add_argument("--explain", action="store_true",
+                    help="CHỈ ĐỌC: in mọi số đo của mã (độ dày kho, vùng chồng "
+                         "lấn, tỉ lệ/spread/tầm phủ, từng bộ dò nói gì) rồi "
+                         "dừng. Dùng thay `probe_price_basis --ticker <MÃ>` "
+                         "cho mã bị gác chặn — lệnh đó chỉ chạy bộ dò BẬC, "
+                         "vốn mù với đúng lớp mã này.")
     ap.add_argument("--restore", action="store_true",
                     help="KHÔI PHỤC mã về bản sao lưu gần nhất trong "
                          "_meta/backup_rebase/ thay vì chữa. Dùng khi một lượt "
@@ -1128,6 +1225,12 @@ def main(argv: "list[str] | None" = None) -> int:
               + ("" if args.apply else " — CHẠY THỬ, chưa ghi gì"))
     if not tickers:
         ap.error("cần --ticker, --from-sweep hoặc --from-drift-ledger")
+
+    if args.explain:
+        worst = 0
+        for tk in tickers:
+            worst = max(worst, _explain_one(tk, wh_root))
+        return worst
 
     if args.restore:
         worst = 0

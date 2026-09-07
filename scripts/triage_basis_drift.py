@@ -394,9 +394,15 @@ def batch_plan(groups: dict, warehouse=None) -> list:
                       f"--whole-series --apply"))
     for key in ("tron_chua_ro", "chua_ro"):
         for r in groups.get(key, []):
-            lines.append((f"soi tay {r['ticker']} ({NHOM[key][0]})",
-                          f"python scripts/probe_price_basis.py "
-                          f"--ticker {r['ticker']}"))
+            # KHÔNG dẫn sang `probe_price_basis --ticker`: lệnh đó chỉ chạy bộ
+            # dò BẬC, vốn mù với đúng lớp mã đang bị gác chặn (U42/U45). Đo
+            # 07/09: GH3 và DRG đều nhận "không có gì để phân định" trong khi
+            # có tỉ lệ, spread, tầm phủ và độ dày kho để nói. Dẫn người tới
+            # một công cụ mù rồi bảo "soi tay đi" là bỏ mặc, không phải giao
+            # việc.
+            lines.append((f"soi tay {r['ticker']} ({NHOM[key][0]}) — chỉ đọc",
+                          f"python scripts/rebase_ticker_history.py "
+                          f"--ticker {r['ticker']} --explain"))
     return lines
 
 

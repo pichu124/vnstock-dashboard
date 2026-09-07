@@ -434,3 +434,115 @@ class TestClearDriftContract:
         monkeypatch.setattr(bg, "load_pending",
                             lambda wh: (_ for _ in ()).throw(IOError("hỏng")))
         assert bg.clear_drift(tmp_path, "ACE") is False
+
+
+class TestExplainIsReadOnly:
+    """`--explain` — thay cho `probe_price_basis --ticker <MÃ>` ở lớp mã bị
+    gác chặn.
+
+    Đo 07/09: cả GH3 lẫn DRG đều nhận từ probe đúng một dòng — *"không tìm
+    thấy vách nghi vấn trong 365 ngày — không có gì để phân định"* — trong khi
+    có tỉ lệ 1.1356×, spread 1.0011, 13 bar trải 16 ngày, và độ dày kho để
+    nói. Probe chỉ chạy bộ dò BẬC, vốn mù với đúng lớp mã này (U42/U45). Dẫn
+    người tới một công cụ mù rồi bảo "soi tay đi" là bỏ mặc, không phải giao
+    việc.
+    """
+
+    def _tk(self, tmp_path, monkeypatch, **uni):
+        (tmp_path / "prices" / "ticker=GH3").mkdir(parents=True, exist_ok=True)
+        rep = {"n": 13, "span_days": 16, "ratio": 1.1356, "spread": 1.0011,
+               "uniform": False, "aligned": False, "why": "chứng cứ quá mỏng"}
+        rep.update(uni)
+        monkeypatch.setattr(R, "_uniform_probe", lambda *a, **k: rep)
+        monkeypatch.setattr(R, "_basis_break_of", lambda *a, **k: None)
+        monkeypatch.setattr(R, "_level_break_of", lambda *a, **k: {"break": None,
+                                                                  "why": "x"})
+        monkeypatch.setattr(R, "_level_divergence", lambda *a, **k: None)
+        monkeypatch.setattr(R, "_in_drift_ledger", lambda *a, **k: True)
+        import check_unit_continuity as cuc
+        df = pd.DataFrame({"time": pd.to_datetime(
+            ["2026-08-20", "2026-09-04"]), "close": [10.0, 11.0]})
+        monkeypatch.setattr(cuc, "load_bars", lambda *a, **k: df, raising=False)
+        import probe_price_basis as ppb
+        monkeypatch.setattr(ppb, "_find_break", lambda *a, **k: None)
+
+    def test_it_writes_nothing_at_all(self, tmp_path, monkeypatch):
+        self._tk(tmp_path, monkeypatch)
+        monkeypatch.setattr(R, "_read_all",
+                            lambda *a, **k: pytest.fail("không được đọc/ghi kho"))
+        import vnstock_basis_guard as bg
+        monkeypatch.setattr(bg, "clear_drift",
+                            lambda *a, **k: pytest.fail("không được ghi sổ"))
+        assert R._explain_one("GH3", tmp_path) == 0
+
+    def test_it_reports_the_numbers_probe_hides(self, tmp_path, monkeypatch,
+                                                capsys):
+        self._tk(tmp_path, monkeypatch)
+        R._explain_one("GH3", tmp_path)
+        out = capsys.readouterr().out
+        for want in ("1.1356", "1.0011", "13", "16"):
+            assert want in out, want
+
+    def test_it_says_what_fraction_of_the_history_is_covered(
+            self, tmp_path, monkeypatch, capsys):
+        """16 ngày của một mã MỚI NIÊM YẾT phủ trọn đời nó; 16 ngày của một mã
+        20 năm tuổi thì không phủ gì. Hai con số bằng nhau, hai kết luận ngược
+        nhau — nên phải in tỉ lệ phủ, không chỉ in số ngày."""
+        self._tk(tmp_path, monkeypatch)
+        R._explain_one("GH3", tmp_path)
+        assert "%" in capsys.readouterr().out
+
+    def test_every_detector_gets_a_line(self, tmp_path, monkeypatch, capsys):
+        """Kể cả bộ dò im. "Không nói gì" và "không được hỏi" nhìn giống hệt
+        nhau trong một bản in thiếu dòng."""
+        self._tk(tmp_path, monkeypatch)
+        R._explain_one("GH3", tmp_path)
+        out = capsys.readouterr().out
+        assert out.count("ĐẠO HÀM") == 2 and "MỨC" in out and "sổ cách ly" in out
+
+    def test_it_ends_with_a_next_step_not_a_shrug(self, tmp_path, monkeypatch,
+                                                  capsys):
+        self._tk(tmp_path, monkeypatch)
+        R._explain_one("GH3", tmp_path)
+        assert "CẦN MẮT NGƯỜI" in capsys.readouterr().out
+
+    def test_a_uniform_ticker_gets_the_whole_series_command(
+            self, tmp_path, monkeypatch, capsys):
+        self._tk(tmp_path, monkeypatch, uniform=True)
+        R._explain_one("GH3", tmp_path)
+        out = capsys.readouterr().out
+        assert "--whole-series" in out and "--apply" in out
+
+    def test_a_stale_ledger_entry_is_named_as_such(self, tmp_path, monkeypatch,
+                                                   capsys):
+        self._tk(tmp_path, monkeypatch, aligned=True)
+        R._explain_one("GH3", tmp_path)
+        assert "bản ghi trong sổ là cũ" in capsys.readouterr().out
+
+    def test_an_empty_warehouse_is_not_a_crash(self, tmp_path, monkeypatch,
+                                               capsys):
+        self._tk(tmp_path, monkeypatch)
+        import check_unit_continuity as cuc
+        monkeypatch.setattr(cuc, "load_bars", lambda *a, **k: pd.DataFrame(),
+                            raising=False)
+        assert R._explain_one("GH3", tmp_path) == 0
+        assert "kho RỖNG" in capsys.readouterr().out
+
+    def test_explain_reaches_the_cli_and_never_rebases(self, tmp_path,
+                                                       monkeypatch):
+        seen = []
+        monkeypatch.setattr(R, "_explain_one",
+                            lambda tk, wh: seen.append(tk) or 0)
+        monkeypatch.setattr(R, "_rebase_one",
+                            lambda *a, **k: pytest.fail("không được chữa"))
+        R.main(["--ticker", "GH3", "--warehouse", str(tmp_path), "--explain"])
+        assert seen == ["GH3"]
+
+    def test_explain_ignores_apply(self, tmp_path, monkeypatch):
+        """`--explain --apply` gõ nhầm là chuyện sẽ xảy ra. Nó phải vẫn chỉ
+        đọc, không được rẽ sang đường ghi."""
+        monkeypatch.setattr(R, "_explain_one", lambda tk, wh: 0)
+        monkeypatch.setattr(R, "_rebase_one",
+                            lambda *a, **k: pytest.fail("không được chữa"))
+        R.main(["--ticker", "GH3", "--warehouse", str(tmp_path), "--explain",
+                "--apply"])

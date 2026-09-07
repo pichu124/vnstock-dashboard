@@ -170,6 +170,19 @@ class TestVn30Hits:
         assert T.vn30_hits({"AAM": {}}, None) == []
 
 
+def _write_cmds(lines):
+    """Lệnh CÓ THỂ GHI KHO — tức lệnh chữa, không phải lệnh soi.
+
+    Vì sao cần hàm này: bất biến "mã chưa rõ không được vào lệnh chữa hàng
+    loạt" từng được viết bằng `if "rebase" in c`. Sau khi thêm chế độ soi
+    `--explain` (cũng gọi `rebase_ticker_history.py`, nhưng CHỈ ĐỌC), phép dò
+    chuỗi ấy bắt nhầm — nó đo TÊN FILE chứ không đo VIỆC. Bốn test đỏ lên đúng
+    lúc thêm một lệnh vô hại, mà đỏ vì chính chúng viết sai chỗ cần canh.
+    """
+    return [c for _, c in lines
+            if "rebase_ticker_history" in c and "--explain" not in c]
+
+
 class TestBatchPlan:
     def test_the_safe_group_gets_a_dry_run_BEFORE_the_apply(self):
         """Chạy thử trước là bất biến, không phải phép lịch sự: `--apply` ghi
@@ -181,26 +194,37 @@ class TestBatchPlan:
         apply_i = next(i for i, c in enumerate(cmds) if "--apply" in c)
         assert dry < apply_i
 
-    def test_the_red_group_never_appears_in_a_rebase_command(self):
+    def test_the_red_group_never_appears_in_a_WRITING_command(self):
         """Đây là bất biến QUAN TRỌNG NHẤT của file này. Gộp một mã chưa rõ
-        nguyên nhân vào lệnh chữa hàng loạt là nhân bản số sai."""
-        st = T.summarize(TestSummarize.PENDING, TODAY)
-        rebase = [c for _, c in T.batch_plan(st["groups"]) if "rebase" in c]
-        assert all("AAM" not in c for c in rebase)
+        nguyên nhân vào lệnh chữa hàng loạt là nhân bản số sai.
 
-    def test_the_round_but_unmatched_group_is_also_kept_out_of_rebase(self):
+        Cái phải cấm là lệnh GHI. Lệnh SOI thì ngược lại — mã chưa rõ chính là
+        mã cần soi nhất."""
         st = T.summarize(TestSummarize.PENDING, TODAY)
-        rebase = [c for _, c in T.batch_plan(st["groups"]) if "rebase" in c]
-        assert all("BCF" not in c for c in rebase)
+        assert all("AAM" not in c for c in _write_cmds(T.batch_plan(st["groups"])))
 
-    def test_unclear_tickers_get_a_probe_command_instead(self):
+    def test_the_round_but_unmatched_group_is_also_kept_out_of_writes(self):
         st = T.summarize(TestSummarize.PENDING, TODAY)
-        probes = [c for _, c in T.batch_plan(st["groups"]) if "probe" in c]
-        assert any("AAM" in c for c in probes) and any("BCF" in c for c in probes)
+        assert all("BCF" not in c for c in _write_cmds(T.batch_plan(st["groups"])))
 
-    def test_no_safe_tickers_means_no_rebase_command_at_all(self):
+    def test_unclear_tickers_get_a_READ_ONLY_command_instead(self):
+        """Và nó phải là lệnh soi có ống kính MỨC. `probe_price_basis
+        --ticker` chỉ chạy bộ dò BẬC, vốn mù với đúng lớp mã đang bị gác chặn
+        — đo 07/09: GH3 và DRG đều nhận "không có gì để phân định" trong khi
+        có tỉ lệ, spread, tầm phủ và độ dày kho để nói. Dẫn người tới một công
+        cụ mù rồi bảo "soi tay đi" là bỏ mặc, không phải giao việc."""
+        st = T.summarize(TestSummarize.PENDING, TODAY)
+        look = [c for _, c in T.batch_plan(st["groups"]) if "--explain" in c]
+        assert any("AAM" in c for c in look) and any("BCF" in c for c in look)
+        assert all("--apply" not in c for c in look)
+        assert not [c for _, c in T.batch_plan(st["groups"])
+                    if "probe_price_basis" in c]
+
+    def test_no_safe_tickers_means_no_WRITING_command_at_all(self):
         st = T.summarize({"AAM": _rec("2026-08-24", 1.0424, 4.24)}, TODAY)
-        assert not [c for _, c in T.batch_plan(st["groups"]) if "rebase" in c]
+        lines = T.batch_plan(st["groups"])
+        assert not _write_cmds(lines)
+        assert [c for _, c in lines if "--explain" in c], "không bỏ mặc mã đỏ"
 
     def test_every_line_carries_a_label(self):
         st = T.summarize(TestSummarize.PENDING, TODAY)
