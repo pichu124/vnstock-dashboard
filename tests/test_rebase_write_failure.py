@@ -459,6 +459,7 @@ class TestExplainIsReadOnly:
                                                                   "why": "x"})
         monkeypatch.setattr(R, "_level_divergence", lambda *a, **k: None)
         monkeypatch.setattr(R, "_in_drift_ledger", lambda *a, **k: True)
+        monkeypatch.setattr(R, "_tail_ratios", lambda *a, **k: None)
         import check_unit_continuity as cuc
         df = pd.DataFrame({"time": pd.to_datetime(
             ["2026-08-20", "2026-09-04"]), "close": [10.0, 11.0]})
@@ -546,3 +547,91 @@ class TestExplainIsReadOnly:
                             lambda *a, **k: pytest.fail("không được chữa"))
         R.main(["--ticker", "GH3", "--warehouse", str(tmp_path), "--explain",
                 "--apply"])
+
+
+class TestTailRatios:
+    """Số TỔNG HỢP không tách được hai cách đọc đối nghịch của cùng một bộ số.
+
+    Ca DRG (07/09): 195 bar ở ~1.0204 rồi ĐÚNG MỘT bar ở 0.9964.
+
+    * đọc cách A — **vách thật**: nguồn vừa back-adjust, kho mới nối được một
+      bar ở cơ sở mới ⇒ chữa mọi bar TRƯỚC bar đó;
+    * đọc cách B — **lệch đồng đều kèm một bar hỏng** ⇒ chữa TRỌN chuỗi.
+
+    Trung vị, spread, số bar mỗi phía đều **không** tách được hai cách đọc ấy
+    — chúng cho ra cùng bộ số. Nhìn thẳng vào đuôi chuỗi thì tách được ngay:
+    bar 0.9964 nằm ở đâu, một mình hay có bạn, giá kho/nguồn ra sao.
+    """
+
+    def _wh(self, tmp_path, ratios):
+        days = [date(2026, 8, 10) + timedelta(days=i) for i in range(len(ratios))]
+        close = [10.0 + i for i in range(len(ratios))]
+        src = pd.DataFrame({"time": pd.to_datetime(days), "close": close})
+        d = tmp_path / "prices" / "ticker=DRG" / "year=2026"
+        d.mkdir(parents=True, exist_ok=True)
+        whc = [c * r for c, r in zip(close, ratios)]
+        pd.DataFrame({"time": pd.to_datetime(days), "open": whc, "high": whc,
+                      "low": whc, "close": whc,
+                      "volume": [1000.0] * len(whc)}
+                     ).to_parquet(d / "p.parquet", index=False)
+        return src
+
+    def _stub_src(self, monkeypatch, src):
+        import probe_price_basis as ppb
+        out = src.copy()
+        out["time"] = pd.to_datetime(out["time"]).dt.date
+        monkeypatch.setattr(ppb, "fetch_source", lambda *a, **k: out)
+
+    def test_it_returns_the_last_bars_with_a_ratio_each(self, tmp_path,
+                                                        monkeypatch):
+        src = self._wh(tmp_path, [1.0204] * 9 + [0.9964])
+        self._stub_src(monkeypatch, src)
+        got = R._tail_ratios("DRG", tmp_path, n=4)
+        assert len(got) == 4
+        assert round(float(got["ratio"].iloc[-1]), 4) == 0.9964
+
+    def test_it_shows_whether_the_odd_bar_stands_alone(self, tmp_path,
+                                                       monkeypatch):
+        """Đúng câu hỏi cần trả lời cho DRG: một mình thì nghi bar hỏng, có
+        bạn thì là vách thật."""
+        src = self._wh(tmp_path, [1.0204] * 8 + [0.9964, 0.9971])
+        self._stub_src(monkeypatch, src)
+        got = R._tail_ratios("DRG", tmp_path, n=10)
+        assert sum(abs(float(r) - 1.0) <= 0.012 for r in got["ratio"]) == 2
+
+    def test_a_missing_ticker_is_none_not_a_crash(self, tmp_path):
+        assert R._tail_ratios("KHONGCO", tmp_path) is None
+
+    def test_it_does_not_call_the_network_for_a_ticker_with_no_warehouse(
+            self, tmp_path, monkeypatch):
+        """Bắt được vì bộ test đột nhiên chạy 34 giây: hàm fetch nguồn TRƯỚC
+        khi xem kho có gì không. Trên máy thật đó là một lượt gọi mạng vô ích
+        cho mỗi mã không có trong kho."""
+        import probe_price_basis as ppb
+        monkeypatch.setattr(ppb, "fetch_source",
+                            lambda *a, **k: pytest.fail("gọi mạng vô ích"))
+        assert R._tail_ratios("KHONGCO", tmp_path) is None
+
+    def test_a_broken_source_never_raises(self, tmp_path, monkeypatch):
+        self._wh(tmp_path, [1.0204] * 5)
+        import probe_price_basis as ppb
+        monkeypatch.setattr(ppb, "fetch_source",
+                            lambda *a, **k: (_ for _ in ()).throw(IOError("x")))
+        assert R._tail_ratios("DRG", tmp_path) is None
+
+    def test_explain_prints_the_tail(self, tmp_path, monkeypatch, capsys):
+        src = self._wh(tmp_path, [1.0204] * 9 + [0.9964])
+        self._stub_src(monkeypatch, src)
+        monkeypatch.setattr(R, "_uniform_probe", lambda *a, **k: {
+            "n": 10, "span_days": 9, "ratio": 1.0204, "spread": 1.0251,
+            "uniform": False, "aligned": False, "why": "lởm chởm"})
+        monkeypatch.setattr(R, "_basis_break_of", lambda *a, **k: None)
+        monkeypatch.setattr(R, "_level_break_of", lambda *a, **k: {"break": None,
+                                                                  "why": "x"})
+        monkeypatch.setattr(R, "_level_divergence", lambda *a, **k: None)
+        monkeypatch.setattr(R, "_in_drift_ledger", lambda *a, **k: True)
+        import probe_price_basis as ppb
+        monkeypatch.setattr(ppb, "_find_break", lambda *a, **k: None)
+        R._explain_one("DRG", tmp_path)
+        out = capsys.readouterr().out
+        assert "ĐUÔI" in out and "0.9964" in out and "✗" in out and "✓" in out

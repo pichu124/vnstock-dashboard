@@ -718,6 +718,40 @@ def _restore_one(tk: str, wh_root: Path, apply: bool) -> int:
     return 0
 
 
+def _tail_ratios(tk: str, wh_root: Path, n: int = 12,
+                 since_days: int = 400) -> "pd.DataFrame | None":
+    """`n` bar CHỒNG LẤN cuối cùng, kèm tỉ lệ kho/nguồn từng bar. Chỉ đọc.
+
+    Vì sao cần: mọi thứ khác trong `--explain` là số TỔNG HỢP — trung vị,
+    spread, số bar mỗi phía. Chúng đủ để phân loại, nhưng không đủ để phân
+    biệt hai cách đọc đối nghịch của cùng một bộ số. Ca DRG (07/09): 195 bar ở
+    ~1.0204 rồi ĐÚNG MỘT bar ở 0.9964 — đọc cách này là **vách thật** (nguồn
+    vừa back-adjust, kho mới nối được một bar mới), đọc cách kia là **lệch
+    đồng đều kèm một bar hỏng**. Hai đường chữa khác nhau, mà không con số
+    tổng hợp nào tách được. Nhìn thẳng vào đuôi chuỗi thì tách được ngay.
+    """
+    from probe_price_basis import fetch_source, load_wh
+    d1 = date.today()
+    d0 = d1 - timedelta(days=since_days)
+    try:
+        wh = load_wh(wh_root / "prices", tk, d0, d1)
+        if wh.empty:
+            return None                      # khỏi gọi mạng cho mã không có kho
+        src = fetch_source(tk, d0, d1)
+        if src.empty:
+            return None
+        m = _as_dates(wh).merge(_as_dates(src), on="time",
+                                suffixes=("_wh", "_src")).sort_values("time")
+        m = m[(m["close_wh"] > 0) & (m["close_src"] > 0)]
+        if m.empty:
+            return None
+        m = m.tail(n).copy()
+        m["ratio"] = m["close_wh"] / m["close_src"]
+        return m
+    except Exception:
+        return None
+
+
 def _explain_one(tk: str, wh_root: Path) -> int:
     """In MỌI số đo của một mã rồi dừng. **Chỉ đọc, không ghi, không chữa.**
 
@@ -769,6 +803,17 @@ def _explain_one(tk: str, wh_root: Path) -> int:
               f"bề dài lịch sử kho ({_life} ngày)")
     else:
         print(f"[soi] CHỒNG : — ({uni.get('why')})")
+
+    # ── đuôi chuỗi: số TỔNG HỢP không tách được hai cách đọc, bar thì có ──
+    tail = _tail_ratios(tk, wh_root)
+    if tail is not None and not tail.empty:
+        print(f"[soi] ĐUÔI  : {len(tail)} bar chồng lấn cuối "
+              f"(✗ = lệch quá {0.012})")
+        for _, r in tail.iterrows():
+            _r = float(r["ratio"])
+            print(f"[soi]         {r['time']}  kho {float(r['close_wh']):>12,.2f}"
+                  f"  nguồn {float(r['close_src']):>12,.2f}  "
+                  f"= {_r:.4f}×  {'✗' if abs(_r - 1.0) > 0.012 else '✓'}")
 
     # ── từng bộ dò nói gì ───────────────────────────────────────────────
     print("[soi] BỘ DÒ :")

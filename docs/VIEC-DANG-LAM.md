@@ -109,12 +109,12 @@ Vẫn ❌ = nguồn thật sự đổi ⇒ lúc đó mới đáng sửa `vnstock
 
 ## 4. 💻 Laptop — merge + nâng vnstock 4.0.7 TRƯỚC desktop
 
-Laptop đang ở `2.615`, HEAD là **`3.114`** (07/09, sau `--whole-series`).
+Laptop đang ở `2.615`, HEAD là **`3.120`** (07/09, sau `--whole-series`).
 
 ```powershell
 cd C:\vnstock
 git pull origin claude/tong-hop-cong-viec-test-w8mvrc
-python run.py test          # phải ra 3.114 passed
+python run.py test          # phải ra 3.120 passed
 ```
 
 **📦 vnstock 4.0.7 đã ra — cổng gỡ chặn 4.0.6 đã mở.** Đúng thứ tự:
@@ -127,32 +127,23 @@ python run.py test          # phải ra 3.114 passed
 Desktop giữ 4.0.4 — nó chạy phát tối, không phải chỗ để thử.
 *(4.0.6 làm chết mọi lệnh gọi mạng — `env.py:136 UnboundLocalError`.)*
 
-## 5. 🧬 Lệch cơ sở — 🖥️ CÒN 2 MÃ (GH3 · DRG), KHÔNG GẤP
+## 5. 🧬 Lệch cơ sở — 🖥️ CÒN 1 MÃ (DRG), KHÔNG GẤP
 
-**Xong 07/09: sổ 73 → 2.** Cả hai đều ngoài VN30, ngoài brief.
+**Sổ 73 → 1.** GH3 đã chữa (1.033 bar, spread 1.0022, phủ 100% lịch sử kho).
 
-**GH3 không phải mã thưa** — kho nó **đóng băng từ 2025-09-24**, tức 348 ngày
-(1.033 bar, niêm yết 2021). 13 bar "trong 365 ngày" chỉ là cái đuôi. Cửa sổ đo
-365 ngày vì thế hỏi sai; nay nó tự nới tới đầu kho khi gặp ca này (U50). Chạy
-lại là biết:
+**DRG là ca cuối, và nó cần một cái nhìn chứ không cần nới ngưỡng.** 195 bar ở
+1.0204× rồi đúng MỘT bar ở 0.9964 — hai cách đọc đối nghịch mà không con số
+tổng hợp nào tách được: vách thật (chữa phần trước) hay lệch đồng đều kèm một
+bar hỏng (chữa trọn chuỗi). `--explain` nay in đuôi chuỗi để tách:
 
 ```powershell
 git fetch origin claude/tong-hop-cong-viec-test-w8mvrc
 git merge origin/claude/tong-hop-cong-viec-test-w8mvrc
-python scripts\rebase_ticker_history.py --ticker GH3 --explain
+python scripts\rebase_ticker_history.py --ticker DRG --explain
 ```
-Dòng CHỒNG phải nhảy từ 13 bar lên ~1.000 bar kèm chữ `cửa sổ NỚI`. Spread vẫn
-≈1.001 ⇒ chữa được bằng `--whole-series --apply`. Spread nở ⇒ GH3 có nhiều lần
-đổi cơ sở trong 4 năm, và từ chối là đúng.
-
-**DRG đã chẩn đoán xong, chưa vá.** 195 bar ở 1.0204× rồi **đúng 1 bar** đã
-sang cơ sở mới — chia sạch, chỉ thiếu 1 bar so với sàn 2. Hạ sàn xuống 1 thì
-hệ số sẽ do đúng một bar quyết định (lệch 0,4%), nên phải sửa cả công thức hệ
-số — mà công thức đó vừa chữa 67 mã tối nay, không đụng vội. Để lượt sau.
-
-⚠️ Bảng triage trước đây báo **"đứng 0 ngày · ~0 bar thiếu"** cho cả 70 mã —
-sai, và sai theo hướng báo thiệt hại bằng 0. Đã sửa: nay đo từ bar cuối trong
-kho (U50). Chạy `triage --plan` sẽ thấy số thật.
+Chỉ đọc. Dán khối **ĐUÔI** cho Claude — 12 bar cuối kèm tỉ lệ từng bar. Bar
+✓ đứng một mình giữa toàn ✗ ⇒ nghi bar hỏng; có vài bar ✓ liền nhau ở cuối ⇒
+vách thật.
 
 ---
 
@@ -196,6 +187,11 @@ dòng `screener` như thường lệ.
   chiến lược nguồn vẫn CHƯA đạt kiểm định. Đó là cổng đang đóng, không phải lỗi.
 * **~2 đêm nữa**: hàng đợi auto-heal sạch (1.704 → 1.631 → 778 → …). Rút bằng
   LƯU TRỮ chứ không phải bằng chữa — `healed = 0 / 4.707 lượt` qua ba đêm.
+* **Phát tối mai — GH3 có đuổi kịp không.** Kho nó đóng băng từ **2025-09-24**
+  (348 ngày), tức **11 tháng TRƯỚC** khi cửa gác ra đời ⇒ gác không phải
+  nguyên nhân. Nguồn có sẵn 1.267 bar trong khi kho chỉ 1.033 ⇒ ~234 bar đang
+  chờ nối. Chữa cơ sở xong, gác hết lý do chặn. Đuổi kịp ⇒ xong chuyện; vẫn
+  dừng ở 2025-09-24 ⇒ nguyên nhân nằm chỗ khác, dán `--explain --ticker GH3`.
 
 ---
 
@@ -210,7 +206,7 @@ dòng `screener` như thường lệ.
 | Rủi ro chạm trần task | 166,3′ → 69,0′ ⇒ đệm 13,7′ → **111′** *(số chưa sạch — xem việc #1)* |
 | Phát tự động trọn vẹn | 21/08, 24/08, 25/08 đều đủ 14 bước và **có brief Telegram** |
 | Chất lượng brief | Guard số chỉ số (trạng từ) · dọn khối tin · GDKHQ không cảnh báo cho ĐHĐCĐ · dải ±3% gọi đúng tên |
-| Đồng bộ code | 🖥️ desktop `2.615 passed` = HEAD lúc 26/08 sáng; HEAD nay **3.114** (đợt vá lệch cơ sở + `--whole-series`) |
+| Đồng bộ code | 🖥️ desktop `2.615 passed` = HEAD lúc 26/08 sáng; HEAD nay **3.120** (đợt vá lệch cơ sở + `--whole-series`) |
 | `fix-units` đối chứng | 26/08 trên KHO THẬT: `fix_count` khớp, giải nén **ít hơn 1.125×**, bỏ qua **98,6%** mã. Lượt đối chứng còn tìm ra bug HFB (`time` trộn kiểu ⇒ mã bị bỏ sót im lặng) — đã vá (U32) |
 | Sổ lệnh | **Không mất** — 805 briefs · 148 rec · 138 outcome |
 | BCTC ngân hàng 2015-2016 | **TẠM DỪNG** (user chốt 26/08) — đã đo 5 nguồn: `vci` sớm nhất 2018-Q1 (đúng khung, tốt nhất) · `finhay` trần 5 kỳ · `cafef` có 2015-2016 nhưng **sai khung (doanh nghiệp thường)** · `kbs` rỗng · `tcbs` 404. Muốn data cũ hơn ⇒ user xuất Wichart/FiinPro, Claude viết bộ đọc. **Đừng dò lại** — xem U34 `docs/CLAUDE-NOTES.md` |

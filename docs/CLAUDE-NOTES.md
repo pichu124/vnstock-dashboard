@@ -6966,6 +6966,59 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🔬 U51. SỐ TỔNG HỢP KHÔNG TÁCH ĐƯỢC HAI CÁCH ĐỌC — PHẢI NHÌN TỪNG BAR (07/09)
+
+GH3 chữa xong bằng cửa sổ NỚI của U50: **1.033 bar trải 1512 ngày, spread
+1.0022, phủ 100% lịch sử kho**, 1.033/1.033 bar lấy thẳng từ nguồn, hệ số
+không chạm bar nào. **Sổ 73 → 1.**
+
+Hai xác nhận phụ, cả hai đều là bản vá trong ngày tự chứng minh trên máy thật:
+
+* triage nay in `đứng lâu nhất 11 ngày · tổng ~11 bar` thay cho `0 · ~0` (U50);
+* `nguồn phủ từ 2021-08-04 (1,267 bar)` trong khi kho chỉ có **1.033** ⇒ ~234
+  bar của năm vừa rồi **vẫn nằm sẵn ở nguồn**, chỉ chờ được nối. Kho GH3 đóng
+  băng từ 2025-09-24, tức **11 tháng TRƯỚC khi cửa gác V1 ra đời** (19/08/2026)
+  — gác không phải nguyên nhân. Phát tối mai trả lời: đuổi kịp thì xong, vẫn
+  dừng thì nguyên nhân nằm chỗ khác.
+
+## DRG: cùng một bộ số, hai cách đọc đối nghịch
+
+    CHỒNG : 196 bar trải 353 ngày · tỉ lệ 1.0204× · spread 1.0251
+    vách theo MỨC : — chỉ 1 bar đã sang cơ sở mới (cần ≥2)
+
+Ráp lại: 195 bar ở ~1.0204 và **đúng một** bar ở 0.9964 (trong ngưỡng ⇒ coi là
+đã khớp); `1.0213 / 0.9964 = 1.0250`, khớp đúng spread in ra. Hai cách đọc:
+
+| | đọc là gì | chữa thế nào |
+|---|---|---|
+| **A** | **vách thật** — nguồn vừa back-adjust, kho mới nối được một bar ở cơ sở mới | chữa mọi bar TRƯỚC bar đó |
+| **B** | **lệch đồng đều 1.0204× kèm một bar HỎNG** | chữa TRỌN chuỗi |
+
+**Không con số tổng hợp nào tách được hai cách đọc này** — trung vị, spread,
+số bar mỗi phía đều cho ra y hệt nhau ở cả hai. Đó là giới hạn của thống kê
+tóm tắt, không phải của ngưỡng nào cả. Nới ngưỡng ở đây là **đoán** một trong
+hai cách đọc rồi ghi đè lịch sử theo cái đoán ấy.
+
+Nhìn thẳng vào đuôi chuỗi thì tách được ngay: bar 0.9964 nằm ở ngày nào, một
+mình hay có bạn, giá kho và giá nguồn ra sao. Nên `--explain` nay in **ĐUÔI** —
+12 bar chồng lấn cuối, kèm giá hai phía, tỉ lệ từng bar và dấu ✓/✗.
+
+**Vẫn CHƯA hạ `LEVEL_BREAK_MIN_AFTER`.** Đây là lần thứ ba trong ngày đứng
+trước một ngưỡng chặn đúng một ca, và hai lần trước đều: đòi số đo → số đo lật
+giả thuyết → sửa đúng thứ hỏng (không phải ngưỡng). Không có lý do gì lần này
+làm khác.
+
+## Một lỗi tốc độ lộ ra nhờ bộ test
+
+`_tail_ratios` fetch nguồn **TRƯỚC** khi xem kho có gì — bộ test đột nhiên
+chạy **34 giây** thay vì 0,7. Trên máy thật đó là một lượt gọi mạng vô ích cho
+mỗi mã không có trong kho. Đảo thứ tự: 34s → **0,68s**. Có test canh.
+
+Bài học lặp lại lần thứ hai trong ngày (lần đầu: `--explain` ở U49): *chỗ mình
+định thêm một dòng chẩn đoán thường là chỗ có sẵn một lỗi chưa ai nhìn.*
+
+6 test mới. Suite: **3.120 pass**.
+
 # 🧊 U50. GH3 KHÔNG PHẢI MÃ THƯA — KHO NÓ ĐÓNG BĂNG GẦN MỘT NĂM (07/09)
 
 `--explain` (U49) trả lời ngay lượt đầu, và **lật đúng giả thuyết của tôi**:
