@@ -71,18 +71,54 @@ def _mcap_map(ctx: dict | None) -> dict:
     return out
 
 
+def _excluded_financials(ctx: dict | None) -> set:
+    """Nhóm TÀI CHÍNH — dùng CHUNG danh sách với xếp hạng rủi ro của brief.
+
+    ⚠️ Đây là chỗ sổ theo dõi từng đếm nhầm suốt 6 phiên. Đo 07/09: 83 mã bị
+    ghi, đậm nhất **NAB 6.118×**, và danh sách đầu bảng là **BID · BSI · DSE ·
+    HDB · NAB** — năm trên sáu mã là NGÂN HÀNG / CHỨNG KHOÁN.
+
+    Với định chế tài chính, "lưu chuyển tiền HĐKD" theo VAS gồm cả biến động
+    **tiền gửi, cho vay, liên ngân hàng** — tức dòng BẢNG CÂN ĐỐI, không phải
+    dòng tiền hoạt động theo nghĩa doanh nghiệp thường. Op.CF vài chục tới vài
+    trăm nghìn tỷ ở đó là **số THẬT**, không phải lệch đơn vị. `vnstock_brief_
+    canon._FINANCIAL_TICKERS` đã ghi đúng điều này và xếp hạng rủi ro của
+    brief ĐÃ loại nhóm đó ra ("MBB Op.CF -64,972 tỷ").
+
+    Nên sổ đang đếm những mã **không bao giờ tới được mục Rủi ro** — đếm mãi
+    cũng không ra quyết định nào. Dùng CHUNG một danh sách với xếp hạng là bất
+    biến duy nhất giữ hai bên khỏi lệch nhau.
+
+    Lấy cả `ctx["financial_tickers"]` (phân loại theo NGÀNH, bắt được mã ngoài
+    danh sách tĩnh — vd DSE) như `_vn30_fund_block` và guard mục Rủi ro.
+    """
+    fin = {str(t).upper() for t in ((ctx or {}).get("financial_tickers") or ())}
+    try:
+        from vnstock_brief_canon import _FINANCIAL_TICKERS
+        fin |= {str(t).upper() for t in _FINANCIAL_TICKERS}
+    except Exception:
+        pass
+    return fin
+
+
 def scan_ocf_scale(ctx: dict | None, threshold: float = OCF_SCALE_NOTE) -> list:
     """Mã có |Op.CF| lớn bất thường so với vốn hoá — GHI NHẬN, không kết tội.
 
     Cả hai vế đã ở đơn vị **tỷ VND** (`operating_cf` chia 1e9 lúc ghi parquet;
     `Vốn hoá (tỷ)` chia 1e9 ở runner) nên tỉ số là số không thứ nguyên.
     Thiếu vốn hoá ⇒ BỎ QUA mã đó, không đoán mẫu số.
+
+    **Bỏ qua nhóm TÀI CHÍNH** — xem `_excluded_financials`. Ở đó tỉ số lớn là
+    cấu trúc của ngành, không phải dấu hiệu sai số.
     """
     mcap = _mcap_map(ctx)
+    skip = _excluded_financials(ctx)
     out = []
     for tk, m in ((ctx or {}).get("vn30_fundamentals") or {}).items():
         ocf = (m or {}).get("ocf")
         cap = mcap.get(str(tk).upper())
+        if str(tk).upper() in skip:
+            continue
         if not isinstance(ocf, (int, float)) or ocf != ocf or not cap:
             continue
         ratio = abs(float(ocf)) / cap

@@ -26,23 +26,31 @@ desktop). **Phiên hiện tại: 🖥️ DESKTOP** (user báo 07/09).
 
 # 🔴 CÒN PHẢI LÀM
 
-## 1. 🎚️ HAI QUYẾT ĐỊNH đã đủ mẫu — ○ chỉ cần anh gật
+## 1. 🎚️ Hai badge "đủ mẫu" — ĐÃ XỬ, và cả hai đều khác dự đoán
 
-Cả hai badge doctor đã chuyển sang `⚠️ ĐỦ mẫu, đáng quyết`, tức đúng ngưỡng
-bảng này quy ước là lúc gọi Claude.
+**(a) auto-heal — ĐỪNG tắt vội, và lời khuyên cũ của badge là BẪY.**
+`VNSTOCK_AUTOHEAL_BUDGET_S=0` trước đây **không tắt** mà **bỏ trần giờ** —
+làm đúng theo badge sẽ cho auto-heal chạy không giới hạn, đúng hình dạng đã
+giết lượt chạy 04/09. Đã vá (U54): `0` nay tắt thật.
 
-**(a) Tắt auto-heal.** Đo 07/09: `0/1.291 bar lành qua 2 lượt`. Cộng các đợt
-trước là **0 lành trên ~6.000 lượt** — nó chưa bao giờ chữa được gì, chỉ tiêu
-ngân sách. Gật thì đặt (⇄ **CẢ HAI máy**, biến môi trường không nằm trong kho):
-```powershell
-[Environment]::SetEnvironmentVariable('VNSTOCK_AUTOHEAL_BUDGET_S','0','User')
-```
-Bật lại: đặt về `300`. Claude sẽ ghi lý do + cách bật lại vào docs.
+Nhưng **đừng đặt nó**: `⏱ CHẶNG` tối 07/09 ghi `auto-heal 0s` — nó không tốn
+gì. Badge chỉ đo HIỆU SUẤT (0 lành), không đo CHI PHÍ, và Claude đã chép lời
+nó thành một lý do kinh tế mà số đo không đỡ. Yield 0 là **hệ quả của bản vá
+`vnstock_ohlc_repair`** (rút mất lớp chiếm phần lớn hàng đợi), không phải dấu
+hiệu hỏng. Tắt thì hàng đợi cách ly còn không được **dọn**, chỉ phình.
 
-**(b) Op.CF / vốn hoá.** 83 mã bất thường, đậm nhất **NAB 6.118×**. Đây là câu
-hỏi SỐ LIỆU chứ không phải câu hỏi code: Op.CF ngân hàng/BĐS lệch **đơn vị**,
-hay là số thật? Anh chốt hướng thì Claude viết guard. Xoá
-`_meta/brief_watch.json` để đếm lại sau khi chốt.
+⇒ Để nguyên. Khi nào `auto-heal` ăn giờ trong `⏱ CHẶNG` thì mới hạ trần
+`=120`, hoặc `=0` để tắt hẳn (chạy tay khi cần: `python run.py heal`).
+
+**(b) Op.CF/vốn hoá — số THẬT, không lệch đơn vị. Sổ đếm nhầm ngành.**
+Đầu bảng BID · BSI · DSE · HDB · NAB — **5/6 là ngân hàng/chứng khoán**, mà
+với định chế tài chính thì Op.CF theo VAS gồm cả biến động tiền gửi/cho vay
+(dòng bảng cân đối). Repo đã biết từ trước và xếp hạng rủi ro của brief ĐÃ
+loại nhóm này. Sổ đang đếm mã không bao giờ tới được mục Rủi ro.
+
+Đã vá: `scan_ocf_scale` dùng CHUNG danh sách với xếp hạng. KBC (BĐS) vẫn giữ.
+🖥️ **Việc của anh: xoá `data_warehouse\_meta\brief_watch.json` để đếm lại**
+— sổ cũ toàn số rác. Vài phiên nữa badge sẽ nói điều khác.
 
 ## 2. 📊 ĐÃ ĐO XONG phát tối 07/09 — còn đúng một chỗ đáng đào
 
@@ -122,12 +130,12 @@ tab **Tin tức** → sub-tab **🧭 Phân bổ** → nút **📝 Tạo brief**.
 
 ## 6. 💻 Laptop — merge + nâng vnstock 4.0.7 TRƯỚC desktop
 
-Laptop đang ở `2.615`, HEAD là **`3.127`** (07/09, sau `--whole-series`).
+Laptop đang ở `2.615`, HEAD là **`3.141`** (07/09, sau `--whole-series`).
 
 ```powershell
 cd C:\vnstock
 git pull origin claude/tong-hop-cong-viec-test-w8mvrc
-python run.py test          # phải ra 3.127 passed
+python run.py test          # phải ra 3.141 passed
 ```
 
 **📦 vnstock 4.0.7 đã ra — cổng gỡ chặn 4.0.6 đã mở.** Đúng thứ tự:
@@ -201,7 +209,7 @@ dòng `screener` như thường lệ.
 | Rủi ro chạm trần task | 166,3′ → 69,0′ ⇒ đệm 13,7′ → **111′** *(số chưa sạch — xem việc #1)* |
 | Phát tự động trọn vẹn | 21/08, 24/08, 25/08 đều đủ 14 bước và **có brief Telegram** |
 | Chất lượng brief | Guard số chỉ số (trạng từ) · dọn khối tin · GDKHQ không cảnh báo cho ĐHĐCĐ · dải ±3% gọi đúng tên |
-| Đồng bộ code | 🖥️ desktop `2.615 passed` = HEAD lúc 26/08 sáng; HEAD nay **3.127** (đợt vá lệch cơ sở + `--whole-series`) |
+| Đồng bộ code | 🖥️ desktop `2.615 passed` = HEAD lúc 26/08 sáng; HEAD nay **3.141** (đợt vá lệch cơ sở + `--whole-series`) |
 | `fix-units` đối chứng | 26/08 trên KHO THẬT: `fix_count` khớp, giải nén **ít hơn 1.125×**, bỏ qua **98,6%** mã. Lượt đối chứng còn tìm ra bug HFB (`time` trộn kiểu ⇒ mã bị bỏ sót im lặng) — đã vá (U32) |
 | Sổ lệnh | **Không mất** — 805 briefs · 148 rec · 138 outcome |
 | BCTC ngân hàng 2015-2016 | **TẠM DỪNG** (user chốt 26/08) — đã đo 5 nguồn: `vci` sớm nhất 2018-Q1 (đúng khung, tốt nhất) · `finhay` trần 5 kỳ · `cafef` có 2015-2016 nhưng **sai khung (doanh nghiệp thường)** · `kbs` rỗng · `tcbs` 404. Muốn data cũ hơn ⇒ user xuất Wichart/FiinPro, Claude viết bộ đọc. **Đừng dò lại** — xem U34 `docs/CLAUDE-NOTES.md` |

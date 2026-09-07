@@ -1112,9 +1112,12 @@ def check_autoheal_yield() -> dict:
         return _result("autoheal_yield", name, "ok", head, "")
     return _result(
         "autoheal_yield", name, "warn",
-        f"{head} — refetch KHÔNG chữa được gì, đang tiêu ngân sách vô ích",
-        "hạ trần: VNSTOCK_AUTOHEAL_BUDGET_S=120 (hoặc 0 để tắt hẳn) cho tới khi "
-        "hiểu vì sao hàng đợi không lành; xem _meta/autoheal_runs.json")
+        f"{head} — refetch KHÔNG chữa được gì",
+        "đối chiếu CHI PHÍ trước khi tắt: xem `auto-heal <n>s` trong dòng "
+        "`⏱ CHẶNG` của run_daily.log. Tốn giờ thì hạ trần "
+        "VNSTOCK_AUTOHEAL_BUDGET_S=120, hoặc =0 để TẮT HẲN (khi ấy hàng đợi "
+        "cách ly không được thử lại lẫn dọn — chạy tay: python run.py heal). "
+        "Tốn ~0s thì cứ để, nó không hại gì; xem _meta/autoheal_runs.json")
 
 
 OFFLINE_CHECKS = [

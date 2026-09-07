@@ -6966,6 +6966,85 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🧯 U54. CÔNG TẮC AUTO-HEAL LÀM NGƯỢC LỜI HỨA + SỔ Op.CF ĐẾM NHẦM NGÀNH (07/09)
+
+Hai badge `⚠️ ĐỦ mẫu, đáng quyết` được user giao xử. Soi cả hai thì **cả hai
+đều không phải chuyện mình tưởng.**
+
+## (a) `VNSTOCK_AUTOHEAL_BUDGET_S=0` KHÔNG tắt — nó BỎ TRẦN GIỜ
+
+Badge in nguyên văn: *"hạ trần: VNSTOCK_AUTOHEAL_BUDGET_S=120 (hoặc 0 để tắt
+hẳn)"*. Code:
+
+    _budget = float(os.environ.get("VNSTOCK_AUTOHEAL_BUDGET_S")
+                    or AUTO_HEAL_BUDGET_S)
+    ... time_budget_s=_budget if _budget > 0 else None
+
+Chuỗi `"0"` là **truthy** nên `or` không rơi về mặc định ⇒ `_budget = 0.0` ⇒
+`time_budget_s=None` ⇒ và trong `auto_heal`, `None` nghĩa là **KHÔNG CHẶN
+GIỜ**. Làm đúng theo badge sẽ cho auto-heal chạy **không giới hạn**. Mỗi mục
+hàng đợi là một lần gọi mạng, task Daily có trần cứng 120 phút — **đúng hình
+dạng đã giết lượt chạy 04/09** (sync một mình 179,4 phút).
+
+Nay `0`/`off`/`no`/`false` ⇒ TẮT thật; số dương ⇒ trần; rỗng hoặc rác ⇒ mặc
+định. **Không còn đường nào xin chế độ không-trần qua biến môi trường** —
+không ai cần nó, và nó là cái bẫy. Có test quét: mọi đường vào phải ra một
+trần DƯƠNG hoặc ra TẮT.
+
+### Và đề xuất "tắt đi" của tôi dựa trên tiền đề SAI
+
+Tôi nói auto-heal *"đang tiêu ngân sách vô ích"* — chữ trong badge. Nhưng
+`⏱ CHẶNG` tối 07/09 ghi **`auto-heal 0s`**. Nó không tốn gì cả. Badge chỉ đo
+HIỆU SUẤT (0 lành) chứ không đo CHI PHÍ, và tôi chép lời nó thành một lý do
+kinh tế mà số đo không đỡ.
+
+⇒ Badge nay bảo **đối chiếu chi phí trước khi tắt**: xem `auto-heal <n>s`
+trong `⏱ CHẶNG`. Tốn giờ thì hạ trần / tắt; tốn ~0s thì cứ để. Và nói rõ cái
+mất khi tắt: hàng đợi cách ly không được thử lại **lẫn không được dọn** —
+`archive_exhausted` cũng nằm trong `auto_heal`, nên tắt là hàng đợi chỉ phình.
+Đường tay `python run.py heal` vẫn còn.
+
+**Vì sao yield = 0 mà không phải lỗi:** `vnstock_ohlc_repair` (19/08) đã chữa
+lớp bar tự mâu thuẫn **ngay ở đường ghi**, tức rút mất lớp chiếm phần lớn hàng
+đợi. Phần còn lại là thứ refetch không bao giờ chữa được — cùng nguồn trả về
+cùng bar. Yield 0 là **hệ quả của một bản vá tốt**, không phải dấu hiệu hỏng.
+
+## (b) Op.CF/vốn hoá: số THẬT, và sổ đang đếm nhầm ngành
+
+83 mã qua 6 phiên, đậm nhất **NAB 6.118×**. Đầu bảng: **BID · BSI · DSE · HDB
+· NAB** — **năm trên sáu là ngân hàng / chứng khoán**.
+
+Với định chế tài chính, "lưu chuyển tiền HĐKD" theo VAS gồm cả biến động
+**tiền gửi, cho vay, liên ngân hàng** — dòng BẢNG CÂN ĐỐI chứ không phải dòng
+tiền hoạt động theo nghĩa doanh nghiệp thường. Op.CF vài trăm nghìn tỷ ở đó là
+**số thật**. Không có lệch đơn vị nào.
+
+Và repo **đã biết điều này từ trước**: `vnstock_brief_canon._FINANCIAL_TICKERS`
+ghi rõ *"a bank never gets mis-flagged as a risk purely because of its scale —
+e.g. MBB Op.CF -64,972 tỷ"*, và xếp hạng rủi ro của brief ĐÃ loại nhóm đó.
+
+⇒ Sổ đang đếm những mã **không bao giờ tới được mục Rủi ro**. Đếm bao nhiêu
+phiên cũng không ra quyết định nào, mà badge thì cứ vàng — đúng kiểu làm người
+dùng học cách bỏ qua badge (U42).
+
+Bản vá không phải một ngưỡng số. `scan_ocf_scale` nay dùng **CHUNG một danh
+sách** với xếp hạng: `_FINANCIAL_TICKERS` **hợp** `ctx["financial_tickers"]`
+(phân loại theo NGÀNH — bắt được mã ngoài danh sách tĩnh, vd **DSE**). Hai bên
+tự giữ danh sách riêng là chắc chắn lệch nhau.
+
+**KBC (BĐS) vẫn được giữ** — Op.CF âm nặng do tích luỹ quỹ đất là tín hiệu
+THẬT mà mục Rủi ro sinh ra để nói, và brief đã có guard gắn ngữ cảnh cho nó.
+Vơ đũa cả nắm ở đây là giết đúng tín hiệu cần giữ.
+
+## Bài học chung của cả hai
+
+Cả hai badge đều **đúng khi kêu** nhưng **sai ở lời khuyên kèm theo** — một
+cái khuyên một lệnh làm ngược, một cái khuyên đếm tiếp một thứ không bao giờ
+kết luận được. Badge nói *"có chuyện"* thì đáng tin; badge nói *"làm thế này"*
+thì vẫn phải đọc code.
+
+13 test mới. Suite: **3.141 pass**.
+
 # 🏁 U53. ĐÓNG CHIẾN DỊCH LỆCH CƠ SỞ: 73 → 0 (07/09)
 
     [triage] ✅ sổ cách ly RỖNG — không mã nào đang bị chặn cập nhật.

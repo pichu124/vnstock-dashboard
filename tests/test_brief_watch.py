@@ -200,3 +200,74 @@ class TestBadgeNeverCriesTooEarly:
                             {"kind": "ocf_scale", "ticker": "NVL", "ratio": 0.20}],
                  today="2026-08-21")
         assert w.summarize(tmp_path)["worst_ocf"]["ticker"] == "KBC"
+
+
+class TestFinancialsAreNotSuspicious:
+    """Vết 07/09 — sổ đếm 83 mã Op.CF/vốn hoá bất thường qua 6 phiên, đậm nhất
+    **NAB 6.118×**, và đầu bảng là **BID · BSI · DSE · HDB · NAB**: năm trên
+    sáu mã là NGÂN HÀNG / CHỨNG KHOÁN.
+
+    Với định chế tài chính, "lưu chuyển tiền HĐKD" theo VAS gồm cả biến động
+    **tiền gửi, cho vay, liên ngân hàng** — dòng BẢNG CÂN ĐỐI, không phải dòng
+    tiền hoạt động theo nghĩa doanh nghiệp thường. Op.CF vài trăm nghìn tỷ ở
+    đó là **số THẬT**, không phải lệch đơn vị.
+
+    Và `_FINANCIAL_TICKERS` đã ghi đúng điều đó từ trước — xếp hạng rủi ro của
+    brief ĐÃ loại nhóm này ra. Nên sổ đang đếm những mã **không bao giờ tới
+    được mục Rủi ro**: đếm bao nhiêu phiên cũng không ra quyết định nào, mà
+    badge thì cứ vàng.
+    """
+
+    def _ctx(self, tickers):
+        return {
+            "tickers": [{"Mã": t, "Vốn hoá (tỷ)": 20_000.0} for t in tickers],
+            "vn30_fundamentals": {t: {"ocf": -122_000.0} for t in tickers},
+        }
+
+    def test_a_bank_is_not_recorded(self):
+        import vnstock_brief_watch as W
+        assert W.scan_ocf_scale(self._ctx(["NAB"])) == []
+
+    def test_a_securities_firm_is_not_recorded(self):
+        import vnstock_brief_watch as W
+        assert W.scan_ocf_scale(self._ctx(["BSI"])) == []
+
+    def test_a_financial_known_only_BY_INDUSTRY_is_not_recorded(self):
+        """DSE không nằm trong danh sách tĩnh — nó chỉ lộ ra qua phân loại
+        NGÀNH mà runner bơm vào `ctx["financial_tickers"]`. Bỏ vế đó là sổ vẫn
+        đếm nhầm đúng những mã mới niêm yết."""
+        import vnstock_brief_watch as W
+        ctx = self._ctx(["DSE"])
+        ctx["financial_tickers"] = {"DSE"}
+        assert W.scan_ocf_scale(ctx) == []
+
+    def test_a_NON_financial_is_STILL_recorded(self):
+        """Không được vơ đũa cả nắm: KBC (BĐS) Op.CF âm nặng là tín hiệu THẬT
+        mà mục Rủi ro sinh ra để nói — sổ phải giữ nó."""
+        import vnstock_brief_watch as W
+        got = W.scan_ocf_scale(self._ctx(["KBC"]))
+        assert [e["ticker"] for e in got] == ["KBC"]
+
+    def test_it_shares_ONE_list_with_the_risk_ranking(self):
+        """Hai bên tự giữ danh sách riêng là chắc chắn lệch nhau — và lệch ở
+        đây nghĩa là sổ lại đếm thứ brief không bao giờ in."""
+        import inspect
+
+        import vnstock_brief_watch as W
+        assert "_FINANCIAL_TICKERS" in inspect.getsource(W._excluded_financials)
+        assert "financial_tickers" in inspect.getsource(W._excluded_financials)
+
+    def test_a_missing_canon_never_breaks_the_ledger(self, monkeypatch):
+        """Sổ là best-effort tuyệt đối — brief KHÔNG được hỏng vì cái sổ."""
+        import builtins
+
+        import vnstock_brief_watch as W
+        _real = builtins.__import__
+
+        def boom(name, *a, **k):
+            if name == "vnstock_brief_canon":
+                raise ImportError("hỏng")
+            return _real(name, *a, **k)
+
+        monkeypatch.setattr(builtins, "__import__", boom)
+        assert W._excluded_financials({"financial_tickers": {"NAB"}}) == {"NAB"}

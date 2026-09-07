@@ -149,17 +149,18 @@ def cmd_sync(args) -> int:
         except Exception as exc:
             print(f"[sync] fix-units skipped: {exc}", file=sys.stderr)
 
-    if not getattr(args, "no_auto_heal", False):
+    _heal_on, _budget = _autoheal_budget()
+    if getattr(args, "no_auto_heal", False):
+        _heal_on = False
+    elif not _heal_on:
+        print("[sync] auto-heal TẮT (VNSTOCK_AUTOHEAL_BUDGET_S=0) — hàng đợi "
+              "cách ly sẽ KHÔNG được thử lại và KHÔNG được dọn. Chạy tay khi "
+              "cần: python run.py heal")
+    if _heal_on:
         try:
-            from vnstock_quarantine import AUTO_HEAL_BUDGET_S, auto_heal
-            try:
-                _budget = float(os.environ.get("VNSTOCK_AUTOHEAL_BUDGET_S")
-                                or AUTO_HEAL_BUDGET_S)
-            except ValueError:
-                _budget = AUTO_HEAL_BUDGET_S
+            from vnstock_quarantine import auto_heal
             stats = _timed("auto-heal", lambda: auto_heal(
-                Path(args.warehouse), verbose=False,
-                time_budget_s=_budget if _budget > 0 else None))
+                Path(args.warehouse), verbose=False, time_budget_s=_budget))
             if stats.get("scanned", 0):
                 print(f"[sync] auto-heal: scanned={stats['scanned']} "
                       f"healed={stats['refetched_ok']} "
@@ -180,6 +181,40 @@ def cmd_sync(args) -> int:
             print(f"[sync] auto-heal skipped: {exc}", file=sys.stderr)
     _print_sync_breakdown(_sub)
     return 1 if warned else 0
+
+
+def _autoheal_budget() -> "tuple[bool, float]":
+    """(bật?, trần giây) cho auto-heal, đọc từ `VNSTOCK_AUTOHEAL_BUDGET_S`.
+
+    ⚠️ **Bản trước làm NGƯỢC lại lời hứa.** Badge doctor bảo *"0 để tắt hẳn"*,
+    nhưng code cũ là::
+
+        _budget = float(os.environ.get("VNSTOCK_AUTOHEAL_BUDGET_S")
+                        or AUTO_HEAL_BUDGET_S)
+        ... time_budget_s=_budget if _budget > 0 else None
+
+    Chuỗi `"0"` là TRUTHY nên `or` không rơi về mặc định ⇒ `_budget = 0.0` ⇒
+    `time_budget_s=None`, mà trong `auto_heal` thì `None` nghĩa là **KHÔNG
+    CHẶN GIỜ**. Đặt `=0` theo đúng lời khuyên của badge sẽ cho auto-heal chạy
+    **không giới hạn** — mỗi mục hàng đợi là một lần gọi mạng, và task Daily
+    có trần cứng 120 phút. Đúng hình dạng đã giết lượt chạy 04/09 (sync một
+    mình 179,4 phút).
+
+    Nay: `0`/`off`/`no`/`false` ⇒ **TẮT**; số dương ⇒ trần; rác hoặc rỗng ⇒
+    mặc định. **Không còn đường nào bật chế độ không-trần qua biến môi
+    trường** — không ai cần nó, và nó là cái bẫy.
+    """
+    from vnstock_quarantine import AUTO_HEAL_BUDGET_S
+    raw = (os.environ.get("VNSTOCK_AUTOHEAL_BUDGET_S") or "").strip()
+    if not raw:
+        return True, AUTO_HEAL_BUDGET_S
+    if raw.lower() in ("0", "off", "no", "false"):
+        return False, 0.0
+    try:
+        v = float(raw)
+    except ValueError:
+        return True, AUTO_HEAL_BUDGET_S
+    return (True, v) if v > 0 else (False, 0.0)
 
 
 def cmd_heal(args) -> int:

@@ -211,3 +211,70 @@ def test_sync_no_fix_units_flag_skips_fix_units(tmp_path, monkeypatch):
     assert rc == 0
     assert called["fix_units"] == 0, "--no-fix-units must suppress the pass"
     assert called["auto_heal"] == 1, "auto-heal still runs by default"
+
+
+class TestAutohealBudgetSwitch:
+    """Vết 07/09 — **lời khuyên của badge làm NGƯỢC lại điều nó hứa.**
+
+    Badge doctor in: *"hạ trần: VNSTOCK_AUTOHEAL_BUDGET_S=120 (hoặc 0 để tắt
+    hẳn)"*. Code cũ::
+
+        _budget = float(os.environ.get("VNSTOCK_AUTOHEAL_BUDGET_S")
+                        or AUTO_HEAL_BUDGET_S)
+        ... time_budget_s=_budget if _budget > 0 else None
+
+    Chuỗi `"0"` là TRUTHY nên `or` không rơi về mặc định ⇒ `_budget = 0.0` ⇒
+    `time_budget_s=None`, mà trong `auto_heal` `None` nghĩa là **KHÔNG CHẶN
+    GIỜ**. Làm đúng theo badge sẽ cho auto-heal chạy **không giới hạn** — mỗi
+    mục hàng đợi là một lần gọi mạng, và task Daily có trần cứng 120 phút.
+    Đúng hình dạng đã giết lượt chạy 04/09 (sync một mình 179,4 phút).
+    """
+
+    def _b(self, monkeypatch, val):
+        import run as R
+        if val is None:
+            monkeypatch.delenv("VNSTOCK_AUTOHEAL_BUDGET_S", raising=False)
+        else:
+            monkeypatch.setenv("VNSTOCK_AUTOHEAL_BUDGET_S", val)
+        return R._autoheal_budget()
+
+    def test_zero_now_means_OFF_not_unlimited(self, monkeypatch):
+        assert self._b(monkeypatch, "0") == (False, 0.0)
+
+    def test_a_positive_value_is_a_ceiling(self, monkeypatch):
+        assert self._b(monkeypatch, "120") == (True, 120.0)
+
+    def test_unset_uses_the_module_default(self, monkeypatch):
+        from vnstock_quarantine import AUTO_HEAL_BUDGET_S
+        assert self._b(monkeypatch, None) == (True, AUTO_HEAL_BUDGET_S)
+
+    def test_an_empty_string_is_not_an_off_switch(self, monkeypatch):
+        """Biến môi trường đặt rỗng là chuyện thường trên Windows — coi nó là
+        'tắt' thì auto-heal biến mất mà không ai gõ lệnh nào."""
+        from vnstock_quarantine import AUTO_HEAL_BUDGET_S
+        assert self._b(monkeypatch, "") == (True, AUTO_HEAL_BUDGET_S)
+
+    def test_garbage_falls_back_to_the_default_not_to_off(self, monkeypatch):
+        from vnstock_quarantine import AUTO_HEAL_BUDGET_S
+        assert self._b(monkeypatch, "rác") == (True, AUTO_HEAL_BUDGET_S)
+
+    def test_words_work_too(self, monkeypatch):
+        for w in ("off", "no", "false", "OFF"):
+            assert self._b(monkeypatch, w) == (False, 0.0), w
+
+    def test_there_is_NO_WAY_to_ask_for_an_uncapped_run(self, monkeypatch):
+        """Không ai cần chế độ không-trần, và nó là cái bẫy đã có sẵn. Mọi
+        đường vào phải ra một trần DƯƠNG hoặc ra TẮT."""
+        for v in (None, "", "0", "-1", "rác", "600", "off"):
+            on, budget = self._b(monkeypatch, v)
+            assert (budget > 0) if on else (budget == 0.0), v
+
+    def test_the_ceiling_never_reaches_auto_heal_as_None(self):
+        """`None` là cách `auto_heal` hiểu 'không chặn giờ'. Nhánh bật phải
+        truyền một con số, không bao giờ truyền None."""
+        import inspect
+
+        import run as R
+        src = inspect.getsource(R.cmd_sync)
+        assert "time_budget_s=_budget" in src
+        assert "else None" not in src.split("auto-heal")[-1][:400]
