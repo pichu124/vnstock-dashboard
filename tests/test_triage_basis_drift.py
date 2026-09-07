@@ -372,3 +372,99 @@ class TestPlanWhenBlind:
         T.main(["--warehouse", str(tmp_path), "--plan"])
         out = capsys.readouterr().out
         assert "rebase_ticker_history" in out and "nhân bản một con số sai" in out
+
+
+class TestLiveRelookup:
+    """⚠️ Cái bẫy suýt làm cả việc nạp kho trông như vô ích.
+
+    Trường `event` trong sổ cách ly là **ảnh chụp lúc PHÁT HIỆN** —
+    `vnstock_updater` ghi nó vào đúng lúc mã bị chặn. Nạp lại kho sự kiện
+    (`run.py vietstock --bulk --register`, 26/08: ok=1520/1723) **không viết
+    ngược lại sổ**. Bộ soi chỉ đọc ảnh chụp ⇒ nạp kho xong chạy lại vẫn ra y
+    nguyên 0/47, và người dùng kết luận việc nạp kho vô ích — trong khi thật
+    ra chỉ là đang đọc số cũ.
+    """
+
+    REC = {"detected_at": "2026-08-24", "ratio": 1.0424, "pct": 4.24,
+           "event": None, "window": ["2026-07-25", "2026-08-24"]}
+
+    def test_a_freshly_loaded_event_moves_the_ticker_to_the_safe_group(self):
+        st = T.summarize({"AAM": self.REC}, TODAY,
+                         resolve=lambda tk, rec: "cash")
+        assert [r["ticker"] for r in st["groups"]["co_su_kien"]] == ["AAM"]
+
+    def test_it_counts_how_many_the_relookup_rescued(self):
+        """Con số này là bằng chứng việc nạp kho có tác dụng."""
+        st = T.summarize({"AAM": self.REC, "BCF": dict(self.REC)}, TODAY,
+                         resolve=lambda tk, rec: "cash")
+        assert st["n_live"] == 2
+
+    def test_without_a_resolver_the_stale_snapshot_is_used(self):
+        st = T.summarize({"AAM": self.REC}, TODAY)
+        assert st["n_live"] == 0
+        assert [r["ticker"] for r in st["groups"]["chua_ro"]] == ["AAM"]
+
+    def test_a_stored_event_is_never_overwritten_by_the_relookup(self):
+        """Sổ đã ghi được loại thì đó là số đo lúc phát hiện — giữ nguyên."""
+        rec = dict(self.REC, event="stock")
+        st = T.summarize({"AAM": rec}, TODAY, resolve=lambda tk, r: "cash")
+        assert st["groups"]["co_su_kien"][0]["event"] == "stock"
+        assert st["n_live"] == 0
+
+    def test_a_resolver_that_finds_nothing_changes_nothing(self):
+        st = T.summarize({"AAM": self.REC}, TODAY, resolve=lambda tk, rec: None)
+        assert st["n_live"] == 0 and len(st["groups"]["chua_ro"]) == 1
+
+    def test_the_rescued_rows_are_marked_as_relooked_up(self):
+        st = T.summarize({"AAM": self.REC}, TODAY, resolve=lambda tk, r: "cash")
+        assert st["groups"]["co_su_kien"][0]["event_source"] == "tra lại"
+
+
+class TestEventAround:
+    def test_it_prefers_the_end_of_the_comparison_window(self):
+        rec = {"window": ["2026-07-25", "2026-08-24"], "detected_at": "2026-08-26"}
+        assert T.event_around(rec) == date(2026, 8, 24)
+
+    def test_it_falls_back_to_the_detection_date(self):
+        assert T.event_around({"detected_at": "2026-08-21"}) == date(2026, 8, 21)
+
+    def test_a_null_window_end_falls_through_to_detection(self):
+        rec = {"window": [None, None], "detected_at": "2026-08-21"}
+        assert T.event_around(rec) == date(2026, 8, 21)
+
+    def test_nothing_readable_gives_none_not_today(self):
+        """Trả `date.today()` ở đây là bịa một ngày vách, rồi tra sự kiện quanh
+        một mốc không có thật."""
+        assert T.event_around({}) is None
+        assert T.event_around({"detected_at": "rác"}) is None
+
+
+class TestRelookupIsStillReadOnly:
+    def test_the_live_lookup_only_reads(self):
+        import inspect
+        src = inspect.getsource(T.live_event_kind)
+        # Bỏ docstring rồi mới soi — docstring có nhắc `--register` để GIẢI
+        # THÍCH, và cấm nhầm chữ trong lời giải thích là một cách hay ho để
+        # ép người sau viết code khó hiểu hơn.
+        body = src.split('"""')[-1]
+        assert "_corp_event_kind" in body
+        for forbidden in ("write", "register", "--apply", "to_parquet"):
+            assert forbidden not in body, forbidden
+
+    def test_a_broken_lookup_never_raises(self, monkeypatch):
+        """Bộ soi hỏng vì kho sự kiện hỏng thì mất luôn thứ duy nhất đang nói
+        cho user biết 47 mã đứng giá."""
+        assert T.live_event_kind("AAM", "/khong/co/kho", date(2026, 8, 24)) is None
+
+    def test_the_flag_can_turn_the_relookup_off(self, tmp_path, monkeypatch,
+                                                capsys):
+        monkeypatch.setattr(T, "load_pending", lambda wh: {"AAM": self_rec()})
+        monkeypatch.setattr(T, "live_event_kind",
+                            lambda *a, **k: pytest.fail("không được tra lại"))
+        T.main(["--warehouse", str(tmp_path), "--no-relookup"])
+        assert "tra LẠI" not in capsys.readouterr().out
+
+
+def self_rec():
+    return {"detected_at": "2026-08-24", "ratio": 1.0424, "pct": 4.24,
+            "event": None, "window": ["2026-07-25", "2026-08-24"]}

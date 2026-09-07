@@ -115,14 +115,27 @@ NHOM = {
 NHOM_ORDER = ("chua_ro", "tron_chua_ro", "co_su_kien", "nhieu")
 
 
-def summarize(pending: dict, today: "date | None" = None) -> dict:
-    """{nhóm: [bản ghi]} + vài con số tổng. Hàm thuần."""
+def summarize(pending: dict, today: "date | None" = None,
+              resolve=None) -> dict:
+    """{nhóm: [bản ghi]} + vài con số tổng. Hàm thuần — `resolve` bơm từ ngoài.
+
+    `resolve(ticker, rec) -> kind | None` tra LẠI kho sự kiện. Bơm từ ngoài
+    để hàm này vẫn test được offline, và để chỗ gọi quyết định có tra lại hay
+    không.
+    """
     groups: dict = {k: [] for k in NHOM_ORDER}
+    n_live = 0
     for tk in sorted(pending):
         rec = dict(pending[tk] or {})
         rec["ticker"] = tk.upper()
         rec["stale"] = days_stale(rec.get("detected_at", ""), today)
         rec["round_hint"] = near_round_ratio(rec.get("ratio"))
+        if resolve is not None and not rec.get("event"):
+            live = resolve(rec["ticker"], rec)
+            if live:
+                rec["event"] = live
+                rec["event_source"] = "tra lại"
+                n_live += 1
         groups[classify(rec)].append(rec)
     stales = [r["stale"] for g in groups.values() for r in g
               if r["stale"] is not None]
@@ -131,7 +144,38 @@ def summarize(pending: dict, today: "date | None" = None) -> dict:
         "total": sum(len(g) for g in groups.values()),
         "max_stale": max(stales) if stales else None,
         "bars_lost": sum(stales),        # xấp xỉ: mỗi ngày đứng ≈ 1 bar thiếu
+        "n_live": n_live,                # tra LẠI mới ra, sổ cũ không có
     }
+
+
+def live_event_kind(ticker: str, warehouse, around, window_days: int = 10):
+    """Tra kho sự kiện **NGAY BÂY GIỜ** cho một mã. Không tra được ⇒ None.
+
+    ⚠️ Vì sao phải tra lại: trường `event` trong sổ cách ly là **ảnh chụp lúc
+    PHÁT HIỆN** — `vnstock_updater` ghi nó vào đúng lúc mã bị chặn. Nạp lại
+    kho sự kiện (`run.py vietstock --bulk --register`) **không viết ngược lại
+    sổ**. Nếu bộ soi chỉ đọc ảnh chụp thì nạp kho xong chạy lại vẫn ra y
+    nguyên 0/47, và người dùng sẽ kết luận việc nạp kho vô ích — trong khi
+    thật ra chỉ là đang đọc số cũ.
+
+    Chỉ ĐỌC: `load_events` đọc parquet trong `_meta/corp_actions/`.
+    """
+    try:
+        from vnstock_updater import _corp_event_kind
+        return _corp_event_kind(Path(warehouse), ticker, around, window_days)
+    except Exception:
+        return None
+
+
+def event_around(rec: dict) -> "date | None":
+    """Ngày để tra sự kiện: cuối cửa sổ so sánh, không có thì ngày phát hiện."""
+    win = rec.get("window") or []
+    for cand in (win[-1] if win else None, rec.get("detected_at")):
+        try:
+            return date.fromisoformat(str(cand)[:10])
+        except Exception:
+            continue
+    return None
 
 
 def match_rate(groups: dict) -> "float | None":
@@ -229,6 +273,9 @@ def main(argv=None) -> int:
     ap.add_argument("--warehouse", default="data_warehouse")
     ap.add_argument("--plan", action="store_true",
                     help="In thêm kế hoạch chữa theo lô")
+    ap.add_argument("--no-relookup", action="store_true",
+                    help="Chỉ đọc trường `event` trong sổ, KHÔNG tra lại kho "
+                         "sự kiện (nhanh hơn, nhưng thấy số cũ)")
     args = ap.parse_args(argv)
 
     pending = load_pending(Path(args.warehouse))
@@ -236,7 +283,17 @@ def main(argv=None) -> int:
         print("[triage] ✅ sổ cách ly RỖNG — không mã nào đang bị chặn cập nhật.")
         return 0
 
-    st = summarize(pending)
+    wh = Path(args.warehouse)
+
+    def _resolve(ticker, rec):
+        around = event_around(rec)
+        return live_event_kind(ticker, wh, around) if around else None
+
+    st = summarize(pending, resolve=None if args.no_relookup else _resolve)
+    if st["n_live"]:
+        print(f"[triage] 🔄 tra LẠI kho sự kiện: {st['n_live']} mã nay ra được "
+              f"loại sự kiện mà sổ cũ không có "
+              f"(sổ ghi `event` lúc PHÁT HIỆN, nạp kho không viết ngược lại)")
     print(f"[triage] {st['total']} mã đang bị chặn cập nhật giá")
     if st["max_stale"] is not None:
         print(f"[triage] đứng lâu nhất {st['max_stale']} ngày · "

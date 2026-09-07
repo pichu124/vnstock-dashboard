@@ -6966,6 +6966,44 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🔄 U39. SỔ CÁCH LY GHI ẢNH CHỤP, KHÔNG PHẢI SỰ THẬT HIỆN TẠI (26/08)
+
+User nạp kho sự kiện: `run.py vietstock --bulk --register` →
+**ok=1520 · empty=180 · fail=23** trên 1.723 mã. Kho sự kiện nay DÀY.
+
+**Bẫy suýt làm cả việc nạp kho trông như vô ích:** trường `event` trong
+`_meta/basis_drift_pending.json` là **ảnh chụp lúc PHÁT HIỆN** —
+`vnstock_updater` ghi nó vào đúng lúc mã bị chặn (`vnstock_updater.py:561`).
+Nạp lại kho sự kiện **KHÔNG viết ngược lại sổ**. Nên bộ soi chỉ đọc ảnh chụp
+⇒ nạp kho xong chạy lại vẫn ra **y nguyên 0/47**, và người đọc kết luận việc
+nạp kho vô ích — trong khi thật ra đang đọc số cũ.
+
+⇒ `triage_basis_drift` nay **TRA LẠI** kho sự kiện tại thời điểm soi
+(`live_event_kind` → `vnstock_updater._corp_event_kind`, chỉ đọc parquet),
+và in ra `🔄 tra LẠI: N mã nay ra được loại sự kiện mà sổ cũ không có`. Con số
+N chính là **bằng chứng việc nạp kho có tác dụng**.
+
+Ba ràng buộc đã cài:
+* **Sổ đã ghi được loại thì GIỮ NGUYÊN** — đó là số đo tại thời điểm phát
+  hiện, tra lại không được đè lên.
+* `event_around` lấy **cuối cửa sổ so sánh**, không có thì ngày phát hiện;
+  không đọc được thì **None**, KHÔNG rơi về `today` — bịa một ngày vách rồi
+  tra sự kiện quanh mốc không có thật là tự tạo dữ kiện.
+* Tra lại hỏng ⇒ trả None, không ném. Bộ soi chết vì kho sự kiện hỏng thì
+  mất luôn thứ duy nhất đang nói cho user biết 47 mã đang đứng giá.
+
+`--no-relookup` để xem số cũ khi cần đối chiếu.
+
+## Ghi chú về thời điểm — tôi đã cảnh báo RỘNG QUÁ
+
+Tôi bảo "đừng chạy trước 19:xx" cho cả `vietstock --bulk --register`. Thật ra
+lệnh đó chỉ ghi `_meta/corp_actions/` + `corp_actions_registry.parquet` —
+**không đụng giá, không đụng `net_bs_cache.json`**, nên vô hại với phép đo
+phát 18:00. Thứ THẬT SỰ phải đợi là `rebase_ticker_history --apply`, vì nó
+ghi đè LỊCH SỬ GIÁ.
+
+13 test mới (tổng 73 ở `tests/test_triage_basis_drift.py`).
+
 # 🧭 U38. 0/47 TRA RA SỰ KIỆN — LỖI Ở KHO TRA CỨU, KHÔNG Ở 47 MÃ (26/08)
 
 Chạy `triage_basis_drift --plan` trên máy thật. Con số đáng giá nhất là con
