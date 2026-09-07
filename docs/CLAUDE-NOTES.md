@@ -6966,6 +6966,54 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🧨 U40. HAI KHO SỰ KIỆN QUYỀN SONG SONG — TÔI BẢO USER NẠP NHẦM KHO (26/08)
+
+Sau khi nạp `vietstock --bulk --register` (ok=1520/1723), chạy lại bộ soi:
+**vẫn 0/70**. Và sổ đã phình **47 → 70 mã · đứng lâu nhất 17 ngày · ~713 bar
+giá đang thiếu**.
+
+## Nguyên nhân: app có HAI kho sự kiện, không nói chuyện với nhau
+
+| kho | file | ai NẠP | ai ĐỌC |
+|---|---|---|---|
+| **cache theo mã** | `_meta/corp_actions/<MÃ>.parquet` | `vnstock_adjust.refresh_events` (API vnstock) | `load_events` → `vnstock_updater._corp_event_kind` → **CỬA GÁC** |
+| **sổ đăng ký** | `_meta/corp_actions_registry.parquet` | `run.py vietstock --register`, `run.py registry` | `vnstock_corp_registry`, `load_recent_exdiv` (U36) |
+
+`vietstock --bulk --register` → `fetch_and_register` → `register_bulk` → ghi
+**sổ đăng ký**. Cửa gác tra **cache theo mã**. Giao nhau bằng KHÔNG.
+
+⇒ **Tôi bảo user nạp nhầm kho**, và mất một lượt quét 1.723 mã để biết. Lượt
+đó không phí hẳn — nó chính là thứ làm badge `exdiv_source` (U36) sống, vì
+`load_recent_exdiv` đọc sổ đăng ký. Nhưng nó KHÔNG làm cái tôi hứa.
+
+**Bài học đúng loại:** trước khi bảo người khác chạy một lệnh để chữa X, phải
+kiểm chỗ X ĐỌC, không chỉ kiểm lệnh đó GHI cái gì. Hai cái tên đều là "corp
+actions" nên nhìn lướt thì tưởng là một.
+
+## Vá (bộ soi)
+
+`triage_basis_drift` nay hỏi **CẢ HAI** kho: `live_event_kind` (cache theo mã)
+rồi `registry_event_kind` (sổ đăng ký). Không kho nào trả lời mới là "chưa tra
+được".
+
+Tìm trong sổ đăng ký theo **KHOẢNG** — chính cửa sổ so sánh đã ghi trong sổ
+cách ly (`event_window`) — chứ không phải một ngày ± N. Vách gãy nằm đâu đó
+TRONG khoảng ấy; lấy một ngày rồi nới là đoán chỗ gãy. Có test canh việc
+KHÔNG vơ sự kiện ngoài khoảng: gán sai nguyên nhân thì mã đó rơi thẳng vào
+nhóm "chữa máy móc được".
+
+## Còn nợ — lỗi GỐC chưa vá
+
+`vnstock_updater._corp_event_kind` (thứ ghi nhãn `event` vào sổ cách ly lúc
+phát hiện) **vẫn chỉ đọc cache theo mã**. Nên mọi lần chặn mới vẫn ghi
+`event: None` dù sổ đăng ký có sự kiện. Bộ soi che được, nhưng cái nhãn trong
+sổ vẫn sai.
+
+Chưa vá vì `load_events` còn phục vụ đường ĐIỀU CHỈNH GIÁ — sửa nó là đụng
+vùng rộng hơn nhiều, và tối nay là đêm đo 4 bản vá. **Đo xong rồi sửa gốc.**
+
+11 test mới (tổng 84 ở `tests/test_triage_basis_drift.py`).
+
 # 🔄 U39. SỔ CÁCH LY GHI ẢNH CHỤP, KHÔNG PHẢI SỰ THẬT HIỆN TẠI (26/08)
 
 User nạp kho sự kiện: `run.py vietstock --bulk --register` →

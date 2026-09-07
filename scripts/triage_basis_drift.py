@@ -148,8 +148,70 @@ def summarize(pending: dict, today: "date | None" = None,
     }
 
 
+def registry_event_kind(ticker: str, warehouse, start, end):
+    """Tra SỔ ĐĂNG KÝ `corp_actions_registry.parquet` — kho THỨ HAI.
+
+    ⚠️ Đo 26/08: app có **HAI kho sự kiện quyền song song, không nói chuyện
+    với nhau**:
+
+    | kho | file | ai NẠP | ai ĐỌC |
+    |---|---|---|---|
+    | cache theo mã | `_meta/corp_actions/<MÃ>.parquet` | `vnstock_adjust.refresh_events` (API vnstock) | `load_events` → `_corp_event_kind` → **cửa gác** |
+    | sổ đăng ký | `_meta/corp_actions_registry.parquet` | `run.py vietstock --register`, `registry` | `vnstock_corp_registry`, `load_recent_exdiv` |
+
+    Nên `vietstock --bulk --register` (26/08: nạp 1.520 mã) đổ đầy kho THỨ
+    HAI, còn cửa gác tra kho THỨ NHẤT ⇒ vẫn 0/70. Bộ soi vì thế phải hỏi CẢ
+    HAI, nếu không nó báo "không có sự kiện" trong khi sự kiện nằm ngay đó.
+
+    Tìm theo KHOẢNG (cửa sổ so sánh của chính lần phát hiện) chứ không theo
+    một ngày ± N: vách gãy nằm đâu đó TRONG khoảng ấy, không nhất thiết ở mép.
+    """
+    try:
+        import pandas as pd
+
+        path = Path(warehouse) / "_meta" / "corp_actions_registry.parquet"
+        if not path.exists():
+            return None
+        df = pd.read_parquet(path)
+        if df is None or df.empty or "ex_date" not in df.columns:
+            return None
+        hit = df[df["ticker"].astype(str).str.upper() == ticker.upper()]
+        if hit.empty:
+            return None
+        ex = pd.to_datetime(hit["ex_date"]).dt.date
+        near = hit[(ex >= start) & (ex <= end)]
+        if near.empty:
+            return None
+        return str(near.iloc[0].get("type") or "") or None
+    except Exception:
+        return None
+
+
+def event_window(rec: dict, pad_days: int = 10):
+    """(đầu, cuối) khoảng tìm sự kiện — cửa sổ so sánh của chính lần phát hiện.
+
+    Vách gãy nằm TRONG cửa sổ ấy. Lấy một ngày rồi nới ±N là đoán chỗ gãy;
+    lấy trọn khoảng thì không phải đoán.
+    """
+    from datetime import timedelta
+
+    win = rec.get("window") or []
+    def _d(v):
+        try:
+            return date.fromisoformat(str(v)[:10])
+        except Exception:
+            return None
+    a, b = (_d(win[0]) if win else None), (_d(win[-1]) if win else None)
+    if a and b:
+        return (a, b)
+    mid = _d(rec.get("detected_at"))
+    if mid is None:
+        return None
+    return (mid - timedelta(days=pad_days), mid + timedelta(days=pad_days))
+
+
 def live_event_kind(ticker: str, warehouse, around, window_days: int = 10):
-    """Tra kho sự kiện **NGAY BÂY GIỜ** cho một mã. Không tra được ⇒ None.
+    """Tra CACHE THEO MÃ **NGAY BÂY GIỜ**. Không tra được ⇒ None.
 
     ⚠️ Vì sao phải tra lại: trường `event` trong sổ cách ly là **ảnh chụp lúc
     PHÁT HIỆN** — `vnstock_updater` ghi nó vào đúng lúc mã bị chặn. Nạp lại
@@ -286,8 +348,14 @@ def main(argv=None) -> int:
     wh = Path(args.warehouse)
 
     def _resolve(ticker, rec):
+        # Hỏi CẢ HAI kho — chúng được nạp bằng hai lệnh khác nhau và không
+        # đồng bộ với nhau (xem `registry_event_kind`).
         around = event_around(rec)
-        return live_event_kind(ticker, wh, around) if around else None
+        kind = live_event_kind(ticker, wh, around) if around else None
+        if kind:
+            return kind
+        span = event_window(rec)
+        return registry_event_kind(ticker, wh, *span) if span else None
 
     st = summarize(pending, resolve=None if args.no_relookup else _resolve)
     if st["n_live"]:

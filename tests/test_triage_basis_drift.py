@@ -468,3 +468,90 @@ class TestRelookupIsStillReadOnly:
 def self_rec():
     return {"detected_at": "2026-08-24", "ratio": 1.0424, "pct": 4.24,
             "event": None, "window": ["2026-07-25", "2026-08-24"]}
+
+
+class TestTwoEventStores:
+    """⚠️ Đo 26/08: app có **HAI kho sự kiện quyền song song, không nói chuyện
+    với nhau** — và tôi đã bảo user nạp NHẦM kho.
+
+    | kho | file | ai NẠP | ai ĐỌC |
+    |---|---|---|---|
+    | cache theo mã | `_meta/corp_actions/<MÃ>.parquet` | `vnstock_adjust.refresh_events` | `load_events` → `_corp_event_kind` → **cửa gác** |
+    | sổ đăng ký | `_meta/corp_actions_registry.parquet` | `run.py vietstock --register` | `vnstock_corp_registry`, `load_recent_exdiv` |
+
+    `vietstock --bulk --register` nạp 1.520 mã vào kho THỨ HAI, còn cửa gác
+    tra kho THỨ NHẤT ⇒ vẫn ra 0/70. Bộ soi phải hỏi CẢ HAI.
+    """
+
+    def _registry(self, tmp_path, rows):
+        import pandas as pd
+        meta = tmp_path / "_meta"
+        meta.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(rows).to_parquet(meta / "corp_actions_registry.parquet")
+        return tmp_path
+
+    def _row(self, ticker="AAM", ex="2026-08-10", type_="cash"):
+        return {"ticker": ticker, "ex_date": ex, "type": type_,
+                "cash_amount": 500.0, "ratio": float("nan"),
+                "source": "vietstock", "confidence": 0.8, "note": ""}
+
+    def test_an_event_in_the_registry_is_found(self, tmp_path):
+        wh = self._registry(tmp_path, [self._row()])
+        assert T.registry_event_kind("AAM", wh, date(2026, 7, 25),
+                                     date(2026, 8, 24)) == "cash"
+
+    def test_matching_ignores_ticker_case(self, tmp_path):
+        wh = self._registry(tmp_path, [self._row(ticker="aam")])
+        assert T.registry_event_kind("AAM", wh, date(2026, 7, 25),
+                                     date(2026, 8, 24)) == "cash"
+
+    def test_an_event_outside_the_window_is_not_claimed(self, tmp_path):
+        """Vơ một sự kiện cách xa vách gãy là gán sai NGUYÊN NHÂN, rồi mã đó
+        rơi vào nhóm 'chữa máy móc được'."""
+        wh = self._registry(tmp_path, [self._row(ex="2026-01-05")])
+        assert T.registry_event_kind("AAM", wh, date(2026, 7, 25),
+                                     date(2026, 8, 24)) is None
+
+    def test_another_ticker_is_never_borrowed(self, tmp_path):
+        wh = self._registry(tmp_path, [self._row(ticker="FPT")])
+        assert T.registry_event_kind("AAM", wh, date(2026, 7, 25),
+                                     date(2026, 8, 24)) is None
+
+    def test_a_missing_registry_is_not_an_error(self, tmp_path):
+        assert T.registry_event_kind("AAM", tmp_path, date(2026, 7, 1),
+                                     date(2026, 9, 1)) is None
+
+    def test_a_corrupt_registry_is_not_an_error(self, tmp_path):
+        meta = tmp_path / "_meta"
+        meta.mkdir(parents=True)
+        (meta / "corp_actions_registry.parquet").write_text("rác", encoding="utf-8")
+        assert T.registry_event_kind("AAM", tmp_path, date(2026, 7, 1),
+                                     date(2026, 9, 1)) is None
+
+    def test_the_registry_lookup_only_reads(self):
+        import inspect
+        body = inspect.getsource(T.registry_event_kind).split('"""')[-1]
+        for forbidden in ("write", "to_parquet", "--apply"):
+            assert forbidden not in body, forbidden
+
+
+class TestEventWindow:
+    """Vách gãy nằm TRONG cửa sổ so sánh. Lấy một ngày rồi nới ±N là đoán chỗ
+    gãy; lấy trọn khoảng thì không phải đoán."""
+
+    def test_it_uses_the_recorded_comparison_window(self):
+        rec = {"window": ["2026-07-25", "2026-08-24"], "detected_at": "2026-08-26"}
+        assert T.event_window(rec) == (date(2026, 7, 25), date(2026, 8, 24))
+
+    def test_it_falls_back_to_a_padded_detection_date(self):
+        a, b = T.event_window({"detected_at": "2026-08-24"}, pad_days=10)
+        assert a == date(2026, 8, 14) and b == date(2026, 9, 3)
+
+    def test_a_half_missing_window_falls_back_rather_than_guessing_one_end(self):
+        rec = {"window": [None, "2026-08-24"], "detected_at": "2026-08-24"}
+        a, b = T.event_window(rec, pad_days=5)
+        assert a == date(2026, 8, 19) and b == date(2026, 8, 29)
+
+    def test_nothing_readable_gives_none(self):
+        assert T.event_window({}) is None
+        assert T.event_window({"detected_at": "rác"}) is None
