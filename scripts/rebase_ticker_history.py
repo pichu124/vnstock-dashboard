@@ -227,6 +227,85 @@ def _residual_level(prices_dir: Path, tk: str, src_all: pd.DataFrame,
         return None
 
 
+# Bao nhiêu bar ĐÃ SANG cơ sở mới thì đủ tin có một vách thật ở đó. Đây
+# chính là chỗ `find_basis_step` bó tay (nó đòi `BASIS_MIN_SIDE` = 5 bar mỗi
+# phía), nên đặt thấp hơn là CÓ CHỦ Ý — xem `level_break_report`.
+LEVEL_BREAK_MIN_AFTER = 2
+# Phần bar "sai phía" tối đa ở phía TRƯỚC vách. Vách sạch thì gần như mọi bar
+# trước đều lệch; lẫn nhiều bar khớp nguồn nghĩa là không phải MỘT vách.
+LEVEL_BREAK_MAX_DIRTY = 0.10
+
+
+def level_break_report(wh, src, tol: float = 0.012) -> dict:
+    """Vách suy từ MỨC: ngày ĐẦU TIÊN kho thôi lệch nguồn. Hàm THUẦN.
+
+    ⚠️ Vì sao cần bộ dò vách THỨ BA. Đo trên máy user 26/08, lượt chạy thử 69
+    mã: 13 mã bị `--whole-series` từ chối, và cả 13 có chung một chữ ký —
+    tỉ lệ chạy từ **1.0000× tới f**. Tức chúng KHÔNG lệch đều: một phần chuỗi
+    đã khớp nguồn rồi. Đó là một vách thật.
+
+    Vậy sao `find_basis_step` không thấy? Vì nó đòi `BASIS_MIN_SIDE` = 5 bar
+    **mỗi phía**::
+
+        if i < BASIS_MIN_SIDE or len(r) - i < BASIS_MIN_SIDE:
+            return None
+
+    Mã bị gác chặn sau ngày GDKHQ 3 phiên thì chỉ có 2-3 bar ở phía cơ sở mới
+    ⇒ dưới sàn ⇒ trả None. Và **phía đó không bao giờ mọc thêm**: gác chặn nên
+    kho không nhận bar mới. Lại một vòng tự khoá, khác vòng ở U42 nhưng cùng
+    hình dạng — bộ dò đòi bằng chứng mà chính cửa gác đang chặn không cho sinh.
+
+    Bộ dò này không đếm bar mỗi phía mà hỏi **chỗ nào tỉ lệ thôi lệch**:
+    ngày lệch cuối cùng + 1. Đổi lại nó đòi CHIA SẠCH — gần như mọi bar trước
+    đều lệch (≤`LEVEL_BREAK_MAX_DIRTY` sai phía) và mọi bar sau đều khớp. Lệch
+    xen kẽ thì không phải một vách, và trả None còn hơn đoán một cái mốc.
+
+    Trả `{"break": ...}` khi có vách; `{"break": None, "why": ...}` mọi ca
+    khác — kể cả ca lệch ở MỌI bar, vì đó là việc của `--whole-series`.
+    """
+    out = {"break": None, "n_before": 0, "n_after": 0,
+           "ratio_before": None, "why": ""}
+    try:
+        m = _as_dates(wh).merge(_as_dates(src), on="time",
+                                suffixes=("_wh", "_src"))
+        m = m[(m["close_wh"] > 0) & (m["close_src"] > 0)].sort_values("time")
+        if m.empty:
+            out["why"] = "không có bar nào chồng nhau"
+            return out
+        m = m.reset_index(drop=True)
+        r = (m["close_wh"] / m["close_src"]).astype(float)
+        div = (r - 1.0).abs() > tol
+        if not div.any():
+            out["why"] = f"không bar nào lệch quá {tol} — kho đã khớp nguồn"
+            return out
+        if div.all():
+            out["why"] = ("lệch ở MỌI bar — không có phía 'cơ sở mới' nào để "
+                          "làm mốc; đó là ca --whole-series, không phải vách")
+            return out
+        i = int(div[div].index[-1])                 # bar lệch CUỐI CÙNG
+        before, after = m.iloc[:i + 1], m.iloc[i + 1:]
+        out["n_before"], out["n_after"] = len(before), len(after)
+        if len(after) < LEVEL_BREAK_MIN_AFTER:
+            out["why"] = (f"chỉ {len(after)} bar đã sang cơ sở mới (cần ≥"
+                          f"{LEVEL_BREAK_MIN_AFTER}) — chưa đủ để nói có vách")
+            return out
+        dirty = float((~div.iloc[:i + 1]).mean())
+        if dirty > LEVEL_BREAK_MAX_DIRTY:
+            out["why"] = (f"phía trước lẫn {dirty:.0%} bar ĐÃ khớp nguồn "
+                          f"(trần {LEVEL_BREAK_MAX_DIRTY:.0%}) — lệch xen kẽ "
+                          f"chứ không phải MỘT vách")
+            return out
+        out["ratio_before"] = float(r.iloc[:i + 1].median())
+        out["break"] = m.at[i, "time"] + timedelta(days=1)
+        out["why"] = (f"lệch tới hết {m.at[i, 'time']} rồi khớp nguồn ở "
+                      f"{len(after)} bar cuối (trung vị trước "
+                      f"{out['ratio_before']:.4f}×)")
+        return out
+    except Exception as e:                        # noqa: BLE001
+        out["why"] = f"không đo được ({type(e).__name__}: {e})"
+        return out
+
+
 # Tỉ lệ kho/nguồn phải ỔN ĐỊNH tới mức nào mới cho ghi đè TRỌN lịch sử.
 # max/min của tỉ lệ từng bar. Một lần đổi cơ sở SẠCH cho ra tỉ lệ gần như
 # hằng số; lởm chởm nghĩa là còn chuyện khác trộn vào, và ghi đè trọn lịch sử
@@ -383,6 +462,24 @@ def _level_divergence(tk: str, wh_root: Path, since_days: int = 365,
         return None
 
 
+def _level_break_of(tk: str, wh_root: Path, since_days: int = 365,
+                    tol: float = 0.012) -> dict:
+    """`level_break_report` trên dữ liệu THẬT của một mã. Chỉ đọc."""
+    from probe_price_basis import fetch_source, load_wh
+    d1 = date.today()
+    d0 = d1 - timedelta(days=since_days)
+    try:
+        wh = load_wh(wh_root / "prices", tk, d0, d1)
+        if wh.empty:
+            return {"break": None, "why": "kho rỗng"}
+        src = fetch_source(tk, d0, d1)
+        if src.empty:
+            return {"break": None, "why": "nguồn trả rỗng"}
+        return level_break_report(wh, src, tol=tol)
+    except Exception as e:                        # noqa: BLE001
+        return {"break": None, "why": f"{type(e).__name__}: {e}"}
+
+
 def _basis_break_of(tk: str, wh_root: Path, since_days: int = 365) -> "date | None":
     """Ngày ĐỔI BẬC tỉ lệ kho/nguồn — bộ dò dành cho lệch cỡ cổ tức.
 
@@ -473,6 +570,19 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
         if brk is not None:
             print(f"\n[rebase] {tk}: không có vách giá, nhưng TỈ LỆ kho/nguồn "
                   f"đổi bậc tại {brk}")
+    if brk is None:
+        # Bộ dò vách THỨ BA, đo MỨC. Hai bộ trên đòi đủ bar MỖI PHÍA
+        # (`BASIS_MIN_SIDE` = 5); mã bị gác chặn sau GDKHQ 3 phiên chỉ có 2-3
+        # bar ở phía cơ sở mới, và phía đó không bao giờ mọc thêm vì chính gác
+        # đang chặn. Đo 26/08: đúng 13/69 mã rơi vào đây.
+        _lb = _level_break_of(tk, wh_root)
+        if _lb.get("break") is not None:
+            brk = _lb["break"]
+            print(f"\n[rebase] {tk}: không có vách giá lẫn bậc tỉ lệ, nhưng "
+                  f"MỨC lệch DỪNG tại {brk} — {_lb['why']}")
+            from probe_price_basis import BASIS_MIN_SIDE as _MIN_SIDE
+            print(f"[rebase]   ({_lb['n_after']} bar sau vách, dưới sàn "
+                  f"{_MIN_SIDE} bar/phía của bộ dò bậc nên nó im)")
     if brk is None:
         # ⚠️ ĐỪNG tuyên bố sạch chỉ vì hai bộ dò BẬC NHẢY im. Chúng mù với
         # lệch ĐỒNG ĐỀU (đạo hàm = 0 ở mọi điểm). Hỏi nốt bộ dò MỨC, và hỏi

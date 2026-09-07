@@ -6966,6 +6966,76 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🔍 U45. VÒNG TỰ KHOÁ THỨ HAI: BỘ DÒ ĐÒI BẰNG CHỨNG MÀ CỬA GÁC KHÔNG CHO SINH (26/08)
+
+Lượt chạy thử 69 mã bằng `--from-drift-ledger --whole-series`: **56 qua, 13
+bị từ chối**. Cả 13 có chung một chữ ký trong dòng từ chối:
+
+    ACE  tỉ lệ LỞM CHỞM: 0.9997× → 1.0857×
+    C22  tỉ lệ LỞM CHỞM: 1.0000× → 1.0621×
+    MCH  tỉ lệ LỞM CHỞM: 1.0000× → 1.0149×
+    …
+
+**Cận dưới 1.0000×** — một phần chuỗi ĐÃ khớp nguồn. Đó không phải lệch đồng
+đều; đó là **một vách thật**, và `--whole-series` từ chối hoàn toàn đúng.
+Danh sách đủ: ACE · C22 · DBD · DRG · EMS · GH3 · ILB · MCH · PRE · SDV ·
+TRS · VC3 · VSN (GH3 vì lý do khác: chỉ 13 bar chồng nhau).
+
+## Vậy sao hai bộ dò bậc cũng im?
+
+`find_basis_step` đòi đủ bar **MỖI PHÍA**:
+
+    BASIS_MIN_SIDE = 5
+    if i < BASIS_MIN_SIDE or len(r) - i < BASIS_MIN_SIDE:
+        return None
+
+Mã bị gác chặn sau ngày GDKHQ **3 phiên** chỉ có 2-3 bar ở phía cơ sở mới ⇒
+dưới sàn ⇒ `None`. Đối chiếu cột ĐỨNG trong bảng triage: 8/13 mã đứng đúng
+**3d**.
+
+Và **phía đó không bao giờ mọc thêm** — chính cửa gác đang chặn cập nhật. Tức
+**vòng tự khoá THỨ HAI**, khác vòng ở U42 nhưng cùng hình dạng: *bộ dò đòi một
+thứ bằng chứng mà cửa gác không cho phép sinh ra.* U42 là "gác chặn ⇒ không
+bao giờ sinh ra BẬC"; đây là "gác chặn ⇒ bậc có sinh ra nhưng KHÔNG BAO GIỜ ĐỦ
+DÀY".
+
+Đáng nhớ: cùng một cơ chế khoá, hai hình dạng khác nhau, và hình thứ hai chỉ
+lộ ra khi chữa xong hình thứ nhất. Đừng cho rằng vá một vòng là hết vòng.
+
+## Bộ dò vách THỨ BA — `level_break_report`
+
+Không đếm bar mỗi phía. Hỏi **chỗ nào tỉ lệ thôi lệch**: bar lệch cuối cùng
++ 1 ngày. Đổi lại đòi **CHIA SẠCH**:
+
+| cửa | ngưỡng | vì sao |
+|---|---|---|
+| bar đã sang cơ sở mới | ≥ `LEVEL_BREAK_MIN_AFTER` = **2** | phải THẤP hơn `BASIS_MIN_SIDE` = 5, không thì nó mù đúng chỗ bộ dò cũ mù (có test canh bất đẳng thức) |
+| bar "sai phía" ở phía trước | ≤ `LEVEL_BREAK_MAX_DIRTY` = **10%** | vài bar khớp do làm tròn là thường; lẫn nhiều là lệch XEN KẼ, không phải một vách |
+| lệch ở MỌI bar | ⇒ trả None | đó là ca `--whole-series`; trả mốc ở đây là hai đường chữa giành nhau một mã |
+
+Thứ tự trong `_rebase_one`: `_find_break` → `_basis_break_of` →
+**`_level_break_of`** → nhánh `--whole-series`. Có phía "cơ sở mới" thì đó là
+vách, và đường vách **chính xác hơn** — nó chỉ đụng phần trước mốc, không ghi
+đè trọn lịch sử. Có test canh thứ tự này.
+
+Sau khi có mốc, đường chữa cũ chạy bình thường: `_probe` → `basis_report` (hàm
+này **không có sàn bar nào**, chỉ cần hai phía không rỗng) → `warehouse_basis`
+⇒ hệ số = `r_before / r_after`. Tức bản vá chỉ mở khoá, không nới cửa nào.
+
+## Không nới cửa `--whole-series`
+
+13 mã ấy bị từ chối là ĐÚNG. Test `test_the_uniform_gate_correctly_refuses_
+this_shape` chốt cứng điều đó — bản vá không được lén nới trần spread để
+"chữa được nhiều hơn".
+
+## Số đo
+
+56/69 chữa được ngay bằng lượt đầu. 19 test mới ở
+`tests/test_rebase_level_break.py`, trong đó `TestTheGapIsReal` chứng minh
+khoảng mù **bằng chính `find_basis_step` thật** (cùng bộ dữ liệu: bộ cũ trả
+None, bộ mới chỉ đúng ngày, và bộ cũ tỉnh lại khi nới phía mới lên 20 bar).
+Suite: **3.058 pass**.
+
 # 🧭 U44. "TRA KHÔNG RA" CÓ HAI NGUYÊN NHÂN — VÀ CHÚNG CẦN HAI LỜI KHUYÊN NGƯỢC NHAU (26/08)
 
 Bắt được ngay sau khi chữa xong SDK bằng U43. Sổ 70 → 69, rồi `triage --plan`
