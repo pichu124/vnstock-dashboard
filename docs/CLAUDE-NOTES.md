@@ -6966,6 +6966,96 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🔧 U43. `--whole-series`: ĐƯỜNG CHỮA CHO LỚP LỆCH ĐỒNG ĐỀU (26/08)
+
+Đóng phần **"Còn treo"** của U42. U42 chỉ làm công cụ **từ chối trung thực**;
+mục này là đường CHỮA thật. Đọc U42 trước — nó giải thích vì sao mọi bộ dò
+bậc đều mù với lớp lỗi này.
+
+## Vì sao phải là một đường RIÊNG, không phải nới cửa cũ
+
+Đường chữa cũ dựng trên một giả định: **có một vách**, trước vách là cơ sở cũ,
+sau vách là cơ sở mới, hệ số = trung vị trước / trung vị sau. Lớp lỗi này phá
+đúng giả định đó — lệch đều thì **trước = sau**, nên:
+
+* `_find_break`, `find_basis_step` → `None` (đạo hàm bằng 0 ở mọi điểm);
+* `_probe` → `basis_report` → verdict **`aligned`** ⇒ cửa
+  `verdict == "warehouse_basis"` không bao giờ mở, kể cả khi ép `--break-date`.
+
+Nới cửa cũ (kiểu "aligned mà vẫn lệch thì cho qua") là bỏ luôn thứ cửa ấy sinh
+ra để chặn. Nên `--whole-series` **bỏ hẳn `_probe`** — hỏi nó là hỏi sai câu —
+và thay bằng một cửa KHÁC, chặt hơn.
+
+## Cửa mới: `uniform_offset_report` — đòi ỔN ĐỊNH, không chỉ đòi CÓ LỆCH
+
+Ghi đè trọn lịch sử là việc không lùi được, nên cửa duy nhất cho phép nó phải
+trả lời hai câu TÁCH BẠCH:
+
+| câu hỏi | công thức | ngưỡng |
+|---|---|---|
+| có lệch không | `\|trung vị(kho/nguồn) − 1\| > tol` | `tol` = `basis_guard.TOL` = 0.012 |
+| lệch có ĐỀU không | `max(tỉ lệ) / min(tỉ lệ)` | `UNIFORM_SPREAD_MAX` = **1.01** |
+| đủ bằng chứng chưa | số bar chồng nhau | `UNIFORM_MIN_BARS` = **20** |
+
+Câu thứ hai mới là cửa thật. Lệch **đều** = nguồn back-adjust một lần, sạch,
+kho chỉ việc lấy lại. Lệch **lởm chởm** = còn chuyện khác trộn vào (nhiều lần
+rebase chồng nhau, bar hỏng, sai đơn vị lẻ tẻ) — nhân cả chuỗi bằng MỘT hệ số
+khi đó là **bôi cái sai ra khắp lịch sử**. Trần 1.01 cố ý **chặt hơn** `TOL`
+của gác (0.012): cửa ghi-đè-trọn-lịch-sử mà lỏng hơn cửa chặn hằng đêm thì có
+ca gác chặn mà công cụ vẫn hồn nhiên ghi đè. Có test canh bất đẳng thức này.
+
+## Mốc ẢO thay cho vách
+
+Không có vách ⇒ lấy `_last_wh_bar + 1 ngày` làm mốc, tức **coi TOÀN chuỗi là
+phần "trước vách"**. Đọc không được bar cuối → **từ chối**, không đoán: đoán
+đại một mốc ở đây là ghi đè nhầm nửa lịch sử.
+
+Hệ quả: phía "sau vách" rỗng ⇒ `_volume_step` = `nan`. Lấy chính `nan` đó làm
+lý do giữ khối lượng thì đúng số mà **sai chuyện** (người đọc đi tìm một cái
+vách không tồn tại), nên chế độ này có câu trả lời riêng: *back-adjust GIÁ
+không tạo thêm cổ phiếu nào, và không có vách thì cũng không có bậc nhảy khối
+lượng làm bằng chứng*. Giữ nguyên là MẶC ĐỊNH, không phải chốt chết —
+`--volume adjust` vẫn ép được.
+
+## Bước tự kiểm THỨ BA — `_residual_level`
+
+Hai bước tự kiểm cũ đều đo **đạo hàm**: `find_jumps` (vách giá ≥30%) và
+`_residual_basis_step` (đổi bậc tỉ lệ). Tức chúng **mù đúng lớp lỗi mà chế độ
+này sinh ra để chữa**: chữa hụt hệ số để lại một chuỗi vẫn lệch ĐỀU, và cả hai
+in xanh. *Tự kiểm mà mù đúng lớp lỗi mình sinh ra để chữa thì không phải tự
+kiểm.* Nay có bước thứ ba đo MỨC, dùng lại `last_divergent_day` + `src_all`
+**đã fetch** — tự kiểm không được gọi mạng lần nữa, vì nguồn đổi giữa chừng
+thì đỏ/xanh không còn nói về việc mình vừa làm. Có test chứng minh bằng chính
+hàm thật: cùng bộ dữ liệu, hai bước cũ im, bước mới kêu.
+
+## Một vết bắt được ngay lúc viết lưới
+
+Nhánh mới ĐẶT mốc ảo rồi đi tiếp, nhưng dòng `"✅ không còn vách nghi vấn"` nằm
+CÙNG khối `if brk is None:` nên vẫn chạy — in "LỆCH ĐỒNG ĐỀU" xong in luôn
+"✅ sạch" rồi exit 0 mà **không ghi gì**. Đúng cái bệnh báo-thành-công-sai mà
+chế độ này sinh ra để chữa, tái sinh trong chính bản vá. Đã thêm `if brk is
+None:` lồng vào và một test canh riêng (`test_it_never_prints_the_clean_line_
+after_deciding_to_fix`).
+
+## Cửa an toàn
+
+* Mặc định vẫn **CHẠY THỬ**; phải `--apply` mới ghi.
+* `--whole-series` + `--break-date` ⇒ **`ap.error`**, không nhận rồi âm thầm bỏ
+  một cái (đó là cách chắc chắn để người dùng tưởng mình đã chạy chế độ kia).
+* Sao lưu nguyên thư mục mã trước khi ghi; ghi nguyên tử tmp + `os.replace`.
+* Chữa xong tự `clear_drift` để mã rời sổ cách ly — để lại là doctor kêu mãi
+  và người dùng học cách bỏ qua badge.
+
+## Lệnh (○ một lần — kho đi qua Dropbox, KHÔNG phải ⇄ cả hai)
+
+    python scripts/rebase_ticker_history.py --ticker SDK --whole-series
+    python scripts/rebase_ticker_history.py --ticker SDK --whole-series --apply
+
+Chạy **sau 19:xx** (ngoài giờ pipeline) — đây là đường GHI KHO. Soi lại bằng
+`triage_basis_drift --plan`: mã đã chữa phải rời sổ.
+
+32 test mới ở `tests/test_rebase_whole_series.py`. Toàn bộ suite: **3.023 pass**.
+
 # ⛔ U42. BẾ TẮC: CỬA GÁC CHẶN VĨNH VIỄN, CÔNG CỤ CHỮA IN "✅ SẠCH" — ĐÃ VÁ (26/08)
 
 Phản biện đối kháng 4 góc nhìn: **3/4 xác nhận**, và phiếu chi tiết nhất

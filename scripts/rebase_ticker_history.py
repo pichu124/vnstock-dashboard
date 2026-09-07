@@ -26,6 +26,16 @@ Dùng
     python scripts/rebase_ticker_history.py --ticker VHM --apply      # ghi thật
     python scripts/rebase_ticker_history.py --ticker VHM --ticker PNJ --apply
 
+Ca KHÔNG có vách (26/08) — nguồn back-adjust TRỌN lịch sử nên kho lệch cùng
+một hệ số ở MỌI bar. Cả hai bộ dò bậc đều mù (đạo hàm bằng 0 ở mọi điểm) và
+`_probe` luôn phán `aligned` vì trước = sau; chỉ cửa gác và bộ dò MỨC thấy:
+
+    python scripts/rebase_ticker_history.py --ticker SDK --whole-series
+    python scripts/rebase_ticker_history.py --ticker SDK --whole-series --apply
+
+Chế độ đó coi TOÀN chuỗi là phần "trước vách", nên cửa vào KHÔNG phải `_probe`
+mà là `uniform_offset_report` — chặt hơn: tỉ lệ phải vừa lệch vừa ỔN ĐỊNH.
+
 Exit: 0 xong/sạch · 1 có mã không chữa được · 2 lỗi đọc kho/nguồn.
 """
 from __future__ import annotations
@@ -185,6 +195,120 @@ def _residual_basis_step(prices_dir: Path, tk: str, src_all: pd.DataFrame,
         return None
 
 
+def _residual_level(prices_dir: Path, tk: str, src_all: pd.DataFrame,
+                    since_days: int = 365,
+                    tol: float = 0.012) -> "date | None":
+    """Ghi xong rồi: kho còn lệch MỨC so nguồn tới ngày nào? Chỉ ĐỌC.
+
+    Cặp song sinh của `_residual_basis_step`, nhưng hỏi câu KHÁC. Hai bước tự
+    kiểm cũ — `find_jumps` (vách giá ≥30%) và `_residual_basis_step` (đổi BẬC
+    tỉ lệ) — đều đo ĐẠO HÀM, nên cùng mù với đúng lớp lỗi mà `--whole-series`
+    sinh ra để chữa: lệch ĐỒNG ĐỀU có đạo hàm 0 ở mọi điểm. Chữa hụt hệ số
+    (hoặc chữa nhầm chiều) sẽ để lại một chuỗi vẫn lệch ĐỀU, và cả hai bước
+    cũ đều in xanh. Tự kiểm mà mù đúng lớp lỗi mình sinh ra để chữa thì không
+    phải tự kiểm.
+
+    Dùng lại `src_all` đã fetch — tự kiểm không được phép gọi mạng lần nữa
+    (nguồn đổi giữa chừng thì đỏ/xanh không còn nói về việc mình vừa làm).
+    """
+    from probe_price_basis import load_wh
+    d1 = date.today()
+    d0 = d1 - timedelta(days=since_days)
+    try:
+        wh = load_wh(prices_dir, tk, d0, d1)
+        if wh.empty:
+            return None
+        src = _as_dates(src_all[["time", "close"]])
+        src = src[(src["time"] >= d0) & (src["time"] <= d1)]
+        if src.empty:
+            return None
+        return last_divergent_day(wh, src, tol=tol)
+    except Exception:
+        return None
+
+
+# Tỉ lệ kho/nguồn phải ỔN ĐỊNH tới mức nào mới cho ghi đè TRỌN lịch sử.
+# max/min của tỉ lệ từng bar. Một lần đổi cơ sở SẠCH cho ra tỉ lệ gần như
+# hằng số; lởm chởm nghĩa là còn chuyện khác trộn vào, và ghi đè trọn lịch sử
+# là việc KHÔNG LÙI ĐƯỢC nên chỗ này thà chặt quá còn hơn lỏng.
+UNIFORM_SPREAD_MAX = 1.01
+UNIFORM_MIN_BARS = 20
+
+
+def uniform_offset_report(wh, src, tol: float = 0.012) -> dict:
+    """Kho có lệch nguồn ĐỒNG ĐỀU trên toàn dải không? — hàm THUẦN.
+
+    Đây là cửa DUY NHẤT cho phép ghi đè trọn lịch sử, nên nó phải trả lời
+    được hai câu tách bạch:
+
+    * **có lệch không** — `|trung vị(kho/nguồn) − 1| > tol`;
+    * **lệch có ĐỀU không** — `max(tỉ lệ) / min(tỉ lệ) ≤ UNIFORM_SPREAD_MAX`.
+
+    Câu thứ hai mới là cửa thật. Lệch đều = nguồn đã back-adjust một lần,
+    sạch, kho chỉ việc lấy lại. Lệch LỞM CHỞM = còn chuyện khác trộn vào
+    (nhiều lần rebase chồng nhau, bar hỏng, sai đơn vị lẻ tẻ) — khi đó nhân
+    cả chuỗi bằng MỘT hệ số là bôi cái sai ra khắp lịch sử.
+
+    Trả `uniform=False` kèm `why` cho mọi ca không chắc. Không bao giờ đoán.
+    """
+    out = {"n": 0, "ratio": None, "spread": None, "uniform": False, "why": ""}
+    try:
+        m = _as_dates(wh).merge(_as_dates(src), on="time",
+                                suffixes=("_wh", "_src"))
+        m = m[(m["close_wh"] > 0) & (m["close_src"] > 0)]
+        if m.empty:
+            out["why"] = "không có bar nào chồng nhau giữa kho và nguồn"
+            return out
+        ratios = (m["close_wh"] / m["close_src"]).astype(float)
+        out["n"] = int(len(ratios))
+        out["ratio"] = float(ratios.median())
+        lo, hi = float(ratios.min()), float(ratios.max())
+        out["spread"] = (hi / lo) if lo > 0 else float("inf")
+        if out["n"] < UNIFORM_MIN_BARS:
+            out["why"] = (f"chỉ {out['n']} bar chồng nhau (cần ≥"
+                          f"{UNIFORM_MIN_BARS}) — quá ít để nói 'đều'")
+            return out
+        if abs(out["ratio"] - 1.0) <= tol:
+            out["why"] = (f"tỉ lệ {out['ratio']:.4f}× nằm trong ngưỡng {tol} "
+                          f"— kho KHÔNG lệch, không có gì để chữa")
+            return out
+        if out["spread"] > UNIFORM_SPREAD_MAX:
+            out["why"] = (f"tỉ lệ LỞM CHỞM: {lo:.4f}× → {hi:.4f}× "
+                          f"(spread {out['spread']:.4f}, trần "
+                          f"{UNIFORM_SPREAD_MAX}) — KHÔNG phải một lần đổi cơ "
+                          f"sở sạch, nhân cả chuỗi bằng một hệ số là bôi cái "
+                          f"sai ra khắp lịch sử")
+            return out
+        out["uniform"] = True
+        out["why"] = (f"lệch ĐỀU {out['ratio']:.4f}× trên {out['n']} bar "
+                      f"(spread {out['spread']:.4f})")
+        return out
+    except Exception as e:                        # noqa: BLE001
+        out["why"] = f"không đo được ({type(e).__name__}: {e})"
+        return out
+
+
+def _uniform_probe(tk: str, wh_root: Path, since_days: int = 365,
+                   tol: float = 0.012) -> dict:
+    """`uniform_offset_report` trên dữ liệu THẬT của một mã. Chỉ đọc."""
+    from probe_price_basis import fetch_source, load_wh
+    d1 = date.today()
+    d0 = d1 - timedelta(days=since_days)
+    try:
+        wh = load_wh(wh_root / "prices", tk, d0, d1)
+        if wh.empty:
+            return {"uniform": False, "why": "kho rỗng", "n": 0,
+                    "ratio": None, "spread": None}
+        src = fetch_source(tk, d0, d1)
+        if src.empty:
+            return {"uniform": False, "why": "nguồn trả rỗng", "n": 0,
+                    "ratio": None, "spread": None}
+        return uniform_offset_report(wh, src, tol=tol)
+    except Exception as e:                        # noqa: BLE001
+        return {"uniform": False, "why": f"{type(e).__name__}: {e}", "n": 0,
+                "ratio": None, "spread": None}
+
+
 def _in_drift_ledger(tk: str, wh_root: Path) -> bool:
     """Mã này có đang nằm trong sổ cách ly của cửa gác không? Chỉ ĐỌC."""
     try:
@@ -192,6 +316,24 @@ def _in_drift_ledger(tk: str, wh_root: Path) -> bool:
         return tk.upper() in (load_pending(Path(wh_root)) or {})
     except Exception:
         return False
+
+
+def _last_wh_bar(tk: str, wh_root: Path) -> "date | None":
+    """Ngày bar CUỐI của kho. Chỉ ĐỌC.
+
+    Dùng làm MỐC ẢO cho `--whole-series`: lệch đồng đều thì không có vách nào
+    thật, nên lấy "sau bar cuối" làm mốc để vòng ghi coi TOÀN chuỗi là phần
+    'trước vách'. Không đọc được → None, và chỗ gọi từ chối chữa — đoán đại
+    một mốc ở đây là ghi đè nhầm nửa lịch sử.
+    """
+    try:
+        from check_unit_continuity import load_bars
+        df = load_bars(wh_root / "prices", tk, since_days=0)
+        if df is None or df.empty:
+            return None
+        return pd.to_datetime(df["time"]).max().date()
+    except Exception:
+        return None
 
 
 def _level_divergence(tk: str, wh_root: Path, since_days: int = 365,
@@ -266,7 +408,8 @@ def _sweep_targets(wh_root: Path) -> list:
 
 def _rebase_one(tk: str, wh_root: Path, apply: bool,
                 volume_mode: str = "auto",
-                break_date: "date | None" = None) -> int:
+                break_date: "date | None" = None,
+                whole_series: bool = False) -> int:
     from check_unit_continuity import find_jumps, load_bars
     from probe_price_basis import _find_break, fetch_source
 
@@ -276,6 +419,7 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
         print(f"\n[rebase] ⬜ {tk}: không có trong kho")
         return 1
 
+    whole_factor = None
     if break_date is not None:
         # Vách do NGƯỜI chỉ định: `_find_break` chỉ thấy vách ≥30%, nên lệch cơ
         # sở cỡ CỔ TỨC (2-5%) hoàn toàn vô hình với nó. Ca VNM 19/08:
@@ -306,7 +450,30 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
         # cả sổ cách ly — cửa gác đo MỨC nên nó biết thứ bộ dò bậc không biết.
         _lvl = _level_divergence(tk, wh_root)
         _pend = _in_drift_ledger(tk, wh_root)
-        if _lvl is not None or _pend:
+        if (_lvl is not None or _pend) and whole_series:
+            # Đường CHỮA cho lớp lệch đồng đều. Cửa vào không phải `_probe`
+            # (nó phán 'aligned' vì trước = sau) mà là `uniform_offset_report`
+            # — chặt hơn: đòi tỉ lệ ỔN ĐỊNH, không chỉ đòi có lệch.
+            _uni = _uniform_probe(tk, wh_root)
+            if not _uni.get("uniform"):
+                print(f"\n[rebase] ✗ {tk}: TỪ CHỐI --whole-series — "
+                      f"{_uni.get('why')}")
+                print(f"[rebase]   Ghi đè TRỌN lịch sử là việc không lùi được, "
+                      f"nên cửa này cố tình chặt.")
+                return 1
+            _wh_last = _last_wh_bar(tk, wh_root)
+            if _wh_last is None:
+                print(f"\n[rebase] ✗ {tk}: không đọc được bar cuối của kho")
+                return 1
+            whole_factor = float(_uni["ratio"])
+            brk = _wh_last + timedelta(days=1)
+            print(f"\n[rebase] {tk} · LỆCH ĐỒNG ĐỀU — {_uni['why']}")
+            print(f"[rebase]   không có vách để làm mốc ⇒ coi TOÀN chuỗi là "
+                  f"'trước vách' (mốc ảo {brk}, sau bar cuối {_wh_last})")
+            if _pend:
+                print(f"[rebase]   {tk} đang nằm trong sổ cách ly — chữa xong "
+                      f"sẽ tự xoá khỏi sổ")
+        elif _lvl is not None or _pend:
             print(f"\n[rebase] ✗ {tk}: KHÔNG có bậc nhảy, NHƯNG vẫn lệch — "
                   f"hai bộ dò bậc mù với lớp lỗi này.")
             if _lvl is not None:
@@ -318,24 +485,42 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
                   f"trọn lịch sử, kho thì chưa.")
             print(f"[rebase]   Chữa kiểu 'nhân mọi bar TRƯỚC vách' KHÔNG áp "
                   f"dụng được ở đây — không có vách nào để làm mốc.")
-            print(f"[rebase]   Soi tay: python scripts/probe_price_basis.py "
-                  f"--ticker {tk} --break-date {_lvl or '<ngày>'}")
+            print(f"[rebase]   ⇒ CHỮA bằng: python scripts/rebase_ticker_history.py "
+                  f"--ticker {tk} --whole-series      (chạy thử; thêm --apply "
+                  f"để ghi)")
+            print(f"[rebase]   Soi tay trước cũng được: "
+                  f"python scripts/probe_price_basis.py --ticker {tk} "
+                  f"--break-date {_lvl or '<ngày>'}")
             return 1
-        print(f"\n[rebase] ✅ {tk}: không còn vách nghi vấn trong 365 ngày "
-              f"(soi {len(load_bars(prices_dir, tk, since_days=365)):,} bar)"
-              f" · bộ dò MỨC cũng sạch")
-        return 0
-    print(f"\n[rebase] {tk} · vách {brk}")
+        if brk is None:
+            # Nhánh --whole-series ở trên ĐẶT `brk` (mốc ảo) rồi đi tiếp; chỉ
+            # khi vẫn chưa có mốc nào mới được tuyên bố sạch. Thiếu cửa này là
+            # chế độ mới in "✅ sạch" ngay sau dòng "LỆCH ĐỒNG ĐỀU" và không
+            # ghi gì — đúng cái bệnh báo-thành-công-sai nó sinh ra để chữa.
+            print(f"\n[rebase] ✅ {tk}: không còn vách nghi vấn trong 365 ngày "
+                  f"(soi {len(load_bars(prices_dir, tk, since_days=365)):,} bar)"
+                  f" · bộ dò MỨC cũng sạch")
+            return 0
+    if whole_factor is None:
+        print(f"\n[rebase] {tk} · vách {brk}")
 
-    rep = _probe(tk, wh_root, brk)
-    if rep.get("verdict") != "warehouse_basis":
-        print(f"[rebase] ✗ TỪ CHỐI: probe phán '{rep.get('verdict')}' chứ không "
-              f"phải 'warehouse_basis' — chữa kiểu này chỉ đúng khi NGUỒN liền "
-              f"mạch mà KHO gãy. Soi tay: probe_price_basis --ticker {tk}")
-        return 1
-    factor = float(rep["shift"])
-    print(f"[rebase] hệ số cơ sở đo được: {factor:.4f}× "
-          f"({rep['n_before']} bar trước · {rep['n_after']} bar sau)")
+    if whole_factor is not None:
+        # Đường lệch ĐỒNG ĐỀU: `_probe` so trung vị HAI PHÍA mốc, mà ở đây
+        # trước = sau nên nó luôn phán 'aligned' — hỏi nó là hỏi sai câu.
+        # Cửa đã qua là `uniform_offset_report`, chặt hơn: đòi tỉ lệ ổn định.
+        factor = whole_factor
+        print(f"[rebase] hệ số cơ sở: {factor:.4f}× (đo trên TOÀN chuỗi — "
+              f"không qua `_probe`, xem `uniform_offset_report`)")
+    else:
+        rep = _probe(tk, wh_root, brk)
+        if rep.get("verdict") != "warehouse_basis":
+            print(f"[rebase] ✗ TỪ CHỐI: probe phán '{rep.get('verdict')}' chứ không "
+                  f"phải 'warehouse_basis' — chữa kiểu này chỉ đúng khi NGUỒN liền "
+                  f"mạch mà KHO gãy. Soi tay: probe_price_basis --ticker {tk}")
+            return 1
+        factor = float(rep["shift"])
+        print(f"[rebase] hệ số cơ sở đo được: {factor:.4f}× "
+              f"({rep['n_before']} bar trước · {rep['n_after']} bar sau)")
 
     files = _read_all(tdir)
     if not files:
@@ -369,8 +554,15 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
         wh_head[wh_head["time"].dt.date < brk],
         src_all[src_all["time"].dt.date < brk])
     step = _volume_step(wh_head, brk)
-    print(f"[rebase] khối lượng: nguồn/kho = {vol_factor:.4f}× · "
-          f"bậc nhảy tại vách (sau/trước) = {step:.2f}×")
+    if whole_factor is None:
+        print(f"[rebase] khối lượng: nguồn/kho = {vol_factor:.4f}× · "
+              f"bậc nhảy tại vách (sau/trước) = {step:.2f}×")
+    else:
+        # Mốc là ẢO, nằm sau bar cuối ⇒ phía "sau vách" rỗng ⇒ `step` = nan.
+        # In "bậc nhảy = nan×" rồi lấy chính nan đó làm lý do giữ khối lượng
+        # là đúng số nhưng sai chuyện: ở đây không có vách nào để mà nhảy.
+        print(f"[rebase] khối lượng: nguồn/kho = {vol_factor:.4f}× · "
+              f"không có vách thật nên không có bậc nhảy để đo")
     # Mốc chữa KHÔNG dừng ở ngày vách — xem `last_divergent_day`.
     from probe_price_basis import SAME_BASIS_TOL
     _last_bad = last_divergent_day(wh_head[["time", "close"]],
@@ -412,7 +604,11 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
     if volume_mode == "source":
         _why_keep = "--volume source"
     elif volume_mode != "adjust":
-        if _ev == "cash":
+        if whole_factor is not None:
+            _why_keep = ("back-adjust GIÁ trọn lịch sử không tạo thêm cổ phiếu "
+                         "nào, và không có vách thì cũng không có bậc nhảy "
+                         "khối lượng làm bằng chứng")
+        elif _ev == "cash":
             _why_keep = ("cổ tức TIỀN MẶT không tạo thêm cổ phiếu nào (nhân "
                          "lên là bịa ra khối lượng chưa từng khớp)")
         elif not _src_untouched:
@@ -510,6 +706,16 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
               f"xong. Soi tay: probe_price_basis --ticker {tk} "
               f"--break-date {_left['break']}")
         return 1
+    # Bước tự kiểm THỨ BA, đo MỨC. Hai bước trên đo đạo hàm nên chuỗi vẫn
+    # lệch ĐỀU sau khi chữa vẫn lọt — đúng lớp lỗi `--whole-series` sinh ra để
+    # chữa, tức bước tự kiểm sẽ mù đúng vào lúc cần sáng nhất.
+    _lvl_left = _residual_level(prices_dir, tk, src_all)
+    if _lvl_left is not None:
+        print(f"[rebase] ⚠️ {tk}: không còn vách nào, NHƯNG kho vẫn lệch MỨC "
+              f"so nguồn tới tận {_lvl_left} — CHƯA chữa xong (hệ số hụt, "
+              f"hoặc nguồn đổi cơ sở giữa chừng). Soi tay: "
+              f"probe_price_basis --ticker {tk}")
+        return 1
     # Chữa xong thì mã hết lý do nằm trong sổ cách ly của cửa gác V1 — để lại
     # là doctor kêu mãi và người mất niềm tin vào badge. Xoá ở ĐÂY chứ không ở
     # updater: sync chạy 8 worker, đọc-sửa-ghi sổ 1.700 lần mỗi đêm là tự chuốc
@@ -519,7 +725,8 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
         clear_drift(wh_root, tk)
     except Exception:
         pass
-    print(f"[rebase] ✅ {tk}: chuỗi đã liền — không còn vách trong 365 ngày")
+    print(f"[rebase] ✅ {tk}: chuỗi đã liền — không còn vách trong 365 ngày"
+          f" · bộ dò MỨC cũng sạch")
     return 0
 
 
@@ -538,6 +745,16 @@ def main(argv: "list[str] | None" = None) -> int:
                          "(_meta/basis_sweep_check.json). Mỗi mã vẫn qua đủ "
                          "cửa: probe phải phán warehouse_basis mới ghi, có sao "
                          "lưu + tự kiểm riêng. Mặc định vẫn CHẠY THỬ.")
+    ap.add_argument("--whole-series", action="store_true",
+                    help="chế độ LỆCH ĐỒNG ĐỀU: kho lệch nguồn cùng một hệ số "
+                         "ở MỌI bar (nguồn đã back-adjust trọn lịch sử) nên "
+                         "không có vách nào để làm mốc — hai bộ dò bậc đều mù, "
+                         "chỉ bộ dò MỨC và cửa gác thấy. Coi TOÀN chuỗi là "
+                         "phần 'trước vách'. Cửa vào KHÔNG phải probe mà là "
+                         "`uniform_offset_report`, chặt hơn: tỉ lệ phải ổn "
+                         "định (spread ≤ %s) trên ≥%s bar. Vẫn CHẠY THỬ nếu "
+                         "không có --apply." % (UNIFORM_SPREAD_MAX,
+                                                UNIFORM_MIN_BARS))
     ap.add_argument("--volume", choices=("auto", "adjust", "source"),
                     default="auto",
                     help="auto (mặc định): nhân khối lượng theo hệ số giá KHI "
@@ -545,6 +762,12 @@ def main(argv: "list[str] | None" = None) -> int:
                          "lại gãy tại vách · adjust: luôn nhân · source: luôn "
                          "giữ nguyên theo nguồn")
     args = ap.parse_args(argv)
+    if args.whole_series and args.break_date:
+        # Có vách thì dùng đường vách; ghi đè TRỌN lịch sử là việc mạnh tay
+        # hơn hẳn. Nhận cả hai rồi âm thầm bỏ một cái là cách chắc chắn để
+        # người dùng tưởng mình đã chạy chế độ kia.
+        ap.error("--whole-series và --break-date loại trừ nhau: có vách thì "
+                 "chữa theo vách, --whole-series chỉ dành cho ca KHÔNG có vách")
 
     wh_root = Path(args.warehouse)
     if not wh_root.is_absolute():
@@ -562,7 +785,8 @@ def main(argv: "list[str] | None" = None) -> int:
     worst, done, refused = 0, 0, []
     for tk in tickers:
         _bd = date.fromisoformat(args.break_date) if args.break_date else None
-        rc = _rebase_one(tk, wh_root, args.apply, args.volume, _bd)
+        rc = _rebase_one(tk, wh_root, args.apply, args.volume, _bd,
+                         whole_series=args.whole_series)
         worst = max(worst, rc)
         if rc == 0:
             done += 1
