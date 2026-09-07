@@ -387,7 +387,12 @@ def uniform_offset_report(wh, src, tol: float = 0.012) -> dict:
 
     Trả `uniform=False` kèm `why` cho mọi ca không chắc. Không bao giờ đoán.
     """
-    out = {"n": 0, "ratio": None, "spread": None, "uniform": False, "why": ""}
+    # `aligned` tách bạch với `uniform`: cả hai đều "không chữa được bằng chế
+    # độ này", nhưng một cái nghĩa là ĐÃ SẠCH còn cái kia là KHÔNG ĐỦ BẰNG
+    # CHỨNG — hai việc phải làm khác hẳn nhau. Dò chuỗi `why` để phân biệt là
+    # buộc logic vào câu chữ tiếng Việt.
+    out = {"n": 0, "ratio": None, "spread": None, "uniform": False,
+           "aligned": False, "why": ""}
     try:
         m = _as_dates(wh).merge(_as_dates(src), on="time",
                                 suffixes=("_wh", "_src"))
@@ -401,10 +406,15 @@ def uniform_offset_report(wh, src, tol: float = 0.012) -> dict:
         lo, hi = float(ratios.min()), float(ratios.max())
         out["spread"] = (hi / lo) if lo > 0 else float("inf")
         if out["n"] < UNIFORM_MIN_BARS:
+            # In kèm SỐ ĐO: "quá ít bar" không nói được là mã ấy đáng nới sàn
+            # hay đáng bỏ, mà tỉ lệ + spread thì nói được ngay.
             out["why"] = (f"chỉ {out['n']} bar chồng nhau (cần ≥"
-                          f"{UNIFORM_MIN_BARS}) — quá ít để nói 'đều'")
+                          f"{UNIFORM_MIN_BARS}) — quá ít để nói 'đều' "
+                          f"(đo được {out['ratio']:.4f}×, spread "
+                          f"{out['spread']:.4f})")
             return out
         if abs(out["ratio"] - 1.0) <= tol:
+            out["aligned"] = True
             out["why"] = (f"tỉ lệ {out['ratio']:.4f}× nằm trong ngưỡng {tol} "
                           f"— kho KHÔNG lệch, không có gì để chữa")
             return out
@@ -690,11 +700,33 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
         # cả sổ cách ly — cửa gác đo MỨC nên nó biết thứ bộ dò bậc không biết.
         _lvl = _level_divergence(tk, wh_root)
         _pend = _in_drift_ledger(tk, wh_root)
+        # Đo MỘT LẦN rồi dùng cho cả hai nhánh — mỗi lượt `_uniform_probe` là
+        # một lần gọi mạng, mà lô chạy 70 mã.
+        _uni = (_uniform_probe(tk, wh_root)
+                if (_lvl is not None or _pend) else None)
+        if _pend and _uni is not None and _uni.get("aligned"):
+            # BẢN GHI CŨ. Kho đã sạch, chỉ sổ là chưa xoá — và **không ai khác
+            # xoá nó**: `clear_drift` chỉ có đúng một chỗ gọi, là chính công cụ
+            # này. Trước 07/09 ca này rơi vào nhánh từ chối ⇒ mã sạch nằm lại
+            # trong sổ VĨNH VIỄN, badge doctor warn mãi. Đo được trên ACE.
+            print(f"\n[rebase] ↩ {tk}: kho ĐÃ SẠCH ({_uni['why']}) nhưng vẫn "
+                  f"nằm trong sổ cách ly — bản ghi cũ, chỉ cần xoá sổ")
+            if not apply:
+                print(f"[rebase] 🔎 CHẠY THỬ — chưa ghi gì. "
+                      f"Thêm --apply để xoá khỏi sổ.")
+                return 0
+            from vnstock_basis_guard import clear_drift
+            if clear_drift(wh_root, tk):
+                print(f"[rebase] ✅ {tk}: đã xoá khỏi sổ cách ly")
+                return 0
+            print(f"[rebase] ✗ {tk}: KHÔNG xoá được khỏi sổ cách ly "
+                  f"(Dropbox/AV đang giữ `basis_drift_pending.json`?) — "
+                  f"kho vẫn sạch, chạy lại lệnh này là xong")
+            return 1
         if (_lvl is not None or _pend) and whole_series:
             # Đường CHỮA cho lớp lệch đồng đều. Cửa vào không phải `_probe`
             # (nó phán 'aligned' vì trước = sau) mà là `uniform_offset_report`
             # — chặt hơn: đòi tỉ lệ ỔN ĐỊNH, không chỉ đòi có lệch.
-            _uni = _uniform_probe(tk, wh_root)
             if not _uni.get("uniform"):
                 print(f"\n[rebase] ✗ {tk}: TỪ CHỐI --whole-series — "
                       f"{_uni.get('why')}")
@@ -979,11 +1011,22 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
     # là doctor kêu mãi và người mất niềm tin vào badge. Xoá ở ĐÂY chứ không ở
     # updater: sync chạy 8 worker, đọc-sửa-ghi sổ 1.700 lần mỗi đêm là tự chuốc
     # lost-update vào đúng thứ sinh ra để giữ.
+    _cleared = True
     try:
         from vnstock_basis_guard import clear_drift
-        clear_drift(wh_root, tk)
-    except Exception:
-        pass
+        _cleared = bool(clear_drift(wh_root, tk))
+    except Exception as e:                        # noqa: BLE001
+        _cleared, _err = False, e
+    if not _cleared:
+        # Nuốt lỗi ở đây là để một mã ĐÃ CHỮA nằm lại trong sổ vĩnh viễn:
+        # badge doctor warn mãi cho một mã sạch, và người dùng học cách bỏ qua
+        # badge. Vết ACE 07/09 — chữa lúc 21:07, in ✅, 21:20 vẫn trong sổ.
+        print(f"[rebase] ⚠️ {tk}: GIÁ đã chữa xong và tự kiểm sạch, NHƯNG "
+              f"không xoá được khỏi sổ cách ly (Dropbox/AV đang giữ "
+              f"`basis_drift_pending.json`?)")
+        print(f"[rebase]   ⇒ cửa gác vẫn chặn mã này. Chạy lại chính lệnh này "
+              f"là xong — lượt sau sẽ thấy kho đã sạch và chỉ xoá sổ.")
+        return 1
     print(f"[rebase] ✅ {tk}: chuỗi đã liền — không còn vách trong 365 ngày"
           f" · bộ dò MỨC cũng sạch")
     return 0

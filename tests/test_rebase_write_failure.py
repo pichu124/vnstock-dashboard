@@ -300,3 +300,137 @@ class TestRestore:
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+class TestStaleLedgerEntry:
+    """Vết ACE, 07/09 — **vòng tự khoá thứ ba**.
+
+    ACE chữa xong lúc 21:07, in *"✅ chuỗi đã liền … bộ dò MỨC cũng sạch"*.
+    Lượt 21:20 đo lại: `tỉ lệ 1.0000× — kho KHÔNG lệch` ⇒ **chữa đã ăn**. Vậy
+    mà ACE **vẫn nằm trong sổ cách ly**, và lượt đó từ chối nó (rc=1).
+
+    Hai lỗi chồng nhau:
+
+    1. `clear_drift` trả `None` và nuốt sạch ngoại lệ ⇒ chỗ gọi không có cách
+       nào biết là hỏng. Dropbox đang giữ file đúng phút ấy (BRC chết vì
+       `WinError 5` ngay sau đó).
+    2. Ca "kho đã sạch mà sổ còn giữ mã" rơi vào nhánh TỪ CHỐI. Mà
+       `clear_drift` **chỉ có đúng một chỗ gọi** — chính công cụ này. Không ai
+       khác xoá sổ ⇒ mã sạch nằm lại VĨNH VIỄN, badge doctor warn mãi.
+
+    Kết cục quen thuộc: badge đỏ cho một mã sạch, tức dạy người dùng bỏ qua
+    badge — đúng thứ cả loạt bản vá này sinh ra để chặn.
+    """
+
+    def _stale(self, monkeypatch, tmp_path, aligned=True, pend=True):
+        (tmp_path / "prices" / "ticker=ACE").mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(R, "_basis_break_of", lambda *a, **k: None)
+        monkeypatch.setattr(R, "_level_break_of", lambda *a, **k: {"break": None})
+        monkeypatch.setattr(R, "_level_divergence", lambda *a, **k: None)
+        monkeypatch.setattr(R, "_in_drift_ledger", lambda *a, **k: pend)
+        monkeypatch.setattr(R, "_uniform_probe", lambda *a, **k: {
+            "aligned": aligned, "uniform": False, "n": 240, "ratio": 1.0,
+            "spread": 1.0009, "why": "tỉ lệ 1.0000× nằm trong ngưỡng 0.012"})
+        import check_unit_continuity as cuc
+        monkeypatch.setattr(cuc, "load_bars", lambda *a, **k: [], raising=False)
+        import probe_price_basis as ppb
+        monkeypatch.setattr(ppb, "_find_break", lambda *a, **k: None)
+
+    def test_a_clean_ticker_still_in_the_ledger_gets_CLEARED_not_refused(
+            self, tmp_path, monkeypatch, capsys):
+        self._stale(monkeypatch, tmp_path)
+        seen = []
+        import vnstock_basis_guard as bg
+        monkeypatch.setattr(bg, "clear_drift",
+                            lambda wh, tk: seen.append(tk) or True)
+        rc = R._rebase_one("ACE", tmp_path, apply=True)
+        assert rc == 0 and seen == ["ACE"]
+        assert "bản ghi cũ" in capsys.readouterr().out
+
+    def test_it_does_not_need_the_whole_series_flag(self, tmp_path,
+                                                    monkeypatch):
+        """Xoá một bản ghi cũ là việc NHỎ. Bắt user gõ cờ ghi-đè-trọn-lịch-sử
+        cho nó là dạy sai thói quen."""
+        self._stale(monkeypatch, tmp_path)
+        import vnstock_basis_guard as bg
+        monkeypatch.setattr(bg, "clear_drift", lambda wh, tk: True)
+        assert R._rebase_one("ACE", tmp_path, apply=True,
+                             whole_series=False) == 0
+
+    def test_dry_run_does_not_touch_the_ledger(self, tmp_path, monkeypatch):
+        self._stale(monkeypatch, tmp_path)
+        import vnstock_basis_guard as bg
+        monkeypatch.setattr(bg, "clear_drift",
+                            lambda wh, tk: pytest.fail("không được ghi sổ"))
+        assert R._rebase_one("ACE", tmp_path, apply=False) == 0
+
+    def test_a_ticker_NOT_in_the_ledger_is_just_clean(self, tmp_path,
+                                                      monkeypatch, capsys):
+        """Không có trong sổ thì không có gì để xoá — đừng bịa ra một hành
+        động."""
+        self._stale(monkeypatch, tmp_path, pend=False)
+        assert R._rebase_one("ACE", tmp_path, apply=True) == 0
+        assert "bản ghi cũ" not in capsys.readouterr().out
+
+    def test_an_unmeasurable_ticker_is_NEVER_cleared(self, tmp_path,
+                                                     monkeypatch):
+        """`aligned=False` gồm cả "không đo được". Xoá khỏi sổ vì KHÔNG BIẾT
+        là gỡ cách ly cho một mã mình không có thông tin gì — ngược hẳn với
+        việc cửa gác sinh ra để làm."""
+        self._stale(monkeypatch, tmp_path, aligned=False)
+        import vnstock_basis_guard as bg
+        monkeypatch.setattr(bg, "clear_drift",
+                            lambda wh, tk: pytest.fail("không được xoá sổ"))
+        assert R._rebase_one("ACE", tmp_path, apply=True) == 1
+
+    def test_a_failed_clear_is_reported_not_swallowed(self, tmp_path,
+                                                      monkeypatch, capsys):
+        self._stale(monkeypatch, tmp_path)
+        import vnstock_basis_guard as bg
+        monkeypatch.setattr(bg, "clear_drift", lambda wh, tk: False)
+        rc = R._rebase_one("ACE", tmp_path, apply=True)
+        out = capsys.readouterr().out
+        assert rc == 1 and "KHÔNG xoá được khỏi sổ" in out
+
+    def test_the_aligned_flag_is_machine_readable_not_a_vietnamese_string(self):
+        """Rẽ nhánh bằng cách dò chuỗi `why` là buộc logic vào câu chữ tiếng
+        Việt — sửa một dấu phẩy là gãy im lặng."""
+        import inspect
+        src = inspect.getsource(R._rebase_one)
+        assert '"aligned"' in src or "'aligned'" in src
+        assert "kho KHÔNG lệch" not in src
+
+
+class TestClearDriftContract:
+    def test_it_reports_success_as_a_bool(self, tmp_path):
+        import vnstock_basis_guard as bg
+        monkeypatch_path = tmp_path / "_meta"
+        monkeypatch_path.mkdir()
+        bg.record_drift(tmp_path, "ACE", {"ratio": 1.08, "pct": 8.0, "n": 30})
+        assert bg.clear_drift(tmp_path, "ACE") is True
+        assert "ACE" not in bg.load_pending(tmp_path)
+
+    def test_clearing_an_absent_ticker_is_success_not_failure(self, tmp_path):
+        """Ý muốn là "mã không còn trong sổ". Vốn đã không có thì ý muốn đã
+        đạt — trả False ở đây là đẻ ra một cảnh báo giả mỗi lượt."""
+        import vnstock_basis_guard as bg
+        assert bg.clear_drift(tmp_path, "KHONGCO") is True
+
+    def test_a_locked_ledger_returns_False_instead_of_lying(self, tmp_path,
+                                                            monkeypatch):
+        import vnstock_basis_guard as bg
+        monkeypatch.setattr(bg.time, "sleep", lambda *_: None)
+        bg.record_drift(tmp_path, "ACE", {"ratio": 1.08, "pct": 8.0, "n": 30})
+        monkeypatch.setattr(bg.os, "replace",
+                            lambda *a: (_ for _ in ()).throw(
+                                PermissionError("[WinError 5]")))
+        assert bg.clear_drift(tmp_path, "ACE") is False
+
+    def test_it_never_raises(self, tmp_path, monkeypatch):
+        """Nó bị gọi từ những chỗ mà một lỗi ghi sổ không được phép làm hỏng
+        cả lượt chạy."""
+        import vnstock_basis_guard as bg
+        monkeypatch.setattr(bg.time, "sleep", lambda *_: None)
+        monkeypatch.setattr(bg, "load_pending",
+                            lambda wh: (_ for _ in ()).throw(IOError("hỏng")))
+        assert bg.clear_drift(tmp_path, "ACE") is False

@@ -6966,6 +6966,84 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🔁 U47. VÒNG TỰ KHOÁ THỨ BA: MÃ ĐÃ CHỮA NẰM LẠI TRONG SỔ CÁCH LY (07/09)
+
+Lượt `--from-drift-ledger --whole-series --apply` sau bản vá U46: **67/70 mã
+xong**, sổ **73 → 3** (còn ACE · DRG · GH3). Nhưng trong đó có một chuyện.
+
+**ACE chữa xong lúc 21:07**, in *"✅ chuỗi đã liền — không còn vách trong 365
+ngày · bộ dò MỨC cũng sạch"*. Lượt 21:20 đo lại:
+
+    [rebase] ✗ ACE: TỪ CHỐI --whole-series — tỉ lệ 1.0000× nằm trong ngưỡng
+             0.012 — kho KHÔNG lệch, không có gì để chữa
+
+Tức **chữa đã ăn** — kho ACE sạch. Vậy mà ACE **vẫn nằm trong sổ cách ly**, và
+lượt đó **từ chối** nó. Đếm lại khớp: lượt 1 xoá được AAM · AGG · BCF khỏi sổ
+(73 → 70) nhưng **không xoá được ACE**.
+
+## Hai lỗi chồng nhau
+
+**1. `clear_drift` trả `None` và nuốt sạch ngoại lệ.**
+
+    except Exception:
+        pass
+
+Chỗ gọi không có cách nào biết là hỏng — mà chỗ gọi cũng bọc thêm một
+`try/except: pass` nữa, nên lỗi bị nuốt HAI LẦN. Dropbox đang giữ file đúng
+phút ấy: BRC chết vì `WinError 5` ngay sau đó (U46). Nay hàm trả **bool**, có
+retry riêng (`CLEAR_RETRIES` = 5), và vẫn KHÔNG ném — nó bị gọi từ chỗ mà một
+lỗi ghi sổ không được phép làm hỏng cả lượt chạy.
+
+**2. Ca "kho đã sạch mà sổ còn giữ mã" rơi vào nhánh TỪ CHỐI.** Và đây mới là
+vòng khoá: `clear_drift` **chỉ có đúng MỘT chỗ gọi trong toàn repo** — chính
+`rebase_ticker_history`. Cửa gác `record_drift` thì ghi vào sổ mỗi đêm, nhưng
+**không có đường nào tự xoá ra**. Nên một mã đã sạch mà lỡ kẹt lại thì nằm đó
+**vĩnh viễn**, badge doctor warn mãi.
+
+Kết cục quen thuộc: **badge đỏ cho một mã sạch**, tức dạy người dùng bỏ qua
+badge — đúng thứ cả loạt bản vá này sinh ra để chặn (xem U42).
+
+Nay `_rebase_one` nhận ra ca ấy và **XOÁ SỔ** thay vì từ chối, không cần
+`--whole-series` (xoá một bản ghi cũ là việc nhỏ; bắt user gõ cờ ghi-đè-trọn-
+lịch-sử cho nó là dạy sai thói quen). Chạy lại chính lệnh cũ là tự lành.
+
+## `aligned` — cờ máy đọc được, không phải chuỗi tiếng Việt
+
+`uniform_offset_report` nay trả thêm `aligned`. Cả `aligned` lẫn `uniform=False`
+đều nghĩa là "không chữa được bằng chế độ này", nhưng một cái là **ĐÃ SẠCH**
+còn cái kia là **KHÔNG ĐỦ BẰNG CHỨNG** — hai việc phải làm ngược nhau. Phân
+biệt bằng cách dò chuỗi `why` là buộc logic vào câu chữ tiếng Việt: sửa một
+dấu phẩy là gãy im lặng. Có test cấm việc đó.
+
+⚠️ **`aligned=False` gồm cả "không đo được".** Xoá khỏi sổ vì KHÔNG BIẾT là gỡ
+cách ly cho một mã mình không có thông tin gì — ngược hẳn việc cửa gác sinh ra
+để làm. Chỉ xoá khi có bằng chứng DƯƠNG là đã sạch.
+
+## Vì sao KHÔNG xoá sổ ở `vnstock_updater`
+
+Đó mới là chỗ "đúng" về cấu trúc — gác đo mỗi đêm, thấy sạch thì tự xoá. Nhưng
+sync chạy 8 worker; đọc-sửa-ghi sổ trong vòng lặp 1.700 mã là tự chuốc
+lost-update vào đúng thứ sinh ra để giữ. Chọn đường công cụ: **cùng một lệnh
+user đã chạy** sẽ dọn luôn bản ghi cũ. Đánh đổi: sổ chỉ vơi khi user chạy lệnh
+đó, chứ không tự vơi sau mỗi đêm — badge có nhắc.
+
+## Ba mã còn lại — đều là từ chối ĐÚNG
+
+| mã | tỉ lệ | vì sao chưa chữa |
+|---|---|---|
+| ACE | 1.0853 (sổ) | **đã sạch thật** — chỉ bản ghi cũ, lượt sau tự xoá |
+| DRG | 1.0206 | 0.9964× → 1.0213×, không lệch đều mà cũng KHÔNG chia sạch (`level_break_report` từ chối vì lẫn quá 10% bar sai phía) — cần mắt người |
+| GH3 | 1.1356 | chỉ **13 bar** chồng nhau trong 365 ngày (sàn 20). Mã gần như không giao dịch; nay dòng từ chối in kèm tỉ lệ + spread để quyết được có đáng nới sàn riêng không |
+
+## Số đo
+
+Lượt 2: **67/70 mã, sổ 73 → 3**, không lỗi ghi nào (user đã tạm dừng Dropbox —
+U46). Bộ dò vách MỨC của U45 gánh 9 mã: C22 · DBD · EMS · ILB · MCH · PRE ·
+SDV · TRS · VC3, phía cơ sở mới **2-20 bar**, tất cả dưới hoặc quanh sàn 5 của
+bộ dò bậc. **MCH (VN30) đã sạch.**
+
+12 test mới. Suite: **3.089 pass**.
+
 # 💥 U46. DROPBOX GIỮ FILE ⇒ `os.replace` NÉM WinError 5 — VÀ MỘT MÃ GIẾT CẢ LÔ (07/09)
 
 🖥️ Desktop 21:07, lượt `--from-drift-ledger --whole-series --apply` trên **73

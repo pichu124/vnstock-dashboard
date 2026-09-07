@@ -42,10 +42,14 @@ khắc lệch sinh ra, không bắt di chứng cũ.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
+import time
 from datetime import date, timedelta
 from pathlib import Path
+
+_log = logging.getLogger(__name__)
 
 # Updater chạy 8 worker trên cùng tiến trình — hai mã cùng phát hiện lệch
 # trong một nhịp là chuyện có thật vào mùa quyền. Ghi nguyên tử chống được
@@ -155,20 +159,46 @@ def record_drift(warehouse_root: Path, ticker: str, info: dict,
         pass
 
 
-def clear_drift(warehouse_root: Path, ticker: str) -> None:
-    """Bỏ mã khỏi sổ khi đã chữa. Cùng đường ghi nguyên tử."""
-    try:
-      with _WRITE_LOCK:
-        data = load_pending(warehouse_root)
-        if data.pop(ticker.upper(), None) is None:
-            return
-        p = pending_path(warehouse_root)
-        tmp = p.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2,
-                                  sort_keys=True), encoding="utf-8")
-        os.replace(tmp, p)
-    except Exception:
-        pass
+# Sổ nằm trong Dropbox, và `os.replace` ở đó có lúc ném `WinError 5` (U46).
+# Nuốt lỗi ở đây là để lại một mã ĐÃ CHỮA trong sổ cách ly vĩnh viễn — badge
+# doctor đỏ mãi cho một mã sạch, tức dạy người dùng bỏ qua badge.
+CLEAR_RETRIES = 5
+CLEAR_BACKOFF_S = 0.3
+
+
+def clear_drift(warehouse_root: Path, ticker: str) -> bool:
+    """Bỏ mã khỏi sổ khi đã chữa. Cùng đường ghi nguyên tử.
+
+    Trả **True nếu mã không còn trong sổ** (vừa xoá, hoặc vốn đã không có),
+    **False nếu ghi hỏng**. Vẫn KHÔNG ném — nó bị gọi từ những chỗ mà một lỗi
+    ghi sổ không được phép làm hỏng cả lượt chạy.
+
+    ⚠️ Trước 07/09 hàm này trả `None` và nuốt sạch ngoại lệ, nên chỗ gọi không
+    có cách nào biết là hỏng. Đo được: ACE chữa xong 21:07, in "✅ chuỗi đã
+    liền", **vẫn nằm trong sổ** ở lượt 21:20 (lượt sau đo lại thấy kho đã
+    1.0000×, tức chữa đã ăn — chỉ sổ là không xoá được). Dropbox đang giữ file
+    đúng phút ấy: BRC chết vì `WinError 5` ngay sau đó.
+    """
+    tk = ticker.upper()
+    last = None
+    for i in range(CLEAR_RETRIES):
+        try:
+          with _WRITE_LOCK:
+            data = load_pending(warehouse_root)
+            if data.pop(tk, None) is None:
+                return True                  # không có trong sổ = đúng ý muốn
+            p = pending_path(warehouse_root)
+            tmp = p.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2,
+                                      sort_keys=True), encoding="utf-8")
+            os.replace(tmp, p)
+            return True
+        except Exception as e:               # noqa: BLE001
+            last = e
+            if i < CLEAR_RETRIES - 1:
+                time.sleep(CLEAR_BACKOFF_S * (2 ** i))
+    _log.warning("clear_drift(%s) hỏng sau %d lượt: %s", tk, CLEAR_RETRIES, last)
+    return False
 
 
 def fetch_start(last_date: date, lookback_days: int = LOOKBACK_DAYS) -> date:
