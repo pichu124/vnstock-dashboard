@@ -6966,6 +6966,57 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🏁 U53. ĐÓNG CHIẾN DỊCH LỆCH CƠ SỞ: 73 → 0 (07/09)
+
+    [triage] ✅ sổ cách ly RỖNG — không mã nào đang bị chặn cập nhật.
+
+DRG là mã cuối: `spread lõi 1.0016, thô 1.0251, 1 bar lẻ lệch trung vị` —
+đúng chữ ký U52 dự đoán. 1.627/1.627 bar lấy thẳng từ nguồn, hệ số **không
+chạm bar nào**.
+
+## Điểm đáng nhớ nhất: hệ số gần như không bao giờ được dùng
+
+Cộng cả chiến dịch, số bar phải NHÂN hệ số đếm trên đầu ngón tay (VIM 35 ·
+HU4 24 · SGR 9 · PJS 6 · ND2 5 · CHP 4 · vài mã 1 bar), còn lại **toàn bộ lấy
+thẳng từ nguồn**. Nghĩa là thứ đáng sợ nhất của `--whole-series` — nhân cả
+lịch sử bằng một con số đo được — thực tế gần như không xảy ra: nguồn phủ hết
+dải kho, nên công cụ chỉ chép lại. Hệ số chủ yếu đóng vai **bằng chứng để
+quyết**, không phải phép tính để áp.
+
+Điều đó cũng giải thích vì sao ba lần "nới cửa" đều an toàn hơn vẻ ngoài của
+chúng — và vì sao vẫn đúng khi không nới: cửa sai thì mã bị giam, mà giam một
+mã đã sạch cũng là một kiểu hỏng (U47).
+
+## Bảy vòng, và không vòng nào là vòng cuối
+
+| # | tưởng là | hoá ra |
+|---|---|---|
+| U42 | công cụ chữa hỏng | hai bên đo hai ĐẠI LƯỢNG khác nhau (mức ⇄ đạo hàm) |
+| U43 | cần nới cửa `_probe` | cần một cửa KHÁC, chặt hơn |
+| U44 | kho sự kiện thiếu | kho sự kiện KHÔNG PHẢI cửa của bước chữa |
+| U45 | 13 mã lệch đều | 13 mã có vách thật, bộ dò thiếu sàn bar |
+| U47 | 3 mã chưa chữa | 1 mã ĐÃ SẠCH, chỉ sổ chưa xoá |
+| U50 | GH3 là mã thưa | kho GH3 đóng băng 348 ngày, cửa sổ đo hỏi sai |
+| U52 | DRG có vách | DRG có một hạt sạn, thước đo quá nhạy |
+
+**Bảy lần liền, giả thuyết đầu tiên đều sai, và số đo đều lật.** Cái cứu từng
+vòng luôn là cùng một việc: *thêm một dòng chẩn đoán, chạy thật, rồi mới sửa.*
+Ba vòng cuối tôi đứng trước đúng một cám dỗ — nới ngưỡng vì nó chặn đúng một
+mã — và cả ba lần thứ hỏng nằm chỗ khác.
+
+## Còn treo (không gấp)
+
+* **GH3 có đuổi kịp không.** Kho đóng băng 2025-09-24, **11 tháng trước khi
+  cửa gác ra đời** ⇒ gác không phải nguyên nhân. Nguồn có 1.267 bar / kho
+  1.033 ⇒ ~234 bar chờ nối. Phát tối mai trả lời.
+* **`_corp_event_kind` vẫn chỉ đọc cache theo mã**, nên mã mới bị chặn vẫn ghi
+  `event: None` vào sổ. Hoãn vì `load_events` còn phục vụ đường điều chỉnh giá.
+* **`LEVEL_BREAK_MIN_AFTER` = 2 chưa bao giờ cần hạ.** Ca duy nhất tưởng cần
+  (DRG) hoá ra không phải vách. Giữ nguyên, đừng hạ theo linh cảm.
+
+Tổng: **73 mã**, ~10 giờ, 11 commit, **3.127 test**. Badge doctor `basis_drift`
+hết đỏ lần đầu kể từ 19/08.
+
 # 🪨 U52. MỘT HẠT SẠN CHE MẤT 195 BAR — VÀ VÌ SAO KHÔNG NỚI TRẦN SPREAD (07/09)
 
 `--explain` in đuôi chuỗi DRG (U51) và câu trả lời hiện ngay:

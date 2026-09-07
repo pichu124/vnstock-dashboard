@@ -2,7 +2,7 @@
 
 > Bản để LÀM THEO. Kho lưu chi tiết (lý do, file:line, lịch sử) ở
 > `docs/CLAUDE-NOTES.md` — đừng mở nó để biết "hôm nay làm gì".
-> Cập nhật: 26/08/2026, chiều — sau khi `--whole-series` xong.
+> Cập nhật: 07/09/2026, 23:00 — sổ cách ly lệch cơ sở đã RỖNG.
 
 ## 🏷️ NHÃN MÁY — quy tắc gốc: KHO đồng bộ, CODE thì không
 
@@ -127,26 +127,6 @@ python run.py test          # phải ra 3.127 passed
 Desktop giữ 4.0.4 — nó chạy phát tối, không phải chỗ để thử.
 *(4.0.6 làm chết mọi lệnh gọi mạng — `env.py:136 UnboundLocalError`.)*
 
-## 5. 🧬 Lệch cơ sở — 🖥️ MÃ CUỐI (DRG)
-
-**Sổ 73 → 1.** Đuôi chuỗi DRG cho thấy đây **không phải vách**: 11 bar sát
-nhau ở 1.0199-1.0209 rồi đúng MỘT bar (2026-08-27) lệch hướng khác — kho 8.20
-vs nguồn 8.23, tức 3 bước giá, là hai con số khác nhau cho cùng một ngày chứ
-không phải quan hệ cơ sở (kho dựng close từ rollup 1 phút, nguồn lấy close
-chính thức). Một hạt sạn làm spread nở 1.0014 → 1.0251 và che mất 195 bar.
-
-Đã đổi **thước đo** (không đổi trần): thêm luật bar-lẻ + spread lõi cắt đuôi
-(U52). DRG nay qua cửa.
-
-```powershell
-git fetch origin claude/tong-hop-cong-viec-test-w8mvrc
-git merge origin/claude/tong-hop-cong-viec-test-w8mvrc
-python scripts\rebase_ticker_history.py --ticker DRG --whole-series --apply
-python scripts\triage_basis_drift.py --plan
-```
-Trước khi ghi, đọc dòng đầu: phải có `spread lõi 1.0014` và `1 bar lẻ lệch
-trung vị`. Xong thì sổ **RỖNG** và badge doctor `basis_drift` hết đỏ.
-
 ---
 
 # 🔔 MÁY TỰ NHẮC — không phải việc gõ tay
@@ -158,7 +138,7 @@ hiệu guard đang LÀM VIỆC, không phải hỏng.
 |---|---|
 | **Sổ theo dõi nghi ngờ brief** | Chuyển `⚠️ ĐỦ mẫu, đáng quyết` (Op.CF/vốn hoá · câu dòng tiền ngoại ngược data) |
 | **Hiệu suất auto-heal** | `⚠️` = 0 lành dù đủ mẫu ⇒ quyết hạ trần `VNSTOCK_AUTOHEAL_BUDGET_S=120` hay tắt hẳn |
-| **Lệch cơ sở — mã bị cách ly** | Có mã ⇒ xem việc **#5** (đa số cần `--whole-series`, lệnh cũ sẽ TỪ CHỐI và nói vì sao) |
+| **Lệch cơ sở — mã bị cách ly** | Sổ đang RỖNG (07/09). Có mã mới ⇒ `python scripts\rebase_ticker_history.py --from-drift-ledger --whole-series` (chạy thử) rồi thêm `--apply`. Mã bị từ chối ⇒ `--ticker <MÃ> --explain` |
 | **Nới OHLC (bar tự mâu thuẫn)** | Nới sát trần 20% ⇒ soi lại bar đó |
 | **Rổ VN30** | `⚠️ rổ thật đã đổi` ⇒ dán dòng badge cho Claude |
 
@@ -201,7 +181,7 @@ dòng `screener` như thường lệ.
 
 | Việc | Kết quả |
 |---|---|
-| Lệch cơ sở kho giá | **76 mã** đã chữa · quét ra `160 mã KHÔNG đổi bậc` · V1 chặn tái phát ở đường ghi |
+| Lệch cơ sở kho giá | **SỔ RỖNG 07/09** — 73 mã chữa trong một tối (76 mã đợt 18-19/08 + 73 đợt này) · V1 chặn tái phát ở đường ghi · công cụ nay có `--whole-series`, `--from-drift-ledger`, `--explain`, `--restore` |
 | Rổ VN30 kỳ 08/2026 | Lấy động (API → cache → hằng số) · VÀO BSR·LPB·MCH·TCX·VPL, RỜI BCM·BVH·PLX·POW·TPB · cả 30 mã có giá trong kho |
 | Live mode | `verify_wss_live` ✅ cả 3 bất biến (24/30 mã volume) + **mắt người** xác nhận heatmap chạy |
 | Tốc độ heatmap | Fragment 5s → 2s · tầng nóng (VN30 mỗi vòng, ~1.100 mã mỗi 5 vòng) |
