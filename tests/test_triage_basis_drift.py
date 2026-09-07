@@ -266,15 +266,43 @@ class TestExitCode:
         assert "ĐỪNG gộp" in capsys.readouterr().out
 
 
+def _code_only(src: str) -> str:
+    """Mã nguồn đã BỎ chú thích và mọi chuỗi ký tự.
+
+    Vì sao cần: lưới "chỉ đọc" bên dưới quét chuỗi trên toàn file, nên nó bắt
+    cả những lần tên hàm ghi xuất hiện trong **docstring** — tức nó đo VĂN BẢN
+    chứ không đo HÀNH VI. Đỏ lên 07/09 chỉ vì một docstring giải thích *vì sao
+    KHÔNG dùng* `record_drift`. Cấm nhắc tên một hàm nguy hiểm là cấm luôn
+    việc ghi lại lý do tránh nó — ngược hẳn ý định.
+
+    Bỏ luôn chuỗi ký tự cũng đúng ý: script được phép IN RA một lệnh có
+    `--apply` (nó gợi ý, người chạy), chỉ không được tự gọi.
+    """
+    import io
+    import tokenize
+    out = []
+    for tok in tokenize.generate_tokens(io.StringIO(src).readline):
+        if tok.type in (tokenize.COMMENT, tokenize.STRING):
+            continue
+        out.append(tok.string)
+    return " ".join(out)
+
+
 class TestReadOnly:
-    def test_the_script_never_imports_a_writer(self):
+    def test_the_script_never_CALLS_a_writer(self):
         """Bộ soi phải chạy được sát giờ phát 18:00. Nó chỉ được ĐỌC."""
-        src = _SCRIPT.read_text(encoding="utf-8")
-        # In RA một lệnh có `--apply` là hợp lệ — script gợi ý, người chạy.
-        # Cấm là cấm tự GHI hoặc tự CHẠY.
-        for forbidden in ("write_text(", "to_parquet(", "record_drift",
-                          "os.remove", "shutil.", "subprocess", "os.system"):
-            assert forbidden not in src, forbidden
+        code = _code_only(_SCRIPT.read_text(encoding="utf-8"))
+        for forbidden in ("write_text", "to_parquet", "record_drift",
+                          "clear_drift", "os.remove", "shutil", "subprocess",
+                          "os.system", "os.replace"):
+            assert forbidden not in code, forbidden
+
+    def test_the_guard_still_bites_on_real_code(self):
+        """Lưới nới ra thì phải chứng minh nó còn cắn. Bỏ chuỗi ký tự mà bỏ
+        nhầm cả lời gọi thật thì nó thành lưới trang trí."""
+        assert "to_parquet" in _code_only("df.to_parquet(p)\n")
+        assert "to_parquet" not in _code_only('x = "chay to_parquet di"\n')
+        assert "record_drift" not in _code_only('"""nói về record_drift"""\n')
 
     def test_it_reads_the_ledger_through_the_owning_module(self):
         """Sổ cách ly có một chủ sở hữu (`vnstock_basis_guard`). Tự mở file
@@ -692,3 +720,56 @@ class TestEventWindow:
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+class TestStaleIsMeasuredFromTheWAREHOUSE:
+    """Vết 07/09 — bảng in ra:
+
+        [triage] đứng lâu nhất 0 ngày · tổng ~0 bar giá đang thiếu
+
+    trong khi `--explain` cho thấy kho GH3 dừng ở **2025-09-24**, tức đóng
+    băng **348 ngày**. `record_drift` ghi lại `detected_at` **mỗi đêm** khi
+    gác còn chặn, nên trường đó luôn là "hôm nay": nó trả lời *lần phát hiện
+    gần nhất là bao giờ*, KHÔNG phải *kho đứng bao lâu rồi*.
+
+    Con số 0 ấy không chỉ sai — nó sai theo hướng nguy hiểm nhất: **báo thiệt
+    hại bằng KHÔNG**. Người đọc kết luận "chả mất gì" rồi xếp việc lại.
+    """
+
+    def test_the_warehouse_wins_over_detected_at(self):
+        st = T.summarize({"GH3": _rec("2026-09-07", 1.1356, 13.56)},
+                         TODAY, stale_days=lambda tk: 348)
+        assert st["groups"]["chua_ro"][0]["stale"] == 348
+
+    def test_bars_lost_stops_reporting_zero_damage(self):
+        st = T.summarize({"GH3": _rec("2026-09-07", 1.1356, 13.56)},
+                         TODAY, stale_days=lambda tk: 348)
+        assert st["bars_lost"] == 348 and st["max_stale"] == 348
+
+    def test_detected_at_is_the_fallback_not_the_source(self):
+        """Kho đọc không được thì vẫn phải nói được gì đó — nhưng chỉ khi ấy."""
+        st = T.summarize(TestSummarize.PENDING, TODAY,
+                         stale_days=lambda tk: None)
+        assert any(r["stale"] is not None
+                   for g in st["groups"].values() for r in g)
+
+    def test_omitting_the_injector_keeps_the_old_behaviour(self):
+        """Hàm vẫn phải THUẦN và test được offline."""
+        a = T.summarize(TestSummarize.PENDING, TODAY)
+        b = T.summarize(TestSummarize.PENDING, TODAY, stale_days=None)
+        assert a["bars_lost"] == b["bars_lost"]
+
+    def test_the_resolver_never_raises_on_a_missing_warehouse(self, tmp_path):
+        assert T.stale_from_warehouse(tmp_path)("KHONGCO") is None
+
+    def test_it_reads_the_real_last_bar(self, tmp_path):
+        import pandas as pd
+        d = tmp_path / "prices" / "ticker=GH3" / "year=2025"
+        d.mkdir(parents=True)
+        pd.DataFrame({"time": pd.to_datetime(["2025-09-20", "2025-09-24"]),
+                      "open": [1.0, 1.0], "high": [1.0, 1.0],
+                      "low": [1.0, 1.0], "close": [1.0, 1.0],
+                      "volume": [1.0, 1.0]}).to_parquet(d / "p.parquet",
+                                                        index=False)
+        got = T.stale_from_warehouse(tmp_path)("GH3")
+        assert got == (date.today() - date(2025, 9, 24)).days

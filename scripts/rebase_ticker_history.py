@@ -466,25 +466,61 @@ def uniform_offset_report(wh, src, tol: float = 0.012) -> dict:
         return out
 
 
+# Trần nới cửa sổ đo khi 365 ngày cho ra quá ít bar. 12 năm phủ trọn mọi mã
+# trong kho; xin xa hơn chỉ tốn một lượt fetch to mà không thêm bar nào.
+WIDEN_MAX_DAYS = 4500
+
+
 def _uniform_probe(tk: str, wh_root: Path, since_days: int = 365,
                    tol: float = 0.012) -> dict:
-    """`uniform_offset_report` trên dữ liệu THẬT của một mã. Chỉ đọc."""
+    """`uniform_offset_report` trên dữ liệu THẬT của một mã. Chỉ đọc.
+
+    ⚠️ **Cửa sổ 365 ngày đo sai với mã kho ĐÃ ĐỨNG LÂU.** Vết GH3 (07/09):
+    kho 1.033 bar trải 2021-08-04 → **2025-09-24**, tức đóng băng gần MỘT NĂM.
+    Trong 365 ngày qua kho chỉ còn đúng 13 bar — cái đuôi của nó — nên phép đo
+    kết luận *"chứng cứ quá mỏng"*. Nhưng mỏng ở đây là **thuộc tính của cửa
+    sổ**, không phải của mã: nới ra tới đầu kho thì có ~1.000 bar chồng lấn.
+
+    Nên khi cửa sổ mặc định cho ra dưới `UNIFORM_MIN_BARS` bar, nới tới tận
+    bar ĐẦU của kho rồi đo lại. Bằng chứng khi ấy MẠNH HƠN hẳn — trần spread
+    giữ nguyên, nên nhiều lần đổi cơ sở rải rác trong 4 năm sẽ làm spread nở
+    và mã bị từ chối, đúng như phải thế.
+    """
     from probe_price_basis import fetch_source, load_wh
-    d1 = date.today()
-    d0 = d1 - timedelta(days=since_days)
-    try:
+
+    def _measure(d0: date, d1: date) -> dict:
         wh = load_wh(wh_root / "prices", tk, d0, d1)
         if wh.empty:
             return {"uniform": False, "why": "kho rỗng", "n": 0,
-                    "ratio": None, "spread": None}
+                    "ratio": None, "spread": None, "span_days": 0}
         src = fetch_source(tk, d0, d1)
         if src.empty:
             return {"uniform": False, "why": "nguồn trả rỗng", "n": 0,
-                    "ratio": None, "spread": None}
+                    "ratio": None, "spread": None, "span_days": 0}
         return uniform_offset_report(wh, src, tol=tol)
+
+    d1 = date.today()
+    try:
+        out = _measure(d1 - timedelta(days=since_days), d1)
+        if (out.get("n") or 0) >= UNIFORM_MIN_BARS or out.get("aligned"):
+            return out
+        first = _first_wh_bar(tk, wh_root)
+        if first is None:
+            return out
+        wide = max(since_days + 1, min((d1 - first).days + 7, WIDEN_MAX_DAYS))
+        if wide <= since_days:
+            return out
+        out2 = _measure(d1 - timedelta(days=wide), d1)
+        if (out2.get("n") or 0) <= (out.get("n") or 0):
+            return out                       # nới mà không thêm bar ⇒ giữ cũ
+        out2["widened_days"] = wide
+        out2["why"] = (f"{out2['why']} · đo trên cửa sổ NỚI {wide} ngày "
+                       f"(365 ngày chỉ có {out.get('n') or 0} bar — kho đã "
+                       f"đứng lâu, mỏng là do cửa sổ chứ không do mã)")
+        return out2
     except Exception as e:                        # noqa: BLE001
         return {"uniform": False, "why": f"{type(e).__name__}: {e}", "n": 0,
-                "ratio": None, "spread": None}
+                "ratio": None, "spread": None, "span_days": 0}
 
 
 def _in_drift_ledger(tk: str, wh_root: Path) -> bool:
@@ -494,6 +530,19 @@ def _in_drift_ledger(tk: str, wh_root: Path) -> bool:
         return tk.upper() in (load_pending(Path(wh_root)) or {})
     except Exception:
         return False
+
+
+def _first_wh_bar(tk: str, wh_root: Path) -> "date | None":
+    """Ngày bar ĐẦU của kho. Chỉ ĐỌC — dùng để nới cửa sổ đo cho mã kho đã
+    đứng lâu (xem `_uniform_probe`)."""
+    try:
+        from check_unit_continuity import load_bars
+        df = load_bars(wh_root / "prices", tk, since_days=0)
+        if df is None or df.empty:
+            return None
+        return pd.to_datetime(df["time"]).min().date()
+    except Exception:
+        return None
 
 
 def _last_wh_bar(tk: str, wh_root: Path) -> "date | None":
@@ -696,8 +745,12 @@ def _explain_one(tk: str, wh_root: Path) -> int:
             print("[soi] ⬜ kho RỖNG — không có gì để đo")
             return 0
         t = pd.to_datetime(allbars["time"])
+        _frozen = (date.today() - t.max().date()).days
         print(f"[soi] KHO   : {len(allbars):,} bar · {t.min().date()} → "
               f"{t.max().date()} · trong 365 ngày: {len(yr):,} bar")
+        print(f"[soi]         ĐỨNG {_frozen} ngày kể từ bar cuối"
+              + (" ⚠️ (sổ cách ly đếm từ lần PHÁT HIỆN gần nhất nên báo ~0)"
+                 if _frozen > 30 else ""))
     except Exception as e:                        # noqa: BLE001
         print(f"[soi] ✗ không đọc được kho ({type(e).__name__}: {e})")
         return 2

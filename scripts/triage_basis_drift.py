@@ -30,7 +30,13 @@ from datetime import date
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO))
+# Cả gốc repo LẪN thư mục scripts: `stale_from_warehouse` đọc kho qua
+# `check_unit_continuity`, mà module đó nằm cạnh file này. Thiếu đường thứ hai
+# thì `ImportError` bị nuốt trong `try` và hàm lặng lẽ trả None — tức lại báo
+# thiệt hại bằng 0, đúng thứ nó sinh ra để sửa.
+for _p in (str(REPO), str(Path(__file__).resolve().parent)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 def _guard_tol_pct() -> float:
     """Ngưỡng kích hoạt của chính cửa gác, tính bằng %. MỘT nguồn sự thật.
@@ -115,8 +121,42 @@ NHOM = {
 NHOM_ORDER = ("chua_ro", "tron_chua_ro", "co_su_kien", "nhieu")
 
 
+def stale_from_warehouse(warehouse) -> "callable":
+    """`ticker -> số ngày kho ĐỨNG YÊN`, đo từ **bar cuối trong kho**.
+
+    ⚠️ Vì sao không dùng `detected_at`: `record_drift` ghi lại trường đó **mỗi
+    đêm** khi gác còn chặn, nên nó luôn là "hôm nay". Nó trả lời *"lần phát
+    hiện gần nhất là bao giờ"*, KHÔNG phải *"kho đứng bao lâu rồi"*.
+
+    Đo 07/09 — bảng in ra:
+
+        [triage] đứng lâu nhất 0 ngày · tổng ~0 bar giá đang thiếu
+
+    trong khi `--explain` cho thấy kho GH3 dừng ở **2025-09-24**, tức đóng
+    băng **348 ngày**. Con số 0 ấy không chỉ sai, nó sai theo hướng nguy hiểm
+    nhất: **báo thiệt hại bằng KHÔNG**. Người đọc kết luận "chả mất gì" rồi
+    xếp việc lại.
+    """
+    from pathlib import Path as _P
+
+    def _stale(ticker: str) -> "int | None":
+        try:
+            import pandas as pd
+
+            from check_unit_continuity import load_bars
+            df = load_bars(_P(warehouse) / "prices", ticker, since_days=0)
+            if df is None or df.empty:
+                return None
+            last = pd.to_datetime(df["time"]).max().date()
+            return max(0, (date.today() - last).days)
+        except Exception:
+            return None
+
+    return _stale
+
+
 def summarize(pending: dict, today: "date | None" = None,
-              resolve=None) -> dict:
+              resolve=None, stale_days=None) -> dict:
     """{nhóm: [bản ghi]} + vài con số tổng. Hàm thuần — `resolve` bơm từ ngoài.
 
     `resolve(ticker, rec) -> kind | None` tra LẠI kho sự kiện. Bơm từ ngoài
@@ -128,7 +168,13 @@ def summarize(pending: dict, today: "date | None" = None,
     for tk in sorted(pending):
         rec = dict(pending[tk] or {})
         rec["ticker"] = tk.upper()
-        rec["stale"] = days_stale(rec.get("detected_at", ""), today)
+        # Ưu tiên bar cuối trong KHO; `detected_at` chỉ là lưới cuối vì nó
+        # được ghi đè mỗi đêm (xem `stale_from_warehouse`).
+        rec["stale"] = None
+        if stale_days is not None:
+            rec["stale"] = stale_days(rec["ticker"])
+        if rec["stale"] is None:
+            rec["stale"] = days_stale(rec.get("detected_at", ""), today)
         rec["round_hint"] = near_round_ratio(rec.get("ratio"))
         if resolve is not None and not rec.get("event"):
             live = resolve(rec["ticker"], rec)
@@ -449,7 +495,8 @@ def main(argv=None) -> int:
         span = event_window(rec)
         return registry_event_kind(ticker, wh, *span) if span else None
 
-    st = summarize(pending, resolve=None if args.no_relookup else _resolve)
+    st = summarize(pending, resolve=None if args.no_relookup else _resolve,
+                   stale_days=stale_from_warehouse(wh))
     if st["n_live"]:
         print(f"[triage] 🔄 tra LẠI kho sự kiện: {st['n_live']} mã nay ra được "
               f"loại sự kiện mà sổ cũ không có "

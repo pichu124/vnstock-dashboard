@@ -6966,6 +6966,82 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🧊 U50. GH3 KHÔNG PHẢI MÃ THƯA — KHO NÓ ĐÓNG BĂNG GẦN MỘT NĂM (07/09)
+
+`--explain` (U49) trả lời ngay lượt đầu, và **lật đúng giả thuyết của tôi**:
+
+    [soi] KHO   : 1,033 bar · 2021-08-04 → 2025-09-24 · trong 365 ngày: 13 bar
+    [soi] CHỒNG : 13 bar trải 16 ngày · tỉ lệ 1.1356× · spread 1.0011
+    [soi]         vùng chồng lấn phủ ~1% bề dài lịch sử kho (1512 ngày)
+
+Tôi đoán GH3 là **mã mới niêm yết**, 16 ngày ấy phủ trọn đời nó. **Sai.** Nó
+niêm yết từ 2021, có 1.033 bar, và kho **dừng ở 2025-09-24** — đóng băng
+**348 ngày**. 13 bar "trong 365 ngày" chỉ là cái đuôi của nó.
+
+Ghi lại vì đây là lần thứ hai trong ngày một giả thuyết nghe rất hợp lý bị số
+đo bác bỏ. Cả hai lần đều nhờ ĐÒI SỐ ĐO TRƯỚC KHI VÁ.
+
+## Hai lỗi thật, cả hai đều báo THIẾU
+
+**1. Cửa sổ 365 ngày đo sai với mã kho đã đứng lâu.** "Mỏng" ở đây là thuộc
+tính của **cửa sổ**, không phải của mã: nới tới đầu kho thì có ~1.000 bar
+chồng lấn. Nay `_uniform_probe` tự nới tới bar ĐẦU của kho khi cửa sổ mặc định
+cho ra dưới `UNIFORM_MIN_BARS` bar (trần `WIDEN_MAX_DAYS` = 4500). Bằng chứng
+khi ấy **mạnh hơn hẳn** — và trần spread giữ nguyên, nên nhiều lần đổi cơ sở
+rải rác trong 4 năm sẽ làm spread nở và mã bị từ chối, đúng như phải thế. Nới
+mà không thêm bar nào ⇒ giữ kết quả cũ, không bịa.
+
+**2. Bảng triage báo thiệt hại bằng KHÔNG.**
+
+    [triage] đứng lâu nhất 0 ngày · tổng ~0 bar giá đang thiếu
+
+trong khi GH3 đứng 348 ngày. `record_drift` ghi đè `detected_at` **mỗi đêm**
+khi gác còn chặn, nên trường đó luôn là "hôm nay". Nó trả lời *lần phát hiện
+gần nhất là bao giờ*, KHÔNG phải *kho đứng bao lâu rồi*. Nay `summarize` nhận
+`stale_days` bơm từ ngoài, và `main` bơm `stale_from_warehouse` — đo từ **bar
+cuối trong kho**. `detected_at` tụt xuống làm lưới cuối.
+
+Sai theo hướng **báo thiệt hại bằng 0** là hướng tệ nhất: người đọc kết luận
+"chả mất gì" rồi xếp việc lại. Cả 70 mã tối nay đều hiện "0d" — con số ấy chưa
+bao giờ đúng, chỉ là không ai đối chiếu được cho tới khi có `--explain`.
+
+## Lưới "chỉ đọc" của triage đỏ lên — và nó đo sai đối tượng
+
+`test_the_script_never_imports_a_writer` quét chuỗi trên TOÀN file, nên nó bắt
+cả lần `record_drift` xuất hiện trong **docstring giải thích vì sao KHÔNG dùng
+nó**. Cấm nhắc tên một hàm nguy hiểm là cấm luôn việc ghi lại lý do tránh nó.
+Nay quét trên mã đã bỏ chú thích + chuỗi ký tự (`tokenize`), kèm một test
+chứng minh lưới **vẫn cắn** lời gọi thật — nới lưới mà không chứng minh nó còn
+cắn thì nó thành lưới trang trí.
+
+## `sys.path` thiếu một đường ⇒ lại là con số 0
+
+`stale_from_warehouse` đọc kho qua `check_unit_continuity`, module nằm **cạnh**
+file triage; mà triage chỉ thêm GỐC REPO vào `sys.path`. `ImportError` bị nuốt
+trong `try` ⇒ hàm lặng lẽ trả None ⇒ **lại báo 0**. Bắt được vì test dựng kho
+thật rồi đối chiếu ngày, chứ không mock `load_bars`.
+
+## DRG — chẩn đoán xong, CHƯA vá
+
+    [soi] CHỒNG : 196 bar trải 353 ngày · tỉ lệ 1.0204× · spread 1.0251
+    [soi]   vách theo MỨC : — chỉ 1 bar đã sang cơ sở mới (cần ≥2)
+
+Ráp số: 195 bar ở ~1.0204 và **1 bar** ở 0.9964 (trong ngưỡng ⇒ coi là đã
+khớp). `1.0213 / 0.9964 = 1.0250` — khớp đúng spread in ra. Tức DRG **chia
+sạch**, chỉ thiếu đúng một bar so với `LEVEL_BREAK_MIN_AFTER` = 2.
+
+Và phía đó **không bao giờ mọc thêm** — gác đang chặn. Lại đúng hình dạng vòng
+tự khoá của U45, chỉ nhỏ hơn một nấc.
+
+**Chưa hạ sàn xuống 1.** Với `n_after = 1`, `_probe` tính
+`shift = r_before / r_after` nên **hệ số do đúng MỘT bar quyết định** —
+0.9964 thay vì 1.0000 làm lệch 0,4%. Hạ sàn mà không sửa công thức hệ số là
+đổi một lỗi lấy một lỗi. Cách đúng có lẽ là lấy thẳng `r_before` (nguồn là
+mốc, không cần chia cho phía sau), nhưng đó là đụng vào công thức đã chữa 67
+mã tối nay — để lượt sau, đo trước.
+
+Suite: **3.114 pass**.
+
 # 🔦 U49. BẢNG TRIAGE DẪN NGƯỜI TỚI ĐÚNG CÔNG CỤ MÙ (07/09)
 
 GH3 với cửa thưa: **13 bar trải 16 ngày** — cần 180. Từ chối ĐÚNG, cửa hoạt
