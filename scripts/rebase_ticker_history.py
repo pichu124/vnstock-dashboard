@@ -379,6 +379,24 @@ UNIFORM_MIN_BARS = 20
 # nhiêu. Nên cửa thưa đòi CẢ HAI, và vẫn qua đúng cửa spread như mọi mã khác.
 UNIFORM_SPARSE_MIN_BARS = 8
 UNIFORM_SPARSE_MIN_SPAN_DAYS = 180
+# `max/min` là thước NHẠY NHẤT có thể với một bar lẻ hỏng: đúng một bar sai là
+# nó nở, dù 195 bar còn lại sát nhau tới 0,1%. Ca DRG (07/09), 12 bar cuối:
+#
+#     2026-08-19  kho 8.90  nguồn 8.72  = 1.0206×
+#     2026-08-21  kho 8.70  nguồn 8.53  = 1.0199×
+#     2026-08-27  kho 8.20  nguồn 8.23  = 0.9964×   ← một mình
+#
+# 8.20 với 8.23 lệch 3 bước giá — không phải làm tròn, mà là hai con số khác
+# nhau cho cùng một ngày (kho dựng close từ rollup 1 phút, nguồn lấy close
+# chính thức; mã thưa thì hai cái đó lệch nhau là chuyện thường).
+#
+# Nên đo phân tán bằng thước CẮT ĐUÔI, và hỏi thêm một câu thẳng hơn: *bao
+# nhiêu bar KHÔNG cùng cơ sở với trung vị?* Một bar lẻ ⇒ nhiễu. Một phần đáng
+# kể ⇒ có vách thật, và khi ấy phải từ chối. Câu thứ hai mới là cửa; cắt đuôi
+# chỉ để một hạt sạn đừng che mất phần còn lại.
+UNIFORM_TRIM_FRAC = 0.02
+UNIFORM_TRIM_MIN_BARS = 50
+UNIFORM_MAX_OUTLIER_FRAC = 0.05
 # Trần hệ số. Sự kiện quyền lớn nhất thực tế ~1:4 (5×); tỉ lệ vượt xa mức này
 # — nhất là cỡ 1.000× — là SAI ĐƠN VỊ (đồng ⇄ nghìn đồng), thuộc về
 # `check_unit_continuity` / `run.py fix-units`, KHÔNG phải đổi cơ sở. Lệch
@@ -407,7 +425,8 @@ def uniform_offset_report(wh, src, tol: float = 0.012) -> dict:
     # độ này", nhưng một cái nghĩa là ĐÃ SẠCH còn cái kia là KHÔNG ĐỦ BẰNG
     # CHỨNG — hai việc phải làm khác hẳn nhau. Dò chuỗi `why` để phân biệt là
     # buộc logic vào câu chữ tiếng Việt.
-    out = {"n": 0, "ratio": None, "spread": None, "span_days": 0,
+    out = {"n": 0, "ratio": None, "spread": None, "spread_core": None,
+           "span_days": 0, "n_trimmed": 0, "n_outlier": 0,
            "uniform": False, "aligned": False, "why": ""}
     try:
         m = _as_dates(wh).merge(_as_dates(src), on="time",
@@ -423,6 +442,15 @@ def uniform_offset_report(wh, src, tol: float = 0.012) -> dict:
         out["ratio"] = float(ratios.median())
         lo, hi = float(ratios.min()), float(ratios.max())
         out["spread"] = (hi / lo) if lo > 0 else float("inf")
+        _sorted = ratios.sort_values()
+        _k = (int(len(_sorted) * UNIFORM_TRIM_FRAC)
+              if len(_sorted) >= UNIFORM_TRIM_MIN_BARS else 0)
+        _core = _sorted.iloc[_k:len(_sorted) - _k] if _k else _sorted
+        _clo, _chi = float(_core.min()), float(_core.max())
+        out["n_trimmed"] = 2 * _k
+        out["spread_core"] = (_chi / _clo) if _clo > 0 else float("inf")
+        out["n_outlier"] = int(
+            ((ratios / out["ratio"] - 1.0).abs() > tol).sum())
         _sparse_ok = (out["n"] >= UNIFORM_SPARSE_MIN_BARS
                       and out["span_days"] >= UNIFORM_SPARSE_MIN_SPAN_DAYS)
         if out["n"] < UNIFORM_MIN_BARS and not _sparse_ok:
@@ -446,17 +474,32 @@ def uniform_offset_report(wh, src, tol: float = 0.012) -> dict:
                           f"(đồng ⇄ nghìn đồng) chứ không phải đổi cơ sở; "
                           f"soi bằng check_unit_continuity, đừng chữa ở đây")
             return out
-        if out["spread"] > UNIFORM_SPREAD_MAX:
-            out["why"] = (f"tỉ lệ LỞM CHỞM: {lo:.4f}× → {hi:.4f}× "
-                          f"(spread {out['spread']:.4f}, trần "
-                          f"{UNIFORM_SPREAD_MAX}) — KHÔNG phải một lần đổi cơ "
-                          f"sở sạch, nhân cả chuỗi bằng một hệ số là bôi cái "
-                          f"sai ra khắp lịch sử")
+        _out_frac = out["n_outlier"] / max(1, out["n"])
+        if _out_frac > UNIFORM_MAX_OUTLIER_FRAC:
+            # Cửa THẬT: nhiều bar không cùng cơ sở với trung vị ⇒ có vách,
+            # không phải hạt sạn. Nhân cả chuỗi bằng một hệ số khi đó là bôi
+            # cái sai ra khắp lịch sử.
+            out["why"] = (f"{out['n_outlier']}/{out['n']} bar "
+                          f"({_out_frac:.0%}) KHÔNG cùng cơ sở với trung vị "
+                          f"{out['ratio']:.4f}× (trần "
+                          f"{UNIFORM_MAX_OUTLIER_FRAC:.0%}) — có vách thật "
+                          f"chứ không phải bar lẻ hỏng; nhân cả chuỗi bằng "
+                          f"một hệ số là bôi cái sai ra khắp lịch sử")
+            return out
+        if out["spread_core"] > UNIFORM_SPREAD_MAX:
+            out["why"] = (f"tỉ lệ LỞM CHỞM ngay ở phần LÕI: spread "
+                          f"{out['spread_core']:.4f} sau khi cắt "
+                          f"{out['n_trimmed']} bar đuôi (trần "
+                          f"{UNIFORM_SPREAD_MAX}; thô {lo:.4f}× → {hi:.4f}×) "
+                          f"— KHÔNG phải một lần đổi cơ sở sạch")
             return out
         out["uniform"] = True
         out["why"] = (f"lệch ĐỀU {out['ratio']:.4f}× trên {out['n']} bar "
                       f"trải {out['span_days']} ngày "
-                      f"(spread {out['spread']:.4f})"
+                      f"(spread lõi {out['spread_core']:.4f}, thô "
+                      f"{out['spread']:.4f}"
+                      + (f", {out['n_outlier']} bar lẻ lệch trung vị"
+                         if out["n_outlier"] else "") + ")"
                       + (" · qua CỬA THƯA: ít bar nhưng phủ đủ rộng để một "
                          "lần đổi cơ sở không lọt" if _sparse_ok
                          and out["n"] < UNIFORM_MIN_BARS else ""))

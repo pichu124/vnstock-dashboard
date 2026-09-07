@@ -6966,6 +6966,65 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🪨 U52. MỘT HẠT SẠN CHE MẤT 195 BAR — VÀ VÌ SAO KHÔNG NỚI TRẦN SPREAD (07/09)
+
+`--explain` in đuôi chuỗi DRG (U51) và câu trả lời hiện ngay:
+
+    2026-08-18  kho 8.20  nguồn 8.04  = 1.0199×  ✗
+    2026-08-19  kho 8.90  nguồn 8.72  = 1.0206×  ✗
+    2026-08-21  kho 8.70  nguồn 8.53  = 1.0199×  ✗
+    2026-08-27  kho 8.20  nguồn 8.23  = 0.9964×  ✓   ← MỘT MÌNH
+
+**Không phải vách.** 11 bar sát nhau trong dải 1.0199-1.0209 (rộng 0,1%), rồi
+đúng MỘT bar lệch hẳn sang hướng khác. Và bar ấy không phải "đã sang cơ sở
+mới": 8.20 với 8.23 lệch **3 bước giá** — hai con số KHÁC NHAU cho cùng một
+ngày, không phải quan hệ cơ sở. Kho dựng `close` từ rollup 1 phút, nguồn lấy
+close chính thức; mã thưa thì hai cái đó lệch nhau là chuyện thường.
+
+Nó lọt qua bộ dò MỨC vì 0,36% **nằm trong** ngưỡng 1,2% ⇒ bị chấm "✓ đã khớp"
+⇒ `level_break_report` tưởng đó là phía cơ sở mới, chỉ thiếu đúng một bar so
+với sàn 2. Suốt hai vòng trước tôi đã định hạ sàn ấy. **Hạ là sai** — không
+có vách nào ở đó cả.
+
+## `max/min` là thước nhạy nhất có thể với đúng ca này
+
+Một hạt sạn làm spread nở từ **1.0014** lên **1.0251** và che mất toàn bộ 195
+bar còn lại. Nhưng **nới trần spread là sai cách chữa**: nó nới cho cả ca có
+vách thật, tức bỏ đúng thứ cửa ấy sinh ra để chặn.
+
+Cách đúng là đổi **thước**, không đổi **trần**, và hỏi thẳng câu cần hỏi:
+
+| luật | công thức | trần |
+|---|---|---|
+| **bar lẻ** | số bar lệch trung vị quá `tol`, chia cho tổng | `UNIFORM_MAX_OUTLIER_FRAC` = **5%** |
+| **spread LÕI** | max/min sau khi cắt `UNIFORM_TRIM_FRAC` = 2% mỗi đuôi (chỉ khi ≥50 bar) | 1.01, y như cũ |
+
+DRG: 1/196 bar lẻ = 0,5% ✓, spread lõi 1.0014 ✓ ⇒ **chữa được bằng
+`--whole-series`**. Con số thô vẫn in ra — cắt đuôi để QUYẾT, không phải để
+giấu; người đọc log vẫn phải thấy có một bar lệch.
+
+## Hai luật che HAI hình dạng — bỏ luật nào cũng lọt một ca
+
+Phát hiện lúc viết lưới, và nó là lý do phải giữ cả hai:
+
+* **Chia 50/50 sát nhau** (98 bar ở 1.0204, 98 bar ở 1.0): trung vị rơi đúng
+  vào GIỮA hai cụm (1.0102), nên **cả hai cụm đều nằm trong ±tol của trung
+  vị** ⇒ luật bar-lẻ đếm được **0**. Chỉ spread lõi chặn được.
+* **Dốc thoải** (ramp): spread lõi nở từ từ, nhưng luật bar-lẻ bắt gọn.
+
+Có test chốt cứng cả hai chiều, kèm `UNIFORM_TRIM_FRAC < UNIFORM_MAX_OUTLIER_FRAC`
+— cắt đuôi rộng hơn trần bar-lẻ thì cắt đuôi sẽ âm thầm cho qua đúng những ca
+trần kia định chặn.
+
+## Bài học
+
+Ba vòng liền tôi đứng trước cùng một cám dỗ — **nới một ngưỡng vì nó chặn
+đúng một mã** — và cả ba lần thứ hỏng đều nằm chỗ khác: cửa sổ đo sai (U50),
+công cụ chẩn đoán mù (U49), thước đo sai (mục này). Ngưỡng chặn một ca đúng
+thường là ngưỡng ĐÚNG đang tố cáo một phép đo sai.
+
+7 test mới. Suite: **3.127 pass**.
+
 # 🔬 U51. SỐ TỔNG HỢP KHÔNG TÁCH ĐƯỢC HAI CÁCH ĐỌC — PHẢI NHÌN TỪNG BAR (07/09)
 
 GH3 chữa xong bằng cửa sổ NỚI của U50: **1.033 bar trải 1512 ngày, spread

@@ -124,7 +124,7 @@ class TestUniformOffsetReport:
         ratios = [RATIO * (1 + 0.08 * i / (n - 1)) for i in range(n)]
         rep = R.uniform_offset_report(*self._pair(ratios))
         assert rep["uniform"] is False
-        assert "LỞM CHỞM" in rep["why"]
+        assert "KHÔNG cùng cơ sở với trung vị" in rep["why"]
 
     def test_an_aligned_series_is_refused_as_nothing_to_fix(self):
         rep = R.uniform_offset_report(*self._pair(1.0))
@@ -172,6 +172,92 @@ class TestUniformOffsetReport:
 
 
 # --------------------------------------------------------------------------
+class TestOneBadBarDoesNotHideTheRest:
+    """Vết DRG (07/09) — 12 bar chồng lấn cuối::
+
+        2026-08-19  kho 8.90  nguồn 8.72  = 1.0206×
+        2026-08-21  kho 8.70  nguồn 8.53  = 1.0199×
+        2026-08-27  kho 8.20  nguồn 8.23  = 0.9964×   ← một mình
+
+    195 bar sát nhau tới 0,1%, đúng MỘT bar lệch hẳn hướng khác. 8.20 với 8.23
+    lệch 3 bước giá — không phải làm tròn, mà là hai con số khác nhau cho cùng
+    một ngày (kho dựng close từ rollup 1 phút, nguồn lấy close chính thức; mã
+    thưa thì hai cái đó lệch nhau là chuyện thường).
+
+    `max/min` là thước NHẠY NHẤT có thể với đúng ca này: một hạt sạn làm spread
+    nở từ 1.0014 lên 1.0251 và che mất toàn bộ phần còn lại.
+
+    Nhưng nới trần spread là **sai cách chữa** — nó nới cho cả ca có vách thật.
+    Cách đúng là hỏi thẳng: *bao nhiêu bar KHÔNG cùng cơ sở với trung vị?*
+    """
+
+    def _series(self, ratios):
+        n = len(ratios)
+        days = [date.today() - timedelta(days=n - i) for i in range(n)]
+        close = [10.0 + (i % 7) * 0.1 for i in range(n)]
+        src = pd.DataFrame({"time": pd.to_datetime(days), "close": close})
+        wh = pd.DataFrame({"time": pd.to_datetime(days),
+                           "close": [c * r for c, r in zip(close, ratios)]})
+        return wh, src
+
+    def test_one_odd_bar_no_longer_hides_a_tight_series(self):
+        rat = [1.0204] * 195 + [0.9964]
+        rep = R.uniform_offset_report(*self._series(rat))
+        assert rep["uniform"] is True, rep["why"]
+        assert rep["ratio"] == pytest.approx(1.0204, abs=1e-4)
+
+    def test_the_raw_spread_is_still_reported_not_hidden(self):
+        """Cắt đuôi để QUYẾT, không phải để giấu. Con số thô vẫn phải in ra —
+        người đọc log cần thấy có một bar lệch."""
+        rat = [1.0204] * 195 + [0.9964]
+        rep = R.uniform_offset_report(*self._series(rat))
+        assert rep["spread"] > 1.02 and rep["spread_core"] < 1.01
+        assert "thô" in rep["why"] and "1 bar lẻ" in rep["why"]
+
+    def test_a_REAL_split_is_still_refused(self):
+        """Bất biến sống còn: cửa nới ra cho một hạt sạn không được nới cho ca
+        có vách thật. Nửa chuỗi ở cơ sở khác thì phải chặn."""
+        rat = [1.0204] * 98 + [1.0] * 98
+        assert R.uniform_offset_report(*self._series(rat))["uniform"] is False
+
+    def test_the_two_rules_catch_DIFFERENT_shapes_and_neither_alone_is_enough(
+            self):
+        """Phát hiện lúc viết lưới này, và nó là lý do phải giữ CẢ HAI luật.
+
+        Chia **50/50** với khoảng cách nhỏ hơn 2×tol: trung vị rơi đúng vào
+        GIỮA hai cụm (1.0204 và 1.0 ⇒ trung vị 1.0102), nên **cả hai cụm đều
+        nằm trong ±tol của trung vị** ⇒ luật bar-lẻ đếm được **0** bar lệch.
+        Luật spread-LÕI mới là cái chặn.
+
+        Ngược lại, một dốc thoải (ramp) có spread lõi nở từ từ nhưng luật
+        bar-lẻ bắt gọn. Bỏ luật nào cũng để lọt một hình dạng."""
+        half = R.uniform_offset_report(*self._series([1.0204] * 98 + [1.0] * 98))
+        assert half["n_outlier"] == 0, "luật bar-lẻ MÙ với chia 50/50 sát nhau"
+        assert half["spread_core"] > R.UNIFORM_SPREAD_MAX
+        assert half["uniform"] is False
+
+        n = 196
+        ramp = R.uniform_offset_report(
+            *self._series([1.02 * (1 + 0.08 * i / (n - 1)) for i in range(n)]))
+        assert ramp["n_outlier"] > 0 and ramp["uniform"] is False
+
+    def test_a_small_but_REAL_new_basis_cluster_is_refused(self):
+        """20/196 bar = 10%, trên trần 5% ⇒ vách thật, không phải sạn."""
+        rat = [1.0204] * 176 + [1.0] * 20
+        assert R.uniform_offset_report(*self._series(rat))["uniform"] is False
+
+    def test_the_outlier_ceiling_is_the_real_gate_not_the_trim(self):
+        """Cắt đuôi 2% mà trần bar lẻ để 5% ⇒ luật quyết định là trần bar lẻ.
+        Ngược lại thì cắt đuôi sẽ âm thầm cho qua những ca trần kia định chặn."""
+        assert R.UNIFORM_TRIM_FRAC < R.UNIFORM_MAX_OUTLIER_FRAC
+
+    def test_trimming_is_off_for_short_series(self):
+        """Chuỗi ngắn thì cắt 2% là cắt 0 bar — nhưng nếu ai đó đổi sang làm
+        tròn LÊN thì 13 bar sẽ mất 2 bar, tức mất 15% chứng cứ."""
+        rep = R.uniform_offset_report(*self._series([1.05] * 30))
+        assert rep["n_trimmed"] == 0
+
+
 class TestSparseGate:
     """Cửa THƯA — mã gần như không giao dịch.
 
@@ -226,7 +312,7 @@ class TestSparseGate:
         n = 13
         rat = [RATIO * (1 + 0.08 * i / (n - 1)) for i in range(n)]
         rep = R.uniform_offset_report(*self._sparse(n, 330, ratios=rat))
-        assert rep["uniform"] is False and "LỞM CHỞM" in rep["why"]
+        assert rep["uniform"] is False
 
     def test_the_sparse_floor_sits_below_the_dense_one(self):
         assert R.UNIFORM_SPARSE_MIN_BARS < R.UNIFORM_MIN_BARS

@@ -109,12 +109,12 @@ Vẫn ❌ = nguồn thật sự đổi ⇒ lúc đó mới đáng sửa `vnstock
 
 ## 4. 💻 Laptop — merge + nâng vnstock 4.0.7 TRƯỚC desktop
 
-Laptop đang ở `2.615`, HEAD là **`3.120`** (07/09, sau `--whole-series`).
+Laptop đang ở `2.615`, HEAD là **`3.127`** (07/09, sau `--whole-series`).
 
 ```powershell
 cd C:\vnstock
 git pull origin claude/tong-hop-cong-viec-test-w8mvrc
-python run.py test          # phải ra 3.120 passed
+python run.py test          # phải ra 3.127 passed
 ```
 
 **📦 vnstock 4.0.7 đã ra — cổng gỡ chặn 4.0.6 đã mở.** Đúng thứ tự:
@@ -127,23 +127,25 @@ python run.py test          # phải ra 3.120 passed
 Desktop giữ 4.0.4 — nó chạy phát tối, không phải chỗ để thử.
 *(4.0.6 làm chết mọi lệnh gọi mạng — `env.py:136 UnboundLocalError`.)*
 
-## 5. 🧬 Lệch cơ sở — 🖥️ CÒN 1 MÃ (DRG), KHÔNG GẤP
+## 5. 🧬 Lệch cơ sở — 🖥️ MÃ CUỐI (DRG)
 
-**Sổ 73 → 1.** GH3 đã chữa (1.033 bar, spread 1.0022, phủ 100% lịch sử kho).
+**Sổ 73 → 1.** Đuôi chuỗi DRG cho thấy đây **không phải vách**: 11 bar sát
+nhau ở 1.0199-1.0209 rồi đúng MỘT bar (2026-08-27) lệch hướng khác — kho 8.20
+vs nguồn 8.23, tức 3 bước giá, là hai con số khác nhau cho cùng một ngày chứ
+không phải quan hệ cơ sở (kho dựng close từ rollup 1 phút, nguồn lấy close
+chính thức). Một hạt sạn làm spread nở 1.0014 → 1.0251 và che mất 195 bar.
 
-**DRG là ca cuối, và nó cần một cái nhìn chứ không cần nới ngưỡng.** 195 bar ở
-1.0204× rồi đúng MỘT bar ở 0.9964 — hai cách đọc đối nghịch mà không con số
-tổng hợp nào tách được: vách thật (chữa phần trước) hay lệch đồng đều kèm một
-bar hỏng (chữa trọn chuỗi). `--explain` nay in đuôi chuỗi để tách:
+Đã đổi **thước đo** (không đổi trần): thêm luật bar-lẻ + spread lõi cắt đuôi
+(U52). DRG nay qua cửa.
 
 ```powershell
 git fetch origin claude/tong-hop-cong-viec-test-w8mvrc
 git merge origin/claude/tong-hop-cong-viec-test-w8mvrc
-python scripts\rebase_ticker_history.py --ticker DRG --explain
+python scripts\rebase_ticker_history.py --ticker DRG --whole-series --apply
+python scripts\triage_basis_drift.py --plan
 ```
-Chỉ đọc. Dán khối **ĐUÔI** cho Claude — 12 bar cuối kèm tỉ lệ từng bar. Bar
-✓ đứng một mình giữa toàn ✗ ⇒ nghi bar hỏng; có vài bar ✓ liền nhau ở cuối ⇒
-vách thật.
+Trước khi ghi, đọc dòng đầu: phải có `spread lõi 1.0014` và `1 bar lẻ lệch
+trung vị`. Xong thì sổ **RỖNG** và badge doctor `basis_drift` hết đỏ.
 
 ---
 
@@ -206,7 +208,7 @@ dòng `screener` như thường lệ.
 | Rủi ro chạm trần task | 166,3′ → 69,0′ ⇒ đệm 13,7′ → **111′** *(số chưa sạch — xem việc #1)* |
 | Phát tự động trọn vẹn | 21/08, 24/08, 25/08 đều đủ 14 bước và **có brief Telegram** |
 | Chất lượng brief | Guard số chỉ số (trạng từ) · dọn khối tin · GDKHQ không cảnh báo cho ĐHĐCĐ · dải ±3% gọi đúng tên |
-| Đồng bộ code | 🖥️ desktop `2.615 passed` = HEAD lúc 26/08 sáng; HEAD nay **3.120** (đợt vá lệch cơ sở + `--whole-series`) |
+| Đồng bộ code | 🖥️ desktop `2.615 passed` = HEAD lúc 26/08 sáng; HEAD nay **3.127** (đợt vá lệch cơ sở + `--whole-series`) |
 | `fix-units` đối chứng | 26/08 trên KHO THẬT: `fix_count` khớp, giải nén **ít hơn 1.125×**, bỏ qua **98,6%** mã. Lượt đối chứng còn tìm ra bug HFB (`time` trộn kiểu ⇒ mã bị bỏ sót im lặng) — đã vá (U32) |
 | Sổ lệnh | **Không mất** — 805 briefs · 148 rec · 138 outcome |
 | BCTC ngân hàng 2015-2016 | **TẠM DỪNG** (user chốt 26/08) — đã đo 5 nguồn: `vci` sớm nhất 2018-Q1 (đúng khung, tốt nhất) · `finhay` trần 5 kỳ · `cafef` có 2015-2016 nhưng **sai khung (doanh nghiệp thường)** · `kbs` rỗng · `tcbs` 404. Muốn data cũ hơn ⇒ user xuất Wichart/FiinPro, Claude viết bộ đọc. **Đừng dò lại** — xem U34 `docs/CLAUDE-NOTES.md` |
