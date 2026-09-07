@@ -20,7 +20,7 @@
 đổi; không báo thì giữ nguyên máy của lượt trước. Đừng suy từ đường dẫn venv —
 cả hai đều `C:\vnstock`, venv đổi theo TÀI KHOẢN đăng nhập. Thật sự chưa biết
 thì: `$env:COMPUTERNAME; Get-ScheduledTask -TaskName 'VnStock *'` (2 task =
-desktop). **Phiên hiện tại: 💻 LAPTOP** (user báo 26/08).
+desktop). **Phiên hiện tại: 🖥️ DESKTOP** (user báo 07/09).
 
 ---
 
@@ -109,12 +109,12 @@ Vẫn ❌ = nguồn thật sự đổi ⇒ lúc đó mới đáng sửa `vnstock
 
 ## 4. 💻 Laptop — merge + nâng vnstock 4.0.7 TRƯỚC desktop
 
-Laptop đang ở `2.615`, HEAD là **`3.058`** (26/08, sau `--whole-series`).
+Laptop đang ở `2.615`, HEAD là **`3.078`** (07/09, sau `--whole-series`).
 
 ```powershell
 cd C:\vnstock
 git pull origin claude/tong-hop-cong-viec-test-w8mvrc
-python run.py test          # phải ra 3.058 passed
+python run.py test          # phải ra 3.078 passed
 ```
 
 **📦 vnstock 4.0.7 đã ra — cổng gỡ chặn 4.0.6 đã mở.** Đúng thứ tự:
@@ -127,39 +127,36 @@ python run.py test          # phải ra 3.058 passed
 Desktop giữ 4.0.4 — nó chạy phát tối, không phải chỗ để thử.
 *(4.0.6 làm chết mọi lệnh gọi mạng — `env.py:136 UnboundLocalError`.)*
 
-## 5. 🧬 Chữa 69 mã lệch cơ sở — ○ MỘT LẦN
+## 5. 🧬 Chữa 73 mã lệch cơ sở — ○ MỘT LẦN, 🖥️ đang dở
 
-**Lượt 1 (đã chạy thử 26/08): 56/69 qua cửa.** Nếu chưa `--apply` thì chạy:
-```powershell
-python scripts\rebase_ticker_history.py --from-drift-ledger --whole-series --apply
-```
+**Đã chữa xong 07/09:** AAM · ACE · AGG · BCF. Lượt chạy chết ở BRC vì Dropbox
+giữ file (`WinError 5`) — **BRC còn nguyên**, chỉ sót một file `.tmp`. Đã vá
+(U46): retry, dọn `.tmp`, và một mã hỏng không còn giết cả lô.
 
-**Lượt 2 — cho 13 mã bị từ chối.** ACE · C22 · DBD · DRG · EMS · GH3 · ILB ·
-MCH · PRE · SDV · TRS · VC3 · VSN. Chúng bị từ chối ĐÚNG: cả 13 có cận dưới
-tỉ lệ `1.0000×`, tức một phần chuỗi đã khớp nguồn ⇒ **có vách thật**, không
-phải lệch đều. Bộ dò bậc im vì nó đòi ≥5 bar mỗi phía mà mã đứng 3 phiên chỉ
-có 2-3 bar ở phía mới — và phía đó không mọc thêm được vì chính cửa gác đang
-chặn (U45). Đã thêm bộ dò vách thứ ba đo MỨC.
+**Trước khi chạy lại — TẠM DỪNG ĐỒNG BỘ DROPBOX** (biểu tượng Dropbox → Pause
+syncing). Kho dùng chung nên dừng vài phút không mất gì, và nó cắt tận gốc cả
+lớp lỗi này.
 
-Lấy code mới rồi chạy lại **đúng lệnh trên**, không cần đổi gì:
 ```powershell
 git fetch origin claude/tong-hop-cong-viec-test-w8mvrc
 git merge origin/claude/tong-hop-cong-viec-test-w8mvrc
-python scripts\rebase_ticker_history.py --from-drift-ledger --whole-series
-```
-13 mã kia nay phải hiện dòng `MỨC lệch DỪNG tại <ngày>` và đi đường vách
-thường (không ghi đè trọn lịch sử). Dán lại dòng `TỔNG` trước khi `--apply`.
-
-Xong thì soi lại — sổ phải vơi:
-```powershell
+Remove-Item C:\vnstock\data_warehouse\prices\ticker=BRC\year=*\*.tmp
+python scripts\rebase_ticker_history.py --from-drift-ledger --whole-series --apply
 python scripts\triage_basis_drift.py --plan
 ```
 
-⚠️ **ĐỪNG chạy `run.py vietstock --bulk --register` lần nữa** — đã nạp 26/08
-(`ok=1520`) mà tỉ lệ khớp vẫn 3%. Loại sự kiện chỉ trả lời *vì sao* lệch;
-bước chữa không hỏi nó (U44).
+Bật lại Dropbox sau khi xong.
 
-Chạy lúc nào cũng được, **trừ trong lúc phát 18:00-19:xx**.
+**Nếu lại hỏng giữa chừng:** đọc dòng ngay dưới `✗ … GHI HỎNG`. Ghi *"chưa file
+nào bị thay"* ⇒ chạy lại được luôn. Ghi *"⚠️ ĐÃ thay n/m file ⇒ LẪN HAI CƠ SỞ"*
+⇒ **đừng chạy lại đè lên**, khôi phục trước:
+```powershell
+python scripts\rebase_ticker_history.py --ticker <MÃ> --restore --apply
+```
+
+Sổ đã phình 69 → 73 sau phát 18:00 — gác vẫn bắt mã mới mỗi đêm, đúng thiết kế.
+
+⚠️ **ĐỪNG chạy `run.py vietstock --bulk --register` lần nữa** (U44).
 
 ---
 
@@ -217,7 +214,7 @@ dòng `screener` như thường lệ.
 | Rủi ro chạm trần task | 166,3′ → 69,0′ ⇒ đệm 13,7′ → **111′** *(số chưa sạch — xem việc #1)* |
 | Phát tự động trọn vẹn | 21/08, 24/08, 25/08 đều đủ 14 bước và **có brief Telegram** |
 | Chất lượng brief | Guard số chỉ số (trạng từ) · dọn khối tin · GDKHQ không cảnh báo cho ĐHĐCĐ · dải ±3% gọi đúng tên |
-| Đồng bộ code | 🖥️ desktop `2.615 passed` = HEAD lúc 26/08 sáng; HEAD nay **3.058** (đợt vá lệch cơ sở + `--whole-series`) |
+| Đồng bộ code | 🖥️ desktop `2.615 passed` = HEAD lúc 26/08 sáng; HEAD nay **3.078** (đợt vá lệch cơ sở + `--whole-series`) |
 | `fix-units` đối chứng | 26/08 trên KHO THẬT: `fix_count` khớp, giải nén **ít hơn 1.125×**, bỏ qua **98,6%** mã. Lượt đối chứng còn tìm ra bug HFB (`time` trộn kiểu ⇒ mã bị bỏ sót im lặng) — đã vá (U32) |
 | Sổ lệnh | **Không mất** — 805 briefs · 148 rec · 138 outcome |
 | BCTC ngân hàng 2015-2016 | **TẠM DỪNG** (user chốt 26/08) — đã đo 5 nguồn: `vci` sớm nhất 2018-Q1 (đúng khung, tốt nhất) · `finhay` trần 5 kỳ · `cafef` có 2015-2016 nhưng **sai khung (doanh nghiệp thường)** · `kbs` rỗng · `tcbs` 404. Muốn data cũ hơn ⇒ user xuất Wichart/FiinPro, Claude viết bộ đọc. **Đừng dò lại** — xem U34 `docs/CLAUDE-NOTES.md` |

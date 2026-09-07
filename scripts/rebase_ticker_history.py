@@ -44,7 +44,9 @@ import argparse
 import json
 import os
 import shutil
+import stat
 import sys
+import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -57,6 +59,14 @@ for _p in (str(REPO_ROOT), _SCRIPTS):
         sys.path.insert(0, _p)
 
 OHLC = ("open", "high", "low", "close")
+# Kho nằm TRONG Dropbox (junction `C:\vnstock\data_warehouse`). Dropbox mở
+# file để băm/tải lên NGAY SAU khi `shutil.copytree` sao lưu chạm vào chúng,
+# nên `os.replace` gặp `WinError 5 Access is denied` đúng lúc tệ nhất — giữa
+# một lượt ghi. Đo 07/09 trên desktop: chết ở file ĐẦU TIÊN của BRC, ngay sau
+# dòng "💾 sao lưu". Retry ngắn là đủ cho khoá tạm; bit read-only thì retry
+# bao nhiêu cũng vô ích nên thử gỡ ngay lần hỏng đầu.
+REPLACE_RETRIES = 5
+REPLACE_BACKOFF_S = 0.4
 # Vùng chồng lấn tối thiểu để tin hệ số đo được. Dưới mức này thì một vài bar
 # lẻ có thể kéo trung vị đi — thà không chữa còn hơn chữa sai cả lịch sử.
 MIN_OVERLAP = 5
@@ -91,6 +101,47 @@ def _probe(tk: str, wh_root: Path, brk: date, win: int = 30) -> dict:
     if wh.empty or src.empty:
         return {"verdict": "no_overlap", "n": 0}
     return basis_report(wh, src, brk)
+
+
+def _atomic_replace(tmp: Path, path: Path) -> None:
+    """`os.replace` có retry — bắt buộc vì kho đi qua Dropbox.
+
+    Giữ nguyên bất biến `_MUST_BE_ATOMIC`: vẫn là một `os.replace`, chỉ thử
+    lại. KHÔNG bao giờ rơi về copy-đè, vì đó mới là thứ phá nguyên tử.
+    """
+    last = None
+    for i in range(REPLACE_RETRIES):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError as e:
+            last = e
+            if i == 0:
+                # Bit read-only KHÔNG tự hết theo thời gian — gỡ ngay, đừng
+                # ngủ 5 lượt rồi mới báo hỏng.
+                try:
+                    os.chmod(path, stat.S_IWRITE)
+                except Exception:
+                    pass
+            if i < REPLACE_RETRIES - 1:
+                time.sleep(REPLACE_BACKOFF_S * (2 ** i))
+    raise PermissionError(
+        f"{path.name}: không thay được file sau {REPLACE_RETRIES} lượt "
+        f"({last}). Kho nằm trong Dropbox — TẠM DỪNG ĐỒNG BỘ (Dropbox → "
+        f"Pause syncing) hoặc tắt quét realtime của antivirus rồi chạy lại.")
+
+
+def _sweep_tmp(tdir: Path) -> int:
+    """Dọn file tạm CỦA CHÍNH LƯỢT NÀY. Rác `.tmp` trong `prices/` làm mọi bộ
+    đếm file/năm sau đó đọc sai."""
+    n = 0
+    for t in tdir.glob(f"year=*/*.{os.getpid()}.tmp"):
+        try:
+            t.unlink()
+            n += 1
+        except Exception:
+            pass
+    return n
 
 
 def _read_all(tdir: Path) -> "dict[Path, pd.DataFrame]":
@@ -532,6 +583,56 @@ def _drift_ledger_targets(wh_root: Path) -> list:
         return []
 
 
+def _newest_backup(tk: str, wh_root: Path) -> "Path | None":
+    """Bản sao lưu MỚI NHẤT của một mã. Tên thư mục `<MÃ>_<YYYYmmdd-HHMMSS>`
+    nên sắp theo tên là sắp theo thời gian."""
+    root = wh_root / "_meta" / "backup_rebase"
+    if not root.exists():
+        return None
+    cands = sorted(d for d in root.glob(f"{tk.upper()}_*") if d.is_dir())
+    return cands[-1] if cands else None
+
+
+def _restore_one(tk: str, wh_root: Path, apply: bool) -> int:
+    """Đưa một mã về đúng bản sao lưu gần nhất.
+
+    Vì sao cần một đường CÓ TEST thay vì bảo user `Copy-Item` bằng tay: nó chỉ
+    dùng đến khi vừa có sự cố ghi, tức đúng lúc dễ gõ nhầm nhất, và gõ nhầm ở
+    đây là chép đè lên một mã KHÁC. Ca 07/09: Dropbox giữ file, `os.replace`
+    ném `WinError 5` giữa lượt ghi.
+    """
+    tk = tk.upper()
+    src = _newest_backup(tk, wh_root)
+    if src is None:
+        print(f"[rebase] ✗ {tk}: không có bản sao lưu nào trong "
+              f"{wh_root / '_meta' / 'backup_rebase'}")
+        return 1
+    tdir = wh_root / "prices" / f"ticker={tk}"
+    files = sorted(src.glob("year=*/*.parquet"))
+    print(f"\n[rebase] ↩ {tk}: khôi phục từ {src.name} ({len(files)} file)")
+    if not files:
+        print(f"[rebase] ✗ bản sao lưu RỖNG — không khôi phục gì "
+              f"(xoá sạch kho của mã là hỏng nặng hơn hẳn thứ đang chữa)")
+        return 1
+    if not apply:
+        print(f"[rebase] 🔎 CHẠY THỬ — chưa ghi gì. Thêm --apply để ghi thật.")
+        return 0
+    try:
+        for f in files:
+            dst = tdir / f.parent.name / f.name
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            tmp = dst.with_suffix(f".{os.getpid()}.tmp")
+            shutil.copyfile(f, tmp)
+            _atomic_replace(tmp, dst)
+    except Exception as e:                        # noqa: BLE001
+        _sweep_tmp(tdir)
+        print(f"[rebase] ✗ {tk}: khôi phục HỎNG — {e}")
+        print(f"[rebase]   bản sao lưu vẫn còn nguyên ở {src}")
+        return 2
+    print(f"[rebase] ✅ {tk}: đã trả về bản {src.name}")
+    return 0
+
+
 def _rebase_one(tk: str, wh_root: Path, apply: bool,
                 volume_mode: str = "auto",
                 break_date: "date | None" = None,
@@ -821,10 +922,29 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
     shutil.copytree(tdir, backup)
     print(f"[rebase] 💾 sao lưu: {backup}")
 
-    for path, out in plan.items():
-        tmp = path.with_suffix(f".{os.getpid()}.tmp")
-        out.to_parquet(tmp, index=False)
-        os.replace(tmp, path)
+    done_files = []
+    try:
+        for path, out in plan.items():
+            tmp = path.with_suffix(f".{os.getpid()}.tmp")
+            out.to_parquet(tmp, index=False)
+            _atomic_replace(tmp, path)
+            done_files.append(path)
+    except Exception as e:                        # noqa: BLE001
+        _sweep_tmp(tdir)
+        print(f"\n[rebase] ✗ {tk}: GHI HỎNG GIỮA CHỪNG — {e}")
+        if done_files:
+            # Trạng thái TỆ NHẤT: một phần file ở cơ sở mới, phần còn lại ở cơ
+            # sở cũ. Tệ hơn cả hai đầu, và không bộ dò nào gọi tên được nó cho
+            # gọn. Phải khôi phục, không được chạy lại đè lên.
+            print(f"[rebase]   ⚠️ ĐÃ thay {len(done_files)}/{len(plan)} file "
+                  f"⇒ {tk} đang LẪN HAI CƠ SỞ. ĐỪNG chạy lại đè lên.")
+            print(f"[rebase]   KHÔI PHỤC TRƯỚC: python "
+                  f"scripts/rebase_ticker_history.py --ticker {tk} --restore "
+                  f"--apply")
+        else:
+            print(f"[rebase]   chưa file nào bị thay — {tk} còn NGUYÊN, "
+                  f"chạy lại được sau khi tạm dừng Dropbox.")
+        return 2
     print(f"[rebase] ✍ đã ghi {len(plan)} file (nguyên tử)")
 
     left = [j for j in find_jumps(load_bars(prices_dir, tk, since_days=365))
@@ -900,6 +1020,11 @@ def main(argv: "list[str] | None" = None) -> int:
                          "vết quét dùng bộ dò BẬC nên không bao giờ thấy lớp "
                          "lệch ĐỒNG ĐỀU, còn sổ cách ly do cửa gác ghi mà gác "
                          "đo MỨC. Mỗi mã vẫn qua đủ cửa riêng. Mặc định CHẠY THỬ.")
+    ap.add_argument("--restore", action="store_true",
+                    help="KHÔI PHỤC mã về bản sao lưu gần nhất trong "
+                         "_meta/backup_rebase/ thay vì chữa. Dùng khi một lượt "
+                         "ghi chết giữa chừng (Dropbox/AV giữ file) và mã đang "
+                         "LẪN HAI CƠ SỞ. Mặc định vẫn CHẠY THỬ.")
     ap.add_argument("--volume", choices=("auto", "adjust", "source"),
                     default="auto",
                     help="auto (mặc định): nhân khối lượng theo hệ số giá KHI "
@@ -935,16 +1060,40 @@ def main(argv: "list[str] | None" = None) -> int:
     if not tickers:
         ap.error("cần --ticker, --from-sweep hoặc --from-drift-ledger")
 
+    if args.restore:
+        worst = 0
+        for tk in tickers:
+            worst = max(worst, _restore_one(tk, wh_root, args.apply))
+        return worst
+
     worst, done, refused = 0, 0, []
+    # Hỏng GHI liên tiếp = Dropbox/AV đang giữ cả thư mục, không phải chuyện
+    # của riêng mã nào. Cày tiếp 70 mã nữa chỉ để hỏng 70 lần là phí một tiếng
+    # và đẻ ra 70 thư mục sao lưu vô ích.
+    _io_streak, _IO_STREAK_MAX = 0, 3
     for tk in tickers:
         _bd = date.fromisoformat(args.break_date) if args.break_date else None
-        rc = _rebase_one(tk, wh_root, args.apply, args.volume, _bd,
-                         whole_series=args.whole_series)
+        try:
+            rc = _rebase_one(tk, wh_root, args.apply, args.volume, _bd,
+                             whole_series=args.whole_series)
+        except Exception as e:                    # noqa: BLE001
+            # Một mã ném ra ngoài KHÔNG được giết cả lô. Ca 07/09: BRC ném
+            # PermissionError ⇒ 68/73 mã còn lại không bao giờ được sờ tới.
+            print(f"\n[rebase] ✗ {tk}: LỖI KHÔNG LƯỜNG "
+                  f"({type(e).__name__}: {e}) — bỏ qua mã này, chạy tiếp")
+            rc = 2
         worst = max(worst, rc)
         if rc == 0:
             done += 1
         else:
             refused.append(tk)
+        _io_streak = _io_streak + 1 if rc == 2 else 0
+        if _io_streak >= _IO_STREAK_MAX:
+            print(f"\n[rebase] ⛔ DỪNG SỚM: {_io_streak} mã liên tiếp hỏng ở "
+                  f"bước GHI. Đây là chuyện của cả thư mục, không phải của "
+                  f"từng mã — tạm dừng đồng bộ Dropbox (Pause syncing) hoặc "
+                  f"tắt quét realtime của antivirus, rồi chạy lại.")
+            break
     if len(tickers) > 1:
         print(f"\n[rebase] TỔNG: {done}/{len(tickers)} mã xong"
               + (f" · {len(refused)} mã KHÔNG chữa được: "

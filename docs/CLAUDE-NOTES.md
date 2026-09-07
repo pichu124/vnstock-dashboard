@@ -6966,6 +6966,74 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 💥 U46. DROPBOX GIỮ FILE ⇒ `os.replace` NÉM WinError 5 — VÀ MỘT MÃ GIẾT CẢ LÔ (07/09)
+
+🖥️ Desktop 21:07, lượt `--from-drift-ledger --whole-series --apply` trên **73
+mã** (sổ đã phình từ 69 sau phát 18:00). Chữa xong AAM · ACE · AGG · BCF rồi
+chết:
+
+    [rebase] 💾 sao lưu: ...\backup_rebase\BRC_20260907-210744
+    PermissionError: [WinError 5] Access is denied:
+      '...\ticker=BRC\year=2011\1efa...-0.18844.tmp' -> '...-0.parquet'
+
+**Nguyên nhân là hạ tầng, không phải logic.** Kho là junction vào Dropbox.
+`shutil.copytree` sao lưu vừa chạm mọi file của mã xong thì Dropbox mở CHÍNH
+CHÚNG để băm/tải lên ⇒ `os.replace` đâm vào khoá tạm **ngay sau dòng "💾 sao
+lưu"**. Thứ tự thời gian trong log khớp chính xác.
+
+## BRC KHÔNG hỏng — và biết được điều đó là nhờ thứ tự file
+
+`_read_all` duyệt `sorted(tdir.glob("year=*/*.parquet"))`, `plan` giữ đúng thứ
+tự chèn ⇒ `year=2011` là file **ĐẦU TIÊN**, và nó chết ở đúng file đó ⇒ **chưa
+`os.replace` nào thành công** ⇒ BRC còn nguyên, chỉ sót một `.tmp`.
+
+Nhưng đó là **may**, không phải thiết kế. Hỏng ở file thứ 9/18 thì mã LẪN HAI
+CƠ SỞ — tệ hơn cả hai đầu, và không bộ dò nào gọi tên được nó cho gọn.
+
+## Ba lỗi, cái thứ ba nặng nhất
+
+**1. Không retry.** `_atomic_replace` nay thử lại 5 lượt, backoff 0.4s×2ⁿ. Bit
+read-only thì retry vô ích nên **gỡ ngay lần hỏng ĐẦU** thay vì ngủ đủ 5 lượt.
+Hỏng hẳn thì thông báo **gọi tên Dropbox và antivirus** — "Access is denied"
+trần trụi không cho user biết phải làm gì. **KHÔNG BAO GIỜ rơi về copy-đè** —
+đó là phá đúng bất biến `_MUST_BE_ATOMIC` mà retry sinh ra để giữ (có test).
+
+**2. Rác `.tmp` ở lại** trong `prices/year=*/`, làm mọi bộ đếm file/năm sau đó
+đọc sai. `_sweep_tmp` chỉ dọn tmp của **tiến trình mình** — xoá của tiến trình
+khác là phá một lượt chạy song song.
+
+**3. Một mã ném ra ngoài GIẾT CẢ LÔ.** 4/73 xong, **68 mã không bao giờ được
+sờ tới**, mà đó vẫn là lệnh user được bảo chạy. Nay vòng lô bắt ngoại lệ từng
+mã. Kèm **dừng sớm sau 3 lượt hỏng GHI liên tiếp**: hỏng ghi liên tiếp là
+chuyện của cả thư mục, cày tiếp 70 mã để hỏng 70 lần là phí một tiếng và đẻ 70
+thư mục sao lưu vô ích. Từ chối (rc=1) thì **KHÔNG** dừng — đó là kết luận về
+một mã, hoàn toàn khác.
+
+## `--restore` — đường về CÓ TEST
+
+    python scripts/rebase_ticker_history.py --ticker BRC --restore --apply
+
+Lấy bản `backup_rebase/<MÃ>_*` mới nhất (tên có timestamp nên sắp theo tên là
+sắp theo thời gian). Vì sao không bảo user `Copy-Item` tay: nó chỉ dùng đến
+khi vừa có sự cố ghi, tức đúng lúc dễ gõ nhầm nhất, và gõ nhầm ở đây là chép
+đè lên một mã KHÁC. **Bản sao lưu RỖNG ⇒ từ chối** — khôi phục từ thư mục rỗng
+mà "thành công" là xoá sạch kho của mã, hỏng nặng hơn hẳn thứ đang chữa.
+
+## Vận hành
+
+Trước lượt `--apply` hàng loạt: **tạm dừng đồng bộ Dropbox** (Pause syncing).
+Kho dùng chung nên dừng vài phút không mất gì, và nó cắt tận gốc cả lớp lỗi.
+
+## Đo được thêm
+
+Sổ cách ly **69 → 73** sau phát 18:00 — gác vẫn đang bắt mã mới mỗi đêm, đúng
+như thiết kế. ACE đi qua bộ dò vách MỚI của U45 và chữa sạch: *"MỨC lệch DỪNG
+tại 2026-08-27 … (3 bar sau vách, dưới sàn 5 bar/phía của bộ dò bậc nên nó
+im)"* — hệ số 1.0854×, 4.092 bar, tự kiểm ba lớp xanh. **U45 chạy đúng trên
+dữ liệu thật.**
+
+20 test mới ở `tests/test_rebase_write_failure.py`. Suite: **3.078 pass**.
+
 # 🔍 U45. VÒNG TỰ KHOÁ THỨ HAI: BỘ DÒ ĐÒI BẰNG CHỨNG MÀ CỬA GÁC KHÔNG CHO SINH (26/08)
 
 Lượt chạy thử 69 mã bằng `--from-drift-ledger --whole-series`: **56 qua, 13
