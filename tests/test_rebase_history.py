@@ -104,13 +104,42 @@ def test_refuses_when_probe_says_source_error(tmp_path, monkeypatch):
 
 
 def test_clean_ticker_is_a_noop(tmp_path, stub_source):
+    """Mã SẠCH THẬT — giá kho KHỚP nguồn — phải là no-op, exit 0.
+
+    ⚠️ Fixture cũ dựng kho `10.0 … 11.1` trong khi `stub_source` là `70 … 81`,
+    tức lệch ~7× ở MỌI bar. Nó qua được chỉ vì hồi đó "sạch" bị hiểu là
+    "không có BẬC NHẢY" — mà lệch đồng đều thì đúng là không có bậc nào. Từ
+    26/08 `_rebase_one` hỏi thêm bộ dò MỨC nên fixture ấy bị bắt, đúng như
+    phải thế. Sửa fixture cho khớp nguồn, chứ không nới bộ dò.
+    """
     d = tmp_path / "prices" / "ticker=AAA" / "year=2026"
     d.mkdir(parents=True)
-    t = _dates()
-    px = [10 + i * 0.1 for i in range(len(t))]
-    pd.DataFrame({"time": t, "open": px, "high": px, "low": px, "close": px,
-                  "volume": [100] * len(t)}).to_parquet(d / "p.parquet", index=False)
+    src = _src_df()
+    pd.DataFrame({"time": src["time"], "open": src["close"],
+                  "high": src["close"], "low": src["close"],
+                  "close": src["close"],
+                  "volume": [100] * len(src)}).to_parquet(d / "p.parquet",
+                                                          index=False)
     assert rth.main(["--warehouse", str(tmp_path), "--ticker", "AAA"]) == 0
+
+
+def test_a_uniformly_offset_ticker_is_NOT_called_clean(tmp_path, stub_source):
+    """Bế tắc 26/08: nguồn back-adjust trọn lịch sử ⇒ kho/nguồn lệch ĐỒNG ĐỀU
+    ⇒ không có bậc nhảy nào ⇒ hai bộ dò đạo hàm im ⇒ trước bản vá công cụ in
+    "✅ không còn vách nghi vấn" và exit 0, trong khi cửa gác chặn mã đó mãi.
+
+    Đo thật: `probe_price_basis --ticker SDK` in "không tìm thấy vách nghi vấn
+    trong 365 ngày" trong khi sổ cách ly ghi SDK 1.4857×.
+    """
+    d = tmp_path / "prices" / "ticker=BBB" / "year=2026"
+    d.mkdir(parents=True)
+    src = _src_df()
+    px = src["close"] * 1.4857          # lệch ĐỀU, không bậc nào
+    pd.DataFrame({"time": src["time"], "open": px, "high": px, "low": px,
+                  "close": px,
+                  "volume": [100] * len(src)}).to_parquet(d / "p.parquet",
+                                                          index=False)
+    assert rth.main(["--warehouse", str(tmp_path), "--ticker", "BBB"]) == 1
 
 
 def test_unknown_ticker_reports_instead_of_crashing(tmp_path):

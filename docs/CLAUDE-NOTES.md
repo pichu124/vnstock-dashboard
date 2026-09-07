@@ -6966,6 +6966,87 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# ⛔ U42. BẾ TẮC: CỬA GÁC CHẶN VĨNH VIỄN, CÔNG CỤ CHỮA IN "✅ SẠCH" — ĐÃ VÁ (26/08)
+
+Phản biện đối kháng 4 góc nhìn: **3/4 xác nhận**, và phiếu chi tiết nhất
+**dựng lại được toàn bộ ca bằng dữ liệu giả**, không phải suy diễn.
+
+## Gốc rễ: hai bên hỏi HAI CÂU KHÁC NHAU
+
+| ai | đo gì | công thức |
+|---|---|---|
+| `check_basis` — **CỬA GÁC** | **MỨC** | trung vị `wh/src`, rồi `|r − 1| > TOL` |
+| `find_basis_step` — bộ dò | **ĐẠO HÀM** | `jumps = |r[1:]/r[:-1] − 1|` |
+| `_find_break` — bộ dò | **ĐẠO HÀM**, chỉ chuỗi KHO | vách giá ≥30% |
+
+Gác hỏi *"tỉ lệ có KHÁC 1 không"*; bộ dò hỏi *"tỉ lệ có ĐỔI không"*. Nguồn
+back-adjust TRỌN lịch sử ⇒ lệch **ĐỒNG ĐỀU** ⇒ đạo hàm = 0 ở mọi điểm ⇒
+**cả hai bộ dò trả None**, gác thì chặn.
+
+Chạy thật trên dữ liệu dựng lại (60 bar, lệch đều 1.4857×):
+
+    find_basis_step  -> None
+    find_jumps       -> []
+    basis_report     -> verdict 'aligned' (before = after = 1.4857)
+    check_basis      -> {'ratio': 1.4857, 'verdict': 'basis_changed'}
+    _rebase_one      -> "✅ SDK: không còn vách nghi vấn trong 365 ngày" · exit 0
+
+## Vòng lặp TỰ NUÔI
+
+`update_ticker` đặt `fetch_from = last_date`; khi gác phán `basis_changed` nó
+`return` NGAY, **trước mọi lệnh ghi** ⇒ `last_date` đóng băng ⇒ đêm sau cửa sổ
+đối chiếu vẫn nằm trọn trong phần cơ sở CŨ ⇒ tỉ lệ vẫn 1.4857 ⇒ lại cách ly.
+
+⚠️ Docstring của gác hứa *"chỉ kêu trong ~LOOKBACK_DAYS rồi tỉ lệ về 1.0 và
+guard im"* — lời hứa đó **chỉ đúng với mã được nối bar cơ sở mới TRƯỚC khi có
+gác**. Mã bị chính gác chặn thì kho không bao giờ có bar cơ sở mới.
+
+## Cửa thoát tay CŨNG bị khoá
+
+Ép `--break-date`: `basis_report` so trung vị hai phía ngày vách; lệch đồng
+đều ⇒ before = after ⇒ `same=True`, `has_break=False` ⇒ verdict **`aligned`**
+⇒ `"✗ TỪ CHỐI: probe phán 'aligned'"`, exit 1. **Không đường nào chữa được.**
+
+## Hai chỗ tôi nói QUÁ, phiếu phản biện sửa lại
+
+* **Không phải `--from-sweep`.** Mã lệch đồng đều không bao giờ vào
+  `basis_sweep_check.json:suspect` (sweep cũng dùng `find_basis_step`), và
+  suspect rỗng thì rebase **exit 2**. Đường thật tới ✅ giả là:
+  `triage_basis_drift --plan` → sinh `rebase_ticker_history --ticker <MÃ>` →
+  nhánh tự dò → ✅ exit 0. **Tức chính script tôi viết sáng nay sinh ra lệnh
+  đó.**
+* **"Không có cảnh báo nào" là quá mạnh.** Badge doctor `basis_drift` giữ
+  warn **vĩnh viễn** (mã chỉ rời sổ khi `clear_drift` chạy cuối nhánh
+  `--apply` thành công). Cái thiếu là cảnh báo TỪ CHÍNH CÔNG CỤ CHỮA — và đó
+  là hình dạng tệ nhất: badge đỏ mãi trong khi công cụ chữa in ✅, đúng kiểu
+  dạy người dùng bỏ qua badge.
+
+## Vá
+
+`last_divergent_day` — đo MỨC từng bar — **vốn đã nằm sẵn trong chính
+`rebase_ticker_history.py`, kèm test**. Nó chỉ đứng SAU hai cửa mù nên không
+bao giờ được chạm tới. Cửa thoát có sẵn, bị nhốt sau cửa khoá.
+
+Nay `_rebase_one` trước khi tuyên bố sạch phải hỏi thêm `_level_divergence`
+(dùng lại `last_divergent_day`, cùng `TOL` với gác — có test canh) **và** sổ
+cách ly `_in_drift_ledger`. Một trong hai lên tiếng ⇒ **từ chối, exit 1, nói
+rõ vì sao cách chữa thông thường không áp dụng được**, thay vì ✅ giả.
+
+## Một test cũ đỏ lên — và nó ĐÚNG khi đỏ
+
+`test_clean_ticker_is_a_noop` dựng kho `10.0…11.1` trong khi `stub_source` là
+`70…81` — **lệch ~7× ở MỌI bar**. Nó xanh suốt vì hồi đó "sạch" nghĩa là
+"không có bậc nhảy". Đã sửa FIXTURE cho khớp nguồn, **không nới bộ dò**, và
+thêm `test_a_uniformly_offset_ticker_is_NOT_called_clean` canh đúng ca này.
+
+## Còn treo
+
+Bản vá làm công cụ **từ chối trung thực** thay vì báo sạch giả. Nó CHƯA chữa
+được lớp lỗi này — chữa đúng phải là **nạp lại trọn lịch sử mã từ nguồn**
+(không có vách nào để làm mốc mà nhân). Đó là việc GHI KHO, để sau phát 18:00.
+
+18 test mới ở `tests/test_rebase_level_guard.py` + 1 ở `test_rebase_history.py`.
+
 # 🎯 U41. EX-DATE NẰM **SAU** CỬA SỔ ĐỐI CHIẾU — VÀ TEST CỦA TÔI CHỐT CỨNG CHIỀU SAI (26/08)
 
 Cho fan-out đọc lại mã nguồn vì tôi đã sai ba lần trong ngày. Nó bác đúng giả

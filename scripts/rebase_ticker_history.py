@@ -185,6 +185,50 @@ def _residual_basis_step(prices_dir: Path, tk: str, src_all: pd.DataFrame,
         return None
 
 
+def _in_drift_ledger(tk: str, wh_root: Path) -> bool:
+    """Mã này có đang nằm trong sổ cách ly của cửa gác không? Chỉ ĐỌC."""
+    try:
+        from vnstock_basis_guard import load_pending
+        return tk.upper() in (load_pending(Path(wh_root)) or {})
+    except Exception:
+        return False
+
+
+def _level_divergence(tk: str, wh_root: Path, since_days: int = 365,
+                      tol: float = 0.012) -> "date | None":
+    """Kho còn lệch MỨC so nguồn tới ngày nào? — bộ dò MỨC, không dò bậc.
+
+    ⚠️ Vì sao phải có: cả `_find_break` (vách GIÁ ≥30% trong kho) lẫn
+    `_basis_break_of` → `find_basis_step` đều đo **ĐẠO HÀM** của tỉ lệ
+    (`jumps = |r[1:]/r[:-1] − 1|`). Một chuỗi lệch **ĐỒNG ĐỀU** — nguồn đã
+    back-adjust trọn lịch sử — có đạo hàm bằng 0 ở mọi điểm, nên **cả hai đều
+    trả None**, và hàm gọi tuyên bố "✅ sạch" + exit 0.
+
+    Trong khi `vnstock_basis_guard.check_basis` đo **MỨC** (`|r − 1| > TOL`)
+    nên bắt gọn. Hai bên hỏi hai câu khác nhau: gác hỏi *"tỉ lệ có KHÁC 1
+    không"*, bộ dò hỏi *"tỉ lệ có ĐỔI không"*. Mã bị gác chặn thì kho không
+    bao giờ nhận bar cơ sở mới ⇒ không bao giờ sinh ra bậc ⇒ bộ dò đạo hàm mù
+    vĩnh viễn. Đo 26/08 trên máy user: SDK 1.4857× mà `probe_price_basis` in
+    "không tìm thấy vách nghi vấn trong 365 ngày".
+
+    `last_divergent_day` (ngay trên) vốn ĐÃ đo đúng thứ này — nó chỉ nằm SAU
+    hai cửa mù nên không bao giờ được chạm tới.
+    """
+    from probe_price_basis import fetch_source, load_wh
+    d1 = date.today()
+    d0 = d1 - timedelta(days=since_days)
+    try:
+        wh = load_wh(wh_root / "prices", tk, d0, d1)
+        if wh.empty:
+            return None
+        src = fetch_source(tk, d0, d1)
+        if src.empty:
+            return None
+        return last_divergent_day(wh, src, tol=tol)
+    except Exception:
+        return None
+
+
 def _basis_break_of(tk: str, wh_root: Path, since_days: int = 365) -> "date | None":
     """Ngày ĐỔI BẬC tỉ lệ kho/nguồn — bộ dò dành cho lệch cỡ cổ tức.
 
@@ -257,8 +301,29 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
             print(f"\n[rebase] {tk}: không có vách giá, nhưng TỈ LỆ kho/nguồn "
                   f"đổi bậc tại {brk}")
     if brk is None:
+        # ⚠️ ĐỪNG tuyên bố sạch chỉ vì hai bộ dò BẬC NHẢY im. Chúng mù với
+        # lệch ĐỒNG ĐỀU (đạo hàm = 0 ở mọi điểm). Hỏi nốt bộ dò MỨC, và hỏi
+        # cả sổ cách ly — cửa gác đo MỨC nên nó biết thứ bộ dò bậc không biết.
+        _lvl = _level_divergence(tk, wh_root)
+        _pend = _in_drift_ledger(tk, wh_root)
+        if _lvl is not None or _pend:
+            print(f"\n[rebase] ✗ {tk}: KHÔNG có bậc nhảy, NHƯNG vẫn lệch — "
+                  f"hai bộ dò bậc mù với lớp lỗi này.")
+            if _lvl is not None:
+                print(f"[rebase]   kho còn lệch nguồn tới tận {_lvl} "
+                      f"(đo theo MỨC |kho/nguồn − 1|, không theo bậc nhảy)")
+            if _pend:
+                print(f"[rebase]   và {tk} ĐANG nằm trong sổ cách ly của cửa gác")
+            print(f"[rebase]   ⇒ lệch ĐỒNG ĐỀU toàn chuỗi: nguồn đã back-adjust "
+                  f"trọn lịch sử, kho thì chưa.")
+            print(f"[rebase]   Chữa kiểu 'nhân mọi bar TRƯỚC vách' KHÔNG áp "
+                  f"dụng được ở đây — không có vách nào để làm mốc.")
+            print(f"[rebase]   Soi tay: python scripts/probe_price_basis.py "
+                  f"--ticker {tk} --break-date {_lvl or '<ngày>'}")
+            return 1
         print(f"\n[rebase] ✅ {tk}: không còn vách nghi vấn trong 365 ngày "
-              f"(soi {len(load_bars(prices_dir, tk, since_days=365)):,} bar)")
+              f"(soi {len(load_bars(prices_dir, tk, since_days=365)):,} bar)"
+              f" · bộ dò MỨC cũng sạch")
         return 0
     print(f"\n[rebase] {tk} · vách {brk}")
 

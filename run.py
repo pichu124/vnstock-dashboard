@@ -716,6 +716,7 @@ def cmd_test(args) -> int:
             "tests/test_brief_watch.py",
             "tests/test_exdiv_source.py",
             "tests/test_triage_basis_drift.py",
+            "tests/test_rebase_level_guard.py",
             # Báo cáo weekend: sai ở đây là (a) đi thay slug trong khi lỗi
             # nằm ở TÀI KHOẢN, (b) đọc số đổi 1 phiên thành đổi cả tuần.
             "tests/test_weekend_2208_review.py",
