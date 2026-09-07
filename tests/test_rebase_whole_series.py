@@ -131,12 +131,28 @@ class TestUniformOffsetReport:
         assert rep["uniform"] is False
         assert "KHÔNG lệch" in rep["why"]
 
-    def test_too_few_overlapping_bars_is_refused(self):
-        src = _src_frame(_days(n=R.UNIFORM_MIN_BARS - 1))
+    def test_a_few_bars_crammed_into_a_few_weeks_is_refused(self):
+        """Ít bar VÀ chụm lại thì không nói được gì: một lần đổi cơ sở ngay
+        ngoài cửa sổ ấy vẫn vô hình."""
+        src = _src_frame(_days(n=R.UNIFORM_MIN_BARS - 1))     # 19 bar, 18 ngày
         wh = src.copy()
         wh["close"] = wh["close"] * RATIO
         rep = R.uniform_offset_report(wh[["time", "close"]], src[["time", "close"]])
-        assert rep["uniform"] is False and "quá ít" in rep["why"]
+        assert rep["uniform"] is False and "quá mỏng" in rep["why"]
+        assert f"{rep['span_days']} ngày" in rep["why"]
+
+    def test_the_refusal_shows_the_measurements_not_just_the_verdict(self):
+        """"Quá ít bar" không nói được là mã ấy đáng xét tiếp hay đáng bỏ —
+        vết GH3 07/09: dòng từ chối giấu mất spread 1.0011, tức giấu đúng con
+        số quyết định."""
+        src = _src_frame(_days(n=10))
+        wh = src.copy()
+        wh["close"] = wh["close"] * RATIO
+        rep = R.uniform_offset_report(wh[["time", "close"]], src[["time", "close"]])
+        assert "1.1" in rep["why"] or f"{RATIO:.4f}" in rep["why"]
+        assert "spread" in rep["why"]
+
+
 
     def test_no_overlap_at_all_is_refused_not_crashed(self):
         wh, _ = self._pair(RATIO)
@@ -156,6 +172,70 @@ class TestUniformOffsetReport:
 
 
 # --------------------------------------------------------------------------
+class TestSparseGate:
+    """Cửa THƯA — mã gần như không giao dịch.
+
+    Vết GH3 (07/09): 13 bar chồng nhau trong 365 ngày, **spread 1.0011** —
+    chặt ngang mọi mã đã chữa sạch trong ngày (1.0003-1.0014). Sàn 20 bar là
+    cách ĐẾM để trả lời câu thật sự cần hỏi: *chứng cứ có phủ đủ rộng không?*
+    Với mã thưa, đếm bar hỏi sai câu.
+
+    Thứ đo trực tiếp hơn là TẦM PHỦ: bar rải trên nửa năm thì một lần đổi cơ
+    sở trong nửa năm ấy chắc chắn nằm giữa hai bar nào đó ⇒ tỉ lệ phải gãy ⇒
+    spread phải nở. Spread không nở nghĩa là không có lần đổi nào.
+    """
+
+    def _sparse(self, n, span_days, ratios=None, end_offset=2):
+        """`n` bar rải ĐỀU trên `span_days` ngày."""
+        last = date.today() - timedelta(days=end_offset)
+        step = max(1, span_days // (n - 1))
+        days = [last - timedelta(days=step * (n - 1 - i)) for i in range(n)]
+        close = [100.0 + i for i in range(n)]
+        src = pd.DataFrame({"time": pd.to_datetime(days), "close": close})
+        rat = ratios or [RATIO] * n
+        wh = pd.DataFrame({"time": pd.to_datetime(days),
+                           "close": [c * r for c, r in zip(close, rat)]})
+        return wh, src
+
+    def test_few_bars_spread_over_half_a_year_are_enough(self):
+        rep = R.uniform_offset_report(*self._sparse(13, 330))
+        assert rep["uniform"] is True
+        assert rep["span_days"] >= R.UNIFORM_SPARSE_MIN_SPAN_DAYS
+
+    def test_the_message_says_it_went_through_the_sparse_gate(self):
+        """Qua một cửa KHÁC thì phải nói ra — người đọc log cần biết bằng
+        chứng ở đây mỏng hơn thường lệ."""
+        rep = R.uniform_offset_report(*self._sparse(13, 330))
+        assert "CỬA THƯA" in rep["why"]
+
+    def test_the_same_bars_crammed_together_are_NOT_enough(self):
+        """Cùng 13 bar, cùng tỉ lệ, chỉ khác tầm phủ — và đó mới là thứ đang
+        được hỏi."""
+        rep = R.uniform_offset_report(*self._sparse(13, 20))
+        assert rep["uniform"] is False and "quá mỏng" in rep["why"]
+
+    def test_too_few_bars_is_still_refused_however_wide_the_span(self):
+        """Hai bar cách nhau một năm cũng "phủ rộng" — mà hai điểm thì tỉ lệ
+        nào cũng "đều"."""
+        rep = R.uniform_offset_report(*self._sparse(4, 330))
+        assert rep["uniform"] is False
+
+    def test_the_sparse_gate_does_NOT_relax_the_spread_ceiling(self):
+        """Cửa thưa chỉ nới điều kiện CHỨNG CỨ, không nới điều kiện KẾT LUẬN.
+        Lệch lởm chởm vẫn là lởm chởm dù bar thưa hay dày."""
+        n = 13
+        rat = [RATIO * (1 + 0.08 * i / (n - 1)) for i in range(n)]
+        rep = R.uniform_offset_report(*self._sparse(n, 330, ratios=rat))
+        assert rep["uniform"] is False and "LỞM CHỞM" in rep["why"]
+
+    def test_the_sparse_floor_sits_below_the_dense_one(self):
+        assert R.UNIFORM_SPARSE_MIN_BARS < R.UNIFORM_MIN_BARS
+
+    def test_a_dense_series_never_needs_the_sparse_gate(self):
+        rep = R.uniform_offset_report(*self._sparse(60, 90))
+        assert rep["uniform"] is True and "CỬA THƯA" not in rep["why"]
+
+
 class TestLastWarehouseBar:
     def test_it_reads_the_newest_bar(self, tmp_path):
         src = _src_frame()

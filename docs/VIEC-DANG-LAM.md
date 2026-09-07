@@ -109,12 +109,12 @@ Vẫn ❌ = nguồn thật sự đổi ⇒ lúc đó mới đáng sửa `vnstock
 
 ## 4. 💻 Laptop — merge + nâng vnstock 4.0.7 TRƯỚC desktop
 
-Laptop đang ở `2.615`, HEAD là **`3.089`** (07/09, sau `--whole-series`).
+Laptop đang ở `2.615`, HEAD là **`3.097`** (07/09, sau `--whole-series`).
 
 ```powershell
 cd C:\vnstock
 git pull origin claude/tong-hop-cong-viec-test-w8mvrc
-python run.py test          # phải ra 3.089 passed
+python run.py test          # phải ra 3.097 passed
 ```
 
 **📦 vnstock 4.0.7 đã ra — cổng gỡ chặn 4.0.6 đã mở.** Đúng thứ tự:
@@ -127,34 +127,30 @@ python run.py test          # phải ra 3.089 passed
 Desktop giữ 4.0.4 — nó chạy phát tối, không phải chỗ để thử.
 *(4.0.6 làm chết mọi lệnh gọi mạng — `env.py:136 UnboundLocalError`.)*
 
-## 5. 🧬 Lệch cơ sở — 🖥️ CÒN 3 MÃ
+## 5. 🧬 Lệch cơ sở — 🖥️ CÒN 2 MÃ (DRG · GH3)
 
-**Xong 07/09: sổ 73 → 3.** Còn ACE · DRG · GH3, và cả ba đều bị từ chối ĐÚNG.
+**Xong 07/09: sổ 73 → 2.** ACE đã tự xoá khỏi sổ đúng như dự liệu.
 
-**ACE thật ra ĐÃ SẠCH** — kho khớp nguồn 1.0000×, chỉ bản ghi trong sổ là cũ
-(lượt 21:07 chữa xong nhưng không xoá được sổ vì Dropbox giữ file). Đã vá
-(U47): chạy lại chính lệnh cũ là nó tự xoá.
+**GH3 có thể chữa được.** Dòng từ chối vừa khai ra `spread 1.0011` — chặt
+ngang mọi mã đã chữa sạch hôm nay. Sàn 20 bar hỏi sai câu với mã gần như
+không giao dịch; nay có **cửa thưa** (≥8 bar trải ≥180 ngày) đo đúng thứ sàn
+ấy vốn định đo (U48). Chạy lại là biết:
 
 ```powershell
 git fetch origin claude/tong-hop-cong-viec-test-w8mvrc
 git merge origin/claude/tong-hop-cong-viec-test-w8mvrc
 python scripts\rebase_ticker_history.py --from-drift-ledger --whole-series --apply
-python scripts\triage_basis_drift.py --plan
 ```
-Sau lệnh này sổ phải còn **2 mã**. Tạm dừng Dropbox trước cho chắc.
+13 bar của GH3 **rải khắp năm** ⇒ chữa được; **chụm hai tuần** ⇒ vẫn từ chối,
+và từ chối đúng. Dòng in ra có `span_days` nên đọc là biết ngay.
 
-**DRG · GH3 cần mắt người, không chữa máy móc được:**
-* **DRG** 1.0206 — tỉ lệ chạy 0.9964× → 1.0213×, không lệch đều mà cũng không
-  chia sạch thành hai phía. Có thể là nhiều chuyện trộn vào.
-* **GH3** 1.1356 — chỉ **13 bar** chồng nhau trong 365 ngày (sàn 20). Mã gần
-  như không giao dịch.
-
-Dán output của hai lệnh này rồi tôi soi:
+**DRG thì khác hẳn — cần mắt người.** Tỉ lệ 0.9964× → 1.0213×: cận dưới DƯỚI
+1, tức có bar kho thấp hơn nguồn. Không phải hình dạng "nguồn back-adjust, kho
+giữ cơ sở cũ" như 70 mã kia. Khi nào rảnh thì dán:
 ```powershell
 python scripts\probe_price_basis.py --ticker DRG
-python scripts\probe_price_basis.py --ticker GH3
 ```
-Không gấp — hai mã này không vào VN30, không vào brief.
+Không gấp — DRG không vào VN30, không vào brief.
 
 ---
 
@@ -212,7 +208,7 @@ dòng `screener` như thường lệ.
 | Rủi ro chạm trần task | 166,3′ → 69,0′ ⇒ đệm 13,7′ → **111′** *(số chưa sạch — xem việc #1)* |
 | Phát tự động trọn vẹn | 21/08, 24/08, 25/08 đều đủ 14 bước và **có brief Telegram** |
 | Chất lượng brief | Guard số chỉ số (trạng từ) · dọn khối tin · GDKHQ không cảnh báo cho ĐHĐCĐ · dải ±3% gọi đúng tên |
-| Đồng bộ code | 🖥️ desktop `2.615 passed` = HEAD lúc 26/08 sáng; HEAD nay **3.089** (đợt vá lệch cơ sở + `--whole-series`) |
+| Đồng bộ code | 🖥️ desktop `2.615 passed` = HEAD lúc 26/08 sáng; HEAD nay **3.097** (đợt vá lệch cơ sở + `--whole-series`) |
 | `fix-units` đối chứng | 26/08 trên KHO THẬT: `fix_count` khớp, giải nén **ít hơn 1.125×**, bỏ qua **98,6%** mã. Lượt đối chứng còn tìm ra bug HFB (`time` trộn kiểu ⇒ mã bị bỏ sót im lặng) — đã vá (U32) |
 | Sổ lệnh | **Không mất** — 805 briefs · 148 rec · 138 outcome |
 | BCTC ngân hàng 2015-2016 | **TẠM DỪNG** (user chốt 26/08) — đã đo 5 nguồn: `vci` sớm nhất 2018-Q1 (đúng khung, tốt nhất) · `finhay` trần 5 kỳ · `cafef` có 2015-2016 nhưng **sai khung (doanh nghiệp thường)** · `kbs` rỗng · `tcbs` 404. Muốn data cũ hơn ⇒ user xuất Wichart/FiinPro, Claude viết bộ đọc. **Đừng dò lại** — xem U34 `docs/CLAUDE-NOTES.md` |

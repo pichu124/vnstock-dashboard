@@ -6966,6 +6966,67 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🕸️ U48. CỬA THƯA: ĐẾM BAR LÀ PROXY, TẦM PHỦ MỚI LÀ CÂU HỎI THẬT (07/09)
+
+Sổ cách ly xuống **2 mã** (DRG · GH3) sau khi ACE tự xoá đúng như U47 dự
+liệu. Và dòng từ chối của GH3 — vừa được cho in kèm số đo ở U47 — nói ra
+ngay thứ mà bản trước giấu mất:
+
+    ✗ GH3: TỪ CHỐI --whole-series — chỉ 13 bar chồng nhau (cần ≥20)
+           — quá ít để nói 'đều' (đo được 1.1356×, spread 1.0011)
+
+**spread 1.0011.** Chặt ngang mọi mã đã chữa sạch trong ngày: AGG 1.0009 ·
+BRC 1.0009 · FT1 1.0003 · IPA 1.0007 · HU4 1.0014. Bảo "quá ít để nói đều" là
+**bỏ qua chính con số đang nói rất rõ**.
+
+Bài học nhỏ nhưng đáng ghi: bản vá U47 chỉ thêm hai số vào một câu thông báo,
+và chính hai số đó lộ ra một cửa đặt sai. *Thông báo từ chối phải chở theo số
+đo, không chỉ chở kết luận.*
+
+## Sàn 20 bar hỏi sai câu — với mã thưa
+
+Câu thật sự cần hỏi không phải *"có bao nhiêu bar"* mà *"chứng cứ có phủ đủ
+rộng để một lần đổi cơ sở trong cửa sổ này không lọt qua không?"* Với mã dày,
+đếm bar là proxy tốt. Với mã gần như không giao dịch thì không.
+
+Thứ đo trực tiếp hơn là **TẦM PHỦ THỜI GIAN**. Bar rải trên nửa năm ⇒ một lần
+đổi cơ sở trong nửa năm ấy **chắc chắn nằm GIỮA hai bar nào đó** ⇒ tỉ lệ phải
+gãy ⇒ spread phải nở. Spread **không** nở nghĩa là không có lần đổi nào. Vài
+bar chụm trong hai tuần thì không nói được như vậy, đếm ra bao nhiêu cũng thế.
+
+## Cửa thưa
+
+    UNIFORM_SPARSE_MIN_BARS = 8
+    UNIFORM_SPARSE_MIN_SPAN_DAYS = 180
+
+Qua được khi `n ≥ 20`, **HOẶC** `n ≥ 8` **VÀ** trải `≥ 180` ngày. Đòi CẢ HAI ở
+nhánh thưa: hai bar cách nhau một năm cũng "phủ rộng", mà hai điểm thì tỉ lệ
+nào cũng "đều".
+
+⚠️ **Cửa thưa chỉ nới điều kiện CHỨNG CỨ, KHÔNG nới điều kiện KẾT LUẬN.**
+Trần spread 1.01 giữ nguyên cho mọi mã — lệch lởm chởm vẫn là lởm chởm dù bar
+thưa hay dày. Có test canh riêng việc này, vì đây đúng là chỗ dễ nới lỏng thêm
+một nấc "cho tiện".
+
+Dòng ✅ nay nói rõ khi mã đi qua cửa thưa (`· qua CỬA THƯA: ít bar nhưng phủ
+đủ rộng…`) — người đọc log cần biết bằng chứng ở đây mỏng hơn thường lệ.
+
+## GH3 sẽ qua hay không: chưa biết, và đó là câu trả lời đúng
+
+13 bar ấy **rải khắp năm** hay **chụm hai tuần**, log chưa nói. Cửa mới in
+`span_days` nên lượt chạy tới sẽ trả lời. Rải rộng ⇒ chữa được; chụm lại ⇒ vẫn
+từ chối, và từ chối đúng. Không hạ sàn theo một mẫu — hạ theo **đúng thứ mà
+sàn ấy vốn định đo**.
+
+## DRG thì khác hẳn — đừng gộp
+
+Tỉ lệ 0.9964× → 1.0213×, spread 1.0251. Cận dưới **dưới 1**, tức có bar kho
+THẤP hơn nguồn — không phải hình dạng "nguồn back-adjust, kho giữ cơ sở cũ".
+`level_break_report` cũng từ chối (lẫn quá 10% bar sai phía ⇒ không chia sạch
+thành hai phía). Đây là mã cần mắt người, không phải cần nới cửa.
+
+8 test mới. Suite: **3.097 pass**.
+
 # 🔁 U47. VÒNG TỰ KHOÁ THỨ BA: MÃ ĐÃ CHỮA NẰM LẠI TRONG SỔ CÁCH LY (07/09)
 
 Lượt `--from-drift-ledger --whole-series --apply` sau bản vá U46: **67/70 mã

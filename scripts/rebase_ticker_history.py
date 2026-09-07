@@ -363,6 +363,22 @@ def level_break_report(wh, src, tol: float = 0.012) -> dict:
 # là việc KHÔNG LÙI ĐƯỢC nên chỗ này thà chặt quá còn hơn lỏng.
 UNIFORM_SPREAD_MAX = 1.01
 UNIFORM_MIN_BARS = 20
+# Cửa THƯA — mở cho mã gần như không giao dịch.
+#
+# Sàn 20 bar là cách ĐẾM để trả lời câu thật sự cần hỏi: *"chứng cứ có phủ đủ
+# rộng để một lần đổi cơ sở trong cửa sổ này không lọt qua không?"* Với mã dày
+# thì đếm bar là proxy tốt. Với mã thưa thì nó hỏi sai: GH3 (07/09) chỉ có 13
+# bar chồng nhau trong 365 ngày, mà spread 1.0011 — chặt ngang mọi mã đã chữa
+# sạch (1.0003-1.0014). Bảo "quá ít để nói đều" là bỏ qua chính con số đang
+# nói rất rõ.
+#
+# Thứ đo trực tiếp hơn là **TẦM PHỦ THỜI GIAN**: bar rải trên nửa năm thì một
+# lần đổi cơ sở trong nửa năm ấy chắc chắn nằm GIỮA hai bar nào đó ⇒ tỉ lệ
+# phải gãy ⇒ spread phải nở. Spread không nở nghĩa là không có lần đổi nào.
+# Vài bar chụm trong hai tuần thì không nói được gì như thế, dù đếm ra bao
+# nhiêu. Nên cửa thưa đòi CẢ HAI, và vẫn qua đúng cửa spread như mọi mã khác.
+UNIFORM_SPARSE_MIN_BARS = 8
+UNIFORM_SPARSE_MIN_SPAN_DAYS = 180
 # Trần hệ số. Sự kiện quyền lớn nhất thực tế ~1:4 (5×); tỉ lệ vượt xa mức này
 # — nhất là cỡ 1.000× — là SAI ĐƠN VỊ (đồng ⇄ nghìn đồng), thuộc về
 # `check_unit_continuity` / `run.py fix-units`, KHÔNG phải đổi cơ sở. Lệch
@@ -391,8 +407,8 @@ def uniform_offset_report(wh, src, tol: float = 0.012) -> dict:
     # độ này", nhưng một cái nghĩa là ĐÃ SẠCH còn cái kia là KHÔNG ĐỦ BẰNG
     # CHỨNG — hai việc phải làm khác hẳn nhau. Dò chuỗi `why` để phân biệt là
     # buộc logic vào câu chữ tiếng Việt.
-    out = {"n": 0, "ratio": None, "spread": None, "uniform": False,
-           "aligned": False, "why": ""}
+    out = {"n": 0, "ratio": None, "spread": None, "span_days": 0,
+           "uniform": False, "aligned": False, "why": ""}
     try:
         m = _as_dates(wh).merge(_as_dates(src), on="time",
                                 suffixes=("_wh", "_src"))
@@ -402,14 +418,20 @@ def uniform_offset_report(wh, src, tol: float = 0.012) -> dict:
             return out
         ratios = (m["close_wh"] / m["close_src"]).astype(float)
         out["n"] = int(len(ratios))
+        _t = pd.to_datetime(m["time"])
+        out["span_days"] = int((_t.max() - _t.min()).days)
         out["ratio"] = float(ratios.median())
         lo, hi = float(ratios.min()), float(ratios.max())
         out["spread"] = (hi / lo) if lo > 0 else float("inf")
-        if out["n"] < UNIFORM_MIN_BARS:
-            # In kèm SỐ ĐO: "quá ít bar" không nói được là mã ấy đáng nới sàn
-            # hay đáng bỏ, mà tỉ lệ + spread thì nói được ngay.
-            out["why"] = (f"chỉ {out['n']} bar chồng nhau (cần ≥"
-                          f"{UNIFORM_MIN_BARS}) — quá ít để nói 'đều' "
+        _sparse_ok = (out["n"] >= UNIFORM_SPARSE_MIN_BARS
+                      and out["span_days"] >= UNIFORM_SPARSE_MIN_SPAN_DAYS)
+        if out["n"] < UNIFORM_MIN_BARS and not _sparse_ok:
+            # In kèm SỐ ĐO — "quá ít bar" không nói được là mã ấy đáng xét
+            # tiếp hay đáng bỏ, còn tỉ lệ + spread + tầm phủ thì nói được ngay.
+            out["why"] = (f"chứng cứ quá mỏng: {out['n']} bar chồng nhau trải "
+                          f"{out['span_days']} ngày — cần ≥{UNIFORM_MIN_BARS} "
+                          f"bar, hoặc ≥{UNIFORM_SPARSE_MIN_BARS} bar trải "
+                          f"≥{UNIFORM_SPARSE_MIN_SPAN_DAYS} ngày "
                           f"(đo được {out['ratio']:.4f}×, spread "
                           f"{out['spread']:.4f})")
             return out
@@ -433,7 +455,11 @@ def uniform_offset_report(wh, src, tol: float = 0.012) -> dict:
             return out
         out["uniform"] = True
         out["why"] = (f"lệch ĐỀU {out['ratio']:.4f}× trên {out['n']} bar "
-                      f"(spread {out['spread']:.4f})")
+                      f"trải {out['span_days']} ngày "
+                      f"(spread {out['spread']:.4f})"
+                      + (" · qua CỬA THƯA: ít bar nhưng phủ đủ rộng để một "
+                         "lần đổi cơ sở không lọt" if _sparse_ok
+                         and out["n"] < UNIFORM_MIN_BARS else ""))
         return out
     except Exception as e:                        # noqa: BLE001
         out["why"] = f"không đo được ({type(e).__name__}: {e})"
