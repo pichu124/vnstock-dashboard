@@ -307,32 +307,91 @@ def vn30_hits(pending: dict, basket) -> list:
     return sorted(t.upper() for t in pending if t.upper() in want)
 
 
-def batch_plan(groups: dict) -> list:
+def registry_size(warehouse) -> dict:
+    """Sổ đăng ký sự kiện có bao nhiêu mã / dòng? Chỉ ĐỌC.
+
+    Dùng để phân biệt hai chuyện mà bản đầu gộp làm một: **sổ TRỐNG** (nạp là
+    cứu) với **sổ ĐẦY mà vẫn không khớp** (nạp lại KHÔNG cứu). Bản đầu thấy
+    "tra không ra" là bảo nạp lại, nên sau khi user đã nạp 1.520 mã sáng 26/08
+    mà tỉ lệ khớp vẫn 3%, nó vẫn in đúng câu ấy — đẩy user vào một lượt chạy
+    1.723 mã lần thứ hai cho cùng một kết quả.
+    """
+    out = {"exists": False, "rows": 0, "tickers": 0}
+    try:
+        import pandas as pd
+
+        path = Path(warehouse) / "_meta" / "corp_actions_registry.parquet"
+        if not path.exists():
+            return out
+        out["exists"] = True
+        df = pd.read_parquet(path)
+        if df is None or df.empty:
+            return out
+        out["rows"] = int(len(df))
+        if "ticker" in df.columns:
+            out["tickers"] = int(df["ticker"].astype(str).str.upper().nunique())
+        return out
+    except Exception:
+        return out
+
+
+def batch_plan(groups: dict, warehouse=None) -> list:
     """Các dòng lệnh đề xuất, THEO NHÓM. Chạy thử trước, không gộp nhóm đỏ.
 
-    Kho sự kiện đang MÙ ⇒ việc đầu tiên là NẠP LẠI KHO, không phải đi soi tay
-    hàng chục mã. Soi tay 46 lần để rồi phát hiện cả 46 đều là cổ tức thì đó
-    là 46 lần phí công.
+    ⚠️ Bản đầu dừng hẳn ở "nạp lại kho sự kiện" khi kho mù. Sai hai lần:
+
+    1. **Nạp lại không phải lúc nào cũng cứu.** Sổ đăng ký đầy mà tỉ lệ khớp
+       vẫn 3% thì lượt nạp thứ hai cho đúng kết quả ấy — xem `registry_size`.
+    2. **Loại sự kiện KHÔNG phải cửa của bước chữa.** Nó chỉ trả lời *vì sao*.
+       `--whole-series` mang bằng chứng riêng về *cái gì*: tỉ lệ kho/nguồn có
+       ĐỀU trên toàn dải không (`uniform_offset_report`). Bắt bước chữa chờ
+       một kho tra cứu mà nó không cần là giam 69 mã vô thời hạn.
+
+    Giữ nguyên bất biến gốc: **không gộp mã chưa rõ vào một lệnh chữa mù**.
+    Lệnh theo sổ cách ly không liệt kê mã nào — mỗi mã tự qua cửa đo riêng và
+    bị từ chối riêng, nên nó không phải một lượt chữa hàng loạt mù.
     """
     lines = []
+    _ws = "python scripts/rebase_ticker_history.py --from-drift-ledger --whole-series"
     if event_store_is_blind(groups):
+        reg = registry_size(warehouse) if warehouse is not None else {}
+        if not reg.get("tickers"):
+            lines.append((
+                "① kho sự kiện TRỐNG — nạp một lần. Đây chỉ để ĐỌC ĐƯỢC VÌ "
+                "SAO, KHÔNG phải cửa của bước chữa bên dưới",
+                "python run.py vietstock --bulk --register"))
+            lines.append((
+                "② rồi chạy lại bộ soi", 
+                "python scripts/triage_basis_drift.py --plan"))
+        else:
+            lines.append((
+                f"① sổ đăng ký ĐÃ có {reg['tickers']:,} mã / {reg['rows']:,} "
+                f"dòng mà vẫn không khớp ⇒ NẠP LẠI KHÔNG CỨU, đừng chạy "
+                f"`vietstock --bulk` lần nữa. Loại sự kiện chỉ trả lời VÌ SAO; "
+                f"bước chữa không hỏi nó — nó tự đo tỉ lệ có ĐỀU không",
+                _ws))
+            lines.append(("② …thấy ổn thì ghi thật", f"{_ws} --apply"))
+            lines.append(("③ soi lại — sổ cách ly phải vơi",
+                          "python scripts/triage_basis_drift.py --plan"))
+            return lines
         lines.append((
-            "① NẠP LẠI KHO SỰ KIỆN TRƯỚC — gần như không mã nào tra ra loại "
-            "sự kiện, đó là chuyện của KHO chứ không phải của các mã",
-            "python run.py vietstock --bulk --register"))
-        lines.append((
-            "② rồi chạy lại bộ soi — phần lớn sẽ chuyển sang nhóm ✅ và chữa "
-            "hàng loạt được",
-            "python scripts/triage_basis_drift.py --plan"))
+            "③ chữa theo SỔ CÁCH LY — mỗi mã tự qua cửa `uniform_offset_report`, "
+            "mã không lệch đều thì bị từ chối RIÊNG nó (không có chữa mù)",
+            _ws))
+        lines.append(("④ …thấy ổn thì ghi thật", f"{_ws} --apply"))
         return lines
 
     safe = [r["ticker"] for r in groups.get("co_su_kien", [])]
     if safe:
         args = " ".join(f"--ticker {t}" for t in safe)
+        # `--whole-series` CHO PHÉP chứ không ép: có vách thì vẫn đi đường
+        # vách. Thiếu cờ này thì mã lệch đồng đều bị từ chối rồi user phải gõ
+        # lại đúng lệnh đó kèm cờ — một vòng thừa.
         lines.append(("Nhóm CÓ sự kiện — chạy thử trước",
-                      f"python scripts/rebase_ticker_history.py {args}"))
+                      f"python scripts/rebase_ticker_history.py {args} --whole-series"))
         lines.append(("…thấy ổn thì ghi thật",
-                      f"python scripts/rebase_ticker_history.py {args} --apply"))
+                      f"python scripts/rebase_ticker_history.py {args} "
+                      f"--whole-series --apply"))
     for key in ("tron_chua_ro", "chua_ro"):
         for r in groups.get(key, []):
             lines.append((f"soi tay {r['ticker']} ({NHOM[key][0]})",
@@ -404,7 +463,8 @@ def main(argv=None) -> int:
         print("    `event: None` = kho tra cứu không biết, không phải 'mã này")
         print("    không có sự kiện quyền'. Nhóm 🔴 bên dưới vì thế đọc là")
         print("    'CHƯA TRA ĐƯỢC', đừng đọc thành 'đáng ngờ'.")
-        print("    ⇒ Việc đầu tiên là NẠP LẠI KHO, không phải soi tay từng mã.")
+        print("    ⇒ Việc đầu tiên KHÔNG phải soi tay từng mã. Và loại sự")
+        print("    kiện KHÔNG phải cửa của bước chữa — xem KẾ HOẠCH bên dưới.")
         print("!" * 70)
 
     vn30 = vn30_hits(pending, _basket())
@@ -438,7 +498,7 @@ def main(argv=None) -> int:
         print("KẾ HOẠCH — ⚠️ mọi lệnh dưới đây GHI KHO. Kho dùng chung qua")
         print("Dropbox, nên KHÔNG chạy trong lúc phát 18:00-19:xx.")
         print("=" * 70)
-        for label, cmd in batch_plan(st["groups"]):
+        for label, cmd in batch_plan(st["groups"], wh):
             print(f"\n# {label}\n{cmd}")
         if st["groups"]["chua_ro"] and not blind:
             print(f"\n🔴 {len(st['groups']['chua_ro'])} mã KHÔNG có sự kiện và "

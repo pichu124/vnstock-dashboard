@@ -233,6 +233,12 @@ def _residual_level(prices_dir: Path, tk: str, src_all: pd.DataFrame,
 # là việc KHÔNG LÙI ĐƯỢC nên chỗ này thà chặt quá còn hơn lỏng.
 UNIFORM_SPREAD_MAX = 1.01
 UNIFORM_MIN_BARS = 20
+# Trần hệ số. Sự kiện quyền lớn nhất thực tế ~1:4 (5×); tỉ lệ vượt xa mức này
+# — nhất là cỡ 1.000× — là SAI ĐƠN VỊ (đồng ⇄ nghìn đồng), thuộc về
+# `check_unit_continuity` / `run.py fix-units`, KHÔNG phải đổi cơ sở. Lệch
+# đơn vị cũng đều tăm tắp nên nó qua được cửa "spread", tức không có rào này
+# thì `--whole-series` sẽ ghi đè trọn lịch sử vì một lý do hoàn toàn khác.
+UNIFORM_MAX_FACTOR = 10.0
 
 
 def uniform_offset_report(wh, src, tol: float = 0.012) -> dict:
@@ -271,6 +277,12 @@ def uniform_offset_report(wh, src, tol: float = 0.012) -> dict:
         if abs(out["ratio"] - 1.0) <= tol:
             out["why"] = (f"tỉ lệ {out['ratio']:.4f}× nằm trong ngưỡng {tol} "
                           f"— kho KHÔNG lệch, không có gì để chữa")
+            return out
+        if not (1.0 / UNIFORM_MAX_FACTOR <= out["ratio"] <= UNIFORM_MAX_FACTOR):
+            out["why"] = (f"tỉ lệ {out['ratio']:.4f}× vượt trần "
+                          f"{UNIFORM_MAX_FACTOR}× — cỡ này là SAI ĐƠN VỊ "
+                          f"(đồng ⇄ nghìn đồng) chứ không phải đổi cơ sở; "
+                          f"soi bằng check_unit_continuity, đừng chữa ở đây")
             return out
         if out["spread"] > UNIFORM_SPREAD_MAX:
             out["why"] = (f"tỉ lệ LỞM CHỞM: {lo:.4f}× → {hi:.4f}× "
@@ -404,6 +416,23 @@ def _sweep_targets(wh_root: Path) -> list:
         print(f"[rebase] ✗ vết quét hỏng ({type(e).__name__}: {e})")
         return []
     return list(data.get("suspect") or [])
+
+
+def _drift_ledger_targets(wh_root: Path) -> list:
+    """Danh sách mã từ SỔ CÁCH LY của cửa gác. Lỗi đọc thì trả rỗng, KHÔNG đoán.
+
+    Vì sao phải có, bên cạnh `--from-sweep`: mã lệch ĐỒNG ĐỀU **không bao giờ**
+    vào `basis_sweep_check.json:suspect` — vết quét cũng dùng `find_basis_step`,
+    tức cùng một bộ dò đạo hàm đang mù (U42). Sổ cách ly thì do cửa gác ghi, mà
+    gác đo MỨC ⇒ nó là nguồn DUY NHẤT liệt kê đúng lớp mã này.
+    """
+    try:
+        from vnstock_basis_guard import load_pending
+        return sorted((load_pending(Path(wh_root)) or {}).keys())
+    except Exception as e:                        # noqa: BLE001
+        print(f"[rebase] ✗ không đọc được sổ cách ly "
+              f"({type(e).__name__}: {e})")
+        return []
 
 
 def _rebase_one(tk: str, wh_root: Path, apply: bool,
@@ -755,6 +784,12 @@ def main(argv: "list[str] | None" = None) -> int:
                          "định (spread ≤ %s) trên ≥%s bar. Vẫn CHẠY THỬ nếu "
                          "không có --apply." % (UNIFORM_SPREAD_MAX,
                                                 UNIFORM_MIN_BARS))
+    ap.add_argument("--from-drift-ledger", action="store_true",
+                    help="chữa HÀNG LOẠT mọi mã trong SỔ CÁCH LY của cửa gác "
+                         "(_meta/basis_drift_pending.json). Khác --from-sweep: "
+                         "vết quét dùng bộ dò BẬC nên không bao giờ thấy lớp "
+                         "lệch ĐỒNG ĐỀU, còn sổ cách ly do cửa gác ghi mà gác "
+                         "đo MỨC. Mỗi mã vẫn qua đủ cửa riêng. Mặc định CHẠY THỬ.")
     ap.add_argument("--volume", choices=("auto", "adjust", "source"),
                     default="auto",
                     help="auto (mặc định): nhân khối lượng theo hệ số giá KHI "
@@ -779,8 +814,16 @@ def main(argv: "list[str] | None" = None) -> int:
             return 2
         print(f"[rebase] chữa hàng loạt {len(tickers)} mã từ vết quét"
               + ("" if args.apply else " — CHẠY THỬ, chưa ghi gì"))
+    if args.from_drift_ledger:
+        _led = _drift_ledger_targets(wh_root)
+        if not _led:
+            print("[rebase] ✅ sổ cách ly RỖNG — không mã nào đang bị chặn.")
+            return 0
+        tickers = _led
+        print(f"[rebase] chữa hàng loạt {len(tickers)} mã từ SỔ CÁCH LY"
+              + ("" if args.apply else " — CHẠY THỬ, chưa ghi gì"))
     if not tickers:
-        ap.error("cần --ticker hoặc --from-sweep")
+        ap.error("cần --ticker, --from-sweep hoặc --from-drift-ledger")
 
     worst, done, refused = 0, 0, []
     for tk in tickers:

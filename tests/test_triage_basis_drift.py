@@ -338,9 +338,62 @@ class TestPlanWhenBlind:
         cmds = [c for _, c in T.batch_plan(st["groups"])]
         assert len([c for c in cmds if "probe_price_basis" in c]) == 0
 
-    def test_it_never_proposes_a_blind_rebase(self, monkeypatch):
+    def test_it_never_NAMES_an_unknown_cause_ticker_in_a_rebase_command(self):
+        """Bất biến gốc, phát biểu lại cho đúng chỗ nó thật sự nằm.
+
+        Bản đầu chốt "kho mù ⇒ KHÔNG có lệnh rebase nào" — chặt quá mức và
+        chặt sai chỗ: nó giam 69 mã chờ một kho tra cứu mà bước chữa không cần
+        (`--whole-series` tự đo tỉ lệ có ĐỀU không). Thứ thật sự phải cấm là
+        **liệt kê tên mã chưa rõ nguyên nhân vào một lệnh chữa hàng loạt** —
+        khi đó không còn cửa nào đứng giữa."""
         st = T.summarize(self._blind_pending())
-        assert not [c for _, c in T.batch_plan(st["groups"]) if "rebase" in c]
+        rebase = [c for _, c in T.batch_plan(st["groups"]) if "rebase" in c]
+        assert rebase, "giam mã vô thời hạn cũng là một cách hỏng"
+        assert all("--ticker" not in c for c in rebase)
+
+    def test_the_ledger_route_is_gated_per_ticker(self):
+        """Lệnh theo sổ cách ly KHÔNG phải chữa mù: mỗi mã tự qua
+        `uniform_offset_report` và bị từ chối riêng."""
+        st = T.summarize(self._blind_pending())
+        rebase = [c for _, c in T.batch_plan(st["groups"]) if "rebase" in c]
+        assert all("--from-drift-ledger" in c and "--whole-series" in c
+                   for c in rebase)
+
+    def test_the_dry_run_still_comes_before_the_apply(self):
+        st = T.summarize(self._blind_pending())
+        cmds = [c for _, c in T.batch_plan(st["groups"])]
+        dry = next(i for i, c in enumerate(cmds)
+                   if "rebase" in c and "--apply" not in c)
+        assert dry < next(i for i, c in enumerate(cmds) if "--apply" in c)
+
+    def test_a_POPULATED_registry_does_not_ask_for_another_bulk_reload(
+            self, tmp_path, monkeypatch):
+        """Vết 26/08: user nạp 1.520 mã xong, tỉ lệ khớp vẫn 3%, mà kế hoạch
+        vẫn in "NẠP LẠI KHO SỰ KIỆN TRƯỚC" — đẩy user vào lượt chạy 1.723 mã
+        thứ hai cho đúng một kết quả. "Tra không ra" có HAI nguyên nhân và
+        chúng cần hai lời khuyên ngược nhau."""
+        monkeypatch.setattr(T, "registry_size",
+                            lambda wh: {"exists": True, "rows": 4200,
+                                        "tickers": 1520})
+        st = T.summarize(self._blind_pending())
+        lines = T.batch_plan(st["groups"], tmp_path)
+        assert not [c for _, c in lines if "vietstock" in c]
+        assert any("NẠP LẠI KHÔNG CỨU" in lbl for lbl, _ in lines)
+        assert [c for _, c in lines if "--from-drift-ledger" in c]
+
+    def test_an_EMPTY_registry_still_asks_for_the_reload_first(
+            self, tmp_path, monkeypatch):
+        """Chiều ngược lại phải giữ: sổ trống thì nạp THẬT SỰ cứu."""
+        monkeypatch.setattr(T, "registry_size",
+                            lambda wh: {"exists": False, "rows": 0,
+                                        "tickers": 0})
+        st = T.summarize(self._blind_pending())
+        cmds = [c for _, c in T.batch_plan(st["groups"], tmp_path)]
+        assert any("vietstock" in c for c in cmds)
+        assert cmds.index(next(c for c in cmds if "vietstock" in c)) < \
+            cmds.index(next(c for c in cmds if "rebase" in c))
+
+
 
     def test_the_banner_says_it_is_about_the_STORE_not_the_tickers(
             self, monkeypatch, tmp_path, capsys):
@@ -372,6 +425,26 @@ class TestPlanWhenBlind:
         T.main(["--warehouse", str(tmp_path), "--plan"])
         out = capsys.readouterr().out
         assert "rebase_ticker_history" in out and "nhân bản một con số sai" in out
+
+
+class TestRegistrySize:
+    def test_a_missing_registry_reads_as_empty_not_as_an_error(self, tmp_path):
+        assert T.registry_size(tmp_path) == {"exists": False, "rows": 0,
+                                             "tickers": 0}
+
+    def test_it_counts_distinct_tickers(self, tmp_path):
+        import pandas as pd
+        (tmp_path / "_meta").mkdir()
+        pd.DataFrame({"ticker": ["AAA", "AAA", "BBB"],
+                      "ex_date": ["2026-08-01"] * 3}).to_parquet(
+            tmp_path / "_meta" / "corp_actions_registry.parquet", index=False)
+        got = T.registry_size(tmp_path)
+        assert got == {"exists": True, "rows": 3, "tickers": 2}
+
+    def test_a_corrupt_registry_is_not_an_error(self, tmp_path):
+        (tmp_path / "_meta").mkdir()
+        (tmp_path / "_meta" / "corp_actions_registry.parquet").write_text("rác")
+        assert T.registry_size(tmp_path)["tickers"] == 0
 
 
 class TestLiveRelookup:

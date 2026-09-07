@@ -109,12 +109,12 @@ Vẫn ❌ = nguồn thật sự đổi ⇒ lúc đó mới đáng sửa `vnstock
 
 ## 4. 💻 Laptop — merge + nâng vnstock 4.0.7 TRƯỚC desktop
 
-Laptop đang ở `2.615`, HEAD là **`3.023`** (26/08, sau `--whole-series`).
+Laptop đang ở `2.615`, HEAD là **`3.039`** (26/08, sau `--whole-series`).
 
 ```powershell
 cd C:\vnstock
 git pull origin claude/tong-hop-cong-viec-test-w8mvrc
-python run.py test          # phải ra 3.023 passed
+python run.py test          # phải ra 3.039 passed
 ```
 
 **📦 vnstock 4.0.7 đã ra — cổng gỡ chặn 4.0.6 đã mở.** Đúng thứ tự:
@@ -127,37 +127,35 @@ python run.py test          # phải ra 3.023 passed
 Desktop giữ 4.0.4 — nó chạy phát tối, không phải chỗ để thử.
 *(4.0.6 làm chết mọi lệnh gọi mạng — `env.py:136 UnboundLocalError`.)*
 
-## 5. 🧬 Chữa 70 mã lệch cơ sở — ○ MỘT LẦN, sau 19:xx TỐI NAY
+## 5. 🧬 Chữa 69 mã lệch cơ sở — ○ MỘT LẦN
 
-Sổ cách ly có **70 mã** (17 ngày cũ nhất, ~713 bar thiếu, 1 mã VN30: MCH).
-Chúng KHÔNG có vách nào — nguồn back-adjust trọn lịch sử nên kho lệch **cùng
-một hệ số ở MỌI bar**. Lệnh cũ soi bằng bộ dò BẬC nên mù, và trước 26/08 nó
-còn in "✅ sạch"; nay nó **từ chối trung thực** và chỉ sang chế độ mới.
+**SDK đã xong 26/08** (3.744 bar lấy thẳng nguồn · 19 bar nhân hệ số · 17 file
+· ba lớp tự kiểm xanh). Còn **69 mã**, tỉ lệ 1.015-1.232 — toàn cỡ **cổ tức**,
+nhỏ hơn hẳn SDK (1.4858).
 
-Đây là đường **GHI KHO** ⇒ chạy **sau khi thấy `⏱ TỔNG`** trong `run_daily.log`
-(~19:15), đừng vắt qua giờ pipeline. **○ một lần** — kho đi qua Dropbox.
+⚠️ **ĐỪNG chạy `run.py vietstock --bulk --register` lần nữa.** Anh đã nạp sáng
+26/08 (`ok=1520`) mà tỉ lệ khớp vẫn 3%. Kế hoạch cũ vẫn khuyên nạp lại vì nó
+không phân biệt *sổ trống* với *sổ đầy mà không khớp* — đã sửa (U44). Loại sự
+kiện chỉ trả lời **vì sao** lệch; bước chữa **không hỏi nó**, nó tự đo tỉ lệ có
+ĐỀU không.
 
-Soi trước, một mã, KHÔNG ghi gì:
+Cả 69 mã trong MỘT lệnh — mỗi mã vẫn tự qua cửa đo riêng và **bị từ chối
+riêng** nếu không lệch đều, nên đây không phải chữa mù:
+
 ```powershell
-python scripts\rebase_ticker_history.py --ticker SDK --whole-series
+python scripts\rebase_ticker_history.py --from-drift-ledger --whole-series
 ```
-Đọc ba dòng đầu: `LỆCH ĐỒNG ĐỀU — lệch ĐỀU <hệ số>× trên <n> bar (spread …)`.
-**Spread phải ≈1.0000.** Lởm chởm thì công cụ tự từ chối — dán lại cho Claude,
-đừng ép.
+Chạy thử, ~69 mã × 4 lượt gọi mạng ⇒ **để nó chạy vài phút**. Đọc dòng
+`[rebase] TỔNG: n/69 mã xong` ở cuối — mã nào bị từ chối được liệt kê ngay đó.
+Dán lại phần TỔNG cho tôi trước khi ghi.
 
-Ưng thì ghi thật (có sao lưu `_meta/backup_rebase/`, ghi nguyên tử, tự kiểm 3
-lớp, xong thì tự xoá mã khỏi sổ cách ly):
+Ưng thì thêm `--apply` (sao lưu từng mã vào `_meta/backup_rebase/`), rồi:
 ```powershell
-python scripts\rebase_ticker_history.py --ticker SDK --whole-series --apply
-python scripts\triage_basis_drift.py --plan     # SDK phải rời sổ
+python scripts\triage_basis_drift.py --plan     # sổ phải vơi
 ```
 
-Chạy SDK trước một mình. Sạch rồi mới làm loạt — dán lại danh sách còn treo,
-Claude sinh lệnh theo lô.
-
-⚠️ `--whole-series` **ghi đè TRỌN lịch sử** mã đó. Cửa vào cố tình chặt (tỉ lệ
-phải ổn định, spread ≤1.01, ≥20 bar chồng nhau) nhưng nó vẫn là lệnh mạnh tay
-nhất trong repo — đừng gõ khi chưa đọc dòng `LỆCH ĐỒNG ĐỀU`.
+Chạy lúc nào cũng được, **trừ trong lúc phát 18:00-19:xx** — hai máy ghi cùng
+file thì Dropbox đẻ `(conflicted copy).parquet`.
 
 ---
 
@@ -215,7 +213,7 @@ dòng `screener` như thường lệ.
 | Rủi ro chạm trần task | 166,3′ → 69,0′ ⇒ đệm 13,7′ → **111′** *(số chưa sạch — xem việc #1)* |
 | Phát tự động trọn vẹn | 21/08, 24/08, 25/08 đều đủ 14 bước và **có brief Telegram** |
 | Chất lượng brief | Guard số chỉ số (trạng từ) · dọn khối tin · GDKHQ không cảnh báo cho ĐHĐCĐ · dải ±3% gọi đúng tên |
-| Đồng bộ code | 🖥️ desktop `2.615 passed` = HEAD lúc 26/08 sáng; HEAD nay **3.023** (đợt vá lệch cơ sở + `--whole-series`) |
+| Đồng bộ code | 🖥️ desktop `2.615 passed` = HEAD lúc 26/08 sáng; HEAD nay **3.039** (đợt vá lệch cơ sở + `--whole-series`) |
 | `fix-units` đối chứng | 26/08 trên KHO THẬT: `fix_count` khớp, giải nén **ít hơn 1.125×**, bỏ qua **98,6%** mã. Lượt đối chứng còn tìm ra bug HFB (`time` trộn kiểu ⇒ mã bị bỏ sót im lặng) — đã vá (U32) |
 | Sổ lệnh | **Không mất** — 805 briefs · 148 rec · 138 outcome |
 | BCTC ngân hàng 2015-2016 | **TẠM DỪNG** (user chốt 26/08) — đã đo 5 nguồn: `vci` sớm nhất 2018-Q1 (đúng khung, tốt nhất) · `finhay` trần 5 kỳ · `cafef` có 2015-2016 nhưng **sai khung (doanh nghiệp thường)** · `kbs` rỗng · `tcbs` 404. Muốn data cũ hơn ⇒ user xuất Wichart/FiinPro, Claude viết bộ đọc. **Đừng dò lại** — xem U34 `docs/CLAUDE-NOTES.md` |

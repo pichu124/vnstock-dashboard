@@ -353,6 +353,84 @@ class TestWholeSeriesEndToEnd:
 
 
 # --------------------------------------------------------------------------
+class TestUnitScaleRail:
+    """Lệch ĐƠN VỊ (đồng ⇄ nghìn đồng) cũng đều tăm tắp ⇒ nó qua được cửa
+    "spread" một cách hoàn hảo. Không có trần hệ số thì `--whole-series` sẽ
+    ghi đè trọn lịch sử vì một lý do hoàn toàn khác — và đó là việc của
+    `check_unit_continuity`, không phải của bộ chữa cơ sở."""
+
+    def _pair(self, ratio):
+        src = _src_frame()
+        wh = src.copy()
+        wh["close"] = wh["close"] * ratio
+        return wh[["time", "close"]], src[["time", "close"]]
+
+    def test_a_thousand_fold_ratio_is_refused_as_a_unit_error(self):
+        rep = R.uniform_offset_report(*self._pair(1000.0))
+        assert rep["uniform"] is False and "SAI ĐƠN VỊ" in rep["why"]
+
+    def test_the_inverse_unit_error_is_refused_too(self):
+        rep = R.uniform_offset_report(*self._pair(0.001))
+        assert rep["uniform"] is False and "SAI ĐƠN VỊ" in rep["why"]
+
+    def test_a_real_split_ratio_still_passes(self):
+        """Trần phải nằm TRÊN mọi sự kiện quyền thật — chia tách 1:4 là 5×."""
+        rep = R.uniform_offset_report(*self._pair(5.0))
+        assert rep["uniform"] is True
+
+    def test_the_ceiling_leaves_room_above_the_largest_real_event(self):
+        assert R.UNIFORM_MAX_FACTOR > 5.0
+
+
+class TestDriftLedgerAsBatchSource:
+    """`--from-sweep` KHÔNG dùng được cho lớp mã này: vết quét cũng dựng trên
+    `find_basis_step`, tức cùng bộ dò đạo hàm đang mù. Sổ cách ly do cửa gác
+    ghi, mà gác đo MỨC — nó là nguồn duy nhất liệt kê đúng lớp này."""
+
+    def test_it_reads_the_ledger(self, tmp_path, monkeypatch):
+        import vnstock_basis_guard as bg
+        monkeypatch.setattr(bg, "load_pending",
+                            lambda wh: {"SDK": {}, "AAM": {}})
+        assert R._drift_ledger_targets(tmp_path) == ["AAM", "SDK"]
+
+    def test_an_unreadable_ledger_yields_nothing_not_a_guess(
+            self, tmp_path, monkeypatch, capsys):
+        import vnstock_basis_guard as bg
+        monkeypatch.setattr(bg, "load_pending",
+                            lambda wh: (_ for _ in ()).throw(IOError("hỏng")))
+        assert R._drift_ledger_targets(tmp_path) == []
+        assert "không đọc được sổ cách ly" in capsys.readouterr().out
+
+    def test_the_flag_drives_every_ticker_in_the_ledger(
+            self, tmp_path, monkeypatch):
+        seen = []
+        monkeypatch.setattr(R, "_drift_ledger_targets",
+                            lambda wh: ["AAM", "SDK"])
+        monkeypatch.setattr(R, "_rebase_one",
+                            lambda tk, *a, **k: seen.append(tk) or 0)
+        R.main(["--warehouse", str(tmp_path), "--from-drift-ledger",
+                "--whole-series"])
+        assert seen == ["AAM", "SDK"]
+
+    def test_an_empty_ledger_is_success_not_an_error(
+            self, tmp_path, monkeypatch, capsys):
+        """Sổ rỗng nghĩa là KHÔNG CÒN GÌ ĐỂ CHỮA — thoát 2 ở đây thì lệnh này
+        không bao giờ dùng được trong một chuỗi tự động."""
+        monkeypatch.setattr(R, "_drift_ledger_targets", lambda wh: [])
+        assert R.main(["--warehouse", str(tmp_path), "--from-drift-ledger"]) == 0
+        assert "RỖNG" in capsys.readouterr().out
+
+    def test_it_still_needs_apply_to_write(self, tmp_path, monkeypatch):
+        got = {}
+        monkeypatch.setattr(R, "_drift_ledger_targets", lambda wh: ["SDK"])
+        monkeypatch.setattr(R, "_rebase_one",
+                            lambda tk, wh, apply, *a, **k: got.update(
+                                {"apply": apply}) or 0)
+        R.main(["--warehouse", str(tmp_path), "--from-drift-ledger"])
+        assert got["apply"] is False
+
+
+# --------------------------------------------------------------------------
 class TestCli:
     def test_the_flag_reaches_rebase_one(self, tmp_path, monkeypatch):
         got = {}

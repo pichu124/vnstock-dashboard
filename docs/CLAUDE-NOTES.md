@@ -6966,6 +6966,69 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🧭 U44. "TRA KHÔNG RA" CÓ HAI NGUYÊN NHÂN — VÀ CHÚNG CẦN HAI LỜI KHUYÊN NGƯỢC NHAU (26/08)
+
+Bắt được ngay sau khi chữa xong SDK bằng U43. Sổ 70 → 69, rồi `triage --plan`
+in lại đúng câu nó đã in sáng nay:
+
+    ① NẠP LẠI KHO SỰ KIỆN TRƯỚC
+    python run.py vietstock --bulk --register
+
+**User đã chạy lệnh đó rồi** (sáng 26/08: `ok=1520 empty=180 fail=23`), và tỉ
+lệ khớp vẫn 2/69 = 3%. Kế hoạch đang đẩy user vào lượt chạy 1.723 mã thứ hai
+cho đúng một kết quả.
+
+## Hai lỗi, không phải một
+
+**1. `event_store_is_blind` không phân biệt SỔ TRỐNG với SỔ ĐẦY MÀ KHÔNG
+KHỚP.** Nó chỉ đo tỉ lệ khớp. Hai trạng thái ấy cần hai lời khuyên **ngược
+nhau**: sổ trống thì nạp là cứu; sổ 1.520 mã mà vẫn không khớp thì nạp lại là
+phí một tiếng. Nay có `registry_size()` đọc thẳng số mã/số dòng trong
+`corp_actions_registry.parquet` và kế hoạch rẽ theo đó.
+
+**2. Kho sự kiện KHÔNG phải cửa của bước chữa — mà kế hoạch bắt nó làm cửa.**
+`batch_plan` dừng hẳn ở "nạp lại kho" khi mù, `return lines` ngay, không đề
+xuất gì thêm. Nhưng loại sự kiện chỉ trả lời **VÌ SAO** lệch; `--whole-series`
+mang bằng chứng riêng về **CÁI GÌ**: tỉ lệ kho/nguồn có ĐỀU trên toàn dải
+không. Bắt bước chữa chờ một kho tra cứu mà nó không cần = giam 69 mã vô thời
+hạn vì một cửa không liên quan.
+
+Trong `_rebase_one`, `_corp_action_kind` chỉ nuôi **quyết định khối lượng** —
+và ở chế độ `--whole-series` khối lượng luôn giữ nguyên. Tức kho sự kiện mù
+**không ảnh hưởng gì** tới đường chữa này.
+
+## Bất biến cũ được phát biểu lại, không bị bỏ
+
+Lưới cũ chốt *"kho mù ⇒ KHÔNG có lệnh rebase nào"*. Chặt quá mức **và chặt sai
+chỗ**. Thứ thật sự phải cấm là **liệt kê tên mã chưa rõ nguyên nhân vào một
+lệnh chữa hàng loạt** — khi đó không còn cửa nào đứng giữa. Lệnh theo sổ cách
+ly (`--from-drift-ledger`) không nêu tên mã nào: mỗi mã tự qua
+`uniform_offset_report` và **bị từ chối riêng**. Test đã đổi theo:
+`test_it_never_NAMES_an_unknown_cause_ticker_in_a_rebase_command` + một test
+đòi lệnh đó phải tồn tại (*"giam mã vô thời hạn cũng là một cách hỏng"*).
+
+## `--from-drift-ledger` — vì sao `--from-sweep` không dùng được
+
+Vết quét `basis_sweep_check.json` cũng dựng trên `find_basis_step`, tức **cùng
+bộ dò đạo hàm đang mù** (U42). Mã lệch đồng đều không bao giờ vào `suspect`,
+và suspect rỗng thì rebase exit 2. Sổ cách ly thì do **cửa gác** ghi, mà gác đo
+MỨC ⇒ nó là nguồn DUY NHẤT liệt kê đúng lớp mã này. Sổ rỗng ⇒ **exit 0**, không
+phải lỗi: rỗng nghĩa là không còn gì để chữa.
+
+## Rào ĐƠN VỊ, thêm cùng lúc
+
+`UNIFORM_MAX_FACTOR = 10.0`. Lệch đơn vị (đồng ⇄ nghìn đồng) **cũng đều tăm
+tắp**, nên nó qua cửa "spread" một cách hoàn hảo — không có trần thì
+`--whole-series` sẽ ghi đè trọn lịch sử vì một lý do hoàn toàn khác. Sự kiện
+quyền lớn nhất thực tế ~1:4 (5×), nên trần 10× nằm trên mọi ca thật mà vẫn bắt
+được cỡ 1.000×. Ca đó thuộc `check_unit_continuity` / `run.py fix-units`.
+
+## Số đo lúc đóng mục
+
+SDK chữa xong: 3.744 bar lấy thẳng nguồn · 19 bar (10/2010, trước độ phủ nguồn)
+nhân hệ số · 17 file · cả ba lớp tự kiểm xanh. Còn **69 mã**, tỉ lệ 1.015-1.232
+— toàn cỡ **cổ tức**, nhỏ hơn hẳn SDK (1.4858). Suite: **3.039 pass**.
+
 # 🔧 U43. `--whole-series`: ĐƯỜNG CHỮA CHO LỚP LỆCH ĐỒNG ĐỀU (26/08)
 
 Đóng phần **"Còn treo"** của U42. U42 chỉ làm công cụ **từ chối trung thực**;
