@@ -2,7 +2,7 @@
 
 > Bản để LÀM THEO. Kho lưu chi tiết (lý do, file:line, lịch sử) ở
 > `docs/CLAUDE-NOTES.md` — đừng mở nó để biết "hôm nay làm gì".
-> Cập nhật: 07/09/2026, 23:00 — sổ cách ly lệch cơ sở đã RỖNG.
+> Cập nhật: 07/09/2026, 23:15 — đã đo phát tối; sổ lệch cơ sở RỖNG.
 
 ## 🏷️ NHÃN MÁY — quy tắc gốc: KHO đồng bộ, CODE thì không
 
@@ -26,47 +26,50 @@ desktop). **Phiên hiện tại: 🖥️ DESKTOP** (user báo 07/09).
 
 # 🔴 CÒN PHẢI LÀM
 
-## 1. 📏 Đo phát 18:00 — 🖥️ desktop, TỐI NAY
+## 1. 🎚️ HAI QUYẾT ĐỊNH đã đủ mẫu — ○ chỉ cần anh gật
 
-Phát tối nay là phép đo của **bốn bản vá cùng lúc**, và là lượt đầu chạy trong
-điều kiện sạch (không chạy tay gì trước).
+Cả hai badge doctor đã chuyển sang `⚠️ ĐỦ mẫu, đáng quyết`, tức đúng ngưỡng
+bảng này quy ước là lúc gọi Claude.
 
-| Bản vá | Kỳ vọng |
-|---|---|
-| Cửa sổ đối chiếu hẹp (26/08) | `updater` giảm |
-| Screener 14 lượt → 1 | `screener` từ 1.318s xuống mạnh |
-| fix-units lọc footer | từ 316s xuống mạnh (đã đo: đọc ít hơn 1.125×) |
-| Mốc watchlist THẬT | nhìn trong brief, không phải trong log |
-
-⚠️ **Từ giờ tới 18:00 đừng gõ lệnh kho nào** — `run.py sync` / `all` /
-`fix-units` không có `--dry-run`, và **đặc biệt là `run.py screener`**.
-
-Bẫy cụ thể với `screener`: nó **ghi cache Net BS** (`_meta/net_bs_cache.json`,
-TTL 12h). Chạy tay trước 18:00 thì phát tối **trúng cache và bỏ qua hẳn** vòng
-Net BS ⇒ đo được một bước `screener` KHÔNG có Net BS, không so được với mốc
-1.318s. Bản vá lớn nhất lại thành thứ duy nhất không đo được.
-
-⚠️ **PHẢI ĐỌC LOG Ở 🖥️ DESKTOP.** `run_daily.log` nằm ở **gốc repo**, mà repo
-đi bằng git chứ không qua Dropbox ⇒ **log KHÔNG đồng bộ**, nó là nhân chứng
-riêng của từng máy. Ngồi 💻 laptop thì **không có** `⏱ TỔNG` / `⏱ CHẶNG` —
-chỉ thấy được phần nằm TRONG kho (badge `pipeline_status.json` /
-`brief_push.json` / `doctor_status.json`), tức biết phát có chạy trọn không,
-KHÔNG biết mỗi chặng mất bao lâu. Mà chặng mới là thứ cần đo.
-⇒ Tối nay ngồi desktop lúc ~19:15, hoặc chép `run_daily.log` sang rồi dán.
-
-Sau ~19:15, dán **ba thứ**:
+**(a) Tắt auto-heal.** Đo 07/09: `0/1.291 bar lành qua 2 lượt`. Cộng các đợt
+trước là **0 lành trên ~6.000 lượt** — nó chưa bao giờ chữa được gì, chỉ tiêu
+ngân sách. Gật thì đặt (⇄ **CẢ HAI máy**, biến môi trường không nằm trong kho):
 ```powershell
-Select-String -Path C:\vnstock\run_daily.log -Pattern '⏱ TỔNG|⏱ CHẶNG|Net Buy-Sell' | Select-Object -Last 6
-python run.py doctor
+[Environment]::SetEnvironmentVariable('VNSTOCK_AUTOHEAL_BUDGET_S','0','User')
 ```
-+ **bản brief Telegram** (lần đầu watchlist có `pivot 60 phiên`).
+Bật lại: đặt về `300`. Claude sẽ ghi lý do + cách bật lại vào docs.
 
-Dòng có **`[ngày giờ]`** là dòng MỚI — không có dấu thì phát chưa xong, khỏi dán.
+**(b) Op.CF / vốn hoá.** 83 mã bất thường, đậm nhất **NAB 6.118×**. Đây là câu
+hỏi SỐ LIỆU chứ không phải câu hỏi code: Op.CF ngân hàng/BĐS lệch **đơn vị**,
+hay là số thật? Anh chốt hướng thì Claude viết guard. Xoá
+`_meta/brief_watch.json` để đếm lại sau khi chốt.
 
-`⏱ TỔNG` không giảm rõ so với 69,0′ ⇒ còn biến số chưa thấy, đáng đào tiếp
-(đúng như lần `updater` hoá ra mới là kẻ ăn 57 phút chứ không phải `auto-heal`).
+## 2. 📊 ĐÃ ĐO XONG phát tối 07/09 — còn đúng một chỗ đáng đào
 
-## 2. 💳 Quyết Cerebras 402 — ○ máy nào cũng được
+**⏱ TỔNG 90,3′ → 38,3′** (mốc 09-03; 09-04 bị trần 120′ chấm dứt).
+**Đệm dưới trần: 29,7′ → 81,7′** ⇒ rủi ro chạm trần coi như hết.
+
+| bước | 09-03 | 09-07 | |
+|---|---|---|---|
+| ↳ updater | 10.527s* | **316s** | **−97%** — bản vá lớn nhất |
+| brief | 646s | 59s | −91% |
+| sync | 2.748s | 572s | −79% |
+| train | 485s | 159s | −67% |
+| screener | 846s | 669s | −21% |
+| **validate** | 84s | **286s** | **+240%** ⚠️ chưa rõ vì sao |
+
+\* từ chặng 09-04 (lần bị kill).
+
+**Net BS là chỗ duy nhất còn đáng đào.** 09-03 `377s · 3,7 mã/s` → 09-07
+`411s · 3,4 mã/s` — **chậm hơn**, và chiếm **411s/669s** của bước screener.
+Screener trừ Net BS còn ~258s so với mốc 1.318s ⇒ bản vá 14 lượt → 1 đã ăn.
+
+Hai cách đọc chưa tách được: (a) trần 8 req/s chạy đúng thiết kế và con số
+"~125s" là phép tính sai vì giả định 1 request/mã — nếu mỗi mã tốn ~2,4
+request thì ra đúng 3,3 mã/s; (b) song song không đạt nhịp. Muốn tách phải
+đếm số request thật/mã.
+
+## 3. 💳 Quyết Cerebras 402 — ○ máy nào cũng được · **NAY CÓ BẰNG CHỨNG**
 
 Model watch T7 22/08: **Cerebras HTTP 402 "Payment required"** ở cả hai model.
 Đây là hỏng **TÀI KHOẢN**, không phải model chết — đổi slug KHÔNG cứu được.
@@ -81,6 +84,10 @@ Hệ thống vẫn chạy, nhưng lưới dự phòng mỏng hẳn:
 
 ⚠️ **Gemini nay gánh cả ba chỗ** — nghẽn Gemini là hụt nhiều nơi cùng lúc.
 
+📌 **Và nó đã nghẽn thật.** Doctor 07/09: `86 call · 30 lỗi · 25 rate-limit —
+chạm trần Gemini:gemini-3.5-flash, Gemini:gemini-3.5-flash-lite,
+Mistral:mistral-small-latest`. Đây không còn là lo xa.
+
 Ba lựa chọn: **kệ** (rẻ nhất, rủi ro dồn vào Gemini) · **nạp tiền Cerebras**
 (về nguyên trạng, không đụng code) · **tìm free thay thế** — phải probe SỐNG
 trước rồi báo Claude:
@@ -88,7 +95,7 @@ trước rồi báo Claude:
 python scripts\probe_models.py --slug "OpenRouter=<slug>"
 ```
 
-## 3. ⏰ NSO qua mạng khác — ○ MÁY NÀO CŨNG ĐƯỢC (cần 4G), CÓ HẠN
+## 4. ⏰ NSO qua mạng khác — ○ MÁY NÀO CŨNG ĐƯỢC (cần 4G), CÓ HẠN
 
 CPI / IIP / GDP / cán cân thương mại đang dùng cache `as_of 2026-07-31`. Kỳ
 tháng 8 công bố **cuối tháng** — không kéo được là brief nói số vĩ mô cũ, mà
@@ -107,7 +114,13 @@ Vẫn ❌ = nguồn thật sự đổi ⇒ lúc đó mới đáng sửa `vnstock
 
 *(Jina ⚠️ cùng cụm nhưng **không gấp** — chỉ làm tin chấm bằng title+summary.)*
 
-## 4. 💻 Laptop — merge + nâng vnstock 4.0.7 TRƯỚC desktop
+## 5. 🧭 Brief phân bổ tháng 9 — 🖥️ desktop, trong dashboard
+
+Badge `allocation` ⚠️: band B3 (thắt chặt), 7 tín hiệu, nhưng **chưa có brief
+phân bổ tháng 9/2026** (cadence tháng). Không phải lệnh gõ — vào dashboard →
+tab **Tin tức** → sub-tab **🧭 Phân bổ** → nút **📝 Tạo brief**.
+
+## 6. 💻 Laptop — merge + nâng vnstock 4.0.7 TRƯỚC desktop
 
 Laptop đang ở `2.615`, HEAD là **`3.127`** (07/09, sau `--whole-series`).
 
