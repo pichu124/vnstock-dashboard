@@ -46,6 +46,14 @@ TTL 12h). Chạy tay trước 18:00 thì phát tối **trúng cache và bỏ qua
 Net BS ⇒ đo được một bước `screener` KHÔNG có Net BS, không so được với mốc
 1.318s. Bản vá lớn nhất lại thành thứ duy nhất không đo được.
 
+⚠️ **PHẢI ĐỌC LOG Ở 🖥️ DESKTOP.** `run_daily.log` nằm ở **gốc repo**, mà repo
+đi bằng git chứ không qua Dropbox ⇒ **log KHÔNG đồng bộ**, nó là nhân chứng
+riêng của từng máy. Ngồi 💻 laptop thì **không có** `⏱ TỔNG` / `⏱ CHẶNG` —
+chỉ thấy được phần nằm TRONG kho (badge `pipeline_status.json` /
+`brief_push.json` / `doctor_status.json`), tức biết phát có chạy trọn không,
+KHÔNG biết mỗi chặng mất bao lâu. Mà chặng mới là thứ cần đo.
+⇒ Tối nay ngồi desktop lúc ~19:15, hoặc chép `run_daily.log` sang rồi dán.
+
 Sau ~19:15, dán **ba thứ**:
 ```powershell
 Select-String -Path C:\vnstock\run_daily.log -Pattern '⏱ TỔNG|⏱ CHẶNG|Net Buy-Sell' | Select-Object -Last 6
@@ -80,11 +88,15 @@ trước rồi báo Claude:
 python scripts\probe_models.py --slug "OpenRouter=<slug>"
 ```
 
-## 3. ⏰ NSO qua mạng khác — 🖥️ desktop, CÓ HẠN
+## 3. ⏰ NSO qua mạng khác — ○ MÁY NÀO CŨNG ĐƯỢC (cần 4G), CÓ HẠN
 
 CPI / IIP / GDP / cán cân thương mại đang dùng cache `as_of 2026-07-31`. Kỳ
 tháng 8 công bố **cuối tháng** — không kéo được là brief nói số vĩ mô cũ, mà
 **doctor KHÔNG báo giúp** (nó chỉ biết "fetch hỏng", không biết "số đã lỗi thời").
+
+Nhãn cũ ghi 🖥️ desktop là **SAI** (sửa 26/08): việc này chỉ kiểm **mạng nhà
+có chặn NSO không**, chẳng dính máy nào. Kết quả ghi `_meta/doctor_status.json`
+— nằm TRONG kho nên máy kia tự thấy. Đang ngồi máy nào thì làm luôn máy đó.
 
 Phát 4G từ điện thoại, nối máy vào, rồi:
 ```powershell
