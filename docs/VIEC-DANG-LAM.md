@@ -2,7 +2,7 @@
 
 > Bản để LÀM THEO. Kho lưu chi tiết (lý do, file:line, lịch sử) ở
 > `docs/CLAUDE-NOTES.md` — đừng mở nó để biết "hôm nay làm gì".
-> Cập nhật: 07/09/2026, 23:15 — đã đo phát tối; sổ lệch cơ sở RỖNG.
+> Cập nhật: 09/09/2026 — soi brief close 08/09; NSO đã có kỳ tháng 8.
 
 ## 🏷️ NHÃN MÁY — quy tắc gốc: KHO đồng bộ, CODE thì không
 
@@ -20,7 +20,7 @@
 đổi; không báo thì giữ nguyên máy của lượt trước. Đừng suy từ đường dẫn venv —
 cả hai đều `C:\vnstock`, venv đổi theo TÀI KHOẢN đăng nhập. Thật sự chưa biết
 thì: `$env:COMPUTERNAME; Get-ScheduledTask -TaskName 'VnStock *'` (2 task =
-desktop). **Phiên hiện tại: 🖥️ DESKTOP** (user báo 07/09).
+desktop). **Phiên hiện tại: 💻 LAPTOP** (user báo 09/09).
 
 ---
 
@@ -103,24 +103,12 @@ trước rồi báo Claude:
 python scripts\probe_models.py --slug "OpenRouter=<slug>"
 ```
 
-## 4. ⏰ NSO qua mạng khác — ○ MÁY NÀO CŨNG ĐƯỢC (cần 4G), CÓ HẠN
+## 4. ⏰ NSO — ✅ TỰ XONG, KHÔNG PHẢI LÀM GÌ
 
-CPI / IIP / GDP / cán cân thương mại đang dùng cache `as_of 2026-07-31`. Kỳ
-tháng 8 công bố **cuối tháng** — không kéo được là brief nói số vĩ mô cũ, mà
-**doctor KHÔNG báo giúp** (nó chỉ biết "fetch hỏng", không biết "số đã lỗi thời").
-
-Nhãn cũ ghi 🖥️ desktop là **SAI** (sửa 26/08): việc này chỉ kiểm **mạng nhà
-có chặn NSO không**, chẳng dính máy nào. Kết quả ghi `_meta/doctor_status.json`
-— nằm TRONG kho nên máy kia tự thấy. Đang ngồi máy nào thì làm luôn máy đó.
-
-Phát 4G từ điện thoại, nối máy vào, rồi:
-```powershell
-python run.py doctor --net
-```
-NSO ✅ = mạng NHÀ chặn ⇒ xử ở router/ISP, **không đụng code**.
-Vẫn ❌ = nguồn thật sự đổi ⇒ lúc đó mới đáng sửa `vnstock_nso`.
-
-*(Jina ⚠️ cùng cụm nhưng **không gấp** — chỉ làm tin chấm bằng title+summary.)*
+Brief close 08/09 đã ghi **CPI 4.89% · IIP 14.4% · cán cân −0.12 tỷ USD, tất
+cả `as_of 2026-08-31`** — kỳ tháng 8 đã về, không còn kẹt ở `2026-07-31`. GDP
+vẫn `2026-06-30` là ĐÚNG (quý). ⇒ mạng nhà KHÔNG chặn NSO, bỏ luôn việc phát
+4G. *(Jina vẫn nằm ngoài phạm vi này — xem #7.)*
 
 ## 5. 🧭 Brief phân bổ tháng 9 — 🖥️ desktop, trong dashboard
 
@@ -175,6 +163,12 @@ hiệu guard đang LÀM VIỆC, không phải hỏng.
 | ~~1~~ | **Vòng lặp Net BS** | ✅ **XONG 26/08** — song song có nhịp (8 luồng, tổng tốc độ chặn ở 8 req/s < quota 10). Kỳ vọng ~650s → ~125s. |
 | ~~5~~ | **`--whole-series` — chữa lớp lệch ĐỒNG ĐỀU** | ✅ **XONG 26/08** — U42 mới chỉ làm công cụ *từ chối trung thực*; nay có đường chữa thật. Cửa vào KHÔNG phải `_probe` (nó luôn phán `aligned` vì trước = sau) mà là `uniform_offset_report`, chặt hơn: tỉ lệ phải **ổn định**. Thêm bước tự kiểm thứ 3 đo MỨC — hai bước cũ đều đo đạo hàm nên mù đúng lớp lỗi này. Xem U43 · việc user: **#5** |
 | ~~4~~ | **Đường CafeF `cash-dividends`** | ✅ **XONG 26/08** — soi ra chuyện lớn hơn: cái nó nuôi (`load_recent_exdiv`, bộ chặn cờ "phân phối" giả) **chạy chay từ 19/08**, im lặng. Nối sang sổ đăng ký → badge xác nhận `registry trả 1 mã` → **xoá hẳn** cả đường ghi lẫn đường đọc. Xem U36 |
+
+| 6 | **Impact tin bị cắt CỤT — `max_tokens=120` không ai canh** | 🔴 MỚI 09/09 — 2/6 tin trong brief close 08/09 ra `— tác động: Nh` và `— tác động: Tỷ giá`. Cắt GIỮA TỪ, KHÔNG có `…` ⇒ không phải `sanitize_impact` (nó cắt ở biên từ + thêm `…`). Thủ phạm: `vnstock_news_feeds.py:348` gọi `chat_complete(..., max_tokens=120)`, mà `vnstock_sentiment.chat_complete` **không hề đọc `finish_reason`** ⇒ câu bị provider cắt trông y hệt câu ngắn hợp lệ, `sanitize_impact` cho qua vì `len ≤ 160`. Và nó **ghi vào cache** (`refresh` giữ phân tích cũ trừ khi `reanalyze=True`) nên tin cụt ở lại mãi. |
+| 7 | **`term_spread` không có vùng chết quanh 0** | 🔴 MỚI 09/09 — 10Y 4.46 − điều hành 4.50 = **−0.04 điểm % (4bp)** mà `vnstock_macro.py:1058` (`if spread < 0`) gắn ngay nhãn to nhất: *"ÂM — chính sách THẮT… (rủi ro chu kỳ)"* + `dir=-1`. 4bp là nhiễu làm tròn giữa HAI nguồn khác nhau. Không chỉ là chữ: `term` có trọng số **0.10** trong band phân bổ, `dir=-1`+`slope_dir=0` ⇒ sub-score −0.5 ⇒ **−0.05 trên tổng −0.12**. Bỏ nhiễu này thì điểm là −0.07. Nấc `_TERM_THIN_SPREAD` ngay trên đó đã mềm hơn hẳn ⇒ thiếu đúng một vùng chết đối xứng (`intl_spread` cũng vậy: có `_INTL_THIN_SPREAD` cho phía dương, phía âm thì không). |
+| 8 | **Header prompt lọt ra brief** | 🟠 MỚI 09/09 — brief in nguyên `🎯 TLDR (2 dòng)` và `🔧 Đề xuất bổ sung (1 dòng, optional)`. Đó là chỉ thị viết cho LLM ở `vnstock_brief.py:209/268` (+ `293/356` cho brief kia), model chép y nguyên. Không guard nào dọn header — đúng nhóm `_guards_text` ("lộ ruột"). |
+| 9 | **"Sự kiện sắp tới" của brief CLOSE tính cả hôm nay** | 🟠 MỚI 09/09 — DIG GDKHQ **2026-09-08** nằm trong mục "sắp tới" của brief phiên 08/09, kèm câu "giá tự điều chỉnh trong ngày GDKHQ". Phiên đã đóng, điều chỉnh XONG rồi. `vnstock_events.load_upcoming` lọc `_d >= today` (`vnstock_events.py:175`) — đúng cho brief SÁNG, sai cho brief CHIỀU. Hàm đã có tham số `today`, chỗ gọi `vnstock_brief.py:2287` không truyền. |
+| 10 | **`pp` khi 2 số lẻ, khi 3** | 🔵 MỚI 09/09 — cùng một câu: "Dẫn dắt … **+0.81pp**" (từ `vnstock_brief.py:3149`, `:+.2f`) vs "Tụt hậu … **−0.260pp**" (từ `:2806`/`:2810`, `:+.3f`). Quy ước repo là `{:,.2f}`. |
 
 **📏 Phát kế tiếp là phép đo của cả ba bản vá** — dán `⏱ TỔNG` + `⏱ CHẶNG` +
 dòng `screener` như thường lệ.
