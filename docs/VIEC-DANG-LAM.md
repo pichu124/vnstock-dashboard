@@ -2,7 +2,7 @@
 
 > Bản để LÀM THEO. Kho lưu chi tiết (lý do, file:line, lịch sử) ở
 > `docs/CLAUDE-NOTES.md` — đừng mở nó để biết "hôm nay làm gì".
-> Cập nhật: 09/09/2026 — 5 lỗi brief close 08/09 ĐÃ VÁ (#6–#10, U55); laptop đã merge, `3.158 passed`; **desktop CHƯA merge** — brief tối vẫn code cũ tới khi merge.
+> Cập nhật: 09/09/2026 — 🚨 sổ cách ly đầy lại 70 mã (việc #0) · 5 lỗi brief ĐÃ VÁ (#6–#10, U55); laptop đã merge, `3.158 passed`; **desktop CHƯA merge** — brief tối vẫn code cũ tới khi merge.
 
 ## 🏷️ NHÃN MÁY — quy tắc gốc: KHO đồng bộ, CODE thì không
 
@@ -25,6 +25,45 @@ desktop). **Phiên hiện tại: 💻 LAPTOP** (user báo 09/09).
 ---
 
 # 🔴 CÒN PHẢI LÀM
+
+## 0. 🚨 SỔ CÁCH LY ĐẦY LẠI — 70 mã (doctor 09/09) — đang tra, CHƯA chữa
+
+U53 chốt 07/09 23:15: `[triage] ✅ sổ cách ly RỖNG`. Doctor 09/09 (sau khi
+xoá `brief_watch.json`): **70 mã ĐANG KHÔNG cập nhật giá** — `ACE 1.0853×
+(2026-09-07) · BRC 1.0982× (09-07) · BRR 1.0425× (08-25) · C22 1.0618×
+(09-07) · CHP 1.0685× (08-28) · CTI 1.0998× (08-24) … +64`. Cùng lúc:
+VNINDEX bar cuối **07/09**, market_overview **07/09**, NN ròng **07/09** —
+tức phát 08/09 KHÔNG để lại data trong kho, dù brief close 08/09 vẫn gửi lúc
+**22:58** (pipeline 18:00 + 38′ thì brief ~18:40 — 22:58 là giờ lạ).
+
+Điều duy nhất đọc được từ code, không phải đoán: `record_drift` luôn ghi
+`detected_at = hôm nay`, và không ai xoá mã khỏi sổ ngoài tool rebase. Sổ
+hôm nay có ngày **24/08 · 25/08 · 28/08 · 07/09** ⇒ đây là **bản sổ CŨ sống
+lại** (file bị lùi bản — Dropbox đẻ/đè bản, hoặc lần xoá 07/09 không persist
+— U46 đã gặp `WinError 5` đúng file này), KHÔNG phải 70 mã lệch mới phát hiện
+08/09 (nếu thế ngày phải là 09-08). Chưa biết kho parquet của 73 mã đã chữa có
+bị lùi bản theo không — đó là câu hỏi quan trọng nhất.
+
+**Ba lệnh lấy sự thật, chỉ đọc — làm TRƯỚC 18:00 hoặc sau ~19:30:**
+
+1. 🖥️ DESKTOP — phát 08/09 có chạy không, chạy lúc nào, xong bước nào:
+   ```powershell
+   Get-ScheduledTask -TaskName 'VnStock *' | Get-ScheduledTaskInfo | Format-List TaskName,LastRunTime,LastTaskResult,NextRunTime
+   Select-String -Path run_daily.log -Pattern '⏱|cách ly|conflicted|14/14' | Select-Object -Last 15
+   ```
+2. ○ kho chung — có bản conflicted copy không (sổ lẫn parquet):
+   ```powershell
+   Get-ChildItem data_warehouse\_meta -Filter '*conflicted*'
+   (Get-ChildItem data_warehouse\prices -Recurse -Filter '*conflicted copy*').Count
+   ```
+3. ○ kho chung — đo lại 70 mã: kho có THẬT SỰ lệch nguồn không (chạy thử,
+   không ghi; mất vài phút vì gọi nguồn):
+   ```powershell
+   python scripts\rebase_ticker_history.py --from-drift-ledger --whole-series
+   ```
+   Tool báo "đã sạch, chỉ sổ chưa xoá" hàng loạt ⇒ chỉ là sổ cũ, `--apply`
+   sẽ dọn sổ (○, ngoài 18:00–19:xx). Tool thấy lệch thật ⇒ DÁN CHO CLAUDE
+   trước khi `--apply` — 70 mã lệch lại sau một ngày là chuyện khác hẳn U53.
 
 ## 1. 🎚️ Hai badge "đủ mẫu" — ĐÃ XỬ, và cả hai đều khác dự đoán
 
@@ -185,7 +224,7 @@ hiệu guard đang LÀM VIỆC, không phải hỏng.
 |---|---|
 | **Sổ theo dõi nghi ngờ brief** | Chuyển `⚠️ ĐỦ mẫu, đáng quyết` (Op.CF/vốn hoá · câu dòng tiền ngoại ngược data) |
 | **Hiệu suất auto-heal** | `⚠️` = 0 lành dù đủ mẫu ⇒ quyết hạ trần `VNSTOCK_AUTOHEAL_BUDGET_S=120` hay tắt hẳn |
-| **Lệch cơ sở — mã bị cách ly** | Sổ đang RỖNG (07/09). Có mã mới ⇒ `python scripts\rebase_ticker_history.py --from-drift-ledger --whole-series` (chạy thử) rồi thêm `--apply`. Mã bị từ chối ⇒ `--ticker <MÃ> --explain` |
+| **Lệch cơ sở — mã bị cách ly** | ~~Sổ RỖNG (07/09)~~ **doctor 09/09: 70 mã, ngày cũ ⇒ xem việc #0**. Có mã mới ⇒ `python scripts\rebase_ticker_history.py --from-drift-ledger --whole-series` (chạy thử) rồi thêm `--apply`. Mã bị từ chối ⇒ `--ticker <MÃ> --explain` |
 | **Nới OHLC (bar tự mâu thuẫn)** | Nới sát trần 20% ⇒ soi lại bar đó |
 | **Rổ VN30** | `⚠️ rổ thật đã đổi` ⇒ dán dòng badge cho Claude |
 
@@ -234,7 +273,7 @@ dòng `screener` như thường lệ.
 
 | Việc | Kết quả |
 |---|---|
-| Lệch cơ sở kho giá | **SỔ RỖNG 07/09** — 73 mã chữa trong một tối (76 mã đợt 18-19/08 + 73 đợt này) · V1 chặn tái phát ở đường ghi · công cụ nay có `--whole-series`, `--from-drift-ledger`, `--explain`, `--restore` |
+| Lệch cơ sở kho giá | **SỔ RỖNG 07/09 — nhưng doctor 09/09 lại thấy 70 mã với ngày cũ (việc #0, đang tra)** — 73 mã chữa trong một tối (76 mã đợt 18-19/08 + 73 đợt này) · V1 chặn tái phát ở đường ghi · công cụ nay có `--whole-series`, `--from-drift-ledger`, `--explain`, `--restore` |
 | Rổ VN30 kỳ 08/2026 | Lấy động (API → cache → hằng số) · VÀO BSR·LPB·MCH·TCX·VPL, RỜI BCM·BVH·PLX·POW·TPB · cả 30 mã có giá trong kho |
 | Live mode | `verify_wss_live` ✅ cả 3 bất biến (24/30 mã volume) + **mắt người** xác nhận heatmap chạy |
 | Tốc độ heatmap | Fragment 5s → 2s · tầng nóng (VN30 mỗi vòng, ~1.100 mã mỗi 5 vòng) |
