@@ -144,8 +144,9 @@ tab **Tin tức** → sub-tab **🧭 Phân bổ** → nút **📝 Tạo brief**.
 
 ## 6. 💻 Laptop — merge + nâng vnstock 4.0.7 TRƯỚC desktop
 
-✅ **Laptop ĐÃ merge** `claude/laptop-work-ono4qt` và đo full: **3.158 passed /
-161,8s** (09/09, vnstock 4.0.4) — đúng 3.141 + 17 test mới.
+✅ **Laptop ĐÃ merge** `claude/laptop-work-ono4qt` — full `3.158 passed / 161,8s`
+tại `c969d6a`, rồi `--fast` **2.565 passed / 110,6s** tại `b04c908` (09/09,
+vnstock 4.0.4). Laptop `main` = đầu nhánh.
 
 🖥️ **DESKTOP CHƯA MERGE — vẫn `2.615`, tức brief tối vẫn sinh bằng CODE CŨ**
 (cả 5 lỗi #6–#10 còn nguyên trên Telegram cho tới khi merge). Code không đi
@@ -155,9 +156,12 @@ qua Dropbox nên phải làm ⇄ ở desktop, và làm **NGOÀI 18:00–19:xx** 
 cd C:\vnstock
 git fetch origin claude/laptop-work-ono4qt
 git merge origin/claude/laptop-work-ono4qt
-git log --oneline -1            # phải là c969d6a
-python run.py test --fast       # ~2.561 passed; badge xanh
+git log --oneline -1            # dòng đầu phải ghi (HEAD -> main, origin/claude/laptop-work-ono4qt)
+python run.py test --fast       # ~2.565 passed; badge xanh
 ```
+Hôm nay 09/09 là thứ Tư ⇒ pipeline 18:00 chạy. Merge **trước 18:00** thì brief
+tối nay đã là code mới; không kịp thì đợi bước 14/14 xong (~19:30) rồi merge,
+brief đầu tiên có bản vá là phiên kế tiếp.
 
 **📦 vnstock 4.0.7 đã ra — cổng gỡ chặn 4.0.6 đã mở.** Đúng thứ tự:
 1. 💻 Laptop TRƯỚC: `pip install vnstock==4.0.7` → `run.py doctor --net` +
@@ -236,7 +240,7 @@ dòng `screener` như thường lệ.
 | Rủi ro chạm trần task | 166,3′ → 69,0′ ⇒ đệm 13,7′ → **111′** *(số chưa sạch — xem việc #1)* |
 | Phát tự động trọn vẹn | 21/08, 24/08, 25/08 đều đủ 14 bước và **có brief Telegram** |
 | Chất lượng brief | Guard số chỉ số (trạng từ) · dọn khối tin · GDKHQ không cảnh báo cho ĐHĐCĐ · dải ±3% gọi đúng tên |
-| Đồng bộ code | 💻 laptop **`3.158 passed / 161,8s`** (09/09) = HEAD `c969d6a`; 🖥️ desktop **vẫn `2.615`, chưa merge** — xem việc #6 |
+| Đồng bộ code | 💻 laptop = đầu nhánh `b04c908` (`--fast` 2.565 / 110,6s, full 3.158 tại `c969d6a`); 🖥️ desktop **vẫn `2.615`, chưa merge** — xem việc #6 |
 | `fix-units` đối chứng | 26/08 trên KHO THẬT: `fix_count` khớp, giải nén **ít hơn 1.125×**, bỏ qua **98,6%** mã. Lượt đối chứng còn tìm ra bug HFB (`time` trộn kiểu ⇒ mã bị bỏ sót im lặng) — đã vá (U32) |
 | Sổ lệnh | **Không mất** — 805 briefs · 148 rec · 138 outcome |
 | BCTC ngân hàng 2015-2016 | **TẠM DỪNG** (user chốt 26/08) — đã đo 5 nguồn: `vci` sớm nhất 2018-Q1 (đúng khung, tốt nhất) · `finhay` trần 5 kỳ · `cafef` có 2015-2016 nhưng **sai khung (doanh nghiệp thường)** · `kbs` rỗng · `tcbs` 404. Muốn data cũ hơn ⇒ user xuất Wichart/FiinPro, Claude viết bộ đọc. **Đừng dò lại** — xem U34 `docs/CLAUDE-NOTES.md` |

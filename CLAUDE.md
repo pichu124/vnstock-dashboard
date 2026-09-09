@@ -69,10 +69,11 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   lần**, KHÔNG phải ⇄ CẢ HAI (sửa 19/08).
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~2.561 test; ~58s trên CI).
-- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, 3.158 test).
-  Đo trên MÁY THẬT (💻 laptop) 09/09: **3.158 passed / 161,8s** — khớp CI từng test một
-  (máy thật chậm hơn ~3× vì có kho dữ liệu, không phải vì bỏ test).
+- Sửa module lõi nào → `python run.py test --fast` (~2.565 test; ~58s trên CI,
+  110s máy thật 09/09).
+- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, ~3.162 test).
+  Đo trên MÁY THẬT (💻 laptop) 09/09: **3.158 passed / 161,8s** tại `c969d6a` — khớp
+  CI từng test một (máy thật chậm hơn ~3× vì có kho dữ liệu, không phải vì bỏ test).
 - Kết quả ghi `data_warehouse/_meta/test_status.json` → badge sidebar.
   Badge đỏ = KHÔNG merge/deploy.
 - `--fast` ì → `python run.py test --fast --slow` (20 test chậm nhất). Đo phải
