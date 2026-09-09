@@ -49,8 +49,9 @@ với định chế tài chính thì Op.CF theo VAS gồm cả biến động ti
 loại nhóm này. Sổ đang đếm mã không bao giờ tới được mục Rủi ro.
 
 Đã vá: `scan_ocf_scale` dùng CHUNG danh sách với xếp hạng. KBC (BĐS) vẫn giữ.
-🖥️ **Việc của anh: xoá `data_warehouse\_meta\brief_watch.json` để đếm lại**
-— sổ cũ toàn số rác. Vài phiên nữa badge sẽ nói điều khác.
+○ **Việc của anh (một lần, kho chung — nhãn cũ 🖥️ là sai): xoá
+`data_warehouse\_meta\brief_watch.json` để đếm lại** — sổ cũ toàn số rác. Vài
+phiên nữa badge sẽ nói điều khác.
 
 ## 2. 📊 ĐÃ ĐO XONG phát tối 07/09 — còn đúng một chỗ đáng đào
 
