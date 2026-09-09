@@ -119,10 +119,13 @@ mới nhất trong 3 ngày). Vô hại; chỉ còn hiện ở sub-tab Vĩ mô c�
 Muốn sạch hẳn thì `python vnstock_news_feeds.py --reanalyze --max-analyze 30`
 (≈30 call LLM, ngoài giờ pipeline) — tuỳ, không bắt buộc.
 
-Lượt `--reanalyze` 09/09 cho 3/8 tin trống mà console không nói vì sao ⇒ đã
-thêm vết: từ chối câu cụt thì item mang `_impact_cut`, `--show` in dòng
-`✂ provider cắt giữa câu (<nấc>)`, tổng kết CLI đếm `N bỏ vì provider cắt`, và
-`run_daily.log` có dòng WARNING. Lần chạy sau đọc là biết cắt hay thang cạn.
+Lượt `--reanalyze` 09/09: 3/8 tin trống. Ledger đọc ra: **~nửa câu đầu bị cắt
+ở 256 token** (Gemini 3.5 Flash suy nghĩ tiêu trần — gốc thật của "tác động:
+Nh") và 3 lần gọi lại dính 429 vì bắn sát lần đầu. Đã vá tiếp (U55-1b): kê
+768 token từ đầu · gọi lại lỗi thì đi tiếp nấc kế thay vì trả câu cụt · có vết
+`✂ provider cắt giữa câu (<nấc>)` trong `--show` + tổng kết CLI + WARNING trong
+`run_daily.log`. Lần `--refresh` sau kỳ vọng: **12 call cho 8 tin → ~8-9**,
+không còn dòng `✂` (có thì dán cho Claude).
 
 Rồi brief close **ĐẦU TIÊN SAU KHI DESKTOP MERGE** (xem #6 — trước đó brief
 vẫn là code cũ, soi cũng vô ích), soi 4 chỗ (dán cho Claude nếu lệch):

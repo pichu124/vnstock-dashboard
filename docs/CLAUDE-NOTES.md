@@ -7053,6 +7053,32 @@ tự đá nhau với luật `< 0.05`. Chốt 3 số lẻ, đổi đúng một ch
 `:+.3f` ở header khối ngành); guard `enforce_lead_lag` và 6 test đang pin
 chuỗi 3 số lẻ giữ nguyên.
 
+## (1b) Ledger máy thật đọc ra GỐC của (1) — và một lỗ của chính bản vá
+
+User chạy `--refresh --reanalyze` (8 tin) rồi `vnstock_llm_ledger.py --show`:
+`gemini-3.5-flash 12 call · 8 OK · 4 lỗi (3 rate-limit)`, `flash-lite 1 OK`.
+Ghép được đúng từng con số: 3 tin sạch · 1 tin cắt→gọi lại OK · 1 tin flash
+lỗi→lite đỡ · **3 tin cắt→gọi lại dính 429→trống**. Hai kết luận:
+
+* **~nửa câu trả lời đầu bị cắt ở 256 token.** Gemini 3.5 Flash là model SUY
+  NGHĨ — tiêu trần vào phần nghĩ trước khi viết, y hệt bệnh gpt-oss đã biết ở
+  ladder sentiment (Groq kê 256 + `reasoning_effort=low`). Đây mới là gốc của
+  "— tác động: Nh"; `max_tokens=120` chỉ là bề mặt. Vá: `_ANALYZE_MAX_TOKENS
+  = 768` kê từ đầu (token không dùng không tính tiền; cắt-rồi-gọi-lại trả tiền
+  hai lần VÀ bắn hai call sát nhau ⇒ 429). Retry ×3 vẫn đứng sau làm lưới.
+  Ý còn để dành, CHƯA làm vì phải probe trên máy thật trước: gửi
+  `reasoning_effort=low` cho Gemini qua endpoint OpenAI-compat (Groq đã có).
+* **Gọi lại lỗi mà trả câu cụt về là sai chỗ.** Bản đầu tôi lý luận "đổi
+  model chỉ vì một lỗi HTTP ngẫu nhiên là sai" — thực tế lỗi đó là 429 do
+  chính mình bắn sát, và câu cụt về tay `analyze_item` thì bị từ chối ⇒ tin
+  trống trong khi flash-lite/Groq còn sống, chưa hề được gọi. Nay gọi lại lỗi
+  ⇒ **đi tiếp nấc kế**; câu cụt chỉ là lưới CUỐI khi cạn thang (vẫn hơn tay
+  trắng cho reflection; analyze_item vẫn từ chối vì `truncated=True`).
+
+Hai câu cụt cũ của 08/09 **không cần dọn**: `--reanalyze` chỉ chấm lại 8 tin
+mới nhất mà 09/09 đã có 12 tin, nhưng chúng cũng đã rơi khỏi cửa sổ brief
+(6 tin mới nhất / 3 ngày). Muốn sạch cho sub-tab Vĩ mô thì `--max-analyze 30`.
+
 ## Không phải lỗi (đã kiểm, đừng mở lại)
 
 * **MA20 ≈ MA50 ≈ MA200 (1,784/1,784/1,786)** — user đo trên máy thật: 664

@@ -261,6 +261,10 @@ def chat_complete_ex(system: str, user: str, max_tokens: int = 80,
         text = strip_think_tags((choice.get("message") or {}).get("content") or "")
         return text, choice.get("finish_reason")
 
+    # Câu cụt giữ lại làm lưới CUỐI: chỉ trả khi cạn thang — ledger 09/09 cho
+    # thấy lần gọi lại hay dính 429 (bắn ngay sau lần đầu), mà trả câu cụt về
+    # là caller (analyze_item) từ chối ⇒ tin trống trong khi nấc kế còn sống.
+    cut_fallback: "dict | None" = None
     for p in _PROVIDERS:
         key = (os.environ.get(p["env"]) or "").strip()
         if not key:
@@ -280,14 +284,21 @@ def chat_complete_ex(system: str, user: str, max_tokens: int = 80,
                 _ledger_record(p["name"], model, ok=False, error=str(e))
                 continue
             if _is_truncated(fin):
-                # Bị cắt giữa câu → thử lại đúng nấc này với trần rộng hơn;
-                # lỗi thì giữ kết quả lần đầu (đã có chữ) chứ không rơi nấc.
+                # Bị cắt giữa câu → thử lại đúng nấc này với trần rộng hơn.
                 try:
                     text, fin = _post(p, key, model, floor_mt * _TRUNCATE_RETRY_X)
                 except Exception as e:
                     _ledger_record(p["name"], model, ok=False, error=str(e))
+                    # gọi lại lỗi (thường là 429 vì bắn sát lần đầu) → giữ câu
+                    # cụt làm lưới cuối, rồi ĐI TIẾP nấc kế để lấy câu trọn
+                    cut_fallback = cut_fallback or {
+                        "text": text, "model": f"{p['name']}:{model}",
+                        "finish_reason": fin, "truncated": True}
+                    continue
             return {"text": text, "model": f"{p['name']}:{model}",
                     "finish_reason": fin, "truncated": _is_truncated(fin)}
+    if cut_fallback:
+        return cut_fallback          # cạn thang: câu cụt vẫn hơn tay trắng
     _alert_down("chat_complete (chấm tin/analyze fallback)")
     return None
 

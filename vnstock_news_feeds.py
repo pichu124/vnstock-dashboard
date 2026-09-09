@@ -105,6 +105,14 @@ _MARKET_KEYWORDS: tuple[str, ...] = (
 _log = logging.getLogger(__name__)
 
 _MAX_ANALYZE_DEFAULT = 8       # cap LLM calls per refresh (token control)
+# Trần token cho MỘT lần chấm tin. Từng là 120 (sàn provider nâng lên 256) —
+# ledger 09/09: 8 tin mà gemini-3.5-flash ăn 12 call, tức ~nửa câu trả lời
+# đầu bị cắt ở 256 rồi phải gọi lại. Model SUY NGHĨ tiêu trần vào phần nghĩ
+# trước khi viết (bệnh gpt-oss đã biết ở ladder sentiment). Kê rộng từ đầu:
+# token không dùng thì không tính tiền, còn cắt-rồi-gọi-lại là trả tiền hai
+# lần VÀ bắn hai call sát nhau ⇒ dính 429. Lưới retry ×3 của chat_complete_ex
+# vẫn đứng sau.
+_ANALYZE_MAX_TOKENS = 768
 _RETAIN_DAYS = 30              # tin cũ giữ trong cache cho sub-tab Vĩ mô đọc lại
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 
@@ -342,13 +350,13 @@ def analyze_item(item: dict) -> tuple[str, str]:
         try:
             from vnstock_sentiment import anthropic_complete_ex
             res = anthropic_complete_ex(
-                _ANALYZE_SYSTEM, user, max_tokens=120,
+                _ANALYZE_SYSTEM, user, max_tokens=_ANALYZE_MAX_TOKENS,
                 model=os.environ.get(_ANALYZE_MODEL_ENV)
                 or _ANALYZE_MODEL_DEFAULT)
         except Exception:
             res = None
     if not res or not res.get("text"):
-        res = chat_complete_ex(_ANALYZE_SYSTEM, user, max_tokens=120,
+        res = chat_complete_ex(_ANALYZE_SYSTEM, user, max_tokens=_ANALYZE_MAX_TOKENS,
                                model_map=_ANALYZE_MODELS)
     if not res or not res.get("text"):
         return "", ""

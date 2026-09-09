@@ -180,6 +180,22 @@ def test_reanalyze_clears_the_cut_marker_before_rescoring(tmp_path, monkeypatch)
     assert all(it["_impact"] == "ok" and "_impact_cut" not in it for it in items)
 
 
+def test_analyze_item_asks_for_a_wide_token_cap_up_front(monkeypatch):
+    """Ledger 09/09: ~nửa câu đầu bị cắt ở 256 (model suy nghĩ tiêu trần) rồi
+    phải gọi lại — trả tiền hai lần và bắn hai call sát nhau (429). Kê rộng từ
+    đầu; retry ×3 chỉ còn là lưới."""
+    monkeypatch.setenv(nf._ANALYZE_PAID_ENV, "0")
+    monkeypatch.setenv("VNSTOCK_NEWS_FULLTEXT", "0")
+    seen = {}
+
+    def _fake(system, user, max_tokens=None, model_map=None):
+        seen["max_tokens"] = max_tokens
+        return _ex("TÍCH_CỰC | ok")
+    monkeypatch.setattr("vnstock_sentiment.chat_complete_ex", _fake)
+    nf.analyze_item({"title": "t"})
+    assert seen["max_tokens"] == nf._ANALYZE_MAX_TOKENS >= 768
+
+
 def test_analyze_system_prompt_enforces_direction_consistency():
     # The impact must follow the headline's direction — guards against the
     # observed "giá vàng GIẢM → PNJ hưởng lợi từ giá vàng CAO" contradiction.

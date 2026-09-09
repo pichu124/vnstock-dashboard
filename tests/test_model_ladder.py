@@ -191,10 +191,45 @@ def test_chat_complete_ex_flags_a_cut_that_survives_the_retry(
     assert snt.chat_complete("s", "u") == "TRUNG_LẬP | Nh"
 
 
-def test_chat_complete_ex_keeps_first_answer_when_the_retry_errors(
+def test_chat_complete_ex_moves_to_the_next_rung_when_the_retry_errors(
         monkeypatch, _tmp_meta):
-    """Lần gọi lại lỗi mạng → giữ đáp án lần đầu (đã có chữ) chứ KHÔNG rơi
-    xuống nấc kế — rơi nấc là đổi model chỉ vì một lỗi HTTP ngẫu nhiên."""
+    """Ledger 09/09 (máy thật): 8 tin → 12 call flash, 3/4 lỗi là 429 ở lần
+    GỌI LẠI (bắn sát lần đầu). Bản đầu trả câu cụt về ⇒ analyze_item từ chối
+    ⇒ 3 tin trống trong khi flash-lite/Groq còn sống. Nay: gọi lại lỗi → đi
+    tiếp nấc kế; câu cụt chỉ là lưới cuối khi cạn thang."""
+    calls = []
+
+    def _post(url, headers=None, json=None, timeout=None):
+        calls.append(json)
+        if "generativelanguage" in url:
+            if len(calls) == 1:
+                body = _openai_body("TRUNG_LẬP | Nh")
+                body["choices"][0]["finish_reason"] = "length"
+                return _Resp(body)
+            return _Resp({}, status=429)          # gọi lại dính rate-limit
+        body = _openai_body("TRUNG_LẬP | Nhóm điện tử chịu áp lực nhập siêu")
+        body["choices"][0]["finish_reason"] = "stop"
+        return _Resp(body)
+
+    monkeypatch.setattr("requests.post", _post)
+    for env in ("CEREBRAS_API_KEY", "OPENROUTER_API_KEY"):
+        monkeypatch.delenv(env, raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "gk")
+    monkeypatch.setenv("GROQ_API_KEY", "gk")
+
+    out = snt.chat_complete_ex("s", "u", model_map={"Gemini": "gemini-3.5-flash"})
+    # flash: đầu (cụt) + gọi lại (429); flash-lite: 429; Groq: trọn câu
+    assert [c["model"] for c in calls] == [
+        "gemini-3.5-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite",
+        "openai/gpt-oss-20b"]
+    assert out["truncated"] is False and out["model"] == "Groq:openai/gpt-oss-20b"
+    assert out["text"] == "TRUNG_LẬP | Nhóm điện tử chịu áp lực nhập siêu"
+
+
+def test_chat_complete_ex_returns_the_cut_answer_only_when_the_ladder_is_dry(
+        monkeypatch, _tmp_meta):
+    """Cạn thang thật thì câu cụt vẫn hơn tay trắng — trả kèm truncated=True
+    để caller tự quyết (analyze_item vẫn từ chối, reflection thì dùng)."""
     calls = []
 
     def _post(url, headers=None, json=None, timeout=None):
@@ -212,8 +247,9 @@ def test_chat_complete_ex_keeps_first_answer_when_the_retry_errors(
     monkeypatch.setenv("GROQ_API_KEY", "gk")
 
     out = snt.chat_complete_ex("s", "u")
-    assert len(calls) == 2 and out["model"].startswith("Gemini:")
+    assert len(calls) == 3                          # lite: đầu (cụt) + gọi lại (503); Groq: 503
     assert out["truncated"] is True and out["text"] == "TRUNG_LẬP | Nh"
+    assert out["model"].startswith("Gemini:")
 
 
 def test_is_truncated_covers_every_wire_format():
