@@ -3157,6 +3157,61 @@ def test_enforce_no_instruction_leak_strips_echoed_guidance():
     assert enforce_no_instruction_leak(t2, {}) == t2
 
 
+def test_enforce_no_header_scaffold_strips_length_hints_from_headers():
+    """Close 08/09/2026 gửi Telegram nguyên "🎯 TLDR (2 dòng)" và "🔧 Đề xuất bổ
+    sung (1 dòng, optional)" — template ghi độ dài mong muốn ngay trong header
+    (vnstock_brief.py) và model chép y nguyên. Chữ cho MODEL không được tới
+    người đọc; nội dung có ngoặc thì để yên."""
+    from vnstock_brief import enforce_no_header_scaffold
+    text = ("## 🎯 TLDR (2 dòng)\n"
+            "**Kết quả phiên:** VNINDEX đóng cửa 1,830.44 (+0.48%).\n"
+            "**📊 Tổng kết phiên (2-3 câu):**\nGTGD giảm 13% (2 phiên liền).\n"
+            "## 🔧 Đề xuất bổ sung (1 dòng, optional)\n"
+            "Cần bổ sung giá dầu Brent (1 dòng là đủ).\n"
+            "🎯 TLDR (2 dòng)\n")            # dạng đã qua Telegram (bỏ ##)
+    fixed = enforce_no_header_scaffold(text, {})
+    lines = fixed.splitlines()
+    assert lines[0] == "## 🎯 TLDR"
+    assert lines[2] == "**📊 Tổng kết phiên:**"
+    assert lines[4] == "## 🔧 Đề xuất bổ sung"
+    assert lines[6] == "🎯 TLDR"
+    # nội dung giữ nguyên — kể cả ngoặc trông giống chú thích
+    assert "VNINDEX đóng cửa 1,830.44 (+0.48%)." in fixed
+    assert "GTGD giảm 13% (2 phiên liền)." in fixed
+    assert "Cần bổ sung giá dầu Brent (1 dòng là đủ)." in fixed
+    # idempotent + brief sạch không đụng
+    assert enforce_no_header_scaffold(fixed, {}) == fixed
+    t2 = "🎯 TLDR\nVNINDEX -0.28% (phiên 2)."
+    assert enforce_no_header_scaffold(t2, {}) == t2
+
+
+def test_close_template_headers_are_cleaned_end_to_end():
+    """Đầu-cuối qua chuỗi guard thật: đúng hai header của template close mà
+    model chép nguyên phải ra sạch sau apply_brief_guards."""
+    from vnstock_brief import apply_brief_guards
+    text = ("## 🎯 TLDR (2 dòng)\n**Stance ngày mai:** TRUNG TÍNH.\n"
+            "## 🔧 Đề xuất bổ sung (1 dòng, optional)\nKhông cần bổ sung.\n")
+    fixed = apply_brief_guards(text, {"brief_type": "afternoon"})
+    assert "(2 dòng)" not in fixed and "optional" not in fixed
+    assert "## 🎯 TLDR" in fixed and "## 🔧 Đề xuất bổ sung" in fixed
+
+
+def test_sector_block_header_pp_has_three_decimals_like_the_lead_lag_block():
+    """Close 08/09: "Dẫn dắt: Họ VIN [25.2%VNI, đóng góp +0.81pp]" cạnh "Tụt hậu:
+    Ngân hàng [đóng góp -0.260pp]" — header khối ngành in 2 số lẻ, block chốt
+    lead/lag + guard in 3. Chốt 3: ngưỡng 0.05pp nằm ở số lẻ thứ 2, in 2 số
+    lẻ thì "+0.05pp < 0.05" tự đá nhau."""
+    ctx = {"date": "2026-09-08", "time": "15:00",
+           "quant_top": [{"Ngành": "Họ VIN"}],
+           "quant_avoid": [{"Ngành": "Ngân hàng"}],
+           "sector_weights": {"Họ VIN": {"_weight": 0.252, "_1d_contrib": 0.8123},
+                              "Ngân hàng": {"_weight": 0.21, "_1d_contrib": -0.2604}}}
+    prompt = build_prompt(ctx, brief_type="afternoon")
+    assert "**Họ VIN** [25.2%VNI, đóng góp +0.812pp (1 tuần)]" in prompt
+    assert "**Ngân hàng** [21.0%VNI, đóng góp -0.260pp (1 tuần)]" in prompt
+    assert "+0.81pp" not in prompt
+
+
 def test_build_prompt_movers_header_is_liquidity_not_vn30():
     ctx = {"date": "2026-06-09", "time": "15:00",
            "vn30_gainers": [{"Mã": "GEX", "Giá 1T %": 8.0, "Ngành": "CN",

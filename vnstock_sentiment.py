@@ -204,26 +204,63 @@ def available_provider() -> Optional[str]:
     return None
 
 
-def chat_complete(system: str, user: str, max_tokens: int = 80,
-                  model_map: "dict | None" = None,
-                  with_model: bool = False):
-    """Generic one-shot chat over the provider ladder (Groq→Cerebras→OpenRouter).
+# Provider CẮT đáp án vì chạm trần max_tokens: OpenAI-compat (Groq/Cerebras/
+# OpenRouter + endpoint compat của Gemini) trả finish_reason "length", Gemini
+# native "MAX_TOKENS", Anthropic stop_reason "max_tokens". Close 08/09: khối
+# tin in "— tác động: Nh" — câu bị cắt giữa từ KHÔNG có "…", tức không phải
+# sanitize_impact (nó cắt ở biên từ + thêm "…") mà là provider cắt ở 120 token,
+# rồi câu cụt trông y hệt câu ngắn hợp lệ nên lọt vào cache vĩnh viễn. Nay
+# đọc lý do dừng: bị cắt → gọi lại ĐÚNG nấc đó một lần với trần rộng gấp
+# _TRUNCATE_RETRY_X, và trả cờ `truncated` để caller quyết (analyze_item
+# KHÔNG cache câu cụt).
+_TRUNCATED_REASONS = frozenset({"length", "max_tokens"})
+_TRUNCATE_RETRY_X = 3
 
-    Returns the raw assistant text, or None when no provider key works / all
-    fail. Additive helper (does not change score_one's behaviour) reused by the
-    market-news analyzer to get sentiment + a one-line impact in a single call.
+
+def _is_truncated(finish_reason) -> bool:
+    """True khi lý do dừng của provider là "hết token" (mọi wire format)."""
+    return str(finish_reason or "").strip().lower() in _TRUNCATED_REASONS
+
+
+def chat_complete_ex(system: str, user: str, max_tokens: int = 80,
+                     model_map: "dict | None" = None) -> "dict | None":
+    """One-shot chat qua ladder provider, trả KÈM lý do dừng.
+
+    ``{"text", "model": "Provider:model", "finish_reason", "truncated"}`` —
+    nấc THẬT đã trả lời; ``None`` khi cạn thang. Provider cắt vì hết token →
+    gọi lại đúng nấc đó MỘT lần với trần rộng hơn (bị cắt lần nữa hoặc lỗi
+    thì trả kết quả lần đầu kèm ``truncated=True`` — caller tự quyết có dùng
+    câu cụt không). ``chat_complete`` là wrapper giữ chữ ký cũ.
 
     ``model_map`` ({provider_name: model}) overrides the default per-provider
     model — e.g. a stronger 70B for nuanced analysis — and falls back to the
     provider's default model if the override is rejected.
-
-    ``with_model=True`` đổi kiểu trả về thành ``(text, "Provider:model")`` —
-    nấc THẬT đã trả lời, để caller ghi sổ (điểm [8] classifier ghi cột `model`
-    của kho phân loại). Cạn thang → ``(None, "")``. Mặc định False giữ nguyên
-    chữ ký cũ cho mọi caller sẵn có.
     """
     model_map = model_map or {}
     import requests as _req
+
+    def _post(p: dict, key: str, model: str, mt: int) -> tuple:
+        resp = _req.post(
+            p["endpoint"],
+            headers={"Content-Type": "application/json",
+                     "Authorization": f"Bearer {key}"},
+            json={"model": model, "max_tokens": mt,
+                  "temperature": 0,
+                  "messages": [{"role": "system", "content": system},
+                               {"role": "user", "content": user}],
+                  # extra tune cho model MẶC ĐỊNH của provider (vd
+                  # reasoning_effort của gpt-oss) — model override
+                  # khác họ có thể 400 vì param lạ → không gửi kèm
+                  **((p.get("extra") or {}) if model == p["model"] else {})},
+            timeout=25,
+        )
+        resp.raise_for_status()
+        body = resp.json()
+        _ledger_record(p["name"], model, ok=True, usage=body.get("usage"))
+        choice = (body.get("choices") or [{}])[0] or {}
+        text = strip_think_tags((choice.get("message") or {}).get("content") or "")
+        return text, choice.get("finish_reason")
+
     for p in _PROVIDERS:
         key = (os.environ.get(p["env"]) or "").strip()
         if not key:
@@ -238,32 +275,45 @@ def chat_complete(system: str, user: str, max_tokens: int = 80,
         floor_mt = max(max_tokens, int(p.get("max_tokens") or 0))
         for model in models:
             try:
-                resp = _req.post(
-                    p["endpoint"],
-                    headers={"Content-Type": "application/json",
-                             "Authorization": f"Bearer {key}"},
-                    json={"model": model, "max_tokens": floor_mt,
-                          "temperature": 0,
-                          "messages": [{"role": "system", "content": system},
-                                       {"role": "user", "content": user}],
-                          # extra tune cho model MẶC ĐỊNH của provider (vd
-                          # reasoning_effort của gpt-oss) — model override
-                          # khác họ có thể 400 vì param lạ → không gửi kèm
-                          **((p.get("extra") or {}) if model == p["model"] else {})},
-                    timeout=25,
-                )
-                resp.raise_for_status()
-                body = resp.json()
-                _ledger_record(p["name"], model, ok=True,
-                               usage=body.get("usage"))
-                text = strip_think_tags(
-                    body["choices"][0]["message"]["content"] or "")
-                return (text, f"{p['name']}:{model}") if with_model else text
+                text, fin = _post(p, key, model, floor_mt)
             except Exception as e:
                 _ledger_record(p["name"], model, ok=False, error=str(e))
                 continue
+            if _is_truncated(fin):
+                # Bị cắt giữa câu → thử lại đúng nấc này với trần rộng hơn;
+                # lỗi thì giữ kết quả lần đầu (đã có chữ) chứ không rơi nấc.
+                try:
+                    text, fin = _post(p, key, model, floor_mt * _TRUNCATE_RETRY_X)
+                except Exception as e:
+                    _ledger_record(p["name"], model, ok=False, error=str(e))
+            return {"text": text, "model": f"{p['name']}:{model}",
+                    "finish_reason": fin, "truncated": _is_truncated(fin)}
     _alert_down("chat_complete (chấm tin/analyze fallback)")
-    return (None, "") if with_model else None
+    return None
+
+
+def chat_complete(system: str, user: str, max_tokens: int = 80,
+                  model_map: "dict | None" = None,
+                  with_model: bool = False):
+    """Generic one-shot chat over the provider ladder (Groq→Cerebras→OpenRouter).
+
+    Returns the raw assistant text, or None when no provider key works / all
+    fail. Additive helper (does not change score_one's behaviour) reused by the
+    market-news analyzer to get sentiment + a one-line impact in a single call.
+
+    ``with_model=True`` đổi kiểu trả về thành ``(text, "Provider:model")`` —
+    nấc THẬT đã trả lời, để caller ghi sổ (điểm [8] classifier ghi cột `model`
+    của kho phân loại). Cạn thang → ``(None, "")``. Mặc định False giữ nguyên
+    chữ ký cũ cho mọi caller sẵn có.
+
+    Wrapper mỏng trên ``chat_complete_ex`` — cần biết đáp án có bị provider
+    cắt không thì gọi thẳng bản ``_ex``.
+    """
+    out = chat_complete_ex(system, user, max_tokens=max_tokens,
+                           model_map=model_map)
+    if out is None:
+        return (None, "") if with_model else None
+    return (out["text"], out["model"]) if with_model else out["text"]
 
 
 _ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1/messages"
@@ -273,20 +323,25 @@ _ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1/messages"
 _ANTHROPIC_MODEL_DEFAULT = "claude-haiku-4-5-20251001"
 
 
-def anthropic_complete(system: str, user: str, max_tokens: int = 120,
-                       model: Optional[str] = None) -> Optional[str]:
+def anthropic_complete_ex(system: str, user: str, max_tokens: int = 120,
+                          model: Optional[str] = None) -> "dict | None":
     """One-shot Anthropic Messages API — route TRẢ PHÍ cho tác vụ cần nuance
     hơn ladder free (TODO 1b: chấm tin ≤8 call/ngày → chi phí nhỏ; 70B free
     hay bịa chiều tác động). Wire format khác OpenAI-compat: system là field
     riêng, header x-api-key + anthropic-version, text nằm trong content
-    blocks. None khi thiếu key / lỗi / rỗng — caller tự fallback ladder free.
+    blocks, lý do dừng ở ``stop_reason`` ("max_tokens" = bị cắt → gọi lại
+    một lần với trần rộng hơn, như ``chat_complete_ex``).
+
+    Trả ``{"text", "model", "finish_reason", "truncated"}``; None khi thiếu
+    key / lỗi / rỗng — caller tự fallback ladder free.
     """
     key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
     if not key:
         return None
     model = (model or "").strip() or _ANTHROPIC_MODEL_DEFAULT
-    try:
-        import requests as _req
+    import requests as _req
+
+    def _post(mt: int) -> tuple:
         resp = _req.post(
             _ANTHROPIC_ENDPOINT,
             headers={
@@ -294,7 +349,7 @@ def anthropic_complete(system: str, user: str, max_tokens: int = 120,
                 "x-api-key": key,
                 "anthropic-version": "2023-06-01",
             },
-            json={"model": model, "max_tokens": max_tokens,
+            json={"model": model, "max_tokens": mt,
                   "system": system,
                   "messages": [{"role": "user", "content": user}]},
             timeout=25,
@@ -304,10 +359,30 @@ def anthropic_complete(system: str, user: str, max_tokens: int = 120,
         _ledger_record("Anthropic", model, ok=True, usage=body.get("usage"))
         text = "".join(b.get("text", "") for b in (body.get("content") or [])
                        if isinstance(b, dict) and b.get("type") == "text")
-        return strip_think_tags(text) or None
+        return strip_think_tags(text), body.get("stop_reason")
+
+    try:
+        text, fin = _post(max_tokens)
     except Exception as e:
         _ledger_record("Anthropic", model, ok=False, error=str(e))
         return None
+    if _is_truncated(fin):
+        try:
+            text, fin = _post(max_tokens * _TRUNCATE_RETRY_X)
+        except Exception as e:
+            _ledger_record("Anthropic", model, ok=False, error=str(e))
+    if not text:
+        return None
+    return {"text": text, "model": f"Anthropic:{model}",
+            "finish_reason": fin, "truncated": _is_truncated(fin)}
+
+
+def anthropic_complete(system: str, user: str, max_tokens: int = 120,
+                       model: Optional[str] = None) -> Optional[str]:
+    """Wrapper giữ chữ ký cũ của ``anthropic_complete_ex``: chỉ trả text
+    (None khi thiếu key / lỗi / rỗng)."""
+    out = anthropic_complete_ex(system, user, max_tokens=max_tokens, model=model)
+    return out["text"] if out else None
 
 
 def score_one(item: dict) -> tuple[str, str, Optional[str]]:

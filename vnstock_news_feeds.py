@@ -323,7 +323,7 @@ def analyze_item(item: dict) -> tuple[str, str]:
     prompt — chỉ chạy cho tin ĐƯỢC chấm (caller đã giới hạn ≤ max_analyze) nên
     số request nhỏ; fail thì prompt giữ nguyên title+summary."""
     try:
-        from vnstock_sentiment import chat_complete, _SENTIMENT_MAP
+        from vnstock_sentiment import chat_complete_ex, _SENTIMENT_MAP
     except Exception:
         return "", ""
     user = f"Tiêu đề: {item.get('title','')}"
@@ -334,21 +334,28 @@ def analyze_item(item: dict) -> tuple[str, str]:
         body = fetch_fulltext(item.get("link", ""))
         if body:
             user += f"\nNội dung bài (rút gọn): {body}"
-    raw = None
+    res = None
     if _paid_analyze_enabled():
         try:
-            from vnstock_sentiment import anthropic_complete
-            raw = anthropic_complete(
+            from vnstock_sentiment import anthropic_complete_ex
+            res = anthropic_complete_ex(
                 _ANALYZE_SYSTEM, user, max_tokens=120,
                 model=os.environ.get(_ANALYZE_MODEL_ENV)
                 or _ANALYZE_MODEL_DEFAULT)
         except Exception:
-            raw = None
-    if not raw:
-        raw = chat_complete(_ANALYZE_SYSTEM, user, max_tokens=120,
-                            model_map=_ANALYZE_MODELS)
-    if not raw:
+            res = None
+    if not res or not res.get("text"):
+        res = chat_complete_ex(_ANALYZE_SYSTEM, user, max_tokens=120,
+                               model_map=_ANALYZE_MODELS)
+    if not res or not res.get("text"):
         return "", ""
+    if res.get("truncated"):
+        # Provider cắt giữa câu (close 08/09: "— tác động: Nh" / "Tỷ giá") —
+        # đã thử lại một lần với trần rộng hơn mà vẫn cụt. Câu cụt trông y hệt
+        # câu ngắn hợp lệ nên sanitize_impact KHÔNG phân biệt được; mà refresh
+        # giữ phân tích cũ mãi ⇒ KHÔNG ghi cache, để lượt refresh sau chấm lại.
+        return "", ""
+    raw = res["text"]
     head, _, impact = raw.partition("|")
     low = head.lower()
     sentiment = next((v for k, v in _SENTIMENT_MAP.items() if k in low), "neutral")

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re as _re
 
-from vnstock_brief_guards_common import _parse_vn_number
+from vnstock_brief_guards_common import _is_section_start, _parse_vn_number
 
 
 _CJK_RE = _re.compile(r"[㐀-䶿一-鿿豈-﫿]+")
@@ -98,6 +98,39 @@ def enforce_no_instruction_leak(text: str, ctx: dict | None = None) -> str:
     if len(kept) == len(src):
         return text
     return "\n".join(kept)
+
+
+# Template ghi độ dài mong muốn NGAY TRONG header — "## 🎯 TLDR (2 dòng)",
+# "## 🔧 Đề xuất bổ sung (1 dòng, optional)" — và model chép nguyên header ra
+# bản gửi Telegram (close 08/09/2026: cả hai lọt). "(2 dòng)"/"optional" là chữ
+# cho MODEL, không phải cho người đọc. Chỉ đụng DÒNG HEADER (## / emoji mục),
+# và chỉ cắt ngoặc ở CUỐI header chứa "N dòng/câu" hoặc "optional" — câu nội
+# dung có ngoặc ("(2 dòng)" giữa câu) không phải header nên không bị đụng.
+_HEADER_SCAFFOLD_RE = _re.compile(
+    r"^(?P<head>.*?\S)\s*\((?:[\d\-–]+\s*(?:dòng|câu)\b[^)]*|[^)]*\boptional\b[^)]*)\)"
+    r"(?P<tail>[\s:*]*)$",
+    _re.IGNORECASE,
+)
+
+
+def enforce_no_header_scaffold(text: str, ctx: dict | None = None) -> str:
+    """Xoá chú thích độ dài/optional mà template gắn vào header khỏi brief:
+    "## 🎯 TLDR (2 dòng)" → "## 🎯 TLDR", "**📊 Tổng kết (2-3 câu):**" →
+    "**📊 Tổng kết:**". Dòng in đậm chỉ được đụng khi ngoặc nằm TRONG phần
+    đậm (đuôi còn "**") — nhãn đậm mở đầu một câu nội dung thì để yên.
+    No-op khi sạch; idempotent."""
+    if not text or "(" not in text:
+        return text
+    out, changed = [], False
+    for ln in text.splitlines():
+        is_hdr = _is_section_start(ln)
+        is_bold = ln.lstrip().startswith("**")
+        if is_hdr or is_bold:
+            m = _HEADER_SCAFFOLD_RE.match(ln)
+            if m and (is_hdr or "**" in m.group("tail")):
+                ln, changed = m.group("head") + m.group("tail").rstrip(), True
+        out.append(ln)
+    return "\n".join(out) if changed else text
 
 
 # The risk-section format example uses a "<tên mã>" placeholder the model

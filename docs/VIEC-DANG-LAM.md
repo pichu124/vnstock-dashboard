@@ -2,7 +2,7 @@
 
 > Bản để LÀM THEO. Kho lưu chi tiết (lý do, file:line, lịch sử) ở
 > `docs/CLAUDE-NOTES.md` — đừng mở nó để biết "hôm nay làm gì".
-> Cập nhật: 09/09/2026 — soi brief close 08/09; NSO đã có kỳ tháng 8.
+> Cập nhật: 09/09/2026 — 5 lỗi brief close 08/09 ĐÃ VÁ (#6–#10, U55); NSO đã có kỳ tháng 8.
 
 ## 🏷️ NHÃN MÁY — quy tắc gốc: KHO đồng bộ, CODE thì không
 
@@ -108,7 +108,24 @@ python scripts\probe_models.py --slug "OpenRouter=<slug>"
 Brief close 08/09 đã ghi **CPI 4.89% · IIP 14.4% · cán cân −0.12 tỷ USD, tất
 cả `as_of 2026-08-31`** — kỳ tháng 8 đã về, không còn kẹt ở `2026-07-31`. GDP
 vẫn `2026-06-30` là ĐÚNG (quý). ⇒ mạng nhà KHÔNG chặn NSO, bỏ luôn việc phát
-4G. *(Jina vẫn nằm ngoài phạm vi này — xem #7.)*
+4G. *(Jina ⚠️ cùng cụm nhưng **không gấp** — chỉ làm tin chấm bằng title+summary.)*
+
+## 4b. 📰 Sau đợt vá brief 09/09 — ○ MỘT LẦN dọn cache + đối chiếu brief kế tiếp
+
+Hai câu cụt (`— tác động: Nh`, `— tác động: Tỷ giá`) **vẫn nằm trong cache**
+`_meta/market_news_cache.json` (kho chung) — bản vá chỉ chặn câu cụt MỚI.
+Dọn một lần, máy nào cũng được:
+```powershell
+python vnstock_news_feeds.py --refresh --reanalyze    # chấm lại 8 tin mới nhất
+python vnstock_news_feeds.py --show                   # không còn dòng "tác động:" cụt
+```
+Rồi brief close kế tiếp, soi 4 chỗ (dán cho Claude nếu lệch):
+1. Header không còn `(2 dòng)` / `(1 dòng, optional)`.
+2. Dòng "Kỳ hạn & đường cong": nếu 10Y − điều hành vẫn trong ±0.10 thì phải
+   đọc là *"mỏng — sát 0 (… chưa tính ÂM)"*, và điểm band phân bổ nhích lên
+   (−0.12 → khoảng −0.07 nếu các gauge khác giữ nguyên).
+3. "Sự kiện sắp tới" KHÔNG còn sự kiện ngày của chính phiên đó.
+4. Dẫn dắt/Tụt hậu cùng 3 số lẻ `pp`.
 
 ## 5. 🧭 Brief phân bổ tháng 9 — 🖥️ desktop, trong dashboard
 
@@ -118,12 +135,14 @@ tab **Tin tức** → sub-tab **🧭 Phân bổ** → nút **📝 Tạo brief**.
 
 ## 6. 💻 Laptop — merge + nâng vnstock 4.0.7 TRƯỚC desktop
 
-Laptop đang ở `2.615`, HEAD là **`3.141`** (07/09, sau `--whole-series`).
+Laptop đang ở `2.615`, HEAD là **`3.141` + 17 test mới** (09/09, đợt vá brief
+#6–#10 — nhánh `claude/laptop-work-ono4qt`, đã gộp sẵn lịch sử `main` 09/08).
 
 ```powershell
 cd C:\vnstock
-git pull origin claude/tong-hop-cong-viec-test-w8mvrc
-python run.py test          # phải ra 3.141 passed
+git fetch origin claude/laptop-work-ono4qt
+git merge origin/claude/laptop-work-ono4qt
+python run.py test          # kỳ vọng ≈3.158 passed (3.141 + 17)
 ```
 
 **📦 vnstock 4.0.7 đã ra — cổng gỡ chặn 4.0.6 đã mở.** Đúng thứ tự:
@@ -164,11 +183,11 @@ hiệu guard đang LÀM VIỆC, không phải hỏng.
 | ~~5~~ | **`--whole-series` — chữa lớp lệch ĐỒNG ĐỀU** | ✅ **XONG 26/08** — U42 mới chỉ làm công cụ *từ chối trung thực*; nay có đường chữa thật. Cửa vào KHÔNG phải `_probe` (nó luôn phán `aligned` vì trước = sau) mà là `uniform_offset_report`, chặt hơn: tỉ lệ phải **ổn định**. Thêm bước tự kiểm thứ 3 đo MỨC — hai bước cũ đều đo đạo hàm nên mù đúng lớp lỗi này. Xem U43 · việc user: **#5** |
 | ~~4~~ | **Đường CafeF `cash-dividends`** | ✅ **XONG 26/08** — soi ra chuyện lớn hơn: cái nó nuôi (`load_recent_exdiv`, bộ chặn cờ "phân phối" giả) **chạy chay từ 19/08**, im lặng. Nối sang sổ đăng ký → badge xác nhận `registry trả 1 mã` → **xoá hẳn** cả đường ghi lẫn đường đọc. Xem U36 |
 
-| 6 | **Impact tin bị cắt CỤT — `max_tokens=120` không ai canh** | 🔴 MỚI 09/09 — 2/6 tin trong brief close 08/09 ra `— tác động: Nh` và `— tác động: Tỷ giá`. Cắt GIỮA TỪ, KHÔNG có `…` ⇒ không phải `sanitize_impact` (nó cắt ở biên từ + thêm `…`). Thủ phạm: `vnstock_news_feeds.py:348` gọi `chat_complete(..., max_tokens=120)`, mà `vnstock_sentiment.chat_complete` **không hề đọc `finish_reason`** ⇒ câu bị provider cắt trông y hệt câu ngắn hợp lệ, `sanitize_impact` cho qua vì `len ≤ 160`. Và nó **ghi vào cache** (`refresh` giữ phân tích cũ trừ khi `reanalyze=True`) nên tin cụt ở lại mãi. |
-| 7 | **`term_spread` không có vùng chết quanh 0** | 🔴 MỚI 09/09 — 10Y 4.46 − điều hành 4.50 = **−0.04 điểm % (4bp)** mà `vnstock_macro.py:1058` (`if spread < 0`) gắn ngay nhãn to nhất: *"ÂM — chính sách THẮT… (rủi ro chu kỳ)"* + `dir=-1`. 4bp là nhiễu làm tròn giữa HAI nguồn khác nhau. Không chỉ là chữ: `term` có trọng số **0.10** trong band phân bổ, `dir=-1`+`slope_dir=0` ⇒ sub-score −0.5 ⇒ **−0.05 trên tổng −0.12**. Bỏ nhiễu này thì điểm là −0.07. Nấc `_TERM_THIN_SPREAD` ngay trên đó đã mềm hơn hẳn ⇒ thiếu đúng một vùng chết đối xứng (`intl_spread` cũng vậy: có `_INTL_THIN_SPREAD` cho phía dương, phía âm thì không). |
-| 8 | **Header prompt lọt ra brief** | 🟠 MỚI 09/09 — brief in nguyên `🎯 TLDR (2 dòng)` và `🔧 Đề xuất bổ sung (1 dòng, optional)`. Đó là chỉ thị viết cho LLM ở `vnstock_brief.py:209/268` (+ `293/356` cho brief kia), model chép y nguyên. Không guard nào dọn header — đúng nhóm `_guards_text` ("lộ ruột"). |
-| 9 | **"Sự kiện sắp tới" của brief CLOSE tính cả hôm nay** | 🟠 MỚI 09/09 — DIG GDKHQ **2026-09-08** nằm trong mục "sắp tới" của brief phiên 08/09, kèm câu "giá tự điều chỉnh trong ngày GDKHQ". Phiên đã đóng, điều chỉnh XONG rồi. `vnstock_events.load_upcoming` lọc `_d >= today` (`vnstock_events.py:175`) — đúng cho brief SÁNG, sai cho brief CHIỀU. Hàm đã có tham số `today`, chỗ gọi `vnstock_brief.py:2287` không truyền. |
-| 10 | **`pp` khi 2 số lẻ, khi 3** | 🔵 MỚI 09/09 — cùng một câu: "Dẫn dắt … **+0.81pp**" (từ `vnstock_brief.py:3149`, `:+.2f`) vs "Tụt hậu … **−0.260pp**" (từ `:2806`/`:2810`, `:+.3f`). Quy ước repo là `{:,.2f}`. |
+| ~~6~~ | **Impact tin bị cắt CỤT** | ✅ **XONG 09/09** — `chat_complete_ex`/`anthropic_complete_ex` (`vnstock_sentiment`) đọc `finish_reason`/`stop_reason`; bị cắt ⇒ gọi lại ĐÚNG nấc đó **một lần** với trần ×3, trả cờ `truncated`. `analyze_item` gặp cờ ⇒ trả `('','')` = **không cache**, lượt refresh sau chấm lại. Bản cũ `chat_complete`/`anthropic_complete` là wrapper, chữ ký không đổi. Xem U55 |
+| ~~7~~ | **`term_spread` không có vùng chết** | ✅ **XONG 09/09** — `_GAUGE_NOISE_BAND = 0.10` dùng chung `term_spread` + `intl_spread`: âm dưới 10 bp ⇒ nhãn "mỏng — sát 0 (… chưa tính ÂM)", `dir=0`; **−0.10 vẫn là ÂM** (data 03/07 giữ nguyên). Với data close 08/09, sub-score `term` của band phân bổ về 0 thay vì −0.5 (điểm −0.12 → −0.07). |
+| ~~8~~ | **Header prompt lọt ra brief** | ✅ **XONG 09/09** — guard `enforce_no_header_scaffold` (`_guards_text`, nối sau `enforce_no_instruction_leak`): cắt "(N dòng/câu)" / "(… optional)" ở CUỐI dòng header (`##`/emoji mục/nhãn đậm); câu nội dung có ngoặc để yên. |
+| ~~9~~ | **"Sự kiện sắp tới" brief CLOSE tính cả hôm nay** | ✅ **XONG 09/09** — `_upcoming_window_start(brief_type, data_date)`: brief chiều mở cửa sổ từ **ngày kế tiếp** phiên đã đóng; brief sáng giữ hôm nay. Có lưới nối dây (`test_collect_context_wires_the_window_start_into_load_upcoming`). |
+| ~~10~~ | **`pp` khi 2 số lẻ, khi 3** | ✅ **XONG 09/09** — chốt **3 số lẻ** (không phải 2 như ghi hôm qua): ngưỡng lead/lag 0.05pp nằm ở số lẻ thứ 2, in 2 số lẻ thì "+0.05pp < 0.05" tự đá nhau. Đổi đúng một chỗ: header khối ngành `vnstock_brief.py` `:+.2f` → `:+.3f`. |
 
 **📏 Phát kế tiếp là phép đo của cả ba bản vá** — dán `⏱ TỔNG` + `⏱ CHẶNG` +
 dòng `screener` như thường lệ.

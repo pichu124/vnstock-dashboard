@@ -1043,6 +1043,13 @@ def liquidity_spread(macro: "list[dict] | None") -> "dict | None":
 # 2 trụ còn lại của VnBondLab cần US10Y/percentile lịch sử — chưa có nguồn/mẫu).
 _TERM_THIN_SPREAD = 0.5        # 10Y − điều hành < +0.5 điểm % → mỏng
 _YC_FLAT_SLOPE = 0.3           # 10Y − 2Y < +0.3 điểm % → phẳng
+# Vùng chết quanh 0 cho hai gauge LEVEL (term/intl): hai vế lấy từ HAI nguồn
+# khác nhau (VBMA/HNX vs SBV/FRED), lệch dưới 10 bp là nhiễu, không phải tín
+# hiệu. Close 08/09: 10Y 4.46 − điều hành 4.50 = −0.04 mà `spread < 0` gắn
+# ngay nhãn to nhất "ÂM — chính sách THẮT (rủi ro chu kỳ)" + dir −1, rồi
+# `term` (trọng số 0.10 trong band phân bổ) đóng −0.05 vào tổng −0.12 chỉ vì
+# 4 bp. ÂM chỉ khi âm TỪ mức này trở lên (−0.10 vẫn là ÂM — data 03/07).
+_GAUGE_NOISE_BAND = 0.10
 
 
 def term_spread(macro: "list[dict] | None") -> "dict | None":
@@ -1055,9 +1062,14 @@ def term_spread(macro: "list[dict] | None") -> "dict | None":
     if not y10 or not policy:
         return None
     spread = round(float(y10["value"]) - float(policy["value"]), 2)
-    if spread < 0:
+    if spread <= -_GAUGE_NOISE_BAND:
         label, d = ("ÂM — lợi suất 10Y dưới lãi suất điều hành, chính sách "
                     "THẮT so với kỳ vọng dài hạn (rủi ro chu kỳ)"), -1
+    elif spread < 0:
+        # âm nhưng trong biên nhiễu → đọc như "sát 0", KHÔNG phải ÂM
+        label, d = (f"mỏng — sát 0 (lệch dưới {_GAUGE_NOISE_BAND:.2f} điểm % "
+                    "là nhiễu giữa hai nguồn, chưa tính ÂM); chính sách tương "
+                    "đối chặt so với đầu dài"), 0
     elif spread < _TERM_THIN_SPREAD:
         label, d = "mỏng — chính sách tương đối chặt so với đầu dài", 0
     else:
@@ -1095,9 +1107,14 @@ def intl_spread(macro: "list[dict] | None") -> "dict | None":
     if not vn or not us:
         return None
     spread = round(float(vn["value"]) - float(us["value"]), 2)
-    if spread < 0:
+    if spread <= -_GAUGE_NOISE_BAND:
         label, d = ("ÂM — lợi suất VN thấp hơn Mỹ, kém hấp dẫn vốn ngoại "
                     "(áp lực tỷ giá, khối ngoại dễ bán ròng)"), -1
+    elif spread < 0:
+        # cùng vùng chết với term_spread: âm dưới 10 bp là nhiễu, chưa tính ÂM
+        label, d = (f"mỏng — sát 0 (lệch dưới {_GAUGE_NOISE_BAND:.2f} điểm % "
+                    "là nhiễu giữa hai nguồn, chưa tính ÂM); lợi thế lợi suất "
+                    "so với Mỹ không đáng kể"), 0
     elif spread < _INTL_THIN_SPREAD:
         label, d = "mỏng — lợi thế lợi suất so với Mỹ không đáng kể", 0
     else:

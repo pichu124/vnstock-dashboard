@@ -134,6 +134,95 @@ def test_chat_complete_with_model_reports_the_rung_that_answered(
     assert model == "Groq:openai/gpt-oss-20b"
 
 
+def test_chat_complete_ex_retries_once_with_a_wider_cap_when_provider_cuts(
+        monkeypatch, _tmp_meta):
+    """Close 08/09: khối tin in "— tác động: Nh" — provider cắt ở max_tokens
+    (finish_reason "length"), câu cụt lọt cache vì trông y hệt câu ngắn hợp lệ.
+    Nay: bị cắt → gọi lại ĐÚNG nấc đó một lần với trần ×_TRUNCATE_RETRY_X, trả
+    kèm cờ `truncated` để caller quyết."""
+    calls = []
+
+    def _post(url, headers=None, json=None, timeout=None):
+        calls.append(json)
+        if len(calls) == 1:
+            body = _openai_body("TRUNG_LẬP | Nh")
+            body["choices"][0]["finish_reason"] = "length"
+            return _Resp(body)
+        body = _openai_body("TRUNG_LẬP | Nhóm điện tử chịu áp lực nhập siêu")
+        body["choices"][0]["finish_reason"] = "stop"
+        return _Resp(body)
+
+    monkeypatch.setattr("requests.post", _post)
+    for env in ("GEMINI_API_KEY", "CEREBRAS_API_KEY", "OPENROUTER_API_KEY"):
+        monkeypatch.delenv(env, raising=False)
+    monkeypatch.setenv("GROQ_API_KEY", "gk")
+
+    out = snt.chat_complete_ex("s", "u", max_tokens=120)
+
+    assert [c["max_tokens"] for c in calls] == [256, 256 * snt._TRUNCATE_RETRY_X]
+    assert [c["model"] for c in calls] == ["openai/gpt-oss-20b"] * 2   # cùng nấc
+    assert out["text"] == "TRUNG_LẬP | Nhóm điện tử chịu áp lực nhập siêu"
+    assert out["truncated"] is False and out["finish_reason"] == "stop"
+    assert out["model"] == "Groq:openai/gpt-oss-20b"
+
+
+def test_chat_complete_ex_flags_a_cut_that_survives_the_retry(
+        monkeypatch, _tmp_meta):
+    """Vẫn cụt sau lần gọi lại → trả chữ đã có kèm truncated=True, và KHÔNG
+    gọi lần thứ ba (một lần gọi lại là trần chi phí)."""
+    calls = []
+
+    def _post(url, headers=None, json=None, timeout=None):
+        calls.append(json)
+        body = _openai_body("TRUNG_LẬP | Nh")
+        body["choices"][0]["finish_reason"] = "length"
+        return _Resp(body)
+
+    monkeypatch.setattr("requests.post", _post)
+    for env in ("GEMINI_API_KEY", "CEREBRAS_API_KEY", "OPENROUTER_API_KEY"):
+        monkeypatch.delenv(env, raising=False)
+    monkeypatch.setenv("GROQ_API_KEY", "gk")
+
+    out = snt.chat_complete_ex("s", "u")
+    assert len(calls) == 2
+    assert out["truncated"] is True and out["text"] == "TRUNG_LẬP | Nh"
+    # wrapper cũ vẫn trả text trơn (caller cũ không biết cờ — đúng như trước)
+    calls.clear()
+    assert snt.chat_complete("s", "u") == "TRUNG_LẬP | Nh"
+
+
+def test_chat_complete_ex_keeps_first_answer_when_the_retry_errors(
+        monkeypatch, _tmp_meta):
+    """Lần gọi lại lỗi mạng → giữ đáp án lần đầu (đã có chữ) chứ KHÔNG rơi
+    xuống nấc kế — rơi nấc là đổi model chỉ vì một lỗi HTTP ngẫu nhiên."""
+    calls = []
+
+    def _post(url, headers=None, json=None, timeout=None):
+        calls.append(json)
+        if len(calls) == 1:
+            body = _openai_body("TRUNG_LẬP | Nh")
+            body["choices"][0]["finish_reason"] = "length"
+            return _Resp(body)
+        return _Resp({}, status=503)
+
+    monkeypatch.setattr("requests.post", _post)
+    for env in ("CEREBRAS_API_KEY", "OPENROUTER_API_KEY"):
+        monkeypatch.delenv(env, raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "gk")
+    monkeypatch.setenv("GROQ_API_KEY", "gk")
+
+    out = snt.chat_complete_ex("s", "u")
+    assert len(calls) == 2 and out["model"].startswith("Gemini:")
+    assert out["truncated"] is True and out["text"] == "TRUNG_LẬP | Nh"
+
+
+def test_is_truncated_covers_every_wire_format():
+    assert snt._is_truncated("length")          # OpenAI-compat
+    assert snt._is_truncated("MAX_TOKENS")      # Gemini native
+    assert snt._is_truncated("max_tokens")      # Anthropic
+    assert not snt._is_truncated("stop") and not snt._is_truncated(None)
+
+
 def test_chat_complete_with_model_returns_pair_when_ladder_dry(
         monkeypatch, _tmp_meta):
     """Cạn thang vẫn phải trả TUPLE — caller unpack, trả None là TypeError."""

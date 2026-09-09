@@ -689,6 +689,45 @@ def test_term_spread_bands_and_slope():
     assert mac.term_spread(_term_rows(policy=4.5, y10=5.5))["dir"] == 0
 
 
+def test_term_spread_noise_band_does_not_call_a_4bp_gap_negative():
+    """Close 08/09: 10Y 4.46 vs điều hành 4.50 → −0.04 điểm % (4 bp) mà gauge
+    gắn nhãn "ÂM — chính sách THẮT (rủi ro chu kỳ)" + dir −1, rồi band phân bổ
+    ăn −0.05 trên tổng −0.12 chỉ vì nhiễu làm tròn giữa hai nguồn. Trong biên
+    ±_GAUGE_NOISE_BAND → dir 0, nhãn nói rõ là sát 0, không phải ÂM."""
+    ts = mac.term_spread(_term_rows(policy=4.5, y2=3.9, y10=4.46))
+    assert ts["spread"] == pytest.approx(-0.04)
+    assert ts["dir"] == 0
+    assert "ÂM" not in ts["label"].split("chưa tính")[0]   # không mở đầu bằng ÂM
+    assert "sát 0" in ts["label"] and "mỏng" in ts["label"]
+    # dốc 2-10 KHÔNG bị ảnh hưởng bởi vùng chết của spread
+    assert ts["slope_2_10"] == pytest.approx(0.56) and ts["slope_dir"] == 0
+    # biên là ĐÚNG mức −0.10: data 03/07 (−0.10) vẫn là ÂM — không nới hơn
+    assert mac.term_spread(_term_rows(policy=4.5, y10=4.4))["dir"] == -1
+    assert mac.term_spread(_term_rows(policy=4.5, y10=4.41))["dir"] == 0
+    # phía dương không đổi: 0 ≤ spread < 0.5 vẫn là "mỏng" thường
+    assert "sát 0" not in mac.term_spread(_term_rows(policy=4.5, y10=4.52))["label"]
+
+
+def test_intl_spread_shares_the_noise_band():
+    """Cùng bệnh phía âm: có _INTL_THIN_SPREAD cho phía dương nhưng −0.01 đã
+    thành "ÂM — kém hấp dẫn vốn ngoại". Dưới 10 bp → dir 0."""
+    near = mac.intl_spread(_intl_rows(vn10=4.30, us10=4.35))
+    assert near["spread"] == pytest.approx(-0.05)
+    assert near["dir"] == 0 and "sát 0" in near["label"]
+    assert mac.intl_spread(_intl_rows(vn10=4.25, us10=4.35))["dir"] == -1   # −0.10 = ÂM
+    # mức thật close 08/09 (−0.31) vẫn là ÂM
+    assert mac.intl_spread(_intl_rows(vn10=4.46, us10=4.77))["dir"] == -1
+
+
+def test_allocation_term_input_is_zero_inside_the_noise_band():
+    """Điểm chốt của lỗi: gauge nhiễu đẩy band. Với data close 08/09 sub-score
+    `term` phải là 0, không phải −0.5."""
+    import vnstock_allocation as alloc
+    ts = mac.term_spread(_term_rows(policy=4.5, y2=3.9, y10=4.46))
+    out = alloc.compute_score({"term": {"dir": ts["dir"], "slope_dir": ts["slope_dir"]}})
+    assert out["score"] == pytest.approx(0.0)
+
+
 def test_term_spread_none_when_inputs_missing():
     assert mac.term_spread(_term_rows(y10=4.4)) is None        # thiếu điều hành
     assert mac.term_spread(_term_rows(policy=4.5)) is None     # thiếu 10Y

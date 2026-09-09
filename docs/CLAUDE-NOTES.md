@@ -6966,6 +6966,115 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🧵 U55. SOI BRIEF CLOSE 08/09 — 5 LỖI, ĐỀU CÓ FILE:LINE, ĐỀU ĐÃ VÁ (09/09)
+
+User dán brief close phiên 08/09/2026 (bản đầu sau đợt vá 07/09) và hỏi
+"đánh giá". Phần lớn đúng — những thứ từng hỏng (khối tin vỡ dòng, GDKHQ
+cho ĐHĐCĐ, nhãn "1 tuần", ngữ cảnh BĐS) nay đều ổn; 12 con số kiểm lại đều
+khớp. Còn lại 5 lỗi thật, mỗi cái một cơ chế khác nhau.
+
+## (1) "— tác động: Nh" — dấu vân tay loại trừ chỗ đã vá
+
+Hai dòng tin cụt: `— tác động: Nh` và `— tác động: Tỷ giá`. **Cắt giữa từ,
+không có `…`.** `sanitize_impact` (U-21/08) cắt ở BIÊN TỪ và luôn thêm `…`
+⇒ không phải nó. Truy ngược: `analyze_item` gọi `chat_complete(...,
+max_tokens=120)`, mà `chat_complete` **không đọc `finish_reason`** — provider
+cắt ở 120 token thì chuỗi trả về là câu cụt trông y hệt câu ngắn hợp lệ,
+`sanitize_impact` cho qua vì `len ≤ 160`, rồi `refresh` ghi cache và giữ mãi
+(chỉ `--reanalyze` mới chấm lại). 120 token vốn đủ cho "≤22 từ"; nghi là
+full-text Jina làm model viết dài hơn, hoặc rơi nấc khi Gemini rate-limit
+(doctor 07/09: 25 lượt chạm trần). Không đo được từ đây — nhưng cơ chế thì
+rõ nên vá ở cơ chế:
+
+* `vnstock_sentiment.chat_complete_ex` / `anthropic_complete_ex`: trả
+  `{text, model, finish_reason, truncated}`. `finish_reason ∈ {length,
+  max_tokens}` (mọi wire format, không phân biệt hoa thường) ⇒ gọi lại ĐÚNG
+  nấc đó **một lần** với trần ×3 (`_TRUNCATE_RETRY_X`); lần hai lỗi HTTP thì
+  giữ đáp án lần đầu chứ không rơi nấc (đổi model chỉ vì một lỗi mạng ngẫu
+  nhiên là sai chỗ). Bản cũ `chat_complete`/`anthropic_complete` thành
+  wrapper, chữ ký y nguyên — reflection/classifier/digest không phải sửa và
+  tự nhiên được hưởng retry.
+* `analyze_item`: `truncated` ⇒ trả `('','')` = CHƯA CHẤM, không cache. Test
+  ở tầng `refresh` canh đúng hệ quả: tin đó vẫn nằm trong hàng đợi lượt sau.
+* Cache hiện tại vẫn còn hai câu cụt — việc user `--refresh --reanalyze` một
+  lần (kho chung).
+
+## (2) 4 bp thành "ÂM — rủi ro chu kỳ", và nó ăn vào band phân bổ
+
+`10Y 4.46 − điều hành 4.50 = −0.04`. `term_spread` dùng `if spread < 0` trần
+trụi ⇒ nhãn to nhất + `dir=−1`. Hai vế lấy từ HAI nguồn (VBMA/HNX vs SBV),
+4 bp là nhiễu. Không chỉ là chữ: `term` có trọng số 0.10 trong
+`vnstock_allocation`, `dir=−1` + `slope_dir=0` ⇒ sub-score −0.5 ⇒ **−0.05
+trên tổng −0.12**; bỏ nhiễu thì −0.07 (vẫn B2 data, tilt báo cáo vẫn đẩy
+B3 — band không đổi hôm đó, nhưng biên B2/B3 là −0.15 và hysteresis 0.05,
+tức nhiễu 4 bp từng đứng cách một cú đổi band đúng 0.03).
+
+Vá: `_GAUGE_NOISE_BAND = 0.10` dùng chung `term_spread` + `intl_spread`
+(cùng bệnh phía âm: có `_INTL_THIN_SPREAD` cho phía dương, phía âm rơi
+thẳng). Âm trong biên ⇒ "mỏng — sát 0 (lệch dưới 0.10 điểm % là nhiễu giữa
+hai nguồn, chưa tính ÂM)", `dir=0`. Biên là `<= −0.10` để **−0.10 vẫn là
+ÂM** — data thật 03/07 trong test cũ giữ nguyên nghĩa, không nới. Phía
+dương không đụng (test `+0.05` intl "mỏng" giữ nguyên).
+
+## (3) "🎯 TLDR (2 dòng)" — template ghi chỉ thị NGAY TRONG header
+
+`## 🎯 TLDR (2 dòng)` và `## 🔧 Đề xuất bổ sung (1 dòng, optional)` là
+header của chính template (`vnstock_brief.py` cả 3 template), model chép y
+nguyên, và không guard nào dọn header. Guard mới `enforce_no_header_scaffold`
+(`_guards_text`): chỉ đụng DÒNG HEADER (`##`, emoji mục theo
+`_is_section_start`, hoặc nhãn đậm mà ngoặc nằm TRONG phần đậm — đuôi còn
+`**`), chỉ cắt ngoặc ở CUỐI dòng chứa "N dòng/câu" hoặc "optional". Nhãn đậm
+mở đầu câu nội dung ("**Kết quả phiên:** … (2 dòng)") để yên — đó là nội
+dung, guard chữ nghĩa không được đoán. Nối ngay sau
+`enforce_no_instruction_leak`; hằng `_HEADER_SCAFFOLD_RE` phải re-export qua
+cả `vnstock_brief_guards` lẫn `vnstock_brief` (lưới
+`test_all_moved_names_are_reexported` réo ngay khi thiếu — đúng việc của nó).
+
+## (4) "Sự kiện sắp tới" của brief CHIỀU tính cả hôm nay
+
+DIG GDKHQ 2026-09-08 nằm trong "sắp tới" của brief phiên 08/09, kèm câu
+"giá tự điều chỉnh trong ngày GDKHQ". `load_upcoming` lọc `_d >= today` —
+đúng cho brief SÁNG (GDKHQ hôm nay còn ở phía trước), sai cho brief CHIỀU
+(phiên đóng rồi, điều chỉnh xong rồi; liệt kê là bảo người đọc đề phòng một
+cú giảm đã xảy ra). Hàm đã có tham số `today`, chỗ gọi không truyền. Vá:
+`_upcoming_window_start(brief_type, data_date)` — chiều ⇒ `data_date + 1`,
+sáng ⇒ None. Lấy `data_date` (ngày bar cuối) chứ không phải `date.today()`
+để brief chiều chạy muộn/cuối tuần vẫn đúng. Có lưới nối dây kiểu
+`test_brief_split` (soi source `collect_context`) — helper đúng mà chỗ gọi
+quên truyền là y như cũ.
+
+## (5) `pp` 2 số lẻ cạnh 3 số lẻ — và vì sao chốt 3 chứ không phải 2
+
+"+0.81pp" (header khối ngành, `:+.2f`) cạnh "−0.260pp" (block chốt lead/lag
++ guard, `:+.3f`). Hôm qua tôi ghi "quy ước repo là `{:,.2f}`" và định kéo
+tất cả về 2 — **sai hướng**: ngưỡng lead/lag là 0.05pp, nằm ở số lẻ thứ 2;
+in 2 số lẻ thì dòng "Chưa có nhóm dẫn dắt (đóng góp lớn nhất chỉ +0.05pp)"
+tự đá nhau với luật `< 0.05`. Chốt 3 số lẻ, đổi đúng một chỗ (`:+.2f` →
+`:+.3f` ở header khối ngành); guard `enforce_lead_lag` và 6 test đang pin
+chuỗi 3 số lẻ giữ nguyên.
+
+## Không phải lỗi (đã kiểm, đừng mở lại)
+
+* **MA20 ≈ MA50 ≈ MA200 (1,784/1,784/1,786)** — user đo trên máy thật: 664
+  bar, 664 ngày khác nhau, 200 phiên dao động 1,591–1,928 quanh tâm ~1,785.
+  Ba đường hội tụ là hình dạng của một năm đi ngang biên rộng, không phải
+  data hỏng. Cái "bất khả" tôi đặt ra chỉ đúng cho chuỗi CÓ XU HƯỚNG.
+  `_load_vnindex_df` sort theo `time`, không khử trùng ngày — nhưng đo ra
+  không trùng nên không đụng.
+* **"Op.CF âm của mã (BĐS)"** — chuỗi cứng ở
+  `vnstock_brief_guards_sections.py`, không phải placeholder hỏng; chỉ là
+  chữ hơi trúc trắc.
+* **PNJ 🟢 trong tin vs GIẢM TỶ TRỌNG trong watchlist**, **VIC MUA vs "phân
+  phối ngầm Họ VIN"** — mạch văn LLM, không sai số. Chưa có guard nào nên
+  đụng vì cần đọc ý; nếu tái diễn thì ĐẾM qua `vnstock_brief_watch` trước.
+* **NSO** — CPI/IIP/cán cân đều `as_of 2026-08-31` ⇒ việc #4 (phát 4G) tự
+  xong.
+
+Test: 17 test mới; `run.py test --fast` trên sandbox phiên này: **2.561
+passed / 57,5s, 0 fail**. Số máy thật (có kho) sẽ chậm hơn ~3× như thường lệ.
+
+---
+
 # 🧯 U54. CÔNG TẮC AUTO-HEAL LÀM NGƯỢC LỜI HỨA + SỔ Op.CF ĐẾM NHẦM NGÀNH (07/09)
 
 Hai badge `⚠️ ĐỦ mẫu, đáng quyết` được user giao xử. Soi cả hai thì **cả hai

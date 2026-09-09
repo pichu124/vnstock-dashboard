@@ -26,7 +26,7 @@ import logging
 import os
 import re as _re
 from abc import ABC, abstractmethod
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -2023,6 +2023,24 @@ def _attach_ticker_sr(movers: list) -> None:
             continue
 
 
+def _upcoming_window_start(brief_type: str, data_date: str) -> "date | None":
+    """Ngày ĐẦU cửa sổ "Sự kiện sắp tới" theo loại brief (None = hôm nay).
+
+    Brief SÁNG: GDKHQ hôm nay còn ở phía trước (giá tham chiếu vừa điều chỉnh
+    lúc mở cửa) — đáng nhắc, giữ mặc định của `load_upcoming` (hôm nay).
+    Brief CHIỀU: phiên `data_date` đã đóng, GDKHQ hôm đó điều chỉnh XONG —
+    vẫn liệt kê nó kèm "giá tự điều chỉnh ngày GDKHQ" là bảo người đọc đề
+    phòng một cú giảm đã xảy ra (close 08/09/2026: DIG GDKHQ 08/09 nằm trong
+    "sắp tới" của chính phiên 08/09) ⇒ cửa sổ bắt đầu từ NGÀY KẾ TIẾP.
+    """
+    if brief_type == "morning":
+        return None
+    try:
+        return date.fromisoformat(str(data_date)[:10]) + timedelta(days=1)
+    except (TypeError, ValueError):
+        return None
+
+
 def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> dict:
     """Collect all available market data for brief generation.
 
@@ -2284,7 +2302,8 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     #     universe so the brief can flag ngày GDKHQ (giá tự điều chỉnh).
     try:
         from vnstock_events import load_upcoming
-        _ev = load_upcoming(within_days=14, tickers=_fund_universe)
+        _ev = load_upcoming(within_days=14, tickers=_fund_universe,
+                            today=_upcoming_window_start(brief_type, _data_date_str))
         if _ev:
             ctx["upcoming_events"] = _ev
     except Exception as _e:
@@ -3146,7 +3165,10 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         if weight > 0:
             header += f" [{weight:.1f}%VNI"
             if contrib != 0:
-                header += f", đóng góp {contrib:+.2f}pp (1 tuần)"
+                # 3 số lẻ như block "🎯 Dẫn dắt/Tụt hậu" + guard lead/lag:
+                # ngưỡng 0.05pp nằm ở số lẻ thứ 2, in 2 số lẻ là "+0.05pp
+                # < 0.05" tự đá nhau; close 08/09 in "+0.81pp" cạnh "-0.260pp".
+                header += f", đóng góp {contrib:+.3f}pp (1 tuần)"
             header += "]"
         header += _composite_tag(r)
 
@@ -3428,6 +3450,7 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     _COMPOSITE_LEAK_RE,
     _GTGD_CTX_RE,
     _GTGD_SUBJECT_RE,
+    _HEADER_SCAFFOLD_RE,
     _INSTR_LEAK_RE,
     _MOOD_EMOJIS,
     _MOOD_WORDS,
@@ -3478,6 +3501,7 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     enforce_no_composite_jargon,
     enforce_no_constraint_notation,
     enforce_no_duplicate_momentum,
+    enforce_no_header_scaffold,
     enforce_no_instruction_leak,
     enforce_no_placeholder_leak,
     enforce_no_record_superlative,

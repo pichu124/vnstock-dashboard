@@ -7,7 +7,7 @@ from datetime import date
 import pandas as pd
 
 import vnstock_events as ev
-from vnstock_brief import _upcoming_events_block, build_prompt
+from vnstock_brief import _upcoming_events_block, _upcoming_window_start, build_prompt
 
 
 def _write(tmp_path):
@@ -36,6 +36,41 @@ def test_load_upcoming_ticker_filter(tmp_path):
     out = ev.load_upcoming(within_days=14, path=_write(tmp_path),
                            today=date(2026, 6, 10), tickers={"VIC"})
     assert [e["ticker"] for e in out] == ["VIC"]
+
+
+def test_close_brief_window_starts_the_day_after_the_closed_session():
+    """Close 08/09/2026: DIG GDKHQ 2026-09-08 nằm trong "Sự kiện sắp tới" của
+    chính phiên 08/09, kèm câu "giá tự điều chỉnh ngày GDKHQ" — phiên đã đóng,
+    điều chỉnh XONG rồi. Brief chiều phải mở cửa sổ từ ngày KẾ TIẾP; brief
+    sáng giữ mặc định (GDKHQ hôm nay còn ở phía trước, đáng nhắc)."""
+    assert _upcoming_window_start("morning", "2026-09-08") is None
+    assert _upcoming_window_start("afternoon", "2026-09-08") == date(2026, 9, 9)
+    assert _upcoming_window_start("allocation", "2026-09-08") == date(2026, 9, 9)
+    assert _upcoming_window_start("afternoon", "rác") is None      # không nổ, về mặc định
+
+
+def test_close_brief_drops_todays_exdate_but_morning_keeps_it(tmp_path):
+    p = tmp_path / "upcoming_events.parquet"
+    pd.DataFrame([
+        {"ticker": "DIG", "ex_date": "2026-09-08",
+         "title": "Trả Cổ tức bằng Cổ phiếu tỉ lệ 6.0%", "category": "ISSUE"},
+        {"ticker": "VIB", "ex_date": "2026-09-10",
+         "title": "Cổ phiếu thưởng tỉ lệ 9.5%", "category": "ISSUE"},
+    ]).to_parquet(p, index=False)
+    close = ev.load_upcoming(within_days=14, path=p,
+                             today=_upcoming_window_start("afternoon", "2026-09-08"))
+    assert [e["ticker"] for e in close] == ["VIB"]
+    morning = ev.load_upcoming(within_days=14, path=p, today=date(2026, 9, 8))
+    assert [e["ticker"] for e in morning] == ["DIG", "VIB"]
+
+
+def test_collect_context_wires_the_window_start_into_load_upcoming():
+    """Lưới nối dây (kiểu test_brief_split): helper đúng mà chỗ gọi quên truyền
+    `today=` thì brief chiều vẫn liệt kê GDKHQ hôm nay y như cũ."""
+    import inspect
+    import vnstock_brief as vb
+    src = inspect.getsource(vb.collect_context)
+    assert "today=_upcoming_window_start(brief_type, _data_date_str)" in src
 
 
 def test_load_upcoming_missing_file(tmp_path):

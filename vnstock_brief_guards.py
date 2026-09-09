@@ -109,6 +109,7 @@ from vnstock_brief_guards_text import (  # noqa: F401  (re-export)
     _CONSTRAINT_NOTATION_RE,
     _CJK_RE,
     _COMPOSITE_LEAK_RE,
+    _HEADER_SCAFFOLD_RE,
     _INSTR_LEAK_RE,
     _PLACEHOLDER_LEAK_RE,
     enforce_composite_rotation_hygiene,
@@ -117,6 +118,7 @@ from vnstock_brief_guards_text import (  # noqa: F401  (re-export)
     enforce_no_composite_jargon,
     enforce_no_constraint_notation,
     enforce_no_duplicate_momentum,
+    enforce_no_header_scaffold,
     enforce_no_instruction_leak,
     enforce_no_placeholder_leak,
     enforce_no_record_superlative,
@@ -254,6 +256,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_change_verb_sign(fixed, ctx)      # 'tăng -1%' → 'giảm 1%'
     fixed = enforce_no_cjk(fixed, ctx)
     fixed = enforce_no_instruction_leak(fixed, ctx)
+    fixed = enforce_no_header_scaffold(fixed, ctx)    # "(2 dòng)"/"optional" là chữ cho model
     fixed = enforce_no_placeholder_leak(fixed, ctx)
     fixed = enforce_no_constraint_notation(fixed, ctx)  # '(entry < TP > SL)' là chữ cho model
     fixed = enforce_no_composite_jargon(fixed, ctx)

@@ -9,6 +9,15 @@ import json
 import vnstock_news_feeds as nf
 
 
+def _ex(text, truncated=False):
+    """Đáp án của `chat_complete_ex`: dict kèm cờ provider-cắt. None = cạn thang."""
+    if text is None:
+        return None
+    return {"text": text, "model": "Fake:m",
+            "finish_reason": "length" if truncated else "stop",
+            "truncated": truncated}
+
+
 RSS = b"""<?xml version="1.0"?><rss version="2.0"><channel>
 <item><title>Fed giu nguyen lai suat, chung khoan tang</title>
 <link>https://x/1</link><pubDate>Mon, 15 Jun 2026 10:00:00 +0700</pubDate>
@@ -65,14 +74,57 @@ def test_is_relevant_keeps_market_drops_noise():
 def test_analyze_item_parses_sentiment_and_impact(monkeypatch):
     # tắt route trả phí để test hermetic (máy thật có ANTHROPIC_API_KEY)
     monkeypatch.setenv(nf._ANALYZE_PAID_ENV, "0")
-    monkeypatch.setattr("vnstock_sentiment.chat_complete",
-                        lambda *a, **k: "TIÊU_CỰC | Áp lực tỷ giá, bất lợi nhóm vay USD")
+    monkeypatch.setattr("vnstock_sentiment.chat_complete_ex",
+                        lambda *a, **k: _ex("TIÊU_CỰC | Áp lực tỷ giá, bất lợi nhóm vay USD"))
     s, imp = nf.analyze_item({"title": "VND mất giá mạnh"})
     assert s == "negative"
     assert imp == "Áp lực tỷ giá, bất lợi nhóm vay USD"
     # no provider → ('', '')
-    monkeypatch.setattr("vnstock_sentiment.chat_complete", lambda *a, **k: None)
+    monkeypatch.setattr("vnstock_sentiment.chat_complete_ex", lambda *a, **k: None)
     assert nf.analyze_item({"title": "x"}) == ("", "")
+
+
+def test_analyze_item_refuses_impact_the_provider_cut_short(monkeypatch):
+    """Close 08/09: khối tin in "— tác động: Nh" và "— tác động: Tỷ giá" —
+    cắt GIỮA TỪ, không có "…" ⇒ không phải sanitize_impact mà là provider cắt
+    ở max_tokens. Câu cụt trông y hệt câu ngắn hợp lệ, và refresh giữ phân
+    tích cũ mãi ⇒ phải TỪ CHỐI ngay ở đường ghi (trả ('','') = chưa chấm)."""
+    monkeypatch.setenv(nf._ANALYZE_PAID_ENV, "0")
+    monkeypatch.setenv("VNSTOCK_NEWS_FULLTEXT", "0")
+    monkeypatch.setattr("vnstock_sentiment.chat_complete_ex",
+                        lambda *a, **k: _ex("TRUNG_LẬP | Nh", truncated=True))
+    assert nf.analyze_item({"title": "Điện tử nhập siêu 60 tỷ USD"}) == ("", "")
+    # đối chứng: cùng chữ nhưng provider dừng tự nhiên → chấm bình thường
+    monkeypatch.setattr("vnstock_sentiment.chat_complete_ex",
+                        lambda *a, **k: _ex("TRUNG_LẬP | Nh"))
+    assert nf.analyze_item({"title": "x"}) == ("neutral", "Nh")
+
+
+def test_refresh_leaves_a_cut_short_item_unanalyzed_for_the_next_run(tmp_path, monkeypatch):
+    """Hệ quả ở tầng refresh: tin bị từ chối KHÔNG được ghi `_impact`, nên lượt
+    refresh sau vẫn thấy nó trong hàng đợi chưa chấm (thay vì cache câu cụt)."""
+    monkeypatch.setattr(nf, "_CACHE", tmp_path / "market_news.json")
+    monkeypatch.setattr(nf, "_FEEDS", [{"name": "A", "url": "u1"}])
+    monkeypatch.setattr(nf, "fetch_feed", lambda feed: nf.parse_feed(RSS, "A"))
+    import datetime as _dt
+
+    class _FixedDate(_dt.date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 6, 16)
+    monkeypatch.setattr(nf, "_date", _FixedDate)
+    calls = []
+
+    def _cut(it):
+        calls.append(it["title"])
+        return "", ""                       # analyze_item từ chối câu cụt
+    monkeypatch.setattr(nf, "analyze_item", _cut)
+    items = nf.refresh(within_days=5, analyze=True, max_analyze=8)
+    assert calls and all(not it.get("_impact") for it in items)
+    # lượt sau: vẫn đem ra chấm lại (không bị coi là "đã phân tích")
+    calls.clear()
+    nf.refresh(within_days=5, analyze=True, max_analyze=8)
+    assert calls
 
 
 def test_analyze_system_prompt_enforces_direction_consistency():
@@ -230,9 +282,9 @@ def test_analyze_item_feeds_fulltext_into_prompt(monkeypatch):
 
     def _fake_chat(system, user, **k):
         prompts["user"] = user
-        return "TÍCH_CỰC | Ngân hàng hưởng lợi"
+        return _ex("TÍCH_CỰC | Ngân hàng hưởng lợi")
 
-    monkeypatch.setattr("vnstock_sentiment.chat_complete", _fake_chat)
+    monkeypatch.setattr("vnstock_sentiment.chat_complete_ex", _fake_chat)
     monkeypatch.setattr(nf, "fetch_fulltext", lambda url, **k: "THÂN BÀI ĐẦY ĐỦ")
     monkeypatch.delenv("VNSTOCK_NEWS_FULLTEXT", raising=False)
     s, imp = nf.analyze_item({"title": "SBV hạ lãi suất",
@@ -246,8 +298,8 @@ def test_analyze_item_fulltext_disabled_by_env(monkeypatch):
     def _boom(url, **k):
         raise AssertionError("không được fetch fulltext khi đã tắt")
     monkeypatch.setattr(nf, "fetch_fulltext", _boom)
-    monkeypatch.setattr("vnstock_sentiment.chat_complete",
-                        lambda *a, **k: "TRUNG_LẬP | x")
+    monkeypatch.setattr("vnstock_sentiment.chat_complete_ex",
+                        lambda *a, **k: _ex("TRUNG_LẬP | x"))
     monkeypatch.setenv("VNSTOCK_NEWS_FULLTEXT", "0")
     s, _ = nf.analyze_item({"title": "t", "link": "https://x/1"})
     assert s == "neutral"
@@ -258,9 +310,9 @@ def test_analyze_item_fulltext_failure_keeps_title_summary(monkeypatch):
 
     def _fake_chat(system, user, **k):
         prompts["user"] = user
-        return "TIÊU_CỰC | y"
+        return _ex("TIÊU_CỰC | y")
 
-    monkeypatch.setattr("vnstock_sentiment.chat_complete", _fake_chat)
+    monkeypatch.setattr("vnstock_sentiment.chat_complete_ex", _fake_chat)
     monkeypatch.setattr(nf, "fetch_fulltext", lambda url, **k: "")   # fail → ''
     monkeypatch.delenv("VNSTOCK_NEWS_FULLTEXT", raising=False)
     nf.analyze_item({"title": "t", "news_short_content": "tóm tắt",

@@ -9,6 +9,15 @@ import vnstock_news_feeds as nf
 import vnstock_sentiment as vs
 
 
+def _ex(text, model="Fake:m", truncated=False):
+    """Đáp án của `*_complete_ex`: dict kèm cờ provider-cắt. None = cạn/lỗi."""
+    if text is None:
+        return None
+    return {"text": text, "model": model,
+            "finish_reason": "max_tokens" if truncated else "end_turn",
+            "truncated": truncated}
+
+
 class _Resp:
     def __init__(self, body, status=200):
         self._body = body
@@ -79,6 +88,45 @@ def test_anthropic_complete_model_override(monkeypatch):
     assert sent["body"]["model"] == "claude-opus-4-8"
 
 
+def test_anthropic_complete_ex_retries_once_when_cut_at_max_tokens(monkeypatch):
+    """Cùng lỗi với ladder free (close 08/09 "— tác động: Nh"): stop_reason
+    "max_tokens" = bị cắt → gọi lại ĐÚNG MỘT lần với trần rộng gấp
+    _TRUNCATE_RETRY_X; kết quả lần hai dừng tự nhiên → truncated=False."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    calls = []
+
+    def _post(url, headers=None, json=None, timeout=None):
+        calls.append(json["max_tokens"])
+        if len(calls) == 1:
+            return _Resp({**_anthropic_body("TRUNG_LẬP | Nh"),
+                          "stop_reason": "max_tokens"})
+        return _Resp({**_anthropic_body("TRUNG_LẬP | Nhóm điện tử chịu áp lực"),
+                      "stop_reason": "end_turn"})
+
+    monkeypatch.setattr("requests.post", _post)
+    out = vs.anthropic_complete_ex("s", "u", max_tokens=120)
+    assert calls == [120, 120 * vs._TRUNCATE_RETRY_X]
+    assert out["text"] == "TRUNG_LẬP | Nhóm điện tử chịu áp lực"
+    assert out["truncated"] is False and out["model"].startswith("Anthropic:")
+    # wrapper cũ vẫn chỉ trả text
+    calls.clear()
+    assert vs.anthropic_complete("s", "u") == "TRUNG_LẬP | Nhóm điện tử chịu áp lực"
+
+
+def test_anthropic_complete_ex_flags_a_cut_that_survives_the_retry(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    n = {"calls": 0}
+
+    def _post(url, headers=None, json=None, timeout=None):
+        n["calls"] += 1
+        return _Resp({**_anthropic_body("TRUNG_LẬP | Nh"), "stop_reason": "max_tokens"})
+
+    monkeypatch.setattr("requests.post", _post)
+    out = vs.anthropic_complete_ex("s", "u", max_tokens=120)
+    assert n["calls"] == 2                       # đúng MỘT lần gọi lại, không lặp vô hạn
+    assert out["truncated"] is True and out["text"] == "TRUNG_LẬP | Nh"
+
+
 # ── routing trong analyze_item (vnstock_news_feeds) ────────────────────────
 
 def test_paid_route_wins_and_free_ladder_untouched(monkeypatch):
@@ -89,10 +137,10 @@ def test_paid_route_wins_and_free_ladder_untouched(monkeypatch):
 
     def _paid(system, user, max_tokens=120, model=None):
         seen["model"] = model
-        return "TIÊU_CỰC | Ngân hàng chịu áp lực NIM"
+        return _ex("TIÊU_CỰC | Ngân hàng chịu áp lực NIM", model=f"Anthropic:{model}")
 
-    monkeypatch.setattr("vnstock_sentiment.anthropic_complete", _paid)
-    monkeypatch.setattr("vnstock_sentiment.chat_complete",
+    monkeypatch.setattr("vnstock_sentiment.anthropic_complete_ex", _paid)
+    monkeypatch.setattr("vnstock_sentiment.chat_complete_ex",
                         lambda *a, **k: (_ for _ in ()).throw(AssertionError(
                             "ladder free không được gọi khi paid trả kết quả")))
     s, imp = nf.analyze_item({"title": "Lãi suất tăng"})
@@ -105,10 +153,10 @@ def test_paid_route_wins_and_free_ladder_untouched(monkeypatch):
 def test_paid_route_falls_back_to_free_ladder(monkeypatch):
     monkeypatch.setenv("VNSTOCK_NEWS_FULLTEXT", "0")
     monkeypatch.setenv(nf._ANALYZE_PAID_ENV, "1")
-    monkeypatch.setattr("vnstock_sentiment.anthropic_complete",
+    monkeypatch.setattr("vnstock_sentiment.anthropic_complete_ex",
                         lambda *a, **k: None)                 # lỗi/thiếu key
-    monkeypatch.setattr("vnstock_sentiment.chat_complete",
-                        lambda *a, **k: "TÍCH_CỰC | Dệt may thêm lợi thế")
+    monkeypatch.setattr("vnstock_sentiment.chat_complete_ex",
+                        lambda *a, **k: _ex("TÍCH_CỰC | Dệt may thêm lợi thế"))
     s, imp = nf.analyze_item({"title": "Đối thủ bị áp thuế"})
     assert s == "positive"
     assert imp == "Dệt may thêm lợi thế"
@@ -117,11 +165,11 @@ def test_paid_route_falls_back_to_free_ladder(monkeypatch):
 def test_paid_route_kill_switch(monkeypatch):
     monkeypatch.setenv("VNSTOCK_NEWS_FULLTEXT", "0")
     monkeypatch.setenv(nf._ANALYZE_PAID_ENV, "0")
-    monkeypatch.setattr("vnstock_sentiment.anthropic_complete",
+    monkeypatch.setattr("vnstock_sentiment.anthropic_complete_ex",
                         lambda *a, **k: (_ for _ in ()).throw(AssertionError(
                             "kill-switch bật mà vẫn gọi route trả phí")))
-    monkeypatch.setattr("vnstock_sentiment.chat_complete",
-                        lambda *a, **k: "TRUNG_LẬP | hai chiều")
+    monkeypatch.setattr("vnstock_sentiment.chat_complete_ex",
+                        lambda *a, **k: _ex("TRUNG_LẬP | hai chiều"))
     s, _imp = nf.analyze_item({"title": "Margin kỷ lục"})
     assert s == "neutral"
 
@@ -145,11 +193,11 @@ def test_default_free_first_skips_paid_route(monkeypatch):
     """Mặc định (không set env) → đi thẳng ladder free, KHÔNG gọi Anthropic."""
     monkeypatch.setenv("VNSTOCK_NEWS_FULLTEXT", "0")
     monkeypatch.delenv(nf._ANALYZE_PAID_ENV, raising=False)
-    monkeypatch.setattr("vnstock_sentiment.anthropic_complete",
+    monkeypatch.setattr("vnstock_sentiment.anthropic_complete_ex",
                         lambda *a, **k: (_ for _ in ()).throw(AssertionError(
                             "free-first mà vẫn gọi route trả phí")))
-    monkeypatch.setattr("vnstock_sentiment.chat_complete",
-                        lambda *a, **k: "TÍCH_CỰC | Dầu khí hưởng lợi")
+    monkeypatch.setattr("vnstock_sentiment.chat_complete_ex",
+                        lambda *a, **k: _ex("TÍCH_CỰC | Dầu khí hưởng lợi"))
     s, imp = nf.analyze_item({"title": "Giá dầu tăng"})
     assert s == "positive" and imp == "Dầu khí hưởng lợi"
 
