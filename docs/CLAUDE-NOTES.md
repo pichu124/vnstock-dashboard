@@ -6966,6 +6966,52 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🧭 U56. HAI KHO TÁCH NHAU — KHO LAPTOP LÀ ẢNH CHỤP TRƯỚC CHIẾN DỊCH 07/09 (09/09)
+
+Bắt đầu từ một việc vặt: xoá `brief_watch.json` rồi `run.py doctor` trên
+💻 laptop. Doctor in `Lệch cơ sở — 70 mã ĐANG KHÔNG cập nhật giá`, trong khi
+U53 chốt 07/09 23:15 `[triage] ✅ sổ cách ly RỖNG`.
+
+## Số đo (toàn lệnh chỉ đọc, trên laptop)
+
+| | |
+|---|---|
+| `basis_drift_pending.json` | 19.271 byte, mtime **07/09 21:07:41**; `detected_at`: 08-21 ×23 · 08-24 ×6 · 08-25 ×2 · 08-28 ×8 · 09-04 ×2 · 09-07 ×29 |
+| `record_drift` | luôn stamp `date.today()` (`vnstock_updater.py:622`) ⇒ ngày là ngày phát hiện thật, không lượt sync 08/09–09/09 nào sinh ra được |
+| conflicted copy | `prices/` **0**; `_meta/` chỉ 15 bản cũ tháng 5–7 (không có bản của sổ) |
+| junction laptop | OK → `C:\Users\Administrator\Dropbox\vnstock_data\data_warehouse` |
+| `--from-drift-ledger --whole-series` (thử) | **69/70 lệch thật**, ACE sạch. Chẩn đoán trùng U53 **từng số**: VIM 35 · HU4 24 · SGR 9 · PJS 6 · ND2 5 · CHP 4 bar nhân hệ số; DRG `lõi 1.0016, thô 1.0251, 1 bar lẻ`; GH3 1.1356×/1.033 bar |
+| doctor | VNINDEX bar cuối 07/09 · market_overview 07/09 · NN ròng 07/09 |
+
+Dòng thứ 5 là dòng quyết định: một lần chạy thử hôm nay tái tạo **nguyên
+văn** bảng chẩn đoán của chiến dịch 07/09. Không có cách nào kho ĐÃ chữa lại
+đẻ ra đúng bộ số đó. ⇒ **Bản kho laptop đang đọc là ảnh chụp trước chiến
+dịch**, đóng băng ở lần ghi cuối 07/09 21:07 (29 dòng 09-07 = phát tối 07/09
+ghi sổ; giờ 21:07 khớp một phát chạy muộn ~38′ chứ không phải 18:00).
+
+## Hai giả thuyết đầu đều sai — lần thứ tám trong chuỗi U42→U53
+
+Tôi đi từ "sổ sống lại qua conflicted copy" (sai: không có bản nào) sang "junction
+một máy hỏng" (sai: laptop OK) trước khi lệnh chạy thử nói thẳng: không phải
+sổ cũ, mà là **cả kho cũ**. Cùng bài học U53: *thêm một dòng chẩn đoán, chạy
+thật, rồi mới kết luận* — và lần này chỉ số đo bar-level (VIM 35/HU4 24) mới
+đủ sức phân biệt "sổ lùi bản" với "kho lùi bản".
+
+## Hệ quả vận hành
+
+* **KHÔNG `--apply` trên laptop.** Chữa lần hai trên bản cũ = hai bản chữa
+  độc lập; sync nối lại là 69 parquet + sổ conflicted cùng lúc.
+* Bản desktop (chiến dịch + phát 08/09) là bản đúng — nếu nó còn. Laptop chưa
+  ghi `prices/` nên hồi phục sạch; chỉ vài file `_meta` laptop ghi hôm nay có
+  thể đẻ conflicted nhỏ.
+* Brief close 08/09 gửi **22:58** — không phải giờ của pipeline 18:00 (+38′).
+  Nhiều khả năng là lệnh tay; máy nào gửi thì user biết.
+* Chưa biết client Dropbox bên nào ngừng — việc #0 trong VIEC-DANG-LAM.md có
+  ba lệnh chỉ đọc cho từng máy. Hạ tầng không đọc được từ code thì HỎI
+  (CLAUDE.md hệ quả #4) — đúng chỗ này.
+
+---
+
 # 🧵 U55. SOI BRIEF CLOSE 08/09 — 5 LỖI, ĐỀU CÓ FILE:LINE, ĐỀU ĐÃ VÁ (09/09)
 
 User dán brief close phiên 08/09/2026 (bản đầu sau đợt vá 07/09) và hỏi

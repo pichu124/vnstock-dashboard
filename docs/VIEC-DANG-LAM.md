@@ -2,7 +2,7 @@
 
 > Bản để LÀM THEO. Kho lưu chi tiết (lý do, file:line, lịch sử) ở
 > `docs/CLAUDE-NOTES.md` — đừng mở nó để biết "hôm nay làm gì".
-> Cập nhật: 09/09/2026 — 🚨 sổ cách ly đầy lại 70 mã (việc #0) · 5 lỗi brief ĐÃ VÁ (#6–#10, U55); laptop đã merge, `3.158 passed`; **desktop CHƯA merge** — brief tối vẫn code cũ tới khi merge.
+> Cập nhật: 09/09/2026 — 🚨 HAI KHO TÁCH NHAU từ 07/09 21:07, laptop = bản trước chiến dịch (việc #0, KHÔNG --apply) · 5 lỗi brief ĐÃ VÁ (#6–#10, U55); laptop đã merge, `3.158 passed`; **desktop CHƯA merge** — brief tối vẫn code cũ tới khi merge.
 
 ## 🏷️ NHÃN MÁY — quy tắc gốc: KHO đồng bộ, CODE thì không
 
@@ -26,44 +26,54 @@ desktop). **Phiên hiện tại: 💻 LAPTOP** (user báo 09/09).
 
 # 🔴 CÒN PHẢI LÀM
 
-## 0. 🚨 SỔ CÁCH LY ĐẦY LẠI — 70 mã (doctor 09/09) — đang tra, CHƯA chữa
+## 0. 🚨 HAI KHO ĐÃ TÁCH NHAU từ 07/09 ~21:07 — kho laptop là BẢN TRƯỚC CHIẾN DỊCH
 
-U53 chốt 07/09 23:15: `[triage] ✅ sổ cách ly RỖNG`. Doctor 09/09 (sau khi
-xoá `brief_watch.json`): **70 mã ĐANG KHÔNG cập nhật giá** — `ACE 1.0853×
-(2026-09-07) · BRC 1.0982× (09-07) · BRR 1.0425× (08-25) · C22 1.0618×
-(09-07) · CHP 1.0685× (08-28) · CTI 1.0998× (08-24) … +64`. Cùng lúc:
-VNINDEX bar cuối **07/09**, market_overview **07/09**, NN ròng **07/09** —
-tức phát 08/09 KHÔNG để lại data trong kho, dù brief close 08/09 vẫn gửi lúc
-**22:58** (pipeline 18:00 + 38′ thì brief ~18:40 — 22:58 là giờ lạ).
+Đo 09/09 trên 💻 laptop (U56), toàn lệnh chỉ đọc:
 
-Điều duy nhất đọc được từ code, không phải đoán: `record_drift` luôn ghi
-`detected_at = hôm nay`, và không ai xoá mã khỏi sổ ngoài tool rebase. Sổ
-hôm nay có ngày **24/08 · 25/08 · 28/08 · 07/09** ⇒ đây là **bản sổ CŨ sống
-lại** (file bị lùi bản — Dropbox đẻ/đè bản, hoặc lần xoá 07/09 không persist
-— U46 đã gặp `WinError 5` đúng file này), KHÔNG phải 70 mã lệch mới phát hiện
-08/09 (nếu thế ngày phải là 09-08). Chưa biết kho parquet của 73 mã đã chữa có
-bị lùi bản theo không — đó là câu hỏi quan trọng nhất.
+* Sổ cách ly `basis_drift_pending.json`: **70 mã**, ghi lần cuối **07/09 21:07:41**,
+  `detected_at` = 08-21 ×23 · 08-24 ×6 · 08-25 ×2 · 08-28 ×8 · 09-04 ×2 · **09-07 ×29**.
+* `--from-drift-ledger --whole-series` (chạy thử): **69/70 lệch THẬT**, ACE sạch.
+  Và chẩn đoán trùng U53 **từng con số**: VIM 35 · HU4 24 · SGR 9 · PJS 6 ·
+  ND2 5 · CHP 4 bar nhân hệ số; DRG `spread lõi 1.0016, thô 1.0251, 1 bar lẻ`;
+  GH3 1.1356× / 1.033 bar. Tức kho laptop đang nhìn = **đúng trạng thái TRƯỚC
+  khi chiến dịch 07/09 chữa 73 → 0**.
+* `prices/` **0** conflicted copy; `_meta/` chỉ có conflicted copy cũ tháng 5–7.
+* Junction laptop OK → `C:\Users\Administrator\Dropbox\vnstock_data\data_warehouse`.
+* Cùng chiều: VNINDEX bar cuối 07/09 · market_overview 07/09 · NN ròng 07/09.
 
-**Ba lệnh lấy sự thật, chỉ đọc — làm TRƯỚC 18:00 hoặc sau ~19:30:**
+⇒ **Mọi thứ ghi vào kho sau 07/09 21:07 (chiến dịch 73→0, phát 08/09) KHÔNG tới
+bản kho laptop đang đọc.** Hai bản kho đã tách nhau. Chưa biết client Dropbox
+bên nào ngừng sync (laptop hay desktop) — chỉ máy thật trả lời được.
 
-1. 🖥️ DESKTOP — phát 08/09 có chạy không, chạy lúc nào, xong bước nào:
-   ```powershell
-   Get-ScheduledTask -TaskName 'VnStock *' | Get-ScheduledTaskInfo | Format-List TaskName,LastRunTime,LastTaskResult,NextRunTime
-   Select-String -Path run_daily.log -Pattern '⏱|cách ly|conflicted|14/14' | Select-Object -Last 15
-   ```
-2. ○ kho chung — có bản conflicted copy không (sổ lẫn parquet):
-   ```powershell
-   Get-ChildItem data_warehouse\_meta -Filter '*conflicted*'
-   (Get-ChildItem data_warehouse\prices -Recurse -Filter '*conflicted copy*').Count
-   ```
-3. ○ kho chung — đo lại 70 mã: kho có THẬT SỰ lệch nguồn không (chạy thử,
-   không ghi; mất vài phút vì gọi nguồn):
-   ```powershell
-   python scripts\rebase_ticker_history.py --from-drift-ledger --whole-series
-   ```
-   Tool báo "đã sạch, chỉ sổ chưa xoá" hàng loạt ⇒ chỉ là sổ cũ, `--apply`
-   sẽ dọn sổ (○, ngoài 18:00–19:xx). Tool thấy lệch thật ⇒ DÁN CHO CLAUDE
-   trước khi `--apply` — 70 mã lệch lại sau một ngày là chuyện khác hẳn U53.
+### 🛑 TUYỆT ĐỐI KHÔNG `--apply` trên laptop
+Chữa lại 69 mã trên bản laptop là tạo bản chữa THỨ HAI, độc lập; khi sync nối
+lại là 69 parquet + sổ đẻ conflicted copy cùng lúc — CLAUDE.md hệ quả #3 ở quy
+mô cả chiến dịch. Bản desktop (có chiến dịch + data 08/09) là bản đúng.
+
+### Ba lệnh chỉ đọc để biết bên nào đứng
+```powershell
+# 💻 LAPTOP — client Dropbox có chạy/đang "Up to date" không (nhìn icon khay), và
+#             kho laptop nhận được phát nào cuối cùng, từ máy nào
+Get-Process Dropbox -ErrorAction SilentlyContinue | Select-Object Name,StartTime
+Get-Content data_warehouse\_meta\pipeline_status.json
+```
+```powershell
+# 🖥️ DESKTOP — icon Dropbox ở khay: đang sync / paused / lỗi?  Rồi:
+Get-Item C:\vnstock\data_warehouse | Format-List LinkType,Target      # E:\ còn không
+Get-Content data_warehouse\_meta\pipeline_status.json                # phải có 09-08
+python scripts\triage_basis_drift.py                                   # phải RỖNG nếu chiến dịch còn
+Get-ScheduledTask -TaskName 'VnStock *' | Get-ScheduledTaskInfo | Format-List TaskName,LastRunTime,LastTaskResult
+```
+
+### Đường hồi phục (sau khi sync nối lại)
+1. Bản desktop thắng — laptop chưa hề ghi `prices/` nên parquet không xung đột.
+2. Laptop hôm nay chỉ ghi vài file `_meta` (`test_status`, `market_news_cache`,
+   `doctor_status`, chuyển `brief_watch.json` vào `backup_rebase/`) ⇒ có thể đẻ
+   vài conflicted copy nhỏ trong `_meta` — xoá, vô hại.
+3. Kiểm trên laptop: `python scripts\triage_basis_drift.py` → RỖNG, và
+   `python run.py doctor` → VNINDEX bar cuối = phiên gần nhất.
+4. Nếu bản desktop cũng KHÔNG có chiến dịch (triage desktop ≠ RỖNG) ⇒ chiến dịch
+   07/09 đã mất thật — dán cho Claude trước khi làm gì; `backup_rebase/` là chỗ soi.
 
 ## 1. 🎚️ Hai badge "đủ mẫu" — ĐÃ XỬ, và cả hai đều khác dự đoán
 
