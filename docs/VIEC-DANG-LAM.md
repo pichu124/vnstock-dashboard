@@ -2,7 +2,7 @@
 
 > Bản để LÀM THEO. Kho lưu chi tiết (lý do, file:line, lịch sử) ở
 > `docs/CLAUDE-NOTES.md` — đừng mở nó để biết "hôm nay làm gì".
-> Cập nhật: 09/09/2026 — 5 lỗi brief close 08/09 ĐÃ VÁ (#6–#10, U55); NSO đã có kỳ tháng 8.
+> Cập nhật: 09/09/2026 — 5 lỗi brief close 08/09 ĐÃ VÁ (#6–#10, U55); laptop đã merge, `3.158 passed`; **desktop CHƯA merge** — brief tối vẫn code cũ tới khi merge.
 
 ## 🏷️ NHÃN MÁY — quy tắc gốc: KHO đồng bộ, CODE thì không
 
@@ -114,12 +114,14 @@ vẫn `2026-06-30` là ĐÚNG (quý). ⇒ mạng nhà KHÔNG chặn NSO, bỏ lu
 
 Hai câu cụt (`— tác động: Nh`, `— tác động: Tỷ giá`) **vẫn nằm trong cache**
 `_meta/market_news_cache.json` (kho chung) — bản vá chỉ chặn câu cụt MỚI.
-Dọn một lần, máy nào cũng được:
+Dọn một lần, máy nào cũng được — nhưng **ngoài 18:00–19:xx** (kho chung, đừng
+ghi cache trong lúc pipeline desktop đang đọc nó):
 ```powershell
 python vnstock_news_feeds.py --refresh --reanalyze    # chấm lại 8 tin mới nhất
 python vnstock_news_feeds.py --show                   # không còn dòng "tác động:" cụt
 ```
-Rồi brief close kế tiếp, soi 4 chỗ (dán cho Claude nếu lệch):
+Rồi brief close **ĐẦU TIÊN SAU KHI DESKTOP MERGE** (xem #6 — trước đó brief
+vẫn là code cũ, soi cũng vô ích), soi 4 chỗ (dán cho Claude nếu lệch):
 1. Header không còn `(2 dòng)` / `(1 dòng, optional)`.
 2. Dòng "Kỳ hạn & đường cong": nếu 10Y − điều hành vẫn trong ±0.10 thì phải
    đọc là *"mỏng — sát 0 (… chưa tính ÂM)"*, và điểm band phân bổ nhích lên
@@ -135,14 +137,19 @@ tab **Tin tức** → sub-tab **🧭 Phân bổ** → nút **📝 Tạo brief**.
 
 ## 6. 💻 Laptop — merge + nâng vnstock 4.0.7 TRƯỚC desktop
 
-Laptop đang ở `2.615`, HEAD là **`3.141` + 17 test mới** (09/09, đợt vá brief
-#6–#10 — nhánh `claude/laptop-work-ono4qt`, đã gộp sẵn lịch sử `main` 09/08).
+✅ **Laptop ĐÃ merge** `claude/laptop-work-ono4qt` và đo full: **3.158 passed /
+161,8s** (09/09, vnstock 4.0.4) — đúng 3.141 + 17 test mới.
 
+🖥️ **DESKTOP CHƯA MERGE — vẫn `2.615`, tức brief tối vẫn sinh bằng CODE CŨ**
+(cả 5 lỗi #6–#10 còn nguyên trên Telegram cho tới khi merge). Code không đi
+qua Dropbox nên phải làm ⇄ ở desktop, và làm **NGOÀI 18:00–19:xx** (pipeline
+đang chạy thì đừng đổi code dưới chân nó):
 ```powershell
 cd C:\vnstock
 git fetch origin claude/laptop-work-ono4qt
 git merge origin/claude/laptop-work-ono4qt
-python run.py test          # kỳ vọng ≈3.158 passed (3.141 + 17)
+git log --oneline -1            # phải là c969d6a
+python run.py test --fast       # ~2.561 passed; badge xanh
 ```
 
 **📦 vnstock 4.0.7 đã ra — cổng gỡ chặn 4.0.6 đã mở.** Đúng thứ tự:
@@ -222,7 +229,7 @@ dòng `screener` như thường lệ.
 | Rủi ro chạm trần task | 166,3′ → 69,0′ ⇒ đệm 13,7′ → **111′** *(số chưa sạch — xem việc #1)* |
 | Phát tự động trọn vẹn | 21/08, 24/08, 25/08 đều đủ 14 bước và **có brief Telegram** |
 | Chất lượng brief | Guard số chỉ số (trạng từ) · dọn khối tin · GDKHQ không cảnh báo cho ĐHĐCĐ · dải ±3% gọi đúng tên |
-| Đồng bộ code | 🖥️ desktop `2.615 passed` = HEAD lúc 26/08 sáng; HEAD nay **3.141** (đợt vá lệch cơ sở + `--whole-series`) |
+| Đồng bộ code | 💻 laptop **`3.158 passed / 161,8s`** (09/09) = HEAD `c969d6a`; 🖥️ desktop **vẫn `2.615`, chưa merge** — xem việc #6 |
 | `fix-units` đối chứng | 26/08 trên KHO THẬT: `fix_count` khớp, giải nén **ít hơn 1.125×**, bỏ qua **98,6%** mã. Lượt đối chứng còn tìm ra bug HFB (`time` trộn kiểu ⇒ mã bị bỏ sót im lặng) — đã vá (U32) |
 | Sổ lệnh | **Không mất** — 805 briefs · 148 rec · 138 outcome |
 | BCTC ngân hàng 2015-2016 | **TẠM DỪNG** (user chốt 26/08) — đã đo 5 nguồn: `vci` sớm nhất 2018-Q1 (đúng khung, tốt nhất) · `finhay` trần 5 kỳ · `cafef` có 2015-2016 nhưng **sai khung (doanh nghiệp thường)** · `kbs` rỗng · `tcbs` 404. Muốn data cũ hơn ⇒ user xuất Wichart/FiinPro, Claude viết bộ đọc. **Đừng dò lại** — xem U34 `docs/CLAUDE-NOTES.md` |
