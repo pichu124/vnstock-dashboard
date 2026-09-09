@@ -42,8 +42,12 @@ desktop). **Phiên hiện tại: 💻 LAPTOP** (user báo 09/09).
 * Cùng chiều: VNINDEX bar cuối 07/09 · market_overview 07/09 · NN ròng 07/09.
 
 ⇒ **Mọi thứ ghi vào kho sau 07/09 21:07 (chiến dịch 73→0, phát 08/09) KHÔNG tới
-bản kho laptop đang đọc.** Hai bản kho đã tách nhau. Chưa biết client Dropbox
-bên nào ngừng sync (laptop hay desktop) — chỉ máy thật trả lời được.
+bản kho laptop đang đọc.** Hai bản kho đã tách nhau. **Laptop Dropbox "Up to
+date" (user xác nhận 09/09)** ⇒ server = bản trước chiến dịch ⇒ bên không
+upload là **DESKTOP**: hoặc (a) tắt ngay sau chiến dịch ~23:15 khi chưa kịp
+upload và tắt từ đó (không có phát 08/09; brief 22:58 là gõ tay từ laptop),
+hoặc (b) vẫn chạy nhưng client Dropbox đứng / ổ E: rời. Ghé desktop mới biết.
+Laptop từ giờ **chỉ đọc**, không ghi gì vào kho cho tới khi desktop sync xong.
 
 ### 🛑 TUYỆT ĐỐI KHÔNG `--apply` trên laptop
 Chữa lại 69 mã trên bản laptop là tạo bản chữa THỨ HAI, độc lập; khi sync nối
