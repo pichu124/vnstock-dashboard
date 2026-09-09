@@ -110,16 +110,20 @@ cả `as_of 2026-08-31`** — kỳ tháng 8 đã về, không còn kẹt ở `20
 vẫn `2026-06-30` là ĐÚNG (quý). ⇒ mạng nhà KHÔNG chặn NSO, bỏ luôn việc phát
 4G. *(Jina ⚠️ cùng cụm nhưng **không gấp** — chỉ làm tin chấm bằng title+summary.)*
 
-## 4b. 📰 Sau đợt vá brief 09/09 — ○ MỘT LẦN dọn cache + đối chiếu brief kế tiếp
+## 4b. 📰 Sau đợt vá brief 09/09 — đối chiếu brief kế tiếp
 
-Hai câu cụt (`— tác động: Nh`, `— tác động: Tỷ giá`) **vẫn nằm trong cache**
-`_meta/market_news_cache.json` (kho chung) — bản vá chỉ chặn câu cụt MỚI.
-Dọn một lần, máy nào cũng được — nhưng **ngoài 18:00–19:xx** (kho chung, đừng
-ghi cache trong lúc pipeline desktop đang đọc nó):
-```powershell
-python vnstock_news_feeds.py --refresh --reanalyze    # chấm lại 8 tin mới nhất
-python vnstock_news_feeds.py --show                   # không còn dòng "tác động:" cụt
-```
+~~Dọn cache tin cụt~~ — **không cần nữa** (đo 09/09): `--reanalyze` chỉ chấm
+lại 8 tin MỚI NHẤT, mà 09/09 đã có 12 tin mới nên hai câu cụt của 08/09 không
+được đụng tới — nhưng chúng cũng đã **rơi khỏi cửa sổ brief** (brief lấy 6 tin
+mới nhất trong 3 ngày). Vô hại; chỉ còn hiện ở sub-tab Vĩ mô của dashboard.
+Muốn sạch hẳn thì `python vnstock_news_feeds.py --reanalyze --max-analyze 30`
+(≈30 call LLM, ngoài giờ pipeline) — tuỳ, không bắt buộc.
+
+Lượt `--reanalyze` 09/09 cho 3/8 tin trống mà console không nói vì sao ⇒ đã
+thêm vết: từ chối câu cụt thì item mang `_impact_cut`, `--show` in dòng
+`✂ provider cắt giữa câu (<nấc>)`, tổng kết CLI đếm `N bỏ vì provider cắt`, và
+`run_daily.log` có dòng WARNING. Lần chạy sau đọc là biết cắt hay thang cạn.
+
 Rồi brief close **ĐẦU TIÊN SAU KHI DESKTOP MERGE** (xem #6 — trước đó brief
 vẫn là code cũ, soi cũng vô ích), soi 4 chỗ (dán cho Claude nếu lệch):
 1. Header không còn `(2 dòng)` / `(1 dòng, optional)`.

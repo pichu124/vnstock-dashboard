@@ -38,6 +38,7 @@ import argparse
 import hashlib
 import html
 import json
+import logging
 import os
 import re
 import sys
@@ -100,6 +101,8 @@ _MARKET_KEYWORDS: tuple[str, ...] = (
     "rate", "inflation", "fed", "treasury", "yield", "tariff", "recession",
     "stimulus", "oil", "gold", "sanction", "stocks", "market", "economy",
 )
+
+_log = logging.getLogger(__name__)
 
 _MAX_ANALYZE_DEFAULT = 8       # cap LLM calls per refresh (token control)
 _RETAIN_DAYS = 30              # tin cũ giữ trong cache cho sub-tab Vĩ mô đọc lại
@@ -354,7 +357,14 @@ def analyze_item(item: dict) -> tuple[str, str]:
         # đã thử lại một lần với trần rộng hơn mà vẫn cụt. Câu cụt trông y hệt
         # câu ngắn hợp lệ nên sanitize_impact KHÔNG phân biệt được; mà refresh
         # giữ phân tích cũ mãi ⇒ KHÔNG ghi cache, để lượt refresh sau chấm lại.
+        # Từ chối thì phải ĐỂ VẾT (09/09: user chạy --reanalyze thấy 3/8 tin
+        # trống mà không biết vì bị cắt hay vì thang cạn): đánh dấu vào item
+        # (--show + tổng kết CLI đọc) và ghi log (run_daily.log đọc).
+        item["_impact_cut"] = res.get("model") or "?"
+        _log.warning("[news-feeds] ✂ bỏ câu bị provider cắt (%s): %s",
+                     item["_impact_cut"], (item.get("title") or "")[:80])
         return "", ""
+    item.pop("_impact_cut", None)
     raw = res["text"]
     head, _, impact = raw.partition("|")
     low = head.lower()
@@ -439,6 +449,7 @@ def refresh(within_days: int = 4, analyze: bool = True,
             todo = items[:max_analyze]            # re-score newest with new prompt
             for it in todo:
                 it["_sentiment"], it["_impact"] = "", ""
+                it.pop("_impact_cut", None)
         else:
             todo = [it for it in items if not it.get("_impact")][:max_analyze]
         for it in todo:
@@ -516,6 +527,9 @@ def _show(limit: int = 12) -> None:
         print(f"  {tag} [{it.get('_date_sort','?')}] {it.get('title','')[:90]}")
         if it.get("_impact"):
             print(f"      → {it['_impact']}  ({it.get('source_feed','')})")
+        elif it.get("_impact_cut"):
+            print(f"      ✂ provider cắt giữa câu ({it['_impact_cut']}) — "
+                  "không cache, chấm lại lượt sau")
 
 
 def main(argv: "list[str] | None" = None) -> int:
@@ -551,7 +565,10 @@ def main(argv: "list[str] | None" = None) -> int:
         items = refresh(within_days=a.within, analyze=not a.no_analyze,
                         max_analyze=a.max_analyze, reanalyze=a.reanalyze)
         n_an = sum(1 for it in items if it.get("_impact"))
-        print(f"[news-feeds] cache: {len(items)} tin liên quan, {n_an} đã phân tích.")
+        n_cut = sum(1 for it in items if it.get("_impact_cut"))
+        print(f"[news-feeds] cache: {len(items)} tin liên quan, {n_an} đã phân tích"
+              + (f", {n_cut} bỏ vì provider cắt giữa câu (chấm lại lượt sau)"
+                 if n_cut else "") + ".")
         _show()
         return 0
     if a.show:

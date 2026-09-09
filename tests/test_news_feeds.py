@@ -84,7 +84,7 @@ def test_analyze_item_parses_sentiment_and_impact(monkeypatch):
     assert nf.analyze_item({"title": "x"}) == ("", "")
 
 
-def test_analyze_item_refuses_impact_the_provider_cut_short(monkeypatch):
+def test_analyze_item_refuses_impact_the_provider_cut_short(monkeypatch, caplog):
     """Close 08/09: khối tin in "— tác động: Nh" và "— tác động: Tỷ giá" —
     cắt GIỮA TỪ, không có "…" ⇒ không phải sanitize_impact mà là provider cắt
     ở max_tokens. Câu cụt trông y hệt câu ngắn hợp lệ, và refresh giữ phân
@@ -93,11 +93,18 @@ def test_analyze_item_refuses_impact_the_provider_cut_short(monkeypatch):
     monkeypatch.setenv("VNSTOCK_NEWS_FULLTEXT", "0")
     monkeypatch.setattr("vnstock_sentiment.chat_complete_ex",
                         lambda *a, **k: _ex("TRUNG_LẬP | Nh", truncated=True))
-    assert nf.analyze_item({"title": "Điện tử nhập siêu 60 tỷ USD"}) == ("", "")
-    # đối chứng: cùng chữ nhưng provider dừng tự nhiên → chấm bình thường
+    item = {"title": "Điện tử nhập siêu 60 tỷ USD"}
+    with caplog.at_level("WARNING"):
+        assert nf.analyze_item(item) == ("", "")
+    # từ chối thì phải để VẾT: đánh dấu trên item (CLI/--show đọc) + log
+    assert item["_impact_cut"] == "Fake:m"
+    assert "provider cắt" in caplog.text and "Điện tử nhập siêu" in caplog.text
+    # đối chứng: cùng chữ nhưng provider dừng tự nhiên → chấm bình thường,
+    # và vết cũ được xoá
     monkeypatch.setattr("vnstock_sentiment.chat_complete_ex",
                         lambda *a, **k: _ex("TRUNG_LẬP | Nh"))
-    assert nf.analyze_item({"title": "x"}) == ("neutral", "Nh")
+    assert nf.analyze_item(item) == ("neutral", "Nh")
+    assert "_impact_cut" not in item
 
 
 def test_refresh_leaves_a_cut_short_item_unanalyzed_for_the_next_run(tmp_path, monkeypatch):
@@ -125,6 +132,52 @@ def test_refresh_leaves_a_cut_short_item_unanalyzed_for_the_next_run(tmp_path, m
     calls.clear()
     nf.refresh(within_days=5, analyze=True, max_analyze=8)
     assert calls
+
+
+def test_cli_refresh_summary_counts_cut_items_and_show_explains_them(monkeypatch, capsys):
+    """09/09 user chạy `--refresh --reanalyze`, 3/8 tin trống mà console không
+    nói vì sao. Tổng kết phải đếm số bị cắt, --show phải ghi lý do ngay dưới tin."""
+    items = [
+        {"title": "A", "_date_sort": "2026-09-09", "_sentiment": "positive",
+         "_impact": "x", "source_feed": "F"},
+        {"title": "B", "_date_sort": "2026-09-09", "_sentiment": "", "_impact": "",
+         "_impact_cut": "Gemini:gemini-3.5-flash"},
+    ]
+    monkeypatch.setattr(nf, "refresh", lambda **k: items)
+    monkeypatch.setattr(nf, "load_market_news", lambda **k: items)
+    assert nf.main(["--refresh"]) == 0
+    out = capsys.readouterr().out
+    assert "1 đã phân tích, 1 bỏ vì provider cắt giữa câu" in out
+    assert "✂ provider cắt giữa câu (Gemini:gemini-3.5-flash)" in out
+    # không có tin bị cắt → tổng kết không thêm mệnh đề thừa
+    monkeypatch.setattr(nf, "refresh", lambda **k: items[:1])
+    monkeypatch.setattr(nf, "load_market_news", lambda **k: items[:1])
+    nf.main(["--refresh"])
+    assert "bỏ vì provider cắt" not in capsys.readouterr().out
+
+
+def test_reanalyze_clears_the_cut_marker_before_rescoring(tmp_path, monkeypatch):
+    monkeypatch.setattr(nf, "_CACHE", tmp_path / "market_news.json")
+    monkeypatch.setattr(nf, "_FEEDS", [{"name": "A", "url": "u1"}])
+    monkeypatch.setattr(nf, "fetch_feed", lambda feed: nf.parse_feed(RSS, "A"))
+    import datetime as _dt
+
+    class _FixedDate(_dt.date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 6, 16)
+    monkeypatch.setattr(nf, "_date", _FixedDate)
+
+    def _cut(it):
+        it["_impact_cut"] = "Fake:m"
+        return "", ""
+    monkeypatch.setattr(nf, "analyze_item", _cut)
+    items = nf.refresh(within_days=5, analyze=True)
+    assert all(it.get("_impact_cut") for it in items)
+    # lượt sau chấm được → vết phải biến mất (reanalyze xoá trước khi chấm)
+    monkeypatch.setattr(nf, "analyze_item", lambda it: ("positive", "ok"))
+    items = nf.refresh(within_days=5, analyze=True, reanalyze=True)
+    assert all(it["_impact"] == "ok" and "_impact_cut" not in it for it in items)
 
 
 def test_analyze_system_prompt_enforces_direction_consistency():
