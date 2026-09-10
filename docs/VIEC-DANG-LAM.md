@@ -20,7 +20,7 @@
 đổi; không báo thì giữ nguyên máy của lượt trước. Đừng suy từ đường dẫn venv —
 cả hai đều `C:\vnstock`, venv đổi theo TÀI KHOẢN đăng nhập. Thật sự chưa biết
 thì: `$env:COMPUTERNAME; Get-ScheduledTask -TaskName 'VnStock *'` (2 task =
-desktop). **Phiên hiện tại: 💻 LAPTOP** (user báo 09/09).
+desktop). **Phiên hiện tại: 🖥️ DESKTOP** (user báo 10/09).
 
 ---
 
