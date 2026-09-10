@@ -7010,9 +7010,12 @@ thật, rồi mới kết luận* — và lần này chỉ số đo bar-level (V
   desktop bị TẮT SYNC bằng tay từ tối 07/09, quên bật lại.** Laptop "Up to
   date" đã khoanh đúng bên. Hạ tầng không đọc được từ code thì HỎI (CLAUDE.md
   hệ quả #4) — lần này hỏi một câu là ra, sau ba giả thuyết sai từ timestamp.
-* Lưới đã bỏ lỡ: doctor 09/09 (thứ Tư) vẫn ✅ "bar cuối 07/09 (2 ngày trước)"
-  — ngưỡng theo ngày lịch nuốt mất phiên 08/09 thiếu. Đếm theo phiên thì vụ
-  này lộ ngay sáng 08/09 thay vì phải đợi một việc vặt tình cờ (việc #11).
+* Lưới KHÔNG bỏ lỡ, người đọc bỏ lỡ: doctor 09/09 trên laptop đã ⚠️
+  market_overview 07/09 và ⚠️ NN ròng 07/09 (VNINDEX ✅ là đúng thiết kế —
+  `check_warehouse` dung sai 2 PHIÊN vì EOD về trễ; tôi suýt ghi nhầm nó là
+  lỗi "đếm ngày lịch"). Hai ⚠️ đó nghĩa là "phát 08/09 chưa tới kho này" — mà
+  câu đó có hai cách xảy ra (pipeline không chạy / sync tắt), badge chưa nói
+  ra. Việc #11: một badge riêng cho đúng câu đó.
 
 ---
 

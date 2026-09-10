@@ -72,12 +72,12 @@ laptop Dropbox "Up to date" ⇒ server cũng vậy ⇒ bên không upload là de
 5. Brief close tối nay (thứ Năm 10/09) = brief đầu tiên có đủ bản vá — soi 4 chỗ
    ở mục 4b + dòng ledger Gemini.
 
-### Bài học vận hành (đưa vào CLAUDE.md)
+### Bài học vận hành (đã đưa vào CLAUDE.md, hệ quả #5)
 Kho lệch giữa hai máy mà `prices/` **không** có conflicted copy ⇒ nghi **sync bị
 tắt** trước khi nghi code. Dấu hiệu rẻ nhất: icon Dropbox ở khay, và
-`pipeline_status.json` hai bên lệch ngày. Doctor 09/09 vẫn ✅ "bar cuối 07/09
-(2 ngày trước)" giữa tuần — ngưỡng theo NGÀY LỊCH nuốt mất một phiên thiếu
-(việc Claude #11).
+`pipeline_status.json` hai bên lệch ngày. Doctor 09/09 trên laptop THẬT RA đã
+réo — ⚠️ market_overview 07/09 · ⚠️ NN ròng 07/09 — nhưng đọc thành "pipeline
+chưa chạy" chứ không phải "phát đã chạy ở máy kia mà chưa tới đây" (việc #11).
 
 ## 1. 🎚️ Hai badge "đủ mẫu" — ĐÃ XỬ, và cả hai đều khác dự đoán
 
@@ -261,7 +261,7 @@ hiệu guard đang LÀM VIỆC, không phải hỏng.
 | ~~9~~ | **"Sự kiện sắp tới" brief CLOSE tính cả hôm nay** | ✅ **XONG 09/09** — `_upcoming_window_start(brief_type, data_date)`: brief chiều mở cửa sổ từ **ngày kế tiếp** phiên đã đóng; brief sáng giữ hôm nay. Có lưới nối dây (`test_collect_context_wires_the_window_start_into_load_upcoming`). |
 | ~~10~~ | **`pp` khi 2 số lẻ, khi 3** | ✅ **XONG 09/09** — chốt **3 số lẻ** (không phải 2 như ghi hôm qua): ngưỡng lead/lag 0.05pp nằm ở số lẻ thứ 2, in 2 số lẻ thì "+0.05pp < 0.05" tự đá nhau. Đổi đúng một chỗ: header khối ngành `vnstock_brief.py` `:+.2f` → `:+.3f`. |
 
-| 11 | **Doctor đếm độ tươi kho bằng NGÀY LỊCH** | 🟠 MỚI 10/09 — 09/09 (thứ Tư) doctor in ✅ "Kho giá EOD — bar cuối 2026-09-07 (2 ngày trước)" trong khi phiên 08/09 thiếu hẳn: ngưỡng theo ngày lịch (cho qua cuối tuần) nuốt mất một phiên thiếu giữa tuần. Đếm theo PHIÊN (T2–T6) thay vì ngày; cùng cách cho market_overview / NN ròng. Lưới này mà kêu sớm hơn một ngày là vụ tắt sync lộ ngay 08/09. |
+| 11 | **Doctor: "phát tối chưa tới kho này" là một badge riêng** | 🟠 MỚI 10/09 — kiểm `check_warehouse` thì nó ĐÃ đếm theo phiên với dung sai 2 phiên cố ý (VNINDEX EOD về trễ) — không phải lỗi. Cái thiếu là badge nói thẳng hai khả năng: sau ~20:00 ngày làm việc mà `_meta/pipeline_status.json` `last_success_date` < phiên gần nhất ⇒ warn *"phát tối chưa tới kho này: pipeline không chạy HOẶC sync Dropbox tắt — kiểm icon khay + `Get-ScheduledTaskInfo` ở desktop"*. Rẻ, chạy được ở máy nào cũng đúng, và lộ vụ 07/09 ngay sáng 08/09. |
 
 **📏 Phát kế tiếp là phép đo của cả ba bản vá** — dán `⏱ TỔNG` + `⏱ CHẶNG` +
 dòng `screener` như thường lệ.
