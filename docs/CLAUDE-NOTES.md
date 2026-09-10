@@ -7006,9 +7006,13 @@ thật, rồi mới kết luận* — và lần này chỉ số đo bar-level (V
   thể đẻ conflicted nhỏ.
 * Brief close 08/09 gửi **22:58** — không phải giờ của pipeline 18:00 (+38′).
   Nhiều khả năng là lệnh tay; máy nào gửi thì user biết.
-* Chưa biết client Dropbox bên nào ngừng — việc #0 trong VIEC-DANG-LAM.md có
-  ba lệnh chỉ đọc cho từng máy. Hạ tầng không đọc được từ code thì HỎI
-  (CLAUDE.md hệ quả #4) — đúng chỗ này.
+* ~~Chưa biết client Dropbox bên nào ngừng~~ **Đã rõ (user 10/09): Dropbox ở
+  desktop bị TẮT SYNC bằng tay từ tối 07/09, quên bật lại.** Laptop "Up to
+  date" đã khoanh đúng bên. Hạ tầng không đọc được từ code thì HỎI (CLAUDE.md
+  hệ quả #4) — lần này hỏi một câu là ra, sau ba giả thuyết sai từ timestamp.
+* Lưới đã bỏ lỡ: doctor 09/09 (thứ Tư) vẫn ✅ "bar cuối 07/09 (2 ngày trước)"
+  — ngưỡng theo ngày lịch nuốt mất phiên 08/09 thiếu. Đếm theo phiên thì vụ
+  này lộ ngay sáng 08/09 thay vì phải đợi một việc vặt tình cờ (việc #11).
 
 ---
 

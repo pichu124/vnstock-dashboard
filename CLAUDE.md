@@ -34,6 +34,11 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 > 4. **Đừng suy hạ tầng từ timestamp.** File Dropbox tải xuống nhận
 >    `CreationTime` LÚC TẢI còn TÊN do bên gửi đặt — 19/08 tôi đọc dấu hiệu này
 >    thành "chép tay" và sai suốt buổi. Hạ tầng không đọc được từ code thì HỎI.
+> 5. **Sync có thể bị TẮT bằng tay và quên bật** (desktop 07/09→10/09, U56):
+>    hai máy thấy kho khác nhau mà `prices/` KHÔNG có conflicted copy ⇒ nghi
+>    sync tắt TRƯỚC khi nghi code. Kiểm rẻ nhất: icon Dropbox ở khay + so
+>    `_meta/pipeline_status.json` hai bên. Bên đang tắt sync là bên giữ bản đúng
+>    của mọi thứ nó đã ghi — đừng chữa lại ở máy kia.
 
 ## Môi trường & lệnh chính
 - Windows + venv: `& "C:\Users\Administrator\.venv\Scripts\Activate.ps1"`,

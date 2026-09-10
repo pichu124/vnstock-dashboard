@@ -2,7 +2,7 @@
 
 > Bản để LÀM THEO. Kho lưu chi tiết (lý do, file:line, lịch sử) ở
 > `docs/CLAUDE-NOTES.md` — đừng mở nó để biết "hôm nay làm gì".
-> Cập nhật: 09/09/2026 — 🚨 HAI KHO TÁCH NHAU từ 07/09 21:07, laptop = bản trước chiến dịch (việc #0, KHÔNG --apply) · 5 lỗi brief ĐÃ VÁ (#6–#10, U55); laptop đã merge, `3.158 passed`; **desktop CHƯA merge** — brief tối vẫn code cũ tới khi merge.
+> Cập nhật: 10/09/2026 — việc #0 ra nguyên nhân: Dropbox desktop bị tắt sync từ 07/09, đã bật lại; theo 5 bước ở #0 · 5 lỗi brief ĐÃ VÁ (#6–#10, U55); laptop đã merge, `3.158 passed`; **desktop CHƯA merge** — brief tối vẫn code cũ tới khi merge.
 
 ## 🏷️ NHÃN MÁY — quy tắc gốc: KHO đồng bộ, CODE thì không
 
@@ -26,58 +26,58 @@ desktop). **Phiên hiện tại: 🖥️ DESKTOP** (user báo 10/09).
 
 # 🔴 CÒN PHẢI LÀM
 
-## 0. 🚨 HAI KHO ĐÃ TÁCH NHAU từ 07/09 ~21:07 — kho laptop là BẢN TRƯỚC CHIẾN DỊCH
+## 0. 🚨 HAI KHO ĐÃ TÁCH NHAU từ 07/09 ~21:07 — NGUYÊN NHÂN ĐÃ RÕ, đang sync lại
 
-Đo 09/09 trên 💻 laptop (U56), toàn lệnh chỉ đọc:
+**Nguyên nhân (user 10/09): Dropbox ở 🖥️ desktop bị TẮT SYNC bằng tay từ tối
+07/09, quên bật lại.** Không phải code, không phải junction, không phải
+conflicted copy. Đã bật lại 10/09 — đang upload.
 
-* Sổ cách ly `basis_drift_pending.json`: **70 mã**, ghi lần cuối **07/09 21:07:41**,
-  `detected_at` = 08-21 ×23 · 08-24 ×6 · 08-25 ×2 · 08-28 ×8 · 09-04 ×2 · **09-07 ×29**.
-* `--from-drift-ledger --whole-series` (chạy thử): **69/70 lệch THẬT**, ACE sạch.
-  Và chẩn đoán trùng U53 **từng con số**: VIM 35 · HU4 24 · SGR 9 · PJS 6 ·
-  ND2 5 · CHP 4 bar nhân hệ số; DRG `spread lõi 1.0016, thô 1.0251, 1 bar lẻ`;
-  GH3 1.1356× / 1.033 bar. Tức kho laptop đang nhìn = **đúng trạng thái TRƯỚC
-  khi chiến dịch 07/09 chữa 73 → 0**.
-* `prices/` **0** conflicted copy; `_meta/` chỉ có conflicted copy cũ tháng 5–7.
-* Junction laptop OK → `C:\Users\Administrator\Dropbox\vnstock_data\data_warehouse`.
-* Cùng chiều: VNINDEX bar cuối 07/09 · market_overview 07/09 · NN ròng 07/09.
+Bằng chứng đã đo 09/09 trên laptop (U56): sổ cách ly 70 mã mtime 07/09 21:07 ·
+`--from-drift-ledger --whole-series` (thử) tái tạo nguyên văn bảng U53 (VIM 35 ·
+HU4 24 · SGR 9 · PJS 6 · ND2 5 · CHP 4) ⇒ bản laptop = bản trước chiến dịch ·
+laptop Dropbox "Up to date" ⇒ server cũng vậy ⇒ bên không upload là desktop.
 
-⇒ **Mọi thứ ghi vào kho sau 07/09 21:07 (chiến dịch 73→0, phát 08/09) KHÔNG tới
-bản kho laptop đang đọc.** Hai bản kho đã tách nhau. **Laptop Dropbox "Up to
-date" (user xác nhận 09/09)** ⇒ server = bản trước chiến dịch ⇒ bên không
-upload là **DESKTOP**: hoặc (a) tắt ngay sau chiến dịch ~23:15 khi chưa kịp
-upload và tắt từ đó (không có phát 08/09; brief 22:58 là gõ tay từ laptop),
-hoặc (b) vẫn chạy nhưng client Dropbox đứng / ổ E: rời. Ghé desktop mới biết.
-Laptop từ giờ **chỉ đọc**, không ghi gì vào kho cho tới khi desktop sync xong.
+### 🖥️ DESKTOP — làm theo thứ tự, mỗi bước đợi bước trước xong
 
-### 🛑 TUYỆT ĐỐI KHÔNG `--apply` trên laptop
-Chữa lại 69 mã trên bản laptop là tạo bản chữa THỨ HAI, độc lập; khi sync nối
-lại là 69 parquet + sổ đẻ conflicted copy cùng lúc — CLAUDE.md hệ quả #3 ở quy
-mô cả chiến dịch. Bản desktop (có chiến dịch + data 08/09) là bản đúng.
+1. **Đợi icon Dropbox về "Up to date"** (73 parquet trọn lịch sử + hai phát
+   08/09, 09/09 — có thể mất một lúc). Trong lúc đợi, chỉ đọc:
+   ```powershell
+   python scripts\triage_basis_drift.py            # phải RỖNG (chiến dịch còn nguyên bên này)
+   Get-Content data_warehouse\_meta\pipeline_status.json
+   Select-String -Path run_daily.log -Pattern '⏱ TỔNG|⏱ CHẶNG|14/14' | Select-Object -Last 12
+   ```
+   Dòng `⏱ TỔNG`/`⏱ CHẶNG` của 08/09 và 09/09 chính là phép đo mà mục #2 đang
+   chờ — dán cho Claude.
+2. **Sync xong → dọn conflicted copy** do laptop ghi vài file `_meta` hôm 09/09
+   (test_status · market_news_cache · doctor_status · llm_ledger · brief_push):
+   ```powershell
+   Get-ChildItem data_warehouse\_meta -Filter '*conflicted copy 2026-09*'
+   Get-ChildItem data_warehouse\_meta -Filter '*conflicted copy 2026-09*' | Remove-Item
+   ```
+   `prices/` không có gì để dọn — laptop chưa hề ghi vào đó.
+3. **Merge code** (⇄, code không đi qua Dropbox) — trước 18:00:
+   ```powershell
+   git fetch origin claude/laptop-work-ono4qt
+   git merge origin/claude/laptop-work-ono4qt
+   git log --oneline -1            # dòng đầu phải ghi (HEAD -> main, origin/claude/laptop-work-ono4qt)
+   python run.py test --fast       # ~2.565 passed
+   ```
+4. **Xoá lại `brief_watch.json`** — bản desktop sẽ quay về sau sync (laptop xoá
+   nhưng desktop đã ghi thêm 08/09, 09/09 bằng `scan_ocf_scale` CŨ ⇒ vẫn rác).
+   Làm SAU khi merge để sổ mới đếm bằng code mới:
+   ```powershell
+   Remove-Item data_warehouse\_meta\brief_watch.json
+   python run.py doctor            # phải "đã soi 0 phiên"; sổ cách ly RỖNG; VNINDEX bar cuối = 09/09
+   ```
+5. Brief close tối nay (thứ Năm 10/09) = brief đầu tiên có đủ bản vá — soi 4 chỗ
+   ở mục 4b + dòng ledger Gemini.
 
-### Ba lệnh chỉ đọc để biết bên nào đứng
-```powershell
-# 💻 LAPTOP — client Dropbox có chạy/đang "Up to date" không (nhìn icon khay), và
-#             kho laptop nhận được phát nào cuối cùng, từ máy nào
-Get-Process Dropbox -ErrorAction SilentlyContinue | Select-Object Name,StartTime
-Get-Content data_warehouse\_meta\pipeline_status.json
-```
-```powershell
-# 🖥️ DESKTOP — icon Dropbox ở khay: đang sync / paused / lỗi?  Rồi:
-Get-Item C:\vnstock\data_warehouse | Format-List LinkType,Target      # E:\ còn không
-Get-Content data_warehouse\_meta\pipeline_status.json                # phải có 09-08
-python scripts\triage_basis_drift.py                                   # phải RỖNG nếu chiến dịch còn
-Get-ScheduledTask -TaskName 'VnStock *' | Get-ScheduledTaskInfo | Format-List TaskName,LastRunTime,LastTaskResult
-```
-
-### Đường hồi phục (sau khi sync nối lại)
-1. Bản desktop thắng — laptop chưa hề ghi `prices/` nên parquet không xung đột.
-2. Laptop hôm nay chỉ ghi vài file `_meta` (`test_status`, `market_news_cache`,
-   `doctor_status`, chuyển `brief_watch.json` vào `backup_rebase/`) ⇒ có thể đẻ
-   vài conflicted copy nhỏ trong `_meta` — xoá, vô hại.
-3. Kiểm trên laptop: `python scripts\triage_basis_drift.py` → RỖNG, và
-   `python run.py doctor` → VNINDEX bar cuối = phiên gần nhất.
-4. Nếu bản desktop cũng KHÔNG có chiến dịch (triage desktop ≠ RỖNG) ⇒ chiến dịch
-   07/09 đã mất thật — dán cho Claude trước khi làm gì; `backup_rebase/` là chỗ soi.
+### Bài học vận hành (đưa vào CLAUDE.md)
+Kho lệch giữa hai máy mà `prices/` **không** có conflicted copy ⇒ nghi **sync bị
+tắt** trước khi nghi code. Dấu hiệu rẻ nhất: icon Dropbox ở khay, và
+`pipeline_status.json` hai bên lệch ngày. Doctor 09/09 vẫn ✅ "bar cuối 07/09
+(2 ngày trước)" giữa tuần — ngưỡng theo NGÀY LỊCH nuốt mất một phiên thiếu
+(việc Claude #11).
 
 ## 1. 🎚️ Hai badge "đủ mẫu" — ĐÃ XỬ, và cả hai đều khác dự đoán
 
@@ -260,6 +260,8 @@ hiệu guard đang LÀM VIỆC, không phải hỏng.
 | ~~8~~ | **Header prompt lọt ra brief** | ✅ **XONG 09/09** — guard `enforce_no_header_scaffold` (`_guards_text`, nối sau `enforce_no_instruction_leak`): cắt "(N dòng/câu)" / "(… optional)" ở CUỐI dòng header (`##`/emoji mục/nhãn đậm); câu nội dung có ngoặc để yên. |
 | ~~9~~ | **"Sự kiện sắp tới" brief CLOSE tính cả hôm nay** | ✅ **XONG 09/09** — `_upcoming_window_start(brief_type, data_date)`: brief chiều mở cửa sổ từ **ngày kế tiếp** phiên đã đóng; brief sáng giữ hôm nay. Có lưới nối dây (`test_collect_context_wires_the_window_start_into_load_upcoming`). |
 | ~~10~~ | **`pp` khi 2 số lẻ, khi 3** | ✅ **XONG 09/09** — chốt **3 số lẻ** (không phải 2 như ghi hôm qua): ngưỡng lead/lag 0.05pp nằm ở số lẻ thứ 2, in 2 số lẻ thì "+0.05pp < 0.05" tự đá nhau. Đổi đúng một chỗ: header khối ngành `vnstock_brief.py` `:+.2f` → `:+.3f`. |
+
+| 11 | **Doctor đếm độ tươi kho bằng NGÀY LỊCH** | 🟠 MỚI 10/09 — 09/09 (thứ Tư) doctor in ✅ "Kho giá EOD — bar cuối 2026-09-07 (2 ngày trước)" trong khi phiên 08/09 thiếu hẳn: ngưỡng theo ngày lịch (cho qua cuối tuần) nuốt mất một phiên thiếu giữa tuần. Đếm theo PHIÊN (T2–T6) thay vì ngày; cùng cách cho market_overview / NN ròng. Lưới này mà kêu sớm hơn một ngày là vụ tắt sync lộ ngay 08/09. |
 
 **📏 Phát kế tiếp là phép đo của cả ba bản vá** — dán `⏱ TỔNG` + `⏱ CHẶNG` +
 dòng `screener` như thường lệ.
