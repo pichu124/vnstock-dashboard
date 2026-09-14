@@ -25,9 +25,11 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 >    `test_status.json` / `doctor_status.json` đều nằm TRONG kho và **không có
 >    trường máy** ⇒ badge sidebar có thể là kết quả của MÁY KIA;
 >    `run.py telegram close` chạy ở laptop là desktop câm brief tối đó.
-> 3. **Đừng đụng kho ở máy kia trong lúc pipeline chạy** (18:00-19:xx ngày làm
->    việc). Hai bên ghi cùng file ⇒ Dropbox đẻ `... (conflicted copy).parquet`
->    NGAY trong `prices/`. Đường GHI đã xử đủ (`read_year_frames` gộp mọi file ·
+> 3. **Đừng đụng kho ở máy kia trong lúc pipeline chạy** — từ lúc task Daily
+>    khởi động (18:00 ngày làm việc; máy tắt lúc đó thì `StartWhenAvailable`
+>    chạy bù NGAY KHI BẬT MÁY, phát 08–14/09 đều khởi động ~20:15–20:40 và
+>    xong ~21:00–23:15) tới khi `run_daily.log` in `⏱ TỔNG`. Hai bên ghi cùng
+>    file ⇒ Dropbox đẻ `... (conflicted copy).parquet` NGAY trong `prices/`. Đường GHI đã xử đủ (`read_year_frames` gộp mọi file ·
 >    `_read_year` khử trùng giữ bản mtime mới · `_write_year` dồn về 1 file ·
 >    `run.py scan` báo year-dir >1 file) nên không mất data — nhưng vẫn tránh,
 >    vì trước lần sync kế tiếp thì các đường ĐỌC khác còn đếm trùng.
@@ -51,8 +53,11 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 - Dashboard: `python run.py dashboard` (Streamlit, localhost:8501).
 - Lịch chạy tự động: `scripts/setup_scheduled_tasks.ps1` (2 task: Daily
   18:00 ngày làm việc + Weekend — gộp từ 29/07; đăng ký THEO MÁY — máy mới
-  phải chạy lại script này, Run as Administrator). Trần task Daily 120 phút:
-  sync phình >~75' là task bị chấm dứt TRƯỚC bước brief (bước cuối 14/14).
+  phải chạy lại script này, Run as Administrator). Trần task Daily **180
+  phút** (nâng từ 120 ngày 19/08 — phát 08/09 152′ và 09/09 159′ vẫn đủ 14/14):
+  sync phình >~135' là task bị chấm dứt TRƯỚC bước brief (bước cuối 14/14).
+  Updater lưỡng cực (đo 08–14/09): ~270s ngày thường, 4.860–6.500s ba trong
+  năm phát — nghi rate-limit trước: đếm dòng `rate-limit, chờ` trong log.
 - ⚠️ HAI MÁY: desktop `PICHU` (2 task lịch, sinh brief) · laptop
   `CFA-BINHLD-LT` (không task). **KHÔNG nhận dạng bằng đường dẫn hay tên venv**
   — cả hai đều `C:\vnstock`, và venv đổi theo TÀI KHOẢN đăng nhập chứ không

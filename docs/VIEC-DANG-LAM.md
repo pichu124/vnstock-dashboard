@@ -2,7 +2,7 @@
 
 > Bản để LÀM THEO. Kho lưu chi tiết (lý do, file:line, lịch sử) ở
 > `docs/CLAUDE-NOTES.md` — đừng mở nó để biết "hôm nay làm gì".
-> Cập nhật: 10/09/2026 — việc #0 ra nguyên nhân: Dropbox desktop bị tắt sync từ 07/09, đã bật lại; theo 5 bước ở #0 · 5 lỗi brief ĐÃ VÁ (#6–#10, U55); laptop đã merge, `3.158 passed`; **desktop CHƯA merge** — brief tối vẫn code cũ tới khi merge.
+> Cập nhật: 14/09/2026 22:04 — 🖥️ desktop đã làm bước 1 của #0: sổ cách ly **25 mã MỚI** (không phải 70 mã cũ ⇒ Dropbox đã lấy đúng bản desktop) · updater 14/09 kết thúc CÓ LỖI (marker còn 11/09) · sync lưỡng cực 9′ / 85–113′ · trần task thật là **180′**. Còn: đợi `⏱ TỔNG` 14/09 → dọn conflicted → merge → brief_watch + doctor → rebase 25 mã → brief 15/09 là brief đầu tiên có bản vá.
 
 ## 🏷️ NHÃN MÁY — quy tắc gốc: KHO đồng bộ, CODE thì không
 
@@ -39,38 +39,63 @@ laptop Dropbox "Up to date" ⇒ server cũng vậy ⇒ bên không upload là de
 
 ### 🖥️ DESKTOP — làm theo thứ tự, mỗi bước đợi bước trước xong
 
-1. **Đợi icon Dropbox về "Up to date"** (73 parquet trọn lịch sử + hai phát
-   08/09, 09/09 — có thể mất một lúc). Trong lúc đợi, chỉ đọc:
+**Bước 1 ĐÃ LÀM tối 14/09 (22:04) — khác dự đoán ở 3 chỗ, đều đọc được:**
+- `triage_basis_drift.py` KHÔNG rỗng: **25 mã** — nhưng KHÔNG PHẢI 70 mã cũ của
+  laptop (không có VIM/HU4/SGR/PJS/ND2/CHP) ⇒ Dropbox đã đưa đúng bản desktop
+  lên. 22/25 kho đứng 0–7 ngày = lệch cơ sở MỚI, phát sinh SAU chiến dịch 07/09
+  (mùa sự kiện quyền tháng 9: HTN 1,50 · VIB 1,0952 · DGC 1,21 · PHR 1,84…).
+  8 mã `0d` (BMI DVN DVP ELC PDN PTB TIP VLW) kho đã có bar 14/09 ⇒ gác đã
+  thả, sổ chưa xoá — rebase chạy thử sẽ in `↩ kho ĐÃ SẠCH … chỉ cần xoá sổ`.
+  TW3 đứng **175 ngày** (kho dừng ~23/03) — mã đóng băng kiểu GH3. **VIB là
+  VN30** ⇒ brief/heatmap thiếu bar VIB từ 09/09. "Kho sự kiện mù 0/25" là
+  chuyện sổ đăng ký, không phải cửa chữa — script tự nói vậy.
+- `pipeline_status.json`: updater `last_success 11/09` dù phát 14/09 đã qua
+  chặng sync lúc 21:55 ⇒ updater 14/09 kết thúc với **`Errors > 0`** (marker
+  chỉ ghi khi `error == 0`, `vnstock_updater.py:889`; `basis_drift` KHÔNG đếm
+  là lỗi). Lỗi gì thì dòng tổng kết ở bước 5 nói. Rollup `18/08` là BÌNH
+  THƯỜNG: chỉ ghi marker khi có data 1 phút để cuộn (`vnstock_rollup.py:559`).
+- `⏱`: sync lưỡng cực — 10/09 9,0′ · 11/09 8,7′ nhưng 08/09 109′ · 09/09 113′ ·
+  14/09 85′ (updater 4.860s). Trần task là **180′** (nâng 19/08, không phải
+  120′ như CLAUDE.md cũ ghi) nên 152′/159′ vẫn đủ 14/14. Nghi đầu tiên:
+  rate-limit (`⏳ …: rate-limit, chờ Ns`, `vnstock_updater.py:493`) — đếm ở bước 5.
+- Lúc 22:04 phát 14/09 **chưa in `⏱ TỔNG`** (chặng sync xong 21:55, còn ~35–45′)
+  ⇒ mọi bước GHI dưới đây đợi dòng `⏱ TỔNG [2026-09-14 …]`.
+
+2. **Đợi `⏱ TỔNG` 14/09 + icon Dropbox "Up to date"**, rồi dọn conflicted copy
+   (laptop ghi vài file `_meta` hôm 09/09; `prices/` không có gì để dọn):
    ```powershell
-   python scripts\triage_basis_drift.py            # phải RỖNG (chiến dịch còn nguyên bên này)
-   Get-Content data_warehouse\_meta\pipeline_status.json
-   Select-String -Path run_daily.log -Pattern '⏱ TỔNG|⏱ CHẶNG|14/14' | Select-Object -Last 12
-   ```
-   Dòng `⏱ TỔNG`/`⏱ CHẶNG` của 08/09 và 09/09 chính là phép đo mà mục #2 đang
-   chờ — dán cho Claude.
-2. **Sync xong → dọn conflicted copy** do laptop ghi vài file `_meta` hôm 09/09
-   (test_status · market_news_cache · doctor_status · llm_ledger · brief_push):
-   ```powershell
+   Select-String -Path run_daily.log -Pattern '⏱ TỔNG' | Select-Object -Last 1
    Get-ChildItem data_warehouse\_meta -Filter '*conflicted copy 2026-09*'
    Get-ChildItem data_warehouse\_meta -Filter '*conflicted copy 2026-09*' | Remove-Item
    ```
-   `prices/` không có gì để dọn — laptop chưa hề ghi vào đó.
-3. **Merge code** (⇄, code không đi qua Dropbox) — trước 18:00:
+3. **Merge code** (⇄, code không đi qua Dropbox; mỗi bước pipeline là một
+   subprocess riêng nên đổi code giữa chừng = các bước sau chạy code khác bước
+   trước — vì thế mới phải đợi `⏱ TỔNG`):
    ```powershell
    git fetch origin claude/laptop-work-ono4qt
    git merge origin/claude/laptop-work-ono4qt
    git log --oneline -1            # dòng đầu phải ghi (HEAD -> main, origin/claude/laptop-work-ono4qt)
    python run.py test --fast       # ~2.565 passed
    ```
-4. **Xoá lại `brief_watch.json`** — bản desktop sẽ quay về sau sync (laptop xoá
-   nhưng desktop đã ghi thêm 08/09, 09/09 bằng `scan_ocf_scale` CŨ ⇒ vẫn rác).
-   Làm SAU khi merge để sổ mới đếm bằng code mới:
+4. **Xoá lại `brief_watch.json`** rồi doctor. Kỳ vọng MỚI: "đã soi 0 phiên";
+   sổ cách ly **25 mã** (chưa rỗng — chữa ở bước 5); VNINDEX bar cuối = **14/09**:
    ```powershell
    Remove-Item data_warehouse\_meta\brief_watch.json
-   python run.py doctor            # phải "đã soi 0 phiên"; sổ cách ly RỖNG; VNINDEX bar cuối = 09/09
+   python run.py doctor
    ```
-5. Brief close tối nay (thứ Năm 10/09) = brief đầu tiên có đủ bản vá — soi 4 chỗ
-   ở mục 4b + dòng ledger Gemini.
+5. **Chữa 25 mã theo sổ cách ly** (○ một lần vì kho dùng chung — làm ở desktop
+   vì đang ngồi đây; TUYỆT ĐỐI ngoài cửa sổ pipeline) + lấy dòng tổng kết updater
+   14/09 (số lỗi + số lần chờ rate-limit) cho mục #2:
+   ```powershell
+   python scripts\triage_basis_drift.py --plan
+   python scripts\rebase_ticker_history.py --from-drift-ledger --whole-series   # chạy thử — dán cho Claude
+   Select-String -Path run_daily.log -Pattern '✅ Updated|❌ \d+ lỗi|Fallback KBS' | Select-Object -Last 8
+   (Get-Content run_daily.log | Select-Object -Skip 49482 | Select-String -Pattern 'rate-limit, chờ' | Measure-Object).Count
+   ```
+   Chạy thử ổn (mỗi mã tự qua cửa `uniform_offset_report`; mã bị từ chối ⇒
+   `--ticker <MÃ> --explain`) ⇒ thêm `--apply`, rồi `triage --plan` lại phải vơi.
+6. Brief close **15/09** là brief đầu tiên có đủ bản vá (tối 14/09 vẫn code cũ)
+   — soi 4 chỗ ở mục 4b + dòng ledger Gemini.
 
 ### Bài học vận hành (đã đưa vào CLAUDE.md, hệ quả #5)
 Kho lệch giữa hai máy mà `prices/` **không** có conflicted copy ⇒ nghi **sync bị
@@ -130,6 +155,26 @@ Hai cách đọc chưa tách được: (a) trần 8 req/s chạy đúng thiết 
 "~125s" là phép tính sai vì giả định 1 request/mã — nếu mỗi mã tốn ~2,4
 request thì ra đúng 3,3 mã/s; (b) song song không đạt nhịp. Muốn tách phải
 đếm số request thật/mã.
+
+**Đo lại 08–14/09 (desktop dán tối 14/09):**
+
+| phát | ⏱ TỔNG | sync | updater | screener | brief | validate |
+|---|---|---|---|---|---|---|
+| 08/09 | 152,4′ | 6.547s | — | 656s | 322s | 91s |
+| 09/09 | 158,6′ | 6.805s | 6.501s | 762s | 444s | 354s |
+| 10/09 | 50,9′ | 540s | 263s | 690s | 523s | 330s |
+| 11/09 | 41,7′ | 525s | 274s | 669s | 340s | 157s |
+| 14/09 | chưa xong lúc 22:04 | 5.118s | **4.860s** | — | — | — |
+
+Đọc: (a) **updater lưỡng cực** — ~270s ngày thường (bản vá 10.527s → 316s vẫn
+ăn) nhưng 4.860–6.500s ba trong năm phát; cùng 1.613 mã, cùng code ⇒ nghi
+rate-limit/mạng chứ không phải khối lượng. Bằng chứng cần: số dòng `rate-limit,
+chờ` và dòng `❌ N lỗi` của từng phát (#0 bước 5). (b) Trần task thật là
+**180′** (ps1 nâng 19/08) — 152′/159′ không bị chấm dứt, nhưng đệm chỉ còn
+~25′ vào đêm xấu. (c) screener 656–762s: Net BS vẫn là khối lớn nhất, không
+đổi. (d) validate 91 → 354 → 330 → 157s: vẫn chưa rõ vì sao, dao động 4×.
+(e) brief 322–523s so 59s hôm 07/09 — chưa rõ, có thể ladder gọi lại; ledger
+Gemini sẽ nói.
 
 ## 3. 💳 Quyết Cerebras 402 — ○ máy nào cũng được · **NAY CÓ BẰNG CHỨNG**
 
@@ -202,20 +247,11 @@ tab **Tin tức** → sub-tab **🧭 Phân bổ** → nút **📝 Tạo brief**.
 tại `c969d6a`, rồi `--fast` **2.565 passed / 110,6s** tại `b04c908` (09/09,
 vnstock 4.0.4). Laptop `main` = đầu nhánh.
 
-🖥️ **DESKTOP CHƯA MERGE — vẫn `2.615`, tức brief tối vẫn sinh bằng CODE CŨ**
-(cả 5 lỗi #6–#10 còn nguyên trên Telegram cho tới khi merge). Code không đi
-qua Dropbox nên phải làm ⇄ ở desktop, và làm **NGOÀI 18:00–19:xx** (pipeline
-đang chạy thì đừng đổi code dưới chân nó):
-```powershell
-cd C:\vnstock
-git fetch origin claude/laptop-work-ono4qt
-git merge origin/claude/laptop-work-ono4qt
-git log --oneline -1            # dòng đầu phải ghi (HEAD -> main, origin/claude/laptop-work-ono4qt)
-python run.py test --fast       # ~2.565 passed; badge xanh
-```
-Hôm nay 09/09 là thứ Tư ⇒ pipeline 18:00 chạy. Merge **trước 18:00** thì brief
-tối nay đã là code mới; không kịp thì đợi bước 14/14 xong (~19:30) rồi merge,
-brief đầu tiên có bản vá là phiên kế tiếp.
+🖥️ **DESKTOP CHƯA MERGE (tới 14/09 22:04) — brief tối 14/09 vẫn sinh bằng CODE
+CŨ.** Lệnh merge nằm ở #0 bước 3. Làm **ngoài cửa sổ pipeline**: từ lúc task
+Daily khởi động (18:00; máy tắt giờ đó thì `StartWhenAvailable` chạy bù ngay khi
+bật máy — phát 08–14/09 đều khởi động ~20:15–20:40) tới dòng `⏱ TỔNG`
+(~21:00–23:15). Brief đầu tiên có bản vá = phiên kế tiếp sau khi merge.
 
 **📦 vnstock 4.0.7 đã ra — cổng gỡ chặn 4.0.6 đã mở.** Đúng thứ tự:
 1. 💻 Laptop TRƯỚC: `pip install vnstock==4.0.7` → `run.py doctor --net` +
