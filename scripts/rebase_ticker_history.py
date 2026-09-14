@@ -131,6 +131,32 @@ def _atomic_replace(tmp: Path, path: Path) -> None:
         f"Pause syncing) hoặc tắt quét realtime của antivirus rồi chạy lại.")
 
 
+# ── Loại lỗi của mã VỪA chạy — để `main` phân biệt "nguồn không trả lời" với
+# "ghi hỏng" khi quyết định DỪNG SỚM. Ca 14/09: dry-run 25 mã, VCI timeout 30s
+# liên tục ⇒ HAD/HTN/HUB rc=2 vì KHÔNG LẤY ĐƯỢC NGUỒN, nhưng dòng dừng sớm đổ
+# cho Dropbox/AV "hỏng ở bước GHI" — trong một lượt CHẠY THỬ không ghi gì.
+_LAST_FAIL: dict = {"kind": None}
+_NET_TOKENS = ("RetryError", "ConnectionError", "Timeout", "timed out",
+               "Max retries", "Connection aborted", "getaddrinfo",
+               "Name or service not known", "RemoteDisconnected")
+
+
+def _mark_fail(kind: "str | None") -> None:
+    _LAST_FAIL["kind"] = kind
+
+
+def _is_network_error(e: BaseException) -> bool:
+    """Lỗi mạng/nguồn (kể cả RetryError bọc ConnectionError của vnstock)?"""
+    seen, cur = set(), e
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        text = f"{type(cur).__name__}: {cur}"
+        if any(tok in text for tok in _NET_TOKENS):
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
+
+
 def _sweep_tmp(tdir: Path) -> int:
     """Dọn file tạm CỦA CHÍNH LƯỢT NÀY. Rác `.tmp` trong `prices/` làm mọi bộ
     đếm file/năm sau đó đọc sai."""
@@ -1063,6 +1089,7 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
         src_full = fetch_source(tk, first, date.today())
     except Exception as e:
         print(f"[rebase] ✗ không fetch được nguồn: {type(e).__name__}: {e}")
+        _mark_fail("source")
         return 2
     src_all = None
     try:
@@ -1073,6 +1100,7 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
         src_all = None
     if src_all is None or src_all.empty:
         print(f"[rebase] ✗ nguồn trả rỗng cho dải {first} → nay")
+        _mark_fail("source")
         return 2
     src_from = src_all["time"].min().date()
     print(f"[rebase] kho từ {first} · nguồn phủ từ {src_from} "
@@ -1234,6 +1262,7 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
         else:
             print(f"[rebase]   chưa file nào bị thay — {tk} còn NGUYÊN, "
                   f"chạy lại được sau khi tạm dừng Dropbox.")
+        _mark_fail("write")
         return 2
     print(f"[rebase] ✍ đã ghi {len(plan)} file (nguyên tử)")
 
@@ -1379,13 +1408,16 @@ def main(argv: "list[str] | None" = None) -> int:
             worst = max(worst, _restore_one(tk, wh_root, args.apply))
         return worst
 
-    worst, done, refused = 0, 0, []
-    # Hỏng GHI liên tiếp = Dropbox/AV đang giữ cả thư mục, không phải chuyện
-    # của riêng mã nào. Cày tiếp 70 mã nữa chỉ để hỏng 70 lần là phí một tiếng
-    # và đẻ ra 70 thư mục sao lưu vô ích.
-    _io_streak, _IO_STREAK_MAX = 0, 3
+    worst, done, refused, unreached, seen_n = 0, 0, [], [], 0
+    # rc=2 liên tiếp là chuyện của CẢ LƯỢT, không phải của riêng mã nào — nhưng
+    # là chuyện GÌ thì phải đọc loại lỗi: ghi hỏng liên tiếp = Dropbox/AV đang
+    # giữ cả thư mục; nguồn hỏng liên tiếp = VCI đang timeout (14/09: 40 lần
+    # "Read timed out" trong 35 phút). Cày tiếp 70 mã chỉ để hỏng 70 lần là
+    # phí một tiếng, và đổ lỗi sai chỗ là bắt user tắt Dropbox vô ích.
+    _io_streak, _IO_STREAK_MAX, _kinds = 0, 3, []
     for tk in tickers:
         _bd = date.fromisoformat(args.break_date) if args.break_date else None
+        _mark_fail(None)
         try:
             rc = _rebase_one(tk, wh_root, args.apply, args.volume, _bd,
                              whole_series=args.whole_series)
@@ -1394,29 +1426,57 @@ def main(argv: "list[str] | None" = None) -> int:
             # PermissionError ⇒ 68/73 mã còn lại không bao giờ được sờ tới.
             print(f"\n[rebase] ✗ {tk}: LỖI KHÔNG LƯỜNG "
                   f"({type(e).__name__}: {e}) — bỏ qua mã này, chạy tiếp")
+            _mark_fail("source" if _is_network_error(e) else "other")
             rc = 2
+        seen_n += 1
         worst = max(worst, rc)
+        kind = _LAST_FAIL["kind"] if rc == 2 else None
         if rc == 0:
             done += 1
+        elif kind == "source":
+            unreached.append(tk)
         else:
             refused.append(tk)
-        _io_streak = _io_streak + 1 if rc == 2 else 0
+        if rc == 2:
+            _io_streak += 1
+            _kinds.append(kind)
+        else:
+            _io_streak, _kinds = 0, []
         if _io_streak >= _IO_STREAK_MAX:
-            print(f"\n[rebase] ⛔ DỪNG SỚM: {_io_streak} mã liên tiếp hỏng ở "
-                  f"bước GHI. Đây là chuyện của cả thư mục, không phải của "
-                  f"từng mã — tạm dừng đồng bộ Dropbox (Pause syncing) hoặc "
-                  f"tắt quét realtime của antivirus, rồi chạy lại.")
+            if all(k == "source" for k in _kinds):
+                print(f"\n[rebase] ⛔ DỪNG SỚM: {_io_streak} mã liên tiếp KHÔNG "
+                      f"LẤY ĐƯỢC NGUỒN (timeout/trả rỗng). Nguồn giá đang không "
+                      f"trả lời — KHÔNG phải Dropbox/AV, không phải chuyện của "
+                      f"từng mã. Mã đã xong ở trên vẫn tính; chạy lại ĐÚNG lệnh "
+                      f"này khi nguồn trả lời (thử nhanh: --ticker <MÃ> --explain).")
+            elif all(k == "write" for k in _kinds):
+                print(f"\n[rebase] ⛔ DỪNG SỚM: {_io_streak} mã liên tiếp hỏng ở "
+                      f"bước GHI. Đây là chuyện của cả thư mục, không phải của "
+                      f"từng mã — tạm dừng đồng bộ Dropbox (Pause syncing) hoặc "
+                      f"tắt quét realtime của antivirus, rồi chạy lại.")
+            else:
+                print(f"\n[rebase] ⛔ DỪNG SỚM: {_io_streak} mã liên tiếp lỗi đọc "
+                      f"kho/nguồn — xem các dòng ✗ ở trên để biết là nguồn không "
+                      f"trả lời hay ghi hỏng, rồi chạy lại.")
             break
     if len(tickers) > 1:
+        left = len(tickers) - seen_n
         print(f"\n[rebase] TỔNG: {done}/{len(tickers)} mã xong"
               + (f" · {len(refused)} mã KHÔNG chữa được: "
                  + ", ".join(refused[:15]) + (" …" if len(refused) > 15 else "")
-                 if refused else ""))
+                 if refused else "")
+              + (f" · {len(unreached)} mã CHƯA LẤY ĐƯỢC NGUỒN (thử lại): "
+                 + ", ".join(unreached[:15]) + (" …" if len(unreached) > 15 else "")
+                 if unreached else "")
+              + (f" · {left} mã chưa tới lượt" if left else ""))
         if refused:
             # Không gộp "chưa chữa được" vào "xong" (vết 18/08): người đọc
             # thấy dòng TỔNG rồi tưởng cả rổ đã sạch.
-            print("[rebase]   → mã ở trên CHƯA sạch, soi từng cái bằng "
-                  "probe_price_basis trước khi kết luận")
+            print("[rebase]   → mã KHÔNG chữa được ở trên CHƯA sạch, soi từng "
+                  "cái bằng probe_price_basis trước khi kết luận")
+        if unreached or left:
+            print("[rebase]   → mã chưa lấy được nguồn / chưa tới lượt: chạy "
+                  "lại đúng lệnh này khi nguồn trả lời — không cần soi tay")
     return worst
 
 

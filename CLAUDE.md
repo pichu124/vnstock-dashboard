@@ -56,8 +56,10 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   phải chạy lại script này, Run as Administrator). Trần task Daily **180
   phút** (nâng từ 120 ngày 19/08 — phát 08/09 152′ và 09/09 159′ vẫn đủ 14/14):
   sync phình >~135' là task bị chấm dứt TRƯỚC bước brief (bước cuối 14/14).
-  Updater lưỡng cực (đo 08–14/09): ~270s ngày thường, 4.860–6.500s ba trong
-  năm phát — nghi rate-limit trước: đếm dòng `rate-limit, chờ` trong log.
+  Updater lưỡng cực (đo 08–14/09): ~270s khi VCI khoẻ, 4.860–6.500s đêm VCI
+  timeout ⇒ fallback KBS 1.130–1.245 mã + 150–181 lỗi (0 rate-limit). Dấu hiệu:
+  dòng `⚡ Fallback KBS` + `❌ N lỗi` trong log. Đêm ấy marker `pipeline_status`
+  updater KHÔNG ghi (chỉ ghi khi lỗi = 0) — đừng đọc thành "updater không chạy".
 - ⚠️ HAI MÁY: desktop `PICHU` (2 task lịch, sinh brief) · laptop
   `CFA-BINHLD-LT` (không task). **KHÔNG nhận dạng bằng đường dẫn hay tên venv**
   — cả hai đều `C:\vnstock`, và venv đổi theo TÀI KHOẢN đăng nhập chứ không
@@ -124,7 +126,10 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   lại trước khi merge); trung vị kho/nguồn lệch >1,2% ⇒ **KHÔNG nối**, ghi mã
   vào `_meta/basis_drift_pending.json` + badge doctor. Bar `last_date` loại
   khỏi phép so (có thể dở dang). Ngưỡng phải KHỚP
-  `probe_price_basis.SAME_BASIS_TOL` (có test canh).
+  `probe_price_basis.SAME_BASIS_TOL` (có test canh). Nhánh fallback KBS (đêm
+  VCI timeout) KHÔNG qua V1 mà qua cửa riêng 8% ⇒ lệch 2–8% có thể lọt thành
+  VÁCH giữa chuỗi; triage in `0d` (kho có bar hôm nay) KHÔNG có nghĩa kho sạch
+  (14/09: BMI/DVN/DVP/ELC `0d` mà rebase vẫn thấy vách 06–09/09).
 - Pipeline data: `vnstock_updater` (sync giá) → `vnstock_rollup` (1m→daily)
   → `vnstock_warehouse` (Parquet) → `vnstock_runner`/`vnstock_screener`
   (screener + market_overview.json) → brief.

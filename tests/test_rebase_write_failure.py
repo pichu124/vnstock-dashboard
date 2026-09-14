@@ -133,6 +133,8 @@ class TestBatchSurvivesOneBadTicker:
             out = rcs.get(tk, 0)
             if isinstance(out, Exception):
                 raise out
+            if callable(out):
+                return out(tk)
             return out
 
         monkeypatch.setattr(R, "_rebase_one", fake)
@@ -166,6 +168,52 @@ class TestBatchSurvivesOneBadTicker:
                             {"A": 2, "B": 2, "C": 2, "D": 0, "E": 0})
         assert seen == ["A", "B", "C"]
         assert "DỪNG SỚM" in capsys.readouterr().out
+
+    def test_three_source_failures_stop_with_the_SOURCE_message(
+            self, tmp_path, monkeypatch, capsys):
+        """Ca 14/09 (dry-run 25 mã, VCI 'Read timed out' 40 lần/35 phút): HAD
+        ném RetryError(ConnectionError), HTN/HUB 'nguồn trả rỗng' ⇒ rc=2 ×3.
+        Bản cũ in "hỏng ở bước GHI … tạm dừng Dropbox" cho một lượt CHẠY THỬ
+        không ghi gì — đổ lỗi sai chỗ, bắt user tắt Dropbox vô ích."""
+        def empty_source(tk, *a, **k):
+            R._mark_fail("source")
+            return 2
+
+        err = RuntimeError("RetryError[<Future raised ConnectionError>]")
+        seen, _ = self._run(tmp_path, monkeypatch, {
+            "AAA": 0, "HAD": err, "HTN": empty_source, "HUB": empty_source,
+            "IST": 0, "VIB": 0})
+        out = capsys.readouterr().out
+        assert seen == ["AAA", "HAD", "HTN", "HUB"]
+        assert "DỪNG SỚM" in out and "KHÔNG LẤY ĐƯỢC NGUỒN" in out
+        assert "bước GHI" not in out and "Pause syncing" not in out
+        # tổng kết tách ba nhóm: xong / chưa lấy được nguồn / chưa tới lượt
+        assert "1/6 mã xong" in out
+        assert "3 mã CHƯA LẤY ĐƯỢC NGUỒN (thử lại): HAD, HTN, HUB" in out
+        assert "2 mã chưa tới lượt" in out
+        assert "KHÔNG chữa được" not in out          # không phải từ chối đo
+        assert "probe_price_basis" not in out        # lời khuyên soi tay là sai chỗ
+
+    def test_three_write_failures_keep_the_DROPBOX_message(
+            self, tmp_path, monkeypatch, capsys):
+        def write_fail(tk, *a, **k):
+            R._mark_fail("write")
+            return 2
+
+        self._run(tmp_path, monkeypatch,
+                  {"A": write_fail, "B": write_fail, "C": write_fail, "D": 0})
+        out = capsys.readouterr().out
+        assert "bước GHI" in out and "Pause syncing" in out
+        assert "KHÔNG LẤY ĐƯỢC NGUỒN" not in out
+
+    def test_network_error_classifier_walks_the_cause_chain(self):
+        inner = ConnectionError("HTTPSConnectionPool: Read timed out.")
+        outer = RuntimeError("RetryError")
+        outer.__cause__ = inner
+        assert R._is_network_error(outer)
+        assert R._is_network_error(TimeoutError("x"))
+        assert not R._is_network_error(PermissionError("WinError 5"))
+        assert not R._is_network_error(KeyError("close"))
 
     def test_a_plain_refusal_does_NOT_stop_the_run(self, tmp_path,
                                                    monkeypatch):

@@ -6966,6 +6966,71 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🧭 U57. TỐI 14/09 TRÊN DESKTOP — KHO ĐÃ SYNC ĐÚNG, UPDATER LƯỠNG CỰC LÀ VCI TIMEOUT, DỪNG SỚM ĐỔ LỖI SAI CHỖ
+
+Ba việc trong một tối, cùng một nguồn dữ liệu: `run_daily.log` + `triage` +
+`rebase --from-drift-ledger` chạy thử + ledger LLM. Toàn bộ trên 🖥️ desktop
+sau khi Dropbox đã bật lại (U56).
+
+## 1. Kho đã về đúng chiều — sổ cách ly 25 mã là lệch MỚI, không phải 70 mã cũ
+
+`triage` in 25 mã, không có VIM/HU4/SGR/PJS/ND2/CHP của bản laptop ⇒ Dropbox
+đưa bản desktop lên, không đè ngược. 22/25 kho đứng 0–7 ngày = sự kiện quyền
+tháng 9 (HTN 1,50 · VIB 1,0952 · DGC 1,21 · PHR 1,84). TW3 đứng 175 ngày (kiểu
+GH3). Conflicted copy: 4 file `_meta` ngày **10/09** (doctor_status, llm_ledger,
+market_news_cache, test_status) — sinh đúng lúc bật lại sync, đều là file ghi
+lại mỗi phát ⇒ xoá, không mất gì.
+
+**Đọc sai lúc 22:04, sửa lúc 23:52:** 8 mã `0d` tôi đoán là "gác đã thả, sổ
+chưa xoá, chạy thử sẽ in `↩ kho ĐÃ SẠCH`". Chạy thử nói ngược: BMI vách
+09-08, DVN mức lệch dừng 09-10, ELC 09-09, DVP 06-01 rồi lệch tiếp tới 09-07 —
+2–4 bar cuối khớp nguồn, phần trước lệch 3–7%. Tức bar mới vào kho bằng đường
+KHÔNG qua V1. Đường duy nhất như thế là nhánh fallback KBS (`update_ticker`:
+"Bỏ qua nhánh fallback: data KBS đã có cửa gác riêng `reconcile_fallback_df`,
+ngưỡng 8%") — và 14/09 đúng là đêm fallback 1.245 mã. Ngưỡng 8% rộng hơn V1
+(1,2%) đúng bằng dải lệch của 8 mã này (2,3–8,4%). Chưa chứng minh từng mã,
+nhưng đủ để ghi bất biến vào CLAUDE.md: **`0d` trong triage ≠ sạch.**
+`rebase --whole-series` xử được ca này (nó tìm vách rồi rebase phần trước).
+
+## 2. Updater lưỡng cực = đêm VCI timeout, KHÔNG phải rate-limit
+
+| phát | updater | dòng tổng kết |
+|---|---|---|
+| 09/09 | 6.501s | `⚡ Fallback KBS: 1130 mã` · `Updated 1546 · Errors 150` |
+| 10/09 | 263s | `Updated 1617 · Errors 0` |
+| 11/09 | 274s | `Updated 1613 · Errors 0` |
+| 14/09 | 4.860s | `⚡ Fallback KBS: 1245 mã` · `Updated 1524 · Errors 181` |
+
+`rate-limit, chờ` trong phát 14/09: **0 dòng**. Chậm là vì mỗi mã đợi VCI
+timeout (30s × retry) rồi mới rơi sang KBS. Hệ quả kép: (a) marker
+`pipeline_status` updater đứng ở 11/09 vì `vnstock_updater.py:889` chỉ ghi khi
+`error == 0` — 1.524 mã đã cập nhật mà doctor đọc thành "chưa chạy" ⇒ việc #12;
+(b) 23:17–23:52 VCI vẫn timeout ~40 lần ⇒ rebase 25 mã dừng ở 13.
+Trần task thật là **180′** (ps1 nâng 19/08), CLAUDE.md ghi 120′ là cũ — đã sửa.
+Phát 14/09: 140,8′ (đệm 39′); screener 1.117s và test 302s cao bất thường,
+trùng lúc user chạy triage/đọc log + Dropbox đang upload — xem lại đêm 15/09.
+
+## 3. DỪNG SỚM đổ lỗi sai chỗ — đã vá
+
+`main()` đếm rc=2 liên tiếp và in "hỏng ở bước GHI … tạm dừng Dropbox/AV" —
+trong một lượt CHẠY THỬ không ghi gì, khi ba mã liên tiếp hỏng vì
+`RetryError(ConnectionError)` và "nguồn trả rỗng". Vá: `_mark_fail(kind)` ở ba
+chỗ (không fetch được nguồn / nguồn rỗng / ghi hỏng) + `_is_network_error`
+đi theo chuỗi `__cause__`; dừng sớm in đúng nguyên nhân (nguồn / ghi / hỗn
+hợp); TỔNG tách "KHÔNG chữa được" (từ chối đo) với "CHƯA LẤY ĐƯỢC NGUỒN (thử
+lại)" và "chưa tới lượt", lời khuyên `probe_price_basis` chỉ còn cho nhóm đầu.
+Lưới: `tests/test_rebase_write_failure.py` (+3 test, 281 passed bộ rebase).
+
+## 4. Ledger LLM 14/09: 66 call · 29 lỗi — ladder brief có 4 bậc chết cấu trúc
+
+Cerebras 402 ×4 (việc #3 còn treo) · Groq qwen3.6-27b **413 Payload Too
+Large** (prompt brief quá cỡ — bậc này không bao giờ trả lời được brief) ·
+Mistral small 429 ×3 · OpenRouter free: 8 model cụt `finish_reason=length`, 2
+×429, 1 timeout 90s, nemotron-nano `KeyError 'message'`. Bậc sống: Gemini
+flash 11/14, flash-lite 18/22, Groq gpt-oss-20b 4/4, nemotron-super 2/3. Brief
+754s là ladder đi qua các bậc chết. ⇒ việc #13, đối chiếu model_watch T7 trước
+khi cắt.
+
 # 🧭 U56. HAI KHO TÁCH NHAU — KHO LAPTOP LÀ ẢNH CHỤP TRƯỚC CHIẾN DỊCH 07/09 (09/09)
 
 Bắt đầu từ một việc vặt: xoá `brief_watch.json` rồi `run.py doctor` trên

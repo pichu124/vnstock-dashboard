@@ -2,7 +2,7 @@
 
 > Bản để LÀM THEO. Kho lưu chi tiết (lý do, file:line, lịch sử) ở
 > `docs/CLAUDE-NOTES.md` — đừng mở nó để biết "hôm nay làm gì".
-> Cập nhật: 14/09/2026 22:04 — 🖥️ desktop đã làm bước 1 của #0: sổ cách ly **25 mã MỚI** (không phải 70 mã cũ ⇒ Dropbox đã lấy đúng bản desktop) · updater 14/09 kết thúc CÓ LỖI (marker còn 11/09) · sync lưỡng cực 9′ / 85–113′ · trần task thật là **180′**. Còn: đợi `⏱ TỔNG` 14/09 → dọn conflicted → merge → brief_watch + doctor → rebase 25 mã → brief 15/09 là brief đầu tiên có bản vá.
+> Cập nhật: 15/09/2026 00:05 — 🖥️ desktop đã xong #0 bước 1–4 (conflicted copy dọn, **đã merge `c39f29e`, 2.565 passed**, doctor 20✅/4⚠️). Bước 5 dở: rebase chạy thử 10/25 mã OK rồi **DỪNG SỚM vì VCI timeout** (HAD/HTN/HUB không lấy được nguồn, 12 mã chưa tới lượt, có VIB) — chạy lại khi nguồn trả lời rồi `--apply`. Updater lưỡng cực = đêm VCI timeout → fallback KBS + 150–181 lỗi, KHÔNG phải rate-limit. Ledger LLM 14/09: 29/66 call lỗi ⇒ việc #13 tỉa ladder.
 
 ## 🏷️ NHÃN MÁY — quy tắc gốc: KHO đồng bộ, CODE thì không
 
@@ -44,8 +44,10 @@ laptop Dropbox "Up to date" ⇒ server cũng vậy ⇒ bên không upload là de
   laptop (không có VIM/HU4/SGR/PJS/ND2/CHP) ⇒ Dropbox đã đưa đúng bản desktop
   lên. 22/25 kho đứng 0–7 ngày = lệch cơ sở MỚI, phát sinh SAU chiến dịch 07/09
   (mùa sự kiện quyền tháng 9: HTN 1,50 · VIB 1,0952 · DGC 1,21 · PHR 1,84…).
-  8 mã `0d` (BMI DVN DVP ELC PDN PTB TIP VLW) kho đã có bar 14/09 ⇒ gác đã
-  thả, sổ chưa xoá — rebase chạy thử sẽ in `↩ kho ĐÃ SẠCH … chỉ cần xoá sổ`.
+  8 mã `0d` (BMI DVN DVP ELC PDN PTB TIP VLW) kho đã có bar 14/09 — **KHÔNG
+  phải sạch** (đoán sai lúc 22:04): rebase chạy thử vẫn thấy vách 06–09/09 với
+  2–4 bar cuối khớp nguồn ⇒ bar mới vào kho bằng đường KHÁC V1 (đêm 14/09 là
+  đêm fallback KBS, cửa riêng 8%). Chữa như các mã kia.
   TW3 đứng **175 ngày** (kho dừng ~23/03) — mã đóng băng kiểu GH3. **VIB là
   VN30** ⇒ brief/heatmap thiếu bar VIB từ 09/09. "Kho sự kiện mù 0/25" là
   chuyện sổ đăng ký, không phải cửa chữa — script tự nói vậy.
@@ -94,6 +96,27 @@ laptop Dropbox "Up to date" ⇒ server cũng vậy ⇒ bên không upload là de
    ```
    Chạy thử ổn (mỗi mã tự qua cửa `uniform_offset_report`; mã bị từ chối ⇒
    `--ticker <MÃ> --explain`) ⇒ thêm `--apply`, rồi `triage --plan` lại phải vơi.
+
+   **Kết quả 14/09 23:16–23:52:** `--plan` in đúng ba lệnh (sổ đăng ký 37 mã /
+   493 dòng ⇒ không nạp lại). Chạy thử **10/25 mã OK** — BMI DGC DHG DIG DMC DNC
+   DP1 DVN DVP ELC đều "lấy thẳng từ nguồn", giữ nguyên khối lượng — rồi
+   **DỪNG SỚM**: `trading.vietcap.com.vn` Read timed out (30s) ~40 lần trong
+   35 phút ⇒ HAD (RetryError), HTN, HUB ("nguồn trả rỗng") không lấy được nguồn;
+   **12 mã chưa tới lượt** (IST PDN PHR PTB SHC SVT SZC TIP TW3 VAV **VIB** VLW).
+   Dòng dừng sớm đổ cho "bước GHI / Dropbox/AV" là SAI (chạy thử không ghi gì)
+   — đã vá `rebase_ticker_history.py`: phân loại nguồn/ghi, in đúng nguyên
+   nhân, tổng kết tách "chưa lấy được nguồn" và "chưa tới lượt".
+   Updater 14/09: `⚡ Fallback KBS: 1245 mã · Updated 1524 · Errors 181`;
+   09/09: `Fallback KBS 1130 · Errors 150`; 10/09 và 11/09: `Errors 0`;
+   `rate-limit, chờ` = **0** ⇒ chậm là VCI timeout, không phải rate-limit.
+   **Còn làm (🖥️ desktop, ngoài cửa sổ pipeline, khi VCI trả lời):**
+   ```powershell
+   git fetch origin claude/laptop-work-ono4qt; git merge origin/claude/laptop-work-ono4qt   # bản vá dừng sớm
+   python scripts\rebase_ticker_history.py --ticker BMI --explain            # thăm dò: xong trong vài giây = VCI sống
+   python scripts\rebase_ticker_history.py --from-drift-ledger --whole-series   # chạy thử đủ 25 mã
+   python scripts\rebase_ticker_history.py --from-drift-ledger --whole-series --apply
+   python scripts\triage_basis_drift.py --plan                              # phải vơi
+   ```
 6. Brief close **15/09** là brief đầu tiên có đủ bản vá (tối 14/09 vẫn code cũ)
    — soi 4 chỗ ở mục 4b + dòng ledger Gemini.
 
@@ -166,10 +189,11 @@ request thì ra đúng 3,3 mã/s; (b) song song không đạt nhịp. Muốn tá
 | 11/09 | 41,7′ | 525s | 274s | 669s | 340s | 157s |
 | 14/09 | **140,8′** (xong 22:51) | 5.121s | **4.860s** | **1.117s** | 754s | 89s |
 
-Đọc: (a) **updater lưỡng cực** — ~270s ngày thường (bản vá 10.527s → 316s vẫn
-ăn) nhưng 4.860–6.500s ba trong năm phát; cùng 1.613 mã, cùng code ⇒ nghi
-rate-limit/mạng chứ không phải khối lượng. Bằng chứng cần: số dòng `rate-limit,
-chờ` và dòng `❌ N lỗi` của từng phát (#0 bước 5). (b) Trần task thật là
+Đọc: (a) **updater lưỡng cực — ĐÃ RÕ (14/09):** ~270s khi VCI khoẻ (10/09,
+11/09: `Errors 0`), 4.860–6.500s đêm VCI timeout: 09/09 `⚡ Fallback KBS 1130 mã ·
+Errors 150`, 14/09 `Fallback KBS 1245 · Errors 181`; `rate-limit, chờ` = 0.
+Không phải khối lượng, không phải code — là nguồn. Hệ quả: đêm ấy marker
+`pipeline_status` updater không ghi (chỉ ghi khi lỗi = 0) ⇒ việc #12. (b) Trần task thật là
 **180′** (ps1 nâng 19/08) — 152′/159′ không bị chấm dứt, nhưng đệm chỉ còn
 ~25′ vào đêm xấu. (c) screener 656–762s: Net BS vẫn là khối lớn nhất, không
 đổi. (d) validate 91 → 354 → 330 → 157s: vẫn chưa rõ vì sao, dao động 4×.
@@ -301,6 +325,9 @@ hiệu guard đang LÀM VIỆC, không phải hỏng.
 | ~~10~~ | **`pp` khi 2 số lẻ, khi 3** | ✅ **XONG 09/09** — chốt **3 số lẻ** (không phải 2 như ghi hôm qua): ngưỡng lead/lag 0.05pp nằm ở số lẻ thứ 2, in 2 số lẻ thì "+0.05pp < 0.05" tự đá nhau. Đổi đúng một chỗ: header khối ngành `vnstock_brief.py` `:+.2f` → `:+.3f`. |
 
 | 11 | **Doctor: "phát tối chưa tới kho này" là một badge riêng** | 🟠 MỚI 10/09 — kiểm `check_warehouse` thì nó ĐÃ đếm theo phiên với dung sai 2 phiên cố ý (VNINDEX EOD về trễ) — không phải lỗi. Cái thiếu là badge nói thẳng hai khả năng: sau ~20:00 ngày làm việc mà `_meta/pipeline_status.json` `last_success_date` < phiên gần nhất ⇒ warn *"phát tối chưa tới kho này: pipeline không chạy HOẶC sync Dropbox tắt — kiểm icon khay + `Get-ScheduledTaskInfo` ở desktop"*. Rẻ, chạy được ở máy nào cũng đúng, và lộ vụ 07/09 ngay sáng 08/09. |
+
+| 12 | **Marker updater câm đêm fallback** | 🟠 MỚI 14/09 — `vnstock_updater.py:889` chỉ ghi `pipeline_status` khi `error == 0`; đêm VCI timeout (1.524 mã vẫn cập nhật qua KBS) marker đứng ở ngày cũ ⇒ doctor/`--skip-if-done` đọc thành "chưa chạy". Sửa: ghi `last_result: "partial"` kèm `errors`, `fallback`; `is_already_done_today` vẫn chỉ nhận `success`. Nhỏ, có test. |
+| 13 | **Tỉa ladder LLM — 29/66 call lỗi đêm 14/09, brief 754s** | 🟠 MỚI 14/09 — ledger: Cerebras gpt-oss-120b **402 ×4** (việc #3); Groq qwen3.6-27b **413 Payload Too Large** (prompt brief quá cỡ cho model này ⇒ bậc chết cho brief); Mistral small **429 ×3**; OpenRouter free 8 model **cụt `finish_reason=length`** (trần output nhỏ hơn brief), 2×429, 1 timeout 90s, nemotron-nano `KeyError 'message'`. Bậc sống: Gemini flash 11/14, flash-lite 18/22, Groq gpt-oss-20b 4/4, nemotron-super 2/3. Đề xuất: bỏ bậc lỗi CẤU TRÚC (402/413/cụt) khỏi ladder brief, giữ cho news nếu còn dùng; đối chiếu `vnstock_model_watch` T7 trước khi cắt. |
 
 **📏 Phát kế tiếp là phép đo của cả ba bản vá** — dán `⏱ TỔNG` + `⏱ CHẶNG` +
 dòng `screener` như thường lệ.
