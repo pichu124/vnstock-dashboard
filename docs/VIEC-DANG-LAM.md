@@ -58,8 +58,8 @@ laptop Dropbox "Up to date" ⇒ server cũng vậy ⇒ bên không upload là de
   14/09 85′ (updater 4.860s). Trần task là **180′** (nâng 19/08, không phải
   120′ như CLAUDE.md cũ ghi) nên 152′/159′ vẫn đủ 14/14. Nghi đầu tiên:
   rate-limit (`⏳ …: rate-limit, chờ Ns`, `vnstock_updater.py:493`) — đếm ở bước 5.
-- Lúc 22:04 phát 14/09 **chưa in `⏱ TỔNG`** (chặng sync xong 21:55, còn ~35–45′)
-  ⇒ mọi bước GHI dưới đây đợi dòng `⏱ TỔNG [2026-09-14 …]`.
+- ✅ `⏱ TỔNG [2026-09-14 22:51] 140,8′ (14 bước)` đã in ⇒ các bước ghi bên dưới
+  được phép chạy (user dán 22:5x).
 
 2. **Đợi `⏱ TỔNG` 14/09 + icon Dropbox "Up to date"**, rồi dọn conflicted copy
    (laptop ghi vài file `_meta` hôm 09/09; `prices/` không có gì để dọn):
@@ -164,7 +164,7 @@ request thì ra đúng 3,3 mã/s; (b) song song không đạt nhịp. Muốn tá
 | 09/09 | 158,6′ | 6.805s | 6.501s | 762s | 444s | 354s |
 | 10/09 | 50,9′ | 540s | 263s | 690s | 523s | 330s |
 | 11/09 | 41,7′ | 525s | 274s | 669s | 340s | 157s |
-| 14/09 | chưa xong lúc 22:04 | 5.118s | **4.860s** | — | — | — |
+| 14/09 | **140,8′** (xong 22:51) | 5.121s | **4.860s** | **1.117s** | 754s | 89s |
 
 Đọc: (a) **updater lưỡng cực** — ~270s ngày thường (bản vá 10.527s → 316s vẫn
 ăn) nhưng 4.860–6.500s ba trong năm phát; cùng 1.613 mã, cùng code ⇒ nghi
@@ -173,8 +173,11 @@ chờ` và dòng `❌ N lỗi` của từng phát (#0 bước 5). (b) Trần tas
 **180′** (ps1 nâng 19/08) — 152′/159′ không bị chấm dứt, nhưng đệm chỉ còn
 ~25′ vào đêm xấu. (c) screener 656–762s: Net BS vẫn là khối lớn nhất, không
 đổi. (d) validate 91 → 354 → 330 → 157s: vẫn chưa rõ vì sao, dao động 4×.
-(e) brief 322–523s so 59s hôm 07/09 — chưa rõ, có thể ladder gọi lại; ledger
-Gemini sẽ nói.
+(e) brief 322–754s so 59s hôm 07/09 — chưa rõ, có thể ladder gọi lại; ledger
+Gemini sẽ nói. (f) 14/09: screener **1.117s** (cao nhất từ 09-03: 846s) và
+test **302s** (mọi đêm khác 95–109s) — cùng lúc user chạy triage/đọc log và
+Dropbox đang upload sau khi bật lại; đêm 15/09 mà vẫn cao thì mới là việc.
+Đệm dưới trần 180′ đêm 14/09: 39′.
 
 ## 3. 💳 Quyết Cerebras 402 — ○ máy nào cũng được · **NAY CÓ BẰNG CHỨNG**
 
