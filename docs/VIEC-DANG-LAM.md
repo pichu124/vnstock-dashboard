@@ -2,7 +2,7 @@
 
 > Bản để LÀM THEO. Kho lưu chi tiết (lý do, file:line, lịch sử) ở
 > `docs/CLAUDE-NOTES.md` — đừng mở nó để biết "hôm nay làm gì".
-> Cập nhật: 15/09/2026 00:05 — 🖥️ desktop đã xong #0 bước 1–4 (conflicted copy dọn, **đã merge `c39f29e`, 2.565 passed**, doctor 20✅/4⚠️). Bước 5 dở: rebase chạy thử 10/25 mã OK rồi **DỪNG SỚM vì VCI timeout** (HAD/HTN/HUB không lấy được nguồn, 12 mã chưa tới lượt, có VIB) — chạy lại khi nguồn trả lời rồi `--apply`. Updater lưỡng cực = đêm VCI timeout → fallback KBS + 150–181 lỗi, KHÔNG phải rate-limit. Ledger LLM 14/09: 29/66 call lỗi ⇒ việc #13 tỉa ladder.
+> Cập nhật: 15/09/2026 13:25 — 🖥️ desktop **#0 XONG trừ TW3**: rebase 24/25 mã (14 mã lúc 12:40 trong 70s, 10 mã lúc 13:24 trong 45s — VCI khoẻ giữa trưa; sáng 06:41–07:31 timeout ngắt quãng, dừng sớm đúng lý do). TW3 bị từ chối `--whole-series` (tỉ lệ 1,0000→1,0837 không đều, kho đóng băng 176 ngày) ⇒ `--explain` rồi `--break-date`. Tối nay: phát 15/09 nối lại bar cho 24 mã, brief close 15/09 là brief đầu tiên có bản vá (soi 4b). Việc #12 marker partial, #13 tỉa ladder LLM còn treo.
 
 ## 🏷️ NHÃN MÁY — quy tắc gốc: KHO đồng bộ, CODE thì không
 
@@ -96,6 +96,23 @@ laptop Dropbox "Up to date" ⇒ server cũng vậy ⇒ bên không upload là de
    ```
    Chạy thử ổn (mỗi mã tự qua cửa `uniform_offset_report`; mã bị từ chối ⇒
    `--ticker <MÃ> --explain`) ⇒ thêm `--apply`, rồi `triage --plan` lại phải vơi.
+
+   **✅ 15/09 — XONG 24/25.** 06:41–07:31 chạy thử lại: 14 OK, 5 không lấy được
+   nguồn (VCI timeout ngắt quãng, mỗi mã ~6 lần × 30s), dừng sớm ĐÚNG thông
+   điệp mới. 12:40 `--ticker ×14 --whole-series --apply`: **14/14 trong 70s**,
+   không một timeout. 13:23 `--from-drift-ledger` chạy thử 10/11 rồi `--apply`
+   **10/11 trong 45s** (VIB xong ⇒ VN30 đủ). Mỗi mã: sao lưu
+   `_meta/backup_rebase/<MÃ>_20260915-*`, ghi nguyên tử, "chuỗi đã liền · bộ
+   dò MỨC cũng sạch", tự xoá khỏi sổ. Hệ số đáng nhớ: PHR 1,8426 · HTN 1,5000
+   · PTB 1,2624 · DGC 1,2064 · HUB 1,1372 · SVT 1,1065 · VIB 1,0950 (nguồn
+   không đổi khối lượng ⇒ tool giữ nguyên, đúng). Bài học: VCI khoẻ/ốm theo
+   GIỜ — 06:40 và 23:00 ốm, 12:40 và 13:20 khoẻ; lượt sau cứ thăm dò
+   `--ticker BMI --explain` trước.
+   **Còn TW3** (kho dừng ~23/03, 176 ngày): `--whole-series` từ chối vì tỉ lệ
+   kho/nguồn trong vùng chồng lấn đi từ 1,0000 lên 1,0837 — có VÁCH trong vùng
+   chồng lấn mà bộ dò bậc không thấy (dưới sàn 5 bar/phía sát ngày đóng
+   băng?). Đường đi: `--ticker TW3 --explain` (đọc 12 bar đuôi, tìm ngày tỉ
+   lệ đổi) ⇒ `--ticker TW3 --break-date <ngày> ` chạy thử ⇒ `--apply`.
 
    **Kết quả 14/09 23:16–23:52:** `--plan` in đúng ba lệnh (sổ đăng ký 37 mã /
    493 dòng ⇒ không nạp lại). Chạy thử **10/25 mã OK** — BMI DGC DHG DIG DMC DNC
@@ -301,7 +318,7 @@ hiệu guard đang LÀM VIỆC, không phải hỏng.
 |---|---|
 | **Sổ theo dõi nghi ngờ brief** | Chuyển `⚠️ ĐỦ mẫu, đáng quyết` (Op.CF/vốn hoá · câu dòng tiền ngoại ngược data) |
 | **Hiệu suất auto-heal** | `⚠️` = 0 lành dù đủ mẫu ⇒ quyết hạ trần `VNSTOCK_AUTOHEAL_BUDGET_S=120` hay tắt hẳn |
-| **Lệch cơ sở — mã bị cách ly** | ~~Sổ RỖNG (07/09)~~ **doctor 09/09: 70 mã, ngày cũ ⇒ xem việc #0**. Có mã mới ⇒ `python scripts\rebase_ticker_history.py --from-drift-ledger --whole-series` (chạy thử) rồi thêm `--apply`. Mã bị từ chối ⇒ `--ticker <MÃ> --explain` |
+| **Lệch cơ sở — mã bị cách ly** | ~~Sổ RỖNG (07/09)~~ ~~doctor 09/09: 70 mã~~ **15/09: chữa 24/25, còn TW3 (xem #0)**. Có mã mới ⇒ `python scripts\rebase_ticker_history.py --from-drift-ledger --whole-series` (chạy thử) rồi thêm `--apply`. Mã bị từ chối ⇒ `--ticker <MÃ> --explain` |
 | **Nới OHLC (bar tự mâu thuẫn)** | Nới sát trần 20% ⇒ soi lại bar đó |
 | **Rổ VN30** | `⚠️ rổ thật đã đổi` ⇒ dán dòng badge cho Claude |
 

@@ -7021,6 +7021,34 @@ hợp); TỔNG tách "KHÔNG chữa được" (từ chối đo) với "CHƯA L�
 lại)" và "chưa tới lượt", lời khuyên `probe_price_basis` chỉ còn cho nhóm đầu.
 Lưới: `tests/test_rebase_write_failure.py` (+3 test, 281 passed bộ rebase).
 
+## 3b. Sáng + trưa 15/09 — 24/25 mã xong, VCI khoẻ/ốm theo giờ
+
+06:34 `--ticker BMI --explain` trả lời trong vài giây (vách thật 08/09: kho
+1,0363× tới hết 07/09, 1,0000× từ 08/09 — sổ cách ly đúng, `0d` không phải
+sạch). 06:41–07:31 chạy thử 25 mã: 14 OK, 5 không lấy được nguồn (IST PDN PTB
+SHC SVT, mỗi mã ~6 timeout × 30s), dừng sớm in đúng "KHÔNG LẤY ĐƯỢC NGUỒN" +
+tổng kết ba nhóm — bản vá mục 3 chạy đúng ngay lần đầu. 12:40 ghi 14 mã bằng
+`--ticker` liệt kê: **14/14 trong 70 giây, 0 timeout**. 13:23 `--from-drift-
+ledger` chạy thử 10/11 rồi ghi **10/11 trong 45 giây**. Cùng một máy, cùng
+một lệnh, cùng một nguồn: 06:40 và 23:00 ốm, 12:40 và 13:20 khoẻ ⇒ VCI có
+giờ đông giờ vắng; lượt sau thăm dò một mã trước rồi mới chạy lô.
+
+Hệ số đo được: PHR 1,8426 (246 bar, spread 1,0003) · HTN 1,5000 · PTB 1,2624
+(vách 11/05 + bậc sau vách tới 04/09) · DGC 1,2064 · HUB 1,1372 · SVT 1,1065 ·
+VIB 1,0950 · HAD 1,0938 · IST 1,0929 · DP1 1,0852 · VLW 1,0837 · TIP 1,0738 ·
+DVP 1,0690 (vách 01/06 + bậc tới 07/09) · ELC 1,0699 · DIG 1,0600 · DVN 1,0580
+· DHG 1,0516 (vách 07/05 + bậc tới 11/09) · SZC 1,0541 · SHC 1,0502 · DMC
+1,0435 · VAV 1,0385 (1 bar nhân hệ số) · BMI 1,0363 · PTB… · PDN 1,0233 · DNC
+1,0204. Nguồn/kho khối lượng = 1,0000× ở MỌI mã ⇒ VCI back-adjust GIÁ, không
+đụng khối lượng ⇒ tool giữ nguyên khối lượng là đúng theo nguồn.
+
+**TW3 bị từ chối** `--whole-series`: "tỉ lệ LỞM CHỞM ngay ở phần LÕI: thô
+1,0000× → 1,0837×". Kho đóng băng từ ~23/03 (176 ngày) nên vùng chồng lấn
+kết thúc ở tháng 3; trong vùng đó tỉ lệ đổi từ 1,0000 sang 1,0837 = có vách
+mà bộ dò bậc không gọi tên (nghi dưới sàn 5 bar/phía sát ngày đóng băng).
+Đường đi: `--explain` đọc đuôi ⇒ `--break-date` ⇒ `--apply`. Không gộp vào lô
+— đúng như triage nói, chữa mù là nhân bản số sai lên trọn lịch sử.
+
 ## 4. Ledger LLM 14/09: 66 call · 29 lỗi — ladder brief có 4 bậc chết cấu trúc
 
 Cerebras 402 ×4 (việc #3 còn treo) · Groq qwen3.6-27b **413 Payload Too
