@@ -229,10 +229,13 @@ def _ladder_slugs() -> "list[tuple[str, str, str, dict]]":
         prov = _BRIEF_TYPE2PROVIDER.get(c["type"])
         if prov:
             _add(prov, c["model"], "[7] brief")
-    for m in vb.CerebrasAgent._MODEL_FALLBACKS:
-        _add("Cerebras", m, "[7] fallback")
-    for m in vb.OpenRouterAgent._MODEL_FALLBACKS:
-        _add("OpenRouter", m, "[7] fallback")
+    # Dự phòng nội bộ của TỪNG agent class (Cerebras, OpenRouter, Gemini…) —
+    # gom qua registry để thêm fallback ở class nào cũng tự vào lưới.
+    for _cls in vb.AGENT_REGISTRY.values():
+        prov = _BRIEF_TYPE2PROVIDER.get(getattr(_cls, "agent_type", ""))
+        for m in getattr(_cls, "_MODEL_FALLBACKS", []) or []:
+            if prov:
+                _add(prov, m, "[7] fallback")
 
     # [8] classifier CÁCH LY: module này kéo theo SDK vnstock + xác thực mạng.
     # Công cụ chẩn đoán LLM không được chết vì key DATA hết hạn — đó đúng lúc

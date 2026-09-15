@@ -107,6 +107,11 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   guard dựng chung ở `vnstock_brief_canon.py`. Một chiều: brief → guards →
   3 nhóm → common/canon (`tests/test_brief_split.py` canh). Mọi tên vẫn
   re-export qua `vnstock_brief` nên đường import cũ không đổi.
+  Agent OpenAI-compat (`_OpenAICompatAgent`): 429/5xx ⇒ đợi 20s gọi lại ĐÚNG
+  model một lần, rồi sang `_MODEL_FALLBACKS` cùng provider (Gemini flash →
+  flash-lite; OpenRouter super → ultra); output cụt ⇒ sang dự phòng ngay;
+  401/402/403 ⇒ dừng hẳn + cầu dao ngày. KHÔNG hỏi danh mục provider để bỏ
+  slug (OpenRouter cắt trang 400 — 15/09 bỏ nhầm ultra đang sống, brief trắng).
 - `vnstock_corp_ratio` — đọc TỈ LỆ QUYỀN từ tiêu đề sự kiện (hàm thuần).
   `adjusts_price(title)` lọc sự kiện chỉ chốt danh sách DỰ HỌP (ĐHĐCĐ, lấy ý
   kiến bằng văn bản) — chúng KHÔNG đổi giá tham chiếu, gắn ⚠️ GDKHQ cho chúng

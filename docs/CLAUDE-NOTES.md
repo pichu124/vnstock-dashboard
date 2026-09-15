@@ -7083,6 +7083,26 @@ Gemini cả ngày sau một cơn 429 sáng là tự bỏ agent chính; kill-swit
 Không đụng cấu hình agent của user (⚙️ bật gì là chủ đích). Phép đo: ledger
 đêm 15/09 — kỳ vọng < 10 lỗi, không còn chuỗi OpenRouter cụt, brief ~300–500s.
 
+**Tối 15/09 — brief close TRẮNG, và một nửa lỗi là của bản vá #13.** Telegram
+19:13: "⚠️ LLM ladder DOWN — mọi agent đều lỗi" + brief với "AI Outlook: Chưa có
+brief". Ledger 15/09: 34 call · 9 lỗi (từ 66/29 — cầu dao và tỉa danh mục ĂN:
+Cerebras 1 call, không còn chuỗi 8 model free cụt). Nhưng đúng lúc brief chạy:
+Gemini flash 429 rồi 503 ở hai lượt cách vài giây (base agent gọi một phát,
+không đợi); Mistral 429 quota; Cerebras 402/cầu dao; OpenRouter nemotron-super
+cụt ×2 và **không rơi xuống ultra** dù ultra sống (digest 2/2 OK). Vì sao: bản
+14/09 hỏi `/api/v1/models` để bỏ slug "đã biến mất", mà danh mục OpenRouter cắt
+trang ở 400 (model_watch đã ghi 08/08) và `_fetch_free_models` chỉ đọc trang
+đầu ⇒ ultra bị coi là biến mất ⇒ ứng viên chỉ còn [super]. Bài học: **đừng
+dùng một danh mục cắt trang làm bằng chứng vắng mặt**; slug chết thật chỉ tốn
+một call 404. Vá: bỏ hẳn hỏi danh mục; `_OpenAICompatAgent.generate` thành
+vòng ứng viên với đợi-gọi-lại 20s khi 429/5xx rồi sang `_MODEL_FALLBACKS`
+(Gemini flash → flash-lite, slug đã sống ở [1][2][3-6]); cụt ⇒ dự phòng ngay;
+401/402/403 dừng hẳn. Lưới `_ladder_slugs`/`_all_live_slugs` gom fallback qua
+`AGENT_REGISTRY` nên class nào thêm dự phòng cũng tự vào lưới. 28 test.
+Kỳ vọng brief 16/09 CÓ AI Outlook; ledger chỉ có dòng flash-lite/ultra khi
+nấc chính hỏng. Đêm 15/09 ngoài ra: updater `partial: 214` (VCI ốm lần 4/6
+phát), TỔNG 73,2′ — task đúng 18:00 vì máy đang bật.
+
 **Vá 15/09 (#12).** `updater_status_update` (hàm thuần): lỗi > 0 ⇒ marker
 `partial` + `last_partial_date` + `errors`/`fallback`, không đụng
 `last_success_date` — `is_already_done_today` vẫn đòi `success` + hôm nay nên

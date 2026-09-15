@@ -525,6 +525,54 @@ class _OpenAICompatAgent(BriefAgent):
     def is_available(self) -> bool:
         return bool((os.environ.get(self._ENV_KEY) or "").strip())
 
+    # Dự phòng CÙNG provider, thử theo thứ tự sau model chính (Gemini: flash →
+    # flash-lite). Rỗng = một model, như trước. Trần ứng viên để không bao giờ
+    # đi hết danh mục (bài OpenRouter 14/09: 11 model free nhỏ, 0 bản dùng được).
+    _MODEL_FALLBACKS: list[str] = []
+    _MAX_CANDIDATES: int = 3
+    # Lỗi THOÁNG QUA (quota phút, quá tải) → đợi rồi gọi lại ĐÚNG model đó một
+    # lần trước khi sang model kế. Brief close 15/09 trắng: Gemini flash trả 429
+    # rồi 503 ở hai lượt cách nhau vài giây, không agent nào đợi, các agent còn
+    # lại đều chết cấu trúc (Mistral quota, Cerebras 402, OpenRouter cụt).
+    _TRANSIENT_STATUSES: tuple = (429, 500, 502, 503, 504)
+    _TRANSIENT_RETRIES: int = 1
+    _TRANSIENT_RETRY_S: float = 20.0
+    _ACCOUNT_STATUSES: tuple = (401, 402, 403)
+
+    def _candidates(self, api_key: str = "") -> list[str]:
+        """Model chính + dự phòng CHỌN TAY, tối đa _MAX_CANDIDATES. KHÔNG hỏi
+        danh mục provider: /models của OpenRouter cắt trang ở 400 (model_watch
+        08/08) nên "không thấy trong trang đầu" ≠ "đã biến mất" — bản 14/09 hỏi
+        danh mục để bỏ slug, và bỏ nhầm nemotron-ultra đang sống (digest 2/2
+        OK) ⇒ brief close 15/09 không có nấc dự phòng. Slug chết thật chỉ tốn
+        một call 404 rồi vòng lặp tự sang model kế — rẻ hơn mù."""
+        out: list[str] = [self.model]
+        for fb in self._MODEL_FALLBACKS:
+            if fb not in out:
+                out.append(fb)
+        return out[: self._MAX_CANDIDATES]
+
+    def _post_one(self, model: str, system_part: str, user_part: str,
+                  api_key: str, max_tokens: int):
+        import requests as _req
+        return _req.post(
+            self._ENDPOINT,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
+            json={
+                "model": model,
+                "max_tokens": max_tokens,
+                "temperature": _BRIEF_TEMPERATURE,
+                "messages": [
+                    {"role": "system", "content": system_part},
+                    {"role": "user", "content": user_part},
+                ],
+            },
+            timeout=90,
+        )
+
     def generate(self, prompt: str, max_tokens: int = 1200) -> tuple[str, str | None]:
         api_key = (os.environ.get(self._ENV_KEY) or "").strip()
         if not api_key:
@@ -534,50 +582,58 @@ class _OpenAICompatAgent(BriefAgent):
         sys_end = prompt.find("\n\nDữ liệu thị trường")
         system_part = prompt[:sys_end].strip() if sys_end > 0 else _SYSTEM
         user_part = prompt[sys_end:].strip() if sys_end > 0 else prompt
-        try:
-            import requests as _req
-            resp = _req.post(
-                self._ENDPOINT,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {api_key}",
-                },
-                json={
-                    "model": self.model,
-                    "max_tokens": max_tokens,
-                    "temperature": _BRIEF_TEMPERATURE,
-                    "messages": [
-                        {"role": "system", "content": system_part},
-                        {"role": "user", "content": user_part},
-                    ],
-                },
-                timeout=90,
-            )
-            resp.raise_for_status()
-            body = resp.json()
-            choice = (body.get("choices") or [{}])[0]
-            if choice.get("finish_reason") == "length":
-                # Output bị CẮT vì đụng trần max_tokens nhưng HTTP 200 —
-                # bài close 06/08 06:53: Gemini flash "suy nghĩ" ~5k token,
-                # content đứt giữa câu vẫn được tính THÀNH CÔNG → bản cụt
-                # thắng bản trọn vẹn của agent yếu hơn và lên Telegram.
-                # Coi là LỖI agent → cơ chế "(dự phòng)" kích hoạt.
-                _ledger_record(self._LEDGER, self.model, ok=False,
-                               error="finish_reason=length (output cụt)")
-                return "", (f"{self._ERR_PREFIX}: output bị cắt (finish_"
-                            "reason=length — đụng trần budget/thinking)")
-            _ledger_record(self._LEDGER, self.model, ok=True,
-                           usage=body.get("usage"))
-            return choice["message"]["content"], None
-        except Exception as e:
-            _ledger_record(self._LEDGER, self.model, ok=False,
-                           error=f"{type(e).__name__}: {str(e)[:120]}")
-            detail = ""
-            try:
-                detail = " | " + str(resp.json())[:300]
-            except Exception:
-                pass
-            return "", f"{self._ERR_PREFIX} lỗi: {type(e).__name__}: {str(e)[:200]}{detail}"
+        import time as _time
+        last_err = ""
+        last_detail = ""
+        for idx, model in enumerate(self._candidates(api_key)):
+            for attempt in range(1 + max(0, int(self._TRANSIENT_RETRIES))):
+                resp = None
+                try:
+                    resp = self._post_one(model, system_part, user_part, api_key, max_tokens)
+                    resp.raise_for_status()
+                    body = resp.json()
+                    choice = (body.get("choices") or [{}])[0]
+                    if choice.get("finish_reason") == "length":
+                        # Output bị CẮT vì đụng trần max_tokens nhưng HTTP 200 —
+                        # bài close 06/08 06:53: Gemini flash "suy nghĩ" ~5k
+                        # token, content đứt giữa câu vẫn được tính THÀNH CÔNG
+                        # → bản cụt thắng bản trọn vẹn của agent yếu hơn và lên
+                        # Telegram. Coi là LỖI: gọi lại cùng prompt cùng trần là
+                        # vô ích → sang model dự phòng (nếu có).
+                        _ledger_record(self._LEDGER, model, ok=False,
+                                       error="finish_reason=length (output cụt)")
+                        last_err = ("output bị cắt (finish_reason=length — đụng "
+                                    "trần budget/thinking)")
+                        last_detail = ""
+                        break
+                    _ledger_record(self._LEDGER, model, ok=True,
+                                   usage=body.get("usage"))
+                    content = choice["message"]["content"]
+                    if idx > 0:
+                        content = f"_(fallback: {model})_\n\n{content}"
+                    return content, None
+                except Exception as e:
+                    _ledger_record(self._LEDGER, model, ok=False,
+                                   error=f"{type(e).__name__}: {str(e)[:120]}")
+                    detail = ""
+                    if resp is not None:
+                        try:
+                            detail = " | " + str(resp.json())[:300]
+                        except Exception:
+                            pass
+                    last_err = f"{type(e).__name__}: {str(e)[:200]}"
+                    last_detail = detail
+                    status = getattr(resp, "status_code", None)
+                    if status in self._ACCOUNT_STATUSES:
+                        # hỏng TÀI KHOẢN — model kế cũng vậy, dừng hẳn
+                        return "", f"{self._ERR_PREFIX} lỗi: {last_err}{last_detail}"
+                    if (status in self._TRANSIENT_STATUSES
+                            and attempt < int(self._TRANSIENT_RETRIES)):
+                        if self._TRANSIENT_RETRY_S > 0:
+                            _time.sleep(self._TRANSIENT_RETRY_S)
+                        continue                      # gọi lại đúng model này
+                    break                             # 404/lỗi khác → model kế
+        return "", f"{self._ERR_PREFIX} lỗi: {last_err}{last_detail}"
 
 
 class OpenAIAgent(_OpenAICompatAgent):
@@ -725,15 +781,13 @@ class OpenRouterAgent(_OpenAICompatAgent):
     """OpenRouter — single key to access 100+ models, several free tiers."""
     agent_type = "openrouter"
     _ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
-    _MODELS_ENDPOINT = "https://openrouter.ai/api/v1/models"
     _ENV_KEY = "OPENROUTER_API_KEY"
     _ERR_PREFIX = "OpenRouter API"
     _LEDGER = "OpenRouter"
 
-    # Process-level cache of free model slugs fetched from /api/v1/models
-    _free_model_cache: list[str] = []
     # Dự phòng CHỌN TAY — chỉ slug đã sống trong code (đúng nếp: slug mới phải
-    # probe sống trên máy thật trước). nemotron-ultra là bậc 1 digest.
+    # probe sống trên máy thật trước). nemotron-ultra là bậc 1 digest (15/09:
+    # 2/2 OK). Không hỏi danh mục nữa — xem _OpenAICompatAgent._candidates.
     _MODEL_FALLBACKS: list[str] = [
         "nvidia/nemotron-3-ultra-550b-a55b:free",
     ]
@@ -747,49 +801,6 @@ class OpenRouterAgent(_OpenAICompatAgent):
         # llama-3.3-70b hết bản :free (probe 22/07) — nemotron-3-super-120b
         # là model :free tầm 70-120B mạnh + nhanh nhất catalog hiện tại
         super().__init__(model, name)
-
-    @classmethod
-    def _fetch_free_models(cls, api_key: str) -> list[str]:
-        """Fetch available free model slugs from OpenRouter /api/v1/models."""
-        if cls._free_model_cache:
-            return cls._free_model_cache
-        try:
-            import requests as _req
-            resp = _req.get(
-                cls._MODELS_ENDPOINT,
-                headers={"Authorization": f"Bearer {api_key}"},
-                timeout=10,
-            )
-            resp.raise_for_status()
-            models = resp.json().get("data", [])
-            free = [m["id"] for m in models if str(m.get("id", "")).endswith(":free")]
-            # Prefer larger (70b) models first, then smaller ones
-            free.sort(key=lambda x: ("70b" not in x, "8b" not in x, x))
-            cls._free_model_cache = free
-            return free
-        except Exception:
-            return []
-
-    def _candidates(self, api_key: str) -> list[str]:
-        """Model chính + dự phòng CHỌN TAY, tối đa _MAX_CANDIDATES.
-
-        Bản cũ đi hết danh mục `:free` (cap 12): đêm 14/09 nemotron-super hụt
-        MỘT lần là ladder gõ cửa 11 model free nhỏ — 8 cụt `finish_reason=
-        length` (trần output không đủ cho brief ~2.400 token), 2×429, 1
-        timeout 90s, 1 KeyError — 0 bản dùng được, bước brief 754s. Model free
-        nhỏ không gánh nổi brief, và mỗi lần gõ cửa là một request trong quota
-        50 req/ngày của key. Danh mục nay chỉ dùng để BỎ slug đã biến mất
-        (khỏi tốn một call 404), không dùng để THÊM.
-        """
-        free = set(self._fetch_free_models(api_key) or [])
-        out: list[str] = [self.model]
-        for fb in self._MODEL_FALLBACKS:
-            if fb in out:
-                continue
-            if free and fb not in free:
-                continue                      # đã rời danh mục — khỏi gọi
-            out.append(fb)
-        return out[: self._MAX_CANDIDATES]
 
     def _post_one(self, model: str, system_part: str, user_part: str,
                   api_key: str, max_tokens: int):
@@ -885,6 +896,11 @@ class GeminiAgent(_OpenAICompatAgent):
     # token → content đứt giữa câu "Tổng kết phiên") → 8000. Đây là TRẦN,
     # không phải chi phí — không nghĩ nhiều thì không tốn; free tier chịu được.
     _THINK_HEADROOM = 8000
+    # flash quá tải (503) / chạm quota phút (429) → sau một lần đợi, rơi sang
+    # flash-lite — slug đã sống ở sentiment/analyze/digest bậc 2, quota rộng
+    # hơn. Brief flash-lite yếu hơn nhưng có guard + validator đỡ; không brief
+    # thì Telegram nhận "Chưa có brief (agent chưa chạy)" như tối 15/09.
+    _MODEL_FALLBACKS: list[str] = ["gemini-3.5-flash-lite"]
 
     def __init__(self, model: str = "gemini-3.5-flash", name: str = "Gemini 3.5 Flash"):
         super().__init__(model, name)

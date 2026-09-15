@@ -133,54 +133,60 @@ def test_digest_free_call_skips_dead_provider(monkeypatch, no_http):
     assert warned and "tài khoản hỏng" in warned[0]
 
 
-# ── 3. OpenRouter: dự phòng chọn tay, cap 3, 429 dừng ─────────────────────
-def _openrouter(monkeypatch, catalog):
+# ── 3. OpenRouter: dự phòng chọn tay, cap 3, KHÔNG hỏi danh mục, 429 dừng ───
+def _openrouter(monkeypatch):
     import vnstock_brief as vb
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
     monkeypatch.setattr(vb, "_account_dead_today", lambda label: None)
-    monkeypatch.setattr(vb.OpenRouterAgent, "_fetch_free_models",
-                        classmethod(lambda cls, key: list(catalog)))
     return vb
 
 
-def test_openrouter_candidates_are_curated_not_the_whole_catalog(monkeypatch):
-    vb = _openrouter(monkeypatch, [
-        "cohere/north-mini-code:free", "dots-studio/dots-3-note-preview:free",
-        "nvidia/nemotron-3-ultra-550b-a55b:free", "inclusionai/ling-3.0-flash-fin:free",
-        "liquid/lfm-2.5-2.6b:free", "nex-agi/nex-n2.5-mini:free",
-        "google/gemma-4-26b-a4b-it:free", "google/gemma-4-31b-it:free",
-        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "x:free", "y:free", "z:free",
-    ])
+def test_openrouter_candidates_are_curated_and_never_ask_the_catalog(monkeypatch):
+    """Bản 14/09 hỏi /models để bỏ slug 'đã biến mất' — nhưng OpenRouter cắt
+    trang ở 400 nên nemotron-ultra (đang sống, digest 2/2 OK) bị coi là biến
+    mất ⇒ brief close 15/09 không có nấc dự phòng. Nay: không GET danh mục,
+    slug chết thật chỉ tốn một call 404."""
+    vb = _openrouter(monkeypatch)
+    monkeypatch.setattr("requests.get", lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("không được hỏi danh mục")))
     cands = vb.OpenRouterAgent()._candidates("k")
     assert cands == ["nvidia/nemotron-3-super-120b-a12b:free",
                      "nvidia/nemotron-3-ultra-550b-a55b:free"]
     assert len(cands) <= vb.OpenRouterAgent._MAX_CANDIDATES
-
-
-def test_openrouter_drops_fallback_that_left_the_catalog(monkeypatch):
-    vb = _openrouter(monkeypatch, ["a:free", "b:free"])
-    assert vb.OpenRouterAgent()._candidates("k") == ["nvidia/nemotron-3-super-120b-a12b:free"]
-
-
-def test_openrouter_keeps_curated_fallbacks_when_catalog_unreachable(monkeypatch):
-    vb = _openrouter(monkeypatch, [])
-    assert vb.OpenRouterAgent()._candidates("k") == [
-        "nvidia/nemotron-3-super-120b-a12b:free",
-        "nvidia/nemotron-3-ultra-550b-a55b:free"]
+    assert not hasattr(vb.OpenRouterAgent, "_fetch_free_models")
 
 
 def test_openrouter_stops_at_first_429(monkeypatch):
     """429 ở OpenRouter là quota theo KEY — gõ model kế cũng 429 và còn ăn
     thêm request của chính quota đó."""
-    vb = _openrouter(monkeypatch, [])
+    vb = _openrouter(monkeypatch)
     calls = []
     monkeypatch.setattr("requests.post", lambda *a, **k: (calls.append(k["json"]["model"]), _Resp(429))[1])
     text, err = vb.OpenRouterAgent().generate("p", max_tokens=50)
     assert text == "" and calls == ["nvidia/nemotron-3-super-120b-a12b:free"]
 
 
+def test_openrouter_cut_output_falls_to_ultra(monkeypatch):
+    """Đêm 15/09: super cụt 2 lần, ultra sống — phải rơi xuống ultra."""
+    vb = _openrouter(monkeypatch)
+    calls = []
+
+    def _post(*a, **k):
+        m = k["json"]["model"]; calls.append(m)
+        if "super" in m:
+            return _Resp(200, {"choices": [{"message": {"content": "nửa"},
+                                            "finish_reason": "length"}]})
+        return _Resp(200, {"choices": [{"message": {"content": "brief đủ"},
+                                        "finish_reason": "stop"}], "usage": {}})
+    monkeypatch.setattr("requests.post", _post)
+    text, err = vb.OpenRouterAgent().generate("p", max_tokens=50)
+    assert err is None and "brief đủ" in text and "_(fallback: nvidia/nemotron-3-ultra" in text
+    assert calls == ["nvidia/nemotron-3-super-120b-a12b:free",
+                     "nvidia/nemotron-3-ultra-550b-a55b:free"]
+
+
 def test_openrouter_still_falls_through_on_404(monkeypatch):
-    vb = _openrouter(monkeypatch, [])
+    vb = _openrouter(monkeypatch)
     calls = []
     monkeypatch.setattr("requests.post", lambda *a, **k: (calls.append(k["json"]["model"]), _Resp(404))[1])
     vb.OpenRouterAgent().generate("p", max_tokens=50)
@@ -196,3 +202,90 @@ def test_cerebras_402_stops_after_one_call(monkeypatch):
     monkeypatch.setattr("requests.post", lambda *a, **k: (calls.append(k["json"]["model"]), _Resp(402))[1])
     text, err = vb.CerebrasAgent().generate("p", max_tokens=50)
     assert text == "" and calls == ["gpt-oss-120b"]
+
+
+# ── 4. Vòng base (Gemini/Mistral/…): đợi-gọi-lại khi thoáng qua, rồi dự phòng ─
+def _base(monkeypatch, env):
+    import vnstock_brief as vb
+    monkeypatch.setenv(env, "k")
+    monkeypatch.setattr(vb, "_account_dead_today", lambda label: None)
+    monkeypatch.setattr(vb._OpenAICompatAgent, "_TRANSIENT_RETRY_S", 0.0)  # không ngủ trong test
+    return vb
+
+
+def _ok(text="brief"):
+    return _Resp(200, {"choices": [{"message": {"content": text},
+                                    "finish_reason": "stop"}], "usage": {}})
+
+
+def test_gemini_503_then_ok_on_retry_same_model(monkeypatch):
+    """Brief close 15/09 trắng vì Gemini flash 429/503 ở hai lượt cách nhau vài
+    giây và không ai đợi. Nay: đợi _TRANSIENT_RETRY_S rồi gọi lại ĐÚNG flash."""
+    vb = _base(monkeypatch, "GEMINI_API_KEY")
+    seq = [_Resp(503), _ok("brief flash")]
+    calls = []
+    monkeypatch.setattr("requests.post", lambda *a, **k: (calls.append(k["json"]["model"]), seq.pop(0))[1])
+    text, err = vb.GeminiAgent().generate("p", max_tokens=50)
+    assert (text, err) == ("brief flash", None)
+    assert calls == ["gemini-3.5-flash", "gemini-3.5-flash"]
+
+
+def test_gemini_flash_down_twice_falls_to_flash_lite(monkeypatch):
+    vb = _base(monkeypatch, "GEMINI_API_KEY")
+    seq = [_Resp(503), _Resp(429), _ok("brief lite")]
+    calls = []
+    monkeypatch.setattr("requests.post", lambda *a, **k: (calls.append(k["json"]["model"]), seq.pop(0))[1])
+    text, err = vb.GeminiAgent().generate("p", max_tokens=50)
+    assert err is None and text.endswith("brief lite")
+    assert text.startswith("_(fallback: gemini-3.5-flash-lite)_")
+    assert calls == ["gemini-3.5-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"]
+
+
+def test_gemini_cut_output_goes_straight_to_fallback_without_retry(monkeypatch):
+    """Cụt (finish_reason=length) là cùng prompt cùng trần — gọi lại vô ích,
+    sang thẳng flash-lite."""
+    vb = _base(monkeypatch, "GEMINI_API_KEY")
+    cut = _Resp(200, {"choices": [{"message": {"content": "nửa"}, "finish_reason": "length"}]})
+    seq = [cut, _ok("brief lite")]
+    calls = []
+    monkeypatch.setattr("requests.post", lambda *a, **k: (calls.append(k["json"]["model"]), seq.pop(0))[1])
+    text, err = vb.GeminiAgent().generate("p", max_tokens=50)
+    assert err is None and calls == ["gemini-3.5-flash", "gemini-3.5-flash-lite"]
+
+
+def test_mistral_quota_429_retries_once_then_gives_up(monkeypatch):
+    vb = _base(monkeypatch, "MISTRAL_API_KEY")
+    calls = []
+    monkeypatch.setattr("requests.post", lambda *a, **k: (calls.append(k["json"]["model"]), _Resp(429))[1])
+    text, err = vb.MistralAgent().generate("p", max_tokens=50)
+    assert text == "" and "429" in err
+    assert calls == ["mistral-small-latest", "mistral-small-latest"]   # không có dự phòng
+
+
+def test_account_error_stops_immediately_no_retry_no_fallback(monkeypatch):
+    vb = _base(monkeypatch, "GEMINI_API_KEY")
+    calls = []
+    monkeypatch.setattr("requests.post", lambda *a, **k: (calls.append(k["json"]["model"]), _Resp(403))[1])
+    text, err = vb.GeminiAgent().generate("p", max_tokens=50)
+    assert text == "" and "403" in err and calls == ["gemini-3.5-flash"]
+
+
+def test_404_skips_retry_and_moves_to_fallback(monkeypatch):
+    vb = _base(monkeypatch, "GEMINI_API_KEY")
+    seq = [_Resp(404), _ok("lite")]
+    calls = []
+    monkeypatch.setattr("requests.post", lambda *a, **k: (calls.append(k["json"]["model"]), seq.pop(0))[1])
+    text, err = vb.GeminiAgent().generate("p", max_tokens=50)
+    assert err is None and calls == ["gemini-3.5-flash", "gemini-3.5-flash-lite"]
+
+
+def test_retry_sleeps_the_configured_backoff(monkeypatch):
+    import vnstock_brief as vb
+    monkeypatch.setenv("MISTRAL_API_KEY", "k")
+    monkeypatch.setattr(vb, "_account_dead_today", lambda label: None)
+    monkeypatch.setattr(vb._OpenAICompatAgent, "_TRANSIENT_RETRY_S", 7.5)
+    slept = []
+    monkeypatch.setattr("time.sleep", lambda s: slept.append(s))
+    monkeypatch.setattr("requests.post", lambda *a, **k: _Resp(503))
+    vb.MistralAgent().generate("p", max_tokens=50)
+    assert slept == [7.5]
