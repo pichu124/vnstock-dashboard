@@ -2,7 +2,7 @@
 
 > Bản để LÀM THEO. Kho lưu chi tiết (lý do, file:line, lịch sử) ở
 > `docs/CLAUDE-NOTES.md` — đừng mở nó để biết "hôm nay làm gì".
-> Cập nhật: 15/09/2026 13:25 — 🖥️ desktop **#0 XONG trừ TW3**: rebase 24/25 mã (14 mã lúc 12:40 trong 70s, 10 mã lúc 13:24 trong 45s — VCI khoẻ giữa trưa; sáng 06:41–07:31 timeout ngắt quãng, dừng sớm đúng lý do). TW3 bị từ chối `--whole-series` (tỉ lệ 1,0000→1,0837 không đều, kho đóng băng 176 ngày) ⇒ `--explain` rồi `--break-date`. Tối nay: phát 15/09 nối lại bar cho 24 mã, brief close 15/09 là brief đầu tiên có bản vá (soi 4b). Việc #12 marker partial, #13 tỉa ladder LLM còn treo.
+> Cập nhật: 15/09/2026 13:33 — 🖥️ desktop **#0 XONG HẲN**: rebase **25/25** (24 mã lô 12:40 + 13:24; TW3 bằng `--break-date 2026-03-23` lúc 13:32), triage in **sổ cách ly RỖNG**. Tối nay phát 15/09 nối lại bar cho 25 mã (TW3 thiếu 176 ngày), brief close 15/09 là brief đầu tiên có bản vá ⇒ soi 4b. Còn treo: #12 marker partial, #13 tỉa ladder LLM (Claude, nói "làm đi"), #3 Cerebras 402, #5 brief phân bổ tháng 9, #6 laptop vnstock 4.0.7, #11 badge doctor.
 
 ## 🏷️ NHÃN MÁY — quy tắc gốc: KHO đồng bộ, CODE thì không
 
@@ -26,7 +26,7 @@ desktop). **Phiên hiện tại: 🖥️ DESKTOP** (user báo 10/09).
 
 # 🔴 CÒN PHẢI LÀM
 
-## 0. 🚨 HAI KHO ĐÃ TÁCH NHAU từ 07/09 ~21:07 — NGUYÊN NHÂN ĐÃ RÕ, đang sync lại
+## 0. ✅ XONG 15/09 13:33 — HAI KHO ĐÃ TÁCH NHAU từ 07/09 (Dropbox desktop tắt sync) · đã sync lại, merge, chữa 25/25 mã lệch cơ sở
 
 **Nguyên nhân (user 10/09): Dropbox ở 🖥️ desktop bị TẮT SYNC bằng tay từ tối
 07/09, quên bật lại.** Không phải code, không phải junction, không phải
@@ -113,6 +113,11 @@ laptop Dropbox "Up to date" ⇒ server cũng vậy ⇒ bên không upload là de
    chồng lấn mà bộ dò bậc không thấy (dưới sàn 5 bar/phía sát ngày đóng
    băng?). Đường đi: `--ticker TW3 --explain` (đọc 12 bar đuôi, tìm ngày tỉ
    lệ đổi) ⇒ `--ticker TW3 --break-date <ngày> ` chạy thử ⇒ `--apply`.
+   **✅ 13:32 XONG:** `--explain` cho thấy 11 bar đuôi 1,0834× và bar cuối 23/03
+   khớp 1,0000× (13,00 ÷ 1,0834 = 12,00 — chính phiên GDKHQ); bộ dò MỨC cần
+   ≥2 bar sau vách nên im. `--ticker TW3 --break-date 2026-03-23 --apply`:
+   2.256 bar lấy thẳng nguồn + 6 bar (18–25/10/2016, trước độ phủ nguồn)
+   nhân hệ số, "chuỗi đã liền". `triage --plan` ⇒ **sổ cách ly RỖNG**.
 
    **Kết quả 14/09 23:16–23:52:** `--plan` in đúng ba lệnh (sổ đăng ký 37 mã /
    493 dòng ⇒ không nạp lại). Chạy thử **10/25 mã OK** — BMI DGC DHG DIG DMC DNC
@@ -318,7 +323,7 @@ hiệu guard đang LÀM VIỆC, không phải hỏng.
 |---|---|
 | **Sổ theo dõi nghi ngờ brief** | Chuyển `⚠️ ĐỦ mẫu, đáng quyết` (Op.CF/vốn hoá · câu dòng tiền ngoại ngược data) |
 | **Hiệu suất auto-heal** | `⚠️` = 0 lành dù đủ mẫu ⇒ quyết hạ trần `VNSTOCK_AUTOHEAL_BUDGET_S=120` hay tắt hẳn |
-| **Lệch cơ sở — mã bị cách ly** | ~~Sổ RỖNG (07/09)~~ ~~doctor 09/09: 70 mã~~ **15/09: chữa 24/25, còn TW3 (xem #0)**. Có mã mới ⇒ `python scripts\rebase_ticker_history.py --from-drift-ledger --whole-series` (chạy thử) rồi thêm `--apply`. Mã bị từ chối ⇒ `--ticker <MÃ> --explain` |
+| **Lệch cơ sở — mã bị cách ly** | **Sổ RỖNG 15/09 13:33** (chữa 25/25, xem #0). Có mã mới ⇒ `python scripts\rebase_ticker_history.py --from-drift-ledger --whole-series` (chạy thử) rồi thêm `--apply`. Mã bị từ chối ⇒ `--ticker <MÃ> --explain` |
 | **Nới OHLC (bar tự mâu thuẫn)** | Nới sát trần 20% ⇒ soi lại bar đó |
 | **Rổ VN30** | `⚠️ rổ thật đã đổi` ⇒ dán dòng badge cho Claude |
 
@@ -372,7 +377,7 @@ dòng `screener` như thường lệ.
 
 | Việc | Kết quả |
 |---|---|
-| Lệch cơ sở kho giá | **SỔ RỖNG 07/09 — nhưng doctor 09/09 lại thấy 70 mã với ngày cũ (việc #0, đang tra)** — 73 mã chữa trong một tối (76 mã đợt 18-19/08 + 73 đợt này) · V1 chặn tái phát ở đường ghi · công cụ nay có `--whole-series`, `--from-drift-ledger`, `--explain`, `--restore` |
+| Lệch cơ sở kho giá | **SỔ RỖNG 15/09** (70 mã 09/09 là ảnh chụp cũ do Dropbox desktop tắt sync — U56; 25 mã mới tháng 9 chữa 15/09 — U57) — 73 mã chữa trong một tối (76 mã đợt 18-19/08 + 73 đợt này) · V1 chặn tái phát ở đường ghi · công cụ nay có `--whole-series`, `--from-drift-ledger`, `--explain`, `--restore` |
 | Rổ VN30 kỳ 08/2026 | Lấy động (API → cache → hằng số) · VÀO BSR·LPB·MCH·TCX·VPL, RỜI BCM·BVH·PLX·POW·TPB · cả 30 mã có giá trong kho |
 | Live mode | `verify_wss_live` ✅ cả 3 bất biến (24/30 mã volume) + **mắt người** xác nhận heatmap chạy |
 | Tốc độ heatmap | Fragment 5s → 2s · tầng nóng (VN30 mỗi vòng, ~1.100 mã mỗi 5 vòng) |

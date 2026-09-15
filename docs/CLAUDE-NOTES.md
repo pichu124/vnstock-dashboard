@@ -7049,6 +7049,16 @@ mà bộ dò bậc không gọi tên (nghi dưới sàn 5 bar/phía sát ngày �
 Đường đi: `--explain` đọc đuôi ⇒ `--break-date` ⇒ `--apply`. Không gộp vào lô
 — đúng như triage nói, chữa mù là nhân bản số sai lên trọn lịch sử.
 
+**13:29–13:33 — xong.** `--explain`: 38 bar chồng lấn trải 189 ngày (mã UPCoM
+thưa giao dịch), 11 bar đuôi đầu 1,0834×, bar cuối 2026-03-23 khớp 1,0000×;
+13,00 ÷ 1,0834 = 12,00 ⇒ 23/03 chính là phiên GDKHQ, kho đóng băng ngay sau.
+Bộ dò MỨC đòi ≥2 bar sau vách (`LEVEL_BREAK_MIN_AFTER`), có đúng 1 ⇒ "cần mắt
+người". `--break-date 2026-03-23` (đường VNM 19/08): hệ số 1,0837× (5 trước ·
+1 sau), 2.256 bar lấy thẳng nguồn + 6 bar 18–25/10/2016 nhân hệ số (nguồn phủ
+từ 26/10/2016), khối lượng giữ nguyên (bậc 48× là thanh khoản thưa, không
+phải chia tách). `triage --plan` ⇒ **sổ cách ly RỖNG**. Tổng chiến dịch 15/09:
+**25/25**, 0 mã từ chối còn lại.
+
 ## 4. Ledger LLM 14/09: 66 call · 29 lỗi — ladder brief có 4 bậc chết cấu trúc
 
 Cerebras 402 ×4 (việc #3 còn treo) · Groq qwen3.6-27b **413 Payload Too
