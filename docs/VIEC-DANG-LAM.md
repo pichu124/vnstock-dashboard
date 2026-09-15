@@ -2,7 +2,7 @@
 
 > Bản để LÀM THEO. Kho lưu chi tiết (lý do, file:line, lịch sử) ở
 > `docs/CLAUDE-NOTES.md` — đừng mở nó để biết "hôm nay làm gì".
-> Cập nhật: 15/09/2026 tối — **brief close 15/09 TRẮNG** ("LLM ladder DOWN", AI Outlook "Chưa có brief"): Gemini 429 rồi 503 đúng lúc chạy, Mistral quota, Cerebras 402, OpenRouter super cụt ×2 mà KHÔNG rơi xuống ultra vì bộ lọc danh mục tôi thêm ở #13 bỏ nhầm ultra (danh mục cắt trang 400). Đã vá: bỏ hỏi danh mục; agent base đợi 20s gọi lại khi 429/5xx rồi sang dự phòng cùng provider (Gemini flash → flash-lite). 🖥️ desktop **đã merge `661b193`, `--fast` 2.591/86s, rồi `telegram close --force` 20:41 ⇒ brief CÓ AI Outlook** (Gemini flash 503 → đợi 20s → OK; Cerebras bị cầu dao bỏ; super cụt → ultra được gọi nhưng CŨNG cụt; Mistral 429 ×2). 4b soi 4/4 đạt. Còn đo tiếp: brief tự động 16/09 + vì sao nemotron cụt brief (mục 4c). #12 chạy đúng (marker `partial: 214`), #0 xong (sổ cách ly RỖNG, VNINDEX 15/09).
+> Cập nhật: 15/09/2026 tối — **brief close 15/09 TRẮNG** ("LLM ladder DOWN", AI Outlook "Chưa có brief"): Gemini 429 rồi 503 đúng lúc chạy, Mistral quota, Cerebras 402, OpenRouter super cụt ×2 mà KHÔNG rơi xuống ultra vì bộ lọc danh mục tôi thêm ở #13 bỏ nhầm ultra (danh mục cắt trang 400). Đã vá: bỏ hỏi danh mục; agent base đợi 20s gọi lại khi 429/5xx rồi sang dự phòng cùng provider (Gemini flash → flash-lite). 🖥️ desktop **đã merge `661b193`, `--fast` 2.591/86s, rồi `telegram close --force` 20:41 ⇒ brief CÓ AI Outlook** (Gemini flash 503 → đợi 20s → OK; Cerebras bị cầu dao bỏ; super cụt → ultra được gọi nhưng CŨNG cụt; Mistral 429 ×2). 4b soi 4/4 đạt. **4c đã vá cùng tối** (sổ ghi usage khi cụt + OpenRouter nới trần +5.200) — 🖥️ desktop merge lại. Còn đo: brief tự động 16/09. #12 chạy đúng (marker `partial: 214`), #0 xong (sổ cách ly RỖNG, VNINDEX 15/09).
 
 ## 🏷️ NHÃN MÁY — quy tắc gốc: KHO đồng bộ, CODE thì không
 
@@ -294,18 +294,30 @@ Quan sát thêm, CHƯA đủ mẫu để vá (để `brief_watch` đếm, đừn
   chữa bằng `--from-drift-ledger --whole-series` như mục Lệch cơ sở. MSR cổ
   tức tiền 1.000đ có thể cũng vào sổ (tuỳ giá).
 
-## 4c. 🟠 Dự phòng OpenRouter CHƯA gánh nổi brief — nemotron super/ultra cụt ở 2.800 token
+## 4c. ✅ VÁ 15/09 tối — dự phòng OpenRouter cụt brief ở 2.800 token: sổ ghi usage khi cụt + nới trần
 
 Đo 15/09: super cụt 3/3, ultra cụt 1/1 cho brief (ultra 2/2 OK cho digest
 ngắn; 14/09 super 2/3 OK) ⇒ trần `_BRIEF_MAX_TOKENS` = 2.800 vừa khít bản brief
 tiếng Việt ~1.100 từ với tokenizer nemotron (2–3 token/từ), ngày dài tin/sự
-kiện là đứt; Gemini có `_THINK_HEADROOM` 8.000 nên không sao. Chưa biết
-nemotron có SUY NGHĨ ăn budget không (ledger chỉ ghi usage khi OK). Hai bước
-khi làm: (1) ghi `usage` cả khi cụt để `--show` nói completion/reasoning bao
-nhiêu; (2) nới trần OpenRouter kiểu Gemini (`_OUTPUT_HEADROOM` ~+3.200, :free
-không tốn tiền) — đo bằng ledger đêm kế: super/ultra OK ≥ 1 khi được gọi.
-Ưu tiên THẤP: brief đang có flash + flash-lite gánh; OpenRouter chỉ cần khi cả
-hai Gemini hỏng cùng lúc.
+kiện là đứt; Gemini có `_THINK_HEADROOM` 8.000 nên không sao.
+
+**Vá (cùng commit):**
+1. Sổ LLM ghi `usage` cả khi call LỖI (mọi vòng: base/Gemini/Mistral, Cerebras,
+   OpenRouter, Claude) và tách `reasoning_tokens` từ
+   `completion_tokens_details` ⇒ `python vnstock_llm_ledger.py --show` in thêm
+   `↳ suy nghĩ: N token (x% token ra)` và `↳ lần lỗi cuối tốn: vào · ra · trong
+   đó suy nghĩ`. Số cố ý KHÔNG vào `last_error` (cầu dao dò `\b40[123]\b`).
+2. `OpenRouterAgent._OUTPUT_HEADROOM = 5200` cộng vào mọi call (2.800 → 8.000
+   cho brief) — trần, :free không tốn.
+
+**Phép đo (ledger đêm kế có gọi OpenRouter, tức khi Gemini hỏng ≥ 1 lượt):**
+- super hoặc ultra có `OK ≥ 1` cho brief ⇒ nới trần là đủ, đóng mục.
+- vẫn cụt: đọc dòng `lần lỗi cuối tốn` — `ra ≈ 8.000` mà `suy nghĩ` gần hết ⇒
+  model nghĩ tiêu budget ⇒ bước kế là tắt/giới hạn reasoning (tham số
+  `reasoning` của OpenRouter — PHẢI probe sống trên máy thật trước, chưa có
+  bằng chứng nemotron nhận tham số này); `suy nghĩ ~0` mà `ra ≈ 8.000` ⇒ model
+  lan man, đổi model.
+- Không thấy dòng nào vì Gemini OK cả đêm ⇒ chưa đo được, KHÔNG phải xong.
 
 ## 5. 🧭 Brief phân bổ tháng 9 — 🖥️ desktop, trong dashboard
 

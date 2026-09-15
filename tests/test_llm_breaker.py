@@ -289,3 +289,112 @@ def test_retry_sleeps_the_configured_backoff(monkeypatch):
     monkeypatch.setattr("requests.post", lambda *a, **k: _Resp(503))
     vb.MistralAgent().generate("p", max_tokens=50)
     assert slept == [7.5]
+
+
+# ── 5. 4c (15/09): usage khi cụt + nới trần OpenRouter ────────────────────
+# Ledger 15/09 20:41: nemotron super cụt 3/3, ultra cụt 1/1 cho brief ở 2.800
+# token (ultra 2/2 OK cho digest ngắn) — dự phòng OpenRouter chưa gánh nổi
+# brief. Sổ lại MÙ vì agent chỉ ghi usage khi OK ⇒ không biết trần bị ăn bởi
+# câu trả lời dài hay bởi "suy nghĩ". Hai lưới: (a) ghi usage cả khi cụt, có
+# tách reasoning; (b) OpenRouter nới trần như Gemini `_THINK_HEADROOM`.
+_CUT_USAGE = {"prompt_tokens": 9_812, "completion_tokens": 2_800,
+              "completion_tokens_details": {"reasoning_tokens": 2_650}}
+
+
+def _cut(usage=_CUT_USAGE):
+    return _Resp(200, {"choices": [{"message": {"content": "nửa"},
+                                    "finish_reason": "length"}],
+                       "usage": dict(usage)})
+
+
+def test_ledger_keeps_usage_of_last_failed_call_and_reasoning_split(ledger_tmp):
+    ll.record("OpenRouter", "nvidia/nemotron-3-super-120b-a12b:free", ok=False,
+              usage=_CUT_USAGE, error="finish_reason=length (output cụt)")
+    row = ll.summary()["providers"]["OpenRouter:nvidia/nemotron-3-super-120b-a12b:free"]
+    assert row["fail"] == 1
+    assert row["completion_tokens"] == 2_800 and row["reasoning_tokens"] == 2_650
+    assert row["last_fail_usage"] == {"prompt": 9_812, "completion": 2_800,
+                                      "reasoning": 2_650}
+    lines = "\n".join(ll.summary_lines())
+    assert "lần lỗi cuối tốn: vào 9,812 · ra 2,800 · trong đó suy nghĩ 2,650" in lines
+    assert "suy nghĩ: 2,650 token (94% token ra)" in lines
+    assert ll.summary()["totals"]["reasoning_tokens"] == 2_650
+
+
+def test_ledger_reasoning_aggregates_over_ok_calls_and_never_trips_breaker(ledger_tmp):
+    """Số token trong usage KHÔNG được lọt vào last_error: cầu dao dò
+    \\b40[123]\\b — một lần cụt tốn đúng 402 token mà chặn provider cả ngày
+    là tự bỏ nấc sống."""
+    usage = {"prompt_tokens": 100, "completion_tokens": 402,
+             "completion_tokens_details": {"reasoning_tokens": 401}}
+    ll.record("Gemini", "gemini-3.5-flash", ok=True, usage=usage)
+    ll.record("Gemini", "gemini-3.5-flash", ok=True, usage=usage)
+    ll.record("Gemini", "gemini-3.5-flash", ok=False, usage=usage,
+              error="finish_reason=length (output cụt)")
+    row = ll.summary()["providers"]["Gemini:gemini-3.5-flash"]
+    assert row["reasoning_tokens"] == 3 * 401 and row["completion_tokens"] == 3 * 402
+    assert row["last_error"] == "finish_reason=length (output cụt)"
+    assert ll.provider_blocked_today("Gemini") is None
+    # cả khi hôm nay CHƯA có call OK nào — vẫn không phải hỏng tài khoản
+    ll.record("Mistral", "mistral-small-latest", ok=False, usage=usage,
+              error="finish_reason=length (output cụt)")
+    assert ll.provider_blocked_today("Mistral") is None
+
+
+def test_ledger_ok_call_without_reasoning_prints_no_think_line(ledger_tmp):
+    ll.record("Groq", "gpt-oss-20b", ok=True,
+              usage={"prompt_tokens": 10, "completion_tokens": 5})
+    lines = "\n".join(ll.summary_lines())
+    assert "suy nghĩ" not in lines and "lần lỗi cuối" not in lines
+
+
+@pytest.mark.parametrize("cls,env", [
+    ("GeminiAgent", "GEMINI_API_KEY"),        # vòng base
+    ("OpenRouterAgent", "OPENROUTER_API_KEY"),
+    ("CerebrasAgent", "CEREBRAS_API_KEY"),
+])
+def test_cut_output_records_usage_in_every_agent_loop(monkeypatch, cls, env):
+    import vnstock_brief as vb
+    monkeypatch.setenv(env, "k")
+    monkeypatch.setattr(vb, "_account_dead_today", lambda label: None)
+    monkeypatch.setattr(vb._OpenAICompatAgent, "_TRANSIENT_RETRY_S", 0.0)
+    recorded = []
+    monkeypatch.setattr(vb, "_ledger_record",
+                        lambda provider, model, ok, usage=None, error=None:
+                        recorded.append((model, ok, usage, error)))
+    monkeypatch.setattr("requests.post", lambda *a, **k: _cut())
+    text, err = getattr(vb, cls)().generate("p", max_tokens=50)
+    assert text == "" and err
+    cuts = [r for r in recorded if r[1] is False and "cụt" in str(r[3])]
+    assert cuts, recorded
+    for _model, _ok, usage, _error in cuts:
+        assert usage == _CUT_USAGE
+
+
+def test_anthropic_cut_records_usage(monkeypatch):
+    import vnstock_brief as vb
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    recorded = []
+    monkeypatch.setattr(vb, "_ledger_record",
+                        lambda provider, model, ok, usage=None, error=None:
+                        recorded.append((provider, ok, usage)))
+    body = {"stop_reason": "max_tokens", "content": [{"text": "nửa"}],
+            "usage": {"input_tokens": 9_000, "output_tokens": 2_800}}
+    monkeypatch.setattr("requests.post", lambda *a, **k: _Resp(200, body))
+    text, err = vb.ClaudeAgent().generate("p", max_tokens=50)
+    assert text == "" and "cắt" in err
+    assert recorded == [("Anthropic", False, body["usage"])]
+
+
+def test_openrouter_adds_output_headroom_to_every_call(monkeypatch):
+    """Trần brief 2.800 vừa khít brief tiếng Việt với tokenizer nemotron —
+    nới như Gemini; là trần, :free không tốn."""
+    vb = _openrouter(monkeypatch)
+    sent = []
+    monkeypatch.setattr("requests.post",
+                        lambda *a, **k: (sent.append(k["json"]["max_tokens"]), _ok("brief"))[1])
+    text, err = vb.OpenRouterAgent().generate("p", max_tokens=vb._BRIEF_MAX_TOKENS)
+    assert err is None
+    assert vb.OpenRouterAgent._OUTPUT_HEADROOM >= 3_000
+    assert sent == [vb._BRIEF_MAX_TOKENS + vb.OpenRouterAgent._OUTPUT_HEADROOM]
+    assert sent[0] >= 6_000

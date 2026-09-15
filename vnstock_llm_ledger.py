@@ -111,6 +111,31 @@ def provider_blocked_today(provider: str) -> "str | None":
     return None
 
 
+def _usage_triplet(usage: dict) -> dict:
+    """{prompt_tokens, completion_tokens, reasoning_tokens} từ usage của
+    provider — OpenAI-style (prompt/completion, reasoning trong
+    completion_tokens_details) LẪN Anthropic-style (input/output). Thiếu/xấu
+    → 0. reasoning là PHẦN CON của completion (OpenAI/OpenRouter/Gemini
+    OpenAI-compat đều cộng thinking vào completion_tokens)."""
+    def _int(v) -> int:
+        try:
+            return max(0, int(v or 0))
+        except (TypeError, ValueError):
+            return 0
+    out = {"prompt_tokens": 0, "completion_tokens": 0, "reasoning_tokens": 0}
+    for srcs, dst in ((("prompt_tokens", "input_tokens"), "prompt_tokens"),
+                      (("completion_tokens", "output_tokens"), "completion_tokens")):
+        for src in srcs:
+            v = _int(usage.get(src))
+            if v:
+                out[dst] = v
+                break
+    details = usage.get("completion_tokens_details")
+    if isinstance(details, dict):
+        out["reasoning_tokens"] = _int(details.get("reasoning_tokens"))
+    return out
+
+
 def record(provider: str, model: str = "", ok: bool = True,
            usage: "dict | None" = None, error: "str | None" = None) -> None:
     """Ghi 1 call vào sổ. KHÔNG BAO GIỜ raise — mọi lỗi nuốt im lặng
@@ -147,17 +172,20 @@ def record(provider: str, model: str = "", ok: bool = True,
                 # "vì sao fail" cho --show / tin alert. 160 ký tự đủ chẩn đoán.
                 row["last_error"] = str(error)[:160]
         if isinstance(usage, dict):
-            # OpenAI-style (prompt/completion) LẪN Anthropic-style (input/output)
-            for srcs, dst in ((("prompt_tokens", "input_tokens"), "prompt_tokens"),
-                              (("completion_tokens", "output_tokens"), "completion_tokens")):
-                for src in srcs:
-                    try:
-                        v = int(usage.get(src) or 0)
-                    except (TypeError, ValueError):
-                        v = 0
-                    if v:
-                        row[dst] = int(row.get(dst, 0)) + v
-                        break
+            got = _usage_triplet(usage)
+            for dst in ("prompt_tokens", "completion_tokens", "reasoning_tokens"):
+                if got[dst]:
+                    row[dst] = int(row.get(dst, 0)) + got[dst]
+            if not ok:
+                # Usage của lần LỖI cuối — chủ yếu cho output cụt
+                # (finish_reason=length): biết trần bị ăn bởi câu trả lời dài
+                # hay bởi "suy nghĩ" (4c 15/09: nemotron super/ultra cụt brief
+                # ở 2.800 token mà sổ mù, vì agent chỉ ghi usage khi OK).
+                # Cố ý KHÔNG nhét số vào last_error: cầu dao tài khoản dò
+                # \b40[123]\b trong đó — "401 token" sẽ bị đọc thành 401.
+                row["last_fail_usage"] = {"prompt": got["prompt_tokens"],
+                                          "completion": got["completion_tokens"],
+                                          "reasoning": got["reasoning_tokens"]}
         day[key] = row
         days[today] = day
         # prune ngày cũ (giữ _RETAIN_DAYS gần nhất theo thứ tự khóa ISO)
@@ -281,7 +309,8 @@ def summary(day: "str | None" = None) -> dict:
         if not providers:
             return {}
         totals = {"calls": 0, "ok": 0, "fail": 0, "rate_limited": 0,
-                  "prompt_tokens": 0, "completion_tokens": 0}
+                  "prompt_tokens": 0, "completion_tokens": 0,
+                  "reasoning_tokens": 0}
         for row in providers.values():
             for k in totals:
                 try:
@@ -316,6 +345,33 @@ def summary_lines(day: "str | None" = None) -> list:
         last_err = str(r.get("last_error") or "").strip()
         if last_err and int(r.get("fail", 0)) > 0:
             out.append(f"     ↳ lỗi cuối: {last_err}")
+        out.extend(_usage_detail_lines(r))
+    return out
+
+
+def _usage_detail_lines(row: dict) -> list:
+    """Dòng phụ cho --show: (a) tổng token "suy nghĩ" nếu provider báo —
+    thinking là phần con của token ra; (b) usage của lần LỖI cuối, để đọc
+    output cụt bằng SỐ: ra ≈ trần mà suy nghĩ ~0 ⇒ câu trả lời dài quá trần
+    (nới trần) · suy nghĩ ăn gần hết ⇒ model nghĩ tiêu budget (nới thêm hoặc
+    tắt reasoning). Best-effort, dữ liệu xấu → []."""
+    out: list = []
+    try:
+        think = int(row.get("reasoning_tokens", 0) or 0)
+        comp = int(row.get("completion_tokens", 0) or 0)
+        if think > 0:
+            pct = f" ({think * 100 // comp}% token ra)" if comp > 0 else ""
+            out.append(f"     ↳ suy nghĩ: {think:,} token{pct}")
+        lf = row.get("last_fail_usage")
+        if isinstance(lf, dict) and int(row.get("fail", 0) or 0) > 0:
+            p_ = int(lf.get("prompt", 0) or 0)
+            c_ = int(lf.get("completion", 0) or 0)
+            r_ = int(lf.get("reasoning", 0) or 0)
+            if p_ or c_ or r_:
+                out.append(f"     ↳ lần lỗi cuối tốn: vào {p_:,} · ra {c_:,}"
+                           f" · trong đó suy nghĩ {r_:,} token")
+    except Exception:
+        return []
     return out
 
 

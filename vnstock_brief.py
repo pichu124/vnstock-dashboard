@@ -497,6 +497,7 @@ class ClaudeAgent(BriefAgent):
                 # Output bị CẮT — bản cụt lên Telegram tệ hơn lỗi (bài close
                 # 06/08 06:53): coi là LỖI để generate_brief lấy dự phòng.
                 _ledger_record("Anthropic", self.model, ok=False,
+                               usage=body.get("usage"),
                                error="stop_reason=max_tokens (output cụt)")
                 return "", ("Claude API: output bị cắt (stop_reason="
                             "max_tokens — đụng trần budget)")
@@ -600,7 +601,10 @@ class _OpenAICompatAgent(BriefAgent):
                         # → bản cụt thắng bản trọn vẹn của agent yếu hơn và lên
                         # Telegram. Coi là LỖI: gọi lại cùng prompt cùng trần là
                         # vô ích → sang model dự phòng (nếu có).
+                        # Ghi usage cả khi cụt (4c 15/09): sổ mới nói được
+                        # trần bị ăn bởi câu trả lời hay bởi "suy nghĩ".
                         _ledger_record(self._LEDGER, model, ok=False,
+                                       usage=body.get("usage"),
                                        error="finish_reason=length (output cụt)")
                         last_err = ("output bị cắt (finish_reason=length — đụng "
                                     "trần budget/thinking)")
@@ -749,6 +753,7 @@ class CerebrasAgent(_OpenAICompatAgent):
                     # Output cụt (xem _OpenAICompatAgent) — kiểu "suy nghĩ"
                     # mỗi model khác nhau → thử model kế trong danh sách.
                     _ledger_record(self._LEDGER, model, ok=False,
+                                   usage=body.get("usage"),
                                    error="finish_reason=length (output cụt)")
                     last_err = "output bị cắt (finish_reason=length)"
                     last_detail = ""
@@ -792,6 +797,13 @@ class OpenRouterAgent(_OpenAICompatAgent):
         "nvidia/nemotron-3-ultra-550b-a55b:free",
     ]
     _MAX_CANDIDATES: int = 3
+    # Nới trần output như Gemini `_THINK_HEADROOM` (4c, 15/09): super cụt 3/3
+    # và ultra cụt 1/1 cho brief ở `_BRIEF_MAX_TOKENS` 2.800 (ultra 2/2 OK cho
+    # digest ngắn; 14/09 super còn 2/3 OK) ⇒ 2.800 vừa khít bản brief tiếng
+    # Việt với tokenizer nemotron, ngày dài tin/sự kiện là đứt. Là TRẦN, không
+    # phải chi phí (:free); model không nghĩ/không viết dài thì không tốn.
+    # Có suy nghĩ ăn budget hay không: đọc "lần lỗi cuối tốn" ở ledger --show.
+    _OUTPUT_HEADROOM: int = 5200
 
     def __init__(
         self,
@@ -831,6 +843,7 @@ class OpenRouterAgent(_OpenAICompatAgent):
             return "", f"{self._ENV_KEY} chưa được thiết lập trong .env"
         if _why := _account_dead_today(self._LEDGER):
             return _skip_dead_account(self._ERR_PREFIX, _why)
+        max_tokens = int(max_tokens) + int(self._OUTPUT_HEADROOM)
         sys_end = prompt.find("\n\nDữ liệu thị trường")
         system_part = prompt[:sys_end].strip() if sys_end > 0 else _SYSTEM
         user_part = prompt[sys_end:].strip() if sys_end > 0 else prompt
@@ -849,6 +862,7 @@ class OpenRouterAgent(_OpenAICompatAgent):
                 if choice.get("finish_reason") == "length":
                     # Output cụt (xem _OpenAICompatAgent) → thử model kế.
                     _ledger_record(self._LEDGER, model, ok=False,
+                                   usage=body.get("usage"),
                                    error="finish_reason=length (output cụt)")
                     last_err = "output bị cắt (finish_reason=length)"
                     last_detail = ""

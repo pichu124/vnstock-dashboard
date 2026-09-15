@@ -81,7 +81,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   lần**, KHÔNG phải ⇄ CẢ HAI (sửa 19/08).
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~2.591 test; ~45s trên CI,
+- Sửa module lõi nào → `python run.py test --fast` (~2.599 test; ~45s trên CI,
   86s máy thật 15/09 tối). Danh sách file `--fast` là WHITELIST trong `run.py` —
   thêm file test mới thì phải ghi vào đó, không thì `--fast` không chạy nó.
 - Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, ~3.162 test).
@@ -112,6 +112,10 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   flash-lite; OpenRouter super → ultra); output cụt ⇒ sang dự phòng ngay;
   401/402/403 ⇒ dừng hẳn + cầu dao ngày. KHÔNG hỏi danh mục provider để bỏ
   slug (OpenRouter cắt trang 400 — 15/09 bỏ nhầm ultra đang sống, brief trắng).
+  Trần output là TRẦN, không phải chi phí: Gemini `_THINK_HEADROOM` 8.000,
+  OpenRouter `_OUTPUT_HEADROOM` 5.200 (nemotron cụt brief ở 2.800). Cụt vẫn
+  ghi usage vào sổ ⇒ `llm_ledger --show` in "lần lỗi cuối tốn: vào · ra ·
+  suy nghĩ" — đọc số đó trước khi nới trần hay đổi model.
 - `vnstock_corp_ratio` — đọc TỈ LỆ QUYỀN từ tiêu đề sự kiện (hàm thuần).
   `adjusts_price(title)` lọc sự kiện chỉ chốt danh sách DỰ HỌP (ĐHĐCĐ, lấy ý
   kiến bằng văn bản) — chúng KHÔNG đổi giá tham chiếu, gắn ⚠️ GDKHQ cho chúng

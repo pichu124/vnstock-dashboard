@@ -7115,6 +7115,21 @@ OpenRouter vì thế chưa gánh nổi brief — ghi VIEC-DANG-LAM 4c (ghi usage
 để biết có reasoning ăn budget không, rồi nới trần kiểu `_THINK_HEADROOM`), ưu
 tiên thấp vì flash + flash-lite đang gánh.
 
+**Vá 4c (cùng tối, user "làm 4c đi").** (1) `vnstock_llm_ledger.record`: usage
+được cộng cả khi `ok=False` (trước chỉ agent OK mới đưa usage — sổ mù đúng lúc
+cần), tách `reasoning_tokens` từ `completion_tokens_details` (OpenAI/OpenRouter
+chuẩn hoá; Gemini OpenAI-compat cũng cộng thinking vào completion), lưu
+`last_fail_usage {prompt, completion, reasoning}` của lần lỗi cuối; `--show`
+in `↳ suy nghĩ: N token (x% token ra)` và `↳ lần lỗi cuối tốn: vào · ra · trong
+đó suy nghĩ`. Bẫy đã né: KHÔNG nhét số vào `last_error` vì cầu dao dò
+`\b40[123]\b` — một lần cụt tốn đúng 402 token là chặn provider cả ngày (có
+test). Bốn vòng agent (base, Cerebras, OpenRouter, Claude) đều truyền
+`usage=body["usage"]` ở nhánh cụt. (2) `OpenRouterAgent._OUTPUT_HEADROOM =
+5200` cộng vào mọi call — mirror `_THINK_HEADROOM` Gemini, là trần không phải
+chi phí. Cố ý CHƯA đụng tham số `reasoning` của OpenRouter: chưa có bằng chứng
+nemotron nghĩ (đó chính là thứ sổ mới sẽ đo), và tham số mới phải probe sống.
+8 test, `--fast` 2.599.
+
 **Vá 15/09 (#12).** `updater_status_update` (hàm thuần): lỗi > 0 ⇒ marker
 `partial` + `last_partial_date` + `errors`/`fallback`, không đụng
 `last_success_date` — `is_already_done_today` vẫn đòi `success` + hôm nay nên
