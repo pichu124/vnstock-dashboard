@@ -2,7 +2,7 @@
 
 > Bản để LÀM THEO. Kho lưu chi tiết (lý do, file:line, lịch sử) ở
 > `docs/CLAUDE-NOTES.md` — đừng mở nó để biết "hôm nay làm gì".
-> Cập nhật: 15/09/2026 tối — **brief close 15/09 TRẮNG** ("LLM ladder DOWN", AI Outlook "Chưa có brief"): Gemini 429 rồi 503 đúng lúc chạy, Mistral quota, Cerebras 402, OpenRouter super cụt ×2 mà KHÔNG rơi xuống ultra vì bộ lọc danh mục tôi thêm ở #13 bỏ nhầm ultra (danh mục cắt trang 400). Đã vá: bỏ hỏi danh mục; agent base đợi 20s gọi lại khi 429/5xx rồi sang dự phòng cùng provider (Gemini flash → flash-lite). 🖥️ desktop **đã merge `661b193` tối 15/09, `--fast` 2.591 passed / 86s**; có thể gửi lại brief tối nay bằng `run.py telegram close --force`, còn phép đo chính là brief close 16/09. #12 chạy đúng (marker `partial: 214`), #0 xong (sổ cách ly RỖNG, VNINDEX 15/09).
+> Cập nhật: 15/09/2026 tối — **brief close 15/09 TRẮNG** ("LLM ladder DOWN", AI Outlook "Chưa có brief"): Gemini 429 rồi 503 đúng lúc chạy, Mistral quota, Cerebras 402, OpenRouter super cụt ×2 mà KHÔNG rơi xuống ultra vì bộ lọc danh mục tôi thêm ở #13 bỏ nhầm ultra (danh mục cắt trang 400). Đã vá: bỏ hỏi danh mục; agent base đợi 20s gọi lại khi 429/5xx rồi sang dự phòng cùng provider (Gemini flash → flash-lite). 🖥️ desktop **đã merge `661b193`, `--fast` 2.591/86s, rồi `telegram close --force` 20:41 ⇒ brief CÓ AI Outlook** (Gemini flash 503 → đợi 20s → OK; Cerebras bị cầu dao bỏ; super cụt → ultra được gọi nhưng CŨNG cụt; Mistral 429 ×2). 4b soi 4/4 đạt. Còn đo tiếp: brief tự động 16/09 + vì sao nemotron cụt brief (mục 4c). #12 chạy đúng (marker `partial: 214`), #0 xong (sổ cách ly RỖNG, VNINDEX 15/09).
 
 ## 🏷️ NHÃN MÁY — quy tắc gốc: KHO đồng bộ, CODE thì không
 
@@ -258,7 +258,7 @@ cả `as_of 2026-08-31`** — kỳ tháng 8 đã về, không còn kẹt ở `20
 vẫn `2026-06-30` là ĐÚNG (quý). ⇒ mạng nhà KHÔNG chặn NSO, bỏ luôn việc phát
 4G. *(Jina ⚠️ cùng cụm nhưng **không gấp** — chỉ làm tin chấm bằng title+summary.)*
 
-## 4b. 📰 Sau đợt vá brief 09/09 — đối chiếu brief kế tiếp (15/09 chưa soi được: brief trắng, xem #13 — soi brief 16/09)
+## 4b. ✅ XONG 15/09 20:41 — đối chiếu brief kế tiếp sau đợt vá 09/09: 4/4 đạt
 
 ~~Dọn cache tin cụt~~ — **không cần nữa** (đo 09/09): `--reanalyze` chỉ chấm
 lại 8 tin MỚI NHẤT, mà 09/09 đã có 12 tin mới nên hai câu cụt của 08/09 không
@@ -275,14 +275,37 @@ Nh") và 3 lần gọi lại dính 429 vì bắn sát lần đầu. Đã vá ti�
 `run_daily.log`. Lần `--refresh` sau kỳ vọng: **12 call cho 8 tin → ~8-9**,
 không còn dòng `✂` (có thì dán cho Claude).
 
-Rồi brief close **ĐẦU TIÊN SAU KHI DESKTOP MERGE** (xem #6 — trước đó brief
-vẫn là code cũ, soi cũng vô ích), soi 4 chỗ (dán cho Claude nếu lệch):
-1. Header không còn `(2 dòng)` / `(1 dòng, optional)`.
-2. Dòng "Kỳ hạn & đường cong": nếu 10Y − điều hành vẫn trong ±0.10 thì phải
-   đọc là *"mỏng — sát 0 (… chưa tính ÂM)"*, và điểm band phân bổ nhích lên
-   (−0.12 → khoảng −0.07 nếu các gauge khác giữ nguyên).
-3. "Sự kiện sắp tới" KHÔNG còn sự kiện ngày của chính phiên đó.
-4. Dẫn dắt/Tụt hậu cùng 3 số lẻ `pp`.
+Brief close 15/09 20:41 (`telegram close --force`, code `661b193`) — soi 4 chỗ:
+1. ✅ Header sạch, không còn `(2 dòng)` / `(1 dòng, optional)`.
+2. ✅ "10Y − lãi suất điều hành = -0.07 điểm % → mỏng — sát 0 (… chưa tính
+   ÂM)"; band phân bổ −0.08 (dự đoán ≈ −0.07; ON nhảy +1,88 điểm % lên 5,16%
+   nên gauge thanh khoản đổi, lệch 0,01 là hợp lý).
+3. ✅ "Sự kiện sắp tới" chỉ 16/09 (MSR) và 17/09 (TCX, GEE) — không có 15/09.
+4. ✅ Dẫn dắt +0.099pp · Tụt hậu -0.273pp — cùng 3 số lẻ.
+
+Quan sát thêm, CHƯA đủ mẫu để vá (để `brief_watch` đếm, đừng ghi thành việc):
+- TLDR "thanh khoản vẫn dưới trung bình" nhưng Tổng kết "tăng 4% so với trung
+  bình 5 phiên" — có thể TLDR so trung bình dài hơn; soi lại nếu lặp.
+- Danh mục EIB: "GIỮ vì … có thông tin thay đổi địa điểm chi nhánh hỗ trợ kỹ
+  thuật" — model gán tin vặt làm lý do kỹ thuật (nói nhảm mềm, guard chữ
+  không bắt được).
+- 17/09 TCX (VN30) trả cổ tức cổ phiếu 20% ⇒ đêm 17/09 (hoặc 18/09) V1/cửa
+  KBS sẽ cách ly TCX (lệch ~16,7%), badge doctor `basis_drift` réo — là ĐÚNG,
+  chữa bằng `--from-drift-ledger --whole-series` như mục Lệch cơ sở. MSR cổ
+  tức tiền 1.000đ có thể cũng vào sổ (tuỳ giá).
+
+## 4c. 🟠 Dự phòng OpenRouter CHƯA gánh nổi brief — nemotron super/ultra cụt ở 2.800 token
+
+Đo 15/09: super cụt 3/3, ultra cụt 1/1 cho brief (ultra 2/2 OK cho digest
+ngắn; 14/09 super 2/3 OK) ⇒ trần `_BRIEF_MAX_TOKENS` = 2.800 vừa khít bản brief
+tiếng Việt ~1.100 từ với tokenizer nemotron (2–3 token/từ), ngày dài tin/sự
+kiện là đứt; Gemini có `_THINK_HEADROOM` 8.000 nên không sao. Chưa biết
+nemotron có SUY NGHĨ ăn budget không (ledger chỉ ghi usage khi OK). Hai bước
+khi làm: (1) ghi `usage` cả khi cụt để `--show` nói completion/reasoning bao
+nhiêu; (2) nới trần OpenRouter kiểu Gemini (`_OUTPUT_HEADROOM` ~+3.200, :free
+không tốn tiền) — đo bằng ledger đêm kế: super/ultra OK ≥ 1 khi được gọi.
+Ưu tiên THẤP: brief đang có flash + flash-lite gánh; OpenRouter chỉ cần khi cả
+hai Gemini hỏng cùng lúc.
 
 ## 5. 🧭 Brief phân bổ tháng 9 — 🖥️ desktop, trong dashboard
 
@@ -349,7 +372,7 @@ hiệu guard đang LÀM VIỆC, không phải hỏng.
 | 11 | **Doctor: "phát tối chưa tới kho này" là một badge riêng** | 🟠 MỚI 10/09 — kiểm `check_warehouse` thì nó ĐÃ đếm theo phiên với dung sai 2 phiên cố ý (VNINDEX EOD về trễ) — không phải lỗi. Cái thiếu là badge nói thẳng hai khả năng: sau ~20:00 ngày làm việc mà `_meta/pipeline_status.json` `last_success_date` < phiên gần nhất ⇒ warn *"phát tối chưa tới kho này: pipeline không chạy HOẶC sync Dropbox tắt — kiểm icon khay + `Get-ScheduledTaskInfo` ở desktop"*. Rẻ, chạy được ở máy nào cũng đúng, và lộ vụ 07/09 ngay sáng 08/09. |
 
 | ~~12~~ | **Marker updater câm đêm fallback** | ✅ **XONG 15/09** — `updater_status_update(stats, today, now, machine)` (hàm thuần, `vnstock_updater.py`): lỗi = 0 ⇒ `success` như cũ; lỗi > 0 ⇒ `last_result: "partial"` + `last_partial_date` + `errors` + `fallback` + `tickers_updated`, **không đụng `last_success_date`** ⇒ `is_already_done_today` vẫn không coi lượt hụt là xong. Console in `partial: N lỗi · F mã qua KBS`. Test: `test_pipeline_status_gate.py` (+2). |
-| ~~13~~ | **Tỉa ladder LLM — 29/66 call lỗi đêm 14/09, brief 754s** | ✅ **XONG 15/09** — hai lưới: (1) **cầu dao tài khoản** `vnstock_llm_ledger.provider_blocked_today(provider)`: hôm nay có lỗi 401/402/403 và CHƯA call nào OK ⇒ brief agent (base/Cerebras/OpenRouter), sentiment `_call_provider` + `chat_complete_ex`, digest `_call_free` đều BỎ nấc đó trong ngày (Cerebras 402 hết tốn 4 call/đêm); 429/5xx/timeout KHÔNG chặn (Gemini dính 429 sáng vẫn được gọi chiều). Kill-switch `VNSTOCK_LLM_BREAKER=0`. (2) **OpenRouter** không đi hết danh mục `:free` nữa: `_MODEL_FALLBACKS = [nemotron-3-ultra-550b:free]` (slug đã sống trong code — không thêm slug chưa probe), `_MAX_CANDIDATES = 3`, danh mục chỉ để BỎ slug đã biến mất; **429 ⇒ dừng** (quota theo KEY, 50 req/ngày), chỉ 404/5xx mới sang model kế. Groq qwen 413 đã có `_BRIEF_AGENT_DISABLES`. Đã khai vào cả hai lưới `_all_live_slugs` + `_ladder_slugs`. Test: `tests/test_llm_breaker.py`. **Phép đo 15/09: ledger 34 call · 9 lỗi (từ 66/29), không còn chuỗi OpenRouter cụt, Cerebras 1 call (cầu dao ăn) — NHƯNG brief close TRẮNG** vì (a) bộ lọc "có trong danh mục" bỏ nhầm nemotron-ultra (danh mục /models cắt trang 400, ultra sống: digest 2/2 OK) nên super cụt ×2 là hết nấc; (b) Gemini flash 429 rồi 503 hai lượt cách vài giây, base agent không đợi; (c) Mistral quota, Cerebras 402. **Vá tối 15/09:** bỏ hỏi danh mục (`_candidates` chỉ = chính + dự phòng chọn tay); `_OpenAICompatAgent.generate` thành vòng ứng viên: 429/5xx ⇒ đợi `_TRANSIENT_RETRY_S`=20s gọi lại ĐÚNG model một lần ⇒ sang `_MODEL_FALLBACKS`; cụt ⇒ sang dự phòng ngay; 401/402/403 dừng hẳn. Gemini có `_MODEL_FALLBACKS=[flash-lite]`. Lưới gom fallback qua `AGENT_REGISTRY`. Test 28. Desktop merge `661b193` + `--fast` 2.591 passed / 86s tối 15/09. **Phép đo mới: brief close 16/09 phải CÓ AI Outlook; ledger có dòng flash-lite/ultra chỉ khi flash/super hỏng.** |
+| ~~13~~ | **Tỉa ladder LLM — 29/66 call lỗi đêm 14/09, brief 754s** | ✅ **XONG 15/09** — hai lưới: (1) **cầu dao tài khoản** `vnstock_llm_ledger.provider_blocked_today(provider)`: hôm nay có lỗi 401/402/403 và CHƯA call nào OK ⇒ brief agent (base/Cerebras/OpenRouter), sentiment `_call_provider` + `chat_complete_ex`, digest `_call_free` đều BỎ nấc đó trong ngày (Cerebras 402 hết tốn 4 call/đêm); 429/5xx/timeout KHÔNG chặn (Gemini dính 429 sáng vẫn được gọi chiều). Kill-switch `VNSTOCK_LLM_BREAKER=0`. (2) **OpenRouter** không đi hết danh mục `:free` nữa: `_MODEL_FALLBACKS = [nemotron-3-ultra-550b:free]` (slug đã sống trong code — không thêm slug chưa probe), `_MAX_CANDIDATES = 3`, danh mục chỉ để BỎ slug đã biến mất; **429 ⇒ dừng** (quota theo KEY, 50 req/ngày), chỉ 404/5xx mới sang model kế. Groq qwen 413 đã có `_BRIEF_AGENT_DISABLES`. Đã khai vào cả hai lưới `_all_live_slugs` + `_ladder_slugs`. Test: `tests/test_llm_breaker.py`. **Phép đo 15/09: ledger 34 call · 9 lỗi (từ 66/29), không còn chuỗi OpenRouter cụt, Cerebras 1 call (cầu dao ăn) — NHƯNG brief close TRẮNG** vì (a) bộ lọc "có trong danh mục" bỏ nhầm nemotron-ultra (danh mục /models cắt trang 400, ultra sống: digest 2/2 OK) nên super cụt ×2 là hết nấc; (b) Gemini flash 429 rồi 503 hai lượt cách vài giây, base agent không đợi; (c) Mistral quota, Cerebras 402. **Vá tối 15/09:** bỏ hỏi danh mục (`_candidates` chỉ = chính + dự phòng chọn tay); `_OpenAICompatAgent.generate` thành vòng ứng viên: 429/5xx ⇒ đợi `_TRANSIENT_RETRY_S`=20s gọi lại ĐÚNG model một lần ⇒ sang `_MODEL_FALLBACKS`; cụt ⇒ sang dự phòng ngay; 401/402/403 dừng hẳn. Gemini có `_MODEL_FALLBACKS=[flash-lite]`. Lưới gom fallback qua `AGENT_REGISTRY`. Test 28. Desktop merge `661b193` + `--fast` 2.591 passed / 86s tối 15/09. **Đo 20:41 (`telegram close --force`): brief CÓ AI Outlook.** Ledger 19:12→20:41: +6 call · +1 OK · +5 lỗi = flash 503 → đợi 20s → OK (nguồn brief) · Cerebras 0 call (cầu dao ăn) · flash-lite 0 call (không cần) · Mistral 429 ×2 (đợi rồi gọi lại, đúng thiết kế) · super cụt → **ultra ĐƯỢC gọi nhưng cũng cụt** (`finish_reason=length` ở 2.800 token — ultra 2/2 OK cho digest ngắn, brief thì không; 14/09 super còn 2/3 OK ⇒ cụt là chuyện dài/ngắn bản brief, không phải slug chết). Dự phòng OpenRouter vì thế CHƯA gánh nổi brief — xem 4c. **Còn đo: brief tự động 16/09 phải CÓ AI Outlook; ledger có dòng flash-lite chỉ khi flash hỏng cả hai lượt.** |
 
 **📏 Phát kế tiếp là phép đo của cả ba bản vá** — dán `⏱ TỔNG` + `⏱ CHẶNG` +
 dòng `screener` như thường lệ.

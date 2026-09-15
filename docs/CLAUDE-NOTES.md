@@ -7103,6 +7103,18 @@ Kỳ vọng brief 16/09 CÓ AI Outlook; ledger chỉ có dòng flash-lite/ultra 
 nấc chính hỏng. Đêm 15/09 ngoài ra: updater `partial: 214` (VCI ốm lần 4/6
 phát), TỔNG 73,2′ — task đúng 18:00 vì máy đang bật.
 
+**Đo ngay tối 15/09 20:41** — desktop merge `661b193` (`--fast` 2.591/86s) rồi
+`telegram close --force`: brief CÓ AI Outlook, 4b soi 4/4 đạt. Ledger
+19:12→20:41 đọc ra từng nhánh của vòng mới: +6 call · +1 OK · +5 lỗi = Gemini
+flash 503 → đợi 20s → **OK** (nguồn brief, không cần flash-lite) · Cerebras 0
+call (cầu dao) · Mistral 429 ×2 (gọi lại một lần rồi thôi) · OpenRouter super
+cụt → **ultra ĐƯỢC gọi** (trước vá thì không) **nhưng cũng cụt**. Ultra 2/2 OK
+cho digest ngắn, 14/09 super 2/3 OK cho brief ⇒ cụt là trần 2.800 token vừa
+khít brief tiếng Việt với tokenizer nemotron, không phải slug chết. Dự phòng
+OpenRouter vì thế chưa gánh nổi brief — ghi VIEC-DANG-LAM 4c (ghi usage khi cụt
+để biết có reasoning ăn budget không, rồi nới trần kiểu `_THINK_HEADROOM`), ưu
+tiên thấp vì flash + flash-lite đang gánh.
+
 **Vá 15/09 (#12).** `updater_status_update` (hàm thuần): lỗi > 0 ⇒ marker
 `partial` + `last_partial_date` + `errors`/`fallback`, không đụng
 `last_success_date` — `is_already_done_today` vẫn đòi `success` + hôm nay nên
