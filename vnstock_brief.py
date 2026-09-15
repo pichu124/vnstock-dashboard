@@ -440,6 +440,21 @@ def _ledger_record(provider: str, model: str, ok: bool,
         pass
 
 
+def _account_dead_today(ledger_label: str) -> "str | None":
+    """Provider hỏng TÀI KHOẢN hôm nay (401/402/403 trong sổ, chưa call nào
+    OK)? Best-effort: sổ hỏng/thiếu ⇒ None, cứ gọi như thường."""
+    try:
+        from vnstock_llm_ledger import provider_blocked_today
+        return provider_blocked_today(ledger_label)
+    except Exception:
+        return None
+
+
+def _skip_dead_account(prefix: str, why: str) -> tuple[str, str]:
+    return "", (f"{prefix}: bỏ qua hôm nay — tài khoản hỏng theo sổ ({why}); "
+                f"đặt VNSTOCK_LLM_BREAKER=0 để ép gọi")
+
+
 # ── Concrete agents ────────────────────────────────────────────────────────
 class ClaudeAgent(BriefAgent):
     """Anthropic Messages API."""
@@ -514,6 +529,8 @@ class _OpenAICompatAgent(BriefAgent):
         api_key = (os.environ.get(self._ENV_KEY) or "").strip()
         if not api_key:
             return "", f"{self._ENV_KEY} chưa được thiết lập trong .env"
+        if _why := _account_dead_today(self._LEDGER):
+            return _skip_dead_account(self._ERR_PREFIX, _why)
         sys_end = prompt.find("\n\nDữ liệu thị trường")
         system_part = prompt[:sys_end].strip() if sys_end > 0 else _SYSTEM
         user_part = prompt[sys_end:].strip() if sys_end > 0 else prompt
@@ -635,6 +652,8 @@ class CerebrasAgent(_OpenAICompatAgent):
         api_key = (os.environ.get(self._ENV_KEY) or "").strip()
         if not api_key:
             return "", f"{self._ENV_KEY} chưa được thiết lập trong .env"
+        if _why := _account_dead_today(self._LEDGER):
+            return _skip_dead_account(self._ERR_PREFIX, _why)
         sys_end = prompt.find("\n\nDữ liệu thị trường")
         system_part = prompt[:sys_end].strip() if sys_end > 0 else _SYSTEM
         user_part = prompt[sys_end:].strip() if sys_end > 0 else prompt
@@ -713,6 +732,12 @@ class OpenRouterAgent(_OpenAICompatAgent):
 
     # Process-level cache of free model slugs fetched from /api/v1/models
     _free_model_cache: list[str] = []
+    # Dự phòng CHỌN TAY — chỉ slug đã sống trong code (đúng nếp: slug mới phải
+    # probe sống trên máy thật trước). nemotron-ultra là bậc 1 digest.
+    _MODEL_FALLBACKS: list[str] = [
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
+    ]
+    _MAX_CANDIDATES: int = 3
 
     def __init__(
         self,
@@ -745,6 +770,27 @@ class OpenRouterAgent(_OpenAICompatAgent):
         except Exception:
             return []
 
+    def _candidates(self, api_key: str) -> list[str]:
+        """Model chính + dự phòng CHỌN TAY, tối đa _MAX_CANDIDATES.
+
+        Bản cũ đi hết danh mục `:free` (cap 12): đêm 14/09 nemotron-super hụt
+        MỘT lần là ladder gõ cửa 11 model free nhỏ — 8 cụt `finish_reason=
+        length` (trần output không đủ cho brief ~2.400 token), 2×429, 1
+        timeout 90s, 1 KeyError — 0 bản dùng được, bước brief 754s. Model free
+        nhỏ không gánh nổi brief, và mỗi lần gõ cửa là một request trong quota
+        50 req/ngày của key. Danh mục nay chỉ dùng để BỎ slug đã biến mất
+        (khỏi tốn một call 404), không dùng để THÊM.
+        """
+        free = set(self._fetch_free_models(api_key) or [])
+        out: list[str] = [self.model]
+        for fb in self._MODEL_FALLBACKS:
+            if fb in out:
+                continue
+            if free and fb not in free:
+                continue                      # đã rời danh mục — khỏi gọi
+            out.append(fb)
+        return out[: self._MAX_CANDIDATES]
+
     def _post_one(self, model: str, system_part: str, user_part: str,
                   api_key: str, max_tokens: int):
         import requests as _req
@@ -772,18 +818,13 @@ class OpenRouterAgent(_OpenAICompatAgent):
         api_key = (os.environ.get(self._ENV_KEY) or "").strip()
         if not api_key:
             return "", f"{self._ENV_KEY} chưa được thiết lập trong .env"
+        if _why := _account_dead_today(self._LEDGER):
+            return _skip_dead_account(self._ERR_PREFIX, _why)
         sys_end = prompt.find("\n\nDữ liệu thị trường")
         system_part = prompt[:sys_end].strip() if sys_end > 0 else _SYSTEM
         user_part = prompt[sys_end:].strip() if sys_end > 0 else prompt
 
-        # Build candidate list: configured model first, then all available free
-        # models fetched dynamically from OpenRouter so slugs are always valid
-        free_models = self._fetch_free_models(api_key)
-        candidates: list[str] = [self.model]
-        for m in free_models:
-            if m != self.model and m not in candidates:
-                candidates.append(m)
-        candidates = candidates[:12]  # cap to avoid burning too many API calls
+        candidates = self._candidates(api_key)
 
         last_err = ""
         last_detail = ""
@@ -819,7 +860,10 @@ class OpenRouterAgent(_OpenAICompatAgent):
                 last_err = f"{type(e).__name__}: {str(e)[:200]}"
                 last_detail = detail
                 status = getattr(resp, "status_code", None)
-                if status not in (404, 429, 502, 503, 504):
+                # 429 ở OpenRouter là quota theo KEY (50 req/ngày :free) —
+                # gõ model kế cũng 429, còn tốn thêm request của chính quota
+                # đó. Chỉ đi tiếp khi model này KHÔNG có (404) hoặc server lỗi.
+                if status not in (404, 502, 503, 504):
                     break
         return "", f"{self._ERR_PREFIX} lỗi: {last_err}{last_detail}"
 

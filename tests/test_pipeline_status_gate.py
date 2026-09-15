@@ -94,3 +94,45 @@ def test_missing_or_corrupt_status_file_never_skips(tmp_path, monkeypatch):
     assert rl.is_already_done_today("updater")[0] is False
     p.write_text("{ hong", encoding="utf-8")
     assert rl.is_already_done_today("updater")[0] is False
+
+
+# ── #12 (14/09): marker updater đêm fallback KBS không được câm ─────────────
+def _updater_mod():
+    import vnstock_updater as vu
+    return vu
+
+
+def test_partial_run_is_recorded_but_never_counts_as_done(status_file):
+    """Đêm 14/09: VCI timeout, 1.524 mã vẫn vào kho qua KBS + 181 lỗi, marker
+    đứng ở 11/09 vì bản cũ chỉ ghi khi lỗi = 0 ⇒ doctor đọc thành "updater
+    không chạy". Nay ghi `partial` kèm số — nhưng KHÔNG đụng last_success_date
+    nên cửa --skip-if-done vẫn không coi lượt hụt là xong."""
+    vu = _updater_mod()
+    status_file("updater", last_success_date="2026-09-11", last_result="success",
+                last_machine="PICHU", tickers_updated=1613)
+    upd = vu.updater_status_update(
+        {"error": 181, "updated": 1524, "up_to_date": 15, "fallback": 1245},
+        today=_today(), now="2026-09-14T21:55:00", machine="PICHU")
+    assert upd["last_result"] == "partial"
+    assert "last_success_date" not in upd and upd["last_partial_date"] == _today()
+    assert (upd["errors"], upd["fallback"], upd["tickers_updated"]) == (181, 1245, 1524)
+    rl.write_pipeline_status("updater", upd)
+    st = rl.read_pipeline_status()["updater"]
+    assert st["last_success_date"] == "2026-09-11"      # giữ nguyên
+    assert st["last_result"] == "partial" and st["errors"] == 181
+    done, _ = rl.is_already_done_today("updater")
+    assert done is False
+
+
+def test_clean_run_marks_success_with_today_and_zero_errors(status_file):
+    vu = _updater_mod()
+    upd = vu.updater_status_update(
+        {"error": 0, "updated": 1613, "up_to_date": 89, "fallback": 0},
+        today=_today(), now="2026-09-15T20:19:00", machine="PICHU")
+    assert upd["last_result"] == "success" and upd["last_success_date"] == _today()
+    assert upd["errors"] == 0 and "last_partial_date" not in upd
+    status_file("updater", last_success_date="2026-09-14", last_result="partial",
+                errors=181)
+    rl.write_pipeline_status("updater", upd)
+    done, st = rl.is_already_done_today("updater")
+    assert done is True and st["errors"] == 0

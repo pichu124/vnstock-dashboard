@@ -59,6 +59,16 @@ def _ledger_record(provider: str, model: str, ok: bool,
         pass
 
 
+def _provider_dead_today(name: str) -> "str | None":
+    """Provider hỏng TÀI KHOẢN hôm nay (401/402/403, chưa call nào OK)? Best-
+    effort — sổ hỏng ⇒ None. Ca 14/09: Cerebras 402 mà ladder vẫn gõ mỗi lần."""
+    try:
+        from vnstock_llm_ledger import provider_blocked_today
+        return provider_blocked_today(name)
+    except Exception:
+        return None
+
+
 def _alert_down(context: str) -> None:
     """Cạn TOÀN BỘ nấc model → báo Telegram (yêu cầu user 22/07 khi chốt
     all-free). Throttle 1 lần/ngày + kill-switch VNSTOCK_LLM_ALERT nằm ở
@@ -159,6 +169,8 @@ def _call_provider(provider: dict, text: str) -> Optional[str]:
     key = (os.environ.get(provider["env"]) or "").strip()
     if not key:
         return None
+    if _provider_dead_today(provider["name"]):
+        return None                           # tài khoản hỏng hôm nay — nấc kế
     try:
         import requests as _req
         resp = _req.post(
@@ -269,6 +281,8 @@ def chat_complete_ex(system: str, user: str, max_tokens: int = 80,
         key = (os.environ.get(p["env"]) or "").strip()
         if not key:
             continue
+        if _provider_dead_today(p["name"]):
+            continue                          # 401/402/403 hôm nay — bỏ nấc
         models: list[str] = []
         ov = model_map.get(p["name"])
         if ov and ov != p["model"]:

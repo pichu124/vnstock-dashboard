@@ -309,6 +309,15 @@ def _ensure_env_loaded() -> None:
 _FREE_MAX_TOKENS = 3000
 
 
+def _provider_dead_today(name: str) -> "str | None":
+    """Provider hỏng TÀI KHOẢN hôm nay theo sổ LLM? Best-effort (sổ hỏng ⇒ None)."""
+    try:
+        from vnstock_llm_ledger import provider_blocked_today
+        return provider_blocked_today(name)
+    except Exception:
+        return None
+
+
 def _call_free(provider: str, model: str, system: str, user: str,
                max_tokens: int = _FREE_MAX_TOKENS) -> "str | None":
     """1 call OpenAI-compat tới đúng (provider, model) — None khi thiếu key
@@ -316,6 +325,12 @@ def _call_free(provider: str, model: str, system: str, user: str,
     env, endpoint = _PROVIDER_META[provider]
     key = (os.environ.get(env) or "").strip()
     if not key:
+        return None
+    if dead := _provider_dead_today(provider):
+        # Tài khoản hỏng hôm nay (401/402/403 theo sổ) — gọi thêm chỉ tốn
+        # thời gian cascade; nói rõ lý do rồi nhường nấc kế.
+        _warn_rung(f"{provider} ({model})",
+                   RuntimeError(f"bỏ qua hôm nay — tài khoản hỏng theo sổ: {dead}"))
         return None
     resp = None
     try:

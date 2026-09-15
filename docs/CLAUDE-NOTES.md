@@ -7069,6 +7069,25 @@ flash 11/14, flash-lite 18/22, Groq gpt-oss-20b 4/4, nemotron-super 2/3. Brief
 754s là ladder đi qua các bậc chết. ⇒ việc #13, đối chiếu model_watch T7 trước
 khi cắt.
 
+**Vá 15/09 (#13).** Đọc code mới thấy nguồn của 8 model free lạ: `OpenRouterAgent
+.generate` dựng ứng viên = model chính + TOÀN BỘ danh mục `:free` (cap 12) —
+nemotron-super hụt MỘT lần là gõ cửa 11 model free nhỏ với `max_tokens` 2.400,
+model nhỏ cụt hết. Sửa hai tầng, cố ý KHÔNG thêm slug mới (nếp: probe sống
+trên máy thật trước): (1) `provider_blocked_today` trong ledger — 401/402/403
+hôm nay + chưa call nào OK ⇒ mọi điểm gọi (brief base/Cerebras/OpenRouter,
+sentiment, digest) bỏ nấc đó trong ngày; 429/5xx/timeout không chặn vì chặn
+Gemini cả ngày sau một cơn 429 sáng là tự bỏ agent chính; kill-switch
+`VNSTOCK_LLM_BREAKER=0`. (2) OpenRouter: `_MODEL_FALLBACKS = [nemotron-ultra]`
+(đã sống ở digest bậc 1), cap 3, danh mục chỉ để bỏ slug biến mất, 429 dừng
+(quota theo key). Groq qwen 413 đã có `_BRIEF_AGENT_DISABLES` từ 11/08.
+Không đụng cấu hình agent của user (⚙️ bật gì là chủ đích). Phép đo: ledger
+đêm 15/09 — kỳ vọng < 10 lỗi, không còn chuỗi OpenRouter cụt, brief ~300–500s.
+
+**Vá 15/09 (#12).** `updater_status_update` (hàm thuần): lỗi > 0 ⇒ marker
+`partial` + `last_partial_date` + `errors`/`fallback`, không đụng
+`last_success_date` — `is_already_done_today` vẫn đòi `success` + hôm nay nên
+lượt hụt không bao giờ được coi là xong; chỉ khác là marker không câm nữa.
+
 # 🧭 U56. HAI KHO TÁCH NHAU — KHO LAPTOP LÀ ẢNH CHỤP TRƯỚC CHIẾN DỊCH 07/09 (09/09)
 
 Bắt đầu từ một việc vặt: xoá `brief_watch.json` rồi `run.py doctor` trên

@@ -812,6 +812,35 @@ def run_check(warehouse: str = "data_warehouse", tickers: list = None):
 # CLI
 # ═════════════════════════════════════════════════════════════════════════════
 
+def updater_status_update(stats: dict, *, today: str, now: str,
+                          machine: str) -> dict:
+    """Bản ghi marker `pipeline_status["updater"]` cho lượt VỪA XONG. Hàm thuần.
+
+    error == 0 ⇒ ``success`` (đủ trường như trước). error > 0 ⇒ ``partial``:
+    vẫn ghi last_run_at/last_machine/tickers_updated/errors/fallback để ai đọc
+    marker biết updater ĐÃ chạy chứ không câm — đêm 14/09 VCI timeout, 1.524 mã
+    vẫn vào kho qua KBS + 181 lỗi, mà marker đứng ở 11/09 vì bản cũ chỉ ghi khi
+    lỗi = 0 ⇒ doctor/người đọc thành "updater không chạy". KHÔNG đụng
+    `last_success_date` ở lượt partial, nên `is_already_done_today` (đòi
+    success + đúng hôm nay) vẫn không coi lượt hụt là xong.
+    """
+    n_err = int(stats.get("error", 0) or 0)
+    out = {
+        "last_run_at": now,
+        "last_machine": machine,
+        "last_result": "success" if n_err == 0 else "partial",
+        "tickers_updated": int(stats.get("updated", 0) or 0),
+        "tickers_up_to_date": int(stats.get("up_to_date", 0) or 0),
+        "errors": n_err,
+        "fallback": int(stats.get("fallback", 0) or 0),
+    }
+    if n_err == 0:
+        out["last_success_date"] = today
+    else:
+        out["last_partial_date"] = today
+    return out
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="VnStock Daily Price Updater")
     parser.add_argument("--tickers",   nargs="+", metavar="TICKER",
@@ -879,22 +908,25 @@ if __name__ == "__main__":
             skip_stale_days=args.skip_stale_days,
         )
 
-        # Write pipeline status sau khi update thành công
-        if (args.skip_if_done and not args.dry_run and stats is not None
-                and stats.get("error", 0) == 0):
+        # Ghi marker sau MỌI lượt thật: success khi 0 lỗi, partial khi có lỗi
+        # (xem updater_status_update — đêm fallback KBS không được câm).
+        if args.skip_if_done and not args.dry_run and stats is not None:
             try:
                 from vnstock_rollup import (
                     get_hostname, get_today_vn, write_pipeline_status,
                 )
-                write_pipeline_status("updater", {
-                    "last_success_date": get_today_vn().isoformat(),
-                    "last_run_at": datetime.now().isoformat(timespec="seconds"),
-                    "last_machine": get_hostname(),
-                    "last_result": "success",
-                    "tickers_updated": stats.get("updated", 0),
-                    "tickers_up_to_date": stats.get("up_to_date", 0),
-                })
-                console.log("[dim]pipeline_status.json updated[/dim]")
+                upd = updater_status_update(
+                    stats, today=get_today_vn().isoformat(),
+                    now=datetime.now().isoformat(timespec="seconds"),
+                    machine=get_hostname())
+                write_pipeline_status("updater", upd)
+                if upd["last_result"] == "success":
+                    console.log("[dim]pipeline_status.json updated[/dim]")
+                else:
+                    console.log(
+                        f"[yellow]pipeline_status.json updated — partial: "
+                        f"{upd['errors']} lỗi · {upd['fallback']} mã qua KBS "
+                        f"(last_success_date giữ nguyên)[/yellow]")
             except Exception as e:
                 console.log(f"[yellow]⚠ write pipeline_status: {e}[/yellow]")
 

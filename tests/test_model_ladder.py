@@ -690,6 +690,7 @@ def _all_live_slugs() -> set:
     #                                                           cascade digest ở trên)
     slugs |= {c["model"] for c in vb._DEFAULT_AGENT_CONFIGS}   # [7] brief defaults
     slugs |= set(vb.CerebrasAgent._MODEL_FALLBACKS)            # [7] fallback nội bộ
+    slugs |= set(vb.OpenRouterAgent._MODEL_FALLBACKS)          # [7] fallback OpenRouter
     slugs |= {cls().model for cls in vb.AGENT_REGISTRY.values()}  # [7] __init__ defaults
     return slugs
 
@@ -729,6 +730,7 @@ def test_probe_ladder_covers_all_free_live_slugs():
     # [7] brief: agent chính + fallback nội bộ Cerebras
     assert ("Gemini", "gemini-3.5-flash") in got
     assert {("Cerebras", m) for m in vb.CerebrasAgent._MODEL_FALLBACKS} <= got
+    assert {("OpenRouter", m) for m in vb.OpenRouterAgent._MODEL_FALLBACKS} <= got
     # [8] classifier — điểm dùng model THÊM SAU (07/08); quên khai vào
     # _ladder_slugs là health check mù đúng cái ladder chạy 1.700 mã
     import vnstock_classifier as vc

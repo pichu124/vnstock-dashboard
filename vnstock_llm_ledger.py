@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from datetime import date
 from pathlib import Path
 
@@ -73,6 +74,41 @@ def _is_rate_limited(error: "str | None") -> bool:
         return False
     low = str(error).lower()
     return any(tok in low for tok in _RATE_LIMIT_TOKENS)
+
+
+_BREAKER_ENV = "VNSTOCK_LLM_BREAKER"        # =0: tắt cầu dao tài khoản
+_ACCOUNT_DEAD_RE = re.compile(
+    r"\b40[123]\b|payment required|unauthorized|forbidden|invalid api key",
+    re.IGNORECASE)
+
+
+def provider_blocked_today(provider: str) -> "str | None":
+    """Lý do provider HỎNG TÀI KHOẢN hôm nay theo sổ (401/402/403) — None nếu
+    không. Chỉ chặn khi hôm nay provider CHƯA có call nào OK và lỗi cuối của
+    một model là 401/402/403. 429/5xx/timeout là chuyện PHÚT, KHÔNG chặn —
+    chặn Gemini cả ngày vì một cơn 429 buổi sáng là tự bỏ agent chính.
+
+    Ca 14/09: Cerebras `402 Payment Required` ×4 trong ngày (brief ×2 + digest
+    ×2) — hỏng tài khoản thì đổi slug/gọi lại không cứu, chỉ tốn thời gian
+    ladder. Kill-switch theo nếp repo: VNSTOCK_LLM_BREAKER=0.
+    """
+    if os.environ.get(_BREAKER_ENV, "1") == "0":
+        return None
+    try:
+        data = json.loads(_path().read_text(encoding="utf-8"))
+        day = (data.get("days") or {}).get(date.today().isoformat()) or {}
+        rows = [r for k, r in day.items()
+                if isinstance(r, dict)
+                and (k == provider or str(k).startswith(f"{provider}:"))]
+        if not rows or any(int(r.get("ok", 0) or 0) > 0 for r in rows):
+            return None
+        for r in rows:
+            err = str(r.get("last_error") or "")
+            if err and _ACCOUNT_DEAD_RE.search(err):
+                return err[:120]
+    except Exception:
+        pass
+    return None
 
 
 def record(provider: str, model: str = "", ok: bool = True,

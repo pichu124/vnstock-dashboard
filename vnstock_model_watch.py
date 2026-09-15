@@ -231,6 +231,8 @@ def _ladder_slugs() -> "list[tuple[str, str, str, dict]]":
             _add(prov, c["model"], "[7] brief")
     for m in vb.CerebrasAgent._MODEL_FALLBACKS:
         _add("Cerebras", m, "[7] fallback")
+    for m in vb.OpenRouterAgent._MODEL_FALLBACKS:
+        _add("OpenRouter", m, "[7] fallback")
 
     # [8] classifier CÁCH LY: module này kéo theo SDK vnstock + xác thực mạng.
     # Công cụ chẩn đoán LLM không được chết vì key DATA hết hạn — đó đúng lúc
