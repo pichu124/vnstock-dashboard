@@ -3542,3 +3542,63 @@ def test_build_prompt_includes_ha_streak_line():
     assert "Heikin-Ashi" not in build_prompt(ctx, brief_type="afternoon")
     del ctx["vnindex_tech"]["ha_streak"]
     assert "Heikin-Ashi" not in build_prompt(ctx, brief_type="afternoon")
+
+
+# ── Close 16/09 (brief tự động đầu tiên sau đợt vá 15–16/09): ba lỗi chữ ──
+def test_enforce_no_header_scaffold_strips_conditional_note_in_header():
+    """Header template '## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong
+    data)' tới Telegram nguyên văn — dạng "(nếu có …)" chưa nằm trong regex
+    (chỉ có độ dài và optional). Câu nội dung có "(nếu có …)" thì để yên."""
+    from vnstock_brief import enforce_no_header_scaffold
+    text = ('## 💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)\n'
+            "Chưa có khuyến nghị đủ điều kiện từ chiến lược backtest (p=0.179).\n"
+            '💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)\n'
+            "Mua thêm nếu có tiền (nếu có điều kiện) là câu nội dung.")
+    fixed = enforce_no_header_scaffold(text, {})
+    lines = fixed.splitlines()
+    assert lines[0] == "## 💡 Đề xuất giao dịch"
+    assert lines[2] == "💡 Đề xuất giao dịch"
+    assert lines[3] == "Mua thêm nếu có tiền (nếu có điều kiện) là câu nội dung."
+    assert enforce_no_header_scaffold(fixed, {}) == fixed
+
+
+def test_enforce_watchlist_numbering_renumbers_after_a_guard_dropped_item_one():
+    """Close 16/09: Watchlist chỉ còn "2. **DCL** …" — mục 1 bị guard bỏ mà số
+    không dồn. Guard mới đứng sau eligibility, dồn số trong mục; ngoài mục và
+    khi đã liên tục thì không đụng."""
+    from vnstock_brief import enforce_watchlist_hygiene, enforce_watchlist_numbering
+    t = ("📋 Watchlist sáng mai\n"
+         "2. **DCL** (Giá 41,650) — MUA vùng 40,950 · chốt lời 43,000 · cắt lỗ 39,800\n"
+         "⚠️ Rủi ro cần lưu ý\n"
+         "2. dòng ngoài mục không đụng\n")
+    f = enforce_watchlist_numbering(t, {})
+    assert f.splitlines()[1].startswith("1. **DCL**")
+    assert f.splitlines()[3] == "2. dòng ngoài mục không đụng" and f.endswith("\n")
+    t2 = "📋 Watchlist sáng mai\n1. **A** x\n3. **B** y\n4. **C** z\n⚠️ Rủi ro"
+    assert enforce_watchlist_numbering(t2, {}).splitlines()[1:4] == \
+        ["1. **A** x", "2. **B** y", "3. **C** z"]
+    ok = "📋 Watchlist sáng mai\n1. **A** x\n2. **B** y\n⚠️ Rủi ro"
+    assert enforce_watchlist_numbering(ok, {}) is ok
+    assert enforce_watchlist_numbering("không có watchlist\n2. x", {}) == "không có watchlist\n2. x"
+    # đầu-cuối: hygiene bỏ setup neo mốc VNINDEX (mục 1) → numbering dồn DCL lên 1
+    t3 = ("📋 Watchlist sáng mai\n"
+          "1. **CII** (Giá 17,300) — canh mua nếu vượt R1=1,800.80 → mục tiêu "
+          "R2=1,801.66; hủy nếu thủng S1=1,789.31.\n"
+          "2. **DCL** (Giá 41,650) — MUA vùng 40,950 · chốt lời 43,000 · cắt lỗ 39,800\n"
+          "⚠️ Rủi ro cần lưu ý")
+    f3 = enforce_watchlist_numbering(enforce_watchlist_hygiene(t3, {}), {})
+    assert "CII" not in f3 and f3.splitlines()[1].startswith("1. **DCL**")
+
+
+def test_band_score_never_prints_negative_zero():
+    """Close 16/09: "🧭 Band phân bổ tháng: B3 (thắt chặt) — điểm -0.00" — điểm
+    −0.004 qua :+.2f thành "-0.00". Cả dòng band lẫn bảng phân bổ."""
+    from vnstock_brief_canon import _allocation_table_lines, _macro_reports_body_lines, _score2
+    assert f"{_score2(-0.004):+.2f}" == "+0.00" and f"{_score2(-0.08):+.2f}" == "-0.08"
+    assert _score2("rác") == 0.0 and _score2(None) == 0.0
+    alloc = {"allocation": {"Cổ phiếu": 40, "Tiền": 60}, "band": "B3",
+             "band_label": "thắt chặt", "score": -0.004, "as_of": "2026-09-16"}
+    tbl = "\n".join(_allocation_table_lines(alloc))
+    assert "điểm +0.00" in tbl and "-0.00" not in tbl
+    body = "\n".join(_macro_reports_body_lines({"allocation": alloc}, directive=False))
+    assert "Band phân bổ tháng: B3" in body and "-0.00" not in body

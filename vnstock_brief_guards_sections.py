@@ -1540,3 +1540,32 @@ def enforce_unvalidated_strategy_caveat(text: str, ctx: dict) -> str:
     while insert_at > start + 1 and not lines[insert_at - 1].strip():
         insert_at -= 1
     return "\n".join(lines[:insert_at] + [caveat] + lines[insert_at:])
+
+
+def enforce_watchlist_numbering(text: str, ctx: dict | None = None) -> str:
+    """Đánh số lại "N." trong mục Watchlist sau khi các guard phía trên bỏ mục
+    (hygiene bỏ setup neo mốc VNINDEX, eligibility bỏ mã kém thanh khoản…):
+    close 16/09 tới Telegram với đúng một dòng "2. **DCL** …" — mục 1 bị bỏ mà
+    số thứ tự không dồn. Chỉ đụng dòng bắt đầu bằng số TRONG mục Watchlist;
+    đã liên tục thì no-op; idempotent."""
+    if not text:
+        return text
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines) if "watchlist sáng mai" in l.lower()), None)
+    if start is None:
+        return text
+    end = next((i for i in range(start + 1, len(lines))
+                if lines[i].lstrip().startswith(("##", "⚠️", "📅", "💡", "🔧", "📋"))),
+               len(lines))
+    n, changed = 0, False
+    for i in range(start + 1, end):
+        m = _re.match(r"^(\s*)(\d+)\.(?=\s|$)", lines[i])
+        if not m:
+            continue
+        n += 1
+        if int(m.group(2)) != n:
+            lines[i] = f"{m.group(1)}{n}.{lines[i][m.end():]}"
+            changed = True
+    if not changed:
+        return text
+    return "\n".join(lines) + ("\n" if text.endswith("\n") else "")

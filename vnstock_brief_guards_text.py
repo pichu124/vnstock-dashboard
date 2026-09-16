@@ -106,8 +106,12 @@ def enforce_no_instruction_leak(text: str, ctx: dict | None = None) -> str:
 # cho MODEL, không phải cho người đọc. Chỉ đụng DÒNG HEADER (## / emoji mục),
 # và chỉ cắt ngoặc ở CUỐI header chứa "N dòng/câu" hoặc "optional" — câu nội
 # dung có ngoặc ("(2 dòng)" giữa câu) không phải header nên không bị đụng.
+# Ba dạng chú thích template gắn vào header mà model chép y nguyên: độ dài
+# "(2 dòng)"/"(2-3 câu)", "(… optional)", và điều kiện "(nếu có "Khuyến nghị"
+# trong data)" (close 16/09 tới Telegram nguyên câu đó ở mục 💡).
 _HEADER_SCAFFOLD_RE = _re.compile(
-    r"^(?P<head>.*?\S)\s*\((?:[\d\-–]+\s*(?:dòng|câu)\b[^)]*|[^)]*\boptional\b[^)]*)\)"
+    r"^(?P<head>.*?\S)\s*\((?:[\d\-–]+\s*(?:dòng|câu)\b[^)]*|[^)]*\boptional\b[^)]*"
+    r"|nếu có\b[^)]*)\)"
     r"(?P<tail>[\s:*]*)$",
     _re.IGNORECASE,
 )

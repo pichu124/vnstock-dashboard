@@ -59,6 +59,7 @@ def _ensure_env_loaded() -> None:
 # Re-export nguyên tên: vnstock_events/vnstock_train/test đang import qua đây.
 from vnstock_brief_canon import (  # noqa: F401  (re-export: giữ nguyên đường import cũ)
     _UNVALIDATED_STRATEGY_CAVEAT,
+    _score2,
     VN30_TICKERS,
     _FINANCIAL_TICKERS,
     _MKT_NEWS_SENT_ICON,
@@ -3603,6 +3604,7 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     _BAND_WORDS,
     _BAND_SAFE,
     enforce_watchlist_eligibility,
+    enforce_watchlist_numbering,
     enforce_watchlist_hygiene,
     validate_brief_factuality,
 )

@@ -74,6 +74,7 @@ from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
     _BAND_WORDS,
     _BAND_SAFE,
     enforce_watchlist_eligibility,
+    enforce_watchlist_numbering,
     enforce_watchlist_hygiene,
 )
 
@@ -237,6 +238,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_sr_direction(fixed, ctx)          # S phải < close, R phải > close
     fixed = enforce_scenario_levels(fixed, ctx)       # scenario levels = real data only
     fixed = enforce_watchlist_eligibility(fixed, ctx)
+    fixed = enforce_watchlist_numbering(fixed, ctx)    # dồn số sau khi guard trên bỏ mục
     fixed = enforce_exdate_levels(fixed, ctx)     # mốc giá mã sắp GDKHQ phải nói rõ chưa quy đổi
     # Chạy SAU exdate: guard này cắt phần " ⚠️ GDKHQ …" trước khi soi mốc, nên
     # phải để phần đó đã được gắn xong.

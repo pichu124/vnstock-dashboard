@@ -90,7 +90,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   lần**, KHÔNG phải ⇄ CẢ HAI (sửa 19/08).
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~2.632 test; ~45s trên CI,
+- Sửa module lõi nào → `python run.py test --fast` (~2.635 test; ~45s trên CI,
   86s máy thật 15/09 tối). Danh sách file `--fast` là WHITELIST trong `run.py` —
   thêm file test mới thì phải ghi vào đó, không thì `--fast` không chạy nó.
 - Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, ~3.162 test).
@@ -110,7 +110,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 - `vnstock_brief.py` — sinh AI brief morning/close (context → prompt → agent).
   Chuỗi `apply_brief_guards(text, ctx)` ở `vnstock_brief_guards.py` DÙNG CHUNG
   cho cả 2 brief — KHÔNG BAO GIỜ inline lại vào `generate_brief` (điểm parity
-  duy nhất). 49 guard chia 3 chủ đề: `_guards_sections` (sai chuyện gì) /
+  duy nhất). 50 guard chia 3 chủ đề: `_guards_sections` (sai chuyện gì) /
   `_guards_numbers` (sai số, sai chiều) / `_guards_text` (lộ ruột, nói nhảm),
   tiện ích chung ở `_guards_common`, hằng số + khối canon mà CẢ prompt lẫn
   guard dựng chung ở `vnstock_brief_canon.py`. Một chiều: brief → guards →

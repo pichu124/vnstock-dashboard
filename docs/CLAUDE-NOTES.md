@@ -7038,6 +7038,31 @@ vnstock_brief vào rollup — nặng và đảo tầng).
   `covered_session` là phiên TRƯỚC khi chạy sáng, và task 18:00 cùng ngày KHÔNG
   in "✓ Updater đã phủ phiên".
 
+## 5. Đo tối 16/09 — badge đúng cả hai nhịp, brief sống nhờ dự phòng
+
+Doctor 21:30 (giữa phát): ✅ "đang tới kho này — sync partial 200 lỗi lúc 21:16
+· brief chiều chưa (phát còn đang chạy…)". Doctor 22:10 (sau ⏱ TỔNG 22:06): ✅
+"đã tới kho này … brief chiều đã đẩy". Phát khởi động 20:25 (bật muộn — đúng
+lý do chọn hạn 23:00), TỔNG 101,4′: sync 3.415s · screener 776s · brief 624s.
+
+Brief close 16/09 tới Telegram 22:06 CÓ AI Outlook, header
+`_(fallback: gemini-3.5-flash-lite)_`: Gemini flash 503 ×6 trong ngày, vòng
+base đợi 20s gọi lại rồi rơi xuống flash-lite (14/14 OK) — bản vá 661b193 cứu
+brief ngay đêm tự động đầu tiên. Cerebras 1 call (cầu dao), Mistral 429 ×6,
+OpenRouter super 1 OK/1 cụt ở trần 8.000 (4c; call cụt không mang usage nên
+chưa đọc được suy nghĩ), ultra 1/1.
+
+Soi brief thấy ba lỗi chữ, đều deterministic, vá cùng tối (50 guard):
+`enforce_no_header_scaffold` thêm dạng "(nếu có …)" (header 💡 tới Telegram
+nguyên chú thích template); guard mới `enforce_watchlist_numbering` dồn số sau
+khi hygiene/eligibility bỏ mục (brief chỉ còn "2. **DCL**"); `_score2` trong
+canon xoá "-0.00" (điểm −0.004 qua `:+.2f`).
+
+Cùng tối: ACG·BAL·BHN rebase 3/3 (BAL = ca 3 bar lọt cửa KBS 8% sau vách
+27/08 — bộ dò MỨC bắt); TCX `--explain` sạch 1,0000× TRƯỚC GDKHQ 17/09 làm
+mốc; phát hiện #15 (KBS từ chối >8% không vào sổ cách ly).
+
+
 # 🧭 U57. TỐI 14/09 TRÊN DESKTOP — KHO ĐÃ SYNC ĐÚNG, UPDATER LƯỠNG CỰC LÀ VCI TIMEOUT, DỪNG SỚM ĐỔ LỖI SAI CHỖ
 
 Ba việc trong một tối, cùng một nguồn dữ liệu: `run_daily.log` + `triage` +

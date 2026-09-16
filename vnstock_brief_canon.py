@@ -242,6 +242,15 @@ def _market_news_body_lines(items: list[dict],
     return lines
 
 # ── Khối báo cáo vĩ mô (P4) ───────────────────────────────────────────────────
+def _score2(v) -> float:
+    """Điểm band làm tròn 2 số lẻ, không bao giờ in "-0.00" (close 16/09:
+    điểm −0.004 in thành "điểm -0.00"). `+ 0.0` xoá dấu của số không âm."""
+    try:
+        return round(float(v or 0), 2) + 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _macro_reports_body_lines(ctx: dict, directive: bool = True) -> list[str]:
     """Canonical bullets mục 📚 — dùng chung bởi prompt renderer VÀ guard
     (enforce_macro_reports) nên mục này fabrication-proof by construction.
@@ -258,7 +267,7 @@ def _macro_reports_body_lines(ctx: dict, directive: bool = True) -> list[str]:
     if alloc.get("band"):
         band_line = (f"- 🧭 Band phân bổ tháng: {alloc['band']} "
                      f"({alloc.get('band_label', '')}) — điểm "
-                     f"{alloc.get('score', 0):+.2f}, phiên {alloc.get('as_of', '?')}")
+                     f"{_score2(alloc.get('score')):+.2f}, phiên {alloc.get('as_of', '?')}")
         rt = alloc.get("report_tilt") or {}
         if rt.get("tilt"):
             band_line += (f"; đã gồm tilt {rt['tilt']:+d} từ báo cáo "
@@ -295,7 +304,7 @@ def _allocation_table_lines(alloc: dict) -> list[str]:
         return []
     lines = [f"- {cls}: {pct}%" for cls, pct in rows.items()]
     lines.append(f"- Band: {alloc['band']} ({alloc.get('band_label', '')}) — "
-                 f"điểm {alloc.get('score', 0):+.2f}, phiên {alloc.get('as_of', '?')}")
+                 f"điểm {_score2(alloc.get('score')):+.2f}, phiên {alloc.get('as_of', '?')}")
     return lines
 
 # ── Khối danh mục đang giữ ────────────────────────────────────────────────────
