@@ -29,7 +29,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time as _time_t, timedelta
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parent
@@ -207,6 +207,259 @@ def _rollup_log_cap() -> int:
         return int(_UNIT_LOG_MAX)
     except Exception:
         return 50
+
+
+# ── Phát tối đã tới KHO NÀY chưa (việc #11, 16/09) ────────────────────────
+#
+# Câu hỏi badge phải trả lời: kết quả của phát pipeline gần nhất đã nằm trong
+# bản kho mà máy này đang đọc chưa. Không trả lời được bằng tuổi data
+# (`check_warehouse` cố ý dung sai 2 phiên vì VNINDEX EOD về trễ) — vụ 07/09:
+# desktop TẮT sync Dropbox, laptop sáng 08/09 vẫn VNINDEX ✅, chỉ hai badge
+# ⚠️ market_overview/NN ròng nói bóng gió. Hai marker nằm TRONG kho nói thẳng:
+#   `pipeline_status.json["updater"]` — ghi CUỐI bước updater (success/partial),
+#       có `covered_session` = phiên PHỦ (giờ chạy so 15:05; T7/CN = thứ 6)
+#   `brief_push.json` — "close" khi brief chiều đã đẩy (bước 14/14), "skipped"
+#       khi máy chạy pipeline cố ý tắt brief bằng cờ (.env không đồng bộ)
+# Marker không có trường máy ngoài `last_machine` ⇒ "chưa tới kho này" có
+# HAI cách xảy ra và badge phải nói cả hai: pipeline không chạy HOẶC Dropbox
+# tắt sync.
+# Hạn phát tối: task 18:00 + trần 180′ ⇒ 21:00 với phát KHỞI ĐỘNG ĐÚNG GIỜ;
+# nhưng máy bật muộn thì StartWhenAvailable chạy bù (đo 08–14/09: khởi động
+# 20:15–20:40, xong 21:00–23:15) ⇒ hạn 23:00, đủ rộng để đêm bật muộn không
+# réo giả; sáng hôm sau verdict không đổi (phiên đã qua ngày là tới hạn).
+# `now` = giờ máy (== VN trên cả hai máy user); marker ngày theo get_today_vn —
+# máy ngoài VN chỉ lệch về phía lạc quan, không réo giả.
+_DAILY_DUE_HOUR = 23
+# Marker updater ghi CUỐI bước updater, TRƯỚC rollup/fix-units/auto-heal
+# (5–38′ đo 19–25/08) và 11 bước sau (~45–55′): đo marker→doctor bước 13 =
+# 61′/69′/88′; trần task 180′. Trong cửa sổ này brief chưa có là ĐANG chạy.
+# Cùng đêm KHÔNG BAO GIỜ kết luận "brief chưa": doctor bước 13 luôn chạy
+# trước brief bước 14, kết luận đó ghi vào doctor_status.json là sai suốt
+# 24 giờ ở cả hai máy. Brief chỉ xét từ ngày hôm sau.
+_POST_SYNC_GRACE_MIN = 150
+
+
+def _session_for(d: date) -> date:
+    """Phiên mà phát tối tại ngày `d` nói về: T2–T6 là chính ngày đó, T7/CN là
+    thứ 6 vừa rồi (mirror `run.py._close_session_date` — có test parity; ngày
+    lễ giữa tuần chưa phân biệt được ở cả hai nơi)."""
+    if d.weekday() == 5:
+        return d - timedelta(days=1)
+    if d.weekday() == 6:
+        return d - timedelta(days=2)
+    return d
+
+
+def _iso_date(v) -> "date | None":
+    try:
+        return date.fromisoformat(str(v)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def _iso_dt(v) -> "datetime | None":
+    """ISO → datetime NAIVE giờ VN (marker có thể mang +07:00/Z sau này —
+    trừ naive với aware là TypeError, chỗ duy nhất check này có thể nổ)."""
+    try:
+        dt = datetime.fromisoformat(str(v))
+    except (TypeError, ValueError):
+        return None
+    return _to_naive_vn(dt)
+
+
+def _to_naive_vn(dt: datetime) -> datetime:
+    """Aware → naive theo Asia/Ho_Chi_Minh (mọi mốc trong kho là giờ VN)."""
+    if dt.tzinfo is None:
+        return dt
+    try:
+        from zoneinfo import ZoneInfo
+        return dt.astimezone(ZoneInfo("Asia/Ho_Chi_Minh")).replace(tzinfo=None)
+    except Exception:
+        return dt.astimezone().replace(tzinfo=None)
+
+
+def _int0(v) -> int:
+    try:
+        return int(v or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _covered_session(upd: dict, ran_at: "datetime | None",
+                     sync_date: date) -> date:
+    """Phiên mà lượt sync trong marker PHỦ: trường `covered_session` (ghi từ
+    16/09) > suy từ giờ chạy (marker cũ) > ngày lịch của marker (không có giờ)."""
+    cs = _iso_date(upd.get("covered_session"))
+    if cs:
+        return cs
+    if ran_at is not None:
+        try:
+            from vnstock_rollup import session_covered_at
+            return session_covered_at(ran_at)
+        except Exception:
+            pass
+    return sync_date
+
+
+_FIX_NOT_REACHED = (
+    "⇄ CẢ HAI: kiểm icon Dropbox ở khay TRƯỚC (hệ quả #5 CLAUDE.md) · 🖥️ DESKTOP: "
+    "Get-ScheduledTaskInfo -TaskName 'VnStock Daily Pipeline' ; Select-String "
+    "-Path run_daily.log -Pattern '⏱ TỔNG' | Select-Object -Last 1")
+_FIX_BRIEF_MISSING = (
+    "🖥️ DESKTOP: Select-String -Path run_daily.log -Pattern '⏱ TỔNG|\\[brief\\]' "
+    "| Select-Object -Last 3")
+# `telegram close` gắn brief vào phiên của LÚC GỬI (`_close_session_date`): ngày
+# làm việc thì brief phiên cũ không gửi lại được (gửi là dán nhãn phiên hôm nay
+# và chặn brief tối nay); chỉ T7/CN mới còn là phiên thứ 6.
+_FIX_BRIEF_RESEND = " · ○ gửi tay MỘT LẦN (marker đi qua Dropbox): python run.py telegram close"
+_FIX_BRIEF_PAST = " · brief phiên cũ không gửi lại được — kiểm brief tối nay"
+
+
+def pipeline_reach_verdict(updater: "dict | None", brief: "dict | None",
+                           now: datetime, *, brief_enabled: bool = True,
+                           host: "str | None" = None) -> dict:
+    """Hàm thuần — verdict cho badge từ hai marker + giờ hiện tại (test cắm `now`).
+
+    `updater`: khối `pipeline_status.json["updater"]`. `brief`: nội dung
+    `brief_push.json` ({"close": "YYYY-MM-DD", "skipped": {...}}) hoặc None.
+    `brief_enabled`: False khi `VNSTOCK_PIPELINE_BRIEF` tắt ở máy đang khám
+    (`host` — ghi tên máy vì verdict đi qua Dropbox sang máy kia; máy kia tắt
+    thì đọc qua "skipped" trong marker dùng chung).
+    """
+    name = "Phát tối — đã tới kho này chưa"
+    key = "pipeline_reach"
+    now = _to_naive_vn(now)
+    upd = updater if isinstance(updater, dict) else {}
+    sync_dates = [d for d in (_iso_date(upd.get("last_success_date")),
+                              _iso_date(upd.get("last_partial_date"))) if d]
+    if not sync_dates:
+        return _result(key, name, "off",
+                       "chưa có marker sync trong pipeline_status.json — pipeline "
+                       "chưa từng chạy (--skip-if-done) hoặc kho chưa sync về máy này",
+                       "○ MỘT LẦN: python run.py all (máy nào cũng được, kho đi qua "
+                       "Dropbox) · ⇄ CẢ HAI: kiểm icon Dropbox ở khay")
+    sync_date = max(sync_dates)
+    if upd.get("last_result") in ("success", "partial"):
+        partial = upd.get("last_result") == "partial"
+    else:
+        partial = (sync_date == _iso_date(upd.get("last_partial_date"))
+                   and sync_date != _iso_date(upd.get("last_success_date")))
+    machine = str(upd.get("last_machine") or "?")
+    ran_at = _iso_dt(upd.get("last_run_at"))
+    ran_txt = ran_at.strftime("%d/%m %H:%M") if ran_at else "?"
+    covered = _covered_session(upd, ran_at, sync_date)
+    if ran_at is not None and covered > ran_at.date():
+        covered = ran_at.date()            # phiên phủ không thể SAU ngày chạy
+    n_err = _int0(upd.get("errors"))
+    how = (("sync partial" + (f" {n_err} lỗi" if n_err else "")) if partial else "sync OK") \
+        + f" lúc {ran_txt} bởi {machine}"
+    if ran_at is not None and covered != ran_at.date():
+        how += f" (phủ tới phiên {covered.isoformat()})"
+
+    session = _session_for(now.date())
+    due = now.date() > session or now.hour >= _DAILY_DUE_HOUR
+    brief_dict = brief if isinstance(brief, dict) else {}
+    brief_date = _iso_date(brief_dict.get("close"))
+    skipped = brief_dict.get("skipped") if isinstance(brief_dict.get("skipped"), dict) else {}
+    skipped_date = _iso_date(skipped.get("session"))
+    fresh = ran_at is not None and \
+        (now - ran_at) <= timedelta(minutes=_POST_SYNC_GRACE_MIN)
+
+    def _brief_state(target: date) -> "tuple[bool, str]":
+        """(brief phiên `target` coi như xong?, chữ cho message)."""
+        if not brief_enabled:
+            return True, (f"brief chiều đang TẮT bằng VNSTOCK_PIPELINE_BRIEF trên "
+                          f"{host or '?'} (.env máy khám)")
+        if brief_date and brief_date >= target:
+            return True, "brief chiều đã đẩy"
+        if skipped_date and skipped_date >= target:
+            return True, (f"brief chiều TẮT bằng {skipped.get('reason') or 'cờ'} "
+                          f"trên {skipped.get('machine') or '?'} (ghi ở brief_push.json)")
+        return False, ""
+
+    def _brief_missing(target: date) -> dict:
+        brief_txt = brief_date.isoformat() if brief_date else "chưa có marker"
+        resend_ok = now.weekday() >= 5 and target == session     # T7/CN vẫn là phiên T6
+        return _result(key, name, "warn",
+                       f"sync {target.isoformat()} đã tới kho này ({how}) nhưng brief "
+                       f"chiều {target.isoformat()} CHƯA (brief_push: {brief_txt}) — pipeline "
+                       "đứt sau bước sync, brief bị bỏ qua, hoặc brief đẩy từ máy khác "
+                       "chưa sync về",
+                       _FIX_BRIEF_MISSING + (_FIX_BRIEF_RESEND if resend_ok else _FIX_BRIEF_PAST))
+
+    def _is_catchup(target: date) -> bool:
+        """Lượt sync chạy bù SÁNG hôm sau (ngày làm việc, trước 15:05, sau
+        phiên `target`): brief phiên đó KHÔNG gửi là theo thiết kế
+        (`_should_push_close` chặn trước 15:00) — không phải pipeline đứt."""
+        return (ran_at is not None and ran_at.weekday() < 5
+                and ran_at.time() < _time_t(15, 5) and ran_at.date() > target)
+
+    if covered >= session:
+        ok_brief, brief_txt = _brief_state(session)
+        if ok_brief:
+            return _result(key, name, "ok",
+                           f"phát tối {session.isoformat()} đã tới kho này — {how} · "
+                           f"{brief_txt}", "")
+        if now.date() == session or fresh:
+            why = ("phát còn đang chạy — bước 13 luôn trước bước 14; xét lại từ "
+                   "sáng mai" if now.date() == session
+                   else "các bước sau sync còn đang chạy")
+            return _result(key, name, "ok",
+                           f"phát tối {session.isoformat()} đang tới kho này — {how} · "
+                           f"brief chiều chưa ({why})", "")
+        return _brief_missing(session)
+
+    target = session if due else _prev_trading_day(session)
+    if covered >= target:
+        ok_brief, brief_txt = _brief_state(target)
+        if not ok_brief and _is_catchup(target):
+            brief_txt = (f"brief chiều {target.isoformat()} không gửi — chạy bù sáng "
+                         f"{ran_txt} không gửi brief cũ (theo thiết kế)")
+        elif not ok_brief and fresh:
+            brief_txt = "brief chiều chưa (các bước sau sync còn đang chạy)"
+        elif not ok_brief:
+            return _brief_missing(target)
+        return _result(key, name, "ok",
+                       f"phát tối {target.isoformat()} đã tới kho này — {how} · "
+                       f"{brief_txt} · phát {session.isoformat()} chưa tới hạn "
+                       f"{_DAILY_DUE_HOUR:02d}:00", "")
+    extra = ""
+    if brief_date and brief_date >= target:
+        weekend_gap = target.weekday() == 4 and (now.date() - target).days <= 3
+        if weekend_gap:
+            extra = (f" — brief {target.isoformat()} đã đẩy mà sync chưa: chạy bù T7/CN "
+                     "bằng code cũ thì updater bỏ qua cuối tuần (nay run.py sync tự "
+                     "thêm --force)")
+        else:
+            extra = (f" — brief {target.isoformat()} đã đẩy mà sync chưa: updater lỗi "
+                     "trước khi ghi marker, hoặc brief gửi tay từ máy khác")
+    return _result(key, name, "warn",
+                   f"phát tối {target.isoformat()} CHƯA tới kho này — sync gần nhất phủ "
+                   f"phiên {covered.isoformat()} ({how}) — pipeline không chạy HOẶC "
+                   "Dropbox tắt sync (hoặc máy bật muộn đang chạy dở, hoặc hôm đó nghỉ "
+                   f"lễ không có phiên){extra} — các badge tuổi data bên dưới cũ theo "
+                   "là HỆ QUẢ, không phải lỗi riêng",
+                   _FIX_NOT_REACHED)
+
+
+def check_pipeline_reach() -> dict:
+    """Đọc hai marker trong kho rồi giao cho `pipeline_reach_verdict`."""
+    def _load(p: Path):
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+    status = _load(_META / "pipeline_status.json")
+    updater = status.get("updater") if isinstance(status, dict) else None
+    brief = _load(_META / "brief_push.json")
+    flag = (os.environ.get("VNSTOCK_PIPELINE_BRIEF") or "1").strip().lower()
+    try:
+        from vnstock_rollup import get_hostname
+        host = get_hostname()
+    except Exception:
+        host = os.environ.get("COMPUTERNAME") or "?"
+    return pipeline_reach_verdict(updater, brief, datetime.now(),
+                                  brief_enabled=flag not in _OFF_VALUES, host=host)
 
 
 def check_warehouse() -> dict:
@@ -1126,6 +1379,7 @@ OFFLINE_CHECKS = [
     check_autoheal_yield,
     check_brief_watch,
     check_exdiv_source,
+    check_pipeline_reach,
     check_warehouse, check_market_overview, check_fundamentals, check_macro,
     check_pdf_tooling, check_market_news, check_ticker_news,
     check_foreign_flow, check_events, check_reports, check_allocation,
@@ -1219,8 +1473,14 @@ def format_report(results: list[dict], net: bool = False) -> str:
 
 def write_status(results: list[dict], mode: str) -> "Path | None":
     """Ghi doctor_status.json cho badge sidebar. Best-effort."""
+    try:
+        from vnstock_rollup import get_hostname
+        machine = get_hostname()
+    except Exception:
+        machine = os.environ.get("COMPUTERNAME") or "?"
     payload = {
         "ran_at": datetime.now().isoformat(),
+        "machine": machine,          # badge đi qua Dropbox — máy nào khám (hệ quả #2)
         "mode": mode,
         "counts": {s: sum(1 for r in results if r["status"] == s) for s in _ICONS},
         "worst": worst_status(results),

@@ -417,3 +417,64 @@ class TestTelegramCloseRespectsTheSameGates:
         assert ns.force is True
         ns2 = runpy.build_parser().parse_args(["telegram", "close"])
         assert ns2.force is False
+
+
+# ── 16/09: đường chạy bù — T7/CN sync --force; cờ tắt brief ghi vào marker chung ──
+class _Clock:
+    fixed = _dt(2026, 9, 19, 10, 0, 0)           # thứ 7
+
+    @classmethod
+    def now(cls):
+        return cls.fixed
+
+
+def _sync_cmds(monkeypatch, tmp_path, when):
+    cmds = []
+    monkeypatch.setattr(runpy, "_run", lambda cmd: cmds.append(list(cmd)) or 0)
+    monkeypatch.setattr(runpy, "_print_sync_breakdown", lambda _sub: None)
+    _Clock.fixed = when
+    monkeypatch.setattr(runpy, "_datetime", _Clock)
+    rc = runpy.cmd_sync(SimpleNamespace(warehouse=str(tmp_path), no_fix_units=True,
+                                        no_auto_heal=True))
+    assert rc == 0
+    return cmds
+
+
+def test_cmd_sync_forces_the_updater_on_weekends_only(tmp_path, monkeypatch):
+    """Chạy bù T7 (máy tắt tối T6): updater tự bỏ qua cuối tuần nếu thiếu
+    --force ⇒ brief T6 từng đẩy trên bar T5. Thị trường đóng nên fetch an toàn."""
+    sat = _sync_cmds(monkeypatch, tmp_path, _dt(2026, 9, 19, 10, 0))
+    assert sat[0][1:] == ["vnstock_updater.py", "--skip-if-done", "--force"]
+    assert sat[1][1:] == ["vnstock_rollup.py", "--skip-if-done"]
+    tue = _sync_cmds(monkeypatch, tmp_path, _dt(2026, 9, 15, 18, 0))
+    assert tue[0][1:] == ["vnstock_updater.py", "--skip-if-done"]
+
+
+def test_cmd_brief_kill_switch_writes_skipped_without_touching_close(tmp_path, monkeypatch):
+    """.env không đồng bộ giữa hai máy — máy nào tắt brief phải ghi vào marker
+    DÙNG CHUNG, không thì badge doctor ở máy kia réo "brief chưa" mỗi đêm.
+    KHÔNG đụng "close" để cửa gửi tay vẫn mở."""
+    import json as _json
+    import vnstock_telegram as _tg
+    monkeypatch.setenv("VNSTOCK_PIPELINE_BRIEF", "0")
+    monkeypatch.setattr(_tg, "push_close_brief",
+                        lambda: (_ for _ in ()).throw(AssertionError("không được đẩy")))
+    _Clock.fixed = _dt(2026, 9, 15, 19, 20)              # thứ 3
+    monkeypatch.setattr(runpy, "_datetime", _Clock)
+    args = SimpleNamespace(warehouse=str(tmp_path))
+    marker = runpy._brief_push_marker(args)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(_json.dumps({"close": "2026-09-14"}), encoding="utf-8")
+    assert runpy.cmd_brief(args) == 0
+    saved = _json.loads(marker.read_text(encoding="utf-8"))
+    assert saved["close"] == "2026-09-14"
+    assert saved["skipped"]["session"] == "2026-09-15"
+    assert saved["skipped"]["reason"] == "VNSTOCK_PIPELINE_BRIEF=0"
+    assert saved["skipped"]["machine"] and saved["skipped"]["at"].startswith("2026-09-15T19:20")
+    # marker chưa có / rác ⇒ vẫn ghi được, không nổ
+    marker.write_text("{rác", encoding="utf-8")
+    assert runpy.cmd_brief(args) == 0
+    assert "skipped" in _json.loads(marker.read_text(encoding="utf-8"))
+    # "no" cũng là tắt (khớp doctor._OFF_VALUES)
+    monkeypatch.setenv("VNSTOCK_PIPELINE_BRIEF", "no")
+    assert runpy.cmd_brief(args) == 0

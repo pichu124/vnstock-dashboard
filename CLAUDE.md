@@ -25,6 +25,11 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 >    `test_status.json` / `doctor_status.json` đều nằm TRONG kho và **không có
 >    trường máy** ⇒ badge sidebar có thể là kết quả của MÁY KIA;
 >    `run.py telegram close` chạy ở laptop là desktop câm brief tối đó.
+>    Badge doctor **"Phát tối — đã tới kho này chưa"** (16/09) đọc đúng hai
+>    marker này (sync `covered_session` + brief `close`/`skipped`) ⇒ nói về
+>    BẢN KHO của máy VỪA chạy doctor; ⚠️ "CHƯA tới kho này" = pipeline không
+>    chạy HOẶC sync tắt — kiểm icon Dropbox TRƯỚC khi nghi code (hệ quả #5).
+>    `doctor_status.json` nay có trường `machine`.
 > 3. **Đừng đụng kho ở máy kia trong lúc pipeline chạy** — từ lúc task Daily
 >    khởi động (18:00 ngày làm việc; máy tắt lúc đó thì `StartWhenAvailable`
 >    chạy bù NGAY KHI BẬT MÁY, phát 08–14/09 đều khởi động ~20:15–20:40 và
@@ -70,8 +75,12 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   thì mới đổi, KHÔNG báo thì **giữ nguyên máy của lượt trước**. Đừng hỏi lại
   mỗi lượt và đừng suy từ venv — hỏi lại khi user đã nói rồi cũng là một kiểu
   quy sai máy.
-- Cửa `--skip-if-done` cố ý bỏ qua cross-machine (đúng cho kho dùng chung —
-  xem banner đầu file); kho tách riêng thì bật `VNSTOCK_INDEPENDENT_WAREHOUSE=1`.
+- Cửa `--skip-if-done` so **PHIÊN PHỦ** (`covered_session`: chạy trước 15:05
+  = phiên trước, T7/CN = thứ 6), KHÔNG so ngày lịch (16/09: chạy bù sáng từng
+  làm task 18:00 cùng ngày bỏ sync, bar hôm đó chờ tới mai); T7/CN `run.py
+  sync` tự thêm `--force` cho updater (không thì chạy bù T7 đẩy brief T6 trên
+  bar T5). Cửa cố ý bỏ qua cross-machine (đúng cho kho dùng chung — xem banner
+  đầu file); kho tách riêng thì bật `VNSTOCK_INDEPENDENT_WAREHOUSE=1`.
 - ⚠️ **MỌI việc/test giao cho user PHẢI ghi rõ máy nào**, theo 4 nhãn dùng trong
   `docs/VIEC-DANG-LAM.md`: 🖥️ DESKTOP · 💻 LAPTOP · ⇄ CẢ HAI (phải làm lặp lại
   ở từng máy khi việc đó KHÔNG nằm trong kho — kho thì Dropbox lo) · ○ máy nào
@@ -81,7 +90,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   lần**, KHÔNG phải ⇄ CẢ HAI (sửa 19/08).
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~2.599 test; ~45s trên CI,
+- Sửa module lõi nào → `python run.py test --fast` (~2.632 test; ~45s trên CI,
   86s máy thật 15/09 tối). Danh sách file `--fast` là WHITELIST trong `run.py` —
   thêm file test mới thì phải ghi vào đó, không thì `--fast` không chạy nó.
 - Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, ~3.162 test).

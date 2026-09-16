@@ -813,9 +813,13 @@ def run_check(warehouse: str = "data_warehouse", tickers: list = None):
 # ═════════════════════════════════════════════════════════════════════════════
 
 def updater_status_update(stats: dict, *, today: str, now: str,
-                          machine: str) -> dict:
+                          machine: str, started: "str | None" = None) -> dict:
     """Bản ghi marker `pipeline_status["updater"]` cho lượt VỪA XONG. Hàm thuần.
 
+    Ghi thêm ``covered_session`` — phiên mà lượt sync phủ (giờ BẮT ĐẦU chạy
+    (``started``, mặc định = ``now``) so 15:05, cuối tuần = thứ 6), là thứ cửa
+    ``--skip-if-done`` so; ngày lịch chỉ để in. Lấy giờ bắt đầu vì lượt vắt
+    qua 15:05 đã fetch bar dở dang của phiên đó ở những mã đầu.
     error == 0 ⇒ ``success`` (đủ trường như trước). error > 0 ⇒ ``partial``:
     vẫn ghi last_run_at/last_machine/tickers_updated/errors/fallback để ai đọc
     marker biết updater ĐÃ chạy chứ không câm — đêm 14/09 VCI timeout, 1.524 mã
@@ -825,10 +829,22 @@ def updater_status_update(stats: dict, *, today: str, now: str,
     success + đúng hôm nay) vẫn không coi lượt hụt là xong.
     """
     n_err = int(stats.get("error", 0) or 0)
+    # Phiên PHỦ (16/09): lượt chạy trước 15:05 chỉ có bar tới phiên trước.
+    # `is_already_done_today` so trường này, không so ngày lịch — chạy bù buổi
+    # sáng không còn làm task 18:00 cùng ngày bỏ qua sync.
+    try:
+        from vnstock_rollup import session_covered_at
+        covered = session_covered_at(
+            datetime.fromisoformat(str(started or now))).isoformat()
+    except (ImportError, ValueError, TypeError) as e:
+        covered = str(today)
+        print(f"[updater] ⚠ covered_session: về ngày lịch {today} "
+              f"({type(e).__name__}: {str(e)[:80]}) — cửa --skip-if-done so ngày")
     out = {
         "last_run_at": now,
         "last_machine": machine,
         "last_result": "success" if n_err == 0 else "partial",
+        "covered_session": covered,
         "tickers_updated": int(stats.get("updated", 0) or 0),
         "tickers_up_to_date": int(stats.get("up_to_date", 0) or 0),
         "errors": n_err,
@@ -862,7 +878,8 @@ if __name__ == "__main__":
     parser.add_argument("--warehouse", default="data_warehouse",
                         help="Đường dẫn warehouse")
     parser.add_argument("--skip-if-done", action="store_true",
-                        help="Skip nếu job đã chạy hôm nay (multi-machine)")
+                        help="Skip nếu marker đã phủ PHIÊN này (trước 15:05 = phiên "
+                             "trước, T7/CN = T6; multi-machine)")
     args = parser.parse_args()
 
     if args.check:
@@ -888,8 +905,10 @@ if __name__ == "__main__":
                     other = existing.get("last_machine", "?")
                     other_time = existing.get("last_run_at", "?")
                     tickers_cnt = existing.get("tickers_updated", "?")
+                    from vnstock_rollup import marker_covered_session
                     console.print(
-                        f"[green]✓ Updater đã chạy hôm nay bởi máy {other}[/green]\n"
+                        f"[green]✓ Updater đã phủ phiên "
+                        f"{marker_covered_session(existing)} (máy {other})[/green]\n"
                         f"  Thời điểm: {other_time}\n"
                         f"  Tickers updated: {tickers_cnt}\n"
                         f"  → Skip trên máy này ({hostname})"
@@ -898,6 +917,7 @@ if __name__ == "__main__":
             except ImportError:
                 console.print("[yellow]⚠ vnstock_rollup không có — bỏ qua --skip-if-done[/yellow]")
 
+        _started = datetime.now().isoformat(timespec="seconds")
         stats = run_update(
             warehouse=args.warehouse,
             tickers=args.tickers,
@@ -918,7 +938,7 @@ if __name__ == "__main__":
                 upd = updater_status_update(
                     stats, today=get_today_vn().isoformat(),
                     now=datetime.now().isoformat(timespec="seconds"),
-                    machine=get_hostname())
+                    machine=get_hostname(), started=_started)
                 write_pipeline_status("updater", upd)
                 if upd["last_result"] == "success":
                     console.log("[dim]pipeline_status.json updated[/dim]")

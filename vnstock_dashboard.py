@@ -3563,7 +3563,8 @@ with st.sidebar:
                 f'font-size:11px;color:{_dr_color};margin-bottom:8px;'
                 f'font-family:\'IBM Plex Sans\',sans-serif">'
                 f'🩺 <b>Nguồn dữ liệu</b>: {_dr_parts or "?"}'
-                f'<br><span style="color:#9ca3af">Khám {_dr_age} · {_dr.get("mode", "?")}'
+                f'<br><span style="color:#9ca3af">Khám {_dr_age} · {_dr.get("machine", "?")}'
+                f' · {_dr.get("mode", "?")}'
                 f' · <code>run.py doctor</code></span>'
                 f'</div>',
                 unsafe_allow_html=True,

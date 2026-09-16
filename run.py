@@ -122,8 +122,13 @@ def cmd_sync(args) -> int:
             _sub.append((name, _time.time() - _t))
             print(f"[sync] ⏱ {name}: {_sub[-1][1]:,.1f}s")
 
-    updater = _timed("updater", lambda: _run(
-        [sys.executable, "vnstock_updater.py", "--skip-if-done"]))
+    # T7/CN: updater tự bỏ qua cuối tuần nếu thiếu --force ⇒ chạy bù T7 (máy
+    # tắt tối T6) từng đẩy brief T6 trên bar T5 và bar T6 chờ tới T2 (16/09).
+    # Thị trường đóng nên fetch là an toàn và idempotent; marker phủ phiên T6.
+    upd_cmd = [sys.executable, "vnstock_updater.py", "--skip-if-done"]
+    if _datetime.now().weekday() >= 5:
+        upd_cmd.append("--force")
+    updater = _timed("updater", lambda: _run(upd_cmd))
     if updater not in (0, 1):
         _print_sync_breakdown(_sub)
         return 2
@@ -1242,6 +1247,44 @@ def _write_close_marker(args) -> None:
         pass
 
 
+# Giá trị TẮT của cờ brief — PHẢI KHỚP `vnstock_doctor._OFF_VALUES` (có test
+# canh): badge Kill-switch và badge Phát-tối đọc cùng một chữ với cmd_brief.
+_BRIEF_OFF = ("0", "false", "off", "no")
+
+
+def _note_brief_skipped(args, reason: str) -> None:
+    """Ghi vào marker DÙNG CHUNG rằng máy này ĐÃ CỐ Ý bỏ brief phiên này.
+
+    `.env` không đồng bộ giữa hai máy (CODE đi bằng git, kho đi bằng Dropbox)
+    nên badge doctor ở máy kia không thể biết cờ tắt ở đây — chỉ marker trong
+    kho nói được. KHÔNG đụng "close" (cửa `_should_push_close` vẫn cho gửi
+    tay). Best-effort."""
+    import os as _os
+    marker = _brief_push_marker(args)
+    try:
+        try:
+            old = json.loads(marker.read_text(encoding="utf-8"))
+        except Exception:
+            old = {}
+        if not isinstance(old, dict):
+            old = {}
+        try:
+            from vnstock_rollup import get_hostname
+            machine = get_hostname()
+        except Exception:
+            machine = _os.environ.get("COMPUTERNAME") or "?"
+        now = _datetime.now()
+        old["skipped"] = {"session": _close_session_date(now).isoformat(),
+                          "reason": reason, "machine": machine,
+                          "at": now.isoformat(timespec="seconds")}
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        tmp = marker.with_suffix(f".{_os.getpid()}.tmp")
+        tmp.write_text(json.dumps(old, ensure_ascii=False), encoding="utf-8")
+        _os.replace(str(tmp), str(marker))
+    except Exception:
+        pass
+
+
 def _close_session_date(now) -> "date":
     """Phiên mà brief chiều tại thời điểm `now` nói về: T2-T6 là hôm nay,
     T7/CN là thứ 6 vừa rồi (cuối tuần không có phiên mới — dữ liệu mới nhất
@@ -1292,8 +1335,9 @@ def cmd_brief(args) -> int:
     nằm ở đây (pipeline chạy 18:00) — cần thì đặt task riêng ~11:35 gọi
     `run.py telegram morning`."""
     import os as _os
-    if (_os.environ.get("VNSTOCK_PIPELINE_BRIEF") or "1").strip().lower()             in ("0", "false", "off"):
+    if (_os.environ.get("VNSTOCK_PIPELINE_BRIEF") or "1").strip().lower() in _BRIEF_OFF:
         print("[brief] VNSTOCK_PIPELINE_BRIEF=0 — bỏ qua bước brief")
+        _note_brief_skipped(args, "VNSTOCK_PIPELINE_BRIEF=0")
         return 0
     marker = _brief_push_marker(args)
     ok, why = _should_push_close(_datetime.now(), marker)

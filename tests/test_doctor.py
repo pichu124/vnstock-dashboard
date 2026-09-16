@@ -444,3 +444,277 @@ def test_allocation_brief_reminder_logic(monkeypatch):
     # đã có brief trong tháng → im lặng
     rows.append({"created_at": "2026-07-05T10:00:00"})
     assert doc._allocation_brief_reminder(_d(2026, 7, 13)) is None
+
+
+# ── Phát tối đã tới KHO NÀY chưa (việc #11, 16/09) ───────────────────────────
+# Vụ 07/09: desktop tắt sync Dropbox, laptop sáng 08/09 vẫn VNINDEX ✅ (dung sai
+# 2 phiên cố ý). Badge này đọc thẳng hai marker trong kho — sync (cuối bước
+# updater, có phiên PHỦ) và brief chiều (bước 14/14) — và nói cả hai cách "chưa
+# tới": pipeline không chạy HOẶC Dropbox tắt sync. Hàm thuần, `now` cắm được.
+# Ba luật rút từ vòng phản biện 16/09: (1) so PHIÊN PHỦ chứ không so ngày lịch
+# của marker; (2) cùng đêm không bao giờ kết luận "brief chưa" (doctor bước 13
+# luôn trước brief bước 14); (3) hạn phát tối 23:00 vì máy bật muộn xong tới
+# 23:15 — sáng hôm sau verdict không đổi.
+
+
+def _upd(day, at="19:05:12", result="success", machine="PICHU", errors=0, **extra):
+    key = "last_success_date" if result == "success" else "last_partial_date"
+    return {"last_run_at": f"{day}T{at}", "last_machine": machine,
+            "last_result": result, "errors": errors, key: day, **extra}
+
+
+def _reach(upd, brief, now, **kw):
+    return doc.pipeline_reach_verdict(upd, brief, now, **kw)
+
+
+def test_session_for_matches_run_close_session_date():
+    """`_session_for` là bản sao của run._close_session_date — parity 14 ngày
+    (import run vào doctor là đảo tầng, nên canh bằng test)."""
+    import run as runpy
+    import vnstock_rollup as rl
+    from datetime import time as _t
+    for i in range(14):
+        d = date(2026, 9, 14) + timedelta(days=i)
+        assert doc._session_for(d) == runpy._close_session_date(datetime.combine(d, _t(12)))
+        # sau giờ chốt, phiên phủ của rollup phải trùng phiên badge đang xét
+        assert doc._session_for(d) == rl.session_covered_at(datetime.combine(d, _t(16)))
+
+
+def test_brief_kill_switch_spellings_match_cmd_brief():
+    import run as runpy
+    assert set(runpy._BRIEF_OFF) == doc._OFF_VALUES
+
+
+def test_reach_before_due_hour_judges_the_previous_session():
+    """18:30 thứ 3: phát tối nay chưa tới hạn — chỉ đòi phát hôm qua (cả sync
+    lẫn brief của hôm qua)."""
+    r = _reach(_upd("2026-09-14"), {"close": "2026-09-14"}, datetime(2026, 9, 15, 18, 30))
+    assert r["status"] == "ok" and "2026-09-14 đã tới" in r["message"]
+    assert "chưa tới hạn 23:00" in r["message"]
+
+
+def test_reach_same_night_never_concludes_brief_missing():
+    """Doctor bước 13 chạy TRƯỚC brief bước 14 cùng phát — kết luận "brief chưa"
+    ghi vào doctor_status.json là sai suốt 24 giờ ở CẢ HAI máy."""
+    late = _upd("2026-09-15", "22:08:00")
+    for hh, mm in ((22, 30), (23, 45)):
+        r = _reach(late, {"close": "2026-09-14"}, datetime(2026, 9, 15, hh, mm))
+        assert r["status"] == "ok" and "đang tới kho này" in r["message"], (hh, mm)
+        assert "xét lại từ sáng mai" in r["message"]
+    r = _reach(late, {"close": "2026-09-14"}, datetime(2026, 9, 16, 8, 0))
+    assert r["status"] == "warn" and "brief chiều 2026-09-15 CHƯA" in r["message"]
+    # ngày làm việc: brief phiên cũ KHÔNG gửi lại được (telegram close dán nhãn
+    # phiên hôm nay và chặn brief tối nay) — fix không được xúi
+    assert "run_daily.log" in r["fix"] and "telegram close" not in r["fix"]
+    assert "không gửi lại được" in r["fix"]
+    # bước 13 lọt qua nửa đêm (sync 23:20, doctor 00:05) — vẫn là đang chạy
+    r = _reach(_upd("2026-09-15", "23:20:00"), {"close": "2026-09-14"},
+               datetime(2026, 9, 16, 0, 5))
+    assert r["status"] == "ok" and "đang chạy" in r["message"]
+
+
+def test_reach_grace_covers_measured_post_sync_tail_on_a_later_day():
+    """Chạy bù T7: sync xong 10:41, doctor 12:15 (94′) — vẫn đang chạy; 13:20
+    (159′, quá trần 150′) mới nghi."""
+    sat = _upd("2026-09-19", "10:41:00")           # T7 phủ phiên T6 18/09
+    assert _reach(sat, {"close": "2026-09-17"},
+                  datetime(2026, 9, 19, 12, 15))["status"] == "ok"
+    r = _reach(sat, {"close": "2026-09-17"}, datetime(2026, 9, 19, 13, 20))
+    assert r["status"] == "warn" and "brief chiều 2026-09-18 CHƯA" in r["message"]
+    assert "telegram close" in r["fix"]            # T7 vẫn là phiên T6 ⇒ gửi tay được
+
+
+def test_reach_marker_from_machine_clock_ahead_is_fresh():
+    """Đồng hồ desktop nhanh vài phút: marker "từ tương lai" là bằng chứng
+    mạnh nhất rằng phát đang chạy, không phải ngược lại."""
+    r = _reach(_upd("2026-09-19", "12:03:00"), {"close": "2026-09-17"},
+               datetime(2026, 9, 19, 12, 1))
+    assert r["status"] == "ok" and "đang chạy" in r["message"]
+
+
+def test_reach_all_arrived_is_ok_and_names_machine_and_time():
+    r = _reach(_upd("2026-09-15"), {"close": "2026-09-15"}, datetime(2026, 9, 15, 23, 30))
+    assert r["status"] == "ok" and r["fix"] == ""
+    assert "đã tới kho này" in r["message"] and "PICHU" in r["message"]
+    assert "15/09 19:05" in r["message"] and "brief chiều đã đẩy" in r["message"]
+
+
+def test_reach_partial_sync_counts_as_arrived_but_says_so():
+    """Đêm fallback KBS: marker `partial` (việc #12) — data ĐÃ vào kho."""
+    r = _reach(_upd("2026-09-15", "19:40:00", "partial", errors=214),
+               {"close": "2026-09-15"}, datetime(2026, 9, 15, 23, 30))
+    assert r["status"] == "ok" and "partial 214 lỗi" in r["message"]
+    # ngày success == ngày partial ⇒ tin trường last_result, không suy từ ngày
+    both = {**_upd("2026-09-15"), "last_partial_date": "2026-09-15",
+            "last_result": "partial", "errors": 214}
+    assert "partial 214 lỗi" in _reach(both, {"close": "2026-09-15"},
+                                        datetime(2026, 9, 15, 23, 30))["message"]
+    # errors rác không được làm check nổ
+    bad = _upd("2026-09-15", result="partial", errors="x")
+    msg = _reach(bad, {"close": "2026-09-15"}, datetime(2026, 9, 15, 23, 30))["message"]
+    assert "sync partial" in msg and "0 lỗi" not in msg
+    # phiên phủ bịa ở tương lai không được tin quá ngày chạy
+    fut = _upd("2026-09-15", covered_session="2099-01-01")
+    assert "2099" not in _reach(fut, {"close": "2026-09-15"},
+                               datetime(2026, 9, 15, 23, 30))["message"]
+
+
+def test_reach_nothing_arrived_after_due_names_both_causes():
+    """Đúng câu của vụ 07/09: pipeline không chạy HOẶC Dropbox tắt sync."""
+    r = _reach(_upd("2026-09-14"), {"close": "2026-09-14"}, datetime(2026, 9, 15, 23, 30))
+    assert r["status"] == "warn"
+    assert "2026-09-15 CHƯA tới kho này" in r["message"]
+    assert "pipeline không chạy" in r["message"] and "Dropbox tắt sync" in r["message"]
+    assert "HỆ QUẢ" in r["message"]
+    assert "⇄ CẢ HAI" in r["fix"] and "🖥️ DESKTOP" in r["fix"]
+    assert "Get-ScheduledTaskInfo" in r["fix"] and "Dropbox" in r["fix"]
+
+
+def test_reach_due_boundary_is_23():
+    upd = _upd("2026-09-14")
+    assert _reach(upd, {"close": "2026-09-14"}, datetime(2026, 9, 15, 22, 59))["status"] == "ok"
+    assert _reach(upd, {"close": "2026-09-14"}, datetime(2026, 9, 15, 23, 0))["status"] == "warn"
+
+
+def test_reach_morning_after_a_missed_run_warns_about_yesterday():
+    """Sáng 08/09 trên laptop (desktop tắt sync từ tối 07/09): marker đứng ở
+    04/09 ⇒ phát 07/09 CHƯA tới — badge phải nói ra, không đợi tới hạn."""
+    r = _reach(_upd("2026-09-04"), {"close": "2026-09-04"}, datetime(2026, 9, 8, 8, 0))
+    assert r["status"] == "warn" and "2026-09-07 CHƯA tới kho này" in r["message"]
+    assert "phủ phiên 2026-09-04" in r["message"]
+
+
+def test_reach_morning_after_missing_brief_still_warns():
+    """Sáng hôm sau, sync hôm qua tới mà brief hôm qua không có — đúng lúc
+    user nhìn laptop; không được "bốc hơi" chỉ vì đã sang ngày mới."""
+    r = _reach(_upd("2026-09-14"), {"close": "2026-09-11"}, datetime(2026, 9, 15, 7, 0))
+    assert r["status"] == "warn" and "brief chiều 2026-09-14 CHƯA" in r["message"]
+    ok = _reach(_upd("2026-09-14"), {"close": "2026-09-14"}, datetime(2026, 9, 15, 7, 0))
+    assert ok["status"] == "ok"
+    # cờ tắt ở máy này ⇒ không đòi brief cả ở nhánh phiên trước
+    assert _reach(_upd("2026-09-14"), None, datetime(2026, 9, 15, 7, 0),
+                  brief_enabled=False)["status"] == "ok"
+
+
+def test_reach_weekend_and_monday_morning_look_at_friday():
+    fri = _upd("2026-09-18")
+    assert _reach(fri, {"close": "2026-09-18"}, datetime(2026, 9, 19, 10, 0))["status"] == "ok"
+    assert _reach(fri, {"close": "2026-09-18"}, datetime(2026, 9, 20, 20, 0))["status"] == "ok"
+    assert _reach(fri, {"close": "2026-09-18"}, datetime(2026, 9, 21, 7, 0))["status"] == "ok"
+    r = _reach(_upd("2026-09-17"), {"close": "2026-09-17"}, datetime(2026, 9, 21, 7, 0))
+    assert r["status"] == "warn" and "2026-09-18 CHƯA tới" in r["message"]
+    # T6 chạy muộn 23:50, doctor T7 00:10: cuối tuần luôn "tới hạn" — cửa sổ
+    # 150′ phải đỡ được
+    r = _reach(_upd("2026-09-18", "23:50:00"), {"close": "2026-09-17"},
+               datetime(2026, 9, 19, 0, 10))
+    assert r["status"] == "ok" and "đang chạy" in r["message"]
+
+
+def test_reach_morning_catchup_only_covers_the_previous_session():
+    """Máy tắt 18:00 thứ 2, bật 08:20 thứ 3: chạy bù chỉ lấy được bar tới thứ 2.
+    Marker cũ đóng dấu NGÀY LỊCH (thứ 3) — badge phải suy phiên phủ từ GIỜ chạy
+    (bất biến "so CẢ GIỜ, không chỉ ngày"), không được khen phát thứ 3 đã tới."""
+    legacy = _upd("2026-09-15", "08:20:00")
+    r = _reach(legacy, {"close": "2026-09-11"}, datetime(2026, 9, 15, 10, 0))
+    # sync thứ 2 tới, brief thứ 2 không có — nhưng đó là THIẾT KẾ của chạy bù
+    # sáng (cửa <15:00 không gửi brief cũ), không phải pipeline đứt ⇒ ok + nói rõ
+    assert r["status"] == "ok" and "theo thiết kế" in r["message"]
+    assert "phủ tới phiên 2026-09-14" in r["message"]
+    r = _reach(legacy, {"close": "2026-09-14"}, datetime(2026, 9, 15, 10, 0))
+    assert r["status"] == "ok" and "2026-09-14 đã tới" in r["message"]
+    r = _reach(legacy, {"close": "2026-09-15"}, datetime(2026, 9, 16, 8, 0))
+    assert r["status"] == "warn" and "2026-09-15 CHƯA tới kho này" in r["message"]
+    # marker mới có covered_session ⇒ tin nó, không cần suy
+    new = _upd("2026-09-15", "08:20:00", covered_session="2026-09-14")
+    assert _reach(new, {"close": "2026-09-15"},
+                  datetime(2026, 9, 16, 8, 0))["status"] == "warn"
+    assert _reach(_upd("2026-09-15", "19:05:12", covered_session="2026-09-15"),
+                  {"close": "2026-09-15"}, datetime(2026, 9, 16, 8, 0))["status"] == "ok"
+
+
+def test_reach_weekend_catchup_without_force_names_the_weekend_updater():
+    """Chạy bù T7 bằng code cũ: brief T6 đẩy trên bar T5 (updater bỏ qua cuối
+    tuần). Badge phải nói đúng nguyên nhân thay vì đẩy user đi soi Dropbox."""
+    r = _reach(_upd("2026-09-17"), {"close": "2026-09-18"}, datetime(2026, 9, 19, 12, 0))
+    assert r["status"] == "warn" and "2026-09-18 CHƯA tới" in r["message"]
+    assert "cuối tuần" in r["message"] and "--force" in r["message"]
+    # ngày thường brief mới hơn sync thì KHÔNG đổ cho cuối tuần
+    r = _reach(_upd("2026-09-14"), {"close": "2026-09-15"}, datetime(2026, 9, 15, 23, 30))
+    assert r["status"] == "warn" and "cuối tuần" not in r["message"]
+    assert "gửi tay từ máy khác" in r["message"]
+
+
+def test_reach_brief_kill_switch_recorded_in_shared_marker():
+    """.env không đồng bộ: desktop tắt brief bằng cờ thì laptop chỉ biết qua
+    marker dùng chung — không được réo mỗi đêm."""
+    brief = {"close": "2026-09-11",
+             "skipped": {"session": "2026-09-14", "reason": "VNSTOCK_PIPELINE_BRIEF=0",
+                         "machine": "PICHU", "at": "2026-09-14T19:20:00"}}
+    r = _reach(_upd("2026-09-14"), brief, datetime(2026, 9, 15, 8, 0))
+    assert r["status"] == "ok" and "VNSTOCK_PIPELINE_BRIEF" in r["message"]
+    assert "PICHU" in r["message"]
+    r = _reach(_upd("2026-09-15"), None, datetime(2026, 9, 15, 23, 30),
+               brief_enabled=False, host="CFA-BINHLD-LT")
+    assert r["status"] == "ok" and "trên CFA-BINHLD-LT" in r["message"]
+
+
+def test_reach_tz_aware_last_run_at_does_not_crash():
+    """Mốc có tz quy về giờ VN (mọi mốc trong kho là giờ VN), không phải giờ
+    máy đang chạy test: +07:00 giữ 21:05; Z là 04:05 hôm sau — cả hai đều
+    "đang tới" tối 15/09, không nổ."""
+    for at, hhmm in (("21:05:12+07:00", "15/09 21:05"), ("21:05:12Z", "16/09 04:05")):
+        r = _reach(_upd("2026-09-15", at), {"close": "2026-09-14"},
+                   datetime(2026, 9, 15, 21, 45))
+        assert r["status"] == "ok" and "đang tới" in r["message"], r
+        assert hhmm in r["message"]
+    from datetime import timezone
+    r = _reach(_upd("2026-09-15"), {"close": "2026-09-15"},
+               datetime(2026, 9, 15, 23, 30, tzinfo=timezone.utc))
+    assert r["status"] in ("ok", "warn")
+
+
+def test_reach_bad_or_missing_marker_is_off_not_crash():
+    now = datetime(2026, 9, 15, 23, 30)
+    for upd in (None, {}, {"last_success_date": "rác"}, {"last_run_at": "x"}, "not a dict"):
+        r = _reach(upd, None, now)
+        assert r["status"] == "off" and "chưa có marker sync" in r["message"]
+        assert "○ MỘT LẦN" in r["fix"]
+    # marker tốt nhưng brief rác / last_run_at rác → vẫn trả verdict
+    r = _reach({"last_success_date": "2026-09-15", "last_run_at": "rác"},
+               {"close": "rác"}, datetime(2026, 9, 16, 8, 0))
+    assert r["status"] == "warn" and "brief_push: chưa có marker" in r["message"]
+    r = _reach({"last_success_date": "2026-09-15"}, "rác", datetime(2026, 9, 16, 8, 0))
+    assert r["status"] in ("warn", "ok")
+    # marker trước 15/09 (không partial/fallback/covered_session) vẫn ra verdict
+    old = {"last_success_date": "2026-09-15", "last_run_at": "2026-09-15T19:05:12",
+           "last_machine": "PICHU"}
+    assert _reach(old, {"close": "2026-09-15"}, datetime(2026, 9, 16, 8, 0))["status"] == "ok"
+
+
+def test_check_pipeline_reach_reads_the_two_markers_and_env(meta, monkeypatch):
+    monkeypatch.delenv("VNSTOCK_PIPELINE_BRIEF", raising=False)
+    assert doc.check_pipeline_reach()["status"] == "off"
+    session = doc._session_for(date.today())
+    (meta / "pipeline_status.json").write_text(json.dumps(
+        {"updater": _upd(session.isoformat(), "19:05:12",
+                         covered_session=session.isoformat()),
+         "rollup": {"last_success_date": "2026-08-18"}}), encoding="utf-8")
+    (meta / "brief_push.json").write_text(json.dumps({"close": session.isoformat()}),
+                                           encoding="utf-8")
+    r = doc.check_pipeline_reach()
+    assert r["status"] == "ok" and "brief chiều đã đẩy" in r["message"]
+    (meta / "brief_push.json").write_text("{rác", encoding="utf-8")
+    monkeypatch.setenv("VNSTOCK_PIPELINE_BRIEF", "0")
+    r = doc.check_pipeline_reach()
+    assert r["status"] == "ok" and "VNSTOCK_PIPELINE_BRIEF" in r["message"]
+    assert doc.check_pipeline_reach in doc.OFFLINE_CHECKS
+    assert doc.OFFLINE_CHECKS.index(doc.check_pipeline_reach) \
+        < doc.OFFLINE_CHECKS.index(doc.check_warehouse)
+
+
+def test_write_status_records_machine(meta, monkeypatch):
+    import vnstock_rollup as rl
+    monkeypatch.setattr(rl, "get_hostname", lambda: "CFA-BINHLD-LT")
+    out = doc.write_status([doc._result("x", "X", "ok", "m")], "offline")
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert saved["machine"] == "CFA-BINHLD-LT"

@@ -6966,6 +6966,78 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🧭 U58. BADGE "PHÁT TỐI — ĐÃ TỚI KHO NÀY CHƯA" (#11) VÀ HAI LỖ HỔNG ĐƯỜNG CHẠY BÙ (16/09)
+
+## 1. Vì sao cần badge riêng
+
+Vụ 07/09 (U56): desktop tắt sync Dropbox, laptop sáng 08/09 vẫn VNINDEX ✅ vì
+`check_warehouse` cố ý dung sai 2 phiên (EOD về trễ); chỉ hai badge tuổi data
+nói bóng gió. Câu cần nói thẳng là "phát tối chưa tới BẢN KHO này", và nó có
+hai cách xảy ra: pipeline không chạy HOẶC Dropbox tắt sync. Hai marker nằm
+trong kho trả lời được: `pipeline_status.json[updater]` (ghi cuối bước updater)
+và `brief_push.json` (bước 14/14).
+
+## 2. Ba luật rút từ vòng phản biện (3 góc nhìn độc lập trên bản nháp)
+
+Bản nháp đầu so `last_success_date >= phiên` và cho 90′ ân hạn. Ba góc nhìn
+(mốc thời gian hai máy · nếp doctor · ca biên) cùng bắt hai lỗi cấu trúc:
+
+1. **So PHIÊN PHỦ, không so ngày lịch.** Marker updater đóng dấu `get_today_vn()`
+   = ngày CHẠY. Chạy bù 08:20 thứ 3 chỉ lấy được bar tới thứ 2 mà dấu là thứ 3
+   ⇒ badge khen "phát 15/09 đã tới" ba lần liên tiếp trong khi bar 15/09 không
+   có. Đúng bất biến CLAUDE.md "độ tươi so CẢ GIỜ": phiên phủ = trước 15:05 là
+   phiên trước, T7/CN là thứ 6. Nay marker ghi `covered_session`; marker cũ suy
+   từ `last_run_at`.
+2. **Cùng đêm không bao giờ kết luận "brief chưa".** Doctor là bước 13, brief
+   bước 14: kết luận "brief CHƯA — pipeline đứt" ghi vào `doctor_status.json`
+   (đi qua Dropbox) là sai suốt 24 giờ ở cả hai máy — đúng loại badge nói dối
+   repo đã sợ nhất. Đo marker→doctor bước 13 = 61′/69′/88′ (marker ghi trước
+   rollup/fix-units/auto-heal 5–38′ + 11 bước ~45–55′), nên 90′ cũng không đủ.
+   Nay: cùng ngày phiên ⇒ luôn "đang tới … xét lại từ sáng mai"; ngày khác ⇒
+   cửa sổ 150′ (trần task 180′) rồi mới warn.
+3. **Hạn phát tối 23:00**, không phải 21:00: 21:00 chỉ đúng cho phát khởi động
+   đúng giờ (18:00 + 180′); tuần 08–14/09 toàn bật muộn 20:15–20:40, xong tới
+   23:15. Sáng hôm sau verdict không đổi (phiên đã qua ngày là tới hạn).
+
+Thêm: cờ `VNSTOCK_PIPELINE_BRIEF=0` sống trong `.env` — CODE không đồng bộ —
+nên máy kia không thể biết ⇒ `cmd_brief` ghi `skipped {session, reason,
+machine, at}` vào `brief_push.json` chung (không đụng `close` để cửa gửi tay
+còn mở); mốc có tz quy về giờ VN (không phải giờ máy chạy test — sandbox là
+UTC); đồng hồ lệch vài phút giữa hai máy không được biến "vừa ghi" thành "đứt";
+`errors` rác không nổ; `doctor_status.json` + caption sidebar có `machine`.
+Chuỗi sửa có nhãn máy đúng nếp (⇄ CẢ HAI kiểm Dropbox TRƯỚC · 🖥️ DESKTOP
+`Get-ScheduledTaskInfo` · ○ MỘT LẦN gửi tay). Parity test: `_session_for` ↔
+`run._close_session_date`, `_BRIEF_OFF` ↔ `_OFF_VALUES` (cmd_brief nay nhận
+"no" là tắt, khớp badge Kill-switch).
+
+## 3. Hai lỗ hổng đường chạy bù (StartWhenAvailable) — user nêu cùng buổi
+
+(1) Máy tắt 18:00 T2, bật 08:20 T3: sync bù đóng dấu T3 ⇒ task 18:00 T3
+`is_already_done_today` thấy "hôm nay + success" ⇒ "✓ đã chạy hôm nay", bỏ
+sync; bar T3 vào kho tối T4; brief chiều T3 (cửa `_should_push_close` chỉ xét
+≥15:00) dựng trên bar T2 và ghi `close: T3`. (2) Chạy bù T7: `run_update(
+skip_weekends=True)` về sớm (không marker) nhưng brief T6 vẫn đẩy (luật 15/08)
+⇒ brief T6 trên bar T5, bar T6 chờ tới T2 18:00.
+
+Vá (nhỏ, có test fail-trước/pass-sau ở `test_pipeline_status_gate.py`):
+`vnstock_rollup.session_covered_at(now)` + `marker_covered_session(status)` +
+`is_already_done_today(job, now=None)` so phiên phủ; `updater_status_update`
+ghi `covered_session`; rollup mặc định cuộn phiên phủ (chạy bù sáng cuộn bar 1m
+hôm qua — trước đây nhắm `bars_<hôm nay>` không tồn tại và bar 1m hôm qua
+KHÔNG BAO GIỜ được cuộn) và ghi `covered_session`; `run.py sync` thêm `--force`
+cho updater T7/CN (`--force` chỉ tắt `skip_weekends`, đã đọc `main`). Mốc
+15:05 mirror `vnstock_brief.SESSION_CLOSE_CUTOFF` với test parity (không import
+vnstock_brief vào rollup — nặng và đảo tầng).
+
+## 4. Phép đo
+
+* Sáng 17/09 🖥️ desktop: badge `Phát tối` phải ✅ "phát tối 2026-09-16 đã tới
+  kho này — sync … · brief chiều đã đẩy" (chạy `python run.py doctor` tay;
+  badge bước 13 chụp trước brief nên ghi "đang tới" là bình thường).
+* Lần chạy bù kế tiếp (máy tắt lúc 18:00): log phải in `--force` T7/CN, marker
+  `covered_session` là phiên TRƯỚC khi chạy sáng, và task 18:00 cùng ngày KHÔNG
+  in "✓ Updater đã phủ phiên".
+
 # 🧭 U57. TỐI 14/09 TRÊN DESKTOP — KHO ĐÃ SYNC ĐÚNG, UPDATER LƯỠNG CỰC LÀ VCI TIMEOUT, DỪNG SỚM ĐỔ LỖI SAI CHỖ
 
 Ba việc trong một tối, cùng một nguồn dữ liệu: `run_daily.log` + `triage` +

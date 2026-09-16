@@ -28,7 +28,7 @@ import random
 import shutil
 import socket
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time as _time_t, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -79,6 +79,72 @@ def get_today_vn() -> date:
         return date.today()
 
 
+# Giờ chốt phiên — PHẢI KHỚP `vnstock_brief.SESSION_CLOSE_CUTOFF` (có test canh,
+# cùng nếp `SAME_BASIS_TOL`); không import vnstock_brief vì nó nặng và rollup
+# là tầng dưới. Bất biến CLAUDE.md "độ tươi so CẢ GIỜ, không chỉ ngày" áp cho
+# marker pipeline (16/09): lượt sync chạy TRƯỚC giờ chốt chỉ phủ tới phiên TRƯỚC.
+_SESSION_CLOSE_CUTOFF = _time_t(15, 5)
+
+
+def get_now_vn() -> datetime:
+    """Giờ hiện tại theo Asia/Ho_Chi_Minh, trả về NAIVE (bỏ tzinfo) để so
+    được với marker (ghi bằng datetime.now() trên máy VN)."""
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).replace(tzinfo=None)
+    except Exception:
+        return datetime.now()
+
+
+def session_covered_at(now: datetime) -> date:
+    """Phiên giao dịch mà một lượt sync/rollup chạy lúc `now` PHỦ được.
+
+    T7/CN ⇒ thứ 6 vừa rồi (thị trường đóng, bar mới nhất là của T6). Ngày làm
+    việc TRƯỚC giờ chốt (15:05) ⇒ phiên trước (chạy bù 08:20 thứ 3 chỉ lấy được
+    bar tới thứ 2 — phiên thứ 3 chưa có); từ giờ chốt trở đi ⇒ chính ngày đó.
+    Ngày lễ giữa tuần chưa phân biệt được (cùng hạn chế `run._close_session_date`).
+    Lỗ hổng 16/09: marker đóng dấu NGÀY LỊCH chạy ⇒ chạy bù buổi sáng làm task
+    18:00 cùng ngày bỏ qua sync ("✓ đã chạy hôm nay") và bar hôm đó chờ tới mai.
+    """
+    if now.tzinfo is not None:
+        try:
+            from zoneinfo import ZoneInfo
+            now = now.astimezone(ZoneInfo("Asia/Ho_Chi_Minh")).replace(tzinfo=None)
+        except Exception:
+            now = now.astimezone().replace(tzinfo=None)
+    d = now.date()
+    if d.weekday() == 5:
+        return d - timedelta(days=1)
+    if d.weekday() == 6:
+        return d - timedelta(days=2)
+    if now.time() < _SESSION_CLOSE_CUTOFF:
+        d -= timedelta(days=1)
+        while d.weekday() >= 5:
+            d -= timedelta(days=1)
+    return d
+
+
+def marker_covered_session(status: dict) -> str:
+    """Phiên mà marker `status` đã phủ, dạng ISO ('' nếu không đọc được).
+
+    Ưu tiên trường `covered_session` (ghi từ 16/09). Marker cũ: suy từ
+    `last_run_at` bằng đúng luật `session_covered_at`; không có nốt thì về
+    `last_success_date` như trước (marker rollup cũ ghi last_success_date =
+    NGÀY MỤC TIÊU, tức đã là phiên phủ)."""
+    cs = str(status.get("covered_session") or "")[:10]
+    if cs:
+        return cs
+    try:
+        ran = datetime.fromisoformat(str(status.get("last_run_at")))
+    except (TypeError, ValueError):
+        ran = None
+    if ran is not None and status.get("last_success_date") \
+            and str(status.get("last_success_date"))[:10] == ran.date().isoformat():
+        # marker updater cũ: ngày = ngày chạy ⇒ phiên phủ suy từ GIỜ chạy
+        return session_covered_at(ran).isoformat()
+    return str(status.get("last_success_date") or "")[:10]
+
+
 def read_pipeline_status() -> dict:
     """Đọc pipeline_status.json. Trả dict rỗng nếu missing/corrupt."""
     if not PIPELINE_STATUS_PATH.exists():
@@ -108,8 +174,12 @@ def write_pipeline_status(job: str, update: dict):
         print(f"[rollup] ⚠ write pipeline_status: {e}")
 
 
-def is_already_done_today(job: str) -> tuple[bool, dict]:
-    """Check nếu job đã chạy thành công hôm nay (VN time).
+def is_already_done_today(job: str, now: "datetime | None" = None) -> tuple[bool, dict]:
+    """Check nếu job đã chạy thành công cho PHIÊN mà lượt chạy lúc `now` sẽ phủ.
+
+    So PHIÊN PHỦ chứ không so ngày lịch (16/09): marker của lượt chạy bù 08:20
+    thứ 3 phủ phiên thứ 2 ⇒ task 18:00 thứ 3 (phủ phiên thứ 3) KHÔNG được bỏ
+    qua. Cuối tuần: T7 và CN cùng phủ thứ 6 ⇒ chạy bù T7 xong thì CN bỏ qua.
 
     MẶC ĐỊNH: kho DÙNG CHUNG (Dropbox) — "máy khác đã sync hôm nay" ĐÚNG là
     "kho đã mới", nên bỏ qua là hành vi mong muốn. Đây là thiết kế gốc và là
@@ -127,9 +197,8 @@ def is_already_done_today(job: str) -> tuple[bool, dict]:
     kế. Cấu hình nào đúng thì chỉ user biết — code không đoán được.
     """
     status = read_pipeline_status().get(job, {})
-    last_date_str = status.get("last_success_date", "")
-    today_str = get_today_vn().isoformat()
-    done = (last_date_str == today_str
+    want = session_covered_at(now or get_now_vn()).isoformat()
+    done = (marker_covered_session(status) == want
             and status.get("last_result") == "success")
     if done and os.environ.get("VNSTOCK_INDEPENDENT_WAREHOUSE", "0") == "1":
         last_machine = str(status.get("last_machine", "") or "")
@@ -490,7 +559,8 @@ def main():
     parser.add_argument("--dry-run", action="store_true",
                         help="Preview, không ghi file")
     parser.add_argument("--skip-if-done", action="store_true",
-                        help="Skip nếu job đã chạy hôm nay (multi-machine coordination)")
+                        help="Skip nếu marker đã cuộn PHIÊN này (trước 15:05 = phiên "
+                             "trước, T7/CN = T6; multi-machine coordination)")
     args = parser.parse_args()
 
     if args.date:
@@ -500,7 +570,9 @@ def main():
             print(f"✗ Invalid date format: {args.date}")
             return 1
     else:
-        target_date = get_today_vn()
+        # Phiên PHỦ chứ không phải hôm nay (16/09): chạy bù 08:20 thứ 3 cuộn
+        # bar 1m của thứ 2 (file bars_<thứ 2>); chạy bù T7 cuộn thứ 6.
+        target_date = session_covered_at(get_now_vn())
 
     hostname = get_hostname()
     bars_path = LIVE_DIR / f"bars_{target_date.isoformat()}.parquet"
@@ -526,7 +598,8 @@ def main():
             other_machine = existing_status.get("last_machine", "?")
             other_time = existing_status.get("last_run_at", "?")
             tickers = existing_status.get("tickers_updated", "?")
-            print(f"\n[rollup] ✓ Đã chạy hôm nay bởi máy {other_machine}")
+            print(f"\n[rollup] ✓ Đã cuộn phiên {marker_covered_session(existing_status)} "
+                  f"bởi máy {other_machine}")
             print(f"  Thời điểm:       {other_time}")
             print(f"  Tickers updated: {tickers}")
             print(f"  → Skip trên máy này ({hostname})")
@@ -559,6 +632,7 @@ def main():
             and (stats["tickers_updated"] > 0 or stats["already_archived"])):
         write_pipeline_status("rollup", {
             "last_success_date": target_date.isoformat(),
+            "covered_session": target_date.isoformat(),
             "last_run_at": datetime.now().isoformat(timespec="seconds"),
             "last_machine": hostname,
             "last_result": "success",
