@@ -2,7 +2,7 @@
 
 > Bản để LÀM THEO. Kho lưu chi tiết (lý do, file:line, lịch sử) ở
 > `docs/CLAUDE-NOTES.md` — đừng mở nó để biết "hôm nay làm gì".
-> Cập nhật: 15/09/2026 tối — **brief close 15/09 TRẮNG** ("LLM ladder DOWN", AI Outlook "Chưa có brief"): Gemini 429 rồi 503 đúng lúc chạy, Mistral quota, Cerebras 402, OpenRouter super cụt ×2 mà KHÔNG rơi xuống ultra vì bộ lọc danh mục tôi thêm ở #13 bỏ nhầm ultra (danh mục cắt trang 400). Đã vá: bỏ hỏi danh mục; agent base đợi 20s gọi lại khi 429/5xx rồi sang dự phòng cùng provider (Gemini flash → flash-lite). 🖥️ desktop **đã merge `661b193`, `--fast` 2.591/86s, rồi `telegram close --force` 20:41 ⇒ brief CÓ AI Outlook** (Gemini flash 503 → đợi 20s → OK; Cerebras bị cầu dao bỏ; super cụt → ultra được gọi nhưng CŨNG cụt; Mistral 429 ×2). 4b soi 4/4 đạt. **4c đã vá cùng tối** (sổ ghi usage khi cụt + OpenRouter nới trần +5.200). **16/09: #11 xong** (badge "Phát tối — đã tới kho này chưa") **+ vá hai lỗ hổng đường chạy bù** (#14: marker so PHIÊN PHỦ thay vì ngày lịch; T7/CN sync `--force`) — 🖥️ desktop merge lại, `--fast` ~2.632. Còn đo: brief tự động 16/09; lần chạy bù kế tiếp (máy tắt lúc 18:00) soi #14. #12 chạy đúng (marker `partial: 214`), #0 xong (sổ cách ly RỖNG, VNINDEX 15/09).
+> Cập nhật: 15/09/2026 tối — **brief close 15/09 TRẮNG** ("LLM ladder DOWN", AI Outlook "Chưa có brief"): Gemini 429 rồi 503 đúng lúc chạy, Mistral quota, Cerebras 402, OpenRouter super cụt ×2 mà KHÔNG rơi xuống ultra vì bộ lọc danh mục tôi thêm ở #13 bỏ nhầm ultra (danh mục cắt trang 400). Đã vá: bỏ hỏi danh mục; agent base đợi 20s gọi lại khi 429/5xx rồi sang dự phòng cùng provider (Gemini flash → flash-lite). 🖥️ desktop **đã merge `661b193`, `--fast` 2.591/86s, rồi `telegram close --force` 20:41 ⇒ brief CÓ AI Outlook** (Gemini flash 503 → đợi 20s → OK; Cerebras bị cầu dao bỏ; super cụt → ultra được gọi nhưng CŨNG cụt; Mistral 429 ×2). 4b soi 4/4 đạt. **4c đã vá cùng tối** (sổ ghi usage khi cụt + OpenRouter nới trần +5.200). **16/09: #11 xong** (badge "Phát tối — đã tới kho này chưa") **+ vá hai lỗ hổng đường chạy bù** (#14: marker so PHIÊN PHỦ thay vì ngày lịch; T7/CN sync `--force`) — 🖥️ desktop đã merge `cf644f8`, `--fast` 2.632/98s. **Badge chạy thật lần đầu tối 16/09** (khám giữa phát): ✅ "phát tối 2026-09-16 đang tới kho này — sync partial 200 lỗi lúc 21:16 bởi PICHU · brief chiều chưa (phát còn đang chạy…)" — đúng verdict mong đợi. Đêm 16/09 là đêm VCI ốm thứ 5/7 (partial 200). Sổ cách ly có 3 mã mới ACG·BAL·BHN (chữa cùng TCX sau phát 17/09). Còn đo: sáng 17/09 badge phải "đã tới … brief chiều đã đẩy"; brief tự động 16/09; lần chạy bù kế tiếp soi #14. #12 chạy đúng (marker `partial: 214`), #0 xong (sổ cách ly RỖNG, VNINDEX 15/09).
 
 ## 🏷️ NHÃN MÁY — quy tắc gốc: KHO đồng bộ, CODE thì không
 
@@ -337,8 +337,8 @@ Daily khởi động (18:00; máy tắt giờ đó thì `StartWhenAvailable` ch�
 bật máy — phát 08–14/09 đều khởi động ~20:15–20:40) tới dòng `⏱ TỔNG`
 (~21:00–23:15). Brief đầu tiên có bản vá = phiên kế tiếp sau khi merge.
 
-**📦 vnstock 4.0.7 đã ra — cổng gỡ chặn 4.0.6 đã mở.** Đúng thứ tự:
-1. 💻 Laptop TRƯỚC: `pip install vnstock==4.0.7` → `run.py doctor --net` +
+**📦 vnstock 4.0.8 đã ra (16/09; 4.0.7 ra trước đó) — cổng gỡ chặn 4.0.6 đã mở.** Đúng thứ tự:
+1. 💻 Laptop TRƯỚC: `pip install vnstock==4.0.8` → `run.py doctor --net` +
    `run.py test` **ngay**.
 2. Chạy vài ngày xem có gì lạ.
 3. Sạch rồi mới đụng 🖥️ desktop, và **không nâng sát 18:00**.
