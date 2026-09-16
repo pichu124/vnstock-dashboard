@@ -147,7 +147,9 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   khỏi phép so (có thể dở dang). Ngưỡng phải KHỚP
   `probe_price_basis.SAME_BASIS_TOL` (có test canh). Nhánh fallback KBS (đêm
   VCI timeout) KHÔNG qua V1 mà qua cửa riêng 8% ⇒ lệch 2–8% có thể lọt thành
-  VÁCH giữa chuỗi; triage in `0d` (kho có bar hôm nay) KHÔNG có nghĩa kho sạch
+  VÁCH giữa chuỗi (BAL 16/09: 3 bar sau vách 27/08 khớp nguồn); lệch >8% thì
+  KBS bị từ chối thành `error`, **KHÔNG vào sổ cách ly** ⇒ badge mù, mã đứng
+  im (việc #15). Triage in `0d` (kho có bar hôm nay) KHÔNG có nghĩa kho sạch
   (14/09: BMI/DVN/DVP/ELC `0d` mà rebase vẫn thấy vách 06–09/09).
 - Pipeline data: `vnstock_updater` (sync giá) → `vnstock_rollup` (1m→daily)
   → `vnstock_warehouse` (Parquet) → `vnstock_runner`/`vnstock_screener`
