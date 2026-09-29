@@ -7102,6 +7102,11 @@ c. **Thiếu brief hai thứ Hai 21/09 và 28/09; 22/09 ladder DOWN** (#20).
   lại với `-PythonExe C:\Users\admin\.venv\Scripts\python.exe` ✅. Script nay
   nhận `$env:VIRTUAL_ENV` và TỪ CHỐI Python hệ thống trừ `-AllowSystemPython`
   (`4793ce3`). Bài học: lệnh Admin nào cũng phải ghi rõ "kích hoạt venv trước".
+- 01:15 merge `e3ffab4` (cửa dừng VCI trong `refresh_upcoming`), 01:40 merge
+  `22e1678` (gauge thanh khoản phân kỳ) — `--fast` 2.647 rồi 2.648 passed /
+  ~101s. Phát tối 30/09 là phép đo của TÁM bản vá trong một đêm: 4 guard brief,
+  slug mới, cửa brief phiên phủ, log từng agent, cap 240 bằng venv, cửa dừng
+  VCI, gauge thanh khoản. Đọc: `⏱ TỔNG` + `[brief] ⏱` + `[events]`.
 
 # 🧭 U59. 29/09 SAU 13 NGÀY NGHỈ — 45 MÃ CÁCH LY MÙA QUYỀN, FPT HAI BẬC TRONG MỘT NĂM (29/09)
 

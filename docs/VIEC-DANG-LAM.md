@@ -352,6 +352,8 @@ lưới script), `--fast` 2.647 passed / 102s ⇒ phát tối 30/09 chạy với
 đêm 29/09: guard brief, slug mới, cửa brief phiên phủ, log từng agent, cap 240
 bằng venv, cửa dừng VCI. Phép đo: `Select-String '⏱ TỔNG|\[brief\] ⏱|\[events\]'
 run_daily.log | Select-Object -Last 10`.
+(1f) ✅ **01:40 desktop merge `22e1678`** (gauge thanh khoản phân kỳ kỳ hạn, #19),
+`--fast` 2.648 passed / 101s. Không còn việc nào chờ tay user cho phát 30/09.
 (2) **28/09 ĐÃ RÕ** (log 29/09 23:30): pipeline khởi động 21:15, sync 7.272s
 (VCI ốm → KBS 1.027 mã, partial 151 lúc 23:11), tới bước brief lúc **00:13** →
 cửa `_should_push_close` thấy "ngày làm việc, trước 15:00" → bỏ qua như chạy
