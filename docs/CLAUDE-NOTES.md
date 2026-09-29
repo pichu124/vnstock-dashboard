@@ -7039,9 +7039,11 @@ nhận nhiều bậc khi nguồn phủ trọn lịch sử kho).
   kế 15/09) và giữ badge sổ LLM ⚠️ vĩnh viễn — badge luôn vàng thì người đọc
   học cách bỏ qua, và hôm nay nó che đúng chuyện flash. Cầu dao cố ý KHÔNG
   chặn 429 (Gemini 429 sáng vẫn phải được gọi chiều) nên không vá bằng code;
-  đề xuất user tắt Mistral trong config agent (`_meta/brief_agents.json`, ghi
-  qua `save_agent_configs`), soi console.mistral.ai xem hết quota hay đổi gói,
-  bật lại khi sống. Cerebras 402 1 call/ngày = cầu dao ăn đúng (#3 treo).
+  user TẮT Mistral 22:50 cùng tối (`save_agent_configs` → `_meta/brief_agents.json`,
+  trong kho nên cả hai máy cùng thấy): ladder brief còn gemini · openrouter ·
+  cerebras. Model watch T7 vẫn probe Mistral (`_ladder_slugs` gom từ
+  `_DEFAULT_AGENT_CONFIGS`, không đọc cờ `enabled`) và phân biệt hết hạn mức
+  với chết ⇒ báo cáo cuối tuần là chỗ biết lúc nào bật lại. Cerebras 402 1 call/ngày = cầu dao ăn đúng (#3 treo).
   OpenRouter super 5/5 · ultra 4/4 OK, suy nghĩ 53%/79% (4c) — bản có đủ dài
   không thì soi brief.
 - Brief hai tuần 16–29/09 user sắp gửi để soi; brief bước 14 tối 29/09 1.743s
