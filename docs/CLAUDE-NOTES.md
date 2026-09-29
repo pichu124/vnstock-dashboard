@@ -7028,11 +7028,22 @@ nhận nhiều bậc khi nguồn phủ trọn lịch sử kho).
 
 ## 4. Còn treo tối 29/09
 
-- Sổ LLM hôm nay 66 call · 36 lỗi · 10 rate-limit, Mistral small chạm trần —
-  Mistral là giọng brief thứ tư user giữ 11/08 (`vnstock_model_watch.py:86`).
-  Chờ `python vnstock_llm_ledger.py --show`: nếu Mistral 429 suốt hai tuần thì
-  mỗi brief tốn 2 call + 20s chờ (đợi rồi gọi lại, đúng thiết kế 15/09) mà
-  không góp bản nào ⇒ đề xuất tắt trong config agent (lựa chọn của user).
+- Sổ LLM 29/09 (`--show` 22:45): 66 call · 30 OK · 36 lỗi · $0,0042. Chuyện
+  chính: **Gemini flash 23 call · 3 OK · 20 lỗi 503** cả ngày, flash-lite gánh
+  17 OK (5 lỗi read timeout 15s = cỡ timeout đường sentiment
+  `vnstock_sentiment.py:193`; brief agent dùng 90s). Bước brief 1.743s là hệ
+  quả: mỗi lượt Gemini = 503 → đợi 20s → 503 → sang lite. Badge doctor lại
+  réo **Mistral 10 call · 0 OK · 10/10 429** — giọng thứ tư user giữ 11/08
+  (`vnstock_model_watch.py:86`) 0 OK từ 15/09 (quota) · 16/09 (429 ×2) · 29/09
+  ⇒ chết hai tuần, mỗi lượt tốn 2 call + 20s chờ (đợi rồi gọi lại, đúng thiết
+  kế 15/09) và giữ badge sổ LLM ⚠️ vĩnh viễn — badge luôn vàng thì người đọc
+  học cách bỏ qua, và hôm nay nó che đúng chuyện flash. Cầu dao cố ý KHÔNG
+  chặn 429 (Gemini 429 sáng vẫn phải được gọi chiều) nên không vá bằng code;
+  đề xuất user tắt Mistral trong config agent (`_meta/brief_agents.json`, ghi
+  qua `save_agent_configs`), soi console.mistral.ai xem hết quota hay đổi gói,
+  bật lại khi sống. Cerebras 402 1 call/ngày = cầu dao ăn đúng (#3 treo).
+  OpenRouter super 5/5 · ultra 4/4 OK, suy nghĩ 53%/79% (4c) — bản có đủ dài
+  không thì soi brief.
 - Brief hai tuần 16–29/09 user sắp gửi để soi; brief bước 14 tối 29/09 1.743s
   (flash 3/23 OK, 503 cả ngày) chưa có dòng log tách theo agent.
 
