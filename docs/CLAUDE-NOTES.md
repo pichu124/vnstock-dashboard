@@ -7081,8 +7081,10 @@ c. **Thiếu brief hai thứ Hai 21/09 và 28/09; 22/09 ladder DOWN** (#20).
 - Mistral đã tắt 22:50 (U59 §4) — không xuất hiện trong bản chính brief nào.
 - 🖥️ desktop merge `34f614e` + `--fast` 2.640 passed / 137s lúc ~23:20, rồi
   merge `1a45a91` (cửa brief chiều) + `--fast` 2.643 passed / 327s ~23:50 —
-  cả ba đợt vá đêm nay có hiệu lực từ phát tối 30/09. 327s so 137s hai giờ
-  trước là máy bận (đo lại bằng `--fast --slow` nếu lặp), không phải test thêm.
+  rồi merge `a4407b0` (log từng agent + cap script 240) + `--fast` 2.645
+  passed / 102s ~00:40 — cả bốn đợt vá có hiệu lực từ phát tối 30/09; 327s
+  ở lượt giữa là máy bận nhất thời (lượt sau về 102s). Cap 240 cần đăng ký
+  lại task (Run as Administrator) mới ăn.
 
 # 🧭 U59. 29/09 SAU 13 NGÀY NGHỈ — 45 MÃ CÁCH LY MÙA QUYỀN, FPT HAI BẬC TRONG MỘT NĂM (29/09)
 

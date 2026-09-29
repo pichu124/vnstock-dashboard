@@ -333,9 +333,10 @@ nhận cho 4c. Badge `allocation` sẽ hết ⚠️ ở doctor kế.
 ## 7. 🔎 Soi brief 16–29/09 — việc còn lại cho user (chi tiết U60)
 
 **🖥️ DESKTOP, thứ tự:** (1) ✅ đã merge `34f614e`, `--fast` 2.640 passed / 137s
-(29/09 ~23:20). (1b) ✅ đã merge `1a45a91` (cửa brief chiều), `--fast` 2.643 passed nhưng
-**327s** (137s hai giờ trước, 86–98s thường lệ) — máy đang bận thứ gì đó
-(dashboard còn mở sau khi tạo brief phân bổ?); lặp lại thì `--fast --slow`.
+(29/09 ~23:20). (1b) ✅ đã merge `1a45a91` (cửa brief chiều), `--fast` 2.643 / 327s (máy bận
+nhất thời). (1c) ✅ **đã merge `a4407b0`** (log từng agent + cap 240 trong
+script), `--fast` 2.645 passed / 102s (30/09 00:40) — phát tối 30/09 in
+`[brief] ⏱ …`. Cap 240 chỉ ăn sau khi chạy lại script Run as Administrator.
 (2) **28/09 ĐÃ RÕ** (log 29/09 23:30): pipeline khởi động 21:15, sync 7.272s
 (VCI ốm → KBS 1.027 mã, partial 151 lúc 23:11), tới bước brief lúc **00:13** →
 cửa `_should_push_close` thấy "ngày làm việc, trước 15:00" → bỏ qua như chạy
