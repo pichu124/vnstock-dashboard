@@ -347,6 +347,11 @@ hoạt venv ⇒ đăng ký lại ngay 00:55 với venv thật ✅ (`Actions.Exec
 (dòng cuối phải in đường venv; đường này lấy từ chính dòng `Update: …` của gói
 vnstock trên desktop). Script đã thêm lưới: nhận `$env:VIRTUAL_ENV`, từ chối
 Python hệ thống trừ `-AllowSystemPython`.
+(1e) ✅ **01:15 desktop merge `e3ffab4`** (cửa dừng VCI trong `refresh_upcoming` +
+lưới script), `--fast` 2.647 passed / 102s ⇒ phát tối 30/09 chạy với TRỌN BỘ vá
+đêm 29/09: guard brief, slug mới, cửa brief phiên phủ, log từng agent, cap 240
+bằng venv, cửa dừng VCI. Phép đo: `Select-String '⏱ TỔNG|\[brief\] ⏱|\[events\]'
+run_daily.log | Select-Object -Last 10`.
 (2) **28/09 ĐÃ RÕ** (log 29/09 23:30): pipeline khởi động 21:15, sync 7.272s
 (VCI ốm → KBS 1.027 mã, partial 151 lúc 23:11), tới bước brief lúc **00:13** →
 cửa `_should_push_close` thấy "ngày làm việc, trước 15:00" → bỏ qua như chạy
