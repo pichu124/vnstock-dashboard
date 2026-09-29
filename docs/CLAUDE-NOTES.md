@@ -7083,8 +7083,13 @@ c. **Thiếu brief hai thứ Hai 21/09 và 28/09; 22/09 ladder DOWN** (#20).
   merge `1a45a91` (cửa brief chiều) + `--fast` 2.643 passed / 327s ~23:50 —
   rồi merge `a4407b0` (log từng agent + cap script 240) + `--fast` 2.645
   passed / 102s ~00:40 — cả bốn đợt vá có hiệu lực từ phát tối 30/09; 327s
-  ở lượt giữa là máy bận nhất thời (lượt sau về 102s). Cap 240 cần đăng ký
-  lại task (Run as Administrator) mới ăn.
+  ở lượt giữa là máy bận nhất thời (lượt sau về 102s). 00:50 chạy lại script
+  Admin: `PT4H` ✅ nhưng script chọn `C:\Python314\python.exe` vì shell Admin
+  chưa kích hoạt venv (script chỉ dò `.venv` trong repo rồi `python.exe` trên
+  PATH) — suýt phát tối 30/09 chạy bằng Python không thư viện. 00:55 đăng ký
+  lại với `-PythonExe C:\Users\admin\.venv\Scripts\python.exe` ✅. Script nay
+  nhận `$env:VIRTUAL_ENV` và TỪ CHỐI Python hệ thống trừ `-AllowSystemPython`
+  (`4793ce3`). Bài học: lệnh Admin nào cũng phải ghi rõ "kích hoạt venv trước".
 
 # 🧭 U59. 29/09 SAU 13 NGÀY NGHỈ — 45 MÃ CÁCH LY MÙA QUYỀN, FPT HAI BẬC TRONG MỘT NĂM (29/09)
 

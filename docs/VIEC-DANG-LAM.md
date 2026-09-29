@@ -338,7 +338,8 @@ nhất thời). (1c) ✅ **đã merge `a4407b0`** (log từng agent + cap 240 tr
 script), `--fast` 2.645 passed / 102s (30/09 00:40) — phát tối 30/09 in
 `[brief] ⏱ …`. (1d) 00:50 chạy lại script Admin: `PT4H` ✅ NHƯNG script chọn
 **`C:\Python314\python.exe`** (Python hệ thống 3.14) vì cửa sổ Admin chưa kích
-hoạt venv ⇒ **🖥️ DESKTOP PHẢI ĐĂNG KÝ LẠI TRƯỚC 18:00 30/09** với venv thật:
+hoạt venv ⇒ đăng ký lại ngay 00:55 với venv thật ✅ (`Actions.Execute` =
+`C:\Users\admin\.venv\Scripts\python.exe`, `PT4H`, Weekend cũng theo venv). Lệnh đã dùng:
 ```powershell
 .\scripts\setup_scheduled_tasks.ps1 -PythonExe 'C:\Users\admin\.venv\Scripts\python.exe'
 (Get-ScheduledTask -TaskName 'VnStock Daily Pipeline').Actions.Execute
