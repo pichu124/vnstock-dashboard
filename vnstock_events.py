@@ -87,12 +87,20 @@ def _default_universe() -> list[str]:
         return []
 
 
+# Đêm VCI ốm (22/09: 52 mã × timeout 30s = 28′ NGAY TRONG bước brief, 21/09
+# cùng bão này góp phần đẩy bước brief qua trần 180′): mỗi mã lỗi liên tiếp
+# là một timeout 30s vô ích. Từng ấy mã lỗi liền là VCI đang ngã, không phải
+# mã xấu → dừng, giữ cache cũ (merge-safe), lượt sau thử lại rẻ.
+MAX_CONSECUTIVE_FAILURES = 3
+
+
 def refresh_upcoming(
     tickers: list[str] | None = None,
     warehouse: str = "data_warehouse",
     *,
     keep_back_days: int = 2,
     verbose: bool = False,
+    max_consecutive_failures: int = MAX_CONSECUTIVE_FAILURES,
 ) -> pd.DataFrame:
     """Fetch corp-action events for `tickers`, keep ex_date ≥ today-keep_back,
     consolidate into one parquet. Best-effort and MERGE-SAFE: a ticker whose
@@ -117,19 +125,35 @@ def refresh_upcoming(
             prior = {}
 
     by_ticker: dict[str, list[dict]] = dict(prior)
-    refreshed = failed = 0
-    for t in tickers:
+    refreshed = failed = streak = 0
+    tickers = list(tickers)
+    for i, t in enumerate(tickers):
         key = str(t).upper()
         df = _fetch_vci_events(t)
         if df is None:                       # fetch failed → keep prior rows
             failed += 1
+            streak += 1
             if verbose:
                 print(f"  [{t}] fetch lỗi — giữ {len(prior.get(key, []))} sự kiện cũ")
+            if max_consecutive_failures and streak >= max_consecutive_failures:
+                rest = len(tickers) - i - 1
+                print(f"[events] VCI lỗi {streak} mã liên tiếp → dừng, giữ cache "
+                      f"cũ cho {rest} mã còn lại (đêm 22/09: 52 mã × 30s = 28′)")
+                break
             continue
+        streak = 0
         by_ticker[key] = _extract_upcoming(df, t, cutoff)   # success (may be [])
         refreshed += 1
         if verbose:
             print(f"  [{t}] {len(by_ticker[key])} sự kiện sắp tới")
+
+    if refreshed == 0 and failed:
+        # Không lấy được gì → KHÔNG ghi đè file (mtime giữ nguyên) để lượt sau
+        # còn được thử lại; ghi là "đã refresh hôm nay" giả trong khi cache
+        # vẫn là hôm qua.
+        if verbose:
+            print(f"  → refresh: 0 mã OK, {failed} mã lỗi — giữ nguyên file cũ")
+        return _prior_frame(prior)
 
     # Flatten, drop anything now past the cutoff, dedup.
     rows = [e for evs in by_ticker.values() for e in evs
@@ -148,6 +172,11 @@ def refresh_upcoming(
         print(f"  → refresh: {refreshed} mã OK, {failed} mã lỗi (giữ cache cũ), "
               f"tổng {len(out)} sự kiện tương lai")
     return out
+
+
+def _prior_frame(prior: dict) -> pd.DataFrame:
+    rows = [e for evs in prior.values() for e in evs]
+    return pd.DataFrame(rows, columns=_COLS)
 
 
 def load_upcoming(

@@ -289,3 +289,51 @@ def test_templates_have_upcoming_events_output_section():
     for bt in ("morning", "afternoon"):
         p = build_prompt({"date": "2026-06-10", "time": "15:00"}, brief_type=bt)
         assert "## 📅 Sự kiện sắp tới" in p
+
+
+# ─── Bão timeout VCI trong refresh_upcoming (22/09: 52 mã × 30s = 28′) ────────
+
+def test_refresh_upcoming_stops_after_consecutive_failures(tmp_path, monkeypatch):
+    """Đêm VCI ốm mỗi mã là một timeout 30s: 52 mã = 28′ ngay trong bước
+    brief 22/09. Ba mã lỗi liền → dừng, giữ cache cũ, KHÔNG ghi đè file (mtime
+    giữ nguyên để lượt sau thử lại rẻ)."""
+    import pandas as pd
+    import vnstock_events as ev
+    p = tmp_path / "upcoming_events.parquet"
+    prior = pd.DataFrame([{c: None for c in ev._COLS}]).iloc[0:0]
+    prior = pd.DataFrame([{"ticker": "ACB", "ex_date": "2099-01-05", "title": "cũ",
+                           **{c: None for c in ev._COLS if c not in ("ticker", "ex_date", "title")}}],
+                         columns=ev._COLS)
+    prior.to_parquet(p, index=False)
+    monkeypatch.setattr(ev, "UPCOMING_EVENTS_PATH", p)
+    monkeypatch.setattr(ev, "_META", tmp_path)
+    mtime0 = p.stat().st_mtime
+    calls = []
+
+    def _down(t):
+        calls.append(t)
+        return None
+    monkeypatch.setattr(ev, "_fetch_vci_events", _down)
+    out = ev.refresh_upcoming(tickers=[f"T{i:02d}" for i in range(52)])
+    assert calls == ["T00", "T01", "T02"]          # dừng sau 3, không gõ 49 mã còn lại
+    assert list(out["ticker"]) == ["ACB"]            # cache cũ còn nguyên
+    assert p.stat().st_mtime == mtime0               # file không bị ghi đè
+
+
+def test_refresh_upcoming_failure_streak_resets_on_success(tmp_path, monkeypatch):
+    """Lỗi rải rác (mã hủy niêm yết) không phải VCI ngã: xen kẽ OK thì chạy hết."""
+    import pandas as pd
+    import vnstock_events as ev
+    p = tmp_path / "upcoming_events.parquet"
+    monkeypatch.setattr(ev, "UPCOMING_EVENTS_PATH", p)
+    monkeypatch.setattr(ev, "_META", tmp_path)
+    monkeypatch.setattr(ev, "_extract_upcoming", lambda df, t, cutoff: [])
+    seq = iter([None, None, pd.DataFrame(), None, None, pd.DataFrame(), None])
+    calls = []
+
+    def _flaky(t):
+        calls.append(t)
+        return next(seq)
+    monkeypatch.setattr(ev, "_fetch_vci_events", _flaky)
+    ev.refresh_upcoming(tickers=list("ABCDEFG"))
+    assert calls == list("ABCDEFG")                  # chưa bao giờ 3 lỗi LIỀN → chạy hết

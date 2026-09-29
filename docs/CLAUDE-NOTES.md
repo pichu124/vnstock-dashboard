@@ -7062,10 +7062,16 @@ c. **Thiếu brief hai thứ Hai 21/09 và 28/09; 22/09 ladder DOWN** (#20).
    (hiện 00:13)`. Task lịch khoẻ (LastTaskResult 0). 22/09: flash-lite 46/46
    lỗi, flash 7/13, tin Telegram cắt trước dòng OpenRouter ⇒ chưa biết nấc
    cuối chết vì gì. Sổ 22/09 (`--show --day`) bác giả thuyết quota: OpenRouter
-   super 3 call · 3 OK · 0 lỗi, ultra 0 call ⇒ hoặc bản super bị loại SAU khi
-   sinh (validation), hoặc 3 call đó là reflection và bước brief không gọi tới
-   OpenRouter — chờ đoạn log bước brief 22/09. Sổ 21/09 còn lộ #23: OpenRouter
-   trả body không `choices`/`message` → `KeyError` thay vì in lỗi provider.
+   super 3 call · 3 OK · 0 lỗi. **Đoạn log thô bước brief 22/09 (01:00) mở ra
+   gốc rễ của #21:** 21:49 → 22:17 là 52 dòng `vnstock.core.utils.client -
+   ERROR … iq.vietcap.com.vn … Read timed out (read timeout=30)` = 28′ trong
+   30,8′ — `_auto_refresh_events` → `refresh_upcoming` gõ VCI cho ~52 mã (VN30
+   ∪ movers) đúng đêm VCI ngã, không có cửa dừng. Bước brief "phình" các đêm
+   22→29/09 là VCI, KHÔNG phải Gemini; 21/09 cùng bão này góp phần đẩy qua trần.
+   Vá #21b: dừng sau 3 mã lỗi liền, giữ cache, không ghi đè khi 0 mã OK. Phần
+   LLM 22/09 chỉ ~2′ với đúng 1 call OK mà bản trắng (#24) — dòng log từng agent
+   ở phát kế sẽ nói. Sổ 21/09 còn lộ #23: OpenRouter trả body không
+   `choices`/`message` → `KeyError` thay vì in lỗi provider.
 
 ## 5. Ghi nhận khác (không vá)
 - Bản Nemotron Super của brief phân bổ: thập phân kiểu VN ("-0,34", "25 917"),
