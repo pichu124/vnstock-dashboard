@@ -348,11 +348,29 @@ Get-ScheduledTaskInfo -TaskName 'VnStock Daily Pipeline' | Select-Object LastRun
 ```
 (tên task đúng là `VnStock Daily Pipeline`; `brief_push.json` chỉ giữ phiên
 mới nhất nên không kể được quá khứ.)
+**Đọc log 23:55:** `run_daily.1.log` có `⏱ TỔNG` 11→18/09 và 22→25/09, **KHÔNG có
+21/09**; `[brief]` nhảy từ msg 271 (18/09) sang 275 (22/09) — 272/273 là hai tin T7
+19/09, 274 là alert ladder DOWN 22/09 ⇒ 21/09 không gửi gì. Nhưng sổ LLM 21/09 có
+133 call gồm đúng bộ agent brief (Mistral 4 · super 3 · ultra 2) ⇒ pipeline 21/09
+CHẠY tới bước brief rồi CHẾT giữa chừng (không `⏱ TỔNG`, không dòng `[brief]`):
+nghi chạm trần 180′ ngay trong bước brief (bước brief từ 22/09 mất 1.393–2.532s vì
+Gemini 503/timeout) hoặc máy tắt. 28/09 xác nhận bằng dòng log
+`[brief] bỏ qua: chưa tới 15:00 (hiện 00:13)` — đúng bug #20a. Task lịch khoẻ
+(LastTaskResult 0, Next 30/09 18:00). Lệnh kế, 🖥️ DESKTOP:
+```powershell
+Select-String '^\[run\.py\] 2026-09|=== run.py all ::|\[run\.py\] ⏱ |partial:|Fallback KBS|Traceback' run_daily.1.log | Where-Object { $_.LineNumber -gt 28158 -and $_.LineNumber -lt 39830 }
+Select-String 'OpenRouter|Nemotron|Gemini|Mistral|Cerebras|ladder|\[brief\]|không đạt|loại' run_daily.1.log | Where-Object { $_.LineNumber -gt 33500 -and $_.LineNumber -lt 39830 } | Select-Object -Last 80
+```
+Lệnh 1 = lượt 21/09 chết ở bước nào và mấy giờ khởi động; lệnh 2 = bước brief 22/09
+vì sao "mọi agent đều lỗi" trong khi sổ ghi OpenRouter super 3 call · 3 OK · 0 lỗi
+(nghi bản super bị loại SAU khi sinh — validation — hoặc 3 call đó của reflection).
 (3) Đêm 22/09 ladder DOWN: `python vnstock_llm_ledger.py --show --day 2026-09-22`
 (tin Telegram cắt sau dòng flash-lite, chưa thấy OpenRouter/Groq đêm đó).
-(4) LNH ON nghi nguồn: `python vnstock_sbv_rates.py --show` — nếu nguồn cũng in
-ON 0,48% / 1W 6,20% thì là số của SBV (để nguyên, #19 chỉ gắn nhãn nghi); nếu
-khác thì parse hỏng, dán cả hai. **○ máy nào cũng được:** console.mistral.ai
+(4) LNH ON nghi nguồn: `--show` (cache, 28/09): ON 0,48 · 1W 6,20 · 2W 6,18 · 1M
+6,60 · 3M 6,99 · 6M 7,69 — cả đường cong 6–7,7% trừ ON. Cache chỉ nói bản parse;
+chạy `python vnstock_sbv_rates.py --diag` (○, fetch tươi, in 3 ngày mới nhất mọi kỳ
+hạn) để tách nguồn/parse. Dù là số của SBV, #19 vẫn cần: gauge không được cộng +1,00
+"DƯ THỪA" từ một ON lệch 1W tới 5,7 điểm. **○ máy nào cũng được:** console.mistral.ai
 xem quota để biết có bật lại giọng thứ tư không.
 
 ## 6. 💻 Laptop — merge + nâng vnstock 4.0.7 TRƯỚC desktop
@@ -425,7 +443,9 @@ hiệu guard đang LÀM VIỆC, không phải hỏng.
 | 18 | **GTGD cả ngày hụt vì MÃ LỚN bị cách ly — cổng coverage đếm SỐ MÃ, mù với GIÁ TRỊ** | 🟠 MỚI 29/09 — `_gtgd_baselines` (`vnstock_brief.py:2024`) loại ngày under-covered theo `count < 70% trung vị` nên 45 mã cách ly (FPT · VPB · GAS · TCX · PVS — mỗi mã vài trăm tỷ/phiên) đứng 2 tuần mà cổng không thấy: Σ giá×KLGD hụt hệ thống, brief nói "thấp hơn TB" một phần là thiếu data. Bằng chứng: 17/09 "+27% so với phiên trước" và 18/09 "+26%" trong khi brief 16/09 · 17/09 tự in 15.489 · 16.004 tỷ (guard `enforce_gtgd_baseline_pct` bắt % khớp ctx ⇒ lệch nằm ở ctx, không ở LLM). Vá: cổng theo TỈ TRỌNG GTGD (mã trong top-50 GTGD 20 phiên thiếu bar hôm nay ⇒ ghi "(thiếu N mã lớn: …, ước tính thấp)" vào dòng GTGD + badge doctor), hoặc Σ trên GIAO của tập mã có bar ở mọi ngày trong cửa sổ. Kèm #15 (KBS >8% không vào sổ) vì cùng gốc: mã lớn đứng im mà không ai réo. |
 | 19 | **LNH ON rơi 6,84% → 0,48% trong 5 phiên, 1W lên 6,20% — gauge thanh khoản +1,00 dựng trên số nghi** | 🟠 MỚI 29/09 — brief 22→29/09: ON 4,43 → 2,56 → 1,10 → 0,48 trong khi 1W 4,91 → 5,26 → 5,06 → 6,20; chênh ON−1W 5,7 điểm % chưa từng thấy trên LNH VN (hai kỳ hạn thường cách <0,5). `liquidity_spread` phán "DƯ THỪA" và bơm +1,00×0,10 vào điểm band (allocation 29/09 in đúng dòng đó). Chưa kết luận nguồn hay parse: sandbox không gọi được SBV, Finhay không có chỉ tiêu LNH — user chạy `python vnstock_sbv_rates.py --show` (mục 7). Vá dự kiến: gauge thêm cửa hợp lý |ON − 1W| > 1,5 điểm ⇒ nhãn "nghi dữ liệu nguồn", điểm 0 (không +1), badge doctor `sbv_rates` réo. |
 | ~~20a~~ | **Cửa brief chiều chặn nhầm lượt tràn nửa đêm** | ✅ **XONG 29/09 23:40** (chờ desktop merge) — `run.py._close_session_date` nay = `vnstock_rollup.session_covered_at` (PHIÊN PHỦ, cùng luật `--skip-if-done` #14): trước 15:05 ngày làm việc là phiên TRƯỚC, nên 00:13 T3 = phiên T2 và marker ghi đúng phiên (bản cũ sẽ ghi 29/09 → brief T3 tối đó bị coi là trùng). `_should_push_close(now, marker, started=)`: lượt KHỞI ĐỘNG trong ngày phiên (`args.pipeline_started`, cmd_all gắn) tràn qua nửa đêm vẫn đẩy; chạy bù sáng và lệnh tay không biết giờ khởi động thì chặn như cũ (user chốt 15/08). `_CLOSE_CUTOFF` = 15:05 có test parity với rollup. Test `tests/test_run_pipeline.py` +3, parity doctor đổi mốc 12:00→16:00. Fast 2.643. |
-| 20 | **Thiếu brief thứ Hai 21/09; 22/09 ladder DOWN** | 🟠 CHỜ LOG — 28/09 đã rõ (#20a). 21/09: log đã xoay vòng, cần `run_daily.1.log` (mục 7) — nếu cũng là đêm VCI ốm khởi động muộn thì cùng bệnh #20a; nếu không có `⏱ TỔNG` 21/09 thì task không chạy/chết. 22/09: flash-lite 46/46 lỗi + flash 7/13 lỗi, tin cắt trước dòng OpenRouter — cần `--show --day 2026-09-22` để biết nấc cuối chết vì gì (quota 50 req/ngày OpenRouter bị digest/analyze đốt trước bước brief?). Nếu đúng thì việc kế: dành quota OpenRouter cho brief (đếm call trong ngày, chặn digest khi còn <6). |
+| 20 | **Thiếu brief thứ Hai 21/09; 22/09 ladder DOWN** | 🟠 CHỜ LOG — 28/09 đã rõ (#20a, log in đúng dòng `bỏ qua: chưa tới 15:00 (hiện 00:13)`). **21/09: pipeline CHẠY tới bước brief rồi chết** — không `⏱ TỔNG`, không `[brief]`, Telegram không có tin, nhưng sổ LLM 21/09 có bộ agent brief (Mistral 4 · super 3 · ultra 2). Nghi trần 180′ giết giữa bước brief (xem #21) hoặc máy tắt — chờ lệnh 1 mục 7. 22/09: flash-lite 46/46 lỗi + flash 7/13 lỗi, tin cắt trước dòng OpenRouter — cần `--show --day 2026-09-22` để biết nấc cuối chết vì gì (quota 50 req/ngày OpenRouter bị digest/analyze đốt trước bước brief?). Sổ 22/09 (`--show --day`): OpenRouter super **3 call · 3 OK · 0 lỗi**, ultra 0 call, flash 6/13 OK, lite 0/46, Mistral 0/6, qwen 0/5 (404), gemma 0/10 (404) ⇒ KHÔNG phải quota OpenRouter; nghi bản super bị loại sau khi sinh (validation) hoặc 3 call ấy là reflection — chờ lệnh 2 mục 7. |
+| 21 | **Bước brief phình 1.393–2.532s từ 22/09 (trước đó 37–754s) — cùng đêm VCI ốm là chạm trần 180′** | 🟠 MỚI 29/09 khuya — `⏱ TỔNG` 22/09 brief 1.848s · 23/09 1.930s · 24/09 2.532s · 25/09 1.393s · 29/09 1.743s, trùng đúng đợt Gemini flash 503 + lite read-timeout 90s (agent đợi 20s gọi lại rồi sang lite, mỗi nấc lại 90s). Với sync 7.272s đêm 28/09 thì brief chỉ còn 2′ trước trần; 21/09 có thể đã chết đúng chỗ này. Việc: (a) in `[brief] ⏱ <agent>: Ns` cho TỪNG agent + thời gian dựng ctx để biết 30′ đi đâu; (b) ngân sách tường `VNSTOCK_BRIEF_BUDGET_S` cho bước brief (agent quá hạn → bỏ, lấy bản đã xong); (c) cân nhắc đưa `test` (283–302s) xuống SAU brief — test không nuôi brief, còn audit/train/reflection thì có ("Đóng hôm nay", bài học). |
+| 23 | **OpenRouter trả body không có `choices`/`message` → agent nổ `KeyError` thay vì in lỗi của provider** | 🟠 MỚI 29/09 — sổ 21/09: super `KeyError: 'message'`, ultra `'choices'`. Body lỗi của OpenRouter (upstream error / rate-limit dạng JSON `error`) bị đọc như body thành công. Vá: `_OpenAICompatAgent` đọc `body.get("error")` trước, in `provider: <message>` và đi tiếp nấc kế; test với body `{"error": {"message": …}}`. |
 
 **📏 Phát kế tiếp là phép đo của cả ba bản vá** — dán `⏱ TỔNG` + `⏱ CHẶNG` +
 dòng `screener` như thường lệ.

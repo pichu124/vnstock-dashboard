@@ -7047,11 +7047,19 @@ c. **Thiếu brief hai thứ Hai 21/09 và 28/09; 22/09 ladder DOWN** (#20).
    `args.pipeline_started`) — khởi động trong ngày phiên thì tràn nửa đêm vẫn
    đẩy, chạy bù sáng vẫn chặn (15/08). Không có cửa cũ thì marker đã ghi 29/09
    và brief T3 tối đó bị coi là trùng — cùng một lỗi, hai mặt.
-   `run_daily.log` xoay vòng 5 MB nên chỉ còn từ 25/09; 21/09 nằm ở
-   `run_daily.1.log`, chưa xem. 22/09: flash-lite 46/46
+   `run_daily.1.log` (đọc 23:55): `⏱ TỔNG` có 11→18/09 và 22→25/09, KHÔNG có
+   21/09; `[brief]` nhảy msg 271 (18/09) → 275 (22/09), 272/273 = hai tin T7
+   19/09, 274 = alert ladder DOWN 22/09. Sổ LLM 21/09 lại có bộ agent brief
+   (Mistral 4 · super 3 · ultra 2) ⇒ 21/09 pipeline CHẠY tới brief rồi CHẾT
+   giữa chừng — nghi trần 180′ (bước brief từ 22/09 mất 23–42′, #21) hoặc máy
+   tắt; chờ đoạn log. 28/09 xác nhận bằng dòng `[brief] bỏ qua: chưa tới 15:00
+   (hiện 00:13)`. Task lịch khoẻ (LastTaskResult 0). 22/09: flash-lite 46/46
    lỗi, flash 7/13, tin Telegram cắt trước dòng OpenRouter ⇒ chưa biết nấc
-   cuối chết vì gì; nghi quota 50 req/ngày OpenRouter bị analyze/digest đốt
-   trước bước brief (nếu đúng: dành quota cho brief).
+   cuối chết vì gì. Sổ 22/09 (`--show --day`) bác giả thuyết quota: OpenRouter
+   super 3 call · 3 OK · 0 lỗi, ultra 0 call ⇒ hoặc bản super bị loại SAU khi
+   sinh (validation), hoặc 3 call đó là reflection và bước brief không gọi tới
+   OpenRouter — chờ đoạn log bước brief 22/09. Sổ 21/09 còn lộ #23: OpenRouter
+   trả body không `choices`/`message` → `KeyError` thay vì in lỗi provider.
 
 ## 5. Ghi nhận khác (không vá)
 - Bản Nemotron Super của brief phân bổ: thập phân kiểu VN ("-0,34", "25 917"),
