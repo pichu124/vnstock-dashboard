@@ -37,6 +37,7 @@
 param(
     [switch]$Remove,
     [switch]$DryRun,
+    [switch]$AllowSystemPython,     # co y dang ky Python HE THONG (mac dinh: tu choi)
     [string]$PythonExe        = "",
     [string]$DailyTime   = "18:00",
     [string]$WeekendTime = "09:00"
@@ -69,6 +70,9 @@ if (-not $isAdmin -and -not $DryRun) {
 $ScriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $ProjectRoot = Split-Path -Parent $ScriptDir
 $VenvPython  = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
+# venv DANG KICH HOAT (may user: C:\Users\<user>\.venv, KHONG nam trong repo)
+$ActiveVenvPython = ""
+if ($env:VIRTUAL_ENV) { $ActiveVenvPython = Join-Path $env:VIRTUAL_ENV "Scripts\python.exe" }
 $SystemPython = (Get-Command python.exe -ErrorAction SilentlyContinue).Source
 
 if ($PythonExe -ne "") {
@@ -79,7 +83,27 @@ elseif (Test-Path $VenvPython) {
     $PythonExe = $VenvPython
     Write-Host "Using venv Python   : $PythonExe" -ForegroundColor Cyan
 }
+elseif ($ActiveVenvPython -ne "" -and (Test-Path $ActiveVenvPython)) {
+    $PythonExe = $ActiveVenvPython
+    Write-Host "Using active venv   : $PythonExe" -ForegroundColor Cyan
+}
 elseif ($SystemPython) {
+    # 30/09: cua so Admin chua kich hoat venv -> script lang le dang ky
+    # C:\Python314\python.exe (3.14, khong co thu vien) thay cho venv 3.13
+    # -> pipeline dem se chet ngay khi import. Tu choi, tru khi co y.
+    if (-not $AllowSystemPython) {
+        Write-Host ""
+        Write-Host "[ERROR] Khong thay venv - script SE dang ky task voi Python HE THONG:" -ForegroundColor Red
+        Write-Host "        $SystemPython" -ForegroundColor Red
+        Write-Host "        Pipeline dem chay bang Python nay se thieu thu vien (vnstock, pandas...)." -ForegroundColor Red
+        Write-Host ""
+        Write-Host "Cach sua (mot trong hai):" -ForegroundColor Yellow
+        Write-Host "  1. Kich hoat venv trong CHINH cua so Admin nay roi chay lai:"
+        Write-Host "     & 'C:\Users\<user>\.venv\Scripts\Activate.ps1'"
+        Write-Host "  2. Hoac truyen thang: .\scripts\setup_scheduled_tasks.ps1 -PythonExe 'C:\Users\<user>\.venv\Scripts\python.exe'"
+        Write-Host "  Co y dung Python he thong: them -AllowSystemPython." -ForegroundColor DarkGray
+        exit 1
+    }
     $PythonExe = $SystemPython
     Write-Host "Using system Python : $PythonExe" -ForegroundColor Yellow
     Write-Host "(Tip: create .venv to isolate dependencies)" -ForegroundColor DarkGray

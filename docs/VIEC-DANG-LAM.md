@@ -336,7 +336,16 @@ nhận cho 4c. Badge `allocation` sẽ hết ⚠️ ở doctor kế.
 (29/09 ~23:20). (1b) ✅ đã merge `1a45a91` (cửa brief chiều), `--fast` 2.643 / 327s (máy bận
 nhất thời). (1c) ✅ **đã merge `a4407b0`** (log từng agent + cap 240 trong
 script), `--fast` 2.645 passed / 102s (30/09 00:40) — phát tối 30/09 in
-`[brief] ⏱ …`. Cap 240 chỉ ăn sau khi chạy lại script Run as Administrator.
+`[brief] ⏱ …`. (1d) 00:50 chạy lại script Admin: `PT4H` ✅ NHƯNG script chọn
+**`C:\Python314\python.exe`** (Python hệ thống 3.14) vì cửa sổ Admin chưa kích
+hoạt venv ⇒ **🖥️ DESKTOP PHẢI ĐĂNG KÝ LẠI TRƯỚC 18:00 30/09** với venv thật:
+```powershell
+.\scripts\setup_scheduled_tasks.ps1 -PythonExe 'C:\Users\admin\.venv\Scripts\python.exe'
+(Get-ScheduledTask -TaskName 'VnStock Daily Pipeline').Actions.Execute
+```
+(dòng cuối phải in đường venv; đường này lấy từ chính dòng `Update: …` của gói
+vnstock trên desktop). Script đã thêm lưới: nhận `$env:VIRTUAL_ENV`, từ chối
+Python hệ thống trừ `-AllowSystemPython`.
 (2) **28/09 ĐÃ RÕ** (log 29/09 23:30): pipeline khởi động 21:15, sync 7.272s
 (VCI ốm → KBS 1.027 mã, partial 151 lúc 23:11), tới bước brief lúc **00:13** →
 cửa `_should_push_close` thấy "ngày làm việc, trước 15:00" → bỏ qua như chạy

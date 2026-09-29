@@ -58,7 +58,10 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 - Dashboard: `python run.py dashboard` (Streamlit, localhost:8501).
 - Lịch chạy tự động: `scripts/setup_scheduled_tasks.ps1` (2 task: Daily
   18:00 ngày làm việc + Weekend — gộp từ 29/07; đăng ký THEO MÁY — máy mới
-  phải chạy lại script này, Run as Administrator). Trần task Daily **240
+  phải chạy lại script này, Run as Administrator **trong shell ĐÃ kích hoạt
+  venv hoặc kèm `-PythonExe <venv>\Scripts\python.exe`** — 30/09 cửa sổ Admin
+  trần đã đăng ký `C:\Python314` không thư viện; script nay từ chối Python hệ
+  thống trừ `-AllowSystemPython`). Trần task Daily **240
   phút** trong script từ 29/09 (180 giết phát 21/09 GIỮA bước brief: sync 99′ +
   screener 23′ + news 17′ + train 12′ ⇒ brief bắt đầu ở phút 168; máy còn đăng
   ký 180 tới khi chạy lại script). Bước brief đêm Gemini ốm mất 23–42′ (#21),
