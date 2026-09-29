@@ -2030,7 +2030,27 @@ def _full_wss_baselines(hist: dict, data_date: str) -> "dict | None":
 _GTGD_COVERAGE_MIN_RATIO = 0.7   # ngày có count < 70% median(count) = thiếu coverage
 
 
-def _gtgd_baselines(byd: dict, data_date: str) -> "dict | None":
+def _gtgd_missing_note(ctx: dict) -> str:
+    """#18: mã lớn thiếu bar phiên này (cách ly cơ sở/sync lỗi) → prompt nói
+    rõ số GTGD là ước tính THẤP và % baseline đã loại các mã đó khỏi cả hai vế
+    (runner ghi `excl_missing`). "" khi không thiếu mã nào."""
+    mh = ctx.get("gtgd_missing_heavy") or []
+    if not mh:
+        return ""
+    names = ", ".join(str(m.get("ticker")) for m in mh[:6]) + (" …" if len(mh) > 6 else "")
+    try:
+        est = float(ctx.get("gtgd_missing_est") or 0) or float(
+            sum(float(m.get("avg_gtgd") or 0) for m in mh))
+    except (TypeError, ValueError):
+        est = 0.0
+    return (f"\n⚠️ Kho THIẾU bar phiên này của {len(mh)} mã lớn ({names}; ≈{est:,.0f} "
+            "tỷ/phiên theo TB 22 bar) → số GTGD cả ngày trên là ƯỚC TÍNH THẤP. % so "
+            "baseline bên dưới đã LOẠI các mã này khỏi CẢ HAI vế nên vẫn so được. Ngay "
+            f"sau số GTGD ghi đúng một lần '(chưa gồm {len(mh)} mã lớn thiếu data)'; "
+            "TUYỆT ĐỐI KHÔNG suy 'dòng tiền rút/thanh khoản cạn' từ phần thiếu này.")
+
+
+def _gtgd_baselines(byd: dict, data_date: str, *, use_excl: bool = False) -> "dict | None":
     """full_day_gtgd_cmp {prev, avg5[, avg20]} từ map ``gtgd_by_date`` của
     runner, LOẠI các ngày under-covered khỏi baseline.
 
@@ -2044,13 +2064,15 @@ def _gtgd_baselines(byd: dict, data_date: str) -> "dict | None":
     thiếu DATA, không phải thị trường vắng). prev = phiên gần nhất ĐÃ QUA
     GATE; avg20 chỉ xuất khi ≥15 phiên gated (giữ ngưỡng cũ "đủ phiên cho
     baseline TB20 thật"). Map cũ không có count → giữ hành vi cũ (không
-    gate). None khi không còn phiên nào dùng được."""
+    gate). None khi không còn phiên nào dùng được.
+    `use_excl` (#18): lấy `excl_missing` (tổng đã loại mã lớn đang thiếu bar ở
+    phiên mới nhất) thay cho `total` khi có — cùng tập mã với hôm nay."""
     entries: list[tuple[str, float, int]] = []
     for k in sorted(byd or {}, reverse=True):
         if k >= data_date:
             continue
         e = byd.get(k) or {}
-        t = e.get("total")
+        t = e.get("excl_missing", e.get("total")) if use_excl else e.get("total")
         if isinstance(t, (int, float)) and t > 0:
             entries.append((k, float(t), int(e.get("count") or 0)))
     if not entries:
@@ -2203,7 +2225,15 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
                     # belongs to the morning figure, not the full-day total).
                     # Baseline qua _gtgd_baselines: loại ngày under-covered
                     # (count thấp = mã sync trễ làm hụt tổng, review 21/07).
-                    _cmp = _gtgd_baselines(_byd, _data_date_str)
+                    # #18: mã lớn thiếu bar phiên này → baseline cùng tập mã
+                    # (`excl_missing`, chỉ hợp lệ khi brief nói về đúng phiên
+                    # runner kê thiếu) + kê tên cho prompt/guard/doctor.
+                    _missing_heavy = data.get("gtgd_missing_heavy") or []
+                    _use_excl = bool(_missing_heavy) and data.get("data_date") == _data_date_str
+                    if _use_excl:
+                        ctx["gtgd_missing_heavy"] = _missing_heavy
+                        ctx["gtgd_missing_est"] = data.get("gtgd_missing_est") or 0.0
+                    _cmp = _gtgd_baselines(_byd, _data_date_str, use_excl=_use_excl)
                     if _cmp:
                         ctx["full_day_gtgd_cmp"] = _cmp
                 else:
@@ -3147,6 +3177,7 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
                 line += (f"\nGTGD cả ngày: {_F:,.1f} tỷ{_src} → DÙNG ĐÚNG SỐ NÀY cho "
                          f"'GTGD' trong TLDR/Tổng kết phiên; TUYỆT ĐỐI KHÔNG nhặt số khác "
                          f"(GTGD sáng, GTGD theo ngành, v.v.) làm GTGD cả ngày.")
+                line += _gtgd_missing_note(ctx)
                 if _fcmp.get("prev") or _fcmp.get("avg5"):
                     _parts = []
                     if _fcmp.get("prev"):
@@ -3186,6 +3217,7 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         elif (not _intraday) and isinstance(_eod_full, (int, float)) and _eod_full > 0:
             _l += (f"\nGTGD cả ngày: {_eod_full:,.1f} tỷ (ước tính từ EOD: Σ giá×KLGD) → "
                    f"DÙNG ĐÚNG SỐ NÀY cho 'GTGD' trong TLDR/Tổng kết phiên.")
+            _l += _gtgd_missing_note(ctx)
             _cmp = ctx.get("full_day_gtgd_cmp") or {}
             if _cmp.get("prev"):
                 _pct = (float(_eod_full) / _cmp["prev"] - 1) * 100 if _cmp["prev"] else 0
@@ -3567,6 +3599,8 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     enforce_compare_direction,
     enforce_composite_rotation_hygiene,
     enforce_gtgd_baseline_pct,
+    _GTGD_MISSING_MARK,
+    enforce_gtgd_missing_note,
     enforce_gtgd_compare_frame,
     enforce_gtgd_total,
     enforce_lead_lag,

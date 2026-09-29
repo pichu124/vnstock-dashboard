@@ -107,6 +107,8 @@ from vnstock_brief_guards_numbers import (  # noqa: F401  (re-export)
     enforce_change_verb_sign,
     enforce_compare_direction,
     enforce_gtgd_baseline_pct,
+    _GTGD_MISSING_MARK,
+    enforce_gtgd_missing_note,
     enforce_gtgd_compare_frame,
     enforce_gtgd_total,
     enforce_number_format,
@@ -266,6 +268,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_unvalidated_strategy_caveat(fixed, ctx)  # chiến lược trượt kiểm định → nói ra
     fixed = enforce_stance_sentiment_caution(fixed, ctx)  # TĂNG stance + tâm lý tiêu cực → caveat
     fixed = enforce_gtgd_total(fixed, ctx)            # full-day (close) / sáng (morning)
+    fixed = enforce_gtgd_missing_note(fixed, ctx)     # #18: "(chưa gồm N mã lớn thiếu data)"
     fixed = enforce_gtgd_compare_frame(fixed, ctx)    # close-only: full-day ≠ morning baseline
     fixed = enforce_gtgd_baseline_pct(fixed, ctx)     # close-only: % must match its baseline
     fixed = enforce_compare_direction(fixed, ctx)     # 'thấp/cao hơn' must match % sign

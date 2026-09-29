@@ -7030,7 +7030,13 @@ a. **GTGD cả ngày hụt vì mã lớn cách ly** (#18). 17/09 "+27% so với 
    hôm trước in. Cổng coverage đếm SỐ MÃ (`count < 70% trung vị` ⇒ loại ngày)
    nên 45 mã cách ly gồm FPT · VPB · GAS · TCX · PVS đứng 13 ngày mà cổng
    không thấy: Σ hụt vài nghìn tỷ, brief "thấp hơn TB" một phần là thiếu
-   data. Vá dự kiến: cổng theo tỉ trọng GTGD, và ghi rõ "(thiếu N mã lớn)".
+   data. **Vá 30/09 02:10 (#18):** runner giữ giá×KLGD theo TỪNG mã 22 bar →
+   `heavy_missing` (mã TB ≥ 50 tỷ/phiên không có bar phiên mới nhất, còn bar
+   trong 45 ngày) + `excl_missing_totals` (total từng ngày trừ đúng giá trị
+   ngày đó của các mã thiếu) ⇒ brief so prev/TB5/TB20 trên CÙNG tập mã, prompt
+   + guard ghi "(chưa gồm N mã lớn thiếu data)", doctor badge `gtgd_coverage`.
+   Mức tuyệt đối không bù bịa — chỉ % và chú thích. Chưa có thước đo thật:
+   phát kế in badge + dòng prompt là phép đo (45 mã đã chữa nên có thể ok ngay).
 b. **LNH ON 6,84 → 0,48% trong 5 phiên, 1W 4,20 → 6,20** (#19): chênh ON−1W
    5,7 điểm là dị thường; gauge `liquidity_spread` phán DƯ THỪA +1,00 và bơm
    +0,10 vào điểm band (allocation 29/09 in đúng dòng đó). Sandbox không gọi

@@ -99,7 +99,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   lần**, KHÔNG phải ⇄ CẢ HAI (sửa 19/08).
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~2.648 test; ~45s trên CI,
+- Sửa module lõi nào → `python run.py test --fast` (~2.654 test; ~45s trên CI,
   86s máy thật 15/09 tối). Danh sách file `--fast` là WHITELIST trong `run.py` —
   thêm file test mới thì phải ghi vào đó, không thì `--fast` không chạy nó.
 - Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, ~3.235 test — pipeline 29/09 chạy full 3.235 passed / 134s).
@@ -238,6 +238,10 @@ chạy code cũ → `git log --oneline -1` đối chiếu commit cuối Claude b
 - Rollup cố tình skip index → brief sáng thấy data hôm nay duy nhất qua
   `_augment_with_live_vnindex()`.
 - `Giá 1T %` = đổi 1 TUẦN (5 phiên), không phải 1 phiên — mọi nhãn phải ghi rõ.
+- `GTGD cả ngày` = Σ giá×KLGD của mã CÓ bar phiên đó; mã LỚN (TB ≥ 50 tỷ/phiên)
+  thiếu bar ⇒ runner kê `gtgd_missing_heavy`, baseline TB5/TB20 so trên CÙNG tập mã
+  (`excl_missing`), prompt + guard ghi "(chưa gồm N mã lớn thiếu data)", doctor
+  badge `gtgd_coverage` (#18, 30/09 — 45 mã cách ly 16–29/09 làm brief đọc sai TB).
 - Độ tươi `market_overview` so CẢ GIỜ, không chỉ ngày: cùng phiên mà chốt
   trước `SESSION_CLOSE_CUTOFF` (15:05) là GIỮA PHIÊN ⇒ stale, `reason=intraday`.
 

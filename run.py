@@ -718,6 +718,7 @@ def cmd_test(args) -> int:
             "tests/test_vn30_weights.py",
             "tests/test_telegram.py",
             "tests/test_events.py",
+            "tests/test_gtgd_coverage.py",
             "tests/test_macro.py",
             "tests/test_news_feeds.py",
             "tests/test_updater_partial_bar.py",

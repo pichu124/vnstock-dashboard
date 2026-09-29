@@ -1085,3 +1085,28 @@ def enforce_change_verb_sign(text: str, ctx: dict) -> str:
 
     return _re.sub(r"(tăng|giảm)\s*([+-])\s*(\d[\d.,]*\s*%)", _fix, text,
                    flags=_re.IGNORECASE)
+
+
+# ─── #18: số GTGD cả ngày phải mang chú thích khi mã lớn thiếu bar ─────────────
+# Prompt bảo model ghi "(chưa gồm N mã lớn thiếu data)" sau số GTGD; model hay
+# bỏ. Guard gắn đúng một lần ngay sau lần đầu số canon xuất hiện (`{:,.1f} tỷ`,
+# có thể kèm "đồng"). Không có mã thiếu / không có số canon → no-op.
+_GTGD_MISSING_MARK = "chưa gồm"
+
+
+def enforce_gtgd_missing_note(text: str, ctx: dict) -> str:
+    mh = (ctx or {}).get("gtgd_missing_heavy") or []
+    full = (ctx or {}).get("full_day_gtgd")
+    if not text or not mh or not full:
+        return text
+    try:
+        fig = f"{float(full):,.1f} tỷ"
+    except (TypeError, ValueError):
+        return text
+    m = _re.search(_re.escape(fig) + r"(?:\s+đồng)?", text)
+    if not m:
+        return text
+    if _GTGD_MISSING_MARK in text[m.end():m.end() + 60]:
+        return text
+    note = f" (chưa gồm {len(mh)} mã lớn thiếu data)"
+    return text[:m.end()] + note + text[m.end():]

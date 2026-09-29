@@ -213,6 +213,51 @@ class _RatePacer:
             _t.sleep(delay)
 
 
+# #18 (30/09): mã LỚN thiếu bar phiên mới nhất (cách ly cơ sở, sync lỗi) làm
+# Σ giá×KLGD hụt HỆ THỐNG mà cổng đếm SỐ MÃ (`_gtgd_baselines`, 70% trung vị
+# count) không thấy: 45 mã cách ly 16–29/09 gồm FPT · VPB · GAS · TCX · PVS,
+# mỗi mã vài trăm tỷ/phiên = 2,6% số mã nhưng cả nghìn tỷ GTGD. Brief in
+# "+27% so với phiên trước" (17/09) rồi "thấp hơn TB" suốt hai tuần một phần
+# vì thiếu data. Runner biết TỪNG mã có bar ngày nào → (a) kê mã lớn thiếu
+# bar ở phiên mới nhất, (b) tổng baseline từng ngày ĐÃ LOẠI các mã đó để brief
+# so cùng tập mã (`excl_missing`).
+_HEAVY_GTGD_TY = 50.0          # TB giá×KLGD 22 bar ≥ 50 tỷ/phiên → mã lớn
+_HEAVY_MISSING_MAX_DAYS = 45   # thiếu lâu hơn = hủy niêm yết/ngừng GD, không phải lỗ coverage
+
+
+def heavy_missing(gtgd_by_ticker: dict, latest, *, min_avg: float = _HEAVY_GTGD_TY,
+                  max_gap_days: int = _HEAVY_MISSING_MAX_DAYS) -> list:
+    """Mã lớn (TB giá×KLGD ≥ `min_avg` tỷ/phiên trên các bar có) KHÔNG có bar
+    ở ngày `latest` nhưng còn bar trong `max_gap_days` ngày trước đó. Hàm thuần:
+    `gtgd_by_ticker` = {ticker: {date: giá×KLGD tỷ}}. Trả [{ticker, last_date,
+    avg_gtgd}] sắp theo avg giảm dần; [] khi không có `latest`."""
+    out = []
+    if latest is None:
+        return out
+    for tk, tv in gtgd_by_ticker.items():
+        if not tv:
+            continue
+        last = max(tv)
+        if last >= latest or (latest - last).days > max_gap_days:
+            continue
+        avg = float(sum(tv.values()) / len(tv))
+        if avg < min_avg:
+            continue
+        out.append({"ticker": tk, "last_date": last.isoformat(),
+                    "avg_gtgd": round(avg, 1)})
+    out.sort(key=lambda r: -r["avg_gtgd"])
+    return out
+
+
+def excl_missing_totals(totals: dict, gtgd_by_ticker: dict, missing: list) -> dict:
+    """{date: total − Σ giá trị NGÀY ĐÓ của các mã đang thiếu}. Chỉ trừ khi mã
+    có bar ngày đó (mã đứng từ 16/09 thì ngày 17/09 không có gì để trừ) — cùng
+    tập mã với phiên mới nhất, so được % mà không lệch coverage."""
+    names = [m["ticker"] for m in missing]
+    return {d: float(t) - float(sum(gtgd_by_ticker.get(tk, {}).get(d, 0.0) for tk in names))
+            for d, t in totals.items()}
+
+
 def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
     """
     Compute sector metrics + breadth indicators from warehouse parquet.
@@ -267,6 +312,7 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
     b_total = b_ma200 = b_rsi_ov = b_rsi_ob = 0
     b_adv = b_dec = b_unch = b_hi = b_lo = 0
     _gtgd_day_rows: list[tuple] = []  # (bar_date, giá×KLGD tỷ) → tổng GTGD phiên mới nhất
+    _gtgd_by_ticker: dict = {}        # ticker → {date: giá×KLGD tỷ} 22 bar cuối (#18)
     _max_data_date = None  # latest stock bar date actually used (breadth data date)
 
     ticker_dirs = sorted(prices_dir.glob("ticker=*"))
@@ -306,9 +352,14 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
             # cần tổng của ĐÚNG ngày T (đã chốt). 22 bar → đủ ~20 phiên cho
             # baseline TB5/TB20 thật (model từng bịa "TB 20 phiên -15%" khi
             # chỉ có 5 phiên). EOD-derived → không cần WSS.
+            _tv: dict = {}
             for _t, _c, _v in zip(df["time"].tail(22), c.tail(22), v.tail(22)):
                 if _c > 0 and _v > 0:
-                    _gtgd_day_rows.append((pd.Timestamp(_t), _c * _v / 1e6))
+                    _val = float(_c * _v / 1e6)
+                    _gtgd_day_rows.append((pd.Timestamp(_t), _val))
+                    _tv[pd.Timestamp(_t).date()] = _val
+            if _tv:
+                _gtgd_by_ticker[ticker] = _tv
 
             # Breadth
             b_total += 1
@@ -731,6 +782,8 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
     # _pick_gtgd_session (an in-progress day with few names yet is skipped);
     # the brief instead looks up gtgd_by_date for ITS effective trading date.
     gtgd_by_date: dict = {}
+    _missing: list = []
+    _missing_est = 0.0
     if _gtgd_day_rows:
         _acc: dict = {}
         for d, val in _gtgd_day_rows:
@@ -738,8 +791,15 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
             t, n = _acc.get(k, (0.0, 0))
             _acc[k] = (t + val, n + 1)
         _lastn = sorted(_acc.keys(), reverse=True)[:20]   # ~20 phiên cho TB5/TB20
+        # #18: mã lớn thiếu bar phiên mới nhất + tổng từng ngày đã loại chúng
+        _latest_d = _max_data_date.date() if _max_data_date is not None else None
+        _missing = heavy_missing(_gtgd_by_ticker, _latest_d)
+        _missing_est = round(float(sum(m["avg_gtgd"] for m in _missing)), 1)
+        _excl = (excl_missing_totals({k: _acc[k][0] for k in _lastn},
+                                     _gtgd_by_ticker, _missing) if _missing else {})
         gtgd_by_date = {
-            k.isoformat(): {"total": round(_acc[k][0], 1), "count": _acc[k][1]}
+            k.isoformat(): {"total": round(_acc[k][0], 1), "count": _acc[k][1],
+                            **({"excl_missing": round(_excl[k], 1)} if _missing else {})}
             for k in _lastn
         }
     _gd, total_gtgd_day, gtgd_ticker_count = _pick_gtgd_session(gtgd_by_date)
@@ -753,6 +813,11 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
         "gtgd_ticker_count": gtgd_ticker_count,
         "gtgd_date": _gd,
         "gtgd_by_date": gtgd_by_date,
+        # #18: mã lớn thiếu bar phiên data_date (+ tổng TB/phiên của chúng) —
+        # brief nói rõ "ước tính thấp", doctor có badge; baseline dùng excl_missing.
+        "gtgd_missing_heavy": _missing,
+        "gtgd_missing_est": _missing_est,
+        "gtgd_heavy_min": _HEAVY_GTGD_TY,
         "nn_data_date": nn_data_date,   # latest date the foreign-flow feed covers
         "sectors": result.to_dict(orient="records"),
         "breadth": breadth,

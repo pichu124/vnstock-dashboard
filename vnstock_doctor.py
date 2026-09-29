@@ -1373,6 +1373,45 @@ def check_autoheal_yield() -> dict:
         "Tốn ~0s thì cứ để, nó không hại gì; xem _meta/autoheal_runs.json")
 
 
+def check_gtgd_coverage() -> dict:
+    """#18: mã LỚN thiếu bar ở phiên screener vừa quét (cách ly cơ sở / sync
+    lỗi / cửa KBS từ chối) ⇒ GTGD cả ngày trong brief ước tính THẤP. Runner ghi
+    `gtgd_missing_heavy` vào market_overview.json; bản cũ không có key → off."""
+    name = "GTGD cả ngày — mã lớn thiếu bar"
+    p = _META / "market_overview.json"
+    if not p.exists():
+        return _result("gtgd_coverage", name, "off", "chưa có market_overview.json")
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as e:
+        return _result("gtgd_coverage", name, "error",
+                       f"không đọc được market_overview.json ({type(e).__name__})")
+    if "gtgd_missing_heavy" not in data:
+        return _result("gtgd_coverage", name, "off",
+                       "screener bản cũ chưa ghi gtgd_missing_heavy — phát kế sẽ có")
+    mh = data.get("gtgd_missing_heavy") or []
+    dd = data.get("data_date") or "?"
+    floor = data.get("gtgd_heavy_min") or 50
+    if not mh:
+        return _result("gtgd_coverage", name, "ok",
+                       f"phiên {dd}: mọi mã lớn (TB ≥ {float(floor):.0f} tỷ/phiên) đều có bar")
+    try:
+        est = float(data.get("gtgd_missing_est") or 0) or float(
+            sum(float(m.get("avg_gtgd") or 0) for m in mh))
+    except (TypeError, ValueError):
+        est = 0.0
+    top = ", ".join(f"{m.get('ticker')} (≈{float(m.get('avg_gtgd') or 0):,.0f} tỷ, bar cuối "
+                    f"{m.get('last_date')})" for m in mh[:5])
+    more = f" +{len(mh) - 5} mã" if len(mh) > 5 else ""
+    return _result(
+        "gtgd_coverage", name, "warn",
+        f"phiên {dd} thiếu bar {len(mh)} mã lớn ≈ {est:,.0f} tỷ/phiên: {top}{more} — "
+        "GTGD cả ngày trong brief ước tính THẤP (% so baseline đã loại các mã này)",
+        "mã trong sổ cách ly → chữa rebase (badge Lệch cơ sở); mã đứng im mà KHÔNG "
+        "trong sổ = cửa KBS từ chối (#15) → python scripts\\rebase_ticker_history.py "
+        "--ticker <MÃ> --explain")
+
+
 OFFLINE_CHECKS = [
     check_dir_shapes, check_unit_normalizations, check_kill_switches,
     check_basis_drift, check_ohlc_repairs, check_vn30_basket,
@@ -1380,7 +1419,8 @@ OFFLINE_CHECKS = [
     check_brief_watch,
     check_exdiv_source,
     check_pipeline_reach,
-    check_warehouse, check_market_overview, check_fundamentals, check_macro,
+    check_warehouse, check_market_overview, check_gtgd_coverage,
+    check_fundamentals, check_macro,
     check_pdf_tooling, check_market_news, check_ticker_news,
     check_foreign_flow, check_events, check_reports, check_allocation,
     check_llm_keys, check_llm_ledger, check_telegram, check_tests,
