@@ -99,7 +99,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   lần**, KHÔNG phải ⇄ CẢ HAI (sửa 19/08).
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~2.654 test; ~45s trên CI,
+- Sửa module lõi nào → `python run.py test --fast` (~2.657 test; ~45s trên CI,
   86s máy thật 15/09 tối). Danh sách file `--fast` là WHITELIST trong `run.py` —
   thêm file test mới thì phải ghi vào đó, không thì `--fast` không chạy nó.
 - Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, ~3.235 test — pipeline 29/09 chạy full 3.235 passed / 134s).
@@ -128,7 +128,11 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   Agent OpenAI-compat (`_OpenAICompatAgent`): 429/5xx ⇒ đợi 20s gọi lại ĐÚNG
   model một lần, rồi sang `_MODEL_FALLBACKS` cùng provider (Gemini flash →
   flash-lite; OpenRouter super → ultra); output cụt ⇒ sang dự phòng ngay;
-  401/402/403 ⇒ dừng hẳn + cầu dao ngày. KHÔNG hỏi danh mục provider để bỏ
+  401/402/403 ⇒ dừng hẳn + cầu dao ngày. Body mổ ở MỘT chỗ `_openai_extract`
+  (30/09): HTTP 200 kèm `{"error": …}` không `choices` (OpenRouter upstream
+  503) = lỗi provider, KHÔNG KeyError; content RỖNG (model chỉ "suy nghĩ") =
+  lỗi agent, sổ ghi fail — sổ chỉ ghi OK khi có chữ thật (22/09: sổ 3 OK mà
+  brief trắng). KHÔNG hỏi danh mục provider để bỏ
   slug (OpenRouter cắt trang 400 — 15/09 bỏ nhầm ultra đang sống, brief trắng).
   Trần output là TRẦN, không phải chi phí: Gemini `_THINK_HEADROOM` 8.000,
   OpenRouter `_OUTPUT_HEADROOM` 5.200 (nemotron cụt brief ở 2.800). Cụt vẫn

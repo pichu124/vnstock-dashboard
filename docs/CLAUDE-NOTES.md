@@ -7083,7 +7083,12 @@ c. **Thiếu brief hai thứ Hai 21/09 và 28/09; 22/09 ladder DOWN** (#20).
    Vá #21b: dừng sau 3 mã lỗi liền, giữ cache, không ghi đè khi 0 mã OK. Phần
    LLM 22/09 chỉ ~2′ với đúng 1 call OK mà bản trắng (#24) — dòng log từng agent
    ở phát kế sẽ nói. Sổ 21/09 còn lộ #23: OpenRouter trả body không
-   `choices`/`message` → `KeyError` thay vì in lỗi provider.
+   `choices`/`message` → `KeyError` thay vì in lỗi provider. **Vá 02:40 (#23 +
+   #24 cùng gốc):** ba agent mổ body qua `_openai_extract` — body lỗi HTTP 200 =
+   lỗi provider (transient 5xx/429 trong body → đợi 20s gọi lại), content RỖNG
+   = lỗi agent ghi sổ fail + sang dự phòng; sổ chỉ ghi OK khi có chữ thật. Đọc
+   code thấy bản cũ ghi sổ OK TRƯỚC khi mổ content — đúng dấu vết "+1 OK mà
+   brief trắng" 22/09; log từng agent phát 30/09 sẽ xác nhận hay mở lại.
 
 ## 5. Ghi nhận khác (không vá)
 - Bản Nemotron Super của brief phân bổ: thập phân kiểu VN ("-0,34", "25 917"),

@@ -835,3 +835,87 @@ def test_generate_brief_logs_ctx_time_and_every_agent_outcome():
     assert "ctx+prompt" in src and src.index("ctx+prompt") < src.index("ThreadPoolExecutor(")
     i_loop, i_line = src.index("as_completed(futures)"), src.index("_agent_outcome_line(")
     assert i_loop < i_line < src.index("_ordered: dict = {}")
+
+
+# ─── #23/#24: body lỗi HTTP 200 và content rỗng — sổ không được ghi OK ────────
+
+def test_openai_extract_four_cases():
+    import vnstock_brief as vb
+    # 1. body lỗi kiểu OpenRouter 21–22/09 (HTTP 200, không choices)
+    err_body = {"id": "gen-1790006404-x", "error": {
+        "message": "Upstream error from Nvidia: Service temporarily overloaded",
+        "code": 503, "metadata": {"error_type": "provider_overloaded"}}}
+    c, le, why, tr = vb._openai_extract(err_body)
+    assert c == "" and tr is True
+    assert "Upstream error from Nvidia" in why and "(code 503)" in why and "KeyError" not in why
+    assert le.startswith("provider trả lỗi trong body")
+    # không choices, không error → vẫn là lỗi rõ chữ, không transient
+    c, le, why, tr = vb._openai_extract({"id": "x"})
+    assert c == "" and "không có choices" in why and tr is False
+    # 2. cụt
+    c, le, why, tr = vb._openai_extract({"choices": [{"message": {"content": "nửa"},
+                                                      "finish_reason": "length"}]})
+    assert c == "" and le == "finish_reason=length (output cụt)" and "bị cắt" in why
+    # 3. content rỗng, chỉ có suy nghĩ
+    c, le, why, tr = vb._openai_extract({
+        "choices": [{"message": {"content": "", "reasoning": "…"}, "finish_reason": "stop"}],
+        "usage": {"completion_tokens": 1978,
+                  "completion_tokens_details": {"reasoning_tokens": 1978}}})
+    assert c == "" and "content rỗng" in why and "1,978" in why and tr is False
+    assert vb._openai_extract({"choices": [{"message": {"content": None}}]})[0] == ""
+    # 4. bình thường (kể cả content dạng list parts)
+    assert vb._openai_extract(_openai_body("bản đầy đủ"))[0] == "bản đầy đủ"
+    ok = vb._openai_extract({"choices": [{"message": {"content": [{"type": "text", "text": "a"},
+                                                                  {"type": "text", "text": "b"}]}}]})
+    assert ok == ("ab", None, None, False)
+
+
+def test_openrouter_error_body_http200_falls_to_next_model_and_records_fail(
+        monkeypatch, _tmp_meta):
+    """21–22/09: super trả HTTP 200 kèm body {"error": …overloaded, code 503} —
+    bản cũ: sổ ghi OK, rồi nổ KeyError 'message' → sổ ghi thêm 1 lỗi 'KeyError'.
+    Nay: sổ ghi ĐÚNG MỘT lỗi mang chữ của provider, đi tiếp ultra."""
+    import vnstock_brief as vb
+    seen = []
+
+    def _post(url, headers=None, json=None, timeout=None):
+        seen.append(json["model"])
+        if len(seen) == 1:
+            return _Resp({"id": "gen-1", "error": {
+                "message": "Upstream error from Nvidia: Service temporarily overloaded",
+                "code": 503, "metadata": {"error_type": "provider_overloaded"}}})
+        return _Resp(_openai_body("bản từ ultra", {"prompt_tokens": 10, "completion_tokens": 5}))
+    monkeypatch.setattr("requests.post", _post)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "ok")
+    text, err = vb.OpenRouterAgent().generate("prompt", max_tokens=1200)
+    assert err is None and text.startswith("_(fallback: ") and "bản từ ultra" in text
+    assert len(seen) == 2
+    prov = ledger.summary()["providers"]
+    first = prov[f"OpenRouter:{seen[0]}"]
+    assert first["ok"] == 0 and first["fail"] == 1
+    assert "Upstream error from Nvidia" in first["last_error"] and "KeyError" not in first["last_error"]
+    assert prov[f"OpenRouter:{seen[1]}"]["ok"] == 1
+
+
+def test_empty_content_is_agent_error_and_never_ledger_ok(monkeypatch, _tmp_meta):
+    """#24: HTTP 200 + choices nhưng content "" (model chỉ 'suy nghĩ') — bản cũ
+    ghi sổ OK rồi trả "" → generate_brief thấy bản trắng, alert 'mọi agent đều
+    lỗi' trong khi sổ 3 OK. Nay là LỖI agent, sổ ghi fail kèm số token suy nghĩ,
+    và sang model dự phòng."""
+    import vnstock_brief as vb
+    seen = []
+
+    def _post(url, headers=None, json=None, timeout=None):
+        seen.append(json["model"])
+        return _Resp({"choices": [{"message": {"content": "", "reasoning": "…"},
+                                   "finish_reason": "stop"}],
+                      "usage": {"prompt_tokens": 9000, "completion_tokens": 1978,
+                                "completion_tokens_details": {"reasoning_tokens": 1978}}})
+    monkeypatch.setattr("requests.post", _post)
+    monkeypatch.setenv("GEMINI_API_KEY", "gk")
+    text, err = vb.GeminiAgent().generate("prompt", max_tokens=2800)
+    assert text == "" and "content rỗng" in err and "1,978" in err
+    assert seen == ["gemini-3.5-flash", "gemini-3.5-flash-lite"]     # sang dự phòng, không đợi
+    prov = ledger.summary()["providers"]
+    for m in seen:
+        assert prov[f"Gemini:{m}"]["ok"] == 0 and prov[f"Gemini:{m}"]["fail"] == 1

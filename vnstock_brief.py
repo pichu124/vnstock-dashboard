@@ -511,6 +511,61 @@ class ClaudeAgent(BriefAgent):
             return "", f"Claude API lỗi: {type(e).__name__}: {str(e)[:160]}"
 
 
+def _openai_extract(body) -> "tuple[str, str | None, str | None, bool]":
+    """Mổ body OpenAI-compat ở MỘT chỗ cho cả ba agent (base/Cerebras/OpenRouter)
+    → (content, lỗi ghi sổ, lỗi trả về, transient). Bốn ca:
+
+    1. Body LỖI dù HTTP 200 (#23): OpenRouter trả `{"error": {"message", "code"}}`
+       không có `choices` — 21–22/09 'Upstream error from Nvidia: Service
+       temporarily overloaded' code 503 — bản cũ nổ `KeyError: 'message'` /
+       `'choices'` thay vì in lỗi provider. transient khi code 429/5xx.
+    2. `finish_reason=length`: output cụt (close 06/08 06:53), như cũ.
+    3. HTTP 200 + choices nhưng content RỖNG (#24): model reasoning trả toàn
+       "suy nghĩ", content "" — bản cũ GHI SỔ OK rồi trả "", generate_brief
+       thấy bản trắng ⇒ alert "mọi agent đều lỗi" trong khi sổ đếm OK (22/09:
+       super 3 call · 3 OK mà brief trắng).
+    4. Bình thường → (content, None, None, False). Sổ chỉ ghi OK ở ca này.
+    """
+    if not isinstance(body, dict):
+        why = "body không phải JSON object"
+        return "", why, why, False
+    err = body.get("error")
+    choices = body.get("choices")
+    if err or not choices:
+        if isinstance(err, dict):
+            msg = str(err.get("message") or err)[:160]
+            code = err.get("code")
+        else:
+            msg = str(err)[:160] if err else "body không có choices"
+            code = None
+        try:
+            code_i = int(code) if code is not None else None
+        except (TypeError, ValueError):
+            code_i = None
+        why = f"provider trả lỗi trong body: {msg}" + (f" (code {code_i})" if code_i else "")
+        transient = code_i == 429 or (code_i is not None and 500 <= code_i < 600)
+        return "", why[:200], why, transient
+    choice = choices[0] if isinstance(choices[0], dict) else {}
+    if choice.get("finish_reason") == "length":
+        return ("", "finish_reason=length (output cụt)",
+                "output bị cắt (finish_reason=length — đụng trần budget/thinking)", False)
+    msg = choice.get("message") or {}
+    content = msg.get("content") if isinstance(msg, dict) else None
+    if isinstance(content, list):                 # vài provider trả list parts
+        content = "".join(str(p.get("text", "")) for p in content if isinstance(p, dict))
+    content = content.strip() if isinstance(content, str) else ""
+    if not content:
+        rt = ((body.get("usage") or {}).get("completion_tokens_details") or {}).get("reasoning_tokens")
+        try:
+            rt = int(rt) if rt is not None else 0
+        except (TypeError, ValueError):
+            rt = 0
+        why = ("content rỗng" + (f" (suy nghĩ {rt:,} token, không có câu trả lời)" if rt
+                                 else " (HTTP 200 nhưng không có chữ nào)"))
+        return "", why, why, False
+    return content, None, None, False
+
+
 class _OpenAICompatAgent(BriefAgent):
     """Base for any provider that uses the OpenAI chat-completions wire format."""
     agent_type = "openai"
@@ -594,26 +649,25 @@ class _OpenAICompatAgent(BriefAgent):
                     resp = self._post_one(model, system_part, user_part, api_key, max_tokens)
                     resp.raise_for_status()
                     body = resp.json()
-                    choice = (body.get("choices") or [{}])[0]
-                    if choice.get("finish_reason") == "length":
-                        # Output bị CẮT vì đụng trần max_tokens nhưng HTTP 200 —
-                        # bài close 06/08 06:53: Gemini flash "suy nghĩ" ~5k
-                        # token, content đứt giữa câu vẫn được tính THÀNH CÔNG
-                        # → bản cụt thắng bản trọn vẹn của agent yếu hơn và lên
-                        # Telegram. Coi là LỖI: gọi lại cùng prompt cùng trần là
-                        # vô ích → sang model dự phòng (nếu có).
-                        # Ghi usage cả khi cụt (4c 15/09): sổ mới nói được
-                        # trần bị ăn bởi câu trả lời hay bởi "suy nghĩ".
+                    content, ledger_err, why, transient = _openai_extract(body)
+                    if why:
+                        # Cụt / body lỗi HTTP 200 / content rỗng — xem
+                        # _openai_extract (#23, #24). Ghi usage cả khi lỗi (4c
+                        # 15/09): sổ nói được trần bị ăn bởi câu trả lời hay
+                        # bởi "suy nghĩ". Gọi lại cùng prompt cùng trần khi cụt
+                        # là vô ích → sang model dự phòng; provider quá tải
+                        # trong body (5xx/429) thì như HTTP 5xx: đợi rồi gọi lại
+                        # đúng model một lần.
                         _ledger_record(self._LEDGER, model, ok=False,
-                                       usage=body.get("usage"),
-                                       error="finish_reason=length (output cụt)")
-                        last_err = ("output bị cắt (finish_reason=length — đụng "
-                                    "trần budget/thinking)")
-                        last_detail = ""
+                                       usage=body.get("usage"), error=ledger_err)
+                        last_err, last_detail = why, ""
+                        if transient and attempt < int(self._TRANSIENT_RETRIES):
+                            if self._TRANSIENT_RETRY_S > 0:
+                                _time.sleep(self._TRANSIENT_RETRY_S)
+                            continue
                         break
                     _ledger_record(self._LEDGER, model, ok=True,
                                    usage=body.get("usage"))
-                    content = choice["message"]["content"]
                     if idx > 0:
                         content = f"_(fallback: {model})_\n\n{content}"
                     return content, None
@@ -751,19 +805,15 @@ class CerebrasAgent(_OpenAICompatAgent):
                 )
                 resp.raise_for_status()
                 body = resp.json()
-                choice = (body.get("choices") or [{}])[0]
-                if choice.get("finish_reason") == "length":
-                    # Output cụt (xem _OpenAICompatAgent) — kiểu "suy nghĩ"
-                    # mỗi model khác nhau → thử model kế trong danh sách.
+                content, ledger_err, why, _transient = _openai_extract(body)
+                if why:
+                    # Cụt / body lỗi / content rỗng (#23, #24) → model kế.
                     _ledger_record(self._LEDGER, model, ok=False,
-                                   usage=body.get("usage"),
-                                   error="finish_reason=length (output cụt)")
-                    last_err = "output bị cắt (finish_reason=length)"
-                    last_detail = ""
+                                   usage=body.get("usage"), error=ledger_err)
+                    last_err, last_detail = why, ""
                     continue
                 _ledger_record(self._LEDGER, model, ok=True,
                                usage=body.get("usage"))
-                content = choice["message"]["content"]
                 if idx > 0:
                     content = f"_(fallback: {model})_\n\n{content}"
                 return content, None
@@ -861,18 +911,17 @@ class OpenRouterAgent(_OpenAICompatAgent):
                 resp = self._post_one(model, system_part, user_part, api_key, max_tokens)
                 resp.raise_for_status()
                 body = resp.json()
-                choice = (body.get("choices") or [{}])[0]
-                if choice.get("finish_reason") == "length":
-                    # Output cụt (xem _OpenAICompatAgent) → thử model kế.
+                content, ledger_err, why, _transient = _openai_extract(body)
+                if why:
+                    # Cụt / body lỗi HTTP 200 (21–22/09 'Upstream error from
+                    # Nvidia … overloaded' code 503) / content rỗng (#23, #24)
+                    # → model kế (super → ultra), không nổ KeyError nữa.
                     _ledger_record(self._LEDGER, model, ok=False,
-                                   usage=body.get("usage"),
-                                   error="finish_reason=length (output cụt)")
-                    last_err = "output bị cắt (finish_reason=length)"
-                    last_detail = ""
+                                   usage=body.get("usage"), error=ledger_err)
+                    last_err, last_detail = why, ""
                     continue
                 _ledger_record(self._LEDGER, model, ok=True,
                                usage=body.get("usage"))
-                content = choice["message"]["content"]
                 if idx > 0:
                     content = f"_(fallback: {model})_\n\n{content}"
                 return content, None
