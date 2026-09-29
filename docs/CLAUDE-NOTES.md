@@ -6966,6 +6966,76 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🧭 U59. 29/09 SAU 13 NGÀY NGHỈ — 45 MÃ CÁCH LY MÙA QUYỀN, FPT HAI BẬC TRONG MỘT NĂM (29/09)
+
+## 1. Sổ cách ly dồn 45 mã — 44 mã chữa bằng một lệnh, đúng thiết kế V1
+
+Pipeline tự chạy đủ 13 ngày không ai ngó (badge Phát tối ✅ 29/09, test full
+3.235 chạy trong phát). Cửa gác V1 giữ 45 mã ngoài kho suốt mùa quyền — TCX
+1,2000× ĐỨNG 13 ngày kể từ 16/09, tức VN30 thiếu bar hai tuần mà brief vẫn ra
+(rổ còn 29 mã, không có badge nào réo riêng chuyện VN30 thiếu mã — xem #15).
+`--from-drift-ledger --whole-series` chạy thử rồi `--apply` 21:14: 44/45 ✅
+(TCX/PVS 1,2× · VPB 1,2603× · GAS vách 21/09 · SZL lệch đều 1,7889× lấy nguyên
+nguồn · CMP kho đứng từ 01/12/2025 · XHC hệ số đo trên 1 bar). Bẫy phụ: đầu
+ra qua ống `|` trong PowerShell chết im (UnicodeEncodeError vào ống) — phải
+`$env:PYTHONUTF8='1'` + `[Console]::OutputEncoding=UTF8` trước.
+
+## 2. FPT — `--whole-series` từ chối ĐÚNG: hai đợt quyền trong 365 ngày
+
+`--explain` 29/09: tỉ lệ trung vị 1,1151× spread 1,0139, 12 bar đuôi đều
+1,1000× ✗, "81/242 bar (33%) KHÔNG cùng cơ sở" ⇒ cổng outlier ≤5% chặn. Không
+phải tool hỏng: lịch quyền Finhay (`get_stock_events`) có cổ tức TIỀN 1.000đ
+GDKHQ 28/05/2026 (bậc 1,0137 ≈ 1.000/72.500) và cổ phiếu THƯỞNG 10:1 GDKHQ
+21/09/2026 (1,10 trọn chuỗi vì VCI back-adjust). 1,10 × 1,0138 = 1,1152 khớp
+trung vị — hai bậc chồng nhau, `--whole-series` không có hệ số nào đồng đều để
+mà nhân.
+
+Chữa 22:39 bằng `--ticker FPT --break-date 2026-05-28`:
+- probe tại vách 1,0138× (20 bar trước · 22 bar sau) ⇒ `warehouse_basis`;
+- `last_divergent_day` thấy bar lệch nguồn cuối là 18/09 ⇒ kéo `cut` tới
+  19/09 (`scripts/rebase_ticker_history.py:1124-1135`) — đợt thưởng 21/09
+  được vét luôn mà không cần khai;
+- nguồn phủ từ 2006-12-13 (4.931 bar) ⇒ **4.924 bar lấy thẳng nguồn · 0 nhân
+  hệ số** — một lượt xử cả hai bậc, không bar nào suy từ hệ số;
+- khối lượng giữ nguyên: nguồn/kho 1,0000× (VCI không chỉnh volume), sự kiện
+  quanh vách là cổ tức tiền ⇒ không đổi số cổ phiếu;
+- 21 file ghi nguyên tử, sao lưu `_meta/backup_rebase/FPT_20260929-223915`,
+  tự kiểm "chuỗi đã liền — không còn vách trong 365 ngày · bộ dò MỨC cũng
+  sạch", xoá khỏi sổ cách ly.
+
+Tool KHÔNG nối bar mới — nó chỉ ghi đè bar ĐÃ CÓ (`mask_old = t < cut`,
+~dòng 1199). Mã "đứng 11 ngày" sau rebase vẫn đứng ⇒ `python
+vnstock_updater.py --tickers FPT` (không `--skip-if-done` nên không đụng marker
+`pipeline_status.json`) nối 7 bar 19→29/09 trong 1s. `--explain` sau đó:
+4.931 bar, đứng 0 ngày, 1,0000×/1,0000, 12/12 bar đuôi ✓, sổ cách ly không,
+SẠCH. Doctor 22:39: "Lệch cơ sở — không mã nào bị cách ly" ✅.
+
+Câu tool in "còn bậc SAU vách … (mã bị rebase nhiều lần)" là chữ chung; ở ca
+này nguyên nhân là ĐỢT QUYỀN THỨ HAI sau vách. Sửa chữ ghi vào #16 cùng hai
+việc đã có (`--explain` in PHÂN ĐOẠN tỉ lệ theo thời gian; `--whole-series`
+nhận nhiều bậc khi nguồn phủ trọn lịch sử kho).
+
+## 3. Bài học
+
+1. `--whole-series` từ chối ⇒ đọc "x% bar KHÔNG cùng cơ sở" như SỐ ĐỢT QUYỀN,
+   tra lịch quyền TRƯỚC khi nghi kho hỏng. Mùa quyền nào VN30 cũng có mã dính
+   hai đợt trong một năm (FPT, VNM…).
+2. `--break-date` = ngày GDKHQ của đợt CŨ hơn; đợt mới hơn `last_divergent_day`
+   tự vét khi nguồn phủ tới bar cuối kho. Ba điều kiện trước `--apply`: probe
+   không phán `aligned` · `nguồn phủ từ` ≤ bar đầu kho · `0 nhân hệ số`.
+3. Sau rebase mã "đứng" N ngày vẫn đứng — chữa xong chưa có bar mới. Chạy
+   updater riêng mã đó ngay, đừng đợi phát tối mai rồi tưởng rebase hỏng.
+
+## 4. Còn treo tối 29/09
+
+- Sổ LLM hôm nay 66 call · 36 lỗi · 10 rate-limit, Mistral small chạm trần —
+  Mistral là giọng brief thứ tư user giữ 11/08 (`vnstock_model_watch.py:86`).
+  Chờ `python vnstock_llm_ledger.py --show`: nếu Mistral 429 suốt hai tuần thì
+  mỗi brief tốn 2 call + 20s chờ (đợi rồi gọi lại, đúng thiết kế 15/09) mà
+  không góp bản nào ⇒ đề xuất tắt trong config agent (lựa chọn của user).
+- Brief hai tuần 16–29/09 user sắp gửi để soi; brief bước 14 tối 29/09 1.743s
+  (flash 3/23 OK, 503 cả ngày) chưa có dòng log tách theo agent.
+
 # 🧭 U58. BADGE "PHÁT TỐI — ĐÃ TỚI KHO NÀY CHƯA" (#11) VÀ HAI LỖ HỔNG ĐƯỜNG CHẠY BÙ (16/09)
 
 ## 1. Vì sao cần badge riêng
