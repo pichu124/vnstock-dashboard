@@ -303,7 +303,7 @@ _ANALYZE_SYSTEM = (
 # không tin cậy làm nấc). Cerebras không override → default gemma-4-31b.
 _ANALYZE_MODELS = {
     "Gemini": "gemini-3.5-flash",
-    "Groq": "qwen/qwen3.6-27b",
+    "Groq": "openai/gpt-oss-120b",
     "OpenRouter": "nvidia/nemotron-3-ultra-550b-a55b:free",
 }
 

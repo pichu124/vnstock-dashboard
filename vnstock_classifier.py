@@ -418,7 +418,7 @@ def _ledger_record(provider: str, model: str, ok: bool,
 # chính là ứng viên ghi cho điểm [8] trong scripts/probe_models.py.
 _CLASSIFY_MODELS = {
     "Gemini": "gemini-3.5-flash",
-    "Groq": "qwen/qwen3.6-27b",
+    "Groq": "openai/gpt-oss-120b",
     "OpenRouter": "nvidia/nemotron-3-ultra-550b-a55b:free",
 }
 _CLASSIFY_PAID_ENV = "VNSTOCK_CLASSIFY_PAID"

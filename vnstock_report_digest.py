@@ -104,7 +104,7 @@ _TIER1_TOKENS = {"Groq": 900, "Cerebras": 6000, "OpenRouter": 4000,
                  "Gemini": 6000}
 _FREE_TIER2 = (          # bậc ổn định — toàn slug probe sống 22/07
     ("Groq", "openai/gpt-oss-120b"),
-    ("Groq", "qwen/qwen3.6-27b"),
+    # ("Groq", "qwen/qwen3.6-27b") — GỠ 29/09: HTTP 404 "does not exist".
     ("Gemini", "gemini-3.5-flash-lite"),
     # ("OpenRouter", "openai/gpt-oss-20b:free") — GỠ 22/08: HTTP 404
     # "unavailable for free" + biến mất khỏi danh mục.

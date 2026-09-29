@@ -143,13 +143,10 @@ _PROVIDERS = [
         "max_tokens": 256,
         "extra": {"reasoning_effort": "low"},
     },
-    {
-        "name": "Cerebras",
-        "env": "CEREBRAS_API_KEY",
-        "endpoint": "https://api.cerebras.ai/v1/chat/completions",
-        "model": "gemma-4-31b",
-        "max_tokens": 64,
-    },
+    # 29/09: nấc Cerebras gemma-4-31b GỠ — provider archive (HTTP 404, model
+    # watch 19/09 + 26/09); ledger 22/09 đếm 10 call/ngày 404 vô ích vì cầu
+    # dao chỉ chặn 401/402/403. Không thay nấc khác: tài khoản Cerebras đang
+    # 402 (#3), OpenRouter thì quota 50 req/ngày phải để dành cho brief.
     # 22/08: nấc OpenRouter `openai/gpt-oss-20b:free` ĐÃ GỠ — probe T7 ra
     # HTTP 404 "This model is unavailable for free" và slug biến mất khỏi
     # danh mục. Nấc cuối chỉ có thể hỏng thì giữ lại là tốn một request mỗi

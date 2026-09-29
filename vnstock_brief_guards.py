@@ -76,6 +76,21 @@ from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
     enforce_watchlist_eligibility,
     enforce_watchlist_numbering,
     enforce_watchlist_hygiene,
+    _WL_TARGET_MAX_GAP,
+    _WL_NUM,
+    _WL_SUPPORT_RE,
+    _WL_TARGET_RE,
+    _WL_CANCEL_RE,
+    _WL_ENTRY_RE,
+    _WL_TP_RE,
+    _WL_SL_RE,
+    _WL_VAGUE_TARGET_RE,
+    _WL_DEFENSIVE_RE,
+    _wl_price,
+    _watchlist_levels_ok,
+    enforce_watchlist_levels,
+    _REC_RAW_LINE_RE,
+    enforce_rec_line_format,
 )
 
 from vnstock_brief_guards_numbers import (  # noqa: F401  (re-export)
@@ -113,6 +128,8 @@ from vnstock_brief_guards_text import (  # noqa: F401  (re-export)
     _HEADER_SCAFFOLD_RE,
     _INSTR_LEAK_RE,
     _PLACEHOLDER_LEAK_RE,
+    _PRICE_SCAFFOLD_RE,
+    enforce_no_price_scaffold,
     enforce_composite_rotation_hygiene,
     enforce_no_bias_directive_leak,
     enforce_no_cjk,
@@ -238,7 +255,9 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_sr_direction(fixed, ctx)          # S phải < close, R phải > close
     fixed = enforce_scenario_levels(fixed, ctx)       # scenario levels = real data only
     fixed = enforce_watchlist_eligibility(fixed, ctx)
+    fixed = enforce_watchlist_levels(fixed, ctx)       # mốc sai chiều/phi lý → bỏ setup
     fixed = enforce_watchlist_numbering(fixed, ctx)    # dồn số sau khi guard trên bỏ mục
+    fixed = enforce_rec_line_format(fixed, ctx)        # "BUY entry=… (Strategy #n)" → mẫu VN
     fixed = enforce_exdate_levels(fixed, ctx)     # mốc giá mã sắp GDKHQ phải nói rõ chưa quy đổi
     # Chạy SAU exdate: guard này cắt phần " ⚠️ GDKHQ …" trước khi soi mốc, nên
     # phải để phần đó đã được gắn xong.
@@ -259,6 +278,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_no_cjk(fixed, ctx)
     fixed = enforce_no_instruction_leak(fixed, ctx)
     fixed = enforce_no_header_scaffold(fixed, ctx)    # "(2 dòng)"/"optional" là chữ cho model
+    fixed = enforce_no_price_scaffold(fixed, ctx)     # "(Giá 20,000 từ data)" → "(Giá 20,000)"
     fixed = enforce_no_placeholder_leak(fixed, ctx)
     fixed = enforce_no_constraint_notation(fixed, ctx)  # '(entry < TP > SL)' là chữ cho model
     fixed = enforce_no_composite_jargon(fixed, ctx)

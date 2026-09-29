@@ -41,7 +41,7 @@ def test_classify_models_are_probed_slugs():
     điểm [8] trong scripts/probe_models.py."""
     assert vc._CLASSIFY_MODELS == {
         "Gemini": "gemini-3.5-flash",
-        "Groq": "qwen/qwen3.6-27b",
+        "Groq": "openai/gpt-oss-120b",
         "OpenRouter": "nvidia/nemotron-3-ultra-550b-a55b:free",
     }
 

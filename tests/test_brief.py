@@ -3602,3 +3602,96 @@ def test_band_score_never_prints_negative_zero():
     assert "điểm +0.00" in tbl and "-0.00" not in tbl
     body = "\n".join(_macro_reports_body_lines({"allocation": alloc}, directive=False))
     assert "Band phân bổ tháng: B3" in body and "-0.00" not in body
+
+
+def test_enforce_watchlist_levels_drops_wrong_side_and_absurd_targets():
+    """Soi brief 16–29/09 (flash-lite): NLG thủng 21,500 · mục tiêu về 10,300
+    và SSB thủng 18,500 · mục tiêu về 10,500 (−52%/−43%, số không có trong
+    data, 29/09); GAS thủng 79,300 · mục tiêu về 80,500 (mục tiêu TRÊN hỗ trợ,
+    25/09); GEE canh MUA nếu vượt 74,300 · mục tiêu 73,900 (TP dưới entry,
+    25/09). Setup đúng thứ tự (FRT, DGC, BSR, BVH) giữ nguyên; số thứ tự dồn
+    lại bởi numbering đứng sau."""
+    from vnstock_brief import enforce_watchlist_levels, enforce_watchlist_numbering
+    t = ("📋 Watchlist sáng mai\n"
+         "1. **FRT** (Giá 142,000) — GIẢM TỶ TRỌNG/TRÁNH nếu thủng hỗ trợ 140,600 · "
+         "mục tiêu về 130,000 · hủy kịch bản nếu vượt lại kháng cự 143,000 — pivot 60 phiên\n"
+         "2. **NLG** (Giá 21,650) — GIẢM TỶ TRỌNG/TRÁNH nếu thủng hỗ trợ 21,500 · "
+         "mục tiêu về 10,300 · hủy kịch bản nếu vượt lại kháng cự 21,900 — pivot 60 phiên\n"
+         "3. **SSB** (Giá 19,100) — GIẢM TỶ TRỌNG/TRÁNH nếu thủng hỗ trợ 18,500 · "
+         "mục tiêu về 10,500 · hủy kịch bản nếu vượt lại kháng cự 19,550 — pivot 60 phiên\n"
+         "⚠️ Rủi ro cần lưu ý\n")
+    f = enforce_watchlist_numbering(enforce_watchlist_levels(t, {}), {})
+    body = f.splitlines()
+    assert body[1].startswith("1. **FRT**") and body[2] == "⚠️ Rủi ro cần lưu ý"
+    assert "NLG" not in f and "SSB" not in f and f.endswith("\n")
+    # mục tiêu TRÊN hỗ trợ (GAS 25/09) và TP DƯỚI entry (GEE 25/09) → bỏ
+    t2 = ("📋 Watchlist sáng mai\n"
+          "1. **GAS** (Giá 80,500) — GIẢM TỶ TRỌNG/TRÁNH nếu thủng hỗ trợ 79,300 · "
+          "mục tiêu về 80,500 · hủy kịch bản nếu vượt lại kháng cự 83,800 — Thủng hỗ trợ pivot 60 phiên.\n"
+          "2. **GEE** (Giá 73,900) — canh MUA NẾU vượt lại kháng cự 74,300 · mục tiêu 73,900 · "
+          "hủy nếu thủng hỗ trợ 71,300 — Xác nhận sức mạnh vượt kháng cự pivot 60 phiên.\n"
+          "3. **DGC** (Giá 35,300) — GIẢM TỶ TRỌNG nếu thủng hỗ trợ 35,100 · mục tiêu về 33,500 · "
+          "hủy kịch bản nếu vượt lại 35,550.\n"
+          "⚠️ Rủi ro cần lưu ý")
+    f2 = enforce_watchlist_levels(t2, {})
+    assert "GAS" not in f2 and "GEE" not in f2 and "**DGC**" in f2
+    # kèo MUA đúng thứ tự (BSR 18/09, BVH 17/09) và kèo không đủ số → giữ
+    ok = ("📋 Watchlist sáng mai\n"
+          "1. **BSR** (Giá 30,200) — MUA vùng 30,200 - 30,450 · chốt lời 32,500 · cắt lỗ 28,250 — canh mua\n"
+          "2. **BVH** (Giá 69,400) — MUA nếu vượt kháng cự 70,200 · chốt lời 73,000 · cắt lỗ 67,000 — trigger\n"
+          "3. **BSR** (Giá 30,700) — MUA quanh dải mốc tham chiếu 29,800 – 31,600 nếu có nhịp chỉnh · "
+          "chốt lời 33,000 · cắt lỗ 29,000.\n"
+          "⚠️ Rủi ro cần lưu ý")
+    assert enforce_watchlist_levels(ok, {}) is ok
+    # mục tiêu = hỗ trợ (GEE 23/09) cũng là sai chiều → bỏ; hết setup → dòng bail
+    t3 = ("📋 Watchlist sáng mai\n"
+          "1. **GEE** (Giá 70,900) — GIẢM TỶ TRỌNG/TRÁNH nếu thủng hỗ trợ 69,700 · mục tiêu về 69,700 · "
+          "hủy kịch bản nếu vượt lại kháng cự 71,300 — hỗ trợ 69,700 / kháng cự 71,300 (pivot 60 phiên)\n"
+          "⚠️ Rủi ro cần lưu ý")
+    f3 = enforce_watchlist_levels(t3, {})
+    assert "GEE" not in f3 and "Cần thêm dữ liệu giá cổ phiếu cụ thể" in f3
+    assert enforce_watchlist_levels(f3, {}) == f3                # idempotent
+    assert enforce_watchlist_levels("không có watchlist", {}) == "không có watchlist"
+
+
+def test_enforce_watchlist_levels_strips_vague_template_target():
+    """24/09: "mục tiêu về thấp hơn" là ô mẫu "[thấp hơn]" chép nguyên — cắt vế
+    đó, giữ setup (thủng 19,850 < hủy 20,900 vẫn đúng chiều)."""
+    from vnstock_brief import enforce_watchlist_levels
+    t = ("📋 Watchlist sáng mai\n"
+         "1. **SSB** (Giá 20,000) — GIẢM TỶ TRỌNG/TRÁNH nếu thủng 19,850 · mục tiêu về thấp hơn · "
+         "hủy kịch bản nếu vượt lại 20,900 — thủng hỗ trợ pivot 60 phiên\n"
+         "⚠️ Rủi ro cần lưu ý")
+    f = enforce_watchlist_levels(t, {})
+    assert "thấp hơn" not in f
+    assert f.splitlines()[1] == ("1. **SSB** (Giá 20,000) — GIẢM TỶ TRỌNG/TRÁNH nếu thủng 19,850 · "
+                                 "hủy kịch bản nếu vượt lại 20,900 — thủng hỗ trợ pivot 60 phiên")
+
+
+def test_enforce_no_price_scaffold_strips_tu_data():
+    """24/09, 25/09, 29/09: "(Giá 20,000 từ data)" — "từ data" là chữ trong ô
+    mẫu prompt, không phải nội dung."""
+    from vnstock_brief import enforce_no_price_scaffold
+    t = "1. **SSB** (Giá 20,000 từ data) — GIẢM TỶ TRỌNG/TRÁNH nếu thủng 19,850\n2. **PNJ** (Giá 33,300 từ data) — x"
+    f = enforce_no_price_scaffold(t, {})
+    assert f == "1. **SSB** (Giá 20,000) — GIẢM TỶ TRỌNG/TRÁNH nếu thủng 19,850\n2. **PNJ** (Giá 33,300) — x"
+    assert enforce_no_price_scaffold(f, {}) == f
+    clean = "1. **SSB** (Giá 20,000) — x"
+    assert enforce_no_price_scaffold(clean, {}) is clean
+
+
+def test_enforce_rec_line_format_rewrites_raw_data_lines():
+    """24/09: "DRI: BUY entry=14.8, TP=16.1, SL=14 (Strategy #69, conf=0.50)."
+    là dòng data thô bê nguyên; 23/09 viết đúng mẫu thì không đụng."""
+    from vnstock_brief import enforce_rec_line_format
+    t = ("💡 Đề xuất giao dịch\n"
+         "- DRI: BUY entry=14.8, TP=16.1, SL=14 (Strategy #69, conf=0.50).\n"
+         "- DPM: BUY entry=22.6, TP=24.4, SL=21.4 (Strategy #69, conf=0.50).\n"
+         "- GMD: MUA vùng 77.6 · chốt lời 82.2 · cắt lỗ 75.1\n")
+    f = enforce_rec_line_format(t, {})
+    assert f.splitlines()[1] == "- DRI: MUA vùng 14.8 · chốt lời 16.1 · cắt lỗ 14"
+    assert f.splitlines()[2] == "- DPM: MUA vùng 22.6 · chốt lời 24.4 · cắt lỗ 21.4"
+    assert f.splitlines()[3] == "- GMD: MUA vùng 77.6 · chốt lời 82.2 · cắt lỗ 75.1" and f.endswith("\n")
+    assert enforce_rec_line_format(f, {}) == f
+    clean = "- GMD: MUA vùng 77.6 · chốt lời 82.2 · cắt lỗ 75.1"
+    assert enforce_rec_line_format(clean, {}) is clean

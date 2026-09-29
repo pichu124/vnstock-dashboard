@@ -134,8 +134,8 @@ _DEFAULT_AGENT_CONFIGS: list[dict] = [
     },
     {
         "type": "groq",
-        "model": "qwen/qwen3.6-27b",
-        "name": "Groq Qwen3.6-27B",
+        "model": "openai/gpt-oss-120b",
+        "name": "Groq GPT-OSS-120B",
         "enabled": False,
         "max_tokens": 1200,
     },
@@ -660,9 +660,11 @@ class GroqAgent(_OpenAICompatAgent):
     _ERR_PREFIX = "Groq API"
     _LEDGER = "Groq"
 
-    def __init__(self, model: str = "qwen/qwen3.6-27b", name: str = "Groq Qwen3.6-27B"):
-        # llama-3.3-70b-versatile deprecated 17/06/2026 — qwen3.6-27b là slug
-        # Groq chỉ định thay (probe sống 22/07, scripts/probe_models.py)
+    def __init__(self, model: str = "openai/gpt-oss-120b", name: str = "Groq GPT-OSS-120B"):
+        # llama-3.3-70b-versatile deprecated 17/06/2026 → qwen3.6-27b (probe
+        # 22/07) → 29/09: Groq trả 404 "does not exist" cho qwen (model watch
+        # 19/09 + 26/09) → gpt-oss-120b, slug đã sống ở digest bậc 2 từ 22/07
+        # và watch 26/09 không réo.
         super().__init__(model, name)
 
 
@@ -701,9 +703,9 @@ class CerebrasAgent(_OpenAICompatAgent):
     # Try models in order; Cerebras occasionally renames or deprecates.
     # 22/07/2026: toàn bộ họ llama đã bị GỠ (probe: catalog chỉ còn
     # gpt-oss-120b / gemma-4-31b / zai-glm-4.7 sắp dep 17/08).
+    # 29/09: gemma-4-31b bị Cerebras archive (404, model watch 19/09) → gỡ.
     _MODEL_FALLBACKS: list[str] = [
         "gpt-oss-120b",    # mạnh nhất còn lại (digest đạt 14/07)
-        "gemma-4-31b",     # non-reasoning, nhanh
     ]
 
     def __init__(self, model: str = "gpt-oss-120b", name: str = "Cerebras GPT-OSS-120B"):
@@ -943,9 +945,13 @@ AGENT_REGISTRY: dict[str, type[BriefAgent]] = {
 # giữ nguyên enabled/thứ tự/tên; provider khai tử model lần tới chỉ cần thêm
 # 1 dòng map + 1 dòng test (slug mới đều đã probe sống — scripts/probe_models.py).
 _MODEL_MIGRATIONS: dict[tuple[str, str], str] = {
-    # Groq deprecate 17/06/2026
-    ("groq", "llama-3.3-70b-versatile"): "qwen/qwen3.6-27b",
+    # Groq deprecate 17/06/2026; đích cũ qwen3.6-27b CHÍNH NÓ chết 29/09
+    # (404 "does not exist", model watch 19/09 + 26/09) → dồn về gpt-oss-120b
+    ("groq", "llama-3.3-70b-versatile"): "openai/gpt-oss-120b",
     ("groq", "llama-3.1-8b-instant"):    "openai/gpt-oss-20b",
+    ("groq", "qwen/qwen3.6-27b"):        "openai/gpt-oss-120b",
+    # Cerebras archive gemma-4-31b (404 "archived and unavailable", 19/09)
+    ("cerebras", "gemma-4-31b"):         "gpt-oss-120b",
     # Cerebras đã gỡ toàn bộ họ llama (probe 22/07: catalog còn 3 model)
     ("cerebras", "llama-3.3-70b"):       "gpt-oss-120b",
     ("cerebras", "llama3.3-70b"):        "gpt-oss-120b",
@@ -991,7 +997,9 @@ _BRIEF_AGENT_DISABLES: dict[tuple, str] = {
     # > trần 8K/request Groq free — rủi ro notes 22/07 đã ghi, thành hiện
     # thực từ ngày migrate llama→qwen, fail 100% suốt 3 tuần (không log nên
     # không ai biết). qwen vẫn phục vụ [2][3-6][8] bình thường (prompt nhỏ).
-    ("groq", "qwen/qwen3.6-27b"):
+    # Trần 8K/request là của TIER Groq free, không của riêng qwen → ghế vẫn
+    # hỏng sau khi migrate sang gpt-oss-120b (29/09).
+    ("groq", "openai/gpt-oss-120b"):
         "413 Payload Too Large — prompt brief ~10K > trần 8K/request Groq free",
 }
 
@@ -3606,6 +3614,23 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     enforce_watchlist_eligibility,
     enforce_watchlist_numbering,
     enforce_watchlist_hygiene,
+    _WL_TARGET_MAX_GAP,
+    _WL_NUM,
+    _WL_SUPPORT_RE,
+    _WL_TARGET_RE,
+    _WL_CANCEL_RE,
+    _WL_ENTRY_RE,
+    _WL_TP_RE,
+    _WL_SL_RE,
+    _WL_VAGUE_TARGET_RE,
+    _WL_DEFENSIVE_RE,
+    _wl_price,
+    _watchlist_levels_ok,
+    enforce_watchlist_levels,
+    _REC_RAW_LINE_RE,
+    enforce_rec_line_format,
+    _PRICE_SCAFFOLD_RE,
+    enforce_no_price_scaffold,
     validate_brief_factuality,
 )
 

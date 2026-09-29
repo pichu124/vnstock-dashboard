@@ -831,3 +831,35 @@ def test_macro_body_lines_include_liquidity_gauge():
     # thiếu input → không có dòng (no-op, không phát nhãn sai)
     body2 = vb._macro_body_lines(_liq_rows(on=5.67))
     assert not any("Chênh lệch thanh khoản" in l for l in body2)
+
+
+# ─── -0.0 ở gauge (brief 23/09 in "10Y − lãi suất điều hành = -0.00 điểm %") ──
+
+def test_gauges_never_emit_negative_zero():
+    """round(-0.001, 2) là -0.0 → f"{:+.2f}" in "-0.00", đọc như ÂM trong khi
+    nhánh nhãn đã coi là 0 ("mỏng"). Cả ba gauge + hai dốc phải ra +0.00."""
+    import math
+    import vnstock_macro as vm
+    macro = [
+        {"key": "govt_bond_yield_10y", "value": 4.499},
+        {"key": "sbv_policy_rate",     "value": 4.50},
+        {"key": "govt_bond_yield_2y",  "value": 4.5},
+        {"key": "interbank_on",        "value": 4.501},
+        {"key": "us10y",               "value": 4.5},
+    ]
+    keys = {m["key"] for m in macro}
+    ts = vm.term_spread(macro)
+    assert ts is not None
+    assert math.copysign(1.0, ts["spread"]) == 1.0
+    assert f"{ts['spread']:+.2f}" == "+0.00"
+    if ts.get("slope_2_10") is not None:
+        assert math.copysign(1.0, ts["slope_2_10"]) == 1.0
+    liq = vm.liquidity_spread(macro)
+    if liq is not None:                      # key ON có thể tên khác trong registry
+        assert math.copysign(1.0, liq["spread"]) == 1.0
+        if liq.get("slope_10y_on") is not None:
+            assert math.copysign(1.0, liq["slope_10y_on"]) == 1.0
+    intl = vm.intl_spread(macro)
+    if intl is not None:
+        assert math.copysign(1.0, intl["spread"]) == 1.0
+    assert "govt_bond_yield_10y" in keys

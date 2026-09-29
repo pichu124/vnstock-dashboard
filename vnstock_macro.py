@@ -1018,7 +1018,8 @@ def liquidity_spread(macro: "list[dict] | None") -> "dict | None":
     on, policy = rows.get("interbank_on"), rows.get("sbv_policy_rate")
     if not on or not policy:
         return None
-    spread = round(float(on["value"]) - float(policy["value"]), 2)
+    # `+ 0.0` dập -0.0: round(-0.001, 2) là -0.0 và in ra "-0.00" (brief 23/09).
+    spread = round(float(on["value"]) - float(policy["value"]), 2) + 0.0
     if spread > _LIQ_TIGHT_SPREAD:
         label, d = ("thanh khoản hệ thống CĂNG — LNH cao hơn lãi suất "
                     "điều hành, ngân hàng vay lẫn nhau đắt hơn vay SBV"), -1
@@ -1029,7 +1030,7 @@ def liquidity_spread(macro: "list[dict] | None") -> "dict | None":
     out = {"spread": spread, "label": label, "dir": d}
     y10 = rows.get("govt_bond_yield_10y")
     if y10:
-        out["slope_10y_on"] = round(float(y10["value"]) - float(on["value"]), 2)
+        out["slope_10y_on"] = round(float(y10["value"]) - float(on["value"]), 2) + 0.0
     return out
 
 
@@ -1061,7 +1062,7 @@ def term_spread(macro: "list[dict] | None") -> "dict | None":
     y10, policy = rows.get("govt_bond_yield_10y"), rows.get("sbv_policy_rate")
     if not y10 or not policy:
         return None
-    spread = round(float(y10["value"]) - float(policy["value"]), 2)
+    spread = round(float(y10["value"]) - float(policy["value"]), 2) + 0.0   # dập -0.0
     if spread <= -_GAUGE_NOISE_BAND:
         label, d = ("ÂM — lợi suất 10Y dưới lãi suất điều hành, chính sách "
                     "THẮT so với kỳ vọng dài hạn (rủi ro chu kỳ)"), -1
@@ -1077,7 +1078,7 @@ def term_spread(macro: "list[dict] | None") -> "dict | None":
     out = {"spread": spread, "label": label, "dir": d}
     y2 = rows.get("govt_bond_yield_2y")
     if y2:
-        slope = round(float(y10["value"]) - float(y2["value"]), 2)
+        slope = round(float(y10["value"]) - float(y2["value"]), 2) + 0.0
         if slope < 0:
             s_label, s_d = ("ĐẢO NGƯỢC — thị trường TPCP định giá rủi ro "
                             "suy giảm chu kỳ"), -1
@@ -1106,7 +1107,7 @@ def intl_spread(macro: "list[dict] | None") -> "dict | None":
     vn, us = rows.get("govt_bond_yield_10y"), rows.get("us10y")
     if not vn or not us:
         return None
-    spread = round(float(vn["value"]) - float(us["value"]), 2)
+    spread = round(float(vn["value"]) - float(us["value"]), 2) + 0.0   # dập -0.0
     if spread <= -_GAUGE_NOISE_BAND:
         label, d = ("ÂM — lợi suất VN thấp hơn Mỹ, kém hấp dẫn vốn ngoại "
                     "(áp lực tỷ giá, khối ngoại dễ bán ròng)"), -1

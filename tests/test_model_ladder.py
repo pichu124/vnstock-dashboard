@@ -53,10 +53,10 @@ def test_providers_ladder_slugs_22_07():
     trước, đừng chép từ catalog.
     """
     got = [(p["name"], p["model"]) for p in snt._PROVIDERS]
+    # 29/09: nấc Cerebras gemma-4-31b GỠ (archived 404) — thang còn 2 nấc.
     assert got == [
         ("Gemini", "gemini-3.5-flash-lite"),
         ("Groq", "openai/gpt-oss-20b"),
-        ("Cerebras", "gemma-4-31b"),
     ]
     # slug chết không được quay lại
     dead = {"llama-3.1-8b-instant", "llama3.1-8b",
@@ -378,9 +378,8 @@ def test_digest_free_tiers_slugs_22_07():
         "OpenRouter": "nvidia/nemotron-3-ultra-550b-a55b:free",
     }
     # Nấc OpenRouter GỠ 22/08 (HTTP 404 + biến mất khỏi danh mục)
-    assert dg._FREE_TIER2 == (
+    assert dg._FREE_TIER2 == (          # qwen3.6-27b GỠ 29/09 (404)
         ("Groq", "openai/gpt-oss-120b"),
-        ("Groq", "qwen/qwen3.6-27b"),
         ("Gemini", "gemini-3.5-flash-lite"),
     )
     assert dg._PROVIDER_META["Gemini"][0] == "GEMINI_API_KEY"
@@ -541,7 +540,7 @@ def test_model_migrations_upgrade_saved_config(tmp_path, monkeypatch):
     out = vb.load_agent_configs()
 
     by_type = {c["type"]: c for c in out}
-    assert by_type["groq"]["model"] == "qwen/qwen3.6-27b"     # đổi số
+    assert by_type["groq"]["model"] == "openai/gpt-oss-120b"  # đổi số (29/09)
     # ĐỔI CHỦ Ý 11/08 (user quyết): bản 29/07 chốt "migration giữ enabled" —
     # nhưng CHÍNH kịch bản này (llama enabled → qwen giữ enabled) sinh ra 3
     # tuần 413 câm lặng: ghế brief Groq hỏng CẤU TRÚC (prompt ~10K > trần
@@ -555,14 +554,14 @@ def test_model_migrations_upgrade_saved_config(tmp_path, monkeypatch):
     # Tên hiển thị (lộ 30/07 trên dashboard A/B): tên mặc định mô tả model
     # CŨ ("Groq Llama-3.3-70B") phải được thay theo default mới; tên KHÔNG
     # nhắc model cũ ("Cerebras") là tên user chọn → giữ nguyên.
-    assert by_type["groq"]["name"] == "Groq Qwen3.6-27B"
+    assert by_type["groq"]["name"] == "Groq GPT-OSS-120B"
     assert by_type["cerebras"]["name"] == "Cerebras"
     # merge thêm Gemini (provider mới) vào config cũ, enabled sẵn
     assert by_type["gemini"]["model"] == "gemini-3.5-flash"
     assert by_type["gemini"]["enabled"] is True
     # file đã được ghi lại với slug mới
     saved = json.loads(cfg_path.read_text(encoding="utf-8"))
-    assert any(c["model"] == "qwen/qwen3.6-27b" for c in saved)
+    assert any(c["model"] == "openai/gpt-oss-120b" for c in saved)
 
 
 def test_strength_sorted_gemini_first():
@@ -664,6 +663,9 @@ _DEAD_SLUGS_22_07 = {
     "meta-llama/llama-3.3-8b-instruct:free",
     # Gemini dòng 2.5 khóa với project mới (key máy này không gọi được)
     "gemini-2.5-flash", "gemini-2.5-flash-lite",
+    # 29/09/2026 (model watch T7 19/09 + 26/09, không ai ở nhà 13 ngày):
+    # Groq 404 "does not exist" · Cerebras 404 "archived and unavailable".
+    "qwen/qwen3.6-27b", "gemma-4-31b",
 }
 
 

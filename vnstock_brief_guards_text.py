@@ -137,6 +137,20 @@ def enforce_no_header_scaffold(text: str, ctx: dict | None = None) -> str:
     return "\n".join(out) if changed else text
 
 
+# Mẫu Watchlist trong prompt là "(Giá [số] từ data)" — "từ data" là chỉ dẫn
+# cho model, không phải nội dung; flash-lite chép nguyên vào brief 24/09,
+# 25/09, 29/09 ("(Giá 20,000 từ data)"). Cắt còn "(Giá 20,000)".
+_PRICE_SCAFFOLD_RE = _re.compile(
+    r"\((Giá\s+[0-9][0-9.,]*)\s+từ\s+data\s*\)", _re.IGNORECASE)
+
+
+def enforce_no_price_scaffold(text: str, ctx: dict | None = None) -> str:
+    """Xoá "từ data" khỏi "(Giá 20,000 từ data)". No-op khi sạch; idempotent."""
+    if not text or "từ data" not in text:
+        return text
+    return _PRICE_SCAFFOLD_RE.sub(r"(\1)", text)
+
+
 # The risk-section format example uses a "<tên mã>" placeholder the model
 # sometimes echoes literally as "MÃ D/E=8.83 (HNG)" instead of substituting the
 # ticker (observed 22:29). Rewrite "MÃ <metric>=<val> (TICKER)" → "TICKER

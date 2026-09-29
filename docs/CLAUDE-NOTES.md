@@ -6966,6 +6966,98 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🔎 U60. SOI BRIEF 16–29/09 — BA VÁ CŨ ĐÃ ĂN, BỐN LỖI MỚI VÁ CÙNG ĐÊM, BA NGHI CHỜ SỐ (29/09 khuya)
+
+Mẫu: 8 close brief Telegram (16, 17, 18, 22, 23, 24, 25, 29/09) + 2 tin model
+watch (T7 19/09, 26/09) + 2 báo cáo tuần lãi suất + brief phân bổ T9 (Gemini
+qua lite · Nemotron Super). Không có brief sáng trong mẫu. Nguồn bản chính:
+16/09 và 23→29/09 đều `_(fallback: gemini-3.5-flash-lite)_`; 17–18/09 flash
+thẳng; 22/09 TRẮNG ("Chưa có brief (agent chưa chạy)", ladder DOWN).
+
+## 1. Ba vá 16/09 (f5e512e) đã ăn từ 17/09 — đo được, không phải tin
+- Header `💡 Đề xuất giao dịch (nếu có "Khuyến nghị" trong data)` chỉ còn ở
+  16/09 (22:06, trước merge); 17/09 trở đi sạch.
+- Watchlist 16/09 bắt đầu "2." — từ 17/09 luôn "1.".
+- `điểm -0.00` ở band 16/09 — 17/09 `-0.09`, 18/09 `+0.07`.
+- Vùng chết kỳ hạn (#7) chạy đúng: 17/09 `-0.08 → mỏng — sát 0 (lệch dưới
+  0.10…)`, 16/09 `-0.17 → ÂM`. Sự kiện sắp tới (#9) loại đúng ngày hôm nay
+  (24/09 VPB GDKHQ 24/09 không in). pp vẫn 3 chữ số ở "Dẫn dắt & Tụt hậu"
+  (`+0.132pp`) — #10 chỉ thống nhất chỗ khác; ghi nhận, không sửa thêm.
+
+## 2. Bốn lỗi mới — đều lỗi chữ/số của flash-lite, vá bằng guard + test
+1. **Mốc Watchlist sai chiều / phi lý** (nặng nhất, người đọc có thể đặt lệnh
+   theo): 25/09 GAS "thủng 79,300 · mục tiêu về 80,500" (mục tiêu TRÊN hỗ
+   trợ), PNJ "thủng 32,650 · mục tiêu về 33,000", GEE "canh MUA NẾU vượt
+   74,300 · mục tiêu 73,900" (TP dưới entry); 29/09 NLG "thủng 21,500 · mục
+   tiêu về 10,300" (−52%), SSB "thủng 18,500 · mục tiêu về 10,500" (−43%) —
+   số không có trong data; 23/09 GEE "mục tiêu về 69,700" = hỗ trợ; 24/09
+   "mục tiêu về thấp hơn" ×3 = ô mẫu `[thấp hơn]` chép nguyên. Prompt đã bắt
+   "TỰ KIỂM TRA thứ tự" — đúng nếp CLAUDE.md: LLM phớt chỉ thị ⇒ guard.
+   `enforce_watchlist_levels` (sections): kèo GIẢM cần mục tiêu < hỗ trợ <
+   hủy, kèo MUA cần SL < entry < TP, mục tiêu cách mốc kích hoạt ≤ 25%; vi
+   phạm ⇒ BỎ setup (cùng nếp hygiene bỏ setup neo mốc VNINDEX), ô mẫu "thấp
+   hơn" ⇒ cắt vế; chỉ phán khi đọc đủ số ≥ 100 ("pivot 60 phiên" không phải
+   mốc). Đứng trước `enforce_watchlist_numbering` để dồn số.
+2. **"(Giá 20,000 từ data)"** 24/09, 25/09, 29/09 — chữ "từ data" là ô mẫu
+   prompt (`vnstock_brief.py:330`). `enforce_no_price_scaffold` (text).
+3. **"Đề xuất giao dịch" bê dòng data thô** 24/09: `DRI: BUY entry=14.8,
+   TP=16.1, SL=14 (Strategy #69, conf=0.50).` — 23/09 cùng model viết đúng
+   mẫu. `enforce_rec_line_format` (sections) viết lại "MUA vùng · chốt lời ·
+   cắt lỗ", giữ số.
+4. **`10Y − lãi suất điều hành = -0.00 điểm %`** 23/09: `round(-0.001, 2)` là
+   `-0.0`, nhánh nhãn coi là 0 nhưng `:+.2f` in dấu âm. `vnstock_macro` ba
+   gauge + hai dốc `+ 0.0` (cùng mẹo `_score2`).
+Số thanh khoản trong brief NHẤT QUÁN với ctx (guard `enforce_gtgd_baseline_pct`
+bắt % khớp baseline) — lệch giữa hai brief là chuyện ctx, xem mục 4a.
+
+## 3. Hai slug chết model watch réo hai T7 liền (#17, xong)
+19/09 và 26/09 09:14 cùng một tin: Groq `qwen/qwen3.6-27b` HTTP 404 "does not
+exist" (điểm dùng [2] analyze · [3-6] digest b2 · [7] brief (đã tắt 413) ·
+[8] classifier), Cerebras `gemma-4-31b` 404 "archived" ([1] sentiment · [7]
+fallback). Ledger 22/09 đếm gemma 10 call · 10 lỗi 404 — cầu dao chỉ chặn
+401/402/403 nên 404 tốn call mỗi lần rơi thang. Thay theo thủ tục CLAUDE.md:
+qwen → `openai/gpt-oss-120b` (Groq; slug ĐÃ sống trong code ở digest bậc 2 từ
+probe 22/07, watch 26/09 không réo ⇒ không cần probe mới); gemma gỡ, không
+thay (Cerebras 402 #3, OpenRouter phải để quota cho brief). `_MODEL_MIGRATIONS`
++2 dòng và đổi đích llama-3.3-70b (trỏ vào slug chết là vô dụng — tiền lệ
+22/08), `_BRIEF_AGENT_DISABLES` đổi key (413 là trần TIER Groq free, ghế vẫn
+hỏng), `_DEAD_SLUGS_22_07` +2, test ladder/sentiment/classifier sửa theo.
+
+## 4. Ba nghi CHƯA đủ căn cứ — cần số, không vá mò
+a. **GTGD cả ngày hụt vì mã lớn cách ly** (#18). 17/09 "+27% so với phiên
+   trước" và 18/09 "+26%" trong khi brief hôm trước tự in 15.489 · 16.004 tỷ
+   — % khớp ctx (guard bắt) ⇒ baseline `_gtgd_baselines` khác con số brief
+   hôm trước in. Cổng coverage đếm SỐ MÃ (`count < 70% trung vị` ⇒ loại ngày)
+   nên 45 mã cách ly gồm FPT · VPB · GAS · TCX · PVS đứng 13 ngày mà cổng
+   không thấy: Σ hụt vài nghìn tỷ, brief "thấp hơn TB" một phần là thiếu
+   data. Vá dự kiến: cổng theo tỉ trọng GTGD, và ghi rõ "(thiếu N mã lớn)".
+b. **LNH ON 6,84 → 0,48% trong 5 phiên, 1W 4,20 → 6,20** (#19): chênh ON−1W
+   5,7 điểm là dị thường; gauge `liquidity_spread` phán DƯ THỪA +1,00 và bơm
+   +0,10 vào điểm band (allocation 29/09 in đúng dòng đó). Sandbox không gọi
+   được SBV, Finhay không có chỉ tiêu LNH ⇒ user chạy `vnstock_sbv_rates.py
+   --show` để phân biệt nguồn/parse. Dù là số của SBV, gauge vẫn nên có cửa
+   hợp lý |ON − 1W| > 1,5 ⇒ "nghi dữ liệu", điểm 0.
+c. **Thiếu brief hai thứ Hai 21/09 và 28/09; 22/09 ladder DOWN** (#20). Mọi
+   ngày khác có brief (22/09 trắng vẫn gửi). Hai thứ Hai cùng thiếu là mẫu
+   đáng ngờ (Weekend T7 → `covered_session`? task chết? máy tắt?) — chờ `⏱
+   TỔNG`, `Get-ScheduledTaskInfo`, `brief_push.json`. 22/09: flash-lite 46/46
+   lỗi, flash 7/13, tin Telegram cắt trước dòng OpenRouter ⇒ chưa biết nấc
+   cuối chết vì gì; nghi quota 50 req/ngày OpenRouter bị analyze/digest đốt
+   trước bước brief (nếu đúng: dành quota cho brief).
+
+## 5. Ghi nhận khác (không vá)
+- Bản Nemotron Super của brief phân bổ: thập phân kiểu VN ("-0,34", "25 917"),
+  lẫn "weakening"/"dominer", đọc sai nghĩa tilt (+1 band = phòng thủ hơn).
+  Bản phụ, chỉ để đo 4c: super ra ĐỦ dài (headroom 5.200 ăn) nhưng chất
+  lượng dưới flash-lite.
+- Báo cáo HedgeAcademy 10/07 (81 ngày) vẫn là báo cáo DUY NHẤT tạo tilt +1;
+  band B4 hiện = band data B3 + tilt. Thêm báo cáo mới hay để cửa sổ tự rụng
+  là quyết định của user.
+- 23/09: Watchlist "FRT GIẢM TỶ TRỌNG nếu thủng 139,000" và cùng brief "Đề
+  xuất: FRT MUA vùng 140" — hai nguồn (LLM pivot vs backtest) nói ngược
+  nhau trên một mã; guard không bắt vì hai câu đều có điều kiện. Ghi nhận.
+- Mistral đã tắt 22:50 (U59 §4) — không xuất hiện trong bản chính brief nào.
+
 # 🧭 U59. 29/09 SAU 13 NGÀY NGHỈ — 45 MÃ CÁCH LY MÙA QUYỀN, FPT HAI BẬC TRONG MỘT NĂM (29/09)
 
 ## 1. Sổ cách ly dồn 45 mã — 44 mã chữa bằng một lệnh, đúng thiết kế V1

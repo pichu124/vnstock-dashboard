@@ -1569,3 +1569,123 @@ def enforce_watchlist_numbering(text: str, ctx: dict | None = None) -> str:
     if not changed:
         return text
     return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
+
+
+# ─── Mốc giá setup Watchlist phải đúng chiều và trong tầm (29/09) ────────────
+# Prompt đã bắt "SL < entry < TP" / "mục tiêu < hỗ trợ < mức hủy" và bảo model
+# TỰ KIỂM TRA — flash-lite vẫn in: GAS thủng 79,300 · mục tiêu về 80,500 (mục
+# tiêu TRÊN hỗ trợ, 25/09); GEE canh MUA nếu vượt 74,300 · mục tiêu 73,900 (TP
+# DƯỚI entry, 25/09); NLG thủng 21,500 · mục tiêu về 10,300, SSB thủng 18,500 ·
+# mục tiêu về 10,500 (−52%/−43%, số không có trong data, 29/09); "mục tiêu về
+# thấp hơn" (chép nguyên ô mẫu "[thấp hơn]", 24/09). Mốc sai chiều hoặc cách
+# mốc kích hoạt quá _WL_TARGET_MAX_GAP → BỎ setup (ít setup vẫn hơn setup sai,
+# cùng nếp với hygiene bỏ setup neo mốc VNINDEX); ô mẫu "thấp hơn" → cắt vế đó.
+# Chỉ phán khi đọc được ĐỦ số và số ≥ 100 (bỏ "pivot 60 phiên" — không phải
+# mốc giá). Chạy TRƯỚC enforce_watchlist_numbering để số thứ tự được dồn lại.
+_WL_TARGET_MAX_GAP = 0.25
+_WL_NUM = r"([0-9][0-9.,]*)"
+_WL_SUPPORT_RE = _re.compile(r"thủng(?:\s+hỗ\s+trợ)?\s+" + _WL_NUM, _re.IGNORECASE)
+_WL_TARGET_RE = _re.compile(r"mục\s+tiêu(?:\s+về)?\s+" + _WL_NUM, _re.IGNORECASE)
+_WL_CANCEL_RE = _re.compile(r"vượt\s+lại(?:\s+kháng\s+cự)?\s+" + _WL_NUM, _re.IGNORECASE)
+_WL_ENTRY_RE = _re.compile(
+    r"\bMUA\s+(?:vùng|quanh|nếu\s+vượt(?:\s+lại)?(?:\s+kháng\s+cự)?)\s+" + _WL_NUM,
+    _re.IGNORECASE)
+_WL_TP_RE = _re.compile(r"(?:chốt\s+lời|mục\s+tiêu)\s+" + _WL_NUM, _re.IGNORECASE)
+_WL_SL_RE = _re.compile(
+    r"(?:cắt\s+lỗ|hủy(?:\s+kịch\s+bản)?\s+nếu\s+thủng(?:\s+hỗ\s+trợ)?)\s+" + _WL_NUM,
+    _re.IGNORECASE)
+_WL_VAGUE_TARGET_RE = _re.compile(
+    r"\s*·\s*mục\s+tiêu(?:\s+về)?\s+(?:thấp|cao)\s+hơn(?=\s*(?:·|—|-|$))",
+    _re.IGNORECASE)
+_WL_DEFENSIVE_RE = _re.compile(r"GIẢM\s+TỶ\s+TRỌNG|TRÁNH", _re.IGNORECASE)
+
+
+def _wl_price(rx, line: str) -> "float | None":
+    m = rx.search(line)
+    v = _parse_vn_number(m.group(1)) if m else None
+    return v if v is not None and v >= 100 else None
+
+
+def _watchlist_levels_ok(line: str) -> bool:
+    """False = mốc đọc được nhưng sai chiều/phi lý. Thiếu số → True (không phán)."""
+    gap = _WL_TARGET_MAX_GAP
+    if _WL_DEFENSIVE_RE.search(line):
+        sup, tgt = _wl_price(_WL_SUPPORT_RE, line), _wl_price(_WL_TARGET_RE, line)
+        if sup is None or tgt is None:
+            return True
+        cancel = _wl_price(_WL_CANCEL_RE, line)
+        if tgt >= sup or tgt < sup * (1 - gap):
+            return False
+        return cancel is None or cancel > sup
+    if _re.search(r"\bMUA\b", line, _re.IGNORECASE):
+        entry, tp, sl = (_wl_price(_WL_ENTRY_RE, line), _wl_price(_WL_TP_RE, line),
+                         _wl_price(_WL_SL_RE, line))
+        if entry is None or tp is None or sl is None:
+            return True
+        return sl < entry < tp and tp <= entry * (1 + gap) and sl >= entry * (1 - gap)
+    return True
+
+
+def enforce_watchlist_levels(text: str, ctx: dict | None = None) -> str:
+    """Bỏ setup Watchlist có mốc sai chiều/phi lý; cắt ô mẫu "mục tiêu về thấp
+    hơn". Cả mục trống setup sau khi bỏ → dòng bail như eligibility. No-op khi
+    sạch; idempotent."""
+    if not text:
+        return text
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines) if "watchlist sáng mai" in l.lower()), None)
+    if start is None:
+        return text
+    end = next((i for i in range(start + 1, len(lines))
+                if lines[i].lstrip().startswith(("##", "⚠️", "📅", "💡", "🔧", "📋"))),
+               len(lines))
+    kept, changed, had_setup, has_setup = [], False, False, False
+    for l in lines[start + 1:end]:
+        is_setup = bool(_re.match(r"\s*\d+\.", l))
+        had_setup = had_setup or is_setup
+        if is_setup:
+            l2 = _WL_VAGUE_TARGET_RE.sub("", l)
+            if l2 != l:
+                l, changed = l2, True
+            if not _watchlist_levels_ok(l):
+                changed = True
+                continue
+            has_setup = True
+        kept.append(l)
+    if not changed:
+        return text
+    if had_setup and not has_setup and not any(
+            "cần thêm dữ liệu giá" in l.lower() for l in kept):
+        kept.append("Cần thêm dữ liệu giá cổ phiếu cụ thể")
+    out = "\n".join(lines[:start + 1] + kept + lines[end:])
+    return out + ("\n" if text.endswith("\n") and not out.endswith("\n") else "")
+
+
+# ─── Dòng khuyến nghị chép nguyên format thô của data (24/09) ────────────────
+# Mục "💡 Đề xuất giao dịch" 24/09 in "DRI: BUY entry=14.8, TP=16.1, SL=14
+# (Strategy #69, conf=0.50)." — model bê nguyên dòng data thay vì viết theo
+# mẫu "MUA vùng · chốt lời · cắt lỗ" (23/09 viết đúng). Viết lại tường minh,
+# giữ nguyên số.
+_REC_RAW_LINE_RE = _re.compile(
+    r"^(?P<lead>\s*(?:[-•*]\s*)?)(?P<tk>[A-Z][A-Z0-9]{2,4}):\s*(?:BUY|MUA)\s+"
+    r"entry\s*=\s*(?P<entry>[0-9][0-9.,]*)\s*,\s*TP\s*=\s*(?P<tp>[0-9][0-9.,]*)\s*,\s*"
+    r"SL\s*=\s*(?P<sl>[0-9][0-9.,]*)\s*(?:\((?:Strategy|Chiến lược)[^)]*\))?\s*\.?\s*$",
+    _re.IGNORECASE)
+
+
+def enforce_rec_line_format(text: str, ctx: dict | None = None) -> str:
+    """"TK: BUY entry=E, TP=T, SL=S (Strategy #n, conf=x)." → "TK: MUA vùng E ·
+    chốt lời T · cắt lỗ S". No-op khi không có dòng thô; idempotent."""
+    if not text or "entry=" not in text.replace(" ", ""):
+        return text
+    out, changed = [], False
+    for ln in text.splitlines():
+        m = _REC_RAW_LINE_RE.match(ln)
+        if m:
+            ln = (f"{m.group('lead')}{m.group('tk')}: MUA vùng {m.group('entry')} · "
+                  f"chốt lời {m.group('tp')} · cắt lỗ {m.group('sl')}")
+            changed = True
+        out.append(ln)
+    if not changed:
+        return text
+    return "\n".join(out) + ("\n" if text.endswith("\n") else "")

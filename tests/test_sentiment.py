@@ -63,10 +63,11 @@ def test_available_provider_returns_first_set(monkeypatch):
     for env in ("GEMINI_API_KEY", "GROQ_API_KEY", "CEREBRAS_API_KEY",
                 "OPENROUTER_API_KEY"):
         monkeypatch.delenv(env, raising=False)
-    monkeypatch.setenv("CEREBRAS_API_KEY", "abc123")
+    # 29/09: nấc Cerebras (gemma-4-31b) đã GỠ khỏi thang — dùng nấc Groq.
+    monkeypatch.setenv("GROQ_API_KEY", "abc123")
     out = available_provider()
     assert out is not None
-    assert "cerebras" in out.lower() or "Cerebras" in out
+    assert "groq" in out.lower()
 
 
 # ─── attach_sentiments ───────────────────────────────────────────────────────
