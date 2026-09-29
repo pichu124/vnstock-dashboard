@@ -809,3 +809,29 @@ def test_migrations_targets_are_live_and_cover_dead_defaults():
                 ("cerebras", "llama-3.3-70b"),
                 ("openrouter", "meta-llama/llama-3.3-70b-instruct:free")):
         assert key in vb._MODEL_MIGRATIONS, f"thiếu migration cho {key}"
+
+
+# ─── Dòng log theo từng agent (21/09 trần giết bước brief, 22/09 alert vs sổ) ──
+
+def test_agent_outcome_line_formats_ok_and_error():
+    import vnstock_brief as vb
+    ok = vb._agent_outcome_line("Gemini 3.5 Flash", 187.4, "x" * 4200, None)
+    assert ok == "[brief] ⏱ Gemini 3.5 Flash: 187s · ✅ 4,200 ký tự"
+    bad = vb._agent_outcome_line("OpenRouter Nemotron Super", 1201.0, "",
+                                 "HTTPError: 503 " + "y" * 300)
+    assert bad.startswith("[brief] ⏱ OpenRouter Nemotron Super: 1,201s · ❌ HTTPError: 503 ")
+    assert len(bad) <= len("[brief] ⏱ OpenRouter Nemotron Super: 1,201s · ❌ ") + 160
+    assert vb._agent_outcome_line("A", 0.4, "", None).endswith("❌ không rõ")
+
+
+def test_generate_brief_logs_ctx_time_and_every_agent_outcome():
+    """Bước brief 22–29/09 mất 1.393–2.532s mà log chỉ có tổng — không biết
+    dựng ctx hay agent nào ăn giờ. Hai dòng log phải nằm đúng chỗ: ctx+prompt
+    TRƯỚC pool, dòng agent TRONG vòng as_completed (mỗi agent một dòng)."""
+    import inspect
+
+    import vnstock_brief as vb
+    src = inspect.getsource(vb.generate_brief)
+    assert "ctx+prompt" in src and src.index("ctx+prompt") < src.index("ThreadPoolExecutor(")
+    i_loop, i_line = src.index("as_completed(futures)"), src.index("_agent_outcome_line(")
+    assert i_loop < i_line < src.index("_ordered: dict = {}")

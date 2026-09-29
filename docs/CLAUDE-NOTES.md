@@ -7051,8 +7051,14 @@ c. **Thiếu brief hai thứ Hai 21/09 và 28/09; 22/09 ladder DOWN** (#20).
    21/09; `[brief]` nhảy msg 271 (18/09) → 275 (22/09), 272/273 = hai tin T7
    19/09, 274 = alert ladder DOWN 22/09. Sổ LLM 21/09 lại có bộ agent brief
    (Mistral 4 · super 3 · ultra 2) ⇒ 21/09 pipeline CHẠY tới brief rồi CHẾT
-   giữa chừng — nghi trần 180′ (bước brief từ 22/09 mất 23–42′, #21) hoặc máy
-   tắt; chờ đoạn log. 28/09 xác nhận bằng dòng `[brief] bỏ qua: chưa tới 15:00
+   giữa chừng. **Đoạn log (00:20) chốt: trần 180′.** Khởi động 20:12:20; sync
+   5.940s (KBS 1.165 mã) · validate 202 · screener 1.363 · news 1.041 · test 242
+   · audit 460 · train 739 · reflection 66 ⇒ 168′ khi `=== brief ===` mở lúc
+   ~23:00, 25 dòng sau đã là header phát 22/09 ⇒ bị giết ~23:12. Doctor đếm 133
+   call trước brief = sổ cuối ngày ⇒ bước brief chưa ghi nổi một call; các call
+   Mistral/super/ultra là của `strategy_loop` (train, lead=Mistral Small — nay
+   Mistral đã tắt) và auditor. Vá: cap script 180 → 240 (đăng ký lại), log
+   từng agent (#21a). 28/09 xác nhận bằng dòng `[brief] bỏ qua: chưa tới 15:00
    (hiện 00:13)`. Task lịch khoẻ (LastTaskResult 0). 22/09: flash-lite 46/46
    lỗi, flash 7/13, tin Telegram cắt trước dòng OpenRouter ⇒ chưa biết nấc
    cuối chết vì gì. Sổ 22/09 (`--show --day`) bác giả thuyết quota: OpenRouter

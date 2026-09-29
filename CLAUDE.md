@@ -58,9 +58,11 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 - Dashboard: `python run.py dashboard` (Streamlit, localhost:8501).
 - Lịch chạy tự động: `scripts/setup_scheduled_tasks.ps1` (2 task: Daily
   18:00 ngày làm việc + Weekend — gộp từ 29/07; đăng ký THEO MÁY — máy mới
-  phải chạy lại script này, Run as Administrator). Trần task Daily **180
-  phút** (nâng từ 120 ngày 19/08 — phát 08/09 152′ và 09/09 159′ vẫn đủ 14/14):
-  sync phình >~135' là task bị chấm dứt TRƯỚC bước brief (bước cuối 14/14).
+  phải chạy lại script này, Run as Administrator). Trần task Daily **240
+  phút** trong script từ 29/09 (180 giết phát 21/09 GIỮA bước brief: sync 99′ +
+  screener 23′ + news 17′ + train 12′ ⇒ brief bắt đầu ở phút 168; máy còn đăng
+  ký 180 tới khi chạy lại script). Bước brief đêm Gemini ốm mất 23–42′ (#21),
+  log nay in `[brief] ⏱ <agent>: Ns` từng agent + `ctx+prompt`.
   Updater lưỡng cực (đo 08–14/09): ~270s khi VCI khoẻ, 4.860–6.500s đêm VCI
   timeout ⇒ fallback KBS 1.130–1.245 mã + 150–181 lỗi (0 rate-limit). Dấu hiệu:
   dòng `⚡ Fallback KBS` + `❌ N lỗi` trong log. Đêm ấy marker `pipeline_status`
@@ -92,7 +94,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   lần**, KHÔNG phải ⇄ CẢ HAI (sửa 19/08).
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~2.643 test; ~45s trên CI,
+- Sửa module lõi nào → `python run.py test --fast` (~2.645 test; ~45s trên CI,
   86s máy thật 15/09 tối). Danh sách file `--fast` là WHITELIST trong `run.py` —
   thêm file test mới thì phải ghi vào đó, không thì `--fast` không chạy nó.
 - Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, ~3.235 test — pipeline 29/09 chạy full 3.235 passed / 134s).

@@ -110,7 +110,11 @@ $TaskDefinitions = @(
         # screener 28'), con 4 buoc nua moi toi brief. Du dia chi 16' — mot dem
         # sync phinh nhu 17/08 (74') la task bi cham dut TRUOC brief, dung cai
         # da xay ra. Weekend da dung 180 tu dau.
-        MaxMinutes  = 180
+        # 180 -> 240 (29/09): 21/09 khoi dong 20:12, sync 99' (VCI om) + screener
+        # 23' + news 17' + train 12' => buoc brief bat dau o phut 168, bi giet o
+        # phut 180 giua chung (khong TONG, khong Telegram); 28/09 178.2' chi con 2'.
+        # Buoc brief dem Gemini om mat 23-42' (viec #21) nen 180 khong du.
+        MaxMinutes  = 240
         Description = "14 buoc: sync -> validate -> screener -> ... -> audit -> train -> doctor -> brief chieu Telegram"
     },
     @{

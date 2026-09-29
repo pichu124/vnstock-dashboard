@@ -3636,6 +3636,19 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
 
 
 # ── Main entry point ───────────────────────────────────────────────────────
+def _agent_outcome_line(name: str, elapsed_s: float, text: str,
+                        err: "str | None") -> str:
+    """Một dòng log cho TỪNG agent của generate_brief: thời gian + kết quả.
+
+    21/09: bước brief bị trần 180′ giết mà log không nói agent nào đang chờ
+    gì (bước brief 22–29/09 mất 1.393–2.532s, chưa biết đi đâu); 22/09: alert
+    "mọi agent đều lỗi" trong khi sổ ghi OpenRouter 3 OK — không có dòng này
+    thì không phân xử được. In qua stdout → _Tee → run_daily.log."""
+    if text:
+        return f"[brief] ⏱ {name}: {elapsed_s:,.0f}s · ✅ {len(text):,} ký tự"
+    return f"[brief] ⏱ {name}: {elapsed_s:,.0f}s · ❌ {(err or 'không rõ')[:160]}"
+
+
 def generate_brief(
     brief_type: str = "morning",
     agents: list[BriefAgent] | None = None,
@@ -3658,6 +3671,8 @@ def generate_brief(
     # send_message() (the first thing that loads .env), so without this every
     # agent would read an empty os.environ and report "no key available".
     _ensure_env_loaded()
+    import time as _time_mod
+    _t_gen = _time_mod.time()          # đo dựng ctx+prompt (dòng log bên dưới)
 
     if not force:
         now = datetime.now().time()
@@ -3775,6 +3790,9 @@ def generate_brief(
         return agent.name, agent.generate(prompt, max_tokens=_BRIEF_MAX_TOKENS)
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
+    print(f"[brief] ⏱ ctx+prompt: {_time_mod.time() - _t_gen:,.0f}s · "
+          f"{len(available)} agent chạy song song")
+    _t_pool = _time_mod.time()
     with ThreadPoolExecutor(max_workers=min(len(available), 8)) as pool:
         futures = {pool.submit(_call, a): a for a in available}
         for fut in as_completed(futures):
@@ -3784,6 +3802,9 @@ def generate_brief(
                 agent = futures[fut]
                 name, result = agent.name, ("", str(exc))
             results[name] = result
+            # Agent chạy song song từ cùng một mốc → elapsed ≈ thời gian riêng
+            print(_agent_outcome_line(name, _time_mod.time() - _t_pool,
+                                      result[0], result[1]))
 
     # Bản CHÍNH = agent mạnh nhất thành công → sắp results theo thứ tự sức
     # mạnh. Trước 22/07 thứ tự = as_completed (agent nào XONG TRƯỚC đứng
