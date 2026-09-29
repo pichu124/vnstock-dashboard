@@ -475,7 +475,8 @@ def test_session_for_matches_run_close_session_date():
     from datetime import time as _t
     for i in range(14):
         d = date(2026, 9, 14) + timedelta(days=i)
-        assert doc._session_for(d) == runpy._close_session_date(datetime.combine(d, _t(12)))
+        # run.py từ 29/09 so PHIÊN PHỦ (trước 15:05 = phiên trước) → mốc 16:00 như rollup
+        assert doc._session_for(d) == runpy._close_session_date(datetime.combine(d, _t(16)))
         # sau giờ chốt, phiên phủ của rollup phải trùng phiên badge đang xét
         assert doc._session_for(d) == rl.session_covered_at(datetime.combine(d, _t(16)))
 

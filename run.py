@@ -32,7 +32,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import date, datetime as _datetime, timedelta as _timedelta
+from datetime import date, datetime as _datetime, timedelta as _timedelta, time as _dt_time
 from pathlib import Path
 
 
@@ -1286,20 +1286,37 @@ def _note_brief_skipped(args, reason: str) -> None:
 
 
 def _close_session_date(now) -> "date":
-    """Phiên mà brief chiều tại thời điểm `now` nói về: T2-T6 là hôm nay,
-    T7/CN là thứ 6 vừa rồi (cuối tuần không có phiên mới — dữ liệu mới nhất
-    đứng yên ở phiên thứ 6). Ngày lễ giữa tuần chưa phân biệt được (không
-    theo dõi lịch nghỉ) — chấp nhận, giữ hành vi cũ cho ca đó."""
-    d = now.date()
-    if d.weekday() == 5:                       # thứ 7
-        return d - _timedelta(days=1)
-    if d.weekday() == 6:                       # chủ nhật
-        return d - _timedelta(days=2)
-    return d
+    """Phiên mà brief chiều tại thời điểm `now` nói về = PHIÊN PHỦ
+    (`vnstock_rollup.session_covered_at`, cùng luật với cửa `--skip-if-done`
+    từ 16/09): T2-T6 từ 15:05 là hôm nay, TRƯỚC 15:05 là phiên trước, T7/CN
+    là thứ 6 vừa rồi. Bản cũ lấy NGÀY LỊCH: đêm 28/09 pipeline khởi động
+    21:15, sync 121′ (VCI ốm), tới bước brief lúc 00:13 T3 → tính là "phiên
+    29/09", cửa dưới chặn như chạy bù sáng → brief T2 mất (`brief 0s` trong
+    `⏱ TỔNG`), và nếu không chặn thì marker ghi 29/09 làm brief T3 tối đó bị
+    coi là trùng. Ngày lễ giữa tuần chưa phân biệt được — chấp nhận."""
+    try:
+        from vnstock_rollup import session_covered_at
+        return session_covered_at(now)
+    except Exception:                          # rollup hỏng thì giữ luật cũ
+        d = now.date()
+        if d.weekday() == 5:                   # thứ 7
+            return d - _timedelta(days=1)
+        if d.weekday() == 6:                   # chủ nhật
+            return d - _timedelta(days=2)
+        return d
 
 
-def _should_push_close(now, marker: Path) -> "tuple[bool, str]":
+_CLOSE_CUTOFF = _dt_time(15, 5)   # = vnstock_rollup._SESSION_CLOSE_CUTOFF
+
+
+def _should_push_close(now, marker: Path, started=None) -> "tuple[bool, str]":
     """(có nên đẩy brief chiều không, lý do khi KHÔNG).
+
+    `started` = lúc lượt pipeline này KHỞI ĐỘNG (cmd_all gắn vào
+    `args.pipeline_started`). Lượt khởi động TRONG ngày phiên mà tràn qua nửa
+    đêm (28/09: 21:15 → brief 00:13) vẫn được đẩy; chạy bù sáng hôm sau
+    (StartWhenAvailable 08:20) và lệnh tay không biết giờ khởi động thì chặn
+    như cũ — không bắn brief chiều cũ lúc 8h sáng (user chốt 15/08).
 
     Bất biến (đổi 15/08, user chốt): MỘT brief chiều cho mỗi PHIÊN giao dịch.
     - NGÀY LÀM VIỆC trước 15:00: KHÔNG — phiên hôm nay chưa đóng; đây cũng là
@@ -1312,10 +1329,13 @@ def _should_push_close(now, marker: Path) -> "tuple[bool, str]":
     - Marker ghi ĐÃ đẩy cho PHIÊN này (theo ngày phiên, không phải ngày gửi):
       KHÔNG — chống gửi trùng, kể cả chạy cả T7 lẫn CN.
     """
-    if now.weekday() < 5 and now.hour < 15:
-        return False, (f"chưa tới 15:00 (hiện {now.strftime('%H:%M')}) — "
-                       "không đẩy brief chiều cũ (run-on-boot bù sáng hôm sau)")
-    sess = _close_session_date(now).isoformat()
+    sess_d = _close_session_date(now)
+    if now.weekday() < 5 and now.time() < _CLOSE_CUTOFF:
+        same_night = started is not None and started.date() == sess_d
+        if not same_night:
+            return False, (f"chưa tới 15:05 (hiện {now.strftime('%H:%M')}) — "
+                           "không đẩy brief chiều cũ (run-on-boot bù sáng hôm sau)")
+    sess = sess_d.isoformat()
     try:
         if json.loads(marker.read_text(encoding="utf-8")).get("close") == sess:
             return False, (f"đã đẩy brief chiều cho phiên {sess} rồi (marker) "
@@ -1340,7 +1360,8 @@ def cmd_brief(args) -> int:
         _note_brief_skipped(args, "VNSTOCK_PIPELINE_BRIEF=0")
         return 0
     marker = _brief_push_marker(args)
-    ok, why = _should_push_close(_datetime.now(), marker)
+    ok, why = _should_push_close(_datetime.now(), marker,
+                                 started=getattr(args, "pipeline_started", None))
     if not ok:
         print(f"[brief] bỏ qua: {why}")
         return 0
@@ -1411,6 +1432,9 @@ def cmd_all(args) -> int:
     badge stays current."""
     import time as _time
     steps = _all_steps(args)
+    # Giờ khởi động lượt này — bước brief dùng để biết lượt tràn nửa đêm
+    # (28/09) khác với chạy bù sáng hôm sau (xem _should_push_close).
+    args.pipeline_started = _datetime.now()
     if _audit_llm_enabled(args):
         args.llm = True          # bước audit trong chuỗi sẽ gọi auditor LLM
     if getattr(args, "no_sync", False):

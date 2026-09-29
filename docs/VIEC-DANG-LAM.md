@@ -332,16 +332,21 @@ nhận cho 4c. Badge `allocation` sẽ hết ⚠️ ở doctor kế.
 
 ## 7. 🔎 Soi brief 16–29/09 — việc còn lại cho user (chi tiết U60)
 
-**🖥️ DESKTOP, thứ tự:** (1) `git fetch origin claude/laptop-work-ono4qt && git
-merge origin/claude/laptop-work-ono4qt` rồi `python run.py test --fast`
-(kỳ vọng 2.640 passed) — ba guard mới + slug mới chỉ ăn sau bước này.
-(2) Hai thứ Hai THIẾU brief (21/09, 28/09) — dán:
+**🖥️ DESKTOP, thứ tự:** (1) ✅ đã merge `34f614e`, `--fast` 2.640 passed / 137s
+(29/09 ~23:20). **(1b) MERGE LẠI** bản vá cửa brief chiều (đêm 28/09) rồi
+`--fast` (kỳ vọng 2.643) — không merge thì đêm VCI ốm kế tiếp lại mất brief.
+(2) **28/09 ĐÃ RÕ** (log 29/09 23:30): pipeline khởi động 21:15, sync 7.272s
+(VCI ốm → KBS 1.027 mã, partial 151 lúc 23:11), tới bước brief lúc **00:13** →
+cửa `_should_push_close` thấy "ngày làm việc, trước 15:00" → bỏ qua như chạy
+bù sáng → `brief 0s`. Đã vá (#20a). **21/09 chưa rõ**: `run_daily.log` xoay
+vòng ở 5 MB nên chỉ còn từ 25/09; đời cũ ở `run_daily.1.log`. Dán:
 ```powershell
-Select-String '⏱ TỔNG' run_daily.log | Select-Object -Last 12
-Select-String 'partial:|Fallback KBS' run_daily.log | Select-Object -Last 12
-Get-ScheduledTaskInfo -TaskName 'VnStock Daily' | Select-Object LastRunTime, LastTaskResult, NextRunTime
-Get-Content data_warehouse\_meta\brief_push.json
+Select-String '⏱ TỔNG' run_daily.1.log, run_daily.2.log
+Select-String '\[brief\] (bỏ qua|close brief sent|❌)' run_daily.log, run_daily.1.log, run_daily.2.log
+Get-ScheduledTaskInfo -TaskName 'VnStock Daily Pipeline' | Select-Object LastRunTime, LastTaskResult, NextRunTime
 ```
+(tên task đúng là `VnStock Daily Pipeline`; `brief_push.json` chỉ giữ phiên
+mới nhất nên không kể được quá khứ.)
 (3) Đêm 22/09 ladder DOWN: `python vnstock_llm_ledger.py --show --day 2026-09-22`
 (tin Telegram cắt sau dòng flash-lite, chưa thấy OpenRouter/Groq đêm đó).
 (4) LNH ON nghi nguồn: `python vnstock_sbv_rates.py --show` — nếu nguồn cũng in
@@ -418,7 +423,8 @@ hiệu guard đang LÀM VIỆC, không phải hỏng.
 | ~~17~~ | **Slug chết + 4 lỗi brief soi 16–29/09** | ✅ **XONG 29/09 khuya** (chờ desktop merge). Groq `qwen/qwen3.6-27b` 404 "does not exist", Cerebras `gemma-4-31b` archived — model watch réo 19/09 + 26/09, không ai ở nhà. qwen → `openai/gpt-oss-120b` (Groq, slug sống ở digest bậc 2 từ 22/07, watch 26/09 không réo) tại `_ANALYZE_MODELS` · `_CLASSIFY_MODELS` · `_FREE_TIER2` (gỡ dòng) · `_DEFAULT_AGENT_CONFIGS` · `GroqAgent` · `_BRIEF_AGENT_DISABLES` (413 là trần tier, giữ tắt) · `_MODEL_MIGRATIONS` (+ llama-3.3-70b đổi đích); gemma gỡ khỏi `vnstock_sentiment._PROVIDERS` (thang còn 2 nấc, 22/09 tốn 10 call/ngày 404 vì cầu dao không chặn 404) và Cerebras `_MODEL_FALLBACKS`. `_DEAD_SLUGS` +2. Bốn guard/vá: `enforce_watchlist_levels` (mốc sai chiều hoặc cách mốc kích hoạt >25% → bỏ setup; ô mẫu "mục tiêu về thấp hơn" → cắt), `enforce_no_price_scaffold` ("(Giá X từ data)"), `enforce_rec_line_format` (`BUY entry=…` → "MUA vùng · chốt lời · cắt lỗ"), `vnstock_macro` ba gauge `+ 0.0` (hết `-0.00`). Test: `tests/test_brief.py` +4, `tests/test_macro.py` +1, ladder/sentiment/classifier sửa theo. Fast 2.640 passed. |
 | 18 | **GTGD cả ngày hụt vì MÃ LỚN bị cách ly — cổng coverage đếm SỐ MÃ, mù với GIÁ TRỊ** | 🟠 MỚI 29/09 — `_gtgd_baselines` (`vnstock_brief.py:2024`) loại ngày under-covered theo `count < 70% trung vị` nên 45 mã cách ly (FPT · VPB · GAS · TCX · PVS — mỗi mã vài trăm tỷ/phiên) đứng 2 tuần mà cổng không thấy: Σ giá×KLGD hụt hệ thống, brief nói "thấp hơn TB" một phần là thiếu data. Bằng chứng: 17/09 "+27% so với phiên trước" và 18/09 "+26%" trong khi brief 16/09 · 17/09 tự in 15.489 · 16.004 tỷ (guard `enforce_gtgd_baseline_pct` bắt % khớp ctx ⇒ lệch nằm ở ctx, không ở LLM). Vá: cổng theo TỈ TRỌNG GTGD (mã trong top-50 GTGD 20 phiên thiếu bar hôm nay ⇒ ghi "(thiếu N mã lớn: …, ước tính thấp)" vào dòng GTGD + badge doctor), hoặc Σ trên GIAO của tập mã có bar ở mọi ngày trong cửa sổ. Kèm #15 (KBS >8% không vào sổ) vì cùng gốc: mã lớn đứng im mà không ai réo. |
 | 19 | **LNH ON rơi 6,84% → 0,48% trong 5 phiên, 1W lên 6,20% — gauge thanh khoản +1,00 dựng trên số nghi** | 🟠 MỚI 29/09 — brief 22→29/09: ON 4,43 → 2,56 → 1,10 → 0,48 trong khi 1W 4,91 → 5,26 → 5,06 → 6,20; chênh ON−1W 5,7 điểm % chưa từng thấy trên LNH VN (hai kỳ hạn thường cách <0,5). `liquidity_spread` phán "DƯ THỪA" và bơm +1,00×0,10 vào điểm band (allocation 29/09 in đúng dòng đó). Chưa kết luận nguồn hay parse: sandbox không gọi được SBV, Finhay không có chỉ tiêu LNH — user chạy `python vnstock_sbv_rates.py --show` (mục 7). Vá dự kiến: gauge thêm cửa hợp lý |ON − 1W| > 1,5 điểm ⇒ nhãn "nghi dữ liệu nguồn", điểm 0 (không +1), badge doctor `sbv_rates` réo. |
-| 20 | **Thiếu brief hai thứ Hai 21/09 + 28/09; 22/09 ladder DOWN** | 🟠 CHỜ LOG — Telegram hai tuần không có close brief 21/09 và 28/09 (mọi ngày khác có, kể cả 22/09 trắng). Chưa đoán: có thể task 18:00 thứ Hai chết/chạm trần, máy tắt, hay `--skip-if-done` sau Weekend T7 (marker `covered_session` = thứ 6?). Cần `⏱ TỔNG` 12 dòng + `Get-ScheduledTaskInfo` + `brief_push.json` (mục 7). 22/09: flash-lite 46/46 lỗi + flash 7/13 lỗi, tin cắt trước dòng OpenRouter — cần `--show --day 2026-09-22` để biết nấc cuối chết vì gì (quota 50 req/ngày OpenRouter bị digest/analyze đốt trước bước brief?). Nếu đúng thì việc kế: dành quota OpenRouter cho brief (đếm call trong ngày, chặn digest khi còn <6). |
+| ~~20a~~ | **Cửa brief chiều chặn nhầm lượt tràn nửa đêm** | ✅ **XONG 29/09 23:40** (chờ desktop merge) — `run.py._close_session_date` nay = `vnstock_rollup.session_covered_at` (PHIÊN PHỦ, cùng luật `--skip-if-done` #14): trước 15:05 ngày làm việc là phiên TRƯỚC, nên 00:13 T3 = phiên T2 và marker ghi đúng phiên (bản cũ sẽ ghi 29/09 → brief T3 tối đó bị coi là trùng). `_should_push_close(now, marker, started=)`: lượt KHỞI ĐỘNG trong ngày phiên (`args.pipeline_started`, cmd_all gắn) tràn qua nửa đêm vẫn đẩy; chạy bù sáng và lệnh tay không biết giờ khởi động thì chặn như cũ (user chốt 15/08). `_CLOSE_CUTOFF` = 15:05 có test parity với rollup. Test `tests/test_run_pipeline.py` +3, parity doctor đổi mốc 12:00→16:00. Fast 2.643. |
+| 20 | **Thiếu brief thứ Hai 21/09; 22/09 ladder DOWN** | 🟠 CHỜ LOG — 28/09 đã rõ (#20a). 21/09: log đã xoay vòng, cần `run_daily.1.log` (mục 7) — nếu cũng là đêm VCI ốm khởi động muộn thì cùng bệnh #20a; nếu không có `⏱ TỔNG` 21/09 thì task không chạy/chết. 22/09: flash-lite 46/46 lỗi + flash 7/13 lỗi, tin cắt trước dòng OpenRouter — cần `--show --day 2026-09-22` để biết nấc cuối chết vì gì (quota 50 req/ngày OpenRouter bị digest/analyze đốt trước bước brief?). Nếu đúng thì việc kế: dành quota OpenRouter cho brief (đếm call trong ngày, chặn digest khi còn <6). |
 
 **📏 Phát kế tiếp là phép đo của cả ba bản vá** — dán `⏱ TỔNG` + `⏱ CHẶNG` +
 dòng `screener` như thường lệ.

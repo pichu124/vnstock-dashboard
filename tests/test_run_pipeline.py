@@ -77,7 +77,7 @@ def test_should_push_close_guards(tmp_path):
     marker = tmp_path / "brief_push.json"
     # Trước 15:00 (run-on-boot bù sáng hôm sau) → KHÔNG đẩy brief chiều cũ
     ok, why = runpy._should_push_close(dt(2026, 7, 29, 8, 5), marker)
-    assert ok is False and "15:00" in why
+    assert ok is False and "15:05" in why
     # Sau 15:00, chưa đẩy hôm nay → ĐẨY
     ok, _ = runpy._should_push_close(dt(2026, 7, 29, 18, 0), marker)
     assert ok is True
@@ -105,7 +105,7 @@ def test_cmd_brief_pushes_and_writes_marker(tmp_path, monkeypatch):
 
     import vnstock_telegram as _tg
     monkeypatch.delenv("VNSTOCK_PIPELINE_BRIEF", raising=False)
-    monkeypatch.setattr(runpy, "_should_push_close", lambda now, m: (True, ""))
+    monkeypatch.setattr(runpy, "_should_push_close", lambda now, m, **kw: (True, ""))
     monkeypatch.setattr(_tg, "push_close_brief",
                         lambda: {"result": {"message_id": 7}})
 
@@ -278,7 +278,66 @@ def test_should_push_close_weekend_rules(tmp_path):
     assert ok is True
     # T2 TRƯỚC 15:00 vẫn bị chặn như cũ (ngày làm việc, phiên chưa đóng)
     ok, why = runpy._should_push_close(dt(2026, 8, 17, 8, 0), marker)
-    assert ok is False and "15:00" in why
+    assert ok is False and "15:05" in why
+
+
+def test_should_push_close_same_night_run_past_midnight(tmp_path):
+    """Đêm 28/09: pipeline khởi động 21:15, sync 121′ (VCI ốm → KBS 1.027 mã)
+    → bước brief lúc 00:13 T3 29/09. Cửa cũ thấy "ngày làm việc, trước 15:00"
+    và chặn như chạy bù sáng → `brief 0s`, Telegram mất brief T2. Lượt KHỞI
+    ĐỘNG trong ngày phiên thì tràn nửa đêm vẫn đẩy; phiên = 28/09 (marker ghi
+    phiên, không ghi ngày gửi); chạy bù sáng và lệnh tay vẫn chặn (15/08)."""
+    from datetime import datetime as dt
+    import json as _json
+    marker = tmp_path / "brief_push.json"
+    now, started = dt(2026, 9, 29, 0, 13), dt(2026, 9, 28, 21, 15)
+    assert runpy._close_session_date(now).isoformat() == "2026-09-28"
+    ok, _ = runpy._should_push_close(now, marker, started=started)
+    assert ok is True
+    # marker phiên 28/09 → cùng lượt gọi lại thì im (chống trùng)
+    marker.write_text(_json.dumps({"close": "2026-09-28"}), encoding="utf-8")
+    ok, why = runpy._should_push_close(now, marker, started=started)
+    assert ok is False and "trùng" in why
+    # tối 29/09 (sau 15:05) là phiên MỚI → marker 28/09 không chặn
+    ok, _ = runpy._should_push_close(dt(2026, 9, 29, 20, 49), marker,
+                                     started=dt(2026, 9, 29, 19, 7))
+    assert ok is True
+    # chạy bù sáng hôm sau (khởi động 08:20 T3) → vẫn chặn như user chốt 15/08
+    ok, why = runpy._should_push_close(dt(2026, 9, 29, 8, 25), tmp_path / "a.json",
+                                       started=dt(2026, 9, 29, 8, 20))
+    assert ok is False and "15:05" in why
+    # lệnh tay `run.py brief` lúc 00:13, không biết giờ khởi động → chặn như cũ
+    ok, _ = runpy._should_push_close(now, tmp_path / "b.json")
+    assert ok is False
+
+
+def test_close_session_date_is_the_covered_session():
+    """Trước 15:05 ngày làm việc là PHIÊN TRƯỚC (cùng luật `--skip-if-done`)."""
+    from datetime import datetime as dt
+    f = runpy._close_session_date
+    assert f(dt(2026, 9, 29, 0, 13)).isoformat() == "2026-09-28"    # tràn nửa đêm
+    assert f(dt(2026, 9, 29, 8, 20)).isoformat() == "2026-09-28"    # bù sáng
+    assert f(dt(2026, 9, 29, 15, 10)).isoformat() == "2026-09-29"   # sau đóng cửa
+    assert f(dt(2026, 9, 28, 0, 30)).isoformat() == "2026-09-25"    # T2 rạng sáng → T6
+    import vnstock_rollup as rl
+    assert runpy._CLOSE_CUTOFF == rl._SESSION_CLOSE_CUTOFF            # một mốc, hai nơi
+
+
+def test_cmd_brief_passes_pipeline_start_to_the_gate(tmp_path, monkeypatch):
+    """cmd_all gắn `args.pipeline_started`; cmd_brief phải chuyển nó vào cửa —
+    quên chuyển thì lượt tràn nửa đêm lại bị chặn y như cũ."""
+    from datetime import datetime as dt
+    seen = {}
+
+    def _gate(now, m, started=None):
+        seen["started"] = started
+        return False, "dừng ở cửa"
+    monkeypatch.setattr(runpy, "_should_push_close", _gate)
+    args = type("A", (), {})()
+    args.warehouse = str(tmp_path)
+    args.pipeline_started = dt(2026, 9, 28, 21, 15)
+    assert runpy.cmd_brief(args) == 0
+    assert seen["started"] == dt(2026, 9, 28, 21, 15)
 
 
 def test_cmd_brief_marker_records_session_date(tmp_path, monkeypatch):
@@ -289,7 +348,7 @@ def test_cmd_brief_marker_records_session_date(tmp_path, monkeypatch):
 
     import vnstock_telegram as _tg
     monkeypatch.delenv("VNSTOCK_PIPELINE_BRIEF", raising=False)
-    monkeypatch.setattr(runpy, "_should_push_close", lambda now, m: (True, ""))
+    monkeypatch.setattr(runpy, "_should_push_close", lambda now, m, **kw: (True, ""))
     monkeypatch.setattr(_tg, "push_close_brief",
                         lambda: {"result": {"message_id": 9}})
     args = SimpleNamespace(warehouse=str(tmp_path))

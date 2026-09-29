@@ -7037,10 +7037,18 @@ b. **LNH ON 6,84 → 0,48% trong 5 phiên, 1W 4,20 → 6,20** (#19): chênh ON�
    được SBV, Finhay không có chỉ tiêu LNH ⇒ user chạy `vnstock_sbv_rates.py
    --show` để phân biệt nguồn/parse. Dù là số của SBV, gauge vẫn nên có cửa
    hợp lý |ON − 1W| > 1,5 ⇒ "nghi dữ liệu", điểm 0.
-c. **Thiếu brief hai thứ Hai 21/09 và 28/09; 22/09 ladder DOWN** (#20). Mọi
-   ngày khác có brief (22/09 trắng vẫn gửi). Hai thứ Hai cùng thiếu là mẫu
-   đáng ngờ (Weekend T7 → `covered_session`? task chết? máy tắt?) — chờ `⏱
-   TỔNG`, `Get-ScheduledTaskInfo`, `brief_push.json`. 22/09: flash-lite 46/46
+c. **Thiếu brief hai thứ Hai 21/09 và 28/09; 22/09 ladder DOWN** (#20).
+   **28/09 đã rõ (23:30, `⏱ TỔNG [2026-09-29 00:13] 178.2 phút … brief 0s`):**
+   pipeline khởi động 21:15, sync 7.272s (VCI ốm → `⚡ Fallback KBS: 1027 mã`,
+   `partial: 151` lúc 23:11), bước brief tới lúc 00:13 T3 → `_should_push_close`
+   chặn "chưa tới 15:00" vì so NGÀY LỊCH — lượt tràn nửa đêm bị coi là chạy bù
+   sáng. Bug cùng họ #14 (ngày lịch vs phiên phủ), vá #20a: `_close_session_date`
+   = `session_covered_at`, cửa nhận `started` (giờ khởi động lượt, cmd_all gắn
+   `args.pipeline_started`) — khởi động trong ngày phiên thì tràn nửa đêm vẫn
+   đẩy, chạy bù sáng vẫn chặn (15/08). Không có cửa cũ thì marker đã ghi 29/09
+   và brief T3 tối đó bị coi là trùng — cùng một lỗi, hai mặt.
+   `run_daily.log` xoay vòng 5 MB nên chỉ còn từ 25/09; 21/09 nằm ở
+   `run_daily.1.log`, chưa xem. 22/09: flash-lite 46/46
    lỗi, flash 7/13, tin Telegram cắt trước dòng OpenRouter ⇒ chưa biết nấc
    cuối chết vì gì; nghi quota 50 req/ngày OpenRouter bị analyze/digest đốt
    trước bước brief (nếu đúng: dành quota cho brief).

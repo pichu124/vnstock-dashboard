@@ -79,7 +79,9 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   = phiên trước, T7/CN = thứ 6), KHÔNG so ngày lịch (16/09: chạy bù sáng từng
   làm task 18:00 cùng ngày bỏ sync, bar hôm đó chờ tới mai); T7/CN `run.py
   sync` tự thêm `--force` cho updater (không thì chạy bù T7 đẩy brief T6 trên
-  bar T5). Cửa cố ý bỏ qua cross-machine (đúng cho kho dùng chung — xem banner
+  bar T5). **Brief chiều cũng so PHIÊN PHỦ** (29/09): lượt pipeline khởi động
+  trong ngày phiên mà tràn qua nửa đêm vẫn đẩy (28/09: sync 121′ → brief lúc
+  00:13 bị chặn nhầm thành `brief 0s`); chạy bù sáng vẫn chặn. Cửa cố ý bỏ qua cross-machine (đúng cho kho dùng chung — xem banner
   đầu file); kho tách riêng thì bật `VNSTOCK_INDEPENDENT_WAREHOUSE=1`.
 - ⚠️ **MỌI việc/test giao cho user PHẢI ghi rõ máy nào**, theo 4 nhãn dùng trong
   `docs/VIEC-DANG-LAM.md`: 🖥️ DESKTOP · 💻 LAPTOP · ⇄ CẢ HAI (phải làm lặp lại
@@ -90,7 +92,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   lần**, KHÔNG phải ⇄ CẢ HAI (sửa 19/08).
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~2.640 test; ~45s trên CI,
+- Sửa module lõi nào → `python run.py test --fast` (~2.643 test; ~45s trên CI,
   86s máy thật 15/09 tối). Danh sách file `--fast` là WHITELIST trong `run.py` —
   thêm file test mới thì phải ghi vào đó, không thì `--fast` không chạy nó.
 - Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, ~3.235 test — pipeline 29/09 chạy full 3.235 passed / 134s).
