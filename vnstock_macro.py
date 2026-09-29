@@ -1005,6 +1005,13 @@ def fmt_change(ind: dict) -> "tuple[str, str, str] | None":
 # lẫn nhau đắt hơn cả vay SBV = hệ thống CĂNG; ON thấp sâu dưới = dư thừa.
 _LIQ_TIGHT_SPREAD = 0.5        # ON − điều hành > +0.5 điểm % → căng
 _LIQ_FLUSH_SPREAD = -1.5       # ON − điều hành < −1.5 điểm % → dư thừa
+# Phân kỳ kỳ hạn (29/09, #19): SBV công bố ON 0,48% trong khi 1 tuần 6,20%
+# (28/09; 25/09 ON 0,87 vs 1W 4,73 — `--diag` xác nhận nguồn in đúng thế, không
+# phải parse). ON − điều hành = −4,02 ⇒ gauge phán "DƯ THỪA" +1 và bơm +0,10
+# vào điểm band phân bổ, trong khi 1W cao hơn điều hành 1,7 điểm nói ngược
+# lại. Hai kỳ hạn liền kề cách nhau quá mức này thì ON không đại diện cho
+# "thanh khoản hệ thống" → dir 0, nhãn in cả hai số, không kết luận.
+_TENOR_DIVERGENCE_PP = 1.5
 
 
 def liquidity_spread(macro: "list[dict] | None") -> "dict | None":
@@ -1020,6 +1027,18 @@ def liquidity_spread(macro: "list[dict] | None") -> "dict | None":
         return None
     # `+ 0.0` dập -0.0: round(-0.001, 2) là -0.0 và in ra "-0.00" (brief 23/09).
     spread = round(float(on["value"]) - float(policy["value"]), 2) + 0.0
+    w1 = rows.get("interbank_1w")
+    if w1 is not None and w1.get("value") is not None:
+        gap = round(abs(float(on["value"]) - float(w1["value"])), 2)
+        if gap > _TENOR_DIVERGENCE_PP:
+            out = {"spread": spread, "dir": 0, "tenor_gap": gap,
+                   "label": (f"ON {float(on['value']):.2f}% và 1 tuần "
+                             f"{float(w1['value']):.2f}% phân kỳ {gap:.2f} điểm % — "
+                             "ON không đại diện thanh khoản hệ thống, không kết luận")}
+            y10 = rows.get("govt_bond_yield_10y")
+            if y10:
+                out["slope_10y_on"] = round(float(y10["value"]) - float(on["value"]), 2) + 0.0
+            return out
     if spread > _LIQ_TIGHT_SPREAD:
         label, d = ("thanh khoản hệ thống CĂNG — LNH cao hơn lãi suất "
                     "điều hành, ngân hàng vay lẫn nhau đắt hơn vay SBV"), -1

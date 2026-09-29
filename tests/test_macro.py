@@ -665,6 +665,33 @@ def test_liquidity_spread_bands_and_slope():
 def test_liquidity_spread_none_when_inputs_missing():
     assert mac.liquidity_spread(_liq_rows(on=5.67)) is None       # thiếu điều hành
     assert mac.liquidity_spread(_liq_rows(policy=4.5)) is None    # thiếu ON
+
+
+def _w1_row(v):
+    return {"key": "interbank_1w", "label": "Lãi suất liên ngân hàng 1 tuần",
+            "kind": "rate", "unit": "%/năm", "value": v, "as_of": "2026-09-28",
+            "change": None}
+
+
+def test_liquidity_spread_neutral_when_on_and_1w_diverge():
+    """SBV 28/09 (--diag xác nhận nguồn): ON 0,48% mà 1W 6,20% — ON − điều hành
+    −4,02 ⇒ bản cũ phán DƯ THỪA +1, bơm +0,10 vào điểm band phân bổ trong khi
+    1W nói ngược lại. Phân kỳ > 1,5 điểm ⇒ dir 0, nhãn in cả hai số."""
+    liq = mac.liquidity_spread(_liq_rows(on=0.48, policy=4.5, y10=4.49) + [_w1_row(6.2)])
+    assert liq["dir"] == 0 and liq["tenor_gap"] == pytest.approx(5.72)
+    assert "0.48%" in liq["label"] and "6.20%" in liq["label"] and "phân kỳ" in liq["label"]
+    assert liq["spread"] == pytest.approx(-4.02)              # số vẫn in ra
+    assert liq["slope_10y_on"] == pytest.approx(4.01)
+    # 25/09: ON 0,87 vs 1W 4,73 → cũng phân kỳ
+    assert mac.liquidity_spread(_liq_rows(on=0.87, policy=4.5) + [_w1_row(4.73)])["dir"] == 0
+    # 1W đồng thuận với ON → luật cũ nguyên vẹn (DƯ THỪA +1 / CĂNG −1 / bình thường)
+    flush = mac.liquidity_spread(_liq_rows(on=2.0, policy=4.5) + [_w1_row(2.4)])
+    assert flush["dir"] == 1 and "DƯ THỪA" in flush["label"] and "tenor_gap" not in flush
+    tight = mac.liquidity_spread(_liq_rows(on=5.67, policy=4.5) + [_w1_row(5.9)])
+    assert tight["dir"] == -1
+    assert mac.liquidity_spread(_liq_rows(on=4.37, policy=4.5) + [_w1_row(4.63)])["dir"] == 0
+    # không có 1W trong registry → không thể xét phân kỳ, giữ luật cũ
+    assert mac.liquidity_spread(_liq_rows(on=0.48, policy=4.5))["dir"] == 1
     assert mac.liquidity_spread([]) is None
     assert mac.liquidity_spread(None) is None
 

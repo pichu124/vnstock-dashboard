@@ -7034,9 +7034,15 @@ a. **GTGD cả ngày hụt vì mã lớn cách ly** (#18). 17/09 "+27% so với 
 b. **LNH ON 6,84 → 0,48% trong 5 phiên, 1W 4,20 → 6,20** (#19): chênh ON−1W
    5,7 điểm là dị thường; gauge `liquidity_spread` phán DƯ THỪA +1,00 và bơm
    +0,10 vào điểm band (allocation 29/09 in đúng dòng đó). Sandbox không gọi
-   được SBV, Finhay không có chỉ tiêu LNH ⇒ user chạy `vnstock_sbv_rates.py
-   --show` để phân biệt nguồn/parse. Dù là số của SBV, gauge vẫn nên có cửa
-   hợp lý |ON − 1W| > 1,5 ⇒ "nghi dữ liệu", điểm 0.
+   được SBV, Finhay không có chỉ tiêu LNH ⇒ user chạy `--show` rồi `--diag`
+   (01:20, fetch tươi): nguồn in y hệt cache — 28/09 ON 0,48 · 1W 6,20 · 2W
+   6,18 · 1M 6,60 · 3M 6,99 · 6M 7,69; 25/09 ON 0,87 · 1W 4,73; 24/09 ON 1,10 ·
+   1W 5,06 ⇒ parse ĐÚNG, số là của SBV. Không đoán vì sao SBV công bố thế
+   (dồn cuối quý? doanh số ON mỏng?) — gauge chỉ cần biết ON đang không đại
+   diện: `liquidity_spread` thêm `_TENOR_DIVERGENCE_PP = 1.5`, |ON − 1W| vượt
+   ⇒ `dir 0` + nhãn in cả hai số "phân kỳ … không kết luận"; allocation nhận
+   dir 0 ⇒ hết +0,10 vào điểm band; 1W đồng thuận hoặc thiếu 1W thì luật cũ.
+   Test với đúng số 28/09 và 25/09.
 c. **Thiếu brief hai thứ Hai 21/09 và 28/09; 22/09 ladder DOWN** (#20).
    **28/09 đã rõ (23:30, `⏱ TỔNG [2026-09-29 00:13] 178.2 phút … brief 0s`):**
    pipeline khởi động 21:15, sync 7.272s (VCI ốm → `⚡ Fallback KBS: 1027 mã`,
