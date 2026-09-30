@@ -358,7 +358,19 @@ API trả tiền chỉ khi user muốn; D = Routine cloud LOẠI (cloud không g
 > desktop lần đầu. Phát 30/09 chạy ladder (công tắc bật sau 18:00). **Phát 18:00 01/10 là
 > ĐÊM CLAUDE ĐẦU TIÊN** — sáng 02/10: `/brief-review` (○) + 🖥️
 > `Select-String '⏱ claude-cli' run_daily.log` phải có `[news]` `[audit]`
-> `[train]` `[brief]`; tin 290 vẫn chờ `--rate <id> 4` (U64).
+> `[train]` `[brief]`; tin 290 đã chấm 4 sao (#913).
+> **`--review` sau lượt bù (01/10 ~03:00):** marker `close=2026-09-30 · engine=claude ·
+> máy=PICHU`, memory #914 (8.136 ký tự, auto 0.823), guard raw 73 → final 77 ·
+> 48 dòng khác. **Soi diff raw/final #914** (`Get-Content -Encoding UTF8`): gần
+> hết 48 dòng là khối canon thay theo thiết kế (vĩ mô 13 · tin 6 · sự kiện 4 ·
+> báo cáo 3 · rủi ro 3 · dẫn dắt 1 · caveat 1); sửa thật vào chữ Claude chỉ
+> "tăng +8%" → "tăng 8%" và dạng dòng Tụt hậu — KHÔNG có số nào phải sửa. Giá
+> phải trả: guard canon BỎ 3 câu đúng và có giá trị của Claude — "Hàm ý: môi
+> trường thắt chặt nhẹ, bất lợi cho nhóm vay nợ cao và dòng vốn ngoại" (vĩ mô),
+> "Khung tháng đồng chiều với bias GIẢM của ngày" (báo cáo), "PET vừa tăng
+> +28.2%…" (rủi ro) — và bản sự kiện gộp gọn có thêm MWG/KDH 07/10. Guard sinh
+> ra cho ladder hay bịa; với Claude nó đang cắt bớt. **CHỜ ĐẾM ≥3 đêm Claude rồi
+> quyết** (ứng viên: canon guard giữ câu "Hàm ý" KHÔNG chứa số của model).
 1. Merge code: `git fetch origin claude/laptop-work-ono4qt && git merge
    origin/claude/laptop-work-ono4qt` rồi `python run.py test --fast`.
 2. Cài Claude Code CLI **bản cài native** (ra `claude.exe`, không phải
