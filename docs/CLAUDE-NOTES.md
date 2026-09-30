@@ -6966,6 +6966,38 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🔎 U66. `/brief-review` ĐẦU TIÊN (desktop, 01/10 sáng): VALIDATOR VNINDEX BÁO GIẢ VÌ NĂM TRONG NGÀY ISO — VÁ #30, #914 CHẤM 4★
+
+**Bằng chứng:** log lượt bù phiên 30/09 (`telegram close --engine claude
+--force`, 01:46): `Brief nêu VNINDEX ≈ 2,026 (+14.6% lệch so với close thực
+1,768.62) → khả năng hallucinate`. Claude Code desktop dò gói: 2,026 KHÔNG có
+trong context; brief ghi 1,768.62 ở dòng 2 và 9; dòng 56 là tin canon
+`- ⚪ [2026-10-01] Lãi suất và VN-Index có thực sự "ngược đường"?…` —
+`_VNI_CONTEXT_RE` khớp "VN-Index", `_VNI_MAGNITUDE_RE` (`[12][.,]?\d{3}`) nuốt
+"2026" của ngày ⇒ cảnh báo giả. Validator chỉ warn, brief vẫn gửi và số đúng.
+Lưu ý: dòng tin là khối canon do `enforce_market_news` chèn SAU chữ model ⇒
+lỗi này bắn với MỌI engine mỗi khi headline có "VN-Index" và ngày 2026 — có
+thể đã réo nhiều đêm trước mà không ai đọc log.
+
+**Vá (`49c78d6`, nhánh `fix/vnindex-validator-iso-date`, gộp về
+`claude/laptop-work-ono4qt` ở `7da5a4a`):** `_ISO_DATE_RE` strip trước khi
+quét ở cả hai điểm (có data / không data); re-export qua `vnstock_brief` (lưới
+parity bắt thiếu); 2 ca trong `test_validate_brief_factuality_*` (headline có
+ngày = sạch; cùng dòng có mức sai thật vẫn réo). Full 3.359 trước push. Desktop
+`main` fast-forward, đi trước `origin/main` 62 commit — đẩy hay không là việc
+của user.
+
+**Đánh giá lượt Claude Code desktop (user hỏi):** chẩn đoán đúng, sửa tối
+thiểu đúng chỗ, tự bắt lỗi re-export nhờ lưới parity, chạy full trước push,
+mở nhánh riêng thay vì đụng `main`. Hai nhận định trung gian SAI rồi tự sửa
+trước khi hành động: "brief bịa chỉ số" (thực ra validator giả) và "`--force`
+01:46 = đẩy brief bù sáng cũ" (thực ra bản phiên 30/09 cố ý gửi vì cửa 15:05
+chặn). Thiếu: không ghi docs (bù ở đây + VIEC #30), vá nằm ngoài nhánh làm
+việc nên laptop không nhận theo đường quen (đã gộp), nhận xét chấm sao "số
+đúng, validator lỗi" nói về validator chứ không về brief (vô hại: few-shot chỉ
+dùng chữ brief). Còn hở: năm trần ("VN-Index năm 2026", "Q3/2026") vẫn lọt
+validator — chờ thấy mới vá.
+
 # 🛑 U65. PHÁT 30/09 (CHẠY BÙ 23:47) DỪNG Ở BƯỚC TEST — TEST SLUG NGOÀI WHITELIST CÒN GHIM qwen3.6-27b, MẤT BRIEF (01/10 rạng sáng)
 
 **Bằng chứng (🖥️ desktop, 01/10 ~02:00):** `Get-ScheduledTaskInfo`: LastRunTime
