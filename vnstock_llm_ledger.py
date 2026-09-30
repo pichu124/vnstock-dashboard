@@ -38,6 +38,8 @@ _RATE_LIMIT_TOKENS = ("429", "rate limit", "rate_limit", "ratelimit",
 # khớp dòng nào coi như free tier → $0. Giá niêm yết 07/2026 — provider đổi
 # giá thì sửa bảng này (chỉ ảnh hưởng hiển thị --show, không ảnh hưởng ghi sổ).
 _PRICES_PER_MTOK: tuple = (
+    ("claude-opus-5-5",       4.00, 20.00),   # engine brief Claude Code (30/09)
+    ("claude-sonnet-5-5",     2.00, 10.00),
     ("claude-opus-4-8",       5.00, 25.00),
     ("claude-sonnet-4-6",     3.00, 15.00),
     ("claude-haiku-4-5",      1.00,  5.00),

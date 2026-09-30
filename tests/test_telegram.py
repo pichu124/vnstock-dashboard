@@ -388,3 +388,47 @@ def test_push_briefs_build_snippet_before_header():
         src = inspect.getsource(fn)
         assert src.index("_brief_snippet(") < src.index(
             "_market_sentiment_line("), fn.__name__
+
+
+# ─── Engine ngoài (30/09): push_close_brief(ai_block=…) ──────────────────────
+
+def _stub_close_blocks(monkeypatch) -> dict:
+    captured: dict = {}
+    monkeypatch.setattr(tg, "_load_env", lambda: None)
+    monkeypatch.setattr(tg, "_closed_today_block", lambda: "")
+    monkeypatch.setattr(tg, "_brief_header", lambda e, t: "HDR")
+    monkeypatch.setattr(tg, "_vnindex_line", lambda: "VNI")
+    monkeypatch.setattr(tg, "_regime_block", lambda: "REG")
+    monkeypatch.setattr(tg, "_market_sentiment_line", lambda: "SENT")
+    monkeypatch.setattr(tg, "_open_recs_block", lambda: "RECS")
+    monkeypatch.setattr(tg, "send_message",
+                        lambda text, parse_mode="HTML": captured.update(text=text) or {"ok": True})
+    return captured
+
+
+def test_push_close_brief_ai_block_skips_ladder_and_labels_engine(monkeypatch):
+    captured = _stub_close_blocks(monkeypatch)
+    monkeypatch.setattr(tg, "_brief_snippet",
+                        lambda bt: (_ for _ in ()).throw(AssertionError("ladder chạy dù có ai_block")))
+    tg.push_close_brief(ai_block="## Tổng quan\nDòng 1\n---\nDòng 2\n",
+                        engine="Claude Code · opus-5-5")
+    text = captured["text"]
+    assert "Tổng quan\nDòng 1\nDòng 2" in text      # dọn `#` và `---` như bản ladder
+    assert "🤖 Claude Code · opus-5-5" in text        # footer nói engine nào viết
+    assert text.index("HDR") < text.index("Tổng quan") < text.index("RECS")
+
+
+def test_push_close_brief_without_ai_block_keeps_ladder_and_plain_footer(monkeypatch):
+    captured = _stub_close_blocks(monkeypatch)
+    monkeypatch.setattr(tg, "_brief_snippet", lambda bt: "LADDER")
+    tg.push_close_brief()
+    assert "LADDER" in captured["text"]
+    assert "🤖" not in captured["text"]
+    assert captured["text"].rstrip().endswith("<i>Powered by VNStock Dashboard</i>")
+
+
+def test_snippet_from_text_is_the_single_cleaning_rule(monkeypatch):
+    import vnstock_brief as vb
+    raw = "# Tiêu đề\n---\n\nDòng x\n"
+    monkeypatch.setattr(vb, "generate_brief", lambda **kw: {"A": (raw, None)})
+    assert tg._brief_snippet("afternoon") == tg._snippet_from_text(raw) == "Tiêu đề\nDòng x"

@@ -6966,6 +6966,116 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🤖 U61. BRIEF CHIỀU BẰNG CLAUDE — ENGINE NGOÀI LADDER, LÕI DÙNG CHUNG BA ĐƯỜNG (30/09 sáng)
+
+**Đề bài (user 30/09 sáng, 💻 laptop):** "chất lượng brief cũng như các tác vụ
+cần AI chưa tốt — chuyển thành skill làm hàng ngày, đặc biệt là brief". Mẫu
+U60 nói rõ vì sao: 6/8 brief close 16–29/09 là flash-lite qua dự phòng, 22/09
+trắng; 4 lỗi mới đều là lỗi chữ/số của model yếu mà guard phải dọn sau.
+
+## 1. Quyết định thiết kế — KHÔNG viết lại đường brief, chỉ thay AGENT
+Đường brief đã 2 tháng tích luỹ: ctx (`collect_context` + 4 bước refresh) →
+`build_prompt` (few-shot, lệnh mở, tin) → agent → `apply_brief_guards` (55) →
+`validate_brief_factuality` → `save_brief` → brief_watch → `push_close_brief`
+(header/regime/sentiment/recs) → marker `brief_push.json`. Thứ user chê là
+đúng một hộp — agent. Mọi đường mới đều phải đi qua các hộp còn lại, không thì
+mất parity (dashboard A/B, memory, sổ LLM, doctor badge Phát tối).
+
+`vnstock_brief_pack.py` tách đúng HAI mặt cắt (và không hơn):
+- `build_pack(brief_type)` → `{version, brief_type, session, created_at,
+  machine, prompt, ctx}`; ctx ĐẦY ĐỦ (kể cả `tickers`) để guard thấy y như
+  ladder; `write_pack` atomic vào `_meta/brief_pack.json` (trong kho ⇒ Dropbox
+  đưa sang laptop — đường B dựa vào đó). Test canh 5 bước refresh chạy đúng
+  thứ tự và `auto_refresh=True` như `generate_brief`.
+- `finalize_brief(text, pack, agent_name, model)` → guard → validate → memory
+  (`agent_type="claude"`, context bỏ `tickers` như ladder) → brief_watch. Bọc
+  ```…``` bị cắt; rỗng sau dọn ⇒ trả rỗng, chỗ gọi rơi về ladder.
+- `run_claude_cli(prompt)` → `claude -p <câu lệnh ngắn> --output-format json
+  --model <slug> --max-turns 4`, **prompt qua STDIN** (Windows trần 32.767 ký
+  tự dòng lệnh; prompt brief ~40K). Đọc `result` + `usage` (cộng cache token
+  vào prompt_tokens) + `total_cost_usd`; `is_error`/rỗng/rc≠0 ⇒ lỗi kèm đuôi
+  stderr; timeout 900s. Sổ LLM provider **`ClaudeCode`** (tách khỏi
+  `Anthropic` = API); OK chỉ khi có chữ thật (nếp #24). Giá Opus 5.5 $4/$20,
+  Sonnet 5.5 $2/$10 vào `_PRICES_PER_MTOK` — gói thuê bao không trừ tiền theo
+  token, số `--show` chỉ là "tương đương API".
+- `cli_env()` **GIẤU `ANTHROPIC_API_KEY`**: `_ensure_env_loaded` đổ .env vào
+  os.environ và subprocess kế thừa — có key là CLI lặng lẽ chuyển sang tính
+  tiền API thay vì thuê bao. `VNSTOCK_BRIEF_CLI_API_KEY=1` mới cho thấy.
+
+`run.py`: `_brief_engine(args)` = `--engine` > `VNSTOCK_BRIEF_ENGINE` > ladder
+(chữ lạ = ladder). `_send_close_brief(args)` dùng CHUNG cho `cmd_brief` (bước
+14) và `telegram close` (lệnh tay) ⇒ hai cửa gửi không lệch nhau (vết 19/08).
+`_close_brief_via_claude`: pack → CLI → finalize → `push_close_brief(ai_block,
+engine)`; hỏng khâu nào in `[brief] ⏱ claude-cli: Ns · ❌ …` rồi `↩ rơi về
+ladder agent free` — **brief luôn đi**, đêm Claude chết không mất brief, sáng
+đọc log là biết. Marker thêm `engine` (claude / claude-file / ladder) — doctor
+`pipeline_reach_verdict` chỉ đọc `close` nên không đổi. `--export-pack` không
+qua cửa gác giờ/marker (xuất gói không phải gửi). `--from-file` từ chối gói
+KHÁC phiên (gói cũ = brief kể chuyện hôm qua), `--force` để cố ý.
+
+`vnstock_telegram.push_close_brief(ai_block=None, engine=None)`: có `ai_block`
+thì KHÔNG chạy `_brief_snippet` (không gọi ladder), dọn markdown bằng
+`_snippet_from_text` (tách từ `_brief_snippet` — một luật cho hai đường),
+footer `Powered by VNStock Dashboard · 🤖 Claude Code · opus-5-5`. Thứ tự
+snippet-trước-header giữ nguyên (test inspect-source 30/07 vẫn xanh).
+
+Skill `.claude/skills/brief-close/SKILL.md` (frontmatter `name/description`
+như skill ECC): 4 bước đọc gói → viết → ghi `_meta/brief_claude.md` → bảo user
+`run.py brief --from-file`; test canh nó nêu đúng tên gói/lệnh/env.
+
+## 2. Ba đường chạy — user chọn (mục 8 VIEC-DANG-LAM)
+| | A. CLI headless trong pipeline | B. Tay bằng skill | C. API trong ladder |
+|---|---|---|---|
+| Hạ tầng mới | cài CLI + `/login` dưới tài khoản `admin` ở 🖥️ desktop | không | key API |
+| Tiền | thuê bao đang có | thuê bao | ~$3/tháng Opus |
+| Tự động | có (bước 14) | không | có |
+| Lỗi ⇒ | rơi về ladder | user thấy ngay | ladder như cũ |
+| Code còn phải làm | 0 | 0 | `ClaudeAgent` lên Opus 5.5 + SDK `anthropic` (skill claude-api: adaptive thinking, streaming, `get_final_message`) |
+Khuyến nghị **A**; **B** dùng ngay hôm nay trên laptop khi muốn thay bản ladder
+(gói đi qua Dropbox); **C** khi user không muốn CLI trên desktop. **D. Routine
+cloud** (Claude Code web theo cron): cloud không thấy Dropbox ⇒ gói phải đi
+qua git (nhánh data), `TELEGRAM_*` phải thành secret môi trường, và phải có
+cửa chống gửi trùng với bước 14 — nhiều bộ phận hơn hẳn, chỉ làm khi A/C đều
+không được.
+
+## 3. Điều CHƯA làm và bẫy vận hành đã thấy trước
+- `ClaudeAgent` (API) vẫn Haiku qua `requests` thô, `max_tokens` 2.800 — chưa
+  đụng vì user chưa chọn C. Chọn C thì: SDK, `claude-opus-5-5`, thinking
+  adaptive, streaming, parity cụt/rỗng với `_openai_extract`, khai slug vào
+  `_all_live_slugs` (đã có sẵn Opus 5.5 qua `bp.DEFAULT_CLI_MODEL`).
+- Các điểm AI khác ([1] sentiment, [2] chấm tin, [3-6] digest, reflection,
+  strategy loop, brief phân bổ) — cùng lõi "gói → chữ → nhận lại", khác gói;
+  làm sau khi brief đo được ~1 tuần. Sentiment/analyze là hàng trăm call nhỏ
+  mỗi ngày — không hợp CLI headless từng call, hợp API Haiku/Sonnet có ngân
+  sách ngày.
+- Brief SÁNG vẫn không có task (V5) — engine này chỉ nối vào brief chiều.
+- **Task Scheduler + CLI**: task chạy dưới `admin` với PATH của phiên đăng
+  nhập KHÔNG chắc có `claude` (npm global / `%USERPROFILE%\.local\bin`) ⇒
+  `shutil.which` trả None ⇒ log `❌ không tìm thấy lệnh claude` và rơi về
+  ladder; chữa bằng `VNSTOCK_BRIEF_CLI_EXE=<đường dẫn đầy đủ>` trong .env.
+  Token đăng nhập CLI nằm ở `%USERPROFILE%\.claude` của `admin` — đăng nhập
+  ở tài khoản khác thì task không thấy.
+- Gói thuê bao có thể không mở Opus ⇒ `VNSTOCK_BRIEF_CLI_MODEL=claude-sonnet-5-5`.
+- `--max-turns 4` + prompt "KHÔNG dùng công cụ": Claude Code có thể tự đọc
+  file (Read/Glob không cần quyền) — vô hại; công cụ cần quyền trong `-p` bị
+  từ chối rồi model vẫn trả lời. Nếu thấy `num_turns` > 1 đều đặn thì cân
+  nhắc `--disallowedTools` (chưa thêm vì tên cờ khác nhau giữa phiên bản CLI).
+- Bước brief đêm VCI ốm: `build_pack` chạy cùng 4 bước refresh ⇒ #21 (dừng
+  sau 3 mã VCI lỗi liền) vẫn áp; thêm tối đa 900s CLI — trần 240′ còn dư.
+
+## 4. Test
+`tests/test_brief_pack.py` (25, vào whitelist `--fast`): env/nút vặn, gói đi
+đúng đường `generate_brief`, roundtrip atomic, finalize hậu kỳ (ctx đầy đủ vào
+guard, memory bỏ tickers, sống sót khi memory/validator hỏng), parse JSON CLI
+(cộng cache token, is_error, rỗng, text thường), `run_claude_cli` (stdin, env
+không key, cwd repo, sổ OK/fail, thiếu exe không spawn, timeout, rc≠0 lấy
+stderr), dòng log, skill khớp hợp đồng. `tests/test_run_pipeline.py` +8 (engine
+claude gửi bản Claude + marker engine; CLI lỗi ⇒ ladder + marker ladder; guard
+dọn sạch ⇒ ladder; mặc định ladder + cờ đè env; `--export-pack` không gửi/
+không marker dù cửa chặn; `--from-file` cùng phiên / khác phiên / --force;
+parser; `telegram close` qua dispatch). `tests/test_telegram.py` +3. Fast
+**2.689 passed / 49s** (sandbox).
+
 # 🔎 U60. SOI BRIEF 16–29/09 — BA VÁ CŨ ĐÃ ĂN, BỐN LỖI MỚI VÁ CÙNG ĐÊM, BA NGHI CHỜ SỐ (29/09 khuya)
 
 Mẫu: 8 close brief Telegram (16, 17, 18, 22, 23, 24, 25, 29/09) + 2 tin model

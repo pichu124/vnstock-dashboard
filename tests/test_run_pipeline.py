@@ -537,3 +537,159 @@ def test_cmd_brief_kill_switch_writes_skipped_without_touching_close(tmp_path, m
     # "no" cũng là tắt (khớp doctor._OFF_VALUES)
     monkeypatch.setenv("VNSTOCK_PIPELINE_BRIEF", "no")
     assert runpy.cmd_brief(args) == 0
+
+
+# ─── Engine brief chiều (30/09): ladder | claude, --export-pack, --from-file ──
+
+def _claude_engine_stubs(monkeypatch, cli_result, tmp_path) -> dict:
+    """Dựng đường claude hoàn toàn hermetic; trả dict ghi nhận gì đã gửi."""
+    import vnstock_brief_pack as bp
+    import vnstock_telegram as _tg
+    seen: dict = {}
+    monkeypatch.delenv("VNSTOCK_PIPELINE_BRIEF", raising=False)
+    monkeypatch.setattr(runpy, "_should_push_close", lambda now, m, **kw: (True, ""))
+    monkeypatch.setattr(bp, "build_pack", lambda bt="afternoon": {
+        "version": 1, "brief_type": bt, "session": "2026-09-30",
+        "prompt": "PROMPT", "ctx": {"date": "2026-09-30"}})
+    monkeypatch.setattr(bp, "write_pack",
+                        lambda pack, path: seen.setdefault("pack_path", path))
+    monkeypatch.setattr(bp, "run_claude_cli",
+                        lambda prompt, **kw: seen.setdefault("prompt", prompt) and cli_result)
+    monkeypatch.setattr(bp, "finalize_brief",
+                        lambda text, pack, **kw: {"text": text + "|G", "warnings": ["w"],
+                                                  "brief_id": 1, "auto_score": 0.5})
+
+    def _push(ai_block=None, engine=None):
+        seen["ai_block"], seen["engine"] = ai_block, engine
+        return {"result": {"message_id": 5}}
+    monkeypatch.setattr(_tg, "push_close_brief", _push)
+    return seen
+
+
+def test_cmd_brief_engine_claude_sends_claude_text_and_marks_engine(tmp_path, monkeypatch):
+    import json as _json
+    monkeypatch.setenv("VNSTOCK_BRIEF_ENGINE", "claude")
+    seen = _claude_engine_stubs(monkeypatch, ("BODY", None, {"model": "claude-opus-5-5",
+                                                             "elapsed_s": 40}), tmp_path)
+    args = SimpleNamespace(warehouse=str(tmp_path))
+    assert runpy.cmd_brief(args) == 0
+    assert seen["prompt"] == "PROMPT"
+    assert seen["ai_block"] == "BODY|G" and "Claude Code" in seen["engine"]
+    assert str(seen["pack_path"]).endswith("brief_pack.json")   # gói luôn ra kho để soi
+    marker = _json.loads(runpy._brief_push_marker(args).read_text(encoding="utf-8"))
+    assert marker["close"] and marker["engine"] == "claude"
+
+
+def test_cmd_brief_engine_claude_falls_back_to_ladder_when_cli_fails(tmp_path, monkeypatch, capsys):
+    import json as _json
+    monkeypatch.setenv("VNSTOCK_BRIEF_ENGINE", "claude")
+    seen = _claude_engine_stubs(monkeypatch, ("", "claude CLI quá 900s — bỏ", {"elapsed_s": 900}),
+                                tmp_path)
+    args = SimpleNamespace(warehouse=str(tmp_path))
+    assert runpy.cmd_brief(args) == 0
+    assert seen["ai_block"] is None and seen["engine"] is None      # ladder như cũ
+    marker = _json.loads(runpy._brief_push_marker(args).read_text(encoding="utf-8"))
+    assert marker["engine"] == "ladder"
+    out = capsys.readouterr().out
+    assert "[brief] ⏱ claude-cli:" in out and "❌" in out and "rơi về ladder" in out
+
+
+def test_cmd_brief_engine_claude_falls_back_when_guards_empty_the_text(tmp_path, monkeypatch):
+    import vnstock_brief_pack as bp
+    monkeypatch.setenv("VNSTOCK_BRIEF_ENGINE", "claude")
+    seen = _claude_engine_stubs(monkeypatch, ("BODY", None, {"model": "m", "elapsed_s": 1}), tmp_path)
+    monkeypatch.setattr(bp, "finalize_brief",
+                        lambda text, pack, **kw: {"text": "", "warnings": [], "brief_id": None,
+                                                  "auto_score": 0.0})
+    assert runpy.cmd_brief(SimpleNamespace(warehouse=str(tmp_path))) == 0
+    assert seen["ai_block"] is None
+
+
+def test_cmd_brief_default_engine_is_ladder_and_flag_overrides_env(tmp_path, monkeypatch):
+    import json as _json
+    monkeypatch.delenv("VNSTOCK_BRIEF_ENGINE", raising=False)
+    seen = _claude_engine_stubs(monkeypatch, ("BODY", None, {}), tmp_path)
+    args = SimpleNamespace(warehouse=str(tmp_path))
+    assert runpy.cmd_brief(args) == 0
+    assert seen["ai_block"] is None and "prompt" not in seen        # không gọi CLI
+    marker = _json.loads(runpy._brief_push_marker(args).read_text(encoding="utf-8"))
+    assert marker["engine"] == "ladder"
+
+    monkeypatch.setenv("VNSTOCK_BRIEF_ENGINE", "ladder")
+    seen2 = _claude_engine_stubs(monkeypatch, ("BODY", None, {"model": "m"}), tmp_path)
+    assert runpy.cmd_brief(SimpleNamespace(warehouse=str(tmp_path), engine="claude")) == 0
+    assert seen2["ai_block"] == "BODY|G"
+
+
+def test_cmd_brief_export_pack_writes_pack_only(tmp_path, monkeypatch):
+    import vnstock_brief_pack as bp
+    import vnstock_telegram as _tg
+    monkeypatch.delenv("VNSTOCK_PIPELINE_BRIEF", raising=False)
+    # cửa gác chặn mà --export-pack vẫn chạy: xuất gói không phải gửi brief
+    monkeypatch.setattr(runpy, "_should_push_close", lambda now, m, **kw: (False, "chặn"))
+    monkeypatch.setattr(bp, "build_pack", lambda bt="afternoon": {
+        "version": 1, "brief_type": bt, "session": "2026-09-30", "prompt": "P", "ctx": {}})
+    monkeypatch.setattr(_tg, "push_close_brief",
+                        lambda **kw: (_ for _ in ()).throw(AssertionError("--export-pack mà gửi")))
+    args = SimpleNamespace(warehouse=str(tmp_path), export_pack=True)
+    assert runpy.cmd_brief(args) == 0
+    assert bp.pack_path(tmp_path).exists()
+    assert not runpy._brief_push_marker(args).exists()
+
+
+def test_cmd_brief_from_file_ingests_and_requires_same_session_pack(tmp_path, monkeypatch):
+    import json as _json
+
+    import vnstock_brief_pack as bp
+    import vnstock_telegram as _tg
+    monkeypatch.delenv("VNSTOCK_PIPELINE_BRIEF", raising=False)
+    monkeypatch.setattr(runpy, "_should_push_close", lambda now, m, **kw: (True, ""))
+    sess = runpy._close_session_date(runpy._datetime.now()).isoformat()
+    bp.write_pack({"version": 1, "brief_type": "afternoon", "session": sess,
+                   "prompt": "P", "ctx": {"date": sess}}, bp.pack_path(tmp_path))
+    md = tmp_path / "brief_claude.md"
+    md.write_text("## Tổng quan\nBODY", encoding="utf-8")
+    seen: dict = {}
+    monkeypatch.setattr(bp, "finalize_brief",
+                        lambda text, pack, **kw: seen.update(text=text, kw=kw) or
+                        {"text": "BODY|G", "warnings": [], "brief_id": 1, "auto_score": 0.1})
+    monkeypatch.setattr(_tg, "push_close_brief",
+                        lambda ai_block=None, engine=None:
+                        seen.update(ai_block=ai_block) or {"result": {"message_id": 3}})
+    args = SimpleNamespace(warehouse=str(tmp_path), from_file=str(md))
+    assert runpy.cmd_brief(args) == 0
+    assert seen["text"].startswith("## Tổng quan") and seen["ai_block"] == "BODY|G"
+    assert seen["kw"]["agent_name"].endswith("(file)")
+    marker = _json.loads(runpy._brief_push_marker(args).read_text(encoding="utf-8"))
+    assert marker["engine"] == "claude-file"
+
+    # gói phiên KHÁC → lỗi rõ, không gửi, không marker (trừ --force)
+    runpy._brief_push_marker(args).unlink()
+    bp.write_pack({"version": 1, "brief_type": "afternoon", "session": "2020-01-02",
+                   "prompt": "P", "ctx": {}}, bp.pack_path(tmp_path))
+    seen.clear()
+    assert runpy.cmd_brief(args) == 1
+    assert "ai_block" not in seen and not runpy._brief_push_marker(args).exists()
+    assert runpy.cmd_brief(SimpleNamespace(warehouse=str(tmp_path), from_file=str(md),
+                                           force=True)) == 0
+    assert seen["ai_block"] == "BODY|G"
+
+
+def test_parser_accepts_brief_engine_flags():
+    p = runpy.build_parser()
+    a = p.parse_args(["brief", "--engine", "claude", "--export-pack",
+                      "--from-file", "x.md", "--force"])
+    assert (a.engine, a.export_pack, a.from_file, a.force) == ("claude", True, "x.md", True)
+    a = p.parse_args(["brief"])
+    assert a.engine is None and not a.export_pack and a.from_file is None
+
+
+def test_cmd_telegram_close_goes_through_engine_dispatch(tmp_path, monkeypatch):
+    import json as _json
+    monkeypatch.setattr(runpy, "_should_push_close", lambda now, m, **kw: (True, ""))
+    monkeypatch.setattr(runpy, "_send_close_brief",
+                        lambda args: ({"result": {"message_id": 1}}, "claude"))
+    args = SimpleNamespace(warehouse=str(tmp_path), action="close", force=False)
+    assert runpy.cmd_telegram(args) == 0
+    marker = _json.loads(runpy._brief_push_marker(args).read_text(encoding="utf-8"))
+    assert marker["engine"] == "claude"

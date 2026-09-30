@@ -719,6 +719,7 @@ def cmd_test(args) -> int:
             "tests/test_telegram.py",
             "tests/test_events.py",
             "tests/test_gtgd_coverage.py",
+            "tests/test_brief_pack.py",
             "tests/test_macro.py",
             "tests/test_news_feeds.py",
             "tests/test_updater_partial_bar.py",
@@ -1075,11 +1076,12 @@ def cmd_telegram(args) -> int:
                 return 0
             if not ok:
                 print(f"[telegram] ⚠️ --force: bỏ qua cửa gác ({why})")
-            resp = _tg.push_close_brief()
-            print(f"[telegram] close brief sent — message_id={resp.get('result',{}).get('message_id')}")
+            resp, engine = _send_close_brief(args)
+            print(f"[telegram] close brief sent — message_id="
+                  f"{resp.get('result',{}).get('message_id')} · engine={engine}")
             # Lệnh tay cũng tính "phiên này đã có brief" — pipeline chạy
             # sau đó khỏi bắn trùng (bất biến một-brief-mỗi-phiên, 15/08)
-            _write_close_marker(args)
+            _write_close_marker(args, engine=engine)
         elif action == "screener":
             resp = _tg.push_screener_alerts()
             print(f"[telegram] screener sent — message_id={resp.get('result',{}).get('message_id')}")
@@ -1228,8 +1230,12 @@ def _brief_push_marker(args) -> Path:
             / "_meta" / "brief_push.json")
 
 
-def _write_close_marker(args) -> None:
+def _write_close_marker(args, engine: "str | None" = None) -> None:
     """Ghi "phiên này đã có brief chiều" (theo NGÀY PHIÊN, atomic).
+
+    `engine` (30/09): bản đã gửi do engine nào viết — "claude" (Claude Code
+    headless), "claude-file" (chữ nạp từ file, skill /brief-close),
+    "ladder" (agent free như cũ, kể cả khi rơi về từ claude).
 
     Dùng chung cho bước pipeline LẪN lệnh tay `telegram close` — bất biến
     một-brief-mỗi-phiên không phân biệt đường gửi (ca thật 15/08: user gửi
@@ -1240,9 +1246,10 @@ def _write_close_marker(args) -> None:
     try:
         marker.parent.mkdir(parents=True, exist_ok=True)
         tmp = marker.with_suffix(f".{_os.getpid()}.tmp")
-        tmp.write_text(json.dumps(
-            {"close": _close_session_date(_datetime.now()).isoformat()}),
-            encoding="utf-8")
+        payload = {"close": _close_session_date(_datetime.now()).isoformat()}
+        if engine:
+            payload["engine"] = engine
+        tmp.write_text(json.dumps(payload), encoding="utf-8")
         _os.replace(str(tmp), str(marker))
     except Exception:
         pass
@@ -1360,6 +1367,20 @@ def cmd_brief(args) -> int:
         print("[brief] VNSTOCK_PIPELINE_BRIEF=0 — bỏ qua bước brief")
         _note_brief_skipped(args, "VNSTOCK_PIPELINE_BRIEF=0")
         return 0
+    if getattr(args, "export_pack", False):
+        # Chỉ xuất gói (ctx+prompt) cho skill /brief-close hoặc Routine cloud —
+        # KHÔNG gửi gì, KHÔNG đụng marker; cửa gác giờ không áp cho việc này.
+        try:
+            import vnstock_brief_pack as _bp
+            pack = _bp.build_pack("afternoon")
+            out = _bp.write_pack(pack, _bp.pack_path(
+                getattr(args, "warehouse", "data_warehouse")))
+            print(f"[brief] 📦 pack phiên {pack['session']} → {out} "
+                  f"({len(pack['prompt']):,} ký tự prompt)")
+            return 0
+        except Exception as e:
+            print(f"[brief] ❌ export pack: {type(e).__name__}: {str(e)[:160]}")
+            return 1
     marker = _brief_push_marker(args)
     ok, why = _should_push_close(_datetime.now(), marker,
                                  started=getattr(args, "pipeline_started", None))
@@ -1367,15 +1388,91 @@ def cmd_brief(args) -> int:
         print(f"[brief] bỏ qua: {why}")
         return 0
     try:
-        import vnstock_telegram as _tg
-        resp = _tg.push_close_brief()
+        resp, engine = _send_close_brief(args)
         mid = (resp or {}).get("result", {}).get("message_id")
-        print(f"[brief] close brief sent — message_id={mid}")
+        print(f"[brief] close brief sent — message_id={mid} · engine={engine}")
     except Exception as e:
         print(f"[brief] ❌ {type(e).__name__}: {str(e)[:160]}")
         return 1
-    _write_close_marker(args)
+    _write_close_marker(args, engine=engine)
     return 0
+
+
+def _brief_engine(args) -> str:
+    """Engine viết thân brief: cờ `--engine` > env VNSTOCK_BRIEF_ENGINE >
+    ladder. `cmd_all` không có cờ → theo env (.env của máy chạy pipeline)."""
+    import vnstock_brief_pack as _bp
+    flag = (getattr(args, "engine", None) or "").strip().lower()
+    return flag if flag in _bp.ENGINES else _bp.engine_from_env()
+
+
+def _send_close_brief(args) -> "tuple[dict, str]":
+    """Gửi brief chiều theo engine đã chọn; trả (resp Telegram, engine thật
+    đã dùng). Đường Claude LỖI ở bất kỳ khâu nào (không CLI, timeout, trắng,
+    guard dọn sạch) ⇒ in lý do rồi RƠI VỀ ladder — brief luôn đi, đêm nào
+    Claude chết thì đọc `[brief] ⏱ claude-cli` trong log là biết."""
+    import vnstock_telegram as _tg
+    from_file = getattr(args, "from_file", None)
+    if from_file:
+        return _close_brief_from_file(args, from_file)
+    engine = _brief_engine(args)
+    if engine == "claude":
+        resp = _close_brief_via_claude(args)
+        if resp is not None:
+            return resp, "claude"
+        print("[brief] ↩ rơi về ladder agent free")
+    return _tg.push_close_brief(), "ladder"
+
+
+def _close_brief_via_claude(args) -> "dict | None":
+    """Gói → Claude Code headless → hậu kỳ → Telegram. None = không gửi được
+    bản Claude (chỗ gọi rơi về ladder). Gói luôn được ghi ra kho để soi lại
+    và để laptop chạy skill tay khi cần."""
+    import vnstock_brief_pack as _bp
+    import vnstock_telegram as _tg
+    try:
+        pack = _bp.build_pack("afternoon")
+        _bp.write_pack(pack, _bp.pack_path(getattr(args, "warehouse", "data_warehouse")))
+    except Exception as e:
+        print(f"[brief] ⏱ claude-cli: ❌ dựng pack: {type(e).__name__}: {str(e)[:160]}")
+        return None
+    text, err, info = _bp.run_claude_cli(pack["prompt"])
+    print(_bp.outcome_line(info, text, err))
+    if err or not text:
+        return None
+    model = info.get("model") or _bp.cli_model()
+    fin = _bp.finalize_brief(text, pack, agent_name=_bp.engine_label(model),
+                             model=model)
+    for w in fin.get("warnings") or []:
+        print(f"[brief]   ⚠️ {w}")
+    if not fin.get("text"):
+        print("[brief] ⏱ claude-cli: ❌ guard dọn sạch thân brief")
+        return None
+    return _tg.push_close_brief(ai_block=fin["text"], engine=_bp.engine_label(model))
+
+
+def _close_brief_from_file(args, path: str) -> "tuple[dict, str]":
+    """Chữ do skill /brief-close (hoặc Routine) viết sẵn → hậu kỳ → Telegram.
+    Gói phải là của ĐÚNG phiên đang gửi — gói cũ là brief kể chuyện hôm qua."""
+    import vnstock_brief_pack as _bp
+    import vnstock_telegram as _tg
+    wh = getattr(args, "warehouse", "data_warehouse")
+    pack = _bp.read_pack(_bp.pack_path(wh))
+    sess = _close_session_date(_datetime.now()).isoformat()
+    if pack.get("session") != sess and not getattr(args, "force", False):
+        raise RuntimeError(f"pack là phiên {pack.get('session')}, đang gửi phiên "
+                           f"{sess} — chạy lại `run.py brief --export-pack` "
+                           "(hoặc --force nếu cố ý)")
+    text = Path(path).read_text(encoding="utf-8")
+    model = _bp.cli_model()
+    fin = _bp.finalize_brief(text, pack, agent_name=_bp.engine_label(model) + " (file)",
+                             model=model)
+    for w in fin.get("warnings") or []:
+        print(f"[brief]   ⚠️ {w}")
+    if not fin.get("text"):
+        raise RuntimeError(f"file {path} không có thân brief sau guard")
+    return _tg.push_close_brief(ai_block=fin["text"],
+                                engine=_bp.engine_label(model)), "claude-file"
 
 
 def _all_steps(args) -> "list[tuple[str, object]]":
@@ -1827,9 +1924,20 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Refresh macro cache (lãi suất & tỷ giá) — seed + auto-fetch FX")
     sub.add_parser("rates-weekly",
                    help="Đẩy tóm tắt tuần lãi suất lên Telegram (render từ cache)")
-    sub.add_parser("brief",
-                   help="Đẩy brief CHIỀU lên Telegram (bước 14 pipeline; guard "
-                        "chống gửi trùng trong ngày + không chạy trước 15:00)")
+    br = sub.add_parser("brief",
+                        help="Đẩy brief CHIỀU lên Telegram (bước 14 pipeline; guard "
+                             "chống gửi trùng trong ngày + không chạy trước 15:00)")
+    br.add_argument("--engine", choices=["ladder", "claude"], default=None,
+                    help="engine viết thân brief (mặc định: env "
+                         "VNSTOCK_BRIEF_ENGINE, không có = ladder)")
+    br.add_argument("--export-pack", action="store_true",
+                    help="chỉ xuất gói ctx+prompt ra _meta/brief_pack.json cho "
+                         "skill /brief-close — không gửi, không ghi marker")
+    br.add_argument("--from-file", metavar="MD", default=None,
+                    help="nạp thân brief đã viết sẵn (skill /brief-close) → "
+                         "guard → memory → Telegram; gói phải cùng phiên")
+    br.add_argument("--force", action="store_true",
+                    help="--from-file: chấp nhận gói khác phiên (cố ý)")
     sub.add_parser("weekend",
                    help="Gộp 3 việc cuối tuần: rates-weekly → vietstock corp "
                         "actions → fundamentals --force (task 09:00 T7)")

@@ -210,6 +210,18 @@ def _regime_block() -> str:
         return f"⚖️ Regime: lỗi ({e})"
 
 
+def _snippet_from_text(text: str) -> str:
+    """Thân brief → khối Telegram: bỏ dấu `#` tiêu đề markdown và dòng `---`,
+    giữ mọi dòng có chữ. Dùng CHUNG cho bản ladder (`_brief_snippet`) và bản
+    engine ngoài (`push_close_brief(ai_block=…)`, 30/09) — một luật dọn."""
+    lines = [
+        ln.lstrip("#").strip()
+        for ln in text.splitlines()
+        if ln.strip() and not ln.strip().startswith("---")
+    ]
+    return "\n".join(lines)
+
+
 def _brief_snippet(brief_type: str) -> str:
     """Return first meaningful paragraph (~350 chars) from the best agent brief."""
     try:
@@ -221,13 +233,7 @@ def _brief_snippet(brief_type: str) -> str:
             text, err = val
             if not text or err:
                 continue
-            # Strip markdown headers, return all non-empty lines
-            lines = [
-                ln.lstrip("#").strip()
-                for ln in text.splitlines()
-                if ln.strip() and not ln.strip().startswith("---")
-            ]
-            return "\n".join(lines)
+            return _snippet_from_text(text)
         # Check sentinel keys (timing / no-agent / no-available)
         for _sentinel in ("_timing", "_no_agent", "_no_available"):
             if _sentinel in results:
@@ -486,8 +492,15 @@ def push_morning_brief() -> dict:
     return send_message(text)
 
 
-def push_close_brief() -> dict:
-    """Build and send the afternoon/close brief message."""
+def push_close_brief(ai_block: "str | None" = None,
+                     engine: "str | None" = None) -> dict:
+    """Build and send the afternoon/close brief message.
+
+    `ai_block` (30/09): thân brief ĐÃ SINH SẴN bởi engine ngoài (Claude Code
+    qua `vnstock_brief_pack`) — đã qua guard/memory ở chỗ gọi; hàm này chỉ
+    dọn markdown và dựng khung Telegram y như bản ladder. None = đường cũ:
+    `_brief_snippet` chạy ladder agent. `engine` = nhãn in ở footer để người
+    đọc biết bản này do engine nào viết."""
     # Load .env up front so agent API keys are in os.environ before
     # _brief_snippet() checks agent availability (it runs before
     # send_message(), which is otherwise the first thing to load .env).
@@ -499,7 +512,8 @@ def push_close_brief() -> dict:
     # generate_brief bên trong snippet mới là bước refresh news/overview →
     # header in composite CŨ (-60) còn thân brief ghim theo ctx MỚI (-51).
     # Header dựng SAU snippet = cùng nền cache; vnindex/regime hưởng ké).
-    ai_blk = _brief_snippet("afternoon")
+    ai_blk = (_snippet_from_text(ai_block) if ai_block
+              else _brief_snippet("afternoon"))
 
     blocks = [
         _brief_header("📉", "VNStock Close Brief"),
@@ -514,10 +528,16 @@ def push_close_brief() -> dict:
     ]
     if closed_blk:
         blocks += ["", closed_blk]
-    blocks.append("\n<i>Powered by VNStock Dashboard</i>")
+    blocks.append(_powered_by(engine))
 
     text = "\n".join(b for b in blocks if b is not None)
     return send_message(text)
+
+
+def _powered_by(engine: "str | None" = None) -> str:
+    """Footer Telegram; kèm tên engine khi thân brief do engine ngoài viết."""
+    tail = f" · 🤖 {engine}" if engine else ""
+    return f"\n<i>Powered by VNStock Dashboard{tail}</i>"
 
 
 def push_rates_weekly() -> dict:
