@@ -341,8 +341,9 @@ Ba đường, chọn MỘT — **khuyến nghị A** (không hạ tầng mới, 
 **A. 🖥️ DESKTOP — Claude Code CLI chạy headless trong bước brief 14/14**
 1. Cài Claude Code CLI trên desktop dưới ĐÚNG tài khoản Windows chạy task lịch
    (`admin`) và đăng nhập (`claude` → `/login`). Kiểm nhanh trong PowerShell:
-   `claude -p "Trả lời đúng một chữ: OK" --output-format json` → JSON có
-   `"result":"OK"`. Nếu gói thuê bao từ chối Opus: thêm
+   `claude -p "Trả lời đúng một chữ: OK" --output-format json --tools ""` →
+   JSON có `"result":"OK"` (đã chạy thử y hệt trên CLI 2.1.285 ở sandbox 30/09:
+   rc 0, `num_turns:1`). Nếu gói thuê bao từ chối Opus: thêm
    `VNSTOCK_BRIEF_CLI_MODEL=claude-sonnet-5-5` vào `.env`.
 2. Thử KHÔ, không gửi gì (○ trước 18:00 hoặc sau `⏱ TỔNG`):
    `python run.py brief --export-pack` → `data_warehouse\_meta\brief_pack.json`

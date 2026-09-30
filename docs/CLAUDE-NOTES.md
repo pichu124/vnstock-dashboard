@@ -6991,7 +6991,7 @@ mất parity (dashboard A/B, memory, sổ LLM, doctor badge Phát tối).
   (`agent_type="claude"`, context bỏ `tickers` như ladder) → brief_watch. Bọc
   ```…``` bị cắt; rỗng sau dọn ⇒ trả rỗng, chỗ gọi rơi về ladder.
 - `run_claude_cli(prompt)` → `claude -p <câu lệnh ngắn> --output-format json
-  --model <slug> --max-turns 4`, **prompt qua STDIN** (Windows trần 32.767 ký
+  --model <slug> --tools "" --no-session-persistence`, **prompt qua STDIN** (Windows trần 32.767 ký
   tự dòng lệnh; prompt brief ~40K). Đọc `result` + `usage` (cộng cache token
   vào prompt_tokens) + `total_cost_usd`; `is_error`/rỗng/rc≠0 ⇒ lỗi kèm đuôi
   stderr; timeout 900s. Sổ LLM provider **`ClaudeCode`** (tách khỏi
@@ -7056,10 +7056,18 @@ không được.
   Token đăng nhập CLI nằm ở `%USERPROFILE%\.claude` của `admin` — đăng nhập
   ở tài khoản khác thì task không thấy.
 - Gói thuê bao có thể không mở Opus ⇒ `VNSTOCK_BRIEF_CLI_MODEL=claude-sonnet-5-5`.
-- `--max-turns 4` + prompt "KHÔNG dùng công cụ": Claude Code có thể tự đọc
-  file (Read/Glob không cần quyền) — vô hại; công cụ cần quyền trong `-p` bị
-  từ chối rồi model vẫn trả lời. Nếu thấy `num_turns` > 1 đều đặn thì cân
-  nhắc `--disallowedTools` (chưa thêm vì tên cờ khác nhau giữa phiên bản CLI).
+- **Cờ CLI đã KIỂM trên binary thật** (sandbox có Claude Code 2.1.285):
+  `--help` không có `--max-turns` (bản đầu tôi định dùng — bỏ); `--tools ""`
+  = "disable all tools" ⇒ đúng một lượt chữ, không đọc file, không hỏi quyền;
+  `--no-session-persistence` có. Chạy thử `printf "…OK" | claude -p "…"
+  --output-format json --model claude-opus-5-5 --tools ""` → rc 0, JSON
+  `{type:result, subtype:success, is_error:false, result:"OK", num_turns:1,
+  usage{input 2, cache_creation_input 20.346, cache_read_input 531, output 49},
+  total_cost_usd 0.164, duration_ms 2.900}` ⇒ parser đọc đúng khoá. Lưu ý
+  **20K token cache_creation là system prompt của Claude Code** — đường A tính
+  theo giá API thì mỗi brief ≈ 32K vào ≈ $0,15–0,25 (sổ `--show` sẽ in cỡ đó);
+  gói thuê bao không trừ tiền mà trừ hạn mức dùng. Đường C (API thẳng, không
+  system prompt Claude Code) rẻ hơn ~3×.
 - Bước brief đêm VCI ốm: `build_pack` chạy cùng 4 bước refresh ⇒ #21 (dừng
   sau 3 mã VCI lỗi liền) vẫn áp; thêm tối đa 900s CLI — trần 240′ còn dư.
 

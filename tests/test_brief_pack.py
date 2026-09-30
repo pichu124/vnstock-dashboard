@@ -55,6 +55,9 @@ def test_cli_command_shape():
     assert cmd[0] == "/x/claude" and "-p" in cmd
     assert cmd[cmd.index("--output-format") + 1] == "json"
     assert cmd[cmd.index("--model") + 1] == "claude-opus-5-5"
+    assert cmd[cmd.index("--tools") + 1] == ""          # tắt mọi công cụ: 1 lượt chữ
+    assert "--no-session-persistence" in cmd
+    assert "--max-turns" not in cmd                      # không có trong --help 2.1.285
 
 
 def test_cli_timeout_floor_and_default(monkeypatch):

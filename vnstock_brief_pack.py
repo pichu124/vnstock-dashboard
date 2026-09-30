@@ -50,7 +50,13 @@ ENGINES = (ENGINE_LADDER, ENGINE_CLAUDE)
 
 DEFAULT_CLI_MODEL = "claude-opus-5-5"
 DEFAULT_CLI_TIMEOUT_S = 900
-_CLI_MAX_TURNS = "4"           # trả lời thẳng là 1 lượt; dư cho lỡ đọc file
+# `--tools ""` = tắt MỌI công cụ (CLI 2.1.285 --help: 'Use "" to disable all
+# tools') ⇒ đúng một lượt trả lời chữ, không đọc file, không hỏi quyền;
+# `--no-session-persistence` = không ghi session ra đĩa mỗi đêm. Đã chạy
+# thử 30/09: stdin → JSON {type:result, subtype:success, is_error, result,
+# num_turns:1, usage{input, cache_creation_input, cache_read_input, output},
+# total_cost_usd, duration_ms}.
+_CLI_EXTRA_ARGS = ("--tools", "", "--no-session-persistence")
 LEDGER_PROVIDER = "ClaudeCode"  # sổ LLM: tách khỏi "Anthropic" (API trả phí)
 AGENT_TYPE = "claude"           # memory/dashboard: cùng type với ClaudeAgent
 
@@ -239,7 +245,7 @@ def cli_env() -> dict:
 
 def cli_command(exe: str, model: str) -> list[str]:
     return [exe, "-p", CLI_TASK_LINE, "--output-format", "json",
-            "--model", model, "--max-turns", _CLI_MAX_TURNS]
+            "--model", model, *_CLI_EXTRA_ARGS]
 
 
 def parse_cli_output(stdout: str) -> "tuple[str, str | None, dict]":
