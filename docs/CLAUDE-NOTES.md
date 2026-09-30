@@ -7009,8 +7009,42 @@ dùng đúng 3 dòng tin 290 + dòng data thô + dạng cũ; lưới re-export
 (`test_all_moved_names_are_reexported`) đòi mọi tên module guard phải qua
 `vnstock_brief_guards` → `vnstock_brief`. Fast 2.758.
 
-**Tiếp:** user chấm sao bản này (`vnstock_brief_pack.py --review` lấy id →
-`--rate <id> <sao>`), ≥4 sao thành few-shot cho cả hai engine.
+**Hội đồng chấm (30/09 chiều — workflow 10 agent: 7 giám khảo độc lập →
+buộc tội/bào chữa → trọng tài; cấm đọc điểm 4/5 ở trên để khỏi bị neo):**
+chốt **4★** cả hai thang (bản người đọc nhận / phần quy cho Claude). Phân bố:
+trung thực số liệu 4 · format 4 · đáng làm mẫu 4 · so nền ladder 4 · tính
+hành động 3 · vai trader 3 · vai tuân thủ 3; buộc tội đòi 3 (tự nhận không
+tìm được số/chiều nào sai), bào chữa 4 (tự nhận dải conf là chữ Claude tự
+gom). **Sửa hai nhận định ở trên:** (1) `(Strategy #69, conf 0.50–0.60)`
+KHÔNG phải chép — gói chỉ có từng `conf=0.5x` cuối mỗi dòng, Claude tự gom
+thành dải rồi đưa lên câu dẫn ⇒ lỗi biên tập của Claude, guard trượt chỉ là
+lưới phụ. (2) FRT không "nhỏ": một mã HAI bộ mốc trong một tin (watchlist
+cắt 140,600 vs lệnh mở @139 SL ≈129,500) — người giữ FRT phải tự chọn stop;
+FRT nằm trong 5 rec gói đưa cho Claude mà Claude không đối chiếu. Ba thiếu
+sót nữa, đều ở Danh mục/Đề xuất: EIB/SSI không mốc (`_portfolio_block` không
+có S/R cho mã đang giữ — đúng cách là ghi ở "Đề xuất bổ sung" thay vì "Không
+cần bổ sung"); HDB (ngân hàng) chuyển tiếp MUA khi chính brief nói ngân hàng
+bị bán ròng mạnh nhất — thiếu một câu nối; không ngành nào kèm %VNI dù prompt
+bắt. **Vì sao 4 thắng 3:** định nghĩa 3★ đòi một LỖI khiến người đọc phải
+kiểm lại số, mà mọi số/chiều kiểm được đều đúng (MA, S/R, momentum, A/D,
+TP/SL MSN·HDB khớp khối lệnh mở); cửa sổ few-shot `output[:1200]` kết thúc ở
+"Ngân hàng -2,536 tỷ (1 tuần)," — sạch, mọi khoản trừ nằm sau ký tự ~6.400;
+chấm 3 thì memory không có mẫu Claude nào cho đêm sau. **#28 — lỗ guard thứ
+hai từ tin 290:** `enforce_nn_frame_labels` trượt "ngân hàng bị NN bán ròng
+mạnh nhất (-2,536 tỷ)" (chữ thường + cách số 27 ký tự > cửa sổ 18) ⇒
+IGNORECASE, cửa sổ 40, trong ngoặc gắn ", 1 tuần"; test
+`test_nn_frame_label_lowercase_sector_far_from_number_telegram_290`.
+
+**Lệnh chấm (○):** `python vnstock_brief_pack.py --review` lấy id →
+`python vnstock_brief_pack.py --rate <id> 4 "Không sai số hay chiều, stance
+và watchlist hành động được; chỉ lộ nhãn Strategy/conf và dòng BUY entry
+thô."`. **Để lên 5 (chữ của Claude, không phải pipeline):** (a) Đề xuất giao
+dịch thuần Việt, không nhãn nội bộ, giữ "KL gợi ý"/"rủi ro % NAV" cho cả 3
+dòng; (b) EIB/SSI nêu mức thật nếu có trong block movers, không có thì ghi
+thiếu ở Đề xuất bổ sung; (c) ngành kèm %VNI; (d) FRT nhắc lệnh mở @139, nói
+rõ kèo 143,000 là điểm gia tăng có điều kiện, không thay SL cũ. (b)(d) là
+chuyện PROMPT — theo quy ước "đếm trước khi vá", chờ ≥3 bản Claude nữa rồi
+sửa `build_prompt` một lần.
 
 # ⏱ U63. XUẤT GÓI 12:46 30/09 MẤT 10′ — CỬA "3 MÃ LỖI LIỀN" (#21b) KHÔNG ĐỦ VÌ THƯ VIỆN TỰ THỬ LẠI (30/09 trưa)
 

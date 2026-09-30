@@ -837,6 +837,13 @@ def enforce_nn_frame_labels(text: str, ctx: dict) -> str:
     các guard pin số (giá trị đã đúng, đây chỉ gắn nhãn khung); match giá trị
     phải khớp |NN 1T| của đúng ngành; bỏ qua khi cùng dòng phía trước đã có
     "tuần"/"1T" (vd dòng canonical của two_sides). Idempotent.
+
+    Tin 290 (bản Claude đầu tiên, 30/09): dòng Danh mục "ngân hàng bị NN bán
+    ròng mạnh nhất (-2,536 tỷ), bias GIẢM" — tên ngành CHỮ THƯỜNG và cách số
+    27 ký tự ⇒ pattern tên-trước (phân biệt hoa/thường, cửa sổ 18 ký tự) trượt,
+    số tuần đứng không khung cạnh "NN ròng toàn thị trường 1D -380 tỷ". Nay
+    IGNORECASE + cửa sổ 40; số nằm trong ngoặc thì gắn ", 1 tuần" thay vì
+    " (1 tuần)" để khỏi lồng ngoặc.
     """
     sectors = ctx.get("sectors") or []
     rows = [(s.get("Ngành"), s.get("NN 1T (tỷ)")) for s in sectors
@@ -844,6 +851,11 @@ def enforce_nn_frame_labels(text: str, ctx: dict) -> str:
             and abs(s.get("NN 1T (tỷ)")) >= 30]
     if not text or not rows:
         return text
+
+    def _frame_label(after: str) -> str:
+        # trong ngoặc → ", 1 tuần" (không lồng ngoặc); còn lại " (1 tuần)"
+        return ", 1 tuần" if after.startswith(")") else " (1 tuần)"
+
     out = text
     for nm, vv in rows:
         def _fix(m: "_re.Match", _vv=vv) -> str:
@@ -859,10 +871,10 @@ def enforce_nn_frame_labels(text: str, ctx: dict) -> str:
             # cần từ khóa "ròng" trong cùng mệnh đề (đây là số NN, không phải GTGD)
             if "ròng" not in window[-80:]:
                 return m.group(0)
-            return m.group(0) + " (1 tuần)"
+            return m.group(0) + _frame_label(after)
         out = _re.sub(
-            rf"({_re.escape(nm)}[^\n\d]{{0,18}}?)([-+]?\d[\d.,]*)\s*tỷ",
-            lambda m, _f=_fix: _f(m), out)
+            rf"({_re.escape(nm)}[^\n\d]{{0,40}}?)([-+]?\d[\d.,]*)\s*tỷ",
+            lambda m, _f=_fix: _f(m), out, flags=_re.IGNORECASE)
 
         # Dạng SỐ-TRƯỚC-TÊN (close 01:10 15/07): "NN mua ròng 1,471 tỷ trong
         # ngành Họ VIN" — số đứng sau verb, tên đứng cuối → pattern trên trượt.
@@ -875,11 +887,11 @@ def enforce_nn_frame_labels(text: str, ctx: dict) -> str:
             after = out[m.end():m.end() + 12].lower()
             if "tuần" in window or "1t" in window or "tuần" in after:
                 return m.group(0)
-            return m.group(0) + " (1 tuần)"
+            return m.group(0) + _frame_label(after)
         out = _re.sub(
             rf"((?:mua|bán)\s+ròng\s*)([-+]?\d[\d.,]*)(\s*tỷ"
             rf"(?:(?!\.\s)[^;,\n]){{0,25}}?ngành\s*{_re.escape(nm)})",
-            lambda m, _f=_fix_rev: _f(m), out)
+            lambda m, _f=_fix_rev: _f(m), out, flags=_re.IGNORECASE)
     return out
 
 

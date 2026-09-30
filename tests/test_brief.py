@@ -1359,6 +1359,32 @@ def test_close_1407_guard_regressions():
     assert "-21% so phiên trước" in vb.enforce_gtgd_baseline_pct(t4, ctx4)
 
 
+def test_nn_frame_label_lowercase_sector_far_from_number_telegram_290():
+    # Tin 290 (bản Claude đầu tiên, 30/09): dòng Danh mục nêu NN 1 TUẦN của
+    # Ngân hàng bằng CHỮ THƯỜNG, cách số 27 ký tự, trong ngoặc — guard cũ
+    # (phân biệt hoa/thường, cửa sổ 18 ký tự) trượt ⇒ -2,536 đứng không khung
+    # cạnh "NN ròng toàn thị trường 1D -380 tỷ" (#28, U64 hội đồng chấm).
+    import vnstock_brief as vb
+    ctx = {"sectors": [{"Ngành": "Ngân hàng", "NN 1T (tỷ)": -2536.0},
+                       {"Ngành": "Họ VIN", "NN 1T (tỷ)": -686.0}]}
+    t = ("- EIB: 20,000 cp | vốn 20.50 | hiện 17.10 | lỗ -16.6% → GIẢM TỶ "
+         "TRỌNG/CANH BÁN — ngân hàng bị NN bán ròng mạnh nhất (-2,536 tỷ), "
+         "bias GIẢM, không bình quân giá xuống.\n")
+    f = vb.enforce_nn_frame_labels(t, ctx)
+    assert "(-2,536 tỷ, 1 tuần), bias GIẢM" in f      # trong ngoặc → không lồng ngoặc
+    assert vb.enforce_nn_frame_labels(f, ctx) == f     # idempotent
+    # dòng Dòng tiền của cùng tin: số đầu đã có nhãn → các số sau cùng dòng giữ
+    t2 = ("Khối ngoại bán ròng mạnh: Ngân hàng -2,536 tỷ (1 tuần), Họ VIN "
+          "-686 tỷ, Thép & Kim loại -262 tỷ.\n")
+    assert vb.enforce_nn_frame_labels(t2, ctx) == t2
+    # cùng số nhưng không phải NN ròng (thanh khoản) → không đụng
+    t3 = "ngân hàng thanh khoản 2,536 tỷ hôm nay.\n"
+    assert vb.enforce_nn_frame_labels(t3, ctx) == t3
+    # ngoài ngoặc vẫn nhãn kiểu cũ
+    t4 = "Ngân hàng bị NN bán ròng mạnh nhất -2,536 tỷ, bias GIẢM.\n"
+    assert "-2,536 tỷ (1 tuần), bias" in vb.enforce_nn_frame_labels(t4, ctx)
+
+
 def test_close_1407_2358_review_fixes():
     # 3 cụm lỗi qua vòng review phản biện chéo của close 23:58 14/07.
     import vnstock_brief as vb
