@@ -1404,9 +1404,15 @@ def cmd_brief(args) -> int:
     marker = _brief_push_marker(args)
     ok, why = _should_push_close(_datetime.now(), marker,
                                  started=getattr(args, "pipeline_started", None))
-    if not ok:
+    if not ok and not getattr(args, "force", False):
         print(f"[brief] bỏ qua: {why}")
+        if getattr(args, "from_file", None):
+            print("[brief]   (đường B: cố ý gửi trùng/gửi lại thì thêm --force)")
         return 0
+    if not ok:
+        # Đường B thay bản ladder tối nay / gửi lại sau khi Telegram lỗi —
+        # cùng nếp `telegram close --force`: vượt cửa là hành động CÓ Ý THỨC.
+        print(f"[brief] ⚠️ --force: bỏ qua cửa gác ({why})")
     try:
         resp, engine = _send_close_brief(args)
         mid = (resp or {}).get("result", {}).get("message_id")
@@ -1972,7 +1978,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="nạp thân brief đã viết sẵn (skill /brief-close) → "
                          "guard → memory → Telegram; gói phải cùng phiên")
     br.add_argument("--force", action="store_true",
-                    help="--from-file: chấp nhận gói khác phiên (cố ý)")
+                    help="bỏ qua cửa gác giờ/marker (gửi trùng CÓ Ý THỨC — đường B "
+                         "thay bản ladder tối nay) và chấp nhận gói khác phiên")
     sub.add_parser("weekend",
                    help="Gộp 3 việc cuối tuần: rates-weekly → vietstock corp "
                         "actions → fundamentals --force (task 09:00 T7)")

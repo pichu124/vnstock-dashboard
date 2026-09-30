@@ -99,7 +99,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   lần**, KHÔNG phải ⇄ CẢ HAI (sửa 19/08).
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~2.752 test; ~45s trên CI,
+- Sửa module lõi nào → `python run.py test --fast` (~2.753 test; ~45s trên CI,
   86s máy thật 15/09 tối). Danh sách file `--fast` là WHITELIST trong `run.py` —
   thêm file test mới thì phải ghi vào đó, không thì `--fast` không chạy nó.
 - Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, ~3.235 test — pipeline 29/09 chạy full 3.235 passed / 134s).

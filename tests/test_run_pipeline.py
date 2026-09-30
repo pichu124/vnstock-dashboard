@@ -766,3 +766,37 @@ def test_cmd_telegram_close_engine_flag_reaches_dispatch(tmp_path, monkeypatch):
                            engine="claude")                  # … cờ --engine đè
     assert runpy.cmd_telegram(args) == 0
     assert seen["ai_block"] == "BODY|G"
+
+
+def test_cmd_brief_from_file_force_overrides_the_marker_gate(tmp_path, monkeypatch):
+    """Đường B thay bản ladder TỐI NAY: marker đã ghi phiên này ⇒ không --force
+    thì bỏ qua (rc 0, không gửi); --force thì gửi và marker ghi lại engine."""
+    import json as _json
+
+    import vnstock_brief_pack as bp
+    import vnstock_telegram as _tg
+    _pin_engine_env(monkeypatch)
+    monkeypatch.delenv("VNSTOCK_PIPELINE_BRIEF", raising=False)
+    sess = runpy._close_session_date(runpy._datetime.now()).isoformat()
+    marker = runpy._brief_push_marker(SimpleNamespace(warehouse=str(tmp_path)))
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(_json.dumps({"close": sess, "engine": "ladder"}), encoding="utf-8")
+    bp.write_pack({"version": bp.PACK_VERSION, "brief_type": "afternoon", "session": sess,
+                   "prompt": "P", "ctx": {"date": sess}}, bp.pack_path(tmp_path))
+    md = tmp_path / "brief_claude.md"
+    md.write_text("BODY", encoding="utf-8")
+    monkeypatch.setattr(bp, "finalize_brief",
+                        lambda text, pack, **kw: {"text": text, "warnings": [], "brief_id": 1,
+                                                  "auto_score": 0.1})
+    sent: list = []
+    monkeypatch.setattr(_tg, "push_close_brief",
+                        lambda ai_block=None, engine=None: sent.append(ai_block) or
+                        {"result": {"message_id": 3}})
+    # cửa gác giờ cũng vượt được — ép giờ về sau 15:05 ngày làm việc để chỉ marker chặn
+    monkeypatch.setattr(runpy, "_should_push_close",
+                        lambda now, m, **kw: (False, f"đã đẩy brief chiều cho phiên {sess} rồi (marker)"))
+    args = SimpleNamespace(warehouse=str(tmp_path), from_file=str(md))
+    assert runpy.cmd_brief(args) == 0 and sent == []               # không --force: im
+    args = SimpleNamespace(warehouse=str(tmp_path), from_file=str(md), force=True)
+    assert runpy.cmd_brief(args) == 0 and sent == ["BODY"]         # --force: gửi
+    assert _json.loads(marker.read_text(encoding="utf-8"))["engine"] == "claude-file"

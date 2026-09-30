@@ -7133,6 +7133,11 @@ system prompt khác); (8) `_cold_start`/`_do_revise` in `[strategy] ✗ <agent>:
 biết ngay); feeds không fetch Jina 2 lần khi lô lỗi (`_user_text_tmp`, dọn
 trước khi ghi cache); (9) doctor `check_llm_keys` biết engine (không còn warn
 "sentiment ❌" khi chấm bằng Claude); `.env.example` có đủ công tắc.
+(10, user hỏi "đường B dùng thế nào" 30/09 chiều) `run.py brief --from-file
+… --force` trước đó CHỈ bỏ kiểm gói-khác-phiên, KHÔNG vượt cửa marker ⇒ B
+không thể thay bản ladder tối nay như đã hứa. Nay `cmd_brief` vượt cửa gác
+khi `--force` (in ⚠️ như `telegram close --force`), không `--force` thì in
+gợi ý; test `test_cmd_brief_from_file_force_overrides_the_marker_gate`.
 Chốt với user còn treo: train hiện là "Claude lead + pool free thi đấu" (mọi
 agent vẫn được gọi, Bonferroni theo số candidate) — không phải "Claude trước,
 free chỉ khi lỗi"; muốn kiểu sau thì tắt agent free trong ⚙️ (pool rỗng).

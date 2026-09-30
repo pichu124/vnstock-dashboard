@@ -372,13 +372,22 @@ API trả tiền chỉ khi user muốn; D = Routine cloud LOẠI (cloud không g
    Sáng hôm sau: `/brief-review` (○) — nó chạy `vnstock_brief_pack.py --review`
    rồi hỏi chấm sao; ≥4 sao thành mẫu few-shot.
 
-**B. 💻 LAPTOP / tay — `/brief-close`**: `python run.py brief --export-pack`
-(○, gói + `brief_prompt.md` vào kho chung) → Claude Code trong `C:\vnstock`
-gõ `/brief-close` → `python run.py brief --from-file
-data_warehouse\_meta\brief_claude.md` (cửa một-brief-mỗi-phiên; `--force` =
-cố ý gửi trùng; gói khác phiên bị từ chối). Telegram lỗi đêm A ⇒ cũng gửi lại
-bằng `--from-file` (bản đã qua guard nằm sẵn ở `brief_claude.md`, không tốn
-call).
+**B. ○ tay — `/brief-close`** (khi muốn tự thay bản ladder hôm đó, hoặc
+trong lúc chưa cài CLI ở desktop). Điều kiện: kho đã có bar hôm nay (sau bước
+sync của phát 18:00, hoặc tự `python run.py sync` trước) — gói xuất lúc kho
+chưa sync là gói phiên HÔM QUA và `--from-file` sẽ từ chối. Ba lệnh, máy nào
+cũng được vì gói/file/marker đều trong kho Dropbox: (1) `python run.py brief
+--export-pack` → `_meta\brief_pack.json` + `brief_prompt.md`; (2) Claude Code
+**chạy trên máy** (CLI/app mở thư mục `C:\vnstock` — phiên cloud không thấy
+kho) gõ `/brief-close` → Claude ghi `_meta\brief_claude.md`; đọc/sửa tuỳ ý;
+KHÔNG có Claude Code thì mở `brief_prompt.md` dán vào claude.ai, dán trả lời
+vào `brief_claude.md`; (3) `python run.py brief --from-file
+data_warehouse\_meta\brief_claude.md` → guard → memory → Telegram → marker
+`engine=claude-file`. Cửa một-brief-mỗi-phiên: phiên ĐÃ có brief (phát 18:00
+đã gửi bản ladder) thì lệnh im, thêm `--force` để cố ý gửi bản thứ hai; gửi
+TRƯỚC 18:00 thì marker đã ghi ⇒ bước 14 của phát tối tự bỏ qua, không trùng.
+Telegram lỗi đêm A ⇒ cũng gửi lại bằng `--from-file` (bản đã qua guard nằm
+sẵn ở `brief_claude.md`, không tốn call).
 
 **C. API trả tiền theo token**: `ANTHROPIC_API_KEY` + bật agent Claude trong
 ⚙️ (checkbox nay hết bị khoá — `ClaudeAgent._ENV_KEY`). `ClaudeAgent` vẫn
