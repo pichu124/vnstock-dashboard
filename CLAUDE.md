@@ -99,7 +99,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   lần**, KHÔNG phải ⇄ CẢ HAI (sửa 19/08).
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~2.719 test; ~45s trên CI,
+- Sửa module lõi nào → `python run.py test --fast` (~2.737 test; ~45s trên CI,
   86s máy thật 15/09 tối). Danh sách file `--fast` là WHITELIST trong `run.py` —
   thêm file test mới thì phải ghi vào đó, không thì `--fast` không chạy nó.
 - Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, ~3.235 test — pipeline 29/09 chạy full 3.235 passed / 134s).
@@ -146,7 +146,12 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   model` Sonnet, sổ LLM provider `ClaudeCode` ghi MỌI kết cục, stdout không
   JSON = LỖI). Công tắc: `VNSTOCK_LLM_ENGINE=claude` cho mọi bước, đè riêng
   `VNSTOCK_<BRIEF|NEWS|AUDIT|TRAIN|REFLECTION|DIGEST>_ENGINE`; đọc `.env` TRƯỚC
-  khi chọn. Brief: `build_pack` (ctx+prompt, `_meta/brief_pack.json` v2 +
+  khi chọn. **5 bước LLM đều nối** (#26): news = sentiment + chấm tin RSS theo
+  LÔ một call `--json-schema` (`score_batch_cli` / `analyze_items_cli`, tin
+  thiếu ⇒ ladder từng tin); audit + reflection + debate = nấc `claude-cli` ĐẦU
+  cascade `report_digest.digest_call(step=)`; train = `ClaudeCodeAgent` làm
+  lead (`_inject_claude_lead`), ladder free = pool. Mọi chỗ lỗi ⇒ ladder như
+  cũ, log `[<bước>] ⏱ claude-cli: …`. Brief: `build_pack` (ctx+prompt, `_meta/brief_pack.json` v2 +
   `brief_prompt.md`) → CLI → `finalize_brief` (55 guard → validate → memory
   `agent_type=claude` → brief_watch) → `push_close_brief(ai_block, engine)`;
   raw/final ghi `_meta/brief_claude_raw.md` / `brief_claude.md` (Telegram lỗi

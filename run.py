@@ -721,6 +721,7 @@ def cmd_test(args) -> int:
             "tests/test_gtgd_coverage.py",
             "tests/test_brief_pack.py",
             "tests/test_claude_cli.py",
+            "tests/test_claude_steps.py",
             "tests/test_macro.py",
             "tests/test_news_feeds.py",
             "tests/test_updater_partial_bar.py",
@@ -1139,9 +1140,10 @@ def cmd_news(args) -> int:
         print("[news] skip scoring (--no-score)")
         return 0
 
-    provider = _snt.available_provider()
+    provider = _snt.available_provider() or _snt.cli_engine_label()
     if not provider:
-        print("[news] ⚠ chưa có provider key (GROQ/CEREBRAS/OPENROUTER) — bỏ qua chấm điểm")
+        print("[news] ⚠ chưa có provider key (GEMINI/GROQ) và engine Claude chưa bật "
+              "(VNSTOCK_NEWS_ENGINE/VNSTOCK_LLM_ENGINE=claude) — bỏ qua chấm điểm")
         return 0
 
     before = _snt.scored_count(news)

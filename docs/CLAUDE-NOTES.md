@@ -7044,6 +7044,55 @@ debate/tháng, FreeAuditorAgent, digest ≤10/lượt) gated `VNSTOCK_DIGEST_ENG
 một call/đêm với `--json-schema` (từng call/tin qua CLI = spawn ×N, không hợp);
 strategy loop lead agent. Mỗi nấc: lỗi ⇒ ladder như cũ, sổ `ClaudeCode`.
 
+## 3b. #26 NỐI XONG (30/09 chiều) — bốn bước còn lại, cùng backend, lỗi ⇒ ladder
+- **Cascade digest** (`vnstock_report_digest.digest_call(system, user, accept,
+  feedback, *, step="digest")`): nấc `("claude-cli", _call_claude_cli)` chèn
+  ĐẦU danh sách khi `engine_for(step) == "claude"`; các nấc Claude API / GPT /
+  free giữ nguyên phía sau ⇒ `accept` (JSON parse được), 1 lượt tự sửa, alert
+  cạn thang đều áp cho nấc mới. Trần 300s riêng (`_CLI_TIMEOUT_S`, đè bằng
+  `VNSTOCK_<STEP>_CLI_TIMEOUT_S`), model đè `VNSTOCK_<STEP>_CLI_MODEL`.
+  Reflection → `step="reflection"` (≤3 call/đêm, chỉ khi có lệnh đóng — KHÔNG
+  cần gom lô); auditor Free → `step="audit"`; debate/digest → "digest".
+- **Audit**: `make_auditor("auto")` chọn `FreeAuditorAgent` khi engine claude
+  (thắng cả `ANTHROPIC_API_KEY`) vì cascade của nó đã có claude-cli đứng đầu;
+  `--auditor claude|gpt|free|null` ép vẫn ép. Backend in log
+  `[audit] auditor=free:claude-cli`.
+- **Sentiment theo lô** (`vnstock_sentiment.score_batch_cli`): `to_score`
+  chunk 50 → một call `--json-schema {results:[{i, sentiment}]}` (system =
+  `_SYSTEM` đổi câu "1 từ" thành "JSON đủ mọi i"); map `i` → `item_hash` tại
+  chỗ (không bắt model chép md5); nhãn qua `_SENTIMENT_MAP`; tin thiếu/lạ ⇒
+  ThreadPool `score_one` ladder như cũ; cột `model = ClaudeCode:<slug>` (cache
+  chỉ ghi tin có model — nếp 06/08 giữ nguyên). Cổng `cmd_news`
+  (`available_provider() or cli_engine_label()`) không còn đòi key free.
+- **Chấm tin RSS theo lô** (`vnstock_news_feeds.analyze_items_cli`): ≤8 tin
+  một call, mỗi tin `### Tin i=<n>` + khối user chung với `analyze_item`
+  (`_analyze_user_text`: tiêu đề, tóm tắt, thân bài Jina vẫn fetch TỪNG tin),
+  system = `_ANALYZE_SYSTEM` + "CHẾ ĐỘ LÔ" trả `{results:[{i, nhan,
+  tac_dong}]}`; `sanitize_impact` từng câu; thiếu/rỗng ⇒ `analyze_item` ladder;
+  `_impact_cut` xoá khi lô chấm được.
+- **Train** (`vnstock_train._inject_claude_lead`): engine claude + có CLI ⇒
+  `ClaudeCodeAgent(tag="train")` đứng đầu `available` (lead revise/cold-start),
+  ladder free thành pool thi đấu tune; chèn TRƯỚC cửa "không agent" nên máy
+  không key free vẫn train được. Claude lỗi lúc generate ⇒ candidate bị bỏ
+  như mọi agent, pool vẫn có bài — fallback tự nhiên, không cần cửa riêng.
+- **`vnstock_brief.ClaudeCodeAgent`** (type `claude-code`, `_ENV_KEY=""`,
+  `is_available` = có CLI, `generate` → `vcc.complete(system=_SYSTEM chung,
+  tag)`): vào `AGENT_REGISTRY`, `_DEFAULT_AGENT_CONFIGS` **enabled False**,
+  `_AGENT_STRENGTH` đầu (bật lên là bản chính). Dashboard ⚙️
+  (`brief_agent_settings`) coi agent không key là sẵn sàng khi
+  `is_available` ⇒ bật được để A/B với Gemini trên nút brief. Brief ĐÊM vẫn
+  đi `vnstock_brief_pack` (không qua agent này). `load_agent_configs` merge
+  type mới vào `brief_agents.json` (append cuối) — vì thế train KHÔNG dựa vào
+  thứ tự config mà cắm lead theo env.
+- Lưới slug: `_all_live_slugs` gom `cls().model` của registry ⇒ Opus 5.5 đã
+  có; model watch `_ladder_slugs` bỏ qua type không có provider OpenAI-compat.
+- Test `tests/test_claude_steps.py` (18, whitelist): nấc claude-cli đứng đầu /
+  step đè / lỗi rơi nấc kế / accept + tự sửa / timeout env; reflection tag;
+  auditor auto + step; lô sentiment (map i→hash, nhãn lạ, lỗi, tích hợp
+  score_news_batch với DB tmp: 2 tin CLI + 1 tin ladder, engine ladder không
+  gọi CLI); cổng news; lô chấm tin (parse, sanitize, refresh CLI-trước-ladder);
+  inject lead; registry/strength/is_available/generate; badge dashboard.
+
 ## 4. Test
 `tests/test_claude_cli.py` (15, whitelist): engine precedence, model/fallback/
 timeout env, giấu key + autoupdater, exe env-không-rơi-PATH, cờ tước context,

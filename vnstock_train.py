@@ -392,6 +392,30 @@ def _build_context_summary() -> str:
         return "VN large-cap, daily timeframe"
 
 
+def _inject_claude_lead(available: list, verbose: bool = True) -> list:
+    """Đặt ClaudeCodeAgent lên đầu `available` khi engine bước train = claude
+    và có CLI; không thì trả nguyên. Lỗi Claude lúc generate ⇒ candidate bị
+    bỏ như mọi agent khác, pool free vẫn có bài — fallback tự nhiên."""
+    try:
+        import vnstock_claude_cli as vcc
+        if vcc.engine_for("train") != "claude":
+            return available
+        from vnstock_brief import ClaudeCodeAgent
+        cc = ClaudeCodeAgent(tag="train")
+        if not cc.is_available:
+            if verbose:
+                print("[strategy_loop] engine=claude nhưng không thấy `claude` CLI — giữ ladder")
+            return available
+        rest = [a for a in available if getattr(a, "agent_type", "") != cc.agent_type]
+        if verbose:
+            print(f"[strategy_loop] engine=claude — lead {cc.name}, pool {len(rest)} agent free")
+        return [cc] + rest
+    except Exception as e:
+        if verbose:
+            print(f"[strategy_loop] engine claude lỗi ({type(e).__name__}: {str(e)[:80]}) — giữ ladder")
+        return available
+
+
 def strategy_loop(
     n_iterations: int = 2,
     verbose: bool = True,
@@ -421,6 +445,11 @@ def strategy_loop(
 
     agents = build_agents()
     available = [a for a in agents if a.is_available]
+    # Engine Claude (30/09 #26): VNSTOCK_TRAIN_ENGINE / VNSTOCK_LLM_ENGINE =
+    # claude ⇒ Claude Code làm LEAD (revise / cold-start), ladder free thành
+    # pool thi đấu tune — không phụ thuộc thứ tự brief_agents.json (type mới
+    # bị append CUỐI ⇒ nếu chỉ bật trong ⚙️ nó chỉ là pool member).
+    available = _inject_claude_lead(available, verbose=verbose)
     if not available:
         if verbose:
             print("[strategy_loop] No agents with valid API key — skipping")

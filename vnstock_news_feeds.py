@@ -326,6 +326,89 @@ def _paid_analyze_enabled() -> bool:
 _NO_IMPACT = "không tác động trực tiếp"
 
 
+def _analyze_user_text(item: dict) -> str:
+    """Khối user cho MỘT tin: tiêu đề + tóm tắt + thân bài (Jina, nếu bật) —
+    dùng chung cho `analyze_item` (từng tin) và `analyze_items_cli` (cả lô)."""
+    user = f"Tiêu đề: {item.get('title','')}"
+    summ = (item.get("news_short_content") or "").strip()
+    if summ:
+        user += f"\nTóm tắt: {summ[:300]}"
+    if _fulltext_enabled():
+        body = fetch_fulltext(item.get("link", ""))
+        if body:
+            user += f"\nNội dung bài (rút gọn): {body}"
+    return user
+
+
+# ── Claude Code theo LÔ (30/09, #26) ──────────────────────────────────────────
+_CLI_TIMEOUT_S = 300
+_ANALYZE_BATCH_SUFFIX = (
+    "\n\nCHẾ ĐỘ LÔ: nhận NHIỀU tin, mỗi tin mở đầu bằng `### Tin i=<số>`. Thay "
+    'vì 1 dòng, trả về JSON đúng schema {"results": [{"i": <i>, "nhan": '
+    '"TÍCH_CỰC|TIÊU_CỰC|TRUNG_LẬP", "tac_dong": "<một câu ≤22 từ>"}]} — đủ MỌI '
+    "i; mọi quy tắc trên áp cho TỪNG tin; không thêm chữ nào ngoài JSON."
+)
+_ANALYZE_BATCH_SCHEMA = {
+    "type": "object",
+    "properties": {"results": {"type": "array", "items": {
+        "type": "object",
+        "properties": {"i": {"type": "integer"}, "nhan": {"type": "string"},
+                       "tac_dong": {"type": "string"}},
+        "required": ["i", "nhan", "tac_dong"]}}},
+    "required": ["results"],
+}
+
+
+def _claude_engine() -> bool:
+    try:
+        import vnstock_claude_cli as vcc
+        return vcc.engine_for("news") == "claude"
+    except Exception:
+        return False
+
+
+def analyze_items_cli(todo: list[dict]) -> dict[int, tuple[str, str]]:
+    """{index: (sentiment, impact)} cho các tin Claude Code phân tích được trong
+    MỘT call; tin thiếu / nhãn lạ / tác động rỗng không có trong dict (chỗ gọi
+    đưa qua `analyze_item` từng tin). Lỗi CLI ⇒ {} (cả lô về ladder)."""
+    if not todo:
+        return {}
+    try:
+        import vnstock_claude_cli as vcc
+        from vnstock_sentiment import _SENTIMENT_MAP
+        from vnstock_brief_canon import sanitize_impact
+    except Exception:
+        return {}
+    blocks = [f"### Tin i={i}\n{_analyze_user_text(it)}" for i, it in enumerate(todo)]
+    raw_t = (os.environ.get("VNSTOCK_NEWS_CLI_TIMEOUT_S") or "").strip()
+    timeout = vcc.cli_timeout_s("VNSTOCK_NEWS_CLI_TIMEOUT_S") if raw_t else _CLI_TIMEOUT_S
+    text, err, info = vcc.complete(
+        "\n\n".join(blocks), system=_ANALYZE_SYSTEM + _ANALYZE_BATCH_SUFFIX,
+        json_schema=_ANALYZE_BATCH_SCHEMA,
+        model=vcc.cli_model("VNSTOCK_NEWS_CLI_MODEL"), timeout_s=timeout, tag="news")
+    print(vcc.outcome_line("news", info, text, err))
+    if err:
+        return {}
+    data = info.get("structured")
+    if not isinstance(data, dict):
+        try:
+            data = json.loads(text)
+        except ValueError:
+            return {}
+    out: dict[int, tuple[str, str]] = {}
+    for r in (data.get("results") or []) if isinstance(data, dict) else []:
+        try:
+            i = int((r or {}).get("i"))
+        except (TypeError, ValueError):
+            continue
+        low = str((r or {}).get("nhan") or "").lower()
+        label = next((v for k, v in _SENTIMENT_MAP.items() if k in low), None)
+        imp = sanitize_impact(_strip_html(str((r or {}).get("tac_dong") or "")))
+        if label and imp and 0 <= i < len(todo):
+            out[i] = (label, imp)
+    return out
+
+
 def analyze_item(item: dict) -> tuple[str, str]:
     """Return (sentiment, impact_line) for one item via the LLM, or ('','') when
     no provider is available. sentiment ∈ {positive,negative,neutral}.
@@ -337,14 +420,7 @@ def analyze_item(item: dict) -> tuple[str, str]:
         from vnstock_sentiment import chat_complete_ex, _SENTIMENT_MAP
     except Exception:
         return "", ""
-    user = f"Tiêu đề: {item.get('title','')}"
-    summ = (item.get("news_short_content") or "").strip()
-    if summ:
-        user += f"\nTóm tắt: {summ[:300]}"
-    if _fulltext_enabled():
-        body = fetch_fulltext(item.get("link", ""))
-        if body:
-            user += f"\nNội dung bài (rút gọn): {body}"
+    user = _analyze_user_text(item)
     res = None
     if _paid_analyze_enabled():
         try:
@@ -460,6 +536,17 @@ def refresh(within_days: int = 4, analyze: bool = True,
                 it.pop("_impact_cut", None)
         else:
             todo = [it for it in items if not it.get("_impact")][:max_analyze]
+        if todo and _claude_engine():
+            # Engine Claude: cả lô một call; tin thiếu mới qua ladder từng tin.
+            got = analyze_items_cli(todo)
+            for i, it in enumerate(todo):
+                if i in got:
+                    it["_sentiment"], it["_impact"] = got[i]
+                    it.pop("_impact_cut", None)
+            if got:
+                print(f"[news-feeds] Claude Code phân tích {len(got)}/{len(todo)} "
+                      f"tin trong 1 call")
+            todo = [it for i, it in enumerate(todo) if i not in got]
         for it in todo:
             s, imp = analyze_item(it)
             if s:

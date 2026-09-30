@@ -28,6 +28,12 @@ def render_agent_settings() -> None:
             _cls = AGENT_REGISTRY.get(_atype)
             _env_key = getattr(_cls, "_ENV_KEY", "") if _cls else ""
             _key_ok = bool(_env_key and _os.environ.get(_env_key))
+            if not _key_ok and _cls is not None and not _env_key:
+                # Agent KHÔNG dùng key (Claude Code CLI): sẵn sàng = có CLI
+                try:
+                    _key_ok = bool(_cls().is_available)
+                except Exception:
+                    _key_ok = False
             _key_badge = (
                 f'<span style="color:#10b981;font-size:12px">🔑 key OK</span>'
                 if _key_ok else

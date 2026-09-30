@@ -162,6 +162,97 @@ _SENTIMENT_MAP: dict[str, str] = {
 }
 
 
+# ── Claude Code theo LÔ (30/09, #26) ──────────────────────────────────────────
+# Mỗi tin một tiến trình `claude -p` là spawn ×N (3–10s/lượt) — gom cả lô
+# `to_score` vào MỘT call trả JSON, map `i` → item_hash tại chỗ (không bắt
+# model chép md5). Tin thiếu/nhãn lạ → ladder từng tin như cũ; lỗi CLI ⇒ cả
+# lô về ladder. Công tắc: VNSTOCK_NEWS_ENGINE / VNSTOCK_LLM_ENGINE = claude.
+_CLI_BATCH_SIZE = 50
+_CLI_TIMEOUT_S = 300
+_BATCH_SYSTEM = _SYSTEM.replace(
+    "Chỉ trả lời đúng 1 từ: TÍCH_CỰC hoặc TIÊU_CỰC hoặc TRUNG_LẬP.",
+    "Nhận một DANH SÁCH tin (JSON, mỗi tin có số thứ tự `i`). Trả về JSON đúng "
+    'schema {"results": [{"i": <i>, "sentiment": "TÍCH_CỰC|TIÊU_CỰC|TRUNG_LẬP"}]} '
+    "— đủ MỌI i, không thêm chữ nào khác.")
+_BATCH_SCHEMA = {
+    "type": "object",
+    "properties": {"results": {"type": "array", "items": {
+        "type": "object",
+        "properties": {"i": {"type": "integer"}, "sentiment": {"type": "string"}},
+        "required": ["i", "sentiment"]}}},
+    "required": ["results"],
+}
+
+
+def _label_of(raw) -> Optional[str]:
+    low = str(raw or "").lower()
+    for key_str, val in _SENTIMENT_MAP.items():
+        if key_str in low:
+            return val
+    return None
+
+
+def _claude_batch_enabled() -> bool:
+    try:
+        import vnstock_claude_cli as vcc
+        return vcc.engine_for("news") == "claude"
+    except Exception:
+        return False
+
+
+def cli_engine_label() -> Optional[str]:
+    """"Claude Code (CLI)" khi bước news chạy engine claude — cổng chấm điểm ở
+    run.py không còn đòi key free; None khi không."""
+    return "Claude Code (CLI)" if _claude_batch_enabled() else None
+
+
+def _item_prompt_fields(item: dict) -> dict:
+    ticker = (item.get("ticker") or "").upper()
+    title = (item.get("news_title") or item.get("title") or item.get("head") or "").strip()
+    short = (item.get("news_short_content") or item.get("news_sub_title") or "").strip()[:200]
+    return {"ma": ticker, "tieu_de": title, "tom_tat": short}
+
+
+def score_batch_cli(items: list[dict]) -> dict[str, tuple[str, str]]:
+    """Chấm CẢ LÔ qua Claude Code: {item_hash: (sentiment, model)}. Tin thiếu
+    trong trả lời / nhãn lạ KHÔNG có trong dict (chỗ gọi đưa qua ladder).
+    Lỗi CLI ở lô nào ⇒ dừng, trả những gì đã có."""
+    import json as _json
+    try:
+        import vnstock_claude_cli as vcc
+    except Exception:
+        return {}
+    out: dict[str, tuple[str, str]] = {}
+    raw_t = (os.environ.get("VNSTOCK_NEWS_CLI_TIMEOUT_S") or "").strip()
+    timeout = vcc.cli_timeout_s("VNSTOCK_NEWS_CLI_TIMEOUT_S") if raw_t else _CLI_TIMEOUT_S
+    for start in range(0, len(items), _CLI_BATCH_SIZE):
+        chunk = items[start:start + _CLI_BATCH_SIZE]
+        rows = [{"i": i, **_item_prompt_fields(it)} for i, it in enumerate(chunk)]
+        user = "Danh sách tin:\n" + _json.dumps(rows, ensure_ascii=False)
+        text, err, info = vcc.complete(
+            user, system=_BATCH_SYSTEM, json_schema=_BATCH_SCHEMA,
+            model=vcc.cli_model("VNSTOCK_NEWS_CLI_MODEL"), timeout_s=timeout, tag="news")
+        print(vcc.outcome_line("news", info, text, err))
+        if err:
+            break
+        data = info.get("structured")
+        if not isinstance(data, dict):
+            try:
+                data = _json.loads(text)
+            except ValueError:
+                break
+        model = f"ClaudeCode:{info.get('model') or vcc.cli_model()}"
+        for r in (data.get("results") or []) if isinstance(data, dict) else []:
+            try:
+                i = int((r or {}).get("i"))
+            except (TypeError, ValueError):
+                continue
+            label = _label_of((r or {}).get("sentiment"))
+            if label and 0 <= i < len(chunk):
+                out[_item_hash(chunk[i])] = (label, model)
+    return out
+
+
 def _call_provider(provider: dict, text: str) -> Optional[str]:
     key = (os.environ.get(provider["env"]) or "").strip()
     if not key:
@@ -447,6 +538,30 @@ def score_news_batch(
     new_rows: list[tuple] = []
     new_results: dict[str, str] = {}
     scored_at = datetime.now().isoformat()
+
+    # Engine Claude: cả lô một call trước, phần thiếu mới qua ladder từng tin.
+    if to_score and _claude_batch_enabled():
+        got = score_batch_cli(to_score)
+        rest: list[dict] = []
+        for item in to_score:
+            h = _item_hash(item)
+            if h in got:
+                sentiment, model = got[h]
+                new_results[h] = sentiment
+                new_rows.append((h, (item.get("ticker") or "").upper(),
+                                 (item.get("_date_sort") or "")[:10],
+                                 sentiment, model, scored_at))
+                done_count += 1
+                if progress_cb:
+                    try:
+                        progress_cb(done_count, total)
+                    except Exception:
+                        pass
+            else:
+                rest.append(item)
+        print(f"[sentiment] Claude Code chấm {len(got)}/{total} tin theo lô; "
+              f"{len(rest)} tin còn lại qua ladder")
+        to_score = rest
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {pool.submit(score_one, item): item for item in to_score}

@@ -354,6 +354,7 @@ class FreeAuditorAgent(AuditorAgent):
             accept=self._is_parseable,
             feedback=lambda r: ("không lấy ra được JSON verdict "
                                 '{"approved", "confidence", "issues", "suggestions"}'),
+            step="audit",          # engine claude ⇒ nấc claude-cli đứng đầu
         )
         if not raw:
             return AuditVerdict(
@@ -393,14 +394,26 @@ def _ensure_env_loaded() -> None:
         pass
 
 
+def _claude_cli_engine() -> bool:
+    """Bước audit chạy engine Claude Code (VNSTOCK_AUDIT_ENGINE /
+    VNSTOCK_LLM_ENGINE = claude)? Best-effort."""
+    try:
+        import vnstock_claude_cli as vcc
+        return vcc.engine_for("audit") == "claude"
+    except Exception:
+        return False
+
+
 def make_auditor(prefer: str = "auto") -> AuditorAgent:
     """
     Return the best-available auditor based on env vars.
 
-    prefer = "auto" → Claude → GPT → Free (cascade digest, cần ≥1 key free)
-    → Null. prefer = "claude" | "gpt" | "free" | "null" forces a backend.
-    (Thứ tự auto = trả phí trước: có key trả phí nghĩa là user CHỦ ĐỘNG
-    bật lại — mặc định máy all-free 29/07 sẽ rơi vào Free.)
+    prefer = "auto" → [engine claude ⇒ Free, vì cascade của nó có nấc
+    claude-cli đứng đầu — không cần key nào] → Claude → GPT → Free (cascade
+    digest, cần ≥1 key free) → Null. prefer = "claude" | "gpt" | "free" |
+    "null" forces a backend. (Thứ tự auto = trả phí trước: có key trả phí
+    nghĩa là user CHỦ ĐỘNG bật lại — mặc định máy all-free 29/07 sẽ rơi vào
+    Free.)
     """
     _ensure_env_loaded()
     prefer = prefer.lower()
@@ -413,6 +426,8 @@ def make_auditor(prefer: str = "auto") -> AuditorAgent:
     if prefer == "free":
         return FreeAuditorAgent()
     # auto
+    if _claude_cli_engine():
+        return FreeAuditorAgent()      # cascade: claude-cli → (API nếu key) → free
     if (os.environ.get("ANTHROPIC_API_KEY") or "").strip():
         return ClaudeAuditorAgent()
     if (os.environ.get("OPENAI_API_KEY") or "").strip():

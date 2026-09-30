@@ -237,6 +237,41 @@ def _warn_rung(name: str, e: Exception, resp=None) -> None:
           f"({type(e).__name__}: {str(e)[:120]}{detail}) — thử nấc sau")
 
 
+# Nấc Claude Code headless (thuê bao) — 30/09 #26. Đứng ĐẦU cascade khi
+# `vnstock_claude_cli.engine_for(step) == "claude"`; step = "digest" |
+# "reflection" | "audit" (chỗ gọi truyền), mỗi bước có công tắc riêng
+# VNSTOCK_<STEP>_ENGINE hoặc công tắc chung VNSTOCK_LLM_ENGINE. Output JSON
+# ngắn nên trần chờ riêng 300s (không ăn 10′ của cascade khi CLI treo).
+_CLI_TIMEOUT_S = 300
+
+
+def _call_claude_cli(system: str, user: str, step: str = "digest") -> "str | None":
+    """1 lượt `claude -p` qua `vnstock_claude_cli.complete` — None khi lỗi
+    (cascade đi tiếp như cũ). Sổ LLM ghi provider ClaudeCode bên trong."""
+    try:
+        import vnstock_claude_cli as vcc
+        up = step.upper()
+        raw_t = (os.environ.get(f"VNSTOCK_{up}_CLI_TIMEOUT_S") or "").strip()
+        timeout = vcc.cli_timeout_s(f"VNSTOCK_{up}_CLI_TIMEOUT_S") if raw_t else _CLI_TIMEOUT_S
+        text, err, info = vcc.complete(
+            user, system=system,
+            model=vcc.cli_model(f"VNSTOCK_{up}_CLI_MODEL"),
+            timeout_s=timeout, tag=step)
+        print(vcc.outcome_line(step, info, text, err))
+        return text or None
+    except Exception as e:
+        print(f"[{step}] ⏱ claude-cli: ❌ {type(e).__name__}: {str(e)[:120]}")
+        return None
+
+
+def _claude_cli_wanted(step: str) -> bool:
+    try:
+        import vnstock_claude_cli as vcc
+        return vcc.engine_for(step) == "claude"
+    except Exception:
+        return False
+
+
 def _call_claude(system: str, user: str,
                  max_tokens: int = _DIGEST_MAX_TOKENS) -> "str | None":
     key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
@@ -362,10 +397,12 @@ def _call_free(provider: str, model: str, system: str, user: str,
 
 
 def digest_call(system: str, user: str, accept=None,
-                feedback=None) -> tuple["str | None", str]:
-    """(raw_text, provider) qua cascade GIẢM DẦN SỨC MẠNH: Claude → GPT →
-    mọi model free bậc 1 → mọi model free bậc 2 (70B). Provider trả về ghi
-    rõ model free nào đã digest ("Groq:kimi-k2…") để soi chất lượng về sau.
+                feedback=None, *, step: str = "digest") -> tuple["str | None", str]:
+    """(raw_text, provider) qua cascade GIẢM DẦN SỨC MẠNH: [claude-cli khi
+    engine bước `step` = claude] → Claude API → GPT → mọi model free bậc 1 →
+    mọi model free bậc 2 (70B). Provider trả về ghi rõ model free nào đã
+    digest ("Groq:kimi-k2…") để soi chất lượng về sau; "claude-cli" = Claude
+    Code thuê bao (30/09 #26). `step` = "digest" | "reflection" | "audit".
 
     ``accept(raw) -> bool``: model TRẢ LỜI nhưng output không đạt (vd JSON
     hỏng vì bị cắt — lỗi thật Cerebras 14/07) cũng là MỘT LOẠI LỖI MODEL →
@@ -390,7 +427,10 @@ def digest_call(system: str, user: str, accept=None,
               f"(JSON hỏng/bị cắt?) — thử nấc sau")
         return False
 
-    rungs: list[tuple[str, "object"]] = [
+    rungs: list[tuple[str, "object"]] = []
+    if _claude_cli_wanted(step):
+        rungs.append(("claude-cli", lambda u: _call_claude_cli(system, u, step)))
+    rungs += [
         ("claude", lambda u: _call_claude(system, u)),
         ("openai", lambda u: _call_openai(system, u)),
     ]

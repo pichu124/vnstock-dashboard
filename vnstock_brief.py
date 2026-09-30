@@ -119,6 +119,15 @@ _DEFAULT_AGENT_CONFIGS: list[dict] = [
         "max_tokens": 1200,
     },
     {
+        # Claude Code thuê bao (CLI) — TẮT mặc định: brief đêm đi đường
+        # vnstock_brief_pack; bật ở đây chỉ để A/B trên nút brief dashboard.
+        "type": "claude-code",
+        "model": "claude-opus-5-5",
+        "name": "Claude Code (CLI thuê bao)",
+        "enabled": False,
+        "max_tokens": 2800,
+    },
+    {
         "type": "claude",
         "model": "claude-haiku-4-5-20251001",
         "name": "Claude Haiku",
@@ -510,6 +519,45 @@ class ClaudeAgent(BriefAgent):
             _ledger_record("Anthropic", self.model, ok=False,
                            error=f"{type(e).__name__}: {str(e)[:120]}")
             return "", f"Claude API lỗi: {type(e).__name__}: {str(e)[:160]}"
+
+
+class ClaudeCodeAgent(BriefAgent):
+    """Claude Code headless (thuê bao, `vnstock_claude_cli`) như MỘT agent của
+    ladder (30/09 #26): ⚙️ dashboard bật được để chạy A/B với Gemini trên nút
+    brief; `vnstock_train._inject_claude_lead` cắm làm lead khi engine bước
+    train = claude. Brief ĐÊM không đi qua đây (đi `vnstock_brief_pack`) —
+    agent này mặc định TẮT trong config. Không key: `is_available` = có CLI."""
+    agent_type = "claude-code"
+    _ENV_KEY = ""
+    _SYSTEM = (
+        "Bạn là trợ lý phân tích chứng khoán Việt Nam của VNStock Dashboard. Làm "
+        "ĐÚNG theo hướng dẫn và định dạng yêu cầu trong nội dung nhận vào; không "
+        "lời dẫn, không giải thích thêm, không đóng khung code trừ khi được yêu cầu."
+    )
+
+    def __init__(self, model: str = "", name: str = "", *, tag: str = "brief",
+                 system: "str | None" = None, timeout_s: "int | None" = None):
+        import vnstock_claude_cli as vcc
+        self.tag = tag
+        self.model = model or vcc.cli_model(f"VNSTOCK_{tag.upper()}_CLI_MODEL")
+        short = self.model.replace("claude-", "", 1)
+        self.name = name or f"Claude Code · {short}"
+        self.system = system or self._SYSTEM
+        self.timeout_s = timeout_s
+
+    @property
+    def is_available(self) -> bool:
+        import vnstock_claude_cli as vcc
+        return vcc.cli_executable() is not None
+
+    def generate(self, prompt: str, max_tokens: int = 1200) -> tuple[str, str | None]:
+        import vnstock_claude_cli as vcc
+        text, err, info = vcc.complete(prompt, system=self.system, model=self.model,
+                                       timeout_s=self.timeout_s, tag=self.tag)
+        print(vcc.outcome_line(self.tag, info, text, err))
+        if text and not err:
+            return text, None
+        return "", err or "Claude Code trả rỗng"
 
 
 def _openai_extract(body) -> "tuple[str, str | None, str | None, bool]":
@@ -979,6 +1027,7 @@ class GeminiAgent(_OpenAICompatAgent):
 # ── Agent registry ─────────────────────────────────────────────────────────
 AGENT_REGISTRY: dict[str, type[BriefAgent]] = {
     "gemini": GeminiAgent,
+    "claude-code": ClaudeCodeAgent,
     "claude": ClaudeAgent,
     "openai": OpenAIAgent,
     "groq": GroqAgent,
@@ -1155,7 +1204,7 @@ def build_agents(configs: list[dict] | None = None) -> list[BriefAgent]:
 # openai là nấc trả phí opt-in (có key sẽ được ưu tiên ngay sau); openrouter
 # :free cuối vì quota 50 req/ngày + catalog churn. Type lạ (agent user tự
 # thêm) xếp sau cùng, giữ thứ tự config (sort ổn định).
-_AGENT_STRENGTH: tuple = ("gemini", "claude", "openai", "deepseek",
+_AGENT_STRENGTH: tuple = ("claude-code", "gemini", "claude", "openai", "deepseek",
                           "groq", "mistral", "cerebras", "openrouter")
 
 
@@ -3852,6 +3901,10 @@ def generate_brief(
                 agent, "_ENV_KEY",
                 "ANTHROPIC_API_KEY" if getattr(agent, "agent_type", "") == "claude" else "?",
             )
+            if getattr(agent, "agent_type", "") == "claude-code":
+                _lines.append(f"  • {agent.name}: không thấy `claude` CLI "
+                              "(cài Claude Code + /login, hoặc VNSTOCK_CLAUDE_CLI_EXE)")
+                continue
             _lines.append(
                 f"  • {agent.name}: thiếu key (env {_env_var} chưa set)"
             )

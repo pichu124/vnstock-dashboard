@@ -23,8 +23,11 @@ def _no_keys(monkeypatch):
     """Factory hermetic: chặn make_auditor load .env (máy thật có key free
     trong .env → auto sẽ trả FreeAuditor thay vì Null) + xoá sạch mọi key."""
     monkeypatch.setattr(va, "_ensure_env_loaded", lambda: None)
-    for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", *va._FREE_KEY_ENVS):
+    for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", *va._FREE_KEY_ENVS,
+              "VNSTOCK_LLM_ENGINE", "VNSTOCK_AUDIT_ENGINE"):
         monkeypatch.delenv(k, raising=False)
+    import vnstock_claude_cli as vcc
+    monkeypatch.setattr(vcc, "_ENV_LOADED", True)     # engine không đọc .env thật
 
 
 # ── Null agent ─────────────────────────────────────────────────────────────
@@ -152,9 +155,9 @@ def _fake_digest(result):
     """digest_call giả trả `result`, ghi lại call args để soi."""
     captured = {}
 
-    def _call(system, user, accept=None, feedback=None):
+    def _call(system, user, accept=None, feedback=None, **kw):
         captured.update(system=system, user=user,
-                        accept=accept, feedback=feedback)
+                        accept=accept, feedback=feedback, step=kw.get("step"))
         return result
 
     return _call, captured

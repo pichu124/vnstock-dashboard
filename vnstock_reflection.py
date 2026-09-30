@@ -75,7 +75,7 @@ _ALLOC_SYSTEM = (
 def _reflect_call(system: str, user: str) -> "str | None":
     try:
         from vnstock_report_digest import digest_call
-        raw, _provider = digest_call(system, user)
+        raw, _provider = digest_call(system, user, step="reflection")
         return raw
     except Exception:
         pass
