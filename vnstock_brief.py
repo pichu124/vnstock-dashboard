@@ -1501,12 +1501,19 @@ def _maybe_refresh_events() -> int:
     if os.environ.get("VNSTOCK_BRIEF_AUTO_EVENTS", "1") == "0":
         return 0
     try:
+        import vnstock_events as _ev
         from vnstock_events import UPCOMING_EVENTS_PATH, refresh_upcoming
         p = UPCOMING_EVENTS_PATH
         if p.exists():
             mtime = datetime.fromtimestamp(p.stat().st_mtime).date()
             if mtime >= date.today():
                 return 0  # already refreshed today
+        # Lượt refresh gần đây trắng tay (VCI ngã) → không thử lại ngay
+        # (30/09: mỗi lượt thử ~3′ timeout; hai lượt export-pack liền = 6′).
+        _bo = getattr(_ev, "in_backoff", None)
+        if _bo is not None and (why := _bo()):
+            print(f"[events] bỏ qua auto-refresh sự kiện: {why}")
+            return 0
         return len(refresh_upcoming(tickers=_events_universe()))
     except Exception:
         return 0

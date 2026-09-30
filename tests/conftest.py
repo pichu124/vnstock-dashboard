@@ -103,3 +103,13 @@ def _no_claude_cli_anywhere(monkeypatch):
     _vcc.reset_dead_memo()
     yield
     _vcc.reset_dead_memo()
+
+
+@pytest.fixture(autouse=True)
+def _events_meta_to_tmp_anywhere(tmp_path, monkeypatch):
+    """`vnstock_events.refresh_upcoming` (30/09) ghi/xoá marker backoff ở
+    `_META/upcoming_events.backoff.json` — test đi qua đường trắng tay mà
+    không redirect là ghi VẾT GIẢ vào kho thật (cùng họ bài học ledger). Test
+    nào set `ev._META` riêng thì đè tiếp, vô hại."""
+    import vnstock_events as _ev
+    monkeypatch.setattr(_ev, "_META", tmp_path)

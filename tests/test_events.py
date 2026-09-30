@@ -337,3 +337,62 @@ def test_refresh_upcoming_failure_streak_resets_on_success(tmp_path, monkeypatch
     monkeypatch.setattr(ev, "_fetch_vci_events", _flaky)
     ev.refresh_upcoming(tickers=list("ABCDEFG"))
     assert calls == list("ABCDEFG")                  # chưa bao giờ 3 lỗi LIỀN → chạy hết
+
+
+# ─── 30/09: ngân sách tường + backoff (thư viện tự thử lại ~6 lần/mã) ────────
+
+def test_refresh_upcoming_budget_stops_after_first_slow_failure(tmp_path, monkeypatch):
+    """`--export-pack` 12:46 30/09: 18 timeout × 30s = 9,8′ dù đã có cửa 3 mã —
+    mỗi mã lỗi là ~3′ vì thư viện tự thử lại. Quá ngân sách mà đang lỗi ⇒ dừng
+    NGAY sau mã đầu, ghi backoff."""
+    import vnstock_events as ev
+    monkeypatch.setattr(ev, "UPCOMING_EVENTS_PATH", tmp_path / "nope.parquet")
+    monkeypatch.setattr(ev, "_META", tmp_path)
+    monkeypatch.delenv("VNSTOCK_EVENTS_BACKOFF_MIN", raising=False)
+    clock = iter([0.0, 190.0, 380.0, 570.0])          # t_start, rồi sau mỗi mã lỗi
+    monkeypatch.setattr(ev.time, "monotonic", lambda: next(clock))
+    calls: list = []
+    monkeypatch.setattr(ev, "_fetch_vci_events", lambda t: calls.append(t) or None)
+    out = ev.refresh_upcoming(tickers=[f"T{i:02d}" for i in range(10)], budget_s=120)
+    assert calls == ["T00"] and out.empty                # không gõ 9 mã còn lại
+    why = ev.in_backoff()
+    assert why and "1 mã lỗi" in why                     # marker backoff đã ghi
+    assert ev.in_backoff(now=ev.datetime.now() + ev.timedelta(minutes=95)) is None
+
+
+def test_refresh_upcoming_budget_zero_keeps_old_rule_and_backoff_env_off(tmp_path, monkeypatch):
+    import vnstock_events as ev
+    monkeypatch.setattr(ev, "UPCOMING_EVENTS_PATH", tmp_path / "nope.parquet")
+    monkeypatch.setattr(ev, "_META", tmp_path)
+    monkeypatch.setenv("VNSTOCK_EVENTS_BACKOFF_MIN", "0")
+    calls: list = []
+    monkeypatch.setattr(ev, "_fetch_vci_events", lambda t: calls.append(t) or None)
+    ev.refresh_upcoming(tickers=list("ABCDE"), budget_s=0)
+    assert calls == ["A", "B", "C"]                      # chỉ còn cửa 3 mã liền
+    assert ev.in_backoff() is None                       # env 0 = không ghi marker
+
+
+def test_refresh_success_clears_backoff(tmp_path, monkeypatch):
+    import pandas as pd
+    import vnstock_events as ev
+    monkeypatch.setattr(ev, "UPCOMING_EVENTS_PATH", tmp_path / "up.parquet")
+    monkeypatch.setattr(ev, "_META", tmp_path)
+    monkeypatch.setattr(ev, "_extract_upcoming", lambda df, t, cutoff: [])
+    ev._write_backoff(3)
+    assert ev.in_backoff()
+    monkeypatch.setattr(ev, "_fetch_vci_events", lambda t: pd.DataFrame())
+    ev.refresh_upcoming(tickers=["ACB"])
+    assert ev.in_backoff() is None
+
+
+def test_maybe_refresh_events_skips_while_in_backoff(tmp_path, monkeypatch, capsys):
+    import vnstock_brief as vb
+    import vnstock_events as ev
+    monkeypatch.delenv("VNSTOCK_BRIEF_AUTO_EVENTS", raising=False)
+    monkeypatch.setattr(ev, "UPCOMING_EVENTS_PATH", tmp_path / "nope.parquet")   # thiếu → muốn refresh
+    monkeypatch.setattr(ev, "_META", tmp_path)
+    monkeypatch.setattr(ev, "_fetch_vci_events",
+                        lambda t: (_ for _ in ()).throw(AssertionError("gõ VCI trong backoff")))
+    ev._write_backoff(3)
+    assert vb._maybe_refresh_events() == 0
+    assert "bỏ qua auto-refresh sự kiện" in capsys.readouterr().out

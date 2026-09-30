@@ -18,7 +18,10 @@ CLI:
 from __future__ import annotations
 
 import argparse
-from datetime import date, timedelta
+import json
+import os
+import time
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -93,6 +96,76 @@ def _default_universe() -> list[str]:
 # mã xấu → dừng, giữ cache cũ (merge-safe), lượt sau thử lại rẻ.
 MAX_CONSECUTIVE_FAILURES = 3
 
+# 30/09 trưa (💻 laptop, `run.py brief --export-pack`): 18 dòng "Read timed
+# out" × 30s = 9,8′ dù cửa 3-mã-lỗi-liền đã có — thư viện vnstock TỰ THỬ LẠI
+# ~6 lần mỗi call nên "3 mã" = 18 timeout. Hai lưới thêm: (1) NGÂN SÁCH TƯỜNG
+# cho cả lượt refresh — có mã lỗi mà đã quá budget thì dừng ngay (mã lỗi đầu
+# tiên đã ~3′); (2) BACKOFF: lượt refresh trắng tay ghi marker `_meta/
+# upcoming_events.backoff.json`, auto-refresh của brief (`_maybe_refresh_events`)
+# bỏ qua tới hết hạn — hai lượt `--export-pack` liền không đốt 2 × 3′. Chạy tay
+# `python vnstock_events.py --refresh` KHÔNG xét backoff (cố ý).
+EVENTS_REFRESH_BUDGET_S = 120.0      # env VNSTOCK_EVENTS_REFRESH_BUDGET_S (0 = tắt)
+EVENTS_BACKOFF_MIN = 90.0            # env VNSTOCK_EVENTS_BACKOFF_MIN (0 = tắt)
+_BACKOFF_NAME = "upcoming_events.backoff.json"
+
+
+def _budget_s() -> float:
+    raw = (os.environ.get("VNSTOCK_EVENTS_REFRESH_BUDGET_S") or "").strip()
+    try:
+        return float(raw) if raw else EVENTS_REFRESH_BUDGET_S
+    except ValueError:
+        return EVENTS_REFRESH_BUDGET_S
+
+
+def _backoff_min() -> float:
+    raw = (os.environ.get("VNSTOCK_EVENTS_BACKOFF_MIN") or "").strip()
+    try:
+        return float(raw) if raw else EVENTS_BACKOFF_MIN
+    except ValueError:
+        return EVENTS_BACKOFF_MIN
+
+
+def _backoff_path() -> Path:
+    return _META / _BACKOFF_NAME
+
+
+def in_backoff(now: "datetime | None" = None) -> "str | None":
+    """Lý do đang backoff (chuỗi) nếu lượt refresh trắng tay gần đây còn hạn;
+    None = được refresh. Best-effort: marker hỏng = không backoff."""
+    try:
+        d = json.loads(_backoff_path().read_text(encoding="utf-8"))
+        until = datetime.fromisoformat(str(d.get("until")))
+    except Exception:
+        return None
+    now = now or datetime.now()
+    if now >= until:
+        return None
+    return (f"VCI trắng tay lúc {str(d.get('at', '?'))[11:16]} ({d.get('failed', '?')} mã lỗi) "
+            f"— đợi tới {until.strftime('%H:%M')} rồi thử lại")
+
+
+def _write_backoff(failed: int, now: "datetime | None" = None) -> None:
+    mins = _backoff_min()
+    if mins <= 0:
+        return
+    now = now or datetime.now()
+    try:
+        from vnstock_parquet_io import write_json_atomic
+        write_json_atomic({"at": now.isoformat(timespec="seconds"),
+                           "until": (now + timedelta(minutes=mins)).isoformat(timespec="seconds"),
+                           "failed": int(failed)}, _backoff_path())
+    except Exception:
+        pass
+
+
+def _clear_backoff() -> None:
+    try:
+        _backoff_path().unlink()
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+
 
 def refresh_upcoming(
     tickers: list[str] | None = None,
@@ -101,6 +174,7 @@ def refresh_upcoming(
     keep_back_days: int = 2,
     verbose: bool = False,
     max_consecutive_failures: int = MAX_CONSECUTIVE_FAILURES,
+    budget_s: "float | None" = None,
 ) -> pd.DataFrame:
     """Fetch corp-action events for `tickers`, keep ex_date ≥ today-keep_back,
     consolidate into one parquet. Best-effort and MERGE-SAFE: a ticker whose
@@ -127,6 +201,9 @@ def refresh_upcoming(
     by_ticker: dict[str, list[dict]] = dict(prior)
     refreshed = failed = streak = 0
     tickers = list(tickers)
+    if budget_s is None:
+        budget_s = _budget_s()
+    t_start = time.monotonic()
     for i, t in enumerate(tickers):
         key = str(t).upper()
         df = _fetch_vci_events(t)
@@ -135,6 +212,13 @@ def refresh_upcoming(
             streak += 1
             if verbose:
                 print(f"  [{t}] fetch lỗi — giữ {len(prior.get(key, []))} sự kiện cũ")
+            elapsed = time.monotonic() - t_start
+            if budget_s and elapsed >= budget_s:
+                rest = len(tickers) - i - 1
+                print(f"[events] VCI lỗi và đã {elapsed:,.0f}s ≥ ngân sách {budget_s:,.0f}s "
+                      f"→ dừng, giữ cache cũ cho {rest} mã còn lại (30/09: thư viện tự "
+                      f"thử lại ~6 lần/mã, 3 mã = 18 timeout = 10′)")
+                break
             if max_consecutive_failures and streak >= max_consecutive_failures:
                 rest = len(tickers) - i - 1
                 print(f"[events] VCI lỗi {streak} mã liên tiếp → dừng, giữ cache "
@@ -150,10 +234,13 @@ def refresh_upcoming(
     if refreshed == 0 and failed:
         # Không lấy được gì → KHÔNG ghi đè file (mtime giữ nguyên) để lượt sau
         # còn được thử lại; ghi là "đã refresh hôm nay" giả trong khi cache
-        # vẫn là hôm qua.
+        # vẫn là hôm qua. Ghi backoff để auto-refresh của brief không thử lại
+        # ngay trong vài giờ tới (mỗi lượt thử = ~3′ timeout).
+        _write_backoff(failed)
         if verbose:
             print(f"  → refresh: 0 mã OK, {failed} mã lỗi — giữ nguyên file cũ")
         return _prior_frame(prior)
+    _clear_backoff()
 
     # Flatten, drop anything now past the cutoff, dedup.
     rows = [e for evs in by_ticker.values() for e in evs

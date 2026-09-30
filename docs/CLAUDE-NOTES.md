@@ -6966,6 +6966,39 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# ⏱ U63. XUẤT GÓI 12:46 30/09 MẤT 10′ — CỬA "3 MÃ LỖI LIỀN" (#21b) KHÔNG ĐỦ VÌ THƯ VIỆN TỰ THỬ LẠI (30/09 trưa)
+
+**Bằng chứng (💻 laptop, `python run.py brief --export-pack`):** 18 dòng
+`vnstock.core.utils.client - ERROR - API request failed: HTTPSConnectionPool
+(host='iq.vietcap.com.vn') Read timed out (read timeout=30)` cách nhau 32–40s,
+12:46:20 → 12:56:09, rồi `📦 pack phiên 2026-09-29 (30,497 ký tự prompt)`.
+Gói ra phiên 29/09 là ĐÚNG (kho chưa sync bar 30/09, sync 18:00).
+
+**Truy:** `build_pack` chạy y 4 bước refresh của `generate_brief`. Reconcile
+rec đọc parquet (không VCI). Macro/news không VCI. `_maybe_refresh_events` →
+`refresh_upcoming(tickers=_events_universe())` → `_fetch_vci_events(t)` =
+`get_vnstock(t,"VCI").company.events()`; #21b dừng sau 3 mã lỗi LIỀN — nhưng
+18 = 3 × 6: thư viện vnstock tự thử lại ~6 lần mỗi call (log là của client
+thư viện, không phải của ta; sandbox không cài vnstock nên không đọc được số
+retry, suy từ 18/3 và nhịp 33s). Mỗi "mã lỗi" thật ra ~3′.
+
+**Vá:** (1) `refresh_upcoming(budget_s=120)` — có mã lỗi mà `time.monotonic()
+- t_start ≥ budget` ⇒ dừng ngay (mã lỗi đầu đã vượt) ⇒ đêm VCI ốm tốn ~3′
+thay vì 10′ (22/09 là 28′); env `VNSTOCK_EVENTS_REFRESH_BUDGET_S`, 0 = tắt,
+cửa 3-mã-liền giữ nguyên. (2) BACKOFF: lượt trắng tay (`refreshed == 0 and
+failed`) ghi `_meta/upcoming_events.backoff.json {at, until=+90′, failed}`;
+`_maybe_refresh_events` (auto-refresh trong brief/pack) xét `in_backoff()`
+qua `getattr` (test cũ dùng module giả không có hàm này) và bỏ qua tới hết
+hạn; refresh thành công xoá marker; `vnstock_events.py --refresh` tay không
+xét. Marker trong kho ⇒ Dropbox đưa sang máy kia — đúng, VCI ngã là ngã
+chung. conftest redirect `vnstock_events._META` về tmp cho mọi test (không
+ghi vết giả vào kho thật). Test `tests/test_events.py` +4.
+
+**Còn để ngỏ:** số retry của thư viện có chỉnh được không (`vnstock.core.
+utils.client`) — nếu có, đặt 1–2 lần là mỗi mã lỗi chỉ 30–60s; xem trên máy
+thật: `python -c "import vnstock.core.utils.client as c; print([x for x in
+dir(c) if 'retr' in x.lower() or 'timeout' in x.lower()])"`.
+
 # 🧪 U62. THẨM ĐỊNH ENGINE CLAUDE (3 THIẾT KẾ × 3 GIÁM KHẢO) — A LÀ ĐƯỜNG CHÍNH, 9 LỖ HỔNG ĐÃ VÁ, BACKEND DÙNG CHUNG CHO 5 BƯỚC (30/09 trưa)
 
 **Cách làm:** workflow 10 agent — 3 reader (đường brief, 8 điểm gọi LLM, ràng
