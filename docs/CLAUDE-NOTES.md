@@ -6966,6 +6966,52 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🥇 U64. BRIEF CLAUDE ĐẦU TIÊN — TIN TELEGRAM 290 (đường B, laptop, 30/09 13:19), CHẤM + VÁ GUARD #17 (30/09 chiều)
+
+**Bối cảnh:** user chạy trọn đường B trên 💻 laptop với gói phiên 29/09 (kho
+chưa sync 30/09): `/login` → `/brief-close` (Claude Code, 2′28″, 56 dòng) →
+`run.py brief --from-file … --force` (gửi trùng có ý thức, phiên 29/09 đã có
+bản ladder) → tin 290, marker `engine=claude-file`. Bản ladder cùng phiên là
+flash-lite dự phòng (U60).
+
+**Chấm (toàn văn tin 290):** 4/5.
+- ĐẠT: mọi nhận định neo số từ gói, format EN; TLDR có stance "Bias GIẢM"
+  (parser stance bắt được) kèm mức kích hoạt VÀ mức huỷ (S1 1,766.40 /
+  R1 1,789.35); mức kỹ thuật khớp header (MA20 -1.8%, MA50 +0.3%, MA200
+  -1.0%); Watchlist 3 setup đều đúng THỨ TỰ và hợp bias (FRT chỉ mua nếu
+  vượt 143,000 · chốt 148,000 · cắt 140,600; NLG/SSB giảm tỷ trọng NẾU thủng,
+  mục tiêu dưới mức thủng, huỷ trên giá) — đúng chỗ ladder từng sai chiều
+  25/09; Danh mục giữ (EIB/SSI) gắn lý do vào dữ liệu (NN bán ròng ngân hàng
+  -2,536 tỷ, chứng khoán -0.147pp) và không khuyên gia tăng khi bias GIẢM;
+  Rủi ro neo D/E + Op.CF, ghi chú BĐS chuẩn.
+- Guard đã dọn đúng: `## 🎯 TLDR (2 dòng)` → "TLDR"; mục Sự kiện thay bằng
+  danh sách chuẩn (Claude bỏ NVL 30/09 vì "trùng hôm nay" — gói cũ 1 ngày, vô
+  nghĩa vì guard thay cả mục).
+- LỌT (lỗi guard, không phải Claude): mục Đề xuất giao dịch in `- MSN BUY
+  entry=68.7 · TP=74.6 · SL=65.6 (~1,400 cp, rủi ro 1% NAV).` và câu dẫn
+  `(Strategy #69, conf 0.50–0.60)`. Claude chép gần nguyên văn dòng DATA
+  (`- MSN BUY entry=… TP=… SL=… · KL gợi ý ~1,400 cp (rủi ro 1% NAV)`);
+  `_REC_RAW_LINE_RE` (#17, 29/09) chỉ bắt "TK: BUY entry=E, TP=T, SL=S" (dấu
+  hai chấm + dấu phẩy) ⇒ trượt. KL gợi ý là số CÓ trong gói (sizing theo
+  `nav_million` user cấu hình, `_recommendation_block`) — không phải bịa.
+- Nhỏ: Watchlist FRT "canh mua nếu vượt 143,000" trong khi sổ đang mở FRT
+  BUY @139 (ngày 1/20) — không mâu thuẫn nhưng bản tốt hơn sẽ nhắc lệnh mở.
+- Footer `🤖 Claude Code · opus-5-5` ở đường B là nhãn theo cấu hình
+  (`cli_model()`), không biết model thật của phiên tương tác.
+
+**Vá:** `enforce_rec_line_format` (guards_sections) nay bắt mọi biến thể:
+dấu hai chấm tuỳ chọn, nhãn tầng `[vị thế ~N phiên]` trước/sau BUY (giữ),
+ngăn cách ` , · |`, số EN không nuốt dấu phẩy, đuôi tự do → dựng lại
+"TK: MUA vùng E · chốt lời T · cắt lỗ S [· KL gợi ý ~N cp (rủi ro x% NAV)]
+[— lý do]"; nhãn `(Strategy #n …)` bị bỏ ở MỌI dòng (câu dẫn). Test
+`test_enforce_rec_line_format_catches_claude_variant_from_telegram_290`
+dùng đúng 3 dòng tin 290 + dòng data thô + dạng cũ; lưới re-export
+(`test_all_moved_names_are_reexported`) đòi mọi tên module guard phải qua
+`vnstock_brief_guards` → `vnstock_brief`. Fast 2.758.
+
+**Tiếp:** user chấm sao bản này (`vnstock_brief_pack.py --review` lấy id →
+`--rate <id> <sao>`), ≥4 sao thành few-shot cho cả hai engine.
+
 # ⏱ U63. XUẤT GÓI 12:46 30/09 MẤT 10′ — CỬA "3 MÃ LỖI LIỀN" (#21b) KHÔNG ĐỦ VÌ THƯ VIỆN TỰ THỬ LẠI (30/09 trưa)
 
 **Bằng chứng (💻 laptop, `python run.py brief --export-pack`):** 18 dòng

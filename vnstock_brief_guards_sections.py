@@ -1666,24 +1666,67 @@ def enforce_watchlist_levels(text: str, ctx: dict | None = None) -> str:
 # (Strategy #69, conf=0.50)." — model bê nguyên dòng data thay vì viết theo
 # mẫu "MUA vùng · chốt lời · cắt lỗ" (23/09 viết đúng). Viết lại tường minh,
 # giữ nguyên số.
+# Dòng khuyến nghị THÔ lọt ra brief. Bản đầu (29/09 #17) chỉ bắt đúng dạng
+# "TK: BUY entry=E, TP=T, SL=S (Strategy #n…)"; tin 290 ngày 30/09 (Claude
+# Code, đường B) chép gần nguyên văn dòng DATA "- MSN BUY entry=68.7 TP=74.6
+# SL=65.6 · KL gợi ý ~1,400 cp (rủi ro 1% NAV)" thành "- MSN BUY entry=68.7 ·
+# TP=74.6 · SL=65.6 (~1,400 cp, rủi ro 1% NAV)." — không dấu hai chấm, ngăn
+# bằng "·" ⇒ trượt. Nay: dấu hai chấm tuỳ chọn, nhãn tầng "[vị thế ~N phiên]"
+# giữ, ngăn cách bất kỳ ( , · | ), đuôi tự do: KL gợi ý (số CÓ trong data —
+# giữ lại bằng tiếng Việt), lý do sau " — " giữ, nhãn (Strategy #n…) bỏ.
+# Số EN `[0-9]+(?:[.,][0-9]+)*` — KHÔNG nuốt dấu phẩy ngăn cách ("14.8, TP=").
 _REC_RAW_LINE_RE = _re.compile(
-    r"^(?P<lead>\s*(?:[-•*]\s*)?)(?P<tk>[A-Z][A-Z0-9]{2,4}):\s*(?:BUY|MUA)\s+"
-    r"entry\s*=\s*(?P<entry>[0-9][0-9.,]*)\s*,\s*TP\s*=\s*(?P<tp>[0-9][0-9.,]*)\s*,\s*"
-    r"SL\s*=\s*(?P<sl>[0-9][0-9.,]*)\s*(?:\((?:Strategy|Chiến lược)[^)]*\))?\s*\.?\s*$",
+    r"^(?P<lead>\s*(?:[-•*]\s*)?)(?P<tk>[A-Z][A-Z0-9]{2,4}):?\s*"
+    r"(?P<tier1>\[[^\]]*\]\s*)?(?:BUY|MUA)\s+(?P<tier2>\[[^\]]*\]\s*)?"
+    r"entry\s*=\s*(?P<entry>[0-9]+(?:[.,][0-9]+)*)[\s,·|]+"
+    r"TP\s*=\s*(?P<tp>[0-9]+(?:[.,][0-9]+)*)[\s,·|]+"
+    r"SL\s*=\s*(?P<sl>[0-9]+(?:[.,][0-9]+)*)(?P<tail>.*)$",
     _re.IGNORECASE)
+_REC_QTY_RE = _re.compile(
+    r"~\s*(?P<qty>[0-9][0-9.,]*)\s*cp(?:[^0-9\n]*?(?P<risk>[0-9]+(?:[.,][0-9]+)?)\s*%\s*NAV)?",
+    _re.IGNORECASE)
+# "(Strategy #69, conf 0.50–0.60)" / "(Chiến lược #12 …)" — id nội bộ, người
+# đọc Telegram không dùng được; bỏ ở MỌI dòng (câu dẫn mục Đề xuất cũng có).
+_STRATEGY_TAG_RE = _re.compile(
+    r"\s*\(\s*(?:Strategy|Chiến lược)\s*#?\s*\d+[^)]*\)", _re.IGNORECASE)
+_STRATEGY_BARE_RE = _re.compile(r"\bStrategy\s*#\s*\d+\b", _re.IGNORECASE)
+
+
+def _rec_line_vi(m: "_re.Match") -> str:
+    """Dựng lại dòng khuyến nghị bằng tiếng Việt từ match `_REC_RAW_LINE_RE`."""
+    tier = (m.group("tier1") or m.group("tier2") or "").strip()
+    head = f"{m.group('lead')}{m.group('tk')}" + (f" {tier}" if tier else "")
+    core = (f"{head}: MUA vùng {m.group('entry')} · chốt lời {m.group('tp')} · "
+            f"cắt lỗ {m.group('sl')}")
+    tail = m.group("tail") or ""
+    q = _REC_QTY_RE.search(tail)
+    if q:
+        core += f" · KL gợi ý ~{q.group('qty')} cp"
+        if q.group("risk"):
+            core += f" (rủi ro {q.group('risk')}% NAV)"
+    if " — " in tail:
+        reason = _STRATEGY_TAG_RE.sub("", tail.split(" — ", 1)[1]).strip().rstrip(".")
+        if reason and not _STRATEGY_BARE_RE.search(reason):
+            core += f" — {reason}"
+    return core
 
 
 def enforce_rec_line_format(text: str, ctx: dict | None = None) -> str:
-    """"TK: BUY entry=E, TP=T, SL=S (Strategy #n, conf=x)." → "TK: MUA vùng E ·
-    chốt lời T · cắt lỗ S". No-op khi không có dòng thô; idempotent."""
-    if not text or "entry=" not in text.replace(" ", ""):
+    """"TK: BUY entry=E, TP=T, SL=S (Strategy #n, conf=x)." và mọi biến thể
+    ("- TK BUY entry=E · TP=T · SL=S (~N cp, rủi ro x% NAV).") → "TK: MUA vùng
+    E · chốt lời T · cắt lỗ S [· KL gợi ý ~N cp (rủi ro x% NAV)] [— lý do]";
+    nhãn "(Strategy #n, conf …)" bị bỏ ở mọi dòng. No-op khi không có gì;
+    idempotent."""
+    if not text:
         return text
     out, changed = [], False
     for ln in text.splitlines():
         m = _REC_RAW_LINE_RE.match(ln)
         if m:
-            ln = (f"{m.group('lead')}{m.group('tk')}: MUA vùng {m.group('entry')} · "
-                  f"chốt lời {m.group('tp')} · cắt lỗ {m.group('sl')}")
+            ln = _rec_line_vi(m)
+            changed = True
+        elif _STRATEGY_TAG_RE.search(ln):
+            ln = _STRATEGY_TAG_RE.sub("", ln)
             changed = True
         out.append(ln)
     if not changed:

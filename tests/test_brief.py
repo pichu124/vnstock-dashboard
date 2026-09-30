@@ -3695,3 +3695,39 @@ def test_enforce_rec_line_format_rewrites_raw_data_lines():
     assert enforce_rec_line_format(f, {}) == f
     clean = "- GMD: MUA vùng 77.6 · chốt lời 82.2 · cắt lỗ 75.1"
     assert enforce_rec_line_format(clean, {}) is clean
+
+
+def test_enforce_rec_line_format_catches_claude_variant_from_telegram_290():
+    """Tin 290 (30/09, Claude Code đường B): dòng data chép gần nguyên văn với
+    "·" thay dấu phẩy, không dấu hai chấm, đuôi KL gợi ý (số CÓ trong data —
+    giữ), câu dẫn mang "(Strategy #69, conf 0.50–0.60)" — bản guard đầu trượt
+    cả ba dòng."""
+    import vnstock_brief as vb
+    raw = (
+        "💡 Đề xuất giao dịch\n"
+        "Từ chiến lược đã kiểm định (Strategy #69, conf 0.50–0.60) — lưu ý bias ngày GIẢM, "
+        "ưu tiên chờ xác nhận trước khi vào:\n"
+        "- MSN BUY entry=68.7 · TP=74.6 · SL=65.6 (~1,400 cp, rủi ro 1% NAV).\n"
+        "- HDB BUY entry=27.4 · TP=29.4 · SL=26.4 (~4,500 cp).\n"
+        "- GVR BUY entry=32.0 · TP=35.8 · SL=30.1 (~2,400 cp).\n"
+    )
+    out = vb.enforce_rec_line_format(raw, {})
+    assert out == (
+        "💡 Đề xuất giao dịch\n"
+        "Từ chiến lược đã kiểm định — lưu ý bias ngày GIẢM, "
+        "ưu tiên chờ xác nhận trước khi vào:\n"
+        "- MSN: MUA vùng 68.7 · chốt lời 74.6 · cắt lỗ 65.6 · KL gợi ý ~1,400 cp (rủi ro 1% NAV)\n"
+        "- HDB: MUA vùng 27.4 · chốt lời 29.4 · cắt lỗ 26.4 · KL gợi ý ~4,500 cp\n"
+        "- GVR: MUA vùng 32.0 · chốt lời 35.8 · cắt lỗ 30.1 · KL gợi ý ~2,400 cp\n"
+    )
+    assert vb.enforce_rec_line_format(out, {}) == out            # idempotent
+    # dạng data THÔ nguyên văn (nhãn tầng + KL gợi ý + lý do) và dạng cũ có dấu phẩy
+    raw2 = ("- VNM BUY [vị thế ~20 phiên] entry=60.0 TP=66.0 SL=57.0 · KL gợi ý ~2,000 cp "
+            "(rủi ro 1% NAV) — vượt MA50 kèm thanh khoản\n"
+            "HPG: BUY entry=27.5, TP=30.0, SL=26.0 (Strategy #12, conf=0.55).\n")
+    assert vb.enforce_rec_line_format(raw2, {}) == (
+        "- VNM [vị thế ~20 phiên]: MUA vùng 60.0 · chốt lời 66.0 · cắt lỗ 57.0 · "
+        "KL gợi ý ~2,000 cp (rủi ro 1% NAV) — vượt MA50 kèm thanh khoản\n"
+        "HPG: MUA vùng 27.5 · chốt lời 30.0 · cắt lỗ 26.0\n")
+    # apply_brief_guards vẫn nối guard này (lưới "guard quên nối")
+    assert "MSN: MUA vùng 68.7" in vb.apply_brief_guards(raw, {"date": "2026-09-29"})

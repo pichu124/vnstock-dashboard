@@ -89,7 +89,7 @@ from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
     _wl_price,
     _watchlist_levels_ok,
     enforce_watchlist_levels,
-    _REC_RAW_LINE_RE,
+    _REC_RAW_LINE_RE, _REC_QTY_RE, _STRATEGY_TAG_RE, _STRATEGY_BARE_RE, _rec_line_vi,
     enforce_rec_line_format,
 )
 
