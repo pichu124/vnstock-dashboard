@@ -161,6 +161,11 @@ from vnstock_brief_guards_text import (  # noqa: F401  (re-export)
 
 _VNI_MAGNITUDE_RE = _re.compile(r"\b([12][.,]?\d{3}(?:[.,]\d{1,2})?)\b")
 
+# News headlines carry ISO dates like [2026-10-01]; the year (2026) lands in
+# VNINDEX magnitude range and false-flags as a hallucinated index. Strip dates
+# before scanning for numbers.
+_ISO_DATE_RE = _re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+
 _VNI_CONTEXT_RE = _re.compile(r"VN[\s\-]?INDEX|VN-?I(?![A-Z])|VNI(?![A-Z])", _re.IGNORECASE)
 
 def validate_brief_factuality(text: str, ctx: dict) -> list[str]:
@@ -183,8 +188,9 @@ def validate_brief_factuality(text: str, ctx: dict) -> list[str]:
         if any(_VNI_CONTEXT_RE.search(line) for line in text.splitlines()):
             for line in text.splitlines():
                 if _VNI_CONTEXT_RE.search(line):
+                    scan = _ISO_DATE_RE.sub(" ", line)
                     nums = [_parse_vn_number(m.group(1))
-                            for m in _VNI_MAGNITUDE_RE.finditer(line)]
+                            for m in _VNI_MAGNITUDE_RE.finditer(scan)]
                     nums = [n for n in nums if n and 800 <= n <= 2500]
                     if nums:
                         return [
@@ -200,7 +206,8 @@ def validate_brief_factuality(text: str, ctx: dict) -> list[str]:
     for line in text.splitlines():
         if not _VNI_CONTEXT_RE.search(line):
             continue
-        for m in _VNI_MAGNITUDE_RE.finditer(line):
+        scan = _ISO_DATE_RE.sub(" ", line)
+        for m in _VNI_MAGNITUDE_RE.finditer(scan):
             n = _parse_vn_number(m.group(1))
             if n is None or n in seen:
                 continue
