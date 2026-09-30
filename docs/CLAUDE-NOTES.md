@@ -6966,6 +6966,94 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🧪 U62. THẨM ĐỊNH ENGINE CLAUDE (3 THIẾT KẾ × 3 GIÁM KHẢO) — A LÀ ĐƯỜNG CHÍNH, 9 LỖ HỔNG ĐÃ VÁ, BACKEND DÙNG CHUNG CHO 5 BƯỚC (30/09 trưa)
+
+**Cách làm:** workflow 10 agent — 3 reader (đường brief, 8 điểm gọi LLM, ràng
+buộc vận hành + cờ CLI) → 3 thiết kế độc lập (A CLI headless trong pipeline ·
+B Routine cloud với gói đi qua git · C ClaudeAgent API qua SDK) → 3 giám khảo
+(vận hành 2 máy Dropbox · chất lượng + parity · chi phí/bảo trì) → tổng hợp.
+Điểm: **A 8/7/8 · C 7/8/6 · B 3/4/3.** B loại vì ba lý do KHÔNG chữa được
+bằng code: cloud không gọi được `api.telegram.org` (403 chính sách mạng), kho
+không lên cloud, và cửa `_should_push_close` chặn fallback sau nửa đêm ⇒ đêm
+muộn mất brief mà badge vẫn xanh. C giữ làm pha tuỳ chọn khi user chịu trả
+API. User sau đó chốt: **muốn cả 5 bước LLM dùng Claude, tự động hoàn toàn**
+⇒ A cho brief + backend dùng chung cho 4 bước còn lại (#26).
+
+## 1. Chín lỗ hổng giám khảo tìm ra trong bản A đầu (9aec563) — đã vá cùng trưa
+1. **stdout không phải JSON được nhận làm brief** (`parse_cli_output` cũ trả
+   `raw, None`): đường DUY NHẤT trong cả ba thiết kế mà chữ SAI (banner tự cập
+   nhật, cảnh báo) có thể lên Telegram. Nay là LỖI ⇒ ladder.
+2. **Engine chọn TRƯỚC khi ai load `.env`**: `run.py brief`/`telegram close`
+   đứng một mình đọc `VNSTOCK_BRIEF_ENGINE` từ os.environ trống ⇒ bước 3 mục 8
+   bản cũ âm thầm gửi ladder. `vnstock_claude_cli.engine_for` load `.env`
+   (idempotent, override=False) trước khi đọc.
+3. **Set trong ctx chết qua JSON**: `write_json_atomic(default=str)` biến
+   `financial_tickers`/`realestate_tickers`/`mover_universe` thành chuỗi repr,
+   guard so từng KÝ TỰ ở đường `--from-file`. Pack **v2**: ghi list đã sort +
+   `ctx_set_keys`, `read_pack` trả set; ctx trong bộ nhớ (đường đêm) KHÔNG đụng
+   — guard thấy y hệt `generate_brief`. Pack v1 bị từ chối rõ lời.
+4. **Prompt một-dòng-40K trong JSON**: tool Read của skill cắt dòng dài ⇒
+   Claude viết từ prompt cụt mà không ai biết. `write_pack` ghi thêm
+   `_meta/brief_prompt.md` nhiều dòng; skill đọc file đó.
+5. **Không có exe thì sổ không ghi** ⇒ `--show` đếm thiếu đêm rơi ladder. Nay
+   `complete()` ghi sổ MỌI kết cục.
+6. **Telegram lỗi sau khi Claude viết xong** ⇒ chạy lại tốn call Opus thứ hai +
+   trùng dòng memory. Bản SAU guard ghi `_meta/brief_claude.md` TRƯỚC khi đẩy;
+   gửi lại bằng `--from-file`. Chữ THÔ ghi `brief_claude_raw.md` để soi guard.
+7. **Không ai biết vì sao rơi về ladder** (`run_daily.log` theo máy, marker chỉ
+   có `engine`): marker nay `{close, engine, agent, machine, claude_error}`;
+   badge doctor `brief_engine` (`brief_engine_verdict` thuần): cấu hình ladder
+   → ok; claude + marker claude → ok "do <agent>"; claude + marker ladder →
+   warn kèm lý do + lệnh chữa; sổ ClaudeCode 3 ngày liền toàn lỗi → error.
+8. **Footer chỉ ghi engine khi là Claude**: nay `_brief_snippet` ghi
+   `LAST_BRIEF_AGENT` (kèm `(fallback: model)` bóc từ dòng đầu `_(fallback:
+   …)_` — dòng đó không lên Telegram nữa) ⇒ MỌI brief có `🤖 <agent>`.
+   `**đậm**` → `<b>` theo dòng (qua whitelist `_sanitize_html`).
+9. **Dashboard ⚙️ khoá checkbox Claude** dù có key: `ClaudeAgent` thiếu
+   `_ENV_KEY` — thêm một dòng.
+Thêm: timeout 900 → **600** (máy còn đăng ký trần 180′ tới khi chạy lại
+script; brief từng bắt đầu ở phút 168); `--fallback-model claude-sonnet-5-5`
+trong CLI (model thật đọc từ `modelUsage`, nhãn/sổ/footer theo model THẬT,
+log `↘ fallback`); `DISABLE_AUTOUPDATER=1` cho tiến trình CLI (binary không
+được đổi giữa đêm); `--check` (exe/version/`auth status`/probe 1 chữ bằng ĐÚNG
+cờ đêm) để user go/no-go dưới tài khoản task.
+
+## 2. Đo trên CLI 2.1.285 (sandbox, OAuth)
+- Không tước context: probe "OK" tốn `cache_creation_input_tokens` **20.346**
+  (system prompt Claude Code + CLAUDE.md + 28 skill + MCP), $0,164 quy đổi.
+- `--system-prompt <preface> --setting-sources "" --disable-slash-commands
+  --strict-mcp-config --tools ""`: **1.636** token, $0,015. Mỗi brief ≈ 13K vào
+  ⇒ ~$0,06 quy đổi; thuê bao không trừ tiền.
+- `--json-schema '{…}'` → JSON có thêm `structured_output` (dict) và `result`
+  (chuỗi JSON), `num_turns: 2`, `stop_reason: tool_use` — parser đọc cả hai.
+- `--max-turns` KHÔNG có trong `--help` (đã bỏ); `--permission-prompts none`,
+  `--fallback-model`, `--effort` có.
+
+## 3. Backend dùng chung cho 5 bước — `vnstock_claude_cli`
+`complete(user, *, system, model, fallback_model, timeout_s, json_schema,
+effort, exe, tag) -> (text, err, info)`; `engine_for(step)`: env riêng bước >
+`VNSTOCK_LLM_ENGINE` > ladder; `cli_check()`; `outcome_line(tag, …)`.
+`vnstock_brief_pack.run_claude_cli` chỉ còn là wrapper (preface làm system,
+tag "brief"). Lưới slug: `_all_live_slugs` có cả model chính + fallback;
+`_ladder_slugs` (model watch) KHÔNG probe được CLI (chỉ OpenAI-compat) —
+tín hiệu sức khoẻ = dòng sổ `ClaudeCode` + badge doctor, chấp nhận.
+Kế hoạch #26 (map code đang chạy, nối sau): nấc `("claude-cli", …)` TRƯỚC
+`_call_claude` trong `report_digest.digest_call` (reflection ≤3 call/đêm,
+debate/tháng, FreeAuditorAgent, digest ≤10/lượt) gated `VNSTOCK_DIGEST_ENGINE`
+/`VNSTOCK_REFLECTION_ENGINE`; auditor agent CLI; sentiment + chấm tin gom LÔ
+một call/đêm với `--json-schema` (từng call/tin qua CLI = spawn ×N, không hợp);
+strategy loop lead agent. Mỗi nấc: lỗi ⇒ ladder như cũ, sổ `ClaudeCode`.
+
+## 4. Test
+`tests/test_claude_cli.py` (15, whitelist): engine precedence, model/fallback/
+timeout env, giấu key + autoupdater, exe env-không-rơi-PATH, cờ tước context,
+json-schema/effort/repo_context, parse (cache token, model thật, non-JSON =
+lỗi, structured), complete (stdin nguyên văn, system flag, fallback, sổ mọi kết
+cục, timeout, rc≠0), outcome_line, cli_check. `tests/test_brief_pack.py` sửa
++ thêm (set round-trip, v1 từ chối, raw/final, review/rate, skill review).
+`tests/test_run_pipeline.py` +4, `tests/test_telegram.py` +2,
+`tests/test_doctor.py` +2. Fast **2.719 passed / 46,5s** (sandbox).
+
 # 🤖 U61. BRIEF CHIỀU BẰNG CLAUDE — ENGINE NGOÀI LADDER, LÕI DÙNG CHUNG BA ĐƯỜNG (30/09 sáng)
 
 **Đề bài (user 30/09 sáng, 💻 laptop):** "chất lượng brief cũng như các tác vụ

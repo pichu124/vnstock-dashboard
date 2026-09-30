@@ -460,6 +460,7 @@ def _skip_dead_account(prefix: str, why: str) -> tuple[str, str]:
 class ClaudeAgent(BriefAgent):
     """Anthropic Messages API."""
     agent_type = "claude"
+    _ENV_KEY = "ANTHROPIC_API_KEY"   # dashboard ⚙️ đọc để hiện "key OK"/bật checkbox
     _ENDPOINT = "https://api.anthropic.com/v1/messages"
 
     def __init__(self, model: str = "claude-haiku-4-5-20251001",

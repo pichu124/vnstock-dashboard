@@ -210,20 +210,44 @@ def _regime_block() -> str:
         return f"⚖️ Regime: lỗi ({e})"
 
 
+# Agent/model đã viết bản brief vừa chọn ở `_brief_snippet` (ladder) — footer
+# Telegram in `🤖 <agent>` cho MỌI bản, không chỉ bản Claude (giám khảo 30/09:
+# người đọc phải biết ai viết, kể cả đêm rơi về ladder).
+LAST_BRIEF_AGENT: "str | None" = None
+_FALLBACK_PREFIX_RE = re.compile(r"^_\(fallback:\s*([^)]+)\)_$")
+_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+
+
+def _fallback_model_of(text: str) -> "str | None":
+    """Model dự phòng nếu agent OpenAI-compat gắn dòng đầu `_(fallback: m)_`."""
+    for ln in (text or "").splitlines():
+        if ln.strip():
+            m = _FALLBACK_PREFIX_RE.match(ln.strip())
+            return m.group(1).strip() if m else None
+    return None
+
+
 def _snippet_from_text(text: str) -> str:
-    """Thân brief → khối Telegram: bỏ dấu `#` tiêu đề markdown và dòng `---`,
-    giữ mọi dòng có chữ. Dùng CHUNG cho bản ladder (`_brief_snippet`) và bản
-    engine ngoài (`push_close_brief(ai_block=…)`, 30/09) — một luật dọn."""
-    lines = [
-        ln.lstrip("#").strip()
-        for ln in text.splitlines()
-        if ln.strip() and not ln.strip().startswith("---")
-    ]
-    return "\n".join(lines)
+    """Thân brief → khối Telegram: bỏ dấu `#` tiêu đề markdown, dòng `---` và
+    dòng `_(fallback: …)_` (chuyển sang footer), `**đậm**` → `<b>đậm</b>`
+    (qua được whitelist `_sanitize_html`; theo từng dòng nên
+    `_split_for_telegram` không cắt giữa tag). Dùng CHUNG cho bản ladder
+    (`_brief_snippet`) và bản engine ngoài (`push_close_brief(ai_block=…)`,
+    30/09) — một luật dọn."""
+    out: list[str] = []
+    for ln in (text or "").splitlines():
+        s = ln.strip()
+        if not s or s.startswith("---") or _FALLBACK_PREFIX_RE.match(s):
+            continue
+        s = ln.lstrip("#").strip()
+        out.append(_BOLD_RE.sub(r"<b>\1</b>", s))
+    return "\n".join(out)
 
 
 def _brief_snippet(brief_type: str) -> str:
     """Return first meaningful paragraph (~350 chars) from the best agent brief."""
+    global LAST_BRIEF_AGENT
+    LAST_BRIEF_AGENT = None
     try:
         from vnstock_brief import generate_brief
         results = generate_brief(brief_type=brief_type, force=True)
@@ -233,6 +257,8 @@ def _brief_snippet(brief_type: str) -> str:
             text, err = val
             if not text or err:
                 continue
+            fb = _fallback_model_of(text)
+            LAST_BRIEF_AGENT = f"{key} (fallback: {fb})" if fb else key
             return _snippet_from_text(text)
         # Check sentinel keys (timing / no-agent / no-available)
         for _sentinel in ("_timing", "_no_agent", "_no_available"):
@@ -504,6 +530,7 @@ def push_close_brief(ai_block: "str | None" = None,
     # Load .env up front so agent API keys are in os.environ before
     # _brief_snippet() checks agent availability (it runs before
     # send_message(), which is otherwise the first thing to load .env).
+    global LAST_BRIEF_AGENT
     _load_env()
     closed_blk  = _closed_today_block()
 
@@ -512,8 +539,11 @@ def push_close_brief(ai_block: "str | None" = None,
     # generate_brief bên trong snippet mới là bước refresh news/overview →
     # header in composite CŨ (-60) còn thân brief ghim theo ctx MỚI (-51).
     # Header dựng SAU snippet = cùng nền cache; vnindex/regime hưởng ké).
+    LAST_BRIEF_AGENT = None
     ai_blk = (_snippet_from_text(ai_block) if ai_block
               else _brief_snippet("afternoon"))
+    if not ai_block and not engine:
+        engine = LAST_BRIEF_AGENT          # footer nói agent ladder nào viết
 
     blocks = [
         _brief_header("📉", "VNStock Close Brief"),

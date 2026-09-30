@@ -99,7 +99,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   lần**, KHÔNG phải ⇄ CẢ HAI (sửa 19/08).
 
 ## Test discipline
-- Sửa module lõi nào → `python run.py test --fast` (~2.689 test; ~45s trên CI,
+- Sửa module lõi nào → `python run.py test --fast` (~2.719 test; ~45s trên CI,
   86s máy thật 15/09 tối). Danh sách file `--fast` là WHITELIST trong `run.py` —
   thêm file test mới thì phải ghi vào đó, không thì `--fast` không chạy nó.
 - Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, ~3.235 test — pipeline 29/09 chạy full 3.235 passed / 134s).
@@ -138,21 +138,25 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   OpenRouter `_OUTPUT_HEADROOM` 5.200 (nemotron cụt brief ở 2.800). Cụt vẫn
   ghi usage vào sổ ⇒ `llm_ledger --show` in "lần lỗi cuối tốn: vào · ra ·
   suy nghĩ" — đọc số đó trước khi nới trần hay đổi model.
-- `vnstock_brief_pack.py` — **engine CLAUDE cho brief chiều** (30/09, U61): tách
-  hai mặt cắt `build_pack` (ctx+prompt → `_meta/brief_pack.json`, cùng đường
-  refresh của `generate_brief`) và `finalize_brief` (chữ → 55 guard → validate
-  → memory `agent_type=claude` → brief_watch); `run_claude_cli` gọi Claude Code
-  headless (`claude -p`, prompt qua STDIN vì Windows trần 32K ký tự dòng lệnh,
-  `--output-format json`, sổ LLM provider `ClaudeCode`). `run.py brief` chọn
-  engine: `--engine` > `VNSTOCK_BRIEF_ENGINE` (.env của MÁY chạy pipeline,
-  không đồng bộ) > ladder. Đường Claude hỏng ở BẤT KỲ khâu (không có CLI,
-  timeout 900s, trắng, guard dọn sạch) ⇒ **rơi về ladder** — brief luôn đi;
-  log `[brief] ⏱ claude-cli: Ns · ✅/❌` + `↩ rơi về ladder`; marker
-  `brief_push.json` thêm `engine`; footer Telegram `🤖 Claude Code · opus-5-5`.
-  Đường TAY: `run.py brief --export-pack` → skill `/brief-close` viết
-  `_meta/brief_claude.md` → `run.py brief --from-file <md>` (gói phải CÙNG
-  phiên). CLI bị GIẤU `ANTHROPIC_API_KEY` (dùng đăng nhập thuê bao, không âm
-  thầm tính tiền API) trừ `VNSTOCK_BRIEF_CLI_API_KEY=1`.
+- `vnstock_claude_cli.py` + `vnstock_brief_pack.py` — **engine CLAUDE** (30/09,
+  U61/U62). `vnstock_claude_cli.complete(user, system=, json_schema=)` = MỘT
+  lượt Claude Code headless (`claude -p`, prompt qua STDIN, `--output-format
+  json`, `--tools ""`, tước context repo `--setting-sources "" --disable-
+  slash-commands --strict-mcp-config` (20K → ~1,6K token system), `--fallback-
+  model` Sonnet, sổ LLM provider `ClaudeCode` ghi MỌI kết cục, stdout không
+  JSON = LỖI). Công tắc: `VNSTOCK_LLM_ENGINE=claude` cho mọi bước, đè riêng
+  `VNSTOCK_<BRIEF|NEWS|AUDIT|TRAIN|REFLECTION|DIGEST>_ENGINE`; đọc `.env` TRƯỚC
+  khi chọn. Brief: `build_pack` (ctx+prompt, `_meta/brief_pack.json` v2 +
+  `brief_prompt.md`) → CLI → `finalize_brief` (55 guard → validate → memory
+  `agent_type=claude` → brief_watch) → `push_close_brief(ai_block, engine)`;
+  raw/final ghi `_meta/brief_claude_raw.md` / `brief_claude.md` (Telegram lỗi
+  ⇒ `run.py brief --from-file` gửi lại không tốn call). Hỏng khâu nào ⇒ **rơi
+  về ladder** + marker `brief_push.json{engine, agent, machine, claude_error}`
+  + badge doctor `brief_engine` (đỏ khi hỏng ≥3 ngày). Lệnh:
+  `run.py brief --engine|--export-pack|--from-file`, `telegram close --engine
+  claude --force` (A/B), `python vnstock_brief_pack.py --check|--review|--rate`,
+  skill `/brief-close` (tay) và `/brief-review` (sáng hôm sau, chấm sao →
+  few-shot). CLI bị GIẤU `ANTHROPIC_API_KEY` trừ `VNSTOCK_CLAUDE_CLI_API_KEY=1`.
 - `vnstock_corp_ratio` — đọc TỈ LỆ QUYỀN từ tiêu đề sự kiện (hàm thuần).
   `adjusts_price(title)` lọc sự kiện chỉ chốt danh sách DỰ HỌP (ĐHĐCĐ, lấy ý
   kiến bằng văn bản) — chúng KHÔNG đổi giá tham chiếu, gắn ⚠️ GDKHQ cho chúng
@@ -228,8 +232,9 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   (`VNSTOCK_BRIEF_AUTO_*`, `VNSTOCK_MACRO_*`, `VNSTOCK_BASIS_GUARD`,
   `VNSTOCK_OHLC_REPAIR`, `VNSTOCK_AUTOHEAL_BUDGET_S`, `VNSTOCK_VN30_DYNAMIC`,
   `VNSTOCK_WSS_HOT_TIER`, `VNSTOCK_BRIEF_WATCH`,
-  `VNSTOCK_FIXUNITS_FOOTER_PRUNE`, `VNSTOCK_NETBS_WORKERS`, `VNSTOCK_BRIEF_ENGINE`
-  + `VNSTOCK_BRIEF_CLI_{MODEL,TIMEOUT_S,EXE,API_KEY}`, `VNSTOCK_LLM_BREAKER`
+  `VNSTOCK_FIXUNITS_FOOTER_PRUNE`, `VNSTOCK_NETBS_WORKERS`, `VNSTOCK_LLM_ENGINE`
+  + `VNSTOCK_<BƯỚC>_ENGINE` + `VNSTOCK_CLAUDE_CLI_{EXE,MODEL,FALLBACK_MODEL,
+  TIMEOUT_S,API_KEY,REPO_CONTEXT}`, `VNSTOCK_LLM_BREAKER`
   — cầu dao tài khoản LLM: provider 401/402/403 hôm nay + chưa call nào OK ⇒
   mọi điểm gọi bỏ nấc đó trong ngày; 429/5xx KHÔNG chặn).
 - Nghi ngờ CHƯA đủ căn cứ để vá → **đừng ghi vào notes, hãy ĐẾM**:

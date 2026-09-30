@@ -462,6 +462,101 @@ def check_pipeline_reach() -> dict:
                                   brief_enabled=flag not in _OFF_VALUES, host=host)
 
 
+# ── Engine brief (Claude Code CLI thuê bao) — 30/09, U62 ────────────────────
+_ENGINE_ENVS = ("VNSTOCK_BRIEF_ENGINE", "VNSTOCK_LLM_ENGINE")
+
+
+def _engine_setting() -> str:
+    """Engine brief theo cấu hình MÁY NÀY: os.environ rồi `.env` (cùng cách
+    đọc với `check_kill_switches` — .env là nơi cờ sống dai). "" = chưa đặt."""
+    for k in _ENGINE_ENVS:
+        v = os.environ.get(k)
+        if v is not None and v.strip():
+            return v.strip().lower()
+    env_file = _REPO / ".env"
+    found: dict = {}
+    if env_file.exists():
+        try:
+            for line in env_file.read_text(encoding="utf-8", errors="replace").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, _, v = line.partition("=")
+                k = k.strip()
+                if k in _ENGINE_ENVS:
+                    found.setdefault(k, v.strip().strip('"\''))
+        except OSError:
+            pass
+    for k in _ENGINE_ENVS:
+        if found.get(k):
+            return found[k].lower()
+    return ""
+
+
+def brief_engine_verdict(marker, configured: str, ledger_days: list,
+                         today=None) -> dict:
+    """Hàm thuần. `marker` = brief_push.json (dict/None); `configured` =
+    "claude"/"ladder"/""; `ledger_days` = [{"ok": n, "fail": m}, …] các dòng
+    ClaudeCode của 3 ngày gần nhất (mới → cũ), thiếu ngày thì bỏ.
+    Không bao giờ đỏ vì brief không đi — brief vẫn đi bằng ladder; đỏ khi
+    Claude hỏng LIÊN TIẾP ≥3 ngày mà cấu hình vẫn claude (user đi vắng)."""
+    name = "Engine brief (Claude Code)"
+    key = "brief_engine"
+    if configured != "claude":
+        return _result(key, name, "ok",
+                       "ladder agent free (VNSTOCK_BRIEF_ENGINE/LLM_ENGINE chưa "
+                       "đặt claude) — đường A chưa bật", "")
+    mk = marker if isinstance(marker, dict) else {}
+    engine = str(mk.get("engine") or "")
+    agent = mk.get("agent") or "?"
+    close = mk.get("close") or "?"
+    dead_days = [d for d in ledger_days if isinstance(d, dict)
+                 and int(d.get("fail", 0)) > 0 and int(d.get("ok", 0)) == 0]
+    fix = ("python vnstock_brief_pack.py --check (🖥️ DESKTOP, dưới tài khoản chạy "
+           "task) — exe/đăng nhập/probe; sửa VNSTOCK_CLAUDE_CLI_EXE hoặc `claude` → /login")
+    if engine in ("claude", "claude-file"):
+        return _result(key, name, "ok",
+                       f"brief phiên {close} do {agent} ({engine})", "")
+    if engine == "ladder":
+        why = mk.get("claude_error") or "không rõ lý do (marker cũ, chưa có claude_error)"
+        if len(dead_days) >= 3:
+            return _result(key, name, "error",
+                           f"Claude hỏng {len(dead_days)} ngày liền, brief phiên {close} "
+                           f"rơi về ladder ({agent}): {why}", fix)
+        return _result(key, name, "warn",
+                       f"brief phiên {close} rơi về ladder ({agent}): {why}", fix)
+    return _result(key, name, "ok",
+                   "cấu hình claude, chưa có brief nào đi qua engine mới "
+                   "(marker chưa có `engine`) — xem lại sau phát tối", "")
+
+
+def check_brief_engine() -> dict:
+    """Đọc marker + cấu hình + sổ ClaudeCode 3 ngày rồi giao cho verdict."""
+    try:
+        marker = json.loads((_META / "brief_push.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        marker = None
+    days: list = []
+    try:
+        from datetime import timedelta as _td
+        from vnstock_llm_ledger import summary
+        for back in range(3):
+            d = (date.today() - _td(days=back)).isoformat()
+            s = summary(d)
+            if not s or s.get("day") != d:
+                continue
+            agg = {"ok": 0, "fail": 0}
+            for k, row in (s.get("providers") or {}).items():
+                if str(k).startswith("ClaudeCode:"):
+                    agg["ok"] += int(row.get("ok", 0))
+                    agg["fail"] += int(row.get("fail", 0))
+            if agg["ok"] or agg["fail"]:
+                days.append(agg)
+    except Exception:
+        days = []
+    return brief_engine_verdict(marker, _engine_setting(), days)
+
+
 def check_warehouse() -> dict:
     """Kho giá EOD: bar VNINDEX cuối cùng, dung sai 2 PHIÊN.
 
@@ -1418,7 +1513,7 @@ OFFLINE_CHECKS = [
     check_autoheal_yield,
     check_brief_watch,
     check_exdiv_source,
-    check_pipeline_reach,
+    check_pipeline_reach, check_brief_engine,
     check_warehouse, check_market_overview, check_gtgd_coverage,
     check_fundamentals, check_macro,
     check_pdf_tooling, check_market_news, check_ticker_news,

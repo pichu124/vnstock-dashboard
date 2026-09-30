@@ -6,74 +6,65 @@ thân brief (ctx, prompt, 55 guard, memory, sổ LLM, khung Telegram, marker
 một-brief-mỗi-phiên) vẫn là code cũ. Module này chỉ tách ĐÚNG HAI mặt cắt:
 
     build_pack()      ctx + prompt  ──►  JSON (kho `_meta/brief_pack.json`)
+                                        + `_meta/brief_prompt.md` (prompt
+                                        nhiều dòng cho skill /brief-close)
     finalize_brief()  thân brief (chữ) ──►  guards → validate → memory
-    run_claude_cli()  gói ──► `claude -p` (Claude Code headless) ──► chữ
+    run_claude_cli()  prompt ──► `vnstock_claude_cli.complete` ──► chữ
 
 Ba đường dùng CÙNG lõi:
-  • pipeline đêm (`run.py brief`, VNSTOCK_BRIEF_ENGINE=claude): build_pack →
-    run_claude_cli → finalize_brief → push_close_brief(ai_block=…). Lỗi bất
-    kỳ (không có CLI, timeout, trắng) ⇒ rơi về ladder như cũ — brief LUÔN đi.
+  • pipeline đêm (`run.py brief`, VNSTOCK_BRIEF_ENGINE=claude hoặc công tắc
+    chung VNSTOCK_LLM_ENGINE=claude): build_pack → run_claude_cli →
+    finalize_brief → push_close_brief(ai_block=…). Lỗi bất kỳ (không có CLI,
+    timeout, trắng) ⇒ rơi về ladder như cũ — brief LUÔN đi.
   • tay/laptop: `run.py brief --export-pack` rồi skill `/brief-close` viết
     `_meta/brief_claude.md` rồi `run.py brief --from-file <md>`.
-  • Routine cloud (sau): pack đi qua git, chữ về qua cùng `--from-file`.
+  • gửi lại không tốn call: bản SAU guard được ghi `_meta/brief_claude.md`
+    trước khi đẩy Telegram — Telegram lỗi thì `--from-file` gửi lại.
 
-Kill-switch / nút vặn (nếp repo VNSTOCK_*):
-  VNSTOCK_BRIEF_ENGINE        ladder (mặc định) | claude
-  VNSTOCK_BRIEF_CLI_MODEL     slug model cho `claude --model` (mặc định Opus)
-  VNSTOCK_BRIEF_CLI_TIMEOUT_S trần chờ CLI (mặc định 900s — trần task 240′
-                              còn dư, nhưng bước brief không được ăn hết)
-  VNSTOCK_BRIEF_CLI_EXE       đường dẫn `claude` khi không có trên PATH
-  VNSTOCK_BRIEF_CLI_API_KEY   =1 mới cho CLI thấy ANTHROPIC_API_KEY (mặc
-                              định GIẤU để CLI dùng đăng nhập thuê bao, không
-                              âm thầm tính tiền API)
+Cờ CLI, sổ, giấu key, timeout: ở `vnstock_claude_cli` (một bản cho mọi bước).
+Nút vặn riêng brief: VNSTOCK_BRIEF_ENGINE, VNSTOCK_BRIEF_CLI_MODEL,
+VNSTOCK_BRIEF_CLI_TIMEOUT_S (trống = theo VNSTOCK_CLAUDE_CLI_*).
 """
 from __future__ import annotations
 
 import json
 import os
-import shutil
-import subprocess
-import time
+import threading
 from datetime import datetime
 from pathlib import Path
 
+import vnstock_claude_cli as vcc
+
 _REPO = Path(__file__).resolve().parent
 
-PACK_VERSION = 1
+PACK_VERSION = 2            # v2 (30/09): set trong ctx ghi list + `ctx_set_keys`
 PACK_NAME = "brief_pack.json"
+PROMPT_NAME = "brief_prompt.md"
+RAW_NAME = "brief_claude_raw.md"
 OUT_NAME = "brief_claude.md"
 
-ENGINE_ENV = "VNSTOCK_BRIEF_ENGINE"
-ENGINE_LADDER = "ladder"
-ENGINE_CLAUDE = "claude"
-ENGINES = (ENGINE_LADDER, ENGINE_CLAUDE)
+ENGINE_ENV = vcc.STEP_ENGINE_ENV["brief"]
+ENGINE_LADDER = vcc.ENGINE_LADDER
+ENGINE_CLAUDE = vcc.ENGINE_CLAUDE
+ENGINES = vcc.ENGINES
 
-DEFAULT_CLI_MODEL = "claude-opus-5-5"
-DEFAULT_CLI_TIMEOUT_S = 900
-# `--tools ""` = tắt MỌI công cụ (CLI 2.1.285 --help: 'Use "" to disable all
-# tools') ⇒ đúng một lượt trả lời chữ, không đọc file, không hỏi quyền;
-# `--no-session-persistence` = không ghi session ra đĩa mỗi đêm. Đã chạy
-# thử 30/09: stdin → JSON {type:result, subtype:success, is_error, result,
-# num_turns:1, usage{input, cache_creation_input, cache_read_input, output},
-# total_cost_usd, duration_ms}.
-_CLI_EXTRA_ARGS = ("--tools", "", "--no-session-persistence")
-LEDGER_PROVIDER = "ClaudeCode"  # sổ LLM: tách khỏi "Anthropic" (API trả phí)
+DEFAULT_CLI_MODEL = vcc.DEFAULT_MODEL
+DEFAULT_CLI_FALLBACK_MODEL = vcc.DEFAULT_FALLBACK_MODEL
+DEFAULT_CLI_TIMEOUT_S = vcc.DEFAULT_TIMEOUT_S
+LEDGER_PROVIDER = vcc.LEDGER_PROVIDER
 AGENT_TYPE = "claude"           # memory/dashboard: cùng type với ClaudeAgent
 
-# Lời dặn đặt TRƯỚC prompt khi chạy headless — prompt trong pack viết cho
-# model yếu (nhiều "TUYỆT ĐỐI KHÔNG"), Claude chỉ cần biết vai + luật trả lời.
+# System prompt cho lượt headless (qua `--system-prompt`, thay hẳn system
+# prompt ~20K token của Claude Code). Prompt trong pack viết cho model yếu
+# (nhiều "TUYỆT ĐỐI KHÔNG"), Claude chỉ cần biết vai + luật trả lời.
 CLI_PREFACE = (
-    "Bạn là engine viết brief chiều cho VNStock Dashboard. Dưới đây là toàn bộ "
-    "dữ liệu phiên và hướng dẫn định dạng. Viết brief bằng tiếng Việt, đúng "
-    "các mục và thứ tự mà hướng dẫn yêu cầu, số theo format EN ({:,.2f}). "
+    "Bạn là engine viết brief chiều cho VNStock Dashboard. Nội dung nhận vào là "
+    "toàn bộ dữ liệu phiên và hướng dẫn định dạng. Viết brief bằng tiếng Việt, "
+    "đúng các mục và thứ tự mà hướng dẫn yêu cầu, số theo format EN ({:,.2f}). "
     "Chỉ dùng số có trong dữ liệu; thiếu thì nói thiếu, không suy đoán. "
-    "KHÔNG dùng công cụ, KHÔNG đọc file, KHÔNG hỏi lại — trả lời THẲNG bằng "
-    "thân brief, không lời dẫn, không đóng khung code.\n\n"
-    "════════ DỮ LIỆU + HƯỚNG DẪN ════════\n"
+    "Trả lời THẲNG bằng thân brief: không lời dẫn, không đóng khung code."
 )
-CLI_TASK_LINE = "Viết brief chiều theo dữ liệu và hướng dẫn nhận vào từ stdin."
-
-_OFF = ("0", "false", "off", "no")
+CLI_TASK_LINE = vcc.TASK_LINE
 
 
 # ── Đường dẫn ────────────────────────────────────────────────────────────────
@@ -81,18 +72,53 @@ def pack_path(warehouse: "Path | str" = "data_warehouse") -> Path:
     return Path(warehouse) / "_meta" / PACK_NAME
 
 
+def prompt_path(warehouse: "Path | str" = "data_warehouse") -> Path:
+    return Path(warehouse) / "_meta" / PROMPT_NAME
+
+
+def raw_path(warehouse: "Path | str" = "data_warehouse") -> Path:
+    return Path(warehouse) / "_meta" / RAW_NAME
+
+
 def brief_out_path(warehouse: "Path | str" = "data_warehouse") -> Path:
     return Path(warehouse) / "_meta" / OUT_NAME
 
 
+# ── Engine / nút vặn (ủy cho vnstock_claude_cli) ─────────────────────────────
 def engine_from_env(default: str = ENGINE_LADDER) -> str:
-    """Engine theo env; chữ lạ → mặc định (không bao giờ ném)."""
-    raw = (os.environ.get(ENGINE_ENV) or "").strip().lower()
-    return raw if raw in ENGINES else default
+    """Engine bước brief: VNSTOCK_BRIEF_ENGINE > VNSTOCK_LLM_ENGINE > ladder
+    (đã load .env; chữ lạ = ladder)."""
+    eng = vcc.engine_for("brief")
+    return eng if eng in ENGINES else default
 
 
 def cli_model() -> str:
-    return (os.environ.get("VNSTOCK_BRIEF_CLI_MODEL") or "").strip() or DEFAULT_CLI_MODEL
+    return vcc.cli_model("VNSTOCK_BRIEF_CLI_MODEL")
+
+
+def cli_fallback_model() -> "str | None":
+    return vcc.cli_fallback_model()
+
+
+def cli_timeout_s() -> int:
+    return vcc.cli_timeout_s("VNSTOCK_BRIEF_CLI_TIMEOUT_S")
+
+
+def cli_executable() -> "str | None":
+    return vcc.cli_executable()
+
+
+def cli_env() -> dict:
+    return vcc.cli_env()
+
+
+def cli_command(exe: str, model: str) -> list[str]:
+    return vcc.cli_command(exe, model, system=CLI_PREFACE,
+                           fallback_model=cli_fallback_model())
+
+
+def parse_cli_output(stdout: str) -> "tuple[str, str | None, dict]":
+    return vcc.parse_cli_output(stdout)
 
 
 def engine_label(model: str) -> str:
@@ -112,7 +138,9 @@ def _hostname() -> str:
 
 def build_pack(brief_type: str = "afternoon") -> dict:
     """ctx + prompt y HỆT đường `generate_brief` (cùng bước refresh, cùng
-    khối few-shot/lệnh mở/tin) — khác duy nhất: không gọi agent nào."""
+    khối few-shot/lệnh mở/tin) — khác duy nhất: không gọi agent nào.
+    ctx trả về là ctx TRONG BỘ NHỚ (set vẫn là set) — đường đêm đưa thẳng
+    vào guard, byte-identical với `generate_brief`."""
     import vnstock_brief as vb
 
     vb._ensure_env_loaded()
@@ -138,10 +166,33 @@ def build_pack(brief_type: str = "afternoon") -> dict:
     }
 
 
+def _pack_for_disk(pack: dict) -> dict:
+    """Bản ghi đĩa: set/frozenset ở tầng 1 của ctx → list đã sort + danh sách
+    khoá để `read_pack` trả lại set (guard đọc `financial_tickers` /
+    `realestate_tickers` / `mover_universe` như set — `default=str` của
+    write_json_atomic biến set thành chuỗi repr, guard sẽ so từng KÝ TỰ).
+    KHÔNG đụng ctx trong bộ nhớ."""
+    ctx = pack.get("ctx") or {}
+    set_keys = sorted(k for k, v in ctx.items() if isinstance(v, (set, frozenset)))
+    disk_ctx = {k: (sorted(str(x) for x in v) if k in set_keys else v)
+                for k, v in ctx.items()}
+    out = dict(pack)
+    out["ctx"] = disk_ctx
+    out["ctx_set_keys"] = set_keys
+    return out
+
+
 def write_pack(pack: dict, path: "Path | str") -> Path:
+    """Ghi gói (atomic) + `brief_prompt.md` cạnh nó (prompt nhiều dòng — tool
+    Read của skill cắt dòng dài, trường `prompt` một-dòng-40K trong JSON làm
+    Claude viết từ prompt cụt mà không ai biết)."""
     from vnstock_parquet_io import write_json_atomic
     path = Path(path)
-    write_json_atomic(pack, path)
+    write_json_atomic(_pack_for_disk(pack), path)
+    try:
+        _write_text_atomic(str(pack.get("prompt") or ""), path.with_name(PROMPT_NAME))
+    except Exception:
+        pass
     return path
 
 
@@ -151,8 +202,39 @@ def read_pack(path: "Path | str") -> dict:
     if not isinstance(pack, dict) or not pack.get("prompt"):
         raise ValueError(f"pack hỏng hoặc thiếu prompt: {path}")
     if int(pack.get("version") or 0) != PACK_VERSION:
-        raise ValueError(f"pack version {pack.get('version')} ≠ {PACK_VERSION}: {path}")
+        raise ValueError(f"pack version {pack.get('version')} ≠ {PACK_VERSION} — "
+                         f"chạy lại `run.py brief --export-pack`: {path}")
+    ctx = pack.get("ctx") or {}
+    for k in pack.get("ctx_set_keys") or []:
+        if isinstance(ctx.get(k), list):
+            ctx[k] = set(ctx[k])
+    pack["ctx"] = ctx
     return pack
+
+
+def _write_text_atomic(text: str, path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(str(tmp), str(path))
+    return path
+
+
+def write_raw(text: str, warehouse: "Path | str" = "data_warehouse") -> "Path | None":
+    """Chữ THÔ của CLI trước guard — để `/brief-review` so guard sửa gì."""
+    try:
+        return _write_text_atomic(text, raw_path(warehouse))
+    except Exception:
+        return None
+
+
+def write_final(text: str, warehouse: "Path | str" = "data_warehouse") -> "Path | None":
+    """Bản SAU guard, ghi TRƯỚC khi đẩy Telegram — Telegram lỗi thì
+    `run.py brief --from-file` gửi lại, không tốn call Opus thứ hai."""
+    try:
+        return _write_text_atomic(text, brief_out_path(warehouse))
+    except Exception:
+        return None
 
 
 # ── Nhận thân brief ──────────────────────────────────────────────────────────
@@ -171,14 +253,15 @@ def finalize_brief(text: str, pack: dict, *, agent_name: str, model: str,
                    agent_type: str = AGENT_TYPE) -> dict:
     """Chữ thô → qua ĐÚNG chuỗi hậu kỳ của ladder: apply_brief_guards →
     validate_brief_factuality → memory.save_brief → brief_watch. Trả
-    {"text", "warnings", "brief_id", "auto_score"}; text rỗng nghĩa là
-    không có gì để gửi (chỗ gọi rơi về ladder)."""
+    {"text", "warnings", "brief_id", "auto_score", "guard_delta"}; text rỗng
+    nghĩa là không có gì để gửi (chỗ gọi rơi về ladder)."""
     import vnstock_brief as vb
 
     ctx = pack.get("ctx") or {}
     raw = _clean_text(text)
     if not raw:
-        return {"text": "", "warnings": [], "brief_id": None, "auto_score": 0.0}
+        return {"text": "", "warnings": [], "brief_id": None, "auto_score": 0.0,
+                "guard_delta": 0}
     fixed = vb.apply_brief_guards(raw, ctx)
     try:
         warnings = list(vb.validate_brief_factuality(fixed, ctx) or [])
@@ -214,128 +297,106 @@ def finalize_brief(text: str, pack: dict, *, agent_name: str, model: str,
     except Exception:
         pass
     return {"text": fixed, "warnings": warnings, "brief_id": brief_id,
-            "auto_score": score}
+            "auto_score": score, "guard_delta": len(fixed) - len(raw)}
 
 
 # ── Claude Code headless ─────────────────────────────────────────────────────
-def cli_executable() -> "str | None":
-    exe = (os.environ.get("VNSTOCK_BRIEF_CLI_EXE") or "").strip()
-    if exe:
-        return exe if Path(exe).exists() else None
-    return shutil.which("claude")
-
-
-def cli_timeout_s() -> int:
-    try:
-        return max(30, int(os.environ.get("VNSTOCK_BRIEF_CLI_TIMEOUT_S") or DEFAULT_CLI_TIMEOUT_S))
-    except ValueError:
-        return DEFAULT_CLI_TIMEOUT_S
-
-
-def cli_env() -> dict:
-    """Môi trường cho tiến trình CLI. GIẤU ANTHROPIC_API_KEY (nếu .env có)
-    để CLI dùng đăng nhập thuê bao — có key trong env là CLI chuyển sang
-    tính tiền API mà không ai thấy. Muốn dùng key: VNSTOCK_BRIEF_CLI_API_KEY=1."""
-    env = dict(os.environ)
-    keep = (env.get("VNSTOCK_BRIEF_CLI_API_KEY") or "").strip().lower()
-    if keep in ("", *_OFF):
-        env.pop("ANTHROPIC_API_KEY", None)
-    return env
-
-
-def cli_command(exe: str, model: str) -> list[str]:
-    return [exe, "-p", CLI_TASK_LINE, "--output-format", "json",
-            "--model", model, *_CLI_EXTRA_ARGS]
-
-
-def parse_cli_output(stdout: str) -> "tuple[str, str | None, dict]":
-    """(chữ, lỗi, info) từ stdout của `claude -p --output-format json`.
-    info: usage kiểu OpenAI (prompt/completion) cho sổ, cost_usd, duration_ms.
-    stdout không phải JSON → coi cả stdout là chữ (CLI cũ in text)."""
-    raw = (stdout or "").strip()
-    if not raw:
-        return "", "CLI không in gì (stdout rỗng)", {}
-    try:
-        body = json.loads(raw)
-    except ValueError:
-        return raw, None, {}
-    if not isinstance(body, dict):
-        return raw, None, {}
-    info: dict = {}
-    usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}
-    if usage:
-        p_in = int(usage.get("input_tokens") or 0)
-        p_in += int(usage.get("cache_read_input_tokens") or 0)
-        p_in += int(usage.get("cache_creation_input_tokens") or 0)
-        info["usage"] = {"prompt_tokens": p_in,
-                         "completion_tokens": int(usage.get("output_tokens") or 0)}
-    if body.get("total_cost_usd") is not None:
-        try:
-            info["cost_usd"] = float(body["total_cost_usd"])
-        except (TypeError, ValueError):
-            pass
-    if body.get("duration_ms") is not None:
-        info["duration_ms"] = body.get("duration_ms")
-    text = body.get("result")
-    text = text if isinstance(text, str) else ""
-    if body.get("is_error"):
-        return "", f"CLI báo lỗi: {(text or body.get('subtype') or '?')[:200]}", info
-    if not text.strip():
-        return "", f"CLI trả kết quả rỗng (subtype={body.get('subtype')})", info
-    return text, None, info
-
-
 def run_claude_cli(prompt: str, *, model: "str | None" = None,
                    timeout_s: "int | None" = None,
                    exe: "str | None" = None) -> "tuple[str, str | None, dict]":
-    """Gọi Claude Code headless: prompt qua STDIN (Windows giới hạn dòng lệnh
-    32K ký tự — prompt brief ~40K). Trả (chữ, lỗi, info); KHÔNG bao giờ ném.
-    Ghi sổ LLM provider "ClaudeCode" (ok chỉ khi có chữ thật — nếp 30/09)."""
-    import vnstock_brief as vb
-
-    model = model or cli_model()
-    timeout_s = timeout_s or cli_timeout_s()
-    exe = exe or cli_executable()
-    if not exe:
-        return "", ("không tìm thấy lệnh `claude` (Claude Code CLI) trên PATH — "
-                    "cài CLI + đăng nhập, hoặc đặt VNSTOCK_BRIEF_CLI_EXE"), {}
-    payload = CLI_PREFACE + prompt
-    t0 = time.time()
-    try:
-        proc = subprocess.run(
-            cli_command(exe, model), input=payload, capture_output=True,
-            text=True, encoding="utf-8", errors="replace",
-            timeout=timeout_s, cwd=str(_REPO), env=cli_env(),
-        )
-    except subprocess.TimeoutExpired:
-        err = f"claude CLI quá {timeout_s}s — bỏ"
-        vb._ledger_record(LEDGER_PROVIDER, model, ok=False, error=err)
-        return "", err, {"elapsed_s": time.time() - t0}
-    except OSError as e:
-        err = f"không chạy được claude CLI: {type(e).__name__}: {str(e)[:120]}"
-        vb._ledger_record(LEDGER_PROVIDER, model, ok=False, error=err)
-        return "", err, {"elapsed_s": time.time() - t0}
-    elapsed = time.time() - t0
-    text, err, info = parse_cli_output(proc.stdout)
-    info["elapsed_s"] = elapsed
-    info["model"] = model
-    if proc.returncode != 0 and not text:
-        tail = (proc.stderr or "").strip().splitlines()
-        err = f"claude CLI rc={proc.returncode}: {(tail[-1] if tail else err or '?')[:200]}"
-    if err:
-        vb._ledger_record(LEDGER_PROVIDER, model, ok=False,
-                          usage=info.get("usage"), error=err)
-        return "", err, info
-    vb._ledger_record(LEDGER_PROVIDER, model, ok=True, usage=info.get("usage"))
-    return text, None, info
+    """Gọi Claude Code headless cho brief: preface làm system prompt, prompt
+    qua STDIN, fallback model theo env. Trả (chữ, lỗi, info); KHÔNG ném."""
+    return vcc.complete(prompt, system=CLI_PREFACE,
+                        model=model or cli_model(),
+                        fallback_model=cli_fallback_model() or "",
+                        timeout_s=timeout_s or cli_timeout_s(),
+                        exe=exe or cli_executable(), tag="brief")
 
 
 def outcome_line(info: dict, text: str, err: "str | None") -> str:
-    """Dòng log `[brief] ⏱ claude-cli: Ns · ✅ N ký tự · $x` — cùng nếp
-    `_agent_outcome_line` để `Select-String '\\[brief\\] ⏱'` gom được."""
-    el = float(info.get("elapsed_s") or 0)
-    cost = info.get("cost_usd")
-    cost_s = f" · ${cost:,.2f}" if isinstance(cost, (int, float)) else ""
-    if err:
-        return f"[brief] ⏱ claude-cli: {el:,.0f}s · ❌ {err[:160]}"
-    return f"[brief] ⏱ claude-cli: {el:,.0f}s · ✅ {len(text):,} ký tự{cost_s}"
+    return vcc.outcome_line("brief", info, text, err)
+
+
+# ── Soi lại sáng hôm sau (skill /brief-review) ──────────────────────────────
+def review_report(warehouse: "Path | str" = "data_warehouse") -> str:
+    """Tóm đêm qua: marker (engine/agent/lý do rơi), dòng sổ ClaudeCode, 2
+    bản memory mới nhất, guard sửa bao nhiêu (raw vs final). Best-effort:
+    thiếu gì in "—", không ném."""
+    wh = Path(warehouse)
+    lines: list[str] = []
+    try:
+        mk = json.loads((wh / "_meta" / "brief_push.json").read_text(encoding="utf-8"))
+    except Exception:
+        mk = {}
+    lines.append(f"marker: close={mk.get('close', '—')} · engine={mk.get('engine', '—')}"
+                 f" · agent={mk.get('agent', '—')} · máy={mk.get('machine', '—')}")
+    if mk.get("claude_error"):
+        lines.append(f"  ↳ Claude rơi về ladder: {mk['claude_error']}")
+    try:
+        from vnstock_llm_ledger import summary
+        s = summary()
+        rows = {k: v for k, v in (s.get("providers") or {}).items()
+                if k.startswith(LEDGER_PROVIDER + ":")}
+        if rows:
+            for k, r in rows.items():
+                lines.append(f"sổ {s.get('day')}: {k} · {r.get('calls', 0)} call · "
+                             f"{r.get('ok', 0)} OK · {r.get('fail', 0)} lỗi"
+                             + (f" · lỗi cuối: {r.get('last_error')}" if r.get('last_error') else ""))
+        else:
+            lines.append(f"sổ {s.get('day', '—')}: không có dòng {LEDGER_PROVIDER}")
+    except Exception:
+        lines.append("sổ: —")
+    try:
+        import vnstock_memory as _mem
+        for b in _mem.recent_briefs("afternoon", limit=2):
+            lines.append(f"memory #{b.get('id')}: {b.get('brief_date')} · {b.get('agent_name')} · "
+                         f"{len(b.get('output') or ''):,} ký tự · auto {b.get('auto_score')} · "
+                         f"sao {b.get('user_rating') or '—'}")
+    except Exception:
+        lines.append("memory: —")
+    try:
+        raw = raw_path(wh).read_text(encoding="utf-8").splitlines()
+        fin = brief_out_path(wh).read_text(encoding="utf-8").splitlines()
+        changed = sum(1 for a, b in zip(raw, fin) if a != b) + abs(len(raw) - len(fin))
+        lines.append(f"guard: raw {len(raw)} dòng → final {len(fin)} dòng · {changed} dòng khác")
+    except Exception:
+        lines.append("guard: chưa có raw/final để so")
+    return "\n".join(lines)
+
+
+def rate_brief(brief_id: int, stars: int, feedback: str = "") -> None:
+    """Chấm sao bản brief trong memory (≥4 sao thành mẫu few-shot)."""
+    import vnstock_memory as _mem
+    _mem.update_rating(int(brief_id), int(stars), feedback or "")
+
+
+def main(argv: "list[str] | None" = None) -> int:
+    import argparse
+    ap = argparse.ArgumentParser(description="Brief pack — engine Claude cho brief chiều")
+    ap.add_argument("--check", action="store_true",
+                    help="go/no-go đường A: exe · version · đăng nhập · probe 1 chữ")
+    ap.add_argument("--review", action="store_true", help="tóm brief đêm qua (skill /brief-review)")
+    ap.add_argument("--rate", nargs="+", metavar=("ID", "SAO"),
+                    help="chấm sao: --rate <id> <1-5> [nhận xét]")
+    ap.add_argument("--warehouse", default="data_warehouse")
+    a = ap.parse_args(argv)
+    if a.check:
+        res = vcc.cli_check()
+        print(json.dumps(res, ensure_ascii=False, indent=2))
+        return 0 if res.get("ok") else 1
+    if a.review:
+        print(review_report(a.warehouse))
+        return 0
+    if a.rate:
+        if len(a.rate) < 2:
+            print("--rate cần <id> <sao> [nhận xét]")
+            return 2
+        rate_brief(int(a.rate[0]), int(a.rate[1]), " ".join(a.rate[2:]))
+        print(f"đã chấm #{a.rate[0]}: {a.rate[1]} sao")
+        return 0
+    ap.print_help()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

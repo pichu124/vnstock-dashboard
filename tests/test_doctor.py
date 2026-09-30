@@ -719,3 +719,44 @@ def test_write_status_records_machine(meta, monkeypatch):
     out = doc.write_status([doc._result("x", "X", "ok", "m")], "offline")
     saved = json.loads(out.read_text(encoding="utf-8"))
     assert saved["machine"] == "CFA-BINHLD-LT"
+
+
+# ─── Badge engine brief (Claude Code CLI) — 30/09 U62 ────────────────────────
+
+def test_brief_engine_verdict_four_states():
+    v = doc.brief_engine_verdict
+    assert v({"close": "2026-09-30", "engine": "ladder"}, "ladder", [])["status"] == "ok"
+    assert v({"close": "2026-09-30", "engine": "ladder"}, "", [])["status"] == "ok"
+    r = v({"close": "2026-09-30", "engine": "claude", "agent": "Claude Code · opus-5-5"},
+          "claude", [{"ok": 1, "fail": 0}])
+    assert r["status"] == "ok" and "Claude Code · opus-5-5" in r["message"]
+    r = v({"close": "2026-09-30", "engine": "ladder", "agent": "Gemini 3.5 Flash",
+           "claude_error": "claude CLI quá 600s — bỏ"}, "claude", [{"ok": 0, "fail": 1}])
+    assert r["status"] == "warn" and "quá 600s" in r["message"] and "--check" in r["fix"]
+    r = v({"close": "2026-09-30", "engine": "ladder", "claude_error": "x"}, "claude",
+          [{"ok": 0, "fail": 1}, {"ok": 0, "fail": 2}, {"ok": 0, "fail": 1}])
+    assert r["status"] == "error" and "3 ngày" in r["message"]
+    r = v({"close": "2026-09-30"}, "claude", [])          # marker cũ, chưa có engine
+    assert r["status"] == "ok" and "chưa có brief nào" in r["message"]
+    assert v(None, "claude", [])["status"] == "ok"
+    assert v("rác", "claude", [{"ok": 0, "fail": 1}])["status"] == "ok"
+
+
+def test_check_brief_engine_reads_env_dotenv_marker_and_ledger(meta, monkeypatch):
+    import vnstock_llm_ledger as _lg
+    for k in ("VNSTOCK_BRIEF_ENGINE", "VNSTOCK_LLM_ENGINE"):
+        monkeypatch.delenv(k, raising=False)
+    assert doc.check_brief_engine()["status"] == "ok"
+    monkeypatch.setenv("VNSTOCK_LLM_ENGINE", "claude")
+    (meta / "brief_push.json").write_text(json.dumps(
+        {"close": "2026-09-30", "engine": "ladder", "claude_error": "không thấy claude"}),
+        encoding="utf-8")
+    monkeypatch.setattr(_lg, "summary", lambda day=None: {
+        "day": day, "providers": {"ClaudeCode:claude-opus-5-5": {"ok": 0, "fail": 1}}})
+    r = doc.check_brief_engine()
+    assert r["status"] == "error" and "không thấy claude" in r["message"]
+    monkeypatch.setenv("VNSTOCK_BRIEF_ENGINE", "ladder")   # riêng bước đè công tắc chung
+    assert doc.check_brief_engine()["status"] == "ok"
+    assert doc.check_brief_engine in doc.OFFLINE_CHECKS
+    assert doc.OFFLINE_CHECKS.index(doc.check_brief_engine) \
+        > doc.OFFLINE_CHECKS.index(doc.check_pipeline_reach)

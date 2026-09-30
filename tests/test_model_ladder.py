@@ -694,8 +694,9 @@ def _all_live_slugs() -> set:
     for _cls in vb.AGENT_REGISTRY.values():                    # [7] fallback nội bộ
         slugs |= set(getattr(_cls, "_MODEL_FALLBACKS", []) or [])
     slugs |= {cls().model for cls in vb.AGENT_REGISTRY.values()}  # [7] __init__ defaults
-    import vnstock_brief_pack as bp
-    slugs.add(bp.DEFAULT_CLI_MODEL)                            # [7] engine Claude Code
+    import vnstock_claude_cli as vcc
+    slugs.add(vcc.DEFAULT_MODEL)                               # [7] engine Claude Code
+    slugs.add(vcc.DEFAULT_FALLBACK_MODEL)                      #     + fallback trong CLI
     return slugs
 
 

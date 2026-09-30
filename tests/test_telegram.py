@@ -432,3 +432,23 @@ def test_snippet_from_text_is_the_single_cleaning_rule(monkeypatch):
     raw = "# Tiêu đề\n---\n\nDòng x\n"
     monkeypatch.setattr(vb, "generate_brief", lambda **kw: {"A": (raw, None)})
     assert tg._brief_snippet("afternoon") == tg._snippet_from_text(raw) == "Tiêu đề\nDòng x"
+
+
+def test_snippet_strips_fallback_prefix_and_converts_bold():
+    raw = "_(fallback: gemini-3.5-flash-lite)_\n\n## TLDR\n**Stance:** TĂNG\n---\nx"
+    assert tg._fallback_model_of(raw) == "gemini-3.5-flash-lite"
+    assert tg._snippet_from_text(raw) == "TLDR\n<b>Stance:</b> TĂNG\nx"
+    assert tg._fallback_model_of("## TLDR\nx") is None
+
+
+def test_ladder_footer_names_the_agent_that_wrote(monkeypatch):
+    import vnstock_brief as vb
+    captured = _stub_close_blocks(monkeypatch)
+    raw = "_(fallback: gemini-3.5-flash-lite)_\n\n## TLDR\nDòng"
+    monkeypatch.setattr(vb, "generate_brief",
+                        lambda **kw: {"Gemini 3.5 Flash": (raw, None)})
+    tg.push_close_brief()
+    text = captured["text"]
+    assert "🤖 Gemini 3.5 Flash (fallback: gemini-3.5-flash-lite)" in text
+    assert "_(fallback" not in text and "TLDR\nDòng" in text
+    assert tg.LAST_BRIEF_AGENT == "Gemini 3.5 Flash (fallback: gemini-3.5-flash-lite)"
