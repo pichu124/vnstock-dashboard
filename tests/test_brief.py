@@ -2247,6 +2247,13 @@ def test_validate_brief_factuality_exists_and_flags_hallucination():
     assert validate_brief_factuality("VNINDEX đóng cửa 1.793,05", ctx) == []
     # empty text → clean
     assert validate_brief_factuality("", ctx) == []
+    # a news headline's ISO date (year lands in VNINDEX range) must NOT flag —
+    # 30/09 false positive: "[2026-10-01] … VN-Index …" read 2026 as the index.
+    assert validate_brief_factuality(
+        "- ⚪ [2026-10-01] Lãi suất và VN-Index có thực sự ngược đường?", ctx) == []
+    # but a real bad level on the SAME line still flags
+    assert validate_brief_factuality(
+        "[2026-10-01] VN-Index đóng cửa 1.215,4", ctx)
 
 
 def test_build_prompt_includes_fundamentals_block():

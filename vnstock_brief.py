@@ -3684,6 +3684,7 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     _SECTION_EMOJIS,
     _STANCE_CAUTION_MARK,
     _STANCE_CAUTION_MOMENTUM,
+    _ISO_DATE_RE,
     _VNI_CONTEXT_RE,
     _VNI_MAGNITUDE_RE,
     _adjusted_ref_price,
