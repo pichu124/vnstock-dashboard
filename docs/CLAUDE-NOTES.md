@@ -6966,6 +6966,42 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🛑 U65. PHÁT 30/09 (CHẠY BÙ 23:47) DỪNG Ở BƯỚC TEST — TEST SLUG NGOÀI WHITELIST CÒN GHIM qwen3.6-27b, MẤT BRIEF (01/10 rạng sáng)
+
+**Bằng chứng (🖥️ desktop, 01/10 ~02:00):** `Get-ScheduledTaskInfo`: LastRunTime
+30/09 23:47 (máy tắt lúc 18:00 → StartWhenAvailable chạy bù khi bật máy),
+LastTaskResult 2. `run_daily.log`: 9 bước xong (sync 836s · validate 433s ·
+screener 668s · news 1.007s · foreign-flow 23s · macro 13s · gold 2s ·
+allocation 3s · test 134,8s) rồi `[run.py] test returned hard failure (rc=2)
+→ stopping`, `⏱ TỔNG [2026-10-01 00:39] 52,0 phút (9 bước)`. Audit · train ·
+reflection · doctor · brief KHÔNG chạy ⇒ `vnstock_brief_pack.py --review` sáng
+01/10: marker vẫn `close=2026-09-29 · engine=claude-file · máy=CFA-BINHLD-LT`
+(bản laptop 13:19), memory không có dòng 30/09 (hai dòng mới nhất #913 Claude
+7.003 ký tự · #909 Nemotron 0 ký tự = brief trắng 29/09). **Phiên 30/09 mất
+brief.** Cùng lúc user đang cài native Claude Code + sửa `.env` trên chính
+desktop, nên nghi `.env` trước.
+
+**Truy (tái hiện trong sandbox bằng `.env` giả giống desktop: 12 khoá dummy +
+`VNSTOCK_CLAUDE_CLI_EXE` + `VNSTOCK_LLM_ENGINE=claude`):** full suite 1 failed
+/ 3.358 passed — `tests/test_news_analyze_route.py::test_analyze_models_slugs_22_07`
+ghim `_ANALYZE_MODELS["Groq"] == "qwen/qwen3.6-27b"` trong khi #17 (29/09
+khuya) đã đổi sang `openai/gpt-oss-120b`. File KHÔNG nằm trong whitelist
+`--fast` ⇒ sandbox lẫn desktop (`--fast` 2.759 xanh) đều không thấy; phát 29/09
+chạy full lúc 18:00, TRƯỚC khi #17 merge 23:20 ⇒ phát 30/09 là lần full đầu
+tiên sau #17. `.env` engine Claude KHÔNG liên quan: lưới `_no_claude_cli_anywhere`
+(conftest) đủ, full 3.359 xanh với chính `.env` giả đó.
+
+**Vá:** test ghim slug mới + docstring lý do; đưa
+`tests/test_news_analyze_route.py` vào whitelist `--fast` (+14 test ⇒ 2.773);
+full 3.359. CLAUDE.md: đổi slug/migration ⇒ chạy FULL trước khi push. Lỗi này
+của tôi từ 29/09: #17 chỉ chạy `--fast`.
+
+**Câu hỏi thiết kế (chờ user):** bước `test` (9/14) fail cứng dừng cả pipeline
+⇒ 5 bước sau, kể cả brief, mất theo. "Badge đỏ = không merge/deploy" đúng cho
+code, nhưng brief chiều là sản phẩm cho người đọc, không phải deploy. (a) giữ
+như nay; (b) test đỏ ⇒ exit 1: badge đỏ + doctor réo, pipeline vẫn đi tới
+brief. Chưa đổi gì.
+
 # 🥇 U64. BRIEF CLAUDE ĐẦU TIÊN — TIN TELEGRAM 290 (đường B, laptop, 30/09 13:19), CHẤM + VÁ GUARD #17 (30/09 chiều)
 
 **Bối cảnh:** user chạy trọn đường B trên 💻 laptop với gói phiên 29/09 (kho

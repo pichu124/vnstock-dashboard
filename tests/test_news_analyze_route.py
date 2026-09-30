@@ -204,10 +204,13 @@ def test_default_free_first_skips_paid_route(monkeypatch):
 
 def test_analyze_models_slugs_22_07():
     """Guard chống lùi về slug chết (llama 70B deprecated/gỡ, qwen-235b:free
-    zombie) — map override phải đúng bộ probe sống 22/07."""
+    zombie) — map override phải đúng bộ probe sống 22/07. Groq đổi 29/09 (#17):
+    qwen3.6-27b 404 "does not exist" → openai/gpt-oss-120b (slug sống ở digest
+    bậc 2 từ 22/07). File này từng NGOÀI whitelist `--fast` ⇒ phát 30/09 là lần
+    full đầu tiên sau #17 và dừng ở bước test (rc=2), không có brief (U65)."""
     assert nf._ANALYZE_MODELS == {
         "Gemini": "gemini-3.5-flash",
-        "Groq": "qwen/qwen3.6-27b",
+        "Groq": "openai/gpt-oss-120b",
         "OpenRouter": "nvidia/nemotron-3-ultra-550b-a55b:free",
     }
 

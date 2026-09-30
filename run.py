@@ -724,6 +724,7 @@ def cmd_test(args) -> int:
             "tests/test_claude_steps.py",
             "tests/test_macro.py",
             "tests/test_news_feeds.py",
+            "tests/test_news_analyze_route.py",
             "tests/test_updater_partial_bar.py",
             "tests/test_doctor.py",
             "tests/test_fred.py",
