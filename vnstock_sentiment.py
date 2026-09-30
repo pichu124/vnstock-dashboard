@@ -168,7 +168,8 @@ _SENTIMENT_MAP: dict[str, str] = {
 # model chép md5). Tin thiếu/nhãn lạ → ladder từng tin như cũ; lỗi CLI ⇒ cả
 # lô về ladder. Công tắc: VNSTOCK_NEWS_ENGINE / VNSTOCK_LLM_ENGINE = claude.
 _CLI_BATCH_SIZE = 50
-_CLI_TIMEOUT_S = 300
+_CLI_MAX_CHUNKS = 6          # ≤300 tin/lượt — cache mất (máy mới, Dropbox tắt) thì
+_CLI_TIMEOUT_S = 300         # ~2.600 tin = 52 lô × 300s treo > trần 240′; phần dư ĐỂ ĐÊM SAU
 _BATCH_SYSTEM = _SYSTEM.replace(
     "Chỉ trả lời đúng 1 từ: TÍCH_CỰC hoặc TIÊU_CỰC hoặc TRUNG_LẬP.",
     "Nhận một DANH SÁCH tin (JSON, mỗi tin có số thứ tự `i`). Trả về JSON đúng "
@@ -213,10 +214,17 @@ def _item_prompt_fields(item: dict) -> dict:
     return {"ma": ticker, "tieu_de": title, "tom_tat": short}
 
 
+def cli_batch_capacity() -> int:
+    """Số tin tối đa một lượt `score_batch_cli` nhận (phần dư để lượt sau)."""
+    return _CLI_BATCH_SIZE * _CLI_MAX_CHUNKS
+
+
 def score_batch_cli(items: list[dict]) -> dict[str, tuple[str, str]]:
     """Chấm CẢ LÔ qua Claude Code: {item_hash: (sentiment, model)}. Tin thiếu
     trong trả lời / nhãn lạ KHÔNG có trong dict (chỗ gọi đưa qua ladder).
-    Lỗi CLI ở lô nào ⇒ dừng, trả những gì đã có."""
+    Lỗi CLI ở lô nào ⇒ dừng, trả những gì đã có. Chỉ nhận tối đa
+    `cli_batch_capacity()` tin — chỗ gọi cắt phần dư để đêm sau."""
+    items = items[:cli_batch_capacity()]
     import json as _json
     try:
         import vnstock_claude_cli as vcc
@@ -524,8 +532,12 @@ def score_news_batch(
     news: list[dict],
     max_workers: int = 5,
     progress_cb=None,
+    allow_cli: bool = True,
 ) -> dict[str, str]:
-    """Score news list, skip already-cached items. Returns hash→sentiment map."""
+    """Score news list, skip already-cached items. Returns hash→sentiment map.
+
+    `allow_cli=False` (dashboard): KHÔNG spawn Claude Code trong tiến trình
+    Streamlit (progress bar đứng tới 300s/lô) — chỉ ladder HTTP như cũ."""
     with _db_lock:
         conn = _get_conn()
         rows = conn.execute("SELECT item_hash, sentiment FROM news_sentiment").fetchall()
@@ -539,11 +551,14 @@ def score_news_batch(
     new_results: dict[str, str] = {}
     scored_at = datetime.now().isoformat()
 
-    # Engine Claude: cả lô một call trước, phần thiếu mới qua ladder từng tin.
-    if to_score and _claude_batch_enabled():
-        got = score_batch_cli(to_score)
+    # Engine Claude: cả lô một call trước, phần thiếu mới qua ladder từng tin;
+    # tin quá trần lô (`cli_batch_capacity`) KHÔNG cache, KHÔNG qua ladder —
+    # để đêm sau (backlog 2.600 tin qua ladder từng tin là cơn bão call khác).
+    if to_score and allow_cli and _claude_batch_enabled():
+        head, deferred = to_score[:cli_batch_capacity()], to_score[cli_batch_capacity():]
+        got = score_batch_cli(head)
         rest: list[dict] = []
-        for item in to_score:
+        for item in head:
             h = _item_hash(item)
             if h in got:
                 sentiment, model = got[h]
@@ -559,8 +574,10 @@ def score_news_batch(
                         pass
             else:
                 rest.append(item)
-        print(f"[sentiment] Claude Code chấm {len(got)}/{total} tin theo lô; "
-              f"{len(rest)} tin còn lại qua ladder")
+        print(f"[sentiment] Claude Code chấm {len(got)}/{len(head)} tin theo lô; "
+              f"{len(rest)} tin còn lại qua ladder"
+              + (f"; {len(deferred)} tin quá trần {cli_batch_capacity()} — để lượt sau"
+                 if deferred else ""))
         to_score = rest
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:

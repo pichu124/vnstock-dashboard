@@ -825,12 +825,18 @@ def check_llm_ledger() -> dict:
 def check_llm_keys() -> dict:
     """Key LLM trong .env: provider chấm sentiment + key agent viết brief."""
     name = "LLM keys (.env)"
-    from vnstock_sentiment import available_provider
-    provider = available_provider()
+    from vnstock_sentiment import available_provider, cli_engine_label
+    provider = available_provider() or cli_engine_label()
     brief_keys = [k for k in ("GEMINI_API_KEY", "ANTHROPIC_API_KEY",
                               "OPENAI_API_KEY", "GROQ_API_KEY",
                               "MISTRAL_API_KEY", "DEEPSEEK_API_KEY")
                   if (os.environ.get(k) or "").strip()]
+    try:                       # engine Claude Code (thuê bao) không cần key nào
+        import vnstock_claude_cli as _vcc
+        if _vcc.engine_for("brief") == "claude":
+            brief_keys.append("Claude Code (CLI)")
+    except Exception:
+        pass
     if not provider and not brief_keys:
         return _result("llm_keys", name, "off", "chưa có key nào trong .env",
                        "thêm GROQ_API_KEY / ANTHROPIC_API_KEY… vào .env")

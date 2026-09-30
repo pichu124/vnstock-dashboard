@@ -234,6 +234,7 @@ def test_complete_timeout_and_nonzero_rc(monkeypatch):
     monkeypatch.setattr(subprocess, "run", _timeout)
     text, err, info = vcc.complete("U", exe="/fake/claude", timeout_s=60)
     assert text == "" and "60s" in err and rows[-1][2] is False and "60s" in rows[-1][4]
+    vcc.reset_dead_memo()                      # timeout đã ghi memo "CLI chết"
 
     monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: subprocess.CompletedProcess(
         cmd, 1, stdout="", stderr="Error: not logged in\n"))
@@ -274,3 +275,70 @@ def test_cli_check_reports_exe_version_auth_and_probe(monkeypatch):
     res = vcc.cli_check()
     assert res["ok"] is False and "claude" in res["error"]
     assert vcc.main(["--check"]) == 1
+
+
+# ─── memo "CLI chết trong tiến trình" (thẩm định 30/09) ──────────────────────
+
+def test_dead_memo_short_circuits_after_timeout_until_reset(monkeypatch):
+    rows = _ledger_spy(monkeypatch)
+    spawned: list = []
+
+    def _run(cmd, **kw):
+        spawned.append(1)
+        raise subprocess.TimeoutExpired(cmd, kw.get("timeout"))
+    monkeypatch.setattr(subprocess, "run", _run)
+    _, err, _ = vcc.complete("U", exe="/fake/claude", timeout_s=60)
+    assert "60s" in err and len(spawned) == 1
+    _, err2, info = vcc.complete("U2", exe="/fake/claude", timeout_s=60)
+    assert len(spawned) == 1 and "đã chết" in err2 and info["memo"] is True   # không đợi lần 2
+    assert rows[-1][2] is False
+    vcc.reset_dead_memo()
+    vcc.complete("U3", exe="/fake/claude", timeout_s=60)
+    assert len(spawned) == 2
+
+
+def test_api_error_does_not_trip_memo_but_rc_and_missing_exe_do(monkeypatch):
+    _ledger_spy(monkeypatch)
+    spawned: list = []
+    body = json.dumps(_body(is_error=True, result="overloaded"))
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: spawned.append(1) or
+                        subprocess.CompletedProcess(cmd, 0, stdout=body, stderr=""))
+    vcc.complete("U", exe="/fake/claude"); vcc.complete("U", exe="/fake/claude")
+    assert len(spawned) == 2 and vcc._DEAD_REASON is None       # lỗi API: thử lại được
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: spawned.append(1) or
+                        subprocess.CompletedProcess(cmd, 1, stdout="", stderr="not logged in"))
+    vcc.complete("U", exe="/fake/claude")
+    assert vcc._DEAD_REASON and "rc=1" in vcc._DEAD_REASON
+    vcc.reset_dead_memo()
+    monkeypatch.setattr(vcc, "cli_executable", lambda: None)
+    vcc.complete("U")
+    assert vcc._DEAD_REASON and "claude" in vcc._DEAD_REASON
+
+
+def test_is_shim_and_native_exe_preferred(monkeypatch, tmp_path):
+    assert vcc.is_shim("C:\\npm\\claude.cmd") and vcc.is_shim("claude.BAT")
+    assert not vcc.is_shim("/usr/bin/claude") and not vcc.is_shim(None)
+    monkeypatch.setattr(vcc.shutil, "which", lambda name: "C:\\npm\\claude.cmd")
+    monkeypatch.setattr(vcc.Path, "home", lambda: tmp_path)
+    assert vcc.cli_executable() == "C:\\npm\\claude.cmd"          # chưa có bản native
+    native = tmp_path / ".local" / "bin" / "claude.exe"
+    native.parent.mkdir(parents=True)
+    native.write_text("", encoding="utf-8")
+    assert vcc.cli_executable() == str(native)                     # né shim
+
+
+def test_cli_check_probe_uses_special_chars_and_flags_shim(monkeypatch):
+    _ledger_spy(monkeypatch)
+    monkeypatch.setattr(vcc, "cli_executable", lambda: "C:\\npm\\claude.cmd")
+    seen: dict = {}
+
+    def _run(cmd, **kw):
+        if "--system-prompt" in cmd:
+            seen["system"] = cmd[cmd.index("--system-prompt") + 1]
+            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(_body(result="OK")), stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout="2.1.285\n", stderr="")
+    monkeypatch.setattr(subprocess, "run", _run)
+    res = vcc.cli_check()
+    assert res["shim"] is True and "claude.exe" in res["warning"] and res["ok"] is True
+    assert seen["system"] == vcc.PROBE_SYSTEM
+    assert all(ch in vcc.PROBE_SYSTEM for ch in ('|', '<', '>', '%', '"', '\n'))

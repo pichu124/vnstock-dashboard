@@ -22,9 +22,10 @@ def _pin(monkeypatch):
     for k in ("VNSTOCK_LLM_ENGINE", *vcc.STEP_ENGINE_ENV.values(),
               "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "VNSTOCK_CLAUDE_CLI_MODEL",
               "VNSTOCK_NEWS_CLI_MODEL", "VNSTOCK_AUDIT_CLI_TIMEOUT_S",
-              "VNSTOCK_NEWS_CLI_TIMEOUT_S", "VNSTOCK_CLAUDE_CLI_EXE",
-              "VNSTOCK_BRIEF_CLI_EXE"):
+              "VNSTOCK_NEWS_CLI_TIMEOUT_S"):
         monkeypatch.delenv(k, raising=False)
+    # exe: conftest đã ghim về đường dẫn không tồn tại (cli_executable() → None);
+    # test cần exe thì tự patch vcc.cli_executable.
 
 
 def _fake_complete(monkeypatch, text, err=None, structured=None, model="claude-opus-5-5"):
@@ -138,8 +139,8 @@ def test_free_auditor_passes_step_audit_and_labels_backend(monkeypatch):
                         lambda s, u, accept=None, feedback=None, **kw:
                         seen.update(kw=kw) or (raw, "claude-cli"))
     v = va.FreeAuditorAgent().audit({"rsi": 50}, context="t")
-    assert v.approved is True and v.backend == "free:claude-cli"
-    assert seen["kw"] == {"step": "audit"}
+    assert v.approved is True and v.backend == "claude-cli"     # không "free:" gây hiểu nhầm
+    assert seen["kw"] == {"step": "audit", "json_schema": va.FreeAuditorAgent.VERDICT_SCHEMA}
 
 
 # ─── sentiment theo lô ───────────────────────────────────────────────────────
@@ -318,3 +319,163 @@ def test_claude_code_agent_generate_goes_through_complete(monkeypatch):
 def test_dashboard_agent_settings_checks_is_available_for_keyless_agents():
     src = (_REPO / "dashboard" / "brief_agent_settings.py").read_text(encoding="utf-8")
     assert "_cls().is_available" in src
+
+
+# ─── Vá theo thẩm định ngược (30/09 chiều) ───────────────────────────────────
+
+def _items(n: int) -> list[dict]:
+    return [{"ticker": f"T{i}", "news_title": f"tin {i}", "_date_sort": "2026-09-30"}
+            for i in range(n)]
+
+
+def _echo_complete(monkeypatch, fail_at: "int | None" = None):
+    """complete giả: đọc payload, trả TÍCH_CỰC cho MỌI i của lô đó."""
+    calls: list[list] = []
+
+    def _c(user, **kw):
+        payload = json.loads(user.split("\n", 1)[1])
+        calls.append([r["i"] for r in payload])
+        if fail_at is not None and len(calls) == fail_at:
+            return "", "claude CLI quá 300s — bỏ", {"elapsed_s": 300}
+        st = {"results": [{"i": r["i"], "sentiment": "TÍCH_CỰC"} for r in payload]}
+        return json.dumps(st), None, {"model": "claude-opus-5-5", "structured": st}
+    monkeypatch.setattr(vcc, "complete", _c)
+    return calls
+
+
+def test_score_batch_cli_chunks_with_local_index_and_caps(monkeypatch):
+    import vnstock_sentiment as snt
+    calls = _echo_complete(monkeypatch)
+    got = snt.score_batch_cli(_items(120))
+    assert len(got) == 120 and [len(c) for c in calls] == [50, 50, 20]
+    assert all(c[0] == 0 for c in calls)                       # i cục bộ theo lô
+    calls.clear()
+    got = snt.score_batch_cli(_items(400))                    # trần 6 lô = 300 tin
+    assert len(got) == snt.cli_batch_capacity() == 300 and len(calls) == 6
+
+
+def test_score_batch_cli_error_in_second_chunk_keeps_first(monkeypatch):
+    import vnstock_sentiment as snt
+    calls = _echo_complete(monkeypatch, fail_at=2)
+    got = snt.score_batch_cli(_items(120))
+    assert len(got) == 50 and len(calls) == 2                  # dừng, giữ lô 1
+
+
+def test_score_news_batch_defers_beyond_capacity_without_ladder(tmp_path, monkeypatch, capsys):
+    import vnstock_sentiment as snt
+    monkeypatch.setattr(snt, "SENTIMENT_DB_PATH", tmp_path / "s.db")
+    monkeypatch.setattr(snt, "_CLI_BATCH_SIZE", 2)
+    monkeypatch.setattr(snt, "_CLI_MAX_CHUNKS", 1)             # trần 2 tin/lượt
+    monkeypatch.setenv("VNSTOCK_NEWS_ENGINE", "claude")
+    _echo_complete(monkeypatch)
+    monkeypatch.setattr(snt, "score_one",
+                        lambda item: (_ for _ in ()).throw(AssertionError("tin quá trần bị đẩy sang ladder")))
+    out = snt.score_news_batch(_items(4))
+    assert len(out) == 2                                        # 2 tin dư: không cache, không ladder
+    rows = sqlite3.connect(str(tmp_path / "s.db")).execute(
+        "SELECT count(*) FROM news_sentiment").fetchone()[0]
+    assert rows == 2 and "để lượt sau" in capsys.readouterr().out
+
+
+def test_score_news_batch_allow_cli_false_never_spawns(tmp_path, monkeypatch):
+    import vnstock_sentiment as snt
+    monkeypatch.setattr(snt, "SENTIMENT_DB_PATH", tmp_path / "s.db")
+    monkeypatch.setenv("VNSTOCK_NEWS_ENGINE", "claude")
+    monkeypatch.setattr(snt, "score_batch_cli",
+                        lambda items: (_ for _ in ()).throw(AssertionError("dashboard spawn CLI")))
+    monkeypatch.setattr(snt, "score_one", lambda item: (snt._item_hash(item), "negative", "Gemini"))
+    out = snt.score_news_batch(_items(2), allow_cli=False)
+    assert set(out.values()) == {"negative"}
+    src = (_REPO / "dashboard" / "news_tab.py").read_text(encoding="utf-8")
+    assert "allow_cli=False" in src
+
+
+def test_batch_reply_missing_items_stay_uncached_when_ladder_dead(tmp_path, monkeypatch):
+    import vnstock_sentiment as snt
+    monkeypatch.setattr(snt, "SENTIMENT_DB_PATH", tmp_path / "s.db")
+    monkeypatch.setenv("VNSTOCK_NEWS_ENGINE", "claude")
+    items = _items(3)
+    st = {"results": [{"i": 0, "sentiment": "TÍCH_CỰC"}]}     # lô chỉ trả 1/3
+    _fake_complete(monkeypatch, json.dumps(st), structured=st)
+    monkeypatch.setattr(snt, "score_one", lambda item: (snt._item_hash(item), "neutral", None))
+    snt.score_news_batch(items, max_workers=1)
+    rows = sqlite3.connect(str(tmp_path / "s.db")).execute(
+        "SELECT item_hash FROM news_sentiment").fetchall()
+    assert rows == [(snt._item_hash(items[0]),)]                # 2 tin ladder chết KHÔNG cache
+
+
+def test_analyze_fallback_reuses_fetched_text_and_cleans_marker(monkeypatch):
+    import vnstock_news_feeds as nf
+    fetches: list = []
+    monkeypatch.setattr(nf, "_fulltext_enabled", lambda: True)
+    monkeypatch.setattr(nf, "fetch_fulltext", lambda url, timeout=0: fetches.append(url) or "BODY")
+    _fake_complete(monkeypatch, "", err="claude CLI quá 300s — bỏ")
+    it = {"title": "Tin", "link": "http://x/1"}
+    assert nf.analyze_items_cli([it]) == {} and fetches == ["http://x/1"]
+    assert it["_user_text_tmp"].endswith("BODY")
+    import vnstock_sentiment as snt
+    seen: dict = {}
+    monkeypatch.setattr(snt, "chat_complete_ex",
+                        lambda system, user, max_tokens=80, model_map=None:
+                        seen.update(user=user) or {"text": "TÍCH_CỰC | PNJ hưởng lợi", "model": "m"})
+    assert nf.analyze_item(it) == ("positive", "PNJ hưởng lợi")
+    assert fetches == ["http://x/1"] and seen["user"].endswith("BODY")   # không fetch Jina lần 2
+    assert "_user_text_tmp" not in it
+
+
+def test_digest_claude_cli_records_exactly_one_ledger_row(monkeypatch):
+    import subprocess as _sp
+    import vnstock_report_digest as dg
+    monkeypatch.setattr(dg, "_ensure_env_loaded", lambda: None)
+    monkeypatch.setenv("VNSTOCK_LLM_ENGINE", "claude")
+    monkeypatch.setattr(vcc, "cli_executable", lambda: "/fake/claude")
+    rows: list = []
+    monkeypatch.setattr(vcc, "_ledger_record",
+                        lambda provider, model, ok, usage=None, error=None: rows.append((provider, ok)))
+    monkeypatch.setattr(dg, "_ledger",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("digest ghi sổ trùng")))
+    body = {"is_error": False, "result": '{"a": 1}', "usage": {"input_tokens": 1, "output_tokens": 1},
+            "modelUsage": {"claude-opus-5-5": {"outputTokens": 1}}}
+    monkeypatch.setattr(_sp, "run", lambda cmd, **kw: _sp.CompletedProcess(cmd, 0, stdout=json.dumps(body), stderr=""))
+    assert dg.digest_call("S", "U", step="digest") == ('{"a": 1}', "claude-cli")
+    assert rows == [("ClaudeCode", True)]
+
+
+def test_make_auditor_engine_claude_without_cli_is_unapproved_not_null(monkeypatch):
+    import vnstock_auditor as va
+    import vnstock_report_digest as dg
+    monkeypatch.setattr(va, "_ensure_env_loaded", lambda: None)
+    monkeypatch.setattr(dg, "_ensure_env_loaded", lambda: None)
+    for k in va._FREE_KEY_ENVS:
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("VNSTOCK_AUDIT_ENGINE", "claude")
+    monkeypatch.setattr(vcc, "cli_executable", lambda: None)   # engine bật mà không CLI
+    agent = va.make_auditor("auto")
+    assert isinstance(agent, va.FreeAuditorAgent)
+    v = agent.audit({"rsi": 50}, context="t")
+    assert v.approved is False and "mọi nấc" in v.issues[0]     # kêu to, không duyệt suông
+
+
+def test_generate_brief_reserves_skip_claude_code_when_engine_claude():
+    import vnstock_brief as vb
+    src = inspect.getsource(vb.generate_brief)
+    assert '_skip_cc and _cfg.get("type") == "claude-code"' in src
+    assert src.index("_vcc.engine_for(\"brief\")") < src.index("for _cand in _strength_sorted(_reserves)")
+
+
+def test_check_llm_keys_ok_with_engine_claude_and_no_keys(monkeypatch):
+    import vnstock_doctor as doc
+    for k in ("GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY",
+              "MISTRAL_API_KEY", "DEEPSEEK_API_KEY", "CEREBRAS_API_KEY", "OPENROUTER_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    assert doc.check_llm_keys()["status"] == "off"
+    monkeypatch.setenv("VNSTOCK_LLM_ENGINE", "claude")
+    r = doc.check_llm_keys()
+    assert r["status"] == "ok" and "Claude Code (CLI)" in r["message"]
+
+
+def test_strategy_logs_dropped_candidates():
+    import vnstock_strategy as vs
+    for fn in (vs._cold_start, vs._do_revise):
+        src = inspect.getsource(fn)
+        assert '[strategy] ✗' in src, fn.__name__

@@ -2025,8 +2025,11 @@ def _cold_start(
         # code HỎNG (SyntaxError / import / AST reject) — `code` vẫn non-empty
         # nên lọt qua, được backtest (mọi cửa sổ raise → 0 trade) rồi LƯU luôn
         # vào SQLite. Máy user 06/08: 8/29 chiến lược trong kho là rác kiểu này.
-        # Có err = không dùng được, chấm hết.
+        # Có err = không dùng được, chấm hết — nhưng NÓI (thẩm định 30/09:
+        # Claude viết code rộng hơn AST whitelist thì đêm đó chỉ thấy "no agent
+        # produced valid strategy", không biết vì sao).
         if err:
+            print(f"[strategy] ✗ {ag.name}: {str(err)[:140]}")
             continue
         metrics, ps, pe = _do_backtest(code, params, cfg)
         candidates.append((ag.name, code, params, metrics, ps, pe))
@@ -2128,6 +2131,7 @@ def _do_revise(
             diagnosis=diagnosis, revise_reason=revise_reason,
         )
         if err:            # xem chú thích ở nhánh cold-start (develop_and_backtest)
+            print(f"[strategy] ✗ {ag.name}: {str(err)[:140]}")
             continue
         metrics, ps, pe = _do_backtest(new_code, new_params, cfg)
         candidates.append((ag.name, new_code, new_params, metrics, ps, pe))

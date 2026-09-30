@@ -245,7 +245,8 @@ def _warn_rung(name: str, e: Exception, resp=None) -> None:
 _CLI_TIMEOUT_S = 300
 
 
-def _call_claude_cli(system: str, user: str, step: str = "digest") -> "str | None":
+def _call_claude_cli(system: str, user: str, step: str = "digest",
+                     json_schema: "dict | None" = None) -> "str | None":
     """1 lượt `claude -p` qua `vnstock_claude_cli.complete` — None khi lỗi
     (cascade đi tiếp như cũ). Sổ LLM ghi provider ClaudeCode bên trong."""
     try:
@@ -256,7 +257,7 @@ def _call_claude_cli(system: str, user: str, step: str = "digest") -> "str | Non
         text, err, info = vcc.complete(
             user, system=system,
             model=vcc.cli_model(f"VNSTOCK_{up}_CLI_MODEL"),
-            timeout_s=timeout, tag=step)
+            timeout_s=timeout, json_schema=json_schema, tag=step)
         print(vcc.outcome_line(step, info, text, err))
         return text or None
     except Exception as e:
@@ -397,7 +398,8 @@ def _call_free(provider: str, model: str, system: str, user: str,
 
 
 def digest_call(system: str, user: str, accept=None,
-                feedback=None, *, step: str = "digest") -> tuple["str | None", str]:
+                feedback=None, *, step: str = "digest",
+                json_schema: "dict | None" = None) -> tuple["str | None", str]:
     """(raw_text, provider) qua cascade GIẢM DẦN SỨC MẠNH: [claude-cli khi
     engine bước `step` = claude] → Claude API → GPT → mọi model free bậc 1 →
     mọi model free bậc 2 (70B). Provider trả về ghi rõ model free nào đã
@@ -429,7 +431,8 @@ def digest_call(system: str, user: str, accept=None,
 
     rungs: list[tuple[str, "object"]] = []
     if _claude_cli_wanted(step):
-        rungs.append(("claude-cli", lambda u: _call_claude_cli(system, u, step)))
+        rungs.append(("claude-cli",
+                      lambda u: _call_claude_cli(system, u, step, json_schema)))
     rungs += [
         ("claude", lambda u: _call_claude(system, u)),
         ("openai", lambda u: _call_openai(system, u)),

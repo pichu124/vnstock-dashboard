@@ -379,7 +379,10 @@ def analyze_items_cli(todo: list[dict]) -> dict[int, tuple[str, str]]:
         from vnstock_brief_canon import sanitize_impact
     except Exception:
         return {}
-    blocks = [f"### Tin i={i}\n{_analyze_user_text(it)}" for i, it in enumerate(todo)]
+    blocks = []
+    for i, it in enumerate(todo):
+        it["_user_text_tmp"] = _analyze_user_text(it)   # analyze_item dùng lại, khỏi fetch Jina 2 lần
+        blocks.append(f"### Tin i={i}\n{it['_user_text_tmp']}")
     raw_t = (os.environ.get("VNSTOCK_NEWS_CLI_TIMEOUT_S") or "").strip()
     timeout = vcc.cli_timeout_s("VNSTOCK_NEWS_CLI_TIMEOUT_S") if raw_t else _CLI_TIMEOUT_S
     text, err, info = vcc.complete(
@@ -420,7 +423,7 @@ def analyze_item(item: dict) -> tuple[str, str]:
         from vnstock_sentiment import chat_complete_ex, _SENTIMENT_MAP
     except Exception:
         return "", ""
-    user = _analyze_user_text(item)
+    user = item.pop("_user_text_tmp", None) or _analyze_user_text(item)
     res = None
     if _paid_analyze_enabled():
         try:
@@ -490,7 +493,7 @@ def _save_cache(items: list[dict]) -> None:
 
 def refresh(within_days: int = 4, analyze: bool = True,
             max_analyze: int = _MAX_ANALYZE_DEFAULT, max_workers: int = 8,
-            reanalyze: bool = False) -> list[dict]:
+            reanalyze: bool = False, allow_cli: bool = True) -> list[dict]:
     """Fetch all feeds → filter (relevance) → dedup → merge with cache (keep prior
     analysis) → LLM-analyze the newest still-unanalyzed items (≤ max_analyze) →
     save. Returns the saved items (newest first). Best-effort throughout.
@@ -536,7 +539,8 @@ def refresh(within_days: int = 4, analyze: bool = True,
                 it.pop("_impact_cut", None)
         else:
             todo = [it for it in items if not it.get("_impact")][:max_analyze]
-        if todo and _claude_engine():
+        todo_all = list(todo)
+        if todo and allow_cli and _claude_engine():
             # Engine Claude: cả lô một call; tin thiếu mới qua ladder từng tin.
             got = analyze_items_cli(todo)
             for i, it in enumerate(todo):
@@ -553,6 +557,8 @@ def refresh(within_days: int = 4, analyze: bool = True,
                 it["_sentiment"] = s
             if imp:
                 it["_impact"] = imp
+        for it in todo_all:
+            it.pop("_user_text_tmp", None)      # không để lọt vào cache JSON
 
     # Giữ lại tin CŨ đã có trong cache (≤ _RETAIN_DAYS) — fetch window chỉ vài
     # ngày nên nếu không, mỗi refresh GHI ĐÈ cache cụt còn ~4 ngày; sub-tab

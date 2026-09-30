@@ -80,3 +80,26 @@ def _ledger_to_tmp_anywhere(tmp_path, monkeypatch):
     setattr đè tiếp cũng vẫn về tmp — vô hại."""
     import vnstock_llm_ledger as _ledger
     monkeypatch.setattr(_ledger, "_META", tmp_path)
+
+
+@pytest.fixture(autouse=True)
+def _no_claude_cli_anywhere(monkeypatch):
+    """Engine Claude Code (30/09, U62): `.env` máy user có thể đặt
+    VNSTOCK_LLM_ENGINE=claude và có `claude` trên PATH ⇒ test đi qua
+    digest/sentiment/news/train sẽ SPAWN OPUS THẬT rồi đỏ hàng loạt (thẩm
+    định ngược: 14 test whitelist đỏ ở cấu hình desktop giả). Lưới ở đây cho
+    MỌI test: không đọc .env, xoá mọi công tắc engine, ghim exe về đường dẫn
+    không tồn tại (`cli_executable()` → None, KHÔNG rơi về PATH), xoá memo
+    "CLI chết". Test cần engine thì tự setenv; test cần exe thì tự patch
+    `cli_executable`/truyền `exe=` (tests/test_claude_cli.py đã làm vậy)."""
+    import vnstock_claude_cli as _vcc
+    monkeypatch.setattr(_vcc, "_ENV_LOADED", True)
+    for k in ("VNSTOCK_LLM_ENGINE", *_vcc.STEP_ENGINE_ENV.values(),
+              "VNSTOCK_CLAUDE_CLI_MODEL", "VNSTOCK_BRIEF_CLI_MODEL",
+              "VNSTOCK_CLAUDE_CLI_FALLBACK_MODEL"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("VNSTOCK_CLAUDE_CLI_EXE", "/nonexistent/claude-hermetic")
+    monkeypatch.delenv("VNSTOCK_BRIEF_CLI_EXE", raising=False)
+    _vcc.reset_dead_memo()
+    yield
+    _vcc.reset_dead_memo()

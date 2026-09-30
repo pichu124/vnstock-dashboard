@@ -58,6 +58,27 @@ TASK_LINE = "Làm theo hướng dẫn hệ thống với nội dung nhận vào 
 _OFF = ("0", "false", "off", "no", "none")
 _ENV_LOADED = False
 
+# Memo "CLI chết" TRONG TIẾN TRÌNH (thẩm định 30/09): không có exe, không chạy
+# được, treo quá trần, rc≠0 (chưa đăng nhập) ⇒ mọi lượt gọi sau trong cùng
+# tiến trình trả lỗi NGAY thay vì mỗi điểm gọi lại đợi hết timeout (news
+# ⌈N/50⌉×300s + audit + reflection ≤3×300s… ⇒ đêm CLI treo ăn hết trần 240′).
+# Lỗi API (is_error, quá tải) KHÔNG memo — lượt sau có thể qua. Tiến trình
+# con (train/reflection) có memo riêng — vẫn chặn được 30×300s trong bước đó.
+_DEAD_REASON: "str | None" = None
+
+
+def reset_dead_memo() -> None:
+    global _DEAD_REASON
+    _DEAD_REASON = None
+
+
+def _mark_dead(reason: str) -> None:
+    global _DEAD_REASON
+    if _DEAD_REASON is None:
+        _DEAD_REASON = reason
+        print(f"[claude-cli] ⛔ ghi nhớ trong tiến trình: {reason[:120]} — các lượt "
+              "gọi sau trả lỗi ngay, không đợi timeout")
+
 
 def _ensure_env_loaded() -> None:
     """`.env` vào os.environ đúng một lần, không đè biến shell — engine phải
@@ -110,11 +131,27 @@ def cli_timeout_s(*override_envs: str) -> int:
         return DEFAULT_TIMEOUT_S
 
 
+_SHIM_SUFFIXES = (".cmd", ".bat")
+
+
+def is_shim(exe: "str | None") -> bool:
+    """`claude.cmd`/`.bat` (npm) = cmd.exe đọc lại argv ⇒ `|`, `<`, `>`, `%`,
+    xuống dòng trong `--system-prompt`/`--json-schema` bị hiểu là pipe/
+    redirect/hết dòng. Bản cài native là `claude.exe` — không có chuyện đó."""
+    return bool(exe) and str(exe).lower().endswith(_SHIM_SUFFIXES)
+
+
 def cli_executable() -> "str | None":
     exe = _env("VNSTOCK_CLAUDE_CLI_EXE", "VNSTOCK_BRIEF_CLI_EXE")
     if exe:
         return exe if Path(exe).exists() else None
-    return shutil.which("claude")
+    found = shutil.which("claude")
+    if is_shim(found):
+        # Ưu tiên claude.exe của bộ cài native (cùng máy) trước shim npm.
+        native = Path.home() / ".local" / "bin" / "claude.exe"
+        if native.exists():
+            return str(native)
+    return found
 
 
 def cli_env() -> dict:
@@ -244,9 +281,15 @@ def complete(user: str, *, system: "str | None" = None,
     timeout_s = timeout_s or cli_timeout_s()
     exe = exe or cli_executable()
     info: dict = {"requested_model": model, "tag": tag}
+    if _DEAD_REASON:
+        err = f"claude CLI đã chết trong tiến trình này: {_DEAD_REASON}"
+        info["memo"] = True
+        _ledger_record(LEDGER_PROVIDER, model, ok=False, error=err)
+        return "", err, info
     if not exe:
         err = ("không tìm thấy lệnh `claude` (Claude Code CLI) trên PATH — cài CLI "
                "+ đăng nhập, hoặc đặt VNSTOCK_CLAUDE_CLI_EXE")
+        _mark_dead(err)
         _ledger_record(LEDGER_PROVIDER, model, ok=False, error=err)
         return "", err, info
     cmd = cli_command(exe, model, system=system, fallback_model=fallback_model or None,
@@ -261,11 +304,13 @@ def complete(user: str, *, system: "str | None" = None,
     except subprocess.TimeoutExpired:
         err = f"claude CLI quá {timeout_s}s — bỏ"
         info["elapsed_s"] = time.time() - t0
+        _mark_dead(err)
         _ledger_record(LEDGER_PROVIDER, model, ok=False, error=err)
         return "", err, info
     except OSError as e:
         err = f"không chạy được claude CLI: {type(e).__name__}: {str(e)[:120]}"
         info["elapsed_s"] = time.time() - t0
+        _mark_dead(err)
         _ledger_record(LEDGER_PROVIDER, model, ok=False, error=err)
         return "", err, info
     text, err, parsed = parse_cli_output(proc.stdout)
@@ -276,6 +321,7 @@ def complete(user: str, *, system: "str | None" = None,
     if proc.returncode != 0 and not text:
         tail = (proc.stderr or "").strip().splitlines()
         err = f"claude CLI rc={proc.returncode}: {(tail[-1] if tail else err or '?')[:200]}"
+        _mark_dead(err)                 # chưa đăng nhập / binary hỏng: cả đêm như nhau
     if err:
         _ledger_record(LEDGER_PROVIDER, info["model"], ok=False,
                        usage=info.get("usage"), error=err)
@@ -297,13 +343,20 @@ def outcome_line(tag: str, info: dict, text: str, err: "str | None") -> str:
 
 
 # ── Tự kiểm dưới đúng tài khoản chạy task ─────────────────────────────────────
+PROBE_SYSTEM = (
+    'Quy tắc: trả lời đúng "OK" | không thêm gì <1 dòng> 100% chắc chắn.\n'
+    "Dòng hai của system prompt — nếu bạn đọc được dòng này thì vẫn chỉ trả OK."
+)
+
+
 def cli_check(probe: bool = True, timeout_s: int = 120) -> dict:
     """Go/no-go cho đường A: exe (từ env hay PATH), phiên bản, đăng nhập, và
     một probe 1 chữ bằng ĐÚNG cờ/env/cwd của đêm. `ok` chỉ khi probe có chữ."""
     _ensure_env_loaded()
-    out: dict = {"ok": False, "exe": None, "exe_source": None, "version": None,
-                 "auth": None, "probe": None, "engine": {
-                     k: engine_for(k) for k in STEP_ENGINE_ENV}}
+    out: dict = {"ok": False, "exe": None, "exe_source": None, "shim": False,
+                 "version": None, "auth": None, "probe": None,
+                 "dead_memo": _DEAD_REASON,
+                 "engine": {k: engine_for(k) for k in STEP_ENGINE_ENV}}
     exe = cli_executable()
     if not exe:
         out["error"] = ("không thấy `claude` — cài Claude Code CLI dưới tài khoản "
@@ -311,6 +364,11 @@ def cli_check(probe: bool = True, timeout_s: int = 120) -> dict:
         return out
     out["exe"] = exe
     out["exe_source"] = "env" if _env("VNSTOCK_CLAUDE_CLI_EXE", "VNSTOCK_BRIEF_CLI_EXE") else "path"
+    if is_shim(exe):
+        out["shim"] = True
+        out["warning"] = ("đang dùng shim .cmd của npm — cmd.exe đọc lại argv, "
+                          "system prompt có |<>% hoặc xuống dòng có thể hỏng; ghim "
+                          "VNSTOCK_CLAUDE_CLI_EXE=<…\\.local\\bin\\claude.exe> (bản cài native)")
     env = cli_env()
     for key, args in (("version", ["--version"]), ("auth", ["auth", "status"])):
         try:
@@ -330,8 +388,11 @@ def cli_check(probe: bool = True, timeout_s: int = 120) -> dict:
     if not probe:
         out["ok"] = bool(out["version"])
         return out
+    # Probe bằng system prompt CÓ ký tự đặc biệt (|, <, >, %, ", xuống dòng)
+    # — chính là thứ news/audit gửi qua argv; shim mangle thì thấy ngay ở đây.
+    reset_dead_memo()
     text, err, info = complete("Trả lời đúng một chữ: OK",
-                               system="Trả lời ngắn nhất có thể.",
+                               system=PROBE_SYSTEM,
                                timeout_s=timeout_s, exe=exe, tag="check")
     out["probe"] = {"ok": bool(text and not err), "text": text[:40], "error": err,
                     "model": info.get("model"), "elapsed_s": round(float(info.get("elapsed_s") or 0), 1),

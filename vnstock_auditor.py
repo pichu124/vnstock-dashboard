@@ -320,6 +320,15 @@ class FreeAuditorAgent(AuditorAgent):
     approved False (run.py audit → exit 1 cảnh báo, KHÔNG chặn pipeline)."""
 
     name = "free"
+    # Schema cho nấc claude-cli (`--json-schema`): bỏ hẳn lượt tự sửa JSON.
+    VERDICT_SCHEMA = {
+        "type": "object",
+        "properties": {"approved": {"type": "boolean"},
+                       "confidence": {"type": "number"},
+                       "issues": {"type": "array", "items": {"type": "string"}},
+                       "suggestions": {"type": "array", "items": {"type": "string"}}},
+        "required": ["approved", "confidence", "issues", "suggestions"],
+    }
 
     @staticmethod
     def _is_parseable(raw: str) -> bool:
@@ -355,6 +364,7 @@ class FreeAuditorAgent(AuditorAgent):
             feedback=lambda r: ("không lấy ra được JSON verdict "
                                 '{"approved", "confidence", "issues", "suggestions"}'),
             step="audit",          # engine claude ⇒ nấc claude-cli đứng đầu
+            json_schema=self.VERDICT_SCHEMA,
         )
         if not raw:
             return AuditVerdict(
@@ -363,7 +373,8 @@ class FreeAuditorAgent(AuditorAgent):
                         "(xem python vnstock_llm_ledger.py --show)"],
                 backend=self.name,
             )
-        return self._parse_verdict(raw, backend=f"{self.name}:{provider}")
+        backend = provider if provider == "claude-cli" else f"{self.name}:{provider}"
+        return self._parse_verdict(raw, backend=backend)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

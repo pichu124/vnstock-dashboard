@@ -345,7 +345,9 @@ def _render_ticker_news() -> None:
                         _snt_prog.progress(done / total, text=f"Sentiment: {done}/{total}…")
 
                 with st.spinner("Đang phân tích sentiment…"):
-                    _snt.score_news_batch(news, progress_cb=_snt_cb)
+                    # allow_cli=False: không spawn Claude Code trong Streamlit
+                    # (đứng 300s/lô) — engine claude chỉ ở pipeline đêm.
+                    _snt.score_news_batch(news, progress_cb=_snt_cb, allow_cli=False)
                 _snt.attach_sentiments(news)
                 _snt_prog.empty()
                 _scored_now = _snt.scored_count(news)

@@ -3966,9 +3966,17 @@ def generate_brief(
         try:
             _enabled_types = {getattr(a, "agent_type", "") for a in agents}
             _reserves = []
+            _skip_cc = False
+            try:                     # engine brief = claude: đường pack đã tốn
+                import vnstock_claude_cli as _vcc   # 1 lượt Opus rồi mới tới đây
+                _skip_cc = _vcc.engine_for("brief") == "claude"   # — không spawn lần 2
+            except Exception:
+                pass
             for _cfg in load_agent_configs():
                 _cls = AGENT_REGISTRY.get(_cfg.get("type", ""))
                 if _cls is None or _cfg.get("type") in _enabled_types:
+                    continue
+                if _skip_cc and _cfg.get("type") == "claude-code":
                     continue
                 _cand = _cls(model=_cfg.get("model", ""),
                              name=_cfg.get("name", _cfg.get("type", "")))

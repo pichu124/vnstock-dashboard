@@ -7093,6 +7093,50 @@ strategy loop lead agent. Mỗi nấc: lỗi ⇒ ladder như cũ, sổ `ClaudeCo
   gọi CLI); cổng news; lô chấm tin (parse, sanitize, refresh CLI-trước-ladder);
   inject lead; registry/strength/is_available/generate; badge dashboard.
 
+## 3c. Thẩm định NGƯỢC #26 (agent đọc lại từng seam, 30/09 chiều) — 9 chỗ vá
+Workflow thứ hai (5 reader + 1 critique) review đúng code đã nối, không review
+kế hoạch. Ba lỗi chặn và cách vá:
+1. **Test không hermetic**: mô phỏng đúng cấu hình desktop sau bước 4 mục 8
+   (`VNSTOCK_LLM_ENGINE=claude` + `claude` trên PATH) thì 14 test whitelist
+   ĐỎ và mỗi lần chạy suite spawn ~10 lượt Opus THẬT (sổ bị conftest chuyển
+   về tmp nên không ai thấy). Vá tận gốc ở `tests/conftest.py` (autouse cho
+   MỌI test, cùng họ lưới macro/ledger): `vcc._ENV_LOADED=True`, xoá mọi
+   công tắc engine, ghim `VNSTOCK_CLAUDE_CLI_EXE` về đường dẫn không tồn tại
+   (`cli_executable()` → None, không rơi về PATH), reset memo. Đã chạy lại
+   `--fast` với env desktop giả: xanh.
+2. **Không có memo "CLI chết"**: mỗi điểm gọi lại đợi hết timeout ⇒ đêm CLI
+   treo: news ⌈N/50⌉×300s + audit + train 2×600 + reflection ≤3×300 + brief
+   600 ≥ 60′ cộng thêm trên nền 101–168′ ⇒ chạm trần 240′. Nay
+   `vcc._DEAD_REASON`: không exe / OSError / timeout / rc≠0 ⇒ mọi lượt sau
+   trong cùng tiến trình trả lỗi NGAY (+1 dòng log, sổ vẫn ghi); lỗi API
+   (`is_error`, quá tải) KHÔNG memo. `reset_dead_memo()` cho test/--check.
+3. **Không trần số lô sentiment**: cache `sentiment_cache.db` mất (máy mới,
+   Dropbox tắt) ⇒ ~2.600 tin = 52 lô. Nay `_CLI_MAX_CHUNKS=6` (300 tin/lượt),
+   phần dư **để đêm sau** (không cache, KHÔNG đẩy sang ladder từng tin — đó là
+   cơn bão call khác). Lỗi ở lô k giữ kết quả lô 1..k-1.
+Sáu chỗ còn lại: (4) `allow_cli=False` cho `score_news_batch`/`refresh` —
+dashboard `news_tab` không spawn CLI trong Streamlit (đứng 300s/lô), engine
+chỉ ở pipeline; (5) **shim `claude.cmd`** của npm: cmd.exe đọc lại argv nên
+`|<>%` và xuống dòng trong `--system-prompt`/`--json-schema` (news/audit có,
+preface brief KHÔNG có ⇒ brief chạy được mà news thì không) có thể hỏng —
+`cli_executable()` ưu tiên `~\.local\bin\claude.exe` (bản cài native) khi
+which trả `.cmd`; `cli_check` báo `shim: true` + `warning`, và probe bằng
+`PROBE_SYSTEM` CÓ đủ ký tự đặc biệt (không còn probe hiền "Trả lời ngắn");
+(6) audit dùng `--json-schema` (`FreeAuditorAgent.VERDICT_SCHEMA` đi qua
+`digest_call(json_schema=)`) ⇒ hết lượt tự sửa JSON; nhãn backend `claude-cli`
+thay `free:claude-cli`; engine claude + không CLI ⇒ Free cascade cạn ⇒
+unapproved + alert (kêu to, không duyệt suông như Null) — pin bằng test;
+(7) `generate_brief` dự phòng bỏ `claude-code` khi engine brief = claude
+(đường pack đã tốn 1 lượt Opus mới rơi về ladder — không spawn lần 2 với
+system prompt khác); (8) `_cold_start`/`_do_revise` in `[strategy] ✗ <agent>:
+<err>` thay vì bỏ candidate câm (Claude viết code rộng hơn AST whitelist thì
+biết ngay); feeds không fetch Jina 2 lần khi lô lỗi (`_user_text_tmp`, dọn
+trước khi ghi cache); (9) doctor `check_llm_keys` biết engine (không còn warn
+"sentiment ❌" khi chấm bằng Claude); `.env.example` có đủ công tắc.
+Chốt với user còn treo: train hiện là "Claude lead + pool free thi đấu" (mọi
+agent vẫn được gọi, Bonferroni theo số candidate) — không phải "Claude trước,
+free chỉ khi lỗi"; muốn kiểu sau thì tắt agent free trong ⚙️ (pool rỗng).
+
 ## 4. Test
 `tests/test_claude_cli.py` (15, whitelist): engine precedence, model/fallback/
 timeout env, giấu key + autoupdater, exe env-không-rơi-PATH, cờ tước context,
@@ -7101,7 +7145,7 @@ lỗi, structured), complete (stdin nguyên văn, system flag, fallback, sổ m�
 cục, timeout, rc≠0), outcome_line, cli_check. `tests/test_brief_pack.py` sửa
 + thêm (set round-trip, v1 từ chối, raw/final, review/rate, skill review).
 `tests/test_run_pipeline.py` +4, `tests/test_telegram.py` +2,
-`tests/test_doctor.py` +2. Fast **2.719 passed / 46,5s** (sandbox).
+`tests/test_doctor.py` +2. Fast **2.752 passed** (sandbox, 30/09 chiều; xanh cả khi mô phỏng env desktop `VNSTOCK_LLM_ENGINE=claude`).
 
 # 🤖 U61. BRIEF CHIỀU BẰNG CLAUDE — ENGINE NGOÀI LADDER, LÕI DÙNG CHUNG BA ĐƯỜNG (30/09 sáng)
 

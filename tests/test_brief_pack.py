@@ -25,7 +25,6 @@ def _no_dotenv(monkeypatch):
               "VNSTOCK_BRIEF_CLI_MODEL", "VNSTOCK_CLAUDE_CLI_TIMEOUT_S",
               "VNSTOCK_BRIEF_CLI_TIMEOUT_S", "VNSTOCK_CLAUDE_CLI_FALLBACK_MODEL",
               "VNSTOCK_CLAUDE_CLI_API_KEY", "VNSTOCK_BRIEF_CLI_API_KEY",
-              "VNSTOCK_CLAUDE_CLI_EXE", "VNSTOCK_BRIEF_CLI_EXE",
               "VNSTOCK_CLAUDE_CLI_REPO_CONTEXT"):
         monkeypatch.delenv(k, raising=False)
 
@@ -336,6 +335,7 @@ def test_run_claude_cli_error_body_and_nonzero_rc(monkeypatch):
     text, err, _ = bp.run_claude_cli("P")
     assert text == "" and "rc=1" in err and "not logged in" in err
     assert rows[-1][2] is False
+    vcc.reset_dead_memo()                      # rc≠0 đã ghi memo "CLI chết"
 
     monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: subprocess.CompletedProcess(
         cmd, 0, stdout=json.dumps({"is_error": True, "result": "quota"}), stderr=""))
