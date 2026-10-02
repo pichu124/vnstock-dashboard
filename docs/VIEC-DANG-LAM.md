@@ -586,9 +586,11 @@ báo nước ngoài / phân tích từ X được không":**
   (`VNSTOCK_NEWS_ALERT_FETCH_BUDGET_S`). **URL là ứng viên — sandbox không fetch
   được**: `python run.py news-alert --diag` in thô/lọc/3h/mới nhất/giây từng
   nguồn, ❌ thì sửa hoặc `enabled: False`.
-- **Bluesky (đường chính cho "phân tích chuyên gia", miễn phí, sạch ToS):** tạo
-  một List trong app Bluesky, thêm ~20 chuyên gia (Timiraos, Sahm, Furman, El-Erian,
-  Pettis, Javier Blas… theo khảo sát đều có mặt), rồi `.env`:
+- **Bluesky (đường chính cho "phân tích chuyên gia", miễn phí, sạch ToS):** danh
+  sách gợi ý **140 tài khoản / 6 mảng, nhóm ⭐ xuất phát 33** đã khảo sát 02/10 ở
+  `docs/bluesky-macro-list.md` (mỗi handle kèm URL bằng chứng + độ tin cậy; bẫy tài
+  khoản giả ghi ở ghi chú từng mảng). Tạo một List trong app Bluesky, thêm nhóm ⭐,
+  rồi `.env`:
   `VNSTOCK_NEWS_ALERT_BSKY_LIST=https://bsky.app/profile/<handle>/lists/<rkey>`
   (hoặc `VNSTOCK_NEWS_ALERT_BSKY_HANDLES=a.bsky.social,b.bsky.social`). Một call
   `getListFeed`/giờ, ≤3 bài/người, bỏ bài <60 ký tự; prompt chấm bình luận theo
