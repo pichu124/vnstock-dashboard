@@ -542,7 +542,24 @@ def test_standard_dates_unchanged_and_garbage_still_empty():
     assert nf._parse_pubdate("") == "" and nf._parse_pubdatetime("") == ""
 
 
-def test_parse_feed_keeps_raw_date_only_when_unreadable():
+@_pytest.mark.parametrize("raw,expected", [
+    # Báo Chính phủ (--diag desktop 02/10): ASP.NET kiểu Mỹ tháng/ngày + AM/PM
+    ("10/2/2026 11:56:00 AM", "2026-10-02T11:56:00"),
+    ("10/1/2026 9:05:00 PM", "2026-10-01T21:05:00"),
+    ("10/2/2026 12:15:00 AM", "2026-10-02T00:15:00"),
+    ("9/30/2026 8:00 AM", "2026-09-30T08:00:00"),       # 30 không thể là tháng ⇒ chỉ một cách hiểu
+    # kiểu VN ngày/tháng vẫn đúng
+    ("02/10/2026 19:00", "2026-10-02T19:00:00"),
+    ("30/9/2026 08:00", "2026-09-30T08:00:00"),
+    ("12/10/2026", "2026-10-12T00:00:00"),               # cả hai cách hiểu đều tương lai ⇒ gần nhất
+])
+def test_ambiguous_day_month_picks_reading_closest_to_now(raw, expected):
+    from datetime import datetime as _dt
+    got = nf._parse_dt_loose(raw, now=_dt(2026, 10, 2, 20, 20))
+    assert got is not None and got.isoformat(timespec="seconds") == expected
+
+
+def test_parse_feed_keeps_short_raw_date_for_diag():
     rss = (b"<?xml version='1.0'?><rss><channel>"
            b"<item><title>A</title><link>https://a</link><pubDate>2 thang 10</pubDate></item>"
            b"<item><title>B</title><link>https://b</link></item>"
@@ -550,4 +567,4 @@ def test_parse_feed_keeps_raw_date_only_when_unreadable():
            b"</channel></rss>")
     a, b, c = nf.parse_feed(rss, "X")
     assert a["_pub_raw"] == "2 thang 10" and b["_pub_raw"] == "(feed không có thẻ ngày)"
-    assert "_pub_raw" not in c and c["_date_sort"] == "2026-10-02"
+    assert c["_pub_raw"] == "Fri, 02 Oct 2026 09:00:00 +0700" and c["_date_sort"] == "2026-10-02"

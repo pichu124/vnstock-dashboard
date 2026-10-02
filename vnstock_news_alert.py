@@ -107,6 +107,7 @@ class Source:
     lang: str = "vi"
     enabled: bool = True
     relevant: Optional[Callable[[dict], bool]] = None
+    url: str = ""                  # chỉ để --diag thăm HTTP khi nguồn trả 0 tin
 
 
 def _slug(s: str) -> str:
@@ -132,7 +133,7 @@ def rss_source(feed: dict, relevant=_NO_FILTER, key_prefix: str = "rss") -> Sour
         relevant = (lambda it: nf._is_relevant(it))
     return Source(key=f"{key_prefix}:" + _slug(feed["name"]), name=feed["name"], fetch=_fetch,
                   kind=feed.get("kind", "rss"), lang=feed.get("lang", "vi"),
-                  enabled=feed.get("enabled", True), relevant=relevant)
+                  enabled=feed.get("enabled", True), relevant=relevant, url=feed.get("url", ""))
 
 
 # Từ khoá tiếng Anh cho feed nước ngoài (news_feeds._MARKET_KEYWORDS thiên tiếng
@@ -192,7 +193,7 @@ def gnews_source(feed: dict) -> Source:
             out.append(it)
         return out
 
-    return Source(key=base.key, name=base.name, fetch=_fetch, kind="gnews", lang=base.lang,
+    return Source(key=base.key, name=base.name, fetch=_fetch, kind="gnews", lang=base.lang, url=base.url,
                   enabled=base.enabled, relevant=None)
 
 
@@ -1299,13 +1300,35 @@ def diag_sources(sources: Optional[list] = None, now: Optional[datetime] = None)
             bad += 1
         print(f"  {icon} {s.key:34s} thô {len(raw):3d} · lọc {len(kept):3d} · 3h {in3h:2d} · "
               f"mới nhất {newest[:16] or '—':16s} · {_time.time() - t0:4.1f}s {err}")
+        sample = next((r.get("_pub_raw") for r in raw if isinstance(r, dict) and r.get("_pub_raw")),
+                      "(không rõ)")
         if raw and not newest:
-            sample = next((r.get("_pub_raw") for r in raw if isinstance(r, dict) and r.get("_pub_raw")),
-                          "(không rõ)")
             print(f"       ↳ không đọc được ngày đăng, chuỗi gốc: {sample!r} — cảnh báo dùng giờ thấy lần đầu")
+        elif raw and newest < (now - timedelta(days=DIAG_STALE_DAYS)).isoformat(timespec="seconds"):
+            print(f"       ↳ tin mới nhất cũ hơn {DIAG_STALE_DAYS} ngày — feed đứng hoặc đọc sai ngày; "
+                  f"chuỗi gốc: {sample!r}")
+        elif not raw and s.url:
+            print(f"       ↳ {_probe_http(s.url)}")
     print(f"[{TAG}] {len(srcs) - bad}/{len(srcs)} nguồn trả dữ liệu. ❌ = URL sai/chặn/hết "
           f"feed → sửa hoặc enabled=False trong _ALERT_FEEDS (nước ngoài) / _FEEDS (VN).")
     return 1 if bad else 0
+
+
+DIAG_STALE_DAYS = 7
+
+
+def _probe_http(url: str) -> str:
+    """Nguồn ❌: thăm thẳng URL để biết vì sao (403/429/HTML/chuyển hướng)."""
+    try:
+        import requests as _rq
+        from vnstock_news_feeds import _UA
+        r = _rq.get(url, headers={"User-Agent": _UA}, timeout=10, allow_redirects=True)
+        ct = (r.headers.get("Content-Type") or "?").split(";")[0].strip()
+        redir = f" → {r.url}" if r.url.rstrip("/") != url.rstrip("/") else ""
+        head = re.sub(r"\s+", " ", (r.text or "")[:70]).strip()
+        return f"HTTP {r.status_code} · {ct}{redir} · {head!r}"
+    except Exception as e:                        # noqa: BLE001 — diag không được nổ
+        return f"{type(e).__name__}: {str(e)[:120]}"
 
 
 def diag_url(url: str, lang: str = "en") -> int:

@@ -301,6 +301,29 @@ def test_diag_prints_unreadable_raw_date_and_diag_url(monkeypatch, capsys):
     assert "url:thu-https-investinglive-com-feed" in capsys.readouterr().out
 
 
+def test_diag_flags_stale_newest_and_probes_http_for_empty_source(monkeypatch, capsys):
+    stale = [{**_raw("Fed holds rates"), "_published_at": "2026-02-10T11:56:00",
+              "_date_sort": "2026-02-10", "_pub_raw": "10/2/2026 11:56:00 AM"}]
+
+    class _Resp:
+        status_code, url, text = 403, "https://www.ft.com/markets?format=rss", "<html>Access denied</html>"
+        headers = {"Content-Type": "text/html; charset=utf-8"}
+    import requests
+    monkeypatch.setattr(requests, "get", lambda url, **kw: _Resp())
+    empty = na.Source(key="rss:ft", name="ft", fetch=lambda: [], url="https://www.ft.com/markets?format=rss")
+    rc = na.diag_sources([_src("rss:bcp", stale), empty], now=NOW)
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "cũ hơn 7 ngày" in out and "'10/2/2026 11:56:00 AM'" in out
+    assert "HTTP 403 · text/html" in out and "Access denied" in out
+
+
+def test_rss_and_gnews_sources_carry_url_for_diag():
+    by_key = {s.key: s for s in na.alert_feed_sources()}
+    assert by_key["rss:ft-markets"].url == "https://www.ft.com/markets?format=rss"
+    assert by_key["gnews:gn-fed"].url.startswith("https://news.google.com/rss/search?")
+
+
 def test_cap_per_source_keeps_newest_n_per_source_in_time_order():
     items = [{**_raw(f"A{i}", hours_ago=0.1 * i), "source_key": "rss:a"} for i in range(8)]
     items += [{**_raw(f"B{i}", hours_ago=0.05 * i), "source_key": "rss:b"} for i in range(2)]

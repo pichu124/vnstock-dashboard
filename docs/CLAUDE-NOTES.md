@@ -7055,6 +7055,8 @@ sau tin chưa thấy = tin mới với `_published_at` = giờ thấy. Ghi chú 
 ⇒ hai feed của `_FEEDS` gần như đứng — vô hại (rơi ngoài cửa sổ) nhưng là ứng viên thay
 cho brief, chưa đụng.
 
+**Lượt diag thứ hai (02/10 ~20:20, `d8ebf69`):** Nikkei xác nhận `(feed không có thẻ ngày)` ⇒ `take_undated` lo. Báo Chính phủ "mới nhất 2026-02-10" ⇒ feed viết THÁNG/NGÀY kiểu Mỹ (ASP.NET `10/2/2026 11:56 AM`), bộ đọc mới hiểu ngày/tháng ⇒ `_pick_day_month`: chọn cách hiểu gần `now` nhất, không quá 1 ngày tương lai, hoà thì ngày/tháng; đọc AM/PM. `_pub_raw` nay LUÔN giữ (≤60 ký tự) để `--diag` in chuỗi gốc khi tin mới nhất cũ hơn 7 ngày. FT Markets ✅ 25 tin lúc 20:07 rồi ❌ 0,4s lúc 20:20 ⇒ nghi chặn tạm khi gọi dồn, CHƯA tắt; `--diag` nay thăm HTTP khi nguồn ❌ (mã, content-type, chuyển hướng, 70 ký tự đầu). "GN US data" 68 tin/3h đúng ngày NFP (19:30 VN) — cap 6 tin/nguồn giữ lô.
+
 **Chưa kiểm / bẫy còn mở:** (a) mọi URL `_ALERT_FEEDS` + Substack/Cloudflare 403 với
 TLS của `requests` — `--diag` quyết; (b) hình dạng JSON của twitterapi.io
 (`tweets[].createdAt` kiểu Twitter, `author.userName`) viết theo tài liệu, chưa gọi

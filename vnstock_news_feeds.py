@@ -135,7 +135,8 @@ def _strip_html(s: str) -> str:
 # "2026-10-02 19:00:00 +0700". Chỉ chạy khi RFC822/ISO chuẩn đã trượt.
 _TZ_WORD_RE = re.compile(r"\s*\b(?:GMT|UTC)\s*([+-])\s*(\d{1,2})(?::?(\d{2}))?\s*$", re.I)
 _SPACE_OFFSET_RE = re.compile(r"\s+([+-]\d{2}:?\d{2})$")
-_DMY_RE = re.compile(r"(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?:\D{1,6}?(\d{1,2})[:hH](\d{2})(?::(\d{2}))?)?")
+_DMY_RE = re.compile(r"(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})"
+                     r"(?:\D{1,6}?(\d{1,2})[:hH](\d{2})(?::(\d{2}))?(?:\s*([AaPp])\.?[Mm]\.?)?)?")
 _YMD_SLASH_RE = re.compile(r"(\d{4})/(\d{1,2})/(\d{1,2})(?:\D{1,3}(\d{1,2}):(\d{2})(?::(\d{2}))?)?")
 
 
@@ -146,7 +147,28 @@ def _norm_tz_words(s: str) -> str:
     return _TZ_WORD_RE.sub(lambda m: f" {m.group(1)}{int(m.group(2)):02d}{m.group(3) or '00'}", s)
 
 
-def _parse_dt_loose(raw: str) -> "datetime | None":
+def _pick_day_month(a: int, b: int, y: int, hh: int, mm: int, ss: int,
+                    now: "datetime | None" = None) -> "datetime | None":
+    """"a/b/yyyy" mơ hồ: VN viết ngày/tháng, feed ASP.NET kiểu Mỹ viết tháng/ngày
+    (Báo Chính phủ `10/2/2026 11:56 AM` — --diag desktop 02/10 đọc thành 10/02).
+    Tin RSS là tin MỚI ⇒ chọn cách hiểu gần `now` nhất mà không quá 1 ngày tương
+    lai; hoà thì ưu tiên ngày/tháng. Một cách hiểu không hợp lệ ⇒ lấy cách kia."""
+    cands = []
+    for d, mo in ((a, b), (b, a)):
+        try:
+            c = datetime(y, mo, d, hh, mm, ss)
+        except ValueError:
+            continue
+        if c not in cands:
+            cands.append(c)
+    if len(cands) <= 1:
+        return cands[0] if cands else None
+    ref = now or datetime.now()
+    pool = [c for c in cands if c <= ref + _td(days=1)] or cands
+    return min(pool, key=lambda c: abs((ref - c).total_seconds()))
+
+
+def _parse_dt_loose(raw: str, now: "datetime | None" = None) -> "datetime | None":
     """Lưới cuối cho ngày lệch chuẩn — datetime (có tz nếu chuỗi có) hoặc None."""
     s = (raw or "").strip()
     if not s:
@@ -161,16 +183,22 @@ def _parse_dt_loose(raw: str) -> "datetime | None":
         return datetime.fromisoformat(_SPACE_OFFSET_RE.sub(r"\1", s2.replace("Z", "+00:00")))
     except ValueError:
         pass
-    for rx, order in ((_DMY_RE, "dmy"), (_YMD_SLASH_RE, "ymd")):
-        m = rx.search(s)
-        if not m:
-            continue
-        a, b, c, hh, mm, ss = m.groups()
-        d, mo, y = (a, b, c) if order == "dmy" else (c, b, a)
+    m = _DMY_RE.search(s)
+    if m:
+        a, b, y, hh, mm, ss, ap = m.groups()
+        h = int(hh or 0)
+        if ap:                                   # 12h → 24h: 12 AM = 0h, 12 PM = 12h
+            h = h % 12 + (12 if ap.lower() == "p" else 0)
+        got = _pick_day_month(int(a), int(b), int(y), h, int(mm or 0), int(ss or 0), now)
+        if got:
+            return got
+    m = _YMD_SLASH_RE.search(s)
+    if m:
+        y, mo, d, hh, mm, ss = m.groups()
         try:
             return datetime(int(y), int(mo), int(d), int(hh or 0), int(mm or 0), int(ss or 0))
         except ValueError:
-            continue
+            pass
     return None
 
 
@@ -258,8 +286,9 @@ def parse_feed(content: "str | bytes", source: str = "") -> list[dict]:
             "_sentiment": "",
             "_impact": "",
         }
-        if not iso:                        # để `news-alert --diag` in ra chuỗi ngày đọc không được
-            item["_pub_raw"] = d.get("_pub", "")[:80] or "(feed không có thẻ ngày)"
+        # chuỗi ngày GỐC (ngắn) — `news-alert --diag` in ra khi không đọc được hoặc
+        # đọc ra ngày đáng ngờ (vết 02/10: Báo Chính phủ M/D đọc thành D/M)
+        item["_pub_raw"] = d.get("_pub", "")[:60] or "(feed không có thẻ ngày)"
         out.append(item)
     return out
 
