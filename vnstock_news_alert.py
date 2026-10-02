@@ -114,16 +114,110 @@ def _slug(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", t).strip("-")
 
 
-def rss_source(feed: dict) -> Source:
-    """Adapter RSS/Atom — dùng lại fetch_feed + bộ lọc từ khoá của news_feeds."""
+_NO_FILTER = object()        # sentinel: "không lọc" khác với "mặc định"
+
+
+def rss_source(feed: dict, relevant=_NO_FILTER, key_prefix: str = "rss") -> Source:
+    """Adapter RSS/Atom — dùng lại fetch_feed của news_feeds. `relevant` mặc
+    định = bộ lọc từ khoá tiếng Việt của news_feeds (`_is_relevant`); feed
+    tiếng Anh truyền `_relevant_en`; feed đã chuyên đề (Google News theo truy
+    vấn) truyền None = lấy hết."""
     import vnstock_news_feeds as nf
 
     def _fetch(f: dict = feed) -> list:
         return nf.fetch_feed(f)
 
-    return Source(key="rss:" + _slug(feed["name"]), name=feed["name"], fetch=_fetch,
-                  kind="rss", lang=feed.get("lang", "vi"),
-                  relevant=lambda it: nf._is_relevant(it))
+    if relevant is _NO_FILTER:
+        relevant = (lambda it: nf._is_relevant(it))
+    return Source(key=f"{key_prefix}:" + _slug(feed["name"]), name=feed["name"], fetch=_fetch,
+                  kind=feed.get("kind", "rss"), lang=feed.get("lang", "vi"),
+                  enabled=feed.get("enabled", True), relevant=relevant)
+
+
+# Từ khoá tiếng Anh cho feed nước ngoài (news_feeds._MARKET_KEYWORDS thiên tiếng
+# Việt). Mục tiêu là VĨ MÔ ảnh hưởng VN: Fed/USD/lợi suất, dầu, thuế quan, Trung
+# Quốc, dòng vốn EM — tin doanh nghiệp Mỹ lẻ (earnings Apple…) KHÔNG qua cửa này.
+_EN_KEYWORDS: tuple = (
+    "fed", "federal reserve", "fomc", "powell", "rate", "yield", "treasury", "inflation",
+    "cpi", "pce", "gdp", "payroll", "jobs report", "unemployment", "recession", "pmi",
+    "dollar", "dxy", "yuan", "yen", "ecb", "boj", "pboc", "central bank", "tariff",
+    "trade war", "sanction", "export control", "oil", "brent", "opec", "crude", "gold",
+    "china", "vietnam", "asean", "emerging market", "em flows", "stimulus", "debt ceiling",
+    "default", "bond", "liquidity", "war", "ceasefire", "geopolit", "strait", "shipping",
+    "semiconductor", "chip export", "s&p 500", "nasdaq", "wall street", "stocks fall",
+    "stocks rise", "sell-off", "selloff", "rally", "volatility", "vix",
+)
+
+
+def _relevant_en(item: dict) -> bool:
+    hay = f"{item.get('title', '')} {item.get('news_short_content', '')}".lower()
+    return any(k in hay for k in _EN_KEYWORDS)
+
+
+def gnews_feed(name: str, query: str, lang: str = "en", enabled: bool = True) -> dict:
+    """Feed Google News RSS theo TRUY VẤN (miễn phí, không key) — một dòng một
+    chủ đề. Tiêu đề Google News có đuôi " - <Báo>", `gnews_source` tách ra làm
+    source_feed. Link là link chuyển hướng news.google.com (Telegram mở được)."""
+    from urllib.parse import quote_plus
+    hl, gl, ceid = ("vi", "VN", "VN:vi") if lang == "vi" else ("en-US", "US", "US:en")
+    url = (f"https://news.google.com/rss/search?q={quote_plus(query)}"
+           f"&hl={hl}&gl={gl}&ceid={ceid}")
+    return {"name": name, "url": url, "lang": lang, "kind": "gnews", "enabled": enabled,
+            "query": query}
+
+
+_GNEWS_TITLE_RE = re.compile(r"^(.*\S)\s+-\s+([^-]{2,60})$")
+
+
+def gnews_source(feed: dict) -> Source:
+    """Google News RSS: truy vấn đã chuyên đề ⇒ không lọc từ khoá; tách báo gốc
+    khỏi đuôi tiêu đề để Telegram ghi đúng nguồn."""
+    base = rss_source(feed, relevant=None, key_prefix="gnews")
+
+    def _fetch(inner=base.fetch, label=feed["name"]) -> list:
+        out = []
+        for it in inner() or []:
+            m = _GNEWS_TITLE_RE.match(it.get("title") or "")
+            if m:
+                it = {**it, "title": m.group(1), "news_title": m.group(1),
+                      "source_feed": f"{m.group(2).strip()} · {label}"}
+            out.append(it)
+        return out
+
+    return Source(key=base.key, name=base.name, fetch=_fetch, kind="gnews", lang=base.lang,
+                  enabled=base.enabled, relevant=None)
+
+
+# Nguồn NƯỚC NGOÀI chỉ cho cảnh báo (KHÔNG vào news_feeds._FEEDS để brief chiều
+# và cache tin không đổi). URL là ứng viên — sandbox không fetch được, 🖥️ desktop
+# xác minh bằng `python run.py news-alert --diag`; feed ❌ thì enabled=False hoặc
+# xoá dòng. Danh sách chốt theo khảo sát U68 (02/10).
+_ALERT_FEEDS: list = [
+    # ── Báo / chính thức, RSS trực tiếp (tiếng Anh, lọc _EN_KEYWORDS) ──
+    {"name": "WSJ Markets",        "url": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml", "lang": "en"},
+    {"name": "WSJ World",          "url": "https://feeds.a.dj.com/rss/RSSWorldNews.xml",   "lang": "en"},
+    {"name": "NYT Economy",        "url": "https://rss.nytimes.com/services/xml/rss/nyt/Economy.xml", "lang": "en"},
+    {"name": "BBC Business",       "url": "https://feeds.bbci.co.uk/news/business/rss.xml", "lang": "en"},
+    {"name": "Guardian Business",  "url": "https://www.theguardian.com/uk/business/rss",   "lang": "en"},
+    {"name": "Fed press releases", "url": "https://www.federalreserve.gov/feeds/press_all.xml", "lang": "en"},
+    {"name": "Nikkei Asia",        "url": "https://asia.nikkei.com/rss/feed/nar",           "lang": "en"},
+    # ── Google News theo truy vấn (không lọc thêm — truy vấn đã là bộ lọc) ──
+    gnews_feed("GN Fed",            "Federal Reserve rates OR FOMC when:1d"),
+    gnews_feed("GN Vietnam macro",  "Vietnam economy OR Vietnam tariff OR Vietnam exports when:1d"),
+    gnews_feed("GN Oil",            "Brent crude OR OPEC when:1d"),
+    gnews_feed("GN China macro",    "China economy OR PBOC OR yuan when:1d"),
+    gnews_feed("GN Treasuries USD", "Treasury yields OR dollar index when:1d"),
+]
+
+
+def alert_feed_sources() -> list:
+    out = []
+    for f in _ALERT_FEEDS:
+        if f.get("kind") == "gnews":
+            out.append(gnews_source(f))
+        else:
+            out.append(rss_source(f, relevant=_relevant_en if f.get("lang") == "en" else _NO_FILTER))
+    return out
 
 
 def ticker_news_source(tickers: tuple) -> Source:
@@ -150,8 +244,10 @@ def ticker_news_source(tickers: tuple) -> Source:
 
 
 def _default_sources() -> list:
+    """RSS của pipeline (`_FEEDS`, lọc từ khoá Việt) + nguồn nước ngoài riêng
+    cho cảnh báo (`_ALERT_FEEDS`)."""
     import vnstock_news_feeds as nf
-    return [rss_source(f) for f in nf._FEEDS]
+    return [rss_source(f) for f in nf._FEEDS] + alert_feed_sources()
 
 
 SOURCES: list = _default_sources()
@@ -324,6 +420,31 @@ def within_window(item: dict, now: datetime, window_h: int) -> bool:
     return bool(d) and d >= cutoff.date().isoformat()
 
 
+ENV_MAX_CATCHUP_H = "VNSTOCK_NEWS_ALERT_MAX_CATCHUP_H"
+DEFAULT_MAX_CATCHUP_H = 36        # T7 22:00 → T2 07:00 = 33h vẫn bắt được tin CN
+CATCHUP_MARGIN_H = 1              # feed đăng muộn hơn giờ bài ⇒ nới thêm 1h
+
+
+def effective_window_h(now: datetime, prev_status: Optional[dict], default_h: int,
+                       max_catchup_h: Optional[int] = None) -> int:
+    """Cửa sổ thật của lượt này. Bình thường = default (3h). Nếu lượt trước
+    cách đây lâu hơn (qua đêm 22:00→07:00, cuối tuần, máy tắt) thì nới tới
+    `covered_until` của lượt trước + 1h, kẹp `max_catchup_h` — không thì tin
+    Fed lúc 01:00 VN rơi khỏi cửa sổ 3h của lượt 07:00 (lỗ hổng #32)."""
+    cap = max_catchup_h if max_catchup_h is not None else \
+        _env_int(ENV_MAX_CATCHUP_H, DEFAULT_MAX_CATCHUP_H, 1, 24 * 14)
+    raw = (prev_status or {}).get("covered_until") or (prev_status or {}).get("ran_at") or ""
+    try:
+        last = datetime.fromisoformat(str(raw))
+    except (TypeError, ValueError):
+        return default_h
+    gap_h = (now - last).total_seconds() / 3600 + CATCHUP_MARGIN_H
+    if gap_h <= default_h:
+        return default_h
+    import math
+    return int(min(cap, math.ceil(gap_h)))
+
+
 def item_hash(item: dict) -> str:
     from vnstock_news_feeds import _hash
     return _hash(item)
@@ -410,8 +531,9 @@ SCORE_SYSTEM = (
     "mô tả theo chiều giảm). Tin muc_do 1 ⇒ tac_dong = \"không tác động trực tiếp\".\n"
     "Khắt khe: phần lớn tin là 2–3; chỉ chấm 4–5 khi thật sự thay đổi kỳ vọng của CẢ "
     "thị trường. Tin một doanh nghiệp chỉ lên 4 khi nó đổi kỳ vọng cả ngành/thị trường "
-    "(vd ngân hàng lớn mất thanh khoản). Tin trùng nội dung với tin khác trong lô ⇒ tin "
-    "sau chấm thấp hơn 1 bậc.\n"
+    "(vd ngân hàng lớn mất thanh khoản). Tin trùng SỰ KIỆN với tin khác trong lô — kể cả "
+    "KHÁC NGÔN NGỮ (báo VN dịch lại tin nước ngoài) — ⇒ giữ nguyên tin đầu, tin sau chấm "
+    "thấp hơn 1 bậc. Tin tiếng Anh: tac_dong vẫn viết TIẾNG VIỆT.\n"
     'Trả về DUY NHẤT JSON đúng schema {"results": [{"i": <i>, "muc_do": <1-5>, "nhan": '
     '"…", "tac_dong": "…"}]} — đủ MỌI i, không thêm chữ nào ngoài JSON.'
 )
@@ -453,6 +575,8 @@ def item_block(i: int, it: dict) -> str:
     """Khối user cho một tin — tiêu đề + tóm tắt (KHÔNG fetch thân bài: lượt
     giờ phải xong dưới một phút)."""
     lines = [f"### Tin i={i}", f"Nguồn: {it.get('source_feed', '')}"]
+    if (it.get("lang") or "vi") != "vi":
+        lines.append(f"Ngôn ngữ: {it['lang']}")
     if it.get("ticker"):
         lines.append(f"Mã: {it['ticker']}")
     if it.get("_published_at"):
@@ -687,7 +811,13 @@ def run(*, now: Optional[datetime] = None, dry_run: bool = False, force: bool = 
         print(f"[{TAG}] ngoài khung giờ ({why}) — bỏ qua (thêm --force để chạy)")
         return 0
     min_score = min_score if min_score is not None else _env_int(ENV_MIN_SCORE, DEFAULT_MIN_SCORE, 1, 5)
-    window_h = window_h if window_h is not None else _env_int(ENV_WINDOW_H, DEFAULT_WINDOW_H, 1, 168)
+    prev = read_status() or {}
+    if window_h is None:
+        base_h = _env_int(ENV_WINDOW_H, DEFAULT_WINDOW_H, 1, 168)
+        window_h = effective_window_h(now, prev, base_h)
+        if window_h > base_h:
+            print(f"[{TAG}] bắt bù: cửa sổ {window_h}h (lượt trước "
+                  f"{prev.get('covered_until') or prev.get('ran_at') or '?'})")
     max_send = max_send if max_send is not None else _env_int(ENV_MAX_SEND, DEFAULT_MAX_SEND, 1, 50)
     max_score = max_score if max_score is not None else _env_int(ENV_MAX_SCORE, DEFAULT_MAX_SCORE, 1, 200)
 
@@ -749,11 +879,15 @@ def run(*, now: Optional[datetime] = None, dry_run: bool = False, force: bool = 
         error = "không có engine chấm (Claude tắt/hỏng, ladder không provider)"
     if fetched == 0 and srcs:
         error = error or "mọi nguồn đều rỗng — mạng hoặc feed hỏng"
-    prev = read_status() or {}
     streak = (int(prev.get("error_streak") or 0) + 1) if (error and prev.get("error")) \
         else (1 if error else 0)        # badge doctor đỏ khi ≥3 lượt lỗi liền
+    # covered_until: mốc tin đã được NHÌN — chỉ tiến khi có nguồn trả tin (lượt
+    # mọi nguồn rỗng không được "nuốt" khoảng giờ đó).
+    covered = now.isoformat(timespec="seconds") if fetched > 0 else \
+        (prev.get("covered_until") or prev.get("ran_at"))
     status = {
         "ran_at": now.isoformat(timespec="seconds"),
+        "covered_until": covered,
         "machine": _machine(),
         "dry_run": dry_run,
         "engine": eng,
@@ -776,6 +910,45 @@ def run(*, now: Optional[datetime] = None, dry_run: bool = False, force: bool = 
     return 1 if error else 0
 
 
+def diag_sources(sources: Optional[list] = None, now: Optional[datetime] = None) -> int:
+    """Thử TỪNG nguồn trên máy có mạng: số tin thô / sau lọc / mới nhất / giây.
+    Exit 1 khi có nguồn rỗng (URL sai, chặn UA, hết feed) để user sửa `_ALERT_FEEDS`.
+    Không ghi sổ, không gọi LLM, không gửi."""
+    import time as _time
+    now = now or datetime.now()
+    srcs = sources if sources is not None else enabled_sources()
+    print(f"[{TAG}] --diag {len(srcs)} nguồn (xác minh trên máy có mạng):")
+    bad = 0
+    for s in srcs:
+        t0 = _time.time()
+        try:
+            raw = list(s.fetch() or [])
+        except Exception as e:                      # noqa: BLE001 — diag phải chạy hết
+            raw, err = [], f"{type(e).__name__}: {e}"
+        else:
+            err = ""
+        items = [it for it in (normalize_item(r, s) for r in raw) if it]
+        kept = [it for it in items if s.relevant is None or _safe_relevant(s, it)]
+        newest = max((it.get("_published_at") or it.get("_date_sort") or "" for it in items),
+                     default="")
+        in3h = sum(1 for it in kept if within_window(it, now, DEFAULT_WINDOW_H))
+        icon = "✅" if kept else ("⚠️" if raw else "❌")
+        if not raw:
+            bad += 1
+        print(f"  {icon} {s.key:34s} thô {len(raw):3d} · lọc {len(kept):3d} · 3h {in3h:2d} · "
+              f"mới nhất {newest[:16] or '—':16s} · {_time.time() - t0:4.1f}s {err}")
+    print(f"[{TAG}] {len(srcs) - bad}/{len(srcs)} nguồn trả dữ liệu. ❌ = URL sai/chặn/hết "
+          f"feed → sửa hoặc enabled=False trong _ALERT_FEEDS (nước ngoài) / _FEEDS (VN).")
+    return 1 if bad else 0
+
+
+def _safe_relevant(s: Source, it: dict) -> bool:
+    try:
+        return bool(s.relevant(it))
+    except Exception:
+        return False
+
+
 def print_sources(sources: Optional[list] = None) -> None:
     for s in (sources if sources is not None else enabled_sources()):
         print(f"  {s.key:40s} {s.kind:4s} {s.lang:2s}  {s.name}")
@@ -795,12 +968,15 @@ def main(argv: Optional[list] = None) -> int:
     ap.add_argument("--sources", default=None, help="lọc key nguồn (tiền tố, phẩy)")
     ap.add_argument("--engine", choices=["ladder", "claude"], default=None)
     ap.add_argument("--list-sources", action="store_true")
+    ap.add_argument("--diag", action="store_true", help="thử từng nguồn, không gửi/ghi")
     a = ap.parse_args(argv)
     _load_env()
     only = [k for k in (a.sources or "").split(",") if k.strip()] or None
     if a.list_sources:
         print_sources(enabled_sources(only))
         return 0
+    if a.diag:
+        return diag_sources(enabled_sources(only))
     return run(dry_run=a.dry_run, force=a.force, min_score=a.min_score,
                window_h=a.window_h, max_send=a.max_send, engine=a.engine,
                sources=enabled_sources(only) if only else None)

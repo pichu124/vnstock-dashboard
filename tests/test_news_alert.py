@@ -84,11 +84,47 @@ def _sender_spy():
 # ── registry nguồn ───────────────────────────────────────────────────────────
 
 
-def test_registry_mirrors_every_rss_feed_with_unique_keys():
+def test_registry_mirrors_every_rss_feed_plus_alert_feeds_with_unique_keys():
     keys = [s.key for s in na.SOURCES]
-    assert len(keys) == len(nf._FEEDS) and len(set(keys)) == len(keys)
-    assert all(k.startswith("rss:") for k in keys)
+    assert len(keys) == len(nf._FEEDS) + len(na._ALERT_FEEDS) and len(set(keys)) == len(keys)
+    vn = keys[:len(nf._FEEDS)]
+    assert all(k.startswith("rss:") for k in vn)
     assert "rss:cafef-chung-khoan" in keys          # slug bỏ dấu, chữ thường
+    assert any(k.startswith("gnews:") for k in keys)
+
+
+def test_alert_feeds_are_alert_only_and_filtered_by_language():
+    """Feed nước ngoài KHÔNG lọt vào news_feeds._FEEDS (brief không đổi); feed
+    tiếng Anh dùng _relevant_en, Google News không lọc thêm."""
+    names_vn = {f["name"] for f in nf._FEEDS}
+    assert not any(f["name"] in names_vn for f in na._ALERT_FEEDS)
+    by_key = {s.key: s for s in na.alert_feed_sources()}
+    wsj = by_key["rss:wsj-markets"]
+    assert wsj.lang == "en" and wsj.relevant is not None
+    assert wsj.relevant({"title": "Fed holds rates", "news_short_content": ""})
+    assert not wsj.relevant({"title": "Apple unveils new iPhone", "news_short_content": ""})
+    gn = by_key["gnews:gn-fed"]
+    assert gn.kind == "gnews" and gn.relevant is None and "news.google.com/rss/search" in \
+        next(f["url"] for f in na._ALERT_FEEDS if f["name"] == "GN Fed")
+
+
+def test_gnews_source_splits_publisher_from_title(monkeypatch):
+    feed = na.gnews_feed("GN Fed", "Federal Reserve when:1d")
+    monkeypatch.setattr(nf, "fetch_feed", lambda f: [
+        _raw("Fed holds rates steady - Reuters", src="GN Fed"),
+        _raw("No publisher suffix here", src="GN Fed")])
+    items, counts = na.collect([na.gnews_source(feed)])
+    assert counts == {"gnews:gn-fed": 2}
+    by_title = {it["title"]: it for it in items}
+    assert by_title["Fed holds rates steady"]["source_feed"] == "Reuters · GN Fed"
+    assert by_title["No publisher suffix here"]["source_feed"] == "GN Fed"
+    assert all(it["lang"] == "en" and it["source_kind"] == "gnews" for it in items)
+
+
+def test_item_block_marks_language_for_foreign_items():
+    it = _raw("Fed cuts rates"); it["lang"] = "en"
+    assert "Ngôn ngữ: en" in na.item_block(0, it)
+    assert "Ngôn ngữ" not in na.item_block(0, _raw("Tỷ giá tăng"))
 
 
 def test_rss_source_reuses_fetch_feed_and_keyword_filter(monkeypatch):
@@ -214,6 +250,59 @@ def test_in_active_hours_env_override_and_bad_env_falls_back(monkeypatch):
     assert na.in_active_hours(datetime(2026, 10, 3, 10, 0))[0] is False     # T7 bị loại
     monkeypatch.setenv(na.ENV_HOURS, "rác")
     assert na.in_active_hours(datetime(2026, 10, 2, 21, 0))[0] is True      # về mặc định
+
+
+def test_effective_window_catches_up_overnight_and_is_capped():
+    prev = {"ran_at": "2026-10-01T22:00:00", "covered_until": "2026-10-01T22:00:00"}
+    morning = datetime(2026, 10, 2, 7, 0)
+    assert na.effective_window_h(morning, prev, 3) == 10          # 9h + 1h biên
+    assert na.effective_window_h(datetime(2026, 10, 1, 23, 0), prev, 3) == 3   # 1h gap → mặc định
+    monday = datetime(2026, 10, 5, 7, 0)
+    prev_sat = {"covered_until": "2026-10-03T22:00:00"}
+    assert na.effective_window_h(monday, prev_sat, 3) == 34        # 33h + 1 < trần 36
+    assert na.effective_window_h(monday, {"covered_until": "2026-09-20T22:00:00"}, 3) == 36
+    assert na.effective_window_h(monday, {"covered_until": "2026-09-20T22:00:00"}, 3,
+                                 max_catchup_h=12) == 12
+    assert na.effective_window_h(morning, None, 3) == 3
+    assert na.effective_window_h(morning, {"ran_at": "rác"}, 3) == 3
+
+
+def test_run_uses_catchup_window_and_advances_covered_until(monkeypatch):
+    # lượt 22:00 hôm trước ghi marker; tin Fed đăng 01:00 nằm ngoài 3h của lượt 07:00
+    na.write_status({"ran_at": "2026-10-01T22:00:00", "covered_until": "2026-10-01T22:00:00",
+                     "fetched": 5})
+    fed = _raw("Fed cuts rates by 50bp", hours_ago=0)      # NOW là 10:05 → sửa giờ đăng tay
+    fed["_published_at"] = "2026-10-02T01:00:00"; fed["_date_sort"] = "2026-10-02"
+    calls = _fake_complete(monkeypatch, results=[{"i": 0, "muc_do": 5, "nhan": "x", "tac_dong": "y"}])
+    sent, spy = _sender_spy()
+    morning = datetime(2026, 10, 2, 7, 0)
+    rc = na.run(now=morning, sources=[_src("rss:t", [fed])], engine="claude", sender=spy)
+    assert rc == 0 and len(calls) == 1 and len(sent) == 1 and "Fed cuts" in sent[0]
+    st = na.read_status()
+    assert st["window_h"] == 10 and st["covered_until"] == "2026-10-02T07:00:00"
+    # lượt mọi nguồn rỗng KHÔNG tiến covered_until
+    na.run(now=datetime(2026, 10, 2, 8, 0), sources=[_src("rss:t", [])], engine="claude", sender=spy)
+    assert na.read_status()["covered_until"] == "2026-10-02T07:00:00"
+    # --window-h tường minh thắng bắt bù
+    na.run(now=datetime(2026, 10, 2, 9, 0), window_h=2, sources=[_src("rss:t", [])],
+           engine="claude", sender=spy)
+    assert na.read_status()["window_h"] == 2
+
+
+def test_diag_sources_reports_each_source_and_flags_empty(capsys):
+    def _boom():
+        raise RuntimeError("DNS")
+    srcs = [_src("rss:ok", [_raw("Fed holds rates", hours_ago=1)], relevant=na._relevant_en),
+            _src("rss:junk", [_raw("Ca sĩ ra MV", summary="x")], relevant=na._relevant_en),
+            na.Source(key="rss:dead", name="dead", fetch=_boom)]
+    rc = na.diag_sources(srcs, now=NOW)
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "✅ rss:ok" in out and "thô   1 · lọc   1 · 3h  1" in out
+    assert "⚠️ rss:junk" in out and "lọc   0" in out
+    assert "❌ rss:dead" in out and "RuntimeError: DNS" in out
+    assert "2/3 nguồn trả dữ liệu" in out
+    assert na.read_status() is None and na.load_seen() == {"items": {}}    # không ghi gì
 
 
 # ── sổ đã thấy ───────────────────────────────────────────────────────────────
@@ -557,6 +646,7 @@ def test_runpy_has_news_alert_subcommand_but_all_does_not():
     args = runpy.build_parser().parse_args(["news-alert", "--dry-run", "--min-score", "4",
                                             "--sources", "rss:cafef"])
     assert args.subcommand == "news-alert" and args.dry_run and args.min_score == 4
+    assert runpy.build_parser().parse_args(["news-alert", "--diag"]).diag is True
     assert runpy._DISPATCH["news-alert"] is runpy.cmd_news_alert
     names = [n for n, _ in runpy._all_steps(SimpleNamespace())]
     assert "news-alert" not in names

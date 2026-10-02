@@ -1191,6 +1191,8 @@ def cmd_news_alert(args) -> int:
     if getattr(args, "list_sources", False):
         _na.print_sources(_na.enabled_sources(only))
         return 0
+    if getattr(args, "diag", False):
+        return _na.diag_sources(_na.enabled_sources(only))
     return _na.run(dry_run=getattr(args, "dry_run", False),
                    force=getattr(args, "force", False),
                    min_score=getattr(args, "min_score", None),
@@ -2059,6 +2061,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Ép engine chấm (mặc định theo VNSTOCK_NEWS_ALERT_ENGINE/LLM_ENGINE)")
     na.add_argument("--list-sources", action="store_true",
                     help="In registry nguồn đang bật rồi thoát")
+    na.add_argument("--diag", action="store_true",
+                    help="Thử từng nguồn trên máy có mạng (số tin/feed, mới nhất); "
+                         "không gửi, không ghi sổ — chạy sau khi thêm feed")
 
     all_ = sub.add_parser(
         "all", help="sync → validate → screener → news → test → audit → "
