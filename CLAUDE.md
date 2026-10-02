@@ -215,7 +215,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 - `vnstock_news_alert.py` — **cảnh báo tin quan trọng MỖI GIỜ → Telegram**
   (02/10, #31; task `VnStock News Alert` 07–22h T2–T7 chỉ 🖥️ desktop, KHÔNG
   nằm trong `all`). Registry `SOURCES` (RSS dựng từ `_FEEDS` của news_feeds +
-  adapter tin theo mã) → cửa sổ 3h (`_published_at` mới thêm vào `parse_feed`)
+  adapter tin theo mã — TẮT, user chốt 02/10 chỉ tin vĩ mô) → cửa sổ 3h (`_published_at` mới thêm vào `parse_feed`)
   → sổ `_meta/news_alert_seen.json` → Claude Code chấm 1–5 cả LÔ một call
   (rơi về ladder + điểm từ khoá; không engine ⇒ KHÔNG gửi tin thô) → ≥3 gửi,
   ≤8 tin/lượt, dư để lượt sau không chấm lại → marker

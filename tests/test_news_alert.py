@@ -268,6 +268,16 @@ def test_score_items_cli_one_call_with_schema_and_blocks(monkeypatch):
     assert "Tỷ giá vượt 26.000" in c["user"] and c["system"] == na.SCORE_SYSTEM
 
 
+def test_score_prompt_is_macro_first_company_news_capped():
+    """User chốt 02/10: chỉ tin thị trường/vĩ mô — tin riêng doanh nghiệp (kể cả
+    VN30) không được xếp sẵn ở mức 4 như bản đầu; ghim chữ để ai sửa prompt phải
+    sửa test có ý thức."""
+    sysmsg = na.SCORE_SYSTEM
+    assert "TIN VĨ MÔ QUAN TRỌNG" in sysmsg and "KHÔNG phải tin riêng" in sysmsg
+    assert "2 = tin thường (tin riêng MỘT doanh nghiệp" in sysmsg and "kể cả VN30" in sysmsg
+    assert "kết quả kinh doanh/sự kiện của mã VN30" not in sysmsg      # không còn ở mức 4
+
+
 def test_score_items_cli_error_or_garbage_returns_empty(monkeypatch):
     _fake_complete(monkeypatch, err="CLI treo")
     assert na.score_items_cli([_raw("a")]) == ({}, "CLI treo")

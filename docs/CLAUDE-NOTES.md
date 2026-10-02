@@ -6988,7 +6988,7 @@ top screener, nuôi tab Tin tức + sentiment 7N của brief; (3) Finhay MCP
 (RSS 404). Trước 02/10 KHÔNG có đường nào đẩy tin theo giờ — tin chỉ vào brief
 chiều.
 
-**Thiết kế (`vnstock_news_alert.py`, 46 test `tests/test_news_alert.py`):**
+**Thiết kế (`vnstock_news_alert.py`, 47 test `tests/test_news_alert.py`):**
 - Registry `SOURCES`: `Source(key, name, fetch, kind, lang, enabled, relevant)`;
   RSS dựng từ `_FEEDS` (một nguồn sự thật) qua `rss_source`; adapter không-RSS
   mẫu `ticker_news_source` (env `VNSTOCK_NEWS_ALERT_TICKERS`); `register_source`
@@ -7033,6 +7033,22 @@ error**, 33 fail nằm trọn 6 file (model_watch 11 · pipeline_status_gate 7 �
 bank_balance_export 5 · atomic_writes 4 · ohlc_repair 3 · model_ladder 3) và
 cây sạch `git stash` cho ĐÚNG 33 fail y hệt (ModuleNotFoundError vnstock /
 vnstock_data / openpyxl) ⇒ không do thay đổi này; máy thật phải chạy `--fast` đủ.
+
+**User chốt 02/10 sáng (sau ba câu hỏi về nguồn):** (1) nguồn 1 (RSS) là bộ feed
+user chọn 15/06, mở rộng 08/07 — user quên nên hỏi lại; (2) nguồn 1 ↔ nguồn 2
+KHÔNG trùng bài: nguồn 2 là bài Vietstock gắn theo mã (VCI trả `news_source_link`
+dạng đường dẫn vietstock.vn), nguồn 1 không có feed Vietstock; chỉ có thể trùng
+SỰ KIỆN, và brief hiện không khử trùng chéo hai khối (📰 vs ngữ cảnh danh mục);
+(3) **cảnh báo chỉ cần tin thị trường / vĩ mô quan trọng — nguồn 2 để TẮT**
+(không đặt `VNSTOCK_NEWS_ALERT_TICKERS`). Theo đó prompt `SCORE_SYSTEM` sửa:
+mục tiêu ghi rõ "TIN VĨ MÔ QUAN TRỌNG, không phải tin riêng từng doanh nghiệp";
+"kết quả kinh doanh/sự kiện của mã VN30" RỜI mức 4, tin riêng một doanh nghiệp
+(kể cả VN30) về mức 2, chỉ lên 4 khi đổi kỳ vọng cả ngành/thị trường; test ghim
+`test_score_prompt_is_macro_first_company_news_capped` (47 test). Khử trùng chéo
+nguồn 1↔2 vì thế KHÔNG làm. Lý do adapter nguồn 2 vẫn nằm trong code dù tắt:
+chứng minh registry nhận nguồn không-RSS (mẫu cho Finhay/SBV/HOSE sau này),
+một dòng env là bật; chi phí 1 call VCI/mã/giờ nên không bao giờ nên bật cho cả
+rổ 130 mã.
 
 **Chưa làm (cố ý):** không đưa tin cảnh báo vào brief/cache news (brief đã có
 khối tin riêng); không fetch thân bài Jina (lượt giờ phải < 1′); không
