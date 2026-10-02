@@ -392,6 +392,18 @@ def test_x_source_official_uses_since_id_state(monkeypatch, _meta):
     assert seen[1]["since_id"] == "900" and "start_time" not in seen[1]
 
 
+def test_enabled_sources_loads_dotenv_before_reading_env(monkeypatch):
+    """`run.py news-alert --diag` gọi enabled_sources() trực tiếp, không qua run():
+    trước bản vá, List Bluesky đặt trong .env không hiện trong --diag (02/10)."""
+    called: list = []
+
+    def _fake_load():
+        called.append(1)
+        monkeypatch.setenv(na.ENV_BSKY_LIST, "at://did:plc:a/app.bsky.graph.list/r")
+    monkeypatch.setattr(na, "_load_env", _fake_load)
+    assert "bsky:analysts" in [s.key for s in na.enabled_sources()] and called
+
+
 def test_social_sources_follow_env(monkeypatch, capsys):
     assert na.social_sources() == []
     monkeypatch.setenv(na.ENV_BSKY_LIST, "at://did:plc:a/app.bsky.graph.list/r")

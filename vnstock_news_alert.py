@@ -528,6 +528,7 @@ def _env_sources() -> list:
 def enabled_sources(only: Optional[list] = None) -> list:
     """Nguồn sẽ chạy: registry + nguồn bật qua env, trừ `enabled=False`;
     `only` (hoặc env VNSTOCK_NEWS_ALERT_SOURCES) lọc theo key / tiền tố key."""
+    _load_env()      # --diag/--list-sources/--sources gọi thẳng hàm này TRƯỚC run() — .env phải có mặt
     allow = [k.strip().lower() for k in (only or
              (os.environ.get(ENV_SOURCES) or "").split(",")) if k and k.strip()]
     out = []
