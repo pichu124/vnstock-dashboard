@@ -6966,6 +6966,84 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🌐 U68. BÁO NƯỚC NGOÀI + PHÂN TÍCH TỪ X CHO CẢNH BÁO GIỜ — KHẢO SÁT 4 LENS + PHẢN BIỆN, BLUESKY LÀ ĐƯỜNG CHÍNH, X CHỈ KHI CÓ KEY (02/10 trưa)
+
+**Hỏi:** "có cách nào lấy tin từ báo nước ngoài, hoặc tin phân tích quan trọng từ
+X". **Cách làm:** workflow 4 lens song song (feed báo nước ngoài · X/mạng xã hội ·
+nối vào code · rủi ro pháp lý) → 8 claim × 2 phản biện → tổng hợp. Bước tổng hợp
+và 9/16 phản biện chết vì chạm giới hạn phiên; đọc journal rồi tự tổng hợp. WebSearch
+chạy được từ sandbox, WebFetch/curl tới mọi host feed bị proxy 403 ⇒ **không URL nào
+được fetch thật**, tất cả là ứng viên chờ `--diag` trên desktop.
+
+**Ba chỗ phản biện LẬT lens đầu (đáng nhớ):**
+1. **WSJ `feeds.a.dj.com` ĐÓNG BĂNG từ 01/2025** — vẫn HTTP 200, XML hợp lệ, ~20
+   item nhưng tin cuối 24–27/01/2025 ⇒ job cửa sổ 3h đọc nó im lặng mãi (đúng kiểu
+   lỗi "feed sống giả"). Host mới `feeds.content.dowjones.io/public/rss/<name>`
+   (cùng host MarketWatch Top đang dùng). Bản đầu của tôi ghim host cũ — đã sửa.
+2. **Bloomberg CÓ RSS sống**: `www.bloomberg.com/feeds/<markets|economics|politics|
+   technology|industries>/news.rss` (host cũ `feeds.bloomberg.com` 301 sang), đo
+   15/09/2026 20 item mới 0,01 ngày. Lens đầu nói "chết" là sai.
+3. **Bing News RSS vẫn chạy** (`bing.com/news/search?q=…&format=rss`, cần UA trình
+   duyệt + follow 302) — để làm fallback Google News khi cần, chưa dùng.
+Chưa kiểm được: 5 feed chính thức (Fed/BLS/BEA/ECB/BoJ) là URL lâu năm nhưng không
+có bằng chứng 2025–26 ⇒ `--diag`.
+
+**Số liệu X/mạng xã hội (09–10/2026, nguồn trong journal):** X API không còn Free/
+Basic/Pro cho người mới từ 06/02/2026, trả theo lượt: $0,005/post đọc, $0,01/profile,
+nạp trước tối thiểu $5, trần 3M đọc/tháng; Basic $200 cũ bị ép chuyển 06/2026 ⇒
+20–30 tài khoản đọc mỗi giờ với `since_id` ≈ $15/tháng ở 100 post mới/ngày, ≈ $35 ở
+25 tài khoản. twitterapi.io $0,15/1.000 tweet (tối thiểu $0,00015/call) ⇒ ≈ $1–5/
+tháng — vùng xám ToS X nhưng án X v. Bright Data (05/2024) bác yêu sách hợp đồng
+chống scrape ⇒ rủi ro nằm ở nhà cung cấp, không ở người mua; dễ chết khi X đổi
+chữ ký. xAI Grok `x_search` từ 21/09/2026 tính $5/1.000 post ĐỌC (kể cả post cha/
+quote) + $10/1.000 profile + token — là bản tóm tắt, không phải tin để chấm ⇒ loại
+cho job giờ. Nitter/xcancel: C&D của X 24–26/08/2026, repo archive, 09/2026 còn 1
+instance sống ⇒ loại. RSSHub twitter route cần cookie tài khoản thật ⇒ loại. Reddit
+RSS tắt 13/11/2026 ⇒ không xây. **Bluesky**: AppView công khai `public.api.bsky.app`
+không auth, `getListFeed` một call cho cả danh sách, 3.000 req/5′/IP, đúng thiết kế
+giao thức mở, nhiều chuyên gia vĩ mô đã có (Timiraos, Sahm, Furman, El-Erian,
+Pettis, Blas…) nhưng Setser/Donnelly/sell-side vẫn chủ yếu trên X ⇒ Bluesky = lõi
+miễn phí, X = bổ sung trả tiền khi user muốn.
+
+**Báo VN dịch tin lớn nhanh tới đâu (lens repo-fit đo từ id URL CafeF):** FOMC
+01:00 VN lên CafeF sau 25′ (30/07/2026), 63′ (18/06/2026), 43′ (20/03/2025) ⇒ feed
+nước ngoài chỉ hơn về TỐC ĐỘ trong khung 20:00–06:00 (ngoài giờ gửi!) và về
+PHÂN TÍCH; dữ liệu nhỏ (ISM, JOLTS) báo VN dịch chậm hoặc không ⇒ đó là chỗ BLS/
+Fed feed có giá. Hệ quả: **cửa sổ bắt bù qua đêm** (lượt 07:00 nhìn lại tới lượt
+22:00 hôm trước) quan trọng hơn số feed.
+
+**Đã làm (commit `18b1956` + commit này, 71 test):**
+- `effective_window_h` + `covered_until` trong marker (chỉ tiến khi có nguồn trả
+  tin), trần 36h (`VNSTOCK_NEWS_ALERT_MAX_CATCHUP_H`); lô chấm nở theo cửa sổ (≤×2
+  trần 30) và cap theo nguồn `cap_per_source` 6 tin/nguồn (nở ≤×3).
+- `_ALERT_FEEDS` 20 nguồn riêng cho cảnh báo (không vào `_FEEDS` ⇒ brief không
+  đổi): 11 RSS báo lọc `_relevant_en`, 3 chính thức không lọc (`kind=official`),
+  6 Google News `when:2d` (`gnews_source` tách "– Báo" khỏi tiêu đề). Bỏ NYT/BBC/
+  Guardian (trùng + nhiễu). Feed tiếng Anh trong `_FEEDS` (CNBC/MW/Yahoo) nay cũng
+  qua `_relevant_en`.
+- `_relevant_en` so BIÊN TỪ (regex, không bắt turmoil/corporate/software/Bond film);
+  bỏ "bond" trần, giữ "bonds"/"bond market"/"bond yields".
+- `collect` có tường `VNSTOCK_NEWS_ALERT_FETCH_BUDGET_S`=45s (`as_completed(timeout)`
+  + `shutdown(cancel_futures)`), 12 worker; nguồn chưa về đếm 0 và in tên.
+- `bsky_source` (List URL/at:// hoặc handles; ≤3 bài/người, bỏ <60 ký tự) và
+  `x_source` (provider `twitterapi` advanced_search một call `from:a OR from:b`
+  `-filter:retweets -filter:replies since:`; provider `official` search/recent với
+  `since_id` lưu `_meta/news_alert_x_state.json`), bật bằng env
+  `VNSTOCK_NEWS_ALERT_BSKY_LIST|BSKY_HANDLES|X_HANDLES|X_PROVIDER` + key
+  `TWITTERAPI_IO_KEY`/`X_BEARER_TOKEN`; không env = không có gì. `_iso_dt` hiểu
+  ngày kiểu Twitter. Prompt: `Loại: nguồn chính thức` ⇒ dữ liệu 4–5; `Loại: bình
+  luận chuyên gia` ⇒ chấm theo giá trị phân tích, tối đa 4.
+- `run.py news-alert --diag` / `vnstock_news_alert.py --diag`.
+
+**Chưa kiểm / bẫy còn mở:** (a) mọi URL `_ALERT_FEEDS` + Substack/Cloudflare 403 với
+TLS của `requests` — `--diag` quyết; (b) hình dạng JSON của twitterapi.io
+(`tweets[].createdAt` kiểu Twitter, `author.userName`) viết theo tài liệu, chưa gọi
+thật; (c) Google News từ IP VN có thể gặp consent interstitial — `--diag` sẽ ra
+0 tin, khi đó đổi `hl/gl/ceid` sang `vi/VN`; (d) `covered_until` đọc marker chung
+qua Dropbox nhưng chỉ desktop chạy nên nhất quán; laptop chạy tay `--force` sẽ làm
+desktop bỏ bắt bù lượt sau — đừng chạy tay ở laptop ngoài `--dry-run`; (e) chưa
+có khử trùng CHÉO ngôn ngữ bằng code (prompt lo) — đếm `dup` một tuần rồi quyết.
+
 # 📰 U67. CẢNH BÁO TIN QUAN TRỌNG MỖI GIỜ → TELEGRAM — ĐƯỜNG A (TASK SCHEDULER + CLAUDE CLI), REGISTRY NGUỒN MỞ RỘNG (02/10 sáng)
 
 **Hỏi:** dùng Claude Code/Cowork kéo tin kinh tế-tài chính về Telegram mỗi giờ.

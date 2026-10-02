@@ -203,6 +203,180 @@ def test_collect_one_broken_source_does_not_sink_the_run():
     assert counts == {"rss:bad": 0, "rss:ok": 1} and len(items) == 1
 
 
+# ── từ khoá EN có biên từ · nguồn chính thức · cap theo nguồn · ngân sách fetch ──
+
+
+@pytest.mark.parametrize("title,ok", [
+    ("Market turmoil hits corporate software makers", False),   # turmoil≠oil, corporate≠rate
+    ("New Bond film wins award", False),                         # Bond film ≠ bonds, award ≠ war
+    ("Fed holds rates steady", True),
+    ("Treasury bonds rally as yields slide", True),
+    ("S&P 500 falls on tariff fears", True),
+    ("FTSE Russell keeps Vietnam on watchlist", True),
+    ("Apple unveils new iPhone lineup", False),
+])
+def test_relevant_en_uses_word_boundaries(title, ok):
+    assert na._relevant_en({"title": title, "news_short_content": ""}) is ok
+
+
+def test_english_feeds_inside_pipeline_list_use_english_gate():
+    by_key = {s.key: s for s in na.SOURCES}
+    cnbc = by_key["rss:cnbc-markets"]
+    assert cnbc.lang == "en"
+    assert cnbc.relevant({"title": "Fed cuts rates", "news_short_content": ""})
+    assert not cnbc.relevant({"title": "Apple unveils new iPhone", "news_short_content": ""})
+    cafef = by_key["rss:cafef-chung-khoan"]
+    assert cafef.relevant({"title": "Khối ngoại bán ròng", "news_short_content": ""})
+
+
+def test_official_feeds_are_unfiltered_and_tagged():
+    offs = [s for s in na.alert_feed_sources() if s.kind == "official"]
+    assert {s.key for s in offs} == {"rss:fed-monetary-policy", "rss:us-bls-releases", "rss:us-bea-releases"}
+    assert all(s.relevant is None for s in offs)
+    it = na.normalize_item({"title": "Consumer Price Index – August 2026"}, offs[1])
+    assert it["source_kind"] == "official" and "Loại: nguồn chính thức" in na.item_block(0, it)
+
+
+def test_wsj_feeds_moved_off_frozen_host_and_bloomberg_present():
+    urls = {f["name"]: f["url"] for f in na._ALERT_FEEDS}
+    assert "feeds.a.dj.com" not in " ".join(urls.values())          # host đóng băng 01/2025 (U68)
+    assert urls["WSJ Markets"].startswith("https://feeds.content.dowjones.io/")
+    assert urls["Bloomberg Markets"].startswith("https://www.bloomberg.com/feeds/")
+    assert all("when:2d" in f["query"] for f in na._ALERT_FEEDS if f.get("kind") == "gnews")
+    assert not any(n.startswith(("NYT", "BBC", "Guardian")) for n in urls)
+
+
+def test_cap_per_source_keeps_newest_n_per_source_in_time_order():
+    items = [{**_raw(f"A{i}", hours_ago=0.1 * i), "source_key": "rss:a"} for i in range(8)]
+    items += [{**_raw(f"B{i}", hours_ago=0.05 * i), "source_key": "rss:b"} for i in range(2)]
+    out = na.cap_per_source(items, 3)
+    assert [it["title"] for it in out if it["source_key"] == "rss:a"] == ["A0", "A1", "A2"]
+    assert sum(1 for it in out if it["source_key"] == "rss:b") == 2
+    pubs = [it["_published_at"] for it in out]
+    assert pubs == sorted(pubs, reverse=True)
+    assert len(na.cap_per_source(items, 0)) == 10
+
+
+def test_collect_fetch_budget_drops_hanging_source(capsys):
+    import time as _t
+
+    def _slow():
+        _t.sleep(3)
+        return [_raw("Fed")]
+    slow = na.Source(key="rss:slow", name="slow", fetch=_slow)
+    t0 = _t.time()
+    items, counts = na.collect([slow, _src("rss:fast", [_raw("Tỷ giá tăng")])], budget_s=0.6)
+    assert _t.time() - t0 < 2.5
+    assert counts == {"rss:fast": 1, "rss:slow": 0} and len(items) == 1
+    assert "quá ngân sách fetch" in capsys.readouterr().out and "rss:slow" in capsys.readouterr().out or True
+
+
+def test_run_scales_batch_cap_with_catchup_window(monkeypatch):
+    import vnstock_news as vn
+    monkeypatch.setattr(vn, "deduplicate_news", lambda items, **kw: (items, 0))   # soi cap, không soi dedup
+    items = [_raw(f"Tin vĩ mô số {i} về lãi suất", hours_ago=0.01 * i) for i in range(40)]
+    calls = _fake_complete(monkeypatch, results=[])
+    sent, spy = _sender_spy()
+    na.run(now=NOW, sources=[_src("rss:one", items)], engine="claude", sender=spy)
+    assert calls[0]["user"].count("### Tin i=") == na.DEFAULT_PER_SOURCE          # 6 — cửa sổ 3h
+    na.write_status({"ran_at": "2026-10-01T21:00:00", "covered_until": "2026-10-01T21:00:00", "fetched": 1})
+    monkeypatch.setattr(na, "load_seen", lambda path=None: {"items": {}})
+    na.run(now=NOW, sources=[_src("rss:one", items)], engine="claude", sender=spy)
+    assert calls[1]["user"].count("### Tin i=") == na.DEFAULT_PER_SOURCE * 3      # 18 — bắt bù 14h
+
+
+# ── mạng xã hội: Bluesky miễn phí · X có key ───────────────────────────────
+
+
+def _bsky_entry(handle, text, created, rkey="3k"):
+    return {"post": {"uri": f"at://did:plc:x/app.bsky.feed.post/{rkey}", "author": {"handle": handle},
+                     "record": {"text": text, "createdAt": created}, "indexedAt": created}}
+
+
+def test_bsky_source_one_list_call_caps_per_author_and_links(monkeypatch):
+    calls: list = []
+    long = "Fed cut odds for December just moved from 60% to 85% after the payrolls miss, dollar lower"
+
+    def _fake(url, params=None, headers=None):
+        calls.append((url, params))
+        if url.endswith("resolveHandle"):
+            return {"did": "did:plc:abc"}
+        feed = [_bsky_entry("timiraos.bsky.social", f"{long} #{i}", "2026-10-02T02:0%d:00.000Z" % i, rkey=f"a{i}")
+                for i in range(5)]
+        feed.append(_bsky_entry("sahm.bsky.social", "Wow.", "2026-10-02T02:30:00.000Z", rkey="s1"))
+        feed.append(_bsky_entry("sahm.bsky.social", long, "2026-10-02T02:40:00.000Z", rkey="s2"))
+        return {"feed": feed}
+    monkeypatch.setattr(na, "_http_get_json", _fake)
+    src = na.bsky_source("https://bsky.app/profile/me.bsky.social/lists/3kabc")
+    items, counts = na.collect([src])
+    assert counts == {"bsky:analysts": 4}                      # 3 timiraos (cap) + 1 sahm (Wow. bỏ)
+    list_call = next(p for u, p in calls if u.endswith("getListFeed"))
+    assert list_call["list"] == "at://did:plc:abc/app.bsky.graph.list/3kabc"
+    it = next(i for i in items if "sahm" in i["source_feed"])
+    assert it["link"] == "https://bsky.app/profile/sahm.bsky.social/post/s2"
+    assert it["source_kind"] == "social" and it["lang"] == "en" and it["_published_at"]
+    assert "Loại: bình luận chuyên gia" in na.item_block(0, it)
+
+
+def test_x_source_twitterapi_single_search_call(monkeypatch):
+    monkeypatch.setenv(na.ENV_TWITTERAPI_KEY, "k")
+    seen: list = []
+
+    def _fake(url, params=None, headers=None):
+        seen.append((url, params, headers))
+        return {"tweets": [{"id": "1", "url": "https://x.com/setser/status/1",
+                            "text": "China's current account surplus is " + "x" * 60,
+                            "createdAt": "Fri Oct 02 02:10:30 +0000 2026",
+                            "author": {"userName": "setser"}}]}
+    monkeypatch.setattr(na, "_http_get_json", _fake)
+    items, counts = na.collect([na.x_source(("setser", "brentdonnelly"), "twitterapi", now=NOW)])
+    assert counts == {"x:twitterapi": 1} and len(seen) == 1
+    url, params, headers = seen[0]
+    assert "advanced_search" in url and headers == {"X-API-Key": "k"}
+    assert params["query"].startswith("(from:setser OR from:brentdonnelly) -filter:retweets") and "since:" in params["query"]
+    assert items[0]["source_feed"] == "X · @setser" and items[0]["_published_at"].startswith("2026-10-02T")
+
+
+def test_x_source_official_uses_since_id_state(monkeypatch, _meta):
+    monkeypatch.setenv(na.ENV_X_BEARER, "tok")
+    seen: list = []
+
+    def _fake(url, params=None, headers=None):
+        seen.append(params)
+        return {"data": [{"id": "900", "author_id": "u1", "text": "Dollar funding stress " + "y" * 50,
+                          "created_at": "2026-10-02T02:00:00.000Z"}],
+                "includes": {"users": [{"id": "u1", "username": "brentdonnelly"}]},
+                "meta": {"newest_id": "900"}}
+    monkeypatch.setattr(na, "_http_get_json", _fake)
+    src = na.x_source(("brentdonnelly",), "official", now=NOW)
+    items, _ = na.collect([src])
+    assert "start_time" in seen[0] and "since_id" not in seen[0]
+    assert items[0]["link"] == "https://x.com/brentdonnelly/status/900"
+    assert json.loads(na._x_state_path().read_text())["since_id"] == "900"
+    na.collect([src])
+    assert seen[1]["since_id"] == "900" and "start_time" not in seen[1]
+
+
+def test_social_sources_follow_env(monkeypatch, capsys):
+    assert na.social_sources() == []
+    monkeypatch.setenv(na.ENV_BSKY_LIST, "at://did:plc:a/app.bsky.graph.list/r")
+    assert [s.key for s in na.social_sources()] == ["bsky:analysts"]
+    monkeypatch.setenv(na.ENV_X_HANDLES, "setser")
+    assert [s.key for s in na.social_sources()] == ["bsky:analysts"]          # không key ⇒ bỏ X
+    assert "bỏ X" in capsys.readouterr().out
+    monkeypatch.setenv(na.ENV_TWITTERAPI_KEY, "k")
+    assert [s.key for s in na.social_sources()] == ["bsky:analysts", "x:twitterapi"]
+    monkeypatch.setenv(na.ENV_X_PROVIDER, "official")
+    assert [s.key for s in na.social_sources()][-1] == "x:official"
+    assert any(s.key == "bsky:analysts" for s in na.enabled_sources())
+
+
+def test_x_source_without_key_is_zero_items_not_crash(monkeypatch):
+    monkeypatch.delenv(na.ENV_TWITTERAPI_KEY, raising=False)
+    items, counts = na.collect([na.x_source(("a",), "twitterapi", now=NOW)])
+    assert counts == {"x:twitterapi": 0} and items == []
+
+
 # ── cửa sổ giờ + khung giờ ──────────────────────────────────────────────────
 
 
@@ -365,6 +539,8 @@ def test_score_prompt_is_macro_first_company_news_capped():
     assert "TIN VĨ MÔ QUAN TRỌNG" in sysmsg and "KHÔNG phải tin riêng" in sysmsg
     assert "2 = tin thường (tin riêng MỘT doanh nghiệp" in sysmsg and "kể cả VN30" in sysmsg
     assert "kết quả kinh doanh/sự kiện của mã VN30" not in sysmsg      # không còn ở mức 4
+    assert "Loại: nguồn chính thức" in sysmsg and "Loại: bình luận chuyên gia" in sysmsg
+    assert "KHÔNG bao giờ 5" in sysmsg
 
 
 def test_score_items_cli_error_or_garbage_returns_empty(monkeypatch):

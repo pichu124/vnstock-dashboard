@@ -27,6 +27,7 @@ import os
 import re
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -137,21 +138,28 @@ def rss_source(feed: dict, relevant=_NO_FILTER, key_prefix: str = "rss") -> Sour
 # Từ khoá tiếng Anh cho feed nước ngoài (news_feeds._MARKET_KEYWORDS thiên tiếng
 # Việt). Mục tiêu là VĨ MÔ ảnh hưởng VN: Fed/USD/lợi suất, dầu, thuế quan, Trung
 # Quốc, dòng vốn EM — tin doanh nghiệp Mỹ lẻ (earnings Apple…) KHÔNG qua cửa này.
+# So theo BIÊN TỪ (regex \b): "rate" không bắt "corporate", "oil" không bắt
+# "turmoil", "war" không bắt "software", "bond" không bắt "Bond film" (U68).
 _EN_KEYWORDS: tuple = (
-    "fed", "federal reserve", "fomc", "powell", "rate", "yield", "treasury", "inflation",
-    "cpi", "pce", "gdp", "payroll", "jobs report", "unemployment", "recession", "pmi",
-    "dollar", "dxy", "yuan", "yen", "ecb", "boj", "pboc", "central bank", "tariff",
-    "trade war", "sanction", "export control", "oil", "brent", "opec", "crude", "gold",
-    "china", "vietnam", "asean", "emerging market", "em flows", "stimulus", "debt ceiling",
-    "default", "bond", "liquidity", "war", "ceasefire", "geopolit", "strait", "shipping",
-    "semiconductor", "chip export", "s&p 500", "nasdaq", "wall street", "stocks fall",
-    "stocks rise", "sell-off", "selloff", "rally", "volatility", "vix",
+    "fed", "federal reserve", "fomc", "powell", "rate cut", "rate hike", "rates", "interest rate",
+    "yield", "yields", "treasury", "treasuries", "inflation", "cpi", "pce", "gdp", "payrolls",
+    "jobs report", "unemployment", "recession", "pmi", "ism", "dollar", "dxy", "yuan", "renminbi",
+    "yen", "ecb", "boj", "pboc", "central bank", "tariff", "tariffs", "trade war", "trade deal",
+    "sanction", "sanctions", "export control", "export controls", "oil", "brent", "wti", "opec",
+    "crude", "gold", "china", "chinese", "vietnam", "vietnamese", "asean", "emerging markets",
+    "em flows", "stimulus", "debt ceiling", "default", "bonds", "bond market", "bond yields",
+    "liquidity", "war",
+    "ceasefire", "geopolitical", "strait", "shipping", "semiconductor", "chip exports",
+    "s&p 500", "nasdaq", "wall street", "stocks", "sell-off", "selloff", "rally", "volatility",
+    "vix", "ftse russell", "msci", "upgrade",
 )
+_EN_KEYWORD_RE = re.compile(
+    r"(?<![\w&])(?:" + "|".join(re.escape(k) for k in _EN_KEYWORDS) + r")(?![\w&])")
 
 
 def _relevant_en(item: dict) -> bool:
     hay = f"{item.get('title', '')} {item.get('news_short_content', '')}".lower()
-    return any(k in hay for k in _EN_KEYWORDS)
+    return _EN_KEYWORD_RE.search(hay) is not None
 
 
 def gnews_feed(name: str, query: str, lang: str = "en", enabled: bool = True) -> dict:
@@ -191,22 +199,39 @@ def gnews_source(feed: dict) -> Source:
 # Nguồn NƯỚC NGOÀI chỉ cho cảnh báo (KHÔNG vào news_feeds._FEEDS để brief chiều
 # và cache tin không đổi). URL là ứng viên — sandbox không fetch được, 🖥️ desktop
 # xác minh bằng `python run.py news-alert --diag`; feed ❌ thì enabled=False hoặc
-# xoá dòng. Danh sách chốt theo khảo sát U68 (02/10).
+# xoá dòng. Danh sách chốt theo khảo sát U68 (02/10): 4 lens + phản biện —
+#   • WSJ: host cũ feeds.a.dj.com ĐÓNG BĂNG từ 01/2025 (vẫn 200 nhưng tin cuối
+#     24/01/2025) ⇒ dùng feeds.content.dowjones.io (cùng host MarketWatch đang dùng).
+#   • Bloomberg CÓ RSS sống (www.bloomberg.com/feeds/<section>/news.rss, đo 15/09/2026)
+#     — lens đầu nói chết là SAI, phản biện lật.
+#   • Reuters/AP: không RSS trực tiếp ⇒ đi Google News `site:`.
+#   • Nguồn chính thức (Fed/BLS/BEA): ít tin, mỗi tin đều là dữ liệu ⇒ không lọc từ khoá.
+#   • Bỏ NYT/BBC/Guardian: trùng WSJ + Google News, nhiễu chính trị Mỹ / tiêu dùng Anh.
 _ALERT_FEEDS: list = [
-    # ── Báo / chính thức, RSS trực tiếp (tiếng Anh, lọc _EN_KEYWORDS) ──
-    {"name": "WSJ Markets",        "url": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml", "lang": "en"},
-    {"name": "WSJ World",          "url": "https://feeds.a.dj.com/rss/RSSWorldNews.xml",   "lang": "en"},
-    {"name": "NYT Economy",        "url": "https://rss.nytimes.com/services/xml/rss/nyt/Economy.xml", "lang": "en"},
-    {"name": "BBC Business",       "url": "https://feeds.bbci.co.uk/news/business/rss.xml", "lang": "en"},
-    {"name": "Guardian Business",  "url": "https://www.theguardian.com/uk/business/rss",   "lang": "en"},
-    {"name": "Fed press releases", "url": "https://www.federalreserve.gov/feeds/press_all.xml", "lang": "en"},
-    {"name": "Nikkei Asia",        "url": "https://asia.nikkei.com/rss/feed/nar",           "lang": "en"},
-    # ── Google News theo truy vấn (không lọc thêm — truy vấn đã là bộ lọc) ──
-    gnews_feed("GN Fed",            "Federal Reserve rates OR FOMC when:1d"),
-    gnews_feed("GN Vietnam macro",  "Vietnam economy OR Vietnam tariff OR Vietnam exports when:1d"),
-    gnews_feed("GN Oil",            "Brent crude OR OPEC when:1d"),
-    gnews_feed("GN China macro",    "China economy OR PBOC OR yuan when:1d"),
-    gnews_feed("GN Treasuries USD", "Treasury yields OR dollar index when:1d"),
+    # ── Wire / báo lớn, RSS trực tiếp (tiếng Anh, lọc _EN_KEYWORDS) ──
+    {"name": "Bloomberg Markets",   "url": "https://www.bloomberg.com/feeds/markets/news.rss",   "lang": "en"},
+    {"name": "Bloomberg Economics", "url": "https://www.bloomberg.com/feeds/economics/news.rss", "lang": "en"},
+    {"name": "WSJ Markets",         "url": "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain", "lang": "en"},
+    {"name": "WSJ World",           "url": "https://feeds.content.dowjones.io/public/rss/RSSWorldNews",   "lang": "en"},
+    {"name": "FT Markets",          "url": "https://www.ft.com/markets?format=rss",             "lang": "en"},
+    {"name": "MarketWatch Bulletins", "url": "https://feeds.content.dowjones.io/public/rss/mw_bulletins", "lang": "en"},
+    {"name": "CNBC World",          "url": "https://www.cnbc.com/id/100727362/device/rss/rss.html", "lang": "en"},
+    {"name": "CNBC Asia",           "url": "https://www.cnbc.com/id/19832390/device/rss/rss.html",  "lang": "en"},
+    {"name": "investingLive (ForexLive)", "url": "https://www.forexlive.com/feed/",             "lang": "en"},
+    {"name": "OilPrice",            "url": "https://oilprice.com/rss/main",                      "lang": "en"},
+    {"name": "Nikkei Asia",         "url": "https://asia.nikkei.com/rss/feed/nar",               "lang": "en"},
+    # ── Nguồn chính thức T+0 (không lọc — mỗi tin là dữ liệu/quyết định) ──
+    {"name": "Fed monetary policy", "url": "https://www.federalreserve.gov/feeds/press_monetary.xml", "lang": "en", "official": True},
+    {"name": "US BLS releases",     "url": "https://www.bls.gov/feed/bls_latest.rss",            "lang": "en", "official": True},
+    {"name": "US BEA releases",     "url": "https://apps.bea.gov/rss/rss.xml",                   "lang": "en", "official": True},
+    # ── Google News theo truy vấn (không lọc thêm — truy vấn đã là bộ lọc; when:2d
+    #    vì cửa sổ bắt bù cuối tuần tới 36h) ──
+    gnews_feed("GN Reuters",        "site:reuters.com (markets OR economy OR Fed OR tariff OR oil OR China) when:2d"),
+    gnews_feed("GN Fed",            "Federal Reserve rates OR FOMC OR Powell when:2d"),
+    gnews_feed("GN Vietnam macro",  "Vietnam economy OR Vietnam tariff OR Vietnam exports OR VN-Index OR \"FTSE Russell\" Vietnam when:2d"),
+    gnews_feed("GN Oil",            "Brent crude OR OPEC when:2d"),
+    gnews_feed("GN China macro",    "China economy OR PBOC OR yuan when:2d"),
+    gnews_feed("GN Treasuries USD", "Treasury yields OR dollar index when:2d"),
 ]
 
 
@@ -215,8 +240,207 @@ def alert_feed_sources() -> list:
     for f in _ALERT_FEEDS:
         if f.get("kind") == "gnews":
             out.append(gnews_source(f))
+        elif f.get("official"):
+            out.append(rss_source({**f, "kind": "official"}, relevant=None))
         else:
             out.append(rss_source(f, relevant=_relevant_en if f.get("lang") == "en" else _NO_FILTER))
+    return out
+
+
+# ── Mạng xã hội: BÌNH LUẬN của chuyên gia vĩ mô (U68) ───────────────────────
+# Bluesky: AppView công khai, KHÔNG cần đăng nhập, miễn phí, đúng thiết kế giao
+# thức mở ⇒ đường chính. X: chỉ khi có key — `twitterapi` ($0.15/1.000 tweet,
+# vùng xám ToS, rủi ro nằm ở nhà cung cấp) hoặc `official` (X API trả theo lượt
+# đọc $0.005/post, sạch ToS, ~$10–15/tháng cho ≤10 tài khoản). Nitter/RSSHub/Grok
+# x_search: KHÔNG (C&D 08/2026 · cookie tài khoản thật · $5/1.000 post + tóm tắt).
+ENV_BSKY_LIST = "VNSTOCK_NEWS_ALERT_BSKY_LIST"        # at://did:plc:…/app.bsky.graph.list/<rkey> hoặc URL bsky.app
+ENV_BSKY_HANDLES = "VNSTOCK_NEWS_ALERT_BSKY_HANDLES"  # "nicktimiraos.bsky.social,…" (không có list)
+ENV_X_HANDLES = "VNSTOCK_NEWS_ALERT_X_HANDLES"        # "setser,brentdonnelly" (không @)
+ENV_X_PROVIDER = "VNSTOCK_NEWS_ALERT_X_PROVIDER"      # twitterapi | official (mặc định theo key có sẵn)
+ENV_TWITTERAPI_KEY = "TWITTERAPI_IO_KEY"
+ENV_X_BEARER = "X_BEARER_TOKEN"
+SOCIAL_PER_ACCOUNT = 3         # tin/tài khoản/lượt — một người nói nhiều không chiếm hết lô
+SOCIAL_MIN_CHARS = 60          # bài quá ngắn ("Wow.") không có gì để chấm
+SOCIAL_LOOKBACK_H = 6          # kéo 6h rồi để within_window cắt (bắt bù cũng được)
+_BSKY_API = "https://public.api.bsky.app/xrpc/"
+_X_STATE_NAME = "news_alert_x_state.json"
+_HTTP_TIMEOUT_S = 15
+
+
+def _http_get_json(url: str, params: Optional[dict] = None, headers: Optional[dict] = None) -> dict:
+    import requests as _rq
+    from vnstock_news_feeds import _UA
+    h = {"User-Agent": _UA, "Accept": "application/json"}
+    h.update(headers or {})
+    resp = _rq.get(url, params=params, headers=h, timeout=_HTTP_TIMEOUT_S)
+    resp.raise_for_status()
+    data = resp.json()
+    return data if isinstance(data, dict) else {}
+
+
+def _social_trim(posts: list, key_fn) -> list:
+    """Giữ ≤ SOCIAL_PER_ACCOUNT bài/tài khoản (mới trước), bỏ bài < SOCIAL_MIN_CHARS."""
+    per: dict = {}
+    out = []
+    for p in sorted(posts, key=lambda x: x.get("published") or "", reverse=True):
+        if len(_one_line(p.get("title"))) < SOCIAL_MIN_CHARS:
+            continue
+        k = key_fn(p)
+        if per.get(k, 0) >= SOCIAL_PER_ACCOUNT:
+            continue
+        per[k] = per.get(k, 0) + 1
+        out.append(p)
+    return out
+
+
+def _bsky_list_uri(raw: str) -> str:
+    """Nhận at:// hoặc URL https://bsky.app/profile/<handle|did>/lists/<rkey> →
+    at://<did>/app.bsky.graph.list/<rkey> (handle được resolve qua AppView)."""
+    raw = (raw or "").strip()
+    if raw.startswith("at://") or not raw:
+        return raw
+    m = re.match(r"https?://bsky\.app/profile/([^/]+)/lists/([^/?#]+)", raw)
+    if not m:
+        return raw
+    actor, rkey = m.group(1), m.group(2)
+    did = actor
+    if not actor.startswith("did:"):
+        data = _http_get_json(_BSKY_API + "com.atproto.identity.resolveHandle", {"handle": actor})
+        did = str(data.get("did") or "")
+    return f"at://{did}/app.bsky.graph.list/{rkey}" if did else ""
+
+
+def _bsky_post_to_raw(entry: dict, label: str) -> Optional[dict]:
+    post = (entry or {}).get("post") or entry or {}
+    rec = post.get("record") or {}
+    text = _one_line(rec.get("text"))
+    uri = str(post.get("uri") or "")
+    author = post.get("author") or {}
+    handle = str(author.get("handle") or "")
+    if not text or not uri:
+        return None
+    rkey = uri.rsplit("/", 1)[-1]
+    return {"title": text[:300], "summary": "",
+            "link": f"https://bsky.app/profile/{handle}/post/{rkey}" if handle else "",
+            "published": rec.get("createdAt") or post.get("indexedAt") or "",
+            "source_feed": f"Bluesky · @{handle}" if handle else label, "author": handle}
+
+
+def bsky_source(list_uri: str = "", handles: tuple = ()) -> Source:
+    """Bluesky: MỘT call `getListFeed` cho cả danh sách (user tạo List trong app
+    Bluesky, thêm/bớt chuyên gia không cần sửa code) hoặc `getAuthorFeed` từng
+    handle. Không auth, không phí."""
+    def _fetch() -> list:
+        posts: list = []
+        uri = _bsky_list_uri(list_uri)
+        if uri:
+            data = _http_get_json(_BSKY_API + "app.bsky.feed.getListFeed", {"list": uri, "limit": 100})
+            posts += [r for r in (_bsky_post_to_raw(e, "Bluesky") for e in data.get("feed") or []) if r]
+        for h in handles:
+            data = _http_get_json(_BSKY_API + "app.bsky.feed.getAuthorFeed",
+                                  {"actor": h, "limit": 30, "filter": "posts_no_replies"})
+            posts += [r for r in (_bsky_post_to_raw(e, f"Bluesky · @{h}") for e in data.get("feed") or []) if r]
+        return _social_trim(posts, lambda p: p.get("author") or p.get("source_feed"))
+
+    return Source(key="bsky:analysts", name="Bluesky chuyên gia vĩ mô", fetch=_fetch,
+                  kind="social", lang="en", relevant=None)
+
+
+def _x_state_path() -> Path:
+    return _META / _X_STATE_NAME
+
+
+def _x_query(handles: tuple, provider: str) -> str:
+    frm = " OR ".join(f"from:{h.lstrip('@')}" for h in handles)
+    if provider == "official":
+        return f"({frm}) -is:retweet -is:reply"
+    return f"({frm}) -filter:retweets -filter:replies"
+
+
+def x_source(handles: tuple, provider: str = "twitterapi", now: Optional[datetime] = None) -> Source:
+    """X: MỘT call tìm kiếm `from:a OR from:b…` mỗi lượt (không gọi từng tài khoản).
+    `twitterapi` = twitterapi.io advanced_search (header X-API-Key, ≤20 tweet/trang,
+    không lật trang); `official` = X API v2 search/recent (Bearer, ≤100, since_id
+    lưu `_meta/news_alert_x_state.json` để không trả tiền hai lần cho một post)."""
+    def _fetch() -> list:
+        t_now = now or datetime.now()
+        since_utc = (t_now - timedelta(hours=SOCIAL_LOOKBACK_H)).astimezone().astimezone(
+            __import__("datetime").timezone.utc)
+        posts: list = []
+        if provider == "official":
+            token = (os.environ.get(ENV_X_BEARER) or "").strip()
+            if not token:
+                raise RuntimeError(f"{ENV_X_BEARER} chưa set")
+            params = {"query": _x_query(handles, provider), "max_results": 100,
+                      "tweet.fields": "created_at,author_id", "expansions": "author_id",
+                      "user.fields": "username",
+                      "start_time": since_utc.strftime("%Y-%m-%dT%H:%M:%SZ")}
+            try:
+                state = json.loads(_x_state_path().read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                state = {}
+            if state.get("since_id"):
+                params.pop("start_time", None)
+                params["since_id"] = state["since_id"]
+            data = _http_get_json("https://api.x.com/2/tweets/search/recent", params,
+                                  {"Authorization": f"Bearer {token}"})
+            users = {u.get("id"): u.get("username") for u in ((data.get("includes") or {}).get("users") or [])}
+            newest = (data.get("meta") or {}).get("newest_id")
+            for t in data.get("data") or []:
+                user = users.get(t.get("author_id")) or ""
+                posts.append({"title": _one_line(t.get("text"))[:300], "summary": "",
+                              "link": f"https://x.com/{user or 'i'}/status/{t.get('id')}",
+                              "published": t.get("created_at") or "",
+                              "source_feed": f"X · @{user}" if user else "X", "author": user})
+            if newest:
+                try:
+                    _x_state_path().parent.mkdir(parents=True, exist_ok=True)
+                    _x_state_path().write_text(json.dumps({"since_id": newest,
+                                                           "saved_at": t_now.isoformat(timespec="seconds")}),
+                                               encoding="utf-8")
+                except OSError:
+                    pass
+        else:
+            key = (os.environ.get(ENV_TWITTERAPI_KEY) or "").strip()
+            if not key:
+                raise RuntimeError(f"{ENV_TWITTERAPI_KEY} chưa set")
+            q = _x_query(handles, provider) + " since:" + since_utc.strftime("%Y-%m-%d_%H:%M:%S_UTC")
+            data = _http_get_json("https://api.twitterapi.io/twitter/tweet/advanced_search",
+                                  {"query": q, "queryType": "Latest"}, {"X-API-Key": key})
+            for t in data.get("tweets") or []:
+                author = t.get("author") or {}
+                user = str(author.get("userName") or author.get("username") or "")
+                posts.append({"title": _one_line(t.get("text"))[:300], "summary": "",
+                              "link": t.get("url") or (f"https://x.com/{user}/status/{t.get('id')}" if user else ""),
+                              "published": t.get("createdAt") or t.get("created_at") or "",
+                              "source_feed": f"X · @{user}" if user else "X", "author": user})
+        return _social_trim(posts, lambda p: p.get("author") or p.get("source_feed"))
+
+    return Source(key=f"x:{provider}", name=f"X chuyên gia vĩ mô ({provider})", fetch=_fetch,
+                  kind="social", lang="en", relevant=None)
+
+
+def _csv_env(name: str) -> tuple:
+    return tuple(t.strip() for t in (os.environ.get(name) or "").split(",") if t.strip())
+
+
+def social_sources() -> list:
+    """Nguồn mạng xã hội bật qua env — không env = không có gì (mặc định tắt)."""
+    out = []
+    bsky_list = (os.environ.get(ENV_BSKY_LIST) or "").strip()
+    bsky_handles = _csv_env(ENV_BSKY_HANDLES)
+    if bsky_list or bsky_handles:
+        out.append(bsky_source(bsky_list, bsky_handles))
+    x_handles = _csv_env(ENV_X_HANDLES)
+    if x_handles:
+        provider = (os.environ.get(ENV_X_PROVIDER) or "").strip().lower()
+        if provider not in ("twitterapi", "official"):
+            provider = "twitterapi" if os.environ.get(ENV_TWITTERAPI_KEY) else \
+                ("official" if os.environ.get(ENV_X_BEARER) else "")
+        if provider:
+            out.append(x_source(x_handles, provider))
+        else:
+            print(f"[{TAG}] {ENV_X_HANDLES} đặt nhưng không có {ENV_TWITTERAPI_KEY}/{ENV_X_BEARER} — bỏ X")
     return out
 
 
@@ -244,10 +468,13 @@ def ticker_news_source(tickers: tuple) -> Source:
 
 
 def _default_sources() -> list:
-    """RSS của pipeline (`_FEEDS`, lọc từ khoá Việt) + nguồn nước ngoài riêng
-    cho cảnh báo (`_ALERT_FEEDS`)."""
+    """RSS của pipeline (`_FEEDS`: feed Việt lọc từ khoá Việt, feed tiếng Anh
+    trong đó — CNBC/MarketWatch/Yahoo — lọc `_relevant_en` chặt hơn) + nguồn
+    nước ngoài riêng cho cảnh báo (`_ALERT_FEEDS`)."""
     import vnstock_news_feeds as nf
-    return [rss_source(f) for f in nf._FEEDS] + alert_feed_sources()
+    base = [rss_source(f, relevant=_relevant_en if f.get("lang") == "en" else _NO_FILTER)
+            for f in nf._FEEDS]
+    return base + alert_feed_sources()
 
 
 SOURCES: list = _default_sources()
@@ -262,7 +489,7 @@ def register_source(src: Source) -> None:
 def _env_sources() -> list:
     raw = (os.environ.get(ENV_TICKERS) or "").strip()
     tickers = tuple(t.strip().upper() for t in raw.split(",") if t.strip())
-    return [ticker_news_source(tickers)] if tickers else []
+    return ([ticker_news_source(tickers)] if tickers else []) + social_sources()
 
 
 def enabled_sources(only: Optional[list] = None) -> list:
@@ -305,7 +532,11 @@ def _iso_dt(raw) -> str:
             return datetime.strptime(s[:19], fmt).isoformat(timespec="seconds")
         except ValueError:
             continue
-    return ""
+    try:                                   # Twitter: 'Tue Dec 10 07:00:30 +0000 2024'
+        dt = datetime.strptime(s, "%a %b %d %H:%M:%S %z %Y")
+        return dt.astimezone().replace(tzinfo=None).isoformat(timespec="seconds")
+    except ValueError:
+        return ""
 
 
 def normalize_item(raw: dict, src: Source) -> Optional[dict]:
@@ -336,13 +567,24 @@ def normalize_item(raw: dict, src: Source) -> Optional[dict]:
     }
 
 
-def collect(sources: list, max_workers: int = 8) -> "tuple[list[dict], dict[str, int]]":
+ENV_FETCH_BUDGET_S = "VNSTOCK_NEWS_ALERT_FETCH_BUDGET_S"
+DEFAULT_FETCH_BUDGET_S = 45     # tường cho CẢ lượt fetch — lượt giờ phải xong < 1′
+ENV_PER_SOURCE = "VNSTOCK_NEWS_ALERT_PER_SOURCE"
+DEFAULT_PER_SOURCE = 6          # tin mới tối đa MỘT nguồn được đưa vào lô chấm
+
+
+def collect(sources: list, max_workers: int = 12,
+            budget_s: Optional[float] = None) -> "tuple[list[dict], dict[str, int]]":
     """Fetch song song mọi nguồn (một nguồn nổ = 0 tin, không kéo sập lượt) →
-    chuẩn hoá → lọc liên quan. Trả (items, {key: số tin sau lọc})."""
+    chuẩn hoá → lọc liên quan. Trả (items, {key: số tin sau lọc}). Quá
+    `budget_s` thì bỏ các nguồn chưa về (đếm 0, in tên) — một feed treo không
+    được kéo lượt giờ quá một phút."""
     items: list = []
     counts: dict = {}
     if not sources:
         return items, counts
+    if budget_s is None:
+        budget_s = float(_env_int(ENV_FETCH_BUDGET_S, DEFAULT_FETCH_BUDGET_S, 5, 600))
 
     def _one(src: Source) -> "tuple[Source, list]":
         try:
@@ -350,9 +592,10 @@ def collect(sources: list, max_workers: int = 8) -> "tuple[list[dict], dict[str,
         except Exception:
             return src, []
 
-    with ThreadPoolExecutor(max_workers=max(1, min(max_workers, len(sources)))) as pool:
-        futs = [pool.submit(_one, s) for s in sources]
-        for fut in as_completed(futs):
+    pool = ThreadPoolExecutor(max_workers=max(1, min(max_workers, len(sources))))
+    futs = {pool.submit(_one, s): s for s in sources}
+    try:
+        for fut in as_completed(list(futs), timeout=budget_s):
             try:
                 src, raw = fut.result()
             except Exception:
@@ -371,7 +614,34 @@ def collect(sources: list, max_workers: int = 8) -> "tuple[list[dict], dict[str,
                 items.append(it)
                 n += 1
             counts[src.key] = n
+    except FuturesTimeout:
+        late = [s.key for f, s in futs.items() if not f.done()]
+        for k in late:
+            counts[k] = 0
+        print(f"[{TAG}] ⏱ quá ngân sách fetch {budget_s:.0f}s — bỏ {len(late)} nguồn chưa về: "
+              + ", ".join(late[:8]) + (" …" if len(late) > 8 else ""))
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
     return items, counts
+
+
+def cap_per_source(items: list, per_source: int) -> list:
+    """Mỗi nguồn góp ≤ `per_source` tin (mới trước) vào lô chấm — feed ồn
+    (ForexLive 100+/ngày, Google News 100 biến thể) không chiếm hết chỗ của
+    báo VN hay nguồn chính thức. Giữ thứ tự mới → cũ."""
+    if per_source <= 0:
+        return list(items)
+    ordered = sorted(items, key=lambda x: x.get("_published_at") or x.get("_date_sort") or "",
+                     reverse=True)
+    per: dict = {}
+    out = []
+    for it in ordered:
+        k = it.get("source_key") or it.get("source_feed") or "?"
+        if per.get(k, 0) >= per_source:
+            continue
+        per[k] = per.get(k, 0) + 1
+        out.append(it)
+    return out
 
 
 # ── Cửa sổ giờ + khung giờ chạy ─────────────────────────────────────────────
@@ -531,6 +801,11 @@ SCORE_SYSTEM = (
     "mô tả theo chiều giảm). Tin muc_do 1 ⇒ tac_dong = \"không tác động trực tiếp\".\n"
     "Khắt khe: phần lớn tin là 2–3; chỉ chấm 4–5 khi thật sự thay đổi kỳ vọng của CẢ "
     "thị trường. Tin một doanh nghiệp chỉ lên 4 khi nó đổi kỳ vọng cả ngành/thị trường "
+    "NGUỒN CHÍNH THỨC (dòng `Loại: nguồn chính thức` — Fed/BLS/BEA): thông cáo quyết định "
+    "lãi suất, CPI/PCE, GDP, việc làm ⇒ 4–5 dù tiêu đề khô; bài phát biểu thường ⇒ 3. "
+    "BÌNH LUẬN MẠNG XÃ HỘI (dòng `Loại: bình luận chuyên gia`): chấm theo GIÁ TRỊ PHÂN TÍCH "
+    "cho thị trường VN — nhắc lại tin đã có = 2; luận điểm mới kèm số liệu/hệ quả rõ = 3–4; "
+    "KHÔNG bao giờ 5.\n"
     "(vd ngân hàng lớn mất thanh khoản). Tin trùng SỰ KIỆN với tin khác trong lô — kể cả "
     "KHÁC NGÔN NGỮ (báo VN dịch lại tin nước ngoài) — ⇒ giữ nguyên tin đầu, tin sau chấm "
     "thấp hơn 1 bậc. Tin tiếng Anh: tac_dong vẫn viết TIẾNG VIỆT.\n"
@@ -577,6 +852,11 @@ def item_block(i: int, it: dict) -> str:
     lines = [f"### Tin i={i}", f"Nguồn: {it.get('source_feed', '')}"]
     if (it.get("lang") or "vi") != "vi":
         lines.append(f"Ngôn ngữ: {it['lang']}")
+    kind = it.get("source_kind") or ""
+    if kind == "official":
+        lines.append("Loại: nguồn chính thức")
+    elif kind == "social":
+        lines.append("Loại: bình luận chuyên gia")
     if it.get("ticker"):
         lines.append(f"Mã: {it['ticker']}")
     if it.get("_published_at"):
@@ -836,7 +1116,17 @@ def run(*, now: Optional[datetime] = None, dry_run: bool = False, force: bool = 
         pass
     new = [it for it in fresh if item_hash(it) not in seen["items"]]
     new.sort(key=lambda x: x.get("_published_at") or x.get("_date_sort") or "", reverse=True)
-    todo = new[:max_score]
+    # Lô chấm: cửa sổ bắt bù rộng ⇒ trần nở theo (tối đa ×2), mỗi nguồn ≤ per_source
+    # (nở theo cửa sổ, tối đa ×3) — một nguồn ồn không đẩy báo VN khỏi lô.
+    import math as _math
+    scale = max(1, _math.ceil(window_h / DEFAULT_WINDOW_H))
+    max_score_eff = min(max_score * 2, max_score * scale)
+    per_source = _env_int(ENV_PER_SOURCE, DEFAULT_PER_SOURCE, 1, 100)
+    capped = cap_per_source(new, min(per_source * 3, per_source * scale))
+    todo = capped[:max_score_eff]
+    if len(todo) < len(new):
+        print(f"[{TAG}] lô chấm {len(todo)}/{len(new)} tin mới (trần {max_score_eff}, "
+              f"≤{min(per_source * 3, per_source * scale)} tin/nguồn) — phần dư rơi theo cửa sổ")
 
     scored: dict = {}
     eng, claude_err = "none", None
