@@ -6966,6 +6966,80 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 📰 U67. CẢNH BÁO TIN QUAN TRỌNG MỖI GIỜ → TELEGRAM — ĐƯỜNG A (TASK SCHEDULER + CLAUDE CLI), REGISTRY NGUỒN MỞ RỘNG (02/10 sáng)
+
+**Hỏi:** dùng Claude Code/Cowork kéo tin kinh tế-tài chính về Telegram mỗi giờ.
+**Cân ba đường:** A Task Scheduler + `run.py news-alert` (chọn) · B Routine cloud
+(loại — đo lại 02/10 từ sandbox: CONNECT 403 cho `api.telegram.org`, cafef,
+vnexpress, cnbc, r.jina.ai — y hệt U62; kho không lên cloud; mỗi lượt là một
+phiên Claude Code thay vì một call) · C Cowork scheduled task (cần app mở trên
+desktop như A, mỗi giờ là một phiên agent — không hơn A mà kém tất định).
+
+**Kiểm kê nguồn tin trước khi làm** (user hỏi): (1) `vnstock_news_feeds._FEEDS`
+**12 RSS** — VN: VnExpress Kinh doanh + Thế giới, CafeF Vĩ mô-Đầu tư + Chứng
+khoán + Tài chính-NH, VnEconomy Chứng khoán + Tài chính, Tin nhanh CK (ĐTCK), Báo
+Chính phủ KT; EN: MarketWatch Top, CNBC Markets, Yahoo Finance — lọc từ khoá
+`_MARKET_KEYWORDS`, chấm ≤8 tin/refresh, cache `market_news_cache.json`, brief
+đọc 6 tin ≤3 ngày; (2) `vnstock_news.fetch_ticker_news` — tin THEO MÃ qua thư
+viện vnstock (VCI, rơi KBS, sponsor vnii/vnstock_data), universe = danh mục +
+top screener, nuôi tab Tin tức + sentiment 7N của brief; (3) Finhay MCP
+`list_news` chỉ có trong phiên Claude (script máy user không gọi được MCP);
+(4) Vietstock scrape là SỰ KIỆN quyền, không phải tin. Báo Đầu tư bỏ 08/07
+(RSS 404). Trước 02/10 KHÔNG có đường nào đẩy tin theo giờ — tin chỉ vào brief
+chiều.
+
+**Thiết kế (`vnstock_news_alert.py`, 46 test `tests/test_news_alert.py`):**
+- Registry `SOURCES`: `Source(key, name, fetch, kind, lang, enabled, relevant)`;
+  RSS dựng từ `_FEEDS` (một nguồn sự thật) qua `rss_source`; adapter không-RSS
+  mẫu `ticker_news_source` (env `VNSTOCK_NEWS_ALERT_TICKERS`); `register_source`
+  cho module khác; `enabled_sources(only)` lọc tiền tố key. `collect` fetch
+  song song, một nguồn nổ = 0 tin; `normalize_item` nhận dict thô bất kỳ
+  ({title, link, summary, published}) ra schema chung của news_feeds.
+- `parse_feed` thêm `_published_at` (giờ đầy đủ, local) — `_date_sort` chỉ có
+  ngày nên không lọc "3h qua" được; cache news cũ thêm một trường, vô hại.
+- Chống trùng hai lớp: `deduplicate_news` trong lô + sổ `_meta/news_alert_seen.json`
+  (`_hash` date|title của news_feeds, giữ 7 ngày). Sổ ghi cả điểm + đã gửi ⇒ tin
+  dư (quá MAX_SEND) đi lượt sau KHÔNG chấm lại; tin Claude bỏ sót ghi
+  `score=None` — thấy rồi, không chấm lại mãi.
+- Chấm: `SCORE_SYSTEM` thang 1–5 (5 sốc hệ thống … 1 phi kinh tế) + nhãn + tác
+  động ≤22 từ cùng quy tắc chiều của `_ANALYZE_SYSTEM`; MỘT call
+  `vcc.complete(json_schema=SCORE_SCHEMA, tag="news-alert")`, engine
+  `STEP_ENGINE_ENV["news_alert"]`; `parse_scores` kẹp 1–5, dọn `sanitize_impact`.
+  Rơi về ladder: `analyze_item` từng tin với `_user_text_tmp` sẵn (không Jina),
+  mức độ từ `heuristic_score` 2/3/4 theo hai bậc từ khoá, "không tác động" = 1.
+  Không engine ⇒ không gửi (không đẩy tin thô), marker error.
+- Gửi: `format_message` HTML chỉ b/i (whitelist telegram), link trần;
+  `send_message` tự cắt 4000. Telegram lỗi ⇒ giữ `sent=False`, lượt sau gửi lại.
+- Marker `news_alert_status.json` {ran_at, machine, engine, claude_error, sources,
+  fetched, in_window, new, scored, picked, sent, message_id, error, error_streak}.
+  Doctor `news_alert_verdict` (hàm thuần, now/active cắm được): off/ok/warn/error.
+  Kill-switch `VNSTOCK_NEWS_ALERT` vào `_DANGEROUS_SWITCHES`.
+- `run.py news-alert` (--dry-run/--force/--min-score/--window-h/--max-send/
+  --sources/--engine/--list-sources), rc 0/1 không bao giờ 2; KHÔNG trong `all`;
+  stdout chảy vào `run_daily.log` qua tee của main() (16 lượt/ngày, 3–4 dòng/lượt).
+- Task 3 trong `setup_scheduled_tasks.ps1`: Weekly T2–T7 07:00 + Repetition 1h
+  tới 22:00 (gán `.Repetition` từ trigger -Once — Weekly không nhận trực tiếp),
+  trần 15′, `-NewsAlertStart/-NewsAlertEnd/-NoNewsAlert`. Hệ quả: "2 task =
+  desktop" thành "≥2 task" ở CLAUDE.md + VIEC.
+
+**Bẫy đã thấy trước:** (a) lượt giờ 18:00–23:00 chạy cùng phát tối trên cùng
+desktop — tránh bằng cách KHÔNG ghi `market_news_cache.json`; sổ riêng.
+(b) Laptop chạy script lịch ⇒ gửi đôi tới khi Dropbox sync sổ — ghi rõ chỉ
+desktop. (c) Feed không tz ⇒ coi giờ địa phương; feed sai tz chỉ làm tin
+vào/ra cửa sổ sớm muộn, sổ vẫn chặn trùng. (d) Sandbox không có `vnstock` ⇒
+`run.py test --fast` dừng ở collection `test_classifier.py` — chạy pytest thẳng
+whitelist với `--continue-on-collection-errors`: **2.748 passed · 33 failed · 1
+error**, 33 fail nằm trọn 6 file (model_watch 11 · pipeline_status_gate 7 ·
+bank_balance_export 5 · atomic_writes 4 · ohlc_repair 3 · model_ladder 3) và
+cây sạch `git stash` cho ĐÚNG 33 fail y hệt (ModuleNotFoundError vnstock /
+vnstock_data / openpyxl) ⇒ không do thay đổi này; máy thật phải chạy `--fast` đủ.
+
+**Chưa làm (cố ý):** không đưa tin cảnh báo vào brief/cache news (brief đã có
+khối tin riêng); không fetch thân bài Jina (lượt giờ phải < 1′); không
+Cowork/Routine. Hỏi lại khi muốn: kênh Telegram riêng cho cảnh báo (hiện dùng
+chung chat_id), tóm tắt cuối ngày các tin đã gửi, nguồn API (Finhay/SBV/HOSE)
+qua `register_source`.
+
 # 🔎 U66. `/brief-review` ĐẦU TIÊN (desktop, 01/10 sáng): VALIDATOR VNINDEX BÁO GIẢ VÌ NĂM TRONG NGÀY ISO — VÁ #30, #914 CHẤM 4★
 
 **Bằng chứng:** log lượt bù phiên 30/09 (`telegram close --engine claude

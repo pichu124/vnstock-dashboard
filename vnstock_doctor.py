@@ -557,6 +557,66 @@ def check_brief_engine() -> dict:
     return brief_engine_verdict(marker, _engine_setting(), days)
 
 
+def news_alert_verdict(marker, now: "datetime | None" = None,
+                       active: "bool | None" = None) -> dict:
+    """Hàm thuần cho badge cảnh báo tin mỗi giờ (#31). `marker` =
+    news_alert_status.json (dict/None); `active` = đang trong khung giờ gửi
+    (None ⇒ hỏi vnstock_news_alert). Marker đi qua Dropbox ⇒ nói về lượt của
+    MÁY ghi (`machine`), không phải máy đang khám.
+    off  = chưa chạy lần nào (task chưa đăng ký)
+    warn = lượt cuối lỗi (feed rỗng / chấm hỏng / Telegram) HOẶC trong khung
+           giờ mà >3h không có lượt mới (task không chạy, máy tắt, sync tắt)
+    error= lỗi ≥ 3 lượt liền (marker ghi `error_streak`)"""
+    name = "Cảnh báo tin mỗi giờ (news-alert)"
+    key = "news_alert"
+    fix_setup = ("🖥️ DESKTOP: chạy lại scripts/setup_scheduled_tasks.ps1 (Admin, venv) để "
+                 "có task 'VnStock News Alert'; thử tay: python run.py news-alert --dry-run")
+    if not isinstance(marker, dict):
+        return _result(key, name, "off", "chưa có news_alert_status.json — chưa chạy lần nào",
+                       fix_setup)
+    now = now or datetime.now()
+    ran_raw = str(marker.get("ran_at") or "")
+    try:
+        ran = datetime.fromisoformat(ran_raw)
+        age_h = (now - ran).total_seconds() / 3600
+        ran_txt = ran.strftime("%H:%M %d/%m")
+    except ValueError:
+        ran, age_h, ran_txt = None, None, ran_raw or "?"
+    machine = marker.get("machine") or "?"
+    engine = marker.get("engine") or "?"
+    summary = (f"lượt {ran_txt} bởi {machine} · {marker.get('fetched', '?')} tin lấy · "
+               f"{marker.get('new', '?')} mới · {marker.get('sent', 0)} gửi · engine {engine}")
+    err = marker.get("error")
+    if err:
+        streak = int(marker.get("error_streak") or 1)
+        status = "error" if streak >= 3 else "warn"
+        return _result(key, name, status,
+                       f"{summary} · ❌ {err}" + (f" ({streak} lượt liền)" if streak > 1 else ""),
+                       "🖥️ DESKTOP: Select-String '\\[news-alert\\]' run_daily.log; mạng/feed → "
+                       "python vnstock_news_feeds.py --diag; Claude → python vnstock_brief_pack.py "
+                       "--check; Telegram → python run.py telegram test")
+    if active is None:
+        try:
+            import vnstock_news_alert as _na
+            active, _ = _na.in_active_hours(now)
+        except Exception:
+            active = False
+    if active and age_h is not None and age_h > 3:
+        return _result(key, name, "warn",
+                       f"{summary} — {age_h:.0f}h không có lượt mới trong khung giờ gửi",
+                       "🖥️ DESKTOP: Get-ScheduledTaskInfo -TaskName 'VnStock News Alert' (máy tắt? "
+                       "task tắt?); hai máy thấy khác nhau ⇒ kiểm icon Dropbox trước")
+    return _result(key, name, "ok", summary, "")
+
+
+def check_news_alert() -> dict:
+    try:
+        marker = json.loads((_META / "news_alert_status.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        marker = None
+    return news_alert_verdict(marker)
+
+
 def check_warehouse() -> dict:
     """Kho giá EOD: bar VNINDEX cuối cùng, dung sai 2 PHIÊN.
 
@@ -1180,6 +1240,8 @@ def net_jina() -> dict:
 _DANGEROUS_SWITCHES = {
     "VNSTOCK_PIPELINE_BRIEF": "tắt HẲN bước brief — pipeline chạy xong mà "
                               "Telegram không nhận gì",
+    "VNSTOCK_NEWS_ALERT": "tắt cảnh báo tin mỗi giờ — task 'VnStock News Alert' "
+                          "chạy mà Telegram không nhận tin",
     "VNSTOCK_BRIEF_AUTO_REFRESH": "brief thôi tự làm mới độ rộng thị trường "
                                   "→ có thể báo số giữa phiên",
     "VNSTOCK_BRIEF_AUTO_RECONCILE": "thôi tự đóng lệnh quá hạn → sổ lệnh đầy "
@@ -1519,7 +1581,7 @@ OFFLINE_CHECKS = [
     check_autoheal_yield,
     check_brief_watch,
     check_exdiv_source,
-    check_pipeline_reach, check_brief_engine,
+    check_pipeline_reach, check_brief_engine, check_news_alert,
     check_warehouse, check_market_overview, check_gtgd_coverage,
     check_fundamentals, check_macro,
     check_pdf_tooling, check_market_news, check_ticker_news,

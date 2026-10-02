@@ -1,7 +1,7 @@
 # ============================================================================
 # setup_scheduled_tasks.ps1
 # ============================================================================
-# Create 4 Windows Scheduled Tasks for vnstock_dashboard pipeline:
+# Create 3 Windows Scheduled Tasks for vnstock_dashboard pipeline:
 #
 #   1. VnStock Daily Pipeline     — 18:00 Mon-Fri
 #      sync → validate → screener → news → ... → audit → train → doctor
@@ -15,6 +15,13 @@
 #      Máy tắt lúc 09:00 T7 → StartWhenAvailable chạy lúc mở máy sớm nhất
 #      cuối tuần. (3 task cũ Corp Actions CN / Fundamentals T2 / Rates T7
 #      được script TỰ GỠ khi chạy lại — không cần xoá tay.)
+#
+#   3. VnStock News Alert         — moi gio 07:00..22:00 Mon-Sat (them 2026-10-02, #31)
+#      RSS (12 feed VN+EN) -> loc tin moi 3h -> Claude Code cham muc do 1-5
+#      -> tin >= 3 day Telegram. Khong tin moi = im lang, khong goi LLM.
+#      Command: python run.py --warehouse data_warehouse news-alert
+#      Chi dang ky o DESKTOP (laptop khong task) — so da-gui nam trong kho
+#      (Dropbox) nen khong gui trung. Tat: VNSTOCK_NEWS_ALERT=0 trong .env.
 #
 # Note: News sentiment (run.py news) is now a built-in step of the daily
 # pipeline — no separate task needed. Skip with --no-news if desired.
@@ -32,6 +39,8 @@
 #   -PythonExe "C:\path\to\python.exe"  # override auto-detected Python
 #   -DailyTime "18:00"                  # daily pipeline time (default 18:00)
 #   -WeekendTime "09:00"                # weekend pipeline time Sat (default 09:00)
+#   -NewsAlertStart "07:00" -NewsAlertEnd "22:00"   # khung gio news-alert (moi gio)
+#   -NoNewsAlert                        # khong dang ky task 3 (go neu da co)
 # ============================================================================
 
 param(
@@ -40,7 +49,10 @@ param(
     [switch]$AllowSystemPython,     # co y dang ky Python HE THONG (mac dinh: tu choi)
     [string]$PythonExe        = "",
     [string]$DailyTime   = "18:00",
-    [string]$WeekendTime = "09:00"
+    [string]$WeekendTime = "09:00",
+    [string]$NewsAlertStart = "07:00",
+    [string]$NewsAlertEnd   = "22:00",
+    [switch]$NoNewsAlert
 )
 
 $ErrorActionPreference = "Stop"
@@ -154,8 +166,44 @@ $TaskDefinitions = @(
         }
         MaxMinutes  = 180
         Description = "Gop 3 viec cuoi tuan (2026-07-29): rates-weekly Telegram -> vietstock corp actions -> fundamentals --force (~30-40 phut)"
+    },
+    @{
+        Name        = "VnStock News Alert"
+        Execute     = $PythonExe
+        Args        = "`"$RunPy`" --warehouse $WareHouse news-alert"
+        TriggerDesc = "Weekly Mon-Sat, moi gio tu $NewsAlertStart den $NewsAlertEnd  (+run-on-boot if missed)"
+        Trigger     = {
+            # Weekly trigger KHONG nhan -RepetitionInterval truc tiep; muon
+            # Repetition tu mot trigger -Once roi gan vao (cach chuan cua
+            # ScheduledTasks module). Duration = End - Start + 1 phut de lan
+            # cuoi (22:00) van no.
+            $span = ([datetime]$NewsAlertEnd - [datetime]$NewsAlertStart).Add([timespan]::FromMinutes(1))
+            $t = New-ScheduledTaskTrigger `
+                -Weekly `
+                -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday,Saturday `
+                -At $NewsAlertStart
+            $rep = (New-ScheduledTaskTrigger -Once -At $NewsAlertStart `
+                        -RepetitionInterval (New-TimeSpan -Hours 1) `
+                        -RepetitionDuration $span).Repetition
+            $t.Repetition = $rep
+            $t
+        }
+        # Mot luot binh thuong < 1 phut (fetch 12 feed ~15-30s + 1 call Claude);
+        # 15' la tran an toan khi Claude CLI treo (timeout 180s) + feed cham.
+        MaxMinutes  = 15
+        Description = "Canh bao tin quan trong moi gio (#31, 2026-10-02): RSS -> loc tin 3h -> Claude cham muc do 1-5 -> Telegram. Code gac khung gio: VNSTOCK_NEWS_ALERT_HOURS/DAYS; tat: VNSTOCK_NEWS_ALERT=0"
     }
 )
+
+# -NoNewsAlert: bo task 3 khoi danh sach dang ky (va go neu da co tu lan truoc)
+if ($NoNewsAlert) {
+    $TaskDefinitions = @($TaskDefinitions | Where-Object { $_.Name -ne "VnStock News Alert" })
+    $existingNa = Get-ScheduledTask -TaskName "VnStock News Alert" -ErrorAction SilentlyContinue
+    if ($existingNa -and -not $DryRun) {
+        Unregister-ScheduledTask -TaskName "VnStock News Alert" -Confirm:$false
+        Write-Host "[OK] Removed task (-NoNewsAlert): VnStock News Alert" -ForegroundColor Yellow
+    }
+}
 
 # Task cu da GOP vao Weekend Pipeline (2026-07-29) — tu go khi chay lai script
 $LegacyTaskNames = @(
@@ -270,5 +318,6 @@ Write-Host "Useful commands:" -ForegroundColor DarkGray
 Write-Host "  List tasks       : Get-ScheduledTask -TaskName 'VnStock *' | Select TaskName,State,LastRunTime,NextRunTime"
 Write-Host "  Run daily        : Start-ScheduledTask -TaskName 'VnStock Daily Pipeline'"
 Write-Host "  Run weekend      : Start-ScheduledTask -TaskName 'VnStock Weekend Pipeline'"
+Write-Host "  Run news alert   : Start-ScheduledTask -TaskName 'VnStock News Alert'   (thu tay: python run.py news-alert --dry-run)"
 Write-Host "  Remove all       : .\scripts\setup_scheduled_tasks.ps1 -Remove"
 Write-Host "  Update all       : .\scripts\setup_scheduled_tasks.ps1  (re-run same script)"

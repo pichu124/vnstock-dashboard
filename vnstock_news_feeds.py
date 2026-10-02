@@ -129,6 +129,32 @@ def _strip_html(s: str) -> str:
     return html.unescape(_HTML_TAG_RE.sub("", s or "")).strip()
 
 
+def _parse_pubdatetime(raw: str) -> str:
+    """Mốc đăng ĐẦY ĐỦ (ISO 'YYYY-MM-DDTHH:MM:SS', giờ ĐỊA PHƯƠNG, không tz) —
+    `_parse_pubdate` chỉ giữ ngày nên cảnh báo tin THEO GIỜ (news_alert, 02/10)
+    không lọc được "tin trong 3 giờ qua". Feed không tz ⇒ coi là giờ địa
+    phương. '' khi không đọc được."""
+    s = (raw or "").strip()
+    if not s:
+        return ""
+    dt = None
+    try:                                   # RFC822
+        dt = parsedate_to_datetime(s)
+    except (TypeError, ValueError, IndexError):
+        try:                               # ISO 8601
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        except ValueError:
+            return ""
+    if dt is None:
+        return ""
+    if dt.tzinfo is not None:
+        try:
+            dt = dt.astimezone().replace(tzinfo=None)
+        except (ValueError, OverflowError, OSError):
+            return ""
+    return dt.replace(microsecond=0).isoformat(timespec="seconds")
+
+
 def _parse_pubdate(raw: str) -> str:
     """Normalise a feed date to ISO 'YYYY-MM-DD' ('' if unparseable).
     Handles RFC822 (RSS pubDate) and ISO 8601 (Atom updated/published)."""
@@ -180,6 +206,7 @@ def parse_feed(content: "str | bytes", source: str = "") -> list[dict]:
             "source_feed": source,
             "ticker": "",                          # market-wide
             "_date_sort": iso,
+            "_published_at": _parse_pubdatetime(d.get("_pub", "")),  # giờ đầy đủ (news_alert)
             "_sentiment": "",
             "_impact": "",
         })

@@ -52,6 +52,7 @@ STEP_ENGINE_ENV = {
     "train": "VNSTOCK_TRAIN_ENGINE",
     "reflection": "VNSTOCK_REFLECTION_ENGINE",
     "digest": "VNSTOCK_DIGEST_ENGINE",
+    "news_alert": "VNSTOCK_NEWS_ALERT_ENGINE",   # cảnh báo tin mỗi giờ (02/10, #31)
 }
 
 TASK_LINE = "Làm theo hướng dẫn hệ thống với nội dung nhận vào từ stdin."

@@ -725,6 +725,7 @@ def cmd_test(args) -> int:
             "tests/test_macro.py",
             "tests/test_news_feeds.py",
             "tests/test_news_analyze_route.py",
+            "tests/test_news_alert.py",       # cảnh báo tin mỗi giờ → Telegram (#31)
             "tests/test_updater_partial_bar.py",
             "tests/test_doctor.py",
             "tests/test_fred.py",
@@ -1174,6 +1175,29 @@ def cmd_news(args) -> int:
         except Exception as e:
             print(f"[news] market feeds skipped: {type(e).__name__}: {e}")
     return 0
+
+
+def cmd_news_alert(args) -> int:
+    """Cảnh báo TIN QUAN TRỌNG theo giờ → Telegram (#31, 02/10). Task
+    'VnStock News Alert' gọi mỗi giờ 07–22h T2–T7 trên 🖥️ desktop; KHÔNG nằm
+    trong `all`. Không tin mới ⇒ im lặng, không gọi LLM. Exit 0/1 — không bao
+    giờ 2 (một feed ốm không được làm task báo fail cứng)."""
+    try:
+        import vnstock_news_alert as _na
+    except ImportError as e:
+        print(f"[news-alert] cannot import: {e}")
+        return 1
+    only = [k for k in (getattr(args, "sources", None) or "").split(",") if k.strip()] or None
+    if getattr(args, "list_sources", False):
+        _na.print_sources(_na.enabled_sources(only))
+        return 0
+    return _na.run(dry_run=getattr(args, "dry_run", False),
+                   force=getattr(args, "force", False),
+                   min_score=getattr(args, "min_score", None),
+                   window_h=getattr(args, "window_h", None),
+                   max_send=getattr(args, "max_send", None),
+                   engine=getattr(args, "engine", None),
+                   sources=_na.enabled_sources(only) if only else None)
 
 
 def _weekend_steps(args) -> "list[tuple[str, list]]":
@@ -2015,6 +2039,27 @@ def build_parser() -> argparse.ArgumentParser:
     news_p.add_argument("--no-score", action="store_true",
                         help="Chỉ refresh tin, không chấm sentiment")
 
+    na = sub.add_parser(
+        "news-alert",
+        help="Cảnh báo tin QUAN TRỌNG theo giờ → Telegram (task 'VnStock News "
+             "Alert' mỗi giờ 07–22h T2–T7; không nằm trong `all`)")
+    na.add_argument("--dry-run", action="store_true",
+                    help="In tin sẽ gửi, KHÔNG gửi Telegram, KHÔNG ghi sổ/marker")
+    na.add_argument("--force", action="store_true",
+                    help="Bỏ cửa khung giờ/ngày (VNSTOCK_NEWS_ALERT_HOURS/DAYS)")
+    na.add_argument("--min-score", type=int, default=None,
+                    help="Ngưỡng mức độ 1–5 để gửi (mặc định 3, env VNSTOCK_NEWS_ALERT_MIN_SCORE)")
+    na.add_argument("--window-h", type=int, default=None,
+                    help="Chỉ xét tin đăng trong N giờ qua (mặc định 3)")
+    na.add_argument("--max-send", type=int, default=None,
+                    help="Tối đa N tin mỗi lượt, dư để lượt sau (mặc định 8)")
+    na.add_argument("--sources", default=None,
+                    help="Lọc nguồn theo tiền tố key, phẩy (vd rss:cafef,vnstock:)")
+    na.add_argument("--engine", choices=["ladder", "claude"], default=None,
+                    help="Ép engine chấm (mặc định theo VNSTOCK_NEWS_ALERT_ENGINE/LLM_ENGINE)")
+    na.add_argument("--list-sources", action="store_true",
+                    help="In registry nguồn đang bật rồi thoát")
+
     all_ = sub.add_parser(
         "all", help="sync → validate → screener → news → test → audit → "
                     "doctor → brief (14 bước)")
@@ -2069,6 +2114,7 @@ _DISPATCH = {
     "train": cmd_train,
     "telegram": cmd_telegram,
     "news": cmd_news,
+    "news-alert": cmd_news_alert,
     "test": cmd_test,
     "dashboard": cmd_dashboard,
     "all": cmd_all,
