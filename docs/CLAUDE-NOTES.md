@@ -7035,6 +7035,26 @@ Fed feed có giá. Hệ quả: **cửa sổ bắt bù qua đêm** (lượt 07:00
   luận chuyên gia` ⇒ chấm theo giá trị phân tích, tối đa 4.
 - `run.py news-alert --diag` / `vnstock_news_alert.py --diag`.
 
+**Đo thật 02/10 tối (🖥️ desktop, `14ad320`):** `--fast` **2.862 passed / 207s**;
+`news-alert --diag` **30/32 nguồn** ✅ — Bloomberg Markets 10 tin/3h, FT 5, CNBC World 5,
+WSJ host mới (`feeds.content.dowjones.io`) sống, cả 6 Google News 45–100 tin, Fed
+monetary mới nhất 17/09 01:00 (đúng FOMC 16/09 giờ Mỹ ⇒ quy đổi tz đúng). Xử lý ngay:
+(1) ❌ investingLive/ForexLive — forexlive.com chuyển hướng investinglive.com, không
+RSS ⇒ `enabled: False`, thử ứng viên bằng `--diag-url`; (2) ❌ BLS — chặn script ⇒
+tắt, thay "GN US data" (`"jobs report" OR payrolls OR "consumer price index" OR "PCE
+inflation" OR "retail sales"`); (3) Báo Chính phủ + Nikkei Asia ✅ mà "mới nhất —" ⇒
+KHÔNG đọc được ngày ⇒ không bao giờ qua cửa sổ giờ, và Báo Chính phủ còn bị
+`news_feeds.refresh` LOẠI khỏi cache brief từ 07/2026 (cutoff theo `_date_sort` rỗng —
+diag 08/07 chỉ đếm tin liên quan nên không lộ). Vá: `_parse_dt_loose` (dd/mm/yyyy,
+"Thứ …, dd/mm/yyyy - HH:MM", yyyy/mm/dd, offset có dấu cách) + `_norm_tz_words`
+("GMT+7" — `parsedate_to_datetime` KHÔNG ném mà lặng lẽ BỎ tz, đúng nhờ may khi máy ở
+VN); `parse_feed` ghi `_pub_raw` khi không đọc được ⇒ `--diag` in chuỗi gốc; feed
+thật sự không có ngày ⇒ `take_undated`: lượt đầu GHI MỐC mọi tin (không chấm), từ lượt
+sau tin chưa thấy = tin mới với `_published_at` = giờ thấy. Ghi chú thêm: `rss:cnbc-markets`
+(id 20910258, thật ra feed Economy) mới nhất 28/09 và `rss:yahoo-finance` mới nhất 23/09
+⇒ hai feed của `_FEEDS` gần như đứng — vô hại (rơi ngoài cửa sổ) nhưng là ứng viên thay
+cho brief, chưa đụng.
+
 **Chưa kiểm / bẫy còn mở:** (a) mọi URL `_ALERT_FEEDS` + Substack/Cloudflare 403 với
 TLS của `requests` — `--diag` quyết; (b) hình dạng JSON của twitterapi.io
 (`tweets[].createdAt` kiểu Twitter, `author.userName`) viết theo tài liệu, chưa gọi

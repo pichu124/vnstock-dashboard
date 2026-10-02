@@ -246,6 +246,61 @@ def test_wsj_feeds_moved_off_frozen_host_and_bloomberg_present():
     assert not any(n.startswith(("NYT", "BBC", "Guardian")) for n in urls)
 
 
+def test_desktop_diag_0210_broken_feeds_disabled_and_us_data_query_added():
+    """--diag trên desktop 02/10: ForexLive (chuyển hướng investinglive.com) và BLS
+    (chặn script) thô 0 ⇒ tắt; số liệu Mỹ đi qua Google News."""
+    on = {s.key for s in na.enabled_sources()}
+    assert "rss:investinglive-forexlive" not in on and "rss:us-bls-releases" not in on
+    assert "gnews:gn-us-data" in on and "rss:fed-monetary-policy" in on
+    q = next(f["query"] for f in na._ALERT_FEEDS if f["name"] == "GN US data")
+    assert "payrolls" in q and "consumer price index" in q and "when:2d" in q
+
+
+def test_take_undated_baselines_first_then_treats_new_titles_as_fresh():
+    src = _src("rss:nikkei-asia", [])
+    old = [na.normalize_item({"title": f"Old Nikkei story {i}", "link": f"https://n/{i}"}, src)
+           for i in range(3)]
+    assert all(it["_undated"] for it in old)
+    seen = {"items": {}}
+    assert na.take_undated(old, seen, NOW) == []                    # lượt đầu: chỉ ghi mốc
+    assert len(seen["items"]) == 3 and all(r["baseline"] and r["score"] is None
+                                            for r in seen["items"].values())
+    later = NOW + timedelta(hours=1)
+    fresh_item = na.normalize_item({"title": "Japan intervenes in yen", "link": "https://n/9"}, src)
+    got = na.take_undated(old + [fresh_item], seen, later)
+    assert [g["title"] for g in got] == ["Japan intervenes in yen"]
+    assert got[0]["_published_at"] == later.isoformat(timespec="seconds")
+    assert got[0]["_date_sort"] == "" and na.item_hash(got[0]) == na.item_hash(fresh_item)
+    dated = na.normalize_item(_raw("Dated"), src)
+    assert not dated["_undated"] and na.take_undated([dated], seen, later) == []
+
+
+def test_run_scores_undated_feed_only_after_baseline(monkeypatch):
+    src_items = [{"title": "Old Nikkei story about yen", "link": "https://n/1"}]
+    calls = _fake_complete(monkeypatch, by_title={"yen": {"muc_do": 4, "nhan": "TIÊU_CỰC",
+                                                          "tac_dong": "Yên mạnh, dòng vốn carry rút khỏi châu Á"}})
+    sent, spy = _sender_spy()
+    na.run(now=NOW, sources=[_src("rss:nikkei", list(src_items))], engine="claude", sender=spy)
+    assert not calls and not sent                                    # mốc, không chấm
+    src_items.append({"title": "BOJ hikes, yen surges past 140", "link": "https://n/2"})
+    na.run(now=NOW + timedelta(hours=1), sources=[_src("rss:nikkei", list(src_items))],
+           engine="claude", sender=spy)
+    assert len(calls) == 1 and calls[0]["user"].count("### Tin i=") == 1
+    assert "BOJ hikes" in calls[0]["user"] and len(sent) == 1
+
+
+def test_diag_prints_unreadable_raw_date_and_diag_url(monkeypatch, capsys):
+    undated = [{"title": "Fed holds rates", "link": "https://x", "_pub_raw": "Thứ năm 2 tháng 10"}]
+    na.diag_sources([_src("rss:vn", undated)], now=NOW)
+    out = capsys.readouterr().out
+    assert "mới nhất —" in out and "'Thứ năm 2 tháng 10'" in out and "giờ thấy lần đầu" in out
+    seen_feed: list = []
+    monkeypatch.setattr(nf, "fetch_feed", lambda f: seen_feed.append(f) or [_raw("Fed holds rates")])
+    assert na.diag_url("https://investinglive.com/feed/") == 0
+    assert seen_feed[0]["url"] == "https://investinglive.com/feed/"
+    assert "url:thu-https-investinglive-com-feed" in capsys.readouterr().out
+
+
 def test_cap_per_source_keeps_newest_n_per_source_in_time_order():
     items = [{**_raw(f"A{i}", hours_ago=0.1 * i), "source_key": "rss:a"} for i in range(8)]
     items += [{**_raw(f"B{i}", hours_ago=0.05 * i), "source_key": "rss:b"} for i in range(2)]
@@ -870,6 +925,7 @@ def test_runpy_has_news_alert_subcommand_but_all_does_not():
                                             "--sources", "rss:cafef"])
     assert args.subcommand == "news-alert" and args.dry_run and args.min_score == 4
     assert runpy.build_parser().parse_args(["news-alert", "--diag"]).diag is True
+    assert runpy.build_parser().parse_args(["news-alert", "--diag-url", "https://u"]).diag_url == "https://u"
     assert runpy._DISPATCH["news-alert"] is runpy.cmd_news_alert
     names = [n for n, _ in runpy._all_steps(SimpleNamespace())]
     assert "news-alert" not in names

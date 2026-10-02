@@ -217,12 +217,19 @@ _ALERT_FEEDS: list = [
     {"name": "MarketWatch Bulletins", "url": "https://feeds.content.dowjones.io/public/rss/mw_bulletins", "lang": "en"},
     {"name": "CNBC World",          "url": "https://www.cnbc.com/id/100727362/device/rss/rss.html", "lang": "en"},
     {"name": "CNBC Asia",           "url": "https://www.cnbc.com/id/19832390/device/rss/rss.html",  "lang": "en"},
-    {"name": "investingLive (ForexLive)", "url": "https://www.forexlive.com/feed/",             "lang": "en"},
+    # investingLive (ForexLive): --diag desktop 02/10 ❌ thô 0 — forexlive.com chuyển hướng sang
+    # investinglive.com (đổi tên 21/07/2025) và không trả RSS. Chưa có URL feed mới đã kiểm;
+    # thử ứng viên bằng `run.py news-alert --diag-url <url>` rồi bật lại.
+    {"name": "investingLive (ForexLive)", "url": "https://www.forexlive.com/feed/",             "lang": "en",
+     "enabled": False},
     {"name": "OilPrice",            "url": "https://oilprice.com/rss/main",                      "lang": "en"},
     {"name": "Nikkei Asia",         "url": "https://asia.nikkei.com/rss/feed/nar",               "lang": "en"},
     # ── Nguồn chính thức T+0 (không lọc — mỗi tin là dữ liệu/quyết định) ──
     {"name": "Fed monetary policy", "url": "https://www.federalreserve.gov/feeds/press_monetary.xml", "lang": "en", "official": True},
-    {"name": "US BLS releases",     "url": "https://www.bls.gov/feed/bls_latest.rss",            "lang": "en", "official": True},
+    # BLS: --diag desktop 02/10 ❌ thô 0 — bls.gov chặn script (Akamai). Số liệu BLS (CPI,
+    # việc làm) đi qua "GN US data" bên dưới.
+    {"name": "US BLS releases",     "url": "https://www.bls.gov/feed/bls_latest.rss",            "lang": "en", "official": True,
+     "enabled": False},
     {"name": "US BEA releases",     "url": "https://apps.bea.gov/rss/rss.xml",                   "lang": "en", "official": True},
     # ── Google News theo truy vấn (không lọc thêm — truy vấn đã là bộ lọc; when:2d
     #    vì cửa sổ bắt bù cuối tuần tới 36h) ──
@@ -232,6 +239,7 @@ _ALERT_FEEDS: list = [
     gnews_feed("GN Oil",            "Brent crude OR OPEC when:2d"),
     gnews_feed("GN China macro",    "China economy OR PBOC OR yuan when:2d"),
     gnews_feed("GN Treasuries USD", "Treasury yields OR dollar index when:2d"),
+    gnews_feed("GN US data",        "\"jobs report\" OR payrolls OR \"consumer price index\" OR \"PCE inflation\" OR \"retail sales\" when:2d"),
 ]
 
 
@@ -596,6 +604,7 @@ def normalize_item(raw: dict, src: Source) -> Optional[dict]:
         "ticker": _one_line(raw.get("ticker")).upper(),
         "_date_sort": date_sort,
         "_published_at": published,
+        "_undated": not (published or date_sort),
         "_sentiment": "",
         "_impact": "",
     }
@@ -792,11 +801,39 @@ def prune_seen(seen: dict, now: datetime, days: int = SEEN_RETAIN_DAYS) -> dict:
     return {"items": kept}
 
 
+def take_undated(items: list, seen: dict, now: datetime) -> list:
+    """Feed KHÔNG có ngày đăng đọc được (Nikkei Asia, Báo Chính phủ — --diag 02/10)
+    không bao giờ qua `within_window`. Lấy GIỜ THẤY LẦN ĐẦU làm giờ đăng:
+    - nguồn chưa từng có bản ghi trong sổ ⇒ lượt đầu chỉ GHI MỐC mọi tin hiện có
+      (score None, baseline) — không chấm, không gửi 50 tin cũ một lúc;
+    - nguồn đã có mốc ⇒ tin chưa thấy = tin mới, `_published_at` = bây giờ.
+    `_date_sort` vẫn rỗng nên hash (date|title) ổn định giữa các lượt. Ghi mốc
+    sửa `seen` tại chỗ (dry-run không lưu sổ nên không ghi mốc thật)."""
+    known = {r.get("source_key") for r in (seen.get("items") or {}).values() if isinstance(r, dict)}
+    out, baseline = [], 0
+    stamp = now.isoformat(timespec="seconds")
+    for it in items:
+        if not it.get("_undated"):
+            continue
+        h = item_hash(it)
+        if h in seen["items"]:
+            continue
+        if it.get("source_key") in known:
+            out.append({**it, "_published_at": stamp})
+        else:
+            seen["items"][h] = {**_record(it, None, now), "baseline": True}
+            baseline += 1
+    if baseline:
+        print(f"[{TAG}] {baseline} tin không có ngày đăng — ghi mốc lần đầu, từ lượt sau tin mới mới được chấm")
+    return out
+
+
 def _record(item: dict, score: Optional[dict], now: datetime) -> dict:
     rec = {
         "title": item.get("title", "")[:200],
         "link": item.get("link", "")[:400],
         "source": item.get("source_feed", "")[:60],
+        "source_key": item.get("source_key", ""),
         "ticker": item.get("ticker", ""),
         "published": item.get("_published_at") or item.get("_date_sort") or "",
         "first_seen": now.isoformat(timespec="seconds"),
@@ -1143,6 +1180,7 @@ def run(*, now: Optional[datetime] = None, dry_run: bool = False, force: bool = 
 
     seen = prune_seen(load_seen(), now)
     fresh = [it for it in items if within_window(it, now, window_h)]
+    fresh += take_undated(items, seen, now)
     try:
         from vnstock_news import deduplicate_news
         fresh, _ = deduplicate_news(fresh)
@@ -1261,9 +1299,20 @@ def diag_sources(sources: Optional[list] = None, now: Optional[datetime] = None)
             bad += 1
         print(f"  {icon} {s.key:34s} thô {len(raw):3d} · lọc {len(kept):3d} · 3h {in3h:2d} · "
               f"mới nhất {newest[:16] or '—':16s} · {_time.time() - t0:4.1f}s {err}")
+        if raw and not newest:
+            sample = next((r.get("_pub_raw") for r in raw if isinstance(r, dict) and r.get("_pub_raw")),
+                          "(không rõ)")
+            print(f"       ↳ không đọc được ngày đăng, chuỗi gốc: {sample!r} — cảnh báo dùng giờ thấy lần đầu")
     print(f"[{TAG}] {len(srcs) - bad}/{len(srcs)} nguồn trả dữ liệu. ❌ = URL sai/chặn/hết "
           f"feed → sửa hoặc enabled=False trong _ALERT_FEEDS (nước ngoài) / _FEEDS (VN).")
     return 1 if bad else 0
+
+
+def diag_url(url: str, lang: str = "en") -> int:
+    """Thử MỘT URL feed ứng viên trước khi thêm vào `_ALERT_FEEDS` (lọc theo ngôn ngữ)."""
+    src = rss_source({"name": "thử: " + url[:40], "url": url, "lang": lang},
+                     relevant=_relevant_en if lang == "en" else _NO_FILTER, key_prefix="url")
+    return diag_sources([src])
 
 
 def _safe_relevant(s: Source, it: dict) -> bool:
@@ -1293,12 +1342,15 @@ def main(argv: Optional[list] = None) -> int:
     ap.add_argument("--engine", choices=["ladder", "claude"], default=None)
     ap.add_argument("--list-sources", action="store_true")
     ap.add_argument("--diag", action="store_true", help="thử từng nguồn, không gửi/ghi")
+    ap.add_argument("--diag-url", default=None, help="thử một URL feed ứng viên")
     a = ap.parse_args(argv)
     _load_env()
     only = [k for k in (a.sources or "").split(",") if k.strip()] or None
     if a.list_sources:
         print_sources(enabled_sources(only))
         return 0
+    if a.diag_url:
+        return diag_url(a.diag_url)
     if a.diag:
         return diag_sources(enabled_sources(only))
     return run(dry_run=a.dry_run, force=a.force, min_score=a.min_score,

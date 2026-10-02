@@ -129,12 +129,57 @@ def _strip_html(s: str) -> str:
     return html.unescape(_HTML_TAG_RE.sub("", s or "")).strip()
 
 
+# Định dạng ngày lệch chuẩn hay gặp ở feed VN/châu Á (02/10: Báo Chính phủ +
+# Nikkei Asia ra `_date_sort` rỗng ⇒ bị loại khỏi cả brief lẫn cảnh báo giờ):
+# "… GMT+7", "02/10/2026 19:00", "Thứ năm, 02/10/2026 - 19:00", "2026/10/02 19:00",
+# "2026-10-02 19:00:00 +0700". Chỉ chạy khi RFC822/ISO chuẩn đã trượt.
+_TZ_WORD_RE = re.compile(r"\s*\b(?:GMT|UTC)\s*([+-])\s*(\d{1,2})(?::?(\d{2}))?\s*$", re.I)
+_SPACE_OFFSET_RE = re.compile(r"\s+([+-]\d{2}:?\d{2})$")
+_DMY_RE = re.compile(r"(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?:\D{1,6}?(\d{1,2})[:hH](\d{2})(?::(\d{2}))?)?")
+_YMD_SLASH_RE = re.compile(r"(\d{4})/(\d{1,2})/(\d{1,2})(?:\D{1,3}(\d{1,2}):(\d{2})(?::(\d{2}))?)?")
+
+
+def _norm_tz_words(s: str) -> str:
+    """"… GMT+7" / "UTC+07:00" → "… +0700". `parsedate_to_datetime` KHÔNG ném với
+    "GMT+7" mà lặng lẽ trả giờ KHÔNG tz (bỏ +7) — đúng nhờ may khi máy ở VN, lệch
+    7 giờ ở máy khác."""
+    return _TZ_WORD_RE.sub(lambda m: f" {m.group(1)}{int(m.group(2)):02d}{m.group(3) or '00'}", s)
+
+
+def _parse_dt_loose(raw: str) -> "datetime | None":
+    """Lưới cuối cho ngày lệch chuẩn — datetime (có tz nếu chuỗi có) hoặc None."""
+    s = (raw or "").strip()
+    if not s:
+        return None
+    s2 = _TZ_WORD_RE.sub(lambda m: f" {m.group(1)}{int(m.group(2)):02d}{m.group(3) or '00'}", s)
+    if s2 != s:
+        try:
+            return parsedate_to_datetime(s2)
+        except (TypeError, ValueError, IndexError):
+            pass
+    try:
+        return datetime.fromisoformat(_SPACE_OFFSET_RE.sub(r"\1", s2.replace("Z", "+00:00")))
+    except ValueError:
+        pass
+    for rx, order in ((_DMY_RE, "dmy"), (_YMD_SLASH_RE, "ymd")):
+        m = rx.search(s)
+        if not m:
+            continue
+        a, b, c, hh, mm, ss = m.groups()
+        d, mo, y = (a, b, c) if order == "dmy" else (c, b, a)
+        try:
+            return datetime(int(y), int(mo), int(d), int(hh or 0), int(mm or 0), int(ss or 0))
+        except ValueError:
+            continue
+    return None
+
+
 def _parse_pubdatetime(raw: str) -> str:
     """Mốc đăng ĐẦY ĐỦ (ISO 'YYYY-MM-DDTHH:MM:SS', giờ ĐỊA PHƯƠNG, không tz) —
     `_parse_pubdate` chỉ giữ ngày nên cảnh báo tin THEO GIỜ (news_alert, 02/10)
     không lọc được "tin trong 3 giờ qua". Feed không tz ⇒ coi là giờ địa
     phương. '' khi không đọc được."""
-    s = (raw or "").strip()
+    s = _norm_tz_words((raw or "").strip())
     if not s:
         return ""
     dt = None
@@ -144,7 +189,7 @@ def _parse_pubdatetime(raw: str) -> str:
         try:                               # ISO 8601
             dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
         except ValueError:
-            return ""
+            dt = _parse_dt_loose(s)        # định dạng lệch chuẩn (VN/châu Á)
     if dt is None:
         return ""
     if dt.tzinfo is not None:
@@ -158,7 +203,7 @@ def _parse_pubdatetime(raw: str) -> str:
 def _parse_pubdate(raw: str) -> str:
     """Normalise a feed date to ISO 'YYYY-MM-DD' ('' if unparseable).
     Handles RFC822 (RSS pubDate) and ISO 8601 (Atom updated/published)."""
-    s = (raw or "").strip()
+    s = _norm_tz_words((raw or "").strip())
     if not s:
         return ""
     try:                                   # RFC822: 'Mon, 15 Jun 2026 10:00:00 +0700'
@@ -169,7 +214,10 @@ def _parse_pubdate(raw: str) -> str:
         return datetime.fromisoformat(s.replace("Z", "+00:00")).date().isoformat()
     except ValueError:
         pass
-    return s[:10] if len(s) >= 10 and s[4] == "-" and s[7] == "-" else ""
+    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+        return s[:10]
+    dt = _parse_dt_loose(s)                # định dạng lệch chuẩn (VN/châu Á)
+    return dt.date().isoformat() if dt else ""
 
 
 def parse_feed(content: "str | bytes", source: str = "") -> list[dict]:
@@ -198,7 +246,7 @@ def parse_feed(content: "str | bytes", source: str = "") -> list[dict]:
         if not title:
             continue
         iso = _parse_pubdate(d.get("_pub", ""))
-        out.append({
+        item = {
             "title": title,
             "news_title": title,                  # alias for dedup/sentiment reuse
             "link": d.get("link", ""),
@@ -209,7 +257,10 @@ def parse_feed(content: "str | bytes", source: str = "") -> list[dict]:
             "_published_at": _parse_pubdatetime(d.get("_pub", "")),  # giờ đầy đủ (news_alert)
             "_sentiment": "",
             "_impact": "",
-        })
+        }
+        if not iso:                        # để `news-alert --diag` in ra chuỗi ngày đọc không được
+            item["_pub_raw"] = d.get("_pub", "")[:80] or "(feed không có thẻ ngày)"
+        out.append(item)
     return out
 
 

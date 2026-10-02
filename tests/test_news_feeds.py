@@ -498,3 +498,56 @@ def test_cli_reanalyze_alone_implies_refresh(monkeypatch):
     monkeypatch.setattr(nf, "_show", lambda *a, **k: None)
     assert nf.main(["--reanalyze"]) == 0
     assert calls == {"reanalyze": True, "analyze": True}
+
+
+# ── ngày lệch chuẩn (--diag desktop 02/10: Báo Chính phủ + Nikkei "mới nhất —") ──
+
+
+import pytest as _pytest
+
+
+@_pytest.mark.parametrize("raw,day,hhmm", [
+    ("Thu, 02 Oct 2026 19:00:00 GMT+7", "2026-10-02", "19:00"),
+    ("Thu, 02 Oct 2026 19:00:00 GMT+07:00", "2026-10-02", "19:00"),
+    ("02/10/2026 19:00", "2026-10-02", "19:00"),
+    ("Thứ năm, 02/10/2026 - 19:00", "2026-10-02", "19:00"),
+    ("2/10/2026", "2026-10-02", "00:00"),
+    ("2026/10/02 19:00:00", "2026-10-02", "19:00"),
+])
+def test_loose_dates_parse_in_vietnam_time(raw, day, hhmm, monkeypatch):
+    import time as _t
+    monkeypatch.setenv("TZ", "Asia/Ho_Chi_Minh")
+    if hasattr(_t, "tzset"):
+        _t.tzset()
+    try:
+        assert nf._parse_pubdate(raw) == day
+        assert nf._parse_pubdatetime(raw) == f"{day}T{hhmm}:00"
+    finally:
+        monkeypatch.undo()
+        if hasattr(_t, "tzset"):
+            _t.tzset()
+
+
+def test_gmt_plus_offset_is_not_silently_dropped():
+    """parsedate_to_datetime('… GMT+7') trả giờ KHÔNG tz (bỏ +7) — phải chuẩn hoá trước."""
+    assert nf._norm_tz_words("Thu, 02 Oct 2026 19:00:00 GMT+7").endswith(" +0700")
+    assert nf._norm_tz_words("Thu, 02 Oct 2026 19:00:00 UTC-05:30").endswith(" -0530")
+    assert nf._norm_tz_words("Thu, 02 Oct 2026 19:00:00 GMT") == "Thu, 02 Oct 2026 19:00:00 GMT"
+
+
+def test_standard_dates_unchanged_and_garbage_still_empty():
+    assert nf._parse_pubdate("Mon, 15 Jun 2026 10:00:00 +0700") == "2026-06-15"
+    assert nf._parse_pubdate("2026-06-15T08:30:00+07:00") == "2026-06-15"
+    assert nf._parse_pubdate("rác") == "" and nf._parse_pubdatetime("rác") == ""
+    assert nf._parse_pubdate("") == "" and nf._parse_pubdatetime("") == ""
+
+
+def test_parse_feed_keeps_raw_date_only_when_unreadable():
+    rss = (b"<?xml version='1.0'?><rss><channel>"
+           b"<item><title>A</title><link>https://a</link><pubDate>2 thang 10</pubDate></item>"
+           b"<item><title>B</title><link>https://b</link></item>"
+           b"<item><title>C</title><link>https://c</link><pubDate>Fri, 02 Oct 2026 09:00:00 +0700</pubDate></item>"
+           b"</channel></rss>")
+    a, b, c = nf.parse_feed(rss, "X")
+    assert a["_pub_raw"] == "2 thang 10" and b["_pub_raw"] == "(feed không có thẻ ngày)"
+    assert "_pub_raw" not in c and c["_date_sort"] == "2026-10-02"

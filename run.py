@@ -1192,6 +1192,8 @@ def cmd_news_alert(args) -> int:
     if getattr(args, "list_sources", False):
         _na.print_sources(_na.enabled_sources(only))
         return 0
+    if getattr(args, "diag_url", None):
+        return _na.diag_url(args.diag_url)
     if getattr(args, "diag", False):
         return _na.diag_sources(_na.enabled_sources(only))
     return _na.run(dry_run=getattr(args, "dry_run", False),
@@ -2065,6 +2067,8 @@ def build_parser() -> argparse.ArgumentParser:
     na.add_argument("--diag", action="store_true",
                     help="Thử từng nguồn trên máy có mạng (số tin/feed, mới nhất); "
                          "không gửi, không ghi sổ — chạy sau khi thêm feed")
+    na.add_argument("--diag-url", default=None,
+                    help="Thử MỘT URL feed ứng viên (tiếng Anh) trước khi thêm vào _ALERT_FEEDS")
 
     all_ = sub.add_parser(
         "all", help="sync → validate → screener → news → test → audit → "

@@ -607,6 +607,8 @@ báo nước ngoài / phân tích từ X được không":**
   Ép provider: `VNSTOCK_NEWS_ALERT_X_PROVIDER=twitterapi|official`. Một call tìm
   kiếm `from:a OR from:b` mỗi giờ. KHÔNG dùng Nitter/RSSHub/Grok x_search (lý do U68).
 
+**Đo thật 02/10 tối (🖥️ desktop):** `--fast` 2.862 passed; `--diag` 30/32 nguồn ✅. ForexLive + BLS ❌ ⇒ tắt (BLS thay bằng Google News "GN US data"); Báo Chính phủ + Nikkei không đọc được ngày ⇒ vá bộ đọc ngày + lấy giờ thấy lần đầu (U68). Thử URL feed mới: `python run.py news-alert --diag-url <url>`.
+
 **Phép đo sau 1 ngày:** `python run.py doctor` badge "Cảnh báo tin mỗi giờ" ✅
 kèm `N gửi · engine claude`; `python vnstock_llm_ledger.py --show` dòng
 `ClaudeCode` ~10–15 call/ngày; Telegram ≤ ~8 tin/giờ. Nhiễu quá ⇒
