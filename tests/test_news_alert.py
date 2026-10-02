@@ -318,6 +318,41 @@ def test_bsky_source_one_list_call_caps_per_author_and_links(monkeypatch):
     assert "Loại: bình luận chuyên gia" in na.item_block(0, it)
 
 
+def test_bsky_bad_handle_loses_only_that_person(monkeypatch, capsys):
+    long = "Treasury yields jump after hot CPI print, dollar firmer against Asian currencies today"
+
+    def _fake(url, params=None, headers=None):
+        if params.get("actor") == "gone.bsky.social":
+            raise RuntimeError("400 Profile not found")
+        return {"feed": [_bsky_entry(params["actor"], long, "2026-10-02T02:00:00.000Z", rkey="p1")]}
+    monkeypatch.setattr(na, "_http_get_json", _fake)
+    src = na.bsky_source(handles=("ok1.bsky.social", "gone.bsky.social", "ok2.bsky.social"))
+    items, counts = na.collect([src])
+    assert counts == {"bsky:analysts": 2}
+    assert "@gone.bsky.social" in capsys.readouterr().out
+
+
+def test_bsky_list_feed_paginates_until_old_posts_or_max_pages(monkeypatch):
+    long = "Oil jumps as OPEC+ signals deeper cuts, Brent above 90 for the first time this quarter"
+    pages = {None: ("c1", "2026-10-02T02:00:00.000Z"), "c1": ("c2", "2026-10-01T22:00:00.000Z"),
+             "c2": ("c3", "2026-09-30T10:00:00.000Z"), "c3": (None, "2026-09-29T10:00:00.000Z")}
+    seen: list = []
+
+    def _fake(url, params=None, headers=None):
+        cur = params.get("cursor")
+        seen.append(cur)
+        nxt, created = pages[cur]
+        return {"feed": [_bsky_entry(f"a{len(seen)}.bsky.social", long, created, rkey=f"k{len(seen)}")],
+                "cursor": nxt}
+    monkeypatch.setattr(na, "_http_get_json", _fake)
+    posts = na._bsky_list_posts("at://did:plc:x/app.bsky.graph.list/r", now=datetime(2026, 10, 2, 9, 0))
+    assert seen == [None, "c1", "c2"] and len(posts) == 3        # trang 3 đã cũ hơn 14h ⇒ dừng
+    seen.clear()
+    pages["c2"] = ("c3", "2026-10-02T01:00:00.000Z")
+    na._bsky_list_posts("at://did:plc:x/app.bsky.graph.list/r", now=datetime(2026, 10, 2, 9, 0))
+    assert len(seen) == na.BSKY_LIST_MAX_PAGES                  # trần 3 trang
+
+
 def test_x_source_twitterapi_single_search_call(monkeypatch):
     monkeypatch.setenv(na.ENV_TWITTERAPI_KEY, "k")
     seen: list = []

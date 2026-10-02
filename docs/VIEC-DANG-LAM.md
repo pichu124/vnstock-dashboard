@@ -589,8 +589,12 @@ báo nước ngoài / phân tích từ X được không":**
 - **Bluesky (đường chính cho "phân tích chuyên gia", miễn phí, sạch ToS):** danh
   sách gợi ý **140 tài khoản / 6 mảng, nhóm ⭐ xuất phát 33** đã khảo sát 02/10 ở
   `docs/bluesky-macro-list.md` (mỗi handle kèm URL bằng chứng + độ tin cậy; bẫy tài
-  khoản giả ghi ở ghi chú từng mảng). Tạo một List trong app Bluesky, thêm nhóm ⭐,
-  rồi `.env`:
+  khoản giả ghi ở ghi chú từng mảng). **Không cần thêm tay**: tạo App Password
+  (Bluesky → Settings → Privacy and security → App passwords), rồi 🖥️ DESKTOP
+  `python scripts/bsky_make_list.py --check` (xác minh handle, không đăng nhập) →
+  `python scripts/bsky_make_list.py --write-env` (tạo List, thêm nhóm ⭐, ghi `.env`;
+  chạy lại an toàn, chỉ thêm người chưa có; `--all` = cả bảng trừ độ tin cậy thấp).
+  Hoặc tay: tạo List trong app, thêm nhóm ⭐, rồi `.env`:
   `VNSTOCK_NEWS_ALERT_BSKY_LIST=https://bsky.app/profile/<handle>/lists/<rkey>`
   (hoặc `VNSTOCK_NEWS_ALERT_BSKY_HANDLES=a.bsky.social,b.bsky.social`). Một call
   `getListFeed`/giờ, ≤3 bài/người, bỏ bài <60 ký tự; prompt chấm bình luận theo

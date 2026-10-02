@@ -326,20 +326,53 @@ def _bsky_post_to_raw(entry: dict, label: str) -> Optional[dict]:
             "source_feed": f"Bluesky · @{handle}" if handle else label, "author": handle}
 
 
+BSKY_LIST_MAX_PAGES = 3        # getListFeed ≤100 bài/trang — 3 trang đủ cho lượt bắt bù qua đêm
+BSKY_LIST_STOP_H = 14          # trang có bài cũ hơn 14h thì thôi lật (cửa sổ bắt bù thường ~10h)
+
+
+def _bsky_list_posts(uri: str, now: Optional[datetime] = None) -> list:
+    """Lật getListFeed tối đa BSKY_LIST_MAX_PAGES trang, dừng khi đã chạm bài cũ."""
+    cutoff = ((now or datetime.now()) - timedelta(hours=BSKY_LIST_STOP_H)).isoformat(timespec="seconds")
+    posts, cursor = [], None
+    for _ in range(BSKY_LIST_MAX_PAGES):
+        params = {"list": uri, "limit": 100}
+        if cursor:
+            params["cursor"] = cursor
+        data = _http_get_json(_BSKY_API + "app.bsky.feed.getListFeed", params)
+        page = [r for r in (_bsky_post_to_raw(e, "Bluesky") for e in data.get("feed") or []) if r]
+        posts += page
+        cursor = data.get("cursor")
+        oldest = min((_iso_dt(r.get("published")) for r in page if r.get("published")), default="")
+        if not cursor or not page or (oldest and oldest < cutoff):
+            break
+    return posts
+
+
+def _bsky_author_posts(handle: str) -> list:
+    """Một handle — lỗi (handle sai/đổi tên → 400) chỉ mất người đó, không mất cả nguồn."""
+    try:
+        data = _http_get_json(_BSKY_API + "app.bsky.feed.getAuthorFeed",
+                              {"actor": handle, "limit": 30, "filter": "posts_no_replies"})
+    except Exception as e:                       # noqa: BLE001
+        print(f"[{TAG}] Bluesky @{handle}: {type(e).__name__} — bỏ qua người này")
+        return []
+    return [r for r in (_bsky_post_to_raw(e, f"Bluesky · @{handle}") for e in data.get("feed") or []) if r]
+
+
 def bsky_source(list_uri: str = "", handles: tuple = ()) -> Source:
-    """Bluesky: MỘT call `getListFeed` cho cả danh sách (user tạo List trong app
-    Bluesky, thêm/bớt chuyên gia không cần sửa code) hoặc `getAuthorFeed` từng
-    handle. Không auth, không phí."""
+    """Bluesky: `getListFeed` cho cả danh sách (user tạo List trong app Bluesky —
+    hoặc bằng `scripts/bsky_make_list.py` — thêm/bớt chuyên gia không cần sửa
+    code) và/hoặc `getAuthorFeed` từng handle (song song, handle hỏng chỉ mất
+    người đó). Không auth, không phí."""
     def _fetch() -> list:
         posts: list = []
         uri = _bsky_list_uri(list_uri)
         if uri:
-            data = _http_get_json(_BSKY_API + "app.bsky.feed.getListFeed", {"list": uri, "limit": 100})
-            posts += [r for r in (_bsky_post_to_raw(e, "Bluesky") for e in data.get("feed") or []) if r]
-        for h in handles:
-            data = _http_get_json(_BSKY_API + "app.bsky.feed.getAuthorFeed",
-                                  {"actor": h, "limit": 30, "filter": "posts_no_replies"})
-            posts += [r for r in (_bsky_post_to_raw(e, f"Bluesky · @{h}") for e in data.get("feed") or []) if r]
+            posts += _bsky_list_posts(uri)
+        if handles:
+            with ThreadPoolExecutor(max_workers=min(8, len(handles))) as pool:
+                for got in pool.map(_bsky_author_posts, handles):
+                    posts += got
         return _social_trim(posts, lambda p: p.get("author") or p.get("source_feed"))
 
     return Source(key="bsky:analysts", name="Bluesky chuyên gia vĩ mô", fetch=_fetch,

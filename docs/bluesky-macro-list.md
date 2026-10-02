@@ -2,7 +2,14 @@
 
 Khảo sát bằng WebSearch (sandbox không gọi được API Bluesky) — mỗi handle có URL bằng chứng; `cao` = thấy đúng URL `bsky.app/profile/<handle>`, `vừa` = suy từ nguồn gián tiếp, `thấp` = đoán, kiểm trong app trước khi thêm. Cột hoạt động = năm thấy bài gần nhất.
 
-**Cách dùng:** (A) tạo List trong app Bluesky, thêm người theo bảng, dán URL list vào `VNSTOCK_NEWS_ALERT_BSKY_LIST`; hoặc (B) dán thẳng dòng env ở cuối file. Nên bắt đầu bằng nhóm ⭐ (độ tin cậy cao, hoạt động 2026), sau một tuần xem Telegram rồi thêm/bớt.
+**Nhanh nhất — để script tạo List (🖥️ desktop, cần App Password của Bluesky):**
+
+```
+python scripts/bsky_make_list.py --check        # xác minh 33 handle ⭐, không đăng nhập
+python scripts/bsky_make_list.py --write-env    # tạo List, thêm nhóm ⭐, ghi .env
+```
+
+**Cách tay:** (A) tạo List trong app Bluesky, thêm người theo bảng, dán URL list vào `VNSTOCK_NEWS_ALERT_BSKY_LIST`; hoặc (B) dán thẳng dòng env ở cuối file. Nên bắt đầu bằng nhóm ⭐ (độ tin cậy cao, hoạt động 2026), sau một tuần xem Telegram rồi thêm/bớt.
 
 ## Kinh tế Mỹ, Fed và chính sách tiền tệ (28)
 
