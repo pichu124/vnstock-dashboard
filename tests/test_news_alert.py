@@ -318,6 +318,16 @@ def test_diag_flags_stale_newest_and_probes_http_for_empty_source(monkeypatch, c
     assert "HTTP 403 · text/html" in out and "Access denied" in out
 
 
+def test_diag_does_not_flag_sparse_official_feeds_as_stale(capsys):
+    """--diag desktop 03/10: Fed monetary (tin cuối FOMC 16/09) bị gắn 'cũ hơn 7 ngày'
+    — báo động giả: nguồn chính thức chỉ ra tin khi có quyết định."""
+    old = [{**_raw("FOMC statement"), "_published_at": "2026-09-17T01:00:00",
+            "_date_sort": "2026-09-17", "_pub_raw": "Wed, 16 Sep 2026 18:00:00 GMT"}]
+    fed = na.Source(key="rss:fed", name="fed", fetch=lambda: list(old), kind="official")
+    na.diag_sources([fed], now=NOW)
+    assert "cũ hơn" not in capsys.readouterr().out
+
+
 def test_rss_and_gnews_sources_carry_url_for_diag():
     by_key = {s.key: s for s in na.alert_feed_sources()}
     assert by_key["rss:ft-markets"].url == "https://www.ft.com/markets?format=rss"

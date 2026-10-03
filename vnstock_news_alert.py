@@ -1304,7 +1304,8 @@ def diag_sources(sources: Optional[list] = None, now: Optional[datetime] = None)
                       "(không rõ)")
         if raw and not newest:
             print(f"       ↳ không đọc được ngày đăng, chuỗi gốc: {sample!r} — cảnh báo dùng giờ thấy lần đầu")
-        elif raw and newest < (now - timedelta(days=DIAG_STALE_DAYS)).isoformat(timespec="seconds"):
+        elif (raw and s.kind != "official"      # Fed/BEA chỉ ra tin khi có quyết định/số liệu — thưa là bình thường
+              and newest < (now - timedelta(days=DIAG_STALE_DAYS)).isoformat(timespec="seconds")):
             print(f"       ↳ tin mới nhất cũ hơn {DIAG_STALE_DAYS} ngày — feed đứng hoặc đọc sai ngày; "
                   f"chuỗi gốc: {sample!r}")
         elif not raw and s.url:

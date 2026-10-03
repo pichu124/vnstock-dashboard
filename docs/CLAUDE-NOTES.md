@@ -7057,6 +7057,8 @@ cho brief, chưa đụng.
 
 **Lượt diag thứ hai (02/10 ~20:20, `d8ebf69`):** Nikkei xác nhận `(feed không có thẻ ngày)` ⇒ `take_undated` lo. Báo Chính phủ "mới nhất 2026-02-10" ⇒ feed viết THÁNG/NGÀY kiểu Mỹ (ASP.NET `10/2/2026 11:56 AM`), bộ đọc mới hiểu ngày/tháng ⇒ `_pick_day_month`: chọn cách hiểu gần `now` nhất, không quá 1 ngày tương lai, hoà thì ngày/tháng; đọc AM/PM. `_pub_raw` nay LUÔN giữ (≤60 ký tự) để `--diag` in chuỗi gốc khi tin mới nhất cũ hơn 7 ngày. FT Markets ✅ 25 tin lúc 20:07 rồi ❌ 0,4s lúc 20:20 ⇒ nghi chặn tạm khi gọi dồn, CHƯA tắt; `--diag` nay thăm HTTP khi nguồn ❌ (mã, content-type, chuyển hướng, 70 ký tự đầu). "GN US data" 68 tin/3h đúng ngày NFP (19:30 VN) — cap 6 tin/nguồn giữ lô.
 
+**Lượt diag thứ ba (04/10 ~00:10, `838051d`): 31/31 ✅.** Báo Chính phủ mới nhất 03/10 18:47 (vá M/D ăn), FT trở lại 25 tin (xác nhận chặn tạm, không tắt), CNBC Markets chạy lại (03/10). Yahoo Finance `rssindex` ĐỨNG từ 23/09 (chuỗi gốc `2026-09-23T01:52:26Z`) — nằm trong `_FEEDS` của brief, không còn đóng góp tin nào; ứng viên gỡ, chưa đụng. Fed monetary bị gắn "cũ hơn 7 ngày" là báo động giả (tin cuối = FOMC 16/09) ⇒ bỏ cờ cũ cho `kind=official`.
+
 **Chưa kiểm / bẫy còn mở:** (a) mọi URL `_ALERT_FEEDS` + Substack/Cloudflare 403 với
 TLS của `requests` — `--diag` quyết; (b) hình dạng JSON của twitterapi.io
 (`tweets[].createdAt` kiểu Twitter, `author.userName`) viết theo tài liệu, chưa gọi
