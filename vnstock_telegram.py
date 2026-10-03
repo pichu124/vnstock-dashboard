@@ -31,6 +31,11 @@ _MAX_MSG_LEN  = 4000  # Telegram hard limit is 4096; stay safe
 # brief phần 2/2 không bao giờ tới nơi).
 _ALLOWED_TAGS = ("b", "i", "u", "s", "code", "pre")
 _TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
+# Link chủ đích (`allow_links=True`, chỉ builder tự dựng như cảnh báo tin):
+# CHỈ http(s), không khoảng trắng/ngoặc kép — `javascript:` hay href lạ vẫn
+# bị escape thành text. Áp SAU bước escape nên `&` trong URL đã là `&amp;`
+# (đúng chuẩn thuộc tính HTML, Telegram tự giải).
+_LINK_OPEN_RE = re.compile(r'&lt;a href="(https?://[^"\s<>]+)"&gt;')
 
 
 # ── Credentials ──────────────────────────────────────────────────────────────
@@ -79,16 +84,20 @@ def _split_for_telegram(text: str, limit: int = _MAX_MSG_LEN) -> list[str]:
     return chunks
 
 
-def _sanitize_html(text: str) -> str:
+def _sanitize_html(text: str, allow_links: bool = False) -> str:
     """Escape < > & để parse_mode=HTML không chết 400, GIỮ tag chủ đích
     (<b>/<i>/…) mà builder tự chèn. Escape TRƯỚC rồi un-escape whitelist —
-    idempotent với tag hợp lệ, mọi ký tự lạc còn lại đều an toàn."""
+    idempotent với tag hợp lệ, mọi ký tự lạc còn lại đều an toàn.
+    `allow_links` giữ thêm `<a href="http(s)://…">…</a>` (mặc định TẮT: brief
+    do LLM viết không được tự chèn link)."""
     out = (text.replace("&", "&amp;")
                .replace("<", "&lt;")
                .replace(">", "&gt;"))
     for t in _ALLOWED_TAGS:
         out = out.replace(f"&lt;{t}&gt;", f"<{t}>")
         out = out.replace(f"&lt;/{t}&gt;", f"</{t}>")
+    if allow_links:
+        out = _LINK_OPEN_RE.sub(r'<a href="\1">', out).replace("&lt;/a&gt;", "</a>")
     return out
 
 
@@ -104,7 +113,7 @@ def _tg_error_detail(resp) -> str:
             return ""
 
 
-def send_message(text: str, parse_mode: str = "HTML") -> dict:
+def send_message(text: str, parse_mode: str = "HTML", allow_links: bool = False) -> dict:
     """Send text to the configured Telegram chat. Long briefs are split into
     multiple messages (Telegram caps at 4096 chars) so nothing is dropped —
     previously the tail (📰 tin tức) was truncated. Returns the LAST API response.
@@ -112,6 +121,7 @@ def send_message(text: str, parse_mode: str = "HTML") -> dict:
     HTML mode: body được `_sanitize_html` trước khi gửi; nếu Telegram VẪN trả
     400 (entity lỗi ngoài dự kiến) → gửi lại phần đó dạng PLAIN (bỏ tag) để
     nội dung luôn tới nơi, đồng thời in description thật của API để soi.
+    `allow_links=True` giữ `<a href="http(s)://…">` (xem `_sanitize_html`).
     """
     import requests
 
@@ -124,7 +134,7 @@ def send_message(text: str, parse_mode: str = "HTML") -> dict:
 
     url = _TELEGRAM_API.format(token=token, method="sendMessage")
     if parse_mode == "HTML":
-        text = _sanitize_html(text)
+        text = _sanitize_html(text, allow_links=allow_links)
     parts = _split_for_telegram(text, _MAX_MSG_LEN)
     n     = len(parts)
     resp_json: dict = {}

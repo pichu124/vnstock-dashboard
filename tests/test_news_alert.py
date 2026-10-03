@@ -771,13 +771,49 @@ def test_format_message_is_telegram_safe_html():
             _rec(3, title="Giá vàng", tac_dong="", link="")]
     txt = na.format_message(recs, NOW, 3, "claude")
     assert txt.startswith("📰 <b>Tin quan trọng</b> · 10:05 02/10")
-    assert "🔴 5/5 · <b>Fed <bất ngờ> hạ lãi suất</b>" in txt and "▲ kênh" in txt
-    assert "🟡 3/5" in txt and "https://l" in txt
+    assert '🔴 5/5 · <b><a href="https://l">Fed <bất ngờ> hạ lãi suất</a></b>' in txt
+    assert "▲ kênh" in txt
+    assert "🟡 3/5 · <b>Giá vàng</b>" in txt                    # không link → tiêu đề trần
     assert "2 tin ≥ mức 3/5 · chấm bởi Claude Code" in txt
-    # chỉ dùng tag trong whitelist của vnstock_telegram → sanitize giữ nguyên tag chủ đích
+    # chỉ dùng tag trong whitelist của vnstock_telegram (+ link khi allow_links)
     import vnstock_telegram as tg
-    out = tg._sanitize_html(txt)
+    out = tg._sanitize_html(txt, allow_links=True)
     assert "<b>Tin quan trọng</b>" in out and "&lt;bất ngờ&gt;" in out
+    assert '<a href="https://l">' in out and "</a></b>" in out
+
+
+def test_format_message_title_is_the_link_no_bare_url_line():
+    # Dry-run desktop 04/10: URL Google News ~250 ký tự để trần chiếm 3–4 dòng/tin
+    # trên điện thoại ⇒ tiêu đề bấm được, không còn dòng URL riêng.
+    gn = "https://news.google.com/rss/articles/CBMiigFBVV95cUxP" + "x" * 200 + "?oc=5&hl=en"
+    txt = na.format_message([_rec(4, title="Rates surge", link=gn)], NOW, 3, "claude")
+    assert f'<a href="{gn}">Rates surge</a>' in txt
+    assert sum(gn in ln for ln in txt.splitlines()) == 1        # chỉ nằm trong href
+    import vnstock_telegram as tg
+    out = tg._sanitize_html(txt, allow_links=True)
+    assert '<a href="https://news.google.com/' in out and "?oc=5&amp;hl=en" in out
+
+
+@pytest.mark.parametrize("link", ['https://x/a"onclick="y', "javascript:alert(1)",
+                                  "ftp://x/y", "https://x/a b", "  "])
+def test_format_message_unsafe_link_leaves_title_plain(link):
+    txt = na.format_message([_rec(4, title="Tin", link=link)], NOW, 3, "claude")
+    assert "<a " not in txt and "4/5 · <b>Tin</b>" in txt
+
+
+def test_format_message_older_day_gets_date_today_only_time():
+    recs = [_rec(4, title="hôm nay", pub="2026-10-02T09:00:00"),
+            _rec(4, title="hôm qua", pub="2026-10-01T22:48:00")]
+    txt = na.format_message(recs, NOW, 3, "claude")
+    assert "<i>S · 09:00</i>" in txt and "<i>S · 22:48 01/10</i>" in txt
+
+
+def test_default_sender_turns_links_on(monkeypatch):
+    import vnstock_telegram as tg
+    got = {}
+    monkeypatch.setattr(tg, "send_message", lambda text, **kw: got.update(kw) or {"ok": True})
+    na._default_sender("x")
+    assert got == {"allow_links": True}
 
 
 # ── một lượt trọn ────────────────────────────────────────────────────────────

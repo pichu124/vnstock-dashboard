@@ -7059,6 +7059,8 @@ cho brief, chưa đụng.
 
 **Lượt diag thứ ba (04/10 ~00:10, `838051d`): 31/31 ✅.** Báo Chính phủ mới nhất 03/10 18:47 (vá M/D ăn), FT trở lại 25 tin (xác nhận chặn tạm, không tắt), CNBC Markets chạy lại (03/10). Yahoo Finance `rssindex` ĐỨNG từ 23/09 (chuỗi gốc `2026-09-23T01:52:26Z`) — nằm trong `_FEEDS` của brief, không còn đóng góp tin nào; ứng viên gỡ, chưa đụng. Fed monetary bị gắn "cũ hơn 7 ngày" là báo động giả (tin cuối = FOMC 16/09) ⇒ bỏ cờ cũ cho `kind=official`.
 
+**Dry-run đầu tiên (04/10 01:12, desktop, `f1b074e`):** 31 nguồn · 1.091 tin liên quan · 8 tin không ngày (Nikkei…) ghi mốc · 21 tin mới/3h · Claude Code chấm 21/21 trong 29s, **$0,11/call với Opus mặc định** (`VNSTOCK_CLAUDE_CLI_MODEL`) — 8 tin ≥3 (2×4/5: lợi suất Mỹ sau NFP tháng 9 nóng, GDP VN quý gần 10%). Lượt giờ có tin ≈ 16 call/ngày ⇒ ~$1,5–1,8/ngày quy đổi, ăn chung hạn mức gói Claude với phiên code ⇒ khuyên A/B `VNSTOCK_NEWS_ALERT_CLI_MODEL=claude-sonnet-5-5` (chấm tiêu đề là việc phân loại nhẹ). Định dạng: URL Google News ~250 ký tự để trần chiếm 3–4 dòng/tin trên điện thoại ⇒ tiêu đề thành `<a href>` (`send_message(allow_links=True)`, brief vẫn TẮT link — LLM không được tự chèn), giờ đăng khác ngày tin nhắn kèm `dd/mm` (lượt bắt bù 36h).
+
 **Chưa kiểm / bẫy còn mở:** (a) mọi URL `_ALERT_FEEDS` + Substack/Cloudflare 403 với
 TLS của `requests` — `--diag` quyết; (b) hình dạng JSON của twitterapi.io
 (`tweets[].createdAt` kiểu Twitter, `author.userName`) viết theo tài liệu, chưa gọi

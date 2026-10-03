@@ -1078,29 +1078,45 @@ _ENGINE_LABEL = {"claude": "Claude Code", "ladder": "ladder free", "none": "chư
                  "prev": "lượt trước (tin dư)"}
 
 
-def _hhmm(iso: str) -> str:
+def _hhmm(iso: str, now: Optional[datetime] = None) -> str:
+    """Giờ đăng; khác NGÀY với tin nhắn thì kèm ngày (lượt 07:00 bắt bù tới 36h
+    — "14:00" trần không biết là hôm qua hay hôm kia)."""
     try:
-        return datetime.fromisoformat(iso).strftime("%H:%M")
+        dt = datetime.fromisoformat(iso)
     except (TypeError, ValueError):
         return ""
+    return dt.strftime("%H:%M" if now is None or dt.date() == now.date() else "%H:%M %d/%m")
+
+
+_SAFE_HREF_RE = re.compile(r"^https?://[^\s\"<>]+$")
+
+
+def _safe_href(url) -> str:
+    """URL dùng được làm href: http(s), không khoảng trắng/ngoặc — khớp đúng
+    `vnstock_telegram._LINK_OPEN_RE`, href lạ thì tiêu đề để trần."""
+    url = str(url or "").strip()
+    return url if _SAFE_HREF_RE.match(url) else ""
 
 
 def format_message(recs: list, now: datetime, min_score: int = DEFAULT_MIN_SCORE,
                    engine: str = "none") -> str:
-    """HTML Telegram (tag chỉ trong whitelist của vnstock_telegram: b/i). Link
-    để trần — Telegram tự nhận; `send_message` escape `&`/`<`/`>` lạc."""
+    """HTML Telegram: b/i + `<a href>` (gửi qua `send_message(allow_links=True)`).
+    Tiêu đề BẤM ĐƯỢC thay cho dòng URL trần — link Google News ~250 ký tự,
+    trên điện thoại mỗi link chiếm 3–4 dòng (dry-run desktop 04/10)."""
     lines = [f"📰 <b>Tin quan trọng</b> · {now:%H:%M %d/%m}", ""]
     for r in recs:
         sc = int(r.get("score") or 0)
-        lines.append(f"{_ICON.get(sc, '⚪')} {sc}/5 · <b>{_one_line(r.get('title'))}</b>")
+        title = _one_line(r.get("title"))
+        href = _safe_href(r.get("link"))
+        title = f'<a href="{href}">{title}</a>' if href else title
+        lines.append(f"{_ICON.get(sc, '⚪')} {sc}/5 · <b>{title}</b>")
         if r.get("tac_dong"):
             lines.append(f"   {_ARROW.get(r.get('nhan'), '◆')} {_one_line(r['tac_dong'])}")
-        meta = " · ".join(x for x in (_one_line(r.get("source")), _hhmm(r.get("published") or ""),
+        meta = " · ".join(x for x in (_one_line(r.get("source")),
+                                      _hhmm(r.get("published") or "", now),
                                       r.get("ticker") or "") if x)
         if meta:
             lines.append(f"   <i>{meta}</i>")
-        if r.get("link"):
-            lines.append(f"   {r['link']}")
         lines.append("")
     lines.append(f"<i>{len(recs)} tin ≥ mức {min_score}/5 · chấm bởi "
                  f"{_ENGINE_LABEL.get(engine, engine)}</i>")
@@ -1109,7 +1125,7 @@ def format_message(recs: list, now: datetime, min_score: int = DEFAULT_MIN_SCORE
 
 def _default_sender(text: str) -> dict:
     import vnstock_telegram as tg
-    return tg.send_message(text)
+    return tg.send_message(text, allow_links=True)
 
 
 # ── Marker ───────────────────────────────────────────────────────────────────

@@ -37,6 +37,30 @@ def test_sanitize_html_escapes_stray_chars_keeps_intended_tags():
     assert tg._sanitize_html("<script>x</script>") == "&lt;script&gt;x&lt;/script&gt;"
 
 
+def test_sanitize_html_links_only_when_opted_in_and_only_http():
+    # Cảnh báo tin (04/10) dựng tiêu đề bấm được; brief (LLM viết) KHÔNG được tự chèn link.
+    src = '<b><a href="https://x.vn/a?b=1&c=2">Fed & ECB</a></b>'
+    off = tg._sanitize_html(src)
+    assert "<a " not in off and "&lt;a href=" in off and "&lt;/a&gt;" in off
+    on = tg._sanitize_html(src, allow_links=True)
+    assert on == '<b><a href="https://x.vn/a?b=1&amp;c=2">Fed &amp; ECB</a></b>'
+    for bad in ('<a href="javascript:alert(1)">x</a>', '<a href="https://x" onclick="y">x</a>',
+                "<a href='https://x'>x</a>"):
+        assert "<a " not in tg._sanitize_html(bad, allow_links=True)
+
+
+def test_send_message_allow_links_passes_anchor(monkeypatch):
+    monkeypatch.setattr(tg, "_token",   lambda: "abc")
+    monkeypatch.setattr(tg, "_chat_id", lambda: "12345")
+    mock_resp = MagicMock(status_code=200, ok=True)
+    mock_resp.json.return_value = {"ok": True}
+    with patch("requests.post", return_value=mock_resp) as mp:
+        tg.send_message('<a href="https://x/1">t</a>', allow_links=True)
+        assert mp.call_args[1]["json"]["text"] == '<a href="https://x/1">t</a>'
+        tg.send_message('<a href="https://x/1">t</a>')
+        assert mp.call_args[1]["json"]["text"].startswith("&lt;a href=")
+
+
 def test_send_message_sanitizes_html_body(monkeypatch):
     monkeypatch.setattr(tg, "_token",   lambda: "abc")
     monkeypatch.setattr(tg, "_chat_id", lambda: "12345")
