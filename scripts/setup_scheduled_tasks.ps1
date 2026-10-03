@@ -315,7 +315,7 @@ foreach ($task in $TaskDefinitions) {
 Write-Host "=== Done ===" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Useful commands:" -ForegroundColor DarkGray
-Write-Host "  List tasks       : Get-ScheduledTask -TaskName 'VnStock *' | Select TaskName,State,LastRunTime,NextRunTime"
+Write-Host "  List tasks       : Get-ScheduledTask -TaskName 'VnStock *' | Get-ScheduledTaskInfo | Select TaskName,LastRunTime,LastTaskResult,NextRunTime"
 Write-Host "  Run daily        : Start-ScheduledTask -TaskName 'VnStock Daily Pipeline'"
 Write-Host "  Run weekend      : Start-ScheduledTask -TaskName 'VnStock Weekend Pipeline'"
 Write-Host "  Run news alert   : Start-ScheduledTask -TaskName 'VnStock News Alert'   (thu tay: python run.py news-alert --dry-run)"
