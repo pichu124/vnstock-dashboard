@@ -873,14 +873,21 @@ SCORE_SYSTEM = (
     "mô tả theo chiều giảm). Tin muc_do 1 ⇒ tac_dong = \"không tác động trực tiếp\".\n"
     "Khắt khe: phần lớn tin là 2–3; chỉ chấm 4–5 khi thật sự thay đổi kỳ vọng của CẢ "
     "thị trường. Tin một doanh nghiệp chỉ lên 4 khi nó đổi kỳ vọng cả ngành/thị trường "
+    "(vd ngân hàng lớn mất thanh khoản).\n"
     "NGUỒN CHÍNH THỨC (dòng `Loại: nguồn chính thức` — Fed/BLS/BEA): thông cáo quyết định "
-    "lãi suất, CPI/PCE, GDP, việc làm ⇒ 4–5 dù tiêu đề khô; bài phát biểu thường ⇒ 3. "
+    "lãi suất, CPI/PCE, GDP, việc làm ⇒ 4–5 dù tiêu đề khô; bài phát biểu thường ⇒ 3.\n"
     "BÌNH LUẬN MẠNG XÃ HỘI (dòng `Loại: bình luận chuyên gia`): chấm theo GIÁ TRỊ PHÂN TÍCH "
     "cho thị trường VN — nhắc lại tin đã có = 2; luận điểm mới kèm số liệu/hệ quả rõ = 3–4; "
     "KHÔNG bao giờ 5.\n"
-    "(vd ngân hàng lớn mất thanh khoản). Tin trùng SỰ KIỆN với tin khác trong lô — kể cả "
-    "KHÁC NGÔN NGỮ (báo VN dịch lại tin nước ngoài) — ⇒ giữ nguyên tin đầu, tin sau chấm "
-    "thấp hơn 1 bậc. Tin tiếng Anh: tac_dong vẫn viết TIẾNG VIỆT.\n"
+    "BÀI Ý KIẾN / BLOG (trang nhà bình luận, quỹ nhỏ, người bán vàng — vd SchiffGold, Mott "
+    "Capital, ZeroHedge, Seeking Alpha — hoặc tiêu đề kiểu quan điểm/dự đoán): tối đa 3; "
+    "chỉ bình luận lại sự kiện đã có = 2.\n"
+    "Tin trùng SỰ KIỆN với tin khác trong lô — kể cả KHÁC NGÔN NGỮ (báo VN dịch lại tin "
+    "nước ngoài) — ⇒ giữ nguyên tin đầu, tin sau chấm thấp hơn 1 bậc. Nếu có mục `### ĐÃ GỬI` "
+    "(tin đã báo trong 24h — KHÔNG chấm mục này): tin cùng SỰ KIỆN với một dòng trong đó "
+    "(bài theo sau, dịch lại, phân tích thêm) ⇒ tối đa 2, TRỪ KHI có diễn biến MỚI đổi kỳ "
+    "vọng (số liệu/quyết định mới, thị trường phản ứng mạnh).\n"
+    "Tin tiếng Anh: tac_dong vẫn viết TIẾNG VIỆT.\n"
     'Trả về DUY NHẤT JSON đúng schema {"results": [{"i": <i>, "muc_do": <1-5>, "nhan": '
     '"…", "tac_dong": "…"}]} — đủ MỌI i, không thêm chữ nào ngoài JSON.'
 )
@@ -916,6 +923,63 @@ def _clean_impact(raw) -> str:
         return sanitize_impact(_strip_html(str(raw or "")))
     except Exception:
         return _one_line(raw)[:160]
+
+
+SENT_CONTEXT_H = 24
+SENT_CONTEXT_MAX = 25
+SENT_DUP_RATIO = 0.85          # khớp ngưỡng `vnstock_news.deduplicate_news`
+SENT_DUP_CAP = 2
+
+
+def recent_sent_titles(seen: dict, now: datetime, hours: int = SENT_CONTEXT_H,
+                       limit: int = SENT_CONTEXT_MAX) -> "list[str]":
+    """Tiêu đề đã GỬI trong `hours` giờ qua, mới trước. Sổ chỉ khử trùng theo
+    hash (ngày + tiêu đề nguyên văn) và `deduplicate_news` chỉ trong MỘT lô ⇒
+    không có mục này thì sự kiện lớn về lại mỗi giờ (Fed: Reuters 20h, CNBC 21h,
+    VnExpress 22h; Google News nhặt lại bài trễ 1 giờ, tiêu đề lệch dấu câu)."""
+    cutoff = (now - timedelta(hours=hours)).isoformat(timespec="seconds")
+    rows = [r for r in (seen.get("items") or {}).values()
+            if isinstance(r, dict) and r.get("sent") and r.get("title")
+            and (r.get("sent_at") or "") >= cutoff]
+    rows.sort(key=lambda r: r.get("sent_at") or "", reverse=True)
+    return [_one_line(r["title"]) for r in rows[:max(0, limit)]]
+
+
+def sent_block(titles: list) -> str:
+    if not titles:
+        return ""
+    return ("### ĐÃ GỬI 24h qua (KHÔNG chấm — chỉ để đối chiếu trùng sự kiện)\n"
+            + "\n".join(f"- {t}" for t in titles))
+
+
+def _norm_t(title: str) -> str:
+    try:
+        from vnstock_news import _norm_title
+        return _norm_title(title)
+    except Exception:
+        return " ".join(re.sub(r"[^\w\s]", " ", (title or "").lower()).split())
+
+
+def cap_sent_duplicates(todo: list, scored: dict, sent_titles: list) -> int:
+    """Guard deterministic (prompt có thể bị phớt): tiêu đề gần như TRÙNG một tin
+    đã gửi (cùng thước `deduplicate_news`) ⇒ trần `SENT_DUP_CAP`. Sửa `scored`
+    tại chỗ, trả số tin bị hạ."""
+    from difflib import SequenceMatcher
+    sent = [t for t in (_norm_t(x) for x in sent_titles) if t]
+    if not sent:
+        return 0
+    n = 0
+    for i, it in enumerate(todo):
+        sc = scored.get(i)
+        t = _norm_t(it.get("title", ""))
+        if not sc or not t or int(sc.get("muc_do") or 0) <= SENT_DUP_CAP:
+            continue
+        if any(t == s or (abs(len(t) - len(s)) <= 0.3 * max(len(t), len(s))
+                          and SequenceMatcher(None, t, s).ratio() >= SENT_DUP_RATIO)
+               for s in sent):
+            scored[i] = {**sc, "muc_do": SENT_DUP_CAP}
+            n += 1
+    return n
 
 
 def item_block(i: int, it: dict) -> str:
@@ -961,15 +1025,18 @@ def parse_scores(data, n: int) -> "dict[int, dict]":
     return out
 
 
-def score_items_cli(todo: list) -> "tuple[dict[int, dict], str | None]":
-    """Cả lô MỘT call Claude Code. ({}, lỗi) khi CLI hỏng — chỗ gọi rơi về ladder."""
+def score_items_cli(todo: list, sent_titles: "list | tuple" = ()) -> "tuple[dict[int, dict], str | None]":
+    """Cả lô MỘT call Claude Code. ({}, lỗi) khi CLI hỏng — chỗ gọi rơi về ladder.
+    `sent_titles` (tin đã gửi 24h) đứng ĐẦU khối user để model hạ bài theo sau."""
     if not todo:
         return {}, None
     try:
         import vnstock_claude_cli as vcc
     except Exception as e:
         return {}, f"không import được vnstock_claude_cli: {e}"
-    user = "\n\n".join(item_block(i, it) for i, it in enumerate(todo))
+    blocks = [item_block(i, it) for i, it in enumerate(todo)]
+    head = sent_block(list(sent_titles))
+    user = "\n\n".join(([head] if head else []) + blocks)
     raw_t = (os.environ.get(ENV_CLI_TIMEOUT) or "").strip()
     timeout = vcc.cli_timeout_s(ENV_CLI_TIMEOUT) if raw_t else DEFAULT_CLI_TIMEOUT_S
     text, err, info = vcc.complete(user, system=SCORE_SYSTEM, json_schema=SCORE_SCHEMA,
@@ -1036,9 +1103,11 @@ def score_items_ladder(todo: list) -> "dict[int, dict]":
     return out
 
 
-def score_items(todo: list, engine: Optional[str] = None) -> "tuple[dict[int, dict], str, str | None]":
+def score_items(todo: list, engine: Optional[str] = None,
+                sent_titles: "list | tuple" = ()) -> "tuple[dict[int, dict], str, str | None]":
     """(điểm, engine đã dùng, lỗi claude nếu có). Engine: env riêng bước
-    `VNSTOCK_NEWS_ALERT_ENGINE` > `VNSTOCK_LLM_ENGINE` > ladder."""
+    `VNSTOCK_NEWS_ALERT_ENGINE` > `VNSTOCK_LLM_ENGINE` > ladder. Cả hai đường đều
+    qua `cap_sent_duplicates` (ladder không đọc được ngữ cảnh đã gửi)."""
     if not todo:
         return {}, "none", None
     if engine is None:
@@ -1049,12 +1118,20 @@ def score_items(todo: list, engine: Optional[str] = None) -> "tuple[dict[int, di
             engine = "ladder"
     err = None
     if engine == "claude":
-        got, err = score_items_cli(todo)
+        got, err = score_items_cli(todo, sent_titles)
         if got:
+            _report_caps(todo, got, sent_titles)
             return got, "claude", None
         print(f"[{TAG}] Claude Code không chấm được ({err}) — rơi về ladder")
     got = score_items_ladder(todo)
+    _report_caps(todo, got, sent_titles)
     return got, ("ladder" if got else "none"), err
+
+
+def _report_caps(todo: list, scored: dict, sent_titles) -> None:
+    n = cap_sent_duplicates(todo, scored, list(sent_titles))
+    if n:
+        print(f"[{TAG}] hạ {n} tin trùng tiêu đề tin đã gửi 24h về {SENT_DUP_CAP}/5")
 
 
 # ── Chọn + dựng tin Telegram ────────────────────────────────────────────────
@@ -1220,9 +1297,11 @@ def run(*, now: Optional[datetime] = None, dry_run: bool = False, force: bool = 
     scored: dict = {}
     eng, claude_err = "none", None
     if todo:
-        scored, eng, claude_err = score_items(todo, engine=engine)
+        sent_titles = recent_sent_titles(seen, now)
+        scored, eng, claude_err = score_items(todo, engine=engine, sent_titles=sent_titles)
         print(f"[{TAG}] {len(new)} tin mới trong {window_h}h · chấm {len(scored)}/{len(todo)} "
-              f"bằng {eng}")
+              f"bằng {eng}" + (f" · đối chiếu {len(sent_titles)} tin đã gửi 24h"
+                               if sent_titles else ""))
     else:
         print(f"[{TAG}] không có tin mới trong {window_h}h — không gọi LLM")
 

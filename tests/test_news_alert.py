@@ -666,6 +666,68 @@ def test_score_items_cli_one_call_with_schema_and_blocks(monkeypatch):
     assert "Tỷ giá vượt 26.000" in c["user"] and c["system"] == na.SCORE_SYSTEM
 
 
+def test_score_prompt_sentences_in_order_blog_and_sent_rules():
+    # 04/10: chèn luật nguồn chính thức/mạng xã hội từng cắt đôi câu "doanh nghiệp chỉ
+    # lên 4 khi … (vd ngân hàng lớn mất thanh khoản)" — ví dụ rơi xuống sau luật khác.
+    sysmsg = na.SCORE_SYSTEM
+    assert "cả ngành/thị trường (vd ngân hàng lớn mất thanh khoản).\nNGUỒN CHÍNH THỨC" in sysmsg
+    assert "BÀI Ý KIẾN / BLOG" in sysmsg and "SchiffGold" in sysmsg and "tối đa 3" in sysmsg
+    assert "### ĐÃ GỬI" in sysmsg and "KHÔNG chấm mục này" in sysmsg
+
+
+def test_recent_sent_titles_window_order_and_limit():
+    seen = {"items": {
+        "a": _rec(4, sent=True, title="Fed giữ lãi suất", sent_at="2026-10-02T09:00:00"),
+        "b": _rec(4, sent=True, title="Dầu vượt 90 USD", sent_at="2026-10-02T10:00:00"),
+        "c": _rec(4, sent=True, title="Tin hôm kia", sent_at="2026-09-30T10:00:00"),
+        "d": _rec(5, sent=False, title="Chưa gửi"),
+        "e": "rác",
+    }}
+    assert na.recent_sent_titles(seen, NOW) == ["Dầu vượt 90 USD", "Fed giữ lãi suất"]
+    assert na.recent_sent_titles(seen, NOW, limit=1) == ["Dầu vượt 90 USD"]
+    assert na.recent_sent_titles({"items": {}}, NOW) == [] and na.sent_block([]) == ""
+
+
+def test_score_items_cli_puts_sent_block_first_and_fake_still_parses(monkeypatch):
+    calls = _fake_complete(monkeypatch, by_title={"Tỷ giá": {"muc_do": 4, "nhan": "TIÊU_CỰC",
+                                                               "tac_dong": "Ngân hàng chịu áp lực"}})
+    got, err = na.score_items_cli([_raw("Tỷ giá vượt 26.000")], ["Fed giữ lãi suất"])
+    user = calls[0]["user"]
+    assert user.startswith("### ĐÃ GỬI 24h qua") and "- Fed giữ lãi suất" in user
+    assert user.index("### ĐÃ GỬI") < user.index("### Tin i=0") and got[0]["muc_do"] == 4
+    na.score_items_cli([_raw("Tỷ giá vượt 26.000")])
+    assert "ĐÃ GỬI" not in calls[1]["user"]
+
+
+def test_cap_sent_duplicates_only_near_identical_titles():
+    todo = [_raw("Fed holds rates steady and signals two cuts in 2027"),
+            _raw("Fed holds rates steady"),                          # ngắn hơn hẳn → không phải trùng
+            _raw("Oil jumps after OPEC+ surprise cut"),
+            _raw("Fed holds rates steady, signals two cuts in 2027!")]
+    scored = {0: {"muc_do": 5}, 1: {"muc_do": 4}, 2: {"muc_do": 4}, 3: {"muc_do": 2}}
+    n = na.cap_sent_duplicates(todo, scored, ["Fed holds rates steady, signals two cuts in 2027"])
+    assert n == 1 and scored[0]["muc_do"] == 2
+    assert scored[1]["muc_do"] == 4 and scored[2]["muc_do"] == 4 and scored[3]["muc_do"] == 2
+    assert na.cap_sent_duplicates(todo, scored, []) == 0
+
+
+def test_run_next_hour_sees_sent_titles_and_does_not_resend_echo(monkeypatch):
+    by_title = {"Fed holds": {"muc_do": 5, "nhan": "TÍCH_CỰC", "tac_dong": "Vốn ngoại quay lại"}}
+    first = [_raw("Fed holds rates steady, signals two cuts in 2027", hours_ago=0.5, link="https://cnbc/1")]
+    rc, calls, sent = _run(monkeypatch, first, by_title=by_title)
+    assert rc == 0 and len(sent) == 1 and "ĐÃ GỬI" not in calls[0]["user"]
+    # 1 giờ sau Google News nhặt lại cùng bài, tiêu đề lệch dấu câu, link khác.
+    echo = _raw("Fed holds rates steady and signals two cuts in 2027", hours_ago=0, link="https://gn/2")
+    calls2 = _fake_complete(monkeypatch, by_title=by_title)
+    sent2, spy2 = _sender_spy()
+    na.run(now=NOW + timedelta(hours=1), sources=[_src("rss:t", [echo])], engine="claude",
+           sender=spy2)
+    assert "- Fed holds rates steady, signals two cuts in 2027" in calls2[0]["user"]
+    assert sent2 == []                                                      # guard hạ về 2
+    rec = [r for r in na.load_seen()["items"].values() if "and signals" in r["title"]][0]
+    assert rec["score"] == 2 and not rec["sent"]
+
+
 def test_score_prompt_is_macro_first_company_news_capped():
     """User chốt 02/10: chỉ tin thị trường/vĩ mô — tin riêng doanh nghiệp (kể cả
     VN30) không được xếp sẵn ở mức 4 như bản đầu; ghim chữ để ai sửa prompt phải
