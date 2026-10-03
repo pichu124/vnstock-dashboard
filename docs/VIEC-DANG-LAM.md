@@ -543,6 +543,10 @@ khung giờ · ❌ lỗi ≥3 lượt liền). Không tin mới ⇒ im lặng, k
 Nút vặn: `VNSTOCK_NEWS_ALERT_{HOURS=7-22, DAYS=1-6, MIN_SCORE=3, WINDOW_H=3,
 MAX_SEND=8, MAX_SCORE=30, SOURCES, CLI_MODEL, CLI_TIMEOUT_S}`. Log:
 `Select-String '\[news-alert\]' run_daily.log` (main() tee mọi lệnh).
+**Model chấm: đặt `VNSTOCK_NEWS_ALERT_CLI_MODEL=claude-sonnet-5-5` trong `.env`
+desktop** — A/B 04/10: Sonnet 13s/$0,04 vs Opus 29s/$0,11 mỗi lượt, điểm lệch
+±1 ở 2/7 tin chung (U68). Không đặt ⇒ ăn Opus mặc định của CLI (~16 lượt/ngày,
+trừ chung hạn mức gói Claude với phiên code).
 
 **🖥️ DESKTOP — 2 bước (tài khoản chạy task `admin`, venv đã kích hoạt):**
 1. Merge code: `git fetch origin claude/magical-dirac-yu672i && git merge
