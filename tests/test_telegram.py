@@ -394,12 +394,14 @@ def test_screener_block_empty_when_no_cache(tmp_path, monkeypatch):
 
 def test_push_test_calls_send(monkeypatch):
     captured = {}
-    def _stub(text, parse_mode="HTML"):
-        captured["text"] = text
+    def _stub(text, parse_mode="HTML", channel=None):
+        captured.update(text=text, channel=channel)
         return {"ok": True}
     monkeypatch.setattr(tg, "send_message", _stub)
     tg.push_test()
-    assert "Kết nối OK" in captured["text"]
+    assert "Kết nối OK" in captured["text"] and captured["channel"] is None
+    tg.push_test(channel="news")
+    assert captured["channel"] == "news" and "tin mỗi giờ" in captured["text"]
 
 
 def test_push_briefs_build_snippet_before_header():
@@ -476,3 +478,81 @@ def test_ladder_footer_names_the_agent_that_wrote(monkeypatch):
     assert "🤖 Gemini 3.5 Flash (fallback: gemini-3.5-flash-lite)" in text
     assert "_(fallback" not in text and "TLDR\nDòng" in text
     assert tg.LAST_BRIEF_AGENT == "Gemini 3.5 Flash (fallback: gemini-3.5-flash-lite)"
+
+
+
+# ── 05/10: kênh "news" — tin mỗi giờ sang bot + group riêng ─────────────────
+
+
+@pytest.fixture
+def _clean_tg_env(monkeypatch):
+    """Xoá MỌI biến TELEGRAM_* theo tiền tố + chặn đọc .env — desktop có token
+    thật trong .env (bài học 05/10: env máy thật lọt vào pytest)."""
+    import os
+    for k in [k for k in os.environ if k.startswith("TELEGRAM_")]:
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr(tg, "_load_env", lambda: None)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "MAIN")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "111")
+
+
+def test_creds_channel_falls_back_per_variable(_clean_tg_env, monkeypatch):
+    assert tg._creds() == ("MAIN", "111")
+    assert tg._creds("news") == ("MAIN", "111")                 # chưa đặt gì = y cũ
+    monkeypatch.setenv("TELEGRAM_NEWS_CHAT_ID", "-100222")
+    assert tg._creds("news") == ("MAIN", "-100222")             # cùng bot, group riêng
+    monkeypatch.setenv("TELEGRAM_NEWS_BOT_TOKEN", "NEWS")
+    assert tg._creds("news") == ("NEWS", "-100222")
+    assert tg._creds() == ("MAIN", "111")                       # kênh mặc định không đổi
+
+
+def test_send_message_news_channel_uses_its_bot_and_group(_clean_tg_env, monkeypatch):
+    monkeypatch.setenv("TELEGRAM_NEWS_BOT_TOKEN", "NEWS")
+    monkeypatch.setenv("TELEGRAM_NEWS_CHAT_ID", "-100222")
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"ok": True, "result": {"message_id": 9}}
+    with patch("requests.post", return_value=mock_resp) as mp:
+        tg.send_message("tin", channel="news")
+        tg.send_message("brief")
+    (u1, k1), (u2, k2) = [(c[0][0], c[1]) for c in mp.call_args_list]
+    assert "botNEWS/" in u1 and k1["json"]["chat_id"] == "-100222"
+    assert "botMAIN/" in u2 and k2["json"]["chat_id"] == "111"
+
+
+def test_find_chats_lists_groups_without_printing_token(_clean_tg_env, monkeypatch):
+    monkeypatch.setenv("TELEGRAM_NEWS_BOT_TOKEN", "NEWS")
+    body = {"ok": True, "result": [
+        {"my_chat_member": {"chat": {"id": -100222, "type": "supergroup",
+                                     "title": "📰 VnStock — Tin mỗi giờ"}}},
+        {"message": {"chat": {"id": 111, "type": "private", "first_name": "Bình"}}},
+        {"message": {"chat": {"id": -100222, "type": "supergroup",
+                              "title": "📰 VnStock — Tin mỗi giờ"}}},
+        {"channel_post": {"chat": {"id": -100333, "type": "channel", "title": "K"}}},
+        {"update_id": 5},
+    ]}
+    resp = MagicMock(ok=True)
+    resp.json.return_value = body
+    with patch("requests.get", return_value=resp) as mg:
+        chats = tg.find_chats("news")
+    assert "botNEWS/getUpdates" in mg.call_args[0][0]
+    assert [(c["id"], c["type"]) for c in chats] == [(-100222, "supergroup"),
+                                                     (111, "private"), (-100333, "channel")]
+    assert chats[0]["name"] == "📰 VnStock — Tin mỗi giờ"
+
+
+def test_error_detail_tells_new_id_after_supergroup_upgrade():
+    resp = MagicMock()
+    resp.json.return_value = {"ok": False, "error_code": 400,
+                              "description": "Bad Request: group chat was upgraded to a supergroup chat",
+                              "parameters": {"migrate_to_chat_id": -1009876}}
+    assert "đổi CHAT_ID trong .env thành -1009876" in tg._tg_error_detail(resp)
+
+
+def test_run_telegram_chats_prints_env_hint(_clean_tg_env, monkeypatch, capsys):
+    import argparse
+    import run
+    monkeypatch.setattr(tg, "find_chats",
+                        lambda channel=None: [{"id": -100222, "type": "supergroup", "name": "G"}])
+    rc = run.cmd_telegram(argparse.Namespace(action="chats", channel="news"))
+    out = capsys.readouterr().out
+    assert rc == 0 and "-100222" in out and "TELEGRAM_NEWS_CHAT_ID" in out

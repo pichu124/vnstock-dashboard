@@ -230,6 +230,9 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   `news_alert_status.json{machine,error_streak}` + badge doctor. Không tin mới
   = im lặng, không gọi LLM. Không đụng `market_news_cache.json`. Thêm nguồn =
   một `Source(...)`. Lệnh: `run.py news-alert --dry-run|--force|--list-sources`.
+  Gửi qua KÊNH `news` (05/10): `TELEGRAM_NEWS_BOT_TOKEN`/`_CHAT_ID` = bot + group
+  riêng, thiếu biến nào lấy mặc định; brief + mọi thứ khác vẫn `TELEGRAM_BOT_TOKEN`/
+  `_CHAT_ID`. Lấy id group: `run.py telegram chats [--channel news]`.
 - `vnstock_sectors.py` — nhóm ngành custom ("Họ VIN", "Họ M") dùng chung
   dashboard + brief; thêm họ mới = thêm 1 dòng registry.
 - `vnstock_vn30.py` — **rổ VN30 hiện hành, một nguồn sự thật duy nhất**. HOSE

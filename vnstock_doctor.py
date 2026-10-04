@@ -913,7 +913,20 @@ def check_telegram() -> dict:
     tok = bool((os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip())
     chat = bool((os.environ.get("TELEGRAM_CHAT_ID") or "").strip())
     if tok and chat:
-        return _result("telegram", name, "ok", "BOT_TOKEN + CHAT_ID có trong env")
+        # Kênh tin mỗi giờ (05/10): bot riêng mà thiếu group riêng ⇒ bot tin sẽ
+        # gửi vào chat MẶC ĐỊNH, nơi nó không là thành viên ⇒ lỗi mỗi giờ.
+        n_tok = bool((os.environ.get("TELEGRAM_NEWS_BOT_TOKEN") or "").strip())
+        n_chat = bool((os.environ.get("TELEGRAM_NEWS_CHAT_ID") or "").strip())
+        if n_tok and not n_chat:
+            return _result("telegram", name, "warn",
+                           "có TELEGRAM_NEWS_BOT_TOKEN nhưng thiếu TELEGRAM_NEWS_CHAT_ID "
+                           "— bot tin sẽ gửi vào chat mặc định",
+                           "python run.py telegram chats --channel news → chép id group "
+                           "tin vào TELEGRAM_NEWS_CHAT_ID")
+        news = ("tin mỗi giờ → bot + group riêng" if n_tok and n_chat
+                else "tin mỗi giờ → group riêng (cùng bot)" if n_chat
+                else "tin mỗi giờ dùng chung bot/chat")
+        return _result("telegram", name, "ok", f"BOT_TOKEN + CHAT_ID có trong env · {news}")
     if tok or chat:
         missing = "TELEGRAM_CHAT_ID" if tok else "TELEGRAM_BOT_TOKEN"
         return _result("telegram", name, "warn", f"thiếu {missing}",

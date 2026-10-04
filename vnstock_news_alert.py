@@ -1228,7 +1228,9 @@ def format_message(recs: list, now: datetime, min_score: int = DEFAULT_MIN_SCORE
 
 def _default_sender(text: str) -> dict:
     import vnstock_telegram as tg
-    return tg.send_message(text, allow_links=True)
+    # Kênh "news": bot + group riêng nếu .env có TELEGRAM_NEWS_* (05/10),
+    # không thì y như cũ (bot/chat mặc định).
+    return tg.send_message(text, allow_links=True, channel="news")
 
 
 # ── Marker ───────────────────────────────────────────────────────────────────

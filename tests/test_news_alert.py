@@ -932,7 +932,7 @@ def test_default_sender_turns_links_on(monkeypatch):
     got = {}
     monkeypatch.setattr(tg, "send_message", lambda text, **kw: got.update(kw) or {"ok": True})
     na._default_sender("x")
-    assert got == {"allow_links": True}
+    assert got == {"allow_links": True, "channel": "news"}        # 05/10: bot/group tin riêng
 
 
 # ── một lượt trọn ────────────────────────────────────────────────────────────

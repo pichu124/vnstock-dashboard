@@ -7202,6 +7202,18 @@ cách ly rỗng (lượt cuối …) — sổ cũ: …"; hàng đợi đầy l�
 `'⏱ CHẶNG|\[sync\] auto-heal'`.)
 Desktop merge `b57017e` + `run.py test` full: **3.576 passed · 0 failed / 156s**.
 
+**Tách Telegram theo kênh (05/10, user chọn "2 group + 1 thư mục").** Telegram không
+có "channel chứa group" — 3 cách dựng hỏi user: 2 group + Folder (chọn) · 1 group 2
+Topic · 2 Channel. Code chung cho cả ba: `vnstock_telegram._creds(channel)` — kênh
+`news` đọc `TELEGRAM_NEWS_BOT_TOKEN`/`_CHAT_ID`, biến nào thiếu lấy mặc định (không đặt
+= y cũ); `send_message(channel=)`; news-alert `_default_sender` gửi `channel="news"`;
+mọi chỗ khác (brief, báo cáo lãi suất, cảnh báo ladder, model watch) giữ mặc định.
+`find_chats` (getUpdates, chỉ đọc) + `run.py telegram chats [--channel news]` in id
+group để user KHÔNG dán token vào trình duyệt; `telegram test --channel news`. Lỗi 400
+"upgraded to a supergroup" nay in id mới (`migrate_to_chat_id`). Doctor `telegram`:
+warn khi có bot tin riêng mà thiếu group tin (bot tin sẽ gửi vào chat mặc định nơi nó
+không là thành viên ⇒ lỗi mỗi giờ). Test xoá `TELEGRAM_*` theo TIỀN TỐ + chặn `_load_env`.
+
 **Còn hở:** (a) biểu đồ Word GỐC (`word/charts/chartN.xml`, không phải ảnh) không
 vào đường này — số nằm sẵn trong XML (`c:numCache`), làm khi gặp; (b) chưa đo trên
 Q4.docx thật (bao nhiêu ảnh, EMF hay PNG) — `--dry-run` cho biết.

@@ -1060,9 +1060,22 @@ def cmd_telegram(args) -> int:
 
     action = args.action
     try:
+        channel = getattr(args, "channel", None)
         if action == "test":
-            resp = _tg.push_test()
-            print(f"[telegram] test sent — message_id={resp.get('result',{}).get('message_id')}")
+            resp = _tg.push_test(channel=channel)
+            print(f"[telegram] test sent{' (kênh ' + channel + ')' if channel else ''} — "
+                  f"message_id={resp.get('result',{}).get('message_id')}")
+        elif action == "chats":
+            chats = _tg.find_chats(channel=channel)
+            if not chats:
+                print("[telegram] bot chưa thấy chat nào trong 24h qua — thêm bot vào "
+                      "group rồi gõ /start@<tên_bot> trong group, chạy lại lệnh này")
+            for c in chats:
+                print(f"[telegram] {c['type']:<10} {c['id']:>16}  {c['name']}")
+            if chats:
+                env = ("TELEGRAM_" + channel.upper() + "_CHAT_ID") if channel \
+                    else "TELEGRAM_CHAT_ID"
+                print(f"[telegram] → chép id (cả dấu -) của group vào {env} trong .env")
         elif action == "morning":
             resp = _tg.push_morning_brief()
             print(f"[telegram] morning brief sent — message_id={resp.get('result',{}).get('message_id')}")
@@ -2029,9 +2042,13 @@ def build_parser() -> argparse.ArgumentParser:
     tg = sub.add_parser("telegram", help="Push Telegram notifications")
     tg.add_argument(
         "action",
-        choices=["test", "morning", "close", "screener"],
-        help="test=verify connection, morning=morning brief, close=close brief, screener=alerts only",
+        choices=["test", "morning", "close", "screener", "chats"],
+        help="test=verify connection, morning=morning brief, close=close brief, "
+             "screener=alerts only, chats=in id các group/chat bot đã vào (24h)",
     )
+    tg.add_argument("--channel", choices=["news"], default=None,
+                    help="test/chats: dùng bot của kênh này (news = cảnh báo tin "
+                         "mỗi giờ, biến TELEGRAM_NEWS_*); bỏ trống = bot mặc định")
     tg.add_argument("--force", action="store_true",
                     help="close: bỏ qua cửa gác giờ/marker (gửi trùng được — "
                          "chỉ dùng khi CỐ Ý)")
