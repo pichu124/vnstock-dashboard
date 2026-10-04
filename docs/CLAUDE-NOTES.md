@@ -7140,6 +7140,17 @@ tab Báo cáo in "⚠ chỉ đọc X/Y ký tự" khi cắt; `--refresh --rediges
 chấm lại đúng một báo cáo. Nguồn gõ "HedgeAcedemy" (thiếu a) — sửa bằng
 `--set-meta`, digest giữ nguyên.
 
+**Chấm lại trọn (04/10 23:53):** 26s · $0,30 · `chars_seen` 53.486 · stance CP
++0 → **−1** (Trái phiếu +1, Vàng −2, USD 0) · `us10y` 5,29% khớp registry (±0,5).
+Soi `--show` ra thêm hai lỗi, vá cùng đêm: (a) `tom_tat[:400]` cắt GIỮA CHỮ
+("thị trườn") và chuỗi ấy vào thẳng brief phân bổ (`vnstock_brief_canon`) ⇒
+`clip_text` cắt ở ranh giới câu/từ, trần 600 (prompt xin ≤ 500), áp cả claims/
+risks 160; (b) prompt không nói 5 lớp là danh mục VN — báo cáo chủ yếu bàn Mỹ/
+Trung Quốc + một đoạn TT50 tích cực cho VN mà CP −1 ⇒ không rõ −1 là cổ phiếu
+Mỹ hay VN. Prompt nay neo: Cổ phiếu = niêm yết VN … USD = USD/VND; quan điểm
+nước ngoài chỉ thành stance khi báo cáo nói rõ tác động tới lớp VN. Digest cũ
+phải `--redigest` mới ăn prompt mới.
+
 **Còn hở:** (a) biểu đồ Word GỐC (`word/charts/chartN.xml`, không phải ảnh) không
 vào đường này — số nằm sẵn trong XML (`c:numCache`), làm khi gặp; (b) chưa đo trên
 Q4.docx thật (bao nhiêu ảnh, EMF hay PNG) — `--dry-run` cho biết.

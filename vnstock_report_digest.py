@@ -178,6 +178,23 @@ def _registry_keys() -> list[str]:
 
 # ── Sanitize (digest sẽ vào brief — không được phá section parser) ──────────
 
+_TOM_TAT_MAX = 600       # prompt xin ≤ 500; trần cứng chừa chỗ, cắt ở ranh giới câu
+_SNIPPET_MAX = 160       # claims[].text + risks
+
+
+def clip_text(text: str, n: int) -> str:
+    """≤ n ký tự, cắt ở RANH GIỚI câu (nếu còn ≥ nửa) hoặc từ + '…' — 04/10
+    tom_tat Q4 bị `[:400]` cắt giữa chữ ("thị trườn") rồi đi thẳng vào brief."""
+    if len(text) <= n:
+        return text
+    cut = text[:n - 1]
+    end = max(cut.rfind(". "), cut.rfind("; "))
+    if end >= n // 2:
+        return cut[:end + 1]
+    sp = cut.rfind(" ")
+    return (cut[:sp] if sp > 0 else cut).rstrip(" ,;:—-") + "…"
+
+
 _CJK_RE = re.compile(r"[㐀-䶿一-鿿豈-﫿]+")          # mirror enforce_no_cjk
 _EMOJI_RE = re.compile(r"[\U0001F000-\U0001FAFF☀-➿️]")
 
@@ -197,7 +214,7 @@ def sanitize_text(s: str) -> str:
 _DIGEST_SYSTEM = (
     "Bạn tóm tắt BÁO CÁO VĨ MÔ cho nhà đầu tư Việt Nam. Trả về DUY NHẤT một "
     "JSON object (không markdown, không giải thích) đúng schema:\n"
-    '{"tom_tat": "<2-3 câu tiếng Việt tóm quan điểm vĩ mô chính>",\n'
+    '{"tom_tat": "<2-3 câu tiếng Việt tóm quan điểm vĩ mô chính, ≤ 500 ký tự>",\n'
     ' "stance": {"Cổ phiếu": <-2..2>, "Trái phiếu": <-2..2>, "Tiền gửi": <-2..2>,'
     ' "Vàng": <-2..2>, "USD": <-2..2>},\n'
     ' "claims": [{"key": "<key>", "value": <số>, "unit": "<đơn vị>",'
@@ -209,6 +226,15 @@ _DIGEST_SYSTEM = (
     "'không recommend'/'tránh' một lớp tài sản → stance lớp đó PHẢI ÂM (-1 "
     "hoặc -2), KHÔNG được ghi 0; 'nắm giữ, không mua thêm' → 0/+1; 'giảm "
     "dần/chốt dần vị thế' → ÂM. 0 CHỈ dành cho lớp báo cáo KHÔNG nêu gì. "
+    # 04/10 Q4 HedgeAcademy: báo cáo chủ yếu bàn Mỹ/Trung Quốc (UST, AI, tín
+    # dụng CCC) + một đoạn TT50 tích cực cho VN ⇒ CP −1 không rõ là quan điểm
+    # về cổ phiếu Mỹ hay VN — mà stance lái tilt danh mục VN.
+    "Năm lớp là danh mục của nhà đầu tư VIỆT NAM: Cổ phiếu = cổ phiếu niêm yết "
+    "Việt Nam; Trái phiếu = trái phiếu/quỹ trái phiếu Việt Nam; Tiền gửi = tiền "
+    "gửi VND; Vàng = vàng mua tại Việt Nam; USD = giữ USD so với VND. Quan điểm "
+    "về thị trường NƯỚC NGOÀI (cổ phiếu Mỹ, lợi suất UST, Trung Quốc) chỉ thành "
+    "stance khi báo cáo nói rõ tác động tới lớp tài sản Việt Nam tương ứng — "
+    "báo cáo chỉ bàn nước ngoài thì lớp đó ghi 0. "
     "claims CHỈ gồm số liệu vĩ mô báo cáo nêu RÕ RÀNG, key lấy từ danh sách: "
     "{keys} — không khớp key nào thì dùng \"khac\". MỖI claim bắt buộc có CON "
     "SỐ THẬT trích từ báo cáo trong \"text\"; câu định tính không có số "
@@ -543,7 +569,7 @@ def parse_digest(raw: str) -> "dict | None":
             value = float(c.get("value"))
         except (TypeError, ValueError):
             continue
-        text = sanitize_text(c.get("text") or "")[:160]
+        text = clip_text(sanitize_text(c.get("text") or ""), _SNIPPET_MAX)
         # Luật deterministic chống bịa số (thấy 3 lần liên tiếp 14/07: câu
         # "USDVND có thể giảm thêm" không có số → model chế value=0): claim
         # là TRÍCH DẪN SỐ LIỆU — trích dẫn không chứa chữ số nào thì không
@@ -558,10 +584,10 @@ def parse_digest(raw: str) -> "dict | None":
             "text":   text,
         })
 
-    risks = [sanitize_text(r)[:160] for r in (data.get("risks") or [])
+    risks = [clip_text(sanitize_text(r), _SNIPPET_MAX) for r in (data.get("risks") or [])
              if sanitize_text(r)]
     return {
-        "tom_tat": sanitize_text(data.get("tom_tat") or "")[:400],
+        "tom_tat": clip_text(sanitize_text(data.get("tom_tat") or ""), _TOM_TAT_MAX),
         "stance":  stance,
         "claims":  claims,
         "risks":   risks[:5],

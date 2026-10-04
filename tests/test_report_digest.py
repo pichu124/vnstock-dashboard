@@ -524,3 +524,30 @@ def test_refresh_only_one_id(monkeypatch):
     sys.modules["vnstock_macro"].load_macro = lambda *a, **k: []
     done = dg.refresh(redigest=True, only=a["id"])
     assert [r["id"] for r in done] == [a["id"]] and len(calls) == 1
+
+
+# ── 04/10: tom_tat cắt giữa chữ + stance neo vào danh mục VN ────────────────
+
+
+def test_clip_text_prefers_sentence_then_word_boundary():
+    s = "Câu một khá dài về lãi suất. Câu hai về tín dụng; vế ba về thị trường chứng khoán"
+    assert dg.clip_text(s, 200) == s
+    assert dg.clip_text(s, 60) == "Câu một khá dài về lãi suất. Câu hai về tín dụng;"
+    assert dg.clip_text("aaaa bbbb cccc dddd", 12) == "aaaa bbbb…"
+    assert len(dg.clip_text("x" * 50, 10)) <= 10
+
+
+def test_parse_digest_long_tom_tat_ends_on_a_sentence():
+    long = ("Chi phí vốn USD tăng mạnh khi UST 10Y lên 5.29%. " * 14
+            + "TT50 có thể làm sôi động lại thị trường cổ phiếu")
+    raw = json.dumps({"tom_tat": long, "stance": {}, "claims": [],
+                      "risks": ["r " * 200]}, ensure_ascii=False)
+    d = dg.parse_digest(raw)
+    assert len(d["tom_tat"]) <= dg._TOM_TAT_MAX and d["tom_tat"].endswith("5.29%.")
+    assert d["risks"][0].endswith("…") and len(d["risks"][0]) <= dg._SNIPPET_MAX
+
+
+def test_digest_prompt_anchors_classes_to_vietnam_portfolio():
+    s = dg._DIGEST_SYSTEM
+    assert "Cổ phiếu = cổ phiếu niêm yết Việt Nam" in s and "USD = giữ USD so với VND" in s
+    assert "NƯỚC NGOÀI" in s and "≤ 500 ký tự" in s
