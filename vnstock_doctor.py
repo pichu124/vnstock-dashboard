@@ -1522,6 +1522,13 @@ def check_autoheal_yield() -> dict:
         return _result("autoheal_yield", name, "ok", "chưa có lượt nào được ghi", "")
     head = (f"{st['healed']:,}/{st['attempts']:,} bar lành qua {st['runs']} lượt"
             + (f" ({st['rate']:.1%})" if st["rate"] is not None else ""))
+    last = st.get("last") or {}
+    if st["attempts"] and not int(last.get("scanned") or 0):
+        # Lượt cuối gặp hàng đợi rỗng ⇒ auto-heal không tốn gì nữa; hiệu suất
+        # 0% của các lượt CŨ không còn là việc cần làm (05/10).
+        return _result("autoheal_yield", name, "ok",
+                       f"hàng đợi cách ly rỗng (lượt cuối {last.get('at', '?')}) — "
+                       f"không có gì để chữa · sổ cũ: {head}", "")
     if not st["enough"]:
         return _result("autoheal_yield", name, "ok",
                        f"{head} — chưa đủ mẫu (cần ≥{HEAL_MIN_ATTEMPTS:,} lượt)", "")

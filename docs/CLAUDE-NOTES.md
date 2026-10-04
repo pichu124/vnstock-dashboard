@@ -7192,6 +7192,15 @@ phải xoá theo TIỀN TỐ, không theo danh sách.
 Desktop merge `dab4511` rồi `run.py test` full: **3.573 passed · 0 failed / 179s**,
 badge xanh ⇒ phát 18:00 05/10 qua được bước test.
 
+**Badge auto-heal kêu mãi bằng sổ CŨ (05/10).** Doctor "0/1,291 bar lành qua 2 lượt"
+⚠️ nhưng `⏱ CHẶNG` 01/10 + 02/10 đều `auto-heal 0s`, không dòng `scanned=` ⇒ hàng
+đợi cách ly RỖNG. `auto_heal` thoát sớm khi rỗng mà KHÔNG `record_heal_run` ⇒ sổ chỉ
+còn 2 lượt cũ (hồi hàng đợi 1.291 bar) và badge cộng chúng vĩnh viễn. Vá: lượt rỗng
+cũng ghi (`scanned=0`, trừ dry-run); badge thấy lượt cuối `scanned=0` ⇒ ok "hàng đợi
+cách ly rỗng (lượt cuối …) — sổ cũ: …"; hàng đợi đầy lại ⇒ kêu lại như cũ. (Lệnh tôi
+đưa user `Select-String 'auto-heal'` bắt nhầm dòng doctor in vào log — đúng là
+`'⏱ CHẶNG|\[sync\] auto-heal'`.)
+
 **Còn hở:** (a) biểu đồ Word GỐC (`word/charts/chartN.xml`, không phải ảnh) không
 vào đường này — số nằm sẵn trong XML (`c:numCache`), làm khi gặp; (b) chưa đo trên
 Q4.docx thật (bao nhiêu ảnh, EMF hay PNG) — `--dry-run` cho biết.
