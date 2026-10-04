@@ -548,11 +548,35 @@ def test_error_detail_tells_new_id_after_supergroup_upgrade():
     assert "đổi CHAT_ID trong .env thành -1009876" in tg._tg_error_detail(resp)
 
 
-def test_run_telegram_chats_prints_env_hint(_clean_tg_env, monkeypatch, capsys):
+def test_run_telegram_chats_prints_bot_and_env_hint(_clean_tg_env, monkeypatch, capsys):
     import argparse
     import run
+    monkeypatch.setattr(tg, "bot_identity", lambda channel=None: "@News_hourly_bot (VnStock Hourly Update)")
     monkeypatch.setattr(tg, "find_chats",
                         lambda channel=None: [{"id": -100222, "type": "supergroup", "name": "G"}])
     rc = run.cmd_telegram(argparse.Namespace(action="chats", channel="news"))
     out = capsys.readouterr().out
     assert rc == 0 and "-100222" in out and "TELEGRAM_NEWS_CHAT_ID" in out
+    assert "bot: @News_hourly_bot (VnStock Hourly Update) — kênh news" in out
+
+
+def test_lookup_never_falls_back_to_default_bot(_clean_tg_env, monkeypatch):
+    """05/10: dòng TELEGRAM_NEWS_BOT_TOKEN bị # ⇒ `chats --channel news` từng
+    dùng bot brief và in group Brief — lệnh DÒ phải báo thiếu, không lùi."""
+    with patch("requests.get") as mg:
+        with pytest.raises(RuntimeError, match="TELEGRAM_NEWS_BOT_TOKEN chưa có"):
+            tg.find_chats("news")
+        with pytest.raises(RuntimeError, match="KHÔNG dùng bot mặc định"):
+            tg.bot_identity("news")
+    assert not mg.called
+    assert tg._creds("news")[0] == "MAIN"                 # GỬI thì vẫn lùi như cũ
+
+
+def test_bot_identity_reads_getme(_clean_tg_env, monkeypatch):
+    monkeypatch.setenv("TELEGRAM_NEWS_BOT_TOKEN", "NEWS")
+    resp = MagicMock(ok=True)
+    resp.json.return_value = {"ok": True, "result": {"username": "News_hourly_bot",
+                                                     "first_name": "VnStock Hourly Update"}}
+    with patch("requests.get", return_value=resp) as mg:
+        assert tg.bot_identity("news") == "@News_hourly_bot (VnStock Hourly Update)"
+    assert "botNEWS/getMe" in mg.call_args[0][0]

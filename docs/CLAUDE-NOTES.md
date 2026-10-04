@@ -7213,6 +7213,15 @@ group để user KHÔNG dán token vào trình duyệt; `telegram test --channel
 "upgraded to a supergroup" nay in id mới (`migrate_to_chat_id`). Doctor `telegram`:
 warn khi có bot tin riêng mà thiếu group tin (bot tin sẽ gửi vào chat mặc định nơi nó
 không là thành viên ⇒ lỗi mỗi giờ). Test xoá `TELEGRAM_*` theo TIỀN TỐ + chặn `_load_env`.
+**Vết dựng thật (05/10 ~02:00):** `chats --channel news` lượt 1 rỗng, lượt 2 in group
+Brief `-5561219238` ⇒ tôi kết luận "bot tin nằm nhầm group Brief" — SAI, ảnh user cho
+thấy 2 bot đúng 2 group ("VnStock Hourly Update" ở News Hourly Update, "Marketview
+daily" ở Brief). Thủ phạm là chính lệnh dò: thiếu `TELEGRAM_NEWS_BOT_TOKEN` (dòng bị `#`
+theo gợi ý "tạm tắt" của tôi) ⇒ `_creds` LÙI về bot mặc định ⇒ in group của bot brief.
+Vá: lệnh DÒ (`find_chats`, `bot_identity`) dùng `_lookup_token` KHÔNG lùi (báo thiếu
+biến / bị # tắt); `chats` in `bot: @username (tên)` qua getMe trước danh sách để đối
+chiếu token ↔ bot. Gửi tin vẫn lùi như cũ. **Bài học:** công cụ chẩn đoán không được
+có đường lùi im lặng — nó trả lời câu hỏi KHÁC mà trông như câu trả lời đúng.
 
 **Còn hở:** (a) biểu đồ Word GỐC (`word/charts/chartN.xml`, không phải ảnh) không
 vào đường này — số nằm sẵn trong XML (`c:numCache`), làm khi gặp; (b) chưa đo trên

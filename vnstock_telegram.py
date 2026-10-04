@@ -495,16 +495,46 @@ def push_test(channel: "str | None" = None) -> dict:
     return send_message(text, channel=channel)
 
 
+def _lookup_token(channel: "str | None") -> str:
+    """Token cho lệnh DÒ (chats/whoami) — KHÔNG lùi về bot mặc định như khi gửi:
+    05/10 dòng TELEGRAM_NEWS_BOT_TOKEN bị `#` ⇒ `chats --channel news` lặng lẽ
+    dùng bot brief, in group Brief, user lẫn Claude đọc thành "bot tin nằm
+    nhầm group"."""
+    if not channel:
+        tok = _token()
+        if not tok:
+            raise RuntimeError("TELEGRAM_BOT_TOKEN chưa set trong .env")
+        return tok
+    _load_env()
+    env = channel_env(channel)[0]
+    tok = (os.environ.get(env) or "").strip()
+    if not tok:
+        raise RuntimeError(f"{env} chưa có trong .env (hoặc dòng đang bị # tắt) — "
+                           "lệnh dò này KHÔNG dùng bot mặc định")
+    return tok
+
+
+def bot_identity(channel: "str | None" = None) -> str:
+    """"@username (tên hiển thị)" của bot mà token kênh trỏ tới (getMe) — để
+    đối chiếu token ↔ bot mà không phải in token."""
+    import requests
+
+    resp = requests.get(_TELEGRAM_API.format(token=_lookup_token(channel),
+                                             method="getMe"), timeout=15)
+    if not resp.ok:
+        raise requests.HTTPError(f"{resp.status_code} Telegram: {_tg_error_detail(resp)}",
+                                 response=resp)
+    me = resp.json().get("result") or {}
+    return f"@{me.get('username', '?')} ({me.get('first_name', '')})"
+
+
 def find_chats(channel: "str | None" = None) -> list[dict]:
     """Các chat bot (của kênh) đã thấy trong 24h qua — để lấy id group mà
     KHÔNG phải dán token vào trình duyệt. Bot vừa được thêm vào group sinh
     update `my_chat_member` nên thấy ngay. Chỉ ĐỌC (không xoá hàng đợi)."""
     import requests
 
-    token, _ = _creds(channel)
-    if not token:
-        raise RuntimeError(f"{channel_env(channel)[0] if channel else 'TELEGRAM_BOT_TOKEN'}"
-                           " chưa set trong .env")
+    token = _lookup_token(channel)
     resp = requests.get(_TELEGRAM_API.format(token=token, method="getUpdates"),
                         timeout=15)
     if not resp.ok:

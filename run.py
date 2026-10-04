@@ -1066,6 +1066,8 @@ def cmd_telegram(args) -> int:
             print(f"[telegram] test sent{' (kênh ' + channel + ')' if channel else ''} — "
                   f"message_id={resp.get('result',{}).get('message_id')}")
         elif action == "chats":
+            print(f"[telegram] bot: {_tg.bot_identity(channel=channel)}"
+                  f"{' — kênh ' + channel if channel else ' — kênh mặc định'}")
             chats = _tg.find_chats(channel=channel)
             if not chats:
                 print("[telegram] bot chưa thấy chat nào trong 24h qua — thêm bot vào "
