@@ -263,3 +263,23 @@ def test_bad_login_explains_pasted_shape_without_echoing(md, env, monkeypatch):
         bml.main(["--md", str(md), "--yes"])
     assert "ĐÚNG dạng" in str(ei.value) and "TÀI KHOẢN KHÁC" in str(ei.value)
     assert "abcd-efgh-ijkl-mnop" not in str(ei.value)
+
+
+@pytest.mark.parametrize("raw,want", [
+    ("abcdefghijklmnop", "abcd-efgh-ijkl-mnop"),          # gõ tay bỏ dấu - (vết 04/10)
+    ("abcd efgh ijkl mnop", "abcd-efgh-ijkl-mnop"),
+    (" abcd-efgh-ijkl-mnop ", "abcd-efgh-ijkl-mnop"),
+    ("MyMainPassword!1", "MyMainPassword!1"),             # không phải dạng app password ⇒ giữ
+    ("ABCDEFGHIJKLMNOP", "ABCDEFGHIJKLMNOP"),
+])
+def test_normalize_app_password(raw, want):
+    assert bml.normalize_app_password(raw) == want
+
+
+def test_env_password_without_dashes_is_sent_dashed(md, env, monkeypatch):
+    api = FakeAPI({"reuters.com": "did:plc:r"})
+    monkeypatch.setattr(bml, "_req", api)
+    monkeypatch.setenv("BSKY_APP_PASSWORD", "abcdefghijklmnop")
+    assert bml.main(["--md", str(md), "--yes"]) == 0
+    sess = [b for n, _, b, _ in api.calls if n == "com.atproto.server.createSession"]
+    assert sess[0]["password"] == "abcd-efgh-ijkl-mnop"

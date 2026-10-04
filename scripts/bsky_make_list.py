@@ -241,6 +241,15 @@ READ_HOST_HINT = ("$s = Read-Host 'App Password' -AsSecureString; $env:BSKY_APP_
                   "[Runtime.InteropServices.Marshal]::SecureStringToBSTR($s))")
 
 
+def normalize_app_password(pw: str) -> str:
+    """Gõ tay hay bỏ/thay dấu `-` (04/10: user gõ 16 ký tự liền). Chỉ đụng khi bỏ
+    `-`/khoảng trắng ra đúng 16 ký tự a-z0-9 — mật khẩu khác giữ nguyên."""
+    bare = re.sub(r"[\s-]", "", pw or "")
+    if re.fullmatch(r"[a-z0-9]{16}", bare):
+        return "-".join(bare[i:i + 4] for i in range(0, 16, 4))
+    return (pw or "").strip()
+
+
 def password_shape(pw: str) -> str:
     """Mô tả mật khẩu NHẬN ĐƯỢC mà không lộ nó: độ dài + có đúng dạng App Password
     `xxxx-xxxx-xxxx-xxxx` không. 04/10: ô getpass ẩn trên Windows, user dán ba lần
@@ -400,8 +409,8 @@ def main(argv: Optional[list] = None) -> int:
                   f"— vẫn thêm; xoá trong app nếu là tài khoản giả")
 
     ident = ask_identifier()
-    pw = (os.environ.get("BSKY_APP_PASSWORD")
-          or getpass.getpass("App Password (không hiện khi gõ/dán): ")).strip()
+    pw = normalize_app_password(os.environ.get("BSKY_APP_PASSWORD")
+                                or getpass.getpass("App Password (không hiện khi gõ/dán): "))
     sess = login(a.pds, ident, pw)
     print(f"Đã đăng nhập: @{sess['handle']}")
 
