@@ -44,14 +44,25 @@ def test_parse_md_starred_all_and_low(md):
     assert bml.parse_md(md)[0]["name"] == "Nick Timiraos"
 
 
-def test_parse_real_doc_starter_set_is_the_33_starred():
+def test_parse_real_doc_starter_set_is_the_24_starred():
+    # --check desktop 04/10: 6 tài khoản ngừng đăng từ 2025 bỏ ⭐; 3 hãng tin thành ⛔.
     rows = bml.parse_md(bml.DEFAULT_MD)
     handles = {r["handle"] for r in rows}
-    assert len(rows) == 33 and all(r["starred"] for r in rows)
-    assert {"nicktimiraos.bsky.social", "khacgiang.bsky.social", "javierblas.bsky.social",
-            "reuters.com", "claudia-sahm.bsky.social"} <= handles
+    assert len(rows) == 24 and all(r["starred"] for r in rows)
+    assert {"nicktimiraos.bsky.social", "claudia-sahm.bsky.social", "michaelpettis.bsky.social",
+            "roryjohnston.bsky.social", "federalreserve.gov"} <= handles
+    assert not handles & {"tracyalloway.bsky.social", "javierblas.bsky.social", "anaswanson.bsky.social"}
     every = bml.parse_md(bml.DEFAULT_MD, starred_only=False)
     assert len(every) > len(rows) and all(r["confidence"] != "thấp" for r in every if not r["starred"])
+    wires = {"reuters.com", "bloomberg.com", "asia.nikkei.com"}
+    assert not wires & {r["handle"] for r in every}                     # ⛔ không vào cả --all
+    assert not wires & {r["handle"] for r in bml.parse_md(bml.DEFAULT_MD, False, include_low=True)}
+
+
+def test_parse_md_blocked_rows_never_included(tmp_path):
+    p = tmp_path / "l.md"
+    p.write_text(MD + "| ⛔ | Wire | [`wire.com`](https://x) | wire | ồn | 2026 | cao |\n", encoding="utf-8")
+    assert "wire.com" not in [r["handle"] for r in bml.parse_md(p, starred_only=False, include_low=True)]
 
 
 @pytest.mark.parametrize("expected,profile,bad", [

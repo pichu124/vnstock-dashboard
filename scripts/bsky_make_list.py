@@ -4,7 +4,7 @@ Dùng trên máy có mạng (🖥️ desktop — `--write-env` ghi `.env` của 
 
     python scripts/bsky_make_list.py --check              # KHÔNG đăng nhập: handle nào tồn tại, tên, bài cuối
     python scripts/bsky_make_list.py --write-env          # đăng nhập → tạo List → thêm nhóm ⭐ → ghi .env
-    python scripts/bsky_make_list.py --all --write-env    # thêm cả bảng (trừ độ tin cậy "thấp")
+    python scripts/bsky_make_list.py --all --write-env    # thêm cả bảng (trừ độ tin cậy "thấp" và ⛔)
 
 Đăng nhập bằng **App Password** (Bluesky → Settings → Privacy and security → App
 passwords), KHÔNG dùng mật khẩu chính. Mật khẩu nhập qua `getpass`, không lưu đâu
@@ -55,7 +55,9 @@ _HANDLE_CELL_RE = re.compile(r"`([^`]+)`")
 
 def parse_md(path: Path, starred_only: bool = True, include_low: bool = False) -> list:
     """Hàng bảng markdown `| ⭐ | Tên | [`handle`](url) | … | Hoạt động | Tin cậy |`
-    → [{name, handle, starred, confidence}]. Không trùng handle, giữ thứ tự file."""
+    → [{name, handle, starred, confidence}]. Không trùng handle, giữ thứ tự file.
+    Cột đầu `⛔` = KHÔNG BAO GIỜ đưa vào List, kể cả `--all` (tài khoản hãng tin
+    đăng hàng chục bài/giờ — chiếm hết suất bài Bluesky mỗi lượt, đã có qua RSS)."""
     out, seen = [], set()
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.startswith("| ") or line.startswith("| | Tên") or line.startswith("|---"):
@@ -69,6 +71,8 @@ def parse_md(path: Path, starred_only: bool = True, include_low: bool = False) -
         handle = m.group(1).strip().lstrip("@").lower()
         starred = cells[0] == "⭐"
         conf = cells[-1]
+        if cells[0] == "⛔":
+            continue
         if handle in seen or (starred_only and not starred):
             continue
         if not starred and conf == "thấp" and not include_low:

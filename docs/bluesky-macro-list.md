@@ -5,9 +5,11 @@ Khảo sát bằng WebSearch (sandbox không gọi được API Bluesky) — m�
 **Nhanh nhất — để script tạo List (🖥️ desktop, cần App Password của Bluesky):**
 
 ```
-python scripts/bsky_make_list.py --check        # xác minh 33 handle ⭐, không đăng nhập
+python scripts/bsky_make_list.py --check        # xác minh 24 handle ⭐, không đăng nhập
 python scripts/bsky_make_list.py --write-env    # tạo List, thêm nhóm ⭐, ghi .env
 ```
+
+**Đo thật 04/10 (`--check` trên 🖥️ desktop, 33/33 tồn tại, tên khớp):** bỏ ⭐ 6 tài khoản ngừng đăng từ 2025 (Tracy Alloway 27/08/25, Mai Nguyen — 5 follower/7 bài, Khac Giang 06/08/25, Javier Blas 27/08/25, Ole Hansen 22/05/25, Ana Swanson 20/04/25 — họ ở lại X); đổi ⭐ → ⛔ ba tài khoản hãng tin (Reuters 106K bài, Bloomberg 30K, Nikkei Asia 26K): đăng hàng chục bài/giờ ⇒ chiếm hết suất 6 bài Bluesky mỗi lượt (≤3 bài/người, lấy mới nhất), đẩy chuyên gia ra ngoài — tin của họ đã về qua RSS/Google News. ⛔ = script KHÔNG thêm kể cả `--all`. Còn 24 ⭐.
 
 **Cách tay:** (A) tạo List trong app Bluesky, thêm người theo bảng, dán URL list vào `VNSTOCK_NEWS_ALERT_BSKY_LIST`; hoặc (B) dán thẳng dòng env ở cuối file. Nên bắt đầu bằng nhóm ⭐ (độ tin cậy cao, hoạt động 2026), sau một tuần xem Telegram rồi thêm/bớt.
 
@@ -53,7 +55,7 @@ python scripts/bsky_make_list.py --write-env    # tạo List, thêm nhóm ⭐, g
 | ⭐ | Claudia Sahm | [`claudia-sahm.bsky.social`](https://bsky.app/profile/claudia-sahm.bsky.social) | Cựu kinh tế gia Fed, tác giả quy tắc Sahm (57K follower) | Bình luận lao động/suy thoái Mỹ và Fed ngay ngày công bố số liệu | unknown | cao |
 | ⭐ | Mohamed El-Erian | [`elerianm.bsky.social`](https://bluefacts.app/profile/elerianm.bsky.social) | Cố vấn kinh tế trưởng Allianz, cựu CEO PIMCO (~30K follower, 1.125 bài) | Nhận định Fed, lãi suất, rủi ro suy thoái toàn cầu định hướng risk-on/off EM | 2025 | cao |
 | ⭐ | Robin Wigglesworth | [`robinwigglesworth.ft.com`](https://bsky.app/profile/robinwigglesworth.ft.com/post/3lmclbnw2uc2y) | Biên tập FT Alphaville (handle FT xác thực) | Phân tích sâu Treasuries, swap line USD, dòng ETF và cơ chế thị trường | 2025 | cao |
-| ⭐ | Tracy Alloway | [`tracyalloway.bsky.social`](https://bsky.app/profile/tracyalloway.bsky.social) | Đồng dẫn Odd Lots (Bloomberg); tín dụng, 'hệ thống ống nước' tài chính | Đọc nhanh căng thẳng tín dụng/funding/cấu trúc thị trường làm đổi khẩu vị rủi ro EM | 2025 | cao |
+| | Tracy Alloway | [`tracyalloway.bsky.social`](https://bsky.app/profile/tracyalloway.bsky.social) | Đồng dẫn Odd Lots (Bloomberg); tín dụng, 'hệ thống ống nước' tài chính | Đọc nhanh căng thẳng tín dụng/funding/cấu trúc thị trường làm đổi khẩu vị rủi ro EM | 2025 | cao |
 |  | Barry Ritholtz | [`ritholtz.bsky.social`](https://bsky.app/profile/ritholtz.bsky.social) | Chủ tịch/CIO Ritholtz Wealth, dẫn Masters in Business | Tâm lý thị trường và hành vi; tổng hợp link | 2025 | cao |
 |  | Carl Quintanilla | [`carlquintanilla.bsky.social`](https://bsky.app/profile/carlquintanilla.bsky.social) | MC CNBC (248K follower, 5.900+ bài) | Chụp màn hình báo cáo sell-side, số liệu vĩ mô tần suất cao — hợp cảnh báo giờ | 2025 | cao |
 |  | Joe Weisenthal | [`weisenthal.bsky.social`](https://bsky.app/profile/weisenthal.bsky.social) | Biên tập điều hành Bloomberg, đồng dẫn Odd Lots (62,8K follower) | Bình luận vĩ mô/thị trường thời gian thực, Fed và thuế quan; đăng trên Bluesky ít hơn X | 2025 | cao |
@@ -80,10 +82,10 @@ python scripts/bsky_make_list.py --write-env    # tạo List, thêm nhóm ⭐, g
 |---|---|---|---|---|---|---|
 | ⭐ | Alan Beattie | [`alanbeattie.bsky.social`](https://bsky.app/profile/alanbeattie.bsky.social) | FT trade columnist (Trade Secrets newsletter) | Daily-ish commentary on global trade politics, WTO, EU/US tariff moves | 2025 | cao |
 | ⭐ | Chad P. Bown | [`chadpbown.com`](https://bsky.app/profile/did:plc:yjy3gatfao2dggjx3k3ibbz5) | PIIE senior fellow; Trade Talks podcast host; ex-USTR/State | Fastest authoritative read on new US tariff actions (Section 232/301, transshipment rules) that hit VN exporters | unknown | cao |
-| ⭐ | Mai Nguyen | [`mainikkei.bsky.social`](https://bsky.app/profile/mainikkei.bsky.social) | Nikkei Asia correspondent focused on Vietnam | Vietnam-specific business/policy reporting (FDI, tariffs, corporates) — direct VN equity relevance | unknown | cao |
+| | Mai Nguyen | [`mainikkei.bsky.social`](https://bsky.app/profile/mainikkei.bsky.social) | Nikkei Asia correspondent focused on Vietnam | Vietnam-specific business/policy reporting (FDI, tariffs, corporates) — direct VN equity relevance | unknown | cao |
 | ⭐ | Michael Pettis | [`michaelpettis.bsky.social`](https://bsky.app/profile/michaelpettis.bsky.social) | Senior Fellow, Carnegie China; Peking University finance professor | Threads on China demand/trade-surplus rebalancing, US tariffs and China growth target — core driver of VN export/FDI narrative | 2025 | cao |
-| ⭐ | Nguyen Khac Giang | [`khacgiang.bsky.social`](https://bsky.app/profile/khacgiang.bsky.social) | Visiting Fellow, Vietnam Studies Programme, ISEAS-Yusof Ishak Institute | Posts own ISEAS/Diplomat pieces on To Lam reforms, private-sector push, tariffs and China balancing — most VN-specific analyst found | 2025 | cao |
-| ⭐ | Nikkei Asia (Official) | [`asia.nikkei.com`](https://bsky.app/profile/asia.nikkei.com) | Nikkei Asia official account (~20k posts) | High-frequency Asia business headlines incl. Vietnam, supply chains, chips, ASEAN trade | 2025 | cao |
+| | Nguyen Khac Giang | [`khacgiang.bsky.social`](https://bsky.app/profile/khacgiang.bsky.social) | Visiting Fellow, Vietnam Studies Programme, ISEAS-Yusof Ishak Institute | Posts own ISEAS/Diplomat pieces on To Lam reforms, private-sector push, tariffs and China balancing — most VN-specific analyst found | 2025 | cao |
+| ⛔ | Nikkei Asia (Official) | [`asia.nikkei.com`](https://bsky.app/profile/asia.nikkei.com) | Nikkei Asia official account (~20k posts) | High-frequency Asia business headlines incl. Vietnam, supply chains, chips, ASEAN trade | 2025 | cao |
 | ⭐ | Robin Brooks | [`robin-j-brooks.bsky.social`](https://bsky.app/profile/robin-j-brooks.bsky.social) | Senior Fellow Brookings; ex-IIF chief economist, ex-Goldman chief FX strategist | EM FX, currency-intervention and trade-balance charts — directly relevant to VND/USD and SBV watch | unknown | cao |
 |  | Adam Posen | [`adamposen.bsky.social`](https://bsky.app/profile/adamposen.bsky.social) | President, Peterson Institute (PIIE) | PIIE global growth forecasts under Trump tariff program; macro read-through for EM/Asia risk appetite | 2025 | cao |
 |  | Bill Hayton | [`billhayton.bsky.social`](https://bsky.app/profile/billhayton.bsky.social) | Associate Fellow Chatham House Asia-Pacific; author 'Vietnam: Rising Dragon', 'South China Sea' | South China Sea and VN politics commentary; geopolitical risk for VN assets | unknown | cao |
@@ -106,8 +108,8 @@ python scripts/bsky_make_list.py --write-env    # tạo List, thêm nhóm ⭐, g
 | ⭐ | International Energy Agency | [`iea.org`](https://bsky.app/profile/iea.org) | Tài khoản chính thức IEA | Oil Market Report, Gas Market Report, báo cáo than/điện — các mốc công bố làm giá Brent/LNG/than | 2026 | cao |
 | ⭐ | Rory Johnston | [`roryjohnston.bsky.social`](https://bsky.app/profile/roryjohnston.bsky.social) | Sáng lập Commodity Context, nghiên cứu thị trường dầu | Cân đối cung cầu dầu, OPEC+, tồn kho theo dữ liệu; ~5 bài/ngày; tài khoản Bluesky xác thực | 2026 | cao |
 | ⭐ | Clyde Russell | [`clydecommods.bsky.social`](https://bsky.app/profile/did:plc:mcuhkcbd5c4du3wexehy25qw) | Cột hàng hoá châu Á của Reuters | Than nhiệt đường biển, LNG, nhập khẩu dầu thô, quặng sắt châu Á — chạm thẳng chi phí than/LNG nhập của VN và cổ phiếu điện | unknown | cao |
-| ⭐ | Javier Blas | [`javierblas.bsky.social`](https://bsky.app/profile/javierblas.bsky.social) | Cột năng lượng & hàng hoá Bloomberg Opinion, đồng tác giả 'The World for Sale' | Đọc nhanh câu chuyện OPEC+/Brent và vĩ mô hàng hoá kéo GAS, PLX, BSR | 2025 | cao |
-| ⭐ | Ole S. Hansen | [`oleshansen.bsky.social`](https://bsky.app/profile/oleshansen.bsky.social) | Trưởng chiến lược hàng hoá Saxo Bank | Tài khoản xác minh DUY NHẤT phủ cả vàng/bạc cùng dầu và nông sản — vàng kéo PNJ | unknown | cao |
+| | Javier Blas | [`javierblas.bsky.social`](https://bsky.app/profile/javierblas.bsky.social) | Cột năng lượng & hàng hoá Bloomberg Opinion, đồng tác giả 'The World for Sale' | Đọc nhanh câu chuyện OPEC+/Brent và vĩ mô hàng hoá kéo GAS, PLX, BSR | 2025 | cao |
+| | Ole S. Hansen | [`oleshansen.bsky.social`](https://bsky.app/profile/oleshansen.bsky.social) | Trưởng chiến lược hàng hoá Saxo Bank | Tài khoản xác minh DUY NHẤT phủ cả vàng/bạc cùng dầu và nông sản — vàng kéo PNJ | unknown | cao |
 |  | Nick Cunningham | [`nickcunningham.bsky.social`](https://bsky.app/profile/nickcunningham.bsky.social/post/3llud3c2th224) | Nhà báo năng lượng (Gas Outlook/DeSmog), LNG và địa chính trị dầu | Đăng kịch bản giá Hormuz/LNG (TTF, JKM) của Goldman trong vài giờ khi Iran sốc 03/2026; hợp LNG spot châu Á nuôi GAS/POW/NT2 | 2026 | cao |
 |  | John Kemp | [`jkempenergy.bsky.social`](https://bsky.app/profile/jkempenergy.bsky.social) | Nhà phân tích năng lượng độc lập, cựu Reuters | Biểu đồ tồn kho dầu, vị thế quỹ, kho khí châu Âu; lưu ý john-s-kemp.bsky.social là người khác | unknown | cao |
 |  | Ben Winkley | [`benwinkley.bsky.social`](https://github.com/tbrown034/news-alert/blob/main/docs/iran-warwatch/added-sources.md) | Biên tập Argus Media (dầu và sản phẩm), cựu WSJ | Góc hãng định giá Argus về dầu thô/sản phẩm; ~2,5 bài/ngày theo một dự án cảnh báo 2026 | 2026 | vừa |
@@ -128,7 +130,7 @@ python scripts/bsky_make_list.py --write-env    # tạo List, thêm nhóm ⭐, g
 
 | | Tên | Handle | Vai trò | Vì sao đáng theo | Hoạt động | Tin cậy |
 |---|---|---|---|---|---|---|
-| ⭐ | Ana Swanson | [`anaswanson.bsky.social`](https://web-cdn.bsky.app/profile/anaswanson.bsky.social) | Phóng viên thương mại New York Times (DC) | Người đưa tin chính về thuế quan Mỹ, Section 232/301, quy tắc trung chuyển — chạm thẳng xuất khẩu VN | unknown | cao |
+| | Ana Swanson | [`anaswanson.bsky.social`](https://web-cdn.bsky.app/profile/anaswanson.bsky.social) | Phóng viên thương mại New York Times (DC) | Người đưa tin chính về thuế quan Mỹ, Section 232/301, quy tắc trung chuyển — chạm thẳng xuất khẩu VN | unknown | cao |
 | ⭐ | Gregory Brew | [`gbrew24.bsky.social`](https://bsky.app/profile/gbrew24.bsky.social) | Nhà phân tích Eurasia Group, Iran & năng lượng | Sốc cung Iran/Vùng Vịnh → Brent → GAS, PLX, BSR, PVS và CPI nhiên liệu | unknown | cao |
 | ⭐ | Ian Bremmer | [`ianbremmer.com`](https://bsky.app/profile/ianbremmer.com) | Chủ tịch Eurasia Group / GZERO Media | Đọc nhanh rủi ro Mỹ–Trung, Iran, thuế quan, thượng đỉnh → risk-off EM và dòng vốn ngoại | 2025 | cao |
 | ⭐ | Michael Kofman | [`michaelkofman.bsky.social`](https://bsky.app/profile/michaelkofman.bsky.social) | Senior Fellow Carnegie; phân tích quân sự Nga/Ukraine | Quỹ đạo chiến sự Ukraine (ngừng bắn, leo thang) → dầu, phân bón (DPM/DCM), lương thực, cầu EU | 2025 | cao |
@@ -164,8 +166,8 @@ python scripts/bsky_make_list.py --write-env    # tạo List, thêm nhóm ⭐, g
 
 | | Tên | Handle | Vai trò | Vì sao đáng theo | Hoạt động | Tin cậy |
 |---|---|---|---|---|---|---|
-| ⭐ | Bloomberg News | [`bloomberg.com`](https://bsky.app/profile/bloomberg.com) | Tài khoản chính Bloomberg News (482K follower, ~25K bài, tạo 04/2023) | Wire vĩ mô/thị trường nhanh nhất trên Bluesky: Fed, USD, Trung Quốc, FX châu Á, hàng hoá | 2026 | cao |
-| ⭐ | Reuters | [`reuters.com`](https://bsky.app/profile/reuters.com/post/3mwo42yknrd2c) | Tài khoản chính Reuters (345K follower, tạo 11/2024) | Tốc độ wire + văn phòng Hà Nội: SBV, thuế quan Mỹ lên VN, FDI, GDP/CPI VN thường lên đây trước; có bài 29/09/2026 | 2026 | cao |
+| ⛔ | Bloomberg News | [`bloomberg.com`](https://bsky.app/profile/bloomberg.com) | Tài khoản chính Bloomberg News (482K follower, ~25K bài, tạo 04/2023) | Wire vĩ mô/thị trường nhanh nhất trên Bluesky: Fed, USD, Trung Quốc, FX châu Á, hàng hoá | 2026 | cao |
+| ⛔ | Reuters | [`reuters.com`](https://bsky.app/profile/reuters.com/post/3mwo42yknrd2c) | Tài khoản chính Reuters (345K follower, tạo 11/2024) | Tốc độ wire + văn phòng Hà Nội: SBV, thuế quan Mỹ lên VN, FDI, GDP/CPI VN thường lên đây trước; có bài 29/09/2026 | 2026 | cao |
 | ⭐ | European Central Bank | [`ecb.europa.eu`](https://bsky.app/profile/ecb.europa.eu) | Tài khoản chính thức ECB (lên Bluesky 13/01/2025) | Quyết định/phát biểu ECB đổi EUR/USD và DXY → USD/VND và dư địa SBV | 2025 | cao |
 | ⭐ | Federal Reserve Board | [`federalreserve.gov`](https://bsky.app/profile/federalreserve.gov) | Tài khoản chính thức Hội đồng Thống đốc Fed | Thông cáo FOMC, biên bản, phát biểu Powell — biến số ngoại lớn nhất với dòng vốn EM/VN | unknown | cao |
 |  | POLITICO Europe | [`politico.eu`](https://bsky.app/profile/politico.eu/post/3mru2ckrmsk24) | Politico châu Âu (bài 30/07/2026) | Chính sách thương mại EU (EVFTA, CBAM, chống bán phá giá) và chính trị ECB | 2026 | cao |
@@ -196,10 +198,10 @@ KHÔNG có trên Bluesky: IMF (không có imf.org/IMFNews) · World Bank · BIS 
 
 ## Nhóm ⭐ xuất phát — dòng `.env` sẵn dùng
 
-33 tài khoản đánh ⭐ ở các bảng trên: phóng viên/dự báo đăng đều, phủ đủ sáu mảng, đủ nhỏ để một call `getListFeed` (100 bài) bao trọn một giờ. Cách B — không cần tạo List, mỗi giờ một call/người (vẫn miễn phí):
+24 tài khoản đánh ⭐ ở các bảng trên (đo lại 04/10 — xem đầu file): phóng viên/dự báo đăng đều, phủ đủ sáu mảng, đủ nhỏ để một call `getListFeed` (100 bài) bao trọn một giờ. Cách B — không cần tạo List, mỗi giờ một call/người (vẫn miễn phí):
 
 ```
-VNSTOCK_NEWS_ALERT_BSKY_HANDLES=alanbeattie.bsky.social,anaswanson.bsky.social,asia.nikkei.com,bencasselman.bsky.social,bloomberg.com,chadpbown.com,claudia-sahm.bsky.social,clydecommods.bsky.social,colbylsmith.bsky.social,ecb.europa.eu,elerianm.bsky.social,federalreserve.gov,gbrew24.bsky.social,ianbremmer.com,iea.org,jasonfurman.bsky.social,javierblas.bsky.social,jc-econ.bsky.social,jeffstein.bsky.social,josephpolitano.bsky.social,justinwolfers.bsky.social,khacgiang.bsky.social,mainikkei.bsky.social,michaelkofman.bsky.social,michaelpettis.bsky.social,nicktimiraos.bsky.social,oleshansen.bsky.social,punchbowlnews.bsky.social,reuters.com,robin-j-brooks.bsky.social,robinwigglesworth.ft.com,roryjohnston.bsky.social,tracyalloway.bsky.social
+VNSTOCK_NEWS_ALERT_BSKY_HANDLES=alanbeattie.bsky.social,bencasselman.bsky.social,chadpbown.com,claudia-sahm.bsky.social,clydecommods.bsky.social,colbylsmith.bsky.social,ecb.europa.eu,elerianm.bsky.social,federalreserve.gov,gbrew24.bsky.social,ianbremmer.com,iea.org,jasonfurman.bsky.social,jc-econ.bsky.social,jeffstein.bsky.social,josephpolitano.bsky.social,justinwolfers.bsky.social,michaelkofman.bsky.social,michaelpettis.bsky.social,nicktimiraos.bsky.social,punchbowlnews.bsky.social,robin-j-brooks.bsky.social,robinwigglesworth.ft.com,roryjohnston.bsky.social
 ```
 
 Tổng 140 tài khoản trong file. Kiểm bằng `python run.py news-alert --diag` — dòng `bsky:analysts` phải > 0 tin. Sau một tuần: ai không bao giờ lên Telegram thì bỏ, mảng nào thiếu thì lấy thêm từ bảng.
