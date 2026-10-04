@@ -283,3 +283,27 @@ def test_env_password_without_dashes_is_sent_dashed(md, env, monkeypatch):
     assert bml.main(["--md", str(md), "--yes"]) == 0
     sess = [b for n, _, b, _ in api.calls if n == "com.atproto.server.createSession"]
     assert sess[0]["password"] == "abcd-efgh-ijkl-mnop"
+
+
+def test_browse_makes_separate_full_list_and_never_touches_env(md, env, monkeypatch, capsys):
+    # 04/10: user muốn "add hết để xem nên theo ai" — gộp vào List cảnh báo thì suất 6
+    # bài/lượt rơi vào người đăng nhiều nhất ⇒ List RIÊNG, .env không đổi.
+    api = FakeAPI({"nicktimiraos.bsky.social": "did:plc:n", "gregip.bsky.social": "did:plc:g",
+                   "reuters.com": "did:plc:r"},
+                  lists=[{"name": bml.DEFAULT_NAME, "uri": "at://did:plc:me/app.bsky.graph.list/alert"}])
+    monkeypatch.setattr(bml, "_req", api)
+    (env / ".env").write_text("VNSTOCK_NEWS_ALERT_BSKY_LIST=https://alert\n", encoding="utf-8")
+    assert bml.main(["--md", str(md), "--yes", "--browse"]) == 0
+    lists = [c for c in api.created if c["collection"] == "app.bsky.graph.list"]
+    assert len(lists) == 1 and lists[0]["record"]["name"] == bml.BROWSE_NAME
+    assert "KHÔNG dùng cho cảnh báo tin" in lists[0]["record"]["description"]
+    subjects = {c["record"]["subject"] for c in api.created if c["collection"] == "app.bsky.graph.listitem"}
+    assert subjects == {"did:plc:n", "did:plc:g", "did:plc:r"}            # cả bảng, không chỉ ⭐
+    assert all(c["record"]["list"].endswith("/r1") for c in api.created[1:])  # không đụng List cảnh báo
+    assert (env / ".env").read_text(encoding="utf-8") == "VNSTOCK_NEWS_ALERT_BSKY_LIST=https://alert\n"
+    assert "KHÔNG dán vào .env" in capsys.readouterr().out
+
+
+def test_browse_refuses_write_env(md, env, monkeypatch):
+    monkeypatch.setattr(bml, "_req", FakeAPI({}))
+    assert bml.main(["--md", str(md), "--browse", "--write-env"]) == 2

@@ -5,6 +5,7 @@ Dùng trên máy có mạng (🖥️ desktop — `--write-env` ghi `.env` của 
     python scripts/bsky_make_list.py --check              # KHÔNG đăng nhập: handle nào tồn tại, tên, bài cuối
     python scripts/bsky_make_list.py --write-env          # đăng nhập → tạo List → thêm nhóm ⭐ → ghi .env
     python scripts/bsky_make_list.py --all --write-env    # thêm cả bảng (trừ độ tin cậy "thấp" và ⛔)
+    python scripts/bsky_make_list.py --browse             # List RIÊNG cả bảng để đọc thử, KHÔNG đụng .env
 
 Đăng nhập bằng **App Password** (Bluesky → Settings → Privacy and security → App
 passwords), KHÔNG dùng mật khẩu chính. Mật khẩu nhập qua `getpass`, không lưu đâu
@@ -41,6 +42,9 @@ DEFAULT_PDS = "https://bsky.social"
 DEFAULT_NAME = "Vĩ mô VN — cảnh báo tin"
 DEFAULT_DESC = ("Chuyên gia, phóng viên, định chế ảnh hưởng thị trường chứng khoán Việt Nam: "
                 "Fed/vĩ mô Mỹ, thị trường, châu Á/thương mại, năng lượng, địa chính trị.")
+BROWSE_NAME = "Vĩ mô — đọc thử (đầy đủ)"
+BROWSE_DESC = ("Danh sách đầy đủ để đọc thử trước khi chọn người theo dõi — KHÔNG dùng cho "
+               "cảnh báo tin (list đó chỉ giữ nhóm ⭐).")
 ENV_KEY = "VNSTOCK_NEWS_ALERT_BSKY_LIST"
 ENV_HANDLES_KEY = "VNSTOCK_NEWS_ALERT_BSKY_HANDLES"
 TIMEOUT_S = 20
@@ -383,7 +387,19 @@ def main(argv: Optional[list] = None) -> int:
     ap.add_argument("--pds", default=DEFAULT_PDS)
     ap.add_argument("--write-env", action="store_true", help=f"ghi {ENV_KEY} vào .env của repo")
     ap.add_argument("--yes", action="store_true", help="không hỏi xác nhận trước khi ghi")
+    ap.add_argument("--browse", action="store_true",
+                    help=f"List RIÊNG '{BROWSE_NAME}' gồm cả bảng (như --all) để đọc thử trong app; "
+                         "không bao giờ ghi .env — List cảnh báo tin giữ nguyên nhóm ⭐")
     a = ap.parse_args(argv)
+    if a.browse:
+        # Gộp cả bảng vào List cảnh báo thì suất 6 bài Bluesky/lượt rơi vào người đăng
+        # nhiều nhất, nhóm ⭐ bị đẩy ra (04/10) ⇒ đọc thử ở List riêng.
+        if a.write_env:
+            print("--browse không ghi .env (List đọc thử không dùng cho cảnh báo tin) — bỏ --write-env.")
+            return 2
+        a.all = True
+        if a.name == DEFAULT_NAME:
+            a.name = BROWSE_NAME
 
     if a.handles:
         rows = [{"name": h, "handle": h.strip().lstrip("@").lower(), "starred": True, "confidence": "?"}
@@ -425,7 +441,7 @@ def main(argv: Optional[list] = None) -> int:
             return 1
 
     if not list_uri:
-        list_uri = create_list(sess, a.name, DEFAULT_DESC)
+        list_uri = create_list(sess, a.name, BROWSE_DESC if a.browse else DEFAULT_DESC)
         print(f"  ✅ tạo List {list_uri}")
     added, failed = 0, []
     for r, p in todo:
@@ -441,6 +457,11 @@ def main(argv: Optional[list] = None) -> int:
     for f in failed:
         print(f"  ❌ {f}")
     print(f"URL List: {url}")
+    if a.browse:
+        print("List ĐỌC THỬ — KHÔNG dán vào .env (cảnh báo tin vẫn dùng List nhóm ⭐). Mở link trên "
+              "trong app Bluesky → ⋯ → Pin to home để có tab riêng; đọc một tuần, ai đáng theo thì "
+              "báo Claude đánh ⭐ trong docs/bluesky-macro-list.md rồi chạy lại --write-env.")
+        return 1 if failed else 0
 
     env_path = REPO / ".env"
     if a.write_env:

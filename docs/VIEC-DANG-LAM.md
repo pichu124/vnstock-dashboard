@@ -597,7 +597,7 @@ báo nước ngoài / phân tích từ X được không":**
   (Bluesky → Settings → Privacy and security → App passwords), rồi 🖥️ DESKTOP
   `python scripts/bsky_make_list.py --check` (xác minh handle, không đăng nhập) →
   `python scripts/bsky_make_list.py --write-env` (tạo List, thêm nhóm ⭐, ghi `.env`;
-  chạy lại an toàn, chỉ thêm người chưa có; `--all` = cả bảng trừ độ tin cậy thấp và ⛔).
+  chạy lại an toàn, chỉ thêm người chưa có; `--all` = cả bảng trừ độ tin cậy thấp và ⛔). Muốn đọc thử cả bảng để chọn người: `--browse` tạo List RIÊNG "Vĩ mô — đọc thử (đầy đủ)", không đụng `.env` (gộp vào List cảnh báo thì suất 6 bài/lượt rơi vào người đăng nhiều nhất).
   Hoặc tay: tạo List trong app, thêm nhóm ⭐, rồi `.env`:
   `VNSTOCK_NEWS_ALERT_BSKY_LIST=https://bsky.app/profile/<handle>/lists/<rkey>`
   (hoặc `VNSTOCK_NEWS_ALERT_BSKY_HANDLES=a.bsky.social,b.bsky.social`). Một call
