@@ -7229,6 +7229,12 @@ thấy chưa rõ; thêm lại là cách chữa rẻ). Lượt news-alert 02:00 0
 found` — lúc ấy có token bot tin mà chưa có `TELEGRAM_NEWS_CHAT_ID` ⇒ bot tin gửi vào
 group Brief nơi nó không là thành viên (đúng ca badge doctor `telegram` mới cảnh báo);
 12 tin giữ lại cho lượt sau. Doctor 02:30: Telegram ✅ "bot + group riêng".
+**`.env` có 2 dòng `TELEGRAM_CHAT_ID`** (group Brief `-5561219238` ở trên, chat riêng cũ
+`828087238` ở dưới — user giữ dòng cũ không `#`). python-dotenv 1.2.2: dòng SAU THẮNG
+(đã thử) ⇒ brief sẽ âm thầm về chat riêng cũ. Đã xoá dòng cũ; lệnh soi trùng KHÔNG in
+giá trị: `Get-Content .env | ? { $_ -match '^\s*[A-Z_]+=' } | % { ($_ -split '=')[0].Trim() }
+| Group-Object | ? Count -gt 1` ⇒ rỗng. Ứng viên (chưa làm, đã đề xuất): badge doctor
+báo khoá trùng trong `.env` — sửa tay/`Add-Content` dễ đẻ dòng trùng.
 
 **Còn hở:** (a) biểu đồ Word GỐC (`word/charts/chartN.xml`, không phải ảnh) không
 vào đường này — số nằm sẵn trong XML (`c:numCache`), làm khi gặp; (b) chưa đo trên
