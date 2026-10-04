@@ -7200,6 +7200,7 @@ cũng ghi (`scanned=0`, trừ dry-run); badge thấy lượt cuối `scanned=0` 
 cách ly rỗng (lượt cuối …) — sổ cũ: …"; hàng đợi đầy lại ⇒ kêu lại như cũ. (Lệnh tôi
 đưa user `Select-String 'auto-heal'` bắt nhầm dòng doctor in vào log — đúng là
 `'⏱ CHẶNG|\[sync\] auto-heal'`.)
+Desktop merge `b57017e` + `run.py test` full: **3.576 passed · 0 failed / 156s**.
 
 **Còn hở:** (a) biểu đồ Word GỐC (`word/charts/chartN.xml`, không phải ảnh) không
 vào đường này — số nằm sẵn trong XML (`c:numCache`), làm khi gặp; (b) chưa đo trên
