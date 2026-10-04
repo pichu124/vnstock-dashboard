@@ -7171,6 +7171,12 @@ khuyến nghị (entry cũ về bảng band). ≥1 báo cáo tươi ⇒ đủ 1 
 Q4 (04/10, CP −1) nếu band data B2: đủ B3 tới 03/11 · 18/11 75% · 03/12 50%
 (band về B2, cổ phiếu ~37–38%) · 18/12 25% · 02/01/2027 hết. Kill-switch cũ
 `VNSTOCK_ALLOCATION_TILT=0` vẫn tắt hẳn.
+**Chạy thật đầu tiên (05/10 00:10, desktop):** `run.py allocation` ra "tilt +1 band
+× 10% (B3→B4) từ 1 báo cáo" — KHÔNG phải Q4: as_of = phiên 02/10 (T6), Q4 ngày
+04/10 có tuổi âm ⇒ `load_for_analysis` loại (point-in-time, đúng); chỉ còn báo cáo
+10/07 tuổi 84 ngày ⇒ w = 0,10. Bản cũ sẽ cho báo cáo 84 ngày ấy tilt ĐỦ 1 band —
+đúng lỗi user muốn sửa. Band data B3 (điểm −0,514, điểm thô đề xuất B4, hysteresis
+giữ B3) ⇒ từ pipeline tối 05/10 Q4 vào: đủ +1 ⇒ band hiệu lực B4.
 
 **Còn hở:** (a) biểu đồ Word GỐC (`word/charts/chartN.xml`, không phải ảnh) không
 vào đường này — số nằm sẵn trong XML (`c:numCache`), làm khi gặp; (b) chưa đo trên
