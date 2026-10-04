@@ -591,7 +591,7 @@ báo nước ngoài / phân tích từ X được không":**
   được**: `python run.py news-alert --diag` in thô/lọc/3h/mới nhất/giây từng
   nguồn, ❌ thì sửa hoặc `enabled: False`.
 - **Bluesky (đường chính cho "phân tích chuyên gia", miễn phí, sạch ToS):** danh
-  sách gợi ý **140 tài khoản / 6 mảng, nhóm ⭐ xuất phát 24** (`--check` 04/10 bỏ 6 tài khoản ngừng đăng, 3 hãng tin thành ⛔) đã khảo sát 02/10 ở
+  sách gợi ý **140 tài khoản / 6 mảng, nhóm ⭐ xuất phát 24 — ✅ List ĐÃ TẠO 04/10 (24/24, URL trong `.env` desktop, `--diag` ✅)** (`--check` 04/10 bỏ 6 tài khoản ngừng đăng, 3 hãng tin thành ⛔) đã khảo sát 02/10 ở
   `docs/bluesky-macro-list.md` (mỗi handle kèm URL bằng chứng + độ tin cậy; bẫy tài
   khoản giả ghi ở ghi chú từng mảng). **Không cần thêm tay**: tạo App Password
   (Bluesky → Settings → Privacy and security → App passwords), rồi 🖥️ DESKTOP
