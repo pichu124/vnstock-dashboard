@@ -7222,6 +7222,13 @@ Vá: lệnh DÒ (`find_chats`, `bot_identity`) dùng `_lookup_token` KHÔNG lùi
 biến / bị # tắt); `chats` in `bot: @username (tên)` qua getMe trước danh sách để đối
 chiếu token ↔ bot. Gửi tin vẫn lùi như cũ. **Bài học:** công cụ chẩn đoán không được
 có đường lùi im lặng — nó trả lời câu hỏi KHÁC mà trông như câu trả lời đúng.
+Sau vá: `chats --channel news` in `bot: @News_hourly_bot (VnStock Hourly Update)` nhưng
+"chưa thấy chat nào" dù bot ĐÃ ở group — user xoá/thêm lại bot + `/start@` + Start chat
+riêng ⇒ thấy `group -5480122941 News Hourly Update` + `private` (lý do lượt đầu không
+thấy chưa rõ; thêm lại là cách chữa rẻ). Lượt news-alert 02:00 05/10 lỗi `400 chat not
+found` — lúc ấy có token bot tin mà chưa có `TELEGRAM_NEWS_CHAT_ID` ⇒ bot tin gửi vào
+group Brief nơi nó không là thành viên (đúng ca badge doctor `telegram` mới cảnh báo);
+12 tin giữ lại cho lượt sau. Doctor 02:30: Telegram ✅ "bot + group riêng".
 
 **Còn hở:** (a) biểu đồ Word GỐC (`word/charts/chartN.xml`, không phải ảnh) không
 vào đường này — số nằm sẵn trong XML (`c:numCache`), làm khi gặp; (b) chưa đo trên
