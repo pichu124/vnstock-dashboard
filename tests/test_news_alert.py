@@ -26,9 +26,16 @@ NOW = datetime(2026, 10, 2, 10, 5, 0)          # thứ Sáu 10:05 — trong khun
 def _meta(tmp_path, monkeypatch):
     monkeypatch.setattr(na, "_META", tmp_path)
     monkeypatch.setattr(na, "_ENV_LOADED", True)      # không đọc .env thật
-    for k in (na.KILL_SWITCH, na.ENV_HOURS, na.ENV_DAYS, na.ENV_MIN_SCORE, na.ENV_WINDOW_H,
-              na.ENV_MAX_SEND, na.ENV_MAX_SCORE, na.ENV_SOURCES, na.ENV_TICKERS,
-              na.ENV_CLI_MODEL, na.ENV_CLI_TIMEOUT, "VNSTOCK_NEWS_ALERT_ENGINE"):
+    # Xoá MỌI biến news-alert + key X, không chỉ danh sách liệt kê: 05/10 desktop
+    # có VNSTOCK_NEWS_ALERT_BSKY_LIST trong .env (List Bluesky 04/10) — module
+    # khác nạp .env vào os.environ trong cùng phiên pytest ⇒ 2 test đỏ trên máy
+    # thật, sandbox xanh; phát tối có bước test nên suýt mất brief (như U65).
+    import os
+    stray = [k for k in os.environ if k.startswith("VNSTOCK_NEWS_ALERT")]
+    for k in (*stray, na.KILL_SWITCH, na.ENV_HOURS, na.ENV_DAYS, na.ENV_MIN_SCORE,
+              na.ENV_WINDOW_H, na.ENV_MAX_SEND, na.ENV_MAX_SCORE, na.ENV_SOURCES,
+              na.ENV_TICKERS, na.ENV_CLI_MODEL, na.ENV_CLI_TIMEOUT,
+              "VNSTOCK_NEWS_ALERT_ENGINE", na.ENV_TWITTERAPI_KEY, na.ENV_X_BEARER):
         monkeypatch.delenv(k, raising=False)
     return tmp_path
 

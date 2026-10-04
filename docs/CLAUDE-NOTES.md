@@ -7178,6 +7178,18 @@ Q4 (04/10, CP −1) nếu band data B2: đủ B3 tới 03/11 · 18/11 75% · 03/
 đúng lỗi user muốn sửa. Band data B3 (điểm −0,514, điểm thô đề xuất B4, hysteresis
 giữ B3) ⇒ từ pipeline tối 05/10 Q4 vào: đủ +1 ⇒ band hiệu lực B4.
 
+**⚠️ Test đỏ trên máy thật, xanh ở sandbox (05/10 ~00:30, desktop, `run.py test`
+full: 3.571 passed · 2 failed).** `test_enabled_sources_filter_by_env_prefix…` +
+`test_social_sources_follow_env` thấy thêm `bsky:analysts` — `.env` desktop có
+`VNSTOCK_NEWS_ALERT_BSKY_LIST` (List Bluesky tạo 04/10, SAU lượt full 3.486); fixture
+đặt `_ENV_LOADED=True` nhưng module KHÁC đã nạp `.env` vào `os.environ` trong cùng
+phiên pytest, mà danh sách `delenv` sót nhóm Bluesky/X. Không vá thì phát 18:00
+05/10 dừng ở bước test ⇒ MẤT brief (đúng kịch bản U65). Vá: fixture xoá MỌI biến
+`VNSTOCK_NEWS_ALERT*` + `TWITTERAPI_IO_KEY`/`X_BEARER_TOKEN`; tái hiện bằng cách đặt
+biến giống desktop rồi chạy (đỏ → xanh), full sandbox với env giống desktop khớp
+mốc. **Bài học:** thêm biến `.env` mới cho một module ⇒ fixture test của module đó
+phải xoá theo TIỀN TỐ, không theo danh sách.
+
 **Còn hở:** (a) biểu đồ Word GỐC (`word/charts/chartN.xml`, không phải ảnh) không
 vào đường này — số nằm sẵn trong XML (`c:numCache`), làm khi gặp; (b) chưa đo trên
 Q4.docx thật (bao nhiêu ảnh, EMF hay PNG) — `--dry-run` cho biết.
