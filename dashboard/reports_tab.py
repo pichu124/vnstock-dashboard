@@ -125,8 +125,8 @@ def _render_digest(st, rp) -> None:
     pending = [r for r in rp.load_for_analysis() if not r.get("digest")]
     if pending:
         st.caption(f"{len(pending)} báo cáo đủ điều kiện chưa có digest.")
-        if st.button(f"🧠 Digest {len(pending)} báo cáo (gọi LLM — "
-                     "Claude/GPT trước, free 70B fallback)", key="_rp_digest"):
+        if st.button(f"🧠 Digest {len(pending)} báo cáo (gọi LLM — Claude Code "
+                     "khi engine=claude, rồi key Claude/GPT, free fallback)", key="_rp_digest"):
             done = dg.refresh()
             st.success(f"Đã digest {len(done)} báo cáo.") if done else \
                 st.error("Không digest được — kiểm tra key .env / mạng.")
