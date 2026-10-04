@@ -7189,6 +7189,8 @@ phiên pytest, mà danh sách `delenv` sót nhóm Bluesky/X. Không vá thì ph�
 biến giống desktop rồi chạy (đỏ → xanh), full sandbox với env giống desktop khớp
 mốc. **Bài học:** thêm biến `.env` mới cho một module ⇒ fixture test của module đó
 phải xoá theo TIỀN TỐ, không theo danh sách.
+Desktop merge `dab4511` rồi `run.py test` full: **3.573 passed · 0 failed / 179s**,
+badge xanh ⇒ phát 18:00 05/10 qua được bước test.
 
 **Còn hở:** (a) biểu đồ Word GỐC (`word/charts/chartN.xml`, không phải ảnh) không
 vào đường này — số nằm sẵn trong XML (`c:numCache`), làm khi gặp; (b) chưa đo trên
