@@ -600,7 +600,7 @@ báo nước ngoài / phân tích từ X được không":**
   (Bluesky → Settings → Privacy and security → App passwords), rồi 🖥️ DESKTOP
   `python scripts/bsky_make_list.py --check` (xác minh handle, không đăng nhập) →
   `python scripts/bsky_make_list.py --write-env` (tạo List, thêm nhóm ⭐, ghi `.env`;
-  chạy lại an toàn, chỉ thêm người chưa có; `--all` = cả bảng trừ độ tin cậy thấp và ⛔). Muốn đọc thử cả bảng để chọn người: `--browse` tạo List RIÊNG "Vĩ mô — đọc thử (đầy đủ)" (86 người sau khi `--check --browse` 04/10 ⛔ 45 tài khoản giả/rỗng/ngừng đăng/báo lớn — ✅ ĐÃ TẠO 04/10, 86/86, user Pin to home; **việc user: đọc ~1 tuần tới 11/10 rồi báo Claude ai lên ⭐/ai bỏ**, `johnauthers` tên trống đã xác minh tay là THẬT 04/10), không đụng `.env` (gộp vào List cảnh báo thì suất 6 bài/lượt rơi vào người đăng nhiều nhất).
+  chạy lại an toàn, chỉ thêm người chưa có; `--all` = cả bảng trừ độ tin cậy thấp và ⛔). Muốn đọc thử cả bảng để chọn người: `--browse` tạo List RIÊNG "Vĩ mô — đọc thử (đầy đủ)" (86 người sau khi `--check --browse` 04/10 ⛔ 45 tài khoản giả/rỗng/ngừng đăng/báo lớn — ✅ ĐÃ TẠO 04/10, 86/86, user Pin to home; **chọn ⭐ bằng SỐ LIỆU thay đọc tay (user 04/10): 🖥️ `python scripts/bsky_eval.py` (lấy bài gốc 7 ngày của 86 người, Claude chấm bằng đúng prompt cảnh báo, ~$1, ~10′) → dán output cho Claude ⇒ Claude sửa ⭐ trong bảng → user `bsky_make_list.py --write-env`**, `johnauthers` tên trống đã xác minh tay là THẬT 04/10), không đụng `.env` (gộp vào List cảnh báo thì suất 6 bài/lượt rơi vào người đăng nhiều nhất).
   Hoặc tay: tạo List trong app, thêm nhóm ⭐, rồi `.env`:
   `VNSTOCK_NEWS_ALERT_BSKY_LIST=https://bsky.app/profile/<handle>/lists/<rkey>`
   (hoặc `VNSTOCK_NEWS_ALERT_BSKY_HANDLES=a.bsky.social,b.bsky.social`). Một call

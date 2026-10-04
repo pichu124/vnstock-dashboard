@@ -8,6 +8,7 @@ Khảo sát bằng WebSearch (sandbox không gọi được API Bluesky) — m�
 python scripts/bsky_make_list.py --check        # xác minh 24 handle ⭐, không đăng nhập
 python scripts/bsky_make_list.py --write-env    # tạo List, thêm nhóm ⭐, ghi .env
 python scripts/bsky_make_list.py --browse       # List RIÊNG 86 người (cả bảng trừ ⛔) để đọc thử — không đụng .env
+python scripts/bsky_eval.py                     # CHẤM 86 người bằng bài 7 ngày qua (prompt cảnh báo tin) → đề xuất ⭐/bỏ
 ```
 
 **Đo thật 04/10 (`--check` trên 🖥️ desktop, 33/33 tồn tại, tên khớp):** bỏ ⭐ 6 tài khoản ngừng đăng từ 2025 (Tracy Alloway 27/08/25, Mai Nguyen — 5 follower/7 bài, Khac Giang 06/08/25, Javier Blas 27/08/25, Ole Hansen 22/05/25, Ana Swanson 20/04/25 — họ ở lại X); đổi ⭐ → ⛔ ba tài khoản hãng tin (Reuters 106K bài, Bloomberg 30K, Nikkei Asia 26K): đăng hàng chục bài/giờ ⇒ chiếm hết suất 6 bài Bluesky mỗi lượt (≤3 bài/người, lấy mới nhất), đẩy chuyên gia ra ngoài — tin của họ đã về qua RSS/Google News. ⛔ = script KHÔNG thêm kể cả `--all`. Còn 24 ⭐.
