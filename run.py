@@ -1180,7 +1180,7 @@ def cmd_news(args) -> int:
 
 def cmd_news_alert(args) -> int:
     """Cảnh báo TIN QUAN TRỌNG theo giờ → Telegram (#31, 02/10). Task
-    'VnStock News Alert' gọi mỗi giờ 07–22h T2–T7 trên 🖥️ desktop; KHÔNG nằm
+    'VnStock News Alert' gọi mỗi giờ 24/7 trên 🖥️ desktop; KHÔNG nằm
     trong `all`. Không tin mới ⇒ im lặng, không gọi LLM. Exit 0/1 — không bao
     giờ 2 (một feed ốm không được làm task báo fail cứng)."""
     try:
@@ -2047,7 +2047,7 @@ def build_parser() -> argparse.ArgumentParser:
     na = sub.add_parser(
         "news-alert",
         help="Cảnh báo tin QUAN TRỌNG theo giờ → Telegram (task 'VnStock News "
-             "Alert' mỗi giờ 07–22h T2–T7; không nằm trong `all`)")
+             "Alert' mỗi giờ 24/7; không nằm trong `all`)")
     na.add_argument("--dry-run", action="store_true",
                     help="In tin sẽ gửi, KHÔNG gửi Telegram, KHÔNG ghi sổ/marker")
     na.add_argument("--force", action="store_true",

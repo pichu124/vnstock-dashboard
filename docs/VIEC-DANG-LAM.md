@@ -540,7 +540,7 @@ Dropbox lo chống trùng hai máy) → **Claude Code chấm 1–5 cả lô MỘ
 **"Cảnh báo tin mỗi giờ"** (⬜ chưa chạy · ⚠️ lượt lỗi / >3h không lượt trong
 khung giờ · ❌ lỗi ≥3 lượt liền). Không tin mới ⇒ im lặng, không gọi LLM. Không
 đụng `market_news_cache.json`. Kill-switch `VNSTOCK_NEWS_ALERT=0` (doctor réo).
-Nút vặn: `VNSTOCK_NEWS_ALERT_{HOURS=7-22, DAYS=1-6, MIN_SCORE=3, WINDOW_H=3,
+Nút vặn: `VNSTOCK_NEWS_ALERT_{HOURS=0-23, DAYS=1-7 (24/7 từ 04/10), MIN_SCORE=3, WINDOW_H=3,
 MAX_SEND=8, MAX_SCORE=30, SOURCES, CLI_MODEL, CLI_TIMEOUT_S}`. Log:
 `Select-String '\[news-alert\]' run_daily.log` (main() tee mọi lệnh).
 **Model chấm: đặt `VNSTOCK_NEWS_ALERT_CLI_MODEL=claude-sonnet-5-5` trong `.env`
@@ -561,8 +561,9 @@ trừ chung hạn mức gói Claude với phiên code).
    lần để nhận tin thật trên Telegram. Lượt đầu chỉ xét tin 3h qua nên không dội.
 2. Đăng ký task thứ ba: Run as Administrator **trong shell đã kích hoạt venv**
    `.\scripts\setup_scheduled_tasks.ps1` (script tự thay 2 task cũ, thêm
-   `VnStock News Alert` mỗi giờ 07:00–22:00 T2–T7, trần 15′; đổi khung:
-   `-NewsAlertStart 08:00 -NewsAlertEnd 20:00`; không muốn: `-NoNewsAlert`).
+   `VnStock News Alert` mỗi giờ 24/7 kể cả CN (từ 04/10; bản 02/10 là 07–22h T2–T7), trần 15′;
+   đổi khung: `-NewsAlertStart 08:00 -NewsAlertEnd 20:00 -NewsAlertDays Monday,Friday` +
+   `VNSTOCK_NEWS_ALERT_HOURS/DAYS` trong `.env` cho khớp; không muốn: `-NoNewsAlert`).
    Kiểm: `Get-ScheduledTask -TaskName 'VnStock *'` phải ra **3 task**. 💻 LAPTOP
    KHÔNG chạy script này (gửi đôi tới khi Dropbox sync sổ).
 
@@ -634,7 +635,7 @@ hiệu guard đang LÀM VIỆC, không phải hỏng.
 | **Nới OHLC (bar tự mâu thuẫn)** | Nới sát trần 20% ⇒ soi lại bar đó |
 | **Rổ VN30** | `⚠️ rổ thật đã đổi` ⇒ dán dòng badge cho Claude |
 | **Phát tối — đã tới kho này chưa** | ⚠️ `CHƯA tới kho này` ⇒ ⇄ CẢ HAI kiểm icon Dropbox ở khay TRƯỚC, rồi 🖥️ DESKTOP `Get-ScheduledTaskInfo -TaskName 'VnStock Daily Pipeline'` + đuôi `run_daily.log`. ⚠️ `brief chiều CHƯA` (chỉ hiện từ sáng hôm sau) ⇒ 🖥️ DESKTOP soi `[brief]` trong log; gửi tay ○ MỘT LẦN `python run.py telegram close`. Badge do pipeline tự ghi (bước 13) luôn chụp TRƯỚC brief ⇒ ghi "đang tới … xét lại từ sáng mai" là bình thường; muốn thấy "đã đẩy" thì chạy `python run.py doctor` tay (trong giờ pipeline chạy thì `python vnstock_doctor.py --no-save` để không đè badge). Caption badge nay ghi MÁY nào khám. |
-| **Cảnh báo tin mỗi giờ (news-alert)** | ⬜ = task chưa đăng ký (mục 9). ⚠️ `>3h không có lượt mới` trong 07–22h ⇒ 🖥️ DESKTOP `Get-ScheduledTaskInfo -TaskName 'VnStock News Alert'` (máy tắt? task tắt? Dropbox tắt?). ⚠️ `mọi nguồn đều rỗng` ⇒ mạng/feed: `python vnstock_news_feeds.py --diag`. ⚠️ Telegram/Claude lỗi ⇒ `run.py telegram test` / `vnstock_brief_pack.py --check`. ❌ lỗi ≥3 lượt liền ⇒ dán dòng badge cho Claude. Caption ghi MÁY nào chạy lượt. |
+| **Cảnh báo tin mỗi giờ (news-alert)** | ⬜ = task chưa đăng ký (mục 9). ⚠️ `>3h không có lượt mới` (24/7 từ 04/10 — máy tắt/ngủ cũng réo) ⇒ 🖥️ DESKTOP `Get-ScheduledTaskInfo -TaskName 'VnStock News Alert'` (máy tắt? task tắt? Dropbox tắt?). ⚠️ `mọi nguồn đều rỗng` ⇒ mạng/feed: `python vnstock_news_feeds.py --diag`. ⚠️ Telegram/Claude lỗi ⇒ `run.py telegram test` / `vnstock_brief_pack.py --check`. ❌ lỗi ≥3 lượt liền ⇒ dán dòng badge cho Claude. Caption ghi MÁY nào chạy lượt. |
 ---
 
 # 🟠 VIỆC CỦA CLAUDE — nói "làm đi" là chạy

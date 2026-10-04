@@ -1,6 +1,7 @@
 """vnstock_news_alert — cảnh báo TIN QUAN TRỌNG theo giờ → Telegram (02/10/2026, #31).
 
-Chạy bằng Task Scheduler 🖥️ DESKTOP mỗi giờ 07–22h T2–T7 (`run.py news-alert`):
+Chạy bằng Task Scheduler 🖥️ DESKTOP mỗi giờ, 24/7 cả CN (`run.py news-alert`; user chốt 04/10 —
+bản đầu 07–22h T2–T7):
 
     NGUỒN (registry `SOURCES`) → `normalize_item` (schema chung) → lọc liên quan
     (từng nguồn tự khai) → CỬA SỔ GIỜ (`WINDOW_H`, mặc định 3h) → khử trùng
@@ -40,8 +41,8 @@ STATUS_NAME = "news_alert_status.json"
 
 STEP = "news_alert"                                 # khoá engine (vnstock_claude_cli)
 KILL_SWITCH = "VNSTOCK_NEWS_ALERT"
-ENV_HOURS = "VNSTOCK_NEWS_ALERT_HOURS"              # "7-22" — giờ ĐẦU..CUỐI, bao cả hai đầu
-ENV_DAYS = "VNSTOCK_NEWS_ALERT_DAYS"                # "1-6"  — ISO: 1=T2 … 6=T7, 7=CN
+ENV_HOURS = "VNSTOCK_NEWS_ALERT_HOURS"              # "0-23" — giờ ĐẦU..CUỐI, bao cả hai đầu
+ENV_DAYS = "VNSTOCK_NEWS_ALERT_DAYS"                # "1-7"  — ISO: 1=T2 … 6=T7, 7=CN
 ENV_MIN_SCORE = "VNSTOCK_NEWS_ALERT_MIN_SCORE"
 ENV_WINDOW_H = "VNSTOCK_NEWS_ALERT_WINDOW_H"
 ENV_MAX_SEND = "VNSTOCK_NEWS_ALERT_MAX_SEND"
@@ -51,8 +52,8 @@ ENV_TICKERS = "VNSTOCK_NEWS_ALERT_TICKERS"          # "VCB,HPG" bật adapter ti
 ENV_CLI_MODEL = "VNSTOCK_NEWS_ALERT_CLI_MODEL"
 ENV_CLI_TIMEOUT = "VNSTOCK_NEWS_ALERT_CLI_TIMEOUT_S"
 
-DEFAULT_HOURS = (7, 22)
-DEFAULT_DAYS = (1, 6)
+DEFAULT_HOURS = (0, 23)        # 24/7 (user 04/10): đêm VN = giờ Mỹ — Fed/số liệu/chuyên gia Bluesky
+DEFAULT_DAYS = (1, 7)          # đều rơi vào đêm; khung cũ 07–22h T2–T7 dồn hết vào lượt 07:00
 DEFAULT_MIN_SCORE = 3
 DEFAULT_WINDOW_H = 3
 DEFAULT_MAX_SEND = 8

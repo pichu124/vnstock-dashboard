@@ -539,6 +539,18 @@ def test_within_window_uses_full_time_then_falls_back_to_date():
     assert not na.within_window({"_date_sort": "", "_published_at": ""}, NOW, 3)
 
 
+@pytest.mark.parametrize("now", [
+    datetime(2026, 10, 2, 0, 0),              # T6 nửa đêm
+    datetime(2026, 10, 2, 3, 30),             # đêm VN = giờ Mỹ (Fed, số liệu)
+    datetime(2026, 10, 2, 23, 59),
+    datetime(2026, 10, 3, 12, 0),             # T7
+    datetime(2026, 10, 4, 2, 0),              # CN
+])
+def test_in_active_hours_default_is_24_7(now):
+    # User chốt 04/10: chạy mỗi giờ 24/7 kể cả CN (bản đầu 07–22h T2–T7).
+    assert na.in_active_hours(now) == (True, "")
+
+
 @pytest.mark.parametrize("now,ok", [
     (datetime(2026, 10, 2, 7, 0), True),      # T6 07:00 — biên dưới
     (datetime(2026, 10, 2, 22, 30), True),    # 22:xx vẫn thuộc giờ 22
@@ -547,7 +559,9 @@ def test_within_window_uses_full_time_then_falls_back_to_date():
     (datetime(2026, 10, 3, 12, 0), True),     # T7
     (datetime(2026, 10, 4, 12, 0), False),    # CN
 ])
-def test_in_active_hours_default_7_22_mon_sat(now, ok):
+def test_in_active_hours_env_window_7_22_mon_sat(monkeypatch, now, ok):
+    monkeypatch.setenv(na.ENV_HOURS, "7-22")
+    monkeypatch.setenv(na.ENV_DAYS, "1-6")
     got, why = na.in_active_hours(now)
     assert got is ok and (why == "" if ok else why)
 
@@ -896,6 +910,7 @@ def test_run_kill_switch_does_nothing(monkeypatch):
 
 
 def test_run_outside_hours_skips_unless_forced(monkeypatch):
+    monkeypatch.setenv(na.ENV_DAYS, "1-6")                  # mặc định 24/7 — thu hẹp để thử cửa
     calls = _fake_complete(monkeypatch, results=[])
     sent, spy = _sender_spy()
     sunday = datetime(2026, 10, 4, 10, 0)

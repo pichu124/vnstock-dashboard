@@ -57,8 +57,8 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   audit / test / dashboard / all. Exit code: 0 ok, 1 cảnh báo, 2 fail cứng.
 - Dashboard: `python run.py dashboard` (Streamlit, localhost:8501).
 - Lịch chạy tự động: `scripts/setup_scheduled_tasks.ps1` (3 task: Daily
-  18:00 ngày làm việc + Weekend — gộp từ 29/07 + News Alert mỗi giờ 07–22h
-  T2–T7 từ 02/10, #31; đăng ký THEO MÁY — máy mới
+  18:00 ngày làm việc + Weekend — gộp từ 29/07 + News Alert mỗi giờ
+  24/7 kể cả CN (02/10, #31; 24/7 từ 04/10); đăng ký THEO MÁY — máy mới
   phải chạy lại script này, Run as Administrator **trong shell ĐÃ kích hoạt
   venv hoặc kèm `-PythonExe <venv>\Scripts\python.exe`** — 30/09 cửa sổ Admin
   trần đã đăng ký `C:\Python314` không thư viện; script nay từ chối Python hệ
@@ -213,13 +213,13 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   bác từng nguồn + 8 lượt dò: mục **U34** `docs/CLAUDE-NOTES.md`.
 
 - `vnstock_news_alert.py` — **cảnh báo tin quan trọng MỖI GIỜ → Telegram**
-  (02/10, #31; task `VnStock News Alert` 07–22h T2–T7 chỉ 🖥️ desktop, KHÔNG
+  (02/10, #31; task `VnStock News Alert` mỗi giờ 24/7 chỉ 🖥️ desktop, KHÔNG
   nằm trong `all`). Registry `SOURCES`: 12 RSS của `_FEEDS` + 20 nguồn nước ngoài
   RIÊNG `_ALERT_FEEDS` (Bloomberg/WSJ host `feeds.content.dowjones.io`/FT/CNBC/Fed/
   BLS/BEA + Google News `site:reuters.com`… — URL ứng viên, 🖥️ `run.py news-alert
   --diag` xác minh) + Bluesky/X qua env (U68; adapter tin theo mã TẮT, user chốt
-  02/10 chỉ tin vĩ mô) → cửa sổ 3h, lượt 07:00 BẮT BÙ tới `covered_until` lượt
-  trước (trần 36h) → cap 6 tin/nguồn, tường fetch 45s
+  02/10 chỉ tin vĩ mô) → cửa sổ 3h, lượt đầu sau khi máy tắt/ngủ BẮT BÙ tới `covered_until`
+  lượt trước (trần 36h) → cap 6 tin/nguồn, tường fetch 45s
   → sổ `_meta/news_alert_seen.json` → Claude Code chấm 1–5 cả LÔ một call
   (rơi về ladder + điểm từ khoá; không engine ⇒ KHÔNG gửi tin thô) → ≥3 gửi,
   ≤8 tin/lượt, dư để lượt sau không chấm lại → marker

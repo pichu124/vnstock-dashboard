@@ -16,7 +16,7 @@
 #      cuối tuần. (3 task cũ Corp Actions CN / Fundamentals T2 / Rates T7
 #      được script TỰ GỠ khi chạy lại — không cần xoá tay.)
 #
-#   3. VnStock News Alert         — moi gio 07:00..22:00 Mon-Sat (them 2026-10-02, #31)
+#   3. VnStock News Alert         — moi gio 24/7 ca CN (them 2026-10-02, #31; 24/7 tu 2026-10-04)
 #      RSS (12 feed VN+EN) -> loc tin moi 3h -> Claude Code cham muc do 1-5
 #      -> tin >= 3 day Telegram. Khong tin moi = im lang, khong goi LLM.
 #      Command: python run.py --warehouse data_warehouse news-alert
@@ -39,7 +39,8 @@
 #   -PythonExe "C:\path\to\python.exe"  # override auto-detected Python
 #   -DailyTime "18:00"                  # daily pipeline time (default 18:00)
 #   -WeekendTime "09:00"                # weekend pipeline time Sat (default 09:00)
-#   -NewsAlertStart "07:00" -NewsAlertEnd "22:00"   # khung gio news-alert (moi gio)
+#   -NewsAlertStart "00:00" -NewsAlertEnd "23:00"   # khung gio news-alert (moi gio)
+#   -NewsAlertDays Monday,Tuesday,...                # ngay chay (mac dinh ca 7 ngay)
 #   -NoNewsAlert                        # khong dang ky task 3 (go neu da co)
 # ============================================================================
 
@@ -50,8 +51,9 @@ param(
     [string]$PythonExe        = "",
     [string]$DailyTime   = "18:00",
     [string]$WeekendTime = "09:00",
-    [string]$NewsAlertStart = "07:00",
-    [string]$NewsAlertEnd   = "22:00",
+    [string]$NewsAlertStart = "00:00",
+    [string]$NewsAlertEnd   = "23:00",
+    [string[]]$NewsAlertDays = @("Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"),
     [switch]$NoNewsAlert
 )
 
@@ -171,16 +173,16 @@ $TaskDefinitions = @(
         Name        = "VnStock News Alert"
         Execute     = $PythonExe
         Args        = "`"$RunPy`" --warehouse $WareHouse news-alert"
-        TriggerDesc = "Weekly Mon-Sat, moi gio tu $NewsAlertStart den $NewsAlertEnd  (+run-on-boot if missed)"
+        TriggerDesc = "Weekly $($NewsAlertDays.Count) ngay/tuan, moi gio tu $NewsAlertStart den $NewsAlertEnd  (+run-on-boot if missed)"
         Trigger     = {
             # Weekly trigger KHONG nhan -RepetitionInterval truc tiep; muon
             # Repetition tu mot trigger -Once roi gan vao (cach chuan cua
             # ScheduledTasks module). Duration = End - Start + 1 phut de lan
-            # cuoi (22:00) van no.
+            # cuoi (23:00) van no.
             $span = ([datetime]$NewsAlertEnd - [datetime]$NewsAlertStart).Add([timespan]::FromMinutes(1))
             $t = New-ScheduledTaskTrigger `
                 -Weekly `
-                -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday,Saturday `
+                -DaysOfWeek $NewsAlertDays `
                 -At $NewsAlertStart
             $rep = (New-ScheduledTaskTrigger -Once -At $NewsAlertStart `
                         -RepetitionInterval (New-TimeSpan -Hours 1) `
@@ -191,7 +193,7 @@ $TaskDefinitions = @(
         # Mot luot binh thuong < 1 phut (fetch 12 feed ~15-30s + 1 call Claude);
         # 15' la tran an toan khi Claude CLI treo (timeout 180s) + feed cham.
         MaxMinutes  = 15
-        Description = "Canh bao tin quan trong moi gio (#31, 2026-10-02): RSS -> loc tin 3h -> Claude cham muc do 1-5 -> Telegram. Code gac khung gio: VNSTOCK_NEWS_ALERT_HOURS/DAYS; tat: VNSTOCK_NEWS_ALERT=0"
+        Description = "Canh bao tin quan trong moi gio 24/7 (#31, 2026-10-02; 24/7 tu 2026-10-04): RSS -> loc tin 3h -> Claude cham muc do 1-5 -> Telegram. Code gac khung gio: VNSTOCK_NEWS_ALERT_HOURS/DAYS; tat: VNSTOCK_NEWS_ALERT=0"
     }
 )
 
