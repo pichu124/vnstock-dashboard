@@ -826,6 +826,7 @@ def cmd_test(args) -> int:
             "tests/test_vn30_basket.py",
             "tests/test_rec_horizon_sessions.py",
             "tests/test_doctor_kill_switches.py",
+            "tests/test_doctor_env_duplicates.py",  # khoá trùng .env (05/10)
             "tests/test_unit_badge_verdict.py",
             "tests/test_unit_continuity.py",
             "tests/test_price_basis_probe.py",

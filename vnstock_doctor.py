@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import date, datetime, time as _time_t, timedelta
 from pathlib import Path
@@ -463,6 +464,39 @@ def check_pipeline_reach() -> dict:
 
 
 # ── Engine brief (Claude Code CLI thuê bao) — 30/09, U62 ────────────────────
+_ENV_KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _env_file_entries(env_file: "Path | None" = None) -> "list[tuple[int, str, str]]":
+    """(số dòng, khoá, giá trị) của MỌI dòng gán trong `.env` máy này, đúng thứ
+    tự file — bỏ dòng trống/`#`/không `=`, nhận tiền tố `export `, nuốt BOM
+    (Notepad). Không có file / đọc lỗi ⇒ []."""
+    env_file = env_file or (_REPO / ".env")
+    try:
+        text = env_file.read_text(encoding="utf-8-sig", errors="replace")
+    except OSError:
+        return []
+    out = []
+    for i, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        k = k.strip()
+        if k.startswith("export "):
+            k = k[len("export "):].strip()
+        if _ENV_KEY_RE.fullmatch(k):
+            out.append((i, k, v.strip().strip('"\'')))
+    return out
+
+
+def _env_file_values(env_file: "Path | None" = None) -> dict:
+    """Khoá → giá trị ĐÚNG như python-dotenv nạp: trùng khoá thì dòng SAU thắng
+    (đã thử 1.2.2, 05/10). Bản cũ ở đây lấy dòng ĐẦU ⇒ doctor có thể báo khác
+    thứ pipeline thật đang dùng."""
+    return {k: v for _, k, v in _env_file_entries(env_file)}
+
+
 _ENGINE_ENVS = ("VNSTOCK_BRIEF_ENGINE", "VNSTOCK_LLM_ENGINE")
 
 
@@ -473,20 +507,7 @@ def _engine_setting() -> str:
         v = os.environ.get(k)
         if v is not None and v.strip():
             return v.strip().lower()
-    env_file = _REPO / ".env"
-    found: dict = {}
-    if env_file.exists():
-        try:
-            for line in env_file.read_text(encoding="utf-8", errors="replace").splitlines():
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                k, _, v = line.partition("=")
-                k = k.strip()
-                if k in _ENGINE_ENVS:
-                    found.setdefault(k, v.strip().strip('"\''))
-        except OSError:
-            pass
+    found = _env_file_values()
     for k in _ENGINE_ENVS:
         if found.get(k):
             return found[k].lower()
@@ -908,6 +929,35 @@ def check_llm_keys() -> dict:
                    "bổ sung key thiếu vào .env" if status != "ok" else "")
 
 
+def check_env_duplicates() -> dict:
+    """Khoá lặp trong `.env` MÁY NÀY (05/10: hai dòng TELEGRAM_CHAT_ID — group
+    Brief ở trên, chat riêng cũ ở dưới — python-dotenv lấy dòng SAU ⇒ brief
+    âm thầm về chat cũ). Trùng CÙNG giá trị vẫn warn: hôm nay vô hại, nhưng
+    lần sau sửa dòng trên sẽ không ăn. KHÔNG BAO GIỜ in giá trị (token)."""
+    name = "Khoá trùng trong .env"
+    host = os.environ.get("COMPUTERNAME") or "?"
+    if not (_REPO / ".env").exists():
+        return _result("env_duplicates", name, "off", f"máy này ({host}) chưa có .env", "")
+    rows: "dict[str, list]" = {}
+    for ln, k, v in _env_file_entries():
+        rows.setdefault(k, []).append((ln, v))
+    dups = {k: r for k, r in rows.items() if len(r) > 1}
+    if not dups:
+        return _result("env_duplicates", name, "ok",
+                       f"{len(rows)} khoá, không khoá nào lặp ({host})", "")
+    parts = []
+    for k, r in dups.items():
+        lines = ", ".join(str(ln) for ln, _ in r)
+        tail = (f"KHÁC giá trị — dòng {r[-1][0]} đang thắng" if len({v for _, v in r}) > 1
+                else "cùng giá trị — sửa dòng trên sẽ không ăn")
+        parts.append(f"{k} (dòng {lines}: {tail})")
+    return _result(
+        "env_duplicates", name, "warn",
+        f"{len(dups)} khoá lặp ({host}): " + "; ".join(parts),
+        "notepad .env → mỗi khoá giữ MỘT dòng (xoá hoặc thêm # dòng thừa; python-dotenv "
+        "lấy dòng SAU CÙNG) rồi chạy lại doctor. .env theo MÁY — máy kia tự soi riêng")
+
+
 def check_telegram() -> dict:
     name = "Telegram push"
     tok = bool((os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip())
@@ -1284,19 +1334,9 @@ def check_kill_switches() -> dict:
         v = os.environ.get(k)
         if v is not None:
             seen[k] = v.strip()
-    env_file = _REPO / ".env"
-    if env_file.exists():
-        try:
-            for line in env_file.read_text(encoding="utf-8", errors="replace").splitlines():
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                k, _, v = line.partition("=")
-                k = k.strip()
-                if k in _DANGEROUS_SWITCHES:
-                    seen.setdefault(k, v.strip().strip('"\''))
-        except Exception:
-            pass
+    for k, v in _env_file_values().items():          # os.environ thắng .env (như dotenv)
+        if k in _DANGEROUS_SWITCHES:
+            seen.setdefault(k, v)
     for k, v in seen.items():
         if str(v).strip().lower() in _OFF_VALUES:
             found.append(f"{k}={v} ({_DANGEROUS_SWITCHES[k]})")
@@ -1607,7 +1647,7 @@ OFFLINE_CHECKS = [
     check_fundamentals, check_macro,
     check_pdf_tooling, check_market_news, check_ticker_news,
     check_foreign_flow, check_events, check_reports, check_allocation,
-    check_llm_keys, check_llm_ledger, check_telegram, check_tests,
+    check_llm_keys, check_env_duplicates, check_llm_ledger, check_telegram, check_tests,
 ]
 def net_vn30_basket() -> dict:
     """Làm mới rổ VN30 từ API rồi so với hằng số chép cứng.

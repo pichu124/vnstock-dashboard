@@ -7233,8 +7233,13 @@ group Brief nơi nó không là thành viên (đúng ca badge doctor `telegram` 
 `828087238` ở dưới — user giữ dòng cũ không `#`). python-dotenv 1.2.2: dòng SAU THẮNG
 (đã thử) ⇒ brief sẽ âm thầm về chat riêng cũ. Đã xoá dòng cũ; lệnh soi trùng KHÔNG in
 giá trị: `Get-Content .env | ? { $_ -match '^\s*[A-Z_]+=' } | % { ($_ -split '=')[0].Trim() }
-| Group-Object | ? Count -gt 1` ⇒ rỗng. Ứng viên (chưa làm, đã đề xuất): badge doctor
-báo khoá trùng trong `.env` — sửa tay/`Add-Content` dễ đẻ dòng trùng.
+| Group-Object | ? Count -gt 1` ⇒ rỗng. **Đã làm (user yêu cầu 05/10):** badge doctor
+`env_duplicates` "Khoá trùng trong .env" — warn khi khoá lặp (ghi số dòng + KHÁC giá trị
+"dòng N đang thắng" / cùng giá trị "sửa dòng trên sẽ không ăn"), KHÔNG BAO GIỜ in giá
+trị, kèm tên máy (.env theo máy, doctor_status đi qua Dropbox). Helper chung
+`_env_file_entries`/`_env_file_values` (BOM Notepad, `export `, dòng SAU thắng như dotenv)
+— `_engine_setting` + `check_kill_switches` trước lấy dòng ĐẦU ⇒ có thể báo khác pipeline,
+nay khớp. 8 test `tests/test_doctor_env_duplicates.py` (whitelist --fast).
 
 **Còn hở:** (a) biểu đồ Word GỐC (`word/charts/chartN.xml`, không phải ảnh) không
 vào đường này — số nằm sẵn trong XML (`c:numCache`), làm khi gặp; (b) chưa đo trên
