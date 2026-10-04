@@ -14,7 +14,7 @@ Streamlit lazy-import trong render (mirror money_flow_tab) để module import
 from __future__ import annotations
 
 _STATUS = {"ok": "✅ vào phân tích", "meta": "📥 thiếu metadata",
-           "scan": "🖼 PDF không lớp text"}
+           "scan": "🖼 không trích được chữ (scan/ảnh)"}   # PDF lẫn DOCX (04/10)
 
 
 def _row_status(rp, rec: dict) -> str:
@@ -131,6 +131,11 @@ def _render_digest(st, rp) -> None:
             st.success(f"Đã digest {len(done)} báo cáo.") if done else \
                 st.error("Không digest được — kiểm tra key .env / mạng.")
             st.rerun()
+    else:
+        # 04/10: user tìm nút không thấy — nút chỉ hiện khi CÓ báo cáo chờ.
+        st.caption("Không có báo cáo nào chờ digest — nút 🧠 chỉ hiện khi có báo cáo "
+                   "✅ vào phân tích mà chưa digest (đủ ngày + nguồn + trích được chữ). "
+                   "Chấm lại bản cũ: `python vnstock_report_digest.py --refresh --redigest`.")
 
     # Digest của báo cáo đã chọn (đọc cache)
     rid = st.session_state.get("_rp_sel")

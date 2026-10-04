@@ -530,7 +530,7 @@ def main(argv: "list[str] | None" = None) -> int:
         return 0
     ready = sum(1 for r in reports if in_analysis(r))
     print(f"📚 Thư viện báo cáo: {len(reports)} bản, {ready} đủ điều kiện "
-          f"phân tích (✅) — 📥 thiếu metadata, 🖼 PDF không lớp text")
+          f"phân tích (✅) — 📥 thiếu metadata, 🖼 không trích được chữ (scan/ảnh)")
     for rec in reports:
         print(_fmt_row(rec))
     return 0
