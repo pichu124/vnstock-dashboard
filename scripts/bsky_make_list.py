@@ -301,21 +301,27 @@ def find_list(owner_did: str, name: str) -> Optional[str]:
     return None
 
 
-def list_member_dids(list_uri: str) -> set:
-    dids, cursor = set(), None
+def list_members(list_uri: str) -> dict:
+    """{did: {"uri": URI bản ghi listitem, "handle": handle}} — URI cần để GỠ (`--prune`)."""
+    out, cursor = {}, None
     for _ in range(50):
         params = {"list": list_uri, "limit": 100}
         if cursor:
             params["cursor"] = cursor
         data = _get("app.bsky.graph.getList", params)
         for it in data.get("items") or []:
-            did = ((it or {}).get("subject") or {}).get("did")
-            if did:
-                dids.add(did)
+            subj = (it or {}).get("subject") or {}
+            if subj.get("did"):
+                out[subj["did"]] = {"uri": str((it or {}).get("uri") or ""),
+                                    "handle": str(subj.get("handle") or subj["did"])}
         cursor = data.get("cursor")
         if not cursor:
             break
-    return dids
+    return out
+
+
+def list_member_dids(list_uri: str) -> set:
+    return set(list_members(list_uri))
 
 
 def _now_iso() -> str:
@@ -329,6 +335,17 @@ def create_list(sess: dict, name: str, description: str) -> str:
                 {"repo": sess["did"], "collection": "app.bsky.graph.list", "record": rec},
                 base=sess["xrpc"], token=sess["token"])
     return res["uri"]
+
+
+def remove_member(sess: dict, listitem_uri: str) -> None:
+    """Xoá MỘT bản ghi listitem của chính user (URI phải thuộc repo của phiên đăng nhập)."""
+    prefix = f"at://{sess['did']}/app.bsky.graph.listitem/"
+    if not listitem_uri.startswith(prefix):
+        raise RuntimeError(f"không gỡ bản ghi ngoài repo của bạn: {listitem_uri}")
+    _post("com.atproto.repo.deleteRecord",
+          {"repo": sess["did"], "collection": "app.bsky.graph.listitem",
+           "rkey": listitem_uri[len(prefix):]},
+          base=sess["xrpc"], token=sess["token"])
 
 
 def add_member(sess: dict, list_uri: str, did: str) -> None:
@@ -387,6 +404,8 @@ def main(argv: Optional[list] = None) -> int:
     ap.add_argument("--pds", default=DEFAULT_PDS)
     ap.add_argument("--write-env", action="store_true", help=f"ghi {ENV_KEY} vào .env của repo")
     ap.add_argument("--yes", action="store_true", help="không hỏi xác nhận trước khi ghi")
+    ap.add_argument("--prune", action="store_true",
+                    help="GỠ khỏi List những người không còn trong tập đích (vd hạ ⭐) — hỏi trước khi gỡ")
     ap.add_argument("--browse", action="store_true",
                     help=f"List RIÊNG '{BROWSE_NAME}' gồm cả bảng (như --all) để đọc thử trong app; "
                          "không bao giờ ghi .env — List cảnh báo tin giữ nguyên nhóm ⭐")
@@ -431,11 +450,19 @@ def main(argv: Optional[list] = None) -> int:
     print(f"Đã đăng nhập: @{sess['handle']}")
 
     list_uri = find_list(sess["did"], a.name)
-    existing = list_member_dids(list_uri) if list_uri else set()
+    members = list_members(list_uri) if list_uri else {}
+    existing = set(members)
     todo = [(r, p) for r, p, _ in found if p.get("did") not in existing]
+    wanted = {p.get("did") for _, p, _ in found}
+    drop = {d: m for d, m in members.items() if d not in wanted} if a.prune else {}
+    if a.prune and not found:
+        print("--prune nhưng không resolve được ai trong tập đích — dừng để khỏi gỡ sạch List.")
+        return 2
     print(f"List '{a.name}': {'đã có, ' + str(len(existing)) + ' thành viên' if list_uri else 'chưa có — sẽ tạo'}; "
-          f"sẽ thêm {len(todo)} người.")
-    if todo and not a.yes:
+          f"sẽ thêm {len(todo)} người" + (f", GỠ {len(drop)} người" if a.prune else "") + ".")
+    for m in drop.values():
+        print(f"  − sẽ gỡ {m['handle']}")
+    if (todo or drop) and not a.yes:
         if input("Tiếp tục? [y/N] ").strip().lower() not in ("y", "yes", "c", "co", "có"):
             print("Huỷ — không ghi gì.")
             return 1
@@ -452,15 +479,25 @@ def main(argv: Optional[list] = None) -> int:
         except Exception as e:                       # noqa: BLE001 — một người lỗi không dừng cả lượt
             failed.append(f"{r['handle']}: {e}")
         time.sleep(0.2)                              # lịch sự với PDS (giới hạn ~1.600 bản ghi/giờ)
+    removed = 0
+    for d, m in drop.items():
+        try:
+            remove_member(sess, m["uri"])
+            removed += 1
+            print(f"  − {m['handle']}")
+        except Exception as e:                       # noqa: BLE001
+            failed.append(f"gỡ {m['handle']}: {e}")
+        time.sleep(0.2)
     url = list_url(sess["handle"], list_uri)
-    print(f"\nXong: thêm {added}, lỗi {len(failed)}, bỏ qua {len(missing)} handle sai.")
+    print(f"\nXong: thêm {added}" + (f", gỡ {removed}" if a.prune else "") +
+          f", lỗi {len(failed)}, bỏ qua {len(missing)} handle sai.")
     for f in failed:
         print(f"  ❌ {f}")
     print(f"URL List: {url}")
     if a.browse:
         print("List ĐỌC THỬ — KHÔNG dán vào .env (cảnh báo tin vẫn dùng List nhóm ⭐). Mở link trên "
-              "trong app Bluesky → ⋯ → Pin to home để có tab riêng; đọc một tuần, ai đáng theo thì "
-              "báo Claude đánh ⭐ trong docs/bluesky-macro-list.md rồi chạy lại --write-env.")
+              "trong app Bluesky → ⋯ → Pin to home để có tab riêng. Chọn ⭐ bằng số liệu: "
+              "python scripts/bsky_eval.py → Claude sửa bảng → --write-env --prune.")
         return 1 if failed else 0
 
     env_path = REPO / ".env"

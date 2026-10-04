@@ -52,6 +52,11 @@ def test_parse_real_doc_starter_set_is_the_24_starred():
     assert {"nicktimiraos.bsky.social", "claudia-sahm.bsky.social", "michaelpettis.bsky.social",
             "roryjohnston.bsky.social", "federalreserve.gov"} <= handles
     assert not handles & {"tracyalloway.bsky.social", "javierblas.bsky.social", "anaswanson.bsky.social"}
+    # bsky_eval 04/10: +8 (bài ≥3/5 thật trong 7 ngày) / −8 (im >30 ngày hoặc lạc đề)
+    assert {"calculatedrisk.bsky.social", "benwinkley.bsky.social", "eurasiagroup.net",
+            "fleetleaks.bsky.social"} <= handles
+    assert not handles & {"colbylsmith.bsky.social", "robinwigglesworth.ft.com", "justinwolfers.bsky.social",
+                          "carlquintanilla.bsky.social", "michaelsderby.bsky.social"}
     every = bml.parse_md(bml.DEFAULT_MD, starred_only=False)
     assert len(every) > len(rows) and all(r["confidence"] != "thấp" for r in every if not r["starred"])
     wires = {"reuters.com", "bloomberg.com", "asia.nikkei.com"}
@@ -63,12 +68,13 @@ def test_real_doc_browse_set_drops_fake_dead_and_big_outlets():
     # --check --browse desktop 04/10: 130/131 tồn tại; ⛔ 45 (giả/rỗng, ngừng đăng từ
     # 2025, báo lớn đăng hàng nghìn bài) ⇒ List đọc thử còn 86.
     every = {r["handle"] for r in bml.parse_md(bml.DEFAULT_MD, starred_only=False)}
-    assert len(every) == 86
+    assert len(every) == 69                                  # 86 − 17 ⛔ theo bsky_eval 04/10
     assert not every & {"ericbalchunas.bsky.social", "lizannsonders31.bsky.social", "gilliantett.bsky.social",
                         "byheatherlong.bsky.social", "jkempenergy.bsky.social", "nytimes.com",
-                        "theguardian.com", "wsj.com", "cnbc.com"}
-    assert {"crampell.bsky.social", "conorsen.bsky.social", "liamdenning.bsky.social",
-            "adamtooze.bsky.social", "piie.com", "abnormalreturns.bsky.social"} <= every
+                        "theguardian.com", "wsj.com", "cnbc.com", "crampell.bsky.social",
+                        "deanbaker13.bsky.social", "opinion.bloomberg.com"}
+    assert {"carlquintanilla.bsky.social", "michaelsderby.bsky.social", "adamtooze.bsky.social",
+            "abnormalreturns.bsky.social", "bglaser.bsky.social"} <= every
 
 
 def test_parse_md_blocked_rows_never_included(tmp_path):
@@ -99,6 +105,7 @@ class FakeAPI:
         self.login_ok = login_ok
         self.calls: list = []
         self.created: list = []
+        self.deleted: list = []
 
     def __call__(self, method, url, *, params=None, json_body=None, token=None):
         name = url.rsplit("/", 1)[-1]
@@ -121,7 +128,13 @@ class FakeAPI:
         if name == "app.bsky.graph.getLists":
             return {"lists": self.lists}
         if name == "app.bsky.graph.getList":
-            return {"items": [{"subject": {"did": d}} for d in sorted(self.members)]}
+            return {"items": [{"uri": f"at://did:plc:me/app.bsky.graph.listitem/li-{d[-1]}",
+                               "subject": {"did": d, "handle": f"{d[-1]}.bsky.social"}}
+                              for d in sorted(self.members)]}
+        if name == "com.atproto.repo.deleteRecord":
+            assert token == "jwt" and json_body["repo"] == "did:plc:me"
+            self.deleted.append(json_body["rkey"])
+            return {}
         if name == "com.atproto.repo.createRecord":
             assert token == "jwt" and json_body["repo"] == "did:plc:me"
             self.created.append(json_body)
@@ -319,3 +332,38 @@ def test_browse_makes_separate_full_list_and_never_touches_env(md, env, monkeypa
 def test_browse_refuses_write_env(md, env, monkeypatch):
     monkeypatch.setattr(bml, "_req", FakeAPI({}))
     assert bml.main(["--md", str(md), "--browse", "--write-env"]) == 2
+
+
+def test_prune_removes_members_outside_target_set_after_confirming(md, env, monkeypatch, capsys):
+    uri = "at://did:plc:me/app.bsky.graph.list/old"
+    api = FakeAPI({"nicktimiraos.bsky.social": "did:plc:n", "reuters.com": "did:plc:r"},
+                  lists=[{"name": bml.DEFAULT_NAME, "uri": uri}], members={"did:plc:n", "did:plc:x"})
+    monkeypatch.setattr(bml, "_req", api)
+    assert bml.main(["--md", str(md), "--yes", "--prune"]) == 0
+    assert [c["record"]["subject"] for c in api.created] == ["did:plc:r"]       # thêm người thiếu
+    assert api.deleted == ["li-x"]                                             # gỡ người ngoài tập
+    out = capsys.readouterr().out
+    assert "GỠ 1 người" in out and "− x.bsky.social" in out and "gỡ 1" in out
+
+
+def test_without_prune_nothing_is_removed(md, env, monkeypatch):
+    uri = "at://did:plc:me/app.bsky.graph.list/old"
+    api = FakeAPI({"nicktimiraos.bsky.social": "did:plc:n", "reuters.com": "did:plc:r"},
+                  lists=[{"name": bml.DEFAULT_NAME, "uri": uri}], members={"did:plc:x"})
+    monkeypatch.setattr(bml, "_req", api)
+    assert bml.main(["--md", str(md), "--yes"]) == 0 and api.deleted == []
+
+
+def test_prune_declined_writes_nothing(md, env, monkeypatch):
+    api = FakeAPI({"nicktimiraos.bsky.social": "did:plc:n"},
+                  lists=[{"name": bml.DEFAULT_NAME, "uri": "at://did:plc:me/app.bsky.graph.list/old"}],
+                  members={"did:plc:n", "did:plc:x"})
+    monkeypatch.setattr(bml, "_req", api)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "n")
+    assert bml.main(["--md", str(md), "--prune"]) == 1 and api.deleted == [] and api.created == []
+
+
+def test_remove_member_refuses_foreign_records():
+    sess = {"did": "did:plc:me", "xrpc": "x/", "token": "t"}
+    with pytest.raises(RuntimeError, match="ngoài repo"):
+        bml.remove_member(sess, "at://did:plc:someoneelse/app.bsky.graph.listitem/abc")
