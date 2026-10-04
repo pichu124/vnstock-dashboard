@@ -435,6 +435,25 @@ def _load_report_tilt(as_of: "str | None") -> "dict | None":
     return None
 
 
+def tilt_label(rt: "dict | None") -> str:
+    """"+1 band" hoặc "+1 band × 60% (B2→B3, báo cáo cũ dần)" — state cũ chưa
+    có `label` vẫn in được."""
+    rt = rt or {}
+    return rt.get("label") or f"{rt.get('tilt', 0):+d} band"
+
+
+def blend_allocation(a: dict, b: dict, f: float) -> dict:
+    """Tỷ trọng đi từ ``a`` tới ``b`` một đoạn ``f`` (0..1), số NGUYÊN, tổng
+    giữ nguyên (chia phần dư theo phần lẻ lớn nhất). f=1 ⇒ đúng ``b``."""
+    f = max(0.0, min(1.0, f))
+    raw = {cls: a[cls] + (b.get(cls, a[cls]) - a[cls]) * f for cls in a}
+    out = {cls: int(v // 1) for cls, v in raw.items()}
+    left = int(round(sum(raw.values()))) - sum(out.values())
+    for cls in sorted(raw, key=lambda c: raw[c] - out[c], reverse=True)[:max(0, left)]:
+        out[cls] += 1
+    return out
+
+
 def apply_tilt(state: dict, tilt_info: "dict | None",
                config: "dict | None" = None) -> dict:
     """Áp tilt ±1 band từ consensus báo cáo LÊN TRÊN band data (nguyên tắc
@@ -442,18 +461,33 @@ def apply_tilt(state: dict, tilt_info: "dict | None",
 
     ``state["band_data"]`` luôn = band từ data (hysteresis P1 neo vào đây);
     ``state["band"]`` = band hiệu lực sau tilt. Không tilt → 2 field bằng nhau.
+    Mức áp = ``strength`` của consensus (05/10): báo cáo cũ dần ⇒ tỷ trọng
+    TRƯỢT từ bảng band đã tilt về bảng band data; ``band`` hiệu lực là band
+    GẦN hơn (strength ≥ 0,5 ⇒ band đã tilt). Thiếu strength (bản cũ) = 1.
     """
     state["band_data"] = state["band"]
     tilt = (tilt_info or {}).get("tilt") or 0
     if not tilt:
         state["report_tilt"] = None
         return state
+    raw_s = tilt_info.get("strength", 1.0)
+    strength = max(0.0, min(1.0, float(1.0 if raw_s is None else raw_s)))
+    table = _allocations_table(config)
     idx = max(0, min(len(_BANDS) - 1, _BANDS.index(state["band"]) + tilt))
-    state["band"] = _BANDS[idx]
+    tilted = _BANDS[idx]
+    state["allocation"] = blend_allocation(table[state["band_data"]], table[tilted],
+                                           strength)
+    if strength >= 0.5:
+        state["band"] = tilted
     state["band_label"] = _BAND_LABELS[state["band"]]
-    state["allocation"] = dict(_allocations_table(config)[state["band"]])
+    label = f"{tilt:+d} band"
+    if strength < 1 and tilted != state["band_data"]:
+        label += (f" × {strength:.0%} ({state['band_data']}→{tilted}, "
+                  f"báo cáo cũ dần)")
     state["report_tilt"] = {
         "tilt": tilt,
+        "strength": round(strength, 2),
+        "label": label,
         "stance_cp": (tilt_info.get("stance") or {}).get("Cổ phiếu"),
         "n_reports": tilt_info.get("n_reports"),
         "sources": [d.get("source") for d in tilt_info.get("drivers", [])],
@@ -499,6 +533,9 @@ def _history_entry(state: dict) -> dict:
         "band":      state["band"],
         "band_data": state.get("band_data", state["band"]),
         "tilt":      (state.get("report_tilt") or {}).get("tilt", 0) or 0,
+        "tilt_strength": (state.get("report_tilt") or {}).get("strength"),
+        # % THẬT đã khuyến nghị — tilt trộn dở (05/10) không còn khớp bảng band
+        "allocation": dict(state.get("allocation") or {}),
         "raw_band":  state["raw_band"],
         "score":     state["score"],
         "inputs":    {r["key"]: {"value": r["value"], "score": r["score"],
@@ -545,7 +582,7 @@ def _print_state(state: dict) -> None:
     rt = state.get("report_tilt")
     if rt:
         arrow = "tấn công hơn" if rt["tilt"] < 0 else "phòng thủ hơn"
-        print(f"   📚 tilt {rt['tilt']:+d} band ({arrow}) từ {rt['n_reports']} "
+        print(f"   📚 tilt {tilt_label(rt)} ({arrow}) từ {rt['n_reports']} "
               f"báo cáo (stance CP {rt['stance_cp']:+.2f}) — band data: "
               f"{state['band_data']}")
     band_data = state.get("band_data", band)

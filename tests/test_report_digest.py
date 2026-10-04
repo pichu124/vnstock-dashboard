@@ -209,10 +209,10 @@ def _full_inputs():
             "breadth": {"above_ma200_pct": 45.0}}    # điểm ~0 → band data B2
 
 
-def _fake_consensus(monkeypatch, tilt, cp=-2.0):
+def _fake_consensus(monkeypatch, tilt, cp=-2.0, **extra):
     mod = types.ModuleType("vnstock_report_digest")
     mod.consensus = lambda as_of=None: {
-        "tilt": tilt, "n_reports": 1,
+        "tilt": tilt, "n_reports": 1, **extra,
         "stance": {"Cổ phiếu": cp},
         "drivers": [{"source": "SSI"}]}
     monkeypatch.setitem(sys.modules, "vnstock_report_digest", mod)
@@ -229,6 +229,64 @@ def test_allocation_applies_report_tilt_over_data_band(monkeypatch):
     assert state["report_tilt"]["tilt"] == 1
     assert state["history"][-1]["band_data"] == "B2"
     assert state["history"][-1]["tilt"] == 1
+
+
+# ── 05/10: tilt NHẠT DẦN theo tuổi báo cáo ─────────────────────────────────
+
+
+def test_consensus_strength_fades_with_age_but_direction_holds():
+    r = _add_report(days_old=5, source="HedgeAcademy")
+    _set_stance(r, -1, 5)
+    c = dg.consensus()
+    assert (c["tilt"], c["strength"]) == (1, 1.0)
+    idx = json.loads(rp._INDEX.read_text(encoding="utf-8"))           # lùi tuổi về 60 ngày
+    idx["reports"][r["id"]]["report_date"] = (date.today() - timedelta(days=60)).isoformat()
+    rp._INDEX.write_text(json.dumps(idx, ensure_ascii=False), encoding="utf-8")
+    c60 = dg.consensus()
+    assert c60["stance"]["Cổ phiếu"] == -1.0 and c60["tilt"] == 1     # chiều giữ (1 báo cáo)
+    assert c60["strength"] == pytest.approx(0.5)                        # mức áp còn nửa
+
+
+def test_consensus_strength_caps_at_one_with_many_fresh_reports():
+    for i, src in enumerate(("SSI", "HSC")):
+        _set_stance(_add_report(days_old=3, source=src, text=_TEXT + src), -2, 3)
+    assert dg.consensus()["strength"] == 1.0
+
+
+@pytest.mark.parametrize("f,cp", [(0.0, 45), (1.0, 30), (0.6, 36), (0.5, 37.5), (0.3, 40.5)])
+def test_blend_allocation_integer_and_sums_to_100(f, cp):
+    a, b = alloc._DEFAULT_ALLOCATIONS["B2"], alloc._DEFAULT_ALLOCATIONS["B3"]
+    out = alloc.blend_allocation(a, b, f)
+    assert sum(out.values()) == 100 and all(isinstance(v, int) for v in out.values())
+    assert abs(out["Cổ phiếu"] - cp) <= 0.5
+    if f in (0.0, 1.0):
+        assert out == (a if f == 0 else b)
+
+
+@pytest.mark.parametrize("strength,band,label_has", [
+    (0.6, "B3", "× 60% (B2→B3, báo cáo cũ dần)"),    # gần B3 hơn
+    (0.3, "B2", "× 30%"),                             # gần band data hơn
+])
+def test_allocation_partial_tilt_blends_weights(monkeypatch, strength, band, label_has):
+    monkeypatch.setattr(alloc, "collect_inputs",
+                        lambda d=None: ("2026-07-13", _full_inputs()))
+    _fake_consensus(monkeypatch, tilt=1, strength=strength)
+    state = alloc.run_allocation()
+    b2, b3 = alloc._DEFAULT_ALLOCATIONS["B2"], alloc._DEFAULT_ALLOCATIONS["B3"]
+    assert state["band_data"] == "B2" and state["band"] == band
+    assert state["allocation"] == alloc.blend_allocation(b2, b3, strength)
+    assert b3["Cổ phiếu"] < state["allocation"]["Cổ phiếu"] < b2["Cổ phiếu"]
+    rt = state["report_tilt"]
+    assert rt["tilt"] == 1 and rt["strength"] == strength and label_has in rt["label"]
+    h = state["history"][-1]
+    assert h["allocation"] == state["allocation"] and h["tilt_strength"] == strength
+
+
+def test_allocation_full_strength_label_and_old_state_label():
+    assert alloc.tilt_label({"tilt": 1}) == "+1 band"                  # state cũ không label
+    st = {"band": "B2", "score": 0.0}
+    alloc.apply_tilt(st, {"tilt": 1, "strength": 1.0, "stance": {}, "drivers": []})
+    assert st["report_tilt"]["label"] == "+1 band" and st["band"] == "B3"
 
 
 def test_allocation_tilt_clamped_at_b4(monkeypatch):
@@ -551,3 +609,15 @@ def test_digest_prompt_anchors_classes_to_vietnam_portfolio():
     s = dg._DIGEST_SYSTEM
     assert "Cổ phiếu = cổ phiếu niêm yết Việt Nam" in s and "USD = giữ USD so với VND" in s
     assert "NƯỚC NGOÀI" in s and "≤ 500 ký tự" in s
+
+
+def test_brief_table_says_weights_are_blended():
+    import vnstock_brief_canon as canon
+    st = {"band": "B2", "score": 0.0, "as_of": "2026-11-20", "band_label": "x"}
+    alloc.apply_tilt(st, {"tilt": 1, "strength": 0.6, "stance": {}, "drivers": []})
+    lines = canon._allocation_table_lines(st)
+    assert f"- Cổ phiếu: {st['allocation']['Cổ phiếu']}%" in lines
+    assert "tỷ trọng trộn: tilt +1 band × 60% (B2→B3" in lines[-1]
+    full = {"band": "B2", "score": 0.0, "as_of": "2026-11-20", "band_label": "x"}
+    alloc.apply_tilt(full, {"tilt": 1, "strength": 1.0, "stance": {}, "drivers": []})
+    assert "trộn" not in canon._allocation_table_lines(full)[-1]

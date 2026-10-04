@@ -1883,7 +1883,7 @@ def _allocation_state_block(alloc: dict) -> str:
     lines += table
     rt = alloc.get("report_tilt") or {}
     if rt.get("tilt"):
-        lines.append(f"- Tilt từ báo cáo: {rt['tilt']:+d} band "
+        lines.append(f"- Tilt từ báo cáo: {rt.get('label') or format(rt['tilt'], '+d') + ' band'} "
                      f"(band data {alloc.get('band_data')}, stance CP "
                      f"{rt.get('stance_cp')}, {rt.get('n_reports')} báo cáo)")
     for r in alloc.get("inputs") or []:

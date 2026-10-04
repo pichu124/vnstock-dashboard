@@ -745,6 +745,11 @@ def consensus(as_of: "str | None" = None) -> "dict | None":
     return {
         "stance": stance,
         "tilt": tilt,
+        # Độ MẠNH của tilt = tổng trọng số tuổi, trần 1 (05/10, user: "tilt nhạt
+        # dần theo tuổi báo cáo"). Trung bình có trọng số triệt tiêu tuổi khi chỉ
+        # còn 1 báo cáo ⇒ chiều (`tilt`) giữ nguyên, còn mức áp do strength lo:
+        # ≥1 báo cáo tươi = đủ 1 band; 1 báo cáo 60 ngày (w=0,5) = nửa band.
+        "strength": round(min(1.0, wsum), 2),
         "n_reports": len(rows),
         "as_of": as_of or date.today().isoformat(),
         "drivers": [{"id": rec["id"], "source": rec.get("source"),
@@ -806,7 +811,9 @@ def main(argv: "list[str] | None" = None) -> int:
             print(f"  {cls:<12} {c['stance'][cls]:+.2f}")
         lab = {0: "không tilt", -1: "tilt -1 (tấn công hơn)",
                1: "tilt +1 (phòng thủ hơn)"}[c["tilt"]]
-        print(f"  → {lab} (ngưỡng ±{_TILT_THRESHOLD})")
+        mức = (f" × {c['strength']:.0%} (báo cáo cũ dần — nhạt về 0 ở "
+               f"{_DECAY_ZERO_DAYS} ngày)" if c["tilt"] and c["strength"] < 1 else "")
+        print(f"  → {lab}{mức} (ngưỡng ±{_TILT_THRESHOLD})")
         for dr in c["drivers"]:
             flag = " ⚠mismatch" if dr["has_mismatch"] else ""
             print(f"    • {dr['report_date']} {dr['source']} "

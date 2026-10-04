@@ -7158,6 +7158,20 @@ Consensus CP −1,00 ⇒ tilt +1. Đặc tính thiết kế cần biết: consen
 bình CÓ TRỌNG SỐ nên khi chỉ còn MỘT báo cáo, decay tuổi không làm tilt nhạt đi —
 Q4 giữ tilt đủ +1 tới khi tròn 90 ngày (02/01/2027) trừ khi có báo cáo mới.
 
+**Tilt NHẠT DẦN theo tuổi (05/10, user chốt):** `consensus()` thêm `strength =
+min(1, Σ trọng số tuổi)` — CHIỀU tilt vẫn do trung bình có trọng số + ngưỡng ±1,0
+(lọc nhiễu, không đổi), còn MỨC áp do strength. `apply_tilt` trộn tỷ trọng từ
+bảng band data tới bảng band đã tilt một đoạn = strength (`blend_allocation`: số
+nguyên, tổng 100, phần dư chia theo phần lẻ lớn nhất); `band` hiệu lực = band GẦN
+hơn (strength ≥ 0,5 ⇒ band đã tilt). `report_tilt{strength, label}` — label
+"+1 band × 60% (B2→B3, báo cáo cũ dần)" in ở CLI, tab Phân bổ, brief canon,
+debate, doctor; bảng % trong brief ghi "tỷ trọng trộn" để LLM không sửa về bảng
+gốc. History ghi `allocation` + `tilt_strength`, scorecard chấm theo % THẬT đã
+khuyến nghị (entry cũ về bảng band). ≥1 báo cáo tươi ⇒ đủ 1 band như cũ. Lịch
+Q4 (04/10, CP −1) nếu band data B2: đủ B3 tới 03/11 · 18/11 75% · 03/12 50%
+(band về B2, cổ phiếu ~37–38%) · 18/12 25% · 02/01/2027 hết. Kill-switch cũ
+`VNSTOCK_ALLOCATION_TILT=0` vẫn tắt hẳn.
+
 **Còn hở:** (a) biểu đồ Word GỐC (`word/charts/chartN.xml`, không phải ảnh) không
 vào đường này — số nằm sẵn trong XML (`c:numCache`), làm khi gặp; (b) chưa đo trên
 Q4.docx thật (bao nhiêu ảnh, EMF hay PNG) — `--dry-run` cho biết.

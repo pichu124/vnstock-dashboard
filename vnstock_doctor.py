@@ -986,7 +986,8 @@ def check_allocation() -> dict:
              f"phiên {as_of or '?'} · {st.get('n_inputs', 0)} tín hiệu · "
              f"history {len(st.get('history') or [])} phiên"]
     if (st.get("report_tilt") or {}).get("tilt"):
-        parts.append(f"tilt {st['report_tilt']['tilt']:+d} từ báo cáo")
+        rt = st["report_tilt"]
+        parts.append(f"tilt {rt.get('label') or format(rt['tilt'], '+d')} từ báo cáo")
     remind = _allocation_brief_reminder()
     if remind:
         parts.append(remind)
