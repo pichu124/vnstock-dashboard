@@ -7150,6 +7150,13 @@ Trung Quốc + một đoạn TT50 tích cực cho VN mà CP −1 ⇒ không rõ 
 Mỹ hay VN. Prompt nay neo: Cổ phiếu = niêm yết VN … USD = USD/VND; quan điểm
 nước ngoài chỉ thành stance khi báo cáo nói rõ tác động tới lớp VN. Digest cũ
 phải `--redigest` mới ăn prompt mới.
+**Chấm lại theo prompt neo VN (05/10 00:00, 2 báo cáo):** Q4 19s · $0,30 — tóm
+tắt hết câu (~490 ký tự) và nêu khuyến nghị rõ ("giữ cổ phiếu 20–30%, thậm chí
+~0; short vàng 4.200–4.300") ⇒ CP −1 CÓ căn cứ; Trái phiếu +1 → 0 (trước là quan
+điểm UST), Vàng −2 → −1. Báo cáo 10/07 (`f30fe71407845fb6`) CP −1, w=0,05.
+Consensus CP −1,00 ⇒ tilt +1. Đặc tính thiết kế cần biết: consensus là trung
+bình CÓ TRỌNG SỐ nên khi chỉ còn MỘT báo cáo, decay tuổi không làm tilt nhạt đi —
+Q4 giữ tilt đủ +1 tới khi tròn 90 ngày (02/01/2027) trừ khi có báo cáo mới.
 
 **Còn hở:** (a) biểu đồ Word GỐC (`word/charts/chartN.xml`, không phải ảnh) không
 vào đường này — số nằm sẵn trong XML (`c:numCache`), làm khi gặp; (b) chưa đo trên
