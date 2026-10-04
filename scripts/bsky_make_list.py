@@ -187,14 +187,63 @@ def print_check(found: list, missing: list) -> None:
 # ── Ghi List (cần đăng nhập) ─────────────────────────────────────────────────
 
 
+def normalize_identifier(raw: str) -> str:
+    """Handle người dùng gõ → dạng `createSession` nhận: bỏ `@` đầu, chữ thường;
+    tên trần (không dấu chấm) ⇒ thêm `.bsky.social`; email giữ nguyên."""
+    s = (raw or "").strip()
+    if "@" in s.lstrip("@"):
+        return s                                         # email cũng đăng nhập được
+    s = s.lstrip("@").lower()
+    return s + ".bsky.social" if s and "." not in s else s
+
+
+def check_identifier(ident: str) -> None:
+    """Handle phải resolve được (API công khai) TRƯỚC khi hỏi mật khẩu — 04/10 user
+    gõ `pichu124.bsky.socia` ba lần, 401 chung chung khiến tưởng sai App Password.
+    Chỉ chặn khi API nói rõ không resolve được (HTTP 400); lỗi khác ⇒ để login quyết."""
+    if not ident:
+        raise RuntimeError("chưa nhập handle")
+    if "@" in ident:
+        return
+    try:
+        _get("com.atproto.identity.resolveHandle", {"handle": ident})
+    except RuntimeError as e:
+        if "HTTP 400" not in str(e):
+            return
+        hint = ""
+        if "bsky" in ident and not ident.endswith(".bsky.social"):
+            hint = f" — ý bạn là {ident.split('.bsky')[0]}.bsky.social?"
+        raise RuntimeError(f"handle '{ident}' không tồn tại trên Bluesky{hint} "
+                           "(handle đầy đủ ở trang cá nhân trong app, dưới tên hiển thị)")
+
+
+def ask_identifier(tries: int = 3) -> str:
+    """Handle từ env `BSKY_HANDLE` (kiểm một lần) hoặc hỏi lại tới `tries` lần."""
+    env = normalize_identifier(os.environ.get("BSKY_HANDLE") or "")
+    if env:
+        check_identifier(env)
+        return env
+    for attempt in range(tries):
+        ident = normalize_identifier(input("Handle Bluesky của bạn (vd ten.bsky.social): "))
+        try:
+            check_identifier(ident)
+            return ident
+        except RuntimeError as e:
+            if attempt == tries - 1:
+                raise
+            print(f"  ❌ {e}")
+    raise RuntimeError("chưa nhập handle")
+
+
 def login(pds: str, identifier: str, password: str) -> dict:
     try:
         sess = _post("com.atproto.server.createSession",
                      {"identifier": identifier, "password": password}, base=pds.rstrip("/") + "/xrpc/")
     except RuntimeError as e:
         if "401" in str(e) or "AuthenticationRequired" in str(e):
-            raise RuntimeError("đăng nhập thất bại — sai handle hoặc App Password (dùng App "
-                               "Password trong Settings → Privacy and security, KHÔNG dùng mật khẩu chính)")
+            raise RuntimeError(f"đăng nhập thất bại cho {identifier} — handle có thật nên App Password "
+                               "sai (dán lại, hoặc tạo mới ở Settings → Privacy and security → App "
+                               "passwords; KHÔNG dùng mật khẩu chính)")
         raise
     return {"did": sess["did"], "handle": sess.get("handle") or identifier,
             "token": sess["accessJwt"], "xrpc": pds.rstrip("/") + "/xrpc/"}
@@ -327,8 +376,9 @@ def main(argv: Optional[list] = None) -> int:
             print(f"  ⚠️ {r['handle']}: tên hiển thị '{p.get('displayName')}' lệch bảng '{r['name']}' "
                   f"— vẫn thêm; xoá trong app nếu là tài khoản giả")
 
-    ident = (os.environ.get("BSKY_HANDLE") or "").strip() or input("Handle Bluesky của bạn (vd ten.bsky.social): ").strip()
-    pw = os.environ.get("BSKY_APP_PASSWORD") or getpass.getpass("App Password (không hiện khi gõ): ")
+    ident = ask_identifier()
+    pw = (os.environ.get("BSKY_APP_PASSWORD")
+          or getpass.getpass("App Password (không hiện khi gõ/dán): ")).strip()
     sess = login(a.pds, ident, pw)
     print(f"Đã đăng nhập: @{sess['handle']}")
 

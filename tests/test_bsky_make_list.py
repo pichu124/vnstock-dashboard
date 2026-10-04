@@ -97,6 +97,11 @@ class FakeAPI:
                                  for h in params["actors"] if h in self.known]}
         if name == "app.bsky.feed.getAuthorFeed":
             return {"feed": [{"post": {"record": {"createdAt": "2026-10-01T09:00:00Z"}}}]}
+        if name == "com.atproto.identity.resolveHandle":
+            h = params["handle"]
+            if h in self.known or h in ("me.bsky.social", "pichu124.bsky.social"):
+                return {"did": self.known.get(h, "did:plc:me")}
+            raise RuntimeError("HTTP 400 com.atproto.identity.resolveHandle: Unable to resolve handle")
         if name == "com.atproto.server.createSession":
             if not self.login_ok:
                 raise RuntimeError("HTTP 401 createSession: Invalid identifier or password")
@@ -195,3 +200,41 @@ def test_update_env_add_update_same_and_ignores_comments(tmp_path):
 def test_list_url_from_at_uri():
     assert bml.list_url("me.bsky.social", "at://did:plc:me/app.bsky.graph.list/3kxyz") == \
         "https://bsky.app/profile/me.bsky.social/lists/3kxyz"
+
+
+@pytest.mark.parametrize("raw,want", [
+    ("pichu124.bsky.social", "pichu124.bsky.social"), ("@Pichu124", "pichu124.bsky.social"),
+    ("  chadpbown.com ", "chadpbown.com"), ("me@mail.com", "me@mail.com"), ("", "")])
+def test_normalize_identifier(raw, want):
+    assert bml.normalize_identifier(raw) == want
+
+
+def test_typo_handle_stops_before_password_with_suggestion(md, env, monkeypatch):
+    # Vết thật 04/10: `pichu124.bsky.socia` ×3 ⇒ 401 "sai handle hoặc App Password".
+    api = FakeAPI({"reuters.com": "did:plc:r"})
+    monkeypatch.setattr(bml, "_req", api)
+    monkeypatch.setenv("BSKY_HANDLE", "pichu124.bsky.socia")
+    monkeypatch.delenv("BSKY_APP_PASSWORD")
+    monkeypatch.setattr(bml.getpass, "getpass", lambda *a, **k: pytest.fail("không được hỏi mật khẩu"))
+    with pytest.raises(RuntimeError, match=r"ý bạn là pichu124\.bsky\.social\?"):
+        bml.main(["--md", str(md), "--yes"])
+    assert not any(n == "com.atproto.server.createSession" for n, *_ in api.calls)
+
+
+def test_interactive_handle_reprompts_then_logs_in(md, env, monkeypatch, capsys):
+    api = FakeAPI({"reuters.com": "did:plc:r"})
+    monkeypatch.setattr(bml, "_req", api)
+    monkeypatch.delenv("BSKY_HANDLE")
+    answers = iter(["pichu124.bsky.socia", "pichu124"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+    assert bml.main(["--md", str(md), "--yes"]) == 0
+    assert "ý bạn là pichu124.bsky.social" in capsys.readouterr().out
+    sess = [b for n, _, b, _ in api.calls if n == "com.atproto.server.createSession"]
+    assert sess == [{"identifier": "pichu124.bsky.social", "password": "app-pw"}]
+
+
+def test_resolve_endpoint_other_error_does_not_block(monkeypatch):
+    def _boom(*a, **k):
+        raise RuntimeError("HTTP 501 com.atproto.identity.resolveHandle: not implemented")
+    monkeypatch.setattr(bml, "_get", _boom)
+    assert bml.check_identifier("someone.example.com") is None
