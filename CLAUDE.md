@@ -107,7 +107,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 - Sửa module lõi nào → `python run.py test --fast` (~2.773 test; ~45s trên CI,
   86s máy thật 15/09 tối). Danh sách file `--fast` là WHITELIST trong `run.py` —
   thêm file test mới thì phải ghi vào đó, không thì `--fast` không chạy nó.
-- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, ~3.584 test — 🖥️ desktop 05/10 3.584 passed / 156–242s; test đọc env PHẢI xoá biến theo TIỀN TỐ — `.env` máy thật lọt vào pytest, 05/10 suýt mất brief). **Đổi slug/migration ⇒ chạy FULL trước khi push**: 30/09 test ghim slug NGOÀI whitelist còn qwen chết ⇒ phát dừng ở bước test, MẤT brief (U65).
+- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, ~3.592 test — 🖥️ desktop 05/10 3.592 passed / 156–242s; test đọc env PHẢI xoá biến theo TIỀN TỐ — `.env` máy thật lọt vào pytest, 05/10 suýt mất brief). **Đổi slug/migration ⇒ chạy FULL trước khi push**: 30/09 test ghim slug NGOÀI whitelist còn qwen chết ⇒ phát dừng ở bước test, MẤT brief (U65).
   Đo trên MÁY THẬT (💻 laptop) 09/09: **3.158 passed / 161,8s** tại `c969d6a` — khớp
   CI từng test một (máy thật chậm hơn ~3× vì có kho dữ liệu, không phải vì bỏ test).
 - Kết quả ghi `data_warehouse/_meta/test_status.json` → badge sidebar.
