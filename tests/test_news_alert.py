@@ -842,6 +842,42 @@ def test_select_to_send_threshold_cap_order_and_unsent_only():
     assert na.select_to_send(seen, 6, 10) == []
 
 
+def test_expire_leftovers_marks_old_unsent_only():
+    seen = {"items": {
+        "old": _rec(4, pub="2026-10-02T02:00:00", title="old"),           # 8h tuổi
+        "young": _rec(4, pub="2026-10-02T07:00:00", title="young"),       # 3h
+        "low": _rec(2, pub="2026-10-01T09:00:00", title="low"),           # dưới ngưỡng — kệ
+        "sent": _rec(5, sent=True, pub="2026-10-01T09:00:00", title="sent"),
+        "dateonly": _rec(3, pub="2026-10-02", first_seen="2026-10-02T09:30:00", title="d"),
+    }}
+    assert na.expire_leftovers(seen, NOW, 3, 6) == 1
+    assert seen["items"]["old"]["expired_at"] == NOW.isoformat(timespec="seconds")
+    assert not any(seen["items"][k].get("expired_at") for k in ("young", "low", "sent", "dateonly"))
+    assert [h for h, _ in na.select_to_send(seen, 3, 10)] == ["young", "dateonly"]
+    assert na.expire_leftovers(seen, NOW, 3, 6) == 0                     # không đếm lại
+
+
+def test_catchup_leftovers_do_not_trickle_out_hours_later(monkeypatch):
+    # Vết 04/10: lượt 20:00 bắt bù 20h chấm 60 tin, gửi 8; lượt 21:00 lại gửi 8 — phần dư
+    # cũ 15–20h. Nay lượt sau chỉ gửi bù tin dư ≤6h tuổi.
+    monkeypatch.setattr("vnstock_news.deduplicate_news", lambda xs: (xs, 0))
+    old_topics = ["Fed", "ECB", "BOJ", "PBOC", "OPEC", "Vàng", "Dầu", "Thép", "Gạo", "Cà phê"]
+    items = [_raw(f"Tin cũ {t}", hours_ago=15 + i * 0.1, link=f"https://o/{i}")
+             for i, t in enumerate(old_topics)]
+    items += [_raw(f"Tin mới {t}", hours_ago=1 + i * 0.1, link=f"https://n/{i}")
+              for i, t in enumerate(["CPI", "GDP", "PMI"])]
+    by_title = {"Tin": {"muc_do": 3, "nhan": "TRUNG_LẬP", "tac_dong": "Tỷ giá"}}
+    _fake_complete(monkeypatch, by_title=by_title)
+    sent1, spy1 = _sender_spy()
+    na.run(now=NOW, window_h=20, sources=[_src("rss:t", items)], engine="claude", sender=spy1)
+    assert len(sent1) == 1 and sent1[0].count("🟡 3/5") == 8              # trần 8, dư 5
+    sent2, spy2 = _sender_spy()
+    na.run(now=NOW + timedelta(hours=1), sources=[_src("rss:t", items)], engine="claude", sender=spy2)
+    leftovers_sent = sent2[0].count("Tin cũ") if sent2 else 0
+    assert leftovers_sent == 0                                             # dư 15h+ hết hạn
+    assert all(r["sent"] or r.get("expired_at") for r in na.load_seen()["items"].values())
+
+
 def test_format_message_is_telegram_safe_html():
     recs = [_rec(5, title="Fed <bất ngờ> hạ lãi suất", nhan="positive"),
             _rec(3, title="Giá vàng", tac_dong="", link="")]

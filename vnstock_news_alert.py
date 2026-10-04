@@ -1138,11 +1138,36 @@ def _report_caps(todo: list, scored: dict, sent_titles) -> None:
 # ── Chọn + dựng tin Telegram ────────────────────────────────────────────────
 
 
+ENV_LEFTOVER_MAX_AGE_H = "VNSTOCK_NEWS_ALERT_LEFTOVER_MAX_AGE_H"
+DEFAULT_LEFTOVER_MAX_AGE_H = 6   # tin DƯ (đạt ngưỡng mà lượt trước hết suất) chỉ gửi bù khi ≤6h tuổi
+
+
+def _rec_time(r: dict) -> str:
+    """Mốc tuổi của một bản ghi sổ: giờ đăng đầy đủ, không có thì lúc thấy lần đầu."""
+    p = str(r.get("published") or "")
+    return p if len(p) >= 16 else str(r.get("first_seen") or p)
+
+
+def expire_leftovers(seen: dict, now: datetime, min_score: int, max_age_h: float) -> int:
+    """Đánh dấu `expired_at` cho tin đạt ngưỡng, CHƯA gửi, cũ hơn `max_age_h` — vết
+    04/10: lượt bắt bù 20h chấm 60 tin, phần dư ≥3 điểm rỉ ra 8 tin/giờ ở các lượt sau
+    dù đã 15–20h tuổi (thị trường đã tiêu hoá). Trả số tin vừa hết hạn."""
+    cutoff = (now - timedelta(hours=max_age_h)).isoformat(timespec="seconds")
+    stamp = now.isoformat(timespec="seconds")
+    n = 0
+    for r in (seen.get("items") or {}).values():
+        if (isinstance(r, dict) and isinstance(r.get("score"), int) and r["score"] >= min_score
+                and not r.get("sent") and not r.get("expired_at") and _rec_time(r) < cutoff):
+            r["expired_at"] = stamp
+            n += 1
+    return n
+
+
 def select_to_send(seen: dict, min_score: int, max_send: int) -> "list[tuple[str, dict]]":
-    """Tin đã chấm ≥ ngưỡng, CHƯA gửi — mức cao trước, mới trước; ≤ max_send."""
+    """Tin đã chấm ≥ ngưỡng, CHƯA gửi, chưa hết hạn — mức cao trước, mới trước; ≤ max_send."""
     cands = [(h, r) for h, r in (seen.get("items") or {}).items()
              if isinstance(r, dict) and isinstance(r.get("score"), int)
-             and r["score"] >= min_score and not r.get("sent")]
+             and r["score"] >= min_score and not r.get("sent") and not r.get("expired_at")]
     # hai lượt sort ổn định: mới trước, rồi điểm cao trước (cùng điểm giữ mới trước)
     cands.sort(key=lambda hr: (hr[1].get("published") or "", hr[1].get("first_seen") or ""),
                reverse=True)
@@ -1309,6 +1334,12 @@ def run(*, now: Optional[datetime] = None, dry_run: bool = False, force: bool = 
     for i, it in enumerate(todo):
         seen["items"][item_hash(it)] = _record(it, scored.get(i), now)
 
+    # Tin dư được chờ tối đa max(cửa sổ lượt này, 6h): lượt bắt bù vẫn gửi tin 20h tuổi
+    # lần đầu thấy, nhưng phần dư của nó không rỉ ra suốt các giờ sau.
+    max_age_h = max(window_h, _env_int(ENV_LEFTOVER_MAX_AGE_H, DEFAULT_LEFTOVER_MAX_AGE_H, 1, 168))
+    expired = expire_leftovers(seen, now, min_score, max_age_h)
+    if expired:
+        print(f"[{TAG}] bỏ {expired} tin dư cũ hơn {max_age_h}h (đạt ngưỡng nhưng lượt trước hết suất)")
     picked = select_to_send(seen, min_score, max_send)
     sent, message_id, send_err = 0, None, None
     if picked:
