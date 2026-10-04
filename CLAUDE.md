@@ -167,6 +167,10 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   claude --force` (A/B), `python vnstock_brief_pack.py --check|--review|--rate`,
   skill `/brief-close` (tay) và `/brief-review` (sáng hôm sau, chấm sao →
   few-shot). CLI bị GIẤU `ANTHROPIC_API_KEY` trừ `VNSTOCK_CLAUDE_CLI_API_KEY=1`.
+- `vnstock_report_vision.py` — báo cáo 🖼 (PDF scan / DOCX toàn ảnh) ⇒ Claude Code
+  `--tools Read` xem ảnh trong thư mục tạm, chép thành text ⇒ `vnstock_reports.set_text`
+  (`text_via=claude-vision`) rồi digest như thường. Gọi tay (nút 👁 / CLI), được ăn cả
+  (U69, 04/10). `vnstock_claude_cli.complete(tools=, cwd=)` mặc định vẫn 0 công cụ.
 - `vnstock_corp_ratio` — đọc TỈ LỆ QUYỀN từ tiêu đề sự kiện (hàm thuần).
   `adjusts_price(title)` lọc sự kiện chỉ chốt danh sách DỰ HỌP (ĐHĐCĐ, lấy ý
   kiến bằng văn bản) — chúng KHÔNG đổi giá tham chiếu, gắn ⚠️ GDKHQ cho chúng

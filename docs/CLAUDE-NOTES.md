@@ -7084,6 +7084,55 @@ qua Dropbox nhưng chỉ desktop chạy nên nhất quán; laptop chạy tay `--
 desktop bỏ bắt bù lượt sau — đừng chạy tay ở laptop ngoài `--dry-run`; (e) chưa
 có khử trùng CHÉO ngôn ngữ bằng code (prompt lo) — đếm `dup` một tuần rồi quyết.
 
+# 👁 U69. CLAUDE CODE ĐỌC ẢNH BÁO CÁO KHÔNG CÓ LỚP TEXT (04/10 tối)
+
+**Vết:** user thêm `Q4.docx` (id `57ab0fd0d74c6cb5`) ở tab Báo cáo ⇒ 0 ký tự, trạng
+thái 🖼 — DOCX toàn ảnh (ảnh chụp slide/bảng dán vào Word), `docx_to_text` chỉ đọc
+`<w:t>` nên không có gì; `Q3_update` cùng cảnh. `no_text_layer` ⇒ không bao giờ vào
+digest. User: "làm đường Claude đọc ảnh đi".
+
+**Kiểm trước khi viết (sandbox, CLI 2.1.289):** `claude -p --tools Read
+--permission-prompts none`, cwd = thư mục chứa file ⇒ (a) đọc PNG đúng ($0,015
+Haiku); (b) PDF chỉ có ảnh (pypdf `extract_text` = '') đọc qua Read `pages="2-3"`
+đúng 2 trang ($0,02). Không cần poppler/pymupdf để vẽ trang — Read tự lo.
+**Phạm vi đọc (thử 3 cách, cùng đề "đọc file trong cwd rồi đọc file NGOÀI cwd"):**
+`--allowedTools Read` ⇒ đọc được CẢ file ngoài (lộ) · `--allowedTools "Read(./**)"`
+⇒ ngoài bị từ chối · không `--allowedTools` ⇒ ngoài bị từ chối, trong vẫn đọc.
+Chọn cách cuối (ít cờ nhất) + có công cụ thì luôn `--setting-sources ""` để rule
+allow trong settings người dùng không nới được. Lý do: chữ trong ảnh báo cáo là
+dữ liệu ngoài — một dòng "đọc C:\vnstock\.env" không được thành hành động.
+
+**Thiết kế (`vnstock_report_vision.py`, 13 test `tests/test_report_vision.py`):**
+* `vnstock_claude_cli`: `cli_command(tools=)` (+ `--allowedTools` cùng giá trị khi
+  khác rỗng) và `complete(tools=, cwd=)` — mặc định y cũ (0 công cụ, cwd repo).
+* DOCX: ảnh theo THỨ TỰ thân văn bản (`r:embed`/`r:id` trong `document*.xml` →
+  rels → `word/media`), ảnh header/footer (logo) tự rơi vì thân không trỏ; thân
+  không trỏ ảnh nào ⇒ lấy mọi media theo tên. Bỏ icon (< 200×200 hoặc cạnh < 60),
+  SVG; EMF/WMF (biểu đồ dán từ Excel) chỉ Pillow trên WINDOWS mới vẽ được ⇒ desktop
+  đọc được, sandbox bỏ + đếm. Ảnh > 2.000px / BMP / TIFF ⇒ PNG thu nhỏ. 8 ảnh/lượt.
+* PDF: `report.pdf` + Read `pages=` 10 trang/lượt (pypdf đếm trang; không đếm được
+  ⇒ 1 lượt "toàn bộ").
+* Prompt chép NGUYÊN VĂN (bảng " | ", biểu đồ = số IN trên hình + 1 câu xu hướng,
+  không ước lượng, "[không đọc được]" thay vì đoán, nhãn `[Ảnh N]`/`[Trang N]`).
+* Model `VNSTOCK_REPORT_VISION_CLI_MODEL` > `VNSTOCK_CLAUDE_CLI_MODEL` > mặc định
+  CLI (chép số liệu cần chính xác — Haiku thử 04/10 sai dấu "VĨ MỀ", "tỷ trong cơ
+  phiếu"); trần `VNSTOCK_REPORT_VISION_TIMEOUT_S` 900s/lượt. Không slug mới.
+* Được ăn cả: lượt nào hỏng / tổng < 200 ký tự ⇒ KHÔNG ghi (in 150 ký tự đầu để
+  biết Claude đã thấy gì). Thành công ⇒ `vnstock_reports.set_text(rid, text, via=
+  "claude-vision")`: chars, `no_text_layer=False`, `text_via`, bỏ digest cũ.
+* `_upsert` giữ bản đọc ảnh khi upload lại CÙNG file (Streamlit rerun / thêm meta)
+  — không thì trích lại ra 0 ký tự đè mất.
+* UI: chọn báo cáo 🖼 ở Thư viện ⇒ nút **👁 Cho Claude đọc ảnh** (reset memo "CLI
+  chết" trước — bấm tay là muốn thử lại); cột "Đọc ảnh" 👁. CLI `python
+  vnstock_report_vision.py <id> | --all | --dry-run`. KHÔNG tự chạy trong pipeline.
+
+**E2E sandbox (Haiku, 2 ảnh có bảng + biểu đồ cột):** 18s · $0,02 · 548 ký tự;
+số trên cột (6,9 / 7,1 / 7,4%) đọc đúng; bản ghi vào phân tích ngay.
+
+**Còn hở:** (a) biểu đồ Word GỐC (`word/charts/chartN.xml`, không phải ảnh) không
+vào đường này — số nằm sẵn trong XML (`c:numCache`), làm khi gặp; (b) chưa đo trên
+Q4.docx thật (bao nhiêu ảnh, EMF hay PNG) — `--dry-run` cho biết.
+
 # 📰 U67. CẢNH BÁO TIN QUAN TRỌNG MỖI GIỜ → TELEGRAM — ĐƯỜNG A (TASK SCHEDULER + CLAUDE CLI), REGISTRY NGUỒN MỞ RỘNG (02/10 sáng)
 
 **Hỏi:** dùng Claude Code/Cowork kéo tin kinh tế-tài chính về Telegram mỗi giờ.

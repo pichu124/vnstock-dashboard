@@ -77,6 +77,9 @@ def _ingest_feedback(st, rp, rec) -> None:
         st.error("Không thêm được — xem log terminal (URL bị chặn mạng / file rỗng?).")
         return
     st.success(f"Đã vào thư viện: `{rec['id']}` — {_row_status(rp, rec)}")
+    if rec.get("no_text_layer"):
+        st.info("File toàn ảnh/scan — chọn báo cáo này ở **Thư viện** bên dưới rồi "
+                "bấm **👁 Cho Claude đọc ảnh**.")
 
 
 def _render_library(st, rp) -> None:
@@ -92,6 +95,7 @@ def _render_library(st, rp) -> None:
         "Nguồn": r.get("source") or "—",
         "Tiêu đề": r.get("title") or r.get("url") or "—",
         "Loại": r.get("kind"), "Ký tự": r.get("chars", 0),
+        "Đọc ảnh": "👁" if r.get("text_via") else "",
         "Trạng thái": _row_status(rp, r),
         "Digest": "🧠" if r.get("digest") else "—",
     } for r in reports]), hide_index=True, use_container_width=True)
@@ -109,9 +113,34 @@ def _render_library(st, rp) -> None:
     if (new_src or new_date) and c3.button("💾 Lưu meta", key="_rp_save_meta"):
         rp.set_meta(rid, source=new_src or None, report_date=new_date or None)
         st.rerun()
+    _render_vision(st, rp, next((r for r in reports if r["id"] == rid), None))
     if st.button("🗑 Xóa báo cáo đã chọn", key="_rp_remove"):
         rp.remove(rid)
         st.rerun()
+
+
+def _render_vision(st, rp, rec) -> None:
+    """04/10: báo cáo 🖼 (PDF scan / DOCX toàn ảnh) — Claude Code xem ảnh, chép
+    thành text rồi báo cáo đi tiếp đường digest. Gọi CÓ CHỦ ĐÍCH, như 🧠."""
+    if not rec or not rec.get("no_text_layer") or rp.original_path(rec["id"]) is None:
+        return
+    st.caption("🖼 Báo cáo này không có chữ trích được — Claude Code có thể xem từng "
+               "ảnh/trang và chép lại (vài phút, tốn lượt Claude Code).")
+    if not st.button("👁 Cho Claude đọc ảnh", key="_rp_vision"):
+        return
+    import vnstock_claude_cli as vcc
+    import vnstock_report_vision as rv
+    vcc.reset_dead_memo()        # bấm tay = muốn thử lại dù lượt trước treo
+    logs: list[str] = []
+    with st.spinner("Claude đang đọc ảnh…"):
+        res = rv.read_report(rec["id"], log=logs.append)
+    if res["ok"]:
+        st.toast(f"👁 Đã chép {res['chars']:,} ký tự từ {res['n_units']} ảnh/trang "
+                   f"(${res['cost_usd']:,.2f}).")
+        st.rerun()
+    st.error(f"Không đọc được: {res['error']}")
+    if logs:
+        st.code("\n".join(logs))
 
 
 def _render_digest(st, rp) -> None:

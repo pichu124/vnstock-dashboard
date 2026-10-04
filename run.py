@@ -734,6 +734,7 @@ def cmd_test(args) -> int:
             "tests/test_ratelimit.py",
             "tests/test_allocation.py",
             "tests/test_reports.py",
+            "tests/test_report_vision.py",    # Claude Code đọc ảnh báo cáo không có lớp text
             "tests/test_report_digest.py",
             "tests/test_gold.py",
             "tests/test_scorecard.py",

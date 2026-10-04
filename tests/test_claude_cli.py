@@ -120,6 +120,36 @@ def test_cli_command_repo_context_json_schema_effort(monkeypatch):
     assert "--setting-sources" not in vcc.cli_command("/x/claude", "m")
 
 
+def test_cli_command_tools_stay_confined_to_cwd(monkeypatch):
+    """04/10 đọc ảnh báo cáo: `tools="Read"` bật ĐÚNG Read, KHÔNG `--allowedTools`
+    (cho phép trần ⇒ đọc được file ngoài cwd, đã thử 2.1.289) và luôn tước
+    settings người dùng, kể cả khi bật repo context; mặc định vẫn 0 công cụ."""
+    monkeypatch.setenv("VNSTOCK_CLAUDE_CLI_REPO_CONTEXT", "1")
+    for cmd in (vcc.cli_command("/x/claude", "m", tools="Read"),
+                vcc.cli_command("/x/claude", "m", tools="Read", repo_context=True)):
+        assert cmd[cmd.index("--tools") + 1] == "Read"
+        assert cmd[cmd.index("--permission-prompts") + 1] == "none"
+        assert not any(c.startswith("--allowedTools") or c.startswith("--allowed-tools")
+                       for c in cmd)
+        assert cmd[cmd.index("--setting-sources") + 1] == ""
+    plain = vcc.cli_command("/x/claude", "m")
+    assert plain[plain.index("--tools") + 1] == "" and "--setting-sources" not in plain
+
+
+def test_complete_passes_tools_and_cwd(monkeypatch, tmp_path):
+    _ledger_spy(monkeypatch)
+    got: dict = {}
+
+    def _run(cmd, **kw):
+        got["cmd"], got["kw"] = cmd, kw
+        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(_body()), stderr="")
+    monkeypatch.setattr(subprocess, "run", _run)
+    text, err, _ = vcc.complete("U", model="m", exe="/fake/claude", tools="Read",
+                                cwd=str(tmp_path))
+    assert err is None and got["kw"]["cwd"] == str(tmp_path)
+    assert got["cmd"][got["cmd"].index("--tools") + 1] == "Read"
+
+
 # ─── parse stdout ────────────────────────────────────────────────────────────
 
 def _body(**kw) -> dict:
