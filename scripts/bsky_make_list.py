@@ -235,15 +235,38 @@ def ask_identifier(tries: int = 3) -> str:
     raise RuntimeError("chưa nhập handle")
 
 
+APP_PW_RE = re.compile(r"^[a-z0-9]{4}(-[a-z0-9]{4}){3}$")
+READ_HOST_HINT = ("$s = Read-Host 'App Password' -AsSecureString; $env:BSKY_APP_PASSWORD = "
+                  "[Runtime.InteropServices.Marshal]::PtrToStringAuto("
+                  "[Runtime.InteropServices.Marshal]::SecureStringToBSTR($s))")
+
+
+def password_shape(pw: str) -> str:
+    """Mô tả mật khẩu NHẬN ĐƯỢC mà không lộ nó: độ dài + có đúng dạng App Password
+    `xxxx-xxxx-xxxx-xxxx` không. 04/10: ô getpass ẩn trên Windows, user dán ba lần
+    vẫn 401 mà không biết đã dán được gì."""
+    if APP_PW_RE.match(pw or ""):
+        return f"{len(pw)} ký tự, ĐÚNG dạng App Password xxxx-xxxx-xxxx-xxxx"
+    ctrl = sum(1 for c in (pw or "") if ord(c) < 32)
+    extra = f", có {ctrl} ký tự điều khiển (Ctrl+V không dán vào ô ẩn mà gõ ra ^V)" if ctrl else ""
+    return f"{len(pw or '')} ký tự, KHÔNG đúng dạng App Password xxxx-xxxx-xxxx-xxxx{extra}"
+
+
 def login(pds: str, identifier: str, password: str) -> dict:
     try:
         sess = _post("com.atproto.server.createSession",
                      {"identifier": identifier, "password": password}, base=pds.rstrip("/") + "/xrpc/")
     except RuntimeError as e:
         if "401" in str(e) or "AuthenticationRequired" in str(e):
-            raise RuntimeError(f"đăng nhập thất bại cho {identifier} — handle có thật nên App Password "
-                               "sai (dán lại, hoặc tạo mới ở Settings → Privacy and security → App "
-                               "passwords; KHÔNG dùng mật khẩu chính)")
+            if APP_PW_RE.match(password or ""):
+                why = ("mật khẩu đúng dạng App Password mà vẫn bị từ chối ⇒ nó đã bị xoá/thu hồi, "
+                       "hoặc tạo ở TÀI KHOẢN KHÁC — tạo cái mới khi đang đăng nhập đúng "
+                       f"{identifier} (Settings → Privacy and security → App passwords)")
+            else:
+                why = ("dán hỏng — nhập lại qua ô CÓ dấu *: " + READ_HOST_HINT +
+                       " (đếm đủ 19 dấu *), rồi chạy lại script")
+            raise RuntimeError(f"đăng nhập thất bại cho {identifier} — mật khẩu nhận được "
+                               f"{password_shape(password)}; {why}")
         raise
     return {"did": sess["did"], "handle": sess.get("handle") or identifier,
             "token": sess["accessJwt"], "xrpc": pds.rstrip("/") + "/xrpc/"}

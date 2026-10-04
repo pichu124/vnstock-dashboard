@@ -238,3 +238,28 @@ def test_resolve_endpoint_other_error_does_not_block(monkeypatch):
         raise RuntimeError("HTTP 501 com.atproto.identity.resolveHandle: not implemented")
     monkeypatch.setattr(bml, "_get", _boom)
     assert bml.check_identifier("someone.example.com") is None
+
+
+@pytest.mark.parametrize("pw,ok,frag", [
+    ("abcd-efgh-ijkl-mnop", True, "19 ký tự, ĐÚNG dạng"),
+    ("\x16", False, "1 ký tự, KHÔNG đúng dạng"),
+    ("MyMainPassword!", False, "15 ký tự, KHÔNG đúng dạng"),
+])
+def test_password_shape_never_leaks_value(pw, ok, frag):
+    out = bml.password_shape(pw)
+    assert frag in out and (pw not in out or not pw.strip("\x16"))
+    assert ("ký tự điều khiển" in out) is (pw == "\x16")
+
+
+def test_bad_login_explains_pasted_shape_without_echoing(md, env, monkeypatch):
+    monkeypatch.setattr(bml, "_req", FakeAPI({"reuters.com": "did:plc:r"}, login_ok=False))
+    monkeypatch.setenv("BSKY_APP_PASSWORD", "\x16")
+    with pytest.raises(RuntimeError) as ei:
+        bml.main(["--md", str(md), "--yes"])
+    msg = str(ei.value)
+    assert "1 ký tự" in msg and "ký tự điều khiển" in msg and "Read-Host" in msg
+    monkeypatch.setenv("BSKY_APP_PASSWORD", "abcd-efgh-ijkl-mnop")
+    with pytest.raises(RuntimeError) as ei:
+        bml.main(["--md", str(md), "--yes"])
+    assert "ĐÚNG dạng" in str(ei.value) and "TÀI KHOẢN KHÁC" in str(ei.value)
+    assert "abcd-efgh-ijkl-mnop" not in str(ei.value)
