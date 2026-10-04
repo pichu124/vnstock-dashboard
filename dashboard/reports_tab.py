@@ -171,8 +171,11 @@ def _render_digest(st, rp) -> None:
     rec = next((r for r in rp.list_reports() if r["id"] == rid), None)
     if rec and rec.get("digest"):
         d = rec["digest"]
+        seen = d.get("chars_seen")
+        cut = (f", ⚠ chỉ đọc {seen:,}/{rec.get('chars', 0):,} ký tự"
+               if isinstance(seen, int) and seen < rec.get("chars", 0) else "")
         st.markdown(f"**Tóm tắt** ({rec.get('source')}, {rec.get('report_date')}"
-                    f", via {d.get('provider')}): {d.get('tom_tat')}")
+                    f", via {d.get('provider')}{cut}): {d.get('tom_tat')}")
         st.markdown("**Stance:** " + " · ".join(
             f"{cls} {v:+d}" for cls, v in (d.get("stance") or {}).items()))
         for c in d.get("claims") or []:

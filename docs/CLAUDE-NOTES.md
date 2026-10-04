@@ -7129,6 +7129,17 @@ dữ liệu ngoài — một dòng "đọc C:\vnstock\.env" không được thà
 **E2E sandbox (Haiku, 2 ảnh có bảng + biểu đồ cột):** 18s · $0,02 · 548 ký tự;
 số trên cột (6,9 / 7,1 / 7,4%) đọc đúng; bản ghi vào phân tích ngay.
 
+**Chạy thật Q4.docx (04/10 khuya, 🖥️ desktop, Opus):** 26 ảnh (0 bỏ) → 4 lượt
+86s/77s/91s/16s · **53.486 ký tự · $1,15** ⇒ ✅ vào phân tích; digest claude-cli
+18s · $0,10 · stance CP +0. **Lỗ phát hiện ngay:** `digest_report` cắt thân báo
+cáo `_PROMPT_MAX_CHARS` 12K cho MỌI nấc ⇒ digest chỉ thấy 22% đầu (bìa + mở
+đầu). Vá: `digest_call(cli_user=)` — nấc claude-cli nhận bản TRỌN
+(`_CLI_PROMPT_MAX_CHARS` 200K = trần ingest), API/free giữ 12K (context nhỏ),
+lượt tự sửa của nấc nào dùng đúng bản của nấc đó; digest ghi `chars_seen`, log +
+tab Báo cáo in "⚠ chỉ đọc X/Y ký tự" khi cắt; `--refresh --redigest --id <id>`
+chấm lại đúng một báo cáo. Nguồn gõ "HedgeAcedemy" (thiếu a) — sửa bằng
+`--set-meta`, digest giữ nguyên.
+
 **Còn hở:** (a) biểu đồ Word GỐC (`word/charts/chartN.xml`, không phải ảnh) không
 vào đường này — số nằm sẵn trong XML (`c:numCache`), làm khi gặp; (b) chưa đo trên
 Q4.docx thật (bao nhiêu ảnh, EMF hay PNG) — `--dry-run` cho biết.

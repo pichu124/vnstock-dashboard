@@ -64,7 +64,11 @@ _DECAY_ZERO_DAYS = 90
 # 1.0 = các báo cáo nghiêng RÕ một chiều, không phải nhiễu quanh trung lập).
 _TILT_THRESHOLD = 1.0
 
-_PROMPT_MAX_CHARS = 12_000     # phần thân báo cáo đưa vào prompt
+_PROMPT_MAX_CHARS = 12_000     # phần thân báo cáo đưa vào prompt (API + free)
+# Nấc Claude Code (thuê bao, context 200K token) đọc TRỌN báo cáo — 04/10 Q4.docx
+# đọc ảnh ra 53.486 ký tự mà digest chỉ thấy 12K đầu (22%) ⇒ stance dựng trên
+# phần mở đầu. Bằng trần ingest `_REPORT_MAX_CHARS` (200K ký tự ≈ ≤100K token).
+_CLI_PROMPT_MAX_CHARS = 200_000
 _DIGEST_MAX_TOKENS = 700
 
 # Model mặc định — mirror brief agents (ClaudeAgent/OpenAIAgent).
@@ -399,7 +403,8 @@ def _call_free(provider: str, model: str, system: str, user: str,
 
 def digest_call(system: str, user: str, accept=None,
                 feedback=None, *, step: str = "digest",
-                json_schema: "dict | None" = None) -> tuple["str | None", str]:
+                json_schema: "dict | None" = None,
+                cli_user: "str | None" = None) -> tuple["str | None", str]:
     """(raw_text, provider) qua cascade GIẢM DẦN SỨC MẠNH: [claude-cli khi
     engine bước `step` = claude] → Claude API → GPT → mọi model free bậc 1 →
     mọi model free bậc 2 (70B). Provider trả về ghi rõ model free nào đã
@@ -418,6 +423,10 @@ def digest_call(system: str, user: str, accept=None,
     reasoning free suy nghĩ trong <think>…</think> chứa cả JSON nháp —
     không strip thì parse vớ nhầm khối nháp).
 
+    ``cli_user``: bản prompt RIÊNG cho nấc claude-cli (04/10 — báo cáo dài
+    đưa trọn cho Claude Code, các nấc khác giữ bản cắt ``user``). None = dùng
+    ``user`` cho mọi nấc.
+
     (None, '') khi không nấc nào vừa chạy được vừa đạt."""
     _ensure_env_loaded()
     from vnstock_sentiment import strip_think_tags
@@ -429,22 +438,23 @@ def digest_call(system: str, user: str, accept=None,
               f"(JSON hỏng/bị cắt?) — thử nấc sau")
         return False
 
-    rungs: list[tuple[str, "object"]] = []
+    rungs: list[tuple[str, "object", str]] = []
     if _claude_cli_wanted(step):
         rungs.append(("claude-cli",
-                      lambda u: _call_claude_cli(system, u, step, json_schema)))
+                      lambda u: _call_claude_cli(system, u, step, json_schema),
+                      cli_user or user))
     rungs += [
-        ("claude", lambda u: _call_claude(system, u)),
-        ("openai", lambda u: _call_openai(system, u)),
+        ("claude", lambda u: _call_claude(system, u), user),
+        ("openai", lambda u: _call_openai(system, u), user),
     ]
     for provider, model, tokens in _free_ladder():
         rungs.append((f"{provider}:{model}",
                       lambda u, p=provider, m=model, t=tokens:
-                      _call_free(p, m, system, u, max_tokens=t)))
+                      _call_free(p, m, system, u, max_tokens=t), user))
 
     retried = False
-    for name, call in rungs:
-        raw = call(user)
+    for name, call, user_n in rungs:
+        raw = call(user_n)
         if not raw:
             continue
         raw = strip_think_tags(raw)
@@ -457,7 +467,7 @@ def digest_call(system: str, user: str, accept=None,
             except Exception:
                 err = "output không đạt"
             retry_user = (
-                f"{user}\n\n⚠️ OUTPUT TRƯỚC CỦA BẠN KHÔNG ĐẠT — lỗi: {err}\n"
+                f"{user_n}\n\n⚠️ OUTPUT TRƯỚC CỦA BẠN KHÔNG ĐẠT — lỗi: {err}\n"
                 f"Output hỏng (phần đầu):\n{raw[:800]}\n"
                 f"Hãy SỬA ĐÚNG lỗi trên và trả về DUY NHẤT một khối JSON "
                 f"hợp lệ, không thêm bất kỳ chữ nào ngoài JSON.")
@@ -601,16 +611,18 @@ def digest_report(rec: dict, text: "str | None" = None) -> "dict | None":
     if not text.strip():
         return None
     system = _DIGEST_SYSTEM.replace("{keys}", ", ".join(_registry_keys()))
-    user = (f"Nguồn: {rec.get('source', '?')} — ngày báo cáo "
-            f"{rec.get('report_date', '?')} — {rec.get('title') or ''}\n\n"
-            f"{text[:_PROMPT_MAX_CHARS]}")
+    head = (f"Nguồn: {rec.get('source', '?')} — ngày báo cáo "
+            f"{rec.get('report_date', '?')} — {rec.get('title') or ''}\n\n")
+    user = head + text[:_PROMPT_MAX_CHARS]
+    cli_user = head + text[:_CLI_PROMPT_MAX_CHARS]
     # accept = parse được JSON: model trả rác/JSON cụt → trước tiên cho nấc
     # đó 1 lượt TỰ SỬA kèm lời phê cụ thể (feedback — deep-dive DojoAgents
     # 15/07), vẫn hỏng → cascade nấc sau (14/07: Cerebras trả content nhưng
     # JSON hỏng làm digest bỏ cuộc dù OpenRouter còn chưa được thử).
     raw, provider = digest_call(system, user,
                                 accept=lambda r: parse_digest(r) is not None,
-                                feedback=describe_digest_error)
+                                feedback=describe_digest_error,
+                                cli_user=cli_user)
     if not raw:
         print(f"[digest] ❌ {rec['id']}: không nấc nào vừa trả lời vừa ra JSON "
               f"hợp lệ (cần ANTHROPIC/OPENAI key, hoặc GROQ/CEREBRAS/OPENROUTER)")
@@ -626,6 +638,9 @@ def digest_report(rec: dict, text: "str | None" = None) -> "dict | None":
         macro = []
     digest["has_mismatch"] = cross_check_claims(digest["claims"], macro)
     digest["provider"] = provider
+    # Phần thân model THẤY — dưới `chars` của báo cáo = digest dựng trên bản cắt.
+    digest["chars_seen"] = min(len(text), _CLI_PROMPT_MAX_CHARS
+                               if provider.startswith("claude-cli") else _PROMPT_MAX_CHARS)
     digest["digested_at"] = datetime.now().isoformat(timespec="seconds")
     if digest["has_mismatch"]:
         bad = [c for c in digest["claims"] if c.get("mismatch")]
@@ -636,11 +651,15 @@ def digest_report(rec: dict, text: "str | None" = None) -> "dict | None":
     return digest
 
 
-def refresh(redigest: bool = False, max_reports: int = 10) -> list[dict]:
+def refresh(redigest: bool = False, max_reports: int = 10,
+            only: "str | None" = None) -> list[dict]:
     """Digest các báo cáo đủ điều kiện chưa có digest (``redigest=True`` =
-    chấm lại tất cả — dùng khi đổi prompt/extractor). Trả list record đã chấm."""
+    chấm lại tất cả — dùng khi đổi prompt/extractor; ``only`` = chỉ 1 id).
+    Trả list record đã chấm."""
     done: list[dict] = []
     for rec in _rp.load_for_analysis():
+        if only and rec["id"] != only:
+            continue
         if len(done) >= max_reports:
             print(f"[digest] dừng ở {max_reports} báo cáo/lượt (--max để nới)")
             break
@@ -651,9 +670,12 @@ def refresh(redigest: bool = False, max_reports: int = 10) -> list[dict]:
             continue
         _rp.set_digest(rec["id"], digest)
         done.append(rec | {"digest": digest})
+        seen = digest["chars_seen"]
+        cut = (f" · ⚠ chỉ đọc {seen:,}/{rec.get('chars', 0):,} ký tự"
+               if seen < rec.get("chars", 0) else "")
         print(f"[digest] ✅ {rec['id']} [{rec.get('source')}] via "
               f"{digest['provider']} — stance CP "
-              f"{digest['stance']['Cổ phiếu']:+d}")
+              f"{digest['stance']['Cổ phiếu']:+d}{cut}")
     return done
 
 
@@ -718,6 +740,8 @@ def main(argv: "list[str] | None" = None) -> int:
                     help="digest các báo cáo đủ điều kiện chưa có digest")
     ap.add_argument("--redigest", action="store_true",
                     help="cùng --refresh: chấm lại TẤT CẢ (đổi prompt/extractor)")
+    ap.add_argument("--id", metavar="ID", default=None,
+                    help="cùng --refresh/--redigest: chỉ báo cáo này")
     ap.add_argument("--max", type=int, default=10,
                     help="tối đa báo cáo digest mỗi lượt (mặc định 10)")
     ap.add_argument("--show", metavar="ID", help="in digest của 1 báo cáo")
@@ -728,8 +752,12 @@ def main(argv: "list[str] | None" = None) -> int:
     args = ap.parse_args(argv)
 
     if args.refresh or args.redigest:
-        done = refresh(redigest=args.redigest, max_reports=args.max)
+        done = refresh(redigest=args.redigest, max_reports=args.max, only=args.id)
         print(f"[digest] {len(done)} báo cáo đã digest")
+        if args.id and not done and not any(
+                r["id"] == args.id for r in _rp.load_for_analysis()):
+            print(f"[digest] ⚠ {args.id} không nằm trong phân tích (thiếu meta / "
+                  f"không có chữ / quá 90 ngày?) — xem `vnstock_reports.py --list`")
         return 0
     if args.show:
         rec = next((r for r in _rp.list_reports() if r["id"] == args.show), None)
