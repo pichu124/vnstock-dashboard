@@ -59,6 +59,18 @@ def test_parse_real_doc_starter_set_is_the_24_starred():
     assert not wires & {r["handle"] for r in bml.parse_md(bml.DEFAULT_MD, False, include_low=True)}
 
 
+def test_real_doc_browse_set_drops_fake_dead_and_big_outlets():
+    # --check --browse desktop 04/10: 130/131 tồn tại; ⛔ 45 (giả/rỗng, ngừng đăng từ
+    # 2025, báo lớn đăng hàng nghìn bài) ⇒ List đọc thử còn 86.
+    every = {r["handle"] for r in bml.parse_md(bml.DEFAULT_MD, starred_only=False)}
+    assert len(every) == 86
+    assert not every & {"ericbalchunas.bsky.social", "lizannsonders31.bsky.social", "gilliantett.bsky.social",
+                        "byheatherlong.bsky.social", "jkempenergy.bsky.social", "nytimes.com",
+                        "theguardian.com", "wsj.com", "cnbc.com"}
+    assert {"crampell.bsky.social", "conorsen.bsky.social", "liamdenning.bsky.social",
+            "adamtooze.bsky.social", "piie.com", "abnormalreturns.bsky.social"} <= every
+
+
 def test_parse_md_blocked_rows_never_included(tmp_path):
     p = tmp_path / "l.md"
     p.write_text(MD + "| ⛔ | Wire | [`wire.com`](https://x) | wire | ồn | 2026 | cao |\n", encoding="utf-8")
