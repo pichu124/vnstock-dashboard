@@ -214,7 +214,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 
 - `vnstock_news_alert.py` — **cảnh báo tin quan trọng MỖI GIỜ → Telegram**
   (02/10, #31; task `VnStock News Alert` mỗi giờ 24/7 chỉ 🖥️ desktop, KHÔNG
-  nằm trong `all`). Registry `SOURCES`: 12 RSS của `_FEEDS` + 20 nguồn nước ngoài
+  nằm trong `all`). Registry `SOURCES`: 11 RSS của `_FEEDS` + 20 nguồn nước ngoài
   RIÊNG `_ALERT_FEEDS` (Bloomberg/WSJ host `feeds.content.dowjones.io`/FT/CNBC/Fed/
   BLS/BEA + Google News `site:reuters.com`… — URL ứng viên, 🖥️ `run.py news-alert
   --diag` xác minh) + Bluesky/X qua env (U68; adapter tin theo mã TẮT, user chốt

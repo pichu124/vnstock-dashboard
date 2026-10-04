@@ -17,7 +17,7 @@
 #      được script TỰ GỠ khi chạy lại — không cần xoá tay.)
 #
 #   3. VnStock News Alert         — moi gio 24/7 ca CN (them 2026-10-02, #31; 24/7 tu 2026-10-04)
-#      RSS (12 feed VN+EN) -> loc tin moi 3h -> Claude Code cham muc do 1-5
+#      RSS (11 feed VN+EN + 20 nguon nuoc ngoai + Bluesky) -> loc tin moi 3h -> Claude Code cham muc do 1-5
 #      -> tin >= 3 day Telegram. Khong tin moi = im lang, khong goi LLM.
 #      Command: python run.py --warehouse data_warehouse news-alert
 #      Chi dang ky o DESKTOP (laptop khong task) — so da-gui nam trong kho
@@ -190,7 +190,7 @@ $TaskDefinitions = @(
             $t.Repetition = $rep
             $t
         }
-        # Mot luot binh thuong < 1 phut (fetch 12 feed ~15-30s + 1 call Claude);
+        # Mot luot binh thuong < 1 phut (fetch ~32 nguon song song ~15-30s + 1 call Claude);
         # 15' la tran an toan khi Claude CLI treo (timeout 180s) + feed cham.
         MaxMinutes  = 15
         Description = "Canh bao tin quan trong moi gio 24/7 (#31, 2026-10-02; 24/7 tu 2026-10-04): RSS -> loc tin 3h -> Claude cham muc do 1-5 -> Telegram. Code gac khung gio: VNSTOCK_NEWS_ALERT_HOURS/DAYS; tat: VNSTOCK_NEWS_ALERT=0"

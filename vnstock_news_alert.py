@@ -512,7 +512,7 @@ def ticker_news_source(tickers: tuple) -> Source:
 
 def _default_sources() -> list:
     """RSS của pipeline (`_FEEDS`: feed Việt lọc từ khoá Việt, feed tiếng Anh
-    trong đó — CNBC/MarketWatch/Yahoo — lọc `_relevant_en` chặt hơn) + nguồn
+    trong đó — CNBC/MarketWatch — lọc `_relevant_en` chặt hơn) + nguồn
     nước ngoài riêng cho cảnh báo (`_ALERT_FEEDS`)."""
     import vnstock_news_feeds as nf
     base = [rss_source(f, relevant=_relevant_en if f.get("lang") == "en" else _NO_FILTER)

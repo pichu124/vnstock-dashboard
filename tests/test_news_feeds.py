@@ -568,3 +568,9 @@ def test_parse_feed_keeps_short_raw_date_for_diag():
     a, b, c = nf.parse_feed(rss, "X")
     assert a["_pub_raw"] == "2 thang 10" and b["_pub_raw"] == "(feed không có thẻ ngày)"
     assert c["_pub_raw"] == "Fri, 02 Oct 2026 09:00:00 +0700" and c["_date_sort"] == "2026-10-02"
+
+
+def test_dead_yahoo_rssindex_stays_removed():
+    # #33 (04/10): --diag desktop — feed trả 200 mà tin mới nhất đứng ở 23/09 suốt 11 ngày.
+    assert not any("finance.yahoo.com/news/rssindex" in f["url"] for f in nf._FEEDS)
+    assert len({f["name"] for f in nf._FEEDS}) == len(nf._FEEDS) == 11

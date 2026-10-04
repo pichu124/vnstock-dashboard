@@ -76,7 +76,10 @@ _FEEDS: list[dict] = [
     # ── Quốc tế (tiếng Anh) ──
     {"name": "MarketWatch Top",      "url": "https://feeds.content.dowjones.io/public/rss/mw_topstories", "lang": "en"},
     {"name": "CNBC Markets",         "url": "https://www.cnbc.com/id/20910258/device/rss/rss.html", "lang": "en"},
-    {"name": "Yahoo Finance",        "url": "https://finance.yahoo.com/news/rssindex", "lang": "en"},
+    # Yahoo Finance `news/rssindex`: đã bỏ (04/10, #33) — `run.py news-alert --diag`
+    # trên desktop: feed vẫn trả 200 nhưng tin mới nhất đứng ở 2026-09-23T01:52Z suốt
+    # 11 ngày ⇒ không đóng góp tin nào cho brief lẫn cảnh báo. Tin Yahoo vẫn tới qua
+    # Google News nếu cần; đừng thêm lại khi --diag chưa thấy ngày mới.
 ]
 
 # Market-moving economic + political keywords (lowercased). Feeds are already
