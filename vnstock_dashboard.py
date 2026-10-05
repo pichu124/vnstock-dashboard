@@ -3624,7 +3624,7 @@ with st.sidebar:
             key="live_mode_toggle",
             help="Động cơ stream real-time toàn thị trường (~1,100 mã), poll mỗi "
                  "2s — nuôi heatmap tab Thị trường, live chart tab Phân tích và "
-                 "Live Scan ở Screener/Dòng Tiền."
+                 "Live Scan (công tắc ngay dưới)."
         )
         st.session_state["live_mode"] = _live_on
         if _live_on:
@@ -3662,7 +3662,28 @@ with st.sidebar:
                     st.caption(f"⚠ {_wss_status['error'][:80]}")
             else:
                 st.caption("⚠ Không khởi động được WSS client")
+
+        # 🔴 Live Scan — MỘT công tắc chung (05/10, user gộp 2 toggle riêng của
+        # Screener + Dòng Tiền). Ở sidebar chung nên render mọi lượt ⇒ không bị
+        # Streamlit dọn state khi chuyển tab (2 toggle cũ tự về OFF mỗi lần rời
+        # tab). Consumer của động cơ: Live Mode tắt ⇒ khoá + kéo về OFF, không
+        # để đứng ON-mà-xám. Widget key tách khỏi cờ `live_scan` như Live Mode.
+        if not _live_on:
+            st.session_state["live_scan_toggle"] = False
+        _scan_on = st.toggle(
+            "Live Scan",
+            key="live_scan_toggle",
+            disabled=not _live_on,
+            help="Quét real-time ở tab ĐANG MỞ: **Screener** — tín hiệu preset "
+                 "mỗi 10s · **Dòng Tiền** — Buy/Sell theo ngành mỗi 15s (không "
+                 "có NN ròng real-time, NN chỉ có cuối ngày). Cần Live Mode bật; "
+                 "chỉ có ích trong phiên 9:00–11:30, 13:00–14:45.",
+        )
+        st.session_state["live_scan"] = bool(_scan_on) and bool(_live_on)
+        if not _live_on:
+            st.caption("🔌 Live Scan cần bật **Real-time WSS** trước.")
     else:
+        st.session_state["live_scan"] = False
         st.caption("⚠ Module `vnstock_wss` chưa có — Live mode không khả dụng")
 
     st.divider()

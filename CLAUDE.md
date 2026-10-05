@@ -250,7 +250,11 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   quét MỖI vòng, ~1.100 mã còn lại mỗi `COLD_EVERY_N` (5) vòng — heatmap bám
   tick mà vẫn giữ Live Scan toàn thị trường. `split_hot_cold` là hàm thuần và
   KHÔNG BAO GIỜ trả vòng quét rỗng. Nhịp thật đọc ở `get_status()["cycle_s"]`
-  và caption sidebar, đừng đoán.
+  và caption sidebar, đừng đoán. Công tắc ở SIDEBAR CHUNG (render mọi lượt — nav
+  `st.pills` chỉ vẽ tab đang mở, widget trong tab bị dọn state khi rời tab):
+  🔴 Live Mode (`live_mode_toggle` → cờ `live_mode`) + Live Scan (05/10 gộp 2 toggle
+  Screener/Dòng Tiền: `live_scan_toggle` → cờ `live_scan`, khoá + về OFF khi
+  Live Mode tắt). Tab chỉ ĐỌC cờ — `tests/test_live_mode_crosstab.py` canh.
 
 ## Quy ước
 - Output cho người dùng (brief, UI) bằng tiếng Việt; format số kiểu EN

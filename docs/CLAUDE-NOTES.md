@@ -7202,6 +7202,18 @@ cách ly rỗng (lượt cuối …) — sổ cũ: …"; hàng đợi đầy l�
 `'⏱ CHẶNG|\[sync\] auto-heal'`.)
 Desktop merge `b57017e` + `run.py test` full: **3.576 passed · 0 failed / 156s**.
 
+**Gộp Live Scan thành MỘT công tắc sidebar (05/10, user yêu cầu).** Trước: Screener
+`live_scan_on` (quét preset 10s) + Dòng Tiền `mf_live` (Buy/Sell 15s) là 2 toggle
+trong tab — nav `st.pills` chỉ vẽ tab đang mở nên rời tab là Streamlit dọn state,
+quay lại thấy OFF (cùng lớp bug Live Mode 17/08). Nay: sidebar chung, ngay dưới
+Real-time WSS — widget `live_scan_toggle`, cờ thường `live_scan` = toggle AND
+live_mode; Live Mode tắt ⇒ kéo widget về OFF + disabled + caption "cần bật Real-time
+WSS". Hai tab chỉ đọc `live_scan` (vẫn gác `live_mode`), caption chỉ đường khi tắt.
+**Thử thật bằng `streamlit.testing.AppTest` (1.64, vnstock_wss giả + screener_results
+tạm rồi xoá):** mở app → bật Live Mode → bật Live Scan → sang Dòng Tiền → về Screener
+⇒ Live Scan GIỮ ON suốt; tắt Live Mode ⇒ Live Scan OFF + khoá; 0 exception. Test
+cấu trúc + test chạy đúng khối sidebar bằng `exec` thay test 2-toggle cũ.
+
 **Tách Telegram theo kênh (05/10, user chọn "2 group + 1 thư mục").** Telegram không
 có "channel chứa group" — 3 cách dựng hỏi user: 2 group + Folder (chọn) · 1 group 2
 Topic · 2 Channel. Code chung cho cả ba: `vnstock_telegram._creds(channel)` — kênh
