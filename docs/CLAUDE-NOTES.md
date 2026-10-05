@@ -7084,6 +7084,28 @@ qua Dropbox nhưng chỉ desktop chạy nên nhất quán; laptop chạy tay `--
 desktop bỏ bắt bù lượt sau — đừng chạy tay ở laptop ngoài `--dry-run`; (e) chưa
 có khử trùng CHÉO ngôn ngữ bằng code (prompt lo) — đếm `dup` một tuần rồi quyết.
 
+# 🔭 U70. BRIEF 3 KHUNG THỜI GIAN — ĐỀ XUẤT CHỐNG LẬT (05/10, chưa code)
+
+**Hỏi:** 27/08–09/2026 brief đổi risk-off → risk-on → risk-off quá nhanh, nhà đầu tư không
+kịp xoay sở; user muốn nhìn khung dài hơn + vĩ mô, có góc nhìn ngắn/trung/dài hạn.
+**Nguyên nhân gốc (đã đối chiếu tay):** `classify_regime` cộng 7 phiếu → nhãn thẳng
+(≥4 Bull, ≤−4 Bear), KHÔNG trí nhớ/xác nhận, có phiếu 1 phiên (NN 1D) — `vnstock_regime.py:206-217`;
+`_bias_floor_dir` ép Stance ở ±3 / momentum ±50 — `vnstock_brief.py:1327-1343`. Một nhịp hồi 2–3
+phiên lật cả nhãn header lẫn Stance.
+**Replay (Finhay, proxy breadth/A-D):** 15/08–30/09 nhãn 5 mức đổi 17 lần, floor ép Stance đổi 16
+lần (11 ngày TĂNG / 11 GIẢM), 2 vòng Risk-off↔on; Risk-on 24/08 sau +3.6% từ đáy, Risk-off 24/09
+sau −4.2% từ đỉnh — mua theo ON, bán theo OFF lỗ −0.8%. Làm mượt cùng đầu vào (N-of-M, hysteresis,
+dwell) vẫn bật ON cuối 08 — phải đổi KHUNG (tuần), không chỉ làm mượt.
+**Đề xuất** (workflow 23 agent, `docs/THIET-KE-BRIEF-3-KHUNG.md`): ngắn hạn (máy trạng thái trên
+điểm 7 phiếu: nhịp hồi/chưa rõ/nhịp chỉnh) · trung hạn = xu hướng TUẦN (±2% MA40w + MA10w/MA40w,
+xuống 1 tuần, lên 2 tuần; LÀ tiêu đề) · dài hạn (vĩ mô 5 trụ, tháng) · 🚨 rủi ro ngắn hạn tách riêng
+(không lật xu hướng) · lớp bảo vệ = tập cha floor cũ (không ngày nào mất bảo vệ) · Stance TĂNG chỉ
+khi trung hạn TĂNG, GIẢM không bao giờ bị cấm · kẹp band v1 không tăng ngược xu hướng · mọi mức
+kích hoạt code giải sẵn. Replay giai đoạn: tiêu đề ĐI NGANG suốt → GIẢM 02/10; Stance bị ép đổi 2
+lần (cũ 16), 0 đảo TĂNG↔GIẢM. Cái giá: không ăn nhịp +7.3%; Stance chậm (12 vs 8 phiên); trung hạn
+trễ ~61 phiên ở khúc quay lớn; n=1 + tham số chọn sau khi thấy giai đoạn ⇒ P0 hiệu chỉnh trên kho
+thật + chạy bóng trước khi bật. **Chờ user chốt 13 câu §8.**
+
 # 👁 U69. CLAUDE CODE ĐỌC ẢNH BÁO CÁO KHÔNG CÓ LỚP TEXT (04/10 tối)
 
 **Vết:** user thêm `Q4.docx` (id `57ab0fd0d74c6cb5`) ở tab Báo cáo ⇒ 0 ký tự, trạng
