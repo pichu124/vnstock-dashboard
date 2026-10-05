@@ -21,8 +21,8 @@ def test_all_steps_no_sync_drops_sync_and_validate_only():
     # phần còn lại giữ NGUYÊN thứ tự pipeline đêm (train SAU audit — rec vừa
     # đóng thì strategy health mới có số; TRƯỚC reflection)
     assert names == ["screener", "news", "foreign-flow", "macro", "gold",
-                     "allocation", "test", "audit", "train", "reflection",
-                     "doctor", "brief"]
+                     "horizons", "allocation", "test", "audit", "train",
+                     "reflection", "doctor", "brief"]
 
 
 def test_all_steps_no_sync_no_news():

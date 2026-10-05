@@ -958,6 +958,58 @@ def check_env_duplicates() -> dict:
         "lấy dòng SAU CÙNG) rồi chạy lại doctor. .env theo MÁY — máy kia tự soi riêng")
 
 
+def check_horizons(now: "datetime | None" = None) -> dict:
+    """Brief 3 khung CHẠY BÓNG (P1a, `docs/THIET-KE-BRIEF-3-KHUNG.md` §3.10):
+    state có theo kịp bar VNINDEX trong kho không, gấp lại từ inputs đã lưu có
+    ra đúng bản đã ghi không (F1), close đã ghi có bị sửa sau đó không
+    (revision), có conflicted copy không. Brief CHƯA đọc state (tới P1b) ⇒
+    badge này chỉ warn, không bao giờ error."""
+    name = "Brief 3 khung (chạy bóng)"
+    if os.environ.get("VNSTOCK_HORIZONS_STEP", "1").strip().lower() in _OFF_VALUES:
+        return _result("horizons", name, "off", "tắt (VNSTOCK_HORIZONS_STEP=0)", "")
+    try:
+        import vnstock_horizons_state as hs
+        from vnstock_rollup import session_covered_at
+    except Exception as e:
+        return _result("horizons", name, "warn", f"không import được ({type(e).__name__}: {e})", "")
+    wh = _META.parent
+    fix_init = ("○ một lần, NGOÀI khung pipeline desktop (18:00 → '⏱ TỔNG'): "
+                "python run.py horizons --backfill")
+    if not hs.state_path(wh).exists():
+        return _result("horizons", name, "warn", "chưa có state (P1a vừa merge?)", fix_init)
+    st = hs.load_state(wh)
+    pub = st.get("published") or []
+    if not pub:
+        return _result("horizons", name, "warn", "state rỗng", fix_init)
+    last = pub[-1]
+    issues, fixes = [], []
+    conflicted = sorted(f.name for f in _META.glob("horizon_state*conflicted*"))
+    if conflicted:
+        issues.append(f"conflicted copy: {', '.join(conflicted[:2])}")
+        fixes.append("○ xoá bản '(conflicted copy)' trong _meta (bản tên gốc là bản đang dùng)")
+    dates, _ = hs.load_vnindex(wh)
+    covered = session_covered_at(now or datetime.now())
+    expect = max((d for d in dates if d <= covered), default=None)
+    if expect and str(last.get("as_of")) < expect.isoformat():
+        issues.append(f"cũ: bản cuối {last.get('as_of')}, kho đã có bar {expect}")
+        fixes.append("🖥️ DESKTOP: Select-String -Path run_daily.log -Pattern '\\[horizons\\]' "
+                     "| Select-Object -Last 3 · chạy tay: ○ python run.py horizons")
+    v = hs.verify(st, wh, last=20)
+    if v["fold_mismatch"]:
+        issues.append(f"gấp lại ≠ bản đã ghi: {', '.join(v['fold_mismatch'][:3])}")
+        fixes.append("○ python run.py horizons --replay rồi gửi output cho Claude")
+    if v["revisions"]:
+        issues.append(f"close đã ghi bị sửa trong kho (revision): {', '.join(v['revisions'][:3])}")
+        fixes.append("không đổi state (gấp từ input đã lưu) — chỉ cần biết; soi bằng "
+                     "python run.py horizons --replay")
+    n_live = sum(1 for p in pub if p.get("source") == "live")
+    head = f"{hs.headline(last)} · {n_live} phiên live"
+    if issues:
+        return _result("horizons", name, "warn", "; ".join(issues) + f" · {head}", " · ".join(fixes))
+    return _result("horizons", name, "ok",
+                   f"{head}, gấp lại khớp {v['live']}/{v['live']}", "")
+
+
 def check_telegram() -> dict:
     name = "Telegram push"
     tok = bool((os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip())
@@ -1646,7 +1698,7 @@ OFFLINE_CHECKS = [
     check_warehouse, check_market_overview, check_gtgd_coverage,
     check_fundamentals, check_macro,
     check_pdf_tooling, check_market_news, check_ticker_news,
-    check_foreign_flow, check_events, check_reports, check_allocation,
+    check_foreign_flow, check_events, check_reports, check_allocation, check_horizons,
     check_llm_keys, check_env_duplicates, check_llm_ledger, check_telegram, check_tests,
 ]
 def net_vn30_basket() -> dict:

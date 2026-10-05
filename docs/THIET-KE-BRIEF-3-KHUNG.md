@@ -1,6 +1,6 @@
 # Brief theo 3 khung thời gian: tiêu đề trung hạn đổi chậm, Stance không lật sang TĂNG khi xu hướng chưa TĂNG, lớp bảo vệ nhanh tách riêng
 
-> **Trạng thái: ĐÃ CHỐT 05/10 — P0 code xong (`vnstock_horizons.py` + `scripts/replay_horizons.py`), chờ user chạy trên kho thật** (user: "theo khuyến nghị hết" cả 13 câu §8 + §7.3; câu 11: brief sáng thi thoảng mới dùng, chạy tay là chính ⇒ brief sáng chỉ ĐỌC state đã tính, không thêm logic riêng). Đề xuất gốc 05/10/2026. Dựng bằng workflow 23 agent: 5 người đọc code + 1 người dựng dữ liệu VNINDEX (Finhay) → replay bộ phân loại regime hiện tại → 3 bản thiết kế độc lập (đa khung / chống lật / neo vĩ mô) × 3 giám khảo (nhà đầu tư · kỹ thuật · định lượng; điểm 6.8 / 6.6 / 6.0) → tổng hợp → 2 phản biện → bản cuối. Nguyên nhân gốc §2 đã đối chiếu lại tay với `vnstock_regime.py:206-217` và `vnstock_brief.py:1327-1343`.
+> **Trạng thái: ĐÃ CHỐT 05/10 — P0 XONG trên kho thật (kết quả cuối §6 P0) · P1a code xong (`vnstock_horizons_state.py`, bước pipeline `horizons` chạy bóng) · chờ user chốt kẹp tỷ trọng ĐI NGANG trước P1b** (user: "theo khuyến nghị hết" cả 13 câu §8 + §7.3; câu 11: brief sáng thi thoảng mới dùng, chạy tay là chính ⇒ brief sáng chỉ ĐỌC state đã tính, không thêm logic riêng). Đề xuất gốc 05/10/2026. Dựng bằng workflow 23 agent: 5 người đọc code + 1 người dựng dữ liệu VNINDEX (Finhay) → replay bộ phân loại regime hiện tại → 3 bản thiết kế độc lập (đa khung / chống lật / neo vĩ mô) × 3 giám khảo (nhà đầu tư · kỹ thuật · định lượng; điểm 6.8 / 6.6 / 6.0) → tổng hợp → 2 phản biện → bản cuối. Nguyên nhân gốc §2 đã đối chiếu lại tay với `vnstock_regime.py:206-217` và `vnstock_brief.py:1327-1343`.
 > Script nghiên cứu (`scratchpad/brief_design/...` nhắc trong bài) chỉ nằm ở sandbox, KHÔNG có trong repo — P0 viết lại gọn thành `scripts/replay_horizons.py` chạy trên kho thật.
 
 > **Về số liệu.** Mọi số "replay" trong tài liệu được dựng lại từ dữ liệu Finhay: VNINDEX 2017–2026 và khối ngoại (NN) từ 10/2021, **có gồm giao dịch thỏa thuận**. Breadth và A/D là số ước lượng (proxy). Dữ liệu được chạy qua chính các hàm của repo (`classify_regime`, `compute_market_sentiment`, `_bias_floor_dir`).
@@ -700,6 +700,16 @@ Dòng ngắn hạn trong 🔭 vẫn đổi chữ (nhịp chỉnh → chưa rõ �
 - Hiệu chỉnh ngưỡng T1–T6 theo phân vị, và chốt tham số theo **vùng phẳng** (biên ±1–3%, cấu hình 8–12 tuần / 30–50 tuần), không chọn theo điểm tối ưu.
 - Bạn ký các quyết định ở §8.
 
+**✅ Kết quả P0 trên kho thật (user chạy 05/10, 🖥️):**
+- Kho có VNINDEX **683 phiên từ 02/01/2024** — đủ MA40 tuần từ ~10/2024; NN cache 80 phiên (từ 08/06/2026).
+- **Breadth tái dựng khớp ctx đã in: lệch TB 0.8 điểm % trên 58 phiên** (0.4 trên 26 phiên 27/08–09) ⇒ backfill tin được.
+- Floor cũ replay khớp floor đã in **51/58** — phần lệch do momentum thật có tin tức/vĩ mô (replay không có); hệ mới bỏ momentum khỏi luật ép nên không ảnh hưởng.
+- **Brief đã gửi thật** 01/06–02/10: 58 brief, Stance đổi 23 lần, đảo TĂNG↔GIẢM 6; riêng 17/08–02/10: 26 brief, đổi 12, đảo 6. Nhãn header đổi **48 lần / 87 phiên**. Hệ mới cùng dữ liệu: Stance bị ép đổi 7 (cả cửa sổ) / 2 (giai đoạn), **0 lần đảo**, 0 ngày được TĂNG trong 15/08–30/09.
+- Bảo vệ giai đoạn 17/08–02/10: floor cũ GIẢM 44% số phiên → mức cứng 44% (đúng các phiên đó), mềm 3%.
+- **Vùng phẳng trên kho (2.7 năm)** lặp lại đúng kết quả Finhay: 12/12 tổ hợp MA8–10w/30–40w × ±1–3% không TĂNG trong giai đoạn; MA12w/50w thì CÓ. Cầu chì 8%: rời TĂNG Q1-2026 ở −10.9% (không cầu chì −13.4%). **⇒ Giữ nguyên tham số chốt** (MA10w/MA40w ±2%, cầu chì 8%, lên 2 tuần).
+- **Phát hiện mới — tỷ trọng (allocation history):** B4 15% → **B3 30% ngày 27/08** (1,831.56, sát đỉnh nhịp) → B4 15% ngày 22/09 (1,816.93) → B3 trộn ~28% (bản 02/10 ghi lúc 05/10 00:10). Kẹp v1 đã duyệt (chỉ chặn tăng khi trung hạn GIẢM hoặc 🚨) chặn được cú 05/10 nhưng **KHÔNG chặn được 27/08** — hôm đó trung hạn ĐI NGANG, 🚨 tắt. ⇒ cần user chốt thêm (xem cuối §8).
+- Script in trống phần registry vĩ mô (registry lồng dưới khoá `indicators`) — đã sửa; P2 chạy lại.
+
 ### P1a — Tính và chạy bóng (~4–5 ngày công + ≥5 phiên chạy bóng; brief không đổi)
 - **File chạm:**
   - `vnstock_horizons.py` (mới): ngắn hạn, trung hạn + bộ giải 2 ràng buộc, 🚨, lớp bảo vệ, fold, backfill, cổng ghi.
@@ -936,6 +946,11 @@ Chạy lại trên cùng dữ liệu Finhay 2017-12 → 2026-10 (`scratchpad/bri
 | 11 | Bạn cho biết còn đọc brief sáng không — không thì bỏ phần 🔭 cho brief sáng, bớt công P1 | ✅ |
 | 12 | Đồng ý | kỹ thuật |
 | 13 | Không phải quyết định — là việc ○ bạn chạy khi tôi viết xong script P0 | việc |
+
+
+**❓ Câu 14 (mới, sau P0 — cần chốt trước P1b): kẹp tỷ trọng khi trung hạn ĐI NGANG.**
+- (A) Giữ như đã duyệt: chỉ chặn tăng % cổ phiếu khi trung hạn GIẢM hoặc 🚨 bật. Cú 15→30→15% kiểu 27/08–22/09 vẫn xảy ra tới P3.
+- (B, khuyến nghị) **Chỉ được TĂNG % cổ phiếu khi trung hạn TĂNG**; ĐI NGANG/GIẢM chỉ giữ hoặc giảm — cùng nguyên tắc với Stance (TĂNG chỉ khi trung hạn TĂNG). Giai đoạn 27/08–09 giữ 15% suốt. Giá phải trả: suốt một đợt ĐI NGANG (thường 3–4 tháng) tỷ trọng có thể nằm ở mức thấp nhất đã chạm, tới khi trung hạn lên TĂNG hoặc P3 (band v2 đặt gốc theo trung hạn: ĐI NGANG 45%). Tạm thời tới P3, có kill-switch.
 
 ---
 

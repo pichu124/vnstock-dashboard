@@ -34,8 +34,10 @@ import pandas as pd  # noqa: E402
 
 import vnstock_horizons as hz  # noqa: E402
 
-_EMA_ALPHA = 2 / (200 + 1)
-_RUNNER_LOOKBACK_DAYS = 400          # vnstock_runner: cutoff = hôm nay − 400 ngày
+from vnstock_horizons_state import (breadth_history, load_nn,  # noqa: E402,F401
+                                    load_vnindex, read_ticker, tech_frame)
+
+_read_ticker = read_ticker            # tên cũ (test + P0 đã dùng)
 _EPISODE = ("2026-08-15", "2026-09-30")
 _CRASHES = [("2018-04-09", "2018-07-05"), ("2020-01-20", "2020-03-24"),
             ("2022-04-05", "2022-11-15"), ("2025-03-25", "2025-04-09"),
@@ -43,126 +45,6 @@ _CRASHES = [("2018-04-09", "2018-07-05"), ("2020-01-20", "2020-03-24"),
 
 
 # ── Đọc kho ──────────────────────────────────────────────────────────────
-
-def _read_ticker(td: Path, min_year: int | None = None) -> pd.DataFrame:
-    frames = []
-    for yd in sorted(td.glob("year=*")):
-        try:
-            if min_year and int(yd.name.split("=")[1]) < min_year:
-                continue
-        except ValueError:
-            continue
-        for pf in yd.glob("*.parquet"):          # kể cả "(conflicted copy)"
-            try:
-                frames.append(pd.read_parquet(pf))
-            except Exception:
-                continue
-    if not frames:
-        return pd.DataFrame()
-    df = pd.concat(frames, ignore_index=True)
-    df.columns = [str(c).lower() for c in df.columns]
-    for col in ("time", "trading_date", "date"):
-        if col in df.columns:
-            df = df.rename(columns={col: "time"})
-            break
-    if "time" not in df.columns or "close" not in df.columns:
-        return pd.DataFrame()
-    df["time"] = pd.to_datetime(df["time"]).dt.normalize()
-    return (df.sort_values("time").drop_duplicates("time", keep="last")
-              .reset_index(drop=True))
-
-
-def load_vnindex(warehouse: Path) -> tuple[list[date], list[float]]:
-    for sym in ("VNINDEX", "VN-INDEX", "^VNINDEX"):
-        df = _read_ticker(warehouse / "prices" / f"ticker={sym}")
-        if df.empty:
-            continue
-        c = df["close"].astype(float)
-        if c.iloc[-1] > 5000:                    # như vnstock_brief._load_vnindex_df
-            c = c / 1000
-        return hz.dedupe_daily([t.date() for t in df["time"]], c.tolist())
-    return [], []
-
-
-def tech_frame(dates: list[date], closes: list[float]) -> pd.DataFrame:
-    """Kỹ thuật VNINDEX từng phiên — cùng công thức `_vnindex_technicals`."""
-    c = pd.Series(closes, index=pd.to_datetime(dates), dtype=float)
-    d = c.diff(1)
-    up = d.clip(lower=0).ewm(com=13, adjust=False).mean()
-    dn = (-d).clip(lower=0).ewm(com=13, adjust=False).mean()
-    return pd.DataFrame({
-        "close": c, "ma20": c.rolling(20).mean(), "ma50": c.rolling(50).mean(),
-        "ma200": c.rolling(200).mean(),
-        "rsi14": 100.0 - 100.0 / (1.0 + up / dn.replace(0, np.nan)),
-        "chg": (c / c.shift(1) - 1.0) * 100,
-    })
-
-
-def load_nn(warehouse: Path) -> dict[str, float]:
-    p = warehouse / "_meta" / "foreign_net_daily.json"
-    try:
-        raw = json.loads(p.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    out = {}
-    for d, rec in raw.items():
-        try:
-            out[str(d)[:10]] = float(rec["net"])
-        except (KeyError, TypeError, ValueError):
-            continue
-    return out
-
-
-def breadth_history(warehouse: Path, targets: list[date]) -> dict[date, dict]:
-    """% mã trên EMA200 + A/D cho TỪNG phiên, đếm như `compute_market_overview`:
-    mã ≥5 bar trong 400 ngày lùi vào mẫu số; EMA200 (adjust=False) bắt đầu ở bar
-    đầu cửa sổ, chỉ tính khi ≥200 bar; A/D = bar cuối so bar liền trước.
-    EMA cửa sổ = EMA toàn chuỗi − (1−α)^k·(F[lo] − x[lo]) — O(1) mỗi phiên."""
-    if not targets:
-        return {}
-    tgt = np.array([np.datetime64(d) for d in targets])
-    cut = tgt - np.timedelta64(_RUNNER_LOOKBACK_DAYS, "D")
-    n_t = len(tgt)
-    total = np.zeros(n_t, int); above = np.zeros(n_t, int)
-    adv = np.zeros(n_t, int); dec = np.zeros(n_t, int)
-    min_year = targets[0].year - 2
-    for td in sorted((warehouse / "prices").glob("ticker=*")):
-        tk = td.name.split("=", 1)[1]
-        if len(tk) > 5 or not tk.isalpha():
-            continue
-        df = _read_ticker(td, min_year)
-        if len(df) < 5:
-            continue
-        x = df["close"].astype(float).to_numpy()
-        x = np.where(x > 500, x / 1000, x)       # vnstock_runner._normalize_prices
-        t = df["time"].to_numpy().astype("datetime64[D]")
-        f = pd.Series(x).ewm(alpha=_EMA_ALPHA, adjust=False).mean().to_numpy()
-        hi = np.searchsorted(t, tgt, side="right") - 1
-        lo = np.searchsorted(t, cut, side="left")
-        n = hi - lo + 1
-        ok = (hi >= 0) & (n >= 5)
-        total += ok
-        has200 = ok & (n >= 200)
-        if has200.any():
-            h, l_ = hi[has200], lo[has200]
-            ema = f[h] - (1 - _EMA_ALPHA) ** (h - l_) * (f[l_] - x[l_])
-            above[np.where(has200)[0][x[h] > ema]] += 1
-        two = ok & (n >= 2)
-        if two.any():
-            h = hi[two]
-            diff = x[h] - x[h - 1]
-            idx = np.where(two)[0]
-            adv[idx[diff > 0]] += 1
-            dec[idx[diff < 0]] += 1
-    out = {}
-    for i, d in enumerate(targets):
-        if total[i]:
-            out[d] = {"total": int(total[i]),
-                      "above_ma200_pct": round(above[i] / total[i] * 100, 1),
-                      "advances": int(adv[i]), "declines": int(dec[i]),
-                      "ad_ratio": round(adv[i] / max(dec[i], 1), 2)}
-    return out
-
 
 def printed_briefs(warehouse: Path) -> dict[str, dict]:
     """Brief chiều đã gửi thật: mỗi ngày lấy bản HỢP LỆ mới nhất (mode=ro)."""
@@ -200,29 +82,24 @@ def printed_briefs(warehouse: Path) -> dict[str, dict]:
 
 def replay(dates, closes, breadth: dict, nn: dict, params: hz.MediumParams,
            rows_from: date | None = None) -> pd.DataFrame:
-    """Điểm cũ chấm từ `rows_from`; tầng trung hạn/🚨 gấp từ ĐẦU lịch sử."""
-    from vnstock_brief import _bias_floor_dir
-    from vnstock_market_sentiment import compute_market_sentiment
-    from vnstock_regime import classify_regime
+    """Điểm cũ chấm từ `rows_from`; tầng trung hạn/🚨 gấp từ ĐẦU lịch sử.
+    Chấm điểm dùng CHUNG `vnstock_horizons_state.score_inputs` với bước pipeline."""
+    from vnstock_horizons_state import score_inputs
 
-    tf = tech_frame(dates, closes)
+    targets = [d for d in dates if rows_from is None or d >= rows_from]
+    sc = score_inputs(dates, closes, targets, breadth, nn)
+    close_of = dict(zip(dates, closes))
     rows = []
-    for d, r in zip(dates, tf.itertuples()):
-        if not np.isfinite(r.ma200) or (rows_from and d < rows_from):
+    for d in targets:
+        if d not in sc:
             continue
-        tech = {"close": r.close, "ma20": r.ma20, "ma50": r.ma50, "ma200": r.ma200,
-                "rsi14": round(float(r.rsi14), 1),
-                "day_change_pct": round(float(r.chg), 2)}
-        b = breadth.get(d, {})
-        nn_d = nn.get(d.isoformat())
-        reg = classify_regime(tech, b, round(nn_d, 1) if nn_d is not None else 0.0)
-        mom = compute_market_sentiment(b, nn_d, tech).get("momentum")
-        rows.append({"date": d, "close": r.close, "chg": round(float(r.chg), 2),
-                     "score": reg["score"], "n": reg["n_signals"],
-                     "label_old": reg["label"], "momentum": mom,
-                     "floor_old": _bias_floor_dir(mom, reg["score"]) or "-",
-                     "breadth_pct": b.get("above_ma200_pct"),
-                     "ad_ratio": b.get("ad_ratio"), "nn": nn_d})
+        x = sc[d]
+        i = dates.index(d)
+        chg = (closes[i] / closes[i - 1] - 1) * 100 if i else 0.0
+        rows.append({"date": d, "close": close_of[d], "chg": round(chg, 2),
+                     "score": x["score"], "n": x["n"], "label_old": x["label_old"],
+                     "momentum": x["momentum"], "floor_old": x["floor_old"] or "-",
+                     "breadth_pct": x["breadth_pct"], "nn": x["nn"]})
     df = pd.DataFrame(rows).set_index("date")
     df["short"] = hz.short_series(df.score.tolist(), df.n.tolist())
     weeks = hz.medium_series(dates, closes, params)
@@ -257,7 +134,8 @@ def summary(df: pd.DataFrame, printed: dict, dates, closes, params) -> None:
     print(f"  MỚI ngắn hạn đổi {_changes(df.short)} · trung hạn đổi {_changes(df.medium)} · "
           f"Stance ép đổi {_changes(fz)} · đảo {_reversals(fz, 'TĂNG', 'GIẢM')} · "
           f"ngày được TĂNG {int(df.stance_allowed.str.contains('TĂNG').sum())}")
-    print(f"  bảo vệ cứng {(df.protect == 'cứng').mean()*100:.0f}% · mềm "
+    print(f"  floor cũ GIẢM {(df.floor_old == 'GIẢM').mean()*100:.0f}% phiên → "
+          f"bảo vệ cứng {(df.protect == 'cứng').mean()*100:.0f}% · mềm "
           f"{(df.protect == 'mềm').mean()*100:.0f}% · 🚨 bật {(df.alert > 0).mean()*100:.0f}% phiên")
     pr = [(d, printed[d.isoformat()]) for d in df.index if d.isoformat() in printed]
     if pr:
@@ -330,6 +208,7 @@ def macro_depth(warehouse: Path) -> None:
         reg = json.loads(p.read_text(encoding="utf-8"))
     except Exception:
         print("\n== Vĩ mô: không đọc được macro_indicators.json =="); return
+    reg = reg.get("indicators", reg) if isinstance(reg, dict) else {}
     print("\n== Độ sâu registry vĩ mô (số lần đọc · đầu → cuối) ==")
     try:
         from vnstock_macro import dense_history

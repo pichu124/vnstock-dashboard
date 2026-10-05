@@ -7084,6 +7084,32 @@ qua Dropbox nhưng chỉ desktop chạy nên nhất quán; laptop chạy tay `--
 desktop bỏ bắt bù lượt sau — đừng chạy tay ở laptop ngoài `--dry-run`; (e) chưa
 có khử trùng CHÉO ngôn ngữ bằng code (prompt lo) — đếm `dup` một tuần rồi quyết.
 
+# 🔭 U72. BRIEF 3 KHUNG — KẾT QUẢ P0 TRÊN KHO THẬT + P1a CHẠY BÓNG (05/10)
+
+**P0 (user chạy 🖥️ 05/10):** kho VNINDEX 683 phiên từ 02/01/2024 · breadth tái dựng vs ctx đã in
+lệch TB 0.8 điểm % / 58 phiên (0.4 / 26 phiên giai đoạn) · floor replay khớp floor đã in 51/58 (lệch
+do momentum thật có tin/vĩ mô) · brief THẬT 01/06–02/10: 58 brief, Stance đổi 23, đảo 6; nhãn header
+đổi 48/87 phiên · hệ mới: ép đổi 7, đảo 0 · vùng phẳng trên kho lặp đúng Finhay (MA8–10w/30–40w
+không TĂNG 08–09, MA12w/50w có) ⇒ GIỮ tham số. Script P0 in trống registry vĩ mô vì registry lồng
+dưới `indicators` — đã sửa.
+**Phát hiện mới — allocation:** band B4 15% → B3 30% ngày 27/08 (1,831.56) → B4 22/09 → B3 trộn ~28%
+(bản 02/10 ghi 05/10 00:10). Kẹp v1 đã duyệt chỉ chặn khi trung hạn GIẢM/🚨 ⇒ chặn được cú 05/10
+nhưng KHÔNG chặn 27/08 (ĐI NGANG, 🚨 tắt). Đề xuất câu 14 (B): chỉ tăng % cổ phiếu khi trung hạn
+TĂNG, tạm tới P3 — **chờ user chốt trước P1b**.
+**P1a (code, chạy bóng — brief KHÔNG đổi):** `vnstock_horizons_state.py` — đọc kho dùng chung với
+script P0 (`read_ticker/load_vnindex/breadth_history/score_inputs`), `_meta/horizon_state.json`
+{inputs, published append-only}, `fold()` gấp từ input đã lưu (close-only cho lịch sử, điểm cho
+phiên có chấm), `update()` cổng ghi: as_of = bar mới nhất ≤ `session_covered_at` (trước 15:05 =
+phiên trước), bản live đã có ⇒ no-op (bản backfill thì live ghi đè), `--force`; breadth live lấy
+`market_overview.json` khi `data_date` khớp, không thì tái dựng; `backfill(days)` không bao giờ đè
+live; `verify()` = F1 (gấp lại == published) + revision (close lưu vs parquet >0.1%); `replay_check`
+thêm F2 (điểm backfill == điểm live). `run.py`: bước `horizons` sau gold/trước allocation, không bao
+giờ trả 2; `run.py horizons --show|--backfill [--days]|--replay|--force`. Doctor `check_horizons`
+(warn: thiếu state / cũ so bar kho / fold≠published / revision / conflicted copy; off khi
+`VNSTOCK_HORIZONS_STEP=0`, main nạp `.env`). 19 test `tests/test_horizons_state.py` (whitelist
+`--fast`; test kill-switch chặn `load_dotenv` để `.env` máy thật không lọt). Full sandbox: 3,568
+passed, tập lỗi môi trường y hệt gốc. Kho giả chạy backfill→update→show→replay→doctor 2.4s.
+
 # 🔭 U71. BRIEF 3 KHUNG — CHỐT + P0: LÕI `vnstock_horizons.py` + REPLAY KHO THẬT (05/10)
 
 **User chốt:** "theo khuyến nghị hết" cả 13 câu §8 + 5 cách giảm "cái giá" §7.3 (cầu chì 8%,

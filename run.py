@@ -828,6 +828,7 @@ def cmd_test(args) -> int:
             "tests/test_doctor_kill_switches.py",
             "tests/test_doctor_env_duplicates.py",  # khoá trùng .env (05/10)
             "tests/test_horizons.py",     # lõi brief 3 khung (P0, 05/10)
+            "tests/test_horizons_state.py",  # brief 3 khung chạy bóng (P1a)
             "tests/test_unit_badge_verdict.py",
             "tests/test_unit_continuity.py",
             "tests/test_price_basis_probe.py",
@@ -986,6 +987,28 @@ def cmd_gold(args) -> int:
     the scorecard's Vàng proxy just skips missing dates."""
     rc = _run([sys.executable, str(REPO_ROOT / "vnstock_gold.py"), "--refresh"])
     return 1 if rc != 0 else 0
+
+
+def cmd_horizons(args) -> int:
+    """Brief 3 khung — CHẠY BÓNG (P1a, docs/THIET-KE-BRIEF-3-KHUNG.md §3.10).
+
+    Trong pipeline (sau gold, trước allocation): ghi `_meta/horizon_state.json`
+    cho phiên phủ — đã có bản live thì no-op (máy chạy sau / laptop "Cập nhật
+    còn lại"). Brief CHƯA đọc file này (P1b). Không bao giờ trả 2: lỗi ở đây
+    không được chặn brief. Kill-switch: VNSTOCK_HORIZONS_STEP=0.
+    Tay: `run.py horizons --show | --backfill [--days N] | --replay | --force`."""
+    script = str(REPO_ROOT / "vnstock_horizons_state.py")
+    if getattr(args, "backfill", False):
+        return _run([sys.executable, script, "--backfill",
+                     "--days", str(getattr(args, "days", 120) or 120)])
+    if getattr(args, "show", False):
+        return _run([sys.executable, script, "--show"])
+    if getattr(args, "replay", False):
+        return _run([sys.executable, script, "--replay"])
+    cmd = [sys.executable, script, "--update"]
+    if getattr(args, "force", False):
+        cmd.append("--force")
+    return 1 if _run(cmd) != 0 else 0
 
 
 def cmd_rates_weekly(args) -> int:
@@ -1579,6 +1602,7 @@ def _all_steps(args) -> "list[tuple[str, object]]":
         ("foreign-flow", cmd_foreign_flow),
         ("macro",        cmd_macro),
         ("gold",         cmd_gold),
+        ("horizons",     cmd_horizons),
         ("allocation",   cmd_allocation),
         ("test",         cmd_test),
         ("audit",        cmd_audit),
@@ -2036,6 +2060,16 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Refresh asset-allocation band B0-B4 + scorecard")
     sub.add_parser("gold",
                    help="Refresh gold-spot cache (display-only, vnstock_gold.py)")
+    hp = sub.add_parser("horizons",
+                        help="Brief 3 khung chạy bóng: ghi trạng thái phiên phủ "
+                             "(mặc định) / --show / --backfill / --replay")
+    hg = hp.add_mutually_exclusive_group()
+    hg.add_argument("--show", action="store_true", help="in trạng thái + 10 phiên gần nhất")
+    hg.add_argument("--backfill", action="store_true",
+                    help="một lần sau khi merge: dựng lịch sử từ kho (○, ghi 1 file _meta)")
+    hg.add_argument("--replay", action="store_true", help="kiểm F1/F2/revision")
+    hp.add_argument("--force", action="store_true", help="ghi đè phiên đã có")
+    hp.add_argument("--days", type=int, default=120, help="--backfill: số phiên chấm điểm")
     sub.add_parser("reflection",
                    help="Rút bài học từ rec/kỳ band đã đóng (vnstock_reflection.py)")
     sub.add_parser("train",
@@ -2142,6 +2176,7 @@ _DISPATCH = {
     "macro": cmd_macro,
     "rates-weekly": cmd_rates_weekly,
     "gold": cmd_gold,
+    "horizons": cmd_horizons,
     "allocation": cmd_allocation,
     "reflection": cmd_reflection,
     "train": cmd_train,
