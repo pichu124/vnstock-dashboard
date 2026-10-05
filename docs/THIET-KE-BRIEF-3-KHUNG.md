@@ -856,6 +856,43 @@ Dòng ngắn hạn trong 🔭 vẫn đổi chữ (nhịp chỉnh → chưa rõ �
 - **3–6 tháng KHÔNG chứng minh được:** lợi thế của trung hạn, của 🚨 hay của nhóm T. Trung hạn chỉ ~3 lần đổi/năm. Chạy bóng chỉ kiểm được ống nước, không kiểm được tín hiệu.
 - **Rollback:** đặt `VNSTOCK_HORIZONS=0` (và tắt kẹp nếu cần) khi có một trong các điều sau: F1 trượt; W1 hoặc W2 vượt ngưỡng 2 kỳ liền; test vòng tròn vỡ trên production; U1 giảm rõ.
 
+### 7.3 Giảm "cái giá" — 5 cách, đã replay (05/10, sau câu hỏi của bạn)
+
+Chạy lại trên cùng dữ liệu Finhay 2017-12 → 2026-10 (`scratchpad/brief_design/mitig/mitig.py`, chỉ đọc). Vẫn là n=1 cho giai đoạn 27/08–09, nhưng 4 phép thử dưới đây đo trên **toàn mẫu 8.8 năm**.
+
+**1. Trung hạn trễ ở đỉnh lớn → thêm "cầu chì drawdown" một chiều (KHUYẾN NGHỊ).** Đang TĂNG mà đóng tuần ≤ 8% dưới đỉnh 60 phiên thì xuống ĐI NGANG ngay tuần đó (vẫn không nhảy thẳng xuống GIẢM; chiều lên giữ nguyên luật 2 tuần).
+
+| Biến thể | Đổi/năm | Bị đảo ≤4 tuần | Rời TĂNG lúc đã giảm từ đỉnh: 2018 · 2020 · 04-2022 · 04-2025 · Q1-2026 | 27/08–09 có TĂNG? |
+|---|---|---|---|---|
+| Thiết kế §3.5 | 3.2 | 3/28 | −20.0% · −4.3% · −9.3% · −9.1% · **−13.4%** | không |
+| **+ cầu chì 8%** | **4.3** | **8/38** | **−12.8%** · −4.3% · −9.3% · −9.1% · **−10.9%** | không |
+| + cầu chì 6% | 5.4 | 18/48 | −7.0% · −4.3% · −9.3% · −9.1% · −7.7% | không |
+| cầu chì 8% + rời GIẢM khi hồi ≥10–15% | 6.8–8.6 | 28–42/60–76 | như dòng 8% | không |
+
+- 8% là điểm cân bằng: bớt 2.5–7 điểm % ở 2 cú sập trung hạn từng ngủ quên, đổi lại +1.1 lần đổi/năm và 5 lần bị đảo nhanh thêm trong 8.8 năm.
+- 6% nhanh hơn nhưng nhiễu gấp đôi. **Cầu chì đối xứng (rời GIẢM sớm khi hồi mạnh) bị loại**: nó tái tạo đúng kiểu lật bạn phàn nàn (42/76 lần bị đảo).
+
+**2. Lớp bảo vệ bật 51% số phiên → tách 2 mức (KHUYẾN NGHỊ).**
+- **Cứng** = floor cũ GIẢM **hoặc** ≥ 2 trong 4 tín hiệu: chặn bắt đáy, cảnh báo lệnh MUA, chặn GIA TĂNG — **30.1%** số phiên (hệ cũ 22.8%).
+- **Mềm** = đúng 1 tín hiệu và không phải floor cũ: chỉ nhắc "không mua đuổi", không viết lại watchlist — **19.8%** số phiên.
+- Floor cũ một mình **luôn** là cứng: nếu định nghĩa cứng chỉ là "≥ 2 tín hiệu" thì 2.4% số phiên mất bảo vệ so với hôm nay — đã loại. Nhờ vậy mức cứng vẫn là tập cha của hệ cũ (P1 giữ property test).
+- Sau đỉnh nhịp ≥10% (23 đỉnh): mềm bật trung vị ~2 phiên, cứng ~4 phiên (= floor cũ). Riêng 15/08–30/09: cứng 37% số phiên.
+
+**3. "Không ăn được nhịp +7.3%" → giữ lõi, KHÔNG thêm túi lướt.**
+- Ở ĐI NGANG danh mục vẫn cầm 45% cổ phiếu: từ đáy 17/08 tới đỉnh 04/09 phần lõi đã ăn **~3.3 điểm %**. Cái mất chỉ là phần *mua thêm*.
+- Đã thử "túi lướt" thêm cổ phiếu khi nhịp hồi × ĐI NGANG (🚨 tắt): túi tự nó lãi 0.87%/năm, 48% số vòng lỗ ⇒ túi 10% chỉ đóng góp **+0.09 điểm %/năm**. Riêng 15/08–02/10/2026: 2 vòng, **cả 2 lỗ** (−0.1%, −0.8%). Không đáng thêm độ phức tạp, và chính là phương án B trá hình.
+
+**4. Lo tham số "may" (overfit) → đã quét 18 tổ hợp lân cận.**
+- **12/12** tổ hợp MA8w/MA30w và MA10w/MA40w × biên ±1/2/3% × cần 1/2 tuần đều **không TĂNG** trong 27/08–09 và đều ra GIẢM ngày 02/10. Kết luận ĐI NGANG không phải mũi kim của riêng bộ tham số đã chọn.
+- **6/6** tổ hợp chậm hơn MA13w/MA52w lại **bật TĂNG** trong giai đoạn và không rời TĂNG trước cú sập 2018 lẫn Q1-2026 ⇒ khung càng dài **không** càng an toàn; đừng chậm hơn MA10w/MA40w.
+- P0 trên kho thật chọn tham số ở **giữa vùng phẳng** này, không chọn điểm tối ưu.
+
+**5. "Không xoay sở kịp" là chuyện BẤT NGỜ, không chỉ chuyện trễ.**
+- Mức kích hoạt tuần (§3.5) tính được từ **sáng thứ Hai** ⇒ bạn đặt **cảnh báo giá** trên app môi giới ngay tại mức đó. Bước giảm rủi ro có cảnh báo tạm tính trung vị chỉ 1 phiên, nhưng mức tĩnh thì có cả tuần.
+- Brief tối tới tay 21:00–23:15, có khi qua nửa đêm ⇒ **kéo bản 🚨 sớm ~15:10 (đang ở P2) lên P1b** để cảnh báo tới trước giờ ăn tối, task News Alert mỗi giờ ở 🖥️ đã có sẵn chỗ cắm.
+
+**Không làm được bây giờ:** dùng vĩ mô/độ rộng để siết cầu chì khi nền xấu (vd 6% khi dài hạn BẤT LỢI, 8% bình thường) — breadth chỉ có lịch sử từ 06/2026, vĩ mô chưa chấm điểm. Ghi vào P2 để đo, không hứa trước.
+
 ---
 
 ## 8. Câu hỏi cần bạn chốt
@@ -877,6 +914,25 @@ Dòng ngắn hạn trong 🔭 vẫn đổi chữ (nhịp chỉnh → chưa rõ �
 11. **Brief sáng:** còn dùng không (hiện không có task lịch)?
 12. **Header:** gọn 2 dòng (Tâm lý và điểm ngày chuyển vào thân); khối 🔭 nằm ngoài giới hạn 500 từ; brief có thể thành 2 tin.
 13. **P0:** bạn chạy script replay (○) và thử backfill khối ngoại (○, ghi kho một lần).
+
+
+**Khuyến nghị trả lời (05/10, sau §7.3)** — trả lời kiểu "theo khuyến nghị, trừ câu X" là đủ:
+
+| # | Khuyến nghị | Cần bạn quyết thật? |
+|---|---|---|
+| 1 | Đồng ý bỏ Risk-on/off | ✅ |
+| 2 | Luật chính, **không** phương án B (túi lướt ở §7.3 cho thấy B gần như không thêm lợi nhuận) | ✅ |
+| 3 | Đồng ý, **kèm bảo vệ 2 mức** mềm/cứng (§7.3 mục 2) | ✅ |
+| 4 | Đồng ý, **kèm cầu chì 8%** cho bước TĂNG→ĐI NGANG (§7.3 mục 1) | ✅ |
+| 5 | Đồng ý kẹp + 3 vá (chặn được cú 15→~28→15% của 05/10) | ✅ |
+| 6 | Ngưỡng như đề xuất; tin 🚨 gửi **kênh chính** (group Brief — là tín hiệu danh mục, không phải tin tức); **có** bản sớm ~15:10 và kéo lên P1b | ✅ kênh + thời điểm |
+| 7 | Đồng ý | kỹ thuật |
+| 8 | Đồng ý | kỹ thuật |
+| 9 | Hoãn — quyết ở P3 khi có số chạy bóng | để sau |
+| 10 | Có bản tin thứ Bảy; brief tháng lên Telegram tuỳ bạn | ✅ |
+| 11 | Bạn cho biết còn đọc brief sáng không — không thì bỏ phần 🔭 cho brief sáng, bớt công P1 | ✅ |
+| 12 | Đồng ý | kỹ thuật |
+| 13 | Không phải quyết định — là việc ○ bạn chạy khi tôi viết xong script P0 | việc |
 
 ---
 
