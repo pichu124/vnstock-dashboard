@@ -1,6 +1,6 @@
 # Brief theo 3 khung thời gian: tiêu đề trung hạn đổi chậm, Stance không lật sang TĂNG khi xu hướng chưa TĂNG, lớp bảo vệ nhanh tách riêng
 
-> **Trạng thái: ĐỀ XUẤT — chưa code** (05/10/2026). Dựng bằng workflow 23 agent: 5 người đọc code + 1 người dựng dữ liệu VNINDEX (Finhay) → replay bộ phân loại regime hiện tại → 3 bản thiết kế độc lập (đa khung / chống lật / neo vĩ mô) × 3 giám khảo (nhà đầu tư · kỹ thuật · định lượng; điểm 6.8 / 6.6 / 6.0) → tổng hợp → 2 phản biện → bản cuối. Nguyên nhân gốc §2 đã đối chiếu lại tay với `vnstock_regime.py:206-217` và `vnstock_brief.py:1327-1343`.
+> **Trạng thái: ĐÃ CHỐT 05/10 — P0 code xong (`vnstock_horizons.py` + `scripts/replay_horizons.py`), chờ user chạy trên kho thật** (user: "theo khuyến nghị hết" cả 13 câu §8 + §7.3; câu 11: brief sáng thi thoảng mới dùng, chạy tay là chính ⇒ brief sáng chỉ ĐỌC state đã tính, không thêm logic riêng). Đề xuất gốc 05/10/2026. Dựng bằng workflow 23 agent: 5 người đọc code + 1 người dựng dữ liệu VNINDEX (Finhay) → replay bộ phân loại regime hiện tại → 3 bản thiết kế độc lập (đa khung / chống lật / neo vĩ mô) × 3 giám khảo (nhà đầu tư · kỹ thuật · định lượng; điểm 6.8 / 6.6 / 6.0) → tổng hợp → 2 phản biện → bản cuối. Nguyên nhân gốc §2 đã đối chiếu lại tay với `vnstock_regime.py:206-217` và `vnstock_brief.py:1327-1343`.
 > Script nghiên cứu (`scratchpad/brief_design/...` nhắc trong bài) chỉ nằm ở sandbox, KHÔNG có trong repo — P0 viết lại gọn thành `scripts/replay_horizons.py` chạy trên kho thật.
 
 > **Về số liệu.** Mọi số "replay" trong tài liệu được dựng lại từ dữ liệu Finhay: VNINDEX 2017–2026 và khối ngoại (NN) từ 10/2021, **có gồm giao dịch thỏa thuận**. Breadth và A/D là số ước lượng (proxy). Dữ liệu được chạy qua chính các hàm của repo (`classify_regime`, `compute_market_sentiment`, `_bias_floor_dir`).
@@ -861,6 +861,7 @@ Dòng ngắn hạn trong 🔭 vẫn đổi chữ (nhịp chỉnh → chưa rõ �
 Chạy lại trên cùng dữ liệu Finhay 2017-12 → 2026-10 (`scratchpad/brief_design/mitig/mitig.py`, chỉ đọc). Vẫn là n=1 cho giai đoạn 27/08–09, nhưng 4 phép thử dưới đây đo trên **toàn mẫu 8.8 năm**.
 
 **1. Trung hạn trễ ở đỉnh lớn → thêm "cầu chì drawdown" một chiều (KHUYẾN NGHỊ).** Đang TĂNG mà đóng tuần ≤ 8% dưới đỉnh 60 phiên thì xuống ĐI NGANG ngay tuần đó (vẫn không nhảy thẳng xuống GIẢM; chiều lên giữ nguyên luật 2 tuần).
+- *Code (P0):* đỉnh đo trên **12 đóng tuần** thay cho 60 phiên ngày — replay trùng hệt từng dòng bảng dưới, nhưng trung hạn chỉ nhận giá đóng tuần (nhiễu giữa tuần không đổi được nó).
 
 | Biến thể | Đổi/năm | Bị đảo ≤4 tuần | Rời TĂNG lúc đã giảm từ đỉnh: 2018 · 2020 · 04-2022 · 04-2025 · Q1-2026 | 27/08–09 có TĂNG? |
 |---|---|---|---|---|
@@ -873,8 +874,8 @@ Chạy lại trên cùng dữ liệu Finhay 2017-12 → 2026-10 (`scratchpad/bri
 - 6% nhanh hơn nhưng nhiễu gấp đôi. **Cầu chì đối xứng (rời GIẢM sớm khi hồi mạnh) bị loại**: nó tái tạo đúng kiểu lật bạn phàn nàn (42/76 lần bị đảo).
 
 **2. Lớp bảo vệ bật 51% số phiên → tách 2 mức (KHUYẾN NGHỊ).**
-- **Cứng** = floor cũ GIẢM **hoặc** ≥ 2 trong 4 tín hiệu: chặn bắt đáy, cảnh báo lệnh MUA, chặn GIA TĂNG — **30.1%** số phiên (hệ cũ 22.8%).
-- **Mềm** = đúng 1 tín hiệu và không phải floor cũ: chỉ nhắc "không mua đuổi", không viết lại watchlist — **19.8%** số phiên.
+- **Cứng** = floor cũ GIẢM **hoặc** ≥ 2 trong 4 tín hiệu: chặn bắt đáy, cảnh báo lệnh MUA, chặn GIA TĂNG — **~30%** số phiên (hệ cũ 22.8%).
+- **Mềm** = đúng 1 tín hiệu và không phải floor cũ: chỉ nhắc "không mua đuổi", không viết lại watchlist — **~20–21%** số phiên (19.8% với trung hạn bản nghiên cứu, 21.0% với trung hạn đúng luật §3.5 trong `vnstock_horizons`).
 - Floor cũ một mình **luôn** là cứng: nếu định nghĩa cứng chỉ là "≥ 2 tín hiệu" thì 2.4% số phiên mất bảo vệ so với hôm nay — đã loại. Nhờ vậy mức cứng vẫn là tập cha của hệ cũ (P1 giữ property test).
 - Sau đỉnh nhịp ≥10% (23 đỉnh): mềm bật trung vị ~2 phiên, cứng ~4 phiên (= floor cũ). Riêng 15/08–30/09: cứng 37% số phiên.
 
@@ -915,6 +916,8 @@ Chạy lại trên cùng dữ liệu Finhay 2017-12 → 2026-10 (`scratchpad/bri
 12. **Header:** gọn 2 dòng (Tâm lý và điểm ngày chuyển vào thân); khối 🔭 nằm ngoài giới hạn 500 từ; brief có thể thành 2 tin.
 13. **P0:** bạn chạy script replay (○) và thử backfill khối ngoại (○, ghi kho một lần).
 
+
+**✅ ĐÃ CHỐT 05/10: theo khuyến nghị toàn bộ bảng dưới.** Câu 11: brief sáng thi thoảng mới dùng, chạy tay là chính ⇒ chỉ đọc lại state (header + 🔭 + lớp bảo vệ cho "Hành động ưu tiên"), KHÔNG làm logic/khối riêng cho sáng.
 
 **Khuyến nghị trả lời (05/10, sau §7.3)** — trả lời kiểu "theo khuyến nghị, trừ câu X" là đủ:
 

@@ -7084,6 +7084,36 @@ qua Dropbox nhưng chỉ desktop chạy nên nhất quán; laptop chạy tay `--
 desktop bỏ bắt bù lượt sau — đừng chạy tay ở laptop ngoài `--dry-run`; (e) chưa
 có khử trùng CHÉO ngôn ngữ bằng code (prompt lo) — đếm `dup` một tuần rồi quyết.
 
+# 🔭 U71. BRIEF 3 KHUNG — CHỐT + P0: LÕI `vnstock_horizons.py` + REPLAY KHO THẬT (05/10)
+
+**User chốt:** "theo khuyến nghị hết" cả 13 câu §8 + 5 cách giảm "cái giá" §7.3 (cầu chì 8%,
+bảo vệ 2 mức, KHÔNG túi lướt, vùng phẳng tham số, 🚨 sớm 15:10 lên P1b). Câu 11: brief sáng
+thi thoảng mới dùng, chạy tay ⇒ chỉ ĐỌC state, không khối/logic riêng cho sáng.
+**§7.3 replay (Finhay 2017-12→2026-10, `scratchpad/brief_design/mitig/mitig.py`):** cầu chì
+TĂNG→ĐI NGANG khi đóng tuần ≤8% dưới đỉnh: rời TĂNG ở 2018 −20.0%→−12.8%, Q1-2026 −13.4%→−10.9%;
+đổi 3.2→4.3/năm, đảo ≤4 tuần 3/28→8/38 (6% nhiễu gấp đôi; cầu chì ĐỐI XỨNG rời GIẢM sớm 42/76
+đảo — loại). Túi lướt 10% khi hồi×ĐI NGANG: +0.09 điểm %/năm, 48% vòng lỗ, 2 vòng 08–09/2026 đều
+lỗ. 12/12 tổ hợp MA8–10w/30–40w × ±1–3% × 1–2 tuần không TĂNG trong 08–09; MA12–13w/50–52w thì CÓ
+(khung dài hơn KHÔNG an toàn hơn). Bảo vệ "cứng = ≥2 tín hiệu" làm mất 2.4% phiên so với floor cũ
+⇒ cứng = floor cũ GIẢM HOẶC ≥2 tín hiệu (tập cha giữ nguyên).
+**Code (chưa nối pipeline/brief — production KHÔNG đổi):**
+* `vnstock_horizons.py` — lõi THUẦN: `short_step/short_series` (nhảy thẳng hồi→chỉnh, cấm
+  chỉnh→hồi), `medium_series/medium_daily` (tuần ISO, tuần dở bỏ, thứ Sáu nghỉ ⇒ hiệu lực phiên
+  đầu tuần sau), `trigger_levels` (2 ràng buộc + cầu chì, "chưa thể" khi >8% hoặc > đỉnh 52 tuần),
+  `alert_series` (🚨 neo cố định), `protection_level` (2 mức), `stance_rule` (bảng §3.4).
+  **Cầu chì đo trên đỉnh 12 ĐÓNG TUẦN, không phải đỉnh 60 phiên ngày**: replay trùng hệt, nhưng
+  trung hạn chỉ nhận đóng tuần (nhiễu giữa tuần không đổi được nó — có property test).
+  Đối chiếu Finhay: ngắn hạn 27.1 đổi/năm · trung hạn 3.2 / 4.3 (cầu chì) · 🚨 khớp 100% bản thiết
+  kế · mức 28/08 = 1,841.56 / 1,749.84 · rời GIẢM tuần 09/10 = 1,803.15 (đều có test neo).
+* `scripts/replay_horizons.py` — P0, CHỈ ĐỌC: VNINDEX (khử trùng conflicted copy), breadth/A-D
+  tái dựng THEO NGÀY đúng cách runner đếm (EMA200 cửa sổ 400 ngày tính O(1) bằng
+  F[hi] − (1−α)^k·(F[lo] − x[lo]); test so với cách đếm tay từng phiên), NN cache, brief đã in
+  (`brief_memory.db` mode=ro, bản hợp lệ mới nhất/ngày), vùng phẳng 18 biến thể, độ sâu registry
+  vĩ mô. Kho giả (VNINDEX thật + 40 mã) chạy 1.7s.
+* Test: `tests/test_horizons.py` (39, whitelist `--fast`) + `tests/test_replay_horizons.py` (5,
+  chỉ full). Sandbox thiếu `vnstock` ⇒ 51 lỗi môi trường, tập lỗi TRƯỚC/SAU thay đổi giống hệt.
+**Tiếp:** user chạy P0 (○, ngoài khung pipeline) → dán output → chốt tham số → P1a.
+
 # 🔭 U70. BRIEF 3 KHUNG THỜI GIAN — ĐỀ XUẤT CHỐNG LẬT (05/10, chưa code)
 
 **Hỏi:** 27/08–09/2026 brief đổi risk-off → risk-on → risk-off quá nhanh, nhà đầu tư không
@@ -7104,7 +7134,7 @@ khi trung hạn TĂNG, GIẢM không bao giờ bị cấm · kẹp band v1 khôn
 kích hoạt code giải sẵn. Replay giai đoạn: tiêu đề ĐI NGANG suốt → GIẢM 02/10; Stance bị ép đổi 2
 lần (cũ 16), 0 đảo TĂNG↔GIẢM. Cái giá: không ăn nhịp +7.3%; Stance chậm (12 vs 8 phiên); trung hạn
 trễ ~61 phiên ở khúc quay lớn; n=1 + tham số chọn sau khi thấy giai đoạn ⇒ P0 hiệu chỉnh trên kho
-thật + chạy bóng trước khi bật. **Chờ user chốt 13 câu §8.**
+thật + chạy bóng trước khi bật. **User đã chốt 05/10 — xem U71.**
 
 # 👁 U69. CLAUDE CODE ĐỌC ẢNH BÁO CÁO KHÔNG CÓ LỚP TEXT (04/10 tối)
 

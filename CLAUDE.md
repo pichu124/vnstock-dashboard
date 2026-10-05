@@ -107,7 +107,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 - Sửa module lõi nào → `python run.py test --fast` (~2.773 test; ~45s trên CI,
   86s máy thật 15/09 tối). Danh sách file `--fast` là WHITELIST trong `run.py` —
   thêm file test mới thì phải ghi vào đó, không thì `--fast` không chạy nó.
-- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, ~3.592 test — 🖥️ desktop 05/10 3.592 passed / 156–242s; test đọc env PHẢI xoá biến theo TIỀN TỐ — `.env` máy thật lọt vào pytest, 05/10 suýt mất brief). **Đổi slug/migration ⇒ chạy FULL trước khi push**: 30/09 test ghim slug NGOÀI whitelist còn qwen chết ⇒ phát dừng ở bước test, MẤT brief (U65).
+- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, ~3.636 test — 🖥️ desktop 05/10 3.592 passed / 156–242s; test đọc env PHẢI xoá biến theo TIỀN TỐ — `.env` máy thật lọt vào pytest, 05/10 suýt mất brief). **Đổi slug/migration ⇒ chạy FULL trước khi push**: 30/09 test ghim slug NGOÀI whitelist còn qwen chết ⇒ phát dừng ở bước test, MẤT brief (U65).
   Đo trên MÁY THẬT (💻 laptop) 09/09: **3.158 passed / 161,8s** tại `c969d6a` — khớp
   CI từng test một (máy thật chậm hơn ~3× vì có kho dữ liệu, không phải vì bỏ test).
 - Kết quả ghi `data_warehouse/_meta/test_status.json` → badge sidebar.
@@ -171,6 +171,10 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   `--tools Read` xem ảnh trong thư mục tạm, chép thành text ⇒ `vnstock_reports.set_text`
   (`text_via=claude-vision`) rồi digest như thường. Gọi tay (nút 👁 / CLI), được ăn cả
   (U69, 04/10). `vnstock_claude_cli.complete(tools=, cwd=)` mặc định vẫn 0 công cụ.
+- `vnstock_horizons.py` — brief 3 khung (U70/U71, `docs/THIET-KE-BRIEF-3-KHUNG.md`, chốt 05/10):
+  lõi THUẦN ngắn hạn/trung hạn tuần (+cầu chì 8% trên đỉnh 12 đóng tuần)/mức kích hoạt/🚨/
+  bảo vệ 2 mức/bảng Stance. CHƯA nối pipeline/brief (P1a/P1b). P0: `scripts/replay_horizons.py`
+  (chỉ đọc kho, breadth tái dựng theo ngày) — replay và production dùng CHUNG lõi này.
 - `vnstock_corp_ratio` — đọc TỈ LỆ QUYỀN từ tiêu đề sự kiện (hàm thuần).
   `adjusts_price(title)` lọc sự kiện chỉ chốt danh sách DỰ HỌP (ĐHĐCĐ, lấy ý
   kiến bằng văn bản) — chúng KHÔNG đổi giá tham chiếu, gắn ⚠️ GDKHQ cho chúng
