@@ -580,3 +580,44 @@ def test_bot_identity_reads_getme(_clean_tg_env, monkeypatch):
     with patch("requests.get", return_value=resp) as mg:
         assert tg.bot_identity("news") == "@News_hourly_bot (VnStock Hourly Update)"
     assert "botNEWS/getMe" in mg.call_args[0][0]
+
+
+def _migrated_resp(new_id):
+    bad = MagicMock()
+    bad.status_code = 400
+    bad.ok = False
+    bad.json.return_value = {"ok": False, "error_code": 400,
+                             "description": "Bad Request: group chat was upgraded to a supergroup chat",
+                             "parameters": {"migrate_to_chat_id": new_id}}
+    return bad
+
+
+def test_send_message_follows_supergroup_migration_and_says_which_env_var(
+        _clean_tg_env, monkeypatch, capsys):
+    """05/10: user đổi quyền thành viên ⇒ Telegram nâng CẢ 2 group lên supergroup,
+    id đổi, cả 2 bot câm. Phải đi theo id mới (mọi phần của tin dài) + réo .env."""
+    monkeypatch.setenv("TELEGRAM_NEWS_BOT_TOKEN", "NEWS")
+    monkeypatch.setenv("TELEGRAM_NEWS_CHAT_ID", "-5480122941")
+    good = MagicMock()
+    good.status_code = 200
+    good.ok = True
+    good.json.return_value = {"ok": True}
+    long_text = "\n".join(["dòng tin " + "x" * 80] * 80)          # > 4096 ⇒ nhiều phần
+    with patch("requests.post",
+               side_effect=[_migrated_resp(-1003001), good, good, good, good]) as mp:
+        out = tg.send_message(long_text, channel="news")
+    assert out["ok"] is True
+    ids = [c[1]["json"]["chat_id"] for c in mp.call_args_list]
+    assert ids[0] == "-5480122941" and all(i == -1003001 for i in ids[1:])
+    assert "parse_mode" in mp.call_args_list[1][1]["json"]      # vẫn HTML, không rơi plain
+    assert "TELEGRAM_NEWS_CHAT_ID=-1003001" in capsys.readouterr().out
+
+
+def test_send_message_migration_hint_names_default_var(_clean_tg_env, monkeypatch, capsys):
+    good = MagicMock()
+    good.status_code = 200
+    good.ok = True
+    good.json.return_value = {"ok": True}
+    with patch("requests.post", side_effect=[_migrated_resp(-1009), good]):
+        tg.send_message("brief", channel="news")              # kênh news chưa có chat riêng
+    assert "TELEGRAM_CHAT_ID=-1009" in capsys.readouterr().out

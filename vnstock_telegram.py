@@ -148,6 +148,22 @@ def _tg_error_detail(resp) -> str:
             return ""
 
 
+def _migrated_to(resp) -> "int | str | None":
+    """id supergroup mới khi Telegram báo group cũ đã bị nâng cấp (400 kèm
+    `parameters.migrate_to_chat_id`), không thì None."""
+    try:
+        return (resp.json().get("parameters") or {}).get("migrate_to_chat_id") or None
+    except Exception:
+        return None
+
+
+def _chat_var(channel: "str | None") -> str:
+    """Biến .env đang cấp chat id cho kênh (kênh thiếu biến riêng ⇒ mặc định)."""
+    if channel and (os.environ.get(channel_env(channel)[1]) or "").strip():
+        return channel_env(channel)[1]
+    return "TELEGRAM_CHAT_ID"
+
+
 def send_message(text: str, parse_mode: str = "HTML", allow_links: bool = False,
                  channel: "str | None" = None) -> dict:
     """Send text to the configured Telegram chat. Long briefs are split into
@@ -176,12 +192,19 @@ def send_message(text: str, parse_mode: str = "HTML", allow_links: bool = False,
     resp_json: dict = {}
     for i, part in enumerate(parts):
         body = part if n == 1 else f"{part}\n<i>({i + 1}/{n})</i>"
-        resp = requests.post(url, json={
-            "chat_id":                  chat,
-            "text":                     body,
-            "parse_mode":               parse_mode,
-            "disable_web_page_preview": True,
-        }, timeout=15)
+        payload = {"chat_id": chat, "text": body, "parse_mode": parse_mode,
+                   "disable_web_page_preview": True}
+        resp = requests.post(url, json=payload, timeout=15)
+        new_id = _migrated_to(resp) if getattr(resp, "status_code", None) == 400 else None
+        if new_id:
+            # Group bị Telegram NÂNG lên supergroup (đổi quyền thành viên, cho
+            # bot làm admin, đổi lịch sử…) ⇒ id ĐỔI, id cũ trả 400 mãi. Đi theo
+            # id mới ngay để brief/tin không mất, và réo sửa .env (05/10: user
+            # đổi quyền cả 2 group ⇒ cả 2 bot câm).
+            print(f"[telegram] ⚠️ group đã thành supergroup — gửi tới id mới {new_id}. "
+                  f"Sửa .env: {_chat_var(channel)}={new_id}")
+            chat = new_id
+            resp = requests.post(url, json={**payload, "chat_id": chat}, timeout=15)
         if getattr(resp, "status_code", None) == 400 and parse_mode:
             detail = _tg_error_detail(resp)
             print(f"[telegram] ⚠️ HTML bị từ chối ở phần {i + 1}/{n} "
