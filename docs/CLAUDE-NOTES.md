@@ -5984,6 +5984,14 @@ MỘT ảnh chụp `_meta/fundamentals_history/fundamentals-YYYY-MM.parquet` (b�
 6–12 tháng nữa backtest tầng đầu tư cơ bản không dính look-ahead. Snapshot
 đầu tiên tự rơi vào lần update fundamentals kế tiếp trên máy user.
 
+> ⚠️ **06/10 (U17): 3 ảnh chụp 08·09·10 đều GIẢ** (3 mã AAA/BBB/CCC — test
+> `test_fundamental_cf` trước `4ad92f7` chụp vào kho THẬT, và vì "bản đầu
+> tháng thắng" mà test chạy mỗi đêm trước bước `fundamentals` T7 ⇒ ảnh thật
+> không lần nào ghi được). User xoá cả 3 trên 💻 laptop. ⇒ Lịch sử point-in-time
+> **chưa có tháng thật nào**; 08 và 09 MẤT HẲN (API chỉ trả số hiện tại);
+> ảnh thật đầu tiên = bước `fundamentals` T7 10/10. Mốc "6–12 tháng" ở trên
+> tính lại từ 10/2026.
+
 ### Còn lại của lộ trình dài hạn (chờ 2 việc trên máy thật)
 
 1. ✅ User chạy `python vnstock_reachability.py` → số chọn horizon + TP
