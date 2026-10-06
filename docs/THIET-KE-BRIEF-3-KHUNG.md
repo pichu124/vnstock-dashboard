@@ -382,7 +382,8 @@ Biểu tượng đổi từ ⚡ sang 🚨, vì ⚡ đang là mục "## ⚡ Biế
 ### 3.8 Tỷ trọng: một con số, và con số đó không được tăng ngược xu hướng
 
 **P1 — band v1 giữ nguyên tham số đã chốt, cộng (nếu bạn duyệt) một kẹp và 3 vá cơ học:**
-- **Kẹp `VNSTOCK_ALLOC_HORIZON_CAP`:** trong `run_allocation`, sau `apply_tilt`, nếu trung hạn GIẢM hoặc 🚨 bật mà % cổ phiếu mới **cao hơn** % hiệu lực hôm trước, thì giữ nguyên cả bảng % và band hiệu lực cũ.
+- **Kẹp `VNSTOCK_ALLOC_HORIZON_CAP`:** trong `run_allocation`, sau `apply_tilt`, nếu trung hạn **KHÁC TĂNG** (ĐI NGANG hoặc GIẢM — câu 14 = B, chốt 06/10) hoặc 🚨 bật mà % cổ phiếu mới **cao hơn** % hiệu lực hôm trước, thì giữ nguyên cả bảng % và band hiệu lực cũ. Giảm thì luôn đi qua.
+  - Ca 27/08 (trung hạn ĐI NGANG, 🚨 tắt, B4 15% → B3 30% ở 1,831.56) bị giữ 15% — bản duyệt đầu (chỉ chặn khi GIẢM) không chặn được ca này (P0).
   - Ghi `capped_by:"horizons"` kèm band/% đề xuất.
   - Kẹp chặn cả phần trôi do tilt phai theo lịch. Ví dụ: cú 15 → ~28% lúc 05/10 00:10 sẽ bị chặn, vì trung hạn đã GIẢM từ 02/10.
   - Hết kẹp thì tăng tối đa 1 bậc/tuần (~15 điểm %), có "⏳" báo trước 1 tuần.
@@ -391,7 +392,7 @@ Biểu tượng đổi từ ⚡ sang 🚨, vì ⚡ đang là mục "## ⚡ Biế
 - **Vá 2:** nút dashboard (`allocation_tab.py:70-73`) không ghi ngày mới khi overview là giữa phiên (`reason=intraday`). Khi đó chỉ tính và hiện.
 - **Vá 3:** ghi `pending` vào `_history_entry` (`:529-544`).
 - **Hiển thị:**
-  - Brief in "💼 Cổ phiếu Y% (band Bx)". Khi kẹp đang giữ thì in thêm "band dữ liệu đề xuất Z% — giữ Y% vì trung hạn GIẢM".
+  - Brief in "💼 Cổ phiếu Y% (band Bx)". Khi kẹp đang giữ thì in thêm "band dữ liệu đề xuất Z% — giữ Y% vì trung hạn GIẢM" (hoặc "… vì trung hạn ĐI NGANG").
   - `raw_band`/`pending` **chỉ hiện ở dashboard**, không vào brief. Đó là điểm tổng hợp ngày nhiều nhiễu; in ra như "báo trước" là sai.
 
 **P2 — band v2 chạy bóng** (dashboard/CLI, nhãn "thử nghiệm", **không vào brief**):
@@ -584,7 +585,7 @@ Phiên 01/10 (trung hạn còn ĐI NGANG nên 🚨 hiện):
 - Trung hạn (xu hướng tuần): GIẢM, tuần 1; chỉ 9% mã trên MA200 — cổ phiếu trung vị yếu hơn chỉ số. Vĩ mô–dòng tiền: độ tin cậy TRUNG BÌNH (bất lợi: độ rộng · thuận: tỷ giá* · trung tính: khối ngoại*, PMI · chưa đo: thanh khoản, chênh lệch 10 năm). → [≤1 câu agent]
 - Dài hạn (6–12 tháng): chưa đủ dữ liệu (2/5 trụ: tăng trưởng thuận — GDP Q3 tăng tốc*; báo cáo bất lợi — HedgeAcademy Q4). Chấm lại tháng 11.
 - 🚨 Rủi ro ngắn hạn: BẬT từ 01/10, thấp hơn đỉnh ~1,853 (04/09) 6.2%; lên mức 2 nếu đóng < ~1,668 (90% đỉnh neo) hoặc thêm 1 phiên ≤ -2.5%. Không đổi xu hướng.
-- 💼 Cổ phiếu 15% theo band (B4); không tăng khi trung hạn GIẢM hoặc 🚨 bật. Nên: giữ tỷ trọng thấp, không bắt đáy theo 1–2 phiên xanh; hạ trước mã đã thủng MA50.
+- 💼 Cổ phiếu 15% theo band (B4); không tăng khi trung hạn chưa TĂNG hoặc 🚨 bật. Nên: giữ tỷ trọng thấp, không bắt đáy theo 1–2 phiên xanh; hạ trước mã đã thủng MA50.
 ```
 
 **(C) Danh mục đang giữ** — dòng dữ kiện thêm trạng thái MA50 do code tính; hành động neo theo lớp bảo vệ + band:
@@ -756,7 +757,7 @@ Dòng ngắn hạn trong 🔭 vẫn đổi chữ (nhịp chỉnh → chưa rõ �
   - `_detect_stance` khi có TLDR dòng 3;
   - state cũ hoặc hỏng thì fallback đúng floor cũ;
   - `VNSTOCK_HORIZONS=0` cho prompt, template và header **giống hệt bản trước P1** (golden);
-  - kẹp v1: % cổ phiếu không tăng khi GIẢM/🚨, kể cả lúc tilt phai; hết kẹp thì ≤1 bậc/tuần; vá 1 bậc; nút giữa phiên không ghi; pending vào history.
+  - kẹp v1: % cổ phiếu không tăng khi trung hạn ĐI NGANG/GIẢM hoặc 🚨 (câu 14 = B), kể cả lúc tilt phai — ca 27/08 ĐI NGANG B4→B3 phải giữ 15%; hết kẹp thì ≤1 bậc/tuần; vá 1 bậc; nút giữa phiên không ghi; pending vào history.
 - **Cập nhật test cũ:**
   - `tests/test_brief.py`: 28 chỗ dùng `bias_floor`, gồm `test_bias_floor_dir_logic` `:2810-2816` (momentum đứng một mình không còn ép);
   - `tests/test_regime.py` (nhãn);
@@ -916,7 +917,7 @@ Chạy lại trên cùng dữ liệu Finhay 2017-12 → 2026-10 (`scratchpad/bri
    - Hay phương án B: nhịp hồi × ĐI NGANG vẫn cho TĂNG?
 3. **Chấp nhận Stance chậm hơn** (12 so với 8 phiên sau đỉnh), bù bằng lớp bảo vệ nhanh nhưng bật ~51% số phiên.
 4. **Luật trung hạn tuần** (±2% quanh MA40 tuần + MA10w/MA40w; xuống 1 tuần, lên 2 tuần; rời TĂNG khi đóng dưới MA40 tuần), kèm độ trễ ~61 phiên.
-5. **Kẹp band v1 từ P1** (không tăng % cổ phiếu khi trung hạn GIẢM hoặc 🚨 bật; hết kẹp thì ≤1 bậc/tuần) và 3 vá cơ học (1 bậc/lần, nút giữa phiên không ghi, pending vào history). Đây là thay đổi trên tham số bạn đã chốt.
+5. **Kẹp band v1 từ P1** (không tăng % cổ phiếu khi trung hạn GIẢM hoặc 🚨 bật — câu 14 = B mở rộng sang ĐI NGANG; hết kẹp thì ≤1 bậc/tuần) và 3 vá cơ học (1 bậc/lần, nút giữa phiên không ghi, pending vào history). Đây là thay đổi trên tham số bạn đã chốt.
 6. **🚨:** ngưỡng 5% / −2.5% / −4%, dwell 5, neo đỉnh lúc bật; header chỉ hiện khi trung hạn chưa GIẢM; tin riêng gửi kênh chính hay kênh `news`; có làm bản sớm ~15:10 không.
 7. **Bảng vĩ mô:** ngưỡng theo phân vị (P0 hiệu chỉnh), chấm theo tuần; dài hạn chỉ in trạng thái khi ≥3/5 trụ đo được.
 8. **Kho dữ liệu chậm** `_meta/macro_slow.json` nằm ngoài trần 13 chỉ báo.
@@ -948,7 +949,9 @@ Chạy lại trên cùng dữ liệu Finhay 2017-12 → 2026-10 (`scratchpad/bri
 | 13 | Không phải quyết định — là việc ○ bạn chạy khi tôi viết xong script P0 | việc |
 
 
-**❓ Câu 14 (mới, sau P0 — cần chốt trước P1b): kẹp tỷ trọng khi trung hạn ĐI NGANG.**
+**✅ Câu 14 — CHỐT 06/10: B** (user trả lời "14: B" sau khi nghe giải thích cái giá: ĐI NGANG có thể giữ tỷ trọng ở mức thấp nhất đã chạm suốt 3–4 tháng; chưa có replay đo phần lợi nhuận bỏ lỡ — đo lại ở P3). §3.8 và test P1b đã sửa theo. Câu hỏi gốc giữ dưới đây.
+
+**Câu 14 (mới, sau P0 — cần chốt trước P1b): kẹp tỷ trọng khi trung hạn ĐI NGANG.**
 - (A) Giữ như đã duyệt: chỉ chặn tăng % cổ phiếu khi trung hạn GIẢM hoặc 🚨 bật. Cú 15→30→15% kiểu 27/08–22/09 vẫn xảy ra tới P3.
 - (B, khuyến nghị) **Chỉ được TĂNG % cổ phiếu khi trung hạn TĂNG**; ĐI NGANG/GIẢM chỉ giữ hoặc giảm — cùng nguyên tắc với Stance (TĂNG chỉ khi trung hạn TĂNG). Giai đoạn 27/08–09 giữ 15% suốt. Giá phải trả: suốt một đợt ĐI NGANG (thường 3–4 tháng) tỷ trọng có thể nằm ở mức thấp nhất đã chạm, tới khi trung hạn lên TĂNG hoặc P3 (band v2 đặt gốc theo trung hạn: ĐI NGANG 45%). Tạm thời tới P3, có kill-switch.
 
