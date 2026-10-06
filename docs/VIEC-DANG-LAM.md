@@ -541,7 +541,23 @@ Desktop giữ 4.0.4 — nó chạy phát tối, không phải chỗ để thử.
 | U14 | Theo dõi **5 phiên chạy bóng**: sáng hôm sau `python run.py horizons --show` + badge doctor "Brief 3 khung (chạy bóng)" ✅; sau phiên thứ 5 chạy `python run.py horizons --replay` rồi dán cả hai cho Claude ⇒ qua P1b | 🖥️ DESKTOP | 5 phiên sau U13 | như bên trái |
 | ~~U15~~ | ✅ **CHỐT 06/10: 14 = B** — chỉ TĂNG % cổ phiếu khi trung hạn TĂNG; ĐI NGANG/GIẢM chỉ giữ hoặc giảm (§3.8 + test P1b đã sửa; code ở P1b) | — | — | — |
 | ~~U16~~ | ✅ **TRẢ LỜI 06/10: câu 1 = b, câu 2 = có** — code xong, VÀO MAIN `bcaf013` (U75, `#35`, 💻 laptop full 3.764 xanh): 🖥️ DESKTOP `git pull` + `python run.py test` (đổi template + chuỗi guard ⇒ bắt buộc FULL, U65) TRƯỚC 18:00; sáng hôm sau ○ `/brief-review` soi mục Rủi ro. Tắt khẩn: `VNSTOCK_BRIEF_RISK_TODAY=0` trong `.env` 🖥️ (không đi qua Dropbox) | 🖥️ DESKTOP | Trước 18:00 | xem cột việc |
-| U17 | **Xoá ảnh chụp cơ bản GIẢ** (test cũ ghi AAA/BBB/CCC vào `_meta/fundamentals_history`) — SAU khi 🖥️ desktop merge `4ad92f7`, không thì đêm sau test đẻ lại | ○ một lần (kho) | Sau merge | xem lệnh trong chat 05/10 |
+| U17 | **Xoá ảnh chụp cơ bản GIẢ** (test cũ ghi AAA/BBB/CCC vào `_meta/fundamentals_history`) — SAU khi 🖥️ desktop có `4ad92f7` (main `bcaf013` đã gồm), không thì test đêm đẻ lại; TRƯỚC T7 10/10: bước `fundamentals` cuối tuần mới ghi ảnh THẬT tháng 10, còn file giả thì "bản đầu tháng thắng" khoá mất. Không chạy giữa 18:00 → `⏱ TỔNG` | ○ một lần (kho) | Sau desktop pull, trước T7 10/10 | lệnh ngay dưới bảng (chạy thử trước, rồi `--apply`) |
+
+Lệnh U17 (PowerShell ở `C:\vnstock`, venv đã kích hoạt; xoá CHỈ file < 50 mã có đủ AAA/BBB/CCC — thử 06/10 trên bản sao):
+```powershell
+@'
+import pandas as pd, pathlib, sys
+d = pathlib.Path("data_warehouse/_meta/fundamentals_history")
+for f in sorted(d.glob("fundamentals-*.parquet")):
+    t = set(pd.read_parquet(f, columns=["ticker"])["ticker"])
+    fake = len(t) < 50 and {"AAA", "BBB", "CCC"} <= t
+    print(f.name, len(t), "mã", "GIẢ" if fake else "thật")
+    if fake and "--apply" in sys.argv:
+        f.unlink(); print("  -> đã xoá")
+'@ | Set-Content $env:TEMP\u17.py -Encoding utf8
+python $env:TEMP\u17.py            # chỉ in
+python $env:TEMP\u17.py --apply    # xoá file GIẢ
+```
 
 **LLM báo cáo vĩ mô (user hỏi 04/10):** digest báo cáo (`vnstock_report_digest.digest_call(step="digest")`, nút 🧠 tab Báo cáo / `python vnstock_report_digest.py --refresh`) ĐÃ đi Claude Code nấc đầu từ 30/09 (#26) khi `VNSTOCK_LLM_ENGINE=claude` (🖥️ desktop có; 💻 laptop thì tuỳ `.env`) — digest cũ trước 30/09 xem "via …" ở tab Báo cáo, chấm lại: `--refresh --redigest`. Brief PHÂN BỔ (nút 📝) trước đây chạy agent ladder (Gemini…) vì agent Claude Code tắt trong config — nay `_allocation_claude_lead` cho Claude Code làm lead khi engine bước brief = claude (ladder vẫn chạy kèm, lỗi CLI vẫn có bản). Báo cáo lãi suất tuần: KHÔNG dùng LLM.
 
