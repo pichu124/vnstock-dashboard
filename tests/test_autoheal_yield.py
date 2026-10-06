@@ -82,3 +82,37 @@ class TestBadgeNeverCriesTooEarly:
 
     def test_empty_ledger_is_ok(self, tmp_path, monkeypatch):
         assert self._doctor(tmp_path, monkeypatch).check_autoheal_yield()["status"] == "ok"
+
+    def test_old_zero_yield_clears_once_the_queue_is_empty(self, tmp_path, monkeypatch):
+        """05/10 desktop: "0/1,291 qua 2 lượt" ⚠️ mãi trong khi hàng đợi rỗng
+        và auto-heal 0s mỗi đêm — lượt RỖNG cuối sổ ⇒ ok, vẫn kể sổ cũ."""
+        _fill(tmp_path, [(800, 0), (491, 0), (0, 0)])
+        r = self._doctor(tmp_path, monkeypatch).check_autoheal_yield()
+        assert r["status"] == "ok" and "hàng đợi cách ly rỗng" in r["message"]
+        assert "0/1,291" in r["message"]
+        _fill(tmp_path, [(300, 0)])                         # hàng đợi đầy lại ⇒ kêu lại
+        assert self._doctor(tmp_path, monkeypatch).check_autoheal_yield()["status"] == "warn"
+
+
+class TestEmptyQueueIsRecorded:
+    def _fake_remediate(self, monkeypatch):
+        import sys
+        import types
+        mod = types.ModuleType("vnstock_remediate")
+        mod.refetch = lambda *a, **k: None
+        monkeypatch.setitem(sys.modules, "vnstock_remediate", mod)
+
+    def test_empty_queue_writes_a_zero_run(self, tmp_path, monkeypatch):
+        import pandas as pd
+        self._fake_remediate(monkeypatch)
+        monkeypatch.setattr(q, "list_quarantine", lambda wh: pd.DataFrame())
+        assert q.auto_heal(tmp_path)["scanned"] == 0
+        st = q.heal_stats(tmp_path)
+        assert st["runs"] == 1 and st["last"]["scanned"] == 0
+
+    def test_dry_run_on_empty_queue_writes_nothing(self, tmp_path, monkeypatch):
+        import pandas as pd
+        self._fake_remediate(monkeypatch)
+        monkeypatch.setattr(q, "list_quarantine", lambda wh: pd.DataFrame())
+        q.auto_heal(tmp_path, dry_run=True)
+        assert q.heal_stats(tmp_path)["runs"] == 0

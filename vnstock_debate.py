@@ -90,7 +90,8 @@ def _summary_from_state(state: dict, consensus: "dict | None") -> str:
              f"— điểm tổng hợp {state.get('score')}, phiên {state.get('as_of')}."]
     rt = state.get("report_tilt") or {}
     if rt.get("tilt"):
-        lines.append(f"Đã gồm tilt {rt['tilt']:+d} band từ {rt.get('n_reports')} "
+        lines.append(f"Đã gồm tilt {rt.get('label') or format(rt['tilt'], '+d') + ' band'} từ "
+                     f"{rt.get('n_reports')} "
                      f"báo cáo (band data: {state.get('band_data')}).")
     lines.append("Tín hiệu dẫn tới band (điểm [-1,1], +1 = thuận lợi cổ phiếu):")
     for r in state.get("inputs") or []:

@@ -118,7 +118,7 @@ def test_cross_check_empty_registry_flags_nothing():
 
 def test_digest_report_end_to_end(monkeypatch):
     rec = _add_report()
-    monkeypatch.setattr(dg, "digest_call", lambda s, u, accept=None, feedback=None: (_RAW_OK, "claude"))
+    monkeypatch.setattr(dg, "digest_call", lambda s, u, accept=None, feedback=None, **kw: (_RAW_OK, "claude"))
     monkeypatch.setitem(sys.modules, "vnstock_macro", types.ModuleType("vnstock_macro"))
     sys.modules["vnstock_macro"].load_macro = lambda *a, **k: _MACRO
     d = dg.digest_report(rec)
@@ -127,7 +127,7 @@ def test_digest_report_end_to_end(monkeypatch):
     # prompt chứa metadata nguồn + thân báo cáo
     seen = {}
     monkeypatch.setattr(dg, "digest_call",
-                        lambda s, u, accept=None, feedback=None: seen.update(s=s, u=u) or (_RAW_OK, "x"))
+                        lambda s, u, accept=None, feedback=None, **kw: seen.update(s=s, u=u) or (_RAW_OK, "x"))
     dg.digest_report(rec)
     assert rec["source"] in seen["u"] and "Báo cáo chiến lược" in seen["u"]
     assert "sbv_policy_rate" in seen["s"]            # danh sách key registry
@@ -135,7 +135,7 @@ def test_digest_report_end_to_end(monkeypatch):
 
 def test_digest_report_no_provider_returns_none(monkeypatch):
     rec = _add_report()
-    monkeypatch.setattr(dg, "digest_call", lambda s, u, accept=None, feedback=None: (None, ""))
+    monkeypatch.setattr(dg, "digest_call", lambda s, u, accept=None, feedback=None, **kw: (None, ""))
     assert dg.digest_report(rec) is None
 
 
@@ -144,7 +144,7 @@ def test_refresh_digests_only_missing_and_redigest_all(monkeypatch):
     _add_report(days_old=4, source="HSC", text=_TEXT + "b")
     calls = []
     monkeypatch.setattr(dg, "digest_call",
-                        lambda s, u, accept=None, feedback=None: calls.append(1) or (_RAW_OK, "claude"))
+                        lambda s, u, accept=None, feedback=None, **kw: calls.append(1) or (_RAW_OK, "claude"))
     monkeypatch.setitem(sys.modules, "vnstock_macro", types.ModuleType("vnstock_macro"))
     sys.modules["vnstock_macro"].load_macro = lambda *a, **k: _MACRO
     done = dg.refresh()
@@ -158,7 +158,7 @@ def test_refresh_digests_only_missing_and_redigest_all(monkeypatch):
 
 def test_refresh_skips_reports_not_in_analysis(monkeypatch):
     rp.add_text(_TEXT)                               # thiếu metadata
-    monkeypatch.setattr(dg, "digest_call", lambda s, u, accept=None, feedback=None: (_RAW_OK, "claude"))
+    monkeypatch.setattr(dg, "digest_call", lambda s, u, accept=None, feedback=None, **kw: (_RAW_OK, "claude"))
     assert dg.refresh() == []
 
 
@@ -209,10 +209,10 @@ def _full_inputs():
             "breadth": {"above_ma200_pct": 45.0}}    # điểm ~0 → band data B2
 
 
-def _fake_consensus(monkeypatch, tilt, cp=-2.0):
+def _fake_consensus(monkeypatch, tilt, cp=-2.0, **extra):
     mod = types.ModuleType("vnstock_report_digest")
     mod.consensus = lambda as_of=None: {
-        "tilt": tilt, "n_reports": 1,
+        "tilt": tilt, "n_reports": 1, **extra,
         "stance": {"Cổ phiếu": cp},
         "drivers": [{"source": "SSI"}]}
     monkeypatch.setitem(sys.modules, "vnstock_report_digest", mod)
@@ -229,6 +229,64 @@ def test_allocation_applies_report_tilt_over_data_band(monkeypatch):
     assert state["report_tilt"]["tilt"] == 1
     assert state["history"][-1]["band_data"] == "B2"
     assert state["history"][-1]["tilt"] == 1
+
+
+# ── 05/10: tilt NHẠT DẦN theo tuổi báo cáo ─────────────────────────────────
+
+
+def test_consensus_strength_fades_with_age_but_direction_holds():
+    r = _add_report(days_old=5, source="HedgeAcademy")
+    _set_stance(r, -1, 5)
+    c = dg.consensus()
+    assert (c["tilt"], c["strength"]) == (1, 1.0)
+    idx = json.loads(rp._INDEX.read_text(encoding="utf-8"))           # lùi tuổi về 60 ngày
+    idx["reports"][r["id"]]["report_date"] = (date.today() - timedelta(days=60)).isoformat()
+    rp._INDEX.write_text(json.dumps(idx, ensure_ascii=False), encoding="utf-8")
+    c60 = dg.consensus()
+    assert c60["stance"]["Cổ phiếu"] == -1.0 and c60["tilt"] == 1     # chiều giữ (1 báo cáo)
+    assert c60["strength"] == pytest.approx(0.5)                        # mức áp còn nửa
+
+
+def test_consensus_strength_caps_at_one_with_many_fresh_reports():
+    for i, src in enumerate(("SSI", "HSC")):
+        _set_stance(_add_report(days_old=3, source=src, text=_TEXT + src), -2, 3)
+    assert dg.consensus()["strength"] == 1.0
+
+
+@pytest.mark.parametrize("f,cp", [(0.0, 45), (1.0, 30), (0.6, 36), (0.5, 37.5), (0.3, 40.5)])
+def test_blend_allocation_integer_and_sums_to_100(f, cp):
+    a, b = alloc._DEFAULT_ALLOCATIONS["B2"], alloc._DEFAULT_ALLOCATIONS["B3"]
+    out = alloc.blend_allocation(a, b, f)
+    assert sum(out.values()) == 100 and all(isinstance(v, int) for v in out.values())
+    assert abs(out["Cổ phiếu"] - cp) <= 0.5
+    if f in (0.0, 1.0):
+        assert out == (a if f == 0 else b)
+
+
+@pytest.mark.parametrize("strength,band,label_has", [
+    (0.6, "B3", "× 60% (B2→B3, báo cáo cũ dần)"),    # gần B3 hơn
+    (0.3, "B2", "× 30%"),                             # gần band data hơn
+])
+def test_allocation_partial_tilt_blends_weights(monkeypatch, strength, band, label_has):
+    monkeypatch.setattr(alloc, "collect_inputs",
+                        lambda d=None: ("2026-07-13", _full_inputs()))
+    _fake_consensus(monkeypatch, tilt=1, strength=strength)
+    state = alloc.run_allocation()
+    b2, b3 = alloc._DEFAULT_ALLOCATIONS["B2"], alloc._DEFAULT_ALLOCATIONS["B3"]
+    assert state["band_data"] == "B2" and state["band"] == band
+    assert state["allocation"] == alloc.blend_allocation(b2, b3, strength)
+    assert b3["Cổ phiếu"] < state["allocation"]["Cổ phiếu"] < b2["Cổ phiếu"]
+    rt = state["report_tilt"]
+    assert rt["tilt"] == 1 and rt["strength"] == strength and label_has in rt["label"]
+    h = state["history"][-1]
+    assert h["allocation"] == state["allocation"] and h["tilt_strength"] == strength
+
+
+def test_allocation_full_strength_label_and_old_state_label():
+    assert alloc.tilt_label({"tilt": 1}) == "+1 band"                  # state cũ không label
+    st = {"band": "B2", "score": 0.0}
+    alloc.apply_tilt(st, {"tilt": 1, "strength": 1.0, "stance": {}, "drivers": []})
+    assert st["report_tilt"]["label"] == "+1 band" and st["band"] == "B3"
 
 
 def test_allocation_tilt_clamped_at_b4(monkeypatch):
@@ -293,7 +351,7 @@ def test_cli_consensus_and_show(monkeypatch, capsys):
 
 def test_cli_refresh(monkeypatch, capsys):
     _add_report(days_old=1, source="SSI")
-    monkeypatch.setattr(dg, "digest_call", lambda s, u, accept=None, feedback=None: (_RAW_OK, "claude"))
+    monkeypatch.setattr(dg, "digest_call", lambda s, u, accept=None, feedback=None, **kw: (_RAW_OK, "claude"))
     monkeypatch.setitem(sys.modules, "vnstock_macro", types.ModuleType("vnstock_macro"))
     sys.modules["vnstock_macro"].load_macro = lambda *a, **k: _MACRO
     assert dg.main(["--refresh"]) == 0
@@ -468,3 +526,98 @@ def test_digest_call_cascades_on_unparseable_output(monkeypatch, capsys):
     # --diag (accept=None) vẫn nhận output đầu tiên bất kể nội dung
     raw2, provider2 = dg.digest_call("s", "u")
     assert provider2 == "claude" and raw2 == "json rác { hỏng"
+
+
+# ── 04/10: nấc Claude Code đọc TRỌN báo cáo dài ─────────────────────────────
+
+
+def test_digest_call_gives_cli_rung_its_own_prompt_and_retry(monkeypatch):
+    monkeypatch.setattr(dg, "_ensure_env_loaded", lambda: None)
+    monkeypatch.setattr(dg, "_claude_cli_wanted", lambda step: True)
+    seen = []
+
+    def cli(system, u, step, schema):
+        seen.append(("cli", u))
+        return "rác" if len(seen) == 1 else "ok-cli"
+    monkeypatch.setattr(dg, "_call_claude_cli", cli)
+    monkeypatch.setattr(dg, "_call_claude", lambda s, u: seen.append(("api", u)) or None)
+    raw, prov = dg.digest_call("s", "CẮT", accept=lambda r: r.startswith("ok"),
+                               feedback=lambda r: "JSON hỏng", cli_user="TRỌN")
+    assert (raw, prov) == ("ok-cli", "claude-cli(retry)")
+    assert seen[0] == ("cli", "TRỌN") and seen[1][1].startswith("TRỌN\n\n⚠️")
+
+    seen.clear()                                          # CLI chết ⇒ nấc sau nhận bản cắt
+    monkeypatch.setattr(dg, "_call_claude_cli", lambda *a: seen.append(("cli", a[1])) or None)
+    monkeypatch.setattr(dg, "_free_ladder", lambda: [])
+    monkeypatch.setattr(dg, "_call_openai", lambda s, u: seen.append(("gpt", u)) or None)
+    dg.digest_call("s", "CẮT", cli_user="TRỌN")
+    assert seen == [("cli", "TRỌN"), ("api", "CẮT"), ("gpt", "CẮT")]
+
+
+@pytest.mark.parametrize("provider,want", [("claude-cli", None),
+                                           ("claude-cli(retry)", None),
+                                           ("Groq:openai/gpt-oss-120b", dg._PROMPT_MAX_CHARS)])
+def test_digest_report_long_text_full_for_cli_and_records_chars_seen(monkeypatch, provider, want):
+    body = ("Tăng trưởng tín dụng và lãi suất điều hành quý 4. " * 1_200)[:50_000]
+    rec = _add_report(text=body)
+    got = {}
+    monkeypatch.setattr(dg, "digest_call",
+                        lambda s, u, accept=None, feedback=None, cli_user=None:
+                        got.update(u=u, cli=cli_user) or (_RAW_OK, provider))
+    monkeypatch.setitem(sys.modules, "vnstock_macro", types.ModuleType("vnstock_macro"))
+    sys.modules["vnstock_macro"].load_macro = lambda *a, **k: []
+    d = dg.digest_report(rec)
+    assert got["cli"].endswith(body.strip()[-200:])            # CLI thấy tới cuối
+    assert len(got["u"]) < dg._PROMPT_MAX_CHARS + 200            # nấc khác giữ bản cắt
+    assert d["chars_seen"] == (want or rec["chars"]) and rec["chars"] > 40_000
+
+
+def test_refresh_only_one_id(monkeypatch):
+    a = _add_report(source="SSI", text=_TEXT + "a")
+    _add_report(source="HSC", text=_TEXT + "b")
+    calls = []
+    monkeypatch.setattr(dg, "digest_call",
+                        lambda s, u, **kw: calls.append(u) or (_RAW_OK, "claude"))
+    monkeypatch.setitem(sys.modules, "vnstock_macro", types.ModuleType("vnstock_macro"))
+    sys.modules["vnstock_macro"].load_macro = lambda *a, **k: []
+    done = dg.refresh(redigest=True, only=a["id"])
+    assert [r["id"] for r in done] == [a["id"]] and len(calls) == 1
+
+
+# ── 04/10: tom_tat cắt giữa chữ + stance neo vào danh mục VN ────────────────
+
+
+def test_clip_text_prefers_sentence_then_word_boundary():
+    s = "Câu một khá dài về lãi suất. Câu hai về tín dụng; vế ba về thị trường chứng khoán"
+    assert dg.clip_text(s, 200) == s
+    assert dg.clip_text(s, 60) == "Câu một khá dài về lãi suất. Câu hai về tín dụng;"
+    assert dg.clip_text("aaaa bbbb cccc dddd", 12) == "aaaa bbbb…"
+    assert len(dg.clip_text("x" * 50, 10)) <= 10
+
+
+def test_parse_digest_long_tom_tat_ends_on_a_sentence():
+    long = ("Chi phí vốn USD tăng mạnh khi UST 10Y lên 5.29%. " * 14
+            + "TT50 có thể làm sôi động lại thị trường cổ phiếu")
+    raw = json.dumps({"tom_tat": long, "stance": {}, "claims": [],
+                      "risks": ["r " * 200]}, ensure_ascii=False)
+    d = dg.parse_digest(raw)
+    assert len(d["tom_tat"]) <= dg._TOM_TAT_MAX and d["tom_tat"].endswith("5.29%.")
+    assert d["risks"][0].endswith("…") and len(d["risks"][0]) <= dg._SNIPPET_MAX
+
+
+def test_digest_prompt_anchors_classes_to_vietnam_portfolio():
+    s = dg._DIGEST_SYSTEM
+    assert "Cổ phiếu = cổ phiếu niêm yết Việt Nam" in s and "USD = giữ USD so với VND" in s
+    assert "NƯỚC NGOÀI" in s and "≤ 500 ký tự" in s
+
+
+def test_brief_table_says_weights_are_blended():
+    import vnstock_brief_canon as canon
+    st = {"band": "B2", "score": 0.0, "as_of": "2026-11-20", "band_label": "x"}
+    alloc.apply_tilt(st, {"tilt": 1, "strength": 0.6, "stance": {}, "drivers": []})
+    lines = canon._allocation_table_lines(st)
+    assert f"- Cổ phiếu: {st['allocation']['Cổ phiếu']}%" in lines
+    assert "tỷ trọng trộn: tilt +1 band × 60% (B2→B3" in lines[-1]
+    full = {"band": "B2", "score": 0.0, "as_of": "2026-11-20", "band_label": "x"}
+    alloc.apply_tilt(full, {"tilt": 1, "strength": 1.0, "stance": {}, "drivers": []})
+    assert "trộn" not in canon._allocation_table_lines(full)[-1]

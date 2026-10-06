@@ -498,3 +498,79 @@ def test_cli_reanalyze_alone_implies_refresh(monkeypatch):
     monkeypatch.setattr(nf, "_show", lambda *a, **k: None)
     assert nf.main(["--reanalyze"]) == 0
     assert calls == {"reanalyze": True, "analyze": True}
+
+
+# ── ngày lệch chuẩn (--diag desktop 02/10: Báo Chính phủ + Nikkei "mới nhất —") ──
+
+
+import pytest as _pytest
+
+
+@_pytest.mark.parametrize("raw,day,hhmm", [
+    ("Thu, 02 Oct 2026 19:00:00 GMT+7", "2026-10-02", "19:00"),
+    ("Thu, 02 Oct 2026 19:00:00 GMT+07:00", "2026-10-02", "19:00"),
+    ("02/10/2026 19:00", "2026-10-02", "19:00"),
+    ("Thứ năm, 02/10/2026 - 19:00", "2026-10-02", "19:00"),
+    ("2/10/2026", "2026-10-02", "00:00"),
+    ("2026/10/02 19:00:00", "2026-10-02", "19:00"),
+])
+def test_loose_dates_parse_in_vietnam_time(raw, day, hhmm, monkeypatch):
+    import time as _t
+    monkeypatch.setenv("TZ", "Asia/Ho_Chi_Minh")
+    if hasattr(_t, "tzset"):
+        _t.tzset()
+    try:
+        assert nf._parse_pubdate(raw) == day
+        assert nf._parse_pubdatetime(raw) == f"{day}T{hhmm}:00"
+    finally:
+        monkeypatch.undo()
+        if hasattr(_t, "tzset"):
+            _t.tzset()
+
+
+def test_gmt_plus_offset_is_not_silently_dropped():
+    """parsedate_to_datetime('… GMT+7') trả giờ KHÔNG tz (bỏ +7) — phải chuẩn hoá trước."""
+    assert nf._norm_tz_words("Thu, 02 Oct 2026 19:00:00 GMT+7").endswith(" +0700")
+    assert nf._norm_tz_words("Thu, 02 Oct 2026 19:00:00 UTC-05:30").endswith(" -0530")
+    assert nf._norm_tz_words("Thu, 02 Oct 2026 19:00:00 GMT") == "Thu, 02 Oct 2026 19:00:00 GMT"
+
+
+def test_standard_dates_unchanged_and_garbage_still_empty():
+    assert nf._parse_pubdate("Mon, 15 Jun 2026 10:00:00 +0700") == "2026-06-15"
+    assert nf._parse_pubdate("2026-06-15T08:30:00+07:00") == "2026-06-15"
+    assert nf._parse_pubdate("rác") == "" and nf._parse_pubdatetime("rác") == ""
+    assert nf._parse_pubdate("") == "" and nf._parse_pubdatetime("") == ""
+
+
+@_pytest.mark.parametrize("raw,expected", [
+    # Báo Chính phủ (--diag desktop 02/10): ASP.NET kiểu Mỹ tháng/ngày + AM/PM
+    ("10/2/2026 11:56:00 AM", "2026-10-02T11:56:00"),
+    ("10/1/2026 9:05:00 PM", "2026-10-01T21:05:00"),
+    ("10/2/2026 12:15:00 AM", "2026-10-02T00:15:00"),
+    ("9/30/2026 8:00 AM", "2026-09-30T08:00:00"),       # 30 không thể là tháng ⇒ chỉ một cách hiểu
+    # kiểu VN ngày/tháng vẫn đúng
+    ("02/10/2026 19:00", "2026-10-02T19:00:00"),
+    ("30/9/2026 08:00", "2026-09-30T08:00:00"),
+    ("12/10/2026", "2026-10-12T00:00:00"),               # cả hai cách hiểu đều tương lai ⇒ gần nhất
+])
+def test_ambiguous_day_month_picks_reading_closest_to_now(raw, expected):
+    from datetime import datetime as _dt
+    got = nf._parse_dt_loose(raw, now=_dt(2026, 10, 2, 20, 20))
+    assert got is not None and got.isoformat(timespec="seconds") == expected
+
+
+def test_parse_feed_keeps_short_raw_date_for_diag():
+    rss = (b"<?xml version='1.0'?><rss><channel>"
+           b"<item><title>A</title><link>https://a</link><pubDate>2 thang 10</pubDate></item>"
+           b"<item><title>B</title><link>https://b</link></item>"
+           b"<item><title>C</title><link>https://c</link><pubDate>Fri, 02 Oct 2026 09:00:00 +0700</pubDate></item>"
+           b"</channel></rss>")
+    a, b, c = nf.parse_feed(rss, "X")
+    assert a["_pub_raw"] == "2 thang 10" and b["_pub_raw"] == "(feed không có thẻ ngày)"
+    assert c["_pub_raw"] == "Fri, 02 Oct 2026 09:00:00 +0700" and c["_date_sort"] == "2026-10-02"
+
+
+def test_dead_yahoo_rssindex_stays_removed():
+    # #33 (04/10): --diag desktop — feed trả 200 mà tin mới nhất đứng ở 23/09 suốt 11 ngày.
+    assert not any("finance.yahoo.com/news/rssindex" in f["url"] for f in nf._FEEDS)
+    assert len({f["name"] for f in nf._FEEDS}) == len(nf._FEEDS) == 11

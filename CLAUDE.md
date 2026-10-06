@@ -56,8 +56,9 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 - Orchestrator: `python run.py <sub>` — scan / doctor / sync / validate /
   audit / test / dashboard / all. Exit code: 0 ok, 1 cảnh báo, 2 fail cứng.
 - Dashboard: `python run.py dashboard` (Streamlit, localhost:8501).
-- Lịch chạy tự động: `scripts/setup_scheduled_tasks.ps1` (2 task: Daily
-  18:00 ngày làm việc + Weekend — gộp từ 29/07; đăng ký THEO MÁY — máy mới
+- Lịch chạy tự động: `scripts/setup_scheduled_tasks.ps1` (3 task: Daily
+  18:00 ngày làm việc + Weekend — gộp từ 29/07 + News Alert mỗi giờ
+  24/7 kể cả CN (02/10, #31; 24/7 từ 04/10); đăng ký THEO MÁY — máy mới
   phải chạy lại script này, Run as Administrator **trong shell ĐÃ kích hoạt
   venv hoặc kèm `-PythonExe <venv>\Scripts\python.exe`** — 30/09 cửa sổ Admin
   trần đã đăng ký `C:\Python314` không thư viện; script nay từ chối Python hệ
@@ -76,12 +77,12 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   timeout ⇒ fallback KBS 1.130–1.245 mã + 150–181 lỗi (0 rate-limit). Dấu hiệu:
   dòng `⚡ Fallback KBS` + `❌ N lỗi` trong log. Đêm ấy marker `pipeline_status`
   updater KHÔNG ghi (chỉ ghi khi lỗi = 0) — đừng đọc thành "updater không chạy".
-- ⚠️ HAI MÁY: desktop `PICHU` (2 task lịch, sinh brief) · laptop
+- ⚠️ HAI MÁY: desktop `PICHU` (3 task lịch, sinh brief + cảnh báo tin) · laptop
   `CFA-BINHLD-LT` (không task). **KHÔNG nhận dạng bằng đường dẫn hay tên venv**
   — cả hai đều `C:\vnstock`, và venv đổi theo TÀI KHOẢN đăng nhập chứ không
   theo máy (desktop in `\admin\`, phát trước in `\Administrator\`). Dấu hiệu
   duy nhất đáng tin: `$env:COMPUTERNAME` + `Get-ScheduledTask -TaskName
-  'VnStock *'` (2 task = desktop). Đã quy sai máy 3 lần ngày 19/08.
+  'VnStock *'` (≥2 task = desktop). Đã quy sai máy 3 lần ngày 19/08.
 - ⚠️ **MÁY ĐANG NGỒI LÀ TRẠNG THÁI DÍNH** (user chốt 20/08): user báo đổi máy
   thì mới đổi, KHÔNG báo thì **giữ nguyên máy của lượt trước**. Đừng hỏi lại
   mỗi lượt và đừng suy từ venv — hỏi lại khi user đã nói rồi cũng là một kiểu
@@ -106,7 +107,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 - Sửa module lõi nào → `python run.py test --fast` (~2.773 test; ~45s trên CI,
   86s máy thật 15/09 tối). Danh sách file `--fast` là WHITELIST trong `run.py` —
   thêm file test mới thì phải ghi vào đó, không thì `--fast` không chạy nó.
-- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, ~3.359 test — pipeline 29/09 chạy full 3.235 passed / 134s). **Đổi slug/migration ⇒ chạy FULL trước khi push**: 30/09 test ghim slug NGOÀI whitelist còn qwen chết ⇒ phát dừng ở bước test, MẤT brief (U65).
+- Trước khi tạo PR về `main` → `python run.py test` (đầy đủ, ~3.655 test — 🖥️ desktop 05/10 3.592 passed / 156–242s; test đọc env PHẢI xoá biến theo TIỀN TỐ — `.env` máy thật lọt vào pytest, 05/10 suýt mất brief). **Đổi slug/migration ⇒ chạy FULL trước khi push**: 30/09 test ghim slug NGOÀI whitelist còn qwen chết ⇒ phát dừng ở bước test, MẤT brief (U65).
   Đo trên MÁY THẬT (💻 laptop) 09/09: **3.158 passed / 161,8s** tại `c969d6a` — khớp
   CI từng test một (máy thật chậm hơn ~3× vì có kho dữ liệu, không phải vì bỏ test).
 - Kết quả ghi `data_warehouse/_meta/test_status.json` → badge sidebar.
@@ -166,6 +167,16 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   claude --force` (A/B), `python vnstock_brief_pack.py --check|--review|--rate`,
   skill `/brief-close` (tay) và `/brief-review` (sáng hôm sau, chấm sao →
   few-shot). CLI bị GIẤU `ANTHROPIC_API_KEY` trừ `VNSTOCK_CLAUDE_CLI_API_KEY=1`.
+- `vnstock_report_vision.py` — báo cáo 🖼 (PDF scan / DOCX toàn ảnh) ⇒ Claude Code
+  `--tools Read` xem ảnh trong thư mục tạm, chép thành text ⇒ `vnstock_reports.set_text`
+  (`text_via=claude-vision`) rồi digest như thường. Gọi tay (nút 👁 / CLI), được ăn cả
+  (U69, 04/10). `vnstock_claude_cli.complete(tools=, cwd=)` mặc định vẫn 0 công cụ.
+- `vnstock_horizons.py` — brief 3 khung (U70/U71, `docs/THIET-KE-BRIEF-3-KHUNG.md`, chốt 05/10):
+  lõi THUẦN ngắn hạn/trung hạn tuần (+cầu chì 8% trên đỉnh 12 đóng tuần)/mức kích hoạt/🚨/
+  bảo vệ 2 mức/bảng Stance. `vnstock_horizons_state.py` = CHẠY BÓNG (P1a, 05/10): bước pipeline
+  `horizons` sau gold ghi `_meta/horizon_state.json` (inputs + published append-only, gấp từ input
+  đã lưu, có bản live thì no-op, kill-switch `VNSTOCK_HORIZONS_STEP=0`) + badge doctor `horizons`;
+  `run.py horizons --show|--backfill|--replay`. Brief CHƯA đọc (P1b). P0: `scripts/replay_horizons.py`.
 - `vnstock_corp_ratio` — đọc TỈ LỆ QUYỀN từ tiêu đề sự kiện (hàm thuần).
   `adjusts_price(title)` lọc sự kiện chỉ chốt danh sách DỰ HỌP (ĐHĐCĐ, lấy ý
   kiến bằng văn bản) — chúng KHÔNG đổi giá tham chiếu, gắn ⚠️ GDKHQ cho chúng
@@ -211,6 +222,23 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   được MCP. Xin sớm hơn 2018 ⇒ chỉ còn đường user xuất Wichart/FiinPro. Lý do
   bác từng nguồn + 8 lượt dò: mục **U34** `docs/CLAUDE-NOTES.md`.
 
+- `vnstock_news_alert.py` — **cảnh báo tin quan trọng MỖI GIỜ → Telegram**
+  (02/10, #31; task `VnStock News Alert` mỗi giờ 24/7 chỉ 🖥️ desktop, KHÔNG
+  nằm trong `all`). Registry `SOURCES`: 11 RSS của `_FEEDS` + 20 nguồn nước ngoài
+  RIÊNG `_ALERT_FEEDS` (Bloomberg/WSJ host `feeds.content.dowjones.io`/FT/CNBC/Fed/
+  BLS/BEA + Google News `site:reuters.com`… — URL ứng viên, 🖥️ `run.py news-alert
+  --diag` xác minh) + Bluesky/X qua env (U68; adapter tin theo mã TẮT, user chốt
+  02/10 chỉ tin vĩ mô) → cửa sổ 3h, lượt đầu sau khi máy tắt/ngủ BẮT BÙ tới `covered_until`
+  lượt trước (trần 36h) → cap 6 tin/nguồn, tường fetch 45s
+  → sổ `_meta/news_alert_seen.json` → Claude Code chấm 1–5 cả LÔ một call
+  (rơi về ladder + điểm từ khoá; không engine ⇒ KHÔNG gửi tin thô) → ≥3 gửi,
+  ≤8 tin/lượt, dư để lượt sau không chấm lại → marker
+  `news_alert_status.json{machine,error_streak}` + badge doctor. Không tin mới
+  = im lặng, không gọi LLM. Không đụng `market_news_cache.json`. Thêm nguồn =
+  một `Source(...)`. Lệnh: `run.py news-alert --dry-run|--force|--list-sources`.
+  Gửi qua KÊNH `news` (05/10): `TELEGRAM_NEWS_BOT_TOKEN`/`_CHAT_ID` = bot + group
+  riêng, thiếu biến nào lấy mặc định; brief + mọi thứ khác vẫn `TELEGRAM_BOT_TOKEN`/
+  `_CHAT_ID`. Lấy id group: `run.py telegram chats [--channel news]`.
 - `vnstock_sectors.py` — nhóm ngành custom ("Họ VIN", "Họ M") dùng chung
   dashboard + brief; thêm họ mới = thêm 1 dòng registry.
 - `vnstock_vn30.py` — **rổ VN30 hiện hành, một nguồn sự thật duy nhất**. HOSE
@@ -228,7 +256,11 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   quét MỖI vòng, ~1.100 mã còn lại mỗi `COLD_EVERY_N` (5) vòng — heatmap bám
   tick mà vẫn giữ Live Scan toàn thị trường. `split_hot_cold` là hàm thuần và
   KHÔNG BAO GIỜ trả vòng quét rỗng. Nhịp thật đọc ở `get_status()["cycle_s"]`
-  và caption sidebar, đừng đoán.
+  và caption sidebar, đừng đoán. Công tắc ở SIDEBAR CHUNG (render mọi lượt — nav
+  `st.pills` chỉ vẽ tab đang mở, widget trong tab bị dọn state khi rời tab):
+  🔴 Live Mode (`live_mode_toggle` → cờ `live_mode`) + Live Scan (05/10 gộp 2 toggle
+  Screener/Dòng Tiền: `live_scan_toggle` → cờ `live_scan`, khoá + về OFF khi
+  Live Mode tắt). Tab chỉ ĐỌC cờ — `tests/test_live_mode_crosstab.py` canh.
 
 ## Quy ước
 - Output cho người dùng (brief, UI) bằng tiếng Việt; format số kiểu EN
@@ -240,8 +272,8 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 - Mọi auto-refresh đều best-effort và có env kill-switch
   (`VNSTOCK_BRIEF_AUTO_*`, `VNSTOCK_MACRO_*`, `VNSTOCK_BASIS_GUARD`,
   `VNSTOCK_OHLC_REPAIR`, `VNSTOCK_AUTOHEAL_BUDGET_S`, `VNSTOCK_VN30_DYNAMIC`,
-  `VNSTOCK_WSS_HOT_TIER`, `VNSTOCK_BRIEF_WATCH`,
-  `VNSTOCK_FIXUNITS_FOOTER_PRUNE`, `VNSTOCK_NETBS_WORKERS`, `VNSTOCK_LLM_ENGINE`
+  `VNSTOCK_WSS_HOT_TIER`, `VNSTOCK_BRIEF_WATCH`, `VNSTOCK_NEWS_ALERT`,
+  `VNSTOCK_FIXUNITS_FOOTER_PRUNE`, `VNSTOCK_NETBS_WORKERS`, `VNSTOCK_HORIZONS_STEP`, `VNSTOCK_LLM_ENGINE`
   + `VNSTOCK_<BƯỚC>_ENGINE` + `VNSTOCK_CLAUDE_CLI_{EXE,MODEL,FALLBACK_MODEL,
   TIMEOUT_S,API_KEY,REPO_CONTEXT}`, `VNSTOCK_LLM_BREAKER`
   — cầu dao tài khoản LLM: provider 401/402/403 hôm nay + chưa call nào OK ⇒

@@ -231,14 +231,34 @@ def test_llm_keys_provider_and_brief(monkeypatch):
 
 
 def test_telegram_env_states(monkeypatch):
-    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+    import os
+    for k in [k for k in os.environ if k.startswith("TELEGRAM_")]:   # .env máy thật
+        monkeypatch.delenv(k, raising=False)
     assert doc.check_telegram()["status"] == "off"
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
     r = doc.check_telegram()
     assert r["status"] == "warn" and "TELEGRAM_CHAT_ID" in r["message"]
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "c")
-    assert doc.check_telegram()["status"] == "ok"
+    r = doc.check_telegram()
+    assert r["status"] == "ok" and "dùng chung bot/chat" in r["message"]
+
+
+def test_telegram_news_channel_states(monkeypatch):
+    """05/10: tin mỗi giờ sang bot + group riêng — bot riêng mà thiếu group thì
+    bot tin gửi vào chat mặc định (không là thành viên) ⇒ lỗi mỗi giờ."""
+    import os
+    for k in [k for k in os.environ if k.startswith("TELEGRAM_")]:
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "c")
+    monkeypatch.setenv("TELEGRAM_NEWS_BOT_TOKEN", "n")
+    r = doc.check_telegram()
+    assert r["status"] == "warn" and "TELEGRAM_NEWS_CHAT_ID" in r["message"]
+    assert "telegram chats --channel news" in r["fix"]
+    monkeypatch.setenv("TELEGRAM_NEWS_CHAT_ID", "-100123")
+    assert "bot + group riêng" in doc.check_telegram()["message"]
+    monkeypatch.delenv("TELEGRAM_NEWS_BOT_TOKEN")
+    assert "group riêng (cùng bot)" in doc.check_telegram()["message"]
 
 
 def test_tests_badge_states(meta, monkeypatch):

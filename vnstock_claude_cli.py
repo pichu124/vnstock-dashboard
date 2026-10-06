@@ -52,6 +52,7 @@ STEP_ENGINE_ENV = {
     "train": "VNSTOCK_TRAIN_ENGINE",
     "reflection": "VNSTOCK_REFLECTION_ENGINE",
     "digest": "VNSTOCK_DIGEST_ENGINE",
+    "news_alert": "VNSTOCK_NEWS_ALERT_ENGINE",   # cảnh báo tin mỗi giờ (02/10, #31)
 }
 
 TASK_LINE = "Làm theo hướng dẫn hệ thống với nội dung nhận vào từ stdin."
@@ -174,11 +175,20 @@ def cli_command(exe: str, model: str, *, system: "str | None" = None,
                 fallback_model: "str | None" = None,
                 json_schema: "dict | None" = None,
                 effort: "str | None" = None,
-                repo_context: "bool | None" = None) -> list[str]:
-    """Dòng lệnh `claude -p` — mọi cờ đã kiểm trên 2.1.285 `--help` + chạy thử."""
+                repo_context: "bool | None" = None,
+                tools: str = "") -> list[str]:
+    """Dòng lệnh `claude -p` — mọi cờ đã kiểm trên 2.1.285 `--help` + chạy thử.
+    `tools` (vd "Read" — đọc ảnh báo cáo, 04/10) bật ĐÚNG các công cụ đó;
+    mặc định "" = không công cụ nào. CỐ Ý không `--allowedTools`: thử 2.1.289,
+    `--tools Read --permission-prompts none` đọc được file TRONG cwd còn file
+    ngoài cwd bị từ chối; thêm `--allowedTools Read` thì đọc được CẢ file ngoài
+    (chữ trong ảnh báo cáo bảo "đọc .env" là lộ). Cùng lý do: có công cụ thì
+    luôn tước settings người dùng — rule allow ở đó không được nới quyền."""
     cmd = [exe, "-p", TASK_LINE, "--output-format", "json", "--model", model,
-           "--tools", "", "--no-session-persistence",
+           "--tools", tools, "--no-session-persistence",
            "--permission-prompts", "none"]
+    if tools:
+        repo_context = False
     if repo_context is None:
         repo_context = repo_context_wanted()
     if not repo_context:
@@ -270,10 +280,14 @@ def complete(user: str, *, system: "str | None" = None,
              json_schema: "dict | None" = None,
              effort: "str | None" = None,
              exe: "str | None" = None,
-             tag: str = "") -> "tuple[str, str | None, dict]":
+             tag: str = "",
+             tools: str = "",
+             cwd: "str | None" = None) -> "tuple[str, str | None, dict]":
     """Một lượt Claude Code headless. Trả (chữ, lỗi, info); KHÔNG bao giờ ném.
     Sổ LLM ghi MỌI kết cục (kể cả không có exe) dưới provider `ClaudeCode`;
-    OK chỉ khi có chữ thật. `fallback_model=None` = theo env; `""` = tắt."""
+    OK chỉ khi có chữ thật. `fallback_model=None` = theo env; `""` = tắt.
+    `tools`/`cwd`: bật công cụ (vd "Read") và thư mục làm việc — file công cụ
+    được đọc nằm trong `cwd` (mặc định repo)."""
     _ensure_env_loaded()
     model = model or cli_model()
     if fallback_model is None:
@@ -293,13 +307,13 @@ def complete(user: str, *, system: "str | None" = None,
         _ledger_record(LEDGER_PROVIDER, model, ok=False, error=err)
         return "", err, info
     cmd = cli_command(exe, model, system=system, fallback_model=fallback_model or None,
-                      json_schema=json_schema, effort=effort)
+                      json_schema=json_schema, effort=effort, tools=tools)
     t0 = time.time()
     try:
         proc = subprocess.run(
             cmd, input=user, capture_output=True, text=True,
             encoding="utf-8", errors="replace", timeout=timeout_s,
-            cwd=str(_REPO), env=cli_env(),
+            cwd=str(cwd or _REPO), env=cli_env(),
         )
     except subprocess.TimeoutExpired:
         err = f"claude CLI quá {timeout_s}s — bỏ"

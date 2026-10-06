@@ -76,28 +76,65 @@ def test_market_tab_still_reads_the_same_flag_key():
     )
 
 
-def test_live_scan_consumers_are_gated_on_the_engine():
-    """Hướng (a) user chốt 17/08: hai toggle Live Scan là CONSUMER của động
-    cơ WSS — động cơ tắt thì phải KHOÁ (disabled) + kéo về OFF + caption chỉ
-    đường, thay vì bật chay được rồi chỉ thấy "Chưa có quote data" (chính
-    cảnh làm user tưởng Live Scan là Live Mode)."""
-    for fname, widget_key in (("screener_tab.py", "live_scan_on"),
-                              ("money_flow_tab.py", "mf_live")):
+def test_live_scan_is_one_sidebar_switch_gated_on_the_engine():
+    """05/10 user gộp 2 toggle Live Scan (Screener `live_scan_on` + Dòng Tiền
+    `mf_live`) thành MỘT công tắc ở sidebar chung, ngay dưới 🔴 Live Mode.
+    Lý do: toggle nằm trong tab bị Streamlit dọn state mỗi lần rời tab ⇒ tự
+    về OFF. Hợp đồng giữ nguyên từ 17/08: Live Scan là CONSUMER của động cơ —
+    động cơ tắt thì KHOÁ + kéo về OFF + caption chỉ đường."""
+    # sidebar chung: widget key riêng, cờ thường gán tay, khoá + kéo OFF
+    assert re.search(r'key\s*=\s*["\']live_scan_toggle["\']', _MAIN_SRC)
+    assert re.search(r'st\.session_state\[["\']live_scan["\']\]\s*=\s*bool', _MAIN_SRC)
+    assert re.search(r'st\.session_state\[["\']live_scan_toggle["\']\]\s*=\s*False', _MAIN_SRC), (
+        "Live Mode tắt mà không kéo Live Scan về OFF — toggle sẽ đứng ON-mà-xám.")
+    assert re.search(r'disabled\s*=\s*not\s+_live_on', _MAIN_SRC)
+    assert "Live Scan cần bật" in _MAIN_SRC
+    # không tab nào còn toggle Live Scan riêng / bind widget thẳng vào cờ
+    for name, src in {**_TAB_SRCS, "vnstock_dashboard.py": _MAIN_SRC}.items():
+        assert not re.search(r'key\s*=\s*["\'](live_scan|live_scan_on|mf_live)["\']', src), (
+            f"{name}: toggle Live Scan riêng / bind thẳng key cờ — sẽ bị dọn state.")
+    # 2 tab tiêu thụ: đọc cờ chung + vẫn gác động cơ + chỉ đường về sidebar
+    for fname in ("screener_tab.py", "money_flow_tab.py"):
         src = _TAB_SRCS[fname]
-        assert re.search(r'session_state\.get\(\s*["\']live_mode["\']', src), (
-            f"{fname}: toggle Live Scan không còn nhìn cờ động cơ live_mode."
-        )
-        assert re.search(r'disabled\s*=\s*not\s+_wss_engine_on', src), (
-            f"{fname}: toggle Live Scan không còn bị khoá khi động cơ tắt."
-        )
-        assert re.search(
-            rf'st\.session_state\[["\']{widget_key}["\']\]\s*=\s*False', src), (
-            f"{fname}: không còn kéo '{widget_key}' về OFF khi động cơ tắt — "
-            "toggle sẽ đứng ON-nhưng-xám, trạng thái nói dối."
-        )
-        assert "Cần bật" in src, (
-            f"{fname}: mất caption chỉ đường về 🔴 Live Mode."
-        )
+        assert re.search(r'session_state\.get\(\s*["\']live_scan["\']', src), fname
+        assert re.search(r'session_state\.get\(\s*["\']live_mode["\']', src), fname
+        assert "bật **Live Scan**" in src, f"{fname}: mất caption chỉ đường về sidebar."
+
+
+def _run_sidebar_live_block(live_on: bool, scan_clicked: bool, session: dict) -> dict:
+    """Chạy ĐÚNG đoạn Live Scan trong sidebar (trích từ source) với st giả —
+    canh hành vi: cờ chung = toggle AND động cơ; động cơ tắt ⇒ kéo widget OFF."""
+    start = _MAIN_SRC.index("        if not _live_on:\n            st.session_state[\"live_scan_toggle\"]")
+    end = _MAIN_SRC.index("    else:\n        st.session_state[\"live_scan\"] = False")
+    block = "\n".join(l[8:] for l in _MAIN_SRC[start:end].splitlines())
+    calls = {}
+
+    class _St:
+        session_state = session
+
+        @staticmethod
+        def toggle(label, key=None, disabled=False, help=None):
+            calls.update(label=label, disabled=disabled)
+            if not disabled and scan_clicked:
+                session[key] = True
+            return session.get(key, False)
+
+        @staticmethod
+        def caption(text):
+            calls["caption"] = text
+    exec(block, {"st": _St, "_live_on": live_on})
+    return calls
+
+
+def test_sidebar_live_scan_follows_engine_and_survives_tab_switch():
+    sess: dict = {}
+    c = _run_sidebar_live_block(True, True, sess)
+    assert sess["live_scan"] is True and c["label"] == "Live Scan" and not c["disabled"]
+    _run_sidebar_live_block(True, False, sess)               # lượt sau (đổi tab): giữ ON
+    assert sess["live_scan"] is True
+    c = _run_sidebar_live_block(False, True, sess)           # tắt Live Mode
+    assert sess["live_scan"] is False and sess["live_scan_toggle"] is False
+    assert c["disabled"] and "Real-time WSS" in c["caption"]
 
 
 # ── Render: phía tiêu thụ thật sự vẽ heatmap khi cờ sống ─────────────────────

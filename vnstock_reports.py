@@ -17,7 +17,8 @@ Nguyên tắc (từ thiết kế đã duyệt):
   ``source`` (tên CTCK/chuyên gia). Thiếu → báo cáo CHỈ nằm thư viện
   (``in_analysis=False``), bổ sung sau bằng ``--set-meta``.
 * **PDF scan không lớp text** → flag ``no_text_layer`` (giữ trong thư viện,
-  không vào phân tích — không có gì để digest).
+  không vào phân tích — không có gì để digest). Từ 04/10 cho Claude Code đọc
+  ảnh: ``vnstock_report_vision`` → ``set_text`` (``text_via=claude-vision``).
 * Ghi ATOMIC (tmp + os.replace) vì Streamlit upload đụng pipeline recompute.
 
 Trích text:
@@ -246,6 +247,10 @@ def _upsert(rid: str, kind: str, text: "str | None", *,
     duplicate = rid in reports
 
     text = (text or "").strip()[:_REPORT_MAX_CHARS]
+    if not text and rec.get("text_via") and _text_path(rid).exists():
+        # Upload lại file đã cho Claude đọc ảnh (Streamlit rerun / thêm meta):
+        # trích lại vẫn ra 0 ký tự — đừng đè bản đọc ảnh bằng "không có chữ".
+        text = _text_path(rid).read_text(encoding="utf-8")
     if text:
         _STORE.mkdir(parents=True, exist_ok=True)
         _text_path(rid).write_text(text, encoding="utf-8")
@@ -290,7 +295,9 @@ def _why_library_only(rec: dict) -> str:
     if not rec.get("source"):
         miss.append("thiếu source")
     if rec.get("no_text_layer"):
-        miss.append("PDF không có lớp text (scan?)")
+        miss.append(f"{rec.get('kind', 'file').upper()} không có chữ trích được "
+                    f"(scan/ảnh) — cho Claude đọc ảnh: python vnstock_report_vision.py "
+                    f"{rec.get('id', '<id>')} (hoặc nút 👁 tab Báo cáo)")
     elif rec.get("chars", 0) < _NO_TEXT_LAYER_CHARS:
         miss.append("text quá ngắn")
     return ", ".join(miss) or "?"
@@ -393,6 +400,33 @@ def set_meta(rid: str, *, report_date: "str | None" = None,
     return rec
 
 
+def original_path(rid: str) -> "Path | None":
+    """File gốc đã lưu lúc ingest (PDF/DOCX) — None khi không có."""
+    for p in (_pdf_path(rid), _docx_path(rid)):
+        if p.exists():
+            return p
+    return None
+
+
+def set_text(rid: str, text: str, via: str) -> "dict | None":
+    """Thay text của báo cáo bằng bản đọc ĐƯỜNG KHÁC (04/10: Claude Code xem ảnh
+    cho PDF scan/DOCX toàn ảnh — `vnstock_report_vision`). Cập nhật chars +
+    no_text_layer + `text_via`; digest cũ (nếu có) bị bỏ vì dựng trên text khác."""
+    idx = _load_index()
+    rec = (idx.get("reports") or {}).get(rid)
+    if rec is None:
+        return None
+    text = (text or "").strip()[:_REPORT_MAX_CHARS]
+    _STORE.mkdir(parents=True, exist_ok=True)
+    _text_path(rid).write_text(text, encoding="utf-8")
+    rec["chars"] = len(text)
+    rec["no_text_layer"] = len(text) < _NO_TEXT_LAYER_CHARS
+    rec["text_via"] = via
+    rec.pop("digest", None)
+    _write_index(idx)
+    return rec
+
+
 def set_digest(rid: str, digest: dict) -> "dict | None":
     """Ghi digest (P3 — vnstock_report_digest) vào record. Digest sống trong
     index cùng metadata: một nguồn sự thật, xóa báo cáo là digest đi theo."""
@@ -469,7 +503,8 @@ def _fmt_row(rec: dict) -> str:
             f"{rec.get('report_date') or '????-??-??'}  "
             f"{(rec.get('source') or '—'):<18.18} "
             f"{(rec.get('title') or rec.get('url') or ''):<40.40} "
-            f"({rec.get('chars', 0):,} ký tự)")
+            f"({rec.get('chars', 0):,} ký tự"
+            + (", đọc ảnh" if rec.get("text_via") else "") + ")")
 
 
 def main(argv: "list[str] | None" = None) -> int:
@@ -530,7 +565,7 @@ def main(argv: "list[str] | None" = None) -> int:
         return 0
     ready = sum(1 for r in reports if in_analysis(r))
     print(f"📚 Thư viện báo cáo: {len(reports)} bản, {ready} đủ điều kiện "
-          f"phân tích (✅) — 📥 thiếu metadata, 🖼 PDF không lớp text")
+          f"phân tích (✅) — 📥 thiếu metadata, 🖼 không trích được chữ (scan/ảnh)")
     for rec in reports:
         print(_fmt_row(rec))
     return 0

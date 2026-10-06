@@ -52,7 +52,8 @@ def _render_band(st, alloc, state: dict) -> None:
     with c3:
         rt = state.get("report_tilt")
         if rt:
-            st.info(f"📚 Tilt {rt['tilt']:+d} band từ {rt.get('n_reports')} báo "
+            st.info(f"📚 Tilt {rt.get('label') or format(rt['tilt'], '+d') + ' band'} từ "
+                    f"{rt.get('n_reports')} báo "
                     f"cáo (stance CP {rt.get('stance_cp')}) — band data: "
                     f"{state.get('band_data')}")
         if state.get("pending"):

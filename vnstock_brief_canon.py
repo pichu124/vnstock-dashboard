@@ -270,8 +270,8 @@ def _macro_reports_body_lines(ctx: dict, directive: bool = True) -> list[str]:
                      f"{_score2(alloc.get('score')):+.2f}, phiên {alloc.get('as_of', '?')}")
         rt = alloc.get("report_tilt") or {}
         if rt.get("tilt"):
-            band_line += (f"; đã gồm tilt {rt['tilt']:+d} từ báo cáo "
-                          f"(band data: {alloc.get('band_data')})")
+            band_line += (f"; đã gồm tilt {rt.get('label') or format(rt['tilt'], '+d')}"
+                          f" từ báo cáo (band data: {alloc.get('band_data')})")
         lines.append(band_line)
     for r in reps[:3]:
         d = r.get("digest") or {}
@@ -303,8 +303,14 @@ def _allocation_table_lines(alloc: dict) -> list[str]:
     if not rows or not alloc.get("band"):
         return []
     lines = [f"- {cls}: {pct}%" for cls, pct in rows.items()]
-    lines.append(f"- Band: {alloc['band']} ({alloc.get('band_label', '')}) — "
-                 f"điểm {_score2(alloc.get('score')):+.2f}, phiên {alloc.get('as_of', '?')}")
+    band_row = (f"- Band: {alloc['band']} ({alloc.get('band_label', '')}) — "
+                f"điểm {_score2(alloc.get('score')):+.2f}, phiên {alloc.get('as_of', '?')}")
+    rt = alloc.get("report_tilt") or {}
+    if rt.get("tilt") and (rt.get("strength") or 1) < 1:
+        # 05/10 tilt nhạt dần: % ở trên là TRỘN giữa 2 band, không khớp bảng
+        # band nào — nói rõ để LLM không "sửa" về bảng gốc.
+        band_row += f" — tỷ trọng trộn: tilt {rt.get('label')}"
+    lines.append(band_row)
     return lines
 
 # ── Khối danh mục đang giữ ────────────────────────────────────────────────────

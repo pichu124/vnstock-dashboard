@@ -1208,6 +1208,25 @@ _AGENT_STRENGTH: tuple = ("claude-code", "gemini", "claude", "openai", "deepseek
                           "groq", "mistral", "cerebras", "openrouter")
 
 
+def _allocation_claude_lead(agents: list[BriefAgent]) -> list[BriefAgent]:
+    """Brief PHÂN BỔ (nút dashboard, tháng 1 lần) theo công tắc engine như mọi
+    bước LLM khác (user 04/10): engine bước brief = claude ⇒ ClaudeCodeAgent
+    làm lead dù config chưa bật nó; ladder đã bật vẫn chạy kèm (lỗi CLI ⇒ bản
+    ladder vẫn ra). Không CLI / engine ladder / đã có claude-code ⇒ nguyên."""
+    if any(getattr(a, "agent_type", "") == "claude-code" for a in agents):
+        return agents
+    try:
+        import vnstock_claude_cli as vcc
+        if vcc.engine_for("brief") != "claude":
+            return agents
+        lead = ClaudeCodeAgent(tag="brief")
+        if not lead.is_available:
+            return agents
+    except Exception:
+        return agents
+    return [lead] + list(agents)
+
+
 def _strength_sorted(agents: list[BriefAgent]) -> list[BriefAgent]:
     """Sắp agent theo _AGENT_STRENGTH (mạnh → yếu), sort ổn định."""
     def _rank(a: BriefAgent) -> int:
@@ -1864,7 +1883,7 @@ def _allocation_state_block(alloc: dict) -> str:
     lines += table
     rt = alloc.get("report_tilt") or {}
     if rt.get("tilt"):
-        lines.append(f"- Tilt từ báo cáo: {rt['tilt']:+d} band "
+        lines.append(f"- Tilt từ báo cáo: {rt.get('label') or format(rt['tilt'], '+d') + ' band'} "
                      f"(band data {alloc.get('band_data')}, stance CP "
                      f"{rt.get('stance_cp')}, {rt.get('n_reports')} báo cáo)")
     for r in alloc.get("inputs") or []:
@@ -3824,6 +3843,8 @@ def generate_brief(
 
     if agents is None:
         agents = build_agents()
+        if brief_type == "allocation":
+            agents = _allocation_claude_lead(agents)
     # Ưu tiên agent MẠNH trước (22/07) — quyết định cả thứ tự chọn bản chính
     agents = _strength_sorted(agents)
 

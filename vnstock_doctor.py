@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import date, datetime, time as _time_t, timedelta
 from pathlib import Path
@@ -463,6 +464,39 @@ def check_pipeline_reach() -> dict:
 
 
 # ── Engine brief (Claude Code CLI thuê bao) — 30/09, U62 ────────────────────
+_ENV_KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _env_file_entries(env_file: "Path | None" = None) -> "list[tuple[int, str, str]]":
+    """(số dòng, khoá, giá trị) của MỌI dòng gán trong `.env` máy này, đúng thứ
+    tự file — bỏ dòng trống/`#`/không `=`, nhận tiền tố `export `, nuốt BOM
+    (Notepad). Không có file / đọc lỗi ⇒ []."""
+    env_file = env_file or (_REPO / ".env")
+    try:
+        text = env_file.read_text(encoding="utf-8-sig", errors="replace")
+    except OSError:
+        return []
+    out = []
+    for i, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        k = k.strip()
+        if k.startswith("export "):
+            k = k[len("export "):].strip()
+        if _ENV_KEY_RE.fullmatch(k):
+            out.append((i, k, v.strip().strip('"\'')))
+    return out
+
+
+def _env_file_values(env_file: "Path | None" = None) -> dict:
+    """Khoá → giá trị ĐÚNG như python-dotenv nạp: trùng khoá thì dòng SAU thắng
+    (đã thử 1.2.2, 05/10). Bản cũ ở đây lấy dòng ĐẦU ⇒ doctor có thể báo khác
+    thứ pipeline thật đang dùng."""
+    return {k: v for _, k, v in _env_file_entries(env_file)}
+
+
 _ENGINE_ENVS = ("VNSTOCK_BRIEF_ENGINE", "VNSTOCK_LLM_ENGINE")
 
 
@@ -473,20 +507,7 @@ def _engine_setting() -> str:
         v = os.environ.get(k)
         if v is not None and v.strip():
             return v.strip().lower()
-    env_file = _REPO / ".env"
-    found: dict = {}
-    if env_file.exists():
-        try:
-            for line in env_file.read_text(encoding="utf-8", errors="replace").splitlines():
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                k, _, v = line.partition("=")
-                k = k.strip()
-                if k in _ENGINE_ENVS:
-                    found.setdefault(k, v.strip().strip('"\''))
-        except OSError:
-            pass
+    found = _env_file_values()
     for k in _ENGINE_ENVS:
         if found.get(k):
             return found[k].lower()
@@ -555,6 +576,66 @@ def check_brief_engine() -> dict:
     except Exception:
         days = []
     return brief_engine_verdict(marker, _engine_setting(), days)
+
+
+def news_alert_verdict(marker, now: "datetime | None" = None,
+                       active: "bool | None" = None) -> dict:
+    """Hàm thuần cho badge cảnh báo tin mỗi giờ (#31). `marker` =
+    news_alert_status.json (dict/None); `active` = đang trong khung giờ gửi
+    (None ⇒ hỏi vnstock_news_alert). Marker đi qua Dropbox ⇒ nói về lượt của
+    MÁY ghi (`machine`), không phải máy đang khám.
+    off  = chưa chạy lần nào (task chưa đăng ký)
+    warn = lượt cuối lỗi (feed rỗng / chấm hỏng / Telegram) HOẶC trong khung
+           giờ mà >3h không có lượt mới (task không chạy, máy tắt, sync tắt)
+    error= lỗi ≥ 3 lượt liền (marker ghi `error_streak`)"""
+    name = "Cảnh báo tin mỗi giờ (news-alert)"
+    key = "news_alert"
+    fix_setup = ("🖥️ DESKTOP: chạy lại scripts/setup_scheduled_tasks.ps1 (Admin, venv) để "
+                 "có task 'VnStock News Alert'; thử tay: python run.py news-alert --dry-run")
+    if not isinstance(marker, dict):
+        return _result(key, name, "off", "chưa có news_alert_status.json — chưa chạy lần nào",
+                       fix_setup)
+    now = now or datetime.now()
+    ran_raw = str(marker.get("ran_at") or "")
+    try:
+        ran = datetime.fromisoformat(ran_raw)
+        age_h = (now - ran).total_seconds() / 3600
+        ran_txt = ran.strftime("%H:%M %d/%m")
+    except ValueError:
+        ran, age_h, ran_txt = None, None, ran_raw or "?"
+    machine = marker.get("machine") or "?"
+    engine = marker.get("engine") or "?"
+    summary = (f"lượt {ran_txt} bởi {machine} · {marker.get('fetched', '?')} tin lấy · "
+               f"{marker.get('new', '?')} mới · {marker.get('sent', 0)} gửi · engine {engine}")
+    err = marker.get("error")
+    if err:
+        streak = int(marker.get("error_streak") or 1)
+        status = "error" if streak >= 3 else "warn"
+        return _result(key, name, status,
+                       f"{summary} · ❌ {err}" + (f" ({streak} lượt liền)" if streak > 1 else ""),
+                       "🖥️ DESKTOP: Select-String '\\[news-alert\\]' run_daily.log; mạng/feed → "
+                       "python vnstock_news_feeds.py --diag; Claude → python vnstock_brief_pack.py "
+                       "--check; Telegram → python run.py telegram test")
+    if active is None:
+        try:
+            import vnstock_news_alert as _na
+            active, _ = _na.in_active_hours(now)
+        except Exception:
+            active = False
+    if active and age_h is not None and age_h > 3:
+        return _result(key, name, "warn",
+                       f"{summary} — {age_h:.0f}h không có lượt mới trong khung giờ gửi",
+                       "🖥️ DESKTOP: Get-ScheduledTaskInfo -TaskName 'VnStock News Alert' (máy tắt? "
+                       "task tắt?); hai máy thấy khác nhau ⇒ kiểm icon Dropbox trước")
+    return _result(key, name, "ok", summary, "")
+
+
+def check_news_alert() -> dict:
+    try:
+        marker = json.loads((_META / "news_alert_status.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        marker = None
+    return news_alert_verdict(marker)
 
 
 def check_warehouse() -> dict:
@@ -848,12 +929,106 @@ def check_llm_keys() -> dict:
                    "bổ sung key thiếu vào .env" if status != "ok" else "")
 
 
+def check_env_duplicates() -> dict:
+    """Khoá lặp trong `.env` MÁY NÀY (05/10: hai dòng TELEGRAM_CHAT_ID — group
+    Brief ở trên, chat riêng cũ ở dưới — python-dotenv lấy dòng SAU ⇒ brief
+    âm thầm về chat cũ). Trùng CÙNG giá trị vẫn warn: hôm nay vô hại, nhưng
+    lần sau sửa dòng trên sẽ không ăn. KHÔNG BAO GIỜ in giá trị (token)."""
+    name = "Khoá trùng trong .env"
+    host = os.environ.get("COMPUTERNAME") or "?"
+    if not (_REPO / ".env").exists():
+        return _result("env_duplicates", name, "off", f"máy này ({host}) chưa có .env", "")
+    rows: "dict[str, list]" = {}
+    for ln, k, v in _env_file_entries():
+        rows.setdefault(k, []).append((ln, v))
+    dups = {k: r for k, r in rows.items() if len(r) > 1}
+    if not dups:
+        return _result("env_duplicates", name, "ok",
+                       f"{len(rows)} khoá, không khoá nào lặp ({host})", "")
+    parts = []
+    for k, r in dups.items():
+        lines = ", ".join(str(ln) for ln, _ in r)
+        tail = (f"KHÁC giá trị — dòng {r[-1][0]} đang thắng" if len({v for _, v in r}) > 1
+                else "cùng giá trị — sửa dòng trên sẽ không ăn")
+        parts.append(f"{k} (dòng {lines}: {tail})")
+    return _result(
+        "env_duplicates", name, "warn",
+        f"{len(dups)} khoá lặp ({host}): " + "; ".join(parts),
+        "notepad .env → mỗi khoá giữ MỘT dòng (xoá hoặc thêm # dòng thừa; python-dotenv "
+        "lấy dòng SAU CÙNG) rồi chạy lại doctor. .env theo MÁY — máy kia tự soi riêng")
+
+
+def check_horizons(now: "datetime | None" = None) -> dict:
+    """Brief 3 khung CHẠY BÓNG (P1a, `docs/THIET-KE-BRIEF-3-KHUNG.md` §3.10):
+    state có theo kịp bar VNINDEX trong kho không, gấp lại từ inputs đã lưu có
+    ra đúng bản đã ghi không (F1), close đã ghi có bị sửa sau đó không
+    (revision), có conflicted copy không. Brief CHƯA đọc state (tới P1b) ⇒
+    badge này chỉ warn, không bao giờ error."""
+    name = "Brief 3 khung (chạy bóng)"
+    if os.environ.get("VNSTOCK_HORIZONS_STEP", "1").strip().lower() in _OFF_VALUES:
+        return _result("horizons", name, "off", "tắt (VNSTOCK_HORIZONS_STEP=0)", "")
+    try:
+        import vnstock_horizons_state as hs
+        from vnstock_rollup import session_covered_at
+    except Exception as e:
+        return _result("horizons", name, "warn", f"không import được ({type(e).__name__}: {e})", "")
+    wh = _META.parent
+    fix_init = ("○ một lần, NGOÀI khung pipeline desktop (18:00 → '⏱ TỔNG'): "
+                "python run.py horizons --backfill")
+    if not hs.state_path(wh).exists():
+        return _result("horizons", name, "warn", "chưa có state (P1a vừa merge?)", fix_init)
+    st = hs.load_state(wh)
+    pub = st.get("published") or []
+    if not pub:
+        return _result("horizons", name, "warn", "state rỗng", fix_init)
+    last = pub[-1]
+    issues, fixes = [], []
+    conflicted = sorted(f.name for f in _META.glob("horizon_state*conflicted*"))
+    if conflicted:
+        issues.append(f"conflicted copy: {', '.join(conflicted[:2])}")
+        fixes.append("○ xoá bản '(conflicted copy)' trong _meta (bản tên gốc là bản đang dùng)")
+    dates, _ = hs.load_vnindex(wh)
+    covered = session_covered_at(now or datetime.now())
+    expect = max((d for d in dates if d <= covered), default=None)
+    if expect and str(last.get("as_of")) < expect.isoformat():
+        issues.append(f"cũ: bản cuối {last.get('as_of')}, kho đã có bar {expect}")
+        fixes.append("🖥️ DESKTOP: Select-String -Path run_daily.log -Pattern '\\[horizons\\]' "
+                     "| Select-Object -Last 3 · chạy tay: ○ python run.py horizons")
+    v = hs.verify(st, wh, last=20)
+    if v["fold_mismatch"]:
+        issues.append(f"gấp lại ≠ bản đã ghi: {', '.join(v['fold_mismatch'][:3])}")
+        fixes.append("○ python run.py horizons --replay rồi gửi output cho Claude")
+    if v["revisions"]:
+        issues.append(f"close đã ghi bị sửa trong kho (revision): {', '.join(v['revisions'][:3])}")
+        fixes.append("không đổi state (gấp từ input đã lưu) — chỉ cần biết; soi bằng "
+                     "python run.py horizons --replay")
+    n_live = sum(1 for p in pub if p.get("source") == "live")
+    head = f"{hs.headline(last)} · {n_live} phiên live"
+    if issues:
+        return _result("horizons", name, "warn", "; ".join(issues) + f" · {head}", " · ".join(fixes))
+    return _result("horizons", name, "ok",
+                   f"{head}, gấp lại khớp {v['live']}/{v['live']}", "")
+
+
 def check_telegram() -> dict:
     name = "Telegram push"
     tok = bool((os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip())
     chat = bool((os.environ.get("TELEGRAM_CHAT_ID") or "").strip())
     if tok and chat:
-        return _result("telegram", name, "ok", "BOT_TOKEN + CHAT_ID có trong env")
+        # Kênh tin mỗi giờ (05/10): bot riêng mà thiếu group riêng ⇒ bot tin sẽ
+        # gửi vào chat MẶC ĐỊNH, nơi nó không là thành viên ⇒ lỗi mỗi giờ.
+        n_tok = bool((os.environ.get("TELEGRAM_NEWS_BOT_TOKEN") or "").strip())
+        n_chat = bool((os.environ.get("TELEGRAM_NEWS_CHAT_ID") or "").strip())
+        if n_tok and not n_chat:
+            return _result("telegram", name, "warn",
+                           "có TELEGRAM_NEWS_BOT_TOKEN nhưng thiếu TELEGRAM_NEWS_CHAT_ID "
+                           "— bot tin sẽ gửi vào chat mặc định",
+                           "python run.py telegram chats --channel news → chép id group "
+                           "tin vào TELEGRAM_NEWS_CHAT_ID")
+        news = ("tin mỗi giờ → bot + group riêng" if n_tok and n_chat
+                else "tin mỗi giờ → group riêng (cùng bot)" if n_chat
+                else "tin mỗi giờ dùng chung bot/chat")
+        return _result("telegram", name, "ok", f"BOT_TOKEN + CHAT_ID có trong env · {news}")
     if tok or chat:
         missing = "TELEGRAM_CHAT_ID" if tok else "TELEGRAM_BOT_TOKEN"
         return _result("telegram", name, "warn", f"thiếu {missing}",
@@ -926,7 +1101,8 @@ def check_allocation() -> dict:
              f"phiên {as_of or '?'} · {st.get('n_inputs', 0)} tín hiệu · "
              f"history {len(st.get('history') or [])} phiên"]
     if (st.get("report_tilt") or {}).get("tilt"):
-        parts.append(f"tilt {st['report_tilt']['tilt']:+d} từ báo cáo")
+        rt = st["report_tilt"]
+        parts.append(f"tilt {rt.get('label') or format(rt['tilt'], '+d')} từ báo cáo")
     remind = _allocation_brief_reminder()
     if remind:
         parts.append(remind)
@@ -1180,6 +1356,8 @@ def net_jina() -> dict:
 _DANGEROUS_SWITCHES = {
     "VNSTOCK_PIPELINE_BRIEF": "tắt HẲN bước brief — pipeline chạy xong mà "
                               "Telegram không nhận gì",
+    "VNSTOCK_NEWS_ALERT": "tắt cảnh báo tin mỗi giờ — task 'VnStock News Alert' "
+                          "chạy mà Telegram không nhận tin",
     "VNSTOCK_BRIEF_AUTO_REFRESH": "brief thôi tự làm mới độ rộng thị trường "
                                   "→ có thể báo số giữa phiên",
     "VNSTOCK_BRIEF_AUTO_RECONCILE": "thôi tự đóng lệnh quá hạn → sổ lệnh đầy "
@@ -1208,19 +1386,9 @@ def check_kill_switches() -> dict:
         v = os.environ.get(k)
         if v is not None:
             seen[k] = v.strip()
-    env_file = _REPO / ".env"
-    if env_file.exists():
-        try:
-            for line in env_file.read_text(encoding="utf-8", errors="replace").splitlines():
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                k, _, v = line.partition("=")
-                k = k.strip()
-                if k in _DANGEROUS_SWITCHES:
-                    seen.setdefault(k, v.strip().strip('"\''))
-        except Exception:
-            pass
+    for k, v in _env_file_values().items():          # os.environ thắng .env (như dotenv)
+        if k in _DANGEROUS_SWITCHES:
+            seen.setdefault(k, v)
     for k, v in seen.items():
         if str(v).strip().lower() in _OFF_VALUES:
             found.append(f"{k}={v} ({_DANGEROUS_SWITCHES[k]})")
@@ -1459,6 +1627,13 @@ def check_autoheal_yield() -> dict:
         return _result("autoheal_yield", name, "ok", "chưa có lượt nào được ghi", "")
     head = (f"{st['healed']:,}/{st['attempts']:,} bar lành qua {st['runs']} lượt"
             + (f" ({st['rate']:.1%})" if st["rate"] is not None else ""))
+    last = st.get("last") or {}
+    if st["attempts"] and not int(last.get("scanned") or 0):
+        # Lượt cuối gặp hàng đợi rỗng ⇒ auto-heal không tốn gì nữa; hiệu suất
+        # 0% của các lượt CŨ không còn là việc cần làm (05/10).
+        return _result("autoheal_yield", name, "ok",
+                       f"hàng đợi cách ly rỗng (lượt cuối {last.get('at', '?')}) — "
+                       f"không có gì để chữa · sổ cũ: {head}", "")
     if not st["enough"]:
         return _result("autoheal_yield", name, "ok",
                        f"{head} — chưa đủ mẫu (cần ≥{HEAL_MIN_ATTEMPTS:,} lượt)", "")
@@ -1519,12 +1694,12 @@ OFFLINE_CHECKS = [
     check_autoheal_yield,
     check_brief_watch,
     check_exdiv_source,
-    check_pipeline_reach, check_brief_engine,
+    check_pipeline_reach, check_brief_engine, check_news_alert,
     check_warehouse, check_market_overview, check_gtgd_coverage,
     check_fundamentals, check_macro,
     check_pdf_tooling, check_market_news, check_ticker_news,
-    check_foreign_flow, check_events, check_reports, check_allocation,
-    check_llm_keys, check_llm_ledger, check_telegram, check_tests,
+    check_foreign_flow, check_events, check_reports, check_allocation, check_horizons,
+    check_llm_keys, check_env_duplicates, check_llm_ledger, check_telegram, check_tests,
 ]
 def net_vn30_basket() -> dict:
     """Làm mới rổ VN30 từ API rồi so với hằng số chép cứng.

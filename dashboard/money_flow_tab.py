@@ -111,26 +111,16 @@ def render_money_flow_tab() -> None:
             ),
         )
         _mf_days = {"1D": 0, "5D": 7, "20D": 30}[_mf_window]
-        # Consumer của động cơ WSS (user chốt 17/08): động cơ tắt thì toggle
-        # bị KHOÁ + kéo về OFF kèm chỉ đường, khỏi bật chay vô dụng.
+        # 05/10: công tắc Live Scan GỘP về sidebar chung (dưới 🔴 Live Mode) —
+        # toggle riêng `mf_live` bị Streamlit dọn state mỗi lần rời tab. Tab
+        # chỉ ĐỌC cờ; vẫn gác thêm động cơ live_mode cho chắc.
         _wss_engine_on = bool(st.session_state.get("live_mode")) and WSS_AVAILABLE
-        if not _wss_engine_on:
-            st.session_state["mf_live"] = False
-        _mf_live_on = st.toggle(
-            "Live Scan (real-time)",
-            key="mf_live",
-            disabled=not _wss_engine_on,
-            help=(
-                "**Bật**: cập nhật Buy/Sell ratio mỗi 15 giây từ live quote "
-                "data (chỉ hoạt động khi 🔴 Live Mode đang bật ở sidebar trái).\n\n"
-                "**Tắt**: chỉ xem dữ liệu offline (NN ròng + Buy/Sell từ "
-                "lần poll gần nhất).\n\n"
-                "Live Scan **không có NN ròng** real-time (dữ liệu NN chỉ "
-                "có cuối ngày) — chỉ dựa trên tỷ lệ Buy/Sell volume."
-            ),
-        )
-        if not _wss_engine_on:
-            st.caption("🔌 Cần bật **🔴 Live Mode** ở sidebar trái trước.")
+        _mf_live_on = bool(st.session_state.get("live_scan")) and _wss_engine_on
+        st.caption(
+            ("🔴 **Live Scan bật** — Buy/Sell cập nhật mỗi 15s từ live quote "
+             "(không có NN ròng real-time, NN chỉ có cuối ngày)." if _mf_live_on else
+             "Live Scan tắt — bật **Live Scan** ở mục 🔴 Live Mode phía trên "
+             "để cập nhật Buy/Sell mỗi 15s (cần bật Real-time WSS trước)."))
         st.caption(
             "**NN ròng**: khối ngoại mua - bán ròng (tỷ VND)\n\n"
             "**Buy/Sell**: tỷ lệ mua/bán chủ động "
@@ -636,7 +626,7 @@ def render_money_flow_tab() -> None:
         def _live_money_flow_fragment():
             _live_d = Path("data_warehouse/_live")
             if not _live_d.exists():
-                st.caption("⏳ Chưa có live data — bật Live Mode trong tab Phân tích")
+                st.caption("⏳ Chưa có live data — chờ WSS poll (🔴 Live Mode ở sidebar trái)")
                 return
 
             quote_files = list(_live_d.glob("quote_*.json"))
