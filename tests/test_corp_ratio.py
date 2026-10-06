@@ -13,6 +13,8 @@ Lưới canh ba cái bẫy, cả ba đều đủ sức tạo ra một con số s
 """
 from __future__ import annotations
 
+import unicodedata
+
 import pytest
 
 from vnstock_corp_ratio import (
@@ -54,6 +56,8 @@ def test_same_exdate_events_add_up_they_do_not_compound():
     ("Trả cổ tức bằng cổ phiếu tỷ lệ 100/12", 0.12),
     # VCI 05/10 (GMD): "cổ phiếu thưởng" — thứ tự NGƯỢC với "thưởng cổ phiếu"
     ("Phát hành cổ phiếu - Cổ phiếu thưởng tỉ lệ 50.0%", 0.5),
+    (unicodedata.normalize("NFD", "Phát hành cổ phiếu - Cổ phiếu thưởng tỉ lệ 50.0%"), 0.5),
+    ("Cổ phiếu thưởng tỉ lệ 9.5%", 0.095),
 ])
 def test_stock_ratios(title, ratio):
     assert parse_event(title) == {"kind": "stock",
@@ -131,6 +135,9 @@ def test_unreadable_titles_return_none(title):
     # "thường" (PHỔ THÔNG) và "thưởng" trùng nhau sau khi bỏ dấu — hoán đổi
     # sáp nhập mà đọc thành thưởng là chia giá cho 2.2, sai hoàn toàn.
     "Phát hành cổ phiếu thường để hoán đổi, tỷ lệ 1:1.2",
+    "Niêm yết bổ sung cổ phiếu thường, tỷ lệ 5%",
+    # Không dấu thì không phân biệt được thưởng/thường ⇒ không đoán
+    "Co phieu thuong ti le 50%",
     # Mệnh giá không phải số tiền chia
     "Trả cổ tức bằng tiền mặt, mệnh giá 10.000 đồng",
     # "đồng thời" — số đứng trước nó là năm, không phải tiền

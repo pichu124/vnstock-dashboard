@@ -6976,13 +6976,16 @@ mở BUY @78) và `"Trả cổ tức bằng tiền mặt - Đợt 2 2025 - 1,000
 "<số> VND". Bẫy ngầm thứ ba: `_to_number` coi mọi ',' là thập phân ⇒ "1,000"
 (VCI in số kiểu EN) ra **1.0** — "1,000 đồng/CP" qua nhánh cũ đã ra cổ tức 1đ.
 
-**Vá:** thêm "co phieu thuong"; nhánh tiền bắt số tiền là trọn một vế giữa dấu
-gạch hoặc đứng cuối tiêu đề (đứng SAU nhánh %, loại "mệnh giá X đồng");
-`_to_number` một luật cho cả hai dấu (đủ hai dấu ⇒ dấu sau là thập phân; một
-loại ⇒ nhóm 3 chữ số là nghìn). Kèm: "cổ phiếu THƯỜNG" (phổ thông) trùng
-"thưởng" sau khi bỏ dấu ⇒ `_norm` đổi thành "cổ phiếu phổ thông" TRƯỚC khi bỏ
-dấu, không thì hoán đổi sáp nhập "tỷ lệ 1:1.2" đọc thành thưởng 120%. GMD
-78,000 ⇒ ≈ 52,000. Test ở `test_corp_ratio.py` + `test_brief_exdate_guard.py`.
+**Vá:** "cổ phiếu thưởng" so khớp CÓ DẤU (`_BONUS_ACCENTED`, theo đặc tả R18
+trong `docs/THIET-KE-MUC-RUI-RO.md`) — bỏ dấu thì "thưởng" trùng "thường" (cổ
+phiếu PHỔ THÔNG: niêm yết bổ sung, hoán đổi "tỷ lệ 1:1.2" sẽ thành thưởng
+120%); tiêu đề không dấu "co phieu thuong" cố ý trả None. Nhánh tiền bắt số
+tiền là trọn một vế giữa dấu gạch hoặc đứng cuối tiêu đề (đứng SAU nhánh %,
+loại "mệnh giá X đồng"). `_to_number` một luật cho cả hai dấu (đủ hai dấu ⇒
+dấu sau là thập phân; một loại ⇒ nhóm 3 chữ số là nghìn). GMD 78,000 ⇒ ≈
+52,000. Test ở `test_corp_ratio.py` + `test_brief_exdate_guard.py`. Bản đầu
+(`dea48af`) thêm "co phieu thuong" vào `_STOCK_WORDS` + đổi tên trong `_norm`;
+đổi sang R18 khi merge main 06/10 vì đặc tả chốt ngược lại.
 Còn hở: khối "Khuyến nghị đang mở" Telegram nối NGOÀI guard nên dòng GMD @78
 không mang ⚠️ GDKHQ; sổ lệnh (`vnstock_train` chấm TP/SL) không quy đổi qua
 ngày GDKHQ — chưa soi, chờ user quyết.

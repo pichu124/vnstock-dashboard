@@ -40,10 +40,12 @@ import unicodedata
 # Mệnh giá cổ phiếu VN — mốc quy đổi cho "cổ tức tiền mặt tỷ lệ X%".
 PAR_VALUE_VND = 10_000.0
 
-# "co phieu thuong": VCI viết "Phát hành cổ phiếu - Cổ phiếu thưởng tỉ lệ
-# 50.0%" (GMD 05/10) — thứ tự NGƯỢC với "thưởng cổ phiếu".
-_STOCK_WORDS = ("bang co phieu", "thuong co phieu", "co phieu thuong",
-                "chia tach", "tach co phieu")
+_STOCK_WORDS = ("bang co phieu", "thuong co phieu", "chia tach", "tach co phieu")
+# VCI viết "Phát hành cổ phiếu - Cổ phiếu thưởng tỉ lệ 50.0%" (GMD 05/10) —
+# thứ tự NGƯỢC với "thưởng cổ phiếu". So khớp CÓ DẤU: bỏ dấu thì "thưởng" trùng
+# "thường", mà "cổ phiếu thường" là cổ phiếu PHỔ THÔNG (niêm yết bổ sung, hoán
+# đổi…). Tiêu đề không dấu "co phieu thuong" vì thế KHÔNG được đọc (đặc tả R18).
+_BONUS_ACCENTED = "cổ phiếu thưởng"
 _CASH_WORDS = ("bang tien", "dong/cp", "dong/co phieu", "tien mat")
 # Phát hành có giá mua — công thức khác, KHÔNG đoán.
 _REFUSE_WORDS = ("quyen mua", "chao ban", "phat hanh them cho co dong",
@@ -78,19 +80,11 @@ def adjusts_price(title: str) -> bool:
     return not any(w in t for w in _NON_ADJUSTING_WORDS)
 
 
-# "thưởng" và "thường" trùng nhau sau khi bỏ dấu, mà "cổ phiếu thường" là cổ
-# phiếu PHỔ THÔNG (hoán đổi sáp nhập, niêm yết bổ sung…) — đọc nó thành thưởng
-# là chia giá cho một tỉ lệ không hề có. Đổi tên TRƯỚC khi bỏ dấu.
-_COMMON_SHARES_RE = re.compile(r"cổ\s+phiếu\s+thường")
-
-
 def _norm(text: str) -> str:
     """Bỏ dấu + hạ chữ thường — tiêu đề đến từ nhiều nguồn, dấu không đồng nhất."""
-    s = unicodedata.normalize("NFC", str(text or "")).lower()
-    s = _COMMON_SHARES_RE.sub("cổ phiếu phổ thông", s)
-    s = unicodedata.normalize("NFD", s)
+    s = unicodedata.normalize("NFD", str(text or ""))
     s = "".join(c for c in s if unicodedata.category(c) != "Mn")
-    return s.replace("đ", "d")
+    return s.replace("đ", "d").replace("Đ", "D").lower()
 
 
 def parse_event(title: str) -> "dict | None":
@@ -103,7 +97,8 @@ def parse_event(title: str) -> "dict | None":
         return None
 
     is_cash = any(w in t for w in _CASH_WORDS)
-    is_stock = any(w in t for w in _STOCK_WORDS)
+    is_stock = (any(w in t for w in _STOCK_WORDS)
+                or _BONUS_ACCENTED in unicodedata.normalize("NFC", str(title)).lower())
     if is_cash and not is_stock:
         # "500 dong/cp" hoặc "1.500 dong/co phieu"
         m = re.search(r"([\d][\d.,]*)\s*dong\s*/\s*(?:cp|co phieu)", t)
