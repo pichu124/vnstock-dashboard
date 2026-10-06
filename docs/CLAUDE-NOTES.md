@@ -6974,6 +6974,24 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🔎 U77. SỔ NGHI NGỜ BRIEF: Op.CF ĐÃ XÁC MINH THÌ THÔI RÉO (06/10 tối, user chọn B)
+
+**Vì sao:** doctor 06/10 (🖥️ desktop) ⚠️ "Op.CF/vốn hoá lớn bất thường ×20 (HDC, KBC, PVC,
+VVS; đậm nhất VVS 1.17×) — ĐỦ mẫu". Đối chiếu BCTC 2025 qua Finhay MCP: **VVS +2.133 tỷ**
+(khoản phải trả tăng 2.149 tỷ — vốn lưu động), **HDC −1.017 tỷ** (tồn kho BĐS +989 tỷ);
+KBC/PVC đã soi 29/09 ⇒ cả 4 là SỐ THẬT. Nhưng `scan_ocf_scale` quét DỮ LIỆU ctx mỗi phiên
+(không đọc chữ brief) ⇒ xoá sổ như 29/09 thì 6 phiên sau réo lại y hệt — báo động giả lặp.
+
+**Đã làm (`vnstock_brief_watch.py`):** sổ RIÊNG `_meta/brief_watch_verified.json` (xoá
+`brief_watch.json` để đếm lại KHÔNG mất công xác minh), khoá (mã, Op.CF) với dung sai
+max(1%, 1 tỷ) — `is_verified_ocf`. `scan_ocf_scale(verified=)` bỏ qua số đã xác minh
+(`observe_brief` tự nạp); `summarize` loại chúng khỏi MỌI phép đếm (cả số phiên, `enough`)
+và trả `ocf_verified`. `verify_ocf` lấy Op.CF của quan sát MỚI NHẤT trong sổ (đúng con số
+đang bị réo). CLI `python vnstock_brief_watch.py --verify HDC KBC PVC VVS --note "…"` (mã
+không có trong sổ ⇒ báo + exit 1). Doctor: ghi chú "Op.CF đã xác minh số thật: …", lời
+sửa trỏ `--verify` thay cho "xoá file". Kỳ BCTC mới đổi số ⇒ sổ réo lại để soi lại.
+Test `tests/test_brief_watch.py` +8.
+
 # 📰 U76. TIN MỖI GIỜ: THANG CHẤM 0–100, GỬI ≥75 (06/10)
 
 **Vì sao:** user 06/10 — group News Hourly Update lượt nào cũng đầy trần 8 tin (ngưỡng

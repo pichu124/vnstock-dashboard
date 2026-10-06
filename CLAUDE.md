@@ -291,6 +291,8 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   `vnstock_brief_watch` nhặt bằng chứng mỗi phiên vào `_meta/brief_watch.json`,
   badge doctor `brief_watch` chỉ réo khi ≥ `MIN_SAMPLES` phiên. Dưới sàn mẫu
   badge phải **ok kèm n=…**, không bao giờ warn (vết 13/08: n=2 vẽ thành "0%").
+  Soi xong mà là SỐ THẬT ⇒ `python vnstock_brief_watch.py --verify <MÃ…>` (sổ riêng
+  `_meta/brief_watch_verified.json`, khoá mã + giá trị: số đổi mới réo lại) — ĐỪNG xoá sổ.
 - Model LLM: slug MỚI phải probe sống trước khi vào code —
   `python scripts/probe_models.py --slug "Groq=<model>"` trên máy thật
   (catalog trên mạng hay sai/lỗi thời). Provider khai tử model → 1 dòng

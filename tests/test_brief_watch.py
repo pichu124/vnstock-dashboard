@@ -271,3 +271,88 @@ class TestFinancialsAreNotSuspicious:
 
         monkeypatch.setattr(builtins, "__import__", boom)
         assert W._excluded_financials({"financial_tickers": {"NAB"}}) == {"NAB"}
+
+
+# ── Số Op.CF đã XÁC MINH là thật (06/10, user chọn B) ────────────────────────
+# 29/09 xoá sổ để đếm lại ⇒ 6 phiên sau doctor réo lại đúng KBC/PVC (+HDC, VVS —
+# đối chiếu BCTC 2025 Finhay 06/10: VVS +2.133 tỷ do phải trả tăng, HDC −1.017 tỷ
+# do tồn kho BĐS: SỐ THẬT). Sổ xác minh khoá theo (mã, Op.CF): số đổi thì réo lại.
+
+
+def _ocf_ev(t, ocf, at, ratio=1.0):
+    return {"kind": "ocf_scale", "ticker": t, "ocf_ty": ocf, "mcap_ty": 1000.0,
+            "ratio": ratio, "at": at, "host": "h"}
+
+
+def _write_events(root, events):
+    (root / "_meta").mkdir(parents=True, exist_ok=True)
+    w.watch_path(root).write_text(json.dumps({"events": events}), encoding="utf-8")
+
+
+class TestVerifiedOcf:
+    def test_tolerance_is_one_percent_or_one_ty(self):
+        ver = {"ocf_scale": {"KBC": {"ocf_ty": -17344.0}, "VVS": {"ocf_ty": 0.5}}}
+        assert w.is_verified_ocf("KBC", -17344.0, ver)
+        assert w.is_verified_ocf("kbc", -17200.0, ver)          # lệch 0,8%
+        assert not w.is_verified_ocf("KBC", -16510.0, ver)      # kỳ mới ⇒ số khác
+        assert w.is_verified_ocf("VVS", 1.4, ver)               # sàn 1 tỷ
+        assert not w.is_verified_ocf("HDC", -1016.8, ver)
+        assert not w.is_verified_ocf("KBC", None, ver) and not w.is_verified_ocf("KBC", -1, {})
+
+    def test_scan_skips_verified_but_records_a_changed_number(self):
+        ver = {"ocf_scale": {"KBC": {"ocf_ty": -17344.0}}}
+        assert [e["ticker"] for e in w.scan_ocf_scale(_CTX)] == ["KBC"]
+        assert w.scan_ocf_scale(_CTX, verified=ver) == []
+        moved = {**_CTX, "vn30_fundamentals": {"KBC": {"ocf": -21000.0}}}
+        assert [e["ticker"] for e in w.scan_ocf_scale(moved, verified=ver)] == ["KBC"]
+
+    def test_verify_takes_latest_observation_and_survives_deleting_the_log(self, tmp_path):
+        _write_events(tmp_path, [_ocf_ev("KBC", -17000.0, "2026-09-30"),
+                                 _ocf_ev("KBC", -17344.0, "2026-10-06", 0.8),
+                                 _ocf_ev("VVS", 2133.5, "2026-10-06", 1.17)])
+        got = w.verify_ocf(tmp_path, ["kbc", "VVS", "ZZZ"], note="BCTC 2025 Finhay",
+                           today="2026-10-06")
+        assert got["KBC"]["ocf_ty"] == -17344.0 and got["VVS"]["ratio"] == 1.17
+        assert got["ZZZ"] is None and got["KBC"]["note"] == "BCTC 2025 Finhay"
+        w.watch_path(tmp_path).unlink()                         # "xoá sổ để đếm lại"
+        assert set(w.load_verified(tmp_path)["ocf_scale"]) == {"KBC", "VVS"}
+
+    def test_verify_unknown_only_writes_nothing(self, tmp_path):
+        _write_events(tmp_path, [])
+        assert w.verify_ocf(tmp_path, ["ZZZ"]) == {"ZZZ": None}
+        assert not w.verified_path(tmp_path).exists()
+
+    def test_summarize_drops_verified_from_every_count(self, tmp_path):
+        days = [f"2026-10-0{i}" for i in range(1, 7)]
+        _write_events(tmp_path, [_ocf_ev(t, v, d) for d in days
+                                 for t, v in (("KBC", -17344.0), ("HDC", -1016.8))])
+        st = w.summarize(tmp_path)
+        assert st["enough"] and st["n_ocf"] == 12 and st["ocf_verified"] == []
+        w.verify_ocf(tmp_path, ["KBC", "HDC"])
+        st = w.summarize(tmp_path)
+        assert (st["n_ocf"], st["n_days"], st["enough"]) == (0, 0, False)
+        assert st["ocf_verified"] == ["HDC", "KBC"]
+
+    def test_observe_brief_reads_the_verified_book(self, tmp_path):
+        _write_events(tmp_path, [_ocf_ev("KBC", -17344.0, "2026-10-05")])
+        w.verify_ocf(tmp_path, ["KBC"])
+        got = w.observe_brief(tmp_path, "", _CTX, today="2026-10-06")
+        assert not [e for e in got if e["kind"] == "ocf_scale"]
+
+    def test_cli_verify_and_exit_codes(self, tmp_path, capsys):
+        _write_events(tmp_path, [_ocf_ev("HDC", -1016.8, "2026-10-06", 0.9)])
+        assert w.main(["--warehouse", str(tmp_path), "--verify", "HDC"]) == 0
+        out = capsys.readouterr().out
+        assert "HDC: đã xác minh Op.CF=-1,016.8 tỷ" in out and "đã xác minh ['HDC']" in out
+        assert w.main(["--warehouse", str(tmp_path), "--verify", "ZZZ"]) == 1
+
+    def test_doctor_badge_goes_quiet_after_verify(self, tmp_path, monkeypatch):
+        import vnstock_doctor as doc
+        monkeypatch.setattr(doc, "_META", tmp_path / "_meta")
+        _write_events(tmp_path, [_ocf_ev("VVS", 2133.5, f"2026-10-0{i}", 1.17)
+                                 for i in range(1, 7)])
+        r = doc.check_brief_watch()
+        assert r["status"] == "warn" and "--verify" in r["fix"]
+        w.verify_ocf(tmp_path, ["VVS"])
+        r = doc.check_brief_watch()
+        assert r["status"] == "ok" and "Op.CF đã xác minh số thật: VVS" in r["message"]

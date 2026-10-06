@@ -1554,6 +1554,10 @@ def check_brief_watch() -> dict:
     _risk_note = ((f" · Rủi ro trùng phiên trước {_rr}/{_rp}"
                    + (f" (n={_rp}, chưa đủ mẫu)" if _rp < _w.MIN_SAMPLES else ""))
                   if _rp else "")
+    _ver = st.get("ocf_verified") or []
+    if _ver:
+        _risk_note += f" · Op.CF đã xác minh số thật: {', '.join(_ver[:6])}" + (
+            " …" if len(_ver) > 6 else "")
     if not st["n_ocf"] and not st["n_flow"]:
         return _result("brief_watch", name, "ok",
                        f"chưa nhặt được nghi ngờ nào (đã soi {st['n_days']} phiên)"
@@ -1577,8 +1581,9 @@ def check_brief_watch() -> dict:
         "brief_watch", name, "warn",
         f"{msg} — ĐỦ mẫu, đáng quyết",
         "đọc _meta/brief_watch.json rồi chốt: Op.CF lệch đơn vị hay số thật của "
-        "BĐS? câu dòng tiền ngoại có đáng viết guard chặn không? Xong thì xoá "
-        "file để đếm lại. Tắt sổ: VNSTOCK_BRIEF_WATCH=0")
+        "BĐS? Số thật (đối chiếu BCTC) ⇒ python vnstock_brief_watch.py --verify "
+        "<MÃ…> — chỉ réo lại khi số đổi. Câu dòng tiền ngoại có đáng viết guard "
+        "chặn không? Tắt sổ: VNSTOCK_BRIEF_WATCH=0")
 
 
 def check_exdiv_source() -> dict:

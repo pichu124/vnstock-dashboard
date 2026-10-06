@@ -31,6 +31,12 @@ from datetime import date as _date
 from pathlib import Path
 
 FILE_NAME = "brief_watch.json"
+# Số đã XÁC MINH là thật (06/10, user chọn B): file RIÊNG — "xoá sổ để đếm lại"
+# không được xoá luôn công xác minh. Khoá theo (mã, giá trị Op.CF): chỉ réo lại
+# khi số ĐỔI (kỳ BCTC mới) — 29/09 xoá sổ, 6 phiên sau réo lại đúng KBC/PVC.
+VERIFIED_NAME = "brief_watch_verified.json"
+# Lệch bao nhiêu thì coi là SỐ KHÁC (nguồn làm tròn/sửa nhẹ không được réo lại).
+VERIFIED_TOL_PCT = 0.01
 _ENV_FLAG = "VNSTOCK_BRIEF_WATCH"
 
 # Trần sổ. Đủ dài để nhìn ra xu hướng nhiều tuần, đủ ngắn để file không phình
@@ -55,6 +61,21 @@ def enabled() -> bool:
 
 def watch_path(warehouse_root) -> Path:
     return Path(warehouse_root) / "_meta" / FILE_NAME
+
+
+def verified_path(warehouse_root) -> Path:
+    return Path(warehouse_root) / "_meta" / VERIFIED_NAME
+
+
+def is_verified_ocf(ticker, ocf_ty, verified: dict | None) -> bool:
+    """Mã + Op.CF đã được xác minh là số thật (lệch ≤ 1% / ≤ 1 tỷ). Hàm thuần."""
+    v = ((verified or {}).get("ocf_scale") or {}).get(str(ticker or "").upper())
+    if not isinstance(v, dict) or not isinstance(ocf_ty, (int, float)):
+        return False
+    ref = v.get("ocf_ty")
+    if not isinstance(ref, (int, float)):
+        return False
+    return abs(float(ocf_ty) - float(ref)) <= max(1.0, VERIFIED_TOL_PCT * abs(float(ref)))
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -101,7 +122,8 @@ def _excluded_financials(ctx: dict | None) -> set:
     return fin
 
 
-def scan_ocf_scale(ctx: dict | None, threshold: float = OCF_SCALE_NOTE) -> list:
+def scan_ocf_scale(ctx: dict | None, threshold: float = OCF_SCALE_NOTE,
+                   verified: dict | None = None) -> list:
     """Mã có |Op.CF| lớn bất thường so với vốn hoá — GHI NHẬN, không kết tội.
 
     Cả hai vế đã ở đơn vị **tỷ VND** (`operating_cf` chia 1e9 lúc ghi parquet;
@@ -109,7 +131,8 @@ def scan_ocf_scale(ctx: dict | None, threshold: float = OCF_SCALE_NOTE) -> list:
     Thiếu vốn hoá ⇒ BỎ QUA mã đó, không đoán mẫu số.
 
     **Bỏ qua nhóm TÀI CHÍNH** — xem `_excluded_financials`. Ở đó tỉ số lớn là
-    cấu trúc của ngành, không phải dấu hiệu sai số.
+    cấu trúc của ngành, không phải dấu hiệu sai số. Bỏ qua cả số đã XÁC MINH
+    (`verified`, xem `verify_ocf`) — số đổi thì lại được ghi.
     """
     mcap = _mcap_map(ctx)
     skip = _excluded_financials(ctx)
@@ -122,7 +145,7 @@ def scan_ocf_scale(ctx: dict | None, threshold: float = OCF_SCALE_NOTE) -> list:
         if not isinstance(ocf, (int, float)) or ocf != ocf or not cap:
             continue
         ratio = abs(float(ocf)) / cap
-        if ratio >= threshold:
+        if ratio >= threshold and not is_verified_ocf(tk, round(float(ocf), 1), verified):
             out.append({"kind": "ocf_scale", "ticker": str(tk).upper(),
                         "ocf_ty": round(float(ocf), 1), "mcap_ty": round(cap, 0),
                         "ratio": round(ratio, 3)})
@@ -249,8 +272,8 @@ def observe_brief(warehouse_root, text: str, ctx: dict | None, today=None) -> li
     if not enabled():
         return []
     try:
-        events = (scan_ocf_scale(ctx) + scan_flow_claims(text, ctx)
-                  + scan_risk_repeat(text))
+        events = (scan_ocf_scale(ctx, verified=load_verified(warehouse_root))
+                  + scan_flow_claims(text, ctx) + scan_risk_repeat(text))
     except Exception:
         return []
     if events:
@@ -258,9 +281,49 @@ def observe_brief(warehouse_root, text: str, ctx: dict | None, today=None) -> li
     return events
 
 
+def load_verified(warehouse_root) -> dict:
+    import json
+    try:
+        data = json.loads(verified_path(warehouse_root).read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def verify_ocf(warehouse_root, tickers, note: str = "", today=None) -> dict:
+    """Ghi các mã vào sổ ĐÃ XÁC MINH với Op.CF của quan sát MỚI NHẤT trong sổ
+    theo dõi (đúng con số đang bị réo). Trả {mã: bản ghi | None (không có trong sổ)}.
+    Ghi nguyên tử; mã đã có thì ghi đè bằng số mới nhất."""
+    from vnstock_parquet_io import write_json_atomic
+    events = [e for e in (load(warehouse_root).get("events") or [])
+              if e.get("kind") == "ocf_scale"]
+    data = load_verified(warehouse_root)
+    book = dict(data.get("ocf_scale") or {})
+    out: dict = {}
+    stamp = str(today or _date.today())
+    for t in [str(x).strip().upper() for x in tickers if str(x).strip()]:
+        mine = [e for e in events if str(e.get("ticker") or "").upper() == t
+                and isinstance(e.get("ocf_ty"), (int, float))]
+        if not mine:
+            out[t] = None
+            continue
+        last = max(mine, key=lambda e: str(e.get("at") or ""))
+        book[t] = {"ocf_ty": float(last["ocf_ty"]), "mcap_ty": last.get("mcap_ty"),
+                   "ratio": last.get("ratio"), "at": stamp, "note": note}
+        out[t] = book[t]
+    if any(out.values()):
+        write_json_atomic({**data, "ocf_scale": book}, verified_path(warehouse_root))
+    return out
+
+
 def summarize(warehouse_root) -> dict:
-    """Gộp sổ theo loại — cho badge doctor. Không phán, chỉ đếm."""
-    events = list((load(warehouse_root) or {}).get("events") or [])
+    """Gộp sổ theo loại — cho badge doctor. Không phán, chỉ đếm. Quan sát Op.CF
+    khớp sổ ĐÃ XÁC MINH bị loại khỏi mọi phép đếm (kể cả số phiên)."""
+    verified = load_verified(warehouse_root)
+    raw = list((load(warehouse_root) or {}).get("events") or [])
+    events = [e for e in raw
+              if not (e.get("kind") == "ocf_scale"
+                      and is_verified_ocf(e.get("ticker"), e.get("ocf_ty"), verified))]
     # n_days/enough CHỈ đếm hai loại nghi ngờ cũ — event risk_section có mặt
     # mỗi phiên, cộng vào là badge cũ đổi nghĩa ("đủ mẫu" giả).
     days = {e.get("at") for e in events
@@ -277,6 +340,7 @@ def summarize(warehouse_root) -> dict:
     seq = [risk_by_day[d] for d in sorted(risk_by_day)]
     pairs = list(zip(seq, seq[1:]))
     return {
+        "ocf_verified": sorted((verified.get("ocf_scale") or {}).keys()),
         "risk_pairs": len(pairs),
         "risk_repeats": sum(1 for a, b in pairs if a and a == b),
         "n_days": len(days),
@@ -287,3 +351,38 @@ def summarize(warehouse_root) -> dict:
         "worst_ocf": worst,
         "enough": len(days) >= MIN_SAMPLES,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# CLI — chốt nghi ngờ đã soi xong
+# ─────────────────────────────────────────────────────────────────────────
+def main(argv=None) -> int:
+    """`python vnstock_brief_watch.py --verify HDC KBC` — đối chiếu BCTC xong, số
+    là THẬT ⇒ ghi xác minh, sổ thôi réo tới khi số đổi. Không cờ ⇒ in tóm tắt."""
+    import argparse
+
+    ap = argparse.ArgumentParser(description="Sổ theo dõi nghi ngờ brief")
+    ap.add_argument("--verify", nargs="+", metavar="MÃ",
+                    help="mã có Op.CF/vốn hoá lớn đã xác minh là SỐ THẬT")
+    ap.add_argument("--note", default="", help="ghi chú nguồn đối chiếu (vd 'BCTC 2025 Finhay')")
+    ap.add_argument("--warehouse", default=str(Path(__file__).parent / "data_warehouse"))
+    a = ap.parse_args(argv)
+    root = Path(a.warehouse)
+    if a.verify:
+        got = verify_ocf(root, a.verify, note=a.note)
+        for t, rec in got.items():
+            if rec is None:
+                print(f"  {t}: KHÔNG có trong sổ theo dõi — bỏ qua")
+            else:
+                print(f"  {t}: đã xác minh Op.CF={rec['ocf_ty']:,.1f} tỷ "
+                      f"(vốn hoá {rec.get('mcap_ty')}, {rec.get('ratio')}×)")
+        if not any(got.values()):
+            return 1
+    st = summarize(root)
+    print(f"Sổ: {st['n_days']} phiên · Op.CF ×{st['n_ocf']} {st['ocf_tickers']} · "
+          f"dòng tiền ngoại ×{st['n_flow']} · đã xác minh {st['ocf_verified']}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
