@@ -462,13 +462,16 @@ def _closed_today_block() -> str:
         ]
         if not today_recs:
             return ""
-        icon_map = {"tp": "✅", "sl": "🛑", "expire": "⏰"}
+        icon_map = {"tp": "✅", "sl": "🛑", "expire": "⏰", "corp_action": "⏸"}
         lines = [f"📊 <b>Đóng hôm nay ({len(today_recs)} lệnh):</b>"]
         for c in today_recs:
             icon = icon_map.get(c.get("hit_target", ""), "•")
-            pnl  = c.get("pnl_pct") or 0
+            pnl  = c.get("pnl_pct")
+            # Đóng KHÔNG GIÁ (corp_action/stale) in "+0.00%" là nói dối: lệnh
+            # không hoà vốn, nó không được chấm.
+            res  = f"{pnl:+.2f}%" if pnl is not None else "không chấm"
             lines.append(
-                f"  {icon} <b>{c.get('ticker','?')}</b>: {pnl:+.2f}%"
+                f"  {icon} <b>{c.get('ticker','?')}</b>: {res}"
                 f" ({c.get('hit_target','?')})"
             )
         return "\n".join(lines)

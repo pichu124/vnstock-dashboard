@@ -6966,6 +6966,55 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# ⏸ U74. LỆNH MỞ XUYÊN GDKHQ BỊ CHẤM "SL" GIẢ — TREO KHI KHO CHƯA REBASE, QUY ĐỔI THEO HỆ SỐ ĐO ĐƯỢC KHI ĐÃ REBASE (06/10)
+
+**Bằng chứng (đọc code 06/10):** GMD BUY @78 mở 24/09, thưởng 50% GDKHQ 07/10.
+`reconcile_recommendations` so entry/TP/SL (cơ sở LÚC MỞ) với bar kho, không
+chỗ nào quy đổi. Sau GDKHQ: bar thô ~52 lọt kho ⇒ "sl" ngay đêm đó; hoặc cửa gác
+lệch cơ sở chặn nối tới khi rebase tay ⇒ mọi bar từ ngày mở bị chia 1.5 ⇒ "sl" ở
+bar đầu. Đóng là VĨNH VIỄN, và win-rate thật chảy vào kiểm định/decay chiến lược.
+Thêm hai lỗ: cache sự kiện xoá sự kiện 2 ngày sau GDKHQ (không ai nhớ mã từng đổi
+cơ sở), và universe sự kiện = VN30 ∪ mã thanh khoản — KHÔNG phủ mã lệnh mở (GMD
+lọt vào nhờ may).
+
+**User chốt 06/10: "A trước, B sau"** (A = đóng/treo trung tính, B = quy đổi mốc
+bằng hệ số rebase). Làm cả hai trong một lượt, nhưng B KHÔNG ghi đè sổ như đề
+xuất ban đầu (móc vào script rebase): nếu ghi `entry/TP/SL` lúc rebase thì
+`--restore` bản sao lưu không khôi phục theo. Thay vào đó NEO cơ sở:
+* `rec_basis_anchor` (bảng mới trong `brief_memory.db`): close kho tại bar ngày
+  mở lệnh — chụp ngay ở `emit_recommendations` (kho chắc chắn cùng cơ sở với
+  entry), hoặc lượt reconcile đầu tiên khi CHƯA có sự kiện; lần chụp đầu thắng.
+* Mỗi đêm: f = close kho hôm nay tại đúng bar neo / close lúc chụp.
+  |f−1| > `vnstock_basis_guard.TOL` (1,2%) ⇒ kho ĐÃ rebase ⇒ chấm với mốc × f,
+  giá thoát ÷ f về cơ sở cũ (pnl đúng trên entry trong sổ) — bắt được cả rebase
+  cả-chuỗi không có sự kiện nào trong sổ. Restore ⇒ f về 1 ⇒ tự quay lại treo.
+* Sự kiện ĐÁNG KỂ (lệch giá tham chiếu > TOL theo `corp_ratio`; không đọc được
+  tỉ lệ ⇒ đáng kể; ĐHĐCĐ bỏ qua) trong (ngày mở, hôm nay] mà f≈1 ⇒ chỉ chấm bar
+  TRƯỚC GDKHQ; không chạm ⇒ TREO. Không có neo ⇒ treo không chấm gì. Hai ngày
+  GDKHQ trong một cửa sổ mà kho đã rebase ⇒ treo (một f không đủ).
+* Treo quá hạn + `STALE_GRACE_DAYS` ⇒ đóng `corp_action`, exit/pnl NULL (cùng họ
+  "stale": `recommendation_performance` lọc `pnl_pct IS NOT NULL`, reflection chỉ
+  học tp/sl/expire). Telegram "Đóng hôm nay" in "không chấm" thay vì "+0.00%".
+* Sổ sự kiện đã qua `_meta/corp_actions_ledger.json`: `refresh_upcoming` ghi sự
+  kiện bị cắt vì ĐÃ QUA (lấy từ cache cũ, < cutoff); sự kiện tương lai biến mất
+  sau fetch thành công = bị huỷ, không ghi. `vnstock_events.price_events()` đọc
+  sổ ∪ cache theo `_META` (conftest đã chuyển `_META` sang tmp cho mọi test).
+* `_events_universe(extra_tickers=)` (chữ ký đúng đặc tả mục Rủi ro) +
+  `_maybe_refresh_events` truyền mã lệnh mở; `_open_rec_tickers()` không mở DB
+  khi sổ chưa có (sandbox — bản đầu đẻ `brief_memory.db` rỗng, đã chặn + test).
+* Công tắc `VNSTOCK_REC_GDKHQ_HOLD=0` ⇒ chấm như cũ. Log reconcile in thêm
+  `held_gdkhq=` và `corp_action=`.
+
+Test `tests/test_rec_corp_action.py` (25, whitelist `--fast`): 10 ca hành vi đỏ
+trên code cũ đúng lý do (sl/tp giả, không treo). Full so `main`: cùng tập fail
+(thiếu `vnstock` trong container), pass +25.
+
+**Còn hở:** máy tắt nhiều đêm ngay trước GDKHQ ⇒ bar trước GDKHQ chưa chấm kịp,
+lệnh có thể bị treo rồi đóng trung tính thay vì chạm TP/SL thật (mất mẫu, không
+ghi số sai). Lệnh mở trước bản vá mà lượt reconcile đầu tiên sau khi pull đã thấy
+sự kiện ⇒ không có neo ⇒ treo rồi trung tính. Footer "Khuyến nghị đang mở" chưa
+ghi "⏸ treo GDKHQ" (đặc tả mục Rủi ro R6 lo phần cảnh báo).
+
 # 🔢 U73. `corp_ratio` ĐỌC SÓT HAI DẠNG TIÊU ĐỀ VCI — GMD THƯỞNG 50% IN CẢNH BÁO SUÔNG, "1,000" RA 1.0 (06/10)
 
 **Bằng chứng (brief chiều 05/10):** `parse_event` trả None cho

@@ -93,7 +93,7 @@ Ghép từ các bản khác:
 - Header khối cơ bản thôi ghi '(cập nhật …)'.
 - ctx['open_recs'] dùng đúng luật split_recs_by_validation như footer.
 (2) Từ risk-delta:
-- Mở universe sự kiện và cơ bản thêm danh mục ∪ lệnh mở.
+- Mở universe sự kiện và cơ bản thêm danh mục ∪ lệnh mở. (06/10: phần SỰ KIỆN ∪ LỆNH MỞ đã làm ở nhánh `claude/vibrant-maxwell-4g4edj` — `_events_universe(extra_tickers=)` đúng chữ ký dưới đây + `_open_rec_tickers()`, test ở `tests/test_rec_corp_action.py`; còn danh mục + cơ bản.)
 - Sửa corp_ratio cho 'Cổ phiếu thưởng'. Khớp theo chữ CÓ DẤU, vì bỏ dấu thì 'thưởng' trùng 'thường'.
 - Đếm 'mục Rủi ro lặp y hệt' bằng brief_watch.
 

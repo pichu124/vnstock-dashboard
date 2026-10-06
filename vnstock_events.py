@@ -129,6 +129,82 @@ def _backoff_path() -> Path:
     return _META / _BACKOFF_NAME
 
 
+# ── Sổ sự kiện ĐÃ QUA (06/10) ───────────────────────────────────────────────
+# Cache chỉ giữ ex_date ≥ hôm-refresh − 2 ngày, nên vài ngày sau GDKHQ không
+# còn ai biết mã đó từng đổi cơ sở giá. Lệnh mở xuyên qua ngày GDKHQ (GMD BUY
+# @78, thưởng 50% ngày 07/10) cần biết điều đó suốt cả cửa sổ chấm — có khi
+# hàng tuần, tới lúc kho được rebase tay. Sổ chỉ nhận sự kiện bị cắt vì ĐÃ QUA;
+# sự kiện tương lai biến mất sau một lần fetch thành công là bị HUỶ, không ghi.
+_LEDGER_NAME = "corp_actions_ledger.json"
+LEDGER_KEEP_DAYS = 400
+
+
+def _ledger_path() -> Path:
+    return _META / _LEDGER_NAME
+
+
+def _read_ledger() -> list[dict]:
+    try:
+        return list(json.loads(_ledger_path().read_text(encoding="utf-8"))
+                    .get("events") or [])
+    except Exception:
+        return []
+
+
+def _record_ledger(rows) -> None:
+    """Gộp sự kiện vào sổ đã-qua (khử trùng, bỏ bản quá LEDGER_KEEP_DAYS).
+    Best-effort: hỏng ghi sổ không được làm hỏng lượt refresh."""
+    floor = date.today() - timedelta(days=LEDGER_KEEP_DAYS)
+    merged: dict = {}
+    for e in [*_read_ledger(), *rows]:
+        d = _to_date(e.get("ex_date"))
+        tk = str(e.get("ticker") or "").strip().upper()
+        if d is None or not tk or d < floor:
+            continue
+        title = str(e.get("title") or "")
+        merged[(tk, d.isoformat(), title)] = {
+            "ticker": tk, "ex_date": d.isoformat(), "title": title}
+    try:
+        from vnstock_parquet_io import write_json_atomic
+        _META.mkdir(parents=True, exist_ok=True)
+        write_json_atomic({"updated_at": datetime.now().isoformat(timespec="seconds"),
+                           "events": [merged[k] for k in sorted(merged)]},
+                          _ledger_path())
+    except Exception:
+        pass
+
+
+def price_events(ticker: str, after: date, through: date) -> list[dict]:
+    """Sự kiện LÀM ĐỔI giá tham chiếu của `ticker` có after < ex_date ≤ through.
+
+    Đọc sổ đã-qua ∪ cache hiện hành (cache theo `_META` như backoff/sổ — test
+    nào cũng chạy trên thư mục tạm). Bỏ sự kiện chỉ chốt danh sách dự họp
+    (`vnstock_corp_ratio.adjusts_price`). Trả `[{"ticker", "ex_date": date,
+    "title"}]` sắp theo ngày.
+    """
+    from vnstock_corp_ratio import adjusts_price
+
+    tk = str(ticker or "").strip().upper()
+    rows = list(_read_ledger())
+    cache = _META / UPCOMING_EVENTS_PATH.name
+    if cache.exists():
+        try:
+            rows += pd.read_parquet(cache).to_dict("records")
+        except Exception:
+            pass
+    seen, out = set(), []
+    for e in rows:
+        d = _to_date(e.get("ex_date"))
+        title = str(e.get("title") or "")
+        if (str(e.get("ticker") or "").strip().upper() != tk or d is None
+                or not (after < d <= through) or (d, title) in seen
+                or not adjusts_price(title)):
+            continue
+        seen.add((d, title))
+        out.append({"ticker": tk, "ex_date": d, "title": title})
+    return sorted(out, key=lambda e: (e["ex_date"], e["title"]))
+
+
 def in_backoff(now: "datetime | None" = None) -> "str | None":
     """Lý do đang backoff (chuỗi) nếu lượt refresh trắng tay gần đây còn hạn;
     None = được refresh. Best-effort: marker hỏng = không backoff."""
@@ -241,6 +317,12 @@ def refresh_upcoming(
             print(f"  → refresh: 0 mã OK, {failed} mã lỗi — giữ nguyên file cũ")
         return _prior_frame(prior)
     _clear_backoff()
+
+    # Sự kiện sắp bị cắt vì ĐÃ QUA → sổ đã-qua (lệnh mở còn cần biết). Chỉ lấy
+    # từ `prior`: hàng mới fetch đã được lọc ≥ cutoff sẵn, còn hàng tương lai
+    # biến mất sau fetch thành công là sự kiện bị huỷ.
+    _record_ledger([e for evs in prior.values() for e in evs
+                    if (d := _to_date(e.get("ex_date"))) is not None and d < cutoff])
 
     # Flatten, drop anything now past the cutoff, dedup.
     rows = [e for evs in by_ticker.values() for e in evs

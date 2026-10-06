@@ -566,6 +566,111 @@ def _grade_rec(post, entry: float, tp: float, sl: float) -> tuple[float, str]:
     return exit_price, hit
 
 
+# ── Lệnh mở xuyên qua ngày GDKHQ (06/10, ca GMD BUY @78 + thưởng 50%) ───────
+# entry/TP/SL trong sổ ở cơ sở giá LÚC MỞ. Sau GDKHQ kho có thể (a) đứng im vì
+# cửa gác lệch cơ sở chặn nối, (b) có bar thô ở cơ sở mới lọt vào, hoặc (c) đã
+# được rebase tay cả chuỗi. Chấm mốc cũ trên (b)/(c) ra "sl" giả — đóng VĨNH
+# VIỄN và chảy thẳng vào kiểm định chiến lược. Luật (user chốt 06/10):
+#   * kho CHƯA rebase ⇒ chỉ chấm bar TRƯỚC GDKHQ, không chạm thì TREO;
+#   * kho ĐÃ rebase ⇒ nhân mốc với hệ số ĐO ĐƯỢC tại neo (close kho ngày mở
+#     lệnh, chụp lúc còn sạch) — không ghi đè sổ, nên `--restore` bản sao lưu
+#     thì hệ số tự về 1 và lệnh tự quay lại treo;
+#   * treo quá hạn + grace ⇒ đóng trung tính `corp_action` (không giá, không
+#     vào win-rate — cùng họ với "stale").
+
+def _basis_tol() -> float:
+    """Ngưỡng CÙNG cơ sở — dùng chung với cửa gác V1 để hai bên không cãi nhau."""
+    try:
+        from vnstock_basis_guard import TOL
+        return float(TOL)
+    except Exception:
+        return 0.012
+
+
+def _mem_call(name: str, *args):
+    """Neo cơ sở là lớp phụ: sổ cũ/khoá DB thì coi như không có neo (⇒ treo
+    khi có sự kiện, chấm như cũ khi không) chứ không làm hỏng cả lượt chấm."""
+    try:
+        return getattr(mem, name)(*args)
+    except Exception:
+        return None
+
+
+def _material_exdates(ticker: str, after, through, ref_k) -> list[tuple]:
+    """[(ngày GDKHQ, [tiêu đề])] đổi giá ĐÁNG KỂ trong (after, through].
+
+    Đáng kể = giá tham chiếu lệch quá ngưỡng cửa gác: dưới ngưỡng đó chính cửa
+    gác coi là CÙNG cơ sở và nối kho như thường, nên chấm như thường mới nhất
+    quán với kho. Không đọc được tỉ lệ (quyền mua…) ⇒ coi là đáng kể.
+    """
+    try:
+        from vnstock_events import price_events
+        evs = price_events(ticker, after, through)
+    except Exception:
+        return []
+    from vnstock_corp_ratio import adjusted_price
+
+    by_day: dict = {}
+    for e in evs:
+        by_day.setdefault(e["ex_date"], []).append(e["title"])
+    p = float(ref_k) * 1000 if ref_k and ref_k > 0 else None   # kho tính NGHÌN
+    out = []
+    for d in sorted(by_day):
+        adj = adjusted_price(p, by_day[d]) if p else None
+        if adj is not None and abs(adj / p - 1.0) <= _basis_tol():
+            continue
+        out.append((d, by_day[d]))
+    return out
+
+
+def _corp_action_plan(rec: dict, hist, tcol, created: datetime) -> dict:
+    """Cách chấm một lệnh khi tính tới GDKHQ:
+      {"mode": "normal"}                       không có gì xen giữa
+      {"mode": "rebased", "factor": f}         kho đã rebase ⇒ mốc × f
+      {"mode": "pre_event", "cut": d, ...}     kho chưa rebase ⇒ chỉ bar < d
+      {"mode": "hold", "why": ..., ...}        không biết cơ sở ⇒ không chấm
+    """
+    from datetime import date as _date
+
+    # Công tắc: `VNSTOCK_REC_GDKHQ_HOLD=0` ⇒ chấm như trước 06/10 (mốc gốc,
+    # không treo, không quy đổi). Neo vẫn chụp ở emit — bật lại là dùng được.
+    if os.environ.get("VNSTOCK_REC_GDKHQ_HOLD", "1") == "0":
+        return {"mode": "normal"}
+    cdate = created.date().isoformat()
+    upto = hist[tcol <= cdate]
+    anchor_bar = ((tcol.loc[upto.index[-1]], float(upto["close"].iloc[-1]))
+                  if not upto.empty else None)
+    anchor = _mem_call("basis_anchor", rec["id"])
+    factor = None
+    if anchor and float(anchor.get("close") or 0) > 0:
+        now_c = hist.loc[tcol == str(anchor["bar_date"]), "close"]
+        if not now_c.empty and float(now_c.iloc[-1]) > 0:
+            factor = float(now_c.iloc[-1]) / float(anchor["close"])
+    ref_k = ((anchor or {}).get("close")
+             or (anchor_bar[1] if anchor_bar else float(hist["close"].iloc[-1])))
+    events = _material_exdates(rec["ticker"], created.date(), _date.today(), ref_k)
+
+    if factor is not None and abs(factor - 1.0) > _basis_tol():
+        if len(events) > 1:
+            return {"mode": "hold", "events": events,
+                    "why": "nhiều ngày GDKHQ trong một cửa sổ, một hệ số không đủ"}
+        return {"mode": "rebased", "factor": factor, "events": events}
+    if not events:
+        if anchor is None and anchor_bar is not None:
+            _mem_call("set_basis_anchor", rec["id"], *anchor_bar)
+        return {"mode": "normal"}
+    if factor is None:
+        return {"mode": "hold", "events": events, "why": "chưa có neo cơ sở giá"}
+    return {"mode": "pre_event", "cut": events[0][0], "events": events,
+            "why": "kho chưa rebase"}
+
+
+def _corp_note(plan: dict) -> str:
+    evs = "; ".join(f"{d}: {', '.join(t)}" for d, t in plan.get("events") or [])
+    return (f"GDKHQ {evs} — mốc lệnh chưa quy đổi được "
+            f"({plan.get('why', '?')}) ⇒ không chấm")[:300]
+
+
 def reconcile_recommendations(verbose: bool = True) -> dict:
     """For each open rec older than horizon_days, fetch latest close and grade.
 
@@ -576,7 +681,8 @@ def reconcile_recommendations(verbose: bool = True) -> dict:
     from vnstock_strategy import _load_history
 
     open_recs = mem.open_recommendations()
-    summary = {"closed": 0, "still_open": 0, "stale": 0}
+    summary = {"closed": 0, "still_open": 0, "stale": 0,
+               "held": 0, "corp_action": 0}
 
     def _cal(horizon: int) -> int:
         """`horizon_days` là số PHIÊN → đổi sang ngày lịch trước khi so với
@@ -633,7 +739,30 @@ def reconcile_recommendations(verbose: bool = True) -> dict:
         entry = float(r["entry_price"] or 0)
         tp    = float(r["take_profit"] or 0)
         sl    = float(r["cut_loss"] or 0)
-        exit_price, hit = _grade_rec(post, entry, tp, sl)
+        plan = _corp_action_plan(r, hist, tcol, created)
+        if plan["mode"] in ("pre_event", "hold"):
+            # Chỉ bar TRƯỚC GDKHQ cùng cơ sở với mốc trong sổ; "hold" (không
+            # biết cơ sở) thì không chấm bar nào.
+            pre = (post[tcol.loc[post.index] < plan["cut"].isoformat()]
+                   if plan["mode"] == "pre_event" else post.iloc[0:0])
+            if not pre.empty:
+                exit_price, hit = _grade_rec(pre, entry, tp, sl)
+                if hit != "expire" or len(pre) >= horizon:
+                    mem.close_recommendation(r["id"], exit_price=exit_price,
+                                             hit_target=hit)
+                    summary["closed"] += 1
+                    continue
+            if age_days >= _cal(horizon) + STALE_GRACE_DAYS:
+                mem.close_recommendation(r["id"], exit_price=None,
+                                         hit_target="corp_action",
+                                         notes=_corp_note(plan))
+                summary["corp_action"] += 1
+            else:
+                summary["held"] += 1
+            continue
+        f = float(plan.get("factor") or 1.0)
+        exit_price, hit = _grade_rec(post, entry * f, tp * f, sl * f)
+        exit_price = exit_price / f        # về cơ sở của entry trong sổ ⇒ pnl đúng
         # VẾT 19/08 — lỗi số liệu nặng nhất của sổ lệnh: `head(horizon)` trả
         # về ÍT hơn horizon bar khi chưa đủ phiên, mà `_grade_rec` vẫn chấm
         # "expire" tại close của bar CUỐI CÙNG CÓ SẴN. Lệnh 20 phiên bị chốt ở
@@ -644,13 +773,19 @@ def reconcile_recommendations(verbose: bool = True) -> dict:
             if not _maybe_stale(r, age_days, horizon):
                 summary["still_open"] += 1
             continue
-        mem.close_recommendation(r["id"], exit_price=exit_price, hit_target=hit)
+        if plan["mode"] == "rebased":
+            mem.close_recommendation(
+                r["id"], exit_price=exit_price, hit_target=hit,
+                notes=f"mốc quy đổi ×{f:.4f} — kho đã rebase sau sự kiện quyền")
+        else:
+            mem.close_recommendation(r["id"], exit_price=exit_price, hit_target=hit)
         summary["closed"] += 1
 
     if verbose:
         print(
             f"[reconcile] closed={summary['closed']} "
-            f"stale={summary['stale']} still_open={summary['still_open']}"
+            f"stale={summary['stale']} still_open={summary['still_open']} "
+            f"held_gdkhq={summary['held']} corp_action={summary['corp_action']}"
         )
 
     # Vòng đời decay: outcome thật vừa cập nhật là lúc đánh giá lại sức khỏe

@@ -1474,7 +1474,8 @@ def _maybe_reconcile_overdue() -> int:
             return 0
         from vnstock_train import reconcile_recommendations
         summary = reconcile_recommendations(verbose=False)
-        return int(summary.get("closed", 0)) + int(summary.get("stale", 0))
+        return (int(summary.get("closed", 0)) + int(summary.get("stale", 0))
+                + int(summary.get("corp_action", 0)))
     except Exception:
         return 0
 
@@ -1488,11 +1489,18 @@ _EVENTS_REFRESH_MAX_MOVERS: int = 40
 
 
 def _events_universe(max_movers: int = _EVENTS_REFRESH_MAX_MOVERS,
-                     overview_path: "str | Path | None" = None) -> list[str]:
-    """VN30 ∪ top liquid movers (by avg GTGD) — the tickers whose corp-action
-    events the brief may surface. Falls back to VN30 alone when the screener
-    overview isn't available."""
-    uni = set(VN30_TICKERS)
+                     overview_path: "str | Path | None" = None,
+                     extra_tickers=None) -> list[str]:
+    """VN30 ∪ top liquid movers (by avg GTGD) ∪ `extra_tickers` — the tickers
+    whose corp-action events the brief may surface. Falls back to VN30 (+extra)
+    when the screener overview isn't available.
+
+    `extra_tickers` do CHỖ GỌI truyền (06/10: mã đang có lệnh mở) — cố ý không
+    tự đọc sổ/danh mục ở đây, nếu không máy thật có lệnh mở sẽ làm đỏ test
+    `== VN30`. Thiếu mã lệnh mở thì `reconcile_recommendations` không biết lệnh
+    xuyên qua GDKHQ và chấm nó trên mốc chưa quy đổi."""
+    uni = set(VN30_TICKERS) | {str(t).strip().upper()
+                               for t in (extra_tickers or []) if str(t).strip()}
     try:
         p = Path(overview_path) if overview_path else Path(
             "data_warehouse/_meta/market_overview.json")
@@ -1533,9 +1541,23 @@ def _maybe_refresh_events() -> int:
         if _bo is not None and (why := _bo()):
             print(f"[events] bỏ qua auto-refresh sự kiện: {why}")
             return 0
-        return len(refresh_upcoming(tickers=_events_universe()))
+        return len(refresh_upcoming(
+            tickers=_events_universe(extra_tickers=_open_rec_tickers())))
     except Exception:
         return 0
+
+
+def _open_rec_tickers() -> list[str]:
+    """Mã đang có lệnh mở — best-effort, sổ lỗi thì []. Sổ CHƯA có thì []
+    luôn: `open_recommendations` mở kết nối là tạo file DB rỗng (sandbox)."""
+    try:
+        import vnstock_memory as _mem
+        if not Path(_mem.DB_PATH).exists():
+            return []
+        return sorted({str(r.get("ticker") or "").upper()
+                       for r in _mem.open_recommendations()} - {""})
+    except Exception:
+        return []
 
 
 def _maybe_refresh_macro() -> int:

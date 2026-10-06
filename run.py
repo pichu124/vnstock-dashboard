@@ -813,6 +813,9 @@ def cmd_test(args) -> int:
             "tests/test_conflicted_copy_reads.py",
             "tests/test_corp_ratio.py",
             "tests/test_brief_exdate_guard.py",
+            # Lệnh mở xuyên GDKHQ (06/10, GMD thưởng 50%): sai ở đây là đóng
+            # lệnh VĨNH VIỄN bằng "sl" giả và đầu độc kiểm định chiến lược.
+            "tests/test_rec_corp_action.py",
             "tests/test_basis_guard.py",
             # Cửa `--skip-if-done`: sai ở đây là kho ĐỨNG YÊN nguyên đêm mà
             # pipeline vẫn xanh (vết 19/08, kho bị chép giữa hai máy).

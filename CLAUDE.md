@@ -187,6 +187,9 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   từ giá 1.4499×, còn nhân dây chuyền ra 1.47 — lệch 1,4%). Cổ tức TIỀN MẶT trừ
   theo SỐ TUYỆT ĐỐI, "tỷ lệ 10%" là 10% MỆNH GIÁ. `P_adj = (P − D)/(1 + r)`.
   Không đọc trọn bộ sự kiện ⇒ trả None, chỗ gọi cảnh báo không kèm số.
+  Lệnh mở xuyên GDKHQ (U74): reconcile TREO khi kho chưa rebase, chấm mốc × hệ số đo tại
+  neo `rec_basis_anchor` khi đã rebase, quá hạn ⇒ `corp_action` không giá; sổ sự kiện đã qua
+  `_meta/corp_actions_ledger.json`.
 - `vnstock_ohlc_repair` — nới `low`/`high` cho bar TỰ MÂU THUẪN ngay ở đường
   ghi (19/08). `low := min(low, open, close)`, `high := max(high, open, close)`
   — giá mới là open/close ĐÃ khớp nên không bịa số. Nới > `MAX_WIDEN_PCT`
@@ -273,7 +276,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   (`VNSTOCK_BRIEF_AUTO_*`, `VNSTOCK_MACRO_*`, `VNSTOCK_BASIS_GUARD`,
   `VNSTOCK_OHLC_REPAIR`, `VNSTOCK_AUTOHEAL_BUDGET_S`, `VNSTOCK_VN30_DYNAMIC`,
   `VNSTOCK_WSS_HOT_TIER`, `VNSTOCK_BRIEF_WATCH`, `VNSTOCK_NEWS_ALERT`,
-  `VNSTOCK_FIXUNITS_FOOTER_PRUNE`, `VNSTOCK_NETBS_WORKERS`, `VNSTOCK_HORIZONS_STEP`, `VNSTOCK_LLM_ENGINE`
+  `VNSTOCK_FIXUNITS_FOOTER_PRUNE`, `VNSTOCK_NETBS_WORKERS`, `VNSTOCK_HORIZONS_STEP`, `VNSTOCK_REC_GDKHQ_HOLD`, `VNSTOCK_LLM_ENGINE`
   + `VNSTOCK_<BƯỚC>_ENGINE` + `VNSTOCK_CLAUDE_CLI_{EXE,MODEL,FALLBACK_MODEL,
   TIMEOUT_S,API_KEY,REPO_CONTEXT}`, `VNSTOCK_LLM_BREAKER`
   — cầu dao tài khoản LLM: provider 401/402/403 hôm nay + chưa call nào OK ⇒

@@ -114,6 +114,17 @@ CREATE TABLE IF NOT EXISTS rec_outcomes (
     FOREIGN KEY(rec_id) REFERENCES recommendations(id)
 );
 
+-- Neo cơ sở giá của lệnh mở (06/10): close kho tại bar ngày mở lệnh, chụp lúc
+-- kho còn SẠCH. Kho bị rebase sau GDKHQ ⇒ close tại đúng ngày đó đổi theo
+-- hệ số rebase ⇒ reconcile đo được hệ số mà KHÔNG ghi đè entry/TP/SL.
+CREATE TABLE IF NOT EXISTS rec_basis_anchor (
+    rec_id          INTEGER PRIMARY KEY,
+    bar_date        TEXT NOT NULL,
+    close           REAL NOT NULL,
+    captured_at     TEXT NOT NULL,
+    FOREIGN KEY(rec_id) REFERENCES recommendations(id)
+);
+
 """
 
 
@@ -507,6 +518,26 @@ def close_recommendation(
             "pnl_pct, hit_target, notes) VALUES (?,?,?,?,?,?)",
             (rec_id, _now(), exit_price, pnl_pct, hit_target, notes),
         )
+
+
+def basis_anchor(rec_id: int) -> "dict | None":
+    """`{"bar_date", "close"}` đã chụp cho lệnh, hoặc None."""
+    init_db()
+    with _conn() as c:
+        row = c.execute("SELECT bar_date, close FROM rec_basis_anchor "
+                        "WHERE rec_id=?", (rec_id,)).fetchone()
+    return ({"bar_date": row["bar_date"], "close": float(row["close"])}
+            if row else None)
+
+
+def set_basis_anchor(rec_id: int, bar_date: str, close: float) -> None:
+    """Chụp neo LẦN ĐẦU — lần sau là no-op. Chụp đè sau khi kho đã rebase là
+    xoá mất đúng con số dùng để đo hệ số rebase."""
+    init_db()
+    with _conn() as c:
+        c.execute("INSERT OR IGNORE INTO rec_basis_anchor "
+                  "(rec_id, bar_date, close, captured_at) VALUES (?,?,?,?)",
+                  (rec_id, str(bar_date), float(close), _now()))
 
 
 def recent_closed_recommendations(limit: int = 30) -> list[dict]:

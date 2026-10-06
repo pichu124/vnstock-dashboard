@@ -2381,6 +2381,17 @@ def emit_recommendations(
                 brief_id=brief_id,
                 strategy_id=s["id"],
             )
+            # Neo cơ sở giá (06/10): close kho tại bar tín hiệu, chụp NGAY lúc
+            # tạo lệnh — lúc này kho chắc chắn cùng cơ sở với entry. Lệnh mở
+            # tối trước GDKHQ thì lượt chấm kế tiếp đã thấy sự kiện, không còn
+            # chụp được trạng thái sạch (vnstock_train._corp_action_plan).
+            try:
+                _last = hist.iloc[-1]
+                mem.set_basis_anchor(
+                    rec_id, pd.Timestamp(_last["time"]).date().isoformat(),
+                    float(_last["close"]))
+            except Exception:
+                pass
             recs.append({
                 "id":       rec_id,
                 "ticker":   ticker,
