@@ -7013,6 +7013,9 @@ dòng brief cũ; idempotent cả hai chế độ; 6 biến thể đi qua toàn c
 byte + không từ vựng cấm R11. Nghi vấn "reconcile chấm SL cơ học sau GDKHQ"
 trong đặc tả đã VÁ ở U74 (không còn là PLAUSIBLE).
 
+**Trạng thái:** VÀO MAIN 06/10 `bcaf013` — 💻 laptop full 3.764 passed / 224s, đã push.
+Chờ 🖥️ desktop `git pull` + test FULL trước 18:00.
+
 **Còn:** pha 2 câu 1 = b; ngưỡng R4–R7 chỉ chỉnh khi sổ brief_watch đủ mẫu.
 
 # ⏸ U74. LỆNH MỞ XUYÊN GDKHQ BỊ CHẤM "SL" GIẢ — TREO KHI KHO CHƯA REBASE, QUY ĐỔI THEO HỆ SỐ ĐO ĐƯỢC KHI ĐÃ REBASE (06/10)
