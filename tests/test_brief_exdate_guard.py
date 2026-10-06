@@ -195,6 +195,17 @@ def test_all_events_on_the_same_exdate_are_combined():
     assert "20,714" not in out      # 29,000 / 1.40 — thiếu vế kia
 
 
+def test_gmd_bonus_title_from_vci_gets_a_number():
+    """Brief 05/10: tiêu đề VCI "Cổ phiếu thưởng tỉ lệ 50.0%" từng trả None
+    nên guard chỉ in cảnh báo suông — trong khi GMD đang mở BUY @78."""
+    txt = "📋 Watchlist sáng mai\n1. **GMD** (Giá 78,000) — giữ trên 75,000\n"
+    out = enforce_exdate_levels(txt, _ctx_multi([
+        {"ticker": "GMD", "ex_date": "2026-10-07",
+         "title": "Phát hành cổ phiếu - Cổ phiếu thưởng tỉ lệ 50.0%"},
+    ], today="2026-10-05"))
+    assert "giá tham chiếu ≈ 52,000" in _line(out, "**GMD**")
+
+
 def test_unreadable_ratio_falls_back_to_the_wordy_warning():
     # Sự kiện CÓ đổi giá nhưng KHÔNG đọc được tỉ lệ — quyền mua cần thêm giá
     # phát hành, không suy được từ tiêu đề. (Bản cũ dùng "Đại hội cổ đông"

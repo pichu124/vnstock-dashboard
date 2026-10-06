@@ -40,7 +40,10 @@ import unicodedata
 # Mệnh giá cổ phiếu VN — mốc quy đổi cho "cổ tức tiền mặt tỷ lệ X%".
 PAR_VALUE_VND = 10_000.0
 
-_STOCK_WORDS = ("bang co phieu", "thuong co phieu", "chia tach", "tach co phieu")
+# "co phieu thuong": VCI viết "Phát hành cổ phiếu - Cổ phiếu thưởng tỉ lệ
+# 50.0%" (GMD 05/10) — thứ tự NGƯỢC với "thưởng cổ phiếu".
+_STOCK_WORDS = ("bang co phieu", "thuong co phieu", "co phieu thuong",
+                "chia tach", "tach co phieu")
 _CASH_WORDS = ("bang tien", "dong/cp", "dong/co phieu", "tien mat")
 # Phát hành có giá mua — công thức khác, KHÔNG đoán.
 _REFUSE_WORDS = ("quyen mua", "chao ban", "phat hanh them cho co dong",
@@ -75,11 +78,19 @@ def adjusts_price(title: str) -> bool:
     return not any(w in t for w in _NON_ADJUSTING_WORDS)
 
 
+# "thưởng" và "thường" trùng nhau sau khi bỏ dấu, mà "cổ phiếu thường" là cổ
+# phiếu PHỔ THÔNG (hoán đổi sáp nhập, niêm yết bổ sung…) — đọc nó thành thưởng
+# là chia giá cho một tỉ lệ không hề có. Đổi tên TRƯỚC khi bỏ dấu.
+_COMMON_SHARES_RE = re.compile(r"cổ\s+phiếu\s+thường")
+
+
 def _norm(text: str) -> str:
     """Bỏ dấu + hạ chữ thường — tiêu đề đến từ nhiều nguồn, dấu không đồng nhất."""
-    s = unicodedata.normalize("NFD", str(text or ""))
+    s = unicodedata.normalize("NFC", str(text or "")).lower()
+    s = _COMMON_SHARES_RE.sub("cổ phiếu phổ thông", s)
+    s = unicodedata.normalize("NFD", s)
     s = "".join(c for c in s if unicodedata.category(c) != "Mn")
-    return s.replace("đ", "d").replace("Đ", "D").lower()
+    return s.replace("đ", "d")
 
 
 def parse_event(title: str) -> "dict | None":
@@ -105,6 +116,15 @@ def parse_event(title: str) -> "dict | None":
             v = _to_number(m.group(1))
             return ({"kind": "cash", "cash_vnd": v / 100.0 * PAR_VALUE_VND}
                     if v and v > 0 else None)
+        # VCI: "... - Đợt 2 2025 - 1,000 VND" — số tiền là trọn MỘT vế giữa
+        # hai dấu gạch, hoặc đứng CUỐI tiêu đề ("- 2025 đồng thời …" không
+        # phải tiền). Đứng sau nhánh % để "tỷ lệ 10% (mệnh giá 10.000 đồng)"
+        # vẫn ra 1.000; mệnh giá trần thì không phải số tiền chia.
+        m = (re.search(r"[-–—]\s*(\d[\d.,]*)\s*(?:vnd|dong)\s*(?=[-–—]|$)", t)
+             or re.search(r"(\d[\d.,]*)\s*(?:vnd|dong)\s*[.)]?\s*$", t))
+        if m and not t[:m.start(1)].rstrip(" -–—:,(").endswith("menh gia"):
+            v = _to_number(m.group(1))
+            return {"kind": "cash", "cash_vnd": v} if v and v > 0 else None
         return None
 
     if is_stock:
@@ -124,16 +144,28 @@ def parse_event(title: str) -> "dict | None":
 
 
 def _to_number(raw: str) -> "float | None":
-    """"1.500" → 1500 · "5.0" → 5.0 · "20" → 20. Số VN dùng '.' làm nghìn."""
+    """"1.500" → 1500 · "1,000" → 1000 · "1.500,5" → 1500.5 · "5.0" → 5.0.
+
+    Nguồn trộn hai kiểu số: tiêu đề VN dùng '.' làm NGHÌN, VCI in kiểu EN
+    ("1,000 VND"). Bản cũ coi mọi ',' là thập phân ⇒ "1,000" ra 1.0. Một luật
+    cho CẢ HAI dấu: đủ hai dấu thì dấu ĐỨNG SAU là thập phân; chỉ một loại dấu
+    thì các nhóm đúng 3 chữ số sau nó (nhóm đầu 1–3 chữ số, không mở bằng 0)
+    là NGHÌN, còn lại là thập phân.
+    """
     s = str(raw).strip()
     try:
-        if "," in s:                       # "1.500,5" kiểu VN
-            return float(s.replace(".", "").replace(",", "."))
-        if s.count(".") == 1:
-            intp, dec = s.split(".")
-            # 3 chữ số sau dấu chấm ⇒ đó là dấu NGHÌN ("1.500"), không phải thập phân
-            return float(s.replace(".", "")) if len(dec) == 3 else float(s)
-        return float(s.replace(".", ""))
+        if "," in s and "." in s:
+            dec = "," if s.rfind(",") > s.rfind(".") else "."
+            thou = "." if dec == "," else ","
+            return float(s.replace(thou, "").replace(dec, "."))
+        sep = "," if "," in s else "." if "." in s else None
+        if sep is None:
+            return float(s)
+        head, *tail = s.split(sep)
+        if (1 <= len(head) <= 3 and not head.startswith("0")
+                and all(len(g) == 3 for g in tail)):
+            return float(head + "".join(tail))
+        return float(f"{head}.{tail[0]}") if len(tail) == 1 else None
     except (TypeError, ValueError):
         return None
 
