@@ -183,7 +183,10 @@ def compute_scorecard(history: list[dict], table: dict[str, dict[str, int]],
                 return None, 0.0
             return round(sum(w * r for w, r in got), 2), cov
 
-        port, cov = _port(table[band])
+        # % thật của kỳ (tilt trộn dở từ 05/10 không khớp bảng band); entry cũ
+        # chưa ghi thì về bảng band như trước.
+        weights = entry.get("allocation") or table[band]
+        port, cov = _port(weights)
         base, _ = _port(table["B2"])
         rows.append({
             "period_start": start, "period_end": end,

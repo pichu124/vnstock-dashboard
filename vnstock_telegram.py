@@ -5,12 +5,18 @@ Sends formatted daily briefs to a Telegram chat.
 Setup (.env):
     TELEGRAM_BOT_TOKEN=<token from @BotFather>
     TELEGRAM_CHAT_ID=<your chat ID>
+    # (tuỳ) kênh "news" — cảnh báo tin mỗi giờ sang bot + group riêng (05/10).
+    # Thiếu biến nào thì biến đó lấy mặc định ở trên.
+    TELEGRAM_NEWS_BOT_TOKEN=<token bot thứ hai>
+    TELEGRAM_NEWS_CHAT_ID=<id group tin, dạng -100…>
 
 Usage:
     python run.py telegram test          # verify connection
     python run.py telegram morning       # push morning brief
     python run.py telegram close         # push close brief
     python run.py telegram screener      # push screener alerts only
+    python run.py telegram chats [--channel news]   # in id các group bot đã vào
+    python run.py telegram test --channel news      # thử bot/group tin mỗi giờ
 """
 
 from __future__ import annotations
@@ -31,6 +37,11 @@ _MAX_MSG_LEN  = 4000  # Telegram hard limit is 4096; stay safe
 # brief phần 2/2 không bao giờ tới nơi).
 _ALLOWED_TAGS = ("b", "i", "u", "s", "code", "pre")
 _TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
+# Link chủ đích (`allow_links=True`, chỉ builder tự dựng như cảnh báo tin):
+# CHỈ http(s), không khoảng trắng/ngoặc kép — `javascript:` hay href lạ vẫn
+# bị escape thành text. Áp SAU bước escape nên `&` trong URL đã là `&amp;`
+# (đúng chuẩn thuộc tính HTML, Telegram tự giải).
+_LINK_OPEN_RE = re.compile(r'&lt;a href="(https?://[^"\s<>]+)"&gt;')
 
 
 # ── Credentials ──────────────────────────────────────────────────────────────
@@ -51,6 +62,28 @@ def _token() -> str:
 def _chat_id() -> str:
     _load_env()
     return (os.environ.get("TELEGRAM_CHAT_ID") or "").strip()
+
+
+# Kênh gửi (05/10, user: tin mỗi giờ sang bot + group riêng, phần còn lại giữ
+# bot hiện tại). None = mặc định (brief, báo cáo, cảnh báo hệ thống).
+CHANNELS = ("news",)
+
+
+def channel_env(channel: str) -> "tuple[str, str]":
+    """Tên biến (token, chat) của một kênh — vd TELEGRAM_NEWS_BOT_TOKEN."""
+    up = channel.upper()
+    return f"TELEGRAM_{up}_BOT_TOKEN", f"TELEGRAM_{up}_CHAT_ID"
+
+
+def _creds(channel: "str | None" = None) -> "tuple[str, str]":
+    """(token, chat) của kênh; biến riêng nào thiếu thì lấy mặc định ⇒ không
+    đặt gì = y như trước khi có kênh."""
+    tok, chat = _token(), _chat_id()
+    if channel:
+        tok_env, chat_env = channel_env(channel)
+        tok = (os.environ.get(tok_env) or "").strip() or tok
+        chat = (os.environ.get(chat_env) or "").strip() or chat
+    return tok, chat
 
 
 # ── Transport ─────────────────────────────────────────────────────────────────
@@ -79,16 +112,20 @@ def _split_for_telegram(text: str, limit: int = _MAX_MSG_LEN) -> list[str]:
     return chunks
 
 
-def _sanitize_html(text: str) -> str:
+def _sanitize_html(text: str, allow_links: bool = False) -> str:
     """Escape < > & để parse_mode=HTML không chết 400, GIỮ tag chủ đích
     (<b>/<i>/…) mà builder tự chèn. Escape TRƯỚC rồi un-escape whitelist —
-    idempotent với tag hợp lệ, mọi ký tự lạc còn lại đều an toàn."""
+    idempotent với tag hợp lệ, mọi ký tự lạc còn lại đều an toàn.
+    `allow_links` giữ thêm `<a href="http(s)://…">…</a>` (mặc định TẮT: brief
+    do LLM viết không được tự chèn link)."""
     out = (text.replace("&", "&amp;")
                .replace("<", "&lt;")
                .replace(">", "&gt;"))
     for t in _ALLOWED_TAGS:
         out = out.replace(f"&lt;{t}&gt;", f"<{t}>")
         out = out.replace(f"&lt;/{t}&gt;", f"</{t}>")
+    if allow_links:
+        out = _LINK_OPEN_RE.sub(r'<a href="\1">', out).replace("&lt;/a&gt;", "</a>")
     return out
 
 
@@ -96,7 +133,14 @@ def _tg_error_detail(resp) -> str:
     """Mô tả lỗi thật từ body API (400 của Telegram luôn kèm 'description'
     chỉ rõ ký tự/byte lỗi — raise_for_status cũ vứt mất nên không soi được)."""
     try:
-        return str(resp.json().get("description") or resp.text[:200])
+        body = resp.json()
+        desc = str(body.get("description") or resp.text[:200])
+        new_id = (body.get("parameters") or {}).get("migrate_to_chat_id")
+        if new_id:
+            # Group thường bị Telegram nâng lên supergroup (bật quyền admin,
+            # đổi lịch sử…) ⇒ id ĐỔI, id cũ trả 400 mãi.
+            desc += f" — group đã thành supergroup, đổi CHAT_ID trong .env thành {new_id}"
+        return desc
     except Exception:
         try:
             return str(resp.text[:200])
@@ -104,7 +148,24 @@ def _tg_error_detail(resp) -> str:
             return ""
 
 
-def send_message(text: str, parse_mode: str = "HTML") -> dict:
+def _migrated_to(resp) -> "int | str | None":
+    """id supergroup mới khi Telegram báo group cũ đã bị nâng cấp (400 kèm
+    `parameters.migrate_to_chat_id`), không thì None."""
+    try:
+        return (resp.json().get("parameters") or {}).get("migrate_to_chat_id") or None
+    except Exception:
+        return None
+
+
+def _chat_var(channel: "str | None") -> str:
+    """Biến .env đang cấp chat id cho kênh (kênh thiếu biến riêng ⇒ mặc định)."""
+    if channel and (os.environ.get(channel_env(channel)[1]) or "").strip():
+        return channel_env(channel)[1]
+    return "TELEGRAM_CHAT_ID"
+
+
+def send_message(text: str, parse_mode: str = "HTML", allow_links: bool = False,
+                 channel: "str | None" = None) -> dict:
     """Send text to the configured Telegram chat. Long briefs are split into
     multiple messages (Telegram caps at 4096 chars) so nothing is dropped —
     previously the tail (📰 tin tức) was truncated. Returns the LAST API response.
@@ -112,11 +173,12 @@ def send_message(text: str, parse_mode: str = "HTML") -> dict:
     HTML mode: body được `_sanitize_html` trước khi gửi; nếu Telegram VẪN trả
     400 (entity lỗi ngoài dự kiến) → gửi lại phần đó dạng PLAIN (bỏ tag) để
     nội dung luôn tới nơi, đồng thời in description thật của API để soi.
+    `allow_links=True` giữ `<a href="http(s)://…">` (xem `_sanitize_html`).
+    `channel="news"` gửi bằng bot/chat của kênh đó (xem `_creds`).
     """
     import requests
 
-    token = _token()
-    chat  = _chat_id()
+    token, chat = _creds(channel)
     if not token:
         raise RuntimeError("TELEGRAM_BOT_TOKEN chưa set trong .env")
     if not chat:
@@ -124,18 +186,25 @@ def send_message(text: str, parse_mode: str = "HTML") -> dict:
 
     url = _TELEGRAM_API.format(token=token, method="sendMessage")
     if parse_mode == "HTML":
-        text = _sanitize_html(text)
+        text = _sanitize_html(text, allow_links=allow_links)
     parts = _split_for_telegram(text, _MAX_MSG_LEN)
     n     = len(parts)
     resp_json: dict = {}
     for i, part in enumerate(parts):
         body = part if n == 1 else f"{part}\n<i>({i + 1}/{n})</i>"
-        resp = requests.post(url, json={
-            "chat_id":                  chat,
-            "text":                     body,
-            "parse_mode":               parse_mode,
-            "disable_web_page_preview": True,
-        }, timeout=15)
+        payload = {"chat_id": chat, "text": body, "parse_mode": parse_mode,
+                   "disable_web_page_preview": True}
+        resp = requests.post(url, json=payload, timeout=15)
+        new_id = _migrated_to(resp) if getattr(resp, "status_code", None) == 400 else None
+        if new_id:
+            # Group bị Telegram NÂNG lên supergroup (đổi quyền thành viên, cho
+            # bot làm admin, đổi lịch sử…) ⇒ id ĐỔI, id cũ trả 400 mãi. Đi theo
+            # id mới ngay để brief/tin không mất, và réo sửa .env (05/10: user
+            # đổi quyền cả 2 group ⇒ cả 2 bot câm).
+            print(f"[telegram] ⚠️ group đã thành supergroup — gửi tới id mới {new_id}. "
+                  f"Sửa .env: {_chat_var(channel)}={new_id}")
+            chat = new_id
+            resp = requests.post(url, json={**payload, "chat_id": chat}, timeout=15)
         if getattr(resp, "status_code", None) == 400 and parse_mode:
             detail = _tg_error_detail(resp)
             print(f"[telegram] ⚠️ HTML bị từ chối ở phần {i + 1}/{n} "
@@ -437,14 +506,74 @@ def _screener_block() -> str:
 
 # ── Public push functions ─────────────────────────────────────────────────────
 
-def push_test() -> dict:
+def push_test(channel: "str | None" = None) -> dict:
     """Send a simple test message to verify bot is configured correctly."""
+    what = ("cảnh báo tin mỗi giờ" if channel == "news"
+            else "brief hàng ngày + báo cáo")
     text = (
         "✅ <b>VNStock Telegram Bot — Kết nối OK!</b>\n"
         f"<i>{datetime.now().strftime('%d/%m/%Y %H:%M:%S')}</i>\n\n"
-        "Bot đã sẵn sàng gửi brief hàng ngày."
+        f"Bot đã sẵn sàng gửi {what}."
     )
-    return send_message(text)
+    return send_message(text, channel=channel)
+
+
+def _lookup_token(channel: "str | None") -> str:
+    """Token cho lệnh DÒ (chats/whoami) — KHÔNG lùi về bot mặc định như khi gửi:
+    05/10 dòng TELEGRAM_NEWS_BOT_TOKEN bị `#` ⇒ `chats --channel news` lặng lẽ
+    dùng bot brief, in group Brief, user lẫn Claude đọc thành "bot tin nằm
+    nhầm group"."""
+    if not channel:
+        tok = _token()
+        if not tok:
+            raise RuntimeError("TELEGRAM_BOT_TOKEN chưa set trong .env")
+        return tok
+    _load_env()
+    env = channel_env(channel)[0]
+    tok = (os.environ.get(env) or "").strip()
+    if not tok:
+        raise RuntimeError(f"{env} chưa có trong .env (hoặc dòng đang bị # tắt) — "
+                           "lệnh dò này KHÔNG dùng bot mặc định")
+    return tok
+
+
+def bot_identity(channel: "str | None" = None) -> str:
+    """"@username (tên hiển thị)" của bot mà token kênh trỏ tới (getMe) — để
+    đối chiếu token ↔ bot mà không phải in token."""
+    import requests
+
+    resp = requests.get(_TELEGRAM_API.format(token=_lookup_token(channel),
+                                             method="getMe"), timeout=15)
+    if not resp.ok:
+        raise requests.HTTPError(f"{resp.status_code} Telegram: {_tg_error_detail(resp)}",
+                                 response=resp)
+    me = resp.json().get("result") or {}
+    return f"@{me.get('username', '?')} ({me.get('first_name', '')})"
+
+
+def find_chats(channel: "str | None" = None) -> list[dict]:
+    """Các chat bot (của kênh) đã thấy trong 24h qua — để lấy id group mà
+    KHÔNG phải dán token vào trình duyệt. Bot vừa được thêm vào group sinh
+    update `my_chat_member` nên thấy ngay. Chỉ ĐỌC (không xoá hàng đợi)."""
+    import requests
+
+    token = _lookup_token(channel)
+    resp = requests.get(_TELEGRAM_API.format(token=token, method="getUpdates"),
+                        timeout=15)
+    if not resp.ok:
+        raise requests.HTTPError(f"{resp.status_code} Telegram: {_tg_error_detail(resp)}",
+                                 response=resp)
+    seen: dict = {}
+    for upd in resp.json().get("result") or []:
+        for key in ("message", "edited_message", "channel_post", "my_chat_member",
+                    "chat_member"):
+            chat = (upd.get(key) or {}).get("chat")
+            if chat and "id" in chat:
+                name = (chat.get("title") or chat.get("username")
+                        or chat.get("first_name") or "")
+                seen[chat["id"]] = {"id": chat["id"], "type": chat.get("type", "?"),
+                                    "name": name}
+    return list(seen.values())
 
 
 def _iso_to_dmy(iso_str: str) -> str:

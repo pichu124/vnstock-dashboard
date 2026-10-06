@@ -322,6 +322,11 @@ def auto_heal(
 
     df = list_quarantine(warehouse)
     if df.empty:
+        # Vẫn ghi sổ lượt RỖNG (05/10): không ghi thì badge cộng mãi các lượt cũ
+        # (desktop: "0/1,291 bar lành qua 2 lượt" ⚠️ trong khi hàng đợi rỗng,
+        # auto-heal 0s mỗi đêm) — lượt rỗng cuối sổ = không còn gì để chữa.
+        if not dry_run:
+            record_heal_run(warehouse, stats)
         return stats
 
     warehouse = Path(warehouse)

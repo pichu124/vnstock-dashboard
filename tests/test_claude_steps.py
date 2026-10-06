@@ -287,6 +287,24 @@ def test_inject_claude_lead(monkeypatch):
     assert src.index("_inject_claude_lead(") < src.index("if not available:")
 
 
+def test_allocation_brief_gets_claude_lead_only_when_engine_claude(monkeypatch):
+    # User 04/10: brief phân bổ (nút dashboard) theo công tắc engine như các bước khác.
+    import vnstock_brief as vb
+    g = vb.GeminiAgent()
+    assert vb._allocation_claude_lead([g]) == [g]                       # engine ladder
+    monkeypatch.setenv("VNSTOCK_BRIEF_ENGINE", "claude")
+    monkeypatch.setattr(vcc, "cli_executable", lambda: None)
+    assert vb._allocation_claude_lead([g]) == [g]                       # không có CLI
+    monkeypatch.setattr(vcc, "cli_executable", lambda: "/fake/claude")
+    got = vb._allocation_claude_lead([g])
+    assert got[0].agent_type == "claude-code" and got[0].tag == "brief" and got[1] is g
+    cc = vb.ClaudeCodeAgent(tag="brief")
+    assert vb._allocation_claude_lead([cc, g]) == [cc, g]               # đã bật — không nhân đôi
+    src = inspect.getsource(vb.generate_brief)
+    assert 'brief_type == "allocation"' in src and "_allocation_claude_lead(agents)" in src
+    assert src.index("_allocation_claude_lead(agents)") < src.index("_strength_sorted(agents)")
+
+
 # ─── ClaudeCodeAgent trong ladder ────────────────────────────────────────────
 
 def test_claude_code_agent_registry_default_off_and_strongest(monkeypatch):

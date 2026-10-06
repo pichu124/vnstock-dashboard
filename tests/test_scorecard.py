@@ -99,6 +99,23 @@ def test_compute_scorecard_port_vs_baseline():
     assert rows[1]["tilt"] == 1
 
 
+def test_compute_scorecard_uses_recorded_blended_weights():
+    """05/10 tilt nhạt dần: % đã khuyến nghị không khớp bảng band nào ⇒ chấm
+    theo `allocation` ghi trong history; entry cũ không có thì về bảng band."""
+    mix = {"Cổ phiếu": 36, "Trái phiếu": 23, "Tiền gửi": 26, "Vàng": 10, "USD": 5}
+    hist = [{"date": "2026-05-05", "band": "B4", "tilt": 1, "allocation": mix},
+            {"date": "2026-06-02", "band": "B4", "tilt": 1},
+            {"date": "2026-07-01", "band": "B2"}]
+
+    def _rets(start, end):
+        return {cls: {"ret_pct": (10.0 if cls == "Cổ phiếu" else 0.0), "proxy": "x"}
+                for cls in _TABLE["B2"]}
+
+    rows = sc.compute_scorecard(hist, _TABLE, returns_fn=_rets)
+    assert rows[0]["port_ret_pct"] == pytest.approx(3.6)               # 36% × 10
+    assert rows[1]["port_ret_pct"] == pytest.approx(_TABLE["B4"]["Cổ phiếu"] / 10)
+
+
 def test_compute_scorecard_partial_coverage():
     hist = [{"date": "2026-05-05", "band": "B2"},
             {"date": "2026-06-02", "band": "B2"}]

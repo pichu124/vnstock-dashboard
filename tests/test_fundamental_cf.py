@@ -86,6 +86,10 @@ def _run_update(tmp_path, monkeypatch, workers):
     import vnstock_fundamental_updater as fu
 
     monkeypatch.setattr(fu, "FUND_PATH", tmp_path / f"fund_w{workers}.parquet")
+    # _save còn chụp ảnh tháng vào FUND_HISTORY_DIR — không chuyển hướng thì test
+    # ghi AAA/BBB/CCC giả vào kho THẬT, và "bản đầu tháng thắng" khoá luôn ảnh
+    # thật của tháng đó (05/10: kho có fundamentals-2026-10.parquet 3 dòng giả).
+    monkeypatch.setattr(fu, "FUND_HISTORY_DIR", tmp_path / "hist")
     monkeypatch.setattr(fu, "_fetch_ratios",
                         lambda t: ({"pe": 10.0, "roe": 15.0} if t != "EMPTY" else {}))
     monkeypatch.setattr(fu, "_fetch_cash_flow",
@@ -108,12 +112,15 @@ def test_update_parallel_matches_sequential(tmp_path, monkeypatch):
     assert len(seq) == 8
     assert seq.loc[seq["ticker"] == "EMPTY", "pe"].isna().all()
     assert seq.loc[seq["ticker"] == "FPT", "operating_cf"].iloc[0] == 1234.0
+    # ảnh chụp tháng rơi vào tmp, không phải kho thật
+    assert list((tmp_path / "hist").glob("fundamentals-*.parquet"))
 
 
 def test_update_parallel_reports_worker_errors(tmp_path, monkeypatch, capsys):
     import vnstock_fundamental_updater as fu
 
     monkeypatch.setattr(fu, "FUND_PATH", tmp_path / "fund_err.parquet")
+    monkeypatch.setattr(fu, "FUND_HISTORY_DIR", tmp_path / "hist")
 
     def _boom(t):
         if t == "BAD":

@@ -725,12 +725,16 @@ def cmd_test(args) -> int:
             "tests/test_macro.py",
             "tests/test_news_feeds.py",
             "tests/test_news_analyze_route.py",
+            "tests/test_news_alert.py",       # cảnh báo tin mỗi giờ → Telegram (#31)
+            "tests/test_bsky_make_list.py",   # tạo Bluesky List từ docs/bluesky-macro-list.md
+            "tests/test_bsky_eval.py",        # chấm tài khoản Bluesky bằng số liệu 7 ngày
             "tests/test_updater_partial_bar.py",
             "tests/test_doctor.py",
             "tests/test_fred.py",
             "tests/test_ratelimit.py",
             "tests/test_allocation.py",
             "tests/test_reports.py",
+            "tests/test_report_vision.py",    # Claude Code đọc ảnh báo cáo không có lớp text
             "tests/test_report_digest.py",
             "tests/test_gold.py",
             "tests/test_scorecard.py",
@@ -822,6 +826,9 @@ def cmd_test(args) -> int:
             "tests/test_vn30_basket.py",
             "tests/test_rec_horizon_sessions.py",
             "tests/test_doctor_kill_switches.py",
+            "tests/test_doctor_env_duplicates.py",  # khoá trùng .env (05/10)
+            "tests/test_horizons.py",     # lõi brief 3 khung (P0, 05/10)
+            "tests/test_horizons_state.py",  # brief 3 khung chạy bóng (P1a)
             "tests/test_unit_badge_verdict.py",
             "tests/test_unit_continuity.py",
             "tests/test_price_basis_probe.py",
@@ -982,6 +989,28 @@ def cmd_gold(args) -> int:
     return 1 if rc != 0 else 0
 
 
+def cmd_horizons(args) -> int:
+    """Brief 3 khung — CHẠY BÓNG (P1a, docs/THIET-KE-BRIEF-3-KHUNG.md §3.10).
+
+    Trong pipeline (sau gold, trước allocation): ghi `_meta/horizon_state.json`
+    cho phiên phủ — đã có bản live thì no-op (máy chạy sau / laptop "Cập nhật
+    còn lại"). Brief CHƯA đọc file này (P1b). Không bao giờ trả 2: lỗi ở đây
+    không được chặn brief. Kill-switch: VNSTOCK_HORIZONS_STEP=0.
+    Tay: `run.py horizons --show | --backfill [--days N] | --replay | --force`."""
+    script = str(REPO_ROOT / "vnstock_horizons_state.py")
+    if getattr(args, "backfill", False):
+        return _run([sys.executable, script, "--backfill",
+                     "--days", str(getattr(args, "days", 120) or 120)])
+    if getattr(args, "show", False):
+        return _run([sys.executable, script, "--show"])
+    if getattr(args, "replay", False):
+        return _run([sys.executable, script, "--replay"])
+    cmd = [sys.executable, script, "--update"]
+    if getattr(args, "force", False):
+        cmd.append("--force")
+    return 1 if _run(cmd) != 0 else 0
+
+
 def cmd_rates_weekly(args) -> int:
     """Đẩy tóm tắt tuần lãi suất & tiền tệ lên Telegram (render từ cache sẵn
     có — zero fetch). Cadence TUẦN (chạy tay / lịch riêng sau khi cả 3 nguồn
@@ -1056,9 +1085,24 @@ def cmd_telegram(args) -> int:
 
     action = args.action
     try:
+        channel = getattr(args, "channel", None)
         if action == "test":
-            resp = _tg.push_test()
-            print(f"[telegram] test sent — message_id={resp.get('result',{}).get('message_id')}")
+            resp = _tg.push_test(channel=channel)
+            print(f"[telegram] test sent{' (kênh ' + channel + ')' if channel else ''} — "
+                  f"message_id={resp.get('result',{}).get('message_id')}")
+        elif action == "chats":
+            print(f"[telegram] bot: {_tg.bot_identity(channel=channel)}"
+                  f"{' — kênh ' + channel if channel else ' — kênh mặc định'}")
+            chats = _tg.find_chats(channel=channel)
+            if not chats:
+                print("[telegram] bot chưa thấy chat nào trong 24h qua — thêm bot vào "
+                      "group rồi gõ /start@<tên_bot> trong group, chạy lại lệnh này")
+            for c in chats:
+                print(f"[telegram] {c['type']:<10} {c['id']:>16}  {c['name']}")
+            if chats:
+                env = ("TELEGRAM_" + channel.upper() + "_CHAT_ID") if channel \
+                    else "TELEGRAM_CHAT_ID"
+                print(f"[telegram] → chép id (cả dấu -) của group vào {env} trong .env")
         elif action == "morning":
             resp = _tg.push_morning_brief()
             print(f"[telegram] morning brief sent — message_id={resp.get('result',{}).get('message_id')}")
@@ -1174,6 +1218,33 @@ def cmd_news(args) -> int:
         except Exception as e:
             print(f"[news] market feeds skipped: {type(e).__name__}: {e}")
     return 0
+
+
+def cmd_news_alert(args) -> int:
+    """Cảnh báo TIN QUAN TRỌNG theo giờ → Telegram (#31, 02/10). Task
+    'VnStock News Alert' gọi mỗi giờ 24/7 trên 🖥️ desktop; KHÔNG nằm
+    trong `all`. Không tin mới ⇒ im lặng, không gọi LLM. Exit 0/1 — không bao
+    giờ 2 (một feed ốm không được làm task báo fail cứng)."""
+    try:
+        import vnstock_news_alert as _na
+    except ImportError as e:
+        print(f"[news-alert] cannot import: {e}")
+        return 1
+    only = [k for k in (getattr(args, "sources", None) or "").split(",") if k.strip()] or None
+    if getattr(args, "list_sources", False):
+        _na.print_sources(_na.enabled_sources(only))
+        return 0
+    if getattr(args, "diag_url", None):
+        return _na.diag_url(args.diag_url)
+    if getattr(args, "diag", False):
+        return _na.diag_sources(_na.enabled_sources(only))
+    return _na.run(dry_run=getattr(args, "dry_run", False),
+                   force=getattr(args, "force", False),
+                   min_score=getattr(args, "min_score", None),
+                   window_h=getattr(args, "window_h", None),
+                   max_send=getattr(args, "max_send", None),
+                   engine=getattr(args, "engine", None),
+                   sources=_na.enabled_sources(only) if only else None)
 
 
 def _weekend_steps(args) -> "list[tuple[str, list]]":
@@ -1531,6 +1602,7 @@ def _all_steps(args) -> "list[tuple[str, object]]":
         ("foreign-flow", cmd_foreign_flow),
         ("macro",        cmd_macro),
         ("gold",         cmd_gold),
+        ("horizons",     cmd_horizons),
         ("allocation",   cmd_allocation),
         ("test",         cmd_test),
         ("audit",        cmd_audit),
@@ -1988,6 +2060,16 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Refresh asset-allocation band B0-B4 + scorecard")
     sub.add_parser("gold",
                    help="Refresh gold-spot cache (display-only, vnstock_gold.py)")
+    hp = sub.add_parser("horizons",
+                        help="Brief 3 khung chạy bóng: ghi trạng thái phiên phủ "
+                             "(mặc định) / --show / --backfill / --replay")
+    hg = hp.add_mutually_exclusive_group()
+    hg.add_argument("--show", action="store_true", help="in trạng thái + 10 phiên gần nhất")
+    hg.add_argument("--backfill", action="store_true",
+                    help="một lần sau khi merge: dựng lịch sử từ kho (○, ghi 1 file _meta)")
+    hg.add_argument("--replay", action="store_true", help="kiểm F1/F2/revision")
+    hp.add_argument("--force", action="store_true", help="ghi đè phiên đã có")
+    hp.add_argument("--days", type=int, default=120, help="--backfill: số phiên chấm điểm")
     sub.add_parser("reflection",
                    help="Rút bài học từ rec/kỳ band đã đóng (vnstock_reflection.py)")
     sub.add_parser("train",
@@ -1998,9 +2080,13 @@ def build_parser() -> argparse.ArgumentParser:
     tg = sub.add_parser("telegram", help="Push Telegram notifications")
     tg.add_argument(
         "action",
-        choices=["test", "morning", "close", "screener"],
-        help="test=verify connection, morning=morning brief, close=close brief, screener=alerts only",
+        choices=["test", "morning", "close", "screener", "chats"],
+        help="test=verify connection, morning=morning brief, close=close brief, "
+             "screener=alerts only, chats=in id các group/chat bot đã vào (24h)",
     )
+    tg.add_argument("--channel", choices=["news"], default=None,
+                    help="test/chats: dùng bot của kênh này (news = cảnh báo tin "
+                         "mỗi giờ, biến TELEGRAM_NEWS_*); bỏ trống = bot mặc định")
     tg.add_argument("--force", action="store_true",
                     help="close: bỏ qua cửa gác giờ/marker (gửi trùng được — "
                          "chỉ dùng khi CỐ Ý)")
@@ -2014,6 +2100,32 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Bỏ qua fetch tin, chỉ chấm điểm cache hiện có")
     news_p.add_argument("--no-score", action="store_true",
                         help="Chỉ refresh tin, không chấm sentiment")
+
+    na = sub.add_parser(
+        "news-alert",
+        help="Cảnh báo tin QUAN TRỌNG theo giờ → Telegram (task 'VnStock News "
+             "Alert' mỗi giờ 24/7; không nằm trong `all`)")
+    na.add_argument("--dry-run", action="store_true",
+                    help="In tin sẽ gửi, KHÔNG gửi Telegram, KHÔNG ghi sổ/marker")
+    na.add_argument("--force", action="store_true",
+                    help="Bỏ cửa khung giờ/ngày (VNSTOCK_NEWS_ALERT_HOURS/DAYS)")
+    na.add_argument("--min-score", type=int, default=None,
+                    help="Ngưỡng mức độ 1–5 để gửi (mặc định 3, env VNSTOCK_NEWS_ALERT_MIN_SCORE)")
+    na.add_argument("--window-h", type=int, default=None,
+                    help="Chỉ xét tin đăng trong N giờ qua (mặc định 3)")
+    na.add_argument("--max-send", type=int, default=None,
+                    help="Tối đa N tin mỗi lượt, dư để lượt sau (mặc định 8)")
+    na.add_argument("--sources", default=None,
+                    help="Lọc nguồn theo tiền tố key, phẩy (vd rss:cafef,vnstock:)")
+    na.add_argument("--engine", choices=["ladder", "claude"], default=None,
+                    help="Ép engine chấm (mặc định theo VNSTOCK_NEWS_ALERT_ENGINE/LLM_ENGINE)")
+    na.add_argument("--list-sources", action="store_true",
+                    help="In registry nguồn đang bật rồi thoát")
+    na.add_argument("--diag", action="store_true",
+                    help="Thử từng nguồn trên máy có mạng (số tin/feed, mới nhất); "
+                         "không gửi, không ghi sổ — chạy sau khi thêm feed")
+    na.add_argument("--diag-url", default=None,
+                    help="Thử MỘT URL feed ứng viên (tiếng Anh) trước khi thêm vào _ALERT_FEEDS")
 
     all_ = sub.add_parser(
         "all", help="sync → validate → screener → news → test → audit → "
@@ -2064,11 +2176,13 @@ _DISPATCH = {
     "macro": cmd_macro,
     "rates-weekly": cmd_rates_weekly,
     "gold": cmd_gold,
+    "horizons": cmd_horizons,
     "allocation": cmd_allocation,
     "reflection": cmd_reflection,
     "train": cmd_train,
     "telegram": cmd_telegram,
     "news": cmd_news,
+    "news-alert": cmd_news_alert,
     "test": cmd_test,
     "dashboard": cmd_dashboard,
     "all": cmd_all,

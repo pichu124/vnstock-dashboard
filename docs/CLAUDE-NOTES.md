@@ -6966,7 +6966,7 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
-# 🔢 U67. `corp_ratio` ĐỌC SÓT HAI DẠNG TIÊU ĐỀ VCI — GMD THƯỞNG 50% IN CẢNH BÁO SUÔNG, "1,000" RA 1.0 (06/10)
+# 🔢 U73. `corp_ratio` ĐỌC SÓT HAI DẠNG TIÊU ĐỀ VCI — GMD THƯỞNG 50% IN CẢNH BÁO SUÔNG, "1,000" RA 1.0 (06/10)
 
 **Bằng chứng (brief chiều 05/10):** `parse_event` trả None cho
 `"Phát hành cổ phiếu - Cổ phiếu thưởng tỉ lệ 50.0%"` (GMD, GDKHQ 07/10 — đang
@@ -6986,6 +6986,465 @@ dấu, không thì hoán đổi sáp nhập "tỷ lệ 1:1.2" đọc thành thư
 Còn hở: khối "Khuyến nghị đang mở" Telegram nối NGOÀI guard nên dòng GMD @78
 không mang ⚠️ GDKHQ; sổ lệnh (`vnstock_train` chấm TP/SL) không quy đổi qua
 ngày GDKHQ — chưa soi, chờ user quyết.
+
+# 🌐 U68. BÁO NƯỚC NGOÀI + PHÂN TÍCH TỪ X CHO CẢNH BÁO GIỜ — KHẢO SÁT 4 LENS + PHẢN BIỆN, BLUESKY LÀ ĐƯỜNG CHÍNH, X CHỈ KHI CÓ KEY (02/10 trưa)
+
+**Hỏi:** "có cách nào lấy tin từ báo nước ngoài, hoặc tin phân tích quan trọng từ
+X". **Cách làm:** workflow 4 lens song song (feed báo nước ngoài · X/mạng xã hội ·
+nối vào code · rủi ro pháp lý) → 8 claim × 2 phản biện → tổng hợp. Bước tổng hợp
+và 9/16 phản biện chết vì chạm giới hạn phiên; đọc journal rồi tự tổng hợp. WebSearch
+chạy được từ sandbox, WebFetch/curl tới mọi host feed bị proxy 403 ⇒ **không URL nào
+được fetch thật**, tất cả là ứng viên chờ `--diag` trên desktop.
+
+**Ba chỗ phản biện LẬT lens đầu (đáng nhớ):**
+1. **WSJ `feeds.a.dj.com` ĐÓNG BĂNG từ 01/2025** — vẫn HTTP 200, XML hợp lệ, ~20
+   item nhưng tin cuối 24–27/01/2025 ⇒ job cửa sổ 3h đọc nó im lặng mãi (đúng kiểu
+   lỗi "feed sống giả"). Host mới `feeds.content.dowjones.io/public/rss/<name>`
+   (cùng host MarketWatch Top đang dùng). Bản đầu của tôi ghim host cũ — đã sửa.
+2. **Bloomberg CÓ RSS sống**: `www.bloomberg.com/feeds/<markets|economics|politics|
+   technology|industries>/news.rss` (host cũ `feeds.bloomberg.com` 301 sang), đo
+   15/09/2026 20 item mới 0,01 ngày. Lens đầu nói "chết" là sai.
+3. **Bing News RSS vẫn chạy** (`bing.com/news/search?q=…&format=rss`, cần UA trình
+   duyệt + follow 302) — để làm fallback Google News khi cần, chưa dùng.
+Chưa kiểm được: 5 feed chính thức (Fed/BLS/BEA/ECB/BoJ) là URL lâu năm nhưng không
+có bằng chứng 2025–26 ⇒ `--diag`.
+
+**Số liệu X/mạng xã hội (09–10/2026, nguồn trong journal):** X API không còn Free/
+Basic/Pro cho người mới từ 06/02/2026, trả theo lượt: $0,005/post đọc, $0,01/profile,
+nạp trước tối thiểu $5, trần 3M đọc/tháng; Basic $200 cũ bị ép chuyển 06/2026 ⇒
+20–30 tài khoản đọc mỗi giờ với `since_id` ≈ $15/tháng ở 100 post mới/ngày, ≈ $35 ở
+25 tài khoản. twitterapi.io $0,15/1.000 tweet (tối thiểu $0,00015/call) ⇒ ≈ $1–5/
+tháng — vùng xám ToS X nhưng án X v. Bright Data (05/2024) bác yêu sách hợp đồng
+chống scrape ⇒ rủi ro nằm ở nhà cung cấp, không ở người mua; dễ chết khi X đổi
+chữ ký. xAI Grok `x_search` từ 21/09/2026 tính $5/1.000 post ĐỌC (kể cả post cha/
+quote) + $10/1.000 profile + token — là bản tóm tắt, không phải tin để chấm ⇒ loại
+cho job giờ. Nitter/xcancel: C&D của X 24–26/08/2026, repo archive, 09/2026 còn 1
+instance sống ⇒ loại. RSSHub twitter route cần cookie tài khoản thật ⇒ loại. Reddit
+RSS tắt 13/11/2026 ⇒ không xây. **Bluesky**: AppView công khai `public.api.bsky.app`
+không auth, `getListFeed` một call cho cả danh sách, 3.000 req/5′/IP, đúng thiết kế
+giao thức mở, nhiều chuyên gia vĩ mô đã có (Timiraos, Sahm, Furman, El-Erian,
+Pettis, Blas…) nhưng Setser/Donnelly/sell-side vẫn chủ yếu trên X ⇒ Bluesky = lõi
+miễn phí, X = bổ sung trả tiền khi user muốn.
+
+**Báo VN dịch tin lớn nhanh tới đâu (lens repo-fit đo từ id URL CafeF):** FOMC
+01:00 VN lên CafeF sau 25′ (30/07/2026), 63′ (18/06/2026), 43′ (20/03/2025) ⇒ feed
+nước ngoài chỉ hơn về TỐC ĐỘ trong khung 20:00–06:00 (ngoài giờ gửi!) và về
+PHÂN TÍCH; dữ liệu nhỏ (ISM, JOLTS) báo VN dịch chậm hoặc không ⇒ đó là chỗ BLS/
+Fed feed có giá. Hệ quả: **cửa sổ bắt bù qua đêm** (lượt 07:00 nhìn lại tới lượt
+22:00 hôm trước) quan trọng hơn số feed.
+
+**Đã làm (commit `18b1956` + commit này, 71 test):**
+- `effective_window_h` + `covered_until` trong marker (chỉ tiến khi có nguồn trả
+  tin), trần 36h (`VNSTOCK_NEWS_ALERT_MAX_CATCHUP_H`); lô chấm nở theo cửa sổ (≤×2
+  trần 30) và cap theo nguồn `cap_per_source` 6 tin/nguồn (nở ≤×3).
+- `_ALERT_FEEDS` 20 nguồn riêng cho cảnh báo (không vào `_FEEDS` ⇒ brief không
+  đổi): 11 RSS báo lọc `_relevant_en`, 3 chính thức không lọc (`kind=official`),
+  6 Google News `when:2d` (`gnews_source` tách "– Báo" khỏi tiêu đề). Bỏ NYT/BBC/
+  Guardian (trùng + nhiễu). Feed tiếng Anh trong `_FEEDS` (CNBC/MW/Yahoo) nay cũng
+  qua `_relevant_en`.
+- `_relevant_en` so BIÊN TỪ (regex, không bắt turmoil/corporate/software/Bond film);
+  bỏ "bond" trần, giữ "bonds"/"bond market"/"bond yields".
+- `collect` có tường `VNSTOCK_NEWS_ALERT_FETCH_BUDGET_S`=45s (`as_completed(timeout)`
+  + `shutdown(cancel_futures)`), 12 worker; nguồn chưa về đếm 0 và in tên.
+- `bsky_source` (List URL/at:// hoặc handles; ≤3 bài/người, bỏ <60 ký tự) và
+  `x_source` (provider `twitterapi` advanced_search một call `from:a OR from:b`
+  `-filter:retweets -filter:replies since:`; provider `official` search/recent với
+  `since_id` lưu `_meta/news_alert_x_state.json`), bật bằng env
+  `VNSTOCK_NEWS_ALERT_BSKY_LIST|BSKY_HANDLES|X_HANDLES|X_PROVIDER` + key
+  `TWITTERAPI_IO_KEY`/`X_BEARER_TOKEN`; không env = không có gì. `_iso_dt` hiểu
+  ngày kiểu Twitter. Prompt: `Loại: nguồn chính thức` ⇒ dữ liệu 4–5; `Loại: bình
+  luận chuyên gia` ⇒ chấm theo giá trị phân tích, tối đa 4.
+- `run.py news-alert --diag` / `vnstock_news_alert.py --diag`.
+
+**Đo thật 02/10 tối (🖥️ desktop, `14ad320`):** `--fast` **2.862 passed / 207s**;
+`news-alert --diag` **30/32 nguồn** ✅ — Bloomberg Markets 10 tin/3h, FT 5, CNBC World 5,
+WSJ host mới (`feeds.content.dowjones.io`) sống, cả 6 Google News 45–100 tin, Fed
+monetary mới nhất 17/09 01:00 (đúng FOMC 16/09 giờ Mỹ ⇒ quy đổi tz đúng). Xử lý ngay:
+(1) ❌ investingLive/ForexLive — forexlive.com chuyển hướng investinglive.com, không
+RSS ⇒ `enabled: False`, thử ứng viên bằng `--diag-url`; (2) ❌ BLS — chặn script ⇒
+tắt, thay "GN US data" (`"jobs report" OR payrolls OR "consumer price index" OR "PCE
+inflation" OR "retail sales"`); (3) Báo Chính phủ + Nikkei Asia ✅ mà "mới nhất —" ⇒
+KHÔNG đọc được ngày ⇒ không bao giờ qua cửa sổ giờ, và Báo Chính phủ còn bị
+`news_feeds.refresh` LOẠI khỏi cache brief từ 07/2026 (cutoff theo `_date_sort` rỗng —
+diag 08/07 chỉ đếm tin liên quan nên không lộ). Vá: `_parse_dt_loose` (dd/mm/yyyy,
+"Thứ …, dd/mm/yyyy - HH:MM", yyyy/mm/dd, offset có dấu cách) + `_norm_tz_words`
+("GMT+7" — `parsedate_to_datetime` KHÔNG ném mà lặng lẽ BỎ tz, đúng nhờ may khi máy ở
+VN); `parse_feed` ghi `_pub_raw` khi không đọc được ⇒ `--diag` in chuỗi gốc; feed
+thật sự không có ngày ⇒ `take_undated`: lượt đầu GHI MỐC mọi tin (không chấm), từ lượt
+sau tin chưa thấy = tin mới với `_published_at` = giờ thấy. Ghi chú thêm: `rss:cnbc-markets`
+(id 20910258, thật ra feed Economy) mới nhất 28/09 và `rss:yahoo-finance` mới nhất 23/09
+⇒ hai feed của `_FEEDS` gần như đứng — vô hại (rơi ngoài cửa sổ) nhưng là ứng viên thay
+cho brief, chưa đụng.
+
+**Lượt diag thứ hai (02/10 ~20:20, `d8ebf69`):** Nikkei xác nhận `(feed không có thẻ ngày)` ⇒ `take_undated` lo. Báo Chính phủ "mới nhất 2026-02-10" ⇒ feed viết THÁNG/NGÀY kiểu Mỹ (ASP.NET `10/2/2026 11:56 AM`), bộ đọc mới hiểu ngày/tháng ⇒ `_pick_day_month`: chọn cách hiểu gần `now` nhất, không quá 1 ngày tương lai, hoà thì ngày/tháng; đọc AM/PM. `_pub_raw` nay LUÔN giữ (≤60 ký tự) để `--diag` in chuỗi gốc khi tin mới nhất cũ hơn 7 ngày. FT Markets ✅ 25 tin lúc 20:07 rồi ❌ 0,4s lúc 20:20 ⇒ nghi chặn tạm khi gọi dồn, CHƯA tắt; `--diag` nay thăm HTTP khi nguồn ❌ (mã, content-type, chuyển hướng, 70 ký tự đầu). "GN US data" 68 tin/3h đúng ngày NFP (19:30 VN) — cap 6 tin/nguồn giữ lô.
+
+**Lượt diag thứ ba (04/10 ~00:10, `838051d`): 31/31 ✅.** Báo Chính phủ mới nhất 03/10 18:47 (vá M/D ăn), FT trở lại 25 tin (xác nhận chặn tạm, không tắt), CNBC Markets chạy lại (03/10). Yahoo Finance `rssindex` ĐỨNG từ 23/09 (chuỗi gốc `2026-09-23T01:52:26Z`) — nằm trong `_FEEDS` của brief, không còn đóng góp tin nào; ứng viên gỡ, chưa đụng. Fed monetary bị gắn "cũ hơn 7 ngày" là báo động giả (tin cuối = FOMC 16/09) ⇒ bỏ cờ cũ cho `kind=official`.
+
+**Dry-run đầu tiên (04/10 01:12, desktop, `f1b074e`):** 31 nguồn · 1.091 tin liên quan · 8 tin không ngày (Nikkei…) ghi mốc · 21 tin mới/3h · Claude Code chấm 21/21 trong 29s, **$0,11/call với Opus mặc định** (`VNSTOCK_CLAUDE_CLI_MODEL`) — 8 tin ≥3 (2×4/5: lợi suất Mỹ sau NFP tháng 9 nóng, GDP VN quý gần 10%). Lượt giờ có tin ≈ 16 call/ngày ⇒ ~$1,5–1,8/ngày quy đổi, ăn chung hạn mức gói Claude với phiên code ⇒ khuyên A/B `VNSTOCK_NEWS_ALERT_CLI_MODEL=claude-sonnet-5-5` (chấm tiêu đề là việc phân loại nhẹ). Định dạng: URL Google News ~250 ký tự để trần chiếm 3–4 dòng/tin trên điện thoại ⇒ tiêu đề thành `<a href>` (`send_message(allow_links=True)`, brief vẫn TẮT link — LLM không được tự chèn), giờ đăng khác ngày tin nhắn kèm `dd/mm` (lượt bắt bù 36h).
+
+**A/B model 04/10 01:34 (dry-run, `f415818`):** `VNSTOCK_NEWS_ALERT_CLI_MODEL=claude-sonnet-5-5` ⇒ 16 tin mới chấm trong **13s · $0,04** (Opus 22′ trước: 21 tin · 29s · $0,11). 7 tin chung trong top 8: 5 trùng điểm, 2 lệch ±1 (GDP VN quý gần 10%: Opus 4 → Sonnet 3; sửa Luật Chứng khoán kỳ họp 10: 3 → 4). `tac_dong` Sonnet bớt gán mã gượng (thuế hộ kinh doanh không còn "lợi MWG, FRT"); Sonnet cho 3/5 một bài blog SchiffGold ("Fed bỏ qua việc làm yếu") — nguồn yếu. Kết luận: Sonnet đủ cho việc chấm tiêu đề, rẻ ~2,75× ⇒ khuyên đặt trong `.env` desktop; code KHÔNG đổi default (giữ một nguồn model ở `vnstock_claude_cli`). Dấu cách giữa URL trong output dán từ PowerShell là ẢO GIÁC console (dòng có emoji 2 ô bị cắt lệch khi copy) — `_safe_href` không cho khoảng trắng, có thì đã không ra `<a>`.
+
+**Lượt gửi thật đầu tiên (04/10 01:38, Sonnet):** 15 tin mới · 11s · $0,03 · gửi 8 tin, `message_id=302`; Telegram copy ra "Tiêu đề (URL)" = text-link đã gắn. Soi 8 tin ⇒ 3 vá (`news-alert` sau `97c46b2`): (1) **prompt bị cắt câu** — khi chèn luật nguồn chính thức/mạng xã hội, ví dụ "(vd ngân hàng lớn mất thanh khoản)" rơi xuống SAU luật mạng xã hội, câu "doanh nghiệp chỉ lên 4 khi…" nối thẳng vào "NGUỒN CHÍNH THỨC" (test ghim thứ tự); (2) luật **BÀI Ý KIẾN/BLOG** tối đa 3, chỉ bình luận lại = 2 (SchiffGold "Fed sẽ bỏ qua việc làm yếu" được 3/5 cả hai model, mâu thuẫn tin "việc làm nóng" cùng lô); (3) **chống gửi lại cùng sự kiện qua các giờ** — sổ chỉ khử theo hash ngày+tiêu đề nguyên văn, `deduplicate_news` chỉ trong MỘT lô ⇒ Fed quyết định sẽ về mỗi giờ từ Reuters/CNBC/VnExpress/Google News. Nay ≤25 tiêu đề đã gửi 24h đứng đầu khối user (`### ĐÃ GỬI`, luật: cùng sự kiện ⇒ tối đa 2 trừ diễn biến mới) + guard deterministic `cap_sent_duplicates` (tiêu đề gần trùng, thước `deduplicate_news` 0,85 ⇒ trần 2, cả đường ladder). Log: `· đối chiếu N tin đã gửi 24h` / `hạ N tin trùng tiêu đề…`. Chưa đếm: bài theo sau KHÁC tiêu đề chỉ có luật prompt chặn — xem Telegram vài ngày rồi mới quyết có cần guard sự kiện không.
+
+**`bsky_make_list.py --check` thật (04/10, desktop):** 33/33 handle ⭐ tồn tại, tên khớp (không ⚠️ giả mạo). Nhưng (a) 6 tài khoản NGỪNG đăng từ 2025 — Tracy Alloway, Mai Nguyen (5 follower/7 bài, nghi không phải người thật đang dùng), Khac Giang, Javier Blas, Ole Hansen, Ana Swanson ⇒ bỏ ⭐ (vô hại nhưng làm List công khai trông "chết"); (b) 3 tài khoản HÃNG TIN Reuters (106K bài) / Bloomberg (30K) / Nikkei Asia (26K) đăng hàng chục bài/giờ ⇒ `_social_trim` ≤3 bài/người rồi `cap_per_source` 6 bài MỚI NHẤT cho cả nguồn `bsky:analysts` ⇒ hãng tin chiếm hết suất, chuyên gia bị đẩy ra; tin của họ đã về qua RSS/Google News ⇒ đánh `⛔` (cột đầu bảng), `parse_md` bỏ qua kể cả `--all`/`--include-low`. Còn 24 ⭐. Chưa đo: số bài/giờ thật của 24 người — nếu `--diag --sources bsky` thường xuyên > 6 bài mới/giờ thì tách trần riêng cho nguồn social.
+
+**24/7 TỪ 04/10 (user chốt):** khung 07–22h T2–T7 bỏ — đêm VN là giờ làm việc Mỹ (Fed, số liệu 8:30 ET = 19:30/20:30 VN, chuyên gia Bluesky) nên bản cũ dồn mọi thứ vào lượt 07:00. `DEFAULT_HOURS=(0,23)`, `DEFAULT_DAYS=(1,7)`; task: Weekly cả 7 ngày 00:00 + lặp 1h trong 23h01′ (`-NewsAlertDays`). Hệ quả: ~24 lượt/ngày thay 16 × 6 ngày (Sonnet ~$0,03–0,04/lượt có tin ⇒ ~$0,7–0,9/ngày quy đổi, ăn chung hạn mức gói Claude); Telegram kêu cả đêm (chưa có giờ im lặng — đề xuất `disable_notification` 23–06h nếu user muốn); máy TẮT/NGỦ thì không chạy — bật lại `StartWhenAvailable` chạy một lượt, cửa sổ bắt bù lo phần đã lỡ; badge doctor réo `>3h không lượt` cả đêm nếu máy tắt. Phải 🖥️ merge code VÀ chạy lại `setup_scheduled_tasks.ps1` — chỉ đăng ký lại task mà không merge thì code vẫn gác 07–22h T2–T7, lượt đêm in "ngoài khung giờ" rồi thoát.
+
+**Chọn ⭐ bằng số liệu (04/10, user: "bạn tự đánh giá"):** `scripts/bsky_eval.py` thay việc đọc tay một tuần — lấy bài GỐC (bỏ repost/trả lời/bài ghim) `--days` 7 của cả bảng trừ ⛔ (86, gồm 24 ⭐), ≤15 bài ≥60 ký tự mới nhất/người, chấm theo lô 40 bằng `na.score_items_cli` (ĐÚNG prompt cảnh báo, `Loại: bình luận chuyên gia`), luật `verdict`: ≥2 bài ≥3/5 và ≥20% đạt ⇒ ⭐; >10 bài/ngày mà <15% đạt ⇒ ồn (chiếm suất 6 bài/lượt); 0 bài ≥3 trên ≥5 bài chấm hoặc ≥50% bị chấm 1 ⇒ bỏ/hạ ⭐; 0 bài gốc ⇒ im. Một tuần mẫu chưa có FOMC — phóng viên Fed ít đăng (Colby Smith, Timiraos) có thể ra "im" dù đáng giữ: phán quyết cuối do Claude đọc bảng, không áp máy móc. Test `tests/test_bsky_eval.py` (17, whitelist). **Kết quả lượt đầu 04/10 (desktop, 1.206 bài gốc, 541 chấm, 14 call ~$0,81, ~5′):** luật đề xuất 10 THÊM / 3 HẠ / 18 BỎ / 24 IM; Claude chốt +8/−8 ⭐ (bỏ qua luật ở Carl Quintanilla — 24 bài/ngày toàn chuyển tin AP, sẽ chiếm suất — và Michael Derby — 60% lạc đề; hạ thêm 5 tài khoản im >30 ngày + Wolfers; GIỮ Sahm dù mẫu 2 bài lạc đề) và ⛔ 17 khỏi List đọc thử (giữ Bonnie Glaser mẫu 2 bài). Bài học: luật `verdict` cho THÊM trước khi xét lạc đề ⇒ người 60% lạc đề vẫn lọt nếu có 3 bài trúng — chấp nhận vì Claude đọc bảng, nhưng nếu tự động hoá thì phải đảo thứ tự. `bsky_make_list.py --prune` (mới): gỡ thành viên ngoài tập đích, hỏi trước, chỉ xoá listitem thuộc repo của phiên.
+
+**Lượt TỰ ĐỘNG đầu tiên 24/7 (04/10, desktop):** 20:00 bắt bù 20h — 171 tin mới, lô chấm trần 60 (≤18/nguồn, phần dư rơi theo cửa sổ), 33s · $0,10, đối chiếu 8 tin đã gửi, gửi 8 (`message_id=303`); 21:00 — 32 nguồn (Bluesky vào), 16 tin mới/3h, 15s · $0,03, đối chiếu 16 đã gửi, gửi 8 (`304`), `LastTaskResult 0`. Lỗ hổng lộ ra: 21:00 có 16 tin mới mà vẫn gửi đủ 8 ⇒ phần lớn là tin DƯ của lô 20:00 (đạt ≥3 nhưng hết suất) — `select_to_send` không xét tuổi nên tin 15–20h tuổi rỉ ra 8 tin/giờ suốt mấy lượt sau. Vá: `expire_leftovers` — tin dư chỉ được gửi bù khi ≤ max(cửa sổ lượt này, 6h) tuổi (`VNSTOCK_NEWS_ALERT_LEFTOVER_MAX_AGE_H`), quá thì đóng dấu `expired_at` (không đếm lại), log `bỏ N tin dư cũ hơn Xh`; lượt bắt bù vẫn gửi tin 20h tuổi LẦN ĐẦU thấy. Theo dõi tiếp: lượt thường (không backlog) gửi bao nhiêu tin/giờ — nếu đều 6–8 thì nâng `VNSTOCK_NEWS_ALERT_MIN_SCORE=4`.
+
+**List Bluesky TẠO XONG 04/10 (🖥️ desktop):** 24/24 (lượt đầu 23 + Jason Furman lỗi `HTTP 502 UpstreamFailure` ở `createRecord` — lỗi tạm phía Bluesky; chạy lại script dùng lại List, thêm đúng 1). URL List nằm ở `.env` desktop (`VNSTOCK_NEWS_ALERT_BSKY_LIST`). `--diag --sources bsky`: ✅ thô 37 · lọc 37 · 3h 0 (sáng CN VN = tối T7 Mỹ) · 2,4s; giờ `createdAt` Z được đổi về giờ địa phương đúng (`_parse_pubdatetime` → `astimezone()`). Ba vấp khi đăng nhập, đều đã vá trong script: (1) gõ thiếu chữ cuối handle `…bsky.socia` ×3 ⇒ 401 chung chung trông như sai mật khẩu → nay `resolveHandle` TRƯỚC khi hỏi mật khẩu + gợi ý `.bsky.social`, tên trần tự thêm đuôi; (2) ô `getpass` ẩn hẳn, không biết đã dán được gì → 401 nay in độ dài + đúng/sai dạng `xxxx-xxxx-xxxx-xxxx` (không lộ giá trị) + hướng `Read-Host -AsSecureString` (hiện `*`, đếm 19); (3) gõ tay bỏ dấu `-` (16 `*`) → tự chèn lại khi bỏ `-`/khoảng trắng ra đúng 16 ký tự a-z0-9.
+
+**Chưa kiểm / bẫy còn mở:** (a) mọi URL `_ALERT_FEEDS` + Substack/Cloudflare 403 với
+TLS của `requests` — `--diag` quyết; (b) hình dạng JSON của twitterapi.io
+(`tweets[].createdAt` kiểu Twitter, `author.userName`) viết theo tài liệu, chưa gọi
+thật; (c) Google News từ IP VN có thể gặp consent interstitial — `--diag` sẽ ra
+0 tin, khi đó đổi `hl/gl/ceid` sang `vi/VN`; (d) `covered_until` đọc marker chung
+qua Dropbox nhưng chỉ desktop chạy nên nhất quán; laptop chạy tay `--force` sẽ làm
+desktop bỏ bắt bù lượt sau — đừng chạy tay ở laptop ngoài `--dry-run`; (e) chưa
+có khử trùng CHÉO ngôn ngữ bằng code (prompt lo) — đếm `dup` một tuần rồi quyết.
+
+# 🔭 U72. BRIEF 3 KHUNG — KẾT QUẢ P0 TRÊN KHO THẬT + P1a CHẠY BÓNG (05/10)
+
+**P0 (user chạy 🖥️ 05/10):** kho VNINDEX 683 phiên từ 02/01/2024 · breadth tái dựng vs ctx đã in
+lệch TB 0.8 điểm % / 58 phiên (0.4 / 26 phiên giai đoạn) · floor replay khớp floor đã in 51/58 (lệch
+do momentum thật có tin/vĩ mô) · brief THẬT 01/06–02/10: 58 brief, Stance đổi 23, đảo 6; nhãn header
+đổi 48/87 phiên · hệ mới: ép đổi 7, đảo 0 · vùng phẳng trên kho lặp đúng Finhay (MA8–10w/30–40w
+không TĂNG 08–09, MA12w/50w có) ⇒ GIỮ tham số. Script P0 in trống registry vĩ mô vì registry lồng
+dưới `indicators` — đã sửa.
+**Phát hiện mới — allocation:** band B4 15% → B3 30% ngày 27/08 (1,831.56) → B4 22/09 → B3 trộn ~28%
+(bản 02/10 ghi 05/10 00:10). Kẹp v1 đã duyệt chỉ chặn khi trung hạn GIẢM/🚨 ⇒ chặn được cú 05/10
+nhưng KHÔNG chặn 27/08 (ĐI NGANG, 🚨 tắt). Đề xuất câu 14 (B): chỉ tăng % cổ phiếu khi trung hạn
+TĂNG, tạm tới P3 — **chờ user chốt trước P1b**.
+**P1a (code, chạy bóng — brief KHÔNG đổi):** `vnstock_horizons_state.py` — đọc kho dùng chung với
+script P0 (`read_ticker/load_vnindex/breadth_history/score_inputs`), `_meta/horizon_state.json`
+{inputs, published append-only}, `fold()` gấp từ input đã lưu (close-only cho lịch sử, điểm cho
+phiên có chấm), `update()` cổng ghi: as_of = bar mới nhất ≤ `session_covered_at` (trước 15:05 =
+phiên trước), bản live đã có ⇒ no-op (bản backfill thì live ghi đè), `--force`; breadth live lấy
+`market_overview.json` khi `data_date` khớp, không thì tái dựng; `backfill(days)` không bao giờ đè
+live; `verify()` = F1 (gấp lại == published) + revision (close lưu vs parquet >0.1%); `replay_check`
+thêm F2 (điểm backfill == điểm live). `run.py`: bước `horizons` sau gold/trước allocation, không bao
+giờ trả 2; `run.py horizons --show|--backfill [--days]|--replay|--force`. Doctor `check_horizons`
+(warn: thiếu state / cũ so bar kho / fold≠published / revision / conflicted copy; off khi
+`VNSTOCK_HORIZONS_STEP=0`, main nạp `.env`). 19 test `tests/test_horizons_state.py` (whitelist
+`--fast`; test kill-switch chặn `load_dotenv` để `.env` máy thật không lọt). Full sandbox: 3,568
+passed, tập lỗi môi trường y hệt gốc. Kho giả chạy backfill→update→show→replay→doctor 2.4s.
+
+# 🔭 U71. BRIEF 3 KHUNG — CHỐT + P0: LÕI `vnstock_horizons.py` + REPLAY KHO THẬT (05/10)
+
+**User chốt:** "theo khuyến nghị hết" cả 13 câu §8 + 5 cách giảm "cái giá" §7.3 (cầu chì 8%,
+bảo vệ 2 mức, KHÔNG túi lướt, vùng phẳng tham số, 🚨 sớm 15:10 lên P1b). Câu 11: brief sáng
+thi thoảng mới dùng, chạy tay ⇒ chỉ ĐỌC state, không khối/logic riêng cho sáng.
+**§7.3 replay (Finhay 2017-12→2026-10, `scratchpad/brief_design/mitig/mitig.py`):** cầu chì
+TĂNG→ĐI NGANG khi đóng tuần ≤8% dưới đỉnh: rời TĂNG ở 2018 −20.0%→−12.8%, Q1-2026 −13.4%→−10.9%;
+đổi 3.2→4.3/năm, đảo ≤4 tuần 3/28→8/38 (6% nhiễu gấp đôi; cầu chì ĐỐI XỨNG rời GIẢM sớm 42/76
+đảo — loại). Túi lướt 10% khi hồi×ĐI NGANG: +0.09 điểm %/năm, 48% vòng lỗ, 2 vòng 08–09/2026 đều
+lỗ. 12/12 tổ hợp MA8–10w/30–40w × ±1–3% × 1–2 tuần không TĂNG trong 08–09; MA12–13w/50–52w thì CÓ
+(khung dài hơn KHÔNG an toàn hơn). Bảo vệ "cứng = ≥2 tín hiệu" làm mất 2.4% phiên so với floor cũ
+⇒ cứng = floor cũ GIẢM HOẶC ≥2 tín hiệu (tập cha giữ nguyên).
+**Code (chưa nối pipeline/brief — production KHÔNG đổi):**
+* `vnstock_horizons.py` — lõi THUẦN: `short_step/short_series` (nhảy thẳng hồi→chỉnh, cấm
+  chỉnh→hồi), `medium_series/medium_daily` (tuần ISO, tuần dở bỏ, thứ Sáu nghỉ ⇒ hiệu lực phiên
+  đầu tuần sau), `trigger_levels` (2 ràng buộc + cầu chì, "chưa thể" khi >8% hoặc > đỉnh 52 tuần),
+  `alert_series` (🚨 neo cố định), `protection_level` (2 mức), `stance_rule` (bảng §3.4).
+  **Cầu chì đo trên đỉnh 12 ĐÓNG TUẦN, không phải đỉnh 60 phiên ngày**: replay trùng hệt, nhưng
+  trung hạn chỉ nhận đóng tuần (nhiễu giữa tuần không đổi được nó — có property test).
+  Đối chiếu Finhay: ngắn hạn 27.1 đổi/năm · trung hạn 3.2 / 4.3 (cầu chì) · 🚨 khớp 100% bản thiết
+  kế · mức 28/08 = 1,841.56 / 1,749.84 · rời GIẢM tuần 09/10 = 1,803.15 (đều có test neo).
+* `scripts/replay_horizons.py` — P0, CHỈ ĐỌC: VNINDEX (khử trùng conflicted copy), breadth/A-D
+  tái dựng THEO NGÀY đúng cách runner đếm (EMA200 cửa sổ 400 ngày tính O(1) bằng
+  F[hi] − (1−α)^k·(F[lo] − x[lo]); test so với cách đếm tay từng phiên), NN cache, brief đã in
+  (`brief_memory.db` mode=ro, bản hợp lệ mới nhất/ngày), vùng phẳng 18 biến thể, độ sâu registry
+  vĩ mô. Kho giả (VNINDEX thật + 40 mã) chạy 1.7s.
+* Test: `tests/test_horizons.py` (39, whitelist `--fast`) + `tests/test_replay_horizons.py` (5,
+  chỉ full). Sandbox thiếu `vnstock` ⇒ 51 lỗi môi trường, tập lỗi TRƯỚC/SAU thay đổi giống hệt.
+**Tiếp:** user chạy P0 (○, ngoài khung pipeline) → dán output → chốt tham số → P1a.
+
+# 🔭 U70. BRIEF 3 KHUNG THỜI GIAN — ĐỀ XUẤT CHỐNG LẬT (05/10, chưa code)
+
+**Hỏi:** 27/08–09/2026 brief đổi risk-off → risk-on → risk-off quá nhanh, nhà đầu tư không
+kịp xoay sở; user muốn nhìn khung dài hơn + vĩ mô, có góc nhìn ngắn/trung/dài hạn.
+**Nguyên nhân gốc (đã đối chiếu tay):** `classify_regime` cộng 7 phiếu → nhãn thẳng
+(≥4 Bull, ≤−4 Bear), KHÔNG trí nhớ/xác nhận, có phiếu 1 phiên (NN 1D) — `vnstock_regime.py:206-217`;
+`_bias_floor_dir` ép Stance ở ±3 / momentum ±50 — `vnstock_brief.py:1327-1343`. Một nhịp hồi 2–3
+phiên lật cả nhãn header lẫn Stance.
+**Replay (Finhay, proxy breadth/A-D):** 15/08–30/09 nhãn 5 mức đổi 17 lần, floor ép Stance đổi 16
+lần (11 ngày TĂNG / 11 GIẢM), 2 vòng Risk-off↔on; Risk-on 24/08 sau +3.6% từ đáy, Risk-off 24/09
+sau −4.2% từ đỉnh — mua theo ON, bán theo OFF lỗ −0.8%. Làm mượt cùng đầu vào (N-of-M, hysteresis,
+dwell) vẫn bật ON cuối 08 — phải đổi KHUNG (tuần), không chỉ làm mượt.
+**Đề xuất** (workflow 23 agent, `docs/THIET-KE-BRIEF-3-KHUNG.md`): ngắn hạn (máy trạng thái trên
+điểm 7 phiếu: nhịp hồi/chưa rõ/nhịp chỉnh) · trung hạn = xu hướng TUẦN (±2% MA40w + MA10w/MA40w,
+xuống 1 tuần, lên 2 tuần; LÀ tiêu đề) · dài hạn (vĩ mô 5 trụ, tháng) · 🚨 rủi ro ngắn hạn tách riêng
+(không lật xu hướng) · lớp bảo vệ = tập cha floor cũ (không ngày nào mất bảo vệ) · Stance TĂNG chỉ
+khi trung hạn TĂNG, GIẢM không bao giờ bị cấm · kẹp band v1 không tăng ngược xu hướng · mọi mức
+kích hoạt code giải sẵn. Replay giai đoạn: tiêu đề ĐI NGANG suốt → GIẢM 02/10; Stance bị ép đổi 2
+lần (cũ 16), 0 đảo TĂNG↔GIẢM. Cái giá: không ăn nhịp +7.3%; Stance chậm (12 vs 8 phiên); trung hạn
+trễ ~61 phiên ở khúc quay lớn; n=1 + tham số chọn sau khi thấy giai đoạn ⇒ P0 hiệu chỉnh trên kho
+thật + chạy bóng trước khi bật. **User đã chốt 05/10 — xem U71.**
+
+# 👁 U69. CLAUDE CODE ĐỌC ẢNH BÁO CÁO KHÔNG CÓ LỚP TEXT (04/10 tối)
+
+**Vết:** user thêm `Q4.docx` (id `57ab0fd0d74c6cb5`) ở tab Báo cáo ⇒ 0 ký tự, trạng
+thái 🖼 — DOCX toàn ảnh (ảnh chụp slide/bảng dán vào Word), `docx_to_text` chỉ đọc
+`<w:t>` nên không có gì; `Q3_update` cùng cảnh. `no_text_layer` ⇒ không bao giờ vào
+digest. User: "làm đường Claude đọc ảnh đi".
+
+**Kiểm trước khi viết (sandbox, CLI 2.1.289):** `claude -p --tools Read
+--permission-prompts none`, cwd = thư mục chứa file ⇒ (a) đọc PNG đúng ($0,015
+Haiku); (b) PDF chỉ có ảnh (pypdf `extract_text` = '') đọc qua Read `pages="2-3"`
+đúng 2 trang ($0,02). Không cần poppler/pymupdf để vẽ trang — Read tự lo.
+**Phạm vi đọc (thử 3 cách, cùng đề "đọc file trong cwd rồi đọc file NGOÀI cwd"):**
+`--allowedTools Read` ⇒ đọc được CẢ file ngoài (lộ) · `--allowedTools "Read(./**)"`
+⇒ ngoài bị từ chối · không `--allowedTools` ⇒ ngoài bị từ chối, trong vẫn đọc.
+Chọn cách cuối (ít cờ nhất) + có công cụ thì luôn `--setting-sources ""` để rule
+allow trong settings người dùng không nới được. Lý do: chữ trong ảnh báo cáo là
+dữ liệu ngoài — một dòng "đọc C:\vnstock\.env" không được thành hành động.
+
+**Thiết kế (`vnstock_report_vision.py`, 13 test `tests/test_report_vision.py`):**
+* `vnstock_claude_cli`: `cli_command(tools=)` (+ `--allowedTools` cùng giá trị khi
+  khác rỗng) và `complete(tools=, cwd=)` — mặc định y cũ (0 công cụ, cwd repo).
+* DOCX: ảnh theo THỨ TỰ thân văn bản (`r:embed`/`r:id` trong `document*.xml` →
+  rels → `word/media`), ảnh header/footer (logo) tự rơi vì thân không trỏ; thân
+  không trỏ ảnh nào ⇒ lấy mọi media theo tên. Bỏ icon (< 200×200 hoặc cạnh < 60),
+  SVG; EMF/WMF (biểu đồ dán từ Excel) chỉ Pillow trên WINDOWS mới vẽ được ⇒ desktop
+  đọc được, sandbox bỏ + đếm. Ảnh > 2.000px / BMP / TIFF ⇒ PNG thu nhỏ. 8 ảnh/lượt.
+* PDF: `report.pdf` + Read `pages=` 10 trang/lượt (pypdf đếm trang; không đếm được
+  ⇒ 1 lượt "toàn bộ").
+* Prompt chép NGUYÊN VĂN (bảng " | ", biểu đồ = số IN trên hình + 1 câu xu hướng,
+  không ước lượng, "[không đọc được]" thay vì đoán, nhãn `[Ảnh N]`/`[Trang N]`).
+* Model `VNSTOCK_REPORT_VISION_CLI_MODEL` > `VNSTOCK_CLAUDE_CLI_MODEL` > mặc định
+  CLI (chép số liệu cần chính xác — Haiku thử 04/10 sai dấu "VĨ MỀ", "tỷ trong cơ
+  phiếu"); trần `VNSTOCK_REPORT_VISION_TIMEOUT_S` 900s/lượt. Không slug mới.
+* Được ăn cả: lượt nào hỏng / tổng < 200 ký tự ⇒ KHÔNG ghi (in 150 ký tự đầu để
+  biết Claude đã thấy gì). Thành công ⇒ `vnstock_reports.set_text(rid, text, via=
+  "claude-vision")`: chars, `no_text_layer=False`, `text_via`, bỏ digest cũ.
+* `_upsert` giữ bản đọc ảnh khi upload lại CÙNG file (Streamlit rerun / thêm meta)
+  — không thì trích lại ra 0 ký tự đè mất.
+* UI: chọn báo cáo 🖼 ở Thư viện ⇒ nút **👁 Cho Claude đọc ảnh** (reset memo "CLI
+  chết" trước — bấm tay là muốn thử lại); cột "Đọc ảnh" 👁. CLI `python
+  vnstock_report_vision.py <id> | --all | --dry-run`. KHÔNG tự chạy trong pipeline.
+
+**E2E sandbox (Haiku, 2 ảnh có bảng + biểu đồ cột):** 18s · $0,02 · 548 ký tự;
+số trên cột (6,9 / 7,1 / 7,4%) đọc đúng; bản ghi vào phân tích ngay.
+
+**Chạy thật Q4.docx (04/10 khuya, 🖥️ desktop, Opus):** 26 ảnh (0 bỏ) → 4 lượt
+86s/77s/91s/16s · **53.486 ký tự · $1,15** ⇒ ✅ vào phân tích; digest claude-cli
+18s · $0,10 · stance CP +0. **Lỗ phát hiện ngay:** `digest_report` cắt thân báo
+cáo `_PROMPT_MAX_CHARS` 12K cho MỌI nấc ⇒ digest chỉ thấy 22% đầu (bìa + mở
+đầu). Vá: `digest_call(cli_user=)` — nấc claude-cli nhận bản TRỌN
+(`_CLI_PROMPT_MAX_CHARS` 200K = trần ingest), API/free giữ 12K (context nhỏ),
+lượt tự sửa của nấc nào dùng đúng bản của nấc đó; digest ghi `chars_seen`, log +
+tab Báo cáo in "⚠ chỉ đọc X/Y ký tự" khi cắt; `--refresh --redigest --id <id>`
+chấm lại đúng một báo cáo. Nguồn gõ "HedgeAcedemy" (thiếu a) — sửa bằng
+`--set-meta`, digest giữ nguyên.
+
+**Chấm lại trọn (04/10 23:53):** 26s · $0,30 · `chars_seen` 53.486 · stance CP
++0 → **−1** (Trái phiếu +1, Vàng −2, USD 0) · `us10y` 5,29% khớp registry (±0,5).
+Soi `--show` ra thêm hai lỗi, vá cùng đêm: (a) `tom_tat[:400]` cắt GIỮA CHỮ
+("thị trườn") và chuỗi ấy vào thẳng brief phân bổ (`vnstock_brief_canon`) ⇒
+`clip_text` cắt ở ranh giới câu/từ, trần 600 (prompt xin ≤ 500), áp cả claims/
+risks 160; (b) prompt không nói 5 lớp là danh mục VN — báo cáo chủ yếu bàn Mỹ/
+Trung Quốc + một đoạn TT50 tích cực cho VN mà CP −1 ⇒ không rõ −1 là cổ phiếu
+Mỹ hay VN. Prompt nay neo: Cổ phiếu = niêm yết VN … USD = USD/VND; quan điểm
+nước ngoài chỉ thành stance khi báo cáo nói rõ tác động tới lớp VN. Digest cũ
+phải `--redigest` mới ăn prompt mới.
+**Chấm lại theo prompt neo VN (05/10 00:00, 2 báo cáo):** Q4 19s · $0,30 — tóm
+tắt hết câu (~490 ký tự) và nêu khuyến nghị rõ ("giữ cổ phiếu 20–30%, thậm chí
+~0; short vàng 4.200–4.300") ⇒ CP −1 CÓ căn cứ; Trái phiếu +1 → 0 (trước là quan
+điểm UST), Vàng −2 → −1. Báo cáo 10/07 (`f30fe71407845fb6`) CP −1, w=0,05.
+Consensus CP −1,00 ⇒ tilt +1. Đặc tính thiết kế cần biết: consensus là trung
+bình CÓ TRỌNG SỐ nên khi chỉ còn MỘT báo cáo, decay tuổi không làm tilt nhạt đi —
+Q4 giữ tilt đủ +1 tới khi tròn 90 ngày (02/01/2027) trừ khi có báo cáo mới.
+
+**Tilt NHẠT DẦN theo tuổi (05/10, user chốt):** `consensus()` thêm `strength =
+min(1, Σ trọng số tuổi)` — CHIỀU tilt vẫn do trung bình có trọng số + ngưỡng ±1,0
+(lọc nhiễu, không đổi), còn MỨC áp do strength. `apply_tilt` trộn tỷ trọng từ
+bảng band data tới bảng band đã tilt một đoạn = strength (`blend_allocation`: số
+nguyên, tổng 100, phần dư chia theo phần lẻ lớn nhất); `band` hiệu lực = band GẦN
+hơn (strength ≥ 0,5 ⇒ band đã tilt). `report_tilt{strength, label}` — label
+"+1 band × 60% (B2→B3, báo cáo cũ dần)" in ở CLI, tab Phân bổ, brief canon,
+debate, doctor; bảng % trong brief ghi "tỷ trọng trộn" để LLM không sửa về bảng
+gốc. History ghi `allocation` + `tilt_strength`, scorecard chấm theo % THẬT đã
+khuyến nghị (entry cũ về bảng band). ≥1 báo cáo tươi ⇒ đủ 1 band như cũ. Lịch
+Q4 (04/10, CP −1) nếu band data B2: đủ B3 tới 03/11 · 18/11 75% · 03/12 50%
+(band về B2, cổ phiếu ~37–38%) · 18/12 25% · 02/01/2027 hết. Kill-switch cũ
+`VNSTOCK_ALLOCATION_TILT=0` vẫn tắt hẳn.
+**Chạy thật đầu tiên (05/10 00:10, desktop):** `run.py allocation` ra "tilt +1 band
+× 10% (B3→B4) từ 1 báo cáo" — KHÔNG phải Q4: as_of = phiên 02/10 (T6), Q4 ngày
+04/10 có tuổi âm ⇒ `load_for_analysis` loại (point-in-time, đúng); chỉ còn báo cáo
+10/07 tuổi 84 ngày ⇒ w = 0,10. Bản cũ sẽ cho báo cáo 84 ngày ấy tilt ĐỦ 1 band —
+đúng lỗi user muốn sửa. Band data B3 (điểm −0,514, điểm thô đề xuất B4, hysteresis
+giữ B3) ⇒ từ pipeline tối 05/10 Q4 vào: đủ +1 ⇒ band hiệu lực B4.
+
+**⚠️ Test đỏ trên máy thật, xanh ở sandbox (05/10 ~00:30, desktop, `run.py test`
+full: 3.571 passed · 2 failed).** `test_enabled_sources_filter_by_env_prefix…` +
+`test_social_sources_follow_env` thấy thêm `bsky:analysts` — `.env` desktop có
+`VNSTOCK_NEWS_ALERT_BSKY_LIST` (List Bluesky tạo 04/10, SAU lượt full 3.486); fixture
+đặt `_ENV_LOADED=True` nhưng module KHÁC đã nạp `.env` vào `os.environ` trong cùng
+phiên pytest, mà danh sách `delenv` sót nhóm Bluesky/X. Không vá thì phát 18:00
+05/10 dừng ở bước test ⇒ MẤT brief (đúng kịch bản U65). Vá: fixture xoá MỌI biến
+`VNSTOCK_NEWS_ALERT*` + `TWITTERAPI_IO_KEY`/`X_BEARER_TOKEN`; tái hiện bằng cách đặt
+biến giống desktop rồi chạy (đỏ → xanh), full sandbox với env giống desktop khớp
+mốc. **Bài học:** thêm biến `.env` mới cho một module ⇒ fixture test của module đó
+phải xoá theo TIỀN TỐ, không theo danh sách.
+Desktop merge `dab4511` rồi `run.py test` full: **3.573 passed · 0 failed / 179s**,
+badge xanh ⇒ phát 18:00 05/10 qua được bước test.
+
+**Badge auto-heal kêu mãi bằng sổ CŨ (05/10).** Doctor "0/1,291 bar lành qua 2 lượt"
+⚠️ nhưng `⏱ CHẶNG` 01/10 + 02/10 đều `auto-heal 0s`, không dòng `scanned=` ⇒ hàng
+đợi cách ly RỖNG. `auto_heal` thoát sớm khi rỗng mà KHÔNG `record_heal_run` ⇒ sổ chỉ
+còn 2 lượt cũ (hồi hàng đợi 1.291 bar) và badge cộng chúng vĩnh viễn. Vá: lượt rỗng
+cũng ghi (`scanned=0`, trừ dry-run); badge thấy lượt cuối `scanned=0` ⇒ ok "hàng đợi
+cách ly rỗng (lượt cuối …) — sổ cũ: …"; hàng đợi đầy lại ⇒ kêu lại như cũ. (Lệnh tôi
+đưa user `Select-String 'auto-heal'` bắt nhầm dòng doctor in vào log — đúng là
+`'⏱ CHẶNG|\[sync\] auto-heal'`.)
+Desktop merge `b57017e` + `run.py test` full: **3.576 passed · 0 failed / 156s**.
+
+**Gộp Live Scan thành MỘT công tắc sidebar (05/10, user yêu cầu).** Trước: Screener
+`live_scan_on` (quét preset 10s) + Dòng Tiền `mf_live` (Buy/Sell 15s) là 2 toggle
+trong tab — nav `st.pills` chỉ vẽ tab đang mở nên rời tab là Streamlit dọn state,
+quay lại thấy OFF (cùng lớp bug Live Mode 17/08). Nay: sidebar chung, ngay dưới
+Real-time WSS — widget `live_scan_toggle`, cờ thường `live_scan` = toggle AND
+live_mode; Live Mode tắt ⇒ kéo widget về OFF + disabled + caption "cần bật Real-time
+WSS". Hai tab chỉ đọc `live_scan` (vẫn gác `live_mode`), caption chỉ đường khi tắt.
+**Thử thật bằng `streamlit.testing.AppTest` (1.64, vnstock_wss giả + screener_results
+tạm rồi xoá):** mở app → bật Live Mode → bật Live Scan → sang Dòng Tiền → về Screener
+⇒ Live Scan GIỮ ON suốt; tắt Live Mode ⇒ Live Scan OFF + khoá; 0 exception. Test
+cấu trúc + test chạy đúng khối sidebar bằng `exec` thay test 2-toggle cũ.
+
+**Tách Telegram theo kênh (05/10, user chọn "2 group + 1 thư mục").** Telegram không
+có "channel chứa group" — 3 cách dựng hỏi user: 2 group + Folder (chọn) · 1 group 2
+Topic · 2 Channel. Code chung cho cả ba: `vnstock_telegram._creds(channel)` — kênh
+`news` đọc `TELEGRAM_NEWS_BOT_TOKEN`/`_CHAT_ID`, biến nào thiếu lấy mặc định (không đặt
+= y cũ); `send_message(channel=)`; news-alert `_default_sender` gửi `channel="news"`;
+mọi chỗ khác (brief, báo cáo lãi suất, cảnh báo ladder, model watch) giữ mặc định.
+`find_chats` (getUpdates, chỉ đọc) + `run.py telegram chats [--channel news]` in id
+group để user KHÔNG dán token vào trình duyệt; `telegram test --channel news`. Lỗi 400
+"upgraded to a supergroup" nay in id mới (`migrate_to_chat_id`). Doctor `telegram`:
+warn khi có bot tin riêng mà thiếu group tin (bot tin sẽ gửi vào chat mặc định nơi nó
+không là thành viên ⇒ lỗi mỗi giờ). Test xoá `TELEGRAM_*` theo TIỀN TỐ + chặn `_load_env`.
+**Vết dựng thật (05/10 ~02:00):** `chats --channel news` lượt 1 rỗng, lượt 2 in group
+Brief `-5561219238` ⇒ tôi kết luận "bot tin nằm nhầm group Brief" — SAI, ảnh user cho
+thấy 2 bot đúng 2 group ("VnStock Hourly Update" ở News Hourly Update, "Marketview
+daily" ở Brief). Thủ phạm là chính lệnh dò: thiếu `TELEGRAM_NEWS_BOT_TOKEN` (dòng bị `#`
+theo gợi ý "tạm tắt" của tôi) ⇒ `_creds` LÙI về bot mặc định ⇒ in group của bot brief.
+Vá: lệnh DÒ (`find_chats`, `bot_identity`) dùng `_lookup_token` KHÔNG lùi (báo thiếu
+biến / bị # tắt); `chats` in `bot: @username (tên)` qua getMe trước danh sách để đối
+chiếu token ↔ bot. Gửi tin vẫn lùi như cũ. **Bài học:** công cụ chẩn đoán không được
+có đường lùi im lặng — nó trả lời câu hỏi KHÁC mà trông như câu trả lời đúng.
+Sau vá: `chats --channel news` in `bot: @News_hourly_bot (VnStock Hourly Update)` nhưng
+"chưa thấy chat nào" dù bot ĐÃ ở group — user xoá/thêm lại bot + `/start@` + Start chat
+riêng ⇒ thấy `group -5480122941 News Hourly Update` + `private` (lý do lượt đầu không
+thấy chưa rõ; thêm lại là cách chữa rẻ). Lượt news-alert 02:00 05/10 lỗi `400 chat not
+found` — lúc ấy có token bot tin mà chưa có `TELEGRAM_NEWS_CHAT_ID` ⇒ bot tin gửi vào
+group Brief nơi nó không là thành viên (đúng ca badge doctor `telegram` mới cảnh báo);
+12 tin giữ lại cho lượt sau. Doctor 02:30: Telegram ✅ "bot + group riêng".
+**`.env` có 2 dòng `TELEGRAM_CHAT_ID`** (group Brief `-5561219238` ở trên, chat riêng cũ
+`828087238` ở dưới — user giữ dòng cũ không `#`). python-dotenv 1.2.2: dòng SAU THẮNG
+(đã thử) ⇒ brief sẽ âm thầm về chat riêng cũ. Đã xoá dòng cũ; lệnh soi trùng KHÔNG in
+giá trị: `Get-Content .env | ? { $_ -match '^\s*[A-Z_]+=' } | % { ($_ -split '=')[0].Trim() }
+| Group-Object | ? Count -gt 1` ⇒ rỗng. **Đã làm (user yêu cầu 05/10):** badge doctor
+`env_duplicates` "Khoá trùng trong .env" — warn khi khoá lặp (ghi số dòng + KHÁC giá trị
+"dòng N đang thắng" / cùng giá trị "sửa dòng trên sẽ không ăn"), KHÔNG BAO GIỜ in giá
+trị, kèm tên máy (.env theo máy, doctor_status đi qua Dropbox). Helper chung
+`_env_file_entries`/`_env_file_values` (BOM Notepad, `export `, dòng SAU thắng như dotenv)
+— `_engine_setting` + `check_kill_switches` trước lấy dòng ĐẦU ⇒ có thể báo khác pipeline,
+nay khớp. 8 test `tests/test_doctor_env_duplicates.py` (whitelist --fast).
+
+**Còn hở:** (a) biểu đồ Word GỐC (`word/charts/chartN.xml`, không phải ảnh) không
+vào đường này — số nằm sẵn trong XML (`c:numCache`), làm khi gặp; (b) chưa đo trên
+Q4.docx thật (bao nhiêu ảnh, EMF hay PNG) — `--dry-run` cho biết.
+
+# 📰 U67. CẢNH BÁO TIN QUAN TRỌNG MỖI GIỜ → TELEGRAM — ĐƯỜNG A (TASK SCHEDULER + CLAUDE CLI), REGISTRY NGUỒN MỞ RỘNG (02/10 sáng)
+
+**Hỏi:** dùng Claude Code/Cowork kéo tin kinh tế-tài chính về Telegram mỗi giờ.
+**Cân ba đường:** A Task Scheduler + `run.py news-alert` (chọn) · B Routine cloud
+(loại — đo lại 02/10 từ sandbox: CONNECT 403 cho `api.telegram.org`, cafef,
+vnexpress, cnbc, r.jina.ai — y hệt U62; kho không lên cloud; mỗi lượt là một
+phiên Claude Code thay vì một call) · C Cowork scheduled task (cần app mở trên
+desktop như A, mỗi giờ là một phiên agent — không hơn A mà kém tất định).
+
+**Kiểm kê nguồn tin trước khi làm** (user hỏi): (1) `vnstock_news_feeds._FEEDS`
+**12 RSS** — VN: VnExpress Kinh doanh + Thế giới, CafeF Vĩ mô-Đầu tư + Chứng
+khoán + Tài chính-NH, VnEconomy Chứng khoán + Tài chính, Tin nhanh CK (ĐTCK), Báo
+Chính phủ KT; EN: MarketWatch Top, CNBC Markets, Yahoo Finance — lọc từ khoá
+`_MARKET_KEYWORDS`, chấm ≤8 tin/refresh, cache `market_news_cache.json`, brief
+đọc 6 tin ≤3 ngày; (2) `vnstock_news.fetch_ticker_news` — tin THEO MÃ qua thư
+viện vnstock (VCI, rơi KBS, sponsor vnii/vnstock_data), universe = danh mục +
+top screener, nuôi tab Tin tức + sentiment 7N của brief; (3) Finhay MCP
+`list_news` chỉ có trong phiên Claude (script máy user không gọi được MCP);
+(4) Vietstock scrape là SỰ KIỆN quyền, không phải tin. Báo Đầu tư bỏ 08/07
+(RSS 404). Trước 02/10 KHÔNG có đường nào đẩy tin theo giờ — tin chỉ vào brief
+chiều.
+
+**Thiết kế (`vnstock_news_alert.py`, 47 test `tests/test_news_alert.py`):**
+- Registry `SOURCES`: `Source(key, name, fetch, kind, lang, enabled, relevant)`;
+  RSS dựng từ `_FEEDS` (một nguồn sự thật) qua `rss_source`; adapter không-RSS
+  mẫu `ticker_news_source` (env `VNSTOCK_NEWS_ALERT_TICKERS`); `register_source`
+  cho module khác; `enabled_sources(only)` lọc tiền tố key. `collect` fetch
+  song song, một nguồn nổ = 0 tin; `normalize_item` nhận dict thô bất kỳ
+  ({title, link, summary, published}) ra schema chung của news_feeds.
+- `parse_feed` thêm `_published_at` (giờ đầy đủ, local) — `_date_sort` chỉ có
+  ngày nên không lọc "3h qua" được; cache news cũ thêm một trường, vô hại.
+- Chống trùng hai lớp: `deduplicate_news` trong lô + sổ `_meta/news_alert_seen.json`
+  (`_hash` date|title của news_feeds, giữ 7 ngày). Sổ ghi cả điểm + đã gửi ⇒ tin
+  dư (quá MAX_SEND) đi lượt sau KHÔNG chấm lại; tin Claude bỏ sót ghi
+  `score=None` — thấy rồi, không chấm lại mãi.
+- Chấm: `SCORE_SYSTEM` thang 1–5 (5 sốc hệ thống … 1 phi kinh tế) + nhãn + tác
+  động ≤22 từ cùng quy tắc chiều của `_ANALYZE_SYSTEM`; MỘT call
+  `vcc.complete(json_schema=SCORE_SCHEMA, tag="news-alert")`, engine
+  `STEP_ENGINE_ENV["news_alert"]`; `parse_scores` kẹp 1–5, dọn `sanitize_impact`.
+  Rơi về ladder: `analyze_item` từng tin với `_user_text_tmp` sẵn (không Jina),
+  mức độ từ `heuristic_score` 2/3/4 theo hai bậc từ khoá, "không tác động" = 1.
+  Không engine ⇒ không gửi (không đẩy tin thô), marker error.
+- Gửi: `format_message` HTML chỉ b/i (whitelist telegram), link trần;
+  `send_message` tự cắt 4000. Telegram lỗi ⇒ giữ `sent=False`, lượt sau gửi lại.
+- Marker `news_alert_status.json` {ran_at, machine, engine, claude_error, sources,
+  fetched, in_window, new, scored, picked, sent, message_id, error, error_streak}.
+  Doctor `news_alert_verdict` (hàm thuần, now/active cắm được): off/ok/warn/error.
+  Kill-switch `VNSTOCK_NEWS_ALERT` vào `_DANGEROUS_SWITCHES`.
+- `run.py news-alert` (--dry-run/--force/--min-score/--window-h/--max-send/
+  --sources/--engine/--list-sources), rc 0/1 không bao giờ 2; KHÔNG trong `all`;
+  stdout chảy vào `run_daily.log` qua tee của main() (16 lượt/ngày, 3–4 dòng/lượt).
+- Task 3 trong `setup_scheduled_tasks.ps1`: Weekly T2–T7 07:00 + Repetition 1h
+  tới 22:00 (gán `.Repetition` từ trigger -Once — Weekly không nhận trực tiếp),
+  trần 15′, `-NewsAlertStart/-NewsAlertEnd/-NoNewsAlert`. Hệ quả: "2 task =
+  desktop" thành "≥2 task" ở CLAUDE.md + VIEC.
+
+**Bẫy đã thấy trước:** (a) lượt giờ 18:00–23:00 chạy cùng phát tối trên cùng
+desktop — tránh bằng cách KHÔNG ghi `market_news_cache.json`; sổ riêng.
+(b) Laptop chạy script lịch ⇒ gửi đôi tới khi Dropbox sync sổ — ghi rõ chỉ
+desktop. (c) Feed không tz ⇒ coi giờ địa phương; feed sai tz chỉ làm tin
+vào/ra cửa sổ sớm muộn, sổ vẫn chặn trùng. (d) Sandbox không có `vnstock` ⇒
+`run.py test --fast` dừng ở collection `test_classifier.py` — chạy pytest thẳng
+whitelist với `--continue-on-collection-errors`: **2.748 passed · 33 failed · 1
+error**, 33 fail nằm trọn 6 file (model_watch 11 · pipeline_status_gate 7 ·
+bank_balance_export 5 · atomic_writes 4 · ohlc_repair 3 · model_ladder 3) và
+cây sạch `git stash` cho ĐÚNG 33 fail y hệt (ModuleNotFoundError vnstock /
+vnstock_data / openpyxl) ⇒ không do thay đổi này; máy thật phải chạy `--fast` đủ.
+
+**User chốt 02/10 sáng (sau ba câu hỏi về nguồn):** (1) nguồn 1 (RSS) là bộ feed
+user chọn 15/06, mở rộng 08/07 — user quên nên hỏi lại; (2) nguồn 1 ↔ nguồn 2
+KHÔNG trùng bài: nguồn 2 là bài Vietstock gắn theo mã (VCI trả `news_source_link`
+dạng đường dẫn vietstock.vn), nguồn 1 không có feed Vietstock; chỉ có thể trùng
+SỰ KIỆN, và brief hiện không khử trùng chéo hai khối (📰 vs ngữ cảnh danh mục);
+(3) **cảnh báo chỉ cần tin thị trường / vĩ mô quan trọng — nguồn 2 để TẮT**
+(không đặt `VNSTOCK_NEWS_ALERT_TICKERS`). Theo đó prompt `SCORE_SYSTEM` sửa:
+mục tiêu ghi rõ "TIN VĨ MÔ QUAN TRỌNG, không phải tin riêng từng doanh nghiệp";
+"kết quả kinh doanh/sự kiện của mã VN30" RỜI mức 4, tin riêng một doanh nghiệp
+(kể cả VN30) về mức 2, chỉ lên 4 khi đổi kỳ vọng cả ngành/thị trường; test ghim
+`test_score_prompt_is_macro_first_company_news_capped` (47 test). Khử trùng chéo
+nguồn 1↔2 vì thế KHÔNG làm. Lý do adapter nguồn 2 vẫn nằm trong code dù tắt:
+chứng minh registry nhận nguồn không-RSS (mẫu cho Finhay/SBV/HOSE sau này),
+một dòng env là bật; chi phí 1 call VCI/mã/giờ nên không bao giờ nên bật cho cả
+rổ 130 mã.
+
+**Chưa làm (cố ý):** không đưa tin cảnh báo vào brief/cache news (brief đã có
+khối tin riêng); không fetch thân bài Jina (lượt giờ phải < 1′); không
+Cowork/Routine. Hỏi lại khi muốn: kênh Telegram riêng cho cảnh báo (hiện dùng
+chung chat_id), tóm tắt cuối ngày các tin đã gửi, nguồn API (Finhay/SBV/HOSE)
+qua `register_source`.
 
 # 🔎 U66. `/brief-review` ĐẦU TIÊN (desktop, 01/10 sáng): VALIDATOR VNINDEX BÁO GIẢ VÌ NĂM TRONG NGÀY ISO — VÁ #30, #914 CHẤM 4★
 
