@@ -5,9 +5,9 @@ bản đầu 07–22h T2–T7):
 
     NGUỒN (registry `SOURCES`) → `normalize_item` (schema chung) → lọc liên quan
     (từng nguồn tự khai) → CỬA SỔ GIỜ (`WINDOW_H`, mặc định 3h) → khử trùng
-    (`deduplicate_news` + sổ `_meta/news_alert_seen.json`) → CHẤM MỨC ĐỘ 1–5
+    (`deduplicate_news` + sổ `_meta/news_alert_seen.json`) → CHẤM ĐIỂM 0–100
     (Claude Code theo LÔ, MỘT call `--json-schema`; hỏng ⇒ ladder free từng tin
-    + điểm từ khoá) → ngưỡng `MIN_SCORE` (3) → Telegram (≤ `MAX_SEND` tin/lượt,
+    + điểm từ khoá) → ngưỡng `MIN_SCORE` (75) → Telegram (≤ `MAX_SEND` tin/lượt,
     dư thì lượt sau, KHÔNG chấm lại) → sổ + marker `_meta/news_alert_status.json`.
 
 Thiết kế cho nhiều nguồn: thêm nguồn = MỘT `Source(...)` (RSS, API, scraper…)
@@ -54,13 +54,17 @@ ENV_CLI_TIMEOUT = "VNSTOCK_NEWS_ALERT_CLI_TIMEOUT_S"
 
 DEFAULT_HOURS = (0, 23)        # 24/7 (user 04/10): đêm VN = giờ Mỹ — Fed/số liệu/chuyên gia Bluesky
 DEFAULT_DAYS = (1, 7)          # đều rơi vào đêm; khung cũ 07–22h T2–T7 dồn hết vào lượt 07:00
-DEFAULT_MIN_SCORE = 3
+# Thang 0–100 từ 06/10 (user: thang 1–5 thô — ≥3 lượt nào cũng đầy 8 tin, ≥4 lại
+# quá ít). 75 nằm GIỮA hai bậc cũ: nhận mọi tin "đáng kể" (bậc 4 cũ ≈ 80–89) và
+# phần trên của "đáng theo dõi" (bậc 3 cũ ≈ 50–79).
+DEFAULT_MIN_SCORE = 75
 DEFAULT_WINDOW_H = 3
 DEFAULT_MAX_SEND = 8
 DEFAULT_MAX_SCORE = 30          # trần tin CHẤM mỗi lượt (token) — dư rơi khỏi cửa sổ giờ
 DEFAULT_CLI_TIMEOUT_S = 180
 SEEN_RETAIN_DAYS = 7
-SCORE_MIN, SCORE_MAX = 1, 5
+SCORE_MIN, SCORE_MAX = 0, 100
+LEGACY_SCALE_MAX = 5           # ngưỡng 1–5 trong .env/lệnh cũ ⇒ ×20 (normalize_min_score)
 _OFF = ("0", "false", "off", "no")
 TAG = "news-alert"
 
@@ -91,6 +95,19 @@ def _env_int(name: str, default: int, lo: int = 0, hi: int = 10_000) -> int:
 
 def enabled() -> bool:
     return (os.environ.get(KILL_SWITCH) or "1").strip().lower() not in _OFF
+
+
+def normalize_min_score(v) -> int:
+    """Ngưỡng gửi trên thang 0–100. 1–5 là thang CŨ (trước 06/10) ⇒ ×20, để
+    `.env`/lệnh cũ ghi MIN_SCORE=4 thành ≥80 chứ không thành "≥4/100" (gửi gần
+    hết). 0 = gửi mọi tin đã chấm; ngoài 0–100 ⇒ kẹp."""
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        return DEFAULT_MIN_SCORE
+    if 1 <= n <= LEGACY_SCALE_MAX:
+        n *= 100 // LEGACY_SCALE_MAX
+    return max(SCORE_MIN, min(SCORE_MAX, n))
 
 
 # ── Registry NGUỒN ───────────────────────────────────────────────────────────
@@ -855,41 +872,48 @@ SCORE_SYSTEM = (
     "VIỆT NAM, đọc mỗi giờ. Mục tiêu là tin ảnh hưởng CẢ THỊ TRƯỜNG (tiền tệ, tỷ giá, "
     "lạm phát, chính sách, địa chính trị, dòng vốn, hàng hoá), KHÔNG phải tin riêng "
     "từng doanh nghiệp. Với TỪNG tin (mở đầu `### Tin i=<số>`), chấm:\n"
-    "• muc_do (1–5) = mức ảnh hưởng tới thị trường chứng khoán VN trong vài phiên tới:\n"
-    "  5 = sốc hệ thống (Fed/SBV đổi lãi suất điều hành, thuế quan áp lên VN, nâng/hạ "
-    "hạng thị trường, chiến sự lớn, khủng hoảng thanh khoản, chính sách lớn về chứng "
-    "khoán/BĐS/tín dụng có hiệu lực);\n"
-    "  4 = vĩ mô/chính sách đáng kể (CPI/GDP/PMI bất ngờ, tỷ giá vượt mốc, SBV bơm/hút "
-    "mạnh, room tín dụng, giá dầu/vàng biến động lớn, số liệu Mỹ/TQ làm đổi kỳ vọng Fed, "
-    "khối ngoại bán/mua ròng kỷ lục, chính sách ngành lớn như thuế/BĐS/ngân hàng);\n"
-    "  3 = đáng theo dõi (chính sách đang bàn, số liệu đúng kỳ vọng, phát ngôn quan "
-    "chức, diễn biến thị trường thế giới bình thường, tin ngành hẹp);\n"
-    "  2 = tin thường (tin riêng MỘT doanh nghiệp — kết quả kinh doanh, cổ tức, ĐHĐCĐ, "
-    "nhân sự, kể cả VN30 — phân tích bình luận, khuyến nghị mã, tin lặp lại);\n"
-    "  1 = phi kinh tế hoặc không liên quan (giải trí, thể thao, hình sự, đời sống).\n"
+    "• muc_do (0–100, số nguyên) = mức ảnh hưởng tới thị trường chứng khoán VN trong "
+    "vài phiên tới. Chỉ tin ≥ 75 được đẩy lên điện thoại nhà đầu tư — 75 nghĩa là "
+    "\"đáng dừng việc để đọc NGAY\"; phân vân giữa hai mức thì chọn mức THẤP hơn:\n"
+    "  90–100 = sốc hệ thống (Fed/SBV đổi lãi suất điều hành, thuế quan áp lên VN, "
+    "nâng/hạ hạng thị trường, chiến sự lớn, khủng hoảng thanh khoản, chính sách lớn về "
+    "chứng khoán/BĐS/tín dụng có hiệu lực);\n"
+    "  80–89 = vĩ mô/chính sách đáng kể (CPI/GDP/PMI bất ngờ, tỷ giá vượt mốc, SBV "
+    "bơm/hút mạnh, room tín dụng, giá dầu/vàng biến động lớn, số liệu Mỹ/TQ làm đổi kỳ "
+    "vọng Fed, khối ngoại bán/mua ròng kỷ lục, chính sách ngành lớn như thuế/BĐS/ngân "
+    "hàng);\n"
+    "  70–79 = đáng theo dõi CÓ hệ quả rõ cho VN trong vài phiên (số liệu lệch kỳ vọng "
+    "nhẹ, dự thảo chính sách nhiều khả năng thông qua, thị trường thế giới biến động "
+    "mạnh hơn bình thường); 75–79 chỉ khi hệ quả cho cổ phiếu VN đã rõ, mơ hồ ⇒ 70–74;\n"
+    "  50–69 = đáng biết nhưng KHÔNG cần báo ngay (chính sách đang bàn, số liệu đúng kỳ "
+    "vọng, phát ngôn quan chức, diễn biến thế giới bình thường, tin ngành hẹp);\n"
+    "  20–49 = tin thường (tin riêng MỘT doanh nghiệp — kết quả kinh doanh, cổ tức, "
+    "ĐHĐCĐ, nhân sự, kể cả VN30 — phân tích bình luận, khuyến nghị mã, tin lặp lại);\n"
+    "  0–19 = phi kinh tế hoặc không liên quan (giải trí, thể thao, hình sự, đời sống).\n"
     "• nhan = TÍCH_CỰC | TIÊU_CỰC | TRUNG_LẬP theo chiều ảnh hưởng tới cổ phiếu VN; "
     "hai chiều/mơ hồ = TRUNG_LẬP. Nhãn phải CÙNG CHIỀU với tac_dong.\n"
     "• tac_dong = MỘT câu ≤ 22 từ nêu KÊNH ảnh hưởng tới ngành/nhóm cổ phiếu VN cụ thể "
     "(nêu tên ngành/mã), KHÔNG kể lại sự kiện. Chiều phải khớp tiêu đề (tin GIẢM thì "
-    "mô tả theo chiều giảm). Tin muc_do 1 ⇒ tac_dong = \"không tác động trực tiếp\".\n"
-    "Khắt khe: phần lớn tin là 2–3; chỉ chấm 4–5 khi thật sự thay đổi kỳ vọng của CẢ "
-    "thị trường. Tin một doanh nghiệp chỉ lên 4 khi nó đổi kỳ vọng cả ngành/thị trường "
-    "(vd ngân hàng lớn mất thanh khoản).\n"
+    "mô tả theo chiều giảm). Tin muc_do < 20 ⇒ tac_dong = \"không tác động trực tiếp\".\n"
+    "Khắt khe: phần lớn tin nằm trong 30–65; chỉ chấm ≥ 75 khi thật sự thay đổi kỳ "
+    "vọng của CẢ thị trường. Tin một doanh nghiệp chỉ lên ≥ 75 khi nó đổi kỳ vọng cả "
+    "ngành/thị trường (vd ngân hàng lớn mất thanh khoản).\n"
     "NGUỒN CHÍNH THỨC (dòng `Loại: nguồn chính thức` — Fed/BLS/BEA): thông cáo quyết định "
-    "lãi suất, CPI/PCE, GDP, việc làm ⇒ 4–5 dù tiêu đề khô; bài phát biểu thường ⇒ 3.\n"
+    "lãi suất, CPI/PCE, GDP, việc làm ⇒ 80–100 dù tiêu đề khô; bài phát biểu thường ⇒ "
+    "55–70.\n"
     "BÌNH LUẬN MẠNG XÃ HỘI (dòng `Loại: bình luận chuyên gia`): chấm theo GIÁ TRỊ PHÂN TÍCH "
-    "cho thị trường VN — nhắc lại tin đã có = 2; luận điểm mới kèm số liệu/hệ quả rõ = 3–4; "
-    "KHÔNG bao giờ 5.\n"
+    "cho thị trường VN — nhắc lại tin đã có = 20–45; luận điểm mới kèm số liệu/hệ quả rõ "
+    "= 55–80; KHÔNG bao giờ trên 85.\n"
     "BÀI Ý KIẾN / BLOG (trang nhà bình luận, quỹ nhỏ, người bán vàng — vd SchiffGold, Mott "
-    "Capital, ZeroHedge, Seeking Alpha — hoặc tiêu đề kiểu quan điểm/dự đoán): tối đa 3; "
-    "chỉ bình luận lại sự kiện đã có = 2.\n"
+    "Capital, ZeroHedge, Seeking Alpha — hoặc tiêu đề kiểu quan điểm/dự đoán): tối đa 65; "
+    "chỉ bình luận lại sự kiện đã có = 20–45.\n"
     "Tin trùng SỰ KIỆN với tin khác trong lô — kể cả KHÁC NGÔN NGỮ (báo VN dịch lại tin "
-    "nước ngoài) — ⇒ giữ nguyên tin đầu, tin sau chấm thấp hơn 1 bậc. Nếu có mục `### ĐÃ GỬI` "
-    "(tin đã báo trong 24h — KHÔNG chấm mục này): tin cùng SỰ KIỆN với một dòng trong đó "
-    "(bài theo sau, dịch lại, phân tích thêm) ⇒ tối đa 2, TRỪ KHI có diễn biến MỚI đổi kỳ "
-    "vọng (số liệu/quyết định mới, thị trường phản ứng mạnh).\n"
+    "nước ngoài) — ⇒ giữ nguyên tin đầu, tin sau thấp hơn ít nhất 15 điểm. Nếu có mục "
+    "`### ĐÃ GỬI` (tin đã báo trong 24h — KHÔNG chấm mục này): tin cùng SỰ KIỆN với một "
+    "dòng trong đó (bài theo sau, dịch lại, phân tích thêm) ⇒ tối đa 40, TRỪ KHI có diễn "
+    "biến MỚI đổi kỳ vọng (số liệu/quyết định mới, thị trường phản ứng mạnh).\n"
     "Tin tiếng Anh: tac_dong vẫn viết TIẾNG VIỆT.\n"
-    'Trả về DUY NHẤT JSON đúng schema {"results": [{"i": <i>, "muc_do": <1-5>, "nhan": '
+    'Trả về DUY NHẤT JSON đúng schema {"results": [{"i": <i>, "muc_do": <0-100>, "nhan": '
     '"…", "tac_dong": "…"}]} — đủ MỌI i, không thêm chữ nào ngoài JSON.'
 )
 
@@ -929,7 +953,7 @@ def _clean_impact(raw) -> str:
 SENT_CONTEXT_H = 24
 SENT_CONTEXT_MAX = 25
 SENT_DUP_RATIO = 0.85          # khớp ngưỡng `vnstock_news.deduplicate_news`
-SENT_DUP_CAP = 2
+SENT_DUP_CAP = 40             # 0–100: dưới ngưỡng gửi, vẫn trong dải "tin thường"
 
 
 def recent_sent_titles(seen: dict, now: datetime, hours: int = SENT_CONTEXT_H,
@@ -1007,7 +1031,7 @@ def item_block(i: int, it: dict) -> str:
 
 def parse_scores(data, n: int) -> "dict[int, dict]":
     """{i: {muc_do, nhan, tac_dong}} từ JSON model — i lạ / muc_do rác bị bỏ,
-    muc_do kẹp 1–5, tac_dong dọn như khối tin brief."""
+    muc_do kẹp 0–100, tac_dong dọn như khối tin brief."""
     out: dict = {}
     rows = (data or {}).get("results") if isinstance(data, dict) else None
     for r in rows or []:
@@ -1070,13 +1094,18 @@ _TIER_MID = (
 )
 
 
+# Thang 0–100: chỉ từ khoá vĩ mô MẠNH vượt ngưỡng gửi 75; tầm trung/thường ở dưới
+# (bậc cũ 4/3/2 ⇒ 80/60/40 — đường ladder vốn thô, chỉ báo khi chắc).
+_HEUR_HIGH, _HEUR_MID, _HEUR_LOW, _HEUR_NO_IMPACT = 80, 60, 40, 10
+
+
 def heuristic_score(item: dict) -> int:
     hay = f"{item.get('title', '')} {item.get('news_short_content', '')}".lower()
     if any(k in hay for k in _TIER_HIGH):
-        return 4
+        return _HEUR_HIGH
     if any(k in hay for k in _TIER_MID):
-        return 3
-    return 2
+        return _HEUR_MID
+    return _HEUR_LOW
 
 
 def score_items_ladder(todo: list) -> "dict[int, dict]":
@@ -1099,7 +1128,7 @@ def score_items_ladder(todo: list) -> "dict[int, dict]":
             s, imp = "", ""
         if not imp:
             continue
-        score = SCORE_MIN if nf._NO_IMPACT in imp.lower() else heuristic_score(it)
+        score = _HEUR_NO_IMPACT if nf._NO_IMPACT in imp.lower() else heuristic_score(it)
         out[i] = {"muc_do": score, "nhan": s or "neutral", "tac_dong": imp}
     return out
 
@@ -1132,7 +1161,7 @@ def score_items(todo: list, engine: Optional[str] = None,
 def _report_caps(todo: list, scored: dict, sent_titles) -> None:
     n = cap_sent_duplicates(todo, scored, list(sent_titles))
     if n:
-        print(f"[{TAG}] hạ {n} tin trùng tiêu đề tin đã gửi 24h về {SENT_DUP_CAP}/5")
+        print(f"[{TAG}] hạ {n} tin trùng tiêu đề tin đã gửi 24h về {SENT_DUP_CAP}/100")
 
 
 # ── Chọn + dựng tin Telegram ────────────────────────────────────────────────
@@ -1175,7 +1204,15 @@ def select_to_send(seen: dict, min_score: int, max_send: int) -> "list[tuple[str
     return cands[:max(0, max_send)]
 
 
-_ICON = {5: "🔴", 4: "🟠", 3: "🟡", 2: "⚪", 1: "⚪"}
+# Biểu tượng theo DẢI điểm 0–100 (ngưỡng gửi mặc định 75 ⇒ tin gửi đi là 🟠/🔴,
+# 🟡 chỉ hiện khi user tự hạ ngưỡng).
+_ICON_BANDS = ((90, "🔴"), (75, "🟠"), (60, "🟡"))
+
+
+def _icon(sc: int) -> str:
+    return next((ic for lo, ic in _ICON_BANDS if sc >= lo), "⚪")
+
+
 _ARROW = {"positive": "▲", "negative": "▼", "neutral": "◆"}
 _ENGINE_LABEL = {"claude": "Claude Code", "ladder": "ladder free", "none": "chưa chấm",
                  "prev": "lượt trước (tin dư)"}
@@ -1212,7 +1249,7 @@ def format_message(recs: list, now: datetime, min_score: int = DEFAULT_MIN_SCORE
         title = _one_line(r.get("title"))
         href = _safe_href(r.get("link"))
         title = f'<a href="{href}">{title}</a>' if href else title
-        lines.append(f"{_ICON.get(sc, '⚪')} {sc}/5 · <b>{title}</b>")
+        lines.append(f"{_icon(sc)} {sc}/100 · <b>{title}</b>")
         if r.get("tac_dong"):
             lines.append(f"   {_ARROW.get(r.get('nhan'), '◆')} {_one_line(r['tac_dong'])}")
         meta = " · ".join(x for x in (_one_line(r.get("source")),
@@ -1221,7 +1258,7 @@ def format_message(recs: list, now: datetime, min_score: int = DEFAULT_MIN_SCORE
         if meta:
             lines.append(f"   <i>{meta}</i>")
         lines.append("")
-    lines.append(f"<i>{len(recs)} tin ≥ mức {min_score}/5 · chấm bởi "
+    lines.append(f"<i>{len(recs)} tin ≥ {min_score}/100 · chấm bởi "
                  f"{_ENGINE_LABEL.get(engine, engine)}</i>")
     return "\n".join(lines)
 
@@ -1283,7 +1320,8 @@ def run(*, now: Optional[datetime] = None, dry_run: bool = False, force: bool = 
     if not ok and not force:
         print(f"[{TAG}] ngoài khung giờ ({why}) — bỏ qua (thêm --force để chạy)")
         return 0
-    min_score = min_score if min_score is not None else _env_int(ENV_MIN_SCORE, DEFAULT_MIN_SCORE, 1, 5)
+    min_score = normalize_min_score(min_score if min_score is not None
+                                    else _env_int(ENV_MIN_SCORE, DEFAULT_MIN_SCORE, 0, 100))
     prev = read_status() or {}
     if window_h is None:
         base_h = _env_int(ENV_WINDOW_H, DEFAULT_WINDOW_H, 1, 168)
@@ -1362,7 +1400,7 @@ def run(*, now: Optional[datetime] = None, dry_run: bool = False, force: bool = 
                 send_err = f"{type(e).__name__}: {e}"
                 print(f"[{TAG}] ❌ Telegram lỗi: {send_err} — giữ tin, lượt sau gửi lại")
     else:
-        print(f"[{TAG}] không tin nào ≥ mức {min_score} — im lặng")
+        print(f"[{TAG}] không tin nào ≥ {min_score}/100 — im lặng")
 
     if not dry_run:
         save_seen(seen)

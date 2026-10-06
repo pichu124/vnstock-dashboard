@@ -2117,7 +2117,7 @@ def build_parser() -> argparse.ArgumentParser:
     na.add_argument("--force", action="store_true",
                     help="Bỏ cửa khung giờ/ngày (VNSTOCK_NEWS_ALERT_HOURS/DAYS)")
     na.add_argument("--min-score", type=int, default=None,
-                    help="Ngưỡng mức độ 1–5 để gửi (mặc định 3, env VNSTOCK_NEWS_ALERT_MIN_SCORE)")
+                    help="Ngưỡng điểm 0–100 để gửi (mặc định 75, env VNSTOCK_NEWS_ALERT_MIN_SCORE; 1–5 = thang cũ ⇒ ×20)")
     na.add_argument("--window-h", type=int, default=None,
                     help="Chỉ xét tin đăng trong N giờ qua (mặc định 3)")
     na.add_argument("--max-send", type=int, default=None,

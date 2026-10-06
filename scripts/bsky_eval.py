@@ -2,16 +2,17 @@
 
 Thay cho "đọc tay một tuần": lấy bài GỐC (không repost/không trả lời) `--days` ngày qua của
 mọi tài khoản trong `docs/bluesky-macro-list.md` (cả bảng trừ ⛔ = List đọc thử, gồm 24 ⭐),
-cho Claude chấm bằng ĐÚNG prompt/thang 1–5 của cảnh báo tin (`vnstock_news_alert.SCORE_SYSTEM`,
-dòng `Loại: bình luận chuyên gia`), rồi xếp hạng theo số bài đạt ngưỡng gửi (≥3).
+cho Claude chấm bằng ĐÚNG prompt/thang 0–100 của cảnh báo tin (`vnstock_news_alert.SCORE_SYSTEM`,
+dòng `Loại: bình luận chuyên gia`), rồi xếp hạng theo số bài đạt ngưỡng gửi (≥75, từ 06/10;
+trước đó thang 1–5, ngưỡng ≥3).
 
     python scripts/bsky_eval.py --dry-run     # 🖥️ chỉ đếm bài (không gọi LLM, ~30s)
     python scripts/bsky_eval.py               # đếm + chấm (hỏi trước, in ước tính chi phí)
 
 Luật kết luận (`verdict`, hàm thuần — có test):
-  ⭐ THÊM / ⭐ giữ : ≥2 bài ≥3/5 VÀ ≥20% bài được chấm ≥3/5
-  ồn              : >10 bài/ngày mà <15% đạt ≥3 — chiếm suất 6 bài Bluesky/lượt của người khác
-  bỏ / hạ ⭐      : chấm ≥5 bài mà 0 bài ≥3, hoặc ≥50% bài bị chấm 1 (lạc đề: chính trị nội bộ, đời tư)
+  ⭐ THÊM / ⭐ giữ : ≥2 bài ≥75 VÀ ≥20% bài được chấm ≥75
+  ồn              : >10 bài/ngày mà <15% đạt ≥75 — chiếm suất 6 bài Bluesky/lượt của người khác
+  bỏ / hạ ⭐      : chấm ≥5 bài mà 0 bài ≥75, hoặc ≥50% bài bị chấm <20 (lạc đề: chính trị nội bộ, đời tư)
   im              : 0 bài gốc trong `--days` ngày — không tốn suất, giữ hay bỏ đều được
   đọc thêm/giữ ⭐ : còn lại — chưa đủ bằng chứng
 
@@ -48,6 +49,11 @@ NOISY_PER_DAY = 10
 NOISY_MAX_RATE = 0.15
 OFFTOPIC_RATE = 0.50
 DROP_MIN_SCORED = 5
+# Thang 0–100 (06/10): 'đạt' = ngưỡng gửi của cảnh báo tin, 'đỉnh' = dải sốc hệ thống,
+# 'lạc đề' = dải phi kinh tế.
+HI_SCORE = na.DEFAULT_MIN_SCORE
+TOP_SCORE = 90
+OFF_SCORE = 20
 
 _REASON_PIN = "app.bsky.feed.defs#reasonPin"
 
@@ -155,9 +161,9 @@ def aggregate(handles: list, fetched: dict, samples: list, scored: dict, days: i
         m = int(sc.get("muc_do") or 0)
         st["scored"] += 1
         st["sum"] += m
-        st["hi"] += m >= 3
-        st["top"] += m >= 4
-        st["off"] += m <= 1
+        st["hi"] += m >= HI_SCORE
+        st["top"] += m >= TOP_SCORE
+        st["off"] += m < OFF_SCORE
         if st["best"] is None or m > st["best"][0]:
             st["best"] = (m, na._one_line(it.get("title"))[:110], sc.get("tac_dong") or "")
     for st in stats.values():
@@ -213,7 +219,7 @@ def print_table(rows: list, stats: dict, scored_run: bool) -> dict:
 def print_summary(groups: dict, stats: dict, days: int = DEFAULT_DAYS) -> None:
     def names(key):
         return ", ".join(r["handle"] for r in groups.get(key, [])) or "—"
-    print("\nĐỀ XUẤT (luật: ≥2 bài ≥3/5 và ≥20% bài chấm đạt ≥3/5 ⇒ ⭐):")
+    print(f"\nĐỀ XUẤT (luật: ≥2 bài ≥{HI_SCORE} và ≥20% bài chấm đạt ≥{HI_SCORE} ⇒ ⭐):")
     print(f"  THÊM ⭐ ({len(groups.get('⭐ THÊM', []))}): {names('⭐ THÊM')}")
     print(f"  HẠ ⭐  ({len(groups.get('hạ ⭐', [])) + len(groups.get('hạ ⭐ (ồn)', []))}): "
           f"{names('hạ ⭐')}{' · ồn: ' + names('hạ ⭐ (ồn)') if groups.get('hạ ⭐ (ồn)') else ''}")
@@ -225,7 +231,7 @@ def print_summary(groups: dict, stats: dict, days: int = DEFAULT_DAYS) -> None:
         print("\nBài điểm cao nhất (để soi lại phán quyết):")
         for r in best:
             m, title, impact = stats[r["handle"]]["best"]
-            print(f"  @{r['handle']} {m}/5 · {title}" + (f"\n      → {impact}" if impact else ""))
+            print(f"  @{r['handle']} {m}/100 · {title}" + (f"\n      → {impact}" if impact else ""))
 
 
 def _model_hint() -> str:

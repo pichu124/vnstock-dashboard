@@ -239,8 +239,8 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   --diag` xác minh) + Bluesky/X qua env (U68; adapter tin theo mã TẮT, user chốt
   02/10 chỉ tin vĩ mô) → cửa sổ 3h, lượt đầu sau khi máy tắt/ngủ BẮT BÙ tới `covered_until`
   lượt trước (trần 36h) → cap 6 tin/nguồn, tường fetch 45s
-  → sổ `_meta/news_alert_seen.json` → Claude Code chấm 1–5 cả LÔ một call
-  (rơi về ladder + điểm từ khoá; không engine ⇒ KHÔNG gửi tin thô) → ≥3 gửi,
+  → sổ `_meta/news_alert_seen.json` → Claude Code chấm 0–100 cả LÔ một call (06/10, U76;
+  `MIN_SCORE` 1–5 cũ ⇒ ×20) (rơi về ladder + điểm từ khoá; không engine ⇒ KHÔNG gửi tin thô) → ≥75 gửi,
   ≤8 tin/lượt, dư để lượt sau không chấm lại → marker
   `news_alert_status.json{machine,error_streak}` + badge doctor. Không tin mới
   = im lặng, không gọi LLM. Không đụng `market_news_cache.json`. Thêm nguồn =

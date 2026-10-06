@@ -284,7 +284,7 @@ def test_take_undated_baselines_first_then_treats_new_titles_as_fresh():
 
 def test_run_scores_undated_feed_only_after_baseline(monkeypatch):
     src_items = [{"title": "Old Nikkei story about yen", "link": "https://n/1"}]
-    calls = _fake_complete(monkeypatch, by_title={"yen": {"muc_do": 4, "nhan": "TIÊU_CỰC",
+    calls = _fake_complete(monkeypatch, by_title={"yen": {"muc_do": 85, "nhan": "TIÊU_CỰC",
                                                           "tac_dong": "Yên mạnh, dòng vốn carry rút khỏi châu Á"}})
     sent, spy = _sender_spy()
     na.run(now=NOW, sources=[_src("rss:nikkei", list(src_items))], engine="claude", sender=spy)
@@ -603,7 +603,7 @@ def test_run_uses_catchup_window_and_advances_covered_until(monkeypatch):
                      "fetched": 5})
     fed = _raw("Fed cuts rates by 50bp", hours_ago=0)      # NOW là 10:05 → sửa giờ đăng tay
     fed["_published_at"] = "2026-10-02T01:00:00"; fed["_date_sort"] = "2026-10-02"
-    calls = _fake_complete(monkeypatch, results=[{"i": 0, "muc_do": 5, "nhan": "x", "tac_dong": "y"}])
+    calls = _fake_complete(monkeypatch, results=[{"i": 0, "muc_do": 95, "nhan": "x", "tac_dong": "y"}])
     sent, spy = _sender_spy()
     morning = datetime(2026, 10, 2, 7, 0)
     rc = na.run(now=morning, sources=[_src("rss:t", [fed])], engine="claude", sender=spy)
@@ -661,25 +661,27 @@ def test_item_hash_is_news_feeds_hash():
 
 def test_parse_scores_clamps_validates_and_cleans():
     got = na.parse_scores({"results": [
-        {"i": 0, "muc_do": 9, "nhan": "TÍCH_CỰC", "tac_dong": "Ngân hàng *hưởng lợi*\nrõ"},
-        {"i": 1, "muc_do": "2", "nhan": "tiêu cực", "tac_dong": ""},
+        {"i": 0, "muc_do": 140, "nhan": "TÍCH_CỰC", "tac_dong": "Ngân hàng *hưởng lợi*\nrõ"},
+        {"i": 1, "muc_do": "35", "nhan": "tiêu cực", "tac_dong": ""},
         {"i": 7, "muc_do": 3, "nhan": "x", "tac_dong": "ngoài lô"},
         {"i": "rác", "muc_do": 3, "nhan": "x", "tac_dong": "y"},
         "không phải dict",
     ]}, n=2)
-    assert got[0] == {"muc_do": 5, "nhan": "positive", "tac_dong": "Ngân hàng hưởng lợi rõ"}
-    assert got[1]["muc_do"] == 2 and got[1]["nhan"] == "negative" and got[1]["tac_dong"] == ""
+    assert got[0] == {"muc_do": 100, "nhan": "positive", "tac_dong": "Ngân hàng hưởng lợi rõ"}
+    assert got[1]["muc_do"] == 35 and got[1]["nhan"] == "negative" and got[1]["tac_dong"] == ""
     assert set(got) == {0, 1}
+    assert na.parse_scores({"results": [{"i": 0, "muc_do": -7, "nhan": "", "tac_dong": ""}]},
+                           1)[0]["muc_do"] == 0                       # kẹp 0–100
     assert na.parse_scores(None, 2) == {} and na.parse_scores({"results": "x"}, 2) == {}
 
 
 def test_score_items_cli_one_call_with_schema_and_blocks(monkeypatch):
     calls = _fake_complete(monkeypatch, results=[
-        {"i": 0, "muc_do": 4, "nhan": "TIÊU_CỰC", "tac_dong": "Tỷ giá ép ngân hàng"},
-        {"i": 1, "muc_do": 1, "nhan": "TRUNG_LẬP", "tac_dong": "không tác động trực tiếp"}])
+        {"i": 0, "muc_do": 85, "nhan": "TIÊU_CỰC", "tac_dong": "Tỷ giá ép ngân hàng"},
+        {"i": 1, "muc_do": 10, "nhan": "TRUNG_LẬP", "tac_dong": "không tác động trực tiếp"}])
     todo = [_raw("Tỷ giá vượt 26.000"), _raw("Ca sĩ ra MV")]
     got, err = na.score_items_cli(todo)
-    assert err is None and got[0]["muc_do"] == 4 and got[1]["muc_do"] == 1
+    assert err is None and got[0]["muc_do"] == 85 and got[1]["muc_do"] == 10
     assert len(calls) == 1
     c = calls[0]
     assert c["json_schema"] == na.SCORE_SCHEMA and c["tag"] == na.TAG
@@ -689,10 +691,10 @@ def test_score_items_cli_one_call_with_schema_and_blocks(monkeypatch):
 
 def test_score_prompt_sentences_in_order_blog_and_sent_rules():
     # 04/10: chèn luật nguồn chính thức/mạng xã hội từng cắt đôi câu "doanh nghiệp chỉ
-    # lên 4 khi … (vd ngân hàng lớn mất thanh khoản)" — ví dụ rơi xuống sau luật khác.
+    # lên ≥ 75 khi … (vd ngân hàng lớn mất thanh khoản)" — ví dụ rơi xuống sau luật khác.
     sysmsg = na.SCORE_SYSTEM
     assert "cả ngành/thị trường (vd ngân hàng lớn mất thanh khoản).\nNGUỒN CHÍNH THỨC" in sysmsg
-    assert "BÀI Ý KIẾN / BLOG" in sysmsg and "SchiffGold" in sysmsg and "tối đa 3" in sysmsg
+    assert "BÀI Ý KIẾN / BLOG" in sysmsg and "SchiffGold" in sysmsg and "tối đa 65" in sysmsg
     assert "### ĐÃ GỬI" in sysmsg and "KHÔNG chấm mục này" in sysmsg
 
 
@@ -710,12 +712,12 @@ def test_recent_sent_titles_window_order_and_limit():
 
 
 def test_score_items_cli_puts_sent_block_first_and_fake_still_parses(monkeypatch):
-    calls = _fake_complete(monkeypatch, by_title={"Tỷ giá": {"muc_do": 4, "nhan": "TIÊU_CỰC",
+    calls = _fake_complete(monkeypatch, by_title={"Tỷ giá": {"muc_do": 85, "nhan": "TIÊU_CỰC",
                                                                "tac_dong": "Ngân hàng chịu áp lực"}})
     got, err = na.score_items_cli([_raw("Tỷ giá vượt 26.000")], ["Fed giữ lãi suất"])
     user = calls[0]["user"]
     assert user.startswith("### ĐÃ GỬI 24h qua") and "- Fed giữ lãi suất" in user
-    assert user.index("### ĐÃ GỬI") < user.index("### Tin i=0") and got[0]["muc_do"] == 4
+    assert user.index("### ĐÃ GỬI") < user.index("### Tin i=0") and got[0]["muc_do"] == 85
     na.score_items_cli([_raw("Tỷ giá vượt 26.000")])
     assert "ĐÃ GỬI" not in calls[1]["user"]
 
@@ -725,15 +727,15 @@ def test_cap_sent_duplicates_only_near_identical_titles():
             _raw("Fed holds rates steady"),                          # ngắn hơn hẳn → không phải trùng
             _raw("Oil jumps after OPEC+ surprise cut"),
             _raw("Fed holds rates steady, signals two cuts in 2027!")]
-    scored = {0: {"muc_do": 5}, 1: {"muc_do": 4}, 2: {"muc_do": 4}, 3: {"muc_do": 2}}
+    scored = {0: {"muc_do": 95}, 1: {"muc_do": 85}, 2: {"muc_do": 85}, 3: {"muc_do": 30}}
     n = na.cap_sent_duplicates(todo, scored, ["Fed holds rates steady, signals two cuts in 2027"])
-    assert n == 1 and scored[0]["muc_do"] == 2
-    assert scored[1]["muc_do"] == 4 and scored[2]["muc_do"] == 4 and scored[3]["muc_do"] == 2
+    assert n == 1 and scored[0]["muc_do"] == na.SENT_DUP_CAP == 40
+    assert scored[1]["muc_do"] == 85 and scored[2]["muc_do"] == 85 and scored[3]["muc_do"] == 30
     assert na.cap_sent_duplicates(todo, scored, []) == 0
 
 
 def test_run_next_hour_sees_sent_titles_and_does_not_resend_echo(monkeypatch):
-    by_title = {"Fed holds": {"muc_do": 5, "nhan": "TÍCH_CỰC", "tac_dong": "Vốn ngoại quay lại"}}
+    by_title = {"Fed holds": {"muc_do": 95, "nhan": "TÍCH_CỰC", "tac_dong": "Vốn ngoại quay lại"}}
     first = [_raw("Fed holds rates steady, signals two cuts in 2027", hours_ago=0.5, link="https://cnbc/1")]
     rc, calls, sent = _run(monkeypatch, first, by_title=by_title)
     assert rc == 0 and len(sent) == 1 and "ĐÃ GỬI" not in calls[0]["user"]
@@ -744,9 +746,9 @@ def test_run_next_hour_sees_sent_titles_and_does_not_resend_echo(monkeypatch):
     na.run(now=NOW + timedelta(hours=1), sources=[_src("rss:t", [echo])], engine="claude",
            sender=spy2)
     assert "- Fed holds rates steady, signals two cuts in 2027" in calls2[0]["user"]
-    assert sent2 == []                                                      # guard hạ về 2
+    assert sent2 == []                                                      # guard hạ về 40
     rec = [r for r in na.load_seen()["items"].values() if "and signals" in r["title"]][0]
-    assert rec["score"] == 2 and not rec["sent"]
+    assert rec["score"] == 40 and not rec["sent"]
 
 
 def test_score_prompt_is_macro_first_company_news_capped():
@@ -755,10 +757,10 @@ def test_score_prompt_is_macro_first_company_news_capped():
     sửa test có ý thức."""
     sysmsg = na.SCORE_SYSTEM
     assert "TIN VĨ MÔ QUAN TRỌNG" in sysmsg and "KHÔNG phải tin riêng" in sysmsg
-    assert "2 = tin thường (tin riêng MỘT doanh nghiệp" in sysmsg and "kể cả VN30" in sysmsg
+    assert "20–49 = tin thường (tin riêng MỘT doanh nghiệp" in sysmsg and "kể cả VN30" in sysmsg
     assert "kết quả kinh doanh/sự kiện của mã VN30" not in sysmsg      # không còn ở mức 4
     assert "Loại: nguồn chính thức" in sysmsg and "Loại: bình luận chuyên gia" in sysmsg
-    assert "KHÔNG bao giờ 5" in sysmsg
+    assert "KHÔNG bao giờ trên 85" in sysmsg
 
 
 def test_score_items_cli_error_or_garbage_returns_empty(monkeypatch):
@@ -773,9 +775,11 @@ def test_score_items_cli_error_or_garbage_returns_empty(monkeypatch):
 
 
 def test_heuristic_score_tiers():
-    assert na.heuristic_score(_raw("Fed hạ lãi suất điều hành", summary="")) == 4
-    assert na.heuristic_score(_raw("Giá vàng hôm nay", summary="")) == 3
-    assert na.heuristic_score(_raw("Ca sĩ ra MV", summary="giải trí")) == 2
+    # thang 0–100: chỉ từ khoá vĩ mô MẠNH vượt ngưỡng gửi 75 (ladder thô — báo khi chắc)
+    assert na.heuristic_score(_raw("Fed hạ lãi suất điều hành", summary="")) == 80
+    assert na.heuristic_score(_raw("Giá vàng hôm nay", summary="")) == 60
+    assert na.heuristic_score(_raw("Ca sĩ ra MV", summary="giải trí")) == 40
+    assert 60 < na.DEFAULT_MIN_SCORE <= 80
 
 
 def test_score_items_ladder_uses_analyze_item_without_jina(monkeypatch):
@@ -791,8 +795,8 @@ def test_score_items_ladder_uses_analyze_item_without_jina(monkeypatch):
     monkeypatch.setattr(nf, "analyze_item", _ai)
     todo = [_raw("Tỷ giá vượt mốc"), _raw("Ca sĩ ra MV", summary="x"), _raw("rỗng")]
     got = na.score_items_ladder(todo)
-    assert got[0] == {"muc_do": 4, "nhan": "negative", "tac_dong": "Tỷ giá ép nhóm vay USD"}
-    assert got[1]["muc_do"] == 1 and 2 not in got
+    assert got[0] == {"muc_do": 80, "nhan": "negative", "tac_dong": "Tỷ giá ép nhóm vay USD"}
+    assert got[1]["muc_do"] == 10 and 2 not in got
     assert all(p and p.startswith("### Tin i=") for p in seen_probe)   # không fetch Jina
     assert todo[0].get("_user_text_tmp") is None                         # không bẩn item gốc
 
@@ -873,11 +877,11 @@ def test_catchup_leftovers_do_not_trickle_out_hours_later(monkeypatch):
              for i, t in enumerate(old_topics)]
     items += [_raw(f"Tin mới {t}", hours_ago=1 + i * 0.1, link=f"https://n/{i}")
               for i, t in enumerate(["CPI", "GDP", "PMI"])]
-    by_title = {"Tin": {"muc_do": 3, "nhan": "TRUNG_LẬP", "tac_dong": "Tỷ giá"}}
+    by_title = {"Tin": {"muc_do": 78, "nhan": "TRUNG_LẬP", "tac_dong": "Tỷ giá"}}
     _fake_complete(monkeypatch, by_title=by_title)
     sent1, spy1 = _sender_spy()
     na.run(now=NOW, window_h=20, sources=[_src("rss:t", items)], engine="claude", sender=spy1)
-    assert len(sent1) == 1 and sent1[0].count("🟡 3/5") == 8              # trần 8, dư 5
+    assert len(sent1) == 1 and sent1[0].count("🟠 78/100") == 8           # trần 8, dư 5
     sent2, spy2 = _sender_spy()
     na.run(now=NOW + timedelta(hours=1), sources=[_src("rss:t", items)], engine="claude", sender=spy2)
     leftovers_sent = sent2[0].count("Tin cũ") if sent2 else 0
@@ -886,14 +890,14 @@ def test_catchup_leftovers_do_not_trickle_out_hours_later(monkeypatch):
 
 
 def test_format_message_is_telegram_safe_html():
-    recs = [_rec(5, title="Fed <bất ngờ> hạ lãi suất", nhan="positive"),
-            _rec(3, title="Giá vàng", tac_dong="", link="")]
-    txt = na.format_message(recs, NOW, 3, "claude")
+    recs = [_rec(95, title="Fed <bất ngờ> hạ lãi suất", nhan="positive"),
+            _rec(60, title="Giá vàng", tac_dong="", link="")]
+    txt = na.format_message(recs, NOW, 60, "claude")
     assert txt.startswith("📰 <b>Tin quan trọng</b> · 10:05 02/10")
-    assert '🔴 5/5 · <b><a href="https://l">Fed <bất ngờ> hạ lãi suất</a></b>' in txt
+    assert '🔴 95/100 · <b><a href="https://l">Fed <bất ngờ> hạ lãi suất</a></b>' in txt
     assert "▲ kênh" in txt
-    assert "🟡 3/5 · <b>Giá vàng</b>" in txt                    # không link → tiêu đề trần
-    assert "2 tin ≥ mức 3/5 · chấm bởi Claude Code" in txt
+    assert "🟡 60/100 · <b>Giá vàng</b>" in txt                 # không link → tiêu đề trần
+    assert "2 tin ≥ 60/100 · chấm bởi Claude Code" in txt
     # chỉ dùng tag trong whitelist của vnstock_telegram (+ link khi allow_links)
     import vnstock_telegram as tg
     out = tg._sanitize_html(txt, allow_links=True)
@@ -916,8 +920,8 @@ def test_format_message_title_is_the_link_no_bare_url_line():
 @pytest.mark.parametrize("link", ['https://x/a"onclick="y', "javascript:alert(1)",
                                   "ftp://x/y", "https://x/a b", "  "])
 def test_format_message_unsafe_link_leaves_title_plain(link):
-    txt = na.format_message([_rec(4, title="Tin", link=link)], NOW, 3, "claude")
-    assert "<a " not in txt and "4/5 · <b>Tin</b>" in txt
+    txt = na.format_message([_rec(80, title="Tin", link=link)], NOW, 75, "claude")
+    assert "<a " not in txt and "80/100 · <b>Tin</b>" in txt
 
 
 def test_format_message_older_day_gets_date_today_only_time():
@@ -976,9 +980,9 @@ def test_run_scores_once_sends_above_threshold_and_marks_seen(monkeypatch):
     items = [_raw("Fed hạ lãi suất", hours_ago=0.5, link="https://a"),
              _raw("Ca sĩ ra MV", hours_ago=0.4, link="https://b"),
              _raw("Giá vàng nhích nhẹ", hours_ago=0.3, link="https://c")]
-    by_title = {"Fed": {"muc_do": 5, "nhan": "TÍCH_CỰC", "tac_dong": "Ngân hàng, vốn ngoại hưởng lợi"},
-                "Ca sĩ": {"muc_do": 1, "nhan": "TRUNG_LẬP", "tac_dong": "không tác động trực tiếp"},
-                "vàng": {"muc_do": 2, "nhan": "TRUNG_LẬP", "tac_dong": "PNJ hai chiều"}}
+    by_title = {"Fed": {"muc_do": 95, "nhan": "TÍCH_CỰC", "tac_dong": "Ngân hàng, vốn ngoại hưởng lợi"},
+                "Ca sĩ": {"muc_do": 10, "nhan": "TRUNG_LẬP", "tac_dong": "không tác động trực tiếp"},
+                "vàng": {"muc_do": 74, "nhan": "TRUNG_LẬP", "tac_dong": "PNJ hai chiều"}}
     rc, calls, sent = _run(monkeypatch, items, by_title=by_title)
     assert calls[0]["user"].index("Giá vàng") < calls[0]["user"].index("Fed")   # mới trước
     assert rc == 0 and len(calls) == 1 and len(sent) == 1
@@ -986,7 +990,7 @@ def test_run_scores_once_sends_above_threshold_and_marks_seen(monkeypatch):
     seen = na.load_seen()["items"]
     assert len(seen) == 3
     fed = seen[na.item_hash(items[0])]
-    assert fed["sent"] is True and fed["score"] == 5 and fed["sent_at"]
+    assert fed["sent"] is True and fed["score"] == 95 and fed["sent_at"]
     assert seen[na.item_hash(items[2])]["sent"] is False
     st = na.read_status()
     assert (st["new"], st["scored"], st["picked"], st["sent"]) == (3, 3, 1, 1)
@@ -1001,11 +1005,11 @@ def test_run_unsent_overflow_goes_next_hour_without_rescoring(monkeypatch):
     titles = ["Fed hạ lãi suất", "Tỷ giá vượt mốc 26.000", "SBV hút ròng kỷ lục",
               "Mỹ áp thuế quan mới lên châu Á"]      # tiêu đề KHÁC hẳn nhau — deduplicate_news không gộp
     items = [_raw(t, hours_ago=0.1 * i, link=f"https://{i}") for i, t in enumerate(titles)]
-    by_title = {t: {"muc_do": 4, "nhan": "TIÊU_CỰC", "tac_dong": "x"} for t in titles}
+    by_title = {t: {"muc_do": 85, "nhan": "TIÊU_CỰC", "tac_dong": "x"} for t in titles}
     rc, calls, sent = _run(monkeypatch, items, by_title=by_title, max_send=3)
-    assert len(sent) == 1 and sent[0].count("🟠 4/5") == 3
+    assert len(sent) == 1 and sent[0].count("🟠 85/100") == 3
     rc2, calls2, sent2 = _run(monkeypatch, items, by_title=by_title, max_send=3)
-    assert not calls2 and len(sent2) == 1 and sent2[0].count("🟠 4/5") == 1
+    assert not calls2 and len(sent2) == 1 and sent2[0].count("🟠 85/100") == 1
     assert "lượt trước" in sent2[0]
     assert all(r["sent"] for r in na.load_seen()["items"].values())
 
@@ -1014,16 +1018,16 @@ def test_run_telegram_failure_keeps_items_unsent_and_flags_marker(monkeypatch):
     def _boom(text):
         raise RuntimeError("TELEGRAM_BOT_TOKEN chưa set")
     rc, calls, _ = _run(monkeypatch, [_raw("Fed")], sender=_boom,
-                        results=[{"i": 0, "muc_do": 5, "nhan": "x", "tac_dong": "y"}])
+                        results=[{"i": 0, "muc_do": 95, "nhan": "x", "tac_dong": "y"}])
     assert rc == 1
     rec = next(iter(na.load_seen()["items"].values()))
-    assert rec["sent"] is False and rec["score"] == 5
+    assert rec["sent"] is False and rec["score"] == 95
     assert "TELEGRAM_BOT_TOKEN" in na.read_status()["error"]
 
 
 def test_run_dry_run_prints_but_writes_nothing(monkeypatch, capsys):
     rc, calls, sent = _run(monkeypatch, [_raw("Fed")], dry_run=True,
-                           results=[{"i": 0, "muc_do": 5, "nhan": "x", "tac_dong": "y"}])
+                           results=[{"i": 0, "muc_do": 95, "nhan": "x", "tac_dong": "y"}])
     assert rc == 0 and len(calls) == 1 and not sent
     assert "--dry-run" in capsys.readouterr().out
     assert na.load_seen() == {"items": {}} and na.read_status() is None
@@ -1055,7 +1059,7 @@ def test_run_claude_fails_ladder_empty_flags_error_but_marks_seen(monkeypatch):
 def test_run_dedups_cross_source_same_headline(monkeypatch):
     a = _raw("SBV hút ròng 20.000 tỷ", hours_ago=0.5, src="A", link="https://a")
     b = _raw("SBV hút ròng 20.000 tỷ", hours_ago=0.4, src="B", link="https://b")
-    calls = _fake_complete(monkeypatch, results=[{"i": 0, "muc_do": 4, "nhan": "x", "tac_dong": "y"}])
+    calls = _fake_complete(monkeypatch, results=[{"i": 0, "muc_do": 85, "nhan": "x", "tac_dong": "y"}])
     sent, spy = _sender_spy()
     na.run(now=NOW, sources=[_src("rss:a", [a]), _src("rss:b", [b])], engine="claude", sender=spy)
     assert calls[0]["user"].count("### Tin i=") == 1 and len(sent) == 1
@@ -1130,3 +1134,48 @@ def test_runpy_cmd_news_alert_passes_flags_through(monkeypatch):
     assert runpy.cmd_news_alert(args) == 0
     assert got["dry_run"] is True and got["min_score"] == 4 and got["engine"] == "ladder"
     assert all(s.key.startswith("rss:cafef") for s in got["sources"]) and got["sources"]
+
+
+# ── thang 0–100 (06/10): ≥3/5 lượt nào cũng đầy 8 tin, ≥4/5 lại quá ít ⇒ ngưỡng 75 ──
+
+
+@pytest.mark.parametrize("raw,want", [
+    (None, 75), ("rác", 75), (75, 75), ("80", 80), (0, 0), (150, 100), (-3, 0),
+    (3, 60), (4, 80), (5, 100), (1, 20),          # 1–5 = thang CŨ ⇒ ×20
+])
+def test_normalize_min_score_reads_legacy_scale(raw, want):
+    assert na.normalize_min_score(raw) == want
+
+
+def test_default_threshold_is_75_and_prompt_says_so():
+    assert na.DEFAULT_MIN_SCORE == 75 and (na.SCORE_MIN, na.SCORE_MAX) == (0, 100)
+    sysmsg = na.SCORE_SYSTEM
+    assert "muc_do (0–100, số nguyên)" in sysmsg and "Chỉ tin ≥ 75" in sysmsg
+    assert "<0-100>" in sysmsg and "<1-5>" not in sysmsg
+    for band in ("90–100 = sốc hệ thống", "80–89 = vĩ mô/chính sách đáng kể",
+                 "70–79 = đáng theo dõi", "50–69 = đáng biết", "0–19 = phi kinh tế"):
+        assert band in sysmsg, band
+
+
+def test_run_sends_75_not_74_by_default(monkeypatch):
+    items = [_raw("Fed nói giữ lãi suất lâu hơn", hours_ago=0.5, link="https://a"),
+             _raw("PMI Trung Quốc đúng kỳ vọng", hours_ago=0.4, link="https://b")]
+    by_title = {"Fed": {"muc_do": 75, "nhan": "TIÊU_CỰC", "tac_dong": "Tỷ giá, ngân hàng chịu áp lực"},
+                "PMI": {"muc_do": 74, "nhan": "TRUNG_LẬP", "tac_dong": "Thép, hoá chất"}}
+    rc, calls, sent = _run(monkeypatch, items, by_title=by_title)
+    assert rc == 0 and len(sent) == 1
+    assert "🟠 75/100 · " in sent[0] and "PMI" not in sent[0] and "1 tin ≥ 75/100" in sent[0]
+    assert na.read_status()["min_score"] == 75
+
+
+def test_run_env_legacy_min_score_4_means_80(monkeypatch):
+    monkeypatch.setenv(na.ENV_MIN_SCORE, "4")
+    items = [_raw("Fed nói giữ lãi suất lâu hơn", hours_ago=0.5, link="https://a")]
+    by_title = {"Fed": {"muc_do": 78, "nhan": "TIÊU_CỰC", "tac_dong": "Tỷ giá"}}
+    rc, calls, sent = _run(monkeypatch, items, by_title=by_title)
+    assert rc == 0 and not sent and na.read_status()["min_score"] == 80
+
+
+def test_icon_bands():
+    assert [na._icon(x) for x in (100, 90, 89, 75, 74, 60, 59, 0)] == [
+        "🔴", "🔴", "🟠", "🟠", "🟡", "🟡", "⚪", "⚪"]

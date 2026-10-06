@@ -133,7 +133,7 @@ def test_main_scores_ranks_and_summarises(tmp_path, monkeypatch, capsys):
         batches.append(len(todo))
         out = {}
         for i, it in enumerate(todo):
-            m = 4 if "Fed insight" in it["title"] else 1
+            m = 80 if "Fed insight" in it["title"] else 10
             out[i] = {"muc_do": m, "nhan": "neutral", "tac_dong": "Lãi suất Mỹ → tỷ giá"}
         return out, None
     monkeypatch.setattr(na, "score_items_cli", fake_score)
@@ -144,7 +144,7 @@ def test_main_scores_ranks_and_summarises(tmp_path, monkeypatch, capsys):
     assert "THÊM ⭐ (0)" in out                       # sahm đã ⭐ ⇒ "⭐ giữ", không phải THÊM
     assert "BỎ khỏi List đọc thử (1): pundit.bsky.social" in out
     assert "IM 7 ngày qua (1): quiet.bsky.social" in out
-    assert "@sahm.bsky.social 4/5" in out
+    assert "@sahm.bsky.social 80/100" in out
 
 
 def test_dry_run_never_calls_claude(tmp_path, monkeypatch, capsys):

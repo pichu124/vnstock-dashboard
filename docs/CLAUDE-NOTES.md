@@ -6974,6 +6974,32 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 📰 U76. TIN MỖI GIỜ: THANG CHẤM 0–100, GỬI ≥75 (06/10)
+
+**Vì sao:** user 06/10 — group News Hourly Update lượt nào cũng đầy trần 8 tin (ngưỡng
+≥3/5), còn ≥4/5 thì "hơi ít". Thang 1–5 quá thô: bậc 3 gom cả "đáng biết" lẫn "đáng
+báo ngay", không có chỗ đứng giữa 3 và 4.
+
+**Đã làm (`vnstock_news_alert.py`):** prompt `SCORE_SYSTEM` chấm `muc_do` 0–100 với 6 dải
+mốc (90–100 sốc hệ thống · 80–89 vĩ mô đáng kể = bậc 4 cũ · 70–79 đáng theo dõi CÓ hệ quả
+rõ, 75–79 chỉ khi hệ quả cho cổ phiếu VN đã rõ · 50–69 đáng biết không cần báo · 20–49 tin
+thường/một doanh nghiệp · 0–19 phi kinh tế), nói thẳng "chỉ ≥75 lên điện thoại, phân vân
+chọn thấp". Luật phụ quy đổi: nguồn chính thức 80–100 · mạng xã hội ≤85 · blog ≤65 · trùng
+sự kiện trong lô −15 · trùng tin đã gửi ≤40 (`SENT_DUP_CAP` 2→40). `DEFAULT_MIN_SCORE`
+3→75. `normalize_min_score`: env/`--min-score` 1–5 là thang CŨ ⇒ ×20 (`.env` ghi `=4` thành
+≥80, không thành "≥4/100" gửi gần hết). Ladder (Claude hỏng) điểm từ khoá 4/3/2 ⇒ 80/60/40,
+"không tác động" 10 — chỉ từ khoá vĩ mô MẠNH còn vượt ngưỡng. Telegram: `🟠 82/100 ·`, chân
+`N tin ≥ 75/100`, biểu tượng theo dải (🔴≥90 · 🟠≥75 · 🟡≥60). `scripts/bsky_eval.py` đếm
+"đạt" theo cùng ngưỡng gửi (`HI_SCORE = DEFAULT_MIN_SCORE`), đỉnh ≥90, lạc đề <20.
+
+**Chuyển tiếp:** bản ghi sổ `news_alert_seen.json` cũ mang điểm 1–5 — tin dư chưa gửi lúc
+merge KHÔNG bao giờ ≥75 ⇒ rơi im (tự dọn sau 7 ngày); không quy đổi vì tin dư ≤6h, gửi bù
+sau merge là tin cũ. `MAX_SEND` giữ 8 (trần an toàn; lượt bắt bù sáng vẫn có thể chạm).
+
+**Đo:** vài ngày sau merge đếm tin/lượt ở log `[news-alert]` + Telegram; vẫn nhiều ⇒
+`VNSTOCK_NEWS_ALERT_MIN_SCORE=80`, ít ⇒ `=70`. Test: `tests/test_news_alert.py` (+15:
+ngưỡng 75 gửi/74 không, `.env`=4 ⇒ 80, kẹp 0–100, dải biểu tượng, ghim prompt).
+
 # 🧭 U75. MỤC ⚠️ RỦI RO THEO PHƠI NHIỄM DANH MỤC (risk_today) — KHỐI CỰC TRỊ VTZ/KBC RỜI BRIEF NGÀY (06/10)
 
 **Vì sao:** khối "Đòn bẩy cao nhất VTZ/VJC/PET · Op.CF thấp nhất KBC/NVL" lặp y
