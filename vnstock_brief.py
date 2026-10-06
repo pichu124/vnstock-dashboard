@@ -55,6 +55,8 @@ def _ensure_env_loaded() -> None:
         pass
     _ENV_LOADED = True
 
+from vnstock_fund_periods import norm_period as _fp_norm_period  # noqa: E402
+
 # Hằng số + khối canon dùng CHUNG với hệ guard → `vnstock_brief_canon`.
 # Re-export nguyên tên: vnstock_events/vnstock_train/test đang import qua đây.
 from vnstock_brief_canon import (  # noqa: F401  (re-export: giữ nguyên đường import cũ)
@@ -91,6 +93,7 @@ from vnstock_brief_canon import (  # noqa: F401  (re-export: giữ nguyên đư�
     _RISK_HELD_SHOCK_1D_PCT,
     _RISK_HELD_WEEK_PCT,
     _RISK_PEER_WEEK_PCT,
+    _RISK_PERIOD_PREFIX,
     _RISK_EXDATE_DAYS,
     _RISK_FX_PCT,
     _RISK_ON_DELTA,
@@ -1675,12 +1678,36 @@ def _attach_portfolio_levels(positions: list, data_date: str) -> None:
             continue
 
 
+def _fund_periods_enabled() -> bool:
+    """`VNSTOCK_BRIEF_FUND_PERIODS` (mặc định bật; 0/false/no/off tắt) — bảng
+    cực trị in lại khi có KỲ BCTC MỚI (U75 pha 2). Chỉ có nghĩa khi risk_today
+    bật (chế độ cũ vẫn in bảng mỗi ngày như trước)."""
+    return (os.environ.get("VNSTOCK_BRIEF_FUND_PERIODS", "1").strip().lower()
+            not in ("0", "false", "no", "off"))
+
+
+def _load_fund_period_news(funds: dict, data_date: str, brief_type: str) -> dict:
+    """Sự kiện kỳ BCTC mới cho các mã trong vũ trụ cơ bản, theo sổ kỳ của
+    updater. Brief CHIỀU ghi sổ đã báo ⇒ mỗi sự kiện xét ở ĐÚNG MỘT phiên chiều
+    (chạy lại cùng phiên vẫn ra y hệt); brief sáng chỉ đọc."""
+    import vnstock_fund_periods as _fp
+    if not funds:
+        return {}
+    announced = _fp.read_announced()
+    news = _fp.period_news(_fp.read_ledger(), announced, funds.keys(), data_date)
+    if news and brief_type == "afternoon":
+        marked = _fp.mark_announced(announced, news, data_date)
+        if marked != announced:
+            _fp.write_announced(marked)
+    return news
+
+
 def _risk_today_block(ctx: dict) -> str:
     """Khối prompt 'Dữ kiện rủi ro hôm nay' — CÙNG hàm với guard nên prompt và
     brief cuối không lệch nhau. Hàm thuần (build_prompt không I/O)."""
     lines = _risk_today_lines(ctx) or ["- (không có rủi ro chạm danh mục/lệnh mở hôm nay)"]
     return ("\n## Dữ kiện rủi ro hôm nay — hệ thống tự in vào mục Rủi ro "
-            "(KHÔNG chép lại)\n" + "\n".join(lines))
+            "(KHÔNG chép lại)\n" + "\n".join(lines + _risk_period_lines(ctx)))
 
 
 def _swap_risk_rules(tmpl: str) -> str:
@@ -1788,6 +1815,10 @@ def _load_vn30_fundamentals(
             "ocf":     _num(row, "operating_cf"),
             "updated": str(row.get("updated_at", "") or ""),
         }
+        # Kỳ BCTC của D/E · Op.CF (U75 pha 2) — chỉ có khi updater đã ghi cột.
+        for _k, _col in (("de_period", "de_period"), ("ocf_period", "ocf_period")):
+            if _lab := _fp_norm_period(row.get(_col)):
+                metrics[_k] = _lab
         # Skip tickers with no usable fundamental at all
         if any(metrics[k] is not None for k in ("de", "roe", "ocf")):
             out[str(row["ticker"])] = metrics
@@ -2732,6 +2763,15 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     }
     if _re:
         ctx["realestate_tickers"] = _re
+
+    # 7a. Kỳ BCTC mới (U75 pha 2) — bảng cực trị chỉ in lại khi nguồn có kỳ mới.
+    if ctx["risk_today"] and _fund_periods_enabled():
+        try:
+            if _fpn := _load_fund_period_news(ctx.get("vn30_fundamentals") or {},
+                                              _data_date_str, brief_type):
+                ctx["fund_period_news"] = _fpn
+        except Exception as _e:
+            _note_loader_error(ctx, "fund_periods", _e)
 
     # 7b. Upcoming corporate events (ex-dividend / split / bonus) for the tracked
     #     universe so the brief can flag ngày GDKHQ (giá tự điều chỉnh).
@@ -3994,6 +4034,7 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     _RISK_ACTION_VI,
     _RISK_DEDUP_KW,
     _RISK_FIN_SECTOR_KW,
+    _RISK_PERIOD_RE_NOTE,
     _adjusted_from_thousand,
     _risk_agent_line_ok,
     _risk_cluster_of,
@@ -4011,6 +4052,10 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     _risk_market_items,
     _risk_num,
     _risk_on,
+    _risk_period_entry,
+    _risk_period_lines,
+    _risk_period_value,
+    _risk_extremes,
     _risk_p1,
     _risk_peer,
     _risk_section_bounds,

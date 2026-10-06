@@ -37,6 +37,7 @@ from vnstock_brief_canon import (
     _RISK_NN_1D_HEAVY_TY,
     _RISK_ON_DELTA,
     _RISK_PEER_WEEK_PCT,
+    _RISK_PERIOD_PREFIX,
     _RISK_SECTOR_TOP_SELL,
     _RISK_10Y_DELTA,
     _RISK_TICKER_NN_SELL_TY,
@@ -56,6 +57,7 @@ from vnstock_brief_guards_common import (
     _is_section_start,
     _parse_vn_number,
 )
+from vnstock_fund_periods import period_text as _period_text
 
 
 def enforce_upcoming_events(text: str, ctx: dict) -> str:
@@ -1049,6 +1051,17 @@ def enforce_nn_window_label(text: str, ctx: dict | None = None) -> str:
     return new
 
 
+def _risk_extremes(values: dict, metric: str) -> list:
+    """Bảng cực trị — luật DUY NHẤT cho cả khối cũ lẫn khối 'Kỳ BCTC mới':
+    D/E ≥ 1.5 lấy 3 mã cao nhất (giảm dần); Op.CF < 0 lấy 2 mã thấp nhất.
+    `values` = {mã: số} (thứ tự dict quyết định khi bằng nhau — sort ổn định)."""
+    nums = [(t, v) for t, v in values.items()
+            if isinstance(v, (int, float)) and not isinstance(v, bool)]
+    if metric == "de":
+        return [(t, v) for t, v in sorted(nums, key=lambda x: -x[1]) if v >= 1.5][:3]
+    return [(t, v) for t, v in sorted(nums, key=lambda x: x[1]) if v < 0][:2]
+
+
 def _canonical_risk_lines(ctx: dict) -> list:
     """Build the fundamental-risk lines deterministically from ctx fundamentals:
     highest D/E (≥1.5, non-financial, top-3) and lowest negative Op.CF (top-2,
@@ -1060,17 +1073,13 @@ def _canonical_risk_lines(ctx: dict) -> list:
     fin = set(ctx.get("financial_tickers") or ()) | _FINANCIAL_TICKERS
     re_t = ctx.get("realestate_tickers") or set()
     nonfin = {t: m for t, m in funds.items() if t not in fin}
-    des = sorted(((t, m["de"]) for t, m in nonfin.items()
-                  if isinstance(m.get("de"), (int, float))), key=lambda x: -x[1])
-    ocfs = sorted(((t, m["ocf"]) for t, m in nonfin.items()
-                   if isinstance(m.get("ocf"), (int, float))), key=lambda x: x[1])
     out: list[str] = []
-    high_de = [(t, v) for t, v in des if v >= 1.5][:3]   # only genuinely high leverage
+    high_de = _risk_extremes({t: m.get("de") for t, m in nonfin.items()}, "de")
     if high_de:
         body = ", ".join(f"{t} D/E={v:.2f}" for t, v in high_de)
         out.append(f"Đòn bẩy cao nhất (phi tài chính): {body} — "
                    f"{high_de[0][0]} cao nhất trong nhóm theo dõi.")
-    neg_ocf = [(t, v) for t, v in ocfs if v < 0][:2]
+    neg_ocf = _risk_extremes({t: m.get("ocf") for t, m in nonfin.items()}, "ocf")
     if neg_ocf:
         body = ", ".join(f"{t} Op.CF={v:,.0f} tỷ{' (BĐS)' if t in re_t else ''}"
                          for t, v in neg_ocf)
@@ -1886,6 +1895,83 @@ def _risk_insert_section(lines: list, body: list, ctx: dict) -> str:
     return "\n".join(lines[:at] + block + lines[at:])
 
 
+# ── Kỳ BCTC mới (U75 pha 2, câu 1 = b) ─────────────────────────────────────
+# Khối cực trị D/E · Op.CF rời brief ngày vì số NĂM đứng yên mà in mỗi tối.
+# Nay in lại ĐÚNG khi nguồn có KỲ MỚI chạm bảng (mã trong bảng có kỳ mới, hoặc
+# mã RỜI bảng vì kỳ mới), kèm "kỳ trước". Dữ kiện: ctx["fund_period_news"]
+# (collect_context đọc sổ kỳ của updater — guard không đọc đĩa).
+
+_RISK_PERIOD_RE_NOTE = ("Lưu ý: Op.CF âm của mã (BĐS) chủ yếu do tích lũy quỹ đất/hàng "
+                        "tồn kho dự án — vốn lưu động, KHÔNG phải lỗ HĐKD; soi thêm "
+                        "D/E và nợ vay.")
+
+
+def _risk_period_value(metric: str, v, with_label: bool = True) -> str:
+    if v is None:
+        return "—"
+    if metric == "de":
+        return (f"D/E={v:.2f}" if with_label else f"{v:.2f}")
+    return (f"Op.CF={v:,.0f} tỷ" if with_label else f"{v:,.0f} tỷ")
+
+
+def _risk_period_entry(t: str, m: dict, metric: str, ev: dict, re_t: set) -> str:
+    """'KBC Op.CF=-16,510 tỷ (BĐS · năm 2026; kỳ trước năm 2025: -17,344 tỷ)'."""
+    tags = ["BĐS"] if metric == "ocf" and t in re_t else []
+    if t in ev:
+        e = ev[t]
+        prev = (f": {_risk_period_value(metric, e.get('prev_value'), False)}"
+                if e.get("prev_value") is not None else "")
+        tags.append(f"{_period_text(e.get('period'))}; kỳ trước "
+                    f"{_period_text(e.get('prev_period'))}{prev}")
+    elif lab := _period_text(m.get(f"{metric}_period")):
+        tags.append(lab)
+    tail = f" ({' · '.join(tags)})" if tags else ""
+    return f"{t} {_risk_period_value(metric, m.get(metric))}{tail}"
+
+
+def _risk_period_lines(ctx: dict) -> list:
+    """Dòng 'Kỳ BCTC mới — …' (≤1 dòng/chỉ số). Hàm thuần; [] khi không có kỳ
+    mới chạm bảng, khi tắt risk_today, hoặc thiếu số cơ bản."""
+    news = (ctx or {}).get("fund_period_news") or {}
+    funds = (ctx or {}).get("vn30_fundamentals") or {}
+    if not news or not funds or not _risk_on(ctx):
+        return []
+    fin = set(ctx.get("financial_tickers") or ()) | _FINANCIAL_TICKERS
+    re_t = set(ctx.get("realestate_tickers") or ())
+    nonfin = {t: m for t, m in funds.items() if t not in fin}
+    heads = {"de": ("đòn bẩy cao nhất (phi tài chính)", "không còn mã D/E ≥ 1.50"),
+             "ocf": ("Op.CF thấp nhất", "không còn mã Op.CF âm")}
+    out = []
+    for metric in ("de", "ocf"):
+        # Sự kiện chỉ tính khi kỳ trong sổ KHỚP kỳ của số đang dùng (sổ và
+        # parquet cùng một lượt updater; lệch là dấu hỏng ⇒ im).
+        ev = {t: e[metric] for t, e in news.items()
+              if t in nonfin and metric in (e or {})
+              and nonfin[t].get(f"{metric}_period") == e[metric].get("period")
+              and isinstance(nonfin[t].get(metric), (int, float))}
+        if not ev:
+            continue
+        now_vals = {t: m.get(metric) for t, m in nonfin.items()}
+        before_vals = {t: (ev[t].get("prev_value") if t in ev else v)
+                       for t, v in now_vals.items()}
+        now = [t for t, _ in _risk_extremes(now_vals, metric)]
+        left = [t for t, _ in _risk_extremes(before_vals, metric)
+                if t not in now and t in ev]
+        if not (set(now) & set(ev)) and not left:
+            continue
+        head, empty = heads[metric]
+        body = (", ".join(_risk_period_entry(t, nonfin[t], metric, ev, re_t) for t in now)
+                or empty)
+        if left:
+            body += "; rời nhóm: " + ", ".join(
+                _risk_period_entry(t, nonfin[t], metric, ev, re_t) for t in left)
+        line = f"{_RISK_PERIOD_PREFIX} — {head}: {body}."
+        if metric == "ocf" and any(t in re_t for t in now):
+            line += " " + _RISK_PERIOD_RE_NOTE
+        out.append(line)
+    return out
+
+
 def enforce_risk_today(text: str, ctx: dict) -> str:
     """Mục '⚠️ Rủi ro cần lưu ý' theo PHƠI NHIỄM (chế độ risk_today, R13).
 
@@ -1902,15 +1988,16 @@ def enforce_risk_today(text: str, ctx: dict) -> str:
             or (ctx or {}).get("brief_type", "afternoon") not in ("morning", "afternoon")):
         return text
     code = _risk_today_lines(ctx, text)
+    period = _risk_period_lines(ctx)          # ngoài trần 4 dòng — hiếm, theo kỳ BCTC
     lines = text.splitlines()
     start, end = _risk_section_bounds(lines)
     if start is None:
-        return _risk_insert_section(lines, code, ctx) if code else text
+        return _risk_insert_section(lines, code + period, ctx) if code or period else text
     exp = _risk_exposure(ctx)
     model = [l for l in lines[start + 1:end]
              if _risk_agent_line_ok(l, ctx, exp) and not _risk_dupes_code(l, code)][:1]
     body = code + (model if len(code) < _RISK_MAX_LINES else [])
-    body = body or [_RISK_FALLBACK_LINE]
+    body = (body or [_RISK_FALLBACK_LINE]) + period
     if body == lines[start + 1:end]:
         return text
     return "\n".join(lines[:start + 1] + body + lines[end:])

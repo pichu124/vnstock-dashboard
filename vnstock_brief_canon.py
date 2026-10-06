@@ -384,9 +384,12 @@ _FUND_KW = ("d/e", "op.cf", "lưu chuyển tiền", "lưu lượng tiền", "hđ
 _RISK_AGENT_DROP_KW = _FUND_KW + ("nợ vay", "kiệt quệ", "margin", "ký quỹ", "roe")
 # Tiền tố CỐ ĐỊNH của dòng do code in — guard nhận diện bằng tiền tố nên chạy
 # lại chuỗi guard bao nhiêu lần cũng ra y hệt (gỡ theo tiền tố rồi dựng lại).
+# Bảng cực trị D/E · Op.CF in lại CHỈ khi có KỲ BCTC MỚI (U75 pha 2, câu 1 = b).
+_RISK_PERIOD_PREFIX = "- Kỳ BCTC mới"
 _RISK_LINE_PREFIXES = (
     "- Danh mục tập trung", "- Mã đang giữ", "- GDKHQ chạm", "- Tiền tệ xấu đi",
     "- Khối ngoại bán ròng mạnh", "- Cơ bản lệnh mới", "- Không có rủi ro mới",
+    _RISK_PERIOD_PREFIX,
 )
 _RISK_FALLBACK_LINE = ("- Không có rủi ro mới chạm danh mục hay lệnh đang mở "
                        "trong phiên này.")

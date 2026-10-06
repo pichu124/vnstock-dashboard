@@ -38,6 +38,9 @@ from rich.progress import (BarColumn, MofNCompleteColumn, Progress,
 from rich.table import Table
 from rich import box
 
+from vnstock_fund_periods import (LEDGER_NAME as PERIODS_LEDGER_NAME,
+                                 record_frame, row_period_label)
+
 warnings.filterwarnings("ignore")
 console = Console()
 
@@ -99,10 +102,18 @@ def _save(df: pd.DataFrame):
         pa.field("debt_to_equity",  pa.float64()),   # Nợ/Vốn chủ sở hữu (D/E)
         pa.field("operating_cf",    pa.float64()),   # LCT thuần từ HĐKD (tỷ VND)
         pa.field("updated_at",      pa.string()),
+        # KỲ BCTC của hai số trên ("2025" · "2026-Q2" · "2026-LK3") — sổ kỳ
+        # `fundamentals_periods.json` dựa vào đây để biết "có kỳ mới" (U75 pha 2).
+        # KHÔNG vào `_has_new_cols`: thiếu cột thì chờ lượt --force T7, khỏi
+        # refetch cả nghìn mã giữa tuần.
+        pa.field("de_period",       pa.string()),
+        pa.field("ocf_period",      pa.string()),
     ])
     for col in [f.name for f in schema]:
         if col not in df.columns:
             df[col] = None
+    for col in ("de_period", "ocf_period"):
+        df[col] = [v if isinstance(v, str) and v else None for v in df[col]]
 
     table = pa.Table.from_pandas(df[schema.names], schema=schema,
                                   preserve_index=False)
@@ -111,6 +122,17 @@ def _save(df: pd.DataFrame):
     from vnstock_parquet_io import write_table_atomic
     write_table_atomic(table, FUND_PATH, compression="snappy")
     _archive_monthly_snapshot(table)
+
+
+def _record_periods(df: pd.DataFrame) -> None:
+    """Gấp kỳ BCTC vào sổ `fundamentals_periods.json` CẠNH `FUND_PATH` (test
+    chuyển FUND_PATH sang tmp là sổ đi theo — bài học U17). Best-effort."""
+    try:
+        n = record_frame(df, Path(FUND_PATH).parent / PERIODS_LEDGER_NAME)
+        if n:
+            console.print(f"  [cyan]📑 Kỳ BCTC mới: {n} chỉ số (sổ kỳ đã ghi)[/cyan]")
+    except Exception as e:
+        console.print(f"[yellow]⚠ Không ghi được sổ kỳ BCTC: {e}[/yellow]")
 
 
 # Lịch sử fundamentals THEO THỜI ĐIỂM — user chốt bật 13/08.
@@ -253,6 +275,8 @@ def _fetch_ratios(ticker: str) -> dict:
             "debt/equity", "debt to equity", "d/e",
         ),
     }
+    result["de_period"] = (row_period_label(ratio_row)
+                           if result["debt_to_equity"] is not None else None)
     return result
 
 
@@ -361,7 +385,15 @@ def _operating_cf_from_row(row) -> float | None:
 
 
 def _annual_operating_cf(df: "pd.DataFrame") -> float | None:
-    """Operating cash flow of the most recent COMPLETE fiscal year (raw VND).
+    """Giá trị của `_annual_operating_cf_period` (giữ chữ ký cũ cho chỗ gọi/test)."""
+    return _annual_operating_cf_period(df)[0]
+
+
+def _annual_operating_cf_period(df: "pd.DataFrame") -> "tuple[float | None, str | None]":
+    """(Op.CF, nhãn kỳ). Nhãn: "2025" khi lấy dòng năm thuần (hoặc đủ 4 quý),
+    "2026-LK3" khi chỉ cộng được 3 quý của năm đích. Không parse được năm ⇒ None.
+
+    Operating cash flow of the most recent COMPLETE fiscal year (raw VND).
 
     Robust to annual vs quarterly statements and excludes the in-progress
     current year — which is what produced the misleading FPT figures: VCI's
@@ -375,7 +407,7 @@ def _annual_operating_cf(df: "pd.DataFrame") -> float | None:
     latest row only when no year is parseable.
     """
     if df is None or df.empty:
-        return None
+        return None, None
     import re as _re
     from datetime import date as _date
 
@@ -410,10 +442,14 @@ def _annual_operating_cf(df: "pd.DataFrame") -> float | None:
             use_idx = annual_idx or target_idx
             vals = [v for i in use_idx
                     if (v := _operating_cf_from_row(df.iloc[i])) is not None]
-            return sum(vals) if vals else None
+            if not vals:
+                return None, None
+            label = (str(target) if annual_idx or len(vals) >= 4
+                     else f"{target}-LK{len(vals)}")
+            return sum(vals), label
 
     row = _latest_row(df)
-    return _operating_cf_from_row(row) if row is not None else None
+    return (_operating_cf_from_row(row) if row is not None else None), None
 
 
 def _fetch_cash_flow(ticker: str) -> dict:
@@ -428,10 +464,11 @@ def _fetch_cash_flow(ticker: str) -> dict:
     except Exception:
         return {}
 
-    val = _annual_operating_cf(cf)
+    val, label = _annual_operating_cf_period(cf)
     if val is None:
         return {}
-    return {"operating_cf": round(val / 1e9, 1)}  # raw VND → tỷ VND
+    return {"operating_cf": round(val / 1e9, 1),  # raw VND → tỷ VND
+            "ocf_period": label}
 
 
 def _row_find_all(row, *words) -> float | None:
@@ -518,6 +555,10 @@ def _fetch_one(ticker: str, delay: float) -> "tuple[str, dict | None, str | None
                 _de = _rl(_fetch_debt_to_equity, ticker)
                 if _de is not None:
                     data["debt_to_equity"] = _de
+                    # D/E từ bảng cân đối: nhãn kỳ của hàng ratio không còn
+                    # đúng ⇒ bỏ (gần như chỉ ngân hàng — vốn bị loại khỏi bảng
+                    # cực trị; mã không nhãn kỳ thì không sinh sự kiện kỳ mới).
+                    data["de_period"] = None
             except Exception:
                 pass
         return ticker, data, None
@@ -644,6 +685,7 @@ def update(
     # Final save
     df = pd.DataFrame(rows).drop_duplicates("ticker", keep="last")
     _save(df)
+    _record_periods(df)
 
     console.print(f"\n[green]✅ Done![/green]")
     console.print(

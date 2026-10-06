@@ -113,3 +113,18 @@ def _events_meta_to_tmp_anywhere(tmp_path, monkeypatch):
     nào set `ev._META` riêng thì đè tiếp, vô hại."""
     import vnstock_events as _ev
     monkeypatch.setattr(_ev, "_META", tmp_path)
+
+
+@pytest.fixture(autouse=True)
+def _fundamentals_writers_to_tmp_anywhere(tmp_path, monkeypatch):
+    """U17 (06/10): test cũ ghi ảnh chụp cơ bản AAA/BBB/CCC vào kho THẬT ba
+    tháng liền (08·09·10) vì chỉ chuyển FUND_PATH mà quên FUND_HISTORY_DIR —
+    "bản đầu tháng thắng" nên ảnh thật không lần nào ghi được. Lưới cho MỌI
+    test: fundamentals.parquet, ảnh chụp tháng, sổ kỳ BCTC (đi theo FUND_PATH)
+    và sổ đã báo của brief (`vnstock_fund_periods.META_DIR`) đều về tmp. Test
+    nào tự setattr thì đè tiếp, vô hại."""
+    import vnstock_fund_periods as _fp
+    import vnstock_fundamental_updater as _fu
+    monkeypatch.setattr(_fu, "FUND_PATH", tmp_path / "fundamentals.parquet")
+    monkeypatch.setattr(_fu, "FUND_HISTORY_DIR", tmp_path / "fundamentals_history")
+    monkeypatch.setattr(_fp, "META_DIR", tmp_path)

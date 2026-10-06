@@ -132,7 +132,10 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   re-export qua `vnstock_brief` nên đường import cũ không đổi.
   Mục ⚠️ Rủi ro = `enforce_risk_today` (U75, `docs/THIET-KE-MUC-RUI-RO.md`): CODE dựng từ
   phơi nhiễm hôm nay (📌 danh mục, lệnh mở footer, GDKHQ, tiền tệ/NN mạnh), model ≤1 dòng
-  không số; khối cực trị D/E·Op.CF toàn vũ trụ RỜI brief ngày (`VNSTOCK_BRIEF_RISK_TODAY=0` trả lại).
+  không số; khối cực trị D/E·Op.CF toàn vũ trụ RỜI brief ngày (`VNSTOCK_BRIEF_RISK_TODAY=0` trả lại),
+  chỉ in lại dòng `- Kỳ BCTC mới — …` (kèm kỳ trước) khi nguồn có KỲ MỚI chạm bảng: updater ghi cột
+  `de_period`/`ocf_period` + sổ `_meta/fundamentals_periods.json` (lần đầu = MỐC), brief CHIỀU ghi
+  `_meta/fund_period_announced.json` (mỗi kỳ mới xét đúng 1 phiên); soi: `python vnstock_fund_periods.py`.
   Agent OpenAI-compat (`_OpenAICompatAgent`): 429/5xx ⇒ đợi 20s gọi lại ĐÚNG
   model một lần, rồi sang `_MODEL_FALLBACKS` cùng provider (Gemini flash →
   flash-lite; OpenRouter super → ultra); output cụt ⇒ sang dự phòng ngay;
@@ -279,7 +282,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   (`VNSTOCK_BRIEF_AUTO_*`, `VNSTOCK_MACRO_*`, `VNSTOCK_BASIS_GUARD`,
   `VNSTOCK_OHLC_REPAIR`, `VNSTOCK_AUTOHEAL_BUDGET_S`, `VNSTOCK_VN30_DYNAMIC`,
   `VNSTOCK_WSS_HOT_TIER`, `VNSTOCK_BRIEF_WATCH`, `VNSTOCK_NEWS_ALERT`,
-  `VNSTOCK_FIXUNITS_FOOTER_PRUNE`, `VNSTOCK_NETBS_WORKERS`, `VNSTOCK_HORIZONS_STEP`, `VNSTOCK_REC_GDKHQ_HOLD`, `VNSTOCK_BRIEF_RISK_TODAY`, `VNSTOCK_LLM_ENGINE`
+  `VNSTOCK_FIXUNITS_FOOTER_PRUNE`, `VNSTOCK_NETBS_WORKERS`, `VNSTOCK_HORIZONS_STEP`, `VNSTOCK_REC_GDKHQ_HOLD`, `VNSTOCK_BRIEF_RISK_TODAY`, `VNSTOCK_BRIEF_FUND_PERIODS`, `VNSTOCK_LLM_ENGINE`
   + `VNSTOCK_<BƯỚC>_ENGINE` + `VNSTOCK_CLAUDE_CLI_{EXE,MODEL,FALLBACK_MODEL,
   TIMEOUT_S,API_KEY,REPO_CONTEXT}`, `VNSTOCK_LLM_BREAKER`
   — cầu dao tài khoản LLM: provider 401/402/403 hôm nay + chưa call nào OK ⇒

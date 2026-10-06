@@ -6984,7 +6984,7 @@ vô điều kiện VÀ `_is_fundamental` xoá luôn dòng model nhắc mã danh 
 SSI…); prompt dồn gần hết chỉ dẫn mục cho luật D/E/Op.CF.
 
 **User trả lời (06/10):** câu 1 = **b** — bỏ khối cực trị khỏi brief ngày, in
-lại CHỈ khi có kỳ BCTC mới (pha 2, chưa code — cần lưu kỳ BCTC từng mã); đây
+lại CHỈ khi có kỳ BCTC mới (pha 2 — CODE XONG 06/10 tối, mục "Pha 2" cuối U75); đây
 là ĐẢO ghi chú U54 ("mục Rủi ro sinh ra để nói KBC"). Câu 2 = **có** — 16 lệnh
 footer tính là phơi nhiễm (tầng R + F).
 
@@ -7024,7 +7024,40 @@ trong đặc tả đã VÁ ở U74 (không còn là PLAUSIBLE).
 **Trạng thái:** VÀO MAIN 06/10 `bcaf013` — 💻 laptop full 3.764 passed / 224s, đã push.
 Chờ 🖥️ desktop `git pull` + test FULL trước 18:00.
 
-**Còn:** pha 2 câu 1 = b; ngưỡng R4–R7 chỉ chỉnh khi sổ brief_watch đủ mẫu.
+**Pha 2 — câu 1 = b (CODE XONG 06/10 tối, user gọi "làm việc này đi"):**
+- *Updater* ghi KỲ của từng số: `de_period` = kỳ của hàng ratio mà `_best_ratio_row`
+  chọn (`row_period_label`: `report_period`, hoặc `yearReport`+`lengthReport`, quý 5
+  = năm); D/E lấy từ bảng cân đối (ngân hàng) ⇒ `de_period=None` (không sinh sự kiện,
+  vốn bị loại khỏi bảng). `ocf_period` từ `_annual_operating_cf_period`: "2025" khi lấy
+  dòng năm thuần hoặc đủ 4 quý, "2026-LK3" khi chỉ cộng được 3 quý (tháng 1 năm sau —
+  trước đây con số này mang nhãn như số NĂM mà thật ra là lũy kế 3 quý). Hai cột KHÔNG vào
+  `_has_new_cols` (khỏi refetch giữa tuần; lượt `--force` T7 tự điền).
+- *Sổ kỳ* `_meta/fundamentals_periods.json` (`vnstock_fund_periods.fold`, CHỈ updater
+  ghi, nằm CẠNH `FUND_PATH` ⇒ test chuyển FUND_PATH là sổ đi theo): lần đầu thấy mã =
+  MỐC (`first_seen=None`, không phải sự kiện — nếu không, lượt đầu báo "kỳ mới" cho cả
+  nghìn mã); kỳ MỚI hơn ⇒ `prev` + `first_seen`; cùng kỳ số khác ⇒ sửa số; kỳ CŨ hơn
+  (nguồn trả nhầm hàng) ⇒ bỏ qua.
+- *Brief*: collect_context (risk_today + `VNSTOCK_BRIEF_FUND_PERIODS`) đọc sổ ⇒
+  `ctx["fund_period_news"]` (sự kiện ≤45 ngày, chưa phiên chiều nào xét hoặc xét đúng
+  phiên này). Brief CHIỀU ghi `_meta/fund_period_announced.json` ⇒ mỗi kỳ mới xét ĐÚNG
+  MỘT phiên chiều, chạy lại cùng phiên (A/B, --export-pack, /brief-close) ra y hệt;
+  brief sáng chỉ đọc. Gọi collect_context chỉ có generate_brief + build_pack (+ train
+  "morning") ⇒ không có đường xem thử nào "tiêu" sự kiện.
+- *Guard*: `_risk_period_lines` (trong `enforce_risk_today`, chuỗi vẫn 55) in ≤1 dòng/chỉ
+  số, tiền tố `- Kỳ BCTC mới` (vào `_RISK_LINE_PREFIXES` ⇒ idempotent), NGOÀI trần 4
+  dòng, sau dòng phơi nhiễm/model. Bắn khi kỳ mới CHẠM bảng: mã trong bảng có kỳ mới,
+  hoặc mã RỜI bảng vì kỳ mới (bảng "trước" dựng bằng số kỳ trước — `_risk_extremes`, luật
+  DUY NHẤT dùng chung với khối cũ). Chỉ in nửa bảng có kỳ mới (D/E hoặc Op.CF), không lặp
+  nửa đứng yên. Kỳ trong sổ LỆCH kỳ của số đang dùng ⇒ im. Prompt "Dữ kiện rủi ro hôm
+  nay" có cùng các dòng. Chế độ cũ không đổi một byte (test).
+- Test `tests/test_fund_periods.py` (43, whitelist `--fast`); conftest thêm lưới chuyển
+  FUND_PATH/FUND_HISTORY_DIR/sổ kỳ về tmp cho MỌI test (họ bài học U17); sổ vào
+  `_MUST_BE_ATOMIC`. Soi sổ: `python vnstock_fund_periods.py`.
+- **Khi nào thấy dòng đầu tiên:** lượt `fundamentals` T7 10/10 chỉ dựng MỐC. Op.CF đổi kỳ
+  sớm nhất tháng 1/2027 (lũy kế 2026); D/E tuỳ hàng ratio VCI trả (năm ⇒ quý 1–2/2027;
+  có hàng quý/TTM ⇒ theo quý) — xem phân bố kỳ trong lệnh soi sau T7.
+
+**Còn:** ngưỡng R4–R7 chỉ chỉnh khi sổ brief_watch đủ mẫu.
 
 # ⏸ U74. LỆNH MỞ XUYÊN GDKHQ BỊ CHẤM "SL" GIẢ — TREO KHI KHO CHƯA REBASE, QUY ĐỔI THEO HỆ SỐ ĐO ĐƯỢC KHI ĐÃ REBASE (06/10)
 
