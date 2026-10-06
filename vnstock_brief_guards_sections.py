@@ -754,6 +754,12 @@ def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
     if top_buy[1] >= 50 and not (_named_in_side(top_buy[0], "mua ròng")
                                  and _num_present(top_buy[1])):
         add.append(f"NN mua ròng mạnh nhất (1 tuần): {top_buy[0]} {top_buy[1]:+,.0f} tỷ.")
+    # Anchor là MỘT GẠCH ĐẦU DÒNG (brief phân bổ 06/10: rơi về khoá chung, bám
+    # dòng "- Chênh lệch quốc tế … khối ngoại dễ bán ròng") ⇒ dòng chèn phải mang
+    # cùng dấu gạch, không thì Markdown/Telegram nối nó vào CUỐI gạch đó.
+    _bullet = _re.match(r"\s*[-*•]\s+", lines[anchor])
+    if _bullet and not _is_section_start(lines[anchor]):
+        add = [_bullet.group(0) + a for a in add]
     rebuilt = "\n".join(lines[:anchor + 1] + add + lines[anchor + 1:])
     return rebuilt if rebuilt != text else text
 

@@ -3764,3 +3764,21 @@ def test_enforce_rec_line_format_catches_claude_variant_from_telegram_290():
         "HPG: MUA vùng 27.5 · chốt lời 30.0 · cắt lỗ 26.0\n")
     # apply_brief_guards vẫn nối guard này (lưới "guard quên nối")
     assert "MSN: MUA vùng 68.7" in vb.apply_brief_guards(raw, {"date": "2026-09-29"})
+
+
+def test_money_flow_line_inherits_bullet_of_anchor():
+    """Brief phân bổ 06/10: không có mục/dòng 'Dòng tiền ngành' ⇒ guard bám gạch
+    '- Chênh lệch quốc tế … khối ngoại dễ bán ròng)' rồi chèn dòng NN TRẦN ngay
+    sau ⇒ Telegram nối nó vào cuối gạch đó. Dòng chèn phải mang cùng dấu gạch."""
+    from vnstock_brief import enforce_money_flow_two_sides
+    ctx = {"sectors": [{"Ngành": "Ngân hàng", "NN 1T (tỷ)": -4521.0},
+                       {"Ngành": "Khai khoáng & Tài nguyên", "NN 1T (tỷ)": 3231.0}]}
+    t = ("## 📊 Vì sao ở band này\n"
+         "* Chênh lệch quốc tế: VN10Y − US10Y = -0.78 điểm % → ÂM (khối ngoại dễ bán ròng)\n"
+         "\n## 📚 Quan điểm từ báo cáo\n- x")
+    out = enforce_money_flow_two_sides(t, ctx).splitlines()
+    i = next(k for k, l in enumerate(out) if "Chênh lệch quốc tế" in l)
+    assert out[i + 1] == "* NN bán ròng mạnh nhất (1 tuần): Ngân hàng -4,521 tỷ."
+    assert out[i + 2] == "* NN mua ròng mạnh nhất (1 tuần): Khai khoáng & Tài nguyên +3,231 tỷ."
+    once = enforce_money_flow_two_sides(t, ctx)
+    assert enforce_money_flow_two_sides(once, ctx) == once           # idempotent
