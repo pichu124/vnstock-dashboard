@@ -6966,6 +6966,55 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🧭 U75. MỤC ⚠️ RỦI RO THEO PHƠI NHIỄM DANH MỤC (risk_today) — KHỐI CỰC TRỊ VTZ/KBC RỜI BRIEF NGÀY (06/10)
+
+**Vì sao:** khối "Đòn bẩy cao nhất VTZ/VJC/PET · Op.CF thấp nhất KBC/NVL" lặp y
+hệt nhiều tháng (user 05/10). Đặc tả `docs/THIET-KE-MUC-RUI-RO.md` (workflow 38
+agent) chỉ ra 5 lý do trong code: số BCTC năm đứng yên; phép chọn là xếp hạng
+cực trị trên nhóm ổn định; không nối gì của ngày; `enforce_risk_section` chèn
+vô điều kiện VÀ `_is_fundamental` xoá luôn dòng model nhắc mã danh mục (EIB,
+SSI…); prompt dồn gần hết chỉ dẫn mục cho luật D/E/Op.CF.
+
+**User trả lời (06/10):** câu 1 = **b** — bỏ khối cực trị khỏi brief ngày, in
+lại CHỈ khi có kỳ BCTC mới (pha 2, chưa code — cần lưu kỳ BCTC từng mã); đây
+là ĐẢO ghi chú U54 ("mục Rủi ro sinh ra để nói KBC"). Câu 2 = **có** — 16 lệnh
+footer tính là phơi nhiễm (tầng R + F).
+
+**Đã làm (đúng luật R1–R17):** `ctx["risk_today"]` đọc env MỘT lần ở
+collect_context (guard thuần, pack tái lập chế độ). Guard mới
+`enforce_risk_today` nối NGAY SAU `enforce_reference_band_wording` (chuỗi 54 →
+55). `enforce_risk_section` có nhánh mới `_risk_section_filter` (gỡ dòng code
+theo TIỀN TỐ, giữ ≤1 dòng model đạt R9) — nhờ tiền tố mà chạy chuỗi hai lần ra
+y hệt. Giữ nguyên tinh thần 12/06: model KHÔNG BAO GIỜ tự viết D/E, Op.CF, đòn
+bẩy hay superlative — mọi dòng có số do `_risk_today_lines` dựng, prompt
+("Dữ kiện rủi ro hôm nay") và guard gọi CÙNG hàm. Tầng P: tập trung ≥50% một
+cụm + vốn ngoại rút (cụm theo thứ tự tài chính → BĐS → nhóm tuỳ biến → ngành
+gốc; **EIB ∈ 'Họ M'** — câu chỉ gán số NN cho CHÍNH ngành đó, không bao giờ
+"EIB bị bán -2,783"); biến cố từng mã (NN chính mã ≤ −50 tỷ, −7%/tuần, −3%/phiên
+khi bar cuối đúng phiên); GDKHQ mã giữ. M: USD/VND +0,30%, LNH ON +1 điểm, 10Y
++0,15 (as_of ≤5 ngày; gauge chỉ có MỨC không bao giờ in), NN 1D ≤ −1.000 tỷ
+khi P1 không bắn. R: GDKHQ chạm lệnh mở, giá quy đổi qua
+`adjusted_price(entry×1000)/1000` (sổ lưu NGHÌN — quên ×1000 là trừ 1.500đ vào
+giá 25). F: cơ bản CHỈ cho lệnh mới ≤1 ngày, phi tài chính, không đang giữ.
+Trần 4 dòng, rỗng ⇒ dòng dự phòng. `enforce_risk_numbers` vòng 'missing' bỏ
+qua dòng không có từ khoá cơ bản (bẫy "(Số liệu: EIB D/E=…)" cho ngân hàng).
+Universe cơ bản + sự kiện mở thêm danh mục ∪ lệnh mở. brief_watch có event
+`risk_section` (dấu vân thân mục) + badge doctor "mục Rủi ro trùng phiên trước
+k/n" (dưới sàn mẫu ok kèm n=…). Bỏ M1/M2 (trùng 🔭 của P1b).
+
+**Lệch đặc tả:** hàm canon tên `_fmt_footer_price` vì `vnstock_brief` đã có
+`_fmt_rec_price` KHÁC hành vi (1 số lẻ tới 100, cho khối khuyến nghị prompt) —
+lưới tách module bắt trùng tên. `_exposure_tickers` gồm MỌI lệnh mở (cả lệnh
+ẩn) vì reconcile U74 cần lịch GDKHQ của chúng.
+
+Test `tests/test_brief_risk_today.py` (54, whitelist `--fast`): golden 05/10
+khớp NGUYÊN VĂN 2 dòng của đặc tả; chế độ cũ (thiếu khoá / False) ra y hệt 5
+dòng brief cũ; idempotent cả hai chế độ; 6 biến thể đi qua toàn chuỗi nguyên
+byte + không từ vựng cấm R11. Nghi vấn "reconcile chấm SL cơ học sau GDKHQ"
+trong đặc tả đã VÁ ở U74 (không còn là PLAUSIBLE).
+
+**Còn:** pha 2 câu 1 = b; ngưỡng R4–R7 chỉ chỉnh khi sổ brief_watch đủ mẫu.
+
 # ⏸ U74. LỆNH MỞ XUYÊN GDKHQ BỊ CHẤM "SL" GIẢ — TREO KHI KHO CHƯA REBASE, QUY ĐỔI THEO HỆ SỐ ĐO ĐƯỢC KHI ĐÃ REBASE (06/10)
 
 **Bằng chứng (đọc code 06/10):** GMD BUY @78 mở 24/09, thưởng 50% GDKHQ 07/10.

@@ -176,6 +176,37 @@ def scan_flow_claims(text: str, ctx: dict | None) -> list:
 # ─────────────────────────────────────────────────────────────────────────
 # Đường có I/O — best-effort, KHÔNG BAO GIỜ ném
 # ─────────────────────────────────────────────────────────────────────────
+def scan_risk_repeat(text: str) -> list:
+    """Mục '⚠️ Rủi ro cần lưu ý' của brief → 1 event 'risk_section' (dấu vân thân
+    mục) để đếm "lặp y hệt phiên trước" (06/10 — khối cực trị lặp nhiều tháng
+    mà không ai đếm). [] khi brief không có mục Rủi ro."""
+    import hashlib
+
+    if not text:
+        return []
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines)
+                  if l.lstrip().startswith(("##", "⚠️")) and "rủi ro cần lưu ý" in l.lower()),
+                 None)
+    if start is None:
+        return []
+    try:
+        from vnstock_brief_guards_common import _is_section_start
+    except Exception:          # pragma: no cover — common là module lá, luôn có
+        return []
+    end = next((i for i in range(start + 1, len(lines)) if _is_section_start(lines[i])),
+               len(lines))
+    body = [l.strip() for l in lines[start + 1:end] if l.strip()]
+    try:
+        from vnstock_brief_canon import _RISK_LINE_PREFIXES
+    except Exception:          # pragma: no cover
+        _RISK_LINE_PREFIXES = ()
+    codes = sorted({p for p in _RISK_LINE_PREFIXES for l in body if l.startswith(p)})
+    return [{"kind": "risk_section",
+             "digest": hashlib.sha1("\n".join(body).encode("utf-8")).hexdigest()[:12],
+             "n_lines": len(body), "codes": codes}]
+
+
 def load(warehouse_root) -> dict:
     import json
     try:
@@ -218,7 +249,8 @@ def observe_brief(warehouse_root, text: str, ctx: dict | None, today=None) -> li
     if not enabled():
         return []
     try:
-        events = scan_ocf_scale(ctx) + scan_flow_claims(text, ctx)
+        events = (scan_ocf_scale(ctx) + scan_flow_claims(text, ctx)
+                  + scan_risk_repeat(text))
     except Exception:
         return []
     if events:
@@ -229,11 +261,24 @@ def observe_brief(warehouse_root, text: str, ctx: dict | None, today=None) -> li
 def summarize(warehouse_root) -> dict:
     """Gộp sổ theo loại — cho badge doctor. Không phán, chỉ đếm."""
     events = list((load(warehouse_root) or {}).get("events") or [])
-    days = {e.get("at") for e in events if e.get("at")}
+    # n_days/enough CHỈ đếm hai loại nghi ngờ cũ — event risk_section có mặt
+    # mỗi phiên, cộng vào là badge cũ đổi nghĩa ("đủ mẫu" giả).
+    days = {e.get("at") for e in events
+            if e.get("at") and e.get("kind") in ("ocf_scale", "flow_claim")}
     ocf = [e for e in events if e.get("kind") == "ocf_scale"]
     flow = [e for e in events if e.get("kind") == "flow_claim"]
     worst = max(ocf, key=lambda e: e.get("ratio") or 0, default=None)
+    # Mục Rủi ro: mỗi ngày lấy bản CUỐI; đếm cặp ngày liên tiếp (theo thứ tự
+    # ngày có quan sát) và số cặp trùng dấu vân.
+    risk_by_day: dict = {}
+    for e in events:
+        if e.get("kind") == "risk_section" and e.get("at"):
+            risk_by_day[e["at"]] = e.get("digest")
+    seq = [risk_by_day[d] for d in sorted(risk_by_day)]
+    pairs = list(zip(seq, seq[1:]))
     return {
+        "risk_pairs": len(pairs),
+        "risk_repeats": sum(1 for a, b in pairs if a and a == b),
         "n_days": len(days),
         "n_ocf": len(ocf),
         "n_flow": len(flow),

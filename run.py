@@ -842,6 +842,9 @@ def cmd_test(args) -> int:
             "tests/test_dashboard.py",
             "tests/test_dashboard_branches.py",
             "tests/test_brief_split.py",
+            # Mục Rủi ro theo phơi nhiễm (06/10): golden 05/10 cả hai chế độ +
+            # idempotent toàn chuỗi — đổi template/chuỗi guard mà thiếu nó là mù.
+            "tests/test_brief_risk_today.py",
             "tests/test_market_table_format.py",
             "tests/test_market_tab.py",
             "tests/test_market_commentary.py",

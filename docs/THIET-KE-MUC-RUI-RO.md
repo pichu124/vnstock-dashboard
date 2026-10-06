@@ -1,6 +1,6 @@
 # Mục "⚠️ Rủi ro cần lưu ý" theo phơi nhiễm danh mục (risk_today) — ĐẶC TẢ, CHƯA CODE
 
-> **Trạng thái: ĐỀ XUẤT 05/10/2026 — chờ user trả lời 2 câu cuối file.** Sinh từ workflow 38 agent (2 người đánh giá brief 05/10 × phản biện từng phát hiện, 1 người dò code, 3 thiết kế độc lập × 3 giám khảo, 1 tổng hợp). Lý do: khối "Đòn bẩy cao nhất VTZ/VJC/PET · Op.CF thấp nhất KBC/NVL" lặp y hệt nhiều tháng (user 05/10).
+> **Trạng thái: ✅ CODE XONG 06/10/2026 (nhánh `claude/vibrant-maxwell-4g4edj`, CLAUDE-NOTES U75) — user trả lời: câu 1 = (b) bỏ khối cực trị khỏi brief ngày, in lại khi có KỲ BCTC MỚI (pha 2, chưa code); câu 2 = CÓ tính 16 lệnh footer là phơi nhiễm. Lệch so với đặc tả: hàm canon tên `_fmt_footer_price` (`vnstock_brief` đã có `_fmt_rec_price` khác hành vi); `_exposure_tickers` gồm MỌI lệnh mở (cả lệnh ẩn — reconcile U74 cần lịch GDKHQ của chúng); test brief_watch/doctor/universe nằm trong `tests/test_brief_risk_today.py` + `tests/test_rec_corp_action.py`.** Bản đề xuất 05/10: Sinh từ workflow 38 agent (2 người đánh giá brief 05/10 × phản biện từng phát hiện, 1 người dò code, 3 thiết kế độc lập × 3 giám khảo, 1 tổng hợp). Lý do: khối "Đòn bẩy cao nhất VTZ/VJC/PET · Op.CF thấp nhất KBC/NVL" lặp y hệt nhiều tháng (user 05/10).
 
 ## Vì sao khối cũ lặp mãi (đã kiểm code)
 

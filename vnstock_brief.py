@@ -77,6 +77,32 @@ from vnstock_brief_canon import (  # noqa: F401  (re-export: giữ nguyên đư�
     _portfolio_fact_line,
     _round_tick,
     _vn_tick,
+    _FUND_KW,
+    _RISK_AGENT_DROP_KW,
+    _RISK_LINE_PREFIXES,
+    _RISK_FALLBACK_LINE,
+    _RISK_TODAY_RULES,
+    _RISK_MAX_LINES,
+    _RISK_TIER_CAPS,
+    _RISK_CLUSTER_SHARE,
+    _RISK_SECTOR_TOP_SELL,
+    _RISK_CLUSTER_NN_SELL_TY,
+    _RISK_TICKER_NN_SELL_TY,
+    _RISK_HELD_SHOCK_1D_PCT,
+    _RISK_HELD_WEEK_PCT,
+    _RISK_PEER_WEEK_PCT,
+    _RISK_EXDATE_DAYS,
+    _RISK_FX_PCT,
+    _RISK_ON_DELTA,
+    _RISK_10Y_DELTA,
+    _RISK_MACRO_MAX_AGE_DAYS,
+    _RISK_NN_1D_HEAVY_TY,
+    _RISK_FUND_DE_MIN,
+    _RISK_NEW_REC_DAYS,
+    _RISK_REPEAT_WARN,
+    _RISK_FORBIDDEN_VOCAB,
+    _fmt_footer_price,
+    _fmt_adj_price,
 )
 
 
@@ -1542,7 +1568,7 @@ def _maybe_refresh_events() -> int:
             print(f"[events] bỏ qua auto-refresh sự kiện: {why}")
             return 0
         return len(refresh_upcoming(
-            tickers=_events_universe(extra_tickers=_open_rec_tickers())))
+            tickers=_events_universe(extra_tickers=_exposure_tickers())))
     except Exception:
         return 0
 
@@ -1558,6 +1584,118 @@ def _open_rec_tickers() -> list[str]:
                        for r in _mem.open_recommendations()} - {""})
     except Exception:
         return []
+
+
+def _exposure_tickers() -> list[str]:
+    """Mã đang PHƠI NHIỄM để cache sự kiện phủ tới: danh mục (`_meta/
+    portfolio.json`, theo kill-switch VNSTOCK_BRIEF_PORTFOLIO) ∪ MỌI lệnh mở
+    (kể cả lệnh bị ẩn khỏi footer — reconcile vẫn chấm chúng, U74). Best-effort."""
+    out = set(_open_rec_tickers())
+    if os.environ.get("VNSTOCK_BRIEF_PORTFOLIO", "1") != "0":
+        try:
+            raw = json.loads((Path(__file__).parent / "data_warehouse" / "_meta"
+                              / "portfolio.json").read_text(encoding="utf-8"))
+            out |= {str(p.get("ticker") or "").strip().upper()
+                    for p in (raw if isinstance(raw, list) else [])}
+        except Exception:
+            pass
+    return sorted(out - {""})
+
+
+# ── Mục Rủi ro theo PHƠI NHIỄM (risk_today, 06/10) — chế độ + loader ────────
+# Đặc tả docs/THIET-KE-MUC-RUI-RO.md. Công tắc đọc MỘT lần ở collect_context
+# rồi ghi ctx["risk_today"]; guard/prompt chỉ đọc ctx (hàm thuần, pack tái lập
+# đúng chế độ của đêm xuất).
+
+def _risk_today_enabled(brief_type: str) -> bool:
+    """`VNSTOCK_BRIEF_RISK_TODAY` (mặc định bật; 0/false/no/off tắt). Brief
+    khác sáng/chiều (phân bổ…) luôn tắt.
+
+    KHÔNG tự nạp `.env`: hai đường chạy thật (`generate_brief`, `build_pack`)
+    đã `_ensure_env_loaded()` TRƯỚC collect_context; nạp ở đây thì test nào gọi
+    collect_context cũng kéo `.env` máy thật vào pytest (vết 05/10)."""
+    if brief_type not in ("morning", "afternoon"):
+        return False
+    return (os.environ.get("VNSTOCK_BRIEF_RISK_TODAY", "1").strip().lower()
+            not in ("0", "false", "no", "off"))
+
+
+def _load_open_recs(data_date: str, opens: "list | None" = None) -> list[dict]:
+    """Lệnh ĐANG HIỆN ở footer Telegram — cùng luật `split_recs_by_validation`
+    (không truyền ctx) như `vnstock_telegram._open_recs_block`, để mục Rủi ro
+    và footer nói về CÙNG một tập lệnh. Sổ chưa có ⇒ [] (không để sqlite đẻ
+    file DB rỗng trong sandbox)."""
+    if opens is None:
+        import vnstock_memory as _mem
+        if not Path(_mem.DB_PATH).exists():
+            return []
+        opens = _mem.open_recommendations()
+    try:
+        d0 = date.fromisoformat(str(data_date)[:10])
+    except ValueError:
+        d0 = date.today()
+    out = []
+    for r in split_recs_by_validation(opens or [])[0]:
+        try:
+            created = datetime.fromisoformat(str(r.get("created_at"))).date()
+        except ValueError:
+            created = d0
+        out.append({"ticker": str(r.get("ticker") or "").upper(),
+                    "action": str(r.get("action") or "").upper(),
+                    "entry": r.get("entry_price"), "tp": r.get("take_profit"),
+                    "sl": r.get("cut_loss"), "horizon_days": r.get("horizon_days"),
+                    "created_at": r.get("created_at"),
+                    "age_days": max(0, (d0 - created).days)})
+    return out
+
+
+def _attach_portfolio_levels(positions: list, data_date: str) -> None:
+    """Gắn `chg_1d_pct` + hỗ trợ/kháng cự pivot cho từng vị thế — CHỈ khi bar
+    cuối trong kho đúng phiên `data_date` (bar cũ ⇒ % ngày là của phiên khác).
+    Mã nào đọc hỏng thì bỏ qua mã đó."""
+    from vnstock_strategy import _load_history_from_parquet
+    for p in positions or []:
+        try:
+            h = _load_history_from_parquet(str(p["ticker"]), days=90)
+            if h is None or len(h) < 2:
+                continue
+            last = pd.Timestamp(h["time"].iloc[-1]).date().isoformat()
+            if last != str(data_date)[:10]:
+                continue
+            c1, c0 = float(h["close"].iloc[-1]), float(h["close"].iloc[-2])
+            p["last_bar"] = last
+            if c0 > 0:
+                p["chg_1d_pct"] = round((c1 / c0 - 1) * 100, 2)
+            sup, res = ticker_sr_levels(h["high"].tolist(), h["low"].tolist(), c1)
+            if sup:
+                p["sr_support"] = round(float(sup), 2)
+            if res:
+                p["sr_resistance"] = round(float(res), 2)
+        except Exception:
+            continue
+
+
+def _risk_today_block(ctx: dict) -> str:
+    """Khối prompt 'Dữ kiện rủi ro hôm nay' — CÙNG hàm với guard nên prompt và
+    brief cuối không lệch nhau. Hàm thuần (build_prompt không I/O)."""
+    lines = _risk_today_lines(ctx) or ["- (không có rủi ro chạm danh mục/lệnh mở hôm nay)"]
+    return ("\n## Dữ kiện rủi ro hôm nay — hệ thống tự in vào mục Rủi ro "
+            "(KHÔNG chép lại)\n" + "\n".join(lines))
+
+
+def _swap_risk_rules(tmpl: str) -> str:
+    """Thay ĐÚNG khối luật giữa '## ⚠️ Rủi ro cần lưu ý…' và '## ' kế tiếp bằng
+    `_RISK_TODAY_RULES` (chạy lúc dựng prompt — hai hằng template giữ nguyên
+    chữ nên test ghim chữ cũ không đổi)."""
+    lines = tmpl.split("\n")
+    start = next((i for i, l in enumerate(lines)
+                  if l.startswith("## ⚠️ Rủi ro cần lưu ý")), None)
+    if start is None:
+        return tmpl
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")),
+               len(lines))
+    tail = [""] if end < len(lines) and lines[end - 1] == "" else []
+    return "\n".join(lines[:start + 1] + _RISK_TODAY_RULES.split("\n") + tail + lines[end:])
 
 
 def _maybe_refresh_macro() -> int:
@@ -1657,12 +1795,16 @@ def _load_vn30_fundamentals(
 
 
 def _vn30_fund_block(funds: dict[str, dict], extra_financial: "set[str] | None" = None,
-                     realestate: "set[str] | None" = None) -> str:
+                     realestate: "set[str] | None" = None, risk_today: bool = False) -> str:
     """Render a compact VN30 fundamentals block for the prompt.
 
     Shows VN30 medians plus the few names that actually matter for risk —
     highest leverage and weakest/negative operating cash flow — instead of
     dumping all 30 rows (token-efficient and more actionable).
+
+    `risk_today=True` (06/10): bảng chỉ còn là THAM KHẢO — mục Rủi ro không
+    dùng nó nữa (hệ thống tự in số cơ bản của lệnh mới khi cần), và header ghi
+    rõ đây là số BCTC gần nhất chứ không phải số "cập nhật" của hôm nay.
     """
     if not funds:
         return ""
@@ -1684,9 +1826,11 @@ def _vn30_fund_block(funds: dict[str, dict], extra_financial: "set[str] | None" 
             return ""
 
         updated = next((m["updated"] for m in funds.values() if m.get("updated")), "")
+        _hdr_note = ((f" (số BCTC gần nhất; lấy {updated})" if updated else "")
+                     if risk_today else (f" (cập nhật {updated})" if updated else ""))
         lines = [
             f"\n## Cơ bản nhóm theo dõi (VN30 + mid-cap) — D/E, ROE, Lưu chuyển tiền HĐKD"
-            f"{f' (cập nhật {updated})' if updated else ''}"
+            f"{_hdr_note}"
         ]
 
         med_parts = []
@@ -1718,6 +1862,9 @@ def _vn30_fund_block(funds: dict[str, dict], extra_financial: "set[str] | None" 
             )
 
         lines.append(
+            "→ Bảng tham khảo — mục Rủi ro KHÔNG dùng bảng này (hệ thống tự in số "
+            "cơ bản của lệnh mới khi cần); KHÔNG bịa số tài chính khác."
+            if risk_today else
             "→ DÙNG các chỉ số này khi nhận xét rủi ro cơ bản/đòn bẩy/dòng tiền; "
             "ngân hàng/CK/bảo hiểm đã loại khỏi xếp hạng D/E & dòng tiền (đặc thù "
             "ngành, không so sánh được); KHÔNG bịa số liệu tài chính khác."
@@ -2327,6 +2474,9 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
         "sectors": [],
         "breadth": {},
         "tickers": [],
+        # Mục Rủi ro theo phơi nhiễm (06/10) — đọc env MỘT lần ở đây; guard và
+        # prompt chỉ đọc khoá này (R1, docs/THIET-KE-MUC-RUI-RO.md).
+        "risk_today": _risk_today_enabled(brief_type),
     }
     if _is_stale:
         ctx["date_note"] = (
@@ -2475,6 +2625,26 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
         except Exception as _e:
             _note_loader_error(ctx, "movers", _e)
 
+    # 8d. Held positions (dashboard portfolio) so the brief ties Rủi ro /
+    # hành động vào các mã user thực sự đang cầm (position-aware analysis).
+    # Chạy SỚM (06/10): mục Rủi ro theo phơi nhiễm cần danh mục + lệnh mở TRƯỚC
+    # bước 7 để số cơ bản và lịch sự kiện phủ được cả các mã đó.
+    try:
+        if _pf := load_portfolio_positions():
+            ctx["portfolio"] = _pf
+    except Exception as _e:
+        _note_loader_error(ctx, "portfolio", _e)
+    if ctx["risk_today"]:
+        try:
+            _attach_portfolio_levels(ctx.get("portfolio") or [], _data_date_str)
+        except Exception as _e:
+            _note_loader_error(ctx, "portfolio_levels", _e)
+        try:
+            if _or := _load_open_recs(_data_date_str):
+                ctx["open_recs"] = _or
+        except Exception as _e:
+            _note_loader_error(ctx, "open_recs", _e)
+
     # 5. Market-cap weights + intraday contributions (sector & ticker level)
     if ctx["tickers"] and ctx["sectors"]:
         try:
@@ -2529,6 +2699,11 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     #    plus the liquid mid-cap movers so the risk section can flag mid-cap
     #    leverage/cash-flow too, not only index members.
     _fund_universe = set(VN30_TICKERS) | (ctx.get("mover_universe") or set())
+    if ctx["risk_today"]:
+        # R15 — mã đang giữ/lệnh mở kém thanh khoản (HDA…) cũng cần số cơ bản
+        # và lịch GDKHQ cho mục Rủi ro. ctx["vn30_fundamentals"] vẫn đủ vũ trụ.
+        _fund_universe |= ({p["ticker"] for p in ctx.get("portfolio") or []}
+                           | {r["ticker"] for r in ctx.get("open_recs") or []})
     _vn30_fund = _load_vn30_fundamentals(vn30=_fund_universe)
     if _vn30_fund:
         ctx["vn30_fundamentals"] = _vn30_fund
@@ -2603,14 +2778,6 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
             ctx["market_news"] = _mkt_news
     except Exception as _e:
         _note_loader_error(ctx, "market_news", _e)
-
-    # 8d. Held positions (dashboard portfolio) so the brief ties Rủi ro /
-    # hành động vào các mã user thực sự đang cầm (position-aware analysis).
-    try:
-        if _pf := load_portfolio_positions():
-            ctx["portfolio"] = _pf
-    except Exception as _e:
-        _note_loader_error(ctx, "portfolio", _e)
 
     # 8e. Báo cáo vĩ mô + band phân bổ (P4) — digest đã cache (P3) + state
     # allocation (P1) cho mục "📚" (brief ngày: 1 dòng band + tóm tắt báo cáo;
@@ -3615,7 +3782,8 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
     # can ground "rủi ro cơ bản" comments in real leverage / cash-flow numbers.
     if funds := ctx.get("vn30_fundamentals"):
         block = _vn30_fund_block(funds, extra_financial=ctx.get("financial_tickers"),
-                                 realestate=ctx.get("realestate_tickers"))
+                                 realestate=ctx.get("realestate_tickers"),
+                                 risk_today=ctx.get("risk_today") is True)
         if block:
             lines.append(block)
 
@@ -3669,6 +3837,12 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         if block:
             lines.append(block)
 
+    # Mục Rủi ro theo phơi nhiễm (06/10): dữ kiện CÙNG hàm với guard — model
+    # thấy đúng thứ hệ thống sẽ in, khỏi chép lại hay tự bịa.
+    _risk_new = ctx.get("risk_today") is True and brief_type in ("morning", "afternoon")
+    if _risk_new:
+        lines.append(_risk_today_block(ctx))
+
     # Recommendation + news blocks — explicit empty markers so the LLM
     # cannot invent trade ideas or news headlines from training data.
     if rec_block:
@@ -3697,6 +3871,8 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
     tmpl = {"morning": _MORNING_TEMPLATE,
             "allocation": _ALLOCATION_TEMPLATE}.get(brief_type,
                                                     _AFTERNOON_TEMPLATE)
+    if _risk_new:
+        tmpl = _swap_risk_rules(tmpl)
     return tmpl.format(system=_SYSTEM, data=data_block)
 
 
@@ -3814,6 +3990,37 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     _PRICE_SCAFFOLD_RE,
     enforce_no_price_scaffold,
     validate_brief_factuality,
+    enforce_risk_today,
+    _RISK_ACTION_VI,
+    _RISK_DEDUP_KW,
+    _RISK_FIN_SECTOR_KW,
+    _adjusted_from_thousand,
+    _risk_agent_line_ok,
+    _risk_cluster_of,
+    _risk_custom_group,
+    _risk_date,
+    _risk_dupes_code,
+    _risk_exdate_items,
+    _risk_exdate_marked,
+    _risk_exposure,
+    _risk_flow_sectors,
+    _risk_fund_items,
+    _risk_held_items,
+    _risk_held_move,
+    _risk_insert_section,
+    _risk_market_items,
+    _risk_num,
+    _risk_on,
+    _risk_p1,
+    _risk_peer,
+    _risk_section_bounds,
+    _risk_section_filter,
+    _risk_sector_nn,
+    _risk_today_items,
+    _risk_today_lines,
+    _risk_top_sell,
+    _risk_watch_sr,
+    _risk_weights,
 )
 
 

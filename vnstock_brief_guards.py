@@ -9,7 +9,7 @@ như code sống; `tests/test_brief_split.py` canh cả hai chiều).
 Vì sao guard tồn tại: LLM hay phớt chỉ thị prompt, nên mọi ràng buộc quan trọng
 phải chốt bằng code deterministic hậu kiểm, không phải bằng câu chữ trong prompt.
 
-49 guard chia theo CHỦ ĐỀ (12/08, mục ④ — file này từng là 2.646 dòng):
+55 guard chia theo CHỦ ĐỀ (12/08, mục ④ — file này từng là 2.646 dòng):
 
 * `vnstock_brief_guards_sections` — brief nói SAI CHUYỆN GÌ (dựng lại khối canon)
 * `vnstock_brief_guards_numbers`  — brief nói SAI SỐ / SAI CHIỀU
@@ -69,6 +69,37 @@ from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
     enforce_upcoming_events,
     enforce_exdate_levels,
     enforce_reference_band_wording,
+    enforce_risk_today,
+    _RISK_ACTION_VI,
+    _RISK_DEDUP_KW,
+    _RISK_FIN_SECTOR_KW,
+    _adjusted_from_thousand,
+    _risk_agent_line_ok,
+    _risk_cluster_of,
+    _risk_custom_group,
+    _risk_date,
+    _risk_dupes_code,
+    _risk_exdate_items,
+    _risk_exdate_marked,
+    _risk_exposure,
+    _risk_flow_sectors,
+    _risk_fund_items,
+    _risk_held_items,
+    _risk_held_move,
+    _risk_insert_section,
+    _risk_market_items,
+    _risk_num,
+    _risk_on,
+    _risk_p1,
+    _risk_peer,
+    _risk_section_bounds,
+    _risk_section_filter,
+    _risk_sector_nn,
+    _risk_today_items,
+    _risk_today_lines,
+    _risk_top_sell,
+    _risk_watch_sr,
+    _risk_weights,
     _adjusts_price,
     _reference_bands,
     _BAND_WORDS,
@@ -271,6 +302,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     # Chạy SAU exdate: guard này cắt phần " ⚠️ GDKHQ …" trước khi soi mốc, nên
     # phải để phần đó đã được gắn xong.
     fixed = enforce_reference_band_wording(fixed, ctx)   # dải ±3% ≠ hỗ trợ/kháng cự
+    fixed = enforce_risk_today(fixed, ctx)  # mục Rủi ro theo phơi nhiễm (chế độ mới)
     fixed = enforce_buy_vs_bias_caveat(fixed, ctx)    # GIẢM + BUY recs → caveat (keep, contextualize)
     fixed = enforce_unvalidated_strategy_caveat(fixed, ctx)  # chiến lược trượt kiểm định → nói ra
     fixed = enforce_stance_sentiment_caution(fixed, ctx)  # TĂNG stance + tâm lý tiêu cực → caveat

@@ -346,14 +346,10 @@ def _fmt_price(p: float) -> str:
     where `.0f` collapses them to a meaningless "@1" / "@0". Use adaptive
     precision so low-priced instruments keep their significant digits.
     """
-    a = abs(p)
-    if a == 0:
-        return "0"
-    if a < 1:
-        return f"{p:,.3f}"
-    if a < 10:
-        return f"{p:,.2f}"
-    return f"{p:,.0f}"
+    # Một nguồn với mục Rủi ro của brief (risk_today, 06/10) — giá lệnh in hai
+    # nơi phải ra cùng một chữ.
+    from vnstock_brief_canon import _fmt_footer_price
+    return _fmt_footer_price(p)
 
 
 def _open_recs_block() -> str:

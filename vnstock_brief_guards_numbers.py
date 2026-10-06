@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re as _re
 
-from vnstock_brief_canon import _FINANCIAL_TICKERS, _SR_MAX_MOVE_PCT, _gtgd_close_frame
+from vnstock_brief_canon import _FINANCIAL_TICKERS, _FUND_KW, _SR_MAX_MOVE_PCT, _gtgd_close_frame
 from vnstock_brief_guards_common import (
     _PIVOT_LABEL_RE,
     _is_section_start,
@@ -31,6 +31,10 @@ def enforce_risk_numbers(text: str, ctx: dict) -> str:
     line; (b) tickers cited with a WRONG figure (23:08: "KBC D/E=8.83" — 8.83
     is HNG's; "HPG D/E=1.55" vs real 0.65) → rewrite the number in place to the
     real value from ctx["vn30_fundamentals"]. No-op when clean / data missing.
+
+    Vòng (a) CHỈ xét dòng có từ khoá cơ bản (`_FUND_KW`, 06/10): mục Rủi ro
+    theo phơi nhiễm nêu mã danh mục (EIB, SSI…) ở dòng KHÔNG nói chỉ số cơ bản
+    — dán '(Số liệu: EIB D/E=9.00)' cho một ngân hàng vào đó là vô nghĩa.
     """
     funds = ctx.get("vn30_fundamentals") or {}
     if not text or not funds:
@@ -129,6 +133,8 @@ def enforce_risk_numbers(text: str, ctx: dict) -> str:
     seen: set[str] = set()
     for line in lines[start + 1:end]:
         low = line.lower()
+        if not any(k in low for k in _FUND_KW):
+            continue
         _ocf_kw = ("op.cf", "lưu chuyển tiền", "lưu lượng tiền", "hđkd")
 
         def _wants_ocf(pos: int) -> bool:

@@ -20,7 +20,30 @@ from vnstock_brief_canon import (
     _UNVALIDATED_STRATEGY_CAVEAT,
     VN30_TICKERS,
     _FINANCIAL_TICKERS,
+    _FUND_KW,
+    _RISK_AGENT_DROP_KW,
+    _RISK_CLUSTER_NN_SELL_TY,
+    _RISK_CLUSTER_SHARE,
+    _RISK_EXDATE_DAYS,
+    _RISK_FALLBACK_LINE,
+    _RISK_FUND_DE_MIN,
+    _RISK_FX_PCT,
+    _RISK_HELD_SHOCK_1D_PCT,
+    _RISK_HELD_WEEK_PCT,
+    _RISK_LINE_PREFIXES,
+    _RISK_MACRO_MAX_AGE_DAYS,
+    _RISK_MAX_LINES,
+    _RISK_NEW_REC_DAYS,
+    _RISK_NN_1D_HEAVY_TY,
+    _RISK_ON_DELTA,
+    _RISK_PEER_WEEK_PCT,
+    _RISK_SECTOR_TOP_SELL,
+    _RISK_10Y_DELTA,
+    _RISK_TICKER_NN_SELL_TY,
+    _RISK_TIER_CAPS,
     _WATCHLIST_GTGD_MIN_TY,
+    _fmt_adj_price,
+    _fmt_footer_price,
     _allocation_table_lines,
     _macro_body_lines,
     _macro_reports_body_lines,
@@ -1069,6 +1092,11 @@ def enforce_risk_section(text: str, ctx: dict) -> str:
     fundamental lines, appends the canonical ones. No-op without fundamentals or
     a risk section, and never blanks the section.
     """
+    if _risk_on(ctx):
+        # Chế độ risk_today (06/10): KHÔNG nối khối top-N toàn vũ trụ nữa — chỉ
+        # dọn mục (gỡ dòng code theo tiền tố, giữ ≤1 dòng model đạt R9);
+        # `enforce_risk_today` cuối chuỗi dựng lại phần có số.
+        return _risk_section_filter(text, ctx)
     funds = ctx.get("vn30_fundamentals") or {}
     if not text or not funds:
         return text
@@ -1081,12 +1109,9 @@ def enforce_risk_section(text: str, ctx: dict) -> str:
                 if _is_section_start(lines[i])), len(lines))
     body = lines[start + 1:end]
 
-    _fund_kw = ("d/e", "op.cf", "lưu chuyển tiền", "lưu lượng tiền", "hđkd",
-                "đòn bẩy", "quỹ đất")
-
     def _is_fundamental(l: str) -> bool:
         low = l.lower()
-        return (any(k in low for k in _fund_kw)
+        return (any(k in low for k in _FUND_KW)
                 or any(_re.search(rf"\b{_re.escape(t)}\b", l) for t in funds))
 
     macro = [l for l in body if l.strip() and not _is_fundamental(l)]
@@ -1393,6 +1418,502 @@ def enforce_reference_band_wording(text: str, ctx: dict) -> str:
     if out_lines == lines[start:end]:
         return text
     return "\n".join(lines[:start] + out_lines + lines[end:])
+
+
+# ── Mục "⚠️ Rủi ro cần lưu ý" theo PHƠI NHIỄM (risk_today, 06/10) ─────────────
+# Đặc tả: docs/THIET-KE-MUC-RUI-RO.md (luật R1–R17). Khối cũ (top D/E · Op.CF
+# toàn vũ trụ) lặp y hệt nhiều tháng; mục mới nói về thứ user ĐANG phơi nhiễm
+# hôm nay. Mọi dòng có chữ số trong mục do `_risk_today_lines` dựng — prompt
+# (khối "Dữ kiện rủi ro hôm nay") và guard gọi CÙNG hàm. Chế độ đọc từ
+# `ctx["risk_today"] is True` (collect_context ghi một lần): guard KHÔNG đọc env
+# nên vẫn là hàm thuần (text, ctx), pack/--from-file tái lập đúng chế độ.
+
+_RISK_FIN_SECTOR_KW = ("ngân hàng", "chứng khoán", "bảo hiểm", "tài chính")
+# R9 — dòng model trùng LOẠI với dòng code đã in thì bỏ.
+_RISK_DEDUP_KW = (
+    ("khối ngoại", "vốn ngoại", "bán ròng", "mua ròng"),
+    ("gdkhq", "quyền", "cổ tức", "thưởng"),
+    ("tỷ giá", "usd/vnd", "lãi suất", "lnh", "liên ngân hàng", "lợi suất", "tpcp"),
+)
+_RISK_ACTION_VI = {"BUY": "MUA", "SELL": "BÁN"}
+
+
+def _risk_on(ctx: dict | None) -> bool:
+    return (ctx or {}).get("risk_today") is True
+
+
+def _risk_num(v) -> "float | None":
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f == f else None
+
+
+def _risk_date(ctx: dict):
+    from datetime import date as _date
+    try:
+        return _date.fromisoformat(str((ctx or {}).get("date"))[:10])
+    except ValueError:
+        return None
+
+
+def _risk_custom_group(t: str) -> "str | None":
+    try:
+        from vnstock_sectors import custom_sector_for
+        return custom_sector_for(t)
+    except Exception:
+        return None
+
+
+def _risk_exposure(ctx: dict) -> dict:
+    """R3 — thứ user ĐANG phơi nhiễm hôm nay. CHỈ đọc ctx (không I/O)."""
+    rows = {str(r.get("Mã") or "").upper(): r for r in ctx.get("tickers") or []}
+    held = [str(p.get("ticker") or "").upper() for p in ctx.get("portfolio") or []]
+    recs = [str(r.get("ticker") or "").upper() for r in ctx.get("open_recs") or []]
+    movers: set = set()
+    for key in ("vn30_gainers", "vn30_losers"):
+        for m in ctx.get(key) or []:
+            tk = str(m.get("Mã") or "").upper()
+            if tk and (tk in VN30_TICKERS or (_risk_num(m.get("GTGD TB (tỷ)")) or 0)
+                       >= _WATCHLIST_GTGD_MIN_TY):
+                movers.add(tk)
+    fin = set(ctx.get("financial_tickers") or ()) | set(_FINANCIAL_TICKERS)
+    re_t = set(ctx.get("realestate_tickers") or ())
+    exposed = ({*held, *recs} | movers) - {""}
+    sectors: set = set()
+    for t in exposed:
+        for name in (_risk_custom_group(t), (rows.get(t) or {}).get("Ngành")):
+            if name:
+                sectors.add(str(name).lower())
+    if exposed & fin:
+        sectors.add("tài chính")
+    if exposed & re_t:
+        sectors.add("bất động sản")
+    known = (set(rows) | set(ctx.get("vn30_fundamentals") or {}) | exposed) - {""}
+    return {"held": [t for t in held if t], "recs": [t for t in recs if t],
+            "movers": movers, "exposed": exposed, "sectors": sectors,
+            "known": known, "rows": rows, "fin": fin, "re": re_t}
+
+
+def _risk_weights(ctx: dict) -> dict:
+    """R4 — w_t = qty×last_close / Σ, chỉ mã có last_close."""
+    vals: dict = {}
+    for p in ctx.get("portfolio") or []:
+        v = (_risk_num(p.get("qty")) or 0) * (_risk_num(p.get("last_close")) or 0)
+        if v > 0:
+            t = str(p.get("ticker") or "").upper()
+            vals[t] = vals.get(t, 0.0) + v
+    tot = sum(vals.values())
+    return {t: v / tot for t, v in vals.items()} if tot > 0 else {}
+
+
+def _risk_cluster_of(t: str, ctx: dict, exp: dict | None = None) -> tuple:
+    """(khoá cụm, nhãn in, từ khoá ngành dòng tiền). Thứ tự R4/R10: tài chính →
+    BĐS → nhóm tuỳ biến (custom_sector_for — đúng cách runner gộp, EIB → 'Họ
+    M') → Ngành gốc."""
+    exp = exp or _risk_exposure(ctx)
+    if t in exp["fin"]:
+        return ("tài chính", "nhóm tài chính", _RISK_FIN_SECTOR_KW)
+    if t in exp["re"]:
+        return ("bất động sản", "nhóm bất động sản", ("bất động sản",))
+    if cg := _risk_custom_group(t):
+        return (cg, f"nhóm {cg}", (cg.lower(),))
+    ng = str((exp["rows"].get(t) or {}).get("Ngành") or "").strip()
+    return (ng or t, f"ngành {ng}" if ng else t, (ng.lower(),) if ng else ())
+
+
+def _risk_sector_nn(ctx: dict) -> list:
+    out = []
+    for s in ctx.get("sectors") or []:
+        name, nn = str(s.get("Ngành") or "").strip(), _risk_num(s.get("NN 1T (tỷ)"))
+        if name and nn is not None:
+            out.append((name, nn))
+    return out
+
+
+def _risk_top_sell(ctx: dict) -> list:
+    """Top-3 ngành NN 1T ÂM nhất toàn thị trường, âm nhất trước."""
+    return sorted((x for x in _risk_sector_nn(ctx) if x[1] < 0),
+                  key=lambda x: x[1])[:_RISK_SECTOR_TOP_SELL]
+
+
+def _risk_flow_sectors(ctx: dict, kws, extra_names) -> list:
+    """'Ngành dòng tiền' của cụm: dòng ctx['sectors'] có tên chứa từ khoá của
+    cụm ∪ nhóm tuỳ biến của mã đang giữ trong cụm."""
+    return [(n, v) for n, v in _risk_sector_nn(ctx)
+            if any(k and k in n.lower() for k in kws) or n in extra_names]
+
+
+def _risk_watch_sr(ctx: dict, tickers: list) -> str:
+    """Vế 'Theo dõi' theo hỗ trợ pivot — '' khi không mã nào có mốc."""
+    sup = {str(p.get("ticker") or "").upper(): _risk_num(p.get("sr_support"))
+           for p in ctx.get("portfolio") or []}
+    parts = [f"{t} thủng {sup[t]:,.2f}" for t in tickers if sup.get(t)]
+    return " · ".join(parts) + " (hỗ trợ pivot 60 phiên)" if parts else ""
+
+
+def _risk_peer(ctx: dict, exp: dict, held_in: list) -> str:
+    """Mover cùng NGÀNH GỐC với một mã đang giữ, giảm ≥ 5% sau 5 phiên — âm nhất."""
+    best = None
+    for key in ("vn30_gainers", "vn30_losers"):
+        for m in ctx.get(key) or []:
+            tk, pct = str(m.get("Mã") or "").upper(), _risk_num(m.get("Giá 1T %"))
+            if not tk or tk in exp["held"] or pct is None or pct > _RISK_PEER_WEEK_PCT:
+                continue
+            ng = str(m.get("Ngành") or (exp["rows"].get(tk) or {}).get("Ngành") or "")
+            mate = next((h for h in held_in
+                         if ng and str((exp["rows"].get(h) or {}).get("Ngành") or "") == ng),
+                        None)
+            if mate and (best is None or pct < best[1]):
+                best = (tk, pct, ng, mate)
+    if not best:
+        return ""
+    return f"; {best[0]} cùng ngành {best[2]} với {best[3]} giảm {abs(best[1]):.1f}% sau 5 phiên"
+
+
+def _risk_p1(ctx: dict, exp: dict, w: dict) -> "dict | None":
+    """R4/P1 'concentration_flow' — ≥2 vị thế, một cụm ≥ 50% giá trị, VÀ vốn
+    ngoại đang rút khỏi cụm. Chỉ nêu tên ngành kèm số CỦA CHÍNH ngành (R10)."""
+    if len(w) < 2:
+        return None
+    clusters: dict = {}
+    for t, wt in w.items():
+        key, label, kws = _risk_cluster_of(t, ctx, exp)
+        c = clusters.setdefault(key, {"label": label, "kws": kws, "tickers": [], "w": 0.0})
+        c["tickers"].append(t)
+        c["w"] += wt
+    c = max(clusters.values(), key=lambda c: c["w"])
+    if c["w"] < _RISK_CLUSTER_SHARE:
+        return None
+    extra = {g for t in c["tickers"] if (g := _risk_custom_group(t))}
+    flow = _risk_flow_sectors(ctx, c["kws"], extra)
+    top = _risk_top_sell(ctx)
+    in_top = [(n, v) for n, v in sorted(flow, key=lambda x: x[1]) if n in {x[0] for x in top}]
+    total = sum(v for _, v in flow)
+    if not ((in_top and total < 0) or total <= _RISK_CLUSTER_NN_SELL_TY):
+        return None
+    named = in_top or sorted((x for x in flow if x[1] < 0), key=lambda x: x[1])[:2]
+    members = sorted(c["tickers"], key=lambda t: (-w[t], t))
+    flows = ", ".join(f"{n} bán ròng {v:,.0f} tỷ (1 tuần)"
+                      + (", mạnh nhất thị trường" if top and n == top[0][0] else "")
+                      for n, v in named)
+    watch = (_risk_watch_sr(ctx, members)
+             or f"khối ngoại còn bán ròng nhóm {named[0][0]} ở phiên kế tiếp")
+    text = (f"- Danh mục tập trung {c['w'] * 100:.0f}% vào {c['label']}: "
+            + " · ".join(f"{t} {w[t] * 100:.0f}%" for t in members)
+            + f" giá trị đang giữ (theo giá hiện tại); vốn ngoại đang rút khỏi nhóm này: "
+            f"{flows}{_risk_peer(ctx, exp, members)}. Theo dõi: {watch}.")
+    return {"tier": "P", "kind": "concentration_flow", "tickers": members,
+            "weight": c["w"], "severity": 3, "text": text}
+
+
+def _risk_held_move(ctx: dict, exp: dict, w: dict, p: dict, covered: set) -> "dict | None":
+    """R4/P2-P3 'held_move' — một dòng cho một mã đang giữ có biến cố riêng."""
+    t = str(p.get("ticker") or "").upper()
+    row = exp["rows"].get(t) or {}
+    facts = []
+    nn, wk = _risk_num(row.get("NN 1T (tỷ)")), _risk_num(row.get("Giá 1T %"))
+    if nn is not None and nn <= _RISK_TICKER_NN_SELL_TY:
+        facts.append(f"khối ngoại bán ròng chính mã này {nn:,.0f} tỷ (1 tuần)")
+    if wk is not None and wk <= _RISK_HELD_WEEK_PCT:
+        facts.append(f"giảm {abs(wk):.1f}% sau 5 phiên")
+    d1 = _risk_num(p.get("chg_1d_pct"))
+    if (d1 is not None and d1 <= _RISK_HELD_SHOCK_1D_PCT
+            and str(p.get("last_bar") or "") == str(ctx.get("date") or "")):
+        facts.append(f"giảm {abs(d1):.1f}% trong ngày {ctx.get('date')}")
+    if t not in covered:
+        _, _, kws = _risk_cluster_of(t, ctx, exp)
+        top = {n: v for n, v in _risk_top_sell(ctx)}
+        g = _risk_custom_group(t)
+        hit = [(n, v) for n, v in _risk_flow_sectors(ctx, kws, {g} if g else set()) if n in top]
+        if hit:
+            n, v = min(hit, key=lambda x: x[1])
+            facts.append(f"vốn ngoại đang rút khỏi nhóm của mã: {n} bán ròng {v:,.0f} tỷ (1 tuần)")
+    if not facts:
+        return None
+    watch = _risk_watch_sr(ctx, [t]) or f"diễn biến {t} ở phiên kế tiếp"
+    return {"tier": "P", "kind": "held_move", "tickers": [t], "weight": w.get(t, 0.0),
+            "severity": len(facts),
+            "text": f"- Mã đang giữ {t}: " + "; ".join(facts) + f". Theo dõi: {watch}."}
+
+
+def _risk_held_items(ctx: dict, exp: dict) -> list:
+    """Tầng P (R4): P1 tập trung + dòng tiền, P2/P3 biến cố từng mã, P4 GDKHQ."""
+    w = _risk_weights(ctx)
+    out, covered = [], set()
+    if p1 := _risk_p1(ctx, exp, w):
+        out.append(p1)
+        covered = set(p1["tickers"])
+    for p in ctx.get("portfolio") or []:
+        if it := _risk_held_move(ctx, exp, w, p, covered):
+            out.append(it)
+    return out + _risk_exdate_items(ctx, exp, "P")
+
+
+def _risk_market_items(ctx: dict, p1_fired: bool = False) -> list:
+    """Tầng M (R5) — chỉ khi có BIẾN CỐ trong kỳ; gauge chỉ có MỨC không bao giờ in.
+    M4 (NN 1D toàn thị trường) nhường P1: dòng tập trung đã nói chuyện vốn ngoại."""
+    from datetime import date as _date
+
+    base, parts = _risk_date(ctx), []
+    rules = {"usdvnd": ("pct", _RISK_FX_PCT, "%"),
+             "interbank_on": ("delta", _RISK_ON_DELTA, " điểm %"),
+             "govt_bond_yield_10y": ("delta", _RISK_10Y_DELTA, " điểm %")}
+    for ind in ctx.get("macro") or []:
+        rule = rules.get(ind.get("key"))
+        try:
+            as_of = _date.fromisoformat(str(ind.get("as_of"))[:10])
+        except ValueError:
+            continue
+        if not rule or base is None or (base - as_of).days > _RISK_MACRO_MAX_AGE_DAYS:
+            continue
+        v = _risk_num((ind.get("change") or {}).get(rule[0]))
+        if v is not None and v >= rule[1]:
+            parts.append(f"{ind.get('label') or ind.get('key')} +{v:.2f}{rule[2]} "
+                         f"(tính đến {as_of.isoformat()})")
+    out = []
+    if parts:
+        out.append({"tier": "M", "kind": "fx_rate", "tickers": [], "weight": 0.0,
+                    "severity": len(parts),
+                    "text": "- Tiền tệ xấu đi: " + "; ".join(parts)
+                            + ". Theo dõi: tỷ giá và lãi suất ở phiên kế tiếp."})
+    for sig in (ctx.get("market_sentiment") or {}).get("signals") or []:
+        if "NN ròng 1D" not in str(sig.get("name") or ""):
+            continue
+        v = _parse_vn_number(str(sig.get("value", "")).replace("tỷ", "").replace("+", "").strip())
+        if v is not None and v <= _RISK_NN_1D_HEAVY_TY and not p1_fired:
+            out.append({"tier": "M", "kind": "foreign_1d", "tickers": [], "weight": 0.0,
+                        "severity": 1,
+                        "text": f"- Khối ngoại bán ròng mạnh toàn thị trường: {v:,.0f} tỷ "
+                                f"(1D, phiên gần nhất). Theo dõi: khối ngoại còn bán ròng "
+                                f"ở phiên kế tiếp."})
+    return out
+
+
+def _adjusted_from_thousand(px, titles) -> "float | None":
+    """Sổ/kho lưu giá theo NGHÌN, `adjusted_price` nhận ĐỒNG — quên ×1000 là cổ
+    tức tiền 1.500đ bị trừ thẳng vào giá 25 (nghìn)."""
+    try:
+        from vnstock_corp_ratio import adjusted_price
+        adj = adjusted_price(float(px) * 1000, titles)
+    except Exception:
+        return None
+    return adj / 1000 if adj else None
+
+
+def _risk_exdate_items(ctx: dict, exp: dict, tier: str) -> list:
+    """Tầng R (lệnh mở không đang giữ) và P4 (mã đang giữ) — GDKHQ trong 3 ngày,
+    neo theo NGÀY PHIÊN (ctx['date']) chứ không theo đồng hồ máy."""
+    emap = _exdate_map({**ctx, "today": ctx.get("today") or ctx.get("date")},
+                       _RISK_EXDATE_DAYS)
+    base, out = _risk_date(ctx), []
+    if tier == "P":
+        src = {str(p.get("ticker") or "").upper(): p for p in ctx.get("portfolio") or []}
+    else:
+        src = {str(r.get("ticker") or "").upper(): r for r in ctx.get("open_recs") or []
+               if str(r.get("ticker") or "").upper() not in exp["held"]}
+    for t, rec in sorted(src.items()):
+        if t not in emap:
+            continue
+        d, titles = emap[t]
+        ev = "; ".join(x for x in titles if x)
+        days = (d - base).days if base else 0
+        if tier == "P":
+            px = _risk_num(rec.get("last_close"))
+            adj = _adjusted_from_thousand(px, titles) if px else None
+            ref = (f"giá tham chiếu ≈{_fmt_adj_price(adj)} sau quy đổi quyền "
+                   f"(giá hiện tại {px:,.2f})" if adj else "giá tham chiếu tự điều chỉnh")
+            text = (f"- GDKHQ chạm mã đang giữ {t}: {ev} ngày {d.isoformat()}; {ref}. "
+                    f"Theo dõi: phiên {d.isoformat()} giá về quanh mức quy đổi là điều "
+                    f"chỉnh cơ học, không phải tín hiệu bán.")
+        else:
+            px = _risk_num(rec.get("entry"))
+            adj = _adjusted_from_thousand(px, titles) if px else None
+            act = _RISK_ACTION_VI.get(str(rec.get("action") or "").upper(), "MUA")
+            at = f"@{_fmt_footer_price(px)}" if px else ""
+            ref = (f"mốc {at} tương đương ≈{_fmt_adj_price(adj)} sau quy đổi quyền"
+                   if adj else "giá tham chiếu tự điều chỉnh")
+            text = (f"- GDKHQ chạm lệnh mở {t} ({act} {at}): {ev} ngày {d.isoformat()}; "
+                    f"{ref}, entry/TP/SL trong sổ CHƯA quy đổi. Theo dõi: phiên "
+                    f"{d.isoformat()} giá về quanh mức quy đổi là điều chỉnh cơ học, "
+                    f"không phải tín hiệu chạm SL.")
+        out.append({"tier": tier, "kind": "exdate_held" if tier == "P" else "exdate_rec",
+                    "tickers": [t], "weight": _risk_weights(ctx).get(t, 0.0),
+                    "severity": 1, "days": days, "text": text})
+    return out
+
+
+def _risk_fund_items(ctx: dict, exp: dict) -> list:
+    """Tầng F (R7) — số cơ bản CHỈ cho lệnh MỚI (≤1 ngày), phi tài chính, không
+    đang giữ. Số năm của mã đang giữ sẽ lặp mỗi ngày — đó đúng là bệnh cũ."""
+    funds, base, cands = ctx.get("vn30_fundamentals") or {}, _risk_date(ctx), []
+    for r in ctx.get("open_recs") or []:
+        t = str(r.get("ticker") or "").upper()
+        age = _risk_num(r.get("age_days"))
+        if not t or t in exp["held"] or t in exp["fin"] or age is None \
+                or age > _RISK_NEW_REC_DAYS:
+            continue
+        de, ocf = _risk_num((funds.get(t) or {}).get("de")), _risk_num((funds.get(t) or {}).get("ocf"))
+        if de is not None and de >= _RISK_FUND_DE_MIN:
+            cands.append(((0, -de, t), r, f"D/E={de:.2f} (BCTC gần nhất)"))
+        elif ocf is not None and ocf < 0:
+            note = (" — chủ yếu do tích lũy quỹ đất/hàng tồn kho dự án — vốn lưu động, "
+                    "KHÔNG phải lỗ HĐKD; soi thêm D/E và nợ vay" if t in exp["re"] else "")
+            cands.append(((1, ocf, t), r, f"Op.CF={ocf:,.0f} tỷ (BCTC gần nhất){note}"))
+    if not cands or base is None:
+        return []
+    (_, _, t), r, fact = min(cands, key=lambda c: c[0])
+    px = _risk_num(r.get("entry"))
+    act = _RISK_ACTION_VI.get(str(r.get("action") or "").upper(), "MUA")
+    at = f" @{_fmt_footer_price(px)}" if px else ""
+    return [{"tier": "F", "kind": "fund_new_rec", "tickers": [t], "weight": 0.0,
+             "severity": 1,
+             "text": f"- Cơ bản lệnh mới {t} ({act}{at}, mở trong 1 ngày qua): {fact}. "
+                     f"Theo dõi: mốc cắt lỗ của lệnh {t}."}]
+
+
+def _risk_today_items(ctx: dict) -> list:
+    """Mọi item của mục — {tier, kind, tickers, weight, severity, text}. Hàm
+    thuần, không I/O; CHƯA sắp xếp, CHƯA áp trần."""
+    exp = _risk_exposure(ctx)
+    held = _risk_held_items(ctx, exp)
+    p1 = any(it["kind"] == "concentration_flow" for it in held)
+    return (held + _risk_market_items(ctx, p1)
+            + _risk_exdate_items(ctx, exp, "R") + _risk_fund_items(ctx, exp))
+
+
+def _risk_section_bounds(lines: list) -> tuple:
+    """(start, end) của mục Rủi ro — chỉ nhận dòng TIÊU ĐỀ (_is_section_start)."""
+    start = next((i for i, l in enumerate(lines)
+                  if _is_section_start(l) and "rủi ro cần lưu ý" in l.lower()), None)
+    if start is None:
+        return (None, None)
+    end = next((i for i in range(start + 1, len(lines))
+                if _is_section_start(lines[i])), len(lines))
+    return (start, end)
+
+
+def _risk_exdate_marked(text: str) -> set:
+    """Mã đã có '⚠️ GDKHQ' trên một dòng NGOÀI mục Rủi ro (💡/watchlist)."""
+    lines = text.splitlines()
+    start, end = _risk_section_bounds(lines)
+    outside = [l for i, l in enumerate(lines)
+               if start is None or not (start <= i < end)]
+    return {t for l in outside if _EXDATE_MARK in l
+            for t in _re.findall(r"\b[A-Z][A-Z0-9]{2}\b", l)}
+
+
+def _risk_today_lines(ctx: dict, text: "str | None" = None) -> list:
+    """Dòng code của mục, theo R8: P (−trọng số, −mức, mã) → M → R (ngày, mã) →
+    F; trần từng tầng rồi trần chung. Có `text` thì bỏ item R/P4 của mã đã được
+    `enforce_exdate_levels` gắn '⚠️ GDKHQ' ở mục khác (khỏi nói hai lần)."""
+    items = _risk_today_items(ctx)
+    if text:
+        marked = _risk_exdate_marked(text)
+        items = [it for it in items
+                 if not (it["kind"] in ("exdate_held", "exdate_rec")
+                         and set(it["tickers"]) & marked)]
+    order = {"P": lambda it: (-it["weight"], -it["severity"], it["tickers"][:1]),
+             "M": lambda it: 0,
+             "R": lambda it: (it.get("days", 0), it["tickers"][:1]),
+             "F": lambda it: 0}
+    out = []
+    for tier in ("P", "M", "R", "F"):
+        tier_items = sorted((it for it in items if it["tier"] == tier), key=order[tier])
+        out += [it["text"] for it in tier_items[:_RISK_TIER_CAPS[tier]]]
+    return out[:_RISK_MAX_LINES]
+
+
+def _risk_agent_line_ok(line: str, ctx: dict, exp: dict | None = None) -> bool:
+    """R9 — dòng của model được GIỮ khi: không rỗng, không mang tiền tố code,
+    KHÔNG có chữ số, không từ khoá cơ bản/đòn bẩy, chạm mã/ngành phơi nhiễm
+    hoặc nói về 'danh mục', và không nêu mã đã biết mà nằm NGOÀI phơi nhiễm."""
+    s = (line or "").strip()
+    if not s or s.startswith(_RISK_LINE_PREFIXES) or _re.search(r"\d", s):
+        return False
+    low = s.lower()
+    if any(k in low for k in _RISK_AGENT_DROP_KW):
+        return False
+    exp = exp or _risk_exposure(ctx)
+    named = {t for t in _re.findall(r"\b[A-Z][A-Z0-9]{2}\b", s) if t in exp["known"]}
+    if named - exp["exposed"]:
+        return False
+    return bool(named) or "danh mục" in low or any(sec in low for sec in exp["sectors"])
+
+
+def _risk_dupes_code(line: str, code: list) -> bool:
+    """Dòng model trùng LOẠI (NN / GDKHQ / tiền tệ) hoặc trùng mã của dòng
+    'Mã đang giữ' đã in ⇒ bỏ."""
+    low, code_low = line.lower(), " ".join(code).lower()
+    if any(any(k in low for k in kws) and any(k in code_low for k in kws)
+           for kws in _RISK_DEDUP_KW):
+        return True
+    held_lines = [c.split()[4].rstrip(":") for c in code
+                  if c.startswith("- Mã đang giữ") and len(c.split()) > 4]
+    return any(_re.search(rf"\b{_re.escape(t)}\b", line) for t in held_lines)
+
+
+def _risk_section_filter(text: str, ctx: dict) -> str:
+    """Nhánh risk_today của enforce_risk_section (#8): gỡ dòng code (theo tiền
+    tố) và dòng trống, giữ ≤1 dòng model đạt R9. Thân không đổi ⇒ trả NGUYÊN text."""
+    if not text:
+        return text
+    lines = text.splitlines()
+    start, end = _risk_section_bounds(lines)
+    if start is None:
+        return text
+    exp = _risk_exposure(ctx)
+    body = lines[start + 1:end]
+    keep = next((l for l in body if _risk_agent_line_ok(l, ctx, exp)), None)
+    new_body = [keep] if keep else []
+    if new_body == body:
+        return text
+    return "\n".join(lines[:start + 1] + new_body + lines[end:])
+
+
+def _risk_insert_section(lines: list, body: list, ctx: dict) -> str:
+    """Brief THIẾU mục Rủi ro mà có dòng code: chèn trước 📅/'sự kiện sắp tới',
+    không có thì trước 🌐, không có nữa thì cuối bài."""
+    head = "## ⚠️ Rủi ro cần lưu ý" + (" (phiên chiều)"
+                                     if (ctx or {}).get("brief_type") == "morning" else "")
+    at = next((i for i, l in enumerate(lines) if _is_section_start(l)
+               and ("📅" in l or "sự kiện sắp tới" in l.lower())), None)
+    if at is None:
+        at = next((i for i, l in enumerate(lines) if _is_section_start(l) and "🌐" in l),
+                  len(lines))
+    block = [head] + body + ([""] if at < len(lines) else [])
+    return "\n".join(lines[:at] + block + lines[at:])
+
+
+def enforce_risk_today(text: str, ctx: dict) -> str:
+    """Mục '⚠️ Rủi ro cần lưu ý' theo PHƠI NHIỄM (chế độ risk_today, R13).
+
+    Đặt NGAY SAU enforce_reference_band_wording: lúc đó watchlist, 💡 và dấu
+    '⚠️ GDKHQ' đã chốt (để lọc R6), mọi guard khối ngoại đã chạy xong (dòng
+    code không bị chúng "sửa"), phía sau chỉ còn caveat/GTGD/số/format.
+
+    Thân mục = dòng code (`_risk_today_lines`) + ≤1 dòng model còn lại (lọc lại
+    bằng R9 và chống trùng loại), hoặc dòng dự phòng — không bao giờ để trống.
+    Idempotent nhờ TIỀN TỐ cố định: lượt sau #8 gỡ dòng code theo tiền tố, guard
+    này dựng lại y hệt. Chế độ cũ (ctx thiếu khoá/False): no-op.
+    """
+    if (not text or not _risk_on(ctx)
+            or (ctx or {}).get("brief_type", "afternoon") not in ("morning", "afternoon")):
+        return text
+    code = _risk_today_lines(ctx, text)
+    lines = text.splitlines()
+    start, end = _risk_section_bounds(lines)
+    if start is None:
+        return _risk_insert_section(lines, code, ctx) if code else text
+    exp = _risk_exposure(ctx)
+    model = [l for l in lines[start + 1:end]
+             if _risk_agent_line_ok(l, ctx, exp) and not _risk_dupes_code(l, code)][:1]
+    body = code + (model if len(code) < _RISK_MAX_LINES else [])
+    body = body or [_RISK_FALLBACK_LINE]
+    if body == lines[start + 1:end]:
+        return text
+    return "\n".join(lines[:start + 1] + body + lines[end:])
 
 
 def enforce_buy_vs_bias_caveat(text: str, ctx: dict) -> str:

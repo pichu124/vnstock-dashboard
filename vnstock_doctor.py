@@ -1538,9 +1538,26 @@ def check_brief_watch() -> dict:
     except Exception as e:
         return _result("brief_watch", name, "error",
                        f"không đọc được sổ ({type(e).__name__}: {e})", "")
+    # Mục Rủi ro lặp y hệt phiên trước (06/10, risk_today) — đếm cặp phiên.
+    _rp, _rr = int(st.get("risk_pairs") or 0), int(st.get("risk_repeats") or 0)
+    if _rp >= _w.MIN_SAMPLES:
+        try:
+            from vnstock_brief_canon import _RISK_REPEAT_WARN as _rwarn
+        except Exception:
+            _rwarn = 0.5
+        if _rr / _rp >= _rwarn:
+            return _result(
+                "brief_watch", name, "warn",
+                f"mục Rủi ro trùng y phiên trước {_rr}/{_rp}",
+                "kiểm VNSTOCK_BRIEF_RISK_TODAY trong .env 🖥️ DESKTOP, rồi xem ngưỡng "
+                "_RISK_* ở vnstock_brief_canon")
+    _risk_note = ((f" · Rủi ro trùng phiên trước {_rr}/{_rp}"
+                   + (f" (n={_rp}, chưa đủ mẫu)" if _rp < _w.MIN_SAMPLES else ""))
+                  if _rp else "")
     if not st["n_ocf"] and not st["n_flow"]:
         return _result("brief_watch", name, "ok",
-                       f"chưa nhặt được nghi ngờ nào (đã soi {st['n_days']} phiên)", "")
+                       f"chưa nhặt được nghi ngờ nào (đã soi {st['n_days']} phiên)"
+                       + _risk_note, "")
     parts = []
     if st["n_ocf"]:
         w = st["worst_ocf"] or {}
@@ -1551,7 +1568,7 @@ def check_brief_watch() -> dict:
     if st["n_flow"]:
         parts.append(f"câu dòng tiền ngoại NGƯỢC data ×{st['n_flow']} "
                      f"({', '.join(st['flow_sectors'][:3])})")
-    msg = f"{st['n_days']} phiên đã soi — " + " · ".join(parts)
+    msg = f"{st['n_days']} phiên đã soi — " + " · ".join(parts) + _risk_note
     if not st["enough"]:
         return _result("brief_watch", name, "ok",
                        f"{msg} — CHƯA đủ mẫu để kết luận "

@@ -367,3 +367,80 @@ def _gtgd_close_frame(ctx: dict) -> "tuple[float | None, dict, str]":
     if eod_f:
         return eod_f, eod_cmp, "eod"
     return None, {}, ""
+
+
+# ── Mục "⚠️ Rủi ro cần lưu ý" theo PHƠI NHIỄM (risk_today, 06/10) ─────────────
+# Đặc tả: docs/THIET-KE-MUC-RUI-RO.md. Khối cũ (top D/E · Op.CF toàn vũ trụ) lặp
+# y hệt nhiều tháng vì số BCTC năm đứng yên và phép chọn là xếp hạng cực trị
+# trên nhóm ổn định. Mục mới do CODE dựng từ thứ user ĐANG phơi nhiễm hôm nay
+# (danh mục 📌, lệnh mở ở footer, ngành của chúng, GDKHQ, tiền tệ/khối ngoại
+# biến động mạnh); model chỉ được thêm ≤1 dòng KHÔNG chữ số. Hằng ở đây dùng
+# chung cho prompt (khối "Dữ kiện rủi ro hôm nay") và guard `enforce_risk_today`.
+# Mọi ngưỡng chỉ chỉnh SAU khi sổ brief_watch đếm đủ mẫu (R17).
+
+# Từ khoá CƠ BẢN — #8 cũ dùng tuple cục bộ y hệt; nay một nơi.
+_FUND_KW = ("d/e", "op.cf", "lưu chuyển tiền", "lưu lượng tiền", "hđkd",
+            "đòn bẩy", "quỹ đất")
+_RISK_AGENT_DROP_KW = _FUND_KW + ("nợ vay", "kiệt quệ", "margin", "ký quỹ", "roe")
+# Tiền tố CỐ ĐỊNH của dòng do code in — guard nhận diện bằng tiền tố nên chạy
+# lại chuỗi guard bao nhiêu lần cũng ra y hệt (gỡ theo tiền tố rồi dựng lại).
+_RISK_LINE_PREFIXES = (
+    "- Danh mục tập trung", "- Mã đang giữ", "- GDKHQ chạm", "- Tiền tệ xấu đi",
+    "- Khối ngoại bán ròng mạnh", "- Cơ bản lệnh mới", "- Không có rủi ro mới",
+)
+_RISK_FALLBACK_LINE = ("- Không có rủi ro mới chạm danh mục hay lệnh đang mở "
+                       "trong phiên này.")
+# Thay ĐÚNG đoạn luật D/E/Op.CF trong hai template (không chứa ngoặc nhọn vì
+# template còn `.format`).
+_RISK_TODAY_RULES = (
+    "[Hệ thống TỰ IN các dòng có số của mục này từ block \"Dữ kiện rủi ro hôm nay\" "
+    "— KHÔNG chép lại các dòng đó, KHÔNG tự viết số.]\n"
+    "Được viết THÊM TỐI ĐA 1 dòng nhận định KHÔNG chứa chữ số nào, chỉ về mã/ngành "
+    "trong danh mục đang giữ hoặc lệnh đang mở (vd rủi ro chung của danh mục). "
+    "KHÔNG nêu D/E, Op.CF, đòn bẩy, dòng tiền HĐKD, quỹ đất, nợ vay, margin; KHÔNG "
+    "nêu mã ngoài danh mục/lệnh mở; KHÔNG lặp lại khối ngoại/GDKHQ/tỷ giá mà dòng "
+    "hệ thống đã nói. Không có gì đáng thêm thì bỏ trống — hệ thống tự ghi."
+)
+_RISK_MAX_LINES = 4
+_RISK_TIER_CAPS = {"P": 2, "M": 2, "R": 2, "F": 1}
+_RISK_CLUSTER_SHARE = 0.50          # một cụm ≥ 50% giá trị danh mục
+_RISK_SECTOR_TOP_SELL = 3           # top-3 ngành NN 1T âm nhất
+_RISK_CLUSTER_NN_SELL_TY = -500.0   # hoặc Σ NN 1T ngành dòng tiền của cụm ≤ −500 tỷ
+_RISK_TICKER_NN_SELL_TY = -50.0     # NN 1T của CHÍNH mã đang giữ
+_RISK_HELD_SHOCK_1D_PCT = -3.0      # mã đang giữ giảm ≥ 3% trong phiên
+_RISK_HELD_WEEK_PCT = -7.0          # … hoặc ≥ 7% sau 5 phiên
+_RISK_PEER_WEEK_PCT = -5.0          # mã cùng ngành gốc giảm ≥ 5% sau 5 phiên
+_RISK_EXDATE_DAYS = 3
+_RISK_FX_PCT = 0.30                 # USD/VND tăng ≥ 0,30%
+_RISK_ON_DELTA = 1.00               # LNH qua đêm tăng ≥ 1 điểm %
+_RISK_10Y_DELTA = 0.15              # lợi suất TPCP 10Y tăng ≥ 0,15 điểm %
+_RISK_MACRO_MAX_AGE_DAYS = 5
+_RISK_NN_1D_HEAVY_TY = -1000.0      # NN ròng 1D toàn thị trường
+_RISK_FUND_DE_MIN = 1.5
+_RISK_NEW_REC_DAYS = 1
+_RISK_REPEAT_WARN = 0.5             # badge doctor: mục Rủi ro trùng phiên trước ≥ 50%
+# R11 — dòng code đi qua ~29 guard phía sau và không được dẫm lên brief 3 khung.
+_RISK_FORBIDDEN_VOCAB = (
+    "🚨", "💼", "🔭", "đỉnh 20 phiên", "MA50", "MA200", "band", "Risk-on",
+    "Risk-off", "Trung hạn", "Ngắn hạn", "cao nhất", "momentum", "tâm lý", "GTGD",
+    "thanh khoản", "đóng cửa", "so với phiên trước", "thấp hơn", "cao hơn", "vĩ mô",
+    "kỷ lục", "bắt buộc", "BUY", "entry=",
+)
+
+
+def _fmt_footer_price(p: float) -> str:
+    """Giá lệnh (đơn vị NGHÌN) — y hệt footer Telegram (`vnstock_telegram._fmt_price`
+    gọi lại hàm này): mã giá thấp giữ đủ chữ số có nghĩa thay vì "@1"/"@0"."""
+    a = abs(p)
+    if a == 0:
+        return "0"
+    if a < 1:
+        return f"{p:,.3f}"
+    if a < 10:
+        return f"{p:,.2f}"
+    return f"{p:,.0f}"
+
+
+def _fmt_adj_price(p: float) -> str:
+    """Giá quy đổi quyền: tối đa 2 số lẻ, bỏ số 0 thừa — 52.0 → '52', 23.5 → '23.5'."""
+    return f"{p:,.2f}".rstrip("0").rstrip(".")
