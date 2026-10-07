@@ -7015,7 +7015,26 @@ merge KHÔNG bao giờ ≥75 ⇒ rơi im (tự dọn sau 7 ngày); không quy đ
 sau merge là tin cũ. `MAX_SEND` giữ 8 (trần an toàn; lượt bắt bù sáng vẫn có thể chạm).
 
 **Đo:** vài ngày sau merge đếm tin/lượt ở log `[news-alert]` + Telegram; vẫn nhiều ⇒
-`VNSTOCK_NEWS_ALERT_MIN_SCORE=80`, ít ⇒ `=70`. Test: `tests/test_news_alert.py` (+15:
+`VNSTOCK_NEWS_ALERT_MIN_SCORE=80`, ít ⇒ `=70`.
+
+**07/10 tối — ĐO THẬT: 75 quá chặt (lỗi prompt của tôi).** 591 tin chấm từ 22:00 06/10 ⇒
+0 gửi; điểm CAO NHẤT 72 (việc làm Mỹ thất nghiệp 4,2% · NHNN cảnh báo lạm phát · lợi suất Mỹ
+đỉnh 24 năm — đều đáng ≥80 theo chính dải của prompt). Ba câu chồng nhau ("phân vân chọn
+THẤP", "75 = dừng việc đọc NGAY", "phần lớn 30–65") nén cả thang xuống. Phân bố: 70–74 ×3 ·
+60–69 ×22 · 40–59 ×197 · <40 ×369 ⇒ ngưỡng 70 = 3 tin/23h, **65 = 10**, 60 = 25. User chọn
+**65 qua `.env` desktop** (`VNSTOCK_NEWS_ALERT_MIN_SCORE=65`) — đặt ngưỡng theo PHÂN BỐ ĐO
+ĐƯỢC, KHÔNG sửa prompt (sửa prompt là phân bố mới chưa đo, 65 hết đúng). Gửi bù tin lỡ:
+`run.py news-alert --window-h 30 --max-send 15 --min-score 65` (tin đã chấm nằm sẵn trong sổ,
+không chấm lại; `--window-h` cũng nới tuổi tin dư khỏi hết hạn).
+
+**Lọc trùng trước khi gửi (07/10):** bản xem trước gửi bù ra HAI bản Bloomberg "US 30-Year
+Yields…" — nguồn sửa tiêu đề ("Above" → "Back Above") ⇒ hash (ngày|tiêu đề) khác ⇒ 2 bản ghi,
+cùng link, cùng chưa gửi (lượt mỗi giờ có guard "ĐÃ GỬI 24h" nên ít lộ; gửi bù gom tin dư
+nhiều lượt thì lọt). `mark_duplicate_pending` (chạy sau `expire_leftovers`, trước
+`select_to_send`) đánh `dup_of` cho tin chờ trùng LINK (`_norm_link` bỏ scheme/www/query/#)
+hoặc tiêu đề gần y hệt (`_titles_match`, cùng thước `deduplicate_news`) với tin đã gửi 24h
+hoặc tin chờ điểm cao hơn; `select_to_send` bỏ tin `dup_of`. Cùng SỰ KIỆN khác bài/khác nguồn
+KHÔNG gộp (việc của prompt). Test +4. Test: `tests/test_news_alert.py` (+15:
 ngưỡng 75 gửi/74 không, `.env`=4 ⇒ 80, kẹp 0–100, dải biểu tượng, ghim prompt).
 
 # 🧭 U75. MỤC ⚠️ RỦI RO THEO PHƠI NHIỄM DANH MỤC (risk_today) — KHỐI CỰC TRỊ VTZ/KBC RỜI BRIEF NGÀY (06/10)

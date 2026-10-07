@@ -985,11 +985,30 @@ def _norm_t(title: str) -> str:
         return " ".join(re.sub(r"[^\w\s]", " ", (title or "").lower()).split())
 
 
+def _titles_match(t: str, s: str) -> bool:
+    """Hai tiêu đề ĐÃ chuẩn hoá (`_norm_t`) là một bài — cùng thước
+    `deduplicate_news`: y hệt, hoặc dài xêm xêm và giống ≥ SENT_DUP_RATIO."""
+    from difflib import SequenceMatcher
+    if not t or not s:
+        return False
+    return t == s or (abs(len(t) - len(s)) <= 0.3 * max(len(t), len(s))
+                      and SequenceMatcher(None, t, s).ratio() >= SENT_DUP_RATIO)
+
+
+def _norm_link(url) -> str:
+    """Link để so trùng: bỏ scheme/www, query (`?mod=rss…`, `?oc=5`), mảnh `#`,
+    gạch chéo cuối. Rỗng ⇒ "" (không bao giờ khớp)."""
+    u = str(url or "").strip().lower()
+    if not u:
+        return ""
+    u = u.split("#", 1)[0].split("?", 1)[0].rstrip("/")
+    return re.sub(r"^https?://(www\.)?", "", u)
+
+
 def cap_sent_duplicates(todo: list, scored: dict, sent_titles: list) -> int:
     """Guard deterministic (prompt có thể bị phớt): tiêu đề gần như TRÙNG một tin
     đã gửi (cùng thước `deduplicate_news`) ⇒ trần `SENT_DUP_CAP`. Sửa `scored`
     tại chỗ, trả số tin bị hạ."""
-    from difflib import SequenceMatcher
     sent = [t for t in (_norm_t(x) for x in sent_titles) if t]
     if not sent:
         return 0
@@ -999,9 +1018,7 @@ def cap_sent_duplicates(todo: list, scored: dict, sent_titles: list) -> int:
         t = _norm_t(it.get("title", ""))
         if not sc or not t or int(sc.get("muc_do") or 0) <= SENT_DUP_CAP:
             continue
-        if any(t == s or (abs(len(t) - len(s)) <= 0.3 * max(len(t), len(s))
-                          and SequenceMatcher(None, t, s).ratio() >= SENT_DUP_RATIO)
-               for s in sent):
+        if any(_titles_match(t, s) for s in sent):
             scored[i] = {**sc, "muc_do": SENT_DUP_CAP}
             n += 1
     return n
@@ -1192,16 +1209,48 @@ def expire_leftovers(seen: dict, now: datetime, min_score: int, max_age_h: float
     return n
 
 
-def select_to_send(seen: dict, min_score: int, max_send: int) -> "list[tuple[str, dict]]":
-    """Tin đã chấm ≥ ngưỡng, CHƯA gửi, chưa hết hạn — mức cao trước, mới trước; ≤ max_send."""
+def _pending(seen: dict, min_score: int) -> "list[tuple[str, dict]]":
+    """Tin đạt ngưỡng, CHƯA gửi, chưa hết hạn, chưa bị đánh trùng — mức cao trước,
+    cùng mức thì mới trước (hai lượt sort ổn định)."""
     cands = [(h, r) for h, r in (seen.get("items") or {}).items()
              if isinstance(r, dict) and isinstance(r.get("score"), int)
-             and r["score"] >= min_score and not r.get("sent") and not r.get("expired_at")]
-    # hai lượt sort ổn định: mới trước, rồi điểm cao trước (cùng điểm giữ mới trước)
+             and r["score"] >= min_score and not r.get("sent")
+             and not r.get("expired_at") and not r.get("dup_of")]
     cands.sort(key=lambda hr: (hr[1].get("published") or "", hr[1].get("first_seen") or ""),
                reverse=True)
     cands.sort(key=lambda hr: -hr[1]["score"])
-    return cands[:max(0, max_send)]
+    return cands
+
+
+def mark_duplicate_pending(seen: dict, now: datetime, min_score: int,
+                           hours: int = SENT_CONTEXT_H) -> int:
+    """Đánh `dup_of` cho tin chờ gửi TRÙNG một tin đã gửi trong `hours` giờ hoặc một
+    tin chờ điểm cao hơn: cùng link (bỏ query) hoặc tiêu đề gần y hệt. Vết 07/10:
+    gửi bù 30h gom tin dư từ nhiều lượt ⇒ Bloomberg sửa tiêu đề "Above $100" →
+    "Back Above $100" thành HAI bản ghi (hash theo tiêu đề), cùng link, cùng được
+    chọn. Sửa `seen` tại chỗ (như `expire_leftovers`), trả số tin vừa đánh."""
+    cutoff = (now - timedelta(hours=hours)).isoformat(timespec="seconds")
+    ref: list = []                                   # (hash, link chuẩn, tiêu đề chuẩn)
+    for h, r in (seen.get("items") or {}).items():
+        if isinstance(r, dict) and r.get("sent") and (r.get("sent_at") or "") >= cutoff:
+            ref.append((h, _norm_link(r.get("link")), _norm_t(r.get("title", ""))))
+    n = 0
+    for h, r in _pending(seen, min_score):
+        link, title = _norm_link(r.get("link")), _norm_t(r.get("title", ""))
+        hit = next((rh for rh, rl, rt in ref
+                    if (link and link == rl) or _titles_match(title, rt)), None)
+        if hit is not None:
+            r["dup_of"] = hit
+            n += 1
+        else:
+            ref.append((h, link, title))
+    return n
+
+
+def select_to_send(seen: dict, min_score: int, max_send: int) -> "list[tuple[str, dict]]":
+    """Tin đã chấm ≥ ngưỡng, CHƯA gửi, chưa hết hạn, không trùng — mức cao trước,
+    mới trước; ≤ max_send."""
+    return _pending(seen, min_score)[:max(0, max_send)]
 
 
 # Biểu tượng theo DẢI điểm 0–100 (ngưỡng gửi mặc định 75 ⇒ tin gửi đi là 🟠/🔴,
@@ -1380,6 +1429,9 @@ def run(*, now: Optional[datetime] = None, dry_run: bool = False, force: bool = 
     expired = expire_leftovers(seen, now, min_score, max_age_h)
     if expired:
         print(f"[{TAG}] bỏ {expired} tin dư cũ hơn {max_age_h}h (đạt ngưỡng nhưng lượt trước hết suất)")
+    dups = mark_duplicate_pending(seen, now, min_score)
+    if dups:
+        print(f"[{TAG}] bỏ {dups} tin trùng link/tiêu đề với tin đã gửi 24h hoặc tin điểm cao hơn")
     picked = select_to_send(seen, min_score, max_send)
     sent, message_id, send_err = 0, None, None
     if picked:

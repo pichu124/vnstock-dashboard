@@ -872,11 +872,24 @@ def test_catchup_leftovers_do_not_trickle_out_hours_later(monkeypatch):
     # Vết 04/10: lượt 20:00 bắt bù 20h chấm 60 tin, gửi 8; lượt 21:00 lại gửi 8 — phần dư
     # cũ 15–20h. Nay lượt sau chỉ gửi bù tin dư ≤6h tuổi.
     monkeypatch.setattr("vnstock_news.deduplicate_news", lambda xs: (xs, 0))
-    old_topics = ["Fed", "ECB", "BOJ", "PBOC", "OPEC", "Vàng", "Dầu", "Thép", "Gạo", "Cà phê"]
-    items = [_raw(f"Tin cũ {t}", hours_ago=15 + i * 0.1, link=f"https://o/{i}")
+    # Tiêu đề phải KHÁC hẳn nhau như tin thật — "Tin mới CPI"/"Tin mới PMI" ngắn
+    # và na ná nhau, bộ lọc trùng (`mark_duplicate_pending`, 07/10) coi là một bài.
+    old_topics = ["Fed giữ nguyên lãi suất, phát tín hiệu thận trọng",
+                  "ECB bất ngờ cắt giảm lãi suất 25 điểm cơ bản",
+                  "Ngân hàng Nhật can thiệp đồng yên lần thứ hai",
+                  "Trung Quốc bơm thanh khoản qua kênh tái cấp vốn",
+                  "OPEC+ kéo dài cắt giảm sản lượng sang quý tới",
+                  "Giá vàng thế giới lập đỉnh mới trên 3.000 USD",
+                  "Dầu Brent giảm mạnh sau báo cáo tồn kho Mỹ",
+                  "Thép xây dựng tăng giá lần thứ ba trong tháng",
+                  "Xuất khẩu gạo Việt Nam đạt kỷ lục chín tháng",
+                  "Cà phê Robusta biến động mạnh vì thời tiết Tây Nguyên"]
+    items = [_raw(f"Tin cũ: {t}", hours_ago=15 + i * 0.1, link=f"https://o/{i}")
              for i, t in enumerate(old_topics)]
-    items += [_raw(f"Tin mới {t}", hours_ago=1 + i * 0.1, link=f"https://n/{i}")
-              for i, t in enumerate(["CPI", "GDP", "PMI"])]
+    items += [_raw(f"Tin mới: {t}", hours_ago=1 + i * 0.1, link=f"https://n/{i}")
+              for i, t in enumerate(["CPI Mỹ tháng 9 cao hơn dự báo của giới phân tích",
+                                     "GDP quý ba Việt Nam tăng tốc nhờ xuất khẩu điện tử",
+                                     "PMI sản xuất toàn cầu suy yếu tháng thứ hai liên tiếp"])]
     by_title = {"Tin": {"muc_do": 78, "nhan": "TRUNG_LẬP", "tac_dong": "Tỷ giá"}}
     _fake_complete(monkeypatch, by_title=by_title)
     sent1, spy1 = _sender_spy()
@@ -1179,3 +1192,63 @@ def test_run_env_legacy_min_score_4_means_80(monkeypatch):
 def test_icon_bands():
     assert [na._icon(x) for x in (100, 90, 89, 75, 74, 60, 59, 0)] == [
         "🔴", "🔴", "🟠", "🟠", "🟡", "🟡", "⚪", "⚪"]
+
+
+
+# ── lọc trùng trước khi gửi (07/10: gửi bù 30h ra 2 bản Bloomberg cùng link) ──
+
+
+def test_norm_link_drops_scheme_www_query_fragment():
+    assert na._norm_link("https://www.WSJ.com/a/b/?mod=rss_main#x") == "wsj.com/a/b"
+    assert na._norm_link("http://news.google.com/rss/articles/ABC?oc=5") == \
+        "news.google.com/rss/articles/abc"
+    assert na._norm_link("") == "" and na._norm_link(None) == ""
+
+
+def test_mark_duplicate_pending_same_link_keeps_higher_score():
+    url = "https://www.bloomberg.com/news/articles/2026-10-07/us-30-year-yields"
+    seen = {"items": {
+        "a": _rec(68, title="US 30-Year Yields Return to 2002 High With Crude Back Above $100",
+                  link=url, pub="2026-10-02T08:39:00"),
+        "b": _rec(78, title="US 30-Year Yields Return to 2002 High With Crude Above $100",
+                  link=url + "?mod=rss", pub="2026-10-02T08:40:00"),
+        "c": _rec(72, title="Dow Lower, Treasury Yields Hit Fresh 24-Year Highs",
+                  link="https://www.wsj.com/x"),                      # cùng sự kiện, KHÁC bài
+    }}
+    assert na.mark_duplicate_pending(seen, NOW, 65) == 1
+    assert seen["items"]["a"]["dup_of"] == "b" and "dup_of" not in seen["items"]["b"]
+    assert [h for h, _ in na.select_to_send(seen, 65, 10)] == ["b", "c"]
+    assert na.mark_duplicate_pending(seen, NOW, 65) == 0                # không đánh lại
+
+
+def test_mark_duplicate_pending_against_sent_24h_only():
+    title = "Vietnam Central Bank Warns of Rising Inflation, Rates Pressure"
+    seen = {"items": {
+        "sent": _rec(72, sent=True, title=title, link="https://bbg/1",
+                     sent_at="2026-10-02T07:00:00"),
+        "echo": _rec(70, title=title + "!", link="https://gn/2"),           # tiêu đề gần y hệt
+        "old": _rec(70, sent=True, title="Fed holds rates steady, signals two cuts in 2027",
+                    link="https://cnbc/1", sent_at="2026-09-30T07:00:00"),  # >24h
+        "again": _rec(70, title="Fed holds rates steady, signals two cuts in 2027",
+                      link="https://cnbc/1"),
+    }}
+    assert na.mark_duplicate_pending(seen, NOW, 65) == 1
+    assert seen["items"]["echo"]["dup_of"] == "sent"
+    assert "dup_of" not in seen["items"]["again"]                       # tin gửi >24h không tính
+
+
+def test_run_backfill_sends_one_copy_of_same_link(monkeypatch):
+    url = "https://www.bloomberg.com/news/articles/2026-10-07/yields"
+    seen = {"items": {
+        "a": _rec(68, title="US 30-Year Yields Return to 2002 High With Crude Back Above $100",
+                  link=url, pub="2026-10-02T08:00:00"),
+        "b": _rec(78, title="US 30-Year Yields Return to 2002 High With Crude Above $100",
+                  link=url, pub="2026-10-02T08:05:00"),
+    }}
+    na.save_seen(seen)
+    rc, calls, sent = _run(monkeypatch, [], results=[], window_h=30, max_send=15, min_score=65)
+    assert len(sent) == 1 and sent[0].count("Yields Return to 2002") == 1 and "78/100" in sent[0]
+    items = na.load_seen()["items"]
+    assert items["b"]["sent"] and items["a"]["dup_of"] == "b" and not items["a"]["sent"]
+    rc2, calls2, sent2 = _run(monkeypatch, [], results=[], window_h=30, max_send=15, min_score=65)
+    assert sent2 == []                                                  # bản trùng không rỉ ra sau
