@@ -7027,6 +7027,8 @@ THẤP", "75 = dừng việc đọc NGAY", "phần lớn 30–65") nén cả tha
 `run.py news-alert --window-h 30 --max-send 15 --min-score 65` (tin đã chấm nằm sẵn trong sổ,
 không chấm lại; `--window-h` cũng nới tuổi tin dư khỏi hết hạn).
 
+**07/10 khuya — đo lại 24h (🖥️ sổ `news_alert_seen.json`, bỏ `dup_of`):** 648 tin chấm, cao nhất 78; ≥75: 2 · ≥70: 4 · ≥65: 13 · ≥62: 28 · ≥60: 31 · ≥58: 35 · ≥55: 72 · ≥50: 124. User thấy 65 ít ⇒ khuyên **60** (~30 tin/ngày): nằm giữa VÙNG PHẲNG 58–62 (28→35) nên lệch vài điểm không đổi lượng tin; 62–64 là cụm dày (13→28), dưới 58 lại vọt (55 = 72, gấp đôi). Đừng xuống dưới 58.
+
 **Lọc trùng trước khi gửi (07/10):** bản xem trước gửi bù ra HAI bản Bloomberg "US 30-Year
 Yields…" — nguồn sửa tiêu đề ("Above" → "Back Above") ⇒ hash (ngày|tiêu đề) khác ⇒ 2 bản ghi,
 cùng link, cùng chưa gửi (lượt mỗi giờ có guard "ĐÃ GỬI 24h" nên ít lộ; gửi bù gom tin dư
