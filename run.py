@@ -721,6 +721,7 @@ def cmd_test(args) -> int:
             "tests/test_gtgd_coverage.py",
             "tests/test_brief_pack.py",
             "tests/test_claude_cli.py",
+            "tests/test_probe_mcp.py",        # claude -p có gọi được MCP SSI/TCBS/Finhay (U78)
             "tests/test_claude_steps.py",
             "tests/test_macro.py",
             "tests/test_news_feeds.py",

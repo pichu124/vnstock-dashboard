@@ -6974,6 +6974,33 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🔌 U78. CONNECTOR MCP SSI · TCBS · FINHAY — ĐO XEM `claude -p` CÓ GỌI ĐƯỢC KHÔNG (08/10)
+
+**Vì sao:** 08/10 SHB giảm sàn; soi bằng 3 connector (SSI mới nối lại) ra thứ dữ liệu
+vnstock không có: tổng cp lưu hành 5.344 triệu vs niêm yết 4.590 triệu (≈750 triệu cp
+phát hành 2026 CHƯA niêm yết — báo chí cùng ngày nêu là áp lực cung), cổ đông lớn, công bố
+HOSE, hệ số điều chỉnh. Nhưng connector gắn TÀI KHOẢN Claude, không phải API có key ⇒
+pipeline Python KHÔNG gọi thẳng được (đúng điều đã ghi ở `export_bank_balance_sheets.py`).
+Đường tự động duy nhất là `claude -p` — mà `vnstock_claude_cli.cli_command` CỐ Ý tắt MCP
+(`--tools ""` + `--strict-mcp-config`).
+
+**Đã làm:** `scripts/probe_mcp.py` (CHỈ ĐỌC, không ghi kho/sổ LLM). (1) `claude mcp list`;
+(2) khám phá 4 bộ cờ (`pipeline` = cờ wrapper · `lean` = bỏ `--strict-mcp-config` · `lean_tools0`
+= lean + `--tools ""` · `full`) bằng sự kiện `init` của `--output-format stream-json --verbose`
+(có `tools` + `mcp_servers` — đã xác minh trên CLI 2.1.294 trong container) rồi GIẾT tiến
+trình ngay; (3) gọi thử 1 tool chỉ-đọc/nguồn (`--allowedTools` đúng tên, cwd rỗng, biến thể
+còn công cụ có sẵn thì `--disallowedTools Bash,Edit,Write,…`, `--max-turns 3` — cờ ẩn nhưng
+CLI nhận), xác nhận bằng `tool_use`/`tool_result` THẬT trong stream (không tin model kể) +
+`permission_denials` của sự kiện `result`. Tên server dò theo khoá (`ssi`/`tcbs`/`finhay`),
+không ghim (`SSI_MCP` vs `claude_ai_SSI_MCP` tuỳ CLI). Tool tài khoản Finhay không bao giờ
+mở (test canh). Test `tests/test_probe_mcp.py` 25 (tiến trình giả `python -c` in stream).
+
+**Container:** CLI con thấy 0 server ở cả 4 biến thể (connector của phiên cloud do harness
+cấp, không gắn vào CLI) ⇒ phép đo THẬT chỉ có ở 🖥️ desktop. Kết quả quyết đường A (bước tự
+động qua `claude -p`, ≤30 mã/ngày: cp chờ niêm yết + công bố HOSE vào mục ⚠️ Rủi ro, hệ số
+điều chỉnh SSI đối chiếu rebase) hay chỉ đường B (skill gọi tay ghi JSON vào `_meta/`).
+KHÔNG dùng MCP thay vnstock lấy giá toàn sàn (1 trang SSI 200 mã ≈ 60K token).
+
 # 🔎 U77. SỔ NGHI NGỜ BRIEF: Op.CF ĐÃ XÁC MINH THÌ THÔI RÉO (06/10 tối, user chọn B)
 
 **Vì sao:** doctor 06/10 (🖥️ desktop) ⚠️ "Op.CF/vốn hoá lớn bất thường ×20 (HDC, KBC, PVC,
