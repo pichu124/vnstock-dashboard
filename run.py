@@ -722,6 +722,7 @@ def cmd_test(args) -> int:
             "tests/test_brief_pack.py",
             "tests/test_claude_cli.py",
             "tests/test_probe_mcp.py",        # claude -p có gọi được MCP SSI/TCBS/Finhay (U78)
+            "tests/test_mcp_enrich.py",       # connector TCBS cho mã giữ + lệnh mở, chạy bóng (U79)
             "tests/test_claude_steps.py",
             "tests/test_macro.py",
             "tests/test_news_feeds.py",
@@ -1016,6 +1017,24 @@ def cmd_horizons(args) -> int:
     cmd = [sys.executable, script, "--update"]
     if getattr(args, "force", False):
         cmd.append("--force")
+    return 1 if _run(cmd) != 0 else 0
+
+
+def cmd_mcp_enrich(args) -> int:
+    """Connector MCP (TCBS) cho mã đang giữ + lệnh mở — CHẠY BÓNG (U79 pha 1).
+
+    Trong pipeline: SAU brief (không thể làm chậm/chặn brief), một lượt
+    `claude -p` bộ cờ gọn ghi `_meta/mcp_enrich.json` (cp lưu hành vs niêm yết,
+    công bố gần nhất). Brief CHƯA đọc file này. Cùng ngày đã có bản ok ⇒ no-op;
+    máy không có Claude Code ⇒ bỏ qua. Không bao giờ trả 2.
+    Kill-switch: VNSTOCK_MCP_ENRICH=0. Tay: `run.py mcp-enrich --show | --force
+    | --dry-run | --tickers SHB GMD`."""
+    cmd = [sys.executable, str(REPO_ROOT / "vnstock_mcp_enrich.py")]
+    for flag in ("show", "force", "dry_run"):
+        if getattr(args, flag, False):
+            cmd.append("--" + flag.replace("_", "-"))
+    if getattr(args, "tickers", None):
+        cmd += ["--tickers", *args.tickers]
     return 1 if _run(cmd) != 0 else 0
 
 
@@ -1618,6 +1637,8 @@ def _all_steps(args) -> "list[tuple[str, object]]":
         ("reflection",   cmd_reflection),
         ("doctor",       cmd_doctor),
         ("brief",        cmd_brief),
+        # Chạy bóng U79 — SAU brief: lỗi/chậm ở đây không chạm brief.
+        ("mcp-enrich",   cmd_mcp_enrich),
     ]
     # Insert news after screener unless the caller opts out
     if not getattr(args, "no_news", False):
@@ -2078,6 +2099,13 @@ def build_parser() -> argparse.ArgumentParser:
     hg.add_argument("--replay", action="store_true", help="kiểm F1/F2/revision")
     hp.add_argument("--force", action="store_true", help="ghi đè phiên đã có")
     hp.add_argument("--days", type=int, default=120, help="--backfill: số phiên chấm điểm")
+    mp = sub.add_parser("mcp-enrich",
+                        help="Connector MCP (TCBS) cho mã đang giữ + lệnh mở — chạy bóng "
+                             "(cp chờ niêm yết, công bố) / --show")
+    mp.add_argument("--show", action="store_true", help="in bản mới nhất, không gọi")
+    mp.add_argument("--force", action="store_true", help="chạy dù hôm nay đã có bản ok")
+    mp.add_argument("--dry-run", action="store_true", help="in prompt, không gọi")
+    mp.add_argument("--tickers", nargs="+", help="mã cụ thể thay cho danh mục + lệnh mở")
     sub.add_parser("reflection",
                    help="Rút bài học từ rec/kỳ band đã đóng (vnstock_reflection.py)")
     sub.add_parser("train",
@@ -2185,6 +2213,7 @@ _DISPATCH = {
     "rates-weekly": cmd_rates_weekly,
     "gold": cmd_gold,
     "horizons": cmd_horizons,
+    "mcp-enrich": cmd_mcp_enrich,
     "allocation": cmd_allocation,
     "reflection": cmd_reflection,
     "train": cmd_train,

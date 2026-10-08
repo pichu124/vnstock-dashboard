@@ -42,13 +42,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import queue
-import re
 import socket
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 from pathlib import Path
 
@@ -82,7 +79,7 @@ CALL_ORDER = ("lean_ts", "lean_tools0", "lean", "full")
 # pending ở lean, chỉ full kịp connected SSI/TCBS) — pending KHÔNG phải không có.
 DEAD_STATUS = ("failed", "needs-auth")
 # Nhiều tool MCP ⇒ CLI hoãn schema, model phải ToolSearch nạp trước — hợp lệ.
-HELPER_TOOLS = ("ToolSearch",)
+HELPER_TOOLS = cc.MCP_HELPER_TOOLS
 # Biến thể còn công cụ có sẵn: cấm hẳn nhóm ghi/chạy lệnh/mạng.
 _DENY_BUILTINS = "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch"
 
@@ -116,11 +113,7 @@ def pick_tool(tools: list, key: str, suffix: str) -> "str | None":
     return None
 
 
-def server_prefix(server_name: str) -> str:
-    """Tên server trong `mcp_servers` → tiền tố tool. Đo 08/10: server
-    `claude.ai SSI MCP` ⇒ tool `mcp__claude_ai_SSI_MCP__…` (ký tự ngoài
-    chữ/số/_/- thành `_`)."""
-    return "mcp__" + re.sub(r"[^A-Za-z0-9_-]", "_", str(server_name)) + "__"
+server_prefix = cc.mcp_server_prefix
 
 
 def find_init(events: list) -> "dict | None":
@@ -236,61 +229,8 @@ def exit_code(calls: dict) -> int:
 
 
 # ── Chạy tiến trình ──────────────────────────────────────────────────────────
-def run_stream(cmd: list, stdin_text: str, timeout_s: int, *, stop_at_init: bool,
-               cwd: str) -> "tuple[list, str | None, float]":
-    """Chạy `claude -p … stream-json`, gom sự kiện JSON theo dòng. stop_at_init:
-    thấy `init` là giết tiến trình (chưa kịp tốn token cho câu trả lời)."""
-    t0 = time.time()
-    try:
-        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, text=True, encoding="utf-8",
-                                errors="replace", cwd=cwd, env=cc.cli_env())
-    except OSError as e:
-        return [], f"không chạy được: {type(e).__name__}: {str(e)[:120]}", 0.0
-    lines: queue.Queue = queue.Queue()
-    err_buf: list = []
-
-    def _pump_out() -> None:
-        for ln in proc.stdout:
-            lines.put(ln)
-
-    threading.Thread(target=_pump_out, daemon=True).start()
-    threading.Thread(target=lambda: err_buf.append(proc.stderr.read()), daemon=True).start()
-    try:
-        proc.stdin.write(stdin_text)
-        proc.stdin.close()
-    except OSError:
-        pass
-    events: list = []
-    err = None
-    deadline = t0 + timeout_s
-    while True:
-        try:
-            ln = lines.get(timeout=0.2)
-        except queue.Empty:
-            if proc.poll() is not None and lines.empty():
-                break
-            if time.time() > deadline:
-                err = f"quá {timeout_s}s"
-                break
-            continue
-        try:
-            ev = json.loads(ln)
-        except ValueError:
-            continue
-        events.append(ev)
-        if stop_at_init and find_init([ev]):
-            break
-    if proc.poll() is None:
-        proc.kill()
-    try:
-        proc.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        pass
-    if not events and err is None:
-        tail = "".join(err_buf).strip().splitlines()
-        err = f"rc={proc.returncode}: {(tail[-1] if tail else 'không in gì')[:200]}"
-    return events, err, time.time() - t0
+# Máy đọc stream dùng chung với bước tự động (vnstock_claude_cli, U79).
+run_stream = cc.run_stream_json
 
 
 def mcp_list(exe: str) -> dict:

@@ -128,3 +128,11 @@ def _fundamentals_writers_to_tmp_anywhere(tmp_path, monkeypatch):
     monkeypatch.setattr(_fu, "FUND_PATH", tmp_path / "fundamentals.parquet")
     monkeypatch.setattr(_fu, "FUND_HISTORY_DIR", tmp_path / "fundamentals_history")
     monkeypatch.setattr(_fp, "META_DIR", tmp_path)
+
+
+@pytest.fixture(autouse=True)
+def _mcp_enrich_to_tmp_anywhere(tmp_path, monkeypatch):
+    """U79 (08/10): `_meta/mcp_enrich.json` nằm trong KHO (Dropbox) — test quên
+    `meta_dir` không được ghi đè bản chạy bóng thật (cùng bài học U17)."""
+    import vnstock_mcp_enrich as _me
+    monkeypatch.setattr(_me, "META_DIR", tmp_path / "_meta_mcp")

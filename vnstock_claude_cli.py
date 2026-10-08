@@ -24,13 +24,19 @@ Nút vặn (đọc từ `.env` của MÁY chạy — không đồng bộ Dropbox
   VNSTOCK_CLAUDE_CLI_API_KEY    =1 mới cho CLI thấy ANTHROPIC_API_KEY (tính
                                 tiền API thay vì thuê bao); alias …BRIEF_CLI_API_KEY
   VNSTOCK_CLAUDE_CLI_REPO_CONTEXT =1 tải lại CLAUDE.md/skill/MCP vào call
+  VNSTOCK_MCP_CLI_MODEL         model cho lượt gọi connector MCP (`complete_mcp`,
+                                mặc định claude-sonnet-5-5 — chỉ gọi tool, không viết)
 """
 from __future__ import annotations
 
 import json
 import os
+import queue
+import re
 import shutil
 import subprocess
+import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -354,6 +360,186 @@ def outcome_line(tag: str, info: dict, text: str, err: "str | None") -> str:
     if err:
         return f"[{tag}] ⏱ claude-cli: {el:,.0f}s · ❌ {err[:160]}"
     return f"[{tag}] ⏱ claude-cli: {el:,.0f}s · ✅ {len(text):,} ký tự{cost_s}{fb}"
+
+
+# ── Gọi connector MCP (08/10, U78/U79) ──────────────────────────────────────
+# Đo 🖥️ 08/10 (`scripts/probe_mcp.py`): connector claude.ai SSI/TCBS/Finhay gọi
+# được với bộ cờ GỌN dưới đây — tước settings/slash nhưng KHÔNG
+# `--strict-mcp-config`, công cụ có sẵn chỉ còn ToolSearch (nhiều tool MCP ⇒
+# CLI hoãn schema, model phải ToolSearch nạp trước). ~$0,06/lượt Sonnet cho một
+# tool; bộ cờ đầy đủ (nạp skill/rules của máy) ~$0,29. Lúc `init` connector
+# thường còn `pending` — gọi vẫn được. `complete()` ở trên GIỮ NGUYÊN chặn MCP.
+# Số liệu KHÔNG đi qua chữ model: chỗ gọi đọc thẳng `tool_result` trong stream.
+MCP_LEAN_FLAGS = ("--tools", "ToolSearch", "--setting-sources", "",
+                  "--disable-slash-commands")
+MCP_HELPER_TOOLS = ("ToolSearch",)
+
+
+def mcp_server_prefix(server_name: str) -> str:
+    """Tên server trong `mcp_servers` → tiền tố tool. Đo 08/10: server
+    `claude.ai SSI MCP` ⇒ tool `mcp__claude_ai_SSI_MCP__…` (ký tự ngoài
+    chữ/số/_/- thành `_`)."""
+    return "mcp__" + re.sub(r"[^A-Za-z0-9_-]", "_", str(server_name)) + "__"
+
+
+def mcp_command(exe: str, model: str, *, system: str, allowed_tools,
+                max_turns: int = 8) -> list[str]:
+    """Dòng lệnh một lượt gọi connector: bộ cờ gọn + đúng các tool cho phép
+    (để CUỐI vì `--allowedTools` nhận nhiều giá trị)."""
+    return [exe, "-p", TASK_LINE, "--output-format", "stream-json", "--verbose",
+            "--model", model, "--no-session-persistence", "--permission-prompts", "none",
+            *MCP_LEAN_FLAGS, "--system-prompt", system, "--max-turns", str(max_turns),
+            "--allowedTools", *list(allowed_tools)]
+
+
+def run_stream_json(cmd: list, stdin_text: str, timeout_s: int, *,
+                    stop_at_init: bool = False,
+                    cwd: "str | None" = None) -> "tuple[list, str | None, float]":
+    """Chạy `claude -p … --output-format stream-json`, gom sự kiện JSON theo
+    dòng (dòng không phải JSON bỏ qua). `stop_at_init`: thấy sự kiện `init` là
+    giết tiến trình (chưa kịp tốn token). Không bao giờ ném."""
+    t0 = time.time()
+    try:
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True, encoding="utf-8",
+                                errors="replace", cwd=cwd or str(_REPO), env=cli_env())
+    except OSError as e:
+        return [], f"không chạy được: {type(e).__name__}: {str(e)[:120]}", 0.0
+    lines: queue.Queue = queue.Queue()
+    err_buf: list = []
+
+    def _pump_out() -> None:
+        for ln in proc.stdout:
+            lines.put(ln)
+
+    threading.Thread(target=_pump_out, daemon=True).start()
+    threading.Thread(target=lambda: err_buf.append(proc.stderr.read()), daemon=True).start()
+    try:
+        proc.stdin.write(stdin_text)
+        proc.stdin.close()
+    except OSError:
+        pass
+    events: list = []
+    err = None
+    deadline = t0 + timeout_s
+    while True:
+        try:
+            ln = lines.get(timeout=0.2)
+        except queue.Empty:
+            if proc.poll() is not None and lines.empty():
+                break
+            if time.time() > deadline:
+                err = f"quá {timeout_s}s"
+                break
+            continue
+        try:
+            ev = json.loads(ln)
+        except ValueError:
+            continue
+        events.append(ev)
+        if (stop_at_init and isinstance(ev, dict) and ev.get("type") == "system"
+                and ev.get("subtype") == "init"):
+            break
+    if proc.poll() is None:
+        proc.kill()
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        pass
+    if not events and err is None:
+        tail = "".join(err_buf).strip().splitlines()
+        err = f"rc={proc.returncode}: {(tail[-1] if tail else 'không in gì')[:200]}"
+    return events, err, time.time() - t0
+
+
+def _block_text(content) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(str(b.get("text") or "") for b in content if isinstance(b, dict))
+    return ""
+
+
+def tool_exchanges(events: list) -> list[dict]:
+    """Cặp tool_use ↔ tool_result trong stream: `{id, name, input, text,
+    is_error}` theo thứ tự gọi (`text`/`is_error` None khi chưa có kết quả)."""
+    out: list[dict] = []
+    by_id: dict = {}
+    for ev in events or []:
+        if not isinstance(ev, dict):
+            continue
+        msg = ev.get("message") if isinstance(ev.get("message"), dict) else {}
+        blocks = msg.get("content") if isinstance(msg.get("content"), list) else []
+        for b in blocks:
+            if not isinstance(b, dict):
+                continue
+            if ev.get("type") == "assistant" and b.get("type") == "tool_use":
+                rec = {"id": b.get("id"), "name": str(b.get("name") or ""),
+                       "input": b.get("input") if isinstance(b.get("input"), dict) else {},
+                       "text": None, "is_error": None}
+                out.append(rec)
+                by_id[rec["id"]] = rec
+            elif (ev.get("type") == "user" and b.get("type") == "tool_result"
+                    and b.get("tool_use_id") in by_id):
+                rec = by_id[b["tool_use_id"]]
+                if rec["text"] is None:
+                    rec["text"] = _block_text(b.get("content"))
+                    rec["is_error"] = bool(b.get("is_error"))
+    return out
+
+
+def result_event(events: list) -> "dict | None":
+    for ev in reversed(events or []):
+        if isinstance(ev, dict) and ev.get("type") == "result":
+            return ev
+    return None
+
+
+def complete_mcp(user: str, *, system: str, allowed_tools,
+                 model: "str | None" = None, timeout_s: int = 300,
+                 max_turns: int = 8, exe: "str | None" = None,
+                 tag: str = "") -> "tuple[list[dict], str | None, dict]":
+    """Một lượt Claude Code gọi connector MCP. Trả (exchanges, lỗi, info) —
+    exchanges = `tool_exchanges` của các tool ĐƯỢC PHÉP (ToolSearch bỏ ra);
+    chỗ gọi tự đọc số từ `text`, không tin chữ model. Chạy trong thư mục tạm
+    RỖNG. Sổ LLM ghi mọi kết cục (provider ClaudeCode). Không bao giờ ném."""
+    _ensure_env_loaded()
+    model = model or _env("VNSTOCK_MCP_CLI_MODEL", default=DEFAULT_FALLBACK_MODEL)
+    exe = exe or cli_executable()
+    info: dict = {"requested_model": model, "tag": tag}
+    if not exe:
+        err = ("không tìm thấy lệnh `claude` (Claude Code CLI) trên PATH — cài CLI "
+               "+ đăng nhập, hoặc đặt VNSTOCK_CLAUDE_CLI_EXE")
+        info["no_exe"] = True
+        _ledger_record(LEDGER_PROVIDER, model, ok=False, error=err)
+        return [], err, info
+    allowed = list(allowed_tools)
+    cmd = mcp_command(exe, model, system=system, allowed_tools=allowed, max_turns=max_turns)
+    with tempfile.TemporaryDirectory(prefix="vnstock_mcp_") as tmp:
+        events, run_err, elapsed = run_stream_json(cmd, user, timeout_s, cwd=tmp)
+    info["elapsed_s"] = elapsed
+    ex = tool_exchanges(events)
+    info["helpers"] = sum(1 for e in ex if e["name"] in MCP_HELPER_TOOLS)
+    info["strangers"] = sorted({e["name"] for e in ex
+                                if e["name"] not in allowed and e["name"] not in MCP_HELPER_TOOLS})
+    ex = [e for e in ex if e["name"] in allowed]
+    res = result_event(events)
+    err = run_err
+    if res is not None:
+        _, perr, parsed = parse_cli_output(json.dumps(res))
+        info.update(parsed)
+        den = res.get("permission_denials")
+        if isinstance(den, list) and den:
+            info["denials"] = [str((d or {}).get("tool_name") or d) for d in den]
+        if res.get("is_error") and not ex:
+            err = perr or err
+    info.setdefault("model", model)
+    ok = any(e["text"] is not None and not e["is_error"] for e in ex)
+    if not ok and err is None:
+        err = "không có lượt gọi tool nào trả kết quả"
+    _ledger_record(LEDGER_PROVIDER, info["model"], ok=ok, usage=info.get("usage"),
+                   error=None if ok else err)
+    return ex, (None if ok else err), info
 
 
 # ── Tự kiểm dưới đúng tài khoản chạy task ─────────────────────────────────────

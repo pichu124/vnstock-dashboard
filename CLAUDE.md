@@ -183,6 +183,13 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   `horizons` sau gold ghi `_meta/horizon_state.json` (inputs + published append-only, gấp từ input
   đã lưu, có bản live thì no-op, kill-switch `VNSTOCK_HORIZONS_STEP=0`) + badge doctor `horizons`;
   `run.py horizons --show|--backfill|--replay`. Brief CHƯA đọc (P1b). P0: `scripts/replay_horizons.py`.
+- **Connector MCP (SSI/TCBS/Finhay — gắn TÀI KHOẢN Claude, Python không gọi thẳng)** (U78/U79,
+  08/10): `vnstock_claude_cli.complete_mcp(user, system=, allowed_tools=)` = bộ cờ GỌN đã đo 🖥️
+  (`--tools ToolSearch` + tước settings, KHÔNG `--strict-mcp-config`, ~$0,06/lượt Sonnet), đọc
+  THẲNG `tool_result` trong stream-json — số không đi qua chữ model. `complete()` vẫn CHẶN MCP.
+  `vnstock_mcp_enrich.py` = CHẠY BÓNG: bước `mcp-enrich` SAU brief, TCBS overview (cp lưu hành vs
+  niêm yết — tách cp thưởng vừa GDKHQ khỏi phát hành thêm) + 5 công bố, cho mã đang giữ + lệnh mở
+  ⇒ `_meta/mcp_enrich.json`; brief CHƯA đọc. `run.py mcp-enrich --show`. Đo: `scripts/probe_mcp.py`.
 - `vnstock_corp_ratio` — đọc TỈ LỆ QUYỀN từ tiêu đề sự kiện (hàm thuần).
   `adjusts_price(title)` lọc sự kiện chỉ chốt danh sách DỰ HỌP (ĐHĐCĐ, lấy ý
   kiến bằng văn bản) — chúng KHÔNG đổi giá tham chiếu, gắn ⚠️ GDKHQ cho chúng
@@ -282,7 +289,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   (`VNSTOCK_BRIEF_AUTO_*`, `VNSTOCK_MACRO_*`, `VNSTOCK_BASIS_GUARD`,
   `VNSTOCK_OHLC_REPAIR`, `VNSTOCK_AUTOHEAL_BUDGET_S`, `VNSTOCK_VN30_DYNAMIC`,
   `VNSTOCK_WSS_HOT_TIER`, `VNSTOCK_BRIEF_WATCH`, `VNSTOCK_NEWS_ALERT`,
-  `VNSTOCK_FIXUNITS_FOOTER_PRUNE`, `VNSTOCK_NETBS_WORKERS`, `VNSTOCK_HORIZONS_STEP`, `VNSTOCK_REC_GDKHQ_HOLD`, `VNSTOCK_BRIEF_RISK_TODAY`, `VNSTOCK_BRIEF_FUND_PERIODS`, `VNSTOCK_LLM_ENGINE`
+  `VNSTOCK_FIXUNITS_FOOTER_PRUNE`, `VNSTOCK_NETBS_WORKERS`, `VNSTOCK_HORIZONS_STEP`, `VNSTOCK_REC_GDKHQ_HOLD`, `VNSTOCK_BRIEF_RISK_TODAY`, `VNSTOCK_BRIEF_FUND_PERIODS`, `VNSTOCK_MCP_ENRICH`, `VNSTOCK_LLM_ENGINE`
   + `VNSTOCK_<BƯỚC>_ENGINE` + `VNSTOCK_CLAUDE_CLI_{EXE,MODEL,FALLBACK_MODEL,
   TIMEOUT_S,API_KEY,REPO_CONTEXT}`, `VNSTOCK_LLM_BREAKER`
   — cầu dao tài khoản LLM: provider 401/402/403 hôm nay + chưa call nào OK ⇒

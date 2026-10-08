@@ -372,3 +372,88 @@ def test_cli_check_probe_uses_special_chars_and_flags_shim(monkeypatch):
     assert res["shim"] is True and "claude.exe" in res["warning"] and res["ok"] is True
     assert seen["system"] == vcc.PROBE_SYSTEM
     assert all(ch in vcc.PROBE_SYSTEM for ch in ('|', '<', '>', '%', '"', '\n'))
+
+
+# ─── connector MCP (08/10, U78/U79) ───────────────────────────────────────────
+TCBS_OV = "mcp__claude_ai_TCBS_MCP__tcinvest-getTickerOverview"
+
+
+def _use(tid, name, **inp):
+    return {"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": tid, "name": name, "input": inp}]}}
+
+
+def _res(tid, text, is_error=False):
+    return {"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": tid,
+         "content": [{"type": "text", "text": text}], "is_error": is_error}]}}
+
+
+def _final(**kw):
+    return {"type": "result", "subtype": "success", "is_error": False, "result": "XONG",
+            "total_cost_usd": 0.07, "duration_ms": 9000,
+            "usage": {"input_tokens": 10, "cache_read_input_tokens": 900, "output_tokens": 40},
+            "modelUsage": {"claude-sonnet-5-5": {"outputTokens": 40}}, **kw}
+
+
+def test_mcp_server_prefix_matches_desktop_naming():
+    assert vcc.mcp_server_prefix("claude.ai TCBS MCP") + "x" == "mcp__claude_ai_TCBS_MCP__x"
+
+
+def test_mcp_command_lean_flags_and_allowed_tools_last():
+    cmd = vcc.mcp_command("claude", "m", system="s", allowed_tools=[TCBS_OV, "b"], max_turns=5)
+    assert cmd[cmd.index("--tools") + 1] == "ToolSearch"
+    assert cmd[cmd.index("--setting-sources") + 1] == ""
+    assert "--strict-mcp-config" not in cmd and "--disable-slash-commands" in cmd
+    assert cmd[cmd.index("--output-format") + 1] == "stream-json" and "--verbose" in cmd
+    assert cmd[-3:] == ["--allowedTools", TCBS_OV, "b"]
+    assert cmd[cmd.index("--max-turns") + 1] == "5"
+    assert cmd[cmd.index("--permission-prompts") + 1] == "none"
+
+
+def test_plain_complete_still_blocks_mcp():
+    # Bước brief/news vẫn đi complete() — phải giữ --strict-mcp-config (U78 đo 0 tool).
+    cmd = vcc.cli_command("claude", "m")
+    assert "--strict-mcp-config" in cmd and cmd[cmd.index("--tools") + 1] == ""
+
+
+def test_tool_exchanges_pairs_use_and_result_in_order():
+    evs = [_use("a", TCBS_OV, ticker="SHB"), _use("b", TCBS_OV, ticker="GMD"),
+           _res("b", '{"ticker":"GMD"}'), _res("a", "lỗi", is_error=True), _res("zz", "lạc")]
+    ex = vcc.tool_exchanges(evs)
+    assert [(e["input"]["ticker"], e["text"], e["is_error"]) for e in ex] == [
+        ("SHB", "lỗi", True), ("GMD", '{"ticker":"GMD"}', False)]
+
+
+def test_complete_mcp_reads_tool_results_and_records_ledger(monkeypatch):
+    rows = _ledger_spy(monkeypatch)
+    seen: dict = {}
+
+    def _fake(cmd, stdin_text, timeout_s, *, stop_at_init=False, cwd=None):
+        seen.update(cmd=cmd, stdin=stdin_text, cwd=cwd)
+        return ([_use("s", "ToolSearch"), _use("a", TCBS_OV, ticker="SHB"),
+                 _res("a", '{"ticker":"SHB"}'), _use("x", "Bash"), _final()], None, 9.0)
+    monkeypatch.setattr(vcc, "run_stream_json", _fake)
+    ex, err, info = vcc.complete_mcp("mã: SHB", system="s", allowed_tools=[TCBS_OV],
+                                     exe="claude", tag="t")
+    assert err is None and [e["text"] for e in ex] == ['{"ticker":"SHB"}']
+    assert info["helpers"] == 1 and info["strangers"] == ["Bash"]
+    assert info["cost_usd"] == 0.07 and info["usage"]["prompt_tokens"] == 910
+    assert seen["stdin"] == "mã: SHB" and "vnstock_mcp_" in seen["cwd"]
+    assert rows[-1][0] == "ClaudeCode" and rows[-1][2] is True
+
+
+def test_complete_mcp_no_tool_result_is_error(monkeypatch):
+    rows = _ledger_spy(monkeypatch)
+    monkeypatch.setattr(vcc, "run_stream_json",
+                        lambda *a, **k: ([_final(permission_denials=[{"tool_name": TCBS_OV}])], None, 1.0))
+    ex, err, info = vcc.complete_mcp("x", system="s", allowed_tools=[TCBS_OV], exe="claude")
+    assert ex == [] and err and info["denials"] == [TCBS_OV]
+    assert rows[-1][2] is False
+
+
+def test_complete_mcp_without_exe(monkeypatch):
+    rows = _ledger_spy(monkeypatch)
+    monkeypatch.setattr(vcc, "cli_executable", lambda: None)
+    ex, err, info = vcc.complete_mcp("x", system="s", allowed_tools=[TCBS_OV])
+    assert ex == [] and "không tìm thấy" in err and info["no_exe"] and rows[-1][2] is False

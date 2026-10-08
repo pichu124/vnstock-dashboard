@@ -6974,6 +6974,35 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🧾 U79. CONNECTOR MCP VÀO PIPELINE — PHA 1 CHẠY BÓNG: CP CHỜ NIÊM YẾT + CÔNG BỐ (08/10)
+
+**Đo trước (U78 v2, 🖥️ desktop 08/10):** bộ cờ gọn `lean_ts` gọi được CẢ 3 connector, SSI $0,065
+· TCBS $0,059 · Finhay $0,059/lượt, mỗi lượt 1 ToolSearch (CLI hoãn schema) — `full` cũ $0,25–0,29.
+
+**Nguồn số:** TCBS `tcinvest-getTickerOverview` cho ĐỦ hai số trong MỘT lượt: `outstandingShare` /
+`issueShare` (triệu cp) — SHB 5.343,7 / 4.594,2 khớp số HOSE (lưu hành 5,34 tỷ, niêm yết 4,59 tỷ);
+SSI `company_profile.issue_share` = 4.594.200.024 xác nhận. **Bẫy:** GMD 649,3/432,9 = đúng +50%
+(thưởng GDKHQ 07/10), FPT +10% — mọi đợt thưởng/cổ tức cp đều tạo lệch tới ngày niêm yết, giá đã
+điều chỉnh ⇒ KHÔNG phải cung mới. ⇒ `classify_gap`: lệch < 5% `none`; ≈ Σ tỉ lệ thưởng (sổ
+`vnstock_events.price_events` 120 ngày × `vnstock_corp_ratio.parse_event` kind=stock) × niêm yết
+(±10%, ≥1 tr) `bonus`; lớn hơn ⇒ `bonus_plus` (phần dư); không sự kiện ⇒ `unlisted` (ca SHB).
+
+**Đã làm:** `vnstock_claude_cli` thêm `MCP_LEAN_FLAGS`, `mcp_server_prefix`, `mcp_command`
+(`--allowedTools` để CUỐI), `run_stream_json` (chuyển từ probe — dùng chung), `tool_exchanges`,
+`result_event`, `complete_mcp` (thư mục tạm rỗng, sổ LLM ghi mọi kết cục, ToolSearch = phụ, tool
+ngoài danh sách = `strangers`). `vnstock_mcp_enrich.py`: vũ trụ = `_meta/portfolio.json` (qty>0)
++ `_load_open_recs` (đúng tập mục Rủi ro), cắt 30; MỘT lượt `claude -p` gọi overview + activity
+news (size 5) song song cho mọi mã; `parse_exchanges` đọc `tool_result` (mã trả về phải khớp
+tham số); ghi `_meta/mcp_enrich.json` (nguyên tử, có `machine`, `engine.cost_usd`), kể cả
+`partial`/`error` để thấy được; cùng ngày đã `ok` đủ mã ⇒ no-op; không có CLI ⇒ bỏ qua (laptop).
+`run.py`: bước `mcp-enrich` CUỐI `all` (sau brief — không chạm brief), không bao giờ trả 2,
+subcommand `--show|--force|--dry-run|--tickers`. Conftest chuyển `META_DIR` về tmp (U17).
+Test: `test_mcp_enrich.py` 19, `test_claude_cli.py` +7, `test_run_pipeline.py` sửa thứ tự +1.
+
+**Pha 2 (sau ≥5 phiên chạy bóng, user duyệt):** brief đọc file ⇒ dòng mục ⚠️ Rủi ro cho
+`unlisted`/`bonus_plus` của mã đang giữ (code dựng số, guard canh) + công bố 24h; chuyển bước
+lên TRƯỚC brief khi đó (trần thời gian riêng). Chưa làm: hệ số điều chỉnh SSI cho GDKHQ, tab.
+
 # 🔌 U78. CONNECTOR MCP SSI · TCBS · FINHAY — ĐO XEM `claude -p` CÓ GỌI ĐƯỢC KHÔNG (08/10)
 
 **Vì sao:** 08/10 SHB giảm sàn; soi bằng 3 connector (SSI mới nối lại) ra thứ dữ liệu
