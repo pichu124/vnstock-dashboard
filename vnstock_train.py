@@ -623,6 +623,46 @@ def _material_exdates(ticker: str, after, through, ref_k) -> list[tuple]:
     return out
 
 
+# Neo từ BẢN SAO LƯU REBASE (08/10). Lệnh tạo trước khi có neo (06/10) mà GDKHQ
+# đã chen giữa thì không còn lúc nào chụp được neo sạch ⇒ treo tới hết hạn
+# (GMD BUY @78 tạo 23/09, thưởng 50% 07/10: footer "⚠️ CHƯA quy đổi" mãi). Nhưng
+# `scripts/rebase_ticker_history.py` luôn chép NGUYÊN thư mục mã trước khi ghi
+# vào `_meta/backup_rebase/<MÃ>_<YYYYmmdd-HHMMSS>` — bản SỚM NHẤT sau lúc tạo
+# lệnh chính là kho ngay trước lần rebase đầu tiên kể từ đó, tức CÙNG cơ sở
+# với entry ⇒ close tại bar tạo lệnh trong đó là neo đúng nghĩa.
+_REBASE_BACKUP_ROOT = Path("data_warehouse") / "_meta" / "backup_rebase"
+
+
+def _anchor_from_rebase_backup(ticker: str, created: datetime) -> "tuple | None":
+    """(bar_date, close) — bar cuối ≤ ngày tạo lệnh trong bản sao lưu rebase
+    SỚM NHẤT có dấu thời gian sau lúc tạo lệnh. Không có/đọc hỏng ⇒ None."""
+    tk = str(ticker or "").upper()
+    try:
+        root = Path(_REBASE_BACKUP_ROOT)
+        if not tk or not root.exists():
+            return None
+        cands = []
+        for d in root.glob(f"{tk}_*"):
+            try:
+                stamp = datetime.strptime(d.name[len(tk) + 1:], "%Y%m%d-%H%M%S")
+            except ValueError:
+                continue
+            if d.is_dir() and stamp > created:
+                cands.append((stamp, d))
+        if not cands:
+            return None
+        from vnstock_strategy import _read_ticker_dir
+        df = _read_ticker_dir(min(cands)[1], 0)
+        if df.empty:
+            return None
+        df = df[df["time"].dt.date <= created.date()]
+        if df.empty or not float(df["close"].iloc[-1]) > 0:
+            return None
+        return (df["time"].iloc[-1].date().isoformat(), float(df["close"].iloc[-1]))
+    except Exception:
+        return None
+
+
 def _corp_action_plan(rec: dict, hist, tcol, created: datetime, *,
                       record_anchor: bool = True) -> dict:
     """Cách chấm một lệnh khi tính tới GDKHQ:
@@ -642,6 +682,10 @@ def _corp_action_plan(rec: dict, hist, tcol, created: datetime, *,
     anchor_bar = ((tcol.loc[upto.index[-1]], float(upto["close"].iloc[-1]))
                   if not upto.empty else None)
     anchor = _mem_call("basis_anchor", rec["id"])
+    if anchor is None and (bk := _anchor_from_rebase_backup(rec["ticker"], created)):
+        anchor = {"bar_date": bk[0], "close": bk[1]}
+        if record_anchor:                 # lưu lại — khỏi phụ thuộc bản sao lưu về sau
+            _mem_call("set_basis_anchor", rec["id"], *bk)
     factor = None
     if anchor and float(anchor.get("close") or 0) > 0:
         now_c = hist.loc[tcol == str(anchor["bar_date"]), "close"]

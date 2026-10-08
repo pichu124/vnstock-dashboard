@@ -6992,6 +6992,21 @@ TP/SL % không đổi vì cùng hệ số, note cuối dòng, `html.escape`). S�
 `test_rec_corp_action.py` +5 (rebased/pre_event/không chụp neo/fallback/brief+footer).
 Còn: dashboard (tab danh mục/sổ lệnh) vẫn in mốc gốc — chưa động.
 
+**Đo sau merge (🖥️ 08/10 khuya, full 3.900 passed):** footer in "GMD BUY @78 … · ⚠️ GDKHQ 07/10 — mốc
+CHƯA quy đổi" — KHÔNG phải @52. Vì sao: lệnh GMD tạo ~23/09, TRƯỚC khi có neo (06/10); lượt chấm 06/10
+còn chạy code cũ (desktop pull sau pipeline) nên không chụp neo; từ 07/10 đã có sự kiện xen giữa ⇒ cố ý
+không chụp ⇒ `hold` "chưa có neo cơ sở giá" VĨNH VIỄN, hết hạn + grace ⇒ đóng trung tính. **Ghi chú U74
+"tối 08/10 lượt đầu QUY ĐỔI (≈52)" là SAI** — kỳ vọng đó giả định có neo. Hiển thị nói đúng phép chấm.
+**Vá:** `vnstock_train._anchor_from_rebase_backup` — rebase luôn chép nguyên thư mục mã vào
+`_meta/backup_rebase/<MÃ>_<YYYYmmdd-HHMMSS>` TRƯỚC khi ghi; bản SỚM NHẤT có dấu thời gian sau lúc tạo
+lệnh = kho ngay trước lần rebase đầu tiên kể từ đó = cùng cơ sở với entry ⇒ close bar ≤ ngày tạo lệnh
+là neo đúng nghĩa. `_corp_action_plan`: không có neo ⇒ thử bản sao lưu; phép chấm LƯU neo vào sổ (về sau
+không cần bản sao lưu), đường hiển thị không ghi. `vnstock_strategy._read_ticker_dir` tách từ
+`_load_history_from_parquet` (đọc được cả bản sao lưu, cùng chuẩn hoá đơn vị). Conftest chuyển
+`_REBASE_BACKUP_ROOT` về tmp. Test +2 (chọn bản sớm nhất sau lúc tạo; lệnh không neo được quy đổi + lưu
+neo, hiển thị không ghi). `test_strategy_history::…uses_dashboard_loader…` đỏ khi chạy LẺ cả trên main
+(phụ thuộc thứ tự) — không phải do vá này.
+
 # 🧾 U79. CONNECTOR MCP VÀO PIPELINE — PHA 1 CHẠY BÓNG: CP CHỜ NIÊM YẾT + CÔNG BỐ (08/10)
 
 **Đo trước (U78 v2, 🖥️ desktop 08/10):** bộ cờ gọn `lean_ts` gọi được CẢ 3 connector, SSI $0,065

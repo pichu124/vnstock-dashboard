@@ -854,7 +854,13 @@ def _load_history_from_parquet(
     same way the warehouse pipeline does so prices match recommendation targets.
     """
     root = Path(prices_dir) if prices_dir else Path("data_warehouse/prices")
-    base = root / f"ticker={ticker.upper()}"
+    return _read_ticker_dir(root / f"ticker={ticker.upper()}", days)
+
+
+def _read_ticker_dir(base: Path, days: int) -> pd.DataFrame:
+    """Đọc MỘT thư mục mã dạng `year=*/*.parquet` — kho (`prices/ticker=X`)
+    hoặc bản sao lưu rebase (`_meta/backup_rebase/X_<lúc>`, cùng cấu trúc)."""
+    base = Path(base)
     if not base.exists():
         return pd.DataFrame()
     try:

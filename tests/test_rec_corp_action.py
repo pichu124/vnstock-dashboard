@@ -490,3 +490,47 @@ def test_brief_block_and_telegram_footer_print_converted_levels(gmd, display, mo
     assert "@52" in foot and "@78 " not in foot and "mốc gốc @78" in foot
     # TP/SL % không đổi khi cả ba mốc cùng nhân một hệ số
     assert "TP +9.0%" in foot and "SL -5.1%" in foot
+
+
+# ── Neo từ BẢN SAO LƯU REBASE (08/10): GMD tạo 23/09, chưa từng có neo ─────────
+
+def _write_backup(root, stamp: str, days, close_fn, tk="GMD"):
+    d = root / f"{tk}_{stamp}" / "year=2026"
+    d.mkdir(parents=True, exist_ok=True)
+    _hist(days, close_fn).to_parquet(d / "part.parquet", index=False)
+    return d.parent
+
+
+def test_anchor_from_earliest_backup_after_creation(gmd, tmp_path, monkeypatch):
+    import vnstock_train as vt
+    mem, d0 = gmd(anchors={}, hist_fn=_all_rebased)
+    created = datetime.fromisoformat(mem.recs[0]["created_at"])
+    days = list(pd.bdate_range(d0 - timedelta(days=10), date.today()).date)
+    root = tmp_path / "bk"
+    _write_backup(root, (created - timedelta(days=3)).strftime("%Y%m%d-%H%M%S"), days, lambda d: 90.0)
+    _write_backup(root, (created + timedelta(days=5)).strftime("%Y%m%d-%H%M%S"), days, lambda d: 78.0)
+    _write_backup(root, (created + timedelta(days=8)).strftime("%Y%m%d-%H%M%S"), days, lambda d: 52.0)
+    (root / "GMD_rác").mkdir()
+    monkeypatch.setattr(vt, "_REBASE_BACKUP_ROOT", root)
+    assert vt._anchor_from_rebase_backup("GMD", created) == (d0.isoformat(), 78.0)
+    assert vt._anchor_from_rebase_backup("VCB", created) is None
+
+
+def test_anchorless_rec_is_converted_via_backup_and_anchor_saved(gmd, tmp_path, monkeypatch, display):
+    import vnstock_train as vt
+    mem, d0 = gmd(anchors={}, hist_fn=_all_rebased)
+    ex = _bdays_after(d0, 5)
+    _events(("GMD", ex, _BONUS))
+    created = datetime.fromisoformat(mem.recs[0]["created_at"])
+    days = list(pd.bdate_range(d0, date.today()).date)
+    root = tmp_path / "bk"
+    _write_backup(root, datetime.combine(ex, time(21, 0)).strftime("%Y%m%d-%H%M%S"),
+                  [d for d in days if d < ex], lambda d: 78.0)
+    monkeypatch.setattr(vt, "_REBASE_BACKUP_ROOT", root)
+    lv = display.rec_display_levels(mem.recs[0])        # hiển thị: quy đổi, KHÔNG ghi neo
+    assert lv["mode"] == "rebased" and lv["entry"] == pytest.approx(52.0)
+    assert mem.anchor_writes == 0
+    s = _run()                                           # phép chấm: quy đổi + LƯU neo
+    assert s["held"] == 0 and mem.closed == []           # 52 nằm giữa SL 49.3 và TP 56.7
+    assert mem.anchors[7] == {"bar_date": d0.isoformat(), "close": 78.0}
+    assert created < datetime.combine(ex, time(21, 0))
