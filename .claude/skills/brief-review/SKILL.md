@@ -27,9 +27,14 @@ Bash `PY=~/.venv/Scripts/python.exe` · PowerShell
      (sau 55 guard) — bao nhiêu dòng bị sửa/xoá.
 2. Tóm cho user trong ≤ 5 dòng: ai viết, model thật (fallback?), mấy giây,
    guard sửa bao nhiêu, cảnh báo validator (nếu có trong `run_daily.log`:
-   `Select-String '\[brief\]' run_daily.log | Select-Object -Last 8`, 🖥️;
+   `Select-String '\[brief\]' run_daily.log -Encoding UTF8 | Select-Object -Last 8`, 🖥️;
    đêm engine Claude phải có 4 dòng `⏱ claude-cli` cho news · audit · train ·
-   brief: `Select-String '⏱ claude-cli' run_daily.log | Select-Object -Last 4`).
+   brief — LỌC BỎ `news-alert` (task mỗi giờ ghi cùng log, 08/10 bốn dòng cuối
+   toàn là nó): `Select-String '⏱ claude-cli' run_daily.log -Encoding UTF8 |
+   Where-Object { $_.Line -notmatch 'news-alert' } | Select-Object -Last 4`).
+   Soi thêm mục 💡: lệnh mở tạo TRƯỚC một ngày GDKHQ đã qua thì mốc entry/TP/SL
+   in ra là mốc GỐC (08/10: GMD @77.6 khi giá 54,2 sau thưởng 50%) — đối chiếu
+   giá đóng cửa trước khi chấm sao.
 3. Nếu marker `ladder` + `claude_error`: in đúng lệnh chữa —
    `$PY vnstock_brief_pack.py --check` (🖥️ DESKTOP, dưới tài khoản chạy
    task) và, tuỳ lỗi, `VNSTOCK_CLAUDE_CLI_EXE=<đường dẫn claude>` trong `.env`
