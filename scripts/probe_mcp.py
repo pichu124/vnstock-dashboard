@@ -11,21 +11,27 @@ connector vào mục ⚠️ Rủi ro (cổ phiếu chờ niêm yết, tin công 
 trên MÁY THẬT, dưới đúng tài khoản chạy task:
 
   1. `claude mcp list` — CLI thấy những server nào (không tốn token).
-  2. Khám phá: 4 bộ cờ, đọc sự kiện `init` của `--output-format stream-json`
+  2. Khám phá: 5 bộ cờ, đọc sự kiện `init` của `--output-format stream-json`
      (danh sách server + tool MCP) rồi DỪNG tiến trình ngay (gần 0 token):
        pipeline    = đúng cờ wrapper hiện nay (kỳ vọng: KHÔNG thấy connector)
-       lean        = tước settings/slash nhưng BỎ --strict-mcp-config
-       lean_tools0 = lean + --tools "" (MCP còn sống khi tắt công cụ có sẵn?)
-       full        = không tước gì
+       lean_ts     = tước settings/slash, BỎ --strict-mcp-config, công cụ có
+                     sẵn chỉ còn ToolSearch (nạp schema tool MCP bị hoãn)
+       lean_tools0 = như trên nhưng --tools "" (không cả ToolSearch)
+       lean        = tước settings/slash, giữ công cụ có sẵn
+       full        = không tước gì (nạp cả skill/rules của máy — đắt)
+     Connector claude.ai nối chậm: lúc init hay còn `pending` ⇒ ◐, tên tool
+     SUY từ tên server (đo 08/10: `claude.ai SSI MCP` ⇒ `mcp__claude_ai_SSI_MCP__…`).
   3. Gọi thử MỘT tool chỉ-đọc mỗi nguồn (`--allowedTools` đúng tên tool đó,
-     thư mục làm việc rỗng), xác nhận bằng sự kiện tool_use/tool_result THẬT
-     trong stream — không tin lời model kể.
+     thư mục làm việc rỗng), từ bộ cờ rẻ nhất, dừng ở bộ đầu tiên gọi được;
+     xác nhận bằng sự kiện tool_use/tool_result THẬT trong stream — không tin
+     lời model kể.
 
 🖥️ DESKTOP, dưới tài khoản chạy task Daily:
 
     python scripts/probe_mcp.py              # đủ 3 bước (3 lượt model ngắn)
     python scripts/probe_mcp.py --no-call    # chỉ bước 1–2
     python scripts/probe_mcp.py --json       # in thêm kết quả thô
+    python scripts/probe_mcp.py --with-full  # cho thử cả bộ cờ full (đắt, ~$0,3/lượt)
 
 Dán TOÀN BỘ output cho Claude. CHỈ ĐỌC: không ghi kho, không ghi sổ LLM, không
 đụng .env. Tool tài khoản Finhay (danh mục, sổ lệnh) KHÔNG BAO GIỜ được mở —
@@ -37,6 +43,7 @@ from __future__ import annotations
 import argparse
 import json
 import queue
+import re
 import socket
 import subprocess
 import sys
@@ -62,18 +69,26 @@ PROBE_TOOLS: tuple[tuple[str, str, str, str], ...] = (
 _LEAN = ["--setting-sources", "", "--disable-slash-commands"]
 VARIANTS: dict[str, list[str]] = {
     "pipeline": ["--tools", "", *_LEAN, "--strict-mcp-config"],
-    "lean": list(_LEAN),
+    "lean_ts": ["--tools", "ToolSearch", *_LEAN],
     "lean_tools0": ["--tools", "", *_LEAN],
+    "lean": list(_LEAN),
     "full": [],
 }
-# Bước 3 thử theo thứ tự này — biến thể ÍT quyền nhất có thấy tool thì dùng nó.
-CALL_ORDER = ("lean_tools0", "lean", "full")
+# Bước 3 thử lần lượt, DỪNG ở biến thể đầu tiên gọi được. `full` nạp cả skill/
+# rules/agent của máy (08/10 🖥️ desktop: $0,25–0,29/lượt Sonnet cho MỘT tool)
+# ⇒ chỉ thử khi --with-full.
+CALL_ORDER = ("lean_ts", "lean_tools0", "lean", "full")
+# Connector claude.ai nối CHẬM: lúc `init` thường còn `pending` (08/10: cả 3
+# pending ở lean, chỉ full kịp connected SSI/TCBS) — pending KHÔNG phải không có.
+DEAD_STATUS = ("failed", "needs-auth")
+# Nhiều tool MCP ⇒ CLI hoãn schema, model phải ToolSearch nạp trước — hợp lệ.
+HELPER_TOOLS = ("ToolSearch",)
 # Biến thể còn công cụ có sẵn: cấm hẳn nhóm ghi/chạy lệnh/mạng.
 _DENY_BUILTINS = "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch"
 
 CALL_SYSTEM = ("Bạn là bộ thử kết nối. Gọi tool được nêu trong tin nhắn đúng một lần "
-               "với đúng tham số đã cho, không gọi tool nào khác, rồi trả lời một dòng "
-               "ngắn: OK hoặc LOI kèm lý do.")
+               "với đúng tham số đã cho, được phép dùng ToolSearch để nạp tool đó trước, "
+               "không gọi tool nào khác, rồi trả lời một dòng ngắn: OK hoặc LOI kèm lý do.")
 DISCOVER_TIMEOUT_S = 90
 CALL_TIMEOUT_S = 180
 EXCERPT_CHARS = 300
@@ -101,6 +116,13 @@ def pick_tool(tools: list, key: str, suffix: str) -> "str | None":
     return None
 
 
+def server_prefix(server_name: str) -> str:
+    """Tên server trong `mcp_servers` → tiền tố tool. Đo 08/10: server
+    `claude.ai SSI MCP` ⇒ tool `mcp__claude_ai_SSI_MCP__…` (ký tự ngoài
+    chữ/số/_/- thành `_`)."""
+    return "mcp__" + re.sub(r"[^A-Za-z0-9_-]", "_", str(server_name)) + "__"
+
+
 def find_init(events: list) -> "dict | None":
     for ev in events:
         if isinstance(ev, dict) and ev.get("type") == "system" and ev.get("subtype") == "init":
@@ -112,6 +134,8 @@ def discover_summary(init: "dict | None") -> dict:
     """Từ sự kiện init: server khớp từng nguồn (tên + trạng thái), số tool MCP
     của nguồn, và tool thử có mặt không."""
     out: dict = {"init": init is not None, "providers": {}, "mcp_tools": 0}
+    # Server còn `pending` lúc init: tool chưa có trong danh sách ⇒ SUY tên tool
+    # từ tên server (inferred) để bước 3 vẫn gọi thử.
     if init is None:
         return out
     tools = [t for t in (init.get("tools") or []) if isinstance(t, str)]
@@ -121,8 +145,13 @@ def discover_summary(init: "dict | None") -> dict:
         srv = [{"name": s.get("name"), "status": s.get("status")} for s in servers
                if key in str(s.get("name") or "").lower()]
         n = sum(1 for t in tools if (sp := split_tool(t)) and key in sp[0].lower())
-        out["providers"][label] = {"servers": srv, "tools": n,
-                                   "probe_tool": pick_tool(tools, key, suffix)}
+        tool = pick_tool(tools, key, suffix)
+        live = [x for x in srv if str(x.get("status") or "").lower() not in DEAD_STATUS]
+        inferred = not tool and bool(live)
+        if inferred:
+            tool = server_prefix(live[0]["name"]) + suffix
+        out["providers"][label] = {"servers": srv, "tools": n, "probe_tool": tool,
+                                   "inferred": inferred}
     return out
 
 
@@ -138,8 +167,8 @@ def call_summary(events: list, tool: str) -> dict:
     """Bằng chứng từ stream: tool `tool` có THẬT được gọi không, kết quả lỗi hay
     không, có gọi tool nào khác không, quyền bị từ chối, chi phí."""
     out: dict = {"called": 0, "is_error": None, "excerpt": "", "other_tools": [],
-                 "denials": [], "result": None, "cost_usd": None, "duration_ms": None,
-                 "subtype": None}
+                 "helpers": 0, "denials": [], "result": None, "cost_usd": None,
+                 "duration_ms": None, "subtype": None}
     ids: set = set()
     for ev in events:
         if not isinstance(ev, dict):
@@ -152,6 +181,8 @@ def call_summary(events: list, tool: str) -> dict:
                     if b.get("name") == tool:
                         out["called"] += 1
                         ids.add(b.get("id"))
+                    elif b.get("name") in HELPER_TOOLS:
+                        out["helpers"] += 1
                     else:
                         out["other_tools"].append(str(b.get("name")))
         elif ev.get("type") == "user":
@@ -189,11 +220,12 @@ def call_cmd(exe: str, model: str, variant: str, tool: str) -> list[str]:
     return cmd
 
 
-def choose_call_variant(found: dict, label: str) -> "str | None":
-    for v in CALL_ORDER:
-        if ((found.get(v) or {}).get("providers") or {}).get(label, {}).get("probe_tool"):
-            return v
-    return None
+def call_variants(found: dict, label: str, with_full: bool = False) -> list[str]:
+    """Các biến thể sẽ thử gọi cho nguồn `label`, theo CALL_ORDER (ít quyền/rẻ
+    trước); `pipeline` không bao giờ — đó là cờ wrapper, phải KHÔNG thấy MCP."""
+    order = CALL_ORDER if with_full else tuple(v for v in CALL_ORDER if v != "full")
+    return [v for v in order
+            if ((found.get(v) or {}).get("providers") or {}).get(label, {}).get("probe_tool")]
 
 
 def exit_code(calls: dict) -> int:
@@ -284,7 +316,8 @@ def _fmt_discover(name: str, d: dict, err: "str | None", el: float) -> str:
             parts.append(f"{label} ✗")
             continue
         srv = ", ".join(f"{s['name']}:{s['status']}" for s in info["servers"]) or "?"
-        mark = "✓" if info["probe_tool"] else "△"
+        mark = ("✓" if info["probe_tool"] and not info.get("inferred")
+                else "◐" if info["probe_tool"] else "⛔")
         parts.append(f"{label} {mark} ({srv}; {info['tools']} tool)")
     return f"    {name:<12} {d['mcp_tools']} tool MCP · " + " · ".join(parts)
 
@@ -300,6 +333,8 @@ def _fmt_call(label: str, c: dict) -> str:
         bits.append("model KHÔNG gọi tool")
     if c.get("denials"):
         bits.append("bị từ chối quyền: " + ", ".join(c["denials"]))
+    if c.get("helpers"):
+        bits.append(f"ToolSearch ×{c['helpers']}")
     if c.get("other_tools"):
         bits.append("gọi thêm tool lạ: " + ", ".join(c["other_tools"]))
     if c.get("error"):
@@ -321,9 +356,15 @@ def conclusions(found: dict, calls: dict) -> list[str]:
     ok = [k for k, c in calls.items() if c.get("ok")]
     if calls:
         out.append(f"Gọi được: {', '.join(ok) or 'không nguồn nào'} / {len(PROBE_TOOLS)}.")
-        used = sorted({c["variant"] for c in calls.values() if c.get("ok")})
-        if used:
-            out.append("Biến thể dùng được cho bước tự động: " + ", ".join(used))
+        for k in ok:
+            c = calls[k]
+            cost = c.get("cost_usd")
+            cost_s = f" · ${cost:,.3f}/lượt" if isinstance(cost, (int, float)) else ""
+            out.append(f"  {k}: biến thể {c['variant']}{cost_s}")
+        if ok and all(calls[k]["variant"] != "full" for k in ok):
+            out.append("✅ Bộ cờ gọn (không nạp skill/rules của máy) gọi được — dùng cho bước tự động.")
+        elif ok:
+            out.append("⚠️ Chỉ bộ cờ `full` gọi được — đắt, chưa nên chạy hằng đêm.")
     return out
 
 
@@ -333,6 +374,8 @@ def main(argv: "list[str] | None" = None) -> int:
     ap.add_argument("--model", default=None,
                     help=f"model cho lượt gọi thử (mặc định {cc.DEFAULT_FALLBACK_MODEL} — rẻ)")
     ap.add_argument("--no-call", action="store_true", help="chỉ bước 1–2, không gọi tool")
+    ap.add_argument("--with-full", action="store_true",
+                    help="cho phép thử cả biến thể full (nạp skill/rules của máy — đắt)")
     ap.add_argument("--json", action="store_true", help="in thêm kết quả thô dạng JSON")
     a = ap.parse_args(argv)
 
@@ -365,21 +408,26 @@ def main(argv: "list[str] | None" = None) -> int:
     if not a.no_call:
         print(f"[3] Gọi thử 1 tool chỉ-đọc mỗi nguồn (mã {a.symbol}, thư mục làm việc rỗng):")
         for label, key, suffix, arg in PROBE_TOOLS:
-            variant = choose_call_variant(found, label)
-            if not variant:
-                calls[label] = {"skipped": f"không biến thể nào thấy tool {suffix}"}
+            variants = call_variants(found, label, with_full=a.with_full)
+            if not variants:
+                calls[label] = {"skipped": f"không biến thể nào thấy server/tool {suffix}"}
                 print(_fmt_call(label, calls[label]))
                 continue
-            tool = found[variant]["providers"][label]["probe_tool"]
-            msg = f"Tool: {tool}\nTham số JSON: {json.dumps({arg: a.symbol})}"
-            with tempfile.TemporaryDirectory(prefix="probe_mcp_") as tmp:
-                events, err, el = run_stream(call_cmd(exe, model, variant, tool), msg,
-                                             CALL_TIMEOUT_S, stop_at_init=False, cwd=tmp)
-            c = call_summary(events, tool)
-            c.update({"variant": variant, "tool": tool, "error": err, "elapsed_s": el})
-            calls[label] = c
-            raw["calls"][label] = c
-            print(_fmt_call(label, c))
+            raw["calls"][label] = []
+            for variant in variants:          # dừng ở biến thể đầu tiên gọi được
+                tool = found[variant]["providers"][label]["probe_tool"]
+                msg = (f"Tool: {tool}\nTham số JSON: {json.dumps({arg: a.symbol})}\n"
+                       f"Nếu tool chưa có sẵn: gọi ToolSearch với query select:{tool} để nạp.")
+                with tempfile.TemporaryDirectory(prefix="probe_mcp_") as tmp:
+                    events, err, el = run_stream(call_cmd(exe, model, variant, tool), msg,
+                                                 CALL_TIMEOUT_S, stop_at_init=False, cwd=tmp)
+                c = call_summary(events, tool)
+                c.update({"variant": variant, "tool": tool, "error": err, "elapsed_s": el})
+                calls[label] = c
+                raw["calls"][label].append(c)
+                print(_fmt_call(label, c))
+                if c["ok"]:
+                    break
 
     print("[Kết luận]")
     for ln in conclusions(found, calls):

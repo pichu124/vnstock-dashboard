@@ -7001,6 +7001,19 @@ cấp, không gắn vào CLI) ⇒ phép đo THẬT chỉ có ở 🖥️ desktop
 điều chỉnh SSI đối chiếu rebase) hay chỉ đường B (skill gọi tay ghi JSON vào `_meta/`).
 KHÔNG dùng MCP thay vnstock lấy giá toàn sàn (1 trang SSI 200 mã ≈ 60K token).
 
+**08/10 tối — ĐO THẬT 🖥️ desktop (full 3.861 passed):** `claude mcp list` thấy cả 3
+(`claude.ai SSI MCP` / `claude.ai TCBS MCP` / `claude.ai Finhay`, √ Connected). Init:
+`pipeline` 0 tool MCP (wrapper AN TOÀN) · `lean`/`lean_tools0` thấy 79/119 tool MCP của
+connector KHÁC nhưng 3 server chứng khoán còn **`pending`** · `full` kịp `connected` SSI (42
+tool) + TCBS (54), Finhay vẫn pending. Gọi thử (full): SSI ✅ 17s $0,291 · TCBS ✅ 14s $0,250
+(số SHB khớp phiên cloud) · Finhay ⏭. Model gọi **ToolSearch** trước tool MCP (CLI hoãn schema
+khi nhiều tool) — hợp lệ. **Bản đầu đọc sai 2 chỗ:** (1) `pending` lúc init = connector
+claude.ai nối CHẬM, không phải không có ⇒ bỏ qua oan Finhay + các bộ cờ gọn; (2) `full` nạp
+cả skill/rules ECC của máy ⇒ ~$0,25–0,29/lượt cho MỘT tool — quá đắt cho chạy đêm. **v2:**
+suy tên tool từ tên server (`server_prefix`: ký tự ngoài chữ/số/_/- ⇒ `_`), thêm bộ cờ
+`lean_ts` (`--tools ToolSearch` + tước settings, không strict), thử rẻ trước và dừng ở bộ
+đầu tiên gọi được, `full` chỉ khi `--with-full`, ToolSearch không tính là "tool lạ". Test 31.
+
 # 🔎 U77. SỔ NGHI NGỜ BRIEF: Op.CF ĐÃ XÁC MINH THÌ THÔI RÉO (06/10 tối, user chọn B)
 
 **Vì sao:** doctor 06/10 (🖥️ desktop) ⚠️ "Op.CF/vốn hoá lớn bất thường ×20 (HDC, KBC, PVC,

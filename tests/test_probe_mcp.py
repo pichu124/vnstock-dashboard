@@ -66,9 +66,35 @@ def test_discover_summary_counts_tools_and_servers_per_provider():
     d = pm.discover_summary(init)
     assert d["init"] and d["mcp_tools"] == 3
     assert d["providers"]["SSI"] == {"servers": [{"name": "claude_ai_SSI_MCP", "status": "connected"}],
-                                     "tools": 2, "probe_tool": SSI_TOOL}
+                                     "tools": 2, "probe_tool": SSI_TOOL, "inferred": False}
     assert d["providers"]["Finhay"]["probe_tool"] == FIN_TOOL
-    assert d["providers"]["TCBS"] == {"servers": [], "tools": 0, "probe_tool": None}
+    assert d["providers"]["TCBS"] == {"servers": [], "tools": 0, "probe_tool": None,
+                                      "inferred": False}
+
+
+def test_server_prefix_matches_desktop_naming_0810():
+    # 🖥️ 08/10: server `claude.ai SSI MCP` ⇒ tool `mcp__claude_ai_SSI_MCP__…`
+    assert pm.server_prefix("claude.ai SSI MCP") + "x" == "mcp__claude_ai_SSI_MCP__x"
+    assert pm.server_prefix("claude.ai TCBS MCP") == "mcp__claude_ai_TCBS_MCP__"
+    assert pm.server_prefix("claude.ai Finhay") == "mcp__claude_ai_Finhay__"
+
+
+def test_pending_server_gets_inferred_tool_name():
+    # Vết 08/10: lean thấy 3 server `pending`, 0 tool ⇒ bản đầu bỏ qua oan Finhay.
+    init = _init(["Bash"], [{"name": "claude.ai Finhay", "status": "pending"},
+                            {"name": "claude.ai SSI MCP", "status": "pending"}])
+    d = pm.discover_summary(init)
+    assert d["providers"]["Finhay"]["probe_tool"] == "mcp__claude_ai_Finhay__get_stock_quote"
+    assert d["providers"]["Finhay"]["inferred"] is True
+    assert d["providers"]["SSI"]["probe_tool"] == SSI_TOOL
+
+
+def test_dead_server_is_not_probed():
+    init = _init([], [{"name": "claude.ai Finhay", "status": "needs-auth"},
+                      {"name": "claude.ai TCBS MCP", "status": "failed"}])
+    d = pm.discover_summary(init)
+    assert d["providers"]["Finhay"]["probe_tool"] is None
+    assert d["providers"]["TCBS"]["probe_tool"] is None
 
 
 def test_find_init_skips_other_system_events():
@@ -77,13 +103,14 @@ def test_find_init_skips_other_system_events():
     assert pm.find_init([{"type": "result"}]) is None
 
 
-def test_choose_call_variant_prefers_least_privileged():
+def test_call_variants_cheapest_first_full_only_on_request():
     have = {"providers": {"SSI": {"probe_tool": SSI_TOOL}}}
     none = {"providers": {"SSI": {"probe_tool": None}}}
-    assert pm.choose_call_variant({"lean_tools0": have, "lean": have}, "SSI") == "lean_tools0"
-    assert pm.choose_call_variant({"lean_tools0": none, "full": have}, "SSI") == "full"
+    found = {"lean": have, "lean_ts": have, "lean_tools0": none, "full": have}
+    assert pm.call_variants(found, "SSI") == ["lean_ts", "lean"]
+    assert pm.call_variants(found, "SSI", with_full=True) == ["lean_ts", "lean", "full"]
     # pipeline KHÔNG bao giờ là biến thể gọi thử (đó là cờ wrapper hiện nay)
-    assert pm.choose_call_variant({"pipeline": have}, "SSI") is None
+    assert pm.call_variants({"pipeline": have}, "SSI", with_full=True) == []
 
 
 # ── dòng lệnh ───────────────────────────────────────────────────────────────
@@ -93,6 +120,13 @@ def test_pipeline_variant_mirrors_wrapper_flags():
     assert cmd[i + 1] == "" and "--strict-mcp-config" in cmd
     assert "--setting-sources" in cmd and "--disable-slash-commands" in cmd
     assert cmd[cmd.index("--output-format") + 1] == "stream-json" and "--verbose" in cmd
+
+
+def test_lean_ts_keeps_only_toolsearch_builtin():
+    cmd = pm.call_cmd("claude", "m", "lean_ts", SSI_TOOL)
+    assert cmd[cmd.index("--tools") + 1] == "ToolSearch"
+    assert "--strict-mcp-config" not in cmd and "--disallowedTools" not in cmd
+    assert cmd[cmd.index("--setting-sources") + 1] == ""
 
 
 def test_call_cmd_allows_only_the_probe_tool():
@@ -149,6 +183,13 @@ def test_call_summary_model_claiming_ok_without_tool_use_is_not_ok():
     assert c["called"] == 0 and not c["ok"]
 
 
+def test_call_summary_toolsearch_is_helper_not_stranger():
+    # Vết 08/10: full gọi ToolSearch trước tool MCP (schema bị hoãn) — hợp lệ.
+    evs = [_use("s1", "ToolSearch"), _use("t1", SSI_TOOL), _res("t1", "{}"), _final()]
+    c = pm.call_summary(evs, SSI_TOOL)
+    assert c["ok"] and c["helpers"] == 1 and c["other_tools"] == []
+
+
 def test_call_summary_reports_denials_and_other_tools():
     evs = [_use("t9", "Bash"), _final(permission_denials=[{"tool_name": SSI_TOOL}])]
     c = pm.call_summary(evs, SSI_TOOL)
@@ -165,6 +206,16 @@ def test_exit_code():
     assert pm.exit_code({"SSI": ok, "TCBS": ok, "Finhay": ok}) == 0
     assert pm.exit_code({"SSI": ok, "TCBS": bad, "Finhay": bad}) == 1
     assert pm.exit_code({"SSI": bad, "TCBS": bad, "Finhay": {"skipped": "x"}}) == 2
+
+
+def test_conclusions_name_variant_and_warn_when_only_full():
+    clean = {"pipeline": {"providers": {"SSI": {"tools": 0}}}}
+    lean = {"SSI": {"ok": True, "variant": "lean_ts", "cost_usd": 0.03}}
+    out = pm.conclusions(clean, lean)
+    assert any("lean_ts" in ln and "$0.030" in ln for ln in out)
+    assert any(ln.startswith("✅ Bộ cờ gọn") for ln in out)
+    full = {"SSI": {"ok": True, "variant": "full", "cost_usd": 0.29}}
+    assert any(ln.startswith("⚠️ Chỉ bộ cờ `full`") for ln in pm.conclusions(clean, full))
 
 
 def test_conclusions_flag_wrapper_leak():
