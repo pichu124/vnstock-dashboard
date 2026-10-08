@@ -4552,6 +4552,19 @@ def split_recs_by_validation(recs: list, ctx: dict | None = None) -> tuple[list,
     return emitted, hidden_vals
 
 
+def _rec_levels(r: dict) -> dict:
+    """Mốc HIỂN THỊ của lệnh mở (đã quy đổi khi kho rebase qua GDKHQ) — một
+    nguồn cho brief 💡 và footer Telegram, cùng kế hoạch với phép chấm
+    (`vnstock_train.rec_display_levels`). Lỗi import ⇒ mốc gốc trong sổ."""
+    try:
+        from vnstock_train import rec_display_levels
+        return rec_display_levels(r)
+    except Exception:
+        return {"entry": float(r.get("entry_price") or 0),
+                "tp": float(r.get("take_profit") or 0),
+                "sl": float(r.get("cut_loss") or 0), "mode": "normal", "note": None}
+
+
 def _recommendation_block(ctx: dict | None = None) -> str:
     """Insert open recommendations from validated strategies.
 
@@ -4624,10 +4637,11 @@ def _recommendation_block(ctx: dict | None = None) -> str:
 
         lines = ["\n## Khuyến nghị từ chiến lược đã backtest (tự sinh)"]
         for r in fresh[:5]:
-            entry = float(r.get("entry_price") or 0)
+            # Mốc đã quy đổi khi lệnh mở xuyên qua GDKHQ (08/10, GMD @77.6 khi
+            # giá 54,2) — ghi chú đi sau " — " để guard định dạng dòng giữ lại.
+            _lv = _rec_levels(r)
+            entry, tp, sl = _lv["entry"], _lv["tp"], _lv["sl"]
             _h = int(r.get("horizon_days") or 5)
-            tp    = float(r.get("take_profit") or 0)
-            sl    = float(r.get("cut_loss") or 0)
             line = f"- {r['ticker']} {r['action'].upper()}"
             if _h >= 15:
                 # Tầng vị thế: nhãn khung thời gian ghi RÕ (bài học "Giá 1T %"
@@ -4644,6 +4658,8 @@ def _recommendation_block(ctx: dict | None = None) -> str:
                 if _sz:
                     line += (f" · KL gợi ý ~{_sz['qty']:,} cp"
                              f" (rủi ro {_sz['risk_pct']:g}% NAV)")
+            if _lv.get("note"):
+                line += f" — {_lv['note']}"
             if r.get("rationale"):
                 _rat = str(r["rationale"]).strip()
                 if len(_rat) > 80:                       # truncate on a WORD

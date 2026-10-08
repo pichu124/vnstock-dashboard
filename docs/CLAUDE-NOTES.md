@@ -6974,6 +6974,24 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🏷️ U80. MỐC HIỂN THỊ CỦA LỆNH MỞ QUA GDKHQ — BRIEF 💡 + FOOTER DÙNG CÙNG HỆ SỐ VỚI PHÉP CHẤM (08/10)
+
+**Vết (`/brief-review` brief #924, tối 08/10):** mục 💡 in "GMD BUY entry=77.6 · TP=82.2 · SL=75.1"
+và footer "GMD MUA @77.6" trong khi GMD đóng **54,2** (SSI) sau thưởng 50% GDKHQ 07/10. U74 chỉ sửa
+PHÉP CHẤM (`_corp_action_plan`: treo / mốc × hệ số đo tại neo) — đường HIỂN THỊ vẫn đọc mốc gốc
+trong sổ. Không sai kết quả lệnh, nhưng người đọc thấy "mua 77.6" cho mã giá 54.
+
+**Đã làm:** `vnstock_train.rec_display_levels(rec)` gọi lại ĐÚNG `_corp_action_plan`
+(`record_anchor=False` — đường hiển thị không chụp neo) ⇒ `rebased`: mốc × hệ số, note "đã quy đổi
+theo GDKHQ dd/mm, mốc gốc @E"; `pre_event`/`hold`: mốc gốc + "⚠️ GDKHQ dd/mm — mốc CHƯA quy đổi, giá
+tham chiếu đã đổi"; thiếu id/lịch sử/lỗi ⇒ mốc gốc; tắt cùng `VNSTOCK_REC_GDKHQ_HOLD=0`. Một nguồn
+`vnstock_brief._rec_levels` cho `_recommendation_block` (note sau " — " để `enforce_rec_line_format`
+giữ lại; KL gợi ý tính trên mốc đã quy đổi) và `vnstock_telegram._open_recs_block` (@entry quy đổi,
+TP/SL % không đổi vì cùng hệ số, note cuối dòng, `html.escape`). Sổ KHÔNG bị ghi đè. Conftest:
+`_display_history` trả rỗng cho MỌI test (rec giả mang `id` không được đọc kho/neo thật). Test
+`test_rec_corp_action.py` +5 (rebased/pre_event/không chụp neo/fallback/brief+footer).
+Còn: dashboard (tab danh mục/sổ lệnh) vẫn in mốc gốc — chưa động.
+
 # 🧾 U79. CONNECTOR MCP VÀO PIPELINE — PHA 1 CHẠY BÓNG: CP CHỜ NIÊM YẾT + CÔNG BỐ (08/10)
 
 **Đo trước (U78 v2, 🖥️ desktop 08/10):** bộ cờ gọn `lean_ts` gọi được CẢ 3 connector, SSI $0,065

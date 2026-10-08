@@ -131,6 +131,17 @@ def _fundamentals_writers_to_tmp_anywhere(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _rec_display_reads_no_real_warehouse(monkeypatch):
+    """08/10: brief 💡 + footer Telegram gọi `vnstock_train.rec_display_levels`
+    (mốc lệnh mở đã quy đổi qua GDKHQ) — đọc lịch sử giá + neo trong SQLite.
+    Test rec giả mang `id` (strategy_tiers…) không được đọc kho THẬT của máy
+    chạy test: lịch sử rỗng ⇒ mốc gốc. Test cần thì tự đè `_display_history`."""
+    import pandas as _pd
+    import vnstock_train as _vt
+    monkeypatch.setattr(_vt, "_display_history", lambda *a, **k: _pd.DataFrame())
+
+
+@pytest.fixture(autouse=True)
 def _mcp_enrich_to_tmp_anywhere(tmp_path, monkeypatch):
     """U79 (08/10): `_meta/mcp_enrich.json` nằm trong KHO (Dropbox) — test quên
     `meta_dir` không được ghi đè bản chạy bóng thật (cùng bài học U17)."""

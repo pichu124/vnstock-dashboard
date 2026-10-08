@@ -21,6 +21,7 @@ Usage:
 
 from __future__ import annotations
 
+import html
 import os
 import re
 from datetime import datetime
@@ -378,12 +379,14 @@ def _open_recs_block() -> str:
             return "📋 <b>Khuyến nghị đang mở:</b>\n" + hidden_note
 
         lines = [f"📋 <b>Khuyến nghị đang mở ({len(shown)} mã):</b>"]
+        from vnstock_brief import _rec_levels
         for r in shown:
             ticker = r.get("ticker", "?")
             action = r.get("action", "?").upper()
-            entry  = float(r.get("entry_price") or 0)
-            tp     = float(r.get("take_profit") or 0)
-            sl     = float(r.get("cut_loss") or 0)
+            # Cùng mốc hiển thị với brief 💡 — đã quy đổi khi kho rebase qua
+            # GDKHQ (08/10: footer in "GMD MUA @77.6" khi giá 54,2).
+            lv     = _rec_levels(r)
+            entry, tp, sl = lv["entry"], lv["tp"], lv["sl"]
             horizon = int(r.get("horizon_days") or 5)
             tp_pct  = ((tp / entry) - 1) * 100 if entry else 0
             sl_pct  = ((sl / entry) - 1) * 100 if entry else 0
@@ -395,10 +398,11 @@ def _open_recs_block() -> str:
             # "quá hạn" sớm ~30% (vết 19/08).
             from vnstock_brief import _horizon_calendar_days
             overdue = " ⚠️ quá hạn" if age > _horizon_calendar_days(horizon) else ""
+            note = f" · {html.escape(lv['note'])}" if lv.get("note") else ""
             lines.append(
                 f"  • <b>{ticker}</b> {action} @{_fmt_price(entry)}"
                 f" → TP {tp_pct:+.1f}% | SL {sl_pct:+.1f}%"
-                f" | ngày {age}/{horizon}{overdue}"
+                f" | ngày {age}/{horizon}{overdue}{note}"
             )
         if hidden_note:
             lines.append(hidden_note)

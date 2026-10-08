@@ -623,7 +623,8 @@ def _material_exdates(ticker: str, after, through, ref_k) -> list[tuple]:
     return out
 
 
-def _corp_action_plan(rec: dict, hist, tcol, created: datetime) -> dict:
+def _corp_action_plan(rec: dict, hist, tcol, created: datetime, *,
+                      record_anchor: bool = True) -> dict:
     """Cách chấm một lệnh khi tính tới GDKHQ:
       {"mode": "normal"}                       không có gì xen giữa
       {"mode": "rebased", "factor": f}         kho đã rebase ⇒ mốc × f
@@ -656,7 +657,7 @@ def _corp_action_plan(rec: dict, hist, tcol, created: datetime) -> dict:
                     "why": "nhiều ngày GDKHQ trong một cửa sổ, một hệ số không đủ"}
         return {"mode": "rebased", "factor": factor, "events": events}
     if not events:
-        if anchor is None and anchor_bar is not None:
+        if record_anchor and anchor is None and anchor_bar is not None:
             _mem_call("set_basis_anchor", rec["id"], *anchor_bar)
         return {"mode": "normal"}
     if factor is None:
@@ -669,6 +670,63 @@ def _corp_note(plan: dict) -> str:
     evs = "; ".join(f"{d}: {', '.join(t)}" for d, t in plan.get("events") or [])
     return (f"GDKHQ {evs} — mốc lệnh chưa quy đổi được "
             f"({plan.get('why', '?')}) ⇒ không chấm")[:300]
+
+
+# ── Mốc HIỂN THỊ của lệnh mở qua GDKHQ (08/10) ──────────────────────────────
+# Phần CHẤM đúng từ 06/10 (treo / quy đổi theo `_corp_action_plan`), nhưng brief
+# 💡 + footer Telegram vẫn in mốc GỐC trong sổ: 08/10 "GMD BUY entry=77.6 ·
+# TP=82.2 · SL=75.1" trong khi GMD đóng 54,2 sau thưởng 50% (GDKHQ 07/10).
+# Hiển thị phải nói CÙNG cơ sở với phép chấm ⇒ gọi lại ĐÚNG kế hoạch đó, không
+# chụp neo (đường hiển thị không ghi gì). Sổ không bị ghi đè — như phần chấm.
+
+def _display_history(ticker: str, days: int):
+    """Tách riêng để lưới conftest chặn đọc kho thật trong test."""
+    from vnstock_strategy import _load_history
+    return _load_history(ticker, days=days)
+
+
+def rec_display_levels(rec: dict) -> dict:
+    """Mốc in ra cho một lệnh mở: `{entry, tp, sl, mode, factor, ex_date, note}`.
+
+    mode `rebased` (kho đã rebase) ⇒ mốc × hệ số đo tại neo, note "đã quy đổi
+    theo GDKHQ dd/mm, mốc gốc @E"; `pre_event`/`hold` ⇒ mốc gốc + note "⚠️ …
+    CHƯA quy đổi"; `normal` ⇒ mốc gốc, note None. Thiếu id/lịch sử/lỗi bất kỳ
+    ⇒ mốc gốc (không bao giờ ném). Tắt cùng công tắc VNSTOCK_REC_GDKHQ_HOLD."""
+    def _f(k: str) -> float:
+        try:
+            return float(rec.get(k) or 0)
+        except (TypeError, ValueError):
+            return 0.0
+    e, t, s = _f("entry_price"), _f("take_profit"), _f("cut_loss")
+    out = {"entry": e, "tp": t, "sl": s, "mode": "normal", "factor": None,
+           "ex_date": None, "note": None}
+    if rec.get("id") is None or os.environ.get("VNSTOCK_REC_GDKHQ_HOLD", "1") == "0":
+        return out
+    try:
+        created = datetime.fromisoformat(str(rec.get("created_at")))
+        days = max((datetime.now() - created).days + 15, 30)
+        hist = _display_history(str(rec.get("ticker") or ""), days)
+        if hist is None or hist.empty:
+            return out
+        tcol = hist["time"].dt.date.astype(str)
+        plan = _corp_action_plan(rec, hist, tcol, created, record_anchor=False)
+    except Exception:
+        return out
+    mode = plan.get("mode", "normal")
+    events = plan.get("events") or []
+    d = events[0][0] if events else None
+    when = f"GDKHQ {d.strftime('%d/%m')}" if hasattr(d, "strftime") else "GDKHQ"
+    out["mode"] = mode
+    out["ex_date"] = d.isoformat() if hasattr(d, "isoformat") else None
+    if mode == "rebased":
+        from vnstock_brief_canon import _fmt_footer_price
+        f = float(plan["factor"])
+        out.update(entry=e * f, tp=t * f, sl=s * f, factor=f)
+        base = when if events else "kho đã điều chỉnh giá"
+        out["note"] = f"đã quy đổi theo {base}, mốc gốc @{_fmt_footer_price(e)}"
+    elif mode in ("pre_event", "hold"):
+        out["note"] = f"⚠️ {when} — mốc CHƯA quy đổi, giá tham chiếu đã đổi"
+    return out
 
 
 def reconcile_recommendations(verbose: bool = True) -> dict:

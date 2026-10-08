@@ -420,3 +420,73 @@ def test_telegram_closed_today_does_not_print_zero_pnl_for_unpriced_closes(monke
     out = tg._closed_today_block()
     assert "⏸ <b>GMD</b>: không chấm (corp_action)" in out
     assert "<b>FPT</b>: +4.20% (tp)" in out
+
+
+# ── Mốc HIỂN THỊ (08/10): brief 💡 + footer in "GMD BUY entry=77.6" khi giá 54,2 ──
+
+@pytest.fixture
+def display(monkeypatch):
+    """Bỏ lưới conftest (lịch sử rỗng) — dùng `_load_history` mà fixture gmd giả."""
+    import vnstock_strategy as vs
+    import vnstock_train as vt
+    monkeypatch.setattr(vt, "_display_history",
+                        lambda t, days: vs._load_history(t, days=days))
+    return vt
+
+
+def _all_rebased(d0, days):
+    return _hist(days, lambda d: 52.0)          # cả chuỗi đã chia 1.5 (rebase)
+
+
+def test_display_levels_rebased_are_converted_with_note(gmd, display):
+    mem, d0 = gmd(hist_fn=_all_rebased)
+    ex = _bdays_after(d0, 5)
+    _events(("GMD", ex, _BONUS))
+    lv = display.rec_display_levels(mem.recs[0])
+    assert lv["mode"] == "rebased" and lv["factor"] == pytest.approx(52 / 78)
+    assert (lv["entry"], lv["tp"], lv["sl"]) == pytest.approx((52.0, 85 * 52 / 78, 74 * 52 / 78))
+    assert f"GDKHQ {ex.strftime('%d/%m')}" in lv["note"] and "mốc gốc @78" in lv["note"]
+
+
+def test_display_levels_unrebased_keep_raw_and_warn(gmd, display):
+    def h(d0, days):
+        ex = _bdays_after(d0, 5)
+        return _hist(days, lambda d: 78.0 if d < ex else 52.0)
+    mem, d0 = gmd(hist_fn=h)
+    _events(("GMD", _bdays_after(d0, 5), _BONUS))
+    lv = display.rec_display_levels(mem.recs[0])
+    assert lv["mode"] == "pre_event" and lv["entry"] == 78.0
+    assert lv["note"].startswith("⚠️ GDKHQ") and "CHƯA quy đổi" in lv["note"]
+
+
+def test_display_never_writes_an_anchor(gmd, display):
+    mem, _ = gmd(anchors={}, hist_fn=lambda d0, days: _hist(days, lambda d: 78.0))
+    lv = display.rec_display_levels(mem.recs[0])
+    assert lv["mode"] == "normal" and lv["note"] is None
+    assert mem.anchor_writes == 0                  # phép chấm mới được chụp neo
+
+
+def test_display_levels_fall_back_to_raw(gmd, display, monkeypatch):
+    mem, d0 = gmd(hist_fn=_all_rebased)
+    _events(("GMD", _bdays_after(d0, 5), _BONUS))
+    rec = mem.recs[0]
+    assert display.rec_display_levels({**rec, "id": None})["entry"] == 78.0
+    monkeypatch.setenv("VNSTOCK_REC_GDKHQ_HOLD", "0")
+    assert display.rec_display_levels(rec)["note"] is None
+
+
+def test_brief_block_and_telegram_footer_print_converted_levels(gmd, display, monkeypatch):
+    import vnstock_brief as vb
+    import vnstock_telegram as tg
+    mem, d0 = gmd(hist_fn=_all_rebased, age_days=6, rec_over={"action": "buy"})
+    ex = _bdays_after(d0, 3)
+    _events(("GMD", ex, _BONUS))
+    monkeypatch.setattr("vnstock_memory.open_recommendations", lambda: mem.recs)
+    monkeypatch.setattr("vnstock_memory.get_active_family", lambda *a, **k: None)
+    block = vb._recommendation_block({})
+    assert "GMD BUY" in block and "entry=52 " in block and "entry=78" not in block
+    assert "đã quy đổi theo GDKHQ" in block and "mốc gốc @78" in block
+    foot = tg._open_recs_block()
+    assert "@52" in foot and "@78 " not in foot and "mốc gốc @78" in foot
+    # TP/SL % không đổi khi cả ba mốc cùng nhân một hệ số
+    assert "TP +9.0%" in foot and "SL -5.1%" in foot
