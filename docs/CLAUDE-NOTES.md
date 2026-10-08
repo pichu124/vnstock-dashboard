@@ -6999,6 +6999,12 @@ tham số); ghi `_meta/mcp_enrich.json` (nguyên tử, có `machine`, `engine.co
 subcommand `--show|--force|--dry-run|--tickers`. Conftest chuyển `META_DIR` về tmp (U17).
 Test: `test_mcp_enrich.py` 19, `test_claude_cli.py` +7, `test_run_pipeline.py` sửa thứ tự +1.
 
+**Lượt thật đầu tiên (🖥️ 08/10 23:17, main `1fd4f38`, full 3.895 passed):** 7 mã (giữ EIB·SSI; lệnh
+mở DCM·GMD·GVR·HDB·VEA) · ok · **$0,115 · 29s** (14 tool ≈ $0,008/tool — 30 mã ước ~$0,3–0,4).
+GMD 649,3/432,9 ⇒ `bonus` ĐÚNG (thưởng 50% GDKHQ 07/10). EIB 1.862,7/1.868,8 và SSI 3.001,3/3.003,3:
+lưu hành < niêm yết = **cổ phiếu quỹ** (lệch âm −0,3%/−0,07%) ⇒ `none`, đúng — đừng đọc thành lỗi.
+Công bố bắt được: HDB 07/10 "công văn UBCKNN về hồ sơ đăng ký…" (ứng viên dòng pha 2).
+
 **Pha 2 (sau ≥5 phiên chạy bóng, user duyệt):** brief đọc file ⇒ dòng mục ⚠️ Rủi ro cho
 `unlisted`/`bonus_plus` của mã đang giữ (code dựng số, guard canh) + công bố 24h; chuyển bước
 lên TRƯỚC brief khi đó (trần thời gian riêng). Chưa làm: hệ số điều chỉnh SSI cho GDKHQ, tab.
