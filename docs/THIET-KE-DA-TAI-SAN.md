@@ -1,0 +1,161 @@
+# Mở rộng dashboard sang VÀNG · DẦU · USD — THIẾT KẾ + P0 ĐO NGUỒN
+
+> **Trạng thái 09/10/2026: P0 ĐANG ĐO.** Script `scripts/probe_assets.py` đã viết (CLAUDE-NOTES U81),
+> chờ 🖥️ desktop chạy `python scripts/probe_assets.py --mcp` rồi dán output. P1+ CHƯA code.
+>
+> **User chốt 09/10:**
+> 1. Giao diện: **tab riêng** "🪙 Hàng hoá & Tiền tệ".
+> 2. MCP: "tuỳ Claude, hiện dùng MCP chưa mất chi phí" ⇒ Claude chọn **LAI**: MCP Finhay/SSI làm nguồn
+>    NGÀY (tươi trong phiên, đủ mở/cao/thấp/đóng, có giá đại lý vàng nội); Python (FRED/stooq) nạp lịch
+>    sử nhiều năm + làm dự phòng khi MCP lỗi; mỗi đêm đối chiếu hai đường. Chốt hẳn SAU khi đọc kết quả
+>    probe (độ sâu, độ ổn định trên máy thật). Chi phí MCP trong sổ là QUY ĐỔI giá API — gói thuê bao
+>    trừ hạn mức, không trừ tiền.
+> 3. Vàng trong nước: lấy **cả 5 đại lý** Finhay có (SJC · PNJ · DOJI · BTMC · BTMH, miếng + nhẫn = 10 sản
+>    phẩm, thêm một sản phẩm gần như không tốn gì). Mặc định hiển thị SJC miếng · SJC nhẫn · PNJ nhẫn,
+>    các sản phẩm còn lại ở bảng phụ.
+> 4. Danh sách cổ phiếu liên kết: theo §3 (user đồng ý danh sách gốc, Claude được thêm bớt).
+
+## 1. Mục tiêu
+
+Dashboard và brief hiện chỉ có CỔ PHIẾU + một rổ vĩ mô nhỏ. Vàng, dầu, USD tác động thẳng tới cổ phiếu VN
+(PNJ, nhóm dầu khí, hàng không, xuất khẩu, khối ngoại) nhưng hệ thống chỉ có TIN, gần như không có SỐ:
+prompt brief còn lấy "giá dầu Brent/WTI" làm VÍ DỤ cho thứ đang thiếu (`vnstock_brief.py:308`, `:396`).
+
+Đích: một kho chuỗi giá tài sản riêng + tab xem + chỉ số suy ra có nghĩa với VN (chênh SJC, dư địa tới
+trần tỷ giá, độ nhạy cổ phiếu) — rồi mới tới brief/cảnh báo (P5, duyệt riêng). Sau ba tài sản này, khung
+mở được cho bạc/đồng/khí (Finhay có XAG · HG · NG) hay thép/phân bón nếu có nguồn.
+
+## 2. Hiện trạng (đã kiểm code 09/10)
+
+| Tài sản | Đang có | Thiếu / sai |
+|---|---|---|
+| Vàng | `vnstock_gold.py`: spot USD/oz, 2 endpoint free, chụp 1 điểm/ngày, trần 400 (`:37`); chỉ ở sub-tab 🧭 Phân bổ + proxy lớp Vàng của scorecard; KHÔNG vào registry 13 chỉ số (nguyên tắc P6) | Không OHLC, không chuỗi dài, không giá vàng NỘI. Nhãn cứng "premium SJC ~15-20%" (`vnstock_gold.py:39`) — đo 09/10 chỉ còn **~9–11%** ⇒ phải TÍNH, không ghi cứng |
+| USD | `usdvnd` trong registry vĩ mô (er-api → currency-api, cross-check VCB qua PDF VBMA), trần 60 điểm (`vnstock_macro.py:63`); tỷ giá trung tâm từ bản tin TUẦN SBV (`vnstock_sbv.py:51`) | Không chỉ số USD thế giới, không chuỗi dài, không giá VCB theo ngày, không "còn bao xa tới trần biên độ" |
+| Dầu | Không có số. Tin dầu đi đường RSS từ khoá | Ghi chú khảo sát 07/2026 "dầu không có API free" (CLAUDE-NOTES:1767) **sót FRED** — FRED (key đã có cho `us10y`) có Brent `DCOILBRENTEU` + WTI `DCOILWTICO` |
+
+## 3. Khung nghiên cứu từng tài sản — xem gì, nối với cổ phiếu nào
+
+Danh sách cổ phiếu là GIẢ THUYẾT kênh truyền dẫn; P4 ĐO bằng tương quan/beta 60 phiên trên kho giá sẵn có,
+mã nào không thấy quan hệ thì nói thẳng, không giữ vì "nghe hợp lý".
+
+### 3.1 Vàng
+- **Thế giới (XAU, USD/oz):** chịu lợi suất thực Mỹ (US10Y − kỳ vọng lạm phát; `us10y` đã có trong
+  registry), chỉ số USD, NHTW mua ròng, rủi ro địa chính trị.
+- **Trong nước:** vàng miếng SJC do Nhà nước độc quyền thương hiệu ⇒ giá tách khỏi thế giới; **chênh
+  SJC − thế giới quy đổi** là thước đo cung cầu nội + chính sách (NHNN bán can thiệp). Nhẫn trơn bám thế
+  giới sát hơn. Chênh mua–bán của đại lý cho biết thị trường căng hay lỏng.
+- **Hiển thị:** XAU; giá mua/bán 10 sản phẩm đại lý (triệu đ/lượng); % chênh miếng/nhẫn so thế giới quy
+  đổi (theo tỷ giá thị trường VÀ tỷ giá bán VCB — ghi rõ dùng cái nào); chênh mua–bán.
+- **Cổ phiếu:** PNJ (bán lẻ trang sức — biên và tồn kho chịu giá vàng). Giả thuyết phụ cần đo: vàng tăng
+  mạnh ⇒ tiền nhỏ lẻ rời chứng khoán.
+
+### 3.2 Dầu
+- **Brent** = chuẩn cho dầu thô VN (giá bán dầu thô/khí neo Brent); **WTI** = chuẩn Mỹ. Chênh Brent−WTI
+  phản ánh cung Mỹ/xuất khẩu. Động lực: OPEC+, tồn kho EIA, địa chính trị (eo Hormuz), chu kỳ cầu, USD.
+- **VN:** giá xăng bán lẻ điều hành theo kỳ (Bộ Công Thương) ⇒ CPI nhóm giao thông. Nguồn giá xăng VN
+  CHƯA có — để dành (không thuộc P0).
+- **Hiển thị:** Brent, WTI (đóng cửa + mở/cao/thấp khi có), chênh Brent−WTI, thay đổi 1N/1T/1Th/YTD.
+- **Cổ phiếu:** thượng nguồn PVD · PVS (giá dầu ⇒ capex khoan/dịch vụ); khí GAS (giá bán neo dầu);
+  lọc dầu BSR (crack spread, tồn kho); phân phối PLX · OIL (lãi/lỗ tồn kho khi giá đổi); vận tải PVT;
+  phía CHỊU chi phí nhiên liệu HVN · VJC; *bổ sung của Claude:* DPM · DCM (khí đầu vào phân đạm).
+
+### 3.3 USD
+- **Thế giới:** ICE DXY (rổ 6 đồng, EUR ~58%) ≠ chỉ số USD rộng của Fed `DTWEXBGS` (rổ thương mại rộng,
+  có CNY/MXN) — HAI chỉ số khác nhau, UI phải ghi đúng tên cái đang hiện.
+- **VN:** NHNN công bố **tỷ giá trung tâm** mỗi ngày, NHTM giao dịch trong biên **±5%** ⇒ trần = trung
+  tâm × 1,05. Tỷ giá bán của NHTM (VCB) áp trần = áp lực tỷ giá thật. Kênh: chênh lãi suất VND−USD
+  (liên ngân hàng + Fed funds đã có trong registry), cán cân thương mại (đã có), dòng vốn ngoại (đã có).
+- **Hiển thị:** USD/VND thị trường · trung tâm · VCB mua/CK/bán; **% còn tới trần**; chỉ số USD thế giới.
+- **Cổ phiếu:** xuất khẩu hưởng lợi USD mạnh VHC · ANV · *bổ sung:* MSH (dệt may); chi phí/nợ USD HVN ·
+  VJC. Khối ngoại bán ròng khi USD mạnh — đo bằng chuỗi NN ròng sẵn có (`vnstock_foreign_flow`).
+
+## 4. Bản đồ nguồn — số đo 09/10 (qua connector trong phiên Claude, KHÔNG phải máy thật)
+
+| Nguồn | Có gì | Tươi | Sâu | Ghi chú |
+|---|---|---|---|---|
+| **Finhay MCP** `get_commodity_history` | XAU · XAG · HG · **CL** · **BZ** · NG, nến ngày mở/cao/thấp/đóng | trong phiên (nến hôm nay đang chạy) | XAU có ở 01/2025, RỖNG 01/2020; CL rỗng 01/2024 ⇒ ~1–2 năm | probe đo chính xác 5 cửa sổ |
+| **Finhay MCP** `get_forex_history` | USDVND · EURUSD · USDJPY · GBPUSD | trong phiên | USDVND chỉ từ **03/08/2026** | có cả ngày nghỉ (01–03/09 đứng giá) |
+| **Finhay MCP** `get_dealer_product_*` | vàng miếng + nhẫn của SJC/PNJ/DOJI/BTMC/BTMH, giá mua/bán | 19:20 cùng ngày | SJC miếng có ở 01/2025 | đơn vị **nghìn đ/chỉ** (14.480 ⇔ 144,8 tr/lượng; 01/2025 8.620 ⇔ 86,2 tr — khớp thị trường) |
+| **SSI MCP** `foreign_currency_converter` | tỷ giá theo NGÂN HÀNG (VCB, BID, ACB, TCB, AGRB, SCB, **SBVN**) | ngày | 730 ngày | VCB 09/10: mua 25.680 · CK 25.710 · bán 26.090 |
+| FRED | Brent, WTI, `DTWEXBGS` | trễ vài ngày (EIA/Fed cập nhật theo tuần) — probe đo | hàng chục năm | key có sẵn |
+| goldprice.org / gold-api.com | XAU hiện tại | tức thời | 0 (pipeline tự chụp) | đang chạy trong pipeline |
+| er-api / currency-api… | USD/VND hiện tại | tức thời | 0 | đang chạy |
+| stooq CSV | xauusd, cb.f, cl.f, **dx.f (DXY hợp đồng tương lai ICE)**, usdvnd | ? | ? | ứng viên — probe đo; có thể đòi hạn mức/khoá |
+| Yahoo chart | GC=F, BZ=F, CL=F, DX-Y.NYB, VND=X | ? | ? | KHÔNG chính thức — chỉ xếp cuối |
+| sjc.com.vn / vietcombank.com.vn | giá SJC / tỷ giá VCB trực tiếp | ? | ? | endpoint ứng viên — probe đo |
+| vnstock_data (Golden) / vnstock | ? hàng hoá / tỷ giá | ? | ? | probe dò module + chữ ký hàm, gọi thử |
+
+**Phát hiện 09/10 (cần đối chiếu trên máy thật):**
+- **SBVN trong SSI = giá USD tại Sở giao dịch NHNN.** Mua 24.398 · bán 26.860 ⇒ (mua+bán)/2 = **25.629**;
+  25.629 × 1,05 = 26.910 = bán + 50, 25.629 × 0,95 = 24.348 = mua − 50 — khớp CẢ HAI phía ⇒ tỷ giá trung
+  tâm NGÀY suy ra được từ SSI (bản tin SBV hiện chỉ cho 1 điểm/TUẦN). VCB bán 26.090 ⇒ còn **~3,1%** tới
+  trần; thị trường (Finhay) 25.881 ≈ trung tâm +1,0%. Probe tự đối chiếu với `fx_central` bản tin tuần.
+- **Chênh SJC miếng:** bán 144,8 tr/lượng vs XAU 4.182,09 × 25.881 × 1,20565 oz/lượng = 130,5 tr ⇒
+  **+11,0%** (dùng VCB bán 26.090 ⇒ +10,1%; giá mua 141,8 ⇒ +8,7%). Nhãn cứng "~15–20%" là lỗi thời.
+- **Độ sâu MCP ngắn** (USDVND ~2 tháng, XAU ~2 năm) ⇒ chuỗi dài bắt buộc từ nguồn Python.
+
+## 5. Kiến trúc đích (P1–P4)
+
+**Nguyên tắc (giữ đúng luật repo):**
+1. Kho RIÊNG `data_warehouse/assets/<KHOÁ>/<YYYY>.parquet` — cột `date, open, high, low, close, bid, ask,
+   source, fetched_at`. KHÔNG vào registry 13 chỉ số vĩ mô (đã chốt trần) và không đụng `prices/` cổ phiếu.
+2. Ladder nguồn theo từng chuỗi, sanity range, lỗi ⇒ GIỮ số cũ, không bịa; mỗi điểm ghi `source`.
+3. MCP chỉ qua `vnstock_claude_cli.complete_mcp` (connector gắn tài khoản, Python không gọi thẳng); số
+   đọc từ `tool_result`, không qua chữ model.
+4. Mỗi bước có kill-switch env, badge doctor, ghi nguyên tử, test + whitelist `--fast`, docs.
+5. Kho đi Dropbox ⇒ bước ghi chạy ở pipeline 🖥️ desktop; laptop chỉ đọc (tránh conflicted copy).
+
+**Module:**
+- `vnstock_assets.py` — registry (1 dòng / chuỗi: khoá, nhãn, đơn vị, ladder, sanity), store đọc/ghi
+  Parquet theo năm, `refresh()`, `load(key, days)`, chuỗi suy ra: `sjc_premium_pct` (mỗi sản phẩm vàng),
+  `gold_vnd_luong`, `usd_central` (từ SBVN), `usd_ceiling_room_pct`, `brent_wti_spread`. Backfill một lần
+  từ FRED (+ stooq nếu probe thấy sống).
+- `vnstock_assets_mcp.py` (hoặc trong `vnstock_assets`) — một lượt `complete_mcp` mỗi đêm: Finhay 4 chuỗi
+  + 10 sản phẩm vàng (cửa sổ 10 ngày, ghi đè bar trùng) + SSI VCB/SBVN; đối chiếu với nguồn Python,
+  lệch > ngưỡng ⇒ cờ, không ghi đè lặng lẽ.
+- `dashboard/assets_tab.py` — tab "🪙 Hàng hoá & Tiền tệ" thêm vào `_TAB_OPTIONS` (`vnstock_dashboard.py:3712`),
+  pills con Vàng · Dầu · USD · Liên kết cổ phiếu; ô số (giá, Δ1N/1T/1Th/YTD, nguồn + ngày), biểu đồ giá
+  (nến khi có OHLC, plotly như `dashboard/macro_tab.py:118`), biểu đồ chênh; CHỈ đọc kho.
+- Pipeline: bước `assets` sau `macro`/`gold` (`VNSTOCK_ASSETS`), bước MCP chạy sau brief như `mcp-enrich`
+  (`VNSTOCK_ASSETS_MCP`). `vnstock_gold` giữ nguyên tới khi P1 chuyển nguồn của nó sang kho mới (proxy
+  scorecard không đổi hành vi).
+- Doctor `assets`: tuổi từng chuỗi + số cờ lệch nguồn; dưới sàn mẫu thì ok kèm n=… (luật brief_watch).
+
+## 6. Pha (điểm dừng nào cũng dùng được)
+
+| Pha | Việc | Máy | Điểm dừng |
+|---|---|---|---|
+| **P0** | `scripts/probe_assets.py` + tài liệu này | Claude viết · 🖥️ chạy | user dán output ⇒ chốt nguồn từng chuỗi |
+| P1 | kho + registry + nguồn Python + backfill + bước pipeline + doctor | Claude · 🖥️ verify | kho có chuỗi dài, badge xanh |
+| P2 | tab 🪙 Vàng · Dầu · USD | Claude · ○ xem | user nhìn tab thật |
+| P3 | MCP nguồn ngày + đối chiếu (5 phiên chạy bóng rồi mới làm nguồn chính) | Claude · 🖥️ | 5 phiên không lệch bất thường |
+| P4 | liên kết cổ phiếu: tương quan/beta 60 phiên | Claude · ○ | bảng độ nhạy có số |
+| P5 | brief khối 🪙 (code dựng số, guard khoá) · cảnh báo Telegram biến động · Phân bổ dùng vàng VND | duyệt RIÊNG | — |
+
+## 7. P0 — chạy và đọc kết quả
+
+🖥️ DESKTOP, dưới tài khoản chạy task (có `.env` FRED_API_KEY, connector đã đăng nhập):
+
+```
+python scripts/probe_assets.py --mcp
+```
+
+Output gồm 4 tầng (python · sponsor · local · mcp), khối "Suy ra" (chênh SJC, dư địa tới trần, đối chiếu
+trung tâm) và "Kết luận theo tài sản" (nguồn TƯƠI nhất + SÂU nhất cho từng chuỗi). Exit 0/1/2.
+
+Đọc để quyết P1:
+- FRED Brent/WTI/USD index sống ⇒ nguồn lịch sử dài cho dầu/USD; ghi lại độ trễ thật.
+- stooq/Yahoo sống ⇒ thêm XAU dài + **DXY của ICE** (stooq dx.f = hợp đồng tương lai, Yahoo DX-Y.NYB =
+  chỉ số); cả hai chết ⇒ USD thế giới chỉ có `DTWEXBGS` (ghi đúng tên trên UI).
+- vnstock_data có hàm hàng hoá/tỷ giá ⇒ cân nhắc làm nấc giữa ladder (đã có quyền Golden).
+- SJC/VCB trực tiếp sống ⇒ dự phòng khi MCP lỗi cho vàng nội / tỷ giá VCB.
+- MCP: độ sâu thật từng chuỗi + đủ 36/36 lượt gọi ⇒ đủ tin để thành nguồn ngày ở P3.
+
+## 8. Chưa biết / rủi ro
+
+- Kết quả trong §4 đo trong phiên Claude (connector của phiên), KHÔNG phải trên máy thật dưới tài khoản
+  task — có thể khác (tên server, độ trễ, quota).
+- Suy luận "trung tâm = (mua+bán)/2 của SBVN" phải khớp bản tin SBV vài lần trước khi dùng thật.
+- Finhay lịch sử có ngày nghỉ đứng giá (01–03/09) — P1 phải lọc theo lịch giao dịch của từng thị trường.
+- Đơn vị giá đại lý (nghìn đ/chỉ) đo trên 2 mốc; P1 thêm sanity theo chênh với thế giới (vd ngoài
+  −5%…+40% ⇒ nghi đơn vị, cách ly điểm đó).

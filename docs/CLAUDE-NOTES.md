@@ -6974,6 +6974,40 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🪙 U81. ĐA TÀI SẢN VÀNG · DẦU · USD — P0 ĐO NGUỒN (09/10)
+
+**User 09/10:** mở rộng dashboard sang tài sản khác, trước hết vàng/dầu/USD; lên kế hoạch, duyệt rồi mới
+làm ⇒ duyệt P0. Chốt cùng ngày: tab riêng · MCP "tuỳ Claude" (Claude chọn LAI: MCP Finhay/SSI làm nguồn
+NGÀY, Python FRED/stooq làm lịch sử dài + dự phòng, chốt sau probe) · vàng nội cả 5 đại lý · danh sách
+cổ phiếu liên kết theo thiết kế §3. Toàn bộ thiết kế: `docs/THIET-KE-DA-TAI-SAN.md`.
+
+**Hiện trạng soi được:** vàng chỉ có spot USD/oz 1 điểm/ngày (`vnstock_gold`, nhãn cứng "premium SJC
+~15–20%" ở `:39` — đo 09/10 chỉ ~9–11%); USD/VND trong registry trần 60 điểm; tỷ giá trung tâm chỉ 1
+điểm/TUẦN (bản tin SBV); dầu KHÔNG có số — ghi chú khảo sát 07/2026 "dầu không có API free"
+(:1767) SÓT FRED Brent `DCOILBRENTEU`/WTI `DCOILWTICO` (key đã có).
+
+**Đo qua connector trong phiên Claude 09/10 (KHÔNG phải máy thật):** Finhay có XAU/XAG/HG/CL/BZ/NG nến
+ngày tươi trong phiên nhưng sâu NGẮN (XAU có 01/2025, rỗng 01/2020; CL rỗng 01/2024; USDVND chỉ từ
+03/08/2026); giá đại lý 10 sản phẩm vàng (SJC/PNJ/DOJI/BTMC/BTMH) đơn vị **nghìn đ/chỉ** (SJC bán 14.480 ⇔
+144,8 tr/lượng, 01/2025 8.620 ⇔ 86,2 tr). SSI `foreign_currency_converter` bank **SBVN** = giá Sở giao
+dịch NHNN: mua 24.398 · bán 26.860 ⇒ (mua+bán)/2 = 25.629 và ×1,05 = 26.910 = bán+50, ×0,95 = 24.348 =
+mua−50 — khớp cả hai phía ⇒ tỷ giá TRUNG TÂM theo NGÀY suy được (cần đối chiếu bản tin SBV). VCB bán
+26.090 ⇒ còn ~3,1% tới trần. Chênh SJC miếng vs XAU 4.182,09 × 25.881 × 1,20565 oz/lượng ≈ +11,0%.
+
+**Đã làm:** `scripts/probe_assets.py` (chỉ đọc) — 4 tầng: python (FRED 3 chuỗi, 2 endpoint vàng + 4 FX
+đang chạy đo TỪNG cái, stooq, Yahoo, SJC + VCB trực tiếp có dò độ sâu 1 năm/5 năm), sponsor (đi FILE
+của vnstock_data/vnii/vnstock tìm module hàng hoá·vĩ mô·tỷ giá — không import cả gói — in chữ ký, gọi thử
+≤16 lượt 60s/lượt trong thread daemon, bỏ hàm có chữ key/auth/limit/set/save…), local (3 cache kho), mcp
+(`--mcp`: một `complete_mcp`, 36 lượt gọi — 5 chuỗi × 5 cửa sổ độ sâu + 9 sản phẩm vàng cửa sổ gần nhất +
+SSI VCB/SBVN; tool tài khoản không bao giờ mở). Khối "Suy ra" (chênh SJC, dư địa tới trần, đối chiếu
+trung tâm) + "Kết luận theo tài sản" (tươi nhất/sâu nhất). Lỗi mạng rút về NGUYÊN NHÂN và xoá api_key
+(lỗi requests chứa nguyên URL kèm key). Test `tests/test_probe_assets.py` (25, whitelist `--fast`); dùng
+`sys.modules` khi nạp script vì `@dataclass` tra module ở đó. Sandbox Claude: mọi host bị proxy chặn
+403 ⇒ tầng python ra toàn ❌ đúng dự kiến.
+
+**Chờ:** 🖥️ `python scripts/probe_assets.py --mcp` ⇒ dán output ⇒ chốt nguồn từng chuỗi ⇒ P1 (kho
+`data_warehouse/assets/`, registry, backfill, bước pipeline, doctor).
+
 # 🏷️ U80. MỐC HIỂN THỊ CỦA LỆNH MỞ QUA GDKHQ — BRIEF 💡 + FOOTER DÙNG CÙNG HỆ SỐ VỚI PHÉP CHẤM (08/10)
 
 **Vết (`/brief-review` brief #924, tối 08/10):** mục 💡 in "GMD BUY entry=77.6 · TP=82.2 · SL=75.1"
