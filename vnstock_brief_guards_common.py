@@ -36,7 +36,8 @@ def _parse_vn_number(s: str) -> float | None:
         return None
 
 
-_SECTION_EMOJIS = ("🎯", "📊", "📈", "🏆", "💰", "📋", "⚠️", "📅", "💡", "🔧", "⚡", "🔮", "🌐", "📰", "📌", "📚", "🧭")
+_SECTION_EMOJIS = ("🎯", "📊", "📈", "🏆", "💰", "📋", "⚠️", "📅", "💡", "🔧", "⚡", "🔮", "🌐", "📰", "📌", "📚", "🧭",
+                   "🪙")
 
 
 def _is_section_start(line: str) -> bool:

@@ -26,6 +26,7 @@ from vnstock_brief_canon import (
     _RISK_CLUSTER_SHARE,
     _RISK_EXDATE_DAYS,
     _RISK_FALLBACK_LINE,
+    _ASSETS_SECTION_TITLE,
     _RISK_FUND_DE_MIN,
     _RISK_FX_PCT,
     _RISK_HELD_SHOCK_1D_PCT,
@@ -157,6 +158,45 @@ def enforce_macro(text: str, ctx: dict) -> str:
         else:
             out.append(line)
     return "\n".join(out)
+
+
+def enforce_assets_section(text: str, ctx: dict) -> str:
+    """Mục '🪙 Hàng hoá & Tiền tệ' (P5 đa tài sản, U86) — CODE dựng TOÀN BỘ thân mục từ kho tài sản
+    (ctx["assets_lines"], `vnstock_assets_brief.brief_lines` ở collect_context); model không viết số
+    vàng/dầu/USD. Dòng code né mẫu mà guard sau sửa nhầm (không "tăng/giảm X%", không "USD/VND",
+    không "VNINDEX") — test chạy cả chuỗi guard canh điều đó.
+
+    - ctx KHÔNG có khoá (pack cũ, test cũ, kill-switch) ⇒ no-op.
+    - Khoá rỗng (chuỗi đều cũ) ⇒ gỡ mục 🪙 model lỡ viết.
+    - Có mục ⇒ thay thân; chưa có ⇒ chèn ngay SAU mục 🌐 Vĩ mô (không có 🌐 ⇒ trước 📰/📚/📌, không
+      có nữa ⇒ cuối brief). Idempotent.
+    """
+    if not text or "assets_lines" not in (ctx or {}):
+        return text
+    body = [str(l) for l in (ctx.get("assets_lines") or [])]
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines) if _is_section_start(l) and "🪙" in l), None)
+    if start is not None:
+        end = next((i for i in range(start + 1, len(lines)) if _is_section_start(lines[i])), len(lines))
+        tail = end                                  # giữ dòng trống ngăn mục ⇒ chạy lại không đổi
+        while tail > start + 1 and not lines[tail - 1].strip():
+            tail -= 1
+        if not body:
+            return "\n".join(lines[:start] + lines[end:])
+        if lines[start + 1:tail] == body:
+            return text
+        return "\n".join(lines[:start + 1] + body + lines[tail:])
+    if not body:
+        return text
+    macro = next((i for i, l in enumerate(lines) if _is_section_start(l) and "vĩ mô" in l.lower()), None)
+    if macro is not None:
+        at = next((i for i in range(macro + 1, len(lines)) if _is_section_start(lines[i])), len(lines))
+    else:
+        at = next((i for i, l in enumerate(lines)
+                   if _is_section_start(l) and any(e in l for e in ("📰", "📚", "📌"))), len(lines))
+    while at > 0 and not lines[at - 1].strip():
+        at -= 1
+    return "\n".join(lines[:at] + ["", _ASSETS_SECTION_TITLE] + body + lines[at:])
 
 
 def enforce_macro_fx_pct(text: str, ctx: dict) -> str:

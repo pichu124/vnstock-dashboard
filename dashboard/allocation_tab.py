@@ -114,6 +114,16 @@ def _render_gold(st) -> None:
              f"{ch['prev_as_of']})" if ch and ch.get("dir") else "")
     st.caption(f"🥇 Vàng {g['value']:,.2f} USD/oz — as_of {g['as_of']}{extra} · "
                f"**{g['note']}**")
+    try:                                   # P5 đa tài sản: lớp Vàng đo bằng VND (vàng nhẫn SJC)
+        import vnstock_assets_view as av
+        ring = av.card("GOLD_SJC_RING")
+        if ring:
+            d1 = ring["chg"].get("1 phiên")
+            st.caption(f"🥇 Vàng nhẫn SJC (bán) {ring['value']:,.0f} đ/lượng — {ring['date']}"
+                       + (f" ({d1:+.2f}% 1 phiên)" if d1 is not None else "")
+                       + " · lớp Vàng trong scorecard đo bằng VND theo giá này")
+    except Exception:
+        pass
 
 
 def _render_scorecard(st) -> None:
@@ -137,8 +147,8 @@ def _render_scorecard(st) -> None:
             "Phủ data %": p["coverage_pct"],
         } for p in periods]), hide_index=True, use_container_width=True)
         st.caption("Return theo PROXY THÔ (VNINDEX / −Δyield 10Y×7 / lãi suất "
-                   "điều hành / vàng spot / USD-VND) — xem nhãn trong "
-                   "`vnstock_scorecard.py --show`.")
+                   "điều hành / vàng nhẫn SJC theo VND — thiếu số thì vàng TG quy đổi VND / "
+                   "USD-VND) — xem nhãn trong `vnstock_scorecard.py --show`.")
     else:
         st.caption("Chưa đủ kỳ tháng hoàn tất (cần history ≥ 2 tháng).")
     srcs = data.get("sources") or []

@@ -187,3 +187,18 @@ def test_refresh_scorecard_none_without_state(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "vnstock_allocation", alloc_mod)
     assert sc.refresh_scorecard() is None
     assert not sc._SCORECARD.exists()
+
+
+def test_gold_class_prefers_vnd_ring_then_world_vnd_then_usd():
+    """P5 đa tài sản (U86): lớp Vàng đo bằng VND; mỗi kỳ dùng MỘT nấc đủ số ở cả hai đầu kỳ."""
+    h = _hists()
+    h["gold_ring_vnd"] = {"2026-05-02": 120_000_000.0, "2026-06-02": 126_000_000.0}
+    h["gold_world_vnd"] = {"2026-05-02": 110_000_000.0, "2026-06-02": 111_100_000.0}
+    r = sc.class_returns("2026-05-02", "2026-06-02", hists=h)["Vàng"]
+    assert r["ret_pct"] == pytest.approx(5.0) and "nhẫn SJC (VND" in r["proxy"]
+    h["gold_ring_vnd"] = {"2026-06-02": 126_000_000.0}             # đầu kỳ thiếu ⇒ không ghép thước
+    r = sc.class_returns("2026-05-02", "2026-06-02", hists=h)["Vàng"]
+    assert r["ret_pct"] == pytest.approx(1.0) and "quy đổi VND" in r["proxy"]
+    h["gold_world_vnd"] = {}
+    r = sc.class_returns("2026-05-02", "2026-06-02", hists=h)["Vàng"]
+    assert r["ret_pct"] == pytest.approx(2.0) and "premium SJC" in r["proxy"]   # spot USD cũ

@@ -54,6 +54,7 @@ from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
     enforce_liquidity_label,
     enforce_macro,
     enforce_macro_fx_pct,
+    enforce_assets_section,
     enforce_macro_reports,
     enforce_market_news,
     enforce_money_flow_two_sides,
@@ -281,6 +282,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_upcoming_events(text, ctx)
     fixed = enforce_macro(fixed, ctx)                # canonical macro levels/changes
     fixed = enforce_macro_fx_pct(fixed, ctx)         # USD/VND % safety net (header-miss)
+    fixed = enforce_assets_section(fixed, ctx)       # 🪙 vàng/dầu/USD: thân mục = dòng code (U86)
     fixed = enforce_market_news(fixed, ctx)          # canonical econ/political headlines
     fixed = enforce_macro_reports(fixed, ctx)        # canonical 📚 band + digest báo cáo
     fixed = enforce_allocation_table(fixed, ctx)     # pin band/% + caveat horizon

@@ -1513,7 +1513,9 @@ def test_close_1507_0110_fixes():
     #     ví dụ "thứ thực sự thiếu" (model từng chép nguyên ví dụ để xin CPI)
     from vnstock_brief import _MORNING_TEMPLATE, _AFTERNOON_TEMPLATE
     for tpl in (_MORNING_TEMPLATE, _AFTERNOON_TEMPLATE):
-        assert "vd: giá dầu Brent/WTI" in tpl
+        # P5 đa tài sản (U86): vàng/dầu/USD nay ĐÃ CÓ (block 🪙) ⇒ rời ví dụ "thiếu", vào danh sách ĐÃ CÓ
+        assert "vd: giá dầu Brent/WTI" not in tpl and "vd: lịch công bố KQKD" in tpl
+        assert "giá vàng/dầu/USD thế giới" in tpl
         assert "vd: CPI/lạm phát" not in tpl
         assert "CPI/lạm phát, IIP, PMI, GDP" in tpl    # đã vào danh sách ĐÃ CÓ
 

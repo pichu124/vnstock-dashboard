@@ -6974,6 +6974,16 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🪙 U86. P5 BRIEF 🪙 · CẢNH BÁO TELEGRAM · PHÂN BỔ VÀNG VND (10/10)
+
+Thiết kế §13. (a) Mục 🪙 trong brief = dòng CODE (`vnstock_assets_brief`, ctx `assets_lines`, khối dữ kiện prompt,
+guard `enforce_assets_section` thứ 56, 🪙 vào `_SECTION_EMOJIS`, tiêu đề ở canon); dòng né mẫu của
+`enforce_vnindex_change`/`enforce_macro_fx_pct` — test chạy cả chuỗi canh. Template 🔧: vàng/dầu/USD vào "ĐÃ CÓ"
+(sửa test ghim). Lưới `test_brief_split` bắt re-export thiếu 2 tên ⇒ đã thêm vào `vnstock_brief`. (b) Cảnh báo
+biến động `vnstock_assets_alerts` trong lượt mỗi giờ, kênh tin, bậc theo ngày dữ liệu, sổ `_meta/assets_alerts.json`,
+conftest tắt mặc định. (c) Scorecard lớp Vàng: nhẫn SJC VND → TG quy đổi VND → USD spot, một nấc mỗi kỳ.
+Kill-switch `VNSTOCK_BRIEF_ASSETS`, `VNSTOCK_ASSETS_ALERTS`. Test +11.
+
 # 🪙 U85. P4 LIÊN KẾT CỔ PHIẾU ↔ VÀNG/DẦU/USD (10/10)
 
 Thiết kế §12. `vnstock_assets_links` đo 20 cặp mã × yếu tố, 60 phiên (+250 nền): beta RIÊNG sau khi trừ VNINDEX

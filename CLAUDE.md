@@ -124,7 +124,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 - `vnstock_brief.py` — sinh AI brief morning/close (context → prompt → agent).
   Chuỗi `apply_brief_guards(text, ctx)` ở `vnstock_brief_guards.py` DÙNG CHUNG
   cho cả 2 brief — KHÔNG BAO GIỜ inline lại vào `generate_brief` (điểm parity
-  duy nhất). 55 guard chia 3 chủ đề: `_guards_sections` (sai chuyện gì) /
+  duy nhất). 56 guard chia 3 chủ đề: `_guards_sections` (sai chuyện gì) /
   `_guards_numbers` (sai số, sai chiều) / `_guards_text` (lộ ruột, nói nhảm),
   tiện ích chung ở `_guards_common`, hằng số + khối canon mà CẢ prompt lẫn
   guard dựng chung ở `vnstock_brief_canon.py`. Một chiều: brief → guards →
@@ -163,7 +163,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   cascade `report_digest.digest_call(step=)`; train = `ClaudeCodeAgent` làm
   lead (`_inject_claude_lead`), ladder free = pool. Mọi chỗ lỗi ⇒ ladder như
   cũ, log `[<bước>] ⏱ claude-cli: …`. Brief: `build_pack` (ctx+prompt, `_meta/brief_pack.json` v2 +
-  `brief_prompt.md`) → CLI → `finalize_brief` (55 guard → validate → memory
+  `brief_prompt.md`) → CLI → `finalize_brief` (56 guard → validate → memory
   `agent_type=claude` → brief_watch) → `push_close_brief(ai_block, engine)`;
   raw/final ghi `_meta/brief_claude_raw.md` / `brief_claude.md` (Telegram lỗi
   ⇒ `run.py brief --from-file` gửi lại không tốn call). Hỏng khâu nào ⇒ **rơi
@@ -198,7 +198,9 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   MCP giờ `VNSTOCK_ASSETS_MCP_HOURS`; chuỗi chậm chỉ hiện qua `*_EST` (USD rộng ±0,3%, WTI giao ngay ≤3 phiên;
   Brent giao ngay ẩn). Pipeline: `assets` sau gold, `assets-mcp` cuối. Doctor `assets`. Tab 🪙 (P2, U83):
   `dashboard/assets_tab.py` chỉ vẽ, số ở `vnstock_assets_view` (thuần; % đổi theo NGÀY LỊCH); không `$` trong caption.
-  P3 đối chiếu MCP↔Python (`agreement`, sổ `_meta/assets_sources.json`) · P4 `vnstock_assets_links` (beta riêng 60p).
+  P3 đối chiếu MCP↔Python (`agreement`, sổ `_meta/assets_sources.json`) · P4 `vnstock_assets_links` (beta riêng 60p)
+  · P5: mục 🪙 brief = dòng CODE (`vnstock_assets_brief` → guard `enforce_assets_section`), cảnh báo biến động mỗi giờ
+  (`vnstock_assets_alerts`, kênh tin), scorecard lớp Vàng đo bằng VND (nhẫn SJC).
   ⚠️ SSI "SBVN" = giá tham khảo Cục QLNH (`USD_SBV_REF`), KHÔNG phải trung tâm; mbk ghi trung tâm LÙI 1 phiên
   ⇒ `shift_mbk_dates` dời (đo 10/10, §9c) — `--show`/doctor kiểm lại ngày từ kho mỗi lần.
 - `vnstock_corp_ratio` — đọc TỈ LỆ QUYỀN từ tiêu đề sự kiện (hàm thuần).
@@ -300,7 +302,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   (`VNSTOCK_BRIEF_AUTO_*`, `VNSTOCK_MACRO_*`, `VNSTOCK_BASIS_GUARD`,
   `VNSTOCK_OHLC_REPAIR`, `VNSTOCK_AUTOHEAL_BUDGET_S`, `VNSTOCK_VN30_DYNAMIC`,
   `VNSTOCK_WSS_HOT_TIER`, `VNSTOCK_BRIEF_WATCH`, `VNSTOCK_NEWS_ALERT`,
-  `VNSTOCK_FIXUNITS_FOOTER_PRUNE`, `VNSTOCK_NETBS_WORKERS`, `VNSTOCK_HORIZONS_STEP`, `VNSTOCK_REC_GDKHQ_HOLD`, `VNSTOCK_BRIEF_RISK_TODAY`, `VNSTOCK_BRIEF_FUND_PERIODS`, `VNSTOCK_MCP_ENRICH`, `VNSTOCK_ASSETS[_HOURLY|_MCP|_DEMOTE|_LINKS]`, `VNSTOCK_LLM_ENGINE`
+  `VNSTOCK_FIXUNITS_FOOTER_PRUNE`, `VNSTOCK_NETBS_WORKERS`, `VNSTOCK_HORIZONS_STEP`, `VNSTOCK_REC_GDKHQ_HOLD`, `VNSTOCK_BRIEF_RISK_TODAY`, `VNSTOCK_BRIEF_FUND_PERIODS`, `VNSTOCK_MCP_ENRICH`, `VNSTOCK_ASSETS[_HOURLY|_MCP|_DEMOTE|_LINKS|_ALERTS]`, `VNSTOCK_BRIEF_ASSETS`, `VNSTOCK_LLM_ENGINE`
   + `VNSTOCK_<BƯỚC>_ENGINE` + `VNSTOCK_CLAUDE_CLI_{EXE,MODEL,FALLBACK_MODEL,
   TIMEOUT_S,API_KEY,REPO_CONTEXT}`, `VNSTOCK_LLM_BREAKER`
   — cầu dao tài khoản LLM: provider 401/402/403 hôm nay + chưa call nào OK ⇒

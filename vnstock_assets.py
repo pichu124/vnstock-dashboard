@@ -720,6 +720,12 @@ def hourly(now: "datetime | None" = None) -> dict:
     if mcp_due(now, read_status()):
         import vnstock_assets_mcp as am
         res["mcp"] = am.refresh(now)
+    # P5: cảnh báo Telegram khi vàng/dầu/USD biến động mạnh — sau khi kho có số mới nhất của giờ này.
+    try:
+        import vnstock_assets_alerts as aa
+        res["alerts"] = aa.run(now)
+    except Exception as e:                                         # noqa: BLE001
+        res["alerts"] = {"status": "error", "error": f"{type(e).__name__}: {e}"}
     return res
 
 
@@ -1083,7 +1089,8 @@ def main(argv: "list[str] | None" = None) -> int:
         py = res.get("python") or {}
         print(f"[assets] mỗi giờ: python {py.get('status')} ({py.get('ok')}/"
               f"{(py.get('ok') or 0) + (py.get('fail') or 0)})"
-              + (f" · mcp {res['mcp'].get('status')}" if res.get("mcp") else ""))
+              + (f" · mcp {res['mcp'].get('status')}" if res.get("mcp") else "")
+              + (f" · cảnh báo {res['alerts'].get('status')}" if res.get("alerts") else ""))
         return 0
     res = refresh_python()
     print(f"[assets] python {res.get('status')} ({res.get('ok')}/{(res.get('ok') or 0) + (res.get('fail') or 0)})"

@@ -52,6 +52,14 @@ _CLASS_PROXY_LABELS = {
     "Vàng":       "%Δ vàng spot quốc tế (chưa gồm premium SJC)",
     "USD":        "%Δ USD/VND",
 }
+# P5 đa tài sản (U86): lớp Vàng đo bằng VND — nấc 1 vàng nhẫn SJC giá bán (thứ nhà đầu tư VN mua,
+# bám vàng TG sát hơn miếng), nấc 2 vàng TG quy đổi VND, nấc 3 spot USD cũ. MỖI kỳ chọn MỘT nấc có đủ
+# số ở CẢ đầu lẫn cuối kỳ — không ghép hai thước trong một phép tính lãi/lỗ.
+_GOLD_LADDER = (
+    ("gold_ring_vnd", "%Δ vàng nhẫn SJC (VND, giá bán — kho tài sản)"),
+    ("gold_world_vnd", "%Δ vàng TG quy đổi VND (XAU × USD/VND thị trường)"),
+    ("gold", _CLASS_PROXY_LABELS["Vàng"]),
+)
 
 
 # ── History loaders (best-effort, zero fetch) ────────────────────────────────
@@ -94,6 +102,30 @@ def _gold_history() -> dict[str, float]:
         return {}
 
 
+def _gold_vnd_histories() -> "dict[str, dict[str, float]]":
+    """{nhãn nấc: {ngày: giá}} — vàng nhẫn SJC + vàng TG quy đổi VND từ kho tài sản (thiếu ⇒ rỗng)."""
+    out = {"gold_ring_vnd": {}, "gold_world_vnd": {}}
+    try:
+        import vnstock_assets as va
+        import vnstock_assets_view as av
+        out["gold_ring_vnd"] = va.series("GOLD_SJC_RING")
+        w = av.world_gold_vnd()
+        out["gold_world_vnd"] = {d.date().isoformat(): float(v) for d, v in w.items()}
+    except Exception:
+        pass
+    return out
+
+
+def _gold_return(h: dict, start: str, end: str) -> "tuple[float | None, str]":
+    """(lãi/lỗ %, nhãn nấc) — nấc đầu tiên có số ở cả hai đầu kỳ."""
+    for key, label in _GOLD_LADDER:
+        hist = h.get(key) or {}
+        r = _pct(_value_on(hist, start), _value_on(hist, end))
+        if r is not None:
+            return r, label
+    return None, _GOLD_LADDER[0][1]
+
+
 def _value_on(hist: dict[str, float], date_iso: str) -> "float | None":
     """Reading gần nhất ≤ date — kỳ THÁNG nên lệch vài ngày chấp nhận được."""
     ok = [d for d in hist if d <= date_iso]
@@ -116,9 +148,11 @@ def class_returns(start: str, end: str,
         "policy": _macro_history("sbv_policy_rate"),
         "gold": _gold_history(),
         "usdvnd": _macro_history("usdvnd"),
+        **_gold_vnd_histories(),
     }
     days = max((date.fromisoformat(end) - date.fromisoformat(start)).days, 0)
 
+    gold_ret, gold_label = _gold_return(h, start, end)
     y0, y1 = _value_on(h["y10"], start), _value_on(h["y10"], end)
     bond = round(-(y1 - y0) * _BOND_DURATION, 2) \
         if (y0 is not None and y1 is not None) else None
@@ -129,11 +163,11 @@ def class_returns(start: str, end: str,
         "Cổ phiếu":   _pct(_value_on(h["vnindex"], start), _value_on(h["vnindex"], end)),
         "Trái phiếu": bond,
         "Tiền gửi":   deposit,
-        "Vàng":       _pct(_value_on(h["gold"], start), _value_on(h["gold"], end)),
+        "Vàng":       gold_ret,
         "USD":        _pct(_value_on(h["usdvnd"], start), _value_on(h["usdvnd"], end)),
     }
-    return {cls: {"ret_pct": r, "proxy": _CLASS_PROXY_LABELS[cls]}
-            for cls, r in rets.items()}
+    labels = {**_CLASS_PROXY_LABELS, "Vàng": gold_label}
+    return {cls: {"ret_pct": r, "proxy": labels[cls]} for cls, r in rets.items()}
 
 
 # ── Pure core: kỳ tháng + chấm điểm ─────────────────────────────────────────
@@ -298,8 +332,9 @@ def _print(sc: dict) -> None:
             print(f"    • {s['report_date']} {s['source']}: stance CP "
                   f"{s['stance_cp']:+d} → VNINDEX 30d "
                   f"{f'{r:+.2f}%' if r is not None else '?'}")
-    print("  (Proxy return THÔ: " + "; ".join(
-        f"{c} = {l}" for c, l in _CLASS_PROXY_LABELS.items()) + ")")
+    labels = {**_CLASS_PROXY_LABELS,
+              "Vàng": " → ".join(lab for _, lab in _GOLD_LADDER) + " (nấc đầu đủ số mỗi kỳ)"}
+    print("  (Proxy return THÔ: " + "; ".join(f"{c} = {l}" for c, l in labels.items()) + ")")
 
 
 def main(argv: "list[str] | None" = None) -> int:

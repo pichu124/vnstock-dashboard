@@ -386,6 +386,9 @@ _RISK_AGENT_DROP_KW = _FUND_KW + ("nợ vay", "kiệt quệ", "margin", "ký qu�
 # lại chuỗi guard bao nhiêu lần cũng ra y hệt (gỡ theo tiền tố rồi dựng lại).
 # Bảng cực trị D/E · Op.CF in lại CHỈ khi có KỲ BCTC MỚI (U75 pha 2, câu 1 = b).
 _RISK_PERIOD_PREFIX = "- Kỳ BCTC mới"
+# Mục 🪙 (P5 đa tài sản, U86) — tiêu đề dùng chung cho khối prompt (vnstock_assets_brief) và guard
+# enforce_assets_section; thân mục là dòng CODE dựng (ctx["assets_lines"]).
+_ASSETS_SECTION_TITLE = "## 🪙 Hàng hoá & Tiền tệ"
 _RISK_LINE_PREFIXES = (
     "- Danh mục tập trung", "- Mã đang giữ", "- GDKHQ chạm", "- Tiền tệ xấu đi",
     "- Khối ngoại bán ròng mạnh", "- Cơ bản lệnh mới", "- Không có rủi ro mới",

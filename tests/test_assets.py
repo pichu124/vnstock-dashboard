@@ -266,6 +266,9 @@ def test_hourly_runs_mcp_only_when_due(monkeypatch):
     monkeypatch.setattr(am, "refresh", lambda now=None, **k: seen.append(now) or {"status": "ok"})
     assert "mcp" not in va.hourly(datetime(2026, 10, 9, 10, 0))
     assert va.hourly(datetime(2026, 10, 9, 14, 0))["mcp"]["status"] == "ok" and len(seen) == 1
+    assert va.hourly(datetime(2026, 10, 9, 15, 0))["alerts"]["status"] == "disabled"   # conftest tắt
+    monkeypatch.setenv("VNSTOCK_ASSETS_ALERTS", "1")
+    assert va.hourly(datetime(2026, 10, 9, 16, 0))["alerts"]["status"] == "quiet"      # kho trống ⇒ im
 
 
 # ── doctor ──────────────────────────────────────────────────────────────────

@@ -466,3 +466,38 @@ khoản, không phải lợi suất) · "USD mạnh ⇒ khối ngoại bán ròn
 kết luận · kho giá tổng hợp với quan hệ biết trước (PVD +0,5 Brent lệch 1 phiên, HVN −0,4, VHC không dính USD)
 tìm lại đúng chiều/độ lớn và nói "không thấy" · ghi cache + kill-switch · thẻ tab vẽ bảng.
 
+## 13. P5 — brief 🪙 · cảnh báo Telegram · Phân bổ vàng VND (10/10, CLAUDE-NOTES U86)
+
+User 10/10 "làm tuần tự 3-4-5" ⇒ duyệt P5 (vốn "duyệt riêng").
+
+**(a) Mục "🪙 Hàng hoá & Tiền tệ" trong brief sáng + chiều** — số do CODE dựng, model không viết số:
+- `vnstock_assets_brief.brief_lines()` dựng ≤4 dòng "- …" (cùng kiểu mục 🌐): vàng TG + SJC miếng + chênh vs TG ·
+  Brent/WTI tháng gần + hình đường cong · DXY + USD rộng ước tính + VCB bán + dư địa tới trần · ≤3 cặp độ nhạy
+  có ý nghĩa (P4, xếp theo |t|). CHỈ chuỗi còn tươi (cũ theo lịch thị trường ⇒ bỏ dòng, không in số cũ).
+- `collect_context` bước 8b2 ⇒ `ctx["assets_lines"]`; `build_prompt` thêm khối dữ kiện sau 🌐 kèm chỉ thị
+  "chỉ in tiêu đề, KHÔNG tự viết số vàng/dầu/USD"; mục 🔧 của template: vàng/dầu/USD vào danh sách ĐÃ CÓ, rời ví
+  dụ "thứ thực sự thiếu" (test `test_close_1507_0110_fixes` ghim theo).
+- Guard `enforce_assets_section` (sections, nối ngay sau `enforce_macro_fx_pct`, guard thứ 56): thay thân mục bằng
+  đúng dòng code; chưa có mục ⇒ chèn SAU 🌐 (không có 🌐 ⇒ trước 📰/📚/📌); khoá rỗng ⇒ gỡ mục model lỡ viết;
+  ctx không có khoá ⇒ no-op (pack cũ/test cũ/kill-switch). 🪙 thêm vào `_SECTION_EMOJIS`; tiêu đề dùng chung
+  `vnstock_brief_canon._ASSETS_SECTION_TITLE`. Dòng code NÉ mẫu mà guard sau sửa nhầm: không "tăng/giảm X%"
+  (`enforce_vnindex_change` nhánh 2 bắt "chỉ số … tăng X%"), không "USD/VND" (`enforce_macro_fx_pct`), không
+  "VNINDEX" — test chạy CẢ chuỗi `apply_brief_guards` canh dòng ra nguyên vẹn + chạy lại không đổi.
+- Kill-switch `VNSTOCK_BRIEF_ASSETS=0`.
+
+**(b) Cảnh báo Telegram biến động** — `vnstock_assets_alerts`, chạy trong lượt MỖI GIỜ (`vnstock_assets.hourly`,
+sau lượt Python), gửi KÊNH TIN (`TELEGRAM_NEWS_*`). Ngưỡng so phiên trước: XAU 2% · Brent/WTI 3% · DXY 1% · SJC miếng
+2% · VCB bán 0,5%; VCB còn ≤1% (bậc 2: ≤0,5%) tới trần. Bậc = ⌊|Δ|/ngưỡng⌋; mỗi (chuỗi, NGÀY DỮ LIỆU, bậc) gửi một
+lần ⇒ cú đi hôm qua không gửi lại sáng nay, cú đi lớn dần thì báo thêm khi lên bậc. Sổ `_meta/assets_alerts.json`
+(10 ngày); Telegram lỗi ⇒ không đánh dấu (lượt sau gửi lại). Kill-switch `VNSTOCK_ASSETS_ALERTS=0`; thử
+`python vnstock_assets_alerts.py --dry-run`. conftest tắt mặc định — không test nào gửi tin thật.
+
+**(c) Phân bổ: lớp Vàng đo bằng VND** — `vnstock_scorecard` thang nấc: vàng nhẫn SJC giá bán (kho tài sản) → vàng
+TG quy đổi VND → spot USD cũ; MỖI kỳ dùng MỘT nấc đủ số ở cả đầu lẫn cuối kỳ (không ghép hai thước trong một phép
+tính lãi/lỗ), nhãn proxy theo nấc đã dùng. Tab 🧭 Phân bổ thêm dòng giá vàng nhẫn SJC (đ/lượng).
+
+**Test:** `tests/test_assets_brief.py` (10, whitelist): dòng code đủ + không `$` · bỏ chuỗi cũ + kill-switch · độ nhạy
+xếp theo |t| · cảnh báo bậc + không lặp + lên bậc · trần + dry-run + Telegram lỗi + tắt · im khi không vượt ·
+guard qua CẢ chuỗi (nguyên vẹn, đúng chỗ, idempotent) · thay thân/gỡ/no-op/không có 🌐 · prompt có khối chỉ khi có
+dữ liệu (sáng + chiều). `tests/test_scorecard.py` +1 (ba nấc vàng).
+

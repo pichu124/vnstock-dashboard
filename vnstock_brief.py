@@ -83,6 +83,7 @@ from vnstock_brief_canon import (  # noqa: F401  (re-export: giữ nguyên đư�
     _RISK_AGENT_DROP_KW,
     _RISK_LINE_PREFIXES,
     _RISK_FALLBACK_LINE,
+    _ASSETS_SECTION_TITLE,
     _RISK_TODAY_RULES,
     _RISK_MAX_LINES,
     _RISK_TIER_CAPS,
@@ -305,7 +306,7 @@ Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằn
 BẮT BUỘC: Nếu quyết định bị ảnh hưởng bởi tin tức trong block "Tin tức thị trường", PHẢI nêu rõ tên tiêu đề tin và giải thích tác động (ví dụ: "HPG: MUA — kỹ thuật vượt MA20 + tin [Hòa Phát ký hợp đồng thép 5.000 tỷ] hỗ trợ đà tăng"). Bỏ qua nếu không có khuyến nghị.
 
 ## 🔧 Đề xuất bổ sung (1 dòng, optional)
-[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, Cơ bản nhóm theo dõi (D/E/ROE/OCF), lịch GDKHQ cổ tức/chia tách (nếu có block "Sự kiện sắp tới"), VĨ MÔ — lãi suất điều hành/liên ngân hàng, tỷ giá USD/VND, lợi suất TPCP 2Y/10Y, CPI/lạm phát, IIP, PMI, GDP, cán cân thương mại, lãi suất Fed + US10Y (tất cả trong block "🌐 Vĩ mô"). CHỈ nêu thứ THỰC SỰ thiếu (vd: giá dầu Brent/WTI, lịch công bố KQKD, định giá P/E ngành so sánh).]
+[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, Cơ bản nhóm theo dõi (D/E/ROE/OCF), lịch GDKHQ cổ tức/chia tách (nếu có block "Sự kiện sắp tới"), VĨ MÔ — lãi suất điều hành/liên ngân hàng, tỷ giá USD/VND, lợi suất TPCP 2Y/10Y, CPI/lạm phát, IIP, PMI, GDP, cán cân thương mại, lãi suất Fed + US10Y (tất cả trong block "🌐 Vĩ mô"), giá vàng/dầu/USD thế giới + vàng SJC + dư địa tỷ giá tới trần (block "🪙 Hàng hoá & Tiền tệ", khi có). CHỈ nêu thứ THỰC SỰ thiếu (vd: lịch công bố KQKD, định giá P/E ngành so sánh, giá xăng điều hành trong nước).]
 
 Giới hạn 500 từ. Khi nói về cổ phiếu cụ thể, CHỈ đề cập mã CÓ TRONG các block đã cung cấp (VN30 + mid-cap thanh khoản cao); KHÔNG nhắc mã ngoài data.
 YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
@@ -393,7 +394,7 @@ Nếu có block "Cơ bản nhóm theo dõi": CHỈ nêu rủi ro cơ bản bằn
 BẮT BUỘC: Nếu có tin tức tác động → nêu rõ tiêu đề tin + ảnh hưởng. Bỏ qua nếu không có khuyến nghị.
 
 ## 🔧 Đề xuất bổ sung (1 dòng, optional)
-[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, Cơ bản nhóm theo dõi (D/E/ROE/OCF), lịch GDKHQ cổ tức/chia tách (nếu có block "Sự kiện sắp tới"), VĨ MÔ — lãi suất điều hành/liên ngân hàng, tỷ giá USD/VND, lợi suất TPCP 2Y/10Y, CPI/lạm phát, IIP, PMI, GDP, cán cân thương mại, lãi suất Fed + US10Y (tất cả trong block "🌐 Vĩ mô"). CHỈ nêu thứ THỰC SỰ thiếu (vd: giá dầu Brent/WTI, lịch công bố KQKD, định giá P/E ngành so sánh).]
+[Optional — nếu không nghĩ ra gì NGOÀI dữ liệu đã có thì ghi "Không cần bổ sung". ĐÃ CÓ trong prompt (TUYỆT ĐỐI KHÔNG xin lại, dù gọi tên khác): dòng tiền khối ngoại/NN ròng, GTGD/thanh khoản, độ rộng (breadth/A-D/% trên MA200), regime, TÂM LÝ/momentum, Cơ bản nhóm theo dõi (D/E/ROE/OCF), lịch GDKHQ cổ tức/chia tách (nếu có block "Sự kiện sắp tới"), VĨ MÔ — lãi suất điều hành/liên ngân hàng, tỷ giá USD/VND, lợi suất TPCP 2Y/10Y, CPI/lạm phát, IIP, PMI, GDP, cán cân thương mại, lãi suất Fed + US10Y (tất cả trong block "🌐 Vĩ mô"), giá vàng/dầu/USD thế giới + vàng SJC + dư địa tỷ giá tới trần (block "🪙 Hàng hoá & Tiền tệ", khi có). CHỈ nêu thứ THỰC SỰ thiếu (vd: lịch công bố KQKD, định giá P/E ngành so sánh, giá xăng điều hành trong nước).]
 
 Giới hạn 500 từ. Khi nói về cổ phiếu cụ thể, CHỈ đề cập mã CÓ TRONG các block đã cung cấp (VN30 + mid-cap thanh khoản cao); KHÔNG nhắc mã ngoài data. Nếu thị trường flat và không có signal rõ thì nói thẳng.
 YÊU CẦU VỀ ĐỘ CỤ THỂ — KHÔNG ĐƯỢC VI PHẠM:
@@ -2807,6 +2808,16 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     except Exception as _e:
         _note_loader_error(ctx, "macro", _e)
 
+    # 8b2. Hàng hoá & tiền tệ (P5 đa tài sản, U86): dòng "- …" do CODE dựng từ kho tài sản (chỉ chuỗi
+    # còn tươi); prompt nhận làm dữ kiện, guard enforce_assets_section chép NGUYÊN vào mục 🪙.
+    # Kill-switch VNSTOCK_BRIEF_ASSETS=0 ⇒ không có khoá ⇒ guard no-op.
+    try:
+        import vnstock_assets_brief as _assets_brief
+        if _assets_brief.enabled():
+            ctx["assets_lines"] = _assets_brief.brief_lines()
+    except Exception as _e:
+        _note_loader_error(ctx, "assets", _e)
+
     # 8c. Broad economic/political news (RSS, market-moving) with LLM sentiment +
     # impact — surfaces macro/geopolitical context beyond per-ticker corporate news.
     try:
@@ -3841,6 +3852,11 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         if block:
             lines.append(block)
 
+    # Hàng hoá & tiền tệ (P5 đa tài sản, U86) — dữ kiện cho mục 🪙 (guard chép nguyên dòng code).
+    if _assets_lines := ctx.get("assets_lines"):
+        from vnstock_assets_brief import prompt_block as _assets_prompt_block
+        lines.append(_assets_prompt_block(_assets_lines))
+
     # Broad economic/political news (RSS) so the brief reflects market-moving
     # macro/geopolitical headlines, not just per-ticker corporate news.
     if _mkt_news := ctx.get("market_news"):
@@ -3971,6 +3987,7 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     enforce_liquidity_label,
     enforce_macro,
     enforce_macro_fx_pct,
+    enforce_assets_section,
     enforce_macro_reports,
     enforce_market_news,
     enforce_money_flow_two_sides,

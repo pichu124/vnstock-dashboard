@@ -168,3 +168,4 @@ def _assets_hermetic_anywhere(tmp_path, monkeypatch):
     monkeypatch.setattr(_vas, "HTTP", _blocked)
     monkeypatch.setattr(_vas, "fetch_mbk_central", lambda *a, **k: [])
     monkeypatch.setenv("VNSTOCK_ASSETS_HOURLY", "0")
+    monkeypatch.setenv("VNSTOCK_ASSETS_ALERTS", "0")    # P5: không test nào được gửi Telegram thật
