@@ -162,21 +162,41 @@ def _sbvn_rows(week=SBVN_WEEK):
     return [{"date": d, "close": s, "bid": b, "ask": s, "source": "ssi"} for d, b, s in week]
 
 
-def test_verify_central_detects_shift():
-    on_time = va.verify_central(_sbvn_rows(), OFFICIAL)
-    assert on_time["best_shift"] == 0 and on_time["by_shift"]["0"]["exact"] == 3
-    assert on_time["verdict"] == "mbk ĐÚNG ngày"
-    # 8 phiên tổng hợp (giữa SBVN = trung tâm), mbk ghi số phiên D vào phiên TRƯỚC.
-    days = ["2026-09-29", "2026-09-30", "2026-10-01", "2026-10-02", "2026-10-05", "2026-10-06",
-            "2026-10-07", "2026-10-08"]
-    central = dict(zip(days, (25650.0, 25647.0, 25651.0, 25640.0, 25636.0, 25643.0, 25638.0, 25634.0)))
-    week = [(d, c * 0.95 + 50, c * 1.05 - 50) for d, c in central.items()]
-    lagged = {days[i - 1]: central[d] for i, d in enumerate(days) if i}
-    res = va.verify_central(_sbvn_rows(week), lagged)
-    assert res["best_shift"] == 1 and res["by_shift"]["1"] == {"n": 7, "exact": 7, "median_diff": 0.0}
-    assert res["verdict"] == "mbk ghi LÙI 1 phiên" and list(res["mbk_tail"])[-1] == "2026-10-07"
+def ruler_case(lag: int, n: int = 30):
+    """Chuỗi tổng hợp: trung tâm O tăng đều (không trùng số), thước giữa SBVN = O cùng phiên 1/3
+    số phiên và = O phiên trước 2/3 (đúng dạng đo 10/10), kho K(D_j) = O(D_{j+lag})."""
+    from datetime import date as _d, timedelta as _td
+    days, x = [], _d(2026, 8, 24)
+    while len(days) < n + 2:
+        if x.weekday() < 5:
+            days.append(x.isoformat())
+        x += _td(days=1)
+    o = [25600.0 + 3 * i for i in range(len(days))]
+    mid = [o[i] if i % 3 == 0 or i == 0 else o[i - 1] for i in range(n)]
+    sbvn = [{"date": days[i], "close": mid[i] + 1231, "bid": mid[i] - 1231, "ask": mid[i] + 1231,
+             "source": "ssi"} for i in range(n)]
+    kho = {days[j]: o[j + lag] for j in range(n) if 0 <= j + lag < len(o)}
+    return sbvn, kho
+
+
+@pytest.mark.parametrize("lag,verdict", [(0, "mbk ĐÚNG ngày"), (1, "mbk ghi LÙI 1 phiên"),
+                                         (-1, "mbk ghi TIẾN 1 phiên")])
+def test_verify_central_tells_lag_with_mixed_ruler(lag, verdict):
+    """Thước giữa SBVN trễ lẫn (cùng phiên / phiên trước). 10/10 phép so từng lệch riêng gọi kho
+    ĐÚNG là "LÙI 1 phiên" (lệch +1 khớp nhiều nhất) ⇒ nay chấm giả thuyết bằng cặp (D−L, D−L−1)."""
+    res = va.verify_central(*ruler_case(lag))
+    assert res["best_lag"] == lag and res["verdict"] == verdict
+    assert res["by_lag"][str(lag)]["rate"] == 1.0
+    if lag == 0:
+        assert res["by_shift"]["1"]["exact"] > res["by_shift"]["0"]["exact"]   # cái bẫy vòng trước
+
+
+def test_verify_central_real_week_and_floors():
+    off = {**OFFICIAL, "2026-10-02": 25636.0}
+    res = va.verify_central(_sbvn_rows(), off)
+    assert res["by_lag"]["0"] == {"n": 4, "hit": 3, "rate": 0.75}   # 07/10: 25.645 vs 25.638/25.643
+    assert res["verdict"].startswith("chưa rõ")                                # 5 phiên < sàn 10
     assert va.verify_central(_sbvn_rows(), {})["n"] == 0
-    assert va.verify_central(_sbvn_rows()[:2], OFFICIAL)["verdict"].startswith("chưa rõ")
 
 
 def test_backfill_runs_sessions_and_records_verify():
@@ -193,11 +213,11 @@ def test_backfill_runs_sessions_and_records_verify():
         return _exchanges([p for p in plan if p["tool"] in allowed], texts), None, {}
     logs = []
     rep = am.backfill(NOW, collect=collect, log=logs.append)
-    assert rep["XAU"]["ok"] and rep["central_verify"]["verdict"] == "mbk ĐÚNG ngày"
+    assert rep["XAU"]["ok"] and rep["central_verify"]["best_lag"] == 0
     assert va.series("XAU")["2025-01-02"] == 2657.29
     assert va.series("GOLD_SJC_BAR")["2016-01-01"] == 32_920_000          # 3.292 nghìn đ/chỉ
     assert va.series("USD_SBV_REF")["2026-10-09"] == 26860.0
-    assert va.central_dating()["verdict"] == "mbk ĐÚNG ngày"          # đo lại từ kho, không mạng
+    assert va.central_dating()["by_lag"]["0"]["hit"] == 3             # đo lại từ kho, không mạng
 
 
 def test_backfill_only_runs_selected_keys():

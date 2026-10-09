@@ -474,9 +474,9 @@ def shift_mbk_dates(rows: "list[tuple[str, float]]") -> "list[tuple[str, float]]
     return sorted(out.items())
 
 
-def fetch_mbk_central(start: str, end: str) -> "list[tuple[str, float]]":
+def fetch_mbk_central(start: str, end: str, *, shift: bool = True) -> "list[tuple[str, float]]":
     """Rỗng khi máy không có vnstock_data (laptop/CI) — nguồn phụ, không bắt buộc. Ngày đã
-    dời về đúng phiên (`shift_mbk_dates`)."""
+    dời về đúng phiên (`shift_mbk_dates`); `shift=False` trả bản thô (backfill in để soi)."""
     import contextlib
     import io
     try:
@@ -486,7 +486,8 @@ def fetch_mbk_central(start: str, end: str) -> "list[tuple[str, float]]":
             df = Macro().exchange_rate(start=start, end=end, period="day")
     except Exception:                                            # noqa: BLE001
         return []
-    return shift_mbk_dates(parse_mbk_central(df))
+    rows = parse_mbk_central(df)
+    return shift_mbk_dates(rows) if shift else rows
 
 
 def fred_key() -> str:

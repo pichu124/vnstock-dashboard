@@ -7018,6 +7018,13 @@ tính ra 121,23 mà không vào kho: mang ngày FILE thứ Bảy ⇒ kho bỏ cu
 tải lại ⇒ nay khoá theo `date` trong file + tải lại 3 ngày gần nhất. Thêm `--backfill --steps …`. Test
 assets 48 → 57.
 
+**🖥️ vòng 3 10/10 01:22:** kho ĐÚNG (22/22 trong ngày, MCP ok, USD rộng ước tính 121,23 ngày 09/10 h=5,
+trung tâm 09/10 = 25.629 khớp báo chí) nhưng doctor réo "LÙI 1 phiên" — **báo động giả do THƯỚC**: giữa
+SBVN = trung tâm cùng phiên 26/63, = phiên trước 43/62 (thước trễ lẫn). Bài học: thước đo có độ trễ riêng
+thì đừng so từng lệch rồi lấy max — chấm GIẢ THUYẾT bằng cửa sổ đúng hình dạng thước (D−L hoặc D−L−1).
+`verify_central` viết lại theo cách đó (sàn 10 phiên / 80% / cách 10 điểm, không thì "chưa rõ", doctor
+im); `--backfill --steps mbk` in mbk THÔ theo thứ + 10 dòng cuối để chốt luật dòng CN. Test 57 → 58.
+
 # 🪙 U81. ĐA TÀI SẢN VÀNG · DẦU · USD — P0 ĐO NGUỒN (09/10)
 
 **User 09/10:** mở rộng dashboard sang tài sản khác, trước hết vàng/dầu/USD; lên kế hoạch, duyệt rồi mới

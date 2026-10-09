@@ -1078,10 +1078,10 @@ def check_assets(now: "datetime | None" = None) -> dict:
         cv = va.central_dating(base=base)
     except Exception:                                              # noqa: BLE001
         cv = {}
-    if cv.get("n", 0) >= 5 and cv.get("best_shift", 0) != 0 and not cv["verdict"].startswith("chưa rõ"):
-        b = cv["by_shift"][str(cv["best_shift"])]
+    if cv.get("best_lag", 0) != 0 and not cv["verdict"].startswith("chưa rõ"):
+        b = cv["by_lag"][str(cv["best_lag"])]
         issues.append(f"tỷ giá trung tâm lệch ngày so giá tham khảo NHNN: {cv['verdict']} "
-                      f"(khớp {b['exact']}/{b['n']} phiên)")
+                      f"(khớp {b['hit']}/{b['n']} phiên)")
         fixes.append("🖥️ DESKTOP: python run.py assets --backfill --steps mbk (nạp lại, ngày đã dời) — "
                      "còn lệch ⇒ vnstock_data đổi cách ghi ngày, báo Claude")
     usd = (st.get("estimates") or {}).get("USD_BROAD_EST") or {}

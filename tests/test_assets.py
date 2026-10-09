@@ -323,35 +323,36 @@ def test_cli_mcp_backfill_rejects_unknown_key(capsys):
 def test_backfill_steps_runs_only_selected(monkeypatch):
     calls = []
     monkeypatch.setattr(va.src, "fetch_mbk_central",
-                        lambda a, b: calls.append((a, b)) or [("2026-10-08", 25629.0)])
+                        lambda a, b, **k: calls.append((a, b, k)) or [("2026-10-07", 25634.0),
+                                                                     ("2026-10-08", 25629.0)])
     monkeypatch.setattr(va.src, "fetch_fred", lambda *a, **k: pytest.fail("fred không được gọi"))
     logs = []
     rep = va.backfill(now=NOW, log=logs.append, tasks=_tasks(), steps={"mbk"})
-    assert set(rep) == {"mbk", "python"} and calls[0][0] == "2016-01-01"
-    assert va.series("USD_CENTRAL") == {"2026-10-08": 25629.0}
+    assert set(rep) == {"mbk", "python"} and calls[0] == ("2016-01-01", "2026-10-09", {"shift": False})
+    assert va.series("USD_CENTRAL") == {"2026-10-08": 25634.0, "2026-10-09": 25629.0}   # đã dời
+    assert any("mbk THÔ theo thứ (T2…CN): 0 · 0 · 1 · 1 · 0 · 0 · 0" in ln and "2026-10-08(T5)=25,629" in ln
+               for ln in logs)
 
 
 def test_central_dating_live_in_show_and_doctor(tmp_path, monkeypatch):
-    """Kho chứa mbk lệch 1 phiên so giá tham khảo NHNN ⇒ `--show` in "LÙI 1 phiên" và doctor
-    réo; mbk đúng ngày ⇒ im."""
+    """Kho lệch 1 phiên so giá tham khảo NHNN ⇒ `--show` in "LÙI 1 phiên" và doctor réo; kho đúng
+    ngày ⇒ im (10/10: thước trễ lẫn từng làm doctor réo nhầm khi kho ĐÃ đúng)."""
     import vnstock_doctor as doc
+    from tests.test_assets_mcp import ruler_case
     meta = tmp_path / "wh" / "_meta"
     meta.mkdir(parents=True)
     monkeypatch.setattr(doc, "_META", meta)
     monkeypatch.setattr(va, "ASSETS_DIR", meta.parent / "assets")
     monkeypatch.setattr(va, "META_DIR", meta)
-    days = ["2026-09-29", "2026-09-30", "2026-10-01", "2026-10-02", "2026-10-05", "2026-10-06",
-            "2026-10-07", "2026-10-08"]
-    cen = dict(zip(days, (25650.0, 25647.0, 25651.0, 25640.0, 25636.0, 25643.0, 25638.0, 25634.0)))
-    va.write("USD_SBV_REF", [va._row(d, c * 1.05 - 50, "ssi", bid=c * 0.95 + 50, ask=c * 1.05 - 50)
-                             for d, c in cen.items()], today=TODAY, fetched_at=T)
-    va.write("USD_CENTRAL", [va._row(days[i - 1], cen[d], "mbk") for i, d in enumerate(days) if i],
-             today=TODAY, fetched_at=T)
-    assert "LÙI 1 phiên · lệch -1" in va.show(today=TODAY)
     va.update_status("python", {"run_at": "2026-10-09T19:30:00", "status": "ok"})
+    sbvn, lagged = ruler_case(1)
+    va.write("USD_SBV_REF", sbvn, today=TODAY, fetched_at=T)
+    va.write("USD_CENTRAL", [va._row(d, v, "mbk") for d, v in lagged.items()], today=TODAY, fetched_at=T)
+    assert "LÙI 1 phiên · giả thuyết lệch -1" in va.show(today=TODAY)
     r = doc.check_assets(NOW)
     assert "tỷ giá trung tâm lệch ngày" in r["message"] and "--steps mbk" in r["fix"]
-    va.write("USD_CENTRAL", [va._row(d, c, "mbk") for d, c in cen.items()], today=TODAY, fetched_at=T)
+    _, ok = ruler_case(0)
+    va.write("USD_CENTRAL", [va._row(d, v, "mbk") for d, v in ok.items()], today=TODAY, fetched_at=T)
     assert va.central_dating()["verdict"] == "mbk ĐÚNG ngày"
     assert "lệch ngày" not in doc.check_assets(NOW)["message"]
 

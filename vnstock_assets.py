@@ -36,6 +36,7 @@ import socket
 import sys
 import tempfile
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -689,10 +690,14 @@ def backfill(*, with_mcp: bool = False, vcb_days: int = 730, now: "datetime | No
         return {"USDVND_VCB": rows}
 
     def mbk_hist():
-        got = src.fetch_mbk_central("2016-01-01", today.isoformat())
-        if not got:
+        raw = src.fetch_mbk_central("2016-01-01", today.isoformat(), shift=False)
+        if not raw:
             raise RuntimeError("vnstock_data không có / rỗng")
-        return {"USD_CENTRAL": [_row(d, v, "mbk") for d, v in got]}
+        wd = Counter(date.fromisoformat(d).weekday() for d, _ in raw)
+        log("  mbk THÔ theo thứ (T2…CN): " + " · ".join(str(wd.get(i, 0)) for i in range(7))
+            + " · 10 dòng cuối: " + ", ".join(f"{d}({_THU[date.fromisoformat(d).weekday()]})={v:,.0f}"
+                                               for d, v in raw[-10:]))
+        return {"USD_CENTRAL": [_row(d, v, "mbk") for d, v in src.shift_mbk_dates(raw)]}
 
     with machine_lock() as got_lock:
         if not got_lock:
@@ -730,40 +735,63 @@ def _final_python_pass(log, now: datetime, *, base=None, meta=None, tasks=None) 
     return {k: res.get(k) for k in ("status", "ok", "fail", "estimates")}
 
 
-CENTRAL_SHIFTS = (-1, 0, 1)
+CENTRAL_LAGS = (-1, 0, 1)
+CENTRAL_MIN_N = 10                 # dưới sàn phiên chung ⇒ "chưa rõ", doctor im
+CENTRAL_MIN_HIT = 0.80             # giả thuyết đúng phải khớp ≥80% phiên
+CENTRAL_MIN_MARGIN = 0.10          # và hơn giả thuyết kế tiếp ≥10 điểm %
 
 
 def verify_central(sbvn_rows: list, mbk: "dict[str, float]") -> dict:
-    """Tỷ giá trung tâm trong kho có ĐÚNG ngày không? Thước đo: (mua+bán)/2 tham khảo Cục QLNH
-    (SSI SBVN, `USD_SBV_REF`) — ≈ trung tâm CÙNG ngày, lệch 0–7 đ (báo chí 05–09/10: khớp 3/5).
-    Đo 🖥️ 10/10 trên mbk thô: +1 phiên khớp 32/62, đúng ngày 8/62 ⇒ `src.shift_mbk_dates`; sau
-    khi dời phải ra "ĐÚNG ngày" — `--show` và doctor đo lại mỗi lần từ kho, không cần mạng.
-    shift s: so giữa SBVN phiên D[i] với mbk phiên D[i−s] (lịch phiên SBVN); s=+1 ⇔ mbk ghi số
-    của phiên D vào phiên TRƯỚC. Phiên khớp = lệch ≤1 đ; shift thắng = nhiều phiên khớp nhất."""
-    mids = {r["date"]: (r["bid"] + r["ask"]) / 2 for r in sbvn_rows
+    """Tỷ giá trung tâm trong kho có ĐÚNG ngày không, đo bằng (mua+bán)/2 giá tham khảo Cục QLNH
+    (SSI SBVN, `USD_SBV_REF`) — thước đo TRỄ LẪN: đo 🖥️ 10/10 trên 62 phiên, sau khi dời ngày
+    mbk (đã khớp báo chí 01→09/10), giữa = trung tâm CÙNG phiên 26/63, = phiên TRƯỚC 43/62
+    (SSI chụp giá trước/sau lúc NHNN cập nhật). Vòng trước so riêng từng lệch nên kho ĐÚNG vẫn
+    ra "lệch +1 nhiều nhất" ⇒ báo động giả "LÙI 1 phiên".
+
+    Nay chấm giả thuyết "kho lệch L phiên" (K ngày D giữ trung tâm của phiên D+L) bằng TỈ LỆ PHIÊN
+    mà giữa SBVN khớp (≤1 đ) MỘT TRONG HAI: kho phiên D−L hoặc D−L−1 (lịch phiên SBVN). L đúng ⇒
+    ~100%; L sai ⇒ chỉ phần cùng phiên hoặc phần phiên trước (~40–70%). `by_shift` giữ số khớp
+    từng lệch riêng để soi."""
+    mids = {r["date"]: (float(r["bid"]) + float(r["ask"])) / 2 for r in sbvn_rows
             if src.num(r.get("bid")) and src.num(r.get("ask"))}
     days = sorted(mids)
     tail = {d: mbk[d] for d in sorted(mbk)[-6:]}
-    stats = {}
-    for s in CENTRAL_SHIFTS:
-        diffs = sorted(abs(mids[d] - mbk[days[i - s]]) for i, d in enumerate(days)
-                       if 0 <= i - s < len(days) and days[i - s] in mbk)
-        if diffs:
-            stats[s] = {"n": len(diffs), "exact": sum(1 for x in diffs if x <= 1.0),
-                        "median_diff": round(diffs[len(diffs) // 2], 1)}
-    if not stats:
+
+    def at(i):
+        return mbk.get(days[i]) if 0 <= i < len(days) else None
+
+    def ok(m, v):
+        return v is not None and abs(m - v) <= 1.0
+    by_shift = {}
+    for sh in (-1, 0, 1, 2):
+        pairs = [(mids[d], at(i - sh)) for i, d in enumerate(days) if at(i - sh) is not None]
+        if pairs:
+            by_shift[str(sh)] = {"n": len(pairs), "exact": sum(ok(m, v) for m, v in pairs)}
+    by_lag = {}
+    for lag in CENTRAL_LAGS:
+        n = hit = 0
+        for i, d in enumerate(days):
+            a, b = at(i - lag), at(i - lag - 1)
+            if a is None or b is None:                 # mép chuỗi: thiếu một vế ⇒ không chấm
+                continue
+            n += 1
+            hit += ok(mids[d], a) or ok(mids[d], b)
+        if n:
+            by_lag[lag] = {"n": n, "hit": hit, "rate": round(hit / n, 3)}
+    if not by_lag:
         return {"n": 0, "verdict": "không có phiên chung với mbk — chưa kiểm được",
                 "sbvn_days": len(days), "mbk_tail": tail}
-    best = max(stats, key=lambda s: (stats[s]["exact"], -stats[s]["median_diff"], -abs(s)))
-    b = stats[best]
-    if b["n"] < 5 or b["exact"] < 3:
-        verdict = "chưa rõ (ít phiên chung / ít phiên khớp)"
+    ranked = sorted(by_lag, key=lambda lg: (-by_lag[lg]["rate"], abs(lg)))
+    best, b = ranked[0], by_lag[ranked[0]]
+    second = by_lag[ranked[1]]["rate"] if len(ranked) > 1 else 0.0
+    if b["n"] < CENTRAL_MIN_N or b["rate"] < CENTRAL_MIN_HIT or b["rate"] - second < CENTRAL_MIN_MARGIN:
+        verdict = "chưa rõ (ít phiên chung / chưa tách được giả thuyết)"
     elif best == 0:
         verdict = "mbk ĐÚNG ngày"
     else:
         verdict = f"mbk ghi {'LÙI' if best > 0 else 'TIẾN'} {abs(best)} phiên"
-    return {"n": b["n"], "best_shift": best, "verdict": verdict,
-            "by_shift": {str(s): v for s, v in stats.items()}, "mbk_tail": tail}
+    return {"n": b["n"], "best_lag": best, "verdict": verdict,
+            "by_lag": {str(lg): v for lg, v in by_lag.items()}, "by_shift": by_shift, "mbk_tail": tail}
 
 
 def central_dating(*, base=None) -> dict:
@@ -824,6 +852,7 @@ def usd_ceiling_room_pct(*, base=None) -> "dict | None":
 
 
 _LABEL_W = 40
+_THU = ("T2", "T3", "T4", "T5", "T6", "T7", "CN")
 
 
 def _fmt_value(v: float, unit: str) -> str:
@@ -869,9 +898,9 @@ def show(*, base=None, meta=None, today: "date | None" = None) -> str:
                  if room else "  Dư địa tới trần tỷ giá: chưa đủ dữ liệu")
     cv = central_dating(base=base)
     if cv.get("n"):
-        by = cv.get("by_shift") or {}
+        by = cv.get("by_lag") or {}
         lines.append(f"  Ngày tỷ giá trung tâm (so giá tham khảo NHNN, {cv['n']} phiên): {cv['verdict']} · "
-                     + " · ".join(f"lệch {k}: khớp {v['exact']}/{v['n']}" for k, v in by.items()))
+                     + " · ".join(f"giả thuyết lệch {k}: khớp {v['hit']}/{v['n']}" for k, v in by.items()))
     for k, e in (st.get("estimates") or {}).items():
         lines.append(f"  {k}: " + (e["hidden"] if e.get("hidden") else
                      f"{e['value']:,.2f} ±{e['band_pct']}% ({e['date']}, neo {e['anchor']:,.2f} ngày "

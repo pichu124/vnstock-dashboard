@@ -365,6 +365,16 @@ D+1 ↔ số Fed D ⇒ ước tính nay mang NGÀY FED (file − 1), chỉ giữ
 và ngày đã có thì không bao giờ tải lại ⇒ chỉ số tự tính đứng một ngày. Nay khoá theo `date` GHI TRONG file
 (`fetch_fx_latest_dated`) + tải lại `FX_REFETCH_DAYS`=3 ngày gần nhất mỗi lượt (khoá sai cũ tự lành).
 
+**Vòng 3 (🖥️ 10/10 01:22) — kho ĐÚNG, thước SAI.** Sau `--backfill --steps mbk,fx`: 22/22 chuỗi trong
+ngày, MCP ok 154 dòng, `USD_BROAD_EST` 121,23 ngày 09/10 h=5, trung tâm 09/10 = 25.629 (khớp báo chí).
+Nhưng doctor vẫn "LÙI 1 phiên": khớp từng lệch riêng −1: 5 · 0: 26/63 · +1: 43/62. Nghĩa là thước —
+giữa giá tham khảo SBVN — chỉ ~40% phiên bằng trung tâm CÙNG phiên, ~70% bằng phiên TRƯỚC (SSI chụp
+trước/sau lúc NHNN cập nhật). So từng lệch riêng thì kho đúng ngày vẫn ra "+1 nhiều nhất" ⇒ báo động giả.
+Sửa: chấm giả thuyết "kho lệch L" bằng tỉ lệ phiên mà giữa SBVN khớp kho phiên D−L **hoặc** D−L−1 (thiếu
+một vế thì không chấm); L đúng ⇒ ~100%, L sai ⇒ ~40–70%; kết luận khi ≥10 phiên, ≥80% và hơn giả thuyết
+kế ≥10 điểm %, không thì "chưa rõ" (doctor im). `--backfill --steps mbk` in thêm mbk THÔ: số dòng theo
+thứ + 10 dòng cuối (3.182 thô → 2.650 phiên ⇒ ~1 dòng cuối tuần/tuần — để chốt luật dòng CN bằng số).
+
 **Còn lại (không lỗi):** doctor "MCP Finhay/SSI chưa chạy" — lượt MCP ngày chưa từng chạy (giờ đặt 9, 11,
 14, 16, 20; bước pipeline `assets-mcp`); chạy tay một lần `run.py assets --mcp`. VCB ReadTimeout 15s một
 lượt — lượt giờ sau tự thử lại. `--backfill --steps fred,yahoo,vcb,mbk,gold-cache,fx` chạy riêng từng bước.
