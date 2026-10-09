@@ -7027,6 +7027,13 @@ test `tests/test_probe_nowcast.py` (14, whitelist). Bẫy khi viết: `best_shif
 tròn ⇒ hoà 0,0 chọn nhầm lệch pha — nay so số thô, hoà ưu tiên lệch pha 0. Nhịp P1: nguồn Python mỗi giờ
 (ghép task News Alert), MCP 3–4 lượt/ngày.
 
+**P0b trên máy thật (🖥️ PICHU 09/10 20:20):** USD rộng tự tính 26/26 tiền tệ (trọng số Fed 2026), lệch
+pha +1, p90 0,28–0,31% ở MỌI h=1…5 (nhiễu ngày, không trôi) ⇒ TẠM, hiện kèm ±0,3%; ước tính 09/10 121,23
+(neo 121,38 ngày 02/10). Brent giao ngay: cùng ngày 06/10 giao ngay 125,44 vs HĐTL 100,58 = **+24,7%**,
+ước tính p90 5,69% (h=3, 120 ngày) ⇒ KHÔNG HIỆN. WTI: +7,6% cùng ngày, p90 1,64% ở h=3 nhưng 3,86% ở h=5
+⇒ chỉ hiện ≤3 phiên. Đường cong Yahoo `.NYM` sống đủ 6–7 kỳ hạn: Brent M1−M2 +3,29$, M1−M6 +11% ⇒
+backwardation. OPEC basket 403 Cloudflare ⇒ bỏ. Bảng nguồn §4c đã chỉnh — CHỜ DUYỆT P1.
+
 # 🏷️ U80. MỐC HIỂN THỊ CỦA LỆNH MỞ QUA GDKHQ — BRIEF 💡 + FOOTER DÙNG CÙNG HỆ SỐ VỚI PHÉP CHẤM (08/10)
 
 **Vết (`/brief-review` brief #924, tối 08/10):** mục 💡 in "GMD BUY entry=77.6 · TP=82.2 · SL=75.1"

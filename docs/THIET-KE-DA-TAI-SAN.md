@@ -1,9 +1,8 @@
 # Mở rộng dashboard sang VÀNG · DẦU · USD — THIẾT KẾ + P0 ĐO NGUỒN
 
-> **Trạng thái 09/10/2026 tối: P0 XONG — 🖥️ desktop đã chạy `probe_assets.py --mcp` (19:51, §4b).
-> User thêm CHUẨN ĐỘ TƯƠI (§4d): chỉ số quốc tế + tin liên quan phải có TRONG NGÀY ⇒ P0b
-> `scripts/probe_nowcast.py` đo ước tính trong ngày cho 3 chuỗi chậm, CHỜ 🖥️ chạy. Bảng nguồn §4c chờ
-> duyệt sau P0b; P1 CHƯA code.**
+> **Trạng thái 09/10/2026 tối: P0 + P0b XONG trên 🖥️ desktop** (`probe_assets.py --mcp` 19:51 §4b ·
+> `probe_nowcast.py` 20:20 §4e). User thêm CHUẨN ĐỘ TƯƠI (§4d): số quốc tế + tin phải có TRONG NGÀY.
+> Bảng nguồn §4c đã chỉnh theo P0b — **CHỜ USER DUYỆT P1**, P1 CHƯA code.**
 >
 > **User chốt 09/10:**
 > 1. Giao diện: **tab riêng** "🪙 Hàng hoá & Tiền tệ".
@@ -138,9 +137,11 @@ vàng TG USD/oz, dầu USD/thùng, tỷ giá VND/USD.
 | `GOLD_<ĐẠI LÝ>_<MIẾNG/NHẪN>` ×10 | giá mua/bán đại lý | MCP Finhay dealer | SJC miếng: sjc.com.vn | Finhay dealer (SJC miếng từ 2015; 9 sản phẩm còn lại đo khi backfill) | SJC miếng: sjc.com.vn ±0,5% |
 | `BRENT` | Brent HĐTL tháng gần | MCP Finhay BZ | Yahoo BZ=F | Yahoo BZ=F (từ 2007) | Yahoo ±1% |
 | `WTI` | WTI HĐTL tháng gần | MCP Finhay CL | Yahoo CL=F | vnstock_data `oil_crude` (gói trả phí) → Yahoo | vnstock_data/Yahoo ±1% |
-| `BRENT_SPOT` · `WTI_SPOT` | giao ngay EIA | FRED (trễ ~3d) | — | FRED (từ 1986–87) | — (chuỗi chính thức) |
+| `CURVE_BRENT` · `CURVE_WTI` | đường cong HĐTL M1…M7 (`BZ`/`CL` + mã tháng `.NYM`) | Yahoo, trong ngày | — | lưu ảnh chụp mỗi lượt (không có lịch sử lùi) | thay vai trò giá giao ngay (§4e) |
+| `WTI_SPOT` | giao ngay EIA | **ước tính** = EIA × biến động CL tháng gần, CHỈ khi ≤3 phiên kể từ số EIA, kèm dải ±1,6% | — | FRED (từ 1986) | hết 3 phiên ⇒ ẩn |
+| `BRENT_SPOT` | giao ngay EIA | **KHÔNG HIỆN** (ước tính p90 5,7% > 3%) — lưu FRED vào kho cho lịch sử, màn chính dùng đường cong | — | FRED (từ 1987) | — |
 | `DXY` | ICE DXY | Yahoo DX-Y.NYB | — | Yahoo (từ 1971) | — |
-| `USD_BROAD` | chỉ số USD rộng Fed | FRED `DTWEXBGS` (trễ ~7d) | — | FRED (từ 2006) | — |
+| `USD_BROAD` | chỉ số USD rộng Fed | **ước tính tự tính** (trọng số Fed 2026 × currency-api, lệch pha +1), kèm dải ±0,3% | — | FRED (từ 2006) làm neo | P1 thử thêm tỷ giá Yahoo làm chuỗi dẫn, giữ cái p90 thấp hơn |
 | `USDVND` | tỷ giá thị trường | MCP Finhay USDVND | er-api → currency-api | Yahoo VND=X (từ 2003) | er-api ±0,5% |
 | `USDVND_VCB` | VCB mua TM/CK/bán | vietcombank.com.vn api | MCP SSI VCB | VCB api theo ngày (2 năm ≈ 500 lượt, giãn 0,3s) | SSI VCB ±0,3% |
 | `USD_CENTRAL` | tỷ giá trung tâm NHNN | MCP SSI SBVN, (mua+bán)/2 | bản tin tuần SBV | vnstock_data mbk "Tỷ giá trung tâm" (từ 2016) | **kiểm công thức** SBVN vs mbk trên ~2 năm SSI cho phép |
@@ -179,6 +180,19 @@ có nút "Cập nhật ngay" gọi nguồn Python sống. Kho ghi bởi một m�
 
 **P0b — đo:** 🖥️ `python scripts/probe_nowcast.py` (chỉ đọc; 4 phần usd · oil · curve · opec; thử lệch
 pha −1/0/+1 ngày vì giờ chốt tỷ giá khác nhau; in "ƯỚC TÍNH <ngày>" + đánh giá theo ngưỡng).
+
+## 4e. Kết quả P0b trên máy thật (🖥️ PICHU 09/10 20:20) — chốt từng chuỗi
+
+| Chuỗi | Sai số ước tính (p90, \|sai\|) | Kết luận |
+|---|---|---|
+| USD rộng tự tính (26/26 tiền tệ, trọng số Fed **2026**: EUR 21,0 · MXN 14,8 · CAD 12,8 · CNY 10,9 · GBP 5,2 · JPY 5,2%; lệch pha **+1**) | h=1…5 phiên: trung vị ~0,09–0,11% · p90 0,28–0,31% · max 0,62% (n≈105) | **TẠM ⇒ hiện kèm dải ±0,3%.** Sai số KHÔNG lớn dần theo h ⇒ là nhiễu từng ngày (giờ chốt tỷ giá currency-api ≠ giờ trưa New York của Fed), không phải trôi trọng số. Ước tính 09/10: **121,23** (neo Fed 121,38 ngày 02/10) |
+| Brent giao ngay EIA | 120 ngày: h=3 p90 **5,69%**, h=5 6,90%; 3 năm h=3 2,79% | **KHÔNG HIỆN.** Cùng ngày 06/10: giao ngay 125,44 vs HĐTL 100,58 ⇒ **+24,7%** — chênh biến động mạnh nên neo + HĐTL không theo kịp |
+| WTI giao ngay EIA | 120 ngày: h=1 0,67% · h=3 **1,64%** · h=5 3,86% | **TẠM khi ≤3 phiên** kể từ số EIA (kèm dải); quá 3 phiên ⇒ ẩn. Cùng ngày 06/10: 96,24 vs 89,44 ⇒ +7,6% |
+| Đường cong HĐTL Yahoo | trong ngày, đủ 6–7 kỳ hạn | **DÙNG.** Brent BZZ26 103,17 → BZK27 92,90: M1−M2 **+3,29$ (+3,29%)**, M1−05/2027 +10,27$ (+11,05%); WTI CLX26 90,92 → CLK27 84,30: M1−M2 +0,96$ (+1,07%) — **backwardation**, cùng chiều với chênh giao ngay lớn |
+| Giá rổ OPEC | HTTP 403 Cloudflare ("Just a moment…") cả 2 URL | **BỎ** |
+
+⇒ Màn chính phần dầu: HĐTL tháng gần (Finhay/Yahoo) + đường cong + chênh kỳ hạn — đều trong ngày; giá giao
+ngay EIA chỉ còn WTI dạng ước tính ≤3 phiên. Phần USD: DXY trong ngày + USD rộng ước tính ±0,3%.
 
 ## 5. Kiến trúc đích (P1–P4)
 

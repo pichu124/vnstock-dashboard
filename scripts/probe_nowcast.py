@@ -323,7 +323,7 @@ def part_oil(ctx: "pa.Ctx") -> dict:
         common = sorted(set(spot) & set(fut_h))
         if common:
             d = common[-1]
-            one["basis"] = {"date": d, "spot": spot[d], "fut": fut_h[d],
+            one["basis"] = {"date": d, "spot": round(spot[d], 2), "fut": round(fut_h[d], 2),
                             "pct": round((spot[d] / fut_h[d] - 1) * 100, 2)}
         shift, all_st = best_shift(spot, fut_h)
         one.update(shift=shift, stats_all=all_st,
