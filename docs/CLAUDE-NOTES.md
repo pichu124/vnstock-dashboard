@@ -6996,6 +6996,18 @@ Sandbox: `--fast` 35 đỏ = 34 đỏ sẵn (thiếu `vnstock`/`vnstock_data`) +
 **Chờ 🖥️:** merge → `run.py test --fast` → `run.py assets --backfill --with-mcp` NGOÀI khung pipeline →
 `run.py assets --show` + doctor, dán cho Claude (kết luận `verify_sbvn` quyết công thức trung tâm).
 
+**🖥️ lượt đầu 10/10 ~00:xx + sửa (thiết kế §9b):** `--fast` 3.390 passed; backfill phần lớn ✅ (FRED
+23.822, Yahoo, VCB 522, mbk 3.182, MCP XAU/dầu/9 sản phẩm đại lý). Bốn lỗ: (1) SJC miếng 3 khung + SBVN
+3m "kết quả rỗng" = Claude Code CẮT kết quả MCP > ~25k token (đo trong phiên: đại lý ~15 token/ngày; SBVN
+1m = 154 dòng) mà code gộp thành "rỗng" ⇒ SJC xin từng năm, SBVN 3 × `range=1m`+`toDate`, `empty_reason`
+in text thật, `--mcp-backfill --only KHOÁ,…`. (2) **SBVN ≠ tỷ giá trung tâm**: = "tỷ giá tham khảo Cục
+QLNH" (báo chí 08/10 24.407–26.869 khớp từng đồng), giữa mua/bán khớp trung tâm 3/5 phiên 05–09/10 ⇒ chuỗi
+riêng `USD_SBV_REF`; `merge` nay TỪ CHỐI nguồn không khai trong `Spec.sources` (luật 1 bằng code) và bỏ
+dòng cũ của nguồn đã gỡ. (3) **mbk nghi ghi LÙI 1 phiên** (mbk 08/10 = 25.629 = NHNN công bố 09/10; 08/10
+là 25.634) — chưa dời ngày, `verify_central` đo lệch −1/0/+1 trên ~60 phiên ⇒ quyết sau. (4) backfill
+không chạy lượt Python ⇒ đường cong trống, doctor "chưa có lượt nào", USD rộng ẩn không rõ lý do ⇒
+backfill chốt bằng lượt Python + lý do ẩn chỉ đúng khâu. Test assets 40 → 48.
+
 # 🪙 U81. ĐA TÀI SẢN VÀNG · DẦU · USD — P0 ĐO NGUỒN (09/10)
 
 **User 09/10:** mở rộng dashboard sang tài sản khác, trước hết vàng/dầu/USD; lên kế hoạch, duyệt rồi mới

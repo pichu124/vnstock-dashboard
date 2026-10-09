@@ -1050,7 +1050,7 @@ def cmd_assets(args) -> int:
     vnstock_data) + ước tính trong ngày (USD rộng, WTI giao ngay ≤3 phiên). Nhịp CHÍNH là mỗi
     giờ qua task News Alert (`_assets_hourly`); bước này là lưới khi task giờ không chạy.
     Không bao giờ trả 2. Kill-switch: VNSTOCK_ASSETS=0. Tay: `run.py assets --show |
-    --backfill [--with-mcp] | --mcp`."""
+    --backfill [--with-mcp] | --mcp-backfill [--only KHOÁ,…] | --mcp`."""
     cmd = [sys.executable, str(REPO_ROOT / "vnstock_assets.py")]
     if getattr(args, "show", False):
         cmd.append("--show")
@@ -1060,6 +1060,10 @@ def cmd_assets(args) -> int:
             cmd.append("--with-mcp")
         if getattr(args, "vcb_days", None):
             cmd += ["--vcb-days", str(args.vcb_days)]
+    elif getattr(args, "mcp_backfill", False):
+        cmd.append("--mcp-backfill")
+        if getattr(args, "only", None):
+            cmd += ["--only", args.only]
     elif getattr(args, "mcp", False):
         cmd.append("--mcp")
     else:
@@ -2160,12 +2164,16 @@ def build_parser() -> argparse.ArgumentParser:
     hp.add_argument("--days", type=int, default=120, help="--backfill: số phiên chấm điểm")
     ap_ = sub.add_parser("assets",
                          help="Kho đa tài sản vàng · dầu · USD: lượt nguồn Python (mặc định) / "
-                              "--show / --backfill [--with-mcp] / --mcp")
+                              "--show / --backfill [--with-mcp] / --mcp-backfill / --mcp")
     ag = ap_.add_mutually_exclusive_group()
     ag.add_argument("--show", action="store_true", help="in giá mới nhất + suy ra, không gọi mạng")
     ag.add_argument("--backfill", action="store_true",
                     help="MỘT LẦN 🖥️ ngoài giờ pipeline: nạp lịch sử dài")
     ag.add_argument("--mcp", action="store_true", help="một lượt MCP Finhay/SSI ngay")
+    ag.add_argument("--mcp-backfill", action="store_true",
+                    help="chỉ lịch sử MCP (chạy lại phần hỏng) + một lượt Python cuối")
+    ap_.add_argument("--only", default=None,
+                     help="--mcp-backfill: khoá kho, phẩy (vd GOLD_SJC_BAR,USD_SBV_REF)")
     ap_.add_argument("--with-mcp", action="store_true", help="--backfill: thêm lịch sử Finhay")
     ap_.add_argument("--vcb-days", type=int, default=None, help="--backfill: số ngày lịch VCB (730)")
     sub.add_parser("assets-mcp",

@@ -145,7 +145,8 @@ vàng TG USD/oz, dầu USD/thùng, tỷ giá VND/USD.
 | `USD_BROAD` | chỉ số USD rộng Fed | **ước tính tự tính** (trọng số Fed 2026 × currency-api, lệch pha +1), kèm dải ±0,3% | — | FRED (từ 2006) làm neo | P1 thử thêm tỷ giá Yahoo làm chuỗi dẫn, giữ cái p90 thấp hơn |
 | `USDVND` | tỷ giá thị trường | MCP Finhay USDVND | er-api → currency-api | Yahoo VND=X (từ 2003) | er-api ±0,5% |
 | `USDVND_VCB` | VCB mua TM/CK/bán | vietcombank.com.vn api | MCP SSI VCB | VCB api theo ngày (2 năm ≈ 500 lượt, giãn 0,3s) | SSI VCB ±0,3% |
-| `USD_CENTRAL` | tỷ giá trung tâm NHNN | MCP SSI SBVN, (mua+bán)/2 | bản tin tuần SBV | vnstock_data mbk "Tỷ giá trung tâm" (từ 2016) | **kiểm công thức** SBVN vs mbk trên ~2 năm SSI cho phép |
+| `USD_CENTRAL` | tỷ giá trung tâm NHNN | vnstock_data mbk (lượt Python mỗi giờ) | bản tin tuần SBV | vnstock_data mbk "Tỷ giá trung tâm" (từ 2016) | ~~SBVN (mua+bán)/2~~ — **bác 10/10** (§9b): SBVN là giá tham khảo Cục QLNH, lệch trung tâm 0–7 đ; mbk nghi ghi LÙI 1 phiên, đang đo |
+| `USD_SBV_REF` (10/10) | mua/bán USD tham khảo Cục QLNH (close = bán) | MCP SSI SBVN | — | MCP SSI 3 tháng (range 1m × 3) | thước đo ngày của mbk |
 
 Bước pipeline: `assets` (Python, sau `macro`) + `assets-mcp` (sau brief, như `mcp-enrich`); MCP một lượt/
 đêm ~16 tool cửa sổ 10 ngày (ghi đè bar trùng). Yahoo không chính thức ⇒ mọi chuỗi phụ thuộc Yahoo có
@@ -264,7 +265,7 @@ trung tâm) và "Kết luận theo tài sản" (nguồn TƯƠI nhất + SÂU nh�
 ## 9. P1 — đã làm (09/10 tối, CLAUDE-NOTES U82)
 
 **Module:** `vnstock_assets_sources.py` (parser + fetch Python, mạng qua MỘT chỗ `HTTP`) ·
-`vnstock_assets.py` (registry 24 chuỗi, kho, luật gộp, ước tính, trạng thái, mỗi giờ, backfill, CLI) ·
+`vnstock_assets.py` (registry 25 chuỗi, kho, luật gộp, ước tính, trạng thái, mỗi giờ, backfill, CLI) ·
 `vnstock_assets_mcp.py` (Finhay/SSI qua `complete_mcp`, lượt ngày 16 tool, backfill theo lượt nhỏ, kiểm SBVN).
 
 **Kho:** `data_warehouse/assets/<KHOÁ>/<YYYY>.parquet`, cột `date open high low close bid ask contract
@@ -301,6 +302,40 @@ cụ, bớt một phụ thuộc; vnstock_data giữ cho tỷ giá trung tâm mbk
 — nguồn này cập nhật ~1 lần/ngày (~07:00 VN) nên ước tính "trong ngày" chứ chưa "trong giờ"; thử tỷ giá
 Yahoo làm chuỗi dẫn để lại sau khi có ≥1 tuần số thật.
 
-**Lệnh:** `run.py assets` (lượt Python) · `--show` · `--backfill [--with-mcp] [--vcb-days N]` · `--mcp` ·
-`run.py assets-mcp`. Test: `tests/test_assets.py` (19) · `test_assets_sources.py` (12) ·
-`test_assets_mcp.py` (9), whitelist `--fast`; conftest đưa kho/meta/khoá về tmp, chặn mạng, tắt móc giờ.
+**Lệnh:** `run.py assets` (lượt Python) · `--show` · `--backfill [--with-mcp] [--vcb-days N]` ·
+`--mcp-backfill [--only KHOÁ,…]` · `--mcp` · `run.py assets-mcp`. Test: `tests/test_assets.py` (25) ·
+`test_assets_sources.py` (12) · `test_assets_mcp.py` (11), whitelist `--fast`; conftest đưa kho/meta/khoá
+về tmp, chặn mạng, tắt móc giờ.
+
+## 9b. Lượt máy thật đầu tiên (🖥️ PICHU 10/10 ~00:xx) + sửa
+
+**Chạy tốt:** `--fast` 3.390 passed · FRED 23.822 dòng · Yahoo Brent 4.779 / WTI 6.561 / DXY 14.161 /
+USDVND 5.949 · VCB 522 ngày (67s) · mbk 3.182 · MCP XAU 461 · BZ+CL 307 · USDVND 50 · 9 sản phẩm đại lý
+~450–560 dòng · `WTI_SPOT_EST` 98,30 · VCB còn 3,22% tới trần.
+
+**Bốn lỗ và cách vá:**
+1. *SJC miếng (3 khung) + SBVN 3m "kết quả rỗng"* — thật ra Claude Code CẮT kết quả MCP > ~25k token
+   (đo trong phiên: đại lý ~15 token/ngày ⇒ 4 năm ~37k; SBVN 1 tháng = 154 dòng ~7k, mô tả tool: "từ 3m
+   trở lên >1.000 dòng"). Code cũ gộp mọi trường hợp không ra dòng thành "kết quả rỗng". Vá: SJC miếng
+   xin TỪNG NĂM 2015→nay (2 năm/phiên `claude -p`), SBVN 3 lượt `range=1m` + `toDate` lùi 30 ngày (ghép
+   lượt theo cả `toDate`); `empty_reason` phân biệt rỗng thật / nguồn báo lỗi / text không đọc được
+   (in 200 ký tự đầu). Lệnh chạy lại riêng phần hỏng: `--mcp-backfill --only GOLD_SJC_BAR,USD_SBV_REF`.
+2. *SBVN KHÔNG phải tỷ giá trung tâm.* Báo chí 08/10: "tỷ giá tham khảo tại Cục QLNH 24.407 – 26.869" =
+   đúng từng đồng SSI SBVN 08/10, mà trung tâm 08/10 là 25.634 ≠ (mua+bán)/2 = 25.638. Đối chiếu 05–09/10
+   (trung tâm báo chí 25.636 · 25.643 · 25.638 · 25.634 · 25.629; giữa SBVN 25.636 · 25.643 · 25.645 ·
+   25.638 · 25.629) ⇒ khớp 3/5 phiên. Vá: SBVN thành chuỗi riêng `USD_SBV_REF` (close = giá bán);
+   `USD_CENTRAL` chỉ còn mbk (+ bản tin tuần). Luật "một chuỗi một công cụ" nay chốt bằng code:
+   `merge` từ chối nguồn không khai trong `Spec.sources` (cờ `kind=source`) và bỏ dòng cũ của nguồn đã gỡ.
+3. *mbk nghi ghi LÙI 1 phiên:* dòng mbk 08/10 = 25.629 = số NHNN công bố sáng 09/10 (08/10 là 25.634),
+   và lúc 00:xx 10/10 mbk chưa có dòng 09/10. Chưa sửa ngày (một điểm chưa đủ): `verify_central` đo trên
+   ~60 phiên giữa SBVN vs mbk ở lệch −1/0/+1 phiên, ghi `_meta/assets_status.json` `central_verify` +
+   dòng trong `--show` kèm 6 giá trị mbk cuối để đối chiếu báo chí. Kết luận "LÙI 1 phiên" ⇒ dời ngày ở
+   `parse_mbk_central` + backfill lại mbk. Ảnh hưởng tới lúc đó: trần tính từ trung tâm cũ 1 phiên (±5 đ,
+   ~0,02%) — không đổi kết luận dư địa.
+4. *Đường cong HĐTL trống, doctor "chưa có lượt nào", ước tính USD rộng ẩn không rõ vì sao:* backfill
+   không chạy lượt Python thường. Vá: backfill (và `--mcp-backfill`) chốt bằng MỘT lượt Python như mỗi giờ
+   rồi in từng nguồn lỗi + từng ước tính; `estimate_usd_broad` trả (ước tính, lý do) chỉ đúng khâu hỏng
+   (trọng số Fed + lỗi tải / chưa có tỷ giá / chỉ số tự tính rỗng / chưa có số Fed / số Fed chưa có tỷ giá
+   ngày +1 / quá 10 phiên).
+
+`--show`: VND không phần lẻ, cột thẳng (nhãn 🔒 chuyển xuống cuối dòng), dòng trần ghi trung tâm + ngày.

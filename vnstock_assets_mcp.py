@@ -6,9 +6,17 @@ Connector gắn TÀI KHOẢN Claude ⇒ chỉ đi qua `vnstock_claude_cli.comple
 phí (gói thuê bao trừ hạn mức) ⇒ 3–4 lượt/ngày theo giờ VN (`vnstock_assets.mcp_due`).
 
 Lượt ngày (cửa sổ 10 ngày, ghi đè dòng trùng): Finhay XAU · BZ · CL (nến ngày) · USDVND ·
-10 sản phẩm vàng đại lý (SJC/PNJ/DOJI/BTMC/BTMH × miếng/nhẫn) + SSI tỷ giá VCB và SBVN
-(Sở giao dịch NHNN — tỷ giá trung tâm = (mua+bán)/2, suy luận đo 09/10, `backfill` kiểm lại
-trên ~3 tháng so với vnstock_data mbk).
+10 sản phẩm vàng đại lý (SJC/PNJ/DOJI/BTMC/BTMH × miếng/nhẫn) + SSI tỷ giá VCB và SBVN.
+
+SBVN = tỷ giá MUA/BÁN THAM KHẢO tại Cục Quản lý ngoại hối NHNN (đối chiếu báo chí 08/10:
+24.407 – 26.869, đúng từng đồng) — KHÔNG phải tỷ giá trung tâm: (mua+bán)/2 khớp trung tâm
+3/5 phiên 05–09/10, lệch 4–7 đ các phiên còn lại ⇒ chuỗi RIÊNG `USD_SBV_REF` (close = giá bán).
+`backfill` dùng nó đo xem vnstock_data mbk ghi tỷ giá trung tâm đúng ngày hay lùi một phiên
+(10/10: mbk ngày 08/10 = 25.629 = số NHNN công bố sáng 09/10; số 08/10 là 25.634).
+
+Trần kết quả: Claude Code cắt kết quả MCP > ~25k token (SJC miếng 4 năm ~37k ⇒ 10/10 cả ba
+khung 2015–18/2019–22/2023–nay về "kết quả rỗng") ⇒ backfill xin TỪNG NĂM; kết quả không đọc
+được thì sổ lỗi ghi đoạn đầu text thật, không gộp chung thành "rỗng".
 
 Đơn vị: Finhay đại lý = NGHÌN đồng/chỉ (14.480 ⇔ 144,8 tr/lượng) ⇒ kho lưu ĐỒNG/lượng
 (× 10.000), giá chính `close` = giá BÁN (ask). Finhay forex có nến cuối tuần đứng giá ⇒ kho
@@ -47,7 +55,7 @@ DAILY = (
     (f"GOLD_{d}_{kind}", T_DEALER, {"symbol": "XAU", "code": f"GOLD_{kind}_{d}"})
     for d in va.DEALERS for kind in ("BAR", "RING")
 )
-SSI_BANKS = (("USDVND_VCB", "VCB"), ("USD_CENTRAL", "SBVN"))
+SSI_BANKS = (("USDVND_VCB", "VCB"), ("USD_SBV_REF", "SBVN"))
 
 
 def prefixes() -> "tuple[str, str]":
@@ -127,12 +135,6 @@ def parse_finhay(text, dealer: bool) -> list:
     return rows
 
 
-def central_from_sbvn(buy: float, sell: float) -> float:
-    """SBVN = giá USD ở Sở giao dịch NHNN: bán = trần − 50, mua = sàn + 50 (đo 09/10: 24.398 /
-    26.860 ⇒ trung tâm 25.629, ×1,05 = 26.910 = bán + 50, ×0,95 = 24.348 = mua − 50)."""
-    return round((buy + sell) / 2, 1)
-
-
 def parse_ssi(text, bank: str) -> list:
     data = _loads(text)
     rates = ((data or {}).get("data") or {}).get("rates") if isinstance(data, dict) else None
@@ -145,21 +147,35 @@ def parse_ssi(text, bank: str) -> list:
             continue
         if bank == "SBVN":
             if buy:
-                rows.append({"date": d, "close": central_from_sbvn(buy, sell), "bid": buy, "ask": sell,
-                             "source": "ssi-sbvn"})
+                rows.append({"date": d, "close": sell, "bid": buy, "ask": sell, "source": "ssi"})
         else:
             rows.append({"date": d, "close": sell, "bid": src.num(r.get("transfer")), "ask": sell,
                          "source": "ssi", "meta": {"cash": buy}})
     return rows
 
 
+def empty_reason(text) -> str:
+    """Vì sao một kết quả không ra dòng nào: nguồn trả rỗng thật / nguồn báo lỗi / text không
+    phải JSON (Claude Code cắt kết quả quá lớn, thông báo lỗi…) — kèm đoạn đầu text thật."""
+    data = _loads(text)
+    if isinstance(data, dict):
+        err = data.get("error") or data.get("message")
+        if err:
+            return "nguồn báo lỗi: " + src.scrub(str(err))[:160]
+        return "kết quả rỗng (nguồn không có số cho khung này)"
+    head = src.scrub(" ".join(str(text or "").split()))[:200]
+    return f"không đọc được kết quả ({len(str(text or '')):,} ký tự): {head}"
+
+
 def rows_from_exchanges(plan: list, exchanges: list) -> "tuple[dict, dict]":
-    """({khoá: [dòng]}, {khoá: lỗi}) — ghép lượt gọi thật với kế hoạch theo (tool, mã, from/bank)."""
+    """({khoá: [dòng]}, {khoá: lỗi}) — ghép lượt gọi thật với kế hoạch theo (tool, mã,
+    from | toDate). Một khoá nhiều lượt (backfill theo năm/tháng): lượt nào ra dòng thì lấy;
+    lượt hỏng vẫn ghi lỗi (lỗi đầu tiên của khoá) để một năm thiếu không lặng lẽ."""
     def ident(tool, inp):
         inp = inp if isinstance(inp, dict) else {}
         f = src.num(inp.get("from"))
         return (tool, str(inp.get("code") or inp.get("bank") or inp.get("symbol") or "").upper(),
-                int(f) if f is not None else None)
+                int(f) if f is not None else str(inp.get("toDate") or ""))
     got = {}
     for e in exchanges or []:
         got.setdefault(ident(e.get("name"), e.get("input")), e)
@@ -180,7 +196,7 @@ def rows_from_exchanges(plan: list, exchanges: list) -> "tuple[dict, dict]":
         if r:
             rows.setdefault(k, []).extend(r)
         else:
-            errors.setdefault(k, "kết quả rỗng")
+            errors.setdefault(k, empty_reason(e["text"]))
     return rows, errors
 
 
@@ -253,51 +269,90 @@ def refresh(now: "datetime | None" = None, *, force: bool = False, stale_h: "flo
 
 
 # ── Backfill: lượt nhỏ để mỗi phiên claude -p không quá tải ngữ cảnh ─────────
+# Trần một kết quả MCP của Claude Code ~25k token (vượt ⇒ cắt, text không còn là JSON). Đo
+# 10/10: Finhay đại lý ~15 token/ngày (SJC miếng 4 năm ~37k ⇒ hỏng; đại lý 21 tháng ~16k ⇒
+# được); SSI SBVN 1 tháng = 7 ngoại tệ × ~22 phiên = 154 dòng ~7k (3 tháng ⇒ hỏng).
 BACKFILL_FROM = date(2025, 1, 1)
-SJC_BAR_CHUNKS = ((date(2015, 1, 1), date(2018, 12, 31)), (date(2019, 1, 1), date(2022, 12, 31)))
+SJC_BAR_FROM_YEAR = 2015
+YEARS_PER_SESSION = 2                  # 2 lượt gọi × ≤1 năm ⇒ ≤~12k token/lượt kết quả
+SBVN_MONTHS = 3                        # 3 lượt range=1m, toDate lùi 30 ngày
+
+
+def _ssi_date(d: date) -> str:
+    return d.strftime("%d/%m/%Y")
 
 
 def plan_backfill(today: date, fp: str, sp: str) -> "list[tuple[str, list]]":
-    """[(nhãn, kế hoạch)] — ~1–2 chuỗi/lượt (SJC miếng 4 năm ~37k token; đại lý 21 tháng ~16k)."""
+    """[(nhãn, kế hoạch)] — mỗi phiên ≤2 lượt gọi, mỗi lượt ≤~12k token kết quả."""
     end = today + timedelta(days=1)
     by_key = {k: (t, b) for k, t, b in DAILY}
     sessions = [("XAU", [finhay_call("XAU", *by_key["XAU"], fp, BACKFILL_FROM, end)]),
                 ("BZ+CL", [finhay_call(k, *by_key[k], fp, BACKFILL_FROM, end) for k in ("BRENT", "WTI")]),
                 ("USDVND", [finhay_call("USDVND", *by_key["USDVND"], fp, BACKFILL_FROM, end)])]
-    for a, b in SJC_BAR_CHUNKS:
-        sessions.append((f"SJC miếng {a.year}–{b.year}",
-                         [finhay_call("GOLD_SJC_BAR", *by_key["GOLD_SJC_BAR"], fp, a, b + timedelta(days=1))]))
-    sessions.append(("SJC miếng 2023–nay",
-                     [finhay_call("GOLD_SJC_BAR", *by_key["GOLD_SJC_BAR"], fp, date(2023, 1, 1), end)]))
+    years = list(range(SJC_BAR_FROM_YEAR, today.year + 1))
+    for i in range(0, len(years), YEARS_PER_SESSION):
+        chunk = years[i:i + YEARS_PER_SESSION]
+        sessions.append((f"SJC miếng {chunk[0]}" + (f"–{chunk[-1]}" if len(chunk) > 1 else ""),
+                         [finhay_call("GOLD_SJC_BAR", *by_key["GOLD_SJC_BAR"], fp, date(y, 1, 1),
+                                      min(date(y + 1, 1, 1), end)) for y in chunk]))
     rest = [k for k, _, _ in DAILY if k.startswith("GOLD_") and k != "GOLD_SJC_BAR"]
     for i in range(0, len(rest), 2):
         pair = rest[i:i + 2]
         sessions.append((" + ".join(pair), [finhay_call(k, *by_key[k], fp, BACKFILL_FROM, end) for k in pair]))
-    sessions.append(("SSI SBVN 3 tháng", [{"key": "USD_CENTRAL", "tool": sp + T_SSI_FX,
-                                           "input": {"bank": "SBVN", "range": "3m"}}]))
+    sessions.append((f"SSI SBVN {SBVN_MONTHS} tháng",
+                     [{"key": "USD_SBV_REF", "tool": sp + T_SSI_FX,
+                       "input": {"bank": "SBVN", "range": "1m",
+                                 "toDate": _ssi_date(today - timedelta(days=30 * m))}}
+                      for m in range(SBVN_MONTHS)]))
     return sessions
 
 
-def verify_sbvn(sbvn_rows: list, mbk: "dict[str, float]") -> dict:
-    """So tỷ giá trung tâm suy ra từ SBVN với mbk (vnstock_data) trên ngày chung."""
-    pairs = [(r["date"], r["close"], mbk[r["date"]]) for r in sbvn_rows if r["date"] in mbk]
-    if not pairs:
-        return {"n": 0, "verdict": "không có ngày chung với mbk — chưa kiểm được"}
-    diffs = [abs(a - b) for _, a, b in pairs]
-    exact = sum(1 for x in diffs if x <= 1.0)
-    return {"n": len(pairs), "exact": exact, "max_diff": round(max(diffs), 1),
-            "verdict": "KHỚP" if exact == len(pairs) else ("GẦN KHỚP" if max(diffs) <= 10 else "LỆCH"),
-            "sample": [{"date": d, "sbvn": a, "mbk": b} for d, a, b in pairs[-3:]]}
+CENTRAL_SHIFTS = (-1, 0, 1)
+
+
+def verify_central(sbvn_rows: list, mbk: "dict[str, float]") -> dict:
+    """mbk ghi tỷ giá trung tâm ĐÚNG ngày hay lệch phiên? Thước đo: (mua+bán)/2 tham khảo Cục
+    QLNH (SSI SBVN) — ≈ trung tâm CÙNG ngày, lệch 0–7 đ (báo chí 05–09/10: khớp 3/5 phiên).
+    shift s: so giữa SBVN phiên D[i] với mbk phiên D[i−s] (lịch phiên SBVN); s=+1 ⇔ mbk ghi số
+    của phiên D vào phiên TRƯỚC. Phiên khớp = lệch ≤1 đ; shift thắng = nhiều phiên khớp nhất."""
+    mids = {r["date"]: (r["bid"] + r["ask"]) / 2 for r in sbvn_rows
+            if src.num(r.get("bid")) and src.num(r.get("ask"))}
+    days = sorted(mids)
+    tail = {d: mbk[d] for d in sorted(mbk)[-6:]}
+    stats = {}
+    for s in CENTRAL_SHIFTS:
+        diffs = sorted(abs(mids[d] - mbk[days[i - s]]) for i, d in enumerate(days)
+                       if 0 <= i - s < len(days) and days[i - s] in mbk)
+        if diffs:
+            stats[s] = {"n": len(diffs), "exact": sum(1 for x in diffs if x <= 1.0),
+                        "median_diff": round(diffs[len(diffs) // 2], 1)}
+    if not stats:
+        return {"n": 0, "verdict": "không có phiên chung với mbk — chưa kiểm được",
+                "sbvn_days": len(days), "mbk_tail": tail}
+    best = max(stats, key=lambda s: (stats[s]["exact"], -stats[s]["median_diff"], -abs(s)))
+    b = stats[best]
+    if b["n"] < 5 or b["exact"] < 3:
+        verdict = "chưa rõ (ít phiên chung / ít phiên khớp)"
+    elif best == 0:
+        verdict = "mbk ĐÚNG ngày"
+    else:
+        verdict = f"mbk ghi {'LÙI' if best > 0 else 'TIẾN'} {abs(best)} phiên"
+    return {"n": b["n"], "best_shift": best, "verdict": verdict,
+            "by_shift": {str(s): v for s, v in stats.items()}, "mbk_tail": tail}
 
 
 def backfill(now: "datetime | None" = None, *, collect=None, log=print,
-             timeout_s: int = TIMEOUT_S) -> dict:
+             timeout_s: int = TIMEOUT_S, only: "set[str] | None" = None) -> dict:
+    """Lịch sử MCP theo phiên nhỏ. `only` = tập khoá kho (vd {"GOLD_SJC_BAR", "USD_SBV_REF"}) ⇒
+    chỉ chạy phiên có khoá đó (chạy lại phần hỏng mà không gọi lại cả bộ)."""
     now = now or datetime.now()
     fp, sp = prefixes()
     df = va.load("USD_CENTRAL")                # backfill Python đã nạp mbk trước bước này
     mbk = {str(d): float(c) for d, c, s in zip(df["date"], df["close"], df["source"]) if s == "mbk"}
     report: dict = {}
     for label, plan in plan_backfill(now.date(), fp, sp):
+        if only and not {p["key"] for p in plan} & only:
+            continue
         log(f"… MCP {label}")
         exchanges, err, info = _collect(plan, timeout_s, "assets_mcp_backfill", collect)
         if (info or {}).get("no_exe"):
@@ -306,8 +361,8 @@ def backfill(now: "datetime | None" = None, *, collect=None, log=print,
             break
         rows, errors = rows_from_exchanges(plan, exchanges)
         if label.startswith("SSI SBVN"):
-            report["sbvn_verify"] = verify_sbvn(rows.get("USD_CENTRAL", []), mbk)
-            log(f"  kiểm công thức SBVN vs mbk: {report['sbvn_verify']}")
+            report["central_verify"] = verify_central(rows.get("USD_SBV_REF", []), mbk)
+            log(f"  đo lệch ngày mbk (tỷ giá trung tâm) vs SBVN: {report['central_verify']}")
         with va.machine_lock() as got:
             if not got:
                 report[label] = {"ok": False, "error": "kho đang bị ghi"}
@@ -317,7 +372,7 @@ def backfill(now: "datetime | None" = None, *, collect=None, log=print,
                          "cost_usd": (info or {}).get("cost_usd")}
         log(f"  {'✅' if report[label]['ok'] else '⚠'} {label}: {n} dòng"
             + (f" · lỗi {errors}" if errors else ""))
-    if "sbvn_verify" in report:
-        va.update_status("sbvn_verify", {**report["sbvn_verify"],
-                                         "run_at": now.isoformat(timespec="seconds")}, now=now)
+    if "central_verify" in report:
+        va.update_status("central_verify", {**report["central_verify"],
+                                            "run_at": now.isoformat(timespec="seconds")}, now=now)
     return report

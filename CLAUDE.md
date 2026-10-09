@@ -191,7 +191,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   niêm yết — tách cp thưởng vừa GDKHQ khỏi phát hành thêm) + 5 công bố, cho mã đang giữ + lệnh mở
   ⇒ `_meta/mcp_enrich.json`; brief CHƯA đọc. `run.py mcp-enrich --show`. Đo: `scripts/probe_mcp.py`.
 - **Đa tài sản vàng · dầu · USD** (U81 thiết kế · U82 P1 code, 09/10): `docs/THIET-KE-DA-TAI-SAN.md` (§4c
-  nguồn, §4e số đo, §9 P1). `vnstock_assets` (registry 24 chuỗi, kho `data_warehouse/assets/<KHOÁ>/<YYYY>.parquet`
+  nguồn, §4e số đo, §9 P1). `vnstock_assets` (registry 25 chuỗi, kho `data_warehouse/assets/<KHOÁ>/<YYYY>.parquet`
   — KHÔNG vào registry vĩ mô) + `_sources` (Python, mạng qua một chỗ `HTTP`) + `_mcp` (Finhay/SSI). Mỗi chuỗi =
   MỘT công cụ (giao ngay ≠ HĐTL); lệch nguồn ⇒ cờ `xcheck`. **Chuẩn user: số quốc tế phải có TRONG NGÀY** ⇒
   nguồn Python MỖI GIỜ qua task News Alert (`run.py news-alert` → `vnstock_assets.py --hourly`, trần 360s) +

@@ -32,7 +32,8 @@ def test_registry_shape():
         if s.display == "est":
             assert f"{k}_EST" in va.REGISTRY            # chuỗi chậm phải có bản ước tính
     assert va.REGISTRY["BRENT_SPOT"].display == "hide"
-    assert va.REGISTRY["USD_CENTRAL"].sources[0] == "mbk"
+    assert va.REGISTRY["USD_CENTRAL"].sources == ("mbk", "sbv-weekly")   # SBVN ≠ trung tâm (10/10)
+    assert va.REGISTRY["USD_SBV_REF"].sources == ("ssi",)
 
 
 # ── gộp ─────────────────────────────────────────────────────────────────────
@@ -47,6 +48,35 @@ def test_merge_rejects_out_of_range_and_weekend():
     assert list(df["date"]) == ["2026-10-08"] and flags[0]["kind"] == "sanity"
     gold, _ = _merge([{"date": "2026-10-04", "close": 144_800_000, "source": "finhay"}], key="GOLD_SJC_BAR")
     assert list(gold["date"]) == ["2026-10-04"]                        # vàng nội có giá cuối tuần
+
+
+def test_merge_rejects_undeclared_source_and_purges_old_rows():
+    """Luật 1 bằng code: nguồn không khai trong Spec.sources không vào chuỗi; dòng cũ của nguồn
+    đã gỡ (USD_CENTRAL "ssi-sbvn" trước 10/10) rơi khỏi file ở lượt ghi kế tiếp."""
+    old = pd.DataFrame([{**{c: None for c in va.COLUMNS}, "date": "2026-10-09", "close": 25629.0,
+                         "source": "ssi-sbvn", "contract": "", "fetched_at": T}], columns=va.COLUMNS)
+    df, flags = _merge([{"date": "2026-10-08", "close": 25634.0, "source": "mbk"},
+                        {"date": "2026-10-07", "close": 25645.0, "source": "ssi"}],
+                       key="USD_CENTRAL", existing=old)
+    assert list(df["source"]) == ["mbk"] and list(df["date"]) == ["2026-10-08"]
+    assert flags == [{"key": "USD_CENTRAL", "date": "2026-10-07", "kind": "source", "source": "ssi"}]
+
+
+def test_registry_sources_cover_every_writer():
+    """Mỗi nguồn mà code ghi phải có trong Spec.sources của khoá nó ghi vào (không thì luật trên
+    nuốt mất dữ liệu thật)."""
+    import inspect
+    import vnstock_assets_mcp as am
+    text = inspect.getsource(va)
+    for key, src_name in (("XAU", "gold-api"), ("BRENT", "yahoo"), ("CURVE_WTI", "yahoo"),
+                          ("WTI_SPOT", "fred"), ("USD_BROAD", "fred"), ("USDVND", "er-api"),
+                          ("USDVND", "currency-api"), ("USDVND", "yahoo"), ("USDVND_VCB", "vcb"),
+                          ("GOLD_SJC_BAR", "sjc"), ("USD_CENTRAL", "mbk"), ("DXY", "yahoo")):
+        assert f'"{src_name}"' in text and src_name in va.REGISTRY[key].sources, (key, src_name)
+    for key, _, _ in am.DAILY:
+        assert "finhay" in va.REGISTRY[key].sources, key
+    for key, _ in am.SSI_BANKS:
+        assert "ssi" in va.REGISTRY[key].sources, key
 
 
 def test_merge_past_follows_priority_and_flags_mismatch():
@@ -104,10 +134,22 @@ def test_wti_spot_estimate_hidden_after_three_sessions():
 def test_usd_broad_estimate_uses_weights_and_shift():
     w = {"eur": 0.5, "cny": 0.5}
     fx = {"2026-10-03": {"eur": 0.86, "cny": 7.1}, "2026-10-09": {"eur": 0.86 * 1.01, "cny": 7.1 * 1.01}}
-    est = va.estimate_usd_broad({"2026-10-02": 121.38}, fx, w)
-    assert est["anchor_date"] == "2026-10-02" and est["band_pct"] == va.USD_BROAD_BAND_PCT
+    est, why = va.estimate_usd_broad({"2026-10-02": 121.38}, fx, w)
+    assert why is None and est["anchor_date"] == "2026-10-02" and est["band_pct"] == va.USD_BROAD_BAND_PCT
     assert est["value"] == pytest.approx(121.38 * 1.01)
-    assert va.estimate_usd_broad({"2026-10-02": 121.38}, fx, {}) is None
+
+
+def test_usd_broad_hidden_reason_names_the_broken_step():
+    """10/10 🖥️: ước tính ẩn mà lý do chung chung ⇒ không biết sửa gì. Mỗi khâu một lý do."""
+    w = {"eur": 0.5, "cny": 0.5}
+    fx = {"2026-10-03": {"eur": 0.86, "cny": 7.1}, "2026-10-09": {"eur": 0.87, "cny": 7.2}}
+    off = {"2026-10-02": 121.38}
+    assert "trọng số Fed (HTTPError: 403)" in va.estimate_usd_broad(off, fx, {}, "HTTPError: 403")[1]
+    assert "currency-api" in va.estimate_usd_broad(off, {}, w)[1]
+    assert "chỉ số tự tính rỗng" in va.estimate_usd_broad(off, {"2026-10-03": {"eur": 0.86}}, w)[1]
+    assert "chưa có số Fed" in va.estimate_usd_broad({}, fx, w)[1]
+    why = va.estimate_usd_broad({"2026-10-06": 121.0}, fx, w)[1]
+    assert "2026-10-06 chưa có tỷ giá ngày +1" in why and "2026-10-03→2026-10-09" in why
 
 
 # ── một lượt Python ─────────────────────────────────────────────────────────
@@ -160,13 +202,24 @@ def test_derived_premium_and_ceiling_room():
              today=TODAY, fetched_at=T)
     va.write("XAU", [va._row("2026-10-09", 4182.09, "finhay")], today=TODAY, fetched_at=T)
     va.write("USDVND", [va._row("2026-10-09", 25881, "finhay")], today=TODAY, fetched_at=T)
-    va.write("USD_CENTRAL", [va._row("2026-10-09", 25629, "ssi-sbvn")], today=TODAY, fetched_at=T)
+    va.write("USD_CENTRAL", [va._row("2026-10-09", 25629, "mbk")], today=TODAY, fetched_at=T)
     va.write("USDVND_VCB", [va._row("2026-10-09", 26090, "ssi", ask=26090)], today=TODAY, fetched_at=T)
     assert va.sjc_premium_pct()["pct"] == pytest.approx(10.96, abs=0.05)
     room = va.usd_ceiling_room_pct()
     assert room["ceiling"] == 26910 and room["pct"] == pytest.approx(3.14, abs=0.01)
     text = va.show(today=TODAY)
-    assert "SJC miếng đắt hơn" in text and "còn cách trần 26,910" in text
+    assert "SJC miếng đắt hơn" in text and "còn cách trần 26,910 (trung tâm 25,629" in text
+    sjc = next(ln for ln in text.splitlines() if "SJC miếng " in ln and "VND/lượng" in ln)
+    assert "144,800,000 VND/lượng" in sjc and ".00" not in sjc            # VND không phần lẻ
+
+
+def test_show_columns_align_for_locked_rows():
+    va.write("WTI_SPOT", [va._row("2026-10-06", 96.24, "fred")], today=TODAY, fetched_at=T)
+    va.write("DXY", [va._row("2026-10-09", 98.7, "yahoo")], today=TODAY, fetched_at=T)
+    lines = va.show(today=TODAY).splitlines()
+    spot = next(ln for ln in lines if "WTI giao ngay EIA" in ln)
+    dxy = next(ln for ln in lines if "DXY (ICE)" in ln)
+    assert spot.index("96.24") == dxy.index("98.70") and "chỉ hiện qua ước tính" in spot
 
 
 # ── giờ MCP + mỗi giờ ───────────────────────────────────────────────────────
@@ -202,7 +255,7 @@ def test_doctor_badge(monkeypatch, tmp_path):
     for key, spec in va.REGISTRY.items():
         if spec.display != "show":
             continue
-        row = va._row("2026-10-09", spec.lo + 1 if spec.lo else 1, "x", contract="C1" if spec.curve else "")
+        row = va._row("2026-10-09", spec.lo + 1 if spec.lo else 1, spec.sources[0], contract="C1" if spec.curve else "")
         va.write(key, [row], today=TODAY, fetched_at=T)
     va.update_status("python", {"run_at": "2026-10-09T19:30:00", "status": "ok"})
     va.update_status("mcp", {"run_at": "2026-10-09T14:00:00", "status": "ok"})
@@ -228,6 +281,25 @@ def test_runpy_assets_commands_never_hard_fail(monkeypatch):
     assert args.backfill and args.with_mcp and runpy._DISPATCH["assets"] is runpy.cmd_assets
     names = [n for n, _ in runpy._all_steps(SimpleNamespace())]
     assert names.index("assets") == names.index("gold") + 1 and names[-1] == "assets-mcp"
+    args = runpy.build_parser().parse_args(["assets", "--mcp-backfill", "--only", "GOLD_SJC_BAR,USD_SBV_REF"])
+    runpy.cmd_assets(args)
+    assert seen[-1][-3:] == ["--mcp-backfill", "--only", "GOLD_SJC_BAR,USD_SBV_REF"]
+
+
+def test_cli_mcp_backfill_rejects_unknown_key(capsys):
+    assert va.main(["--mcp-backfill", "--only", "SJC"]) == 2
+    assert "khoá không có trong registry" in capsys.readouterr().out
+
+
+def test_backfill_ends_with_python_pass_so_doctor_sees_a_run():
+    """10/10 🖥️: backfill đầy kho mà `status.python` trống ⇒ doctor "chưa có lượt nào", không có
+    đường cong HĐTL, lý do ẩn ước tính không in ra. Nay backfill chốt bằng một lượt Python."""
+    logs = []
+    rep = va.backfill(now=NOW, log=logs.append, tasks=_tasks(), vcb_days=7)
+    assert rep["python"]["status"] == "ok"
+    st = va.read_status()
+    assert st["python"]["run_at"] == T and st["estimates"]["WTI_SPOT_EST"]["h"] == 3
+    assert any(ln.startswith("  USD_BROAD_EST: ẩn: thiếu trọng số Fed") for ln in logs)
 
 
 def test_news_alert_hourly_hook(monkeypatch):
