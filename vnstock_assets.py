@@ -1088,6 +1088,12 @@ def main(argv: "list[str] | None" = None) -> int:
     res = refresh_python()
     print(f"[assets] python {res.get('status')} ({res.get('ok')}/{(res.get('ok') or 0) + (res.get('fail') or 0)})"
           + "".join(f"\n  ❌ {n}: {r['error']}" for n, r in (res.get("tasks") or {}).items() if not r["ok"]))
+    # P4: lượt pipeline tối (sau sync giá) tính lại độ nhạy cổ phiếu ↔ vàng/dầu/USD — lượt mỗi giờ thì không.
+    try:
+        import vnstock_assets_links as al
+        print(f"[assets] liên kết cổ phiếu: {al.refresh()}")
+    except Exception as e:                                         # noqa: BLE001
+        print(f"[assets] liên kết cổ phiếu lỗi: {type(e).__name__}: {e}")
     return 0 if res.get("status") in ("ok", "busy", "disabled") else 1
 
 

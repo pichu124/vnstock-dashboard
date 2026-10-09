@@ -6974,6 +6974,14 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🪙 U85. P4 LIÊN KẾT CỔ PHIẾU ↔ VÀNG/DẦU/USD (10/10)
+
+Thiết kế §12. `vnstock_assets_links` đo 20 cặp mã × yếu tố, 60 phiên (+250 nền): beta RIÊNG sau khi trừ VNINDEX
+(OLS 2 biến), giá quốc tế lệch 1 phiên (đóng cửa sau phiên VN), yếu tố ghép theo MỨC rồi mới lấy chênh (gom cuối
+tuần), bỏ |r| > 16%; |t| ≥ 2 & ≥ 40 phiên mới "có". Cache `_meta/assets_links.json` tính ở bước `assets` (pipeline
+tối), thẻ 🔗 trong tab 🪙, kill-switch `VNSTOCK_ASSETS_LINKS`. Bẫy khi viết: kho giá parquet ra `datetime64[ms]`,
+kho tài sản ra `[ns]` ⇒ `merge_asof` từ chối — ép cùng `[ns]`. Test 6 (whitelist).
+
 # 🪙 U84. P3 ĐỐI CHIẾU MCP ↔ PYTHON (10/10)
 
 User 10/10: "làm tuần tự 3-4-5" (U27 xem tab + `--fast` để sau, nhắc lại). P3 thiết kế §11: MCP đã là nguồn ưu

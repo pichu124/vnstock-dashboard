@@ -443,3 +443,26 @@ luôn nhường dòng của nguồn khác, kể cả trong ngày; `--show` in nh
 **Test:** `tests/test_assets.py` +4 (sổ giữ mọi nguồn trong khi kho giữ một · ba trạng thái cổng + hôm nay không
 chấm · hạ tay thắng cả ngày cũ lẫn trong ngày · doctor réo khi lệch).
 
+## 12. P4 — liên kết cổ phiếu: độ nhạy 60 phiên (10/10, CLAUDE-NOTES U85)
+
+**File:** `vnstock_assets_links.py` (đọc kho giá `prices/` qua `vnstock_horizons_state.read_ticker` + kho tài sản,
+ghi `_meta/assets_links.json`) · thẻ "🔗 Liên kết cổ phiếu" trong tab 🪙 · tính lại ở bước pipeline `assets`
+(`vnstock_assets.py` chế độ mặc định — sau sync giá; lượt mỗi giờ KHÔNG tính). Kill-switch `VNSTOCK_ASSETS_LINKS=0`.
+
+**20 cặp (thiết kế §3):** PNJ ← vàng TG + vàng nhẫn SJC · PVD/PVS/GAS/BSR/PLX/OIL/PVT (+) · HVN/VJC (−) · DPM/DCM (?)
+← Brent · VHC/ANV/MSH (+) · HVN/VJC (−) ← USD/VND VCB · VHC (+) / HVN (−) ← DXY.
+
+**Phép đo:** lợi suất log theo phiên VN, bỏ |r| > 16% (đứt gãy dữ liệu/đơn vị). Yếu tố ghép theo MỨC GIÁ về phiên VN
+rồi mới lấy chênh (gom biến động cuối tuần/nghỉ lễ). Giá QUỐC TẾ đóng cửa sau phiên VN ⇒ phiên t ghép ngày yếu
+tố < t; giá NỘI ghép ≤ t. **Beta riêng** = hệ số yếu tố trong hồi quy r_mã = a + b·r_VNINDEX + β·r_yếu_tố (trừ nhịp
+chung thị trường), t theo OLS. Kết luận: < 40 phiên ⇒ chưa đủ dữ liệu · |t| ≥ 2 ⇒ có (đúng/NGƯỢC chiều kỳ vọng,
+hoặc +/− khi chưa có kỳ vọng) · còn lại ⇒ "không thấy" — nói thẳng, không giữ mã vì nghe hợp lý. Kèm cửa sổ 250
+phiên làm nền.
+
+**Chưa đo (để sau, không nằm trong 20 cặp):** "vàng tăng mạnh ⇒ tiền nhỏ lẻ rời chứng khoán" (cần thước thanh
+khoản, không phải lợi suất) · "USD mạnh ⇒ khối ngoại bán ròng" (cần chuỗi NN ròng — mức, không phải lợi suất).
+
+**Test:** `tests/test_assets_links.py` (6, whitelist): bỏ cú đổi đơn vị · ghép lệch pha + gom cuối tuần · OLS + 5
+kết luận · kho giá tổng hợp với quan hệ biết trước (PVD +0,5 Brent lệch 1 phiên, HVN −0,4, VHC không dính USD)
+tìm lại đúng chiều/độ lớn và nói "không thấy" · ghi cache + kill-switch · thẻ tab vẽ bảng.
+

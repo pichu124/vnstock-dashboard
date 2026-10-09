@@ -40,9 +40,9 @@ def render_assets_tab() -> None:
     rng = st.radio("Khung biểu đồ", list(_RANGES), index=2, horizontal=True, key="assets_range")
     days = _RANGES.get(rng)
     start = (date.today() - timedelta(days=days)).isoformat() if days else None
-    t_gold, t_oil, t_usd = st.tabs(["🥇 Vàng", "🛢️ Dầu", "💵 USD"])
+    t_gold, t_oil, t_usd, t_link = st.tabs(["🥇 Vàng", "🛢️ Dầu", "💵 USD", "🔗 Liên kết cổ phiếu"])
     for tab, fn, name in ((t_gold, _render_gold, "Vàng"), (t_oil, _render_oil, "Dầu"),
-                          (t_usd, _render_usd, "USD")):
+                          (t_usd, _render_usd, "USD"), (t_link, _render_links, "Liên kết cổ phiếu")):
         with tab:
             try:
                 fn(va, av, start)
@@ -301,3 +301,40 @@ def _render_usd(va, av, start) -> None:
         st.caption(f"Ngày tỷ giá trung tâm (kho, nguồn vnstock_data mbk đã dời 1 ngày lịch) so giá "
                    f"tham khảo NHNN {cv['n']} phiên: {cv['verdict']}. Giá tham khảo NHNN (SSI \"SBVN\") "
                    "KHÔNG phải tỷ giá trung tâm — ~70% phiên bằng trung tâm phiên trước.")
+
+
+# ── 🔗 Liên kết cổ phiếu (P4) ────────────────────────────────────────────────
+_EXPECT = {1: "+", -1: "−", None: "?"}
+
+
+def _render_links(va, av, start) -> None:
+    import vnstock_assets_links as al
+    res = al.load()
+    if not res.get("rows"):
+        st.info("Chưa có số liên kết — pipeline tối (bước `assets`) tự tính sau khi đồng bộ giá; "
+                "chạy tay: `python vnstock_assets_links.py`.")
+        return
+    st.caption(f"Đo {res['window']} phiên gần nhất (nền {res['window_long']} phiên) · tính "
+               f"{_hhmm(res.get('as_of'))} · **beta riêng** = cổ phiếu đổi bao nhiêu % khi yếu tố đổi 1%, "
+               f"SAU KHI trừ nhịp chung VNINDEX · chỉ tính là có quan hệ khi |t| ≥ {res['t_sig']} và "
+               f"≥ {res['min_n']} phiên.")
+    rows = []
+    for r in res["rows"]:
+        m, ml = r["w60"], r["w250"]
+        rows.append({"Mã": r["ticker"], "Yếu tố": r["driver_label"] + (" (lệch 1 phiên)" if r["lag"] else ""),
+                     "Kỳ vọng": _EXPECT.get(r["expected"], "?"),
+                     "Beta riêng 60p": f"{m['beta']:+.2f}" if m["beta"] is not None else "—",
+                     "t": f"{m['t']:+.1f}" if m["t"] is not None else "—",
+                     "Tương quan 60p": f"{m['corr']:+.2f}" if m["corr"] is not None else "—",
+                     "Phiên": m["n"], "Kết luận": r["verdict"],
+                     "Beta riêng 250p": f"{ml['beta']:+.2f}" if ml["beta"] is not None else "—",
+                     "Kênh truyền dẫn (giả thuyết)": r["why"]})
+    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+    found = [r for r in res["rows"] if r["verdict"].startswith("có")]
+    if found:
+        st.caption("Có quan hệ: " + " · ".join(
+            f"{r['ticker']} ← {r['driver_label']}: 1% ⇒ {r['w60']['beta']:+.2f}%" for r in found))
+    st.caption("Giá quốc tế (vàng TG, Brent, DXY) đóng cửa SAU phiên VN ⇒ phiên t so với biến động yếu tố tới "
+               "ngày trước t; giá nội (vàng nhẫn, VCB) so cùng ngày. Quan hệ đo được là THỐNG KÊ quá khứ, "
+               "không phải dự báo; \"không thấy\" nghĩa là 60 phiên qua kênh này không nổi lên trên nhịp thị trường.")
+

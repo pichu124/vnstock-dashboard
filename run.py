@@ -729,6 +729,7 @@ def cmd_test(args) -> int:
             "tests/test_assets_sources.py",   # nguồn Python của kho tài sản (U82)
             "tests/test_assets_mcp.py",       # MCP Finhay/SSI cho kho tài sản (U82)
             "tests/test_assets_view.py",      # tab 🪙 Hàng hoá & Tiền tệ: số + render thử (U83)
+            "tests/test_assets_links.py",     # P4 độ nhạy cổ phiếu ↔ vàng/dầu/USD (U85)
             "tests/test_claude_steps.py",
             "tests/test_macro.py",
             "tests/test_news_feeds.py",
