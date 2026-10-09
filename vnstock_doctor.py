@@ -1010,6 +1010,77 @@ def check_horizons(now: "datetime | None" = None) -> dict:
                    f"{head}, gấp lại khớp {v['live']}/{v['live']}", "")
 
 
+def _age_h(iso: "str | None", now: datetime) -> "float | None":
+    try:
+        return (now - datetime.fromisoformat(str(iso))).total_seconds() / 3600
+    except Exception:                                              # noqa: BLE001
+        return None
+
+
+def check_assets(now: "datetime | None" = None) -> dict:
+    """Kho đa tài sản vàng · dầu · USD (U82, `docs/THIET-KE-DA-TAI-SAN.md`): lượt Python mỗi
+    giờ (ghép task News Alert) có chạy không; chuỗi hiện màn chính có số TRONG NGÀY không (chuẩn
+    user 09/10 — thị trường nghỉ cuối tuần được 3 ngày); lượt MCP trong ~1 ngày; cờ lệch nguồn
+    24 giờ. Brief CHƯA đọc kho này ⇒ chỉ warn, không bao giờ error."""
+    name = "Kho tài sản (vàng · dầu · USD)"
+    if os.environ.get("VNSTOCK_ASSETS", "1").strip().lower() in _OFF_VALUES:
+        return _result("assets", name, "off", "tắt (VNSTOCK_ASSETS=0)", "")
+    try:
+        import vnstock_assets as va
+    except Exception as e:                                         # noqa: BLE001
+        return _result("assets", name, "warn", f"không import được ({type(e).__name__}: {e})", "")
+    now = now or datetime.now()
+    st = va.read_status(_META)
+    if not st.get("python"):
+        return _result("assets", name, "warn", "chưa có lượt nào (P1 vừa merge?)",
+                       "🖥️ DESKTOP, ngoài khung pipeline 18:00 → '⏱ TỔNG': "
+                       "python run.py assets --backfill --with-mcp")
+    issues, fixes = [], []
+    py_age = _age_h(st["python"].get("run_at"), now)
+    if py_age is None or py_age > 3:
+        issues.append(f"lượt Python cuối cách đây {py_age:.0f} giờ" if py_age is not None
+                      else "không đọc được giờ lượt Python")
+        fixes.append("🖥️ DESKTOP: Get-ScheduledTaskInfo -TaskName 'VnStock News Alert' "
+                     "(lượt mỗi giờ đi kèm task tin) · chạy tay ○ python run.py assets")
+    base = _META.parent / "assets"
+    shown = [k for k, sp in va.REGISTRY.items() if sp.display == "show"]
+    stale = []
+    for key in shown:
+        try:
+            lt = va.latest(key, base=base)
+        except Exception:                                          # noqa: BLE001
+            lt = None
+        if not lt:
+            stale.append(f"{key} trống")
+            continue
+        lag = (now.date() - date.fromisoformat(str(lt["date"]))).days
+        if lag > (1 if va.REGISTRY[key].weekends else 3):
+            stale.append(f"{key} {lag}d")
+    if stale:
+        issues.append(f"chuỗi chưa có số trong ngày: {', '.join(stale[:6])}"
+                      + (f" (+{len(stale) - 6})" if len(stale) > 6 else ""))
+        fixes.append("○ python run.py assets --show (dòng ❌ cuối in lỗi từng nguồn)")
+    mcp = st.get("mcp") or {}
+    mcp_age = _age_h(mcp.get("run_at"), now)
+    if mcp_age is None or mcp_age > 30 or mcp.get("status") == "error":
+        issues.append("MCP Finhay/SSI " + ("chưa chạy" if mcp_age is None else
+                      f"lượt cuối {mcp_age:.0f} giờ trước · {mcp.get('status')}"))
+        fixes.append("🖥️ DESKTOP: python run.py assets --mcp (cần Claude Code đăng nhập dưới tài khoản task)")
+    since = (now - timedelta(hours=24)).isoformat(timespec="seconds")
+    flags = [f for f in st.get("xcheck") or [] if str(f.get("at", "")) >= since]
+    if flags:
+        f = flags[-1]
+        issues.append(f"{len(flags)} cờ lệch nguồn 24h (gần nhất {f.get('key')} {f.get('date')} "
+                      f"{f.get('kind')} {f.get('dev_pct', '')}%)")
+        fixes.append("○ python run.py assets --show — lệch kéo dài ⇒ nguồn đổi công cụ, báo Claude")
+    usd = (st.get("estimates") or {}).get("USD_BROAD_EST") or {}
+    head = (f"{len(shown) - len(stale)}/{len(shown)} chuỗi trong ngày · MCP {mcp.get('status') or '—'}"
+            + (f" · USD rộng ước tính {usd['value']:,.2f} ±{usd['band_pct']}%" if usd.get("value") else ""))
+    if issues:
+        return _result("assets", name, "warn", "; ".join(issues) + f" · {head}", " · ".join(fixes))
+    return _result("assets", name, "ok", head, "")
+
+
 def check_telegram() -> dict:
     name = "Telegram push"
     tok = bool((os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip())
@@ -1190,14 +1261,14 @@ def net_rss_feeds() -> dict:
 
 
 def net_fx() -> dict:
-    """API tỷ giá free (er-api → exchangerate.host)."""
+    """API tỷ giá free (er-api → currency-api)."""
     name = "FX USD/VND (mạng)"
     from vnstock_macro import fetch_usdvnd
     v = fetch_usdvnd()
     if v:
         return _result("net_fx", name, "ok", f"fetch OK: {v:,.0f} VND")
     return _result("net_fx", name, "error", "không fetch được tỷ giá",
-                   "kiểm tra mạng/allowlist (open.er-api.com, exchangerate.host); "
+                   "kiểm tra mạng/allowlist (open.er-api.com, cdn.jsdelivr.net); "
                    "cache cũ vẫn được giữ")
 
 
@@ -1720,7 +1791,7 @@ OFFLINE_CHECKS = [
     check_warehouse, check_market_overview, check_gtgd_coverage,
     check_fundamentals, check_macro,
     check_pdf_tooling, check_market_news, check_ticker_news,
-    check_foreign_flow, check_events, check_reports, check_allocation, check_horizons,
+    check_foreign_flow, check_events, check_reports, check_allocation, check_horizons, check_assets,
     check_llm_keys, check_env_duplicates, check_llm_ledger, check_telegram, check_tests,
 ]
 def net_vn30_basket() -> dict:

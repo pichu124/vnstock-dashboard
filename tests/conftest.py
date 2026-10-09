@@ -149,3 +149,22 @@ def _mcp_enrich_to_tmp_anywhere(tmp_path, monkeypatch):
     `meta_dir` không được ghi đè bản chạy bóng thật (cùng bài học U17)."""
     import vnstock_mcp_enrich as _me
     monkeypatch.setattr(_me, "META_DIR", tmp_path / "_meta_mcp")
+
+
+@pytest.fixture(autouse=True)
+def _assets_hermetic_anywhere(tmp_path, monkeypatch):
+    """U82 (09/10): kho đa tài sản nằm trong KHO (Dropbox) ⇒ mọi test ghi/đọc ở tmp; mạng của
+    nguồn Python bị chặn (một chỗ `vnstock_assets_sources.HTTP`); khoá theo máy về tmp (không
+    giẫm lượt chạy thật trên desktop); móc mỗi giờ của `run.py news-alert` TẮT — test nào cần
+    thì tự bật + giả subprocess."""
+    import vnstock_assets as _va
+    import vnstock_assets_sources as _vas
+
+    def _blocked(*a, **k):
+        raise ConnectionError("test hermetic: nguồn tài sản không được ra mạng")
+    monkeypatch.setattr(_va, "ASSETS_DIR", tmp_path / "_assets")
+    monkeypatch.setattr(_va, "META_DIR", tmp_path / "_meta_assets")
+    monkeypatch.setattr(_va, "LOCK_DIR", tmp_path / "_lock_assets")
+    monkeypatch.setattr(_vas, "HTTP", _blocked)
+    monkeypatch.setattr(_vas, "fetch_mbk_central", lambda *a, **k: [])
+    monkeypatch.setenv("VNSTOCK_ASSETS_HOURLY", "0")

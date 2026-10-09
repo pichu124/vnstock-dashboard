@@ -67,7 +67,8 @@ _MAX_HISTORY = 60
 # good enough to track direction; override with --set for an exact bank rate.
 _FX_ENDPOINTS = (
     "https://open.er-api.com/v6/latest/USD",
-    "https://api.exchangerate.host/latest?base=USD&symbols=VND",
+    # exchangerate.host đã gỡ 09/10 (U82): dịch vụ đòi key, trả payload không có VND
+    # trên 🖥️ desktop (`scripts/probe_assets.py`).
     # Nấc 3 (2026-07-11, từ khảo sát public-apis — 2 nấc trên cũng nằm trong
     # chính danh mục đó): currency-api của fawazahmed0 — free, KHÔNG rate
     # limit, host CDN, payload {"usd": {"vnd": ...}} chữ thường.

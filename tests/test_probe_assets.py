@@ -153,13 +153,13 @@ def test_pipeline_gold_and_fx_endpoints_measured_one_by_one(monkeypatch):
     import vnstock_macro
     monkeypatch.setattr(vnstock_macro, "_FX_ENDPOINTS",        # conftest dọn về () — dựng lại 2 nấc
                         ("https://open.er-api.com/v6/latest/USD", "https://x.example/usd.json"))
-    http = _fake_http({"goldprice.org": (200, json.dumps({"items": [{"xauPrice": 4182.09}]})),
-                       "gold-api.com": (200, json.dumps({"price": 99999999})),
+    http = _fake_http({"gold-api.com": (200, json.dumps({"price": 4182.09})),
                        "er-api.com": (200, json.dumps({"rates": {"VND": 25881.5}}))})
     ctx = pa.Ctx(today=TODAY, http=http)
-    gold = pa.probe_gold_endpoints(ctx)
-    assert gold[0]["ok"] and gold[0]["value"] == 4182.09
-    assert not gold[1]["ok"] and "ngoài khoảng" in gold[1]["error"]
+    gold = pa.probe_gold_endpoints(ctx)                  # goldprice.org đã gỡ (403, U82)
+    assert len(gold) == 1 and gold[0]["ok"] and gold[0]["value"] == 4182.09
+    bad = pa.Ctx(today=TODAY, http=_fake_http({"gold-api.com": (200, json.dumps({"price": 99999999}))}))
+    assert "ngoài khoảng" in pa.probe_gold_endpoints(bad)[0]["error"]
     fx = pa.probe_fx_endpoints(ctx)
     assert fx[0]["ok"] and fx[0]["value"] == 25881.5 and sum(r["ok"] for r in fx) == 1
 

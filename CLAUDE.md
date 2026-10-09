@@ -190,13 +190,13 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   `vnstock_mcp_enrich.py` = CHẠY BÓNG: bước `mcp-enrich` SAU brief, TCBS overview (cp lưu hành vs
   niêm yết — tách cp thưởng vừa GDKHQ khỏi phát hành thêm) + 5 công bố, cho mã đang giữ + lệnh mở
   ⇒ `_meta/mcp_enrich.json`; brief CHƯA đọc. `run.py mcp-enrich --show`. Đo: `scripts/probe_mcp.py`.
-- **Đa tài sản vàng · dầu · USD** (U81, 09/10): thiết kế + quyết định user ở `docs/THIET-KE-DA-TAI-SAN.md`
-  (tab riêng, nguồn LAI MCP ngày + Python lịch sử, 5 đại lý vàng). P0 XONG 09/10 (`scripts/probe_assets.py`
-  🖥️ `--mcp`, §4b); bảng nguồn §4c CHỜ DUYỆT, P1 CHƯA code. Mỗi chuỗi kho = MỘT công cụ (giao ngay ≠ HĐTL:
-  Brent EIA 125 vs HĐTL 103). **Chuẩn user: số quốc tế + tin phải có TRONG NGÀY** — chuỗi chậm chỉ hiện
-  dạng ước tính có sai số đo (`scripts/probe_nowcast.py`, §4e: USD rộng ±0,3% ✓ · WTI giao ngay ≤3 phiên ·
-  Brent giao ngay KHÔNG hiện, thay bằng đường cong HĐTL Yahoo `.NYM`) hoặc không hiện.
-  Kho đích `data_warehouse/assets/` — KHÔNG vào registry vĩ mô.
+- **Đa tài sản vàng · dầu · USD** (U81 thiết kế · U82 P1 code, 09/10): `docs/THIET-KE-DA-TAI-SAN.md` (§4c
+  nguồn, §4e số đo, §9 P1). `vnstock_assets` (registry 24 chuỗi, kho `data_warehouse/assets/<KHOÁ>/<YYYY>.parquet`
+  — KHÔNG vào registry vĩ mô) + `_sources` (Python, mạng qua một chỗ `HTTP`) + `_mcp` (Finhay/SSI). Mỗi chuỗi =
+  MỘT công cụ (giao ngay ≠ HĐTL); lệch nguồn ⇒ cờ `xcheck`. **Chuẩn user: số quốc tế phải có TRONG NGÀY** ⇒
+  nguồn Python MỖI GIỜ qua task News Alert (`run.py news-alert` → `vnstock_assets.py --hourly`, trần 360s) +
+  MCP giờ `VNSTOCK_ASSETS_MCP_HOURS`; chuỗi chậm chỉ hiện qua `*_EST` (USD rộng ±0,3%, WTI giao ngay ≤3 phiên;
+  Brent giao ngay ẩn). Pipeline: `assets` sau gold, `assets-mcp` cuối. Doctor `assets`. P2 (tab 🪙) CHƯA làm.
 - `vnstock_corp_ratio` — đọc TỈ LỆ QUYỀN từ tiêu đề sự kiện (hàm thuần).
   `adjusts_price(title)` lọc sự kiện chỉ chốt danh sách DỰ HỌP (ĐHĐCĐ, lấy ý
   kiến bằng văn bản) — chúng KHÔNG đổi giá tham chiếu, gắn ⚠️ GDKHQ cho chúng
@@ -296,7 +296,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   (`VNSTOCK_BRIEF_AUTO_*`, `VNSTOCK_MACRO_*`, `VNSTOCK_BASIS_GUARD`,
   `VNSTOCK_OHLC_REPAIR`, `VNSTOCK_AUTOHEAL_BUDGET_S`, `VNSTOCK_VN30_DYNAMIC`,
   `VNSTOCK_WSS_HOT_TIER`, `VNSTOCK_BRIEF_WATCH`, `VNSTOCK_NEWS_ALERT`,
-  `VNSTOCK_FIXUNITS_FOOTER_PRUNE`, `VNSTOCK_NETBS_WORKERS`, `VNSTOCK_HORIZONS_STEP`, `VNSTOCK_REC_GDKHQ_HOLD`, `VNSTOCK_BRIEF_RISK_TODAY`, `VNSTOCK_BRIEF_FUND_PERIODS`, `VNSTOCK_MCP_ENRICH`, `VNSTOCK_LLM_ENGINE`
+  `VNSTOCK_FIXUNITS_FOOTER_PRUNE`, `VNSTOCK_NETBS_WORKERS`, `VNSTOCK_HORIZONS_STEP`, `VNSTOCK_REC_GDKHQ_HOLD`, `VNSTOCK_BRIEF_RISK_TODAY`, `VNSTOCK_BRIEF_FUND_PERIODS`, `VNSTOCK_MCP_ENRICH`, `VNSTOCK_ASSETS[_HOURLY|_MCP]`, `VNSTOCK_LLM_ENGINE`
   + `VNSTOCK_<BƯỚC>_ENGINE` + `VNSTOCK_CLAUDE_CLI_{EXE,MODEL,FALLBACK_MODEL,
   TIMEOUT_S,API_KEY,REPO_CONTEXT}`, `VNSTOCK_LLM_BREAKER`
   — cầu dao tài khoản LLM: provider 401/402/403 hôm nay + chưa call nào OK ⇒

@@ -213,7 +213,8 @@ def test_runpy_horizons_step_never_hard_fails_and_is_wired(monkeypatch):
     monkeypatch.setattr(runpy, "_run", lambda cmd: 2)
     assert runpy.cmd_horizons(SimpleNamespace()) == 1
     names = [n for n, _ in runpy._all_steps(SimpleNamespace())]
-    assert names.index("horizons") == names.index("gold") + 1
+    # U82 (09/10): bước `assets` (kho đa tài sản) chen giữa gold và horizons
+    assert names.index("gold") < names.index("assets") < names.index("horizons")
     assert names.index("horizons") < names.index("allocation") < names.index("brief")
     args = runpy.build_parser().parse_args(["horizons", "--backfill", "--days", "50"])
     assert args.backfill and args.days == 50 and runpy._DISPATCH["horizons"] is runpy.cmd_horizons

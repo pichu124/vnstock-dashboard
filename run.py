@@ -725,6 +725,9 @@ def cmd_test(args) -> int:
             "tests/test_mcp_enrich.py",       # connector TCBS cho mã giữ + lệnh mở, chạy bóng (U79)
             "tests/test_probe_assets.py",     # P0 đa tài sản: đo nguồn vàng/dầu/USD (U81)
             "tests/test_probe_nowcast.py",    # P0b: ước tính trong ngày cho chuỗi chậm (U81)
+            "tests/test_assets.py",           # kho đa tài sản vàng/dầu/USD (U82)
+            "tests/test_assets_sources.py",   # nguồn Python của kho tài sản (U82)
+            "tests/test_assets_mcp.py",       # MCP Finhay/SSI cho kho tài sản (U82)
             "tests/test_claude_steps.py",
             "tests/test_macro.py",
             "tests/test_news_feeds.py",
@@ -1040,6 +1043,55 @@ def cmd_mcp_enrich(args) -> int:
     return 1 if _run(cmd) != 0 else 0
 
 
+def cmd_assets(args) -> int:
+    """Kho đa tài sản vàng · dầu · USD (U82, `docs/THIET-KE-DA-TAI-SAN.md`).
+
+    Trong pipeline (sau gold): một lượt nguồn Python (FRED, Yahoo, gold-api, er-api, VCB, SJC,
+    vnstock_data) + ước tính trong ngày (USD rộng, WTI giao ngay ≤3 phiên). Nhịp CHÍNH là mỗi
+    giờ qua task News Alert (`_assets_hourly`); bước này là lưới khi task giờ không chạy.
+    Không bao giờ trả 2. Kill-switch: VNSTOCK_ASSETS=0. Tay: `run.py assets --show |
+    --backfill [--with-mcp] | --mcp`."""
+    cmd = [sys.executable, str(REPO_ROOT / "vnstock_assets.py")]
+    if getattr(args, "show", False):
+        cmd.append("--show")
+    elif getattr(args, "backfill", False):
+        cmd.append("--backfill")
+        if getattr(args, "with_mcp", False):
+            cmd.append("--with-mcp")
+        if getattr(args, "vcb_days", None):
+            cmd += ["--vcb-days", str(args.vcb_days)]
+    elif getattr(args, "mcp", False):
+        cmd.append("--mcp")
+    else:
+        cmd.append("--refresh")
+    return 1 if _run(cmd) != 0 else 0
+
+
+def cmd_assets_mcp(args) -> int:
+    """Lượt MCP Finhay/SSI cho kho tài sản — SAU brief, chỉ khi lượt MCP trước cũ hơn 6 giờ
+    (task mỗi giờ đã chạy MCP vào giờ đặt; đây là lưới khi máy tắt đúng giờ đó). Không
+    bao giờ trả 2. Kill-switch: VNSTOCK_ASSETS_MCP=0."""
+    return 1 if _run([sys.executable, str(REPO_ROOT / "vnstock_assets.py"),
+                      "--mcp-stale", str(ASSETS_MCP_STALE_H)]) != 0 else 0
+
+
+ASSETS_MCP_STALE_H = 6
+ASSETS_HOURLY_TIMEOUT_S = 360      # task News Alert có trần 15 phút — chừa chỗ cho tin
+
+
+def _assets_hourly() -> None:
+    """Kho tài sản MỖI GIỜ, ghép vào task News Alert (chuẩn user 09/10: số quốc tế phải có
+    trong ngày). Tiến trình con có trần riêng: lỗi/treo ở đây không đụng exit code của tin."""
+    for env in ("VNSTOCK_ASSETS", "VNSTOCK_ASSETS_HOURLY"):
+        if (os.environ.get(env) or "1").strip().lower() in _BRIEF_OFF:
+            return
+    try:
+        subprocess.run([sys.executable, str(REPO_ROOT / "vnstock_assets.py"), "--hourly"],
+                       cwd=str(REPO_ROOT), timeout=ASSETS_HOURLY_TIMEOUT_S, check=False)
+    except Exception as e:                                        # noqa: BLE001
+        print(f"[assets] ⚠ lượt mỗi giờ lỗi: {type(e).__name__}: {e}")
+
+
 def cmd_rates_weekly(args) -> int:
     """Đẩy tóm tắt tuần lãi suất & tiền tệ lên Telegram (render từ cache sẵn
     có — zero fetch). Cadence TUẦN (chạy tay / lịch riêng sau khi cả 3 nguồn
@@ -1267,13 +1319,16 @@ def cmd_news_alert(args) -> int:
         return _na.diag_url(args.diag_url)
     if getattr(args, "diag", False):
         return _na.diag_sources(_na.enabled_sources(only))
-    return _na.run(dry_run=getattr(args, "dry_run", False),
-                   force=getattr(args, "force", False),
-                   min_score=getattr(args, "min_score", None),
-                   window_h=getattr(args, "window_h", None),
-                   max_send=getattr(args, "max_send", None),
-                   engine=getattr(args, "engine", None),
-                   sources=_na.enabled_sources(only) if only else None)
+    rc = _na.run(dry_run=getattr(args, "dry_run", False),
+                 force=getattr(args, "force", False),
+                 min_score=getattr(args, "min_score", None),
+                 window_h=getattr(args, "window_h", None),
+                 max_send=getattr(args, "max_send", None),
+                 engine=getattr(args, "engine", None),
+                 sources=_na.enabled_sources(only) if only else None)
+    if not getattr(args, "dry_run", False) and not only:
+        _assets_hourly()                    # kho tài sản theo giờ (U82) — không đổi rc của tin
+    return rc
 
 
 def _weekend_steps(args) -> "list[tuple[str, list]]":
@@ -1631,6 +1686,7 @@ def _all_steps(args) -> "list[tuple[str, object]]":
         ("foreign-flow", cmd_foreign_flow),
         ("macro",        cmd_macro),
         ("gold",         cmd_gold),
+        ("assets",       cmd_assets),
         ("horizons",     cmd_horizons),
         ("allocation",   cmd_allocation),
         ("test",         cmd_test),
@@ -1641,6 +1697,7 @@ def _all_steps(args) -> "list[tuple[str, object]]":
         ("brief",        cmd_brief),
         # Chạy bóng U79 — SAU brief: lỗi/chậm ở đây không chạm brief.
         ("mcp-enrich",   cmd_mcp_enrich),
+        ("assets-mcp",   cmd_assets_mcp),
     ]
     # Insert news after screener unless the caller opts out
     if not getattr(args, "no_news", False):
@@ -2101,6 +2158,18 @@ def build_parser() -> argparse.ArgumentParser:
     hg.add_argument("--replay", action="store_true", help="kiểm F1/F2/revision")
     hp.add_argument("--force", action="store_true", help="ghi đè phiên đã có")
     hp.add_argument("--days", type=int, default=120, help="--backfill: số phiên chấm điểm")
+    ap_ = sub.add_parser("assets",
+                         help="Kho đa tài sản vàng · dầu · USD: lượt nguồn Python (mặc định) / "
+                              "--show / --backfill [--with-mcp] / --mcp")
+    ag = ap_.add_mutually_exclusive_group()
+    ag.add_argument("--show", action="store_true", help="in giá mới nhất + suy ra, không gọi mạng")
+    ag.add_argument("--backfill", action="store_true",
+                    help="MỘT LẦN 🖥️ ngoài giờ pipeline: nạp lịch sử dài")
+    ag.add_argument("--mcp", action="store_true", help="một lượt MCP Finhay/SSI ngay")
+    ap_.add_argument("--with-mcp", action="store_true", help="--backfill: thêm lịch sử Finhay")
+    ap_.add_argument("--vcb-days", type=int, default=None, help="--backfill: số ngày lịch VCB (730)")
+    sub.add_parser("assets-mcp",
+                   help=f"Lượt MCP kho tài sản nếu lượt trước cũ hơn {ASSETS_MCP_STALE_H} giờ (pipeline)")
     mp = sub.add_parser("mcp-enrich",
                         help="Connector MCP (TCBS) cho mã đang giữ + lệnh mở — chạy bóng "
                              "(cp chờ niêm yết, công bố) / --show")
@@ -2216,6 +2285,8 @@ _DISPATCH = {
     "gold": cmd_gold,
     "horizons": cmd_horizons,
     "mcp-enrich": cmd_mcp_enrich,
+    "assets": cmd_assets,
+    "assets-mcp": cmd_assets_mcp,
     "allocation": cmd_allocation,
     "reflection": cmd_reflection,
     "train": cmd_train,

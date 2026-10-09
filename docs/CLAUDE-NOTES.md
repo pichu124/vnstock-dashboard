@@ -6974,6 +6974,28 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🪙 U82. KHO ĐA TÀI SẢN — P1 CODE (09/10 tối)
+
+User duyệt P1 sau P0/P0b (U81). Chi tiết thiết kế đã làm: `docs/THIET-KE-DA-TAI-SAN.md` §9. Tóm:
+`vnstock_assets_sources` (parse thuần + fetch qua MỘT chỗ `HTTP` — conftest chặn) · `vnstock_assets`
+(registry 24 chuỗi; kho `assets/<KHOÁ>/<YYYY>.parquet` ghi nguyên tử, đọc gộp bản Dropbox trùng; `merge`:
+ngày ≥ hôm qua bản MỚI thắng, cũ hơn theo `Spec.sources`, lệch > `xtol_pct` ⇒ cờ `xcheck` ghi một lần;
+`*_EST`: USD rộng = Fed × chỉ số tự tính lệch pha +1 ±0,30%, WTI giao ngay ±1,64% chỉ ≤3 phiên; khoá theo
+máy ở thư mục tạm; `hourly` = Python + MCP theo giờ đặt; `backfill`) · `vnstock_assets_mcp` (16 tool/lượt,
+đại lý ×10.000 → đồng/lượng, SBVN ⇒ trung tâm (mua+bán)/2; backfill 12 lượt nhỏ ≤2 chuỗi để mỗi phiên
+`claude -p` không quá tải ngữ cảnh; `verify_sbvn` so với mbk). Nhịp: móc vào `cmd_news_alert` (tiến trình
+con trần 360s vì task tin trần 15′; không đổi rc tin; dry-run/lọc nguồn không móc) + bước `assets` sau gold
++ `assets-mcp` cuối pipeline (chỉ khi MCP trước >6 giờ). Doctor `check_assets` chỉ warn. Dọn: goldprice.org
+403 và exchangerate.host (hết VND) gỡ khỏi ladder; nhãn "premium SJC ~15-20%" (sai — đo 11%) thay bằng
+`vnstock_gold._premium_note` đọc kho. Test 40 mới (`test_assets*.py`) + sửa test ghim thứ tự bước
+(`test_run_pipeline`, `test_horizons_state`) và nguồn vàng (`test_gold`, `test_probe_assets`); conftest
+`_assets_hermetic_anywhere` (kho/meta/khoá về tmp, mạng chặn, mbk rỗng, `VNSTOCK_ASSETS_HOURLY=0`).
+Sandbox: `--fast` 35 đỏ = 34 đỏ sẵn (thiếu `vnstock`/`vnstock_data`) + 0 mới sau khi sửa 2 test ghim.
+**Lệch §4c:** lịch sử WTI từ Yahoo (không vnstock_data); chuỗi dẫn USD rộng là currency-api (~1 lần/ngày,
+~07:00 VN) — "trong ngày" chưa "trong giờ"; thử Yahoo FX sau ≥1 tuần số thật.
+**Chờ 🖥️:** merge → `run.py test --fast` → `run.py assets --backfill --with-mcp` NGOÀI khung pipeline →
+`run.py assets --show` + doctor, dán cho Claude (kết luận `verify_sbvn` quyết công thức trung tâm).
+
 # 🪙 U81. ĐA TÀI SẢN VÀNG · DẦU · USD — P0 ĐO NGUỒN (09/10)
 
 **User 09/10:** mở rộng dashboard sang tài sản khác, trước hết vàng/dầu/USD; lên kế hoạch, duyệt rồi mới

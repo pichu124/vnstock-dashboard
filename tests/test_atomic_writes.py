@@ -155,6 +155,8 @@ _MUST_BE_ATOMIC = [
      "sổ kỳ BCTC + sổ đã báo — mất là mất 'kỳ trước' (nguồn chỉ trả kỳ hiện tại)"),
     ("vnstock_mcp_enrich.py",
      "bản chạy bóng connector MCP (U79) — đọc cụt là mất một phiên đối chiếu"),
+    ("vnstock_assets.py",
+     "kho đa tài sản (U82) — ghi MỖI GIỜ, cụt là mất nguyên năm của một chuỗi"),
     # Mở rộng 19/08 sau khi pipeline bị kill lần thứ hai. Chọn theo HẬU QUẢ
     # của một bản cụt, không theo "file nào cũng nên nguyên tử":
     ("vnstock_fix_units.py", "ghi ĐÈ prices.parquet canonical, chạy MỖI ĐÊM "

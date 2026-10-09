@@ -9,14 +9,16 @@ không có SỐ (mục để-dành 1c). Module này lấp đúng chỗ đó:
   (cap đã chốt; tầng SỐ ĐO của macro ≠ ngữ cảnh hiển thị). Nơi dùng:
   sub-tab Phân bổ (P5) + proxy return lớp Vàng cho scorecard (P6).
 * **Nhãn bắt buộc**: đây là SPOT QUỐC TẾ (USD/oz) — giá SJC trong nước
-  thường cao hơn ~15-20% (premium), TUYỆT ĐỐI không trình bày như giá vàng
-  trong nước.
+  cao hơn (premium; đo 09/10/2026 ~11%, KHÔNG ghi cứng — `_premium_note`
+  đọc kho tài sản U82), TUYỆT ĐỐI không trình bày như giá vàng trong nước.
 * Fetch best-effort mirror FX ladder của vnstock_macro: thử lần lượt các
   endpoint free-không-key, sanity range, fail → GIỮ cache cũ, KHÔNG bịa.
   Sandbox/web session bị allowlist chặn → --diag luôn FAIL ở đây, verify
   trên máy có mạng. (Ghi chú khảo sát 1c nêu "Goldprice.dev"; API cụ thể
-  chưa xác minh được nên ladder dùng 2 endpoint đã biết shape:
-  goldprice.org dbXRates + gold-api.com — chỉnh ở ``_ENDPOINTS`` nếu chết.)
+  chưa xác minh được nên ladder dùng endpoint đã biết shape: gold-api.com —
+  chỉnh ở ``_ENDPOINTS`` nếu chết. goldprice.org dbXRates trả 403 trên 🖥️ desktop
+  09/10 (`scripts/probe_assets.py`) ⇒ đã gỡ. Kho đa tài sản `vnstock_assets` (U82)
+  giữ vàng giao ngay đủ nến ngày; module này giữ nguyên cho Phân bổ/scorecard.)
 
 Cache: ``data_warehouse/_meta/gold_price.json`` — {history: {date: usd_oz}}.
 CLI: ``--refresh`` / ``--show`` / ``--diag``. Tắt trong pipeline:
@@ -36,12 +38,10 @@ _CACHE = _REPO / "data_warehouse" / "_meta" / "gold_price.json"
 
 _MAX_HISTORY = 400
 _RANGE = (500.0, 20000.0)          # USD/oz sanity
-_SJC_PREMIUM_NOTE = "spot quốc tế, CHƯA gồm premium SJC (~15-20%)"
+_SJC_PREMIUM_NOTE = "spot quốc tế, CHƯA gồm premium SJC"
 
 # (url, parser) — parser nhận dict JSON, trả USD/oz hoặc None. Thử theo thứ tự.
 _ENDPOINTS = (
-    ("https://data-asg.goldprice.org/dbXRates/USD",
-     lambda d: (d.get("items") or [{}])[0].get("xauPrice")),
     ("https://api.gold-api.com/price/XAU",
      lambda d: d.get("price")),
 )
@@ -91,6 +91,19 @@ def _write_cache(cache: dict) -> None:
     os.replace(tmp, _CACHE)
 
 
+def _premium_note() -> str:
+    """Nhãn kèm số chênh SJC ĐO được từ kho tài sản (U82); kho trống ⇒ nhãn không số —
+    nhãn cũ ghi cứng "~15-20%" sai khi đo 09/10 chỉ còn ~11%."""
+    try:
+        import vnstock_assets
+        p = vnstock_assets.sjc_premium_pct()
+    except Exception:                                          # noqa: BLE001
+        p = None
+    if not p:
+        return _SJC_PREMIUM_NOTE
+    return f"{_SJC_PREMIUM_NOTE} (SJC miếng đắt hơn {p['pct']:+.1f}% ngày {p['date']})"
+
+
 def refresh() -> "float | None":
     """Fetch + ghi reading hôm nay vào history. Fail → giữ cache cũ nguyên
     vẹn, trả None (mirror triết lý FX của vnstock_macro)."""
@@ -108,7 +121,7 @@ def refresh() -> "float | None":
         for k in sorted(hist)[:len(hist) - _MAX_HISTORY]:
             hist.pop(k)
     _write_cache(cache)
-    print(f"[gold] ✅ {v:,.2f} USD/oz ({_SJC_PREMIUM_NOTE})")
+    print(f"[gold] ✅ {v:,.2f} USD/oz ({_premium_note()})")
     return v
 
 
@@ -121,7 +134,7 @@ def load_gold() -> "dict | None":
     dates = sorted(hist)
     as_of = dates[-1]
     value = float(hist[as_of])
-    out = {"value": value, "as_of": as_of, "note": _SJC_PREMIUM_NOTE,
+    out = {"value": value, "as_of": as_of, "note": _premium_note(),
            "change": None}
     if len(dates) >= 2:
         prev = float(hist[dates[-2]])

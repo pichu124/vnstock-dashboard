@@ -12,8 +12,8 @@ import run as runpy
 def test_all_steps_default_full_chain():
     names = [n for n, _ in runpy._all_steps(SimpleNamespace())]
     assert names[:3] == ["sync", "validate", "screener"]
-    # mcp-enrich (U79, chạy bóng) đứng SAU brief — không bao giờ làm chậm brief
-    assert "news" in names and names[-3:] == ["doctor", "brief", "mcp-enrich"]
+    # mcp-enrich (U79, chạy bóng) + assets-mcp (U82) đứng SAU brief — không làm chậm brief
+    assert "news" in names and names[-4:] == ["doctor", "brief", "mcp-enrich", "assets-mcp"]
 
 
 def test_all_steps_no_sync_drops_sync_and_validate_only():
@@ -21,9 +21,9 @@ def test_all_steps_no_sync_drops_sync_and_validate_only():
     assert "sync" not in names and "validate" not in names
     # phần còn lại giữ NGUYÊN thứ tự pipeline đêm (train SAU audit — rec vừa
     # đóng thì strategy health mới có số; TRƯỚC reflection)
-    assert names == ["screener", "news", "foreign-flow", "macro", "gold",
+    assert names == ["screener", "news", "foreign-flow", "macro", "gold", "assets",
                      "horizons", "allocation", "test", "audit", "train",
-                     "reflection", "doctor", "brief", "mcp-enrich"]
+                     "reflection", "doctor", "brief", "mcp-enrich", "assets-mcp"]
 
 
 def test_all_steps_no_sync_no_news():
@@ -62,7 +62,7 @@ def test_dashboard_button_wired_to_no_sync():
 
 def test_all_steps_no_brief_drops_brief_only():
     names = [n for n, _ in runpy._all_steps(SimpleNamespace(no_brief=True))]
-    assert "brief" not in names and names[-2:] == ["doctor", "mcp-enrich"]
+    assert "brief" not in names and names[-3:] == ["doctor", "mcp-enrich", "assets-mcp"]
 
 
 def test_parser_accepts_no_brief_and_brief_subcommand():
@@ -810,7 +810,7 @@ def test_mcp_enrich_step_after_brief_never_hard_fails(monkeypatch):
     assert runpy.cmd_mcp_enrich(SimpleNamespace(show=True, tickers=["SHB"])) == 1
     assert "--show" in seen[-1] and seen[-1][-2:] == ["--tickers", "SHB"]
     names = [n for n, _ in runpy._all_steps(SimpleNamespace(no_brief=True))]
-    assert names[-1] == "mcp-enrich"
+    assert names[-2:] == ["mcp-enrich", "assets-mcp"]
     args = runpy.build_parser().parse_args(["mcp-enrich", "--dry-run", "--tickers", "SHB", "GMD"])
     assert args.dry_run and args.tickers == ["SHB", "GMD"]
     assert runpy._DISPATCH["mcp-enrich"] is runpy.cmd_mcp_enrich

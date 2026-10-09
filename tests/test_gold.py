@@ -38,18 +38,17 @@ def _fake_requests(monkeypatch, payloads):
     monkeypatch.setitem(sys.modules, "requests", mod)
 
 
-def test_fetch_parses_both_endpoint_shapes(monkeypatch):
-    _fake_requests(monkeypatch, {"goldprice.org": {"items": [{"xauPrice": 3352.4}]}})
-    assert gold.fetch_gold_usd() == 3352.4
-    # nguồn 1 chết → nguồn 2 (shape khác)
-    _fake_requests(monkeypatch, {"goldprice.org": RuntimeError("down"),
-                                 "gold-api.com": {"price": 3300.15}})
+def test_fetch_parses_gold_api_shape(monkeypatch):
+    # goldprice.org gỡ 09/10 (403 trên 🖥️ desktop, U82) — chỉ còn gold-api.com
+    assert not any("goldprice" in url for url, _ in gold._ENDPOINTS)
+    _fake_requests(monkeypatch, {"gold-api.com": {"price": 3300.15}})
     assert gold.fetch_gold_usd() == 3300.15
+    _fake_requests(monkeypatch, {"gold-api.com": RuntimeError("down")})
+    assert gold.fetch_gold_usd() is None
 
 
 def test_fetch_rejects_out_of_range_and_all_dead(monkeypatch):
-    _fake_requests(monkeypatch, {"goldprice.org": {"items": [{"xauPrice": 5}]},
-                                 "gold-api.com": {"price": 999999}})
+    _fake_requests(monkeypatch, {"gold-api.com": {"price": 999999}})
     assert gold.fetch_gold_usd() is None
     _fake_requests(monkeypatch, {})
     assert gold.fetch_gold_usd() is None

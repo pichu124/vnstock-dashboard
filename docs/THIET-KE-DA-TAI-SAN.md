@@ -2,7 +2,8 @@
 
 > **Trạng thái 09/10/2026 tối: P0 + P0b XONG trên 🖥️ desktop** (`probe_assets.py --mcp` 19:51 §4b ·
 > `probe_nowcast.py` 20:20 §4e). User thêm CHUẨN ĐỘ TƯƠI (§4d): số quốc tế + tin phải có TRONG NGÀY.
-> Bảng nguồn §4c đã chỉnh theo P0b — **CHỜ USER DUYỆT P1**, P1 CHƯA code.**
+> Bảng nguồn §4c đã chỉnh theo P0b. **User duyệt P1 09/10 tối ⇒ P1 CODE XONG (§9, CLAUDE-NOTES U82)** —
+> chờ 🖥️ desktop merge + `run.py assets --backfill --with-mcp`. P2 (tab 🪙) chưa làm.**
 >
 > **User chốt 09/10:**
 > 1. Giao diện: **tab riêng** "🪙 Hàng hoá & Tiền tệ".
@@ -259,3 +260,47 @@ trung tâm) và "Kết luận theo tài sản" (nguồn TƯƠI nhất + SÂU nh�
 - Finhay lịch sử có ngày nghỉ đứng giá (01–03/09) — P1 phải lọc theo lịch giao dịch của từng thị trường.
 - Đơn vị giá đại lý (nghìn đ/chỉ) đo trên 2 mốc; P1 thêm sanity theo chênh với thế giới (vd ngoài
   −5%…+40% ⇒ nghi đơn vị, cách ly điểm đó).
+
+## 9. P1 — đã làm (09/10 tối, CLAUDE-NOTES U82)
+
+**Module:** `vnstock_assets_sources.py` (parser + fetch Python, mạng qua MỘT chỗ `HTTP`) ·
+`vnstock_assets.py` (registry 24 chuỗi, kho, luật gộp, ước tính, trạng thái, mỗi giờ, backfill, CLI) ·
+`vnstock_assets_mcp.py` (Finhay/SSI qua `complete_mcp`, lượt ngày 16 tool, backfill theo lượt nhỏ, kiểm SBVN).
+
+**Kho:** `data_warehouse/assets/<KHOÁ>/<YYYY>.parquet`, cột `date open high low close bid ask contract
+source fetched_at meta`; ghi nguyên tử (`write_table_atomic`), đọc gộp cả bản "(conflicted copy)" giữ bản
+lấy mới nhất, ghi xong xoá bản trùng của năm. Vàng nội lưu ĐỒNG/lượng (Finhay × 10.000, SJC trực tiếp
+× 1.000), `close` = giá BÁN.
+
+**Luật gộp** (`merge`): ngày ≥ hôm qua ⇒ bản lấy MỚI hơn thắng (giá trong ngày); cũ hơn ⇒ theo thứ tự
+`Spec.sources`. Hai nguồn khác nhau lệch > `xtol_pct` (dòng gần đây: chỉ khi lấy cách nhau ≤3 giờ) ⇒ cờ
+`xcheck` trong `_meta/assets_status.json` (ghi một lần mỗi chỗ lệch). Ngoài khoảng sanity ⇒ cờ, không ghi.
+Thị trường nghỉ cuối tuần (mọi thứ trừ vàng nội) ⇒ bỏ dòng T7/CN (Finhay forex có nến đứng giá).
+
+**Ước tính trong ngày** (`refresh_estimates`, ghi chuỗi `*_EST` source `est`, meta có neo/h/dải):
+`USD_BROAD_EST` = số Fed gần nhất × chỉ số tự tính (trọng số Fed cache 7 ngày `_meta/assets_fed_weights.json`
+× tỷ giá theo ngày cache `_meta/assets_fx_days.json`), lệch pha +1, dải ±0,30%; `WTI_SPOT_EST` = EIA ×
+biến động WTI HĐTL, dải ±1,64%, CHỈ khi ≤3 phiên kể từ số EIA (quá ⇒ ẩn, ghi lý do). Brent giao ngay
+không ước tính (`display="hide"`).
+
+**Nhịp:** `run.py news-alert` (task mỗi giờ 24/7 🖥️) gọi `vnstock_assets.py --hourly` trong tiến trình con
+trần 360s (task tin có trần 15′) — exit code của tin không đổi; dry-run/lọc nguồn không móc. MCP vào giờ
+`VNSTOCK_ASSETS_MCP_HOURS` (mặc định 9,11,14,16,20 giờ VN). Pipeline đêm: bước `assets` (sau gold) +
+`assets-mcp` (cuối, chỉ khi lượt MCP trước cũ hơn 6 giờ). Khoá THEO MÁY (thư mục tạm) chặn hai tiến trình
+cùng ghi; MCP gọi `claude -p` KHÔNG giữ khoá, chỉ khoá lúc ghi. Kill-switch: `VNSTOCK_ASSETS` ·
+`VNSTOCK_ASSETS_HOURLY` · `VNSTOCK_ASSETS_MCP`.
+
+**Doctor `assets`** (chỉ warn): lượt Python >3 giờ · chuỗi hiện màn chính không có số trong ngày (vàng nội
+>1 ngày, còn lại >3 ngày cho cuối tuần) · MCP >30 giờ/lỗi · cờ lệch nguồn 24 giờ.
+
+**Dọn kèm:** gỡ goldprice.org (403) khỏi `vnstock_gold._ENDPOINTS`, exchangerate.host (hết VND) khỏi
+`vnstock_macro._FX_ENDPOINTS`; nhãn "premium SJC ~15-20%" thay bằng số đo từ kho (`_premium_note`).
+
+**Lệch so với §4c (có lý do):** lịch sử WTI lấy Yahoo CL=F thay vì `vnstock_data.oil_crude` (cùng công
+cụ, bớt một phụ thuộc; vnstock_data giữ cho tỷ giá trung tâm mbk). Chỉ số USD tự tính dùng currency-api
+— nguồn này cập nhật ~1 lần/ngày (~07:00 VN) nên ước tính "trong ngày" chứ chưa "trong giờ"; thử tỷ giá
+Yahoo làm chuỗi dẫn để lại sau khi có ≥1 tuần số thật.
+
+**Lệnh:** `run.py assets` (lượt Python) · `--show` · `--backfill [--with-mcp] [--vcb-days N]` · `--mcp` ·
+`run.py assets-mcp`. Test: `tests/test_assets.py` (19) · `test_assets_sources.py` (12) ·
+`test_assets_mcp.py` (9), whitelist `--fast`; conftest đưa kho/meta/khoá về tmp, chặn mạng, tắt móc giờ.
