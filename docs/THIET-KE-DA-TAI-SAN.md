@@ -385,3 +385,39 @@ số đúng, giữa giá tham khảo SBVN = trung tâm phiên TRƯỚC 4/5 phiê
 **Còn lại (không lỗi):** doctor "MCP Finhay/SSI chưa chạy" — lượt MCP ngày chưa từng chạy (giờ đặt 9, 11,
 14, 16, 20; bước pipeline `assets-mcp`); chạy tay một lần `run.py assets --mcp`. VCB ReadTimeout 15s một
 lượt — lượt giờ sau tự thử lại. `--backfill --steps fred,yahoo,vcb,mbk,gold-cache,fx` chạy riêng từng bước.
+
+## 10. P2 — tab "🪙 Hàng hoá & Tiền tệ" (10/10, CLAUDE-NOTES U83)
+
+**File:** `vnstock_assets_view.py` (số THUẦN, đọc kho, không mạng/Streamlit — test được) · `dashboard/assets_tab.py`
+(chỉ vẽ) · nối `_TAB_OPTIONS` + nhánh `if _active_tab == "🪙 Hàng hoá & Tiền tệ"` trong `vnstock_dashboard.py`.
+
+**Bố cục:** dòng trạng thái (giờ lượt Python/MCP, máy) · chọn khung 3 tháng…tất cả · 3 thẻ `st.tabs` (render đủ
+cả 3 mỗi lượt — dữ liệu nhỏ, test chạm được hết):
+- 🥇 Vàng — ô XAU · SJC miếng · SJC nhẫn · chênh SJC vs TG (điểm % so 1 tuần); bảng 10 sản phẩm 5 đại lý (mua,
+  bán, chênh mua–bán %, so SJC miếng, chênh vs TG %, sản phẩm chưa có giá hôm nay ⇒ ⚠️); biểu đồ SJC bán vs
+  vàng TG quy đổi (đồng/lượng), biểu đồ chênh % RIÊNG (không hai trục), XAU USD/oz.
+- 🛢️ Dầu — ô Brent/WTI HĐTL M1 · WTI giao ngay ước tính (± dải, neo EIA, số phiên — hoặc LÝ DO ẨN) · Brent−WTI;
+  đường cong theo tháng đáo hạn (nét liền = mới nhất, nét chấm = ~1 tuần trước) + M1−M2/M1−M6 ⇒ backwardation/
+  contango; M1 hai chuỗi; chênh Brent−WTI; expander giá giao ngay EIA + vì sao Brent giao ngay ẩn.
+- 💵 USD — ô DXY · USD rộng ước tính · USD/VND thị trường · VCB bán · trung tâm · giá bán tham khảo NHNN · dư địa
+  tới trần; biểu đồ biên ±5% (VCB bán, giá tham khảo, trung tâm + TRẦN là đường tham chiếu xám nét đứt); DXY;
+  USD rộng Fed + ước tính; dòng kiểm ngày tỷ giá trung tâm.
+
+**Quy ước số:** % đổi theo NGÀY LỊCH (1 phiên = điểm liền trước · 1 tuần = điểm gần nhất ≤ cuối − 7 ngày · 1
+tháng ≤ −30 · YTD ≤ 31/12 năm trước) vì vàng nội có giá cuối tuần còn dầu/USD thì không; thiếu lịch sử ⇒ "—",
+không bịa. Cũ: > 1 ngày (vàng nội) / > 3 ngày (còn lại) ⇒ "⚠️ cũ N ngày". Vàng TG quy đổi ghép ngày gần nhất
+≤ ngày vàng nội, lệch tối đa 4 ngày (T7/CN dùng số thứ Sáu). VND không phần lẻ.
+
+**Biểu đồ (skill dataviz):** một trục y; đường 2px; ≥2 chuỗi có chú thích; màu theo THỰC THỂ (Brent luôn xanh,
+WTI luôn cam) từ 3 ô đầu bảng màu đã kiểm mù màu (`#3987e5` · `#d95926` · `#199e70`); chuỗi < 3 điểm vẽ thêm
+chấm; trục ngày `dd/mm/yy`. Đã render thật trên Streamlit + chụp Chromium (kho mẫu) — sửa 4 chỗ: `$` trong
+caption bị Streamlit đọc thành công thức (nay ghi "USD", test chặn ký tự `$`), xuống dòng caption cần "  \n",
+trục ngày tiếng Anh, chuỗi 1 điểm vô hình.
+
+**Test:** `tests/test_assets_view.py` (11, whitelist `--fast`): % đổi theo lịch, cũ theo lịch thị trường,
+chênh SJC cuối tuần, bảng đại lý, ảnh đường cong, biên tỷ giá, render đủ 3 mục không nhánh lỗi (≥9 biểu đồ, lý
+do ẩn WTI hiện ra), kho trống ⇒ hướng dẫn nạp, tab có trong điều hướng, không `$`.
+
+**Chưa làm (pha sau):** P3 (MCP làm nguồn chính sau 5 phiên chạy bóng) · P4 thẻ "Liên kết cổ phiếu" (tương
+quan/beta 60 phiên) · P5 brief/Telegram/Phân bổ (duyệt riêng).
+

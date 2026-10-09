@@ -3709,7 +3709,8 @@ with st.sidebar:
 sys.modules["vnstock_dashboard"] = sys.modules["__main__"]
 
 # ── NAVIGATION (dùng pills thay tabs để tránh lazy-render) ────────────────────
-_TAB_OPTIONS = ["📊 Screener", "🔬 Phân tích", "🌏 Thị trường", "🗞️ Tin tức", "💰 Dòng Tiền", "💼 Portfolio", "⚕️ Sức khỏe"]
+_TAB_OPTIONS = ["📊 Screener", "🔬 Phân tích", "🌏 Thị trường", "🗞️ Tin tức", "💰 Dòng Tiền",
+                "🪙 Hàng hoá & Tiền tệ", "💼 Portfolio", "⚕️ Sức khỏe"]
 _active_tab = st.pills("", _TAB_OPTIONS, default="📊 Screener", key="nav_tab")
 
 # ══════════════════════════════════════════════════════
@@ -3777,6 +3778,17 @@ if _active_tab == "💰 Dòng Tiền":
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB: Portfolio
 # ══════════════════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB: HÀNG HOÁ & TIỀN TỆ (vàng · dầu · USD — chỉ đọc kho data_warehouse/assets, U83)
+# ══════════════════════════════════════════════════════════════════════════════
+if _active_tab == "🪙 Hàng hoá & Tiền tệ":
+    try:
+        from dashboard.assets_tab import render_assets_tab
+        render_assets_tab()
+    except Exception as _e:
+        st.error(f"Không render được tab Hàng hoá & Tiền tệ: {_e}")
+        st.caption("Kiểm tra `dashboard/assets_tab.py`, `vnstock_assets_view.py` và kho `data_warehouse/assets/`.")
 
 if _active_tab == "🗞️ Tin tức":
     try:

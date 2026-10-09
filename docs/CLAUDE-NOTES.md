@@ -6974,6 +6974,16 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🪙 U83. TAB "🪙 HÀNG HOÁ & TIỀN TỆ" — P2 (10/10)
+
+P1 chốt trên 🖥️ (U82 vòng 4) ⇒ làm P2 theo kế hoạch đã duyệt (thiết kế §6, chi tiết §10). `vnstock_assets_view`
+(số thuần: `changes` theo NGÀY LỊCH, `card`, `premium_frame`, `dealer_table`, `curve_snapshots`,
+`spread_series`, `usd_band_frame`, `estimate`, `run_info`) + `dashboard/assets_tab.py` (chỉ vẽ: Vàng · Dầu · USD
+bằng `st.tabs`, mỗi mục tự bắt lỗi ⇒ `st.warning`) + nối `_TAB_OPTIONS`. Biểu đồ theo skill dataviz (một trục,
+màu theo thực thể, tham chiếu xám nét đứt). Render thật bằng Streamlit + Chromium trên kho mẫu ⇒ bắt 4 lỗi
+chỉ mắt thấy: `$` trong caption thành công thức toán, caption không xuống dòng ("  \n"), trục ngày tiếng Anh,
+chuỗi 1 điểm vô hình. Test `tests/test_assets_view.py` 11 (whitelist). Chờ user ○ mở tab thật.
+
 # 🪙 U82. KHO ĐA TÀI SẢN — P1 CODE (09/10 tối)
 
 User duyệt P1 sau P0/P0b (U81). Chi tiết thiết kế đã làm: `docs/THIET-KE-DA-TAI-SAN.md` §9. Tóm:

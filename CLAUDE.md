@@ -196,7 +196,8 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   MỘT công cụ (giao ngay ≠ HĐTL); lệch nguồn ⇒ cờ `xcheck`. **Chuẩn user: số quốc tế phải có TRONG NGÀY** ⇒
   nguồn Python MỖI GIỜ qua task News Alert (`run.py news-alert` → `vnstock_assets.py --hourly`, trần 360s) +
   MCP giờ `VNSTOCK_ASSETS_MCP_HOURS`; chuỗi chậm chỉ hiện qua `*_EST` (USD rộng ±0,3%, WTI giao ngay ≤3 phiên;
-  Brent giao ngay ẩn). Pipeline: `assets` sau gold, `assets-mcp` cuối. Doctor `assets`. P2 (tab 🪙) CHƯA làm.
+  Brent giao ngay ẩn). Pipeline: `assets` sau gold, `assets-mcp` cuối. Doctor `assets`. Tab 🪙 (P2, U83):
+  `dashboard/assets_tab.py` chỉ vẽ, số ở `vnstock_assets_view` (thuần; % đổi theo NGÀY LỊCH); không `$` trong caption.
   ⚠️ SSI "SBVN" = giá tham khảo Cục QLNH (`USD_SBV_REF`), KHÔNG phải trung tâm; mbk ghi trung tâm LÙI 1 phiên
   ⇒ `shift_mbk_dates` dời (đo 10/10, §9c) — `--show`/doctor kiểm lại ngày từ kho mỗi lần.
 - `vnstock_corp_ratio` — đọc TỈ LỆ QUYỀN từ tiêu đề sự kiện (hàm thuần).

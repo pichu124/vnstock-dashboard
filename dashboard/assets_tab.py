@@ -1,0 +1,290 @@
+"""dashboard/assets_tab.py — tab "🪙 Hàng hoá & Tiền tệ" (P2 đa tài sản, U83).
+
+CHỈ ĐỌC kho `data_warehouse/assets` (P1, `docs/THIET-KE-DA-TAI-SAN.md` §9): số do task tin mỗi giờ
+(🖥️ desktop) + MCP Finhay/SSI ghi; tab không gọi mạng, không gọi LLM. Số tính ở
+`vnstock_assets_view` (thuần, có test) — file này chỉ vẽ.
+
+Quy ước biểu đồ: một trục y (chênh % tách biểu đồ riêng khỏi giá), đường 2px, ≥2 chuỗi thì có chú
+thích, màu theo THỰC THỂ (Brent luôn xanh, WTI luôn cam…) lấy 3 ô đầu bảng màu đã kiểm mù màu;
+đường trần/sàn tỷ giá là đường THAM CHIẾU xám nét đứt, không phải một chuỗi.
+"""
+from __future__ import annotations
+
+from datetime import date, timedelta
+
+import pandas as pd
+import streamlit as st
+
+_C1, _C2, _C3 = "#3987e5", "#d95926", "#199e70"     # xanh · cam · ngọc (ô 1–3, nền tối)
+_REF = "rgba(150,150,150,0.85)"
+_RANGES = {"3 tháng": 92, "6 tháng": 183, "1 năm": 366, "3 năm": 1096, "Tất cả": None}
+_SPARSE_POINTS = 3
+
+
+def render_assets_tab() -> None:
+    try:
+        import vnstock_assets as va
+        import vnstock_assets_view as av
+    except ImportError as e:
+        st.error(f"Không nạp được kho tài sản: {e}")
+        return
+    st.markdown("### 🪙 Hàng hoá & Tiền tệ")
+    info = av.run_info()
+    if not info["python_at"] and not av.card("XAU"):
+        st.info("Kho tài sản trống — 🖥️ DESKTOP, ngoài khung pipeline: "
+                "`python run.py assets --backfill --with-mcp` (một lần), sau đó task tin mỗi giờ tự cập nhật.")
+        return
+    st.caption(f"Chỉ đọc kho `data_warehouse/assets` · lượt Python {_hhmm(info['python_at'])} "
+               f"({info['python_status'] or '—'}) · MCP {_hhmm(info['mcp_at'])} ({info['mcp_status'] or '—'}) "
+               f"· máy {info['machine'] or '—'} · task tin 🖥️ cập nhật mỗi giờ")
+    rng = st.radio("Khung biểu đồ", list(_RANGES), index=2, horizontal=True, key="assets_range")
+    days = _RANGES.get(rng)
+    start = (date.today() - timedelta(days=days)).isoformat() if days else None
+    t_gold, t_oil, t_usd = st.tabs(["🥇 Vàng", "🛢️ Dầu", "💵 USD"])
+    for tab, fn, name in ((t_gold, _render_gold, "Vàng"), (t_oil, _render_oil, "Dầu"),
+                          (t_usd, _render_usd, "USD")):
+        with tab:
+            try:
+                fn(va, av, start)
+            except Exception as e:                                 # noqa: BLE001
+                st.warning(f"Mục {name} lỗi khi vẽ: {type(e).__name__}: {e}")
+
+
+# ── tiện ích vẽ ──────────────────────────────────────────────────────────────
+def _hhmm(ts) -> str:
+    s = str(ts or "")
+    return f"{s[11:16]} {s[8:10]}/{s[5:7]}" if len(s) >= 16 else "—"
+
+
+def _metric(col, c: "dict | None", *, label: "str | None" = None, unit_note: bool = True) -> None:
+    """Ô số: giá + % đổi 1 phiên (delta) + dòng phụ 1 tuần/1 tháng/YTD + nguồn, ngày, tuổi."""
+    import vnstock_assets_view as av
+    with col:
+        if not c:
+            st.metric(label or "—", "—")
+            st.caption("chưa có dữ liệu")
+            return
+        d1 = c["chg"].get("1 phiên")
+        st.metric(label or c["label"], av.fmt_value(c["value"], c["unit"]),
+                  delta=f"{d1:+.2f}% 1 phiên" if d1 is not None else None,
+                  delta_color="off" if d1 is not None and abs(d1) < 0.005 else "normal")
+        stale = f" · ⚠️ cũ {c['age']} ngày" if c["stale"] else ""
+        st.caption(f"{av.fmt_changes(c['chg'], skip=('1 phiên',))}  \n"
+                   f"{c['unit'] if unit_note else ''} · {c['source']} · {c['date']}{stale}")
+
+
+def _fig(series: list, *, height: int = 300, yfmt: str = ",.2f", hlines: "list | None" = None):
+    """series = [(tên, Series, màu, nét)] — một trục, rê chuột theo trục x."""
+    import plotly.graph_objects as go
+    fig = go.Figure()
+    for name, ser, color, dash in series:
+        ser = ser.dropna()
+        if not len(ser):
+            continue
+        sparse = len(ser) < _SPARSE_POINTS              # 1–2 điểm vẽ đường thì không thấy gì
+        fig.add_trace(go.Scatter(x=ser.index, y=ser.values, name=name,
+                                 mode="lines+markers" if sparse else "lines",
+                                 line={"color": color, "width": 2, "dash": dash},
+                                 marker={"size": 9, "color": color},
+                                 hovertemplate=f"{name}: %{{y:{yfmt}}}<extra></extra>"))
+    for name, ser in hlines or []:
+        ser = ser.dropna()
+        if len(ser):
+            fig.add_trace(go.Scatter(x=ser.index, y=ser.values, name=name, mode="lines",
+                                     line={"color": _REF, "width": 1.5, "dash": "dash"},
+                                     hovertemplate=f"{name}: %{{y:{yfmt}}}<extra></extra>"))
+    fig.update_layout(height=height, margin={"l": 10, "r": 10, "t": 30, "b": 10},
+                      hovermode="x unified", showlegend=len(fig.data) >= 2,
+                      legend={"orientation": "h", "y": 1.12, "x": 0},
+                      paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                      xaxis={"showgrid": False, "tickformat": "%d/%m/%y", "hoverformat": "%d/%m/%Y"},
+                      yaxis={"gridcolor": "rgba(128,128,128,0.15)", "tickformat": yfmt})
+    return fig
+
+
+def _chart(title: str, series: list, **kw) -> None:
+    if not any(len(s[1].dropna()) for s in series):
+        return
+    st.markdown(f"###### {title}")
+    try:
+        st.plotly_chart(_fig(series, **kw), use_container_width=True)
+    except ImportError:
+        st.line_chart(pd.concat({s[0]: s[1] for s in series}, axis=1))
+
+
+# ── 🥇 Vàng ──────────────────────────────────────────────────────────────────
+def _render_gold(va, av, start) -> None:
+    c = st.columns(4)
+    _metric(c[0], av.card("XAU"))
+    _metric(c[1], av.card("GOLD_SJC_BAR"), label="SJC miếng (bán)")
+    _metric(c[2], av.card("GOLD_SJC_RING"), label="SJC nhẫn (bán)")
+    prem = av.premium_frame(start=start)
+    with c[3]:
+        if len(prem):
+            last = prem.iloc[-1]
+            wk = prem["pct"][prem.index <= prem.index[-1] - pd.Timedelta(days=7)]
+            d_wk = f"{last['pct'] - wk.iloc[-1]:+.2f} điểm % 1 tuần" if len(wk) else None
+            st.metric("SJC miếng đắt hơn vàng TG", f"{last['pct']:+.2f}%", delta=d_wk, delta_color="off")
+            st.caption(f"vàng TG quy đổi {last['world']:,.0f} đ/lượng · {prem.index[-1].date()}")
+        else:
+            st.metric("SJC miếng đắt hơn vàng TG", "—")
+            st.caption("chưa đủ dữ liệu (cần SJC + vàng TG + USD/VND)")
+
+    st.markdown("###### Giá vàng 5 đại lý (đồng/lượng)")
+    tbl = av.dealer_table()
+    if len(tbl):
+        show = tbl.drop(columns=["Cũ"]).copy()
+        for col in ("Mua", "Bán", "Bán − SJC miếng"):
+            show[col] = show[col].map(lambda v: f"{v:,.0f}" if pd.notna(v) else "—")
+        for col in ("Chênh mua–bán %", "Chênh vs TG %"):
+            show[col] = show[col].map(lambda v: f"{v:.2f}" if pd.notna(v) else "—")
+        st.dataframe(show, hide_index=True, use_container_width=True)
+        if tbl["Cũ"].any():
+            st.caption("⚠️ Có sản phẩm chưa có giá hôm nay: " + ", ".join(
+                f"{r['Đại lý']} {r['Loại']} ({r['Ngày']})" for r in tbl[tbl["Cũ"]].to_dict("records")))
+    else:
+        st.caption("Chưa có giá đại lý (MCP Finhay).")
+
+    if len(prem):
+        _chart("SJC miếng (bán) và vàng thế giới quy đổi — đồng/lượng",
+               [("SJC miếng bán", prem["ask"], _C1, "solid"),
+                ("Vàng TG quy đổi", prem["world"], _C2, "solid")], yfmt=",.0f")
+        _chart("Chênh SJC miếng so vàng TG — %", [("Chênh %", prem["pct"], _C1, "solid")],
+               height=220, yfmt=".1f")
+    xau = av.frame("XAU", start=start)
+    _chart("Vàng thế giới giao ngay — USD/oz", [("XAU", xau["close"], _C1, "solid")])
+    st.caption("Vàng TG = giá giao ngay (XAU), không phải hợp đồng tương lai. Quy đổi: XAU × USD/VND "
+               "thị trường × 37,5/31,1035 oz/lượng. Đại lý: giá BÁN là giá chính.")
+
+
+# ── 🛢️ Dầu ──────────────────────────────────────────────────────────────────
+def _render_oil(va, av, start) -> None:
+    c = st.columns(4)
+    _metric(c[0], av.card("BRENT"), label="Brent HĐTL tháng gần")
+    _metric(c[1], av.card("WTI"), label="WTI HĐTL tháng gần")
+    est = av.estimate("WTI_SPOT_EST") or {}
+    with c[2]:
+        if est.get("value"):
+            st.metric("WTI giao ngay (ước tính)", f"{est['value']:,.2f}")
+            st.caption(f"±{est['band_pct']}% · neo EIA {est['anchor']:,.2f} ngày {est['anchor_date']} "
+                       f"· {est['h']} phiên · {est['date']}")
+        else:
+            st.metric("WTI giao ngay (ước tính)", "—")
+            st.caption(est.get("hidden") or "chưa có ước tính")
+    spread = av.spread_series(start=start)
+    with c[3]:
+        if len(spread):
+            wk = spread[spread.index <= spread.index[-1] - pd.Timedelta(days=7)]
+            st.metric("Brent − WTI", f"{spread.iloc[-1]:+.2f} USD",
+                      delta=f"{spread.iloc[-1] - wk.iloc[-1]:+.2f} USD 1 tuần" if len(wk) else None,
+                      delta_color="off")
+            st.caption(f"USD/thùng · HĐTL tháng gần · {spread.index[-1].date()}")
+        else:
+            st.metric("Brent − WTI", "—")
+
+    _render_curves(va, av)
+    br, wt = av.frame("BRENT", start=start), av.frame("WTI", start=start)
+    _chart("Giá HĐTL tháng gần — USD/thùng",
+           [("Brent", br["close"], _C1, "solid"), ("WTI", wt["close"], _C2, "solid")])
+    _chart("Chênh Brent − WTI — USD/thùng", [("Brent − WTI", spread, _C1, "solid")],
+           height=220)
+    with st.expander("Giá giao ngay EIA (chậm 3–9 ngày) — vì sao Brent giao ngay bị ẩn"):
+        rows = []
+        for key in ("BRENT_SPOT", "WTI_SPOT"):
+            cc = av.card(key)
+            if cc:
+                rows.append({"Chuỗi": cc["label"], "Giá": f"{cc['value']:,.2f}", "Ngày": cc["date"],
+                             "Trễ (ngày)": cc["age"], "Nguồn": cc["source"]})
+        if rows:
+            st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+        st.caption("Giá giao ngay EIA (Dated Brent/WTI Cushing) ra chậm 3–9 ngày. WTI giao ngay được ước "
+                   "tính trong ngày = số EIA gần nhất × biến động HĐTL tháng gần, chỉ khi ≤3 phiên (sai số "
+                   "đo p90 1,64%). Brent giao ngay lệch HĐTL tới ~25% và ước tính sai p90 5,7% ⇒ không "
+                   "hiện; dùng đường cong HĐTL bên trên làm thước \"thị trường vật chất căng\".")
+
+
+def _render_curves(va, av) -> None:
+    snaps = {k: av.curve_snapshots(k) for k in ("CURVE_BRENT", "CURVE_WTI")}
+    if not any(s["latest"] for s in snaps.values()):
+        return
+    import plotly.graph_objects as go
+    st.markdown("###### Đường cong HĐTL theo tháng đáo hạn — USD/thùng")
+    fig = go.Figure()
+    notes = []
+    for key, name, color in (("CURVE_BRENT", "Brent", _C1), ("CURVE_WTI", "WTI", _C2)):
+        s = snaps[key]
+        for which, dash in (("latest", "solid"), ("prior", "dot")):
+            if not s[which]:
+                continue
+            d, pts = s[which]
+            fig.add_trace(go.Scatter(
+                x=[_month_label(m) for _, m, _ in pts], y=[p for _, _, p in pts],
+                name=f"{name} {d[8:10]}/{d[5:7]}", mode="lines+markers",
+                line={"color": color, "width": 2, "dash": dash}, marker={"size": 8},
+                hovertemplate=f"{name} %{{x}}: %{{y:,.2f}}<extra>{d}</extra>"))
+        cs = va.curve_spreads(key)
+        if cs:
+            notes.append(f"{name}: M1−M2 {cs['m1_m2']['usd']:+.2f} USD ({cs['m1_m2']['pct']:+.2f}%) · "
+                         f"M1−{cs['m1_m6']['to']} {cs['m1_m6']['usd']:+.2f} USD ⇒ "
+                         f"{'backwardation (gần đắt hơn xa — cung căng)' if cs['shape'] == 'backwardation' else 'contango (xa đắt hơn gần — cung dư)'}")
+    fig.update_layout(height=300, margin={"l": 10, "r": 10, "t": 30, "b": 10},
+                      hovermode="closest", legend={"orientation": "h", "y": 1.12, "x": 0},
+                      paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                      xaxis={"showgrid": False, "type": "category"},
+                      yaxis={"gridcolor": "rgba(128,128,128,0.15)"})
+    st.plotly_chart(fig, use_container_width=True)
+    st.caption("  \n".join(notes) + "  \nNét liền = ảnh mới nhất · nét chấm = ảnh ~1 tuần trước "
+               "(chỉ có từ khi lượt mỗi giờ bắt đầu chụp).")
+
+
+def _month_label(m: str) -> str:
+    return f"{m[5:7]}/{m[:4]}" if m and len(m) >= 7 else str(m)
+
+
+# ── 💵 USD ──────────────────────────────────────────────────────────────────
+def _render_usd(va, av, start) -> None:
+    c = st.columns(3)
+    _metric(c[0], av.card("DXY"), label="DXY (ICE)")
+    est = av.estimate("USD_BROAD_EST") or {}
+    with c[1]:
+        if est.get("value"):
+            st.metric("Chỉ số USD rộng (ước tính)", f"{est['value']:,.2f}")
+            st.caption(f"±{est['band_pct']}% · neo Fed {est['anchor']:,.2f} ngày {est['anchor_date']} "
+                       f"· {est['h']} phiên · {est['date']}")
+        else:
+            st.metric("Chỉ số USD rộng (ước tính)", "—")
+            st.caption(est.get("hidden") or "chưa có ước tính")
+    _metric(c[2], av.card("USDVND"), label="USD/VND thị trường")
+
+    c = st.columns(4)
+    _metric(c[0], av.card("USDVND_VCB"), label="Vietcombank bán")
+    _metric(c[1], av.card("USD_CENTRAL"), label="Tỷ giá trung tâm NHNN")
+    _metric(c[2], av.card("USD_SBV_REF"), label="Giá bán tham khảo NHNN")
+    room = va.usd_ceiling_room_pct()
+    with c[3]:
+        if room:
+            st.metric("VCB bán còn cách trần", f"{room['pct']:.2f}%")
+            st.caption(f"trần {room['ceiling']:,} = trung tâm {room['central']:,.0f} × 1,05 "
+                       f"(ngày {room['central_date']})")
+        else:
+            st.metric("VCB bán còn cách trần", "—")
+
+    band = av.usd_band_frame(start=start)
+    if len(band):
+        _chart("Tỷ giá USD/VND trong biên ±5% — đồng",
+               [("Vietcombank bán", band["vcb_sell"], _C1, "solid"),
+                ("Giá bán tham khảo NHNN", band["sbv_sell"], _C2, "solid"),
+                ("Trung tâm NHNN", band["central"], _C3, "solid")],
+               hlines=[("Trần (trung tâm × 1,05)", band["ceiling"])], yfmt=",.0f")
+    dxy = av.frame("DXY", start=start)
+    _chart("DXY (ICE) — điểm", [("DXY", dxy["close"], _C1, "solid")], height=240)
+    broad = av.frame("USD_BROAD", start=start)["close"]
+    est_s = av.frame("USD_BROAD_EST", start=start)["close"]
+    _chart("Chỉ số USD rộng của Fed (01/2006 = 100) và ước tính trong ngày",
+           [("Fed (chính thức, chậm ≤7 ngày)", broad, _C1, "solid"),
+            ("Ước tính trong ngày", est_s, _C2, "dot")], height=240)
+    cv = va.central_dating()
+    if cv.get("n"):
+        st.caption(f"Ngày tỷ giá trung tâm (kho, nguồn vnstock_data mbk đã dời 1 ngày lịch) so giá "
+                   f"tham khảo NHNN {cv['n']} phiên: {cv['verdict']}. Giá tham khảo NHNN (SSI \"SBVN\") "
+                   "KHÔNG phải tỷ giá trung tâm — ~70% phiên bằng trung tâm phiên trước.")
