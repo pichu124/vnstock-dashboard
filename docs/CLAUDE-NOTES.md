@@ -7005,8 +7005,17 @@ trung tâm) + "Kết luận theo tài sản" (tươi nhất/sâu nhất). Lỗi 
 `sys.modules` khi nạp script vì `@dataclass` tra module ở đó. Sandbox Claude: mọi host bị proxy chặn
 403 ⇒ tầng python ra toàn ❌ đúng dự kiến.
 
-**Chờ:** 🖥️ `python scripts/probe_assets.py --mcp` ⇒ dán output ⇒ chốt nguồn từng chuỗi ⇒ P1 (kho
-`data_warehouse/assets/`, registry, backfill, bước pipeline, doctor).
+**Kết quả máy thật (🖥️ PICHU 09/10 19:51; `--fast` 3.335 passed trước đó)** — bảng đủ ở thiết kế §4b:
+FRED Brent/WTI/DTWEXBGS ✅ (trễ 3d/3d/7d, từ 1987/1986/2006) · gold-api ✅ nhưng **goldprice.org 403**
+(nấc 1 `vnstock_gold` chết, nấc 2 gánh) · **exchangerate.host hết VND** (nấc 2 `usdvnd` chết) · stooq ❌
+(trả HTML) · Yahoo ✅ cả 5 (DX-Y.NYB = DXY thật từ 1971; không chính thức) · sjc.com.vn + vietcombank api ✅
+có ngày 5 năm trước · `vnstock_data`: `CommodityPrice` (spl) gold_vn/gold_global/oil_crude + `Macro` mbk
+có "Tỷ giá trung tâm (từ 04/01/2016)", Macro asean dừng 10/09 · MCP 36/36 tool, 54s, quy đổi $0,25: Finhay
+trễ 0d mọi chuỗi; BZ/CL/USDVND RỖNG ở 01/2025, **SJC miếng có từ 01/2015**; SSI SBVN ⇒ trung tâm 25.629.
+**Bẫy chính:** cùng tên khác công cụ — vàng giao ngay 4.180 vs HĐTL 4.206 (+0,6%); Brent HĐTL 103 vs
+giao ngay EIA (FRED) **125,44** (~+22%, khác ngày 06/10 vs 09/10 — phải so cùng ngày); WTI 91 vs 96,24 ⇒
+mỗi chuỗi kho = MỘT công cụ, không nối nguồn khác công cụ. Đề xuất nguồn từng chuỗi: thiết kế §4c —
+**CHỜ USER DUYỆT P1**.
 
 # 🏷️ U80. MỐC HIỂN THỊ CỦA LỆNH MỞ QUA GDKHQ — BRIEF 💡 + FOOTER DÙNG CÙNG HỆ SỐ VỚI PHÉP CHẤM (08/10)
 

@@ -1,7 +1,7 @@
 # Mở rộng dashboard sang VÀNG · DẦU · USD — THIẾT KẾ + P0 ĐO NGUỒN
 
-> **Trạng thái 09/10/2026: P0 ĐANG ĐO.** Script `scripts/probe_assets.py` đã viết (CLAUDE-NOTES U81),
-> chờ 🖥️ desktop chạy `python scripts/probe_assets.py --mcp` rồi dán output. P1+ CHƯA code.
+> **Trạng thái 09/10/2026 tối: P0 XONG — 🖥️ desktop đã chạy `probe_assets.py --mcp` (19:51, §4b).
+> Bảng nguồn đề xuất cho P1 ở §4c — CHỜ USER DUYỆT, P1 CHƯA code.**
 >
 > **User chốt 09/10:**
 > 1. Giao diện: **tab riêng** "🪙 Hàng hoá & Tiền tệ".
@@ -93,6 +93,59 @@ mã nào không thấy quan hệ thì nói thẳng, không giữ vì "nghe hợp
 - **Chênh SJC miếng:** bán 144,8 tr/lượng vs XAU 4.182,09 × 25.881 × 1,20565 oz/lượng = 130,5 tr ⇒
   **+11,0%** (dùng VCB bán 26.090 ⇒ +10,1%; giá mua 141,8 ⇒ +8,7%). Nhãn cứng "~15–20%" là lỗi thời.
 - **Độ sâu MCP ngắn** (USDVND ~2 tháng, XAU ~2 năm) ⇒ chuỗi dài bắt buộc từ nguồn Python.
+
+## 4b. Kết quả P0 trên MÁY THẬT (🖥️ PICHU 09/10 19:51, `--fast` 3.335 passed trước đó)
+
+| Nguồn | Kết quả | Ghi chú |
+|---|---|---|
+| FRED `DCOILBRENTEU` / `DCOILWTICO` | ✅ 125,44 / 96,24 (06/10, trễ 3d), từ 1987 / 1986 | **GIAO NGAY EIA**, không phải hợp đồng tương lai (xem cảnh báo dưới) |
+| FRED `DTWEXBGS` | ✅ 121,38 (02/10, trễ 7d), từ 2006 | chỉ số rộng của Fed |
+| goldprice.org | ❌ HTTP 403 | **nấc 1 của `vnstock_gold` đã chết** — pipeline đang sống nhờ nấc 2 |
+| gold-api.com | ✅ 4.180 (giao ngay) | |
+| er-api · 2 nấc currency-api | ✅ 25.868 · 25.922 · 25.835 | |
+| exchangerate.host | ❌ payload không có VND | **nấc 2 của `usdvnd` đã chết** (dịch vụ đòi key) |
+| stooq | ❌ trả trang HTML (chặn) | bỏ |
+| Yahoo GC=F · BZ=F · CL=F · DX-Y.NYB · VND=X | ✅ trễ 0d, từ 2000 · 2007 · 2000 · **1971** · 2003 | không chính thức; DX-Y.NYB = **DXY thật của ICE** |
+| sjc.com.vn | ✅ bán 144.800 / mua 141.800 nghìn đ/lượng, TP.HCM; ngày 2025-10 ✓ 2021-10 ✓ | chính thức, tra theo ngày |
+| vietcombank.com.vn api | ✅ bán 26.070 · CK 25.690 · TM 25.660; 2025-10 ✓ 2021-10 ✓ | chính thức, tra theo ngày |
+| `vnstock_data` `CommodityPrice` (spl) | ✅ `gold_vn` mua/bán 140.800/143.800 · `gold_global` OHLC 4.206,7 · `oil_crude` OHLC 90,95 | gold_global = **HĐTL vàng** (khớp GC=F), oil_crude = **WTI HĐTL** (khớp CL=F); gold_vn chưa rõ sản phẩm (thấp hơn SJC 1.000) |
+| `vnstock_data` `Macro` (mbk) | ✅ `exchange_rate` 658 dòng dạng dài, có "Tỷ giá trung tâm (từ 04/01/2016)" | nguồn LỊCH SỬ tỷ giá trung tâm — dùng kiểm công thức SBVN |
+| `vnstock_data` `Macro` (asean) | ✅ center/vcb/market rate theo ngày | **dừng ở 10/09 (trễ 29d)** |
+| `vnstock` misc | `sjc_gold_price(date)` · `btmc_goldprice()` · `vcb_exchange_rate(date)` | không cần — đã gọi thẳng nguồn gốc |
+| MCP Finhay (36/36 tool, 54s, quy đổi $0,25) | ✅ trễ 0d cho XAU · BZ · CL · USDVND · 10 sản phẩm vàng | độ sâu: XAU từ 01/2025; BZ/CL/USDVND **rỗng ở 01/2025**; **SJC miếng có từ 01/2015** |
+| MCP SSI VCB · SBVN | ✅ 26.090 · trung tâm suy ra 25.629 (trần 26.910) | |
+
+**Ba điều phải thiết kế theo:**
+1. **Cùng tên nhưng KHÁC công cụ.** Vàng: giao ngay 4.180–4.183 (gold-api, Finhay) vs HĐTL 4.206 (Yahoo,
+   vnstock_data) — lệch 0,6%. Dầu: Brent HĐTL 102,9–103,1 (Finhay, Yahoo) vs Brent giao ngay EIA **125,44**
+   (FRED, 06/10) — lệch ~22%; WTI HĐTL 90,9–91,1 vs giao ngay EIA 96,24. ⇒ Mỗi chuỗi trong kho = MỘT công
+   cụ; nguồn của một chuỗi phải báo cùng công cụ đó, đối chiếu lệch quá ngưỡng ⇒ cờ, không nối. Chênh giao
+   ngay − HĐTL tự nó là chỉ báo (thị trường vật chất căng) — nhưng phải so CÙNG NGÀY trước khi kết luận.
+2. **Độ sâu MCP ngắn trừ vàng miếng SJC** ⇒ lịch sử dầu/USD lấy từ Yahoo/FRED/vnstock_data; MCP làm nguồn NGÀY.
+3. **Hai nấc chết đang nằm im trong pipeline** (goldprice.org 403, exchangerate.host không còn VND) —
+   không gây lỗi vì nấc sau gánh; dọn ở P1 khi kho mới thay `vnstock_gold`.
+
+## 4c. Bảng nguồn đề xuất cho P1 — CHỜ DUYỆT
+
+Đơn vị lưu: vàng nội **VND/lượng** (Finhay nghìn đ/chỉ × 10.000; SJC trực tiếp nghìn đ/lượng × 1.000),
+vàng TG USD/oz, dầu USD/thùng, tỷ giá VND/USD.
+
+| Khoá | Công cụ | Nguồn ngày (chính) | Dự phòng ngày | Lịch sử (backfill 1 lần) | Đối chiếu |
+|---|---|---|---|---|---|
+| `XAU` | vàng giao ngay | MCP Finhay XAU (OHLC) | gold-api.com | Finhay (từ 01/2025) + 51 điểm kho cũ | gold-api ±0,5% |
+| `GOLD_<ĐẠI LÝ>_<MIẾNG/NHẪN>` ×10 | giá mua/bán đại lý | MCP Finhay dealer | SJC miếng: sjc.com.vn | Finhay dealer (SJC miếng từ 2015; 9 sản phẩm còn lại đo khi backfill) | SJC miếng: sjc.com.vn ±0,5% |
+| `BRENT` | Brent HĐTL tháng gần | MCP Finhay BZ | Yahoo BZ=F | Yahoo BZ=F (từ 2007) | Yahoo ±1% |
+| `WTI` | WTI HĐTL tháng gần | MCP Finhay CL | Yahoo CL=F | vnstock_data `oil_crude` (gói trả phí) → Yahoo | vnstock_data/Yahoo ±1% |
+| `BRENT_SPOT` · `WTI_SPOT` | giao ngay EIA | FRED (trễ ~3d) | — | FRED (từ 1986–87) | — (chuỗi chính thức) |
+| `DXY` | ICE DXY | Yahoo DX-Y.NYB | — | Yahoo (từ 1971) | — |
+| `USD_BROAD` | chỉ số USD rộng Fed | FRED `DTWEXBGS` (trễ ~7d) | — | FRED (từ 2006) | — |
+| `USDVND` | tỷ giá thị trường | MCP Finhay USDVND | er-api → currency-api | Yahoo VND=X (từ 2003) | er-api ±0,5% |
+| `USDVND_VCB` | VCB mua TM/CK/bán | vietcombank.com.vn api | MCP SSI VCB | VCB api theo ngày (2 năm ≈ 500 lượt, giãn 0,3s) | SSI VCB ±0,3% |
+| `USD_CENTRAL` | tỷ giá trung tâm NHNN | MCP SSI SBVN, (mua+bán)/2 | bản tin tuần SBV | vnstock_data mbk "Tỷ giá trung tâm" (từ 2016) | **kiểm công thức** SBVN vs mbk trên ~2 năm SSI cho phép |
+
+Bước pipeline: `assets` (Python, sau `macro`) + `assets-mcp` (sau brief, như `mcp-enrich`); MCP một lượt/
+đêm ~16 tool cửa sổ 10 ngày (ghi đè bar trùng). Yahoo không chính thức ⇒ mọi chuỗi phụ thuộc Yahoo có
+nguồn ngày khác (trừ DXY) và badge doctor báo tuổi.
 
 ## 5. Kiến trúc đích (P1–P4)
 
