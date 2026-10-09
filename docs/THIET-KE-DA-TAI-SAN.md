@@ -375,6 +375,13 @@ một vế thì không chấm); L đúng ⇒ ~100%, L sai ⇒ ~40–70%; kết l
 kế ≥10 điểm %, không thì "chưa rõ" (doctor im). `--backfill --steps mbk` in thêm mbk THÔ: số dòng theo
 thứ + 10 dòng cuối (3.182 thô → 2.650 phiên ⇒ ~1 dòng cuối tuần/tuần — để chốt luật dòng CN bằng số).
 
+**Vòng 4 (🖥️ 10/10 01:37) — P1 XONG.** `--fast` 3.408 passed · `--show` "mbk ĐÚNG ngày" (giả thuyết lệch
+0 khớp 59/61, −1 24/61, +1 43/60) · doctor "Kho tài sản" ✅ 22/22 chuỗi trong ngày, MCP ok. mbk thô theo thứ
+T2 535 · T3 538 · T4 537 · T5 537 · T6 502 · T7 1 · **CN 532** ⇒ mbk ghi số ngày D vào NGÀY LỊCH D−1 (dòng CN
+= số thứ Hai — luật "dòng sau đè" của `shift_mbk_dates` đúng). **Đính chính số báo chí §9c:** đọc lại theo
+chuỗi tăng/giảm, NHNN 05/10 = 25.643 (+7 từ 25.636) và 06/10 = 25.645 (+2) — không phải 25.636/25.643; với
+số đúng, giữa giá tham khảo SBVN = trung tâm phiên TRƯỚC 4/5 phiên 05–09/10, cùng phiên 1/5 (09/10).
+
 **Còn lại (không lỗi):** doctor "MCP Finhay/SSI chưa chạy" — lượt MCP ngày chưa từng chạy (giờ đặt 9, 11,
 14, 16, 20; bước pipeline `assets-mcp`); chạy tay một lần `run.py assets --mcp`. VCB ReadTimeout 15s một
 lượt — lượt giờ sau tự thử lại. `--backfill --steps fred,yahoo,vcb,mbk,gold-cache,fx` chạy riêng từng bước.

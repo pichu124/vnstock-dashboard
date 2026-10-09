@@ -7025,6 +7025,11 @@ thì đừng so từng lệch rồi lấy max — chấm GIẢ THUYẾT bằng c
 `verify_central` viết lại theo cách đó (sàn 10 phiên / 80% / cách 10 điểm, không thì "chưa rõ", doctor
 im); `--backfill --steps mbk` in mbk THÔ theo thứ + 10 dòng cuối để chốt luật dòng CN. Test 57 → 58.
 
+**🖥️ vòng 4 10/10 01:37 — P1 XONG:** "mbk ĐÚNG ngày" (lệch 0 khớp 59/61), doctor ✅ 22/22. mbk thô theo thứ
+T2 535 · T3 538 · T4 537 · T5 537 · T6 502 · T7 1 · CN 532 ⇒ mbk ghi số ngày D vào ngày LỊCH D−1 (dòng CN = số
+thứ Hai). Đính chính: NHNN 05/10 = 25.643, 06/10 = 25.645 (đọc theo chuỗi +12/+7/+2/−7/−4/−5) — vòng 2 đọc
+nhầm thành 25.636/25.643 từ bản tóm tắt tìm kiếm trộn hai bài; test ghim số đã sửa theo bản thô thật.
+
 # 🪙 U81. ĐA TÀI SẢN VÀNG · DẦU · USD — P0 ĐO NGUỒN (09/10)
 
 **User 09/10:** mở rộng dashboard sang tài sản khác, trước hết vàng/dầu/USD; lên kế hoạch, duyệt rồi mới

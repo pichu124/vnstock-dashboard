@@ -135,17 +135,20 @@ def test_parse_mbk_central_long_frame():
     assert src.parse_mbk_central(pd.DataFrame({"a": [1]})) == []
 
 
-# mbk THÔ đo 🖥️ 10/10 (đã bỏ T7/CN) và tỷ giá trung tâm NHNN báo chí cùng kỳ.
-MBK_RAW = [("2026-10-01", 25636.0), ("2026-10-02", 25636.0), ("2026-10-05", 25645.0),
-           ("2026-10-06", 25638.0), ("2026-10-07", 25634.0), ("2026-10-08", 25629.0)]
-NHNN = {"2026-10-02": 25636.0, "2026-10-05": 25636.0, "2026-10-07": 25638.0,
-        "2026-10-08": 25634.0, "2026-10-09": 25629.0}
+# mbk THÔ (10 dòng cuối, có dòng CN) in bởi `--backfill --steps mbk` 🖥️ 10/10 01:37, và tỷ giá
+# trung tâm NHNN báo chí cùng kỳ (chuỗi tăng/giảm liền mạch 25.624 → +12 → +7 → +2 → −7 → −4 → −5).
+MBK_RAW = [("2026-09-28", 25630.0), ("2026-09-29", 25627.0), ("2026-09-30", 25624.0),
+           ("2026-10-01", 25636.0), ("2026-10-02", 25636.0), ("2026-10-04", 25643.0),
+           ("2026-10-05", 25645.0), ("2026-10-06", 25638.0), ("2026-10-07", 25634.0),
+           ("2026-10-08", 25629.0)]
+NHNN = {"2026-10-01": 25624.0, "2026-10-02": 25636.0, "2026-10-05": 25643.0, "2026-10-06": 25645.0,
+        "2026-10-07": 25638.0, "2026-10-08": 25634.0, "2026-10-09": 25629.0}
 
 
 def test_shift_mbk_dates_matches_official_rate():
     got = dict(src.shift_mbk_dates(MBK_RAW))
-    assert all(got[d] == v for d, v in NHNN.items())               # thứ Sáu 02/10 → thứ Hai 05/10
-    assert "2026-10-01" not in got and max(got) == "2026-10-09"    # dòng cuối → ngày làm việc kế
+    assert {d: got[d] for d in NHNN} == NHNN                       # CN 04/10 → thứ Hai 05/10, đè T6
+    assert "2026-09-28" not in got and max(got) == "2026-10-09"    # dòng cuối → ngày làm việc kế
 
 
 def test_shift_mbk_dates_weekend_rows_and_holiday():

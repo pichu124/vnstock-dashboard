@@ -456,14 +456,17 @@ def _next_weekday(d: str) -> str:
 
 
 def shift_mbk_dates(rows: "list[tuple[str, float]]") -> "list[tuple[str, float]]":
-    """mbk ghi tỷ giá trung tâm của phiên D vào ngày TRƯỚC — đo 🖥️ 10/10: so với giá tham
-    khảo Cục QLNH 62 phiên, lệch +1 phiên khớp 32 (trung vị lệch 1 đ) vs đúng ngày 8 (10 đ);
-    đối chiếu báo chí 01→08/10 khớp từng đồng (mbk 01/10 = 25.636 = NHNN 02/10; mbk thứ Sáu
-    02/10 = NHNN thứ Hai 05/10; mbk 08/10 = 25.629 = NHNN 09/10).
+    """mbk ghi tỷ giá trung tâm của ngày D vào NGÀY LỊCH D−1 — chốt 🖥️ 10/10 bằng bản thô: số
+    dòng theo thứ T2 535 · T3 538 · T4 537 · T5 537 · T6 502 · T7 1 · CN 532 (dòng CN = số thứ
+    Hai; dòng T6 = "thứ Bảy" = số thứ Sáu giữ nguyên). Tail thô 30/09 25.624 · 01/10 25.636 ·
+    02/10 25.636 · CN 04/10 25.643 · 05/10 25.645 · 06/10 25.638 · 07/10 25.634 · 08/10 25.629
+    = NHNN 01/10 · 02/10 · (T7) · 05/10 · 06/10 · 07/10 · 08/10 · 09/10 (chuỗi báo chí tăng/giảm
+    liền mạch: 25.624 → +12 → +7 → +2 → −7 → −4 → −5). Sau khi dời, so giá tham khảo NHNN 61
+    phiên: giả thuyết đúng ngày khớp 59/61 (`vnstock_assets.verify_central`).
 
     Dời giá ở ngày d sang NGÀY LÀM VIỆC kế tiếp CÓ trong chuỗi mbk (qua được nghỉ lễ); dòng
-    cuối ⇒ ngày làm việc kế tiếp theo lịch. Hai dòng cùng đích ⇒ dòng ghi SAU thắng (mbk có
-    dòng cuối tuần thì dòng CN — số thứ Hai nếu mbk lùi theo ngày lịch — đè dòng thứ Sáu)."""
+    cuối ⇒ ngày làm việc kế tiếp theo lịch. Hai dòng cùng đích ⇒ dòng ghi SAU thắng (dòng CN —
+    số thứ Hai — đè dòng thứ Sáu/thứ Bảy mang số thứ Sáu)."""
     import bisect
     rows = sorted(rows)
     work = [d for d, _ in rows if date.fromisoformat(d).weekday() < 5]

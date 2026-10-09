@@ -150,11 +150,12 @@ def test_plan_backfill_small_windows():
     assert {p["input"]["range"] for p in sb} == {"1m"} and {p["key"] for p in sb} == {"USD_SBV_REF"}
 
 
-# Số THẬT: SSI SBVN 05–09/10 (đo 10/10) · tỷ giá trung tâm NHNN báo chí: 05/10 25.636,
-# 06/10 25.643, 07/10 25.638, 08/10 25.634, 09/10 25.629.
+# Số THẬT: SSI SBVN 05–09/10 (đo 10/10) · tỷ giá trung tâm NHNN (báo chí, chuỗi tăng/giảm liền
+# mạch, khớp mbk thô sau khi dời ngày): 02/10 25.636 · 05/10 25.643 · 06/10 25.645 · 07/10 25.638 ·
+# 08/10 25.634 · 09/10 25.629. Giữa SBVN = trung tâm phiên TRƯỚC 4/5, cùng phiên 1/5 (09/10).
 SBVN_WEEK = [("2026-10-05", 24405, 26867), ("2026-10-06", 24411, 26875), ("2026-10-07", 24413, 26877),
              ("2026-10-08", 24407, 26869), ("2026-10-09", 24398, 26860)]
-OFFICIAL = {"2026-10-05": 25636.0, "2026-10-06": 25643.0, "2026-10-07": 25638.0,
+OFFICIAL = {"2026-10-05": 25643.0, "2026-10-06": 25645.0, "2026-10-07": 25638.0,
             "2026-10-08": 25634.0, "2026-10-09": 25629.0}
 
 
@@ -194,7 +195,8 @@ def test_verify_central_tells_lag_with_mixed_ruler(lag, verdict):
 def test_verify_central_real_week_and_floors():
     off = {**OFFICIAL, "2026-10-02": 25636.0}
     res = va.verify_central(_sbvn_rows(), off)
-    assert res["by_lag"]["0"] == {"n": 4, "hit": 3, "rate": 0.75}   # 07/10: 25.645 vs 25.638/25.643
+    assert res["by_lag"]["0"] == {"n": 4, "hit": 4, "rate": 1.0}
+    assert res["by_shift"]["1"]["exact"] == 3 and res["by_shift"]["0"]["exact"] == 1   # thước trễ 1 phiên (09/10 cùng phiên)
     assert res["verdict"].startswith("chưa rõ")                                # 5 phiên < sàn 10
     assert va.verify_central(_sbvn_rows(), {})["n"] == 0
 
@@ -217,7 +219,7 @@ def test_backfill_runs_sessions_and_records_verify():
     assert va.series("XAU")["2025-01-02"] == 2657.29
     assert va.series("GOLD_SJC_BAR")["2016-01-01"] == 32_920_000          # 3.292 nghìn đ/chỉ
     assert va.series("USD_SBV_REF")["2026-10-09"] == 26860.0
-    assert va.central_dating()["by_lag"]["0"]["hit"] == 3             # đo lại từ kho, không mạng
+    assert va.central_dating()["by_lag"]["0"]["hit"] == 4             # đo lại từ kho, không mạng
 
 
 def test_backfill_only_runs_selected_keys():
