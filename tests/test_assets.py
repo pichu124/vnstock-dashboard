@@ -386,3 +386,71 @@ def test_news_alert_hourly_hook(monkeypatch):
 def test_cli_show_without_data():
     out = va.show(today=TODAY)
     assert "chưa có dữ liệu" in out and "chưa đủ dữ liệu" in out
+
+
+# ── P3: sổ nguồn + đối chiếu MCP ↔ Python + hạ ưu tiên tay ────────────────────
+_CLOSED = ["2026-10-01", "2026-10-02", "2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08"]
+
+
+def _two_sources(key, a_src, b_src, a_vals, b_vals, days=_CLOSED):
+    va.write(key, [va._row(d, v, a_src) for d, v in zip(days, a_vals)], today=TODAY, fetched_at=T)
+    va.write(key, [va._row(d, v, b_src) for d, v in zip(days, b_vals)], today=TODAY,
+             fetched_at="2026-10-09T20:30:00")
+
+
+def test_ledger_keeps_every_source_per_day_while_store_keeps_one():
+    _two_sources("BRENT", "finhay", "yahoo", [100.0] * 6, [100.2] * 6)
+    led = json.loads((va.META_DIR / va.SOURCES_LEDGER_NAME).read_text(encoding="utf-8"))
+    assert led["BRENT"]["2026-10-08"] == {"finhay": [100.0, T], "yahoo": [100.2, "2026-10-09T20:30:00"]}
+    assert va.series("BRENT")["2026-10-02"] == 100.0                 # kho: ngày cũ theo ưu tiên (finhay)
+    va.write("BRENT", [va._row("2026-10-08", 101.0, "finhay")], today=TODAY, fetched_at="2026-10-09T21:00:00")
+    led = json.loads((va.META_DIR / va.SOURCES_LEDGER_NAME).read_text(encoding="utf-8"))
+    assert led["BRENT"]["2026-10-08"]["finhay"] == [101.0, "2026-10-09T21:00:00"]   # lượt sau đè
+    va.write("USD_CENTRAL", [va._row("2026-10-08", 25634.0, "mbk")], today=TODAY, fetched_at=T)
+    va.write("BRENT", [va._row("2025-01-02", 80.0, "finhay")], today=TODAY, fetched_at=T)
+    led = json.loads((va.META_DIR / va.SOURCES_LEDGER_NAME).read_text(encoding="utf-8"))
+    assert "USD_CENTRAL" not in led and "2025-01-02" not in led["BRENT"]   # 1 nguồn / quá 45 ngày: không ghi
+
+
+def test_agreement_gate_states():
+    _two_sources("BRENT", "finhay", "yahoo", [100.0] * 6, [100.3, 100.2, 100.1, 100.4, 100.5, 102.0])
+    a = va.agreement("BRENT")["finhay~yahoo"]
+    assert a["status"] == "đạt" and a["bad"] == 1 and a["window"] == 5 and a["last"]["date"] == "2026-10-08"
+    _two_sources("WTI", "finhay", "yahoo", [90.0] * 6, [90.0, 90.0, 90.0, 90.0, 92.0, 92.0])
+    assert va.agreement("WTI")["finhay~yahoo"]["status"] == "lệch"
+    _two_sources("XAU", "finhay", "gold-api", [4180.0] * 3, [4181.0] * 3, days=_CLOSED[:3])
+    assert va.agreement("XAU")["finhay~gold-api"]["status"] == "chưa đủ"
+    va.write("XAU", [va._row("2026-10-09", 4182.0, "finhay"), va._row("2026-10-09", 4300.0, "gold-api")],
+             today=TODAY, fetched_at=T)
+    assert va.agreement("XAU")["finhay~gold-api"]["n"] == 3          # hôm nay chưa đóng ⇒ không chấm
+    g = va.gate_summary(va.agreement_all(today=TODAY))
+    assert g["đạt"] == ["BRENT"] and g["lệch"] == ["WTI"] and "XAU" in g["chưa đủ"]
+    text = va.show(today=TODAY)
+    assert "== Đối chiếu MCP ↔ Python" in text and "WTI" in text and "lệch" in text
+
+
+def test_manual_demotion_lets_python_win(monkeypatch):
+    monkeypatch.setenv("VNSTOCK_ASSETS_DEMOTE", "BRENT:finhay, wti:FINHAY")
+    assert va.demoted_sources("BRENT") == {"finhay"} and va.demoted_sources("WTI") == {"finhay"}
+    _two_sources("BRENT", "finhay", "yahoo", [100.0] * 6, [100.3] * 6)
+    assert va.series("BRENT")["2026-10-02"] == 100.3                 # ngày cũ: yahoo thắng dù đứng sau
+    va.write("BRENT", [va._row("2026-10-09", 105.0, "finhay")], today=TODAY, fetched_at="2026-10-09T23:00:00")
+    va.write("BRENT", [va._row("2026-10-09", 104.0, "yahoo")], today=TODAY, fetched_at="2026-10-09T22:00:00")
+    assert va.series("BRENT")["2026-10-09"] == 104.0                 # trong ngày: bản bị hạ vẫn nhường
+    va.write("BRENT", [va._row("2026-10-09", 106.0, "finhay")], today=TODAY, fetched_at="2026-10-09T23:30:00")
+    assert va.series("BRENT")["2026-10-09"] == 104.0
+    assert "đang hạ ưu tiên bằng tay" in va.show(today=TODAY)
+
+
+def test_doctor_warns_when_mcp_disagrees(tmp_path, monkeypatch):
+    import vnstock_doctor as doc
+    meta = tmp_path / "wh" / "_meta"
+    meta.mkdir(parents=True)
+    monkeypatch.setattr(doc, "_META", meta)
+    monkeypatch.setattr(va, "ASSETS_DIR", meta.parent / "assets")
+    monkeypatch.setattr(va, "META_DIR", meta)
+    va.update_status("python", {"run_at": "2026-10-09T19:30:00", "status": "ok"})
+    _two_sources("WTI", "finhay", "yahoo", [90.0] * 6, [92.0] * 6)
+    r = doc.check_assets(NOW)
+    assert "MCP lệch nguồn Python" in r["message"] and "WTI" in r["message"]
+    assert "VNSTOCK_ASSETS_DEMOTE=<KHOÁ>:finhay" in r["fix"] and "đối chiếu MCP đạt 0/" in r["message"]

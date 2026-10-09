@@ -51,12 +51,14 @@ LOCK_DIR = Path(tempfile.gettempdir())        # khoá THEO MÁY — không đi q
 STATUS_NAME = "assets_status.json"
 FX_CACHE_NAME = "assets_fx_days.json"
 WEIGHTS_CACHE_NAME = "assets_fed_weights.json"
+SOURCES_LEDGER_NAME = "assets_sources.json"     # P3: giá từng NGUỒN theo ngày, để đối chiếu
 SCHEMA = 1
 
 ENV_SWITCH = "VNSTOCK_ASSETS"
 ENV_HOURLY = "VNSTOCK_ASSETS_HOURLY"
 ENV_MCP = "VNSTOCK_ASSETS_MCP"
 ENV_MCP_HOURS = "VNSTOCK_ASSETS_MCP_HOURS"
+ENV_DEMOTE = "VNSTOCK_ASSETS_DEMOTE"            # "XAU:finhay,BRENT:finhay" — hạ ưu tiên nguồn bằng tay
 DEFAULT_MCP_HOURS = (9, 11, 14, 16, 20)
 _OFF = ("0", "false", "off", "no")
 
@@ -79,6 +81,14 @@ USD_BROAD_BAND_PCT = 0.30         # p90 |sai| 0,28–0,31% ở MỌI h=1…5 phi
 USD_BROAD_MAX_H = 10
 WTI_SPOT_BAND_PCT = 1.64          # p90 ở h=3 phiên, 120 ngày gần nhất
 WTI_SPOT_MAX_H = 3                # h=5 p90 3,86% > ngưỡng 3% ⇒ quá 3 phiên thì ẨN
+
+# P3 — đối chiếu MCP ↔ Python (thiết kế §11): MCP Finhay/SSI là nguồn ưu tiên từ P1 (phương án
+# LAI user duyệt 09/10); P3 KIỂM ĐỊNH nó trên ngày đã đóng: GATE_N phiên gần nhất lệch ≤ xtol_pct
+# (cho phép 1 phiên lệch) ⇒ "đạt"; ≥2/GATE_N lệch ⇒ "lệch" ⇒ doctor réo + gợi ý VNSTOCK_ASSETS_DEMOTE.
+MCP_SOURCES = ("finhay", "ssi")
+LEDGER_DAYS = 45
+GATE_N = 5
+GATE_MAX_BAD = 1
 
 COLUMNS = ["date", "open", "high", "low", "close", "bid", "ask", "contract",
            "source", "fetched_at", "meta"]
@@ -218,7 +228,9 @@ def _norm_row(row: dict, fetched_at: str) -> dict:
 def merge(existing, rows: list, spec: Spec, today: date, fetched_at: str) -> "tuple[object, list]":
     """Gộp `rows` vào `existing` (thuần). Trả (DataFrame, cờ). Xem luật gộp ở docstring module."""
     import pandas as pd
-    rank = {s: i for i, s in enumerate(spec.sources)}
+    demoted = demoted_sources(spec.key)
+    order = [s for s in spec.sources if s not in demoted] + [s for s in spec.sources if s in demoted]
+    rank = {s: i for i, s in enumerate(order)}
     # Luật 1 chốt bằng code: nguồn không khai trong Spec.sources ⇒ không vào chuỗi (dòng cũ
     # của nguồn đã gỡ — vd "ssi-sbvn" trong USD_CENTRAL trước 10/10 — rơi khỏi file ở lượt ghi kế).
     recs = [r for r in (existing.to_dict("records") if len(existing) else []) if r.get("source") in rank]
@@ -260,6 +272,9 @@ def merge(existing, rows: list, spec: Spec, today: date, fetched_at: str) -> "tu
                               "b_src": r["source"], "b": val, "dev_pct": round(dev, 3)})
         if old["source"] == r["source"]:
             recs[idx[k]] = r
+        elif (r["source"] in demoted) != (old["source"] in demoted):
+            if old["source"] in demoted:               # nguồn bị hạ tay luôn nhường, kể cả trong ngày
+                recs[idx[k]] = r
         elif recent:
             if str(r["fetched_at"]) >= str(old["fetched_at"]):
                 recs[idx[k]] = r
@@ -281,6 +296,9 @@ def write(key: str, rows: list, *, today: date, fetched_at: "str | None" = None,
         d = src.iso(r.get("date"))
         if d:
             by_year.setdefault(d[:4], []).append(r)
+    if base is None:
+        with contextlib.suppress(Exception):
+            _ledger_record(spec, rows, fetched_at, today)
     kdir = key_dir(key, base)
     flags = []
     for year, yrows in sorted(by_year.items()):
@@ -297,6 +315,89 @@ def write(key: str, rows: list, *, today: date, fetched_at: "str | None" = None,
                 with contextlib.suppress(Exception):
                     extra.unlink()
     return flags
+
+
+# ── P3: hạ ưu tiên bằng tay + sổ nguồn + đối chiếu ──────────────────────────
+def demoted_sources(key: str) -> "set[str]":
+    """Nguồn bị hạ ưu tiên cho `key` theo VNSTOCK_ASSETS_DEMOTE ("XAU:finhay,BRENT:finhay")."""
+    out = set()
+    for part in (os.environ.get(ENV_DEMOTE) or "").split(","):
+        k, _, sname = part.strip().partition(":")
+        if k.strip().upper() == key and sname.strip():
+            out.add(sname.strip().lower())
+    return out
+
+
+def _cross_checked(spec: Spec) -> bool:
+    """Chuỗi có cả nguồn MCP lẫn nguồn Python ⇒ đối chiếu được."""
+    srcs = set(spec.sources) - {"est"}
+    return not spec.curve and bool(srcs & set(MCP_SOURCES)) and bool(srcs - set(MCP_SOURCES))
+
+
+def _ledger_record(spec: Spec, rows: list, fetched_at: str, today: date, meta=None) -> None:
+    """Ghi giá TỪNG nguồn theo ngày (lượt lấy sau đè lượt trước cùng nguồn) — kho chỉ giữ bản
+    thắng, nên không có sổ này thì không so được hai nguồn trên cùng một ngày đã đóng."""
+    if not _cross_checked(spec):
+        return
+    lo = (today - timedelta(days=LEDGER_DAYS)).isoformat()
+    hi = today.isoformat()
+    got = [(src.iso(r.get("date")), r.get("source"), src.num(r.get("close")), r.get("fetched_at") or fetched_at)
+           for r in rows or []]
+    got = [g for g in got if g[0] and lo <= g[0] <= hi and g[1] in spec.sources and g[2]]
+    if not got:
+        return
+    led = _read_json(SOURCES_LEDGER_NAME, meta)
+    k = led.setdefault(spec.key, {})
+    for d, sname, v, fa in got:
+        cur = k.setdefault(d, {}).get(sname)
+        if not cur or str(fa) >= str(cur[1]):
+            k[d][sname] = [v, str(fa)]
+    for key in list(led):
+        led[key] = {d: v for d, v in led[key].items() if d >= lo}
+    _write_json(SOURCES_LEDGER_NAME, led, meta)
+
+
+def agreement(key: str, *, ledger: "dict | None" = None, today: "date | None" = None,
+              meta=None) -> dict:
+    """{"mcp~python": {...}} cho chuỗi đối chiếu được — chỉ ngày ĐÃ ĐÓNG (< hôm nay), GATE_N ngày
+    chung gần nhất: n, số lệch > xtol, lệch lớn nhất, ngày cuối, trạng thái đạt/lệch/chưa đủ."""
+    spec = REGISTRY[key]
+    if not _cross_checked(spec):
+        return {}
+    today = today or date.today()
+    led = (ledger if ledger is not None else _read_json(SOURCES_LEDGER_NAME, meta)).get(key) or {}
+    tol = spec.xtol_pct or 0.5
+    out = {}
+    mcp = [s for s in spec.sources if s in MCP_SOURCES]
+    alts = [s for s in spec.sources if s not in MCP_SOURCES and s != "est"]
+    for m in mcp:
+        for a in alts:
+            devs = [(d, (by[m][0] / by[a][0] - 1) * 100) for d, by in sorted(led.items())
+                    if d < today.isoformat() and m in by and a in by and by[a][0]]
+            last = devs[-GATE_N:]
+            bad = sum(1 for _, x in last if abs(x) > tol)
+            status = ("chưa đủ" if len(last) < GATE_N else
+                      ("lệch" if bad > GATE_MAX_BAD else "đạt"))
+            out[f"{m}~{a}"] = {"n": len(devs), "window": len(last), "bad": bad, "tol_pct": tol,
+                               "max_abs_pct": round(max((abs(x) for _, x in last), default=0.0), 3),
+                               "last": {"date": last[-1][0], "dev_pct": round(last[-1][1], 3)} if last else None,
+                               "status": status}
+    return out
+
+
+def agreement_all(*, today: "date | None" = None, meta=None) -> dict:
+    """{khoá: {cặp: …}} cho mọi chuỗi đối chiếu được, kèm cặp tốt nhất (đạt > chưa đủ > lệch)."""
+    led = _read_json(SOURCES_LEDGER_NAME, meta)
+    return {k: agreement(k, ledger=led, today=today) for k, sp in REGISTRY.items() if _cross_checked(sp)}
+
+
+def gate_summary(ag: dict) -> dict:
+    """Một chuỗi ĐẠT khi có ít nhất một cặp đạt; LỆCH khi có cặp lệch mà không cặp nào đạt."""
+    out = {"đạt": [], "lệch": [], "chưa đủ": []}
+    for key, pairs in ag.items():
+        st = {p["status"] for p in pairs.values()}
+        out["đạt" if "đạt" in st else ("lệch" if "lệch" in st else "chưa đủ")].append(key)
+    return out
 
 
 # ── Trạng thái + khoá ────────────────────────────────────────────────────────
@@ -905,6 +1006,16 @@ def show(*, base=None, meta=None, today: "date | None" = None) -> str:
         lines.append(f"  {k}: " + (e["hidden"] if e.get("hidden") else
                      f"{e['value']:,.2f} ±{e['band_pct']}% ({e['date']}, neo {e['anchor']:,.2f} ngày "
                      f"{e['anchor_date']}, h={e['h']})"))
+    lines.append(f"\n== Đối chiếu MCP ↔ Python (ngày đã đóng, {GATE_N} phiên chung gần nhất) ==")
+    for key, pairs in agreement_all(today=today, meta=meta).items():
+        for pair, a in pairs.items():
+            last = a["last"] or {}
+            lines.append(f"  {key:<14} {pair:<22} {a['status']:<8} lệch>{a['tol_pct']}%: {a['bad']}/{a['window']}"
+                         f" · lớn nhất {a['max_abs_pct']:.2f}% · cuối {last.get('date', '—')} "
+                         f"{last.get('dev_pct', 0):+.2f}% · tổng {a['n']} ngày chung")
+    dem = (os.environ.get(ENV_DEMOTE) or "").strip()
+    if dem:
+        lines.append(f"  (đang hạ ưu tiên bằng tay: {ENV_DEMOTE}={dem})")
     py, mc = st.get("python") or {}, st.get("mcp") or {}
     lines.append(f"\nLượt Python: {py.get('run_at')} · {py.get('status')} ({py.get('ok')}/"
                  f"{(py.get('ok') or 0) + (py.get('fail') or 0)}) · lượt MCP: {mc.get('run_at')} · "

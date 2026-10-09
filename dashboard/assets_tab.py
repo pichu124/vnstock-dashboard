@@ -48,6 +48,19 @@ def render_assets_tab() -> None:
                 fn(va, av, start)
             except Exception as e:                                 # noqa: BLE001
                 st.warning(f"Mục {name} lỗi khi vẽ: {type(e).__name__}: {e}")
+    with st.expander("🔍 Đối chiếu nguồn MCP ↔ Python (ngày đã đóng)"):
+        try:
+            tbl = av.agreement_table()
+        except Exception as e:                                     # noqa: BLE001
+            tbl = None
+            st.warning(f"Đối chiếu nguồn lỗi: {type(e).__name__}: {e}")
+        if tbl is not None and len(tbl):
+            st.dataframe(tbl, hide_index=True, use_container_width=True)
+        elif tbl is not None:
+            st.caption("Chưa có ngày chung — sổ giá theo nguồn bắt đầu ghi từ lượt mỗi giờ đầu tiên sau khi cập nhật.")
+        st.caption(f"MCP Finhay/SSI là nguồn ưu tiên; mỗi chuỗi so với nguồn Python cùng công cụ trên "
+                   f"{va.GATE_N} ngày chung gần nhất: đạt = tối đa {va.GATE_MAX_BAD} ngày lệch quá ngưỡng. "
+                   "Lệch kéo dài ⇒ đặt VNSTOCK_ASSETS_DEMOTE=<KHOÁ>:finhay trong .env để nguồn Python thắng.")
 
 
 # ── tiện ích vẽ ──────────────────────────────────────────────────────────────

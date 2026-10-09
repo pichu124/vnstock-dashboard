@@ -421,3 +421,25 @@ do ẩn WTI hiện ra), kho trống ⇒ hướng dẫn nạp, tab có trong đi�
 **Chưa làm (pha sau):** P3 (MCP làm nguồn chính sau 5 phiên chạy bóng) · P4 thẻ "Liên kết cổ phiếu" (tương
 quan/beta 60 phiên) · P5 brief/Telegram/Phân bổ (duyệt riêng).
 
+## 11. P3 — đối chiếu MCP ↔ Python (10/10, CLAUDE-NOTES U84)
+
+**Vị trí của MCP:** từ P1 MCP Finhay/SSI đã là nguồn ƯU TIÊN cho ngày đã qua (phương án LAI user duyệt 09/10;
+trong ngày thì bản lấy mới hơn thắng nên nguồn Python mỗi giờ vẫn giữ số tươi). Kế hoạch gốc "5 phiên chạy
+bóng rồi mới làm nguồn chính" vì thế đổi thành **KIỂM ĐỊNH sau khi đã dùng**: đo 5 phiên, lệch thì hạ bằng tay
+— không tự hạ, vì nguồn Python của XAU là ảnh chụp giờ (gold-api), tự hạ sẽ thay giá ĐÓNG CỬA bằng ảnh chụp.
+
+**Sổ nguồn** `_meta/assets_sources.json` (`_ledger_record` trong `write`): giá TỪNG nguồn theo ngày cho chuỗi có
+cả nguồn MCP lẫn Python (XAU, SJC miếng, Brent, WTI, USD/VND, VCB), lượt sau đè lượt trước cùng nguồn, giữ 45
+ngày. Cần sổ vì kho chỉ giữ bản thắng một dòng/ngày.
+
+**Cổng** (`agreement`): mỗi cặp MCP ~ Python, chỉ NGÀY ĐÃ ĐÓNG (< hôm nay), 5 ngày chung gần nhất: ≤1 ngày lệch
+quá `xtol_pct` ⇒ **đạt** · ≥2 ⇒ **lệch** · <5 ngày chung ⇒ **chưa đủ**. Một chuỗi đạt khi có ít nhất một cặp đạt
+(`gate_summary`). Hiện ở `--show` (khối "Đối chiếu MCP ↔ Python"), doctor `assets` (warn khi có chuỗi lệch;
+dòng đầu in "đối chiếu MCP đạt k/m"), tab 🪙 (expander "🔍 Đối chiếu nguồn").
+
+**Hạ ưu tiên tay** `VNSTOCK_ASSETS_DEMOTE=XAU:finhay,BRENT:finhay` (.env): nguồn bị hạ xếp cuối thứ tự ưu tiên VÀ
+luôn nhường dòng của nguồn khác, kể cả trong ngày; `--show` in nhắc khi đang bật.
+
+**Test:** `tests/test_assets.py` +4 (sổ giữ mọi nguồn trong khi kho giữ một · ba trạng thái cổng + hôm nay không
+chấm · hạ tay thắng cả ngày cũ lẫn trong ngày · doctor réo khi lệch).
+

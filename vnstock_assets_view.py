@@ -188,6 +188,19 @@ def estimate(key: str, *, base=None, meta=None) -> "dict | None":
     return (va.read_status(meta).get("estimates") or {}).get(key)
 
 
+def agreement_table(*, today: "date | None" = None, meta=None) -> pd.DataFrame:
+    """P3: bảng đối chiếu MCP ↔ Python trên ngày đã đóng (một dòng một cặp nguồn)."""
+    rows = []
+    for key, pairs in va.agreement_all(today=today or date.today(), meta=meta).items():
+        for pair, a in pairs.items():
+            last = a["last"] or {}
+            rows.append({"Chuỗi": va.REGISTRY[key].label, "Cặp nguồn": pair.replace("~", " ↔ "),
+                         "Trạng thái": a["status"], f"Lệch > ngưỡng / {va.GATE_N} phiên": f"{a['bad']}/{a['window']}",
+                         "Ngưỡng %": a["tol_pct"], "Lệch lớn nhất %": a["max_abs_pct"],
+                         "Lệch ngày cuối %": last.get("dev_pct"), "Ngày chung": a["n"]})
+    return pd.DataFrame(rows)
+
+
 def run_info(*, meta=None) -> dict:
     st = va.read_status(meta)
     py, mc = st.get("python") or {}, st.get("mcp") or {}

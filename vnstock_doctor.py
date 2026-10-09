@@ -1084,8 +1084,18 @@ def check_assets(now: "datetime | None" = None) -> dict:
                       f"(khớp {b['hit']}/{b['n']} phiên)")
         fixes.append("🖥️ DESKTOP: python run.py assets --backfill --steps mbk (nạp lại, ngày đã dời) — "
                      "còn lệch ⇒ vnstock_data đổi cách ghi ngày, báo Claude")
+    try:
+        gate = va.gate_summary(va.agreement_all(today=now.date(), meta=_META))
+    except Exception:                                              # noqa: BLE001
+        gate = {}
+    if gate.get("lệch"):
+        issues.append("MCP lệch nguồn Python ≥2/5 phiên đã đóng: " + ", ".join(gate["lệch"]))
+        fixes.append("○ python run.py assets --show (khối 'Đối chiếu MCP ↔ Python') — lệch thật ⇒ "
+                     "VNSTOCK_ASSETS_DEMOTE=<KHOÁ>:finhay trong .env để nguồn Python thắng, báo Claude")
     usd = (st.get("estimates") or {}).get("USD_BROAD_EST") or {}
+    n_gate = sum(len(v) for v in gate.values())
     head = (f"{len(shown) - len(stale)}/{len(shown)} chuỗi trong ngày · MCP {mcp.get('status') or '—'}"
+            + (f" · đối chiếu MCP đạt {len(gate.get('đạt', []))}/{n_gate}" if n_gate else "")
             + (f" · USD rộng ước tính {usd['value']:,.2f} ±{usd['band_pct']}%" if usd.get("value") else ""))
     if issues:
         return _result("assets", name, "warn", "; ".join(issues) + f" · {head}", " · ".join(fixes))

@@ -6974,6 +6974,13 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 🪙 U84. P3 ĐỐI CHIẾU MCP ↔ PYTHON (10/10)
+
+User 10/10: "làm tuần tự 3-4-5" (U27 xem tab + `--fast` để sau, nhắc lại). P3 thiết kế §11: MCP đã là nguồn ưu
+tiên từ P1 ⇒ P3 = KIỂM ĐỊNH, không chạy bóng. Sổ `_meta/assets_sources.json` (giá từng nguồn theo ngày, 45 ngày,
+chỉ chuỗi có cả MCP lẫn Python) · cổng 5 ngày đã đóng (≤1 lệch ⇒ đạt, ≥2 ⇒ lệch) · `--show`/doctor/tab · hạ tay
+`VNSTOCK_ASSETS_DEMOTE`. KHÔNG tự hạ: nguồn Python của XAU là ảnh chụp giờ, tự hạ = thay giá đóng cửa bằng ảnh chụp.
+
 # 🪙 U83. TAB "🪙 HÀNG HOÁ & TIỀN TỆ" — P2 (10/10)
 
 P1 chốt trên 🖥️ (U82 vòng 4) ⇒ làm P2 theo kế hoạch đã duyệt (thiết kế §6, chi tiết §10). `vnstock_assets_view`
