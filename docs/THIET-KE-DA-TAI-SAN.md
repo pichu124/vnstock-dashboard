@@ -1,7 +1,9 @@
 # Mở rộng dashboard sang VÀNG · DẦU · USD — THIẾT KẾ + P0 ĐO NGUỒN
 
 > **Trạng thái 09/10/2026 tối: P0 XONG — 🖥️ desktop đã chạy `probe_assets.py --mcp` (19:51, §4b).
-> Bảng nguồn đề xuất cho P1 ở §4c — CHỜ USER DUYỆT, P1 CHƯA code.**
+> User thêm CHUẨN ĐỘ TƯƠI (§4d): chỉ số quốc tế + tin liên quan phải có TRONG NGÀY ⇒ P0b
+> `scripts/probe_nowcast.py` đo ước tính trong ngày cho 3 chuỗi chậm, CHỜ 🖥️ chạy. Bảng nguồn §4c chờ
+> duyệt sau P0b; P1 CHƯA code.**
 >
 > **User chốt 09/10:**
 > 1. Giao diện: **tab riêng** "🪙 Hàng hoá & Tiền tệ".
@@ -146,6 +148,37 @@ vàng TG USD/oz, dầu USD/thùng, tỷ giá VND/USD.
 Bước pipeline: `assets` (Python, sau `macro`) + `assets-mcp` (sau brief, như `mcp-enrich`); MCP một lượt/
 đêm ~16 tool cửa sổ 10 ngày (ghi đè bar trùng). Yahoo không chính thức ⇒ mọi chuỗi phụ thuộc Yahoo có
 nguồn ngày khác (trừ DXY) và badge doctor báo tuổi.
+
+## 4d. Chuẩn độ tươi (user 09/10) + giải pháp cho 3 chuỗi chậm
+
+> User: "những chỉ số liên quan đến quốc tế như vàng, USD, dầu và các tin tức liên quan phải có trong
+> ngày hoặc tần suất cập nhật thấp hơn thì mới đạt yêu cầu."
+
+**Luật:** chuỗi nào nguồn gốc chậm hơn một ngày ⇒ CHỈ được hiện dưới dạng **ước tính trong ngày có sai
+số đã đo**, hoặc KHÔNG hiện. Không bao giờ hiện số cũ nhiều ngày như số hiện hành.
+
+| Chuỗi | Đạt chuẩn? | Cách đạt |
+|---|---|---|
+| Vàng TG giao ngay, 10 sản phẩm vàng nội, Brent/WTI HĐTL, DXY, USD/VND thị trường, VCB, trung tâm (SBVN) | ✅ trễ 0d | nguồn sống trong ngày (§4c) |
+| Brent / WTI giao ngay EIA | ❌ trễ 3–9d (EIA công bố theo tuần) | (1) **ước tính** = số EIA gần nhất × biến động HĐTL tháng gần từ ngày đó; (2) **đường cong HĐTL** M1…M8 + chênh M1−M2, M1−M6 thời gian thực = thước đo "vật chất căng" thay vai trò giá giao ngay; (3) giá rổ OPEC nếu feed sống (trễ 1 ngày — chỉ tham khảo) |
+| Chỉ số USD rộng (Fed) | ❌ trễ ≤7d (H.10 theo tuần) | **tự tính hằng ngày**: trọng số chính thức Fed (26 tiền tệ, có VND) × tỷ giá ngày currency-api, neo số Fed gần nhất; DXY (Yahoo) vẫn là thước USD thời gian thực |
+| Tin vàng/dầu/USD | ✅ mỗi giờ 24/7 (`vnstock_news_alert`, Bloomberg/Reuters/FT/CNBC/Fed…) | P5: thêm nguồn chuyên hàng hoá/FX vào `SOURCES` |
+
+Không có nguồn MIỄN PHÍ nhanh hơn cho chính các chuỗi chậm: Dated Brent là định giá Platts/Argus (trả
+phí); EIA API trực tiếp cùng nhịp tuần như FRED; Bloomberg Dollar Spot trả phí.
+
+**Ngưỡng sai số** (`probe_nowcast.THRESHOLDS`, đo bằng p90 |sai|): USD rộng ở h=5 phiên ≤0,15% ⇒ hiện
+như số · ≤0,40% ⇒ hiện kèm dải sai số · lớn hơn ⇒ không hiện. Dầu giao ngay ở h=3 phiên, 120 ngày gần
+nhất: ≤1% / ≤3% / lớn hơn. Chênh giao ngay − HĐTL ~22% (Brent, §4b) ⇒ ước tính dầu có thể KHÔNG đạt —
+khi đó dashboard hiện đường cong + số EIA kèm NGÀY, không hiện ước tính.
+
+**Nhịp cập nhật trong ngày (cho P1):** nguồn Python sống (Yahoo, gold-api, er-api, VCB, SJC, FRED cho
+neo) chạy MỖI GIỜ — ghép vào task `VnStock News Alert` mỗi giờ sẵn có trên 🖥️ desktop hoặc task riêng;
+MCP Finhay/SSI 3–4 lượt/ngày giờ VN (vàng đại lý đổi giá nhiều lần/ngày; user: MCP chưa tốn phí); tab
+có nút "Cập nhật ngay" gọi nguồn Python sống. Kho ghi bởi một máy (desktop) như mọi bước khác.
+
+**P0b — đo:** 🖥️ `python scripts/probe_nowcast.py` (chỉ đọc; 4 phần usd · oil · curve · opec; thử lệch
+pha −1/0/+1 ngày vì giờ chốt tỷ giá khác nhau; in "ƯỚC TÍNH <ngày>" + đánh giá theo ngưỡng).
 
 ## 5. Kiến trúc đích (P1–P4)
 

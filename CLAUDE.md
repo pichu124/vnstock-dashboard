@@ -193,7 +193,9 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 - **Đa tài sản vàng · dầu · USD** (U81, 09/10): thiết kế + quyết định user ở `docs/THIET-KE-DA-TAI-SAN.md`
   (tab riêng, nguồn LAI MCP ngày + Python lịch sử, 5 đại lý vàng). P0 XONG 09/10 (`scripts/probe_assets.py`
   🖥️ `--mcp`, §4b); bảng nguồn §4c CHỜ DUYỆT, P1 CHƯA code. Mỗi chuỗi kho = MỘT công cụ (giao ngay ≠ HĐTL:
-  Brent EIA 125 vs HĐTL 103). Kho đích `data_warehouse/assets/` — KHÔNG vào registry vĩ mô.
+  Brent EIA 125 vs HĐTL 103). **Chuẩn user: số quốc tế + tin phải có TRONG NGÀY** — chuỗi chậm (EIA,
+  Fed rộng) chỉ hiện dạng ước tính có sai số đo (`scripts/probe_nowcast.py`, §4d) hoặc không hiện.
+  Kho đích `data_warehouse/assets/` — KHÔNG vào registry vĩ mô.
 - `vnstock_corp_ratio` — đọc TỈ LỆ QUYỀN từ tiêu đề sự kiện (hàm thuần).
   `adjusts_price(title)` lọc sự kiện chỉ chốt danh sách DỰ HỌP (ĐHĐCĐ, lấy ý
   kiến bằng văn bản) — chúng KHÔNG đổi giá tham chiếu, gắn ⚠️ GDKHQ cho chúng

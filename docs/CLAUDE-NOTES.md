@@ -7017,6 +7017,16 @@ giao ngay EIA (FRED) **125,44** (~+22%, khác ngày 06/10 vs 09/10 — phải so
 mỗi chuỗi kho = MỘT công cụ, không nối nguồn khác công cụ. Đề xuất nguồn từng chuỗi: thiết kế §4c —
 **CHỜ USER DUYỆT P1**.
 
+**Chuẩn độ tươi (user 09/10 tối):** chỉ số quốc tế (vàng/USD/dầu) + tin liên quan phải có TRONG NGÀY ⇒
+Brent/WTI giao ngay EIA (trễ 3–9d) và USD rộng Fed (trễ ≤7d) KHÔNG đạt — không có nguồn miễn phí nhanh
+hơn (Dated Brent = Platts/Argus trả phí). Giải pháp (thiết kế §4d): ước tính trong ngày neo số chính
+thức gần nhất × biến động chuỗi sống (HĐTL tháng gần; chỉ số tự tính từ trọng số Fed 26 tiền tệ × tỷ giá
+ngày currency-api), chỉ hiện khi p90 sai số dưới ngưỡng; dầu thêm đường cong HĐTL M1…M8 (Yahoo `.NYM`)
+làm thước "vật chất căng" thời gian thực. `scripts/probe_nowcast.py` (P0b, chỉ đọc) đo trên lịch sử thật;
+test `tests/test_probe_nowcast.py` (14, whitelist). Bẫy khi viết: `best_shift` từng so trung vị ĐÃ làm
+tròn ⇒ hoà 0,0 chọn nhầm lệch pha — nay so số thô, hoà ưu tiên lệch pha 0. Nhịp P1: nguồn Python mỗi giờ
+(ghép task News Alert), MCP 3–4 lượt/ngày.
+
 # 🏷️ U80. MỐC HIỂN THỊ CỦA LỆNH MỞ QUA GDKHQ — BRIEF 💡 + FOOTER DÙNG CÙNG HỆ SỐ VỚI PHÉP CHẤM (08/10)
 
 **Vết (`/brief-review` brief #924, tối 08/10):** mục 💡 in "GMD BUY entry=77.6 · TP=82.2 · SL=75.1"

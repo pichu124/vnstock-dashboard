@@ -724,6 +724,7 @@ def cmd_test(args) -> int:
             "tests/test_probe_mcp.py",        # claude -p có gọi được MCP SSI/TCBS/Finhay (U78)
             "tests/test_mcp_enrich.py",       # connector TCBS cho mã giữ + lệnh mở, chạy bóng (U79)
             "tests/test_probe_assets.py",     # P0 đa tài sản: đo nguồn vàng/dầu/USD (U81)
+            "tests/test_probe_nowcast.py",    # P0b: ước tính trong ngày cho chuỗi chậm (U81)
             "tests/test_claude_steps.py",
             "tests/test_macro.py",
             "tests/test_news_feeds.py",
