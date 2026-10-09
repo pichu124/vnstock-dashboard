@@ -145,7 +145,7 @@ vàng TG USD/oz, dầu USD/thùng, tỷ giá VND/USD.
 | `USD_BROAD` | chỉ số USD rộng Fed | **ước tính tự tính** (trọng số Fed 2026 × currency-api, lệch pha +1), kèm dải ±0,3% | — | FRED (từ 2006) làm neo | P1 thử thêm tỷ giá Yahoo làm chuỗi dẫn, giữ cái p90 thấp hơn |
 | `USDVND` | tỷ giá thị trường | MCP Finhay USDVND | er-api → currency-api | Yahoo VND=X (từ 2003) | er-api ±0,5% |
 | `USDVND_VCB` | VCB mua TM/CK/bán | vietcombank.com.vn api | MCP SSI VCB | VCB api theo ngày (2 năm ≈ 500 lượt, giãn 0,3s) | SSI VCB ±0,3% |
-| `USD_CENTRAL` | tỷ giá trung tâm NHNN | vnstock_data mbk (lượt Python mỗi giờ) | bản tin tuần SBV | vnstock_data mbk "Tỷ giá trung tâm" (từ 2016) | ~~SBVN (mua+bán)/2~~ — **bác 10/10** (§9b): SBVN là giá tham khảo Cục QLNH, lệch trung tâm 0–7 đ; mbk nghi ghi LÙI 1 phiên, đang đo |
+| `USD_CENTRAL` | tỷ giá trung tâm NHNN | vnstock_data mbk (lượt Python mỗi giờ), **ngày dời +1 phiên** (§9c) | bản tin tuần SBV | vnstock_data mbk "Tỷ giá trung tâm" (từ 2016) | ~~SBVN (mua+bán)/2~~ — **bác 10/10** (§9b); ngày kiểm mỗi lần `--show`/doctor so `USD_SBV_REF` |
 | `USD_SBV_REF` (10/10) | mua/bán USD tham khảo Cục QLNH (close = bán) | MCP SSI SBVN | — | MCP SSI 3 tháng (range 1m × 3) | thước đo ngày của mbk |
 
 Bước pipeline: `assets` (Python, sau `macro`) + `assets-mcp` (sau brief, như `mcp-enrich`); MCP một lượt/
@@ -339,3 +339,32 @@ USDVND 5.949 · VCB 522 ngày (67s) · mbk 3.182 · MCP XAU 461 · BZ+CL 307 · 
    ngày +1 / quá 10 phiên).
 
 `--show`: VND không phần lẻ, cột thẳng (nhãn 🔒 chuyển xuống cuối dòng), dòng trần ghi trung tâm + ngày.
+
+## 9c. Vòng 2 trên máy thật (🖥️ PICHU 10/10 01:03) + sửa
+
+**Chạy tốt:** `--fast` 3.398 passed · SJC miếng 2015→nay 4.303 dòng (6 phiên, không phiên nào cắt) ·
+`USD_SBV_REF` 67 dòng · đường cong Brent M1−M2 +3,41$ / WTI +0,87$ (backwardation) · 21/22 chuỗi trong
+ngày · chênh SJC +10,86% · VCB còn 3,22% tới trần.
+
+**mbk ghi LÙI 1 phiên — XÁC NHẬN.** `verify_central` 62 phiên: lệch +1 khớp 32 (trung vị lệch 1 đ), đúng
+ngày 8 (10 đ), −1 3 (15 đ). Báo chí khớp từng đồng: mbk 01/10 = 25.636 = NHNN 02/10 · mbk thứ Sáu 02/10 =
+25.636 = NHNN thứ Hai 05/10 · mbk 06/10 = 25.638 = NHNN 07/10 · 07/10 = 25.634 = NHNN 08/10 · 08/10 =
+25.629 = NHNN 09/10. Vá `src.shift_mbk_dates` (trong `fetch_mbk_central`, mọi đường gọi): giá ở ngày d
+sang ngày làm việc kế tiếp CÓ trong chuỗi mbk (qua nghỉ lễ), dòng cuối sang ngày làm việc kế theo lịch,
+trùng đích thì dòng ghi SAU thắng (nếu mbk lùi theo ngày lịch và có dòng CN thì CN = số thứ Hai — đúng
+cả hai giả thuyết). Kiểm SỐNG từ kho, không mạng: `central_dating()` (USD_SBV_REF vs USD_CENTRAL nguồn
+mbk) in ở `--show` + doctor warn khi lệch ≠ 0 (n ≥ 5) ⇒ vnstock_data đổi cách ghi ngày là biết ngay.
+Kho cũ ghi đè bằng `--backfill --steps mbk` (cùng nguồn ⇒ dòng mới thắng).
+
+**Ước tính USD rộng tính ra mà KHÔNG vào kho:** mang ngày FILE currency-api (thứ Bảy 10/10) ⇒ kho bỏ dòng
+cuối tuần ⇒ `--show` "chưa có dữ liệu", doctor "USD_BROAD_EST trống"; `h=7` đếm cả file cuối tuần. File
+D+1 ↔ số Fed D ⇒ ước tính nay mang NGÀY FED (file − 1), chỉ giữ file ứng với ngày làm việc của Fed ⇒ h
+đếm PHIÊN (10/10: neo 02/10, h=5, ngày 09/10).
+
+**Cache tỷ giá ghi sai khoá:** bản "latest" lúc 01:00 VN vẫn là file hôm qua mà bị cất dưới khoá hôm nay,
+và ngày đã có thì không bao giờ tải lại ⇒ chỉ số tự tính đứng một ngày. Nay khoá theo `date` GHI TRONG file
+(`fetch_fx_latest_dated`) + tải lại `FX_REFETCH_DAYS`=3 ngày gần nhất mỗi lượt (khoá sai cũ tự lành).
+
+**Còn lại (không lỗi):** doctor "MCP Finhay/SSI chưa chạy" — lượt MCP ngày chưa từng chạy (giờ đặt 9, 11,
+14, 16, 20; bước pipeline `assets-mcp`); chạy tay một lần `run.py assets --mcp`. VCB ReadTimeout 15s một
+lượt — lượt giờ sau tự thử lại. `--backfill --steps fred,yahoo,vcb,mbk,gold-cache,fx` chạy riêng từng bước.

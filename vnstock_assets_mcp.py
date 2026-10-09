@@ -307,40 +307,6 @@ def plan_backfill(today: date, fp: str, sp: str) -> "list[tuple[str, list]]":
     return sessions
 
 
-CENTRAL_SHIFTS = (-1, 0, 1)
-
-
-def verify_central(sbvn_rows: list, mbk: "dict[str, float]") -> dict:
-    """mbk ghi tỷ giá trung tâm ĐÚNG ngày hay lệch phiên? Thước đo: (mua+bán)/2 tham khảo Cục
-    QLNH (SSI SBVN) — ≈ trung tâm CÙNG ngày, lệch 0–7 đ (báo chí 05–09/10: khớp 3/5 phiên).
-    shift s: so giữa SBVN phiên D[i] với mbk phiên D[i−s] (lịch phiên SBVN); s=+1 ⇔ mbk ghi số
-    của phiên D vào phiên TRƯỚC. Phiên khớp = lệch ≤1 đ; shift thắng = nhiều phiên khớp nhất."""
-    mids = {r["date"]: (r["bid"] + r["ask"]) / 2 for r in sbvn_rows
-            if src.num(r.get("bid")) and src.num(r.get("ask"))}
-    days = sorted(mids)
-    tail = {d: mbk[d] for d in sorted(mbk)[-6:]}
-    stats = {}
-    for s in CENTRAL_SHIFTS:
-        diffs = sorted(abs(mids[d] - mbk[days[i - s]]) for i, d in enumerate(days)
-                       if 0 <= i - s < len(days) and days[i - s] in mbk)
-        if diffs:
-            stats[s] = {"n": len(diffs), "exact": sum(1 for x in diffs if x <= 1.0),
-                        "median_diff": round(diffs[len(diffs) // 2], 1)}
-    if not stats:
-        return {"n": 0, "verdict": "không có phiên chung với mbk — chưa kiểm được",
-                "sbvn_days": len(days), "mbk_tail": tail}
-    best = max(stats, key=lambda s: (stats[s]["exact"], -stats[s]["median_diff"], -abs(s)))
-    b = stats[best]
-    if b["n"] < 5 or b["exact"] < 3:
-        verdict = "chưa rõ (ít phiên chung / ít phiên khớp)"
-    elif best == 0:
-        verdict = "mbk ĐÚNG ngày"
-    else:
-        verdict = f"mbk ghi {'LÙI' if best > 0 else 'TIẾN'} {abs(best)} phiên"
-    return {"n": b["n"], "best_shift": best, "verdict": verdict,
-            "by_shift": {str(s): v for s, v in stats.items()}, "mbk_tail": tail}
-
-
 def backfill(now: "datetime | None" = None, *, collect=None, log=print,
              timeout_s: int = TIMEOUT_S, only: "set[str] | None" = None) -> dict:
     """Lịch sử MCP theo phiên nhỏ. `only` = tập khoá kho (vd {"GOLD_SJC_BAR", "USD_SBV_REF"}) ⇒
@@ -361,7 +327,7 @@ def backfill(now: "datetime | None" = None, *, collect=None, log=print,
             break
         rows, errors = rows_from_exchanges(plan, exchanges)
         if label.startswith("SSI SBVN"):
-            report["central_verify"] = verify_central(rows.get("USD_SBV_REF", []), mbk)
+            report["central_verify"] = va.verify_central(rows.get("USD_SBV_REF", []), mbk)
             log(f"  đo lệch ngày mbk (tỷ giá trung tâm) vs SBVN: {report['central_verify']}")
         with va.machine_lock() as got:
             if not got:
@@ -372,7 +338,4 @@ def backfill(now: "datetime | None" = None, *, collect=None, log=print,
                          "cost_usd": (info or {}).get("cost_usd")}
         log(f"  {'✅' if report[label]['ok'] else '⚠'} {label}: {n} dòng"
             + (f" · lỗi {errors}" if errors else ""))
-    if "central_verify" in report:
-        va.update_status("central_verify", {**report["central_verify"],
-                                            "run_at": now.isoformat(timespec="seconds")}, now=now)
     return report

@@ -1060,6 +1060,8 @@ def cmd_assets(args) -> int:
             cmd.append("--with-mcp")
         if getattr(args, "vcb_days", None):
             cmd += ["--vcb-days", str(args.vcb_days)]
+        if getattr(args, "steps", None):
+            cmd += ["--steps", args.steps]
     elif getattr(args, "mcp_backfill", False):
         cmd.append("--mcp-backfill")
         if getattr(args, "only", None):
@@ -2176,6 +2178,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="--mcp-backfill: khoá kho, phẩy (vd GOLD_SJC_BAR,USD_SBV_REF)")
     ap_.add_argument("--with-mcp", action="store_true", help="--backfill: thêm lịch sử Finhay")
     ap_.add_argument("--vcb-days", type=int, default=None, help="--backfill: số ngày lịch VCB (730)")
+    ap_.add_argument("--steps", default=None,
+                     help="--backfill: chỉ các bước, phẩy (fred,yahoo,vcb,mbk,gold-cache,fx)")
     sub.add_parser("assets-mcp",
                    help=f"Lượt MCP kho tài sản nếu lượt trước cũ hơn {ASSETS_MCP_STALE_H} giờ (pipeline)")
     mp = sub.add_parser("mcp-enrich",

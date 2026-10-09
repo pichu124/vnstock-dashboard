@@ -136,7 +136,32 @@ def test_usd_broad_estimate_uses_weights_and_shift():
     fx = {"2026-10-03": {"eur": 0.86, "cny": 7.1}, "2026-10-09": {"eur": 0.86 * 1.01, "cny": 7.1 * 1.01}}
     est, why = va.estimate_usd_broad({"2026-10-02": 121.38}, fx, w)
     assert why is None and est["anchor_date"] == "2026-10-02" and est["band_pct"] == va.USD_BROAD_BAND_PCT
-    assert est["value"] == pytest.approx(121.38 * 1.01)
+    assert est["value"] == pytest.approx(121.38 * 1.01) and est["date"] == "2026-10-08"   # file 09/10 ↔ Fed 08/10
+
+
+def test_usd_broad_estimate_dated_on_fed_weekday_and_counts_sessions():
+    """10/10 🖥️: file currency-api thứ Bảy (↔ Fed thứ Sáu) làm ước tính mang ngày thứ Bảy ⇒ kho
+    cuối tuần bỏ, `--show` "chưa có dữ liệu"; `h=7` đếm cả file cuối tuần. Nay: ngày Fed, h = phiên."""
+    w = {"eur": 1.0}
+    fx = {f"2026-10-{d:02d}": {"eur": 0.86 + d / 1000} for d in range(3, 11)}   # 03 (T7) … 10 (T7)
+    est, why = va.estimate_usd_broad({"2026-10-02": 121.38}, fx, w)
+    assert why is None and est["date"] == "2026-10-09" and est["h"] == 5
+    out, _ = va.refresh_estimates(TODAY, T, fx_days=fx)
+    assert "hidden" in out["USD_BROAD_EST"]                                # conftest chặn trọng số Fed
+    va._write_json(va.WEIGHTS_CACHE_NAME, {"fetched": TODAY.isoformat(), "year": 2026, "weights": w})
+    va.write("USD_BROAD", [va._row("2026-10-02", 121.38, "fred")], today=TODAY, fetched_at=T)
+    out, _ = va.refresh_estimates(date(2026, 10, 10), T, fx_days=fx)
+    assert out["USD_BROAD_EST"]["date"] == "2026-10-09" and "2026-10-09" in va.series("USD_BROAD_EST")
+
+
+def test_fx_cache_keys_latest_by_file_date_and_refetches_recent(monkeypatch):
+    va._write_json(va.FX_CACHE_NAME, {"2026-10-10": {"eur": 0.111}, "2026-10-01": {"eur": 0.8}})
+    got = []
+    monkeypatch.setattr(va.src, "fetch_fx_day", lambda d: got.append(d) or {"eur": 0.86})
+    monkeypatch.setattr(va.src, "fetch_fx_latest_dated", lambda: ("2026-10-09", {"eur": 0.87}))
+    cache = va.refresh_fx_cache(date(2026, 10, 10), days=10)
+    assert "2026-10-01" not in got and {"2026-10-07", "2026-10-10"} <= set(got)   # cũ giữ, gần tải lại
+    assert cache["2026-10-10"] == {"eur": 0.86} and cache["2026-10-09"] == {"eur": 0.87}
 
 
 def test_usd_broad_hidden_reason_names_the_broken_step():
@@ -276,6 +301,8 @@ def test_runpy_assets_commands_never_hard_fail(monkeypatch):
     assert runpy.cmd_assets(SimpleNamespace()) == 1 and seen[-1][-1] == "--refresh"
     runpy.cmd_assets(SimpleNamespace(backfill=True, with_mcp=True, vcb_days=30))
     assert seen[-1][-4:] == ["--backfill", "--with-mcp", "--vcb-days", "30"]
+    runpy.cmd_assets(runpy.build_parser().parse_args(["assets", "--backfill", "--steps", "mbk"]))
+    assert seen[-1][-3:] == ["--backfill", "--steps", "mbk"]
     assert runpy.cmd_assets_mcp(SimpleNamespace()) == 1 and seen[-1][-2:] == ["--mcp-stale", "6"]
     args = runpy.build_parser().parse_args(["assets", "--backfill", "--with-mcp"])
     assert args.backfill and args.with_mcp and runpy._DISPATCH["assets"] is runpy.cmd_assets
@@ -289,6 +316,44 @@ def test_runpy_assets_commands_never_hard_fail(monkeypatch):
 def test_cli_mcp_backfill_rejects_unknown_key(capsys):
     assert va.main(["--mcp-backfill", "--only", "SJC"]) == 2
     assert "khoá không có trong registry" in capsys.readouterr().out
+    assert va.main(["--backfill", "--steps", "mbk,abc"]) == 2
+    assert "bước không có: ['abc']" in capsys.readouterr().out
+
+
+def test_backfill_steps_runs_only_selected(monkeypatch):
+    calls = []
+    monkeypatch.setattr(va.src, "fetch_mbk_central",
+                        lambda a, b: calls.append((a, b)) or [("2026-10-08", 25629.0)])
+    monkeypatch.setattr(va.src, "fetch_fred", lambda *a, **k: pytest.fail("fred không được gọi"))
+    logs = []
+    rep = va.backfill(now=NOW, log=logs.append, tasks=_tasks(), steps={"mbk"})
+    assert set(rep) == {"mbk", "python"} and calls[0][0] == "2016-01-01"
+    assert va.series("USD_CENTRAL") == {"2026-10-08": 25629.0}
+
+
+def test_central_dating_live_in_show_and_doctor(tmp_path, monkeypatch):
+    """Kho chứa mbk lệch 1 phiên so giá tham khảo NHNN ⇒ `--show` in "LÙI 1 phiên" và doctor
+    réo; mbk đúng ngày ⇒ im."""
+    import vnstock_doctor as doc
+    meta = tmp_path / "wh" / "_meta"
+    meta.mkdir(parents=True)
+    monkeypatch.setattr(doc, "_META", meta)
+    monkeypatch.setattr(va, "ASSETS_DIR", meta.parent / "assets")
+    monkeypatch.setattr(va, "META_DIR", meta)
+    days = ["2026-09-29", "2026-09-30", "2026-10-01", "2026-10-02", "2026-10-05", "2026-10-06",
+            "2026-10-07", "2026-10-08"]
+    cen = dict(zip(days, (25650.0, 25647.0, 25651.0, 25640.0, 25636.0, 25643.0, 25638.0, 25634.0)))
+    va.write("USD_SBV_REF", [va._row(d, c * 1.05 - 50, "ssi", bid=c * 0.95 + 50, ask=c * 1.05 - 50)
+                             for d, c in cen.items()], today=TODAY, fetched_at=T)
+    va.write("USD_CENTRAL", [va._row(days[i - 1], cen[d], "mbk") for i, d in enumerate(days) if i],
+             today=TODAY, fetched_at=T)
+    assert "LÙI 1 phiên · lệch -1" in va.show(today=TODAY)
+    va.update_status("python", {"run_at": "2026-10-09T19:30:00", "status": "ok"})
+    r = doc.check_assets(NOW)
+    assert "tỷ giá trung tâm lệch ngày" in r["message"] and "--steps mbk" in r["fix"]
+    va.write("USD_CENTRAL", [va._row(d, c, "mbk") for d, c in cen.items()], today=TODAY, fetched_at=T)
+    assert va.central_dating()["verdict"] == "mbk ĐÚNG ngày"
+    assert "lệch ngày" not in doc.check_assets(NOW)["message"]
 
 
 def test_backfill_ends_with_python_pass_so_doctor_sees_a_run():

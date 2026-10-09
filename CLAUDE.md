@@ -197,6 +197,8 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   nguồn Python MỖI GIỜ qua task News Alert (`run.py news-alert` → `vnstock_assets.py --hourly`, trần 360s) +
   MCP giờ `VNSTOCK_ASSETS_MCP_HOURS`; chuỗi chậm chỉ hiện qua `*_EST` (USD rộng ±0,3%, WTI giao ngay ≤3 phiên;
   Brent giao ngay ẩn). Pipeline: `assets` sau gold, `assets-mcp` cuối. Doctor `assets`. P2 (tab 🪙) CHƯA làm.
+  ⚠️ SSI "SBVN" = giá tham khảo Cục QLNH (`USD_SBV_REF`), KHÔNG phải trung tâm; mbk ghi trung tâm LÙI 1 phiên
+  ⇒ `shift_mbk_dates` dời (đo 10/10, §9c) — `--show`/doctor kiểm lại ngày từ kho mỗi lần.
 - `vnstock_corp_ratio` — đọc TỈ LỆ QUYỀN từ tiêu đề sự kiện (hàm thuần).
   `adjusts_price(title)` lọc sự kiện chỉ chốt danh sách DỰ HỌP (ĐHĐCĐ, lấy ý
   kiến bằng văn bản) — chúng KHÔNG đổi giá tham chiếu, gắn ⚠️ GDKHQ cho chúng

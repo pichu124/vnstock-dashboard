@@ -23,7 +23,7 @@ MCP Finhay/SSI vào các giờ `VNSTOCK_ASSETS_MCP_HOURS` (mặc định 9,11,14
 `vnstock_assets_mcp`. Pipeline đêm có thêm bước `assets` (sau gold) và `assets-mcp` (sau
 brief). Kill-switch: `VNSTOCK_ASSETS=0` (tất cả) · `VNSTOCK_ASSETS_HOURLY=0` · `VNSTOCK_ASSETS_MCP=0`.
 
-CLI: `--refresh` · `--mcp` · `--hourly` · `--backfill [--with-mcp] [--vcb-days N]` ·
+CLI: `--refresh` · `--mcp` · `--hourly` · `--backfill [--with-mcp] [--vcb-days N] [--steps …]` ·
 `--mcp-backfill [--only KHOÁ,KHOÁ]` (chỉ lịch sử MCP, chạy lại phần hỏng) · `--show`.
 """
 from __future__ import annotations
@@ -66,6 +66,7 @@ XCHECK_WINDOW_H = 3               # dòng gần đây: chỉ so hai nguồn lấ
 XCHECK_KEEP = 60
 FX_CACHE_DAYS = 40
 FX_WINDOW_DAYS = 14               # số ngày tỷ giá cần cho ước tính USD rộng (neo trễ ≤7 ngày)
+FX_REFETCH_DAYS = 3               # tải lại N ngày gần nhất mỗi lượt (file ngày có thể ra muộn/sửa)
 WEIGHTS_MAX_AGE_D = 7
 LOCK_STALE_S = 30 * 60
 CURVE_MONTHS = 8
@@ -457,16 +458,21 @@ def run_tasks(tasks: list, secrets: tuple = ()) -> "tuple[dict, dict]":
 
 # ── Ước tính trong ngày ──────────────────────────────────────────────────────
 def refresh_fx_cache(today: date, meta: "Path | None" = None, days: int = FX_WINDOW_DAYS) -> dict:
-    """Bổ sung tỷ giá currency-api theo ngày còn thiếu (+ bản mới nhất dưới khoá hôm nay),
-    giữ FX_CACHE_DAYS ngày. Ngày quá khứ đã có thì không tải lại."""
+    """Bổ sung tỷ giá currency-api theo ngày còn thiếu + tải lại FX_REFETCH_DAYS ngày gần nhất
+    + bản "latest" dưới khoá NGÀY GHI TRONG FILE, giữ FX_CACHE_DAYS ngày. 10/10 01:00 VN: bản
+    latest vẫn là file 09/10 mà bị cất dưới khoá 10/10 và không bao giờ tải lại ⇒ chỉ số tự
+    tính đứng một ngày."""
     cache = _read_json(FX_CACHE_NAME, meta)
-    want = [(today - timedelta(days=i)).isoformat() for i in range(days, 0, -1)]
+    want = [(today - timedelta(days=i)).isoformat() for i in range(days, -1, -1)]
+    recent = set(want[-(FX_REFETCH_DAYS + 1):])
     for d in want:
-        if d not in cache:
+        if d not in cache or d in recent:
             with contextlib.suppress(Exception):
                 cache[d] = src.fetch_fx_day(d)
     with contextlib.suppress(Exception):
-        cache[today.isoformat()] = src.fetch_fx_latest()
+        d, rates = src.fetch_fx_latest_dated()
+        if d and d <= today.isoformat():
+            cache[d] = rates
     keep = sorted(cache)[-FX_CACHE_DAYS:]
     cache = {d: cache[d] for d in keep}
     _write_json(FX_CACHE_NAME, cache, meta)
@@ -495,7 +501,11 @@ def estimate_usd_broad(official: dict, fx_days: dict, weights: dict,
         return None, f"ẩn: thiếu trọng số Fed ({weights_err or 'chưa tải được'})"
     if not fx_days:
         return None, "ẩn: chưa có tỷ giá currency-api theo ngày (_meta/assets_fx_days.json)"
-    rep = src.replica_index(fx_days, weights)
+    # File currency-api ngày D+shift ↔ số Fed ngày D ⇒ chỉ giữ file ứng với NGÀY LÀM VIỆC của Fed:
+    # ước tính mang ngày Fed (không phải ngày file — 10/10 ước tính ghi thứ Bảy bị kho cuối tuần
+    # bỏ, `--show` in "chưa có dữ liệu") và `h` đếm PHIÊN, không đếm file cuối tuần.
+    rep = {d: v for d, v in src.replica_index(fx_days, weights).items()
+           if (date.fromisoformat(d) - timedelta(days=USD_BROAD_SHIFT)).weekday() < 5}
     if not rep:
         return None, (f"ẩn: chỉ số tự tính rỗng — {len(fx_days)} ngày tỷ giá, không ngày nào "
                       f"đủ {100 - 2:.0f}% trọng số")
@@ -507,7 +517,9 @@ def estimate_usd_broad(official: dict, fx_days: dict, weights: dict,
                       f"(chỉ số tự tính {min(rep)}→{max(rep)}, {len(rep)} ngày)")
     if est["h"] > USD_BROAD_MAX_H:
         return None, f"ẩn: {est['h']} phiên kể từ số Fed {est['anchor_date']} (> {USD_BROAD_MAX_H})"
-    return {**est, "band_pct": USD_BROAD_BAND_PCT, "method": "trọng số Fed × currency-api"}, None
+    fed_day = (date.fromisoformat(est["driver_date"]) - timedelta(days=USD_BROAD_SHIFT)).isoformat()
+    return {**est, "date": fed_day, "band_pct": USD_BROAD_BAND_PCT,
+            "method": "trọng số Fed × currency-api"}, None
 
 
 def estimate_wti_spot(official: dict, futures: dict) -> "tuple[dict | None, str | None]":
@@ -528,10 +540,10 @@ def refresh_estimates(today: date, fetched_at: str, *, meta=None, base=None,
     fx = fx_days if fx_days is not None else _read_json(FX_CACHE_NAME, meta)
     usd, why_usd = estimate_usd_broad(series("USD_BROAD", start=start, base=base), fx, w, werr)
     if usd:
-        flags += write("USD_BROAD_EST", [_row(usd["driver_date"], usd["value"], "est",
+        flags += write("USD_BROAD_EST", [_row(usd["date"], usd["value"], "est",
                                               meta={**usd, "weights_year": year})],
                        today=today, fetched_at=fetched_at, base=base)
-        out["USD_BROAD_EST"] = {"value": round(usd["value"], 2), "date": usd["driver_date"],
+        out["USD_BROAD_EST"] = {"value": round(usd["value"], 2), "date": usd["date"],
                                 "anchor": usd["anchor"], "anchor_date": usd["anchor_date"],
                                 "h": usd["h"], "band_pct": usd["band_pct"]}
     else:
@@ -617,13 +629,18 @@ def _gold_cache_rows() -> list:
     return []
 
 
+BACKFILL_STEPS = ("fred", "yahoo", "vcb", "mbk", "gold-cache", "fx")
+
+
 def backfill(*, with_mcp: bool = False, vcb_days: int = 730, now: "datetime | None" = None,
-             log=print, base=None, meta=None, tasks: "list | None" = None) -> dict:
+             log=print, base=None, meta=None, tasks: "list | None" = None,
+             steps: "set[str] | None" = None) -> dict:
     """MỘT LẦN sau khi merge (🖥️ desktop, ngoài giờ pipeline): lịch sử dài từ FRED, Yahoo,
     Vietcombank (theo ngày), vnstock_data (tỷ giá trung tâm), cache vàng cũ; --with-mcp thêm
     Finhay (vàng TG từ 2025, vàng đại lý, SJC miếng từ 2015) + đo lệch ngày mbk. Cuối cùng
     MỘT lượt Python như mỗi giờ (đường cong HĐTL, số hôm nay, ước tính, `status.python`) —
-    10/10 thiếu bước này nên doctor báo "chưa có lượt nào" dù kho đã đầy."""
+    10/10 thiếu bước này nên doctor báo "chưa có lượt nào" dù kho đã đầy. `steps` ⊂
+    BACKFILL_STEPS ⇒ chỉ chạy các bước đó (vd {"mbk"} để nạp lại tỷ giá trung tâm đã dời ngày)."""
     now = now or datetime.now()
     today = now.date()
     fetched_at = now.isoformat(timespec="seconds")
@@ -631,6 +648,9 @@ def backfill(*, with_mcp: bool = False, vcb_days: int = 730, now: "datetime | No
     report: dict = {}
 
     def step(name, fn):
+        if steps and name.split("-")[0] not in steps and name not in steps:
+            return
+        log(f"… {name}")
         t0 = time.monotonic()
         try:
             got = fn() or {}
@@ -678,20 +698,16 @@ def backfill(*, with_mcp: bool = False, vcb_days: int = 730, now: "datetime | No
         if not got_lock:
             log("⛔ tiến trình khác trên máy này đang ghi kho tài sản — thử lại sau")
             return {"status": "busy"}
-        log("… FRED (giao ngay EIA + USD rộng, toàn bộ lịch sử)")
         step("fred", fred_full)
         for name, key, sym in (("yahoo-brent", "BRENT", "BZ=F"), ("yahoo-wti", "WTI", "CL=F"),
                                ("yahoo-dxy", "DXY", "DX-Y.NYB"), ("yahoo-usdvnd", "USDVND", "VND=X")):
-            log(f"… Yahoo {sym} (max)")
             step(name, lambda key=key, sym=sym: {key: _yahoo_rows(sym, "max")})
-        log(f"… Vietcombank theo ngày ({vcb_days} ngày lịch, ~{vcb_days * 5 // 7} lượt)")
         step("vcb", vcb_hist)
-        log("… vnstock_data: tỷ giá trung tâm từ 2016")
         step("mbk", mbk_hist)
         step("gold-cache", lambda: {"XAU": _gold_cache_rows()})
-        log("… tỷ giá currency-api theo ngày (cho ước tính USD rộng)")
-        fx = refresh_fx_cache(today, meta, days=FX_CACHE_DAYS - 1)
-        log(f"  {'✅' if fx else '❌'} {len(fx)} ngày tỷ giá trong cache")
+        if not steps or "fx" in steps:
+            fx = refresh_fx_cache(today, meta, days=FX_CACHE_DAYS - 1)
+            log(f"  {'✅' if fx else '❌'} fx: {len(fx)} ngày tỷ giá currency-api trong cache")
     if with_mcp:
         import vnstock_assets_mcp as am
         report["mcp"] = am.backfill(now, log=log)
@@ -712,6 +728,50 @@ def _final_python_pass(log, now: datetime, *, base=None, meta=None, tasks=None) 
         log(f"  {k}: " + (e["hidden"] if e.get("hidden") else
                           f"{e['value']:,.2f} ±{e['band_pct']}% (neo {e['anchor_date']}, h={e['h']})"))
     return {k: res.get(k) for k in ("status", "ok", "fail", "estimates")}
+
+
+CENTRAL_SHIFTS = (-1, 0, 1)
+
+
+def verify_central(sbvn_rows: list, mbk: "dict[str, float]") -> dict:
+    """Tỷ giá trung tâm trong kho có ĐÚNG ngày không? Thước đo: (mua+bán)/2 tham khảo Cục QLNH
+    (SSI SBVN, `USD_SBV_REF`) — ≈ trung tâm CÙNG ngày, lệch 0–7 đ (báo chí 05–09/10: khớp 3/5).
+    Đo 🖥️ 10/10 trên mbk thô: +1 phiên khớp 32/62, đúng ngày 8/62 ⇒ `src.shift_mbk_dates`; sau
+    khi dời phải ra "ĐÚNG ngày" — `--show` và doctor đo lại mỗi lần từ kho, không cần mạng.
+    shift s: so giữa SBVN phiên D[i] với mbk phiên D[i−s] (lịch phiên SBVN); s=+1 ⇔ mbk ghi số
+    của phiên D vào phiên TRƯỚC. Phiên khớp = lệch ≤1 đ; shift thắng = nhiều phiên khớp nhất."""
+    mids = {r["date"]: (r["bid"] + r["ask"]) / 2 for r in sbvn_rows
+            if src.num(r.get("bid")) and src.num(r.get("ask"))}
+    days = sorted(mids)
+    tail = {d: mbk[d] for d in sorted(mbk)[-6:]}
+    stats = {}
+    for s in CENTRAL_SHIFTS:
+        diffs = sorted(abs(mids[d] - mbk[days[i - s]]) for i, d in enumerate(days)
+                       if 0 <= i - s < len(days) and days[i - s] in mbk)
+        if diffs:
+            stats[s] = {"n": len(diffs), "exact": sum(1 for x in diffs if x <= 1.0),
+                        "median_diff": round(diffs[len(diffs) // 2], 1)}
+    if not stats:
+        return {"n": 0, "verdict": "không có phiên chung với mbk — chưa kiểm được",
+                "sbvn_days": len(days), "mbk_tail": tail}
+    best = max(stats, key=lambda s: (stats[s]["exact"], -stats[s]["median_diff"], -abs(s)))
+    b = stats[best]
+    if b["n"] < 5 or b["exact"] < 3:
+        verdict = "chưa rõ (ít phiên chung / ít phiên khớp)"
+    elif best == 0:
+        verdict = "mbk ĐÚNG ngày"
+    else:
+        verdict = f"mbk ghi {'LÙI' if best > 0 else 'TIẾN'} {abs(best)} phiên"
+    return {"n": b["n"], "best_shift": best, "verdict": verdict,
+            "by_shift": {str(s): v for s, v in stats.items()}, "mbk_tail": tail}
+
+
+def central_dating(*, base=None) -> dict:
+    """`verify_central` trên kho: USD_SBV_REF (bid/ask) vs USD_CENTRAL nguồn mbk."""
+    ref = load("USD_SBV_REF", base=base)
+    cen = load("USD_CENTRAL", base=base)
+    mbk = {str(d): float(c) for d, c, s_ in zip(cen["date"], cen["close"], cen["source"]) if s_ == "mbk"}
+    return verify_central(ref.to_dict("records"), mbk)
 
 
 # ── Đọc cho UI/brief (P2) ────────────────────────────────────────────────────
@@ -807,10 +867,11 @@ def show(*, base=None, meta=None, today: "date | None" = None) -> str:
     lines.append(f"  VCB bán còn cách trần {room['ceiling']:,} (trung tâm {room['central']:,.0f} ngày "
                  f"{room['central_date']}): {room['pct']:.2f}%"
                  if room else "  Dư địa tới trần tỷ giá: chưa đủ dữ liệu")
-    cv = st.get("central_verify") or {}
-    if cv:
-        lines.append(f"  Ngày của tỷ giá trung tâm mbk (đo {str(cv.get('run_at'))[:10]}): {cv.get('verdict')} "
-                     f"· theo lệch phiên {cv.get('by_shift')}")
+    cv = central_dating(base=base)
+    if cv.get("n"):
+        by = cv.get("by_shift") or {}
+        lines.append(f"  Ngày tỷ giá trung tâm (so giá tham khảo NHNN, {cv['n']} phiên): {cv['verdict']} · "
+                     + " · ".join(f"lệch {k}: khớp {v['exact']}/{v['n']}" for k, v in by.items()))
     for k, e in (st.get("estimates") or {}).items():
         lines.append(f"  {k}: " + (e["hidden"] if e.get("hidden") else
                      f"{e['value']:,.2f} ±{e['band_pct']}% ({e['date']}, neo {e['anchor']:,.2f} ngày "
@@ -842,6 +903,7 @@ def main(argv: "list[str] | None" = None) -> int:
                    help="pipeline: lượt MCP nếu lượt trước cũ hơn GIỜ giờ")
     ap.add_argument("--with-mcp", action="store_true", help="--backfill: thêm lịch sử Finhay + kiểm SBVN")
     ap.add_argument("--vcb-days", type=int, default=730)
+    ap.add_argument("--steps", help=f"--backfill: chỉ các bước, phẩy ({','.join(BACKFILL_STEPS)})")
     ap.add_argument("--only", help="--mcp-backfill: khoá kho, phẩy (vd GOLD_SJC_BAR,USD_SBV_REF)")
     a = ap.parse_args(argv)
     with contextlib.suppress(Exception):
@@ -854,7 +916,11 @@ def main(argv: "list[str] | None" = None) -> int:
         print(f"[assets] tắt ({ENV_SWITCH}=0)")
         return 0
     if a.backfill:
-        rep = backfill(with_mcp=a.with_mcp, vcb_days=a.vcb_days)
+        steps = {x.strip().lower() for x in (a.steps or "").split(",") if x.strip()} or None
+        if steps and steps - set(BACKFILL_STEPS):
+            print(f"[assets] bước không có: {sorted(steps - set(BACKFILL_STEPS))} — chọn trong {BACKFILL_STEPS}")
+            return 2
+        rep = backfill(with_mcp=a.with_mcp, vcb_days=a.vcb_days, steps=steps)
         print(show())
         return 0 if all(v.get("ok", True) for v in rep.values() if isinstance(v, dict)) else 1
     if a.mcp_backfill:

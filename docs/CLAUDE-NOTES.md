@@ -7008,6 +7008,16 @@ là 25.634) — chưa dời ngày, `verify_central` đo lệch −1/0/+1 trên ~
 không chạy lượt Python ⇒ đường cong trống, doctor "chưa có lượt nào", USD rộng ẩn không rõ lý do ⇒
 backfill chốt bằng lượt Python + lý do ẩn chỉ đúng khâu. Test assets 40 → 48.
 
+**🖥️ vòng 2 10/10 01:03 + sửa (thiết kế §9c):** SJC miếng 2015→nay 4.303 dòng, `USD_SBV_REF` 67, đường cong
+Brent/WTI có, 21/22 chuỗi trong ngày. **mbk ghi LÙI 1 phiên — xác nhận** (62 phiên: +1 khớp 32 vs đúng ngày
+8; báo chí 01→08/10 khớp từng đồng, thứ Sáu mbk = số thứ Hai NHNN) ⇒ `shift_mbk_dates` trong
+`fetch_mbk_central` (sang ngày làm việc kế tiếp CÓ trong chuỗi; dòng cuối theo lịch; trùng đích dòng sau
+thắng) + `central_dating()` đo SỐNG từ kho ở `--show` và doctor (warn khi lệch ≠ 0). Ước tính USD rộng
+tính ra 121,23 mà không vào kho: mang ngày FILE thứ Bảy ⇒ kho bỏ cuối tuần — nay mang ngày Fed (file −
+1), h đếm phiên. Cache currency-api: "latest" lúc 01:00 là file hôm qua cất dưới khoá hôm nay và không
+tải lại ⇒ nay khoá theo `date` trong file + tải lại 3 ngày gần nhất. Thêm `--backfill --steps …`. Test
+assets 48 → 57.
+
 # 🪙 U81. ĐA TÀI SẢN VÀNG · DẦU · USD — P0 ĐO NGUỒN (09/10)
 
 **User 09/10:** mở rộng dashboard sang tài sản khác, trước hết vàng/dầu/USD; lên kế hoạch, duyệt rồi mới

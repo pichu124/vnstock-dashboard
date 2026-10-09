@@ -1021,7 +1021,8 @@ def check_assets(now: "datetime | None" = None) -> dict:
     """Kho đa tài sản vàng · dầu · USD (U82, `docs/THIET-KE-DA-TAI-SAN.md`): lượt Python mỗi
     giờ (ghép task News Alert) có chạy không; chuỗi hiện màn chính có số TRONG NGÀY không (chuẩn
     user 09/10 — thị trường nghỉ cuối tuần được 3 ngày); lượt MCP trong ~1 ngày; cờ lệch nguồn
-    24 giờ. Brief CHƯA đọc kho này ⇒ chỉ warn, không bao giờ error."""
+    24 giờ; tỷ giá trung tâm đúng NGÀY (so giá tham khảo NHNN — mbk từng ghi lùi 1 phiên, 10/10).
+    Brief CHƯA đọc kho này ⇒ chỉ warn, không bao giờ error."""
     name = "Kho tài sản (vàng · dầu · USD)"
     if os.environ.get("VNSTOCK_ASSETS", "1").strip().lower() in _OFF_VALUES:
         return _result("assets", name, "off", "tắt (VNSTOCK_ASSETS=0)", "")
@@ -1073,6 +1074,16 @@ def check_assets(now: "datetime | None" = None) -> dict:
         issues.append(f"{len(flags)} cờ lệch nguồn 24h (gần nhất {f.get('key')} {f.get('date')} "
                       f"{f.get('kind')} {f.get('dev_pct', '')}%)")
         fixes.append("○ python run.py assets --show — lệch kéo dài ⇒ nguồn đổi công cụ, báo Claude")
+    try:
+        cv = va.central_dating(base=base)
+    except Exception:                                              # noqa: BLE001
+        cv = {}
+    if cv.get("n", 0) >= 5 and cv.get("best_shift", 0) != 0 and not cv["verdict"].startswith("chưa rõ"):
+        b = cv["by_shift"][str(cv["best_shift"])]
+        issues.append(f"tỷ giá trung tâm lệch ngày so giá tham khảo NHNN: {cv['verdict']} "
+                      f"(khớp {b['exact']}/{b['n']} phiên)")
+        fixes.append("🖥️ DESKTOP: python run.py assets --backfill --steps mbk (nạp lại, ngày đã dời) — "
+                     "còn lệch ⇒ vnstock_data đổi cách ghi ngày, báo Claude")
     usd = (st.get("estimates") or {}).get("USD_BROAD_EST") or {}
     head = (f"{len(shown) - len(stale)}/{len(shown)} chuỗi trong ngày · MCP {mcp.get('status') or '—'}"
             + (f" · USD rộng ước tính {usd['value']:,.2f} ±{usd['band_pct']}%" if usd.get("value") else ""))

@@ -163,7 +163,7 @@ def _sbvn_rows(week=SBVN_WEEK):
 
 
 def test_verify_central_detects_shift():
-    on_time = am.verify_central(_sbvn_rows(), OFFICIAL)
+    on_time = va.verify_central(_sbvn_rows(), OFFICIAL)
     assert on_time["best_shift"] == 0 and on_time["by_shift"]["0"]["exact"] == 3
     assert on_time["verdict"] == "mbk ĐÚNG ngày"
     # 8 phiên tổng hợp (giữa SBVN = trung tâm), mbk ghi số phiên D vào phiên TRƯỚC.
@@ -172,11 +172,11 @@ def test_verify_central_detects_shift():
     central = dict(zip(days, (25650.0, 25647.0, 25651.0, 25640.0, 25636.0, 25643.0, 25638.0, 25634.0)))
     week = [(d, c * 0.95 + 50, c * 1.05 - 50) for d, c in central.items()]
     lagged = {days[i - 1]: central[d] for i, d in enumerate(days) if i}
-    res = am.verify_central(_sbvn_rows(week), lagged)
+    res = va.verify_central(_sbvn_rows(week), lagged)
     assert res["best_shift"] == 1 and res["by_shift"]["1"] == {"n": 7, "exact": 7, "median_diff": 0.0}
     assert res["verdict"] == "mbk ghi LÙI 1 phiên" and list(res["mbk_tail"])[-1] == "2026-10-07"
-    assert am.verify_central(_sbvn_rows(), {})["n"] == 0
-    assert am.verify_central(_sbvn_rows()[:2], OFFICIAL)["verdict"].startswith("chưa rõ")
+    assert va.verify_central(_sbvn_rows(), {})["n"] == 0
+    assert va.verify_central(_sbvn_rows()[:2], OFFICIAL)["verdict"].startswith("chưa rõ")
 
 
 def test_backfill_runs_sessions_and_records_verify():
@@ -196,8 +196,8 @@ def test_backfill_runs_sessions_and_records_verify():
     assert rep["XAU"]["ok"] and rep["central_verify"]["verdict"] == "mbk ĐÚNG ngày"
     assert va.series("XAU")["2025-01-02"] == 2657.29
     assert va.series("GOLD_SJC_BAR")["2016-01-01"] == 32_920_000          # 3.292 nghìn đ/chỉ
-    assert va.read_status()["central_verify"]["n"] == 5
     assert va.series("USD_SBV_REF")["2026-10-09"] == 26860.0
+    assert va.central_dating()["verdict"] == "mbk ĐÚNG ngày"          # đo lại từ kho, không mạng
 
 
 def test_backfill_only_runs_selected_keys():

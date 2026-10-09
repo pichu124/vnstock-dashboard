@@ -209,22 +209,32 @@ def parse_usd_rates(payload) -> "dict[str, float]":
             if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0}
 
 
-def _first_ok(urls) -> dict:
+def _first_ok_dated(urls) -> "tuple[str | None, dict]":
+    """(ngày GHI TRONG file, tỷ giá) — file "latest" lúc 01:00 VN vẫn là file hôm qua."""
     last = None
     for url in urls:
         try:
             st, txt = HTTP("GET", url)
-            rates = parse_usd_rates(json.loads(_ok(st, txt)))
+            payload = json.loads(_ok(st, txt))
+            rates = parse_usd_rates(payload)
             if rates:
-                return rates
+                return (iso(payload.get("date")) if isinstance(payload, dict) else None), rates
             last = ValueError("payload rỗng")
         except Exception as e:                                   # noqa: BLE001
             last = e
     raise last or ValueError("không nguồn nào")
 
 
+def _first_ok(urls) -> dict:
+    return _first_ok_dated(urls)[1]
+
+
 def fetch_fx_latest() -> "dict[str, float]":
     return _first_ok(FX_LATEST_URLS)
+
+
+def fetch_fx_latest_dated() -> "tuple[str | None, dict[str, float]]":
+    return _first_ok_dated(FX_LATEST_URLS)
 
 
 def fetch_fx_day(d: str) -> "dict[str, float]":
@@ -438,8 +448,35 @@ def parse_mbk_central(df) -> "list[tuple[str, float]]":
         return []
 
 
+def _next_weekday(d: str) -> str:
+    x = date.fromisoformat(d) + timedelta(days=1)
+    while x.weekday() >= 5:
+        x += timedelta(days=1)
+    return x.isoformat()
+
+
+def shift_mbk_dates(rows: "list[tuple[str, float]]") -> "list[tuple[str, float]]":
+    """mbk ghi tỷ giá trung tâm của phiên D vào ngày TRƯỚC — đo 🖥️ 10/10: so với giá tham
+    khảo Cục QLNH 62 phiên, lệch +1 phiên khớp 32 (trung vị lệch 1 đ) vs đúng ngày 8 (10 đ);
+    đối chiếu báo chí 01→08/10 khớp từng đồng (mbk 01/10 = 25.636 = NHNN 02/10; mbk thứ Sáu
+    02/10 = NHNN thứ Hai 05/10; mbk 08/10 = 25.629 = NHNN 09/10).
+
+    Dời giá ở ngày d sang NGÀY LÀM VIỆC kế tiếp CÓ trong chuỗi mbk (qua được nghỉ lễ); dòng
+    cuối ⇒ ngày làm việc kế tiếp theo lịch. Hai dòng cùng đích ⇒ dòng ghi SAU thắng (mbk có
+    dòng cuối tuần thì dòng CN — số thứ Hai nếu mbk lùi theo ngày lịch — đè dòng thứ Sáu)."""
+    import bisect
+    rows = sorted(rows)
+    work = [d for d, _ in rows if date.fromisoformat(d).weekday() < 5]
+    out: dict = {}
+    for d, v in rows:
+        i = bisect.bisect_right(work, d)
+        out[work[i] if i < len(work) else _next_weekday(d)] = v
+    return sorted(out.items())
+
+
 def fetch_mbk_central(start: str, end: str) -> "list[tuple[str, float]]":
-    """Rỗng khi máy không có vnstock_data (laptop/CI) — nguồn phụ, không bắt buộc."""
+    """Rỗng khi máy không có vnstock_data (laptop/CI) — nguồn phụ, không bắt buộc. Ngày đã
+    dời về đúng phiên (`shift_mbk_dates`)."""
     import contextlib
     import io
     try:
@@ -449,7 +486,7 @@ def fetch_mbk_central(start: str, end: str) -> "list[tuple[str, float]]":
             df = Macro().exchange_rate(start=start, end=end, period="day")
     except Exception:                                            # noqa: BLE001
         return []
-    return parse_mbk_central(df)
+    return shift_mbk_dates(parse_mbk_central(df))
 
 
 def fred_key() -> str:
