@@ -1,4 +1,7 @@
-"""dashboard/assets_tab.py — tab "🪙 Hàng hoá & Tiền tệ" (P2 đa tài sản, U83).
+"""dashboard/assets_tab.py — tab "💱 Hàng hoá & Tiền tệ" (P2 đa tài sản, U83).
+
+Nhãn tab dùng 💱 chứ không 🪙: 🪙 (Emoji 13) không có trong font emoji của Windows 10 ⇒ desktop vẽ
+thành ô vuông (10/10). Mục brief vẫn 🪙 — Telegram tự vẽ emoji.
 
 CHỈ ĐỌC kho `data_warehouse/assets` (P1, `docs/THIET-KE-DA-TAI-SAN.md` §9): số do task tin mỗi giờ
 (🖥️ desktop) + MCP Finhay/SSI ghi; tab không gọi mạng, không gọi LLM. Số tính ở
@@ -28,7 +31,7 @@ def render_assets_tab() -> None:
     except ImportError as e:
         st.error(f"Không nạp được kho tài sản: {e}")
         return
-    st.markdown("### 🪙 Hàng hoá & Tiền tệ")
+    st.markdown("### 💱 Hàng hoá & Tiền tệ")
     info = av.run_info()
     if not info["python_at"] and not av.card("XAU"):
         st.info("Kho tài sản trống — 🖥️ DESKTOP, ngoài khung pipeline: "

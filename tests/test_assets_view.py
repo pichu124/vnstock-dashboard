@@ -1,4 +1,4 @@
-"""P2 tab "🪙 Hàng hoá & Tiền tệ" (U83): số thuần `vnstock_assets_view` + render thử
+"""P2 tab "💱 Hàng hoá & Tiền tệ" (U83): số thuần `vnstock_assets_view` + render thử
 `dashboard/assets_tab.py` bằng Streamlit giả trên kho tạm (conftest `_assets_hermetic_anywhere`).
 
 Render thử chỉ trả lời "code có chạy hết không" (như `test_tab_render_smoke`) — mỗi mục Vàng/Dầu/USD
@@ -174,8 +174,9 @@ def test_assets_tab_empty_store_tells_how_to_fill(fake_st):
 
 def test_tab_is_wired_into_navigation():
     src = open("vnstock_dashboard.py", encoding="utf-8").read()
-    assert '"🪙 Hàng hoá & Tiền tệ"' in src.split("_TAB_OPTIONS = ")[1].split("]")[0]
-    assert 'if _active_tab == "🪙 Hàng hoá & Tiền tệ":' in src and "render_assets_tab()" in src
+    assert '"💱 Hàng hoá & Tiền tệ"' in src.split("_TAB_OPTIONS = ")[1].split("]")[0]
+    assert 'if _active_tab == "💱 Hàng hoá & Tiền tệ":' in src and "render_assets_tab()" in src
+    assert "🪙" not in src.split("_TAB_OPTIONS = ")[1].split("]")[0]     # ô vuông trên Windows 10 (10/10)
 
 
 def test_no_dollar_sign_in_tab_text():
@@ -183,3 +184,17 @@ def test_no_dollar_sign_in_tab_text():
     "+1.50$ (+1.46%) · … +7.50$" vỡ thành khối mã) ⇒ tab ghi "USD", không dùng ký hiệu $."""
     src = open("dashboard/assets_tab.py", encoding="utf-8").read()
     assert "$" not in src
+
+
+def test_agreement_table_dashes_when_no_common_day(monkeypatch):
+    """Cặp chưa có ngày chung in "—", không in 0 (đọc nhầm thành "khớp tuyệt đối") hay None (10/10)."""
+    monkeypatch.setattr(va, "agreement_all", lambda **kw: {
+        "XAU": {"finhay~gold-api": {"n": 0, "window": 0, "bad": 0, "tol_pct": 0.8, "max_abs_pct": 0.0,
+                                    "last": None, "status": "chưa đủ"}},
+        "BRENT": {"finhay~yahoo": {"n": 5, "window": 5, "bad": 0, "tol_pct": 1.0, "max_abs_pct": 0.288,
+                                   "last": {"date": "2026-10-09", "dev_pct": -0.288}, "status": "đạt"}}})
+    df = av.agreement_table(today=date(2026, 10, 10))
+    empty, ok = df.iloc[0], df.iloc[1]
+    assert (empty["Lệch lớn nhất %"], empty["Lệch ngày cuối %"], empty["Ngưỡng %"]) == ("—", "—", "0.8")
+    assert (ok["Lệch lớn nhất %"], ok["Lệch ngày cuối %"], ok["Lệch > ngưỡng / 5 phiên"]) == ("0.288", "-0.288", "0/5")
+    assert "None" not in df.astype(str).to_string()

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""vnstock_assets_view.py — số cho tab "🪙 Hàng hoá & Tiền tệ" (P2, U83).
+"""vnstock_assets_view.py — số cho tab "💱 Hàng hoá & Tiền tệ" (P2, U83).
 
 THUẦN: chỉ đọc kho `data_warehouse/assets` qua `vnstock_assets`, không mạng, không Streamlit —
 tab `dashboard/assets_tab.py` chỉ vẽ. Mọi hàm nhận `base` (thư mục kho) để test dựng kho tạm.
@@ -194,10 +194,14 @@ def agreement_table(*, today: "date | None" = None, meta=None) -> pd.DataFrame:
     for key, pairs in va.agreement_all(today=today or date.today(), meta=meta).items():
         for pair, a in pairs.items():
             last = a["last"] or {}
+            has = bool(a["window"])                     # chưa có ngày chung ⇒ "—", không in 0 (đọc nhầm là khớp)
             rows.append({"Chuỗi": va.REGISTRY[key].label, "Cặp nguồn": pair.replace("~", " ↔ "),
                          "Trạng thái": a["status"], f"Lệch > ngưỡng / {va.GATE_N} phiên": f"{a['bad']}/{a['window']}",
-                         "Ngưỡng %": a["tol_pct"], "Lệch lớn nhất %": a["max_abs_pct"],
-                         "Lệch ngày cuối %": last.get("dev_pct"), "Ngày chung": a["n"]})
+                         "Ngưỡng %": f"{a['tol_pct']:g}",
+                         "Lệch lớn nhất %": f"{a['max_abs_pct']:.3f}" if has else "—",
+                         "Lệch ngày cuối %": f"{last['dev_pct']:+.3f}" if has and last.get("dev_pct") is not None
+                         else "—",
+                         "Ngày chung": a["n"]})
     return pd.DataFrame(rows)
 
 

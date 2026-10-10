@@ -7008,6 +7008,7 @@ bằng `st.tabs`, mỗi mục tự bắt lỗi ⇒ `st.warning`) + nối `_TAB_O
 màu theo thực thể, tham chiếu xám nét đứt). Render thật bằng Streamlit + Chromium trên kho mẫu ⇒ bắt 4 lỗi
 chỉ mắt thấy: `$` trong caption thành công thức toán, caption không xuống dòng ("  \n"), trục ngày tiếng Anh,
 chuỗi 1 điểm vô hình. Test `tests/test_assets_view.py` 11 (whitelist). Chờ user ○ mở tab thật.
+**Tab thật 🖥️ 10/10 tối (U27 đóng):** 4 mục vẽ đủ, không `st.warning`. Hai lỗi chỉ mắt thấy, đã vá: (1) 🪙 (Emoji 13) KHÔNG có trong font emoji Windows 10 ⇒ nhãn tab + tiêu đề thành ô vuông ⇒ tab đổi 💱 (Unicode 6.0); mục brief + tin cảnh báo giữ 🪙 vì Telegram tự vẽ emoji (đổi tiêu đề mục = đụng chuỗi guard ⇒ phải test FULL, U65 — không đáng). (2) bảng đối chiếu: cặp chưa có ngày chung in `0` (đọc nhầm "khớp tuyệt đối") và `None` ⇒ nay "—". Số đọc được trên ảnh: Brent−WTI +12,87 USD (cao bất thường so 3–5 lịch sử, nhưng CẢ HAI chân qua đối chiếu Finhay↔Yahoo lệch ≤0,3% ⇒ số thật); WTI giao ngay ước tính 98,83 > HĐTL 91,85 vì neo EIA 95,24 (06/10) — phí giao ngay của chính EIA, không phải lỗi ước tính.
 
 # 🪙 U82. KHO ĐA TÀI SẢN — P1 CODE (09/10 tối)
 

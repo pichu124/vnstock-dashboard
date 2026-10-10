@@ -93,7 +93,7 @@ def _save(led: dict, now: datetime, meta=None) -> None:
 def compose(items: "list[dict]", now: datetime) -> str:
     return "\n".join([f"🪙 Biến động mạnh — vàng · dầu · USD ({now:%H:%M %d/%m})"]
                      + [i["text"] for i in items]
-                     + ["Nguồn: kho tài sản (Finhay/Yahoo/VCB/SJC) · chi tiết ở tab 🪙 trên dashboard."])
+                     + ["Nguồn: kho tài sản (Finhay/Yahoo/VCB/SJC) · chi tiết ở tab Hàng hoá & Tiền tệ trên dashboard."])
 
 
 def _default_send(text: str) -> bool:

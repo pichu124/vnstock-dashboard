@@ -196,7 +196,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   MỘT công cụ (giao ngay ≠ HĐTL); lệch nguồn ⇒ cờ `xcheck`. **Chuẩn user: số quốc tế phải có TRONG NGÀY** ⇒
   nguồn Python MỖI GIỜ qua task News Alert (`run.py news-alert` → `vnstock_assets.py --hourly`, trần 360s) +
   MCP giờ `VNSTOCK_ASSETS_MCP_HOURS`; chuỗi chậm chỉ hiện qua `*_EST` (USD rộng ±0,3%, WTI giao ngay ≤3 phiên;
-  Brent giao ngay ẩn). Pipeline: `assets` sau gold, `assets-mcp` cuối. Doctor `assets`. Tab 🪙 (P2, U83):
+  Brent giao ngay ẩn). Pipeline: `assets` sau gold, `assets-mcp` cuối. Doctor `assets`. Tab 💱 (P2, U83; nhãn KHÔNG dùng 🪙 — Windows 10 vẽ ô vuông, brief/Telegram vẫn 🪙):
   `dashboard/assets_tab.py` chỉ vẽ, số ở `vnstock_assets_view` (thuần; % đổi theo NGÀY LỊCH); không `$` trong caption.
   P3 đối chiếu MCP↔Python (`agreement`, sổ `_meta/assets_sources.json`) · P4 `vnstock_assets_links` (beta riêng 60p)
   · P5: mục 🪙 brief = dòng CODE (`vnstock_assets_brief` → guard `enforce_assets_section`), cảnh báo biến động mỗi giờ
