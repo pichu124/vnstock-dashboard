@@ -417,15 +417,15 @@ def test_ledger_keeps_every_source_per_day_while_store_keeps_one():
 
 def test_agreement_gate_states():
     _two_sources("BRENT", "finhay", "yahoo", [100.0] * 6, [100.3, 100.2, 100.1, 100.4, 100.5, 102.0])
-    a = va.agreement("BRENT")["finhay~yahoo"]
+    a = va.agreement("BRENT", today=TODAY)["finhay~yahoo"]
     assert a["status"] == "đạt" and a["bad"] == 1 and a["window"] == 5 and a["last"]["date"] == "2026-10-08"
     _two_sources("WTI", "finhay", "yahoo", [90.0] * 6, [90.0, 90.0, 90.0, 90.0, 92.0, 92.0])
-    assert va.agreement("WTI")["finhay~yahoo"]["status"] == "lệch"
+    assert va.agreement("WTI", today=TODAY)["finhay~yahoo"]["status"] == "lệch"
     _two_sources("XAU", "finhay", "gold-api", [4180.0] * 3, [4181.0] * 3, days=_CLOSED[:3])
-    assert va.agreement("XAU")["finhay~gold-api"]["status"] == "chưa đủ"
+    assert va.agreement("XAU", today=TODAY)["finhay~gold-api"]["status"] == "chưa đủ"
     va.write("XAU", [va._row("2026-10-09", 4182.0, "finhay"), va._row("2026-10-09", 4300.0, "gold-api")],
              today=TODAY, fetched_at=T)
-    assert va.agreement("XAU")["finhay~gold-api"]["n"] == 3          # hôm nay chưa đóng ⇒ không chấm
+    assert va.agreement("XAU", today=TODAY)["finhay~gold-api"]["n"] == 3          # hôm nay chưa đóng ⇒ không chấm
     g = va.gate_summary(va.agreement_all(today=TODAY))
     assert g["đạt"] == ["BRENT"] and g["lệch"] == ["WTI"] and "XAU" in g["chưa đủ"]
     text = va.show(today=TODAY)
