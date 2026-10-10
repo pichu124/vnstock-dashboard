@@ -7380,6 +7380,7 @@ Chờ 🖥️ desktop `git pull` + test FULL trước 18:00.
 - **Khi nào thấy dòng đầu tiên:** lượt `fundamentals` T7 10/10 chỉ dựng MỐC. Op.CF đổi kỳ
   sớm nhất tháng 1/2027 (lũy kế 2026); D/E tuỳ hàng ratio VCI trả (năm ⇒ quý 1–2/2027;
   có hàng quý/TTM ⇒ theo quý) — xem phân bố kỳ trong lệnh soi sau T7.
+- **ĐO 10/10 (U19, 🖥️ sau lượt `fundamentals` T7): sổ MỐC 1.694 mã, 0 sự kiện.** `de` 1.665 mã — Q2/2026 ×1.489 · Q4/2025 ×36 · Q1/2026 ×22 · Q3/2025 ×18 ⇒ **D/E theo QUÝ** (`period="year"` vẫn ra hàng quý mới nhất qua `_best_ratio_row`). `ocf` 1.673 mã — năm 2025 ×1.492 · 2024 ×33 · 2021 ×24 · 2022 ×21 ⇒ **Op.CF theo NĂM**. Nhịp in lại: nửa D/E bắn mùa BCTC Q3 (~20/10 → giữa 11, lượt T7 thấy ⇒ phiên chiều T2 kế tiếp), mỗi kỳ mới chạm bảng đúng 1 phiên; nửa Op.CF sớm nhất 01/2027. Giữ nguyên thiết kế. Đuôi kỳ cũ (D/E ≤Q4/2025 54 mã, Op.CF ≤2024 78 mã) là mã ít giao dịch/nguồn thiếu — bảng cực trị chỉ xét VN30 + mã thanh khoản + mã đang giữ/lệnh mở và CHƯA lọc tuổi kỳ; chưa thấy ca nào lọt (đếm, chưa vá).
 
 **Còn:** ngưỡng R4–R7 chỉ chỉnh khi sổ brief_watch đủ mẫu.
 
