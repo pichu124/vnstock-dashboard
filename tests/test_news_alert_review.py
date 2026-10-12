@@ -370,3 +370,108 @@ def test_recheck_context_drops_titles_older_than_sent_window(monkeypatch):
         return {i: _rev(80) for i in range(len(rows))}, None
     assert na.recheck_sent(48, now=NOW, reviewer=_rv) == 0
     assert ctxs[1] == []                                                   # lô 1 gửi 30h trước tin đầu lô 2 > 24h
+
+
+# ── chỉ tiêu ~1 tin/giờ (12/10) ────────────────────────────────────────────
+
+
+_QUOTA_ITEMS = [("NHNN nâng lãi suất tái cấp vốn", 85, _rev(75, 85)),
+                ("Tỷ giá trung tâm tăng phiên thứ năm", 80, _rev(50, 60)),
+                ("Xuất khẩu tháng 9 vượt kế hoạch quý", 78, _rev(45, 50)),
+                ("Lịch kinh tế tuần tới: CPI Mỹ", 76, _rev(20, 40))]
+
+
+def _quota_run(monkeypatch, items=_QUOTA_ITEMS, now=NOW, **kw):
+    raws = [_raw(t, f"https://a.vn/body-{k}", hours_ago=0.1 * k) for k, (t, _, _) in enumerate(items)]
+    calls = _fake_claude(monkeypatch, {t[:12]: _hit(s1) for t, s1, _ in items},
+                         {t[:12]: rv for t, _, rv in items}, review_err=kw.pop("review_err", None))
+    sent, sender = _spy()
+    na.run(now=now, sources=[_src(raws)], engine="claude", min_score=kw.pop("min_score", 75),
+           sender=sender, **kw)
+    return sent, calls
+
+
+def test_quota_tops_up_best_reviewed_items_above_floor(monkeypatch):
+    sent, _ = _quota_run(monkeypatch)
+    msg = sent[0]
+    assert "NHNN" in msg and "Tỷ giá" in msg and "Xuất khẩu" in msg and "Lịch kinh tế" not in msg
+    assert msg.index("Tỷ giá") < msg.index("Xuất khẩu")                  # đọc cao trước
+    assert msg.count("➕ tin bù") == 2
+    assert ("1 tin ≥ 75/100 · đáng đọc ≥ 60 + 2 tin bù cho đủ ~1 tin/giờ (đọc ≥ 40, tác động ≥ 30)"
+            in msg)
+    seen = na.load_seen()["items"].values()
+    assert sorted(r["title"][:6] for r in seen if r.get("topup")) == ["Tỷ giá", "Xuất k"]
+    st = na.read_status()
+    assert (st["topup"], st["target_per_h"], st["sent_24h"], st["rejected"]) == (2, 1.0, 3, 1)
+
+
+def test_quota_met_by_recent_sends_sends_only_items_above_gate(monkeypatch):
+    seen = {"items": {f"old{k}": {"title": f"Tin cũ số {k} về chủ đề khác", "score": 80, "sent": True,
+                                  "first_seen": (NOW - timedelta(hours=k + 1)).isoformat(),
+                                  "sent_at": (NOW - timedelta(hours=k + 1)).isoformat()}
+                      for k in range(2)}}
+    na.save_seen(seen)
+    sent, _ = _quota_run(monkeypatch)                                    # 3h qua đã 2 + lượt này 1 = 3
+    assert "NHNN" in sent[0] and "➕ tin bù" not in sent[0] and "Tỷ giá" not in sent[0]
+
+
+def test_quota_off_keeps_pool_at_min_score(monkeypatch):
+    monkeypatch.setenv(na.ENV_TARGET_PER_H, "0")
+    items = _QUOTA_ITEMS[:2] + [("Tín dụng 9 tháng tăng 11%", 40, _rev(70, 45))]
+    sent, calls = _quota_run(monkeypatch, items)
+    assert "Tỷ giá" not in sent[0] and "➕" not in sent[0]
+    assert "Tín dụng" not in "".join(calls["review"])                    # dưới ngưỡng ⇒ không đọc kỹ
+    assert na.read_status()["target_per_h"] == 0
+
+
+def test_quota_widens_review_pool_down_to_floor_score(monkeypatch):
+    items = [("Tín dụng 9 tháng tăng 11%", 40, _rev(70, 45)),
+             ("Doanh nghiệp FDI rút vốn nhỏ giọt", 25, _rev(70, 45))]   # dưới sàn tác động 30
+    sent, calls = _quota_run(monkeypatch, items)
+    reviewed = "".join(calls["review"])
+    assert "Tín dụng" in reviewed and "Doanh nghiệp FDI" not in reviewed
+    assert "Tín dụng" in sent[0] and "➕ tin bù" in sent[0] and "0 tin ≥ 75/100" in sent[0]
+
+
+def test_quota_never_tops_up_when_review_fails(monkeypatch):
+    """Claude hỏng ở bước đọc kỹ ⇒ lượt đó gửi theo tác động (≥ ngưỡng thường) như cũ;
+    tin chỉ nằm trong kho dự bị (tác động 40 < 75) không đi — chưa ai đọc nó."""
+    items = _QUOTA_ITEMS[:1] + [("Tín dụng 9 tháng tăng 11%", 40, _rev(70, 45))]
+    sent, _ = _quota_run(monkeypatch, items, review_err="CLI timeout 150s")
+    assert "NHNN" in sent[0] and "Tín dụng" not in sent[0]
+    assert "➕" not in sent[0] and "Claude lỗi ở bước đọc kỹ" in sent[0]
+    assert na.read_status()["topup"] == 0
+
+
+def test_quota_floor_value_from_env(monkeypatch):
+    monkeypatch.setenv(na.ENV_FLOOR_VALUE, "48")
+    sent, _ = _quota_run(monkeypatch)
+    assert "Tỷ giá" in sent[0] and "Xuất khẩu" not in sent[0]           # đọc 45 < sàn 48
+
+
+def test_quota_deficit_counts_three_hour_window_with_margin():
+    at = lambda h: {"sent": True, "sent_at": (NOW - timedelta(hours=h)).isoformat()}
+    seen = {"items": {"a": at(1), "b": at(2), "c": at(2.95), "d": {"sent": False}}}
+    assert na.sent_since(seen, NOW, 3) == 2                               # lượt 3h trước (lệch vài phút) không tính
+    assert na.quota_deficit(seen, NOW, 1.0, 0) == 1
+    assert na.quota_deficit(seen, NOW, 1.0, 1) == 0
+    assert na.quota_deficit(seen, NOW, 0, 0) == 0
+    assert na.quota_deficit(seen, NOW, 2.0, 0) == 4
+
+
+def test_quota_defaults_and_bad_env(monkeypatch):
+    assert na.quota_config() == (1.0, 40, 30)
+    monkeypatch.setenv(na.ENV_TARGET_PER_H, "abc")
+    assert na.quota_config()[0] == 1.0
+    monkeypatch.setenv(na.ENV_TARGET_PER_H, "0.5")
+    assert na.quota_config()[0] == 0.5
+
+
+def test_doctor_summary_shows_24h_sends_and_topup():
+    import vnstock_doctor as doc
+    base = {"ran_at": NOW.isoformat(), "machine": "PICHU", "engine": "claude", "fetched": 900,
+            "new": 20, "sent": 3, "error": None, "target_per_h": 1.0, "sent_24h": 21, "topup": 2}
+    v = doc.news_alert_verdict(base, now=NOW, active=True)
+    assert "24h gửi 21 (chỉ tiêu ~1/giờ, lượt này bù 2)" in v["message"]
+    assert "chỉ tiêu" not in doc.news_alert_verdict({**base, "target_per_h": 0}, now=NOW,
+                                                   active=True)["message"]

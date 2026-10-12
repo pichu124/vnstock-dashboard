@@ -264,7 +264,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   ≤8 tin/lượt, dư để lượt sau không chấm lại → **BƯỚC 2 ĐỌC KỸ** (12/10, U87: tin đạt tác động ≤10/lượt
   lấy THÂN BÀI qua Jina — tường phí/GNews = chỉ tiêu đề — Claude chấm GIÁ TRỊ ĐỌC + điểm chính, guard: số
   trong điểm chính PHẢI có trong bài; gửi khi đạt CẢ HAI, `VNSTOCK_NEWS_ALERT_MIN_VALUE` 60; tin đã loại
-  không bao giờ đi; Claude lỗi ⇒ gửi theo tác động kèm nhãn; hiệu chỉnh `--recheck-sent 24`) → marker
+  không bao giờ đi; Claude lỗi ⇒ gửi theo tác động kèm nhãn; hiệu chỉnh `--recheck-sent 24`; **chỉ tiêu ~1 tin/giờ** (user 12/10): 3h qua gửi chưa đủ ⇒ BÙ tin đã đọc kỹ tốt nhất trên sàn đọc 40/tác động 30, nhãn `➕ tin bù`, `VNSTOCK_NEWS_ALERT_TARGET_PER_H` 0 = tắt) → marker
   `news_alert_status.json{machine,error_streak}` + badge doctor. Không tin mới
   = im lặng, không gọi LLM. Không đụng `market_news_cache.json`. Thêm nguồn =
   một `Source(...)`. Lệnh: `run.py news-alert --dry-run|--force|--list-sources`.

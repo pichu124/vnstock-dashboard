@@ -609,6 +609,9 @@ def news_alert_verdict(marker, now: "datetime | None" = None,
                f"{marker.get('new', '?')} mới · {marker.get('sent', 0)} gửi · engine {engine}")
     if marker.get("reviewed"):                     # bước đọc kỹ (12/10)
         summary += f" · đọc kỹ {marker['reviewed']}, loại {marker.get('rejected', 0)}"
+    if marker.get("target_per_h"):                 # chỉ tiêu ~N tin/giờ (12/10)
+        summary += (f" · 24h gửi {marker.get('sent_24h', '?')} (chỉ tiêu ~{marker['target_per_h']:g}/giờ"
+                    + (f", lượt này bù {marker['topup']}" if marker.get("topup") else "") + ")")
     if marker.get("review_error"):
         summary += f" · ⚠ đọc kỹ lỗi ({str(marker['review_error'])[:60]}) — gửi theo điểm tác động"
     err = marker.get("error")

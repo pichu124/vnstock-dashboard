@@ -1208,6 +1208,17 @@ DEFAULT_REVIEW_TIMEOUT_S = 150
 BODY_MAX_CHARS = 6000           # Jina trả cả menu/bảng giá đầu trang ⇒ 3.500 từng cắt mất ruột bài (12/10)
 BODY_MIN_CHARS = 400             # ngắn hơn = trang chặn/teaser ⇒ coi như không đọc được
 BODY_CUT_MARK = "[…hệ thống cắt]"  # model thấy dấu này thì KHÔNG trừ điểm "thân bài cụt"
+# Chỉ tiêu (user 12/10: "nhận hơi ít, ít nhất trung bình ~1 tin/giờ"): ngưỡng thường
+# (đọc ≥ MIN_VALUE, tác động ≥ MIN_SCORE) đo thật chỉ còn ~3 tin/ngày ⇒ lượt nào 3h qua
+# gửi chưa đủ `rate × 3` thì BÙ bằng tin đã đọc kỹ tốt nhất còn trên SÀN — sàn đọc 40 =
+# đáy dải "kể lại/số liệu ít" của rubric; dưới đó là điểm tin/lịch/PR/trùng.
+ENV_TARGET_PER_H = "VNSTOCK_NEWS_ALERT_TARGET_PER_H"   # 0 = tắt bù
+ENV_FLOOR_VALUE = "VNSTOCK_NEWS_ALERT_FLOOR_VALUE"
+ENV_FLOOR_SCORE = "VNSTOCK_NEWS_ALERT_FLOOR_SCORE"
+DEFAULT_TARGET_PER_H = 1.0
+DEFAULT_FLOOR_VALUE = 40
+DEFAULT_FLOOR_SCORE = 30
+TARGET_WINDOW_H = 3              # đếm tin đã gửi 3h qua — đủ êm, không dồn cục sau đêm vắng tin
 # Host biết chắc không lấy được toàn văn (tường phí / link chuyển hướng JS) ⇒ khỏi tốn tường giờ.
 NO_BODY_HOSTS = ("news.google.com", "bloomberg.com", "wsj.com", "dowjones.io", "ft.com",
                  "barrons.com", "economist.com")
@@ -1441,11 +1452,15 @@ def review_items_cli(cands: "list[tuple[str, dict]]", bodies: "dict[str, tuple[s
 def review_pending(seen: dict, now: datetime, min_score: int, min_value: int,
                    sent_titles: "list | tuple" = (), max_review: int = DEFAULT_REVIEW_MAX,
                    budget_s: float = DEFAULT_BODY_BUDGET_S,
-                   reviewer: "Callable | None" = None) -> "tuple[int, int, str | None]":
+                   reviewer: "Callable | None" = None,
+                   floor: "tuple[int, int] | None" = None) -> "tuple[int, int, str | None]":
     """Đọc kỹ tin chờ gửi CHƯA đọc (điểm cao trước, ≤ max_review). Ghi vào sổ:
     `gia_tri`, `score` (tác động chấm lại; điểm vòng 1 giữ ở `score1`), `diem_chinh`
-    (đã qua guard số liệu), `ly_do`, `doc`, `reviewed_at`. Trả (đã đọc, bị loại, lỗi)."""
-    cands = [(h, r) for h, r in _pending(seen, min_score) if not r.get("reviewed_at")][:max(0, max_review)]
+    (đã qua guard số liệu), `ly_do`, `doc`, `reviewed_at`. Trả (đã đọc, bị loại, lỗi).
+    `floor=(sàn đọc, sàn tác động)` (chỉ tiêu bật): đọc cả tin từ sàn tác động trở lên —
+    kho dự bị để bù — và "bị loại" = dưới SÀN (không bao giờ đi), không phải dưới ngưỡng."""
+    pool_min = min(min_score, floor[1]) if floor else min_score
+    cands = [(h, r) for h, r in _pending(seen, pool_min) if not r.get("reviewed_at")][:max(0, max_review)]
     if not cands:
         return 0, 0, None
     bodies = fetch_bodies(cands, budget_s)
@@ -1469,8 +1484,9 @@ def review_pending(seen: dict, now: datetime, min_score: int, min_value: int,
                   "nhan": res["nhan"] or r.get("nhan", ""),
                   "tac_dong": res["tac_dong"] or r.get("tac_dong", "")})
         ok = res["gia_tri"] >= min_value and res["muc_do"] >= min_score
-        rejected += 0 if ok else 1
-        print(f"[{TAG}] {'✓' if ok else '✗'} tác động {res['muc_do']} · đọc {res['gia_tri']} "
+        spare = bool(floor) and not ok and res["gia_tri"] >= floor[0] and res["muc_do"] >= floor[1]
+        rejected += 0 if (ok or spare) else 1
+        print(f"[{TAG}] {'✓' if ok else ('◦ dự bị' if spare else '✗')} tác động {res['muc_do']} · đọc {res['gia_tri']} "
               f"({_DOC_LOG.get(how, how)}) · {_one_line(r.get('title'))[:70]} — {res['ly_do']}")
     return len(got), rejected, None
 
@@ -1622,6 +1638,44 @@ def select_to_send(seen: dict, min_score: int, max_send: int, min_value: "int | 
     return cands[:max(0, max_send)]
 
 
+def quota_config() -> "tuple[float, int, int]":
+    """(tin/giờ mục tiêu, sàn đọc, sàn tác động) — rate 0 ⇒ tắt bù."""
+    try:
+        rate = float((os.environ.get(ENV_TARGET_PER_H) or "").strip() or DEFAULT_TARGET_PER_H)
+    except ValueError:
+        rate = DEFAULT_TARGET_PER_H
+    return (max(0.0, min(rate, 20.0)), _env_int(ENV_FLOOR_VALUE, DEFAULT_FLOOR_VALUE, 0, 100),
+            _env_int(ENV_FLOOR_SCORE, DEFAULT_FLOOR_SCORE, 0, 100))
+
+
+def sent_since(seen: dict, now: datetime, hours: float) -> int:
+    """Số tin đã gửi trong `hours` giờ qua (lề 15′ để lượt đúng 3h trước — chạy lệch vài
+    giây — không bị đếm thành lượt thứ tư)."""
+    cutoff = (now - timedelta(hours=hours) + timedelta(minutes=15)).isoformat(timespec="seconds")
+    return sum(1 for r in (seen.get("items") or {}).values()
+               if isinstance(r, dict) and r.get("sent") and (r.get("sent_at") or "") >= cutoff)
+
+
+def quota_deficit(seen: dict, now: datetime, rate: float, picked_n: int) -> int:
+    """Còn thiếu bao nhiêu tin để 3h qua + lượt này đạt `rate × TARGET_WINDOW_H`."""
+    if rate <= 0:
+        return 0
+    return max(0, round(rate * TARGET_WINDOW_H) - sent_since(seen, now, TARGET_WINDOW_H) - picked_n)
+
+
+def select_topup(seen: dict, n: int, floor_value: int, floor_score: int,
+                 exclude: "set | None" = None) -> "list[tuple[str, dict]]":
+    """Tin BÙ: đã đọc kỹ, chưa gửi/hết hạn/trùng, còn trên SÀN — đọc cao trước, rồi tác
+    động, rồi mới. Tin chưa đọc kỹ không bao giờ là tin bù (không biết nó đáng đọc không)."""
+    if n <= 0:
+        return []
+    ex = exclude or set()
+    cands = [(h, r) for h, r in _pending(seen, floor_score)
+             if h not in ex and r.get("reviewed_at") and int(r.get("gia_tri") or 0) >= floor_value]
+    cands.sort(key=lambda hr: -int(hr[1].get("gia_tri") or 0))      # ổn định: giữ thứ tự tác động/mới
+    return cands[:n]
+
+
 # Biểu tượng theo DẢI điểm 0–100 (ngưỡng gửi mặc định 75 ⇒ tin gửi đi là 🟠/🔴,
 # 🟡 chỉ hiện khi user tự hạ ngưỡng).
 _ICON_BANDS = ((90, "🔴"), (75, "🟠"), (60, "🟡"))
@@ -1662,7 +1716,7 @@ _DOC_MARK = {DOC_BODY: "📄 đã đọc bài", DOC_POST: "💬 bài mạng xã 
 
 def format_message(recs: list, now: datetime, min_score: int = DEFAULT_MIN_SCORE,
                    engine: str = "none", min_value: "int | None" = None,
-                   review_failed: bool = False) -> str:
+                   review_failed: bool = False, quota: "tuple | None" = None) -> str:
     """HTML Telegram: b/i + `<a href>` (gửi qua `send_message(allow_links=True)`).
     Tiêu đề BẤM ĐƯỢC thay cho dòng URL trần — link Google News ~250 ký tự,
     trên điện thoại mỗi link chiếm 3–4 dòng (dry-run desktop 04/10)."""
@@ -1683,14 +1737,19 @@ def format_message(recs: list, now: datetime, min_score: int = DEFAULT_MIN_SCORE
             "chưa đọc kỹ" if min_value is not None else "")
         meta = " · ".join(x for x in (_one_line(r.get("source")),
                                       _hhmm(r.get("published") or "", now),
-                                      r.get("ticker") or "", doc) if x)
+                                      r.get("ticker") or "", doc,
+                                      "➕ tin bù" if r.get("_topup") else "") if x)
         if meta:
             lines.append(f"   <i>{meta}</i>")
         lines.append("")
     gate = f" · đáng đọc ≥ {min_value}" if min_value is not None else ""
     warn = " · ⚠ Claude lỗi ở bước đọc kỹ — gửi theo điểm tác động" if review_failed else ""
-    lines.append(f"<i>{len(recs)} tin ≥ {min_score}/100{gate} · chấm bởi "
-                 f"{_ENGINE_LABEL.get(engine, engine)}{warn}</i>")
+    n_top = sum(1 for r in recs if r.get("_topup"))
+    head = f"{len(recs) - n_top} tin ≥ {min_score}/100{gate}"
+    if n_top and quota:
+        head += (f" + {n_top} tin bù cho đủ ~{quota[0]:g} tin/giờ (đọc ≥ {quota[1]}, "
+                 f"tác động ≥ {quota[2]})")
+    lines.append(f"<i>{head} · chấm bởi {_ENGINE_LABEL.get(engine, engine)}{warn}</i>")
     return "\n".join(lines)
 
 
@@ -1808,15 +1867,20 @@ def run(*, now: Optional[datetime] = None, dry_run: bool = False, force: bool = 
     # Tin dư được chờ tối đa max(cửa sổ lượt này, 6h): lượt bắt bù vẫn gửi tin 20h tuổi
     # lần đầu thấy, nhưng phần dư của nó không rỉ ra suốt các giờ sau.
     max_age_h = max(window_h, _env_int(ENV_LEFTOVER_MAX_AGE_H, DEFAULT_LEFTOVER_MAX_AGE_H, 1, 168))
-    expired = expire_leftovers(seen, now, min_score, max_age_h)
+    # Chỉ tiêu bật + có bước đọc kỹ ⇒ kho chờ mở xuống SÀN tác động (dự bị để bù).
+    rev_engine = eng if eng != "none" else _resolve_engine(engine)
+    rate, floor_value, floor_score = quota_config()
+    quota_on = rate > 0 and review_enabled(rev_engine)
+    pool_min = min(min_score, floor_score) if quota_on else min_score
+    expired = expire_leftovers(seen, now, pool_min, max_age_h)
     if expired:
-        print(f"[{TAG}] bỏ {expired} tin dư cũ hơn {max_age_h}h (đạt ngưỡng nhưng lượt trước hết suất)")
-    dups = mark_duplicate_pending(seen, now, min_score)
+        print(f"[{TAG}] bỏ {expired} tin chờ cũ hơn {max_age_h}h (chưa tới lượt gửi"
+              + (" / dự bị không cần bù)" if quota_on else ")"))
+    dups = mark_duplicate_pending(seen, now, pool_min)
     if dups:
         print(f"[{TAG}] bỏ {dups} tin trùng link/tiêu đề với tin đã gửi 24h hoặc tin điểm cao hơn")
     # Bước 2 đọc kỹ — chỉ khi engine lượt này là Claude (lượt rơi về ladder = Claude
     # đang hỏng ⇒ khỏi tốn thêm một lần chờ timeout).
-    rev_engine = eng if eng != "none" else _resolve_engine(engine)
     cfg_min_value = _env_int(ENV_MIN_VALUE, DEFAULT_MIN_VALUE, 0, 100)
     min_value, reviewed, rejected, review_err = None, 0, 0, None
     if review_enabled(rev_engine):
@@ -1824,20 +1888,34 @@ def run(*, now: Optional[datetime] = None, dry_run: bool = False, force: bool = 
         reviewed, rejected, review_err = review_pending(
             seen, now, min_score, min_value, sent_titles=recent_sent_titles(seen, now),
             max_review=_env_int(ENV_REVIEW_MAX, DEFAULT_REVIEW_MAX, 1, 50),
-            budget_s=_env_int(ENV_BODY_BUDGET_S, DEFAULT_BODY_BUDGET_S, 5, 300))
+            budget_s=_env_int(ENV_BODY_BUDGET_S, DEFAULT_BODY_BUDGET_S, 5, 300),
+            floor=(floor_value, floor_score) if quota_on else None)
         if review_err:
             print(f"[{TAG}] đọc kỹ lỗi ({review_err}) — lượt này gửi theo điểm tác động")
         elif reviewed:
-            print(f"[{TAG}] đọc kỹ {reviewed} tin · loại {rejected} (đáng đọc < {min_value} "
-                  f"hoặc tác động chấm lại < {min_score})")
+            print(f"[{TAG}] đọc kỹ {reviewed} tin · loại {rejected} " + (
+                f"(dưới sàn bù: đọc < {floor_value} hoặc tác động < {floor_score})" if quota_on else
+                f"(đáng đọc < {min_value} hoặc tác động chấm lại < {min_score})"))
     # Tin ĐÃ đọc kỹ mà bị loại thì không bao giờ đi — kể cả lượt rơi về ladder / tắt bước đọc.
     picked = select_to_send(seen, min_score, max_send, min_value=cfg_min_value,
                             require_review=min_value is not None and not review_err)
+    topup: list = []
+    if quota_on and min_value is not None and not review_err:
+        need = min(quota_deficit(seen, now, rate, len(picked)), max_send - len(picked))
+        topup = select_topup(seen, need, floor_value, floor_score, exclude={h for h, _ in picked})
+        if need:
+            print(f"[{TAG}] chỉ tiêu ~{rate:g} tin/giờ: {TARGET_WINDOW_H}h qua gửi "
+                  f"{sent_since(seen, now, TARGET_WINDOW_H)}, lượt này {len(picked)} tin đạt ngưỡng "
+                  f"⇒ bù {len(topup)}/{need}" + ("" if len(topup) >= need else
+                                                 f" (hết tin đã đọc kỹ đạt sàn đọc ≥ {floor_value})"))
+    top_h = {h for h, _ in topup}
+    picked = picked + topup
     sent, message_id, send_err = 0, None, None
     if picked:
         engine_label = eng if eng != "none" else "prev"
-        text = format_message([r for _, r in picked], now, min_score, engine_label,
-                              min_value=min_value, review_failed=bool(review_err))
+        text = format_message([{**r, "_topup": h in top_h} for h, r in picked], now, min_score,
+                              engine_label, min_value=min_value, review_failed=bool(review_err),
+                              quota=(rate, floor_value, floor_score))
         if dry_run:
             print(f"[{TAG}] --dry-run: {len(picked)} tin sẽ gửi\n" + text)
         else:
@@ -1846,14 +1924,16 @@ def run(*, now: Optional[datetime] = None, dry_run: bool = False, force: bool = 
                 message_id = ((resp or {}).get("result") or {}).get("message_id")
                 stamp = now.isoformat(timespec="seconds")
                 for h, _ in picked:
-                    seen["items"][h] = {**seen["items"][h], "sent": True, "sent_at": stamp}
+                    seen["items"][h] = {**seen["items"][h], "sent": True, "sent_at": stamp,
+                                        **({"topup": True} if h in top_h else {})}
                 sent = len(picked)
                 print(f"[{TAG}] ✅ gửi {sent} tin · message_id={message_id}")
             except Exception as e:
                 send_err = f"{type(e).__name__}: {e}"
                 print(f"[{TAG}] ❌ Telegram lỗi: {send_err} — giữ tin, lượt sau gửi lại")
     else:
-        print(f"[{TAG}] không tin nào ≥ {min_score}/100 — im lặng")
+        print(f"[{TAG}] không tin nào ≥ {min_score}/100" + (" (kể cả tin bù trên sàn)" if quota_on else "")
+              + " — im lặng")
 
     if not dry_run:
         save_seen(seen)
@@ -1888,6 +1968,9 @@ def run(*, now: Optional[datetime] = None, dry_run: bool = False, force: bool = 
         "reviewed": reviewed,
         "rejected": rejected,
         "review_error": review_err,
+        "topup": len(top_h) if sent else 0,
+        "target_per_h": rate if quota_on else 0,
+        "sent_24h": sent_since(seen, now, 24),
         "window_h": window_h,
         "error": error,
         "error_streak": streak,
