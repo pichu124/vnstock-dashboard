@@ -1211,6 +1211,7 @@ BODY_MIN_CHARS = 400             # ngắn hơn = trang chặn/teaser ⇒ coi nh�
 NO_BODY_HOSTS = ("news.google.com", "bloomberg.com", "wsj.com", "dowjones.io", "ft.com",
                  "barrons.com", "economist.com")
 DOC_BODY, DOC_POST, DOC_TITLE = "body", "post", "title"   # đọc được thân bài · bài MXH (chính là thân) · chỉ tiêu đề
+DOC_FAIL = "fail"                # lấy bài LỖI (mạng/Jina/teaser) — model thấy như "chỉ tiêu đề", log tách riêng
 
 
 def review_enabled(engine: str) -> bool:
@@ -1240,12 +1241,12 @@ def fetch_body(rec: dict) -> "tuple[str, str]":
         text = nf.fetch_fulltext(link, max_chars=BODY_MAX_CHARS)
     except Exception:
         text = ""
-    return (text, DOC_BODY) if len(text) >= BODY_MIN_CHARS else ("", DOC_TITLE)
+    return (text, DOC_BODY) if len(text) >= BODY_MIN_CHARS else ("", DOC_FAIL)
 
 
 def fetch_bodies(recs: "list[tuple[str, dict]]", budget_s: float) -> "dict[str, tuple[str, str]]":
     """Song song, tường `budget_s` cho cả lượt; bài chưa xong ⇒ chỉ tiêu đề."""
-    out = {h: ("", DOC_TITLE) for h, _ in recs}
+    out = {h: ("", DOC_FAIL) for h, _ in recs}
     if not recs:
         return out
     pool = ThreadPoolExecutor(max_workers=min(8, len(recs)))
@@ -1308,7 +1309,21 @@ REVIEW_SCHEMA = {
     "required": ["results"],
 }
 
-_DOC_LINE = {DOC_BODY: "thân bài", DOC_POST: "bài mạng xã hội", DOC_TITLE: "chỉ tiêu đề"}
+_DOC_LINE = {DOC_BODY: "thân bài", DOC_POST: "bài mạng xã hội", DOC_TITLE: "chỉ tiêu đề",
+             DOC_FAIL: "chỉ tiêu đề"}          # model không cần biết vì sao không có bài
+_DOC_LOG = {**_DOC_LINE, DOC_TITLE: "tường phí", DOC_FAIL: "lấy bài lỗi"}
+
+
+def body_summary(bodies: "dict[str, tuple[str, str]]") -> str:
+    """"thân bài 3/10 · tường phí 2 · lấy bài lỗi 5" — lỗi nhiều ⇒ gợi ý kiểm Jina."""
+    from collections import Counter
+    c = Counter(how for _, how in bodies.values())
+    parts = [f"thân bài {c[DOC_BODY]}/{len(bodies)}"]
+    parts += [f"{_DOC_LOG[k]} {c[k]}" for k in (DOC_POST, DOC_TITLE, DOC_FAIL) if c[k]]
+    out = " · ".join(parts)
+    if c[DOC_FAIL] and c[DOC_FAIL] >= max(2, len(bodies) // 2):
+        out += " — kiểm Jina Reader: python run.py doctor --net (dòng Jina)"
+    return out
 
 
 def review_block(i: int, rec: dict, body: str, how: str) -> str:
@@ -1426,6 +1441,7 @@ def review_pending(seen: dict, now: datetime, min_score: int, min_value: int,
     if not cands:
         return 0, 0, None
     bodies = fetch_bodies(cands, budget_s)
+    print(f"[{TAG}] đọc kỹ {len(cands)} tin — {body_summary(bodies)}")
     got, err = (reviewer or review_items_cli)(cands, bodies, sent_titles)
     if not got:
         return 0, 0, err or "không chấm được bài nào"
@@ -1447,7 +1463,7 @@ def review_pending(seen: dict, now: datetime, min_score: int, min_value: int,
         ok = res["gia_tri"] >= min_value and res["muc_do"] >= min_score
         rejected += 0 if ok else 1
         print(f"[{TAG}] {'✓' if ok else '✗'} tác động {res['muc_do']} · đọc {res['gia_tri']} "
-              f"({_DOC_LINE.get(how, how)}) · {_one_line(r.get('title'))[:70]} — {res['ly_do']}")
+              f"({_DOC_LOG.get(how, how)}) · {_one_line(r.get('title'))[:70]} — {res['ly_do']}")
     return len(got), rejected, None
 
 
@@ -1470,6 +1486,7 @@ def recheck_sent(hours: int = 24, now: Optional[datetime] = None, max_items: int
     print(f"[{TAG}] chấm lại {len(rows)} tin đã gửi trong {hours}h (ngưỡng đáng đọc {min_value}) — "
           f"không gửi, không ghi sổ")
     bodies = fetch_bodies(rows, _env_int(ENV_BODY_BUDGET_S, DEFAULT_BODY_BUDGET_S, 5, 300) * 2)
+    print(f"[{TAG}] {body_summary(bodies)}")
     # Theo LÔ như lượt giờ (≤ REVIEW_MAX bài/call) — 30 thân bài một call là đề quá dài.
     step = _env_int(ENV_REVIEW_MAX, DEFAULT_REVIEW_MAX, 1, 50)
     got: dict = {}
@@ -1488,7 +1505,7 @@ def recheck_sent(hours: int = 24, now: Optional[datetime] = None, max_items: int
             continue
         ok = res["gia_tri"] >= min_value
         keep += ok
-        how = _DOC_LINE.get(bodies[h][1], "")
+        how = _DOC_LOG.get(bodies[h][1], "")
         print(f"{i:>2}. {'✓ giữ' if ok else '✗ loại'} · đọc {res['gia_tri']:>3} · tác động "
               f"{r.get('score')}→{res['muc_do']} · {how} · {_one_line(r.get('title'))[:80]}")
         print(f"      {res['ly_do']}" + (f" · ▸ {res['diem_chinh']}" if res["diem_chinh"] else ""))
@@ -1611,7 +1628,8 @@ def _safe_href(url) -> str:
     return url if _SAFE_HREF_RE.match(url) else ""
 
 
-_DOC_MARK = {DOC_BODY: "📄 đã đọc bài", DOC_POST: "💬 bài mạng xã hội", DOC_TITLE: "🔒 chỉ tiêu đề"}
+_DOC_MARK = {DOC_BODY: "📄 đã đọc bài", DOC_POST: "💬 bài mạng xã hội", DOC_TITLE: "🔒 chỉ tiêu đề",
+             DOC_FAIL: "🔒 chỉ tiêu đề"}
 
 
 def format_message(recs: list, now: datetime, min_score: int = DEFAULT_MIN_SCORE,

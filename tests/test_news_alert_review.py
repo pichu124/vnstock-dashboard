@@ -91,7 +91,7 @@ def _spy():
 
 @pytest.mark.parametrize("rec,how", [
     ({"link": "https://vnexpress.net/body-1"}, na.DOC_BODY),
-    ({"link": "https://vnexpress.net/teaser"}, na.DOC_TITLE),           # quá ngắn = teaser/chặn
+    ({"link": "https://vnexpress.net/teaser"}, na.DOC_FAIL),            # quá ngắn / Jina lỗi = lấy bài lỗi
     ({"link": "https://www.bloomberg.com/news/body"}, na.DOC_TITLE),    # tường phí: khỏi tốn tường giờ
     ({"link": "https://news.google.com/rss/articles/body"}, na.DOC_TITLE),
     ({"link": "", "source_key": "bsky:analysts", "title": "Fed's Waller: two more cuts"}, na.DOC_POST),
@@ -105,7 +105,7 @@ def test_fetch_bodies_budget_marks_slow_items_title_only(monkeypatch):
     import time
     monkeypatch.setattr(na, "fetch_body", lambda r: (time.sleep(2), (BODY, na.DOC_BODY))[1])
     out = na.fetch_bodies([("h1", {"link": "https://a/body"})], budget_s=0.2)
-    assert out == {"h1": ("", na.DOC_TITLE)}
+    assert out == {"h1": ("", na.DOC_FAIL)}
 
 
 # ── guard số liệu điểm chính ────────────────────────────────────────────────
@@ -298,3 +298,11 @@ def test_recheck_sent_reviews_in_batches(monkeypatch, capsys):
         return {i: _rev(70) for i in range(len(rows))}, None
     assert na.recheck_sent(24, now=NOW, reviewer=_rv) == 0
     assert sizes == [10, 10, 3] and "giữ 23/23 tin" in capsys.readouterr().out
+
+
+def test_body_summary_separates_paywall_from_fetch_failure():
+    b = {"a": (BODY, na.DOC_BODY), "b": ("", na.DOC_TITLE), "c": ("", na.DOC_FAIL), "d": ("", na.DOC_FAIL)}
+    out = na.body_summary(b)
+    assert out.startswith("thân bài 1/4") and "tường phí 1" in out and "lấy bài lỗi 2" in out
+    assert "doctor --net" in out                                   # lỗi ≥ nửa ⇒ chỉ chỗ kiểm Jina
+    assert "doctor --net" not in na.body_summary({"a": (BODY, na.DOC_BODY), "b": ("", na.DOC_FAIL)})
