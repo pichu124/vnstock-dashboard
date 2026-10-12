@@ -1205,8 +1205,9 @@ DEFAULT_MIN_VALUE = 60
 DEFAULT_REVIEW_MAX = 10          # bài đọc kỹ mỗi lượt — task giờ trần 15′ (fetch 45s + chấm + đọc + assets)
 DEFAULT_BODY_BUDGET_S = 40       # tường cho CẢ lượt lấy thân bài
 DEFAULT_REVIEW_TIMEOUT_S = 150
-BODY_MAX_CHARS = 3500
+BODY_MAX_CHARS = 6000           # Jina trả cả menu/bảng giá đầu trang ⇒ 3.500 từng cắt mất ruột bài (12/10)
 BODY_MIN_CHARS = 400             # ngắn hơn = trang chặn/teaser ⇒ coi như không đọc được
+BODY_CUT_MARK = "[…hệ thống cắt]"  # model thấy dấu này thì KHÔNG trừ điểm "thân bài cụt"
 # Host biết chắc không lấy được toàn văn (tường phí / link chuyển hướng JS) ⇒ khỏi tốn tường giờ.
 NO_BODY_HOSTS = ("news.google.com", "bloomberg.com", "wsj.com", "dowjones.io", "ft.com",
                  "barrons.com", "economist.com")
@@ -1238,10 +1239,14 @@ def fetch_body(rec: dict) -> "tuple[str, str]":
         return "", DOC_TITLE
     try:
         import vnstock_news_feeds as nf
-        text = nf.fetch_fulltext(link, max_chars=BODY_MAX_CHARS)
+        text = nf.fetch_fulltext(link, max_chars=BODY_MAX_CHARS * 4)
     except Exception:
         text = ""
-    return (text, DOC_BODY) if len(text) >= BODY_MIN_CHARS else ("", DOC_FAIL)
+    if len(text) < BODY_MIN_CHARS:
+        return "", DOC_FAIL
+    if len(text) > BODY_MAX_CHARS:                 # cắt CÓ dấu — không thì model chê bài "cụt"
+        text = f"{text[:BODY_MAX_CHARS].rsplit(' ', 1)[0]} {BODY_CUT_MARK}"
+    return text, DOC_BODY
 
 
 def fetch_bodies(recs: "list[tuple[str, dict]]", budget_s: float) -> "dict[str, tuple[str, str]]":
@@ -1281,6 +1286,9 @@ REVIEW_SYSTEM = (
     "  Dòng `Đọc: chỉ tiêu đề` (tường phí/không lấy được bài): chấm theo thông tin trong tiêu đề "
     "+ tóm tắt — tiêu đề TỰ NÓ chứa quyết định hoặc con số mới vẫn được 60–85; tiêu đề mơ hồ ⇒ "
     "tối đa 50. `Đọc: bài mạng xã hội`: chính đoạn đó là toàn văn.\n"
+    f"  Thân bài do MÁY lấy về: có thể lẫn menu/bảng giá của trang và bị cắt ở dấu "
+    f"`{BODY_CUT_MARK}` — chấm theo phần nội dung bài, KHÔNG trừ điểm vì bài cụt hay lẫn "
+    "rác trang; thân bài TOÀN rác (không có đoạn văn nào của bài) ⇒ chấm như chỉ có tiêu đề.\n"
     "  Phân vân giữa hai mức ⇒ chọn mức THẤP hơn. Nhiều bài cùng sự kiện trong lô ⇒ chỉ bài "
     "nhiều dữ kiện nhất được ≥ 60.\n"
     "• muc_do (0–100) = tác động tới cổ phiếu VN, chấm LẠI sau khi đọc bài (cùng thang vòng "
@@ -1467,6 +1475,12 @@ def review_pending(seen: dict, now: datetime, min_score: int, min_value: int,
     return len(got), rejected, None
 
 
+def _recheck_ok(res: dict, min_value: int, min_score: int) -> bool:
+    """Cùng cửa với lượt giờ: `review_pending` ghi tác động chấm lại vào `score` và
+    `_pending` đòi `score ≥ min_score` ⇒ đáng đọc mà tác động tụt dưới ngưỡng vẫn không đi."""
+    return res["gia_tri"] >= min_value and res["muc_do"] >= min_score
+
+
 def recheck_sent(hours: int = 24, now: Optional[datetime] = None, max_items: int = 30,
                  reviewer: "Callable | None" = None) -> int:
     """HIỆU CHỈNH: cho bước đọc kỹ chấm lại tin ĐÃ GỬI trong `hours` giờ — chỉ in
@@ -1475,6 +1489,7 @@ def recheck_sent(hours: int = 24, now: Optional[datetime] = None, max_items: int
     _load_env()
     now = now or datetime.now()
     min_value = _env_int(ENV_MIN_VALUE, DEFAULT_MIN_VALUE, 0, 100)
+    min_score = normalize_min_score(_env_int(ENV_MIN_SCORE, DEFAULT_MIN_SCORE, 0, 100))
     cutoff = (now - timedelta(hours=hours)).isoformat(timespec="seconds")
     rows = [(h, dict(r)) for h, r in load_seen()["items"].items()
             if isinstance(r, dict) and r.get("sent") and (r.get("sent_at") or "") >= cutoff]
@@ -1483,18 +1498,30 @@ def recheck_sent(hours: int = 24, now: Optional[datetime] = None, max_items: int
     if not rows:
         print(f"[{TAG}] không có tin nào đã gửi trong {hours}h")
         return 0
-    print(f"[{TAG}] chấm lại {len(rows)} tin đã gửi trong {hours}h (ngưỡng đáng đọc {min_value}) — "
-          f"không gửi, không ghi sổ")
+    print(f"[{TAG}] chấm lại {len(rows)} tin đã gửi trong {hours}h (giữ khi đọc ≥ {min_value} VÀ "
+          f"tác động chấm lại ≥ {min_score}) — không gửi, không ghi sổ")
     bodies = fetch_bodies(rows, _env_int(ENV_BODY_BUDGET_S, DEFAULT_BODY_BUDGET_S, 5, 300) * 2)
     print(f"[{TAG}] {body_summary(bodies)}")
     # Theo LÔ như lượt giờ (≤ REVIEW_MAX bài/call) — 30 thân bài một call là đề quá dài.
+    # Mô phỏng khối `ĐÃ GỬI` của lượt giờ: lô sau thấy tin lô trước mà bộ lọc MỚI giữ
+    # (≤ SENT_CONTEXT_H trước tin đầu lô) — tin trùng sự kiện bị hạ như khi chạy thật.
     step = _env_int(ENV_REVIEW_MAX, DEFAULT_REVIEW_MAX, 1, 50)
     got: dict = {}
+    kept: "list[tuple[str, str]]" = []                 # (sent_at, tiêu đề) bộ lọc mới giữ
     for k in range(0, len(rows), step):
-        part, err = (reviewer or review_items_cli)(rows[k:k + step], bodies, ())
+        first = rows[k][1].get("sent_at") or ""
+        try:
+            ctx_from = (datetime.fromisoformat(first) - timedelta(hours=SENT_CONTEXT_H)).isoformat()
+        except ValueError:
+            ctx_from = ""
+        ctx = [t for at, t in reversed(kept) if at >= ctx_from][:SENT_CONTEXT_MAX]
+        part, err = (reviewer or review_items_cli)(rows[k:k + step], bodies, ctx)
         if not part:
             print(f"[{TAG}] ❌ lô {k // step + 1}: đọc kỹ không chạy được — {err}")
         got.update({k + i: v for i, v in part.items()})
+        kept += [(r.get("sent_at") or "", _one_line(r.get("title")))
+                 for j, (_, r) in enumerate(rows[k:k + step], k)
+                 if j in got and _recheck_ok(got[j], min_value, min_score)]
     if not got:
         return 1
     keep = 0
@@ -1503,10 +1530,11 @@ def recheck_sent(hours: int = 24, now: Optional[datetime] = None, max_items: int
         if not res:
             print(f"{i:>2}. ?  (model sót) · {_one_line(r.get('title'))[:80]}")
             continue
-        ok = res["gia_tri"] >= min_value
+        ok = _recheck_ok(res, min_value, min_score)
         keep += ok
         how = _DOC_LOG.get(bodies[h][1], "")
-        print(f"{i:>2}. {'✓ giữ' if ok else '✗ loại'} · đọc {res['gia_tri']:>3} · tác động "
+        verdict = "✓ giữ" if ok else ("✗ loại" if res["gia_tri"] < min_value else "✗ tác động")
+        print(f"{i:>2}. {verdict} · đọc {res['gia_tri']:>3} · tác động "
               f"{r.get('score')}→{res['muc_do']} · {how} · {_one_line(r.get('title'))[:80]}")
         print(f"      {res['ly_do']}" + (f" · ▸ {res['diem_chinh']}" if res["diem_chinh"] else ""))
     print(f"[{TAG}] bộ lọc mới giữ {keep}/{len(rows)} tin")

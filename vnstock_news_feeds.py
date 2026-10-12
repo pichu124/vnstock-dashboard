@@ -363,7 +363,7 @@ def fetch_fulltext(url: str, timeout: int = _FULLTEXT_TIMEOUT,
     text = _MD_NOISE_RE.sub(" ", text)
     text = _MD_LINK_RE.sub(r"\1", text)
     text = re.sub(r"\s+", " ", text).strip()
-    if len(text) > max_chars:                 # cảnh báo tin mỗi giờ đọc kỹ dài hơn (3.500)
+    if len(text) > max_chars:                 # tin mỗi giờ đọc kỹ xin dư rồi tự cắt có dấu
         text = text[:max_chars].rsplit(" ", 1)[0]
     return text
 
