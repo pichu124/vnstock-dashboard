@@ -6987,6 +6987,7 @@ pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 * Tin nhắn: `🟠 80/100 · đọc 72 · tiêu đề` + `▸ điểm chính` + kênh tác động + `📄 đã đọc bài` / `💬 bài mạng xã hội` / `🔒 chỉ tiêu đề`; chân `đáng đọc ≥ 60`. Marker + doctor: `reviewed`, `rejected`, `review_error`.
 * Thời gian: task giờ trần 15′ — xấu nhất fetch 45s + chấm 180s + thân bài 40s + đọc 150s + assets 360s ≈ 13′.
 * Hiệu chỉnh: `run.py news-alert --recheck-sent 24` chấm lại tin ĐÃ GỬI bằng bước 2, in ✓ giữ / ✗ loại + lý do, không gửi, không ghi sổ ⇒ user đối chiếu cảm nhận rồi mới chỉnh ngưỡng.
+* **🖥️ 12/10 lần đầu:** `--recheck-sent 48` = 30 tin MỘT call ⇒ 37s · $0,10 · 3.031 ký tự KHÔNG phải JSON (không `structured_output`) ⇒ "đọc kỹ không chạy được". Vá: `lenient_json` (gỡ ```json, cắt `{…}` khỏi lời dẫn) cho cả bước 1 lẫn bước 2; mổ hỏng ⇒ lưu nguyên văn `_meta/news_alert_review_raw.txt` + in 160 ký tự đầu; `--recheck-sent` chia lô `REVIEW_MAX` (10) như lượt giờ.
 
 # 🪙 U86. P5 BRIEF 🪙 · CẢNH BÁO TELEGRAM · PHÂN BỔ VÀNG VND (10/10)
 

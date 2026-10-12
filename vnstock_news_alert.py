@@ -1091,10 +1091,9 @@ def score_items_cli(todo: list, sent_titles: "list | tuple" = ()) -> "tuple[dict
         return {}, err
     data = info.get("structured")
     if not isinstance(data, dict):
-        try:
-            data = json.loads(text)
-        except ValueError:
-            return {}, "CLI trả chữ không phải JSON"
+        data = lenient_json(text)
+    if data is None:
+        return {}, f"CLI trả chữ không phải JSON: {_one_line(text)[:160]}"
     got = parse_scores(data, len(todo))
     return got, (None if got else "JSON không có kết quả hợp lệ")
 
@@ -1363,6 +1362,26 @@ def parse_reviews(data, n: int) -> "dict[int, dict]":
     return out
 
 
+REVIEW_RAW_NAME = "news_alert_review_raw.txt"   # chữ CLI khi không mổ được JSON — để soi
+
+
+def lenient_json(text: str) -> "dict | None":
+    """JSON object từ chữ model: nguyên khối, hoặc bọc ```json … ```, hoặc kèm lời dẫn
+    trước/sau (lấy từ `{` đầu tới `}` cuối). Không mổ được ⇒ None."""
+    t = (text or "").strip()
+    fence = re.search(r"```(?:json)?\s*(\{.*\})\s*```", t, re.DOTALL)
+    for cand in ((fence.group(1),) if fence else ()) + (t, t[t.find("{"):t.rfind("}") + 1]):
+        if not cand:
+            continue
+        try:
+            out = json.loads(cand)
+        except ValueError:
+            continue
+        if isinstance(out, dict):
+            return out
+    return None
+
+
 def review_items_cli(cands: "list[tuple[str, dict]]", bodies: "dict[str, tuple[str, str]]",
                      sent_titles: "list | tuple" = ()) -> "tuple[dict[int, dict], str | None]":
     """Cả lô ứng viên MỘT call Claude Code. ({}, lỗi) khi CLI hỏng."""
@@ -1385,10 +1404,13 @@ def review_items_cli(cands: "list[tuple[str, dict]]", bodies: "dict[str, tuple[s
         return {}, err
     data = info.get("structured")
     if not isinstance(data, dict):
-        try:
-            data = json.loads(text)
-        except ValueError:
-            return {}, "CLI trả chữ không phải JSON"
+        data = lenient_json(text)
+    if data is None:
+        try:                                     # giữ nguyên văn để soi (12/10: 3.031 ký tự không mổ được)
+            (_META / REVIEW_RAW_NAME).write_text(text or "", encoding="utf-8")
+        except OSError:
+            pass
+        return {}, f"CLI trả chữ không phải JSON (lưu _meta/{REVIEW_RAW_NAME}): {_one_line(text)[:160]}"
     got = parse_reviews(data, len(cands))
     return got, (None if got else "JSON không có kết quả hợp lệ")
 
@@ -1448,9 +1470,15 @@ def recheck_sent(hours: int = 24, now: Optional[datetime] = None, max_items: int
     print(f"[{TAG}] chấm lại {len(rows)} tin đã gửi trong {hours}h (ngưỡng đáng đọc {min_value}) — "
           f"không gửi, không ghi sổ")
     bodies = fetch_bodies(rows, _env_int(ENV_BODY_BUDGET_S, DEFAULT_BODY_BUDGET_S, 5, 300) * 2)
-    got, err = (reviewer or review_items_cli)(rows, bodies, ())
+    # Theo LÔ như lượt giờ (≤ REVIEW_MAX bài/call) — 30 thân bài một call là đề quá dài.
+    step = _env_int(ENV_REVIEW_MAX, DEFAULT_REVIEW_MAX, 1, 50)
+    got: dict = {}
+    for k in range(0, len(rows), step):
+        part, err = (reviewer or review_items_cli)(rows[k:k + step], bodies, ())
+        if not part:
+            print(f"[{TAG}] ❌ lô {k // step + 1}: đọc kỹ không chạy được — {err}")
+        got.update({k + i: v for i, v in part.items()})
     if not got:
-        print(f"[{TAG}] ❌ đọc kỹ không chạy được: {err}")
         return 1
     keep = 0
     for i, (h, r) in enumerate(rows, 1):

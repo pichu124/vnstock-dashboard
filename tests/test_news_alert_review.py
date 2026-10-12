@@ -256,3 +256,45 @@ def test_recheck_sent_prints_keep_drop_without_touching_ledger(monkeypatch, caps
 def test_run_py_passes_recheck_sent():
     src = open("run.py", encoding="utf-8").read()
     assert '"--recheck-sent"' in src and "_na.recheck_sent(args.recheck_sent)" in src
+
+
+# ── 12/10 desktop: --recheck-sent 30 tin ⇒ "CLI trả chữ không phải JSON" (3.031 ký tự) ──
+
+
+@pytest.mark.parametrize("text,ok", [
+    ('{"results": []}', True),
+    ('Kết quả:\n```json\n{"results": []}\n```', True),         # bọc khung code
+    ('Đây là kết quả {"results": []} — hết.', True),           # lời dẫn trước/sau
+    ("Tôi không thể chấm các bài này.", False),
+])
+def test_lenient_json(text, ok):
+    assert (na.lenient_json(text) is not None) is ok
+
+
+def test_review_garbage_saves_raw_text_and_reports_head(monkeypatch):
+    monkeypatch.setattr(vcc, "complete", lambda user, **kw: ("Tôi không thể chấm các bài này vì…", None, {}))
+    got, err = na.review_items_cli([("h", {"title": "x", "score": 80})], {"h": ("", na.DOC_TITLE)})
+    assert got == {} and "Tôi không thể chấm" in err and na.REVIEW_RAW_NAME in err
+    assert (na._META / na.REVIEW_RAW_NAME).read_text(encoding="utf-8").startswith("Tôi không thể")
+
+
+def test_review_accepts_fenced_json_without_structured(monkeypatch):
+    rows = [{"i": 0, **_rev(70)}]
+    monkeypatch.setattr(vcc, "complete", lambda user, **kw: (
+        "```json\n" + json.dumps({"results": rows}) + "\n```", None, {}))
+    got, err = na.review_items_cli([("h", {"title": "x", "score": 80})], {"h": ("", na.DOC_TITLE)})
+    assert err is None and got[0]["gia_tri"] == 70
+
+
+def test_recheck_sent_reviews_in_batches(monkeypatch, capsys):
+    seen = {"items": {f"h{k}": {"title": f"Tin {k}", "link": f"https://a.vn/{k}", "score": 80,
+                                "sent": True, "sent_at": (NOW - timedelta(hours=1)).isoformat()}
+                      for k in range(23)}}
+    na.save_seen(seen)
+    sizes = []
+
+    def _rv(rows, bodies, sent):
+        sizes.append(len(rows))
+        return {i: _rev(70) for i in range(len(rows))}, None
+    assert na.recheck_sent(24, now=NOW, reviewer=_rv) == 0
+    assert sizes == [10, 10, 3] and "giữ 23/23 tin" in capsys.readouterr().out
