@@ -155,7 +155,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   json`, `--tools ""`, tước context repo `--setting-sources "" --disable-
   slash-commands --strict-mcp-config` (20K → ~1,6K token system), `--fallback-
   model` Sonnet, sổ LLM provider `ClaudeCode` ghi MỌI kết cục, stdout không
-  JSON = LỖI). Công tắc: `VNSTOCK_LLM_ENGINE=claude` cho mọi bước, đè riêng
+  JSON = LỖI; `claude` là shim `.cmd` npm + system nhiều dòng/`|<>%` ⇒ đi `--system-prompt-file` — cmd.exe CẮT argv ở xuống dòng, 12/10). Công tắc: `VNSTOCK_LLM_ENGINE=claude` cho mọi bước, đè riêng
   `VNSTOCK_<BRIEF|NEWS|AUDIT|TRAIN|REFLECTION|DIGEST>_ENGINE`; đọc `.env` TRƯỚC
   khi chọn. **5 bước LLM đều nối** (#26): news = sentiment + chấm tin RSS theo
   LÔ một call `--json-schema` (`score_batch_cli` / `analyze_items_cli`, tin

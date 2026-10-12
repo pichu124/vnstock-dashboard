@@ -5,6 +5,7 @@ ghim True) để `.env` thật trên máy user không lật kết quả test."""
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -363,6 +364,10 @@ def test_cli_check_probe_uses_special_chars_and_flags_shim(monkeypatch):
     seen: dict = {}
 
     def _run(cmd, **kw):
+        if "--system-prompt-file" in cmd:          # shim ⇒ system đi qua FILE (12/10)
+            path = cmd[cmd.index("--system-prompt-file") + 1]
+            seen["system"] = open(path, encoding="utf-8").read()
+            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(_body(result="OK")), stderr="")
         if "--system-prompt" in cmd:
             seen["system"] = cmd[cmd.index("--system-prompt") + 1]
             return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(_body(result="OK")), stderr="")
@@ -457,3 +462,50 @@ def test_complete_mcp_without_exe(monkeypatch):
     monkeypatch.setattr(vcc, "cli_executable", lambda: None)
     ex, err, info = vcc.complete_mcp("x", system="s", allowed_tools=[TCBS_OV])
     assert ex == [] and "không tìm thấy" in err and info["no_exe"] and rows[-1][2] is False
+
+
+# ── 12/10: shim npm cắt system prompt ở dấu xuống dòng ⇒ truyền qua FILE ──
+
+
+def test_system_prompt_goes_through_file_only_for_shim_and_unsafe_text(monkeypatch):
+    _ledger_spy(monkeypatch)
+    got: dict = {}
+    sys_text = "Dòng 1\nDòng 2: TÍCH_CỰC | TIÊU_CỰC <0-100> 50%"
+
+    def _run(cmd, **kw):
+        got["cmd"] = cmd
+        if "--system-prompt-file" in cmd:
+            path = cmd[cmd.index("--system-prompt-file") + 1]
+            got["path"] = path
+            got["content"] = open(path, encoding="utf-8").read()
+        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(_body()), stderr="")
+    monkeypatch.setattr(subprocess, "run", _run)
+
+    vcc.complete("U", system=sys_text, exe="C:\\npm\\claude.cmd", model="m")
+    assert "--system-prompt" not in got["cmd"] and got["content"] == sys_text
+    assert not os.path.exists(got["path"])                       # file tạm đã dọn
+    vcc.complete("U", system=sys_text, exe="/native/claude", model="m")      # native: argv như cũ
+    assert got["cmd"][got["cmd"].index("--system-prompt") + 1] == sys_text
+    vcc.complete("U", system="Một dòng sạch", exe="C:\\npm\\claude.cmd", model="m")
+    assert got["cmd"][got["cmd"].index("--system-prompt") + 1] == "Một dòng sạch"
+
+
+def test_system_file_removed_even_when_cli_times_out(monkeypatch):
+    _ledger_spy(monkeypatch)
+    seen: dict = {}
+
+    def _run(cmd, **kw):
+        seen["path"] = cmd[cmd.index("--system-prompt-file") + 1]
+        raise subprocess.TimeoutExpired(cmd, 1)
+    monkeypatch.setattr(subprocess, "run", _run)
+    monkeypatch.setattr(vcc, "_DEAD_REASON", None)
+    text, err, _ = vcc.complete("U", system="a\nb", exe="C:\\npm\\claude.cmd", model="m")
+    monkeypatch.setattr(vcc, "_DEAD_REASON", None)
+    assert text == "" and "quá" in err and not os.path.exists(seen["path"])
+
+
+def test_mcp_command_uses_system_file_when_given():
+    cmd = vcc.mcp_command("x", "m", system="a\nb", allowed_tools=["t"], system_file="/tmp/s.txt")
+    assert cmd[cmd.index("--system-prompt-file") + 1] == "/tmp/s.txt" and "--system-prompt" not in cmd
+    cmd = vcc.mcp_command("x", "m", system="a", allowed_tools=["t"])
+    assert cmd[cmd.index("--system-prompt") + 1] == "a"

@@ -177,7 +177,18 @@ def repo_context_wanted() -> bool:
     return _env("VNSTOCK_CLAUDE_CLI_REPO_CONTEXT").lower() not in ("", *_OFF)
 
 
+# Ký tự cmd.exe đọc lại khi `claude` là shim `.cmd` của npm: xuống dòng CẮT argv (12/10
+# 🖥️: hướng dẫn chấm tin chỉ còn "… Với TỪNG bài, chấm:" — Claude tự chế tiêu chí, trả
+# chữ thay JSON); `|<>&^%` là pipe/redirect/biến. Có ký tự nào ⇒ system qua FILE.
+_SHIM_UNSAFE = ("\n", "\r", "|", "<", ">", "&", "^", "%")
+
+
+def system_needs_file(exe: "str | None", system: "str | None") -> bool:
+    return bool(system) and is_shim(exe) and any(ch in system for ch in _SHIM_UNSAFE)
+
+
 def cli_command(exe: str, model: str, *, system: "str | None" = None,
+                system_file: "str | None" = None,
                 fallback_model: "str | None" = None,
                 json_schema: "dict | None" = None,
                 effort: "str | None" = None,
@@ -200,7 +211,9 @@ def cli_command(exe: str, model: str, *, system: "str | None" = None,
     if not repo_context:
         cmd += ["--setting-sources", "", "--disable-slash-commands",
                 "--strict-mcp-config"]
-    if system:
+    if system_file:                       # shim npm: argv không chở được prompt nhiều dòng
+        cmd += ["--system-prompt-file", system_file]
+    elif system:
         cmd += ["--system-prompt", system]
     if fallback_model:
         cmd += ["--fallback-model", fallback_model]
@@ -312,27 +325,40 @@ def complete(user: str, *, system: "str | None" = None,
         _mark_dead(err)
         _ledger_record(LEDGER_PROVIDER, model, ok=False, error=err)
         return "", err, info
-    cmd = cli_command(exe, model, system=system, fallback_model=fallback_model or None,
+    sys_file = None
+    if system_needs_file(exe, system):
+        fd, sys_file = tempfile.mkstemp(prefix="vnstock_sys_", suffix=".txt")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(system)
+    cmd = cli_command(exe, model, system=system, system_file=sys_file,
+                      fallback_model=fallback_model or None,
                       json_schema=json_schema, effort=effort, tools=tools)
     t0 = time.time()
     try:
-        proc = subprocess.run(
-            cmd, input=user, capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=timeout_s,
-            cwd=str(cwd or _REPO), env=cli_env(),
-        )
-    except subprocess.TimeoutExpired:
-        err = f"claude CLI quá {timeout_s}s — bỏ"
-        info["elapsed_s"] = time.time() - t0
-        _mark_dead(err)
-        _ledger_record(LEDGER_PROVIDER, model, ok=False, error=err)
-        return "", err, info
-    except OSError as e:
-        err = f"không chạy được claude CLI: {type(e).__name__}: {str(e)[:120]}"
-        info["elapsed_s"] = time.time() - t0
-        _mark_dead(err)
-        _ledger_record(LEDGER_PROVIDER, model, ok=False, error=err)
-        return "", err, info
+        try:
+            proc = subprocess.run(
+                cmd, input=user, capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=timeout_s,
+                cwd=str(cwd or _REPO), env=cli_env(),
+            )
+        except subprocess.TimeoutExpired:
+            err = f"claude CLI quá {timeout_s}s — bỏ"
+            info["elapsed_s"] = time.time() - t0
+            _mark_dead(err)
+            _ledger_record(LEDGER_PROVIDER, model, ok=False, error=err)
+            return "", err, info
+        except OSError as e:
+            err = f"không chạy được claude CLI: {type(e).__name__}: {str(e)[:120]}"
+            info["elapsed_s"] = time.time() - t0
+            _mark_dead(err)
+            _ledger_record(LEDGER_PROVIDER, model, ok=False, error=err)
+            return "", err, info
+    finally:
+        if sys_file:                      # file tạm chở system prompt (shim) — dọn ngay
+            try:
+                os.unlink(sys_file)
+            except OSError:
+                pass
     text, err, parsed = parse_cli_output(proc.stdout)
     info.update(parsed)
     info["elapsed_s"] = time.time() - t0
@@ -383,12 +409,13 @@ def mcp_server_prefix(server_name: str) -> str:
 
 
 def mcp_command(exe: str, model: str, *, system: str, allowed_tools,
-                max_turns: int = 8) -> list[str]:
+                max_turns: int = 8, system_file: "str | None" = None) -> list[str]:
     """Dòng lệnh một lượt gọi connector: bộ cờ gọn + đúng các tool cho phép
-    (để CUỐI vì `--allowedTools` nhận nhiều giá trị)."""
+    (để CUỐI vì `--allowedTools` nhận nhiều giá trị). `system_file`: shim npm."""
+    sys_args = ["--system-prompt-file", system_file] if system_file else ["--system-prompt", system]
     return [exe, "-p", TASK_LINE, "--output-format", "stream-json", "--verbose",
             "--model", model, "--no-session-persistence", "--permission-prompts", "none",
-            *MCP_LEAN_FLAGS, "--system-prompt", system, "--max-turns", str(max_turns),
+            *MCP_LEAN_FLAGS, *sys_args, "--max-turns", str(max_turns),
             "--allowedTools", *list(allowed_tools)]
 
 
@@ -514,8 +541,13 @@ def complete_mcp(user: str, *, system: str, allowed_tools,
         _ledger_record(LEDGER_PROVIDER, model, ok=False, error=err)
         return [], err, info
     allowed = list(allowed_tools)
-    cmd = mcp_command(exe, model, system=system, allowed_tools=allowed, max_turns=max_turns)
     with tempfile.TemporaryDirectory(prefix="vnstock_mcp_") as tmp:
+        sys_file = None
+        if system_needs_file(exe, system):            # shim npm: system qua file (12/10)
+            sys_file = str(Path(tmp) / "system.txt")
+            Path(sys_file).write_text(system, encoding="utf-8")
+        cmd = mcp_command(exe, model, system=system, allowed_tools=allowed,
+                          max_turns=max_turns, system_file=sys_file)
         events, run_err, elapsed = run_stream_json(cmd, user, timeout_s, cwd=tmp)
     info["elapsed_s"] = elapsed
     ex = tool_exchanges(events)
@@ -566,8 +598,9 @@ def cli_check(probe: bool = True, timeout_s: int = 120) -> dict:
     out["exe_source"] = "env" if _env("VNSTOCK_CLAUDE_CLI_EXE", "VNSTOCK_BRIEF_CLI_EXE") else "path"
     if is_shim(exe):
         out["shim"] = True
-        out["warning"] = ("đang dùng shim .cmd của npm — cmd.exe đọc lại argv, "
-                          "system prompt có |<>% hoặc xuống dòng có thể hỏng; ghim "
+        out["warning"] = ("đang dùng shim .cmd của npm — cmd.exe đọc lại argv (xuống dòng "
+                          "cắt system prompt); từ 12/10 system prompt nhiều dòng đi qua "
+                          "--system-prompt-file, nhưng vẫn nên ghim "
                           "VNSTOCK_CLAUDE_CLI_EXE=<…\\.local\\bin\\claude.exe> (bản cài native)")
     env = cli_env()
     for key, args in (("version", ["--version"]), ("auth", ["auth", "status"])):
