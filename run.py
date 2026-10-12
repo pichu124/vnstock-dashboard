@@ -736,6 +736,7 @@ def cmd_test(args) -> int:
             "tests/test_news_feeds.py",
             "tests/test_news_analyze_route.py",
             "tests/test_news_alert.py",       # cảnh báo tin mỗi giờ → Telegram (#31)
+            "tests/test_news_alert_review.py",  # bước 2 đọc kỹ: giá trị đọc + điểm chính (12/10)
             "tests/test_bsky_make_list.py",   # tạo Bluesky List từ docs/bluesky-macro-list.md
             "tests/test_bsky_eval.py",        # chấm tài khoản Bluesky bằng số liệu 7 ngày
             "tests/test_updater_partial_bar.py",
@@ -1328,6 +1329,8 @@ def cmd_news_alert(args) -> int:
         return _na.diag_url(args.diag_url)
     if getattr(args, "diag", False):
         return _na.diag_sources(_na.enabled_sources(only))
+    if getattr(args, "recheck_sent", None):
+        return _na.recheck_sent(args.recheck_sent)
     rc = _na.run(dry_run=getattr(args, "dry_run", False),
                  force=getattr(args, "force", False),
                  min_score=getattr(args, "min_score", None),
@@ -2248,6 +2251,9 @@ def build_parser() -> argparse.ArgumentParser:
                          "không gửi, không ghi sổ — chạy sau khi thêm feed")
     na.add_argument("--diag-url", default=None,
                     help="Thử MỘT URL feed ứng viên (tiếng Anh) trước khi thêm vào _ALERT_FEEDS")
+    na.add_argument("--recheck-sent", type=int, default=None, metavar="GIỜ",
+                    help="Chấm lại tin ĐÃ GỬI trong N giờ bằng bước đọc kỹ — chỉ in giữ/loại, "
+                         "không gửi, không ghi sổ (hiệu chỉnh VNSTOCK_NEWS_ALERT_MIN_VALUE)")
 
     all_ = sub.add_parser(
         "all", help="sync → validate → screener → news → test → audit → "

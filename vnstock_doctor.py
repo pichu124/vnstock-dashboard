@@ -607,6 +607,10 @@ def news_alert_verdict(marker, now: "datetime | None" = None,
     engine = marker.get("engine") or "?"
     summary = (f"lượt {ran_txt} bởi {machine} · {marker.get('fetched', '?')} tin lấy · "
                f"{marker.get('new', '?')} mới · {marker.get('sent', 0)} gửi · engine {engine}")
+    if marker.get("reviewed"):                     # bước đọc kỹ (12/10)
+        summary += f" · đọc kỹ {marker['reviewed']}, loại {marker.get('rejected', 0)}"
+    if marker.get("review_error"):
+        summary += f" · ⚠ đọc kỹ lỗi ({str(marker['review_error'])[:60]}) — gửi theo điểm tác động"
     err = marker.get("error")
     if err:
         streak = int(marker.get("error_streak") or 1)

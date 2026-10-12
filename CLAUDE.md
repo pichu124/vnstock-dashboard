@@ -261,7 +261,10 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   lượt trước (trần 36h) → cap 6 tin/nguồn, tường fetch 45s
   → sổ `_meta/news_alert_seen.json` → Claude Code chấm 0–100 cả LÔ một call (06/10, U76;
   `MIN_SCORE` 1–5 cũ ⇒ ×20) (rơi về ladder + điểm từ khoá; không engine ⇒ KHÔNG gửi tin thô) → ≥75 gửi,
-  ≤8 tin/lượt, dư để lượt sau không chấm lại → marker
+  ≤8 tin/lượt, dư để lượt sau không chấm lại → **BƯỚC 2 ĐỌC KỸ** (12/10, U87: tin đạt tác động ≤10/lượt
+  lấy THÂN BÀI qua Jina — tường phí/GNews = chỉ tiêu đề — Claude chấm GIÁ TRỊ ĐỌC + điểm chính, guard: số
+  trong điểm chính PHẢI có trong bài; gửi khi đạt CẢ HAI, `VNSTOCK_NEWS_ALERT_MIN_VALUE` 60; tin đã loại
+  không bao giờ đi; Claude lỗi ⇒ gửi theo tác động kèm nhãn; hiệu chỉnh `--recheck-sent 24`) → marker
   `news_alert_status.json{machine,error_streak}` + badge doctor. Không tin mới
   = im lặng, không gọi LLM. Không đụng `market_news_cache.json`. Thêm nguồn =
   một `Source(...)`. Lệnh: `run.py news-alert --dry-run|--force|--list-sources`.
@@ -301,7 +304,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 - Mọi auto-refresh đều best-effort và có env kill-switch
   (`VNSTOCK_BRIEF_AUTO_*`, `VNSTOCK_MACRO_*`, `VNSTOCK_BASIS_GUARD`,
   `VNSTOCK_OHLC_REPAIR`, `VNSTOCK_AUTOHEAL_BUDGET_S`, `VNSTOCK_VN30_DYNAMIC`,
-  `VNSTOCK_WSS_HOT_TIER`, `VNSTOCK_BRIEF_WATCH`, `VNSTOCK_NEWS_ALERT`,
+  `VNSTOCK_WSS_HOT_TIER`, `VNSTOCK_BRIEF_WATCH`, `VNSTOCK_NEWS_ALERT[_REVIEW]`,
   `VNSTOCK_FIXUNITS_FOOTER_PRUNE`, `VNSTOCK_NETBS_WORKERS`, `VNSTOCK_HORIZONS_STEP`, `VNSTOCK_REC_GDKHQ_HOLD`, `VNSTOCK_BRIEF_RISK_TODAY`, `VNSTOCK_BRIEF_FUND_PERIODS`, `VNSTOCK_MCP_ENRICH`, `VNSTOCK_ASSETS[_HOURLY|_MCP|_DEMOTE|_LINKS|_ALERTS]`, `VNSTOCK_BRIEF_ASSETS`, `VNSTOCK_LLM_ENGINE`
   + `VNSTOCK_<BƯỚC>_ENGINE` + `VNSTOCK_CLAUDE_CLI_{EXE,MODEL,FALLBACK_MODEL,
   TIMEOUT_S,API_KEY,REPO_CONTEXT}`, `VNSTOCK_LLM_BREAKER`

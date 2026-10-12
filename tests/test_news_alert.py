@@ -37,6 +37,9 @@ def _meta(tmp_path, monkeypatch):
               na.ENV_TICKERS, na.ENV_CLI_MODEL, na.ENV_CLI_TIMEOUT,
               "VNSTOCK_NEWS_ALERT_ENGINE", na.ENV_TWITTERAPI_KEY, na.ENV_X_BEARER):
         monkeypatch.delenv(k, raising=False)
+    # Bước đọc kỹ (12/10) có file test riêng `test_news_alert_review.py` — ở đây tắt để
+    # các test luồng cũ không gọi Jina thật và giữ nguyên hành vi một bước.
+    monkeypatch.setenv(na.ENV_REVIEW, "0")
     return tmp_path
 
 

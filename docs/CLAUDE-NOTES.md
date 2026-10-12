@@ -6974,6 +6974,20 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 📰 U87. TIN MỖI GIỜ — BƯỚC 2 ĐỌC KỸ TRƯỚC KHI GỬI (12/10)
+
+**Vết:** user: "nhiều tin chỉ đọc cho có" — muốn chỉ nhận tin chất lượng, có thông tin quan trọng, người viết đưa số liệu hữu ích. Gốc: bước chấm (U76) chỉ thấy tiêu đề + ≤300 ký tự tóm tắt và chấm MỘT trục (tác động) ⇒ bài nhắc lại chuyện cũ / bình luận suông về Fed-tỷ giá vẫn qua 75. User chọn A + B (C = nút 👍/👎 học theo phản hồi để sau, khi có 1–2 tuần dữ liệu).
+
+**Thiết kế (`vnstock_news_alert`, test 23 `tests/test_news_alert_review.py`, whitelist):**
+* Bước 1 giữ nguyên. Bước 2 `review_pending`: tin chờ gửi ≥ ngưỡng tác động, CHƯA đọc, điểm cao trước, ≤ `VNSTOCK_NEWS_ALERT_REVIEW_MAX` (10) ⇒ `fetch_bodies` song song, tường `VNSTOCK_NEWS_ALERT_BODY_BUDGET_S` (40s), `vnstock_news_feeds.fetch_fulltext(max_chars=3500)` (Jina); bài MXH = chính tiêu đề; host tường phí/chuyển hướng (`NO_BODY_HOSTS`: news.google.com, bloomberg, wsj/dowjones, ft, barrons, economist) và bài < 400 ký tự ⇒ "chỉ tiêu đề".
+* MỘT call Claude (`REVIEW_SYSTEM` + schema): `gia_tri` 0–100 (gốc+mới+số liệu 80–100 · ≥1 dữ kiện mới 60–79 · kể lại 40–59 · điểm tin/giá X hôm nay/PR/ý kiến không số/trùng ĐÃ GỬI 0–39; chỉ tiêu đề: tiêu đề tự chứa quyết định/con số ⇒ 60–85, mơ hồ ≤ 50), `muc_do` chấm LẠI sau khi đọc, `diem_chinh` (chép số đúng như bài), `ly_do`, nhãn + tác động. Ngữ cảnh `### ĐÃ GỬI` 24h đi kèm.
+* Guard `numbers_grounded`: mọi số ≥ 2 chữ số trong điểm chính phải có trong tiêu đề+tóm tắt+thân (chuẩn hoá bỏ dấu phân cách) — quy đổi/làm tròn/bịa ⇒ bỏ điểm chính.
+* Sổ: `gia_tri`, `score` (tác động mới; cũ ở `score1`), `diem_chinh`, `ly_do`, `doc`, `reviewed_at`; `_record` nay lưu `kind` + `summary`. Gửi: `select_to_send(min_value=, require_review=)` — đạt CẢ HAI; tin đã đọc mà dưới ngưỡng KHÔNG BAO GIỜ đi (kể cả lượt ladder / tắt bước đọc); tin chưa tới lượt đọc chờ lượt sau (vẫn hết hạn sau 6h như cũ).
+* Claude lỗi ở bước 2 ⇒ lượt đó gửi theo tác động, tin ghi "chưa đọc kỹ" + chân tin cảnh báo; engine ladder ⇒ không đọc kỹ (khỏi thêm một lần chờ timeout). Kill-switch `VNSTOCK_NEWS_ALERT_REVIEW=0`.
+* Tin nhắn: `🟠 80/100 · đọc 72 · tiêu đề` + `▸ điểm chính` + kênh tác động + `📄 đã đọc bài` / `💬 bài mạng xã hội` / `🔒 chỉ tiêu đề`; chân `đáng đọc ≥ 60`. Marker + doctor: `reviewed`, `rejected`, `review_error`.
+* Thời gian: task giờ trần 15′ — xấu nhất fetch 45s + chấm 180s + thân bài 40s + đọc 150s + assets 360s ≈ 13′.
+* Hiệu chỉnh: `run.py news-alert --recheck-sent 24` chấm lại tin ĐÃ GỬI bằng bước 2, in ✓ giữ / ✗ loại + lý do, không gửi, không ghi sổ ⇒ user đối chiếu cảm nhận rồi mới chỉnh ngưỡng.
+
 # 🪙 U86. P5 BRIEF 🪙 · CẢNH BÁO TELEGRAM · PHÂN BỔ VÀNG VND (10/10)
 
 Thiết kế §13. (a) Mục 🪙 trong brief = dòng CODE (`vnstock_assets_brief`, ctx `assets_lines`, khối dữ kiện prompt,
