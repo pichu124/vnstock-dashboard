@@ -193,4 +193,6 @@ def _render_digest(st, rp) -> None:
                1: "tilt +1 band (phòng thủ hơn)"}[c["tilt"]]
         st.info(f"🧭 Consensus {c['n_reports']} báo cáo: stance Cổ phiếu "
                 f"{c['stance']['Cổ phiếu']:+.2f} → **{lab}** "
-                f"(decay tuổi: đủ trọng số ≤30 ngày, về 0 ở 90 ngày)")
+                f"(decay tuổi: đủ trọng số ≤30 ngày, về 0 ở 90 ngày)"
+                + "".join(f"  \n⤳ bỏ {s['period']} {s['source']} ({s['report_date']}) — cùng nguồn đã có "
+                          f"{s['by_period']}" for s in c.get("superseded") or []))

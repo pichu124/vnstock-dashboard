@@ -493,6 +493,83 @@ def load_for_analysis(as_of: "str | None" = None,
     return out
 
 
+# ── Báo cáo theo QUÝ: quý mới thay quý cũ trong CÙNG nguồn (user chốt 12/10) ──
+# Q3_update (11/08) + Q4 (04/10) cùng HedgeAcademy: trung bình cả hai kéo đồng
+# thuận CP −1 về −0,68 ⇒ mất tilt, dù Q4 là bản chính tác giả đã thay. Luật:
+# trong một nguồn, báo cáo quý CŨ (Q3_xxx) vẫn ở thư viện nhưng KHÔNG vào phân
+# tích khi đã có báo cáo quý MỚI hơn (Q4_xxx); các bản CÙNG quý (Q4, Q4_update…)
+# bổ sung cho nhau theo tuổi. Tên không ghi quý ⇒ không bị thay, không thay ai.
+
+_QUARTER_RE = re.compile(r"(?<![A-Za-z])(?:Q|qu[yý]\s*)([1-4])(?![0-9])", re.IGNORECASE)
+_QUARTER_YEAR_RE = re.compile(
+    r"(?:(?<![A-Za-z])(?:Q|qu[yý]\s*)([1-4])[\s_\-/.]*((?:19|20)\d{2})(?!\d))"
+    r"|(?:(?<!\d)((?:19|20)\d{2})[\s_\-/.]*(?:Q|qu[yý]\s*)([1-4])(?![0-9]))", re.IGNORECASE)
+
+
+def _nearest_year(q: int, report_date: "str | None") -> "int | None":
+    """Năm của quý q gần ngày phát hành nhất (Q1 ra tháng 12 = Q1 năm SAU)."""
+    try:
+        d = date.fromisoformat(report_date or "")
+    except ValueError:
+        return None
+    mid_month = 3 * q - 1
+    return min((d.year - 1, d.year, d.year + 1),
+               key=lambda y: abs((date(y, mid_month, 15) - d).days))
+
+
+def report_quarter(rec: dict) -> "tuple[int, int] | None":
+    """(năm, quý) đọc từ tên báo cáo (title rồi orig_name); None khi tên không
+    ghi quý. Năm: dính liền quý ("Q4_2026", "2026Q4") hoặc suy từ ngày phát
+    hành. Tên nhắc nhiều quý ("KQKD Q2, triển vọng Q3") ⇒ lấy quý MUỘN nhất."""
+    for name in (rec.get("title"), rec.get("orig_name")):
+        if not name:
+            continue
+        found = set()
+        for m in _QUARTER_YEAR_RE.finditer(name):
+            q, y = (m.group(1), m.group(2)) if m.group(1) else (m.group(4), m.group(3))
+            found.add((int(y), int(q)))
+        if not found:
+            for m in _QUARTER_RE.finditer(name):
+                y = _nearest_year(int(m.group(1)), rec.get("report_date"))
+                if y:
+                    found.add((y, int(m.group(1))))
+        if found:
+            return max(found)
+    return None
+
+
+def quarter_label(yq: "tuple[int, int]") -> str:
+    return f"Q{yq[1]}/{yq[0]}"
+
+
+def _source_key(source: "str | None") -> str:
+    """Khoá gom nguồn: bỏ hoa/thường, dấu cách, ký tự lạ ("Hedge Academy" = "HedgeAcademy")."""
+    return re.sub(r"[^0-9a-z]", "", (source or "").casefold())
+
+
+def superseded_by(recs: "list[dict]") -> "dict[str, dict]":
+    """{id báo cáo bị thay: {period, by_period, by_id}} trong tập `recs` — chỉ
+    báo cáo trong tập mới thay được nhau (chỗ gọi đưa tập ĐÃ digest ⇒ báo cáo
+    quý mới chưa đọc xong thì chưa thay bản cũ). Hàm thuần."""
+    latest: "dict[str, tuple[tuple[int, int], str]]" = {}
+    tagged = []
+    for r in recs:
+        yq, src = report_quarter(r), _source_key(r.get("source"))
+        if yq is None or not src:
+            continue
+        tagged.append((r, yq, src))
+        if src not in latest or yq > latest[src][0]:
+            latest[src] = (yq, r["id"])
+    return {r["id"]: {"period": quarter_label(yq), "by_period": quarter_label(latest[src][0]),
+                      "by_id": latest[src][1]}
+            for r, yq, src in tagged if yq < latest[src][0]}
+
+
+def drop_superseded(recs: "list[dict]") -> "list[dict]":
+    sup = superseded_by(recs)
+    return [r for r in recs if r["id"] not in sup]
+
+
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
 

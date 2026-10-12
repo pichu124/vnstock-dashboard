@@ -724,12 +724,18 @@ def consensus(as_of: "str | None" = None) -> "dict | None":
     hơn), ≤ -1.0 → +1 (phòng thủ). None khi chưa có digest nào còn trọng số.
     v1 giữ ĐƠN GIẢN (1-2 báo cáo/tháng — tham số duyệt #2): trung bình có
     trọng số, không phân biệt uy tín nguồn (xếp hạng nguồn = P6).
+    Cùng nguồn, báo cáo quý CŨ nhường quý MỚI (`vnstock_reports.superseded_by`,
+    user 12/10) — liệt kê ở khoá ``superseded``; cùng quý thì bổ sung nhau.
     """
     rows = []
-    for rec in _rp.load_for_analysis(as_of=as_of):
-        d = rec.get("digest")
-        if not d or not d.get("stance"):
+    digested = [rec for rec in _rp.load_for_analysis(as_of=as_of)
+                if (rec.get("digest") or {}).get("stance")]
+    # Cùng nguồn: báo cáo quý cũ nhường quý mới (user 12/10 — vnstock_reports.superseded_by).
+    sup = _rp.superseded_by(digested)
+    for rec in digested:
+        if rec["id"] in sup:
             continue
+        d = rec["digest"]
         w = _age_weight(rec["age_days"])
         if w <= 0:
             continue
@@ -758,6 +764,9 @@ def consensus(as_of: "str | None" = None) -> "dict | None":
                      "stance_cp": d["stance"].get("Cổ phiếu", 0),
                      "has_mismatch": bool(d.get("has_mismatch"))}
                     for w, rec, d in rows],
+        "superseded": [{"id": rec["id"], "source": rec.get("source"),
+                        "report_date": rec.get("report_date"), **sup[rec["id"]]}
+                       for rec in digested if rec["id"] in sup],
     }
 
 
@@ -818,6 +827,9 @@ def main(argv: "list[str] | None" = None) -> int:
             flag = " ⚠mismatch" if dr["has_mismatch"] else ""
             print(f"    • {dr['report_date']} {dr['source']} "
                   f"(w={dr['weight']}, CP {dr['stance_cp']:+d}){flag}")
+        for s in c.get("superseded") or []:
+            print(f"    ⤳ bỏ {s['report_date']} {s['source']} {s['period']} — "
+                  f"cùng nguồn đã có {s['by_period']}")
         return 0
     if args.diag:
         _ensure_env_loaded()

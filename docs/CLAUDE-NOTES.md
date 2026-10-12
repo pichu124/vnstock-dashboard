@@ -7747,6 +7747,7 @@ Q4 (04/10, CP −1) nếu band data B2: đủ B3 tới 03/11 · 18/11 75% · 03/
 10/07 tuổi 84 ngày ⇒ w = 0,10. Bản cũ sẽ cho báo cáo 84 ngày ấy tilt ĐỦ 1 band —
 đúng lỗi user muốn sửa. Band data B3 (điểm −0,514, điểm thô đề xuất B4, hysteresis
 giữ B3) ⇒ từ pipeline tối 05/10 Q4 vào: đủ +1 ⇒ band hiệu lực B4.
+**Quý mới thay quý cũ trong CÙNG nguồn (12/10, user chốt):** Q3_update (HedgeAcademy, đọc ảnh 2 ảnh $0,04, ngày sửa 17/07→11/08 theo tên file, digest Gemini CP 0) vào đồng thuận cạnh Q4 (CP −1) ⇒ −1/1,47 = −0,68 ⇒ MẤT tilt +1. User: "file Q3_xxx vẫn ở thư viện nhưng bị Q4 thay; các file Q4_xxx bổ sung cho nhau theo ngày update; áp cho mọi nguồn". `vnstock_reports.report_quarter` đọc quý từ title/orig_name (`Q4`, `Q4_update`, `Quý 3`, `2026Q2`; năm dính liền quý thắng, không thì quý gần ngày phát hành nhất — Q1 ra tháng 12 = năm sau; tên nhắc nhiều quý ⇒ quý muộn nhất; không ghi quý ⇒ không thay/không bị thay) · `superseded_by` gom nguồn không phân biệt hoa/dấu cách, CHỈ xét tập ĐÃ digest (quý mới chưa đọc xong thì bản cũ còn hiệu lực) · `consensus()` bỏ bản bị thay + khoá `superseded` (CLI `--consensus` in "⤳ bỏ …", tab Báo cáo) · brief `macro_reports` lọc y hệt. `load_for_analysis` KHÔNG đổi (scorecard vẫn chấm báo cáo cũ). Test +16 `tests/test_report_digest.py`. Kỳ vọng sau merge: đồng thuận 1 báo cáo, CP −1, tilt +1 trở lại.
 
 **⚠️ Test đỏ trên máy thật, xanh ở sandbox (05/10 ~00:30, desktop, `run.py test`
 full: 3.571 passed · 2 failed).** `test_enabled_sources_filter_by_env_prefix…` +

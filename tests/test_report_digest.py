@@ -621,3 +621,85 @@ def test_brief_table_says_weights_are_blended():
     full = {"band": "B2", "score": 0.0, "as_of": "2026-11-20", "band_label": "x"}
     alloc.apply_tilt(full, {"tilt": 1, "strength": 1.0, "stance": {}, "drivers": []})
     assert "trộn" not in canon._allocation_table_lines(full)[-1]
+
+
+# ── 12/10: cùng nguồn, báo cáo quý CŨ nhường quý MỚI; cùng quý bổ sung nhau ──
+
+
+def _add_titled(title, days_old, source="HedgeAcademy", cp=0):
+    d = (date.today() - timedelta(days=days_old)).isoformat()
+    rec = rp.add_text(_TEXT + title, report_date=d, source=source, title=title)
+    _set_stance(rec, cp, days_old)
+    return rec
+
+
+@pytest.mark.parametrize("title,rdate,want", [
+    ("Q3_update_11.08.2026", "2026-08-11", (2026, 3)),   # ca thật 12/10 (ngày trong tên KHÔNG phải năm của quý)
+    ("Q4", "2026-10-04", (2026, 4)),
+    ("Q1 outlook", "2026-12-20", (2027, 1)),             # Q1 ra tháng 12 = Q1 năm sau
+    ("Q4_2025 review", "2026-01-10", (2025, 4)),         # năm dính liền quý thắng suy luận
+    ("2026Q2 chiến lược", "2026-04-02", (2026, 2)),
+    ("Báo cáo quý 3 cập nhật", "2026-07-20", (2026, 3)),
+    ("KQKD Q2, triển vọng Q3", "2026-07-25", (2026, 3)),  # nhiều quý ⇒ quý muộn nhất
+    ("Chiến lược đầu tư 2026", "2026-01-05", None),
+    ("Q&A với chuyên gia", "2026-05-05", None),
+])
+def test_report_quarter_parsing(title, rdate, want):
+    assert rp.report_quarter({"title": title, "report_date": rdate}) == want
+
+
+def test_report_quarter_falls_back_to_file_name():
+    assert rp.report_quarter({"title": None, "orig_name": "Q4.docx", "report_date": "2026-10-04"}) == (2026, 4)
+
+
+def test_consensus_drops_older_quarter_of_same_source():
+    """Ca thật 12/10: Q3_update (11/08, CP 0) kéo Q4 (04/10, CP −1) về −0,68 ⇒ mất tilt."""
+    q4 = _add_titled("Q4", 8, cp=-1)
+    q3 = _add_titled("Q3_update_11.08.2026", 62, cp=0)
+    c = dg.consensus()
+    assert c["n_reports"] == 1 and c["stance"]["Cổ phiếu"] == -1.0 and c["tilt"] == 1
+    assert [d["id"] for d in c["drivers"]] == [q4["id"]]
+    assert c["superseded"] == [{"id": q3["id"], "source": "HedgeAcademy", "report_date": q3["report_date"],
+                                "period": rp.quarter_label(rp.report_quarter(q3)),
+                                "by_period": rp.quarter_label(rp.report_quarter(q4)),
+                                "by_id": q4["id"]}]
+    assert any(r["id"] == q3["id"] for r in rp.list_reports())     # vẫn nằm thư viện
+
+
+def test_same_quarter_reports_complement_each_other():
+    _add_titled("Q4", 20, cp=-1)
+    _add_titled("Q4_update", 2, cp=-2)
+    c = dg.consensus()
+    assert c["n_reports"] == 2 and c["superseded"] == []
+    assert c["stance"]["Cổ phiếu"] == pytest.approx(-1.5)
+
+
+def test_supersede_only_within_source_and_only_by_digested_reports():
+    _add_titled("Q3 update", 40, source="SSI", cp=+1)
+    _add_titled("Q4", 5, source="Hedge Academy", cp=-1)               # nguồn khác ⇒ không thay SSI
+    assert dg.consensus()["n_reports"] == 2
+    d = (date.today() - timedelta(days=1)).isoformat()
+    rp.add_text(_TEXT + "ssi q4", report_date=d, source="SSI", title="Q4 SSI")  # chưa digest
+    c = dg.consensus()
+    assert c["n_reports"] == 2 and c["superseded"] == []             # quý mới chưa đọc xong ⇒ chưa thay
+
+
+def test_untitled_quarter_reports_are_never_superseded():
+    _add_titled("Q4", 5, cp=-1)
+    _add_titled("Bản tin vĩ mô tháng 9", 30, cp=+1)
+    assert dg.consensus()["n_reports"] == 2
+
+
+def test_source_key_groups_spelling_variants():
+    recs = [{"id": "a", "title": "Q3", "report_date": "2026-08-11", "source": "Hedge Academy"},
+            {"id": "b", "title": "Q4", "report_date": "2026-10-04", "source": "hedgeacademy"}]
+    assert set(rp.superseded_by(recs)) == {"a"}
+    assert [r["id"] for r in rp.drop_superseded(recs)] == ["b"]
+
+
+def test_cli_consensus_lists_superseded(capsys):
+    _add_titled("Q4", 8, cp=-1)
+    _add_titled("Q3_update_11.08.2026", 62, cp=0)
+    assert dg.main(["--consensus"]) == 0
+    out = capsys.readouterr().out
+    assert "tilt +1" in out and "⤳ bỏ" in out and "cùng nguồn đã có Q4/" in out

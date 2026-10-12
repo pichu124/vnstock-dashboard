@@ -2837,7 +2837,9 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     if os.environ.get("VNSTOCK_BRIEF_REPORTS", "1") != "0":
         try:
             from vnstock_reports import load_for_analysis as _rp_lfa
-            _reps = [r for r in _rp_lfa(as_of=_data_date_str) if r.get("digest")]
+            from vnstock_reports import drop_superseded as _rp_drop_sup
+            # cùng nguồn: báo cáo quý cũ nhường quý mới — y như consensus (12/10)
+            _reps = _rp_drop_sup([r for r in _rp_lfa(as_of=_data_date_str) if r.get("digest")])
             if _reps:
                 ctx["macro_reports"] = _reps[:3]
                 from vnstock_report_digest import consensus as _rd_consensus
