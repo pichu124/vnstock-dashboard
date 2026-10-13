@@ -349,7 +349,8 @@ chạy code cũ → `git log --oneline -1` đối chiếu commit cuối Claude b
 
 Plugin `mattpocock-skills@mattpocock` (GitHub `mattpocock/skills`) khai trong `.claude/settings.json`,
 `autoUpdate` theo BẢN PHÁT HÀNH (`plugin.json` ghim version, commit lẻ không tới). Phiên cloud
-KHÔNG nạp plugin khai trong repo ⇒ ở cloud đọc SKILL.md từ GitHub rồi làm tay.
+KHÔNG nạp plugin khai trong repo ⇒ ở cloud đọc SKILL.md từ GitHub rồi làm tay. Engine `claude -p`
+của pipeline (tước settings) KHÔNG nạp nó — đo 🖥️ 13/10 bằng `cli_command`: init chỉ 2 plugin builtin, 0 skill.
 
 ### Issue tracker
 
