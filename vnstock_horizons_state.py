@@ -374,6 +374,9 @@ def latest_published(warehouse: Path = _WAREHOUSE, now: datetime | None = None) 
     return Latest(state=st, snap=pub[-1], missing=None, expect=expect, conflicted=conflicted)
 
 
+_BREADTH_4W_SESSIONS = 20          # "4 tuần trước" của % mã trên MA200 trong 🔭
+
+
 def brief_view(lp: Latest) -> dict:
     """`ctx["horizons"]` cho brief (P1b-3, #21) — từ state ĐÃ LƯU, không đọc
     parquet: bản cuối + bản trước (dòng 🔁), số phiên của trạng thái ngắn hạn,
@@ -384,7 +387,7 @@ def brief_view(lp: Latest) -> dict:
     snap, inputs = lp.snap, lp.state.get("inputs") or {}
     days = sorted(k for k in inputs if k <= snap["as_of"])
     pub = lp.state.get("published") or []
-    prev = pub[-2] if len(pub) >= 2 and pub[-1] is snap else None
+    prev = pub[-2] if len(pub) >= 2 and pub[-1].get("as_of") == snap.get("as_of") else None
     breadth = [inputs[k].get("breadth_pct") for k in days]
     alert = snap.get("alert") or {}
     known = [lv["price"] for lv in snap.get("levels") or [] if lv.get("price")]
@@ -394,16 +397,20 @@ def brief_view(lp: Latest) -> dict:
     short_since = snap.get("short_since") or snap["as_of"]
     medium_since = date.fromisoformat(snap.get("medium_since") or snap["as_of"])
     end = date.fromisoformat(snap["as_of"])
-    # tuần trung hạn đếm theo tuần LỊCH (tuần chốt đổi trạng thái = tuần 1) —
-    # không phụ thuộc kho inputs có phủ tới ngày đổi hay không
-    weeks = len({date.fromordinal(o).isocalendar()[:2]
-                 for o in range(medium_since.toordinal(), end.toordinal() + 1)})
+    # "tuần N" = số tuần ĐÃ CHỐT mang trạng thái này (tuần chốt đổi = tuần 1; tuần
+    # đang mở chưa tính) — đếm theo tuần LỊCH, không cần kho inputs phủ tới ngày
+    # đổi. since rơi đầu tuần (thứ Sáu nghỉ ⇒ hiệu lực phiên đầu tuần sau) thì
+    # tuần chốt đổi là tuần TRƯỚC since.
+    weeks = (len({date.fromordinal(o).isocalendar()[:2]
+                  for o in range(medium_since.toordinal(), end.toordinal() + 1)})
+             - (0 if snap.get("week_closed") else 1) + (0 if medium_since.weekday() == 4 else 1))
     return {
         "stale": False, "snap": snap, "prev": prev,
         "short_sessions": max(1, sum(1 for k in days if k >= short_since)),
         "medium_weeks": max(1, weeks),
         "breadth_pct": breadth[-1] if breadth else None,
-        "breadth_pct_4w": breadth[-21] if len(breadth) >= 21 else None,
+        "breadth_pct_4w": (breadth[-1 - _BREADTH_4W_SESSIONS]
+                           if len(breadth) > _BREADTH_4W_SESSIONS else None),
         "known_levels": known,
     }
 

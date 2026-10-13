@@ -64,12 +64,14 @@ def test_stance_table_goes_through_the_guard(short, medium, tier, agent):
     rule = hz.stance_rule(short, medium, tier)
     ctx = {"brief_type": "afternoon", "horizons": _view(short, medium, tier)}
     out = enforce_stance_horizon(_close(agent), ctx)
-    expect = rule.forced or (agent if agent in rule.allowed else "TRUNG TÍNH")
+    if agent == "GIẢM":
+        expect = "GIẢM"                 # GIẢM không bao giờ bị loại — kể cả ô ép TĂNG (§3.1)
+    else:
+        expect = rule.forced or (agent if agent in rule.allowed else "TRUNG TÍNH")
     assert _stance_of(out) == expect
     assert "canh giảm nếu thủng S1 → mục tiêu S2; hủy nếu vượt lại R1." in out   # setup giữ
-    if agent == "GIẢM" and rule.forced != "TĂNG":
-        assert _stance_of(out) == "GIẢM"          # GIẢM không bao giờ bị loại ngoài ô ép TĂNG
     assert enforce_stance_horizon(out, ctx) == out
+    assert ("stance_pinned" in ctx) is (expect != agent)
 
 
 def test_guard_handles_bold_label_and_the_morning_bias_line():
@@ -192,3 +194,119 @@ def test_load_regime_reads_foreign_flow_of_the_price_bar_session(monkeypatch):
     rg.load_regime()
     rg.load_regime("2026-10-13")
     assert seen == [-1200.0, 800.0]          # cache có ngày MỚI hơn bar ⇒ không lấy nhầm
+
+
+# ── Sau review #22: biến thể dòng nhãn, dòng mồi, setup ngược chiều ô ép ─────
+
+_FLAT = {"brief_type": "afternoon"}       # ô {TRUNG TÍNH, GIẢM}: hồi × GIẢM
+
+
+@pytest.mark.parametrize("line,expect", [
+    ("**Stance ngày mai:** **TĂNG** — x", "**Stance ngày mai:** **TRUNG TÍNH** — x"),
+    ("**Stance ngày mai: TĂNG**", "**Stance ngày mai: TRUNG TÍNH**"),
+    ("- **Stance ngày mai**: TĂNG — x", "- **Stance ngày mai**: TRUNG TÍNH — x"),
+    ("🧭 **Stance ngày mai:** TĂNG — x", "🧭 **Stance ngày mai:** TRUNG TÍNH — x"),
+    ("1. Stance ngày mai (16/10): TĂNG — x", "1. Stance ngày mai (16/10): TRUNG TÍNH — x"),
+    ("**Stance ngày mai:** `TĂNG` — x", "**Stance ngày mai:** `TRUNG TÍNH` — x"),
+    ("**Stance ngày mai:** Tăng/Trung tính — x", "**Stance ngày mai:** TRUNG TÍNH — x"),
+    ("**Stance ngày mai:** TRUNG TÍNH nghiêng tăng — x", "**Stance ngày mai:** TRUNG TÍNH — x"),
+    ("**Stance ngày mai:** Nghiêng GIẢM — x", None),          # GIẢM có chữ phía trước: giữ
+    ("**Stance ngày mai:** 📉 GIẢM — x", None),
+    ("**Stance ngày mai:** [GIẢM] — x", None),
+    ("**Stance ngày mai:**", "**Stance ngày mai:** TRUNG TÍNH"),
+])
+def test_label_variants_are_pinned_without_corrupting_the_line(line, expect):
+    from vnstock_brief import _detect_stance, enforce_stance_horizon
+    ctx = {**_FLAT, "horizons": _view(hz.HOI, hz.GIAM, 0)}
+    text = f"## 🎯 TLDR\n{line}\n\n## 📊 Tổng kết phiên\nx\n"
+    out = enforce_stance_horizon(text, ctx)
+    assert out == (text if expect is None else text.replace(line, expect))
+    assert enforce_stance_horizon(out, dict(ctx)) == out
+    if expect is None:
+        assert _detect_stance(out.split("## 📊")[0]) == "bearish"
+
+
+def test_a_decoy_bias_line_outside_the_tldr_is_ignored():
+    from vnstock_brief import enforce_stance_horizon
+    ctx = {**_FLAT, "horizons": _view(hz.HOI, hz.GIAM, 0)}
+    text = ("## 🎯 TLDR\n**Stance ngày mai:** TĂNG — x\n\n## 📊 Tổng kết phiên\n"
+            "Bias: TRUNG TÍNH theo khối ngoại.\n")
+    out = enforce_stance_horizon(text, ctx)
+    assert "**Stance ngày mai:** TRUNG TÍNH — x" in out
+    assert "Bias: TRUNG TÍNH theo khối ngoại." in out
+
+
+def test_forced_cell_rebuilds_an_opposite_setup_from_real_levels():
+    from vnstock_brief import enforce_stance_horizon
+    vt = {"close": 1737.71, "support_1": 1720.5, "support_2": 1700.1,
+          "resistance_1": 1760.2, "resistance_2": 1790.12}
+    ctx = {**_FLAT, "horizons": _view(hz.CHINH, hz.DI_NGANG, 0), "vnindex_tech": vt}
+    text = ("## 🎯 TLDR\n**Stance ngày mai:** TĂNG — canh mua nếu vượt R1=1,760.20 → mục "
+            "tiêu R2=1,790.12; hủy nếu thủng S1=1,720.50.\n")
+    out = enforce_stance_horizon(text, ctx)
+    assert ("**Stance ngày mai:** GIẢM — canh giảm nếu thủng S1=1,720.50 → mục tiêu "
+            "S2=1,700.10; hủy nếu vượt lại R1=1,760.20.") in out
+    assert ctx["stance_pinned"] == {"agent": "TĂNG", "code": "GIẢM"}
+
+
+def test_missing_stance_rule_in_a_usable_snapshot_keeps_the_old_floor():
+    from vnstock_brief import _apply_horizon_stance
+    view = _view(hz.CHINH, hz.GIAM, 1)
+    view["snap"]["stance"] = None
+    old = {"dir": "GIẢM", "momentum": -67, "regime_score": -5}
+    ctx = {"horizons": view, "bias_floor": dict(old)}
+    _apply_horizon_stance(ctx)
+    assert ctx["bias_floor"] == old and "stance_allowed" not in view
+
+
+def test_prompt_survives_a_null_score_and_names_the_protection_reason():
+    from vnstock_brief import _apply_horizon_defensive, _apply_horizon_stance, build_prompt
+    view = _view(hz.CHINH, hz.GIAM, 1, score=None)
+    ctx = {"date": "2026-10-13", "time": "15:30", "horizons": view,
+           "bias_floor": {"dir": "GIẢM", "momentum": -55, "regime_score": None}}
+    _apply_horizon_stance(ctx)
+    _apply_horizon_defensive(ctx)
+    p = build_prompt(ctx, brief_type="afternoon")
+    assert "Ngắn hạn: nhịp chỉnh phiên 14 (điểm 0/7)" in p          # score None: không TypeError
+    assert "bias GIẢM" in p                       # ô ép GIẢM: lời cũ vẫn đúng chiều
+    ctx2 = {"date": "2026-10-13", "time": "15:30", "horizons": _view(hz.HOI, hz.TANG, 1),
+            "bias_floor": {"dir": "GIẢM", "momentum": -55, "regime_score": None}}
+    _apply_horizon_stance(ctx2)
+    _apply_horizon_defensive(ctx2)
+    p2 = build_prompt(ctx2, brief_type="afternoon")
+    assert "(lớp bảo vệ bật: tín hiệu ngày một chiều giảm · 🚨 mức 1)" in p2
+    assert "(bias GIẢM)" not in p2
+
+
+def test_apply_horizons_wires_morning_and_afternoon_only(monkeypatch):
+    import vnstock_brief as vb
+    calls = []
+    monkeypatch.setattr(vb, "_load_horizons", lambda c: c.__setitem__(
+        "horizons", _view(hz.HOI, hz.GIAM, 0)))
+    for bt in ("morning", "afternoon", "allocation"):
+        ctx = {"bias_floor": {"dir": "GIẢM", "momentum": -60, "regime_score": None}}
+        vb._apply_horizons(ctx, bt)
+        calls.append((bt, "horizons" in ctx, ctx.get("defensive", {}).get("level")))
+    assert calls == [("morning", True, "cứng"), ("afternoon", True, "cứng"),
+                     ("allocation", False, None)]
+
+
+def test_stance_source_marks_days_the_guard_rewrote(monkeypatch):
+    import vnstock_stance_track as stk
+    monkeypatch.setattr(stk, "_vnindex_closes", lambda days=200: [
+        ("2026-10-12", 1700.0), ("2026-10-13", 1720.0)])
+    rows = [{"brief_date": "2026-10-12", "agent_name": "Claude", "output": _close("TRUNG TÍNH"),
+             "error": None, "context_json": json.dumps(
+                 {"stance_pinned": {"agent": "TĂNG", "code": "TRUNG TÍNH"}})},
+            {"brief_date": "2026-10-12", "agent_name": "Groq", "output": _close("TRUNG TÍNH"),
+             "error": None, "context_json": json.dumps(
+                 {"bias_floor": {"dir": "GIẢM", "momentum": -67}})},     # agent cãi floor
+            {"brief_date": "2026-10-12", "agent_name": "Gemini", "output": _close("GIẢM"),
+             "error": None, "context_json": "[]"}]
+    mod = types.ModuleType("vnstock_memory")
+    mod.init_db = lambda: None
+    mod.recent_briefs = lambda brief_type=None, limit=20: rows
+    monkeypatch.setitem(sys.modules, "vnstock_memory", mod)
+    src = {r["agent"]: r["stance_source"] for r in stk.stance_records()}
+    assert src == {"Claude": "code", "Groq": "agent", "Gemini": "agent"}
+    assert "Claude" not in stk.stance_summary()["by_agent"]      # view theo agent bỏ ngày code

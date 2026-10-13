@@ -13,10 +13,14 @@ Hai tầng dựng cùng một khối bằng CÙNG MỘT HÀM ở đây, nên kh�
 Nếu tách đôi (mỗi bên một bản), guard sẽ "sửa" output về một chuẩn khác chuẩn
 đã đưa vào prompt — đúng loại lỗi im lặng khó lần nhất.
 
-Module thuần: không import gì ngoài stdlib, nên `vnstock_brief` và
-`vnstock_brief_guards` cùng import được mà không tạo vòng.
+Module thuần: cấp module không import gì ngoài stdlib, nên `vnstock_brief` và
+`vnstock_brief_guards` cùng import được mà không tạo vòng. Vài hàm import LƯỜI
+module lá không phụ thuộc brief (`vnstock_macro` cho định dạng số vĩ mô,
+`vnstock_horizons` — lõi 3 khung thuần stdlib — cho nhãn/ngưỡng của khối 🔭).
 """
 from __future__ import annotations
+
+import re
 
 
 # ── Cảnh báo chiến lược chưa qua kiểm định ──────────────────────────────────
@@ -299,13 +303,17 @@ def _pct_tail(pct) -> str:
     return f" ({pct:g}% cổ phiếu)" if isinstance(pct, (int, float)) else ""
 
 
-def _alloc_proposal_text(alloc: dict) -> str:
-    """Câu "band đề xuất" khi kẹp đang giữ — MỘT chỗ cho CLI, tab Phân bổ, brief.
-    Có tilt bị bỏ thì nói rõ đề xuất = band dữ liệu + tilt (khỏi trái "(band data)")."""
+def _alloc_proposal_text(alloc: dict, *, compact: bool = False) -> str:
+    """Câu "band đề xuất" khi kẹp đang giữ — MỘT chỗ cho CLI, tab Phân bổ, brief
+    (``compact`` = dạng gọn " B3 30%" cho dòng 💼 của 🔭). Có tilt bị bỏ thì nói
+    rõ đề xuất = band dữ liệu + tilt (khỏi trái "(band data)")."""
     cap = alloc.get("capped_by") or {}
     src = (f"band dữ liệu {alloc.get('band_data')} + tilt {cap['tilt']} đề xuất"
            if cap.get("tilt") else "band dữ liệu đề xuất")
-    return f"{src} {cap.get('proposed_band')}{_pct_tail(cap.get('proposed_pct'))}"
+    pct = cap.get("proposed_pct")
+    tail = ((f" {pct:g}%" if isinstance(pct, (int, float)) else "") if compact
+            else _pct_tail(pct))
+    return f"{src} {cap.get('proposed_band')}{tail}"
 
 
 def _alloc_cap_note(alloc: dict) -> str:
@@ -344,8 +352,13 @@ def _allocation_table_lines(alloc: dict) -> list[str]:
 # Ngắn hạn / Trung hạn. Mức giá ngoài danh sách đã biết in làm tròn "~1,803".
 _HORIZON_TITLE = "## 🔭 Góc nhìn theo khung thời gian"
 _HORIZON_TLDR_PREFIX = "**Trung hạn:**"
+_HORIZON_TLDR_LINE_RE = re.compile(r"^\s*(?:[-*•]\s*)?\*{0,2}Trung hạn\*{0,2}\s*[:：]",
+                                   re.IGNORECASE)   # dòng 3 TLDR, cả bản agent tự viết
 _HORIZON_AGENT_PREFIXES = ("- Ngắn hạn (vài phiên):", "- Trung hạn (xu hướng tuần):")
-_HORIZON_MACRO_KEYS = ("pmi", "usdvnd", "interbank_1w")   # nhóm T §3.6 có trong registry
+# nhóm T §3.6 có trong registry → nhãn GỌN: dòng có "vĩ mô" + "lãi suất"/"tỷ giá" là
+# header lỏng của enforce_macro (nấc 2) — chữ code in không được giống mẫu guard khác bắt
+_HORIZON_MACRO_KEYS = {"pmi": ("PMI", "{:.1f}"), "usdvnd": ("USD/VND", "{:,.0f}"),
+                       "interbank_1w": ("LNH 1 tuần", "{:.1f}%")}
 
 # (ngắn hạn, trung hạn) → (nhãn cặp khung, việc nên làm) — §3.9; "{x}" = mức kích hoạt
 _HORIZON_ACTIONS = {
@@ -376,12 +389,18 @@ def _hz_approx(x) -> str:
 
 
 def _hz_signed(n) -> str:
+    n = int(round(float(n or 0)))
     return f"{n:+d}" if n else "0"
 
 
 def _hz_level(snap: dict, kind: str) -> "dict | None":
     return next((lv for lv in snap.get("levels") or [] if lv.get("kind") == kind
                  and isinstance(lv.get("price"), (int, float))), None)
+
+
+def _hz_not_updated(as_of) -> str:
+    return (f"- 🔭 chưa cập nhật (as_of {_hz_ddmm(as_of)})." if as_of
+            else "- 🔭 chưa cập nhật (chưa đọc được state 3 khung).")
 
 
 def _horizon_view(ctx: dict) -> "dict | None":
@@ -408,13 +427,17 @@ def _horizon_change_line(view: dict) -> "str | None":
         same.append("trung hạn")
     ptier = (prev.get("alert") or {}).get("tier") or 0
     if prev and ptier != tier:
-        moved.append(f"🚨 bật mức {tier} ({_hz_ddmm((snap.get('alert') or {}).get('since'))})"
-                     if tier and not ptier else
-                     f"🚨 mức {ptier} → mức {tier}" if tier else "🚨 tắt")
+        if not tier:
+            moved.append("🚨 tắt")
+        elif not ptier:
+            moved.append(f"🚨 bật mức {tier} ({_hz_ddmm((snap.get('alert') or {}).get('since'))})")
+        else:
+            moved.append(f"🚨 mức {ptier} → mức {tier}")
     else:
         same.append("🚨")
     if snap.get("pending"):
-        nxt = {-1: "ĐI NGANG", 0: "TĂNG"}.get(snap.get("medium"))
+        nxt = MEDIUM_LABEL.get((snap.get("medium") or 0) + 1) if snap.get("medium") in (-1, 0) \
+            else None
         if nxt:
             moved.append(f"⏳ trung hạn chờ xác nhận lên {nxt} "
                          f"({snap['pending']}/{MediumParams().up_weeks} tuần)")
@@ -447,23 +470,20 @@ def _horizon_short_line(view: dict, ctx: dict) -> str:
 
 
 def _horizon_macro_snippet(ctx: dict) -> str:
-    """Nhóm T (§3.6) ở P1b: chỉ SỐ + CHIỀU 1 kỳ, CHƯA chấm độ tin cậy.
-    Tắt bằng VNSTOCK_HORIZON_MACRO=0."""
-    import os
-    if os.environ.get("VNSTOCK_HORIZON_MACRO", "1").strip().lower() in ("0", "false", "off", "no"):
+    """Nhóm T (§3.6) ở P1b: chỉ SỐ + CHIỀU 1 kỳ, CHƯA chấm độ tin cậy. Công tắc
+    VNSTOCK_HORIZON_MACRO chốt vào ``horizons["macro"]`` lúc dựng ctx (pack
+    --from-file dựng lại đúng khối prompt đã thấy). Số ≤1 chữ số lẻ — 2 chữ số
+    lẻ là dạng của mức chỉ số, guard giá soi."""
+    if (_horizon_view(ctx) or {}).get("macro") is False:
         return ""
     rows = {m.get("key"): m for m in ctx.get("macro") or [] if isinstance(m, dict)}
     parts = []
-    try:
-        from vnstock_macro import fmt_change, fmt_value
-        for key in _HORIZON_MACRO_KEYS:
-            m = rows.get(key)
-            if not m or not isinstance(m.get("value"), (int, float)):
-                continue
-            fc = fmt_change(m)
-            parts.append(f"{m.get('label', key)} {fmt_value(m)}" + (f" {fc[0]}" if fc else ""))
-    except Exception:
-        return ""
+    for key, (label, fmt) in _HORIZON_MACRO_KEYS.items():
+        m = rows.get(key)
+        if not m or not isinstance(m.get("value"), (int, float)):
+            continue
+        d = (m.get("change") or {}).get("dir") or 0
+        parts.append(f"{label} {fmt.format(m['value'])}" + (" ▲" if d > 0 else " ▼" if d < 0 else ""))
     return f" Vĩ mô (chưa chấm): {' · '.join(parts)}." if parts else ""
 
 
@@ -486,7 +506,8 @@ def _horizon_alert_line(snap: dict) -> str:
     tier, anchor = al.get("tier") or 0, al.get("anchor")
     if not tier:
         return "- 🚨 Rủi ro ngắn hạn: tắt."
-    line = f"- 🚨 Rủi ro ngắn hạn: BẬT mức {tier} từ {_hz_ddmm(al.get('since'))}"
+    line = (f"- 🚨 Rủi ro ngắn hạn: BẬT mức {tier} từ {_hz_ddmm(al.get('since'))}" if tier == 1
+            else f"- 🚨 Rủi ro ngắn hạn: BẬT từ {_hz_ddmm(al.get('since'))}, đã lên mức {tier}")
     if isinstance(anchor, (int, float)):
         line += f", neo đỉnh {_hz_approx(anchor)}"
         if tier == 1:
@@ -497,14 +518,10 @@ def _horizon_alert_line(snap: dict) -> str:
 
 
 def _horizon_cap_text(alloc: dict) -> str:
-    cap, ramp = alloc.get("capped_by"), alloc.get("ramp")
-    if cap:
-        src = (f"band dữ liệu {alloc.get('band_data')} + tilt {cap['tilt']} đề xuất"
-               if cap.get("tilt") else "band dữ liệu đề xuất")
-        pct = cap.get("proposed_pct")
-        pct_s = f" {pct:g}%" if isinstance(pct, (int, float)) else ""
-        return f"; {src} {cap.get('proposed_band')}{pct_s} — giữ vì {cap.get('why')}"
-    if ramp:
+    """Đuôi dòng 💼 khi kẹp #20 đang giữ / ⏳ đang leo — cùng câu chữ với 📚."""
+    if (cap := alloc.get("capped_by")):
+        return f"; {_alloc_proposal_text(alloc, compact=True)} — giữ vì {cap.get('why')}"
+    if (ramp := alloc.get("ramp")):
         pct = ramp.get("pct")
         pct_s = f" {pct:g}%" if isinstance(pct, (int, float)) else ""
         return f"; ⏳ chờ lên {ramp.get('band')}{pct_s}, mỗi tuần tối đa 1 bậc"
@@ -513,10 +530,11 @@ def _horizon_cap_text(alloc: dict) -> str:
 
 def _horizon_portfolio_line(snap: dict, ctx: dict) -> str:
     key = (snap.get("short"), snap.get("medium"))
-    label, advice = _HORIZON_ACTIONS.get(key, ("chưa rõ ở cả hai khung", "giữ nguyên tỷ trọng"))
+    label, advice = _HORIZON_ACTIONS.get(key, _HORIZON_ACTIONS[(0, 0)])
     if "{x}" in advice:
         lv = _hz_level(snap, _HORIZON_ACTION_LEVEL.get(snap.get("medium"), ""))
-        advice = (advice.format(x=_hz_approx(lv["price"])) if lv
+        advice = (advice.format(x=_hz_approx(lv["price"]))
+                  + ("" if lv.get("reachable") else _hz_unreachable(snap)) if lv
                   else advice.split(";")[0])
     alloc = ctx.get("allocation") or {}
     pct = (alloc.get("allocation") or {}).get("Cổ phiếu")
@@ -532,7 +550,7 @@ def _horizon_body_lines(ctx: dict) -> list[str]:
     if view is None:
         return []
     if view.get("stale") or not isinstance(view.get("snap"), dict):
-        return [f"- 🔭 chưa cập nhật (as_of {_hz_ddmm(view.get('as_of'))})."]
+        return [_hz_not_updated(view.get("as_of"))]
     snap = view["snap"]
     lines = [_horizon_change_line(view), _horizon_short_line(view, ctx),
              _horizon_medium_line(view, ctx),
@@ -541,34 +559,68 @@ def _horizon_body_lines(ctx: dict) -> list[str]:
     return [ln for ln in lines if ln]
 
 
+def _horizon_render(ctx: dict) -> "tuple[list[str], str | None]":
+    """(thân 🔭, TLDR dòng 3) cho prompt + guard. Snapshot dị dạng (trường thiếu /
+    sai kiểu) ⇒ "🔭 chưa cập nhật", KHÔNG làm sập cả brief."""
+    try:
+        return _horizon_body_lines(ctx), _horizon_tldr_line(ctx)
+    except Exception:
+        view = _horizon_view(ctx) or {}
+        as_of = view.get("as_of") or (view.get("snap") or {}).get("as_of")
+        return [_hz_not_updated(as_of)], None
+
+
+def _hz_week_word(snap: dict) -> str:
+    """Mức kích hoạt tính trên các tuần ĐÃ CHỐT: thứ Sáu (tuần vừa chốt) thì mức
+    là của tuần TỚI, giữa tuần là của tuần NÀY."""
+    return "tuần tới" if snap.get("week_closed") else "tuần này"
+
+
+def _hz_unreachable(snap: dict) -> str:
+    return f" (chưa thể trong {_hz_week_word(snap)})"
+
+
 def _horizon_tldr_line(ctx: dict) -> "str | None":
-    """TLDR dòng 3 "**Trung hạn:** …" (code viết, guard ghim); None khi state cũ."""
-    from vnstock_horizons import DI_NGANG, GIAM, MEDIUM_LABEL, TANG
+    """TLDR dòng 3 "**Trung hạn:** …" (code viết, guard ghim); None khi state cũ.
+    Số tuần còn cần để lên bậc trừ đi ``pending`` (tuần đọc đã có)."""
+    from vnstock_horizons import DI_NGANG, GIAM, MEDIUM_LABEL, TANG, MediumParams
     view = _horizon_view(ctx)
     if view is None or view.get("stale") or not isinstance(view.get("snap"), dict):
         return None
     snap = view["snap"]
     med = snap.get("medium")
+    need = max(1, MediumParams().up_weeks - int(snap.get("pending") or 0))
+    wk = _hz_week_word(snap)
 
     def lv_txt(kind: str, fmt: str) -> str:
         lv = _hz_level(snap, kind)
         if lv is None:
             return ""
-        tail = "" if lv.get("reachable") else " (chưa thể trong tuần này)"
+        tail = "" if lv.get("reachable") else _hz_unreachable(snap)
         return fmt.format(x=_hz_approx(lv["price"])) + tail
 
-    head = f"{_HORIZON_TLDR_PREFIX} {MEDIUM_LABEL.get(med, '?')} từ {_hz_ddmm(snap.get('medium_since'))} → "
+    def up_txt(kind: str, many: str, one: str) -> str:
+        """Câu lên bậc: còn ≥2 tuần ⇒ ``many``; chỉ còn 1 tuần ⇒ ``one`` + đã có."""
+        if need > 1:
+            return lv_txt(kind, many.format(n=need, x="{x}"))
+        return lv_txt(kind, one.format(wk=wk, x="{x}") + f" (đã có {snap.get('pending')}/"
+                      f"{MediumParams().up_weeks} tuần)")
+
+    head = (f"{_HORIZON_TLDR_PREFIX} {MEDIUM_LABEL.get(med, '?')} từ "
+            f"{_hz_ddmm(snap.get('medium_since'))} → ")
     if med == GIAM:
         lv = _hz_level(snap, "leave_giam")
         tail = ""
         if lv:
-            tail = (f"; chỉ rời GIẢM khi 2 tuần liền đóng trên {_hz_approx(lv['price'])} "
-                    + ("(mức tuần này, tính lại mỗi tuần)" if lv.get("reachable")
-                       else "(chưa thể trong tuần này)"))
+            tail = "; " + up_txt("leave_giam", "chỉ rời GIẢM khi {n} tuần liền đóng trên {x}",
+                                 "rời GIẢM nếu {wk} đóng trên {x}")
+            if lv.get("reachable"):
+                tail += f" (mức {wk}, tính lại mỗi tuần)" if need > 1 else ""
         return head + "không mua đuổi nhịp hồi" + tail + "."
     if med == DI_NGANG:
         parts = [p for p in (lv_txt("to_giam", "chuyển GIẢM nếu đóng tuần < {x}"),
-                             lv_txt("to_tang", "lên TĂNG cần 2 tuần đọc > {x}")) if p]
+                             up_txt("to_tang", "lên TĂNG cần {n} tuần đọc > {x}",
+                                    "lên TĂNG nếu {wk} đọc > {x}")) if p]
         return head + "; ".join(["không nâng tỷ trọng theo nhịp hồi"] + parts) + "."
     if med == TANG:
         parts = [p for p in (lv_txt("leave_tang", "chỉ rời TĂNG nếu đóng tuần < {x}"),) if p]

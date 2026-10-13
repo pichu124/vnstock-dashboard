@@ -73,7 +73,12 @@ from vnstock_brief_canon import (  # noqa: F401  (re-export: giữ nguyên đư�
     _HORIZON_TITLE,
     _HORIZON_TLDR_PREFIX,
     _horizon_body_lines,
+    _horizon_render,
     _horizon_tldr_line,
+    _HORIZON_TLDR_LINE_RE,
+    _hz_not_updated,
+    _hz_unreachable,
+    _hz_week_word,
     _HORIZON_ACTION_LEVEL,
     _HORIZON_MACRO_KEYS,
     _hz_approx,
@@ -2905,14 +2910,22 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     # 10. Brief 3 khung (P1b-3, #21): bản published mới nhất → khối 🔭 + TLDR dòng 3.
     # Sau công tắc VNSTOCK_HORIZONS (mặc định TẮT tới #26) — tắt thì ctx KHÔNG có
     # khoá "horizons" nên prompt/guard giống hệt trước.
-    if horizons_enabled() and brief_type in ("morning", "afternoon"):
-        _load_horizons(ctx)
-        _apply_horizon_stance(ctx)              # bảng Stance §3.4 (P1b-4, #22)
-        _apply_horizon_defensive(ctx)           # lớp bảo vệ 2 mức (P1b-5, #23)
-        if ctx.get("portfolio"):
-            _attach_portfolio_ma50(ctx["portfolio"])
+    if horizons_enabled():
+        _apply_horizons(ctx, brief_type)
 
     return ctx
+
+
+def _apply_horizons(ctx: dict, brief_type: str) -> None:
+    """Bước 10 của collect_context (sau floor cũ): state 3 khung → 🔭, bảng
+    Stance, lớp bảo vệ, MA50 danh mục. Chỉ brief sáng/chiều."""
+    if brief_type not in ("morning", "afternoon"):
+        return
+    _load_horizons(ctx)
+    _apply_horizon_stance(ctx)              # bảng Stance §3.4 (P1b-4, #22)
+    _apply_horizon_defensive(ctx)           # lớp bảo vệ 2 mức (P1b-5, #23)
+    if ctx.get("portfolio"):
+        _attach_portfolio_ma50(ctx["portfolio"])
 
 
 def horizons_enabled() -> bool:
@@ -2931,6 +2944,8 @@ def _apply_horizon_stance(ctx: dict) -> None:
         return
     snap = view["snap"]
     rule = snap.get("stance") or {}
+    if not rule.get("forced") and not rule.get("allowed"):
+        return                                   # snapshot thiếu luật ⇒ floor cũ như cũ
     if (old := ctx.pop("bias_floor", None)) is not None:
         ctx["bias_floor_old"] = old
     if rule.get("forced"):
@@ -2993,7 +3008,10 @@ def _load_horizons(ctx: dict) -> None:
         view = hs.brief_view(hs.latest_published())
     except Exception as _e:
         _note_loader_error(ctx, "horizons", _e)
-        return
+        view = {"stale": True, "as_of": None, "reason": f"lỗi đọc state: {type(_e).__name__}"}
+    # công tắc dòng vĩ mô chốt vào ctx: pack --from-file dựng lại đúng khối đã thấy
+    view["macro"] = os.environ.get("VNSTOCK_HORIZON_MACRO", "1").strip().lower() \
+        not in ("0", "false", "off", "no")
     ctx["horizons"] = view
     if not view.get("stale") and isinstance(ctx.get("vnindex_tech"), dict):
         ctx["vnindex_tech"]["horizon_levels"] = list(view.get("known_levels") or [])
@@ -3368,9 +3386,10 @@ def _vnindex_technicals() -> dict:
 
 # ── Prompt builder ─────────────────────────────────────────────────────────
 def _bias_floor_prompt_lines(ctx: dict, brief_type: str) -> list[str]:
-    """Khối '🧭 RÀNG BUỘC BIAS' từ floor cũ (`ctx["bias_floor"]`) — rỗng khi
-    không ép. Tách khỏi `build_prompt` (P1b-1, #19) để P1b đổi đúng một chỗ;
-    golden `tests/golden/brief_prompt_p1b1.json` canh từng byte."""
+    """Khối '🧭 RÀNG BUỘC BIAS' từ `ctx["bias_floor"]` (floor cũ, hoặc ô ép của
+    bảng Stance 3 khung — P1b-4) / '🧭 STANCE CHO PHÉP' (ô không ép) + luật
+    watchlist khi lớp bảo vệ cứng bật. Tách khỏi `build_prompt` (P1b-1, #19);
+    golden `tests/golden/brief_prompt_p1b1.json` canh từng byte khi công tắc tắt."""
     lines: list[str] = []
     # Deterministic bias floor: when the headline signals are strongly one-sided,
     # the TLDR Bias must follow them (no softening to "Trung tính"/opposite).
@@ -3381,7 +3400,7 @@ def _bias_floor_prompt_lines(ctx: dict, brief_type: str) -> list[str]:
         if bf.get("source") == "nhip":           # bảng Stance 3 khung (P1b-4, #22)
             from vnstock_horizons import SHORT_LABEL
             _sig.append(f"Ngắn hạn: {SHORT_LABEL.get(bf.get('short'), '?')} phiên "
-                        f"{bf.get('n')} (điểm {bf.get('score', 0):+d}/{bf.get('n_signals')})")
+                        f"{bf.get('n')} (điểm {_hz_signed(bf.get('score'))}/{bf.get('n_signals')})")
         if bf.get("momentum") is not None:
             _sig.append(f"momentum {bf['momentum']:+d}/100")
         if bf.get("regime_score") is not None:
@@ -3417,8 +3436,10 @@ def _bias_floor_prompt_lines(ctx: dict, brief_type: str) -> list[str]:
             f"(mức trigger + mức hủy).")
     if is_defensive(ctx):        # cùng điều kiện với guard watchlist/MUA
         _where = "Watchlist sáng mai" if brief_type != "morning" else "Trọng tâm theo dõi / Kịch bản"
+        _why = ("bias GIẢM" if floor_dir(ctx) == "GIẢM" or "defensive" not in ctx else
+                "lớp bảo vệ bật: " + " · ".join(ctx["defensive"].get("reasons") or []))
         lines.append(
-            f"Ở '{_where}' (bias GIẢM): TUYỆT ĐỐI KHÔNG đưa setup "
+            f"Ở '{_where}' ({_why}): TUYỆT ĐỐI KHÔNG đưa setup "
             "\"MUA vùng [giá dưới thị trường]\" kiểu bắt dao rơi. Mẫu MUA "
             "CHỈ được dạng CÓ ĐIỀU KIỆN \"canh MUA NẾU vượt lại [kháng cự "
             "của CHÍNH MÃ]\" (xác nhận sức mạnh trước), và ưu tiên ít nhất "
@@ -4098,12 +4119,12 @@ def _horizon_prompt_lines(ctx: dict, brief_type: str) -> list[str]:
     có ``horizons``) ⇒ prompt giống từng byte bản cũ (golden #19)."""
     if brief_type != "afternoon" or not isinstance(ctx.get("horizons"), dict):
         return []
-    body = _horizon_body_lines(ctx)
+    body, tldr = _horizon_render(ctx)
     if not body:
         return []
     out = ["\n## 🔭 Góc nhìn theo khung thời gian — HỆ THỐNG IN SẴN (KHÔNG VIẾT LẠI)",
            *body]
-    if tldr := _horizon_tldr_line(ctx):
+    if tldr:
         out.append(f"TLDR dòng 3 (hệ thống in): {tldr}")
     out.append(
         "→ Khối 🔭 và dòng \"**Trung hạn:**\" do hệ thống chèn vào brief: KHÔNG chép, "
@@ -4132,6 +4153,7 @@ def _swap_horizon_template(tmpl: str) -> str:
 from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đường import cũ)
     _ALLOC_HORIZON_CAVEAT,
     _BUY_BIAS_CAVEAT,
+    _BUY_DEFENSIVE_CAVEAT,
     _CJK_RE,
     _CONSTRAINT_NOTATION_RE,
     _COMPOSITE_LEAK_RE,
@@ -4177,6 +4199,15 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     _ALLOC_HORIZON_CAVEAT_3K,
     _MORNING_ACTION_NOTE,
     _MORNING_ACTION_RE,
+    _hz_tldr_region,
+    _is_horizon_heading,
+    _STANCE_HZ_KW,
+    _STANCE_HZ_PHRASE_END,
+    _STANCE_SETUP_AGAINST,
+    _stance_line,
+    _stance_norm,
+    _stance_phrase,
+    _stance_setup,
     _SOFT_DEFENSIVE_MARK,
     _stance_label,
     _STANCE_HZ_DEFAULT,
@@ -4995,7 +5026,7 @@ def _detect_stance(tldr_text: str) -> str:
     """
     import re as _re_local
     tldr_text = "\n".join(ln for ln in (tldr_text or "").split("\n")
-                          if not ln.strip().startswith(_HORIZON_TLDR_PREFIX))
+                          if not _HORIZON_TLDR_LINE_RE.match(ln))
     m = _STANCE_LINE_RE.search(tldr_text)
     if m:
         captured = m.group(1).lower()

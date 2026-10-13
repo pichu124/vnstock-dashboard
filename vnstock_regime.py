@@ -14,6 +14,7 @@ Regimes (5 states):
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -113,7 +114,7 @@ def classify_regime(
     if breadth is None:
         breadth = _load_breadth()
     if nn_net_1d is None:
-        nn_net_1d = _load_nn_net_1d()
+        nn_net_1d = _load_nn_net_1d(_nn_session(vnindex_tech))
 
     signals: list[dict] = []
     score = 0
@@ -242,5 +243,16 @@ def load_regime(effective_date: "str | None" = None) -> dict[str, Any]:
     ngày mới hơn bar giá thì regime trộn NN phiên sau với giá phiên trước (#22)."""
     tech    = _load_vnindex_tech()
     breadth = _load_breadth()
-    nn_1d   = _load_nn_net_1d(effective_date or (tech or {}).get("data_date"))
+    nn_1d   = _load_nn_net_1d(effective_date or _nn_session(tech))
     return classify_regime(tech, breadth, nn_1d)
+
+
+def _nn_session(tech: "dict | None") -> "str | None":
+    """Phiên lấy khối ngoại 1 phiên = phiên của bar VNINDEX (``data_date``). Hệ
+    quả cố ý: buổi sáng có bar live hôm nay mà cache khối ngoại (pipeline tối)
+    chưa có hôm nay ⇒ phiếu NN vắng mặt thay vì mượn số phiên trước. Trả lại
+    hành vi cũ (ngày mới nhất trong cache): VNSTOCK_REGIME_NN_SAME_SESSION=0."""
+    if os.environ.get("VNSTOCK_REGIME_NN_SAME_SESSION", "1").strip().lower() in (
+            "0", "false", "off", "no"):
+        return None
+    return (tech or {}).get("data_date")

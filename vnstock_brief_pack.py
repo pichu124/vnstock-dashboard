@@ -252,12 +252,13 @@ def _clean_text(text: str) -> str:
 def _strip_code_inserted(text: str) -> str:
     """Bỏ phần CODE chèn (khối 🔭 + TLDR dòng 3 "**Trung hạn:**", P1b-3) — đó
     không phải guard sửa chữ agent nên không được tính vào guard_delta."""
-    from vnstock_brief import _HORIZON_TLDR_PREFIX, _is_section_start
+    from vnstock_brief_canon import _HORIZON_TLDR_LINE_RE
+    from vnstock_brief_guards_common import _is_section_start
     out, skip = [], False
     for ln in (text or "").split("\n"):
         if _is_section_start(ln):
             skip = "🔭" in ln
-        if skip or ln.strip().startswith(_HORIZON_TLDR_PREFIX):
+        if skip or _HORIZON_TLDR_LINE_RE.match(ln):
             continue
         out.append(ln)
     return "\n".join(out)

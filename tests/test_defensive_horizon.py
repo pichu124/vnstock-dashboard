@@ -73,11 +73,11 @@ def test_hard_level_drives_all_three_consumers(monkeypatch):
     import vnstock_brief
     import vnstock_market_sentiment
     import vnstock_telegram
-    from vnstock_brief import _BUY_BIAS_CAVEAT, apply_brief_guards
+    from vnstock_brief import _BUY_DEFENSIVE_CAVEAT, apply_brief_guards
     ctx = _ctx("GIẢM", hz.CHUA_RO, hz.DI_NGANG, 0)
     out = apply_brief_guards(_WATCH, ctx)
     assert "canh MUA NẾU vượt" in out and "MUA vùng" not in out           # watchlist
-    assert _BUY_BIAS_CAVEAT in out                                          # cảnh báo MUA
+    assert _BUY_DEFENSIVE_CAVEAT in out          # cảnh báo MUA (lời "lớp bảo vệ", không "GIẢM")
     monkeypatch.setenv("VNSTOCK_HORIZONS", "1")                             # Telegram
     monkeypatch.setattr(vnstock_market_sentiment, "load_market_sentiment",
                         lambda: {"momentum": -60})
@@ -90,11 +90,12 @@ def test_hard_level_drives_all_three_consumers(monkeypatch):
 
 
 def test_soft_level_only_reminds_and_keeps_the_watchlist(monkeypatch):
-    from vnstock_brief import _BUY_BIAS_CAVEAT, _SOFT_DEFENSIVE_MARK, apply_brief_guards
+    from vnstock_brief import (_BUY_BIAS_CAVEAT, _BUY_DEFENSIVE_CAVEAT, _SOFT_DEFENSIVE_MARK,
+                               apply_brief_guards)
     ctx = _ctx(None, hz.CHINH, hz.DI_NGANG, 0)                 # đúng 1 tín hiệu: nhịp chỉnh
     out = apply_brief_guards(_WATCH, ctx)
     assert "MUA vùng 25,800" in out and "canh MUA NẾU vượt" not in out
-    assert _BUY_BIAS_CAVEAT not in out
+    assert _BUY_BIAS_CAVEAT not in out and _BUY_DEFENSIVE_CAVEAT not in out
     assert out.count(_SOFT_DEFENSIVE_MARK) == 1 and "nhịp chỉnh" in out
     assert apply_brief_guards(out, ctx) == out
 

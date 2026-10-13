@@ -41,7 +41,7 @@ def _view(**over) -> dict:
 
 def _ctx(view=None, **over) -> dict:
     c = {"brief_type": "afternoon", "horizons": view if view is not None else _view(),
-         "market_sentiment": {"mood": "😨 Sợ hãi", "momentum": -67},
+         "market_sentiment": {"mood": "❄️ Sợ hãi", "momentum": -67},
          "allocation": {"band": "B4", "band_label": "Căng thẳng",
                         "allocation": {"Cổ phiếu": 15, "Trái phiếu": 25, "Tiền gửi": 40,
                                        "Vàng": 12, "USD": 8}}}
@@ -55,7 +55,7 @@ def test_horizon_lines_for_the_real_13_10_state():
     from vnstock_brief import _horizon_body_lines, _horizon_tldr_line
     assert _horizon_body_lines(_ctx()) == [
         "- Ngắn hạn (vài phiên): nhịp chỉnh, phiên thứ 14 (từ 24/09); điểm kỹ thuật ngày -7/7; "
-        "tâm lý 😨 Sợ hãi. Hết nhịp chỉnh khi điểm về ≥ 0.",
+        "tâm lý ❄️ Sợ hãi. Hết nhịp chỉnh khi điểm về ≥ 0.",
         "- Trung hạn (xu hướng tuần): GIẢM, tuần 2 (từ 02/10); 9% mã trên MA200 "
         "(4 tuần trước 11%).",
         "- Dài hạn (6–12 tháng): đang thu thập — chỉ đọc theo trung hạn.",
@@ -267,3 +267,234 @@ def test_brief_view_counts_sessions_weeks_and_breadth_from_saved_inputs():
 
     stale = hs.Latest(state=st, snap=_snap(as_of=prev), missing=None, expect=days[-1])
     assert hs.brief_view(stale) == {"stale": True, "as_of": prev, "reason": stale.reason}
+
+
+# ── Sau review #21: ctx giàu, idempotent, chỗ đặt khi thiếu TLDR, mức S/R ──────
+
+def _rich_ctx(**over) -> dict:
+    """ctx gần thật: tâm lý đúng nhãn hệ thống, vnindex_tech có S/R, vĩ mô 3 dòng."""
+    c = _ctx(market_sentiment={"mood": "❄️ Sợ hãi", "momentum": -35},
+             vnindex_tech={"close": 1737.71, "ma20": 1790.12, "ma50": 1801.5,
+                           "ma200": 1650.44, "support_1": 1720.5, "resistance_1": 1760.2,
+                           "resistance_2": 1790.12, "day_change_pct": -0.66,
+                           "horizon_levels": [1802.4, 1853.08, 1667.77, 1781.99, 1801.32]},
+             breadth={"pct_above_ma200": 9.0},
+             macro=[{"key": "pmi", "label": "PMI sản xuất", "value": 51.9, "unit": "điểm",
+                     "as_of": "2026-10-01", "prev_as_of": "2026-09-01",
+                     "change": {"dir": -1, "delta": -1.4}},
+                    {"key": "usdvnd", "label": "Tỷ giá USD/VND", "value": 26219.0,
+                     "unit": "VND", "as_of": "2026-10-13", "prev_as_of": "2026-10-10",
+                     "change": {"dir": 1, "delta": 80.0, "pct": 0.3}},
+                    {"key": "interbank_1w", "label": "Lãi suất LNH 1 tuần", "value": 4.5,
+                     "unit": "%/năm", "as_of": "2026-10-13", "prev_as_of": "2026-10-10",
+                     "change": {"dir": 1, "delta": 0.2}}])
+    c.update(over)
+    return c
+
+
+_AGENT_UP = _AGENT.replace("**Stance ngày mai:** GIẢM — canh giảm nếu thủng S1=1,720.50 → "
+                           "mục tiêu S2=1,700.10; hủy nếu vượt lại R1=1,760.20.",
+                           "**Stance ngày mai:** TĂNG — canh mua nếu vượt R1=1,760.20 → mục "
+                           "tiêu R2=1,790.12; hủy nếu thủng S1=1,720.50.")
+
+
+_UPTREND = _view(snap=_snap(short=CHUA_RO, score=1, medium=TANG, medium_since="2026-09-04",
+                           alert={"tier": 0, "anchor": None, "since": None},
+                           stance={"forced": None, "allowed": ["TĂNG", "TRUNG TÍNH", "GIẢM"]},
+                           levels=[{"kind": "leave_tang", "price": 1700.3, "reachable": True}]),
+                 prev=None)
+
+
+@pytest.mark.parametrize("text,view", [(_AGENT, None), (_AGENT_UP, _UPTREND)])
+def test_rich_ctx_chain_is_idempotent_even_with_the_stance_caveat(text, view):
+    """Review #21: caveat "⚠️ Stance nghiêng TĂNG…" (momentum -35) chèn dưới dòng
+    Stance từng làm lượt 2 nhân đôi dòng "**Trung hạn:**" (gửi lại --from-file)."""
+    from vnstock_brief import _HORIZON_TITLE, _horizon_body_lines, apply_brief_guards
+    ctx = _rich_ctx(**({"horizons": view} if view else {}))
+    once = apply_brief_guards(text, ctx)
+    if view:
+        assert "tâm lý thị trường đang TIÊU CỰC" in once      # caveat ⚠️ thật sự được chèn
+    assert apply_brief_guards(once, ctx) == once
+    assert once.count("**Trung hạn:**") == 1 and once.count(_HORIZON_TITLE) == 1
+    i = once.split("\n").index(_HORIZON_TITLE)
+    body = _horizon_body_lines(ctx)
+    assert once.split("\n")[i + 1:i + 1 + len(body)] == body
+    assert any("tâm lý ❄️ Sợ hãi" in ln for ln in body)
+    assert any("Vĩ mô (chưa chấm): PMI 51.9 ▼ · USD/VND 26,219 ▲ · LNH 1 tuần 4.5% ▲."
+               in ln for ln in body)
+
+
+def test_macro_snippet_kill_switch_is_captured_in_ctx(monkeypatch):
+    import vnstock_horizons_state as hs
+    from vnstock_brief import _horizon_body_lines, _load_horizons
+    monkeypatch.setattr(hs, "latest_published", lambda *a, **k: "LP")
+    monkeypatch.setattr(hs, "brief_view", lambda lp: _view())
+    monkeypatch.setenv("VNSTOCK_HORIZON_MACRO", "0")
+    ctx = _rich_ctx()
+    _load_horizons(ctx)
+    monkeypatch.delenv("VNSTOCK_HORIZON_MACRO")      # pack --from-file: env đổi cũng không sao
+    assert ctx["horizons"]["macro"] is False
+    assert not any("Vĩ mô" in ln for ln in _horizon_body_lines(ctx))
+
+
+def test_no_two_decimal_number_outside_the_known_levels():
+    import re
+    from vnstock_brief import _horizon_body_lines, _horizon_tldr_line
+    ctx = _rich_ctx()
+    ctx["macro"][2]["value"] = 6.2
+    text = "\n".join(_horizon_body_lines(ctx) + [_horizon_tldr_line(ctx)])
+    assert re.findall(r"\d\.\d{2}\b", text) == []
+
+
+@pytest.mark.parametrize("text,first_heading", [
+    (_AGENT.replace("## 🎯 TLDR", "## TLDR"), "## TLDR"),
+    (_AGENT.replace("## 🎯 TLDR\n", ""), None),
+])
+def test_without_the_emoji_heading_the_section_still_follows_the_tldr(text, first_heading):
+    from vnstock_brief import _HORIZON_TITLE, _detect_stance, _horizon_tldr_line, \
+        apply_brief_guards
+    ctx = _rich_ctx()
+    out = apply_brief_guards(text, ctx)
+    lines = out.split("\n")
+    assert lines.index(_HORIZON_TITLE) > lines.index(_horizon_tldr_line(ctx))
+    assert "**Kết quả phiên:**" in out and "**Stance ngày mai:**" in out
+    assert apply_brief_guards(out, ctx) == out
+    if first_heading:
+        assert lines[0] == first_heading
+
+
+def test_no_tldr_at_all_puts_the_section_at_the_end():
+    from vnstock_brief import _HORIZON_TITLE, enforce_horizon_view
+    out = enforce_horizon_view("## 📊 Tổng kết phiên\nx\n", _ctx())
+    assert out.startswith("## 📊 Tổng kết phiên") and _HORIZON_TITLE in out
+
+
+def test_every_agent_written_section_is_replaced():
+    from vnstock_brief import _HORIZON_TITLE, enforce_horizon_view
+    dup = _AGENT + f"\n{_HORIZON_TITLE}\n- Trung hạn: TĂNG mạnh\n"
+    out = enforce_horizon_view(dup, _ctx())
+    assert out.count(_HORIZON_TITLE) == 1 and "TĂNG mạnh" not in out
+
+
+def test_sr_guard_never_pins_a_support_to_an_alert_threshold():
+    """Review #21: thiếu support_2 ⇒ S2 đúng (MA200) từng bị ghim về 1,667.77 (90% neo 🚨)."""
+    from vnstock_brief import enforce_sr_direction
+    ctx = _rich_ctx()
+    text = "**Stance ngày mai:** GIẢM — canh giảm nếu thủng S1=1,745.00 → mục tiêu S2=1,650.44."
+    out = enforce_sr_direction(text, ctx)
+    assert "1,667.77" not in out
+
+
+def test_malformed_snapshot_degrades_to_not_updated():
+    from vnstock_brief import _horizon_render
+    bad = _view(snap={"as_of": "2026-10-13", "short": "?", "score": "x"})
+    body, tldr = _horizon_render(_ctx(bad))
+    assert body == ["- 🔭 chưa cập nhật (as_of 13/10)."] and tldr is None
+
+
+def test_template_swap_needs_every_anchor():
+    from vnstock_brief import _swap_horizon_template
+    tmpl = "## 🎯 TLDR (2 dòng)\n**Kết quả phiên:** x\n## 📊 Tổng kết phiên\n"
+    assert _swap_horizon_template(tmpl) == tmpl
+
+
+def test_load_horizons_fills_ctx_and_known_levels(monkeypatch):
+    import vnstock_horizons_state as hs
+    from vnstock_brief import _load_horizons
+    monkeypatch.setattr(hs, "latest_published", lambda *a, **k: "LP")
+    monkeypatch.setattr(hs, "brief_view", lambda lp: _view(known_levels=[1802.4, 1853.08]))
+    ctx = {"vnindex_tech": {"close": 1737.71}}
+    _load_horizons(ctx)
+    assert ctx["horizons"]["snap"]["medium"] == GIAM
+    assert ctx["vnindex_tech"]["horizon_levels"] == [1802.4, 1853.08]
+    monkeypatch.setattr(hs, "brief_view", lambda lp: {"stale": True, "as_of": "2026-10-09"})
+    ctx = {"vnindex_tech": {"close": 1737.71}}
+    _load_horizons(ctx)
+    assert ctx["horizons"]["stale"] and "horizon_levels" not in ctx["vnindex_tech"]
+    monkeypatch.setattr(hs, "latest_published", lambda *a, **k: 1 / 0)
+    ctx = {}
+    _load_horizons(ctx)                    # đọc hỏng ⇒ "chưa cập nhật", không im như công tắc tắt
+    assert ctx["horizons"]["stale"] is True and ctx["horizons"]["as_of"] is None
+    from vnstock_brief import _horizon_body_lines
+    assert _horizon_body_lines(ctx) == ["- 🔭 chưa cập nhật (chưa đọc được state 3 khung)."]
+
+
+@pytest.mark.parametrize("pending,closed,expect", [
+    (0, False, "chỉ rời GIẢM khi 2 tuần liền đóng trên ~1,802 (mức tuần này, tính lại mỗi tuần)"),
+    (0, True, "chỉ rời GIẢM khi 2 tuần liền đóng trên ~1,802 (mức tuần tới, tính lại mỗi tuần)"),
+    (1, True, "rời GIẢM nếu tuần tới đóng trên ~1,802 (đã có 1/2 tuần)"),
+])
+def test_tldr_counts_pending_weeks_and_names_next_week_on_friday(pending, closed, expect):
+    from vnstock_brief import _horizon_tldr_line
+    view = _view(snap=_snap(pending=pending, week_closed=closed))
+    assert _horizon_tldr_line(_ctx(view)).endswith(expect + ".")
+
+
+def test_tier_two_alert_reads_as_escalated_not_started():
+    from vnstock_brief import _horizon_body_lines
+    view = _view(snap=_snap(alert={"tier": 2, "anchor": 1853.08, "since": "2026-10-01"}))
+    line = next(ln for ln in _horizon_body_lines(_ctx(view)) if ln.startswith("- 🚨"))
+    assert line.startswith("- 🚨 Rủi ro ngắn hạn: BẬT từ 01/10, đã lên mức 2, neo đỉnh ~1,853")
+
+
+@pytest.mark.parametrize("as_of,since,closed,weeks", [
+    ("2026-10-02", "2026-10-02", True, 1),       # thứ Sáu đổi trạng thái = tuần 1
+    ("2026-10-05", "2026-10-02", False, 1),
+    ("2026-10-13", "2026-10-02", False, 2),
+    ("2026-10-01", "2026-07-24", False, 10),     # mẫu §4(A): "từ 24/07, 10 tuần"
+    ("2026-10-13", "2026-10-05", False, 2),      # thứ Sáu nghỉ ⇒ hiệu lực thứ Hai
+])
+def test_medium_weeks_count_closed_weeks(as_of, since, closed, weeks):
+    import vnstock_horizons_state as hs
+    snap = _snap(as_of=as_of, medium_since=since, short_since=since, week_closed=closed)
+    st = {"inputs": {as_of: {"close": 1700.0, "breadth_pct": 9.0}}, "published": [snap]}
+    v = hs.brief_view(hs.Latest(state=st, snap=snap, missing=None,
+                                expect=date.fromisoformat(as_of)))
+    assert v["medium_weeks"] == weeks
+
+
+def test_agent_written_trend_line_variants_are_replaced():
+    from vnstock_brief import _detect_stance, enforce_horizon_view
+    text = _AGENT.replace("\n\n## 📊", "\n- **Trung hạn:** TĂNG mạnh\n\n## 📊")
+    out = enforce_horizon_view(text, _ctx())
+    assert "TĂNG mạnh" not in out and out.count("Trung hạn:**") == 1
+    assert _detect_stance("**Stance ngày mai:** — x\n- **Trung hạn:** TĂNG giá") == "unknown"
+
+
+def test_pack_round_trip_keeps_horizons(tmp_path):
+    from vnstock_brief_pack import read_pack, write_pack
+    pack = {"version": 2, "brief_type": "afternoon", "session": "2026-10-13",
+            "prompt": "p", "ctx": _rich_ctx()}
+    back = read_pack(write_pack(pack, tmp_path / "brief_pack.json"))
+    assert back["ctx"]["horizons"] == pack["ctx"]["horizons"]
+
+
+_STATES = {
+    "giam_alert1": _view(),
+    "flat_pending": _view(snap=_snap(medium=DI_NGANG, medium_since="2026-07-24", pending=1,
+                                     short=CHUA_RO, score=1,
+                                     stance={"forced": None, "allowed": ["TRUNG TÍNH", "GIẢM"]},
+                                     alert={"tier": 0, "anchor": None, "since": None},
+                                     levels=[{"kind": "to_giam", "price": 1766.2, "reachable": True},
+                                             {"kind": "to_tang", "price": 1890.5,
+                                              "reachable": False}])),
+    "uptrend": _UPTREND,
+    "alert2": _view(snap=_snap(alert={"tier": 2, "anchor": 1853.08, "since": "2026-10-01"})),
+    "stale": {"stale": True, "as_of": "2026-10-09", "reason": "cũ"},
+}
+
+
+@pytest.mark.parametrize("name", list(_STATES))
+@pytest.mark.parametrize("text", [_AGENT, _AGENT_UP])
+def test_every_state_is_byte_stable_through_the_whole_chain(name, text):
+    from vnstock_brief import _HORIZON_TITLE, _horizon_render, apply_brief_guards
+    ctx = _rich_ctx(horizons=_STATES[name])
+    ctx["allocation"]["capped_by"] = {"by": "horizons", "why": "trung hạn GIẢM",
+                                      "proposed_band": "B3", "proposed_pct": 30}
+    once = apply_brief_guards(text, ctx)
+    assert apply_brief_guards(once, dict(ctx)) == once
+    body, tldr = _horizon_render(ctx)
+    lines = once.split("\n")
+    i = lines.index(_HORIZON_TITLE)
+    assert lines[i + 1:i + 1 + len(body)] == body
+    assert (tldr in lines) if tldr else "**Trung hạn:**" not in once

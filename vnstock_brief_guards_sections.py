@@ -49,9 +49,9 @@ from vnstock_brief_canon import (
     _allocation_table_lines,
     _HORIZON_AGENT_PREFIXES,
     _HORIZON_TITLE,
+    _HORIZON_TLDR_LINE_RE,
     _HORIZON_TLDR_PREFIX,
-    _horizon_body_lines,
-    _horizon_tldr_line,
+    _horizon_render,
     _macro_body_lines,
     _macro_reports_body_lines,
     _market_news_body_lines,
@@ -328,23 +328,44 @@ def _hz_section_end(lines: list[str], start: int) -> int:
                 len(lines))
 
 
+def _is_horizon_heading(line: str) -> bool:
+    """Tiêu đề khối 🔭 — cả bản agent bỏ emoji ("## Góc nhìn theo khung thời gian")."""
+    return _is_section_start(line) and ("🔭" in line
+                                        or "góc nhìn theo khung thời gian" in line.lower())
+
+
+def _hz_tldr_region(lines: list[str]) -> "tuple[int, int] | None":
+    """(i, j): thân TLDR = ``lines[i+1:j]`` — từ tiêu đề TLDR/🎯 tới tiêu đề "#"
+    kế tiếp (KHÔNG dừng ở dòng "⚠️": caveat Stance chèn ngay dưới dòng Stance).
+    Không có tiêu đề ⇒ từ dòng Stance/Bias. None khi không có cả hai."""
+    heads = [i for i, ln in enumerate(lines) if ln.lstrip().startswith("#")]
+    t0 = next((i for i in heads if "tldr" in lines[i].lower()), None)
+    if t0 is None:
+        t0 = next((i for i in heads if "🎯" in lines[i]), None)
+    if t0 is None:
+        t0 = next((i - 1 for i, ln in enumerate(lines) if _STANCE_HZ_LINE_RE.match(ln)), None)
+    if t0 is None:
+        return None
+    return t0, next((i for i in heads if i > t0), len(lines))
+
+
 def enforce_horizon_view(text: str, ctx: dict) -> str:
     """Khối 🔭 + TLDR dòng 3 "**Trung hạn:** …" là DATA của code (P1b-3): dựng lại
-    từ canon ``_horizon_body_lines`` / ``_horizon_tldr_line``, đặt ngay sau TLDR;
-    agent chỉ giữ được ≤1 câu sau "→" ở dòng Ngắn hạn / Trung hạn. No-op khi ctx
-    không có ``horizons`` (công tắc VNSTOCK_HORIZONS tắt) và ở brief sáng (#24).
-    Idempotent."""
+    từ canon (``_horizon_render``), đặt ngay sau TLDR; agent chỉ giữ được ≤1 câu
+    sau "→" ở dòng Ngắn hạn / Trung hạn. Mọi khối 🔭 agent viết đều bị thay.
+    Không tìm được TLDR ⇒ 🔭 xuống CUỐI brief (không bao giờ lên đầu). No-op khi
+    ctx không có ``horizons`` (công tắc VNSTOCK_HORIZONS tắt) và ở brief sáng
+    (#24). Idempotent kể cả khi guard sau chèn "⚠️" dưới dòng Stance."""
     if (not text or not isinstance((ctx or {}).get("horizons"), dict)
             or (ctx.get("brief_type") or "afternoon") != "afternoon"):
         return text
-    body = _horizon_body_lines(ctx)
+    body, tldr = _horizon_render(ctx)
     if not body:
         return text
     lines = text.split("\n")
     agent: dict[str, str] = {}
-    start = next((i for i, ln in enumerate(lines)
-                  if _is_section_start(ln) and "🔭" in ln), None)
-    if start is not None:
+    while (start := next((i for i, ln in enumerate(lines) if _is_horizon_heading(ln)),
+                         None)) is not None:
         end = _hz_section_end(lines, start)
         for ln in lines[start + 1:end]:
             for pfx in _HORIZON_AGENT_PREFIXES:
@@ -353,63 +374,135 @@ def enforce_horizon_view(text: str, ctx: dict) -> str:
         del lines[start:end]
     body = [next((f"{ln} → {agent[p]}" for p in _HORIZON_AGENT_PREFIXES
                   if ln.startswith(p) and p in agent), ln) for ln in body]
+    block = [_HORIZON_TITLE] + body + [""]
 
-    t0 = next((i for i, ln in enumerate(lines) if _is_section_start(ln) and "🎯" in ln), None)
-    if t0 is None:
-        return "\n".join([_HORIZON_TITLE] + body + [""] + lines)
-    t_end = _hz_section_end(lines, t0)
-    keep = [ln for ln in lines[t0 + 1:t_end] if not ln.strip().startswith(_HORIZON_TLDR_PREFIX)]
-    tldr = _horizon_tldr_line(ctx)
+    region = _hz_tldr_region(lines)
+    if region is None:
+        while lines and not lines[-1].strip():
+            lines.pop()
+        return "\n".join(lines + [""] + block)
+    t0, t_end = region
+    keep = [ln for ln in lines[t0 + 1:t_end] if not _HORIZON_TLDR_LINE_RE.match(ln)]
     if tldr:
         at = max((k for k, ln in enumerate(keep) if ln.strip()), default=-1)
         keep.insert(at + 1, tldr)
-    block = [_HORIZON_TITLE] + body + [""]
     if keep and keep[-1].strip():
         block = [""] + block
     return "\n".join(lines[:t0 + 1] + keep + block + lines[t_end:])
 
 
 # ── Stance theo bảng 3 khung (P1b-4, #22; thiết kế §3.4) ─────────────────────
+# Dòng nhãn: "**Stance ngày mai:** X", "- **Stance ngày mai**: X", "🧭 **Bias:** X",
+# "1. Stance ngày mai (16/10): X"… — khoá theo loại brief (chiều: Stance, sáng: Bias).
 _STANCE_HZ_LINE_RE = _re.compile(
-    r"^(\s*(?:[-•]\s*)?\*{0,2}(?:Stance\s+ngày\s+mai|Bias)\s*[:：]\s*\*{0,2}\s*)(\*{0,2})(.*)$",
-    _re.IGNORECASE)
-_STANCE_HZ_LABEL_RE = _re.compile(r"^(TRUNG\s+TÍNH|TĂNG|GIẢM)", _re.IGNORECASE)
+    r"^(?P<head>\s*(?:[-*•>]\s*|\d+\.\s*)?(?:[^\w\s*]+\s*)?\*{0,2}"
+    r"(?P<kw>Stance\s+ngày\s+mai|Bias)\*{0,2}(?:\s*\([^)\n]*\))?\*{0,2}\s*[:：]\s*\*{0,2}\s*)"
+    r"(?P<rest>.*)$", _re.IGNORECASE)
+_STANCE_HZ_LABEL_RE = _re.compile(r"(?<!\w)(TRUNG\s+TÍNH|TĂNG|GIẢM)(?!\w)", _re.IGNORECASE)
+_STANCE_HZ_PHRASE_END = ("—", "–", " - ", "(", ";", ":", ".", ",", "→")
 _STANCE_HZ_DEFAULT = "TRUNG TÍNH"
+_STANCE_HZ_KW = {"afternoon": "stance", "morning": "bias"}
+
+
+def _stance_norm(tok: str) -> str:
+    tok = tok.upper()
+    return "TRUNG TÍNH" if tok.startswith("TRUNG") else tok
+
+
+def _stance_phrase(rest: str) -> "tuple[str, str]":
+    """(cụm nhãn, phần còn lại) — cụm nhãn chạy tới dấu ngắt đầu tiên ("—", "(", …)."""
+    cut = min((k for k in (rest.find(sep) for sep in _STANCE_HZ_PHRASE_END) if k > 0),
+              default=len(rest))
+    return rest[:cut], rest[cut:]
+
+
+def _stance_line(lines: list[str], kw: "str | None" = None) -> "tuple[int, _re.Match] | None":
+    """Dòng Stance/Bias trong VÙNG TLDR (chống dòng mồi "Bias:" ở mục khác);
+    không có vùng TLDR ⇒ dòng khớp đầu tiên của cả brief."""
+    region = _hz_tldr_region(lines)
+    rng = range(max(region[0], 0), region[1]) if region else range(len(lines))
+    for k in rng:
+        m = _STANCE_HZ_LINE_RE.match(lines[k])
+        if m and (kw is None or m.group("kw").lower().startswith(kw)):
+            return k, m
+    return None
+
+
+def _stance_label(text: str, kw: "str | None" = None) -> "str | None":
+    """Nhãn Stance/Bias của brief (TĂNG / GIẢM / TRUNG TÍNH); None khi không có
+    hoặc cụm nhãn nêu ≥2 chiều ("Tăng/Trung tính")."""
+    hit = _stance_line((text or "").split("\n"), kw)
+    if not hit:
+        return None
+    labels = {_stance_norm(t) for t in _STANCE_HZ_LABEL_RE.findall(_stance_phrase(hit[1].group("rest"))[0])}
+    return labels.pop() if len(labels) == 1 else None
+
+
+def _stance_setup(direction: str, vt: dict) -> "str | None":
+    """Setup có điều kiện CÙNG CHIỀU nhãn ép, dựng từ mức S/R thật (đã biết)."""
+    s1, s2 = vt.get("support_1"), vt.get("support_2")
+    r1, r2 = vt.get("resistance_1"), vt.get("resistance_2")
+    if direction == "GIẢM" and s1 and r1:
+        tgt = f" → mục tiêu S2={s2:,.2f}" if s2 else ""
+        return f"canh giảm nếu thủng S1={s1:,.2f}{tgt}; hủy nếu vượt lại R1={r1:,.2f}"
+    if direction == "TĂNG" and r1 and s1:
+        tgt = f" → mục tiêu R2={r2:,.2f}" if r2 else ""
+        return f"canh mua nếu vượt R1={r1:,.2f}{tgt}; hủy nếu thủng S1={s1:,.2f}"
+    return None
+
+
+_STANCE_SETUP_AGAINST = {"GIẢM": ("canh mua", "canh tăng"), "TĂNG": ("canh giảm", "canh bán")}
 
 
 def enforce_stance_horizon(text: str, ctx: dict) -> str:
-    """Ghim nhãn Stance (chiều) / Bias (sáng) theo bảng 3 khung: ô ép (nhịp chỉnh
-    ⇒ GIẢM; nhịp hồi × trung hạn TĂNG × 🚨 tắt ⇒ TĂNG) thay nhãn bằng nhãn ép; ô
-    khác nhãn ngoài tập cho phép ⇒ TRUNG TÍNH. Chỉ đổi NHÃN — setup có điều kiện
-    phía sau giữ nguyên. No-op khi không có state 3 khung dùng được (công tắc
-    tắt / state cũ ⇒ floor cũ như trước). Idempotent."""
+    """Ghim nhãn Stance (chiều) / Bias (sáng) theo bảng 3 khung (§3.4).
+
+    - Ô ép (nhịp chỉnh ⇒ GIẢM; nhịp hồi × trung hạn TĂNG × 🚨 tắt ⇒ TĂNG) thay
+      nhãn bằng nhãn ép — TRỪ nhãn GIẢM của agent: giảm rủi ro không bao giờ bị
+      cấm (§3.1, tiêu chí #22). Setup ngược chiều nhãn ép ⇒ dựng lại từ S/R thật.
+    - Ô khác: nhãn ngoài tập cho phép ⇒ TRUNG TÍNH, setup có điều kiện giữ nguyên.
+    Ghi ``ctx["stance_pinned"]`` khi code đổi nhãn (sổ Stance tách ngày code chọn).
+    No-op khi không có state 3 khung dùng được. Idempotent."""
     view = (ctx or {}).get("horizons")
-    if (not text or not isinstance(view, dict) or view.get("stale")
-            or not isinstance(view.get("snap"), dict)
-            or (ctx.get("brief_type") or "afternoon") not in ("morning", "afternoon")):
+    kw = _STANCE_HZ_KW.get((ctx or {}).get("brief_type") or "afternoon")
+    if (not text or kw is None or not isinstance(view, dict) or view.get("stale")
+            or not isinstance(view.get("snap"), dict)):
         return text
     rule = view["snap"].get("stance") or {}
     forced, allowed = rule.get("forced"), tuple(rule.get("allowed") or ())
     if not forced and not allowed:
         return text
     lines = text.split("\n")
-    for k, ln in enumerate(lines):
-        m = _STANCE_HZ_LINE_RE.match(ln)
-        if not m:
-            continue
-        head, bold, rest = m.groups()
-        lm = _STANCE_HZ_LABEL_RE.match(rest)
-        label = None
-        if lm:
-            tok = lm.group(1).upper()
-            label = "TRUNG TÍNH" if tok.startswith("TRUNG") else tok
-        target = forced or (label if label in allowed else _STANCE_HZ_DEFAULT)
-        if label == target:
-            return text
-        lines[k] = (f"{head}{bold}{target}{rest[lm.end():]}" if lm
-                    else f"{head}{target} — {bold}{rest}")    # nhãn lạ: giữ làm lời
-        return "\n".join(lines)
-    return text
+    hit = _stance_line(lines, kw)
+    if not hit:
+        return text
+    k, m = hit
+    phrase, tail = _stance_phrase(m.group("rest"))
+    found = {_stance_norm(t) for t in _STANCE_HZ_LABEL_RE.findall(phrase)}
+    label = found.pop() if len(found) == 1 else None
+    if forced and label != "GIẢM":
+        target = forced
+    elif label in allowed or (label == "GIẢM" and forced):
+        return text
+    else:
+        target = forced or _STANCE_HZ_DEFAULT
+    if label == target:
+        return text
+    head = m.group("head") if m.group("head")[-1:].isspace() else m.group("head") + " "
+    core = phrase.strip()
+    if label is None and core and not found:          # nhãn lạ ("THẬN TRỌNG") ⇒ giữ làm lời
+        new_rest = f"{target} — {m.group('rest').lstrip()}"
+    else:
+        lead = _re.match(r"^[*`_]*", core).group(0)
+        trail = _re.search(r"[*`_]*$", core).group(0)
+        new_rest = f"{lead}{target}{trail}{' ' if tail and not tail.startswith(' ') else ''}{tail}"
+    if forced and any(w in new_rest.lower() for w in _STANCE_SETUP_AGAINST.get(target, ())):
+        if setup := _stance_setup(target, ctx.get("vnindex_tech") or {}):
+            new_rest = _re.sub(r"(—\s*).*$", lambda mm: mm.group(1) + setup + ".", new_rest,
+                               count=1)
+    lines[k] = f"{head}{new_rest}".rstrip()
+    ctx["stance_pinned"] = {"agent": label, "code": target}
+    return "\n".join(lines)
 
 
 _MORNING_ACTION_RE = _re.compile(
@@ -540,18 +633,6 @@ def enforce_allocation_table(text: str, ctx: dict) -> str:
             lines.insert(anchor + 1, caveat)
             out = "\n".join(lines)
     return out
-
-
-def _stance_label(text: str) -> "str | None":
-    """Nhãn Stance/Bias ĐẦU TIÊN trong brief (TĂNG / GIẢM / TRUNG TÍNH) hoặc None."""
-    for ln in (text or "").split("\n"):
-        if m := _STANCE_HZ_LINE_RE.match(ln):
-            lm = _STANCE_HZ_LABEL_RE.match(m.group(3))
-            if not lm:
-                return None
-            tok = lm.group(1).upper()
-            return "TRUNG TÍNH" if tok.startswith("TRUNG") else tok
-    return None
 
 
 def enforce_portfolio_facts(text: str, ctx: dict) -> str:
@@ -1418,6 +1499,12 @@ _BUY_BIAS_CAVEAT = (
     "⚠️ Các lệnh MUA trên là tín hiệu backtest TỪNG MÃ; bối cảnh chung đang "
     "GIẢM → vào lệnh thận trọng, tôn trọng cắt lỗ (SL), cân nhắc giảm tỷ trọng."
 )
+# Bản cho lớp bảo vệ 3 khung (P1b-5): bảo vệ có thể bật dưới Stance TĂNG/TRUNG TÍNH
+# (vd 🚨 + nhịp chỉnh) — "bối cảnh đang GIẢM" khi đó tự mâu thuẫn với nhãn Stance.
+_BUY_DEFENSIVE_CAVEAT = (
+    "⚠️ Các lệnh MUA trên là tín hiệu backtest TỪNG MÃ; lớp bảo vệ thị trường "
+    "đang bật → vào lệnh thận trọng, tôn trọng cắt lỗ (SL), cân nhắc giảm tỷ trọng."
+)
 
 
 # Cảnh báo GDKHQ tính bằng NGÀY LỊCH, hai ngưỡng cho hai loại mục:
@@ -2244,7 +2331,9 @@ def enforce_buy_vs_bias_caveat(text: str, ctx: dict) -> str:
     # Idempotent: the caveat starts with ⚠️ (a section emoji), so once inserted
     # it reads as a section boundary on re-parse — check the whole text, not the
     # bounded section body, or the second pass would append a duplicate.
-    if _BUY_BIAS_CAVEAT in text:
+    caveat = (_BUY_DEFENSIVE_CAVEAT if isinstance(ctx.get("defensive"), dict)
+              else _BUY_BIAS_CAVEAT)
+    if _BUY_BIAS_CAVEAT in text or _BUY_DEFENSIVE_CAVEAT in text:
         return text
 
     lines = text.splitlines()
@@ -2274,7 +2363,7 @@ def enforce_buy_vs_bias_caveat(text: str, ctx: dict) -> str:
     insert_at = end
     while insert_at > start + 1 and not lines[insert_at - 1].strip():
         insert_at -= 1
-    return "\n".join(lines[:insert_at] + [_BUY_BIAS_CAVEAT] + lines[insert_at:])
+    return "\n".join(lines[:insert_at] + [caveat] + lines[insert_at:])
 
 
 # "Tiêu cực" zone for the soft stance caution. The hard GIẢM floor (_bias_floor_dir)

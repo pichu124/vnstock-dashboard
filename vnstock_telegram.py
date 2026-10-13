@@ -412,8 +412,8 @@ def _open_recs_block() -> str:
         # chỗ lệnh hiện. Gắn cảnh báo, KHÔNG lọc (lệnh có SL = rủi ro xác định).
         # Chỉ xét lệnh ĐANG HIỆN — lệnh ẩn không in ra thì không cần caveat.
         if _has_buy_under_bear(shown):
-            from vnstock_brief import _BUY_BIAS_CAVEAT
-            lines.append(_BUY_BIAS_CAVEAT)
+            from vnstock_brief import _BUY_BIAS_CAVEAT, _BUY_DEFENSIVE_CAVEAT, horizons_enabled
+            lines.append(_BUY_DEFENSIVE_CAVEAT if horizons_enabled() else _BUY_BIAS_CAVEAT)
         return "\n".join(lines)
     except Exception as e:
         return f"📋 Khuyến nghị: lỗi ({e})"
