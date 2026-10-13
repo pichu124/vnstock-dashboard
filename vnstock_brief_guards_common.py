@@ -4,7 +4,11 @@ Tách 12/08 (mục ④): `vnstock_brief_guards.py` 2.646 dòng chia theo CHỦ �
 (khối nội dung / con số / chữ nghĩa). File này giữ đúng phần cả ba nhóm đều
 cần, để ba nhóm không phải import chéo nhau (import chéo = vòng chờ sẵn).
 
-Chỉ 5 thứ: đọc số kiểu VN/EN, cắt một mục của brief, và nhận diện dòng tiêu đề.
+Đọc số kiểu VN/EN, cắt một mục của brief, nhận diện dòng tiêu đề — và (P1b-1,
+#19) MỘT nguồn "thị trường phòng thủ": floor cũ từ 2 tín hiệu header
+(`_bias_floor_dir`) + cách đọc nó từ ctx (`floor_dir`, `is_defensive`). Brief,
+guard, Telegram và chạy bóng 3 khung đều gọi đúng mấy hàm này — P1b chỉ cần
+đổi `is_defensive` ở một chỗ.
 """
 from __future__ import annotations
 
@@ -34,6 +38,37 @@ def _parse_vn_number(s: str) -> float | None:
         return float(s)
     except (ValueError, IndexError):
         return None
+
+
+def _bias_floor_dir(momentum: "int | None", regime_score: "int | None") -> "str | None":
+    """Force a TLDR Bias direction when the headline signals are strongly
+    one-sided and not in conflict.
+
+    Inputs are the two signals shown in the brief header: Tâm lý `momentum`
+    (-100..100) and Regime `score` (signed, out of ~7). Returns "GIẢM", "TĂNG",
+    or None (let the agent decide). Thresholds: momentum ±50 or regime ±3.
+    """
+    bear = (momentum is not None and momentum <= -50) or \
+           (regime_score is not None and regime_score <= -3)
+    bull = (momentum is not None and momentum >= 50) or \
+           (regime_score is not None and regime_score >= 3)
+    if bear and not bull:
+        return "GIẢM"
+    if bull and not bear:
+        return "TĂNG"
+    return None
+
+
+def floor_dir(ctx: "dict | None") -> "str | None":
+    """Chiều floor cũ đã dựng vào ctx ("GIẢM" | "TĂNG" | None). Chịu được ctx
+    None, thiếu khoá, hoặc `bias_floor: None` (cách đọc cũ ném AttributeError)."""
+    return ((ctx or {}).get("bias_floor") or {}).get("dir")
+
+
+def is_defensive(ctx: "dict | None") -> bool:
+    """Thị trường đang PHÒNG THỦ (chặn mua bắt đáy / cảnh báo lệnh MUA)? Hôm nay
+    = floor cũ ra GIẢM; P1b mở rộng thành tập cha ở đúng chỗ này."""
+    return floor_dir(ctx) == "GIẢM"
 
 
 _SECTION_EMOJIS = ("🎯", "📊", "📈", "🏆", "💰", "📋", "⚠️", "📅", "💡", "🔧", "⚡", "🔮", "🌐", "📰", "📌", "📚", "🧭",

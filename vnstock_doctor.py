@@ -976,29 +976,23 @@ def check_horizons(now: "datetime | None" = None) -> dict:
         return _result("horizons", name, "off", "tắt (VNSTOCK_HORIZONS_STEP=0)", "")
     try:
         import vnstock_horizons_state as hs
-        from vnstock_rollup import session_covered_at
     except Exception as e:
         return _result("horizons", name, "warn", f"không import được ({type(e).__name__}: {e})", "")
     wh = _META.parent
     fix_init = ("○ một lần, NGOÀI khung pipeline desktop (18:00 → '⏱ TỔNG'): "
                 "python run.py horizons --backfill")
-    if not hs.state_path(wh).exists():
-        return _result("horizons", name, "warn", "chưa có state (P1a vừa merge?)", fix_init)
-    st = hs.load_state(wh)
-    pub = st.get("published") or []
-    if not pub:
-        return _result("horizons", name, "warn", "state rỗng", fix_init)
-    last = pub[-1]
+    lp = hs.latest_published(wh, now=now)
+    if lp.missing:
+        msg = "chưa có state (P1a vừa merge?)" if lp.missing == "chưa có state" else lp.missing
+        return _result("horizons", name, "warn", msg, fix_init)
+    st, last = lp.state, lp.snap
+    pub = st["published"]
     issues, fixes = [], []
-    conflicted = sorted(f.name for f in _META.glob("horizon_state*conflicted*"))
-    if conflicted:
-        issues.append(f"conflicted copy: {', '.join(conflicted[:2])}")
+    if lp.conflicted:
+        issues.append(f"conflicted copy: {', '.join(lp.conflicted[:2])}")
         fixes.append("○ xoá bản '(conflicted copy)' trong _meta (bản tên gốc là bản đang dùng)")
-    dates, _ = hs.load_vnindex(wh)
-    covered = session_covered_at(now or datetime.now())
-    expect = max((d for d in dates if d <= covered), default=None)
-    if expect and str(last.get("as_of")) < expect.isoformat():
-        issues.append(f"cũ: bản cuối {last.get('as_of')}, kho đã có bar {expect}")
+    if lp.stale:
+        issues.append(f"cũ: bản cuối {last.get('as_of')}, kho đã có bar {lp.expect}")
         fixes.append("🖥️ DESKTOP: Select-String -Path run_daily.log -Pattern '\\[horizons\\]' "
                      "| Select-Object -Last 3 · chạy tay: ○ python run.py horizons")
     v = hs.verify(st, wh, last=20)

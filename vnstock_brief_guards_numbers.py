@@ -214,6 +214,22 @@ def enforce_pivot_labels(text: str, ctx: dict) -> str:
     return _PIVOT_LABEL_RE.sub(_sub, text)
 
 
+# Mức VNINDEX "đã biết" (engine tính, không bịa) mà guard giá được phép neo vào.
+# MỘT danh sách cho enforce_sr_direction + enforce_scenario_levels (P1b-1, #19):
+# P1b thêm `horizon_levels` (MA10w/MA40w, neo 🚨, mức kích hoạt) đúng ở đây.
+_KNOWN_INDEX_LEVEL_KEYS = ("ma20", "ma50", "ma200", "support_1", "support_2",
+                           "resistance_1", "resistance_2", "week_high", "week_low",
+                           "month_high", "month_low", "high_52w", "low_52w")
+
+
+def _known_index_levels(vt: dict, *, with_close: bool = False) -> list[float]:
+    """Các mức đã biết trong `vnindex_tech` (lọc dải chỉ số 800–2500), theo thứ tự
+    cố định; `with_close` thêm giá đóng cửa ở đầu."""
+    keys = (("close",) if with_close else ()) + _KNOWN_INDEX_LEVEL_KEYS
+    return [v for v in (vt.get(k) for k in keys)
+            if isinstance(v, (int, float)) and 800 <= v <= 2500]
+
+
 def enforce_sr_direction(text: str, ctx: dict) -> str:
     """Sanity CHIỀU cho mức S/R: hỗ trợ (S1/S2) phải NẰM DƯỚI giá đóng cửa,
     kháng cự (R1/R2) phải NẰM TRÊN. Token sai chiều → pin về mức KNOWN hợp lệ
@@ -232,11 +248,7 @@ def enforce_sr_direction(text: str, ctx: dict) -> str:
     close = vt.get("close")
     if not text or not isinstance(close, (int, float)):
         return text
-    known = [vt.get(k) for k in (
-        "ma20", "ma50", "ma200", "support_1", "support_2",
-        "resistance_1", "resistance_2", "week_high", "week_low",
-        "month_high", "month_low", "high_52w", "low_52w")]
-    known = [k for k in known if isinstance(k, (int, float)) and 800 <= k <= 2500]
+    known = _known_index_levels(vt)
     below = [k for k in known if k < close]      # ứng viên hỗ trợ (dưới giá)
     above = [k for k in known if k > close]      # ứng viên kháng cự (trên giá)
 
@@ -340,11 +352,7 @@ def enforce_scenario_levels(text: str, ctx: dict) -> str:
     """
     vt = ctx.get("vnindex_tech") or {}
     close = vt.get("close")
-    known = [vt.get(k) for k in (
-        "close", "ma20", "ma50", "ma200", "support_1", "support_2",
-        "resistance_1", "resistance_2", "week_high", "week_low",
-        "month_high", "month_low", "high_52w", "low_52w")]
-    known = [k for k in known if isinstance(k, (int, float)) and 800 <= k <= 2500]
+    known = _known_index_levels(vt, with_close=True)
     if not text or not known:
         return text
 

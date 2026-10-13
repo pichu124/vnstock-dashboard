@@ -843,6 +843,7 @@ def cmd_test(args) -> int:
             "tests/test_doctor_env_duplicates.py",  # khoá trùng .env (05/10)
             "tests/test_horizons.py",     # lõi brief 3 khung (P0, 05/10)
             "tests/test_horizons_state.py",  # brief 3 khung chạy bóng (P1a)
+            "tests/test_market_floor.py",    # một nguồn floor/phòng thủ + golden prompt (P1b-1, #19)
             "tests/test_unit_badge_verdict.py",
             "tests/test_unit_continuity.py",
             "tests/test_price_basis_probe.py",

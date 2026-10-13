@@ -57,6 +57,8 @@ from vnstock_brief_guards_common import (
     _PIVOT_LABEL_RE,
     _is_section_start,
     _parse_vn_number,
+    floor_dir,
+    is_defensive,
 )
 from vnstock_fund_periods import period_text as _period_text
 
@@ -373,7 +375,7 @@ def enforce_allocation_table(text: str, ctx: dict) -> str:
                 _pin_pct, out, flags=_re.IGNORECASE)
 
     # (c) caveat horizon — chỉ khi lệch chiều thật và chưa chèn (check toàn văn)
-    bias = (ctx.get("bias_floor") or {}).get("dir")
+    bias = floor_dir(ctx)
     clash = (band in ("B0", "B1") and bias == "GIẢM") or \
             (band in ("B3", "B4") and bias == "TĂNG")
     if clash and _ALLOC_HORIZON_CAVEAT not in out:
@@ -532,7 +534,7 @@ def enforce_watchlist_hygiene(text: str, ctx: dict | None = None) -> str:
     # while Stance = GIẢM). Convert to a confirmation-breakout form, keeping the
     # numbers/order intact ("canh MUA NẾU vượt [entry] · mục tiêu [TP] · cắt lỗ
     # [SL]"). Defensive (GIẢM TỶ TRỌNG/TRÁNH) lines are left untouched.
-    if (ctx or {}).get("bias_floor", {}).get("dir") == "GIẢM":
+    if is_defensive(ctx):
         sec = [(l.replace("MUA vùng", "canh MUA NẾU vượt").replace("· chốt lời", "· mục tiêu")
                 if "MUA vùng" in l else l) for l in sec]
 
@@ -2062,7 +2064,7 @@ def enforce_buy_vs_bias_caveat(text: str, ctx: dict) -> str:
     present in that section (SELL-only recs under GIẢM are already consistent).
     Idempotent; no-op without the floor / section / a buy line.
     """
-    if not text or (ctx or {}).get("bias_floor", {}).get("dir") != "GIẢM":
+    if not text or not is_defensive(ctx):
         return text
     # Idempotent: the caveat starts with ⚠️ (a section emoji), so once inserted
     # it reads as a section boundary on re-parse — check the whole text, not the

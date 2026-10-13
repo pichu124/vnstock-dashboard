@@ -27,6 +27,7 @@ import platform
 import sys
 from datetime import date, datetime
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -193,7 +194,7 @@ def score_inputs(dates: list[date], closes: list[float], targets: list[date],
     """Điểm 7 phiếu + nhãn/floor CŨ cho từng phiên `targets`, bằng chính code repo.
     Momentum KHÔNG gồm tin tức/vĩ mô (replay không có) — live và backfill cùng
     cách tính để so được với nhau (F2)."""
-    from vnstock_brief import _bias_floor_dir
+    from vnstock_brief_guards_common import _bias_floor_dir
     from vnstock_market_sentiment import compute_market_sentiment
     from vnstock_regime import classify_regime
 
@@ -307,6 +308,41 @@ def load_state(warehouse: Path = _WAREHOUSE) -> dict:
     except (OSError, ValueError):
         pass
     return {"version": SCHEMA_VERSION, "inputs": {}, "published": []}
+
+
+class Latest(NamedTuple):
+    """Bản published mới nhất + đủ dữ kiện để quyết "dùng được không"."""
+    state: dict
+    snap: "dict | None"        # bản published cuối; None khi chưa có state / state rỗng
+    missing: "str | None"      # "chưa có state" | "state rỗng" | None
+    expect: "date | None"      # bar VNINDEX mới nhất ≤ phiên phủ (`session_covered_at`)
+    conflicted: list           # tên file '(conflicted copy)' của state trong _meta
+
+    @property
+    def stale(self) -> bool:
+        return bool(self.snap and self.expect
+                    and str(self.snap.get("as_of")) < self.expect.isoformat())
+
+    @property
+    def usable(self) -> bool:
+        return self.snap is not None and not self.stale and not self.conflicted
+
+
+def latest_published(warehouse: Path = _WAREHOUSE, now: datetime | None = None) -> Latest:
+    """MỘT chỗ đọc state 3 khung cho mọi consumer (doctor hôm nay; brief, kẹp
+    allocation từ P1b): bản cuối + cũ so với kho + conflicted copy. CHỈ ĐỌC."""
+    if not state_path(warehouse).exists():
+        return Latest(load_state(warehouse), None, "chưa có state", None, [])
+    st = load_state(warehouse)
+    pub = st.get("published") or []
+    if not pub:
+        return Latest(st, None, "state rỗng", None, [])
+    from vnstock_rollup import session_covered_at
+    conflicted = sorted(f.name for f in (warehouse / "_meta").glob("horizon_state*conflicted*"))
+    dates, _ = load_vnindex(warehouse)
+    covered = session_covered_at(now or datetime.now())
+    expect = max((d for d in dates if d <= covered), default=None)
+    return Latest(st, pub[-1], None, expect, conflicted)
 
 
 def write_state(st: dict, warehouse: Path = _WAREHOUSE) -> None:

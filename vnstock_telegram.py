@@ -420,9 +420,10 @@ def _open_recs_block() -> str:
 
 
 def _market_is_bearish() -> bool:
-    """Bối cảnh GIẢM theo đúng luật bias floor (_bias_floor_dir): regime score
-    ≤ -3 HOẶC momentum tâm lý ≤ -50. Best-effort — thiếu tín hiệu → False."""
-    momentum = regime_score = None
+    """Thị trường PHÒNG THỦ theo đúng quyết định của brief: floor dựng bằng
+    `_market_floor` (momentum tâm lý + regime đọc tươi), đọc qua `is_defensive`
+    — một chỗ, P1b đổi ở đó là Telegram đổi theo. Best-effort — lỗi → False."""
+    momentum = None
     try:
         from vnstock_market_sentiment import load_market_sentiment
         ms = load_market_sentiment()
@@ -431,15 +432,8 @@ def _market_is_bearish() -> bool:
     except Exception:
         pass
     try:
-        from vnstock_regime import load_regime
-        r = load_regime()
-        if r and r.get("score") is not None:
-            regime_score = int(r["score"])
-    except Exception:
-        pass
-    try:
-        from vnstock_brief import _bias_floor_dir
-        return _bias_floor_dir(momentum, regime_score) == "GIẢM"
+        from vnstock_brief import _market_floor, is_defensive
+        return is_defensive({"bias_floor": _market_floor(momentum)})
     except Exception:
         return False
 

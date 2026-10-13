@@ -157,6 +157,29 @@ def test_kill_switch_skips_update(wh, monkeypatch):
     assert hs.main(["--update"]) == 0 and not called
 
 
+# ── Hàm đọc dùng chung (P1b-1, #19) ─────────────────────────────────────
+
+def test_latest_published_tells_missing_empty_fresh_stale_and_conflicted(wh):
+    root, days = wh
+    lp = hs.latest_published(root, now=_evening(days[-1]))
+    assert lp.snap is None and lp.missing == "chưa có state" and not lp.usable
+    hs.write_state({"inputs": {}, "published": []}, root)
+    lp = hs.latest_published(root, now=_evening(days[-1]))
+    assert lp.snap is None and lp.missing == "state rỗng" and not lp.usable
+
+    hs.update(now=_evening(days[-2]), warehouse=root)
+    lp = hs.latest_published(root, now=_evening(days[-2]))
+    assert lp.usable and not lp.stale and lp.snap["as_of"] == days[-2].isoformat()
+    assert lp.state["published"][-1] is lp.snap
+
+    lp = hs.latest_published(root, now=_evening(days[-1]))      # kho đã có bar mới hơn
+    assert lp.stale and not lp.usable and lp.expect == days[-1]
+
+    (root / "_meta" / "horizon_state (PICHU's conflicted copy).json").write_text("{}")
+    lp = hs.latest_published(root, now=_evening(days[-2]))
+    assert lp.conflicted and not lp.stale and not lp.usable
+
+
 # ── Doctor ───────────────────────────────────────────────────────────────
 
 @pytest.fixture()

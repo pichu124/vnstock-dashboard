@@ -31,9 +31,12 @@ import re as _re
 from vnstock_brief_guards_common import (  # noqa: F401  (re-export)
     _PIVOT_LABEL_RE,
     _SECTION_EMOJIS,
+    _bias_floor_dir,
     _is_section_start,
     _parse_vn_number,
     brief_section,
+    floor_dir,
+    is_defensive,
 )
 
 from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
@@ -132,6 +135,8 @@ from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
 
 from vnstock_brief_guards_numbers import (  # noqa: F401  (re-export)
     _MA200_CALL_IT_WEAK,
+    _KNOWN_INDEX_LEVEL_KEYS,
+    _known_index_levels,
     _GTGD_CTX_RE,
     _GTGD_SUBJECT_RE,
     _MOOD_EMOJIS,
