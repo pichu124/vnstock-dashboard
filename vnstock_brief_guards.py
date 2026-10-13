@@ -63,6 +63,7 @@ from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
     _ALLOC_HORIZON_CAVEAT_3K,
     _MORNING_ACTION_NOTE,
     _MORNING_ACTION_RE,
+    _MORNING_COND_RE,
     _hz_tldr_region,
     _is_horizon_heading,
     _STANCE_HZ_KW,
@@ -319,9 +320,10 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_assets_section(fixed, ctx)       # 🪙 vàng/dầu/USD: thân mục = dòng code (U86)
     fixed = enforce_market_news(fixed, ctx)          # canonical econ/political headlines
     fixed = enforce_macro_reports(fixed, ctx)        # canonical 📚 band + digest báo cáo
+    # Stance ghim TRƯỚC caveat band (đọc nhãn đã ghim — P1b-5: B3/B4 mà Stance TĂNG)
+    fixed = enforce_stance_horizon(fixed, ctx)       # nhãn Stance/Bias theo bảng 3 khung (P1b-4)
     fixed = enforce_allocation_table(fixed, ctx)     # pin band/% + caveat horizon
     fixed = enforce_horizon_view(fixed, ctx)         # 🔭 + TLDR dòng 3 = code (P1b-3)
-    fixed = enforce_stance_horizon(fixed, ctx)       # nhãn Stance/Bias theo bảng 3 khung (P1b-4)
     fixed = enforce_horizon_vocab(fixed, ctx)        # Risk-on/off thị trường ⇒ kỹ thuật ngày (P1b-6)
     fixed = enforce_morning_action_defensive(fixed, ctx)  # sáng: không BUY vô điều kiện (P1b-5)
     fixed = enforce_portfolio_facts(fixed, ctx)      # held-position facts are data

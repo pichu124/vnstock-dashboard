@@ -551,7 +551,12 @@ def enforce_horizon_vocab(text: str, ctx: dict) -> str:
 
 
 _MORNING_ACTION_RE = _re.compile(
-    r"^(\s*\*{0,2}Hành động ưu tiên\s*[:：]\s*\*{0,2}\s*)BUY\b(.*)$", _re.IGNORECASE)
+    r"^(\s*(?:[-*•]\s*)?\*{0,2}Hành động ưu tiên\*{0,2}\s*[:：]\s*\*{0,2}\s*)(\*{0,2})"
+    r"(?:BUY|MUA)\b(.*)$", _re.IGNORECASE)
+# "có điều kiện" thật = nêu điều kiện XÁC NHẬN; "gom khi thị trường giảm" là bắt đáy
+_MORNING_COND_RE = _re.compile(
+    r"điều kiện|\bnếu\b|khi\s+(?:giá\s+)?(?:vượt|xác nhận|bứt phá|break|lấy lại)",
+    _re.IGNORECASE)
 _MORNING_ACTION_NOTE = " (thị trường phòng thủ: chỉ mua khi giá xác nhận vượt kháng cự)"
 
 
@@ -568,9 +573,10 @@ def enforce_morning_action_defensive(text: str, ctx: dict) -> str:
         m = _MORNING_ACTION_RE.match(ln)
         if not m:
             continue
-        if _re.search(r"điều kiện|\bnếu\b|\bkhi\b", m.group(2), _re.IGNORECASE):
+        if _MORNING_COND_RE.search(m.group(3)):
             return text
-        lines[k] = f"{m.group(1)}WAIT{m.group(2)}{_MORNING_ACTION_NOTE}"
+        rest = _re.sub(r"^\s*/\s*\w+", "", m.group(3))          # "BUY/WAIT" ⇒ "WAIT"
+        lines[k] = f"{m.group(1)}{m.group(2)}WAIT{rest}{_MORNING_ACTION_NOTE}"
         return "\n".join(lines)
     return text
 

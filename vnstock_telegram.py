@@ -411,18 +411,21 @@ def _open_recs_block() -> str:
         # apply_brief_guards — nên guard body không với tới; đặt caveat đúng
         # chỗ lệnh hiện. Gắn cảnh báo, KHÔNG lọc (lệnh có SL = rủi ro xác định).
         # Chỉ xét lệnh ĐANG HIỆN — lệnh ẩn không in ra thì không cần caveat.
+        _LAST_MARKET_CTX.clear()
         if _has_buy_under_bear(shown):
-            from vnstock_brief import _BUY_BIAS_CAVEAT, _BUY_DEFENSIVE_CAVEAT, horizons_enabled
-            lines.append(_BUY_DEFENSIVE_CAVEAT if horizons_enabled() else _BUY_BIAS_CAVEAT)
+            from vnstock_brief import _BUY_BIAS_CAVEAT, _BUY_DEFENSIVE_CAVEAT
+            # cùng lời với guard brief: có lớp bảo vệ 3 khung ⇒ "lớp bảo vệ đang bật"
+            lines.append(_BUY_DEFENSIVE_CAVEAT if isinstance(_LAST_MARKET_CTX.get("defensive"), dict)
+                         else _BUY_BIAS_CAVEAT)
         return "\n".join(lines)
     except Exception as e:
         return f"📋 Khuyến nghị: lỗi ({e})"
 
 
-def _market_is_bearish() -> bool:
-    """Thị trường PHÒNG THỦ theo đúng quyết định của brief: floor dựng bằng
-    `_market_floor` (momentum tâm lý + regime đọc tươi), đọc qua `is_defensive`
-    — một chỗ, P1b đổi ở đó là Telegram đổi theo. Best-effort — lỗi → False."""
+def _market_ctx() -> dict:
+    """ctx thị trường y như brief dựng: floor `_market_floor` (momentum tâm lý có
+    tin + vĩ mô, regime đọc tươi) + — khi VNSTOCK_HORIZONS bật — state 3 khung,
+    bảng Stance, lớp bảo vệ 2 mức. Best-effort: lỗi ⇒ {}."""
     momentum = None
     try:
         from vnstock_market_sentiment import load_market_sentiment
@@ -434,11 +437,28 @@ def _market_is_bearish() -> bool:
     try:
         import vnstock_brief as vb
         ctx = {"bias_floor": vb._market_floor(momentum)}
-        if vb.horizons_enabled():           # lớp bảo vệ 3 khung (P1b-5, #23)
-            vb._load_horizons(ctx)
-            vb._apply_horizon_stance(ctx)
-            vb._apply_horizon_defensive(ctx)
-        return vb.is_defensive(ctx)
+    except Exception:
+        return {}
+    if vb.horizons_enabled():               # lớp bảo vệ 3 khung (P1b-5, #23) — cùng bước 10
+        base = dict(ctx)
+        try:
+            vb._apply_horizons(ctx, "afternoon")
+        except Exception:
+            return base                     # 3 khung lỗi ⇒ floor cũ, không im lặng thành False
+    return ctx
+
+
+_LAST_MARKET_CTX: dict = {}      # ctx của lần _market_is_bearish gần nhất (chọn lời caveat)
+
+
+def _market_is_bearish() -> bool:
+    """Thị trường PHÒNG THỦ (mức cứng) theo đúng quyết định của brief — đọc qua
+    `is_defensive` một chỗ. Best-effort — lỗi → False."""
+    _LAST_MARKET_CTX.clear()
+    try:
+        from vnstock_brief import is_defensive
+        _LAST_MARKET_CTX.update(_market_ctx())
+        return is_defensive(_LAST_MARKET_CTX)
     except Exception:
         return False
 

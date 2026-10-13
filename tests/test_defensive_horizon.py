@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import itertools
 
+import pandas as pd
+
 import pytest
 
 import vnstock_horizons as hz
@@ -201,3 +203,97 @@ def test_allocation_caveat_new_wording_and_conditions(band, stance, floor_old, s
     assert (_ALLOC_HORIZON_CAVEAT_3K in out) is clash
     assert "tỷ trọng theo band và xu hướng trung hạn; nhịp ngày chỉ chọn thời điểm" in \
         _ALLOC_HORIZON_CAVEAT_3K
+
+
+# ── Sau review #23 ───────────────────────────────────────────────────────────
+
+def test_snapshot_without_a_stance_rule_still_keeps_the_superset():
+    from vnstock_brief import _apply_horizon_defensive, _apply_horizon_stance, is_defensive
+    view = _view(hz.CHUA_RO, hz.DI_NGANG, 0)
+    view["snap"]["stance"] = None
+    ctx = {"horizons": view, "bias_floor": {"dir": "GIẢM", "momentum": -60, "regime_score": None}}
+    _apply_horizon_stance(ctx)
+    _apply_horizon_defensive(ctx)
+    assert ctx["defensive"]["level"] == "cứng" and is_defensive(ctx)
+
+
+def test_shadow_only_protection_still_names_a_reason():
+    ctx = _ctx(None, hz.CHUA_RO, hz.DI_NGANG, 0, protect="cứng")
+    assert ctx["defensive"]["level"] == "cứng" and ctx["defensive"]["reasons"]
+
+
+_PORTFOLIO = [{"ticker": "HPG", "qty": 1000, "buy_price": 25.0, "last_close": 24.0,
+               "pnl_pct": -4.0, "above_ma50": False}]
+
+
+@pytest.mark.parametrize("floor_old,short,medium,tier,protect", _COMBOS)
+def test_every_consumer_follows_the_level(floor_old, short, medium, tier, protect):
+    from vnstock_brief import (_BUY_DEFENSIVE_CAVEAT, _SOFT_DEFENSIVE_MARK, _portfolio_block,
+                               defensive_level, enforce_buy_vs_bias_caveat,
+                               enforce_watchlist_hygiene)
+    ctx = _ctx(floor_old, short, medium, tier, protect)
+    level = defensive_level(ctx)
+    wl = enforce_watchlist_hygiene(_WATCH, ctx)
+    assert ("canh MUA NẾU vượt" in wl) is (level == "cứng")
+    assert (_SOFT_DEFENSIVE_MARK in wl) is (level == "mềm")
+    assert (_BUY_DEFENSIVE_CAVEAT in enforce_buy_vs_bias_caveat(_WATCH, ctx)) is (level == "cứng")
+    block = _portfolio_block(_PORTFOLIO, defensive=ctx["defensive"])
+    assert ("KHÔNG GIA TĂNG vô điều kiện" in block) is (level == "cứng")
+    assert ("không mua đuổi" in block) is (level == "mềm")
+
+
+@pytest.mark.parametrize("short,medium,agent", [
+    (hz.HOI, hz.TANG, "TRUNG TÍNH"),       # ô ép TĂNG: caveat B4 phải có ngay lượt 1
+    (hz.HOI, hz.GIAM, "TĂNG"),             # TĂNG ngoài tập ⇒ TRUNG TÍNH: không caveat
+])
+def test_band_caveat_is_stable_across_two_full_passes(short, medium, agent):
+    from vnstock_brief import _ALLOC_HORIZON_CAVEAT_3K, apply_brief_guards
+    ctx = _ctx(None, short, medium, 0, allocation={"band": "B4", "band_label": "x",
+                                                   "score": -0.4, "as_of": "2026-10-13",
+                                                   "allocation": {}})
+    text = _alloc_text("B4", agent)
+    once = apply_brief_guards(text, ctx)
+    assert apply_brief_guards(once, dict(ctx)) == once
+    stance_up = "**Stance ngày mai:** TĂNG" in once
+    assert (_ALLOC_HORIZON_CAVEAT_3K in once) is stance_up
+
+
+@pytest.mark.parametrize("line,expect", [
+    ("**Hành động ưu tiên:** **BUY** — ngân hàng",
+     "**Hành động ưu tiên:** **WAIT** — ngân hàng"),
+    ("- **Hành động ưu tiên:** BUY — ngân hàng", "- **Hành động ưu tiên:** WAIT — ngân hàng"),
+    ("**Hành động ưu tiên**: MUA — ngân hàng", "**Hành động ưu tiên**: WAIT — ngân hàng"),
+    ("**Hành động ưu tiên:** BUY/WAIT — ngân hàng", "**Hành động ưu tiên:** WAIT — ngân hàng"),
+    ("**Hành động ưu tiên:** BUY — gom ngân hàng khi thị trường giảm",
+     "**Hành động ưu tiên:** WAIT — gom ngân hàng khi thị trường giảm"),
+    ("**Hành động ưu tiên:** BUY — chỉ khi vượt 1,760", None),
+])
+def test_morning_action_variants(line, expect):
+    from vnstock_brief import _MORNING_ACTION_NOTE, enforce_morning_action_defensive
+    ctx = {**_ctx("GIẢM", hz.CHUA_RO, hz.GIAM, 0), "brief_type": "morning"}
+    text = f"## 🎯 TLDR\n**Bias:** GIẢM — x\n{line}\n"
+    out = enforce_morning_action_defensive(text, ctx)
+    assert out == (text if expect is None else text.replace(line, expect + _MORNING_ACTION_NOTE))
+
+
+def test_telegram_falls_back_to_the_old_floor_when_the_state_breaks(monkeypatch):
+    import vnstock_brief
+    import vnstock_market_sentiment
+    import vnstock_telegram
+    monkeypatch.setenv("VNSTOCK_HORIZONS", "1")
+    monkeypatch.setattr(vnstock_market_sentiment, "load_market_sentiment", lambda: {"momentum": -60})
+    monkeypatch.setattr(vnstock_brief, "_market_floor", lambda m, on_error=None: {
+        "dir": "GIẢM", "momentum": m, "regime_score": None})
+    monkeypatch.setattr(vnstock_brief, "_load_horizons", lambda c: 1 / 0)
+    assert vnstock_telegram._market_is_bearish() is True
+
+
+def test_ma50_skips_a_stale_bar(monkeypatch):
+    import vnstock_strategy
+    from vnstock_brief import _attach_portfolio_ma50
+    h = pd.DataFrame({"time": pd.date_range("2026-07-01", periods=60, freq="B"),
+                      "close": [10.0] * 60})
+    monkeypatch.setattr(vnstock_strategy, "_load_history_from_parquet", lambda t, days=0: h)
+    pos = [{"ticker": "HPG"}]
+    _attach_portfolio_ma50(pos, "2026-12-31")
+    assert "above_ma50" not in pos[0]

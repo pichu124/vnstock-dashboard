@@ -2197,11 +2197,14 @@ def _portfolio_block(positions: list[dict], defensive: "dict | None" = None) -> 
         "Stance/regime/tin trong prompt. TUYỆT ĐỐI không đổi số, không thêm mã "
         "ngoài danh sách."
     )
-    if (defensive or {}).get("on"):
+    why = " · ".join((defensive or {}).get("reasons") or [])
+    if (defensive or {}).get("on") and defensive.get("level") == "cứng":
         lines.append(
-            f"→ Thị trường đang PHÒNG THỦ ({' · '.join(defensive.get('reasons') or [])}): "
+            f"→ Thị trường đang PHÒNG THỦ ({why}): "
             "KHÔNG GIA TĂNG vô điều kiện (chỉ \"GIA TĂNG khi vượt <mức>\"); nếu cần "
             "hạ tỷ trọng thì hạ trước mã DƯỚI MA50.")
+    elif (defensive or {}).get("on"):                 # mức MỀM: chỉ nhắc
+        lines.append(f"→ Lưu ý 1 tín hiệu phòng thủ ({why}): không mua đuổi.")
     return "\n".join(lines)
 
 
@@ -2912,7 +2915,10 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     # Sau công tắc VNSTOCK_HORIZONS (mặc định TẮT tới #26) — tắt thì ctx KHÔNG có
     # khoá "horizons" nên prompt/guard giống hệt trước.
     if horizons_enabled():
-        _apply_horizons(ctx, brief_type)
+        try:
+            _apply_horizons(ctx, brief_type)
+        except Exception as _e:                 # snapshot dị dạng không được làm sập brief
+            _note_loader_error(ctx, "horizons_apply", _e)
 
     return ctx
 
@@ -2926,7 +2932,7 @@ def _apply_horizons(ctx: dict, brief_type: str) -> None:
     _apply_horizon_stance(ctx)              # bảng Stance §3.4 (P1b-4, #22)
     _apply_horizon_defensive(ctx)           # lớp bảo vệ 2 mức (P1b-5, #23)
     if ctx.get("portfolio"):
-        _attach_portfolio_ma50(ctx["portfolio"])
+        _attach_portfolio_ma50(ctx["portfolio"], (ctx.get("freshness") or {}).get("data_date"))
 
 
 def horizons_enabled() -> bool:
@@ -2973,27 +2979,39 @@ def _apply_horizon_defensive(ctx: dict) -> None:
     if not isinstance(view, dict) or view.get("stale") or not isinstance(view.get("snap"), dict):
         return
     snap = view["snap"]
-    floor_old = (ctx.get("bias_floor_old") or {}).get("dir")
+    # floor cũ của brief thật: đã dời sang bias_floor_old (P1b-4) — hoặc vẫn nằm ở
+    # bias_floor khi snapshot thiếu luật Stance (không có nguồn "nhip")
+    bf = ctx.get("bias_floor") or {}
+    floor_old = (ctx.get("bias_floor_old") or {}).get("dir") or (
+        bf.get("dir") if bf.get("source") != "nhip" else None)
     short, medium = snap.get("short"), snap.get("medium")
     tier = (snap.get("alert") or {}).get("tier") or 0
-    level = max(protection_level(floor_old, short, medium, tier), snap.get("protect"),
-                key=lambda lv: _PROTECT_RANK.get(lv, 0))
+    real = protection_level(floor_old, short, medium, tier)
+    level = max(real, snap.get("protect"), key=lambda lv: _PROTECT_RANK.get(lv, 0))
     reasons = [why for hit, why in ((floor_old == "GIẢM", "tín hiệu ngày một chiều giảm"),
                                     (short == CHINH, "nhịp chỉnh"),
                                     (medium == GIAM, "trung hạn GIẢM"),
                                     (tier > 0, f"🚨 mức {tier}")) if hit]
+    if _PROTECT_RANK.get(level, 0) > _PROTECT_RANK.get(real, 0):
+        reasons.append("tín hiệu ngày một chiều giảm (bản chạy bóng)")
     ctx["defensive"] = {"on": level is not None, "level": level, "reasons": reasons}
 
 
-def _attach_portfolio_ma50(positions: list) -> None:
+def _attach_portfolio_ma50(positions: list, data_date: "str | None" = None) -> None:
     """Trạng thái MA50 (trên/dưới) của từng mã đang giữ — code tính, in ở dòng
     dữ kiện danh mục (P1b-5): bảo vệ bật thì hạ trước mã dưới MA50. Thiếu 50
-    phiên / đọc hỏng ⇒ bỏ qua mã đó."""
+    phiên / bar cuối KHÁC phiên ``data_date`` (mã cách ly, kho cũ) / đọc hỏng ⇒
+    bỏ qua mã đó."""
     from vnstock_strategy import _load_history_from_parquet
     for p in positions or []:
         try:
             h = _load_history_from_parquet(str(p["ticker"]), days=120)
-            closes = [float(x) for x in h["close"].dropna().tolist()] if h is not None else []
+            if h is None or h.empty:
+                continue
+            if data_date and pd.Timestamp(h["time"].iloc[-1]).date().isoformat() != \
+                    str(data_date)[:10]:
+                continue
+            closes = [float(x) for x in h["close"].dropna().tolist()]
             if len(closes) < 50:
                 continue
             p["above_ma50"] = closes[-1] > sum(closes[-50:]) / 50
@@ -3447,6 +3465,11 @@ def _bias_floor_prompt_lines(ctx: dict, brief_type: str) -> list[str]:
             "của CHÍNH MÃ]\" (xác nhận sức mạnh trước), và ưu tiên ít nhất "
             "1 hướng phòng thủ (GIẢM TỶ TRỌNG/TRÁNH nếu thủng hỗ trợ)."
         )
+    elif defensive_level(ctx) == "mềm":          # P1b-5: mức mềm chỉ NHẮC
+        lines.append(
+            f"Lưu ý: thị trường có 1 tín hiệu phòng thủ "
+            f"({' · '.join(ctx['defensive'].get('reasons') or [])}) — không mua đuổi; "
+            "setup MUA nên có điều kiện xác nhận.")
     return lines
 
 
@@ -4214,6 +4237,7 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     _ALLOC_HORIZON_CAVEAT_3K,
     _MORNING_ACTION_NOTE,
     _MORNING_ACTION_RE,
+    _MORNING_COND_RE,
     _hz_tldr_region,
     _is_horizon_heading,
     _STANCE_HZ_KW,
