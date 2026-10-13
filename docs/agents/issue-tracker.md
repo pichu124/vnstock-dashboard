@@ -21,7 +21,10 @@ Infer the repo from `git remote -v`; `gh` does this automatically when run insid
   `mcp__github__issue_read`, `mcp__github__list_issues`, `mcp__github__add_issue_comment`,
   `mcp__github__sub_issue_write`. MCP không có API phụ thuộc (blocking) ⇒ dùng dòng
   `Blocked by: #<n>, #<n>` đầu thân issue (phương án dự phòng ở mục **Blocking** bên dưới).
-  Máy user (Windows) có `gh` hay không thì CHƯA kiểm — đừng giả định.
+  Máy user (đo 13/10): 💻 laptop có `gh` 2.102.0, đăng nhập `pichu124` (keyring, scope `repo`)
+  — đủ ≥2.94 cho `--parent`/`--add-sub-issue`. 🖥️ desktop CHƯA cài ⇒ chạy luồng ticket trên
+  desktop thì cài trước: `winget install --id GitHub.cli -e` + `gh auth login` (GitHub.com ·
+  HTTPS · "Authenticate Git" = **No** · web browser). 5 nhãn triage đã có trên GitHub (13/10).
 - **`docs/VIEC-DANG-LAM.md` vẫn là trang việc của user** — skill KHÔNG ghi vào đó và không
   chép issue sang đó. Issue là nơi các skill làm việc; trang kia do user + Claude duy trì tay.
 - **Việc giao cho user phải ghi máy** (quy tắc `CLAUDE.md`): mọi issue `ready-for-human` ghi
