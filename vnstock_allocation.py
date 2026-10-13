@@ -61,6 +61,8 @@ import sys
 from datetime import date, datetime
 from pathlib import Path
 
+from vnstock_brief_canon import _alloc_proposal_text as describe_proposal
+
 _REPO = Path(__file__).resolve().parent
 _META = _REPO / "data_warehouse" / "_meta"
 _STATE = _META / "allocation_state.json"
@@ -550,11 +552,37 @@ def _equity_pct(state: dict) -> float:
     return float((state.get("allocation") or {}).get("Cổ phiếu") or 0)
 
 
-def _hold(state: dict, prev: dict) -> None:
-    """Giữ band + bảng % HIỆU LỰC hôm trước (band_data vẫn đi tiếp)."""
+def _hold(state: dict, prev: dict) -> "str | None":
+    """Giữ band + bảng % HIỆU LỰC hôm trước (band_data vẫn đi tiếp). Bảng giữ
+    KHÔNG phải bảng trộn tilt hôm nay ⇒ bỏ ``report_tilt`` (history/scorecard
+    không ghi tilt chưa áp), trả nhãn tilt để ghi vào ``capped_by``/``ramp``."""
+    rt = state.get("report_tilt")
     state["band"] = prev["band"]
     state["band_label"] = _BAND_LABELS[prev["band"]]
     state["allocation"] = dict(prev["allocation"])
+    state["report_tilt"] = None
+    return tilt_label(rt) if rt else None
+
+
+def _ramp(state: dict, prev: dict, as_of: str, config: "dict | None") -> dict:
+    """% cổ phiếu đề xuất CAO hơn hôm trước, không bị cấm: ⏳ báo trước 1 tuần
+    rồi mới lên, mỗi tuần ≤ một bậc của BẢNG (đếm theo %, không theo nhãn band —
+    tilt trôi trong cùng band cũng là tăng)."""
+    target = {"band": state["band"], "pct": _equity_pct(state)}
+    since = (prev.get("ramp") or {}).get("since") or as_of
+    if (date.fromisoformat(as_of) - date.fromisoformat(since)).days < _UP_STEP_DAYS:
+        tilt = _hold(state, prev)
+        state["ramp"] = {**target, "since": since, **({"tilt": tilt} if tilt else {})}
+        return state
+    table = _allocations_table(config)
+    step = _BANDS[max(0, _BANDS.index(prev["band"]) - 1)]
+    if target["pct"] > float(table[step]["Cổ phiếu"]):
+        state["band"] = step
+        state["band_label"] = _BAND_LABELS[step]
+        state["allocation"] = dict(table[step])
+        state["report_tilt"] = None
+        state["ramp"] = {**target, "since": as_of}
+    return state
 
 
 def apply_horizon_cap(state: dict, prev: "dict | None", horizon: "dict | None",
@@ -562,43 +590,47 @@ def apply_horizon_cap(state: dict, prev: "dict | None", horizon: "dict | None",
                       config: "dict | None" = None) -> dict:
     """Áp kẹp lên state đã tilt (sửa tại chỗ, trả lại state).
 
-    - trung hạn ≠ TĂNG hoặc 🚨 bật mà % cổ phiếu mới > % hiệu lực hôm trước ⇒
-      giữ band + bảng % cũ, ghi ``capped_by`` (band/% dữ liệu đề xuất);
-    - trung hạn TĂNG và 🚨 tắt mà band hiệu lực lên bậc ⇒ ⏳ ``ramp`` 1 tuần
-      rồi mới lên, mỗi tuần ≤1 bậc;
-    - giảm rủi ro luôn đi qua; ``horizon`` None (state 3 khung chưa có / cũ /
-      hỏng) ⇒ không kẹp, ghi ``horizon_note``; lần chạy đầu không có gì để giữ.
+    - % cổ phiếu không tăng ⇒ đi qua nguyên (giảm rủi ro không bao giờ bị chặn);
+    - trung hạn ≠ TĂNG hoặc 🚨 bật ⇒ giữ band + bảng % cũ, ghi ``capped_by``
+      (band/% đề xuất + nhãn tilt bị bỏ);
+    - trung hạn TĂNG và 🚨 tắt ⇒ ⏳ ``ramp``: báo trước 1 tuần, ≤1 bậc/tuần;
+    - ``horizon`` None (state 3 khung chưa có / cũ / hỏng) ⇒ không kẹp, ghi
+      ``horizon_note``; nhưng đang giữ/đang leo thì đi theo ⏳ chứ không xả cả
+      khoảng một đêm. Lần chạy đầu không có gì để giữ.
     """
     if (not _horizon_cap_enabled() or not prev or not prev.get("allocation")
             or prev.get("band") not in _BANDS):
         return state
     if horizon is None:
         state["horizon_note"] = note or "không đọc được state 3 khung"
+    new_pct = _equity_pct(state)
+    if new_pct <= _equity_pct(prev):
+        return state
+    if horizon is None:
+        if prev.get("capped_by") or prev.get("ramp"):
+            return _ramp(state, prev, as_of, config)
         return state
     if why := _cap_reason(horizon):
-        new_pct = _equity_pct(state)
-        if new_pct > _equity_pct(prev):
-            proposed = state["band"]
-            _hold(state, prev)
-            state["capped_by"] = {"by": "horizons", "why": why,
-                                  "proposed_band": proposed, "proposed_pct": new_pct}
+        proposed = state["band"]
+        tilt = _hold(state, prev)
+        state["capped_by"] = {"by": "horizons", "why": why, "proposed_band": proposed,
+                              "proposed_pct": new_pct, **({"tilt": tilt} if tilt else {})}
         return state
-    cur_idx, new_idx = _BANDS.index(prev["band"]), _BANDS.index(state["band"])
-    if new_idx >= cur_idx:
-        return state
-    target = state["band"]
-    since = (prev.get("ramp") or {}).get("since") or as_of
-    if (date.fromisoformat(as_of) - date.fromisoformat(since)).days < _UP_STEP_DAYS:
-        _hold(state, prev)
-        state["ramp"] = {"band": target, "since": since}
-        return state
-    if new_idx < cur_idx - 1:
-        step = _BANDS[cur_idx - 1]
-        state["band"] = step
-        state["band_label"] = _BAND_LABELS[step]
-        state["allocation"] = dict(_allocations_table(config)[step])
-        state["ramp"] = {"band": target, "since": as_of}
-    return state
+    return _ramp(state, prev, as_of, config)
+
+
+def overview_intraday(as_of: "str | None" = None) -> "bool | None":
+    """market_overview chốt GIỮA PHIÊN ``as_of`` (``reason=intraday``)? None khi
+    không xác định được — chỗ gọi tự chọn: pipeline vẫn ghi (đêm overview đã
+    chốt), nút dashboard thì không (Vá 2)."""
+    try:
+        from vnstock_brief import market_data_freshness
+        f = market_data_freshness(as_of, overview_path=_META / "market_overview.json")
+        return f.get("reason") == "intraday"
+    except Exception as e:
+        print(f"[allocation] ⚠ không xác định được overview giữa phiên: "
+              f"{type(e).__name__}: {e}")
+        return None
 
 
 # ── State I/O (atomic) + history log ────────────────────────────────────────
@@ -647,6 +679,7 @@ def _history_entry(state: dict) -> dict:
         "pending":   state.get("pending"),
         "capped_by": state.get("capped_by"),
         "ramp":      state.get("ramp"),
+        "horizon_note": state.get("horizon_note"),
         "score":     state["score"],
         "inputs":    {r["key"]: {"value": r["value"], "score": r["score"],
                                  "as_of": r["as_of"]}
@@ -682,6 +715,12 @@ def run_allocation(effective_date: "str | None" = None, *,
     history.sort(key=lambda h: h.get("date") or "")
     state["history"] = history[-_HISTORY_MAX:]
     state["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    if persist and overview_intraday(state["as_of"]):
+        # Vá 2 ở MỌI đường gọi — nút 🧩 chạy `run.py all --no-sync` giữa phiên
+        # cũng vào đây: band tính từ overview nửa phiên không được thành phiên chốt.
+        print("[allocation] ⏸ overview là GIỮA PHIÊN — chỉ tính, KHÔNG ghi band ngày mới")
+        persist = False
+        state["preview_only"] = "intraday"
     if persist:
         _write_state(state)
     return state
@@ -709,10 +748,11 @@ def _print_state(state: dict) -> None:
         print(f"   ⏳ chờ xác nhận đổi sang {p['band']} "
               f"({len(p['dates'])}/{_CONFIRM_SESSIONS} phiên: {', '.join(p['dates'])})")
     if cap := state.get("capped_by"):
-        print(f"   🔒 kẹp theo trung hạn: band dữ liệu đề xuất {cap['proposed_band']} "
-              f"({cap['proposed_pct']:g}% cổ phiếu) — giữ vì {cap['why']}")
+        print(f"   🔒 kẹp theo trung hạn: {describe_proposal(state)} — giữ vì {cap['why']}")
     if ramp := state.get("ramp"):
         print(f"   ⏳ tăng tỷ trọng về {ramp['band']}: ≤1 bậc/tuần, tính từ {ramp['since']}")
+    if state.get("preview_only"):
+        print("   ⏸ overview GIỮA PHIÊN — bản này chỉ tính để xem, KHÔNG ghi")
     if note := state.get("horizon_note"):
         print(f"   (kẹp theo trung hạn không áp: {note})")
     print("\n  Lớp tài sản   | %")

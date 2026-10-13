@@ -295,15 +295,27 @@ def _macro_reports_body_lines(ctx: dict, directive: bool = True) -> list[str]:
     return lines
 
 # ── Khối bảng phân bổ ─────────────────────────────────────────────────────────
+def _pct_tail(pct) -> str:
+    return f" ({pct:g}% cổ phiếu)" if isinstance(pct, (int, float)) else ""
+
+
+def _alloc_proposal_text(alloc: dict) -> str:
+    """Câu "band đề xuất" khi kẹp đang giữ — MỘT chỗ cho CLI, tab Phân bổ, brief.
+    Có tilt bị bỏ thì nói rõ đề xuất = band dữ liệu + tilt (khỏi trái "(band data)")."""
+    cap = alloc.get("capped_by") or {}
+    src = (f"band dữ liệu {alloc.get('band_data')} + tilt {cap['tilt']} đề xuất"
+           if cap.get("tilt") else "band dữ liệu đề xuất")
+    return f"{src} {cap.get('proposed_band')}{_pct_tail(cap.get('proposed_pct'))}"
+
+
 def _alloc_cap_note(alloc: dict) -> str:
     """Đuôi dòng band khi kẹp theo trung hạn đang giữ (P1b-2, #20) — nói rõ band
     hiệu lực KHÁC band dữ liệu là cố ý, để LLM không "sửa" band/% về bảng gốc."""
     if cap := alloc.get("capped_by"):
-        return (f"; giữ nguyên vì {cap.get('why')} — band dữ liệu đề xuất "
-                f"{cap.get('proposed_band')} ({cap.get('proposed_pct'):g}% cổ phiếu)")
+        return f"; giữ nguyên vì {cap.get('why')} — {_alloc_proposal_text(alloc)}"
     if ramp := alloc.get("ramp"):
-        return (f"; ⏳ chờ lên {ramp.get('band')} — mỗi tuần tối đa 1 bậc, "
-                f"tính từ {ramp.get('since')}")
+        return (f"; ⏳ chờ lên {ramp.get('band')}{_pct_tail(ramp.get('pct'))} — mỗi tuần "
+                f"tối đa 1 bậc, tính từ {ramp.get('since')}")
     return ""
 
 

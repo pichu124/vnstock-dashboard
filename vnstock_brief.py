@@ -68,6 +68,8 @@ from vnstock_brief_canon import (  # noqa: F401  (re-export: giữ nguyên đư�
     _SR_MAX_MOVE_PCT,
     _WATCHLIST_GTGD_MIN_TY,
     _alloc_cap_note,
+    _alloc_proposal_text,
+    _pct_tail,
     _allocation_table_lines,
     _gtgd_close_frame,
     _macro_body_lines,

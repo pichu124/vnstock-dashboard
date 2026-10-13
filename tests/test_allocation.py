@@ -23,6 +23,12 @@ def _no_report_tilt(monkeypatch):
     # Kẹp theo trung hạn (P1b-2) đọc state 3 khung THẬT trên máy có kho — test
     # riêng ở test_allocation_horizon_cap.py; ở đây chặn để band kỳ vọng không lệch.
     monkeypatch.setattr(alloc, "_load_horizon", lambda: (None, "test: không đọc kho"))
+    # Vá 2: overview THẬT của máy có kho có thể đang giữa phiên ⇒ chặn ghi
+    monkeypatch.setattr(alloc, "overview_intraday", lambda as_of=None: False)
+    import os
+    for k in list(os.environ):          # .env máy thật lọt vào pytest — xoá theo TIỀN TỐ
+        if k.startswith("VNSTOCK_ALLOC"):
+            monkeypatch.delenv(k, raising=False)
 
 
 def _mk_module(name, **attrs):
