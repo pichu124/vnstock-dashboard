@@ -2898,8 +2898,9 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     # 10. Brief 3 khung (P1b-3, #21): bản published mới nhất → khối 🔭 + TLDR dòng 3.
     # Sau công tắc VNSTOCK_HORIZONS (mặc định TẮT tới #26) — tắt thì ctx KHÔNG có
     # khoá "horizons" nên prompt/guard giống hệt trước.
-    if horizons_enabled() and brief_type == "afternoon":
+    if horizons_enabled() and brief_type in ("morning", "afternoon"):
         _load_horizons(ctx)
+        _apply_horizon_stance(ctx)              # bảng Stance §3.4 (P1b-4, #22)
 
     return ctx
 
@@ -2907,6 +2908,28 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
 def horizons_enabled() -> bool:
     """Công tắc brief 3 khung (VNSTOCK_HORIZONS) — mặc định TẮT cho tới #26."""
     return os.environ.get("VNSTOCK_HORIZONS", "0").strip().lower() in ("1", "true", "on", "yes")
+
+
+def _apply_horizon_stance(ctx: dict) -> None:
+    """Bảng Stance 3 khung (§3.4) thay floor cũ — chỉ khi state dùng được:
+    ``bias_floor`` CHỈ có ở 2 ô ép (nguồn "nhip"), ô khác ghi tập cho phép vào
+    ``horizons["stance_allowed"]``. Floor cũ (momentum ±50 / regime ±3) rời luật
+    ép nhưng giữ ở ``bias_floor_old`` cho lớp bảo vệ. State cũ/hỏng ⇒ không đụng
+    gì: floor cũ y như trước, không có tập cho phép."""
+    view = ctx.get("horizons")
+    if not isinstance(view, dict) or view.get("stale") or not isinstance(view.get("snap"), dict):
+        return
+    snap = view["snap"]
+    rule = snap.get("stance") or {}
+    if (old := ctx.pop("bias_floor", None)) is not None:
+        ctx["bias_floor_old"] = old
+    if rule.get("forced"):
+        ctx["bias_floor"] = {"dir": rule["forced"], "source": "nhip",
+                             "short": snap.get("short"), "since": snap.get("short_since"),
+                             "n": view.get("short_sessions"), "score": snap.get("score"),
+                             "n_signals": snap.get("n")}
+    else:
+        view["stance_allowed"] = list(rule.get("allowed") or [])
 
 
 def _load_horizons(ctx: dict) -> None:
@@ -3303,6 +3326,10 @@ def _bias_floor_prompt_lines(ctx: dict, brief_type: str) -> list[str]:
     # the close's directional call lives in "Stance ngày mai" (TLDR).
     if bf := ctx.get("bias_floor"):
         _sig = []
+        if bf.get("source") == "nhip":           # bảng Stance 3 khung (P1b-4, #22)
+            from vnstock_horizons import SHORT_LABEL
+            _sig.append(f"Ngắn hạn: {SHORT_LABEL.get(bf.get('short'), '?')} phiên "
+                        f"{bf.get('n')} (điểm {bf.get('score', 0):+d}/{bf.get('n_signals')})")
         if bf.get("momentum") is not None:
             _sig.append(f"momentum {bf['momentum']:+d}/100")
         if bf.get("regime_score") is not None:
@@ -3327,15 +3354,24 @@ def _bias_floor_prompt_lines(ctx: dict, brief_type: str) -> list[str]:
             f"(Lưu ý: 'BẮT BUỘC' là chỉ thị nội bộ cho bạn — TUYỆT ĐỐI KHÔNG in chữ "
             f"'bắt buộc' vào brief; chỉ ghi bias {bf['dir']} kèm lý do số liệu.)"
         )
-        if is_defensive(ctx):        # cùng điều kiện với guard watchlist/MUA
-            _where = "Watchlist sáng mai" if brief_type != "morning" else "Trọng tâm theo dõi / Kịch bản"
-            lines.append(
-                f"Ở '{_where}' (bias GIẢM): TUYỆT ĐỐI KHÔNG đưa setup "
-                "\"MUA vùng [giá dưới thị trường]\" kiểu bắt dao rơi. Mẫu MUA "
-                "CHỈ được dạng CÓ ĐIỀU KIỆN \"canh MUA NẾU vượt lại [kháng cự "
-                "của CHÍNH MÃ]\" (xác nhận sức mạnh trước), và ưu tiên ít nhất "
-                "1 hướng phòng thủ (GIẢM TỶ TRỌNG/TRÁNH nếu thủng hỗ trợ)."
-            )
+    elif allowed := ((ctx.get("horizons") or {}).get("stance_allowed")):
+        _word = "Bias" if brief_type == "morning" else "Stance ngày mai"
+        _why = ("" if "TĂNG" in allowed else
+                " (TĂNG chỉ được phép khi trung hạn TĂNG và 🚨 tắt)")
+        lines.append(
+            f"\n## 🧭 STANCE CHO PHÉP (bảng 3 khung)\n"
+            f"{_word} CHỈ được chọn trong: {' / '.join(allowed)}{_why}. Nhãn ngoài "
+            f"tập sẽ bị hệ thống đổi thành TRUNG TÍNH; setup vẫn phải CÓ ĐIỀU KIỆN "
+            f"(mức trigger + mức hủy).")
+    if is_defensive(ctx):        # cùng điều kiện với guard watchlist/MUA
+        _where = "Watchlist sáng mai" if brief_type != "morning" else "Trọng tâm theo dõi / Kịch bản"
+        lines.append(
+            f"Ở '{_where}' (bias GIẢM): TUYỆT ĐỐI KHÔNG đưa setup "
+            "\"MUA vùng [giá dưới thị trường]\" kiểu bắt dao rơi. Mẫu MUA "
+            "CHỈ được dạng CÓ ĐIỀU KIỆN \"canh MUA NẾU vượt lại [kháng cự "
+            "của CHÍNH MÃ]\" (xác nhận sức mạnh trước), và ưu tiên ít nhất "
+            "1 hướng phòng thủ (GIẢM TỶ TRỌNG/TRÁNH nếu thủng hỗ trợ)."
+        )
     return lines
 
 
@@ -4083,6 +4119,10 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     is_defensive,
     enforce_allocation_table,
     enforce_horizon_view,
+    enforce_stance_horizon,
+    _STANCE_HZ_DEFAULT,
+    _STANCE_HZ_LABEL_RE,
+    _STANCE_HZ_LINE_RE,
     _horizon_agent_sentence,
     _HORIZON_AGENT_MAX_CHARS,
     _HORIZON_SENTENCE_RE,

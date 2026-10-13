@@ -69,7 +69,8 @@ def floor_dir(ctx: dict | None) -> str | None:
 def is_defensive(ctx: dict | None) -> bool:
     """Thị trường đang PHÒNG THỦ (chặn mua bắt đáy / cảnh báo lệnh MUA)? Hôm nay
     = floor cũ ra GIẢM; P1b mở rộng thành tập cha ở đúng chỗ này."""
-    return floor_dir(ctx) == "GIẢM"
+    old = ((ctx or {}).get("bias_floor_old") or {}).get("dir")   # P1b-4: floor cũ rời luật ép
+    return floor_dir(ctx) == "GIẢM" or old == "GIẢM"
 
 
 _SECTION_EMOJIS = ("🎯", "📊", "📈", "🏆", "💰", "📋", "⚠️", "📅", "💡", "🔧", "⚡", "🔮", "🌐", "📰", "📌", "📚", "🧭",

@@ -746,6 +746,7 @@ def cmd_test(args) -> int:
             "tests/test_allocation.py",
             "tests/test_allocation_horizon_cap.py",  # kẹp theo trung hạn + 3 vá (P1b-2, #20)
             "tests/test_brief_horizons.py",  # khối 🔭 + TLDR dòng 3 (P1b-3, #21)
+            "tests/test_stance_horizon.py",  # Stance theo bảng 3 khung (P1b-4, #22)
             "tests/test_reports.py",
             "tests/test_report_vision.py",    # Claude Code đọc ảnh báo cáo không có lớp text
             "tests/test_report_digest.py",

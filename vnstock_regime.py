@@ -234,9 +234,13 @@ def classify_regime(
     }
 
 
-def load_regime() -> dict[str, Any]:
-    """Load all inputs and classify. Safe to call at render time."""
+def load_regime(effective_date: "str | None" = None) -> dict[str, Any]:
+    """Load all inputs and classify. Safe to call at render time.
+
+    Khối ngoại 1 phiên lấy ĐÚNG phiên hiệu lực — mặc định phiên của bar VNINDEX
+    (`data_date`) — chứ không lấy ngày MỚI NHẤT trong cache: cache khối ngoại có
+    ngày mới hơn bar giá thì regime trộn NN phiên sau với giá phiên trước (#22)."""
     tech    = _load_vnindex_tech()
     breadth = _load_breadth()
-    nn_1d   = _load_nn_net_1d()
+    nn_1d   = _load_nn_net_1d(effective_date or (tech or {}).get("data_date"))
     return classify_regime(tech, breadth, nn_1d)

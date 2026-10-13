@@ -368,6 +368,49 @@ def enforce_horizon_view(text: str, ctx: dict) -> str:
     return "\n".join(lines[:t0 + 1] + keep + block + lines[t_end:])
 
 
+# ── Stance theo bảng 3 khung (P1b-4, #22; thiết kế §3.4) ─────────────────────
+_STANCE_HZ_LINE_RE = _re.compile(
+    r"^(\s*(?:[-•]\s*)?\*{0,2}(?:Stance\s+ngày\s+mai|Bias)\s*[:：]\s*\*{0,2}\s*)(\*{0,2})(.*)$",
+    _re.IGNORECASE)
+_STANCE_HZ_LABEL_RE = _re.compile(r"^(TRUNG\s+TÍNH|TĂNG|GIẢM)", _re.IGNORECASE)
+_STANCE_HZ_DEFAULT = "TRUNG TÍNH"
+
+
+def enforce_stance_horizon(text: str, ctx: dict) -> str:
+    """Ghim nhãn Stance (chiều) / Bias (sáng) theo bảng 3 khung: ô ép (nhịp chỉnh
+    ⇒ GIẢM; nhịp hồi × trung hạn TĂNG × 🚨 tắt ⇒ TĂNG) thay nhãn bằng nhãn ép; ô
+    khác nhãn ngoài tập cho phép ⇒ TRUNG TÍNH. Chỉ đổi NHÃN — setup có điều kiện
+    phía sau giữ nguyên. No-op khi không có state 3 khung dùng được (công tắc
+    tắt / state cũ ⇒ floor cũ như trước). Idempotent."""
+    view = (ctx or {}).get("horizons")
+    if (not text or not isinstance(view, dict) or view.get("stale")
+            or not isinstance(view.get("snap"), dict)
+            or (ctx.get("brief_type") or "afternoon") not in ("morning", "afternoon")):
+        return text
+    rule = view["snap"].get("stance") or {}
+    forced, allowed = rule.get("forced"), tuple(rule.get("allowed") or ())
+    if not forced and not allowed:
+        return text
+    lines = text.split("\n")
+    for k, ln in enumerate(lines):
+        m = _STANCE_HZ_LINE_RE.match(ln)
+        if not m:
+            continue
+        head, bold, rest = m.groups()
+        lm = _STANCE_HZ_LABEL_RE.match(rest)
+        label = None
+        if lm:
+            tok = lm.group(1).upper()
+            label = "TRUNG TÍNH" if tok.startswith("TRUNG") else tok
+        target = forced or (label if label in allowed else _STANCE_HZ_DEFAULT)
+        if label == target:
+            return text
+        lines[k] = (f"{head}{bold}{target}{rest[lm.end():]}" if lm
+                    else f"{head}{target} — {bold}{rest}")    # nhãn lạ: giữ làm lời
+        return "\n".join(lines)
+    return text
+
+
 # Caveat horizon (P4): band THÁNG nghiêng ngược bias floor NGÀY → gắn ngữ cảnh,
 # KHÔNG override (mirror triết lý guard 27/28). Bắt đầu bằng "- ⚠️" (dash trước)
 # để KHÔNG bị _is_section_start hiểu nhầm là ranh giới mục (bài học guard 27).
