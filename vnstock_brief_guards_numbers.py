@@ -224,10 +224,12 @@ _KNOWN_INDEX_LEVEL_KEYS = ("ma20", "ma50", "ma200", "support_1", "support_2",
 
 def _known_index_levels(vt: dict, *, with_close: bool = False) -> list[float]:
     """Các mức đã biết trong `vnindex_tech` (lọc dải chỉ số 800–2500), theo thứ tự
-    cố định; `with_close` thêm giá đóng cửa ở đầu."""
+    cố định; `with_close` thêm giá đóng cửa ở đầu. Cuối cùng là `horizon_levels`
+    (MA10w/MA40w, neo 🚨, mức kích hoạt — P1b-3, chỉ có khi VNSTOCK_HORIZONS bật)
+    phòng khi agent tự chép các mức này vào câu của mình."""
     keys = (("close",) if with_close else ()) + _KNOWN_INDEX_LEVEL_KEYS
-    return [v for v in (vt.get(k) for k in keys)
-            if isinstance(v, (int, float)) and 800 <= v <= 2500]
+    vals = [vt.get(k) for k in keys] + list(vt.get("horizon_levels") or [])
+    return [v for v in vals if isinstance(v, (int, float)) and 800 <= v <= 2500]
 
 
 def enforce_sr_direction(text: str, ctx: dict) -> str:

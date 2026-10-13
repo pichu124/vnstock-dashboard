@@ -281,6 +281,9 @@ def fold(inputs: dict, as_of: date | None = None,
         "protect": hz.protection_level(last.get("floor_old"), short[k], medium[k], a.tier),
         "stance": {"forced": rule.forced, "allowed": list(rule.allowed)},
         "label_old": last.get("label_old"), "floor_old": last.get("floor_old"),
+        # MA tuần cho brief (P1b-3) — ngoài _COMPARE_KEYS nên F1 không đổi
+        "ma_w": ({"short": round(w.ma_short, 2) if w.ma_short else None,
+                  "long": round(w.ma_long, 2) if w.ma_long else None} if w else None),
     }
 
 
@@ -369,6 +372,40 @@ def latest_published(warehouse: Path = _WAREHOUSE, now: datetime | None = None) 
     covered = session_covered_at(now or datetime.now())
     expect = max((d for d in dates if d <= covered), default=None)
     return Latest(state=st, snap=pub[-1], missing=None, expect=expect, conflicted=conflicted)
+
+
+def brief_view(lp: Latest) -> dict:
+    """`ctx["horizons"]` cho brief (P1b-3, #21) — từ state ĐÃ LƯU, không đọc
+    parquet: bản cuối + bản trước (dòng 🔁), số phiên của trạng thái ngắn hạn,
+    số tuần của trung hạn, % mã trên MA200 hôm nay và 20 phiên trước, các mức
+    "đã biết" cho guard giá. State không dùng được ⇒ `{"stale": True, …}`."""
+    if not lp.usable:
+        return {"stale": True, "as_of": (lp.snap or {}).get("as_of"), "reason": lp.reason}
+    snap, inputs = lp.snap, lp.state.get("inputs") or {}
+    days = sorted(k for k in inputs if k <= snap["as_of"])
+    pub = lp.state.get("published") or []
+    prev = pub[-2] if len(pub) >= 2 and pub[-1] is snap else None
+    breadth = [inputs[k].get("breadth_pct") for k in days]
+    alert = snap.get("alert") or {}
+    known = [lv["price"] for lv in snap.get("levels") or [] if lv.get("price")]
+    if alert.get("anchor"):
+        known += [alert["anchor"], round(alert["anchor"] * hz.AlertParams().tier2_frac, 2)]
+    known += [v for v in (snap.get("ma_w") or {}).values() if v]
+    short_since = snap.get("short_since") or snap["as_of"]
+    medium_since = date.fromisoformat(snap.get("medium_since") or snap["as_of"])
+    end = date.fromisoformat(snap["as_of"])
+    # tuần trung hạn đếm theo tuần LỊCH (tuần chốt đổi trạng thái = tuần 1) —
+    # không phụ thuộc kho inputs có phủ tới ngày đổi hay không
+    weeks = len({date.fromordinal(o).isocalendar()[:2]
+                 for o in range(medium_since.toordinal(), end.toordinal() + 1)})
+    return {
+        "stale": False, "snap": snap, "prev": prev,
+        "short_sessions": max(1, sum(1 for k in days if k >= short_since)),
+        "medium_weeks": max(1, weeks),
+        "breadth_pct": breadth[-1] if breadth else None,
+        "breadth_pct_4w": breadth[-21] if len(breadth) >= 21 else None,
+        "known_levels": known,
+    }
 
 
 def write_state(st: dict, warehouse: Path = _WAREHOUSE) -> None:

@@ -47,6 +47,11 @@ from vnstock_brief_canon import (
     _fmt_adj_price,
     _fmt_footer_price,
     _allocation_table_lines,
+    _HORIZON_AGENT_PREFIXES,
+    _HORIZON_TITLE,
+    _HORIZON_TLDR_PREFIX,
+    _horizon_body_lines,
+    _horizon_tldr_line,
     _macro_body_lines,
     _macro_reports_body_lines,
     _market_news_body_lines,
@@ -297,6 +302,70 @@ def enforce_macro_reports(text: str, ctx: dict) -> str:
         else:
             out.append(line)
     return "\n".join(out)
+
+
+# ── 🔭 Góc nhìn theo khung thời gian (P1b-3, #21; thiết kế §3.12) ──────────
+_HORIZON_AGENT_MAX_CHARS = 220
+_HORIZON_SENTENCE_RE = _re.compile(r"(.+?[.!?…])(?:\s|$)")
+
+
+def _horizon_agent_sentence(line: str, prefix: str) -> "str | None":
+    """≤1 câu agent sau "→" ở dòng Ngắn hạn / Trung hạn; câu có SỐ hoặc "[" (số
+    tự chế, placeholder) ⇒ bỏ — mọi số của 🔭 do code in."""
+    if not line.startswith(prefix) or "→" not in line:
+        return None
+    tail = line.split("→", 1)[1].strip()
+    m = _HORIZON_SENTENCE_RE.match(tail)
+    sent = (m.group(1) if m else tail).strip()
+    if not sent or _re.search(r"[\d\[]", sent) or len(sent) > _HORIZON_AGENT_MAX_CHARS:
+        return None
+    return sent
+
+
+def _hz_section_end(lines: list[str], start: int) -> int:
+    return next((j for j in range(start + 1, len(lines)) if _is_section_start(lines[j])),
+                len(lines))
+
+
+def enforce_horizon_view(text: str, ctx: dict) -> str:
+    """Khối 🔭 + TLDR dòng 3 "**Trung hạn:** …" là DATA của code (P1b-3): dựng lại
+    từ canon ``_horizon_body_lines`` / ``_horizon_tldr_line``, đặt ngay sau TLDR;
+    agent chỉ giữ được ≤1 câu sau "→" ở dòng Ngắn hạn / Trung hạn. No-op khi ctx
+    không có ``horizons`` (công tắc VNSTOCK_HORIZONS tắt) và ở brief sáng (#24).
+    Idempotent."""
+    if (not text or not isinstance((ctx or {}).get("horizons"), dict)
+            or (ctx.get("brief_type") or "afternoon") != "afternoon"):
+        return text
+    body = _horizon_body_lines(ctx)
+    if not body:
+        return text
+    lines = text.split("\n")
+    agent: dict[str, str] = {}
+    start = next((i for i, ln in enumerate(lines)
+                  if _is_section_start(ln) and "🔭" in ln), None)
+    if start is not None:
+        end = _hz_section_end(lines, start)
+        for ln in lines[start + 1:end]:
+            for pfx in _HORIZON_AGENT_PREFIXES:
+                if pfx not in agent and (sent := _horizon_agent_sentence(ln.strip(), pfx)):
+                    agent[pfx] = sent
+        del lines[start:end]
+    body = [next((f"{ln} → {agent[p]}" for p in _HORIZON_AGENT_PREFIXES
+                  if ln.startswith(p) and p in agent), ln) for ln in body]
+
+    t0 = next((i for i, ln in enumerate(lines) if _is_section_start(ln) and "🎯" in ln), None)
+    if t0 is None:
+        return "\n".join([_HORIZON_TITLE] + body + [""] + lines)
+    t_end = _hz_section_end(lines, t0)
+    keep = [ln for ln in lines[t0 + 1:t_end] if not ln.strip().startswith(_HORIZON_TLDR_PREFIX)]
+    tldr = _horizon_tldr_line(ctx)
+    if tldr:
+        at = max((k for k, ln in enumerate(keep) if ln.strip()), default=-1)
+        keep.insert(at + 1, tldr)
+    block = [_HORIZON_TITLE] + body + [""]
+    if keep and keep[-1].strip():
+        block = [""] + block
+    return "\n".join(lines[:t0 + 1] + keep + block + lines[t_end:])
 
 
 # Caveat horizon (P4): band THÁNG nghiêng ngược bias floor NGÀY → gắn ngữ cảnh,

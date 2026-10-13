@@ -249,6 +249,25 @@ def _clean_text(text: str) -> str:
     return t.strip()
 
 
+def _strip_code_inserted(text: str) -> str:
+    """Bỏ phần CODE chèn (khối 🔭 + TLDR dòng 3 "**Trung hạn:**", P1b-3) — đó
+    không phải guard sửa chữ agent nên không được tính vào guard_delta."""
+    from vnstock_brief import _HORIZON_TLDR_PREFIX, _is_section_start
+    out, skip = [], False
+    for ln in (text or "").split("\n"):
+        if _is_section_start(ln):
+            skip = "🔭" in ln
+        if skip or ln.strip().startswith(_HORIZON_TLDR_PREFIX):
+            continue
+        out.append(ln)
+    return "\n".join(out)
+
+
+def _guard_delta(raw: str, fixed: str) -> int:
+    """Số ký tự guard đã thêm/bớt trên chữ agent (không tính phần code chèn)."""
+    return len(_strip_code_inserted(fixed)) - len(_strip_code_inserted(raw))
+
+
 def finalize_brief(text: str, pack: dict, *, agent_name: str, model: str,
                    agent_type: str = AGENT_TYPE) -> dict:
     """Chữ thô → qua ĐÚNG chuỗi hậu kỳ của ladder: apply_brief_guards →
@@ -297,7 +316,7 @@ def finalize_brief(text: str, pack: dict, *, agent_name: str, model: str,
     except Exception:
         pass
     return {"text": fixed, "warnings": warnings, "brief_id": brief_id,
-            "auto_score": score, "guard_delta": len(fixed) - len(raw)}
+            "auto_score": score, "guard_delta": _guard_delta(raw, fixed)}
 
 
 # ── Claude Code headless ─────────────────────────────────────────────────────

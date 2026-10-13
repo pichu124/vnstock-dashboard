@@ -68,6 +68,26 @@ from vnstock_brief_canon import (  # noqa: F401  (re-export: giữ nguyên đư�
     _SR_MAX_MOVE_PCT,
     _WATCHLIST_GTGD_MIN_TY,
     _alloc_cap_note,
+    _HORIZON_ACTIONS,
+    _HORIZON_AGENT_PREFIXES,
+    _HORIZON_TITLE,
+    _HORIZON_TLDR_PREFIX,
+    _horizon_body_lines,
+    _horizon_tldr_line,
+    _HORIZON_ACTION_LEVEL,
+    _HORIZON_MACRO_KEYS,
+    _hz_approx,
+    _hz_ddmm,
+    _hz_level,
+    _hz_signed,
+    _horizon_alert_line,
+    _horizon_cap_text,
+    _horizon_change_line,
+    _horizon_macro_snippet,
+    _horizon_medium_line,
+    _horizon_portfolio_line,
+    _horizon_short_line,
+    _horizon_view,
     _alloc_proposal_text,
     _pct_tail,
     _allocation_table_lines,
@@ -2875,7 +2895,33 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     if _fl := _market_floor(_mom, on_error=lambda e: _note_loader_error(ctx, "regime", e)):
         ctx["bias_floor"] = _fl
 
+    # 10. Brief 3 khung (P1b-3, #21): bản published mới nhất → khối 🔭 + TLDR dòng 3.
+    # Sau công tắc VNSTOCK_HORIZONS (mặc định TẮT tới #26) — tắt thì ctx KHÔNG có
+    # khoá "horizons" nên prompt/guard giống hệt trước.
+    if horizons_enabled() and brief_type == "afternoon":
+        _load_horizons(ctx)
+
     return ctx
+
+
+def horizons_enabled() -> bool:
+    """Công tắc brief 3 khung (VNSTOCK_HORIZONS) — mặc định TẮT cho tới #26."""
+    return os.environ.get("VNSTOCK_HORIZONS", "0").strip().lower() in ("1", "true", "on", "yes")
+
+
+def _load_horizons(ctx: dict) -> None:
+    """``ctx["horizons"]`` = view từ bản published (state cũ/hỏng ⇒ {stale: True}
+    ⇒ brief in "🔭 chưa cập nhật"); các mức của view vào ``horizon_levels`` để
+    hai guard mức giá coi chúng là "đã biết"."""
+    try:
+        import vnstock_horizons_state as hs
+        view = hs.brief_view(hs.latest_published())
+    except Exception as _e:
+        _note_loader_error(ctx, "horizons", _e)
+        return
+    ctx["horizons"] = view
+    if not view.get("stale") and isinstance(ctx.get("vnindex_tech"), dict):
+        ctx["vnindex_tech"]["horizon_levels"] = list(view.get("known_levels") or [])
 
 
 def _augment_with_live_vnindex(
@@ -3388,6 +3434,7 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
 
     # Floor cũ ⇒ '🧭 RÀNG BUỘC BIAS' (khối prompt riêng — P1b-1, #19)
     lines += _bias_floor_prompt_lines(ctx, brief_type)
+    lines += _horizon_prompt_lines(ctx, brief_type)          # 🔭 (P1b-3, #21)
 
     # Market sentiment (tâm lý thị trường) — composite mood from breadth, NN
     # flow, index momentum and news. Emitted high so the agent frames the
@@ -3945,7 +3992,49 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
                                                     _AFTERNOON_TEMPLATE)
     if _risk_new:
         tmpl = _swap_risk_rules(tmpl)
+    if _horizon_prompt_lines(ctx, brief_type):
+        tmpl = _swap_horizon_template(tmpl)
     return tmpl.format(system=_SYSTEM, data=data_block)
+
+
+_HORIZON_TLDR_TEMPLATE_LINE = ("**Trung hạn:** [hệ thống tự điền dòng này — để nguyên, "
+                               "KHÔNG tự viết]")
+_HORIZON_SECTION_TEMPLATE = (
+    "## 🔭 Góc nhìn theo khung thời gian\n"
+    "[hệ thống tự chèn khối này từ block 🔭 ở trên — KHÔNG viết lại; chỉ được thêm "
+    "TỐI ĐA 1 câu (không số) sau \"→\" ở dòng Ngắn hạn và dòng Trung hạn]\n\n")
+
+
+def _horizon_prompt_lines(ctx: dict, brief_type: str) -> list[str]:
+    """Khối dữ liệu 🔭 cho prompt brief CHIỀU — rỗng khi công tắc tắt (ctx không
+    có ``horizons``) ⇒ prompt giống từng byte bản cũ (golden #19)."""
+    if brief_type != "afternoon" or not isinstance(ctx.get("horizons"), dict):
+        return []
+    body = _horizon_body_lines(ctx)
+    if not body:
+        return []
+    out = ["\n## 🔭 Góc nhìn theo khung thời gian — HỆ THỐNG IN SẴN (KHÔNG VIẾT LẠI)",
+           *body]
+    if tldr := _horizon_tldr_line(ctx):
+        out.append(f"TLDR dòng 3 (hệ thống in): {tldr}")
+    out.append(
+        "→ Khối 🔭 và dòng \"**Trung hạn:**\" do hệ thống chèn vào brief: KHÔNG chép, "
+        "KHÔNG đổi số/nhãn. Chỉ được thêm TỐI ĐA 1 câu (không có số) sau \"→\" ở dòng "
+        "Ngắn hạn và dòng Trung hạn. Stance ngày mai là khung PHIÊN, trung hạn là khung "
+        "TUẦN — lệch chiều là hai khung khác nhau, không phải mâu thuẫn.")
+    return ["\n".join(out)]
+
+
+def _swap_horizon_template(tmpl: str) -> str:
+    """Template chiều khi có 🔭: TLDR 3 dòng (dòng 3 hệ thống điền) + khung mục 🔭
+    ngay sau TLDR. Chỉ đổi template CHIỀU — mỏ neo thiếu ⇒ trả nguyên."""
+    head, stance, nxt = "## 🎯 TLDR (2 dòng)\n", "\n**Stance ngày mai:**", "\n## 📊 Tổng kết phiên"
+    if head not in tmpl or stance not in tmpl or nxt not in tmpl:
+        return tmpl
+    i = tmpl.index("\n", tmpl.index(stance) + 1)
+    tmpl = tmpl[:i] + "\n" + _HORIZON_TLDR_TEMPLATE_LINE + tmpl[i:]
+    tmpl = tmpl.replace(nxt, "\n" + _HORIZON_SECTION_TEMPLATE.rstrip("\n") + "\n" + nxt, 1)
+    return tmpl.replace(head, "## 🎯 TLDR (3 dòng)\n", 1)
 
 
 # ── Hệ guard hậu kiểm → `vnstock_brief_guards` ─────────────────────────────
@@ -3993,6 +4082,11 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     floor_dir,
     is_defensive,
     enforce_allocation_table,
+    enforce_horizon_view,
+    _horizon_agent_sentence,
+    _HORIZON_AGENT_MAX_CHARS,
+    _HORIZON_SENTENCE_RE,
+    _hz_section_end,
     enforce_breadth_label,
     enforce_breadth_quality,
     enforce_buy_vs_bias_caveat,
@@ -4796,8 +4890,13 @@ def _detect_stance(tldr_text: str) -> str:
          captured phrase first for canonical labels TĂNG/GIẢM/TRUNG TÍNH —
          this is what the prompt template instructs the agent to emit.
       2. Fall back to keyword vote across the full TLDR.
+
+    TLDR dòng 3 "**Trung hạn:** …" (code viết, P1b-3) bị bỏ TRƯỚC khi đếm —
+    chữ TĂNG/GIẢM của xu hướng tuần không phải Stance ngày mai.
     """
     import re as _re_local
+    tldr_text = "\n".join(ln for ln in (tldr_text or "").split("\n")
+                          if not ln.strip().startswith(_HORIZON_TLDR_PREFIX))
     m = _STANCE_LINE_RE.search(tldr_text)
     if m:
         captured = m.group(1).lower()

@@ -337,6 +337,244 @@ def _allocation_table_lines(alloc: dict) -> list[str]:
     lines.append(band_row + _alloc_cap_note(alloc))
     return lines
 
+# ── Khối 🔭 Góc nhìn theo khung thời gian (P1b-3, #21) ───────────────────────
+# `docs/THIET-KE-BRIEF-3-KHUNG.md` §3.9 (bảng việc nên làm), §3.12, §4 (B). Code
+# dựng toàn bộ số + nhãn từ bản published 3 khung (`ctx["horizons"]` =
+# `vnstock_horizons_state.brief_view`); agent chỉ được ≤1 câu sau "→" ở dòng
+# Ngắn hạn / Trung hạn. Mức giá ngoài danh sách đã biết in làm tròn "~1,803".
+_HORIZON_TITLE = "## 🔭 Góc nhìn theo khung thời gian"
+_HORIZON_TLDR_PREFIX = "**Trung hạn:**"
+_HORIZON_AGENT_PREFIXES = ("- Ngắn hạn (vài phiên):", "- Trung hạn (xu hướng tuần):")
+_HORIZON_MACRO_KEYS = ("pmi", "usdvnd", "interbank_1w")   # nhóm T §3.6 có trong registry
+
+# (ngắn hạn, trung hạn) → (nhãn cặp khung, việc nên làm) — §3.9; "{x}" = mức kích hoạt
+_HORIZON_ACTIONS = {
+    (1, 1): ("đồng pha tăng", "giữ tỷ trọng theo band; mua mới ưu tiên khi chỉnh về hỗ trợ"),
+    (1, 0): ("nhịp hồi trong xu hướng đi ngang",
+             "không nâng tỷ trọng; nếu chốt lời thì chốt phần vượt tỷ trọng"),
+    (1, -1): ("nhịp hồi trong xu hướng giảm",
+              "dùng nhịp hồi hạ phần vượt tỷ trọng, không mua đuổi"),
+    (0, 1): ("nhịp chững trong xu hướng tăng", "giữ phần lõi"),
+    (0, 0): ("chưa rõ ở cả hai khung", "giữ nguyên tỷ trọng"),
+    (0, -1): ("nhịp chững trong xu hướng giảm", "không bắt đáy theo 1–2 phiên xanh"),
+    (-1, 1): ("nhịp chỉnh trong xu hướng tăng",
+              "không bán phần lõi; trung hạn chỉ rời TĂNG nếu đóng tuần < {x}"),
+    (-1, 0): ("nhịp chỉnh trong xu hướng đi ngang",
+              "không bán tháo; trung hạn chuyển GIẢM nếu đóng tuần < {x}"),
+    (-1, -1): ("đồng pha giảm", "giữ tỷ trọng thấp; không bắt đáy"),
+}
+_HORIZON_ACTION_LEVEL = {1: "leave_tang", 0: "to_giam"}
+
+
+def _hz_ddmm(iso) -> str:
+    s = str(iso or "")
+    return f"{s[8:10]}/{s[5:7]}" if len(s) >= 10 else "?"
+
+
+def _hz_approx(x) -> str:
+    return f"~{x:,.0f}"
+
+
+def _hz_signed(n) -> str:
+    return f"{n:+d}" if n else "0"
+
+
+def _hz_level(snap: dict, kind: str) -> "dict | None":
+    return next((lv for lv in snap.get("levels") or [] if lv.get("kind") == kind
+                 and isinstance(lv.get("price"), (int, float))), None)
+
+
+def _horizon_view(ctx: dict) -> "dict | None":
+    v = (ctx or {}).get("horizons")
+    return v if isinstance(v, dict) else None
+
+
+def _horizon_change_line(view: dict) -> "str | None":
+    """🔁 chỉ khi có tầng đổi so với bản published trước, hoặc trung hạn đang
+    chờ xác nhận; luôn nói rõ tầng nào KHÔNG đổi (§3.9)."""
+    from vnstock_horizons import MEDIUM_LABEL, SHORT_LABEL, MediumParams
+    snap, prev = view["snap"], view.get("prev") or {}
+    tier = (snap.get("alert") or {}).get("tier") or 0
+    moved, same = [], []
+    if prev and prev.get("short") != snap.get("short"):
+        moved.append(f"ngắn hạn {SHORT_LABEL.get(prev.get('short'), '?')} → "
+                     f"{SHORT_LABEL.get(snap.get('short'), '?')} ({_hz_ddmm(snap.get('short_since'))})")
+    else:
+        same.append("ngắn hạn")
+    if prev and prev.get("medium") != snap.get("medium"):
+        moved.append(f"trung hạn {MEDIUM_LABEL.get(prev.get('medium'), '?')} → "
+                     f"{MEDIUM_LABEL.get(snap.get('medium'), '?')} ({_hz_ddmm(snap.get('medium_since'))})")
+    else:
+        same.append("trung hạn")
+    ptier = (prev.get("alert") or {}).get("tier") or 0
+    if prev and ptier != tier:
+        moved.append(f"🚨 bật mức {tier} ({_hz_ddmm((snap.get('alert') or {}).get('since'))})"
+                     if tier and not ptier else
+                     f"🚨 mức {ptier} → mức {tier}" if tier else "🚨 tắt")
+    else:
+        same.append("🚨")
+    if snap.get("pending"):
+        nxt = {-1: "ĐI NGANG", 0: "TĂNG"}.get(snap.get("medium"))
+        if nxt:
+            moved.append(f"⏳ trung hạn chờ xác nhận lên {nxt} "
+                         f"({snap['pending']}/{MediumParams().up_weeks} tuần)")
+    if not moved:
+        return None
+    tail = ""
+    if same:
+        names = f"{', '.join(same[:-1])} và {same[-1]}" if len(same) > 1 else same[0]
+        tail = f" {names[:1].upper()}{names[1:]} không đổi."
+    return f"- 🔁 Thay đổi: {'; '.join(moved)}.{tail}"
+
+
+def _horizon_short_line(view: dict, ctx: dict) -> str:
+    from vnstock_horizons import CHINH, HOI, SHORT_LABEL, short_threshold
+    snap = view["snap"]
+    short, score, n = snap.get("short"), snap.get("score") or 0, snap.get("n") or 0
+    line = (f"- Ngắn hạn (vài phiên): {SHORT_LABEL.get(short, '?')}, phiên thứ "
+            f"{view.get('short_sessions') or 1} (từ {_hz_ddmm(snap.get('short_since'))}); "
+            f"điểm kỹ thuật ngày {_hz_signed(score)}/{n}")
+    mood = ((ctx.get("market_sentiment") or {}).get("mood") or "").strip()
+    if mood:
+        line += f"; tâm lý {mood}"
+    if short == CHINH:
+        return line + ". Hết nhịp chỉnh khi điểm về ≥ 0."
+    if short == HOI:
+        return line + ". Hết nhịp hồi khi điểm về ≤ 0."
+    thr = short_threshold(n) if n else 0
+    return line + (f". Vào nhịp hồi khi điểm ≥ +{thr}, nhịp chỉnh khi ≤ -{thr}."
+                   if thr else ".")
+
+
+def _horizon_macro_snippet(ctx: dict) -> str:
+    """Nhóm T (§3.6) ở P1b: chỉ SỐ + CHIỀU 1 kỳ, CHƯA chấm độ tin cậy.
+    Tắt bằng VNSTOCK_HORIZON_MACRO=0."""
+    import os
+    if os.environ.get("VNSTOCK_HORIZON_MACRO", "1").strip().lower() in ("0", "false", "off", "no"):
+        return ""
+    rows = {m.get("key"): m for m in ctx.get("macro") or [] if isinstance(m, dict)}
+    parts = []
+    try:
+        from vnstock_macro import fmt_change, fmt_value
+        for key in _HORIZON_MACRO_KEYS:
+            m = rows.get(key)
+            if not m or not isinstance(m.get("value"), (int, float)):
+                continue
+            fc = fmt_change(m)
+            parts.append(f"{m.get('label', key)} {fmt_value(m)}" + (f" {fc[0]}" if fc else ""))
+    except Exception:
+        return ""
+    return f" Vĩ mô (chưa chấm): {' · '.join(parts)}." if parts else ""
+
+
+def _horizon_medium_line(view: dict, ctx: dict) -> str:
+    from vnstock_horizons import MEDIUM_LABEL
+    snap = view["snap"]
+    line = (f"- Trung hạn (xu hướng tuần): {MEDIUM_LABEL.get(snap.get('medium'), '?')}, "
+            f"tuần {view.get('medium_weeks') or 1} (từ {_hz_ddmm(snap.get('medium_since'))})")
+    b, b4 = view.get("breadth_pct"), view.get("breadth_pct_4w")
+    if isinstance(b, (int, float)):
+        line += f"; {b:.0f}% mã trên MA200"
+        if isinstance(b4, (int, float)):
+            line += f" (4 tuần trước {b4:.0f}%)"
+    return line + "." + _horizon_macro_snippet(ctx)
+
+
+def _horizon_alert_line(snap: dict) -> str:
+    from vnstock_horizons import AlertParams
+    al = snap.get("alert") or {}
+    tier, anchor = al.get("tier") or 0, al.get("anchor")
+    if not tier:
+        return "- 🚨 Rủi ro ngắn hạn: tắt."
+    line = f"- 🚨 Rủi ro ngắn hạn: BẬT mức {tier} từ {_hz_ddmm(al.get('since'))}"
+    if isinstance(anchor, (int, float)):
+        line += f", neo đỉnh {_hz_approx(anchor)}"
+        if tier == 1:
+            p = AlertParams()
+            line += (f"; lên mức 2 nếu đóng < {_hz_approx(anchor * p.tier2_frac)} "
+                     f"({p.tier2_frac:.0%} neo) hoặc thêm 1 phiên ≤ {p.day_drop}%")
+    return line + ". Không đổi xu hướng."
+
+
+def _horizon_cap_text(alloc: dict) -> str:
+    cap, ramp = alloc.get("capped_by"), alloc.get("ramp")
+    if cap:
+        src = (f"band dữ liệu {alloc.get('band_data')} + tilt {cap['tilt']} đề xuất"
+               if cap.get("tilt") else "band dữ liệu đề xuất")
+        pct = cap.get("proposed_pct")
+        pct_s = f" {pct:g}%" if isinstance(pct, (int, float)) else ""
+        return f"; {src} {cap.get('proposed_band')}{pct_s} — giữ vì {cap.get('why')}"
+    if ramp:
+        pct = ramp.get("pct")
+        pct_s = f" {pct:g}%" if isinstance(pct, (int, float)) else ""
+        return f"; ⏳ chờ lên {ramp.get('band')}{pct_s}, mỗi tuần tối đa 1 bậc"
+    return ""
+
+
+def _horizon_portfolio_line(snap: dict, ctx: dict) -> str:
+    key = (snap.get("short"), snap.get("medium"))
+    label, advice = _HORIZON_ACTIONS.get(key, ("chưa rõ ở cả hai khung", "giữ nguyên tỷ trọng"))
+    if "{x}" in advice:
+        lv = _hz_level(snap, _HORIZON_ACTION_LEVEL.get(snap.get("medium"), ""))
+        advice = (advice.format(x=_hz_approx(lv["price"])) if lv
+                  else advice.split(";")[0])
+    alloc = ctx.get("allocation") or {}
+    pct = (alloc.get("allocation") or {}).get("Cổ phiếu")
+    head = "- 💼 "
+    if isinstance(pct, (int, float)) and alloc.get("band"):
+        head += f"Cổ phiếu {pct:g}% (band {alloc['band']}{_horizon_cap_text(alloc)}). "
+    return f"{head}Nên ({label}): {advice}."
+
+
+def _horizon_body_lines(ctx: dict) -> list[str]:
+    """Thân khối 🔭 (≤6 gạch, KHÔNG tiêu đề) — dùng chung prompt + guard."""
+    view = _horizon_view(ctx)
+    if view is None:
+        return []
+    if view.get("stale") or not isinstance(view.get("snap"), dict):
+        return [f"- 🔭 chưa cập nhật (as_of {_hz_ddmm(view.get('as_of'))})."]
+    snap = view["snap"]
+    lines = [_horizon_change_line(view), _horizon_short_line(view, ctx),
+             _horizon_medium_line(view, ctx),
+             "- Dài hạn (6–12 tháng): đang thu thập — chỉ đọc theo trung hạn.",
+             _horizon_alert_line(snap), _horizon_portfolio_line(snap, ctx)]
+    return [ln for ln in lines if ln]
+
+
+def _horizon_tldr_line(ctx: dict) -> "str | None":
+    """TLDR dòng 3 "**Trung hạn:** …" (code viết, guard ghim); None khi state cũ."""
+    from vnstock_horizons import DI_NGANG, GIAM, MEDIUM_LABEL, TANG
+    view = _horizon_view(ctx)
+    if view is None or view.get("stale") or not isinstance(view.get("snap"), dict):
+        return None
+    snap = view["snap"]
+    med = snap.get("medium")
+
+    def lv_txt(kind: str, fmt: str) -> str:
+        lv = _hz_level(snap, kind)
+        if lv is None:
+            return ""
+        tail = "" if lv.get("reachable") else " (chưa thể trong tuần này)"
+        return fmt.format(x=_hz_approx(lv["price"])) + tail
+
+    head = f"{_HORIZON_TLDR_PREFIX} {MEDIUM_LABEL.get(med, '?')} từ {_hz_ddmm(snap.get('medium_since'))} → "
+    if med == GIAM:
+        lv = _hz_level(snap, "leave_giam")
+        tail = ""
+        if lv:
+            tail = (f"; chỉ rời GIẢM khi 2 tuần liền đóng trên {_hz_approx(lv['price'])} "
+                    + ("(mức tuần này, tính lại mỗi tuần)" if lv.get("reachable")
+                       else "(chưa thể trong tuần này)"))
+        return head + "không mua đuổi nhịp hồi" + tail + "."
+    if med == DI_NGANG:
+        parts = [p for p in (lv_txt("to_giam", "chuyển GIẢM nếu đóng tuần < {x}"),
+                             lv_txt("to_tang", "lên TĂNG cần 2 tuần đọc > {x}")) if p]
+        return head + "; ".join(["không nâng tỷ trọng theo nhịp hồi"] + parts) + "."
+    if med == TANG:
+        parts = [p for p in (lv_txt("leave_tang", "chỉ rời TĂNG nếu đóng tuần < {x}"),) if p]
+        return head + "; ".join(["giữ tỷ trọng theo band"] + parts) + "."
+    return None
+
 # ── Khối danh mục đang giữ ────────────────────────────────────────────────────
 def _portfolio_fact_line(p: dict) -> str:
     """Canonical fact line for one held position — shared by the prompt block and

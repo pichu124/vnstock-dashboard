@@ -52,6 +52,11 @@ from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
     _exdate_map,
     _canonical_risk_lines,
     enforce_allocation_table,
+    enforce_horizon_view,
+    _horizon_agent_sentence,
+    _HORIZON_AGENT_MAX_CHARS,
+    _HORIZON_SENTENCE_RE,
+    _hz_section_end,
     enforce_buy_vs_bias_caveat,
     enforce_lead_lag,
     enforce_liquidity_label,
@@ -291,6 +296,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_market_news(fixed, ctx)          # canonical econ/political headlines
     fixed = enforce_macro_reports(fixed, ctx)        # canonical 📚 band + digest báo cáo
     fixed = enforce_allocation_table(fixed, ctx)     # pin band/% + caveat horizon
+    fixed = enforce_horizon_view(fixed, ctx)         # 🔭 + TLDR dòng 3 = code (P1b-3)
     fixed = enforce_portfolio_facts(fixed, ctx)      # held-position facts are data
     fixed = enforce_risk_section(fixed, ctx)         # canonical risk facts first
     fixed = enforce_realestate_ocf_context(fixed, ctx)
