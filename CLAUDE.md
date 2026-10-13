@@ -345,6 +345,24 @@ chạy code cũ → `git log --oneline -1` đối chiếu commit cuối Claude b
 - Độ tươi `market_overview` so CẢ GIỜ, không chỉ ngày: cùng phiên mà chốt
   trước `SESSION_CLOSE_CUTOFF` (15:05) là GIỮA PHIÊN ⇒ stale, `reason=intraday`.
 
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues của `pichu124/vnstock-dashboard` (phiên cloud không có `gh` ⇒ công cụ GitHub
+MCP); `docs/VIEC-DANG-LAM.md` vẫn là trang việc của user, skill không ghi vào. Xem
+`docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+5 nhãn mặc định: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`,
+`wontfix`. Xem `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` + `docs/adr/` ở gốc repo, tạo dần khi cần; quyết định cũ ở
+`docs/THIET-KE-*.md` và mục `Uxx` của `docs/CLAUDE-NOTES.md`. Xem `docs/agents/domain.md`.
+
 ## Nhật ký chi tiết
 **Hỏi "còn việc gì?" → mở `docs/VIEC-DANG-LAM.md`** (1 trang, việc-của-user vs
 việc-của-Claude, có lệnh sẵn). Bản đầy đủ kèm file:line và lý do nằm ở mục
