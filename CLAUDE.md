@@ -347,6 +347,10 @@ chạy code cũ → `git log --oneline -1` đối chiếu commit cuối Claude b
 
 ## Agent skills
 
+Plugin `mattpocock-skills@mattpocock` (GitHub `mattpocock/skills`) khai trong `.claude/settings.json`,
+`autoUpdate` theo BẢN PHÁT HÀNH (`plugin.json` ghim version, commit lẻ không tới). Phiên cloud
+KHÔNG nạp plugin khai trong repo ⇒ ở cloud đọc SKILL.md từ GitHub rồi làm tay.
+
 ### Issue tracker
 
 GitHub Issues của `pichu124/vnstock-dashboard` (phiên cloud không có `gh` ⇒ công cụ GitHub

@@ -2,9 +2,14 @@
   "extraKnownMarketplaces": {
     "ponytail": {
       "source": { "source": "github", "repo": "DietrichGebert/ponytail" }
+    },
+    "mattpocock": {
+      "source": { "source": "github", "repo": "mattpocock/skills" },
+      "autoUpdate": true
     }
   },
   "enabledPlugins": {
-    "ponytail@ponytail": true
+    "ponytail@ponytail": true,
+    "mattpocock-skills@mattpocock": true
   }
 }
