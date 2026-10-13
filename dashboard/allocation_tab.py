@@ -60,6 +60,7 @@ def _render_band(st, alloc, state: dict) -> None:
             p = state["pending"]
             st.warning(f"⏳ Chờ xác nhận đổi sang {p['band']} "
                        f"({len(p['dates'])}/2 phiên)")
+        _render_horizon_cap(st, state)
         st.caption(f"Phiên {state.get('as_of', '?')} · cập nhật "
                    f"{state.get('updated_at', '?')}")
 
@@ -68,9 +69,44 @@ def _render_band(st, alloc, state: dict) -> None:
          for cls, pct in (state.get("allocation") or {}).items()]),
         hide_index=True, use_container_width=True)
     if st.button("🔄 Tính lại band (đọc cache, không gọi LLM)", key="_al_refresh"):
-        import vnstock_allocation as alloc2
-        alloc2.run_allocation()
-        st.rerun()
+        persisted, preview = _refresh_allocation()
+        if persisted:
+            st.rerun()
+        elif preview:
+            st.info(f"⏸ Overview đang là GIỮA PHIÊN — chỉ tính thử, KHÔNG ghi band "
+                    f"ngày mới: {preview['band']} · cổ phiếu "
+                    f"{(preview.get('allocation') or {}).get('Cổ phiếu', '?')}%. "
+                    f"Bấm lại sau 15:05 để ghi.")
+
+
+def _overview_is_intraday() -> bool:
+    """market_overview.json chốt GIỮA PHIÊN (`reason=intraday`)? Lỗi ⇒ False."""
+    try:
+        from vnstock_brief import market_data_freshness
+        return market_data_freshness().get("reason") == "intraday"
+    except Exception:
+        return False
+
+
+def _refresh_allocation() -> "tuple[bool, dict | None]":
+    """Vá 2 (P1b-2, #20): giữa phiên chỉ TÍNH để hiện, không ghi band ngày
+    mới (pipeline tối mới là bản chốt). Trả (đã ghi?, state vừa tính)."""
+    import vnstock_allocation as alloc
+    persist = not _overview_is_intraday()
+    return persist, alloc.run_allocation(persist=persist)
+
+
+def _render_horizon_cap(st, state: dict) -> None:
+    """Kẹp theo trung hạn (P1b-2): % dữ liệu đề xuất vs % đang giữ, ⏳ tăng bậc."""
+    pct = (state.get("allocation") or {}).get("Cổ phiếu")
+    if cap := state.get("capped_by"):
+        st.warning(f"🔒 Band dữ liệu đề xuất {cap['proposed_band']} "
+                   f"({cap['proposed_pct']:g}% cổ phiếu) — giữ {pct}% vì {cap['why']}")
+    if ramp := state.get("ramp"):
+        st.info(f"⏳ Tăng tỷ trọng về {ramp['band']}: mỗi tuần tối đa 1 bậc, "
+                f"bậc kế tiếp sau 1 tuần tính từ {ramp['since']}")
+    if note := state.get("horizon_note"):
+        st.caption(f"Kẹp theo trung hạn không áp phiên này: {note}")
 
 
 def _render_reasons(st, state: dict) -> None:

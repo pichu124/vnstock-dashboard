@@ -272,7 +272,7 @@ def _macro_reports_body_lines(ctx: dict, directive: bool = True) -> list[str]:
         if rt.get("tilt"):
             band_line += (f"; đã gồm tilt {rt.get('label') or format(rt['tilt'], '+d')}"
                           f" từ báo cáo (band data: {alloc.get('band_data')})")
-        lines.append(band_line)
+        lines.append(band_line + _alloc_cap_note(alloc))
     for r in reps[:3]:
         d = r.get("digest") or {}
         cp = (d.get("stance") or {}).get("Cổ phiếu", 0)
@@ -295,6 +295,18 @@ def _macro_reports_body_lines(ctx: dict, directive: bool = True) -> list[str]:
     return lines
 
 # ── Khối bảng phân bổ ─────────────────────────────────────────────────────────
+def _alloc_cap_note(alloc: dict) -> str:
+    """Đuôi dòng band khi kẹp theo trung hạn đang giữ (P1b-2, #20) — nói rõ band
+    hiệu lực KHÁC band dữ liệu là cố ý, để LLM không "sửa" band/% về bảng gốc."""
+    if cap := alloc.get("capped_by"):
+        return (f"; giữ nguyên vì {cap.get('why')} — band dữ liệu đề xuất "
+                f"{cap.get('proposed_band')} ({cap.get('proposed_pct'):g}% cổ phiếu)")
+    if ramp := alloc.get("ramp"):
+        return (f"; ⏳ chờ lên {ramp.get('band')} — mỗi tuần tối đa 1 bậc, "
+                f"tính từ {ramp.get('since')}")
+    return ""
+
+
 def _allocation_table_lines(alloc: dict) -> list[str]:
     """Canonical các dòng bảng % + band cho brief allocation — dùng chung bởi
     prompt block VÀ guard enforce_allocation_table (nguyên tắc #1: LLM không
@@ -310,7 +322,7 @@ def _allocation_table_lines(alloc: dict) -> list[str]:
         # 05/10 tilt nhạt dần: % ở trên là TRỘN giữa 2 band, không khớp bảng
         # band nào — nói rõ để LLM không "sửa" về bảng gốc.
         band_row += f" — tỷ trọng trộn: tilt {rt.get('label')}"
-    lines.append(band_row)
+    lines.append(band_row + _alloc_cap_note(alloc))
     return lines
 
 # ── Khối danh mục đang giữ ────────────────────────────────────────────────────

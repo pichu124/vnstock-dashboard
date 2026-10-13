@@ -1464,6 +1464,9 @@ _DANGEROUS_SWITCHES = {
                            "sinh bậc giả âm thầm như trước 19/08",
     "VNSTOCK_OHLC_REPAIR": "thôi nới bar tự mâu thuẫn — chúng quay lại hàng "
                            "đợi cách ly và đốt 36 phút refetch mỗi đêm",
+    "VNSTOCK_ALLOC_HORIZON_CAP": "tắt kẹp tỷ trọng theo trung hạn — % cổ phiếu "
+                                 "lại tăng được khi trung hạn chưa TĂNG (ca 27/08)",
+    "VNSTOCK_ALLOC_ONE_STEP": "band phân bổ lại nhảy được 2 bậc một lần",
 }
 _OFF_VALUES = {"0", "false", "off", "no"}
 

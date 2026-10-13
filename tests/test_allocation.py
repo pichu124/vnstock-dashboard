@@ -20,6 +20,9 @@ def _no_report_tilt(monkeypatch):
     core P1 hermetic (máy user có digest thật sẽ không làm lệch band kỳ
     vọng). Tilt được test riêng ở test_report_digest.py."""
     monkeypatch.setattr(alloc, "_load_report_tilt", lambda as_of: None)
+    # Kẹp theo trung hạn (P1b-2) đọc state 3 khung THẬT trên máy có kho — test
+    # riêng ở test_allocation_horizon_cap.py; ở đây chặn để band kỳ vọng không lệch.
+    monkeypatch.setattr(alloc, "_load_horizon", lambda: (None, "test: không đọc kho"))
 
 
 def _mk_module(name, **attrs):
@@ -164,12 +167,13 @@ def test_hysteresis_wobble_back_clears_pending():
 
 
 def test_hysteresis_pending_resets_when_candidate_changes():
-    pending = {"band": "B3", "dates": ["2026-07-13"]}
+    pending = {"band": "B1", "dates": ["2026-07-13"]}
     h = alloc.apply_hysteresis({"band": "B2", "pending": pending},
                                -0.7, "2026-07-14")
-    # đề xuất mới B4 ≠ pending B3 → đếm lại từ đầu, band chưa đổi
+    # đề xuất mới (về phía B4, Vá 1 ⇒ 1 bậc = B3) ≠ pending B1 → đếm lại từ
+    # đầu, band chưa đổi
     assert h["band"] == "B2"
-    assert h["pending"] == {"band": "B4", "dates": ["2026-07-14"]}
+    assert h["pending"] == {"band": "B3", "dates": ["2026-07-14"]}
 
 
 # ── compute_allocation + config override ────────────────────────────────────
@@ -281,10 +285,15 @@ def test_run_allocation_band_switch_via_hysteresis_end_to_end(tmp_path, monkeypa
     monkeypatch.setattr(alloc, "collect_inputs",
                         lambda d=None: ("2026-07-14", bear))
     s2 = alloc.run_allocation()
-    assert s2["band"] == "B0" and s2["pending"]["band"] == "B4"
-    monkeypatch.setattr(alloc, "collect_inputs",
-                        lambda d=None: ("2026-07-15", bear))
-    s3 = alloc.run_allocation()
+    # Vá 1 (P1b-2): mỗi lần đổi chỉ 1 bậc, mỗi bậc cần 2 phiên xác nhận
+    assert s2["band"] == "B0" and s2["pending"]["band"] == "B1"
+    bands = []
+    for day in range(15, 23):
+        monkeypatch.setattr(alloc, "collect_inputs",
+                            lambda d=None, day=day: (f"2026-07-{day}", bear))
+        bands.append(alloc.run_allocation()["band"])
+    assert bands == ["B1", "B1", "B2", "B2", "B3", "B3", "B4", "B4"]
+    s3 = alloc.load_state()
     assert s3["band"] == "B4" and s3["pending"] is None
     assert s3["allocation"]["Cổ phiếu"] == 15 and s3["allocation"]["USD"] == 8
 

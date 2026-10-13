@@ -45,6 +45,8 @@ def _tmp_store(tmp_path, monkeypatch):
     monkeypatch.setattr(rp, "_STORE", tmp_path / "reports")
     monkeypatch.setattr(alloc, "_STATE", tmp_path / "allocation_state.json")
     monkeypatch.setattr(alloc, "_CONFIG", tmp_path / "allocation_config.json")
+    # kẹp theo trung hạn (P1b-2) đọc state 3 khung THẬT trên máy có kho ⇒ chặn
+    monkeypatch.setattr(alloc, "_load_horizon", lambda: (None, "test: không đọc kho"))
 
 
 def _add_report(days_old=3, source="SSI", text=_TEXT):

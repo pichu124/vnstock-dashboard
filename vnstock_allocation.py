@@ -236,6 +236,11 @@ def apply_hysteresis(prev_state: "dict | None", score: float,
     else:
         candidate = cur_idx
 
+    if candidate != cur_idx and _one_step_enabled():
+        # Vá 1 (P1b-2, #20): lề 0.05 × 2 phiên vẫn để ứng viên cách 2 bậc — mỗi
+        # lần đổi chỉ 1 bậc, bậc kế tiếp phải được xác nhận lại từ đầu.
+        candidate = cur_idx + (1 if candidate > cur_idx else -1)
+
     if candidate == cur_idx:
         return {"band": cur_band, "raw_band": _BANDS[raw_idx], "pending": None}
 
@@ -495,6 +500,107 @@ def apply_tilt(state: dict, tilt_info: "dict | None",
     return state
 
 
+# ── Kẹp theo trung hạn (P1b-2, #20 — `docs/THIET-KE-BRIEF-3-KHUNG.md` §3.8) ──
+#
+# Câu 14 = B (user chốt 06/10): % cổ phiếu CHỈ được tăng khi trung hạn TĂNG và
+# 🚨 tắt; ĐI NGANG/GIẢM/🚨 chỉ giữ hoặc giảm (kể cả phần trôi do tilt phai).
+# Hết kẹp: tăng ≤1 bậc/tuần, báo trước ⏳ 1 tuần. Giảm rủi ro luôn đi qua.
+
+_UP_STEP_DAYS = 7
+_MEDIUM_NAME = {1: "TĂNG", 0: "ĐI NGANG", -1: "GIẢM"}
+
+
+_OFF_VALUES = {"0", "false", "off", "no"}      # cùng tập với doctor check_kill_switches
+
+
+def _horizon_cap_enabled() -> bool:
+    return os.environ.get("VNSTOCK_ALLOC_HORIZON_CAP", "1").strip().lower() not in _OFF_VALUES
+
+
+def _one_step_enabled() -> bool:
+    return os.environ.get("VNSTOCK_ALLOC_ONE_STEP", "1").strip().lower() not in _OFF_VALUES
+
+
+def _load_horizon() -> "tuple[dict | None, str | None]":
+    """(trung hạn + 🚨 của bản published 3 khung mới nhất, None) hoặc (None, lý
+    do) khi state chưa có / cũ / có conflicted copy — khi đó KHÔNG kẹp."""
+    try:
+        import vnstock_horizons_state as hs
+        lp = hs.latest_published(_META.parent)
+    except Exception as e:
+        return None, f"không đọc được state 3 khung ({type(e).__name__}: {e})"
+    if not lp.usable:
+        return None, lp.reason
+    snap = lp.snap
+    return {"as_of": snap.get("as_of"), "medium": snap.get("medium"),
+            "alert_tier": (snap.get("alert") or {}).get("tier") or 0}, None
+
+
+def _cap_reason(horizon: dict) -> "str | None":
+    """Lý do CẤM tăng % cổ phiếu, None khi trung hạn TĂNG và 🚨 tắt."""
+    why = []
+    if horizon.get("medium") != 1:
+        why.append(f"trung hạn {_MEDIUM_NAME.get(horizon.get('medium'), '?')}")
+    if horizon.get("alert_tier"):
+        why.append("🚨 bật")
+    return " · ".join(why) or None
+
+
+def _equity_pct(state: dict) -> float:
+    return float((state.get("allocation") or {}).get("Cổ phiếu") or 0)
+
+
+def _hold(state: dict, prev: dict) -> None:
+    """Giữ band + bảng % HIỆU LỰC hôm trước (band_data vẫn đi tiếp)."""
+    state["band"] = prev["band"]
+    state["band_label"] = _BAND_LABELS[prev["band"]]
+    state["allocation"] = dict(prev["allocation"])
+
+
+def apply_horizon_cap(state: dict, prev: "dict | None", horizon: "dict | None",
+                      as_of: str, *, note: "str | None" = None,
+                      config: "dict | None" = None) -> dict:
+    """Áp kẹp lên state đã tilt (sửa tại chỗ, trả lại state).
+
+    - trung hạn ≠ TĂNG hoặc 🚨 bật mà % cổ phiếu mới > % hiệu lực hôm trước ⇒
+      giữ band + bảng % cũ, ghi ``capped_by`` (band/% dữ liệu đề xuất);
+    - trung hạn TĂNG và 🚨 tắt mà band hiệu lực lên bậc ⇒ ⏳ ``ramp`` 1 tuần
+      rồi mới lên, mỗi tuần ≤1 bậc;
+    - giảm rủi ro luôn đi qua; ``horizon`` None (state 3 khung chưa có / cũ /
+      hỏng) ⇒ không kẹp, ghi ``horizon_note``; lần chạy đầu không có gì để giữ.
+    """
+    if (not _horizon_cap_enabled() or not prev or not prev.get("allocation")
+            or prev.get("band") not in _BANDS):
+        return state
+    if horizon is None:
+        state["horizon_note"] = note or "không đọc được state 3 khung"
+        return state
+    if why := _cap_reason(horizon):
+        new_pct = _equity_pct(state)
+        if new_pct > _equity_pct(prev):
+            proposed = state["band"]
+            _hold(state, prev)
+            state["capped_by"] = {"by": "horizons", "why": why,
+                                  "proposed_band": proposed, "proposed_pct": new_pct}
+        return state
+    cur_idx, new_idx = _BANDS.index(prev["band"]), _BANDS.index(state["band"])
+    if new_idx >= cur_idx:
+        return state
+    target = state["band"]
+    since = (prev.get("ramp") or {}).get("since") or as_of
+    if (date.fromisoformat(as_of) - date.fromisoformat(since)).days < _UP_STEP_DAYS:
+        _hold(state, prev)
+        state["ramp"] = {"band": target, "since": since}
+        return state
+    if new_idx < cur_idx - 1:
+        step = _BANDS[cur_idx - 1]
+        state["band"] = step
+        state["band_label"] = _BAND_LABELS[step]
+        state["allocation"] = dict(_allocations_table(config)[step])
+        state["ramp"] = {"band": target, "since": as_of}
+    return state
+
+
 # ── State I/O (atomic) + history log ────────────────────────────────────────
 
 
@@ -537,6 +643,10 @@ def _history_entry(state: dict) -> dict:
         # % THẬT đã khuyến nghị — tilt trộn dở (05/10) không còn khớp bảng band
         "allocation": dict(state.get("allocation") or {}),
         "raw_band":  state["raw_band"],
+        # Vá 3 (P1b-2, #20): đề xuất đang chờ + kẹp theo trung hạn + ⏳ tăng
+        "pending":   state.get("pending"),
+        "capped_by": state.get("capped_by"),
+        "ramp":      state.get("ramp"),
         "score":     state["score"],
         "inputs":    {r["key"]: {"value": r["value"], "score": r["score"],
                                  "as_of": r["as_of"]}
@@ -544,10 +654,12 @@ def _history_entry(state: dict) -> dict:
     }
 
 
-def run_allocation(effective_date: "str | None" = None) -> "dict | None":
-    """Thu inputs → tính band → persist state + history. Best-effort: không
-    input nào dùng được → GIỮ state cũ, trả None (không bao giờ ghi đè bằng
-    trạng thái rỗng)."""
+def run_allocation(effective_date: "str | None" = None, *,
+                   persist: bool = True) -> "dict | None":
+    """Thu inputs → tính band → kẹp theo trung hạn → persist state + history.
+    Best-effort: không input nào dùng được → GIỮ state cũ, trả None (không
+    bao giờ ghi đè bằng trạng thái rỗng). ``persist=False`` = chỉ tính để hiện
+    (nút dashboard lúc overview còn giữa phiên — Vá 2), không ghi file."""
     as_of, inputs = collect_inputs(effective_date)
     prev = load_state()
     cfg = _load_config()
@@ -562,13 +674,16 @@ def run_allocation(effective_date: "str | None" = None) -> "dict | None":
         print("[allocation] ⚠ chưa đủ dữ liệu đầu vào — giữ state cũ nguyên vẹn")
         return None
     apply_tilt(state, _load_report_tilt(as_of), config=cfg)
+    horizon, note = _load_horizon() if _horizon_cap_enabled() else (None, None)
+    apply_horizon_cap(state, prev, horizon, state["as_of"], note=note, config=cfg)
     history = [h for h in (prev or {}).get("history", [])
                if h.get("date") != state["as_of"]]
     history.append(_history_entry(state))
     history.sort(key=lambda h: h.get("date") or "")
     state["history"] = history[-_HISTORY_MAX:]
     state["updated_at"] = datetime.now().isoformat(timespec="seconds")
-    _write_state(state)
+    if persist:
+        _write_state(state)
     return state
 
 
@@ -593,6 +708,13 @@ def _print_state(state: dict) -> None:
         p = state["pending"]
         print(f"   ⏳ chờ xác nhận đổi sang {p['band']} "
               f"({len(p['dates'])}/{_CONFIRM_SESSIONS} phiên: {', '.join(p['dates'])})")
+    if cap := state.get("capped_by"):
+        print(f"   🔒 kẹp theo trung hạn: band dữ liệu đề xuất {cap['proposed_band']} "
+              f"({cap['proposed_pct']:g}% cổ phiếu) — giữ vì {cap['why']}")
+    if ramp := state.get("ramp"):
+        print(f"   ⏳ tăng tỷ trọng về {ramp['band']}: ≤1 bậc/tuần, tính từ {ramp['since']}")
+    if note := state.get("horizon_note"):
+        print(f"   (kẹp theo trung hạn không áp: {note})")
     print("\n  Lớp tài sản   | %")
     print("  " + "-" * 22)
     for cls in _ASSET_CLASSES:
