@@ -214,7 +214,11 @@ def scan_trend_reversal(text: str, ctx: dict | None) -> list:
     if prev and prev.get("medium") != view["snap"].get("medium"):
         return []                                      # trung hạn đổi THẬT phiên này
     if _REVERSAL_RE is None:
-        _REVERSAL_RE = _re.compile(r"[^.!?\n]*đảo chiều xu hướng[^.!?\n]*", _re.IGNORECASE)
+        # chủ thể thị trường ĐỨNG TRƯỚC "đảo chiều xu hướng", hoặc "… của thị trường"
+        # ngay sau — "HPG đảo chiều xu hướng, vượt trội thị trường" là chuyện MỘT mã
+        _REVERSAL_RE = _re.compile(
+            r"(?:thị trường|vn-?index|chỉ số)[^;]{0,60}?đảo chiều xu hướng"
+            r"|đảo chiều xu hướng (?:của )?(?:thị trường|vn-?index|chỉ số)", _re.IGNORECASE)
     out, skip = [], False
     for ln in text.split("\n"):
         s = ln.lstrip()
@@ -222,14 +226,12 @@ def scan_trend_reversal(text: str, ctx: dict | None) -> list:
             skip = "🔭" in s or "góc nhìn theo khung thời gian" in s.lower()
         if skip:
             continue
-        for m in _REVERSAL_RE.finditer(ln):
-            sent = m.group(0).strip()
-            low = sent.lower()
-            if "mẫu hình" in low or not any(w in low for w in ("thị trường", "vnindex",
-                                                                "vn-index", "chỉ số")):
+        # tách câu ở dấu câu + khoảng trắng — "1,737.71" không phải ranh giới câu
+        for sent in _re.split(r"(?<=[.!?])\s+", ln):
+            if "mẫu hình" in sent.lower() or not _REVERSAL_RE.search(sent):
                 continue
             out.append({"kind": "trend_reversal_claim", "medium": view["snap"].get("medium"),
-                        "text": sent[:160]})
+                        "text": sent.strip()[:160]})
     return out
 
 

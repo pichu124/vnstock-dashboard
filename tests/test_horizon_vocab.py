@@ -99,7 +99,8 @@ def test_prompt_header_follows_the_switch():
     q = {"quant_regime": {"regime": "x", "conviction": 0.1, "detail": "d"}}
     assert "## Quant Market Regime" in _quant_regime_prompt_lines(q)[0]
     on = _quant_regime_prompt_lines({**q, "horizons": _view()})[0]
-    assert "## Dòng tiền ngành (quant, khung ngày)" in on and "Quant Market Regime" not in on
+    assert "## Độ nghiêng điểm quant các ngành (khung ngày)" in on
+    assert "Quant Market Regime" not in on and "## Dòng tiền ngành" not in on   # trùng block NN
 
 
 # ── Guard từ vựng ───────────────────────────────────────────────────────────
@@ -120,8 +121,8 @@ def test_vocab_guard_rewrites_market_level_risk_on_off_only_outside_the_section(
     from vnstock_brief import enforce_horizon_vocab
     ctx = {"brief_type": "afternoon", "horizons": _view()}
     out = enforce_horizon_vocab(_BRIEF, ctx)
-    assert "thị trường điểm kỹ thuật ngày tiêu cực rõ" in out
-    assert "Regime điểm kỹ thuật ngày tiêu cực kéo dài" in out
+    assert "thị trường điểm kỹ thuật ngày -7/7 rõ" in out          # số từ ctx, không đoán chiều
+    assert "Regime điểm kỹ thuật ngày -7/7 kéo dài" in out
     assert "→ Tâm lý risk-off." in out                          # dòng 🔭 không đụng
     assert "HPG đảo chiều tăng; mẫu hình đảo chiều ở FPT." in out
     assert enforce_horizon_vocab(out, ctx) == out
@@ -133,6 +134,8 @@ def test_vocab_guard_rewrites_market_level_risk_on_off_only_outside_the_section(
     ("VNINDEX có dấu hiệu đảo chiều xu hướng.", hz.GIAM, hz.GIAM, 1),
     ("Thị trường đảo chiều xu hướng sang giảm.", hz.GIAM, hz.DI_NGANG, 0),   # trung hạn đổi thật
     ("HPG đảo chiều xu hướng tăng.", hz.GIAM, hz.GIAM, 0),                  # mã
+    ("HPG đảo chiều xu hướng, vượt trội thị trường.", hz.GIAM, hz.GIAM, 0), # mã, có chữ thị trường
+    ("VNINDEX đóng 1,737.71, đảo chiều xu hướng.", hz.GIAM, hz.GIAM, 1),     # số thập phân
     ("Thị trường hình thành mẫu hình đảo chiều.", hz.GIAM, hz.GIAM, 0),     # mẫu hình
 ])
 def test_trend_reversal_claims_are_only_counted(text, medium, prev, n):
@@ -214,3 +217,44 @@ def test_morning_line_survives_the_whole_guard_chain():
     once = apply_brief_guards(text, ctx)
     assert _horizon_morning_line(ctx) in once.split("\n")
     assert apply_brief_guards(once, dict(ctx)) == once
+
+
+
+@pytest.mark.parametrize("line", [
+    "📰 Asian stocks slide as Risk-off mood deepens — Reuters",
+    "Tâm lý risk-off toàn cầu lan sang châu Á.",
+    "Dòng tiền risk-on vào nhóm chứng khoán.",
+    "Thị trường Mỹ risk-off sau số CPI.",
+])
+def test_vocab_guard_leaves_non_market_or_foreign_text(line):
+    from vnstock_brief import enforce_horizon_vocab
+    ctx = {"brief_type": "afternoon", "horizons": _view()}
+    text = f"## 📊 Tổng kết phiên\n{line}\n"
+    assert enforce_horizon_vocab(text, ctx) == text
+
+
+def test_vocab_guard_skips_code_written_news_section():
+    from vnstock_brief import enforce_horizon_vocab
+    ctx = {"brief_type": "afternoon", "horizons": _view()}
+    text = "## 📰 Tin tức ảnh hưởng\n- Thị trường châu Á Risk-off (Reuters)\n"
+    assert enforce_horizon_vocab(text, ctx) == text
+    assert enforce_horizon_vocab("Thị trường Risk-on.", {"horizons": _view(stale=True)}) == \
+        "Thị trường Risk-on."
+
+
+def test_morning_guard_removes_agent_copies_of_the_horizon_line():
+    from vnstock_brief import _horizon_morning_line, enforce_horizon_view
+    text = ("## 🎯 TLDR\n**Bias:** GIẢM — x\n🔭 Trung hạn TĂNG mạnh\n- **🔭 tự viết**\n"
+            "**Trung hạn:** TĂNG\n\n## 🔭 Góc nhìn theo khung thời gian\n- Trung hạn: TĂNG mạnh\n\n"
+            "## 📊 Tổng quan phiên sáng\nz\n")
+    ctx = _morning_ctx()
+    out = enforce_horizon_view(text, ctx)
+    assert "TĂNG mạnh" not in out and "tự viết" not in out and "**Trung hạn:**" not in out
+    assert out.count("🔭") == 1 and _horizon_morning_line(ctx) in out
+    assert enforce_horizon_view(out, ctx) == out
+
+
+def test_detect_stance_ignores_the_morning_horizon_line():
+    from vnstock_brief import _detect_stance
+    line = "- 🔭 Trung hạn ĐI NGANG (tuần 2) · ngắn hạn: chưa rõ (phiên 14) — Bias chỉ TRUNG TÍNH/GIẢM"
+    assert _detect_stance(f"**Bias:** x\n{line}") == "unknown"

@@ -3480,7 +3480,9 @@ def _quant_regime_prompt_lines(ctx: dict) -> list[str]:
     lines: list[str] = []
     # Regime
     # brief 3 khung (P1b-6): "regime" quant chỉ là độ nghiêng dòng tiền ngành khung NGÀY
-    title = ("## Dòng tiền ngành (quant, khung ngày)" if isinstance(ctx.get("horizons"), dict)
+    # KHÔNG mở đầu bằng "Dòng tiền ngành" — template có luật riêng cho block NN cùng tên
+    title = ("## Độ nghiêng điểm quant các ngành (khung ngày)"
+             if isinstance(ctx.get("horizons"), dict) or horizons_enabled()
              else "## Quant Market Regime")
     if r := ctx.get("quant_regime"):
         vr = ctx.get("vol_regime", "normal")
@@ -4233,6 +4235,9 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     enforce_stance_horizon,
     enforce_horizon_vocab,
     _RISK_ONOFF_RE,
+    _VOCAB_FOREIGN_WORDS,
+    _VOCAB_MARKET_WORDS,
+    _VOCAB_SKIP_SECTIONS,
     _horizon_morning_tldr,
     enforce_morning_action_defensive,
     _ALLOC_HORIZON_CAVEAT_3K,
@@ -5074,7 +5079,8 @@ def _detect_stance(tldr_text: str) -> str:
     """
     import re as _re_local
     tldr_text = "\n".join(ln for ln in (tldr_text or "").split("\n")
-                          if not _HORIZON_TLDR_LINE_RE.match(ln))
+                          if not _HORIZON_TLDR_LINE_RE.match(ln)
+                          and not ln.lstrip().startswith(("- 🔭", "🔭")))
     m = _STANCE_LINE_RE.search(tldr_text)
     if m:
         captured = m.group(1).lower()

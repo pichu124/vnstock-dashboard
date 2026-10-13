@@ -354,11 +354,15 @@ def _horizon_morning_tldr(text: str, ctx: dict) -> str:
     """Brief sáng (P1b-6): đúng 1 gạch "- 🔭 …" ở cuối TLDR, không có khối 🔭."""
     line = _horizon_morning_line(ctx)
     lines = text.split("\n")
-    region = _hz_tldr_region(lines)
-    if not line or region is None:
+    if not line or _hz_tldr_region(lines) is None:
         return text
-    t0, t_end = region
-    keep = [ln for ln in lines[t0 + 1:t_end] if not ln.lstrip().startswith("- 🔭")]
+    while (start := next((i for i, ln in enumerate(lines) if _is_horizon_heading(ln)),
+                         None)) is not None:          # khối 🔭 agent tự chép từ prompt
+        del lines[start:_hz_section_end(lines, start)]
+    t0, t_end = _hz_tldr_region(lines)
+    keep = [ln for ln in lines[t0 + 1:t_end]
+            if not _HORIZON_TLDR_LINE_RE.match(ln)
+            and "🔭" not in ln.lstrip(" -*•_")[:3]]  # "- 🔭", "🔭", "* 🔭", "- **🔭"
     at = max((k for k, ln in enumerate(keep) if ln.strip()), default=-1)
     keep.insert(at + 1, line)
     return "\n".join(lines[:t0 + 1] + keep + lines[t_end:])
@@ -530,23 +534,42 @@ _RISK_ONOFF_RE = _re.compile(
     r"(?:(?:🔥|❄️)\s*)?(?:(?:Bull|Bear)\s*[—–-]\s*)?\brisk[\s-]?(on|off)\b", _re.IGNORECASE)
 
 
+# Câu nói về THỊ TRƯỜNG VN (không phải tin quốc tế / nhóm ngành) mới bị đổi từ vựng
+_VOCAB_MARKET_WORDS = ("thị trường", "vnindex", "vn-index", "chỉ số", "regime")
+_VOCAB_FOREIGN_WORDS = ("toàn cầu", "quốc tế", "thế giới", "châu á", "phố wall", "mỹ",
+                        "global", "asian", "stocks", "wall street")
+# mục do CODE viết (tin/báo cáo/tài sản/🔭) — chữ của nguồn, không phải lời agent
+_VOCAB_SKIP_SECTIONS = ("🔭", "📰", "📚", "🪙", "góc nhìn theo khung thời gian")
+
+
 def enforce_horizon_vocab(text: str, ctx: dict) -> str:
-    """"Risk-on/Risk-off" ở cấp thị trường là nhãn của nhịp NGÀY (7 phiếu), không
-    phải xu hướng ⇒ "điểm kỹ thuật ngày tích cực/tiêu cực". Không đụng khối 🔭
-    (code viết). "Đảo chiều xu hướng thị trường" khi trung hạn không đổi chỉ được
-    ĐẾM (`vnstock_brief_watch.scan_trend_reversal`), không sửa. No-op khi công tắc
-    tắt. Idempotent."""
-    if not text or not isinstance((ctx or {}).get("horizons"), dict):
+    """"Risk-on/Risk-off" ở CẤP THỊ TRƯỜNG VN là nhãn của nhịp NGÀY (7 phiếu),
+    không phải xu hướng ⇒ "điểm kỹ thuật ngày ±N/n" — số lấy từ ctx (KHÔNG suy
+    chiều từ chữ agent). Chỉ câu có chủ thể thị trường/VNINDEX/regime; bỏ qua câu
+    nói thị trường nước ngoài và các mục code viết (📰 tin, 📚, 🪙, 🔭). "Đảo chiều
+    xu hướng thị trường" khi trung hạn không đổi chỉ được ĐẾM
+    (`vnstock_brief_watch.scan_trend_reversal`). No-op khi công tắc tắt hoặc state
+    cũ (không có điểm để in). Idempotent."""
+    view = (ctx or {}).get("horizons")
+    snap = view.get("snap") if isinstance(view, dict) and not view.get("stale") else None
+    if not text or not isinstance(snap, dict) or snap.get("n") in (None, 0):
         return text
+    score = f"{int(snap.get('score') or 0):+d}" if snap.get("score") else "0"
+    repl = f"điểm kỹ thuật ngày {score}/{snap['n']}"
     lines, skip = text.split("\n"), False
     for k, ln in enumerate(lines):
         if _is_section_start(ln):
-            skip = _is_horizon_heading(ln)
+            low = ln.lower()
+            skip = any(w in low for w in _VOCAB_SKIP_SECTIONS)
         if skip or not _RISK_ONOFF_RE.search(ln):
             continue
-        lines[k] = _RISK_ONOFF_RE.sub(
-            lambda m: "điểm kỹ thuật ngày " + ("tích cực" if m.group(1).lower() == "on"
-                                              else "tiêu cực"), ln)
+        parts = _re.split(r"(?<=[.;!?])\s+", ln)
+        for j, sent in enumerate(parts):
+            low = sent.lower()
+            if (_RISK_ONOFF_RE.search(sent) and any(w in low for w in _VOCAB_MARKET_WORDS)
+                    and not any(w in low for w in _VOCAB_FOREIGN_WORDS)):
+                parts[j] = _RISK_ONOFF_RE.sub(repl, sent)
+        lines[k] = " ".join(parts) if len(parts) > 1 else parts[0]
     return "\n".join(lines)
 
 

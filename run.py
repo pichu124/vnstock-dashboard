@@ -1035,6 +1035,9 @@ def cmd_horizons(args) -> int:
     if getattr(args, "legend", False):
         return _run([sys.executable, script, "--legend"]
                     + (["--dry-run"] if getattr(args, "dry_run", False) else []))
+    if getattr(args, "dry_run", False):
+        print("[horizons] --dry-run chỉ đi với --legend (bước ghi state không có chạy thử)")
+        return 2
     cmd = [sys.executable, script, "--update"]
     if getattr(args, "force", False):
         cmd.append("--force")

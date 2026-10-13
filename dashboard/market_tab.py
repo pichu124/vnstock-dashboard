@@ -477,13 +477,18 @@ def render_market_tab() -> None:
 
         st.divider()
 
+    # ── Brief 3 khung (P1b-6, #24): badge trung hạn + ngắn hạn — try RIÊNG ──
+    try:
+        if _badges := _horizon_badges():
+            st.markdown(" &nbsp;·&nbsp; ".join(f"**{b}**" for b in _badges))
+    except Exception:
+        pass
+
     # ── F5: Market regime detector ───────────────────────────────────────────
     try:
         import vnstock_regime as _reg
         _regime_data = _reg.load_regime()
         _r = _regime_data
-        if _badges := _horizon_badges():          # brief 3 khung (P1b-6, #24)
-            st.markdown(" &nbsp;·&nbsp; ".join(f"**{b}**" for b in _badges))
 
         with st.container():
             _rc1, _rc2, _rc3 = st.columns([2, 3, 3])

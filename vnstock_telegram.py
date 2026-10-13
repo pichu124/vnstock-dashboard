@@ -89,39 +89,49 @@ def _creds(channel: "str | None" = None) -> "tuple[str, str]":
 
 # ── Transport ─────────────────────────────────────────────────────────────────
 
-def _split_for_telegram(text: str, limit: int = _MAX_MSG_LEN) -> list[str]:
-    """Split text into chunks ≤ limit at SECTION boundaries (dòng mở mục — tiêu
-    đề emoji như `_is_section_start` của guard) để một mục không bị cắt đôi giữa
-    hai tin (brief 3 khung dài thêm 🔭, P1b-7). Mục dài hơn một tin ⇒ tách theo
-    DÒNG như cũ (tag HTML luôn nằm trong một dòng nên vẫn cân)."""
-    if len(text) <= limit:
-        return [text]
+_HEADING_MAX_LEN = 60       # dòng mở mục thật ngắn; "⚠️ Các lệnh MUA trên…" là caveat
+
+
+def _is_heading_line(line: str) -> bool:
     try:
         from vnstock_brief_guards_common import _is_section_start
     except Exception:                       # pragma: no cover — module lá, luôn có
+        return False
+    return _is_section_start(line) and len(line.strip()) <= _HEADING_MAX_LEN
+
+
+def _split_for_telegram(text: str, limit: int = _MAX_MSG_LEN,
+                        sections: bool = False) -> list[str]:
+    """Split text into chunks ≤ limit at LINE boundaries (tag HTML luôn nằm trong
+    một dòng nên vẫn cân). ``sections`` (brief 3 khung, P1b-7): ưu tiên cắt ở
+    TIÊU ĐỀ MỤC (dòng emoji ngắn — caveat "⚠️ …" dài không tính) để một mục không
+    bị chia đôi giữa hai tin; mục dài hơn một tin mới tách theo dòng."""
+    if len(text) <= limit:
+        return [text]
+    if not sections:
         return _split_lines(text, limit)
     blocks: list[str] = []
     for line in text.split("\n"):
-        if blocks and not _is_section_start(line):
+        if blocks and not _is_heading_line(line):
             blocks[-1] += "\n" + line
         else:
             blocks.append(line)
     chunks: list[str] = []
-    cur = None
+    cur = ""
     for blk in blocks:
         if len(blk) > limit:
-            if cur is not None:
+            if cur:
                 chunks.append(cur)
-                cur = None
+            cur = ""
             chunks.extend(_split_lines(blk, limit))
-        elif cur is None:
+        elif not cur:
             cur = blk
         elif len(cur) + 1 + len(blk) <= limit:
             cur += "\n" + blk
         else:
             chunks.append(cur)
             cur = blk
-    if cur is not None:
+    if cur:
         chunks.append(cur)
     return chunks
 
@@ -201,7 +211,7 @@ def _chat_var(channel: "str | None") -> str:
 
 
 def send_message(text: str, parse_mode: str = "HTML", allow_links: bool = False,
-                 channel: "str | None" = None) -> dict:
+                 channel: "str | None" = None, sections: bool = False) -> dict:
     """Send text to the configured Telegram chat. Long briefs are split into
     multiple messages (Telegram caps at 4096 chars) so nothing is dropped —
     previously the tail (📰 tin tức) was truncated. Returns the LAST API response.
@@ -223,7 +233,7 @@ def send_message(text: str, parse_mode: str = "HTML", allow_links: bool = False,
     url = _TELEGRAM_API.format(token=token, method="sendMessage")
     if parse_mode == "HTML":
         text = _sanitize_html(text, allow_links=allow_links)
-    parts = _split_for_telegram(text, _MAX_MSG_LEN)
+    parts = _split_for_telegram(text, _MAX_MSG_LEN, sections=sections)
     n     = len(parts)
     resp_json: dict = {}
     for i, part in enumerate(parts):
@@ -642,16 +652,24 @@ def _iso_to_dmy(iso_str: str) -> str:
         return iso_str
 
 
-def _market_header_lines() -> list:
+def _section_split_kw() -> dict:
+    """Tách tin theo mục chỉ khi brief 3 khung bật — tắt thì gọi send_message y như cũ."""
+    from vnstock_horizons import horizons_enabled
+    return {"sections": True} if horizons_enabled() else {}
+
+
+def _market_header_lines(morning: bool = False) -> list:
     """Dòng thị trường đầu tin brief — MỘT chỗ cho cả sáng lẫn chiều (P1b-1, #19).
     Công tắc tắt: 3 dòng cũ (VNINDEX, regime, tâm lý). Bật (P1b-7, #25): header
-    3 khung (mẫu §4 A); đọc state lỗi ⇒ header cũ."""
+    3 khung (mẫu §4 A) — brief sáng giữ thêm dòng 🧭 tâm lý (sáng không có khối
+    🔭 để chứa nó); dựng header lỗi ⇒ in cảnh báo vào log rồi dùng header cũ."""
     from vnstock_horizons import horizons_enabled
     if horizons_enabled():
         try:
-            return _horizon_header_lines(*_horizon_header_inputs())
-        except Exception:
-            pass
+            lines = _horizon_header_lines(*_horizon_header_inputs())
+            return lines + [_market_sentiment_line()] if morning else lines
+        except Exception as e:
+            print(f"[telegram] ⚠ header 3 khung lỗi ({type(e).__name__}: {e}) — dùng header cũ")
     return [_vnindex_line(), _regime_block(), _market_sentiment_line()]
 
 
@@ -681,16 +699,18 @@ def _horizon_header_lines(view: dict, alloc: dict, vt: dict) -> list:
     snap = (view or {}).get("snap") if not (view or {}).get("stale") else None
     c, chg = vt.get("close"), vt.get("day_change_pct")
     session = vt.get("data_date") or (snap or {}).get("as_of")
+    live = " trong phiên" if vt.get("intraday") else ""     # brief sáng: giá đang chạy
     line1 = ("📊 VNINDEX " + (f"<b>{c:,.2f}</b>" if c else "—")
              + (f" ({chg:+.2f}%)" if isinstance(chg, (int, float)) else "")
-             + (f" · phiên {_hz_ddmm(session)}" if session else ""))
+             + (f" · phiên {_hz_ddmm(session)}{live}" if session else ""))
     if not isinstance(snap, dict):
         as_of = (view or {}).get("as_of")
         return [line1, "🔭 3 khung: chưa cập nhật " + (f"(as_of {_hz_ddmm(as_of)})" if as_of
                                                       else "(chưa đọc được state)")]
     med = snap.get("medium")
     line2 = (f"🔭 <b>Trung hạn: {MEDIUM_LABEL.get(med, '?')}</b> (tuần "
-             f"{view.get('medium_weeks') or 1}, từ {_hz_ddmm(snap.get('medium_since'))})")
+             f"{view.get('medium_weeks') or 1}, từ {_hz_ddmm(snap.get('medium_since'))}"
+             + (f"; trạng thái chốt {_hz_ddmm(snap.get('as_of'))}" if live else "") + ")")
     pct = ((alloc or {}).get("allocation") or {}).get("Cổ phiếu")
     if isinstance(pct, (int, float)):
         line2 += f" · 💼 Cổ phiếu {pct:g}%"
@@ -699,9 +719,10 @@ def _horizon_header_lines(view: dict, alloc: dict, vt: dict) -> list:
     al = snap.get("alert") or {}
     if al.get("tier") and med != GIAM:
         tail = ""
-        if isinstance(c, (int, float)) and isinstance(al.get("anchor"), (int, float)):
+        if isinstance(c, (int, float)) and isinstance(al.get("anchor"), (int, float)) \
+                and c < al["anchor"]:               # đã hồi qua neo thì không nói "thấp hơn"
             tail = (f" — thấp hơn đỉnh neo {_hz_approx(al['anchor'])} "
-                    f"{abs(c / al['anchor'] - 1) * 100:.1f}%")
+                    f"{(1 - c / al['anchor']) * 100:.1f}%")
         lines.append(f"🚨 <b>Rủi ro ngắn hạn: BẬT mức {al['tier']}</b>{tail}; không đổi xu hướng")
     return lines
 
@@ -751,7 +772,7 @@ def push_morning_brief() -> dict:
 
     blocks = [
         _brief_header("📊", "VNStock Morning Brief"),
-        *_market_header_lines(),
+        *_market_header_lines(morning=True),
         "",
         "🧠 <b>AI Brief:</b>",
         ai_blk,
@@ -763,7 +784,7 @@ def push_morning_brief() -> dict:
     blocks.append("\n<i>Powered by VNStock Dashboard</i>")
 
     text = "\n".join(b for b in blocks if b is not None)
-    return send_message(text)
+    return send_message(text, **_section_split_kw())
 
 
 def push_close_brief(ai_block: "str | None" = None,
@@ -807,7 +828,7 @@ def push_close_brief(ai_block: "str | None" = None,
     blocks.append(_powered_by(engine))
 
     text = "\n".join(b for b in blocks if b is not None)
-    return send_message(text)
+    return send_message(text, **_section_split_kw())
 
 
 def _powered_by(engine: "str | None" = None) -> str:

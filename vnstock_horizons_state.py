@@ -617,11 +617,14 @@ def legend_text() -> str:
         f"<b>Trung hạn (xu hướng tuần)</b>: TĂNG / ĐI NGANG / GIẢM, chỉ đọc giá ĐÓNG "
         f"CỬA TUẦN so MA{m.ma_long} tuần (±{m.band:.0%}) và MA{m.ma_short}/MA{m.ma_long} "
         f"tuần. Xuống cần 1 tuần, lên cần {m.up_weeks} tuần liền, mỗi tuần tối đa 1 bậc. "
-        "Đây là tiêu đề của brief.",
+        + (f"Cầu chì: đang TĂNG mà đóng tuần ≤ {m.fuse:.0%} dưới đỉnh {m.fuse_weeks} đóng "
+           f"tuần ⇒ xuống ĐI NGANG ngay. " if m.fuse else "")
+        + "Đây là tiêu đề của brief.",
         "<b>Dài hạn (6–12 tháng)</b>: đang thu thập dữ liệu — chưa chấm.",
         f"🚨 <b>Rủi ro ngắn hạn</b>: bật khi đóng cửa thấp hơn đỉnh {a.window} phiên "
         f"≥{a.drawdown:.0%}, hoặc 1 phiên ≤ {a.day_drop}%, hoặc 3 phiên ≤ {a.three_day_drop}%. "
-        f"Mức 2 khi đóng < {a.tier2_frac:.0%} đỉnh neo. KHÔNG BAO GIỜ đổi xu hướng; tắt "
+        f"Mức 2 khi đóng ≤ {a.tier2_frac:.0%} đỉnh neo hoặc thêm 1 phiên ≤ {a.day_drop}%. "
+        f"KHÔNG BAO GIỜ đổi xu hướng; tắt "
         f"khi lấy lại ≥{a.off_frac:.0%} đỉnh neo hoặc {a.off_above_ma} phiên liền trên "
         f"MA{a.window} (sau tối thiểu {a.dwell} phiên).",
         "🛡 <b>Lớp bảo vệ</b>: bật khi có nhịp chỉnh / trung hạn GIẢM / 🚨 / tín hiệu "
@@ -632,8 +635,8 @@ def legend_text() -> str:
         "TĂNG hoặc 🚨 bật. Được tăng thì ⏳ báo trước 1 tuần, mỗi tuần tối đa 1 bậc. "
         "Giảm luôn đi qua.",
         "🎯 <b>Stance ngày mai</b>: nhịp chỉnh ⇒ GIẢM; nhịp hồi + trung hạn TĂNG + 🚨 tắt "
-        "⇒ TĂNG; còn lại chỉ TRUNG TÍNH/GIẢM (TĂNG chỉ khi trung hạn TĂNG và 🚨 tắt). "
-        "GIẢM luôn được phép.",
+        "⇒ TĂNG. TĂNG chỉ được chọn khi trung hạn TĂNG (nhịp chững cần thêm 🚨 tắt); "
+        "trung hạn ĐI NGANG/GIẢM chỉ TRUNG TÍNH hoặc GIẢM. GIẢM luôn được phép.",
         "",
         "<i>Mức \"~1,803\" là mức làm tròn, tính lại mỗi tuần.</i>",
     ])
@@ -665,6 +668,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--days", type=int, default=120, help="--backfill: số phiên chấm điểm")
     ap.add_argument("--dry-run", action="store_true", help="--legend: chỉ in, không gửi")
     a = ap.parse_args(argv)
+    if a.dry_run and not a.legend:
+        ap.error("--dry-run chỉ đi với --legend")
     try:                                   # kill-switch sống trong .env (như doctor)
         from dotenv import load_dotenv
         load_dotenv(_REPO / ".env", override=False)
