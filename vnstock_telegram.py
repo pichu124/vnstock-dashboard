@@ -432,8 +432,13 @@ def _market_is_bearish() -> bool:
     except Exception:
         pass
     try:
-        from vnstock_brief import _market_floor, is_defensive
-        return is_defensive({"bias_floor": _market_floor(momentum)})
+        import vnstock_brief as vb
+        ctx = {"bias_floor": vb._market_floor(momentum)}
+        if vb.horizons_enabled():           # lớp bảo vệ 3 khung (P1b-5, #23)
+            vb._load_horizons(ctx)
+            vb._apply_horizon_stance(ctx)
+            vb._apply_horizon_defensive(ctx)
+        return vb.is_defensive(ctx)
     except Exception:
         return False
 

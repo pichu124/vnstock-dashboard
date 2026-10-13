@@ -62,6 +62,7 @@ from vnstock_brief_guards_common import (
     _PIVOT_LABEL_RE,
     _is_section_start,
     _parse_vn_number,
+    defensive_level,
     floor_dir,
     is_defensive,
 )
@@ -411,6 +412,31 @@ def enforce_stance_horizon(text: str, ctx: dict) -> str:
     return text
 
 
+_MORNING_ACTION_RE = _re.compile(
+    r"^(\s*\*{0,2}Hành động ưu tiên\s*[:：]\s*\*{0,2}\s*)BUY\b(.*)$", _re.IGNORECASE)
+_MORNING_ACTION_NOTE = " (thị trường phòng thủ: chỉ mua khi giá xác nhận vượt kháng cự)"
+
+
+def enforce_morning_action_defensive(text: str, ctx: dict) -> str:
+    """Brief sáng (P1b-5): bảo vệ mức CỨNG ⇒ "Hành động ưu tiên" không được BUY
+    vô điều kiện — "BUY — …" thành "WAIT — … (thị trường phòng thủ: …)"; BUY có
+    điều kiện ("nếu"/"khi"/"điều kiện") giữ nguyên. Chỉ khi có lớp bảo vệ 3 khung
+    (``ctx["defensive"]``) — công tắc tắt ⇒ no-op. Idempotent."""
+    if (not text or not isinstance((ctx or {}).get("defensive"), dict)
+            or ctx.get("brief_type") != "morning" or not is_defensive(ctx)):
+        return text
+    lines = text.split("\n")
+    for k, ln in enumerate(lines):
+        m = _MORNING_ACTION_RE.match(ln)
+        if not m:
+            continue
+        if _re.search(r"điều kiện|\bnếu\b|\bkhi\b", m.group(2), _re.IGNORECASE):
+            return text
+        lines[k] = f"{m.group(1)}WAIT{m.group(2)}{_MORNING_ACTION_NOTE}"
+        return "\n".join(lines)
+    return text
+
+
 # Caveat horizon (P4): band THÁNG nghiêng ngược bias floor NGÀY → gắn ngữ cảnh,
 # KHÔNG override (mirror triết lý guard 27/28). Bắt đầu bằng "- ⚠️" (dash trước)
 # để KHÔNG bị _is_section_start hiểu nhầm là ranh giới mục (bài học guard 27).
@@ -418,6 +444,13 @@ _ALLOC_HORIZON_CAVEAT = (
     "- ⚠️ Band phân bổ là khung THÁNG, tín hiệu phiên đang lệch chiều — hai "
     "khung thời gian khác nhau, không phủ định nhau: điều chỉnh tỷ trọng theo "
     "lộ trình vài phiên, tôn trọng tín hiệu ngày khi vào/ra lệnh."
+)
+
+
+_ALLOC_HORIZON_CAVEAT_3K = (
+    "- ⚠️ Lệch khung: tỷ trọng theo band và xu hướng trung hạn; nhịp ngày chỉ chọn "
+    "thời điểm vào/ra — band tháng và tín hiệu phiên là hai khung khác nhau, không "
+    "phủ định nhau."
 )
 
 
@@ -487,18 +520,38 @@ def enforce_allocation_table(text: str, ctx: dict) -> str:
                 _pin_pct, out, flags=_re.IGNORECASE)
 
     # (c) caveat horizon — chỉ khi lệch chiều thật và chưa chèn (check toàn văn)
-    bias = floor_dir(ctx)
-    clash = (band in ("B0", "B1") and bias == "GIẢM") or \
-            (band in ("B3", "B4") and bias == "TĂNG")
-    if clash and _ALLOC_HORIZON_CAVEAT not in out:
+    if isinstance(ctx.get("defensive"), dict):
+        # brief 3 khung (P1b-5): lệch = B0/B1 mà bảo vệ đang bật, hoặc B3/B4 mà
+        # Stance (đã ghim) TĂNG; lời mới nói rõ khung nào quyết tỷ trọng.
+        caveat = _ALLOC_HORIZON_CAVEAT_3K
+        clash = (band in ("B0", "B1") and ctx["defensive"].get("on")) or \
+                (band in ("B3", "B4") and _stance_label(out) == "TĂNG")
+    else:
+        caveat = _ALLOC_HORIZON_CAVEAT
+        bias = floor_dir(ctx)
+        clash = (band in ("B0", "B1") and bias == "GIẢM") or \
+                (band in ("B3", "B4") and bias == "TĂNG")
+    if clash and caveat not in out:
         lines = out.splitlines()
         anchor = next((i for i, l in enumerate(lines)
                        if "band phân bổ tháng" in l.lower()
                        or l.lstrip().lower().startswith("- band:")), None)
         if anchor is not None:
-            lines.insert(anchor + 1, _ALLOC_HORIZON_CAVEAT)
+            lines.insert(anchor + 1, caveat)
             out = "\n".join(lines)
     return out
+
+
+def _stance_label(text: str) -> "str | None":
+    """Nhãn Stance/Bias ĐẦU TIÊN trong brief (TĂNG / GIẢM / TRUNG TÍNH) hoặc None."""
+    for ln in (text or "").split("\n"):
+        if m := _STANCE_HZ_LINE_RE.match(ln):
+            lm = _STANCE_HZ_LABEL_RE.match(m.group(3))
+            if not lm:
+                return None
+            tok = lm.group(1).upper()
+            return "TRUNG TÍNH" if tok.startswith("TRUNG") else tok
+    return None
 
 
 def enforce_portfolio_facts(text: str, ctx: dict) -> str:
@@ -597,6 +650,9 @@ _WL_META_RE = _re.compile(
 )
 
 
+_SOFT_DEFENSIVE_MARK = "Thị trường có 1 tín hiệu phòng thủ"
+
+
 def enforce_watchlist_hygiene(text: str, ctx: dict | None = None) -> str:
     """Deterministic guard for the watchlist section: strip meta-disclaimers
     from setup lines (observed: "MUA vùng 69,000 … (đây là ví dụ, không dùng
@@ -649,6 +705,13 @@ def enforce_watchlist_hygiene(text: str, ctx: dict | None = None) -> str:
     if is_defensive(ctx):
         sec = [(l.replace("MUA vùng", "canh MUA NẾU vượt").replace("· chốt lời", "· mục tiêu")
                 if "MUA vùng" in l else l) for l in sec]
+    elif defensive_level(ctx) == "mềm" and not any(_SOFT_DEFENSIVE_MARK in l for l in sec):
+        # P1b-5: mức MỀM (đúng 1 tín hiệu, không phải floor cũ) chỉ NHẮC — không
+        # viết lại setup của watchlist.
+        why = " · ".join((ctx.get("defensive") or {}).get("reasons") or [])
+        at = max((k for k, l in enumerate(sec) if l.strip()), default=-1) + 1
+        sec.insert(at, f"- ⚠️ {_SOFT_DEFENSIVE_MARK} ({why}) — không mua đuổi; chỉ vào "
+                       "khi giá xác nhận.")
 
     # A breakout-buy trigger MUST sit MEANINGFULLY ABOVE the stock's current
     # price — else "canh MUA NẾU vượt X" is already true / a non-confirmation

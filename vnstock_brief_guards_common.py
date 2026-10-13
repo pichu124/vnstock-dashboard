@@ -66,11 +66,22 @@ def floor_dir(ctx: dict | None) -> str | None:
     return ((ctx or {}).get("bias_floor") or {}).get("dir")
 
 
+def defensive_level(ctx: dict | None) -> str | None:
+    """Mức lớp bảo vệ: "cứng" / "mềm" / None. Có ``ctx["defensive"]`` (brief 3
+    khung, P1b-5) ⇒ đọc đúng nó; không có (công tắc tắt / state cũ) ⇒ floor cũ
+    GIẢM = cứng như hôm nay (P1b-4 dời floor cũ sang ``bias_floor_old``)."""
+    d = (ctx or {}).get("defensive")
+    if isinstance(d, dict):
+        return d.get("level") if d.get("on") else None
+    old = ((ctx or {}).get("bias_floor_old") or {}).get("dir")
+    return "cứng" if floor_dir(ctx) == "GIẢM" or old == "GIẢM" else None
+
+
 def is_defensive(ctx: dict | None) -> bool:
-    """Thị trường đang PHÒNG THỦ (chặn mua bắt đáy / cảnh báo lệnh MUA)? Hôm nay
-    = floor cũ ra GIẢM; P1b mở rộng thành tập cha ở đúng chỗ này."""
-    old = ((ctx or {}).get("bias_floor_old") or {}).get("dir")   # P1b-4: floor cũ rời luật ép
-    return floor_dir(ctx) == "GIẢM" or old == "GIẢM"
+    """Thị trường PHÒNG THỦ mức CỨNG — consumer làm đủ (viết lại "MUA vùng",
+    caveat MUA ngược bias, cảnh báo Telegram…). Mức mềm chỉ nhắc, đọc qua
+    ``defensive_level``. Tập cha của hôm nay: floor cũ GIẢM luôn là cứng."""
+    return defensive_level(ctx) == "cứng"
 
 
 _SECTION_EMOJIS = ("🎯", "📊", "📈", "🏆", "💰", "📋", "⚠️", "📅", "💡", "🔧", "⚡", "🔮", "🌐", "📰", "📌", "📚", "🧭",

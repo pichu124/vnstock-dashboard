@@ -2177,8 +2177,10 @@ def load_portfolio_positions(warehouse: "Path | None" = None) -> list[dict]:
 
 
 
-def _portfolio_block(positions: list[dict]) -> str:
-    """Render the held-positions block for the prompt. Empty when no positions."""
+def _portfolio_block(positions: list[dict], defensive: "dict | None" = None) -> str:
+    """Render the held-positions block for the prompt. Empty when no positions.
+    ``defensive`` (lớp bảo vệ 3 khung, P1b-5) bật ⇒ thêm luật không GIA TĂNG vô
+    điều kiện + hạ trước mã dưới MA50."""
     if not positions:
         return ""
     lines = [f"\n## 📌 Danh mục đang giữ ({len(positions)} vị thế — SỐ THẬT, dùng đúng)"]
@@ -2189,6 +2191,11 @@ def _portfolio_block(positions: list[dict]) -> str:
         "Stance/regime/tin trong prompt. TUYỆT ĐỐI không đổi số, không thêm mã "
         "ngoài danh sách."
     )
+    if (defensive or {}).get("on"):
+        lines.append(
+            f"→ Thị trường đang PHÒNG THỦ ({' · '.join(defensive.get('reasons') or [])}): "
+            "KHÔNG GIA TĂNG vô điều kiện (chỉ \"GIA TĂNG khi vượt <mức>\"); nếu cần "
+            "hạ tỷ trọng thì hạ trước mã DƯỚI MA50.")
     return "\n".join(lines)
 
 
@@ -2901,6 +2908,9 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     if horizons_enabled() and brief_type in ("morning", "afternoon"):
         _load_horizons(ctx)
         _apply_horizon_stance(ctx)              # bảng Stance §3.4 (P1b-4, #22)
+        _apply_horizon_defensive(ctx)           # lớp bảo vệ 2 mức (P1b-5, #23)
+        if ctx.get("portfolio"):
+            _attach_portfolio_ma50(ctx["portfolio"])
 
     return ctx
 
@@ -2930,6 +2940,48 @@ def _apply_horizon_stance(ctx: dict) -> None:
                              "n_signals": snap.get("n")}
     else:
         view["stance_allowed"] = list(rule.get("allowed") or [])
+
+
+_PROTECT_RANK = {None: 0, "mềm": 1, "cứng": 2}
+
+
+def _apply_horizon_defensive(ctx: dict) -> None:
+    """``ctx["defensive"] = {on, level, reasons}`` (§3.4, §8 mục 2) — bật khi BẤT
+    KỲ: floor cũ của BRIEF THẬT (có tin + vĩ mô) GIẢM / nhịp chỉnh / trung hạn
+    GIẢM / 🚨. Mức = max(luật 2 mức trên floor thật, ``protect`` của state chạy
+    bóng) — floor chạy bóng tính KHÔNG có tin/vĩ mô nên một mình nó không bảo
+    đảm tập cha. State cũ/hỏng ⇒ không ghi gì (consumer rơi về floor cũ)."""
+    from vnstock_horizons import CHINH, GIAM, protection_level
+    view = ctx.get("horizons")
+    if not isinstance(view, dict) or view.get("stale") or not isinstance(view.get("snap"), dict):
+        return
+    snap = view["snap"]
+    floor_old = (ctx.get("bias_floor_old") or {}).get("dir")
+    short, medium = snap.get("short"), snap.get("medium")
+    tier = (snap.get("alert") or {}).get("tier") or 0
+    level = max(protection_level(floor_old, short, medium, tier), snap.get("protect"),
+                key=lambda lv: _PROTECT_RANK.get(lv, 0))
+    reasons = [why for hit, why in ((floor_old == "GIẢM", "tín hiệu ngày một chiều giảm"),
+                                    (short == CHINH, "nhịp chỉnh"),
+                                    (medium == GIAM, "trung hạn GIẢM"),
+                                    (tier > 0, f"🚨 mức {tier}")) if hit]
+    ctx["defensive"] = {"on": level is not None, "level": level, "reasons": reasons}
+
+
+def _attach_portfolio_ma50(positions: list) -> None:
+    """Trạng thái MA50 (trên/dưới) của từng mã đang giữ — code tính, in ở dòng
+    dữ kiện danh mục (P1b-5): bảo vệ bật thì hạ trước mã dưới MA50. Thiếu 50
+    phiên / đọc hỏng ⇒ bỏ qua mã đó."""
+    from vnstock_strategy import _load_history_from_parquet
+    for p in positions or []:
+        try:
+            h = _load_history_from_parquet(str(p["ticker"]), days=120)
+            closes = [float(x) for x in h["close"].dropna().tolist()] if h is not None else []
+            if len(closes) < 50:
+                continue
+            p["above_ma50"] = closes[-1] > sum(closes[-50:]) / 50
+        except Exception:
+            continue
 
 
 def _load_horizons(ctx: dict) -> None:
@@ -3988,7 +4040,7 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
 
     # Held positions — per-position facts so the brief can advise theo vị thế.
     if _pf := ctx.get("portfolio"):
-        block = _portfolio_block(_pf)
+        block = _portfolio_block(_pf, defensive=ctx.get("defensive"))
         if block:
             lines.append(block)
 
@@ -4115,11 +4167,18 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     _parse_vn_number,
     apply_brief_guards,
     brief_section,
+    defensive_level,
     floor_dir,
     is_defensive,
     enforce_allocation_table,
     enforce_horizon_view,
     enforce_stance_horizon,
+    enforce_morning_action_defensive,
+    _ALLOC_HORIZON_CAVEAT_3K,
+    _MORNING_ACTION_NOTE,
+    _MORNING_ACTION_RE,
+    _SOFT_DEFENSIVE_MARK,
+    _stance_label,
     _STANCE_HZ_DEFAULT,
     _STANCE_HZ_LABEL_RE,
     _STANCE_HZ_LINE_RE,

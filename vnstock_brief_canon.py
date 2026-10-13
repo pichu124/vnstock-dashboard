@@ -585,6 +585,8 @@ def _portfolio_fact_line(p: dict) -> str:
     if p.get("pnl_pct") is not None:
         word = "lãi" if p["pnl_pct"] >= 0 else "lỗ"
         line += f" | {word} {p['pnl_pct']:+,.1f}%"
+    if isinstance(p.get("above_ma50"), bool):        # P1b-5: chỉ có khi VNSTOCK_HORIZONS bật
+        line += " | trên MA50" if p["above_ma50"] else " | dưới MA50"
     return line
 
 # ── Khung GTGD phiên đóng cửa ─────────────────────────────────────────────────

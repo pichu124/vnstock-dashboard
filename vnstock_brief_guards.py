@@ -35,6 +35,7 @@ from vnstock_brief_guards_common import (  # noqa: F401  (re-export)
     _is_section_start,
     _parse_vn_number,
     brief_section,
+    defensive_level,
     floor_dir,
     is_defensive,
 )
@@ -54,6 +55,12 @@ from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
     enforce_allocation_table,
     enforce_horizon_view,
     enforce_stance_horizon,
+    enforce_morning_action_defensive,
+    _ALLOC_HORIZON_CAVEAT_3K,
+    _MORNING_ACTION_NOTE,
+    _MORNING_ACTION_RE,
+    _SOFT_DEFENSIVE_MARK,
+    _stance_label,
     _STANCE_HZ_DEFAULT,
     _STANCE_HZ_LABEL_RE,
     _STANCE_HZ_LINE_RE,
@@ -302,6 +309,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_allocation_table(fixed, ctx)     # pin band/% + caveat horizon
     fixed = enforce_horizon_view(fixed, ctx)         # 🔭 + TLDR dòng 3 = code (P1b-3)
     fixed = enforce_stance_horizon(fixed, ctx)       # nhãn Stance/Bias theo bảng 3 khung (P1b-4)
+    fixed = enforce_morning_action_defensive(fixed, ctx)  # sáng: không BUY vô điều kiện (P1b-5)
     fixed = enforce_portfolio_facts(fixed, ctx)      # held-position facts are data
     fixed = enforce_risk_section(fixed, ctx)         # canonical risk facts first
     fixed = enforce_realestate_ocf_context(fixed, ctx)
