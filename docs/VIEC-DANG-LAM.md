@@ -45,6 +45,10 @@ brief tối KHÔNG đổi; chỉ **kẹp tỷ trọng #20 chạy thật ngay** (
    Select-Object -Last 5`; doctor badge "Brief 3 khung" phải ✅ (bật rồi thì state cũ là ❌).
    Brief bị cắt cụt (`python vnstock_llm_ledger.py --show` báo cụt) mới nâng trần token.
 
+6. ○ (máy nào cũng được, NGOÀI khung pipeline) — số cho #27 "quay lại sớm":
+   `python scripts/research_reentry.py --out reentry.md` (chỉ đọc kho, ~1–3 phút) ⇒ gửi file
+   cho Claude; Claude trình bảng A/B/C để bạn chọn (hoặc không chọn).
+
 Cần bạn chốt (đã ghi ở issue): #20 Vá 1 chạy 2 chiều? · #22 ô ép TĂNG giữ GIẢM của agent? ·
 #23 nhịp chỉnh một mình là bảo vệ MỀM? · #27 chọn phương án quay lại sớm (A/B/C).
 
