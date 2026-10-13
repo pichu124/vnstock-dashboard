@@ -602,6 +602,54 @@ def replay_check(warehouse: Path = _WAREHOUSE) -> int:
     return 1 if v["fold_mismatch"] else 0
 
 
+def legend_text() -> str:
+    """1 tin Telegram giải thích từ vựng brief 3 khung (P1b-7, #25) — ngưỡng đọc
+    từ chính tham số lõi để lời giải thích không lệch code."""
+    m, a = PARAMS, hz.AlertParams()
+    return "\n".join([
+        "🔭 <b>Brief 3 khung — đọc thế nào</b>",
+        "",
+        "<b>Ngắn hạn (vài phiên)</b>: nhịp hồi / chưa rõ / nhịp chỉnh, từ điểm kỹ thuật "
+        "ngày (7 phiếu: giá–MA, RSI, độ rộng, khối ngoại…). Quyết Stance ngày mai; "
+        "KHÔNG đổi xu hướng.",
+        f"<b>Trung hạn (xu hướng tuần)</b>: TĂNG / ĐI NGANG / GIẢM, chỉ đọc giá ĐÓNG "
+        f"CỬA TUẦN so MA{m.ma_long} tuần (±{m.band:.0%}) và MA{m.ma_short}/MA{m.ma_long} "
+        f"tuần. Xuống cần 1 tuần, lên cần {m.up_weeks} tuần liền, mỗi tuần tối đa 1 bậc. "
+        "Đây là tiêu đề của brief.",
+        "<b>Dài hạn (6–12 tháng)</b>: đang thu thập dữ liệu — chưa chấm.",
+        f"🚨 <b>Rủi ro ngắn hạn</b>: bật khi đóng cửa thấp hơn đỉnh {a.window} phiên "
+        f"≥{a.drawdown:.0%}, hoặc 1 phiên ≤ {a.day_drop}%, hoặc 3 phiên ≤ {a.three_day_drop}%. "
+        f"Mức 2 khi đóng < {a.tier2_frac:.0%} đỉnh neo. KHÔNG BAO GIỜ đổi xu hướng; tắt "
+        f"khi lấy lại ≥{a.off_frac:.0%} đỉnh neo hoặc {a.off_above_ma} phiên liền trên "
+        f"MA{a.window} (sau tối thiểu {a.dwell} phiên).",
+        "🛡 <b>Lớp bảo vệ</b>: bật khi có nhịp chỉnh / trung hạn GIẢM / 🚨 / tín hiệu "
+        "ngày một chiều giảm. Mức cứng (tín hiệu ngày giảm hoặc ≥2 tín hiệu): watchlist "
+        "chỉ \"canh MUA NẾU vượt\", không GIA TĂNG vô điều kiện, hạ trước mã dưới MA50. "
+        "Mức mềm (1 tín hiệu): chỉ nhắc không mua đuổi.",
+        "💼 <b>Tỷ trọng cổ phiếu</b>: theo band phân bổ; KHÔNG tăng khi trung hạn chưa "
+        "TĂNG hoặc 🚨 bật. Được tăng thì ⏳ báo trước 1 tuần, mỗi tuần tối đa 1 bậc. "
+        "Giảm luôn đi qua.",
+        "🎯 <b>Stance ngày mai</b>: nhịp chỉnh ⇒ GIẢM; nhịp hồi + trung hạn TĂNG + 🚨 tắt "
+        "⇒ TĂNG; còn lại chỉ TRUNG TÍNH/GIẢM (TĂNG chỉ khi trung hạn TĂNG và 🚨 tắt). "
+        "GIẢM luôn được phép.",
+        "",
+        "<i>Mức \"~1,803\" là mức làm tròn, tính lại mỗi tuần.</i>",
+    ])
+
+
+def legend(dry_run: bool = False) -> int:
+    """`run.py horizons --legend`: gửi ĐÚNG 1 tin giải thích từ vựng. Không ghi kho,
+    không đụng marker. ``dry_run`` chỉ in."""
+    text = legend_text()
+    if dry_run:
+        print(text)
+        return 0
+    import vnstock_telegram as tg
+    tg.send_message(text)
+    print("[horizons] đã gửi 1 tin giải thích từ vựng 3 khung")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Brief 3 khung — trạng thái chạy bóng (P1a)")
     g = ap.add_mutually_exclusive_group()
@@ -609,8 +657,11 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--backfill", action="store_true", help="một lần: dựng lịch sử từ kho")
     g.add_argument("--show", action="store_true", help="in trạng thái + 10 phiên gần nhất")
     g.add_argument("--replay", action="store_true", help="kiểm F1/F2/revision")
+    g.add_argument("--legend", action="store_true",
+                   help="gửi 1 tin Telegram giải thích từ vựng 3 khung (không ghi kho)")
     ap.add_argument("--force", action="store_true", help="--update: ghi đè phiên đã có")
     ap.add_argument("--days", type=int, default=120, help="--backfill: số phiên chấm điểm")
+    ap.add_argument("--dry-run", action="store_true", help="--legend: chỉ in, không gửi")
     a = ap.parse_args(argv)
     try:                                   # kill-switch sống trong .env (như doctor)
         from dotenv import load_dotenv
@@ -625,6 +676,8 @@ def main(argv: list[str] | None = None) -> int:
         return backfill(a.days)
     if a.replay:
         return replay_check()
+    if a.legend:
+        return legend(dry_run=a.dry_run)
     return show()
 
 

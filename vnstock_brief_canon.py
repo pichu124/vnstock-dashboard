@@ -528,7 +528,9 @@ def _horizon_cap_text(alloc: dict) -> str:
     return ""
 
 
-def _horizon_portfolio_line(snap: dict, ctx: dict) -> str:
+def _horizon_advice(snap: dict) -> "tuple[str, str]":
+    """(nhãn cặp khung, việc nên làm) theo bảng §3.9 — MỘT chỗ cho 🔭 💼 và header
+    Telegram; ô có "~X" điền mức kích hoạt (thiếu mức ⇒ bỏ vế đó)."""
     key = (snap.get("short"), snap.get("medium"))
     label, advice = _HORIZON_ACTIONS.get(key, _HORIZON_ACTIONS[(0, 0)])
     if "{x}" in advice:
@@ -536,6 +538,11 @@ def _horizon_portfolio_line(snap: dict, ctx: dict) -> str:
         advice = (advice.format(x=_hz_approx(lv["price"]))
                   + ("" if lv.get("reachable") else _hz_unreachable(snap)) if lv
                   else advice.split(";")[0])
+    return label, advice
+
+
+def _horizon_portfolio_line(snap: dict, ctx: dict) -> str:
+    label, advice = _horizon_advice(snap)
     alloc = ctx.get("allocation") or {}
     pct = (alloc.get("allocation") or {}).get("Cổ phiếu")
     head = "- 💼 "

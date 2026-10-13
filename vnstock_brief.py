@@ -86,6 +86,7 @@ from vnstock_brief_canon import (  # noqa: F401  (re-export: giữ nguyên đư�
     _hz_ddmm,
     _hz_level,
     _hz_signed,
+    _horizon_advice,
     _horizon_alert_line,
     _horizon_cap_text,
     _horizon_change_line,

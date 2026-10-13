@@ -749,6 +749,7 @@ def cmd_test(args) -> int:
             "tests/test_stance_horizon.py",  # Stance theo bảng 3 khung (P1b-4, #22)
             "tests/test_defensive_horizon.py",  # lớp bảo vệ 2 mức (P1b-5, #23)
             "tests/test_horizon_vocab.py",  # từ vựng & nhãn 3 khung (P1b-6, #24)
+            "tests/test_telegram_horizons.py",  # header Telegram 3 khung + --legend (P1b-7, #25)
             "tests/test_reports.py",
             "tests/test_report_vision.py",    # Claude Code đọc ảnh báo cáo không có lớp text
             "tests/test_report_digest.py",
@@ -1020,7 +1021,8 @@ def cmd_horizons(args) -> int:
     cho phiên phủ — đã có bản live thì no-op (máy chạy sau / laptop "Cập nhật
     còn lại"). Brief CHƯA đọc file này (P1b). Không bao giờ trả 2: lỗi ở đây
     không được chặn brief. Kill-switch: VNSTOCK_HORIZONS_STEP=0.
-    Tay: `run.py horizons --show | --backfill [--days N] | --replay | --force`."""
+    Tay: `run.py horizons --show | --backfill [--days N] | --replay | --force |
+    --legend [--dry-run]` (1 tin Telegram giải thích từ vựng, P1b-7)."""
     script = str(REPO_ROOT / "vnstock_horizons_state.py")
     if getattr(args, "backfill", False):
         return _run([sys.executable, script, "--backfill",
@@ -1029,6 +1031,9 @@ def cmd_horizons(args) -> int:
         return _run([sys.executable, script, "--show"])
     if getattr(args, "replay", False):
         return _run([sys.executable, script, "--replay"])
+    if getattr(args, "legend", False):
+        return _run([sys.executable, script, "--legend"]
+                    + (["--dry-run"] if getattr(args, "dry_run", False) else []))
     cmd = [sys.executable, script, "--update"]
     if getattr(args, "force", False):
         cmd.append("--force")
@@ -2174,6 +2179,9 @@ def build_parser() -> argparse.ArgumentParser:
     hg.add_argument("--backfill", action="store_true",
                     help="một lần sau khi merge: dựng lịch sử từ kho (○, ghi 1 file _meta)")
     hg.add_argument("--replay", action="store_true", help="kiểm F1/F2/revision")
+    hg.add_argument("--legend", action="store_true",
+                    help="gửi 1 tin Telegram giải thích từ vựng 3 khung (không ghi kho)")
+    hp.add_argument("--dry-run", action="store_true", help="--legend: chỉ in, không gửi")
     hp.add_argument("--force", action="store_true", help="ghi đè phiên đã có")
     hp.add_argument("--days", type=int, default=120, help="--backfill: số phiên chấm điểm")
     ap_ = sub.add_parser("assets",
