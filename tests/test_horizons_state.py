@@ -261,3 +261,27 @@ def test_runpy_horizons_step_never_hard_fails_and_is_wired(monkeypatch):
     args = runpy.build_parser().parse_args(["horizons", "--backfill", "--days", "50"])
     assert args.backfill and args.days == 50 and runpy._DISPATCH["horizons"] is runpy.cmd_horizons
     assert "tests/test_horizons_state.py" in open(runpy.__file__, encoding="utf-8").read()
+
+
+# ── #26: brief đã đọc state ⇒ state hỏng là ERROR; revision vẫn chỉ warn ──────
+
+def test_doctor_escalates_to_error_once_the_brief_reads_the_state(doc, wh, monkeypatch):
+    root, days = wh
+    monkeypatch.setenv("VNSTOCK_HORIZONS", "1")
+    r = doc.check_horizons(now=_evening(days[-1]))
+    assert r["status"] == "error" and r["name"] == "Brief 3 khung"
+    hs.update(now=_evening(days[-2]), warehouse=root)
+    assert doc.check_horizons(now=_evening(days[-2]))["status"] == "ok"
+    assert doc.check_horizons(now=_evening(days[-1]))["status"] == "error"      # cũ
+    monkeypatch.delenv("VNSTOCK_HORIZONS")
+    assert doc.check_horizons(now=_evening(days[-1]))["status"] == "warn"
+
+
+def test_brief_view_of_a_past_session_uses_the_entry_just_before_it(wh):
+    root, days = wh
+    for d in days[-3:]:
+        hs.update(now=_evening(d), warehouse=root)
+    st = hs.load_state(root)
+    mid = st["published"][-2]
+    lp = hs.Latest(state=st, snap=mid, missing=None, expect=date.fromisoformat(mid["as_of"]))
+    assert hs.brief_view(lp)["prev"]["as_of"] == st["published"][-3]["as_of"]

@@ -26,6 +26,29 @@ desktop). **Phiên hiện tại: 🖥️ DESKTOP** (user báo 10/09).
 
 # 🔴 CÒN PHẢI LÀM
 
+## P1b — BRIEF 3 KHUNG (#19–#27, nhánh `claude/vibrant-maxwell-4g4edj`) — chờ bạn duyệt bản mẫu
+
+Code xong #19–#25 + phần chuẩn bị #26. **Chưa bật**: `VNSTOCK_HORIZONS` mặc định TẮT ⇒
+brief tối KHÔNG đổi; chỉ **kẹp tỷ trọng #20 chạy thật ngay** (đang B4 15% nên khó thấy).
+
+1. 🖥️ DESKTOP — merge + FULL test (ngoài khung pipeline 18:00 → `⏱ TỔNG`):
+   `git fetch origin claude/vibrant-maxwell-4g4edj && git merge origin/claude/vibrant-maxwell-4g4edj`
+   rồi `python run.py test` (FULL, không phải `--fast`).
+2. 🖥️ DESKTOP — vòng tròn trên 5 brief THẬT: `python scripts/sample_horizons_brief.py --check 5`
+   (phải ✅ 5/5; ❌ thì gửi nguyên output cho Claude).
+3. 🖥️ DESKTOP — bản mẫu để duyệt: `python scripts/sample_horizons_brief.py --out mau_3khung.md`
+   (không gọi LLM, không gửi Telegram, không ghi kho) ⇒ đọc rồi báo Claude "duyệt" hoặc sửa gì.
+4. Sau khi duyệt — Claude đổi mặc định BẬT; 🖥️ DESKTOP merge lần nữa + `python run.py test` +
+   `python run.py horizons --legend` (1 tin giải thích từ vựng vào Telegram).
+5. 🖥️ DESKTOP — 5 phiên đầu sau khi bật: mỗi sáng xem tin Telegram (header 📊/🔭, khối 🔭 sau
+   TLDR, Stance) + `Select-String -Path run_daily.log -Pattern '\[horizons\]|horizons_apply' |
+   Select-Object -Last 5`; doctor badge "Brief 3 khung" phải ✅ (bật rồi thì state cũ là ❌).
+   Brief bị cắt cụt (`python vnstock_llm_ledger.py --show` báo cụt) mới nâng trần token.
+
+Cần bạn chốt (đã ghi ở issue): #20 Vá 1 chạy 2 chiều? · #22 ô ép TĂNG giữ GIẢM của agent? ·
+#23 nhịp chỉnh một mình là bảo vệ MỀM? · #27 chọn phương án quay lại sớm (A/B/C).
+
+
 ## 0. ✅ XONG 15/09 13:33 — HAI KHO ĐÃ TÁCH NHAU từ 07/09 (Dropbox desktop tắt sync) · đã sync lại, merge, chữa 25/25 mã lệch cơ sở
 
 **Nguyên nhân (user 10/09): Dropbox ở 🖥️ desktop bị TẮT SYNC bằng tay từ tối

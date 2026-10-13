@@ -4666,11 +4666,19 @@ def generate_brief(
     return results
 
 # ── Memory-backed helpers (lazy, all best-effort) ──────────────────────────
+_FEW_SHOT_MARKER = {"afternoon": _HORIZON_TITLE, "morning": "- 🔭 "}
+
+
 def _few_shot_block(brief_type: str, n: int = 2) -> str:
-    """Pull top-rated past briefs to use as in-context examples."""
+    """Pull top-rated past briefs to use as in-context examples.
+
+    Brief 3 khung bật (#26): chỉ mẫu viết SAU khi bật (có 🔭) — mẫu cũ dạy lại
+    TLDR 2 dòng + từ vựng Risk-on/off. Chưa có mẫu mới ⇒ không few-shot."""
     try:
         import vnstock_memory as _mem
-        rows = _mem.top_rated_briefs(brief_type, limit=n)
+        marker = _FEW_SHOT_MARKER.get(brief_type) if horizons_enabled() else None
+        rows = (_mem.top_rated_briefs(brief_type, limit=n, contains=marker) if marker
+                else _mem.top_rated_briefs(brief_type, limit=n))
         if not rows:
             return ""
         rated = [r for r in rows if (r.get("user_rating") or 0) >= 4]

@@ -387,7 +387,9 @@ def brief_view(lp: Latest) -> dict:
     snap, inputs = lp.snap, lp.state.get("inputs") or {}
     days = sorted(k for k in inputs if k <= snap["as_of"])
     pub = lp.state.get("published") or []
-    prev = pub[-2] if len(pub) >= 2 and pub[-1].get("as_of") == snap.get("as_of") else None
+    k = next((i for i in range(len(pub) - 1, -1, -1)
+              if pub[i].get("as_of") == snap.get("as_of")), None)
+    prev = pub[k - 1] if k else None             # bản published NGAY TRƯỚC snap (dòng 🔁)
     breadth = [inputs[k].get("breadth_pct") for k in days]
     alert = snap.get("alert") or {}
     known = [lv["price"] for lv in snap.get("levels") or [] if lv.get("price")]

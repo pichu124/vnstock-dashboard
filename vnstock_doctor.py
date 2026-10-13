@@ -966,28 +966,35 @@ def check_env_duplicates() -> dict:
 
 
 def check_horizons(now: "datetime | None" = None) -> dict:
-    """Brief 3 khung CHẠY BÓNG (P1a, `docs/THIET-KE-BRIEF-3-KHUNG.md` §3.10):
-    state có theo kịp bar VNINDEX trong kho không, gấp lại từ inputs đã lưu có
-    ra đúng bản đã ghi không (F1), close đã ghi có bị sửa sau đó không
-    (revision), có conflicted copy không. Brief CHƯA đọc state (tới P1b) ⇒
-    badge này chỉ warn, không bao giờ error."""
-    name = "Brief 3 khung (chạy bóng)"
+    """Brief 3 khung (P1a chạy bóng → P1b brief đọc, `docs/THIET-KE-BRIEF-3-KHUNG.md`
+    §3.10): state có theo kịp bar VNINDEX trong kho không, gấp lại từ inputs đã
+    lưu có ra đúng bản đã ghi không (F1), close đã ghi có bị sửa sau đó không
+    (revision), có conflicted copy không. VNSTOCK_HORIZONS tắt (brief chưa đọc)
+    ⇒ chỉ warn; BẬT ⇒ state không dùng được là ERROR (brief in "🔭 chưa cập
+    nhật", Stance/bảo vệ rơi về floor cũ) — revision vẫn chỉ warn (#26)."""
+    try:
+        from vnstock_horizons import horizons_enabled
+        live = horizons_enabled()
+    except Exception:
+        live = False
+    name = "Brief 3 khung" if live else "Brief 3 khung (chạy bóng)"
+    bad = "error" if live else "warn"
     if os.environ.get("VNSTOCK_HORIZONS_STEP", "1").strip().lower() in _OFF_VALUES:
         return _result("horizons", name, "off", "tắt (VNSTOCK_HORIZONS_STEP=0)", "")
     try:
         import vnstock_horizons_state as hs
     except Exception as e:
-        return _result("horizons", name, "warn", f"không import được ({type(e).__name__}: {e})", "")
+        return _result("horizons", name, bad, f"không import được ({type(e).__name__}: {e})", "")
     wh = _META.parent
     fix_init = ("○ một lần, NGOÀI khung pipeline desktop (18:00 → '⏱ TỔNG'): "
                 "python run.py horizons --backfill")
     try:
         lp = hs.latest_published(wh, now=now)
-    except Exception as e:      # badge này chỉ warn, không bao giờ error
-        return _result("horizons", name, "warn", f"không đọc được state/kho ({type(e).__name__}: {e})", "")
+    except Exception as e:      # chạy bóng: chỉ warn; brief đã đọc state: error
+        return _result("horizons", name, bad, f"không đọc được state/kho ({type(e).__name__}: {e})", "")
     if lp.missing:
         msg = f"{hs.NO_STATE} (P1a vừa merge?)" if lp.missing == hs.NO_STATE else lp.missing
-        return _result("horizons", name, "warn", msg, fix_init)
+        return _result("horizons", name, bad, msg, fix_init)
     st, last = lp.state, lp.snap
     pub = st["published"]
     issues, fixes = [], []
@@ -1009,7 +1016,9 @@ def check_horizons(now: "datetime | None" = None) -> dict:
     n_live = sum(1 for p in pub if p.get("source") == "live")
     head = f"{hs.headline(last)} · {n_live} phiên live"
     if issues:
-        return _result("horizons", name, "warn", "; ".join(issues) + f" · {head}", " · ".join(fixes))
+        hard = lp.conflicted or lp.stale or v["fold_mismatch"]   # revision: chỉ cần biết
+        return _result("horizons", name, bad if hard else "warn",
+                       "; ".join(issues) + f" · {head}", " · ".join(fixes))
     return _result("horizons", name, "ok",
                    f"{head}, gấp lại khớp {v['live']}/{v['live']}", "")
 
@@ -1467,6 +1476,11 @@ _DANGEROUS_SWITCHES = {
     "VNSTOCK_ALLOC_HORIZON_CAP": "tắt kẹp tỷ trọng theo trung hạn — % cổ phiếu "
                                  "lại tăng được khi trung hạn chưa TĂNG (ca 27/08)",
     "VNSTOCK_ALLOC_ONE_STEP": "band phân bổ lại nhảy được 2 bậc một lần",
+    "VNSTOCK_HORIZONS": "brief quay về khung CŨ — floor momentum ±50, nhãn "
+                        "Risk-on/off, không có 🔭 / bảng Stance / lớp bảo vệ",
+    "VNSTOCK_HORIZONS_STEP": "state 3 khung thôi cập nhật — brief in '🔭 chưa "
+                             "cập nhật', kẹp tỷ trọng mất căn cứ",
+    "VNSTOCK_HORIZON_MACRO": "dòng vĩ mô trong 🔭 tắt",
 }
 _OFF_VALUES = {"0", "false", "off", "no"}
 
