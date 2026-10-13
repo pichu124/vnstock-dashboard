@@ -981,9 +981,12 @@ def check_horizons(now: "datetime | None" = None) -> dict:
     wh = _META.parent
     fix_init = ("○ một lần, NGOÀI khung pipeline desktop (18:00 → '⏱ TỔNG'): "
                 "python run.py horizons --backfill")
-    lp = hs.latest_published(wh, now=now)
+    try:
+        lp = hs.latest_published(wh, now=now)
+    except Exception as e:      # badge này chỉ warn, không bao giờ error
+        return _result("horizons", name, "warn", f"không đọc được state/kho ({type(e).__name__}: {e})", "")
     if lp.missing:
-        msg = "chưa có state (P1a vừa merge?)" if lp.missing == "chưa có state" else lp.missing
+        msg = f"{hs.NO_STATE} (P1a vừa merge?)" if lp.missing == hs.NO_STATE else lp.missing
         return _result("horizons", name, "warn", msg, fix_init)
     st, last = lp.state, lp.snap
     pub = st["published"]

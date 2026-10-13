@@ -582,6 +582,12 @@ def _iso_to_dmy(iso_str: str) -> str:
         return iso_str
 
 
+def _market_header_lines() -> list:
+    """3 dòng thị trường đầu tin brief (VNINDEX, regime, tâm lý) — MỘT chỗ cho
+    cả sáng lẫn chiều (P1b-1, #19); P1b đổi header 3 khung ở đây."""
+    return [_vnindex_line(), _regime_block(), _market_sentiment_line()]
+
+
 def _brief_header(emoji: str, title: str) -> str:
     """Build a header that states the trading session the brief describes plus
     the push timestamp. When the session date differs from today (brief pushed
@@ -627,9 +633,7 @@ def push_morning_brief() -> dict:
 
     blocks = [
         _brief_header("📊", "VNStock Morning Brief"),
-        _vnindex_line(),
-        _regime_block(),
-        _market_sentiment_line(),
+        *_market_header_lines(),
         "",
         "🧠 <b>AI Brief:</b>",
         ai_blk,
@@ -673,9 +677,7 @@ def push_close_brief(ai_block: "str | None" = None,
 
     blocks = [
         _brief_header("📉", "VNStock Close Brief"),
-        _vnindex_line(),
-        _regime_block(),
-        _market_sentiment_line(),
+        *_market_header_lines(),
         "",
         "🧠 <b>AI Outlook:</b>",
         ai_blk,

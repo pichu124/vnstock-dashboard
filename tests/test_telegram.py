@@ -412,8 +412,9 @@ def test_push_briefs_build_snippet_before_header():
     import inspect
     for fn in (tg.push_close_brief, tg.push_morning_brief):
         src = inspect.getsource(fn)
+        # P1b-1 (#19): 3 dòng thị trường dựng qua _market_header_lines()
         assert src.index("_brief_snippet(") < src.index(
-            "_market_sentiment_line("), fn.__name__
+            "_market_header_lines("), fn.__name__
 
 
 # ─── Engine ngoài (30/09): push_close_brief(ai_block=…) ──────────────────────

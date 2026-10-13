@@ -28,7 +28,7 @@ import re as _re
 from abc import ABC, abstractmethod
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 # ── Constants ─────────────────────────────────────────────────────────────
 AGENTS_CONFIG_PATH = Path("data_warehouse/_meta/brief_agents.json")
@@ -1354,7 +1354,8 @@ def _warehouse_eod_date() -> "str | None":
         return None
 
 
-def _market_floor(momentum: "int | None", *, on_error=None) -> "dict | None":
+def _market_floor(momentum: "int | None", *,
+                  on_error: "Callable[[Exception], object] | None" = None) -> "dict | None":
     """Floor cũ của thị trường ở dạng ctx (`{"dir", "momentum", "regime_score"}`)
     hoặc None khi không ép. Regime đọc tươi qua `load_regime()`; đọc hỏng ⇒
     regime None + `on_error(e)`. MỘT chỗ dựng cho cả brief (`collect_context`)
@@ -3277,7 +3278,7 @@ def _bias_floor_prompt_lines(ctx: dict, brief_type: str) -> list[str]:
             f"(Lưu ý: 'BẮT BUỘC' là chỉ thị nội bộ cho bạn — TUYỆT ĐỐI KHÔNG in chữ "
             f"'bắt buộc' vào brief; chỉ ghi bias {bf['dir']} kèm lý do số liệu.)"
         )
-        if bf["dir"] == "GIẢM":
+        if is_defensive(ctx):        # cùng điều kiện với guard watchlist/MUA
             _where = "Watchlist sáng mai" if brief_type != "morning" else "Trọng tâm theo dõi / Kịch bản"
             lines.append(
                 f"Ở '{_where}' (bias GIẢM): TUYỆT ĐỐI KHÔNG đưa setup "

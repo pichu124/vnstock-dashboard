@@ -310,13 +310,18 @@ def load_state(warehouse: Path = _WAREHOUSE) -> dict:
     return {"version": SCHEMA_VERSION, "inputs": {}, "published": []}
 
 
+NO_STATE = "chưa có state"
+EMPTY_STATE = "state rỗng"
+BROKEN_STATE = "state hỏng (không đọc được JSON)"
+
+
 class Latest(NamedTuple):
     """Bản published mới nhất + đủ dữ kiện để quyết "dùng được không"."""
     state: dict
-    snap: "dict | None"        # bản published cuối; None khi chưa có state / state rỗng
-    missing: "str | None"      # "chưa có state" | "state rỗng" | None
-    expect: "date | None"      # bar VNINDEX mới nhất ≤ phiên phủ (`session_covered_at`)
-    conflicted: list           # tên file '(conflicted copy)' của state trong _meta
+    snap: "dict | None"           # bản published cuối; None khi NO/EMPTY/BROKEN_STATE
+    missing: "str | None"         # NO_STATE | EMPTY_STATE | BROKEN_STATE | None
+    expect: "date | None"         # bar VNINDEX mới nhất ≤ phiên phủ (`session_covered_at`)
+    conflicted: tuple = ()        # tên file '(conflicted copy)' của state trong _meta
 
     @property
     def stale(self) -> bool:
@@ -327,22 +332,43 @@ class Latest(NamedTuple):
     def usable(self) -> bool:
         return self.snap is not None and not self.stale and not self.conflicted
 
+    @property
+    def reason(self) -> "str | None":
+        """Vì sao KHÔNG dùng được (None khi `usable`) — cùng câu chữ badge doctor."""
+        if self.missing:
+            return self.missing
+        if self.conflicted:
+            return f"conflicted copy: {', '.join(self.conflicted[:2])}"
+        if self.stale:
+            return f"cũ: bản cuối {self.snap.get('as_of')}, kho đã có bar {self.expect}"
+        return None
+
+
+def _state_file_ok(warehouse: Path) -> bool:
+    try:
+        return isinstance(json.loads(state_path(warehouse).read_text(encoding="utf-8")), dict)
+    except (OSError, ValueError):
+        return False
+
 
 def latest_published(warehouse: Path = _WAREHOUSE, now: datetime | None = None) -> Latest:
-    """MỘT chỗ đọc state 3 khung cho mọi consumer (doctor hôm nay; brief, kẹp
-    allocation từ P1b): bản cuối + cũ so với kho + conflicted copy. CHỈ ĐỌC."""
+    """MỘT chỗ đọc state 3 khung cho mọi consumer (doctor; kẹp allocation, brief
+    từ P1b): bản cuối + cũ so với kho + conflicted copy. CHỈ ĐỌC. Có thể ném khi
+    đọc kho VNINDEX lỗi — caller bọc try (doctor, allocation đều đã bọc)."""
     if not state_path(warehouse).exists():
-        return Latest(load_state(warehouse), None, "chưa có state", None, [])
+        return Latest(state=load_state(warehouse), snap=None, missing=NO_STATE, expect=None)
+    if not _state_file_ok(warehouse):
+        return Latest(state=load_state(warehouse), snap=None, missing=BROKEN_STATE, expect=None)
     st = load_state(warehouse)
     pub = st.get("published") or []
     if not pub:
-        return Latest(st, None, "state rỗng", None, [])
+        return Latest(state=st, snap=None, missing=EMPTY_STATE, expect=None)
     from vnstock_rollup import session_covered_at
-    conflicted = sorted(f.name for f in (warehouse / "_meta").glob("horizon_state*conflicted*"))
+    conflicted = tuple(sorted(f.name for f in (warehouse / "_meta").glob("horizon_state*conflicted*")))
     dates, _ = load_vnindex(warehouse)
     covered = session_covered_at(now or datetime.now())
     expect = max((d for d in dates if d <= covered), default=None)
-    return Latest(st, pub[-1], None, expect, conflicted)
+    return Latest(state=st, snap=pub[-1], missing=None, expect=expect, conflicted=conflicted)
 
 
 def write_state(st: dict, warehouse: Path = _WAREHOUSE) -> None:

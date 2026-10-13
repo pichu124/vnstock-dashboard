@@ -140,3 +140,27 @@ def test_telegram_bearish_is_false_when_loaders_fail(monkeypatch):
     monkeypatch.setattr(vnstock_market_sentiment, "load_market_sentiment", lambda: 1 / 0)
     monkeypatch.setattr(vnstock_regime, "load_regime", lambda: 1 / 0)
     assert vnstock_telegram._market_is_bearish() is False
+
+
+# ── Header Telegram: 3 dòng thị trường giống từng byte (hàm cũ, chụp 13/10) ──
+
+def test_telegram_market_header_lines_are_byte_identical(monkeypatch):
+    import vnstock_market_sentiment
+    import vnstock_regime
+    import vnstock_telegram
+    monkeypatch.setattr(vnstock_regime, "_load_vnindex_tech",
+                        lambda: {"close": 1737.71, "rsi14": 31.4})
+    monkeypatch.setattr(vnstock_regime, "load_regime", lambda: {
+        "label": "❄️ Bear — Risk-off", "score": -5, "n_signals": 7, "confidence": 0.71,
+        "signals": [{"name": "MA200", "value": "dưới", "direction": -1},
+                    {"name": "RSI", "value": "31", "direction": -1},
+                    {"name": "NN", "value": "-3,297 tỷ", "direction": -2},
+                    {"name": "A/D", "value": "0.6", "direction": 0}]})
+    monkeypatch.setattr(vnstock_market_sentiment, "load_market_sentiment", lambda: {
+        "mood": "😨 Sợ hãi", "momentum": -67, "n_signals": 5})
+    got = "\n".join(b for b in vnstock_telegram._market_header_lines() if b is not None)
+    assert got == (
+        "🌏 VNINDEX: <b>1,737.7</b> | RSI 31\n"
+        "⚖️ <b>Regime:</b> ❄️ Bear — Risk-off  (score -5/7, conviction 71%)\n"
+        "   🔴 NN: -3,297 tỷ | 🔴 MA200: dưới | 🔴 RSI: 31\n"
+        "🧭 <b>Tâm lý:</b> 😨 Sợ hãi (momentum -67/100, 5 tín hiệu)")

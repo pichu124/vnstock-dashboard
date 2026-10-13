@@ -175,9 +175,27 @@ def test_latest_published_tells_missing_empty_fresh_stale_and_conflicted(wh):
     lp = hs.latest_published(root, now=_evening(days[-1]))      # kho đã có bar mới hơn
     assert lp.stale and not lp.usable and lp.expect == days[-1]
 
+    assert lp.reason == f"cũ: bản cuối {days[-2].isoformat()}, kho đã có bar {days[-1]}"
+
     (root / "_meta" / "horizon_state (PICHU's conflicted copy).json").write_text("{}")
     lp = hs.latest_published(root, now=_evening(days[-2]))
     assert lp.conflicted and not lp.stale and not lp.usable
+    assert lp.reason.startswith("conflicted copy: horizon_state (PICHU")
+
+
+def test_latest_published_tells_a_broken_file_apart_from_an_empty_one(wh):
+    root, days = wh
+    hs.state_path(root).write_text("{not json", encoding="utf-8")
+    lp = hs.latest_published(root, now=_evening(days[-1]))
+    assert lp.snap is None and lp.missing == hs.BROKEN_STATE and lp.reason == hs.BROKEN_STATE
+
+
+def test_doctor_stays_warn_when_the_reader_blows_up(doc, wh, monkeypatch):
+    root, days = wh
+    hs.update(now=_evening(days[-1]), warehouse=root)
+    monkeypatch.setattr(hs, "load_vnindex", lambda wh: 1 / 0)
+    r = doc.check_horizons(now=_evening(days[-1]))
+    assert r["status"] == "warn" and "ZeroDivisionError" in r["message"]
 
 
 # ── Doctor ───────────────────────────────────────────────────────────────
@@ -193,6 +211,7 @@ def doc(wh, monkeypatch):
 def test_doctor_warns_when_state_missing(doc, wh):
     r = doc.check_horizons(now=_evening(wh[1][-1]))
     assert r["status"] == "warn" and "--backfill" in r["fix"]
+    assert r["message"] == "chưa có state (P1a vừa merge?)"     # câu chữ như trước P1b-1
 
 
 def test_doctor_ok_after_update_then_stale_when_kho_moves_ahead(doc, wh):
