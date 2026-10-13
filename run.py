@@ -751,6 +751,7 @@ def cmd_test(args) -> int:
             "tests/test_horizon_vocab.py",  # từ vựng & nhãn 3 khung (P1b-6, #24)
             "tests/test_telegram_horizons.py",  # header Telegram 3 khung + --legend (P1b-7, #25)
             "tests/test_horizons_rollout.py",  # few-shot sau P1b, công tắc doctor, bản mẫu (P1b-8, #26)
+            "tests/test_research_reentry.py",  # #27 nghiên cứu tái nhập sớm (lõi mô phỏng)
             "tests/test_reports.py",
             "tests/test_report_vision.py",    # Claude Code đọc ảnh báo cáo không có lớp text
             "tests/test_report_digest.py",
