@@ -196,6 +196,43 @@ def scan_flow_claims(text: str, ctx: dict | None) -> list:
     return out
 
 
+_REVERSAL_RE = None
+
+
+def scan_trend_reversal(text: str, ctx: dict | None) -> list:
+    """Câu "đảo chiều xu hướng" của THỊ TRƯỜNG/VNINDEX trong phiên trung hạn
+    KHÔNG đổi (brief 3 khung, P1b-6 #24) — chỉ ĐẾM, chưa sửa (§3.12). Bỏ qua
+    khối 🔭 (code viết), câu nói về mẫu hình, câu không nhắc thị trường/chỉ số
+    (đảo chiều của MỘT mã). Hàm thuần."""
+    import re as _re
+    global _REVERSAL_RE
+    view = (ctx or {}).get("horizons")
+    if not text or not isinstance(view, dict) or view.get("stale") \
+            or not isinstance(view.get("snap"), dict):
+        return []
+    prev = view.get("prev") or {}
+    if prev and prev.get("medium") != view["snap"].get("medium"):
+        return []                                      # trung hạn đổi THẬT phiên này
+    if _REVERSAL_RE is None:
+        _REVERSAL_RE = _re.compile(r"[^.!?\n]*đảo chiều xu hướng[^.!?\n]*", _re.IGNORECASE)
+    out, skip = [], False
+    for ln in text.split("\n"):
+        s = ln.lstrip()
+        if s.startswith("#"):
+            skip = "🔭" in s or "góc nhìn theo khung thời gian" in s.lower()
+        if skip:
+            continue
+        for m in _REVERSAL_RE.finditer(ln):
+            sent = m.group(0).strip()
+            low = sent.lower()
+            if "mẫu hình" in low or not any(w in low for w in ("thị trường", "vnindex",
+                                                                "vn-index", "chỉ số")):
+                continue
+            out.append({"kind": "trend_reversal_claim", "medium": view["snap"].get("medium"),
+                        "text": sent[:160]})
+    return out
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Đường có I/O — best-effort, KHÔNG BAO GIỜ ném
 # ─────────────────────────────────────────────────────────────────────────
@@ -273,7 +310,8 @@ def observe_brief(warehouse_root, text: str, ctx: dict | None, today=None) -> li
         return []
     try:
         events = (scan_ocf_scale(ctx, verified=load_verified(warehouse_root))
-                  + scan_flow_claims(text, ctx) + scan_risk_repeat(text))
+                  + scan_flow_claims(text, ctx) + scan_risk_repeat(text)
+                  + scan_trend_reversal(text, ctx))
     except Exception:
         return []
     if events:
@@ -346,6 +384,7 @@ def summarize(warehouse_root) -> dict:
         "n_days": len(days),
         "n_ocf": len(ocf),
         "n_flow": len(flow),
+        "n_trend_reversal": sum(1 for e in events if e.get("kind") == "trend_reversal_claim"),
         "ocf_tickers": sorted({e.get("ticker") for e in ocf if e.get("ticker")}),
         "flow_sectors": sorted({e.get("sector") for e in flow if e.get("sector")}),
         "worst_ocf": worst,

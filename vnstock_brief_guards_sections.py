@@ -51,6 +51,7 @@ from vnstock_brief_canon import (
     _HORIZON_TITLE,
     _HORIZON_TLDR_LINE_RE,
     _HORIZON_TLDR_PREFIX,
+    _horizon_morning_line,
     _horizon_render,
     _macro_body_lines,
     _macro_reports_body_lines,
@@ -349,15 +350,34 @@ def _hz_tldr_region(lines: list[str]) -> "tuple[int, int] | None":
     return t0, next((i for i in heads if i > t0), len(lines))
 
 
+def _horizon_morning_tldr(text: str, ctx: dict) -> str:
+    """Brief sáng (P1b-6): đúng 1 gạch "- 🔭 …" ở cuối TLDR, không có khối 🔭."""
+    line = _horizon_morning_line(ctx)
+    lines = text.split("\n")
+    region = _hz_tldr_region(lines)
+    if not line or region is None:
+        return text
+    t0, t_end = region
+    keep = [ln for ln in lines[t0 + 1:t_end] if not ln.lstrip().startswith("- 🔭")]
+    at = max((k for k, ln in enumerate(keep) if ln.strip()), default=-1)
+    keep.insert(at + 1, line)
+    return "\n".join(lines[:t0 + 1] + keep + lines[t_end:])
+
+
 def enforce_horizon_view(text: str, ctx: dict) -> str:
     """Khối 🔭 + TLDR dòng 3 "**Trung hạn:** …" là DATA của code (P1b-3): dựng lại
     từ canon (``_horizon_render``), đặt ngay sau TLDR; agent chỉ giữ được ≤1 câu
     sau "→" ở dòng Ngắn hạn / Trung hạn. Mọi khối 🔭 agent viết đều bị thay.
-    Không tìm được TLDR ⇒ 🔭 xuống CUỐI brief (không bao giờ lên đầu). No-op khi
-    ctx không có ``horizons`` (công tắc VNSTOCK_HORIZONS tắt) và ở brief sáng
-    (#24). Idempotent kể cả khi guard sau chèn "⚠️" dưới dòng Stance."""
-    if (not text or not isinstance((ctx or {}).get("horizons"), dict)
-            or (ctx.get("brief_type") or "afternoon") != "afternoon"):
+    Không tìm được TLDR ⇒ 🔭 xuống CUỐI brief (không bao giờ lên đầu). Brief sáng:
+    chỉ 1 gạch 🔭 trong TLDR (P1b-6). No-op khi ctx không có ``horizons`` (công
+    tắc VNSTOCK_HORIZONS tắt). Idempotent kể cả khi guard sau chèn "⚠️" dưới
+    dòng Stance.""" 
+    if not text or not isinstance((ctx or {}).get("horizons"), dict):
+        return text
+    bt = ctx.get("brief_type") or "afternoon"
+    if bt == "morning":
+        return _horizon_morning_tldr(text, ctx)
+    if bt != "afternoon":
         return text
     body, tldr = _horizon_render(ctx)
     if not body:
@@ -502,6 +522,31 @@ def enforce_stance_horizon(text: str, ctx: dict) -> str:
                                count=1)
     lines[k] = f"{head}{new_rest}".rstrip()
     ctx["stance_pinned"] = {"agent": label, "code": target}
+    return "\n".join(lines)
+
+
+# ── Từ vựng 3 khung (P1b-6, #24; §3.1, §3.12) ────────────────────────────────
+_RISK_ONOFF_RE = _re.compile(
+    r"(?:(?:🔥|❄️)\s*)?(?:(?:Bull|Bear)\s*[—–-]\s*)?\brisk[\s-]?(on|off)\b", _re.IGNORECASE)
+
+
+def enforce_horizon_vocab(text: str, ctx: dict) -> str:
+    """"Risk-on/Risk-off" ở cấp thị trường là nhãn của nhịp NGÀY (7 phiếu), không
+    phải xu hướng ⇒ "điểm kỹ thuật ngày tích cực/tiêu cực". Không đụng khối 🔭
+    (code viết). "Đảo chiều xu hướng thị trường" khi trung hạn không đổi chỉ được
+    ĐẾM (`vnstock_brief_watch.scan_trend_reversal`), không sửa. No-op khi công tắc
+    tắt. Idempotent."""
+    if not text or not isinstance((ctx or {}).get("horizons"), dict):
+        return text
+    lines, skip = text.split("\n"), False
+    for k, ln in enumerate(lines):
+        if _is_section_start(ln):
+            skip = _is_horizon_heading(ln)
+        if skip or not _RISK_ONOFF_RE.search(ln):
+            continue
+        lines[k] = _RISK_ONOFF_RE.sub(
+            lambda m: "điểm kỹ thuật ngày " + ("tích cực" if m.group(1).lower() == "on"
+                                              else "tiêu cực"), ln)
     return "\n".join(lines)
 
 

@@ -30,6 +30,31 @@ PRESET_SUGGESTIONS: dict[str, list[str]] = {
     "bear":     ["oversold", "reversal"],
 }
 
+# Từ vựng 3 khung (P1b-6, #24 — §3.1): "Risk-on/Risk-off" cấp thị trường là nhãn
+# của nhịp NGÀY (7 phiếu), không phải xu hướng. MỘT hàm nhãn cho cả regime lẫn
+# quant ngành, theo công tắc VNSTOCK_HORIZONS. Nhãn CŨ vẫn là `label_old` của
+# chạy bóng (so sánh cũ/mới + F1 đọc nó) — không bao giờ đổi.
+_VOCAB_3K: dict[str, str] = {
+    "🔥 Bull — Risk-on": "🟢 Kỹ thuật ngày: rất tích cực",
+    "📈 Tích cực": "🟢 Kỹ thuật ngày: tích cực",
+    "⚖️ Sideways / Phân hoá": "⚖️ Kỹ thuật ngày: trung tính / phân hoá",
+    "📉 Tiêu cực": "🔴 Kỹ thuật ngày: tiêu cực",
+    "❄️ Bear — Risk-off": "🔴 Kỹ thuật ngày: rất tiêu cực",
+    "🔥 Risk-on": "🟢 Dòng tiền ngành nghiêng mạnh tích cực",
+    "📈 Slight bullish bias": "📈 Dòng tiền ngành nghiêng tích cực",
+    "⚖️ Neutral / Phân hoá": "⚖️ Dòng tiền ngành trung tính / phân hoá",
+    "📉 Slight bearish bias": "📉 Dòng tiền ngành nghiêng tiêu cực",
+    "❄️ Risk-off": "🔴 Dòng tiền ngành nghiêng mạnh tiêu cực",
+}
+
+
+def vocab_label(old: str) -> str:
+    """Nhãn hiển thị của regime/quant: nhãn cũ khi công tắc tắt, từ vựng 3 khung
+    khi bật (nhãn lạ ⇒ giữ nguyên)."""
+    from vnstock_horizons import horizons_enabled
+    return _VOCAB_3K.get(old, old) if horizons_enabled() else old
+
+
 REGIME_META: dict[str, dict] = {
     "bull":     {"label": "🔥 Bull — Risk-on",      "color": "#22c55e", "bg": "#14532d"},
     "bullish":  {"label": "📈 Tích cực",             "color": "#86efac", "bg": "#166534"},
@@ -222,7 +247,8 @@ def classify_regime(
     meta = REGIME_META[regime]
     return {
         "regime":            regime,
-        "label":             meta["label"],
+        "label":             vocab_label(meta["label"]),
+        "label_old":         meta["label"],
         "color":             meta["color"],
         "bg":                meta["bg"],
         "score":             score,

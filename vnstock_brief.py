@@ -73,6 +73,7 @@ from vnstock_brief_canon import (  # noqa: F401  (re-export: giữ nguyên đư�
     _HORIZON_TITLE,
     _HORIZON_TLDR_PREFIX,
     _horizon_body_lines,
+    _horizon_morning_line,
     _horizon_render,
     _horizon_tldr_line,
     _HORIZON_TLDR_LINE_RE,
@@ -2929,8 +2930,9 @@ def _apply_horizons(ctx: dict, brief_type: str) -> None:
 
 
 def horizons_enabled() -> bool:
-    """Công tắc brief 3 khung (VNSTOCK_HORIZONS) — mặc định TẮT cho tới #26."""
-    return os.environ.get("VNSTOCK_HORIZONS", "0").strip().lower() in ("1", "true", "on", "yes")
+    """Công tắc brief 3 khung (VNSTOCK_HORIZONS) — đọc ở `vnstock_horizons`."""
+    from vnstock_horizons import horizons_enabled as _on
+    return _on()
 
 
 def _apply_horizon_stance(ctx: dict) -> None:
@@ -3453,16 +3455,19 @@ def _quant_regime_prompt_lines(ctx: dict) -> list[str]:
     khi thiếu). Tách khỏi `build_prompt` (P1b-1, #19)."""
     lines: list[str] = []
     # Regime
+    # brief 3 khung (P1b-6): "regime" quant chỉ là độ nghiêng dòng tiền ngành khung NGÀY
+    title = ("## Dòng tiền ngành (quant, khung ngày)" if isinstance(ctx.get("horizons"), dict)
+             else "## Quant Market Regime")
     if r := ctx.get("quant_regime"):
         vr = ctx.get("vol_regime", "normal")
         vr_note = " | ⚡ Biên độ cao — high-vol regime" if vr == "high" else ""
-        lines.append(f"\n## Quant Market Regime\n{r['regime']} | conviction={r['conviction']:+.2f}"
+        lines.append(f"\n{title}\n{r['regime']} | conviction={r['conviction']:+.2f}"
                      f"{vr_note} | {r['detail']}")
     else:
         # Template nhắc "regime" ở nhiều chỗ ràng buộc (stance, hướng setup,
         # lý do phân bổ). Không có block = model tự đặt ra một regime.
         lines.append(
-            "\n## Quant Market Regime\n"
+            f"\n{title}\n"
             "⚠️ KHÔNG CÓ quant regime hôm nay — TUYỆT ĐỐI KHÔNG nêu tên regime "
             "hay conviction; nếu cần nhắc thì ghi 'chưa có regime hôm nay'."
         )
@@ -4117,7 +4122,14 @@ _HORIZON_SECTION_TEMPLATE = (
 def _horizon_prompt_lines(ctx: dict, brief_type: str) -> list[str]:
     """Khối dữ liệu 🔭 cho prompt brief CHIỀU — rỗng khi công tắc tắt (ctx không
     có ``horizons``) ⇒ prompt giống từng byte bản cũ (golden #19)."""
-    if brief_type != "afternoon" or not isinstance(ctx.get("horizons"), dict):
+    if not isinstance(ctx.get("horizons"), dict):
+        return []
+    if brief_type == "morning":                  # P1b-6: 1 gạch 🔭 trong TLDR (mẫu §4 D)
+        line = _horizon_morning_line(ctx)
+        return ["\n## 🔭 Khung thời gian — HỆ THỐNG IN 1 DÒNG VÀO TLDR (KHÔNG tự viết)\n"
+                f"{line}\n→ Bias khung PHIÊN; trung hạn là khung TUẦN — lệch chiều không "
+                "phải mâu thuẫn."] if line else []
+    if brief_type != "afternoon":
         return []
     body, tldr = _horizon_render(ctx)
     if not body:
@@ -4195,6 +4207,9 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     enforce_allocation_table,
     enforce_horizon_view,
     enforce_stance_horizon,
+    enforce_horizon_vocab,
+    _RISK_ONOFF_RE,
+    _horizon_morning_tldr,
     enforce_morning_action_defensive,
     _ALLOC_HORIZON_CAVEAT_3K,
     _MORNING_ACTION_NOTE,

@@ -580,6 +580,31 @@ def _hz_unreachable(snap: dict) -> str:
     return f" (chưa thể trong {_hz_week_word(snap)})"
 
 
+def _horizon_morning_line(ctx: dict) -> "str | None":
+    """Gạch 🔭 trong TLDR brief SÁNG (mẫu §4 D, P1b-6) — trạng thái của bản
+    published phiên trước, không bao giờ đổi trong phiên. None khi công tắc tắt."""
+    from vnstock_horizons import MEDIUM_LABEL, SHORT_LABEL
+    view = _horizon_view(ctx)
+    if view is None:
+        return None
+    if view.get("stale") or not isinstance(view.get("snap"), dict):
+        return _hz_not_updated(view.get("as_of"))
+    snap = view["snap"]
+    parts = [f"Trung hạn {MEDIUM_LABEL.get(snap.get('medium'), '?')} "
+             f"(tuần {view.get('medium_weeks') or 1})",
+             f"ngắn hạn: {SHORT_LABEL.get(snap.get('short'), '?')} "
+             f"(phiên {view.get('short_sessions') or 1})"]
+    pct = ((ctx.get("allocation") or {}).get("allocation") or {}).get("Cổ phiếu")
+    if isinstance(pct, (int, float)):
+        parts.append(f"💼 {pct:g}%")
+    rule = snap.get("stance") or {}
+    bias = (f"Bias {rule['forced']}" if rule.get("forced")
+            else f"Bias chỉ {'/'.join(rule.get('allowed') or [])}" if rule.get("allowed") else "")
+    if (ctx.get("defensive") or {}).get("level") == "cứng":
+        bias += ("; " if bias else "") + "không BUY vô điều kiện"
+    return "- 🔭 " + " · ".join(parts) + (f" — {bias}" if bias else "")
+
+
 def _horizon_tldr_line(ctx: dict) -> "str | None":
     """TLDR dòng 3 "**Trung hạn:** …" (code viết, guard ghim); None khi state cũ.
     Số tuần còn cần để lên bậc trừ đi ``pending`` (tuần đọc đã có)."""

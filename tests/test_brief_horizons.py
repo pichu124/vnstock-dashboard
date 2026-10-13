@@ -162,9 +162,9 @@ def test_guard_rewrites_a_section_the_agent_garbled():
 
 @pytest.mark.parametrize("ctx", [
     {"brief_type": "afternoon"},                       # công tắc tắt ⇒ không có khoá
-    _ctx(brief_type="morning"),                        # brief sáng: dòng 🔭 riêng ở #24
+    _ctx(brief_type="allocation"),                     # brief phân bổ không có 🔭
 ])
-def test_guard_is_a_noop_without_horizons_or_for_the_morning_brief(ctx):
+def test_guard_is_a_noop_without_horizons_or_for_the_allocation_brief(ctx):
     from vnstock_brief import enforce_horizon_view
     assert enforce_horizon_view(_AGENT, ctx) == _AGENT
 

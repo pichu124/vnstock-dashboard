@@ -20,6 +20,7 @@ Năm thành phần:
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass
 from datetime import date
 from typing import Sequence
@@ -30,6 +31,13 @@ SHORT_LABEL = {HOI: "nhịp hồi", CHUA_RO: "chưa rõ", CHINH: "nhịp chỉnh
 MEDIUM_LABEL = {TANG: "TĂNG", DI_NGANG: "ĐI NGANG", GIAM: "GIẢM"}
 
 STANCE_UP, STANCE_FLAT, STANCE_DOWN = "TĂNG", "TRUNG TÍNH", "GIẢM"
+
+
+def horizons_enabled() -> bool:
+    """Công tắc brief 3 khung VNSTOCK_HORIZONS (mặc định TẮT cho tới #26) — MỘT
+    chỗ đọc cho brief, nhãn regime/quant, Telegram, dashboard. Ngoại lệ I/O duy
+    nhất của module lõi (chỉ đọc biến môi trường)."""
+    return os.environ.get("VNSTOCK_HORIZONS", "0").strip().lower() in ("1", "true", "on", "yes")
 PROTECT_HARD, PROTECT_SOFT = "cứng", "mềm"
 
 

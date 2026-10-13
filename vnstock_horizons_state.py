@@ -212,7 +212,7 @@ def score_inputs(dates: list[date], closes: list[float], targets: list[date],
         reg = classify_regime(tech, b, round(nn_d, 1) if nn_d is not None else 0.0)
         mom = compute_market_sentiment(b, nn_d, tech).get("momentum")
         out[d] = {"score": int(reg["score"]), "n": int(reg["n_signals"]),
-                  "label_old": reg["label"], "momentum": mom,
+                  "label_old": reg.get("label_old", reg["label"]), "momentum": mom,
                   "floor_old": _bias_floor_dir(mom, reg["score"]),
                   "breadth_pct": b.get("above_ma200_pct"),
                   "ad": [b.get("advances"), b.get("declines")] if b.get("advances") is not None else None,
