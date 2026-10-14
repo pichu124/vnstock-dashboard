@@ -68,6 +68,9 @@ code): thêm `VNSTOCK_HORIZONS=0` vào `.env` 🖥️ desktop (doctor sẽ ⚠�
    💻 lượt 2: capA 3,97% / −9,8% / 20,5 lượt đổi/năm (B 13,3; không kẹp 24,1) ⇒ **Claude đề xuất
    giữ B, không làm A/B/C**; chi phí của B để P3 (band v2 gốc theo trung hạn) xử. Bảng ở
    `THIET-KE-BRIEF-3-KHUNG.md` mục "Câu 14 — ĐO 14/10". Không đổi code.
+   Lượt 3 (user hỏi sao không có 2018/2022): kho chỉ có VNINDEX từ 02/01/2024 (updater chỉ nối
+   VỀ SAU) ⇒ script nay nối VNINDEX cũ từ VCI CHỈ TRONG BỘ NHỚ (đối chiếu phần chồng, không ghi
+   kho) + in số mã độ rộng theo năm ⇒ 💻 merge rồi chạy lại cùng lệnh, gửi Claude.
 
 Cần bạn chốt (đã ghi ở issue): #20 Vá 1 chạy 2 chiều? · #22 ô ép TĂNG giữ GIẢM của agent? ·
 #23 nhịp chỉnh một mình là bảo vệ MỀM? · #27 Claude đề xuất KHÔNG làm A/B/C, giữ Câu 14 = B

@@ -110,3 +110,55 @@ def test_report_renders_both_tables(rr):
     text = rr.report(_v_shape(rr))
     assert "## 1. Phần bị lỡ" in text and "## 2. So 3 hướng" in text
     assert "| cap |" in text and "| capA |" in text and "| C |" in text
+
+
+# ── VNINDEX sâu hơn kho: nối trong bộ nhớ sau khi đối chiếu phần chồng ──────
+
+def _wh_series(n=60, d0=date(2024, 1, 2)):
+    dates = [d0 + timedelta(days=i) for i in range(n)]
+    return dates, [1100.0 + i for i in range(n)]
+
+
+def test_deepen_prepends_older_bars_when_the_overlap_matches(rr):
+    dates, closes = _wh_series()
+    old = {date(2023, 1, 2) + timedelta(days=i): 1000.0 + i for i in range(300)
+           if date(2023, 1, 2) + timedelta(days=i) < dates[0]}
+    src = {**old, **{d: c * 1.001 for d, c in zip(dates, closes)}}      # lệch 0.1% < 0.5%
+    seen = {}
+
+    def fetch(s, e):
+        seen.update(start=s, end=e)
+        return src
+    d2, c2, why = rr.deepen_vnindex(dates, closes, date(2023, 1, 1), fetch=fetch)
+    assert d2[0] == date(2023, 1, 2) and d2[len(old):] == dates and c2[len(old):] == closes
+    assert "nối" in why and "không ghi kho" in why and seen["start"] == "2023-01-01"
+
+
+@pytest.mark.parametrize("src_factor,expect", [(1.02, "lệch kho"), (None, "không lấy được")])
+def test_deepen_refuses_a_shifted_source_or_a_failed_fetch(rr, src_factor, expect):
+    dates, closes = _wh_series()
+
+    def fetch(s, e):
+        if src_factor is None:
+            raise RuntimeError("timeout")
+        older = {date(2023, 6, 1) + timedelta(days=i): 1000.0 for i in range(30)}
+        return {**older, **{d: c * src_factor for d, c in zip(dates, closes)}}
+    d2, c2, why = rr.deepen_vnindex(dates, closes, date(2023, 1, 1), fetch=fetch)
+    assert (d2, c2) == (dates, closes) and expect in why
+
+
+def test_deepen_is_a_no_op_when_the_warehouse_is_already_deep(rr):
+    dates, closes = _wh_series()
+    assert rr.deepen_vnindex(dates, closes, dates[0], fetch=lambda s, e: 1 / 0)[2] == "kho đã đủ sâu"
+
+
+def test_thin_breadth_and_coverage(rr):
+    b = {date(2018, 3, 1): {"total": 120}, date(2018, 3, 2): {"total": 140},
+         date(2024, 3, 1): {"total": 1500}}
+    assert list(rr.thin_breadth(b)) == [date(2024, 3, 1)]
+    assert rr.coverage_by_year(b) == {2018: 140, 2024: 1500}
+
+
+def test_report_prints_the_data_notes(rr):
+    text = rr.report(_v_shape(rr), ["VNINDEX trong kho: X", "VNINDEX sâu hơn: nối 5 phiên"])
+    assert "- VNINDEX trong kho: X" in text and "- VNINDEX sâu hơn: nối 5 phiên" in text

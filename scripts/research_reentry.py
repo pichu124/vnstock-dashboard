@@ -27,6 +27,13 @@ Mô hình (ghi rõ để đọc số cho trung thực):
   Mỗi hướng mở tối đa 1 lần cho tới khi trung hạn lên TĂNG (rồi mới mở lại).
 - Danh mục: % cổ phiếu × lợi suất VNINDEX (chỉ số giá), phần còn lại 0%; quyết ở
   phiên t, thực hiện phiên t+1 (ăn lợi suất từ t+2); phí 0.15% × |đổi tỷ trọng|.
+- **VNINDEX sâu hơn kho** (14/10): kho chỉ có VNINDEX từ 02/01/2024 (updater chỉ nối VỀ
+  SAU bar cuối, không bao giờ tải ngược) nên lượt đầu mất 2018/2022. Script nối phần cũ
+  từ nguồn (VCI, `vnstock_updater._fetch_prices`) CHỈ TRONG BỘ NHỚ — không ghi kho, vì
+  chuỗi VNINDEX của kho nuôi trạng thái 3 khung đang chạy — sau khi đối chiếu ≥20 phiên
+  chồng (trung vị lệch ≤0.5%). `--no-deep` = chỉ dùng kho. Phiên có < 300 mã trong mẫu số
+  độ rộng ⇒ bỏ độ rộng phiên đó (giá cổ phiếu cũ chỉ có nếu kho từng tải; mã đã huỷ niêm
+  yết mà kho không có ⇒ độ rộng năm cũ thiên lệch người sống sót — đọc bảng phủ theo năm).
 """
 from __future__ import annotations
 
@@ -49,6 +56,9 @@ _C_DEPTH = -0.20
 _TROUGH_DEPTH = -0.15
 _TROUGH_WINDOW = 120          # phiên sau đáy để đo phần lỡ (hoặc tới khi lập đỉnh mới)
 _REVERSAL = 20
+_DEEP_TOL = 0.005             # trung vị lệch nguồn/kho trên phần chồng tối đa để nối
+_DEEP_OVERLAP = 20            # số phiên chồng tối thiểu
+_MIN_UNIVERSE = 300           # mẫu số độ rộng tối thiểu — ít hơn thì bỏ độ rộng phiên đó
 VARIANTS = ("nocap", "cap", "capA", "A", "B", "C")
 
 
@@ -212,11 +222,12 @@ def reversals(days: list[Day], eq: list[float], base: list[float]) -> "tuple[int
 
 # ── Báo cáo ───────────────────────────────────────────────────────────────
 
-def report(days: list[Day]) -> str:
+def report(days: list[Day], notes: "list[str] | tuple" = ()) -> str:
     eqs = {v: simulate(days, v) for v in VARIANTS}
     vals = {v: portfolio(days, eqs[v]) for v in VARIANTS}
     lines = [f"# #27 — tái nhập sớm cho kẹp tỷ trọng ({days[0].d} → {days[-1].d}, "
              f"{len(days)} phiên)", ""]
+    lines += [f"- {n}" for n in notes] + ([""] if notes else [])
     lines += ["## 1. Phần bị lỡ của kẹp hiện tại sau mỗi đáy ≥15%", "",
               "| Đáy | VNINDEX | Cửa sổ | Phiên kẹp < không kẹp | Lỡ (điểm %) cap | capA | A | B | C |",
               "|---|---|---|---|---|---|---|---|---|"]
@@ -247,14 +258,73 @@ def report(days: list[Day]) -> str:
     return "\n".join(lines)
 
 
-def load_days(warehouse: Path, start: date) -> list[Day]:
+def _fetch_vnindex(start: str, end: str) -> dict:
+    import vnstock_updater as up
+    df = up._fetch_prices("VNINDEX", start, end)
+    out = {}
+    for t, c in zip(df["time"], df["close"]):
+        c = float(c)
+        out[(t.date() if hasattr(t, "date") else date.fromisoformat(str(t)[:10]))] = (
+            c / 1000 if c > 5000 else c)
+    return out
+
+
+def deepen_vnindex(dates: list[date], closes: list[float], start: date,
+                   fetch=_fetch_vnindex) -> "tuple[list[date], list[float], str]":
+    """Nối VNINDEX trước phiên đầu của kho bằng nguồn — CHỈ trong bộ nhớ. Đối chiếu phần
+    chồng trước khi nối: lệch cơ sở (giá khác nguồn/điều chỉnh) thì KHÔNG nối, trả lý do."""
+    if not dates or dates[0] <= start:
+        return dates, closes, "kho đã đủ sâu"
+    head = dates[:2 * _DEEP_OVERLAP + 1]
+    try:
+        src = fetch(start.isoformat(), head[-1].isoformat())
+    except Exception as e:                        # mạng/API key — chạy tiếp với kho
+        return dates, closes, f"không lấy được từ nguồn ({type(e).__name__}: {e})"
+    wh = dict(zip(dates, closes))
+    common = [d for d in head if d in src and wh[d]]
+    if len(common) < _DEEP_OVERLAP:
+        return dates, closes, f"phần chồng chỉ {len(common)} phiên (< {_DEEP_OVERLAP})"
+    devs = sorted(abs(src[d] / wh[d] - 1) for d in common)
+    dev = devs[len(devs) // 2]
+    if dev > _DEEP_TOL:
+        return dates, closes, f"nguồn lệch kho {dev:.2%} trên {len(common)} phiên chồng — không nối"
+    older = sorted(d for d in src if start <= d < dates[0] and src[d])
+    if not older:
+        return dates, closes, "nguồn không có phiên nào trước kho"
+    return ([*older, *dates], [src[d] for d in older] + list(closes),
+            f"nối {len(older)} phiên VNINDEX {older[0]} → {older[-1]} từ nguồn "
+            f"(lệch chồng {dev:.2%} / {len(common)} phiên; không ghi kho)")
+
+
+def thin_breadth(breadth: dict, min_total: int = _MIN_UNIVERSE) -> dict:
+    """Bỏ phiên có mẫu số độ rộng quá mỏng (năm cũ kho thiếu mã) — % trên 50 mã là nhiễu."""
+    return {d: b for d, b in breadth.items() if (b.get("total") or 0) >= min_total}
+
+
+def coverage_by_year(breadth: dict) -> "dict[int, int]":
+    """Trung vị số mã trong mẫu số độ rộng theo năm — in kèm bảng để đọc thiên lệch."""
+    years: dict = {}
+    for d, b in breadth.items():
+        years.setdefault(d.year, []).append(b.get("total") or 0)
+    return {y: sorted(v)[len(v) // 2] for y, v in sorted(years.items())}
+
+
+def load_days(warehouse: Path, start: date, dates: "list[date] | None" = None,
+              closes: "list[float] | None" = None, notes: "list[str] | None" = None) -> list[Day]:
     import vnstock_allocation as alloc
     import vnstock_horizons_state as hs
-    dates, closes = hs.load_vnindex(warehouse)
+    if dates is None:
+        dates, closes = hs.load_vnindex(warehouse)
     keep = [k for k, d in enumerate(dates) if d >= start]
     targets = [dates[k] for k in keep]
     print(f"[#27] dựng độ rộng {len(targets)} phiên từ parquet…", file=sys.stderr)
-    breadth = hs.breadth_history(warehouse, targets)
+    raw = hs.breadth_history(warehouse, targets)
+    breadth = thin_breadth(raw)
+    if notes is not None:
+        cov = coverage_by_year(raw)
+        notes.append("Số mã trong mẫu số độ rộng (trung vị theo năm): "
+                     + " · ".join(f"{y}: {n}" for y, n in cov.items())
+                     + f" — phiên < {_MIN_UNIVERSE} mã bỏ độ rộng ({len(raw) - len(breadth)} phiên).")
     sc = hs.score_inputs(dates, closes, targets, breadth, hs.load_nn(warehouse))
     weeks = hz.medium_series(dates, closes, hs.PARAMS)
     medium = hz.medium_daily(dates, weeks)
@@ -281,13 +351,22 @@ def main(argv: "list[str] | None" = None) -> int:
     ap = argparse.ArgumentParser(description="#27: phần lỡ của kẹp + backtest A/B/C (chỉ đọc kho)")
     ap.add_argument("--from", dest="start", default="2017-12-01")
     ap.add_argument("--out", default=None, help="ghi bảng Markdown ra file (ngoài kho)")
+    ap.add_argument("--no-deep", action="store_true",
+                    help="chỉ dùng VNINDEX trong kho (không nối phần cũ từ nguồn)")
     a = ap.parse_args(argv)
     import vnstock_horizons_state as hs
-    days = load_days(hs._WAREHOUSE, date.fromisoformat(a.start))
+    start = date.fromisoformat(a.start)
+    dates, closes = hs.load_vnindex(hs._WAREHOUSE)
+    notes = [f"VNINDEX trong kho: {dates[0]} → {dates[-1]}" if dates else "kho không có VNINDEX"]
+    if not a.no_deep and dates:
+        print("[#27] nối VNINDEX cũ từ nguồn (chỉ trong bộ nhớ)…", file=sys.stderr)
+        dates, closes, why = deepen_vnindex(dates, closes, start)
+        notes.append(f"VNINDEX sâu hơn: {why}")
+    days = load_days(hs._WAREHOUSE, start, dates, closes, notes)
     if len(days) < 300:
         print(f"[#27] ❌ chỉ có {len(days)} phiên VNINDEX — cần kho thật")
         return 2
-    text = report(days)
+    text = report(days, notes)
     print(text)
     if a.out:
         Path(a.out).write_text(text + "\n", encoding="utf-8")
