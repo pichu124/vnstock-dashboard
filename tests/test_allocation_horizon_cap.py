@@ -43,14 +43,21 @@ def _hz(medium: int, alert: int = 0) -> dict:
 
 # ── Kẹp ──────────────────────────────────────────────────────────────────────
 
-def test_case_27_08_flat_trend_holds_15_pct_instead_of_jumping_to_b3():
+def test_case_27_08_flat_trend_is_announced_a_week_ahead_not_jumped():
+    """Câu 14 = A (14/10, #27): ĐI NGANG không bị CẤM tăng — nhưng không nhảy ngay
+    B4 → B3: ⏳ báo trước 1 tuần rồi mới lên (cú 27/08 không còn tăng trong đêm)."""
     prev = _st("B4", "2026-08-26")
     out = alloc.apply_horizon_cap(_st("B3", "2026-08-27"), prev, _hz(DI_NGANG), "2026-08-27")
     assert out["band"] == "B4" and out["allocation"]["Cổ phiếu"] == 15
-    cap = out["capped_by"]
-    assert cap["by"] == "horizons" and cap["proposed_band"] == "B3" and cap["proposed_pct"] == 30
-    assert "ĐI NGANG" in cap["why"]
-    assert out["band_data"] == "B3"            # band DATA vẫn đi tiếp — chỉ band hiệu lực bị giữ
+    assert not out.get("capped_by")
+    assert out["ramp"] == {"band": "B3", "pct": 30, "since": "2026-08-27"}
+    assert out["band_data"] == "B3"            # band DATA vẫn đi tiếp — chỉ band hiệu lực chờ
+
+
+def test_unknown_medium_is_held_like_a_downtrend():
+    out = alloc.apply_horizon_cap(_st("B3", "2026-10-06"), _st("B4", "2026-10-05"),
+                                  _hz(None), "2026-10-06")
+    assert out["allocation"]["Cổ phiếu"] == 15 and "trung hạn ?" in out["capped_by"]["why"]
 
 
 def test_tilt_fade_drift_is_blocked_when_trend_is_down():

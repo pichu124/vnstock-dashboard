@@ -13,11 +13,13 @@ Mô hình (ghi rõ để đọc số cho trung thực):
   tái dựng được theo ngày: regime 7 phiếu, momentum tâm lý (KHÔNG có tin/vĩ mô) và
   độ rộng % mã trên MA200 — trọng số renormalize như code thật; hysteresis 2 phiên
   + Vá 1 (1 bậc/lần). Thiếu vĩ mô/tilt báo cáo ⇒ đây là PROXY của band thật.
-- **Kẹp (#20)** = `apply_horizon_cap` thật trên trung hạn/🚨 của `vnstock_horizons`.
-- **capA — luật kẹp Câu 14 = A** (đối chứng, thêm 14/10 sau lượt chạy đầu): chỉ chặn tăng
-  khi trung hạn GIẢM hoặc 🚨 bật; ĐI NGANG được tăng (vẫn qua bước dần 1 bậc/tuần khi nhả).
-  Lượt đầu cho thấy kẹp hiện tại (Câu 14 = B) tốn ~2 điểm % CAGR so với không kẹp — dòng
-  này tách phần nào do luật ĐI NGANG.
+- **cap** = `apply_horizon_cap` thật (#20) trên trung hạn/🚨 của `vnstock_horizons` — từ
+  14/10 là luật Câu 14 = A: chỉ chặn tăng khi trung hạn GIẢM hoặc 🚨 bật, ĐI NGANG/TĂNG
+  tăng dần qua ⏳ (báo trước 1 tuần, ≤1 bậc/tuần).
+- **capB** = luật cũ Câu 14 = B (06/10 → 14/10): ĐI NGANG cũng bị chặn — mô phỏng bằng
+  cách đưa ĐI NGANG vào kẹp như GIẢM. Replay 2017–2026 (14/10): capB 2.45% / −19.0%,
+  cap (A) 3.62% / −16.4%, không kẹp 3.83% / −18.8% ⇒ user đổi sang A. A/B/C dưới đây là
+  các hướng mở sớm thiết kế TRÊN NỀN capB nên vẫn chạy trên capB.
 - **A — lực đẩy độ rộng**: TB 10 phiên tỷ lệ mã tăng/(tăng+giảm) đi từ <40% lên
   >61.5% trong ≤10 phiên ⇒ +1 bậc dù trung hạn chưa TĂNG (đề bài không đặt điều
   kiện 🚨 cho A — lực đẩy thường tới khi 🚨 còn trong 5 phiên tối thiểu).
@@ -59,7 +61,7 @@ _REVERSAL = 20
 _DEEP_TOL = 0.005             # trung vị lệch nguồn/kho trên phần chồng tối đa để nối
 _DEEP_OVERLAP = 20            # số phiên chồng tối thiểu
 _MIN_UNIVERSE = 300           # mẫu số độ rộng tối thiểu — ít hơn thì bỏ độ rộng phiên đó
-VARIANTS = ("nocap", "cap", "capA", "A", "B", "C")
+VARIANTS = ("nocap", "cap", "capB", "A", "B", "C")
 
 
 @dataclass
@@ -150,7 +152,8 @@ def simulate(days: list[Day], variant: str) -> list[float]:
                          "unlocked": variant}
                 used = opened = True
             if not opened:
-                med = hz.TANG if variant == "capA" and x.medium == hz.DI_NGANG else x.medium
+                rule_b = variant in ("capB", "A", "B", "C")    # nền luật cũ của #27
+                med = hz.GIAM if rule_b and x.medium == hz.DI_NGANG else x.medium
                 alloc.apply_horizon_cap(state, prev, {"medium": med, "alert_tier": x.tier}, iso)
         prev = state
         out.append(float(state["allocation"]["Cổ phiếu"]))
@@ -229,16 +232,16 @@ def report(days: list[Day], notes: "list[str] | tuple" = ()) -> str:
              f"{len(days)} phiên)", ""]
     lines += [f"- {n}" for n in notes] + ([""] if notes else [])
     lines += ["## 1. Phần bị lỡ của kẹp hiện tại sau mỗi đáy ≥15%", "",
-              "| Đáy | VNINDEX | Cửa sổ | Phiên kẹp < không kẹp | Lỡ (điểm %) cap | capA | A | B | C |",
+              "| Đáy | VNINDEX | Cửa sổ | Phiên kẹp < không kẹp | Lỡ (điểm %) cap | capB | A | B | C |",
               "|---|---|---|---|---|---|---|---|---|"]
     for t, e in troughs(days):
         gap = {v: (vals["nocap"][e] / vals["nocap"][t] - vals[v][e] / vals[v][t]) * 100
-               for v in ("cap", "capA", "A", "B", "C")}
+               for v in ("cap", "capB", "A", "B", "C")}
         stuck = sum(1 for k in range(t, e + 1) if eqs["cap"][k] < eqs["nocap"][k])
         lines.append(f"| {days[t].d} | {days[t].close:,.0f} | {e - t} phiên | {stuck} | "
-                     f"{gap['cap']:+.1f} | {gap['capA']:+.1f} | {gap['A']:+.1f} | {gap['B']:+.1f} | "
+                     f"{gap['cap']:+.1f} | {gap['capB']:+.1f} | {gap['A']:+.1f} | {gap['B']:+.1f} | "
                      f"{gap['C']:+.1f} |")
-    lines += ["", "(+ = lợi nhuận kém hơn KHÔNG kẹp trong cửa sổ; capA/A/B/C cùng cửa sổ)", "",
+    lines += ["", "(+ = lợi nhuận kém hơn KHÔNG kẹp trong cửa sổ; capB/A/B/C cùng cửa sổ)", "",
               "## 2. So 3 hướng với kẹp hiện tại (toàn mẫu)", "",
               "| Phương án | CAGR | Max DD | Cổ phiếu TB | Lượt đổi/năm | Mở sớm | Đảo ≤20 phiên | Giá 20p sau thấp hơn | 27/08/2026 |",
               "|---|---|---|---|---|---|---|---|---|"]
@@ -252,9 +255,9 @@ def report(days: list[Day], notes: "list[str] | tuple" = ()) -> str:
                      f"{sum(eqs[v]) / len(eqs[v]):.1f} | {changes_per_year(days, eqs[v]):.1f} | "
                      f"{opened[0]} | {opened[1]} | "
                      f"{opened[2]} | {e27} |")
-    lines += ["", "Điều kiện bắt buộc: cột 27/08/2026 của A/B/C phải BẰNG dòng cap "
-              "(ca 27/08 vẫn giữ tỷ trọng; capA là luật khác nên được phép khác). Mô hình là "
-              "PROXY (thiếu vĩ mô/tilt) — đọc chênh lệch giữa các dòng, không đọc mức tuyệt đối."]
+    lines += ["", "cap = luật đang chạy (Câu 14 = A từ 14/10); capB = luật cũ, nền của A/B/C — "
+              "cột 27/08/2026 của A/B/C phải BẰNG dòng capB. Mô hình là PROXY (thiếu vĩ "
+              "mô/tilt) — đọc chênh lệch giữa các dòng, không đọc mức tuyệt đối."]
     return "\n".join(lines)
 
 

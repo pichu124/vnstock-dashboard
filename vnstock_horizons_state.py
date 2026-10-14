@@ -631,8 +631,8 @@ def legend_text() -> str:
         "ngày một chiều giảm. Mức cứng (tín hiệu ngày giảm hoặc ≥2 tín hiệu): watchlist "
         "chỉ \"canh MUA NẾU vượt\", không GIA TĂNG vô điều kiện, hạ trước mã dưới MA50. "
         "Mức mềm (1 tín hiệu): chỉ nhắc không mua đuổi.",
-        "💼 <b>Tỷ trọng cổ phiếu</b>: theo band phân bổ; KHÔNG tăng khi trung hạn chưa "
-        "TĂNG hoặc 🚨 bật. Được tăng thì ⏳ báo trước 1 tuần, mỗi tuần tối đa 1 bậc. "
+        "💼 <b>Tỷ trọng cổ phiếu</b>: theo band phân bổ; KHÔNG tăng khi trung hạn GIẢM "
+        "hoặc 🚨 bật. Được tăng thì ⏳ báo trước 1 tuần, mỗi tuần tối đa 1 bậc. "
         "Giảm luôn đi qua.",
         "🎯 <b>Stance ngày mai</b>: nhịp chỉnh ⇒ GIẢM; nhịp hồi + trung hạn TĂNG + 🚨 tắt "
         "⇒ TĂNG. TĂNG chỉ được chọn khi trung hạn TĂNG (nhịp chững cần thêm 🚨 tắt); "

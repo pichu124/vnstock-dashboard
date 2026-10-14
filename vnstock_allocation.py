@@ -504,9 +504,10 @@ def apply_tilt(state: dict, tilt_info: "dict | None",
 
 # ── Kẹp theo trung hạn (P1b-2, #20 — `docs/THIET-KE-BRIEF-3-KHUNG.md` §3.8) ──
 #
-# Câu 14 = B (user chốt 06/10): % cổ phiếu CHỈ được tăng khi trung hạn TĂNG và
-# 🚨 tắt; ĐI NGANG/GIẢM/🚨 chỉ giữ hoặc giảm (kể cả phần trôi do tilt phai).
-# Hết kẹp: tăng ≤1 bậc/tuần, báo trước ⏳ 1 tuần. Giảm rủi ro luôn đi qua.
+# Câu 14 = A (user đổi 14/10 theo #27 — replay 2017–2026 có 2018/2020/2022: B 2.45%/
+# −19.0% sụt tối đa, A 3.62%/−16.4%, không kẹp 3.83%/−18.8%): CẤM tăng % cổ phiếu khi
+# trung hạn GIẢM hoặc 🚨 bật (kể cả phần trôi do tilt phai); ĐI NGANG/TĂNG được tăng
+# nhưng qua ⏳: báo trước 1 tuần, ≤1 bậc/tuần. Giảm rủi ro luôn đi qua.
 
 _UP_STEP_DAYS = 7
 _MEDIUM_NAME = {1: "TĂNG", 0: "ĐI NGANG", -1: "GIẢM"}
@@ -539,9 +540,10 @@ def _load_horizon() -> "tuple[dict | None, str | None]":
 
 
 def _cap_reason(horizon: dict) -> "str | None":
-    """Lý do CẤM tăng % cổ phiếu, None khi trung hạn TĂNG và 🚨 tắt."""
+    """Lý do CẤM tăng % cổ phiếu, None khi trung hạn TĂNG/ĐI NGANG và 🚨 tắt
+    (trung hạn không rõ ⇒ giữ như GIẢM)."""
     why = []
-    if horizon.get("medium") != 1:
+    if horizon.get("medium") not in (0, 1):
         why.append(f"trung hạn {_MEDIUM_NAME.get(horizon.get('medium'), '?')}")
     if horizon.get("alert_tier"):
         why.append("🚨 bật")
@@ -591,9 +593,9 @@ def apply_horizon_cap(state: dict, prev: "dict | None", horizon: "dict | None",
     """Áp kẹp lên state đã tilt (sửa tại chỗ, trả lại state).
 
     - % cổ phiếu không tăng ⇒ đi qua nguyên (giảm rủi ro không bao giờ bị chặn);
-    - trung hạn ≠ TĂNG hoặc 🚨 bật ⇒ giữ band + bảng % cũ, ghi ``capped_by``
+    - trung hạn GIẢM hoặc 🚨 bật ⇒ giữ band + bảng % cũ, ghi ``capped_by``
       (band/% đề xuất + nhãn tilt bị bỏ);
-    - trung hạn TĂNG và 🚨 tắt ⇒ ⏳ ``ramp``: báo trước 1 tuần, ≤1 bậc/tuần;
+    - trung hạn TĂNG/ĐI NGANG và 🚨 tắt ⇒ ⏳ ``ramp``: báo trước 1 tuần, ≤1 bậc/tuần;
     - ``horizon`` None (state 3 khung chưa có / cũ / hỏng) ⇒ không kẹp, ghi
       ``horizon_note``; nhưng đang giữ/đang leo thì đi theo ⏳ chứ không xả cả
       khoảng một đêm. Lần chạy đầu không có gì để giữ.

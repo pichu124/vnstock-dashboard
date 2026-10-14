@@ -63,7 +63,7 @@ def test_troughs_find_the_v_bottom(rr):
 
 def test_cap_holds_low_equity_while_nocap_climbs_back(rr):
     days = _v_shape(rr)
-    nocap, cap = rr.simulate(days, "nocap"), rr.simulate(days, "cap")
+    nocap, cap = rr.simulate(days, "nocap"), rr.simulate(days, "capB")
     assert nocap[-1] > cap[-1] == 15.0                  # kẹp giữ đáy vì trung hạn chưa TĂNG
     assert max(nocap[60:]) >= 60
 
@@ -71,7 +71,7 @@ def test_cap_holds_low_equity_while_nocap_climbs_back(rr):
 @pytest.mark.parametrize("variant", ["B", "C"])
 def test_reentry_variants_open_exactly_one_band(rr, variant):
     days = _v_shape(rr)
-    cap, eq = rr.simulate(days, "cap"), rr.simulate(days, variant)
+    cap, eq = rr.simulate(days, "capB"), rr.simulate(days, variant)
     after = eq[45:]                                     # sau cú sập (band đã về B4)
     assert max(after) - cap[-1] == 15.0                 # đúng +1 bậc (B4 15% → B3 30%)
     ups = [i for i in range(1, len(after)) if after[i] > after[i - 1]]
@@ -80,8 +80,8 @@ def test_reentry_variants_open_exactly_one_band(rr, variant):
 
 def test_alert_on_blocks_b_and_c(rr):
     days = _v_shape(rr, tier_after=1)
-    assert rr.simulate(days, "B") == rr.simulate(days, "cap")
-    assert rr.simulate(days, "C") == rr.simulate(days, "cap")
+    assert rr.simulate(days, "B") == rr.simulate(days, "capB")
+    assert rr.simulate(days, "C") == rr.simulate(days, "capB")
 
 
 def test_case_like_27_08_keeps_15_percent(rr):
@@ -90,26 +90,27 @@ def test_case_like_27_08_keeps_15_percent(rr):
     days = _days(rr, [1800.0 + k for k in range(n)], [-0.6] * 20 + [-0.4] * 20,
                  [hz.DI_NGANG] * n, [0] * n, [0.5] * n)
     for v in ("A", "B", "C"):
-        assert rr.simulate(days, v) == rr.simulate(days, "cap")
-    assert rr.simulate(days, "cap")[-1] == 15.0 and rr.simulate(days, "nocap")[-1] == 30.0
+        assert rr.simulate(days, v) == rr.simulate(days, "capB")
+    assert rr.simulate(days, "capB")[-1] == 15.0 and rr.simulate(days, "nocap")[-1] == 30.0
 
 
-def test_cap_a_lets_a_flat_trend_raise_equity_but_still_holds_in_a_downtrend(rr):
-    """Đối chứng Câu 14 = A: ĐI NGANG được tăng (ca 27/08 lên như không kẹp), GIẢM vẫn giữ."""
+def test_current_cap_lets_a_flat_trend_raise_equity_but_still_holds_in_a_downtrend(rr):
+    """Luật đang chạy (Câu 14 = A từ 14/10): ĐI NGANG được tăng (dần), GIẢM vẫn giữ như capB."""
     n = 40
     flat = _days(rr, [1800.0 + k for k in range(n)], [-0.6] * 20 + [-0.4] * 20,
                  [hz.DI_NGANG] * n, [0] * n, [0.5] * n)
-    assert rr.simulate(flat, "capA")[-1] == rr.simulate(flat, "nocap")[-1] == 30.0
+    assert rr.simulate(flat, "cap")[-1] == rr.simulate(flat, "nocap")[-1] == 30.0
+    assert rr.simulate(flat, "capB")[-1] == 15.0
     down = _days(rr, [1800.0 + k for k in range(n)], [-0.6] * 20 + [-0.4] * 20,
                  [hz.GIAM] * n, [0] * n, [0.5] * n)
-    assert rr.simulate(down, "capA") == rr.simulate(down, "cap")
+    assert rr.simulate(down, "cap") == rr.simulate(down, "capB")
     assert rr.simulate(down, "cap")[-1] == 15.0
 
 
 def test_report_renders_both_tables(rr):
     text = rr.report(_v_shape(rr))
     assert "## 1. Phần bị lỡ" in text and "## 2. So 3 hướng" in text
-    assert "| cap |" in text and "| capA |" in text and "| C |" in text
+    assert "| cap |" in text and "| capB |" in text and "| C |" in text
 
 
 # ── VNINDEX sâu hơn kho: nối trong bộ nhớ sau khi đối chiếu phần chồng ──────

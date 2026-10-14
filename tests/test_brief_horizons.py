@@ -99,9 +99,9 @@ def test_flat_trend_line_points_to_the_down_level_and_alert_off():
     lines = _horizon_body_lines(_ctx(flat))
     assert "- 🚨 Rủi ro ngắn hạn: tắt." in lines
     assert lines[-1] == ("- 💼 Cổ phiếu 15% (band B4). Nên (nhịp hồi trong xu hướng đi ngang): "
-                         "không nâng tỷ trọng; nếu chốt lời thì chốt phần vượt tỷ trọng.")
+                         "không mua đuổi; tỷ trọng chỉ tăng theo band, từng bậc.")
     assert _horizon_tldr_line(_ctx(flat)) == (
-        "**Trung hạn:** ĐI NGANG từ 24/07 → không nâng tỷ trọng theo nhịp hồi; chuyển GIẢM nếu "
+        "**Trung hạn:** ĐI NGANG từ 24/07 → không mua đuổi nhịp hồi; chuyển GIẢM nếu "
         "đóng tuần < ~1,766; lên TĂNG cần 2 tuần đọc > ~2,020 (chưa thể trong tuần này).")
 
 

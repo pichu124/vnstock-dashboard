@@ -364,7 +364,7 @@ _HORIZON_MACRO_KEYS = {"pmi": ("PMI", "{:.1f}"), "usdvnd": ("USD/VND", "{:,.0f}"
 _HORIZON_ACTIONS = {
     (1, 1): ("đồng pha tăng", "giữ tỷ trọng theo band; mua mới ưu tiên khi chỉnh về hỗ trợ"),
     (1, 0): ("nhịp hồi trong xu hướng đi ngang",
-             "không nâng tỷ trọng; nếu chốt lời thì chốt phần vượt tỷ trọng"),
+             "không mua đuổi; tỷ trọng chỉ tăng theo band, từng bậc"),
     (1, -1): ("nhịp hồi trong xu hướng giảm",
               "dùng nhịp hồi hạ phần vượt tỷ trọng, không mua đuổi"),
     (0, 1): ("nhịp chững trong xu hướng tăng", "giữ phần lõi"),
@@ -661,7 +661,7 @@ def _horizon_tldr_line(ctx: dict) -> "str | None":
         parts = [p for p in (lv_txt("to_giam", "chuyển GIẢM nếu đóng tuần < {x}"),
                              up_txt("to_tang", "lên TĂNG cần {n} tuần đọc > {x}",
                                     "lên TĂNG nếu {wk} đọc > {x}")) if p]
-        return head + "; ".join(["không nâng tỷ trọng theo nhịp hồi"] + parts) + "."
+        return head + "; ".join(["không mua đuổi nhịp hồi"] + parts) + "."
     if med == TANG:
         parts = [p for p in (lv_txt("leave_tang", "chỉ rời TĂNG nếu đóng tuần < {x}"),) if p]
         return head + "; ".join(["giữ tỷ trọng theo band"] + parts) + "."

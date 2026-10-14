@@ -382,8 +382,8 @@ Biểu tượng đổi từ ⚡ sang 🚨, vì ⚡ đang là mục "## ⚡ Biế
 ### 3.8 Tỷ trọng: một con số, và con số đó không được tăng ngược xu hướng
 
 **P1 — band v1 giữ nguyên tham số đã chốt, cộng (nếu bạn duyệt) một kẹp và 3 vá cơ học:**
-- **Kẹp `VNSTOCK_ALLOC_HORIZON_CAP`:** trong `run_allocation`, sau `apply_tilt`, nếu trung hạn **KHÁC TĂNG** (ĐI NGANG hoặc GIẢM — câu 14 = B, chốt 06/10) hoặc 🚨 bật mà % cổ phiếu mới **cao hơn** % hiệu lực hôm trước, thì giữ nguyên cả bảng % và band hiệu lực cũ. Giảm thì luôn đi qua.
-  - Ca 27/08 (trung hạn ĐI NGANG, 🚨 tắt, B4 15% → B3 30% ở 1,831.56) bị giữ 15% — bản duyệt đầu (chỉ chặn khi GIẢM) không chặn được ca này (P0).
+- **Kẹp `VNSTOCK_ALLOC_HORIZON_CAP`:** trong `run_allocation`, sau `apply_tilt`, nếu trung hạn **GIẢM** hoặc 🚨 bật mà % cổ phiếu mới **cao hơn** % hiệu lực hôm trước, thì giữ nguyên cả bảng % và band hiệu lực cũ. Giảm thì luôn đi qua. **Câu 14 = A từ 14/10** (06/10 chốt B — chặn cả ĐI NGANG; replay 2017–2026 ở #27 cho B 2.45%/−19.0% sụt tối đa so với A 3.62%/−16.4% ⇒ user đổi). ĐI NGANG/TĂNG được tăng nhưng qua ⏳ bên dưới.
+  - Ca 27/08 (trung hạn ĐI NGANG, 🚨 tắt, B4 15% → B3 30% ở 1,831.56): luật A KHÔNG chặn, chỉ làm chậm — ⏳ báo trước 1 tuần rồi mới lên (luật B từng giữ 15% suốt, P0). Cái giá đã chấp nhận: cú kiểu 15→30→15 có thể lặp lại, chậm hơn 1 tuần.
   - Ghi `capped_by:"horizons"` kèm band/% đề xuất.
   - Kẹp chặn cả phần trôi do tilt phai theo lịch. Ví dụ: cú 15 → ~28% lúc 05/10 00:10 sẽ bị chặn, vì trung hạn đã GIẢM từ 02/10.
   - Hết kẹp thì tăng tối đa 1 bậc/tuần (~15 điểm %), có "⏳" báo trước 1 tuần.
@@ -959,9 +959,18 @@ Chạy lại trên cùng dữ liệu Finhay 2017-12 → 2026-10 (`scratchpad/bri
 | **B (đang chạy)** | 3.17% | −10.0% | 35.0 | 13.3 | 15% |
 | A (chỉ chặn khi GIẢM/🚨) | 3.97% | −9.8% | 42.2 | 20.5 | 15% |
 
-Đọc: trong mẫu đi lên này kẹp B tốn ~2,1 điểm %/năm, max DD không tốt hơn; A lấy lại 0,8 điểm nhưng đổi tỷ trọng nhiều hơn 54% (gần bằng không kẹp) — tức trả lại phần ổn định là lý do chọn B. Hai đáy ≥15% (09/04/2025, 23/03/2026): kẹp lỡ 1,7 điểm % trong ~30 phiên sau đáy (A 1,5 / 1,0). Hướng mở sớm #27: A lực đẩy và C sâu ≥20% **không kích hoạt lần nào**, B 1 lần (+0,29 điểm %). **Claude đề xuất 14/10: giữ B, không làm A/B/C**; chi phí của B xử ở P3 (band v2 đặt gốc theo trung hạn: ĐI NGANG 45%) — đo lại khi P3 chạy bóng.
+Đọc (lượt 2, chỉ 2024–2026): trong mẫu đi lên này kẹp B tốn ~2,1 điểm %/năm, max DD không tốt hơn; A lấy lại 0,8 điểm nhưng đổi nhiều hơn 54% ⇒ lúc đó Claude đề xuất giữ B. **User hỏi sao không có 2018/2022 ⇒ lượt 3** nối VNINDEX cũ từ VCI chỉ trong bộ nhớ (kho chỉ có VNINDEX từ 02/01/2024; độ rộng 1.178–1.487 mã/năm), 2.211 phiên 12/2017 → 10/2026:
 
-**✅ Câu 14 — CHỐT 06/10: B** (user trả lời "14: B" sau khi nghe giải thích cái giá: ĐI NGANG có thể giữ tỷ trọng ở mức thấp nhất đã chạm suốt 3–4 tháng; chưa có replay đo phần lợi nhuận bỏ lỡ — đo lại ở P3). §3.8 và test P1b đã sửa theo. Câu hỏi gốc giữ dưới đây.
+| Luật | CAGR | Max DD | Cổ phiếu TB | Lượt đổi/năm |
+|---|---|---|---|---|
+| Không kẹp | 3.83% | −18.8% | 46.6 | 24.1 |
+| B | 2.45% | −19.0% | 35.6 | 11.7 |
+| **A** | **3.62%** | **−16.4%** | 39.8 | 14.7 |
+| B + mở sớm A (lực đẩy) / B / C | 2.40% / 2.69% / 2.45% | −19.3% / −17.6% / −18.9% | | 12.0 / 12.4 / 12.4 |
+
+Có năm giảm dài thì B không giảm được sụt tối đa mà tốn 1,4 điểm %/năm; A tốt hơn B cả hai mặt, đổi thêm 3 lần/năm. Ba hướng mở sớm: A và C kém hoặc bằng nền, B nhỉnh nhưng thua đổi hẳn sang luật A. **User chốt 14/10: Câu 14 = A, không làm A/B/C.** Chi phí còn lại (A vẫn thấp hơn không kẹp 0,2 điểm) để P3 (band v2) đo lại.
+
+**✅ Câu 14 — CHỐT 06/10: B → ĐỔI 14/10: A** (xem bảng đo ngay trên). Bản 06/10: (user trả lời "14: B" sau khi nghe giải thích cái giá: ĐI NGANG có thể giữ tỷ trọng ở mức thấp nhất đã chạm suốt 3–4 tháng; chưa có replay đo phần lợi nhuận bỏ lỡ — đo lại ở P3). §3.8 và test P1b đã sửa theo. Câu hỏi gốc giữ dưới đây.
 
 **Câu 14 (mới, sau P0 — cần chốt trước P1b): kẹp tỷ trọng khi trung hạn ĐI NGANG.**
 - (A) Giữ như đã duyệt: chỉ chặn tăng % cổ phiếu khi trung hạn GIẢM hoặc 🚨 bật. Cú 15→30→15% kiểu 27/08–22/09 vẫn xảy ra tới P3.
