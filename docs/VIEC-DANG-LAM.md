@@ -41,6 +41,7 @@ brief tối KHÔNG đổi; chỉ **kẹp tỷ trọng #20 chạy thật ngay** (
    Sáng 15/10 🖥️ xem dòng `⏱ test:` trong `run_daily.log` (pipeline đêm chạy test FULL).
 2. ○ — vòng tròn trên 5 brief THẬT: `python scripts/sample_horizons_brief.py --check 5`
    (phải ✅ 5/5; ❌ thì gửi nguyên output cho Claude). Sổ brief mở CHỈ ĐỌC.
+   ✅ 💻 14/10: **5/5 đạt** (07–13/10: 🔭 đúng canon, 2 lượt guard giống nhau).
 3. ○ — bản mẫu để duyệt: `python scripts/sample_horizons_brief.py --out mau_3khung.md`
    (không gọi LLM, không gửi Telegram, không ghi kho) ⇒ đọc rồi báo Claude "duyệt" hoặc sửa gì.
 4. Sau khi duyệt — Claude đổi mặc định BẬT; 🖥️ DESKTOP merge lần nữa + `python run.py test` +
