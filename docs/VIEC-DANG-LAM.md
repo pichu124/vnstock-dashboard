@@ -44,6 +44,9 @@ brief tối KHÔNG đổi; chỉ **kẹp tỷ trọng #20 chạy thật ngay** (
    ✅ 💻 14/10: **5/5 đạt** (07–13/10: 🔭 đúng canon, 2 lượt guard giống nhau).
 3. ○ — bản mẫu để duyệt: `python scripts/sample_horizons_brief.py --out mau_3khung.md`
    (không gọi LLM, không gửi Telegram, không ghi kho) ⇒ đọc rồi báo Claude "duyệt" hoặc sửa gì.
+   💻 14/10: user đã xem bản mẫu phiên 13/10, giao Claude tự quyết 3 điểm ⇒ đã vá (tuổi trung hạn
+   "N lần đóng tuần" · 🚨 bỏ "Không đổi xu hướng." khi trung hạn GIẢM · câu nhắc lệnh MUA bắt cả dòng
+   "entry · TP · SL") + xem trước Telegram tách theo mục. **CHỜ user nói "duyệt" để sang bước 4.**
 4. Sau khi duyệt — Claude đổi mặc định BẬT; 🖥️ DESKTOP merge lần nữa + `python run.py test` +
    `python run.py horizons --legend` (1 tin giải thích từ vựng vào Telegram).
 5. 🖥️ DESKTOP — 5 phiên đầu sau khi bật: mỗi sáng xem tin Telegram (header 📊/🔭, khối 🔭 sau

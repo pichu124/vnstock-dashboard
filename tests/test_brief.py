@@ -2141,6 +2141,24 @@ def test_enforce_buy_vs_bias_caveat_noops():
     assert enforce_buy_vs_bias_caveat(no_sec, ctx_giam) == no_sec
 
 
+def test_enforce_buy_vs_bias_caveat_catches_recs_written_without_the_word_buy():
+    """Brief 13/10: agent chép lệnh backtest thành "entry · TP · SL", bỏ chữ BUY ⇒
+    guard không nhận ra lệnh mua, câu nhắc không được chèn."""
+    from vnstock_brief import apply_brief_guards, enforce_buy_vs_bias_caveat
+    ctx = {"bias_floor": {"dir": "GIẢM"}}
+    text = ("## 💡 Đề xuất giao dịch\n"
+            "Chỉ vào khi có xác nhận động lượng và giảm quy mô, vì bias GIẢM:\n"
+            "- **VPB:** entry 23.6 · TP 26 · SL 22.7. Giá hiện 24,400 đã cao hơn entry.\n"
+            "- **VEA:** entry 38.1 · TP 40.1 · SL 37.4\n"
+            "\n## 🔧 Đề xuất bổ sung\nKhông cần bổ sung.")
+    fixed = enforce_buy_vs_bias_caveat(text, ctx)
+    assert "tín hiệu backtest TỪNG MÃ" in fixed
+    assert fixed.index("backtest TỪNG MÃ") < fixed.index("## 🔧")
+    assert "tín hiệu backtest TỪNG MÃ" in apply_brief_guards(text, ctx)
+    sell = "## 💡 Đề xuất giao dịch\n- **FPT:** bán · entry 120 · TP 110 · SL 126\n"
+    assert enforce_buy_vs_bias_caveat(sell, ctx) == sell
+
+
 def test_enforce_stance_sentiment_caution_flags_bullish_vs_negative_mood():
     # Close 30/06: "Stance ngày mai: TĂNG" while sentiment was "📉 Tiêu cực
     # (momentum -24)". -24 doesn't trip the hard GIẢM floor (≤ -50), so the

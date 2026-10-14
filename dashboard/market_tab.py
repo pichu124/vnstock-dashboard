@@ -1166,7 +1166,7 @@ def _horizon_badges() -> list[str]:
     from vnstock_horizons import MEDIUM_LABEL, SHORT_LABEL, horizons_enabled
     if not horizons_enabled():
         return []
-    from vnstock_brief_canon import _hz_ddmm, _hz_signed
+    from vnstock_brief_canon import _hz_ddmm, _hz_signed, _hz_weeks
     try:
         import vnstock_horizons_state as hs
         v = hs.brief_view(hs.latest_published())
@@ -1176,7 +1176,7 @@ def _horizon_badges() -> list[str]:
         return [f"🔭 3 khung: chưa cập nhật (as_of {_hz_ddmm(v.get('as_of'))})"]
     s = v["snap"]
     out = [f"🔭 Trung hạn: {MEDIUM_LABEL.get(s.get('medium'), '?')} "
-           f"(tuần {v.get('medium_weeks')}, từ {_hz_ddmm(s.get('medium_since'))})",
+           f"(từ {_hz_ddmm(s.get('medium_since'))}, {_hz_weeks(v)})",
            f"Ngắn hạn: {SHORT_LABEL.get(s.get('short'), '?')} (phiên {v.get('short_sessions')})"
            f" · điểm {_hz_signed(s.get('score'))}/{s.get('n')}"]
     if tier := (s.get("alert") or {}).get("tier"):

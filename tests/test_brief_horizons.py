@@ -51,16 +51,24 @@ def _ctx(view=None, **over) -> dict:
 
 # ── Canon: 🔭 + TLDR dòng 3 (số từ state, mức in làm tròn "~") ─────────────────
 
+def test_alert_line_says_no_trend_change_only_while_the_trend_is_not_down():
+    """Duyệt mẫu 14/10: trung hạn đã GIẢM thì "Không đổi xu hướng." là câu thừa."""
+    from vnstock_brief import _horizon_alert_line
+    assert _horizon_alert_line(_snap()).endswith("≤ -2.5%.")
+    assert _horizon_alert_line(_snap(medium=DI_NGANG)).endswith(". Không đổi xu hướng.")
+    assert _horizon_alert_line(_snap(alert={"tier": 0})) == "- 🚨 Rủi ro ngắn hạn: tắt."
+
+
 def test_horizon_lines_for_the_real_13_10_state():
     from vnstock_brief import _horizon_body_lines, _horizon_tldr_line
     assert _horizon_body_lines(_ctx()) == [
         "- Ngắn hạn (vài phiên): nhịp chỉnh, phiên thứ 14 (từ 24/09); điểm kỹ thuật ngày -7/7; "
         "tâm lý ❄️ Sợ hãi. Hết nhịp chỉnh khi điểm về ≥ 0.",
-        "- Trung hạn (xu hướng tuần): GIẢM, tuần 2 (từ 02/10); 9% mã trên MA200 "
+        "- Trung hạn (xu hướng tuần): GIẢM từ 02/10 (2 lần đóng tuần); 9% mã trên MA200 "
         "(4 tuần trước 11%).",
         "- Dài hạn (6–12 tháng): đang thu thập — chỉ đọc theo trung hạn.",
         "- 🚨 Rủi ro ngắn hạn: BẬT mức 1 từ 01/10, neo đỉnh ~1,853; lên mức 2 nếu đóng < ~1,668 "
-        "(90% neo) hoặc thêm 1 phiên ≤ -2.5%. Không đổi xu hướng.",
+        "(90% neo) hoặc thêm 1 phiên ≤ -2.5%.",           # trung hạn đã GIẢM: bỏ câu thừa
         "- 💼 Cổ phiếu 15% (band B4). Nên (đồng pha giảm): giữ tỷ trọng thấp; không bắt đáy.",
     ]
     assert _horizon_tldr_line(_ctx()) == (

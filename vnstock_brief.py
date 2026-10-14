@@ -80,6 +80,7 @@ from vnstock_brief_canon import (  # noqa: F401  (re-export: giữ nguyên đư�
     _hz_not_updated,
     _hz_unreachable,
     _hz_week_word,
+    _hz_weeks,
     _HORIZON_ACTION_LEVEL,
     _HORIZON_MACRO_KEYS,
     _hz_approx,

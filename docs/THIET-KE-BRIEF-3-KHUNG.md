@@ -560,15 +560,17 @@ Dựng cho brief chiều **phiên 02/10/2026**.
 - Số vĩ mô có (*) là minh họa.
 - **Ở P1b:** dòng vĩ mô chỉ in số và chiều, chưa có nhãn độ tin cậy; dòng dài hạn in "đang thu thập".
 
+> **Duyệt bản mẫu 14/10** (user giao Claude tự quyết 3 điểm): (a) tuổi trung hạn in "N lần đóng tuần" thay "tuần N" — 13/10 in "tuần 2 (từ 02/10)" bị đọc thành tuần thứ 2 tính từ 02/10, thực ra đã là tuần thứ 3 · (b) dòng 🚨 bỏ "Không đổi xu hướng." khi trung hạn đã GIẢM (câu thừa) · (c) câu nhắc lệnh MUA dưới lớp bảo vệ bắt cả dòng "entry · TP · SL" không chữ BUY (brief 13/10 lọt).
+
 **(A) Header Telegram**
 ```
 📊 VNINDEX 1,737.71 (-0.66%) · phiên 02/10
-🔭 Trung hạn: GIẢM (tuần 1, từ 02/10) · 💼 Cổ phiếu 15% · Nên: giữ tỷ trọng thấp, không bắt đáy theo 1–2 phiên xanh
+🔭 Trung hạn: GIẢM (từ 02/10, 1 lần đóng tuần) · 💼 Cổ phiếu 15% · Nên: giữ tỷ trọng thấp, không bắt đáy theo 1–2 phiên xanh
 ```
 Phiên 01/10 (trung hạn còn ĐI NGANG nên 🚨 hiện):
 ```
 📊 VNINDEX 1,749.30 (-1.09%) · phiên 01/10
-🔭 Trung hạn: ĐI NGANG (từ 24/07, 10 tuần) · 💼 Cổ phiếu 15% · Nên: không bán tháo; chuyển GIẢM nếu thứ Sáu đóng < ~1,766
+🔭 Trung hạn: ĐI NGANG (từ 24/07, 10 lần đóng tuần) · 💼 Cổ phiếu 15% · Nên: không bán tháo; chuyển GIẢM nếu thứ Sáu đóng < ~1,766
 🚨 Rủi ro ngắn hạn: BẬT — thấp hơn đỉnh 20 phiên 5.6%; không đổi xu hướng
 ```
 
@@ -582,9 +584,9 @@ Phiên 01/10 (trung hạn còn ĐI NGANG nên 🚨 hiện):
 ## 🔭 Góc nhìn theo khung thời gian
 - 🔁 Thay đổi: trung hạn ĐI NGANG → GIẢM (chốt tuần 02/10, sau 10 tuần đi ngang). Ngắn hạn và dài hạn không đổi.
 - Ngắn hạn (vài phiên): nhịp chỉnh, phiên thứ 7 (từ 24/09); điểm kỹ thuật ngày -6/7; tâm lý Sợ hãi. Hết nhịp chỉnh khi điểm về ≥ 0. → [≤1 câu agent]
-- Trung hạn (xu hướng tuần): GIẢM, tuần 1; chỉ 9% mã trên MA200 — cổ phiếu trung vị yếu hơn chỉ số. Vĩ mô–dòng tiền: độ tin cậy TRUNG BÌNH (bất lợi: độ rộng · thuận: tỷ giá* · trung tính: khối ngoại*, PMI · chưa đo: thanh khoản, chênh lệch 10 năm). → [≤1 câu agent]
+- Trung hạn (xu hướng tuần): GIẢM từ 02/10 (1 lần đóng tuần); chỉ 9% mã trên MA200 — cổ phiếu trung vị yếu hơn chỉ số. Vĩ mô–dòng tiền: độ tin cậy TRUNG BÌNH (bất lợi: độ rộng · thuận: tỷ giá* · trung tính: khối ngoại*, PMI · chưa đo: thanh khoản, chênh lệch 10 năm). → [≤1 câu agent]
 - Dài hạn (6–12 tháng): chưa đủ dữ liệu (2/5 trụ: tăng trưởng thuận — GDP Q3 tăng tốc*; báo cáo bất lợi — HedgeAcademy Q4). Chấm lại tháng 11.
-- 🚨 Rủi ro ngắn hạn: BẬT từ 01/10, thấp hơn đỉnh ~1,853 (04/09) 6.2%; lên mức 2 nếu đóng < ~1,668 (90% đỉnh neo) hoặc thêm 1 phiên ≤ -2.5%. Không đổi xu hướng.
+- 🚨 Rủi ro ngắn hạn: BẬT từ 01/10, thấp hơn đỉnh ~1,853 (04/09) 6.2%; lên mức 2 nếu đóng < ~1,668 (90% đỉnh neo) hoặc thêm 1 phiên ≤ -2.5%.
 - 💼 Cổ phiếu 15% theo band (B4); không tăng khi trung hạn chưa TĂNG hoặc 🚨 bật. Nên: giữ tỷ trọng thấp, không bắt đáy theo 1–2 phiên xanh; hạ trước mã đã thủng MA50.
 ```
 
@@ -596,7 +598,7 @@ Phiên 01/10 (trung hạn còn ĐI NGANG nên 🚨 hiện):
 
 **(D) Brief sáng** (nếu còn dùng) — 1 gạch đầu dòng trong TLDR:
 ```
-- 🔭 Trung hạn GIẢM (tuần 1) · ngắn hạn: nhịp chỉnh (phiên 7) · 💼 15% — Bias chỉ TRUNG TÍNH/GIẢM; không BUY vô điều kiện
+- 🔭 Trung hạn GIẢM (1 lần đóng tuần) · ngắn hạn: nhịp chỉnh (phiên 7) · 💼 15% — Bias chỉ TRUNG TÍNH/GIẢM; không BUY vô điều kiện
 ```
 
 **(E) Tin riêng khi 🚨 bật** (P2; ~15:10 qua task theo giờ, hoặc cùng brief tối):

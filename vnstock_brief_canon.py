@@ -398,6 +398,13 @@ def _hz_level(snap: dict, kind: str) -> "dict | None":
                  and isinstance(lv.get("price"), (int, float))), None)
 
 
+def _hz_weeks(view: dict) -> str:
+    """Tuổi trung hạn = số lần ĐÓNG TUẦN mang trạng thái (`brief_view.medium_weeks`).
+    "tuần 2 (từ 02/10)" bị đọc thành tuần thứ 2 tính từ 02/10 — mà 13/10 đã là tuần
+    thứ 3 (duyệt mẫu 14/10) ⇒ nói thẳng đơn vị đếm."""
+    return f"{view.get('medium_weeks') or 1} lần đóng tuần"
+
+
 def _hz_not_updated(as_of) -> str:
     return (f"- 🔭 chưa cập nhật (as_of {_hz_ddmm(as_of)})." if as_of
             else "- 🔭 chưa cập nhật (chưa đọc được state 3 khung).")
@@ -490,8 +497,8 @@ def _horizon_macro_snippet(ctx: dict) -> str:
 def _horizon_medium_line(view: dict, ctx: dict) -> str:
     from vnstock_horizons import MEDIUM_LABEL
     snap = view["snap"]
-    line = (f"- Trung hạn (xu hướng tuần): {MEDIUM_LABEL.get(snap.get('medium'), '?')}, "
-            f"tuần {view.get('medium_weeks') or 1} (từ {_hz_ddmm(snap.get('medium_since'))})")
+    line = (f"- Trung hạn (xu hướng tuần): {MEDIUM_LABEL.get(snap.get('medium'), '?')} "
+            f"từ {_hz_ddmm(snap.get('medium_since'))} ({_hz_weeks(view)})")
     b, b4 = view.get("breadth_pct"), view.get("breadth_pct_4w")
     if isinstance(b, (int, float)):
         line += f"; {b:.0f}% mã trên MA200"
@@ -501,7 +508,7 @@ def _horizon_medium_line(view: dict, ctx: dict) -> str:
 
 
 def _horizon_alert_line(snap: dict) -> str:
-    from vnstock_horizons import AlertParams
+    from vnstock_horizons import GIAM, AlertParams
     al = snap.get("alert") or {}
     tier, anchor = al.get("tier") or 0, al.get("anchor")
     if not tier:
@@ -514,7 +521,8 @@ def _horizon_alert_line(snap: dict) -> str:
             p = AlertParams()
             line += (f"; lên mức 2 nếu đóng < {_hz_approx(anchor * p.tier2_frac)} "
                      f"({p.tier2_frac:.0%} neo) hoặc thêm 1 phiên ≤ {p.day_drop}%")
-    return line + ". Không đổi xu hướng."
+    # trung hạn đã GIẢM thì "không đổi xu hướng" là câu thừa (duyệt mẫu 14/10)
+    return line + ("." if snap.get("medium") == GIAM else ". Không đổi xu hướng.")
 
 
 def _horizon_cap_text(alloc: dict) -> str:
@@ -598,7 +606,7 @@ def _horizon_morning_line(ctx: dict) -> "str | None":
         return _hz_not_updated(view.get("as_of"))
     snap = view["snap"]
     parts = [f"Trung hạn {MEDIUM_LABEL.get(snap.get('medium'), '?')} "
-             f"(tuần {view.get('medium_weeks') or 1})",
+             f"({_hz_weeks(view)})",
              f"ngắn hạn: {SHORT_LABEL.get(snap.get('short'), '?')} "
              f"(phiên {view.get('short_sessions') or 1})"]
     pct = ((ctx.get("allocation") or {}).get("allocation") or {}).get("Cổ phiếu")

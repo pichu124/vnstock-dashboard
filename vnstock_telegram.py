@@ -694,7 +694,7 @@ def _horizon_header_lines(view: dict, alloc: dict, vt: dict) -> list:
     """Header 3 khung (mẫu §4 A): 📊 VNINDEX · phiên / 🔭 Trung hạn · 💼 · Nên, + dòng
     🚨 CHỈ khi trung hạn CHƯA GIẢM (chống mỏi cảnh báo, §3.7) — đã GIẢM thì 🚨 chỉ
     là 1 dòng trong 🔭. Tâm lý + điểm kỹ thuật ngày nằm ở dòng Ngắn hạn của 🔭."""
-    from vnstock_brief_canon import _horizon_advice, _hz_approx, _hz_ddmm
+    from vnstock_brief_canon import _horizon_advice, _hz_approx, _hz_ddmm, _hz_weeks
     from vnstock_horizons import GIAM, MEDIUM_LABEL
     snap = (view or {}).get("snap") if not (view or {}).get("stale") else None
     c, chg = vt.get("close"), vt.get("day_change_pct")
@@ -708,8 +708,8 @@ def _horizon_header_lines(view: dict, alloc: dict, vt: dict) -> list:
         return [line1, "🔭 3 khung: chưa cập nhật " + (f"(as_of {_hz_ddmm(as_of)})" if as_of
                                                       else "(chưa đọc được state)")]
     med = snap.get("medium")
-    line2 = (f"🔭 <b>Trung hạn: {MEDIUM_LABEL.get(med, '?')}</b> (tuần "
-             f"{view.get('medium_weeks') or 1}, từ {_hz_ddmm(snap.get('medium_since'))}"
+    line2 = (f"🔭 <b>Trung hạn: {MEDIUM_LABEL.get(med, '?')}</b> (từ "
+             f"{_hz_ddmm(snap.get('medium_since'))}, {_hz_weeks(view)}"
              + (f"; trạng thái chốt {_hz_ddmm(snap.get('as_of'))}" if live else "") + ")")
     pct = ((alloc or {}).get("allocation") or {}).get("Cổ phiếu")
     if isinstance(pct, (int, float)):

@@ -37,7 +37,7 @@ def test_header_on_02_10_has_no_alert_line_once_the_trend_is_down():
     vt = {"close": 1737.71, "day_change_pct": -0.66, "data_date": "2026-10-02"}
     assert _horizon_header_lines(view, _ALLOC, vt) == [
         "📊 VNINDEX <b>1,737.71</b> (-0.66%) · phiên 02/10",
-        "🔭 <b>Trung hạn: GIẢM</b> (tuần 1, từ 02/10) · 💼 Cổ phiếu 15% · "
+        "🔭 <b>Trung hạn: GIẢM</b> (từ 02/10, 1 lần đóng tuần) · 💼 Cổ phiếu 15% · "
         "Nên: giữ tỷ trọng thấp; không bắt đáy",
     ]
 
@@ -49,7 +49,7 @@ def test_header_on_01_10_shows_the_alert_while_the_trend_is_still_flat():
                   {"kind": "to_tang", "price": 2020.0, "reachable": False}])
     vt = {"close": 1749.30, "day_change_pct": -1.09, "data_date": "2026-10-01"}
     lines = _horizon_header_lines(view, _ALLOC, vt)
-    assert lines[1] == ("🔭 <b>Trung hạn: ĐI NGANG</b> (tuần 10, từ 24/07) · 💼 Cổ phiếu 15% · "
+    assert lines[1] == ("🔭 <b>Trung hạn: ĐI NGANG</b> (từ 24/07, 10 lần đóng tuần) · 💼 Cổ phiếu 15% · "
                         "Nên: không bán tháo; trung hạn chuyển GIẢM nếu đóng tuần < ~1,766")
     assert lines[2] == ("🚨 <b>Rủi ro ngắn hạn: BẬT mức 1</b> — thấp hơn đỉnh neo ~1,853 "
                         "5.6%; không đổi xu hướng")

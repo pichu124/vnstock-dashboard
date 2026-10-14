@@ -165,11 +165,11 @@ def _morning_ctx(view=None, **extra) -> dict:
 def test_morning_line_matches_sample_d():
     from vnstock_brief import _horizon_morning_line
     assert _horizon_morning_line(_morning_ctx()) == (
-        "- 🔭 Trung hạn GIẢM (tuần 2) · ngắn hạn: nhịp chỉnh (phiên 14) · 💼 15% — "
+        "- 🔭 Trung hạn GIẢM (2 lần đóng tuần) · ngắn hạn: nhịp chỉnh (phiên 14) · 💼 15% — "
         "Bias GIẢM; không BUY vô điều kiện")
     flat = _view(medium=hz.DI_NGANG, prev_medium=hz.DI_NGANG, short=hz.CHUA_RO)
     assert _horizon_morning_line(_morning_ctx(flat, defensive={"on": False, "level": None})) \
-        == ("- 🔭 Trung hạn ĐI NGANG (tuần 2) · ngắn hạn: chưa rõ (phiên 14) · 💼 15% — "
+        == ("- 🔭 Trung hạn ĐI NGANG (2 lần đóng tuần) · ngắn hạn: chưa rõ (phiên 14) · 💼 15% — "
             "Bias chỉ TRUNG TÍNH/GIẢM")
     assert _horizon_morning_line(_morning_ctx(_view(stale=True))) == \
         "- 🔭 chưa cập nhật (as_of 09/10)."
@@ -202,7 +202,7 @@ def test_market_tab_badges(monkeypatch):
     monkeypatch.setattr(hs, "latest_published", lambda *a, **k: "LP")
     monkeypatch.setattr(hs, "brief_view", lambda lp: _view())
     badges = market_tab._horizon_badges()
-    assert badges == ["🔭 Trung hạn: GIẢM (tuần 2, từ 02/10)",
+    assert badges == ["🔭 Trung hạn: GIẢM (từ 02/10, 2 lần đóng tuần)",
                       "Ngắn hạn: nhịp chỉnh (phiên 14) · điểm -7/7",
                       "🚨 Rủi ro ngắn hạn: mức 1"]
     monkeypatch.setattr(hs, "brief_view", lambda lp: _view(stale=True))
@@ -256,5 +256,5 @@ def test_morning_guard_removes_agent_copies_of_the_horizon_line():
 
 def test_detect_stance_ignores_the_morning_horizon_line():
     from vnstock_brief import _detect_stance
-    line = "- 🔭 Trung hạn ĐI NGANG (tuần 2) · ngắn hạn: chưa rõ (phiên 14) — Bias chỉ TRUNG TÍNH/GIẢM"
+    line = "- 🔭 Trung hạn ĐI NGANG (2 lần đóng tuần) · ngắn hạn: chưa rõ (phiên 14) — Bias chỉ TRUNG TÍNH/GIẢM"
     assert _detect_stance(f"**Bias:** x\n{line}") == "unknown"

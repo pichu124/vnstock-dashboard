@@ -2427,7 +2427,12 @@ def enforce_buy_vs_bias_caveat(text: str, ctx: dict) -> str:
         low = l.lower()
         if "canh mua nếu" in low:
             return False
-        return bool(_re.search(r"\b(buy|mua)\b", low))
+        if _re.search(r"\b(buy|mua)\b", low):
+            return True
+        # Agent hay bỏ chữ BUY khi chép lệnh: "VPB: entry 23.6 · TP 26 · SL 22.7" —
+        # lệnh backtest chỉ có chiều MUA (13/10 lọt, không có câu nhắc). Lệnh BÁN ghi rõ.
+        return (bool(_re.search(r"\bentry\b\s*[:=]?\s*\d", low) and _re.search(r"\btp\b", low))
+                and not _re.search(r"\b(sell|bán)\b", low))
 
     if not any(_is_buy_line(l) for l in body):
         return text
