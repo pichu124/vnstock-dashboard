@@ -61,6 +61,11 @@ code): thêm `VNSTOCK_HORIZONS=0` vào `.env` 🖥️ desktop (doctor sẽ ⚠�
 6. ○ (máy nào cũng được, NGOÀI khung pipeline) — số cho #27 "quay lại sớm":
    `python scripts/research_reentry.py --out reentry.md` (chỉ đọc kho, ~1–3 phút) ⇒ gửi file
    cho Claude; Claude trình bảng A/B/C để bạn chọn (hoặc không chọn).
+   💻 14/10 lượt 1 (690 phiên 2024-01 → 2026-10, kho chỉ có từ 2024 ⇒ KHÔNG có năm giảm dài
+   2018/2022): A, C **không lần nào kích hoạt**; B 1 lần (+0,29 điểm % CAGR) ⇒ Claude đề xuất
+   KHÔNG làm A/B/C. Phát hiện lớn hơn: kẹp hiện tại (Câu 14 = B) **3,17% vs không kẹp 5,26% CAGR,
+   max DD −10,0% vs −9,1%** ⇒ thêm dòng đối chứng `capA` (Câu 14 = A) + cột lượt đổi/năm ⇒
+   **chạy lại lệnh trên (lượt 2)** rồi gửi Claude để quyết giữ B hay về A.
 
 Cần bạn chốt (đã ghi ở issue): #20 Vá 1 chạy 2 chiều? · #22 ô ép TĂNG giữ GIẢM của agent? ·
 #23 nhịp chỉnh một mình là bảo vệ MỀM? · #27 chọn phương án quay lại sớm (A/B/C).

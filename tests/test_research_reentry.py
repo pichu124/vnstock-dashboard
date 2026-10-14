@@ -94,7 +94,19 @@ def test_case_like_27_08_keeps_15_percent(rr):
     assert rr.simulate(days, "cap")[-1] == 15.0 and rr.simulate(days, "nocap")[-1] == 30.0
 
 
+def test_cap_a_lets_a_flat_trend_raise_equity_but_still_holds_in_a_downtrend(rr):
+    """Đối chứng Câu 14 = A: ĐI NGANG được tăng (ca 27/08 lên như không kẹp), GIẢM vẫn giữ."""
+    n = 40
+    flat = _days(rr, [1800.0 + k for k in range(n)], [-0.6] * 20 + [-0.4] * 20,
+                 [hz.DI_NGANG] * n, [0] * n, [0.5] * n)
+    assert rr.simulate(flat, "capA")[-1] == rr.simulate(flat, "nocap")[-1] == 30.0
+    down = _days(rr, [1800.0 + k for k in range(n)], [-0.6] * 20 + [-0.4] * 20,
+                 [hz.GIAM] * n, [0] * n, [0.5] * n)
+    assert rr.simulate(down, "capA") == rr.simulate(down, "cap")
+    assert rr.simulate(down, "cap")[-1] == 15.0
+
+
 def test_report_renders_both_tables(rr):
     text = rr.report(_v_shape(rr))
     assert "## 1. Phần bị lỡ" in text and "## 2. So 3 hướng" in text
-    assert "| cap |" in text and "| C |" in text
+    assert "| cap |" in text and "| capA |" in text and "| C |" in text
