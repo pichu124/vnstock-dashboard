@@ -951,6 +951,16 @@ Chạy lại trên cùng dữ liệu Finhay 2017-12 → 2026-10 (`scratchpad/bri
 | 13 | Không phải quyết định — là việc ○ bạn chạy khi tôi viết xong script P0 | việc |
 
 
+**📏 Câu 14 — ĐO 14/10 (#27, `scripts/research_reentry.py` trên kho thật, 690 phiên 01/2024 → 13/10/2026; kho chỉ có từ 2024 ⇒ KHÔNG có năm giảm dài 2018/2022; band là PROXY không vĩ mô/tilt):**
+
+| Luật | CAGR | Max DD | Cổ phiếu TB | Lượt đổi/năm | 27/08/2026 |
+|---|---|---|---|---|---|
+| Không kẹp | 5.26% | −9.1% | 46.6 | 24.1 | 45% |
+| **B (đang chạy)** | 3.17% | −10.0% | 35.0 | 13.3 | 15% |
+| A (chỉ chặn khi GIẢM/🚨) | 3.97% | −9.8% | 42.2 | 20.5 | 15% |
+
+Đọc: trong mẫu đi lên này kẹp B tốn ~2,1 điểm %/năm, max DD không tốt hơn; A lấy lại 0,8 điểm nhưng đổi tỷ trọng nhiều hơn 54% (gần bằng không kẹp) — tức trả lại phần ổn định là lý do chọn B. Hai đáy ≥15% (09/04/2025, 23/03/2026): kẹp lỡ 1,7 điểm % trong ~30 phiên sau đáy (A 1,5 / 1,0). Hướng mở sớm #27: A lực đẩy và C sâu ≥20% **không kích hoạt lần nào**, B 1 lần (+0,29 điểm %). **Claude đề xuất 14/10: giữ B, không làm A/B/C**; chi phí của B xử ở P3 (band v2 đặt gốc theo trung hạn: ĐI NGANG 45%) — đo lại khi P3 chạy bóng.
+
 **✅ Câu 14 — CHỐT 06/10: B** (user trả lời "14: B" sau khi nghe giải thích cái giá: ĐI NGANG có thể giữ tỷ trọng ở mức thấp nhất đã chạm suốt 3–4 tháng; chưa có replay đo phần lợi nhuận bỏ lỡ — đo lại ở P3). §3.8 và test P1b đã sửa theo. Câu hỏi gốc giữ dưới đây.
 
 **Câu 14 (mới, sau P0 — cần chốt trước P1b): kẹp tỷ trọng khi trung hạn ĐI NGANG.**

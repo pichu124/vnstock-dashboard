@@ -64,11 +64,14 @@ code): thêm `VNSTOCK_HORIZONS=0` vào `.env` 🖥️ desktop (doctor sẽ ⚠�
    💻 14/10 lượt 1 (690 phiên 2024-01 → 2026-10, kho chỉ có từ 2024 ⇒ KHÔNG có năm giảm dài
    2018/2022): A, C **không lần nào kích hoạt**; B 1 lần (+0,29 điểm % CAGR) ⇒ Claude đề xuất
    KHÔNG làm A/B/C. Phát hiện lớn hơn: kẹp hiện tại (Câu 14 = B) **3,17% vs không kẹp 5,26% CAGR,
-   max DD −10,0% vs −9,1%** ⇒ thêm dòng đối chứng `capA` (Câu 14 = A) + cột lượt đổi/năm ⇒
-   **chạy lại lệnh trên (lượt 2)** rồi gửi Claude để quyết giữ B hay về A.
+   max DD −10,0% vs −9,1%** ⇒ thêm dòng đối chứng `capA` (Câu 14 = A) + cột lượt đổi/năm.
+   💻 lượt 2: capA 3,97% / −9,8% / 20,5 lượt đổi/năm (B 13,3; không kẹp 24,1) ⇒ **Claude đề xuất
+   giữ B, không làm A/B/C**; chi phí của B để P3 (band v2 gốc theo trung hạn) xử. Bảng ở
+   `THIET-KE-BRIEF-3-KHUNG.md` mục "Câu 14 — ĐO 14/10". Không đổi code.
 
 Cần bạn chốt (đã ghi ở issue): #20 Vá 1 chạy 2 chiều? · #22 ô ép TĂNG giữ GIẢM của agent? ·
-#23 nhịp chỉnh một mình là bảo vệ MỀM? · #27 chọn phương án quay lại sớm (A/B/C).
+#23 nhịp chỉnh một mình là bảo vệ MỀM? · #27 Claude đề xuất KHÔNG làm A/B/C, giữ Câu 14 = B
+(đo 14/10) — muốn khác thì báo.
 
 
 ## 0. ✅ XONG 15/09 13:33 — HAI KHO ĐÃ TÁCH NHAU từ 07/09 (Dropbox desktop tắt sync) · đã sync lại, merge, chữa 25/25 mã lệch cơ sở
