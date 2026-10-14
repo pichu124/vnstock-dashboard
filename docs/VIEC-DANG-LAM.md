@@ -82,7 +82,9 @@ MỀM) · #27 Câu 14 = A, không làm A/B/C · **#20 đo xong ⇒ user chốt "
 bậc/lần + ⏳, GIẢM cắt thẳng tới bậc dữ liệu sau 2 phiên xác nhận (3.65%/−16.0%/13.1 lượt đổi vs
 từng bậc 3.62%/−16.4%/14.7). Claude đã sửa code — 🖥️ DESKTOP merge + `python run.py test` (FULL).
 💻 chạy lại 12:20 trên `13f541e`: cap 3.65%/−16.0%/13.1 · capStep 3.62%/−16.4%/14.7 — khớp. Cột "Mở
-sớm/Đảo" của A/B/C lượt đó so nhầm với `cap` thay vì `capB` (vá sau, không đổi quyết định nào).
+sớm/Đảo" của A/B/C lượt đó so nhầm với `cap` thay vì `capB` (vá `8f6afca`, không đổi quyết định nào).
+✅ 💻 LAPTOP FULL **4.783 passed / 158,2s** tại `8f6afca` ⇒ CHỈ CÒN 🖥️ DESKTOP: merge (`git log
+--oneline -1` = `8f6afca`) + `python run.py test` + `python run.py horizons --legend`.
 
 
 ## 0. ✅ XONG 15/09 13:33 — HAI KHO ĐÃ TÁCH NHAU từ 07/09 (Dropbox desktop tắt sync) · đã sync lại, merge, chữa 25/25 mã lệch cơ sở
