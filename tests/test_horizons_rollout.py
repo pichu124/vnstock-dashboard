@@ -134,6 +134,21 @@ def test_telegram_preview_builds_without_sending(monkeypatch):
     assert prev.startswith("──── tin 1/1") and "🔭 <b>Trung hạn: GIẢM</b>" in prev
 
 
+def test_telegram_preview_splits_on_section_boundaries_like_the_live_push():
+    """Bản đầu 14/10 tách theo DÒNG ⇒ mục ⚠️ Rủi ro bị cắt giữa tin 1 và 2 trong bản
+    mẫu, trong khi tin thật (công tắc bật) tách theo MỤC."""
+    s = _script()
+    ctx = s.rebuild_ctx(_SAVED, s.view_for(_STATE, "2026-10-12"))
+    big = "\n".join(f"- dòng {i} " + "x" * 70 for i in range(30))
+    text = (_TEXT + f"\n## 📈 Mức kỹ thuật\n{big}\n\n## ⚠️ Rủi ro cần lưu ý\n{big}\n"
+            f"- CUỐI MỤC RỦI RO\n\n## 🌐 Vĩ mô\n{big}\n")      # ⚠️ vắt qua mốc 4.000 ký tự
+    out, _ = s.round_trip(text, ctx)
+    parts = s.telegram_preview(out, ctx).split("──── tin ")[1:]
+    assert len(parts) > 1
+    risk = next(p for p in parts if "⚠️ Rủi ro cần lưu ý" in p)
+    assert "CUỐI MỤC RỦI RO" in risk                   # cả mục nằm trong cùng một tin
+
+
 def test_round_trip_flags_a_broken_section(monkeypatch):
     import vnstock_brief as vb
     s = _script()

@@ -123,12 +123,16 @@ def _saved_ctx(row: dict) -> dict:
 
 
 def telegram_preview(text: str, ctx: dict) -> str:
-    """Tin Telegram y như push_close_brief sẽ dựng (header 3 khung + thân) — KHÔNG gửi."""
+    """Tin Telegram như push_close_brief dựng khi công tắc BẬT — tiêu đề + header 3 khung
+    + thân, TÁCH THEO MỤC (`sections=True`, y như `_section_split_kw` lúc bật; bản đầu
+    14/10 quên cờ này nên xem trước cắt ngang mục ⚠️). Khối lệnh mở + footer không dựng
+    lại (đọc sổ lệnh sống, không thuộc phiên mẫu). KHÔNG gửi."""
     import vnstock_telegram as tg
     head = tg._horizon_header_lines(ctx["horizons"], ctx.get("allocation") or {},
                                     ctx.get("vnindex_tech") or {})
-    msg = "\n".join(head + ["", "🧠 <b>AI Outlook:</b>", tg._snippet_from_text(text)])
-    parts = tg._split_for_telegram(tg._sanitize_html(msg))
+    title = "📉 <b>VNStock Close Brief</b>"
+    msg = "\n".join([title, *head, "", "🧠 <b>AI Outlook:</b>", tg._snippet_from_text(text)])
+    parts = tg._split_for_telegram(tg._sanitize_html(msg), sections=True)
     return "\n\n".join(f"──── tin {k + 1}/{len(parts)} ({len(p)} ký tự) ────\n{p}"
                        for k, p in enumerate(parts))
 
