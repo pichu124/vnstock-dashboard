@@ -141,3 +141,20 @@ def test_round_trip_flags_a_broken_section(monkeypatch):
     monkeypatch.setattr(vb, "apply_brief_guards", lambda t, c: t.replace("## 🔭", "## x"))
     _, errs = s.round_trip(_TEXT, ctx)
     assert "không có khối 🔭" in errs
+
+
+
+def test_rows_read_the_brief_book_read_only(tmp_path, monkeypatch):
+    import vnstock_memory as m
+    monkeypatch.setattr(m, "DB_PATH", tmp_path / "brief_memory.db")
+    for day, out in (("2026-10-12", "a" * 150), ("2026-10-13", "b" * 150),
+                     ("2026-10-13", "c" * 150)):
+        m.save_brief(brief_date=day, brief_type="afternoon", agent_name="Claude",
+                     agent_type="claude", model="x", prompt="p", output=out, error=None,
+                     context={})
+    before = (tmp_path / "brief_memory.db").stat().st_mtime_ns
+    rows = _script()._rows(5, tmp_path / "brief_memory.db")
+    assert [r["brief_date"] for r in rows] == ["2026-10-13", "2026-10-12"]
+    assert rows[0]["output"].startswith("c")              # bản MỚI NHẤT của ngày
+    assert (tmp_path / "brief_memory.db").stat().st_mtime_ns == before
+    assert _script()._rows(5, tmp_path / "khong_co.db") == []

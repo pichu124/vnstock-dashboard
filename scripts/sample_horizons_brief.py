@@ -1,9 +1,8 @@
 """Brief 3 khung — BẢN MẪU để duyệt + KIỂM VÒNG TRÒN trên ctx THẬT (P1b-8, #26).
 
-Không gọi LLM, không gửi Telegram, không ghi kho/marker. Chỉ đọc sổ brief
-(`vnstock_memory`) + state 3 khung (`_meta/horizon_state.json`).
-
-🖥️ DESKTOP (cần kho + sổ brief đã có brief chiều):
+Không gọi LLM, không gửi Telegram, không ghi kho/marker. Chỉ ĐỌC sổ brief
+(`brief_memory.db`, mode=ro) + state 3 khung (`_meta/horizon_state.json`) — cả hai
+nằm trong kho Dropbox ⇒ ○ máy nào cũng được (tránh khung pipeline 18:00 → `⏱ TỔNG`):
 
     python scripts/sample_horizons_brief.py              # bản mẫu: brief chiều MỚI NHẤT
                                                          # đi lại chuỗi guard, công tắc BẬT
@@ -85,11 +84,26 @@ def round_trip(text: str, ctx: dict) -> "tuple[str, list[str]]":
     return once, errs
 
 
-def _rows(limit: int) -> list[dict]:
+def _rows(limit: int, db: "Path | None" = None) -> list[dict]:
+    """Brief chiều hợp lệ mới nhất, mỗi ngày 1 bản — mở sổ CHỈ ĐỌC (mode=ro): sổ
+    nằm trong kho Dropbox, chạy ở máy KHÔNG phát (💻 laptop) không được ghi gì."""
+    import sqlite3
     import vnstock_memory as mem
-    mem.init_db()
+    db = Path(db or mem.DB_PATH)
+    if not db.is_absolute():
+        db = _REPO / db
+    if not db.exists():
+        return []
+    con = sqlite3.connect(db.resolve().as_uri() + "?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = [dict(r) for r in con.execute(
+            "SELECT * FROM briefs WHERE brief_type='afternoon' ORDER BY created_at DESC, id DESC "
+            "LIMIT ?", (limit * 4,))]
+    finally:
+        con.close()
     seen, out = set(), []
-    for b in mem.recent_briefs(brief_type="afternoon", limit=limit * 4):
+    for b in rows:
         d = str(b.get("brief_date") or "")[:10]
         if not b.get("output") or b.get("error") or d in seen:
             continue

@@ -20,7 +20,7 @@
 đổi; không báo thì giữ nguyên máy của lượt trước. Đừng suy từ đường dẫn venv —
 cả hai đều `C:\vnstock`, venv đổi theo TÀI KHOẢN đăng nhập. Thật sự chưa biết
 thì: `$env:COMPUTERNAME; Get-ScheduledTask -TaskName 'VnStock *'` (≥2 task =
-desktop). **Phiên hiện tại: 🖥️ DESKTOP** (user báo 10/09).
+desktop). **Phiên hiện tại: 💻 LAPTOP** (user báo 14/10).
 
 ---
 
@@ -31,12 +31,13 @@ desktop). **Phiên hiện tại: 🖥️ DESKTOP** (user báo 10/09).
 Code xong #19–#25 + phần chuẩn bị #26. **Chưa bật**: `VNSTOCK_HORIZONS` mặc định TẮT ⇒
 brief tối KHÔNG đổi; chỉ **kẹp tỷ trọng #20 chạy thật ngay** (đang B4 15% nên khó thấy).
 
-1. 🖥️ DESKTOP — merge + FULL test (ngoài khung pipeline 18:00 → `⏱ TỔNG`):
+1. ⇄ CẢ HAI — merge + FULL test (ngoài khung pipeline 18:00 → `⏱ TỔNG`):
    `git fetch origin claude/vibrant-maxwell-4g4edj && git merge origin/claude/vibrant-maxwell-4g4edj`
-   rồi `python run.py test` (FULL, không phải `--fast`).
-2. 🖥️ DESKTOP — vòng tròn trên 5 brief THẬT: `python scripts/sample_horizons_brief.py --check 5`
-   (phải ✅ 5/5; ❌ thì gửi nguyên output cho Claude).
-3. 🖥️ DESKTOP — bản mẫu để duyệt: `python scripts/sample_horizons_brief.py --out mau_3khung.md`
+   rồi `python run.py test` (FULL, không phải `--fast`). 🖥️ desktop: ĐÃ merge 14/10, CHƯA test —
+   tối nay pipeline tự chạy bước test, đỏ là MẤT brief ⇒ chạy FULL ở 💻 laptop trước để báo sớm.
+2. ○ — vòng tròn trên 5 brief THẬT: `python scripts/sample_horizons_brief.py --check 5`
+   (phải ✅ 5/5; ❌ thì gửi nguyên output cho Claude). Sổ brief mở CHỈ ĐỌC.
+3. ○ — bản mẫu để duyệt: `python scripts/sample_horizons_brief.py --out mau_3khung.md`
    (không gọi LLM, không gửi Telegram, không ghi kho) ⇒ đọc rồi báo Claude "duyệt" hoặc sửa gì.
 4. Sau khi duyệt — Claude đổi mặc định BẬT; 🖥️ DESKTOP merge lần nữa + `python run.py test` +
    `python run.py horizons --legend` (1 tin giải thích từ vựng vào Telegram).
