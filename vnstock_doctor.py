@@ -1476,7 +1476,7 @@ _DANGEROUS_SWITCHES = {
     "VNSTOCK_ALLOC_HORIZON_CAP": "tắt kẹp tỷ trọng theo trung hạn — % cổ phiếu "
                                  "lại tăng được khi trung hạn GIẢM / 🚨 bật, và "
                                  "nhảy cả bậc không báo trước",
-    "VNSTOCK_ALLOC_ONE_STEP": "band phân bổ lại nhảy được 2 bậc một lần",
+    "VNSTOCK_ALLOC_ONE_STEP": "band phân bổ lại TĂNG được nhiều bậc một lần",
     "VNSTOCK_HORIZONS": "brief quay về khung CŨ — floor momentum ±50, nhãn "
                         "Risk-on/off, không có 🔭 / bảng Stance / lớp bảo vệ",
     "VNSTOCK_HORIZONS_STEP": "state 3 khung thôi cập nhật — brief in '🔭 chưa "

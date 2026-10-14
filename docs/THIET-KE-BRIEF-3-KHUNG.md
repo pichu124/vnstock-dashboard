@@ -388,7 +388,7 @@ Biểu tượng đổi từ ⚡ sang 🚨, vì ⚡ đang là mục "## ⚡ Biế
   - Kẹp chặn cả phần trôi do tilt phai theo lịch. Ví dụ: cú 15 → ~28% lúc 05/10 00:10 sẽ bị chặn, vì trung hạn đã GIẢM từ 02/10.
   - Hết kẹp thì tăng tối đa 1 bậc/tuần (~15 điểm %), có "⏳" báo trước 1 tuần.
   - Bước allocation chạy **sau** bước horizons (§3.10), nên cùng đêm đã đọc được trạng thái.
-- **Vá 1:** mỗi lần đổi tối đa 1 bậc (`apply_hysteresis`, `vnstock_allocation.py:211-251`).
+- **Vá 1:** mỗi lần TĂNG % cổ phiếu tối đa 1 bậc (`apply_hysteresis`); GIẢM cắt thẳng tới bậc dữ liệu sau 2 phiên xác nhận — **#20 chốt 14/10** (bản 13/10 giảm cũng từng bậc; replay 2017–2026: cắt thẳng 3.65% / −16.0% / 13.1 lượt đổi/năm vs từng bậc 3.62% / −16.4% / 14.7; từng đợt sập 2018/2020/2022/2025/2026 chênh ≤0,5 điểm, thắng 2 thua 2 hoà 1). `VNSTOCK_ALLOC_ONE_STEP=both` trả lại bản 13/10, `=0` tắt cả hai chiều.
 - **Vá 2:** nút dashboard (`allocation_tab.py:70-73`) không ghi ngày mới khi overview là giữa phiên (`reason=intraday`). Khi đó chỉ tính và hiện.
 - **Vá 3:** ghi `pending` vào `_history_entry` (`:529-544`).
 - **Hiển thị:**

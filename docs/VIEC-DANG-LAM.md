@@ -78,10 +78,9 @@ code): thêm `VNSTOCK_HORIZONS=0` vào `.env` 🖥️ desktop (doctor sẽ ⚠�
    (FULL, đổi luật phân bổ chạy thật).
 
 Chốt 14/10: #22 GIỮ (ô ép TĂNG vẫn giữ GIẢM của agent) · #23 GIỮ (chỉ nhịp chỉnh = bảo vệ
-MỀM) · #27 Câu 14 = A, không làm A/B/C. **#20 đang ĐO:** Vá 1 hiện chạy CẢ HAI CHIỀU (giảm cũng từng
-bậc × 2 phiên); dòng `capCut` (giảm cắt thẳng) + mục 3 "từng đợt sập" trong
-`scripts/research_reentry.py` ⇒ ○ merge rồi chạy `python scripts/research_reentry.py --out
-reentry.md`, gửi Claude.
+MỀM) · #27 Câu 14 = A, không làm A/B/C · **#20 đo xong ⇒ user chốt "cắt thẳng"**: tăng vẫn ≤1
+bậc/lần + ⏳, GIẢM cắt thẳng tới bậc dữ liệu sau 2 phiên xác nhận (3.65%/−16.0%/13.1 lượt đổi vs
+từng bậc 3.62%/−16.4%/14.7). Claude đã sửa code — 🖥️ DESKTOP merge + `python run.py test` (FULL).
 
 
 ## 0. ✅ XONG 15/09 13:33 — HAI KHO ĐÃ TÁCH NHAU từ 07/09 (Dropbox desktop tắt sync) · đã sync lại, merge, chữa 25/25 mã lệch cơ sở

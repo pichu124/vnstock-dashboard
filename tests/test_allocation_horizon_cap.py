@@ -179,15 +179,24 @@ def test_kill_switch_restores_old_behaviour(monkeypatch):
     assert not out.get("capped_by") and not out.get("ramp")
 
 
-# ── Vá 1: mỗi lần đổi band ≤1 bậc ────────────────────────────────────────────
+# ── Vá 1: TĂNG ≤1 bậc/lần, GIẢM cắt thẳng (#20, chốt 14/10) ──────────────────
 
 @pytest.mark.parametrize("cur,score,expect", [
     ("B4", 0.9, "B3"),    # điểm nhảy tới B0 → chỉ lên 1 bậc
-    ("B0", -0.9, "B1"),   # điểm rơi tới B4 → chỉ xuống 1 bậc
+    ("B0", -0.9, "B4"),   # điểm rơi tới B4 → cắt thẳng xuống B4 (sau 2 phiên xác nhận)
 ])
-def test_hysteresis_moves_at_most_one_band_per_change(cur, score, expect):
+def test_hysteresis_climbs_one_band_but_cuts_straight_down(cur, score, expect):
     prev = {"band": cur, "pending": {"band": expect, "dates": ["2026-10-05"]}}
     assert alloc.apply_hysteresis(prev, score, "2026-10-06")["band"] == expect
+
+
+def test_one_step_both_restores_the_13_10_step_down(monkeypatch):
+    monkeypatch.setenv("VNSTOCK_ALLOC_ONE_STEP", "both")
+    prev = {"band": "B0", "pending": {"band": "B1", "dates": ["2026-10-05"]}}
+    assert alloc.apply_hysteresis(prev, -0.9, "2026-10-06")["band"] == "B1"
+    assert alloc._one_step_mode() == "both"
+    monkeypatch.delenv("VNSTOCK_ALLOC_ONE_STEP")
+    assert alloc._one_step_mode() == "up"
 
 
 def test_one_step_kill_switch_allows_the_old_two_band_jump(monkeypatch):

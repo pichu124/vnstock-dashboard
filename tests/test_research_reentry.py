@@ -165,7 +165,7 @@ def test_report_prints_the_data_notes(rr):
     assert "- VNINDEX trong kho: X" in text and "- VNINDEX sâu hơn: nối 5 phiên" in text
 
 
-# ── #20: Vá 1 chỉ chặn chiều tăng (capCut) ──────────────────────────────────
+# ── #20: Vá 1 chỉ chặn chiều tăng (luật đang chạy; capStep = bản 13/10) ─────
 
 def test_hysteresis_one_step_up_cuts_straight_down_but_still_climbs_one_band():
     import vnstock_allocation as alloc
@@ -182,13 +182,13 @@ def test_hysteresis_one_step_up_cuts_straight_down_but_still_climbs_one_band():
     assert alloc.apply_hysteresis(b4, 1.0, "2026-01-06", one_step="up")["band"] == "B3"
 
 
-def test_cap_cut_falls_faster_in_a_crash(rr):
+def test_cap_cuts_faster_than_the_step_down_rule_in_a_crash(rr):
     days = _v_shape(rr)
-    cap, cut = rr.simulate(days, "cap"), rr.simulate(days, "capCut")
+    cap, cut = rr.simulate(days, "capStep"), rr.simulate(days, "cap")
     first = lambda eq: next(i for i, v in enumerate(eq) if v == 15.0)
     assert first(cut) < first(cap)                      # chạm 15% sớm hơn
 
 
 def test_report_has_the_crash_table(rr):
     text = rr.report(_v_shape(rr))
-    assert "## 3. #20" in text and "| capCut |" in text and "Cắt rồi mua lại" in text
+    assert "## 3. #20" in text and "| capStep |" in text and "Cắt rồi mua lại" in text

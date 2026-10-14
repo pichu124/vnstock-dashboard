@@ -215,9 +215,9 @@ def apply_hysteresis(prev_state: "dict | None", score: float,
     """Band hiệu lực sau hysteresis: đổi band cần điểm vượt ranh giới ≥
     ``_HYSTERESIS_MARGIN`` trong ``_CONFIRM_SESSIONS`` phiên (ngày khác nhau).
 
-    ``one_step`` (Vá 1): "both" = mỗi lần đổi ≤1 bậc cả hai chiều · "up" = chỉ
-    chiều TĂNG % cổ phiếu, giảm cắt thẳng tới bậc dữ liệu · "off". None = theo
-    ``VNSTOCK_ALLOC_ONE_STEP`` (bật = "both"). "up" chỉ để đo #20 tới khi chốt.
+    ``one_step`` (Vá 1): "up" = chỉ chiều TĂNG % cổ phiếu đi ≤1 bậc/lần, giảm cắt
+    thẳng tới bậc dữ liệu · "both" = cả hai chiều · "off". None = theo
+    ``VNSTOCK_ALLOC_ONE_STEP`` (`_one_step_mode`, mặc định "up").
 
     Trả ``{band, raw_band, pending}`` — pending = {band, dates} khi một đề
     xuất đổi band đang chờ xác nhận. Recompute CÙNG NGÀY không đếm thêm phiên
@@ -242,7 +242,7 @@ def apply_hysteresis(prev_state: "dict | None", score: float,
     else:
         candidate = cur_idx
 
-    mode = one_step or ("both" if _one_step_enabled() else "off")
+    mode = one_step or _one_step_mode()
     # chỉ số band nhỏ hơn = nhiều cổ phiếu hơn (B0 cao nhất) ⇒ candidate < cur = TĂNG
     if candidate != cur_idx and (mode == "both" or (mode == "up" and candidate < cur_idx)):
         # Vá 1 (P1b-2, #20): lề 0.05 × 2 phiên vẫn để ứng viên cách 2 bậc — mỗi
@@ -526,8 +526,15 @@ def _horizon_cap_enabled() -> bool:
     return os.environ.get("VNSTOCK_ALLOC_HORIZON_CAP", "1").strip().lower() not in _OFF_VALUES
 
 
-def _one_step_enabled() -> bool:
-    return os.environ.get("VNSTOCK_ALLOC_ONE_STEP", "1").strip().lower() not in _OFF_VALUES
+def _one_step_mode() -> str:
+    """Vá 1 (#20): mặc định "up" — TĂNG % cổ phiếu ≤1 bậc/lần, GIẢM cắt thẳng tới bậc
+    dữ liệu sau 2 phiên xác nhận (user chốt 14/10; replay 2017–2026: 3.65%/−16.0%/13.1
+    lượt đổi so với từng bậc hai chiều 3.62%/−16.4%/14.7). "both" = bản 13/10 (giảm
+    cũng từng bậc); giá trị tắt = cả hai chiều nhảy nhiều bậc như trước P1b."""
+    v = os.environ.get("VNSTOCK_ALLOC_ONE_STEP", "").strip().lower()
+    if v in _OFF_VALUES:
+        return "off"
+    return "both" if v == "both" else "up"
 
 
 def _load_horizon() -> "tuple[dict | None, str | None]":
