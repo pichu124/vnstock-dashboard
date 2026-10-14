@@ -49,8 +49,8 @@ code): thêm `VNSTOCK_HORIZONS=0` vào `.env` 🖥️ desktop (doctor sẽ ⚠�
    "N lần đóng tuần" · 🚨 bỏ "Không đổi xu hướng." khi trung hạn GIẢM · câu nhắc lệnh MUA bắt cả dòng
    "entry · TP · SL") + xem trước Telegram tách theo mục (`0e7bd4c`; 💻 FULL **4.770 passed / 180,7s**).
    ✅ User giao Claude quyết luôn việc duyệt (14/10) ⇒ bước 4.
-4. ✅ Claude đã đổi mặc định BẬT (14/10). **CÒN:** 💻 LAPTOP merge + `python run.py test` (FULL);
-   🖥️ DESKTOP merge + `python run.py test` (FULL) — trước 18:00 thì brief TỐI NAY là 3 khung, không
+4. ✅ Claude đã đổi mặc định BẬT (14/10, `1d88e8a`). ✅ 💻 LAPTOP FULL **4.770 passed / 177,4s**.
+   **CÒN:** 🖥️ DESKTOP merge + `python run.py test` (FULL) — trước 18:00 thì brief TỐI NAY là 3 khung, không
    thì merge sau khi phát tối in `⏱ TỔNG` (tối nay chạy code cũ). Sau merge 🖥️:
    `python run.py horizons --legend` (1 tin giải thích từ vựng vào Telegram).
 5. 🖥️ DESKTOP — 5 phiên đầu sau khi bật: mỗi sáng xem tin Telegram (header 📊/🔭, khối 🔭 sau
