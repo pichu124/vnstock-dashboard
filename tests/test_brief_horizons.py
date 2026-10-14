@@ -1,5 +1,5 @@
 """P1b-3 (#21) — khối 🔭 + TLDR dòng 3 trong brief chiều (sau công tắc
-`VNSTOCK_HORIZONS`, mặc định TẮT tới #26). Đặc tả `docs/THIET-KE-BRIEF-3-KHUNG.md`
+`VNSTOCK_HORIZONS`, mặc định BẬT từ 14/10 — test ghim TẮT làm nền). Đặc tả `docs/THIET-KE-BRIEF-3-KHUNG.md`
 §3.12, §4 (B), §3.10. Số mẫu = trạng thái THẬT 🖥️ 13/10 (`run.py horizons --show`).
 """
 from __future__ import annotations
@@ -18,6 +18,7 @@ def _no_vnstock_env(monkeypatch):
     for k in list(os.environ):
         if k.startswith("VNSTOCK_"):
             monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("VNSTOCK_HORIZONS", "0")      # nền khung cũ (mặc định BẬT từ 14/10)
 
 
 def _snap(as_of="2026-10-13", **over) -> dict:

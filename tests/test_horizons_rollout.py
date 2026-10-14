@@ -1,6 +1,6 @@
 """P1b-8 (#26) — chuẩn bị bật brief 3 khung: few-shot chỉ mẫu sau P1b (lọc
 trong truy vấn), công tắc nguy hiểm trong doctor, script bản mẫu + vòng tròn
-trên ctx đã lưu. KHÔNG đổi mặc định VNSTOCK_HORIZONS (chờ user duyệt mẫu).
+trên ctx đã lưu. Mặc định VNSTOCK_HORIZONS BẬT từ 14/10 (user duyệt mẫu).
 """
 from __future__ import annotations
 
@@ -20,10 +20,19 @@ def _no_vnstock_env(monkeypatch):
     for k in list(os.environ):
         if k.startswith("VNSTOCK_"):
             monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("VNSTOCK_HORIZONS", "0")      # nền khung cũ (mặc định BẬT từ 14/10)
 
 
-def test_default_is_still_off():
-    assert hz.horizons_enabled() is False          # bật sau khi user duyệt bản mẫu
+def test_default_is_on_and_only_an_explicit_off_value_turns_it_off(monkeypatch):
+    """#26: user duyệt bản mẫu 14/10 ⇒ không đặt biến = BẬT; tắt khẩn = "0"."""
+    monkeypatch.delenv("VNSTOCK_HORIZONS", raising=False)
+    assert hz.horizons_enabled() is True
+    for v in ("", "1", "true", "on", "yes"):
+        monkeypatch.setenv("VNSTOCK_HORIZONS", v)
+        assert hz.horizons_enabled() is True, v
+    for v in ("0", "false", "OFF", " no "):
+        monkeypatch.setenv("VNSTOCK_HORIZONS", v)
+        assert hz.horizons_enabled() is False, v
 
 
 # ── Few-shot: lọc NGAY TRONG truy vấn ─────────────────────────────────────────

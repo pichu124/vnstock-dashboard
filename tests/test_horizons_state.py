@@ -37,6 +37,7 @@ def wh(tmp_path, monkeypatch):
     for k in list(__import__("os").environ):
         if k.startswith("VNSTOCK_HORIZONS"):
             monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("VNSTOCK_HORIZONS", "0")          # nền khung cũ (mặc định BẬT từ 14/10)
     monkeypatch.setenv("COMPUTERNAME", "TESTBOX")
     rng = np.random.default_rng(11)
     days = _bdays(date(2025, 1, 6), 300)
@@ -273,7 +274,9 @@ def test_doctor_escalates_to_error_once_the_brief_reads_the_state(doc, wh, monke
     hs.update(now=_evening(days[-2]), warehouse=root)
     assert doc.check_horizons(now=_evening(days[-2]))["status"] == "ok"
     assert doc.check_horizons(now=_evening(days[-1]))["status"] == "error"      # cũ
-    monkeypatch.delenv("VNSTOCK_HORIZONS")
+    monkeypatch.delenv("VNSTOCK_HORIZONS")                 # không đặt = BẬT (từ 14/10)
+    assert doc.check_horizons(now=_evening(days[-1]))["status"] == "error"
+    monkeypatch.setenv("VNSTOCK_HORIZONS", "0")
     assert doc.check_horizons(now=_evening(days[-1]))["status"] == "warn"
 
 

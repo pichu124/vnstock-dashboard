@@ -26,6 +26,7 @@ def _no_vnstock_env(monkeypatch):
     for k in list(os.environ):
         if k.startswith("VNSTOCK_"):
             monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("VNSTOCK_HORIZONS", "0")      # nền khung cũ (mặc định BẬT từ 14/10)
 
 
 def _view(short=hz.CHINH, medium=hz.GIAM, tier=1, **snap_over) -> dict:

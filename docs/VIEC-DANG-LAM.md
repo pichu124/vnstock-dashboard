@@ -26,10 +26,11 @@ desktop). **Phiên hiện tại: 💻 LAPTOP** (user báo 14/10).
 
 # 🔴 CÒN PHẢI LÀM
 
-## P1b — BRIEF 3 KHUNG (#19–#27, nhánh `claude/vibrant-maxwell-4g4edj`) — chờ bạn duyệt bản mẫu
+## P1b — BRIEF 3 KHUNG (#19–#27, nhánh `claude/vibrant-maxwell-4g4edj`) — ĐÃ DUYỆT 14/10, mặc định BẬT
 
-Code xong #19–#25 + phần chuẩn bị #26. **Chưa bật**: `VNSTOCK_HORIZONS` mặc định TẮT ⇒
-brief tối KHÔNG đổi; chỉ **kẹp tỷ trọng #20 chạy thật ngay** (đang B4 15% nên khó thấy).
+Code xong #19–#26. **User giao Claude duyệt 14/10 ⇒ `VNSTOCK_HORIZONS` mặc định BẬT** từ commit
+bật công tắc: brief tối đầu tiên sau khi 🖥️ desktop merge là brief 3 khung. **Tắt khẩn** (không cần
+code): thêm `VNSTOCK_HORIZONS=0` vào `.env` 🖥️ desktop (doctor sẽ ⚠️ "brief quay về khung CŨ").
 
 1. ⇄ CẢ HAI — merge + FULL test (ngoài khung pipeline 18:00 → `⏱ TỔNG`):
    `git fetch origin claude/vibrant-maxwell-4g4edj && git merge origin/claude/vibrant-maxwell-4g4edj`
@@ -47,9 +48,10 @@ brief tối KHÔNG đổi; chỉ **kẹp tỷ trọng #20 chạy thật ngay** (
    💻 14/10: user đã xem bản mẫu phiên 13/10, giao Claude tự quyết 3 điểm ⇒ đã vá (tuổi trung hạn
    "N lần đóng tuần" · 🚨 bỏ "Không đổi xu hướng." khi trung hạn GIẢM · câu nhắc lệnh MUA bắt cả dòng
    "entry · TP · SL") + xem trước Telegram tách theo mục (`0e7bd4c`; 💻 FULL **4.770 passed / 180,7s**).
-   **CHỜ user nói "duyệt" để sang bước 4.** 🖥️ desktop chưa có `0e7bd4c` — merge + FULL trước 18:00,
-   hoặc merge sau khi phát tối in `⏱ TỔNG`.
-4. Sau khi duyệt — Claude đổi mặc định BẬT; 🖥️ DESKTOP merge lần nữa + `python run.py test` +
+   ✅ User giao Claude quyết luôn việc duyệt (14/10) ⇒ bước 4.
+4. ✅ Claude đã đổi mặc định BẬT (14/10). **CÒN:** 💻 LAPTOP merge + `python run.py test` (FULL);
+   🖥️ DESKTOP merge + `python run.py test` (FULL) — trước 18:00 thì brief TỐI NAY là 3 khung, không
+   thì merge sau khi phát tối in `⏱ TỔNG` (tối nay chạy code cũ). Sau merge 🖥️:
    `python run.py horizons --legend` (1 tin giải thích từ vựng vào Telegram).
 5. 🖥️ DESKTOP — 5 phiên đầu sau khi bật: mỗi sáng xem tin Telegram (header 📊/🔭, khối 🔭 sau
    TLDR, Stance) + `Select-String -Path run_daily.log -Pattern '\[horizons\]|horizons_apply' |

@@ -2914,7 +2914,7 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
         ctx["bias_floor"] = _fl
 
     # 10. Brief 3 khung (P1b-3, #21): bản published mới nhất → khối 🔭 + TLDR dòng 3.
-    # Sau công tắc VNSTOCK_HORIZONS (mặc định TẮT tới #26) — tắt thì ctx KHÔNG có
+    # Sau công tắc VNSTOCK_HORIZONS (mặc định BẬT từ 14/10, #26) — tắt thì ctx KHÔNG có
     # khoá "horizons" nên prompt/guard giống hệt trước.
     if horizons_enabled():
         try:

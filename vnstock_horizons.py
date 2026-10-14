@@ -33,11 +33,15 @@ MEDIUM_LABEL = {TANG: "TĂNG", DI_NGANG: "ĐI NGANG", GIAM: "GIẢM"}
 STANCE_UP, STANCE_FLAT, STANCE_DOWN = "TĂNG", "TRUNG TÍNH", "GIẢM"
 
 
+_SWITCH_OFF = ("0", "false", "off", "no")
+
+
 def horizons_enabled() -> bool:
-    """Công tắc brief 3 khung VNSTOCK_HORIZONS (mặc định TẮT cho tới #26) — MỘT
-    chỗ đọc cho brief, nhãn regime/quant, Telegram, dashboard. Ngoại lệ I/O duy
-    nhất của module lõi (chỉ đọc biến môi trường)."""
-    return os.environ.get("VNSTOCK_HORIZONS", "0").strip().lower() in ("1", "true", "on", "yes")
+    """Công tắc brief 3 khung VNSTOCK_HORIZONS — MỘT chỗ đọc cho brief, nhãn
+    regime/quant, Telegram, dashboard. Mặc định BẬT từ 14/10 (#26, duyệt bản mẫu
+    phiên 13/10); chỉ giá trị tắt tường minh ("0/false/off/no") đưa về khung cũ.
+    Ngoại lệ I/O duy nhất của module lõi (chỉ đọc biến môi trường)."""
+    return os.environ.get("VNSTOCK_HORIZONS", "").strip().lower() not in _SWITCH_OFF
 PROTECT_HARD, PROTECT_SOFT = "cứng", "mềm"
 
 

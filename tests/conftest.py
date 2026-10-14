@@ -176,8 +176,14 @@ def _no_horizons_switch_from_dotenv(monkeypatch):
     """Brief 3 khung (P1b, #24/#26): `.env` máy thật lọt vào pytest (vnstock_auth
     load_dotenv lúc import) — bật VNSTOCK_HORIZONS ở `.env` không được làm đổi nhãn
     regime / prompt / guard trong các test viết cho hành vi mặc định (pipeline đêm
-    chạy test trước brief: đỏ là MẤT brief, U65). Test cần công tắc thì tự setenv."""
+    chạy test trước brief: đỏ là MẤT brief, U65). Test cần công tắc thì tự setenv.
+
+    Từ 14/10 công tắc mặc định BẬT ⇒ nền chung ghim TẮT ("0"): test cũ canh đường
+    khung cũ — chính là đường kill-switch `VNSTOCK_HORIZONS=0` (đo 14/10: bỏ ghim thì
+    36 test cũ đỏ, toàn vì nhãn/prompt/stub, 0 lỗi code). Test 3 khung tự đặt "1";
+    test mặc định tự delenv (`test_horizons_rollout`)."""
     import os
     for k in list(os.environ):
         if k.startswith(("VNSTOCK_HORIZON", "VNSTOCK_REGIME_NN", "VNSTOCK_ALLOC_")):
             monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("VNSTOCK_HORIZONS", "0")
