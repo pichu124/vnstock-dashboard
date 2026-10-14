@@ -31,6 +31,8 @@ def _meta(tmp_path, monkeypatch):
     for k in [k for k in os.environ if k.startswith("VNSTOCK_NEWS_ALERT")]:
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setattr(nf, "fetch_fulltext", lambda url, **kw: BODY if "body" in url else "")
+    # Đường ladder không được gọi provider thật trên máy có `.env` (xem test_news_alert).
+    monkeypatch.setattr(nf, "analyze_item", lambda it: ("", ""))
     return tmp_path
 
 

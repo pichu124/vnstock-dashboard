@@ -35,6 +35,10 @@ brief tối KHÔNG đổi; chỉ **kẹp tỷ trọng #20 chạy thật ngay** (
    `git fetch origin claude/vibrant-maxwell-4g4edj && git merge origin/claude/vibrant-maxwell-4g4edj`
    rồi `python run.py test` (FULL, không phải `--fast`). 🖥️ desktop: ĐÃ merge 14/10, CHƯA test —
    tối nay pipeline tự chạy bước test, đỏ là MẤT brief ⇒ chạy FULL ở 💻 laptop trước để báo sớm.
+   ✅ 💻 laptop 14/10: FULL **4.766 passed** (792s lần đầu, 434s lần hai `--slow`). 260s trong đó là
+   MỘT test tin mỗi giờ gọi Groq/Gemini THẬT (Claude giả rỗng ⇒ rơi về ladder không stub; cloud không
+   key nên không lộ) — đã vá + test canh. Sau merge bản vá phải còn ~3 phút; sáng 15/10 🖥️ xem
+   dòng `⏱ test:` trong `run_daily.log` (pipeline đêm chạy test FULL).
 2. ○ — vòng tròn trên 5 brief THẬT: `python scripts/sample_horizons_brief.py --check 5`
    (phải ✅ 5/5; ❌ thì gửi nguyên output cho Claude). Sổ brief mở CHỈ ĐỌC.
 3. ○ — bản mẫu để duyệt: `python scripts/sample_horizons_brief.py --out mau_3khung.md`
