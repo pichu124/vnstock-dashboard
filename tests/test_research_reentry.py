@@ -192,3 +192,16 @@ def test_cap_cuts_faster_than_the_step_down_rule_in_a_crash(rr):
 def test_report_has_the_crash_table(rr):
     text = rr.report(_v_shape(rr))
     assert "## 3. #20" in text and "| capStep |" in text and "Cắt rồi mua lại" in text
+
+
+def test_early_open_columns_count_against_the_capb_base(rr, monkeypatch):
+    """14/10: sau khi đổi tên dòng, cột "Mở sớm/Đảo" của A/B/C lỡ so với `cap` (luật đang
+    chạy) thay vì `capB` — nền của chúng — nên số đổi dù CAGR/max DD không đổi."""
+    days = _v_shape(rr)
+    cap, cap_b = rr.simulate(days, "cap"), rr.simulate(days, "capB")
+    assert cap != cap_b                                  # kịch bản phân biệt được hai nền
+    seen = []
+    real = rr.reversals
+    monkeypatch.setattr(rr, "reversals", lambda d, eq, base: seen.append(base) or real(d, eq, base))
+    rr.report(days)
+    assert seen and all(b == cap_b for b in seen)

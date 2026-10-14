@@ -274,7 +274,8 @@ def report(days: list[Day], notes: "list[str] | tuple" = ()) -> str:
     for v in VARIANTS:
         opened = ("—", "—", "—")
         if v in ("A", "B", "C"):
-            opened = tuple(str(x) for x in reversals(days, eqs[v], eqs["cap"]))
+            # A/B/C mở sớm TRÊN NỀN capB ⇒ "mở sớm" đếm so với capB, không so luật đang chạy
+            opened = tuple(str(x) for x in reversals(days, eqs[v], eqs["capB"]))
         e27 = f"{eqs[v][i2708]:g}%" if i2708 is not None else "—"
         lines.append(f"| {v} | {cagr(days, vals[v]) * 100:.2f}% | {max_dd(vals[v]) * 100:.1f}% | "
                      f"{sum(eqs[v]) / len(eqs[v]):.1f} | {changes_per_year(days, eqs[v]):.1f} | "
