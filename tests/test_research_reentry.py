@@ -163,3 +163,32 @@ def test_thin_breadth_and_coverage(rr):
 def test_report_prints_the_data_notes(rr):
     text = rr.report(_v_shape(rr), ["VNINDEX trong kho: X", "VNINDEX sâu hơn: nối 5 phiên"])
     assert "- VNINDEX trong kho: X" in text and "- VNINDEX sâu hơn: nối 5 phiên" in text
+
+
+# ── #20: Vá 1 chỉ chặn chiều tăng (capCut) ──────────────────────────────────
+
+def test_hysteresis_one_step_up_cuts_straight_down_but_still_climbs_one_band():
+    import vnstock_allocation as alloc
+    b1 = {"band": "B1", "pending": None}
+    worst = -1.0                                         # điểm sâu nhất ⇒ bậc dữ liệu B4
+    h1 = alloc.apply_hysteresis(b1, worst, "2026-01-05", one_step="up")
+    h2 = alloc.apply_hysteresis({"band": h1["band"], "pending": h1["pending"]}, worst,
+                                "2026-01-06", one_step="up")
+    assert h1["band"] == "B1" and h2["band"] == "B4"     # 2 phiên xác nhận rồi cắt thẳng
+    both = alloc.apply_hysteresis({"band": "B1", "pending": {"band": "B2",
+                                   "dates": ["2026-01-05"]}}, worst, "2026-01-06", one_step="both")
+    assert both["band"] == "B2"                          # cách cũ: từng bậc
+    b4 = {"band": "B4", "pending": {"band": "B3", "dates": ["2026-01-05"]}}
+    assert alloc.apply_hysteresis(b4, 1.0, "2026-01-06", one_step="up")["band"] == "B3"
+
+
+def test_cap_cut_falls_faster_in_a_crash(rr):
+    days = _v_shape(rr)
+    cap, cut = rr.simulate(days, "cap"), rr.simulate(days, "capCut")
+    first = lambda eq: next(i for i, v in enumerate(eq) if v == 15.0)
+    assert first(cut) < first(cap)                      # chạm 15% sớm hơn
+
+
+def test_report_has_the_crash_table(rr):
+    text = rr.report(_v_shape(rr))
+    assert "## 3. #20" in text and "| capCut |" in text and "Cắt rồi mua lại" in text

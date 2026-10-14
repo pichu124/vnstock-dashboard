@@ -77,8 +77,11 @@ code): thêm `VNSTOCK_HORIZONS=0` vào `.env` 🖥️ desktop (doctor sẽ ⚠�
    code (`531b443`; ✅ 💻 FULL **4.778 passed / 185,5s**) — 🖥️ DESKTOP merge + `python run.py test`
    (FULL, đổi luật phân bổ chạy thật).
 
-Cần bạn chốt (đã ghi ở issue): #20 Vá 1 chạy 2 chiều? · #22 ô ép TĂNG giữ GIẢM của agent? ·
-#23 nhịp chỉnh một mình là bảo vệ MỀM? · #27 ✅ chốt 14/10: Câu 14 = A, không làm A/B/C.
+Chốt 14/10: #22 GIỮ (ô ép TĂNG vẫn giữ GIẢM của agent) · #23 GIỮ (chỉ nhịp chỉnh = bảo vệ
+MỀM) · #27 Câu 14 = A, không làm A/B/C. **#20 đang ĐO:** Vá 1 hiện chạy CẢ HAI CHIỀU (giảm cũng từng
+bậc × 2 phiên); dòng `capCut` (giảm cắt thẳng) + mục 3 "từng đợt sập" trong
+`scripts/research_reentry.py` ⇒ ○ merge rồi chạy `python scripts/research_reentry.py --out
+reentry.md`, gửi Claude.
 
 
 ## 0. ✅ XONG 15/09 13:33 — HAI KHO ĐÃ TÁCH NHAU từ 07/09 (Dropbox desktop tắt sync) · đã sync lại, merge, chữa 25/25 mã lệch cơ sở

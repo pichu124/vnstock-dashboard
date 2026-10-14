@@ -20,6 +20,9 @@ Mô hình (ghi rõ để đọc số cho trung thực):
   cách đưa ĐI NGANG vào kẹp như GIẢM. Replay 2017–2026 (14/10): capB 2.45% / −19.0%,
   cap (A) 3.62% / −16.4%, không kẹp 3.83% / −18.8% ⇒ user đổi sang A. A/B/C dưới đây là
   các hướng mở sớm thiết kế TRÊN NỀN capB nên vẫn chạy trên capB.
+- **capCut** (#20, thêm 14/10) = cap + Vá 1 CHỈ chặn chiều tăng: giảm % cổ phiếu xác nhận
+  2 phiên xong là cắt thẳng tới bậc dữ liệu (cap đi từng bậc, mỗi bậc 2 phiên). Mục 3 đo
+  từng đợt sập ≥15%: sụt danh mục từ đỉnh tới đáy + số lần cắt rồi mua lại ≤20 phiên.
 - **A — lực đẩy độ rộng**: TB 10 phiên tỷ lệ mã tăng/(tăng+giảm) đi từ <40% lên
   >61.5% trong ≤10 phiên ⇒ +1 bậc dù trung hạn chưa TĂNG (đề bài không đặt điều
   kiện 🚨 cho A — lực đẩy thường tới khi 🚨 còn trong 5 phiên tối thiểu).
@@ -61,7 +64,7 @@ _REVERSAL = 20
 _DEEP_TOL = 0.005             # trung vị lệch nguồn/kho trên phần chồng tối đa để nối
 _DEEP_OVERLAP = 20            # số phiên chồng tối thiểu
 _MIN_UNIVERSE = 300           # mẫu số độ rộng tối thiểu — ít hơn thì bỏ độ rộng phiên đó
-VARIANTS = ("nocap", "cap", "capB", "A", "B", "C")
+VARIANTS = ("nocap", "cap", "capCut", "capB", "A", "B", "C")
 
 
 @dataclass
@@ -138,7 +141,8 @@ def simulate(days: list[Day], variant: str) -> list[float]:
             out.append(out[-1] if out else float(table["B2"]["Cổ phiếu"]))
             continue
         iso = x.d.isoformat()
-        h = alloc.apply_hysteresis(hyst_prev, x.score, iso)
+        h = alloc.apply_hysteresis(hyst_prev, x.score, iso,
+                                   one_step="up" if variant == "capCut" else "both")
         hyst_prev = {"band": h["band"], "pending": h["pending"]}
         state = {"as_of": iso, "band": h["band"], "allocation": dict(table[h["band"]])}
         if variant != "nocap":
@@ -210,6 +214,24 @@ def troughs(days: list[Day]) -> list[tuple[int, int]]:
     return out
 
 
+def whipsaws(eq: list[float]) -> int:
+    """Số lần CẮT % cổ phiếu rồi trong ≤20 phiên lại về ≥ mức trước khi cắt."""
+    return sum(1 for i in range(1, len(eq)) if eq[i] < eq[i - 1]
+               and any(v >= eq[i - 1] for v in eq[i + 1:i + _REVERSAL + 1]))
+
+
+def crash_rows(days: list[Day], vals: dict, variants=("nocap", "cap", "capCut")) -> list[str]:
+    """#20: mỗi đợt sập ≥15% — VNINDEX đỉnh 52 tuần → đáy, và sụt danh mục cùng đoạn."""
+    rows = []
+    for t, _ in troughs(days):
+        p = max(range(max(0, t - 252), t + 1), key=lambda k: days[k].close)
+        idx = (days[t].close / days[p].close - 1) * 100
+        dd = {v: max_dd(vals[v][p:t + 1]) * 100 for v in variants}
+        rows.append(f"| {days[p].d} → {days[t].d} | {idx:+.1f}% | "
+                    + " | ".join(f"{dd[v]:.1f}%" for v in variants) + " |")
+    return rows
+
+
 def reversals(days: list[Day], eq: list[float], base: list[float]) -> "tuple[int, int, int]":
     """(số lần mở sớm, bị đảo tỷ trọng ≤20 phiên, giá 20 phiên sau thấp hơn)."""
     n_open = rev = lower = 0
@@ -232,19 +254,20 @@ def report(days: list[Day], notes: "list[str] | tuple" = ()) -> str:
              f"{len(days)} phiên)", ""]
     lines += [f"- {n}" for n in notes] + ([""] if notes else [])
     lines += ["## 1. Phần bị lỡ của kẹp hiện tại sau mỗi đáy ≥15%", "",
-              "| Đáy | VNINDEX | Cửa sổ | Phiên kẹp < không kẹp | Lỡ (điểm %) cap | capB | A | B | C |",
-              "|---|---|---|---|---|---|---|---|---|"]
+              "| Đáy | VNINDEX | Cửa sổ | Phiên kẹp < không kẹp | Lỡ (điểm %) cap | capCut | capB | A | B | C |",
+              "|---|---|---|---|---|---|---|---|---|---|"]
     for t, e in troughs(days):
         gap = {v: (vals["nocap"][e] / vals["nocap"][t] - vals[v][e] / vals[v][t]) * 100
-               for v in ("cap", "capB", "A", "B", "C")}
+               for v in ("cap", "capCut", "capB", "A", "B", "C")}
         stuck = sum(1 for k in range(t, e + 1) if eqs["cap"][k] < eqs["nocap"][k])
         lines.append(f"| {days[t].d} | {days[t].close:,.0f} | {e - t} phiên | {stuck} | "
-                     f"{gap['cap']:+.1f} | {gap['capB']:+.1f} | {gap['A']:+.1f} | {gap['B']:+.1f} | "
+                     f"{gap['cap']:+.1f} | {gap['capCut']:+.1f} | {gap['capB']:+.1f} | "
+                     f"{gap['A']:+.1f} | {gap['B']:+.1f} | "
                      f"{gap['C']:+.1f} |")
-    lines += ["", "(+ = lợi nhuận kém hơn KHÔNG kẹp trong cửa sổ; capB/A/B/C cùng cửa sổ)", "",
+    lines += ["", "(+ = lợi nhuận kém hơn KHÔNG kẹp trong cửa sổ; các cột khác cùng cửa sổ)", "",
               "## 2. So 3 hướng với kẹp hiện tại (toàn mẫu)", "",
-              "| Phương án | CAGR | Max DD | Cổ phiếu TB | Lượt đổi/năm | Mở sớm | Đảo ≤20 phiên | Giá 20p sau thấp hơn | 27/08/2026 |",
-              "|---|---|---|---|---|---|---|---|---|"]
+              "| Phương án | CAGR | Max DD | Cổ phiếu TB | Lượt đổi/năm | Cắt rồi mua lại ≤20p | Mở sớm | Đảo ≤20 phiên | Giá 20p sau thấp hơn | 27/08/2026 |",
+              "|---|---|---|---|---|---|---|---|---|---|"]
     i2708 = next((k for k, x in enumerate(days) if x.d.isoformat() == "2026-08-27"), None)
     for v in VARIANTS:
         opened = ("—", "—", "—")
@@ -253,11 +276,17 @@ def report(days: list[Day], notes: "list[str] | tuple" = ()) -> str:
         e27 = f"{eqs[v][i2708]:g}%" if i2708 is not None else "—"
         lines.append(f"| {v} | {cagr(days, vals[v]) * 100:.2f}% | {max_dd(vals[v]) * 100:.1f}% | "
                      f"{sum(eqs[v]) / len(eqs[v]):.1f} | {changes_per_year(days, eqs[v]):.1f} | "
+                     f"{whipsaws(eqs[v])} | "
                      f"{opened[0]} | {opened[1]} | "
                      f"{opened[2]} | {e27} |")
-    lines += ["", "cap = luật đang chạy (Câu 14 = A từ 14/10); capB = luật cũ, nền của A/B/C — "
-              "cột 27/08/2026 của A/B/C phải BẰNG dòng capB. Mô hình là PROXY (thiếu vĩ "
-              "mô/tilt) — đọc chênh lệch giữa các dòng, không đọc mức tuyệt đối."]
+    lines += ["", "cap = luật đang chạy (Câu 14 = A từ 14/10); capCut = cap + giảm cắt thẳng "
+              "(#20); capB = luật cũ, nền của A/B/C — cột 27/08/2026 của A/B/C phải BẰNG dòng "
+              "capB. Mô hình là PROXY (thiếu vĩ mô/tilt) — đọc chênh lệch giữa các dòng, "
+              "không đọc mức tuyệt đối.", "",
+              "## 3. #20 — giảm đi từng bậc (cap) hay cắt thẳng (capCut): từng đợt sập ≥15%", "",
+              "| Đỉnh → đáy | VNINDEX | Sụt danh mục: không kẹp | cap | capCut |",
+              "|---|---|---|---|---|"]
+    lines += crash_rows(days, vals)
     return "\n".join(lines)
 
 

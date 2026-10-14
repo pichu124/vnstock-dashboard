@@ -211,9 +211,13 @@ def band_from_score(score: float) -> str:
 
 
 def apply_hysteresis(prev_state: "dict | None", score: float,
-                     as_of: str) -> dict:
+                     as_of: str, *, one_step: "str | None" = None) -> dict:
     """Band hiệu lực sau hysteresis: đổi band cần điểm vượt ranh giới ≥
     ``_HYSTERESIS_MARGIN`` trong ``_CONFIRM_SESSIONS`` phiên (ngày khác nhau).
+
+    ``one_step`` (Vá 1): "both" = mỗi lần đổi ≤1 bậc cả hai chiều · "up" = chỉ
+    chiều TĂNG % cổ phiếu, giảm cắt thẳng tới bậc dữ liệu · "off". None = theo
+    ``VNSTOCK_ALLOC_ONE_STEP`` (bật = "both"). "up" chỉ để đo #20 tới khi chốt.
 
     Trả ``{band, raw_band, pending}`` — pending = {band, dates} khi một đề
     xuất đổi band đang chờ xác nhận. Recompute CÙNG NGÀY không đếm thêm phiên
@@ -238,7 +242,9 @@ def apply_hysteresis(prev_state: "dict | None", score: float,
     else:
         candidate = cur_idx
 
-    if candidate != cur_idx and _one_step_enabled():
+    mode = one_step or ("both" if _one_step_enabled() else "off")
+    # chỉ số band nhỏ hơn = nhiều cổ phiếu hơn (B0 cao nhất) ⇒ candidate < cur = TĂNG
+    if candidate != cur_idx and (mode == "both" or (mode == "up" and candidate < cur_idx)):
         # Vá 1 (P1b-2, #20): lề 0.05 × 2 phiên vẫn để ứng viên cách 2 bậc — mỗi
         # lần đổi chỉ 1 bậc, bậc kế tiếp phải được xác nhận lại từ đầu.
         candidate = cur_idx + (1 if candidate > cur_idx else -1)
