@@ -74,7 +74,8 @@ code): thêm `VNSTOCK_HORIZONS=0` vào `.env` 🖥️ desktop (doctor sẽ ⚠�
    ✅ Lượt 3 (2.211 phiên 12/2017 → 10/2026, có 2018/2020/2022): B 2.45% / −19.0%, **A 3.62% /
    −16.4%**, không kẹp 3.83% / −18.8% ⇒ **user chốt 14/10: Câu 14 = A** (chỉ chặn tăng khi trung
    hạn GIẢM hoặc 🚨; ĐI NGANG tăng dần qua ⏳ báo trước 1 tuần), không làm A/B/C. Claude đã sửa
-   code — 🖥️ DESKTOP merge + `python run.py test` (FULL, đổi luật phân bổ chạy thật).
+   code (`531b443`; ✅ 💻 FULL **4.778 passed / 185,5s**) — 🖥️ DESKTOP merge + `python run.py test`
+   (FULL, đổi luật phân bổ chạy thật).
 
 Cần bạn chốt (đã ghi ở issue): #20 Vá 1 chạy 2 chiều? · #22 ô ép TĂNG giữ GIẢM của agent? ·
 #23 nhịp chỉnh một mình là bảo vệ MỀM? · #27 ✅ chốt 14/10: Câu 14 = A, không làm A/B/C.
