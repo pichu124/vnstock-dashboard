@@ -132,12 +132,18 @@ if [ -f "$settings" ]; then
     "$py" - "$settings" <<'PYEOF' || err "$settings: matcher của guard-irreversible.sh phải khớp cả Bash và PowerShell (\"Bash|PowerShell\")"
 import json, re, sys
 d = json.load(open(sys.argv[1], encoding="utf-8-sig"))
-ok = False
+need = {"Bash", "PowerShell"}
+covered = set()
 for g in d.get("hooks", {}).get("PreToolUse", []):
     if any("guard-irreversible.sh" in (h.get("command") or "") for h in g.get("hooks", [])):
         m = g.get("matcher") or "*"
-        ok = ok or m == "*" or all(re.fullmatch(m, t) for t in ("Bash", "PowerShell"))
-sys.exit(0 if ok else 1)
+        for t in need:
+            try:
+                if m == "*" or re.fullmatch(m, t):
+                    covered.add(t)
+            except re.error:
+                pass
+sys.exit(0 if covered == need else 1)
 PYEOF
   else
     grep -Eq '"matcher": *"[^"]*PowerShell' "$settings" \

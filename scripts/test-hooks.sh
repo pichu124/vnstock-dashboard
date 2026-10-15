@@ -155,6 +155,24 @@ rmdir /s /q .
 del /s /q *
 cd C:\x; Remove-Item -Recurse -Force *
 git push --force origin feat/x 2>&1 | Out-String
+Remove-Item -Recurse -Force 'C:\'
+Remove-Item -Recurse -Force -LiteralPath 'C:\'
+Remove-Item -Recurse -Force '.'
+Remove-Item -Recurse -Force '*'
+Remove-Item -Recurse -Force ..\*
+Remove-Item -Recurse -Force $HOME\*
+Remove-Item -Recurse -Force "$HOME\*"
+Remove-Item -Recurse -Force $HOME/*
+Remove-Item -Recurse -Force $env:USERPROFILE\*
+Remove-Item -Recurse -Force $env:SystemDrive\*
+Remove-Item -Recurse -Force \
+Remove-Item -Recurse -Force /
+Remove-Item -Recurse:$true -Force C:\
+cmd /c rd /s /q C:\
+cmd.exe /c rd /s /q C:\
+cmd /c del /s /q *
+del /s /q C:\*.*
+del /S /Q *.*
 EOF
   while IFS= read -r c; do [ -n "$c" ] && expect_guard allow "$c"; done <<'EOF'
 Remove-Item -Recurse -Force .\dist
@@ -162,10 +180,21 @@ Remove-Item -Recurse node_modules
 Remove-Item .\build\out.txt
 Remove-Item C:\temp\x.txt
 Get-ChildItem -Recurse
+Remove-Item -Recurse -Force "$env:TEMP\x"
+rd /s /q build
+del /s /q *.pyc
+cmd /c rd /s /q build
 EOF
   expect_guard ask "Set-Location \"$on_main\"; git push"
   expect_guard ask "Set-Location -Path \"$on_main\"; git push origin"
+  expect_guard ask "Set-Location -PATH \"$on_main\"; git push"
   expect_guard ask "Push-Location \"$on_main\"; git push"
+  # popd quay về thư mục cũ, hoặc đường dẫn không resolve được: xét cả thư mục của phiên.
+  expect_guard ask "Push-Location \"$work\"; Pop-Location; git push" "$on_main"
+  expect_guard ask "pushd \"$work\"; popd; git push" "$on_main"
+  # shellcheck disable=SC2016  # $env:REPO là chữ của lệnh PowerShell
+  expect_guard ask 'Set-Location $env:REPO; git push' "$on_main"
+  expect_guard allow "cd \"$work\" && git push" "$on_main"
 done
 if [ -n "$py" ]; then
   # Windows: Python đọc stdin theo cp1252, chữ "Đ" từng làm hỏng việc đọc lệnh.
