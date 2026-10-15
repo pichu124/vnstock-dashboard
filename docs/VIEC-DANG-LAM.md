@@ -46,6 +46,7 @@ Chi tiết: `docs/CLAUDE-NOTES.md` U88. Tắt khẩn: `VNSTOCK_BRIEF_FUTURES_FOR
    chạy ngay trước brief; kho đã có phiên thì bỏ qua (không tốn lượt).
    ✅ 🖥️ 16/10 01:01: `ok` · 5 lượt gọi · 28 dòng (4 hợp đồng × 7 phiên; F2706 chưa niêm yết ⇒ rỗng, không lỗi) ·
    Sonnet · 16,9s · $0,166 (dự tính $0,05–0,10 — lệch vì 5 kết quả vào ngữ cảnh model). Server `claude.ai SSI MCP` đúng tên.
+   `--show` sau lượt đó: vẫn 2.230 dòng, short 1,881 HĐ ⇒ số SSI trả lại KHỚP seed. Còn bước 4 (sáng 17/10).
 4. 🖥️ DESKTOP — sáng hôm sau: brief chiều có mục 📑 sau 💰 Dòng tiền; doctor badge "Phái sinh khối ngoại (VN30F)" ✅;
    dashboard tab `📑 Phái sinh NN` (4 ô số, biểu đồ vị thế/giá/dòng lệnh, theo kỳ hạn, lịch sử, tải CSV).
 
