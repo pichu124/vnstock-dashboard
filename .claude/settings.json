@@ -1,15 +1,85 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "extraKnownMarketplaces": {
     "ponytail": {
-      "source": { "source": "github", "repo": "DietrichGebert/ponytail" }
+      "source": {
+        "source": "github",
+        "repo": "DietrichGebert/ponytail"
+      }
     },
     "mattpocock": {
-      "source": { "source": "github", "repo": "mattpocock/skills" },
+      "source": {
+        "source": "github",
+        "repo": "mattpocock/skills"
+      },
       "autoUpdate": true
     }
   },
   "enabledPlugins": {
     "ponytail@ponytail": true,
     "mattpocock-skills@mattpocock": true
+  },
+  "permissions": {
+    "allow": [
+      "Bash(./scripts/check.sh)",
+      "Bash(./scripts/check.sh *)",
+      "Bash(./scripts/validate-kit.sh)",
+      "Bash(./scripts/test-hooks.sh)",
+      "Bash(git status)",
+      "Bash(git status *)",
+      "Bash(git diff)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git blame *)",
+      "Bash(git branch)",
+      "Bash(git branch --list *)",
+      "Bash(git worktree list)",
+      "Bash(git rev-parse *)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./**/*.pem)",
+      "Read(./**/*.key)",
+      "Read(./secrets/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-irreversible.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post-edit-format.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop-gate.sh",
+            "timeout": 600
+          }
+        ]
+      }
+    ]
   }
 }

@@ -25,3 +25,7 @@ static/today_bars/*.json
 !.claude/commands/**
 run_daily*.log
 _cafef_dump/
+
+# Bộ agent team (Agents-Team-coding)
+!.claude/agents/
+!.claude/hooks/
