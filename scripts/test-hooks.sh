@@ -173,6 +173,17 @@ cmd.exe /c rd /s /q C:\
 cmd /c del /s /q *
 del /s /q C:\*.*
 del /S /Q *.*
+Remove-Item -Recurse -Force \*
+Remove-Item -Recurse -Force /*
+Remove-Item \* -Recurse
+ri -r -fo /*
+del /s /q \*
+Remove-Item -Recurse -Force '\*'
+cmd /c del /s /q \*
+cmd /d /c rd /s /q C:\
+Remove-Item -Recurse -Force ${env:USERPROFILE}\*
+rmdir /s /q %USERPROFILE%
+rd /s /q %USERPROFILE%\*
 EOF
   while IFS= read -r c; do [ -n "$c" ] && expect_guard allow "$c"; done <<'EOF'
 Remove-Item -Recurse -Force .\dist
@@ -195,6 +206,11 @@ EOF
   # shellcheck disable=SC2016  # $env:REPO là chữ của lệnh PowerShell
   expect_guard ask 'Set-Location $env:REPO; git push' "$on_main"
   expect_guard allow "cd \"$work\" && git push" "$on_main"
+  # Lệnh xuống dòng bằng \ (bash) hoặc ` (PowerShell): nối dòng trước khi so mẫu.
+  expect_guard allow $'rm -rf build \\\n  dist'
+  expect_guard allow $'rm -rf /tmp/a \\\n  /tmp/b'
+  expect_guard ask $'Remove-Item -Recurse -Force `\n  C:\\'
+  expect_guard ask $'rm -rf \\\n  ~'
 done
 if [ -n "$py" ]; then
   # Windows: Python đọc stdin theo cp1252, chữ "Đ" từng làm hỏng việc đọc lệnh.

@@ -13,6 +13,11 @@ cwd="$(json_get "$input" cwd)"
 cmd="$(json_get "$input" tool_input.command)"
 # Không đọc được lệnh: so mẫu trên toàn bộ input thô (thà hỏi thừa).
 [ -n "$cmd" ] || cmd="$input"
+# Nối dòng bị ngắt bằng \ (bash) hoặc ` (PowerShell): grep so từng dòng, nên lệnh và đích
+# nằm khác dòng sẽ bị bỏ sót, còn dấu \ cuối dòng lại bị coi là đường dẫn gốc ổ.
+nl=$'\n'
+cmd="${cmd//"\\$nl"/ }"
+cmd="${cmd//"\`$nl"/ }"
 
 reason=""
 rule() {
@@ -47,9 +52,10 @@ rule "${B}rm${S}+[^;&|]*(-[a-z]*r[a-z]*|--recursive)[^;&|]*${S}${RMT}${E}" "rm -
 # Dấu \ là dấu phân cách đường dẫn ở đây nên không coi là hết từ (.\dist không phải .).
 PSE='([[:space:];&|)"'"'"']|$)'
 Q='["'"'"']?'
-PST="${Q}"'([a-z]:[\\/]?(\*(\.\*)?)?|[\\/]|~[\\/]?\*?|\$home[\\/]?\*?|\$env:(userprofile|home|homedrive|systemdrive)[\\/]?\*?|\.\.?[\\/]?\*?|\*(\.\*)?)'"${Q}"
+W='(\*(\.\*)?)?'
+PST="${Q}"'([a-z]:[\\/]?'"$W"'|[\\/]'"$W"'|~[\\/]?\*?|\$home[\\/]?\*?|\$\{?env:(userprofile|home|homedrive|systemdrive)\}?[\\/]?\*?|%(userprofile|homepath|homedrive|systemdrive)%[\\/]?\*?|\.\.?[\\/]?\*?|\*(\.\*)?)'"${Q}"
 PSF='(-r[a-z]*(:\$true)?|/s)'
-PSC="(${B}|cmd(\.exe)?${S}+/[ck]${S}+)(rm|ri|del|erase|rd|rmdir|remove-item)${S}+([^;&|]*${S})?"
+PSC="(${B}|cmd(\.exe)?(${S}+/[a-z])*${S}+/[ck]${S}+)(rm|ri|del|erase|rd|rmdir|remove-item)${S}+([^;&|]*${S})?"
 rule "${PSC}(${PSF}${S}+([^;&|]*${S})?${PST}|${PST}${S}+([^;&|]*${S})?${PSF})${PSE}" "xoá đệ quy thư mục rộng (PowerShell/cmd)"
 rule "(psql|mysql|mariadb|sqlite3|sqlcmd|duckdb|clickhouse)[^|&]*(drop${S}+(table|database|schema)|truncate${S})" "lệnh SQL xoá dữ liệu"
 rule "${B}dropdb${S}|prisma${S}+migrate${S}+reset|db:(drop|reset)${E}" "xoá hoặc reset database"
