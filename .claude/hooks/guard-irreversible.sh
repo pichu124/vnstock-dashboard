@@ -19,13 +19,13 @@ cmd="$(json_get "$input" tool_input.command)"
 # nối (lệnh ở dòng sau vẫn là đầu lệnh), nối cả hai kiểu (PowerShell lồng trong bash). Không
 # rõ tool thì so thêm bản gốc. Kiểm tra push trên nhánh chính đọc từng dạng riêng ($forms).
 nl=$'\n'
+tool="$(json_get "$input" tool_name)"
 kept="$cmd"
 forms=("$cmd")
 case "$cmd" in
   *"\\$nl"* | *"\`$nl"*)
     ph=$'\001'
     bs='\'
-    tool="$(json_get "$input" tool_name)"
     case "$tool" in
       Bash) marks='\' ;;
       PowerShell) marks='`' ;;
@@ -66,7 +66,8 @@ S='[[:space:]]'
 E='([[:space:];&|)"\'"'"']|$)'
 # Option chen giữa tên tool và subcommand: git -C dir, kubectl -n prod, terraform -chdir=infra...
 # Giá trị option có thể nằm trong nháy và chứa dấu cách: git -C "C:/my repo" push.
-O='([[:space:]]+-[^[:space:]]+([[:space:]]+("[^"]*"|'"'"'[^'"'"']*'"'"'|[^-[:space:]"'"'"'][^[:space:]]*))?)*'
+# Giá trị không nháy có thể chứa \<ký tự> (bash: my\ repo) hoặc kết thúc bằng \ (PowerShell: C:\).
+O='([[:space:]]+-[^[:space:]]+([[:space:]]+("[^"]*"|'"'"'[^'"'"']*'"'"'|([^-[:space:]"'"'"'\\]|\\.)([^[:space:]\\]|\\.)*\\?))?)*'
 # Vị trí bắt đầu một lệnh (để `git rm` không bị coi là `rm`).
 B='(^|[;&|(`"'"'"'{]|\$\(|(^|[[:space:]])(then|do|else|time|xargs|exec|nohup|env)[[:space:]])[[:space:]]*((sudo|doas|wsl)[[:space:]]+)?'
 G="git${O}${S}+"
@@ -109,40 +110,76 @@ resolve_dir() {
     *) printf '%s\n' "$1/$d" ;;
   esac
 }
-ARG='("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:];&|]+)'
+# Đối số: trong nháy, hoặc chuỗi không có khoảng trắng (cho phép \<ký tự>, như main\ repo).
+ARG='("[^"]*"|'"'"'[^'"'"']*'"'"'|([^[:space:];&|\\]|\\.)+\\?|\\)'
+
+# last_arg <đoạn khớp>: đối số cuối của đoạn, bỏ tiền tố -Path:, --git-dir=, GIT_DIR=...
+last_arg() {
+  local t=""
+  [[ $1 =~ ($ARG)$ ]] && t="${BASH_REMATCH[1]}"
+  shopt -s nocasematch
+  [[ $t =~ ^(-(literal)?path:|--chdir=|--git-dir=|--work-tree=|git_dir=|git_work_tree=)(.+)$ ]] && t="${BASH_REMATCH[3]}"
+  shopt -u nocasematch
+  printf '%s\n' "$t"
+}
+
+# expand_dir <đích>: bỏ nháy, thay $HOME, ${HOME}, $env:USERPROFILE. Còn biến, lệnh lồng hay
+# %VAR% thì không biết thư mục: trả mã 1.
+expand_dir() {
+  local d="$1"
+  d="${d#\"}"; d="${d%\"}"; d="${d#\'}"; d="${d%\'}"
+  [ "$tool" = PowerShell ] || d="${d//\\ / }"
+  d="${d/#\$HOME/$HOME}"
+  d="${d/#\$\{HOME\}/$HOME}"
+  shopt -s nocasematch
+  [[ $d =~ ^\$\{?env:(userprofile|home)\}?(.*)$ ]] && d="${USERPROFILE:-$HOME}${BASH_REMATCH[2]}"
+  shopt -u nocasematch
+  case "$d" in *'$'* | *'`'* | *%*%*) return 1 ;; esac
+  printf '%s\n' "$d"
+}
 
 # Push khi có dính tới nhánh chính thì hỏi. Không đoán refspec hay lệnh nào chạy ở đâu (redirect,
 # option, đường dẫn chứa chữ git/push, nhiều lệnh push, popd... đều làm việc đoán sai), mà gom
 # MỌI thư mục lệnh có thể chạm tới: thư mục của phiên, đích của mọi cd/pushd/Set-Location (nối
-# tiếp nhau), đích của mọi -C (tính từ từng thư mục trên). Có một thư mục ở nhánh chính là hỏi.
+# tiếp nhau), đích của mọi -C, --git-dir, --work-tree, GIT_DIR= (tính từ từng thư mục trên).
+# Có một thư mục ở nhánh chính là hỏi; đích là biến hay lệnh lồng (không biết trước) cũng hỏi.
 if [ -z "$reason" ] && printf '%s' "$cmd" | grep -Eiq -- "${G}push"; then
   base="${cwd:-.}"
-  # cd của bash, Set-Location/Push-Location (kể cả -Path/-LiteralPath) của PowerShell.
+  # cd của bash (kể cả trong bash -c '...', { }, if/then, có --, -P, -L), Set-Location/
+  # Push-Location của PowerShell (kể cả -Path x, -Path:x, -PassThru).
   CDS='(cd|chdir|pushd|sl|set-location|push-location)'
+  CDA='(^|[;&|(`"'"'"'{]|\$\(|(^|[[:space:]])(then|do|else|if|builtin|command|exec)[[:space:]])[[:space:]]*'
+  CDRE="${CDS}((${S}+(--|-p|-l|-passthru))*)(${S}+-(literal)?path(:|${S}+)|${S}+)${ARG}"
+  # Thư mục git chạy trong đó mà không cần cd.
+  GDRE="(^|[[:space:];&|(])(-C${S}+|--chdir(=|${S}+)|--git-dir(=|${S}+)|--work-tree(=|${S}+)|GIT_DIR=|GIT_WORK_TREE=)${ARG}"
   dirs="$base$nl"
+  unknown=""
   for f in "${forms[@]}"; do
     cur="$base"
     cds="$base$nl"
-    while IFS= read -r t; do
-      [ -n "$t" ] || continue
+    while IFS= read -r m; do
+      [ -n "$m" ] || continue
+      t="$(expand_dir "$(last_arg "$m")")" || { unknown=1; continue; }
       cur="$(resolve_dir "$cur" "$t")"
       cds="$cds$cur$nl"
     done <<EOF
-$(printf '%s' "$f" | grep -Eio -- "(^|[;&|(])[[:space:]]*${CDS}(${S}+-(literal)?path)?${S}+${ARG}" \
-      | sed -E 's/^[;&|(]?[[:space:]]*[A-Za-z-]+([[:space:]]+-[A-Za-z]*[Pp][Aa][Tt][Hh])?[[:space:]]+//')
+$(printf '%s' "$f" | grep -Eio -- "${CDA}${CDRE}")
 EOF
     dirs="$dirs$cds"
-    while IFS= read -r t; do
-      [ -n "$t" ] || continue
+    while IFS= read -r m; do
+      [ -n "$m" ] || continue
+      t="$(expand_dir "$(last_arg "$m")")" || { unknown=1; continue; }
       while IFS= read -r c; do
         [ -n "$c" ] && dirs="$dirs$(resolve_dir "$c" "$t")$nl"
       done <<EOF
 $cds
 EOF
     done <<EOF
-$(printf '%s' "$f" | grep -Eo -- "(^|[[:space:]])-C${S}+${ARG}" | sed -E 's/^[[:space:]]*-C[[:space:]]+//')
+$(printf '%s' "$f" | grep -Eo -- "$GDRE")
 EOF
   done
+  dirs="$(printf '%s' "$dirs" | awk '!s[$0]++')"
+  [ -n "$unknown" ] && reason="push vào thư mục chưa biết trước (biến hoặc lệnh lồng)"
   while IFS= read -r d; do
     [ -n "$d" ] || continue # git -C "" là thư mục của chính hook, không phải của lệnh
     branch="$(git -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null)"

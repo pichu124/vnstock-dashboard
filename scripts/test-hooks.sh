@@ -257,6 +257,29 @@ EOF
   expect_guard ask "cd \"$odd\" && git push"
   expect_guard allow "cd \"$work\" && git push origin HEAD"
   expect_guard allow "git -C \"$work\" push -u origin feat/x"
+  # cd ở đầu lệnh kiểu khác, cd có option, --git-dir/--work-tree/GIT_DIR, đích chưa xác định.
+  expect_guard ask "bash -c 'cd \"$on_main\" && git push'"
+  expect_guard ask "{ cd \"$on_main\" && git push; }"
+  expect_guard ask "if cd \"$on_main\"; then git push; fi"
+  expect_guard ask "cd -- \"$on_main\" && git push"
+  expect_guard ask "cd -P \"$on_main\" && git push"
+  expect_guard ask "$(printf 'cd %s && git push' "${on_main// /\\ }")"
+  expect_guard ask "git --git-dir=\"$on_main/.git\" --work-tree=\"$on_main\" push"
+  expect_guard ask "git --git-dir \"$on_main/.git\" push"
+  expect_guard ask "GIT_DIR=\"$on_main/.git\" git push"
+  expect_guard ask "env --chdir=\"$on_main\" git push"
+  expect_guard ask "$(printf 'git -C %s push' "${on_main// /\\ }")"
+  expect_guard ask "$(printf 'git -C %s push --force origin x' "${work// /\\ }")"
+  # shellcheck disable=SC2016  # $X, `...` là chữ của lệnh được xét
+  expect_guard ask 'X=/somewhere; cd $X && git push'
+  # shellcheck disable=SC2016
+  expect_guard ask 'cd `cat /tmp/dir` && git push'
+  # shellcheck disable=SC2016
+  expect_guard ask 'git -C "$REPO" push'
+  TOOL=PowerShell expect_guard ask "Set-Location -Path:\"$on_main\"; git push"
+  TOOL=PowerShell expect_guard ask "Set-Location -PassThru \"$on_main\"; git push"
+  expect_guard allow "cd -- \"$work\" && git push"
+  expect_guard allow "bash -c 'cd \"$work\" && git push'"
   # \\ cuối dòng là dấu \ thật, không phải dấu nối; PowerShell lồng trong Bash vẫn nối bằng `.
   expect_guard ask $'echo \\\\\nrm -rf \\\n  ~'
   expect_guard ask $'echo \\\\\nnpm \\\n run deploy'
