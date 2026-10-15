@@ -4,7 +4,12 @@ Tách 12/08 (mục ④): `vnstock_brief_guards.py` 2.646 dòng chia theo CHỦ �
 (khối nội dung / con số / chữ nghĩa). File này giữ đúng phần cả ba nhóm đều
 cần, để ba nhóm không phải import chéo nhau (import chéo = vòng chờ sẵn).
 
-Chỉ 5 thứ: đọc số kiểu VN/EN, cắt một mục của brief, và nhận diện dòng tiêu đề.
+Đọc số kiểu VN/EN, cắt một mục của brief, nhận diện dòng tiêu đề — và (P1b-1,
+#19) MỘT nguồn "thị trường phòng thủ": floor cũ từ 2 tín hiệu header
+(`_bias_floor_dir`) + cách đọc nó từ ctx (`floor_dir`, `is_defensive`). Brief
+(`_market_floor`, khối prompt), guard và Telegram quyết "phòng thủ" qua
+`is_defensive`; chạy bóng 3 khung dùng chung luật `_bias_floor_dir` — P1b chỉ
+cần đổi `is_defensive` ở một chỗ.
 """
 from __future__ import annotations
 
@@ -36,8 +41,51 @@ def _parse_vn_number(s: str) -> float | None:
         return None
 
 
+def _bias_floor_dir(momentum: int | None, regime_score: int | None) -> str | None:
+    """Force a TLDR Bias direction when the headline signals are strongly
+    one-sided and not in conflict.
+
+    Inputs are the two signals shown in the brief header: Tâm lý `momentum`
+    (-100..100) and Regime `score` (signed, out of ~7). Returns "GIẢM", "TĂNG",
+    or None (let the agent decide). Thresholds: momentum ±50 or regime ±3.
+    """
+    bear = (momentum is not None and momentum <= -50) or \
+           (regime_score is not None and regime_score <= -3)
+    bull = (momentum is not None and momentum >= 50) or \
+           (regime_score is not None and regime_score >= 3)
+    if bear and not bull:
+        return "GIẢM"
+    if bull and not bear:
+        return "TĂNG"
+    return None
+
+
+def floor_dir(ctx: dict | None) -> str | None:
+    """Chiều floor cũ đã dựng vào ctx ("GIẢM" | "TĂNG" | None). Chịu được ctx
+    None, thiếu khoá, hoặc `bias_floor: None` (cách đọc cũ ném AttributeError)."""
+    return ((ctx or {}).get("bias_floor") or {}).get("dir")
+
+
+def defensive_level(ctx: dict | None) -> str | None:
+    """Mức lớp bảo vệ: "cứng" / "mềm" / None. Có ``ctx["defensive"]`` (brief 3
+    khung, P1b-5) ⇒ đọc đúng nó; không có (công tắc tắt / state cũ) ⇒ floor cũ
+    GIẢM = cứng như hôm nay (P1b-4 dời floor cũ sang ``bias_floor_old``)."""
+    d = (ctx or {}).get("defensive")
+    if isinstance(d, dict):
+        return d.get("level") if d.get("on") else None
+    old = ((ctx or {}).get("bias_floor_old") or {}).get("dir")
+    return "cứng" if floor_dir(ctx) == "GIẢM" or old == "GIẢM" else None
+
+
+def is_defensive(ctx: dict | None) -> bool:
+    """Thị trường PHÒNG THỦ mức CỨNG — consumer làm đủ (viết lại "MUA vùng",
+    caveat MUA ngược bias, cảnh báo Telegram…). Mức mềm chỉ nhắc, đọc qua
+    ``defensive_level``. Tập cha của hôm nay: floor cũ GIẢM luôn là cứng."""
+    return defensive_level(ctx) == "cứng"
+
+
 _SECTION_EMOJIS = ("🎯", "📊", "📈", "🏆", "💰", "📋", "⚠️", "📅", "💡", "🔧", "⚡", "🔮", "🌐", "📰", "📌", "📚", "🧭",
-                   "🪙")
+                   "🪙", "🔭")
 
 
 def _is_section_start(line: str) -> bool:

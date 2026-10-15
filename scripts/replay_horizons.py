@@ -51,7 +51,7 @@ def printed_briefs(warehouse: Path) -> dict[str, dict]:
     db = warehouse / "_meta" / "brief_memory.db"
     if not db.exists():
         return {}
-    from vnstock_brief import _detect_stance, _extract_section
+    from vnstock_brief import _detect_stance, _extract_section, floor_dir
     con = sqlite3.connect(db.resolve().as_uri() + "?mode=ro", uri=True)
     try:
         rows = con.execute(
@@ -71,7 +71,7 @@ def printed_briefs(warehouse: Path) -> dict[str, dict]:
         b = ctx.get("breadth") or {}
         out[str(bdate)[:10]] = {
             "stance": lab.get(_detect_stance(tldr), "?"), "agent": agent,
-            "floor": (ctx.get("bias_floor") or {}).get("dir") or "-",
+            "floor": floor_dir(ctx) or "-",
             "breadth_pct": b.get("above_ma200_pct"), "ad_ratio": b.get("ad_ratio"),
             "momentum": (ctx.get("market_sentiment") or {}).get("momentum"),
         }

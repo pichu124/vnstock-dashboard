@@ -1,6 +1,6 @@
 # Brief theo 3 khung thời gian: tiêu đề trung hạn đổi chậm, Stance không lật sang TĂNG khi xu hướng chưa TĂNG, lớp bảo vệ nhanh tách riêng
 
-> **Trạng thái: ĐÃ CHỐT 05/10 — P0 XONG trên kho thật (kết quả cuối §6 P0) · P1a code xong (`vnstock_horizons_state.py`, bước pipeline `horizons` chạy bóng) · chờ user chốt kẹp tỷ trọng ĐI NGANG trước P1b** (user: "theo khuyến nghị hết" cả 13 câu §8 + §7.3; câu 11: brief sáng thi thoảng mới dùng, chạy tay là chính ⇒ brief sáng chỉ ĐỌC state đã tính, không thêm logic riêng). Đề xuất gốc 05/10/2026. Dựng bằng workflow 23 agent: 5 người đọc code + 1 người dựng dữ liệu VNINDEX (Finhay) → replay bộ phân loại regime hiện tại → 3 bản thiết kế độc lập (đa khung / chống lật / neo vĩ mô) × 3 giám khảo (nhà đầu tư · kỹ thuật · định lượng; điểm 6.8 / 6.6 / 6.0) → tổng hợp → 2 phản biện → bản cuối. Nguyên nhân gốc §2 đã đối chiếu lại tay với `vnstock_regime.py:206-217` và `vnstock_brief.py:1327-1343`.
+> **Trạng thái: ĐÃ CHỐT 05/10 — P0 XONG trên kho thật (kết quả cuối §6 P0) · P1a code xong (`vnstock_horizons_state.py`, bước pipeline `horizons` chạy bóng) · **chạy bóng ĐẠT 13/10: 6 phiên live, F1 6/6, F2 6/6, doctor ok** (U14) · **P1b CODE XONG 14/10 (#19–#25 + chuẩn bị #26, nhánh `claude/vibrant-maxwell-4g4edj`) sau `VNSTOCK_HORIZONS` · **bản mẫu phiên 13/10 DUYỆT 14/10 (vòng tròn 5/5 brief thật) ⇒ mặc định BẬT**; tắt khẩn `VNSTOCK_HORIZONS=0`; kẹp tỷ trọng #20 chạy thật ngay khi merge** (user: "theo khuyến nghị hết" cả 13 câu §8 + §7.3; câu 11: brief sáng thi thoảng mới dùng, chạy tay là chính ⇒ brief sáng chỉ ĐỌC state đã tính, không thêm logic riêng). Đề xuất gốc 05/10/2026. Dựng bằng workflow 23 agent: 5 người đọc code + 1 người dựng dữ liệu VNINDEX (Finhay) → replay bộ phân loại regime hiện tại → 3 bản thiết kế độc lập (đa khung / chống lật / neo vĩ mô) × 3 giám khảo (nhà đầu tư · kỹ thuật · định lượng; điểm 6.8 / 6.6 / 6.0) → tổng hợp → 2 phản biện → bản cuối. Nguyên nhân gốc §2 đã đối chiếu lại tay với `vnstock_regime.py:206-217` và `vnstock_brief.py:1327-1343`.
 > Script nghiên cứu (`scratchpad/brief_design/...` nhắc trong bài) chỉ nằm ở sandbox, KHÔNG có trong repo — P0 viết lại gọn thành `scripts/replay_horizons.py` chạy trên kho thật.
 
 > **Về số liệu.** Mọi số "replay" trong tài liệu được dựng lại từ dữ liệu Finhay: VNINDEX 2017–2026 và khối ngoại (NN) từ 10/2021, **có gồm giao dịch thỏa thuận**. Breadth và A/D là số ước lượng (proxy). Dữ liệu được chạy qua chính các hàm của repo (`classify_regime`, `compute_market_sentiment`, `_bias_floor_dir`).
@@ -382,13 +382,13 @@ Biểu tượng đổi từ ⚡ sang 🚨, vì ⚡ đang là mục "## ⚡ Biế
 ### 3.8 Tỷ trọng: một con số, và con số đó không được tăng ngược xu hướng
 
 **P1 — band v1 giữ nguyên tham số đã chốt, cộng (nếu bạn duyệt) một kẹp và 3 vá cơ học:**
-- **Kẹp `VNSTOCK_ALLOC_HORIZON_CAP`:** trong `run_allocation`, sau `apply_tilt`, nếu trung hạn **KHÁC TĂNG** (ĐI NGANG hoặc GIẢM — câu 14 = B, chốt 06/10) hoặc 🚨 bật mà % cổ phiếu mới **cao hơn** % hiệu lực hôm trước, thì giữ nguyên cả bảng % và band hiệu lực cũ. Giảm thì luôn đi qua.
-  - Ca 27/08 (trung hạn ĐI NGANG, 🚨 tắt, B4 15% → B3 30% ở 1,831.56) bị giữ 15% — bản duyệt đầu (chỉ chặn khi GIẢM) không chặn được ca này (P0).
+- **Kẹp `VNSTOCK_ALLOC_HORIZON_CAP`:** trong `run_allocation`, sau `apply_tilt`, nếu trung hạn **GIẢM** hoặc 🚨 bật mà % cổ phiếu mới **cao hơn** % hiệu lực hôm trước, thì giữ nguyên cả bảng % và band hiệu lực cũ. Giảm thì luôn đi qua. **Câu 14 = A từ 14/10** (06/10 chốt B — chặn cả ĐI NGANG; replay 2017–2026 ở #27 cho B 2.45%/−19.0% sụt tối đa so với A 3.62%/−16.4% ⇒ user đổi). ĐI NGANG/TĂNG được tăng nhưng qua ⏳ bên dưới.
+  - Ca 27/08 (trung hạn ĐI NGANG, 🚨 tắt, B4 15% → B3 30% ở 1,831.56): luật A KHÔNG chặn, chỉ làm chậm — ⏳ báo trước 1 tuần rồi mới lên (luật B từng giữ 15% suốt, P0). Cái giá đã chấp nhận: cú kiểu 15→30→15 có thể lặp lại, chậm hơn 1 tuần.
   - Ghi `capped_by:"horizons"` kèm band/% đề xuất.
   - Kẹp chặn cả phần trôi do tilt phai theo lịch. Ví dụ: cú 15 → ~28% lúc 05/10 00:10 sẽ bị chặn, vì trung hạn đã GIẢM từ 02/10.
   - Hết kẹp thì tăng tối đa 1 bậc/tuần (~15 điểm %), có "⏳" báo trước 1 tuần.
   - Bước allocation chạy **sau** bước horizons (§3.10), nên cùng đêm đã đọc được trạng thái.
-- **Vá 1:** mỗi lần đổi tối đa 1 bậc (`apply_hysteresis`, `vnstock_allocation.py:211-251`).
+- **Vá 1:** mỗi lần TĂNG % cổ phiếu tối đa 1 bậc (`apply_hysteresis`); GIẢM cắt thẳng tới bậc dữ liệu sau 2 phiên xác nhận — **#20 chốt 14/10** (bản 13/10 giảm cũng từng bậc; replay 2017–2026: cắt thẳng 3.65% / −16.0% / 13.1 lượt đổi/năm vs từng bậc 3.62% / −16.4% / 14.7; từng đợt sập 2018/2020/2022/2025/2026 chênh ≤0,5 điểm, thắng 2 thua 2 hoà 1). `VNSTOCK_ALLOC_ONE_STEP=both` trả lại bản 13/10, `=0` tắt cả hai chiều.
 - **Vá 2:** nút dashboard (`allocation_tab.py:70-73`) không ghi ngày mới khi overview là giữa phiên (`reason=intraday`). Khi đó chỉ tính và hiện.
 - **Vá 3:** ghi `pending` vào `_history_entry` (`:529-544`).
 - **Hiển thị:**
@@ -560,15 +560,17 @@ Dựng cho brief chiều **phiên 02/10/2026**.
 - Số vĩ mô có (*) là minh họa.
 - **Ở P1b:** dòng vĩ mô chỉ in số và chiều, chưa có nhãn độ tin cậy; dòng dài hạn in "đang thu thập".
 
+> **Duyệt bản mẫu 14/10** (user giao Claude tự quyết 3 điểm): (a) tuổi trung hạn in "N lần đóng tuần" thay "tuần N" — 13/10 in "tuần 2 (từ 02/10)" bị đọc thành tuần thứ 2 tính từ 02/10, thực ra đã là tuần thứ 3 · (b) dòng 🚨 bỏ "Không đổi xu hướng." khi trung hạn đã GIẢM (câu thừa) · (c) câu nhắc lệnh MUA dưới lớp bảo vệ bắt cả dòng "entry · TP · SL" không chữ BUY (brief 13/10 lọt).
+
 **(A) Header Telegram**
 ```
 📊 VNINDEX 1,737.71 (-0.66%) · phiên 02/10
-🔭 Trung hạn: GIẢM (tuần 1, từ 02/10) · 💼 Cổ phiếu 15% · Nên: giữ tỷ trọng thấp, không bắt đáy theo 1–2 phiên xanh
+🔭 Trung hạn: GIẢM (từ 02/10, 1 lần đóng tuần) · 💼 Cổ phiếu 15% · Nên: giữ tỷ trọng thấp, không bắt đáy theo 1–2 phiên xanh
 ```
 Phiên 01/10 (trung hạn còn ĐI NGANG nên 🚨 hiện):
 ```
 📊 VNINDEX 1,749.30 (-1.09%) · phiên 01/10
-🔭 Trung hạn: ĐI NGANG (từ 24/07, 10 tuần) · 💼 Cổ phiếu 15% · Nên: không bán tháo; chuyển GIẢM nếu thứ Sáu đóng < ~1,766
+🔭 Trung hạn: ĐI NGANG (từ 24/07, 10 lần đóng tuần) · 💼 Cổ phiếu 15% · Nên: không bán tháo; chuyển GIẢM nếu thứ Sáu đóng < ~1,766
 🚨 Rủi ro ngắn hạn: BẬT — thấp hơn đỉnh 20 phiên 5.6%; không đổi xu hướng
 ```
 
@@ -582,9 +584,9 @@ Phiên 01/10 (trung hạn còn ĐI NGANG nên 🚨 hiện):
 ## 🔭 Góc nhìn theo khung thời gian
 - 🔁 Thay đổi: trung hạn ĐI NGANG → GIẢM (chốt tuần 02/10, sau 10 tuần đi ngang). Ngắn hạn và dài hạn không đổi.
 - Ngắn hạn (vài phiên): nhịp chỉnh, phiên thứ 7 (từ 24/09); điểm kỹ thuật ngày -6/7; tâm lý Sợ hãi. Hết nhịp chỉnh khi điểm về ≥ 0. → [≤1 câu agent]
-- Trung hạn (xu hướng tuần): GIẢM, tuần 1; chỉ 9% mã trên MA200 — cổ phiếu trung vị yếu hơn chỉ số. Vĩ mô–dòng tiền: độ tin cậy TRUNG BÌNH (bất lợi: độ rộng · thuận: tỷ giá* · trung tính: khối ngoại*, PMI · chưa đo: thanh khoản, chênh lệch 10 năm). → [≤1 câu agent]
+- Trung hạn (xu hướng tuần): GIẢM từ 02/10 (1 lần đóng tuần); chỉ 9% mã trên MA200 — cổ phiếu trung vị yếu hơn chỉ số. Vĩ mô–dòng tiền: độ tin cậy TRUNG BÌNH (bất lợi: độ rộng · thuận: tỷ giá* · trung tính: khối ngoại*, PMI · chưa đo: thanh khoản, chênh lệch 10 năm). → [≤1 câu agent]
 - Dài hạn (6–12 tháng): chưa đủ dữ liệu (2/5 trụ: tăng trưởng thuận — GDP Q3 tăng tốc*; báo cáo bất lợi — HedgeAcademy Q4). Chấm lại tháng 11.
-- 🚨 Rủi ro ngắn hạn: BẬT từ 01/10, thấp hơn đỉnh ~1,853 (04/09) 6.2%; lên mức 2 nếu đóng < ~1,668 (90% đỉnh neo) hoặc thêm 1 phiên ≤ -2.5%. Không đổi xu hướng.
+- 🚨 Rủi ro ngắn hạn: BẬT từ 01/10, thấp hơn đỉnh ~1,853 (04/09) 6.2%; lên mức 2 nếu đóng < ~1,668 (90% đỉnh neo) hoặc thêm 1 phiên ≤ -2.5%.
 - 💼 Cổ phiếu 15% theo band (B4); không tăng khi trung hạn chưa TĂNG hoặc 🚨 bật. Nên: giữ tỷ trọng thấp, không bắt đáy theo 1–2 phiên xanh; hạ trước mã đã thủng MA50.
 ```
 
@@ -596,7 +598,7 @@ Phiên 01/10 (trung hạn còn ĐI NGANG nên 🚨 hiện):
 
 **(D) Brief sáng** (nếu còn dùng) — 1 gạch đầu dòng trong TLDR:
 ```
-- 🔭 Trung hạn GIẢM (tuần 1) · ngắn hạn: nhịp chỉnh (phiên 7) · 💼 15% — Bias chỉ TRUNG TÍNH/GIẢM; không BUY vô điều kiện
+- 🔭 Trung hạn GIẢM (1 lần đóng tuần) · ngắn hạn: nhịp chỉnh (phiên 7) · 💼 15% — Bias chỉ TRUNG TÍNH/GIẢM; không BUY vô điều kiện
 ```
 
 **(E) Tin riêng khi 🚨 bật** (P2; ~15:10 qua task theo giờ, hoặc cùng brief tối):
@@ -949,7 +951,26 @@ Chạy lại trên cùng dữ liệu Finhay 2017-12 → 2026-10 (`scratchpad/bri
 | 13 | Không phải quyết định — là việc ○ bạn chạy khi tôi viết xong script P0 | việc |
 
 
-**✅ Câu 14 — CHỐT 06/10: B** (user trả lời "14: B" sau khi nghe giải thích cái giá: ĐI NGANG có thể giữ tỷ trọng ở mức thấp nhất đã chạm suốt 3–4 tháng; chưa có replay đo phần lợi nhuận bỏ lỡ — đo lại ở P3). §3.8 và test P1b đã sửa theo. Câu hỏi gốc giữ dưới đây.
+**📏 Câu 14 — ĐO 14/10 (#27, `scripts/research_reentry.py` trên kho thật, 690 phiên 01/2024 → 13/10/2026; kho chỉ có từ 2024 ⇒ KHÔNG có năm giảm dài 2018/2022; band là PROXY không vĩ mô/tilt):**
+
+| Luật | CAGR | Max DD | Cổ phiếu TB | Lượt đổi/năm | 27/08/2026 |
+|---|---|---|---|---|---|
+| Không kẹp | 5.26% | −9.1% | 46.6 | 24.1 | 45% |
+| **B (đang chạy)** | 3.17% | −10.0% | 35.0 | 13.3 | 15% |
+| A (chỉ chặn khi GIẢM/🚨) | 3.97% | −9.8% | 42.2 | 20.5 | 15% |
+
+Đọc (lượt 2, chỉ 2024–2026): trong mẫu đi lên này kẹp B tốn ~2,1 điểm %/năm, max DD không tốt hơn; A lấy lại 0,8 điểm nhưng đổi nhiều hơn 54% ⇒ lúc đó Claude đề xuất giữ B. **User hỏi sao không có 2018/2022 ⇒ lượt 3** nối VNINDEX cũ từ VCI chỉ trong bộ nhớ (kho chỉ có VNINDEX từ 02/01/2024; độ rộng 1.178–1.487 mã/năm), 2.211 phiên 12/2017 → 10/2026:
+
+| Luật | CAGR | Max DD | Cổ phiếu TB | Lượt đổi/năm |
+|---|---|---|---|---|
+| Không kẹp | 3.83% | −18.8% | 46.6 | 24.1 |
+| B | 2.45% | −19.0% | 35.6 | 11.7 |
+| **A** | **3.62%** | **−16.4%** | 39.8 | 14.7 |
+| B + mở sớm A (lực đẩy) / B / C | 2.40% / 2.69% / 2.45% | −19.3% / −17.6% / −18.9% | | 12.0 / 12.4 / 12.4 |
+
+Có năm giảm dài thì B không giảm được sụt tối đa mà tốn 1,4 điểm %/năm; A tốt hơn B cả hai mặt, đổi thêm 3 lần/năm. Ba hướng mở sớm: A và C kém hoặc bằng nền, B nhỉnh nhưng thua đổi hẳn sang luật A. **User chốt 14/10: Câu 14 = A, không làm A/B/C.** Chi phí còn lại (A vẫn thấp hơn không kẹp 0,2 điểm) để P3 (band v2) đo lại.
+
+**✅ Câu 14 — CHỐT 06/10: B → ĐỔI 14/10: A** (xem bảng đo ngay trên). Bản 06/10: (user trả lời "14: B" sau khi nghe giải thích cái giá: ĐI NGANG có thể giữ tỷ trọng ở mức thấp nhất đã chạm suốt 3–4 tháng; chưa có replay đo phần lợi nhuận bỏ lỡ — đo lại ở P3). §3.8 và test P1b đã sửa theo. Câu hỏi gốc giữ dưới đây.
 
 **Câu 14 (mới, sau P0 — cần chốt trước P1b): kẹp tỷ trọng khi trung hạn ĐI NGANG.**
 - (A) Giữ như đã duyệt: chỉ chặn tăng % cổ phiếu khi trung hạn GIẢM hoặc 🚨 bật. Cú 15→30→15% kiểu 27/08–22/09 vẫn xảy ra tới P3.

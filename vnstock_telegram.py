@@ -89,10 +89,55 @@ def _creds(channel: "str | None" = None) -> "tuple[str, str]":
 
 # ── Transport ─────────────────────────────────────────────────────────────────
 
-def _split_for_telegram(text: str, limit: int = _MAX_MSG_LEN) -> list[str]:
-    """Split text into chunks ≤ limit, breaking at LINE boundaries so HTML tags
-    (always within a single line in our briefs) stay balanced across messages.
-    A pathologically long single line is hard-split as a last resort."""
+_HEADING_MAX_LEN = 60       # dòng mở mục thật ngắn; "⚠️ Các lệnh MUA trên…" là caveat
+
+
+def _is_heading_line(line: str) -> bool:
+    try:
+        from vnstock_brief_guards_common import _is_section_start
+    except Exception:                       # pragma: no cover — module lá, luôn có
+        return False
+    return _is_section_start(line) and len(line.strip()) <= _HEADING_MAX_LEN
+
+
+def _split_for_telegram(text: str, limit: int = _MAX_MSG_LEN,
+                        sections: bool = False) -> list[str]:
+    """Split text into chunks ≤ limit at LINE boundaries (tag HTML luôn nằm trong
+    một dòng nên vẫn cân). ``sections`` (brief 3 khung, P1b-7): ưu tiên cắt ở
+    TIÊU ĐỀ MỤC (dòng emoji ngắn — caveat "⚠️ …" dài không tính) để một mục không
+    bị chia đôi giữa hai tin; mục dài hơn một tin mới tách theo dòng."""
+    if len(text) <= limit:
+        return [text]
+    if not sections:
+        return _split_lines(text, limit)
+    blocks: list[str] = []
+    for line in text.split("\n"):
+        if blocks and not _is_heading_line(line):
+            blocks[-1] += "\n" + line
+        else:
+            blocks.append(line)
+    chunks: list[str] = []
+    cur = ""
+    for blk in blocks:
+        if len(blk) > limit:
+            if cur:
+                chunks.append(cur)
+            cur = ""
+            chunks.extend(_split_lines(blk, limit))
+        elif not cur:
+            cur = blk
+        elif len(cur) + 1 + len(blk) <= limit:
+            cur += "\n" + blk
+        else:
+            chunks.append(cur)
+            cur = blk
+    if cur:
+        chunks.append(cur)
+    return chunks
+
+
+def _split_lines(text: str, limit: int) -> list[str]:
+    """Tách theo DÒNG (ranh giới cuối cùng). Dòng dài hơn một tin ⇒ cắt cứng."""
     if len(text) <= limit:
         return [text]
     chunks: list[str] = []
@@ -166,7 +211,7 @@ def _chat_var(channel: "str | None") -> str:
 
 
 def send_message(text: str, parse_mode: str = "HTML", allow_links: bool = False,
-                 channel: "str | None" = None) -> dict:
+                 channel: "str | None" = None, sections: bool = False) -> dict:
     """Send text to the configured Telegram chat. Long briefs are split into
     multiple messages (Telegram caps at 4096 chars) so nothing is dropped —
     previously the tail (📰 tin tức) was truncated. Returns the LAST API response.
@@ -188,7 +233,7 @@ def send_message(text: str, parse_mode: str = "HTML", allow_links: bool = False,
     url = _TELEGRAM_API.format(token=token, method="sendMessage")
     if parse_mode == "HTML":
         text = _sanitize_html(text, allow_links=allow_links)
-    parts = _split_for_telegram(text, _MAX_MSG_LEN)
+    parts = _split_for_telegram(text, _MAX_MSG_LEN, sections=sections)
     n     = len(parts)
     resp_json: dict = {}
     for i, part in enumerate(parts):
@@ -411,18 +456,22 @@ def _open_recs_block() -> str:
         # apply_brief_guards — nên guard body không với tới; đặt caveat đúng
         # chỗ lệnh hiện. Gắn cảnh báo, KHÔNG lọc (lệnh có SL = rủi ro xác định).
         # Chỉ xét lệnh ĐANG HIỆN — lệnh ẩn không in ra thì không cần caveat.
+        _LAST_MARKET_CTX.clear()
         if _has_buy_under_bear(shown):
-            from vnstock_brief import _BUY_BIAS_CAVEAT
-            lines.append(_BUY_BIAS_CAVEAT)
+            from vnstock_brief import _BUY_BIAS_CAVEAT, _BUY_DEFENSIVE_CAVEAT
+            # cùng lời với guard brief: có lớp bảo vệ 3 khung ⇒ "lớp bảo vệ đang bật"
+            lines.append(_BUY_DEFENSIVE_CAVEAT if isinstance(_LAST_MARKET_CTX.get("defensive"), dict)
+                         else _BUY_BIAS_CAVEAT)
         return "\n".join(lines)
     except Exception as e:
         return f"📋 Khuyến nghị: lỗi ({e})"
 
 
-def _market_is_bearish() -> bool:
-    """Bối cảnh GIẢM theo đúng luật bias floor (_bias_floor_dir): regime score
-    ≤ -3 HOẶC momentum tâm lý ≤ -50. Best-effort — thiếu tín hiệu → False."""
-    momentum = regime_score = None
+def _market_ctx() -> dict:
+    """ctx thị trường y như brief dựng: floor `_market_floor` (momentum tâm lý có
+    tin + vĩ mô, regime đọc tươi) + — khi VNSTOCK_HORIZONS bật — state 3 khung,
+    bảng Stance, lớp bảo vệ 2 mức. Best-effort: lỗi ⇒ {}."""
+    momentum = None
     try:
         from vnstock_market_sentiment import load_market_sentiment
         ms = load_market_sentiment()
@@ -431,15 +480,30 @@ def _market_is_bearish() -> bool:
     except Exception:
         pass
     try:
-        from vnstock_regime import load_regime
-        r = load_regime()
-        if r and r.get("score") is not None:
-            regime_score = int(r["score"])
+        import vnstock_brief as vb
+        ctx = {"bias_floor": vb._market_floor(momentum)}
     except Exception:
-        pass
+        return {}
+    if vb.horizons_enabled():               # lớp bảo vệ 3 khung (P1b-5, #23) — cùng bước 10
+        base = dict(ctx)
+        try:
+            vb._apply_horizons(ctx, "afternoon")
+        except Exception:
+            return base                     # 3 khung lỗi ⇒ floor cũ, không im lặng thành False
+    return ctx
+
+
+_LAST_MARKET_CTX: dict = {}      # ctx của lần _market_is_bearish gần nhất (chọn lời caveat)
+
+
+def _market_is_bearish() -> bool:
+    """Thị trường PHÒNG THỦ (mức cứng) theo đúng quyết định của brief — đọc qua
+    `is_defensive` một chỗ. Best-effort — lỗi → False."""
+    _LAST_MARKET_CTX.clear()
     try:
-        from vnstock_brief import _bias_floor_dir
-        return _bias_floor_dir(momentum, regime_score) == "GIẢM"
+        from vnstock_brief import is_defensive
+        _LAST_MARKET_CTX.update(_market_ctx())
+        return is_defensive(_LAST_MARKET_CTX)
     except Exception:
         return False
 
@@ -588,6 +652,81 @@ def _iso_to_dmy(iso_str: str) -> str:
         return iso_str
 
 
+def _section_split_kw() -> dict:
+    """Tách tin theo mục chỉ khi brief 3 khung bật — tắt thì gọi send_message y như cũ."""
+    from vnstock_horizons import horizons_enabled
+    return {"sections": True} if horizons_enabled() else {}
+
+
+def _market_header_lines(morning: bool = False) -> list:
+    """Dòng thị trường đầu tin brief — MỘT chỗ cho cả sáng lẫn chiều (P1b-1, #19).
+    Công tắc tắt: 3 dòng cũ (VNINDEX, regime, tâm lý). Bật (P1b-7, #25): header
+    3 khung (mẫu §4 A) — brief sáng giữ thêm dòng 🧭 tâm lý (sáng không có khối
+    🔭 để chứa nó); dựng header lỗi ⇒ in cảnh báo vào log rồi dùng header cũ."""
+    from vnstock_horizons import horizons_enabled
+    if horizons_enabled():
+        try:
+            lines = _horizon_header_lines(*_horizon_header_inputs())
+            return lines + [_market_sentiment_line()] if morning else lines
+        except Exception as e:
+            print(f"[telegram] ⚠ header 3 khung lỗi ({type(e).__name__}: {e}) — dùng header cũ")
+    return [_vnindex_line(), _regime_block(), _market_sentiment_line()]
+
+
+def _horizon_header_inputs() -> "tuple[dict, dict, dict]":
+    """(view 3 khung, allocation state, VNINDEX kỹ thuật) — mỗi nguồn hỏng riêng
+    thì nguồn đó rỗng (view hỏng ⇒ "chưa cập nhật")."""
+    from vnstock_regime import _load_vnindex_tech
+    try:
+        import vnstock_horizons_state as hs
+        view = hs.brief_view(hs.latest_published())
+    except Exception:
+        view = {"stale": True, "as_of": None}
+    try:
+        from vnstock_allocation import load_state
+        alloc = load_state() or {}
+    except Exception:
+        alloc = {}
+    return view, alloc, _load_vnindex_tech() or {}
+
+
+def _horizon_header_lines(view: dict, alloc: dict, vt: dict) -> list:
+    """Header 3 khung (mẫu §4 A): 📊 VNINDEX · phiên / 🔭 Trung hạn · 💼 · Nên, + dòng
+    🚨 CHỈ khi trung hạn CHƯA GIẢM (chống mỏi cảnh báo, §3.7) — đã GIẢM thì 🚨 chỉ
+    là 1 dòng trong 🔭. Tâm lý + điểm kỹ thuật ngày nằm ở dòng Ngắn hạn của 🔭."""
+    from vnstock_brief_canon import _horizon_advice, _hz_approx, _hz_ddmm, _hz_weeks
+    from vnstock_horizons import GIAM, MEDIUM_LABEL
+    snap = (view or {}).get("snap") if not (view or {}).get("stale") else None
+    c, chg = vt.get("close"), vt.get("day_change_pct")
+    session = vt.get("data_date") or (snap or {}).get("as_of")
+    live = " trong phiên" if vt.get("intraday") else ""     # brief sáng: giá đang chạy
+    line1 = ("📊 VNINDEX " + (f"<b>{c:,.2f}</b>" if c else "—")
+             + (f" ({chg:+.2f}%)" if isinstance(chg, (int, float)) else "")
+             + (f" · phiên {_hz_ddmm(session)}{live}" if session else ""))
+    if not isinstance(snap, dict):
+        as_of = (view or {}).get("as_of")
+        return [line1, "🔭 3 khung: chưa cập nhật " + (f"(as_of {_hz_ddmm(as_of)})" if as_of
+                                                      else "(chưa đọc được state)")]
+    med = snap.get("medium")
+    line2 = (f"🔭 <b>Trung hạn: {MEDIUM_LABEL.get(med, '?')}</b> (từ "
+             f"{_hz_ddmm(snap.get('medium_since'))}, {_hz_weeks(view)}"
+             + (f"; trạng thái chốt {_hz_ddmm(snap.get('as_of'))}" if live else "") + ")")
+    pct = ((alloc or {}).get("allocation") or {}).get("Cổ phiếu")
+    if isinstance(pct, (int, float)):
+        line2 += f" · 💼 Cổ phiếu {pct:g}%"
+    line2 += f" · Nên: {_horizon_advice(snap)[1]}"
+    lines = [line1, line2]
+    al = snap.get("alert") or {}
+    if al.get("tier") and med != GIAM:
+        tail = ""
+        if isinstance(c, (int, float)) and isinstance(al.get("anchor"), (int, float)) \
+                and c < al["anchor"]:               # đã hồi qua neo thì không nói "thấp hơn"
+            tail = (f" — thấp hơn đỉnh neo {_hz_approx(al['anchor'])} "
+                    f"{(1 - c / al['anchor']) * 100:.1f}%")
+        lines.append(f"🚨 <b>Rủi ro ngắn hạn: BẬT mức {al['tier']}</b>{tail}; không đổi xu hướng")
+    return lines
+
+
 def _brief_header(emoji: str, title: str) -> str:
     """Build a header that states the trading session the brief describes plus
     the push timestamp. When the session date differs from today (brief pushed
@@ -633,9 +772,7 @@ def push_morning_brief() -> dict:
 
     blocks = [
         _brief_header("📊", "VNStock Morning Brief"),
-        _vnindex_line(),
-        _regime_block(),
-        _market_sentiment_line(),
+        *_market_header_lines(morning=True),
         "",
         "🧠 <b>AI Brief:</b>",
         ai_blk,
@@ -647,7 +784,7 @@ def push_morning_brief() -> dict:
     blocks.append("\n<i>Powered by VNStock Dashboard</i>")
 
     text = "\n".join(b for b in blocks if b is not None)
-    return send_message(text)
+    return send_message(text, **_section_split_kw())
 
 
 def push_close_brief(ai_block: "str | None" = None,
@@ -679,9 +816,7 @@ def push_close_brief(ai_block: "str | None" = None,
 
     blocks = [
         _brief_header("📉", "VNStock Close Brief"),
-        _vnindex_line(),
-        _regime_block(),
-        _market_sentiment_line(),
+        *_market_header_lines(),
         "",
         "🧠 <b>AI Outlook:</b>",
         ai_blk,
@@ -693,7 +828,7 @@ def push_close_brief(ai_block: "str | None" = None,
     blocks.append(_powered_by(engine))
 
     text = "\n".join(b for b in blocks if b is not None)
-    return send_message(text)
+    return send_message(text, **_section_split_kw())
 
 
 def _powered_by(engine: "str | None" = None) -> str:

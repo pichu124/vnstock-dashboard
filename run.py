@@ -736,6 +736,7 @@ def cmd_test(args) -> int:
             "tests/test_news_feeds.py",
             "tests/test_news_analyze_route.py",
             "tests/test_news_alert.py",       # cảnh báo tin mỗi giờ → Telegram (#31)
+            "tests/test_news_alert_review.py",  # bước 2 đọc kỹ: giá trị đọc + điểm chính (12/10)
             "tests/test_bsky_make_list.py",   # tạo Bluesky List từ docs/bluesky-macro-list.md
             "tests/test_bsky_eval.py",        # chấm tài khoản Bluesky bằng số liệu 7 ngày
             "tests/test_updater_partial_bar.py",
@@ -743,6 +744,14 @@ def cmd_test(args) -> int:
             "tests/test_fred.py",
             "tests/test_ratelimit.py",
             "tests/test_allocation.py",
+            "tests/test_allocation_horizon_cap.py",  # kẹp theo trung hạn + 3 vá (P1b-2, #20)
+            "tests/test_brief_horizons.py",  # khối 🔭 + TLDR dòng 3 (P1b-3, #21)
+            "tests/test_stance_horizon.py",  # Stance theo bảng 3 khung (P1b-4, #22)
+            "tests/test_defensive_horizon.py",  # lớp bảo vệ 2 mức (P1b-5, #23)
+            "tests/test_horizon_vocab.py",  # từ vựng & nhãn 3 khung (P1b-6, #24)
+            "tests/test_telegram_horizons.py",  # header Telegram 3 khung + --legend (P1b-7, #25)
+            "tests/test_horizons_rollout.py",  # few-shot sau P1b, công tắc doctor, bản mẫu (P1b-8, #26)
+            "tests/test_research_reentry.py",  # #27 nghiên cứu tái nhập sớm (lõi mô phỏng)
             "tests/test_reports.py",
             "tests/test_report_vision.py",    # Claude Code đọc ảnh báo cáo không có lớp text
             "tests/test_report_digest.py",
@@ -842,6 +851,7 @@ def cmd_test(args) -> int:
             "tests/test_doctor_env_duplicates.py",  # khoá trùng .env (05/10)
             "tests/test_horizons.py",     # lõi brief 3 khung (P0, 05/10)
             "tests/test_horizons_state.py",  # brief 3 khung chạy bóng (P1a)
+            "tests/test_market_floor.py",    # một nguồn floor/phòng thủ + golden prompt (P1b-1, #19)
             "tests/test_unit_badge_verdict.py",
             "tests/test_unit_continuity.py",
             "tests/test_price_basis_probe.py",
@@ -1013,7 +1023,8 @@ def cmd_horizons(args) -> int:
     cho phiên phủ — đã có bản live thì no-op (máy chạy sau / laptop "Cập nhật
     còn lại"). Brief CHƯA đọc file này (P1b). Không bao giờ trả 2: lỗi ở đây
     không được chặn brief. Kill-switch: VNSTOCK_HORIZONS_STEP=0.
-    Tay: `run.py horizons --show | --backfill [--days N] | --replay | --force`."""
+    Tay: `run.py horizons --show | --backfill [--days N] | --replay | --force |
+    --legend [--dry-run]` (1 tin Telegram giải thích từ vựng, P1b-7)."""
     script = str(REPO_ROOT / "vnstock_horizons_state.py")
     if getattr(args, "backfill", False):
         return _run([sys.executable, script, "--backfill",
@@ -1022,6 +1033,12 @@ def cmd_horizons(args) -> int:
         return _run([sys.executable, script, "--show"])
     if getattr(args, "replay", False):
         return _run([sys.executable, script, "--replay"])
+    if getattr(args, "legend", False):
+        return _run([sys.executable, script, "--legend"]
+                    + (["--dry-run"] if getattr(args, "dry_run", False) else []))
+    if getattr(args, "dry_run", False):
+        print("[horizons] --dry-run chỉ đi với --legend (bước ghi state không có chạy thử)")
+        return 2
     cmd = [sys.executable, script, "--update"]
     if getattr(args, "force", False):
         cmd.append("--force")
@@ -1328,6 +1345,8 @@ def cmd_news_alert(args) -> int:
         return _na.diag_url(args.diag_url)
     if getattr(args, "diag", False):
         return _na.diag_sources(_na.enabled_sources(only))
+    if getattr(args, "recheck_sent", None):
+        return _na.recheck_sent(args.recheck_sent)
     rc = _na.run(dry_run=getattr(args, "dry_run", False),
                  force=getattr(args, "force", False),
                  min_score=getattr(args, "min_score", None),
@@ -2165,6 +2184,9 @@ def build_parser() -> argparse.ArgumentParser:
     hg.add_argument("--backfill", action="store_true",
                     help="một lần sau khi merge: dựng lịch sử từ kho (○, ghi 1 file _meta)")
     hg.add_argument("--replay", action="store_true", help="kiểm F1/F2/revision")
+    hg.add_argument("--legend", action="store_true",
+                    help="gửi 1 tin Telegram giải thích từ vựng 3 khung (không ghi kho)")
+    hp.add_argument("--dry-run", action="store_true", help="--legend: chỉ in, không gửi")
     hp.add_argument("--force", action="store_true", help="ghi đè phiên đã có")
     hp.add_argument("--days", type=int, default=120, help="--backfill: số phiên chấm điểm")
     ap_ = sub.add_parser("assets",
@@ -2248,6 +2270,9 @@ def build_parser() -> argparse.ArgumentParser:
                          "không gửi, không ghi sổ — chạy sau khi thêm feed")
     na.add_argument("--diag-url", default=None,
                     help="Thử MỘT URL feed ứng viên (tiếng Anh) trước khi thêm vào _ALERT_FEEDS")
+    na.add_argument("--recheck-sent", type=int, default=None, metavar="GIỜ",
+                    help="Chấm lại tin ĐÃ GỬI trong N giờ bằng bước đọc kỹ — chỉ in giữ/loại, "
+                         "không gửi, không ghi sổ (hiệu chỉnh VNSTOCK_NEWS_ALERT_MIN_VALUE)")
 
     all_ = sub.add_parser(
         "all", help="sync → validate → screener → news → test → audit → "

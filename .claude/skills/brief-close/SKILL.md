@@ -89,3 +89,6 @@ Lỗi import ⇒ sai venv, hỏi user đường venv thật, đừng cài gì.
 - Không lộ chữ nháp: "(2 dòng)", "(Giá X từ data)". Sự kiện sắp tới không
   gồm hôm nay. Ngành nhắc tới kèm %VNI khi prompt có.
 - Tiếng Việt, gọn; mỗi mục ≤ 6 dòng; kết bằng một câu hành động cho phiên tới.
+- Có khối "🔭 Góc nhìn theo khung thời gian" trong prompt (VNSTOCK_HORIZONS bật)
+  ⇒ KHÔNG viết lại 🔭 và KHÔNG tự viết dòng "**Trung hạn:**" — code chèn cả hai.
+  Chỉ được thêm tối đa 1 câu KHÔNG có số sau "→" ở dòng Ngắn hạn / Trung hạn.

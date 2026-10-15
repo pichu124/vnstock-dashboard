@@ -45,6 +45,14 @@ def _tmp_store(tmp_path, monkeypatch):
     monkeypatch.setattr(rp, "_STORE", tmp_path / "reports")
     monkeypatch.setattr(alloc, "_STATE", tmp_path / "allocation_state.json")
     monkeypatch.setattr(alloc, "_CONFIG", tmp_path / "allocation_config.json")
+    # kẹp theo trung hạn (P1b-2) đọc state 3 khung THẬT trên máy có kho ⇒ chặn
+    monkeypatch.setattr(alloc, "_load_horizon", lambda: (None, "test: không đọc kho"))
+    # Vá 2: overview THẬT của máy có kho có thể đang giữa phiên ⇒ chặn ghi
+    monkeypatch.setattr(alloc, "overview_intraday", lambda as_of=None: False)
+    import os
+    for k in list(os.environ):          # .env máy thật lọt vào pytest — xoá theo TIỀN TỐ
+        if k.startswith("VNSTOCK_ALLOC"):
+            monkeypatch.delenv(k, raising=False)
 
 
 def _add_report(days_old=3, source="SSI", text=_TEXT):

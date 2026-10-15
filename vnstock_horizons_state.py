@@ -27,6 +27,7 @@ import platform
 import sys
 from datetime import date, datetime
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -193,7 +194,7 @@ def score_inputs(dates: list[date], closes: list[float], targets: list[date],
     """Điểm 7 phiếu + nhãn/floor CŨ cho từng phiên `targets`, bằng chính code repo.
     Momentum KHÔNG gồm tin tức/vĩ mô (replay không có) — live và backfill cùng
     cách tính để so được với nhau (F2)."""
-    from vnstock_brief import _bias_floor_dir
+    from vnstock_brief_guards_common import _bias_floor_dir
     from vnstock_market_sentiment import compute_market_sentiment
     from vnstock_regime import classify_regime
 
@@ -211,7 +212,7 @@ def score_inputs(dates: list[date], closes: list[float], targets: list[date],
         reg = classify_regime(tech, b, round(nn_d, 1) if nn_d is not None else 0.0)
         mom = compute_market_sentiment(b, nn_d, tech).get("momentum")
         out[d] = {"score": int(reg["score"]), "n": int(reg["n_signals"]),
-                  "label_old": reg["label"], "momentum": mom,
+                  "label_old": reg.get("label_old", reg["label"]), "momentum": mom,
                   "floor_old": _bias_floor_dir(mom, reg["score"]),
                   "breadth_pct": b.get("above_ma200_pct"),
                   "ad": [b.get("advances"), b.get("declines")] if b.get("advances") is not None else None,
@@ -280,6 +281,9 @@ def fold(inputs: dict, as_of: date | None = None,
         "protect": hz.protection_level(last.get("floor_old"), short[k], medium[k], a.tier),
         "stance": {"forced": rule.forced, "allowed": list(rule.allowed)},
         "label_old": last.get("label_old"), "floor_old": last.get("floor_old"),
+        # MA tuần cho brief (P1b-3) — ngoài _COMPARE_KEYS nên F1 không đổi
+        "ma_w": ({"short": round(w.ma_short, 2) if w.ma_short else None,
+                  "long": round(w.ma_long, 2) if w.ma_long else None} if w else None),
     }
 
 
@@ -307,6 +311,110 @@ def load_state(warehouse: Path = _WAREHOUSE) -> dict:
     except (OSError, ValueError):
         pass
     return {"version": SCHEMA_VERSION, "inputs": {}, "published": []}
+
+
+NO_STATE = "chưa có state"
+EMPTY_STATE = "state rỗng"
+BROKEN_STATE = "state hỏng (không đọc được JSON)"
+
+
+class Latest(NamedTuple):
+    """Bản published mới nhất + đủ dữ kiện để quyết "dùng được không"."""
+    state: dict
+    snap: "dict | None"           # bản published cuối; None khi NO/EMPTY/BROKEN_STATE
+    missing: "str | None"         # NO_STATE | EMPTY_STATE | BROKEN_STATE | None
+    expect: "date | None"         # bar VNINDEX mới nhất ≤ phiên phủ (`session_covered_at`)
+    conflicted: tuple = ()        # tên file '(conflicted copy)' của state trong _meta
+
+    @property
+    def stale(self) -> bool:
+        return bool(self.snap and self.expect
+                    and str(self.snap.get("as_of")) < self.expect.isoformat())
+
+    @property
+    def usable(self) -> bool:
+        return self.snap is not None and not self.stale and not self.conflicted
+
+    @property
+    def reason(self) -> "str | None":
+        """Vì sao KHÔNG dùng được (None khi `usable`) — cùng câu chữ badge doctor."""
+        if self.missing:
+            return self.missing
+        if self.conflicted:
+            return f"conflicted copy: {', '.join(self.conflicted[:2])}"
+        if self.stale:
+            return f"cũ: bản cuối {self.snap.get('as_of')}, kho đã có bar {self.expect}"
+        return None
+
+
+def _state_file_ok(warehouse: Path) -> bool:
+    try:
+        return isinstance(json.loads(state_path(warehouse).read_text(encoding="utf-8")), dict)
+    except (OSError, ValueError):
+        return False
+
+
+def latest_published(warehouse: Path = _WAREHOUSE, now: datetime | None = None) -> Latest:
+    """MỘT chỗ đọc state 3 khung cho mọi consumer (doctor; kẹp allocation, brief
+    từ P1b): bản cuối + cũ so với kho + conflicted copy. CHỈ ĐỌC. Có thể ném khi
+    đọc kho VNINDEX lỗi — caller bọc try (doctor, allocation đều đã bọc)."""
+    if not state_path(warehouse).exists():
+        return Latest(state=load_state(warehouse), snap=None, missing=NO_STATE, expect=None)
+    if not _state_file_ok(warehouse):
+        return Latest(state=load_state(warehouse), snap=None, missing=BROKEN_STATE, expect=None)
+    st = load_state(warehouse)
+    pub = st.get("published") or []
+    if not pub:
+        return Latest(state=st, snap=None, missing=EMPTY_STATE, expect=None)
+    from vnstock_rollup import session_covered_at
+    conflicted = tuple(sorted(f.name for f in (warehouse / "_meta").glob("horizon_state*conflicted*")))
+    dates, _ = load_vnindex(warehouse)
+    covered = session_covered_at(now or datetime.now())
+    expect = max((d for d in dates if d <= covered), default=None)
+    return Latest(state=st, snap=pub[-1], missing=None, expect=expect, conflicted=conflicted)
+
+
+_BREADTH_4W_SESSIONS = 20          # "4 tuần trước" của % mã trên MA200 trong 🔭
+
+
+def brief_view(lp: Latest) -> dict:
+    """`ctx["horizons"]` cho brief (P1b-3, #21) — từ state ĐÃ LƯU, không đọc
+    parquet: bản cuối + bản trước (dòng 🔁), số phiên của trạng thái ngắn hạn,
+    số tuần của trung hạn, % mã trên MA200 hôm nay và 20 phiên trước, các mức
+    "đã biết" cho guard giá. State không dùng được ⇒ `{"stale": True, …}`."""
+    if not lp.usable:
+        return {"stale": True, "as_of": (lp.snap or {}).get("as_of"), "reason": lp.reason}
+    snap, inputs = lp.snap, lp.state.get("inputs") or {}
+    days = sorted(k for k in inputs if k <= snap["as_of"])
+    pub = lp.state.get("published") or []
+    k = next((i for i in range(len(pub) - 1, -1, -1)
+              if pub[i].get("as_of") == snap.get("as_of")), None)
+    prev = pub[k - 1] if k else None             # bản published NGAY TRƯỚC snap (dòng 🔁)
+    breadth = [inputs[k].get("breadth_pct") for k in days]
+    alert = snap.get("alert") or {}
+    known = [lv["price"] for lv in snap.get("levels") or [] if lv.get("price")]
+    if alert.get("anchor"):
+        known += [alert["anchor"], round(alert["anchor"] * hz.AlertParams().tier2_frac, 2)]
+    known += [v for v in (snap.get("ma_w") or {}).values() if v]
+    short_since = snap.get("short_since") or snap["as_of"]
+    medium_since = date.fromisoformat(snap.get("medium_since") or snap["as_of"])
+    end = date.fromisoformat(snap["as_of"])
+    # "tuần N" = số tuần ĐÃ CHỐT mang trạng thái này (tuần chốt đổi = tuần 1; tuần
+    # đang mở chưa tính) — đếm theo tuần LỊCH, không cần kho inputs phủ tới ngày
+    # đổi. since rơi đầu tuần (thứ Sáu nghỉ ⇒ hiệu lực phiên đầu tuần sau) thì
+    # tuần chốt đổi là tuần TRƯỚC since.
+    weeks = (len({date.fromordinal(o).isocalendar()[:2]
+                  for o in range(medium_since.toordinal(), end.toordinal() + 1)})
+             - (0 if snap.get("week_closed") else 1) + (0 if medium_since.weekday() == 4 else 1))
+    return {
+        "stale": False, "snap": snap, "prev": prev,
+        "short_sessions": max(1, sum(1 for k in days if k >= short_since)),
+        "medium_weeks": max(1, weeks),
+        "breadth_pct": breadth[-1] if breadth else None,
+        "breadth_pct_4w": (breadth[-1 - _BREADTH_4W_SESSIONS]
+                           if len(breadth) > _BREADTH_4W_SESSIONS else None),
+        "known_levels": known,
+    }
 
 
 def write_state(st: dict, warehouse: Path = _WAREHOUSE) -> None:
@@ -496,6 +604,57 @@ def replay_check(warehouse: Path = _WAREHOUSE) -> int:
     return 1 if v["fold_mismatch"] else 0
 
 
+def legend_text() -> str:
+    """1 tin Telegram giải thích từ vựng brief 3 khung (P1b-7, #25) — ngưỡng đọc
+    từ chính tham số lõi để lời giải thích không lệch code."""
+    m, a = PARAMS, hz.AlertParams()
+    return "\n".join([
+        "🔭 <b>Brief 3 khung — đọc thế nào</b>",
+        "",
+        "<b>Ngắn hạn (vài phiên)</b>: nhịp hồi / chưa rõ / nhịp chỉnh, từ điểm kỹ thuật "
+        "ngày (7 phiếu: giá–MA, RSI, độ rộng, khối ngoại…). Quyết Stance ngày mai; "
+        "KHÔNG đổi xu hướng.",
+        f"<b>Trung hạn (xu hướng tuần)</b>: TĂNG / ĐI NGANG / GIẢM, chỉ đọc giá ĐÓNG "
+        f"CỬA TUẦN so MA{m.ma_long} tuần (±{m.band:.0%}) và MA{m.ma_short}/MA{m.ma_long} "
+        f"tuần. Xuống cần 1 tuần, lên cần {m.up_weeks} tuần liền, mỗi tuần tối đa 1 bậc. "
+        + (f"Cầu chì: đang TĂNG mà đóng tuần ≤ {m.fuse:.0%} dưới đỉnh {m.fuse_weeks} đóng "
+           f"tuần ⇒ xuống ĐI NGANG ngay. " if m.fuse else "")
+        + "Đây là tiêu đề của brief.",
+        "<b>Dài hạn (6–12 tháng)</b>: đang thu thập dữ liệu — chưa chấm.",
+        f"🚨 <b>Rủi ro ngắn hạn</b>: bật khi đóng cửa thấp hơn đỉnh {a.window} phiên "
+        f"≥{a.drawdown:.0%}, hoặc 1 phiên ≤ {a.day_drop}%, hoặc 3 phiên ≤ {a.three_day_drop}%. "
+        f"Mức 2 khi đóng ≤ {a.tier2_frac:.0%} đỉnh neo hoặc thêm 1 phiên ≤ {a.day_drop}%. "
+        f"KHÔNG BAO GIỜ đổi xu hướng; tắt "
+        f"khi lấy lại ≥{a.off_frac:.0%} đỉnh neo hoặc {a.off_above_ma} phiên liền trên "
+        f"MA{a.window} (sau tối thiểu {a.dwell} phiên).",
+        "🛡 <b>Lớp bảo vệ</b>: bật khi có nhịp chỉnh / trung hạn GIẢM / 🚨 / tín hiệu "
+        "ngày một chiều giảm. Mức cứng (tín hiệu ngày giảm hoặc ≥2 tín hiệu): watchlist "
+        "chỉ \"canh MUA NẾU vượt\", không GIA TĂNG vô điều kiện, hạ trước mã dưới MA50. "
+        "Mức mềm (1 tín hiệu): chỉ nhắc không mua đuổi.",
+        "💼 <b>Tỷ trọng cổ phiếu</b>: theo band phân bổ; KHÔNG tăng khi trung hạn GIẢM "
+        "hoặc 🚨 bật. Được tăng thì ⏳ báo trước 1 tuần, mỗi tuần tối đa 1 bậc. "
+        "Giảm luôn đi qua.",
+        "🎯 <b>Stance ngày mai</b>: nhịp chỉnh ⇒ GIẢM; nhịp hồi + trung hạn TĂNG + 🚨 tắt "
+        "⇒ TĂNG. TĂNG chỉ được chọn khi trung hạn TĂNG (nhịp chững cần thêm 🚨 tắt); "
+        "trung hạn ĐI NGANG/GIẢM chỉ TRUNG TÍNH hoặc GIẢM. GIẢM luôn được phép.",
+        "",
+        "<i>Mức \"~1,803\" là mức làm tròn, tính lại mỗi tuần.</i>",
+    ])
+
+
+def legend(dry_run: bool = False) -> int:
+    """`run.py horizons --legend`: gửi ĐÚNG 1 tin giải thích từ vựng. Không ghi kho,
+    không đụng marker. ``dry_run`` chỉ in."""
+    text = legend_text()
+    if dry_run:
+        print(text)
+        return 0
+    import vnstock_telegram as tg
+    tg.send_message(text)
+    print("[horizons] đã gửi 1 tin giải thích từ vựng 3 khung")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Brief 3 khung — trạng thái chạy bóng (P1a)")
     g = ap.add_mutually_exclusive_group()
@@ -503,9 +662,14 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--backfill", action="store_true", help="một lần: dựng lịch sử từ kho")
     g.add_argument("--show", action="store_true", help="in trạng thái + 10 phiên gần nhất")
     g.add_argument("--replay", action="store_true", help="kiểm F1/F2/revision")
+    g.add_argument("--legend", action="store_true",
+                   help="gửi 1 tin Telegram giải thích từ vựng 3 khung (không ghi kho)")
     ap.add_argument("--force", action="store_true", help="--update: ghi đè phiên đã có")
     ap.add_argument("--days", type=int, default=120, help="--backfill: số phiên chấm điểm")
+    ap.add_argument("--dry-run", action="store_true", help="--legend: chỉ in, không gửi")
     a = ap.parse_args(argv)
+    if a.dry_run and not a.legend:
+        ap.error("--dry-run chỉ đi với --legend")
     try:                                   # kill-switch sống trong .env (như doctor)
         from dotenv import load_dotenv
         load_dotenv(_REPO / ".env", override=False)
@@ -519,6 +683,8 @@ def main(argv: list[str] | None = None) -> int:
         return backfill(a.days)
     if a.replay:
         return replay_check()
+    if a.legend:
+        return legend(dry_run=a.dry_run)
     return show()
 
 

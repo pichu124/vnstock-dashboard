@@ -37,6 +37,14 @@ def _meta(tmp_path, monkeypatch):
               na.ENV_TICKERS, na.ENV_CLI_MODEL, na.ENV_CLI_TIMEOUT,
               "VNSTOCK_NEWS_ALERT_ENGINE", na.ENV_TWITTERAPI_KEY, na.ENV_X_BEARER):
         monkeypatch.delenv(k, raising=False)
+    # Bước đọc kỹ (12/10) có file test riêng `test_news_alert_review.py` — ở đây tắt để
+    # các test luồng cũ không gọi Jina thật và giữ nguyên hành vi một bước.
+    monkeypatch.setenv(na.ENV_REVIEW, "0")
+    # Claude giả trả rỗng ⇒ `score_items` rơi về ladder ⇒ `nf.analyze_item` gọi provider
+    # THẬT: sandbox không key nên thoát ngay, máy thật có `.env` thì gọi Groq/Gemini thật
+    # và ghi sổ LLM (14/10 💻: một test 260s; phát tối cũng có bước test). Mặc định
+    # "không provider" — test cần đường ladder tự đè.
+    monkeypatch.setattr(nf, "analyze_item", lambda it: ("", ""))
     return tmp_path
 
 
@@ -378,6 +386,20 @@ def test_run_scales_batch_cap_with_catchup_window(monkeypatch):
     monkeypatch.setattr(na, "load_seen", lambda path=None: {"items": {}})
     na.run(now=NOW, sources=[_src("rss:one", items)], engine="claude", sender=spy)
     assert calls[1]["user"].count("### Tin i=") == na.DEFAULT_PER_SOURCE * 3      # 18 — bắt bù 14h
+
+
+def test_ladder_fallback_in_tests_never_reaches_a_real_provider(monkeypatch):
+    """Lưới canh fixture `_meta`: bỏ stub `analyze_item` là test này đỏ cả ở sandbox
+    (không cần `.env` mới lộ như 14/10)."""
+    import vnstock_sentiment as vs
+    hit: list = []
+    monkeypatch.setattr(vs, "chat_complete_ex", lambda *a, **k: hit.append(1))
+    monkeypatch.setattr(vs, "anthropic_complete_ex", lambda *a, **k: hit.append(1), raising=False)
+    _fake_complete(monkeypatch, results=[])
+    sent, spy = _sender_spy()
+    na.run(now=NOW, sources=[_src("rss:one", [_raw("Fed giữ lãi suất")])], engine="claude",
+           sender=spy)
+    assert hit == [] and sent == []
 
 
 # ── mạng xã hội: Bluesky miễn phí · X có key ───────────────────────────────

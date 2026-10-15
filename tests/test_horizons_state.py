@@ -37,6 +37,7 @@ def wh(tmp_path, monkeypatch):
     for k in list(__import__("os").environ):
         if k.startswith("VNSTOCK_HORIZONS"):
             monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("VNSTOCK_HORIZONS", "0")          # nền khung cũ (mặc định BẬT từ 14/10)
     monkeypatch.setenv("COMPUTERNAME", "TESTBOX")
     rng = np.random.default_rng(11)
     days = _bdays(date(2025, 1, 6), 300)
@@ -157,6 +158,47 @@ def test_kill_switch_skips_update(wh, monkeypatch):
     assert hs.main(["--update"]) == 0 and not called
 
 
+# ── Hàm đọc dùng chung (P1b-1, #19) ─────────────────────────────────────
+
+def test_latest_published_tells_missing_empty_fresh_stale_and_conflicted(wh):
+    root, days = wh
+    lp = hs.latest_published(root, now=_evening(days[-1]))
+    assert lp.snap is None and lp.missing == "chưa có state" and not lp.usable
+    hs.write_state({"inputs": {}, "published": []}, root)
+    lp = hs.latest_published(root, now=_evening(days[-1]))
+    assert lp.snap is None and lp.missing == "state rỗng" and not lp.usable
+
+    hs.update(now=_evening(days[-2]), warehouse=root)
+    lp = hs.latest_published(root, now=_evening(days[-2]))
+    assert lp.usable and not lp.stale and lp.snap["as_of"] == days[-2].isoformat()
+    assert lp.state["published"][-1] is lp.snap
+
+    lp = hs.latest_published(root, now=_evening(days[-1]))      # kho đã có bar mới hơn
+    assert lp.stale and not lp.usable and lp.expect == days[-1]
+
+    assert lp.reason == f"cũ: bản cuối {days[-2].isoformat()}, kho đã có bar {days[-1]}"
+
+    (root / "_meta" / "horizon_state (PICHU's conflicted copy).json").write_text("{}")
+    lp = hs.latest_published(root, now=_evening(days[-2]))
+    assert lp.conflicted and not lp.stale and not lp.usable
+    assert lp.reason.startswith("conflicted copy: horizon_state (PICHU")
+
+
+def test_latest_published_tells_a_broken_file_apart_from_an_empty_one(wh):
+    root, days = wh
+    hs.state_path(root).write_text("{not json", encoding="utf-8")
+    lp = hs.latest_published(root, now=_evening(days[-1]))
+    assert lp.snap is None and lp.missing == hs.BROKEN_STATE and lp.reason == hs.BROKEN_STATE
+
+
+def test_doctor_stays_warn_when_the_reader_blows_up(doc, wh, monkeypatch):
+    root, days = wh
+    hs.update(now=_evening(days[-1]), warehouse=root)
+    monkeypatch.setattr(hs, "load_vnindex", lambda wh: 1 / 0)
+    r = doc.check_horizons(now=_evening(days[-1]))
+    assert r["status"] == "warn" and "ZeroDivisionError" in r["message"]
+
+
 # ── Doctor ───────────────────────────────────────────────────────────────
 
 @pytest.fixture()
@@ -170,6 +212,7 @@ def doc(wh, monkeypatch):
 def test_doctor_warns_when_state_missing(doc, wh):
     r = doc.check_horizons(now=_evening(wh[1][-1]))
     assert r["status"] == "warn" and "--backfill" in r["fix"]
+    assert r["message"] == "chưa có state (P1a vừa merge?)"     # câu chữ như trước P1b-1
 
 
 def test_doctor_ok_after_update_then_stale_when_kho_moves_ahead(doc, wh):
@@ -219,3 +262,29 @@ def test_runpy_horizons_step_never_hard_fails_and_is_wired(monkeypatch):
     args = runpy.build_parser().parse_args(["horizons", "--backfill", "--days", "50"])
     assert args.backfill and args.days == 50 and runpy._DISPATCH["horizons"] is runpy.cmd_horizons
     assert "tests/test_horizons_state.py" in open(runpy.__file__, encoding="utf-8").read()
+
+
+# ── #26: brief đã đọc state ⇒ state hỏng là ERROR; revision vẫn chỉ warn ──────
+
+def test_doctor_escalates_to_error_once_the_brief_reads_the_state(doc, wh, monkeypatch):
+    root, days = wh
+    monkeypatch.setenv("VNSTOCK_HORIZONS", "1")
+    r = doc.check_horizons(now=_evening(days[-1]))
+    assert r["status"] == "error" and r["name"] == "Brief 3 khung"
+    hs.update(now=_evening(days[-2]), warehouse=root)
+    assert doc.check_horizons(now=_evening(days[-2]))["status"] == "ok"
+    assert doc.check_horizons(now=_evening(days[-1]))["status"] == "error"      # cũ
+    monkeypatch.delenv("VNSTOCK_HORIZONS")                 # không đặt = BẬT (từ 14/10)
+    assert doc.check_horizons(now=_evening(days[-1]))["status"] == "error"
+    monkeypatch.setenv("VNSTOCK_HORIZONS", "0")
+    assert doc.check_horizons(now=_evening(days[-1]))["status"] == "warn"
+
+
+def test_brief_view_of_a_past_session_uses_the_entry_just_before_it(wh):
+    root, days = wh
+    for d in days[-3:]:
+        hs.update(now=_evening(d), warehouse=root)
+    st = hs.load_state(root)
+    mid = st["published"][-2]
+    lp = hs.Latest(state=st, snap=mid, missing=None, expect=date.fromisoformat(mid["as_of"]))
+    assert hs.brief_view(lp)["prev"]["as_of"] == st["published"][-3]["as_of"]

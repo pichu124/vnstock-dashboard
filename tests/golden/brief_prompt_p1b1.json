@@ -1,0 +1,62 @@
+{
+ "giam|no_quant|afternoon": {
+  "len": 15084,
+  "segment": "\n## 🧭 RÀNG BUỘC BIAS (BẮT BUỘC)\nTín hiệu tổng hợp một chiều mạnh (momentum -67/100, regime score -5). TLDR **Bias BẮT BUỘC = GIẢM** — TUYỆT ĐỐI KHÔNG ghi 'Trung tính' hay chiều ngược lại. Ở 'Stance ngày mai' (TLDR), setup ưu tiên PHẢI cùng chiều GIẢM (thủng hỗ trợ/đi xuống); KHÔNG đưa setup chiều ngược làm setup chính. (Lưu ý: 'BẮT BUỘC' là chỉ thị nội bộ cho bạn — TUYỆT ĐỐI KHÔNG in chữ 'bắt buộc' vào brief; chỉ ghi bias GIẢM kèm lý do số liệu.)\nỞ 'Watchlist sáng mai' (bias GIẢM): TUYỆT ĐỐI KHÔNG đưa setup \"MUA vùng [giá dưới thị trường]\" kiểu bắt dao rơi. Mẫu MUA CHỈ được dạng CÓ ĐIỀU KIỆN \"canh MUA NẾU vượt lại [kháng cự của CHÍNH MÃ]\" (xác nhận sức mạnh trước), và ưu tiên ít nhất 1 hướng phòng thủ (GIẢM TỶ TRỌNG/TRÁNH nếu thủng hỗ trợ).\n\n## Quant Market Regime\n⚠️ KHÔNG CÓ quant regime hôm nay — TUYỆT ĐỐI KHÔNG nêu tên regime hay conviction; nếu cần nhắc thì ghi 'chưa có regime hôm nay'.\n",
+  "sha256": "9bc682792c5ad53283343864432eac6c0d447752d949647161b30bd5fa624270"
+ },
+ "giam|no_quant|morning": {
+  "len": 13025,
+  "segment": "\n## 🧭 RÀNG BUỘC BIAS (BẮT BUỘC)\nTín hiệu tổng hợp một chiều mạnh (momentum -67/100, regime score -5). TLDR **Bias BẮT BUỘC = GIẢM** — TUYỆT ĐỐI KHÔNG ghi 'Trung tính' hay chiều ngược lại. Ở 'Kịch bản phiên chiều', kịch bản CHÍNH (xác suất cao nhất) PHẢI là kịch bản GIẢM (thủng hỗ trợ/đi xuống); kịch bản chiều ngược chỉ được là kịch bản PHỤ. (Lưu ý: 'BẮT BUỘC' là chỉ thị nội bộ cho bạn — TUYỆT ĐỐI KHÔNG in chữ 'bắt buộc' vào brief; chỉ ghi bias GIẢM kèm lý do số liệu.)\nỞ 'Trọng tâm theo dõi / Kịch bản' (bias GIẢM): TUYỆT ĐỐI KHÔNG đưa setup \"MUA vùng [giá dưới thị trường]\" kiểu bắt dao rơi. Mẫu MUA CHỈ được dạng CÓ ĐIỀU KIỆN \"canh MUA NẾU vượt lại [kháng cự của CHÍNH MÃ]\" (xác nhận sức mạnh trước), và ưu tiên ít nhất 1 hướng phòng thủ (GIẢM TỶ TRỌNG/TRÁNH nếu thủng hỗ trợ).\n\n## Quant Market Regime\n⚠️ KHÔNG CÓ quant regime hôm nay — TUYỆT ĐỐI KHÔNG nêu tên regime hay conviction; nếu cần nhắc thì ghi 'chưa có regime hôm nay'.\n",
+  "sha256": "6cf67d575f77a8e9ef9a3117b5775e2db7f171a28f68d2b961935fcfcb473640"
+ },
+ "giam|quant|afternoon": {
+  "len": 15033,
+  "segment": "\n## 🧭 RÀNG BUỘC BIAS (BẮT BUỘC)\nTín hiệu tổng hợp một chiều mạnh (momentum -67/100, regime score -5). TLDR **Bias BẮT BUỘC = GIẢM** — TUYỆT ĐỐI KHÔNG ghi 'Trung tính' hay chiều ngược lại. Ở 'Stance ngày mai' (TLDR), setup ưu tiên PHẢI cùng chiều GIẢM (thủng hỗ trợ/đi xuống); KHÔNG đưa setup chiều ngược làm setup chính. (Lưu ý: 'BẮT BUỘC' là chỉ thị nội bộ cho bạn — TUYỆT ĐỐI KHÔNG in chữ 'bắt buộc' vào brief; chỉ ghi bias GIẢM kèm lý do số liệu.)\nỞ 'Watchlist sáng mai' (bias GIẢM): TUYỆT ĐỐI KHÔNG đưa setup \"MUA vùng [giá dưới thị trường]\" kiểu bắt dao rơi. Mẫu MUA CHỈ được dạng CÓ ĐIỀU KIỆN \"canh MUA NẾU vượt lại [kháng cự của CHÍNH MÃ]\" (xác nhận sức mạnh trước), và ưu tiên ít nhất 1 hướng phòng thủ (GIẢM TỶ TRỌNG/TRÁNH nếu thủng hỗ trợ).\n\n## Quant Market Regime\n❄️ Risk-off | conviction=-0.42 | ⚡ Biên độ cao — high-vol regime | breadth 9%\n",
+  "sha256": "7b9216364315e4302731e3f0a93dc0c1ddc612512cb08f4f72477f30d6cf3eee"
+ },
+ "giam|quant|morning": {
+  "len": 12974,
+  "segment": "\n## 🧭 RÀNG BUỘC BIAS (BẮT BUỘC)\nTín hiệu tổng hợp một chiều mạnh (momentum -67/100, regime score -5). TLDR **Bias BẮT BUỘC = GIẢM** — TUYỆT ĐỐI KHÔNG ghi 'Trung tính' hay chiều ngược lại. Ở 'Kịch bản phiên chiều', kịch bản CHÍNH (xác suất cao nhất) PHẢI là kịch bản GIẢM (thủng hỗ trợ/đi xuống); kịch bản chiều ngược chỉ được là kịch bản PHỤ. (Lưu ý: 'BẮT BUỘC' là chỉ thị nội bộ cho bạn — TUYỆT ĐỐI KHÔNG in chữ 'bắt buộc' vào brief; chỉ ghi bias GIẢM kèm lý do số liệu.)\nỞ 'Trọng tâm theo dõi / Kịch bản' (bias GIẢM): TUYỆT ĐỐI KHÔNG đưa setup \"MUA vùng [giá dưới thị trường]\" kiểu bắt dao rơi. Mẫu MUA CHỈ được dạng CÓ ĐIỀU KIỆN \"canh MUA NẾU vượt lại [kháng cự của CHÍNH MÃ]\" (xác nhận sức mạnh trước), và ưu tiên ít nhất 1 hướng phòng thủ (GIẢM TỶ TRỌNG/TRÁNH nếu thủng hỗ trợ).\n\n## Quant Market Regime\n❄️ Risk-off | conviction=-0.42 | ⚡ Biên độ cao — high-vol regime | breadth 9%\n",
+  "sha256": "3ff5e187182c6afb4fe4a04458fcf5cc9c9b6546e2ac2f799e8070d9becee3b4"
+ },
+ "none|no_quant|afternoon": {
+  "len": 14333,
+  "segment": "\n## Quant Market Regime\n⚠️ KHÔNG CÓ quant regime hôm nay — TUYỆT ĐỐI KHÔNG nêu tên regime hay conviction; nếu cần nhắc thì ghi 'chưa có regime hôm nay'.\n",
+  "sha256": "c4f887d49d9aaefc754e870676786c7c5217f29ce73c30d755f37965ed59ead6"
+ },
+ "none|no_quant|morning": {
+  "len": 12241,
+  "segment": "\n## Quant Market Regime\n⚠️ KHÔNG CÓ quant regime hôm nay — TUYỆT ĐỐI KHÔNG nêu tên regime hay conviction; nếu cần nhắc thì ghi 'chưa có regime hôm nay'.\n",
+  "sha256": "2832a937a4ed61eb8c3726358ef2746d0bb13c8da265ac291ab544d2908d414b"
+ },
+ "none|quant|afternoon": {
+  "len": 14282,
+  "segment": "\n## Quant Market Regime\n❄️ Risk-off | conviction=-0.42 | ⚡ Biên độ cao — high-vol regime | breadth 9%\n",
+  "sha256": "1a31112c47e225bb90dd5d0904c6637340d9d7f5a6d21e0c81bcb20cefa9864d"
+ },
+ "none|quant|morning": {
+  "len": 12190,
+  "segment": "\n## Quant Market Regime\n❄️ Risk-off | conviction=-0.42 | ⚡ Biên độ cao — high-vol regime | breadth 9%\n",
+  "sha256": "35a36f085d0254d9b086190e39d950f4596737b1898012c344d71cb85e9e98b2"
+ },
+ "tang|no_quant|afternoon": {
+  "len": 14766,
+  "segment": "\n## 🧭 RÀNG BUỘC BIAS (BẮT BUỘC)\nTín hiệu tổng hợp một chiều mạnh (momentum +55/100). TLDR **Bias BẮT BUỘC = TĂNG** — TUYỆT ĐỐI KHÔNG ghi 'Trung tính' hay chiều ngược lại. Ở 'Stance ngày mai' (TLDR), setup ưu tiên PHẢI cùng chiều TĂNG (vượt kháng cự/đi lên); KHÔNG đưa setup chiều ngược làm setup chính. (Lưu ý: 'BẮT BUỘC' là chỉ thị nội bộ cho bạn — TUYỆT ĐỐI KHÔNG in chữ 'bắt buộc' vào brief; chỉ ghi bias TĂNG kèm lý do số liệu.)\n\n## Quant Market Regime\n⚠️ KHÔNG CÓ quant regime hôm nay — TUYỆT ĐỐI KHÔNG nêu tên regime hay conviction; nếu cần nhắc thì ghi 'chưa có regime hôm nay'.\n",
+  "sha256": "f38206d238d7bdd99857ae896bbedea70f622eb7ea5046a60835a77a4a879bfa"
+ },
+ "tang|no_quant|morning": {
+  "len": 12696,
+  "segment": "\n## 🧭 RÀNG BUỘC BIAS (BẮT BUỘC)\nTín hiệu tổng hợp một chiều mạnh (momentum +55/100). TLDR **Bias BẮT BUỘC = TĂNG** — TUYỆT ĐỐI KHÔNG ghi 'Trung tính' hay chiều ngược lại. Ở 'Kịch bản phiên chiều', kịch bản CHÍNH (xác suất cao nhất) PHẢI là kịch bản TĂNG (vượt kháng cự/đi lên); kịch bản chiều ngược chỉ được là kịch bản PHỤ. (Lưu ý: 'BẮT BUỘC' là chỉ thị nội bộ cho bạn — TUYỆT ĐỐI KHÔNG in chữ 'bắt buộc' vào brief; chỉ ghi bias TĂNG kèm lý do số liệu.)\n\n## Quant Market Regime\n⚠️ KHÔNG CÓ quant regime hôm nay — TUYỆT ĐỐI KHÔNG nêu tên regime hay conviction; nếu cần nhắc thì ghi 'chưa có regime hôm nay'.\n",
+  "sha256": "6610a4bc3b07c87bbd42ce95668d0eb1213ab5cb4793f306dfd690cd51451c2f"
+ },
+ "tang|quant|afternoon": {
+  "len": 14715,
+  "segment": "\n## 🧭 RÀNG BUỘC BIAS (BẮT BUỘC)\nTín hiệu tổng hợp một chiều mạnh (momentum +55/100). TLDR **Bias BẮT BUỘC = TĂNG** — TUYỆT ĐỐI KHÔNG ghi 'Trung tính' hay chiều ngược lại. Ở 'Stance ngày mai' (TLDR), setup ưu tiên PHẢI cùng chiều TĂNG (vượt kháng cự/đi lên); KHÔNG đưa setup chiều ngược làm setup chính. (Lưu ý: 'BẮT BUỘC' là chỉ thị nội bộ cho bạn — TUYỆT ĐỐI KHÔNG in chữ 'bắt buộc' vào brief; chỉ ghi bias TĂNG kèm lý do số liệu.)\n\n## Quant Market Regime\n❄️ Risk-off | conviction=-0.42 | ⚡ Biên độ cao — high-vol regime | breadth 9%\n",
+  "sha256": "bb86c8a3aca4a06a703df7f91345cb93c9b9d4d81862e6871ad17d8bafe4afef"
+ },
+ "tang|quant|morning": {
+  "len": 12645,
+  "segment": "\n## 🧭 RÀNG BUỘC BIAS (BẮT BUỘC)\nTín hiệu tổng hợp một chiều mạnh (momentum +55/100). TLDR **Bias BẮT BUỘC = TĂNG** — TUYỆT ĐỐI KHÔNG ghi 'Trung tính' hay chiều ngược lại. Ở 'Kịch bản phiên chiều', kịch bản CHÍNH (xác suất cao nhất) PHẢI là kịch bản TĂNG (vượt kháng cự/đi lên); kịch bản chiều ngược chỉ được là kịch bản PHỤ. (Lưu ý: 'BẮT BUỘC' là chỉ thị nội bộ cho bạn — TUYỆT ĐỐI KHÔNG in chữ 'bắt buộc' vào brief; chỉ ghi bias TĂNG kèm lý do số liệu.)\n\n## Quant Market Regime\n❄️ Risk-off | conviction=-0.42 | ⚡ Biên độ cao — high-vol regime | breadth 9%\n",
+  "sha256": "52624ab518755a441d10b9aa6c90e145e3f5222145686ac2f312e68370be303a"
+ }
+}

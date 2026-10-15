@@ -14,6 +14,7 @@ Regimes (5 states):
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,31 @@ PRESET_SUGGESTIONS: dict[str, list[str]] = {
     "bearish":  ["oversold", "reversal"],
     "bear":     ["oversold", "reversal"],
 }
+
+# Từ vựng 3 khung (P1b-6, #24 — §3.1): "Risk-on/Risk-off" cấp thị trường là nhãn
+# của nhịp NGÀY (7 phiếu), không phải xu hướng. MỘT hàm nhãn cho cả regime lẫn
+# quant ngành, theo công tắc VNSTOCK_HORIZONS. Nhãn CŨ vẫn là `label_old` của
+# chạy bóng (so sánh cũ/mới + F1 đọc nó) — không bao giờ đổi.
+_VOCAB_3K: dict[str, str] = {
+    "🔥 Bull — Risk-on": "🟢 Kỹ thuật ngày: rất tích cực",
+    "📈 Tích cực": "🟢 Kỹ thuật ngày: tích cực",
+    "⚖️ Sideways / Phân hoá": "⚖️ Kỹ thuật ngày: trung tính / phân hoá",
+    "📉 Tiêu cực": "🔴 Kỹ thuật ngày: tiêu cực",
+    "❄️ Bear — Risk-off": "🔴 Kỹ thuật ngày: rất tiêu cực",
+    "🔥 Risk-on": "🟢 Dòng tiền ngành nghiêng mạnh tích cực",
+    "📈 Slight bullish bias": "📈 Dòng tiền ngành nghiêng tích cực",
+    "⚖️ Neutral / Phân hoá": "⚖️ Dòng tiền ngành trung tính / phân hoá",
+    "📉 Slight bearish bias": "📉 Dòng tiền ngành nghiêng tiêu cực",
+    "❄️ Risk-off": "🔴 Dòng tiền ngành nghiêng mạnh tiêu cực",
+}
+
+
+def vocab_label(old: str) -> str:
+    """Nhãn hiển thị của regime/quant: nhãn cũ khi công tắc tắt, từ vựng 3 khung
+    khi bật (nhãn lạ ⇒ giữ nguyên)."""
+    from vnstock_horizons import horizons_enabled
+    return _VOCAB_3K.get(old, old) if horizons_enabled() else old
+
 
 REGIME_META: dict[str, dict] = {
     "bull":     {"label": "🔥 Bull — Risk-on",      "color": "#22c55e", "bg": "#14532d"},
@@ -113,7 +139,7 @@ def classify_regime(
     if breadth is None:
         breadth = _load_breadth()
     if nn_net_1d is None:
-        nn_net_1d = _load_nn_net_1d()
+        nn_net_1d = _load_nn_net_1d(_nn_session(vnindex_tech))
 
     signals: list[dict] = []
     score = 0
@@ -221,7 +247,8 @@ def classify_regime(
     meta = REGIME_META[regime]
     return {
         "regime":            regime,
-        "label":             meta["label"],
+        "label":             vocab_label(meta["label"]),
+        "label_old":         meta["label"],
         "color":             meta["color"],
         "bg":                meta["bg"],
         "score":             score,
@@ -234,9 +261,24 @@ def classify_regime(
     }
 
 
-def load_regime() -> dict[str, Any]:
-    """Load all inputs and classify. Safe to call at render time."""
+def load_regime(effective_date: "str | None" = None) -> dict[str, Any]:
+    """Load all inputs and classify. Safe to call at render time.
+
+    Khối ngoại 1 phiên lấy ĐÚNG phiên hiệu lực — mặc định phiên của bar VNINDEX
+    (`data_date`) — chứ không lấy ngày MỚI NHẤT trong cache: cache khối ngoại có
+    ngày mới hơn bar giá thì regime trộn NN phiên sau với giá phiên trước (#22)."""
     tech    = _load_vnindex_tech()
     breadth = _load_breadth()
-    nn_1d   = _load_nn_net_1d()
+    nn_1d   = _load_nn_net_1d(effective_date or _nn_session(tech))
     return classify_regime(tech, breadth, nn_1d)
+
+
+def _nn_session(tech: "dict | None") -> "str | None":
+    """Phiên lấy khối ngoại 1 phiên = phiên của bar VNINDEX (``data_date``). Hệ
+    quả cố ý: buổi sáng có bar live hôm nay mà cache khối ngoại (pipeline tối)
+    chưa có hôm nay ⇒ phiếu NN vắng mặt thay vì mượn số phiên trước. Trả lại
+    hành vi cũ (ngày mới nhất trong cache): VNSTOCK_REGIME_NN_SAME_SESSION=0."""
+    if os.environ.get("VNSTOCK_REGIME_NN_SAME_SESSION", "1").strip().lower() in (
+            "0", "false", "off", "no"):
+        return None
+    return (tech or {}).get("data_date")

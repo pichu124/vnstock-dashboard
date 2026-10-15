@@ -208,16 +208,23 @@ def update_rating(brief_id: int, rating: int, feedback: str = "") -> None:
 
 
 
-def top_rated_briefs(brief_type: str, limit: int = 5) -> list[dict]:
-    """Return briefs with highest combined score (rating priority, auto_score fallback)."""
+def top_rated_briefs(brief_type: str, limit: int = 5,
+                     contains: Optional[str] = None) -> list[dict]:
+    """Return briefs with highest combined score (rating priority, auto_score fallback).
+
+    ``contains`` lọc NGAY TRONG TRUY VẤN (instr) — few-shot brief 3 khung chỉ lấy
+    mẫu viết sau khi bật P1b (có khối 🔭); lấy N mẫu rồi mới lọc sẽ ra rỗng (#26)."""
     init_db()
+    extra, args = "", [brief_type]
+    if contains:
+        extra, args = " AND instr(output, ?) > 0", [brief_type, contains]
     with _conn() as c:
         rows = c.execute(
             "SELECT * FROM briefs WHERE brief_type=? AND output IS NOT NULL "
-            "AND length(output) > 100 "
+            "AND length(output) > 100" + extra + " "
             "ORDER BY COALESCE(user_rating, 0) DESC, COALESCE(auto_score, 0) DESC, "
             "created_at DESC LIMIT ?",
-            (brief_type, limit),
+            (*args, limit),
         ).fetchall()
         return [dict(r) for r in rows]
 

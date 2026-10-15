@@ -28,7 +28,7 @@ import re as _re
 from abc import ABC, abstractmethod
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 # ── Constants ─────────────────────────────────────────────────────────────
 AGENTS_CONFIG_PATH = Path("data_warehouse/_meta/brief_agents.json")
@@ -67,6 +67,37 @@ from vnstock_brief_canon import (  # noqa: F401  (re-export: giữ nguyên đư�
     _MKT_NEWS_SENT_ICON,
     _SR_MAX_MOVE_PCT,
     _WATCHLIST_GTGD_MIN_TY,
+    _alloc_cap_note,
+    _HORIZON_ACTIONS,
+    _HORIZON_AGENT_PREFIXES,
+    _HORIZON_TITLE,
+    _HORIZON_TLDR_PREFIX,
+    _horizon_body_lines,
+    _horizon_morning_line,
+    _horizon_render,
+    _horizon_tldr_line,
+    _HORIZON_TLDR_LINE_RE,
+    _hz_not_updated,
+    _hz_unreachable,
+    _hz_week_word,
+    _hz_weeks,
+    _HORIZON_ACTION_LEVEL,
+    _HORIZON_MACRO_KEYS,
+    _hz_approx,
+    _hz_ddmm,
+    _hz_level,
+    _hz_signed,
+    _horizon_advice,
+    _horizon_alert_line,
+    _horizon_cap_text,
+    _horizon_change_line,
+    _horizon_macro_snippet,
+    _horizon_medium_line,
+    _horizon_portfolio_line,
+    _horizon_short_line,
+    _horizon_view,
+    _alloc_proposal_text,
+    _pct_tail,
     _allocation_table_lines,
     _gtgd_close_frame,
     _macro_body_lines,
@@ -1354,23 +1385,21 @@ def _warehouse_eod_date() -> "str | None":
         return None
 
 
-def _bias_floor_dir(momentum: "int | None", regime_score: "int | None") -> "str | None":
-    """Force a TLDR Bias direction when the headline signals are strongly
-    one-sided and not in conflict.
-
-    Inputs are the two signals shown in the brief header: Tâm lý `momentum`
-    (-100..100) and Regime `score` (signed, out of ~7). Returns "GIẢM", "TĂNG",
-    or None (let the agent decide). Thresholds: momentum ±50 or regime ±3.
-    """
-    bear = (momentum is not None and momentum <= -50) or \
-           (regime_score is not None and regime_score <= -3)
-    bull = (momentum is not None and momentum >= 50) or \
-           (regime_score is not None and regime_score >= 3)
-    if bear and not bull:
-        return "GIẢM"
-    if bull and not bear:
-        return "TĂNG"
-    return None
+def _market_floor(momentum: "int | None", *,
+                  on_error: "Callable[[Exception], object] | None" = None) -> "dict | None":
+    """Floor cũ của thị trường ở dạng ctx (`{"dir", "momentum", "regime_score"}`)
+    hoặc None khi không ép. Regime đọc tươi qua `load_regime()`; đọc hỏng ⇒
+    regime None + `on_error(e)`. MỘT chỗ dựng cho cả brief (`collect_context`)
+    lẫn Telegram (`_market_is_bearish`) — luật nằm ở `_bias_floor_dir`."""
+    regime_score = None
+    try:
+        from vnstock_regime import load_regime
+        regime_score = load_regime().get("score")
+    except Exception as e:
+        if on_error:
+            on_error(e)
+    d = _bias_floor_dir(momentum, regime_score)
+    return {"dir": d, "momentum": momentum, "regime_score": regime_score} if d else None
 
 
 # Mốc coi PHIÊN ĐÃ ĐÓNG (user chốt 19/08) — khớp mốc screener đang dùng.
@@ -2156,8 +2185,10 @@ def load_portfolio_positions(warehouse: "Path | None" = None) -> list[dict]:
 
 
 
-def _portfolio_block(positions: list[dict]) -> str:
-    """Render the held-positions block for the prompt. Empty when no positions."""
+def _portfolio_block(positions: list[dict], defensive: "dict | None" = None) -> str:
+    """Render the held-positions block for the prompt. Empty when no positions.
+    ``defensive`` (lớp bảo vệ 3 khung, P1b-5) bật ⇒ thêm luật không GIA TĂNG vô
+    điều kiện + hạ trước mã dưới MA50."""
     if not positions:
         return ""
     lines = [f"\n## 📌 Danh mục đang giữ ({len(positions)} vị thế — SỐ THẬT, dùng đúng)"]
@@ -2168,6 +2199,14 @@ def _portfolio_block(positions: list[dict]) -> str:
         "Stance/regime/tin trong prompt. TUYỆT ĐỐI không đổi số, không thêm mã "
         "ngoài danh sách."
     )
+    why = " · ".join((defensive or {}).get("reasons") or [])
+    if (defensive or {}).get("on") and defensive.get("level") == "cứng":
+        lines.append(
+            f"→ Thị trường đang PHÒNG THỦ ({why}): "
+            "KHÔNG GIA TĂNG vô điều kiện (chỉ \"GIA TĂNG khi vượt <mức>\"); nếu cần "
+            "hạ tỷ trọng thì hạ trước mã DƯỚI MA50.")
+    elif (defensive or {}).get("on"):                 # mức MỀM: chỉ nhắc
+        lines.append(f"→ Lưu ý 1 tín hiệu phòng thủ ({why}): không mua đuổi.")
     return "\n".join(lines)
 
 
@@ -2871,16 +2910,133 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     # the header (Tâm lý momentum + Regime score) — so the TLDR Bias can't soften
     # a strongly one-sided market (e.g. momentum -67 → not "Trung tính").
     _mom = (ctx.get("market_sentiment") or {}).get("momentum")
-    _reg_score = None
-    try:
-        from vnstock_regime import load_regime as _load_reg
-        _reg_score = _load_reg().get("score")
-    except Exception as _e:
-        _note_loader_error(ctx, "regime", _e)
-    if _fl := _bias_floor_dir(_mom, _reg_score):
-        ctx["bias_floor"] = {"dir": _fl, "momentum": _mom, "regime_score": _reg_score}
+    if _fl := _market_floor(_mom, on_error=lambda e: _note_loader_error(ctx, "regime", e)):
+        ctx["bias_floor"] = _fl
+
+    # 10. Brief 3 khung (P1b-3, #21): bản published mới nhất → khối 🔭 + TLDR dòng 3.
+    # Sau công tắc VNSTOCK_HORIZONS (mặc định BẬT từ 14/10, #26) — tắt thì ctx KHÔNG có
+    # khoá "horizons" nên prompt/guard giống hệt trước.
+    if horizons_enabled():
+        try:
+            _apply_horizons(ctx, brief_type)
+        except Exception as _e:                 # snapshot dị dạng không được làm sập brief
+            _note_loader_error(ctx, "horizons_apply", _e)
 
     return ctx
+
+
+def _apply_horizons(ctx: dict, brief_type: str) -> None:
+    """Bước 10 của collect_context (sau floor cũ): state 3 khung → 🔭, bảng
+    Stance, lớp bảo vệ, MA50 danh mục. Chỉ brief sáng/chiều."""
+    if brief_type not in ("morning", "afternoon"):
+        return
+    _load_horizons(ctx)
+    _apply_horizon_stance(ctx)              # bảng Stance §3.4 (P1b-4, #22)
+    _apply_horizon_defensive(ctx)           # lớp bảo vệ 2 mức (P1b-5, #23)
+    if ctx.get("portfolio"):
+        _attach_portfolio_ma50(ctx["portfolio"], (ctx.get("freshness") or {}).get("data_date"))
+
+
+def horizons_enabled() -> bool:
+    """Công tắc brief 3 khung (VNSTOCK_HORIZONS) — đọc ở `vnstock_horizons`."""
+    from vnstock_horizons import horizons_enabled as _on
+    return _on()
+
+
+def _apply_horizon_stance(ctx: dict) -> None:
+    """Bảng Stance 3 khung (§3.4) thay floor cũ — chỉ khi state dùng được:
+    ``bias_floor`` CHỈ có ở 2 ô ép (nguồn "nhip"), ô khác ghi tập cho phép vào
+    ``horizons["stance_allowed"]``. Floor cũ (momentum ±50 / regime ±3) rời luật
+    ép nhưng giữ ở ``bias_floor_old`` cho lớp bảo vệ. State cũ/hỏng ⇒ không đụng
+    gì: floor cũ y như trước, không có tập cho phép."""
+    view = ctx.get("horizons")
+    if not isinstance(view, dict) or view.get("stale") or not isinstance(view.get("snap"), dict):
+        return
+    snap = view["snap"]
+    rule = snap.get("stance") or {}
+    if not rule.get("forced") and not rule.get("allowed"):
+        return                                   # snapshot thiếu luật ⇒ floor cũ như cũ
+    if (old := ctx.pop("bias_floor", None)) is not None:
+        ctx["bias_floor_old"] = old
+    if rule.get("forced"):
+        ctx["bias_floor"] = {"dir": rule["forced"], "source": "nhip",
+                             "short": snap.get("short"), "since": snap.get("short_since"),
+                             "n": view.get("short_sessions"), "score": snap.get("score"),
+                             "n_signals": snap.get("n")}
+    else:
+        view["stance_allowed"] = list(rule.get("allowed") or [])
+
+
+_PROTECT_RANK = {None: 0, "mềm": 1, "cứng": 2}
+
+
+def _apply_horizon_defensive(ctx: dict) -> None:
+    """``ctx["defensive"] = {on, level, reasons}`` (§3.4, §8 mục 2) — bật khi BẤT
+    KỲ: floor cũ của BRIEF THẬT (có tin + vĩ mô) GIẢM / nhịp chỉnh / trung hạn
+    GIẢM / 🚨. Mức = max(luật 2 mức trên floor thật, ``protect`` của state chạy
+    bóng) — floor chạy bóng tính KHÔNG có tin/vĩ mô nên một mình nó không bảo
+    đảm tập cha. State cũ/hỏng ⇒ không ghi gì (consumer rơi về floor cũ)."""
+    from vnstock_horizons import CHINH, GIAM, protection_level
+    view = ctx.get("horizons")
+    if not isinstance(view, dict) or view.get("stale") or not isinstance(view.get("snap"), dict):
+        return
+    snap = view["snap"]
+    # floor cũ của brief thật: đã dời sang bias_floor_old (P1b-4) — hoặc vẫn nằm ở
+    # bias_floor khi snapshot thiếu luật Stance (không có nguồn "nhip")
+    bf = ctx.get("bias_floor") or {}
+    floor_old = (ctx.get("bias_floor_old") or {}).get("dir") or (
+        bf.get("dir") if bf.get("source") != "nhip" else None)
+    short, medium = snap.get("short"), snap.get("medium")
+    tier = (snap.get("alert") or {}).get("tier") or 0
+    real = protection_level(floor_old, short, medium, tier)
+    level = max(real, snap.get("protect"), key=lambda lv: _PROTECT_RANK.get(lv, 0))
+    reasons = [why for hit, why in ((floor_old == "GIẢM", "tín hiệu ngày một chiều giảm"),
+                                    (short == CHINH, "nhịp chỉnh"),
+                                    (medium == GIAM, "trung hạn GIẢM"),
+                                    (tier > 0, f"🚨 mức {tier}")) if hit]
+    if _PROTECT_RANK.get(level, 0) > _PROTECT_RANK.get(real, 0):
+        reasons.append("tín hiệu ngày một chiều giảm (bản chạy bóng)")
+    ctx["defensive"] = {"on": level is not None, "level": level, "reasons": reasons}
+
+
+def _attach_portfolio_ma50(positions: list, data_date: "str | None" = None) -> None:
+    """Trạng thái MA50 (trên/dưới) của từng mã đang giữ — code tính, in ở dòng
+    dữ kiện danh mục (P1b-5): bảo vệ bật thì hạ trước mã dưới MA50. Thiếu 50
+    phiên / bar cuối KHÁC phiên ``data_date`` (mã cách ly, kho cũ) / đọc hỏng ⇒
+    bỏ qua mã đó."""
+    from vnstock_strategy import _load_history_from_parquet
+    for p in positions or []:
+        try:
+            h = _load_history_from_parquet(str(p["ticker"]), days=120)
+            if h is None or h.empty:
+                continue
+            if data_date and pd.Timestamp(h["time"].iloc[-1]).date().isoformat() != \
+                    str(data_date)[:10]:
+                continue
+            closes = [float(x) for x in h["close"].dropna().tolist()]
+            if len(closes) < 50:
+                continue
+            p["above_ma50"] = closes[-1] > sum(closes[-50:]) / 50
+        except Exception:
+            continue
+
+
+def _load_horizons(ctx: dict) -> None:
+    """``ctx["horizons"]`` = view từ bản published (state cũ/hỏng ⇒ {stale: True}
+    ⇒ brief in "🔭 chưa cập nhật"); các mức của view vào ``horizon_levels`` để
+    hai guard mức giá coi chúng là "đã biết"."""
+    try:
+        import vnstock_horizons_state as hs
+        view = hs.brief_view(hs.latest_published())
+    except Exception as _e:
+        _note_loader_error(ctx, "horizons", _e)
+        view = {"stale": True, "as_of": None, "reason": f"lỗi đọc state: {type(_e).__name__}"}
+    # công tắc dòng vĩ mô chốt vào ctx: pack --from-file dựng lại đúng khối đã thấy
+    view["macro"] = os.environ.get("VNSTOCK_HORIZON_MACRO", "1").strip().lower() \
+        not in ("0", "false", "off", "no")
+    ctx["horizons"] = view
+    if not view.get("stale") and isinstance(ctx.get("vnindex_tech"), dict):
+        ctx["vnindex_tech"]["horizon_levels"] = list(view.get("known_levels") or [])
 
 
 def _augment_with_live_vnindex(
@@ -3251,6 +3407,100 @@ def _vnindex_technicals() -> dict:
 
 
 # ── Prompt builder ─────────────────────────────────────────────────────────
+def _bias_floor_prompt_lines(ctx: dict, brief_type: str) -> list[str]:
+    """Khối '🧭 RÀNG BUỘC BIAS' từ `ctx["bias_floor"]` (floor cũ, hoặc ô ép của
+    bảng Stance 3 khung — P1b-4) / '🧭 STANCE CHO PHÉP' (ô không ép) + luật
+    watchlist khi lớp bảo vệ cứng bật. Tách khỏi `build_prompt` (P1b-1, #19);
+    golden `tests/golden/brief_prompt_p1b1.json` canh từng byte khi công tắc tắt."""
+    lines: list[str] = []
+    # Deterministic bias floor: when the headline signals are strongly one-sided,
+    # the TLDR Bias must follow them (no softening to "Trung tính"/opposite).
+    # Worded per brief_type: morning's scenario section is "Kịch bản phiên chiều",
+    # the close's directional call lives in "Stance ngày mai" (TLDR).
+    if bf := ctx.get("bias_floor"):
+        _sig = []
+        if bf.get("source") == "nhip":           # bảng Stance 3 khung (P1b-4, #22)
+            from vnstock_horizons import SHORT_LABEL
+            _sig.append(f"Ngắn hạn: {SHORT_LABEL.get(bf.get('short'), '?')} phiên "
+                        f"{bf.get('n')} (điểm {_hz_signed(bf.get('score'))}/{bf.get('n_signals')})")
+        if bf.get("momentum") is not None:
+            _sig.append(f"momentum {bf['momentum']:+d}/100")
+        if bf.get("regime_score") is not None:
+            _sig.append(f"regime score {bf['regime_score']:+d}")
+        _dir_phr = "thủng hỗ trợ/đi xuống" if bf["dir"] == "GIẢM" else "vượt kháng cự/đi lên"
+        if brief_type == "morning":
+            _scenario = (
+                f"Ở 'Kịch bản phiên chiều', kịch bản CHÍNH (xác suất cao nhất) "
+                f"PHẢI là kịch bản {bf['dir']} ({_dir_phr}); kịch bản chiều ngược "
+                f"chỉ được là kịch bản PHỤ."
+            )
+        else:
+            _scenario = (
+                f"Ở 'Stance ngày mai' (TLDR), setup ưu tiên PHẢI cùng chiều {bf['dir']} "
+                f"({_dir_phr}); KHÔNG đưa setup chiều ngược làm setup chính."
+            )
+        lines.append(
+            f"\n## 🧭 RÀNG BUỘC BIAS (BẮT BUỘC)\n"
+            f"Tín hiệu tổng hợp một chiều mạnh ({', '.join(_sig) or 'n/a'}). "
+            f"TLDR **Bias BẮT BUỘC = {bf['dir']}** — TUYỆT ĐỐI KHÔNG ghi 'Trung tính' "
+            f"hay chiều ngược lại. {_scenario} "
+            f"(Lưu ý: 'BẮT BUỘC' là chỉ thị nội bộ cho bạn — TUYỆT ĐỐI KHÔNG in chữ "
+            f"'bắt buộc' vào brief; chỉ ghi bias {bf['dir']} kèm lý do số liệu.)"
+        )
+    elif allowed := ((ctx.get("horizons") or {}).get("stance_allowed")):
+        _word = "Bias" if brief_type == "morning" else "Stance ngày mai"
+        _why = ("" if "TĂNG" in allowed else
+                " (TĂNG chỉ được phép khi trung hạn TĂNG và 🚨 tắt)")
+        lines.append(
+            f"\n## 🧭 STANCE CHO PHÉP (bảng 3 khung)\n"
+            f"{_word} CHỈ được chọn trong: {' / '.join(allowed)}{_why}. Nhãn ngoài "
+            f"tập sẽ bị hệ thống đổi thành TRUNG TÍNH; setup vẫn phải CÓ ĐIỀU KIỆN "
+            f"(mức trigger + mức hủy).")
+    if is_defensive(ctx):        # cùng điều kiện với guard watchlist/MUA
+        _where = "Watchlist sáng mai" if brief_type != "morning" else "Trọng tâm theo dõi / Kịch bản"
+        _why = ("bias GIẢM" if floor_dir(ctx) == "GIẢM" or "defensive" not in ctx else
+                "lớp bảo vệ bật: " + " · ".join(ctx["defensive"].get("reasons") or []))
+        lines.append(
+            f"Ở '{_where}' ({_why}): TUYỆT ĐỐI KHÔNG đưa setup "
+            "\"MUA vùng [giá dưới thị trường]\" kiểu bắt dao rơi. Mẫu MUA "
+            "CHỈ được dạng CÓ ĐIỀU KIỆN \"canh MUA NẾU vượt lại [kháng cự "
+            "của CHÍNH MÃ]\" (xác nhận sức mạnh trước), và ưu tiên ít nhất "
+            "1 hướng phòng thủ (GIẢM TỶ TRỌNG/TRÁNH nếu thủng hỗ trợ)."
+        )
+    elif defensive_level(ctx) == "mềm":          # P1b-5: mức mềm chỉ NHẮC
+        lines.append(
+            f"Lưu ý: thị trường có 1 tín hiệu phòng thủ "
+            f"({' · '.join(ctx['defensive'].get('reasons') or [])}) — không mua đuổi; "
+            "setup MUA nên có điều kiện xác nhận.")
+    return lines
+
+
+def _quant_regime_prompt_lines(ctx: dict) -> list[str]:
+    """Khối '## Quant Market Regime' (luôn có: dữ liệu, hoặc câu cấm bịa regime
+    khi thiếu). Tách khỏi `build_prompt` (P1b-1, #19)."""
+    lines: list[str] = []
+    # Regime
+    # brief 3 khung (P1b-6): "regime" quant chỉ là độ nghiêng dòng tiền ngành khung NGÀY
+    # KHÔNG mở đầu bằng "Dòng tiền ngành" — template có luật riêng cho block NN cùng tên
+    title = ("## Độ nghiêng điểm quant các ngành (khung ngày)"
+             if isinstance(ctx.get("horizons"), dict) or horizons_enabled()
+             else "## Quant Market Regime")
+    if r := ctx.get("quant_regime"):
+        vr = ctx.get("vol_regime", "normal")
+        vr_note = " | ⚡ Biên độ cao — high-vol regime" if vr == "high" else ""
+        lines.append(f"\n{title}\n{r['regime']} | conviction={r['conviction']:+.2f}"
+                     f"{vr_note} | {r['detail']}")
+    else:
+        # Template nhắc "regime" ở nhiều chỗ ràng buộc (stance, hướng setup,
+        # lý do phân bổ). Không có block = model tự đặt ra một regime.
+        lines.append(
+            f"\n{title}\n"
+            "⚠️ KHÔNG CÓ quant regime hôm nay — TUYỆT ĐỐI KHÔNG nêu tên regime "
+            "hay conviction; nếu cần nhắc thì ghi 'chưa có regime hôm nay'."
+        )
+    return lines
+
+
 def build_prompt(ctx: dict, brief_type: str = "morning",
                  few_shot: str = "", rec_block: str = "",
                  news_block: str = "") -> str:
@@ -3323,45 +3573,9 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             "làm dẫn dắt/tụt hậu."
         )
 
-    # Deterministic bias floor: when the headline signals are strongly one-sided,
-    # the TLDR Bias must follow them (no softening to "Trung tính"/opposite).
-    # Worded per brief_type: morning's scenario section is "Kịch bản phiên chiều",
-    # the close's directional call lives in "Stance ngày mai" (TLDR).
-    if bf := ctx.get("bias_floor"):
-        _sig = []
-        if bf.get("momentum") is not None:
-            _sig.append(f"momentum {bf['momentum']:+d}/100")
-        if bf.get("regime_score") is not None:
-            _sig.append(f"regime score {bf['regime_score']:+d}")
-        _dir_phr = "thủng hỗ trợ/đi xuống" if bf["dir"] == "GIẢM" else "vượt kháng cự/đi lên"
-        if brief_type == "morning":
-            _scenario = (
-                f"Ở 'Kịch bản phiên chiều', kịch bản CHÍNH (xác suất cao nhất) "
-                f"PHẢI là kịch bản {bf['dir']} ({_dir_phr}); kịch bản chiều ngược "
-                f"chỉ được là kịch bản PHỤ."
-            )
-        else:
-            _scenario = (
-                f"Ở 'Stance ngày mai' (TLDR), setup ưu tiên PHẢI cùng chiều {bf['dir']} "
-                f"({_dir_phr}); KHÔNG đưa setup chiều ngược làm setup chính."
-            )
-        lines.append(
-            f"\n## 🧭 RÀNG BUỘC BIAS (BẮT BUỘC)\n"
-            f"Tín hiệu tổng hợp một chiều mạnh ({', '.join(_sig) or 'n/a'}). "
-            f"TLDR **Bias BẮT BUỘC = {bf['dir']}** — TUYỆT ĐỐI KHÔNG ghi 'Trung tính' "
-            f"hay chiều ngược lại. {_scenario} "
-            f"(Lưu ý: 'BẮT BUỘC' là chỉ thị nội bộ cho bạn — TUYỆT ĐỐI KHÔNG in chữ "
-            f"'bắt buộc' vào brief; chỉ ghi bias {bf['dir']} kèm lý do số liệu.)"
-        )
-        if bf["dir"] == "GIẢM":
-            _where = "Watchlist sáng mai" if brief_type != "morning" else "Trọng tâm theo dõi / Kịch bản"
-            lines.append(
-                f"Ở '{_where}' (bias GIẢM): TUYỆT ĐỐI KHÔNG đưa setup "
-                "\"MUA vùng [giá dưới thị trường]\" kiểu bắt dao rơi. Mẫu MUA "
-                "CHỈ được dạng CÓ ĐIỀU KIỆN \"canh MUA NẾU vượt lại [kháng cự "
-                "của CHÍNH MÃ]\" (xác nhận sức mạnh trước), và ưu tiên ít nhất "
-                "1 hướng phòng thủ (GIẢM TỶ TRỌNG/TRÁNH nếu thủng hỗ trợ)."
-            )
+    # Floor cũ ⇒ '🧭 RÀNG BUỘC BIAS' (khối prompt riêng — P1b-1, #19)
+    lines += _bias_floor_prompt_lines(ctx, brief_type)
+    lines += _horizon_prompt_lines(ctx, brief_type)          # 🔭 (P1b-3, #21)
 
     # Market sentiment (tâm lý thị trường) — composite mood from breadth, NN
     # flow, index momentum and news. Emitted high so the agent frames the
@@ -3371,20 +3585,8 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         if block:
             lines.append(block)
 
-    # Regime
-    if r := ctx.get("quant_regime"):
-        vr = ctx.get("vol_regime", "normal")
-        vr_note = " | ⚡ Biên độ cao — high-vol regime" if vr == "high" else ""
-        lines.append(f"\n## Quant Market Regime\n{r['regime']} | conviction={r['conviction']:+.2f}"
-                     f"{vr_note} | {r['detail']}")
-    else:
-        # Template nhắc "regime" ở nhiều chỗ ràng buộc (stance, hướng setup,
-        # lý do phân bổ). Không có block = model tự đặt ra một regime.
-        lines.append(
-            "\n## Quant Market Regime\n"
-            "⚠️ KHÔNG CÓ quant regime hôm nay — TUYỆT ĐỐI KHÔNG nêu tên regime "
-            "hay conviction; nếu cần nhắc thì ghi 'chưa có regime hôm nay'."
-        )
+    # Regime (khối prompt riêng — P1b-1, #19)
+    lines += _quant_regime_prompt_lines(ctx)
 
     # VNINDEX technical levels — emit BEFORE breadth/sectors so the LLM
     # treats these as the canonical reference numbers instead of making up
@@ -3891,7 +4093,7 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
 
     # Held positions — per-position facts so the brief can advise theo vị thế.
     if _pf := ctx.get("portfolio"):
-        block = _portfolio_block(_pf)
+        block = _portfolio_block(_pf, defensive=ctx.get("defensive"))
         if block:
             lines.append(block)
 
@@ -3931,7 +4133,56 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
                                                     _AFTERNOON_TEMPLATE)
     if _risk_new:
         tmpl = _swap_risk_rules(tmpl)
+    if _horizon_prompt_lines(ctx, brief_type):
+        tmpl = _swap_horizon_template(tmpl)
     return tmpl.format(system=_SYSTEM, data=data_block)
+
+
+_HORIZON_TLDR_TEMPLATE_LINE = ("**Trung hạn:** [hệ thống tự điền dòng này — để nguyên, "
+                               "KHÔNG tự viết]")
+_HORIZON_SECTION_TEMPLATE = (
+    "## 🔭 Góc nhìn theo khung thời gian\n"
+    "[hệ thống tự chèn khối này từ block 🔭 ở trên — KHÔNG viết lại; chỉ được thêm "
+    "TỐI ĐA 1 câu (không số) sau \"→\" ở dòng Ngắn hạn và dòng Trung hạn]\n\n")
+
+
+def _horizon_prompt_lines(ctx: dict, brief_type: str) -> list[str]:
+    """Khối dữ liệu 🔭 cho prompt brief CHIỀU — rỗng khi công tắc tắt (ctx không
+    có ``horizons``) ⇒ prompt giống từng byte bản cũ (golden #19)."""
+    if not isinstance(ctx.get("horizons"), dict):
+        return []
+    if brief_type == "morning":                  # P1b-6: 1 gạch 🔭 trong TLDR (mẫu §4 D)
+        line = _horizon_morning_line(ctx)
+        return ["\n## 🔭 Khung thời gian — HỆ THỐNG IN 1 DÒNG VÀO TLDR (KHÔNG tự viết)\n"
+                f"{line}\n→ Bias khung PHIÊN; trung hạn là khung TUẦN — lệch chiều không "
+                "phải mâu thuẫn."] if line else []
+    if brief_type != "afternoon":
+        return []
+    body, tldr = _horizon_render(ctx)
+    if not body:
+        return []
+    out = ["\n## 🔭 Góc nhìn theo khung thời gian — HỆ THỐNG IN SẴN (KHÔNG VIẾT LẠI)",
+           *body]
+    if tldr:
+        out.append(f"TLDR dòng 3 (hệ thống in): {tldr}")
+    out.append(
+        "→ Khối 🔭 và dòng \"**Trung hạn:**\" do hệ thống chèn vào brief: KHÔNG chép, "
+        "KHÔNG đổi số/nhãn. Chỉ được thêm TỐI ĐA 1 câu (không có số) sau \"→\" ở dòng "
+        "Ngắn hạn và dòng Trung hạn. Stance ngày mai là khung PHIÊN, trung hạn là khung "
+        "TUẦN — lệch chiều là hai khung khác nhau, không phải mâu thuẫn.")
+    return ["\n".join(out)]
+
+
+def _swap_horizon_template(tmpl: str) -> str:
+    """Template chiều khi có 🔭: TLDR 3 dòng (dòng 3 hệ thống điền) + khung mục 🔭
+    ngay sau TLDR. Chỉ đổi template CHIỀU — mỏ neo thiếu ⇒ trả nguyên."""
+    head, stance, nxt = "## 🎯 TLDR (2 dòng)\n", "\n**Stance ngày mai:**", "\n## 📊 Tổng kết phiên"
+    if head not in tmpl or stance not in tmpl or nxt not in tmpl:
+        return tmpl
+    i = tmpl.index("\n", tmpl.index(stance) + 1)
+    tmpl = tmpl[:i] + "\n" + _HORIZON_TLDR_TEMPLATE_LINE + tmpl[i:]
+    tmpl = tmpl.replace(nxt, "\n" + _HORIZON_SECTION_TEMPLATE.rstrip("\n") + "\n" + nxt, 1)
+    return tmpl.replace(head, "## 🎯 TLDR (3 dòng)\n", 1)
 
 
 # ── Hệ guard hậu kiểm → `vnstock_brief_guards` ─────────────────────────────
@@ -3941,6 +4192,7 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
 from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đường import cũ)
     _ALLOC_HORIZON_CAVEAT,
     _BUY_BIAS_CAVEAT,
+    _BUY_DEFENSIVE_CAVEAT,
     _CJK_RE,
     _CONSTRAINT_NOTATION_RE,
     _COMPOSITE_LEAK_RE,
@@ -3963,6 +4215,9 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     _VNI_CONTEXT_RE,
     _VNI_MAGNITUDE_RE,
     _adjusted_ref_price,
+    _bias_floor_dir,
+    _KNOWN_INDEX_LEVEL_KEYS,
+    _known_index_levels,
     _EXDATE_MARK,
     _EXDATE_REC_DAYS,
     _EXDATE_WL_DAYS,
@@ -3973,7 +4228,41 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     _parse_vn_number,
     apply_brief_guards,
     brief_section,
+    defensive_level,
+    floor_dir,
+    is_defensive,
     enforce_allocation_table,
+    enforce_horizon_view,
+    enforce_stance_horizon,
+    enforce_horizon_vocab,
+    _RISK_ONOFF_RE,
+    _VOCAB_FOREIGN_WORDS,
+    _VOCAB_MARKET_WORDS,
+    _VOCAB_SKIP_SECTIONS,
+    _horizon_morning_tldr,
+    enforce_morning_action_defensive,
+    _ALLOC_HORIZON_CAVEAT_3K,
+    _MORNING_ACTION_NOTE,
+    _MORNING_ACTION_RE,
+    _MORNING_COND_RE,
+    _hz_tldr_region,
+    _is_horizon_heading,
+    _STANCE_HZ_KW,
+    _STANCE_HZ_PHRASE_END,
+    _STANCE_SETUP_AGAINST,
+    _stance_line,
+    _stance_norm,
+    _stance_phrase,
+    _stance_setup,
+    _SOFT_DEFENSIVE_MARK,
+    _stance_label,
+    _STANCE_HZ_DEFAULT,
+    _STANCE_HZ_LABEL_RE,
+    _STANCE_HZ_LINE_RE,
+    _horizon_agent_sentence,
+    _HORIZON_AGENT_MAX_CHARS,
+    _HORIZON_SENTENCE_RE,
+    _hz_section_end,
     enforce_breadth_label,
     enforce_breadth_quality,
     enforce_buy_vs_bias_caveat,
@@ -4383,11 +4672,19 @@ def generate_brief(
     return results
 
 # ── Memory-backed helpers (lazy, all best-effort) ──────────────────────────
+_FEW_SHOT_MARKER = {"afternoon": _HORIZON_TITLE, "morning": "- 🔭 "}
+
+
 def _few_shot_block(brief_type: str, n: int = 2) -> str:
-    """Pull top-rated past briefs to use as in-context examples."""
+    """Pull top-rated past briefs to use as in-context examples.
+
+    Brief 3 khung bật (#26): chỉ mẫu viết SAU khi bật (có 🔭) — mẫu cũ dạy lại
+    TLDR 2 dòng + từ vựng Risk-on/off. Chưa có mẫu mới ⇒ không few-shot."""
     try:
         import vnstock_memory as _mem
-        rows = _mem.top_rated_briefs(brief_type, limit=n)
+        marker = _FEW_SHOT_MARKER.get(brief_type) if horizons_enabled() else None
+        rows = (_mem.top_rated_briefs(brief_type, limit=n, contains=marker) if marker
+                else _mem.top_rated_briefs(brief_type, limit=n))
         if not rows:
             return ""
         rated = [r for r in rows if (r.get("user_rating") or 0) >= 4]
@@ -4777,8 +5074,14 @@ def _detect_stance(tldr_text: str) -> str:
          captured phrase first for canonical labels TĂNG/GIẢM/TRUNG TÍNH —
          this is what the prompt template instructs the agent to emit.
       2. Fall back to keyword vote across the full TLDR.
+
+    TLDR dòng 3 "**Trung hạn:** …" (code viết, P1b-3) bị bỏ TRƯỚC khi đếm —
+    chữ TĂNG/GIẢM của xu hướng tuần không phải Stance ngày mai.
     """
     import re as _re_local
+    tldr_text = "\n".join(ln for ln in (tldr_text or "").split("\n")
+                          if not _HORIZON_TLDR_LINE_RE.match(ln)
+                          and not ln.lstrip().startswith(("- 🔭", "🔭")))
     m = _STANCE_LINE_RE.search(tldr_text)
     if m:
         captured = m.group(1).lower()

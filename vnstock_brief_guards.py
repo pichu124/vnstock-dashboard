@@ -31,14 +31,19 @@ import re as _re
 from vnstock_brief_guards_common import (  # noqa: F401  (re-export)
     _PIVOT_LABEL_RE,
     _SECTION_EMOJIS,
+    _bias_floor_dir,
     _is_section_start,
     _parse_vn_number,
     brief_section,
+    defensive_level,
+    floor_dir,
+    is_defensive,
 )
 
 from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
     _ALLOC_HORIZON_CAVEAT,
     _BUY_BIAS_CAVEAT,
+    _BUY_DEFENSIVE_CAVEAT,
     _STANCE_CAUTION_MARK,
     _STANCE_CAUTION_MOMENTUM,
     _adjusted_ref_price,
@@ -49,6 +54,37 @@ from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
     _exdate_map,
     _canonical_risk_lines,
     enforce_allocation_table,
+    enforce_horizon_view,
+    enforce_stance_horizon,
+    enforce_horizon_vocab,
+    _RISK_ONOFF_RE,
+    _VOCAB_FOREIGN_WORDS,
+    _VOCAB_MARKET_WORDS,
+    _VOCAB_SKIP_SECTIONS,
+    _horizon_morning_tldr,
+    enforce_morning_action_defensive,
+    _ALLOC_HORIZON_CAVEAT_3K,
+    _MORNING_ACTION_NOTE,
+    _MORNING_ACTION_RE,
+    _MORNING_COND_RE,
+    _hz_tldr_region,
+    _is_horizon_heading,
+    _STANCE_HZ_KW,
+    _STANCE_HZ_PHRASE_END,
+    _STANCE_SETUP_AGAINST,
+    _stance_line,
+    _stance_norm,
+    _stance_phrase,
+    _stance_setup,
+    _SOFT_DEFENSIVE_MARK,
+    _stance_label,
+    _STANCE_HZ_DEFAULT,
+    _STANCE_HZ_LABEL_RE,
+    _STANCE_HZ_LINE_RE,
+    _horizon_agent_sentence,
+    _HORIZON_AGENT_MAX_CHARS,
+    _HORIZON_SENTENCE_RE,
+    _hz_section_end,
     enforce_buy_vs_bias_caveat,
     enforce_lead_lag,
     enforce_liquidity_label,
@@ -132,6 +168,8 @@ from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
 
 from vnstock_brief_guards_numbers import (  # noqa: F401  (re-export)
     _MA200_CALL_IT_WEAK,
+    _KNOWN_INDEX_LEVEL_KEYS,
+    _known_index_levels,
     _GTGD_CTX_RE,
     _GTGD_SUBJECT_RE,
     _MOOD_EMOJIS,
@@ -285,7 +323,12 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_assets_section(fixed, ctx)       # 🪙 vàng/dầu/USD: thân mục = dòng code (U86)
     fixed = enforce_market_news(fixed, ctx)          # canonical econ/political headlines
     fixed = enforce_macro_reports(fixed, ctx)        # canonical 📚 band + digest báo cáo
+    # Stance ghim TRƯỚC caveat band (đọc nhãn đã ghim — P1b-5: B3/B4 mà Stance TĂNG)
+    fixed = enforce_stance_horizon(fixed, ctx)       # nhãn Stance/Bias theo bảng 3 khung (P1b-4)
     fixed = enforce_allocation_table(fixed, ctx)     # pin band/% + caveat horizon
+    fixed = enforce_horizon_view(fixed, ctx)         # 🔭 + TLDR dòng 3 = code (P1b-3)
+    fixed = enforce_horizon_vocab(fixed, ctx)        # Risk-on/off thị trường ⇒ kỹ thuật ngày (P1b-6)
+    fixed = enforce_morning_action_defensive(fixed, ctx)  # sáng: không BUY vô điều kiện (P1b-5)
     fixed = enforce_portfolio_facts(fixed, ctx)      # held-position facts are data
     fixed = enforce_risk_section(fixed, ctx)         # canonical risk facts first
     fixed = enforce_realestate_ocf_context(fixed, ctx)

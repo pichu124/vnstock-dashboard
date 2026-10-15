@@ -333,7 +333,8 @@ def _fulltext_enabled() -> bool:
     return os.environ.get("VNSTOCK_NEWS_FULLTEXT", "1") != "0"
 
 
-def fetch_fulltext(url: str, timeout: int = _FULLTEXT_TIMEOUT) -> str:
+def fetch_fulltext(url: str, timeout: int = _FULLTEXT_TIMEOUT,
+                   max_chars: int = _FULLTEXT_MAX_CHARS) -> str:
     """Nội dung bài viết (plain text, đã cắt) qua Jina Reader — '' khi fail.
 
     Jina Reader (r.jina.ai) render URL bất kỳ thành text/markdown sạch, free
@@ -362,8 +363,8 @@ def fetch_fulltext(url: str, timeout: int = _FULLTEXT_TIMEOUT) -> str:
     text = _MD_NOISE_RE.sub(" ", text)
     text = _MD_LINK_RE.sub(r"\1", text)
     text = re.sub(r"\s+", " ", text).strip()
-    if len(text) > _FULLTEXT_MAX_CHARS:
-        text = text[:_FULLTEXT_MAX_CHARS].rsplit(" ", 1)[0]
+    if len(text) > max_chars:                 # tin mỗi giờ đọc kỹ xin dư rồi tự cắt có dấu
+        text = text[:max_chars].rsplit(" ", 1)[0]
     return text
 
 

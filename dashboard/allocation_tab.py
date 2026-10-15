@@ -29,8 +29,7 @@ def render_allocation_subtab() -> None:
         st.info("Chưa có allocation state — bấm nút dưới hoặc chạy "
                 "`python run.py allocation` (pipeline tối tự chạy).")
         if st.button("🔄 Tính band lần đầu", key="_al_first"):
-            alloc.run_allocation()
-            st.rerun()
+            _refresh_and_report(st)
         return
 
     _render_band(st, alloc, state)
@@ -60,6 +59,7 @@ def _render_band(st, alloc, state: dict) -> None:
             p = state["pending"]
             st.warning(f"⏳ Chờ xác nhận đổi sang {p['band']} "
                        f"({len(p['dates'])}/2 phiên)")
+        _render_horizon_cap(st, state)
         st.caption(f"Phiên {state.get('as_of', '?')} · cập nhật "
                    f"{state.get('updated_at', '?')}")
 
@@ -68,9 +68,43 @@ def _render_band(st, alloc, state: dict) -> None:
          for cls, pct in (state.get("allocation") or {}).items()]),
         hide_index=True, use_container_width=True)
     if st.button("🔄 Tính lại band (đọc cache, không gọi LLM)", key="_al_refresh"):
-        import vnstock_allocation as alloc2
-        alloc2.run_allocation()
+        _refresh_and_report(st)
+
+
+def _refresh_allocation() -> "tuple[bool, dict | None]":
+    """Vá 2 (P1b-2, #20): chỉ ghi band ngày mới khi CHẮC overview đã chốt phiên —
+    giữa phiên hoặc không xác định được (fail closed) thì chỉ TÍNH để hiện.
+    Trả (đã ghi?, state vừa tính)."""
+    import vnstock_allocation as alloc
+    persist = alloc.overview_intraday() is False
+    state = alloc.run_allocation(persist=persist)
+    return persist and not (state or {}).get("preview_only"), state
+
+
+def _refresh_and_report(st) -> None:
+    persisted, preview = _refresh_allocation()
+    if persisted:
         st.rerun()
+    elif preview:
+        from vnstock_brief import SESSION_CLOSE_CUTOFF
+        st.info(f"⏸ Overview đang là GIỮA PHIÊN (hoặc chưa xác định được) — chỉ tính "
+                f"thử, KHÔNG ghi band ngày mới: {preview['band']} · cổ phiếu "
+                f"{(preview.get('allocation') or {}).get('Cổ phiếu', '?')}%. Bấm lại "
+                f"sau {SESSION_CLOSE_CUTOFF:%H:%M} để ghi.")
+
+
+def _render_horizon_cap(st, state: dict) -> None:
+    """Kẹp theo trung hạn (P1b-2): % dữ liệu đề xuất vs % đang giữ, ⏳ tăng bậc."""
+    pct = (state.get("allocation") or {}).get("Cổ phiếu")
+    if cap := state.get("capped_by"):
+        from vnstock_allocation import describe_proposal
+        text = describe_proposal(state)
+        st.warning(f"🔒 {text[:1].upper()}{text[1:]} — giữ {pct}% vì {cap['why']}")
+    if ramp := state.get("ramp"):
+        st.info(f"⏳ Tăng tỷ trọng về {ramp['band']}: mỗi tuần tối đa 1 bậc, "
+                f"bậc kế tiếp sau 1 tuần tính từ {ramp['since']}")
+    if note := state.get("horizon_note"):
+        st.caption(f"Kẹp theo trung hạn không áp phiên này: {note}")
 
 
 def _render_reasons(st, state: dict) -> None:

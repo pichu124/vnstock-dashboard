@@ -477,6 +477,13 @@ def render_market_tab() -> None:
 
         st.divider()
 
+    # ── Brief 3 khung (P1b-6, #24): badge trung hạn + ngắn hạn — try RIÊNG ──
+    try:
+        if _badges := _horizon_badges():
+            st.markdown(" &nbsp;·&nbsp; ".join(f"**{b}**" for b in _badges))
+    except Exception:
+        pass
+
     # ── F5: Market regime detector ───────────────────────────────────────────
     try:
         import vnstock_regime as _reg
@@ -1151,3 +1158,27 @@ def render_market_tab() -> None:
         # ── AI Market Brief → dashboard/market_brief_panel.py ─────────────
         from dashboard.market_brief_panel import render_brief_panel
         render_brief_panel()
+
+
+def _horizon_badges() -> list[str]:
+    """Badge trung hạn + ngắn hạn (+ 🚨) từ bản published 3 khung — rỗng khi công
+    tắc VNSTOCK_HORIZONS tắt. Chỉ đọc state đã lưu (pipeline tối ghi)."""
+    from vnstock_horizons import MEDIUM_LABEL, SHORT_LABEL, horizons_enabled
+    if not horizons_enabled():
+        return []
+    from vnstock_brief_canon import _hz_ddmm, _hz_signed, _hz_weeks
+    try:
+        import vnstock_horizons_state as hs
+        v = hs.brief_view(hs.latest_published())
+    except Exception:
+        return ["🔭 3 khung: chưa đọc được state"]
+    if v.get("stale") or not isinstance(v.get("snap"), dict):
+        return [f"🔭 3 khung: chưa cập nhật (as_of {_hz_ddmm(v.get('as_of'))})"]
+    s = v["snap"]
+    out = [f"🔭 Trung hạn: {MEDIUM_LABEL.get(s.get('medium'), '?')} "
+           f"(từ {_hz_ddmm(s.get('medium_since'))}, {_hz_weeks(v)})",
+           f"Ngắn hạn: {SHORT_LABEL.get(s.get('short'), '?')} (phiên {v.get('short_sessions')})"
+           f" · điểm {_hz_signed(s.get('score'))}/{s.get('n')}"]
+    if tier := (s.get("alert") or {}).get("tier"):
+        out.append(f"🚨 Rủi ro ngắn hạn: mức {tier}")
+    return out

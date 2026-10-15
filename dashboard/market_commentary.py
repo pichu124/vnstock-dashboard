@@ -176,7 +176,9 @@ def quant_lines(mkt_data, breadth_data, idx_long=None, tick_data=None) -> list:
                       name_col="Ngành", quarantined=quar_set)
 
         lines.append("")
-        lines.append(f"**🧠 Quant regime: {regime['regime']}**  · "
+        from vnstock_horizons import horizons_enabled
+        _qt = "Độ nghiêng quant ngành" if horizons_enabled() else "Quant regime"
+        lines.append(f"**🧠 {_qt}: {regime['regime']}**  · "
                      f"conviction `{regime['conviction']:+.2f}` · {regime['detail']}")
         if idx_ret:
             lines.append(f"  · **VNINDEX benchmark**: "

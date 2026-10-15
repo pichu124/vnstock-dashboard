@@ -589,6 +589,8 @@ def market_regime(scores: pd.DataFrame,
         regime = "📉 Slight bearish bias"
     else:
         regime = "⚖️ Neutral / Phân hoá"
+    from vnstock_regime import vocab_label          # từ vựng 3 khung (P1b-6)
+    regime = vocab_label(regime)
 
     detail = (f"{bullish}/{total} ngành tích cực ({strong} mạnh) · "
               f"{bearish}/{total} ngành tiêu cực ({weak} yếu)")

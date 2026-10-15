@@ -21,6 +21,7 @@ CLI:  python vnstock_stance_track.py --show [--limit N]
 from __future__ import annotations
 
 import argparse
+import json
 from typing import Optional
 
 _FLAT_BAND = 0.1      # % — phiên |đổi| dưới ngưỡng này không chấm lệnh có hướng
@@ -80,6 +81,26 @@ def _grade(stance: str, chg: float) -> "bool | None":
     return None                          # unknown
 
 
+def _stance_source(brief: dict, stance: str) -> str:
+    """"code" khi CODE quyết nhãn — dựng lại từ `context_json` đã lưu (áp được
+    cho brief cũ, không đổi schema): guard bảng 3 khung đã đổi nhãn agent
+    (`stance_pinned`, P1b-4), hoặc ctx có floor ép chiều và nhãn đã lưu ĐÚNG
+    chiều đó. Ngược lại "agent" (kể cả agent cãi floor). ctx hỏng ⇒ "agent"."""
+    from vnstock_brief import floor_dir
+    try:
+        ctx = json.loads(brief.get("context_json") or "{}")
+    except (TypeError, ValueError):
+        return "agent"
+    if not isinstance(ctx, dict):
+        return "agent"
+    if ctx.get("stance_pinned"):
+        return "code"
+    return "code" if _DIR_STANCE.get(floor_dir(ctx)) == stance else "agent"
+
+
+_DIR_STANCE = {"GIẢM": "bearish", "TĂNG": "bullish"}
+
+
 def stance_records(limit: int = _DEFAULT_LIMIT) -> list[dict]:
     """Mỗi close brief (mỗi agent 1 dòng) → {date, agent, stance, next_date,
     chg_pct, correct}; correct=None = không chấm. Mới nhất trước."""
@@ -125,6 +146,7 @@ def stance_records(limit: int = _DEFAULT_LIMIT) -> list[dict]:
             "next_date": next_date,
             "chg_pct": round(chg, 2),
             "correct": _grade(stance, chg),
+            "stance_source": _stance_source(b, stance),
         })
     return out
 
@@ -136,20 +158,30 @@ def stance_summary(limit: int = _DEFAULT_LIMIT) -> Optional[dict]:
     if not recs:
         return None
     graded = [r for r in recs if r["correct"] is not None]
+    mine = [r for r in graded if r.get("stance_source") == "agent"]
     by_agent: dict[str, dict] = {}
-    for r in graded:
+    # view theo agent: chỉ chấm ngày agent TỰ chọn — ngày code ép/ghim nhãn thì
+    # T+1 đo luật của code, không đo agent (§3.12, P1b-4)
+    for r in mine:
         a = by_agent.setdefault(r["agent"], {"n": 0, "correct": 0})
         a["n"] += 1
         a["correct"] += 1 if r["correct"] else 0
+    total = _tally(graded)
     return {
         "n_briefs": len(recs),
-        "n_graded": len(graded),
-        "n_correct": sum(1 for r in graded if r["correct"]),
-        "pct": round(100 * sum(1 for r in graded if r["correct"]) / len(graded), 1)
-               if graded else None,
+        "n_graded": total["n_graded"],
+        "n_correct": total["n_correct"],
+        "pct": total["pct"],
         "skipped": len(recs) - len(graded),
         "by_agent": by_agent,
+        "agent_only": _tally(mine),
     }
+
+
+def _tally(graded: list[dict]) -> dict:
+    n_ok = sum(1 for r in graded if r["correct"])
+    return {"n_graded": len(graded), "n_correct": n_ok,
+            "pct": round(100 * n_ok / len(graded), 1) if graded else None}
 
 
 def summary_line(limit: int = _DEFAULT_LIMIT) -> Optional[str]:
@@ -160,6 +192,9 @@ def summary_line(limit: int = _DEFAULT_LIMIT) -> Optional[str]:
         return None
     line = (f"🎯 Stance ngày mai: đúng {s['n_correct']}/{s['n_graded']} "
             f"brief gần nhất ({s['pct']:.0f}%)")
+    ag = s.get("agent_only") or {}
+    if ag.get("n_graded") and ag["n_graded"] != s["n_graded"]:
+        line += f" · agent tự chọn: {ag['n_correct']}/{ag['n_graded']}"
     if s["skipped"]:
         line += f" · {s['skipped']} không chấm (phiên phẳng/chưa có phiên kế)"
     return line

@@ -155,7 +155,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   json`, `--tools ""`, tước context repo `--setting-sources "" --disable-
   slash-commands --strict-mcp-config` (20K → ~1,6K token system), `--fallback-
   model` Sonnet, sổ LLM provider `ClaudeCode` ghi MỌI kết cục, stdout không
-  JSON = LỖI). Công tắc: `VNSTOCK_LLM_ENGINE=claude` cho mọi bước, đè riêng
+  JSON = LỖI; `claude` là shim `.cmd` npm + system nhiều dòng/`|<>%` ⇒ đi `--system-prompt-file` — cmd.exe CẮT argv ở xuống dòng, 12/10). Công tắc: `VNSTOCK_LLM_ENGINE=claude` cho mọi bước, đè riêng
   `VNSTOCK_<BRIEF|NEWS|AUDIT|TRAIN|REFLECTION|DIGEST>_ENGINE`; đọc `.env` TRƯỚC
   khi chọn. **5 bước LLM đều nối** (#26): news = sentiment + chấm tin RSS theo
   LÔ một call `--json-schema` (`score_batch_cli` / `analyze_items_cli`, tin
@@ -182,7 +182,11 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   bảo vệ 2 mức/bảng Stance. `vnstock_horizons_state.py` = CHẠY BÓNG (P1a, 05/10): bước pipeline
   `horizons` sau gold ghi `_meta/horizon_state.json` (inputs + published append-only, gấp từ input
   đã lưu, có bản live thì no-op, kill-switch `VNSTOCK_HORIZONS_STEP=0`) + badge doctor `horizons`;
-  `run.py horizons --show|--backfill|--replay`. Brief CHƯA đọc (P1b). P0: `scripts/replay_horizons.py`.
+  `run.py horizons --show|--backfill|--replay|--legend`. **P1b (#19–#26) brief ĐỌC state** sau
+  `VNSTOCK_HORIZONS` (mặc định BẬT từ 14/10 — duyệt bản mẫu; `=0` về khung cũ): 🔭 + TLDR dòng 3, bảng Stance,
+  lớp bảo vệ 2 mức (`defensive_level`/`is_defensive`), từ vựng (`vnstock_regime.vocab_label`;
+  `label_old` chạy bóng giữ nhãn cũ), header Telegram; kẹp tỷ trọng #20 chạy thật. Bản mẫu +
+  vòng tròn ctx thật: `scripts/sample_horizons_brief.py [--check 5]`. P0: `scripts/replay_horizons.py`.
 - **Connector MCP (SSI/TCBS/Finhay — gắn TÀI KHOẢN Claude, Python không gọi thẳng)** (U78/U79,
   08/10): `vnstock_claude_cli.complete_mcp(user, system=, allowed_tools=)` = bộ cờ GỌN đã đo 🖥️
   (`--tools ToolSearch` + tước settings, KHÔNG `--strict-mcp-config`, ~$0,06/lượt Sonnet), đọc
@@ -261,7 +265,10 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   lượt trước (trần 36h) → cap 6 tin/nguồn, tường fetch 45s
   → sổ `_meta/news_alert_seen.json` → Claude Code chấm 0–100 cả LÔ một call (06/10, U76;
   `MIN_SCORE` 1–5 cũ ⇒ ×20) (rơi về ladder + điểm từ khoá; không engine ⇒ KHÔNG gửi tin thô) → ≥75 gửi,
-  ≤8 tin/lượt, dư để lượt sau không chấm lại → marker
+  ≤8 tin/lượt, dư để lượt sau không chấm lại → **BƯỚC 2 ĐỌC KỸ** (12/10, U87: tin đạt tác động ≤10/lượt
+  lấy THÂN BÀI qua Jina — tường phí/GNews = chỉ tiêu đề — Claude chấm GIÁ TRỊ ĐỌC + điểm chính, guard: số
+  trong điểm chính PHẢI có trong bài; gửi khi đạt CẢ HAI, `VNSTOCK_NEWS_ALERT_MIN_VALUE` 60; tin đã loại
+  không bao giờ đi; Claude lỗi ⇒ gửi theo tác động kèm nhãn; hiệu chỉnh `--recheck-sent 24`; **chỉ tiêu ~1 tin/giờ** (user 12/10): 3h qua gửi chưa đủ ⇒ BÙ tin đã đọc kỹ tốt nhất trên sàn đọc 40/tác động 30, nhãn `➕ tin bù`, `VNSTOCK_NEWS_ALERT_TARGET_PER_H` 0 = tắt) → marker
   `news_alert_status.json{machine,error_streak}` + badge doctor. Không tin mới
   = im lặng, không gọi LLM. Không đụng `market_news_cache.json`. Thêm nguồn =
   một `Source(...)`. Lệnh: `run.py news-alert --dry-run|--force|--list-sources`.
@@ -301,8 +308,8 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 - Mọi auto-refresh đều best-effort và có env kill-switch
   (`VNSTOCK_BRIEF_AUTO_*`, `VNSTOCK_MACRO_*`, `VNSTOCK_BASIS_GUARD`,
   `VNSTOCK_OHLC_REPAIR`, `VNSTOCK_AUTOHEAL_BUDGET_S`, `VNSTOCK_VN30_DYNAMIC`,
-  `VNSTOCK_WSS_HOT_TIER`, `VNSTOCK_BRIEF_WATCH`, `VNSTOCK_NEWS_ALERT`,
-  `VNSTOCK_FIXUNITS_FOOTER_PRUNE`, `VNSTOCK_NETBS_WORKERS`, `VNSTOCK_HORIZONS_STEP`, `VNSTOCK_REC_GDKHQ_HOLD`, `VNSTOCK_BRIEF_RISK_TODAY`, `VNSTOCK_BRIEF_FUND_PERIODS`, `VNSTOCK_MCP_ENRICH`, `VNSTOCK_ASSETS[_HOURLY|_MCP|_DEMOTE|_LINKS|_ALERTS]`, `VNSTOCK_BRIEF_ASSETS`, `VNSTOCK_LLM_ENGINE`
+  `VNSTOCK_WSS_HOT_TIER`, `VNSTOCK_BRIEF_WATCH`, `VNSTOCK_NEWS_ALERT[_REVIEW]`,
+  `VNSTOCK_FIXUNITS_FOOTER_PRUNE`, `VNSTOCK_NETBS_WORKERS`, `VNSTOCK_HORIZONS_STEP`, `VNSTOCK_HORIZONS` (brief 3 khung, mặc định BẬT từ 14/10; test ghim `0` làm nền), `VNSTOCK_HORIZON_MACRO`, `VNSTOCK_REGIME_NN_SAME_SESSION`, `VNSTOCK_ALLOC_HORIZON_CAP`, `VNSTOCK_ALLOC_ONE_STEP`, `VNSTOCK_REC_GDKHQ_HOLD`, `VNSTOCK_BRIEF_RISK_TODAY`, `VNSTOCK_BRIEF_FUND_PERIODS`, `VNSTOCK_MCP_ENRICH`, `VNSTOCK_ASSETS[_HOURLY|_MCP|_DEMOTE|_LINKS|_ALERTS]`, `VNSTOCK_BRIEF_ASSETS`, `VNSTOCK_LLM_ENGINE`
   + `VNSTOCK_<BƯỚC>_ENGINE` + `VNSTOCK_CLAUDE_CLI_{EXE,MODEL,FALLBACK_MODEL,
   TIMEOUT_S,API_KEY,REPO_CONTEXT}`, `VNSTOCK_LLM_BREAKER`
   — cầu dao tài khoản LLM: provider 401/402/403 hôm nay + chưa call nào OK ⇒
@@ -341,6 +348,29 @@ chạy code cũ → `git log --oneline -1` đối chiếu commit cuối Claude b
   badge `gtgd_coverage` (#18, 30/09 — 45 mã cách ly 16–29/09 làm brief đọc sai TB).
 - Độ tươi `market_overview` so CẢ GIỜ, không chỉ ngày: cùng phiên mà chốt
   trước `SESSION_CLOSE_CUTOFF` (15:05) là GIỮA PHIÊN ⇒ stale, `reason=intraday`.
+
+## Agent skills
+
+Plugin `mattpocock-skills@mattpocock` (GitHub `mattpocock/skills`) khai trong `.claude/settings.json`,
+`autoUpdate` theo BẢN PHÁT HÀNH (`plugin.json` ghim version, commit lẻ không tới). Phiên cloud
+KHÔNG nạp plugin khai trong repo ⇒ ở cloud đọc SKILL.md từ GitHub rồi làm tay. Engine `claude -p`
+của pipeline (tước settings) KHÔNG nạp nó — đo 🖥️ 13/10 bằng `cli_command`: init chỉ 2 plugin builtin, 0 skill.
+
+### Issue tracker
+
+GitHub Issues của `pichu124/vnstock-dashboard` (phiên cloud không có `gh` ⇒ công cụ GitHub
+MCP); `docs/VIEC-DANG-LAM.md` vẫn là trang việc của user, skill không ghi vào. Xem
+`docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+5 nhãn mặc định: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`,
+`wontfix`. Xem `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` + `docs/adr/` ở gốc repo, tạo dần khi cần; quyết định cũ ở
+`docs/THIET-KE-*.md` và mục `Uxx` của `docs/CLAUDE-NOTES.md`. Xem `docs/agents/domain.md`.
 
 ## Nhật ký chi tiết
 **Hỏi "còn việc gì?" → mở `docs/VIEC-DANG-LAM.md`** (1 trang, việc-của-user vs
