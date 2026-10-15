@@ -27,6 +27,7 @@ from vnstock_brief_canon import (
     _RISK_EXDATE_DAYS,
     _RISK_FALLBACK_LINE,
     _ASSETS_SECTION_TITLE,
+    _FUTURES_FOREIGN_SECTION_TITLE,
     _RISK_FUND_DE_MIN,
     _RISK_FX_PCT,
     _RISK_HELD_SHOCK_1D_PCT,
@@ -169,6 +170,39 @@ def enforce_macro(text: str, ctx: dict) -> str:
     return "\n".join(out)
 
 
+def _pin_code_section(text: str, marker: str, title: str, body: "list[str]", insert_at) -> str:
+    """Mục mà CODE dựng toàn bộ thân (🪙, 📑): có mục ⇒ thay thân bằng `body` (rỗng ⇒ gỡ cả mục);
+    chưa có ⇒ chèn `title` + `body` ở dòng `insert_at(lines)`. Giữ dòng trống ngăn mục ⇒ idempotent."""
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines) if _is_section_start(l) and marker in l), None)
+    if start is not None:
+        end = next((i for i in range(start + 1, len(lines)) if _is_section_start(lines[i])), len(lines))
+        tail = end                                  # giữ dòng trống ngăn mục ⇒ chạy lại không đổi
+        while tail > start + 1 and not lines[tail - 1].strip():
+            tail -= 1
+        if not body:
+            return "\n".join(lines[:start] + lines[end:])
+        if lines[start + 1:tail] == body:
+            return text
+        return "\n".join(lines[:start + 1] + body + lines[tail:])
+    if not body:
+        return text
+    at = insert_at(lines)
+    while at > 0 and not lines[at - 1].strip():
+        at -= 1
+    return "\n".join(lines[:at] + ["", title] + body + lines[at:])
+
+
+def _after_section(lines: "list[str]", idx: "int | None", fallback: int) -> int:
+    if idx is None:
+        return fallback
+    return next((i for i in range(idx + 1, len(lines)) if _is_section_start(lines[i])), len(lines))
+
+
+def _first_section(lines: "list[str]", emojis: tuple) -> "int | None":
+    return next((i for i, l in enumerate(lines) if _is_section_start(l) and any(e in l for e in emojis)), None)
+
+
 def enforce_assets_section(text: str, ctx: dict) -> str:
     """Mục '🪙 Hàng hoá & Tiền tệ' (P5 đa tài sản, U86) — CODE dựng TOÀN BỘ thân mục từ kho tài sản
     (ctx["assets_lines"], `vnstock_assets_brief.brief_lines` ở collect_context); model không viết số
@@ -182,30 +216,34 @@ def enforce_assets_section(text: str, ctx: dict) -> str:
     """
     if not text or "assets_lines" not in (ctx or {}):
         return text
-    body = [str(l) for l in (ctx.get("assets_lines") or [])]
-    lines = text.splitlines()
-    start = next((i for i, l in enumerate(lines) if _is_section_start(l) and "🪙" in l), None)
-    if start is not None:
-        end = next((i for i in range(start + 1, len(lines)) if _is_section_start(lines[i])), len(lines))
-        tail = end                                  # giữ dòng trống ngăn mục ⇒ chạy lại không đổi
-        while tail > start + 1 and not lines[tail - 1].strip():
-            tail -= 1
-        if not body:
-            return "\n".join(lines[:start] + lines[end:])
-        if lines[start + 1:tail] == body:
-            return text
-        return "\n".join(lines[:start + 1] + body + lines[tail:])
-    if not body:
+
+    def at(lines):
+        macro = next((i for i, l in enumerate(lines) if _is_section_start(l) and "vĩ mô" in l.lower()), None)
+        fb = _first_section(lines, ("📰", "📚", "📌"))
+        return _after_section(lines, macro, len(lines) if fb is None else fb)
+    return _pin_code_section(text, "🪙", _ASSETS_SECTION_TITLE,
+                             [str(l) for l in (ctx.get("assets_lines") or [])], at)
+
+
+def enforce_futures_foreign_section(text: str, ctx: dict) -> str:
+    """Mục '📑 Phái sinh: vị thế khối ngoại (VN30F)' (U88) — CODE dựng toàn bộ thân từ kho futures
+    (ctx["futures_foreign_lines"], `vnstock_futures_foreign_view.brief_lines`); model không viết số
+    hợp đồng. Dòng code né mẫu guard NN cổ phiếu ("mua/bán ròng … tỷ") — test chạy cả chuỗi guard.
+
+    - ctx KHÔNG có khoá (pack cũ, kill-switch VNSTOCK_BRIEF_FUTURES_FOREIGN=0) ⇒ no-op.
+    - Khoá rỗng (kho trống) ⇒ gỡ mục 📑 model lỡ viết.
+    - Có mục ⇒ thay thân; chưa có ⇒ chèn SAU mục 💰 Dòng tiền (brief chiều); không có 💰 ⇒ trước
+      ⚠️/📅/🌐/🪙/📰/📚/📌 (brief sáng: sau 🔮 Kịch bản), không có nữa ⇒ cuối brief. Idempotent.
+    """
+    if not text or "futures_foreign_lines" not in (ctx or {}):
         return text
-    macro = next((i for i, l in enumerate(lines) if _is_section_start(l) and "vĩ mô" in l.lower()), None)
-    if macro is not None:
-        at = next((i for i in range(macro + 1, len(lines)) if _is_section_start(lines[i])), len(lines))
-    else:
-        at = next((i for i, l in enumerate(lines)
-                   if _is_section_start(l) and any(e in l for e in ("📰", "📚", "📌"))), len(lines))
-    while at > 0 and not lines[at - 1].strip():
-        at -= 1
-    return "\n".join(lines[:at] + ["", _ASSETS_SECTION_TITLE] + body + lines[at:])
+
+    def at(lines):
+        money = next((i for i, l in enumerate(lines) if _is_section_start(l) and "💰" in l), None)
+        fb = _first_section(lines, ("⚠️", "📅", "🌐", "🪙", "📰", "📚", "📌"))
+        return _after_section(lines, money, len(lines) if fb is None else fb)
+    return _pin_code_section(text, "📑", _FUTURES_FOREIGN_SECTION_TITLE,
+                             [str(l) for l in (ctx.get("futures_foreign_lines") or [])], at)
 
 
 def enforce_macro_fx_pct(text: str, ctx: dict) -> str:
@@ -539,7 +577,7 @@ _VOCAB_MARKET_WORDS = ("thị trường", "vnindex", "vn-index", "chỉ số", "
 _VOCAB_FOREIGN_WORDS = ("toàn cầu", "quốc tế", "thế giới", "châu á", "phố wall", "mỹ",
                         "global", "asian", "stocks", "wall street")
 # mục do CODE viết (tin/báo cáo/tài sản/🔭) — chữ của nguồn, không phải lời agent
-_VOCAB_SKIP_SECTIONS = ("🔭", "📰", "📚", "🪙", "góc nhìn theo khung thời gian")
+_VOCAB_SKIP_SECTIONS = ("🔭", "📰", "📚", "🪙", "📑", "góc nhìn theo khung thời gian")
 
 
 def enforce_horizon_vocab(text: str, ctx: dict) -> str:

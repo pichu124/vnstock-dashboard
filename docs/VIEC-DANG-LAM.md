@@ -26,6 +26,30 @@ desktop). **Phiên hiện tại: 🖥️ DESKTOP** (user báo 14/10 chiều, đ�
 
 # 🔴 CÒN PHẢI LÀM
 
+## U88 — VỊ THẾ PHÁI SINH KHỐI NGOẠI vào brief + dashboard (15/10, nhánh `claude/vibrant-maxwell-4g4edj`)
+
+Code xong: kho + seed 2 năm (SSI, 28 hợp đồng) + bước pipeline `futures-foreign` (SSI MCP, TRƯỚC brief) + mục
+brief `📑 Phái sinh: vị thế khối ngoại (VN30F)` (dòng do CODE dựng) + tab dashboard `📑 Phái sinh NN` + badge doctor.
+Chi tiết: `docs/CLAUDE-NOTES.md` U88. Tắt khẩn: `VNSTOCK_BRIEF_FUTURES_FOREIGN=0` (bỏ mục brief) /
+`VNSTOCK_FUTURES_FOREIGN=0` (bỏ cả bước MCP) trong `.env`.
+
+1. 🖥️ DESKTOP — merge + FULL test, NGOÀI khung pipeline (trước 18:00 hoặc sau `⏱ TỔNG`):
+   `git fetch origin claude/vibrant-maxwell-4g4edj && git merge origin/claude/vibrant-maxwell-4g4edj`
+   rồi `python run.py test`. (💻 LAPTOP: chỉ cần merge khi quay lại máy đó.)
+   ✅ 🖥️ DESKTOP 15/10: FULL **4.820 passed / 165,2s** (= 4.783 trước U88 + 37 test mới) — merge xong, test xanh.
+2. ○ một lần — nạp lịch sử (không gọi MCP, kho đi qua Dropbox): `python run.py futures-foreign --seed`
+   rồi `python run.py futures-foreign --show` ⇒ phải in "short 1,881 HĐ" phiên 15/10/2026.
+   ✅ 🖥️ 15/10: seed 2.230 dòng · 28 hợp đồng · 2024-04-19 → 2026-10-15; `--show` in đúng 5 dòng mục 📑.
+3. 🖥️ DESKTOP — thử MCP thật dưới tài khoản chạy task: `python run.py futures-foreign --dry-run` (in 5 lượt gọi,
+   không gọi) rồi `python run.py futures-foreign --force` ⇒ dòng `[futures-foreign] {"status": "ok", …}`. Lỗi
+   (tên server khác `claude.ai SSI MCP`, connector chưa bật…) ⇒ gửi nguyên dòng đó cho Claude. Lượt tự động mỗi tối
+   chạy ngay trước brief; kho đã có phiên thì bỏ qua (không tốn lượt).
+   ✅ 🖥️ 16/10 01:01: `ok` · 5 lượt gọi · 28 dòng (4 hợp đồng × 7 phiên; F2706 chưa niêm yết ⇒ rỗng, không lỗi) ·
+   Sonnet · 16,9s · $0,166 (dự tính $0,05–0,10 — lệch vì 5 kết quả vào ngữ cảnh model). Server `claude.ai SSI MCP` đúng tên.
+   `--show` sau lượt đó: vẫn 2.230 dòng, short 1,881 HĐ ⇒ số SSI trả lại KHỚP seed. Còn bước 4 (sáng 17/10).
+4. 🖥️ DESKTOP — sáng hôm sau: brief chiều có mục 📑 sau 💰 Dòng tiền; doctor badge "Phái sinh khối ngoại (VN30F)" ✅;
+   dashboard tab `📑 Phái sinh NN` (4 ô số, biểu đồ vị thế/giá/dòng lệnh, theo kỳ hạn, lịch sử, tải CSV).
+
 ## P1b — BRIEF 3 KHUNG (#19–#27, nhánh `claude/vibrant-maxwell-4g4edj`) — ĐÃ DUYỆT 14/10, mặc định BẬT
 
 Code xong #19–#26. **User giao Claude duyệt 14/10 ⇒ `VNSTOCK_HORIZONS` mặc định BẬT** từ commit

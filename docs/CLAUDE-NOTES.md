@@ -6974,6 +6974,49 @@ rẽ nhánh, 0 test chạm) ở dạng cụ thể: **nâng thư viện là đụ
 lưới test không với tới**. ⇒ Nâng thì phải làm trên LAPTOP trước (không chạy
 pipeline đêm nên hỏng không mất brief), rồi mới tới desktop.
 
+# 📑 U88. VỊ THẾ PHÁI SINH KHỐI NGOẠI (HĐTL VN30) — BRIEF + DASHBOARD (15/10)
+
+**Vết:** 15/10 user hỏi lũy kế short ròng HĐTL các kỳ hạn của khối ngoại, rồi tổng hợp 2 năm (phiên cloud gọi
+SSI MCP tay: 28 hợp đồng, kết quả ở scratchpad), rồi "tích hợp vào brief" + "vào dashboard cho việc phân tích".
+
+**Nguồn — đã tra, đừng dò lại:** SSI MCP `marketdata_list_daily_stock_infor` là nguồn DUY NHẤT có
+`foreign_buy/sell_volume_total` theo TỪNG hợp đồng TỪNG phiên. Tool chỉ nhận range `1d`(=2 ngày)/`3m`/`6m`/`1y`/
+`max_range`(730 ngày), `pageSize` ≤ 200, dòng MỚI NHẤT trước. Hợp đồng niêm yết trước khi chuyển hệ KRX (~05/05/2025)
+mang tên cũ `VN30FYYMM` kể cả sau ngày chuyển; sau đó mã KRX `41I1`+năm(2024=E…2027=H)+tháng(1–9,A/B/C)+`000`
+(đo được 2024–2027; 2028 CHƯA đo — doctor réo nếu phiên thiếu hợp đồng). Mã KRX trả HAI dòng/ngày (bản 2 các trường
+giá điều chỉnh = 0, số khối ngoại y hệt) ⇒ khử trùng theo ngày. Kết quả MCP > ~25k token bị Claude Code cắt (U82)
+⇒ trang ≤ 60 dòng (~52 KB). VN30F2505 mất trường khối ngoại 4 phiên tuần chuyển hệ (05/06/07/09-05-2025, 16,6% KL
+hợp đồng) ⇒ tổng 05–14/05/2025 không tin được. Đáo hạn = thứ Năm tuần 3, nghỉ lễ lùi về phiên trước (VN30F2602:
+13/02/2026 vì Tết).
+
+**Thiết kế:**
+* `vnstock_futures_foreign` — kho `data_warehouse/futures/foreign_contracts.parquet` (một file, gộp cả bản
+  conflicted copy khi đọc); seed `data/seed/futures_foreign_ssi.csv.gz` (2.230 dòng, 28 hợp đồng, dựng bằng CHÍNH
+  `parse_rows` từ response thô) — kho trống thì tự nạp, không tốn MCP; lượt ngày `refresh`: kho đã có phiên phủ
+  (bar VNINDEX ≤ `session_covered_at`) ⇒ no-op; không thì `complete_mcp` (bộ cờ gọn U78) ~5 lượt gọi (3 tháng liền
+  kề + tháng quý ≤ 8 tháng tới, lấy lùi ≥ 7 ngày), ≤ 6 lượt/phiên `claude -p`; ghép kho: bản mới thắng TRỪ KHI mất
+  trường khối ngoại mà bản cũ có; marker `_meta/futures_foreign_status.json{machine,…}`.
+* `vnstock_futures_foreign_view` (thuần) — vị thế hợp đồng = Σ(mua − bán) từ phiên niêm yết; tổng sau đáo hạn bỏ
+  hợp đồng đáo hạn ĐÚNG phiên đó; phiên ĐỦ = 4 hợp đồng lưu hành (từ 20/09/2024 trên seed); sai số 95% = KL dòng
+  thiếu × |ròng|/KL phân vị 95 (6% khi KL ≥ 20.000, 46% khi nhỏ hơn — đo 1.756 dòng), cộng căn tổng bình phương;
+  "chưa chắc" khi > max(1.000 HĐ, 25% |vị thế|) ⇒ trên seed đúng 05–14/05/2025. Chuỗi cùng dấu, cực trị, bảng cuối
+  tháng / chuỗi / chất lượng / theo kỳ hạn cho dashboard.
+* Brief: mục `## 📑 Phái sinh: vị thế khối ngoại (VN30F)` = dòng CODE (ctx `futures_foreign_lines`, khối dữ kiện
+  prompt "KHÔNG đổi ra tỷ đồng mua/bán ròng, KHÔNG cộng với NN ròng cổ phiếu", guard `enforce_futures_foreign_section`
+  nối ngay sau 🪙 — chung helper `_pin_code_section` với 🪙). Chèn SAU 💰 (chiều) / trước ⚠️ (sáng). Dòng né
+  "mua ròng/bán ròng … tỷ" (guard NN cổ phiếu) — test chạy CẢ chuỗi với ctx thật. Brief chiều: số cũ hơn phiên brief
+  ⇒ dòng "Lưu ý dữ liệu: chưa lấy được số phiên …". `📑` vào `_SECTION_EMOJIS` + `_VOCAB_SKIP_SECTIONS`.
+* Bước pipeline `futures-foreign` sau `assets`, TRƯỚC brief (không bao giờ trả 2). Doctor `futures_foreign` (chỉ warn).
+  Tab `📑 Phái sinh NN` (`dashboard/futures_foreign_tab.py`): 4 ô số · vị thế (đoạn short tô cam) / giá HĐ tháng
+  gần / dòng lệnh — 3 biểu đồ riêng chung trục thời gian (không trục y kép) · cột chồng theo kỳ hạn · cuối tháng ·
+  chuỗi · chất lượng · tải CSV. Kill-switch `VNSTOCK_FUTURES_FOREIGN=0` (bước + MCP), `VNSTOCK_BRIEF_FUTURES_FOREIGN=0`.
+* Đã soát tay 15/10 (test ghim): sau đáo hạn −1.881 HĐ (gồm F2610 đáo hạn −2.411), cuộn kỳ F2610 +5.331 / F2611
+  −5.497; đỉnh long +34.161 (10/07/2025), đáy short −4.570 (27/07/2026); 37/515 phiên short, chuỗi short 14 phiên
+  (28/09→) bằng chuỗi 10–29/07/2026.
+* **🖥️ đo 16/10 01:01 (`--force`):** tên server `claude.ai SSI MCP` đúng (như assets U82) · 5 lượt gọi, pageSize 14 ·
+  `ok` 28 dòng = 4 hợp đồng × 7 phiên (F2706 chưa niêm yết ⇒ kết quả rỗng, không lỗi) · Sonnet 16,9s · **$0,166/lượt**
+  (gấp ~2 dự tính — 5 kết quả ~9 KB vào ngữ cảnh). Pipeline chỉ gọi khi kho thiếu phiên phủ ⇒ ~1 lượt/ngày làm việc.
+
 # 📰 U87. TIN MỖI GIỜ — BƯỚC 2 ĐỌC KỸ TRƯỚC KHI GỬI (12/10)
 
 **Vết:** user: "nhiều tin chỉ đọc cho có" — muốn chỉ nhận tin chất lượng, có thông tin quan trọng, người viết đưa số liệu hữu ích. Gốc: bước chấm (U76) chỉ thấy tiêu đề + ≤300 ký tự tóm tắt và chấm MỘT trục (tác động) ⇒ bài nhắc lại chuyện cũ / bình luận suông về Fed-tỷ giá vẫn qua 75. User chọn A + B (C = nút 👍/👎 học theo phản hồi để sau, khi có 1–2 tuần dữ liệu).
