@@ -7013,8 +7013,9 @@ hợp đồng) ⇒ tổng 05–14/05/2025 không tin được. Đáo hạn = th�
 * Đã soát tay 15/10 (test ghim): sau đáo hạn −1.881 HĐ (gồm F2610 đáo hạn −2.411), cuộn kỳ F2610 +5.331 / F2611
   −5.497; đỉnh long +34.161 (10/07/2025), đáy short −4.570 (27/07/2026); 37/515 phiên short, chuỗi short 14 phiên
   (28/09→) bằng chuỗi 10–29/07/2026.
-* **CHƯA đo trên 🖥️:** lượt MCP thật dưới tài khoản task (tên server `claude.ai SSI MCP`, như assets U82) — xem
-  `docs/VIEC-DANG-LAM.md`.
+* **🖥️ đo 16/10 01:01 (`--force`):** tên server `claude.ai SSI MCP` đúng (như assets U82) · 5 lượt gọi, pageSize 14 ·
+  `ok` 28 dòng = 4 hợp đồng × 7 phiên (F2706 chưa niêm yết ⇒ kết quả rỗng, không lỗi) · Sonnet 16,9s · **$0,166/lượt**
+  (gấp ~2 dự tính — 5 kết quả ~9 KB vào ngữ cảnh). Pipeline chỉ gọi khi kho thiếu phiên phủ ⇒ ~1 lượt/ngày làm việc.
 
 # 📰 U87. TIN MỖI GIỜ — BƯỚC 2 ĐỌC KỸ TRƯỚC KHI GỬI (12/10)
 
