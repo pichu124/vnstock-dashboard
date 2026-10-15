@@ -36,6 +36,7 @@ Chi tiết: `docs/CLAUDE-NOTES.md` U88. Tắt khẩn: `VNSTOCK_BRIEF_FUTURES_FOR
 1. 🖥️ DESKTOP — merge + FULL test, NGOÀI khung pipeline (trước 18:00 hoặc sau `⏱ TỔNG`):
    `git fetch origin claude/vibrant-maxwell-4g4edj && git merge origin/claude/vibrant-maxwell-4g4edj`
    rồi `python run.py test`. (💻 LAPTOP: chỉ cần merge khi quay lại máy đó.)
+   ✅ 🖥️ DESKTOP 15/10: FULL **4.820 passed / 165,2s** (= 4.783 trước U88 + 37 test mới) — merge xong, test xanh.
 2. ○ một lần — nạp lịch sử (không gọi MCP, kho đi qua Dropbox): `python run.py futures-foreign --seed`
    rồi `python run.py futures-foreign --show` ⇒ phải in "short 1,881 HĐ" phiên 15/10/2026.
 3. 🖥️ DESKTOP — thử MCP thật dưới tài khoản chạy task: `python run.py futures-foreign --dry-run` (in 5 lượt gọi,
