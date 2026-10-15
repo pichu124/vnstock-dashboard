@@ -127,6 +127,22 @@ if [ -f "$settings" ]; then
     [ -f "$hook" ] || { err "$hook: không tồn tại"; continue; }
     [ -x "$hook" ] || err "$hook: chưa có quyền chạy (chmod +x)"
   done
+  # Windows: Claude Code chạy lệnh qua PowerShell tool là chính, matcher chỉ có Bash thì guard không bao giờ chạy.
+  if [ -n "$py" ]; then
+    "$py" - "$settings" <<'PYEOF' || err "$settings: matcher của guard-irreversible.sh phải khớp cả Bash và PowerShell (\"Bash|PowerShell\")"
+import json, re, sys
+d = json.load(open(sys.argv[1], encoding="utf-8-sig"))
+ok = False
+for g in d.get("hooks", {}).get("PreToolUse", []):
+    if any("guard-irreversible.sh" in (h.get("command") or "") for h in g.get("hooks", [])):
+        m = g.get("matcher") or "*"
+        ok = ok or m == "*" or all(re.fullmatch(m, t) for t in ("Bash", "PowerShell"))
+sys.exit(0 if ok else 1)
+PYEOF
+  else
+    grep -Eq '"matcher": *"[^"]*PowerShell' "$settings" \
+      || err "$settings: matcher của guard-irreversible.sh phải khớp cả Bash và PowerShell (\"Bash|PowerShell\")"
+  fi
 else
   err "$settings: không tồn tại (hook của kit chưa được đăng ký)"
 fi

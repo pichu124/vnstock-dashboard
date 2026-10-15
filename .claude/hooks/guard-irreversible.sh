@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# PreToolUse(Bash): buộc hỏi người trước hành động không đảo ngược được.
+# PreToolUse(Bash|PowerShell): buộc hỏi người trước hành động không đảo ngược được.
+# Trên Windows, Claude Code chạy lệnh qua PowerShell tool là chính, nên matcher phải gồm cả PowerShell.
 # Khớp mẫu thì in permissionDecision "ask". Không khớp thì im lặng cho qua.
 # Khớp thừa chỉ tốn một câu hỏi, bỏ sót thì mất dữ liệu, nên các mẫu cố ý bắt rộng.
 # Thêm mẫu: gọi thêm một dòng `rule '<regex ERE>' '<lý do>'` ở dưới, và thêm ca vào scripts/test-hooks.sh.
@@ -41,6 +42,13 @@ rule "${G}push[^;&|]*([[:space:]:]|refs/heads/)${MAIN}${E}" "push thẳng lên n
 rule "${G}reset[^;&|]*${S}--hard" "git reset --hard làm mất thay đổi chưa commit"
 rule "${G}clean[^;&|]*${S}(-[a-z]*f[a-z]*|--force)${E}" "git clean -f xoá file chưa track"
 rule "${B}rm${S}+[^;&|]*(-[a-z]*r[a-z]*|--recursive)[^;&|]*${S}${RMT}${E}" "rm -r trên thư mục rộng"
+# PowerShell/cmd: Remove-Item và alias, cờ -r(ecurse) hoặc /s, đích là ổ đĩa, thư mục nhà, . .. *.
+# Dấu \ là dấu phân cách đường dẫn ở đây nên không coi là hết từ (.\dist không phải .).
+PSE='([[:space:];&|)"'"'"']|$)'
+PST='"?([a-z]:[\\/]?\*?|~[\\/]?\*?|\$home[\\/]?|\$env:(userprofile|home|homedrive|systemdrive)[\\/]?|\.\.?[\\/]?|\.?[\\/]?\*)"?'
+PSF='(-r[a-z]*|/s)'
+PSC="${B}(rm|ri|del|erase|rd|rmdir|remove-item)${S}+([^;&|]*${S})?"
+rule "${PSC}(${PSF}${S}+([^;&|]*${S})?${PST}|${PST}${S}+([^;&|]*${S})?${PSF})${PSE}" "xoá đệ quy thư mục rộng (PowerShell/cmd)"
 rule "(psql|mysql|mariadb|sqlite3|sqlcmd|duckdb|clickhouse)[^|&]*(drop${S}+(table|database|schema)|truncate${S})" "lệnh SQL xoá dữ liệu"
 rule "${B}dropdb${S}|prisma${S}+migrate${S}+reset|db:(drop|reset)${E}" "xoá hoặc reset database"
 rule "(npm|pnpm|yarn|bun|cargo)${O}${S}+publish" "publish package"
@@ -66,8 +74,10 @@ ARG='("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:];&|]+)'
 if [ -z "$reason" ] && printf '%s' "$cmd" | grep -Eiq -- "${G}push"; then
   dir="${cwd:-.}"
   before="${cmd%git*push*}"
-  last_cd="$(printf '%s' "$before" | grep -Eo -- "(^|[;&|(])[[:space:]]*cd${S}+${ARG}" | tail -n 1 \
-    | sed -E 's/^[;&|(]?[[:space:]]*cd[[:space:]]+//')"
+  # cd của bash, Set-Location/Push-Location (kể cả -Path/-LiteralPath) của PowerShell.
+  CDS='(cd|chdir|pushd|sl|set-location|push-location)'
+  last_cd="$(printf '%s' "$before" | grep -Eio -- "(^|[;&|(])[[:space:]]*${CDS}(${S}+-(literal)?path)?${S}+${ARG}" | tail -n 1 \
+    | sed -E 's/^[;&|(]?[[:space:]]*[A-Za-z-]+([[:space:]]+-[A-Za-z]*[Pp]ath)?[[:space:]]+//')"
   [ -n "$last_cd" ] && dir="$(resolve_dir "$dir" "$last_cd")"
   c_dir="$(printf '%s' "$cmd" | grep -Eo -- "git([[:space:]]+-[^[:space:]]+)*[[:space:]]+-C${S}+${ARG}" | head -n 1 \
     | sed -E 's/.*-C[[:space:]]+//')"

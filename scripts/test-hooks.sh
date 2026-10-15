@@ -138,6 +138,34 @@ EOF
   expect_guard ask "cd \"$on_main\" && git push"
   expect_guard allow "git push"
   expect_guard allow "git push -u origin HEAD 2>&1"
+
+  # PowerShell tool (Windows): cùng tool_input.command, nhưng lệnh xoá và đổi thư mục viết khác.
+  while IFS= read -r c; do [ -n "$c" ] && expect_guard ask "$c"; done <<'EOF'
+Remove-Item -Recurse -Force C:\
+Remove-Item C:\ -Recurse -Force
+Remove-Item -Path "C:\" -Recurse
+Remove-Item -Recurse -Force C:\*
+Remove-Item -Recurse -Force $env:USERPROFILE
+Remove-Item -Recurse -Force .\*
+Remove-Item -Recurse -Force ..\
+rm -r -fo $HOME
+ri -r ~\
+rd /s /q C:\
+rmdir /s /q .
+del /s /q *
+cd C:\x; Remove-Item -Recurse -Force *
+git push --force origin feat/x 2>&1 | Out-String
+EOF
+  while IFS= read -r c; do [ -n "$c" ] && expect_guard allow "$c"; done <<'EOF'
+Remove-Item -Recurse -Force .\dist
+Remove-Item -Recurse node_modules
+Remove-Item .\build\out.txt
+Remove-Item C:\temp\x.txt
+Get-ChildItem -Recurse
+EOF
+  expect_guard ask "Set-Location \"$on_main\"; git push"
+  expect_guard ask "Set-Location -Path \"$on_main\"; git push origin"
+  expect_guard ask "Push-Location \"$on_main\"; git push"
 done
 if [ -n "$py" ]; then
   # Windows: Python đọc stdin theo cp1252, chữ "Đ" từng làm hỏng việc đọc lệnh.
