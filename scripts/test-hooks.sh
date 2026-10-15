@@ -50,6 +50,9 @@ work="$tmp/work"
 new_repo "$work" feat/x
 on_main="$tmp/main repo"
 new_repo "$on_main" main
+# Repo ở nhánh chính, đường dẫn có chữ git và push.
+odd="$tmp/my git/github/pushy-main"
+new_repo "$odd" main
 
 modes="auto sed"
 [ -n "$py" ] && modes="auto python sed"
@@ -206,7 +209,8 @@ EOF
   expect_guard ask "pushd \"$work\"; popd; git push" "$on_main"
   # shellcheck disable=SC2016  # $env:REPO là chữ của lệnh PowerShell
   expect_guard ask 'Set-Location $env:REPO; git push' "$on_main"
-  expect_guard allow "cd \"$work\" && git push" "$on_main"
+  # Phiên đang ở nhánh chính: mọi git push đều hỏi, kể cả cd/-C sang repo khác.
+  expect_guard ask "cd \"$work\" && git push" "$on_main"
   # Lệnh xuống dòng bằng \ (bash) hoặc ` (PowerShell): nối dòng trước khi so mẫu.
   expect_guard allow $'rm -rf build \\\n  dist'
   expect_guard allow $'rm -rf /tmp/a \\\n  /tmp/b'
@@ -243,7 +247,16 @@ EOF
   expect_guard ask "git -C \"$work\" fetch && git push" "$on_main"
   expect_guard ask "$(printf 'git -C "%s" status\ngit push' "$work")" "$on_main"
   expect_guard ask "git push && git -C \"$work\" log -1" "$on_main"
-  expect_guard allow "git -C \"$work\" push" "$on_main"
+  expect_guard ask "git -C \"$work\" push" "$on_main"
+  # Đường dẫn chứa chữ git/push, nhiều lệnh push, git log --grep=push: không được đánh lừa.
+  expect_guard ask "git -C \"$odd\" push"
+  expect_guard ask "git -C \"$on_main\" push && git -C \"$work\" push"
+  expect_guard ask "git -C \"$on_main\" push; git push"
+  expect_guard ask "git -C \"$on_main\" push && git log --grep=push"
+  expect_guard ask "git push && cd \"$work\" && git push" "$on_main"
+  expect_guard ask "cd \"$odd\" && git push"
+  expect_guard allow "cd \"$work\" && git push origin HEAD"
+  expect_guard allow "git -C \"$work\" push -u origin feat/x"
   # \\ cuối dòng là dấu \ thật, không phải dấu nối; PowerShell lồng trong Bash vẫn nối bằng `.
   expect_guard ask $'echo \\\\\nrm -rf \\\n  ~'
   expect_guard ask $'echo \\\\\nnpm \\\n run deploy'
@@ -261,7 +274,7 @@ if [ -n "$py" ]; then
 fi
 mode=auto
 # Thư mục của chính tiến trình hook (ở đây: repo đang ở main) không được xen vào việc xét push.
-out="$(cd "$on_main" && bash_input "cd \"$work\" && git push" "$on_main" | "$hooks/guard-irreversible.sh")"
+out="$(cd "$on_main" && bash_input "git push" "$work" | "$hooks/guard-irreversible.sh")"
 assert "guard không được xét thư mục của tiến trình hook → $out" [ -z "$out" ]
 
 # Stop gate: repo tạm có check.sh giả (xanh khi có file GREEN).
