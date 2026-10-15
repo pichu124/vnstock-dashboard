@@ -94,6 +94,7 @@ cd /tmp && rm -Rf $HOME
 bash -c "rm -rf /"
 if [ -d x ]; then rm -rf ~; fi
 time rm -rf ~
+wsl rm -rf ~
 psql -c "DROP TABLE users;"
 npm publish
 terraform apply -auto-approve
@@ -227,6 +228,15 @@ EOF
   TOOL=PowerShell expect_guard ask $'rd /s /q \\\necho done'
   expect_guard ask $'echo hi\nrm -rf /'
   TOOL=PowerShell expect_guard ask "$(printf 'Get-ChildItem C:\\\nSet-Location "%s"\ngit push' "$on_main")"
+  # cd đứng SAU git push không được đổi thư mục mà push được xét, kể cả khi lệnh có dấu nối dòng.
+  expect_guard ask "$(printf 'git push\ncd "%s" && ls \\\n  -la' "$work")" "$on_main"
+  expect_guard ask "$(printf 'git push origin \\\n  HEAD\ncd "%s"' "$work")" "$on_main"
+  TOOL=PowerShell expect_guard ask "$(printf 'git push\nSet-Location "%s"\nGet-ChildItem `\n  -Force' "$work")" "$on_main"
+  TOOL=Unknown expect_guard ask "$(printf 'git push\ncd "%s" && ls \\\n  -la' "$work")" "$on_main"
+  # \\ cuối dòng là dấu \ thật, không phải dấu nối; PowerShell lồng trong Bash vẫn nối bằng `.
+  expect_guard ask $'echo \\\\\nrm -rf \\\n  ~'
+  expect_guard ask $'echo \\\\\nnpm \\\n run deploy'
+  expect_guard ask $'pwsh -c \'Remove-Item -Recurse -Force `\n C:\\\''
   # Không rõ tool: so trên mọi dạng, thà hỏi thừa.
   TOOL=Unknown expect_guard ask $'Remove-Item -Recurse -Force \\\nWrite-Host done'
   TOOL=Unknown expect_guard ask $'Set-Location C:\\\nRemove-Item -Recurse -Force *'

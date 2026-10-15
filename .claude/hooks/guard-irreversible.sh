@@ -14,29 +14,42 @@ cmd="$(json_get "$input" tool_input.command)"
 # Không đọc được lệnh: so mẫu trên toàn bộ input thô (thà hỏi thừa).
 [ -n "$cmd" ] || cmd="$input"
 # Nối dòng: bash dùng \ cuối dòng, PowerShell dùng `. Ở tool kia, ký tự đó cuối dòng là thứ
-# khác (C:\ trong PowerShell, dấu đóng `...` trong bash). grep so từng dòng, nên so trên
-# hai dạng: bản đã nối (đích nằm ở dòng sau) và bản giữ dòng nhưng bỏ dấu nối (lệnh ở dòng
-# sau vẫn là đầu lệnh). Không rõ tool thì nối cả hai kiểu và so thêm bản gốc.
+# khác (C:\ trong PowerShell, dấu đóng `...` trong bash), còn \\ là dấu \ thật. grep so từng
+# dòng, nên so trên nhiều dạng: nối theo tool (đích nằm ở dòng sau), giữ dòng nhưng bỏ dấu
+# nối (lệnh ở dòng sau vẫn là đầu lệnh), nối cả hai kiểu (PowerShell lồng trong bash). Không
+# rõ tool thì so thêm bản gốc. Kiểm tra push trên nhánh chính chỉ đọc bản giữ dòng ($kept).
 nl=$'\n'
-tool="$(json_get "$input" tool_name)"
-case "$tool" in
-  Bash) marks='\' ;;
-  PowerShell) marks='`' ;;
-  *) marks='\`' ;;
-esac
-joined="$cmd"
 kept="$cmd"
-for ((i = 0; i < ${#marks}; i++)); do
-  m="${marks:i:1}"
-  joined="${joined//"$m$nl"/ }"
-  kept="${kept//"$m$nl"/$nl}"
-done
-if [ "$joined" != "$cmd" ]; then
-  case "$tool" in
-    Bash | PowerShell) cmd="$joined$nl$kept" ;;
-    *) cmd="$joined$nl$kept$nl$cmd" ;;
-  esac
-fi
+case "$cmd" in
+  *"\\$nl"* | *"\`$nl"*)
+    ph=$'\001'
+    bs='\'
+    tool="$(json_get "$input" tool_name)"
+    case "$tool" in
+      Bash) marks='\' ;;
+      PowerShell) marks='`' ;;
+      *) marks='\`' ;;
+    esac
+    src="${cmd//"$bs$bs"/"$ph"}"
+    joined="$src"
+    kept="$src"
+    both="$src"
+    for ((i = 0; i < ${#marks}; i++)); do
+      m="${marks:i:1}"
+      joined="${joined//"$m$nl"/" "}"
+      kept="${kept//"$m$nl"/"$nl"}"
+    done
+    both="${both//"$bs$nl"/" "}"
+    both="${both//"\`$nl"/" "}"
+    joined="${joined//"$ph"/"$bs$bs"}"
+    kept="${kept//"$ph"/"$bs$bs"}"
+    both="${both//"$ph"/"$bs$bs"}"
+    case "$tool" in
+      Bash | PowerShell) cmd="$joined$nl$kept$nl$both" ;;
+      *) cmd="$joined$nl$kept$nl$both$nl$cmd" ;;
+    esac
+    ;;
+esac
 
 reason=""
 rule() {
@@ -53,7 +66,7 @@ E='([[:space:];&|)"\'"'"']|$)'
 # Giá trị option có thể nằm trong nháy và chứa dấu cách: git -C "C:/my repo" push.
 O='([[:space:]]+-[^[:space:]]+([[:space:]]+("[^"]*"|'"'"'[^'"'"']*'"'"'|[^-[:space:]"'"'"'][^[:space:]]*))?)*'
 # Vị trí bắt đầu một lệnh (để `git rm` không bị coi là `rm`).
-B='(^|[;&|(`"'"'"'{]|\$\(|(^|[[:space:]])(then|do|else|time|xargs|exec|nohup|env)[[:space:]])[[:space:]]*(sudo[[:space:]]+)?'
+B='(^|[;&|(`"'"'"'{]|\$\(|(^|[[:space:]])(then|do|else|time|xargs|exec|nohup|env)[[:space:]])[[:space:]]*((sudo|doas|wsl)[[:space:]]+)?'
 G="git${O}${S}+"
 MAIN='(main|master|trunk|production|release)'
 # shellcheck disable=SC2016  # $HOME ở đây là ký tự cần khớp, không phải biến
@@ -101,13 +114,13 @@ ARG='("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:];&|]+)'
 if [ -z "$reason" ] && printf '%s' "$cmd" | grep -Eiq -- "${G}push"; then
   base="${cwd:-.}"
   dir="$base"
-  before="${cmd%git*push*}"
+  before="${kept%git*push*}"
   # cd của bash, Set-Location/Push-Location (kể cả -Path/-LiteralPath) của PowerShell.
   CDS='(cd|chdir|pushd|sl|set-location|push-location)'
   last_cd="$(printf '%s' "$before" | grep -Eio -- "(^|[;&|(])[[:space:]]*${CDS}(${S}+-(literal)?path)?${S}+${ARG}" | tail -n 1 \
     | sed -E 's/^[;&|(]?[[:space:]]*[A-Za-z-]+([[:space:]]+-[A-Za-z]*[Pp][Aa][Tt][Hh])?[[:space:]]+//')"
   [ -n "$last_cd" ] && dir="$(resolve_dir "$dir" "$last_cd")"
-  c_dir="$(printf '%s' "$cmd" | grep -Eo -- "git([[:space:]]+-[^[:space:]]+)*[[:space:]]+-C${S}+${ARG}" | head -n 1 \
+  c_dir="$(printf '%s' "$kept" | grep -Eo -- "git([[:space:]]+-[^[:space:]]+)*[[:space:]]+-C${S}+${ARG}" | head -n 1 \
     | sed -E 's/.*-C[[:space:]]+//')"
   [ -n "$c_dir" ] && dir="$(resolve_dir "$dir" "$c_dir")"
   # popd/Pop-Location có thể đưa về thư mục cũ, đường dẫn có thể không resolve được ($env:X):
