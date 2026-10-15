@@ -172,6 +172,19 @@ def _assets_hermetic_anywhere(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _futures_foreign_hermetic(tmp_path, monkeypatch):
+    """U88 (15/10): kho phái sinh khối ngoại nằm trong KHO (Dropbox) ⇒ mọi test đọc/ghi ở tmp
+    (RỖNG — brief không có mục 📑 trừ khi test tự nạp seed, nên test brief cũ không đổi theo kho
+    máy thật); tiền tố tool MCP cố định, không đọc `.env`/connector máy thật."""
+    import vnstock_futures_foreign as _ff
+    monkeypatch.setattr(_ff, "FUT_DIR", tmp_path / "_futures")
+    monkeypatch.setattr(_ff, "META_DIR", tmp_path / "_meta_futures")
+    monkeypatch.setattr(_ff, "ssi_prefix", lambda: "mcp__test_SSI__")
+    monkeypatch.delenv("VNSTOCK_FUTURES_FOREIGN", raising=False)
+    monkeypatch.delenv("VNSTOCK_BRIEF_FUTURES_FOREIGN", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _no_horizons_switch_from_dotenv(monkeypatch):
     """Brief 3 khung (P1b, #24/#26): `.env` máy thật lọt vào pytest (vnstock_auth
     load_dotenv lúc import) — bật VNSTOCK_HORIZONS ở `.env` không được làm đổi nhãn

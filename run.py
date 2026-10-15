@@ -731,6 +731,7 @@ def cmd_test(args) -> int:
             "tests/test_assets_view.py",      # tab 🪙 Hàng hoá & Tiền tệ: số + render thử (U83)
             "tests/test_assets_links.py",     # P4 độ nhạy cổ phiếu ↔ vàng/dầu/USD (U85)
             "tests/test_assets_brief.py",     # P5 mục 🪙 trong brief + cảnh báo Telegram biến động (U86)
+            "tests/test_futures_foreign.py",  # vị thế phái sinh khối ngoại: kho/MCP/mục 📑/doctor (U88)
             "tests/test_claude_steps.py",
             "tests/test_macro.py",
             "tests/test_news_feeds.py",
@@ -1099,6 +1100,22 @@ def cmd_assets_mcp(args) -> int:
     bao giờ trả 2. Kill-switch: VNSTOCK_ASSETS_MCP=0."""
     return 1 if _run([sys.executable, str(REPO_ROOT / "vnstock_assets.py"),
                       "--mcp-stale", str(ASSETS_MCP_STALE_H)]) != 0 else 0
+
+
+def cmd_futures_foreign(args) -> int:
+    """Vị thế ròng khối ngoại trên HĐTL VN30 (U88) — SSI MCP, TRƯỚC brief (brief đọc mục 📑).
+
+    Kho trống ⇒ nạp seed lịch sử trong repo (không tốn MCP); kho đã có phiên phủ ⇒ no-op; còn lại
+    một lượt `claude -p` (~5 lượt gọi tool, mỗi hợp đồng đang lưu hành một lượt). Máy không có
+    Claude Code ⇒ bỏ qua. Không bao giờ trả 2: lỗi ở đây không được chặn brief (brief ghi rõ
+    "chưa lấy được số phiên …"). Kill-switch: VNSTOCK_FUTURES_FOREIGN=0.
+    Tay: `run.py futures-foreign --show | --seed | --force | --dry-run`."""
+    cmd = [sys.executable, str(REPO_ROOT / "vnstock_futures_foreign.py")]
+    for flag in ("show", "seed", "dry_run"):
+        if getattr(args, flag, False):
+            return 1 if _run(cmd + ["--" + flag.replace("_", "-")]) != 0 else 0
+    cmd.append("--force" if getattr(args, "force", False) else "--refresh")
+    return 1 if _run(cmd) != 0 else 0
 
 
 ASSETS_MCP_STALE_H = 6
@@ -1715,6 +1732,8 @@ def _all_steps(args) -> "list[tuple[str, object]]":
         ("macro",        cmd_macro),
         ("gold",         cmd_gold),
         ("assets",       cmd_assets),
+        # U88: TRƯỚC brief — mục 📑 đọc kho này; lỗi ở đây chỉ làm brief ghi "chưa lấy được số".
+        ("futures-foreign", cmd_futures_foreign),
         ("horizons",     cmd_horizons),
         ("allocation",   cmd_allocation),
         ("test",         cmd_test),
@@ -2207,6 +2226,14 @@ def build_parser() -> argparse.ArgumentParser:
                      help="--backfill: chỉ các bước, phẩy (fred,yahoo,vcb,mbk,gold-cache,fx)")
     sub.add_parser("assets-mcp",
                    help=f"Lượt MCP kho tài sản nếu lượt trước cũ hơn {ASSETS_MCP_STALE_H} giờ (pipeline)")
+    fp = sub.add_parser("futures-foreign",
+                        help="Vị thế ròng khối ngoại HĐTL VN30 (SSI MCP): lượt cập nhật (mặc định) "
+                             "/ --show / --seed / --force / --dry-run")
+    fg = fp.add_mutually_exclusive_group()
+    fg.add_argument("--show", action="store_true", help="in trạng thái kho + các dòng mục 📑 brief")
+    fg.add_argument("--seed", action="store_true", help="nạp lịch sử từ file seed trong repo (không gọi MCP)")
+    fg.add_argument("--force", action="store_true", help="gọi MCP dù kho đã có phiên phủ")
+    fg.add_argument("--dry-run", action="store_true", help="in danh sách lượt gọi MCP, không gọi")
     mp = sub.add_parser("mcp-enrich",
                         help="Connector MCP (TCBS) cho mã đang giữ + lệnh mở — chạy bóng "
                              "(cp chờ niêm yết, công bố) / --show")
@@ -2327,6 +2354,7 @@ _DISPATCH = {
     "mcp-enrich": cmd_mcp_enrich,
     "assets": cmd_assets,
     "assets-mcp": cmd_assets_mcp,
+    "futures-foreign": cmd_futures_foreign,
     "allocation": cmd_allocation,
     "reflection": cmd_reflection,
     "train": cmd_train,

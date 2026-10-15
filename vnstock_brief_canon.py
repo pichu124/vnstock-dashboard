@@ -745,6 +745,9 @@ _RISK_PERIOD_PREFIX = "- Kỳ BCTC mới"
 # Mục 🪙 (P5 đa tài sản, U86) — tiêu đề dùng chung cho khối prompt (vnstock_assets_brief) và guard
 # enforce_assets_section; thân mục là dòng CODE dựng (ctx["assets_lines"]).
 _ASSETS_SECTION_TITLE = "## 🪙 Hàng hoá & Tiền tệ"
+# Mục 📑 (U88) — vị thế ròng khối ngoại HĐTL VN30, thân mục là dòng CODE dựng
+# (ctx["futures_foreign_lines"], vnstock_futures_foreign_view); guard enforce_futures_foreign_section.
+_FUTURES_FOREIGN_SECTION_TITLE = "## 📑 Phái sinh: vị thế khối ngoại (VN30F)"
 _RISK_LINE_PREFIXES = (
     "- Danh mục tập trung", "- Mã đang giữ", "- GDKHQ chạm", "- Tiền tệ xấu đi",
     "- Khối ngoại bán ròng mạnh", "- Cơ bản lệnh mới", "- Không có rủi ro mới",

@@ -115,6 +115,7 @@ from vnstock_brief_canon import (  # noqa: F401  (re-export: giữ nguyên đư�
     _RISK_LINE_PREFIXES,
     _RISK_FALLBACK_LINE,
     _ASSETS_SECTION_TITLE,
+    _FUTURES_FOREIGN_SECTION_TITLE,
     _RISK_TODAY_RULES,
     _RISK_MAX_LINES,
     _RISK_TIER_CAPS,
@@ -2857,6 +2858,20 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     except Exception as _e:
         _note_loader_error(ctx, "assets", _e)
 
+    # 8b3. Phái sinh khối ngoại (U88): dòng "- …" do CODE dựng từ kho futures (SSI MCP — bước
+    # pipeline futures-foreign trước brief); guard enforce_futures_foreign_section chép NGUYÊN vào 📑.
+    # Brief chiều so phiên số với phiên brief (cũ ⇒ ghi rõ); brief sáng dùng phiên gần nhất.
+    # Kill-switch VNSTOCK_BRIEF_FUTURES_FOREIGN=0 ⇒ không có khoá ⇒ guard no-op.
+    if brief_type in ("morning", "afternoon"):
+        try:
+            import vnstock_futures_foreign_view as _ffv
+            if _ffv.brief_enabled():
+                ctx["futures_foreign_lines"] = _ffv.brief_lines(
+                    _ffv.summary(as_of=_data_date_str),
+                    expect=_data_date_str if brief_type == "afternoon" else None)
+        except Exception as _e:
+            _note_loader_error(ctx, "futures_foreign", _e)
+
     # 8c. Broad economic/political news (RSS, market-moving) with LLM sentiment +
     # impact — surfaces macro/geopolitical context beyond per-ticker corporate news.
     try:
@@ -4061,6 +4076,11 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         from vnstock_assets_brief import prompt_block as _assets_prompt_block
         lines.append(_assets_prompt_block(_assets_lines))
 
+    # Phái sinh khối ngoại (U88) — dữ kiện cho mục 📑 (guard chép nguyên dòng code).
+    if _ff_lines := ctx.get("futures_foreign_lines"):
+        from vnstock_futures_foreign_view import prompt_block as _ff_prompt_block
+        lines.append(_ff_prompt_block(_ff_lines))
+
     # Broad economic/political news (RSS) so the brief reflects market-moving
     # macro/geopolitical headlines, not just per-ticker corporate news.
     if _mkt_news := ctx.get("market_news"):
@@ -4279,6 +4299,10 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     enforce_macro,
     enforce_macro_fx_pct,
     enforce_assets_section,
+    enforce_futures_foreign_section,
+    _pin_code_section,
+    _after_section,
+    _first_section,
     enforce_macro_reports,
     enforce_market_news,
     enforce_money_flow_two_sides,
