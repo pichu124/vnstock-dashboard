@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # "The check": MỘT lệnh duy nhất mà agent, Stop hook và CI cùng chạy.
-#   1. Luôn chạy scripts/validate-kit.sh và scripts/test-hooks.sh (giữ cho .claude/ hợp lệ).
+#   1. Luôn chạy scripts/validate-kit.sh. Test hành vi của hook (scripts/test-hooks.sh, khá chậm
+#      trên Windows) chỉ chạy khi file của kit thay đổi, khi CI=true, hoặc KIT_SELFTEST=1.
 #   2. Có scripts/check.local.sh thì chạy nó: đây là định nghĩa check thật của dự án.
 #   3. Không có thì dùng `make check` nếu Makefile có target `check`.
 #   4. Không có nữa thì tự nhận diện Node / Python / Go / Rust và chạy các check tìm thấy.
@@ -101,8 +102,16 @@ rust_checks() {
 if [ -x scripts/validate-kit.sh ]; then
   step "kit" ./scripts/validate-kit.sh
 fi
+kit_changed() {
+  git status --porcelain -- .claude/hooks scripts/check.sh scripts/test-hooks.sh scripts/validate-kit.sh \
+    2>/dev/null | grep -q .
+}
 if [ -x scripts/test-hooks.sh ]; then
-  step "hooks" ./scripts/test-hooks.sh
+  if [ -n "${CI:-}" ] || [ "${KIT_SELFTEST:-0}" = 1 ] || kit_changed; then
+    step "hooks" ./scripts/test-hooks.sh
+  else
+    printf '\n• hooks: bỏ qua test của kit vì hook không đổi (KIT_SELFTEST=1 để chạy)\n'
+  fi
 fi
 
 if [ -f scripts/check.local.sh ]; then

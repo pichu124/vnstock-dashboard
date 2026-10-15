@@ -11,11 +11,21 @@ set -uo pipefail
 input="$(cat)"
 
 dir="$(json_get "$input" cwd)"
-[ -n "$dir" ] && [ -d "$dir" ] || dir="${CLAUDE_PROJECT_DIR:-$PWD}"
+if [ -n "$dir" ]; then
+  # Có cwd mà không phải thư mục: dừng, không đoán sang thư mục khác (có thể chạy nhầm check của repo khác).
+  [ -d "$dir" ] || exit 0
+else
+  dir="${CLAUDE_PROJECT_DIR:-$PWD}"
+fi
 cd "$dir" 2>/dev/null || exit 0
 root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
 cd "$root" || exit 0
 [ -x scripts/check.sh ] || exit 0
+
+# Chống đệ quy: repo đang được stop gate chạy check thì không chạy lồng thêm lần nữa
+# (check.sh chạy test của hook, test lại gọi stop gate).
+case "|${AGENT_STOP_GATE_ACTIVE:-}|" in *"|$root|"*) exit 0 ;; esac
+export AGENT_STOP_GATE_ACTIVE="${AGENT_STOP_GATE_ACTIVE:+$AGENT_STOP_GATE_ACTIVE|}$root"
 
 session="$(json_get "$input" session_id)"
 state_dir="${TMPDIR:-/tmp}/agent-stop-gate"

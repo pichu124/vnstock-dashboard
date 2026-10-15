@@ -38,6 +38,8 @@ for fn in ast.walk(tree):
                 raise SystemExit
 PYEOF
 )"
+# Python trên Windows in xuống dòng kiểu \r\n: bỏ \r, không thì pytest nhận "tests/x.py\r" và báo không thấy file.
+fast="$(printf '%s' "$fast" | tr -d '\r')"
 if [ -z "$fast" ]; then
   echo "Không đọc được danh sách --fast trong run.py (cmd_test.test_paths). Sửa script này cho khớp run.py." >&2
   exit 1

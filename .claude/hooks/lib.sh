@@ -22,6 +22,11 @@ hook_python() {
 
 # json_get <json> <khoá.lồng.nhau>: in giá trị chuỗi, số hoặc bool; in rỗng nếu không có.
 json_get() {
+  # Bỏ \r: jq/Python trên Windows có thể in xuống dòng kiểu CRLF, làm đường dẫn sai.
+  _json_get_raw "$@" | tr -d '\r'
+}
+
+_json_get_raw() {
   local json="$1" path="$2" py
   if have_jq; then
     printf '%s' "$json" | jq -r --arg p "$path" 'getpath($p | split(".")) // empty | tostring' 2>/dev/null

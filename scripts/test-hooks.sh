@@ -37,7 +37,7 @@ bash_input() {
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-gitc() { git -C "$1" -c user.email=t@t -c user.name=t -c commit.gpgsign=false "${@:2}"; }
+gitc() { git -C "$1" -c user.email=t@t -c user.name=t -c commit.gpgsign=false -c core.autocrlf=false "${@:2}"; }
 # new_repo <thư mục> <nhánh>
 new_repo() {
   mkdir -p "$1"
@@ -181,7 +181,7 @@ assert "stop-gate: chỉ đổi file .md thì không in gì" [ -z "$out" ]
 echo "x" > "$repo/app.js"
 out="$(run_stop)"; code=$?
 assert "stop-gate: check đỏ thì phải chặn (exit $code)" blocked
-case "$out" in *"lần chặn 1/2"*) ok ;; *) bad "stop-gate: lý do chặn phải ghi số lần chặn" ;; esac
+case "$out" in *"1/2)"*) ok ;; *) bad "stop-gate: lý do chặn phải ghi số lần chặn → $out" ;; esac
 out="$(run_stop)"; code=$?
 assert "stop-gate: lần chặn thứ 2 vẫn phải chặn (exit $code)" blocked
 out="$(run_stop)"; code=$?
@@ -193,7 +193,7 @@ rm "$repo/app.js"
 run_stop >/dev/null
 echo "x" > "$repo/app.js"
 out="$(run_stop)"; code=$?
-case "$out" in *"lần chặn 1/2"*) ok ;; *) bad "stop-gate: hết thay đổi thì bộ đếm phải về 0 → $out" ;; esac
+case "$out" in *"1/2)"*) ok ;; *) bad "stop-gate: hết thay đổi thì bộ đếm phải về 0 → $out" ;; esac
 
 touch "$repo/GREEN"
 out="$(run_stop)"; code=$?
@@ -204,9 +204,38 @@ rm "$repo/GREEN"
 out="$(stop_input "$repo" | AGENT_STOP_GATE=off "$hooks/stop-gate.sh")"; code=$?
 assert "stop-gate: AGENT_STOP_GATE=off phải cho dừng" [ "$code" -eq 0 ]
 
+# cwd không tồn tại: dừng ngay, không đoán sang thư mục hiện tại (từng gây đệ quy vào check của repo kit).
+out="$(stop_input "$tmp/khong-ton-tai" | AGENT_STOP_GATE_MAX=2 "$hooks/stop-gate.sh" 2>&1)"; code=$?
+assert "stop-gate: cwd không tồn tại thì cho dừng (exit $code)" [ "$code" -eq 0 ]
+assert "stop-gate: cwd không tồn tại thì không chạy check → $out" [ -z "$out" ]
+
+# check.sh gọi lại stop gate trên chính repo đó: lần lồng phải bỏ qua, không đệ quy.
+rec="$tmp/rec repo"
+make_repo "$rec"
+cat > "$rec/scripts/check.sh" <<EOF
+#!/usr/bin/env bash
+n=\$(( \$(cat "$rec/.count" 2>/dev/null || echo 0) + 1 ))
+echo "\$n" > "$rec/.count"
+if [ "\$n" -lt 5 ]; then
+  printf '{"session_id":"rec-inner","cwd":"%s"}' "$rec" | "$hooks/stop-gate.sh" >/dev/null 2>&1
+fi
+exit 1
+EOF
+out="$(printf '{"session_id":"rec-%s","cwd":"%s"}' "$$" "$rec" | AGENT_STOP_GATE_MAX=9 "$hooks/stop-gate.sh" 2>/dev/null)"; code=$?
+assert "stop-gate: check.sh gọi lại stop gate thì chỉ chạy check 1 lần → $(cat "$rec/.count")" [ "$(cat "$rec/.count")" = 1 ]
+assert "stop-gate: lần ngoài vẫn phải chặn (exit $code)" blocked
+
 session="test-$$-$RANDOM"
 out="$(stop_input "$repo" | KIT_JSON_TOOL=sed AGENT_STOP_GATE_MAX=9 "$hooks/stop-gate.sh" 2>/dev/null)"; code=$?
 assert "stop-gate: không có jq/Python thì chặn bằng exit 2 (exit $code)" [ "$code" -eq 2 ]
+
+if [ -n "$py" ]; then
+  # Máy không có jq (Windows): JSON chặn do Python in, phải parse được và giữ đủ lý do.
+  session="test-$$-$RANDOM"
+  out="$(stop_input "$repo" | KIT_JSON_TOOL=python AGENT_STOP_GATE_MAX=9 "$hooks/stop-gate.sh" 2>/dev/null)"; code=$?
+  reason="$(printf '%s' "$out" | "$py" -c 'import json, sys; d = json.loads(sys.stdin.read()); sys.stdout.buffer.write((d["decision"] + "|" + d["reason"]).encode("utf-8"))' 2>/dev/null)"
+  case "$reason" in "block|"*"lần chặn 1/9"*) ok ;; *) bad "stop-gate qua Python: JSON chặn phải parse được, có lý do → $out" ;; esac
+fi
 
 # Commit cục bộ trên nhánh chưa có upstream vẫn là thay đổi chưa push → phải chạy check.
 remote="$tmp/remote.git"
