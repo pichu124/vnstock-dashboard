@@ -39,6 +39,7 @@ Chi tiết: `docs/CLAUDE-NOTES.md` U88. Tắt khẩn: `VNSTOCK_BRIEF_FUTURES_FOR
    ✅ 🖥️ DESKTOP 15/10: FULL **4.820 passed / 165,2s** (= 4.783 trước U88 + 37 test mới) — merge xong, test xanh.
 2. ○ một lần — nạp lịch sử (không gọi MCP, kho đi qua Dropbox): `python run.py futures-foreign --seed`
    rồi `python run.py futures-foreign --show` ⇒ phải in "short 1,881 HĐ" phiên 15/10/2026.
+   ✅ 🖥️ 15/10: seed 2.230 dòng · 28 hợp đồng · 2024-04-19 → 2026-10-15; `--show` in đúng 5 dòng mục 📑.
 3. 🖥️ DESKTOP — thử MCP thật dưới tài khoản chạy task: `python run.py futures-foreign --dry-run` (in 5 lượt gọi,
    không gọi) rồi `python run.py futures-foreign --force` ⇒ dòng `[futures-foreign] {"status": "ok", …}`. Lỗi
    (tên server khác `claude.ai SSI MCP`, connector chưa bật…) ⇒ gửi nguyên dòng đó cho Claude. Lượt tự động mỗi tối
