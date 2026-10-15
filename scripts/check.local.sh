@@ -21,6 +21,10 @@ if [ -z "$py" ]; then
   exit 1
 fi
 
+# Chạy pytest trong đúng môi trường như `python run.py test` (cmd_test đặt PYTHONIOENCODING=utf-8):
+# thiếu biến này, tiến trình con in tiếng Việt trên Windows dùng cp1252 và lỗi UnicodeEncodeError.
+export PYTHONIOENCODING=utf-8
+
 if [ "${CHECK_FULL:-0}" = 1 ]; then
   exec "$py" -m pytest tests/ -q -p no:cacheprovider
 fi
