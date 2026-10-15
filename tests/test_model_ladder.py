@@ -15,7 +15,7 @@ import pytest
 import vnstock_llm_ledger as ledger
 import vnstock_sentiment as snt
 
-from tests.conftest import needs_vnstock
+from tests.conftest import HAS_VNSTOCK_SDK, needs_vnstock
 
 
 @pytest.fixture()
@@ -676,12 +676,15 @@ def _all_live_slugs() -> set:
     này PHẢI khai báo vào đây để được quét."""
     import vnstock_auditor as va
     import vnstock_brief as vb
-    import vnstock_classifier as vc
     import vnstock_news_feeds as nf
     import vnstock_report_digest as dg
     slugs = set()
-    slugs |= set(vc._CLASSIFY_MODELS.values())                 # [8] classifier
-    slugs.add(vc._CLASSIFY_MODEL_DEFAULT)                      # [8] opt-in trả phí
+    # classifier kéo theo SDK vnstock mà CI tối thiểu không cài ⇒ CI bỏ nấc [8].
+    # [8] chỉ được quét trên máy có SDK (run.py test) — CI KHÔNG canh [8].
+    if HAS_VNSTOCK_SDK:
+        import vnstock_classifier as vc
+        slugs |= set(vc._CLASSIFY_MODELS.values())             # [8] classifier
+        slugs.add(vc._CLASSIFY_MODEL_DEFAULT)                  # [8] opt-in trả phí
     slugs |= {p["model"] for p in snt._PROVIDERS}              # [1] sentiment
     slugs |= set(nf._ANALYZE_MODELS.values())                  # [2] chấm tin
     slugs.add(nf._ANALYZE_MODEL_DEFAULT)                       # [2] opt-in trả phí
@@ -702,7 +705,6 @@ def _all_live_slugs() -> set:
     return slugs
 
 
-@needs_vnstock
 def test_no_dead_slug_anywhere_in_code():
     leaked = _DEAD_SLUGS_22_07 & _all_live_slugs()
     assert not leaked, f"slug chết lọt lại vào code: {sorted(leaked)}"
