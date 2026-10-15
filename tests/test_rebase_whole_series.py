@@ -34,6 +34,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from tests.conftest import needs_vnstock
+
 _SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "rebase_ticker_history.py"
 _spec = importlib.util.spec_from_file_location("rebase_ticker_history_ws", _SCRIPT)
 R = importlib.util.module_from_spec(_spec)
@@ -379,6 +381,7 @@ class TestResidualLevelSelfCheck:
 
 
 # --------------------------------------------------------------------------
+@needs_vnstock
 class TestWholeSeriesEndToEnd:
     def test_without_the_flag_it_refuses_and_points_at_the_flag(
             self, offset_wh, capsys):

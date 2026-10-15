@@ -15,6 +15,8 @@ import pytest
 import vnstock_llm_ledger as ledger
 import vnstock_sentiment as snt
 
+from tests.conftest import needs_vnstock
+
 
 @pytest.fixture()
 def _tmp_meta(tmp_path, monkeypatch):
@@ -700,11 +702,13 @@ def _all_live_slugs() -> set:
     return slugs
 
 
+@needs_vnstock
 def test_no_dead_slug_anywhere_in_code():
     leaked = _DEAD_SLUGS_22_07 & _all_live_slugs()
     assert not leaked, f"slug chết lọt lại vào code: {sorted(leaked)}"
 
 
+@needs_vnstock
 def test_probe_ladder_covers_all_free_live_slugs():
     """`probe_models.py --ladder` (health check 29/07) phải tự gom ĐỦ slug
     free đang dùng ở [1]-[8] — thêm điểm dùng model free mới mà _ladder_slugs
@@ -787,6 +791,7 @@ def test_probe_ladder_survives_broken_vnstock_sdk(capsys):
     assert "RuntimeError" in warn                  # kèm lý do để chẩn đoán
 
 
+@needs_vnstock
 def test_classifier_slugs_are_watched_by_both_nets():
     """Lưới chỉ soi slug được KHAI BÁO. Hôm nay `_CLASSIFY_MODELS` trùng giá
     trị với `_ANALYZE_MODELS` nên có vẻ an toàn — nhưng đó là TRÙNG HỢP, không

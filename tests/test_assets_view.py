@@ -15,6 +15,8 @@ import pytest
 import vnstock_assets as va
 import vnstock_assets_view as av
 
+from tests.conftest import needs
+
 TODAY = date(2026, 10, 10)            # thứ Bảy — vàng nội có giá, dầu/USD dừng ở thứ Sáu
 T = "2026-10-10T09:00:00"
 
@@ -151,6 +153,7 @@ def fake_st(monkeypatch):
     return st, mod
 
 
+@needs("plotly")
 def test_assets_tab_renders_every_section(fake_st):
     st, mod = fake_st
     _seed()

@@ -15,6 +15,8 @@ import pytest
 import vnstock_model_eval as me
 import vnstock_model_watch as mw
 
+from tests.conftest import needs_vnstock
+
 
 @pytest.fixture(autouse=True)
 def _tmp_meta(tmp_path, monkeypatch):
@@ -481,6 +483,7 @@ def test_json_task_scored_by_required_keys():
                          ["approved", "confidence", "issues"]) == 0.0
 
 
+@needs_vnstock
 def test_golden_sets_are_non_empty_and_use_valid_industries():
     """Đáp án phân loại phải nằm trong danh sách ngành thật — đáp án sai thì
     cả bảng điểm vô nghĩa."""
@@ -494,6 +497,7 @@ def test_golden_sets_are_non_empty_and_use_valid_industries():
         assert case["expected"] in ("positive", "negative", "neutral")
 
 
+@needs_vnstock
 def test_run_eval_scores_per_task_not_one_global_rank(monkeypatch):
     """Cốt lõi GĐ2: model có thể giỏi việc này dở việc kia — bảng điểm phải
     TÁCH THEO VIỆC, không gộp thành một thứ hạng chung."""
@@ -528,6 +532,7 @@ def test_production_eval_passes_a_throttle_delay(monkeypatch):
     assert seen.get("delay", 0) > 0
 
 
+@needs_vnstock
 def test_rate_limited_task_is_unmeasured_not_zero(monkeypatch):
     """Ca thật 08/08: gemini-3.5-flash được classify=1.00 (bắt buộc phải xuất
     JSON đúng 12 lần) nhưng json=0.00 — vô lý. Bài chạy trước ăn hết quota,
@@ -542,6 +547,7 @@ def test_rate_limited_task_is_unmeasured_not_zero(monkeypatch):
     assert scores[("Groq", "bi-bop")]["errors"] == len(me.GOLDEN_CLASSIFY)
 
 
+@needs_vnstock
 def test_few_errors_still_scored_over_answered_cases(monkeypatch):
     """Hụt lác đác thì vẫn chấm — nhưng chấm trên số ca THỰC SỰ trả lời."""
     seen = {"n": 0}
@@ -589,6 +595,7 @@ def test_eval_token_budget_fits_reasoning_models():
     assert me._EVAL_MAX_TOKENS >= 900
 
 
+@needs_vnstock
 def test_eval_passes_generous_budget_to_model(monkeypatch):
     seen = {}
 
@@ -601,6 +608,7 @@ def test_eval_passes_generous_budget_to_model(monkeypatch):
     assert seen["max_tokens"] == me._EVAL_MAX_TOKENS
 
 
+@needs_vnstock
 def test_truncated_thinking_is_unmeasured_not_zero(monkeypatch):
     """`_THINK_RE` đòi THẺ ĐÓNG, nên output cắt giữa lúc suy nghĩ không strip
     được → không tìm thấy JSON → 0 điểm. Nhưng đó là NGÂN SÁCH CỦA TA quá
@@ -620,6 +628,7 @@ def test_closed_thinking_block_still_scored():
     assert me._truncated_thinking("<think>nghĩ mãi") is True
 
 
+@needs_vnstock
 def test_eval_paces_gemini_by_the_minute(monkeypatch):
     """Gemini free tier bóp THEO PHÚT (flash chỉ ~10-15 req/phút), không chỉ
     theo ngày: eval bắn flash-lite 25 ca rồi flash ngay cùng cửa sổ phút →
@@ -638,6 +647,7 @@ def test_eval_paces_gemini_by_the_minute(monkeypatch):
     assert slept and all(s == 1.0 for s in slept)   # provider khác giữ nhịp chung
 
 
+@needs_vnstock
 def test_eval_respects_per_provider_budget(monkeypatch):
     """OpenRouter free = 50 req/ngày; 3 model × 25 ca = 75 call → eval của
     CHÍNH TA đốt sạch quota, hôm sau production mất nấc dự phòng (ca thật
@@ -651,6 +661,7 @@ def test_eval_respects_per_provider_budget(monkeypatch):
     assert sc[("OpenRouter", "m2")]["skipped"] == "budget"
 
 
+@needs_vnstock
 def test_budget_free_providers_untouched(monkeypatch):
     monkeypatch.setattr(me, "chat_once",
                         lambda *a, **k: (json.dumps({"primary_industry": "Khác"}), None))
@@ -726,6 +737,7 @@ def test_no_proposal_when_current_is_already_best():
                             previous_proposals=[]) == []
 
 
+@needs_vnstock
 def test_proposals_never_mutate_live_config(monkeypatch):
     """Ranh giới cứng: GĐ3 chỉ ĐỀ XUẤT. Brief bắn thẳng Telegram mỗi sáng —
     script tự đổi model là user đọc bản không ai duyệt."""
@@ -741,6 +753,7 @@ def test_proposals_never_mutate_live_config(monkeypatch):
     assert not hasattr(me, "apply_swaps")        # và không có đường tự áp
 
 
+@needs_vnstock
 def test_current_models_map_covers_the_three_eval_tasks():
     """Mỗi việc trong bộ đề phải trỏ được về điểm dùng thật, không thì đề
     xuất không biết đang so với cái gì."""

@@ -14,7 +14,12 @@ import json
 
 import pytest
 
-import vnstock_classifier as vc
+from tests.conftest import HAS_VNSTOCK_SDK, VNSTOCK_SKIP_REASON
+
+if not HAS_VNSTOCK_SDK:
+    pytest.skip(VNSTOCK_SKIP_REASON, allow_module_level=True)
+
+import vnstock_classifier as vc  # noqa: E402 — phải đứng sau cửa skip
 
 
 # ── Công tắc opt-in ──────────────────────────────────────────────────────────

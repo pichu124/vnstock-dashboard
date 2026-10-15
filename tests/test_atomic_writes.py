@@ -23,6 +23,8 @@ import pytest
 
 import vnstock_parquet_io as pio
 
+from tests.conftest import needs_vnstock
+
 
 # ── write_json_atomic ────────────────────────────────────────────────────────
 
@@ -91,6 +93,7 @@ def _bars(dates, close=10.0):
     })
 
 
+@needs_vnstock
 def test_warehouse_write_merges_history(tmp_path):
     wh = _wh(tmp_path)
     wh._write_parquet(_bars(["2025-03-03", "2025-03-04"]), "VCB")
@@ -100,6 +103,7 @@ def test_warehouse_write_merges_history(tmp_path):
     assert set(pd.to_datetime(got["time"]).dt.day) == {3, 4, 5}
 
 
+@needs_vnstock
 def test_warehouse_write_is_atomic_no_delete_then_write(tmp_path, monkeypatch):
     """Lỗi CỐT LÕI: nếu còn xoá-rồi-ghi thì chết giữa 2 bước = mất partition.
     Giả lập chết ĐÚNG lúc ghi → dữ liệu CŨ phải còn nguyên vẹn."""
@@ -120,6 +124,7 @@ def test_warehouse_write_is_atomic_no_delete_then_write(tmp_path, monkeypatch):
     assert len(wh._read_ticker("VCB")) == before   # KHÔNG mất gì
 
 
+@needs_vnstock
 def test_warehouse_write_spans_years(tmp_path):
     wh = _wh(tmp_path)
     wh._write_parquet(_bars(["2024-12-30", "2025-01-02"]), "VCB")
@@ -129,6 +134,7 @@ def test_warehouse_write_spans_years(tmp_path):
         {"year=2024", "year=2025"}
 
 
+@needs_vnstock
 def test_warehouse_meta_written_atomically(tmp_path):
     wh = _wh(tmp_path)
     wh._meta["VCB"] = {"last_date": "2025-03-04"}

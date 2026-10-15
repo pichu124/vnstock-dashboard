@@ -29,6 +29,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from tests.conftest import needs
+
 _SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "export_bank_balance_sheets.py"
 _spec = importlib.util.spec_from_file_location("bank_bs_export", _SCRIPT)
 _m = importlib.util.module_from_spec(_spec)
@@ -196,6 +198,7 @@ class TestCoverage:
         assert r["quarters_found"] == 0 and r["first"] == ""
 
 
+@needs("openpyxl")
 class TestWorkbook:
     def _build(self, tmp_path):
         items_a = ["TÀI SẢN", "1. Tiền mặt", "TỔNG TÀI SẢN",
@@ -282,6 +285,7 @@ class TestRefusesToShipAnEmptyFile:
         assert rc == 2 and not out.exists()
         assert "2018-Q1" in got and "--from 2018" in got
 
+    @needs("openpyxl")
     def test_a_bank_with_no_quarters_is_dropped_not_shipped_blank(
             self, tmp_path, monkeypatch):
         """Mã không có quý nào trong khoảng thì không được thành một sheet
