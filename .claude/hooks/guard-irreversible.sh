@@ -17,9 +17,10 @@ cmd="$(json_get "$input" tool_input.command)"
 # khác (C:\ trong PowerShell, dấu đóng `...` trong bash), còn \\ là dấu \ thật. grep so từng
 # dòng, nên so trên nhiều dạng: nối theo tool (đích nằm ở dòng sau), giữ dòng nhưng bỏ dấu
 # nối (lệnh ở dòng sau vẫn là đầu lệnh), nối cả hai kiểu (PowerShell lồng trong bash). Không
-# rõ tool thì so thêm bản gốc. Kiểm tra push trên nhánh chính chỉ đọc bản giữ dòng ($kept).
+# rõ tool thì so thêm bản gốc. Kiểm tra push trên nhánh chính xét TỪNG dạng riêng ($forms).
 nl=$'\n'
 kept="$cmd"
+forms=("$cmd")
 case "$cmd" in
   *"\\$nl"* | *"\`$nl"*)
     ph=$'\001'
@@ -44,6 +45,7 @@ case "$cmd" in
     joined="${joined//"$ph"/"$bs$bs"}"
     kept="${kept//"$ph"/"$bs$bs"}"
     both="${both//"$ph"/"$bs$bs"}"
+    forms=("$kept" "$joined" "$both")
     case "$tool" in
       Bash | PowerShell) cmd="$joined$nl$kept$nl$both" ;;
       *) cmd="$joined$nl$kept$nl$both$nl$cmd" ;;
@@ -113,25 +115,34 @@ ARG='("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:];&|]+)'
 # (2>&1), option (-o ci.skip) hay đường dẫn có dấu cách đều làm việc đoán sai.
 if [ -z "$reason" ] && printf '%s' "$cmd" | grep -Eiq -- "${G}push"; then
   base="${cwd:-.}"
-  dir="$base"
-  before="${kept%git*push*}"
   # cd của bash, Set-Location/Push-Location (kể cả -Path/-LiteralPath) của PowerShell.
   CDS='(cd|chdir|pushd|sl|set-location|push-location)'
-  last_cd="$(printf '%s' "$before" | grep -Eio -- "(^|[;&|(])[[:space:]]*${CDS}(${S}+-(literal)?path)?${S}+${ARG}" | tail -n 1 \
-    | sed -E 's/^[;&|(]?[[:space:]]*[A-Za-z-]+([[:space:]]+-[A-Za-z]*[Pp][Aa][Tt][Hh])?[[:space:]]+//')"
-  [ -n "$last_cd" ] && dir="$(resolve_dir "$dir" "$last_cd")"
-  c_dir="$(printf '%s' "$kept" | grep -Eo -- "git([[:space:]]+-[^[:space:]]+)*[[:space:]]+-C${S}+${ARG}" | head -n 1 \
-    | sed -E 's/.*-C[[:space:]]+//')"
-  [ -n "$c_dir" ] && dir="$(resolve_dir "$dir" "$c_dir")"
-  # popd/Pop-Location có thể đưa về thư mục cũ, đường dẫn có thể không resolve được ($env:X):
-  # khi đó xét thêm thư mục của phiên. Thà hỏi thừa.
-  dirs="$dir"
-  if ! git -C "$dir" rev-parse --git-dir >/dev/null 2>&1 \
-    || printf '%s' "$before" | grep -Eiq -- '(^|[;&|(])[[:space:]]*(popd|pop-location)'; then
-    dirs="$dir
-$base"
-  fi
+  dirs=""
+  # Mỗi dạng của lệnh (giữ dòng, đã nối...) xét riêng rồi gộp các thư mục: ghép các dạng
+  # lại rồi mới cắt thì cd đứng sau push ở dạng này bị lấy làm thư mục của dạng kia.
+  for f in "${forms[@]}"; do
+    before="${f%git*push*}"
+    [ "$before" = "$f" ] && continue
+    # Lệnh `git ... push` cuối cùng: chỉ -C của chính nó mới đổi thư mục.
+    seg="${f#"$before"}"
+    head="${seg%%push*}"
+    dir="$base"
+    last_cd="$(printf '%s' "$before" | grep -Eio -- "(^|[;&|(])[[:space:]]*${CDS}(${S}+-(literal)?path)?${S}+${ARG}" | tail -n 1 \
+      | sed -E 's/^[;&|(]?[[:space:]]*[A-Za-z-]+([[:space:]]+-[A-Za-z]*[Pp][Aa][Tt][Hh])?[[:space:]]+//')"
+    [ -n "$last_cd" ] && dir="$(resolve_dir "$dir" "$last_cd")"
+    c_dir="$(printf '%s' "$head" | grep -Eo -- "^git([[:space:]]+-[^[:space:]]+)*[[:space:]]+-C${S}+${ARG}" | head -n 1 \
+      | sed -E 's/.*-C[[:space:]]+//')"
+    [ -n "$c_dir" ] && dir="$(resolve_dir "$dir" "$c_dir")"
+    dirs="$dirs$dir$nl"
+    # popd/Pop-Location có thể đưa về thư mục cũ, đường dẫn có thể không resolve được ($env:X):
+    # khi đó xét thêm thư mục của phiên. Thà hỏi thừa.
+    if ! git -C "$dir" rev-parse --git-dir >/dev/null 2>&1 \
+      || printf '%s' "$before" | grep -Eiq -- '(^|[;&|(])[[:space:]]*(popd|pop-location)'; then
+      dirs="$dirs$base$nl"
+    fi
+  done
   while IFS= read -r d; do
+    [ -n "$d" ] || continue # git -C "" là thư mục của chính hook, không phải của lệnh
     branch="$(git -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null)"
     if printf '%s' "$branch" | grep -Eqx -- "$MAIN"; then
       reason="push khi đang ở nhánh $branch"

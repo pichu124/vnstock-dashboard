@@ -233,6 +233,17 @@ EOF
   expect_guard ask "$(printf 'git push origin \\\n  HEAD\ncd "%s"' "$work")" "$on_main"
   TOOL=PowerShell expect_guard ask "$(printf 'git push\nSet-Location "%s"\nGet-ChildItem `\n  -Force' "$work")" "$on_main"
   TOOL=Unknown expect_guard ask "$(printf 'git push\ncd "%s" && ls \\\n  -la' "$work")" "$on_main"
+  # Dấu nối nằm giữa cd/git -C và đường dẫn: vẫn phải tìm ra thư mục.
+  expect_guard ask "$(printf 'cd \\\n  "%s" && git push' "$on_main")"
+  expect_guard ask "$(printf 'git -C \\\n  "%s" push' "$on_main")"
+  expect_guard ask "$(printf 'pushd \\\n "%s"; git push' "$on_main")"
+  TOOL=PowerShell expect_guard ask "$(printf 'git -C `\n "%s" push' "$on_main")"
+  TOOL=PowerShell expect_guard ask "$(printf 'Set-Location `\n "%s"\ngit push' "$on_main")"
+  # -C của lệnh git KHÁC không đổi thư mục của git push.
+  expect_guard ask "git -C \"$work\" fetch && git push" "$on_main"
+  expect_guard ask "$(printf 'git -C "%s" status\ngit push' "$work")" "$on_main"
+  expect_guard ask "git push && git -C \"$work\" log -1" "$on_main"
+  expect_guard allow "git -C \"$work\" push" "$on_main"
   # \\ cuối dòng là dấu \ thật, không phải dấu nối; PowerShell lồng trong Bash vẫn nối bằng `.
   expect_guard ask $'echo \\\\\nrm -rf \\\n  ~'
   expect_guard ask $'echo \\\\\nnpm \\\n run deploy'
@@ -249,6 +260,9 @@ if [ -n "$py" ]; then
   case "$out" in *'"permissionDecision":"ask"'*) ok ;; *) bad "guard phải hỏi khi Python đọc stdin bằng cp1252" ;; esac
 fi
 mode=auto
+# Thư mục của chính tiến trình hook (ở đây: repo đang ở main) không được xen vào việc xét push.
+out="$(cd "$on_main" && bash_input "cd \"$work\" && git push" "$on_main" | "$hooks/guard-irreversible.sh")"
+assert "guard không được xét thư mục của tiến trình hook → $out" [ -z "$out" ]
 
 # Stop gate: repo tạm có check.sh giả (xanh khi có file GREEN).
 make_repo() {
