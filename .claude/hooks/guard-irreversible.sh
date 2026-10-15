@@ -13,11 +13,30 @@ cwd="$(json_get "$input" cwd)"
 cmd="$(json_get "$input" tool_input.command)"
 # Không đọc được lệnh: so mẫu trên toàn bộ input thô (thà hỏi thừa).
 [ -n "$cmd" ] || cmd="$input"
-# Nối dòng bị ngắt bằng \ (bash) hoặc ` (PowerShell): grep so từng dòng, nên lệnh và đích
-# nằm khác dòng sẽ bị bỏ sót, còn dấu \ cuối dòng lại bị coi là đường dẫn gốc ổ.
+# Nối dòng: bash dùng \ cuối dòng, PowerShell dùng `. Ở tool kia, ký tự đó cuối dòng là thứ
+# khác (C:\ trong PowerShell, dấu đóng `...` trong bash). grep so từng dòng, nên so trên
+# hai dạng: bản đã nối (đích nằm ở dòng sau) và bản giữ dòng nhưng bỏ dấu nối (lệnh ở dòng
+# sau vẫn là đầu lệnh). Không rõ tool thì nối cả hai kiểu và so thêm bản gốc.
 nl=$'\n'
-cmd="${cmd//"\\$nl"/ }"
-cmd="${cmd//"\`$nl"/ }"
+tool="$(json_get "$input" tool_name)"
+case "$tool" in
+  Bash) marks='\' ;;
+  PowerShell) marks='`' ;;
+  *) marks='\`' ;;
+esac
+joined="$cmd"
+kept="$cmd"
+for ((i = 0; i < ${#marks}; i++)); do
+  m="${marks:i:1}"
+  joined="${joined//"$m$nl"/ }"
+  kept="${kept//"$m$nl"/$nl}"
+done
+if [ "$joined" != "$cmd" ]; then
+  case "$tool" in
+    Bash | PowerShell) cmd="$joined$nl$kept" ;;
+    *) cmd="$joined$nl$kept$nl$cmd" ;;
+  esac
+fi
 
 reason=""
 rule() {

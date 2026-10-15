@@ -55,7 +55,16 @@ if d is not None:
   local re_raw='"'"$key"'"[[:space:]]*:[[:space:]]*([^",}[:space:]]+)'
   out="$(printf '%s' "$flat" | sed -nE "s/.*${re_str}.*/\\1/p" | head -n 1)"
   if [ -n "$out" ]; then
-    printf '%s\n' "$out" | sed -e 's/\\"/"/g' -e 's#\\/#/#g' -e 's/\\\\/\\/g'
+    # Giải escape từ trái sang phải: \\ giữ chỗ trước, để \\n không bị đọc thành xuống dòng.
+    local bs='\' ph=$'\001'
+    out="${out//"$bs$bs"/$ph}"
+    out="${out//"${bs}n"/$'\n'}"
+    out="${out//"${bs}t"/$'\t'}"
+    out="${out//"${bs}r"/}"
+    out="${out//"$bs\""/\"}"
+    out="${out//"$bs/"//}"
+    out="${out//"$ph"/$bs}"
+    printf '%s\n' "$out"
     return 0
   fi
   printf '%s' "$flat" | sed -nE "s/.*${re_raw}.*/\\1/p" | head -n 1

@@ -22,16 +22,16 @@ assert() {
   if "$@"; then ok; else bad "$msg"; fi
 }
 
-# bash_input <lệnh> [cwd]: JSON PreToolUse cho Bash. Không có jq/Python thì tự escape.
+# bash_input <lệnh> [cwd]: JSON PreToolUse cho tool $TOOL (mặc định Bash). Không có jq/Python thì tự escape.
 bash_input() {
   local c="$1" d="${2:-$root}"
   if [ -n "$py" ]; then
-    "$py" -c 'import json, sys; print(json.dumps({"hook_event_name": "PreToolUse", "cwd": sys.argv[2], "tool_name": "Bash", "tool_input": {"command": sys.argv[1], "description": "test"}}))' "$c" "$d"
+    "$py" -c 'import json, sys; print(json.dumps({"hook_event_name": "PreToolUse", "cwd": sys.argv[2], "tool_name": sys.argv[3], "tool_input": {"command": sys.argv[1], "description": "test"}}))' "$c" "$d" "${TOOL:-Bash}"
   elif command -v jq >/dev/null 2>&1; then
-    jq -cn --arg c "$c" --arg d "$d" '{hook_event_name: "PreToolUse", cwd: $d, tool_name: "Bash", tool_input: {command: $c, description: "test"}}'
+    jq -cn --arg c "$c" --arg d "$d" --arg t "${TOOL:-Bash}" '{hook_event_name: "PreToolUse", cwd: $d, tool_name: $t, tool_input: {command: $c, description: "test"}}'
   else
     c="$(printf '%s' "$c" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
-    printf '{"hook_event_name":"PreToolUse","cwd":"%s","tool_name":"Bash","tool_input":{"command":"%s","description":"test"}}' "$d" "$c"
+    printf '{"hook_event_name":"PreToolUse","cwd":"%s","tool_name":"%s","tool_input":{"command":"%s","description":"test"}}' "$d" "${TOOL:-Bash}" "$c"
   fi
 }
 
@@ -209,8 +209,28 @@ EOF
   # Lệnh xuống dòng bằng \ (bash) hoặc ` (PowerShell): nối dòng trước khi so mẫu.
   expect_guard allow $'rm -rf build \\\n  dist'
   expect_guard allow $'rm -rf /tmp/a \\\n  /tmp/b'
-  expect_guard ask $'Remove-Item -Recurse -Force `\n  C:\\'
+  TOOL=PowerShell expect_guard ask $'Remove-Item -Recurse -Force `\n  C:\\'
   expect_guard ask $'rm -rf \\\n  ~'
+  # \ cuối dòng trong PowerShell/cmd là đường dẫn, ` cuối dòng trong bash là đóng `...`:
+  # lệnh ở dòng sau vẫn phải được xét như một lệnh mới.
+  TOOL=PowerShell expect_guard ask $'Set-Location C:\\\nRemove-Item -Recurse -Force *'
+  TOOL=PowerShell expect_guard ask $'Set-Location $env:TEMP\\build\\\nRemove-Item -Recurse -Force .\\*'
+  TOOL=PowerShell expect_guard ask $'cd /d C:\\\nrd /s /q .'
+  TOOL=PowerShell expect_guard ask $'dir C:\\\ndel /s /q *'
+  TOOL=PowerShell expect_guard ask $'cd C:\\\r\nRemove-Item -Recurse -Force *'
+  expect_guard ask $'cd `mktemp -d`\nrm -rf *'
+  expect_guard ask $'x=`pwd`\nrm -rf ~'
+  TOOL=PowerShell expect_guard ask $'Write-Host done `\nRemove-Item -Recurse -Force C:\\'
+  TOOL=PowerShell expect_guard ask $'Get-ChildItem C:\\\ndropdb prod'
+  TOOL=PowerShell expect_guard ask $'Get-ChildItem C:\\\nnpm run deploy'
+  TOOL=PowerShell expect_guard ask $'Remove-Item -Recurse -Force \\\nWrite-Host done'
+  TOOL=PowerShell expect_guard ask $'rd /s /q \\\necho done'
+  expect_guard ask $'echo hi\nrm -rf /'
+  TOOL=PowerShell expect_guard ask "$(printf 'Get-ChildItem C:\\\nSet-Location "%s"\ngit push' "$on_main")"
+  # Không rõ tool: so trên mọi dạng, thà hỏi thừa.
+  TOOL=Unknown expect_guard ask $'Remove-Item -Recurse -Force \\\nWrite-Host done'
+  TOOL=Unknown expect_guard ask $'Set-Location C:\\\nRemove-Item -Recurse -Force *'
+  TOOL=Unknown expect_guard ask $'Remove-Item -Recurse -Force `\n  C:\\'
 done
 if [ -n "$py" ]; then
   # Windows: Python đọc stdin theo cp1252, chữ "Đ" từng làm hỏng việc đọc lệnh.
