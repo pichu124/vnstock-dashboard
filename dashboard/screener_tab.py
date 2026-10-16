@@ -86,6 +86,9 @@ def render_screener_tab(
         def compute_session_stats(): return {}
         def _backfill_session_stats(): return 0
         def _reconcile_eod(): return 0
+    # Fragment Thống kê phiên chạy mỗi 30s + mỗi lượt rerun trang (Screener là tab
+    # mặc định) kể cả khi expander đóng ⇒ đệm 60s phần tính (4× intraday mỗi lượt).
+    compute_session_stats = st.cache_data(ttl=60, show_spinner=False)(compute_session_stats)
     from datetime import datetime
 
 
