@@ -405,3 +405,44 @@ def test_accuracy_widget_does_not_rank_tiny_sample_first(render_env, monkeypatch
     assert len(cards) == 2, cards
     assert "Steady" in cards[0] and "🥇" in cards[0]
     assert "100%" not in cards[1] and "🥇" not in cards[1]
+
+
+def _fake_brief_db(rows_by_id):
+    """`vnstock_memory._conn()` giả: chỉ trả hàng khi truy vấn ĐÚNG id."""
+    from contextlib import contextmanager
+
+    class _Cur:
+        def __init__(self, row):
+            self._row = row
+
+        def fetchone(self):
+            return self._row
+
+    class _Conn:
+        def execute(self, sql, params=()):
+            return _Cur(next((rows_by_id[p] for p in params if p in rows_by_id), None))
+
+    @contextmanager
+    def _conn():
+        yield _Conn()
+    return _conn
+
+
+def test_brief_runner_rating_uses_returned_brief_id(render_env, monkeypatch):
+    """Brief lưu theo ngày PHIÊN, ô ⭐ cũ dò theo `now().date()` ⇒ T7/CN (hay
+    sau nửa đêm) ô chấm sao im lặng biến mất. Id đã có sẵn ở `_brief_ids`."""
+    import vnstock_stance_track
+    monkeypatch.setattr(vnstock_stance_track, "summary_line", lambda *a, **k: None)
+    monkeypatch.setattr(sys.modules["vnstock_memory"], "_conn",
+                        _fake_brief_db({7: {"id": 7, "user_rating": None}}))
+    st = render_env
+    st.session_state["_brief_results"] = {"A": ("brief text", None),
+                                          "_brief_ids": {"A": 7}}
+    st.session_state["_brief_type"] = "afternoon"
+    keys = []
+    st.select_slider = lambda label, options=(), value=None, key=None, **k: (
+        keys.append(key) or value)
+
+    _load("dashboard.brief_run_panel").render_brief_runner()
+
+    assert "_rate_7_v" in keys

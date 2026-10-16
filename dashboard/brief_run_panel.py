@@ -46,6 +46,7 @@ def render_brief_runner() -> None:
             )
         st.session_state["_brief_results"] = _results
         st.session_state["_brief_type"] = _brief_type
+        st.session_state["_brief_time"] = _dt.now().strftime('%H:%M %d/%m/%Y')
 
     # ── Display results ────────────────────────────────────────────
     if "_brief_results" in st.session_state:
@@ -58,7 +59,7 @@ def render_brief_runner() -> None:
         elif "_no_agent" in _res:
             st.warning(_res["_no_agent"][1])
         else:
-            st.markdown(f"**{_btype_label} Brief** — {_dt.now().strftime('%H:%M %d/%m/%Y')}")
+            st.markdown(f"**{_btype_label} Brief** — {st.session_state.get('_brief_time', '')}")
             _agent_names = [k for k in _res if not k.startswith("_")]
 
             # ── Consensus banner (multi-agent only) ────────────────
@@ -114,21 +115,20 @@ def render_brief_runner() -> None:
             except Exception:
                 pass
 
-            def _rating_block(agent_name: str, brief_type_: str):
+            def _rating_block(agent_name: str):
+                # Id do generate_brief trả về — brief lưu theo ngày PHIÊN nên
+                # dò theo ngày lịch hôm nay thì T7/CN không bao giờ thấy.
                 try:
+                    _bid = (_res.get("_brief_ids") or {}).get(agent_name)
+                    if _bid is None:
+                        return
                     import vnstock_memory as _vm
-                    _vm.init_db()
-                    _today = _dt.now().date().isoformat()
                     with _vm._conn() as _c:
                         _row = _c.execute(
-                            "SELECT id, user_rating FROM briefs "
-                            "WHERE brief_date=? AND brief_type=? AND agent_name=? "
-                            "ORDER BY created_at DESC LIMIT 1",
-                            (_today, brief_type_, agent_name),
+                            "SELECT user_rating FROM briefs WHERE id=?", (_bid,),
                         ).fetchone()
                     if not _row:
                         return
-                    _bid = _row["id"]
                     _existing = _row["user_rating"]
                     _key_pref = f"_rate_{_bid}"
                     _cols = st.columns([2, 5, 2])
@@ -168,7 +168,7 @@ def render_brief_runner() -> None:
                     with st.expander(f"📄 {_agent_names[0]}", expanded=True):
                         _render_warnings(_agent_names[0])
                         st.markdown(_txt)
-                        _rating_block(_agent_names[0], _btype)
+                        _rating_block(_agent_names[0])
             elif _agent_names:
                 _tabs = st.tabs([f"📄 {n}" for n in _agent_names])
                 for _tab, _aname in zip(_tabs, _agent_names):
@@ -179,6 +179,6 @@ def render_brief_runner() -> None:
                         else:
                             _render_warnings(_aname)
                             st.markdown(_txt)
-                            _rating_block(_aname, _btype)
+                            _rating_block(_aname)
 
         st.caption("Brief được tạo bởi AI dựa trên dữ liệu quant — không phải khuyến nghị đầu tư.")
