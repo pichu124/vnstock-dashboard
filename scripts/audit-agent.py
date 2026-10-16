@@ -34,7 +34,7 @@ SUSPICIOUS = [
     (r"\bpush\b.*(\s--force\b|\s-f\b|\s--delete\b|\s--mirror\b|\s-d\b|\s\+\S|\s:\S)", "force-push / xoá nhánh remote"),
     (r"\bpush\b.*\b(main|master|trunk|production|release)\b", "push lên nhánh chính"),
     (r"\breset\b.*--hard", "git reset --hard"),
-    (r"\bclean\b.*\s-\w*f", "git clean -f"),
+    (r"\bclean\b.*(\s-\w*f|\s--force\b)", "git clean -f"),
     (r"\bcheckout\b\s+(--\s+)?\.(\s|$)|\bcheckout\b.*\s--\s", "git checkout -- (bỏ thay đổi)"),
     (r"\brestore\b(?=.*--worktree|(?!.*--staged))", "git restore (bỏ thay đổi)"),
     (r"\bcheckout\b.*\s(-f|--force)\b", "git checkout -f (bỏ thay đổi)"),
@@ -71,10 +71,12 @@ def load_watch(root):
     return pats
 
 
-HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1[^\n]*\n(.*?)(\n[ \t]*\2[ \t]*(\n|$)|\Z)", re.DOTALL)
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1([^\n]*)\n(.*?)(\n[ \t]*\2[ \t]*(\n|$)|\Z)", re.DOTALL)
+PIPE_SHELL = re.compile(r"^\s*\|\s*(bash|sh|zsh|dash|pwsh|powershell|cmd)(\.exe)?\b", re.IGNORECASE)
 SHELL_WORD = re.compile(r"\b(bash|sh|zsh|dash|pwsh|powershell|cmd)(\.exe)?\b[^\n|;&]*$", re.IGNORECASE)
 SPLIT = re.compile(r"\n|;|&&|\|\||\|")
-SHELL_C = re.compile(r"\b(bash|sh|zsh|dash|pwsh|powershell)(\.exe)?\s+(-\w+\s+)*-c(ommand)?\s|\bcmd(\.exe)?\s+(/\w\s+)*/[ck]\s|\beval\s",
+SHELL_C = re.compile(r"\b(bash|sh|zsh|dash|pwsh|powershell)(\.exe)?\s+(-\w+\s+)*-c(ommand)?\s|\bcmd(\.exe)?\s+(/\w\s+)*/[ck]\s|\beval\s"
+                     r"|\|\s*(bash|sh|zsh|dash|pwsh|powershell)(\.exe)?\b",
                      re.IGNORECASE)
 QUOTED = re.compile(r"\"(?:[^\"\\]|\\.)*\"|'[^']*'")
 QUOTED_PS = re.compile(r"\"[^\"]*\"|'[^']*'")  # PowerShell không escape bằng \ ("C:\x\" là một chuỗi trọn)
@@ -98,7 +100,9 @@ def keep_shell_heredocs(cmd):
     """Thân heredoc là dữ liệu, trừ khi nó được đưa vào một shell (bash <<'X' ... X): khi đó là lệnh."""
     def sub(m):
         line_start = m.string.rfind("\n", 0, m.start()) + 1
-        return "\n" + m.group(3) + "\n" if SHELL_WORD.search(m.string[line_start:m.start()]) else "\n"
+        rest = m.group(3)  # phần còn lại của dòng mở heredoc vẫn là lệnh: `; git ...`, `| bash`
+        fed = SHELL_WORD.search(m.string[line_start:m.start()]) or PIPE_SHELL.match(rest)
+        return rest + "\n" + (m.group(4) + "\n" if fed else "")
     return HEREDOC.sub(sub, cmd)
 
 
@@ -129,10 +133,13 @@ def segments(cmd, tool="Bash"):
             plain = re.sub(r"[\"']", " ", plain)
         for name, val in ASSIGN.findall(full):
             env[name] = val.strip("\"'")
-        m = CD.match(full)
-        if m:
+        head = full.lstrip("({ ")
+        m = CD.match(head)
+        if m and m.group(2).strip().strip("\"'") not in ("-", ""):
             target = m.group(2).strip().strip("\"'")
             ctx = target if is_absolute(target) else (ctx + "/" + target)
+        elif full[:1] in "({" or re.match(r"^(cd|popd|pop-location|pushd|set-location|sl)\s*(-\s*)?$", head, re.IGNORECASE):
+            ctx = ""  # cd không tham số, cd -, popd, subshell: không còn biết thư mục
         out.append((plain, full, ctx))
     return out
 
@@ -159,13 +166,16 @@ def benign_delete(full, ctx):
     toks = [t.strip("\"'") for t in TOKEN.findall(full)]
     while toks and toks[0].lower() in ("sudo", "doas", "wsl", "command", "builtin"):
         toks = toks[1:]
-    targets = [t for t in toks[1:] if t and not t.startswith("-") and not CMD_FLAG.match(t)]
+    cmd_style = bool(toks) and toks[0].lower() in ("rd", "del", "erase", "rmdir")  # /s /q là cờ của cmd
+    targets = [t for t in toks[1:] if t and not t.startswith("-") and not (cmd_style and CMD_FLAG.match(t))]
     if not targets:
         return False
     for t in targets:
+        if ".." in re.split(r"[\\/]+", t):
+            return False
         if benign_path(t):
             continue
-        rel = not is_absolute(t) and ".." not in re.split(r"[\\/]+", t)
+        rel = not is_absolute(t)
         if rel and ctx and benign_path(ctx):
             continue
         return False
@@ -243,66 +253,68 @@ def parse(path, s, cutoff, only_under=None):
         for line in fh:
             try:
                 e = json.loads(line)
-            except ValueError:
-                s.bad_lines += 1
-                continue
-            if not isinstance(e, dict):
-                continue
-            t = e.get("type")
-            msg = e.get("message") or {}
-            when = ts_of(e)
-            if when is not None and when < cutoff:
-                s.old_entries += 1
-                continue
-            if t == "assistant":
-                wire = e.get("wireToolInputs") or {}
-                for c in msg.get("content") or []:
-                    if isinstance(c, dict) and c.get("type") == "tool_use" and c.get("name") in SHELL_TOOLS:
-                        inp = wire.get(c.get("id")) or c.get("input") or {}
-                        cmd = inp.get("command") if isinstance(inp, dict) else None
-                        cwd_ok = only_under is None or (norm_path(e.get("cwd") or "") + "/").startswith(only_under + "/")
-                        if cmd and cwd_ok:
-                            s.calls[c["id"]] = {"tool": c["name"], "command": cmd, "cwd": e.get("cwd") or "",
-                                                "ts": e.get("timestamp") or "", "file": str(path), "who": who,
-                                                "status": "chưa rõ", "permission": None}
-            elif t == "user":
-                pd = e.get("permissionDecision")
-                for c in msg.get("content") or [] if isinstance(msg.get("content"), list) else []:
-                    if isinstance(c, dict) and c.get("type") == "tool_result" and c.get("tool_use_id") in s.calls:
-                        call = s.calls[c["tool_use_id"]]
-                        txt = " ".join(texts_of(c.get("content"))).strip()
-                        user_no = e.get("toolUseResult") == "User rejected tool use" or (
-                            c.get("is_error") and txt.startswith(REJECT_PREFIX))
-                        config_no = isinstance(pd, dict) and pd.get("decision") == "reject"
-                        call["status"] = "bị từ chối" if (user_no or config_no) else "đã chạy"
-                        call["rejected_by"] = "người" if user_no else ("cấu hình" if config_no else "")
-                        if isinstance(pd, dict):
-                            call["permission"] = pd
-            elif t == "attachment":
-                a = e.get("attachment") or {}
-                at = a.get("type") or ""
-                cmd = a.get("command") or ""
-                if at.startswith("hook_") and "guard-irreversible" in cmd and a.get("toolUseID"):
-                    out = a.get("stdout") or ""
-                    m = re.search(r'"permissionDecisionReason"\s*:\s*"([^"]*)"', out)
-                    s.guard[a["toolUseID"]] = {"asked": '"ask"' in out, "reason": m.group(1) if m else ""}
-                if at == "hook_system_message" and a.get("hookEvent") == "Stop" and \
-                        re.search(r"vẫn đỏ sau \d+ lần chặn", a.get("content") or ""):
-                    s.stop_releases += 1
-                if at in ("hook_non_blocking_error", "hook_error") or (
-                        at.startswith("hook_") and a.get("exitCode") not in (None, 0, 2)):
-                    if ".claude/hooks/" in cmd.replace("\\", "/"):
-                        s.hook_errors.append({"hook": a.get("hookName") or cmd, "stderr": (a.get("stderr") or "").strip(),
-                                              "exit": a.get("exitCode"), "ts": e.get("timestamp") or "", "file": str(path)})
-            elif t == "system" and e.get("subtype") == "stop_hook_summary":
-                for h in e.get("hookInfos") or []:
-                    if "stop-gate" in (h.get("command") or "") and isinstance(h.get("durationMs"), (int, float)):
-                        s.stop_runs.append(h["durationMs"])
-                # Mỗi lần chặn có cả user isMeta "Stop hook feedback" lẫn hookErrors: chỉ đếm hookErrors.
-                for err in e.get("hookErrors") or []:
-                    if isinstance(err, str):
-                        for m in re.finditer(r"check\.sh đang đỏ.*?lần chặn (\d+)/(\d+)", err, re.DOTALL):
-                            s.stop_blocks.append(f"{m.group(1)}/{m.group(2)}")
+                if isinstance(e, dict):
+                    parse_entry(e, s, path, who, cutoff, only_under)
+            except (ValueError, AttributeError, TypeError, KeyError):
+                s.bad_lines += 1  # JSON hỏng hoặc sai hình dạng: đếm, không làm hỏng cả lượt
+
+
+def parse_entry(e, s, path, who, cutoff, only_under):
+    t = e.get("type")
+    msg = e.get("message") or {}
+    when = ts_of(e)
+    if when is not None and when < cutoff:
+        s.old_entries += 1
+        return
+    if t == "assistant":
+        wire = e.get("wireToolInputs") or {}
+        for c in msg.get("content") or []:
+            if isinstance(c, dict) and c.get("type") == "tool_use" and c.get("name") in SHELL_TOOLS:
+                inp = wire.get(c.get("id")) or c.get("input") or {}
+                cmd = inp.get("command") if isinstance(inp, dict) else None
+                cwd_ok = only_under is None or (norm_path(e.get("cwd") or "") + "/").startswith(only_under + "/")
+                if cmd and cwd_ok:
+                    s.calls[c["id"]] = {"tool": c["name"], "command": cmd, "cwd": e.get("cwd") or "",
+                                        "ts": e.get("timestamp") or "", "file": str(path), "who": who,
+                                        "status": "chưa rõ", "permission": None}
+    elif t == "user":
+        pd = e.get("permissionDecision")
+        for c in msg.get("content") or [] if isinstance(msg.get("content"), list) else []:
+            if isinstance(c, dict) and c.get("type") == "tool_result" and c.get("tool_use_id") in s.calls:
+                call = s.calls[c["tool_use_id"]]
+                txt = " ".join(texts_of(c.get("content"))).strip()
+                user_no = e.get("toolUseResult") == "User rejected tool use" or (
+                    c.get("is_error") and txt.startswith(REJECT_PREFIX))
+                config_no = isinstance(pd, dict) and pd.get("decision") == "reject"
+                call["status"] = "bị từ chối" if (user_no or config_no) else "đã chạy"
+                call["rejected_by"] = "người" if user_no else ("cấu hình" if config_no else "")
+                if isinstance(pd, dict):
+                    call["permission"] = pd
+    elif t == "attachment":
+        a = e.get("attachment") or {}
+        at = a.get("type") or ""
+        cmd = a.get("command") or ""
+        if at.startswith("hook_") and "guard-irreversible" in cmd and a.get("toolUseID"):
+            out = a.get("stdout") or ""
+            m = re.search(r'"permissionDecisionReason"\s*:\s*"([^"]*)"', out)
+            s.guard[a["toolUseID"]] = {"asked": '"ask"' in out, "reason": m.group(1) if m else ""}
+        if at == "hook_system_message" and a.get("hookEvent") == "Stop" and \
+                re.search(r"vẫn đỏ sau \d+ lần chặn", a.get("content") or ""):
+            s.stop_releases += 1
+        if at in ("hook_non_blocking_error", "hook_error") or (
+                at.startswith("hook_") and a.get("exitCode") not in (None, 0, 2)):
+            if ".claude/hooks/" in cmd.replace("\\", "/"):
+                s.hook_errors.append({"hook": a.get("hookName") or cmd, "stderr": (a.get("stderr") or "").strip(),
+                                      "exit": a.get("exitCode"), "ts": e.get("timestamp") or "", "file": str(path)})
+    elif t == "system" and e.get("subtype") == "stop_hook_summary":
+        for h in e.get("hookInfos") or []:
+            if "stop-gate" in (h.get("command") or "") and isinstance(h.get("durationMs"), (int, float)):
+                s.stop_runs.append(h["durationMs"])
+        # Mỗi lần chặn có cả user isMeta "Stop hook feedback" lẫn hookErrors: chỉ đếm hookErrors.
+        for err in e.get("hookErrors") or []:
+            if isinstance(err, str):
+                for m in re.finditer(r"check\.sh đang đỏ.*?lần chặn (\d+)/(\d+)", err, re.DOTALL):
+                    s.stop_blocks.append(f"{m.group(1)}/{m.group(2)}")
 
 
 def find_bash():
@@ -419,7 +431,8 @@ def main():
         ran = c["status"] == "đã chạy"
         accepted = isinstance(c["permission"], dict) and c["permission"].get("decision") == "accept"
         # H và A đều cần khớp mẫu nghi ngờ (đã bỏ heredoc/chuỗi): guard so cả chữ trong dữ liệu nên hay hỏi thừa.
-        if ran and sus and not asked_then and asked_now is True:
+        on_main = bool(now and "đang ở nhánh" in (now.get("reason") or ""))  # guard hỏi theo nhánh, không theo chữ
+        if ran and (sus or on_main) and not asked_then and asked_now is True:
             rows["H"].append(item)
         elif ran and sus and not asked_then:
             rows["A"].append(item)

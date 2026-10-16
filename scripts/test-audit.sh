@@ -14,15 +14,17 @@ trap 'rm -rf "$tmp"' EXIT
 # Không để lại scripts/__pycache__: file chưa track sẽ làm Stop gate tưởng có thay đổi.
 export PYTHONIOENCODING=utf-8 PYTHONDONTWRITEBYTECODE=1
 
+# Repo đang ở nhánh main: guard hỏi mọi git push chạy ở đây.
+git init -q -b main "$tmp/mainrepo" && git -C "$tmp/mainrepo" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -q --allow-empty -m i
 # Tạo file phiên giả: phiên chính + một subagent implementer + một file cũ (ngoài --since).
-"$py" - "$tmp/t" "$root" <<'PYEOF'
+"$py" - "$tmp/t" "$root" "$tmp/mainrepo" <<'PYEOF'
 import json, os, sys, time
 d, cwd = sys.argv[1], sys.argv[2]
 os.makedirs(d + "/s1/subagents", exist_ok=True)
 lines = []
 NOW = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-def call(i, cmd, tool="Bash", result="ok", pd=None, guard=None, out=lines, ts=None, text="done"):
-    out.append({"type": "assistant", "cwd": cwd, "timestamp": ts or NOW,
+def call(i, cmd, tool="Bash", result="ok", pd=None, guard=None, out=lines, ts=None, text="done", where=None):
+    out.append({"type": "assistant", "cwd": where or cwd, "timestamp": ts or NOW,
                 "message": {"role": "assistant", "content": [{"type": "tool_use", "id": i, "name": tool, "input": {"command": cmd}}]}})
     if guard is not None:
         out.append({"type": "attachment", "attachment": {"type": "hook_success", "hookName": "PreToolUse:" + tool, "toolUseID": i,
@@ -62,6 +64,19 @@ call("h9", 'cmd /c "rd /s /q src"')
 call("h10", "git branch -D ancient", ts="2020-01-01T00:00:00Z")          # phiên mới nhưng dòng cũ: ngoài --since
 call("h11", "rm -rf $SP/rv6")                                           # đích là biến không biết: vẫn báo
 call("h12", "SP=/tmp/claude-0/scratchpad; cd $SP/rv7 && rm -rf repos new")
+# Ca biên của reviewer lần hai.
+call("k1", "git clean --force -d")
+call("k2", 'echo "git stash drop" | sh')
+call("k3", "cat <<'EOF' | bash\ngit stash drop\nEOF")
+call("k4", "cat > notes.txt <<'EOF'; git stash drop\nghi chú\nEOF")
+call("k5", "rm -rf build/../src")
+call("k6", "cd /tmp/x && cd && rm -rf proj")
+call("k7", "rm -rf node_modules /c")
+call("m1", "git push", where=sys.argv[3])                                 # push lúc đang ở main, không khớp mẫu chữ
+lines.append({"type": "assistant", "message": "chuỗi thay vì object"})
+lines.append({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": ["list"]}}]}})
+lines.append({"type": "system", "subtype": "stop_hook_summary", "hookInfos": ["chuỗi"], "hookErrors": [1]})
+lines.append({"type": "attachment", "attachment": "chuỗi"})
 BLOCK = "[\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop-gate.sh]: ./scripts/check.sh đang đỏ (exit 1), chưa được kết thúc lượt (lần chặn 1/3).\n"
 lines.append({"type": "user", "isMeta": True, "message": {"role": "user", "content": "Stop hook feedback:\n" + BLOCK}})
 lines.append({"type": "system", "subtype": "stop_hook_summary", "timestamp": NOW,
@@ -114,7 +129,7 @@ cmds = lambda k: {i["command"] for i in r[k]}
 check(code == 0, f"audit phải exit 0, được {code}")
 check(nofile == 2, f"không có file phiên thì exit 2, được {nofile}")
 check(r["files"] == 2, f"--since phải bỏ file cũ: đọc {r['files']} file, cần 2")
-check(r["bad_lines"] == 1, f"dòng JSON hỏng phải được đếm, được {r['bad_lines']}")
+check(r["bad_lines"] == 5, f"1 dòng JSON hỏng + 4 dòng sai hình dạng phải được đếm, được {r['bad_lines']}")
 check("git checkout -- ." in cmds("A_possible_misses"), "A phải có git checkout -- .")
 check("Remove-Item -Recurse -Force src" in cmds("A_possible_misses"), "A phải có Remove-Item -Recurse src (PowerShell)")
 check("git stash drop" in cmds("A_possible_misses"), "A phải có lệnh của subagent")
@@ -122,17 +137,21 @@ check(any(i["who"] == "implementer" for i in r["A_possible_misses"]), "phải gh
 for harmless in ("rm -rf node_modules && rm -rf /tmp/build", "ls -la", "git commit -m \"push to main\" && git push -u origin feat/x",
                  "git push -u origin feat/x && git checkout main"):
     check(harmless not in cmds("A_possible_misses"), f"A không được có lệnh vô hại: {harmless}")
-check(not any(i["command"].startswith("cat > notes.txt") for i in r["A_possible_misses"]), "nội dung heredoc là dữ liệu, không phải lệnh")
+check("cat > notes.txt <<'EOF'\ngit checkout -- .\ngit stash drop\nEOF\nls" not in cmds("A_possible_misses"), "nội dung heredoc là dữ liệu, không phải lệnh")
 check("git branch -D old-work" not in cmds("A_possible_misses"), "file ngoài --since không được đọc")
 check(cmds("B_regressions") == {"echo hello"}, f"B phải là đúng ca guard từng hỏi mà nay cho qua: {cmds('B_regressions')}")
 check(cmds("C_asked_approved") == {"git push origin main", "echo hello"}, f"C chỉ gồm lệnh guard hỏi và được duyệt: {cmds('C_asked_approved')}")
 check(cmds("D_asked_rejected") == {"git push --force origin feat/x", "git push --force origin x"}, f"D sai: {cmds('D_asked_rejected')}")
-check(cmds("H_ran_unguarded") == {"git reset --hard HEAD~3"}, f"H (guard không hỏi lúc chạy, nay hỏi) sai: {cmds('H_ran_unguarded')}")
+check(cmds("H_ran_unguarded") == {"git reset --hard HEAD~3", "git clean --force -d", "git push"}, f"H (guard không hỏi lúc chạy, nay hỏi) sai: {cmds('H_ran_unguarded')}")
 A = cmds("A_possible_misses")
 for must in ('Set-Location "C:\\vnstock\\"; Remove-Item -Recurse -Force data_warehouse\\prices; Write-Host "ok"',
              "rm -rf ~/build-important", "D=/tmp/x; rm -rf $D; D=$HOME/src; rm -rf $D", "cd build && rm -rf ../src",
              "bash <<'X'\nrm -rf src\nX", 'cmd /c "rd /s /q src"', "rm -rf $SP/rv6"):
     check(must in A, f"A phải có: {must!r}")
+for must in ('echo "git stash drop" | sh', "cat <<'EOF' | bash\ngit stash drop\nEOF",
+             "cat > notes.txt <<'EOF'; git stash drop\nghi chú\nEOF", "rm -rf build/../src",
+             "cd /tmp/x && cd && rm -rf proj", "rm -rf node_modules /c"):
+    check(must in A, f"A phải có (ca biên): {must!r}")
 for benign in ("SP=/tmp/claude-0/scratchpad; cd $SP/rv7 && rm -rf repos new", "cat transcript.txt"):
     check(benign not in A, f"A không được có: {benign!r}")
 check("git branch -D ancient" not in A, "dòng có timestamp cũ hơn --since không được đọc")
