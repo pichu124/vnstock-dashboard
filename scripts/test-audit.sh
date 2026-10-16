@@ -72,7 +72,10 @@ call("k4", "cat > notes.txt <<'EOF'; git stash drop\nghi chú\nEOF")
 call("k5", "rm -rf build/../src")
 call("k6", "cd /tmp/x && cd && rm -rf proj")
 call("k7", "rm -rf node_modules /c")
-call("m1", "git push", where=sys.argv[3])                                 # push lúc đang ở main, không khớp mẫu chữ
+call("m1", "git push", where=sys.argv[3])
+# Claude Code trên Windows (2.1.296) không ghi kết quả guard vào file phiên: suy từ hộp hỏi.
+call("n1", "git push --force origin y", result="rejected")                # bạn từ chối ở hộp hỏi -> D
+call("n2", "git push -u origin main", pd={"decision": "accept", "source": "user_temporary"})  # bạn duyệt -> C, không phải H                                 # push lúc đang ở main, không khớp mẫu chữ
 lines.append({"type": "assistant", "message": "chuỗi thay vì object"})
 lines.append({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": ["list"]}}]}})
 lines.append({"type": "system", "subtype": "stop_hook_summary", "hookInfos": ["chuỗi"], "hookErrors": [1]})
@@ -140,8 +143,8 @@ for harmless in ("rm -rf node_modules && rm -rf /tmp/build", "ls -la", "git comm
 check("cat > notes.txt <<'EOF'\ngit checkout -- .\ngit stash drop\nEOF\nls" not in cmds("A_possible_misses"), "nội dung heredoc là dữ liệu, không phải lệnh")
 check("git branch -D old-work" not in cmds("A_possible_misses"), "file ngoài --since không được đọc")
 check(cmds("B_regressions") == {"echo hello"}, f"B phải là đúng ca guard từng hỏi mà nay cho qua: {cmds('B_regressions')}")
-check(cmds("C_asked_approved") == {"git push origin main", "echo hello"}, f"C chỉ gồm lệnh guard hỏi và được duyệt: {cmds('C_asked_approved')}")
-check(cmds("D_asked_rejected") == {"git push --force origin feat/x", "git push --force origin x"}, f"D sai: {cmds('D_asked_rejected')}")
+check(cmds("C_asked_approved") == {"git push origin main", "echo hello", "git push -u origin main"}, f"C chỉ gồm lệnh guard hỏi và được duyệt: {cmds('C_asked_approved')}")
+check(cmds("D_asked_rejected") == {"git push --force origin feat/x", "git push --force origin x", "git push --force origin y"}, f"D sai: {cmds('D_asked_rejected')}")
 check(cmds("H_ran_unguarded") == {"git reset --hard HEAD~3", "git clean --force -d", "git push"}, f"H (guard không hỏi lúc chạy, nay hỏi) sai: {cmds('H_ran_unguarded')}")
 A = cmds("A_possible_misses")
 for must in ('Set-Location "C:\\vnstock\\"; Remove-Item -Recurse -Force data_warehouse\\prices; Write-Host "ok"',

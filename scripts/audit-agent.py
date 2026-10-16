@@ -426,22 +426,29 @@ def main():
         item = dict(c, id=cid, suspicious=sus, guard_then=hist, guard_now=now, approved=who_approved(c["permission"]))
         asked_then = bool(hist and hist["asked"])
         asked_now = now["asked"] if now else None
+        ran = c["status"] == "đã chạy"
+        pd = c["permission"] if isinstance(c["permission"], dict) else {}
+        accepted = pd.get("decision") == "accept"
+        # Có hộp hỏi hay không suy từ quyết định cấp phép (luôn có trong file phiên); bản ghi kết quả
+        # của guard thì có bản Claude Code không ghi (Windows 2.1.296), nên không dựa riêng vào nó.
+        prompted = (pd.get("source") or "").startswith("user") or c.get("rejected_by") == "người"
+        asked_eff = asked_then or (not hist and asked_now is True and prompted)
+        on_main = bool(now and "đang ở nhánh" in (now.get("reason") or ""))  # guard hỏi theo nhánh, không theo chữ
         if asked_then and asked_now is False:
             rows["B"].append(item)
-        ran = c["status"] == "đã chạy"
-        accepted = isinstance(c["permission"], dict) and c["permission"].get("decision") == "accept"
-        # H và A đều cần khớp mẫu nghi ngờ (đã bỏ heredoc/chuỗi): guard so cả chữ trong dữ liệu nên hay hỏi thừa.
-        on_main = bool(now and "đang ở nhánh" in (now.get("reason") or ""))  # guard hỏi theo nhánh, không theo chữ
-        if ran and (sus or on_main) and not asked_then and asked_now is True:
-            rows["H"].append(item)
-        elif ran and sus and not asked_then:
-            rows["A"].append(item)
-        elif c["status"] == "bị từ chối" and not asked_then and asked_now is not True:
-            rows["G"].append(item)
-        if asked_then and ran and accepted:
-            rows["C"].append(item)
-        if asked_then and c["status"] == "bị từ chối":
-            rows["D"].append(item)
+        if ran:
+            # H và A đều cần khớp mẫu nghi ngờ (đã bỏ heredoc/chuỗi): guard so cả chữ trong dữ liệu nên hay hỏi thừa.
+            if asked_now is True and not asked_eff and not prompted and (sus or on_main):
+                rows["H"].append(item)
+            elif asked_now is not True and not asked_then and sus:
+                rows["A"].append(item)
+            if asked_eff and accepted:
+                rows["C"].append(item)
+        elif c["status"] == "bị từ chối":
+            if asked_eff or (not hist and asked_now is True):
+                rows["D"].append(item)
+            elif asked_now is not True:
+                rows["G"].append(item)
 
     report = {
         "project": str(root), "transcripts": [str(d) for d in dirs], "files": len(files), "bad_lines": s.bad_lines,
@@ -449,6 +456,7 @@ def main():
         "A_possible_misses": rows["A"], "B_regressions": rows["B"], "C_asked_approved": rows["C"],
         "D_asked_rejected": rows["D"], "G_rejected_not_asked": rows["G"], "H_ran_unguarded": rows["H"],
         "hook_errors": s.hook_errors, "old_entries_skipped": s.old_entries,
+        "guard_records": len(s.guard),
         "replay_errors": sorted({r["error"] for r in replayed.values() if r.get("error")})[:5],
         "stop_gate": {"runs": len(s.stop_runs), "blocks": s.stop_blocks, "released_after_max": s.stop_releases,
                       "median_s": round(statistics.median(s.stop_runs) / 1000, 1) if s.stop_runs else None,
@@ -468,6 +476,9 @@ def render(r):
          f"Đọc {r['files']} file phiên, {r['shell_commands']} lệnh shell"
          + (f", {r['bad_lines']} dòng không đọc được" if r["bad_lines"] else "")
          + ("." if r["replay"] else ". KHÔNG chạy lại được guard hiện tại (thiếu bash hoặc guard), mục A/B/H kém tin cậy."), ""]
+    if r["shell_commands"] and not r["guard_records"]:
+        L += ["ℹ File phiên không có bản ghi kết quả của guard (bản Claude Code này không ghi). Mục B cần bản ghi đó nên luôn rỗng; "
+              "C, D, H được suy từ việc bạn có thấy hộp hỏi hay không.", ""]
     if r["replay_errors"]:
         L += ["⚠ Chạy lại guard bị lỗi (các lệnh đó coi như chưa biết guard có hỏi không): "
               + "; ".join(f"`{x[:200]}`" for x in r["replay_errors"]), ""]
