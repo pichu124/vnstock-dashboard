@@ -14,12 +14,13 @@ Guard, Stop gate và hook là **chốt an toàn** của đội. Skill này đư�
 ```bash
 ./scripts/audit-agent.sh --since <số ngày> --out "${TMPDIR:-/tmp}/agent-audit.md"
 ```
-Đọc báo cáo. Exit 2 nghĩa là không thấy file phiên: thử `--transcripts <thư mục>` (file phiên nằm ở `~/.claude/projects/<tên thư mục dự án, ký tự đặc biệt thành ->/`). Không có gì ở mục A, B, F và Stop gate bình thường thì báo "không có sự cố" và dừng.
+Đọc báo cáo. Exit 2 nghĩa là không thấy file phiên: thử `--transcripts <thư mục>` (file phiên nằm ở `~/.claude/projects/<tên thư mục dự án, ký tự đặc biệt thành ->/`). Không có gì ở mục A, B, H, F và Stop gate bình thường thì báo "không có sự cố" và dừng.
 
 ## 2. Phân loại từng mục, theo thứ tự ưu tiên
 | Mục | Làm gì |
 |---|---|
 | **B. Hồi quy** (trước hỏi, nay cho qua) | Luôn là lỗi. Sửa trước. |
+| **H. Chạy lúc guard không hỏi** (nay đã hỏi) | Guard không hoạt động lúc đó. Tìm nguyên nhân trong mục F và trong cách mở phiên (thư mục chưa trust, phiên mở ở thư mục cha, matcher thiếu tool). Báo cho người, không cần sửa guard. |
 | **A. Có thể bỏ sót** | Tự hỏi: lệnh này chạy nhầm chỗ có làm **mất dữ liệu hoặc ảnh hưởng người khác** không? Có thì là lỗi thật. Chỉ là thao tác trong thư mục tạm của chính agent thì ghi "không phải lỗi" kèm lý do. |
 | **G. Bạn từ chối mà guard không hỏi** | Lệnh nguy hiểm thì xử lý như A. Lệnh vô hại thì bỏ qua. |
 | **F. Lỗi hook** | Tái hiện bằng cách chạy hook với input tương tự, rồi sửa nguyên nhân gốc (CRLF, quyền chạy, Python, đường dẫn...). |

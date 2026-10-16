@@ -20,8 +20,9 @@ import json, os, sys, time
 d, cwd = sys.argv[1], sys.argv[2]
 os.makedirs(d + "/s1/subagents", exist_ok=True)
 lines = []
-def call(i, cmd, tool="Bash", result="ok", pd=None, guard=None, out=lines):
-    out.append({"type": "assistant", "cwd": cwd, "timestamp": "2026-10-16T01:00:00Z",
+NOW = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+def call(i, cmd, tool="Bash", result="ok", pd=None, guard=None, out=lines, ts=None, text="done"):
+    out.append({"type": "assistant", "cwd": cwd, "timestamp": ts or NOW,
                 "message": {"role": "assistant", "content": [{"type": "tool_use", "id": i, "name": tool, "input": {"command": cmd}}]}})
     if guard is not None:
         out.append({"type": "attachment", "attachment": {"type": "hook_success", "hookName": "PreToolUse:" + tool, "toolUseID": i,
@@ -31,9 +32,12 @@ def call(i, cmd, tool="Bash", result="ok", pd=None, guard=None, out=lines):
         out.append({"type": "user", "toolUseResult": "User rejected tool use", "message": {"role": "user", "content": [
             {"type": "tool_result", "tool_use_id": i, "is_error": True,
              "content": "The user doesn't want to proceed with this tool use. The tool use was rejected."}]}})
+    elif result == "denied":
+        out.append({"type": "user", "permissionDecision": {"decision": "reject", "source": "config"}, "message": {"role": "user",
+                    "content": [{"type": "tool_result", "tool_use_id": i, "is_error": True, "content": "Permission to use Bash has been denied."}]}})
     else:
         out.append({"type": "user", "permissionDecision": pd or {"decision": "accept", "source": "config", "reasonType": "classifier"},
-                    "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": i, "content": "done"}]}})
+                    "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": i, "content": text}]}})
 ASK = '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"Hành động không đảo ngược được (x)."}}'
 call("t1", "git checkout -- .")
 call("t2", "git push --force origin feat/x", result="rejected", guard=ASK)
@@ -45,10 +49,25 @@ call("t7", "cat > notes.txt <<'EOF'\ngit checkout -- .\ngit stash drop\nEOF\nls"
 call("t8", "ls -la", result="rejected")
 call("t9", "git commit -m \"push to main\" && git push -u origin feat/x")
 call("t10", "git push -u origin feat/x && git checkout main")
-lines.append({"type": "system", "subtype": "stop_hook_summary",
+# Các ca reviewer tìm ra ở bản đầu.
+call("h1", "git reset --hard HEAD~3")                                   # chạy khi guard chưa nạp; nay guard hỏi
+call("h2", "git push --force origin x", result="denied", guard=ASK)       # bị cấu hình chặn: D, không phải C
+call("h3", "cat transcript.txt", text="... The user doesn't want to proceed ... (chỉ là output)")
+call("h4", 'Set-Location "C:\\vnstock\\"; Remove-Item -Recurse -Force data_warehouse\\prices; Write-Host "ok"', tool="PowerShell")
+call("h5", "rm -rf ~/build-important")
+call("h6", "D=/tmp/x; rm -rf $D; D=$HOME/src; rm -rf $D")
+call("h7", "cd build && rm -rf ../src")
+call("h8", "bash <<'X'\nrm -rf src\nX")
+call("h9", 'cmd /c "rd /s /q src"')
+call("h10", "git branch -D ancient", ts="2020-01-01T00:00:00Z")          # phiên mới nhưng dòng cũ: ngoài --since
+call("h11", "rm -rf $SP/rv6")                                           # đích là biến không biết: vẫn báo
+call("h12", "SP=/tmp/claude-0/scratchpad; cd $SP/rv7 && rm -rf repos new")
+BLOCK = "[\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop-gate.sh]: ./scripts/check.sh đang đỏ (exit 1), chưa được kết thúc lượt (lần chặn 1/3).\n"
+lines.append({"type": "user", "isMeta": True, "message": {"role": "user", "content": "Stop hook feedback:\n" + BLOCK}})
+lines.append({"type": "system", "subtype": "stop_hook_summary", "timestamp": NOW,
               "hookInfos": [{"command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop-gate.sh", "durationMs": 125000}],
-              "hookErrors": ["[stop-gate.sh]: ./scripts/check.sh đang đỏ (exit 1), chưa được kết thúc lượt (lần chặn 1/3).\n"]})
-lines.append({"type": "user", "isMeta": True, "message": {"role": "user",
+              "hookErrors": [BLOCK]})
+lines.append({"type": "attachment", "timestamp": NOW, "attachment": {"type": "hook_system_message", "hookName": "Stop", "hookEvent": "Stop",
               "content": "Stop gate: ./scripts/check.sh vẫn đỏ sau 3 lần chặn liên tiếp. Agent được dừng để bạn xem xét."}})
 lines.append({"type": "attachment", "attachment": {"type": "hook_non_blocking_error", "hookName": "PreToolUse:Bash",
               "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-irreversible.sh", "exitCode": 127,
@@ -106,14 +125,23 @@ for harmless in ("rm -rf node_modules && rm -rf /tmp/build", "ls -la", "git comm
 check(not any(i["command"].startswith("cat > notes.txt") for i in r["A_possible_misses"]), "nội dung heredoc là dữ liệu, không phải lệnh")
 check("git branch -D old-work" not in cmds("A_possible_misses"), "file ngoài --since không được đọc")
 check(cmds("B_regressions") == {"echo hello"}, f"B phải là đúng ca guard từng hỏi mà nay cho qua: {cmds('B_regressions')}")
-check(cmds("C_asked_approved") >= {"git push origin main"}, "C phải có push main được người duyệt")
-check(cmds("D_asked_rejected") == {"git push --force origin feat/x"}, f"D sai: {cmds('D_asked_rejected')}")
-check(cmds("G_rejected_not_asked") == {"ls -la"}, f"G sai: {cmds('G_rejected_not_asked')}")
+check(cmds("C_asked_approved") == {"git push origin main", "echo hello"}, f"C chỉ gồm lệnh guard hỏi và được duyệt: {cmds('C_asked_approved')}")
+check(cmds("D_asked_rejected") == {"git push --force origin feat/x", "git push --force origin x"}, f"D sai: {cmds('D_asked_rejected')}")
+check(cmds("H_ran_unguarded") == {"git reset --hard HEAD~3"}, f"H (guard không hỏi lúc chạy, nay hỏi) sai: {cmds('H_ran_unguarded')}")
+A = cmds("A_possible_misses")
+for must in ('Set-Location "C:\\vnstock\\"; Remove-Item -Recurse -Force data_warehouse\\prices; Write-Host "ok"',
+             "rm -rf ~/build-important", "D=/tmp/x; rm -rf $D; D=$HOME/src; rm -rf $D", "cd build && rm -rf ../src",
+             "bash <<'X'\nrm -rf src\nX", 'cmd /c "rd /s /q src"', "rm -rf $SP/rv6"):
+    check(must in A, f"A phải có: {must!r}")
+for benign in ("SP=/tmp/claude-0/scratchpad; cd $SP/rv7 && rm -rf repos new", "cat transcript.txt"):
+    check(benign not in A, f"A không được có: {benign!r}")
+check("git branch -D ancient" not in A, "dòng có timestamp cũ hơn --since không được đọc")
+check(cmds("G_rejected_not_asked") == {"ls -la"}, f"G sai (output thường có chữ 'doesn't want to proceed' không phải từ chối): {cmds('G_rejected_not_asked')}")
 sg = r["stop_gate"]
 check(sg["runs"] == 1 and sg["max_s"] == 125.0, f"Stop gate phải đo được 125s: {sg}")
 check(sg["blocks"] == ["1/3"] and sg["released_after_max"] == 1, f"Stop gate chặn/nhả sai: {sg}")
 check(len(r["hook_errors"]) == 1 and "command not found" in r["hook_errors"][0]["stderr"], f"lỗi hook: {r['hook_errors']}")
-check("## A. Có thể guard bỏ sót: 3" in md and "## F. Lỗi hook của kit: 1" in md, "báo cáo markdown thiếu mục")
+check("## A. Có thể guard bỏ sót:" in md and "## H." in md and "## F. Lỗi hook của kit: 1" in md, "báo cáo markdown thiếu mục")
 spec = importlib.util.spec_from_file_location("audit", "scripts/audit-agent.py")
 a = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(a)

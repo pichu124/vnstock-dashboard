@@ -7,6 +7,8 @@ Chỉ đọc. Lập báo cáo markdown (hoặc JSON) gồm:
   C. guard hỏi và người duyệt (ứng viên hỏi thừa), D. guard hỏi và người từ chối (guard làm đúng)
   E. Stop gate: số lần chặn, nhả sau N lần, thời gian chạy
   F. lỗi hook của kit
+  G. người từ chối mà guard không hỏi, H. lệnh đã chạy lúc guard không hỏi mà bản hiện tại hỏi
+     (guard chưa nạp, workspace chưa trust, matcher thiếu tool, hoặc bản cũ)
 Thường gọi qua scripts/audit-agent.sh (để có bash chạy lại guard). Cần Python 3.8+, chỉ thư viện chuẩn.
 """
 import argparse
@@ -19,11 +21,12 @@ import statistics
 import subprocess
 import sys
 import time
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 SHELL_TOOLS = ("Bash", "PowerShell")
-REJECT_MARK = "doesn't want to proceed"
+REJECT_PREFIX = "The user doesn't want to proceed"
 
 # Danh sách nghi ngờ RỘNG hơn guard: ý kiến thứ hai để tìm chỗ guard bỏ sót. Khớp thừa chỉ thêm
 # một dòng vào báo cáo. Thêm mẫu riêng của dự án trong .claude/audit-watch.txt (regex<TAB>nhãn).
@@ -33,10 +36,11 @@ SUSPICIOUS = [
     (r"\breset\b.*--hard", "git reset --hard"),
     (r"\bclean\b.*\s-\w*f", "git clean -f"),
     (r"\bcheckout\b\s+(--\s+)?\.(\s|$)|\bcheckout\b.*\s--\s", "git checkout -- (bỏ thay đổi)"),
-    (r"\brestore\b\s+(?!--staged)", "git restore (bỏ thay đổi)"),
+    (r"\brestore\b(?=.*--worktree|(?!.*--staged))", "git restore (bỏ thay đổi)"),
+    (r"\bcheckout\b.*\s(-f|--force)\b", "git checkout -f (bỏ thay đổi)"),
     (r"\bstash\s+(drop|clear)\b", "git stash drop/clear"),
     (r"\bbranch\s+(-D|--delete\s+--force)\b", "xoá nhánh local (-D)"),
-    (r"\b(rm|remove-item|ri|del|erase|rd|rmdir)\b.*(\s-\w*r\w*\b|\s-recurse\b|\s/s\b)", "xoá đệ quy"),
+    (r"\b(rm|remove-item|ri|del|erase|rd|rmdir)\b.*(\s-\w*r\w*\b|\s-recurse\b|\s--recursive\b|\s/s\b)", "xoá đệ quy"),
     (r"\b(drop\s+(table|database|schema)|truncate\s+table|dropdb)\b", "xoá dữ liệu SQL"),
     (r"\b(migrate\s+reset|db:(drop|reset))\b", "reset database"),
     (r"\b(npm|pnpm|yarn|bun|cargo)\b.*\bpublish\b|\btwine\s+upload\b|\bdocker\b.*\bpush\b", "publish / đẩy artifact"),
@@ -68,34 +72,43 @@ def load_watch(root):
 
 
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1[^\n]*\n(.*?)(\n[ \t]*\2[ \t]*(\n|$)|\Z)", re.DOTALL)
+SHELL_WORD = re.compile(r"\b(bash|sh|zsh|dash|pwsh|powershell|cmd)(\.exe)?\b[^\n|;&]*$", re.IGNORECASE)
 SPLIT = re.compile(r"\n|;|&&|\|\||\|")
-SHELL_C = re.compile(r"\b(bash|sh|zsh|pwsh|powershell)(\.exe)?\s+(-\w+\s+)*-c(ommand)?\s", re.IGNORECASE)
+SHELL_C = re.compile(r"\b(bash|sh|zsh|dash|pwsh|powershell)(\.exe)?\s+(-\w+\s+)*-c(ommand)?\s|\bcmd(\.exe)?\s+(/\w\s+)*/[ck]\s|\beval\s",
+                     re.IGNORECASE)
 QUOTED = re.compile(r"\"(?:[^\"\\]|\\.)*\"|'[^']*'")
-# Xoá đệ quy thư mục tạm/build là việc thường ngày, không đưa vào báo cáo.
-BENIGN_DELETE = re.compile(r"tmp|temp|scratch|cache|node_modules|dist\b|build\b|__pycache__|\.pytest_cache|coverage|\.venv\b|\bout\b", re.IGNORECASE)
-
-
-ASSIGN = re.compile(r"(?:^|[\s;&|(])([A-Za-z_][A-Za-z0-9_]*)=(\"[^\"]*\"|'[^']*'|[^\s;&|]+)")
-
-
-def expand_vars(body):
-    """Thay $X / ${X} bằng giá trị gán ngay trong lệnh (S=/tmp/x; rm -rf $S/y), để biết đích thật."""
-    for name, val in ASSIGN.findall(body):
-        val = val.strip("\"'")
-        body = re.sub(r"\$\{?" + name + r"\b\}?", lambda _m, v=val: v, body)
-    return body
-
-
+QUOTED_PS = re.compile(r"\"[^\"]*\"|'[^']*'")  # PowerShell không escape bằng \ ("C:\x\" là một chuỗi trọn)
+ASSIGN = re.compile(r"(?:^|\s)([A-Za-z_][A-Za-z0-9_]*)=(\"[^\"]*\"|'[^']*'|\S+)")
 CD = re.compile(r"^(cd|pushd|set-location|sl|push-location)\s+(.+)$", re.IGNORECASE)
+TOKEN = re.compile(r"\"[^\"]*\"|'[^']*'|\S+")
+# Xoá đệ quy chỉ được coi là vô hại khi MỌI đích nằm trong thư mục tạm/build (khớp trọn tên một thành phần).
+BENIGN_NAMES = {"tmp", "temp", "node_modules", "dist", "build", "__pycache__", ".pytest_cache", ".mypy_cache",
+                ".ruff_cache", ".cache", "coverage", ".coverage", "htmlcov", ".venv", "venv", ".tox", ".next",
+                ".turbo", ".parcel-cache", "scratchpad"}
+CMD_FLAG = re.compile(r"^/[a-z]$", re.IGNORECASE)
 
 
-def segments(cmd):
+def expand(text, env):
+    for name, val in env.items():
+        text = re.sub(r"\$\{?" + name + r"\b\}?", lambda _m, v=val: v, text)
+    return text
+
+
+def keep_shell_heredocs(cmd):
+    """Thân heredoc là dữ liệu, trừ khi nó được đưa vào một shell (bash <<'X' ... X): khi đó là lệnh."""
+    def sub(m):
+        line_start = m.string.rfind("\n", 0, m.start()) + 1
+        return "\n" + m.group(3) + "\n" if SHELL_WORD.search(m.string[line_start:m.start()]) else "\n"
+    return HEREDOC.sub(sub, cmd)
+
+
+def segments(cmd, tool="Bash"):
     """Các lệnh đơn trong một lệnh shell, dạng (để so mẫu, đầy đủ, thư mục cd gần nhất).
 
-    Bỏ thân heredoc (là dữ liệu). Bản để so mẫu thay chuỗi trong nháy bằng "" (trừ bash -c '...'),
-    bản đầy đủ giữ nguyên để biết đích thật (rm -rf "$S/tmp-x").
+    Bản để so mẫu thay chuỗi trong nháy bằng "" (trừ bash -c '...', cmd /c "...", eval), bản đầy đủ
+    giữ nguyên để biết đích thật. Biến gán trong lệnh (S=/tmp/x; rm -rf $S) được thay theo thứ tự.
     """
-    body = expand_vars(HEREDOC.sub("\n", cmd))
+    body = keep_shell_heredocs(cmd)
     store = []
 
     def keep(m):
@@ -103,31 +116,69 @@ def segments(cmd):
         return "\0%d\0" % (len(store) - 1)
 
     shell_c = bool(SHELL_C.search(body))
-    marked = body if shell_c else QUOTED.sub(keep, body)
-    out, ctx = [], ""
+    quoted = QUOTED_PS if tool == "PowerShell" else QUOTED
+    marked = body if shell_c else quoted.sub(keep, body)
+    out, ctx, env = [], "", {}
     for seg in SPLIT.split(marked):
         seg = seg.strip()
         if not seg:
             continue
-        plain = re.sub(r"\0\d+\0", '""', seg)
-        full = re.sub(r"\0(\d+)\0", lambda m: store[int(m.group(1))], seg)
+        full = expand(re.sub(r"\0(\d+)\0", lambda m: store[int(m.group(1))], seg), env)
+        plain = expand(re.sub(r"\0\d+\0", '""', seg), env)
         if shell_c:
             plain = re.sub(r"[\"']", " ", plain)
+        for name, val in ASSIGN.findall(full):
+            env[name] = val.strip("\"'")
         m = CD.match(full)
         if m:
             target = m.group(2).strip().strip("\"'")
-            ctx = target if re.match(r"^([/\\~]|[A-Za-z]:)", target) else (ctx + "/" + target)
+            ctx = target if is_absolute(target) else (ctx + "/" + target)
         out.append((plain, full, ctx))
     return out
 
 
-def suspicious_labels(cmd, patterns):
+def is_absolute(p):
+    return bool(re.match(r"^([/\\~]|[A-Za-z]:|\$home\b|\$env:|%)", p, re.IGNORECASE))
+
+
+def under_temp(p):
+    low = p.replace("\\", "/").lower()
+    temps = ["/tmp/", "/var/tmp/", "%temp%", "%tmp%", "$env:temp", "$env:tmp", "/appdata/local/temp/"]
+    for v in ("TMPDIR", "TEMP", "TMP"):
+        if os.environ.get(v):
+            temps.append(os.environ[v].replace("\\", "/").lower().rstrip("/") + "/")
+    return any(t in low + "/" for t in temps)
+
+
+def benign_path(p):
+    parts = [x.lower() for x in re.split(r"[\\/]+", p) if x]
+    return under_temp(p) or any(x in BENIGN_NAMES for x in parts)
+
+
+def benign_delete(full, ctx):
+    toks = [t.strip("\"'") for t in TOKEN.findall(full)]
+    while toks and toks[0].lower() in ("sudo", "doas", "wsl", "command", "builtin"):
+        toks = toks[1:]
+    targets = [t for t in toks[1:] if t and not t.startswith("-") and not CMD_FLAG.match(t)]
+    if not targets:
+        return False
+    for t in targets:
+        if benign_path(t):
+            continue
+        rel = not is_absolute(t) and ".." not in re.split(r"[\\/]+", t)
+        if rel and ctx and benign_path(ctx):
+            continue
+        return False
+    return True
+
+
+def suspicious_labels(cmd, patterns, tool="Bash"):
     labels = []
-    for plain, full, ctx in segments(cmd):
+    for plain, full, ctx in segments(cmd, tool):
         for rx, label in patterns:
             if label in labels or not re.search(rx, plain, re.IGNORECASE):
                 continue
-            if label == "xoá đệ quy" and (BENIGN_DELETE.search(full) or BENIGN_DELETE.search(ctx)):
+            if label == "xoá đệ quy" and benign_delete(full, ctx):
                 continue
             labels.append(label)
     return labels
@@ -158,6 +209,7 @@ class Session:
         self.stop_blocks = []  # "1/3"
         self.stop_releases = 0
         self.bad_lines = 0
+        self.old_entries = 0
 
 
 def agent_type(path):
@@ -168,7 +220,24 @@ def agent_type(path):
         return "subagent" if path.parent.name == "subagents" else "phiên chính"
 
 
-def parse(path, s):
+def ts_of(e):
+    t = e.get("timestamp")
+    if not isinstance(t, str):
+        return None
+    try:
+        return datetime.fromisoformat(t.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def norm_path(p):
+    p = str(p).replace("\\", "/").rstrip("/").lower()
+    m = re.match(r"^/([a-z])(/|$)", p)
+    return f"{m.group(1)}:{p[2:]}" if m else p
+
+
+def parse(path, s, cutoff, only_under=None):
+    """only_under: chỉ nhận lệnh có cwd nằm trong thư mục này (file của thư mục phiên khác, cùng tiền tố)."""
     who = agent_type(path)
     with open(path, encoding="utf-8", errors="replace") as fh:
         for line in fh:
@@ -181,13 +250,18 @@ def parse(path, s):
                 continue
             t = e.get("type")
             msg = e.get("message") or {}
+            when = ts_of(e)
+            if when is not None and when < cutoff:
+                s.old_entries += 1
+                continue
             if t == "assistant":
                 wire = e.get("wireToolInputs") or {}
                 for c in msg.get("content") or []:
                     if isinstance(c, dict) and c.get("type") == "tool_use" and c.get("name") in SHELL_TOOLS:
                         inp = wire.get(c.get("id")) or c.get("input") or {}
                         cmd = inp.get("command") if isinstance(inp, dict) else None
-                        if cmd:
+                        cwd_ok = only_under is None or (norm_path(e.get("cwd") or "") + "/").startswith(only_under + "/")
+                        if cmd and cwd_ok:
                             s.calls[c["id"]] = {"tool": c["name"], "command": cmd, "cwd": e.get("cwd") or "",
                                                 "ts": e.get("timestamp") or "", "file": str(path), "who": who,
                                                 "status": "chưa rõ", "permission": None}
@@ -196,16 +270,14 @@ def parse(path, s):
                 for c in msg.get("content") or [] if isinstance(msg.get("content"), list) else []:
                     if isinstance(c, dict) and c.get("type") == "tool_result" and c.get("tool_use_id") in s.calls:
                         call = s.calls[c["tool_use_id"]]
-                        txt = " ".join(texts_of(c.get("content")))
-                        if REJECT_MARK in txt or e.get("toolUseResult") == "User rejected tool use":
-                            call["status"] = "bị từ chối"
-                        else:
-                            call["status"] = "đã chạy"
+                        txt = " ".join(texts_of(c.get("content"))).strip()
+                        user_no = e.get("toolUseResult") == "User rejected tool use" or (
+                            c.get("is_error") and txt.startswith(REJECT_PREFIX))
+                        config_no = isinstance(pd, dict) and pd.get("decision") == "reject"
+                        call["status"] = "bị từ chối" if (user_no or config_no) else "đã chạy"
+                        call["rejected_by"] = "người" if user_no else ("cấu hình" if config_no else "")
                         if isinstance(pd, dict):
                             call["permission"] = pd
-                if e.get("isMeta"):
-                    for txt in texts_of(msg.get("content")):
-                        scan_stop_text(txt, s)
             elif t == "attachment":
                 a = e.get("attachment") or {}
                 at = a.get("type") or ""
@@ -214,7 +286,10 @@ def parse(path, s):
                     out = a.get("stdout") or ""
                     m = re.search(r'"permissionDecisionReason"\s*:\s*"([^"]*)"', out)
                     s.guard[a["toolUseID"]] = {"asked": '"ask"' in out, "reason": m.group(1) if m else ""}
-                if at in ("hook_non_blocking_error", "hook_blocking_error", "hook_error") or (
+                if at == "hook_system_message" and a.get("hookEvent") == "Stop" and \
+                        re.search(r"vẫn đỏ sau \d+ lần chặn", a.get("content") or ""):
+                    s.stop_releases += 1
+                if at in ("hook_non_blocking_error", "hook_error") or (
                         at.startswith("hook_") and a.get("exitCode") not in (None, 0, 2)):
                     if ".claude/hooks/" in cmd.replace("\\", "/"):
                         s.hook_errors.append({"hook": a.get("hookName") or cmd, "stderr": (a.get("stderr") or "").strip(),
@@ -223,16 +298,11 @@ def parse(path, s):
                 for h in e.get("hookInfos") or []:
                     if "stop-gate" in (h.get("command") or "") and isinstance(h.get("durationMs"), (int, float)):
                         s.stop_runs.append(h["durationMs"])
+                # Mỗi lần chặn có cả user isMeta "Stop hook feedback" lẫn hookErrors: chỉ đếm hookErrors.
                 for err in e.get("hookErrors") or []:
                     if isinstance(err, str):
-                        scan_stop_text(err, s)
-
-
-def scan_stop_text(txt, s):
-    for m in re.finditer(r"check\.sh đang đỏ.*?lần chặn (\d+)/(\d+)", txt):
-        s.stop_blocks.append(f"{m.group(1)}/{m.group(2)}")
-    if re.search(r"vẫn đỏ sau \d+ lần chặn", txt):
-        s.stop_releases += 1
+                        for m in re.finditer(r"check\.sh đang đỏ.*?lần chặn (\d+)/(\d+)", err, re.DOTALL):
+                            s.stop_blocks.append(f"{m.group(1)}/{m.group(2)}")
 
 
 def find_bash():
@@ -248,10 +318,13 @@ def replay(guard, bash, call):
     try:
         p = subprocess.run([bash, guard], input=payload.encode("utf-8"), capture_output=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired) as exc:
-        return {"asked": None, "reason": f"không chạy được guard: {exc}"}
+        return {"asked": None, "reason": "", "error": f"không chạy được guard: {exc}"}
     out = p.stdout.decode("utf-8", "replace")
+    err = p.stderr.decode("utf-8", "replace").strip()
     m = re.search(r'"permissionDecisionReason"\s*:\s*"([^"]*)"', out)
-    return {"asked": '"ask"' in out, "reason": m.group(1) if m else ""}
+    bad = p.returncode != 0 or (err and not out)
+    return {"asked": None if bad else '"ask"' in out, "reason": m.group(1) if m else "",
+            "error": (err or f"exit {p.returncode}") if bad else ""}
 
 
 def who_approved(pd):
@@ -290,57 +363,69 @@ def main():
     except OSError:
         pass
     config = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
-    dirs = [Path(d) for d in args.transcripts]
+    cutoff = time.time() - args.since * 86400
+    dirs = [(Path(d), None) for d in args.transcripts]
     if not dirs:
         keys = {project_key(root)}
-        if os.name == "nt" or re.match(r"^/[a-z]/", str(root)):
-            # Git Bash in /c/x, Windows ghi C:\x: thử cả hai dạng.
-            m = re.match(r"^/([a-z])/(.*)$", str(root).replace("\\", "/"))
-            if m:
-                keys.add(project_key(f"{m.group(1).upper()}:\\{m.group(2)}"))
-        dirs = [config / "projects" / k for k in keys]
+        m = re.match(r"^/([a-z])/(.*)$", str(root).replace("\\", "/"))
+        if m:  # Git Bash thấy /c/x, Claude Code trên Windows ghi C:\x
+            keys.add(project_key(f"{m.group(1).upper()}:\\{m.group(2)}"))
+        base = config / "projects"
+        if base.is_dir():
+            for d in base.iterdir():
+                if d.name in keys:
+                    dirs.append((d, None))
+                elif any(d.name.startswith(k + "-") for k in keys):
+                    # thư mục con hoặc worktree của dự án: chỉ nhận lệnh có cwd nằm trong dự án
+                    dirs.append((d, norm_path(root)))
+        if not dirs:
+            dirs = [(base / k, None) for k in keys]
     files = []
-    cutoff = time.time() - args.since * 86400
-    for d in dirs:
+    for d, only in dirs:
         if d.is_dir():
-            files += [f for f in d.rglob("*.jsonl") if f.stat().st_mtime >= cutoff]
+            files += [(f, only) for f in d.rglob("*.jsonl") if f.stat().st_mtime >= cutoff]
     if not files:
-        print(f"Không tìm thấy file phiên nào trong {', '.join(str(d) for d in dirs)} "
+        print(f"Không tìm thấy file phiên nào trong {', '.join(str(d) for d, _ in dirs)} "
               f"(sửa trong {args.since:g} ngày gần đây). Dùng --transcripts để chỉ thư mục khác.", file=sys.stderr)
         return 2
 
     s = Session()
-    for f in sorted(files):
-        parse(f, s)
+    for f, only in sorted(files):
+        parse(f, s, cutoff, only)
     patterns = SUSPICIOUS + load_watch(root)
 
-    guard = root / ".claude" / "hooks" / "guard-irreversible.sh"
+    guard = (root / ".claude" / "hooks" / "guard-irreversible.sh").as_posix()
     bash = find_bash()
     replayed = {}
-    can_replay = not args.no_replay and guard.is_file() and bash
+    can_replay = bool(not args.no_replay and Path(guard).is_file() and bash)
     if can_replay:
         uniq = {}
         for cid, c in s.calls.items():
             uniq.setdefault((c["tool"], c["cwd"], c["command"]), c)
         with ThreadPoolExecutor(4) as ex:
-            for key, r in zip(uniq, ex.map(lambda c: replay(str(guard), bash, c), uniq.values())):
+            for key, r in zip(uniq, ex.map(lambda c: replay(guard, bash, c), uniq.values())):
                 replayed[key] = r
 
     rows = collections.defaultdict(list)
     for cid, c in s.calls.items():
         hist = s.guard.get(cid)
         now = replayed.get((c["tool"], c["cwd"], c["command"]))
-        sus = suspicious_labels(c["command"], patterns)
+        sus = suspicious_labels(c["command"], patterns, c["tool"])
         item = dict(c, id=cid, suspicious=sus, guard_then=hist, guard_now=now, approved=who_approved(c["permission"]))
         asked_then = bool(hist and hist["asked"])
         asked_now = now["asked"] if now else None
         if asked_then and asked_now is False:
             rows["B"].append(item)
-        if c["status"] == "đã chạy" and sus and not asked_then and asked_now is not True:
+        ran = c["status"] == "đã chạy"
+        accepted = isinstance(c["permission"], dict) and c["permission"].get("decision") == "accept"
+        # H và A đều cần khớp mẫu nghi ngờ (đã bỏ heredoc/chuỗi): guard so cả chữ trong dữ liệu nên hay hỏi thừa.
+        if ran and sus and not asked_then and asked_now is True:
+            rows["H"].append(item)
+        elif ran and sus and not asked_then:
             rows["A"].append(item)
         elif c["status"] == "bị từ chối" and not asked_then and asked_now is not True:
             rows["G"].append(item)
-        if asked_then and c["status"] == "đã chạy":
+        if asked_then and ran and accepted:
             rows["C"].append(item)
         if asked_then and c["status"] == "bị từ chối":
             rows["D"].append(item)
@@ -349,7 +434,9 @@ def main():
         "project": str(root), "transcripts": [str(d) for d in dirs], "files": len(files), "bad_lines": s.bad_lines,
         "shell_commands": len(s.calls), "replay": bool(can_replay),
         "A_possible_misses": rows["A"], "B_regressions": rows["B"], "C_asked_approved": rows["C"],
-        "D_asked_rejected": rows["D"], "G_rejected_not_asked": rows["G"], "hook_errors": s.hook_errors,
+        "D_asked_rejected": rows["D"], "G_rejected_not_asked": rows["G"], "H_ran_unguarded": rows["H"],
+        "hook_errors": s.hook_errors, "old_entries_skipped": s.old_entries,
+        "replay_errors": sorted({r["error"] for r in replayed.values() if r.get("error")})[:5],
         "stop_gate": {"runs": len(s.stop_runs), "blocks": s.stop_blocks, "released_after_max": s.stop_releases,
                       "median_s": round(statistics.median(s.stop_runs) / 1000, 1) if s.stop_runs else None,
                       "max_s": round(max(s.stop_runs) / 1000, 1) if s.stop_runs else None},
@@ -367,7 +454,10 @@ def render(r):
     L = [f"# Báo cáo đội agent: {r['project']}", "",
          f"Đọc {r['files']} file phiên, {r['shell_commands']} lệnh shell"
          + (f", {r['bad_lines']} dòng không đọc được" if r["bad_lines"] else "")
-         + ("." if r["replay"] else ". KHÔNG chạy lại được guard hiện tại (thiếu bash hoặc guard), mục A/B kém tin cậy."), ""]
+         + ("." if r["replay"] else ". KHÔNG chạy lại được guard hiện tại (thiếu bash hoặc guard), mục A/B/H kém tin cậy."), ""]
+    if r["replay_errors"]:
+        L += ["⚠ Chạy lại guard bị lỗi (các lệnh đó coi như chưa biết guard có hỏi không): "
+              + "; ".join(f"`{x[:200]}`" for x in r["replay_errors"]), ""]
 
     def cmd_lines(items, extra):
         seen = set()
@@ -383,15 +473,17 @@ def render(r):
          lambda it: it.get("note") or f"{', '.join(it['suspicious'])}; {it['approved']}"),
         ("B", "Hồi quy của guard", "Trước đây guard hỏi, bản hiện tại cho qua. Ưu tiên sửa.",
          lambda it: f"trước: {(it['guard_then'] or {}).get('reason', '')}"),
+        ("H", "Lệnh nguy hiểm đã chạy lúc guard không hỏi", "Bản guard hiện tại có hỏi, nhưng lúc lệnh chạy thì không: guard chưa nạp (thư mục chưa trust, phiên mở ở thư mục khác, matcher thiếu tool), hook lỗi, hoặc bản cũ. Kiểm tra vì sao guard không chạy lúc đó.",
+         lambda it: f"nay: {(it['guard_now'] or {}).get('reason', '')}; {it['approved']}"),
         ("C", "Guard hỏi và bạn duyệt", "Ứng viên hỏi thừa. Chỉ nới guard khi chắc lệnh vô hại, và người phải đọc kỹ thay đổi đó.",
          lambda it: (it["guard_then"] or {}).get("reason", "")),
-        ("D", "Guard hỏi và bạn từ chối", "Guard làm đúng việc. Chỉ để thống kê.",
-         lambda it: (it["guard_then"] or {}).get("reason", "")),
+        ("D", "Guard hỏi và bị từ chối", "Guard làm đúng việc. Chỉ để thống kê.",
+         lambda it: f"{(it['guard_then'] or {}).get('reason', '')}; {it.get('rejected_by') or ''} từ chối"),
         ("G", "Bạn từ chối mà guard không hỏi", "Bạn phải tự chặn ở hộp xin phép thường. Nếu lệnh đó nguy hiểm thì guard đã bỏ sót; nếu chỉ là bạn đổi ý thì bỏ qua.",
          lambda it: ", ".join(it["suspicious"]) or "không khớp mẫu nghi ngờ"),
     ]
     key = {"A": "A_possible_misses", "B": "B_regressions", "C": "C_asked_approved", "D": "D_asked_rejected",
-           "G": "G_rejected_not_asked"}
+           "G": "G_rejected_not_asked", "H": "H_ran_unguarded"}
     for code, title, hint, extra in sec:
         items = r[key[code]]
         L += [f"## {code}. {title}: {len(items)}", "", hint, ""]
