@@ -300,7 +300,10 @@ def parse_entry(e, s, path, who, cutoff, only_under):
         if at.startswith("hook_") and "guard-irreversible" in cmd and a.get("toolUseID"):
             out = a.get("stdout") or ""
             m = re.search(r'"permissionDecisionReason"\s*:\s*"([^"]*)"', out)
-            s.guard[a["toolUseID"]] = {"asked": '"ask"' in out, "reason": m.group(1) if m else ""}
+            # Dự án tự cài kit mà máy có plugin: hai guard chạy song song, thứ tự bản ghi không cố định. Một bản hỏi là đã hỏi.
+            prev = s.guard.get(a["toolUseID"])
+            if not (prev and prev["asked"]):
+                s.guard[a["toolUseID"]] = {"asked": '"ask"' in out, "reason": m.group(1) if m else ""}
         if at == "hook_system_message" and a.get("hookEvent") == "Stop" and \
                 re.search(r"vẫn đỏ sau \d+ lần chặn", a.get("content") or ""):
             s.stop_releases += 1

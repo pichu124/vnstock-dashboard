@@ -144,6 +144,14 @@ write("-plain", plain, [("p1", "git push --force origin feat/x"), ("p2", "danger
      "hookInfos": [{"command": PLUG + "stop-gate", "durationMs": 12},
                    {"command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop-gate.sh", "durationMs": 4000}], "hookErrors": []}])
 write("-main", main, [("q1", "danger-cmd later"), ("q2", "git reset --hard HEAD~1")])
+# Dự án tự cài kit + máy có plugin: mỗi lệnh có hai bản ghi guard (thứ tự không cố định). Một bản hỏi là đã hỏi.
+ASK = '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"Hành động không đảo ngược được (y)."}}'
+def guard_rec(i, out, cmd):
+    return {"type": "attachment", "attachment": {"type": "hook_success", "hookName": "PreToolUse:Bash", "toolUseID": i,
+            "hookEvent": "PreToolUse", "command": cmd, "exitCode": 0, "stdout": out}}
+write("-dual", plain, [("d1", "echo dual-1"), ("d2", "echo dual-2")], extra=[
+    guard_rec("d1", ASK, PLUG + "guard-irreversible"), guard_rec("d1", "", "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-irreversible.sh"),
+    guard_rec("d2", "", "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-irreversible.sh"), guard_rec("d2", ASK, PLUG + "guard-irreversible")])
 PYEOF
 other="$tmp/other.json"
 (cd "$plain" && CLAUDE_CONFIG_DIR="$tmp/cfg" "$root/scripts/audit-agent.sh" --transcripts "$tmp/cfg/projects/-plain" --json > "$other")
@@ -209,7 +217,9 @@ check(len(o["hook_errors"]) == 1 and "python3" in o["hook_errors"][0]["stderr"],
 check(o["stop_gate"]["runs"] == 1 and o["stop_gate"]["max_s"] == 4.0, f"một lần Stop có cả bản dự án lẫn bản plugin (nhường) chỉ tính một lần chạy, lấy thời gian lâu nhất: {o['stop_gate']}")
 # --all: đọc mọi dự án, mẫu riêng chỉ áp cho dự án khai báo nó.
 al = json.load(open(sys.argv[6], encoding="utf-8"))
-check(al["files"] == 2, f"--all phải đọc file phiên của mọi dự án: {al['files']}")
+check(al["files"] == 3, f"--all phải đọc file phiên của mọi dự án: {al['files']}")
+check({i["command"] for i in al["B_regressions"]} == {"echo dual-1", "echo dual-2"},
+      f"hai bản ghi guard (dự án + plugin): một bản hỏi là đã hỏi, bất kể thứ tự: {al['B_regressions']}")
 A = {i["command"] for i in al["A_possible_misses"]}
 check("danger-cmd now" in A and "danger-cmd later" not in A, f"--all: mẫu riêng của dự án chỉ áp cho dự án đó: {A}")
 check({i["command"] for i in al["H_ran_unguarded"]} == {"git push --force origin feat/x", "git reset --hard HEAD~1"}, f"--all: H phải gồm lệnh của cả hai dự án: {al['H_ran_unguarded']}")
