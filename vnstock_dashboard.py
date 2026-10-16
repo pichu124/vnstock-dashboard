@@ -336,25 +336,30 @@ def _fetch_foreign_net_flow(trading_days: int = 20, limit: int = 100) -> pd.Data
     return result
 
 
+# Nhãn cửa sổ của bên gọi (0/7/30/90 = 1D/1 tuần/1 tháng/3 tháng) → số PHIÊN
+_NN_WINDOW_SESSIONS = {0: 1, 7: 5, 30: 20, 90: 60}
+
+
+def _nn_window(nn_df: pd.DataFrame, days: int) -> pd.DataFrame:
+    """Dòng của N phiên gần nhất CÓ trong dữ liệu (1D/5D/20D = 1/5/20 phiên).
+
+    Đếm ngày lịch từ đồng hồ thì 5D thành 6 phiên khi đã có data hôm nay, và
+    lệch nhau theo giờ mở dashboard / cuối tuần."""
+    n = _NN_WINDOW_SESSIONS.get(days, max(1, days))
+    dates = pd.to_datetime(nn_df["date"]).dt.normalize()
+    return nn_df[dates.isin(dates.drop_duplicates().nlargest(n))]
+
+
 def _aggregate_nn_by_window(nn_df: pd.DataFrame, days: int) -> dict:
     """
     Aggregate net_value per symbol over time window.
-    days=0 → most recent trading day only (1D view).
-    days>0 → last N calendar days (5D, 20D views).
+    days: nhãn cửa sổ (0=1D, 7=5D, 30=20D, 90=3 tháng) — xem `_nn_window`.
     Return {symbol: net_value_in_ty_VND}.
     """
     if nn_df.empty:
         return {}
 
-    if days == 0:
-        # 1D: lấy ngày giao dịch gần nhất trong dataset (không phải "hôm nay"
-        # vì có thể hôm nay là cuối tuần, hoặc thị trường chưa mở)
-        latest = pd.to_datetime(nn_df["date"]).max().normalize()
-        filtered = nn_df[pd.to_datetime(nn_df["date"]) >= latest]
-    else:
-        cutoff = pd.Timestamp.today().normalize() - pd.Timedelta(days=days)
-        filtered = nn_df[nn_df["date"] >= cutoff]
-
+    filtered = _nn_window(nn_df, days)
     if filtered.empty:
         return {}
     agg = filtered.groupby("symbol")["net_value"].sum()
@@ -366,16 +371,11 @@ def _aggregate_nn_buy_sell_by_window(nn_df: pd.DataFrame, days: int) -> dict:
     """
     Aggregate NN buy_value and sell_value per symbol over the window.
     Returns {symbol: {"buy": tỷ_VND, "sell": tỷ_VND}}.
-    Mirrors _aggregate_nn_by_window semantics for days=0 (latest-day-only).
+    Cùng cửa sổ phiên với _aggregate_nn_by_window (`_nn_window`).
     """
     if nn_df.empty or "buy_value" not in nn_df.columns:
         return {}
-    if days == 0:
-        latest = pd.to_datetime(nn_df["date"]).max().normalize()
-        filtered = nn_df[pd.to_datetime(nn_df["date"]) >= latest]
-    else:
-        cutoff = pd.Timestamp.today().normalize() - pd.Timedelta(days=days)
-        filtered = nn_df[nn_df["date"] >= cutoff]
+    filtered = _nn_window(nn_df, days)
     if filtered.empty:
         return {}
     grp = filtered.groupby("symbol")[["buy_value", "sell_value"]].sum()

@@ -338,16 +338,20 @@ _ROOT = Path(__file__).resolve().parent.parent
 
 
 def load_source_fns(relpath: str, *names: str, **globs) -> dict:
-    """Namespace chứa các hàm `names` của `relpath` (kể cả hàm lồng)."""
+    """Namespace chứa các hàm (kể cả hàm lồng) / hằng cấp module `names`."""
     tree = ast.parse((_ROOT / relpath).read_text(encoding="utf-8"))
     nodes: dict = {}
     for n in ast.walk(tree):
         if isinstance(n, ast.FunctionDef):
             nodes.setdefault(n.name, n)
+    for n in tree.body:
+        if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name):
+            nodes.setdefault(n.targets[0].id, n)
     ns = dict(globs)
     for name in names:
         node = nodes[name]
-        node.decorator_list = []
+        if isinstance(node, ast.FunctionDef):
+            node.decorator_list = []
         exec(compile(ast.Module([node], []), str(_ROOT / relpath), "exec"), ns)
     return ns
 
@@ -569,3 +573,38 @@ def test_stale_warning_points_to_a_button_that_exists():
     warn = _DASH_SRC[start:_DASH_SRC.index("else:", start)]
     assert "Cập nhật Screener" not in warn
     assert "📥 Cập nhật giá" in warn and '"📥 Cập nhật giá"' in _DASH_SRC
+
+
+# ── NN ròng theo cửa sổ: đếm PHIÊN có trong data, không đếm ngày lịch ───────
+
+def _nn_df():
+    # 6 phiên T6 09/10 → T6 16/10; phiên thứ i ròng (i+1) tỷ, mua 2×, bán 1×
+    days = pd.bdate_range("2026-10-09", "2026-10-16")
+    return pd.DataFrame({
+        "symbol": ["AAA"] * len(days), "date": days,
+        "net_value": [(i + 1) * 1e9 for i in range(len(days))],
+        "buy_value": [(i + 1) * 2e9 for i in range(len(days))],
+        "sell_value": [(i + 1) * 1e9 for i in range(len(days))],
+    })
+
+
+@pytest.fixture()
+def nn_fns():
+    ns = load_source_fns("vnstock_dashboard.py", "_NN_WINDOW_SESSIONS", "_nn_window",
+                         "_aggregate_nn_by_window", "_aggregate_nn_buy_sell_by_window",
+                         pd=pd)
+    return ns["_aggregate_nn_by_window"], ns["_aggregate_nn_buy_sell_by_window"]
+
+
+def test_nn_5d_window_sums_the_five_latest_sessions(nn_fns):
+    """Tab Dòng Tiền gửi 5D = 7 (ngày lịch): phải ra đúng 5 phiên mới nhất,
+    không 6 phiên khi đã có data hôm nay, không lệch theo giờ mở dashboard."""
+    net, buy_sell = nn_fns
+    assert net(_nn_df(), 7) == {"AAA": 2.0 + 3 + 4 + 5 + 6}
+    assert buy_sell(_nn_df(), 7) == {"AAA": {"buy": 40.0, "sell": 20.0}}
+
+
+def test_nn_1d_and_long_windows(nn_fns):
+    net, _ = nn_fns
+    assert net(_nn_df(), 0) == {"AAA": 6.0}
+    assert net(_nn_df(), 30) == {"AAA": 21.0}   # data chỉ có 6 phiên
