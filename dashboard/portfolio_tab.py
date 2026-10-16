@@ -616,12 +616,12 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
         st.caption(f"Sector exposure không khả dụng: {_e7}")
 
     st.markdown("<br>", unsafe_allow_html=True)
-    _options = ["—"] + [
-        f"{r['ticker']} ({r['qty']} cp @ {r['buy_price']:,.0f})"
-        for r in rows
-    ]
-    _del_idx = st.selectbox("Xoá vị thế", options=_options, key="pf_del_select")
-    if _del_idx != "—" and st.button("🗑 Xoá vị thế này", key="pf_del_btn"):
-        _del_i = _options.index(_del_idx) - 1   # -1 because of the "—" sentinel
+    # Option là CHỈ SỐ dòng, nhãn chỉ để hiện: hai lô cùng mã/số lượng/giá có cùng nhãn,
+    # tra ngược theo nhãn thì xoá nhầm lô đầu.
+    _del_i = st.selectbox(
+        "Xoá vị thế", options=[None, *range(len(rows))], key="pf_del_select",
+        format_func=lambda i: "—" if i is None else (
+            f"{rows[i]['ticker']} ({rows[i]['qty']} cp @ {rows[i]['buy_price']:,.0f})"))
+    if _del_i is not None and st.button("🗑 Xoá vị thế này", key="pf_del_btn"):
         _drop = rows[_del_i]["idx"]
         _save_and_rerun(st, warehouse, [p for j, p in enumerate(positions) if j != _drop])
