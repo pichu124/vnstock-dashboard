@@ -119,9 +119,12 @@ def render_analysis_tab() -> None:
                     help="Danh sách futures đang có live data (10 mức order book)"
                 )
                 if _fut_pick and _fut_pick != "— chọn —":
-                    if st.button(f"Phân tích {_fut_pick} →",
-                                 use_container_width=True, key="anal_fut_go"):
-                        st.session_state["analyze_ticker"] = _fut_pick
+                    # Callback chạy TRƯỚC lượt render nên còn được trả selectbox về "" —
+                    # không thì `ticker_input or …` dưới kia để mã cũ thắng nút này.
+                    st.button(f"Phân tích {_fut_pick} →",
+                              use_container_width=True, key="anal_fut_go",
+                              on_click=st.session_state.update,
+                              kwargs={"ticker_sidebar": "", "analyze_ticker": _fut_pick})
 
         st.divider()
         st.markdown("### ⏱ Khoảng thời gian")

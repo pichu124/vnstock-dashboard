@@ -164,3 +164,59 @@ def test_clear_fired_alerts_does_not_write_when_file_unreadable(tmp_path):
     exec(compile(ast.Module([block], []), "analysis_tab.py", "exec"), ns)
     assert saved == []
     assert "price_alerts.json" in errors[0]
+
+
+# ── Chọn mã: lựa chọn MỚI NHẤT của user thắng (selectbox hay nút futures) ────
+
+def _ticker_pick_code():
+    """Khối chọn mã thật: selectbox → nút futures (trong `with st.sidebar`) →
+    dòng `ticker = …` ngay sau sidebar."""
+    fn = next(n for n in _TAB_TREE.body if isinstance(n, ast.FunctionDef))
+    sidebar = next(n for n in fn.body if isinstance(n, ast.With))
+    start = next(i for i, n in enumerate(sidebar.body) if "ticker_sidebar" in ast.unparse(n))
+    end = next(i for i, n in enumerate(sidebar.body) if "futures_picker" in ast.unparse(n))
+    pick = next(n for n in fn.body if isinstance(n, ast.Assign)
+                and ast.unparse(n.targets[0]) == "ticker")
+    return compile(ast.Module(sidebar.body[start:end + 1] + [pick], []), "analysis_tab.py", "exec")
+
+
+class _PickSt:
+    """Đủ ngữ nghĩa Streamlit cho khối chọn mã: widget đọc state theo key;
+    callback của nút chạy ĐẦU lượt kế (trước script) và nút trả True đúng lượt đó."""
+
+    def __init__(self):
+        self.session_state: dict = {}
+        self._callbacks: dict = {}
+        self._clicked = None
+
+    def selectbox(self, label, options, key=None, **kw):
+        return self.session_state.setdefault(key, list(options)[0])
+
+    def button(self, label, key=None, on_click=None, args=(), kwargs=None, **kw):
+        self._callbacks[key] = (on_click, args, kwargs or {})
+        return key == self._clicked
+
+    def run(self, code, click=None) -> str:
+        if click:
+            cb, args, kwargs = self._callbacks[click]
+            if cb:
+                cb(*args, **kwargs)
+        self._clicked = click
+        ns = {"st": self, "WSS_AVAILABLE": True, "list_live_futures": lambda: ["VN30F1M"],
+              "_ticker_options": ["", "VCB", "FPT", "VN30F1M"], "_ticker_labels": {}}
+        exec(code, ns)
+        return ns["ticker"]
+
+
+def test_futures_button_wins_over_previous_selectbox_pick():
+    """Đã chọn VCB ở selectbox thì `ticker_input or …` để VCB thắng ⇒ bấm
+    "Phân tích VN30F1M →" không đổi mã."""
+    code, st = _ticker_pick_code(), _PickSt()
+    st.session_state["ticker_sidebar"] = "VCB"
+    assert st.run(code) == "VCB"
+    st.session_state["futures_picker"] = "VN30F1M"
+    assert st.run(code) == "VCB"                        # mới chọn trong picker, chưa bấm
+    assert st.run(code, click="anal_fut_go") == "VN30F1M"
+    assert st.run(code) == "VN30F1M"                    # lượt sau (đổi khung nến…) vẫn giữ
+    st.session_state["ticker_sidebar"] = "FPT"
+    assert st.run(code) == "FPT"                        # chọn mã mới ⇒ mã mới thắng
