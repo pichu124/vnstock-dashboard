@@ -3,36 +3,30 @@
 Tách khỏi `vnstock_dashboard.py` (12/08) và nhân tiện vá luôn một lỗ cùng họ
 với đợt "ghi nguyên tử": `save_watchlist` cũ mở `open(w)` → cắt file về 0 TRƯỚC
 khi ghi nội dung mới. Chết giữa chừng (máy tắt, Ctrl-C, đĩa đầy) = watchlist
-user tự tay dựng BIẾN MẤT, và `load_watchlist` nuốt JSONDecodeError trả `[]`
-nên mất im lặng. Nay đi qua `write_json_atomic` (tmp + os.replace).
+user tự tay dựng BIẾN MẤT. Nay đi qua `write_json_atomic` (tmp + os.replace).
+`load_watchlist` cũng thôi nuốt file hỏng thành `[]`: nút Thêm sẽ ghi đè cả
+watchlist bằng `[] + mã mới` rồi Dropbox đẩy sang máy kia — nay raise để UI
+khoá ghi.
 
 File này nằm trong lưới `_MUST_BE_ATOMIC` của `tests/test_atomic_writes.py`.
 """
 from __future__ import annotations
 
 import json
-import logging
 from datetime import datetime
 from pathlib import Path
 
 from vnstock_parquet_io import write_json_atomic
 
-log = logging.getLogger(__name__)
-
 
 def load_watchlist(path: "Path | str") -> list:
-    """Đọc danh sách mã. Trả `[]` khi thiếu file / file hỏng (đã log rõ lý do)."""
+    """Đọc danh sách mã. Thiếu file ⇒ `[]` (hợp lệ). File hỏng/không đọc được ⇒
+    raise (OSError/ValueError) — caller phải khoá ghi, không coi là rỗng."""
     path = Path(path)
     if not path.exists():
         return []
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f).get("tickers", [])
-    except (OSError, PermissionError) as e:
-        log.warning("Không đọc được watchlist (%s): %s", path, e)
-    except json.JSONDecodeError as e:
-        log.error("Watchlist JSON hỏng (%s): %s", path, e)
-    return []
+    with open(path, encoding="utf-8") as f:
+        return json.load(f).get("tickers", [])
 
 
 def save_watchlist(path: "Path | str", tickers) -> None:

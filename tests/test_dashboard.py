@@ -285,10 +285,12 @@ class TestWatchlistIO:
         result = _load_watchlist(path)
         assert result == ["FPT", "HPG", "VCB"]
 
-    def test_corrupt_json_returns_empty(self, tmp_path):
+    def test_corrupt_json_raises(self, tmp_path):
+        """File hỏng KHÔNG được đọc thành [] — nút Thêm sẽ ghi đè cả watchlist."""
         path = tmp_path / "watchlist.json"
         path.write_text("{ this is not valid json", encoding="utf-8")
-        assert _load_watchlist(path) == []
+        with pytest.raises(ValueError):
+            _load_watchlist(path)
 
 
 # ── launch_in_new_console PowerShell command generation ──────────────────────
