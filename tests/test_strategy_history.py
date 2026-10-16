@@ -43,7 +43,16 @@ def test_load_history_from_parquet_missing_ticker(tmp_path):
     assert vs._load_history_from_parquet("NOPE", days=0, prices_dir=tmp_path).empty
 
 
+def _pin_streamlit_session(monkeypatch):
+    """Loader dashboard chỉ dùng TRONG phiên Streamlit. Không ghim thì kết quả
+    tuỳ thứ tự chạy: `tests/test_dashboard.py` gắn MagicMock vào
+    `sys.modules["streamlit"]` ở cấp module ⇒ `runtime.exists()` truthy cho cả
+    phiên pytest, còn chạy riêng file này thì False."""
+    monkeypatch.setattr(vs, "_in_streamlit_session", lambda: True)
+
+
 def test_load_history_falls_back_when_dashboard_loader_empty(monkeypatch):
+    _pin_streamlit_session(monkeypatch)
     fake = types.ModuleType("vnstock_dashboard")
     fake.load_price_history = lambda ticker, days=0: pd.DataFrame()  # empty / fails
     monkeypatch.setitem(sys.modules, "vnstock_dashboard", fake)
@@ -53,6 +62,7 @@ def test_load_history_falls_back_when_dashboard_loader_empty(monkeypatch):
 
 
 def test_load_history_uses_dashboard_loader_when_available(monkeypatch):
+    _pin_streamlit_session(monkeypatch)
     df = pd.DataFrame({"time": [pd.Timestamp("2026-06-05")], "close": [25.0]})
     fake = types.ModuleType("vnstock_dashboard")
     fake.load_price_history = lambda ticker, days=0: df

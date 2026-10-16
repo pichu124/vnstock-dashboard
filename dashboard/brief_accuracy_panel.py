@@ -6,6 +6,16 @@ chưa có lịch sử chấm điểm thì im lặng, không phải lỗi.
 from __future__ import annotations
 
 
+def vnindex_closes():
+    """Chuỗi đóng cửa VNINDEX dùng chung widget này + panel Lịch sử brief.
+
+    Cache 10' (Streamlit khoá cache theo HÀM nên bọc lại mỗi lượt vẫn trúng):
+    không cache thì mỗi rerun tab Thị trường đọc parquet VNINDEX 3 lần."""
+    import streamlit as st
+    import vnstock_brief
+    return st.cache_data(ttl=600, show_spinner=False)(vnstock_brief._load_vnindex_closes)()
+
+
 def render_accuracy_widget() -> None:
     """Render panel. Streamlit import LƯỜI để pytest import được module."""
     import streamlit as st  # noqa: F401
@@ -21,7 +31,8 @@ def render_accuracy_widget() -> None:
         _vml.init_db()
         _recent = _vml.recent_briefs(brief_type=None, limit=200)
         if _recent:
-            _ldr = _aasl(_recent, horizon_days=1, neutral_threshold_pct=0.5)
+            _ldr = _aasl(_recent, horizon_days=1, neutral_threshold_pct=0.5,
+                         closes=vnindex_closes())
             # Agent ĐỦ MẪU lên trước (như brief_history_panel) — không thì
             # agent 1/1 đứng trên agent đã chấm 20 brief.
             _ranked = sorted(

@@ -51,8 +51,8 @@ def index_strength_lines(idx_data) -> list:
         n = len(recent)
         avg_chg = recent.mean()
         up_days = (recent > 0).sum()
-        last_close = (idx_data[idx_name].dropna().iloc[0]
-                      if idx_name in idx_data.columns else None)
+        closes = idx_data[idx_name].dropna() if idx_name in idx_data.columns else ()
+        last_close = closes.iloc[0] if len(closes) else None     # giá toàn NaN ⇒ bỏ giá
         close_str = f" ({last_close:,.0f})" if last_close else ""
 
         if n == 0:
