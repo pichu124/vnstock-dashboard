@@ -30,3 +30,6 @@ _cafef_dump/
 !.claude/agents/
 !.claude/hooks/
 !.claude/audit-watch.txt
+
+# Bằng chứng của verifier (Agents-Team-coding)
+artifacts/
