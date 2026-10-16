@@ -353,3 +353,30 @@ class TestAllocationBriefButtonBranch:
         st = self._st_pressed()
         _render_brief(st)
         assert st.error.called                # báo lỗi tử tế, không crash
+
+
+def test_agent_settings_two_rows_same_type_have_unique_keys(render_env, monkeypatch):
+    """Nút "➕ Thêm agent" luôn tạo type TRÙNG (defaults đã đủ mọi type). Key
+    widget đặt theo type ⇒ lượt rerun kế nổ StreamlitDuplicateElementKey, mất
+    cả khối brief — và lỗi dính mãi vì file cấu hình nằm trong kho dùng chung."""
+    import vnstock_brief as vb
+    monkeypatch.setattr(vb, "load_agent_configs", lambda: [
+        {"type": "gemini", "name": "Gemini A", "model": "m-a", "enabled": True},
+        {"type": "gemini", "name": "Gemini B", "model": "m-b", "enabled": False},
+    ])
+    st = render_env
+    seen: set = set()
+
+    def _unique(fn):
+        def wrapped(*a, key=None, **k):
+            if key is not None:
+                if key in seen:
+                    raise RuntimeError(f"StreamlitDuplicateElementKey: {key}")
+                seen.add(key)
+            return fn(*a, key=key, **k)
+        return wrapped
+
+    for name in ("checkbox", "text_input", "button", "selectbox"):
+        setattr(st, name, _unique(getattr(st, name)))
+
+    _load("dashboard.brief_agent_settings").render_agent_settings()
