@@ -48,12 +48,17 @@ def index_strength_lines(idx_data) -> list:
         if chg_col not in idx_data.columns:
             continue
         recent = idx_data[chg_col].dropna().head(_TREND_LOOKBACK)
+        n = len(recent)
         avg_chg = recent.mean()
         up_days = (recent > 0).sum()
         last_close = (idx_data[idx_name].dropna().iloc[0]
                       if idx_name in idx_data.columns else None)
         close_str = f" ({last_close:,.0f})" if last_close else ""
 
+        if n == 0:
+            # %D toàn NaN: mean NaN sẽ rơi xuống nhánh "giảm rõ rệt" — không có số thì không kết luận.
+            lines.append(f"- ⚪ **{idx_name}**{close_str}: chưa đủ dữ liệu %D để đánh giá xu hướng")
+            continue
         if avg_chg > _TREND_STRONG_UP:
             trend, icon = "tăng tích cực", "🟢"
         elif avg_chg > 0:
@@ -64,7 +69,7 @@ def index_strength_lines(idx_data) -> list:
             trend, icon = "giảm rõ rệt", "🔴"
 
         lines.append(f"- {icon} **{idx_name}**{close_str}: {trend} — "
-                     f"{_TREND_LOOKBACK} phiên gần nhất {up_days}/{_TREND_LOOKBACK} tăng, "
+                     f"{n} phiên gần nhất {up_days}/{n} tăng, "
                      f"TB {avg_chg:+.2f}%/phiên")
     return lines
 
