@@ -30,6 +30,7 @@ from dashboard.chart_indicators import compute_indicators
 from dashboard.table_style import cell_color, cell_weight
 from dashboard.watchlist_io import load_watchlist, save_watchlist
 from vnstock_console_launch import build_ps_command
+from vnstock_parquet_io import write_json_atomic
 from vnstock_price_units import normalize_price_units
 from vnstock_sectors import SECTOR_GROUPS, SECTOR_ORDER, get_sector
 
@@ -372,7 +373,7 @@ def alert_env(tmp_path):
         json=json, log=logging.getLogger("vnstock_dashboard"),
         ALERTS_PATH=tmp_path / "_meta" / "price_alerts.json",
         load_live_quote=lambda t: {"price": 25.5, "chg_pct": 1.0, "volume": 1e6},
-        send_telegram_alert=_send,
+        send_telegram_alert=_send, write_json_atomic=write_json_atomic,
     )
     ns["sent"] = sent
     return ns
@@ -411,6 +412,33 @@ def test_alerts_roundtrip_utf8_message(alert_env):
     al = [{"ticker": "VCB", "fired": True, "message": "🔔 <b>ALERT</b>\nĐiều kiện: giá >= 25"}]
     alert_env["save_alerts"](al)
     assert alert_env["load_alerts"]() == al
+
+
+def test_save_alerts_retries_when_dropbox_holds_the_file(alert_env, monkeypatch):
+    """Dropbox giữ handle price_alerts.json ⇒ os.replace ném PermissionError lần
+    đầu. Không thử lại thì alert vừa bắn không được lưu ⇒ 10s sau Telegram lặp."""
+    import os
+
+    import vnstock_parquet_io as pio
+    real_replace, calls = os.replace, []
+
+    def _flaky(src, dst):
+        calls.append(dst)
+        if len(calls) == 1:
+            raise PermissionError(13, "Dropbox đang giữ file")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(pio, "_REPLACE_BACKOFF", 0)
+    monkeypatch.setattr(os, "replace", _flaky)
+    al = [{"ticker": "VCB", "fired": True, "message": "🔔 Điều kiện: giá >= 25"}]
+    alert_env["save_alerts"](al)
+    monkeypatch.undo()
+
+    path = alert_env["ALERTS_PATH"]
+    assert len(calls) == 2
+    assert "🔔 Điều kiện" in path.read_text(encoding="utf-8")   # utf-8, không \u-escape
+    assert json.loads(path.read_text(encoding="utf-8")) == al
+    assert [p.name for p in path.parent.iterdir()] == ["price_alerts.json"]
 
 
 def test_failed_telegram_send_is_logged(alert_env, caplog):

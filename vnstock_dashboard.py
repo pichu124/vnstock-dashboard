@@ -34,6 +34,7 @@ if not log.handlers:
     )
 
 from vnstock_auth import ensure_api_key, get_api_key
+from vnstock_parquet_io import write_json_atomic
 
 import numpy as np
 import pandas as pd
@@ -970,21 +971,11 @@ def load_alerts() -> list[dict]:
 
 
 def save_alerts(alerts: list[dict]):
-    """Save price alerts (atomic write)."""
-    ALERTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    import os
-    tmp = ALERTS_PATH.with_suffix(f".{os.getpid()}.tmp")
+    """Save price alerts — tmp rồi tráo, thử lại khi Dropbox đang giữ handle file."""
     try:
-        tmp.write_text(json.dumps(alerts, indent=2, ensure_ascii=False),
-                       encoding="utf-8")
-        os.replace(str(tmp), str(ALERTS_PATH))
-    except Exception:
+        write_json_atomic(alerts, ALERTS_PATH)
+    except OSError:
         log.exception("Không lưu được price alerts vào %s", ALERTS_PATH)
-        if tmp.exists():
-            try:
-                tmp.unlink()
-            except Exception:
-                pass
 
 
 def send_telegram_alert(bot_token: str, chat_id: str, message: str) -> bool:
