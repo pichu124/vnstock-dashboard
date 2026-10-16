@@ -1,10 +1,14 @@
 """Smoke tests for dashboard.portfolio_tab — the Streamlit UI is tested
-manually; this file only covers the non-UI helpers and the import path."""
+manually; this file covers the non-UI helpers, the import path, and the write
+guard when portfolio.json is corrupt or cannot be written (fake Streamlit)."""
 
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
+
+import pytest
 
 
 def test_module_imports_without_streamlit():
@@ -21,12 +25,14 @@ def test_load_portfolio_returns_empty_when_file_missing(tmp_path: Path):
     assert _load_portfolio(tmp_path) == []
 
 
-def test_load_portfolio_returns_empty_on_corrupt_file(tmp_path: Path):
+def test_load_portfolio_raises_on_corrupt_file(tmp_path: Path):
+    """File hỏng KHÔNG được đọc thành [] — nút Thêm/Xoá sẽ ghi đè cả danh mục."""
     from dashboard.portfolio_tab import _load_portfolio
     meta = tmp_path / "_meta"
     meta.mkdir(parents=True)
     (meta / "portfolio.json").write_text("{not valid json")
-    assert _load_portfolio(tmp_path) == []
+    with pytest.raises(ValueError):
+        _load_portfolio(tmp_path)
 
 
 def test_save_load_round_trip(tmp_path: Path):
@@ -41,19 +47,25 @@ def test_save_load_round_trip(tmp_path: Path):
     assert _load_portfolio(tmp_path) == positions
 
 
-def test_save_is_atomic_no_partial_file_on_failure(tmp_path: Path, monkeypatch):
+def test_save_is_atomic_and_raises_on_failure(tmp_path: Path, monkeypatch):
+    """Ghi lỗi phải RAISE (tab báo st.error) — không nuốt im lặng; file cũ giữ nguyên."""
     from dashboard.portfolio_tab import _save_portfolio, _portfolio_path
-    # Force os.replace to fail AFTER tmp is written
     import os as _os
+    import vnstock_parquet_io as pio
+
+    _save_portfolio(tmp_path, [{"ticker": "FPT"}])
+    before = _portfolio_path(tmp_path).read_bytes()
 
     def _fail(_a, _b):
         raise OSError("disk full")
 
+    monkeypatch.setattr(pio, "_REPLACE_BACKOFF", 0)
     monkeypatch.setattr(_os, "replace", _fail)
-    _save_portfolio(tmp_path, [{"ticker": "VCB"}])
+    with pytest.raises(OSError):
+        _save_portfolio(tmp_path, [{"ticker": "VCB"}])
+    monkeypatch.undo()
 
-    # Final file must not exist; tmp must be cleaned up
-    assert not _portfolio_path(tmp_path).exists()
+    assert _portfolio_path(tmp_path).read_bytes() == before
     assert not any(p.name.startswith("portfolio") and p.suffix.endswith(".tmp")
                    for p in (tmp_path / "_meta").glob("*"))
 
@@ -125,3 +137,61 @@ def test_nav_xaxis_long_series_keeps_auto_ticks():
     from dashboard.portfolio_tab import _nav_xaxis
     assert "dtick" not in _nav_xaxis(11)
     assert _nav_xaxis(11)["tickformat"] == "%d/%m"
+
+
+# ── File hỏng / ghi lỗi không được làm mất danh mục (Dropbox đẩy sang máy kia) ──
+
+class _Rerun(Exception):
+    """st.rerun thật dừng script bằng exception — giả lập đúng như vậy."""
+
+
+def _render_clicking_add(monkeypatch, warehouse: Path):
+    from tests.test_tab_render_smoke import _fake_streamlit
+    st = _fake_streamlit()
+    st.button = lambda label, key=None, **k: key == "pf_add" and not k.get("disabled")
+    st.text_input = lambda label, **k: "VCB" if k.get("key") == "pf_ticker" else ""
+    st.number_input = lambda label, min_value=0, max_value=None, value=0, **k: (
+        25_000.0 if k.get("key") == "pf_price" else value)
+
+    def _rerun():
+        raise _Rerun
+
+    st.rerun = _rerun
+    monkeypatch.setitem(sys.modules, "streamlit", st)
+    from dashboard.portfolio_tab import render_portfolio_tab
+    try:
+        render_portfolio_tab(warehouse)
+    except _Rerun:
+        pass
+    return st
+
+
+def test_corrupt_portfolio_blocks_writes_and_keeps_bytes(tmp_path: Path, monkeypatch):
+    from dashboard.portfolio_tab import _portfolio_path
+    path = _portfolio_path(tmp_path)
+    path.parent.mkdir(parents=True)
+    truncated = b'[\n  {\n    "ticker": "HPG",\n    "quantity": 1000,\n    "buy_pr'
+    path.write_bytes(truncated)
+
+    st = _render_clicking_add(monkeypatch, tmp_path)
+
+    assert path.read_bytes() == truncated                    # không ghi đè bằng [] + 1 vị thế
+    assert sorted(p.name for p in path.parent.iterdir()) == ["portfolio.json"]   # không đổi tên/xoá
+    assert str(path) in st.error.call_args.args[0]
+
+
+def test_portfolio_save_failure_is_reported(tmp_path: Path, monkeypatch):
+    from dashboard.portfolio_tab import _portfolio_path
+    import os as _os
+    import vnstock_parquet_io as pio
+
+    def _fail(_a, _b):
+        raise OSError("file đang bị khoá")
+
+    monkeypatch.setattr(pio, "_REPLACE_BACKOFF", 0)
+    monkeypatch.setattr(_os, "replace", _fail)
+    st = _render_clicking_add(monkeypatch, tmp_path)
+
+    assert not _portfolio_path(tmp_path).exists()
+    msg = st.error.call_args.args[0]
+    assert str(_portfolio_path(tmp_path)) in msg and "file đang bị khoá" in msg
