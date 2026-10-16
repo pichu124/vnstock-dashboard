@@ -377,6 +377,59 @@ def test_delete_failure_keeps_portfolio_and_selection(tmp_path: Path, monkeypatc
     assert any(str(path) in m and "file đang bị khoá" in m for m in msgs), msgs
 
 
+def _assert_refused(flow: _DeleteFlow) -> None:
+    msgs = [c.args[0] for c in flow.st.error.call_args_list]
+    assert any("vừa thay đổi" in m and "chưa xoá gì" in m for m in msgs), msgs
+    assert flow.st.session_state["pf_del_select"] is None
+
+
+def test_delete_refuses_when_lot_shifted_on_disk(tmp_path: Path, monkeypatch):
+    """Vẽ [A, B, C], chọn B (#2). Trước khi bấm, máy kia/tab khác xoá A ⇒ file [B, C].
+    Chỉ số 1 chốt lúc vẽ giờ là C: bấm Xoá KHÔNG được xoá C, phải báo và bỏ chọn."""
+    from dashboard.portfolio_tab import _load_portfolio, _save_portfolio
+    flow = _flow_with_b_selected(monkeypatch, tmp_path)
+    _save_portfolio(tmp_path, [_LOT_B, _LOT_C])
+
+    flow.run(click="pf_del_btn")
+
+    assert _load_portfolio(tmp_path) == [_LOT_B, _LOT_C]
+    _assert_refused(flow)
+
+
+def test_delete_callback_replayed_does_not_drop_next_lot(tmp_path: Path, monkeypatch):
+    """Bấm đúp khi lượt chạy chưa xong: Streamlit bỏ bước dọn widget (`premature_stop`)
+    nên gọi LẠI callback cũ với cùng args trên file đã thành [A, C] ⇒ không được xoá C."""
+    from dashboard.portfolio_tab import _load_portfolio
+    flow = _flow_with_b_selected(monkeypatch, tmp_path)
+    callback, args, kwargs = flow.shown["pf_del_btn"]
+    flow.st.session_state.drawn.clear()                         # callback chạy trước script
+
+    callback(*args, **kwargs)
+    assert _load_portfolio(tmp_path) == [_LOT_A, _LOT_C]
+    callback(*args, **kwargs)
+
+    assert _load_portfolio(tmp_path) == [_LOT_A, _LOT_C]
+    _assert_refused(flow)
+
+
+def test_delete_refuses_without_rewrite_when_file_shrank(tmp_path: Path, monkeypatch):
+    """Chọn B (chỉ số 1) rồi file co còn [A] ⇒ chỉ số vượt độ dài: từ chối, KHÔNG ghi lại
+    file (ghi lại [A] cùng nội dung vẫn đè bản Dropbox đang tới)."""
+    import os as _os
+    from dashboard.portfolio_tab import _portfolio_path, _save_portfolio
+    flow = _flow_with_b_selected(monkeypatch, tmp_path)
+    _save_portfolio(tmp_path, [_LOT_A])
+    path = _portfolio_path(tmp_path)
+    _os.utime(path, (1_000_000_000, 1_000_000_000))
+    before = path.read_bytes()
+
+    flow.run(click="pf_del_btn")
+
+    assert path.read_bytes() == before
+    assert path.stat().st_mtime == 1_000_000_000
+    _assert_refused(flow)
+
+
 # Chạy trong process RIÊNG: `tests/test_dashboard.py` gắn MagicMock vào sys.modules["streamlit"]
 # ngay lúc pytest thu thập ⇒ chạy cả suite thì không import được `streamlit.elements…` thật,
 # còn gỡ mock ngay trong process pytest thì module thật lọt sang test khác.
