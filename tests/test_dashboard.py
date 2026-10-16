@@ -458,13 +458,17 @@ class TestScoreBarHtml:
         html = _score_bar_html(60)
         assert "VÀO" in html
         assert "#10b981" in html
-        assert "right:50%" in html  # bar grows from center-right
+        # Thanh mọc từ vạch giữa SANG PHẢI: neo mép trái ở 50%. (Bản cũ ghim
+        # "right:50%" — neo mép PHẢI ở giữa nên thanh dương mọc sang trái, và
+        # assert âm "left:50%" luôn đúng nhờ chính cái vạch giữa.)
+        assert "left:50%;width:30.0%" in html
+        assert "right:50%" not in html
 
     def test_negative_score_contains_label(self):
         html = _score_bar_html(-60)
         assert "RA" in html
         assert "#ef4444" in html
-        assert "left:50%" in html  # bar grows from center-left
+        assert "right:50%;width:30.0%" in html  # mọc từ vạch giữa sang trái
 
     def test_zero_score(self):
         html = _score_bar_html(0)
