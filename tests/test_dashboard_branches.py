@@ -435,3 +435,41 @@ def test_preset_pct_columns_show_zero_and_hide_nan():
     assert out["BB%"].tolist() == ["+1.2%", "—"]
     assert out["52W%"].tolist() == ["-2.0%", "0.0%"]
     assert out["RSI"].tolist() == ["55.0", "—"]   # cột khác giữ nguyên format
+
+
+# ── Điều hướng tab bằng st.pills ─────────────────────────────────────────────
+
+_DASH_SRC = (_ROOT / "vnstock_dashboard.py").read_text(encoding="utf-8")
+
+
+def _run_nav(clicks: list) -> tuple:
+    """Chạy ĐÚNG khối nav (trích từ source) qua nhiều lượt rerun với st giả."""
+    start = _DASH_SRC.index("_TAB_OPTIONS = [")
+    block = _DASH_SRC[start:_DASH_SRC.index("if _active_tab ==", start)]
+    calls: list = []
+    session: dict = {}
+    tabs = []
+    for value in clicks:
+        def pills(label, options, **kw):
+            calls.append((label, kw))
+            return value
+        ns = {"st": types.SimpleNamespace(pills=pills, session_state=session)}
+        exec(block, ns)
+        tabs.append(ns["_active_tab"])
+    return tabs, calls
+
+
+def test_reclicking_selected_pill_keeps_previous_tab():
+    """Bấm lại pill đang chọn ⇒ st.pills trả None ⇒ vùng chính TRẮNG."""
+    assert _run_nav(["💰 Dòng Tiền", None, None])[0] == ["💰 Dòng Tiền"] * 3
+
+
+def test_first_run_with_no_selection_falls_back_to_screener():
+    assert _run_nav([None])[0] == ["📊 Screener"]
+
+
+def test_nav_pills_have_a_real_but_hidden_label():
+    """label rỗng ⇒ Streamlit cảnh báo accessibility mỗi lượt."""
+    label, kw = _run_nav(["📊 Screener"])[1][0]
+    assert label.strip()
+    assert kw.get("label_visibility") == "collapsed"

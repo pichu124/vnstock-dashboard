@@ -3720,7 +3720,12 @@ sys.modules["vnstock_dashboard"] = sys.modules["__main__"]
 # ── NAVIGATION (dùng pills thay tabs để tránh lazy-render) ────────────────────
 _TAB_OPTIONS = ["📊 Screener", "🔬 Phân tích", "🌏 Thị trường", "🗞️ Tin tức", "💰 Dòng Tiền",
                 "💱 Hàng hoá & Tiền tệ", "💼 Portfolio", "⚕️ Sức khỏe"]
-_active_tab = st.pills("", _TAB_OPTIONS, default="📊 Screener", key="nav_tab")
+_active_tab = st.pills("Điều hướng", _TAB_OPTIONS, default="📊 Screener", key="nav_tab",
+                       label_visibility="collapsed")
+# Bấm lại pill đang chọn ⇒ pills trả None ⇒ không tab nào render: giữ tab trước.
+if _active_tab is None:
+    _active_tab = st.session_state.get("_nav_tab_last", "📊 Screener")
+st.session_state["_nav_tab_last"] = _active_tab
 
 # ══════════════════════════════════════════════════════
 # TAB 1: SCREENER
