@@ -828,6 +828,7 @@ def load_industry_map() -> dict:
         return {}
 
 
+@st.cache_data(ttl=600)
 def get_all_tickers() -> list:
     if not PRICES_DIR.exists():
         return []

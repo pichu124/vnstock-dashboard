@@ -902,3 +902,10 @@ def test_overview_without_known_dates_keeps_the_24h_rule(overview_is_current):
     assert overview_is_current(23.0, None, "2026-10-16") is True
     assert overview_is_current(25.0, "2026-10-16", None) is False
     assert overview_is_current(25.0, None, None) is False
+
+
+def test_get_all_tickers_is_cached():
+    """Không cache ⇒ iterdir ~1.700 thư mục + compile regex ở MỖI rerun tab Phân tích."""
+    fn = next(n for n in _DASH_TREE.body
+              if isinstance(n, ast.FunctionDef) and n.name == "get_all_tickers")
+    assert any(ast.unparse(d).startswith("st.cache_data(") for d in fn.decorator_list)
