@@ -95,6 +95,18 @@ class TestIndexStrength:
         line = index_strength_lines(_idx([np.nan, 1.0, 1.0]))[1]
         assert "+1.00%" in line
 
+    def test_all_nan_changes_make_no_trend_claim(self):
+        """Cột %D toàn NaN → mean NaN rơi xuống nhánh cuối thành "🔴 giảm rõ
+        rệt … TB +nan%/phiên". Không có số thì không được kết luận."""
+        line = index_strength_lines(_idx([np.nan] * 5))[1]
+        assert "chưa đủ dữ liệu" in line
+        assert "nan" not in line and "giảm rõ rệt" not in line
+
+    def test_denominator_is_the_real_session_count(self):
+        """Có 3 phiên thì ghi /3, không phải /5."""
+        line = index_strength_lines(_idx([1.0, -1.0, 1.0]))[1]
+        assert "3 phiên gần nhất 2/3 tăng" in line
+
 
 # ── Mục 2: sức khỏe thị trường ──────────────────────────────────────────────
 

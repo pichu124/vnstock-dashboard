@@ -487,3 +487,142 @@ def test_brief_runner_reports_broken_stance_track(render_env, monkeypatch):
     _load("dashboard.brief_run_panel").render_brief_runner()
 
     assert [s for s in said if "disabled" in s and "sổ stance hỏng" in s], said
+
+
+def _markdowns(st):
+    return [str(c.args[0]) for c in st.markdown.call_args_list if c.args]
+
+
+def test_top_volume_card_picks_the_highest_vol20_sector(render_env, monkeypatch):
+    """Bảng ngành sắp theo VỐN HOÁ, nên `iloc[0]` là ngành vốn hoá lớn nhất chứ
+    không phải ngành KLGD cao nhất. Thẻ phải chọn theo "Vol Avg 20"."""
+    sectors = _sector_df()
+    sectors["Vol Avg 20"] = [1.0, 50.0, 3.0]          # max ở dòng 2, không phải dòng đầu
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard",
+                        _stub_dashboard(sectors, _index_df()))
+    st = render_env
+    _load("dashboard.market_tab").render_market_tab()
+
+    card = [m for m in _markdowns(st) if "Ngành KLGD cao nhất" in m]
+    assert card and "Thép & Kim" in card[0] and "Vol 20: 50M cp" in card[0], card
+
+
+def test_sector_price_chart_does_not_clip_large_moves(render_env, monkeypatch):
+    """Trục x cố định [-30, 30] cắt mất ngành chạy ±42% khỏi khung."""
+    sectors = _sector_df()
+    sectors["Giá 1M %"] = [42.0, -5.0, 3.0]
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard",
+                        _stub_dashboard(sectors, _index_df()))
+    st = render_env
+    _load("dashboard.market_tab").render_market_tab()
+
+    bars = [c.args[0] for c in st.plotly_chart.call_args_list
+            if c.args and any(getattr(t, "orientation", None) == "h" for t in c.args[0].data)]
+    assert bars, "Không thấy chart biến động giá theo ngành"
+    lo, hi = bars[0].layout.xaxis.range
+    assert lo <= -42 and hi >= 42
+
+
+def test_index_table_title_matches_rows_shown(render_env, monkeypatch):
+    """Tiêu đề ghi "(30 phiên)" trong khi bảng chỉ in 20 dòng."""
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard", _stub_dashboard(None, _index_df()))
+    st = render_env
+    _load("dashboard.market_tab").render_market_tab()
+
+    title = [m for m in _markdowns(st) if "Diễn biến chỉ số thị trường" in m]
+    assert title == ["#### 📈 Diễn biến chỉ số thị trường (20 phiên)"]
+
+
+def test_regime_failure_is_visible_not_silent(render_env, monkeypatch):
+    """`except Exception: pass` làm khối regime biến mất im lặng — user không
+    phân biệt được "không có regime" với "regime hỏng"."""
+    reg = types.ModuleType("vnstock_regime")
+
+    def _boom():
+        raise RuntimeError("boom")
+    reg.load_regime = _boom
+    monkeypatch.setitem(sys.modules, "vnstock_regime", reg)
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard", _stub_dashboard())
+    st = render_env
+    said = []
+    st.caption = lambda *a, **k: said.append(str(a[0]) if a else "")
+    _load("dashboard.market_tab").render_market_tab()
+
+    assert "⚠️ Market regime lỗi: RuntimeError: boom" in said, said
+
+
+@pytest.mark.parametrize("fresh,expect", [
+    ({"reason": "intraday", "overview_time": "11:02", "overview_date": "2026-10-16"},
+     "chốt giữa phiên 11:02"),
+    ({"reason": "prev_session", "overview_time": "15:30", "overview_date": "2026-10-15"},
+     "phiên trước (2026-10-15)"),
+])
+def test_freshness_badge_flags_intraday_and_previous_session(render_env, monkeypatch,
+                                                             fresh, expect):
+    """Bất biến CLAUDE.md: overview cùng phiên mà chốt trước 15:05 là GIỮA PHIÊN
+    ⇒ stale. Badge cũ chỉ so mtime với 24h nên file ghi lúc 11:00 trông "tươi"."""
+    import vnstock_brief as vb
+    monkeypatch.setattr(vb, "market_data_freshness", lambda *a, **k: {
+        "stale": True, "data_date": "2026-10-16", "stale_blocks": [], **fresh})
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard", _stub_dashboard())
+    st = render_env
+    said = []
+    st.caption = lambda *a, **k: said.append(str(a[0]) if a else "")
+    _load("dashboard.market_tab").render_market_tab()
+
+    assert [s for s in said if expect in s], said
+
+
+def test_custom_group_row_gets_a_sparkline(render_env, monkeypatch):
+    """Sparkline gom mã theo cột `Ngành` GỐC nên dòng nhóm tuỳ biến ("Họ VIN")
+    luôn hiện "—" dù có đủ giá VIC/VHM."""
+    sectors = _sector_df()
+    sectors.loc[0, "Ngành"] = "Họ VIN"
+    idx = _index_df()
+    stub = _stub_dashboard(sectors, idx)
+    stub.load_price_history = lambda tk, days=0: pd.DataFrame(
+        {"time": idx["time"], "close": np.linspace(100, 130, len(idx))})
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard", stub)
+
+    ticks = _ticker_df()
+    ticks["Mã"] = ["VIC", "VHM", "FPT"]
+    ticks["Ngành"] = ["Bất động sản", "Bất động sản", "Công nghệ"]
+    ticks["Vốn hoá (tỷ)"] = [400_000.0, 300_000.0, 200_000.0]
+    st = render_env
+    st.session_state["_mkt_ticker_data"] = ticks
+    _load("dashboard.market_tab").render_market_tab()
+
+    tbl = [m for m in _markdowns(st) if "α 30d vs VNINDEX" in m]
+    assert tbl, "Bảng ngành không có cột sparkline"
+    row = [r for r in tbl[0].split("<tr") if "Họ VIN" in r]
+    assert row and "<svg" in row[0], "Dòng Họ VIN không có sparkline"
+
+
+def test_quant_filters_load_once_per_render_with_drilldown_open(render_env, monkeypatch):
+    """Drill-down + nhận định từng đọc sổ cách ly / sổ cổ tức MỖI BÊN một lần
+    (2 lượt đọc đĩa mỗi rerun). Nạp một lần trong render rồi truyền xuống."""
+    from collections import Counter
+    calls = Counter()
+    ma = sys.modules["vnstock_market_analyzer"]
+    monkeypatch.setattr(ma, "load_quarantine_tickers",
+                        lambda: calls.update(["quarantine"]) or set(), raising=False)
+    monkeypatch.setattr(ma, "load_recent_exdiv",
+                        lambda days_back=7: calls.update(["exdiv"]) or {}, raising=False)
+    monkeypatch.setattr(sys.modules["vnstock_session_stats"], "load_session_stats_history",
+                        lambda *a, **k: calls.update(["session"]) or {}, raising=False)
+    # Fake analyzer thiếu hàm này + trả dict ⇒ drill-down ném TRƯỚC khi tới loader.
+    monkeypatch.setattr(ma, "_sector_technical_summary", lambda df, presets: "", raising=False)
+    monkeypatch.setattr(ma, "compute_scores", lambda df, **k: pd.DataFrame(
+        {"composite": np.linspace(1, -1, len(df))}, index=df.index))
+    import vnstock_brief as vb   # badge độ tươi đọc session stats khi kho trống — tách ra
+    monkeypatch.setattr(vb, "market_data_freshness", lambda *a, **k: {"stale": False})
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard",
+                        _stub_dashboard(_sector_df(), _index_df()))
+    st = render_env
+    st.session_state["_mkt_ticker_data"] = _ticker_df()
+    st.selectbox = lambda label, options=(), **k: (
+        "Ngân hàng" if "ngành" in str(label).lower() and "Ngân hàng" in list(options)
+        else (list(options)[0] if len(options) else None))
+    _load("dashboard.market_tab").render_market_tab()
+
+    assert calls == {"quarantine": 1, "exdiv": 1, "session": 1}, calls
