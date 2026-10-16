@@ -35,7 +35,7 @@ def call(i, cmd, tool="Bash", result="ok", pd=None, guard=None, out=lines, ts=No
             {"type": "tool_result", "tool_use_id": i, "is_error": True,
              "content": "The user doesn't want to proceed with this tool use. The tool use was rejected."}]}})
     elif result == "denied":
-        out.append({"type": "user", "permissionDecision": {"decision": "reject", "source": "config"}, "message": {"role": "user",
+        out.append({"type": "user", "permissionDecision": pd or {"decision": "reject", "source": "config"}, "message": {"role": "user",
                     "content": [{"type": "tool_result", "tool_use_id": i, "is_error": True, "content": "Permission to use Bash has been denied."}]}})
     else:
         out.append({"type": "user", "permissionDecision": pd or {"decision": "accept", "source": "config", "reasonType": "classifier"},
@@ -75,7 +75,11 @@ call("k7", "rm -rf node_modules /c")
 call("m1", "git push", where=sys.argv[3])
 # Claude Code trên Windows (2.1.296) không ghi kết quả guard vào file phiên: suy từ hộp hỏi.
 call("n1", "git push --force origin y", result="rejected")                # bạn từ chối ở hộp hỏi -> D
-call("n2", "git push -u origin main", pd={"decision": "accept", "source": "user_temporary"})  # bạn duyệt -> C, không phải H                                 # push lúc đang ở main, không khớp mẫu chữ
+call("n2", "git push -u origin main", pd={"decision": "accept", "source": "user_temporary"})
+# Báo cáo desktop 16/10: branch -d (chữ thường, xoá an toàn) bị báo nhầm; G không ghi ai chặn.
+call("b1", "git branch -d wt-u1 wt-u2")
+call("b2", "git branch -D wip-chua-gop")
+call("g2", "cat data/bao-cao.csv", result="denied", pd={"decision": "reject", "source": "config", "reasonType": "classifier"})  # bạn duyệt -> C, không phải H                                 # push lúc đang ở main, không khớp mẫu chữ
 lines.append({"type": "assistant", "message": "chuỗi thay vì object"})
 lines.append({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": ["list"]}}]}})
 lines.append({"type": "system", "subtype": "stop_hook_summary", "hookInfos": ["chuỗi"], "hookErrors": [1]})
@@ -200,7 +204,11 @@ for must in ('echo "git stash drop" | sh', "cat <<'EOF' | bash\ngit stash drop\n
 for benign in ("SP=/tmp/claude-0/scratchpad; cd $SP/rv7 && rm -rf repos new", "cat transcript.txt"):
     check(benign not in A, f"A không được có: {benign!r}")
 check("git branch -D ancient" not in A, "dòng có timestamp cũ hơn --since không được đọc")
-check(cmds("G_rejected_not_asked") == {"ls -la"}, f"G sai (output thường có chữ 'doesn't want to proceed' không phải từ chối): {cmds('G_rejected_not_asked')}")
+check(cmds("G_rejected_not_asked") == {"ls -la", "cat data/bao-cao.csv"}, f"G sai (output thường có chữ 'doesn't want to proceed' không phải từ chối): {cmds('G_rejected_not_asked')}")
+check("git branch -d wt-u1 wt-u2" not in A, "git branch -d (chữ thường) là xoá an toàn, không được vào A")
+check("git branch -D wip-chua-gop" in A, "git branch -D (xoá cưỡng bức) phải vào A")
+check("`ls -la`" in md and "bạn từ chối" in md.split("## G.")[1] and "auto mode chặn" in md.split("## G.")[1],
+      "mục G phải ghi ai chặn: bạn hay auto mode/luật")
 sg = r["stop_gate"]
 check(sg["runs"] == 1 and sg["max_s"] == 125.0, f"Stop gate phải đo được 125s: {sg}")
 check(sg["blocks"] == ["1/3"] and sg["released_after_max"] == 1, f"Stop gate chặn/nhả sai: {sg}")

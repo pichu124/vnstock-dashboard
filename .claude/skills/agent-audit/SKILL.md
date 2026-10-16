@@ -23,7 +23,7 @@ bash "${CLAUDE_SKILL_DIR}/../../../scripts/audit-agent.sh" --all --since <số n
 | **B. Hồi quy** (trước hỏi, nay cho qua) | Luôn là lỗi. Sửa trước. |
 | **H. Chạy lúc guard không hỏi** (nay đã hỏi) | Guard không hoạt động lúc đó. Tìm nguyên nhân trong mục F và trong cách mở phiên (thư mục chưa trust, phiên mở ở thư mục cha, matcher thiếu tool). Báo cho người, không cần sửa guard. |
 | **A. Có thể bỏ sót** | Tự hỏi: lệnh này chạy nhầm chỗ có làm **mất dữ liệu hoặc ảnh hưởng người khác** không? Có thì là lỗi thật. Chỉ là thao tác trong thư mục tạm của chính agent thì ghi "không phải lỗi" kèm lý do. |
-| **G. Bạn từ chối mà guard không hỏi** | Lệnh nguy hiểm thì xử lý như A. Lệnh vô hại thì bỏ qua. |
+| **G. Bị từ chối mà guard không hỏi** | Dòng "bạn từ chối" mà lệnh nguy hiểm thì xử lý như A; lệnh vô hại thì bỏ qua. Dòng "auto mode chặn" hay "luật deny chặn" là lớp bảo vệ khác đã làm việc: chỉ thống kê. |
 | **F. Lỗi hook** | Tái hiện bằng cách chạy hook với input tương tự, rồi sửa nguyên nhân gốc (CRLF, quyền chạy, Python, đường dẫn...). |
 | **E. Stop gate** | Chặn nhiều lần hoặc "nhả sau N lần": tìm vì sao check đỏ. Quá chậm (trung vị trên 5 phút): chỉ đề xuất cách làm nhanh, **không** nới Stop gate. |
 | **C. Hỏi rồi bạn duyệt** | Chỉ là **ứng viên** hỏi thừa. Lặp lại nhiều lần với cùng một kiểu lệnh rõ ràng vô hại thì mới đề xuất nới. |

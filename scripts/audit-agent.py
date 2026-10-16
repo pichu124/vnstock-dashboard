@@ -42,7 +42,8 @@ SUSPICIOUS = [
     (r"\brestore\b(?=.*--worktree|(?!.*--staged))", "git restore (bỏ thay đổi)"),
     (r"\bcheckout\b.*\s(-f|--force)\b", "git checkout -f (bỏ thay đổi)"),
     (r"\bstash\s+(drop|clear)\b", "git stash drop/clear"),
-    (r"\bbranch\s+(-D|--delete\s+--force)\b", "xoá nhánh local (-D)"),
+    # -D phân biệt hoa thường (mẫu so không phân biệt): -d chỉ xoá nhánh đã gộp, git tự từ chối nhánh chưa gộp.
+    (r"\bbranch\b.*(\s(?-i:-D)\b|\s--delete\s+--force\b|\s-d\s+(-f|--force)\b)", "xoá nhánh local (-D)"),
     (r"\b(rm|remove-item|ri|del|erase|rd|rmdir)\b.*(\s-\w*r\w*\b|\s-recurse\b|\s--recursive\b|\s/s\b)", "xoá đệ quy"),
     (r"\b(drop\s+(table|database|schema)|truncate\s+table|dropdb)\b", "xoá dữ liệu SQL"),
     (r"\b(migrate\s+reset|db:(drop|reset))\b", "reset database"),
@@ -401,6 +402,14 @@ def who_approved(pd):
     return src or "không rõ"
 
 
+def rejecter(it):
+    """Ai chặn một lệnh bị từ chối: bạn ở hộp hỏi, hay một lớp bảo vệ khác (auto mode, luật deny)."""
+    if it.get("rejected_by") == "người":
+        return "bạn từ chối"
+    rt = (it["permission"] or {}).get("reasonType") if isinstance(it["permission"], dict) else ""
+    return {"classifier": "auto mode chặn", "rule": "luật deny chặn", "mode": "chế độ quyền chặn"}.get(rt, "cấu hình chặn")
+
+
 def short(cmd, n=160):
     one = " ⏎ ".join(x.strip() for x in cmd.strip().splitlines())
     return one if len(one) <= n else one[: n - 1] + "…"
@@ -561,8 +570,8 @@ def render(r):
          lambda it: reason_of(it)),
         ("D", "Guard hỏi và bị từ chối", "Guard làm đúng việc. Chỉ để thống kê.",
          lambda it: f"{reason_of(it)}; {it.get('rejected_by') or ''} từ chối"),
-        ("G", "Bạn từ chối mà guard không hỏi", "Bạn phải tự chặn ở hộp xin phép thường. Nếu lệnh đó nguy hiểm thì guard đã bỏ sót; nếu chỉ là bạn đổi ý thì bỏ qua.",
-         lambda it: ", ".join(it["suspicious"]) or "không khớp mẫu nghi ngờ"),
+        ("G", "Bị từ chối mà guard không hỏi", "Dòng 'bạn từ chối': bạn phải tự chặn ở hộp xin phép thường; lệnh nguy hiểm thì guard đã bỏ sót, còn nếu chỉ là đổi ý thì bỏ qua. Dòng 'auto mode chặn' hay 'luật deny chặn': một lớp bảo vệ khác đã làm việc, chỉ để thống kê.",
+         lambda it: f"{rejecter(it)}; " + (", ".join(it["suspicious"]) or "không khớp mẫu nghi ngờ")),
     ]
     key = {"A": "A_possible_misses", "B": "B_regressions", "C": "C_asked_approved", "D": "D_asked_rejected",
            "G": "G_rejected_not_asked", "H": "H_ran_unguarded"}
