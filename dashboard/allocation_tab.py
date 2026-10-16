@@ -74,16 +74,20 @@ def _render_band(st, alloc, state: dict) -> None:
 def _refresh_allocation() -> "tuple[bool, dict | None]":
     """Vá 2 (P1b-2, #20): chỉ ghi band ngày mới khi CHẮC overview đã chốt phiên —
     giữa phiên hoặc không xác định được (fail closed) thì chỉ TÍNH để hiện.
-    Trả (đã ghi?, state vừa tính)."""
+    Trả (đã ghi?, state vừa tính) — thiếu input thì run_allocation trả None, không ghi gì."""
     import vnstock_allocation as alloc
     persist = alloc.overview_intraday() is False
     state = alloc.run_allocation(persist=persist)
-    return persist and not (state or {}).get("preview_only"), state
+    if state is None:
+        return False, None
+    return persist and not state.get("preview_only"), state
 
 
 def _refresh_and_report(st) -> None:
     persisted, preview = _refresh_allocation()
-    if persisted:
+    if preview is None:
+        st.warning("Chưa đủ dữ liệu đầu vào — giữ band cũ")
+    elif persisted:
         st.rerun()
     elif preview:
         from vnstock_brief import SESSION_CLOSE_CUTOFF
