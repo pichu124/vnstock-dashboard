@@ -27,6 +27,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import needs
+
 ROOT = Path(__file__).resolve().parent.parent
 _SECTORS = ["Ngân hàng", "Thép & Kim loại", "Công nghệ"]
 
@@ -507,6 +509,7 @@ def test_top_volume_card_picks_the_highest_vol20_sector(render_env, monkeypatch)
     assert card and "Thép & Kim" in card[0] and "Vol 20: 50M cp" in card[0], card
 
 
+@needs("plotly")  # chart ngành chỉ vẽ khi có plotly (market_tab ~1182)
 def test_sector_price_chart_does_not_clip_large_moves(render_env, monkeypatch):
     """Trục x cố định [-30, 30] cắt mất ngành chạy ±42% khỏi khung."""
     sectors = _sector_df()
