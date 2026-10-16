@@ -321,3 +321,97 @@ class TestSectorTaxonomy:
         assert get_sector("Ngành trên trời") == "Khác"
         assert get_sector("") == "Khác"
         assert get_sector(None) == "Khác"
+
+
+# ── vnstock_dashboard: chạy ĐÚNG hàm trong source, không import module ──────
+# `vnstock_dashboard` gọi st.set_page_config + nạp .env + dựng UI ngay khi
+# import nên pytest không import nổi. Trích hàm từ AST (bỏ decorator cache)
+# rồi exec với globals tiêm vào: vẫn là code đang chạy, không phải bản chép tay.
+
+import ast  # noqa: E402
+import copy  # noqa: E402
+import logging  # noqa: E402
+import types  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+_ROOT = Path(__file__).resolve().parent.parent
+
+
+def load_source_fns(relpath: str, *names: str, **globs) -> dict:
+    """Namespace chứa các hàm `names` của `relpath` (kể cả hàm lồng)."""
+    tree = ast.parse((_ROOT / relpath).read_text(encoding="utf-8"))
+    nodes: dict = {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.FunctionDef):
+            nodes.setdefault(n.name, n)
+    ns = dict(globs)
+    for name in names:
+        node = nodes[name]
+        node.decorator_list = []
+        exec(compile(ast.Module([node], []), str(_ROOT / relpath), "exec"), ns)
+    return ns
+
+
+# ── Price alert: bắn MỘT lần, không lặp mỗi 10s ─────────────────────────────
+
+@pytest.fixture()
+def alert_env(tmp_path):
+    sent: list = []
+
+    def _send(token, chat, msg):
+        sent.append(msg)
+        return True
+
+    ns = load_source_fns(
+        "vnstock_dashboard.py",
+        "load_alerts", "save_alerts", "check_and_fire_alerts",
+        json=json, log=logging.getLogger("vnstock_dashboard"),
+        ALERTS_PATH=tmp_path / "_meta" / "price_alerts.json",
+        load_live_quote=lambda t: {"price": 25.5, "chg_pct": 1.0, "volume": 1e6},
+        send_telegram_alert=_send,
+    )
+    ns["sent"] = sent
+    return ns
+
+
+def test_check_and_fire_alerts_returns_copies_and_leaves_input_alone(alert_env):
+    alerts = [{"ticker": "VCB", "condition": "above", "target": 25.0, "fired": False}]
+    before = copy.deepcopy(alerts)
+    out = alert_env["check_and_fire_alerts"](alerts, "tok", "chat")
+    assert alerts == before
+    assert out[0]["fired"] is True
+    assert out[0]["fired_price"] == 25.5
+
+
+def test_alert_checker_fragment_sends_telegram_once_across_runs(alert_env):
+    """Fragment chạy mỗi 10s: lượt 1 bắn + LƯU, lượt 2 đọc lại thấy đã bắn."""
+    alert_env["save_alerts"](
+        [{"ticker": "VCB", "condition": "above", "target": 25.0, "fired": False}])
+    toasts: list = []
+    st = types.SimpleNamespace(
+        session_state={"_tg_token": "tok", "_tg_chat": "chat"}, toast=toasts.append)
+    frag = load_source_fns(
+        "dashboard/analysis_tab.py", "_alert_checker", st=st,
+        load_alerts=alert_env["load_alerts"], save_alerts=alert_env["save_alerts"],
+        check_and_fire_alerts=alert_env["check_and_fire_alerts"],
+    )["_alert_checker"]
+    frag()
+    frag()
+    assert len(alert_env["sent"]) == 1
+    assert len(toasts) == 1
+    assert alert_env["load_alerts"]()[0]["fired"] is True
+
+
+def test_alerts_roundtrip_utf8_message(alert_env):
+    """Máy cp1252: không ghi utf-8 thì 🔔/tiếng Việt ném UnicodeEncodeError."""
+    al = [{"ticker": "VCB", "fired": True, "message": "🔔 <b>ALERT</b>\nĐiều kiện: giá >= 25"}]
+    alert_env["save_alerts"](al)
+    assert alert_env["load_alerts"]() == al
+
+
+def test_failed_telegram_send_is_logged(alert_env, caplog):
+    alert_env["send_telegram_alert"] = lambda *a: False
+    with caplog.at_level(logging.WARNING, logger="vnstock_dashboard"):
+        alert_env["check_and_fire_alerts"](
+            [{"ticker": "VCB", "condition": "above", "target": 25.0}], "tok", "chat")
+    assert "VCB" in caplog.text

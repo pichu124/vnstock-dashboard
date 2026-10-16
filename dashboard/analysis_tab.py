@@ -564,20 +564,15 @@ def render_analysis_tab() -> None:
                 return
             _tg_t = st.session_state.get("_tg_token", "")
             _tg_c = st.session_state.get("_tg_chat", "")
+            _was_fired = [bool(a.get("fired")) for a in _al]
             updated = check_and_fire_alerts(_al, _tg_t, _tg_c)
-            _newly_fired = [a for a in updated
-                            if a.get("fired") and a.get("fired_at")
-                            and a not in _al]
-            # Chỉ save nếu có alert mới triggered
-            if any(a.get("fired") and not _al[i].get("fired")
-                   for i, a in enumerate(updated) if i < len(_al)):
+            _fresh = [a for a, was in zip(updated, _was_fired)
+                      if a.get("fired") and not was]
+            # Không lưu thì lượt sau đọc lại thấy chưa bắn ⇒ Telegram lặp mỗi 10s
+            if _fresh:
                 save_alerts(updated)
-                for a in updated:
-                    if a.get("fired") and a.get("message"):
-                        if not any(old.get("fired") and old.get("ticker") == a["ticker"]
-                                   and old.get("condition") == a["condition"]
-                                   for old in _al):
-                            st.toast(f"🔔 {a['ticker']}: {a.get('message', 'Alert triggered!')[:100]}")
+                for a in _fresh:
+                    st.toast(f"🔔 {a['ticker']}: {a.get('message', 'Alert triggered!')[:100]}")
 
         _alert_checker()
 

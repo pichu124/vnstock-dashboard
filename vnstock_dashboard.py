@@ -951,8 +951,8 @@ def load_alerts() -> list[dict]:
     if not ALERTS_PATH.exists():
         return []
     try:
-        return json.loads(ALERTS_PATH.read_text())
-    except (OSError, json.JSONDecodeError) as e:
+        return json.loads(ALERTS_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
         log.warning("Alerts file corrupt: %s", e)
         return []
 
@@ -963,9 +963,11 @@ def save_alerts(alerts: list[dict]):
     import os
     tmp = ALERTS_PATH.with_suffix(f".{os.getpid()}.tmp")
     try:
-        tmp.write_text(json.dumps(alerts, indent=2, ensure_ascii=False))
+        tmp.write_text(json.dumps(alerts, indent=2, ensure_ascii=False),
+                       encoding="utf-8")
         os.replace(str(tmp), str(ALERTS_PATH))
     except Exception:
+        log.exception("Không lưu được price alerts vào %s", ALERTS_PATH)
         if tmp.exists():
             try:
                 tmp.unlink()
@@ -992,13 +994,15 @@ def check_and_fire_alerts(alerts: list[dict], bot_token: str = "",
                           chat_id: str = "") -> list[dict]:
     """
     Check tất cả alerts, fire những cái triggered.
-    Returns: list alerts đã update (triggered ones marked).
+    Returns: list BẢN SAO đã update (triggered ones marked) — input giữ nguyên
+    để bên gọi so ra alert nào VỪA bắn mà lưu lại.
     """
     from datetime import datetime
     updated = []
     fired_messages = []
 
     for alert in alerts:
+        alert = dict(alert)
         ticker = alert.get("ticker", "")
         if not ticker or alert.get("fired"):
             updated.append(alert)
@@ -1054,15 +1058,16 @@ def check_and_fire_alerts(alerts: list[dict], bot_token: str = "",
                 f"Giá hiện tại: {price:,.2f}\n"
                 f"Thời gian: {alert['fired_at']}"
             )
-            fired_messages.append(msg)
+            fired_messages.append((ticker, msg))
             alert["message"] = msg
 
         updated.append(alert)
 
     # Gửi Telegram nếu có config
     if fired_messages and bot_token and chat_id:
-        for msg in fired_messages:
-            send_telegram_alert(bot_token, chat_id, msg)
+        for tk, msg in fired_messages:
+            if not send_telegram_alert(bot_token, chat_id, msg):
+                log.warning("Gửi Telegram alert %s thất bại", tk)
 
     return updated
 
