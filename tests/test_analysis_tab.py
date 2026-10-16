@@ -63,3 +63,50 @@ def test_missing_levels_show_dash():
     shown = _render_levels({"entry": 22.35, "tp": None, "sl": None})
     assert shown["🎯 Take Profit"] == ("—", None)
     assert shown["🛑 Cut Loss"] == ("—", None)
+
+
+# ── Nút timeframe: không xoá cache của CẢ process ───────────────────────────
+
+def test_timeframe_switch_does_not_clear_every_cache():
+    """`st.cache_data.clear()` xoá cache MỌI tab (screener, NN, BCTC…) chỉ để
+    đổi khung nến — trong khi `load_intraday` đã khoá cache theo `interval`."""
+    loop = next(n for n in ast.walk(_TAB_TREE) if isinstance(n, ast.For)
+                and "tf_options" in ast.unparse(n.iter))
+    cleared: list = []
+
+    class _Rerun(Exception):
+        pass
+
+    class _Ctx:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def _rerun():
+        raise _Rerun
+
+    st = types.SimpleNamespace(
+        session_state={"tf": "1D"},
+        button=lambda label, **kw: label == "5m",
+        cache_data=types.SimpleNamespace(clear=lambda: cleared.append(1)),
+        rerun=_rerun,
+    )
+    ns = {"st": st, "tf_options": ["1m", "5m", "1D"], "tf_cols": [_Ctx()] * 3}
+    try:
+        exec(compile(ast.Module([loop], []), "analysis_tab.py", "exec"), ns)
+    except _Rerun:
+        pass
+    assert st.session_state["tf"] == "5m"
+    assert cleared == []
+
+
+def test_load_intraday_cache_key_includes_interval():
+    """Điều kiện để bỏ clear(): cache key của load_intraday phải gồm interval."""
+    src = (Path(__file__).resolve().parent.parent / "vnstock_dashboard.py").read_text(
+        encoding="utf-8")
+    fn = next(n for n in ast.walk(ast.parse(src))
+              if isinstance(n, ast.FunctionDef) and n.name == "load_intraday")
+    assert [a.arg for a in fn.args.args] == ["ticker", "interval"]
+    assert "cache_data" in ast.unparse(fn.decorator_list[0])

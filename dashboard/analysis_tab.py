@@ -333,7 +333,6 @@ def render_analysis_tab() -> None:
                          type="primary" if _active else "secondary",
                          use_container_width=True):
                 st.session_state["tf"] = _val
-                st.cache_data.clear()
                 st.rerun()
     tf = st.session_state["tf"]
 
