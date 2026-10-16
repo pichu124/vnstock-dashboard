@@ -1448,8 +1448,12 @@ def _merge_live_quote(df: pd.DataFrame, quote: dict, interval: str = "1m") -> pd
         if hasattr(tick_time, "tz") and tick_time.tz is not None:
             tick_time = tick_time.tz_convert("Asia/Ho_Chi_Minh").tz_localize(None)
         bar_time = tick_time.floor(_INTERVAL_FREQ.get(interval, "1min"))
-        df = df.copy()
         last_time = pd.to_datetime(df.iloc[-1]["time"])
+        if bar_time < last_time:
+            # Quote trễ (WSS rớt) rơi vào ô cũ hơn nến cuối: append thì render_chart
+            # drop_duplicates(keep="last") thay nến THẬT bằng doji volume 0.
+            return df
+        df = df.copy()
         last_close = float(df.iloc[-1]["close"])
         price = _normalize_live_price(last_close, float(quote["price"]))
         if last_time == bar_time:

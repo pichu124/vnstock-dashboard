@@ -879,6 +879,22 @@ def test_live_quote_new_bar_volume_never_negative():
     assert out.iloc[-1]["volume"] == 0
 
 
+def test_stale_live_quote_older_than_last_bar_leaves_bars_untouched():
+    """WSS rớt, quote đứng ở 10:07 trong khi VCI đã có nến tới 10:45. Append nến
+    10:00 phẳng volume 0 thì render_chart sort + drop_duplicates(keep="last") thay
+    nến 10:00 THẬT bằng doji đó."""
+    bars = pd.DataFrame({
+        "time": pd.to_datetime(["2026-10-16 10:00", "2026-10-16 10:15",
+                                "2026-10-16 10:30", "2026-10-16 10:45"]),
+        "open": [25.1, 25.2, 25.3, 25.4], "high": [25.3, 25.4, 25.5, 25.6],
+        "low": [25.0, 25.1, 25.2, 25.3], "close": [25.2, 25.3, 25.4, 25.5],
+        "volume": [95_000.0, 80_000.0, 70_000.0, 60_000.0],
+    })
+    out = _merge_live_fn()(bars.copy(), {"time": "2026-10-16 10:07:31", "price": 25.6,
+                                         "volume": 3_200_000}, "15m")
+    pd.testing.assert_frame_equal(out, bars)
+
+
 # ── Market overview: dùng file pre-computed khi nó theo kịp kho, không theo tuổi file ─
 
 @pytest.fixture()
