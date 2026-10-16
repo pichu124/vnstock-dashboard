@@ -46,13 +46,13 @@ def render_brief_history() -> None:
             else:
                 # Per-agent accuracy summary (F1.c)
                 try:
+                    from dashboard.brief_accuracy_panel import vnindex_closes
                     from vnstock_brief import (
                         agent_accuracy_summary as _aas,
                         format_accuracy as _fmt_acc,
-                        _load_vnindex_closes as _lvc,
                         evaluate_brief_accuracy as _eba,
                     )
-                    _closes = _lvc()
+                    _closes = vnindex_closes()
                     _hcols = st.columns([1, 1, 3])
                     with _hcols[0]:
                         _acc_horizon = st.selectbox(
@@ -79,6 +79,7 @@ def render_brief_history() -> None:
                         _hist,
                         horizon_days=int(_acc_horizon),
                         neutral_threshold_pct=float(_acc_thresh),
+                        closes=_closes,
                     )
                     if _summary:
                         st.markdown("**📊 Độ chính xác per-agent**")

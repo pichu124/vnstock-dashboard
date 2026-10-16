@@ -409,6 +409,35 @@ def test_accuracy_widget_does_not_rank_tiny_sample_first(render_env, monkeypatch
     assert "100%" not in cards[1] and "🥇" not in cards[1]
 
 
+def test_brief_panels_read_vnindex_once_per_rerun(render_env, monkeypatch):
+    """Widget accuracy + Lịch sử brief từng đọc parquet VNINDEX 3 lần MỖI lượt
+    rerun tab Thị trường (widget qua `agent_accuracy_summary`; Lịch sử qua
+    `_load_vnindex_closes` rồi `agent_accuracy_summary` đọc LẠI), không cache,
+    chạy cả khi expander đóng."""
+    import functools
+    from datetime import date
+    import vnstock_brief as vb
+    calls = []
+    closes = pd.Series([1200.0, 1210.0], index=[date(2026, 10, 14), date(2026, 10, 15)])
+    monkeypatch.setattr(vb, "_load_vnindex_closes", lambda: calls.append(1) or closes)
+    monkeypatch.setattr(sys.modules["vnstock_memory"], "recent_briefs", lambda *a, **k: [
+        {"agent_name": "A", "brief_date": "2026-10-14",
+         "output": "## TLDR\nStance ngày mai: TĂNG."}])
+    st = render_env
+    memo = {}   # như Streamlit thật: cache theo HÀM, sống qua các lần bọc lại
+    st.cache_data = lambda *a, **k: (lambda f: memo.setdefault(f, functools.cache(f)))
+    said = _said_captions(st)
+
+    _load("dashboard.brief_accuracy_panel").render_accuracy_widget()
+    _load("dashboard.brief_history_panel").render_brief_history()
+
+    assert not [s for s in said if "disabled" in s.lower()], said
+    assert len(calls) == 1
+    cards = [str(c.args[0]) for c in st.markdown.call_args_list
+             if c.args and "matched" in str(c.args[0])]
+    assert cards and "1 / 1 matched" in cards[0]    # chuỗi nạp sẵn tới được phép chấm
+
+
 def _fake_brief_db(rows_by_id):
     """`vnstock_memory._conn()` giả: chỉ trả hàng khi truy vấn ĐÚNG id."""
     from contextlib import contextmanager

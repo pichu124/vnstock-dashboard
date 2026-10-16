@@ -197,6 +197,28 @@ def test_summary_accuracy_is_match_over_evaluated():
     assert out["A"]["accuracy"] == pytest.approx(0.5)
 
 
+def test_summary_with_preloaded_closes_matches_default_and_skips_loader(monkeypatch):
+    """Dashboard nạp VNINDEX một lần rồi truyền vào — kết quả phải y như tự nạp."""
+    import vnstock_brief
+    closes = _mk_closes()
+    calls = []
+    monkeypatch.setattr(vnstock_brief, "_load_vnindex_closes",
+                        lambda: calls.append(1) or closes)
+    briefs = [
+        {"agent_name": "A", "brief_date": "2026-05-26",
+         "output": "## TLDR\nStance ngày mai: TĂNG."},
+        {"agent_name": "A", "brief_date": "2026-05-28",
+         "output": "## TLDR\nStance ngày mai: GIẢM."},
+    ]
+
+    default = agent_accuracy_summary(briefs, horizon_days=1)
+    preloaded = agent_accuracy_summary(briefs, horizon_days=1, closes=closes)
+
+    assert preloaded == default
+    assert preloaded["A"]["n_match"] == 1 and preloaded["A"]["n_evaluated"] == 2
+    assert len(calls) == 1      # chỉ lượt KHÔNG truyền closes mới nạp
+
+
 # ─── VN30 fundamentals (D/E, ROE, operating cash flow) ────────────────────────
 
 def _write_fund_parquet(tmp_path, rows: list[dict]):
