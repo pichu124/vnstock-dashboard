@@ -450,25 +450,29 @@ def _fetch_order_stats_batch(tickers: tuple) -> dict:
     Return {ticker: {"big_order_score": float, "buy_sell_ratio": float}}.
     Disk cache 30 phút, Streamlit cache 30 phút.
     """
-    # Disk cache
+    # Disk cache — chỉ dùng cho mã ĐÃ có, mã thiếu thì fetch rồi gộp
+    cached, cache_mtime = {}, None
     if _ORDER_CACHE_PATH.exists():
         try:
-            age = datetime.now().timestamp() - _ORDER_CACHE_PATH.stat().st_mtime
-            if age < _ORDER_CACHE_MAX_AGE:
+            cache_mtime = _ORDER_CACHE_PATH.stat().st_mtime
+            if datetime.now().timestamp() - cache_mtime < _ORDER_CACHE_MAX_AGE:
                 cached = json.loads(_ORDER_CACHE_PATH.read_text(encoding="utf-8"))
-                if len(cached) > 3:
-                    log.info("Order stats: loaded %d tickers from disk", len(cached))
-                    return cached
         except (OSError, json.JSONDecodeError) as e:
             log.warning("Order stats cache corrupt: %s", e)
+    hits = {tk: cached[tk] for tk in tickers if tk in cached}
+    missing = [tk for tk in tickers if tk not in cached]
+    if hits:
+        log.info("Order stats: loaded %d tickers from disk", len(hits))
+    if not missing:
+        return hits
 
     try:
         from vnstock_data import Trading
     except ImportError:
-        return {}
+        return hits
 
     result = {}
-    for tk in tickers:
+    for tk in missing:
         try:
             t = Trading(symbol=tk)
 
@@ -508,18 +512,22 @@ def _fetch_order_stats_batch(tickers: tuple) -> dict:
         except Exception:
             continue
 
-    # Save to disk
-    if len(result) > 3:
+    # Save to disk (gộp với cache còn hạn)
+    if result:
         try:
             _ORDER_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
             _ORDER_CACHE_PATH.write_text(
-                json.dumps(result, ensure_ascii=False), encoding="utf-8",
+                json.dumps({**cached, **result}, ensure_ascii=False), encoding="utf-8",
             )
+            # Giữ mtime của mã CŨ NHẤT trong file: không thì mỗi lần gộp lại
+            # gia hạn 30 phút cho mã cũ, cache sống mãi.
+            if cached:
+                os.utime(_ORDER_CACHE_PATH, (cache_mtime, cache_mtime))
             log.info("Order stats: saved %d tickers to disk", len(result))
         except (OSError, ValueError):
             pass
 
-    return result
+    return {**hits, **result}
 
 
 def _batch_load_live_quotes(tickers: list) -> dict:

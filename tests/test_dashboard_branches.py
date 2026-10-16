@@ -14,7 +14,13 @@ một mảng nhánh chưa từng ai kiểm:
 Đây mới là phần trả lại giá trị thật của việc gỡ replica: không phải "test
 xanh", mà là "test cuối cùng cũng SOI đúng đồ đang chạy".
 """
+import ast
+import copy
 import json
+import logging
+import sys
+import types
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -328,12 +334,6 @@ class TestSectorTaxonomy:
 # import nên pytest không import nổi. Trích hàm từ AST (bỏ decorator cache)
 # rồi exec với globals tiêm vào: vẫn là code đang chạy, không phải bản chép tay.
 
-import ast  # noqa: E402
-import copy  # noqa: E402
-import logging  # noqa: E402
-import types  # noqa: E402
-from pathlib import Path  # noqa: E402
-
 _ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -473,3 +473,74 @@ def test_nav_pills_have_a_real_but_hidden_label():
     label, kw = _run_nav(["📊 Screener"])[1][0]
     assert label.strip()
     assert kw.get("label_visibility") == "collapsed"
+
+
+# ── _fetch_order_stats_batch: cache đĩa theo TỪNG mã ────────────────────────
+
+@pytest.fixture()
+def order_env(tmp_path, monkeypatch):
+    import os
+    from datetime import datetime
+
+    fetched: list = []
+
+    class _Trading:
+        def __init__(self, symbol):
+            self.symbol = symbol
+
+        def order_stats(self):
+            fetched.append(self.symbol)
+            return pd.DataFrame({
+                "trading_date": pd.bdate_range("2026-10-05", periods=5),
+                "total_buy_trade_volume": [1000.0] * 5,
+                "total_buy_trade": [10.0] * 5,
+                "total_sell_trade_volume": [1000.0] * 5,
+                "total_sell_trade": [10.0] * 5,
+            })
+
+    monkeypatch.setitem(sys.modules, "vnstock_data",
+                        types.SimpleNamespace(Trading=_Trading))
+    path = tmp_path / "order_stats_cache.json"
+    ns = load_source_fns(
+        "vnstock_dashboard.py", "_fetch_order_stats_batch",
+        _ORDER_CACHE_PATH=path, _ORDER_CACHE_MAX_AGE=1800,
+        datetime=datetime, json=json, log=logging.getLogger("t"),
+        np=np, pd=pd, os=os,
+    )
+    return ns["_fetch_order_stats_batch"], path, fetched
+
+
+_CACHED = {tk: {"big_order_score": 50.0, "buy_sell_ratio": 0.7}
+           for tk in ("AAA", "BBB", "CCC", "DDD")}
+
+
+def test_order_stats_fetches_tickers_missing_from_fresh_cache(order_env):
+    fetch, path, fetched = order_env
+    path.write_text(json.dumps(_CACHED), encoding="utf-8")
+    out = fetch(("AAA", "EEE"))
+    assert fetched == ["EEE"]                       # AAA lấy từ cache
+    assert set(out) == {"AAA", "EEE"}
+    assert out["AAA"] == _CACHED["AAA"]
+    assert out["EEE"]["buy_sell_ratio"] == 0.5
+    assert set(json.loads(path.read_text(encoding="utf-8"))) == {*_CACHED, "EEE"}
+
+
+def test_order_stats_merge_does_not_extend_cache_age(order_env):
+    """Gộp mã mới vào file KHÔNG được làm mới mtime: mã cũ trong file sẽ sống
+    quá 30 phút mãi mãi nếu lượt nào cũng thiếu một mã."""
+    import os
+    import time
+
+    fetch, path, _ = order_env
+    path.write_text(json.dumps(_CACHED), encoding="utf-8")
+    old = time.time() - 1000
+    os.utime(path, (old, old))
+    fetch(("AAA", "EEE"))
+    assert abs(path.stat().st_mtime - old) < 2
+
+
+def test_order_stats_full_cache_hit_makes_no_api_call(order_env):
+    fetch, path, fetched = order_env
+    path.write_text(json.dumps(_CACHED), encoding="utf-8")
+    assert fetch(("BBB", "CCC")) == {tk: _CACHED[tk] for tk in ("BBB", "CCC")}
+    assert fetched == []
