@@ -831,3 +831,49 @@ def test_complete_fundamental_is_disk_cached(tmp_path, monkeypatch):
     out = fn("AAA")
     assert out["pe"] == 12.0 and out["roe"] == 18.0
     assert json.loads(cache.read_text(encoding="utf-8"))["roe"] == 18.0
+
+
+# ── Live quote ghép vào nến intraday: đúng lưới timeframe, volume là phần chênh ─
+
+def _merge_live_fn():
+    from vnstock_price_units import normalize_live_price
+    return load_source_fns("vnstock_dashboard.py", "_INTERVAL_FREQ", "_merge_live_quote",
+                           pd=pd, _normalize_live_price=normalize_live_price)["_merge_live_quote"]
+
+
+def _bars_15m():
+    return pd.DataFrame({
+        "time": pd.to_datetime(["2026-10-15 14:30", "2026-10-16 09:45", "2026-10-16 10:00"]),
+        "open": [25.0, 25.0, 25.1], "high": [25.2, 25.2, 25.3],
+        "low": [24.9, 24.9, 25.0], "close": [25.0, 25.1, 25.2],
+        "volume": [500_000.0, 100_000.0, 95_000.0],
+    })
+
+
+def test_live_quote_inside_last_15m_bar_updates_it():
+    """TF 15m, tick 10:07 ⇒ cập nhật nến 10:00, KHÔNG chèn nến '10:07' lệch lưới."""
+    out = _merge_live_fn()(_bars_15m(), {"time": "2026-10-16 10:07:31", "price": 25.6,
+                                         "volume": 3_200_000}, "15m")
+    assert len(out) == 3
+    last = out.iloc[-1]
+    assert last["time"] == pd.Timestamp("2026-10-16 10:00")
+    assert (last["open"], last["high"], last["low"], last["close"]) == (25.1, 25.6, 25.0, 25.6)
+    assert last["volume"] == 95_000.0
+
+
+def test_live_quote_in_next_15m_bar_appends_with_session_delta_volume():
+    """Tick 10:16 ⇒ nến 10:15; volume = tích luỹ phiên − nến HÔM NAY đã có
+    (nến hôm qua không trừ), không phải 3,2 triệu tích luỹ cả phiên."""
+    out = _merge_live_fn()(_bars_15m(), {"time": "2026-10-16 10:16:02", "price": 25.4,
+                                         "volume": 300_000}, "15m")
+    assert len(out) == 4
+    last = out.iloc[-1]
+    assert last["time"] == pd.Timestamp("2026-10-16 10:15")
+    assert last["volume"] == 300_000 - 100_000 - 95_000
+    assert last["open"] == last["close"] == 25.4
+
+
+def test_live_quote_new_bar_volume_never_negative():
+    out = _merge_live_fn()(_bars_15m(), {"time": "2026-10-16 10:16", "price": 25.4,
+                                         "volume": 50_000}, "15m")
+    assert out.iloc[-1]["volume"] == 0

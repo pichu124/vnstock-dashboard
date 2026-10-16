@@ -513,7 +513,7 @@ def render_analysis_tab() -> None:
                     return
                 live_q = load_live_quote(ticker)
                 if live_q:
-                    intra = _merge_live_quote(intra, live_q)
+                    intra = _merge_live_quote(intra, live_q, tf)
                 last = intra.iloc[-1]
                 bar = {
                     "time":   int(last["time"].timestamp()),
@@ -539,7 +539,7 @@ def render_analysis_tab() -> None:
         _live_q_chart = load_live_quote(ticker)
         _chart_df_live = load_intraday(ticker, interval=tf)
         if _live_q_chart and not _chart_df_live.empty:
-            _chart_df_live = _merge_live_quote(_chart_df_live, _live_q_chart)
+            _chart_df_live = _merge_live_quote(_chart_df_live, _live_q_chart, tf)
         _vp_chart = None
         if _live_q_chart:
             _vp_chart = _live_q_chart.get("volume_profile", [])

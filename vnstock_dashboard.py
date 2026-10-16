@@ -1424,15 +1424,21 @@ def render_order_book(bids: list, asks: list, scale: float = 1.0,
 # tĩnh (dòng 46) LẪN ĐỘNG trong thân hàm (dòng ~406) qua tên này.
 
 
-def _merge_live_quote(df: pd.DataFrame, quote: dict) -> pd.DataFrame:
-    """Merge live quote vào bar cuối cùng hoặc append bar mới."""
+_INTERVAL_FREQ = {"1m": "1min", "5m": "5min", "15m": "15min", "30m": "30min", "1H": "1h"}
+
+
+def _merge_live_quote(df: pd.DataFrame, quote: dict, interval: str = "1m") -> pd.DataFrame:
+    """Merge live quote vào bar cuối cùng hoặc append bar mới.
+
+    Tick làm tròn xuống theo lưới của `interval`. `quote["volume"]` là TÍCH LUỸ
+    cả phiên ⇒ bar mới nhận phần chênh so với các bar hôm nay đã có."""
     if df.empty or not quote or not quote.get("price"):
         return df
     try:
         tick_time = pd.to_datetime(quote["time"])
         if hasattr(tick_time, "tz") and tick_time.tz is not None:
             tick_time = tick_time.tz_convert("Asia/Ho_Chi_Minh").tz_localize(None)
-        bar_time = tick_time.floor("1min")
+        bar_time = tick_time.floor(_INTERVAL_FREQ.get(interval, "1min"))
         df = df.copy()
         last_time = pd.to_datetime(df.iloc[-1]["time"])
         last_close = float(df.iloc[-1]["close"])
@@ -1443,11 +1449,13 @@ def _merge_live_quote(df: pd.DataFrame, quote: dict) -> pd.DataFrame:
             df.at[idx, "low"] = min(float(df.at[idx, "low"]), price)
             df.at[idx, "close"] = price
         else:
+            today = pd.to_datetime(df["time"]).dt.date == tick_time.date()
             new_row = {
                 "time": bar_time,
                 "open": price, "high": price,
                 "low": price, "close": price,
-                "volume": float(quote.get("volume", 0)),
+                "volume": max(0.0, float(quote.get("volume", 0))
+                              - float(df.loc[today, "volume"].sum())),
             }
             df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
         return df
