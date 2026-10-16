@@ -2915,11 +2915,20 @@ function doSort(col, th) {{
 _MARKET_OVERVIEW_PATH = Path("data_warehouse/_meta/market_overview.json")
 
 
-def _overview_file_is_current(age_hours: float, overview_date, eod_date) -> bool:
+def _overview_file_is_current(age_hours: float, overview_date, eod_date,
+                              generated_at: "datetime | None" = None) -> bool:
     """File pre-computed còn dùng được khi ngày data của nó ≥ ngày EOD của kho
-    (cuối tuần file 40h+ vẫn đúng). Thiếu một trong hai ngày ⇒ luật cũ < 24h."""
+    (cuối tuần file 40h+ vẫn đúng). Thiếu một trong hai ngày ⇒ luật cũ < 24h.
+    File ghi GIỮA phiên (cùng ngày data, trước SESSION_CLOSE_CUTOFF) chỉ thấy một
+    phần phiên ⇒ kho đã có trọn phiên đó thì tính lại."""
     if overview_date and eod_date:
-        return str(overview_date) >= str(eod_date)
+        from vnstock_brief import SESSION_CLOSE_CUTOFF
+        ov, eod = str(overview_date), str(eod_date)
+        if (ov == eod and generated_at is not None
+                and generated_at.date().isoformat() == ov
+                and generated_at.time() < SESSION_CLOSE_CUTOFF):
+            return False
+        return ov >= eod
     return age_hours < 24
 
 
@@ -2935,13 +2944,14 @@ def _load_all_market_data() -> tuple:
     # Tầng 1: file pre-computed bởi runner (instant load)
     if _MARKET_OVERVIEW_PATH.exists():
         try:
-            from vnstock_brief import _warehouse_eod_date
+            from vnstock_brief import _market_overview_generated_at, _warehouse_eod_date
             age_hours = (datetime.now().timestamp() - _MARKET_OVERVIEW_PATH.stat().st_mtime) / 3600
             data = json.loads(_MARKET_OVERVIEW_PATH.read_text(encoding="utf-8"))
             # data_date đọc thẳng: _market_overview_data_date thiếu trường này thì
             # trả chính ngày EOD ⇒ phép so luôn đúng, file cũ mấy cũng được dùng.
-            if _overview_file_is_current(age_hours, data.get("data_date"),
-                                         _warehouse_eod_date()):
+            if _overview_file_is_current(
+                    age_hours, data.get("data_date"), _warehouse_eod_date(),
+                    _market_overview_generated_at(_MARKET_OVERVIEW_PATH)):
                 sector_df = pd.DataFrame(data["sectors"])
                 breadth = data["breadth"]
                 tick_df = pd.DataFrame(data["tickers"])

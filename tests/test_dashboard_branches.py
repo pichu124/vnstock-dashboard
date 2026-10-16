@@ -920,6 +920,74 @@ def test_overview_without_known_dates_keeps_the_24h_rule(overview_is_current):
     assert overview_is_current(25.0, None, None) is False
 
 
+def test_mid_session_overview_is_recomputed_once_warehouse_has_that_session(
+        overview_is_current):
+    """Bất biến CLAUDE.md: cùng phiên mà chốt trước SESSION_CLOSE_CUTOFF (15:05) là GIỮA
+    PHIÊN ⇒ stale. File ghi 10:40 chỉ thấy nửa buổi sáng; tối đó kho đã có trọn phiên
+    (EOD = hôm nay) ⇒ không dùng file, để Tầng 2 tính lại."""
+    from datetime import datetime
+    assert overview_is_current(9.0, "2026-10-16", "2026-10-16",
+                               datetime(2026, 10, 16, 10, 40)) is False
+    assert overview_is_current(9.0, "2026-10-16", "2026-10-16",
+                               datetime(2026, 10, 16, 15, 4, 59)) is False
+
+
+def test_mid_session_overview_still_used_while_warehouse_trails_it(overview_is_current):
+    """Giữa phiên kho còn ở hôm qua: file 10:40 là bản mới nhất, tính lại từ kho chỉ ra
+    phiên cũ."""
+    from datetime import datetime
+    assert overview_is_current(0.5, "2026-10-16", "2026-10-15",
+                               datetime(2026, 10, 16, 10, 40)) is True
+
+
+def test_overview_written_after_close_or_next_morning_is_current(overview_is_current):
+    """Ghi từ 15:05, hoặc chạy bù sáng hôm sau từ data EOD: đã thấy trọn phiên."""
+    from datetime import datetime
+    assert overview_is_current(3.0, "2026-10-16", "2026-10-16",
+                               datetime(2026, 10, 16, 15, 5)) is True
+    assert overview_is_current(15.0, "2026-10-16", "2026-10-16",
+                               datetime(2026, 10, 17, 7, 30)) is True
+    assert overview_is_current(40.0, "2026-10-16", "2026-10-16", None) is True
+
+
+def test_overview_mid_session_cutoff_follows_brief_constant(overview_is_current, monkeypatch):
+    """Mốc chốt phiên là `vnstock_brief.SESSION_CLOSE_CUTOFF` (test khác canh nó khớp
+    rollup), không chép cứng 15:05 lần nữa."""
+    from datetime import datetime, time
+    import vnstock_brief as vb
+    monkeypatch.setattr(vb, "SESSION_CLOSE_CUTOFF", time(11, 0))
+    assert overview_is_current(9.0, "2026-10-16", "2026-10-16",
+                               datetime(2026, 10, 16, 11, 30)) is True
+    assert overview_is_current(9.0, "2026-10-16", "2026-10-16",
+                               datetime(2026, 10, 16, 10, 40)) is False
+
+
+def test_market_data_loader_skips_mid_session_overview_file(tmp_path, monkeypatch):
+    """Nơi gọi phải đưa `generated_at` của file vào phép so: file 10:40, kho EOD = hôm
+    nay ⇒ Tầng 2 (kho tạm rỗng ⇒ rỗng); file ghi 15:30 ⇒ dùng file."""
+    from datetime import datetime
+    import vnstock_brief as vb
+    monkeypatch.setattr(vb, "_warehouse_eod_date", lambda: "2026-10-16")
+    ov_path = tmp_path / "market_overview.json"
+    payload = {"data_date": "2026-10-16", "generated_at": "2026-10-16 10:40:00",
+               "sectors": [{"industry": "Ngân hàng"}], "breadth": {"up": 7},
+               "tickers": [{"ticker": "VCB"}]}
+    ov_path.write_text(json.dumps(payload), encoding="utf-8")
+    load = load_source_fns(
+        "vnstock_dashboard.py", "_overview_file_is_current", "_load_all_market_data",
+        pd=pd, json=json, datetime=datetime, log=logging.getLogger("t"),
+        _MARKET_OVERVIEW_PATH=ov_path, PRICES_DIR=tmp_path / "prices",
+        INDUSTRY_PATH=tmp_path / "industry.parquet")["_load_all_market_data"]
+
+    sectors, breadth, tickers = load()
+    assert sectors.empty and breadth == {} and tickers.empty
+
+    ov_path.write_text(json.dumps({**payload, "generated_at": "2026-10-16 15:30:00"}),
+                       encoding="utf-8")
+    sectors, breadth, tickers = load()
+    assert breadth == {"up": 7} and list(tickers["ticker"]) == ["VCB"]
+
+
 def test_get_all_tickers_is_cached():
     """Không cache ⇒ iterdir ~1.700 thư mục + compile regex ở MỖI rerun tab Phân tích."""
     fn = next(n for n in _DASH_TREE.body
