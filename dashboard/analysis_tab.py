@@ -974,7 +974,7 @@ def render_analysis_tab() -> None:
                             f'padding:6px 0;border-bottom:1px solid #1a2234;font-size:13px">'
                             f'<span style="color:#9ca3af">{label}</span>'
                             f'<span style="color:{color};font-family:IBM Plex Mono,monospace">'
-                            f'{val:.2f} {unit}</span>'
+                            f'{val:,.2f} {unit}</span>'
                             f'</div>',
                             unsafe_allow_html=True
                         )

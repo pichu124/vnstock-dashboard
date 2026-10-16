@@ -282,3 +282,18 @@ def test_today_bar_writer_only_for_daily_views(tf, writes_bar, live):
     assert (live_urls[0] == "/app/static/today_bars/VCB.json") is writes_bar
     if not writes_bar:
         assert live_urls[0] is None
+
+
+# ── Bảng Định giá & Sinh lời: số kiểu EN có phân cách nghìn ─────────────────
+
+def test_fundamental_ratios_use_thousands_separator():
+    """EPS 4523.12 đ / Book Value 25123.46 đ thiếu dấu phẩy nghìn (quy ước `{:,.2f}`)."""
+    loop = next(n for n in ast.walk(_TAB_TREE) if isinstance(n, ast.For)
+                and ast.unparse(n.iter) == "ratios")
+    html: list = []
+    st = types.SimpleNamespace(markdown=lambda s, **kw: html.append(s))
+    ratios = [("EPS", 4523.123, "đ"), ("Book Value", 25123.456, "đ"), ("P/E", 12.5, "lần")]
+    exec(compile(ast.Module([loop], []), "analysis_tab.py", "exec"), {"st": st, "ratios": ratios})
+    assert "4,523.12 đ" in html[0]
+    assert "25,123.46 đ" in html[1]
+    assert "12.50 lần" in html[2]
