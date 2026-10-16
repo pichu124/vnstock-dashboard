@@ -164,8 +164,8 @@ def render_market_tab() -> None:
             ("💸 NN flow",         Path("data_warehouse/_meta/nn_flow_cache.json"),    2 * 3600),
             ("⏱ Session stats",    Path("data_warehouse/_meta/market_session_stats.json"), 1 * 3600),
         ])
-    except Exception:
-        pass
+    except Exception as e:
+        st.caption(f"⚠️ Badge độ tươi lỗi: {type(e).__name__}: {e}")
 
     # ── Live Market Heatmap (VN30 real-time) ──────────────────────────────
     if st.session_state.get("live_mode") and WSS_AVAILABLE:
@@ -492,8 +492,8 @@ def render_market_tab() -> None:
     try:
         if _badges := _horizon_badges():
             st.markdown(" &nbsp;·&nbsp; ".join(f"**{b}**" for b in _badges))
-    except Exception:
-        pass
+    except Exception as e:
+        st.caption(f"⚠️ Brief 3 khung lỗi: {type(e).__name__}: {e}")
 
     # ── F5: Market regime detector ───────────────────────────────────────────
     try:
@@ -548,8 +548,8 @@ def render_market_tab() -> None:
                     st.caption("Không có gợi ý cho regime này.")
 
         st.divider()
-    except Exception:
-        pass   # regime block is optional; never crash the tab
+    except Exception as e:   # regime là khối phụ: không kéo sập tab, nhưng phải NÓI ra
+        st.caption(f"⚠️ Market regime lỗi: {type(e).__name__}: {e}")
 
     # ── Market Overview theo ngành (dữ liệu đã load ở trên) ─────────────────
     if mkt_df.empty:
@@ -695,8 +695,9 @@ def render_market_tab() -> None:
                             _json.dumps(_vni_dict),
                             n_days=30,
                         )
-            except Exception:
+            except Exception as e:
                 _sparklines = {}
+                st.caption(f"⚠️ Sparkline α 30d lỗi: {type(e).__name__}: {e}")
 
             # ── Bảng ngành (sorted) ───────────────────────────────────────────
             _has_sparklines = bool(_sparklines)

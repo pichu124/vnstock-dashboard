@@ -125,8 +125,8 @@ def render_money_flow_tab() -> None:
             ("💸 NN flow",         _Path("data_warehouse/_meta/nn_flow_cache.json"),    2 * 3600),
             ("📊 Order stats",     _Path("data_warehouse/_meta/order_stats_cache.json"), 2 * 3600),
         ])
-    except Exception:
-        pass
+    except Exception as e:
+        st.caption(f"⚠️ Badge độ tươi lỗi: {type(e).__name__}: {e}")
 
     # ── Sidebar controls ─────────────────────────────────────────────────
     with st.sidebar:

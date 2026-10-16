@@ -397,3 +397,21 @@ def test_index_table_title_matches_rows_shown(render_env, monkeypatch):
 
     title = [m for m in _markdowns(st) if "Diễn biến chỉ số thị trường" in m]
     assert title == ["#### 📈 Diễn biến chỉ số thị trường (20 phiên)"]
+
+
+def test_regime_failure_is_visible_not_silent(render_env, monkeypatch):
+    """`except Exception: pass` làm khối regime biến mất im lặng — user không
+    phân biệt được "không có regime" với "regime hỏng"."""
+    reg = types.ModuleType("vnstock_regime")
+
+    def _boom():
+        raise RuntimeError("boom")
+    reg.load_regime = _boom
+    monkeypatch.setitem(sys.modules, "vnstock_regime", reg)
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard", _stub_dashboard())
+    st = render_env
+    said = []
+    st.caption = lambda *a, **k: said.append(str(a[0]) if a else "")
+    _load("dashboard.market_tab").render_market_tab()
+
+    assert "⚠️ Market regime lỗi: RuntimeError: boom" in said, said
