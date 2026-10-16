@@ -890,3 +890,35 @@ def test_gauges_never_emit_negative_zero():
     if intl is not None:
         assert math.copysign(1.0, intl["spread"]) == 1.0
     assert "govt_bond_yield_10y" in keys
+
+
+def test_brief_archive_newest_brief_selectable(monkeypatch):
+    """Sub-tab 🌐: dict nhãn `ngày · loại · agent` gộp brief trùng nhãn và giữ
+    bản CŨ (danh sách sắp mới→cũ) ⇒ bản chạy lại sau không bao giờ chọn được."""
+    import importlib
+    import sys
+    import types
+    from tests.test_tab_render_smoke import _fake_streamlit
+
+    st = _fake_streamlit()
+    monkeypatch.setitem(sys.modules, "streamlit", st)
+    body = " " + "x" * 120
+    mem = types.ModuleType("vnstock_memory")
+    mem.recent_briefs = lambda *a, **k: [
+        {"brief_date": "2026-10-16", "brief_type": "afternoon", "agent_name": "A",
+         "created_at": "2026-10-16T20:05:00", "output": "MỚI" + body},
+        {"brief_date": "2026-10-16", "brief_type": "afternoon", "agent_name": "A",
+         "created_at": "2026-10-16T18:30:00", "output": "CŨ" + body},
+    ]
+    monkeypatch.setitem(sys.modules, "vnstock_memory", mem)
+    seen_options = []
+    st.selectbox = lambda label, options=(), **k: (
+        seen_options.append(list(options)) or list(options)[0])
+
+    mt = importlib.reload(importlib.import_module("dashboard.macro_tab"))
+    mt._render_brief_archive()
+
+    shown = [str(c.args[0]) for c in st.markdown.call_args_list if c.args]
+    assert len(seen_options[0]) == 2, seen_options
+    assert any(s.startswith("MỚI") for s in shown)
+    assert not any(s.startswith("CŨ") for s in shown)
