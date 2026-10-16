@@ -195,3 +195,76 @@ def test_portfolio_save_failure_is_reported(tmp_path: Path, monkeypatch):
     assert not _portfolio_path(tmp_path).exists()
     msg = st.error.call_args.args[0]
     assert str(_portfolio_path(tmp_path)) in msg and "file đang bị khoá" in msg
+
+
+# ── Xoá vị thế: theo VỊ TRÍ dòng, không theo nhãn ───────────────────────────
+
+def test_delete_second_of_two_identical_labels_keeps_first(tmp_path: Path, monkeypatch):
+    """Hai lô cùng mã/số lượng/giá (khác ngày mua) có CÙNG nhãn trong selectbox;
+    `_options.index(nhãn)` trả lô ĐẦU ⇒ chọn xoá lô thứ hai lại xoá lô đầu."""
+    from tests.test_tab_render_smoke import _fake_streamlit
+    from dashboard.portfolio_tab import _portfolio_path, _save_portfolio, _load_portfolio
+    lot1 = {"ticker": "VCB", "quantity": 100, "buy_price": 90000, "buy_date": "2026-01-15"}
+    lot2 = {"ticker": "VCB", "quantity": 100, "buy_price": 90000, "buy_date": "2026-03-02"}
+    lot3 = {"ticker": "FPT", "quantity": 50, "buy_price": 120000, "buy_date": "2026-02-01"}
+    _save_portfolio(tmp_path, [lot1, lot2, lot3])
+
+    st = _fake_streamlit()
+    shown: list = []
+
+    def _selectbox(label, options=(), format_func=str, **k):
+        options = list(options)
+        if k.get("key") != "pf_del_select":
+            return options[0] if options else None
+        shown.extend(format_func(o) for o in options)
+        return options[2]                                       # [—, lô 1, LÔ 2, lô 3]
+
+    st.selectbox = _selectbox
+    st.button = lambda label, key=None, **k: key == "pf_del_btn"
+
+    def _rerun():
+        raise _Rerun
+
+    st.rerun = _rerun
+    monkeypatch.setitem(sys.modules, "streamlit", st)
+    from dashboard.portfolio_tab import render_portfolio_tab
+    with pytest.raises(_Rerun):
+        render_portfolio_tab(tmp_path)
+
+    assert _portfolio_path(tmp_path).exists()
+    assert _load_portfolio(tmp_path) == [lot1, lot3]
+    assert shown == ["—", "VCB (100 cp @ 90,000)", "VCB (100 cp @ 90,000)",
+                     "FPT (50 cp @ 120,000)"]
+
+
+# ── JSON hợp lệ nhưng SAI DẠNG: cũng là file hỏng, không phải danh mục ──────
+
+_WRONG_SHAPE = ["null",                                          # gốc không phải list
+                '[{"ticker": "VCB", "quantity": 100}, 1]',       # phần tử không phải dict
+                '{"ticker": "VCB", "quantity": 100}']            # dict thay vì list
+
+
+@pytest.mark.parametrize("payload", _WRONG_SHAPE)
+def test_load_portfolio_rejects_wrong_shape(tmp_path: Path, payload: str):
+    from dashboard.portfolio_tab import _load_portfolio, _portfolio_path
+    path = _portfolio_path(tmp_path)
+    path.parent.mkdir(parents=True)
+    path.write_text(payload, encoding="utf-8")
+    with pytest.raises(ValueError, match="sai định dạng"):
+        _load_portfolio(tmp_path)
+
+
+@pytest.mark.parametrize("payload", _WRONG_SHAPE)
+def test_wrong_shape_portfolio_blocks_writes(tmp_path: Path, monkeypatch, payload: str):
+    """Trước đây lọt qua `_load_portfolio` rồi chết TypeError giữa render
+    (`None + [...]`, `1["ticker"]`) thay vì báo file hỏng."""
+    from dashboard.portfolio_tab import _portfolio_path
+    path = _portfolio_path(tmp_path)
+    path.parent.mkdir(parents=True)
+    path.write_text(payload, encoding="utf-8")
+    before = path.read_bytes()
+
+    st = _render_clicking_add(monkeypatch, tmp_path)
+
+    assert path.read_bytes() == before
+    assert str(path) in st.error.call_args.args[0]

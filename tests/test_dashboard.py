@@ -292,6 +292,20 @@ class TestWatchlistIO:
         with pytest.raises(ValueError):
             _load_watchlist(path)
 
+    @pytest.mark.parametrize("payload", [
+        "null",                                   # gốc không phải object
+        '["VCB", "FPT"]',                         # list thay vì {"tickers": [...]}
+        '{"tickers": "VCB"}',                     # tickers không phải list
+        '{"tickers": ["VCB", 1]}',                # mã không phải chuỗi
+    ])
+    def test_wrong_shape_raises_value_error(self, tmp_path, payload):
+        """JSON hợp lệ nhưng sai dạng từng ném AttributeError (caller chỉ bắt
+        OSError/ValueError ⇒ sập tab) hoặc lọt chuỗi "VCB" thành 3 "mã"."""
+        path = tmp_path / "watchlist.json"
+        path.write_text(payload, encoding="utf-8")
+        with pytest.raises(ValueError, match="sai định dạng"):
+            _load_watchlist(path)
+
 
 # ── launch_in_new_console PowerShell command generation ──────────────────────
 

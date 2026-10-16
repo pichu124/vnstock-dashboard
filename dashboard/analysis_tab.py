@@ -119,9 +119,12 @@ def render_analysis_tab() -> None:
                     help="Danh sách futures đang có live data (10 mức order book)"
                 )
                 if _fut_pick and _fut_pick != "— chọn —":
-                    if st.button(f"Phân tích {_fut_pick} →",
-                                 use_container_width=True, key="anal_fut_go"):
-                        st.session_state["analyze_ticker"] = _fut_pick
+                    # Callback chạy TRƯỚC lượt render nên còn được trả selectbox về "" —
+                    # không thì `ticker_input or …` dưới kia để mã cũ thắng nút này.
+                    st.button(f"Phân tích {_fut_pick} →",
+                              use_container_width=True, key="anal_fut_go",
+                              on_click=st.session_state.update,
+                              kwargs={"ticker_sidebar": "", "analyze_ticker": _fut_pick})
 
         st.divider()
         st.markdown("### ⏱ Khoảng thời gian")
@@ -239,8 +242,15 @@ def render_analysis_tab() -> None:
         if _fired_alerts:
             if st.button(f"🗑 Xoá {len(_fired_alerts)} alerts đã triggered",
                          key="alert_clear", use_container_width=True):
-                save_alerts(_active_alerts)
-                st.rerun()
+                # Đọc LẠI file: `_alert_checker` có thể vừa bắn + lưu alert sau bản chụp
+                # ở trên — ghi `_active_alerts` cũ là trả nó về "chưa bắn", Telegram bắn lại.
+                try:
+                    _on_disk = load_alerts()
+                except (OSError, ValueError) as _e:
+                    st.error(f"Không đọc lại được `{ALERTS_PATH}` ({_e}) — chưa xoá gì.")
+                else:
+                    save_alerts([a for a in _on_disk if not a.get("fired")])
+                    st.rerun()
 
     # ── Xác định ticker cần phân tích ─────────────────────────────────────────────
     ticker = ticker_input or st.session_state.get("analyze_ticker", "")
@@ -395,19 +405,21 @@ def render_analysis_tab() -> None:
         if chart_df.empty:
             st.warning(f"Không lấy được dữ liệu {tf}. Hiển thị daily.")
             chart_df = _merge_today_bar(df)
-    elif tf == "1W":
+    elif tf in ("1W", "1M"):
         # Resample từ daily warehouse (stable hơn API 1W) — merge today first
-        chart_df = resample_ohlcv(_merge_today_bar(df), "W")
-    elif tf == "1M":
-        chart_df = resample_ohlcv(_merge_today_bar(df), "ME")
+        _days_df = _merge_today_bar(df)
+        chart_df = resample_ohlcv(_days_df, "W" if tf == "1W" else "ME")
     else:
         chart_df = _merge_today_bar(df)
 
     # Surface data range so user can verify live freshness — stale data is
     # the most common cause of "chart không update" reports.
     if not chart_df.empty:
-        _t0 = chart_df["time"].iloc[0]
-        _t1 = chart_df["time"].iloc[-1]
+        # 1W/1M: pandas gắn nhãn kỳ bằng ngày CUỐI kỳ (CN, cuối tháng — tương lai) ⇒
+        # lấy ngày phiên thật từ khung ngày trước khi resample.
+        _span = _days_df if tf in ("1W", "1M") else chart_df
+        _t0 = _span["time"].iloc[0]
+        _t1 = _span["time"].iloc[-1]
         _fmt = "%d/%m %H:%M" if tf in ("1m","5m","15m","30m","1H") else "%d/%m/%Y"
         st.caption(
             f"📅 Data: {_t0.strftime(_fmt)} → {_t1.strftime(_fmt)} "
@@ -687,13 +699,18 @@ def render_analysis_tab() -> None:
                 tmp.replace(out)  # atomic — readers never see partial JSON
             except Exception as _ex:
                 print(f"[today_bar_writer] {ticker}: {_ex}", file=_sys.stderr)
-        _today_bar_writer()
+        # 1W/1M: nhãn kỳ là ngày CUỐI kỳ > hôm nay ⇒ JS bỏ bar hôm nay (`b.time < lastT`),
+        # bộ ghi chỉ gọi VCI vô ích.
+        _live_url = None
+        if tf in ("1D", "All"):
+            _today_bar_writer()
+            _live_url = f"/app/static/today_bars/{ticker}.json"
 
         # Chart with JS-side live polling — see render_chart docstring.
         render_chart(
             chart_df, ticker,
             height=st.session_state.get("chart_height_anal", 850),
-            live_url=f"/app/static/today_bars/{ticker}.json",
+            live_url=_live_url,
         )
 
     # ── Intraday Replay ───────────────────────────────────────────────────────
@@ -728,10 +745,11 @@ def render_analysis_tab() -> None:
         # the chart's JS polling can update the last candle in place.
         # Produces a TradingView-style ticking 1D chart during the session
         # without requiring the user to enable Live Mode (which adds WSS
-        # subscription overhead). Daily/weekly/monthly only — intraday
-        # timeframes without Live Mode use whatever chart_df was loaded.
+        # subscription overhead). Daily only — intraday timeframes without
+        # Live Mode use whatever chart_df was loaded; 1W/1M thì JS luôn bỏ bar
+        # hôm nay (nhãn kỳ là ngày CUỐI kỳ > hôm nay) nên đừng gọi VCI.
         _idle_url = None
-        if tf in ("1D", "1W", "1M", "All"):
+        if tf in ("1D", "All"):
             @st.fragment(run_every=10)
             def _idle_today_bar_writer():
                 import json as _json
@@ -956,7 +974,7 @@ def render_analysis_tab() -> None:
                             f'padding:6px 0;border-bottom:1px solid #1a2234;font-size:13px">'
                             f'<span style="color:#9ca3af">{label}</span>'
                             f'<span style="color:{color};font-family:IBM Plex Mono,monospace">'
-                            f'{val:.2f} {unit}</span>'
+                            f'{val:,.2f} {unit}</span>'
                             f'</div>',
                             unsafe_allow_html=True
                         )
