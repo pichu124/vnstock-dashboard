@@ -7,6 +7,9 @@ import inspect
 import types
 from pathlib import Path
 
+import pandas as pd
+import pytest
+
 
 def test_module_imports_without_streamlit():
     import importlib
@@ -220,3 +223,62 @@ def test_futures_button_wins_over_previous_selectbox_pick():
     assert st.run(code) == "VN30F1M"                    # lượt sau (đổi khung nến…) vẫn giữ
     st.session_state["ticker_sidebar"] = "FPT"
     assert st.run(code) == "FPT"                        # chọn mã mới ⇒ mã mới thắng
+
+
+# ── 1W/1M: nhãn kỳ của pandas là ngày CUỐI kỳ (tương lai) ──────────────────
+
+_FN_BODY = next(n for n in _TAB_TREE.body if isinstance(n, ast.FunctionDef)).body
+
+
+def _dashboard_fn(name: str):
+    """Hàm THẬT của vnstock_dashboard (module đó dựng UI khi import ⇒ lấy từ source)."""
+    src = (Path(__file__).resolve().parent.parent / "vnstock_dashboard.py").read_text(
+        encoding="utf-8")
+    fn = next(n for n in ast.walk(ast.parse(src))
+              if isinstance(n, ast.FunctionDef) and n.name == name)
+    ns: dict = {"pd": pd}
+    exec(compile(ast.Module([fn], []), "vnstock_dashboard.py", "exec"), ns)
+    return ns[name]
+
+
+@pytest.mark.parametrize("tf, n_bars", [("1D", 8), ("1W", 2), ("1M", 1)])
+def test_data_caption_shows_real_session_dates(tf, n_bars):
+    """Caption "📅 Data: … → …" từng in 18/10 (CN cuối tuần) / 31/10 (cuối
+    tháng) khi phiên cuối có data mới là T4 14/10."""
+    chain = next(n for n in _FN_BODY if isinstance(n, ast.If)
+                 and "resample_ohlcv" in ast.unparse(n))
+    caption = next(n for n in _FN_BODY if isinstance(n, ast.If) and "📅 Data" in ast.unparse(n))
+    days = pd.bdate_range("2026-10-05", "2026-10-14")                  # T2 05/10 → T4 14/10
+    df = pd.DataFrame({"time": days, "open": 10.0, "high": 11.0, "low": 9.0,
+                       "close": 10.5, "volume": 1e5})
+    shown: list = []
+    ns = {"st": types.SimpleNamespace(caption=shown.append), "tf": tf, "df": df,
+          "_merge_today_bar": lambda d: d, "resample_ohlcv": _dashboard_fn("resample_ohlcv")}
+    exec(compile(ast.Module([chain, caption], []), "analysis_tab.py", "exec"), ns)
+    assert len(ns["chart_df"]) == n_bars
+    assert shown == [f"📅 Data: 05/10/2026 → 14/10/2026 ({n_bars} bars)"]
+
+
+@pytest.mark.parametrize("live", [True, False])
+@pytest.mark.parametrize("tf, writes_bar", [("1D", True), ("All", True),
+                                            ("1W", False), ("1M", False)])
+def test_today_bar_writer_only_for_daily_views(tf, writes_bar, live):
+    """1W/1M: bar hôm nay mang time=hôm nay < nhãn kỳ cuối ⇒ JS chart luôn bỏ
+    (`b.time < lastT`). Bộ ghi khi đó là code chết mà vẫn gọi VCI mỗi phút,
+    cả ngoài giờ."""
+    from tests.test_tab_render_smoke import _fake_streamlit
+    block = next(n for n in _FN_BODY if isinstance(n, ast.If)
+                 and ast.unparse(n.test) == "_live_daily")
+    vci: list = []
+    live_urls: list = []
+    ns = {"st": _fake_streamlit(), "tf": tf, "ticker": "VCB", "chart_df": pd.DataFrame(),
+          "_live_daily": live, "_live_intraday": False,
+          "load_intraday": lambda t, interval: vci.append(interval) or pd.DataFrame(),
+          "load_live_quote": lambda t: None,
+          "render_chart": lambda df, t, **kw: live_urls.append(kw.get("live_url"))}
+    exec(compile(ast.Module([block], []), "analysis_tab.py", "exec"), ns)
+    assert bool(vci) is writes_bar
+    assert len(live_urls) == 1
+    assert (live_urls[0] == "/app/static/today_bars/VCB.json") is writes_bar
+    if not writes_bar:
+        assert live_urls[0] is None
