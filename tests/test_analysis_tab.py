@@ -169,6 +169,53 @@ def test_clear_fired_alerts_does_not_write_when_file_unreadable(tmp_path):
     assert "price_alerts.json" in errors[0]
 
 
+# ── Nút "✅ Tạo alert": cũng ghi theo FILE, không theo bản chụp ─────────────
+
+def _create_alert_block():
+    return next(n for n in ast.walk(_TAB_TREE) if isinstance(n, ast.If)
+                and "alert_create" in ast.unparse(n.test))
+
+
+def test_create_alert_rereads_disk(tmp_path):
+    """Bản chụp sidebar có A chưa bắn; `_alert_checker` vừa bắn + lưu A. Nối B vào bản
+    chụp rồi ghi là trả A về "chưa bắn" ⇒ Telegram bắn lại."""
+    import json
+    path = tmp_path / "price_alerts.json"
+    a = {"ticker": "VCB", "condition": "above", "target": 100.0, "fired": False}
+    path.write_text(json.dumps([{**a, "fired": True}]), encoding="utf-8")
+    st = types.SimpleNamespace(button=lambda label, key=None, **kw: key == "alert_create",
+                               rerun=_raise_rerun, error=lambda msg: None)
+    ns = {"st": st, "ALERTS_PATH": path, "_alerts": [dict(a)], "_alerts_broken": False,
+          "_al_ticker": "FPT", "_al_cond": "below", "_al_target": 90.0,
+          "load_alerts": lambda: json.loads(path.read_text(encoding="utf-8")),
+          "save_alerts": lambda al: path.write_text(json.dumps(al), encoding="utf-8")}
+    with pytest.raises(_Rerun):
+        exec(compile(ast.Module([_create_alert_block()], []), "analysis_tab.py", "exec"), ns)
+
+    on_disk = json.loads(path.read_text(encoding="utf-8"))
+    assert on_disk[0] == {**a, "fired": True}
+    assert {k: v for k, v in on_disk[1].items() if k != "created_at"} == {
+        "ticker": "FPT", "condition": "below", "target": 90.0, "fired": False}
+    assert len(on_disk) == 2
+
+
+def test_create_alert_does_not_write_when_file_unreadable(tmp_path):
+    """Đọc lại hỏng (Dropbox đang ghi dở) ⇒ báo lỗi, KHÔNG ghi gì."""
+    saved, errors = [], []
+
+    def _broken():
+        raise ValueError("Expecting value: line 1")
+
+    st = types.SimpleNamespace(button=lambda label, key=None, **kw: key == "alert_create",
+                               rerun=_raise_rerun, error=errors.append)
+    ns = {"st": st, "ALERTS_PATH": tmp_path / "price_alerts.json", "_alerts": [],
+          "_alerts_broken": False, "_al_ticker": "FPT", "_al_cond": "below",
+          "_al_target": 90.0, "load_alerts": _broken, "save_alerts": saved.append}
+    exec(compile(ast.Module([_create_alert_block()], []), "analysis_tab.py", "exec"), ns)
+    assert saved == []
+    assert "price_alerts.json" in errors[0]
+
+
 # ── Chọn mã: lựa chọn MỚI NHẤT của user thắng (selectbox hay nút futures) ────
 
 def _ticker_pick_code():

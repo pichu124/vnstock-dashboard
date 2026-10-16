@@ -211,16 +211,22 @@ def render_analysis_tab() -> None:
             if st.button("✅ Tạo alert", key="alert_create", use_container_width=True,
                          disabled=_alerts_broken):
                 if _al_ticker and _al_target > 0:
-                    _alerts.append({
-                        "ticker": _al_ticker,
-                        "condition": _al_cond,
-                        "target": _al_target,
-                        "fired": False,
-                        "created_at": __import__("datetime").datetime.now().isoformat(
-                            timespec="seconds"),
-                    })
-                    save_alerts(_alerts)
-                    st.rerun()
+                    # Đọc LẠI file như nút Xoá: nối vào bản chụp `_alerts` là trả alert
+                    # `_alert_checker` vừa bắn về "chưa bắn", Telegram bắn lại.
+                    try:
+                        _on_disk = load_alerts()
+                    except (OSError, ValueError) as _e:
+                        st.error(f"Không đọc lại được `{ALERTS_PATH}` ({_e}) — chưa tạo alert.")
+                    else:
+                        save_alerts([*_on_disk, {
+                            "ticker": _al_ticker,
+                            "condition": _al_cond,
+                            "target": _al_target,
+                            "fired": False,
+                            "created_at": __import__("datetime").datetime.now().isoformat(
+                                timespec="seconds"),
+                        }])
+                        st.rerun()
 
         # List active alerts
         if _active_alerts:
