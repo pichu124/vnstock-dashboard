@@ -471,6 +471,12 @@ def main():
     return 0
 
 
+def reason_of(it):
+    """Lý do guard hỏi: từ bản ghi lúc chạy, không có thì từ lần chạy lại guard hiện tại."""
+    m = re.search(r"\(([^()]*(?:\([^()]*\)[^()]*)*)\)", (it["guard_then"] or it["guard_now"] or {}).get("reason", ""))
+    return m.group(1) if m else "guard hỏi"
+
+
 def render(r):
     L = [f"# Báo cáo đội agent: {r['project']}", "",
          f"Đọc {r['files']} file phiên, {r['shell_commands']} lệnh shell"
@@ -500,9 +506,9 @@ def render(r):
         ("H", "Lệnh nguy hiểm đã chạy lúc guard không hỏi", "Bản guard hiện tại có hỏi, nhưng lúc lệnh chạy thì không: guard chưa nạp (thư mục chưa trust, phiên mở ở thư mục khác, matcher thiếu tool), hook lỗi, hoặc bản cũ. Kiểm tra vì sao guard không chạy lúc đó.",
          lambda it: f"nay: {(it['guard_now'] or {}).get('reason', '')}; {it['approved']}"),
         ("C", "Guard hỏi và bạn duyệt", "Ứng viên hỏi thừa. Chỉ nới guard khi chắc lệnh vô hại, và người phải đọc kỹ thay đổi đó.",
-         lambda it: (it["guard_then"] or {}).get("reason", "")),
+         lambda it: reason_of(it)),
         ("D", "Guard hỏi và bị từ chối", "Guard làm đúng việc. Chỉ để thống kê.",
-         lambda it: f"{(it['guard_then'] or {}).get('reason', '')}; {it.get('rejected_by') or ''} từ chối"),
+         lambda it: f"{reason_of(it)}; {it.get('rejected_by') or ''} từ chối"),
         ("G", "Bạn từ chối mà guard không hỏi", "Bạn phải tự chặn ở hộp xin phép thường. Nếu lệnh đó nguy hiểm thì guard đã bỏ sót; nếu chỉ là bạn đổi ý thì bỏ qua.",
          lambda it: ", ".join(it["suspicious"]) or "không khớp mẫu nghi ngờ"),
     ]
