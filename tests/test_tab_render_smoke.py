@@ -380,3 +380,28 @@ def test_agent_settings_two_rows_same_type_have_unique_keys(render_env, monkeypa
         setattr(st, name, _unique(getattr(st, name)))
 
     _load("dashboard.brief_agent_settings").render_agent_settings()
+
+
+def test_accuracy_widget_does_not_rank_tiny_sample_first(render_env, monkeypatch):
+    """Lỗi họ 13/08 ("0/2 hiện 0%"): widget in thẳng accuracy thô và trao 🥇
+    cho agent mới chấm 1 brief. Agent 1/1 không được hiện "100%" và không được
+    đứng trên agent đã chấm 12/20."""
+    import vnstock_brief as vb
+    monkeypatch.setattr(sys.modules["vnstock_memory"], "recent_briefs",
+                        lambda *a, **k: [{"agent_name": "x"}])
+
+    def _slot(n_match, n_eval):
+        return {"n_total": n_eval, "n_evaluated": n_eval, "n_match": n_match,
+                "accuracy": n_match / n_eval, "stance_dist": {},
+                "reliable": n_eval >= vb._ACCURACY_MIN_SAMPLE}
+    monkeypatch.setattr(vb, "agent_accuracy_summary", lambda *a, **k: {
+        "Lucky": _slot(1, 1), "Steady": _slot(12, 20)})
+
+    st = render_env
+    _load("dashboard.brief_accuracy_panel").render_accuracy_widget()
+
+    cards = [str(c.args[0]) for c in st.markdown.call_args_list
+             if c.args and "<div" in str(c.args[0])]
+    assert len(cards) == 2, cards
+    assert "Steady" in cards[0] and "🥇" in cards[0]
+    assert "100%" not in cards[1] and "🥇" not in cards[1]
