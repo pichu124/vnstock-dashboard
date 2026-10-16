@@ -18,6 +18,7 @@ in depth + tài liệu bài học tại chỗ); trùng với đây là vô hại
 """
 from __future__ import annotations
 
+from importlib.machinery import PathFinder
 from importlib.util import find_spec
 
 import pytest
@@ -33,8 +34,17 @@ VNSTOCK_SKIP_REASON = "cần vnstock hoặc vnstock_data — CI tối thiểu kh
 needs_vnstock = pytest.mark.skipif(not HAS_VNSTOCK_SDK, reason=VNSTOCK_SKIP_REASON)
 
 
+def _installed(module: str) -> bool:
+    try:
+        return find_spec(module) is not None
+    except ValueError:
+        # sys.modules giữ bản GIẢ không __spec__ (test_dashboard gắn MagicMock vào
+        # "streamlit" lúc thu thập) ⇒ tìm thẳng trên sys.path.
+        return PathFinder.find_spec(module) is not None
+
+
 def needs(module: str):
-    return pytest.mark.skipif(find_spec(module) is None,
+    return pytest.mark.skipif(not _installed(module),
                               reason=f"cần {module} — CI tối thiểu không cài")
 
 

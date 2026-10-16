@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import needs
+
 
 def test_module_imports_without_streamlit():
     """The tab module must be importable even when Streamlit is not
@@ -233,8 +235,66 @@ def test_delete_second_of_two_identical_labels_keeps_first(tmp_path: Path, monke
 
     assert _portfolio_path(tmp_path).exists()
     assert _load_portfolio(tmp_path) == [lot1, lot3]
-    assert shown == ["—", "VCB (100 cp @ 90,000)", "VCB (100 cp @ 90,000)",
-                     "FPT (50 cp @ 120,000)"]
+    # Fake selectbox trả thẳng option, bỏ qua serde; Streamlit thật lưu lựa chọn bằng
+    # NHÃN ⇒ nhãn trùng thì không xoá được lô đầu (test serde thật ngay dưới).
+    assert shown == ["—", "VCB (100 cp @ 90,000) · mua 2026-01-15 · #1",
+                     "VCB (100 cp @ 90,000) · mua 2026-03-02 · #2",
+                     "FPT (50 cp @ 120,000) · mua 2026-02-01 · #3"]
+    assert len(set(shown)) == len(shown)
+
+
+# Chạy trong process RIÊNG: `tests/test_dashboard.py` gắn MagicMock vào sys.modules["streamlit"]
+# ngay lúc pytest thu thập ⇒ chạy cả suite thì không import được `streamlit.elements…` thật,
+# còn gỡ mock ngay trong process pytest thì module thật lọt sang test khác.
+_SERDE_ROUND_TRIP = """
+import json, sys
+from streamlit.elements.lib.options_selector_utils import create_mappings
+from streamlit.elements.widgets.selectbox import SelectboxSerde
+pairs = json.loads(sys.argv[1])
+opts = [o for o, _ in pairs]
+label_of = {json.dumps(o): lbl for o, lbl in pairs}
+fmt = lambda o: label_of[json.dumps(o)]
+labels, label_to_index = create_mappings(opts, fmt)
+serde = SelectboxSerde(opts, formatted_options=labels,
+                       formatted_option_to_option_index=label_to_index,
+                       default_option_index=0, format_func=fmt)
+print(json.dumps([serde.deserialize(serde.serialize(o)) for o in opts]))
+"""
+
+
+@needs("streamlit")
+def test_delete_options_round_trip_through_real_streamlit_serde(tmp_path: Path, monkeypatch):
+    """Streamlit 1.56 serialize selectbox bằng NHÃN đã format (`create_mappings`: nhãn
+    trùng thì cái sau thắng). Hai lô cùng nhãn ⇒ chọn lô 1 deserialize ra lô 2, lô 1
+    không bao giờ xoá được. Lấy đúng options + nhãn tab đưa vào selectbox rồi đi qua
+    serde THẬT: mọi lựa chọn phải về đúng nó."""
+    import subprocess
+    from tests.test_tab_render_smoke import _fake_streamlit
+    from dashboard.portfolio_tab import _save_portfolio
+    lot = {"ticker": "VCB", "quantity": 100, "buy_price": 90000, "buy_date": "2026-01-15"}
+    _save_portfolio(tmp_path, [lot, dict(lot), {**lot, "buy_date": ""}, dict(lot, buy_date="")])
+
+    st = _fake_streamlit()
+    seen: dict = {}
+
+    def _selectbox(label, options=(), format_func=str, **k):
+        options = list(options)
+        if k.get("key") == "pf_del_select":
+            seen["pairs"] = [[o, format_func(o)] for o in options]
+        return options[0] if options else None
+
+    st.selectbox = _selectbox
+    monkeypatch.setitem(sys.modules, "streamlit", st)
+    from dashboard.portfolio_tab import render_portfolio_tab
+    render_portfolio_tab(tmp_path)
+
+    opts = [o for o, _ in seen["pairs"]]
+    assert opts == [None, 0, 1, 2, 3]
+    run = subprocess.run([sys.executable, "-I", "-c", _SERDE_ROUND_TRIP,
+                          json.dumps(seen["pairs"])],
+                         capture_output=True, text=True, timeout=180)
+    assert run.returncode == 0, run.stderr
+    assert json.loads(run.stdout.strip().splitlines()[-1]) == opts
 
 
 # ── JSON hợp lệ nhưng SAI DẠNG: cũng là file hỏng, không phải danh mục ──────
