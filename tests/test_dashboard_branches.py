@@ -441,6 +441,94 @@ def test_save_alerts_retries_when_dropbox_holds_the_file(alert_env, monkeypatch)
     assert [p.name for p in path.parent.iterdir()] == ["price_alerts.json"]
 
 
+# File alert hỏng (Dropbox cắt cụt) KHÔNG được đọc thành [] — "✅ Tạo alert" sẽ
+# ghi đè mọi alert cũ bằng [1 alert] rồi Dropbox đẩy sang máy kia.
+
+_TRUNCATED_ALERTS = b'[\n  {\n    "ticker": "HPG",\n    "targ'
+
+
+def test_load_alerts_missing_is_empty_but_corrupt_raises(alert_env):
+    assert alert_env["load_alerts"]() == []
+    path = alert_env["ALERTS_PATH"]
+    path.parent.mkdir(parents=True)
+    path.write_bytes(_TRUNCATED_ALERTS)
+    with pytest.raises(ValueError):
+        alert_env["load_alerts"]()
+
+
+class _Rerun(Exception):
+    """st.rerun thật dừng script bằng exception — giả lập đúng như vậy."""
+
+
+def _run_alert_sidebar(alert_env):
+    """Chạy ĐÚNG khối 🔔 Price Alerts ở sidebar analysis_tab, bấm "✅ Tạo alert"
+    (nút giả tôn trọng `disabled` như Streamlit thật)."""
+    from tests.test_tab_render_smoke import _fake_streamlit
+
+    tree = ast.parse((_ROOT / "dashboard" / "analysis_tab.py").read_text(encoding="utf-8"))
+    side = next(n for n in ast.walk(tree)
+                if isinstance(n, ast.With) and "🔔 Price Alerts" in ast.unparse(n))
+    start = next(i for i, n in enumerate(side.body) if "🔔 Price Alerts" in ast.unparse(n))
+    st = _fake_streamlit()
+    st.button = lambda label, key=None, **k: key == "alert_create" and not k.get("disabled")
+    st.text_input = lambda label, **k: "VCB" if k.get("key") == "alert_ticker" else ""
+    st.number_input = lambda label, **k: 25.0 if k.get("key") == "alert_target" else 0
+
+    def _rerun():
+        raise _Rerun
+
+    st.rerun = _rerun
+    ns = {"st": st, "ALERTS_PATH": alert_env["ALERTS_PATH"],
+          "load_alerts": alert_env["load_alerts"], "save_alerts": alert_env["save_alerts"]}
+    try:
+        exec(compile(ast.Module(side.body[start:], []), "analysis_tab.py", "exec"), ns)
+    except _Rerun:
+        pass
+    return st
+
+
+def test_create_alert_appends_to_existing_alerts(alert_env):
+    """Đối chứng: file lành ⇒ bấm Tạo thì GIỮ alert cũ + thêm alert mới."""
+    old = {"ticker": "HPG", "condition": "above", "target": 30.0, "fired": False}
+    alert_env["save_alerts"]([old])
+    _run_alert_sidebar(alert_env)
+    al = alert_env["load_alerts"]()
+    assert [a["ticker"] for a in al] == ["HPG", "VCB"]
+
+
+def test_corrupt_alerts_file_blocks_create_and_keeps_bytes(alert_env):
+    path = alert_env["ALERTS_PATH"]
+    path.parent.mkdir(parents=True)
+    path.write_bytes(_TRUNCATED_ALERTS)
+
+    st = _run_alert_sidebar(alert_env)
+
+    assert path.read_bytes() == _TRUNCATED_ALERTS                 # không đè bằng [1 alert]
+    assert [p.name for p in path.parent.iterdir()] == ["price_alerts.json"]  # không đổi tên/xoá
+    assert str(path) in st.error.call_args.args[0]
+
+
+def test_alert_checker_on_corrupt_file_sends_nothing_and_writes_nothing(alert_env, caplog):
+    path = alert_env["ALERTS_PATH"]
+    path.parent.mkdir(parents=True)
+    path.write_bytes(_TRUNCATED_ALERTS)
+    st = types.SimpleNamespace(
+        session_state={"_tg_token": "tok", "_tg_chat": "chat"}, toast=lambda m: None)
+    frag = load_source_fns(
+        "dashboard/analysis_tab.py", "_alert_checker", st=st,
+        load_alerts=alert_env["load_alerts"], save_alerts=alert_env["save_alerts"],
+        check_and_fire_alerts=alert_env["check_and_fire_alerts"],
+        log=logging.getLogger("vnstock_dashboard"), ALERTS_PATH=path,
+    )["_alert_checker"]
+
+    with caplog.at_level(logging.WARNING, logger="vnstock_dashboard"):
+        frag()
+
+    assert alert_env["sent"] == []
+    assert path.read_bytes() == _TRUNCATED_ALERTS
+    assert str(path) in caplog.text
+
+
 def test_failed_telegram_send_is_logged(alert_env, caplog):
     alert_env["send_telegram_alert"] = lambda *a: False
     with caplog.at_level(logging.WARNING, logger="vnstock_dashboard"):

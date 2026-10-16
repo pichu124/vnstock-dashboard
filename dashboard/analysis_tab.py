@@ -42,7 +42,7 @@ def render_analysis_tab() -> None:
             sys.modules['vnstock_dashboard'] = _m
 
     from vnstock_dashboard import (
-        WSS_AVAILABLE,
+        ALERTS_PATH, WSS_AVAILABLE,
         _get_wss_singleton, _merge_live_quote, _normalize_live_price,
         check_and_fire_alerts, fetch_volume_profile_direct, fmt_pct,
         get_all_listed_symbols, get_all_tickers, get_tech_signals,
@@ -53,7 +53,7 @@ def render_analysis_tab() -> None:
         load_price_history,
         render_chart, render_metric_row, render_order_book,
         render_signal_badge, render_volume_profile,
-        resample_ohlcv, save_alerts,
+        log, resample_ohlcv, save_alerts,
         data,
     )
     try:
@@ -163,7 +163,13 @@ def render_analysis_tab() -> None:
         st.divider()
         st.markdown("### 🔔 Price Alerts")
 
-        _alerts = load_alerts()
+        try:
+            _alerts, _alerts_broken = load_alerts(), False
+        except (OSError, ValueError) as _e:
+            _alerts, _alerts_broken = [], True
+            st.error(f"Không đọc được file alert `{ALERTS_PATH}` ({_e}). Đã khoá Tạo/Xoá "
+                     "alert để không ghi đè — sửa hoặc khôi phục file (Dropbox: lịch sử "
+                     "phiên bản / bản conflicted copy) rồi tải lại trang.")
         _active_alerts = [a for a in _alerts if not a.get("fired")]
         _fired_alerts = [a for a in _alerts if a.get("fired")]
 
@@ -199,7 +205,8 @@ def render_analysis_tab() -> None:
                 key="alert_target",
                 help="Giá (VND) cho above/below, % cho change, số cổ phiếu cho volume"
             )
-            if st.button("✅ Tạo alert", key="alert_create", use_container_width=True):
+            if st.button("✅ Tạo alert", key="alert_create", use_container_width=True,
+                         disabled=_alerts_broken):
                 if _al_ticker and _al_target > 0:
                     _alerts.append({
                         "ticker": _al_ticker,
@@ -557,7 +564,12 @@ def render_analysis_tab() -> None:
     if _live_on:
         @st.fragment(run_every=10)
         def _alert_checker():
-            _al = load_alerts()
+            try:
+                _al = load_alerts()
+            except (OSError, ValueError) as e:
+                # Không gửi, không ghi: lưu lúc này = đè file hỏng; sidebar đã báo lỗi
+                log.warning("Bỏ qua kiểm alert — không đọc được %s: %s", ALERTS_PATH, e)
+                return
             _active = [a for a in _al if not a.get("fired")]
             if not _active:
                 return

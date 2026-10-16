@@ -960,14 +960,11 @@ def load_live_quote(ticker: str) -> dict | None:
 # ═════════════════════════════════════════════════════════════════════════════
 
 def load_alerts() -> list[dict]:
-    """Load price alerts từ JSON file."""
+    """Thiếu file ⇒ ``[]`` (hợp lệ). File hỏng/không đọc được ⇒ raise
+    (OSError/ValueError) — caller phải chặn ghi, không coi là chưa có alert."""
     if not ALERTS_PATH.exists():
         return []
-    try:
-        return json.loads(ALERTS_PATH.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
-        log.warning("Alerts file corrupt: %s", e)
-        return []
+    return json.loads(ALERTS_PATH.read_text(encoding="utf-8"))
 
 
 def save_alerts(alerts: list[dict]):
