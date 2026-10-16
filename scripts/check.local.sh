@@ -9,7 +9,9 @@ cd "$(dirname "$0")/.." || exit 1
 
 py="${PYTHON:-}"
 if [ -z "$py" ]; then
-  for c in .venv/Scripts/python.exe .venv/bin/python python3 python py; do
+  # Venv của dự án nằm ở thư mục nhà (C:\Users\<tài khoản>\.venv, cả hai máy). Stop hook chạy
+  # không kích hoạt venv, nên phải tìm thẳng ở đó (15/10: chặn 3 lần vì chỉ thấy Python hệ thống).
+  for c in .venv/Scripts/python.exe .venv/bin/python "${HOME:-}/.venv/Scripts/python.exe" "${HOME:-}/.venv/bin/python" python3 python py; do
     if "$c" -c 'import pytest' >/dev/null 2>&1; then
       py="$c"
       break
