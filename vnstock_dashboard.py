@@ -2717,7 +2717,7 @@ def df_from_preset(preset_data: dict) -> pd.DataFrame:
     for col in ["1D%", "5D%", "20D%", "BB%", "52W%"]:
         if col in df.columns:
             df[col] = df[col].apply(
-                lambda v: f"+{v:.1f}%" if v and v > 0 else (f"{v:.1f}%" if v else "—")
+                lambda v: "—" if pd.isna(v) else (f"+{v:.1f}%" if v > 0 else f"{v:.1f}%")
             )
     for col in ["RSI", "Vol×"]:
         if col in df.columns:

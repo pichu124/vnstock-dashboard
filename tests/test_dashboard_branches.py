@@ -415,3 +415,23 @@ def test_failed_telegram_send_is_logged(alert_env, caplog):
         alert_env["check_and_fire_alerts"](
             [{"ticker": "VCB", "condition": "above", "target": 25.0}], "tok", "chat")
     assert "VCB" in caplog.text
+
+
+# ── df_from_preset: cột % ────────────────────────────────────────────────────
+
+def test_preset_pct_columns_show_zero_and_hide_nan():
+    """0.0 là số thật (đứng giá) ⇒ "0.0%"; NaN/None là thiếu data ⇒ "—"."""
+    df_from_preset = load_source_fns("vnstock_dashboard.py", "df_from_preset",
+                                     pd=pd)["df_from_preset"]
+    out = df_from_preset({"results": [
+        {"ticker": "AAA", "chg_1d_pct": 0.0, "chg_5d_pct": float("nan"),
+         "chg_20d_pct": None, "bb_pct": 1.24, "52w_pct": -2.0, "rsi_14": 55.0},
+        {"ticker": "BBB", "chg_1d_pct": -0.5, "chg_5d_pct": 3.0,
+         "chg_20d_pct": 4.0, "bb_pct": None, "52w_pct": 0.0, "rsi_14": 0.0},
+    ]})
+    assert out["1D%"].tolist() == ["0.0%", "-0.5%"]
+    assert out["5D%"].tolist() == ["—", "+3.0%"]
+    assert out["20D%"].tolist() == ["—", "+4.0%"]
+    assert out["BB%"].tolist() == ["+1.2%", "—"]
+    assert out["52W%"].tolist() == ["-2.0%", "0.0%"]
+    assert out["RSI"].tolist() == ["55.0", "—"]   # cột khác giữ nguyên format
