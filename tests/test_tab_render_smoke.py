@@ -437,3 +437,28 @@ def test_freshness_badge_flags_intraday_and_previous_session(render_env, monkeyp
     _load("dashboard.market_tab").render_market_tab()
 
     assert [s for s in said if expect in s], said
+
+
+def test_custom_group_row_gets_a_sparkline(render_env, monkeypatch):
+    """Sparkline gom mã theo cột `Ngành` GỐC nên dòng nhóm tuỳ biến ("Họ VIN")
+    luôn hiện "—" dù có đủ giá VIC/VHM."""
+    sectors = _sector_df()
+    sectors.loc[0, "Ngành"] = "Họ VIN"
+    idx = _index_df()
+    stub = _stub_dashboard(sectors, idx)
+    stub.load_price_history = lambda tk, days=0: pd.DataFrame(
+        {"time": idx["time"], "close": np.linspace(100, 130, len(idx))})
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard", stub)
+
+    ticks = _ticker_df()
+    ticks["Mã"] = ["VIC", "VHM", "FPT"]
+    ticks["Ngành"] = ["Bất động sản", "Bất động sản", "Công nghệ"]
+    ticks["Vốn hoá (tỷ)"] = [400_000.0, 300_000.0, 200_000.0]
+    st = render_env
+    st.session_state["_mkt_ticker_data"] = ticks
+    _load("dashboard.market_tab").render_market_tab()
+
+    tbl = [m for m in _markdowns(st) if "α 30d vs VNINDEX" in m]
+    assert tbl, "Bảng ngành không có cột sparkline"
+    row = [r for r in tbl[0].split("<tr") if "Họ VIN" in r]
+    assert row and "<svg" in row[0], "Dòng Họ VIN không có sparkline"

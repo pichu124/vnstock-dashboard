@@ -118,7 +118,9 @@ def render_market_tab() -> None:
             ticker_data: dict = {}
             for ticker, cap in tickers_caps[:3]:
                 try:
-                    df = load_price_history(str(ticker), days=n_days + 15)
+                    # NGÀY LỊCH tính từ hôm nay: n+15 hụt 30 phiên quanh Tết (nghỉ
+                    # ~5 phiên) hoặc khi xem cuối tuần ⇒ gốc mã lệch gốc VNINDEX.
+                    df = load_price_history(str(ticker), days=n_days * 2)
                     if df.empty or "close" not in df.columns:
                         continue
                     df["_d"] = df["time"].dt.date.astype(str)
@@ -683,14 +685,23 @@ def render_market_tab() -> None:
                         and "Vốn hoá (tỷ)" in _tick_data_spark.columns
                         and "VNINDEX" in _idx_long_spark.columns):
                     # Build sector → top 3 tickers by cap
-                    _sec_tickers: dict = {}
-                    for _sname, _grp in _tick_data_spark.groupby("Ngành"):
+                    def _top3_by_cap(_grp):
                         _sorted_grp = _grp.sort_values("Vốn hoá (tỷ)", ascending=False)
-                        _sec_tickers[_sname] = [
+                        return [
                             [str(r["Mã"]), float(r["Vốn hoá (tỷ)"])]
                             for _, r in _sorted_grp.head(3).iterrows()
                             if r.get("Mã") and r.get("Vốn hoá (tỷ)")
                         ]
+                    _sec_tickers: dict = {
+                        _sname: _top3_by_cap(_grp)
+                        for _sname, _grp in _tick_data_spark.groupby("Ngành")}
+                    # Nhóm tuỳ biến ("Họ VIN", "Họ M") không có trong cột `Ngành`
+                    # gốc của bảng mã → lấy mã theo định nghĩa nhóm.
+                    from vnstock_sectors import rows_for_sector, tickers_in_group
+                    for _sname in mkt_df["Ngành"]:
+                        if tickers_in_group(_sname):
+                            _sec_tickers[_sname] = _top3_by_cap(
+                                rows_for_sector(_tick_data_spark, _sname))
                     # Build VNINDEX close dict (date → close)
                     _vni_col = _idx_long_spark[["VNINDEX"]].copy()
                     if hasattr(_idx_long_spark.index, "strftime"):
