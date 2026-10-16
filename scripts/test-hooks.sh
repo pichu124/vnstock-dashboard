@@ -53,14 +53,19 @@ new_repo "$on_main" main
 # Repo ở nhánh chính, đường dẫn có chữ git và push.
 odd="$tmp/my git/github/pushy-main"
 new_repo "$odd" main
+# Repo ở nhánh chính có tên kết thúc bằng \ (giả lập C:\vnstock\ của PowerShell trên Linux).
+bsm="$tmp/w\\"
+new_repo "$bsm" main
 
 modes="auto sed"
 [ -n "$py" ] && modes="auto python sed"
 mode=auto
+ask_count=0
 expect_guard() {
   local want="$1" cmd="$2" dir="${3:-$work}" out tag=" [$mode]"
   out="$(bash_input "$cmd" "$dir" | KIT_JSON_TOOL="$mode" "$hooks/guard-irreversible.sh")"
   if [ "$want" = ask ]; then
+    [ "$mode" = auto ] && ask_count=$((ask_count + 1))
     case "$out" in *'"permissionDecision":"ask"'*) ok ;; *) bad "guard phải hỏi$tag: $cmd" ;; esac
   else
     assert "guard không được chặn$tag: $cmd → $out" [ -z "$out" ]
@@ -278,8 +283,23 @@ EOF
   expect_guard ask 'git -C "$REPO" push'
   TOOL=PowerShell expect_guard ask "Set-Location -Path:\"$on_main\"; git push"
   TOOL=PowerShell expect_guard ask "Set-Location -PassThru \"$on_main\"; git push"
+  # PowerShell không escape bằng \: C:\x\; và C:\x\ push là đường dẫn rồi tới lệnh khác.
+  TOOL=PowerShell expect_guard ask "Set-Location $bsm; git push"
+  TOOL=PowerShell expect_guard ask "cd $bsm ; git push"
+  TOOL=PowerShell expect_guard ask "cd $bsm&& git push"
+  TOOL=PowerShell expect_guard ask "git -C $bsm push"
+  TOOL=PowerShell expect_guard ask "git -C $bsm push origin HEAD"
+  TOOL=Unknown expect_guard ask "Set-Location $bsm; git push"
+  TOOL=PowerShell expect_guard ask 'git -C \ push -f'
   expect_guard allow "cd -- \"$work\" && git push"
   expect_guard allow "bash -c 'cd \"$work\" && git push'"
+  # Biến quen thuộc thì biết thư mục: $PWD là thư mục của phiên, $CLAUDE_PROJECT_DIR có trong môi trường hook.
+  # shellcheck disable=SC2016
+  expect_guard allow 'git -C "$PWD" push'
+  # shellcheck disable=SC2016
+  CLAUDE_PROJECT_DIR="$work" expect_guard allow 'cd "$CLAUDE_PROJECT_DIR" && git push'
+  # shellcheck disable=SC2016
+  CLAUDE_PROJECT_DIR="$on_main" expect_guard ask 'cd "$CLAUDE_PROJECT_DIR" && git push'
   # \\ cuối dòng là dấu \ thật, không phải dấu nối; PowerShell lồng trong Bash vẫn nối bằng `.
   expect_guard ask $'echo \\\\\nrm -rf \\\n  ~'
   expect_guard ask $'echo \\\\\nnpm \\\n run deploy'
@@ -408,6 +428,19 @@ gitc "$feat" push -q -u origin feat/x >/dev/null 2>&1
 session="test-$$-$RANDOM"
 out="$(run_stop "$feat")"; code=$?
 assert "stop-gate: đã push hết thì cho dừng (exit $code)" [ "$code" -eq 0 ]
+
+# Sàn số ca "phải hỏi": được thêm, không được bớt. Bớt ca để guard dễ dãi hơn phải là quyết định
+# của người, sửa scripts/guard-ask-floor trong cùng thay đổi để người review thấy.
+floor_file="$root/scripts/guard-ask-floor"
+if [ -f "$floor_file" ]; then
+  floor="$(tr -dc '0-9' < "$floor_file")"
+  if [ "$ask_count" -lt "${floor:-0}" ]; then
+    bad "số ca 'phải hỏi' giảm còn $ask_count, dưới sàn ${floor} trong scripts/guard-ask-floor"
+  else
+    ok
+    [ "$ask_count" -gt "${floor:-0}" ] && printf '• guard: %s ca phải hỏi, có thể nâng scripts/guard-ask-floor lên %s\n' "$ask_count" "$ask_count"
+  fi
+fi
 
 # Post-edit format: không bao giờ chặn, kể cả khi file không tồn tại.
 for f in "$tmp/khong-ton-tai.ts" "$repo/app.js" "$repo/NOTES.md"; do
