@@ -766,7 +766,10 @@ def load_price_history(ticker: str, days: int = 0) -> pd.DataFrame:
     frames = []
     for yd in sorted(ticker_dir.glob("year=*")):
         try:
-            for pf in yd.glob("*.parquet"):
+            # mtime CŨ→MỚI + khử trùng giữ bản MỚI: year-dir có thể tạm có
+            # "(… conflicted copy …).parquet" của Dropbox — cùng ngữ nghĩa
+            # `vnstock_strategy._read_ticker_dir`, không thì bar bị đếm 2 lần.
+            for pf in sorted(yd.glob("*.parquet"), key=lambda f: f.stat().st_mtime):
                 frames.append(pq.read_table(str(pf),
                     columns=["time","open","high","low","close","volume"]).to_pandas())
         except Exception:
@@ -775,6 +778,7 @@ def load_price_history(ticker: str, days: int = 0) -> pd.DataFrame:
         return pd.DataFrame()
     df = pd.concat(frames, ignore_index=True)
     df["time"] = pd.to_datetime(df["time"])
+    df = df.drop_duplicates(subset=["time"], keep="last")
     if days > 0:
         cutoff = datetime.now() - timedelta(days=days)
         df = df[df["time"] >= cutoff]
