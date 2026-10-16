@@ -201,46 +201,180 @@ def test_portfolio_save_failure_is_reported(tmp_path: Path, monkeypatch):
 
 # ── Xoá vị thế: theo VỊ TRÍ dòng, không theo nhãn ───────────────────────────
 
+class _WidgetState(dict):
+    """session_state giả: như Streamlit, ghi key của widget ĐÃ VẼ trong lượt này thì ném."""
+
+    def __init__(self):
+        super().__init__()
+        self.drawn: set = set()
+
+    def __setitem__(self, key, value):
+        if key in self.drawn:
+            raise RuntimeError(f"StreamlitAPIException: `{key}` đã vẽ trong lượt này")
+        super().__setitem__(key, value)
+
+
+class _DeleteFlow:
+    """Chạy tab nhiều lượt với đủ ngữ nghĩa Streamlit cho selectbox + nút Xoá:
+    selectbox giữ lựa chọn trong state theo key; callback `on_click` chạy ĐẦU lượt
+    kế (trước script) và nút trả True đúng lượt đó; chỉ bấm trúng nút ĐANG HIỆN;
+    st.rerun mở lượt mới không bấm gì."""
+
+    def __init__(self, monkeypatch, warehouse: Path):
+        from tests.test_tab_render_smoke import _fake_streamlit
+        self.st = st = _fake_streamlit()
+        st.session_state = _WidgetState()
+        st.selectbox, st.button, st.rerun = self._selectbox, self._button, self._rerun
+        self.labels: list = []
+        self.shown: dict = {}
+        self._warehouse, self._clicked = warehouse, None
+        monkeypatch.setitem(sys.modules, "streamlit", st)
+
+    def _selectbox(self, label, options=(), format_func=str, key=None, **k):
+        options = list(options)
+        if key != "pf_del_select":
+            return options[0] if options else None
+        self.labels = [format_func(o) for o in options]
+        state = self.st.session_state
+        value = state.get(key, options[0])
+        dict.__setitem__(state, key, value if value in options else options[0])
+        state.drawn.add(key)
+        return state[key]
+
+    def _button(self, label, key=None, on_click=None, args=(), kwargs=None, **k):
+        self.shown[key] = (on_click, args, kwargs or {})
+        return key == self._clicked
+
+    @staticmethod
+    def _rerun():
+        raise _Rerun
+
+    def pick(self, index):
+        """User chọn dòng `index` trong selectbox (lượt chạy kế tiếp sẽ thấy)."""
+        dict.__setitem__(self.st.session_state, "pf_del_select", index)
+
+    def run(self, click=None):
+        from dashboard.portfolio_tab import render_portfolio_tab
+        while True:
+            shown, self.shown = self.shown, {}
+            self._clicked = click if click in shown else None    # nút đã ẩn ⇒ bấm hụt
+            self.st.session_state.drawn.clear()
+            if self._clicked and shown[self._clicked][0] is not None:
+                cb, args, kwargs = shown[self._clicked]
+                cb(*args, **kwargs)
+            try:
+                return render_portfolio_tab(self._warehouse)
+            except _Rerun:
+                click = None
+
+
 def test_delete_second_of_two_identical_labels_keeps_first(tmp_path: Path, monkeypatch):
     """Hai lô cùng mã/số lượng/giá (khác ngày mua) có CÙNG nhãn trong selectbox;
     `_options.index(nhãn)` trả lô ĐẦU ⇒ chọn xoá lô thứ hai lại xoá lô đầu."""
-    from tests.test_tab_render_smoke import _fake_streamlit
     from dashboard.portfolio_tab import _portfolio_path, _save_portfolio, _load_portfolio
     lot1 = {"ticker": "VCB", "quantity": 100, "buy_price": 90000, "buy_date": "2026-01-15"}
     lot2 = {"ticker": "VCB", "quantity": 100, "buy_price": 90000, "buy_date": "2026-03-02"}
     lot3 = {"ticker": "FPT", "quantity": 50, "buy_price": 120000, "buy_date": "2026-02-01"}
     _save_portfolio(tmp_path, [lot1, lot2, lot3])
 
-    st = _fake_streamlit()
-    shown: list = []
-
-    def _selectbox(label, options=(), format_func=str, **k):
-        options = list(options)
-        if k.get("key") != "pf_del_select":
-            return options[0] if options else None
-        shown.extend(format_func(o) for o in options)
-        return options[2]                                       # [—, lô 1, LÔ 2, lô 3]
-
-    st.selectbox = _selectbox
-    st.button = lambda label, key=None, **k: key == "pf_del_btn"
-
-    def _rerun():
-        raise _Rerun
-
-    st.rerun = _rerun
-    monkeypatch.setitem(sys.modules, "streamlit", st)
-    from dashboard.portfolio_tab import render_portfolio_tab
-    with pytest.raises(_Rerun):
-        render_portfolio_tab(tmp_path)
+    flow = _DeleteFlow(monkeypatch, tmp_path)
+    flow.run()
+    shown = flow.labels
+    flow.pick(1)                                                # [—, lô 1, LÔ 2, lô 3]
+    flow.run()
+    flow.run(click="pf_del_btn")
 
     assert _portfolio_path(tmp_path).exists()
     assert _load_portfolio(tmp_path) == [lot1, lot3]
-    # Fake selectbox trả thẳng option, bỏ qua serde; Streamlit thật lưu lựa chọn bằng
+    # Fake selectbox giữ thẳng option, bỏ qua serde; Streamlit thật lưu lựa chọn bằng
     # NHÃN ⇒ nhãn trùng thì không xoá được lô đầu (test serde thật ngay dưới).
     assert shown == ["—", "VCB (100 cp @ 90,000) · mua 2026-01-15 · #1",
                      "VCB (100 cp @ 90,000) · mua 2026-03-02 · #2",
                      "FPT (50 cp @ 120,000) · mua 2026-02-01 · #3"]
     assert len(set(shown)) == len(shown)
+
+
+_LOT_A = {"ticker": "AAA", "quantity": 100, "buy_price": 10000, "buy_date": "2026-01-02"}
+_LOT_B = {"ticker": "BBB", "quantity": 200, "buy_price": 20000, "buy_date": "2026-01-03"}
+_LOT_C = {"ticker": "CCC", "quantity": 300, "buy_price": 30000, "buy_date": "2026-01-04"}
+_LOT_D = {"ticker": "DDD", "quantity": 400, "buy_price": 40000, "buy_date": "2026-01-05"}
+
+
+def _flow_with_b_selected(monkeypatch, warehouse: Path) -> _DeleteFlow:
+    from dashboard.portfolio_tab import _save_portfolio
+    _save_portfolio(warehouse, [_LOT_A, _LOT_B, _LOT_C])
+    flow = _DeleteFlow(monkeypatch, warehouse)
+    flow.run()
+    flow.pick(1)                                                # B (#2)
+    flow.run()
+    assert "pf_del_btn" in flow.shown
+    return flow
+
+
+def test_delete_double_click_does_not_drop_next_lot(tmp_path: Path, monkeypatch):
+    """[A, B, C], chọn B, bấm Xoá. Trước đây selectbox vẫn giữ chỉ số 1 — giờ là C —
+    và nút Xoá vẫn hiện ⇒ cú bấm thứ hai của bấm đúp xoá luôn C."""
+    from dashboard.portfolio_tab import _load_portfolio, _portfolio_path
+    flow = _flow_with_b_selected(monkeypatch, tmp_path)
+
+    flow.run(click="pf_del_btn")
+    assert _load_portfolio(tmp_path) == [_LOT_A, _LOT_C]
+    flow.run(click="pf_del_btn")
+
+    assert _load_portfolio(tmp_path) == [_LOT_A, _LOT_C]
+    assert flow.st.session_state["pf_del_select"] is None
+    assert "pf_del_btn" not in flow.shown
+    msgs = [c.args[0] for c in flow.st.error.call_args_list]
+    assert not [m for m in msgs if str(_portfolio_path(tmp_path)) in m], msgs
+
+
+def test_delete_keeps_lot_added_on_disk_after_render(tmp_path: Path, monkeypatch):
+    """Lúc bấm Xoá phải đọc LẠI file: lô D máy kia vừa thêm (Dropbox) sau lượt vẽ
+    vẫn còn, không bị bản chụp lúc vẽ ghi đè."""
+    from dashboard.portfolio_tab import _load_portfolio, _save_portfolio
+    flow = _flow_with_b_selected(monkeypatch, tmp_path)
+    _save_portfolio(tmp_path, [_LOT_A, _LOT_B, _LOT_C, _LOT_D])
+
+    flow.run(click="pf_del_btn")
+
+    assert _load_portfolio(tmp_path) == [_LOT_A, _LOT_C, _LOT_D]
+
+
+@pytest.mark.parametrize("failure", ["ghi", "đọc lại"])
+def test_delete_failure_keeps_portfolio_and_selection(tmp_path: Path, monkeypatch, failure):
+    """Ghi lỗi (Dropbox giữ file) hoặc đọc lại lỗi ⇒ báo st.error kèm đường dẫn, đĩa
+    giữ nguyên, selectbox GIỮ lựa chọn để bấm lại."""
+    import os as _os
+    import vnstock_parquet_io as pio
+    from dashboard.portfolio_tab import _portfolio_path
+    flow = _flow_with_b_selected(monkeypatch, tmp_path)
+    path = _portfolio_path(tmp_path)
+    before = path.read_bytes()
+
+    def _locked(*_a, **_k):
+        raise OSError("file đang bị khoá")
+
+    if failure == "ghi":
+        monkeypatch.setattr(pio, "_REPLACE_BACKOFF", 0)
+        monkeypatch.setattr(_os, "replace", _locked)
+    else:                                       # lần đọc ĐẦU (lúc bấm) lỗi, lượt vẽ đọc được
+        real_read_text, calls = Path.read_text, []
+
+        def _read_once_locked(self, *a, **k):
+            if self == path and not calls:
+                calls.append(self)
+                _locked()
+            return real_read_text(self, *a, **k)
+
+        monkeypatch.setattr(Path, "read_text", _read_once_locked)
+
+    flow.run(click="pf_del_btn")
+
+    assert path.read_bytes() == before
+    assert flow.st.session_state["pf_del_select"] == 1
+    assert "pf_del_btn" in flow.shown
+    msgs = [c.args[0] for c in flow.st.error.call_args_list]
+    assert any(str(path) in m and "file đang bị khoá" in m for m in msgs), msgs
 
 
 # Chạy trong process RIÊNG: `tests/test_dashboard.py` gắn MagicMock vào sys.modules["streamlit"]

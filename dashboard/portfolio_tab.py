@@ -68,14 +68,33 @@ def _save_portfolio(warehouse: Path, positions: list[dict]) -> None:
     write_json_atomic(positions, _portfolio_path(warehouse))
 
 
-def _save_and_rerun(st, warehouse: Path, positions: list[dict]) -> None:
+def _save_or_report(st, warehouse: Path, positions: list[dict]) -> bool:
     try:
         _save_portfolio(warehouse, positions)
     except OSError as e:
         st.error(f"Không ghi được `{_portfolio_path(warehouse)}`: {e} — danh mục trên đĩa "
                  "giữ nguyên.")
+        return False
+    return True
+
+
+def _save_and_rerun(st, warehouse: Path, positions: list[dict]) -> None:
+    if _save_or_report(st, warehouse, positions):
+        st.rerun()
+
+
+def _delete_position(st, warehouse: Path, idx: int) -> None:
+    """``on_click`` của nút Xoá: chạy TRƯỚC lượt vẽ kế tiếp nên còn được trả selectbox
+    ``pf_del_select`` về None — không thì nó giữ chỉ số cũ, giờ là lô KẾ TIẾP, và nút
+    vẫn hiện: bấm đúp xoá luôn lô đó. Đọc LẠI file, không dùng bản chụp lúc vẽ (máy
+    kia có thể vừa thêm lô); lỗi đọc/ghi ⇒ không ghi, giữ lựa chọn để bấm lại."""
+    try:
+        positions = _load_portfolio(warehouse)
+    except (OSError, ValueError) as e:
+        st.error(f"Không đọc lại được `{_portfolio_path(warehouse)}` ({e}) — chưa xoá gì.")
         return
-    st.rerun()
+    if _save_or_report(st, warehouse, [p for j, p in enumerate(positions) if j != idx]):
+        st.session_state["pf_del_select"] = None
 
 
 def _live_quote(ticker: str, warehouse: Path) -> dict | None:
@@ -632,6 +651,6 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
     _del_i = st.selectbox(
         "Xoá vị thế", options=[None, *range(len(rows))], key="pf_del_select",
         format_func=lambda i: "—" if i is None else _delete_label(rows[i], i))
-    if _del_i is not None and st.button("🗑 Xoá vị thế này", key="pf_del_btn"):
-        _drop = rows[_del_i]["idx"]
-        _save_and_rerun(st, warehouse, [p for j, p in enumerate(positions) if j != _drop])
+    if _del_i is not None:
+        st.button("🗑 Xoá vị thế này", key="pf_del_btn", on_click=_delete_position,
+                  args=(st, warehouse, rows[_del_i]["idx"]))
