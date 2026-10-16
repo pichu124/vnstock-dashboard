@@ -112,8 +112,8 @@ def render_brief_runner() -> None:
                 _sline = _stl()
                 if _sline:
                     st.caption(_sline)
-            except Exception:
-                pass
+            except Exception as _es:
+                st.caption(f"⚠ stance track disabled: {type(_es).__name__}: {_es}")
 
             def _rating_block(agent_name: str):
                 # Id do generate_brief trả về — brief lưu theo ngày PHIÊN nên

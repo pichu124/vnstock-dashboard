@@ -446,3 +446,44 @@ def test_brief_runner_rating_uses_returned_brief_id(render_env, monkeypatch):
     _load("dashboard.brief_run_panel").render_brief_runner()
 
     assert "_rate_7_v" in keys
+
+
+def _said_captions(st):
+    said = []
+    st.caption = lambda *a, **k: said.append(str(a[0]) if a else "")
+    return said
+
+
+def test_strategy_panel_reports_broken_block_instead_of_hiding(render_env, monkeypatch):
+    """Khối con lỗi từng `except: pass` ⇒ kiểm định / tầng vị thế biến mất
+    không dấu vết. Phải hạ xuống caption "disabled" kèm lỗi."""
+    import vnstock_strategy
+    monkeypatch.setattr(vnstock_strategy, "strategy_health",
+                        lambda *a, **k: {"state": "insufficient"})
+    mem = sys.modules["vnstock_memory"]
+    monkeypatch.setattr(mem, "get_active_family", lambda *a, **k: {
+        "id": 1, "name": "S1", "family_id": "f1", "params_json": "{}"})
+
+    def _boom(*a, **k):
+        raise RuntimeError("db hỏng")
+    monkeypatch.setattr(mem, "latest_backtest", _boom)
+    said = _said_captions(render_env)
+
+    _load("dashboard.brief_strategy_panel").render_strategy_panel()
+
+    assert [s for s in said if "disabled" in s and "db hỏng" in s], said
+
+
+def test_brief_runner_reports_broken_stance_track(render_env, monkeypatch):
+    import vnstock_stance_track
+
+    def _boom(*a, **k):
+        raise RuntimeError("sổ stance hỏng")
+    monkeypatch.setattr(vnstock_stance_track, "summary_line", _boom)
+    st = render_env
+    st.session_state["_brief_results"] = {"A": ("brief text", None)}
+    said = _said_captions(st)
+
+    _load("dashboard.brief_run_panel").render_brief_runner()
+
+    assert [s for s in said if "disabled" in s and "sổ stance hỏng" in s], said
