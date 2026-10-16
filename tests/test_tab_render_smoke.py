@@ -415,3 +415,25 @@ def test_regime_failure_is_visible_not_silent(render_env, monkeypatch):
     _load("dashboard.market_tab").render_market_tab()
 
     assert "⚠️ Market regime lỗi: RuntimeError: boom" in said, said
+
+
+@pytest.mark.parametrize("fresh,expect", [
+    ({"reason": "intraday", "overview_time": "11:02", "overview_date": "2026-10-16"},
+     "chốt giữa phiên 11:02"),
+    ({"reason": "prev_session", "overview_time": "15:30", "overview_date": "2026-10-15"},
+     "phiên trước (2026-10-15)"),
+])
+def test_freshness_badge_flags_intraday_and_previous_session(render_env, monkeypatch,
+                                                             fresh, expect):
+    """Bất biến CLAUDE.md: overview cùng phiên mà chốt trước 15:05 là GIỮA PHIÊN
+    ⇒ stale. Badge cũ chỉ so mtime với 24h nên file ghi lúc 11:00 trông "tươi"."""
+    import vnstock_brief as vb
+    monkeypatch.setattr(vb, "market_data_freshness", lambda *a, **k: {
+        "stale": True, "data_date": "2026-10-16", "stale_blocks": [], **fresh})
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard", _stub_dashboard())
+    st = render_env
+    said = []
+    st.caption = lambda *a, **k: said.append(str(a[0]) if a else "")
+    _load("dashboard.market_tab").render_market_tab()
+
+    assert [s for s in said if expect in s], said

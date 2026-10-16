@@ -148,6 +148,12 @@ def render_market_tab() -> None:
             result[sector] = [round(s - v, 2) for s, v in zip(sector_cumret, vni_cumret)]
         return result
 
+    @st.cache_data(ttl=300, show_spinner=False)
+    def _overview_freshness() -> dict:
+        """Cache vì `effective_trading_date` đọc VNINDEX + bars live của phiên."""
+        from vnstock_brief import market_data_freshness
+        return market_data_freshness()
+
     col_title_m, col_ref_m = st.columns([6,1])
     with col_title_m:
         st.markdown("### 🌏 Tổng quan thị trường theo ngành")
@@ -164,6 +170,14 @@ def render_market_tab() -> None:
             ("💸 NN flow",         Path("data_warehouse/_meta/nn_flow_cache.json"),    2 * 3600),
             ("⏱ Session stats",    Path("data_warehouse/_meta/market_session_stats.json"), 1 * 3600),
         ])
+        # mtime < 24h chưa đủ: overview chốt TRƯỚC 15:05 của phiên là giữa phiên.
+        _fr = _overview_freshness()
+        if _fr["stale"]:
+            _why = (f"chốt giữa phiên {_fr['overview_time']} — chưa trọn"
+                    if _fr["reason"] == "intraday"
+                    else f"là phiên trước ({_fr['overview_date']}) — chưa có")
+            st.caption(f"⚠️ Market overview {_why} phiên {_fr['data_date']} "
+                       f"(độ rộng, dòng tiền ngành, regime).")
     except Exception as e:
         st.caption(f"⚠️ Badge độ tươi lỗi: {type(e).__name__}: {e}")
 
