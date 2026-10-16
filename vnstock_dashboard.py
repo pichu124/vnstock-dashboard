@@ -3561,7 +3561,7 @@ with st.sidebar:
                 unsafe_allow_html=True,
             )
     except Exception:
-        pass
+        st.caption("⚠ không đọc được test_status.json")
 
     # ── Doctor badge (sức khỏe nguồn dữ liệu — run.py doctor) ──────────
     try:
@@ -3595,7 +3595,7 @@ with st.sidebar:
                 unsafe_allow_html=True,
             )
     except Exception:
-        pass
+        st.caption("⚠ không đọc được doctor_status.json")
 
     # ── Model watch badge (ladder LLM — run.py models, chạy T7 hàng tuần) ──
     try:
@@ -3632,7 +3632,7 @@ with st.sidebar:
                 unsafe_allow_html=True,
             )
     except Exception:
-        pass
+        st.caption("⚠ không đọc được model_status.json")
 
     # ── 🔴 Live Mode — công tắc ĐỘNG CƠ WSS, đặt ở sidebar CHUNG ─────────────
     # Phải nằm đây (render mọi lượt, mọi tab) chứ không trong tab Phân tích:
@@ -3759,6 +3759,7 @@ if _active_tab == "📊 Screener":
             top_preset=top_preset,
         )
     except Exception as _e:
+        log.exception("Không render được tab %s", _active_tab)
         st.error(f"Không render được Screener tab: {_e}")
         st.caption("Kiểm tra `dashboard/screener_tab.py` và các preset JSON.")
 
@@ -3771,6 +3772,7 @@ if _active_tab == "🔬 Phân tích":
         from dashboard.analysis_tab import render_analysis_tab
         render_analysis_tab()
     except Exception as _e:
+        log.exception("Không render được tab %s", _active_tab)
         st.error(f"Không render được Phân tích tab: {_e}")
         st.caption("Kiểm tra `dashboard/analysis_tab.py` và các cache trong `data_warehouse/`.")
 
@@ -3784,6 +3786,7 @@ if _active_tab == "🌏 Thị trường":
         from dashboard.market_tab import render_market_tab
         render_market_tab()
     except Exception as _e:
+        log.exception("Không render được tab %s", _active_tab)
         st.error(f"Không render được Thị trường tab: {_e}")
         st.caption("Kiểm tra `dashboard/market_tab.py` và cache `data_warehouse/_meta/`.")
 
@@ -3799,6 +3802,7 @@ if _active_tab == "💰 Dòng Tiền":
         from dashboard.money_flow_tab import render_money_flow_tab
         render_money_flow_tab()
     except Exception as _e:
+        log.exception("Không render được tab %s", _active_tab)
         st.error(f"Không render được Dòng Tiền tab: {_e}")
         st.caption("Kiểm tra `dashboard/money_flow_tab.py` và các cache trong `data_warehouse/_meta/`.")
 
@@ -3817,6 +3821,7 @@ if _active_tab == "💱 Hàng hoá & Tiền tệ":
         from dashboard.assets_tab import render_assets_tab
         render_assets_tab()
     except Exception as _e:
+        log.exception("Không render được tab %s", _active_tab)
         st.error(f"Không render được tab Hàng hoá & Tiền tệ: {_e}")
         st.caption("Kiểm tra `dashboard/assets_tab.py`, `vnstock_assets_view.py` và kho `data_warehouse/assets/`.")
 
@@ -3825,6 +3830,7 @@ if _active_tab == "🗞️ Tin tức":
         from dashboard.news_tab import render_news_tab
         render_news_tab()
     except Exception as _e:
+        log.exception("Không render được tab %s", _active_tab)
         st.error(f"Không render được Tin tức tab: {_e}")
         st.caption("Kiểm tra `dashboard/news_tab.py` và `vnstock_news.py`.")
 
@@ -3833,6 +3839,7 @@ if _active_tab == "💼 Portfolio":
         from dashboard.portfolio_tab import render_portfolio_tab
         render_portfolio_tab(Path("data_warehouse"))
     except Exception as _e:
+        log.exception("Không render được tab %s", _active_tab)
         st.error(f"Không render được Portfolio tab: {_e}")
         st.caption("Kiểm tra `dashboard/portfolio_tab.py` và `data_warehouse/_meta/portfolio.json`.")
 
@@ -3845,5 +3852,6 @@ if _active_tab == "⚕️ Sức khỏe":
         from vnstock_health import render_health_tab
         render_health_tab()
     except Exception as _e:
+        log.exception("Không render được tab %s", _active_tab)
         st.error(f"Không render được Health tab: {_e}")
         st.caption("Kiểm tra `vnstock_health.py` và các file metadata trong `data_warehouse/_meta/`.")

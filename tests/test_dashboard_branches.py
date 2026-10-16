@@ -608,3 +608,36 @@ def test_nn_1d_and_long_windows(nn_fns):
     net, _ = nn_fns
     assert net(_nn_df(), 0) == {"AAA": 6.0}
     assert net(_nn_df(), 30) == {"AAA": 21.0}   # data chỉ có 6 phiên
+
+
+# ── Lỗi không được nuốt im: dispatch tab + badge sidebar ────────────────────
+
+_DASH_TREE = ast.parse(_DASH_SRC)
+
+
+def test_every_tab_dispatch_logs_the_traceback():
+    """st.error chỉ in 1 dòng — không log thì không ai lần ra lỗi gốc."""
+    branches = [n for n in _DASH_TREE.body if isinstance(n, ast.If)
+                and "_active_tab ==" in ast.unparse(n.test)]
+    assert len(branches) >= 8
+    for br in branches:
+        for tr in (n for n in br.body if isinstance(n, ast.Try)):
+            for h in tr.handlers:
+                assert "log.exception(" in ast.unparse(h), ast.unparse(br.test)
+
+
+@pytest.mark.parametrize("fname", ["test_status.json", "doctor_status.json",
+                                   "model_status.json"])
+def test_unreadable_sidebar_badge_says_so(fname, tmp_path, monkeypatch):
+    """Badge biến mất khi file hỏng = user tưởng mọi thứ ổn."""
+    tr = next(n for n in ast.walk(_DASH_TREE) if isinstance(n, ast.Try)
+              and f"_meta/{fname}" in ast.unparse(n.body[0]))
+    (tmp_path / "data_warehouse" / "_meta").mkdir(parents=True)
+    (tmp_path / "data_warehouse" / "_meta" / fname).write_text("{hỏng", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    captions: list = []
+    st = types.SimpleNamespace(caption=captions.append, markdown=lambda *a, **k: None)
+    from datetime import datetime
+    exec(compile(ast.Module([tr], []), "vnstock_dashboard.py", "exec"),
+         {"st": st, "json": json, "Path": Path, "datetime": datetime})
+    assert captions == [f"⚠ không đọc được {fname}"]
