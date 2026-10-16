@@ -110,3 +110,57 @@ def test_load_intraday_cache_key_includes_interval():
               if isinstance(n, ast.FunctionDef) and n.name == "load_intraday")
     assert [a.arg for a in fn.args.args] == ["ticker", "interval"]
     assert "cache_data" in ast.unparse(fn.decorator_list[0])
+
+
+# ── Nút "🗑 Xoá alerts đã triggered": ghi theo FILE, không theo bản chụp ────
+
+class _Rerun(Exception):
+    """st.rerun thật dừng script bằng exception — giả lập đúng như vậy."""
+
+
+def _raise_rerun():
+    raise _Rerun
+
+
+def test_clear_fired_alerts_rereads_disk(tmp_path):
+    """`_alert_checker` (fragment 10s) có thể bắn + lưu alert SAU bản chụp của
+    sidebar. Ghi lại `_active_alerts` cũ là trả A về "chưa bắn" ⇒ Telegram bắn
+    lại, và nuốt luôn B vừa thêm (máy kia qua Dropbox)."""
+    import json
+    block = next(n for n in ast.walk(_TAB_TREE) if isinstance(n, ast.If)
+                 and ast.unparse(n.test) == "_fired_alerts" and "alert_clear" in ast.unparse(n))
+    path = tmp_path / "price_alerts.json"
+    a_new = {"ticker": "VCB", "condition": "above", "target": 100.0, "fired": False}
+    b_new = {"ticker": "FPT", "condition": "below", "target": 90.0, "fired": False}
+    c_fired = {"ticker": "HPG", "condition": "above", "target": 30.0, "fired": True}
+    path.write_text(json.dumps([{**a_new, "fired": True}, b_new, c_fired]), encoding="utf-8")
+    st = types.SimpleNamespace(button=lambda label, key=None, **kw: key == "alert_clear",
+                               rerun=_raise_rerun, error=lambda msg: None)
+    ns = {"st": st, "ALERTS_PATH": path,
+          "_active_alerts": [a_new], "_fired_alerts": [c_fired],      # bản chụp lúc vẽ sidebar
+          "load_alerts": lambda: json.loads(path.read_text(encoding="utf-8")),
+          "save_alerts": lambda al: path.write_text(json.dumps(al), encoding="utf-8")}
+    try:
+        exec(compile(ast.Module([block], []), "analysis_tab.py", "exec"), ns)
+    except _Rerun:
+        pass
+    assert json.loads(path.read_text(encoding="utf-8")) == [b_new]
+
+
+def test_clear_fired_alerts_does_not_write_when_file_unreadable(tmp_path):
+    """Đọc lại hỏng (Dropbox đang ghi dở) ⇒ báo lỗi, KHÔNG ghi gì."""
+    block = next(n for n in ast.walk(_TAB_TREE) if isinstance(n, ast.If)
+                 and ast.unparse(n.test) == "_fired_alerts" and "alert_clear" in ast.unparse(n))
+    saved, errors = [], []
+
+    def _broken():
+        raise ValueError("Expecting value: line 1")
+
+    st = types.SimpleNamespace(button=lambda label, key=None, **kw: key == "alert_clear",
+                               rerun=_raise_rerun, error=errors.append)
+    ns = {"st": st, "ALERTS_PATH": tmp_path / "price_alerts.json",
+          "_active_alerts": [], "_fired_alerts": [{"ticker": "HPG", "fired": True}],
+          "load_alerts": _broken, "save_alerts": saved.append}
+    exec(compile(ast.Module([block], []), "analysis_tab.py", "exec"), ns)
+    assert saved == []
+    assert "price_alerts.json" in errors[0]

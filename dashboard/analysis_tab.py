@@ -239,8 +239,15 @@ def render_analysis_tab() -> None:
         if _fired_alerts:
             if st.button(f"🗑 Xoá {len(_fired_alerts)} alerts đã triggered",
                          key="alert_clear", use_container_width=True):
-                save_alerts(_active_alerts)
-                st.rerun()
+                # Đọc LẠI file: `_alert_checker` có thể vừa bắn + lưu alert sau bản chụp
+                # ở trên — ghi `_active_alerts` cũ là trả nó về "chưa bắn", Telegram bắn lại.
+                try:
+                    _on_disk = load_alerts()
+                except (OSError, ValueError) as _e:
+                    st.error(f"Không đọc lại được `{ALERTS_PATH}` ({_e}) — chưa xoá gì.")
+                else:
+                    save_alerts([a for a in _on_disk if not a.get("fired")])
+                    st.rerun()
 
     # ── Xác định ticker cần phân tích ─────────────────────────────────────────────
     ticker = ticker_input or st.session_state.get("analyze_ticker", "")
