@@ -13,7 +13,9 @@ thích, màu theo THỰC THỂ (Brent luôn xanh, WTI luôn cam…) lấy 3 ô �
 """
 from __future__ import annotations
 
+import importlib
 from datetime import date, timedelta
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -22,6 +24,13 @@ _C1, _C2, _C3 = "#3987e5", "#d95926", "#199e70"     # xanh · cam · ngọc (ô 
 _REF = "rgba(150,150,150,0.85)"
 _RANGES = {"3 tháng": 92, "6 tháng": 183, "1 năm": 366, "3 năm": 1096, "Tất cả": None}
 _SPARSE_POINTS = 3
+# Hàm ĐỌC KHO parquet (`va.load`): kết quả chỉ phụ thuộc kho + tham số + ngày ⇒ đệm theo `_store_stamp`.
+# Hàm đọc `_meta` (run_info, estimate, agreement_table) và hàm định dạng không vào đây — đi thẳng.
+_STORE_READERS = {
+    "vnstock_assets_view": {"card", "frame", "premium_frame", "dealer_table", "curve_snapshots",
+                            "spread_series", "usd_band_frame"},
+    "vnstock_assets": {"curve_spreads", "usd_ceiling_room_pct", "central_dating"},
+}
 
 
 def render_assets_tab() -> None:
@@ -43,6 +52,9 @@ def render_assets_tab() -> None:
     rng = st.radio("Khung biểu đồ", list(_RANGES), index=2, horizontal=True, key="assets_range")
     days = _RANGES.get(rng)
     start = (date.today() - timedelta(days=days)).isoformat() if days else None
+    # st.tabs chạy cả 4 mục mỗi lượt rerun (kể cả chỉ đổi radio) ⇒ đọc kho qua cache.
+    stamp = _store_stamp(va)
+    va, av = _Cached(va, stamp), _Cached(av, stamp)
     t_gold, t_oil, t_usd, t_link = st.tabs(["🥇 Vàng", "🛢️ Dầu", "💵 USD", "🔗 Liên kết cổ phiếu"])
     for tab, fn, name in ((t_gold, _render_gold, "Vàng"), (t_oil, _render_oil, "Dầu"),
                           (t_usd, _render_usd, "USD"), (t_link, _render_links, "Liên kết cổ phiếu")):
@@ -64,6 +76,32 @@ def render_assets_tab() -> None:
         st.caption(f"MCP Finhay/SSI là nguồn ưu tiên; mỗi chuỗi so với nguồn Python cùng công cụ trên "
                    f"{va.GATE_N} ngày chung gần nhất: đạt = tối đa {va.GATE_MAX_BAD} ngày lệch quá ngưỡng. "
                    "Lệch kéo dài ⇒ đặt VNSTOCK_ASSETS_DEMOTE=<KHOÁ>:finhay trong .env để nguồn Python thắng.")
+
+
+# ── đệm đọc kho ──────────────────────────────────────────────────────────────
+def _store_stamp(va) -> tuple:
+    """Khoá làm tươi: hôm nay (card tính tuổi số theo ngày) + số file + mtime mới nhất trong kho
+    (ghi nguyên tử = file mới ⇒ mtime mới; xoá conflicted copy ⇒ đổi số file)."""
+    mtimes = [p.stat().st_mtime_ns for p in Path(va.ASSETS_DIR).rglob("*.parquet")]
+    return date.today().isoformat(), len(mtimes), max(mtimes, default=0)
+
+
+@st.cache_data(show_spinner=False, max_entries=256)
+def _cached_read(module: str, name: str, args: tuple, kwargs: tuple, stamp: tuple):
+    return getattr(importlib.import_module(module), name)(*args, **dict(kwargs))
+
+
+class _Cached:
+    """`va`/`av` cho các hàm vẽ: tên trong `_STORE_READERS` đi qua `_cached_read`, còn lại đi thẳng."""
+
+    def __init__(self, mod, stamp: tuple):
+        self._mod, self._stamp = mod, stamp
+
+    def __getattr__(self, name):
+        if name not in _STORE_READERS.get(self._mod.__name__, ()):
+            return getattr(self._mod, name)
+        return lambda *a, **k: _cached_read(self._mod.__name__, name, a, tuple(sorted(k.items())),
+                                            self._stamp)
 
 
 # ── tiện ích vẽ ──────────────────────────────────────────────────────────────
