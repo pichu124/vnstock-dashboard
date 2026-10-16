@@ -552,6 +552,67 @@ def test_alert_checker_on_corrupt_file_sends_nothing_and_writes_nothing(alert_en
     assert str(path) in caplog.text
 
 
+# Gửi Telegram mất vài giây: file có thể đổi giữa lần đọc đầu fragment và lúc lưu.
+
+_ALERT_A = {"ticker": "VCB", "condition": "above", "target": 25.0, "fired": False,
+            "created_at": "2026-10-16T09:00:00"}
+_ALERT_B = {"ticker": "HPG", "condition": "below", "target": 20.0, "fired": False,
+            "created_at": "2026-10-16T09:00:05"}
+
+
+def _alert_checker_sending(alert_env, while_sending):
+    """`_alert_checker` thật; Telegram giả chạy `while_sending()` trước khi trả OK."""
+    def _send(token, chat, msg):
+        alert_env["sent"].append(msg)
+        while_sending()
+        return True
+
+    alert_env["send_telegram_alert"] = _send
+    st = types.SimpleNamespace(
+        session_state={"_tg_token": "tok", "_tg_chat": "chat"}, toast=lambda m: None)
+    return load_source_fns(
+        "dashboard/analysis_tab.py", "_alert_checker", st=st,
+        load_alerts=alert_env["load_alerts"], save_alerts=alert_env["save_alerts"],
+        check_and_fire_alerts=alert_env["check_and_fire_alerts"],
+        log=logging.getLogger("vnstock_dashboard"), ALERTS_PATH=alert_env["ALERTS_PATH"],
+    )["_alert_checker"]
+
+
+def test_alert_checker_keeps_alert_created_while_sending(alert_env):
+    """User bấm "✅ Tạo alert" (B) trong lúc fragment đang gửi Telegram cho A. Lưu bản
+    đọc TRƯỚC khi gửi là nuốt B không báo gì."""
+    alert_env["save_alerts"]([_ALERT_A])
+    frag = _alert_checker_sending(alert_env, lambda: alert_env["save_alerts"](
+        [*alert_env["load_alerts"](), _ALERT_B]))
+
+    frag()
+
+    on_disk = alert_env["load_alerts"]()
+    assert [a["ticker"] for a in on_disk] == ["VCB", "HPG"]
+    fired_a, kept_b = on_disk
+    assert fired_a["fired"] is True and fired_a["fired_price"] == 25.5
+    assert fired_a["fired_at"] and "ALERT: VCB" in fired_a["message"]
+    assert kept_b == _ALERT_B
+    frag()                                                   # lượt 10s sau: A đã bắn, B chưa chạm
+    assert len(alert_env["sent"]) == 1
+    assert alert_env["load_alerts"]() == on_disk
+
+
+def test_alert_checker_does_not_save_when_reread_fails(alert_env, caplog):
+    """File hỏng (Dropbox cắt cụt) trong lúc gửi ⇒ không ghi đè; Telegram đã đi thì thôi."""
+    path = alert_env["ALERTS_PATH"]
+    alert_env["save_alerts"]([_ALERT_A])
+    frag = _alert_checker_sending(alert_env, lambda: path.write_bytes(_TRUNCATED_ALERTS))
+
+    with caplog.at_level(logging.WARNING, logger="vnstock_dashboard"):
+        frag()
+
+    assert len(alert_env["sent"]) == 1
+    assert path.read_bytes() == _TRUNCATED_ALERTS
+    assert [p.name for p in path.parent.iterdir()] == ["price_alerts.json"]
+    assert str(path) in caplog.text
+
+
 def test_failed_telegram_send_is_logged(alert_env, caplog):
     alert_env["send_telegram_alert"] = lambda *a: False
     with caplog.at_level(logging.WARNING, logger="vnstock_dashboard"):

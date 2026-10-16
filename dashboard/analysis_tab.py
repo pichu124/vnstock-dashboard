@@ -599,7 +599,22 @@ def render_analysis_tab() -> None:
                       if a.get("fired") and not was]
             # Không lưu thì lượt sau đọc lại thấy chưa bắn ⇒ Telegram lặp mỗi 10s
             if _fresh:
-                save_alerts(updated)
+                # Đọc LẠI rồi gộp: gửi Telegram mất vài giây, alert user vừa tạo (hoặc máy
+                # kia thêm qua Dropbox) trong lúc đó không được bị `updated` cũ ghi đè.
+                try:
+                    _on_disk = load_alerts()
+                except (OSError, ValueError) as e:
+                    log.warning("Không lưu alert vừa bắn — đọc lại %s lỗi: %s", ALERTS_PATH, e)
+                else:
+                    def _key(a):
+                        return (a.get("ticker"), a.get("condition"), a.get("target"),
+                                a.get("created_at"))
+                    _shot = {_key(a): a for a in _fresh}
+                    _fields = ("fired", "fired_at", "fired_price", "message")
+                    save_alerts([
+                        {**a, **{k: _shot[_key(a)][k] for k in _fields}}
+                        if _key(a) in _shot and not a.get("fired") else a
+                        for a in _on_disk])
                 for a in _fresh:
                     st.toast(f"🔔 {a['ticker']}: {a.get('message', 'Alert triggered!')[:100]}")
 
