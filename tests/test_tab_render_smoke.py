@@ -371,3 +371,29 @@ def test_top_volume_card_picks_the_highest_vol20_sector(render_env, monkeypatch)
 
     card = [m for m in _markdowns(st) if "Ngành KLGD cao nhất" in m]
     assert card and "Thép & Kim" in card[0] and "Vol 20: 50M cp" in card[0], card
+
+
+def test_sector_price_chart_does_not_clip_large_moves(render_env, monkeypatch):
+    """Trục x cố định [-30, 30] cắt mất ngành chạy ±42% khỏi khung."""
+    sectors = _sector_df()
+    sectors["Giá 1M %"] = [42.0, -5.0, 3.0]
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard",
+                        _stub_dashboard(sectors, _index_df()))
+    st = render_env
+    _load("dashboard.market_tab").render_market_tab()
+
+    bars = [c.args[0] for c in st.plotly_chart.call_args_list
+            if c.args and any(getattr(t, "orientation", None) == "h" for t in c.args[0].data)]
+    assert bars, "Không thấy chart biến động giá theo ngành"
+    lo, hi = bars[0].layout.xaxis.range
+    assert lo <= -42 and hi >= 42
+
+
+def test_index_table_title_matches_rows_shown(render_env, monkeypatch):
+    """Tiêu đề ghi "(30 phiên)" trong khi bảng chỉ in 20 dòng."""
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard", _stub_dashboard(None, _index_df()))
+    st = render_env
+    _load("dashboard.market_tab").render_market_tab()
+
+    title = [m for m in _markdowns(st) if "Diễn biến chỉ số thị trường" in m]
+    assert title == ["#### 📈 Diễn biến chỉ số thị trường (20 phiên)"]

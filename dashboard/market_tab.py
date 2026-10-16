@@ -41,6 +41,16 @@ from __future__ import annotations
 _HEATMAP_WIDTH_SPAN = 300.0
 
 
+def _symmetric_xrange(*series, floor: float = 30.0) -> list:
+    """Trục x đối xứng quanh 0 cho chart % ngành: ±max(floor, max|x|×1.1).
+
+    Mọi |x|×1.1 ≤ floor → giữ khung cũ [-30, 30]; ngành chạy ±42% thì nới
+    ra thay vì bị cắt khỏi khung. NaN bỏ qua (`v == v`)."""
+    peak = max((abs(float(v)) for s in series for v in s if v == v), default=0.0)
+    r = max(floor, peak * 1.1)
+    return [-r, r]
+
+
 def render_market_tab() -> None:
     """Render the Thị trường tab. Lazy imports Streamlit + dashboard helpers."""
     try:
@@ -328,7 +338,8 @@ def render_market_tab() -> None:
         idx_df = load_index_overview(days=90)
 
     if not idx_df.empty:
-        st.markdown("#### 📈 Diễn biến chỉ số thị trường (30 phiên)")
+        _idx_rows = idx_df.head(20)
+        st.markdown(f"#### 📈 Diễn biến chỉ số thị trường ({len(_idx_rows)} phiên)")
         _indices = ["VNINDEX", "VN30", "HNXINDEX", "HNX30"]
         _idx_avail = [i for i in _indices if i in idx_df.columns]
 
@@ -358,7 +369,7 @@ def render_market_tab() -> None:
             sub_header += f'<th style="{_th};font-size:9px">GTGD (tỷ)</th>'
 
         rows_idx = []
-        for i, (_, row) in enumerate(idx_df.head(20).iterrows()):
+        for i, (_, row) in enumerate(_idx_rows.iterrows()):
             bg = "#0d1117" if i % 2 == 0 else "#111827"
             date_str = pd.Timestamp(row["time"]).strftime("%Y-%m-%d")
             cells = f'<td style="{_td}color:#9ca3af">{date_str}</td>'
@@ -1150,7 +1161,9 @@ def render_market_tab() -> None:
                     font=dict(color="#9ca3af", size=11),
                     xaxis=dict(gridcolor="#1f2937", zeroline=True,
                                zerolinecolor="#374151", zerolinewidth=2,
-                               ticksuffix="%", range=[-30, 30]),
+                               ticksuffix="%",
+                               range=_symmetric_xrange(chart_df["Giá 1M %"],
+                                                       chart_df.get("Giá 3M %", ()))),
                     yaxis=dict(gridcolor="#1f2937"),
                     margin=dict(l=0, r=80, t=20, b=20),
                     legend=dict(bgcolor="#111827", bordercolor="#1f2937", borderwidth=1),
