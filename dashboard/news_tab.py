@@ -8,7 +8,7 @@ and made available to AI agents in brief & analysis contexts.
 from __future__ import annotations
 
 import streamlit as st
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 import re
 from urllib.parse import urljoin, urlparse
 
@@ -45,8 +45,14 @@ def _normalize_news_url(url: str) -> str:
     return urljoin(_DEFAULT_NEWS_BASE, url.lstrip("/"))
 
 
-def _fmt_age(date_str: str) -> str:
+_VN_TZ = timezone(timedelta(hours=7))
+
+
+def _fmt_age(date_str: str, now: datetime | None = None) -> str:
     """Human-readable age: 'Hôm nay 14:30', '2 ngày trước'.
+
+    Đếm theo NGÀY LỊCH giờ VN — khớp bộ lọc "Hôm nay" (so `_date_sort`);
+    timedelta.days từng gọi tin 20:00 hôm qua là "Hôm nay" lúc 08:00.
 
     Returns 'Không rõ ngày' for unparseable input so the user can spot
     items with missing date metadata (instead of silent empty caption).
@@ -55,25 +61,25 @@ def _fmt_age(date_str: str) -> str:
         return "Không rõ ngày"
     try:
         dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-        dt = dt.replace(tzinfo=None)
+        if dt.tzinfo is not None:          # "…Z" = UTC → quy về giờ VN
+            dt = dt.astimezone(_VN_TZ).replace(tzinfo=None)
     except Exception:
         # Try YYYY-MM-DD only
         try:
             dt = datetime.strptime(date_str[:10], "%Y-%m-%d")
         except Exception:
             return date_str[:10] or "Không rõ ngày"
-    now = datetime.now()
-    delta = now - dt
-    if delta.days < 0:
+    days = ((now or datetime.now()).date() - dt.date()).days
+    if days < 0:
         return dt.strftime("%Y-%m-%d")  # future date — show raw
-    if delta.days == 0:
+    if days == 0:
         return f"Hôm nay {dt.strftime('%H:%M')}"
-    if delta.days == 1:
+    if days == 1:
         return "Hôm qua"
-    if delta.days < 30:
-        return f"{delta.days} ngày trước"
-    if delta.days < 365:
-        return f"⚠️ {delta.days} ngày trước"
+    if days < 30:
+        return f"{days} ngày trước"
+    if days < 365:
+        return f"⚠️ {days} ngày trước"
     return f"⚠️ {dt.strftime('%Y-%m-%d')} (rất cũ)"
 
 
@@ -293,7 +299,12 @@ def _render_ticker_news() -> None:
             news_all = _nn.refresh_news(universe=universe, progress_cb=_cb)
 
         prog_bar.empty()
-        _status.success(f"✅ Đã tải **{len(news_all)}** tin cho **{len(universe)}** mã!")
+        if news_all:
+            _status.success(f"✅ Đã tải **{len(news_all)}** tin cho **{len(universe)}** mã!")
+        else:
+            _status.error(
+                f"❌ Không tải được tin nào cho **{len(universe)}** mã — nguồn tin "
+                "(VCI/KBS) lỗi, mạng hỏng, hoặc nguồn chưa có tin. Thử lại sau.")
         st.session_state["_news_data"] = news_all
         # Reset recency filter after refresh — "Hôm nay" from today_clicked
         # would show 0 results if the news source doesn't publish today yet.

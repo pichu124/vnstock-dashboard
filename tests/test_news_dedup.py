@@ -154,3 +154,59 @@ def test_first_occurrence_kept():
     out, _ = deduplicate_news(items)
     assert len(out) == 1
     assert out[0]["tag"] == "first"
+
+
+# ─── dashboard/news_tab ───────────────────────────────────────────────────────
+
+def _news_tab_with_fake_st(monkeypatch):
+    import importlib
+    import sys
+    from tests.test_tab_render_smoke import _fake_streamlit
+    st = _fake_streamlit()
+    monkeypatch.setitem(sys.modules, "streamlit", st)
+    return st, importlib.reload(importlib.import_module("dashboard.news_tab"))
+
+
+def test_refresh_with_zero_news_is_not_reported_as_success(monkeypatch):
+    """Mạng/nguồn lỗi ⇒ refresh_news trả 0 tin mà UI vẫn "✅ Đã tải **0** tin"."""
+    import sys
+    import types
+    from tests.test_tab_render_smoke import _Ctx
+
+    nn = types.ModuleType("vnstock_news")
+    nn.cache_info = lambda: {"exists": False, "count": 0, "age_minutes": None}
+    nn.build_universe = lambda **k: ["VCB", "FPT"]
+    nn.refresh_news = lambda **k: []
+    nn.load_news_cache = lambda: []
+    monkeypatch.setitem(sys.modules, "vnstock_news", nn)
+    monkeypatch.setitem(sys.modules, "vnstock_sentiment", None)   # ImportError
+    st, news_tab = _news_tab_with_fake_st(monkeypatch)
+    st.button = lambda *a, key=None, **k: key == "_news_refresh"
+    status = _Ctx()
+    st.empty = lambda *a, **k: status
+
+    news_tab._render_ticker_news()
+
+    assert not status.success.called
+    shown = [str(c.args[0]) for m in (status.error, status.warning, st.error, st.warning)
+             for c in m.call_args_list if c.args]
+    assert any("Không tải được tin nào" in s for s in shown), shown
+
+
+@pytest.mark.parametrize("raw,expect_prefix,reject_prefix", [
+    # 20:00 hôm qua, xem 08:00 sáng: timedelta.days == 0 từng ra "Hôm nay 20:00"
+    # trong khi bộ lọc "Hôm nay" (so ngày lịch) loại tin đó.
+    ("2026-10-15T20:00:00", "Hôm qua", None),
+    ("2026-10-16T07:30:00", "Hôm nay 07:30", None),
+    # 2 ngày LỊCH trước nhưng chỉ cách 33 giờ — không phải "Hôm qua".
+    ("2026-10-14T23:00:00", "2 ngày trước", "Hôm qua"),
+    # Hậu tố Z = UTC: 20:00Z hôm qua là 03:00 sáng nay giờ VN.
+    ("2026-10-15T20:00:00Z", "Hôm nay 03:00", None),
+])
+def test_fmt_age_uses_calendar_days_vn_time(monkeypatch, raw, expect_prefix, reject_prefix):
+    from datetime import datetime
+    _, news_tab = _news_tab_with_fake_st(monkeypatch)
+    out = news_tab._fmt_age(raw, now=datetime(2026, 10, 16, 8, 0))
+    assert out.startswith(expect_prefix), out
+    if reject_prefix:
+        assert not out.startswith(reject_prefix), out

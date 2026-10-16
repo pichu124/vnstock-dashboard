@@ -353,3 +353,137 @@ class TestAllocationBriefButtonBranch:
         st = self._st_pressed()
         _render_brief(st)
         assert st.error.called                # báo lỗi tử tế, không crash
+
+
+def test_agent_settings_two_rows_same_type_have_unique_keys(render_env, monkeypatch):
+    """Nút "➕ Thêm agent" luôn tạo type TRÙNG (defaults đã đủ mọi type). Key
+    widget đặt theo type ⇒ lượt rerun kế nổ StreamlitDuplicateElementKey, mất
+    cả khối brief — và lỗi dính mãi vì file cấu hình nằm trong kho dùng chung."""
+    import vnstock_brief as vb
+    monkeypatch.setattr(vb, "load_agent_configs", lambda: [
+        {"type": "gemini", "name": "Gemini A", "model": "m-a", "enabled": True},
+        {"type": "gemini", "name": "Gemini B", "model": "m-b", "enabled": False},
+    ])
+    st = render_env
+    seen: set = set()
+
+    def _unique(fn):
+        def wrapped(*a, key=None, **k):
+            if key is not None:
+                if key in seen:
+                    raise RuntimeError(f"StreamlitDuplicateElementKey: {key}")
+                seen.add(key)
+            return fn(*a, key=key, **k)
+        return wrapped
+
+    for name in ("checkbox", "text_input", "button", "selectbox"):
+        setattr(st, name, _unique(getattr(st, name)))
+
+    _load("dashboard.brief_agent_settings").render_agent_settings()
+
+
+def test_accuracy_widget_does_not_rank_tiny_sample_first(render_env, monkeypatch):
+    """Lỗi họ 13/08 ("0/2 hiện 0%"): widget in thẳng accuracy thô và trao 🥇
+    cho agent mới chấm 1 brief. Agent 1/1 không được hiện "100%" và không được
+    đứng trên agent đã chấm 12/20."""
+    import vnstock_brief as vb
+    monkeypatch.setattr(sys.modules["vnstock_memory"], "recent_briefs",
+                        lambda *a, **k: [{"agent_name": "x"}])
+
+    def _slot(n_match, n_eval):
+        return {"n_total": n_eval, "n_evaluated": n_eval, "n_match": n_match,
+                "accuracy": n_match / n_eval, "stance_dist": {},
+                "reliable": n_eval >= vb._ACCURACY_MIN_SAMPLE}
+    monkeypatch.setattr(vb, "agent_accuracy_summary", lambda *a, **k: {
+        "Lucky": _slot(1, 1), "Steady": _slot(12, 20)})
+
+    st = render_env
+    _load("dashboard.brief_accuracy_panel").render_accuracy_widget()
+
+    cards = [str(c.args[0]) for c in st.markdown.call_args_list
+             if c.args and "<div" in str(c.args[0])]
+    assert len(cards) == 2, cards
+    assert "Steady" in cards[0] and "🥇" in cards[0]
+    assert "100%" not in cards[1] and "🥇" not in cards[1]
+
+
+def _fake_brief_db(rows_by_id):
+    """`vnstock_memory._conn()` giả: chỉ trả hàng khi truy vấn ĐÚNG id."""
+    from contextlib import contextmanager
+
+    class _Cur:
+        def __init__(self, row):
+            self._row = row
+
+        def fetchone(self):
+            return self._row
+
+    class _Conn:
+        def execute(self, sql, params=()):
+            return _Cur(next((rows_by_id[p] for p in params if p in rows_by_id), None))
+
+    @contextmanager
+    def _conn():
+        yield _Conn()
+    return _conn
+
+
+def test_brief_runner_rating_uses_returned_brief_id(render_env, monkeypatch):
+    """Brief lưu theo ngày PHIÊN, ô ⭐ cũ dò theo `now().date()` ⇒ T7/CN (hay
+    sau nửa đêm) ô chấm sao im lặng biến mất. Id đã có sẵn ở `_brief_ids`."""
+    import vnstock_stance_track
+    monkeypatch.setattr(vnstock_stance_track, "summary_line", lambda *a, **k: None)
+    monkeypatch.setattr(sys.modules["vnstock_memory"], "_conn",
+                        _fake_brief_db({7: {"id": 7, "user_rating": None}}))
+    st = render_env
+    st.session_state["_brief_results"] = {"A": ("brief text", None),
+                                          "_brief_ids": {"A": 7}}
+    st.session_state["_brief_type"] = "afternoon"
+    keys = []
+    st.select_slider = lambda label, options=(), value=None, key=None, **k: (
+        keys.append(key) or value)
+
+    _load("dashboard.brief_run_panel").render_brief_runner()
+
+    assert "_rate_7_v" in keys
+
+
+def _said_captions(st):
+    said = []
+    st.caption = lambda *a, **k: said.append(str(a[0]) if a else "")
+    return said
+
+
+def test_strategy_panel_reports_broken_block_instead_of_hiding(render_env, monkeypatch):
+    """Khối con lỗi từng `except: pass` ⇒ kiểm định / tầng vị thế biến mất
+    không dấu vết. Phải hạ xuống caption "disabled" kèm lỗi."""
+    import vnstock_strategy
+    monkeypatch.setattr(vnstock_strategy, "strategy_health",
+                        lambda *a, **k: {"state": "insufficient"})
+    mem = sys.modules["vnstock_memory"]
+    monkeypatch.setattr(mem, "get_active_family", lambda *a, **k: {
+        "id": 1, "name": "S1", "family_id": "f1", "params_json": "{}"})
+
+    def _boom(*a, **k):
+        raise RuntimeError("db hỏng")
+    monkeypatch.setattr(mem, "latest_backtest", _boom)
+    said = _said_captions(render_env)
+
+    _load("dashboard.brief_strategy_panel").render_strategy_panel()
+
+    assert [s for s in said if "disabled" in s and "db hỏng" in s], said
+
+
+def test_brief_runner_reports_broken_stance_track(render_env, monkeypatch):
+    import vnstock_stance_track
+
+    def _boom(*a, **k):
+        raise RuntimeError("sổ stance hỏng")
+    monkeypatch.setattr(vnstock_stance_track, "summary_line", _boom)
+    st = render_env
+    st.session_state["_brief_results"] = {"A": ("brief text", None)}
+    said = _said_captions(st)
+
+    _load("dashboard.brief_run_panel").render_brief_runner()
+
+    assert [s for s in said if "disabled" in s and "sổ stance hỏng" in s], said

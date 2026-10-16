@@ -179,10 +179,13 @@ def _render_brief_archive() -> None:
     if not briefs:
         st.info("Chưa có brief nào trong memory.")
         return
-    labels = {
-        f"{b['brief_date']} · {b['brief_type']} · {b.get('agent_name', '')}": b
-        for b in briefs
-    }
+    # Giờ tạo trong nhãn để brief chạy lại cùng ngày không bị gộp; trùng hẳn
+    # thì giữ bản MỚI nhất (recent_briefs sắp mới→cũ).
+    labels: dict = {}
+    for b in briefs:
+        labels.setdefault(
+            f"{b['brief_date']} · {b['brief_type']} · {b.get('agent_name', '')}"
+            f" · {(b.get('created_at') or '')[11:16]}", b)
     pick = st.selectbox("Chọn brief", options=list(labels),
                         key="_macro_brief_pick")
     b = labels[pick]
