@@ -1131,13 +1131,13 @@ def render_analysis_tab() -> None:
                     _tp = _r.get("tp")
                     _sl = _r.get("sl")
                     _mc1, _mc2, _mc3 = st.columns(3)
-                    _mc1.metric("📍 Entry", f"{_e:,.0f}" if _e else "—")
+                    _mc1.metric("📍 Entry", f"{_e:,.2f}" if _e else "—")
                     _mc2.metric(
-                        "🎯 Take Profit", f"{_tp:,.0f}" if _tp else "—",
+                        "🎯 Take Profit", f"{_tp:,.2f}" if _tp else "—",
                         delta=f"{(_tp / _e - 1)*100:+.1f}%" if _tp and _e else None,
                     )
                     _mc3.metric(
-                        "🛑 Cut Loss", f"{_sl:,.0f}" if _sl else "—",
+                        "🛑 Cut Loss", f"{_sl:,.2f}" if _sl else "—",
                         delta=f"{(_sl / _e - 1)*100:+.1f}%" if _sl and _e else None,
                         delta_color="inverse",
                     )
