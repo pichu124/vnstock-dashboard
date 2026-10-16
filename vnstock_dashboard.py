@@ -389,31 +389,26 @@ def _aggregate_nn_buy_sell_by_window(nn_df: pd.DataFrame, days: int) -> dict:
     return out
 
 
+_GTGD_SESSIONS = 20   # cửa sổ dài nhất tab Dòng Tiền (20D)
+
+
 @st.cache_data(ttl=600, show_spinner=False)
-def _compute_gtgd_by_window(window_days: int) -> dict:
-    """
-    Compute total GTGD (trading value, tỷ VND) per ticker over the given
-    number of *trading* days using warehouse parquet (close × volume).
-
-    window_days=0 → most recent session only (1D snapshot).
-    window_days>0 → sum across last N trading days (e.g. 5 or 20).
-
-    Cache 10 min; invalidated by @st.cache_data signature + window arg.
-    """
+def _load_gtgd_daily() -> dict:
+    """GTGD (VND, close × volume) từng phiên của `_GTGD_SESSIONS` phiên gần nhất
+    từ warehouse parquet: {ticker: ndarray phiên cũ → mới}. Mỗi mã đọc MỘT lần
+    cho mọi cửa sổ — cache theo `window_days` từng quét toàn kho mỗi lần đổi."""
     import pyarrow.parquet as pq
     prices_dir = Path("data_warehouse") / "prices"
     if not prices_dir.exists():
         return {}
-    # Limit how many recent years we read to keep cost bounded.
-    year_limit = 2 if window_days <= 30 else 3
-    result: dict[str, float] = {}
+    result: dict = {}
     for td in prices_dir.glob("ticker=*"):
         ticker = td.name.split("=", 1)[1]
         if not ticker.isalpha() or len(ticker) > 5:
             continue
         try:
             frames = []
-            for yd in sorted(td.glob("year=*"))[-year_limit:]:
+            for yd in sorted(td.glob("year=*"))[-2:]:
                 for pf in yd.glob("*.parquet"):
                     frames.append(pq.read_table(
                         str(pf), columns=["time", "close", "volume"]
@@ -426,17 +421,27 @@ def _compute_gtgd_by_window(window_days: int) -> dict:
             # Deduplicate by date — keep last entry per day to avoid
             # double-counting from overlapping parquet files.
             df = df.drop_duplicates(subset=["_date"], keep="last")
-            df = df.sort_values("_date")
-            n = max(1, window_days) if window_days > 0 else 1
-            df = df.tail(n)
+            df = df.sort_values("_date").tail(_GTGD_SESSIONS)
             close = pd.to_numeric(df["close"], errors="coerce").fillna(0).astype(float)
             close = close.where(close > 500, close * 1000)
             vol = pd.to_numeric(df["volume"], errors="coerce").fillna(0).astype(float)
-            gtgd_vnd = float((close * vol).sum())
-            if gtgd_vnd > 0:
-                result[ticker] = round(gtgd_vnd / 1e9, 1)
+            result[ticker] = (close * vol).to_numpy()
         except Exception:
             continue
+    return result
+
+
+def _compute_gtgd_by_window(window_days: int) -> dict:
+    """Tổng GTGD (tỷ VND) mỗi mã trong `window_days` PHIÊN gần nhất
+    (0 hoặc 1 = phiên cuối), cắt từ `_load_gtgd_daily`."""
+    n = max(1, window_days)
+    if n > _GTGD_SESSIONS:
+        raise ValueError(f"GTGD chỉ giữ {_GTGD_SESSIONS} phiên, xin {n}")
+    result: dict[str, float] = {}
+    for ticker, daily in _load_gtgd_daily().items():
+        gtgd_vnd = float(daily[-n:].sum())
+        if gtgd_vnd > 0:
+            result[ticker] = round(gtgd_vnd / 1e9, 1)
     return result
 
 

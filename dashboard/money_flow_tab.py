@@ -101,7 +101,7 @@ def render_money_flow_tab() -> None:
     # vnstock_dashboard has finished initialising before dispatch fires.
     from vnstock_dashboard import (
         PRICES_DIR, SECTOR_ICONS, SECTOR_ORDER, WSS_AVAILABLE,
-        _NN_CACHE_PATH, _NN_DIAG, _ORDER_CACHE_PATH,
+        _NN_CACHE_PATH, _NN_DIAG, _NN_WINDOW_SESSIONS, _ORDER_CACHE_PATH,
         _aggregate_nn_buy_sell_by_window, _aggregate_nn_by_window,
         _batch_load_live_quotes,
         _compute_gtgd_by_window, _compute_money_flow_score,
@@ -247,7 +247,7 @@ def render_money_flow_tab() -> None:
     # GTGD aggregated across the same window (1D=latest session, 5D=5 trading
     # days, 20D=20 trading days). Always use warehouse for consistency.
     # For 1D, _compute_gtgd_by_window(1) gives the most recent day from parquet.
-    _gtgd_window_days = {0: 1, 7: 5, 30: 20}.get(_mf_days, max(1, _mf_days))
+    _gtgd_window_days = _NN_WINDOW_SESSIONS.get(_mf_days, max(1, _mf_days))
     _gtgd_by_ticker = _compute_gtgd_by_window(_gtgd_window_days)
 
     # ── Fetch order_stats (BigOrder) cho top mã GTGD ─────────────────────

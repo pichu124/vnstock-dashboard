@@ -909,3 +909,97 @@ def test_get_all_tickers_is_cached():
     fn = next(n for n in _DASH_TREE.body
               if isinstance(n, ast.FunctionDef) and n.name == "get_all_tickers")
     assert any(ast.unparse(d).startswith("st.cache_data(") for d in fn.decorator_list)
+
+
+# ── GTGD theo cửa sổ: đọc kho MỘT lần cho cả 1D/5D/20D, số khớp bản quét-mỗi-cửa-sổ ─
+
+def _gtgd_by_window_old(window_days: int) -> dict:
+    """Bản cũ của `_compute_gtgd_by_window` (trước khi gộp cache), chép nguyên
+    để đối chứng — mỗi cửa sổ quét lại toàn kho."""
+    import pyarrow.parquet as pq
+    prices_dir = Path("data_warehouse") / "prices"
+    if not prices_dir.exists():
+        return {}
+    year_limit = 2 if window_days <= 30 else 3
+    result: dict[str, float] = {}
+    for td in prices_dir.glob("ticker=*"):
+        ticker = td.name.split("=", 1)[1]
+        if not ticker.isalpha() or len(ticker) > 5:
+            continue
+        try:
+            frames = []
+            for yd in sorted(td.glob("year=*"))[-year_limit:]:
+                for pf in yd.glob("*.parquet"):
+                    frames.append(pq.read_table(
+                        str(pf), columns=["time", "close", "volume"]
+                    ).to_pandas())
+            if not frames:
+                continue
+            df = pd.concat(frames)
+            df["time"] = pd.to_datetime(df["time"])
+            df["_date"] = df["time"].dt.date
+            df = df.drop_duplicates(subset=["_date"], keep="last")
+            df = df.sort_values("_date")
+            n = max(1, window_days) if window_days > 0 else 1
+            df = df.tail(n)
+            close = pd.to_numeric(df["close"], errors="coerce").fillna(0).astype(float)
+            close = close.where(close > 500, close * 1000)
+            vol = pd.to_numeric(df["volume"], errors="coerce").fillna(0).astype(float)
+            gtgd_vnd = float((close * vol).sum())
+            if gtgd_vnd > 0:
+                result[ticker] = round(gtgd_vnd / 1e9, 1)
+        except Exception:
+            continue
+    return result
+
+
+@pytest.fixture()
+def gtgd_env(tmp_path, monkeypatch):
+    def put(ticker, df):
+        d = tmp_path / "data_warehouse" / "prices" / f"ticker={ticker}" / "year=2026"
+        d.mkdir(parents=True)
+        df.to_parquet(d / "data.parquet", index=False)
+
+    days = pd.bdate_range("2026-09-01", periods=25)
+    aaa = pd.DataFrame({"time": days, "close": [25.0 + i * 0.37 for i in range(25)],
+                        "volume": [100_000.0 + i * 7_919 for i in range(25)]})
+    # Dòng trùng ngày phiên cuối (file ghi 2 lần) + thứ tự file xáo trộn
+    aaa = pd.concat([aaa, aaa.tail(1).assign(volume=999_999.0)]).sample(frac=1, random_state=1)
+    put("AAA", aaa)
+    put("BBB", pd.DataFrame({"time": days[-3:], "close": [15_000.0, 15_200.0, 15_100.0],
+                             "volume": [2_000_000.0, float("nan"), 1_500_000.0]}))
+    put("DDD", pd.DataFrame({"time": days[-2:], "close": [10.0, 10.5], "volume": [0.0, 0.0]}))
+    put("E1VFVN30", pd.DataFrame({"time": days[-2:], "close": [20.0, 21.0],
+                                  "volume": [1e6, 1e6]}))
+    monkeypatch.chdir(tmp_path)
+
+    import pyarrow.parquet as pq
+    reads: list = []
+    real_read = pq.read_table
+    monkeypatch.setattr(pq, "read_table", lambda *a, **k: reads.append(a[0]) or real_read(*a, **k))
+    return reads
+
+
+def test_gtgd_windows_match_old_per_window_scan(gtgd_env):
+    import functools
+    ns = load_source_fns("vnstock_dashboard.py", "_GTGD_SESSIONS", "_load_gtgd_daily",
+                         "_compute_gtgd_by_window", pd=pd, Path=Path)
+    ns["_load_gtgd_daily"] = functools.lru_cache(maxsize=None)(ns["_load_gtgd_daily"])
+    for n in (0, 1, 5, 20):
+        old = _gtgd_by_window_old(n)
+        assert old, n
+        assert ns["_compute_gtgd_by_window"](n) == old, n
+
+
+def test_gtgd_reads_each_ticker_once_for_all_windows(gtgd_env):
+    """Đổi 1D→5D→20D từng quét toàn kho 3 lần (cache riêng theo window_days)."""
+    import functools
+    fn = next(n for n in _DASH_TREE.body
+              if isinstance(n, ast.FunctionDef) and n.name == "_load_gtgd_daily")
+    assert any(ast.unparse(d).startswith("st.cache_data(") for d in fn.decorator_list)
+    ns = load_source_fns("vnstock_dashboard.py", "_GTGD_SESSIONS", "_load_gtgd_daily",
+                         "_compute_gtgd_by_window", pd=pd, Path=Path)
+    ns["_load_gtgd_daily"] = functools.lru_cache(maxsize=None)(ns["_load_gtgd_daily"])
+    for n in (1, 5, 20):
+        ns["_compute_gtgd_by_window"](n)
+    assert len(gtgd_env) == 3            # AAA, BBB, DDD — E1VFVN30 bị lọc trước khi đọc
