@@ -353,3 +353,21 @@ class TestAllocationBriefButtonBranch:
         st = self._st_pressed()
         _render_brief(st)
         assert st.error.called                # báo lỗi tử tế, không crash
+
+
+def _markdowns(st):
+    return [str(c.args[0]) for c in st.markdown.call_args_list if c.args]
+
+
+def test_top_volume_card_picks_the_highest_vol20_sector(render_env, monkeypatch):
+    """Bảng ngành sắp theo VỐN HOÁ, nên `iloc[0]` là ngành vốn hoá lớn nhất chứ
+    không phải ngành KLGD cao nhất. Thẻ phải chọn theo "Vol Avg 20"."""
+    sectors = _sector_df()
+    sectors["Vol Avg 20"] = [1.0, 50.0, 3.0]          # max ở dòng 2, không phải dòng đầu
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard",
+                        _stub_dashboard(sectors, _index_df()))
+    st = render_env
+    _load("dashboard.market_tab").render_market_tab()
+
+    card = [m for m in _markdowns(st) if "Ngành KLGD cao nhất" in m]
+    assert card and "Thép & Kim" in card[0] and "Vol 20: 50M cp" in card[0], card

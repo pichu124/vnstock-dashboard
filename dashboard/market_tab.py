@@ -549,7 +549,11 @@ def render_market_tab() -> None:
         total_sectors = len(mkt_df)
         total_mktcap  = mkt_df["Vốn hoá (tỷ)"].sum() if "Vốn hoá (tỷ)" in mkt_df.columns else 0
         total_vol20   = mkt_df["Vol Avg 20"].sum()
-        top_sector    = str(mkt_df.iloc[0]["Ngành"])
+        # Bảng sắp theo vốn hoá ⇒ iloc[0] KHÔNG phải ngành KLGD cao nhất.
+        _vol20 = mkt_df["Vol Avg 20"].dropna()
+        top_row = mkt_df.loc[_vol20.idxmax()] if not _vol20.empty else None
+        top_sector = str(top_row["Ngành"]) if top_row is not None else "—"
+        top_vol20 = f'{float(top_row["Vol Avg 20"]):.0f}M cp' if top_row is not None else "—"
 
         with c1:
             st.markdown(f'<div class="metric-card"><div class="label">Số ngành</div><div class="value">{total_sectors}</div><div class="sub">đã phân loại</div></div>', unsafe_allow_html=True)
@@ -558,7 +562,7 @@ def render_market_tab() -> None:
         with c3:
             st.markdown(f'<div class="metric-card"><div class="label">KLGD TB 20 ngày</div><div class="value">{total_vol20:,.0f}M</div><div class="sub">triệu cổ phiếu</div></div>', unsafe_allow_html=True)
         with c4:
-            st.markdown(f'<div class="metric-card"><div class="label">Ngành KLGD cao nhất</div><div class="value">{top_sector[:14]}</div><div class="sub">Vol 20: {float(mkt_df.iloc[0]["Vol Avg 20"]):.0f}M cp</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-card"><div class="label">Ngành KLGD cao nhất</div><div class="value">{top_sector[:14]}</div><div class="sub">Vol 20: {top_vol20}</div></div>', unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
 
