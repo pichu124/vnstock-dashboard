@@ -293,7 +293,12 @@ def _render_ticker_news() -> None:
             news_all = _nn.refresh_news(universe=universe, progress_cb=_cb)
 
         prog_bar.empty()
-        _status.success(f"✅ Đã tải **{len(news_all)}** tin cho **{len(universe)}** mã!")
+        if news_all:
+            _status.success(f"✅ Đã tải **{len(news_all)}** tin cho **{len(universe)}** mã!")
+        else:
+            _status.error(
+                f"❌ Không tải được tin nào cho **{len(universe)}** mã — nguồn tin "
+                "(VCI/KBS) lỗi, mạng hỏng, hoặc nguồn chưa có tin. Thử lại sau.")
         st.session_state["_news_data"] = news_all
         # Reset recency filter after refresh — "Hôm nay" from today_clicked
         # would show 0 results if the news source doesn't publish today yet.

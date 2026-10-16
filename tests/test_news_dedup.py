@@ -154,3 +154,40 @@ def test_first_occurrence_kept():
     out, _ = deduplicate_news(items)
     assert len(out) == 1
     assert out[0]["tag"] == "first"
+
+
+# ─── dashboard/news_tab ───────────────────────────────────────────────────────
+
+def _news_tab_with_fake_st(monkeypatch):
+    import importlib
+    import sys
+    from tests.test_tab_render_smoke import _fake_streamlit
+    st = _fake_streamlit()
+    monkeypatch.setitem(sys.modules, "streamlit", st)
+    return st, importlib.reload(importlib.import_module("dashboard.news_tab"))
+
+
+def test_refresh_with_zero_news_is_not_reported_as_success(monkeypatch):
+    """Mạng/nguồn lỗi ⇒ refresh_news trả 0 tin mà UI vẫn "✅ Đã tải **0** tin"."""
+    import sys
+    import types
+    from tests.test_tab_render_smoke import _Ctx
+
+    nn = types.ModuleType("vnstock_news")
+    nn.cache_info = lambda: {"exists": False, "count": 0, "age_minutes": None}
+    nn.build_universe = lambda **k: ["VCB", "FPT"]
+    nn.refresh_news = lambda **k: []
+    nn.load_news_cache = lambda: []
+    monkeypatch.setitem(sys.modules, "vnstock_news", nn)
+    monkeypatch.setitem(sys.modules, "vnstock_sentiment", None)   # ImportError
+    st, news_tab = _news_tab_with_fake_st(monkeypatch)
+    st.button = lambda *a, key=None, **k: key == "_news_refresh"
+    status = _Ctx()
+    st.empty = lambda *a, **k: status
+
+    news_tab._render_ticker_news()
+
+    assert not status.success.called
+    shown = [str(c.args[0]) for m in (status.error, status.warning, st.error, st.warning)
+             for c in m.call_args_list if c.args]
+    assert any("Không tải được tin nào" in s for s in shown), shown
