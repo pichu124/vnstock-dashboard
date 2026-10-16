@@ -1,6 +1,6 @@
 ---
 name: create-verify-skill
-description: Sinh skill kiểm chứng riêng cho dự án (.claude/skills/verify-<app>/) kèm feature map, để mọi agent chạy app thật như người dùng và thu bằng chứng theo cùng một cách. Dùng khi dự án chưa có cách có-script để chứng minh hành vi UI, CLI hoặc service.
+description: Sinh skill kiểm chứng riêng cho dự án (.claude/skills/verify-TÊN-APP/) kèm feature map, để mọi agent chạy app thật như người dùng và thu bằng chứng theo cùng một cách. Dùng khi dự án chưa có cách có-script để chứng minh hành vi UI, CLI hoặc service.
 disable-model-invocation: true
 ---
 

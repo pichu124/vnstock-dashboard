@@ -1,7 +1,7 @@
 ---
 name: team-lead
-description: Điều phối đội agent (architect, implementer, verifier, reviewer) cho một task không tầm thường. Lập hợp đồng, chọn playbook, giao việc cho subagent mới, ép kiểm chứng độc lập, rồi bàn giao kèm bằng chứng. Dùng khi người dùng gõ /team-lead <task>.
-argument-hint: "<mô tả task, kèm điều kiện xong nếu có>"
+description: Điều phối đội agent (architect, implementer, verifier, reviewer) cho một task không tầm thường. Lập hợp đồng, chọn playbook, giao việc cho subagent mới, ép kiểm chứng độc lập, rồi bàn giao kèm bằng chứng. Dùng khi người dùng gõ /team-lead kèm mô tả task.
+argument-hint: "mô tả task, kèm điều kiện xong nếu có"
 disable-model-invocation: true
 ---
 

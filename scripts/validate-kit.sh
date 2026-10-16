@@ -78,6 +78,8 @@ for name in $KIT_SKILLS; do
   desc="$(fm_value "$f" description)"
   [ -n "$desc" ] || err "$f: thiếu 'description'"
   [ "${#desc}" -le 1536 ] || err "$f: description dài hơn 1536 ký tự"
+  # Menu / của Claude Code hiện < > thành &lt; &gt; (đã thấy trên Windows 2.1.296).
+  case "$desc$(fm_value "$f" argument-hint)" in *'<'* | *'>'*) err "$f: description/argument-hint có dấu < hoặc >, menu sẽ hiện &lt; &gt;" ;; esac
   lines="$(wc -l < "$f")"
   [ "$lines" -le 500 ] || err "$f: $lines dòng (nên dưới 500, tách phần tham khảo ra file riêng)"
 done
