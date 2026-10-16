@@ -970,7 +970,10 @@ def load_alerts() -> list[dict]:
     (OSError/ValueError) — caller phải chặn ghi, không coi là chưa có alert."""
     if not ALERTS_PATH.exists():
         return []
-    return json.loads(ALERTS_PATH.read_text(encoding="utf-8"))
+    alerts = json.loads(ALERTS_PATH.read_text(encoding="utf-8"))
+    if not isinstance(alerts, list) or not all(isinstance(a, dict) for a in alerts):
+        raise ValueError(f"không phải danh sách alert (list of dict): {type(alerts).__name__}")
+    return alerts
 
 
 def save_alerts(alerts: list[dict]):

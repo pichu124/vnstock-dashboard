@@ -1003,3 +1003,22 @@ def test_gtgd_reads_each_ticker_once_for_all_windows(gtgd_env):
     for n in (1, 5, 20):
         ns["_compute_gtgd_by_window"](n)
     assert len(gtgd_env) == 3            # AAA, BBB, DDD — E1VFVN30 bị lọc trước khi đọc
+
+
+@pytest.mark.parametrize("raw", ["null", "{}", "[1]", '[{"ticker": "VCB"}, "x"]'])
+def test_load_alerts_rejects_json_that_is_not_a_list_of_dicts(alert_env, raw):
+    """JSON HỢP LỆ nhưng sai dạng lọt qua ⇒ TypeError/AttributeError ở sidebar và
+    fragment alert (chỉ bắt OSError/ValueError). Phải là ValueError để bị khoá ghi."""
+    path = alert_env["ALERTS_PATH"]
+    path.parent.mkdir(parents=True)
+    path.write_text(raw, encoding="utf-8")
+    with pytest.raises(ValueError):
+        alert_env["load_alerts"]()
+
+
+def test_load_alerts_returns_valid_list_unchanged(alert_env):
+    al = [{"ticker": "VCB", "condition": "above", "target": 25.0, "fired": False}, {}]
+    path = alert_env["ALERTS_PATH"]
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(al), encoding="utf-8")
+    assert alert_env["load_alerts"]() == al
