@@ -140,3 +140,26 @@ def test_live_sector_buy_ratio_is_weighted_by_gtgd():
     assert s["count"] == 2
     assert s["gtgd"] == pytest.approx(120.0)
     assert s["buy_ratio"] == pytest.approx(0.625)
+
+
+def test_live_sectors_skip_only_the_broken_quote():
+    """File quote đọc được JSON nhưng là `null`/list, hoặc `volume` là chuỗi
+    "1,234" ⇒ bỏ ĐÚNG mã đó; bảng Live Money Flow vẫn có ngành của mã tốt."""
+    import pytest
+
+    from dashboard.money_flow_tab import aggregate_live_sectors
+
+    good = {"price": 30.0, "volume": 1_000_000,
+            "bids": [{"volume": 300}], "asks": [{"volume": 100}]}
+    sectors = {"AAA": "Ngân hàng", "BBB": "Ngân hàng",
+               "NUL": "Xấu", "LST": "Xấu", "STR": "Xấu"}
+    out = aggregate_live_sectors(
+        {"AAA": good, "NUL": None, "LST": [1, 2], "BBB": dict(good, price=60_000),
+         "STR": dict(good, volume="1,234")},
+        sectors.__getitem__)
+
+    assert set(out) == {"Ngân hàng"}
+    s = out["Ngân hàng"]
+    assert s["count"] == 2
+    assert s["gtgd"] == pytest.approx(90.0)
+    assert s["buy_ratio"] == pytest.approx(0.75)

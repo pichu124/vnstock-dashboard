@@ -46,21 +46,28 @@ def aggregate_live_sectors(quotes: dict, sector_of) -> dict:
     """Gộp quote live theo ngành → `{ngành: {gtgd, vol, buy_ratio, count}}`.
 
     `buy_ratio` = Σ buy_r×GTGD / Σ GTGD — cùng trọng số với bảng tĩnh; ngành
-    chưa có GTGD (trước ATO) → 0.5 như bảng tĩnh.
+    chưa có GTGD (trước ATO) → 0.5 như bảng tĩnh. Quote hỏng (không phải dict,
+    trường số không đổi được) ⇒ bỏ ĐÚNG mã đó, không làm hỏng cả bảng.
     """
     out: dict = {}
     for tk, q in quotes.items():
-        price = float(q.get("price", 0) or 0)
-        if price <= 0:
+        if not isinstance(q, dict):
             continue
-        if price > 500:
-            price /= 1000
-        vol = float(q.get("volume", 0) or 0)
+        try:
+            price = float(q.get("price", 0) or 0)
+            if price <= 0:
+                continue
+            if price > 500:
+                price /= 1000
+            vol = float(q.get("volume", 0) or 0)
+            buy_r = _live_buy_ratio(q)
+        except (AttributeError, TypeError, ValueError):
+            continue
         gtgd = price * vol / 1e6
         s = out.setdefault(sector_of(tk), {"gtgd": 0.0, "vol": 0.0, "buy_w": 0.0, "count": 0})
         s["gtgd"] += gtgd
         s["vol"] += vol
-        s["buy_w"] += _live_buy_ratio(q) * gtgd
+        s["buy_w"] += buy_r * gtgd
         s["count"] += 1
     for s in out.values():
         s["buy_ratio"] = s.pop("buy_w") / s["gtgd"] if s["gtgd"] > 0 else 0.5
