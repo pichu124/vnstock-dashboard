@@ -3356,18 +3356,26 @@ if data is None:
     st.stop()
 
 gen_time = data.get("generated_at", "—")
-# Kiểm tra dữ liệu screener có cũ không
-_screener_stale = False
-try:
-    _gen_dt = datetime.strptime(gen_time[:10], "%Y-%m-%d")
-    _screener_stale = (datetime.now() - _gen_dt).days >= 1
-except (ValueError, TypeError, IndexError):
-    pass
+
+
+def _screener_is_stale(generated_at: str, now: datetime) -> bool:
+    """Cũ khi PHIÊN PHỦ lúc chạy screener < phiên phủ bây giờ (cutoff 15:05).
+
+    So ngày lịch thì sáng nào và cả T7/CN cũng báo cũ giả."""
+    from vnstock_rollup import session_covered_at
+    try:
+        gen = datetime.fromisoformat(str(generated_at)[:19])
+    except ValueError:
+        return False
+    return session_covered_at(gen) < session_covered_at(now)
+
+
+_screener_stale = _screener_is_stale(gen_time, datetime.now())
 
 _info_col, _update_col = st.columns([5, 3])
 with _info_col:
     if _screener_stale:
-        st.markdown(f'<p class="updated-at" style="color:#f59e0b">⚠️ Screener cũ: {gen_time} — Bấm "Cập nhật Screener" để refresh</p>', unsafe_allow_html=True)
+        st.markdown(f'<p class="updated-at" style="color:#f59e0b">⚠️ Screener cũ: {gen_time} — Bấm "📥 Cập nhật giá" để làm mới</p>', unsafe_allow_html=True)
     else:
         st.markdown(f'<p class="updated-at">Cập nhật lúc: {gen_time}</p>', unsafe_allow_html=True)
 with _update_col:

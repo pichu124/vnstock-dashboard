@@ -544,3 +544,28 @@ def test_order_stats_full_cache_hit_makes_no_api_call(order_env):
     path.write_text(json.dumps(_CACHED), encoding="utf-8")
     assert fetch(("BBB", "CCC")) == {tk: _CACHED[tk] for tk in ("BBB", "CCC")}
     assert fetched == []
+
+
+# ── Screener cũ: so PHIÊN PHỦ, không so ngày lịch ───────────────────────────
+
+@pytest.mark.parametrize("generated_at, now, stale", [
+    ("2026-10-16 21:00:00", "2026-10-17 10:00", False),  # T7, kết quả T6 tối
+    ("2026-10-16 21:00:00", "2026-10-18 20:00", False),  # CN
+    ("2026-10-12 21:00:00", "2026-10-13 08:00", False),  # T3 sáng, kết quả T2 tối
+    ("2026-10-12 21:00:00", "2026-10-13 16:00", True),   # T3 sau 15:05: có phiên mới
+    ("2026-10-16 10:00:00", "2026-10-16 16:00", True),   # chạy giữa phiên T6
+    ("—", "2026-10-13 16:00", False),                    # không đọc được ⇒ im
+])
+def test_screener_stale_compares_covered_sessions(generated_at, now, stale):
+    from datetime import datetime
+    fn = load_source_fns("vnstock_dashboard.py", "_screener_is_stale",
+                         datetime=datetime)["_screener_is_stale"]
+    assert fn(generated_at, datetime.fromisoformat(now)) is stale
+
+
+def test_stale_warning_points_to_a_button_that_exists():
+    """Nút "Cập nhật Screener" không tồn tại — chỉ đường phải trỏ nút thật."""
+    start = _DASH_SRC.index("if _screener_stale:")
+    warn = _DASH_SRC[start:_DASH_SRC.index("else:", start)]
+    assert "Cập nhật Screener" not in warn
+    assert "📥 Cập nhật giá" in warn and '"📥 Cập nhật giá"' in _DASH_SRC
