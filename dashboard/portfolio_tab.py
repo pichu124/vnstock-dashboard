@@ -10,7 +10,11 @@ State
 -----
 Positions are persisted to ``<warehouse>/_meta/portfolio.json`` as a
 list of ``{ticker, quantity, buy_price, buy_date}`` dicts. The
-``_save_portfolio`` helper writes atomically via a ``.pid.tmp`` file.
+``_save_portfolio`` writes atomically via ``vnstock_parquet_io.write_json_atomic``
+and RAISES on failure. A corrupt file is NOT read as ``[]``: the tab shows
+``st.error`` and hides every write action — otherwise "Thêm" would overwrite
+the whole portfolio with ``[] + 1`` and Dropbox would push that to the other
+machine.
 
 Live price resolution
 ---------------------
@@ -35,8 +39,9 @@ so a missing live feed doesn't silently zero-out the P&L.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
+
+from vnstock_parquet_io import write_json_atomic
 
 
 DEFAULT_WAREHOUSE = Path("data_warehouse")
@@ -47,28 +52,26 @@ def _portfolio_path(warehouse: Path) -> Path:
 
 
 def _load_portfolio(warehouse: Path) -> list[dict]:
+    """Thiếu file ⇒ ``[]`` (hợp lệ). File hỏng/không đọc được ⇒ raise
+    (OSError/ValueError) — caller phải chặn ghi, không coi là danh mục rỗng."""
     path = _portfolio_path(warehouse)
     if not path.exists():
         return []
-    try:
-        return json.loads(path.read_text())
-    except Exception:
-        return []
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _save_portfolio(warehouse: Path, positions: list[dict]) -> None:
-    path = _portfolio_path(warehouse)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(f".{os.getpid()}.tmp")
+    write_json_atomic(positions, _portfolio_path(warehouse))
+
+
+def _save_and_rerun(st, warehouse: Path, positions: list[dict]) -> None:
     try:
-        tmp.write_text(json.dumps(positions, indent=2, ensure_ascii=False))
-        os.replace(str(tmp), str(path))
-    except Exception:
-        if tmp.exists():
-            try:
-                tmp.unlink()
-            except Exception:
-                pass
+        _save_portfolio(warehouse, positions)
+    except OSError as e:
+        st.error(f"Không ghi được `{_portfolio_path(warehouse)}`: {e} — danh mục trên đĩa "
+                 "giữ nguyên.")
+        return
+    st.rerun()
 
 
 def _live_quote(ticker: str, warehouse: Path) -> dict | None:
@@ -222,7 +225,13 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
     _resolve_price = (_cache(ttl=60, show_spinner=False)(resolve_current_price)
                       if _cache else resolve_current_price)
 
-    positions = _load_portfolio(warehouse)
+    try:
+        positions = _load_portfolio(warehouse)
+    except (OSError, ValueError) as e:
+        st.error(f"Không đọc được file danh mục `{_portfolio_path(warehouse)}` ({e}). "
+                 "Đã khoá Thêm/Xoá để không ghi đè — sửa hoặc khôi phục file (Dropbox: "
+                 "lịch sử phiên bản / bản conflicted copy) rồi tải lại trang.")
+        return
 
     with st.sidebar:
         st.markdown("### 💼 Portfolio")
@@ -238,21 +247,18 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
             _pf_date = st.date_input("Ngày mua", key="pf_date")
             if st.button("✅ Thêm", key="pf_add", use_container_width=True):
                 if _pf_ticker and _pf_qty > 0 and _pf_price > 0:
-                    positions.append({
+                    _save_and_rerun(st, warehouse, positions + [{
                         "ticker": _pf_ticker,
                         "quantity": _pf_qty,
                         "buy_price": _pf_price,
                         "buy_date": str(_pf_date),
-                    })
-                    _save_portfolio(warehouse, positions)
-                    st.rerun()
+                    }])
 
         if positions:
             st.caption(f"{len(positions)} vị thế")
             if st.button("🗑 Xoá tất cả", key="pf_clear",
                           use_container_width=True):
-                _save_portfolio(warehouse, [])
-                st.rerun()
+                _save_and_rerun(st, warehouse, [])
 
     if not positions:
         st.info("Chưa có vị thế nào. Thêm ở sidebar → Portfolio → ➕ Thêm vị thế")
@@ -617,6 +623,5 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
     _del_idx = st.selectbox("Xoá vị thế", options=_options, key="pf_del_select")
     if _del_idx != "—" and st.button("🗑 Xoá vị thế này", key="pf_del_btn"):
         _del_i = _options.index(_del_idx) - 1   # -1 because of the "—" sentinel
-        positions.pop(rows[_del_i]["idx"])
-        _save_portfolio(warehouse, positions)
-        st.rerun()
+        _drop = rows[_del_i]["idx"]
+        _save_and_rerun(st, warehouse, [p for j, p in enumerate(positions) if j != _drop])

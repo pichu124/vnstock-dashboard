@@ -168,6 +168,54 @@ def test_assets_tab_renders_every_section(fake_st):
     assert "neo Fed 121.38" in captions
 
 
+@needs("plotly")
+def test_assets_tab_rerun_does_not_reread_store(monkeypatch):
+    """Đổi radio/rerun không được đọc lại parquet (~47 lần `va.load`/lượt); kho có file mới ⇒ đọc
+    lại. Streamlit giả biến `cache_data` thành hàm đồng nhất ⇒ ở đây thay bằng cache THẬT khoá theo
+    tham số (trả bản sao như Streamlit) để soi đúng khoá làm tươi của tab."""
+    import copy
+
+    from tests.test_tab_render_smoke import _fake_streamlit
+    st = _fake_streamlit()
+
+    def _cache_data(*a, **k):
+        def deco(f):
+            memo = {}
+
+            def wrapper(*args, **kw):
+                key = repr((args, sorted(kw.items())))
+                if key not in memo:
+                    memo[key] = f(*args, **kw)
+                return copy.deepcopy(memo[key])
+            return wrapper
+        return deco
+    st.cache_data = _cache_data
+    monkeypatch.setitem(sys.modules, "streamlit", st)
+    sys.modules.pop("dashboard.assets_tab", None)
+    mod = importlib.import_module("dashboard.assets_tab")
+    monkeypatch.setattr(mod, "date", _FixedDate)
+    monkeypatch.setattr(av, "date", _FixedDate)
+    _seed()
+    loads = []
+    real_load = va.load
+    monkeypatch.setattr(va, "load", lambda key, **kw: loads.append(key) or real_load(key, **kw))
+
+    def render():
+        st.metric.reset_mock()
+        mod.render_assets_tab()
+        assert not st.warning.called and not st.error.called
+        return [(c.args, c.kwargs) for c in st.metric.call_args_list]
+
+    first = render()
+    n = len(loads)
+    assert n > 0 and render() == first and len(loads) == n        # rerun: 0 lần đọc kho, số y hệt
+    _w("DXY", [va._row("2026-10-09", 110.0, "yahoo")])
+    loads.clear()
+    third = render()
+    assert loads and third != first                                 # kho đổi ⇒ đọc lại, số mới
+    assert "110.00" in str(third)
+
+
 def test_assets_tab_empty_store_tells_how_to_fill(fake_st):
     st, mod = fake_st
     mod.render_assets_tab()

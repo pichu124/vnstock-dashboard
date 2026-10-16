@@ -303,6 +303,31 @@ def test_dashboard_refresh_persists_only_when_surely_after_close(monkeypatch, in
     assert calls == [{"persist": persist}]
 
 
+@pytest.mark.parametrize("intraday", [True, False, None])
+def test_dashboard_refresh_without_inputs_reports_not_written(monkeypatch, intraday):
+    """run_allocation thiếu input ⇒ None, KHÔNG ghi gì: nút phải nói rõ thay vì
+    rerun im lặng như thể đã ghi (ngoài giờ trước đây cũng không hiện gì)."""
+    from dashboard import allocation_tab
+    monkeypatch.setattr(alloc, "run_allocation", lambda **k: None)
+    monkeypatch.setattr(alloc, "overview_intraday", lambda as_of=None: intraday)
+    assert allocation_tab._refresh_allocation() == (False, None)
+
+    shown = []
+
+    class _St:
+        def warning(self, msg):
+            shown.append(("warning", msg))
+
+        def info(self, msg):
+            shown.append(("info", msg))
+
+        def rerun(self):
+            shown.append(("rerun", None))
+
+    allocation_tab._refresh_and_report(_St())
+    assert shown == [("warning", "Chưa đủ dữ liệu đầu vào — giữ band cũ")]
+
+
 def test_dashboard_first_run_button_also_goes_through_the_intraday_gate():
     import inspect
     from dashboard import allocation_tab

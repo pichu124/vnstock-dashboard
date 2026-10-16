@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import warnings
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -84,10 +85,31 @@ SESSION_STATS_FORMAT_VERSION = 4
 # Days of history used to compute calibration average price.
 CALIBRATION_LOOKBACK_DAYS = 10
 
+# Đệm price_history theo (chỉ số, ngày): fragment Thống kê phiên chạy mỗi 30s ở
+# tab mặc định và lượt đầu gọi backfill + reconcile + compute ⇒ 4 chỉ số bị tải
+# 120 ngày tới 3 lần. Không đệm cả ngày: batch EOD đăng giờ nào trong ngày cũng
+# được, đệm dài thì reconcile mất bản exact tới mai ⇒ TTL = nhịp reconcile của tab.
+_PRICE_HISTORY_TTL_S = 1800
+_PRICE_HISTORY_CACHE: dict = {}
+
 
 # ─── EOD-accurate history (Trading.price_history) ─────────────────────────
 
 def _fetch_price_history(display_name: str) -> pd.DataFrame:
+    """`_fetch_price_history_uncached` đệm theo (chỉ số, ngày) trong
+    `_PRICE_HISTORY_TTL_S`. Kết quả rỗng (lỗi mạng) không đệm ⇒ lượt sau thử lại.
+    Trả CÙNG một DataFrame cho mọi caller — caller chỉ lọc, không được sửa tại chỗ."""
+    today = date.today().isoformat()
+    hit = _PRICE_HISTORY_CACHE.get(display_name)          # (ngày, lúc tải, df) — 1 ô/chỉ số
+    if hit and hit[0] == today and time.monotonic() - hit[1] < _PRICE_HISTORY_TTL_S:
+        return hit[2]
+    df = _fetch_price_history_uncached(display_name)
+    if not df.empty:
+        _PRICE_HISTORY_CACHE[display_name] = (today, time.monotonic(), df)
+    return df
+
+
+def _fetch_price_history_uncached(display_name: str) -> pd.DataFrame:
     """Fetch EOD-accurate daily totals for one index.
 
     Priority:
@@ -492,9 +514,13 @@ def reconcile_with_price_history() -> int:
 
 
 def save_session_stats(stats: dict):
-    """Save today's session stats to JSON. Keeps 90 days history."""
+    """Save today's session stats to JSON. Keeps 90 days history.
+    Nội dung hôm nay trên đĩa đã y hệt ⇒ không ghi (file đi Dropbox; tab gọi mỗi 30s)."""
     all_data = load_session_stats_history()
-    all_data[date.today().isoformat()] = stats
+    today = date.today().isoformat()
+    if all_data.get(today) == stats:
+        return
+    all_data[today] = stats
     _write_history(all_data)
 
 

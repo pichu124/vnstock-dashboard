@@ -86,6 +86,9 @@ def render_screener_tab(
         def compute_session_stats(): return {}
         def _backfill_session_stats(): return 0
         def _reconcile_eod(): return 0
+    # Fragment Thống kê phiên chạy mỗi 30s + mỗi lượt rerun trang (Screener là tab
+    # mặc định) kể cả khi expander đóng ⇒ đệm 60s phần tính (4× intraday mỗi lượt).
+    compute_session_stats = st.cache_data(ttl=60, show_spinner=False)(compute_session_stats)
     from datetime import datetime
 
 
@@ -104,24 +107,8 @@ def render_screener_tab(
 
         st.divider()
         st.markdown("### ⭐ Watchlist")
-        _wl_tickers = load_watchlist()
-        _filter_wl = st.toggle(f"Chỉ hiện Watchlist ({len(_wl_tickers)})", key="filter_watchlist")
-        _wl_add = st.text_input("Thêm mã", placeholder="VCB, FPT, ...", key="wl_add_input").upper().strip()
-        _wl_c1, _wl_c2 = st.columns(2)
-        with _wl_c1:
-            if st.button("➕ Thêm", key="wl_add_btn", use_container_width=True) and _wl_add:
-                new_tickers = [t.strip() for t in _wl_add.replace(",", " ").split() if t.strip()]
-                save_watchlist(_wl_tickers + new_tickers)
-                st.rerun()
-        with _wl_c2:
-            if st.button("🗑️ Xóa", key="wl_del_btn", use_container_width=True) and _wl_add:
-                del_tickers = {t.strip() for t in _wl_add.replace(",", " ").split() if t.strip()}
-                save_watchlist([t for t in _wl_tickers if t not in del_tickers])
-                st.rerun()
-        if _wl_tickers:
-            st.caption("Đang theo dõi: " + ", ".join(_wl_tickers[:20]))
-            if len(_wl_tickers) > 20:
-                st.caption(f"... +{len(_wl_tickers)-20} mã khác")
+        _wl_tickers, _filter_wl = _render_watchlist_sidebar(
+            st, load_watchlist, save_watchlist, _vnd.WATCHLIST_PATH)
 
         st.divider()
         st.markdown("### ⚙️ Bộ lọc nâng cao")
@@ -566,3 +553,40 @@ def render_screener_tab(
                      for p, v in presets_data.items()]
     overview_df = pd.DataFrame(overview_data).sort_values("Số mã", ascending=False)
     st.dataframe(overview_df, width='stretch', hide_index=True, height=44 + len(overview_df)*36)
+
+
+def _render_watchlist_sidebar(st, load_watchlist, save_watchlist, path) -> "tuple[list, bool]":
+    """Khối ⭐ Watchlist ở sidebar → (mã đang theo dõi, bật lọc watchlist?).
+    File hỏng ⇒ báo lỗi kèm đường dẫn + KHOÁ Thêm/Xoá (ghi lúc này = đè cả
+    watchlist bằng [] + mã mới); không đụng tới file của user."""
+    try:
+        _wl_tickers, _broken = load_watchlist(), False
+    except (OSError, ValueError) as e:
+        _wl_tickers, _broken = [], True
+        st.error(f"Không đọc được watchlist `{path}` ({e}). Đã khoá Thêm/Xoá để không ghi "
+                 "đè — sửa hoặc khôi phục file rồi tải lại trang.")
+    _filter_wl = st.toggle(f"Chỉ hiện Watchlist ({len(_wl_tickers)})", key="filter_watchlist")
+    _wl_add = st.text_input("Thêm mã", placeholder="VCB, FPT, ...", key="wl_add_input").upper().strip()
+    _wl_c1, _wl_c2 = st.columns(2)
+    _new = None
+    with _wl_c1:
+        if st.button("➕ Thêm", key="wl_add_btn", use_container_width=True,
+                     disabled=_broken) and _wl_add:
+            _new = _wl_tickers + [t.strip() for t in _wl_add.replace(",", " ").split() if t.strip()]
+    with _wl_c2:
+        if st.button("🗑️ Xóa", key="wl_del_btn", use_container_width=True,
+                     disabled=_broken) and _wl_add:
+            del_tickers = {t.strip() for t in _wl_add.replace(",", " ").split() if t.strip()}
+            _new = [t for t in _wl_tickers if t not in del_tickers]
+    if _new is not None:
+        try:
+            save_watchlist(_new)
+        except OSError as e:
+            st.error(f"Không ghi được watchlist `{path}`: {e} — file trên đĩa giữ nguyên.")
+        else:
+            st.rerun()
+    if _wl_tickers:
+        st.caption("Đang theo dõi: " + ", ".join(_wl_tickers[:20]))
+        if len(_wl_tickers) > 20:
+            st.caption(f"... +{len(_wl_tickers)-20} mã khác")
+    return _wl_tickers, _filter_wl
