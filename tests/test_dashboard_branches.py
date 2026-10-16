@@ -339,22 +339,45 @@ _ROOT = Path(__file__).resolve().parent.parent
 
 
 def load_source_fns(relpath: str, *names: str, **globs) -> dict:
-    """Namespace chứa các hàm (kể cả hàm lồng) / hằng cấp module `names`."""
+    """Namespace chứa các hàm (kể cả hàm lồng) / hằng cấp module `names`.
+    Tên được xin phải là DUY NHẤT trong file — trùng thì raise, không đoán bản nào."""
     tree = ast.parse((_ROOT / relpath).read_text(encoding="utf-8"))
     nodes: dict = {}
     for n in ast.walk(tree):
         if isinstance(n, ast.FunctionDef):
-            nodes.setdefault(n.name, n)
+            nodes.setdefault(n.name, []).append(n)
     for n in tree.body:
         if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name):
-            nodes.setdefault(n.targets[0].id, n)
+            nodes.setdefault(n.targets[0].id, []).append(n)
     ns = dict(globs)
     for name in names:
-        node = nodes[name]
+        found = nodes[name]
+        if len(found) > 1:
+            raise ValueError(f"{relpath}: '{name}' được định nghĩa {len(found)} lần "
+                             f"(dòng {[n.lineno for n in found]}) — không biết exec bản nào")
+        node = found[0]
         if isinstance(node, ast.FunctionDef):
             node.decorator_list = []
         exec(compile(ast.Module([node], []), str(_ROOT / relpath), "exec"), ns)
     return ns
+
+
+def test_load_source_fns_rejects_ambiguous_name(tmp_path):
+    """Hai hàm lồng CÙNG TÊN ⇒ helper phải từ chối, không im lặng exec bản đầu."""
+    src = tmp_path / "fake.py"
+    src.write_text('''
+def outer():
+    def helper():
+        return 1
+
+
+def other():
+    def helper():
+        return 2
+''', encoding="utf-8")
+    with pytest.raises(ValueError, match="'helper'.*2 lần"):
+        load_source_fns(str(src), "helper")
+    assert load_source_fns(str(src), "outer")["outer"]() is None
 
 
 # ── Price alert: bắn MỘT lần, không lặp mỗi 10s ─────────────────────────────
