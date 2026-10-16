@@ -102,6 +102,16 @@ class TestIndexStrength:
         assert "chưa đủ dữ liệu" in line
         assert "nan" not in line and "giảm rõ rệt" not in line
 
+    @pytest.mark.parametrize("chg,expect", [
+        ([np.nan] * 5, "chưa đủ dữ liệu"),
+        ([0.5] * 5, "**VNINDEX**: tăng tích cực"),     # có %D thì vẫn nhận định, bỏ giá
+    ])
+    def test_all_nan_close_does_not_crash(self, chg, expect):
+        """Cột giá VNINDEX toàn NaN: `.dropna().iloc[0]` ném IndexError."""
+        line = index_strength_lines(_idx(chg, close=np.nan))[1]
+        assert expect in line
+        assert "nan" not in line
+
     def test_denominator_is_the_real_session_count(self):
         """Có 3 phiên thì ghi /3, không phải /5."""
         line = index_strength_lines(_idx([1.0, -1.0, 1.0]))[1]
