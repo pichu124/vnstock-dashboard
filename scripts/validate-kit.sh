@@ -6,9 +6,9 @@ set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
 KIT_AGENTS="architect implementer verifier reviewer gardener"
-KIT_SKILLS="team-lead create-verify-skill correct"
+KIT_SKILLS="team-lead create-verify-skill correct agent-audit"
 KIT_HOOKS="lib.sh guard-irreversible.sh stop-gate.sh post-edit-format.sh"
-KIT_SCRIPTS="check.sh validate-kit.sh test-hooks.sh install-kit.sh test-install.sh"
+KIT_SCRIPTS="check.sh validate-kit.sh test-hooks.sh install-kit.sh test-install.sh audit-agent.sh test-audit.sh"
 
 errors=0
 err() {
@@ -165,6 +165,13 @@ for sh in "${shell_files[@]}"; do
 done
 if command -v shellcheck >/dev/null 2>&1; then
   shellcheck -x -S warning "${shell_files[@]}" || err "shellcheck báo lỗi"
+fi
+if [ -f scripts/audit-agent.py ] && [ -n "${py:-}" ]; then
+  "$py" -c 'import ast, sys; ast.parse(open(sys.argv[1], encoding="utf-8").read())' scripts/audit-agent.py 2>/dev/null \
+    || err "scripts/audit-agent.py: lỗi cú pháp Python"
+fi
+if [ -f scripts/test-hooks.sh ] && [ ! -f scripts/guard-ask-floor ]; then
+  err "scripts/guard-ask-floor: không tồn tại (sàn số ca 'phải hỏi' của guard)"
 fi
 
 if [ "$errors" -gt 0 ]; then

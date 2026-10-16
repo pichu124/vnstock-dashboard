@@ -104,11 +104,13 @@ if [ -x scripts/validate-kit.sh ]; then
 fi
 kit_changed() {
   git status --porcelain -- .claude/hooks scripts/check.sh scripts/test-hooks.sh scripts/validate-kit.sh \
+    scripts/guard-ask-floor scripts/audit-agent.sh scripts/audit-agent.py scripts/test-audit.sh \
     2>/dev/null | grep -q .
 }
 if [ -x scripts/test-hooks.sh ]; then
   if [ -n "${CI:-}" ] || [ "${KIT_SELFTEST:-0}" = 1 ] || kit_changed; then
     step "hooks" ./scripts/test-hooks.sh
+    [ -x scripts/test-audit.sh ] && step "audit" ./scripts/test-audit.sh
   else
     printf '\n• hooks: bỏ qua test của kit vì hook không đổi (KIT_SELFTEST=1 để chạy)\n'
   fi

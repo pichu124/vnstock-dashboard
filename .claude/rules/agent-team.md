@@ -5,6 +5,7 @@
 - Bug: tái hiện trước bằng test fail, rồi mới sửa nguyên nhân gốc.
 - Người viết không tự kiểm: verify và review bằng subagent mới (`verifier`, `reviewer`).
 - Bị người dùng sửa cùng một lỗi lần thứ hai thì đề xuất `/correct`.
+- Cuối ngày làm việc: `./scripts/audit-agent.sh --since 1` dò sự cố từ file phiên; có mục A, B hoặc F thì chạy `/agent-audit`.
 - Cứ làm: đọc, sửa trong branch hoặc worktree, commit cục bộ, chạy test. Luôn hỏi người: force-push, push hoặc merge vào nhánh chính, xoá dữ liệu, deploy, publish.
 
 | Rule | Thực thi bởi |
@@ -13,3 +14,4 @@
 | Hỏi người trước hành động không đảo ngược được | `.claude/hooks/guard-irreversible.sh` (PreToolUse) |
 | Không đọc file bí mật (`.env`, `*.pem`, `secrets/`) | `permissions.deny` trong `.claude/settings.json` |
 | Format theo cấu hình của dự án | `.claude/hooks/post-edit-format.sh` (PostToolUse) |
+| Không bớt ca "phải hỏi" của guard để cho dễ | `scripts/guard-ask-floor` (test-hooks đỏ khi số ca dưới sàn) |

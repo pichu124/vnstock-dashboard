@@ -1,0 +1,7 @@
+# Mẫu nghi ngờ riêng của vnstock-dashboard cho scripts/audit-agent.sh: regex<TAB>nhãn.
+# Mỗi dòng là ý kiến thứ hai: lệnh khớp mà đã chạy sẽ hiện ở mục A của báo cáo để người xem.
+\brun\.py\s+(sync|all|brief|telegram|news-alert|weekend)\b	chạy pipeline thật (ghi kho dùng chung, gửi Telegram)
+\brun\.py\s+test\b	run.py test ghi badge test_status.json dùng chung hai máy
+\b(rm|remove-item|ri|del|rd|rmdir)\b.*data_warehouse	xoá trong kho dữ liệu dùng chung qua Dropbox
+\b(test_status|pipeline_status|brief_push|doctor_status)\.json\b	đụng marker dùng chung trong data_warehouse/_meta
+\bschtasks\b|\b(register|unregister|set|disable|enable)-scheduledtask\b|setup_scheduled_tasks\.ps1	đổi task lịch của pipeline

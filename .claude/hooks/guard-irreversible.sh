@@ -66,8 +66,9 @@ S='[[:space:]]'
 E='([[:space:];&|)"\'"'"']|$)'
 # Option chen giữa tên tool và subcommand: git -C dir, kubectl -n prod, terraform -chdir=infra...
 # Giá trị option có thể nằm trong nháy và chứa dấu cách: git -C "C:/my repo" push.
-# Giá trị không nháy có thể chứa \<ký tự> (bash: my\ repo) hoặc kết thúc bằng \ (PowerShell: C:\).
-O='([[:space:]]+-[^[:space:]]+([[:space:]]+("[^"]*"|'"'"'[^'"'"']*'"'"'|([^-[:space:]"'"'"'\\]|\\.)([^[:space:]\\]|\\.)*\\?))?)*'
+# Giá trị không nháy: đọc theo cả hai cách, \ là ký tự thường (PowerShell: C:\x\) hoặc là escape
+# (bash: my\ repo). Regex được chọn cách nào khớp, nên hỏi thừa chứ không bỏ sót.
+O='([[:space:]]+-[^[:space:]]+([[:space:]]+("[^"]*"|'"'"'[^'"'"']*'"'"'|[^-[:space:]"'"'"'][^[:space:]]*|([^-[:space:]"'"'"'\\]|\\.)([^[:space:]\\]|\\.)*\\?))?)*' 
 # Vị trí bắt đầu một lệnh (để `git rm` không bị coi là `rm`).
 B='(^|[;&|(`"'"'"'{]|\$\(|(^|[[:space:]])(then|do|else|time|xargs|exec|nohup|env)[[:space:]])[[:space:]]*((sudo|doas|wsl)[[:space:]]+)?'
 G="git${O}${S}+"
@@ -110,20 +111,23 @@ resolve_dir() {
     *) printf '%s\n' "$1/$d" ;;
   esac
 }
-# Đối số: trong nháy, hoặc chuỗi không có khoảng trắng (cho phép \<ký tự>, như main\ repo).
-ARG='("[^"]*"|'"'"'[^'"'"']*'"'"'|([^[:space:];&|\\]|\\.)+\\?|\\)'
+# Đối số: trong nháy, hoặc chuỗi không có khoảng trắng. ARG_BS cho \<ký tự> là escape (bash:
+# main\ repo); ARG_PS coi \ là ký tự thường (PowerShell: C:\vnstock\; git push). Xét cả hai.
+ARG_BS='("[^"]*"|'"'"'[^'"'"']*'"'"'|([^[:space:];&|\\]|\\.)+\\?|\\)'
+ARG_PS='("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:];&|]+)'
 
-# last_arg <đoạn khớp>: đối số cuối của đoạn, bỏ tiền tố -Path:, --git-dir=, GIT_DIR=...
+# last_arg <đoạn khớp> <regex đối số>: đối số cuối của đoạn, bỏ tiền tố -Path:, --git-dir=, GIT_DIR=...
 last_arg() {
-  local t=""
-  [[ $1 =~ ($ARG)$ ]] && t="${BASH_REMATCH[1]}"
+  local t="" re="$2"
+  [[ $1 =~ ($re)$ ]] && t="${BASH_REMATCH[1]}"
   shopt -s nocasematch
   [[ $t =~ ^(-(literal)?path:|--chdir=|--git-dir=|--work-tree=|git_dir=|git_work_tree=)(.+)$ ]] && t="${BASH_REMATCH[3]}"
   shopt -u nocasematch
   printf '%s\n' "$t"
 }
 
-# expand_dir <đích>: bỏ nháy, thay $HOME, ${HOME}, $env:USERPROFILE. Còn biến, lệnh lồng hay
+# expand_dir <đích>: bỏ nháy, thay $HOME, $PWD, $CLAUDE_PROJECT_DIR, $env:USERPROFILE, %USERPROFILE%.
+# Còn biến, lệnh lồng hay
 # %VAR% thì không biết thư mục: trả mã 1.
 expand_dir() {
   local d="$1"
@@ -131,6 +135,11 @@ expand_dir() {
   [ "$tool" = PowerShell ] || d="${d//\\ / }"
   d="${d/#\$HOME/$HOME}"
   d="${d/#\$\{HOME\}/$HOME}"
+  d="${d/#\$PWD/${cwd:-.}}"
+  d="${d/#\$\{PWD\}/${cwd:-.}}"
+  [ -n "${CLAUDE_PROJECT_DIR:-}" ] && d="${d/#\$CLAUDE_PROJECT_DIR/$CLAUDE_PROJECT_DIR}"
+  [ -n "${CLAUDE_PROJECT_DIR:-}" ] && d="${d/#\$\{CLAUDE_PROJECT_DIR\}/$CLAUDE_PROJECT_DIR}"
+  d="${d/#%USERPROFILE%/${USERPROFILE:-$HOME}}"
   shopt -s nocasematch
   [[ $d =~ ^\$\{?env:(userprofile|home)\}?(.*)$ ]] && d="${USERPROFILE:-$HOME}${BASH_REMATCH[2]}"
   shopt -u nocasematch
@@ -149,34 +158,36 @@ if [ -z "$reason" ] && printf '%s' "$cmd" | grep -Eiq -- "${G}push"; then
   # Push-Location của PowerShell (kể cả -Path x, -Path:x, -PassThru).
   CDS='(cd|chdir|pushd|sl|set-location|push-location)'
   CDA='(^|[;&|(`"'"'"'{]|\$\(|(^|[[:space:]])(then|do|else|if|builtin|command|exec)[[:space:]])[[:space:]]*'
-  CDRE="${CDS}((${S}+(--|-p|-l|-passthru))*)(${S}+-(literal)?path(:|${S}+)|${S}+)${ARG}"
-  # Thư mục git chạy trong đó mà không cần cd.
-  GDRE="(^|[[:space:];&|(])(-C${S}+|--chdir(=|${S}+)|--git-dir(=|${S}+)|--work-tree(=|${S}+)|GIT_DIR=|GIT_WORK_TREE=)${ARG}"
   dirs="$base$nl"
   unknown=""
-  for f in "${forms[@]}"; do
-    cur="$base"
-    cds="$base$nl"
-    while IFS= read -r m; do
-      [ -n "$m" ] || continue
-      t="$(expand_dir "$(last_arg "$m")")" || { unknown=1; continue; }
-      cur="$(resolve_dir "$cur" "$t")"
-      cds="$cds$cur$nl"
-    done <<EOF
+  for a in "$ARG_BS" "$ARG_PS"; do
+    CDRE="${CDS}((${S}+(--|-p|-l|-passthru))*)(${S}+-(literal)?path(:|${S}+)|${S}+)${a}"
+    # Thư mục git chạy trong đó mà không cần cd.
+    GDRE="(^|[[:space:];&|(])(-C${S}+|--chdir(=|${S}+)|--git-dir(=|${S}+)|--work-tree(=|${S}+)|GIT_DIR=|GIT_WORK_TREE=)${a}"
+    for f in "${forms[@]}"; do
+      cur="$base"
+      cds="$base$nl"
+      while IFS= read -r m; do
+        [ -n "$m" ] || continue
+        t="$(expand_dir "$(last_arg "$m" "$a")")" || { unknown=1; continue; }
+        cur="$(resolve_dir "$cur" "$t")"
+        cds="$cds$cur$nl"
+      done <<EOF
 $(printf '%s' "$f" | grep -Eio -- "${CDA}${CDRE}")
 EOF
-    dirs="$dirs$cds"
-    while IFS= read -r m; do
-      [ -n "$m" ] || continue
-      t="$(expand_dir "$(last_arg "$m")")" || { unknown=1; continue; }
-      while IFS= read -r c; do
-        [ -n "$c" ] && dirs="$dirs$(resolve_dir "$c" "$t")$nl"
-      done <<EOF
+      dirs="$dirs$cds"
+      while IFS= read -r m; do
+        [ -n "$m" ] || continue
+        t="$(expand_dir "$(last_arg "$m" "$a")")" || { unknown=1; continue; }
+        while IFS= read -r c; do
+          [ -n "$c" ] && dirs="$dirs$(resolve_dir "$c" "$t")$nl"
+        done <<EOF
 $cds
 EOF
-    done <<EOF
+      done <<EOF
 $(printf '%s' "$f" | grep -Eo -- "$GDRE")
 EOF
+    done
   done
   dirs="$(printf '%s' "$dirs" | awk '!s[$0]++')"
   [ -n "$unknown" ] && reason="push vào thư mục chưa biết trước (biến hoặc lệnh lồng)"

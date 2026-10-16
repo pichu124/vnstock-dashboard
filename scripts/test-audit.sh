@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# Test của scripts/audit-agent.py bằng file phiên Claude Code giả (cùng định dạng JSONL thật).
+set -uo pipefail
+cd "$(dirname "$0")/.." || exit 1
+root="$PWD"
+# shellcheck source=SCRIPTDIR/../.claude/hooks/lib.sh
+. .claude/hooks/lib.sh
+py="$(KIT_JSON_TOOL=python hook_python)" || {
+  printf '⚠ bỏ qua test audit: cần Python 3\n'
+  exit 0
+}
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+# Không để lại scripts/__pycache__: file chưa track sẽ làm Stop gate tưởng có thay đổi.
+export PYTHONIOENCODING=utf-8 PYTHONDONTWRITEBYTECODE=1
+
+# Tạo file phiên giả: phiên chính + một subagent implementer + một file cũ (ngoài --since).
+"$py" - "$tmp/t" "$root" <<'PYEOF'
+import json, os, sys, time
+d, cwd = sys.argv[1], sys.argv[2]
+os.makedirs(d + "/s1/subagents", exist_ok=True)
+lines = []
+def call(i, cmd, tool="Bash", result="ok", pd=None, guard=None, out=lines):
+    out.append({"type": "assistant", "cwd": cwd, "timestamp": "2026-10-16T01:00:00Z",
+                "message": {"role": "assistant", "content": [{"type": "tool_use", "id": i, "name": tool, "input": {"command": cmd}}]}})
+    if guard is not None:
+        out.append({"type": "attachment", "attachment": {"type": "hook_success", "hookName": "PreToolUse:" + tool, "toolUseID": i,
+                    "hookEvent": "PreToolUse", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-irreversible.sh", "exitCode": 0,
+                    "stdout": guard}})
+    if result == "rejected":
+        out.append({"type": "user", "toolUseResult": "User rejected tool use", "message": {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": i, "is_error": True,
+             "content": "The user doesn't want to proceed with this tool use. The tool use was rejected."}]}})
+    else:
+        out.append({"type": "user", "permissionDecision": pd or {"decision": "accept", "source": "config", "reasonType": "classifier"},
+                    "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": i, "content": "done"}]}})
+ASK = '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"Hành động không đảo ngược được (x)."}}'
+call("t1", "git checkout -- .")
+call("t2", "git push --force origin feat/x", result="rejected", guard=ASK)
+call("t3", "rm -rf node_modules && rm -rf /tmp/build")
+call("t4", "git push origin main", pd={"decision": "accept", "source": "user_temporary"}, guard=ASK)
+call("t5", "echo hello", guard=ASK)
+call("t6", "Remove-Item -Recurse -Force src", tool="PowerShell")
+call("t7", "cat > notes.txt <<'EOF'\ngit checkout -- .\ngit stash drop\nEOF\nls")
+call("t8", "ls -la", result="rejected")
+call("t9", "git commit -m \"push to main\" && git push -u origin feat/x")
+call("t10", "git push -u origin feat/x && git checkout main")
+lines.append({"type": "system", "subtype": "stop_hook_summary",
+              "hookInfos": [{"command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop-gate.sh", "durationMs": 125000}],
+              "hookErrors": ["[stop-gate.sh]: ./scripts/check.sh đang đỏ (exit 1), chưa được kết thúc lượt (lần chặn 1/3).\n"]})
+lines.append({"type": "user", "isMeta": True, "message": {"role": "user",
+              "content": "Stop gate: ./scripts/check.sh vẫn đỏ sau 3 lần chặn liên tiếp. Agent được dừng để bạn xem xét."}})
+lines.append({"type": "attachment", "attachment": {"type": "hook_non_blocking_error", "hookName": "PreToolUse:Bash",
+              "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-irreversible.sh", "exitCode": 127,
+              "stderr": "Failed with non-blocking status code: guard-irreversible.sh: line 2: $'\\r': command not found"}})
+with open(d + "/s1.jsonl", "w", encoding="utf-8") as f:
+    for e in lines:
+        f.write(json.dumps(e, ensure_ascii=False) + "\n")
+    f.write("{hỏng\n")
+sub = []
+call("u1", "git stash drop", out=sub)
+with open(d + "/s1/subagents/agent-a1.jsonl", "w", encoding="utf-8") as f:
+    for e in sub:
+        f.write(json.dumps(e) + "\n")
+with open(d + "/s1/subagents/agent-a1.meta.json", "w", encoding="utf-8") as f:
+    json.dump({"agentType": "implementer"}, f)
+old = []
+call("o1", "git branch -D old-work", out=old)
+with open(d + "/old.jsonl", "w", encoding="utf-8") as f:
+    for e in old:
+        f.write(json.dumps(e) + "\n")
+past = time.time() - 30 * 86400
+os.utime(d + "/old.jsonl", (past, past))
+PYEOF
+
+out="$tmp/report.json"
+./scripts/audit-agent.sh --project "$root" --transcripts "$tmp/t" --since 7 --json > "$out"
+code=$?
+md="$(./scripts/audit-agent.sh --project "$root" --transcripts "$tmp/t" --since 7)"
+./scripts/audit-agent.sh --project "$root" --transcripts "$tmp/khong-co" >/dev/null 2>&1
+nofile=$?
+
+"$py" - "$out" "$code" "$nofile" "$md" <<'PYEOF'
+import importlib.util, json, sys
+r = json.load(open(sys.argv[1], encoding="utf-8"))
+code, nofile, md = int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
+fails = []
+total = 0
+def check(cond, msg):
+    global total
+    total += 1
+    if not cond:
+        fails.append(msg)
+cmds = lambda k: {i["command"] for i in r[k]}
+check(code == 0, f"audit phải exit 0, được {code}")
+check(nofile == 2, f"không có file phiên thì exit 2, được {nofile}")
+check(r["files"] == 2, f"--since phải bỏ file cũ: đọc {r['files']} file, cần 2")
+check(r["bad_lines"] == 1, f"dòng JSON hỏng phải được đếm, được {r['bad_lines']}")
+check("git checkout -- ." in cmds("A_possible_misses"), "A phải có git checkout -- .")
+check("Remove-Item -Recurse -Force src" in cmds("A_possible_misses"), "A phải có Remove-Item -Recurse src (PowerShell)")
+check("git stash drop" in cmds("A_possible_misses"), "A phải có lệnh của subagent")
+check(any(i["who"] == "implementer" for i in r["A_possible_misses"]), "phải ghi agentType của subagent")
+for harmless in ("rm -rf node_modules && rm -rf /tmp/build", "ls -la", "git commit -m \"push to main\" && git push -u origin feat/x",
+                 "git push -u origin feat/x && git checkout main"):
+    check(harmless not in cmds("A_possible_misses"), f"A không được có lệnh vô hại: {harmless}")
+check(not any(i["command"].startswith("cat > notes.txt") for i in r["A_possible_misses"]), "nội dung heredoc là dữ liệu, không phải lệnh")
+check("git branch -D old-work" not in cmds("A_possible_misses"), "file ngoài --since không được đọc")
+check(cmds("B_regressions") == {"echo hello"}, f"B phải là đúng ca guard từng hỏi mà nay cho qua: {cmds('B_regressions')}")
+check(cmds("C_asked_approved") >= {"git push origin main"}, "C phải có push main được người duyệt")
+check(cmds("D_asked_rejected") == {"git push --force origin feat/x"}, f"D sai: {cmds('D_asked_rejected')}")
+check(cmds("G_rejected_not_asked") == {"ls -la"}, f"G sai: {cmds('G_rejected_not_asked')}")
+sg = r["stop_gate"]
+check(sg["runs"] == 1 and sg["max_s"] == 125.0, f"Stop gate phải đo được 125s: {sg}")
+check(sg["blocks"] == ["1/3"] and sg["released_after_max"] == 1, f"Stop gate chặn/nhả sai: {sg}")
+check(len(r["hook_errors"]) == 1 and "command not found" in r["hook_errors"][0]["stderr"], f"lỗi hook: {r['hook_errors']}")
+check("## A. Có thể guard bỏ sót: 3" in md and "## F. Lỗi hook của kit: 1" in md, "báo cáo markdown thiếu mục")
+spec = importlib.util.spec_from_file_location("audit", "scripts/audit-agent.py")
+a = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(a)
+check(a.project_key("C:\\vnstock-trial") == "C--vnstock-trial", "tên thư mục phiên cho đường dẫn Windows")
+check(a.project_key("/home/user") == "-home-user", "tên thư mục phiên cho đường dẫn Linux")
+for f in fails:
+    print("✘", f, file=sys.stderr)
+if fails:
+    print(f"✘ audit: {len(fails)}/{total} test đỏ", file=sys.stderr)
+    sys.exit(1)
+print(f"✔ audit: {total} test xanh")
+PYEOF
