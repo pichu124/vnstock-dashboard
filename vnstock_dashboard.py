@@ -2902,6 +2902,14 @@ function doSort(col, th) {{
 _MARKET_OVERVIEW_PATH = Path("data_warehouse/_meta/market_overview.json")
 
 
+def _overview_file_is_current(age_hours: float, overview_date, eod_date) -> bool:
+    """File pre-computed còn dùng được khi ngày data của nó ≥ ngày EOD của kho
+    (cuối tuần file 40h+ vẫn đúng). Thiếu một trong hai ngày ⇒ luật cũ < 24h."""
+    if overview_date and eod_date:
+        return str(overview_date) >= str(eod_date)
+    return age_hours < 24
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def _load_all_market_data() -> tuple:
     """
@@ -2914,9 +2922,13 @@ def _load_all_market_data() -> tuple:
     # Tầng 1: file pre-computed bởi runner (instant load)
     if _MARKET_OVERVIEW_PATH.exists():
         try:
+            from vnstock_brief import _warehouse_eod_date
             age_hours = (datetime.now().timestamp() - _MARKET_OVERVIEW_PATH.stat().st_mtime) / 3600
-            if age_hours < 24:
-                data = json.loads(_MARKET_OVERVIEW_PATH.read_text(encoding="utf-8"))
+            data = json.loads(_MARKET_OVERVIEW_PATH.read_text(encoding="utf-8"))
+            # data_date đọc thẳng: _market_overview_data_date thiếu trường này thì
+            # trả chính ngày EOD ⇒ phép so luôn đúng, file cũ mấy cũng được dùng.
+            if _overview_file_is_current(age_hours, data.get("data_date"),
+                                         _warehouse_eod_date()):
                 sector_df = pd.DataFrame(data["sectors"])
                 breadth = data["breadth"]
                 tick_df = pd.DataFrame(data["tickers"])

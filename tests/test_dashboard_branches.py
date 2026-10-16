@@ -877,3 +877,28 @@ def test_live_quote_new_bar_volume_never_negative():
     out = _merge_live_fn()(_bars_15m(), {"time": "2026-10-16 10:16", "price": 25.4,
                                          "volume": 50_000}, "15m")
     assert out.iloc[-1]["volume"] == 0
+
+
+# ── Market overview: dùng file pre-computed khi nó theo kịp kho, không theo tuổi file ─
+
+@pytest.fixture()
+def overview_is_current():
+    return load_source_fns("vnstock_dashboard.py",
+                           "_overview_file_is_current")["_overview_file_is_current"]
+
+
+def test_overview_file_covering_warehouse_eod_is_used_even_when_40h_old(overview_is_current):
+    """Tối T7 → T2: file ghi chiều T6 đã 40h+ nhưng kho vẫn chỉ tới T6 ⇒ dùng file,
+    không tính lại 10–30s + ~40 call NN cho kết quả y hệt."""
+    assert overview_is_current(40.0, "2026-10-16", "2026-10-16") is True
+    assert overview_is_current(40.0, "2026-10-17", "2026-10-16") is True
+
+
+def test_overview_file_trailing_warehouse_eod_is_recomputed(overview_is_current):
+    assert overview_is_current(2.0, "2026-10-15", "2026-10-16") is False
+
+
+def test_overview_without_known_dates_keeps_the_24h_rule(overview_is_current):
+    assert overview_is_current(23.0, None, "2026-10-16") is True
+    assert overview_is_current(25.0, "2026-10-16", None) is False
+    assert overview_is_current(25.0, None, None) is False
