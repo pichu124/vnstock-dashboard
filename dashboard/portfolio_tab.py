@@ -52,12 +52,16 @@ def _portfolio_path(warehouse: Path) -> Path:
 
 
 def _load_portfolio(warehouse: Path) -> list[dict]:
-    """Thiếu file ⇒ ``[]`` (hợp lệ). File hỏng/không đọc được ⇒ raise
+    """Thiếu file ⇒ ``[]`` (hợp lệ). File hỏng/sai dạng/không đọc được ⇒ raise
     (OSError/ValueError) — caller phải chặn ghi, không coi là danh mục rỗng."""
     path = _portfolio_path(warehouse)
     if not path.exists():
         return []
-    return json.loads(path.read_text(encoding="utf-8"))
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not (isinstance(data, list) and all(isinstance(p, dict) for p in data)):
+        raise ValueError("sai định dạng: cần list các vị thế dạng object "
+                         "{ticker, quantity, buy_price, buy_date}")
+    return data
 
 
 def _save_portfolio(warehouse: Path, positions: list[dict]) -> None:

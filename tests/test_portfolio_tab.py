@@ -235,3 +235,36 @@ def test_delete_second_of_two_identical_labels_keeps_first(tmp_path: Path, monke
     assert _load_portfolio(tmp_path) == [lot1, lot3]
     assert shown == ["—", "VCB (100 cp @ 90,000)", "VCB (100 cp @ 90,000)",
                      "FPT (50 cp @ 120,000)"]
+
+
+# ── JSON hợp lệ nhưng SAI DẠNG: cũng là file hỏng, không phải danh mục ──────
+
+_WRONG_SHAPE = ["null",                                          # gốc không phải list
+                '[{"ticker": "VCB", "quantity": 100}, 1]',       # phần tử không phải dict
+                '{"ticker": "VCB", "quantity": 100}']            # dict thay vì list
+
+
+@pytest.mark.parametrize("payload", _WRONG_SHAPE)
+def test_load_portfolio_rejects_wrong_shape(tmp_path: Path, payload: str):
+    from dashboard.portfolio_tab import _load_portfolio, _portfolio_path
+    path = _portfolio_path(tmp_path)
+    path.parent.mkdir(parents=True)
+    path.write_text(payload, encoding="utf-8")
+    with pytest.raises(ValueError, match="sai định dạng"):
+        _load_portfolio(tmp_path)
+
+
+@pytest.mark.parametrize("payload", _WRONG_SHAPE)
+def test_wrong_shape_portfolio_blocks_writes(tmp_path: Path, monkeypatch, payload: str):
+    """Trước đây lọt qua `_load_portfolio` rồi chết TypeError giữa render
+    (`None + [...]`, `1["ticker"]`) thay vì báo file hỏng."""
+    from dashboard.portfolio_tab import _portfolio_path
+    path = _portfolio_path(tmp_path)
+    path.parent.mkdir(parents=True)
+    path.write_text(payload, encoding="utf-8")
+    before = path.read_bytes()
+
+    st = _render_clicking_add(monkeypatch, tmp_path)
+
+    assert path.read_bytes() == before
+    assert str(path) in st.error.call_args.args[0]

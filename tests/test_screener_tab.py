@@ -12,6 +12,8 @@ import json
 import sys
 from datetime import date
 
+import pytest
+
 
 def test_module_imports_without_streamlit():
     """Module must be importable with just stdlib — Streamlit + dashboard
@@ -73,6 +75,19 @@ def test_corrupt_watchlist_blocks_add_and_delete(tmp_path):
         assert str(path) in st.error.call_args.args[0]
         assert tickers == [] and not st.rerun.called
 
+
+
+@pytest.mark.parametrize("payload", [b"null", b'["FPT", "HPG"]', b'{"tickers": "FPT"}'])
+def test_wrong_shape_watchlist_blocks_add_and_delete(tmp_path, payload):
+    """JSON hợp lệ nhưng sai dạng: từng sập tab (AttributeError lọt qua
+    `except (OSError, ValueError)`) hoặc ghép chuỗi "FPT" với mã mới."""
+    path = tmp_path / "watchlist.json"
+    path.write_bytes(payload)
+    for click in ("wl_add_btn", "wl_del_btn"):
+        st, (tickers, _) = _watchlist_sidebar(path, click)
+        assert path.read_bytes() == payload
+        assert str(path) in st.error.call_args.args[0]
+        assert tickers == [] and not st.rerun.called
 
 def test_missing_watchlist_is_empty_and_add_writes(tmp_path):
     path = tmp_path / "watchlist.json"

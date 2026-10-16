@@ -20,13 +20,17 @@ from vnstock_parquet_io import write_json_atomic
 
 
 def load_watchlist(path: "Path | str") -> list:
-    """Đọc danh sách mã. Thiếu file ⇒ `[]` (hợp lệ). File hỏng/không đọc được ⇒
-    raise (OSError/ValueError) — caller phải khoá ghi, không coi là rỗng."""
+    """Đọc danh sách mã. Thiếu file ⇒ `[]` (hợp lệ). File hỏng/sai dạng/không đọc
+    được ⇒ raise (OSError/ValueError) — caller phải khoá ghi, không coi là rỗng."""
     path = Path(path)
     if not path.exists():
         return []
     with open(path, encoding="utf-8") as f:
-        return json.load(f).get("tickers", [])
+        data = json.load(f)
+    tickers = data.get("tickers", []) if isinstance(data, dict) else None
+    if not (isinstance(tickers, list) and all(isinstance(t, str) for t in tickers)):
+        raise ValueError('sai định dạng: cần object {"tickers": ["VCB", ...]}')
+    return tickers
 
 
 def save_watchlist(path: "Path | str", tickers) -> None:
