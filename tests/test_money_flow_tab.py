@@ -78,6 +78,7 @@ def _stub_mf_dashboard(prices_dir):
     m.SECTOR_ICONS, m.SECTOR_ORDER, m.WSS_AVAILABLE = SECTOR_ICONS, SECTOR_ORDER, True
     m._NN_CACHE_PATH = m._ORDER_CACHE_PATH = prices_dir / "none.json"
     m._NN_DIAG = {}
+    m._NN_WINDOW_SESSIONS = {0: 1, 7: 5, 30: 20, 90: 60}
     m._aggregate_nn_by_window = lambda raw, days: {}
     m._aggregate_nn_buy_sell_by_window = lambda raw, days: {}
     m._batch_load_live_quotes = lambda tickers: {}

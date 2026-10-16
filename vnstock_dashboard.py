@@ -389,31 +389,26 @@ def _aggregate_nn_buy_sell_by_window(nn_df: pd.DataFrame, days: int) -> dict:
     return out
 
 
+_GTGD_SESSIONS = 20   # cửa sổ dài nhất tab Dòng Tiền (20D)
+
+
 @st.cache_data(ttl=600, show_spinner=False)
-def _compute_gtgd_by_window(window_days: int) -> dict:
-    """
-    Compute total GTGD (trading value, tỷ VND) per ticker over the given
-    number of *trading* days using warehouse parquet (close × volume).
-
-    window_days=0 → most recent session only (1D snapshot).
-    window_days>0 → sum across last N trading days (e.g. 5 or 20).
-
-    Cache 10 min; invalidated by @st.cache_data signature + window arg.
-    """
+def _load_gtgd_daily() -> dict:
+    """GTGD (VND, close × volume) từng phiên của `_GTGD_SESSIONS` phiên gần nhất
+    từ warehouse parquet: {ticker: ndarray phiên cũ → mới}. Mỗi mã đọc MỘT lần
+    cho mọi cửa sổ — cache theo `window_days` từng quét toàn kho mỗi lần đổi."""
     import pyarrow.parquet as pq
     prices_dir = Path("data_warehouse") / "prices"
     if not prices_dir.exists():
         return {}
-    # Limit how many recent years we read to keep cost bounded.
-    year_limit = 2 if window_days <= 30 else 3
-    result: dict[str, float] = {}
+    result: dict = {}
     for td in prices_dir.glob("ticker=*"):
         ticker = td.name.split("=", 1)[1]
         if not ticker.isalpha() or len(ticker) > 5:
             continue
         try:
             frames = []
-            for yd in sorted(td.glob("year=*"))[-year_limit:]:
+            for yd in sorted(td.glob("year=*"))[-2:]:
                 for pf in yd.glob("*.parquet"):
                     frames.append(pq.read_table(
                         str(pf), columns=["time", "close", "volume"]
@@ -426,17 +421,27 @@ def _compute_gtgd_by_window(window_days: int) -> dict:
             # Deduplicate by date — keep last entry per day to avoid
             # double-counting from overlapping parquet files.
             df = df.drop_duplicates(subset=["_date"], keep="last")
-            df = df.sort_values("_date")
-            n = max(1, window_days) if window_days > 0 else 1
-            df = df.tail(n)
+            df = df.sort_values("_date").tail(_GTGD_SESSIONS)
             close = pd.to_numeric(df["close"], errors="coerce").fillna(0).astype(float)
             close = close.where(close > 500, close * 1000)
             vol = pd.to_numeric(df["volume"], errors="coerce").fillna(0).astype(float)
-            gtgd_vnd = float((close * vol).sum())
-            if gtgd_vnd > 0:
-                result[ticker] = round(gtgd_vnd / 1e9, 1)
+            result[ticker] = (close * vol).to_numpy()
         except Exception:
             continue
+    return result
+
+
+def _compute_gtgd_by_window(window_days: int) -> dict:
+    """Tổng GTGD (tỷ VND) mỗi mã trong `window_days` PHIÊN gần nhất
+    (0 hoặc 1 = phiên cuối), cắt từ `_load_gtgd_daily`."""
+    n = max(1, window_days)
+    if n > _GTGD_SESSIONS:
+        raise ValueError(f"GTGD chỉ giữ {_GTGD_SESSIONS} phiên, xin {n}")
+    result: dict[str, float] = {}
+    for ticker, daily in _load_gtgd_daily().items():
+        gtgd_vnd = float(daily[-n:].sum())
+        if gtgd_vnd > 0:
+            result[ticker] = round(gtgd_vnd / 1e9, 1)
     return result
 
 
@@ -828,6 +833,7 @@ def load_industry_map() -> dict:
         return {}
 
 
+@st.cache_data(ttl=600)
 def get_all_tickers() -> list:
     if not PRICES_DIR.exists():
         return []
@@ -964,7 +970,10 @@ def load_alerts() -> list[dict]:
     (OSError/ValueError) — caller phải chặn ghi, không coi là chưa có alert."""
     if not ALERTS_PATH.exists():
         return []
-    return json.loads(ALERTS_PATH.read_text(encoding="utf-8"))
+    alerts = json.loads(ALERTS_PATH.read_text(encoding="utf-8"))
+    if not isinstance(alerts, list) or not all(isinstance(a, dict) for a in alerts):
+        raise ValueError(f"không phải danh sách alert (list of dict): {type(alerts).__name__}")
+    return alerts
 
 
 def save_alerts(alerts: list[dict]):
@@ -1424,15 +1433,21 @@ def render_order_book(bids: list, asks: list, scale: float = 1.0,
 # tĩnh (dòng 46) LẪN ĐỘNG trong thân hàm (dòng ~406) qua tên này.
 
 
-def _merge_live_quote(df: pd.DataFrame, quote: dict) -> pd.DataFrame:
-    """Merge live quote vào bar cuối cùng hoặc append bar mới."""
+_INTERVAL_FREQ = {"1m": "1min", "5m": "5min", "15m": "15min", "30m": "30min", "1H": "1h"}
+
+
+def _merge_live_quote(df: pd.DataFrame, quote: dict, interval: str = "1m") -> pd.DataFrame:
+    """Merge live quote vào bar cuối cùng hoặc append bar mới.
+
+    Tick làm tròn xuống theo lưới của `interval`. `quote["volume"]` là TÍCH LUỸ
+    cả phiên ⇒ bar mới nhận phần chênh so với các bar hôm nay đã có."""
     if df.empty or not quote or not quote.get("price"):
         return df
     try:
         tick_time = pd.to_datetime(quote["time"])
         if hasattr(tick_time, "tz") and tick_time.tz is not None:
             tick_time = tick_time.tz_convert("Asia/Ho_Chi_Minh").tz_localize(None)
-        bar_time = tick_time.floor("1min")
+        bar_time = tick_time.floor(_INTERVAL_FREQ.get(interval, "1min"))
         df = df.copy()
         last_time = pd.to_datetime(df.iloc[-1]["time"])
         last_close = float(df.iloc[-1]["close"])
@@ -1443,11 +1458,13 @@ def _merge_live_quote(df: pd.DataFrame, quote: dict) -> pd.DataFrame:
             df.at[idx, "low"] = min(float(df.at[idx, "low"]), price)
             df.at[idx, "close"] = price
         else:
+            today = pd.to_datetime(df["time"]).dt.date == tick_time.date()
             new_row = {
                 "time": bar_time,
                 "open": price, "high": price,
                 "low": price, "close": price,
-                "volume": float(quote.get("volume", 0)),
+                "volume": max(0.0, float(quote.get("volume", 0))
+                              - float(df.loc[today, "volume"].sum())),
             }
             df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
         return df
@@ -2894,6 +2911,14 @@ function doSort(col, th) {{
 _MARKET_OVERVIEW_PATH = Path("data_warehouse/_meta/market_overview.json")
 
 
+def _overview_file_is_current(age_hours: float, overview_date, eod_date) -> bool:
+    """File pre-computed còn dùng được khi ngày data của nó ≥ ngày EOD của kho
+    (cuối tuần file 40h+ vẫn đúng). Thiếu một trong hai ngày ⇒ luật cũ < 24h."""
+    if overview_date and eod_date:
+        return str(overview_date) >= str(eod_date)
+    return age_hours < 24
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def _load_all_market_data() -> tuple:
     """
@@ -2906,9 +2931,13 @@ def _load_all_market_data() -> tuple:
     # Tầng 1: file pre-computed bởi runner (instant load)
     if _MARKET_OVERVIEW_PATH.exists():
         try:
+            from vnstock_brief import _warehouse_eod_date
             age_hours = (datetime.now().timestamp() - _MARKET_OVERVIEW_PATH.stat().st_mtime) / 3600
-            if age_hours < 24:
-                data = json.loads(_MARKET_OVERVIEW_PATH.read_text(encoding="utf-8"))
+            data = json.loads(_MARKET_OVERVIEW_PATH.read_text(encoding="utf-8"))
+            # data_date đọc thẳng: _market_overview_data_date thiếu trường này thì
+            # trả chính ngày EOD ⇒ phép so luôn đúng, file cũ mấy cũng được dùng.
+            if _overview_file_is_current(age_hours, data.get("data_date"),
+                                         _warehouse_eod_date()):
                 sector_df = pd.DataFrame(data["sectors"])
                 breadth = data["breadth"]
                 tick_df = pd.DataFrame(data["tickers"])
