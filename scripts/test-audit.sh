@@ -117,8 +117,42 @@ md="$(./scripts/audit-agent.sh --project "$root" --transcripts "$tmp/t" --since 
 ./scripts/audit-agent.sh --project "$root" --transcripts "$tmp/khong-co" >/dev/null 2>&1
 nofile=$?
 
-"$py" - "$out" "$code" "$nofile" "$md" <<'PYEOF'
-import importlib.util, json, sys
+# Cài dạng plugin: chạy script của kit từ thư mục dự án KHÁC (chưa cài kit), và --all quét mọi dự án.
+plain="$tmp/plain proj"
+git init -q -b feat/x "$plain" && git -C "$plain" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -q --allow-empty -m i
+mkdir -p "$plain/.claude"
+printf '\\bdanger-cmd\\b\tlệnh riêng của dự án\n' > "$plain/.claude/audit-watch.txt"
+"$py" - "$tmp/cfg/projects" "$plain" "$tmp/mainrepo" <<'PYEOF'
+import json, os, sys, time
+base, plain, main = sys.argv[1:4]
+NOW = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+PLUG = 'bash "C:/Users/Ten Nguoi/.claude/plugins/cache/agents-team-coding/agent-team/abc123/plugin/run-hook.sh" '
+def write(name, cwd, calls, extra=()):
+    os.makedirs(f"{base}/{name}", exist_ok=True)
+    with open(f"{base}/{name}/s.jsonl", "w", encoding="utf-8") as f:
+        for i, cmd in calls:
+            f.write(json.dumps({"type": "assistant", "cwd": cwd, "timestamp": NOW, "message": {"role": "assistant",
+                    "content": [{"type": "tool_use", "id": i, "name": "Bash", "input": {"command": cmd}}]}}) + "\n")
+            f.write(json.dumps({"type": "user", "permissionDecision": {"decision": "accept", "source": "config", "reasonType": "classifier"},
+                    "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": i, "content": "ok"}]}}) + "\n")
+        for e in extra:
+            f.write(json.dumps(e, ensure_ascii=False) + "\n")
+write("-plain", plain, [("p1", "git push --force origin feat/x"), ("p2", "danger-cmd now")], extra=[
+    {"type": "attachment", "attachment": {"type": "hook_non_blocking_error", "hookName": "PreToolUse:Bash",
+     "command": PLUG + "guard-irreversible", "exitCode": 127, "stderr": "bash: line 1: python3: command not found"}},
+    {"type": "system", "subtype": "stop_hook_summary", "timestamp": NOW,
+     "hookInfos": [{"command": PLUG + "stop-gate", "durationMs": 12},
+                   {"command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop-gate.sh", "durationMs": 4000}], "hookErrors": []}])
+write("-main", main, [("q1", "danger-cmd later"), ("q2", "git reset --hard HEAD~1")])
+PYEOF
+other="$tmp/other.json"
+(cd "$plain" && CLAUDE_CONFIG_DIR="$tmp/cfg" "$root/scripts/audit-agent.sh" --transcripts "$tmp/cfg/projects/-plain" --json > "$other")
+all="$tmp/all.json"
+(cd "$tmp" && CLAUDE_CONFIG_DIR="$tmp/cfg" "$root/scripts/audit-agent.sh" --all --since 1 --json > "$all")
+allmd="$(cd "$tmp" && CLAUDE_CONFIG_DIR="$tmp/cfg" "$root/scripts/audit-agent.sh" --all --since 1)"
+
+"$py" - "$out" "$code" "$nofile" "$md" "$other" "$all" "$plain" "$allmd" <<'PYEOF'
+import importlib.util, json, os, sys
 r = json.load(open(sys.argv[1], encoding="utf-8"))
 code, nofile, md = int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
 fails = []
@@ -164,6 +198,22 @@ check(sg["runs"] == 1 and sg["max_s"] == 125.0, f"Stop gate phải đo được 
 check(sg["blocks"] == ["1/3"] and sg["released_after_max"] == 1, f"Stop gate chặn/nhả sai: {sg}")
 check(len(r["hook_errors"]) == 1 and "command not found" in r["hook_errors"][0]["stderr"], f"lỗi hook: {r['hook_errors']}")
 check("## A. Có thể guard bỏ sót:" in md and "## H." in md and "## F. Lỗi hook của kit: 1" in md, "báo cáo markdown thiếu mục")
+# Chạy từ dự án chưa cài kit (bản plugin): dự án là thư mục hiện tại, guard chạy lại là guard của kit.
+o = json.load(open(sys.argv[5], encoding="utf-8"))
+plain = os.path.realpath(sys.argv[7])
+check(os.path.realpath(o["project"]) == plain, f"chạy từ dự án khác thì báo cáo phải về dự án đó: {o['project']}")
+check(o["replay"], "dự án chưa cài kit: phải chạy lại bằng guard của kit")
+check({i["command"] for i in o["H_ran_unguarded"]} == {"git push --force origin feat/x"}, f"force-push chạy khi chưa có guard phải vào H: {o['H_ran_unguarded']}")
+check({i["command"] for i in o["A_possible_misses"]} == {"danger-cmd now"}, f"mẫu riêng của dự án (.claude/audit-watch.txt) phải áp dụng: {o['A_possible_misses']}")
+check(len(o["hook_errors"]) == 1 and "python3" in o["hook_errors"][0]["stderr"], f"lỗi hook của plugin (run-hook.sh) phải vào F: {o['hook_errors']}")
+check(o["stop_gate"]["runs"] == 1 and o["stop_gate"]["max_s"] == 4.0, f"một lần Stop có cả bản dự án lẫn bản plugin (nhường) chỉ tính một lần chạy, lấy thời gian lâu nhất: {o['stop_gate']}")
+# --all: đọc mọi dự án, mẫu riêng chỉ áp cho dự án khai báo nó.
+al = json.load(open(sys.argv[6], encoding="utf-8"))
+check(al["files"] == 2, f"--all phải đọc file phiên của mọi dự án: {al['files']}")
+A = {i["command"] for i in al["A_possible_misses"]}
+check("danger-cmd now" in A and "danger-cmd later" not in A, f"--all: mẫu riêng của dự án chỉ áp cho dự án đó: {A}")
+check({i["command"] for i in al["H_ran_unguarded"]} == {"git push --force origin feat/x", "git reset --hard HEAD~1"}, f"--all: H phải gồm lệnh của cả hai dự án: {al['H_ran_unguarded']}")
+check("plain proj" in sys.argv[8] and "mainrepo" in sys.argv[8], "--all: mỗi dòng báo cáo phải ghi dự án")
 spec = importlib.util.spec_from_file_location("audit", "scripts/audit-agent.py")
 a = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(a)

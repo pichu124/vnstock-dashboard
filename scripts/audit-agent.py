@@ -10,6 +10,7 @@ Chỉ đọc. Lập báo cáo markdown (hoặc JSON) gồm:
   G. người từ chối mà guard không hỏi, H. lệnh đã chạy lúc guard không hỏi mà bản hiện tại hỏi
      (guard chưa nạp, workspace chưa trust, matcher thiếu tool, hoặc bản cũ)
 Thường gọi qua scripts/audit-agent.sh (để có bash chạy lại guard). Cần Python 3.8+, chỉ thư viện chuẩn.
+Mặc định soát dự án ở thư mục hiện tại; --all soát mọi dự án trên máy (khi kit cài dạng plugin).
 """
 import argparse
 import collections
@@ -26,6 +27,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 SHELL_TOOLS = ("Bash", "PowerShell")
+# Guard của chính bộ kit chứa script này: dùng cho dự án không có bản guard riêng (kit cài dạng plugin).
+KIT_GUARD = Path(__file__).resolve().parent.parent / ".claude" / "hooks" / "guard-irreversible.sh"
 REJECT_PREFIX = "The user doesn't want to proceed"
 
 # Danh sách nghi ngờ RỘNG hơn guard: ý kiến thứ hai để tìm chỗ guard bỏ sót. Khớp thừa chỉ thêm
@@ -303,18 +306,61 @@ def parse_entry(e, s, path, who, cutoff, only_under):
             s.stop_releases += 1
         if at in ("hook_non_blocking_error", "hook_error") or (
                 at.startswith("hook_") and a.get("exitCode") not in (None, 0, 2)):
-            if ".claude/hooks/" in cmd.replace("\\", "/"):
+            if ".claude/hooks/" in cmd.replace("\\", "/") or "/plugin/run-hook.sh" in cmd.replace("\\", "/"):
                 s.hook_errors.append({"hook": a.get("hookName") or cmd, "stderr": (a.get("stderr") or "").strip(),
                                       "exit": a.get("exitCode"), "ts": e.get("timestamp") or "", "file": str(path)})
     elif t == "system" and e.get("subtype") == "stop_hook_summary":
-        for h in e.get("hookInfos") or []:
-            if "stop-gate" in (h.get("command") or "") and isinstance(h.get("durationMs"), (int, float)):
-                s.stop_runs.append(h["durationMs"])
+        # Dự án tự cài kit mà máy có plugin: một lần Stop có cả bản dự án lẫn bản plugin (nhường, vài ms). Tính một lần.
+        runs = [h["durationMs"] for h in e.get("hookInfos") or []
+                if "stop-gate" in (h.get("command") or "") and isinstance(h.get("durationMs"), (int, float))]
+        if runs:
+            s.stop_runs.append(max(runs))
         # Mỗi lần chặn có cả user isMeta "Stop hook feedback" lẫn hookErrors: chỉ đếm hookErrors.
         for err in e.get("hookErrors") or []:
             if isinstance(err, str):
                 for m in re.finditer(r"check\.sh đang đỏ.*?lần chặn (\d+)/(\d+)", err, re.DOTALL):
                     s.stop_blocks.append(f"{m.group(1)}/{m.group(2)}")
+
+
+def repo_root(cwd):
+    """Thư mục cha gần nhất có .git (repo hoặc worktree); None nếu cwd không có trên máy này."""
+    if not cwd:
+        return None
+    try:
+        p = Path(cwd)
+        for d in (p, *p.parents):
+            if (d / ".git").exists():
+                return d
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+class Context:
+    """Guard và mẫu nghi ngờ áp cho một lệnh: của repo chứa cwd nếu repo đó cài kit, không thì của dự án mặc định."""
+
+    def __init__(self, default_root):
+        self.default_root = default_root
+        self.cache = {}
+        self.by_cwd = {}
+
+    def kit_root(self, cwd):
+        r = repo_root(cwd)
+        if r is not None and ((r / ".claude" / "hooks" / "guard-irreversible.sh").is_file()
+                              or (r / ".claude" / "audit-watch.txt").is_file()):
+            return r
+        return self.default_root
+
+    def of(self, cwd):
+        if cwd in self.by_cwd:
+            return self.by_cwd[cwd]
+        r = self.kit_root(cwd)
+        if r not in self.cache:
+            g = r / ".claude" / "hooks" / "guard-irreversible.sh" if r is not None else None
+            self.cache[r] = ((g if g is not None and g.is_file() else KIT_GUARD).as_posix(),
+                             SUSPICIOUS + (load_watch(r) if r is not None else []))
+        self.by_cwd[cwd] = self.cache[r]
+        return self.cache[r]
 
 
 def find_bash():
@@ -360,6 +406,7 @@ def short(cmd, n=160):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--project", default=".", help="thư mục dự án (mặc định: thư mục hiện tại)")
+    ap.add_argument("--all", action="store_true", help="soát mọi dự án trong ~/.claude/projects (kit cài dạng plugin)")
     ap.add_argument("--transcripts", action="append", default=[], help="thư mục chứa *.jsonl (lặp được)")
     ap.add_argument("--since", type=float, default=7, help="chỉ đọc phiên sửa trong N ngày gần đây (mặc định 7)")
     ap.add_argument("--no-replay", action="store_true", help="không chạy lại guard hiện tại")
@@ -377,12 +424,14 @@ def main():
     config = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
     cutoff = time.time() - args.since * 86400
     dirs = [(Path(d), None) for d in args.transcripts]
+    base = config / "projects"
+    if args.all and not dirs:
+        dirs = [(d, None) for d in sorted(base.iterdir()) if d.is_dir()] if base.is_dir() else [(base, None)]
     if not dirs:
         keys = {project_key(root)}
         m = re.match(r"^/([a-z])/(.*)$", str(root).replace("\\", "/"))
         if m:  # Git Bash thấy /c/x, Claude Code trên Windows ghi C:\x
             keys.add(project_key(f"{m.group(1).upper()}:\\{m.group(2)}"))
-        base = config / "projects"
         if base.is_dir():
             for d in base.iterdir():
                 if d.name in keys:
@@ -404,25 +453,24 @@ def main():
     s = Session()
     for f, only in sorted(files):
         parse(f, s, cutoff, only)
-    patterns = SUSPICIOUS + load_watch(root)
+    ctx = Context(None if args.all else root)
 
-    guard = (root / ".claude" / "hooks" / "guard-irreversible.sh").as_posix()
     bash = find_bash()
     replayed = {}
-    can_replay = bool(not args.no_replay and Path(guard).is_file() and bash)
+    can_replay = bool(not args.no_replay and KIT_GUARD.is_file() and bash)
     if can_replay:
         uniq = {}
         for cid, c in s.calls.items():
             uniq.setdefault((c["tool"], c["cwd"], c["command"]), c)
         with ThreadPoolExecutor(4) as ex:
-            for key, r in zip(uniq, ex.map(lambda c: replay(guard, bash, c), uniq.values())):
+            for key, r in zip(uniq, ex.map(lambda c: replay(ctx.of(c["cwd"])[0], bash, c), uniq.values())):
                 replayed[key] = r
 
     rows = collections.defaultdict(list)
     for cid, c in s.calls.items():
         hist = s.guard.get(cid)
         now = replayed.get((c["tool"], c["cwd"], c["command"]))
-        sus = suspicious_labels(c["command"], patterns, c["tool"])
+        sus = suspicious_labels(c["command"], ctx.of(c["cwd"])[1], c["tool"])
         item = dict(c, id=cid, suspicious=sus, guard_then=hist, guard_now=now, approved=who_approved(c["permission"]))
         asked_then = bool(hist and hist["asked"])
         asked_now = now["asked"] if now else None
@@ -451,7 +499,7 @@ def main():
                 rows["G"].append(item)
 
     report = {
-        "project": str(root), "transcripts": [str(d) for d in dirs], "files": len(files), "bad_lines": s.bad_lines,
+        "project": "mọi dự án" if args.all else str(root), "all": args.all, "transcripts": [str(d) for d in dirs], "files": len(files), "bad_lines": s.bad_lines,
         "shell_commands": len(s.calls), "replay": bool(can_replay),
         "A_possible_misses": rows["A"], "B_regressions": rows["B"], "C_asked_approved": rows["C"],
         "D_asked_rejected": rows["D"], "G_rejected_not_asked": rows["G"], "H_ran_unguarded": rows["H"],
@@ -492,11 +540,12 @@ def render(r):
     def cmd_lines(items, extra):
         seen = set()
         for it in items:
-            k = (it["tool"], it["command"])
+            k = (it["tool"], it["command"], it["cwd"] if r.get("all") else "")
             if k in seen:
                 continue
             seen.add(k)
-            L.append(f"- `{short(it['command'])}`  ({it['tool']}, {it['who']}, {extra(it)})")
+            where = f" @ {it['cwd']}" if r.get("all") else ""
+            L.append(f"- `{short(it['command'])}`{where}  ({it['tool']}, {it['who']}, {extra(it)})")
 
     sec = [
         ("A", "Có thể guard bỏ sót", "Lệnh nghi nguy hiểm đã chạy mà guard hiện tại không hỏi. Xem từng dòng: nếu là thật thì thêm ca test 'phải hỏi' rồi sửa guard.",

@@ -3,7 +3,7 @@
 Dùng kèm playbook chính (bug-fix, feature, refactor). Playbook này thêm hợp đồng, nhật ký và lối thoát.
 
 ## Điều kiện trước khi chạy
-Từ chối chạy không người trông và đề xuất chạy có người xem nếu thiếu một trong các điều sau: có `./scripts/check.sh` bắt được lỗi thật; có cách kiểm chứng hành vi (verify skill hoặc test end-to-end); điều kiện xong là một **vị từ pass/fail**. "Làm trong 4 giờ" không phải điều kiện xong.
+Từ chối chạy không người trông và đề xuất chạy có người xem nếu thiếu một trong các điều sau: có lệnh check (`./scripts/check.sh` hoặc lệnh ghi trong hợp đồng) bắt được lỗi thật; có cách kiểm chứng hành vi (verify skill hoặc test end-to-end); điều kiện xong là một **vị từ pass/fail**. "Làm trong 4 giờ" không phải điều kiện xong.
 
 ## Hợp đồng (ghi vào đầu decision log)
 - Mục tiêu và điều kiện xong (pass/fail).

@@ -11,10 +11,11 @@ Khoảng thời gian cần soát: `$ARGUMENTS` ngày (trống thì 7).
 Guard, Stop gate và hook là **chốt an toàn** của đội. Skill này được tìm lỗi, viết test và đề xuất bản sửa, nhưng **không được tự đưa bản sửa vào dùng**: đầu ra cuối cùng là một PR nháp do người duyệt.
 
 ## 1. Lập báo cáo
+Chạy bằng Bash tool (trên Windows là Git Bash). Đường dẫn dưới đây đúng cho cả kit cài vào dự án lẫn kit cài dạng plugin:
 ```bash
-./scripts/audit-agent.sh --since <số ngày> --out "${TMPDIR:-/tmp}/agent-audit.md"
+bash "${CLAUDE_SKILL_DIR}/../../../scripts/audit-agent.sh" --all --since <số ngày> --out "${TMPDIR:-/tmp}/agent-audit.md"
 ```
-Đọc báo cáo. Exit 2 nghĩa là không thấy file phiên: thử `--transcripts <thư mục>` (file phiên nằm ở `~/.claude/projects/<tên thư mục dự án, ký tự đặc biệt thành ->/`). Không có gì ở mục A, B, H, F và Stop gate bình thường thì báo "không có sự cố" và dừng.
+`--all` soát mọi dự án trên máy, mỗi dòng ghi thư mục của lệnh; bỏ `--all` thì chỉ soát dự án hiện tại. Biến `${CLAUDE_SKILL_DIR}` không được thay (bản Claude Code cũ) thì dùng `./scripts/audit-agent.sh` của dự án, hoặc `~/.claude/plugins/cache/agents-team-coding/agent-team/*/scripts/audit-agent.sh`. Đọc báo cáo. Exit 2 nghĩa là không thấy file phiên: thử `--transcripts <thư mục>` (file phiên nằm ở `~/.claude/projects/<tên thư mục dự án, ký tự đặc biệt thành ->/`). Không có gì ở mục A, B, H, F và Stop gate bình thường thì báo "không có sự cố" và dừng.
 
 ## 2. Phân loại từng mục, theo thứ tự ưu tiên
 | Mục | Làm gì |
@@ -28,6 +29,7 @@ Guard, Stop gate và hook là **chốt an toàn** của đội. Skill này đư�
 | **C. Hỏi rồi bạn duyệt** | Chỉ là **ứng viên** hỏi thừa. Lặp lại nhiều lần với cùng một kiểu lệnh rõ ràng vô hại thì mới đề xuất nới. |
 
 ## 3. Sửa theo playbook bug-fix, mỗi lỗi một commit
+Sửa ở đâu: lệnh nằm trong dự án tự cài kit (có `.claude/hooks/guard-irreversible.sh` riêng) thì sửa trong dự án đó. Lệnh nằm trong dự án không cài kit (guard đến từ plugin `agent-team`) thì bản sửa thuộc repo kit `pichu124/Agents-Team-coding`: clone vào thư mục tạm và làm các bước dưới trong bản clone.
 1. **Tái hiện trước**: thêm ca vào `scripts/test-hooks.sh` (lệnh nguy hiểm vào danh sách `expect_guard ask`, lỗi hook thành một ca riêng). Chạy `./scripts/test-hooks.sh` và thấy **đỏ**.
 2. Sửa nhỏ nhất trong `.claude/hooks/`. Chạy lại cho tới khi **xanh**, rồi `./scripts/check.sh` xanh.
 3. Ca "phải hỏi" mới làm số ca tăng: nâng `scripts/guard-ask-floor` lên đúng số test in ra.

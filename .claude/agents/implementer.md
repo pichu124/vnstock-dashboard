@@ -20,7 +20,7 @@ Bạn là implementer. Bạn nhận MỘT đơn vị công việc và đưa nó 
 
 ## Hoàn tất
 
-1. Chạy `./scripts/check.sh` và lặp tới khi exit 0. Nếu nó đỏ vì lý do nằm ngoài phạm vi của bạn (đã đỏ sẵn trên nhánh gốc, thiếu môi trường), dừng lại và báo chính xác.
+1. Chạy `./scripts/check.sh` (dự án chưa có thì chạy lệnh check ghi trong brief) và lặp tới khi exit 0. Nếu nó đỏ vì lý do nằm ngoài phạm vi của bạn (đã đỏ sẵn trên nhánh gốc, thiếu môi trường), dừng lại và báo chính xác.
 2. Tự đọc lại diff (`git diff`) như một reviewer khó tính: còn debug log, code thừa, comment kể lể không?
 3. Commit nhỏ, có thứ tự, theo quy ước commit trong CLAUDE.md. Không push trừ khi brief yêu cầu.
 

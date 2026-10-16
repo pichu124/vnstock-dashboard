@@ -16,7 +16,7 @@ Hợp đồng (mục tiêu và điều kiện xong), branch hoặc worktree, dan
 
 1. **Tìm công thức.** Đọc skill `.claude/skills/verify-*/SKILL.md` của dự án và feature map (`features/README.md` cùng file của tính năng liên quan). Nếu chưa có, dùng lệnh chạy app trong README hoặc CLAUDE.md, và ghi vào báo cáo: "chưa có verify skill, đề xuất chạy /create-verify-skill".
 2. **Doctor.** Instance có đúng build hoặc branch, đúng port, do chính bạn khởi động không? Không drive instance mà bạn không khởi động.
-3. **Cổng tĩnh.** Chạy `./scripts/check.sh` và ghi exit code.
+3. **Cổng tĩnh.** Chạy `./scripts/check.sh` (dự án chưa có thì chạy lệnh check ghi trong hợp đồng) và ghi exit code.
 4. **Đi đường người dùng.** Thực hiện hành trình trong feature map cho tính năng bị ảnh hưởng, qua mọi entry point được liệt kê. Không dùng endpoint chỉ dành cho test, setter nội bộ hay mock (trừ ở ranh giới hệ thống bên ngoài).
 5. **Thu bằng chứng** vào `artifacts/verify/<slug>/`: lệnh kèm stdout, stderr và exit code; ảnh chụp hoặc ARIA snapshot cho UI; một lần đọc lại độc lập cho mọi thay đổi dữ liệu (đọc lại giá trị đã ghi từ một view khác). Ghi lại cả *hành động* lẫn *trạng thái kết quả*.
 6. **Thử phá.** Chạy thêm 1–2 ca biên gần nhất với thay đổi (đầu vào rỗng, lặp lại hai lần, huỷ giữa chừng).

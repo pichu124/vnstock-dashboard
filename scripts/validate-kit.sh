@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.." || exit 1
 KIT_AGENTS="architect implementer verifier reviewer gardener"
 KIT_SKILLS="team-lead create-verify-skill correct agent-audit"
 KIT_HOOKS="lib.sh guard-irreversible.sh stop-gate.sh post-edit-format.sh"
-KIT_SCRIPTS="check.sh validate-kit.sh test-hooks.sh install-kit.sh test-install.sh audit-agent.sh test-audit.sh"
+KIT_SCRIPTS="check.sh validate-kit.sh test-hooks.sh install-kit.sh test-install.sh audit-agent.sh test-audit.sh test-plugin.sh"
 
 errors=0
 err() {
@@ -160,6 +160,7 @@ done
 for s in $KIT_SCRIPTS; do
   [ -f "scripts/$s" ] && shell_files+=("scripts/$s")
 done
+[ -f plugin/run-hook.sh ] && shell_files+=(plugin/run-hook.sh)
 for sh in "${shell_files[@]}"; do
   bash -n "$sh" 2>/dev/null || err "$sh: lỗi cú pháp bash"
 done
@@ -169,6 +170,49 @@ fi
 if [ -f scripts/audit-agent.py ] && [ -n "${py:-}" ]; then
   "$py" -c 'import ast, sys; ast.parse(open(sys.argv[1], encoding="utf-8").read())' scripts/audit-agent.py 2>/dev/null \
     || err "scripts/audit-agent.py: lỗi cú pháp Python"
+fi
+# Bản plugin (repo kit): manifest phải khớp agent, hook và settings.json, không thì người cài plugin thiếu đồ.
+if [ -f .claude-plugin/plugin.json ] && [ -f plugin/run-hook.sh ]; then
+  if [ -n "${py:-}" ]; then
+    "$py" - <<'PYEOF' || err ".claude-plugin: manifest của plugin lệch với file của kit (xem lỗi ở trên)"
+import glob, json, re, sys
+errs = []
+plugin = json.load(open(".claude-plugin/plugin.json", encoding="utf-8"))
+market = json.load(open(".claude-plugin/marketplace.json", encoding="utf-8"))
+hooks = json.load(open(plugin["hooks"], encoding="utf-8"))["hooks"]
+settings = json.load(open(".claude/settings.json", encoding="utf-8"))["hooks"]
+agents = sorted("./" + f for f in glob.glob(".claude/agents/*.md"))
+if sorted(plugin.get("agents", [])) != agents:
+    errs.append(f"plugin.json agents phải liệt kê đủ {agents}")
+if [p["name"] for p in market["plugins"]] != [plugin["name"]]:
+    errs.append("marketplace.json phải có đúng một plugin trùng tên với plugin.json")
+if "version" in plugin or any("version" in p for p in market["plugins"]):
+    errs.append("không ghim version: plugin cập nhật theo commit (ghim thì commit mới không tới máy người dùng)")
+if set(hooks) != set(settings):
+    errs.append(f"hooks.json phải có cùng sự kiện với settings.json: {sorted(hooks)} vs {sorted(settings)}")
+for event, groups in hooks.items():
+    if len(groups) != len(settings.get(event, [])):
+        errs.append(f"{event}: hooks.json có {len(groups)} nhóm hook, settings.json có {len(settings.get(event, []))}")
+    for g, sg in zip(groups, settings.get(event, [])):
+        if len(g["hooks"]) != len(sg["hooks"]):
+            errs.append(f"{event}: nhóm matcher {g.get('matcher')!r} có {len(g['hooks'])} hook, settings.json có {len(sg['hooks'])}")
+        if g.get("matcher") != sg.get("matcher"):
+            errs.append(f"{event}: matcher {g.get('matcher')!r} khác settings.json {sg.get('matcher')!r}")
+        for h, sh in zip(g["hooks"], sg["hooks"]):
+            m = re.fullmatch(r'bash "\$\{CLAUDE_PLUGIN_ROOT\}/plugin/run-hook\.sh" ([\w-]+)', h["command"])
+            if not m:
+                errs.append(f"{event}: lệnh hook phải dạng bash \"${{CLAUDE_PLUGIN_ROOT}}/plugin/run-hook.sh\" <tên>: {h['command']}")
+            elif not sh["command"].endswith(f".claude/hooks/{m.group(1)}.sh"):
+                errs.append(f"{event}: plugin gọi {m.group(1)} còn settings.json gọi {sh['command']}")
+            if h.get("timeout") != sh.get("timeout"):
+                errs.append(f"{event}: timeout {h.get('timeout')} khác settings.json {sh.get('timeout')}")
+for e in errs:
+    print("  " + e, file=sys.stderr)
+sys.exit(1 if errs else 0)
+PYEOF
+  else
+    printf '⚠ không có Python để kiểm manifest của plugin\n'
+  fi
 fi
 if [ -f scripts/test-hooks.sh ] && [ ! -f scripts/guard-ask-floor ]; then
   err "scripts/guard-ask-floor: không tồn tại (sàn số ca 'phải hỏi' của guard)"
