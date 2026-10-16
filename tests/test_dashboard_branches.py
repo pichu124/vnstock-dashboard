@@ -641,3 +641,54 @@ def test_unreadable_sidebar_badge_says_so(fname, tmp_path, monkeypatch):
     exec(compile(ast.Module([tr], []), "vnstock_dashboard.py", "exec"),
          {"st": st, "json": json, "Path": Path, "datetime": datetime})
     assert captions == [f"⚠ không đọc được {fname}"]
+
+
+# ── load_fundamental: khối lỗi phải có log và KHÔNG vào cache đĩa 24h ───────
+
+def _fund_env(tmp_path, monkeypatch, overview_ok=True, ratio_ok=True):
+    from datetime import datetime
+
+    def _overview():
+        if not overview_ok:
+            raise RuntimeError("overview sập")
+        return pd.DataFrame({"pe": [12.0], "pb": [1.5]})
+
+    def _ratio(**kw):
+        if not ratio_ok:
+            raise ConnectionError("ratio sập")
+        return pd.DataFrame({"roe": [0.18], "roa": [0.02]})
+
+    monkeypatch.setitem(sys.modules, "vnstock_auth",
+                        types.SimpleNamespace(ensure_api_key=lambda: None))
+    monkeypatch.setitem(sys.modules, "vnstock_data", types.SimpleNamespace(
+        Company=lambda symbol: types.SimpleNamespace(overview=_overview),
+        Finance=lambda symbol, source=None: types.SimpleNamespace(ratio=_ratio),
+    ))
+    fn = load_source_fns(
+        "vnstock_dashboard.py", "load_fundamental",
+        _FUND_CACHE_DIR=tmp_path, _FUND_CACHE_VER=4, datetime=datetime, json=json,
+        pd=pd, log=logging.getLogger("vnstock_dashboard"),
+        _get_warehouse_last_close=lambda t: None,
+    )["load_fundamental"]
+    return fn, tmp_path / "AAA.json"
+
+
+@pytest.mark.parametrize("overview_ok, ratio_ok, block, kept", [
+    (False, True, "overview", ("roe", 18.0)),
+    (True, False, "ratio", ("pe", 12.0)),
+])
+def test_partial_fundamental_is_logged_and_not_disk_cached(
+        tmp_path, monkeypatch, caplog, overview_ok, ratio_ok, block, kept):
+    fn, cache = _fund_env(tmp_path, monkeypatch, overview_ok, ratio_ok)
+    with caplog.at_level(logging.WARNING, logger="vnstock_dashboard"):
+        out = fn("AAA")
+    assert out[kept[0]] == kept[1]          # nửa còn lại vẫn hiện
+    assert not cache.exists(), "kết quả thiếu một nửa bị khoá 24h trong cache đĩa"
+    assert "AAA" in caplog.text and block in caplog.text
+
+
+def test_complete_fundamental_is_disk_cached(tmp_path, monkeypatch):
+    fn, cache = _fund_env(tmp_path, monkeypatch)
+    out = fn("AAA")
+    assert out["pe"] == 12.0 and out["roe"] == 18.0
+    assert json.loads(cache.read_text(encoding="utf-8"))["roe"] == 18.0

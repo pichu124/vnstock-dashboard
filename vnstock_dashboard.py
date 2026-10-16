@@ -1671,6 +1671,7 @@ def load_fundamental(ticker: str) -> dict:
             pass
 
     result = {}
+    failed = []  # khối lỗi ⇒ kết quả thiếu, KHÔNG khoá 24h vào cache đĩa
     try:
         from vnstock_auth import ensure_api_key
         ensure_api_key()
@@ -1769,19 +1770,22 @@ def load_fundamental(ticker: str) -> dict:
                         result["eps"] = None
 
                     result["_overview_cols"] = [str(c) for c in overview.columns[:30]]
-        except Exception:
-            pass
+        except Exception as e:
+            failed.append("overview")
+            log.warning("load_fundamental %s: khối overview lỗi: %s", ticker, e)
 
         # ── 2. Finance Ratios — ROE, ROA, margins, growth, etc. ──────────
         try:
             ratios = None
-            for _kw in [
+            _ratio_errs = []
+            _ratio_kws = [
                 {"period": "year", "lang": "vi"},
                 {"period": "year", "lang": "en"},
                 {"period": "year"},
                 {"period": "annual"},
                 {"period": "quarter", "lang": "vi"},
-            ]:
+            ]
+            for _kw in _ratio_kws:
                 try:
                     if _use_sponsor:
                         ratios = _finance.ratio(**_kw)
@@ -1789,8 +1793,11 @@ def load_fundamental(ticker: str) -> dict:
                         ratios = _stock.finance.ratio(**_kw)
                     if ratios is not None and not ratios.empty:
                         break
-                except Exception:
+                except Exception as e:
+                    _ratio_errs.append(e)
                     continue
+            if len(_ratio_errs) == len(_ratio_kws):  # mọi kiểu gọi đều ném ≠ mã không có data
+                raise _ratio_errs[-1]
 
             if ratios is not None and not ratios.empty:
                 # Flatten MultiIndex columns to strings for reliable matching.
@@ -1929,14 +1936,15 @@ def load_fundamental(ticker: str) -> dict:
                     result["earnings_yield"] = round(100.0 / result["pe"], 2)
 
                 result["_ratio_cols"] = [str(c) for c in ratios.columns[:30]]
-        except Exception:
-            pass
+        except Exception as e:
+            failed.append("ratio")
+            log.warning("load_fundamental %s: khối ratio lỗi: %s", ticker, e)
 
     except Exception as e:
         result["error"] = str(e)[:120]
 
     # Persist to disk (24h cache)
-    if result and "error" not in result:
+    if result and "error" not in result and not failed:
         try:
             result["_cache_ver"] = _FUND_CACHE_VER
             _FUND_CACHE_DIR.mkdir(parents=True, exist_ok=True)
