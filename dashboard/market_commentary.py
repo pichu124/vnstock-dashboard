@@ -142,11 +142,14 @@ def _sector_block(title: str, rows, *, positive_only=False, negative_only=False,
     return out
 
 
-def quant_lines(mkt_data, breadth_data, idx_long=None, tick_data=None) -> list:
+def quant_lines(mkt_data, breadth_data, idx_long=None, tick_data=None, *,
+                quarantined=None, exdiv_map=None, session_hist=None) -> list:
     """Mục 3 — chấm điểm ngành + mã dẫn dắt/yếu nhất.
 
     `idx_long` (90 phiên chỉ số) và `tick_data` (bảng mã) trước đây lấy qua
     closure / `st.session_state`; nay là THAM SỐ nên hàm test được.
+    `quarantined` / `exdiv_map` / `session_hist`: tab đã nạp sẵn thì truyền vào
+    (khỏi đọc đĩa lần hai); None → tự nạp.
     """
     if mkt_data is None or mkt_data.empty or "Giá 1M %" not in mkt_data.columns:
         return []
@@ -172,8 +175,9 @@ def quant_lines(mkt_data, breadth_data, idx_long=None, tick_data=None) -> list:
         except Exception:
             pass
 
-        quar_set = load_quarantine_tickers()
-        exdiv_map = load_recent_exdiv(days_back=7)
+        quar_set = load_quarantine_tickers() if quarantined is None else quarantined
+        if exdiv_map is None:
+            exdiv_map = load_recent_exdiv(days_back=7)
 
         scores = compute_scores(mkt_data, index_returns=idx_ret, exdiv_map=exdiv_map)
         regime = market_regime(scores, breadth_data)
@@ -192,7 +196,7 @@ def quant_lines(mkt_data, breadth_data, idx_long=None, tick_data=None) -> list:
                          f"3M `{idx_ret['3M']:+.1f}%` "
                          f"— alpha dương = outperform")
 
-        lines.extend(_session_timing_lines(session_timing_signal))
+        lines.extend(_session_timing_lines(session_timing_signal, session_hist))
 
         lines.extend(_sector_block("**🎯 Ngành đáng quan tâm (composite cao nhất)**",
                                    ranked["top"], positive_only=True, format_row=format_row))
@@ -214,14 +218,15 @@ def quant_lines(mkt_data, breadth_data, idx_long=None, tick_data=None) -> list:
     return lines
 
 
-def _session_timing_lines(session_timing_signal) -> list:
+def _session_timing_lines(session_timing_signal, hist=None) -> list:
     """Tín hiệu institutional-vs-retail của phiên hôm nay. Không có phiên hôm
     nay (cuối tuần, chưa chạy stats) → im lặng, không phải lỗi."""
     try:
         from datetime import date as _date
 
-        from vnstock_session_stats import load_session_stats_history
-        hist = load_session_stats_history()
+        if hist is None:
+            from vnstock_session_stats import load_session_stats_history
+            hist = load_session_stats_history()
         today = hist.get(_date.today().isoformat())
         if not today:
             return []
@@ -281,10 +286,12 @@ def _ticker_lines(ranked, tick_data, compute_scores, rank,
 
 
 def build_commentary(breadth_data, mkt_data, idx_data,
-                     idx_long=None, tick_data=None) -> str:
-    """Ghép cả ba mục thành markdown cho `st.markdown`."""
+                     idx_long=None, tick_data=None, quant_inputs=None) -> str:
+    """Ghép cả ba mục thành markdown cho `st.markdown`. `quant_inputs` = các
+    kwarg nạp sẵn của `quant_lines` (quarantined/exdiv_map/session_hist)."""
     lines = index_strength_lines(idx_data)
     lines += breadth_lines(breadth_data)
     lines += quant_lines(mkt_data, breadth_data,
-                         idx_long=idx_long, tick_data=tick_data)
+                         idx_long=idx_long, tick_data=tick_data,
+                         **(quant_inputs or {}))
     return "\n".join(lines)

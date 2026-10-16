@@ -462,3 +462,33 @@ def test_custom_group_row_gets_a_sparkline(render_env, monkeypatch):
     assert tbl, "Bảng ngành không có cột sparkline"
     row = [r for r in tbl[0].split("<tr") if "Họ VIN" in r]
     assert row and "<svg" in row[0], "Dòng Họ VIN không có sparkline"
+
+
+def test_quant_filters_load_once_per_render_with_drilldown_open(render_env, monkeypatch):
+    """Drill-down + nhận định từng đọc sổ cách ly / sổ cổ tức MỖI BÊN một lần
+    (2 lượt đọc đĩa mỗi rerun). Nạp một lần trong render rồi truyền xuống."""
+    from collections import Counter
+    calls = Counter()
+    ma = sys.modules["vnstock_market_analyzer"]
+    monkeypatch.setattr(ma, "load_quarantine_tickers",
+                        lambda: calls.update(["quarantine"]) or set(), raising=False)
+    monkeypatch.setattr(ma, "load_recent_exdiv",
+                        lambda days_back=7: calls.update(["exdiv"]) or {}, raising=False)
+    monkeypatch.setattr(sys.modules["vnstock_session_stats"], "load_session_stats_history",
+                        lambda *a, **k: calls.update(["session"]) or {}, raising=False)
+    # Fake analyzer thiếu hàm này + trả dict ⇒ drill-down ném TRƯỚC khi tới loader.
+    monkeypatch.setattr(ma, "_sector_technical_summary", lambda df, presets: "", raising=False)
+    monkeypatch.setattr(ma, "compute_scores", lambda df, **k: pd.DataFrame(
+        {"composite": np.linspace(1, -1, len(df))}, index=df.index))
+    import vnstock_brief as vb   # badge độ tươi đọc session stats khi kho trống — tách ra
+    monkeypatch.setattr(vb, "market_data_freshness", lambda *a, **k: {"stale": False})
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard",
+                        _stub_dashboard(_sector_df(), _index_df()))
+    st = render_env
+    st.session_state["_mkt_ticker_data"] = _ticker_df()
+    st.selectbox = lambda label, options=(), **k: (
+        "Ngân hàng" if "ngành" in str(label).lower() and "Ngân hàng" in list(options)
+        else (list(options)[0] if len(options) else None))
+    _load("dashboard.market_tab").render_market_tab()
+
+    assert calls == {"quarantine": 1, "exdiv": 1, "session": 1}, calls

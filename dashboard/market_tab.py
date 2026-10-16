@@ -156,6 +156,16 @@ def render_market_tab() -> None:
         from vnstock_brief import market_data_freshness
         return market_data_freshness()
 
+    @st.cache_data(ttl=600, show_spinner=False)
+    def _quant_inputs() -> dict:
+        """Sổ cách ly + GDKHQ 7 ngày + lịch sử session — đọc đĩa, dùng chung
+        drill-down và nhận định ⇒ nạp MỘT lần (khoá = kwarg của quant_lines)."""
+        from vnstock_market_analyzer import load_quarantine_tickers, load_recent_exdiv
+        from vnstock_session_stats import load_session_stats_history
+        return {"quarantined": load_quarantine_tickers(),
+                "exdiv_map": load_recent_exdiv(days_back=7),
+                "session_hist": load_session_stats_history()}
+
     col_title_m, col_ref_m = st.columns([6,1])
     with col_title_m:
         st.markdown("### 🌏 Tổng quan thị trường theo ngành")
@@ -593,6 +603,12 @@ def render_market_tab() -> None:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
+        try:
+            _qin = _quant_inputs()
+        except Exception as e:   # drill-down chạy không bộ lọc, nhận định tự nạp lại
+            _qin = {}
+            st.caption(f"⚠️ Bộ lọc quant lỗi: {type(e).__name__}: {e}")
+
         # ── Drill-down + Sort controls ────────────────────────────────────────
         _ctrl1, _ctrl2, _ctrl3 = st.columns([4, 2, 1])
         _nganh_list = ["Tổng quan theo ngành"] + mkt_df["Ngành"].tolist()
@@ -808,8 +824,6 @@ def render_market_tab() -> None:
                             build_preset_sets as _bps,
                             _sector_technical_summary as _sts,
                             compute_index_returns as _cir,
-                            load_quarantine_tickers as _lqt,
-                            load_recent_exdiv as _lred,
                         )
                         # Load screener presets
                         try:
@@ -825,9 +839,9 @@ def render_market_tab() -> None:
                                 _dd_idx_ret = _cir(_idx_long_dd, index_col="VNINDEX")
                         except Exception:
                             pass
-                        # Quarantine + ex-div filters
-                        _quarantined = _lqt()
-                        _exdiv = _lred(days_back=7)
+                        # Quarantine + ex-div filters (nạp sẵn ở `_qin`)
+                        _quarantined = _qin.get("quarantined", set())
+                        _exdiv = _qin.get("exdiv_map", {})
 
                         _sec_scores = _cs(sector_df, presets=_presets,
                                           index_returns=_dd_idx_ret, exdiv_map=_exdiv)
@@ -1114,6 +1128,7 @@ def render_market_tab() -> None:
             idx_df if not idx_df.empty else None,
             idx_long=idx_df,
             tick_data=st.session_state.get("_mkt_ticker_data"),
+            quant_inputs=_qin,
         )
         st.markdown(commentary)
         st.caption("⚠️ Nhận định tự động dựa trên dữ liệu kỹ thuật, không phải khuyến nghị đầu tư.")
